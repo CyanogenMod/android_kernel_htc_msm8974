@@ -20,6 +20,9 @@
 
 BFA_TRC_FILE(HAL, FCPIM);
 
+/*
+ *  BFA ITNIM Related definitions
+ */
 static void bfa_itnim_update_del_itn_stats(struct bfa_itnim_s *itnim);
 static void bfa_ioim_lm_init(struct bfa_s *bfa);
 
@@ -69,18 +72,24 @@ enum bfa_ioim_lm_ua_status {
 	BFA_IOIM_LM_UA_SET = 1,
 };
 
+/*
+ *  itnim state machine event
+ */
 enum bfa_itnim_event {
-	BFA_ITNIM_SM_CREATE = 1,	
-	BFA_ITNIM_SM_ONLINE = 2,	
-	BFA_ITNIM_SM_OFFLINE = 3,	
-	BFA_ITNIM_SM_FWRSP = 4,		
-	BFA_ITNIM_SM_DELETE = 5,	
-	BFA_ITNIM_SM_CLEANUP = 6,	
-	BFA_ITNIM_SM_SLER = 7,		
-	BFA_ITNIM_SM_HWFAIL = 8,	
-	BFA_ITNIM_SM_QRESUME = 9,	
+	BFA_ITNIM_SM_CREATE = 1,	/*  itnim is created */
+	BFA_ITNIM_SM_ONLINE = 2,	/*  itnim is online */
+	BFA_ITNIM_SM_OFFLINE = 3,	/*  itnim is offline */
+	BFA_ITNIM_SM_FWRSP = 4,		/*  firmware response */
+	BFA_ITNIM_SM_DELETE = 5,	/*  deleting an existing itnim */
+	BFA_ITNIM_SM_CLEANUP = 6,	/*  IO cleanup completion */
+	BFA_ITNIM_SM_SLER = 7,		/*  second level error recovery */
+	BFA_ITNIM_SM_HWFAIL = 8,	/*  IOC h/w failure event */
+	BFA_ITNIM_SM_QRESUME = 9,	/*  queue space available */
 };
 
+/*
+ *  BFA IOIM related definitions
+ */
 #define bfa_ioim_move_to_comp_q(__ioim) do {				\
 	list_del(&(__ioim)->qe);					\
 	list_add_tail(&(__ioim)->qe, &(__ioim)->fcpim->ioim_comp_q);	\
@@ -97,29 +106,38 @@ enum bfa_itnim_event {
 		(__fcpim)->profile_start(__ioim);			\
 } while (0)
 
+/*
+ * IO state machine events
+ */
 enum bfa_ioim_event {
-	BFA_IOIM_SM_START	= 1,	
-	BFA_IOIM_SM_COMP_GOOD	= 2,	
-	BFA_IOIM_SM_COMP	= 3,	
-	BFA_IOIM_SM_COMP_UTAG	= 4,	
-	BFA_IOIM_SM_DONE	= 5,	
-	BFA_IOIM_SM_FREE	= 6,	
-	BFA_IOIM_SM_ABORT	= 7,	
-	BFA_IOIM_SM_ABORT_COMP	= 8,	
-	BFA_IOIM_SM_ABORT_DONE	= 9,	
-	BFA_IOIM_SM_QRESUME	= 10,	
-	BFA_IOIM_SM_SGALLOCED	= 11,	
-	BFA_IOIM_SM_SQRETRY	= 12,	
-	BFA_IOIM_SM_HCB		= 13,	
-	BFA_IOIM_SM_CLEANUP	= 14,	
-	BFA_IOIM_SM_TMSTART	= 15,	
-	BFA_IOIM_SM_TMDONE	= 16,	
-	BFA_IOIM_SM_HWFAIL	= 17,	
-	BFA_IOIM_SM_IOTOV	= 18,	
+	BFA_IOIM_SM_START	= 1,	/*  io start request from host */
+	BFA_IOIM_SM_COMP_GOOD	= 2,	/*  io good comp, resource free */
+	BFA_IOIM_SM_COMP	= 3,	/*  io comp, resource is free */
+	BFA_IOIM_SM_COMP_UTAG	= 4,	/*  io comp, resource is free */
+	BFA_IOIM_SM_DONE	= 5,	/*  io comp, resource not free */
+	BFA_IOIM_SM_FREE	= 6,	/*  io resource is freed */
+	BFA_IOIM_SM_ABORT	= 7,	/*  abort request from scsi stack */
+	BFA_IOIM_SM_ABORT_COMP	= 8,	/*  abort from f/w */
+	BFA_IOIM_SM_ABORT_DONE	= 9,	/*  abort completion from f/w */
+	BFA_IOIM_SM_QRESUME	= 10,	/*  CQ space available to queue IO */
+	BFA_IOIM_SM_SGALLOCED	= 11,	/*  SG page allocation successful */
+	BFA_IOIM_SM_SQRETRY	= 12,	/*  sequence recovery retry */
+	BFA_IOIM_SM_HCB		= 13,	/*  bfa callback complete */
+	BFA_IOIM_SM_CLEANUP	= 14,	/*  IO cleanup from itnim */
+	BFA_IOIM_SM_TMSTART	= 15,	/*  IO cleanup from tskim */
+	BFA_IOIM_SM_TMDONE	= 16,	/*  IO cleanup from tskim */
+	BFA_IOIM_SM_HWFAIL	= 17,	/*  IOC h/w failure event */
+	BFA_IOIM_SM_IOTOV	= 18,	/*  ITN offline TOV */
 };
 
 
+/*
+ *  BFA TSKIM related definitions
+ */
 
+/*
+ * task management completion handling
+ */
 #define bfa_tskim_qcomp(__tskim, __cbfn) do {				\
 	bfa_cb_queue((__tskim)->bfa, &(__tskim)->hcb_qe, __cbfn, (__tskim));\
 	bfa_tskim_notify_comp(__tskim);      \
@@ -132,16 +150,19 @@ enum bfa_ioim_event {
 
 
 enum bfa_tskim_event {
-	BFA_TSKIM_SM_START	= 1,	
-	BFA_TSKIM_SM_DONE	= 2,	
-	BFA_TSKIM_SM_QRESUME	= 3,	
-	BFA_TSKIM_SM_HWFAIL	= 5,	
-	BFA_TSKIM_SM_HCB	= 6,	
-	BFA_TSKIM_SM_IOS_DONE	= 7,	
-	BFA_TSKIM_SM_CLEANUP	= 8,	
-	BFA_TSKIM_SM_CLEANUP_DONE = 9,	
+	BFA_TSKIM_SM_START	= 1,	/*  TM command start		*/
+	BFA_TSKIM_SM_DONE	= 2,	/*  TM completion		*/
+	BFA_TSKIM_SM_QRESUME	= 3,	/*  resume after qfull		*/
+	BFA_TSKIM_SM_HWFAIL	= 5,	/*  IOC h/w failure event	*/
+	BFA_TSKIM_SM_HCB	= 6,	/*  BFA callback completion	*/
+	BFA_TSKIM_SM_IOS_DONE	= 7,	/*  IO and sub TM completions	*/
+	BFA_TSKIM_SM_CLEANUP	= 8,	/*  TM cleanup on ITN offline	*/
+	BFA_TSKIM_SM_CLEANUP_DONE = 9,	/*  TM abort completion	*/
 };
 
+/*
+ * forward declaration for BFA ITNIM functions
+ */
 static void     bfa_itnim_iocdisable_cleanup(struct bfa_itnim_s *itnim);
 static bfa_boolean_t bfa_itnim_send_fwcreate(struct bfa_itnim_s *itnim);
 static bfa_boolean_t bfa_itnim_send_fwdelete(struct bfa_itnim_s *itnim);
@@ -157,6 +178,9 @@ static void     bfa_itnim_iotov_start(struct bfa_itnim_s *itnim);
 static void     bfa_itnim_iotov_stop(struct bfa_itnim_s *itnim);
 static void     bfa_itnim_iotov_delete(struct bfa_itnim_s *itnim);
 
+/*
+ * forward declaration of ITNIM state machine
+ */
 static void     bfa_itnim_sm_uninit(struct bfa_itnim_s *itnim,
 					enum bfa_itnim_event event);
 static void     bfa_itnim_sm_created(struct bfa_itnim_s *itnim,
@@ -188,6 +212,9 @@ static void     bfa_itnim_sm_fwdelete_qfull(struct bfa_itnim_s *itnim,
 static void     bfa_itnim_sm_deleting_qfull(struct bfa_itnim_s *itnim,
 					enum bfa_itnim_event event);
 
+/*
+ * forward declaration for BFA IOIM functions
+ */
 static bfa_boolean_t	bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim);
 static bfa_boolean_t	bfa_ioim_sgpg_alloc(struct bfa_ioim_s *ioim);
 static bfa_boolean_t	bfa_ioim_send_abort(struct bfa_ioim_s *ioim);
@@ -199,6 +226,9 @@ static void __bfa_cb_ioim_failed(void *cbarg, bfa_boolean_t complete);
 static void __bfa_cb_ioim_pathtov(void *cbarg, bfa_boolean_t complete);
 static bfa_boolean_t    bfa_ioim_is_abortable(struct bfa_ioim_s *ioim);
 
+/*
+ * forward declaration of BFA IO state machine
+ */
 static void     bfa_ioim_sm_uninit(struct bfa_ioim_s *ioim,
 					enum bfa_ioim_event event);
 static void     bfa_ioim_sm_sgalloc(struct bfa_ioim_s *ioim,
@@ -223,6 +253,9 @@ static void     bfa_ioim_sm_resfree(struct bfa_ioim_s *ioim,
 					enum bfa_ioim_event event);
 static void	bfa_ioim_sm_cmnd_retry(struct bfa_ioim_s *ioim,
 					enum bfa_ioim_event event);
+/*
+ * forward declaration for BFA TSKIM functions
+ */
 static void     __bfa_cb_tskim_done(void *cbarg, bfa_boolean_t complete);
 static void     __bfa_cb_tskim_failed(void *cbarg, bfa_boolean_t complete);
 static bfa_boolean_t bfa_tskim_match_scope(struct bfa_tskim_s *tskim,
@@ -234,6 +267,9 @@ static bfa_boolean_t bfa_tskim_send(struct bfa_tskim_s *tskim);
 static bfa_boolean_t bfa_tskim_send_abort(struct bfa_tskim_s *tskim);
 static void     bfa_tskim_iocdisable_ios(struct bfa_tskim_s *tskim);
 
+/*
+ * forward declaration of BFA TSKIM state machine
+ */
 static void     bfa_tskim_sm_uninit(struct bfa_tskim_s *tskim,
 					enum bfa_tskim_event event);
 static void     bfa_tskim_sm_active(struct bfa_tskim_s *tskim,
@@ -248,15 +284,27 @@ static void     bfa_tskim_sm_cleanup_qfull(struct bfa_tskim_s *tskim,
 					enum bfa_tskim_event event);
 static void     bfa_tskim_sm_hcb(struct bfa_tskim_s *tskim,
 					enum bfa_tskim_event event);
+/*
+ *  BFA FCP Initiator Mode module
+ */
 
+/*
+ * Compute and return memory needed by FCP(im) module.
+ */
 static void
 bfa_fcpim_meminfo(struct bfa_iocfc_cfg_s *cfg, u32 *km_len)
 {
 	bfa_itnim_meminfo(cfg, km_len);
 
+	/*
+	 * IO memory
+	 */
 	*km_len += cfg->fwcfg.num_ioim_reqs *
 	  (sizeof(struct bfa_ioim_s) + sizeof(struct bfa_ioim_sp_s));
 
+	/*
+	 * task management command memory
+	 */
 	if (cfg->fwcfg.num_tskim_reqs < BFA_TSKIM_MIN)
 		cfg->fwcfg.num_tskim_reqs = BFA_TSKIM_MIN;
 	*km_len += cfg->fwcfg.num_tskim_reqs * sizeof(struct bfa_tskim_s);
@@ -296,7 +344,7 @@ bfa_fcpim_iocdisable(struct bfa_fcp_mod_s *fcp)
 	struct bfa_itnim_s *itnim;
 	struct list_head *qe, *qen;
 
-	
+	/* Enqueue unused ioim resources to free_q */
 	list_splice_tail_init(&fcpim->tskim_unused_q, &fcpim->tskim_free_q);
 
 	list_for_each_safe(qe, qen, &fcpim->itnim_q) {
@@ -384,7 +432,7 @@ bfa_fcpim_port_iostats(struct bfa_s *bfa,
 	struct list_head *qe, *qen;
 	struct bfa_itnim_s *itnim;
 
-	
+	/* accumulate IO stats from itnim */
 	memset(stats, 0, sizeof(struct bfa_itnim_iostats_s));
 	list_for_each_safe(qe, qen, &fcpim->itnim_q) {
 		itnim = (struct bfa_itnim_s *) qe;
@@ -425,7 +473,7 @@ bfa_fcpim_profile_on(struct bfa_s *bfa, u32 time)
 	struct bfa_fcpim_s *fcpim = BFA_FCPIM(bfa);
 	struct list_head *qe, *qen;
 
-	
+	/* accumulate IO stats from itnim */
 	list_for_each_safe(qe, qen, &fcpim->itnim_q) {
 		itnim = (struct bfa_itnim_s *) qe;
 		bfa_itnim_clear_stats(itnim);
@@ -456,7 +504,13 @@ bfa_fcpim_qdepth_get(struct bfa_s *bfa)
 	return fcpim->q_depth;
 }
 
+/*
+ *  BFA ITNIM module state machine functions
+ */
 
+/*
+ * Beginning/unallocated state - no events expected.
+ */
 static void
 bfa_itnim_sm_uninit(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -475,6 +529,9 @@ bfa_itnim_sm_uninit(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 	}
 }
 
+/*
+ * Beginning state, only online event expected.
+ */
 static void
 bfa_itnim_sm_created(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -503,6 +560,9 @@ bfa_itnim_sm_created(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 	}
 }
 
+/*
+ *	Waiting for itnim create response from firmware.
+ */
 static void
 bfa_itnim_sm_fwcreate(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -572,6 +632,9 @@ bfa_itnim_sm_fwcreate_qfull(struct bfa_itnim_s *itnim,
 	}
 }
 
+/*
+ * Waiting for itnim create response from firmware, a delete is pending.
+ */
 static void
 bfa_itnim_sm_delete_pending(struct bfa_itnim_s *itnim,
 				enum bfa_itnim_event event)
@@ -597,6 +660,9 @@ bfa_itnim_sm_delete_pending(struct bfa_itnim_s *itnim,
 	}
 }
 
+/*
+ * Online state - normal parking state.
+ */
 static void
 bfa_itnim_sm_online(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -636,6 +702,9 @@ bfa_itnim_sm_online(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 	}
 }
 
+/*
+ * Second level error recovery need.
+ */
 static void
 bfa_itnim_sm_sler(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -664,6 +733,9 @@ bfa_itnim_sm_sler(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 	}
 }
 
+/*
+ * Going offline. Waiting for active IO cleanup.
+ */
 static void
 bfa_itnim_sm_cleanup_offline(struct bfa_itnim_s *itnim,
 				 enum bfa_itnim_event event)
@@ -698,6 +770,9 @@ bfa_itnim_sm_cleanup_offline(struct bfa_itnim_s *itnim,
 	}
 }
 
+/*
+ * Deleting itnim. Waiting for active IO cleanup.
+ */
 static void
 bfa_itnim_sm_cleanup_delete(struct bfa_itnim_s *itnim,
 				enum bfa_itnim_event event)
@@ -723,6 +798,9 @@ bfa_itnim_sm_cleanup_delete(struct bfa_itnim_s *itnim,
 	}
 }
 
+/*
+ * Rport offline. Fimrware itnim is being deleted - awaiting f/w response.
+ */
 static void
 bfa_itnim_sm_fwdelete(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -777,6 +855,9 @@ bfa_itnim_sm_fwdelete_qfull(struct bfa_itnim_s *itnim,
 	}
 }
 
+/*
+ * Offline state.
+ */
 static void
 bfa_itnim_sm_offline(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -839,6 +920,9 @@ bfa_itnim_sm_iocdisable(struct bfa_itnim_s *itnim,
 	}
 }
 
+/*
+ * Itnim is deleted, waiting for firmware response to delete.
+ */
 static void
 bfa_itnim_sm_deleting(struct bfa_itnim_s *itnim, enum bfa_itnim_event event)
 {
@@ -881,6 +965,9 @@ bfa_itnim_sm_deleting_qfull(struct bfa_itnim_s *itnim,
 	}
 }
 
+/*
+ * Initiate cleanup of all IOs on an IOC failure.
+ */
 static void
 bfa_itnim_iocdisable_cleanup(struct bfa_itnim_s *itnim)
 {
@@ -898,6 +985,9 @@ bfa_itnim_iocdisable_cleanup(struct bfa_itnim_s *itnim)
 		bfa_ioim_iocdisable(ioim);
 	}
 
+	/*
+	 * For IO request in pending queue, we pretend an early timeout.
+	 */
 	list_for_each_safe(qe, qen, &itnim->pending_q) {
 		ioim = (struct bfa_ioim_s *) qe;
 		bfa_ioim_tov(ioim);
@@ -909,6 +999,9 @@ bfa_itnim_iocdisable_cleanup(struct bfa_itnim_s *itnim)
 	}
 }
 
+/*
+ * IO cleanup completion
+ */
 static void
 bfa_itnim_cleanp_comp(void *itnim_cbarg)
 {
@@ -918,6 +1011,9 @@ bfa_itnim_cleanp_comp(void *itnim_cbarg)
 	bfa_sm_send_event(itnim, BFA_ITNIM_SM_CLEANUP);
 }
 
+/*
+ * Initiate cleanup of all IOs.
+ */
 static void
 bfa_itnim_cleanup(struct bfa_itnim_s *itnim)
 {
@@ -930,6 +1026,10 @@ bfa_itnim_cleanup(struct bfa_itnim_s *itnim)
 	list_for_each_safe(qe, qen, &itnim->io_q) {
 		ioim = (struct bfa_ioim_s *) qe;
 
+		/*
+		 * Move IO to a cleanup queue from active queue so that a later
+		 * TM will not pickup this IO.
+		 */
 		list_del(&ioim->qe);
 		list_add_tail(&ioim->qe, &itnim->io_cleanup_q);
 
@@ -973,6 +1073,9 @@ __bfa_cb_itnim_sler(void *cbarg, bfa_boolean_t complete)
 		bfa_cb_itnim_sler(itnim->ditn);
 }
 
+/*
+ * Call to resume any I/O requests waiting for room in request queue.
+ */
 static void
 bfa_itnim_qresume(void *cbarg)
 {
@@ -981,6 +1084,9 @@ bfa_itnim_qresume(void *cbarg)
 	bfa_sm_send_event(itnim, BFA_ITNIM_SM_QRESUME);
 }
 
+/*
+ *  bfa_itnim_public
+ */
 
 void
 bfa_itnim_iodone(struct bfa_itnim_s *itnim)
@@ -997,6 +1103,9 @@ bfa_itnim_tskdone(struct bfa_itnim_s *itnim)
 void
 bfa_itnim_meminfo(struct bfa_iocfc_cfg_s *cfg, u32 *km_len)
 {
+	/*
+	 * ITN memory
+	 */
 	*km_len += cfg->fwcfg.num_rports * sizeof(struct bfa_itnim_s);
 }
 
@@ -1049,6 +1158,9 @@ bfa_itnim_send_fwcreate(struct bfa_itnim_s *itnim)
 
 	itnim->msg_no++;
 
+	/*
+	 * check for room in queue to send request now
+	 */
 	m = bfa_reqq_next(itnim->bfa, itnim->reqq);
 	if (!m) {
 		bfa_reqq_wait(itnim->bfa, itnim->reqq, &itnim->reqq_wait);
@@ -1063,6 +1175,9 @@ bfa_itnim_send_fwcreate(struct bfa_itnim_s *itnim)
 	m->msg_no = itnim->msg_no;
 	bfa_stats(itnim, fw_create);
 
+	/*
+	 * queue I/O message to firmware
+	 */
 	bfa_reqq_produce(itnim->bfa, itnim->reqq, m->mh);
 	return BFA_TRUE;
 }
@@ -1072,6 +1187,9 @@ bfa_itnim_send_fwdelete(struct bfa_itnim_s *itnim)
 {
 	struct bfi_itn_delete_req_s *m;
 
+	/*
+	 * check for room in queue to send request now
+	 */
 	m = bfa_reqq_next(itnim->bfa, itnim->reqq);
 	if (!m) {
 		bfa_reqq_wait(itnim->bfa, itnim->reqq, &itnim->reqq_wait);
@@ -1083,10 +1201,16 @@ bfa_itnim_send_fwdelete(struct bfa_itnim_s *itnim)
 	m->fw_handle = itnim->rport->fw_handle;
 	bfa_stats(itnim, fw_delete);
 
+	/*
+	 * queue I/O message to firmware
+	 */
 	bfa_reqq_produce(itnim->bfa, itnim->reqq, m->mh);
 	return BFA_TRUE;
 }
 
+/*
+ * Cleanup all pending failed inflight requests.
+ */
 static void
 bfa_itnim_delayed_comp(struct bfa_itnim_s *itnim, bfa_boolean_t iotov)
 {
@@ -1099,6 +1223,9 @@ bfa_itnim_delayed_comp(struct bfa_itnim_s *itnim, bfa_boolean_t iotov)
 	}
 }
 
+/*
+ * Start all pending IO requests.
+ */
 static void
 bfa_itnim_iotov_online(struct bfa_itnim_s *itnim)
 {
@@ -1106,8 +1233,14 @@ bfa_itnim_iotov_online(struct bfa_itnim_s *itnim)
 
 	bfa_itnim_iotov_stop(itnim);
 
+	/*
+	 * Abort all inflight IO requests in the queue
+	 */
 	bfa_itnim_delayed_comp(itnim, BFA_FALSE);
 
+	/*
+	 * Start all pending IO requests.
+	 */
 	while (!list_empty(&itnim->pending_q)) {
 		bfa_q_deq(&itnim->pending_q, &ioim);
 		list_add_tail(&ioim->qe, &itnim->io_q);
@@ -1115,13 +1248,22 @@ bfa_itnim_iotov_online(struct bfa_itnim_s *itnim)
 	}
 }
 
+/*
+ * Fail all pending IO requests
+ */
 static void
 bfa_itnim_iotov_cleanup(struct bfa_itnim_s *itnim)
 {
 	struct bfa_ioim_s *ioim;
 
+	/*
+	 * Fail all inflight IO requests in the queue
+	 */
 	bfa_itnim_delayed_comp(itnim, BFA_TRUE);
 
+	/*
+	 * Fail any pending IO requests.
+	 */
 	while (!list_empty(&itnim->pending_q)) {
 		bfa_q_deq(&itnim->pending_q, &ioim);
 		list_add_tail(&ioim->qe, &ioim->fcpim->ioim_comp_q);
@@ -1129,6 +1271,9 @@ bfa_itnim_iotov_cleanup(struct bfa_itnim_s *itnim)
 	}
 }
 
+/*
+ * IO TOV timer callback. Fail any pending IO requests.
+ */
 static void
 bfa_itnim_iotov(void *itnim_arg)
 {
@@ -1141,6 +1286,9 @@ bfa_itnim_iotov(void *itnim_arg)
 	bfa_cb_itnim_tov(itnim->ditn);
 }
 
+/*
+ * Start IO TOV timer for failing back pending IO requests in offline state.
+ */
 static void
 bfa_itnim_iotov_start(struct bfa_itnim_s *itnim)
 {
@@ -1153,6 +1301,9 @@ bfa_itnim_iotov_start(struct bfa_itnim_s *itnim)
 	}
 }
 
+/*
+ * Stop IO TOV timer.
+ */
 static void
 bfa_itnim_iotov_stop(struct bfa_itnim_s *itnim)
 {
@@ -1162,6 +1313,9 @@ bfa_itnim_iotov_stop(struct bfa_itnim_s *itnim)
 	}
 }
 
+/*
+ * Stop IO TOV timer.
+ */
 static void
 bfa_itnim_iotov_delete(struct bfa_itnim_s *itnim)
 {
@@ -1197,7 +1351,13 @@ bfa_itnim_update_del_itn_stats(struct bfa_itnim_s *itnim)
 	fcpim->del_itn_stats.del_tm_iocdowns += itnim->stats.tm_iocdowns;
 }
 
+/*
+ * bfa_itnim_public
+ */
 
+/*
+ * Itnim interrupt processing.
+ */
 void
 bfa_itnim_isr(struct bfa_s *bfa, struct bfi_msg_s *m)
 {
@@ -1239,6 +1399,9 @@ bfa_itnim_isr(struct bfa_s *bfa, struct bfi_msg_s *m)
 	}
 }
 
+/*
+ * bfa_itnim_api
+ */
 
 struct bfa_itnim_s *
 bfa_itnim_create(struct bfa_s *bfa, struct bfa_rport_s *rport, void *ditn)
@@ -1281,6 +1444,10 @@ bfa_itnim_offline(struct bfa_itnim_s *itnim)
 	bfa_sm_send_event(itnim, BFA_ITNIM_SM_OFFLINE);
 }
 
+/*
+ * Return true if itnim is considered offline for holding off IO request.
+ * IO is not held if itnim is being deleted.
+ */
 bfa_boolean_t
 bfa_itnim_hold_io(struct bfa_itnim_s *itnim)
 {
@@ -1323,7 +1490,13 @@ bfa_itnim_clear_stats(struct bfa_itnim_s *itnim)
 		itnim->ioprofile.io_latency.min[j] = ~0;
 }
 
+/*
+ *  BFA IO module state machine functions
+ */
 
+/*
+ * IO is not started (unallocated).
+ */
 static void
 bfa_ioim_sm_uninit(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1368,6 +1541,10 @@ bfa_ioim_sm_uninit(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 		break;
 
 	case BFA_IOIM_SM_ABORT:
+		/*
+		 * IO in pending queue can get abort requests. Complete abort
+		 * requests immediately.
+		 */
 		bfa_sm_set_state(ioim, bfa_ioim_sm_hcb);
 		WARN_ON(!bfa_q_is_on_q(&ioim->itnim->pending_q, ioim));
 		bfa_cb_queue(ioim->bfa, &ioim->hcb_qe,
@@ -1379,6 +1556,9 @@ bfa_ioim_sm_uninit(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO is waiting for SG pages.
+ */
 static void
 bfa_ioim_sm_sgalloc(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1423,6 +1603,9 @@ bfa_ioim_sm_sgalloc(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO is active.
+ */
 static void
 bfa_ioim_sm_active(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1485,14 +1668,14 @@ bfa_ioim_sm_active(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 
 	case BFA_IOIM_SM_SQRETRY:
 		if (bfa_ioim_maxretry_reached(ioim)) {
-			
+			/* max retry reached, free IO */
 			bfa_sm_set_state(ioim, bfa_ioim_sm_hcb_free);
 			bfa_ioim_move_to_comp_q(ioim);
 			bfa_cb_queue(ioim->bfa, &ioim->hcb_qe,
 					__bfa_cb_ioim_failed, ioim);
 			break;
 		}
-		
+		/* waiting for IO tag resource free */
 		bfa_sm_set_state(ioim, bfa_ioim_sm_cmnd_retry);
 		break;
 
@@ -1501,12 +1684,15 @@ bfa_ioim_sm_active(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO is retried with new tag.
+ */
 static void
 bfa_ioim_sm_cmnd_retry(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
 	switch (event) {
 	case BFA_IOIM_SM_FREE:
-		
+		/* abts and rrq done. Now retry the IO with new tag */
 		bfa_ioim_update_iotag(ioim);
 		if (!bfa_ioim_send_ioreq(ioim)) {
 			bfa_sm_set_state(ioim, bfa_ioim_sm_qfull);
@@ -1537,6 +1723,9 @@ bfa_ioim_sm_cmnd_retry(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 		break;
 
 	case BFA_IOIM_SM_ABORT:
+		/* in this state IO abort is done.
+		 * Waiting for IO tag resource free.
+		 */
 		bfa_sm_set_state(ioim, bfa_ioim_sm_hcb_free);
 		bfa_cb_queue(ioim->bfa, &ioim->hcb_qe, __bfa_cb_ioim_abort,
 			      ioim);
@@ -1547,6 +1736,9 @@ bfa_ioim_sm_cmnd_retry(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO is being aborted, waiting for completion from firmware.
+ */
 static void
 bfa_ioim_sm_abort(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1606,6 +1798,10 @@ bfa_ioim_sm_abort(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO is being cleaned up (implicit abort), waiting for completion from
+ * firmware.
+ */
 static void
 bfa_ioim_sm_cleanup(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1620,6 +1816,9 @@ bfa_ioim_sm_cleanup(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 		break;
 
 	case BFA_IOIM_SM_ABORT:
+		/*
+		 * IO is already being aborted implicitly
+		 */
 		ioim->io_cbfn = __bfa_cb_ioim_abort;
 		break;
 
@@ -1649,6 +1848,10 @@ bfa_ioim_sm_cleanup(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 		break;
 
 	case BFA_IOIM_SM_CLEANUP:
+		/*
+		 * IO can be in cleanup state already due to TM command.
+		 * 2nd cleanup request comes from ITN offline event.
+		 */
 		break;
 
 	default:
@@ -1656,6 +1859,9 @@ bfa_ioim_sm_cleanup(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO is waiting for room in request CQ
+ */
 static void
 bfa_ioim_sm_qfull(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1697,6 +1903,9 @@ bfa_ioim_sm_qfull(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * Active IO is being aborted, waiting for room in request CQ.
+ */
 static void
 bfa_ioim_sm_abort_qfull(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1745,6 +1954,9 @@ bfa_ioim_sm_abort_qfull(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * Active IO is being cleaned up, waiting for room in request CQ.
+ */
 static void
 bfa_ioim_sm_cleanup_qfull(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1758,6 +1970,9 @@ bfa_ioim_sm_cleanup_qfull(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 		break;
 
 	case BFA_IOIM_SM_ABORT:
+		/*
+		 * IO is already being cleaned up implicitly
+		 */
 		ioim->io_cbfn = __bfa_cb_ioim_abort;
 		break;
 
@@ -1789,6 +2004,9 @@ bfa_ioim_sm_cleanup_qfull(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO bfa callback is pending.
+ */
 static void
 bfa_ioim_sm_hcb(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1810,6 +2028,9 @@ bfa_ioim_sm_hcb(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO bfa callback is pending. IO resource cannot be freed.
+ */
 static void
 bfa_ioim_sm_hcb_free(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1840,6 +2061,9 @@ bfa_ioim_sm_hcb_free(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * IO is completed, waiting resource free from firmware.
+ */
 static void
 bfa_ioim_sm_resfree(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 {
@@ -1864,6 +2088,11 @@ bfa_ioim_sm_resfree(struct bfa_ioim_s *ioim, enum bfa_ioim_event event)
 	}
 }
 
+/*
+ * This is called from bfa_fcpim_start after the bfa_init() with flash read
+ * is complete by driver. now invalidate the stale content of lun mask
+ * like unit attention, rp tag and lp tag.
+ */
 static void
 bfa_ioim_lm_init(struct bfa_s *bfa)
 {
@@ -1910,6 +2139,9 @@ __bfa_cb_ioim_comp(void *cbarg, bfa_boolean_t complete)
 
 	m = (struct bfi_ioim_rsp_s *) &ioim->iosp->comp_rspmsg;
 	if (m->io_status == BFI_IOIM_STS_OK) {
+		/*
+		 * setup sense information, if present
+		 */
 		if ((m->scsi_status == SCSI_STATUS_CHECK_CONDITION) &&
 					m->sns_len) {
 			sns_len = m->sns_len;
@@ -1917,6 +2149,9 @@ __bfa_cb_ioim_comp(void *cbarg, bfa_boolean_t complete)
 						ioim->iotag);
 		}
 
+		/*
+		 * setup residue value correctly for normal completions
+		 */
 		if (m->resid_flags == FCP_RESID_UNDER) {
 			residue = be32_to_cpu(m->residue);
 			bfa_stats(ioim->itnim, iocomp_underrun);
@@ -1954,6 +2189,9 @@ bfa_fcpim_lunmask_rp_update(struct bfa_s *bfa, wwn_t lp_wwn, wwn_t rp_wwn,
 	}
 }
 
+/*
+ * set UA for all active luns in LM DB
+ */
 static void
 bfa_ioim_lm_set_ua(struct bfa_s *bfa)
 {
@@ -2050,7 +2288,7 @@ bfa_fcpim_lunmask_add(struct bfa_s *bfa, u16 vf_id, wwn_t *pwwn,
 	}
 
 	lunm_list = bfa_get_lun_mask_list(bfa);
-	
+	/* if entry exists */
 	for (i = 0; i < MAX_LUN_MASK_CFG; i++) {
 		if (lunm_list[i].state != BFA_IOIM_LUN_MASK_ACTIVE)
 			free_index = i;
@@ -2078,7 +2316,7 @@ bfa_fcpim_lunmask_add(struct bfa_s *bfa, u16 vf_id, wwn_t *pwwn,
 	lunm_list[free_index].lun = lun;
 	lunm_list[free_index].state = BFA_IOIM_LUN_MASK_ACTIVE;
 
-	
+	/* set for all luns in this rp */
 	for (i = 0; i < MAX_LUN_MASK_CFG; i++) {
 		if ((lunm_list[i].lp_wwn == *pwwn) &&
 		    (lunm_list[i].rp_wwn == rpwwn))
@@ -2098,7 +2336,7 @@ bfa_fcpim_lunmask_delete(struct bfa_s *bfa, u16 vf_id, wwn_t *pwwn,
 	struct bfa_fcs_rport_s *rp_fcs;
 	int	i;
 
-	
+	/* in min cfg lunm_list could be NULL but  no commands should run. */
 	if (bfa_get_lun_mask_status(bfa) == BFA_LUNMASK_MINCFG)
 		return BFA_STATUS_FAILED;
 
@@ -2137,7 +2375,7 @@ bfa_fcpim_lunmask_delete(struct bfa_s *bfa, u16 vf_id, wwn_t *pwwn,
 		}
 	}
 
-	
+	/* set for all luns in this rp */
 	for (i = 0; i < MAX_LUN_MASK_CFG; i++) {
 		if ((lunm_list[i].lp_wwn == *pwwn) &&
 		    (lunm_list[i].rp_wwn == rpwwn))
@@ -2200,6 +2438,9 @@ bfa_ioim_sgpg_alloced(void *cbarg)
 	bfa_sm_send_event(ioim, BFA_IOIM_SM_SGALLOCED);
 }
 
+/*
+ * Send I/O request to firmware.
+ */
 static	bfa_boolean_t
 bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 {
@@ -2216,6 +2457,9 @@ bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 	u32 i, sge_id, pgcumsz;
 	enum dma_data_direction dmadir;
 
+	/*
+	 * check for room in queue to send request now
+	 */
 	m = bfa_reqq_next(ioim->bfa, ioim->reqq);
 	if (!m) {
 		bfa_stats(ioim->itnim, qwait);
@@ -2224,6 +2468,9 @@ bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 		return BFA_FALSE;
 	}
 
+	/*
+	 * build i/o request message next
+	 */
 	m->io_tag = cpu_to_be16(ioim->iotag);
 	m->rport_hdl = ioim->itnim->rport->fw_handle;
 	m->io_timeout = 0;
@@ -2235,7 +2482,7 @@ bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 	pgcumsz = 0;
 	scsi_for_each_sg(cmnd, sg, ioim->nsges, i) {
 		if (i == 0) {
-			
+			/* build inline IO SG element */
 			addr = bfa_sgaddr_le(sg_dma_address(sg));
 			sge->sga = *(union bfi_addr_u *) &addr;
 			pgdlen = sg_dma_len(sg);
@@ -2253,7 +2500,7 @@ bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 			sgpge->sg_len = sg_dma_len(sg);
 			pgcumsz += sgpge->sg_len;
 
-			
+			/* set flags */
 			if (i < (ioim->nsges - 1) &&
 					sge_id < (BFI_SGPG_DATA_SGES - 1))
 				sgpge->flags = BFI_SGE_DATA;
@@ -2293,6 +2540,9 @@ bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 	sge->flags = BFI_SGE_PGDLEN;
 	bfa_sge_to_be(sge);
 
+	/*
+	 * set up I/O command parameters
+	 */
 	m->cmnd = cmnd_z0;
 	int_to_scsilun(cmnd->device->lun, &m->cmnd.lun);
 	dmadir = cmnd->sc_data_direction;
@@ -2307,6 +2557,9 @@ bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 	fcp_dl = scsi_bufflen(cmnd);
 	m->cmnd.fcp_dl = cpu_to_be32(fcp_dl);
 
+	/*
+	 * set up I/O message header
+	 */
 	switch (m->cmnd.iodir) {
 	case FCP_IODIR_READ:
 		bfi_h2i_set(m->mh, BFI_MC_IOIM_READ, 0, bfa_fn_lpu(ioim->bfa));
@@ -2328,10 +2581,17 @@ bfa_ioim_send_ioreq(struct bfa_ioim_s *ioim)
 	    (scsi_bufflen(cmnd) & (sizeof(u32) - 1)))
 		bfi_h2i_set(m->mh, BFI_MC_IOIM_IO, 0, bfa_fn_lpu(ioim->bfa));
 
+	/*
+	 * queue I/O message to firmware
+	 */
 	bfa_reqq_produce(ioim->bfa, ioim->reqq, m->mh);
 	return BFA_TRUE;
 }
 
+/*
+ * Setup any additional SG pages needed.Inline SG element is setup
+ * at queuing time.
+ */
 static bfa_boolean_t
 bfa_ioim_sgpg_alloc(struct bfa_ioim_s *ioim)
 {
@@ -2339,6 +2599,9 @@ bfa_ioim_sgpg_alloc(struct bfa_ioim_s *ioim)
 
 	WARN_ON(ioim->nsges <= BFI_SGE_INLINE);
 
+	/*
+	 * allocate SG pages needed
+	 */
 	nsgpgs = BFA_SGPG_NPAGE(ioim->nsges);
 	if (!nsgpgs)
 		return BFA_TRUE;
@@ -2355,16 +2618,25 @@ bfa_ioim_sgpg_alloc(struct bfa_ioim_s *ioim)
 	return BFA_TRUE;
 }
 
+/*
+ * Send I/O abort request to firmware.
+ */
 static	bfa_boolean_t
 bfa_ioim_send_abort(struct bfa_ioim_s *ioim)
 {
 	struct bfi_ioim_abort_req_s *m;
 	enum bfi_ioim_h2i	msgop;
 
+	/*
+	 * check for room in queue to send request now
+	 */
 	m = bfa_reqq_next(ioim->bfa, ioim->reqq);
 	if (!m)
 		return BFA_FALSE;
 
+	/*
+	 * build i/o request message next
+	 */
 	if (ioim->iosp->abort_explicit)
 		msgop = BFI_IOIM_H2I_IOABORT_REQ;
 	else
@@ -2374,10 +2646,16 @@ bfa_ioim_send_abort(struct bfa_ioim_s *ioim)
 	m->io_tag    = cpu_to_be16(ioim->iotag);
 	m->abort_tag = ++ioim->abort_tag;
 
+	/*
+	 * queue I/O message to firmware
+	 */
 	bfa_reqq_produce(ioim->bfa, ioim->reqq, m->mh);
 	return BFA_TRUE;
 }
 
+/*
+ * Call to resume any I/O requests waiting for room in request queue.
+ */
 static void
 bfa_ioim_qresume(void *cbarg)
 {
@@ -2391,6 +2669,10 @@ bfa_ioim_qresume(void *cbarg)
 static void
 bfa_ioim_notify_cleanup(struct bfa_ioim_s *ioim)
 {
+	/*
+	 * Move IO from itnim queue to fcpim global queue since itnim will be
+	 * freed.
+	 */
 	list_del(&ioim->qe);
 	list_add_tail(&ioim->qe, &ioim->fcpim->ioim_comp_q);
 
@@ -2423,6 +2705,13 @@ bfa_ioim_is_abortable(struct bfa_ioim_s *ioim)
 void
 bfa_ioim_delayed_comp(struct bfa_ioim_s *ioim, bfa_boolean_t iotov)
 {
+	/*
+	 * If path tov timer expired, failback with PATHTOV status - these
+	 * IO requests are not normally retried by IO stack.
+	 *
+	 * Otherwise device cameback online and fail it with normal failed
+	 * status so that IO stack retries these failed IO requests.
+	 */
 	if (iotov)
 		ioim->io_cbfn = __bfa_cb_ioim_pathtov;
 	else {
@@ -2431,11 +2720,18 @@ bfa_ioim_delayed_comp(struct bfa_ioim_s *ioim, bfa_boolean_t iotov)
 	}
 	bfa_cb_queue(ioim->bfa, &ioim->hcb_qe, ioim->io_cbfn, ioim);
 
+	/*
+	 * Move IO to fcpim global queue since itnim will be
+	 * freed.
+	 */
 	list_del(&ioim->qe);
 	list_add_tail(&ioim->qe, &ioim->fcpim->ioim_comp_q);
 }
 
 
+/*
+ * Memory allocation and initialization.
+ */
 void
 bfa_ioim_attach(struct bfa_fcpim_s *fcpim)
 {
@@ -2444,6 +2740,9 @@ bfa_ioim_attach(struct bfa_fcpim_s *fcpim)
 	struct bfa_ioim_sp_s	*iosp;
 	u16		i;
 
+	/*
+	 * claim memory first
+	 */
 	ioim = (struct bfa_ioim_s *) bfa_mem_kva_curp(fcp);
 	fcpim->ioim_arr = ioim;
 	bfa_mem_kva_curp(fcp) = (u8 *) (ioim + fcpim->fcp->num_ioim_reqs);
@@ -2452,11 +2751,17 @@ bfa_ioim_attach(struct bfa_fcpim_s *fcpim)
 	fcpim->ioim_sp_arr = iosp;
 	bfa_mem_kva_curp(fcp) = (u8 *) (iosp + fcpim->fcp->num_ioim_reqs);
 
+	/*
+	 * Initialize ioim free queues
+	 */
 	INIT_LIST_HEAD(&fcpim->ioim_resfree_q);
 	INIT_LIST_HEAD(&fcpim->ioim_comp_q);
 
 	for (i = 0; i < fcpim->fcp->num_ioim_reqs;
 	     i++, ioim++, iosp++) {
+		/*
+		 * initialize IOIM
+		 */
 		memset(ioim, 0, sizeof(struct bfa_ioim_s));
 		ioim->iotag   = i;
 		ioim->bfa     = fcpim->bfa;
@@ -2573,6 +2878,9 @@ bfa_ioim_good_comp_isr(struct bfa_s *bfa, struct bfi_msg_s *m)
 	bfa_sm_send_event(ioim, BFA_IOIM_SM_COMP_GOOD);
 }
 
+/*
+ * Called by itnim to clean up IO while going offline.
+ */
 void
 bfa_ioim_cleanup(struct bfa_ioim_s *ioim)
 {
@@ -2593,6 +2901,9 @@ bfa_ioim_cleanup_tm(struct bfa_ioim_s *ioim, struct bfa_tskim_s *tskim)
 	bfa_sm_send_event(ioim, BFA_IOIM_SM_CLEANUP);
 }
 
+/*
+ * IOC failure handling.
+ */
 void
 bfa_ioim_iocdisable(struct bfa_ioim_s *ioim)
 {
@@ -2601,6 +2912,9 @@ bfa_ioim_iocdisable(struct bfa_ioim_s *ioim)
 	bfa_sm_send_event(ioim, BFA_IOIM_SM_HWFAIL);
 }
 
+/*
+ * IO offline TOV popped. Fail the pending IO.
+ */
 void
 bfa_ioim_tov(struct bfa_ioim_s *ioim)
 {
@@ -2609,6 +2923,9 @@ bfa_ioim_tov(struct bfa_ioim_s *ioim)
 }
 
 
+/*
+ * Allocate IOIM resource for initiator mode I/O request.
+ */
 struct bfa_ioim_s *
 bfa_ioim_alloc(struct bfa_s *bfa, struct bfad_ioim_s *dio,
 		struct bfa_itnim_s *itnim, u16 nsges)
@@ -2617,6 +2934,9 @@ bfa_ioim_alloc(struct bfa_s *bfa, struct bfad_ioim_s *dio,
 	struct bfa_ioim_s *ioim;
 	struct bfa_iotag_s *iotag = NULL;
 
+	/*
+	 * alocate IOIM resource
+	 */
 	bfa_q_deq(&fcpim->fcp->iotag_ioim_free_q, &iotag);
 	if (!iotag) {
 		bfa_stats(itnim, no_iotags);
@@ -2669,12 +2989,18 @@ bfa_ioim_start(struct bfa_ioim_s *ioim)
 {
 	bfa_ioim_cb_profile_start(ioim->fcpim, ioim);
 
+	/*
+	 * Obtain the queue over which this request has to be issued
+	 */
 	ioim->reqq = bfa_fcpim_ioredirect_enabled(ioim->bfa) ?
 			BFA_FALSE : bfa_itnim_get_reqq(ioim);
 
 	bfa_sm_send_event(ioim, BFA_IOIM_SM_START);
 }
 
+/*
+ * Driver I/O abort request.
+ */
 bfa_status_t
 bfa_ioim_abort(struct bfa_ioim_s *ioim)
 {
@@ -2690,7 +3016,13 @@ bfa_ioim_abort(struct bfa_ioim_s *ioim)
 	return BFA_STATUS_OK;
 }
 
+/*
+ *  BFA TSKIM state machine functions
+ */
 
+/*
+ * Task management command beginning state.
+ */
 static void
 bfa_tskim_sm_uninit(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 {
@@ -2701,6 +3033,10 @@ bfa_tskim_sm_uninit(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 		bfa_sm_set_state(tskim, bfa_tskim_sm_active);
 		bfa_tskim_gather_ios(tskim);
 
+		/*
+		 * If device is offline, do not send TM on wire. Just cleanup
+		 * any pending IO requests and complete TM request.
+		 */
 		if (!bfa_itnim_is_online(tskim->itnim)) {
 			bfa_sm_set_state(tskim, bfa_tskim_sm_iocleanup);
 			tskim->tsk_status = BFI_TSKIM_STS_OK;
@@ -2721,6 +3057,10 @@ bfa_tskim_sm_uninit(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 	}
 }
 
+/*
+ * TM command is active, awaiting completion from firmware to
+ * cleanup IO requests in TM scope.
+ */
 static void
 bfa_tskim_sm_active(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 {
@@ -2753,6 +3093,10 @@ bfa_tskim_sm_active(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 	}
 }
 
+/*
+ * An active TM is being cleaned up since ITN is offline. Awaiting cleanup
+ * completion event from firmware.
+ */
 static void
 bfa_tskim_sm_cleanup(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 {
@@ -2760,6 +3104,9 @@ bfa_tskim_sm_cleanup(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 
 	switch (event) {
 	case BFA_TSKIM_SM_DONE:
+		/*
+		 * Ignore and wait for ABORT completion from firmware.
+		 */
 		break;
 
 	case BFA_TSKIM_SM_CLEANUP_DONE:
@@ -2790,6 +3137,10 @@ bfa_tskim_sm_iocleanup(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 		break;
 
 	case BFA_TSKIM_SM_CLEANUP:
+		/*
+		 * Ignore, TM command completed on wire.
+		 * Notify TM conmpletion on IO cleanup completion.
+		 */
 		break;
 
 	case BFA_TSKIM_SM_HWFAIL:
@@ -2803,6 +3154,9 @@ bfa_tskim_sm_iocleanup(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 	}
 }
 
+/*
+ * Task management command is waiting for room in request CQ
+ */
 static void
 bfa_tskim_sm_qfull(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 {
@@ -2815,6 +3169,9 @@ bfa_tskim_sm_qfull(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 		break;
 
 	case BFA_TSKIM_SM_CLEANUP:
+		/*
+		 * No need to send TM on wire since ITN is offline.
+		 */
 		bfa_sm_set_state(tskim, bfa_tskim_sm_iocleanup);
 		bfa_reqq_wcancel(&tskim->reqq_wait);
 		bfa_tskim_cleanup_ios(tskim);
@@ -2832,6 +3189,10 @@ bfa_tskim_sm_qfull(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 	}
 }
 
+/*
+ * Task management command is active, awaiting for room in request CQ
+ * to send clean up request.
+ */
 static void
 bfa_tskim_sm_cleanup_qfull(struct bfa_tskim_s *tskim,
 		enum bfa_tskim_event event)
@@ -2841,6 +3202,9 @@ bfa_tskim_sm_cleanup_qfull(struct bfa_tskim_s *tskim,
 	switch (event) {
 	case BFA_TSKIM_SM_DONE:
 		bfa_reqq_wcancel(&tskim->reqq_wait);
+		/*
+		 * Fall through !!!
+		 */
 	case BFA_TSKIM_SM_QRESUME:
 		bfa_sm_set_state(tskim, bfa_tskim_sm_cleanup);
 		bfa_tskim_send_abort(tskim);
@@ -2858,6 +3222,9 @@ bfa_tskim_sm_cleanup_qfull(struct bfa_tskim_s *tskim,
 	}
 }
 
+/*
+ * BFA callback is pending
+ */
 static void
 bfa_tskim_sm_hcb(struct bfa_tskim_s *tskim, enum bfa_tskim_event event)
 {
@@ -2930,6 +3297,9 @@ bfa_tskim_match_scope(struct bfa_tskim_s *tskim, struct scsi_lun lun)
 	return BFA_FALSE;
 }
 
+/*
+ * Gather affected IO requests and task management commands.
+ */
 static void
 bfa_tskim_gather_ios(struct bfa_tskim_s *tskim)
 {
@@ -2941,6 +3311,9 @@ bfa_tskim_gather_ios(struct bfa_tskim_s *tskim)
 
 	INIT_LIST_HEAD(&tskim->io_q);
 
+	/*
+	 * Gather any active IO requests first.
+	 */
 	list_for_each_safe(qe, qen, &itnim->io_q) {
 		ioim = (struct bfa_ioim_s *) qe;
 		cmnd = (struct scsi_cmnd *) ioim->dio;
@@ -2951,6 +3324,9 @@ bfa_tskim_gather_ios(struct bfa_tskim_s *tskim)
 		}
 	}
 
+	/*
+	 * Failback any pending IO requests immediately.
+	 */
 	list_for_each_safe(qe, qen, &itnim->pending_q) {
 		ioim = (struct bfa_ioim_s *) qe;
 		cmnd = (struct scsi_cmnd *) ioim->dio;
@@ -2963,6 +3339,9 @@ bfa_tskim_gather_ios(struct bfa_tskim_s *tskim)
 	}
 }
 
+/*
+ * IO cleanup completion
+ */
 static void
 bfa_tskim_cleanp_comp(void *tskim_cbarg)
 {
@@ -2972,6 +3351,9 @@ bfa_tskim_cleanp_comp(void *tskim_cbarg)
 	bfa_sm_send_event(tskim, BFA_TSKIM_SM_IOS_DONE);
 }
 
+/*
+ * Gather affected IO requests and task management commands.
+ */
 static void
 bfa_tskim_cleanup_ios(struct bfa_tskim_s *tskim)
 {
@@ -2989,16 +3371,25 @@ bfa_tskim_cleanup_ios(struct bfa_tskim_s *tskim)
 	bfa_wc_wait(&tskim->wc);
 }
 
+/*
+ * Send task management request to firmware.
+ */
 static bfa_boolean_t
 bfa_tskim_send(struct bfa_tskim_s *tskim)
 {
 	struct bfa_itnim_s *itnim = tskim->itnim;
 	struct bfi_tskim_req_s *m;
 
+	/*
+	 * check for room in queue to send request now
+	 */
 	m = bfa_reqq_next(tskim->bfa, itnim->reqq);
 	if (!m)
 		return BFA_FALSE;
 
+	/*
+	 * build i/o request message next
+	 */
 	bfi_h2i_set(m->mh, BFI_MC_TSKIM, BFI_TSKIM_H2I_TM_REQ,
 			bfa_fn_lpu(tskim->bfa));
 
@@ -3008,29 +3399,47 @@ bfa_tskim_send(struct bfa_tskim_s *tskim)
 	m->lun = tskim->lun;
 	m->tm_flags = tskim->tm_cmnd;
 
+	/*
+	 * queue I/O message to firmware
+	 */
 	bfa_reqq_produce(tskim->bfa, itnim->reqq, m->mh);
 	return BFA_TRUE;
 }
 
+/*
+ * Send abort request to cleanup an active TM to firmware.
+ */
 static bfa_boolean_t
 bfa_tskim_send_abort(struct bfa_tskim_s *tskim)
 {
 	struct bfa_itnim_s	*itnim = tskim->itnim;
 	struct bfi_tskim_abortreq_s	*m;
 
+	/*
+	 * check for room in queue to send request now
+	 */
 	m = bfa_reqq_next(tskim->bfa, itnim->reqq);
 	if (!m)
 		return BFA_FALSE;
 
+	/*
+	 * build i/o request message next
+	 */
 	bfi_h2i_set(m->mh, BFI_MC_TSKIM, BFI_TSKIM_H2I_ABORT_REQ,
 			bfa_fn_lpu(tskim->bfa));
 
 	m->tsk_tag  = cpu_to_be16(tskim->tsk_tag);
 
+	/*
+	 * queue I/O message to firmware
+	 */
 	bfa_reqq_produce(tskim->bfa, itnim->reqq, m->mh);
 	return BFA_TRUE;
 }
 
+/*
+ * Call to resume task management cmnd waiting for room in request queue.
+ */
 static void
 bfa_tskim_qresume(void *cbarg)
 {
@@ -3040,6 +3449,9 @@ bfa_tskim_qresume(void *cbarg)
 	bfa_sm_send_event(tskim, BFA_TSKIM_SM_QRESUME);
 }
 
+/*
+ * Cleanup IOs associated with a task mangement command on IOC failures.
+ */
 static void
 bfa_tskim_iocdisable_ios(struct bfa_tskim_s *tskim)
 {
@@ -3052,12 +3464,18 @@ bfa_tskim_iocdisable_ios(struct bfa_tskim_s *tskim)
 	}
 }
 
+/*
+ * Notification on completions from related ioim.
+ */
 void
 bfa_tskim_iodone(struct bfa_tskim_s *tskim)
 {
 	bfa_wc_down(&tskim->wc);
 }
 
+/*
+ * Handle IOC h/w failure notification from itnim.
+ */
 void
 bfa_tskim_iocdisable(struct bfa_tskim_s *tskim)
 {
@@ -3066,6 +3484,9 @@ bfa_tskim_iocdisable(struct bfa_tskim_s *tskim)
 	bfa_sm_send_event(tskim, BFA_TSKIM_SM_HWFAIL);
 }
 
+/*
+ * Cleanup TM command and associated IOs as part of ITNIM offline.
+ */
 void
 bfa_tskim_cleanup(struct bfa_tskim_s *tskim)
 {
@@ -3074,6 +3495,9 @@ bfa_tskim_cleanup(struct bfa_tskim_s *tskim)
 	bfa_sm_send_event(tskim, BFA_TSKIM_SM_CLEANUP);
 }
 
+/*
+ * Memory allocation and initialization.
+ */
 void
 bfa_tskim_attach(struct bfa_fcpim_s *fcpim)
 {
@@ -3088,6 +3512,9 @@ bfa_tskim_attach(struct bfa_fcpim_s *fcpim)
 	fcpim->tskim_arr = tskim;
 
 	for (i = 0; i < fcpim->num_tskim_reqs; i++, tskim++) {
+		/*
+		 * initialize TSKIM
+		 */
 		memset(tskim, 0, sizeof(struct bfa_tskim_s));
 		tskim->tsk_tag = i;
 		tskim->bfa	= fcpim->bfa;
@@ -3116,6 +3543,10 @@ bfa_tskim_isr(struct bfa_s *bfa, struct bfi_msg_s *m)
 
 	tskim->tsk_status = rsp->tsk_status;
 
+	/*
+	 * Firmware sends BFI_TSKIM_STS_ABORTED status for abort
+	 * requests. All other statuses are for normal completions.
+	 */
 	if (rsp->tsk_status == BFI_TSKIM_STS_ABORTED) {
 		bfa_stats(tskim->itnim, tm_cleanup_comps);
 		bfa_sm_send_event(tskim, BFA_TSKIM_SM_CLEANUP_DONE);
@@ -3148,6 +3579,17 @@ bfa_tskim_free(struct bfa_tskim_s *tskim)
 	list_add_tail(&tskim->qe, &tskim->fcpim->tskim_free_q);
 }
 
+/*
+ * Start a task management command.
+ *
+ * @param[in]	tskim	BFA task management command instance
+ * @param[in]	itnim	i-t nexus for the task management command
+ * @param[in]	lun	lun, if applicable
+ * @param[in]	tm_cmnd	Task management command code.
+ * @param[in]	t_secs	Timeout in seconds
+ *
+ * @return None.
+ */
 void
 bfa_tskim_start(struct bfa_tskim_s *tskim, struct bfa_itnim_s *itnim,
 			struct scsi_lun lun,
@@ -3177,6 +3619,7 @@ bfa_tskim_res_recfg(struct bfa_s *bfa, u16 num_tskim_fw)
 	}
 }
 
+/* BFA FCP module - parent module for fcpim */
 
 BFA_MODULE(fcp);
 
@@ -3190,6 +3633,10 @@ bfa_fcp_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *minfo,
 	u16	nsegs, idx, per_seg_ios, num_io_req;
 	u32	km_len = 0;
 
+	/*
+	 * ZERO for num_ioim_reqs and num_fwtio_reqs is allowed config value.
+	 * So if the values are non zero, adjust them appropriately.
+	 */
 	if (cfg->fwcfg.num_ioim_reqs &&
 	    cfg->fwcfg.num_ioim_reqs < BFA_IOIM_MIN)
 		cfg->fwcfg.num_ioim_reqs = BFA_IOIM_MIN;
@@ -3216,7 +3663,7 @@ bfa_fcp_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *minfo,
 	km_len += num_io_req * sizeof(struct bfa_iotag_s);
 	km_len += cfg->fwcfg.num_rports * sizeof(struct bfa_itn_s);
 
-	
+	/* dma memory */
 	nsegs = BFI_MEM_DMA_NSEGS(num_io_req, BFI_IOIM_SNSLEN);
 	per_seg_ios = BFI_MEM_NREQS_SEG(BFI_IOIM_SNSLEN);
 
@@ -3230,7 +3677,7 @@ bfa_fcp_meminfo(struct bfa_iocfc_cfg_s *cfg, struct bfa_meminfo_s *minfo,
 				num_io_req * BFI_IOIM_SNSLEN);
 	}
 
-	
+	/* kva memory */
 	bfa_mem_kva_setup(minfo, fcp_kva, km_len);
 }
 
@@ -3247,6 +3694,10 @@ bfa_fcp_attach(struct bfa_s *bfa, void *bfad, struct bfa_iocfc_cfg_s *cfg,
 	fcp->num_itns   = cfg->fwcfg.num_rports;
 	fcp->bfa = bfa;
 
+	/*
+	 * Setup the pool of snsbase addr's, that is passed to fw as
+	 * part of bfi_iocfc_cfg_s.
+	 */
 	num_io_req = (cfg->fwcfg.num_ioim_reqs + cfg->fwcfg.num_fwtio_reqs);
 	nsegs = BFI_MEM_DMA_NSEGS(num_io_req, BFI_IOIM_SNSLEN);
 
@@ -3281,6 +3732,10 @@ bfa_fcp_start(struct bfa_s *bfa)
 {
 	struct bfa_fcp_mod_s *fcp = BFA_FCP_MOD(bfa);
 
+	/*
+	 * bfa_init() with flash read is complete. now invalidate the stale
+	 * content of lun mask like unit attention, rp tag and lp tag.
+	 */
 	bfa_ioim_lm_init(fcp->bfa);
 }
 
@@ -3294,7 +3749,7 @@ bfa_fcp_iocdisable(struct bfa_s *bfa)
 {
 	struct bfa_fcp_mod_s *fcp = BFA_FCP_MOD(bfa);
 
-	
+	/* Enqueue unused ioim resources to free_q */
 	list_splice_tail_init(&fcp->iotag_unused_q, &fcp->iotag_ioim_free_q);
 
 	bfa_fcpim_iocdisable(fcp);
@@ -3324,6 +3779,9 @@ bfa_itn_create(struct bfa_s *bfa, struct bfa_rport_s *rport,
 	itn->isr = isr;
 }
 
+/*
+ * Itn interrupt processing.
+ */
 void
 bfa_itn_isr(struct bfa_s *bfa, struct bfi_msg_s *m)
 {

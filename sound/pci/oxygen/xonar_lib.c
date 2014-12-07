@@ -60,7 +60,7 @@ static void xonar_ext_power_gpio_changed(struct oxygen *chip)
 		} else {
 			snd_printk(KERN_CRIT
 				   "Hey! Don't unplug the power cable!\n");
-			
+			/* TODO: stop PCMs */
 		}
 	}
 }

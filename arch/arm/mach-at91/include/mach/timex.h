@@ -34,4 +34,4 @@
 
 #endif
 
-#endif 
+#endif /* __ASM_ARCH_TIMEX_H */

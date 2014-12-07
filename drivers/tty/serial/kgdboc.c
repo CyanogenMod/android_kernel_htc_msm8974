@@ -25,6 +25,7 @@
 
 static struct kgdb_io		kgdboc_io_ops;
 
+/* -1 = init not run yet, 0 = unconfigured, 1 = configured. */
 static int configured		= -1;
 
 static char config[MAX_CONFIG_LEN];
@@ -33,7 +34,7 @@ static struct kparam_string kps = {
 	.maxlen			= MAX_CONFIG_LEN,
 };
 
-static int kgdboc_use_kms;  
+static int kgdboc_use_kms;  /* 1 if we use kernel mode switching */
 static struct tty_driver	*kgdb_tty_driver;
 static int			kgdb_tty_line;
 
@@ -44,13 +45,13 @@ static int kgdboc_reset_connect(struct input_handler *handler,
 {
 	input_reset_device(dev);
 
-	
+	/* Retrun an error - we do not want to bind, just to reset */
 	return -ENODEV;
 }
 
 static void kgdboc_reset_disconnect(struct input_handle *handle)
 {
-	
+	/* We do not expect anyone to actually bind to us */
 	BUG();
 }
 
@@ -73,6 +74,11 @@ static DEFINE_MUTEX(kgdboc_reset_mutex);
 
 static void kgdboc_restore_input_helper(struct work_struct *dummy)
 {
+	/*
+	 * We need to take a mutex to prevent several instances of
+	 * this work running on different CPUs so they don't try
+	 * to register again already registered handler.
+	 */
 	mutex_lock(&kgdboc_reset_mutex);
 
 	if (input_register_handler(&kgdboc_reset_handler) == 0)
@@ -118,11 +124,11 @@ static void kgdboc_unregister_kbd(void)
 	}
 	flush_work_sync(&kgdboc_restore_input_work);
 }
-#else 
+#else /* ! CONFIG_KDB_KEYBOARD */
 #define kgdboc_register_kbd(x) 0
 #define kgdboc_unregister_kbd()
 #define kgdboc_restore_input()
-#endif 
+#endif /* ! CONFIG_KDB_KEYBOARD */
 
 static int kgdboc_option_setup(char *opt)
 {
@@ -206,7 +212,7 @@ noconfig:
 
 static int __init init_kgdboc(void)
 {
-	
+	/* Already configured? */
 	if (configured == 1)
 		return 0;
 
@@ -238,7 +244,7 @@ static int param_set_kgdboc_var(const char *kmessage, struct kernel_param *kp)
 		return -ENOSPC;
 	}
 
-	
+	/* Only copy in the string if the init function has not run yet */
 	if (configured < 0) {
 		strcpy(config, kmessage);
 		return 0;
@@ -252,14 +258,14 @@ static int param_set_kgdboc_var(const char *kmessage, struct kernel_param *kp)
 	}
 
 	strcpy(config, kmessage);
-	
+	/* Chop out \n char as a result of echo */
 	if (config[len - 1] == '\n')
 		config[len - 1] = '\0';
 
 	if (configured == 1)
 		cleanup_kgdboc();
 
-	
+	/* Go and configure with the new params. */
 	return configure_kgdboc();
 }
 
@@ -271,14 +277,14 @@ static void kgdboc_pre_exp_handler(void)
 		dbg_restore_graphics = 1;
 		con_debug_enter(vc_cons[fg_console].d);
 	}
-	
+	/* Increment the module count when the debugger is active */
 	if (!kgdb_connected)
 		try_module_get(THIS_MODULE);
 }
 
 static void kgdboc_post_exp_handler(void)
 {
-	
+	/* decrement the module count when the debugger detaches */
 	if (!kgdb_connected)
 		module_put(THIS_MODULE);
 	if (kgdboc_use_kms && dbg_restore_graphics) {
@@ -297,8 +303,12 @@ static struct kgdb_io kgdboc_io_ops = {
 };
 
 #ifdef CONFIG_KGDB_SERIAL_CONSOLE
+/* This is only available if kgdboc is a built in for early debugging */
 static int __init kgdboc_early_init(char *opt)
 {
+	/* save the first character of the config string because the
+	 * init routine can destroy it.
+	 */
 	char save_ch;
 
 	kgdboc_option_setup(opt);
@@ -309,7 +319,7 @@ static int __init kgdboc_early_init(char *opt)
 }
 
 early_param("ekgdboc", kgdboc_early_init);
-#endif 
+#endif /* CONFIG_KGDB_SERIAL_CONSOLE */
 
 module_init(init_kgdboc);
 module_exit(cleanup_kgdboc);

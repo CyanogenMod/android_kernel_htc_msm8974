@@ -18,6 +18,7 @@
 #ifndef __ASM_ARCH_UNCOMPRESS_H
 #define __ASM_ARCH_UNCOMPRESS_H
 
+/* Defines for UART registers */
 
 #include <mach/regs-serial.h>
 #include <mach/map.h>
@@ -30,6 +31,8 @@ static volatile u32 * const uart_base = (u32 *)UART0_PA;
 
 static void putc(int ch)
 {
+	/* Check THRE and TEMT bits before we transmit the character.
+	 */
 	while ((uart_base[UART_LSR] & TX_DONE) != TX_DONE)
 		barrier();
 
@@ -44,4 +47,4 @@ static void arch_decomp_setup(void)
 {
 }
 
-#endif
+#endif/* __ASM_W90X900_UNCOMPRESS_H */

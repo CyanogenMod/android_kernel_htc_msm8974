@@ -70,23 +70,32 @@ struct hash_bucket {
 	spinlock_t lock;
 } ____cacheline_aligned_in_smp;
 
+/* Hash list to save the allocated dma addresses */
 static struct hash_bucket dma_entry_hash[HASH_SIZE];
+/* List of pre-allocated dma_debug_entry's */
 static LIST_HEAD(free_entries);
+/* Lock for the list above */
 static DEFINE_SPINLOCK(free_entries_lock);
 
+/* Global disable flag - will be set in case of an error */
 static bool global_disable __read_mostly;
 
+/* Global error count */
 static u32 error_count;
 
+/* Global error show enable*/
 static u32 show_all_errors __read_mostly;
+/* Number of errors to show */
 static u32 show_num_errors = 1;
 
 static u32 num_free_entries;
 static u32 min_free_entries;
 static u32 nr_total_entries;
 
+/* number of preallocated entries requested by kernel cmdline */
 static u32 req_entries;
 
+/* debugfs dentry's for the stuff above */
 static struct dentry *dma_debug_dent        __read_mostly;
 static struct dentry *global_disable_dent   __read_mostly;
 static struct dentry *error_count_dent      __read_mostly;
@@ -96,6 +105,7 @@ static struct dentry *num_free_entries_dent __read_mostly;
 static struct dentry *min_free_entries_dent __read_mostly;
 static struct dentry *filter_dent           __read_mostly;
 
+/* per-driver filter related state */
 
 #define NAME_MAX_LEN	64
 
@@ -110,10 +120,24 @@ static const char *type2name[4] = { "single", "page",
 static const char *dir2name[4] = { "DMA_BIDIRECTIONAL", "DMA_TO_DEVICE",
 				   "DMA_FROM_DEVICE", "DMA_NONE" };
 
+/* little merge helper - remove it after the merge window */
 #ifndef BUS_NOTIFY_UNBOUND_DRIVER
 #define BUS_NOTIFY_UNBOUND_DRIVER 0x0005
 #endif
 
+/*
+ * The access to some variables in this macro is racy. We can't use atomic_t
+ * here because all these variables are exported to debugfs. Some of them even
+ * writeable. This is also the reason why a lock won't help much. But anyway,
+ * the races are no big deal. Here is why:
+ *
+ *   error_count: the addition is racy, but the worst thing that can happen is
+ *                that we don't count some errors
+ *   show_num_errors: the subtraction is racy. Also no big deal because in
+ *                    worst case this will result in one warning more in the
+ *                    system log than the user configured. This variable is
+ *                    writeable via debugfs.
+ */
 static inline void dump_entry_trace(struct dma_debug_entry *entry)
 {
 #ifdef CONFIG_STACKTRACE
@@ -130,27 +154,27 @@ static bool driver_filter(struct device *dev)
 	unsigned long flags;
 	bool ret;
 
-	
+	/* driver filter off */
 	if (likely(!current_driver_name[0]))
 		return true;
 
-	
+	/* driver filter on and initialized */
 	if (current_driver && dev && dev->driver == current_driver)
 		return true;
 
-	
+	/* driver filter on, but we can't filter on a NULL device... */
 	if (!dev)
 		return false;
 
 	if (current_driver || !current_driver_name[0])
 		return false;
 
-	
+	/* driver filter on but not yet initialized */
 	drv = dev->driver;
 	if (!drv)
 		return false;
 
-	
+	/* lock to protect against change of current_driver_name */
 	read_lock_irqsave(&driver_name_lock, flags);
 
 	ret = false;
@@ -178,11 +202,24 @@ static bool driver_filter(struct device *dev)
 			show_num_errors -= 1;				\
 	} while (0);
 
+/*
+ * Hash related functions
+ *
+ * Every DMA-API request is saved into a struct dma_debug_entry. To
+ * have quick access to these structs they are stored into a hash.
+ */
 static int hash_fn(struct dma_debug_entry *entry)
 {
+	/*
+	 * Hash function is based on the dma address.
+	 * We use bits 20-27 here as the index into the hash
+	 */
 	return (entry->dev_addr >> HASH_FN_SHIFT) & HASH_FN_MASK;
 }
 
+/*
+ * Request exclusive access to a hash bucket for a given dma_debug_entry.
+ */
 static struct hash_bucket *get_hash_bucket(struct dma_debug_entry *entry,
 					   unsigned long *flags)
 {
@@ -194,6 +231,9 @@ static struct hash_bucket *get_hash_bucket(struct dma_debug_entry *entry,
 	return &dma_entry_hash[idx];
 }
 
+/*
+ * Give up exclusive access to the hash bucket
+ */
 static void put_hash_bucket(struct hash_bucket *bucket,
 			    unsigned long *flags)
 {
@@ -221,6 +261,9 @@ static bool containing_match(struct dma_debug_entry *a,
 	return false;
 }
 
+/*
+ * Search a given entry in the hash bucket list
+ */
 static struct dma_debug_entry *__hash_bucket_find(struct hash_bucket *bucket,
 						  struct dma_debug_entry *ref,
 						  match_fn match)
@@ -232,6 +275,16 @@ static struct dma_debug_entry *__hash_bucket_find(struct hash_bucket *bucket,
 		if (!match(ref, entry))
 			continue;
 
+		/*
+		 * Some drivers map the same physical address multiple
+		 * times. Without a hardware IOMMU this results in the
+		 * same device addresses being put into the dma-debug
+		 * hash multiple times too. This can result in false
+		 * positives being reported. Therefore we implement a
+		 * best-fit algorithm here which returns the entry from
+		 * the hash which fits best to the reference value
+		 * instead of the first-fit.
+		 */
 		matches += 1;
 		match_lvl = 0;
 		entry->size         == ref->size         ? ++match_lvl : 0;
@@ -240,14 +293,22 @@ static struct dma_debug_entry *__hash_bucket_find(struct hash_bucket *bucket,
 		entry->sg_call_ents == ref->sg_call_ents ? ++match_lvl : 0;
 
 		if (match_lvl == 4) {
-			
+			/* perfect-fit - return the result */
 			return entry;
 		} else if (match_lvl > last_lvl) {
+			/*
+			 * We found an entry that fits better then the
+			 * previous one
+			 */
 			last_lvl = match_lvl;
 			ret      = entry;
 		}
 	}
 
+	/*
+	 * If we have multiple matches but no perfect-fit, just return
+	 * NULL.
+	 */
 	ret = (matches == 1) ? ret : NULL;
 
 	return ret;
@@ -274,6 +335,9 @@ static struct dma_debug_entry *bucket_find_contain(struct hash_bucket **bucket,
 		if (entry)
 			return entry;
 
+		/*
+		 * Nothing found, go back a hash bucket
+		 */
 		put_hash_bucket(*bucket, flags);
 		range          += (1 << HASH_FN_SHIFT);
 		index.dev_addr -= (1 << HASH_FN_SHIFT);
@@ -283,17 +347,26 @@ static struct dma_debug_entry *bucket_find_contain(struct hash_bucket **bucket,
 	return NULL;
 }
 
+/*
+ * Add an entry to a hash bucket
+ */
 static void hash_bucket_add(struct hash_bucket *bucket,
 			    struct dma_debug_entry *entry)
 {
 	list_add_tail(&entry->list, &bucket->list);
 }
 
+/*
+ * Remove entry from a hash bucket list
+ */
 static void hash_bucket_del(struct dma_debug_entry *entry)
 {
 	list_del(&entry->list);
 }
 
+/*
+ * Dump mapping entries for debugging purposes
+ */
 void debug_dma_dump_mappings(struct device *dev)
 {
 	int idx;
@@ -321,6 +394,10 @@ void debug_dma_dump_mappings(struct device *dev)
 }
 EXPORT_SYMBOL(debug_dma_dump_mappings);
 
+/*
+ * Wrapper function for adding an entry to the hash.
+ * This function takes care of locking itself.
+ */
 static void add_dma_entry(struct dma_debug_entry *entry)
 {
 	struct hash_bucket *bucket;
@@ -346,6 +423,11 @@ static struct dma_debug_entry *__dma_entry_alloc(void)
 	return entry;
 }
 
+/* struct dma_entry allocator
+ *
+ * The next two functions implement the allocator for
+ * struct dma_debug_entries.
+ */
 static struct dma_debug_entry *dma_entry_alloc(void)
 {
 	struct dma_debug_entry *entry = NULL;
@@ -378,6 +460,10 @@ static void dma_entry_free(struct dma_debug_entry *entry)
 {
 	unsigned long flags;
 
+	/*
+	 * add to beginning of the list - this way the entries are
+	 * more likely cache hot when they are reallocated.
+	 */
 	spin_lock_irqsave(&free_entries_lock, flags);
 	list_add(&entry->list, &free_entries);
 	num_free_entries += 1;
@@ -431,6 +517,13 @@ int dma_debug_resize_entries(u32 num_entries)
 }
 EXPORT_SYMBOL(dma_debug_resize_entries);
 
+/*
+ * DMA-API debugging init code
+ *
+ * The init code does two things:
+ *   1. Initialize core data structures
+ *   2. Preallocate a given number of dma_debug_entry structs
+ */
 
 static int prealloc_memory(u32 num_entries)
 {
@@ -472,6 +565,11 @@ static ssize_t filter_read(struct file *file, char __user *user_buf,
 	if (!current_driver_name[0])
 		return 0;
 
+	/*
+	 * We can't copy to userspace directly because current_driver_name can
+	 * only be read under the driver_name_lock with irqs disabled. So
+	 * create a temporary copy first.
+	 */
 	read_lock_irqsave(&driver_name_lock, flags);
 	len = scnprintf(buf, NAME_MAX_LEN + 1, "%s\n", current_driver_name);
 	read_unlock_irqrestore(&driver_name_lock, flags);
@@ -487,6 +585,12 @@ static ssize_t filter_write(struct file *file, const char __user *userbuf,
 	size_t len;
 	int i;
 
+	/*
+	 * We can't copy from userspace directly. Access to
+	 * current_driver_name is protected with a write_lock with irqs
+	 * disabled. Since copy_from_user can fault and may sleep we
+	 * need to copy to temporary buffer first
+	 */
 	len = min(count, (size_t)(NAME_MAX_LEN - 1));
 	if (copy_from_user(buf, userbuf, len))
 		return -EFAULT;
@@ -495,7 +599,20 @@ static ssize_t filter_write(struct file *file, const char __user *userbuf,
 
 	write_lock_irqsave(&driver_name_lock, flags);
 
+	/*
+	 * Now handle the string we got from userspace very carefully.
+	 * The rules are:
+	 *         - only use the first token we got
+	 *         - token delimiter is everything looking like a space
+	 *           character (' ', '\n', '\t' ...)
+	 *
+	 */
 	if (!isalnum(buf[0])) {
+		/*
+		 * If the first character userspace gave us is not
+		 * alphanumerical then assume the filter should be
+		 * switched off.
+		 */
 		if (current_driver_name[0])
 			pr_info("DMA-API: switching off dma-debug driver filter\n");
 		current_driver_name[0] = 0;
@@ -503,6 +620,10 @@ static ssize_t filter_write(struct file *file, const char __user *userbuf,
 		goto out_unlock;
 	}
 
+	/*
+	 * Now parse out the first token and use it as the name for the
+	 * driver to filter for.
+	 */
 	for (i = 0; i < NAME_MAX_LEN - 1; ++i) {
 		current_driver_name[i] = buf[i];
 		if (isspace(buf[i]) || buf[i] == ' ' || buf[i] == 0)
@@ -654,6 +775,9 @@ void dma_debug_add_bus(struct bus_type *bus)
 	bus_register_notifier(bus, nb);
 }
 
+/*
+ * Let the architectures decide how many entries should be preallocated.
+ */
 void dma_debug_init(u32 num_entries)
 {
 	int i;
@@ -777,6 +901,10 @@ static void check_unmap(struct dma_debug_entry *ref)
 			   entry->sg_call_ents, ref->sg_call_ents);
 	}
 
+	/*
+	 * This may be no bug in reality - but most implementations of the
+	 * DMA API don't handle this properly, so check for it here
+	 */
 	if (ref->direction != entry->direction) {
 		err_printk(ref->dev, entry, "DMA-API: device driver frees "
 			   "DMA memory with different direction "

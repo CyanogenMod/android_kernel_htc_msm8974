@@ -33,22 +33,28 @@
 #define MODE_CFB	4
 #define MODE_TEXT	8
 
+/* --------------------------------------------------------------------- */
 
+/*
+ * card parameters
+ */
 
 struct vga16fb_par {
+	/* structure holding original VGA register settings when the
+           screen is blanked */
 	struct {
-		unsigned char	SeqCtrlIndex;	  
-		unsigned char	CrtCtrlIndex;	  
-		unsigned char	CrtMiscIO;	  
-		unsigned char	HorizontalTotal;  
-		unsigned char	HorizDisplayEnd;  
-		unsigned char	StartHorizRetrace;
-		unsigned char	EndHorizRetrace;  
-		unsigned char	Overflow;	  
-		unsigned char	StartVertRetrace; 
-		unsigned char	EndVertRetrace;	  
-		unsigned char	ModeControl;	  
-		unsigned char	ClockingMode;	  
+		unsigned char	SeqCtrlIndex;	  /* Sequencer Index reg.   */
+		unsigned char	CrtCtrlIndex;	  /* CRT-Contr. Index reg.  */
+		unsigned char	CrtMiscIO;	  /* Miscellaneous register */
+		unsigned char	HorizontalTotal;  /* CRT-Controller:00h */
+		unsigned char	HorizDisplayEnd;  /* CRT-Controller:01h */
+		unsigned char	StartHorizRetrace;/* CRT-Controller:04h */
+		unsigned char	EndHorizRetrace;  /* CRT-Controller:05h */
+		unsigned char	Overflow;	  /* CRT-Controller:07h */
+		unsigned char	StartVertRetrace; /* CRT-Controller:10h */
+		unsigned char	EndVertRetrace;	  /* CRT-Controller:11h */
+		unsigned char	ModeControl;	  /* CRT-Controller:17h */
+		unsigned char	ClockingMode;	  /* Seq-Controller:01h */
 	} vga_state;
 	struct vgastate state;
 	unsigned int ref_count;
@@ -57,6 +63,7 @@ struct vga16fb_par {
 	u8 crtc[VGA_CRT_C];
 };
 
+/* --------------------------------------------------------------------- */
 
 static struct fb_var_screeninfo vga16fb_defined __devinitdata = {
 	.xres		= 640,
@@ -77,6 +84,7 @@ static struct fb_var_screeninfo vga16fb_defined __devinitdata = {
 	.vmode		= FB_VMODE_NONINTERLACED,
 };
 
+/* name should not depend on EGA/VGA */
 static struct fb_fix_screeninfo vga16fb_fix __devinitdata = {
 	.id		= "VGA16 VGA",
 	.smem_start	= VGA_FB_PHYS,
@@ -90,12 +98,25 @@ static struct fb_fix_screeninfo vga16fb_fix __devinitdata = {
 	.accel		= FB_ACCEL_NONE
 };
 
+/* The VGA's weird architecture often requires that we read a byte and
+   write a byte to the same location.  It doesn't matter *what* byte
+   we write, however.  This is because all the action goes on behind
+   the scenes in the VGA's 32-bit latch register, and reading and writing
+   video memory just invokes latch behavior.
+
+   To avoid race conditions (is this necessary?), reading and writing
+   the memory byte should be done with a single instruction.  One
+   suitable instruction is the x86 bitwise OR.  The following
+   read-modify-write routine should optimize to one such bitwise
+   OR. */
 static inline void rmw(volatile char __iomem *p)
 {
 	readb(p);
 	writeb(1, p);
 }
 
+/* Set the Graphics Mode Register, and return its previous value.
+   Bits 0-1 are write mode, bit 3 is read mode. */
 static inline int setmode(int mode)
 {
 	int oldmode;
@@ -105,16 +126,22 @@ static inline int setmode(int mode)
 	return oldmode;
 }
 
+/* Select the Bit Mask Register and return its value. */
 static inline int selectmask(void)
 {
 	return vga_io_rgfx(VGA_GFX_BIT_MASK);
 }
 
+/* Set the value of the Bit Mask Register.  It must already have been
+   selected with selectmask(). */
 static inline void setmask(int mask)
 {
 	vga_io_w(VGA_GFX_D, mask);
 }
 
+/* Set the Data Rotate Register and return its old value. 
+   Bits 0-2 are rotate count, bits 3-4 are logical operation
+   (0=NOP, 1=AND, 2=OR, 3=XOR). */
 static inline int setop(int op)
 {
 	int oldop;
@@ -124,6 +151,8 @@ static inline int setop(int op)
 	return oldop;
 }
 
+/* Set the Enable Set/Reset Register and return its old value.  
+   The code here always uses value 0xf for this register. */
 static inline int setsr(int sr)
 {
 	int oldsr;
@@ -133,6 +162,7 @@ static inline int setsr(int sr)
 	return oldsr;
 }
 
+/* Set the Set/Reset Register and return its old value. */
 static inline int setcolor(int color)
 {
 	int oldcolor;
@@ -142,11 +172,13 @@ static inline int setcolor(int color)
 	return oldcolor;
 }
 
+/* Return the value in the Graphics Address Register. */
 static inline int getindex(void)
 {
 	return vga_io_r(VGA_GFX_I);
 }
 
+/* Set the value in the Graphics Address Register. */
 static inline void setindex(int index)
 {
 	vga_io_w(VGA_GFX_I, index);
@@ -162,7 +194,7 @@ static void vga16fb_pan_var(struct fb_info *info,
 	if (info->var.bits_per_pixel == 8) {
 		pos = (info->var.xres_virtual * var->yoffset + xoffset) >> 2;
 	} else if (par->mode & MODE_TEXT) {
-		int fh = 16; 
+		int fh = 16; // FIXME !!! font height. Fugde for now.
 		pos = (info->var.xres_virtual * (var->yoffset / fh) + xoffset) >> 3;
 	} else {
 		if (info->var.nonstd)
@@ -171,7 +203,9 @@ static void vga16fb_pan_var(struct fb_info *info,
 	}
 	vga_io_wcrt(VGA_CRTC_START_HI, pos >> 8);
 	vga_io_wcrt(VGA_CRTC_START_LO, pos & 0xFF);
-	vga_io_r(VGA_IS1_RC);		
+	/* if we support CFB4, then we must! support xoffset with pixel
+	 * granularity if someone supports xoffset in bit resolution */
+	vga_io_r(VGA_IS1_RC);		/* reset flip-flop */
 	vga_io_w(VGA_ATT_IW, VGA_ATC_PEL);
 	if (info->var.bits_per_pixel == 8)
 		vga_io_w(VGA_ATT_IW, (xoffset & 3) << 1);
@@ -196,7 +230,7 @@ static void vga16fb_update_fix(struct fb_info *info)
 		info->fix.type = FB_TYPE_TEXT;
 		info->fix.type_aux = FB_AUX_TEXT_CGA;
 		info->fix.line_length = info->var.xres_virtual / 4;
-	} else {	
+	} else {	/* 8bpp */
 		if (info->var.nonstd) {
 			info->fix.type = FB_TYPE_VGA_PLANES;
 			info->fix.type_aux = FB_AUX_VGA_PLANES_CFB8;
@@ -218,11 +252,11 @@ static void vga16fb_clock_chip(struct vga16fb_par *par,
 		u8  misc;
 		u8  seq_clock_mode;
 	} *ptr, *best, vgaclocks[] = {
-		{ 79442 , 0x00, 0x08},
-		{ 70616 , 0x04, 0x08},
-		{ 39721 , 0x00, 0x00},
-		{ 35308 , 0x04, 0x00},
-		{     0 ,    0x00, 0x00}};
+		{ 79442 /* 12.587 */, 0x00, 0x08},
+		{ 70616 /* 14.161 */, 0x04, 0x08},
+		{ 39721 /* 25.175 */, 0x00, 0x00},
+		{ 35308 /* 28.322 */, 0x04, 0x00},
+		{     0 /* bad */,    0x00, 0x00}};
 	int err;
 
 	pixclock = (pixclock * mul) / div;
@@ -305,7 +339,7 @@ static int vga16fb_check_var(struct fb_var_screeninfo *var,
 		}
 	} else if (var->bits_per_pixel == 8) {
 		if (!par->isVGA)
-			return -EINVAL;	
+			return -EINVAL;	/* no support on EGA */
 		shift = 2;
 		if (var->nonstd) {
 			mode = MODE_8BPP | MODE_CFB;
@@ -355,7 +389,7 @@ static int vga16fb_check_var(struct fb_var_screeninfo *var,
 	par->crtc[VGA_CRTC_H_SYNC_START] = pos;
 	pos += hslen;
 	par->crtc[VGA_CRTC_H_SYNC_END] = pos & 0x1F;
-	pos += left - 2; 
+	pos += left - 2; /* blank_end + 2 <= total + 5 */
 	par->crtc[VGA_CRTC_H_BLANK_END] = (pos & 0x1F) | 0x80;
 	if (pos & 0x20)
 		par->crtc[VGA_CRTC_H_SYNC_END] |= 0x80;
@@ -404,11 +438,11 @@ static int vga16fb_check_var(struct fb_var_screeninfo *var,
 	if (vslen > 16)
 		FAIL("vslen too big");
 	par->crtc[VGA_CRTC_V_TOTAL] = ytotal - 2;
-	r7 = 0x10;	
+	r7 = 0x10;	/* disable linecompare */
 	if (ytotal & 0x100) r7 |= 0x01;
 	if (ytotal & 0x200) r7 |= 0x20;
 	par->crtc[VGA_CRTC_PRESET_ROW] = 0;
-	par->crtc[VGA_CRTC_MAX_SCAN] = 0x40;	
+	par->crtc[VGA_CRTC_MAX_SCAN] = 0x40;	/* 1 scanline, no linecmp */
 	if (var->vmode & FB_VMODE_DOUBLE)
 		par->crtc[VGA_CRTC_MAX_SCAN] |= 0x80;
 	par->crtc[VGA_CRTC_CURSOR_START] = 0x20;
@@ -424,10 +458,10 @@ static int vga16fb_check_var(struct fb_var_screeninfo *var,
 	par->crtc[VGA_CRTC_V_DISP_END] = pos & 0xFF;
 	par->crtc[VGA_CRTC_V_BLANK_START] = pos & 0xFF;
 	if (pos & 0x100)
-		r7 |= 0x0A;	
+		r7 |= 0x0A;	/* 0x02 -> DISP_END, 0x08 -> BLANK_START */
 	if (pos & 0x200) {
-		r7 |= 0x40;	
-		par->crtc[VGA_CRTC_MAX_SCAN] |= 0x20; 
+		r7 |= 0x40;	/* 0x40 -> DISP_END */
+		par->crtc[VGA_CRTC_MAX_SCAN] |= 0x20; /* BLANK_START */
 	}
 	pos += lower;
 	par->crtc[VGA_CRTC_V_SYNC_START] = pos & 0xFF;
@@ -436,23 +470,24 @@ static int vga16fb_check_var(struct fb_var_screeninfo *var,
 	if (pos & 0x200)
 		r7 |= 0x80;
 	pos += vslen;
-	par->crtc[VGA_CRTC_V_SYNC_END] = (pos & 0x0F) & ~0x10; 
-	pos += upper - 1; 
-	par->crtc[VGA_CRTC_V_BLANK_END] = pos & 0xFF; 
+	par->crtc[VGA_CRTC_V_SYNC_END] = (pos & 0x0F) & ~0x10; /* disabled IRQ */
+	pos += upper - 1; /* blank_end + 1 <= ytotal + 2 */
+	par->crtc[VGA_CRTC_V_BLANK_END] = pos & 0xFF; /* 0x7F for original VGA,
+                     but some SVGA chips requires all 8 bits to set */
 	if (vxres >= 512)
 		FAIL("vxres too long");
 	par->crtc[VGA_CRTC_OFFSET] = vxres >> 1;
 	if (mode & MODE_SKIP4)
-		par->crtc[VGA_CRTC_UNDERLINE] = 0x5F;	
+		par->crtc[VGA_CRTC_UNDERLINE] = 0x5F;	/* 256, cfb8 */
 	else
-		par->crtc[VGA_CRTC_UNDERLINE] = 0x1F;	
+		par->crtc[VGA_CRTC_UNDERLINE] = 0x1F;	/* 16, vgap */
 	par->crtc[VGA_CRTC_MODE] = rMode | ((mode & MODE_TEXT) ? 0xA3 : 0xE3);
 	par->crtc[VGA_CRTC_LINE_COMPARE] = 0xFF;
 	par->crtc[VGA_CRTC_OVERFLOW] = r7;
 
-	par->vss = 0x00;	
+	par->vss = 0x00;	/* 3DA */
 
-	par->misc = 0xE3;	
+	par->misc = 0xE3;	/* enable CPU, ports 0x3Dx, positive sync */
 	if (var->sync & FB_SYNC_HOR_HIGH_ACT)
 		par->misc &= ~0x40;
 	if (var->sync & FB_SYNC_VERT_HIGH_ACT)
@@ -461,10 +496,10 @@ static int vga16fb_check_var(struct fb_var_screeninfo *var,
 	par->mode = mode;
 
 	if (mode & MODE_8BPP)
-		
+		/* pixel clock == vga clock / 2 */
 		vga16fb_clock_chip(par, var->pixclock, info, 1, 2);
 	else
-		
+		/* pixel clock == vga clock */
 		vga16fb_clock_chip(par, var->pixclock, info, 1, 1);
 	
 	var->red.offset = var->green.offset = var->blue.offset = 
@@ -527,7 +562,7 @@ static int vga16fb_set_par(struct fb_info *info)
 		atc[VGA_ATC_MODE] = 0x41;
 	else
 		atc[VGA_ATC_MODE] = 0x81;
-	atc[VGA_ATC_OVERSCAN] = 0x00;	
+	atc[VGA_ATC_OVERSCAN] = 0x00;	/* 0 for EGA, 0xFF for VGA */
 	atc[VGA_ATC_PLANE_ENABLE] = 0x0F;
 	if (par->mode & MODE_8BPP)
 		atc[VGA_ATC_PEL] = (info->var.xoffset & 3) << 1;
@@ -536,57 +571,57 @@ static int vga16fb_set_par(struct fb_info *info)
 	atc[VGA_ATC_COLOR_PAGE] = 0x00;
 	
 	if (par->mode & MODE_TEXT) {
-		fh = 16; 
+		fh = 16; // FIXME !!! Fudge font height. 
 		par->crtc[VGA_CRTC_MAX_SCAN] = (par->crtc[VGA_CRTC_MAX_SCAN] 
 					       & ~0x1F) | (fh - 1);
 	}
 
 	vga_io_w(VGA_MIS_W, vga_io_r(VGA_MIS_R) | 0x01);
 
-	
+	/* Enable graphics register modification */
 	if (!par->isVGA) {
 		vga_io_w(EGA_GFX_E0, 0x00);
 		vga_io_w(EGA_GFX_E1, 0x01);
 	}
 	
-	
+	/* update misc output register */
 	vga_io_w(VGA_MIS_W, par->misc);
 	
-	
+	/* synchronous reset on */
 	vga_io_wseq(0x00, 0x01);
 
 	if (par->isVGA)
 		vga_io_w(VGA_PEL_MSK, par->pel_msk);
 
-	
+	/* write sequencer registers */
 	vga_io_wseq(VGA_SEQ_CLOCK_MODE, seq[VGA_SEQ_CLOCK_MODE] | 0x20);
 	for (i = 2; i < VGA_SEQ_C; i++) {
 		vga_io_wseq(i, seq[i]);
 	}
 	
-	
+	/* synchronous reset off */
 	vga_io_wseq(0x00, 0x03);
 
-	
+	/* deprotect CRT registers 0-7 */
 	vga_io_wcrt(VGA_CRTC_V_SYNC_END, par->crtc[VGA_CRTC_V_SYNC_END]);
 
-	
+	/* write CRT registers */
 	for (i = 0; i < VGA_CRTC_REGS; i++) {
 		vga_io_wcrt(i, par->crtc[i]);
 	}
 	
-	
+	/* write graphics controller registers */
 	for (i = 0; i < VGA_GFX_C; i++) {
 		vga_io_wgfx(i, gdc[i]);
 	}
 	
-	
+	/* write attribute controller registers */
 	for (i = 0; i < VGA_ATT_C; i++) {
-		vga_io_r(VGA_IS1_RC);		
+		vga_io_r(VGA_IS1_RC);		/* reset flip-flop */
 		vga_io_wattr(i, atc[i]);
 	}
 
-	
+	/* Wait for screen to stabilize. */
 	mdelay(50);
 
 	vga_io_wseq(VGA_SEQ_CLOCK_MODE, seq[VGA_SEQ_CLOCK_MODE]);
@@ -606,10 +641,10 @@ static void ega16_setpalette(int regno, unsigned red, unsigned green, unsigned b
 	if (regno >= 16)
 		return;
 	val = map[red>>14] | ((map[green>>14]) << 1) | ((map[blue>>14]) << 2);
-	vga_io_r(VGA_IS1_RC);   
+	vga_io_r(VGA_IS1_RC);   /* ! 0x3BA */
 	vga_io_wattr(regno, val);
-	vga_io_r(VGA_IS1_RC);   
-	vga_io_w(VGA_ATT_IW, 0x20); 
+	vga_io_r(VGA_IS1_RC);   /* some clones need it */
+	vga_io_w(VGA_ATT_IW, 0x20); /* unblank screen */
 }
 
 static void vga16_setpalette(int regno, unsigned red, unsigned green, unsigned blue)
@@ -627,6 +662,12 @@ static int vga16fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	struct vga16fb_par *par = info->par;
 	int gray;
 
+	/*
+	 *  Set a single color register. The values supplied are
+	 *  already rounded down to the hardware's capabilities
+	 *  (according to the entries in the `var' structure). Return
+	 *  != 0 for invalid regno.
+	 */
 	
 	if (regno >= 256)
 		return 1;
@@ -634,7 +675,7 @@ static int vga16fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	gray = info->var.grayscale;
 	
 	if (gray) {
-		
+		/* gray = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 	if (par->isVGA) 
@@ -651,49 +692,63 @@ static int vga16fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/* The following VESA blanking code is taken from vgacon.c.  The VGA
+   blanking code was originally by Huang shi chao, and modified by
+   Christoph Rimek (chrimek@toppoint.de) and todd j. derr
+   (tjd@barefoot.org) for Linux. */
 
 static void vga_vesa_blank(struct vga16fb_par *par, int mode)
 {
 	unsigned char SeqCtrlIndex = vga_io_r(VGA_SEQ_I);
 	unsigned char CrtCtrlIndex = vga_io_r(VGA_CRT_IC);
 	
-	
+	/* save original values of VGA controller registers */
 	if(!par->vesa_blanked) {
 		par->vga_state.CrtMiscIO = vga_io_r(VGA_MIS_R);
-		
+		//sti();
 
-		par->vga_state.HorizontalTotal = vga_io_rcrt(0x00);	
-		par->vga_state.HorizDisplayEnd = vga_io_rcrt(0x01);	
-		par->vga_state.StartHorizRetrace = vga_io_rcrt(0x04);	
-		par->vga_state.EndHorizRetrace = vga_io_rcrt(0x05);	
-		par->vga_state.Overflow = vga_io_rcrt(0x07);		
-		par->vga_state.StartVertRetrace = vga_io_rcrt(0x10);	
-		par->vga_state.EndVertRetrace = vga_io_rcrt(0x11);	
-		par->vga_state.ModeControl = vga_io_rcrt(0x17);	
-		par->vga_state.ClockingMode = vga_io_rseq(0x01);	
+		par->vga_state.HorizontalTotal = vga_io_rcrt(0x00);	/* HorizontalTotal */
+		par->vga_state.HorizDisplayEnd = vga_io_rcrt(0x01);	/* HorizDisplayEnd */
+		par->vga_state.StartHorizRetrace = vga_io_rcrt(0x04);	/* StartHorizRetrace */
+		par->vga_state.EndHorizRetrace = vga_io_rcrt(0x05);	/* EndHorizRetrace */
+		par->vga_state.Overflow = vga_io_rcrt(0x07);		/* Overflow */
+		par->vga_state.StartVertRetrace = vga_io_rcrt(0x10);	/* StartVertRetrace */
+		par->vga_state.EndVertRetrace = vga_io_rcrt(0x11);	/* EndVertRetrace */
+		par->vga_state.ModeControl = vga_io_rcrt(0x17);	/* ModeControl */
+		par->vga_state.ClockingMode = vga_io_rseq(0x01);	/* ClockingMode */
 	}
 
-	
-	
+	/* assure that video is enabled */
+	/* "0x20" is VIDEO_ENABLE_bit in register 01 of sequencer */
 	vga_io_wseq(0x01, par->vga_state.ClockingMode | 0x20);
 
-	
+	/* test for vertical retrace in process.... */
 	if ((par->vga_state.CrtMiscIO & 0x80) == 0x80)
 		vga_io_w(VGA_MIS_W, par->vga_state.CrtMiscIO & 0xef);
 
+	/*
+	 * Set <End of vertical retrace> to minimum (0) and
+	 * <Start of vertical Retrace> to maximum (incl. overflow)
+	 * Result: turn off vertical sync (VSync) pulse.
+	 */
 	if (mode & FB_BLANK_VSYNC_SUSPEND) {
 		vga_io_wcrt(VGA_CRTC_V_SYNC_START, 0xff);
 		vga_io_wcrt(VGA_CRTC_V_SYNC_END, 0x40);
-		
+		/* bits 9,10 of vert. retrace */
 		vga_io_wcrt(VGA_CRTC_OVERFLOW, par->vga_state.Overflow | 0x84);
 	}
 
 	if (mode & FB_BLANK_HSYNC_SUSPEND) {
+		/*
+		 * Set <End of horizontal retrace> to minimum (0) and
+		 *  <Start of horizontal Retrace> to maximum
+		 * Result: turn off horizontal sync (HSync) pulse.
+		 */
 		vga_io_wcrt(VGA_CRTC_H_SYNC_START, 0xff);
 		vga_io_wcrt(VGA_CRTC_H_SYNC_END, 0x00);
 	}
 
-	
+	/* restore both index registers */
 	outb_p(SeqCtrlIndex, VGA_SEQ_I);
 	outb_p(CrtCtrlIndex, VGA_CRT_IC);
 }
@@ -703,29 +758,29 @@ static void vga_vesa_unblank(struct vga16fb_par *par)
 	unsigned char SeqCtrlIndex = vga_io_r(VGA_SEQ_I);
 	unsigned char CrtCtrlIndex = vga_io_r(VGA_CRT_IC);
 	
-	
+	/* restore original values of VGA controller registers */
 	vga_io_w(VGA_MIS_W, par->vga_state.CrtMiscIO);
 
-	
+	/* HorizontalTotal */
 	vga_io_wcrt(0x00, par->vga_state.HorizontalTotal);
-	
+	/* HorizDisplayEnd */
 	vga_io_wcrt(0x01, par->vga_state.HorizDisplayEnd);
-	
+	/* StartHorizRetrace */
 	vga_io_wcrt(0x04, par->vga_state.StartHorizRetrace);
-	
+	/* EndHorizRetrace */
 	vga_io_wcrt(0x05, par->vga_state.EndHorizRetrace);
-	
+	/* Overflow */
 	vga_io_wcrt(0x07, par->vga_state.Overflow);
-	
+	/* StartVertRetrace */
 	vga_io_wcrt(0x10, par->vga_state.StartVertRetrace);
-	
+	/* EndVertRetrace */
 	vga_io_wcrt(0x11, par->vga_state.EndVertRetrace);
-	
+	/* ModeControl */
 	vga_io_wcrt(0x17, par->vga_state.ModeControl);
-	
+	/* ClockingMode */
 	vga_io_wseq(0x01, par->vga_state.ClockingMode);
 
-	
+	/* restore index/control registers */
 	vga_io_w(VGA_SEQ_I, SeqCtrlIndex);
 	vga_io_w(VGA_CRT_IC, CrtCtrlIndex);
 }
@@ -742,12 +797,13 @@ static void vga_pal_blank(void)
 	}
 }
 
+/* 0 unblank, 1 blank, 2 no vsync, 3 no hsync, 4 off */
 static int vga16fb_blank(int blank, struct fb_info *info)
 {
 	struct vga16fb_par *par = info->par;
 
 	switch (blank) {
-	case FB_BLANK_UNBLANK:				
+	case FB_BLANK_UNBLANK:				/* Unblank */
 		if (par->vesa_blanked) {
 			vga_vesa_unblank(par);
 			par->vesa_blanked = 0;
@@ -756,11 +812,11 @@ static int vga16fb_blank(int blank, struct fb_info *info)
 			par->palette_blanked = 0;
 		}
 		break;
-	case FB_BLANK_NORMAL:				
+	case FB_BLANK_NORMAL:				/* blank */
 		vga_pal_blank();
 		par->palette_blanked = 1;
 		break;
-	default:			
+	default:			/* VESA blanking */
 		vga_vesa_blank(par, blank);
 		par->vesa_blanked = 1;
 		break;
@@ -794,7 +850,7 @@ static void vga_8planes_fillrect(struct fb_info *info, const struct fb_fillrect 
                 while (height--) {
                         int x;
 
-                        
+                        /* we can do memset... */
                         for (x = width; x > 0; --x) {
                                 writeb(rect->color, where);
                                 where++;
@@ -833,6 +889,8 @@ static void vga16fb_fillrect(struct fb_info *info, const struct fb_fillrect *rec
 	if (!rect->width || !rect->height || rect->dx > vxres || rect->dy > vyres)
 		return;
 
+	/* We could use hardware clipping but on many cards you get around
+	 * hardware clipping by writing to framebuffer directly. */
 
 	x2 = rect->dx + rect->width;
 	y2 = rect->dy + rect->height;
@@ -965,10 +1023,14 @@ static void vga16fb_copyarea(struct fb_info *info, const struct fb_copyarea *are
 	    area->sy > vyres)
 		return;
 
-	
+	/* clip the destination */
 	old_dx = area->dx;
 	old_dy = area->dy;
 
+	/*
+	 * We could use hardware clipping but on many cards you get around
+	 * hardware clipping by writing to framebuffer directly.
+	 */
 	x2 = area->dx + area->width;
 	y2 = area->dy + area->height;
 	dx = area->dx > 0 ? area->dx : 0;
@@ -981,11 +1043,11 @@ static void vga16fb_copyarea(struct fb_info *info, const struct fb_copyarea *are
 	if (sx + dx < old_dx || sy + dy < old_dy)
 		return;
 
-	
+	/* update sx1,sy1 */
 	sx += (dx - old_dx);
 	sy += (dy - old_dy);
 
-	
+	/* the source must be completely inside the virtual screen */
 	if (sx + width > vxres || sy + height > vyres)
 		return;
 
@@ -1106,7 +1168,7 @@ static void vga_imageblit_expand(struct fb_info *info, const struct fb_image *im
 				setmask(0xff);
 				writeb(image->bg_color, where);
 				rmb();
-				readb(where); 
+				readb(where); /* fill latches */
 				setmode(3);
 				wmb();
 				for (y = 0; y < image->height; y++) {
@@ -1150,6 +1212,9 @@ static void vga_imageblit_expand(struct fb_info *info, const struct fb_image *im
 
 static void vga_imageblit_color(struct fb_info *info, const struct fb_image *image)
 {
+	/*
+	 * Draw logo 
+	 */
 	struct vga16fb_par *par = info->par;
 	char __iomem *where =
 		info->screen_base + image->dy * info->fix.line_length +
@@ -1203,7 +1268,7 @@ static void vga16fb_destroy(struct fb_info *info)
 	struct platform_device *dev = container_of(info->device, struct platform_device, dev);
 	iounmap(info->screen_base);
 	fb_dealloc_cmap(&info->cmap);
-	
+	/* XXX unshare VGA regions */
 	platform_set_drvdata(dev, NULL);
 	framebuffer_release(info);
 }
@@ -1258,7 +1323,7 @@ static int __devinit vga16fb_probe(struct platform_device *dev)
 		goto err_ioremap;
 	}
 
-	
+	/* XXX share VGA_FB_PHYS and I/O region with vgacon and others */
 	info->screen_base = (void __iomem *)VGA_MAP_MEM(VGA_FB_PHYS, 0);
 
 	if (!info->screen_base) {
@@ -1280,11 +1345,11 @@ static int __devinit vga16fb_probe(struct platform_device *dev)
 	vga16fb_defined.green.length = i;
 	vga16fb_defined.blue.length  = i;	
 
-	
+	/* name should not depend on EGA/VGA */
 	info->fbops = &vga16fb_ops;
 	info->var = vga16fb_defined;
 	info->fix = vga16fb_fix;
-	
+	/* supports rectangles with widths of multiples of 8 */
 	info->pixmap.blit_x = 1 << 7 | 1 << 15 | 1 << 23 | 1 << 31;
 	info->flags = FBINFO_FLAG_DEFAULT | FBINFO_MISC_FIRMWARE |
 		FBINFO_HWACCEL_YPAN;
@@ -1392,4 +1457,11 @@ module_init(vga16fb_init);
 module_exit(vga16fb_exit);
 
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */
 

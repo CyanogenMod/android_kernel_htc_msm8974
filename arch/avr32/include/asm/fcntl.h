@@ -3,4 +3,4 @@
 
 #include <asm-generic/fcntl.h>
 
-#endif 
+#endif /* __ASM_AVR32_FCNTL_H */

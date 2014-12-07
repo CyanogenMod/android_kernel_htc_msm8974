@@ -30,7 +30,7 @@ struct clk {
 	unsigned long (*get_rate) (struct clk *clk);
 	int (*enable) (struct clk *, int);
 
-	
+	/* Register address and bit mask for simple clocks */
 	void __iomem *enable_reg;
 	u32 enable_mask;
 };

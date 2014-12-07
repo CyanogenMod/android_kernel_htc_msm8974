@@ -12,6 +12,9 @@
 #ifndef __PPC4XX_PCI_H__
 #define __PPC4XX_PCI_H__
 
+/*
+ * 4xx PCI-X bridge register definitions
+ */
 #define PCIX0_VENDID		0x000
 #define PCIX0_DEVID		0x002
 #define PCIX0_COMMAND		0x004
@@ -98,6 +101,9 @@
 #define PCIX0_MSGOH		0x10c
 #define PCIX0_IM		0x1f8
 
+/*
+ * 4xx PCI bridge register definitions
+ */
 #define PCIL0_PMM0LA		0x00
 #define PCIL0_PMM0MA		0x04
 #define PCIL0_PMM0PCILA		0x08
@@ -115,7 +121,11 @@
 #define PCIL0_PTM2MS		0x38
 #define PCIL0_PTM2LA		0x3c
 
+/*
+ * 4xx PCIe bridge register definitions
+ */
 
+/* DCR offsets */
 #define DCRO_PEGPL_CFGBAH		0x00
 #define DCRO_PEGPL_CFGBAL		0x01
 #define DCRO_PEGPL_CFGMSK		0x02
@@ -144,12 +154,19 @@
 #define DCRO_PEGPL_EARL			0x19
 #define DCRO_PEGPL_EATR			0x1a
 
+/* DMER mask */
 #define GPL_DMER_MASK_DISA	0x02000000
 
+/*
+ * System DCRs (SDRs)
+ */
 #define PESDR0_PLLLCT1			0x03a0
 #define PESDR0_PLLLCT2			0x03a1
 #define PESDR0_PLLLCT3			0x03a2
 
+/*
+ * 440SPe additional DCRs
+ */
 #define PESDR0_440SPE_UTLSET1		0x0300
 #define PESDR0_440SPE_UTLSET2		0x0301
 #define PESDR0_440SPE_DLPSET		0x0302
@@ -226,6 +243,9 @@
 #define PESDR2_440SPE_HSSCTLSET		0x0382
 #define PESDR2_440SPE_LANE_ABCD		0x0383
 
+/*
+ * 405EX additional DCRs
+ */
 #define PESDR0_405EX_UTLSET1		0x0400
 #define PESDR0_405EX_UTLSET2		0x0401
 #define PESDR0_405EX_DLPSET		0x0402
@@ -250,6 +270,9 @@
 #define PESDR1_405EX_LPB		0x044B
 #define PESDR1_405EX_PHYSTA		0x044C
 
+/*
+ * 460EX additional DCRs
+ */
 #define PESDR0_460EX_L0BIST		0x0308
 #define PESDR0_460EX_L0BISTSTS		0x0309
 #define PESDR0_460EX_L0CDRCTL		0x030A
@@ -300,6 +323,9 @@
 #define PESDR0_460EX_IHS1		0x036C
 #define PESDR0_460EX_IHS2		0x036D
 
+/*
+ * 460SX additional DCRs
+ */
 #define PESDRn_460SX_RCEI		0x02
 
 #define PESDR0_460SX_HSSL0DAMP		0x320
@@ -355,6 +381,9 @@
 #define PESDR0_460SX_RCSSET		0x304
 #define PESDR1_460SX_RCSSET		0x344
 #define PESDR2_460SX_RCSSET		0x374
+/*
+ * Of the above, some are common offsets from the base
+ */
 #define PESDRn_UTLSET1			0x00
 #define PESDRn_UTLSET2			0x01
 #define PESDRn_DLPSET			0x02
@@ -362,6 +391,7 @@
 #define PESDRn_RCSSET			0x04
 #define PESDRn_RCSSTS			0x05
 
+/* 440spe only */
 #define PESDRn_440SPE_HSSL0SET1		0x06
 #define PESDRn_440SPE_HSSL0SET2		0x07
 #define PESDRn_440SPE_HSSL0STS		0x08
@@ -375,6 +405,7 @@
 #define PESDRn_440SPE_HSSL3SET2		0x10
 #define PESDRn_440SPE_HSSL3STS		0x11
 
+/* 440spe port 0 only */
 #define PESDRn_440SPE_HSSL4SET1		0x12
 #define PESDRn_440SPE_HSSL4SET2		0x13
 #define PESDRn_440SPE_HSSL4STS	       	0x14
@@ -388,10 +419,14 @@
 #define PESDRn_440SPE_HSSL7SET2		0x1c
 #define PESDRn_440SPE_HSSL7STS		0x1d
 
+/* 405ex only */
 #define PESDRn_405EX_PHYSET1		0x06
 #define PESDRn_405EX_PHYSET2		0x07
 #define PESDRn_405EX_PHYSTA		0x0c
 
+/*
+ * UTL register offsets
+ */
 #define PEUTL_PBCTL		0x00
 #define PEUTL_PBBSZ		0x20
 #define PEUTL_OPDBSZ		0x68
@@ -403,6 +438,9 @@
 #define PEUTL_RCSTA		0xB0
 #define PEUTL_RCIRQEN		0xb8
 
+/*
+ * Config space register offsets
+ */
 #define PECFG_ECRTCTL		0x074
 
 #define PECFG_BAR0LMPA		0x210
@@ -426,8 +464,10 @@
 #define PECFG_POM2LAL		0x390
 #define PECFG_POM2LAH		0x394
 
+/* 460sx only */
 #define PECFG_460SX_DLLSTA     0x3f8
 
+/* 460sx Bit Mappings */
 #define PECFG_460SX_DLLSTA_LINKUP	 0x00000010
 #define DCRO_PEGPL_460SX_OMR1MSKL_UOT	 0x00000004
 
@@ -436,12 +476,14 @@
 #define DCRO_PEGPL_OMR1MSKL_UOT	 0x00000002
 #define DCRO_PEGPL_OMR3MSKL_IO	 0x00000002
 
+/* 476FPE */
 #define PCCFG_LCPA			0x270
 #define PECFG_TLDLP			0x3F8
 #define PECFG_TLDLP_LNKUP		0x00000008
 #define PECFG_TLDLP_PRESENT		0x00000010
 #define DCRO_PEGPL_476FPE_OMR1MSKL_UOT	 0x00000004
 
+/* SDR Bit Mappings */
 #define PESDRx_RCSSET_HLDPLB	0x10000000
 #define PESDRx_RCSSET_RSTGU	0x01000000
 #define PESDRx_RCSSET_RDY       0x00100000
@@ -460,4 +502,4 @@ enum
 };
 
 
-#endif 
+#endif /* __PPC4XX_PCI_H__ */

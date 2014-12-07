@@ -39,8 +39,10 @@
 #ifndef __CARL9170_SHARED_HW_H
 #define __CARL9170_SHARED_HW_H
 
+/* High Speed UART */
 #define	AR9170_UART_REG_BASE			0x1c0000
 
+/* Definitions of interrupt registers */
 #define	AR9170_UART_REG_RX_BUFFER		(AR9170_UART_REG_BASE + 0x000)
 #define	AR9170_UART_REG_TX_HOLDING		(AR9170_UART_REG_BASE + 0x004)
 #define	AR9170_UART_REG_FIFO_CONTROL		(AR9170_UART_REG_BASE + 0x010)
@@ -78,6 +80,7 @@
 #define	AR9170_UART_REG_FIFO_COUNT		(AR9170_UART_REG_BASE + 0x03c)
 #define	AR9170_UART_REG_REMAINDER		(AR9170_UART_REG_BASE + 0x04c)
 
+/* Timer */
 #define	AR9170_TIMER_REG_BASE			0x1c1000
 
 #define	AR9170_TIMER_REG_WATCH_DOG		(AR9170_TIMER_REG_BASE + 0x000)
@@ -429,6 +432,7 @@
 
 #define	AR9170_MAC_REG_DMA_TXQX_ADDR_CURR	(AR9170_MAC_REG_BASE + 0xdc0)
 
+/* Random number generator */
 #define	AR9170_RAND_REG_BASE			0x1d0000
 
 #define	AR9170_RAND_REG_NUM			(AR9170_RAND_REG_BASE + 0x000)
@@ -436,13 +440,16 @@
 #define		AR9170_RAND_MODE_MANUAL			0x000
 #define		AR9170_RAND_MODE_FREE			0x001
 
+/* GPIO */
 #define	AR9170_GPIO_REG_BASE			0x1d0100
 #define	AR9170_GPIO_REG_PORT_TYPE		(AR9170_GPIO_REG_BASE + 0x000)
 #define	AR9170_GPIO_REG_PORT_DATA		(AR9170_GPIO_REG_BASE + 0x004)
 #define		AR9170_GPIO_PORT_LED_0			1
 #define		AR9170_GPIO_PORT_LED_1			2
+/* WPS Button GPIO for TP-Link TL-WN821N */
 #define		AR9170_GPIO_PORT_WPS_BUTTON_PRESSED	4
 
+/* Memory Controller */
 #define	AR9170_MC_REG_BASE			0x1d1000
 
 #define	AR9170_MC_REG_FLASH_WAIT_STATE		(AR9170_MC_REG_BASE + 0x000)
@@ -450,12 +457,14 @@
 #define	AR9170_MC_REG_SEEPROM_WP1		(AR9170_MC_REG_BASE + 0x404)
 #define	AR9170_MC_REG_SEEPROM_WP2		(AR9170_MC_REG_BASE + 0x408)
 
+/* Interrupt Controller */
 #define	AR9170_MAX_INT_SRC			9
 #define	AR9170_INT_REG_BASE			0x1d2000
 
 #define	AR9170_INT_REG_FLAG			(AR9170_INT_REG_BASE + 0x000)
 #define	AR9170_INT_REG_FIQ_MASK			(AR9170_INT_REG_BASE + 0x004)
 #define	AR9170_INT_REG_IRQ_MASK			(AR9170_INT_REG_BASE + 0x008)
+/* INT_REG_FLAG, INT_REG_FIQ_MASK and INT_REG_IRQ_MASK */
 #define		AR9170_INT_FLAG_WLAN			0x001
 #define		AR9170_INT_FLAG_PTAB_BIT		0x002
 #define		AR9170_INT_FLAG_SE_BIT			0x004
@@ -476,6 +485,7 @@
 #define	AR9170_INT_REG_FIQ_ENCODE		(AR9170_INT_REG_BASE + 0x020)
 #define	AR9170_INT_INT_IRQ_ENCODE		(AR9170_INT_REG_BASE + 0x024)
 
+/* Power Management */
 #define	AR9170_PWR_REG_BASE			0x1d4000
 
 #define AR9170_PWR_REG_POWER_STATE		(AR9170_PWR_REG_BASE + 0x000)
@@ -505,6 +515,7 @@
 #define		AR9170_PWR_PLL_ADDAC_DIV		0xffc
 #define	AR9170_PWR_REG_WATCH_DOG_MAGIC		(AR9170_PWR_REG_BASE + 0x020)
 
+/* Faraday USB Controller */
 #define	AR9170_USB_REG_BASE			0x1e1000
 
 #define	AR9170_USB_REG_MAIN_CTRL		(AR9170_USB_REG_BASE + 0x000)
@@ -544,8 +555,8 @@
 #define		AR9170_USB_INTR_SRC0_SETUP		BIT(0)
 #define		AR9170_USB_INTR_SRC0_IN			BIT(1)
 #define		AR9170_USB_INTR_SRC0_OUT		BIT(2)
-#define		AR9170_USB_INTR_SRC0_FAIL		BIT(3) 
-#define		AR9170_USB_INTR_SRC0_END		BIT(4) 
+#define		AR9170_USB_INTR_SRC0_FAIL		BIT(3) /* ??? */
+#define		AR9170_USB_INTR_SRC0_END		BIT(4) /* ??? */
 #define		AR9170_USB_INTR_SRC0_ABORT		BIT(7)
 
 #define	AR9170_USB_REG_INTR_SOURCE_1		(AR9170_USB_REG_BASE + 0x022)
@@ -646,6 +657,7 @@
 #define	AR9170_USB_REG_CBUS_CTRL		(AR9170_USB_REG_BASE + 0x1f0)
 #define		AR9170_USB_CBUS_CTRL_BUFFER_END		(BIT(1))
 
+/* PCI/USB to AHB Bridge */
 #define	AR9170_PTA_REG_BASE			0x1e2000
 
 #define	AR9170_PTA_REG_CMD			(AR9170_PTA_REG_BASE + 0x000)
@@ -666,6 +678,9 @@
 
 #define	AR9170_PTA_REG_SHARE_MEM_CTRL		(AR9170_PTA_REG_BASE + 0x124)
 
+/*
+ * PCI to AHB Bridge
+ */
 
 #define	AR9170_PTA_REG_INT_FLAG			(AR9170_PTA_REG_BASE + 0x100)
 #define		AR9170_PTA_INT_FLAG_DN			0x01
@@ -698,11 +713,13 @@
 #define		AR9170_PTA_DMA_MODE_CTRL_RESET		BIT(0)
 #define		AR9170_PTA_DMA_MODE_CTRL_DISABLE_USB	BIT(1)
 
+/* Protocol Controller Module */
 #define	AR9170_MAC_REG_PC_REG_BASE		(AR9170_MAC_REG_BASE + 0xe00)
 
 
 #define	AR9170_NUM_LEDS				2
 
+/* CAM */
 #define	AR9170_CAM_MAX_USER			64
 #define	AR9170_CAM_MAX_KEY_LENGTH		16
 
@@ -722,7 +739,15 @@ enum cpu_clock {
 	AHB_AMODE_80MHZ = 3
 };
 
+/* USB endpoints */
 enum ar9170_usb_ep {
+	/*
+	 * Control EP is always EP 0 (USB SPEC)
+	 *
+	 * The weird thing is: the original firmware has a few
+	 * comments that suggest that the actual EP numbers
+	 * are in the 1 to 10 range?!
+	 */
 	AR9170_USB_EP_CTRL		= 0,
 
 	AR9170_USB_EP_TX,
@@ -747,7 +772,7 @@ enum ar9170_tx_queues {
 	AR9170_TXQ3,
 	AR9170_TXQ_SPECIAL,
 
-	
+	/* keep last */
 	__AR9170_NUM_TX_QUEUES = 5
 };
 
@@ -772,6 +797,7 @@ struct ar9170_stream {
 #define	AR9170_USB_EP_IRQ_MAX				64
 #define	AR9170_USB_EP_CMD_MAX				64
 
+/* Trigger PRETBTT interrupt 6 Kus earlier */
 #define CARL9170_PRETBTT_KUS				6
 
 #define	AR5416_MAX_RATE_POWER				63
@@ -788,4 +814,4 @@ struct ar9170_stream {
 #define GET_VAL(reg, value)						\
 	(((value) & reg) >> reg##_S)
 
-#endif	
+#endif	/* __CARL9170_SHARED_HW_H */

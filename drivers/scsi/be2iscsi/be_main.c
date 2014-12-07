@@ -81,14 +81,14 @@ static int beiscsi_eh_abort(struct scsi_cmnd *sc)
 
 	spin_lock_bh(&session->lock);
 	if (!aborted_task || !aborted_task->sc) {
-		
+		/* we raced */
 		spin_unlock_bh(&session->lock);
 		return SUCCESS;
 	}
 
 	aborted_io_task = aborted_task->dd_data;
 	if (!aborted_io_task->scsi_cmnd) {
-		
+		/* raced or invalid command */
 		spin_unlock_bh(&session->lock);
 		return SUCCESS;
 	}
@@ -97,7 +97,7 @@ static int beiscsi_eh_abort(struct scsi_cmnd *sc)
 	beiscsi_conn = conn->dd_data;
 	phba = beiscsi_conn->phba;
 
-	
+	/* invalidate iocb */
 	cid = beiscsi_conn->beiscsi_conn_cid;
 	inv_tbl = phba->inv_tbl;
 	memset(inv_tbl, 0x0, sizeof(*inv_tbl));
@@ -149,7 +149,7 @@ static int beiscsi_eh_device_reset(struct scsi_cmnd *sc)
 	unsigned int cid, tag, i, num_invalidate;
 	int rc = FAILED;
 
-	
+	/* invalidate iocbs */
 	cls_session = starget_to_session(scsi_target(sc->device));
 	session = cls_session->dd_data;
 	spin_lock_bh(&session->lock);
@@ -381,6 +381,7 @@ static umode_t beiscsi_eth_get_attr_visibility(void *data, int type)
 	return rc;
 }
 
+/*------------------- PCI Driver operations and data ----------------- */
 static DEFINE_PCI_DEVICE_TABLE(beiscsi_pci_id_table) = {
 	{ PCI_DEVICE(BE_VENDOR_ID, BE_DEVICE_ID1) },
 	{ PCI_DEVICE(BE_VENDOR_ID, BE_DEVICE_ID2) },
@@ -601,6 +602,11 @@ static void hwi_ring_eq_db(struct beiscsi_hba *phba,
 	iowrite32(val, phba->db_va + DB_EQ_OFFSET);
 }
 
+/**
+ * be_isr_mcc - The isr routine of the driver.
+ * @irq: Not used
+ * @dev_id: Pointer to host adapter structure
+ */
 static irqreturn_t be_isr_mcc(int irq, void *dev_id)
 {
 	struct beiscsi_hba *phba;
@@ -643,6 +649,11 @@ static irqreturn_t be_isr_mcc(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/**
+ * be_isr_msix - The isr routine of the driver.
+ * @irq: Not used
+ * @dev_id: Pointer to host adapter structure
+ */
 static irqreturn_t be_isr_msix(int irq, void *dev_id)
 {
 	struct beiscsi_hba *phba;
@@ -698,6 +709,11 @@ static irqreturn_t be_isr_msix(int irq, void *dev_id)
 	}
 }
 
+/**
+ * be_isr - The isr routine of the driver.
+ * @irq: Not used
+ * @dev_id: Pointer to host adapter structure
+ */
 static irqreturn_t be_isr(int irq, void *dev_id)
 {
 	struct beiscsi_hba *phba;
@@ -959,6 +975,10 @@ free_io_sgl_handle(struct beiscsi_hba *phba, struct sgl_handle *psgl_handle)
 	SE_DEBUG(DBG_LVL_8, "In free_,io_sgl_free_index=%d\n",
 		 phba->io_sgl_free_index);
 	if (phba->io_sgl_hndl_base[phba->io_sgl_free_index]) {
+		/*
+		 * this can happen if clean_task is called on a task that
+		 * failed in xmit_task or alloc_pdu.
+		 */
 		 SE_DEBUG(DBG_LVL_8,
 			 "Double Free in IO SGL io_sgl_free_index=%d,"
 			 "value there=%p\n", phba->io_sgl_free_index,
@@ -973,6 +993,13 @@ free_io_sgl_handle(struct beiscsi_hba *phba, struct sgl_handle *psgl_handle)
 		phba->io_sgl_free_index++;
 }
 
+/**
+ * alloc_wrb_handle - To allocate a wrb handle
+ * @phba: The hba pointer
+ * @cid: The cid to use for allocation
+ *
+ * This happens under session_lock until submission to chip
+ */
 struct wrb_handle *alloc_wrb_handle(struct beiscsi_hba *phba, unsigned int cid)
 {
 	struct hwi_wrb_context *pwrb_context;
@@ -998,6 +1025,14 @@ struct wrb_handle *alloc_wrb_handle(struct beiscsi_hba *phba, unsigned int cid)
 	return pwrb_handle;
 }
 
+/**
+ * free_wrb_handle - To free the wrb handle back to pool
+ * @phba: The hba pointer
+ * @pwrb_context: The context to free from
+ * @pwrb_handle: The wrb_handle to free
+ *
+ * This happens under session_lock until submission to chip
+ */
 static void
 free_wrb_handle(struct beiscsi_hba *phba, struct hwi_wrb_context *pwrb_context,
 		struct wrb_handle *pwrb_handle)
@@ -1044,6 +1079,10 @@ free_mgmt_sgl_handle(struct beiscsi_hba *phba, struct sgl_handle *psgl_handle)
 	SE_DEBUG(DBG_LVL_8, "In  free_mgmt_sgl_handle,eh_sgl_free_index=%d\n",
 			     phba->eh_sgl_free_index);
 	if (phba->eh_sgl_hndl_base[phba->eh_sgl_free_index]) {
+		/*
+		 * this can happen if clean_task is called on a task that
+		 * failed in xmit_task or alloc_pdu.
+		 */
 		SE_DEBUG(DBG_LVL_8,
 			 "Double Free in eh SGL ,eh_sgl_free_index=%d\n",
 			 phba->eh_sgl_free_index);
@@ -1096,7 +1135,7 @@ be_complete_io(struct beiscsi_conn *beiscsi_conn,
 		goto unmap;
 	}
 
-	
+	/* bidi not initially supported */
 	if (flags & (ISCSI_FLAG_CMD_UNDERFLOW | ISCSI_FLAG_CMD_OVERFLOW)) {
 		resid = (psol->dw[offsetof(struct amap_sol_cqe, i_res_cnt) /
 				32] & SOL_RES_CNT_MASK);
@@ -1753,9 +1792,9 @@ static void  beiscsi_process_mcc_isr(struct beiscsi_hba *phba)
 			num_processed = 0;
 		}
 		if (mcc_compl->flags & CQE_FLAGS_ASYNC_MASK) {
-			
+			/* Interpret flags as an async trailer */
 			if (is_link_state_evt(mcc_compl->flags))
-				
+				/* Interpret compl as a async link evt */
 				beiscsi_async_link_state_process(phba,
 				(struct be_async_event_link_state *) mcc_compl);
 			else
@@ -3052,12 +3091,12 @@ static int be_mcc_queues_create(struct beiscsi_hba *phba,
 	struct be_queue_info *q, *cq;
 	struct be_ctrl_info *ctrl = &phba->ctrl;
 
-	
+	/* Alloc MCC compl queue */
 	cq = &phba->ctrl.mcc_obj.cq;
 	if (be_queue_alloc(phba, cq, MCC_CQ_LEN,
 			sizeof(struct be_mcc_compl)))
 		goto err;
-	
+	/* Ask BE to create MCC compl queue; */
 	if (phba->msix_enabled) {
 		if (beiscsi_cmd_cq_create(ctrl, cq, &phwi_context->be_eq
 					 [phba->num_cpus].q, false, true, 0))
@@ -3068,12 +3107,12 @@ static int be_mcc_queues_create(struct beiscsi_hba *phba,
 		goto mcc_cq_free;
 	}
 
-	
+	/* Alloc MCC queue */
 	q = &phba->ctrl.mcc_obj.q;
 	if (be_queue_alloc(phba, q, MCC_Q_LEN, sizeof(struct be_mcc_wrb)))
 		goto mcc_cq_destroy;
 
-	
+	/* Ask BE to create MCC queue */
 	if (beiscsi_cmd_mccq_create(phba, q, cq))
 		goto mcc_q_free;
 
@@ -3528,16 +3567,16 @@ static int beiscsi_setup_boot_info(struct beiscsi_hba *phba)
 {
 	struct iscsi_boot_kobj *boot_kobj;
 
-	
+	/* get boot info using mgmt cmd */
 	if (beiscsi_get_boot_info(phba))
-		
+		/* Try to see if we can carry on without this */
 		return 0;
 
 	phba->boot_kset = iscsi_boot_create_host_kset(phba->shost->host_no);
 	if (!phba->boot_kset)
 		return -ENOMEM;
 
-	
+	/* get a ref because the show function will ref the phba */
 	if (!scsi_host_get(phba->shost))
 		goto free_kset;
 	boot_kobj = iscsi_boot_create_target(phba->boot_kset, 0, phba,
@@ -3667,6 +3706,10 @@ beiscsi_offload_connection(struct beiscsi_conn *beiscsi_conn,
 	struct beiscsi_hba *phba = beiscsi_conn->phba;
 	u32 doorbell = 0;
 
+	/*
+	 * We can always use 0 here because it is reserved by libiscsi for
+	 * login/startup related tasks.
+	 */
 	pwrb_handle = alloc_wrb_handle(phba, (beiscsi_conn->beiscsi_conn_cid -
 				       phba->fw_config.iscsi_cid_start));
 	pwrb = (struct iscsi_target_context_update_wrb *)pwrb_handle->pwrb;
@@ -3747,6 +3790,16 @@ static void beiscsi_parse_pdu(struct iscsi_conn *conn, itt_t itt,
 		*age = conn->session->age;
 }
 
+/**
+ * beiscsi_alloc_pdu - allocates pdu and related resources
+ * @task: libiscsi task
+ * @opcode: opcode of pdu for task
+ *
+ * This is called with the session lock held. It will allocate
+ * the wrb and sgl if needed for the command. And it will prep
+ * the pdu's itt. beiscsi_parse_pdu will later translate
+ * the pdu itt to the libiscsi task itt.
+ */
 static int beiscsi_alloc_pdu(struct iscsi_task *task, uint8_t opcode)
 {
 	struct beiscsi_io_task *io_task = task->dd_data;
@@ -4308,6 +4361,10 @@ static int __devinit beiscsi_dev_probe(struct pci_dev *pcidev,
 	hwi_enable_intr(phba);
 
 	if (beiscsi_setup_boot_info(phba))
+		/*
+		 * log error but continue, because we may not be using
+		 * iscsi boot.
+		 */
 		shost_printk(KERN_ERR, phba->shost, "Could not set up "
 			     "iSCSI boot info.");
 

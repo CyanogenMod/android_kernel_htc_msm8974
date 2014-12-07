@@ -90,4 +90,4 @@ void nv50_evo_dmaobj_init(struct nouveau_gpuobj *, u32 memtype, u64 base,
 int  nv50_evo_dmaobj_new(struct nouveau_channel *, u32 handle, u32 memtype,
 			 u64 base, u64 size, struct nouveau_gpuobj **);
 
-#endif 
+#endif /* __NV50_DISPLAY_H__ */

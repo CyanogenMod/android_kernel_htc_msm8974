@@ -14,6 +14,11 @@
 
 #include <asm/reboot.h>
 
+/*
+ * Urgs ...  Too many MIPS machines to handle this in a generic way.
+ * So handle all using function pointers to machine specific
+ * functions.
+ */
 void (*_machine_restart)(char *command);
 void (*_machine_halt)(void);
 void (*pm_power_off)(void);

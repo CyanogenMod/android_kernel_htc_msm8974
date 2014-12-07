@@ -51,5 +51,5 @@ void sms_ir_exit(struct smscore_device_t *coredev);
 void sms_ir_event(struct smscore_device_t *coredev,
 			const char *buf, int len);
 
-#endif 
+#endif /* __SMS_IR_H__ */
 

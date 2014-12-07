@@ -10,6 +10,7 @@ int snd_fw_transaction(struct fw_unit *unit, int tcode,
 		       u64 offset, void *buffer, size_t length);
 const char *rcode_string(unsigned int rcode);
 
+/* returns true if retrying the transaction would not make sense */
 static inline bool rcode_is_permanent_error(int rcode)
 {
 	return rcode == RCODE_TYPE_ERROR || rcode == RCODE_ADDRESS_ERROR;

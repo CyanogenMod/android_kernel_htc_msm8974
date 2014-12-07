@@ -25,6 +25,21 @@
 #define RPM_VREG_PIN_CTRL_PM8901_D1	0x08
 
 
+/**
+ * enum rpm_vreg_pin_fn_8660 - RPM regulator pin function choices
+ * %RPM_VREG_PIN_FN_8660_ENABLE:	pin control switches between disable and
+ *					enable
+ * %RPM_VREG_PIN_FN_8660_MODE:		pin control switches between LPM and HPM
+ * %RPM_VREG_PIN_FN_8660_SLEEP_B:	regulator is forced into LPM when
+ *					sleep_b signal is asserted
+ * %RPM_VREG_PIN_FN_8660_NONE:		do not use pin control for the regulator
+ *					and do not allow another master to
+ *					request pin control
+ *
+ * The pin function specified in platform data corresponds to the active state
+ * pin function value.  Pin function will be NONE until a consumer requests
+ * pin control to be enabled.
+ */
 enum rpm_vreg_pin_fn_8660 {
 	RPM_VREG_PIN_FN_8660_ENABLE = 0,
 	RPM_VREG_PIN_FN_8660_MODE,
@@ -32,6 +47,16 @@ enum rpm_vreg_pin_fn_8660 {
 	RPM_VREG_PIN_FN_8660_NONE,
 };
 
+/**
+ * enum rpm_vreg_force_mode_8660 - RPM regulator force mode choices
+ * %RPM_VREG_FORCE_MODE_8660_PIN_CTRL:	allow pin control usage
+ * %RPM_VREG_FORCE_MODE_8660_NONE:	do not force any mode
+ * %RPM_VREG_FORCE_MODE_8660_LPM:	force into low power mode
+ * %RPM_VREG_FORCE_MODE_8660_HPM:	force into high power mode
+ *
+ * Force mode is used to override aggregation with other masters and to set
+ * special operating modes.
+ */
 enum rpm_vreg_force_mode_8660 {
 	RPM_VREG_FORCE_MODE_8660_PIN_CTRL = 0,
 	RPM_VREG_FORCE_MODE_8660_NONE = 0,
@@ -93,7 +118,7 @@ enum rpm_vreg_id_8660 {
 	RPM_VREG_ID_PM8901_MVS0,
 	RPM_VREG_ID_8660_MAX_REAL = RPM_VREG_ID_PM8901_MVS0,
 
-	
+	/* The following are IDs for regulator devices to enable pin control. */
 	RPM_VREG_ID_PM8058_L0_PC,
 	RPM_VREG_ID_PM8058_L1_PC,
 	RPM_VREG_ID_PM8058_L2_PC,
@@ -148,6 +173,7 @@ enum rpm_vreg_id_8660 {
 	RPM_VREG_ID_8660_MAX = RPM_VREG_ID_PM8901_MVS0_PC,
 };
 
+/* Minimum high power mode loads in uA. */
 #define RPM_VREG_8660_LDO_50_HPM_MIN_LOAD	5000
 #define RPM_VREG_8660_LDO_150_HPM_MIN_LOAD	10000
 #define RPM_VREG_8660_LDO_300_HPM_MIN_LOAD	10000

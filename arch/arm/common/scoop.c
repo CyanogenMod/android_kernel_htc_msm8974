@@ -20,6 +20,15 @@
 #include <linux/io.h>
 #include <asm/hardware/scoop.h>
 
+/* PCMCIA to Scoop linkage
+
+   There is no easy way to link multiple scoop devices into one
+   single entity for the pxa2xx_pcmcia device so this structure
+   is used which is setup by the platform code.
+
+   This file is never modular so this symbol is always
+   accessile to the board support files.
+*/
 struct scoop_pcmcia_config *platform_scoop_config;
 EXPORT_SYMBOL(platform_scoop_config);
 
@@ -36,12 +45,12 @@ void reset_scoop(struct device *dev)
 {
 	struct scoop_dev *sdev = dev_get_drvdata(dev);
 
-	iowrite16(0x0100, sdev->base + SCOOP_MCR);  
-	iowrite16(0x0000, sdev->base + SCOOP_CDR);  
-	iowrite16(0x0000, sdev->base + SCOOP_CCR);  
-	iowrite16(0x0000, sdev->base + SCOOP_IMR);  
-	iowrite16(0x00FF, sdev->base + SCOOP_IRM);  
-	iowrite16(0x0000, sdev->base + SCOOP_ISR);  
+	iowrite16(0x0100, sdev->base + SCOOP_MCR);  /* 00 */
+	iowrite16(0x0000, sdev->base + SCOOP_CDR);  /* 04 */
+	iowrite16(0x0000, sdev->base + SCOOP_CCR);  /* 10 */
+	iowrite16(0x0000, sdev->base + SCOOP_IMR);  /* 18 */
+	iowrite16(0x00FF, sdev->base + SCOOP_IRM);  /* 14 */
+	iowrite16(0x0000, sdev->base + SCOOP_ISR);  /* 1C */
 	iowrite16(0x0000, sdev->base + SCOOP_IRM);
 }
 
@@ -74,7 +83,7 @@ static int scoop_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	struct scoop_dev *sdev = container_of(chip, struct scoop_dev, gpio);
 
-	
+	/* XXX: I'm unsure, but it seems so */
 	return ioread16(sdev->base + SCOOP_GPRR) & (1 << (offset + 1));
 }
 
@@ -210,7 +219,7 @@ static int __devinit scoop_probe(struct platform_device *pdev)
 	if (inf->gpio_base != 0) {
 		devptr->gpio.label = dev_name(&pdev->dev);
 		devptr->gpio.base = inf->gpio_base;
-		devptr->gpio.ngpio = 12; 
+		devptr->gpio.ngpio = 12; /* PA11 = 0, PA12 = 1, etc. up to PA22 = 11 */
 		devptr->gpio.set = scoop_gpio_set;
 		devptr->gpio.get = scoop_gpio_get;
 		devptr->gpio.direction_input = scoop_gpio_direction_input;

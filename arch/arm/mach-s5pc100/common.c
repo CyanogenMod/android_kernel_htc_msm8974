@@ -64,6 +64,7 @@ static struct cpu_table cpu_ids[] __initdata = {
 	},
 };
 
+/* Initial IO mappings */
 
 static struct map_desc s5pc100_iodesc[] __initdata = {
 	{
@@ -129,15 +130,20 @@ static struct map_desc s5pc100_iodesc[] __initdata = {
 	}
 };
 
+/*
+ * s5pc100_map_io
+ *
+ * register the standard CPU IO areas
+ */
 
 void __init s5pc100_init_io(struct map_desc *mach_desc, int size)
 {
-	
+	/* initialize the io descriptors we need for initialization */
 	iotable_init(s5pc100_iodesc, ARRAY_SIZE(s5pc100_iodesc));
 	if (mach_desc)
 		iotable_init(mach_desc, size);
 
-	
+	/* detect cpu id and rev. */
 	s5p_init_cpu(S5P_VA_CHIPID);
 
 	s3c_init_cpu(samsung_cpu_id, cpu_ids, ARRAY_SIZE(cpu_ids));
@@ -145,14 +151,14 @@ void __init s5pc100_init_io(struct map_desc *mach_desc, int size)
 
 void __init s5pc100_map_io(void)
 {
-	
+	/* initialise device information early */
 	s5pc100_default_sdhci0();
 	s5pc100_default_sdhci1();
 	s5pc100_default_sdhci2();
 
 	s3c_adc_setname("s3c64xx-adc");
 
-	
+	/* the i2c devices are directly compatible with s3c2440 */
 	s3c_i2c0_setname("s3c2440-i2c");
 	s3c_i2c1_setname("s3c2440-i2c");
 
@@ -175,7 +181,7 @@ void __init s5pc100_init_irq(void)
 {
 	u32 vic[] = {~0, ~0, ~0};
 
-	
+	/* VIC0, VIC1, and VIC2 are fully populated. */
 	s5p_init_irq(vic, ARRAY_SIZE(vic));
 }
 
@@ -200,6 +206,7 @@ int __init s5pc100_init(void)
 	return device_register(&s5pc100_dev);
 }
 
+/* uart registration process */
 
 void __init s5pc100_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {

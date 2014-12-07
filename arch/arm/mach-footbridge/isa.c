@@ -85,7 +85,7 @@ static int __init footbridge_isa_init(void)
 	if (!footbridge_cfn_mode())
 		return 0;
 
-	
+	/* Personal server doesn't have RTC */
 	if (!machine_is_personal_server()) {
 		isa_rtc_init();
 		err = platform_device_register(&rtc_device);

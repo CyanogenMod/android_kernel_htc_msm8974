@@ -23,9 +23,9 @@ static int ehci_update_device(struct usb_hcd *hcd, struct usb_device *udev)
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
 	int rc = 0;
 
-	if (!udev->parent) 
+	if (!udev->parent) /* udev is root hub itself, impossible */
 		rc = -1;
-	
+	/* we only support lpm device connected to root hub yet */
 	if (ehci->has_lpm && !udev->parent->parent) {
 		rc = ehci_lpm_set_da(ehci, udev->devnum, udev->portnum);
 		if (!rc)
@@ -39,21 +39,36 @@ static const struct hc_driver vt8500_ehci_hc_driver = {
 	.product_desc		= "VT8500 EHCI",
 	.hcd_priv_size		= sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq			= ehci_irq,
 	.flags			= HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset			= ehci_init,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 	.bus_suspend		= ehci_bus_suspend,
@@ -61,6 +76,9 @@ static const struct hc_driver vt8500_ehci_hc_driver = {
 	.relinquish_port	= ehci_relinquish_port,
 	.port_handed_over	= ehci_port_handed_over,
 
+	/*
+	 * call back when device connected and addressed
+	 */
 	.update_device =	ehci_update_device,
 
 	.clear_tt_buffer_complete	= ehci_clear_tt_buffer_complete,
@@ -109,7 +127,7 @@ static int vt8500_ehci_drv_probe(struct platform_device *pdev)
 	dbg_hcs_params(ehci, "reset");
 	dbg_hcc_params(ehci, "reset");
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = readl(&ehci->caps->hcs_params);
 
 	ehci_port_power(ehci, 1);

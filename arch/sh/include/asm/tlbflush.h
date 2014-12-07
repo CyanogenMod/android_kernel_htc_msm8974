@@ -1,6 +1,15 @@
 #ifndef __ASM_SH_TLBFLUSH_H
 #define __ASM_SH_TLBFLUSH_H
 
+/*
+ * TLB flushing:
+ *
+ *  - flush_tlb_all() flushes all processes TLBs
+ *  - flush_tlb_mm(mm) flushes the specified mm context TLB's
+ *  - flush_tlb_page(vma, vmaddr) flushes one page
+ *  - flush_tlb_range(vma, start, end) flushes a range of pages
+ *  - flush_tlb_kernel_range(start, end) flushes a range of kernel pages
+ */
 extern void local_flush_tlb_all(void);
 extern void local_flush_tlb_mm(struct mm_struct *mm);
 extern void local_flush_tlb_range(struct vm_area_struct *vma,
@@ -37,6 +46,6 @@ extern void flush_tlb_one(unsigned long asid, unsigned long page);
 #define flush_tlb_kernel_range(start, end)	\
 	local_flush_tlb_kernel_range(start, end)
 
-#endif 
+#endif /* CONFIG_SMP */
 
-#endif 
+#endif /* __ASM_SH_TLBFLUSH_H */

@@ -14,4 +14,4 @@
 #ifndef __PLAT_HARDWARE_H
 #define __PLAT_HARDWARE_H
 
-#endif 
+#endif /* __PLAT_HARDWARE_H */

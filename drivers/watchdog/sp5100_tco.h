@@ -6,10 +6,13 @@
  *	TCO timer driver for sp5100 chipsets
  */
 
+/*
+ * Some address definitions for the Watchdog
+ */
 
 #define SP5100_WDT_MEM_MAP_SIZE		0x08
-#define SP5100_WDT_CONTROL(base)	((base) + 0x00) 
-#define SP5100_WDT_COUNT(base)		((base) + 0x04) 
+#define SP5100_WDT_CONTROL(base)	((base) + 0x00) /* Watchdog Control */
+#define SP5100_WDT_COUNT(base)		((base) + 0x04) /* Watchdog Count */
 
 #define SP5100_WDT_START_STOP_BIT	1
 #define SP5100_WDT_TRIGGER_BIT		(1 << 7)
@@ -19,6 +22,9 @@
 
 #define SP5100_PM_IOPORTS_SIZE		0x02
 
+/* These two IO registers are hardcoded and there doesn't seem to be a way to
+ * read them from a register.
+ */
 #define SP5100_IO_PM_INDEX_REG		0xCD6
 #define SP5100_IO_PM_DATA_REG		0xCD7
 

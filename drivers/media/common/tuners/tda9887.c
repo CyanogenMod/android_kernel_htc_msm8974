@@ -12,6 +12,13 @@
 #include "tda9887.h"
 
 
+/* Chips:
+   TDA9885 (PAL, NTSC)
+   TDA9886 (PAL, SECAM, NTSC)
+   TDA9887 (PAL, SECAM, NTSC, FM Radio)
+
+   Used as part of several tuners
+*/
 
 static int debug;
 module_param(debug, int, 0644);
@@ -33,6 +40,7 @@ struct tda9887_priv {
 	bool               standby;
 };
 
+/* ---------------------------------------------------------------------- */
 
 #define UNSET       (-1U)
 
@@ -44,75 +52,86 @@ struct tvnorm {
 	unsigned char     e;
 };
 
+/* ---------------------------------------------------------------------- */
+
+//
+// TDA defines
+//
+
+//// first reg (b)
+#define cVideoTrapBypassOFF     0x00    // bit b0
+#define cVideoTrapBypassON      0x01    // bit b0
+
+#define cAutoMuteFmInactive     0x00    // bit b1
+#define cAutoMuteFmActive       0x02    // bit b1
+
+#define cIntercarrier           0x00    // bit b2
+#define cQSS                    0x04    // bit b2
+
+#define cPositiveAmTV           0x00    // bit b3:4
+#define cFmRadio                0x08    // bit b3:4
+#define cNegativeFmTV           0x10    // bit b3:4
 
 
-#define cVideoTrapBypassOFF     0x00    
-#define cVideoTrapBypassON      0x01    
+#define cForcedMuteAudioON      0x20    // bit b5
+#define cForcedMuteAudioOFF     0x00    // bit b5
 
-#define cAutoMuteFmInactive     0x00    
-#define cAutoMuteFmActive       0x02    
+#define cOutputPort1Active      0x00    // bit b6
+#define cOutputPort1Inactive    0x40    // bit b6
 
-#define cIntercarrier           0x00    
-#define cQSS                    0x04    
-
-#define cPositiveAmTV           0x00    
-#define cFmRadio                0x08    
-#define cNegativeFmTV           0x10    
+#define cOutputPort2Active      0x00    // bit b7
+#define cOutputPort2Inactive    0x80    // bit b7
 
 
-#define cForcedMuteAudioON      0x20    
-#define cForcedMuteAudioOFF     0x00    
+//// second reg (c)
+#define cDeemphasisOFF          0x00    // bit c5
+#define cDeemphasisON           0x20    // bit c5
 
-#define cOutputPort1Active      0x00    
-#define cOutputPort1Inactive    0x40    
+#define cDeemphasis75           0x00    // bit c6
+#define cDeemphasis50           0x40    // bit c6
 
-#define cOutputPort2Active      0x00    
-#define cOutputPort2Inactive    0x80    
+#define cAudioGain0             0x00    // bit c7
+#define cAudioGain6             0x80    // bit c7
 
+#define cTopMask                0x1f    // bit c0:4
+#define cTopDefault		0x10 	// bit c0:4
 
-#define cDeemphasisOFF          0x00    
-#define cDeemphasisON           0x20    
-
-#define cDeemphasis75           0x00    
-#define cDeemphasis50           0x40    
-
-#define cAudioGain0             0x00    
-#define cAudioGain6             0x80    
-
-#define cTopMask                0x1f    
-#define cTopDefault		0x10 	
-
-#define cAudioIF_4_5             0x00    
-#define cAudioIF_5_5             0x01    
-#define cAudioIF_6_0             0x02    
-#define cAudioIF_6_5             0x03    
+//// third reg (e)
+#define cAudioIF_4_5             0x00    // bit e0:1
+#define cAudioIF_5_5             0x01    // bit e0:1
+#define cAudioIF_6_0             0x02    // bit e0:1
+#define cAudioIF_6_5             0x03    // bit e0:1
 
 
-#define cVideoIFMask		0x1c	
-#define cVideoIF_58_75           0x00    
-#define cVideoIF_45_75           0x04    
-#define cVideoIF_38_90           0x08    
-#define cVideoIF_38_00           0x0C    
-#define cVideoIF_33_90           0x10    
-#define cVideoIF_33_40           0x14    
-#define cRadioIF_45_75           0x18    
-#define cRadioIF_38_90           0x1C    
+#define cVideoIFMask		0x1c	// bit e2:4
+/* Video IF selection in TV Mode (bit B3=0) */
+#define cVideoIF_58_75           0x00    // bit e2:4
+#define cVideoIF_45_75           0x04    // bit e2:4
+#define cVideoIF_38_90           0x08    // bit e2:4
+#define cVideoIF_38_00           0x0C    // bit e2:4
+#define cVideoIF_33_90           0x10    // bit e2:4
+#define cVideoIF_33_40           0x14    // bit e2:4
+#define cRadioIF_45_75           0x18    // bit e2:4
+#define cRadioIF_38_90           0x1C    // bit e2:4
 
-#define cRadioIF_33_30		0x00	
-#define cRadioIF_41_30		0x04	
+/* IF1 selection in Radio Mode (bit B3=1) */
+#define cRadioIF_33_30		0x00	// bit e2,4 (also 0x10,0x14)
+#define cRadioIF_41_30		0x04	// bit e2,4
 
-#define cRadioAGC_SIF		0x00	
-#define cRadioAGC_FM		0x08	
+/* Output of AFC pin in radio mode when bit E7=1 */
+#define cRadioAGC_SIF		0x00	// bit e3
+#define cRadioAGC_FM		0x08	// bit e3
 
-#define cTunerGainNormal         0x00    
-#define cTunerGainLow            0x20    
+#define cTunerGainNormal         0x00    // bit e5
+#define cTunerGainLow            0x20    // bit e5
 
-#define cGating_18               0x00    
-#define cGating_36               0x40    
+#define cGating_18               0x00    // bit e6
+#define cGating_36               0x40    // bit e6
 
-#define cAgcOutON                0x80    
-#define cAgcOutOFF               0x00    
+#define cAgcOutON                0x80    // bit e7
+#define cAgcOutOFF               0x00    // bit e7
 
+/* ---------------------------------------------------------------------- */
 
 static struct tvnorm tvnorms[] = {
 	{
@@ -246,6 +265,7 @@ static struct tvnorm radio_mono = {
 		  cRadioIF_38_90 ),
 };
 
+/* ---------------------------------------------------------------------- */
 
 static void dump_read_message(struct dvb_frontend *fe, unsigned char *buf)
 {
@@ -350,7 +370,7 @@ static void dump_write_message(struct dvb_frontend *fe, unsigned char *buf)
 		   (buf[3] & 0x40) ? "36" : "13");
 
 	if (buf[1] & 0x08) {
-		
+		/* radio */
 		tuner_info("  E2-4 video if        : %s\n",
 			   rif[(buf[3] & 0x0c) >> 2]);
 		tuner_info("  E7   vif agc output  : %s\n",
@@ -359,7 +379,7 @@ static void dump_write_message(struct dvb_frontend *fe, unsigned char *buf)
 						"sif-agc radio")
 			   : "fm radio carrier afc");
 	} else {
-		
+		/* video */
 		tuner_info("  E2-4 video if        : %s\n",
 			   vif[(buf[3] & 0x1c) >> 2]);
 		tuner_info("  E5   tuner gain      : %s\n",
@@ -375,6 +395,7 @@ static void dump_write_message(struct dvb_frontend *fe, unsigned char *buf)
 	tuner_info("--\n");
 }
 
+/* ---------------------------------------------------------------------- */
 
 static int tda9887_set_tvnorm(struct dvb_frontend *fe)
 {
@@ -507,6 +528,7 @@ static int tda9887_do_config(struct dvb_frontend *fe)
 	return 0;
 }
 
+/* ---------------------------------------------------------------------- */
 
 static int tda9887_status(struct dvb_frontend *fe)
 {
@@ -529,6 +551,19 @@ static void tda9887_configure(struct dvb_frontend *fe)
 	memset(priv->data,0,sizeof(priv->data));
 	tda9887_set_tvnorm(fe);
 
+	/* A note on the port settings:
+	   These settings tend to depend on the specifics of the board.
+	   By default they are set to inactive (bit value 1) by this driver,
+	   overwriting any changes made by the tvnorm. This means that it
+	   is the responsibility of the module using the tda9887 to set
+	   these values in case of changes in the tvnorm.
+	   In many cases port 2 should be made active (0) when selecting
+	   SECAM-L, and port 2 should remain inactive (1) for SECAM-L'.
+
+	   For the other standards the tda9887 application note says that
+	   the ports should be set to active (0), but, again, that may
+	   differ depending on the precise hardware configuration.
+	 */
 	priv->data[1] |= cOutputPort1Inactive;
 	priv->data[1] |= cOutputPort2Inactive;
 
@@ -552,6 +587,7 @@ static void tda9887_configure(struct dvb_frontend *fe)
 	}
 }
 
+/* ---------------------------------------------------------------------- */
 
 static void tda9887_tuner_status(struct dvb_frontend *fe)
 {
@@ -672,3 +708,10 @@ EXPORT_SYMBOL_GPL(tda9887_attach);
 
 MODULE_LICENSE("GPL");
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

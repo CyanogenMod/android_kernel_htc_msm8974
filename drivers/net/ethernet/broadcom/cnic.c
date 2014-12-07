@@ -62,6 +62,7 @@ MODULE_DESCRIPTION("Broadcom NetXtreme II CNIC Driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(CNIC_MODULE_VERSION);
 
+/* cnic_dev_list modifications are protected by both rtnl and cnic_dev_lock */
 static LIST_HEAD(cnic_dev_list);
 static LIST_HEAD(cnic_udev_list);
 static DEFINE_RWLOCK(cnic_dev_lock);
@@ -69,6 +70,7 @@ static DEFINE_MUTEX(cnic_lock);
 
 static struct cnic_ulp_ops __rcu *cnic_ulp_tbl[MAX_CNIC_ULP_TYPE];
 
+/* helper function, assuming cnic_lock is held */
 static inline struct cnic_ulp_ops *cnic_ulp_tbl_prot(int type)
 {
 	return rcu_dereference_protected(cnic_ulp_tbl[type],
@@ -479,7 +481,7 @@ int cnic_register_driver(int ulp_type, struct cnic_ulp_ops *ulp_ops)
 	rcu_assign_pointer(cnic_ulp_tbl[ulp_type], ulp_ops);
 	mutex_unlock(&cnic_lock);
 
-	
+	/* Prevent race conditions with netdev_event */
 	rtnl_lock();
 	list_for_each_entry(dev, &cnic_dev_list, list) {
 		struct cnic_local *cp = dev->cnic_priv;
@@ -663,6 +665,7 @@ static int cnic_alloc_id(struct cnic_id_tbl *id_tbl, u32 id)
 	return ret;
 }
 
+/* Returns -1 if not successful */
 static u32 cnic_alloc_new_id(struct cnic_id_tbl *id_tbl)
 {
 	u32 id;
@@ -731,7 +734,7 @@ static void cnic_setup_page_tbl(struct cnic_dev *dev, struct cnic_dma *dma)
 	__le32 *page_table = (__le32 *) dma->pgtbl;
 
 	for (i = 0; i < dma->num_pages; i++) {
-		
+		/* Each entry needs to be in big endian format. */
 		*page_table = cpu_to_le32((u64) dma->pg_map_arr[i] >> 32);
 		page_table++;
 		*page_table = cpu_to_le32(dma->pg_map_arr[i] & 0xffffffff);
@@ -745,7 +748,7 @@ static void cnic_setup_page_tbl_le(struct cnic_dev *dev, struct cnic_dma *dma)
 	__le32 *page_table = (__le32 *) dma->pgtbl;
 
 	for (i = 0; i < dma->num_pages; i++) {
-		
+		/* Each entry needs to be in little endian format. */
 		*page_table = cpu_to_le32(dma->pg_map_arr[i] & 0xffffffff);
 		page_table++;
 		*page_table = cpu_to_le32((u64) dma->pg_map_arr[i] >> 32);
@@ -1291,7 +1294,7 @@ static int cnic_submit_bnx2_kwqes(struct cnic_dev *dev, struct kwqe *wqes[],
 	u16 prod, sw_prod, i;
 
 	if (!test_bit(CNIC_F_CNIC_UP, &dev->flags))
-		return -EAGAIN;		
+		return -EAGAIN;		/* bnx2 is down */
 
 	spin_lock_bh(&cp->cnic_ulp_lock);
 	if (num_wqes > cnic_kwq_avail(cp) &&
@@ -1400,7 +1403,7 @@ static int cnic_bnx2x_iscsi_init1(struct cnic_dev *dev, struct kwqe *kwqe)
 	if (!dev->max_iscsi_conn)
 		return 0;
 
-	
+	/* init Tstorm RAM */
 	CNIC_WR16(dev, BAR_TSTRORM_INTMEM + TSTORM_ISCSI_RQ_SIZE_OFFSET(pfid),
 		  req1->rq_num_wqes);
 	CNIC_WR16(dev, BAR_TSTRORM_INTMEM + TSTORM_ISCSI_PAGE_SIZE_OFFSET(pfid),
@@ -1411,7 +1414,7 @@ static int cnic_bnx2x_iscsi_init1(struct cnic_dev *dev, struct kwqe *kwqe)
 		  TSTORM_ISCSI_NUM_OF_TASKS_OFFSET(pfid),
 		  req1->num_tasks_per_conn);
 
-	
+	/* init Ustorm RAM */
 	CNIC_WR16(dev, BAR_USTRORM_INTMEM +
 		  USTORM_ISCSI_RQ_BUFFER_SIZE_OFFSET(pfid),
 		  req1->rq_buffer_size);
@@ -1429,7 +1432,7 @@ static int cnic_bnx2x_iscsi_init1(struct cnic_dev *dev, struct kwqe *kwqe)
 	CNIC_WR16(dev, BAR_USTRORM_INTMEM + USTORM_ISCSI_R2TQ_SIZE_OFFSET(pfid),
 		  cp->num_iscsi_tasks * BNX2X_ISCSI_MAX_PENDING_R2TS);
 
-	
+	/* init Xstorm RAM */
 	CNIC_WR16(dev, BAR_XSTRORM_INTMEM + XSTORM_ISCSI_PAGE_SIZE_OFFSET(pfid),
 		  PAGE_SIZE);
 	CNIC_WR8(dev, BAR_XSTRORM_INTMEM +
@@ -1444,7 +1447,7 @@ static int cnic_bnx2x_iscsi_init1(struct cnic_dev *dev, struct kwqe *kwqe)
 	CNIC_WR16(dev, BAR_XSTRORM_INTMEM + XSTORM_ISCSI_R2TQ_SIZE_OFFSET(pfid),
 		  cp->num_iscsi_tasks * BNX2X_ISCSI_MAX_PENDING_R2TS);
 
-	
+	/* init Cstorm RAM */
 	CNIC_WR16(dev, BAR_CSTRORM_INTMEM + CSTORM_ISCSI_PAGE_SIZE_OFFSET(pfid),
 		  PAGE_SIZE);
 	CNIC_WR8(dev, BAR_CSTRORM_INTMEM +
@@ -1680,7 +1683,7 @@ static int cnic_setup_bnx2x_ctx(struct cnic_dev *dev, struct kwqe *wqes[],
 		port << XSTORM_COMMON_CONTEXT_SECTION_PBF_PORT_SHIFT;
 
 	ictx->tstorm_st_context.iscsi.hdr_bytes_2_fetch = ISCSI_HEADER_SIZE;
-	
+	/* TSTORM requires the base address of RQ DB & not PTE */
 	ictx->tstorm_st_context.iscsi.rq_db_phy_addr.lo =
 		req2->rq_page_table_addr_lo & PAGE_MASK;
 	ictx->tstorm_st_context.iscsi.rq_db_phy_addr.hi =
@@ -1761,6 +1764,8 @@ static int cnic_setup_bnx2x_ctx(struct cnic_dev *dev, struct kwqe *wqes[],
 		iscsi->task_array_info.pgtbl_map & 0xffffffff;
 	ictx->cstorm_st_context.task_pbl_base.hi =
 		(u64) iscsi->task_array_info.pgtbl_map >> 32;
+	/* CSTORM and USTORM initialization is different, CSTORM requires
+	 * CQ DB base & not PTE addr */
 	ictx->cstorm_st_context.cq_db_base.lo =
 		req1->cq_page_table_addr_lo & PAGE_MASK;
 	ictx->cstorm_st_context.cq_db_base.hi = req1->cq_page_table_addr_hi;
@@ -2592,7 +2597,7 @@ static int cnic_submit_bnx2x_iscsi_kwqes(struct cnic_dev *dev,
 	struct kwqe *kwqe;
 
 	if (!test_bit(CNIC_F_CNIC_UP, &dev->flags))
-		return -EAGAIN;		
+		return -EAGAIN;		/* bnx2 is down */
 
 	for (i = 0; i < num_wqes; ) {
 		kwqe = wqes[i];
@@ -2645,6 +2650,10 @@ static int cnic_submit_bnx2x_iscsi_kwqes(struct cnic_dev *dev,
 			netdev_err(dev->netdev, "KWQE(0x%x) failed\n",
 				   opcode);
 
+			/* Possibly bnx2x parity error, send completion
+			 * to ulp drivers with error code to speed up
+			 * cleanup and reset recovery.
+			 */
 			if (ret == -EIO || ret == -EAGAIN)
 				cnic_bnx2x_kwqe_err(dev, kwqe);
 		}
@@ -2662,7 +2671,7 @@ static int cnic_submit_bnx2x_fcoe_kwqes(struct cnic_dev *dev,
 	struct kwqe *kwqe;
 
 	if (!test_bit(CNIC_F_CNIC_UP, &dev->flags))
-		return -EAGAIN;		
+		return -EAGAIN;		/* bnx2 is down */
 
 	if (!BNX2X_CHIP_IS_E2_PLUS(cp->chip_id))
 		return -EINVAL;
@@ -2706,6 +2715,10 @@ static int cnic_submit_bnx2x_fcoe_kwqes(struct cnic_dev *dev,
 			netdev_err(dev->netdev, "KWQE(0x%x) failed\n",
 				   opcode);
 
+			/* Possibly bnx2x parity error, send completion
+			 * to ulp drivers with error code to speed up
+			 * cleanup and reset recovery.
+			 */
 			if (ret == -EIO || ret == -EAGAIN)
 				cnic_bnx2x_kwqe_err(dev, kwqe);
 		}
@@ -2721,7 +2734,7 @@ static int cnic_submit_bnx2x_kwqes(struct cnic_dev *dev, struct kwqe *wqes[],
 	u32 layer_code;
 
 	if (!test_bit(CNIC_F_CNIC_UP, &dev->flags))
-		return -EAGAIN;		
+		return -EAGAIN;		/* bnx2x is down */
 
 	if (!num_wqes)
 		return 0;
@@ -2899,7 +2912,7 @@ static u32 cnic_service_bnx2_queues(struct cnic_dev *dev)
 	u32 status_idx = (u16) *cp->kcq1.status_idx_ptr;
 	int kcqe_cnt;
 
-	
+	/* status block index must be read before reading other fields */
 	rmb();
 	cp->kwq_con_idx = *cp->kwq_con_idx_ptr;
 
@@ -2907,10 +2920,10 @@ static u32 cnic_service_bnx2_queues(struct cnic_dev *dev)
 
 		service_kcqes(dev, kcqe_cnt);
 
-		
+		/* Tell compiler that status_blk fields can change. */
 		barrier();
 		status_idx = (u16) *cp->kcq1.status_idx_ptr;
-		
+		/* status block index must be read first */
 		rmb();
 		cp->kwq_con_idx = *cp->kwq_con_idx_ptr;
 	}
@@ -3028,17 +3041,17 @@ static u32 cnic_service_bnx2x_kcq(struct cnic_dev *dev, struct kcq_info *info)
 	u32 last_status = *info->status_idx_ptr;
 	int kcqe_cnt;
 
-	
+	/* status block index must be read before reading the KCQ */
 	rmb();
 	while ((kcqe_cnt = cnic_get_kcqes(dev, info))) {
 
 		service_kcqes(dev, kcqe_cnt);
 
-		
+		/* Tell compiler that sblk fields can change. */
 		barrier();
 
 		last_status = *info->status_idx_ptr;
-		
+		/* status block index must be read before reading the KCQ */
 		rmb();
 	}
 	return last_status;
@@ -3217,7 +3230,7 @@ static int cnic_ctl(void *data, struct cnic_ctl_info *info)
 	}
 	case CNIC_CTL_FCOE_STATS_GET_CMD:
 		ulp_type = CNIC_ULP_FCOE;
-		
+		/* fall through */
 	case CNIC_CTL_ISCSI_STATS_GET_CMD:
 		cnic_hold(dev);
 		cnic_copy_ulp_stats(dev, ulp_type);
@@ -3776,6 +3789,9 @@ static int cnic_cm_abort(struct cnic_sock *csk)
 	if (cnic_abort_prep(csk))
 		return cnic_cm_abort_req(csk);
 
+	/* Getting here means that we haven't started connect, or
+	 * connect was not successful.
+	 */
 
 	cp->close_conn(csk, opcode);
 	if (csk->state != opcode)
@@ -3847,7 +3863,7 @@ static void cnic_cm_process_offld_pg(struct cnic_dev *dev, struct l4_kcq *kcqe)
 		clear_bit(SK_F_OFFLD_SCHED, &csk->flags);
 		goto done;
 	}
-	
+	/* Possible PG kcqe status:  SUCCESS, OFFLOADED_PG, or CTX_ALLOC_FAIL */
 	if (kcqe->status == L4_KCQE_COMPLETION_STATUS_CTX_ALLOC_FAIL) {
 		clear_bit(SK_F_OFFLD_SCHED, &csk->flags);
 		cnic_cm_upcall(cp, csk,
@@ -3939,7 +3955,7 @@ static void cnic_cm_process_kcqe(struct cnic_dev *dev, struct kcqe *kcqe)
 		break;
 
 	case L4_KCQE_OPCODE_VALUE_CLOSE_RECEIVED:
-		
+		/* after we already sent CLOSE_REQ */
 		if (test_bit(CNIC_F_BNX2X_CLASS, &dev->flags) &&
 		    !test_bit(SK_F_OFFLD_COMPLETE, &csk->flags) &&
 		    csk->state == L4_KCQE_OPCODE_VALUE_CLOSE_COMP)
@@ -3996,11 +4012,17 @@ static int cnic_cm_alloc_mem(struct cnic_dev *dev)
 static int cnic_ready_to_close(struct cnic_sock *csk, u32 opcode)
 {
 	if (test_and_clear_bit(SK_F_OFFLD_COMPLETE, &csk->flags)) {
-		
+		/* Unsolicited RESET_COMP or RESET_RECEIVED */
 		opcode = L4_KCQE_OPCODE_VALUE_RESET_RECEIVED;
 		csk->state = opcode;
 	}
 
+	/* 1. If event opcode matches the expected event in csk->state
+	 * 2. If the expected event is CLOSE_COMP or RESET_COMP, we accept any
+	 *    event
+	 * 3. If the expected event is 0, meaning the connection was never
+	 *    never established, we accept the opcode from cm_abort.
+	 */
 	if (opcode == csk->state || csk->state == 0 ||
 	    csk->state == L4_KCQE_OPCODE_VALUE_CLOSE_COMP ||
 	    csk->state == L4_KCQE_OPCODE_VALUE_RESET_COMP) {
@@ -4621,7 +4643,7 @@ static int cnic_start_bnx2_hw(struct cnic_dev *dev)
 	else
 		cp->kwq_con_idx_ptr = &sblk->status_cmd_consumer_index;
 
-	
+	/* Initialize the kernel work queue context. */
 	val = KRNLQ_TYPE_TYPE_KRNLQ | KRNLQ_SIZE_TYPE_SIZE |
 	      (BCM_PAGE_BITS - 8) | KRNLQ_FLAGS_QE_SELF_SEQ;
 	cnic_ctx_wr(dev, kwq_cid_addr, L5_KRNLQ_TYPE, val);
@@ -4647,7 +4669,7 @@ static int cnic_start_bnx2_hw(struct cnic_dev *dev)
 
 	cp->kcq1.status_idx_ptr = (u16 *) &sblk->status_idx;
 
-	
+	/* Initialize the kernel complete queue context. */
 	val = KRNLQ_TYPE_TYPE_KRNLQ | KRNLQ_SIZE_TYPE_SIZE |
 	      (BCM_PAGE_BITS - 8) | KRNLQ_FLAGS_QE_SELF_SEQ;
 	cnic_ctx_wr(dev, kcq_cid_addr, L5_KRNLQ_TYPE, val);
@@ -4679,14 +4701,22 @@ static int cnic_start_bnx2_hw(struct cnic_dev *dev)
 		cnic_ctx_wr(dev, kcq_cid_addr, L5_KRNLQ_HOST_QIDX, sb);
 	}
 
+	/* Enable Commnad Scheduler notification when we write to the
+	 * host producer index of the kernel contexts. */
 	CNIC_WR(dev, BNX2_MQ_KNL_CMD_MASK1, 2);
 
+	/* Enable Command Scheduler notification when we write to either
+	 * the Send Queue or Receive Queue producer indexes of the kernel
+	 * bypass contexts. */
 	CNIC_WR(dev, BNX2_MQ_KNL_BYP_CMD_MASK1, 7);
 	CNIC_WR(dev, BNX2_MQ_KNL_BYP_WRITE_MASK1, 7);
 
-	
+	/* Notify COM when the driver post an application buffer. */
 	CNIC_WR(dev, BNX2_MQ_KNL_RX_V2P_MASK2, 0x2000);
 
+	/* Set the CP and COM doorbells.  These two processors polls the
+	 * doorbell for a non zero value before running.  This must be done
+	 * after setting up the kernel queue contexts. */
 	cnic_reg_wr_ind(dev, BNX2_CP_SCRATCH + 0x20, 1);
 	cnic_reg_wr_ind(dev, BNX2_COM_SCRATCH + 0x20, 1);
 
@@ -4750,7 +4780,7 @@ static inline void cnic_storm_memset_hc_disable(struct cnic_dev *dev,
 			sizeof(struct hc_index_data)*sb_index +
 			offsetof(struct hc_index_data, flags);
 	u16 flags = CNIC_RD16(dev, addr);
-	
+	/* clear and set */
 	flags &= ~HC_INDEX_DATA_HC_ENABLED;
 	flags |= (((~disable) << HC_INDEX_DATA_HC_ENABLED_SHIFT) &
 		  HC_INDEX_DATA_HC_ENABLED);
@@ -4816,11 +4846,11 @@ static void cnic_init_bnx2x_tx_ring(struct cnic_dev *dev,
 
 	data->tx.tx_bd_page_base.lo = cpu_to_le32(val);
 
-	
+	/* Other ramrod params */
 	data->tx.tx_sb_index_number = HC_SP_INDEX_ETH_ISCSI_CQ_CONS;
 	data->tx.tx_status_block_id = BNX2X_DEF_SB_ID;
 
-	
+	/* reset xstorm per client statistics */
 	if (cli < MAX_STAT_COUNTER_ID) {
 		data->general.statistics_zero_flg = 1;
 		data->general.statistics_en_flg = 1;
@@ -4847,7 +4877,7 @@ static void cnic_init_bnx2x_rx_ring(struct cnic_dev *dev,
 	u32 val;
 	dma_addr_t ring_map = udev->l2_ring_map;
 
-	
+	/* General data */
 	data->general.client_id = cli;
 	data->general.activate_flg = 1;
 	data->general.sp_client_id = cli;
@@ -4880,7 +4910,7 @@ static void cnic_init_bnx2x_rx_ring(struct cnic_dev *dev,
 	rxcqe->addr_lo = cpu_to_le32(val);
 	data->rx.cqe_page_base.lo = cpu_to_le32(val);
 
-	
+	/* Other ramrod params */
 	data->rx.client_qzone_id = cl_qzone_id;
 	data->rx.rx_sb_index_number = HC_SP_INDEX_ETH_ISCSI_RX_CQ_CONS;
 	data->rx.status_block_id = BNX2X_DEF_SB_ID;
@@ -4984,7 +5014,7 @@ static int cnic_start_bnx2x_hw(struct cnic_dev *dev)
 
 	cnic_init_bnx2x_kcq(dev);
 
-	
+	/* Only 1 EQ */
 	CNIC_WR16(dev, cp->kcq1.io_addr, MAX_KCQ_IDX);
 	CNIC_WR(dev, BAR_CSTRORM_INTMEM +
 		CSTORM_ISCSI_EQ_CONS_OFFSET(pfid, 0), 0);
@@ -5245,6 +5275,9 @@ static void cnic_stop_hw(struct cnic_dev *dev)
 		struct cnic_local *cp = dev->cnic_priv;
 		int i = 0;
 
+		/* Need to wait for the ring shutdown event to complete
+		 * before clearing the CNIC_UP flag.
+		 */
 		while (cp->udev->uio_dev != -1 && i < 15) {
 			msleep(100);
 			i++;
@@ -5479,6 +5512,9 @@ static void cnic_rcv_netevent(struct cnic_local *cp, unsigned long event,
 	rcu_read_unlock();
 }
 
+/**
+ * netdev event handler
+ */
 static int cnic_netdev_event(struct notifier_block *this, unsigned long event,
 							 void *ptr)
 {
@@ -5489,7 +5525,7 @@ static int cnic_netdev_event(struct notifier_block *this, unsigned long event,
 	dev = cnic_from_netdev(netdev);
 
 	if (!dev && (event == NETDEV_REGISTER || netif_running(netdev))) {
-		
+		/* Check for the hot-plug device */
 		dev = is_cnic_dev(netdev);
 		if (dev) {
 			new_dev = 1;

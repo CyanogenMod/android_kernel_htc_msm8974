@@ -18,12 +18,25 @@
 
 static BLOCKING_NOTIFIER_HEAD(usb_notifier_list);
 
+/**
+ * usb_register_notify - register a notifier callback whenever a usb change happens
+ * @nb: pointer to the notifier block for the callback events.
+ *
+ * These changes are either USB devices or busses being added or removed.
+ */
 void usb_register_notify(struct notifier_block *nb)
 {
 	blocking_notifier_chain_register(&usb_notifier_list, nb);
 }
 EXPORT_SYMBOL_GPL(usb_register_notify);
 
+/**
+ * usb_unregister_notify - unregister a notifier callback
+ * @nb: pointer to the notifier block for the callback events.
+ *
+ * usb_register_notify() must have been previously called for this function
+ * to work properly.
+ */
 void usb_unregister_notify(struct notifier_block *nb)
 {
 	blocking_notifier_chain_unregister(&usb_notifier_list, nb);
@@ -38,7 +51,7 @@ void usb_notify_add_device(struct usb_device *udev)
 
 void usb_notify_remove_device(struct usb_device *udev)
 {
-	
+	/* Protect against simultaneous usbfs open */
 	mutex_lock(&usbfs_mutex);
 	blocking_notifier_call_chain(&usb_notifier_list,
 			USB_DEVICE_REMOVE, udev);

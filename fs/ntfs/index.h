@@ -93,6 +93,21 @@ extern int ntfs_index_lookup(const void *key, const int key_len,
 
 #ifdef NTFS_RW
 
+/**
+ * ntfs_index_entry_flush_dcache_page - flush_dcache_page() for index entries
+ * @ictx:	ntfs index context describing the index entry
+ *
+ * Call flush_dcache_page() for the page in which an index entry resides.
+ *
+ * This must be called every time an index entry is modified, just after the
+ * modification.
+ *
+ * If the index entry is in the index root attribute, simply flush the page
+ * containing the mft record containing the index root attribute.
+ *
+ * If the index entry is in an index block belonging to the index allocation
+ * attribute, simply flush the page cache page containing the index block.
+ */
 static inline void ntfs_index_entry_flush_dcache_page(ntfs_index_context *ictx)
 {
 	if (ictx->is_in_root)
@@ -128,6 +143,6 @@ static inline void ntfs_index_entry_mark_dirty(ntfs_index_context *ictx)
 				(u8*)ictx->ia - (u8*)page_address(ictx->page));
 }
 
-#endif 
+#endif /* NTFS_RW */
 
-#endif 
+#endif /* _LINUX_NTFS_INDEX_H */

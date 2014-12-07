@@ -42,7 +42,12 @@
 
 #include "mpc83xx.h"
 
-#define SVR_REV(svr)    (((svr) >>  0) & 0xFFFF) 
+#define SVR_REV(svr)    (((svr) >>  0) & 0xFFFF) /* Revision field */
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 static void __init mpc83xx_km_setup_arch(void)
 {
 #ifdef CONFIG_QUICC_ENGINE
@@ -73,7 +78,7 @@ static void __init mpc83xx_km_setup_arch(void)
 	if (np != NULL) {
 		uint svid;
 
-		
+		/* handle mpc8360ea rev.2.1 erratum 2: RGMII Timing */
 		svid = mfspr(SPRN_SVR);
 		if (SVR_REV(svid) == 0x0021) {
 			struct	device_node *np_par;
@@ -87,7 +92,7 @@ static void __init mpc83xx_km_setup_arch(void)
 					__func__);
 				return;
 			}
-			
+			/* Map Parallel I/O ports registers */
 			ret = of_address_to_resource(np_par, 0, &res);
 			if (ret) {
 				printk(KERN_WARNING "%s couldn;t map par_io registers\n",
@@ -96,25 +101,37 @@ static void __init mpc83xx_km_setup_arch(void)
 			}
 			base = ioremap(res.start, resource_size(&res));
 
+			/*
+			 * IMMR + 0x14A8[4:5] = 11 (clk delay for UCC 2)
+			 * IMMR + 0x14A8[18:19] = 11 (clk delay for UCC 1)
+			 */
 			setbits32((base + 0xa8), 0x0c003000);
 
+			/*
+			 * IMMR + 0x14AC[20:27] = 10101010
+			 * (data delay for both UCC's)
+			 */
 			clrsetbits_be32((base + 0xac), 0xff0, 0xaa0);
 			iounmap(base);
 			of_node_put(np_par);
 		}
 		of_node_put(np);
 	}
-#endif				
+#endif				/* CONFIG_QUICC_ENGINE */
 }
 
 machine_device_initcall(mpc83xx_km, mpc83xx_declare_of_platform_devices);
 
+/* list of the supported boards */
 static char *board[] __initdata = {
 	"Keymile,KMETER1",
 	"Keymile,kmpbec8321",
 	NULL
 };
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc83xx_km_probe(void)
 {
 	unsigned long node = of_get_flat_dt_root();

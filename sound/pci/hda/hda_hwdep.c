@@ -33,11 +33,15 @@
 #include <sound/hda_hwdep.h>
 #include <sound/minors.h>
 
+/* hint string pair */
 struct hda_hint {
 	const char *key;
-	const char *val;	
+	const char *val;	/* contained in the same alloc as key */
 };
 
+/*
+ * write/read an out-of-bound verb
+ */
 static int verb_write_ioctl(struct hda_codec *codec,
 			    struct hda_verb_ioctl __user *arg)
 {
@@ -66,6 +70,8 @@ static int get_wcap_ioctl(struct hda_codec *codec,
 }
 
 
+/*
+ */
 static int hda_hwdep_ioctl(struct snd_hwdep *hw, struct file *file,
 			   unsigned int cmd, unsigned long arg)
 {
@@ -104,12 +110,12 @@ static void clear_hwdep_elements(struct hda_codec *codec)
 {
 	int i;
 
-	
+	/* clear init verbs */
 	snd_array_free(&codec->init_verbs);
-	
+	/* clear hints */
 	for (i = 0; i < codec->hints.used; i++) {
 		struct hda_hint *hint = snd_array_elem(&codec->hints, i);
-		kfree(hint->key); 
+		kfree(hint->key); /* we don't need to free hint->val */
 	}
 	snd_array_free(&codec->hints);
 	snd_array_free(&codec->user_pins);
@@ -120,7 +126,7 @@ static void hwdep_free(struct snd_hwdep *hwdep)
 	clear_hwdep_elements(hwdep->private_data);
 }
 
-int  snd_hda_create_hwdep(struct hda_codec *codec)
+int /*__devinit*/ snd_hda_create_hwdep(struct hda_codec *codec)
 {
 	char hwname[16];
 	struct snd_hwdep *hwdep;
@@ -186,10 +192,13 @@ int snd_hda_hwdep_add_power_sysfs(struct hda_codec *codec)
 					  hwdep->device, &power_attrs[i]);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SND_HDA_POWER_SAVE */
 
 #ifdef CONFIG_SND_HDA_RECONFIG
 
+/*
+ * sysfs interface
+ */
 
 static int clear_codec(struct hda_codec *codec)
 {
@@ -219,11 +228,11 @@ static int reconfig_codec(struct hda_codec *codec)
 	err = snd_hda_codec_configure(codec);
 	if (err < 0)
 		goto error;
-	
+	/* rebuild PCMs */
 	err = snd_hda_codec_build_pcms(codec);
 	if (err < 0)
 		goto error;
-	
+	/* rebuild mixers */
 	err = snd_hda_codec_build_controls(codec);
 	if (err < 0)
 		goto error;
@@ -233,6 +242,9 @@ static int reconfig_codec(struct hda_codec *codec)
 	return err;
 }
 
+/*
+ * allocate a string at most len chars, and remove the trailing EOL
+ */
 static char *kstrndup_noeol(const char *src, size_t len)
 {
 	char *s = kstrndup(src, len, GFP_KERNEL);
@@ -429,7 +441,7 @@ static int parse_hints(struct hda_codec *codec, const char *buf)
 	key = kstrndup_noeol(buf, 1024);
 	if (!key)
 		return -ENOMEM;
-	
+	/* extract key and val */
 	val = strchr(key, '=');
 	if (!val) {
 		kfree(key);
@@ -441,13 +453,13 @@ static int parse_hints(struct hda_codec *codec, const char *buf)
 	remove_trail_spaces(val);
 	hint = get_hint(codec, key);
 	if (hint) {
-		
+		/* replace */
 		kfree(hint->key);
 		hint->key = key;
 		hint->val = val;
 		return 0;
 	}
-	
+	/* allocate a new hint entry */
 	if (codec->hints.used >= MAX_HINTS)
 		hint = NULL;
 	else
@@ -563,6 +575,9 @@ static struct device_attribute codec_attrs[] = {
 	CODEC_ATTR_WO(clear),
 };
 
+/*
+ * create sysfs files on hwdep directory
+ */
 int snd_hda_hwdep_add_sysfs(struct hda_codec *codec)
 {
 	struct snd_hwdep *hwdep = codec->hwdep;
@@ -574,6 +589,9 @@ int snd_hda_hwdep_add_sysfs(struct hda_codec *codec)
 	return 0;
 }
 
+/*
+ * Look for hint string
+ */
 const char *snd_hda_get_hint(struct hda_codec *codec, const char *key)
 {
 	struct hda_hint *hint = get_hint(codec, key);
@@ -587,8 +605,8 @@ int snd_hda_get_bool_hint(struct hda_codec *codec, const char *key)
 	if (!p || !*p)
 		return -ENOENT;
 	switch (toupper(*p)) {
-	case 'T': 
-	case 'Y': 
+	case 'T': /* true */
+	case 'Y': /* yes */
 	case '1':
 		return 1;
 	}
@@ -596,10 +614,11 @@ int snd_hda_get_bool_hint(struct hda_codec *codec, const char *key)
 }
 EXPORT_SYMBOL_HDA(snd_hda_get_bool_hint);
 
-#endif 
+#endif /* CONFIG_SND_HDA_RECONFIG */
 
 #ifdef CONFIG_SND_HDA_PATCH_LOADER
 
+/* parser mode */
 enum {
 	LINE_MODE_NONE,
 	LINE_MODE_CODEC,
@@ -619,6 +638,9 @@ static inline int strmatch(const char *a, const char *b)
 	return strnicmp(a, b, strlen(b)) == 0;
 }
 
+/* parse the contents after the line "[codec]"
+ * accept only the line with three numbers, and assign the current codec
+ */
 static void parse_codec_mode(char *buf, struct hda_bus *bus,
 			     struct hda_codec **codecp)
 {
@@ -638,6 +660,10 @@ static void parse_codec_mode(char *buf, struct hda_bus *bus,
 	}
 }
 
+/* parse the contents after the other command tags, [pincfg], [verb],
+ * [vendor_id], [subsystem_id], [revision_id], [chip_name], [hint] and [model]
+ * just pass to the sysfs helper (only when any codec was specified)
+ */
 static void parse_pincfg_mode(char *buf, struct hda_bus *bus,
 			      struct hda_codec **codecp)
 {
@@ -702,6 +728,7 @@ static struct hda_patch_item patch_items[NUM_LINE_MODES] = {
 	[LINE_MODE_CHIP_NAME] = { "[chip_name]", parse_chip_name_mode, 1 },
 };
 
+/* check the line starting with '[' -- change the parser mode accodingly */
 static int parse_line_mode(char *buf, struct hda_bus *bus)
 {
 	int i;
@@ -714,6 +741,12 @@ static int parse_line_mode(char *buf, struct hda_bus *bus)
 	return LINE_MODE_NONE;
 }
 
+/* copy one line from the buffer in fw, and update the fields in fw
+ * return zero if it reaches to the end of the buffer, or non-zero
+ * if successfully copied a line
+ *
+ * the spaces at the beginning and the end of the line are stripped
+ */
 static int get_line_from_fw(char *buf, int size, struct firmware *fw)
 {
 	int len;
@@ -743,6 +776,9 @@ static int get_line_from_fw(char *buf, int size, struct firmware *fw)
 	return 1;
 }
 
+/*
+ * load a "patch" firmware file and parse it
+ */
 int snd_hda_load_patch(struct hda_bus *bus, const char *patch)
 {
 	int err;
@@ -778,4 +814,4 @@ int snd_hda_load_patch(struct hda_bus *bus, const char *patch)
 	return 0;
 }
 EXPORT_SYMBOL_HDA(snd_hda_load_patch);
-#endif 
+#endif /* CONFIG_SND_HDA_PATCH_LOADER */

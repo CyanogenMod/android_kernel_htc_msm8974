@@ -11,4 +11,4 @@ void pstack__remove(struct pstack *self, void *key);
 void pstack__push(struct pstack *self, void *key);
 void *pstack__pop(struct pstack *self);
 
-#endif 
+#endif /* _PERF_PSTACK_ */

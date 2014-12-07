@@ -45,6 +45,9 @@ static void scc_pciex_io_flush(struct iowa_bus *bus)
 	(void)PEX_IN(bus->phb->cfg_addr, PEXDMRDEN0);
 }
 
+/*
+ * Memory space access to device on PCIEX
+ */
 #define PCIEX_MMIO_READ(name, ret)					\
 static ret scc_pciex_##name(const PCI_IO_ADDR addr)			\
 {									\
@@ -79,6 +82,9 @@ static void scc_pciex_memcpy_fromio(void *dest, const PCI_IO_ADDR src,
 	scc_pciex_io_flush(iowa_mem_find_bus(src));
 }
 
+/*
+ * I/O port access to devices on PCIEX.
+ */
 
 static inline unsigned long get_bus_address(struct pci_controller *phb,
 					    unsigned long port)
@@ -287,6 +293,9 @@ static int __init scc_pciex_iowa_init(struct iowa_bus *bus, void *data)
 	return 0;
 }
 
+/*
+ * config space access
+ */
 #define MK_PEXDADRS(bus_no, dev_no, func_no, addr) \
 	((uint32_t)(((addr) & ~0x3UL) | \
 	((bus_no) << PEXDADRS_BUSNO_SHIFT) | \
@@ -349,6 +358,12 @@ static void config_write_pciex_rc(unsigned int __iomem *base, uint32_t where,
 	PEX_OUT(base, PEXCWDATA, data);
 }
 
+/* Interfaces */
+/* Note: Work-around
+ *  On SCC PCIEXC, one device is seen on all 32 dev_no.
+ *  As SCC PCIEXC can have only one device on the bus, we look only one dev_no.
+ * (dev_no = 1)
+ */
 static int scc_pciex_read_config(struct pci_bus *bus, unsigned int devfn,
 				 int where, int size, unsigned int *val)
 {
@@ -436,7 +451,7 @@ static void pciex_check_status(unsigned int __iomem *base)
 	pr_info("PEXRCVCPLIDA :0x%08x\n", rcvcp);
 	pr_info("PEXLENERRIDA :0x%08x\n", lenerr);
 
-	
+	/* print detail of Protection Error */
 	if (intsts & 0x00004000) {
 		uint32_t i, n;
 		for (i = 0; i < 4; i++) {
@@ -474,7 +489,7 @@ static __init int celleb_setup_pciex(struct device_node *node,
 	struct of_irq oirq;
 	int virq;
 
-	
+	/* SMMIO registers; used inside this file */
 	if (of_address_to_resource(node, 0, &r)) {
 		pr_err("PCIEXC:Failed to get config resource.\n");
 		return 1;
@@ -485,13 +500,13 @@ static __init int celleb_setup_pciex(struct device_node *node,
 		return 1;
 	}
 
-	
+	/* Not use cfg_data,  cmd and data regs are near address reg */
 	phb->cfg_data = NULL;
 
-	
+	/* set pci_ops */
 	phb->ops = &scc_pciex_pci_ops;
 
-	
+	/* internal interrupt handler */
 	if (of_irq_map_one(node, 1, &oirq)) {
 		pr_err("PCIEXC:Failed to map irq\n");
 		goto error;
@@ -504,10 +519,10 @@ static __init int celleb_setup_pciex(struct device_node *node,
 		goto error;
 	}
 
-	
+	/* enable all interrupts */
 	pciex_clear_intr_all(phb->cfg_addr);
 	pciex_enable_intr_all(phb->cfg_addr);
-	
+	/* MSI: TBD */
 
 	return 0;
 

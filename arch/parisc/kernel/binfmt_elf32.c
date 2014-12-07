@@ -8,11 +8,12 @@
  * (ia64,sparc64/mips64)
  */
 
+/* Make sure include/asm-parisc/elf.h does the right thing */
 
 #define ELF_CLASS	ELFCLASS32
 
 #define ELF_CORE_COPY_REGS(dst, pt)	\
-	memset(dst, 0, sizeof(dst));	 \
+	memset(dst, 0, sizeof(dst));	/* don't leak any "random" bits */ \
 	{	int i; \
 		for (i = 0; i < 32; i++) dst[i] = (elf_greg_t) pt->gr[i]; \
 		for (i = 0; i < 8; i++) dst[32 + i] = (elf_greg_t) pt->sr[i]; \
@@ -37,47 +38,52 @@ typedef unsigned int elf_greg_t;
 #include <asm/processor.h>
 #include <linux/module.h>
 #include <linux/elfcore.h>
-#include <linux/compat.h>		
+#include <linux/compat.h>		/* struct compat_timeval */
 
 #define elf_prstatus elf_prstatus32
 struct elf_prstatus32
 {
-	struct elf_siginfo pr_info;	
-	short	pr_cursig;		
-	unsigned int pr_sigpend;	
-	unsigned int pr_sighold;	
+	struct elf_siginfo pr_info;	/* Info associated with signal */
+	short	pr_cursig;		/* Current signal */
+	unsigned int pr_sigpend;	/* Set of pending signals */
+	unsigned int pr_sighold;	/* Set of held signals */
 	pid_t	pr_pid;
 	pid_t	pr_ppid;
 	pid_t	pr_pgrp;
 	pid_t	pr_sid;
-	struct compat_timeval pr_utime;		
-	struct compat_timeval pr_stime;		
-	struct compat_timeval pr_cutime;	
-	struct compat_timeval pr_cstime;	
-	elf_gregset_t pr_reg;	
-	int pr_fpvalid;		
+	struct compat_timeval pr_utime;		/* User time */
+	struct compat_timeval pr_stime;		/* System time */
+	struct compat_timeval pr_cutime;	/* Cumulative user time */
+	struct compat_timeval pr_cstime;	/* Cumulative system time */
+	elf_gregset_t pr_reg;	/* GP registers */
+	int pr_fpvalid;		/* True if math co-processor being used.  */
 };
 
 #define elf_prpsinfo elf_prpsinfo32
 struct elf_prpsinfo32
 {
-	char	pr_state;	
-	char	pr_sname;	
-	char	pr_zomb;	
-	char	pr_nice;	
-	unsigned int pr_flag;	
+	char	pr_state;	/* numeric process state */
+	char	pr_sname;	/* char for pr_state */
+	char	pr_zomb;	/* zombie */
+	char	pr_nice;	/* nice val */
+	unsigned int pr_flag;	/* flags */
 	u16	pr_uid;
 	u16	pr_gid;
 	pid_t	pr_pid, pr_ppid, pr_pgrp, pr_sid;
-	
-	char	pr_fname[16];	
-	char	pr_psargs[ELF_PRARGSZ];	
+	/* Lots missing */
+	char	pr_fname[16];	/* filename of executable */
+	char	pr_psargs[ELF_PRARGSZ];	/* initial part of arg list */
 };
 
 #define init_elf_binfmt init_elf32_binfmt
 
 #define ELF_PLATFORM  ("PARISC32\0")
 
+/*
+ * We should probably use this macro to set a flag somewhere to indicate
+ * this is a 32 on 64 process. We could use PER_LINUX_32BIT, or we
+ * could set a processor dependent flag in the thread_struct.
+ */
 
 #define SET_PERSONALITY(ex) \
 	set_thread_flag(TIF_32BIT); \

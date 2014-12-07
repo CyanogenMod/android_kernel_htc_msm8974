@@ -81,6 +81,7 @@ static struct snd_pcm_hardware msm_pcm_capture_hardware = {
 	.fifo_size =            0,
 };
 
+/* Conventional and unconventional sample rate supported */
 static unsigned int supported_sample_rates[] = {
 	8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000
 };
@@ -146,11 +147,11 @@ static void alsa_in_listener(u32 evt_id, union auddev_evt_data *evt_payload,
 		if (!prtd->running || !prtd->enabled)
 			break;
 
-		
+		/* Turn off as per source */
 		if (prtd->source)
 			alsa_in_record_config(prtd, 1);
 		else
-			
+			/* Turn off all */
 			alsa_in_record_config(prtd, 0);
 
 		break;
@@ -161,6 +162,8 @@ static void alsa_in_listener(u32 evt_id, union auddev_evt_data *evt_payload,
 		MM_DBG("dev_type %d\n", evt_payload->freq_info.dev_type);
 		MM_DBG("acdb_dev_id %d\n", evt_payload->freq_info.acdb_dev_id);
 		if (prtd->running == 1) {
+			/* Stop Recording sample rate does not match
+			with device sample rate */
 			if (evt_payload->freq_info.sample_rate !=
 				prtd->samp_rate) {
 				alsa_in_record_config(prtd, 0);
@@ -223,7 +226,7 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 		return 0;
 
 	MM_DBG("\n");
-	
+	/* rate and channels are sent to audio driver */
 	prtd->out_sample_rate = runtime->rate;
 	prtd->out_channel_mode = runtime->channels;
 	prtd->data = prtd->substream->dma_buffer.area;
@@ -260,7 +263,7 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	prtd->pcm_irq_pos = 0;
 	prtd->pcm_buf_pos = 0;
 
-	
+	/* rate and channels are sent to audio driver */
 	prtd->type = ENC_TYPE_WAV;
 	prtd->samp_rate = runtime->rate;
 	prtd->channel_mode = (runtime->channels - 1);
@@ -435,7 +438,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 						&constraints_sample_rates);
 	if (ret < 0)
 		MM_ERR("snd_pcm_hw_constraint_list failed\n");
-	
+	/* Ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(runtime,
 					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
@@ -444,7 +447,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	prtd->ops = &snd_msm_audio_ops;
 	prtd->out[0].used = BUF_INVALID_LEN;
 	prtd->out[1].used = 0;
-	prtd->out_head = 1; 
+	prtd->out_head = 1; /* point to second buffer on startup */
 	prtd->out_tail = 0;
 	prtd->dsp_cnt = 0;
 	prtd->in_head = 0;
@@ -505,6 +508,10 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 			goto done;
 	}
 
+	/* PCM DMAMISS message is sent only once in
+	 * hpcm interface. So, wait for buffer complete
+	 * and teos flag.
+	 */
 	if (prtd->enabled)
 		ret = wait_event_interruptible(the_locks.eos_wait,
 					prtd->eos_ack);
@@ -621,7 +628,7 @@ int msm_pcm_mmap(struct snd_pcm_substream *substream,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_audio *prtd = runtime->private_data;
 
-	prtd->out_head = 0; 
+	prtd->out_head = 0; /* point to First buffer on startup */
 	prtd->mmap_flag = 1;
 	runtime->dma_bytes = snd_pcm_lib_period_bytes(substream)*2;
 	dma_mmap_coherent(substream->pcm->card->dev, vma,

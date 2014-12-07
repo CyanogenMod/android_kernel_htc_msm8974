@@ -591,7 +591,8 @@ int vd6869_read_fuseid_sharp(struct sensorb_cfg_data *cdata,
 	struct msm_sensor_ctrl_t *s_ctrl, bool first, uint8_t valid_layer)
 {
     #define SHARP_OTP_SIZE 0x12
-    const static short sharp_otp_addr[3][SHARP_OTP_SIZE] = {
+    #define SHARP_OTP_LAYER 3
+    const static short sharp_otp_addr[SHARP_OTP_LAYER][SHARP_OTP_SIZE] = {
         
         {0x3A0,0x3A1,0x3C0,0x3C1,0x3C2,0x3C3,0x3C4,0x3C5,0x3C6,0x3C7,0x3C8,0x3C9,0x3CA,0x3CB,0x3CC,0x3CD,0x3CE,0x3CF},
         {0x380,0x381,0x3D0,0x3D1,0x3D2,0x3D3,0x3D4,0x3D5,0x3D6,0x3D7,0x3D8,0x3D9,0x3DA,0x3DB,0x3DC,0x3DD,0x3DE,0x3DF},
@@ -639,8 +640,12 @@ int vd6869_read_fuseid_sharp(struct sensorb_cfg_data *cdata,
         }
     }
 
-    if (board_mfg_mode())
-        msm_dump_otp_to_file (VD6869_SENSOR_NAME, sharp_otp_addr[valid_layer], otp, sizeof (otp));
+    if (board_mfg_mode()) {
+        if (valid_layer >= SHARP_OTP_LAYER)
+            pr_err("%s:%d\n", __func__, __LINE__);
+        else
+            msm_dump_otp_to_file (VD6869_SENSOR_NAME, sharp_otp_addr[valid_layer], otp, sizeof (otp));
+    }
 
     vd6869_year_mon = otp[0];
     vd6869_date = otp[1];
@@ -773,6 +778,12 @@ static int32_t vd6869_platform_probe(struct platform_device *pdev)
 	int32_t rc = 0;
 	const struct of_device_id *match;
 	match = of_match_device(vd6869_dt_match, &pdev->dev);
+	
+	if (!match) {
+		pr_err("%s:%d\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+	
 	rc = msm_sensor_platform_probe(pdev, match->data);
 	return rc;
 }

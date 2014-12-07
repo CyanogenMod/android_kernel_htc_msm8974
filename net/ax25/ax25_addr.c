@@ -26,6 +26,11 @@
 #include <linux/mm.h>
 #include <linux/interrupt.h>
 
+/*
+ * The default broadcast address of an interface is QST-0; the default address
+ * is LINUX-1.  The null address is defined as a callsign of all spaces with
+ * an SSID of zero.
+ */
 
 const ax25_address ax25_bcast =
 	{{'Q' << 1, 'S' << 1, 'T' << 1, ' ' << 1, ' ' << 1, ' ' << 1, 0 << 1}};
@@ -38,6 +43,9 @@ EXPORT_SYMBOL_GPL(ax25_bcast);
 EXPORT_SYMBOL_GPL(ax25_defaddr);
 EXPORT_SYMBOL(null_ax25_address);
 
+/*
+ *	ax25 -> ascii conversion
+ */
 char *ax2asc(char *buf, const ax25_address *a)
 {
 	char c, *s;
@@ -68,6 +76,9 @@ char *ax2asc(char *buf, const ax25_address *a)
 
 EXPORT_SYMBOL(ax2asc);
 
+/*
+ *	ascii -> ax25 conversion
+ */
 void asc2ax(ax25_address *addr, const char *callsign)
 {
 	const char *s;
@@ -100,24 +111,30 @@ void asc2ax(ax25_address *addr, const char *callsign)
 
 EXPORT_SYMBOL(asc2ax);
 
+/*
+ *	Compare two ax.25 addresses
+ */
 int ax25cmp(const ax25_address *a, const ax25_address *b)
 {
 	int ct = 0;
 
 	while (ct < 6) {
-		if ((a->ax25_call[ct] & 0xFE) != (b->ax25_call[ct] & 0xFE))	
+		if ((a->ax25_call[ct] & 0xFE) != (b->ax25_call[ct] & 0xFE))	/* Clean off repeater bits */
 			return 1;
 		ct++;
 	}
 
-	if ((a->ax25_call[ct] & 0x1E) == (b->ax25_call[ct] & 0x1E))	
+	if ((a->ax25_call[ct] & 0x1E) == (b->ax25_call[ct] & 0x1E))	/* SSID without control bit */
 		return 0;
 
-	return 2;			
+	return 2;			/* Partial match */
 }
 
 EXPORT_SYMBOL(ax25cmp);
 
+/*
+ *	Compare two AX.25 digipeater paths.
+ */
 int ax25digicmp(const ax25_digi *digi1, const ax25_digi *digi2)
 {
 	int i;
@@ -135,6 +152,10 @@ int ax25digicmp(const ax25_digi *digi1, const ax25_digi *digi2)
 	return 0;
 }
 
+/*
+ *	Given an AX.25 address pull of to, from, digi list, command/response and the start of data
+ *
+ */
 const unsigned char *ax25_addr_parse(const unsigned char *buf, int len,
 	ax25_address *src, ax25_address *dest, ax25_digi *digi, int *flags,
 	int *dama)
@@ -155,7 +176,7 @@ const unsigned char *ax25_addr_parse(const unsigned char *buf, int len,
 	if (dama != NULL)
 		*dama = ~buf[13] & AX25_DAMA_FLAG;
 
-	
+	/* Copy to, from */
 	if (dest != NULL)
 		memcpy(dest, buf + 0, AX25_ADDR_LEN);
 	if (src != NULL)
@@ -168,8 +189,8 @@ const unsigned char *ax25_addr_parse(const unsigned char *buf, int len,
 	digi->ndigi      = 0;
 
 	while (!(buf[-1] & AX25_EBIT)) {
-		if (d >= AX25_MAX_DIGIS)  return NULL;	
-		if (len < 7) return NULL;	
+		if (d >= AX25_MAX_DIGIS)  return NULL;	/* Max of 6 digis */
+		if (len < 7) return NULL;	/* Short packet */
 
 		memcpy(&digi->calls[d], buf, AX25_ADDR_LEN);
 		digi->ndigi = d + 1;
@@ -189,6 +210,9 @@ const unsigned char *ax25_addr_parse(const unsigned char *buf, int len,
 	return buf;
 }
 
+/*
+ *	Assemble an AX.25 header from the bits
+ */
 int ax25_addr_build(unsigned char *buf, const ax25_address *src,
 	const ax25_address *dest, const ax25_digi *d, int flag, int modulus)
 {
@@ -215,6 +239,9 @@ int ax25_addr_build(unsigned char *buf, const ax25_address *src,
 
 	if (flag == AX25_RESPONSE) buf[6] |= AX25_CBIT;
 
+	/*
+	 *	Fast path the normal digiless path
+	 */
 	if (d == NULL || d->ndigi == 0) {
 		buf[6] |= AX25_EBIT;
 		return 2 * AX25_ADDR_LEN;
@@ -252,6 +279,9 @@ int ax25_addr_size(const ax25_digi *dp)
 	return AX25_ADDR_LEN * (2 + dp->ndigi);
 }
 
+/*
+ *	Reverse Digipeat List. May not pass both parameters as same struct
+ */
 void ax25_digi_invert(const ax25_digi *in, ax25_digi *out)
 {
 	int ct;
@@ -259,7 +289,7 @@ void ax25_digi_invert(const ax25_digi *in, ax25_digi *out)
 	out->ndigi      = in->ndigi;
 	out->lastrepeat = in->ndigi - in->lastrepeat - 2;
 
-	
+	/* Invert the digipeaters */
 	for (ct = 0; ct < in->ndigi; ct++) {
 		out->calls[ct] = in->calls[in->ndigi - ct - 1];
 

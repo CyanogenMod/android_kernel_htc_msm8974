@@ -28,6 +28,10 @@
 #include "ufs_fs.h"
 #include "ufs.h"
 
+/*
+ * We have mostly NULL's here: the current defaults are ok for
+ * the ufs filesystem.
+ */
  
 const struct file_operations ufs_file_operations = {
 	.llseek		= generic_file_llseek,

@@ -28,6 +28,45 @@ enum calibration_type {
 	TYPE_NONE,
 };
 
+/**
+ * struct exynos4_tmu_platform_data
+ * @threshold: basic temperature for generating interrupt
+ *	       25 <= threshold <= 125 [unit: degree Celsius]
+ * @trigger_levels: array for each interrupt levels
+ *	[unit: degree Celsius]
+ *	0: temperature for trigger_level0 interrupt
+ *	   condition for trigger_level0 interrupt:
+ *		current temperature > threshold + trigger_levels[0]
+ *	1: temperature for trigger_level1 interrupt
+ *	   condition for trigger_level1 interrupt:
+ *		current temperature > threshold + trigger_levels[1]
+ *	2: temperature for trigger_level2 interrupt
+ *	   condition for trigger_level2 interrupt:
+ *		current temperature > threshold + trigger_levels[2]
+ *	3: temperature for trigger_level3 interrupt
+ *	   condition for trigger_level3 interrupt:
+ *		current temperature > threshold + trigger_levels[3]
+ * @trigger_level0_en:
+ *	1 = enable trigger_level0 interrupt,
+ *	0 = disable trigger_level0 interrupt
+ * @trigger_level1_en:
+ *	1 = enable trigger_level1 interrupt,
+ *	0 = disable trigger_level1 interrupt
+ * @trigger_level2_en:
+ *	1 = enable trigger_level2 interrupt,
+ *	0 = disable trigger_level2 interrupt
+ * @trigger_level3_en:
+ *	1 = enable trigger_level3 interrupt,
+ *	0 = disable trigger_level3 interrupt
+ * @gain: gain of amplifier in the positive-TC generator block
+ *	0 <= gain <= 15
+ * @reference_voltage: reference voltage of amplifier
+ *	in the positive-TC generator block
+ *	0 <= reference_voltage <= 31
+ * @cal_type: calibration type for temperature
+ *
+ * This structure is required for configuration of exynos4_tmu driver.
+ */
 struct exynos4_tmu_platform_data {
 	u8 threshold;
 	u8 trigger_levels[4];
@@ -41,4 +80,4 @@ struct exynos4_tmu_platform_data {
 
 	enum calibration_type cal_type;
 };
-#endif 
+#endif /* _LINUX_EXYNOS4_TMU_H */

@@ -68,15 +68,16 @@ typedef enum hv_protocol {
 } hv_protocol_t;
 
 struct hvterm_priv {
-	u32			termno;	
-	hv_protocol_t		proto;	
-	struct hvsi_priv	hvsi;	
+	u32			termno;	/* HV term number */
+	hv_protocol_t		proto;	/* Raw data or HVSI packets */
+	struct hvsi_priv	hvsi;	/* HVSI specific data */
 	spinlock_t		buf_lock;
 	char			buf[SIZE_VIO_GET_CHARS];
 	int			left;
 	int			offset;
 };
 static struct hvterm_priv *hvterm_privs[MAX_NR_HVC_CONSOLES];
+/* For early boot console */
 static struct hvterm_priv hvterm_priv0;
 
 static int hvterm_raw_get_chars(uint32_t vtermno, char *buf, int count)
@@ -95,6 +96,10 @@ static int hvterm_raw_get_chars(uint32_t vtermno, char *buf, int count)
 		pv->offset = 0;
 		pv->left = hvc_get_chars(pv->termno, pv->buf, count);
 
+		/*
+		 * Work around a HV bug where it gives us a null
+		 * after every \r.  -- paulus
+		 */
 		for (i = 1; i < pv->left; ++i) {
 			if (pv->buf[i] == 0 && pv->buf[i-1] == '\r') {
 				--pv->left;
@@ -234,7 +239,7 @@ static int __devinit hvc_vio_probe(struct vio_dev *vdev,
 	hv_protocol_t proto;
 	int i, termno = -1;
 
-	
+	/* probed with invalid parameters. */
 	if (!vdev || !id)
 		return -EPERM;
 
@@ -253,14 +258,14 @@ static int __devinit hvc_vio_probe(struct vio_dev *vdev,
 		 vdev->dev.of_node->full_name,
 		 proto == HV_PROTOCOL_RAW ? "raw" : "hvsi");
 
-	
+	/* Is it our boot one ? */
 	if (hvterm_privs[0] == &hvterm_priv0 &&
 	    vdev->unit_address == hvterm_priv0.termno) {
 		pv = hvterm_privs[0];
 		termno = 0;
 		pr_devel("->boot console, using termno 0\n");
 	}
-	
+	/* nope, allocate a new one */
 	else {
 		for (i = 0; i < MAX_NR_HVC_CONSOLES && termno < 0; i++)
 			if (!hvterm_privs[i])
@@ -313,12 +318,12 @@ static int __init hvc_vio_init(void)
 {
 	int rc;
 
-	
+	/* Register as a vio device to receive callbacks */
 	rc = vio_register_driver(&hvc_vio_driver);
 
 	return rc;
 }
-module_init(hvc_vio_init); 
+module_init(hvc_vio_init); /* after drivers/char/hvc_console.c */
 
 static void __exit hvc_vio_exit(void)
 {
@@ -369,7 +374,7 @@ static int udbg_hvc_getc(void)
 	for (;;) {
 		ch = udbg_hvc_getc_poll();
 		if (ch == -1) {
-			
+			/* This shouldn't be needed...but... */
 			volatile unsigned long delay;
 			for (delay=0; delay < 2000000; delay++)
 				;
@@ -386,7 +391,7 @@ void __init hvc_vio_init_early(void)
 	const char *name;
 	const struct hv_ops *ops;
 
-	
+	/* find the boot console from /chosen/stdout */
 	if (!of_chosen)
 		return;
 	name = of_get_property(of_chosen, "linux,stdout-path", NULL);
@@ -401,7 +406,7 @@ void __init hvc_vio_init_early(void)
 		goto out;
 	}
 
-	
+	/* Check if it's a virtual terminal */
 	if (strncmp(name, "vty", 3) != 0)
 		goto out;
 	termno = of_get_property(stdout_node, "reg", NULL);
@@ -411,7 +416,7 @@ void __init hvc_vio_init_early(void)
 	spin_lock_init(&hvterm_priv0.buf_lock);
 	hvterm_privs[0] = &hvterm_priv0;
 
-	
+	/* Check the protocol */
 	if (of_device_is_compatible(stdout_node, "hvterm1")) {
 		hvterm_priv0.proto = HV_PROTOCOL_RAW;
 		ops = &hvterm_raw_ops;
@@ -421,7 +426,7 @@ void __init hvc_vio_init_early(void)
 		ops = &hvterm_hvsi_ops;
 		hvsilib_init(&hvterm_priv0.hvsi, hvc_get_chars, hvc_put_chars,
 			     hvterm_priv0.termno, 1);
-		
+		/* HVSI, perform the handshake now */
 		hvsilib_establish(&hvterm_priv0.hvsi);
 	} else
 		goto out;
@@ -429,6 +434,9 @@ void __init hvc_vio_init_early(void)
 	udbg_getc = udbg_hvc_getc;
 	udbg_getc_poll = udbg_hvc_getc_poll;
 #ifdef HVC_OLD_HVSI
+	/* When using the old HVSI driver don't register the HVC
+	 * backend for HVSI, only do udbg
+	 */
 	if (hvterm_priv0.proto == HV_PROTOCOL_HVSI)
 		goto out;
 #endif
@@ -438,6 +446,9 @@ out:
 	of_node_put(stdout_node);
 }
 
+/* call this from early_init() for a working debug console on
+ * vterm capable LPAR machines
+ */
 #ifdef CONFIG_PPC_EARLY_DEBUG_LPAR
 void __init udbg_init_debug_lpar(void)
 {
@@ -449,7 +460,7 @@ void __init udbg_init_debug_lpar(void)
 	udbg_getc = udbg_hvc_getc;
 	udbg_getc_poll = udbg_hvc_getc_poll;
 }
-#endif 
+#endif /* CONFIG_PPC_EARLY_DEBUG_LPAR */
 
 #ifdef CONFIG_PPC_EARLY_DEBUG_LPAR_HVSI
 void __init udbg_init_debug_lpar_hvsi(void)
@@ -465,4 +476,4 @@ void __init udbg_init_debug_lpar_hvsi(void)
 		     hvterm_priv0.termno, 1);
 	hvsilib_establish(&hvterm_priv0.hvsi);
 }
-#endif 
+#endif /* CONFIG_PPC_EARLY_DEBUG_LPAR_HVSI */

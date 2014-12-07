@@ -40,13 +40,32 @@ static inline struct nilfs_ifile_info *NILFS_IFILE_I(struct inode *ifile)
 	return (struct nilfs_ifile_info *)NILFS_MDT(ifile);
 }
 
+/**
+ * nilfs_ifile_create_inode - create a new disk inode
+ * @ifile: ifile inode
+ * @out_ino: pointer to a variable to store inode number
+ * @out_bh: buffer_head contains newly allocated disk inode
+ *
+ * Return Value: On success, 0 is returned and the newly allocated inode
+ * number is stored in the place pointed by @ino, and buffer_head pointer
+ * that contains newly allocated disk inode structure is stored in the
+ * place pointed by @out_bh
+ * On error, one of the following negative error codes is returned.
+ *
+ * %-EIO - I/O error.
+ *
+ * %-ENOMEM - Insufficient amount of memory available.
+ *
+ * %-ENOSPC - No inode left.
+ */
 int nilfs_ifile_create_inode(struct inode *ifile, ino_t *out_ino,
 			     struct buffer_head **out_bh)
 {
 	struct nilfs_palloc_req req;
 	int ret;
 
-	req.pr_entry_nr = 0;  
+	req.pr_entry_nr = 0;  /* 0 says find free inode from beginning of
+				 a group. dull code!! */
 	req.pr_entry_bh = NULL;
 
 	ret = nilfs_palloc_prepare_alloc_entry(ifile, &req);
@@ -68,6 +87,20 @@ int nilfs_ifile_create_inode(struct inode *ifile, ino_t *out_ino,
 	return 0;
 }
 
+/**
+ * nilfs_ifile_delete_inode - delete a disk inode
+ * @ifile: ifile inode
+ * @ino: inode number
+ *
+ * Return Value: On success, 0 is returned. On error, one of the following
+ * negative error codes is returned.
+ *
+ * %-EIO - I/O error.
+ *
+ * %-ENOMEM - Insufficient amount of memory available.
+ *
+ * %-ENOENT - The inode number @ino have not been allocated.
+ */
 int nilfs_ifile_delete_inode(struct inode *ifile, ino_t ino)
 {
 	struct nilfs_palloc_req req = {
@@ -122,6 +155,14 @@ int nilfs_ifile_get_inode_block(struct inode *ifile, ino_t ino,
 	return err;
 }
 
+/**
+ * nilfs_ifile_read - read or get ifile inode
+ * @sb: super block instance
+ * @root: root object
+ * @inode_size: size of an inode
+ * @raw_inode: on-disk ifile inode
+ * @inodep: buffer to store the inode
+ */
 int nilfs_ifile_read(struct super_block *sb, struct nilfs_root *root,
 		     size_t inode_size, struct nilfs_inode *raw_inode,
 		     struct inode **inodep)

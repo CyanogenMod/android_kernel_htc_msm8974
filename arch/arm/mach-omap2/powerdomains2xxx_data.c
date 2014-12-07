@@ -21,7 +21,9 @@
 #include "prm2xxx_3xxx.h"
 #include "prm-regbits-24xx.h"
 
+/* 24XX powerdomains and dependencies */
 
+/* Powerdomains */
 
 static struct powerdomain dsp_pwrdm = {
 	.name		  = "dsp_pwrdm",
@@ -59,20 +61,24 @@ static struct powerdomain core_24xx_pwrdm = {
 	.pwrsts		  = PWRSTS_OFF_RET_ON,
 	.banks		  = 3,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_OFF_RET,	 
-		[1] = PWRSTS_OFF_RET,	 
-		[2] = PWRSTS_OFF_RET,	 
+		[0] = PWRSTS_OFF_RET,	 /* MEM1RETSTATE */
+		[1] = PWRSTS_OFF_RET,	 /* MEM2RETSTATE */
+		[2] = PWRSTS_OFF_RET,	 /* MEM3RETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_OFF_RET_ON, 
-		[1] = PWRSTS_OFF_RET_ON, 
-		[2] = PWRSTS_OFF_RET_ON, 
+		[0] = PWRSTS_OFF_RET_ON, /* MEM1ONSTATE */
+		[1] = PWRSTS_OFF_RET_ON, /* MEM2ONSTATE */
+		[2] = PWRSTS_OFF_RET_ON, /* MEM3ONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
 
 
+/*
+ * 2430-specific powerdomains
+ */
 
+/* XXX 2430 KILLDOMAINWKUP bit?  No current users apparently */
 
 static struct powerdomain mdm_pwrdm = {
 	.name		  = "mdm_pwrdm",
@@ -81,14 +87,17 @@ static struct powerdomain mdm_pwrdm = {
 	.pwrsts_logic_ret = PWRSTS_RET,
 	.banks		  = 1,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_RET, 
+		[0] = PWRSTS_RET, /* MEMRETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_ON,  
+		[0] = PWRSTS_ON,  /* MEMONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
 
+/*
+ *
+ */
 
 static struct powerdomain *powerdomains_omap24xx[] __initdata = {
 	&wkup_omap2_pwrdm,

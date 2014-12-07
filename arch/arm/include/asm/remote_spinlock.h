@@ -15,4 +15,4 @@
 
 #include <mach/remote_spinlock.h>
 
-#endif 
+#endif /* __ASM_REMOTE_SPINLOCK_H */

@@ -73,6 +73,7 @@ static unsigned long xen_store_mfn;
 
 static BLOCKING_NOTIFIER_HEAD(xenstore_chain);
 
+/* If something in array of ids matches this device, return it. */
 static const struct xenbus_device_id *
 match_device(const struct xenbus_device_id *arr, struct xenbus_device *dev)
 {
@@ -171,6 +172,8 @@ void xenbus_otherend_changed(struct xenbus_watch *watch,
 	struct xenbus_driver *drv = to_xenbus_driver(dev->dev.driver);
 	enum xenbus_state state;
 
+	/* Protect us against watches firing on old details when the otherend
+	   details change, say immediately after a resume. */
 	if (!dev->otherend ||
 	    strncmp(dev->otherend, vec[XS_WATCH_PATH],
 		    strlen(dev->otherend))) {
@@ -185,6 +188,10 @@ void xenbus_otherend_changed(struct xenbus_watch *watch,
 		state, xenbus_strstate(state), dev->otherend_watch.node,
 		vec[XS_WATCH_PATH]);
 
+	/*
+	 * Ignore xenbus transitions during shutdown. This prevents us doing
+	 * work that can fail e.g., when the rootfs is gone.
+	 */
 	if (system_state > SYSTEM_RUNNING) {
 		if (ignore_on_shutdown && (state == XenbusStateClosing))
 			xenbus_frontend_closed(dev);
@@ -334,11 +341,11 @@ static int cleanup_dev(struct device *dev, void *data)
 
 	DPRINTK("%s", info->nodename);
 
-	
+	/* Match the info->nodename path, or any subdirectory of that path. */
 	if (strncmp(xendev->nodename, info->nodename, len))
 		return 0;
 
-	
+	/* If the node name is longer, ensure it really is a subdirectory. */
 	if ((strlen(xendev->nodename) > len) && (xendev->nodename[len] != '/'))
 		return 0;
 
@@ -407,6 +414,8 @@ int xenbus_probe_node(struct xen_bus_type *bus,
 	enum xenbus_state state = xenbus_read_driver_state(nodename);
 
 	if (state != XenbusStateInitialising) {
+		/* Device is not new, so ignore it.  This can happen if a
+		   device is going away after switching to Closed.  */
 		return 0;
 	}
 
@@ -417,7 +426,7 @@ int xenbus_probe_node(struct xen_bus_type *bus,
 
 	xendev->state = XenbusStateInitialising;
 
-	
+	/* Copy the strings into the extra space. */
 
 	tmpstring = (char *)(xendev + 1);
 	strcpy(tmpstring, nodename);
@@ -437,7 +446,7 @@ int xenbus_probe_node(struct xen_bus_type *bus,
 
 	dev_set_name(&xendev->dev, devname);
 
-	
+	/* Register with generic device framework. */
 	err = device_register(&xendev->dev);
 	if (err)
 		goto fail;
@@ -530,7 +539,7 @@ void xenbus_dev_changed(const char *node, struct xen_bus_type *bus)
 		return;
 	}
 
-	
+	/* backend/<type>/... or device/<type>/... */
 	p = strchr(node, '/') + 1;
 	snprintf(type, XEN_BUS_ID_SIZE, "%.*s", (int)strcspn(p, "/"), p);
 	type[XEN_BUS_ID_SIZE-1] = '\0';
@@ -619,12 +628,13 @@ EXPORT_SYMBOL_GPL(xenbus_dev_resume);
 
 int xenbus_dev_cancel(struct device *dev)
 {
-	
+	/* Do nothing */
 	DPRINTK("cancel");
 	return 0;
 }
 EXPORT_SYMBOL_GPL(xenbus_dev_cancel);
 
+/* A flag to determine if xenstored is 'ready' (i.e. has started) */
 int xenstored_ready;
 
 
@@ -651,7 +661,7 @@ void xenbus_probe(struct work_struct *unused)
 {
 	xenstored_ready = 1;
 
-	
+	/* Notify others that xenstore is up */
 	blocking_notifier_call_chain(&xenstore_chain, 0, NULL);
 }
 EXPORT_SYMBOL_GPL(xenbus_probe);
@@ -670,13 +680,16 @@ static int __init xenbus_probe_initcall(void)
 
 device_initcall(xenbus_probe_initcall);
 
+/* Set up event channel for xenstored which is run as a local process
+ * (this is normally used only in dom0)
+ */
 static int __init xenstored_local_init(void)
 {
 	int err = 0;
 	unsigned long page = 0;
 	struct evtchn_alloc_unbound alloc_unbound;
 
-	
+	/* Allocate Xenstore page */
 	page = get_zeroed_page(GFP_KERNEL);
 	if (!page)
 		goto out_err;
@@ -685,7 +698,7 @@ static int __init xenstored_local_init(void)
 		pfn_to_mfn(virt_to_phys((void *)page) >>
 			   PAGE_SHIFT);
 
-	
+	/* Next allocate a local port which xenstored can bind to */
 	alloc_unbound.dom        = DOMID_SELF;
 	alloc_unbound.remote_dom = DOMID_SELF;
 
@@ -739,7 +752,7 @@ static int __init xenbus_init(void)
 		xen_store_interface = mfn_to_virt(xen_store_mfn);
 	}
 
-	
+	/* Initialize the interface to xenstore. */
 	err = xs_init();
 	if (err) {
 		printk(KERN_WARNING
@@ -748,6 +761,10 @@ static int __init xenbus_init(void)
 	}
 
 #ifdef CONFIG_XEN_COMPAT_XENFS
+	/*
+	 * Create xenfs mountpoint in /proc for compatibility with
+	 * utilities that expect to find "xenbus" under "/proc/xen".
+	 */
 	proc_mkdir("xen", NULL);
 #endif
 

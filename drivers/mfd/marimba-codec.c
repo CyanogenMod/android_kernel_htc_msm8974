@@ -123,6 +123,9 @@ struct adie_codec_state {
 
 static struct adie_codec_state adie_codec;
 
+/* Array containing write details of Tx and RX Digital Volume
+   Tx and Rx and both the left and right channel use the same data
+*/
 u8 adie_codec_rx_tx_dig_vol_data[] = {
 	0x81, 0x82, 0x83, 0x84,
 	0x85, 0x86, 0x87, 0x88,
@@ -206,12 +209,12 @@ struct adie_codec_vol_cntrl_data {
 
 	enum adie_vol_type vol_type;
 
-	
+	/* Jump length used while doing writes in incremental fashion */
 	u32 jump_length;
-	s32 min_mb;		
-	s32 max_mb;		
+	s32 min_mb;		/* Min Db applicable to the vol control */
+	s32 max_mb;		/* Max Db applicable to the vol control */
 	u32 step_in_mb;
-	u32 steps;		
+	u32 steps;		/* No of steps allowed for this vol type */
 
 	struct adie_codec_ch_vol_cntrl *ch_vol_cntrl_info;
 };
@@ -320,9 +323,11 @@ static int adie_codec_set_dig_vol(enum adie_vol_type vol_type, u32 chan_index,
 	    adie_codec_vol_cntrl[vol_type].
 	    ch_vol_cntrl_info[chan_index].codec_mask;
 
-	
+	/* compare the target index with current index */
 	if (cur_index < target_index) {
 
+		/* Volume is being increased loop and increase it in 4-5 steps
+		 */
 		count = ((target_index - cur_index) * 100 / index_jump);
 		index = cur_index;
 
@@ -344,7 +349,7 @@ static int adie_codec_set_dig_vol(enum adie_vol_type vol_type, u32 chan_index,
 			}
 		}
 
-		
+		/*do one final write to take it to the target index level */
 		val =
 		    adie_codec_vol_cntrl[vol_type].ch_vol_cntrl_info
 		    [chan_index].vol_cntrl_data[target_index];
@@ -361,9 +366,9 @@ static int adie_codec_set_dig_vol(enum adie_vol_type vol_type, u32 chan_index,
 
 	} else {
 
-		
+		/* Volume is being decreased from the current setting */
 		index = cur_index;
-		
+		/* loop and decrease it in 4-5 steps */
 		count = ((cur_index - target_index) * 100 / index_jump);
 
 		for (i = 1; i <= count; i++) {
@@ -384,7 +389,7 @@ static int adie_codec_set_dig_vol(enum adie_vol_type vol_type, u32 chan_index,
 			}
 		}
 
-		
+		/* do one final write to take it to the target index level */
 		val =
 		    adie_codec_vol_cntrl[vol_type].ch_vol_cntrl_info
 		    [chan_index].vol_cntrl_data[target_index];
@@ -404,7 +409,7 @@ static int adie_codec_set_dig_vol(enum adie_vol_type vol_type, u32 chan_index,
 
 static int marimba_adie_codec_set_device_digital_volume(
 		struct adie_codec_path *path_ptr,
-		u32 num_channels, u32 vol_percentage )
+		u32 num_channels, u32 vol_percentage /* in percentage */)
 {
 	enum adie_vol_type vol_type;
 	s32 milli_bel;
@@ -569,7 +574,7 @@ static void adie_codec_reach_stage_action(struct adie_codec_path *path_ptr,
 	struct adie_codec_register *reg_info;
 
 	if (stage == ADIE_CODEC_FLASH_IMAGE) {
-		
+		/* perform reimage */
 		for (iter = 0; iter < path_ptr->img.img_sz; iter++) {
 			reg_info = &path_ptr->img.regs[iter];
 			adie_codec_write(reg_info->reg,
@@ -626,25 +631,33 @@ static int marimba_adie_codec_proceed_stage(struct adie_codec_path *path_ptr,
 
 static void marimba_codec_bring_up(void)
 {
+	/* bring up sequence for Marimba codec core
+	 * ensure RESET_N = 0 and GDFS_CLAMP_EN=1 -
+	 * set GDFS_EN_FEW=1 then GDFS_EN_REST=1 then
+	 * GDFS_CLAMP_EN = 0 and finally RESET_N = 1
+	 * Marimba codec bring up should use the Marimba
+	 * slave address after which the codec slave
+	 * address can be used
+	 */
 
-	
+	/* Bring up codec */
 	adie_codec_write(0xFF, 0xFF, 0x08);
 
-	
+	/* set GDFS_EN_FEW=1 */
 	adie_codec_write(0xFF, 0xFF, 0x0a);
 
-	
+	/* set GDFS_EN_REST=1 */
 	adie_codec_write(0xFF, 0xFF, 0x0e);
 
-	
+	/* set RESET_N=1 */
 	adie_codec_write(0xFF, 0xFF, 0x07);
 
 	adie_codec_write(0xFF, 0xFF, 0x17);
 
-	
+	/* enable band gap */
 	adie_codec_write(0x03, 0xFF, 0x04);
 
-	
+	/* dither delay selected and dmic gain stage bypassed */
 	adie_codec_write(0x8F, 0xFF, 0x44);
 }
 
@@ -837,7 +850,7 @@ static ssize_t codec_debug_write(struct file *filp,
 		} else
 			rc = -EINVAL;
 	} else if (!strcmp(access_str, "poke")) {
-		
+		/* write */
 		rc = get_parameters(lbuf, param, 2);
 		if ((param[0] <= 0xFF) && (param[1] <= 0xFF) &&
 			(rc == 0))
@@ -845,7 +858,7 @@ static ssize_t codec_debug_write(struct file *filp,
 		else
 			rc = -EINVAL;
 	} else if (!strcmp(access_str, "peek")) {
-		
+		/* read */
 		rc = get_parameters(lbuf, param, 1);
 		if ((param[0] <= 0xFF) && (rc == 0))
 			adie_codec_read(param[0], &read_data);
@@ -878,7 +891,7 @@ static int marimba_codec_probe(struct platform_device *pdev)
 	if (adie_codec.codec_pdata->snddev_profile_init)
 		adie_codec.codec_pdata->snddev_profile_init();
 
-	
+	/* Register the marimba ADIE operations */
 	rc = adie_codec_register_codec_operations(&marimba_adie_ops);
 
 #ifdef CONFIG_DEBUG_FS

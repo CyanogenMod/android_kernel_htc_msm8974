@@ -21,9 +21,9 @@
 
 static int s5pc100_cfg_i2s(struct platform_device *pdev)
 {
-	
+	/* configure GPIO for i2s port */
 	switch (pdev->id) {
-	case 0: 
+	case 0: /* Dedicated pins */
 		break;
 	case 1:
 		s3c_gpio_cfgpin_range(S5PC100_GPC(0), 5, S3C_GPIO_SFN(2));
@@ -158,6 +158,7 @@ struct platform_device s5pc100_device_iis2 = {
 	},
 };
 
+/* PCM Controller platform_devices */
 
 static int s5pc100_pcm_cfg_gpio(struct platform_device *pdev)
 {
@@ -238,6 +239,7 @@ struct platform_device s5pc100_device_pcm1 = {
 	},
 };
 
+/* AC97 Controller platform devices */
 
 static int s5pc100_ac97_cfg_gpio(struct platform_device *pdev)
 {
@@ -290,6 +292,7 @@ struct platform_device s5pc100_device_ac97 = {
 	},
 };
 
+/* S/PDIF Controller platform_device */
 static int s5pc100_spdif_cfg_gpd(struct platform_device *pdev)
 {
 	s3c_gpio_cfgpin_range(S5PC100_GPD(5), 2, S3C_GPIO_SFN(3));

@@ -15,44 +15,56 @@
 
 #include <linux/types.h>
 
+/* Number of elements in the array with statical CDBs */
 #define	MAX_STAT_DMA_CDBS	16
+/* Number of DMA engines available on the contoller */
 #define DMA_ENGINES_NUM		2
 
+/* Maximum h/w supported number of destinations */
 #define DMA_DEST_MAX_NUM	2
 
+/* FIFO's params */
 #define DMA0_FIFO_SIZE		0x1000
 #define DMA1_FIFO_SIZE		0x1000
 #define DMA_FIFO_ENABLE		(1<<12)
 
+/* DMA Configuration Register. Data Transfer Engine PLB Priority: */
 #define DMA_CFG_DXEPR_LP	(0<<26)
 #define DMA_CFG_DXEPR_HP	(3<<26)
 #define DMA_CFG_DXEPR_HHP	(2<<26)
 #define DMA_CFG_DXEPR_HHHP	(1<<26)
 
+/* DMA Configuration Register. DMA FIFO Manager PLB Priority: */
 #define DMA_CFG_DFMPP_LP	(0<<23)
 #define DMA_CFG_DFMPP_HP	(3<<23)
 #define DMA_CFG_DFMPP_HHP	(2<<23)
 #define DMA_CFG_DFMPP_HHHP	(1<<23)
 
+/* DMA Configuration Register. Force 64-byte Alignment */
 #define DMA_CFG_FALGN		(1 << 19)
 
+/*UIC0:*/
 #define D0CPF_INT		(1<<12)
 #define D0CSF_INT		(1<<11)
 #define D1CPF_INT		(1<<10)
 #define D1CSF_INT		(1<<9)
+/*UIC1:*/
 #define DMAE_INT		(1<<9)
 
+/* I2O IOP Interrupt Mask Register */
 #define I2O_IOPIM_P0SNE		(1<<3)
 #define I2O_IOPIM_P0EM		(1<<5)
 #define I2O_IOPIM_P1SNE		(1<<6)
 #define I2O_IOPIM_P1EM		(1<<8)
 
+/* DMA CDB fields */
 #define DMA_CDB_MSK		(0xF)
 #define DMA_CDB_64B_ADDR	(1<<2)
 #define DMA_CDB_NO_INT		(1<<3)
 #define DMA_CDB_STATUS_MSK	(0x3)
 #define DMA_CDB_ADDR_MSK	(0xFFFFFFF0)
 
+/* DMA CDB OpCodes */
 #define DMA_CDB_OPC_NO_OP	(0x00)
 #define DMA_CDB_OPC_MV_SG1_SG2	(0x01)
 #define DMA_CDB_OPC_MULTICAST	(0x05)
@@ -82,23 +94,33 @@
 #define DMA_RXOR125		0x2
 #define DMA_RXOR12		0x3
 
+/* S/G addresses */
 #define DMA_CDB_SG_SRC		1
 #define DMA_CDB_SG_DST1		2
 #define DMA_CDB_SG_DST2		3
 
+/*
+ * DMAx engines Command Descriptor Block Type
+ */
 struct dma_cdb {
-	u8	pad0[2];        
-	u8	attr;		
-	u8	opc;		
-	u32	sg1u;		
-	u32	sg1l;		
-	u32	cnt;		
-	u32	sg2u;		
-	u32	sg2l;		
-	u32	sg3u;		
-	u32	sg3l;		
+	/*
+	 * Basic CDB structure (Table 20-17, p.499, 440spe_um_1_22.pdf)
+	 */
+	u8	pad0[2];        /* reserved */
+	u8	attr;		/* attributes */
+	u8	opc;		/* opcode */
+	u32	sg1u;		/* upper SG1 address */
+	u32	sg1l;		/* lower SG1 address */
+	u32	cnt;		/* SG count, 3B used */
+	u32	sg2u;		/* upper SG2 address */
+	u32	sg2l;		/* lower SG2 address */
+	u32	sg3u;		/* upper SG3 address */
+	u32	sg3l;		/* lower SG3 address */
 };
 
+/*
+ * DMAx hardware registers (p.515 in 440SPe UM 1.22)
+ */
 struct dma_regs {
 	u32	cpfpl;
 	u32	cpfph;
@@ -130,6 +152,9 @@ struct dma_regs {
 	u32	fsiz;
 };
 
+/*
+ * I2O hardware registers (p.528 in 440SPe UM 1.22)
+ */
 struct i2o_regs {
 	u32	ists;
 	u32	iseat;
@@ -195,4 +220,4 @@ struct i2o_regs {
 	u32	iopt;
 };
 
-#endif 
+#endif /* _PPC440SPE_DMA_H */

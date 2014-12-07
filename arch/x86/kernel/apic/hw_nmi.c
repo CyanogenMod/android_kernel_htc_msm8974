@@ -26,8 +26,10 @@ u64 hw_nmi_get_sample_period(int watchdog_thresh)
 #endif
 
 #ifdef arch_trigger_all_cpu_backtrace
+/* For reliability, we're prepared to waste bits here. */
 static DECLARE_BITMAP(backtrace_mask, NR_CPUS) __read_mostly;
 
+/* "in progress" flag of arch_trigger_all_cpu_backtrace */
 static unsigned long backtrace_flag;
 
 void arch_trigger_all_cpu_backtrace(void)
@@ -35,6 +37,10 @@ void arch_trigger_all_cpu_backtrace(void)
 	int i;
 
 	if (test_and_set_bit(0, &backtrace_flag))
+		/*
+		 * If there is already a trigger_all_cpu_backtrace() in progress
+		 * (backtrace_flag == 1), don't output double cpu dump infos.
+		 */
 		return;
 
 	cpumask_copy(to_cpumask(backtrace_mask), cpu_online_mask);
@@ -42,7 +48,7 @@ void arch_trigger_all_cpu_backtrace(void)
 	printk(KERN_INFO "sending NMI to all CPUs:\n");
 	apic->send_IPI_all(NMI_VECTOR);
 
-	
+	/* Wait for up to 10 seconds for all CPUs to do the backtrace */
 	for (i = 0; i < 10 * 1000; i++) {
 		if (cpumask_empty(to_cpumask(backtrace_mask)))
 			break;

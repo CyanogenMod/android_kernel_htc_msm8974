@@ -98,4 +98,4 @@ kgsl_sync_fence_async_cancel(struct kgsl_sync_fence_waiter *waiter)
 
 #endif
 
-#endif 
+#endif /* __KGSL_SYNC_H */

@@ -36,7 +36,7 @@
 #define L1_MODE_FAX	9
 
 struct hisax_if {
-	void *priv; 
+	void *priv; // private to driver
 	void (*l1l2)(struct hisax_if *, int pr, void *arg);
 	void (*l2l1)(struct hisax_if *, int pr, void *arg);
 };
@@ -44,14 +44,14 @@ struct hisax_if {
 struct hisax_b_if {
 	struct hisax_if ifc;
 
-	
+	// private to hisax
 	struct BCState *bcs;
 };
 
 struct hisax_d_if {
 	struct hisax_if ifc;
 
-	
+	// private to hisax
 	struct module *owner;
 	struct IsdnCardState *cs;
 	struct hisax_b_if *b_if[2];

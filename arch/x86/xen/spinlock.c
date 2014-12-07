@@ -1,3 +1,7 @@
+/*
+ * Split spinlock implementation out into its own file, so it can be
+ * compiled in a FTRACE-compatible way.
+ */
 #include <linux/kernel_stat.h>
 #include <linux/spinlock.h>
 #include <linux/debugfs.h>
@@ -92,7 +96,7 @@ static inline void spin_time_accum_blocked(u64 start)
 	__spin_time_accum(delta, spinlock_stats.histo_spin_blocked);
 	spinlock_stats.time_blocked += delta;
 }
-#else  
+#else  /* !CONFIG_XEN_DEBUG_FS */
 #define TIMEOUT			(1 << 10)
 #define ADD_STATS(elem, val)	do { (void)(val); } while(0)
 
@@ -110,8 +114,11 @@ static inline void spin_time_accum_spinning(u64 start)
 static inline void spin_time_accum_blocked(u64 start)
 {
 }
-#endif  
+#endif  /* CONFIG_XEN_DEBUG_FS */
 
+/*
+ * Size struct xen_spinlock so it's the same as arch_spinlock_t.
+ */
 #if NR_CPUS < 256
 typedef u8 xen_spinners_t;
 # define inc_spinners(xl) \
@@ -127,8 +134,8 @@ typedef u16 xen_spinners_t;
 #endif
 
 struct xen_spinlock {
-	unsigned char lock;		
-	xen_spinners_t spinners;	
+	unsigned char lock;		/* 0 -> free; 1 -> locked */
+	xen_spinners_t spinners;	/* count of waiting cpus */
 };
 
 static int xen_spin_is_locked(struct arch_spinlock *lock)
@@ -142,6 +149,8 @@ static int xen_spin_is_contended(struct arch_spinlock *lock)
 {
 	struct xen_spinlock *xl = (struct xen_spinlock *)lock;
 
+	/* Not strictly true; this is only the count of contended
+	   lock-takers entering the slow path. */
 	return xl->spinners != 0;
 }
 
@@ -159,6 +168,10 @@ static int xen_spin_trylock(struct arch_spinlock *lock)
 static DEFINE_PER_CPU(int, lock_kicker_irq) = -1;
 static DEFINE_PER_CPU(struct xen_spinlock *, lock_spinners);
 
+/*
+ * Mark a cpu as interested in a lock.  Returns the CPU's previous
+ * lock of interest, in case we got preempted by an interrupt.
+ */
 static inline struct xen_spinlock *spinning_lock(struct xen_spinlock *xl)
 {
 	struct xen_spinlock *prev;
@@ -166,17 +179,21 @@ static inline struct xen_spinlock *spinning_lock(struct xen_spinlock *xl)
 	prev = __this_cpu_read(lock_spinners);
 	__this_cpu_write(lock_spinners, xl);
 
-	wmb();			
+	wmb();			/* set lock of interest before count */
 
 	inc_spinners(xl);
 
 	return prev;
 }
 
+/*
+ * Mark a cpu as no longer interested in a lock.  Restores previous
+ * lock of interest (NULL for none).
+ */
 static inline void unspinning_lock(struct xen_spinlock *xl, struct xen_spinlock *prev)
 {
 	dec_spinners(xl);
-	wmb();			
+	wmb();			/* decrement count before restoring lock */
 	__this_cpu_write(lock_spinners, prev);
 }
 
@@ -188,13 +205,13 @@ static noinline int xen_spin_lock_slow(struct arch_spinlock *lock, bool irq_enab
 	int ret;
 	u64 start;
 
-	
+	/* If kicker interrupts not initialized yet, just spin */
 	if (irq == -1)
 		return 0;
 
 	start = spin_time_start();
 
-	
+	/* announce we're spinning */
 	prev = spinning_lock(xl);
 
 	ADD_STATS(taken_slow, 1);
@@ -203,13 +220,20 @@ static noinline int xen_spin_lock_slow(struct arch_spinlock *lock, bool irq_enab
 	do {
 		unsigned long flags;
 
-		
+		/* clear pending */
 		xen_clear_irq_pending(irq);
 
+		/* check again make sure it didn't become free while
+		   we weren't looking  */
 		ret = xen_spin_trylock(lock);
 		if (ret) {
 			ADD_STATS(taken_slow_pickup, 1);
 
+			/*
+			 * If we interrupted another spinlock while it
+			 * was blocking, make sure it doesn't block
+			 * without rechecking the lock.
+			 */
 			if (prev != NULL)
 				xen_set_irq_pending(irq);
 			goto out;
@@ -221,12 +245,21 @@ static noinline int xen_spin_lock_slow(struct arch_spinlock *lock, bool irq_enab
 			raw_local_irq_enable();
 		}
 
+		/*
+		 * Block until irq becomes pending.  If we're
+		 * interrupted at this point (after the trylock but
+		 * before entering the block), then the nested lock
+		 * handler guarantees that the irq will be left
+		 * pending if there's any chance the lock became free;
+		 * xen_poll_irq() returns immediately if the irq is
+		 * pending.
+		 */
 		xen_poll_irq(irq);
 
 		raw_local_irq_restore(flags);
 
 		ADD_STATS(taken_slow_spurious, !xen_test_irq_pending(irq));
-	} while (!xen_test_irq_pending(irq)); 
+	} while (!xen_test_irq_pending(irq)); /* check for spurious wakeups */
 
 	kstat_incr_irqs_this_cpu(irq, irq_to_desc(irq));
 
@@ -291,7 +324,7 @@ static noinline void xen_spin_unlock_slow(struct xen_spinlock *xl)
 	ADD_STATS(released_slow, 1);
 
 	for_each_online_cpu(cpu) {
-		
+		/* XXX should mix up next cpu selection */
 		if (per_cpu(lock_spinners, cpu) == xl) {
 			ADD_STATS(released_slow_kicked, 1);
 			xen_send_IPI_one(cpu, XEN_SPIN_UNLOCK_VECTOR);
@@ -306,9 +339,15 @@ static void xen_spin_unlock(struct arch_spinlock *lock)
 
 	ADD_STATS(released, 1);
 
-	smp_wmb();		
-	xl->lock = 0;		
+	smp_wmb();		/* make sure no writes get moved after unlock */
+	xl->lock = 0;		/* release lock */
 
+	/*
+	 * Make sure unlock happens before checking for waiting
+	 * spinners.  We need a strong barrier to enforce the
+	 * write-read ordering to different memory locations, as the
+	 * CPU makes no implied guarantees about their ordering.
+	 */
 	mb();
 
 	if (unlikely(xl->spinners))
@@ -335,7 +374,7 @@ void __cpuinit xen_init_lock_cpu(int cpu)
 				     NULL);
 
 	if (irq >= 0) {
-		disable_irq(irq); 
+		disable_irq(irq); /* make sure it's never delivered */
 		per_cpu(lock_kicker_irq, cpu) = irq;
 	}
 
@@ -412,4 +451,4 @@ static int __init xen_spinlock_debugfs(void)
 }
 fs_initcall(xen_spinlock_debugfs);
 
-#endif	
+#endif	/* CONFIG_XEN_DEBUG_FS */

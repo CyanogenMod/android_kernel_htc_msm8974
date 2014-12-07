@@ -20,6 +20,9 @@ typedef u64 __nocast cputime64_t;
 	jiffies64_to_cputime64(nsecs_to_jiffies64(__ct))
 
 
+/*
+ * Convert cputime to microseconds and back.
+ */
 #define cputime_to_usecs(__ct)		\
 	jiffies_to_usecs(cputime_to_jiffies(__ct))
 #define usecs_to_cputime(__usec)	\
@@ -27,24 +30,39 @@ typedef u64 __nocast cputime64_t;
 #define usecs_to_cputime64(__usec)	\
 	jiffies64_to_cputime64(nsecs_to_jiffies64((__usec) * 1000))
 
+/*
+ * Convert cputime to seconds and back.
+ */
 #define cputime_to_secs(jif)		(cputime_to_jiffies(jif) / HZ)
 #define secs_to_cputime(sec)		jiffies_to_cputime((sec) * HZ)
 
+/*
+ * Convert cputime to timespec and back.
+ */
 #define timespec_to_cputime(__val)	\
 	jiffies_to_cputime(timespec_to_jiffies(__val))
 #define cputime_to_timespec(__ct,__val)	\
 	jiffies_to_timespec(cputime_to_jiffies(__ct),__val)
 
+/*
+ * Convert cputime to timeval and back.
+ */
 #define timeval_to_cputime(__val)	\
 	jiffies_to_cputime(timeval_to_jiffies(__val))
 #define cputime_to_timeval(__ct,__val)	\
 	jiffies_to_timeval(cputime_to_jiffies(__ct),__val)
 
+/*
+ * Convert cputime to clock and back.
+ */
 #define cputime_to_clock_t(__ct)	\
 	jiffies_to_clock_t(cputime_to_jiffies(__ct))
 #define clock_t_to_cputime(__x)		\
 	jiffies_to_cputime(clock_t_to_jiffies(__x))
 
+/*
+ * Convert cputime64 to clock.
+ */
 #define cputime64_to_clock_t(__ct)	\
 	jiffies_64_to_clock_t(cputime64_to_jiffies64(__ct))
 

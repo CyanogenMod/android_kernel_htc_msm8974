@@ -19,45 +19,59 @@
 
 #include <linux/delay.h>
 #include <linux/skbuff.h>
-#include "types.h"		
+#include "types.h"		/* forward structure declarations */
 
-#define	DMA_TX	1		
-#define	DMA_RX	2		
+/* map/unmap direction */
+#define	DMA_TX	1		/* TX direction for DMA */
+#define	DMA_RX	2		/* RX direction for DMA */
 
+/* DMA structure:
+ *  support two DMA engines: 32 bits address or 64 bit addressing
+ *  basic DMA register set is per channel(transmit or receive)
+ *  a pair of channels is defined for convenience
+ */
 
+/* 32 bits addressing */
 
-struct dma32diag {	
-	u32 fifoaddr;	
-	u32 fifodatalow;	
-	u32 fifodatahigh;	
-	u32 pad;		
+struct dma32diag {	/* diag access */
+	u32 fifoaddr;	/* diag address */
+	u32 fifodatalow;	/* low 32bits of data */
+	u32 fifodatahigh;	/* high 32bits of data */
+	u32 pad;		/* reserved */
 };
 
+/* 64 bits addressing */
 
+/* dma registers per channel(xmt or rcv) */
 struct dma64regs {
-	u32 control;	
-	u32 ptr;	
-	u32 addrlow;	
-	u32 addrhigh;	
-	u32 status0;	
-	u32 status1;	
+	u32 control;	/* enable, et al */
+	u32 ptr;	/* last descriptor posted to chip */
+	u32 addrlow;	/* desc ring base address low 32-bits (8K aligned) */
+	u32 addrhigh;	/* desc ring base address bits 63:32 (8K aligned) */
+	u32 status0;	/* current descriptor, xmt state */
+	u32 status1;	/* active descriptor, xmt error */
 };
 
+/* range param for dma_getnexttxp() and dma_txreclaim */
 enum txd_range {
 	DMA_RANGE_ALL = 1,
 	DMA_RANGE_TRANSMITTED,
 	DMA_RANGE_TRANSFERED
 };
 
+/*
+ * Exported data structure (read-only)
+ */
+/* export structure */
 struct dma_pub {
-	uint txavail;		
-	uint dmactrlflags;	
+	uint txavail;		/* # free tx descriptors */
+	uint dmactrlflags;	/* dma control flags */
 
-	
-	uint rxgiants;		
-	uint rxnobuf;		
-	
-	uint txnobuf;		
+	/* rx error counters */
+	uint rxgiants;		/* rx giant frames */
+	uint rxnobuf;		/* rx out of dma descriptors */
+	/* tx error counters */
+	uint txnobuf;		/* tx out of dma descriptors */
 };
 
 extern struct dma_pub *dma_attach(char *name, struct si_pub *sih,
@@ -87,6 +101,12 @@ void dma_counterreset(struct dma_pub *pub);
 void dma_walk_packets(struct dma_pub *dmah, void (*callback_fnc)
 		      (void *pkt, void *arg_a), void *arg_a);
 
+/*
+ * DMA(Bug) on bcm47xx chips seems to declare that the packet is ready, but
+ * the packet length is not updated yet (by DMA) on the expected time.
+ * Workaround is to hold processor till DMA updates the length, and stay off
+ * the bus to allow DMA update the length in buffer
+ */
 static inline void dma_spin_for_len(uint len, struct sk_buff *head)
 {
 #if defined(CONFIG_BCM47XX)
@@ -96,7 +116,7 @@ static inline void dma_spin_for_len(uint len, struct sk_buff *head)
 
 		*(u16 *) (head->data) = cpu_to_le16((u16) len);
 	}
-#endif				
+#endif				/* defined(CONFIG_BCM47XX) */
 }
 
-#endif				
+#endif				/* _BRCM_DMA_H_ */

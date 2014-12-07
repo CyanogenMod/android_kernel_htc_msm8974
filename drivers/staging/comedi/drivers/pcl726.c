@@ -26,13 +26,52 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: pcl726
+Description: Advantech PCL-726 & compatibles
+Author: ds
+Status: untested
+Devices: [Advantech] PCL-726 (pcl726), PCL-727 (pcl727), PCL-728 (pcl728),
+  [ADLink] ACL-6126 (acl6126), ACL-6128 (acl6128)
 
+Interrupts are not supported.
+
+    Options for PCL-726:
+     [0] - IO Base
+     [2]...[7] - D/A output range for channel 1-6:
+		0: 0-5V, 1: 0-10V, 2: +/-5V, 3: +/-10V,
+		4: 4-20mA, 5: unknown (external reference)
+
+    Options for PCL-727:
+     [0] - IO Base
+     [2]...[13] - D/A output range for channel 1-12:
+		0: 0-5V, 1: 0-10V, 2: +/-5V,
+		3: 4-20mA
+
+    Options for PCL-728 and ACL-6128:
+     [0] - IO Base
+     [2], [3] - D/A output range for channel 1 and 2:
+		0: 0-5V, 1: 0-10V, 2: +/-5V, 3: +/-10V,
+		4: 4-20mA, 5: 0-20mA
+
+    Options for ACL-6126:
+     [0] - IO Base
+     [1] - IRQ (0=disable, 3, 5, 6, 7, 9, 10, 11, 12, 15) (currently ignored)
+     [2]...[7] - D/A output range for channel 1-6:
+		0: 0-5V, 1: 0-10V, 2: +/-5V, 3: +/-10V,
+		4: 4-20mA
+*/
+
+/*
+    Thanks to Circuit Specialists for having programming info (!) on
+    their web page.  (http://www.cir.com/)
+*/
 
 #include "../comedidev.h"
 
 #include <linux/ioport.h>
 
-#undef ACL6126_IRQ		
+#undef ACL6126_IRQ		/* no interrupt support (yet) */
 
 #define PCL726_SIZE 16
 #define PCL727_SIZE 32
@@ -78,18 +117,18 @@ static int pcl726_detach(struct comedi_device *dev);
 
 struct pcl726_board {
 
-	const char *name;	
-	int n_aochan;		
-	int num_of_ranges;	
-	unsigned int IRQbits;	
-	unsigned int io_range;	
-	char have_dio;		
-	int di_hi;		
+	const char *name;	/*  driver name */
+	int n_aochan;		/*  num of D/A chans */
+	int num_of_ranges;	/*  num of ranges */
+	unsigned int IRQbits;	/*  allowed interrupts */
+	unsigned int io_range;	/*  len of IO space */
+	char have_dio;		/*  1=card have DI/DO ports */
+	int di_hi;		/*  ports for DI/DO operations */
 	int di_lo;
 	int do_hi;
 	int do_lo;
 	const struct comedi_lrange *const *range_type_list;
-	
+	/*  list of supported ranges */
 };
 
 static const struct pcl726_board boardtypes[] = {
@@ -157,6 +196,11 @@ static int pcl726_ao_insn(struct comedi_device *dev, struct comedi_subdevice *s,
 		hi = (data[n] >> 8) & 0xf;
 		if (devpriv->bipolar[chan])
 			hi ^= 0x8;
+		/*
+		 * the programming info did not say which order
+		 * to write bytes.  switch the order of the next
+		 * two lines if you get glitches.
+		 */
 		outb(hi, dev->iobase + PCL726_DAC0_HI + 2 * chan);
 		outb(lo, dev->iobase + PCL726_DAC0_LO + 2 * chan);
 		devpriv->ao_readback[chan] = data[n];
@@ -245,22 +289,22 @@ static int pcl726_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 #ifdef ACL6126_IRQ
 	irq = 0;
-	if (boardtypes[board].IRQbits != 0) {	
+	if (boardtypes[board].IRQbits != 0) {	/* board support IRQ */
 		irq = it->options[1];
 		devpriv->first_chan = 2;
-		if (irq) {	
+		if (irq) {	/* we want to use IRQ */
 			if (((1 << irq) & boardtypes[board].IRQbits) == 0) {
 				printk(KERN_WARNING
 					", IRQ %d is out of allowed range,"
 					" DISABLING IT", irq);
-				irq = 0;	
+				irq = 0;	/* Bad IRQ */
 			} else {
 				if (request_irq(irq, interrupt_pcl818, 0,
 						"pcl726", dev)) {
 					printk(KERN_WARNING
 						", unable to allocate IRQ %d,"
 						" DISABLING IT", irq);
-					irq = 0;	
+					irq = 0;	/* Can't use IRQ */
 				} else {
 					printk(", irq=%d", irq);
 				}
@@ -278,7 +322,7 @@ static int pcl726_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		return ret;
 
 	s = dev->subdevices + 0;
-	
+	/* ao */
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITABLE | SDF_GROUND;
 	s->n_chan = this_board->n_aochan;
@@ -300,11 +344,11 @@ static int pcl726_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		devpriv->rangelist[i] = this_board->range_type_list[j];
 		if (devpriv->rangelist[i]->range[0].min ==
 		    -devpriv->rangelist[i]->range[0].max)
-			devpriv->bipolar[i] = 1;	
+			devpriv->bipolar[i] = 1;	/* bipolar range */
 	}
 
 	s = dev->subdevices + 1;
-	
+	/* di */
 	if (!this_board->have_dio) {
 		s->type = COMEDI_SUBD_UNUSED;
 	} else {
@@ -318,7 +362,7 @@ static int pcl726_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s = dev->subdevices + 2;
-	
+	/* do */
 	if (!this_board->have_dio) {
 		s->type = COMEDI_SUBD_UNUSED;
 	} else {
@@ -336,6 +380,7 @@ static int pcl726_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 static int pcl726_detach(struct comedi_device *dev)
 {
+/* printk("comedi%d: pcl726: remove\n",dev->minor); */
 
 #ifdef ACL6126_IRQ
 	if (dev->irq)

@@ -1,3 +1,9 @@
+/*
+ * linux/arch/alpha/kernel/alpha_ksyms.c
+ *
+ * Export the alpha-specific functions that are needed for loadable
+ * modules.
+ */
 
 #include <linux/module.h>
 #include <asm/console.h>
@@ -8,6 +14,7 @@
 
 #include <linux/syscalls.h>
 
+/* these are C runtime functions with special calling conventions: */
 extern void __divl (void);
 extern void __reml (void);
 extern void __divq (void);
@@ -22,6 +29,7 @@ EXPORT_SYMBOL(callback_getenv);
 EXPORT_SYMBOL(callback_setenv);
 EXPORT_SYMBOL(callback_save_env);
 
+/* platform dependent support */
 EXPORT_SYMBOL(strcat);
 EXPORT_SYMBOL(strcpy);
 EXPORT_SYMBOL(strlen);
@@ -42,9 +50,11 @@ EXPORT_SYMBOL(alpha_read_fp_reg_s);
 EXPORT_SYMBOL(alpha_write_fp_reg);
 EXPORT_SYMBOL(alpha_write_fp_reg_s);
 
+/* entry.S */
 EXPORT_SYMBOL(kernel_thread);
 EXPORT_SYMBOL(kernel_execve);
 
+/* Networking helper routines. */
 EXPORT_SYMBOL(csum_tcpudp_magic);
 EXPORT_SYMBOL(ip_compute_csum);
 EXPORT_SYMBOL(ip_fast_csum);
@@ -59,16 +69,29 @@ EXPORT_SYMBOL(alpha_fp_emul_imprecise);
 EXPORT_SYMBOL(alpha_fp_emul);
 #endif
 
+/*
+ * The following are specially called from the uaccess assembly stubs.
+ */
 EXPORT_SYMBOL(__copy_user);
 EXPORT_SYMBOL(__do_clear_user);
 EXPORT_SYMBOL(__strncpy_from_user);
 EXPORT_SYMBOL(__strnlen_user);
 
+/* 
+ * SMP-specific symbols.
+ */
 
 #ifdef CONFIG_SMP
 EXPORT_SYMBOL(_atomic_dec_and_lock);
-#endif 
+#endif /* CONFIG_SMP */
 
+/*
+ * The following are special because they're not called
+ * explicitly (the C compiler or assembler generates them in
+ * response to division operations).  Fortunately, their
+ * interface isn't gonna change any time soon now, so it's OK
+ * to leave it out of version control.
+ */
 # undef memcpy
 # undef memset
 EXPORT_SYMBOL(__divl);

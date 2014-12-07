@@ -42,4 +42,4 @@ void bam_data_suspend(u8 port_num);
 
 void bam_data_resume(u8 port_num);
 
-#endif 
+#endif /* __U_BAM_DATA_H */

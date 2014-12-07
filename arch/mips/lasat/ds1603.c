@@ -1,3 +1,9 @@
+/*
+ * Dallas Semiconductors 1603 RTC driver
+ *
+ * Brian Murphy <brian@murphy.dk>
+ *
+ */
 #include <linux/kernel.h>
 #include <asm/lasat/lasat.h>
 #include <linux/delay.h>
@@ -14,6 +20,7 @@
 
 struct ds_defs *ds1603;
 
+/* HW specific register functions */
 static void rtc_reg_write(unsigned long val)
 {
 	*ds1603->reg = val;

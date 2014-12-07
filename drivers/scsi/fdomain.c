@@ -299,22 +299,24 @@ MODULE_LICENSE("GPL");
   
 #define VERSION          "$Revision: 5.51 $"
 
+/* START OF USER DEFINABLE OPTIONS */
 
-#define DEBUG            0	
-#define ENABLE_PARITY    1	
-#define FIFO_COUNT       2	
+#define DEBUG            0	/* Enable debugging output */
+#define ENABLE_PARITY    1	/* Enable SCSI Parity */
+#define FIFO_COUNT       2	/* Number of 512 byte blocks before INTR */
 
+/* END OF USER DEFINABLE OPTIONS */
 
 #if DEBUG
-#define EVERY_ACCESS     0	
-#define ERRORS_ONLY      1	
-#define DEBUG_DETECT     0	
-#define DEBUG_MESSAGES   1	
-#define DEBUG_ABORT      1	
-#define DEBUG_RESET      1	
-#define DEBUG_RACE       1      
+#define EVERY_ACCESS     0	/* Write a line on every scsi access */
+#define ERRORS_ONLY      1	/* Only write a line if there is an error */
+#define DEBUG_DETECT     0	/* Debug fdomain_16x0_detect() */
+#define DEBUG_MESSAGES   1	/* Debug MESSAGE IN phase */
+#define DEBUG_ABORT      1	/* Debug abort() routine */
+#define DEBUG_RESET      1	/* Debug reset() routine */
+#define DEBUG_RACE       1      /* Debug interrupt-driven race condition */
 #else
-#define EVERY_ACCESS     0	
+#define EVERY_ACCESS     0	/* LEAVE THESE ALONE--CHANGE THE ONES ABOVE */
 #define ERRORS_ONLY      0
 #define DEBUG_DETECT     0
 #define DEBUG_MESSAGES   0
@@ -323,6 +325,7 @@ MODULE_LICENSE("GPL");
 #define DEBUG_RACE       0
 #endif
 
+/* Errors are reported on the line, so we don't need to report them again */
 #if EVERY_ACCESS
 #undef ERRORS_ONLY
 #define ERRORS_ONLY      0
@@ -354,15 +357,15 @@ enum in_port_type {
    Read_SCSI_Data   =  0,
    SCSI_Status      =  1,
    TMC_Status       =  2,
-   FIFO_Status      =  3,	
-   Interrupt_Cond   =  4,	
+   FIFO_Status      =  3,	/* tmc18c50/tmc18c30 only */
+   Interrupt_Cond   =  4,	/* tmc18c50/tmc18c30 only */
    LSB_ID_Code      =  5,
    MSB_ID_Code      =  6,
    Read_Loopback    =  7,
    SCSI_Data_NoACK  =  8,
    Interrupt_Status =  9,
    Configuration1   = 10,
-   Configuration2   = 11,	
+   Configuration2   = 11,	/* tmc18c50/tmc18c30 only */
    Read_FIFO        = 12,
    FIFO_Data_Count  = 14
 };
@@ -373,12 +376,13 @@ enum out_port_type {
    Interrupt_Cntl   =  2,
    SCSI_Mode_Cntl   =  3,
    TMC_Cntl         =  4,
-   Memory_Cntl      =  5,	
+   Memory_Cntl      =  5,	/* tmc18c50/tmc18c30 only */
    Write_Loopback   =  7,
-   IO_Control       = 11,	
+   IO_Control       = 11,	/* tmc18c30 only */
    Write_FIFO       = 12
 };
 
+/* .bss will zero all the static variables below */
 static int               port_base;
 static unsigned long     bios_base;
 static void __iomem *    bios_mem;
@@ -388,7 +392,7 @@ static int               PCI_bus;
 #ifdef CONFIG_PCI
 static struct pci_dev	*PCI_dev;
 #endif
-static int               Quantum;	
+static int               Quantum;	/* Quantum board variant */
 static int               interrupt_level;
 static volatile int      in_command;
 static struct scsi_cmnd  *current_SC;
@@ -401,9 +405,12 @@ static int               setup_called;
 static volatile int      in_interrupt_flag;
 #endif
 
-static int               FIFO_Size = 0x2000; 
+static int               FIFO_Size = 0x2000; /* 8k FIFO for
+						pre-tmc18c30 chips */
 
 static irqreturn_t       do_fdomain_16x0_intr( int irq, void *dev_id );
+/* Allow insmod parameters to be like LILO parameters.  For example:
+   insmod fdomain fdomain=0x140,11 */
 static char * fdomain = NULL;
 module_param(fdomain, charp, 0);
 
@@ -414,7 +421,7 @@ static unsigned long addresses[] = {
    0xca000,
    0xce000,
    0xde000,
-   0xcc000,		
+   0xcc000,		/* Extra addresses for PCI boards */
    0xd0000,
    0xe0000,
 };
@@ -425,8 +432,39 @@ static unsigned short ports[] = { 0x140, 0x150, 0x160, 0x170 };
 
 static unsigned short ints[] = { 3, 5, 10, 11, 12, 14, 15, 0 };
 
-#endif 
+#endif /* !PCMCIA */
 
+/*
+
+  READ THIS BEFORE YOU ADD A SIGNATURE!
+
+  READING THIS SHORT NOTE CAN SAVE YOU LOTS OF TIME!
+
+  READ EVERY WORD, ESPECIALLY THE WORD *NOT*
+
+  This driver works *ONLY* for Future Domain cards using the TMC-1800,
+  TMC-18C50, or TMC-18C30 chip.  This includes models TMC-1650, 1660, 1670,
+  and 1680.  These are all 16-bit cards.
+
+  The following BIOS signature signatures are for boards which do *NOT*
+  work with this driver (these TMC-8xx and TMC-9xx boards may work with the
+  Seagate driver):
+
+  FUTURE DOMAIN CORP. (C) 1986-1988 V4.0I 03/16/88
+  FUTURE DOMAIN CORP. (C) 1986-1989 V5.0C2/14/89
+  FUTURE DOMAIN CORP. (C) 1986-1989 V6.0A7/28/89
+  FUTURE DOMAIN CORP. (C) 1986-1990 V6.0105/31/90
+  FUTURE DOMAIN CORP. (C) 1986-1990 V6.0209/18/90
+  FUTURE DOMAIN CORP. (C) 1986-1990 V7.009/18/90
+  FUTURE DOMAIN CORP. (C) 1992 V8.00.004/02/92
+
+  (The cards which do *NOT* work are all 8-bit cards -- although some of
+  them have a 16-bit form-factor, the upper 8-bits are used only for IRQs
+  and are *NOT* used for data.  You can tell the difference by following
+  the tracings on the circuit board -- if only the IRQ lines are involved,
+  you have a "8-bit" card, and should *NOT* use this driver.)
+
+*/
 
 #ifndef PCMCIA
 
@@ -436,10 +474,10 @@ static struct signature {
    int  sig_length;
    int  major_bios_version;
    int  minor_bios_version;
-   int  flag; 
+   int  flag; /* 1 == PCI_bus, 2 == ISA_200S, 3 == ISA_250MG, 4 == ISA_200S */
 } signatures[] = {
-   
-   
+   /*          1         2         3         4         5         6 */
+   /* 123456789012345678901234567890123456789012345678901234567890 */
    { "FUTURE DOMAIN CORP. (C) 1986-1990 1800-V2.07/28/89",  5, 50,  2,  0, 0 },
    { "FUTURE DOMAIN CORP. (C) 1986-1990 1800-V1.07/28/89",  5, 50,  2,  0, 0 },
    { "FUTURE DOMAIN CORP. (C) 1986-1990 1800-V2.07/28/89", 72, 50,  2,  0, 2 },
@@ -452,7 +490,7 @@ static struct signature {
    { "Future Domain Corp. V1.0008/18/93",                  26, 33,  3,  4, 1 },
    { "Adaptec AHA-2920 PCI-SCSI Card",                     42, 31,  3, -1, 1 },
    { "IBM F1 P264/32",                                      5, 14,  3, -1, 1 },
-				
+				/* This next signature may not be a 3.5 bios */
    { "Future Domain Corp. V2.0108/18/93",                   5, 33,  3,  5, 0 },
    { "FUTURE DOMAIN CORP.  V3.5008/18/93",                  5, 34,  3,  5, 0 },
    { "FUTURE DOMAIN 18c30/18c50/1800 (C) 1994 V3.5",        5, 44,  3,  5, 0 },
@@ -460,15 +498,26 @@ static struct signature {
    { "FUTURE DOMAIN CORP.  V3.6108/18/93",                  5, 34,  3,  6, 0 },
    { "FUTURE DOMAIN TMC-18XX",                              5, 22, -1, -1, 0 },
 
+   /* READ NOTICE ABOVE *BEFORE* YOU WASTE YOUR TIME ADDING A SIGNATURE
+    Also, fix the disk geometry code for your signature and send your
+    changes for faith@cs.unc.edu.  Above all, do *NOT* change any old
+    signatures!
+
+    Note that the last line will match a "generic" 18XX bios.  Because
+    Future Domain has changed the host SCSI ID and/or the location of the
+    geometry information in the on-board RAM area for each of the first
+    three BIOS's, it is still important to enter a fully qualified
+    signature in the table for any new BIOS's (after the host SCSI ID and
+    geometry location are verified). */
 };
 
 #define SIGNATURE_COUNT ARRAY_SIZE(signatures)
 
-#endif 
+#endif /* !PCMCIA */
 
 static void print_banner( struct Scsi_Host *shpnt )
 {
-   if (!shpnt) return;		
+   if (!shpnt) return;		/* This won't ever happen */
 
    if (bios_major < 0 && bios_minor < 0) {
       printk(KERN_INFO "scsi%d: <fdomain> No BIOS; using scsi id %d\n",
@@ -486,6 +535,10 @@ static void print_banner( struct Scsi_Host *shpnt )
 	      bios_base, shpnt->this_id );
    }
 
+				/* If this driver works for later FD PCI
+				   boards, we will have to modify banner
+				   for additional PCI cards, but for now if
+				   it's PCI it's a TMC-3260 - JTM */
    printk(KERN_INFO "scsi%d: <fdomain> %s chip at 0x%x irq ",
 	   shpnt->host_no,
 	   chip == tmc1800 ? "TMC-1800" : (chip == tmc18c50 ? "TMC-18C50" : (chip == tmc18c30 ? (PCI_bus ? "TMC-36C70 (PCI bus)" : "TMC-18C30") : "Unknown")),
@@ -515,7 +568,7 @@ int fdomain_setup(char *str)
 	interrupt_level = ints[0] >= 2 ? ints[2] : 0;
 	this_id         = ints[0] >= 3 ? ints[3] : 0;
    
-	bios_major = bios_minor = -1; 
+	bios_major = bios_minor = -1; /* Use geometry for BIOS version >= 3.4 */
 	++setup_called;
 	return 1;
 }
@@ -523,7 +576,7 @@ int fdomain_setup(char *str)
 __setup("fdomain=", fdomain_setup);
 
 
-static void do_pause(unsigned amount)	
+static void do_pause(unsigned amount)	/* Pause for amount*10 milliseconds */
 {
 	mdelay(10*amount);
 }
@@ -533,7 +586,7 @@ static inline void fdomain_make_bus_idle( void )
    outb(0, port_base + SCSI_Cntl);
    outb(0, port_base + SCSI_Mode_Cntl);
    if (chip == tmc18c50 || chip == tmc18c30)
-	 outb(0x21 | PARITY_MASK, port_base + TMC_Cntl); 
+	 outb(0x21 | PARITY_MASK, port_base + TMC_Cntl); /* Clear forced intr. */
    else
 	 outb(0x01 | PARITY_MASK, port_base + TMC_Cntl);
 }
@@ -545,25 +598,34 @@ static int fdomain_is_valid_port( int port )
 	   inb( port + MSB_ID_Code ), inb( port + LSB_ID_Code ) );
 #endif
 
+   /* The MCA ID is a unique id for each MCA compatible board.  We
+      are using ISA boards, but Future Domain provides the MCA ID
+      anyway.  We can use this ID to ensure that this is a Future
+      Domain TMC-1660/TMC-1680.
+    */
 
-   if (inb( port + LSB_ID_Code ) != 0xe9) { 
+   if (inb( port + LSB_ID_Code ) != 0xe9) { /* test for 0x6127 id */
       if (inb( port + LSB_ID_Code ) != 0x27) return 0;
       if (inb( port + MSB_ID_Code ) != 0x61) return 0;
       chip = tmc1800;
-   } else {				    
+   } else {				    /* test for 0xe960 id */
       if (inb( port + MSB_ID_Code ) != 0x60) return 0;
       chip = tmc18c50;
 
+				/* Try to toggle 32-bit mode.  This only
+				   works on an 18c30 chip.  (User reports
+				   say this works, so we should switch to
+				   it in the near future.) */
 
       outb( 0x80, port + IO_Control );
       if ((inb( port + Configuration2 ) & 0x80) == 0x80) {
 	 outb( 0x00, port + IO_Control );
 	 if ((inb( port + Configuration2 ) & 0x80) == 0x00) {
 	    chip = tmc18c30;
-	    FIFO_Size = 0x800;	
+	    FIFO_Size = 0x800;	/* 2k FIFO */
 	 }
       }
-				
+				/* If that failed, we are an 18c50. */
    }
 
    return 1;
@@ -585,6 +647,19 @@ static int fdomain_test_loopback( void )
 
 #ifndef PCMCIA
 
+/* fdomain_get_irq assumes that we have a valid MCA ID for a
+   TMC-1660/TMC-1680 Future Domain board.  Now, check to be sure the
+   bios_base matches these ports.  If someone was unlucky enough to have
+   purchased more than one Future Domain board, then they will have to
+   modify this code, as we only detect one board here.  [The one with the
+   lowest bios_base.]
+
+   Note that this routine is only used for systems without a PCI BIOS32
+   (e.g., ISA bus).  For PCI bus systems, this routine will likely fail
+   unless one of the IRQs listed in the ints array is used by the board.
+   Sometimes it is possible to use the computer's BIOS setup screen to
+   configure a PCI system so that one of these IRQs will be used by the
+   Future Domain card. */
 
 static int fdomain_get_irq( int base )
 {
@@ -594,6 +669,10 @@ static int fdomain_get_irq( int base )
    printk("scsi: <fdomain> Options = %x\n", options);
 #endif
  
+   /* Check for board with lowest bios_base --
+      this isn't valid for the 18c30 or for
+      boards on the PCI bus, so just assume we
+      have the right board. */
 
    if (chip != tmc18c30 && !PCI_bus && addresses[(options & 0xc0) >> 6 ] != bios_base)
    	return 0;
@@ -635,13 +714,20 @@ static int fdomain_isa_detect( int *irq, int *iobase )
  
 found:
    if (bios_major == 2) {
+      /* The TMC-1660/TMC-1680 has a RAM area just after the BIOS ROM.
+	 Assuming the ROM is enabled (otherwise we wouldn't have been
+	 able to read the ROM signature :-), then the ROM sets up the
+	 RAM area with some magic numbers, such as a list of port
+	 base addresses and a list of the disk "geometry" reported to
+	 DOS (this geometry has nothing to do with physical geometry).
+       */
 
       switch (Quantum) {
-      case 2:			
-      case 3:			
+      case 2:			/* ISA_200S */
+      case 3:			/* ISA_250MG */
 	 base = readb(bios_mem + 0x1fa2) + (readb(bios_mem + 0x1fa3) << 8);
 	 break;
-      case 4:			
+      case 4:			/* ISA_200S (another one) */
 	 base = readb(bios_mem + 0x1fa3) + (readb(bios_mem + 0x1fa4) << 8);
 	 break;
       default:
@@ -667,12 +753,23 @@ found:
 	}
       }
 
+      /* This is a bad sign.  It usually means that someone patched the
+	 BIOS signature list (the signatures variable) to contain a BIOS
+	 signature for a board *OTHER THAN* the TMC-1660/TMC-1680. */
       
 #if DEBUG_DETECT
       printk( " RAM FAILED, " );
 #endif
    }
 
+   /* Anyway, the alternative to finding the address in the RAM is to just
+      search through every possible port address for one that is attached
+      to the Future Domain card.  Don't panic, though, about reading all
+      these random port addresses -- there are rumors that the Future
+      Domain BIOS does something very similar.
+
+      Do not, however, check ports which the kernel knows are being used by
+      another driver. */
 
    for (i = 0; i < PORT_COUNT; i++) {
       base = ports[i];
@@ -696,15 +793,15 @@ found:
    else      printk( " FAILURE\n" );
 #endif
 
-   if (!flag) return 0;		
+   if (!flag) return 0;		/* iobase not found */
 
    *irq    = fdomain_get_irq( base );
    *iobase = base;
 
-   return 1;			
+   return 1;			/* success */
 }
 
-#else 
+#else /* PCMCIA */
 
 static int fdomain_isa_detect( int *irq, int *iobase )
 {
@@ -715,18 +812,23 @@ static int fdomain_isa_detect( int *irq, int *iobase )
 	return 0;
 }
 
-#endif 
+#endif /* !PCMCIA */
 
 
+/* PCI detection function: int fdomain_pci_bios_detect(int* irq, int*
+   iobase) This function gets the Interrupt Level and I/O base address from
+   the PCI configuration registers. */
 
 #ifdef CONFIG_PCI
 static int fdomain_pci_bios_detect( int *irq, int *iobase, struct pci_dev **ret_pdev )
 {
-   unsigned int     pci_irq;                
-   unsigned long    pci_base;               
+   unsigned int     pci_irq;                /* PCI interrupt line */
+   unsigned long    pci_base;               /* PCI I/O base address */
    struct pci_dev   *pdev = NULL;
 
 #if DEBUG_DETECT
+   /* Tell how to print a list of the known PCI devices from bios32 and
+      list vendor and device IDs being used if in debug mode.  */
       
    printk( "scsi: <fdomain> INFO: use lspci -v to see list of PCI devices\n" );
    printk( "scsi: <fdomain> TMC-3260 detect:"
@@ -748,6 +850,8 @@ static int fdomain_pci_bios_detect( int *irq, int *iobase, struct pci_dev **ret_
 	   PCI_FUNC(pdev->devfn));
 #endif
 
+   /* We now have the appropriate device function for the FD board so we
+      just read the PCI config info from the registers.  */
 
    pci_base = pci_resource_start(pdev, 0);
    pci_irq = pdev->irq;
@@ -755,6 +859,8 @@ static int fdomain_pci_bios_detect( int *irq, int *iobase, struct pci_dev **ret_
    if (!request_region( pci_base, 0x10, "fdomain" ))
    	goto fail;
 
+   /* Now we have the I/O base address and interrupt from the PCI
+      configuration registers. */
 
    *irq    = pci_irq;
    *iobase = pci_base;
@@ -771,7 +877,7 @@ static int fdomain_pci_bios_detect( int *irq, int *iobase, struct pci_dev **ret_
       goto fail;
    }
 
-				
+				/* Fill in a few global variables.  Ugh. */
    bios_major = bios_minor = -1;
    PCI_bus    = 1;
    PCI_dev    = pdev;
@@ -813,11 +919,11 @@ struct Scsi_Host *__fdomain_16x0_detect(struct scsi_host_template *tpnt )
       int flag = 0;
 
 #ifdef CONFIG_PCI
-				
+				/* Try PCI detection first */
       flag = fdomain_pci_bios_detect( &interrupt_level, &port_base, &pdev );
 #endif
       if (!flag) {
-				
+				/* Then try ISA bus detection */
 	 flag = fdomain_isa_detect( &interrupt_level, &port_base );
 
 	 if (!flag) {
@@ -850,6 +956,8 @@ struct Scsi_Host *__fdomain_16x0_detect(struct scsi_host_template *tpnt )
       }
    }
 
+/* Print out a banner here in case we can't
+   get resources.  */
 
    shpnt = scsi_register( tpnt, 0 );
    if(shpnt == NULL) {
@@ -861,12 +969,12 @@ struct Scsi_Host *__fdomain_16x0_detect(struct scsi_host_template *tpnt )
    shpnt->n_io_port = 0x10;
    print_banner( shpnt );
 
-      
+   /* Log IRQ with kernel */   
    if (!interrupt_level) {
       printk(KERN_ERR "scsi: <fdomain> Card Detected, but driver not loaded (no IRQ)\n" );
       goto fail;
    } else {
-      
+      /* Register the IRQ with the kernel */
 
       retcode = request_irq( interrupt_level,
 			     do_fdomain_16x0_intr, pdev?IRQF_SHARED:0, "fdomain", shpnt);
@@ -908,15 +1016,15 @@ static const char *fdomain_16x0_info( struct Scsi_Host *ignore )
    char        *pt;
    
    strcpy( buffer, "Future Domain 16-bit SCSI Driver Version" );
-   if (strchr( VERSION, ':')) { 
+   if (strchr( VERSION, ':')) { /* Assume VERSION is an RCS Revision string */
       strcat( buffer, strchr( VERSION, ':' ) + 1 );
       pt = strrchr( buffer, '$') - 1;
-      if (!pt)  		
+      if (!pt)  		/* Stripped RCS Revision string? */
 	    pt = buffer + strlen( buffer ) - 1;
       if (*pt != ' ')
 	    ++pt;
       *pt = '\0';
-   } else {			
+   } else {			/* Assume VERSION is a number */
       strcat( buffer, " " VERSION );
    }
       
@@ -933,19 +1041,19 @@ static int fdomain_arbitrate( void )
    printk( "fdomain_arbitrate()\n" );
 #endif
    
-   outb(0x00, port_base + SCSI_Cntl);              
-   outb(adapter_mask, port_base + SCSI_Data_NoACK); 
-   outb(0x04 | PARITY_MASK, port_base + TMC_Cntl); 
+   outb(0x00, port_base + SCSI_Cntl);              /* Disable data drivers */
+   outb(adapter_mask, port_base + SCSI_Data_NoACK); /* Set our id bit */
+   outb(0x04 | PARITY_MASK, port_base + TMC_Cntl); /* Start arbitration */
 
    timeout = 500;
    do {
-      status = inb(port_base + TMC_Status);        
-      if (status & 0x02)		      
+      status = inb(port_base + TMC_Status);        /* Read adapter status */
+      if (status & 0x02)		      /* Arbitration complete */
 	    return 0;
-      mdelay(1);			
+      mdelay(1);			/* Wait one millisecond */
    } while (--timeout);
 
-   
+   /* Make bus idle */
    fdomain_make_bus_idle();
 
 #if EVERY_ACCESS
@@ -966,31 +1074,31 @@ static int fdomain_select( int target )
    static int    flag = 0;
 #endif
 
-   outb(0x82, port_base + SCSI_Cntl); 
+   outb(0x82, port_base + SCSI_Cntl); /* Bus Enable + Select */
    outb(adapter_mask | (1 << target), port_base + SCSI_Data_NoACK);
 
-   
+   /* Stop arbitration and enable parity */
    outb(PARITY_MASK, port_base + TMC_Cntl); 
 
-   timeout = 350;			
+   timeout = 350;			/* 350 msec */
 
    do {
-      status = inb(port_base + SCSI_Status); 
-      if (status & 1) {			
-	 
+      status = inb(port_base + SCSI_Status); /* Read adapter status */
+      if (status & 1) {			/* Busy asserted */
+	 /* Enable SCSI Bus (on error, should make bus idle with 0) */
 	 outb(0x80, port_base + SCSI_Cntl);
 	 return 0;
       }
-      mdelay(1);			
+      mdelay(1);			/* wait one msec */
    } while (--timeout);
-   
+   /* Make bus idle */
    fdomain_make_bus_idle();
 #if EVERY_ACCESS
    if (!target) printk( "Selection failed\n" );
 #endif
 #if ERRORS_ONLY
    if (!target) {
-      if (!flag) 
+      if (!flag) /* Skip first failure for all chips. */
 	    ++flag;
       else
 	    printk( "scsi: <fdomain> Selection failed\n" );
@@ -1024,16 +1132,21 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
    int      done = 0;
    unsigned data_count;
 
+				/* The fdomain_16x0_intr is only called via
+				   the interrupt handler.  The goal of the
+				   sti() here is to allow other
+				   interruptions while this routine is
+				   running. */
 
-   
+   /* Check for other IRQ sources */
    if ((inb(port_base + TMC_Status) & 0x01) == 0)
    	return IRQ_NONE;
 
-      	
+   /* It is our IRQ */   	
    outb(0x00, port_base + Interrupt_Cntl);
 
-   
-   if (!in_command || !current_SC) {	
+   /* We usually have one spurious interrupt after each command.  Ignore it. */
+   if (!in_command || !current_SC) {	/* Spurious interrupt */
 #if EVERY_ACCESS
       printk( "Spurious interrupt, in_command = %d, current_SC = %x\n",
 	      in_command, current_SC );
@@ -1041,11 +1154,13 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
       return IRQ_NONE;
    }
 
-   
+   /* Abort calls my_done, so we do nothing here. */
    if (current_SC->SCp.phase & aborted) {
 #if DEBUG_ABORT
       printk( "scsi: <fdomain> Interrupt after abort, ignoring\n" );
 #endif
+      /*
+      return IRQ_HANDLED; */
    }
 
 #if DEBUG_RACE
@@ -1053,7 +1168,7 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
 #endif
 
    if (current_SC->SCp.phase & in_arbitration) {
-      status = inb(port_base + TMC_Status);        
+      status = inb(port_base + TMC_Status);        /* Read adapter status */
       if (!(status & 0x02)) {
 #if EVERY_ACCESS
 	 printk( " AFAIL " );
@@ -1067,10 +1182,10 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
       
       outb(0x40 | FIFO_COUNT, port_base + Interrupt_Cntl);
 
-      outb(0x82, port_base + SCSI_Cntl); 
+      outb(0x82, port_base + SCSI_Cntl); /* Bus Enable + Select */
       outb(adapter_mask | (1 << scmd_id(current_SC)), port_base + SCSI_Data_NoACK);
       
-      
+      /* Stop arbitration and enable parity */
       outb(0x10 | PARITY_MASK, port_base + TMC_Cntl);
 #if DEBUG_RACE
       in_interrupt_flag = 0;
@@ -1079,7 +1194,7 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
    } else if (current_SC->SCp.phase & in_selection) {
       status = inb(port_base + SCSI_Status);
       if (!(status & 0x01)) {
-	 
+	 /* Try again, for slow devices */
 	 if (fdomain_select( scmd_id(current_SC) )) {
 #if EVERY_ACCESS
 	    printk( " SFAIL " );
@@ -1092,7 +1207,7 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
 #if EVERY_ACCESS
 	    printk( " AltSel " );
 #endif
-	    
+	    /* Stop arbitration and enable parity */
 	    outb(0x10 | PARITY_MASK, port_base + TMC_Cntl);
 	 }
       }
@@ -1105,15 +1220,15 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
       return IRQ_HANDLED;
    }
    
-   
+   /* current_SC->SCp.phase == in_other: this is the body of the routine */
    
    status = inb(port_base + SCSI_Status);
    
-   if (status & 0x10) {	
+   if (status & 0x10) {	/* REQ */
       
       switch (status & 0x0e) {
        
-      case 0x08:		
+      case 0x08:		/* COMMAND OUT */
 	 outb(current_SC->cmnd[current_SC->SCp.sent_command++],
 	      port_base + Write_SCSI_Data);
 #if EVERY_ACCESS
@@ -1121,19 +1236,19 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
 		 current_SC->cmnd[ current_SC->SCp.sent_command - 1] );
 #endif
 	 break;
-      case 0x00:		
+      case 0x00:		/* DATA OUT -- tmc18c50/tmc18c30 only */
 	 if (chip != tmc1800 && !current_SC->SCp.have_data_in) {
 	    current_SC->SCp.have_data_in = -1;
 	    outb(0xd0 | PARITY_MASK, port_base + TMC_Cntl);
 	 }
 	 break;
-      case 0x04:		
+      case 0x04:		/* DATA IN -- tmc18c50/tmc18c30 only */
 	 if (chip != tmc1800 && !current_SC->SCp.have_data_in) {
 	    current_SC->SCp.have_data_in = 1;
 	    outb(0x90 | PARITY_MASK, port_base + TMC_Cntl);
 	 }
 	 break;
-      case 0x0c:		
+      case 0x0c:		/* STATUS IN */
 	 current_SC->SCp.Status = inb(port_base + Read_SCSI_Data);
 #if EVERY_ACCESS
 	 printk( "Status = %x, ", current_SC->SCp.Status );
@@ -1149,10 +1264,10 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
 	 }
 #endif
 	       break;
-      case 0x0a:		
-	 outb(MESSAGE_REJECT, port_base + Write_SCSI_Data); 
+      case 0x0a:		/* MESSAGE OUT */
+	 outb(MESSAGE_REJECT, port_base + Write_SCSI_Data); /* Reject */
 	 break;
-      case 0x0e:		
+      case 0x0e:		/* MESSAGE IN */
 	 current_SC->SCp.Message = inb(port_base + Read_SCSI_Data);
 #if EVERY_ACCESS
 	 printk( "Message = %x, ", current_SC->SCp.Message );
@@ -1183,7 +1298,7 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
       }
    }
 
-   if (current_SC->SCp.have_data_in == -1) { 
+   if (current_SC->SCp.have_data_in == -1) { /* DATA OUT */
       while ((data_count = FIFO_Size - inw(port_base + FIFO_Data_Count)) > 512) {
 #if EVERY_ACCESS
 	 printk( "DC=%d, ", data_count ) ;
@@ -1216,7 +1331,7 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
       }
    }
    
-   if (current_SC->SCp.have_data_in == 1) { 
+   if (current_SC->SCp.have_data_in == 1) { /* DATA IN */
       while ((data_count = inw(port_base + FIFO_Data_Count)) > 0) {
 #if EVERY_ACCESS
 	 printk( "DC=%d, ", data_count );
@@ -1231,7 +1346,7 @@ static irqreturn_t do_fdomain_16x0_intr(int irq, void *dev_id)
 	       *current_SC->SCp.ptr++ = inb(port_base + Read_FIFO);
 	       --current_SC->SCp.this_residual;
 	    } else {
-	       data_count >>= 1; 
+	       data_count >>= 1; /* Number of words */
 	       insw(port_base + Read_FIFO, current_SC->SCp.ptr, data_count);
 	       current_SC->SCp.ptr += 2 * data_count;
 	       current_SC->SCp.this_residual -= 2 * data_count;
@@ -1319,10 +1434,10 @@ static int fdomain_16x0_queue_lck(struct scsi_cmnd *SCpnt,
 
    fdomain_make_bus_idle();
 
-   current_SC            = SCpnt; 
+   current_SC            = SCpnt; /* Save this for the done function */
    current_SC->scsi_done = done;
 
-   
+   /* Initialize static data */
 
    if (scsi_sg_count(current_SC)) {
 	   current_SC->SCp.buffer = scsi_sglist(current_SC);
@@ -1342,13 +1457,13 @@ static int fdomain_16x0_queue_lck(struct scsi_cmnd *SCpnt,
    current_SC->SCp.sent_command        = 0;
    current_SC->SCp.phase               = in_arbitration;
 
-   
+   /* Start arbitration */
    outb(0x00, port_base + Interrupt_Cntl);
-   outb(0x00, port_base + SCSI_Cntl);              
-   outb(adapter_mask, port_base + SCSI_Data_NoACK); 
+   outb(0x00, port_base + SCSI_Cntl);              /* Disable data drivers */
+   outb(adapter_mask, port_base + SCSI_Data_NoACK); /* Set our id bit */
    ++in_command;
    outb(0x20, port_base + Interrupt_Cntl);
-   outb(0x14 | PARITY_MASK, port_base + TMC_Cntl); 
+   outb(0x14 | PARITY_MASK, port_base + TMC_Cntl); /* Start arbitration */
 
    return 0;
 }
@@ -1400,7 +1515,7 @@ static void print_info(struct scsi_cmnd *SCpnt)
    outb( 0x0b, 0x20 );
    isr += inb( 0x20 );
 
-				
+				/* Print out interesting information */
    printk( "IMR = 0x%04x", imr );
    if (imr & (1 << interrupt_level))
 	 printk( " (masked)" );
@@ -1448,7 +1563,7 @@ static int fdomain_16x0_abort(struct scsi_cmnd *SCpnt)
    current_SC->SCp.phase |= aborted;
    current_SC->result = DID_ABORT << 16;
    
-   
+   /* Aborts are not done well. . . */
    my_done(DID_ABORT << 16);
    return SUCCESS;
 }
@@ -1483,6 +1598,48 @@ static int fdomain_16x0_biosparam(struct scsi_device *sdev,
       unsigned char  sectors;
    } i;
    
+   /* NOTES:
+      The RAM area starts at 0x1f00 from the bios_base address.
+
+      For BIOS Version 2.0:
+      
+      The drive parameter table seems to start at 0x1f30.
+      The first byte's purpose is not known.
+      Next is the cylinder, head, and sector information.
+      The last 4 bytes appear to be the drive's size in sectors.
+      The other bytes in the drive parameter table are unknown.
+      If anyone figures them out, please send me mail, and I will
+      update these notes.
+
+      Tape drives do not get placed in this table.
+
+      There is another table at 0x1fea:
+      If the byte is 0x01, then the SCSI ID is not in use.
+      If the byte is 0x18 or 0x48, then the SCSI ID is in use,
+      although tapes don't seem to be in this table.  I haven't
+      seen any other numbers (in a limited sample).
+
+      0x1f2d is a drive count (i.e., not including tapes)
+
+      The table at 0x1fcc are I/O ports addresses for the various
+      operations.  I calculate these by hand in this driver code.
+
+      
+      
+      For the ISA-200S version of BIOS Version 2.0:
+
+      The drive parameter table starts at 0x1f33.
+
+      WARNING: Assume that the table entry is 25 bytes long.  Someone needs
+      to check this for the Quantum ISA-200S card.
+
+      
+      
+      For BIOS Version 3.2:
+
+      The drive parameter table starts at 0x1f70.  Each entry is
+      0x0a bytes long.  Heads are one less than we need to report.
+    */
 
    if (MAJOR(bdev->bd_dev) != SCSI_DISK0_MAJOR) {
       printk("scsi: <fdomain> fdomain_16x0_biosparam: too many disks");
@@ -1492,13 +1649,15 @@ static int fdomain_16x0_biosparam(struct scsi_device *sdev,
 
    if (bios_major == 2) {
       switch (Quantum) {
-      case 2:			
+      case 2:			/* ISA_200S */
+				/* The value of 25 has never been verified.
+				   It should probably be 15. */
 	 offset = 0x1f33 + drive * 25;
 	 break;
-      case 3:			
+      case 3:			/* ISA_250MG */
 	 offset = 0x1f36 + drive * 15;
 	 break;
-      case 4:			
+      case 4:			/* ISA_200S (another one) */
 	 offset = 0x1f34 + drive * 15;
 	 break;
       default:
@@ -1511,37 +1670,68 @@ static int fdomain_16x0_biosparam(struct scsi_device *sdev,
       info_array[2] = i.cylinders;
    } else if (bios_major == 3
 	      && bios_minor >= 0
-	      && bios_minor < 4) { 
+	      && bios_minor < 4) { /* 3.0 and 3.2 BIOS */
       memcpy_fromio( &i, bios_mem + 0x1f71 + drive * 10,
 		     sizeof( struct drive_info ) );
       info_array[0] = i.heads + 1;
       info_array[1] = i.sectors;
       info_array[2] = i.cylinders;
-   } else {			
-      
+   } else {			/* 3.4 BIOS (and up?) */
+      /* This algorithm was provided by Future Domain (much thanks!). */
       unsigned char *p = scsi_bios_ptable(bdev);
 
-      if (p && p[65] == 0xaa && p[64] == 0x55 
-	  && p[4]) {			    
+      if (p && p[65] == 0xaa && p[64] == 0x55 /* Partition table valid */
+	  && p[4]) {			    /* Partition type */
 
+	 /* The partition table layout is as follows:
 
-	 info_array[0] = p[5] + 1;	    
-	 info_array[1] = p[6] & 0x3f;	    
+	    Start: 0x1b3h
+	    Offset: 0 = partition status
+		    1 = starting head
+		    2 = starting sector and cylinder (word, encoded)
+		    4 = partition type
+		    5 = ending head
+		    6 = ending sector and cylinder (word, encoded)
+		    8 = starting absolute sector (double word)
+		    c = number of sectors (double word)
+	    Signature: 0x1fe = 0x55aa
+
+	    So, this algorithm assumes:
+	    1) the first partition table is in use,
+	    2) the data in the first entry is correct, and
+	    3) partitions never divide cylinders
+
+	    Note that (1) may be FALSE for NetBSD (and other BSD flavors),
+	    as well as for Linux.  Note also, that Linux doesn't pay any
+	    attention to the fields that are used by this algorithm -- it
+	    only uses the absolute sector data.  Recent versions of Linux's
+	    fdisk(1) will fill this data in correctly, and forthcoming
+	    versions will check for consistency.
+
+	    Checking for a non-zero partition type is not part of the
+	    Future Domain algorithm, but it seemed to be a reasonable thing
+	    to do, especially in the Linux and BSD worlds. */
+
+	 info_array[0] = p[5] + 1;	    /* heads */
+	 info_array[1] = p[6] & 0x3f;	    /* sectors */
       } else {
 
+ 	 /* Note that this new method guarantees that there will always be
+	    less than 1024 cylinders on a platter.  This is good for drives
+	    up to approximately 7.85GB (where 1GB = 1024 * 1024 kB). */
 
 	 if ((unsigned int)size >= 0x7e0000U) {
-	    info_array[0] = 0xff; 
-	    info_array[1] = 0x3f; 
+	    info_array[0] = 0xff; /* heads   = 255 */
+	    info_array[1] = 0x3f; /* sectors =  63 */
 	 } else if ((unsigned int)size >= 0x200000U) {
-	    info_array[0] = 0x80; 
-	    info_array[1] = 0x3f; 
+	    info_array[0] = 0x80; /* heads   = 128 */
+	    info_array[1] = 0x3f; /* sectors =  63 */
 	 } else {
-	    info_array[0] = 0x40; 
-	    info_array[1] = 0x20; 
+	    info_array[0] = 0x40; /* heads   =  64 */
+	    info_array[1] = 0x20; /* sectors =  32 */
 	 }
       }
-				
+				/* For both methods, compute the cylinders */
       info_array[2] = (unsigned int)size / (info_array[0] * info_array[1] );
       kfree(p);
    }

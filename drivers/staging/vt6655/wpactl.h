@@ -34,8 +34,10 @@
 #include "iowpa.h"
 #endif
 
+/*---------------------  Export Definitions -------------------------*/
 
 
+//WPA related
 
 typedef enum { WPA_ALG_NONE, WPA_ALG_WEP, WPA_ALG_TKIP, WPA_ALG_CCMP } wpa_alg;
 typedef enum { CIPHER_NONE, CIPHER_WEP40, CIPHER_TKIP, CIPHER_CCMP,
@@ -54,14 +56,17 @@ typedef enum { KEY_MGMT_802_1X, KEY_MGMT_CCKM,KEY_MGMT_PSK, KEY_MGMT_NONE,
 
 typedef unsigned long long   NDIS_802_11_KEY_RSC;
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 int wpa_set_wpadev(PSDevice pDevice, int val);
 int wpa_ioctl(PSDevice pDevice, struct iw_point *p);
 int wpa_set_keys(PSDevice pDevice, void *ctx, bool fcpfkernel);
 
-#endif 
+#endif // __WPACL_H__
 
 
 

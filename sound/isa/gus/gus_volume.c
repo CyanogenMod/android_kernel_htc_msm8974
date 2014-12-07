@@ -25,7 +25,7 @@
 #define __GUS_TABLES_ALLOC__
 #include "gus_tables.h"
 
-EXPORT_SYMBOL(snd_gf1_atten_table); 
+EXPORT_SYMBOL(snd_gf1_atten_table); /* for snd-gus-synth module */
 
 unsigned short snd_gf1_lvol_to_gvol_raw(unsigned int vol)
 {
@@ -110,7 +110,7 @@ unsigned int snd_gf1_calc_ramp_rate(struct snd_gus_card * gus,
 	return (range << 6) | (increment & 0x3f);
 }
 
-#endif  
+#endif  /*  0  */
 
 unsigned short snd_gf1_translate_freq(struct snd_gus_card * gus, unsigned int freq16)
 {
@@ -141,15 +141,15 @@ short snd_gf1_compute_vibrato(short cents, unsigned short fc_register)
 	pcents = cents < 0 ? -cents : cents;
 	for (vi1 = vibrato_table, vi2 = vi1 + 2; pcents > *vi2; vi1 = vi2, vi2 += 2);
 	v1 = *(vi1 + 1);
-	
-	
-	
-	
-	
-	
-	
-	
-	
+	/* The FC table above is a list of pairs. The first number in the pair     */
+	/* is the cents index from 0-255 cents, and the second number in the       */
+	/* pair is the FC adjustment needed to change the pitch by the indexed     */
+	/* number of cents. The table was created for an FC of 32768.              */
+	/* The following expression does a linear interpolation against the        */
+	/* approximated log curve in the table above, and then scales the number   */
+	/* by the FC before the LFO. This calculation also adjusts the output      */
+	/* value to produce the appropriate depth for the hardware. The depth      */
+	/* is 2 * desired FC + 1.                                                  */
 	depth = (((int) (*(vi2 + 1) - *vi1) * (pcents - *vi1) / (*vi2 - *vi1)) + v1) * fc_register >> 14;
 	if (depth)
 		depth++;
@@ -215,4 +215,4 @@ unsigned short snd_gf1_compute_freq(unsigned int freq,
 	return (unsigned short) fc;
 }
 
-#endif  
+#endif  /*  0  */

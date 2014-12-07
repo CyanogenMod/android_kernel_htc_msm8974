@@ -31,15 +31,15 @@
 #include <linux/module.h>
 
 struct fis_image_desc {
-    unsigned char name[16];      
-    uint32_t	  flash_base;    
-    uint32_t	  mem_base;      
-    uint32_t	  size;          
-    uint32_t	  entry_point;   
-    uint32_t	  data_length;   
+    unsigned char name[16];      // Null terminated name
+    uint32_t	  flash_base;    // Address within FLASH of image
+    uint32_t	  mem_base;      // Address in memory where it executes
+    uint32_t	  size;          // Length of image
+    uint32_t	  entry_point;   // Execution entry point
+    uint32_t	  data_length;   // Length of actual data
     unsigned char _pad[256-(16+7*sizeof(uint32_t))];
-    uint32_t	  desc_cksum;    
-    uint32_t	  file_cksum;    
+    uint32_t	  desc_cksum;    // Checksum over image descriptor
+    uint32_t	  file_cksum;    // Checksum over image data
 };
 
 struct fis_list {
@@ -52,7 +52,7 @@ module_param(directory, int, 0);
 
 static inline int redboot_checksum(struct fis_image_desc *img)
 {
-	
+	/* RedBoot doesn't actually write the desc_cksum field yet AFAICT */
 	return 1;
 }
 
@@ -116,15 +116,32 @@ static int parse_redboot_partitions(struct mtd_info *master,
 	numslots = (master->erasesize / sizeof(struct fis_image_desc));
 	for (i = 0; i < numslots; i++) {
 		if (!memcmp(buf[i].name, "FIS directory", 14)) {
+			/* This is apparently the FIS directory entry for the
+			 * FIS directory itself.  The FIS directory size is
+			 * one erase block; if the buf[i].size field is
+			 * swab32(erasesize) then we know we are looking at
+			 * a byte swapped FIS directory - swap all the entries!
+			 * (NOTE: this is 'size' not 'data_length'; size is
+			 * the full size of the entry.)
+			 */
 
+			/* RedBoot can combine the FIS directory and
+			   config partitions into a single eraseblock;
+			   we assume wrong-endian if either the swapped
+			   'size' matches the eraseblock size precisely,
+			   or if the swapped size actually fits in an
+			   eraseblock while the unswapped size doesn't. */
 			if (swab32(buf[i].size) == master->erasesize ||
 			    (buf[i].size > master->erasesize
 			     && swab32(buf[i].size) < master->erasesize)) {
 				int j;
-				
+				/* Update numslots based on actual FIS directory size */
 				numslots = swab32(buf[i].size) / sizeof (struct fis_image_desc);
 				for (j = 0; j < numslots; ++j) {
 
+					/* A single 0xff denotes a deleted entry.
+					 * Two of them in a row is the end of the table.
+					 */
 					if (buf[j].name[0] == 0xff) {
 				  		if (buf[j].name[1] == 0xff) {
 							break;
@@ -145,14 +162,14 @@ static int parse_redboot_partitions(struct mtd_info *master,
 					swab32s(&buf[j].file_cksum);
 				}
 			} else if (buf[i].size < master->erasesize) {
-				
+				/* Update numslots based on actual FIS directory size */
 				numslots = buf[i].size / sizeof(struct fis_image_desc);
 			}
 			break;
 		}
 	}
 	if (i == numslots) {
-		
+		/* Didn't find it */
 		printk(KERN_NOTICE "No RedBoot partition table detected in %s\n",
 		       master->name);
 		ret = 0;
@@ -184,6 +201,9 @@ static int parse_redboot_partitions(struct mtd_info *master,
 		else
 			buf[i].flash_base &= master->size-1;
 
+		/* I'm sure the JFFS2 code has done me permanent damage.
+		 * I now think the following is _normal_
+		 */
 		prev = &fl;
 		while(*prev && (*prev)->img->flash_base < new_fl->img->flash_base)
 			prev = &(*prev)->next;
@@ -275,6 +295,7 @@ static struct mtd_part_parser redboot_parser = {
 	.name = "RedBoot",
 };
 
+/* mtd parsers will request the module by parser name */
 MODULE_ALIAS("RedBoot");
 
 static int __init redboot_parser_init(void)

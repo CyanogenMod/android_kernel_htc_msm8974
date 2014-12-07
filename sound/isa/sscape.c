@@ -88,9 +88,9 @@ static int isa_registered;
 static int pnp_registered;
 
 static struct pnp_card_device_id sscape_pnpids[] = {
-	{ .id = "ENS3081", .devs = { { "ENS0000" } } }, 
-	{ .id = "ENS4081", .devs = { { "ENS1011" } } },	
-	{ .id = "" }	
+	{ .id = "ENS3081", .devs = { { "ENS0000" } } }, /* Soundscape PnP */
+	{ .id = "ENS4081", .devs = { { "ENS1011" } } },	/* VIVO90 */
+	{ .id = "" }	/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp_card, sscape_pnpids);
@@ -135,8 +135,8 @@ enum GA_REG {
 
 
 enum card_type {
-	MEDIA_FX,	
-	SSCAPE,		
+	MEDIA_FX,	/* Sequoia S-1000 */
+	SSCAPE,		/* Sequoia S-2000 */
 	SSCAPE_PNP,
 	SSCAPE_VIVO,
 };
@@ -161,6 +161,11 @@ static inline struct soundscape *get_card_soundscape(struct snd_card *c)
 	return (struct soundscape *) (c->private_data);
 }
 
+/*
+ * Allocates some kernel memory that we can use for DMA.
+ * I think this means that the memory has to map to
+ * contiguous pages of physical memory.
+ */
 static struct snd_dma_buffer *get_dmabuf(struct snd_dma_buffer *buf,
 					 unsigned long size)
 {
@@ -178,12 +183,20 @@ static struct snd_dma_buffer *get_dmabuf(struct snd_dma_buffer *buf,
 	return buf;
 }
 
+/*
+ * Release the DMA-able kernel memory ...
+ */
 static void free_dmabuf(struct snd_dma_buffer *buf)
 {
 	if (buf && buf->area)
 		snd_dma_free_pages(buf);
 }
 
+/*
+ * This function writes to the SoundScape's control registers,
+ * but doesn't do any locking. It's up to the caller to do that.
+ * This is why this function is "unsafe" ...
+ */
 static inline void sscape_write_unsafe(unsigned io_base, enum GA_REG reg,
 				       unsigned char val)
 {
@@ -191,6 +204,10 @@ static inline void sscape_write_unsafe(unsigned io_base, enum GA_REG reg,
 	outb(val, ODIE_DATA_IO(io_base));
 }
 
+/*
+ * Write to the SoundScape's control registers, and do the
+ * necessary locking ...
+ */
 static void sscape_write(struct soundscape *s, enum GA_REG reg,
 			 unsigned char val)
 {
@@ -201,6 +218,10 @@ static void sscape_write(struct soundscape *s, enum GA_REG reg,
 	spin_unlock_irqrestore(&s->lock, flags);
 }
 
+/*
+ * Read from the SoundScape's control registers, but leave any
+ * locking to the caller. This is why the function is "unsafe" ...
+ */
 static inline unsigned char sscape_read_unsafe(unsigned io_base,
 					       enum GA_REG reg)
 {
@@ -208,16 +229,26 @@ static inline unsigned char sscape_read_unsafe(unsigned io_base,
 	return inb(ODIE_DATA_IO(io_base));
 }
 
+/*
+ * Puts the SoundScape into "host" mode, as compared to "MIDI" mode
+ */
 static inline void set_host_mode_unsafe(unsigned io_base)
 {
 	outb(0x0, HOST_CTRL_IO(io_base));
 }
 
+/*
+ * Puts the SoundScape into "MIDI" mode, as compared to "host" mode
+ */
 static inline void set_midi_mode_unsafe(unsigned io_base)
 {
 	outb(0x3, HOST_CTRL_IO(io_base));
 }
 
+/*
+ * Read the SoundScape's host-mode control register, but leave
+ * any locking issues to the caller ...
+ */
 static inline int host_read_unsafe(unsigned io_base)
 {
 	int data = -1;
@@ -227,6 +258,11 @@ static inline int host_read_unsafe(unsigned io_base)
 	return data;
 }
 
+/*
+ * Read the SoundScape's host-mode control register, performing
+ * a limited amount of busy-waiting if the register isn't ready.
+ * Also leaves all locking-issues to the caller ...
+ */
 static int host_read_ctrl_unsafe(unsigned io_base, unsigned timeout)
 {
 	int data;
@@ -234,11 +270,15 @@ static int host_read_ctrl_unsafe(unsigned io_base, unsigned timeout)
 	while (((data = host_read_unsafe(io_base)) < 0) && (timeout != 0)) {
 		udelay(100);
 		--timeout;
-	} 
+	} /* while */
 
 	return data;
 }
 
+/*
+ * Write to the SoundScape's host-mode control registers, but
+ * leave any locking issues to the caller ...
+ */
 static inline int host_write_unsafe(unsigned io_base, unsigned char data)
 {
 	if ((inb(HOST_CTRL_IO(io_base)) & TX_READY) != 0) {
@@ -249,6 +289,11 @@ static inline int host_write_unsafe(unsigned io_base, unsigned char data)
 	return 0;
 }
 
+/*
+ * Write to the SoundScape's host-mode control registers, performing
+ * a limited amount of busy-waiting if the register isn't ready.
+ * Also leaves all locking-issues to the caller ...
+ */
 static int host_write_ctrl_unsafe(unsigned io_base, unsigned char data,
 				  unsigned timeout)
 {
@@ -257,22 +302,36 @@ static int host_write_ctrl_unsafe(unsigned io_base, unsigned char data,
 	while (!(err = host_write_unsafe(io_base, data)) && (timeout != 0)) {
 		udelay(100);
 		--timeout;
-	} 
+	} /* while */
 
 	return err;
 }
 
 
+/*
+ * Check that the MIDI subsystem is operational. If it isn't,
+ * then we will hang the computer if we try to use it ...
+ *
+ * NOTE: This check is based upon observation, not documentation.
+ */
 static inline int verify_mpu401(const struct snd_mpu401 *mpu)
 {
 	return ((inb(MPU401C(mpu)) & 0xc0) == 0x80);
 }
 
+/*
+ * This is apparently the standard way to initailise an MPU-401
+ */
 static inline void initialise_mpu401(const struct snd_mpu401 *mpu)
 {
 	outb(0, MPU401D(mpu));
 }
 
+/*
+ * Tell the SoundScape to activate the AD1845 chip (I think).
+ * The AD1845 detection fails if we *don't* do this, so I
+ * think that this is a good idea ...
+ */
 static void activate_ad1845_unsafe(unsigned io_base)
 {
 	unsigned char val = sscape_read_unsafe(io_base, GA_HMCTL_REG);
@@ -280,6 +339,9 @@ static void activate_ad1845_unsafe(unsigned io_base)
 	sscape_write_unsafe(io_base, GA_CDCFG_REG, 0x80);
 }
 
+/*
+ * Do the necessary ALSA-level cleanup to deallocate our driver ...
+ */
 static void soundscape_free(struct snd_card *c)
 {
 	struct soundscape *sscape = get_card_soundscape(c);
@@ -288,6 +350,10 @@ static void soundscape_free(struct snd_card *c)
 	free_dma(sscape->chip->dma1);
 }
 
+/*
+ * Tell the SoundScape to begin a DMA tranfer using the given channel.
+ * All locking issues are left to the caller.
+ */
 static void sscape_start_dma_unsafe(unsigned io_base, enum GA_REG reg)
 {
 	sscape_write_unsafe(io_base, reg,
@@ -296,17 +362,28 @@ static void sscape_start_dma_unsafe(unsigned io_base, enum GA_REG reg)
 			    sscape_read_unsafe(io_base, reg) & 0xfe);
 }
 
+/*
+ * Wait for a DMA transfer to complete. This is a "limited busy-wait",
+ * and all locking issues are left to the caller.
+ */
 static int sscape_wait_dma_unsafe(unsigned io_base, enum GA_REG reg,
 				  unsigned timeout)
 {
 	while (!(sscape_read_unsafe(io_base, reg) & 0x01) && (timeout != 0)) {
 		udelay(100);
 		--timeout;
-	} 
+	} /* while */
 
 	return sscape_read_unsafe(io_base, reg) & 0x01;
 }
 
+/*
+ * Wait for the On-Board Processor to return its start-up
+ * acknowledgement sequence. This wait is too long for
+ * us to perform "busy-waiting", and so we must sleep.
+ * This in turn means that we must not be holding any
+ * spinlocks when we call this function.
+ */
 static int obp_startup_ack(struct soundscape *s, unsigned timeout)
 {
 	unsigned long end_time = jiffies + msecs_to_jiffies(timeout);
@@ -327,6 +404,13 @@ static int obp_startup_ack(struct soundscape *s, unsigned timeout)
 	return 0;
 }
 
+/*
+ * Wait for the host to return its start-up acknowledgement
+ * sequence. This wait is too long for us to perform
+ * "busy-waiting", and so we must sleep. This in turn means
+ * that we must not be holding any spinlocks when we call
+ * this function.
+ */
 static int host_startup_ack(struct soundscape *s, unsigned timeout)
 {
 	unsigned long end_time = jiffies + msecs_to_jiffies(timeout);
@@ -347,6 +431,9 @@ static int host_startup_ack(struct soundscape *s, unsigned timeout)
 	return 0;
 }
 
+/*
+ * Upload a byte-stream into the SoundScape using DMA channel A.
+ */
 static int upload_dma_data(struct soundscape *s, const unsigned char *data,
 			   size_t size)
 {
@@ -360,16 +447,29 @@ static int upload_dma_data(struct soundscape *s, const unsigned char *data,
 
 	spin_lock_irqsave(&s->lock, flags);
 
+	/*
+	 * Reset the board ...
+	 */
 	val = sscape_read_unsafe(s->io_base, GA_HMCTL_REG);
 	sscape_write_unsafe(s->io_base, GA_HMCTL_REG, val & 0x3f);
 
+	/*
+	 * Enable the DMA channels and configure them ...
+	 */
 	val = (s->chip->dma1 << 4) | DMA_8BIT;
 	sscape_write_unsafe(s->io_base, GA_DMAA_REG, val);
 	sscape_write_unsafe(s->io_base, GA_DMAB_REG, 0x20);
 
+	/*
+	 * Take the board out of reset ...
+	 */
 	val = sscape_read_unsafe(s->io_base, GA_HMCTL_REG);
 	sscape_write_unsafe(s->io_base, GA_HMCTL_REG, val | 0x80);
 
+	/*
+	 * Upload the firmware to the SoundScape
+	 * board through the DMA channel ...
+	 */
 	while (size != 0) {
 		unsigned long len;
 
@@ -381,6 +481,9 @@ static int upload_dma_data(struct soundscape *s, const unsigned char *data,
 		snd_dma_program(s->chip->dma1, dma.addr, len, DMA_MODE_WRITE);
 		sscape_start_dma_unsafe(s->io_base, GA_DMAA_REG);
 		if (!sscape_wait_dma_unsafe(s->io_base, GA_DMAA_REG, 5000)) {
+			/*
+			 * Don't forget to release this spinlock we're holding
+			 */
 			spin_unlock_irqrestore(&s->lock, flags);
 
 			snd_printk(KERN_ERR
@@ -388,15 +491,23 @@ static int upload_dma_data(struct soundscape *s, const unsigned char *data,
 			ret = -EAGAIN;
 			goto _release_dma;
 		}
-	} 
+	} /* while */
 
 	set_host_mode_unsafe(s->io_base);
 	outb(0x0, s->io_base);
 
+	/*
+	 * Boot the board ... (I think)
+	 */
 	val = sscape_read_unsafe(s->io_base, GA_HMCTL_REG);
 	sscape_write_unsafe(s->io_base, GA_HMCTL_REG, val | 0x40);
 	spin_unlock_irqrestore(&s->lock, flags);
 
+	/*
+	 * If all has gone well, then the board should acknowledge
+	 * the new upload and tell us that it has rebooted OK. We
+	 * give it 5 seconds (max) ...
+	 */
 	ret = 0;
 	if (!obp_startup_ack(s, 5000)) {
 		snd_printk(KERN_ERR "sscape: No response "
@@ -409,12 +520,20 @@ static int upload_dma_data(struct soundscape *s, const unsigned char *data,
 	}
 
 _release_dma:
+	/*
+	 * NOTE!!! We are NOT holding any spinlocks at this point !!!
+	 */
 	sscape_write(s, GA_DMAA_REG, (s->ic_type == IC_OPUS ? 0x40 : 0x70));
 	free_dmabuf(&dma);
 
 	return ret;
 }
 
+/*
+ * Upload the bootblock(?) into the SoundScape. The only
+ * purpose of this block of code seems to be to tell
+ * us which version of the microcode we should be using.
+ */
 static int sscape_upload_bootblock(struct snd_card *card)
 {
 	struct soundscape *sscape = get_card_soundscape(card);
@@ -451,6 +570,9 @@ static int sscape_upload_bootblock(struct snd_card *card)
 	return (ret == 0) ? data : ret;
 }
 
+/*
+ * Upload the microcode into the SoundScape.
+ */
 static int sscape_upload_microcode(struct snd_card *card, int version)
 {
 	struct soundscape *sscape = get_card_soundscape(card);
@@ -476,6 +598,9 @@ static int sscape_upload_microcode(struct snd_card *card, int version)
 	return err;
 }
 
+/*
+ * Mixer control for the SoundScape's MIDI device.
+ */
 static int sscape_midi_info(struct snd_kcontrol *ctl,
 			    struct snd_ctl_elem_info *uinfo)
 {
@@ -513,8 +638,18 @@ static int sscape_midi_put(struct snd_kcontrol *kctl,
 	spin_lock_irqsave(&s->lock, flags);
 
 	new_val = uctl->value.integer.value[0] & 127;
+	/*
+	 * We need to put the board into HOST mode before we
+	 * can send any volume-changing HOST commands ...
+	 */
 	set_host_mode_unsafe(s->io_base);
 
+	/*
+	 * To successfully change the MIDI volume setting, you seem to
+	 * have to write a volume command, write the new volume value,
+	 * and then perform another volume-related command. Perhaps the
+	 * first command is an "open" and the second command is a "close"?
+	 */
 	if (s->midi_vol == new_val) {
 		change = 0;
 		goto __skip_change;
@@ -526,6 +661,9 @@ static int sscape_midi_put(struct snd_kcontrol *kctl,
 	s->midi_vol = new_val;
 __skip_change:
 
+	/*
+	 * Take the board out of HOST mode and back into MIDI mode ...
+	 */
 	set_midi_mode_unsafe(s->io_base);
 
 	spin_unlock_irqrestore(&s->lock, flags);
@@ -564,6 +702,10 @@ static unsigned __devinit get_irq_config(int sscape_type, int irq)
 	return INVALID_IRQ;
 }
 
+/*
+ * Perform certain arcane port-checks to see whether there
+ * is a SoundScape board lurking behind the given ports.
+ */
 static int __devinit detect_sscape(struct soundscape *s, long wss_io)
 {
 	unsigned long flags;
@@ -572,6 +714,11 @@ static int __devinit detect_sscape(struct soundscape *s, long wss_io)
 
 	spin_lock_irqsave(&s->lock, flags);
 
+	/*
+	 * The following code is lifted from the original OSS driver,
+	 * and as I don't have a datasheet I cannot really comment
+	 * on what it is doing...
+	 */
 	if ((inb(HOST_CTRL_IO(s->io_base)) & 0x78) != 0)
 		goto _done;
 
@@ -608,7 +755,7 @@ static int __devinit detect_sscape(struct soundscape *s, long wss_io)
 	d  = sscape_read_unsafe(s->io_base, GA_HMCTL_REG);
 	sscape_write_unsafe(s->io_base, GA_HMCTL_REG, d | 0xc0);
 
-	
+	/* wait for WSS codec */
 	for (d = 0; d < 500; d++) {
 		if ((inb(wss_io) & 0x80) == 0)
 			break;
@@ -631,7 +778,7 @@ static int __devinit detect_sscape(struct soundscape *s, long wss_io)
 
 	d = sscape_read_unsafe(s->io_base, GA_HMCTL_REG);
 	sscape_write_unsafe(s->io_base, GA_HMCTL_REG, d | 0xc0);
-	
+	/* wait for WSS codec */
 	for (d = 0; d < 500; d++) {
 		if ((inb(wss_io) & 0x80) == 0)
 			break;
@@ -640,6 +787,9 @@ static int __devinit detect_sscape(struct soundscape *s, long wss_io)
 		spin_lock_irqsave(&s->lock, flags);
 	}
 
+	/*
+	 * SoundScape successfully detected!
+	 */
 	retval = 1;
 
 _done:
@@ -647,6 +797,12 @@ _done:
 	return retval;
 }
 
+/*
+ * ALSA callback function, called when attempting to open the MIDI device.
+ * Check that the MIDI firmware has been loaded, because we don't want
+ * to crash the machine. Also check that someone isn't using the hardware
+ * IOCTL device.
+ */
 static int mpu401_open(struct snd_mpu401 *mpu)
 {
 	if (!verify_mpu401(mpu)) {
@@ -658,6 +814,9 @@ static int mpu401_open(struct snd_mpu401 *mpu)
 	return 0;
 }
 
+/*
+ * Initialse an MPU-401 subdevice for MIDI support on the SoundScape.
+ */
 static int __devinit create_mpu401(struct snd_card *card, int devnum,
 				   unsigned long port, int irq)
 {
@@ -680,6 +839,12 @@ static int __devinit create_mpu401(struct snd_card *card, int devnum,
 }
 
 
+/*
+ * Create an AD1845 PCM subdevice on the SoundScape. The AD1845
+ * is very much like a CS4231, with a few extra bits. We will
+ * try to support at least some of the extra bits by overriding
+ * some of the CS4231 callback.
+ */
 static int __devinit create_ad1845(struct snd_card *card, unsigned port,
 				   int irq, int dma1, int dma2)
 {
@@ -691,6 +856,12 @@ static int __devinit create_ad1845(struct snd_card *card, unsigned port,
 	switch (sscape->type) {
 	case MEDIA_FX:
 	case SSCAPE:
+		/*
+		 * There are some freak examples of early Soundscape cards
+		 * with CS4231 instead of AD1848/CS4248. Unfortunately, the
+		 * CS4231 works only in CS4248 compatibility mode on
+		 * these cards so force it.
+		 */
 		if (sscape->ic_type != IC_OPUS)
 			codec_type = WSS_HW_AD1848;
 		break;
@@ -709,6 +880,11 @@ static int __devinit create_ad1845(struct snd_card *card, unsigned port,
 		struct snd_pcm *pcm;
 
 		if (sscape->type != SSCAPE_VIVO) {
+			/*
+			 * The input clock frequency on the SoundScape must
+			 * be 14.31818 MHz, because we must set this register
+			 * to get the playback to sound correct ...
+			 */
 			snd_wss_mce_up(chip);
 			spin_lock_irqsave(&chip->reg_lock, flags);
 			snd_wss_out(chip, AD1845_CLOCK, 0x20);
@@ -757,6 +933,10 @@ _error:
 }
 
 
+/*
+ * Create an ALSA soundcard entry for the SoundScape, using
+ * the given list of port, IRQ and DMA resources.
+ */
 static int __devinit create_sscape(int dev, struct snd_card *card)
 {
 	struct soundscape *sscape = get_card_soundscape(card);
@@ -770,6 +950,10 @@ static int __devinit create_sscape(int dev, struct snd_card *card)
 	int val;
 	const char *name;
 
+	/*
+	 * Grab IO ports that we will need to probe so that we
+	 * can detect and control this hardware ...
+	 */
 	io_res = request_region(port[dev], 8, "SoundScape");
 	if (!io_res) {
 		snd_printk(KERN_ERR
@@ -787,6 +971,9 @@ static int __devinit create_sscape(int dev, struct snd_card *card)
 		}
 	}
 
+	/*
+	 * Grab one DMA channel ...
+	 */
 	err = request_dma(dma[dev], "SoundScape");
 	if (err < 0) {
 		snd_printk(KERN_ERR "sscape: can't grab DMA %d\n", dma[dev]);
@@ -826,6 +1013,9 @@ static int __devinit create_sscape(int dev, struct snd_card *card)
 	printk(KERN_INFO "sscape: %s card detected at 0x%x, using IRQ %d, DMA %d\n",
 			 name, sscape->io_base, irq[dev], dma[dev]);
 
+	/*
+	 * Check that the user didn't pass us garbage data ...
+	 */
 	irq_cfg = get_irq_config(sscape->type, irq[dev]);
 	if (irq_cfg == INVALID_IRQ) {
 		snd_printk(KERN_ERR "sscape: Invalid IRQ %d\n", irq[dev]);
@@ -840,11 +1030,18 @@ static int __devinit create_sscape(int dev, struct snd_card *card)
 		goto _release_dma;
 	}
 
+	/*
+	 * Tell the on-board devices where their resources are (I think -
+	 * I can't be sure without a datasheet ... So many magic values!)
+	 */
 	spin_lock_irqsave(&sscape->lock, flags);
 
 	sscape_write_unsafe(sscape->io_base, GA_SMCFGA_REG, 0x2e);
 	sscape_write_unsafe(sscape->io_base, GA_SMCFGB_REG, 0x00);
 
+	/*
+	 * Enable and configure the DMA channels ...
+	 */
 	sscape_write_unsafe(sscape->io_base, GA_DMACFG_REG, 0x50);
 	dma_cfg = (sscape->ic_type == IC_OPUS ? 0x40 : 0x70);
 	sscape_write_unsafe(sscape->io_base, GA_DMAA_REG, dma_cfg);
@@ -859,10 +1056,17 @@ static int __devinit create_sscape(int dev, struct snd_card *card)
 	sscape_write_unsafe(sscape->io_base,
 			    GA_CDCFG_REG, 0x09 | DMA_8BIT
 			    | (dma[dev] << 4) | (irq_cfg << 1));
+	/*
+	 * Enable the master IRQ ...
+	 */
 	sscape_write_unsafe(sscape->io_base, GA_INTENA_REG, 0x80);
 
 	spin_unlock_irqrestore(&sscape->lock, flags);
 
+	/*
+	 * We have now enabled the codec chip, and so we should
+	 * detect the AD1845 device ...
+	 */
 	err = create_ad1845(card, wss_port[dev], irq[dev],
 			    dma[dev], dma2[dev]);
 	if (err < 0) {
@@ -894,6 +1098,9 @@ static int __devinit create_sscape(int dev, struct snd_card *card)
 				goto _release_dma;
 			}
 
+			/*
+			 * Initialize mixer
+			 */
 			spin_lock_irqsave(&sscape->lock, flags);
 			sscape->midi_vol = 0;
 			host_write_ctrl_unsafe(sscape->io_base,
@@ -915,6 +1122,12 @@ static int __devinit create_sscape(int dev, struct snd_card *card)
 		}
 	}
 
+	/*
+	 * Now that we have successfully created this sound card,
+	 * it is safe to store the pointer.
+	 * NOTE: we only register the sound card's "destructor"
+	 *       function now that our "constructor" has completed.
+	 */
 	card->private_free = soundscape_free;
 
 	return 0;
@@ -932,6 +1145,9 @@ _release_region:
 
 static int __devinit snd_sscape_match(struct device *pdev, unsigned int i)
 {
+	/*
+	 * Make sure we were given ALL of the other parameters.
+	 */
 	if (port[i] == SNDRV_AUTO_PORT)
 		return 0;
 
@@ -994,7 +1210,7 @@ static struct isa_driver snd_sscape_driver = {
 	.match		= snd_sscape_match,
 	.probe		= snd_sscape_probe,
 	.remove		= __devexit_p(snd_sscape_remove),
-	
+	/* FIXME: suspend/resume */
 	.driver		= {
 		.name	= DEV_NAME
 	},
@@ -1018,10 +1234,17 @@ static int __devinit sscape_pnp_detect(struct pnp_card_link *pcard,
 	struct soundscape *sscape;
 	int ret;
 
+	/*
+	 * Allow this function to fail *quietly* if all the ISA PnP
+	 * devices were configured using module parameters instead.
+	 */
 	idx = get_next_autoindex(idx);
 	if (idx >= SNDRV_CARDS)
 		return -ENOSPC;
 
+	/*
+	 * Check that we still have room for another sound card ...
+	 */
 	dev = pnp_request_card_device(pcard, pid->devs[0].id, NULL);
 	if (!dev)
 		return -ENODEV;
@@ -1033,6 +1256,10 @@ static int __devinit sscape_pnp_detect(struct pnp_card_link *pcard,
 		}
 	}
 
+	/*
+	 * Create a new ALSA sound card entry, in anticipation
+	 * of detecting our hardware ...
+	 */
 	ret = snd_card_create(index[idx], id[idx], THIS_MODULE,
 			      sizeof(struct soundscape), &card);
 	if (ret < 0)
@@ -1040,11 +1267,17 @@ static int __devinit sscape_pnp_detect(struct pnp_card_link *pcard,
 
 	sscape = get_card_soundscape(card);
 
+	/*
+	 * Identify card model ...
+	 */
 	if (!strncmp("ENS4081", pid->id, 7))
 		sscape->type = SSCAPE_VIVO;
 	else
 		sscape->type = SSCAPE_PNP;
 
+	/*
+	 * Read the correct parameters off the ISA PnP bus ...
+	 */
 	port[idx] = pnp_port_start(dev, 0);
 	irq[idx] = pnp_irq(dev, 0);
 	mpu_irq[idx] = pnp_irq(dev, 1);
@@ -1091,7 +1324,7 @@ static struct pnp_card_driver sscape_pnpc_driver = {
 	.remove = __devexit_p(sscape_pnp_remove),
 };
 
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init sscape_init(void)
 {

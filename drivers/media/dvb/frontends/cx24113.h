@@ -25,7 +25,7 @@
 struct dvb_frontend;
 
 struct cx24113_config {
-	u8 i2c_addr; 
+	u8 i2c_addr; /* 0x14 or 0x54 */
 
 	u32 xtal_khz;
 };
@@ -50,4 +50,4 @@ static inline void cx24113_agc_callback(struct dvb_frontend *fe)
 }
 #endif
 
-#endif 
+#endif /* CX24113_H */

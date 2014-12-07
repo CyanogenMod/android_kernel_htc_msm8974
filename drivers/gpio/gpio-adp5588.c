@@ -20,13 +20,18 @@
 
 #define DRV_NAME	"adp5588-gpio"
 
+/*
+ * Early pre 4.0 Silicon required to delay readout by at least 25ms,
+ * since the Event Counter Register updated 25ms after the interrupt
+ * asserted.
+ */
 #define WA_DELAYED_READOUT_REVID(rev)	((rev) < 4)
 
 struct adp5588_gpio {
 	struct i2c_client *client;
 	struct gpio_chip gpio_chip;
-	struct mutex lock;	
-	
+	struct mutex lock;	/* protect cached dir, dat_out */
+	/* protect serialized access to the interrupt controller bus */
 	struct mutex irq_lock;
 	unsigned gpio_start;
 	unsigned irq_base;
@@ -148,6 +153,13 @@ static void adp5588_irq_bus_lock(struct irq_data *d)
 	mutex_lock(&dev->irq_lock);
 }
 
+ /*
+  * genirq core code can issue chip->mask/unmask from atomic context.
+  * This doesn't work for slow busses where an access needs to sleep.
+  * bus_sync_unlock() is therefore called outside the atomic context,
+  * syncs the current irq mask state with the slow external controller
+  * and unlocks the bus.
+  */
 
 static void adp5588_irq_bus_sync_unlock(struct irq_data *d)
 {
@@ -256,7 +268,7 @@ static irqreturn_t adp5588_irq_handler(int irq, void *devid)
 		}
 	}
 
-	adp5588_gpio_write(dev->client, INT_STAT, status); 
+	adp5588_gpio_write(dev->client, INT_STAT, status); /* Status is W1C */
 
 	return IRQ_HANDLED;
 }
@@ -269,8 +281,8 @@ static int adp5588_irq_setup(struct adp5588_gpio *dev)
 	int ret;
 
 	adp5588_gpio_write(client, CFG, ADP5588_AUTO_INC);
-	adp5588_gpio_write(client, INT_STAT, -1); 
-	adp5588_gpio_read_intstat(client, dev->irq_stat); 
+	adp5588_gpio_write(client, INT_STAT, -1); /* status is W1C */
+	adp5588_gpio_read_intstat(client, dev->irq_stat); /* read to clear */
 
 	dev->irq_base = pdata->irq_base;
 	mutex_init(&dev->irq_lock);
@@ -282,6 +294,10 @@ static int adp5588_irq_setup(struct adp5588_gpio *dev)
 					 handle_level_irq);
 		irq_set_nested_thread(irq, 1);
 #ifdef CONFIG_ARM
+		/*
+		 * ARM needs us to explicitly flag the IRQ as VALID,
+		 * once we do so, it will also set the noprobe.
+		 */
 		set_irq_flags(irq, IRQF_VALID);
 #else
 		irq_set_noprobe(irq);
@@ -328,7 +344,7 @@ static int adp5588_irq_setup(struct adp5588_gpio *dev)
 static void adp5588_irq_teardown(struct adp5588_gpio *dev)
 {
 }
-#endif 
+#endif /* CONFIG_GPIO_ADP5588_IRQ */
 
 static int __devinit adp5588_gpio_probe(struct i2c_client *client,
 					const struct i2c_device_id *id)

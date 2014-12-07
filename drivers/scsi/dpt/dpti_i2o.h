@@ -17,7 +17,7 @@
  *
  */
 
-#ifdef __KERNEL__       
+#ifdef __KERNEL__       /* This file to be included by kernel only */
 
 #include <linux/i2o-dev.h>
 
@@ -25,7 +25,11 @@
 #include <linux/atomic.h>
 
 
+/*
+ *	Tunable parameters first
+ */
 
+/* How many different OSM's are we allowing */
 #define MAX_I2O_MODULES		64
 
 #define I2O_EVT_CAPABILITY_OTHER		0x01
@@ -33,15 +37,22 @@
 
 #define I2O_EVT_SENSOR_STATE_CHANGED		0x01
 
+//#ifdef __KERNEL__   /* ioctl stuff only thing exported to users */
 
 #define I2O_MAX_MANAGERS	4
 
+/*
+ *	I2O Interface Objects
+ */
 
 #include <linux/wait.h>
 typedef wait_queue_head_t adpt_wait_queue_head_t;
 #define ADPT_DECLARE_WAIT_QUEUE_HEAD(wait) DECLARE_WAIT_QUEUE_HEAD_ONSTACK(wait)
 typedef wait_queue_t adpt_wait_queue_t;
 
+/*
+ * message structures
+ */
 
 struct i2o_message
 {
@@ -52,24 +63,27 @@ struct i2o_message
 	u32	init_tid:12;
 	u32	function:8;
 	u32	initiator_context;
-	
+	/* List follows */
 };
 
 struct adpt_device;
 struct _adpt_hba;
 struct i2o_device
 {
-	struct i2o_device *next;	
+	struct i2o_device *next;	/* Chain */
 	struct i2o_device *prev;
 
-	char dev_name[8];		
-	i2o_lct_entry lct_data;
+	char dev_name[8];		/* linux /dev name if available */
+	i2o_lct_entry lct_data;/* Device LCT information */
 	u32 flags;
-	struct proc_dir_entry* proc_entry;	
+	struct proc_dir_entry* proc_entry;	/* /proc dir */
 	struct adpt_device *owner;
-	struct _adpt_hba *controller;	
+	struct _adpt_hba *controller;	/* Controlling IOP */
 };
 
+/*
+ *	Each I2O controller has one of these objects
+ */
 
 struct i2o_controller
 {
@@ -78,13 +92,16 @@ struct i2o_controller
 	int type;
 	int enabled;
 
-	struct notifier_block *event_notifer;	
+	struct notifier_block *event_notifer;	/* Events */
 	atomic_t users;
-	struct i2o_device *devices;		
-	struct i2o_controller *next;		
+	struct i2o_device *devices;		/* I2O device chain */
+	struct i2o_controller *next;		/* Controller chain */
 
 };
 
+/*
+ * I2O System table entry
+ */
 struct i2o_sys_tbl_entry
 {
 	u16	org_id;
@@ -114,10 +131,19 @@ struct i2o_sys_tbl
 	struct i2o_sys_tbl_entry iops[0];
 };
 
+/*
+ *	I2O classes / subclasses
+ */
 
+/*  Class ID and Code Assignments
+ *  (LCT.ClassID.Version field)
+ */
 #define    I2O_CLASS_VERSION_10                        0x00
 #define    I2O_CLASS_VERSION_11                        0x01
 
+/*  Class code names
+ *  (from v1.5 Table 6-1 Class Code Assignments.)
+ */
 
 #define    I2O_CLASS_EXECUTIVE                         0x000
 #define    I2O_CLASS_DDM                               0x001
@@ -136,14 +162,19 @@ struct i2o_sys_tbl
 #define    I2O_CLASS_PEER_TRANSPORT_AGENT              0x090
 #define    I2O_CLASS_PEER_TRANSPORT                    0x091
 
+/*  Rest of 0x092 - 0x09f reserved for peer-to-peer classes
+ */
 
 #define    I2O_CLASS_MATCH_ANYCLASS                    0xffffffff
 
+/*  Subclasses
+ */
 
 #define    I2O_SUBCLASS_i960                           0x001
 #define    I2O_SUBCLASS_HDM                            0x020
 #define    I2O_SUBCLASS_ISM                            0x021
 
+/* Operation functions */
 
 #define I2O_PARAMS_FIELD_GET	0x0001
 #define I2O_PARAMS_LIST_GET	0x0002
@@ -156,6 +187,10 @@ struct i2o_sys_tbl
 #define I2O_PARAMS_ROW_DELETE	0x0009
 #define I2O_PARAMS_TABLE_CLEAR	0x000A
 
+/*
+ *	I2O serial number conventions / formats
+ *	(circa v1.5)
+ */
 
 #define    I2O_SNFORMAT_UNKNOWN                        0
 #define    I2O_SNFORMAT_BINARY                         1
@@ -164,6 +199,8 @@ struct i2o_sys_tbl
 #define    I2O_SNFORMAT_LAN48_MAC                      4
 #define    I2O_SNFORMAT_WAN                            5
 
+/* Plus new in v2.0 (Yellowstone pdf doc)
+ */
 
 #define    I2O_SNFORMAT_LAN64_MAC                      6
 #define    I2O_SNFORMAT_DDM                            7
@@ -171,11 +208,15 @@ struct i2o_sys_tbl
 #define    I2O_SNFORMAT_IEEE_REG128                    9
 #define    I2O_SNFORMAT_UNKNOWN2                       0xff
 
+/* Transaction Reply Lists (TRL) Control Word structure */
 
 #define TRL_SINGLE_FIXED_LENGTH		0x00
 #define TRL_SINGLE_VARIABLE_LENGTH	0x40
 #define TRL_MULTIPLE_FIXED_LENGTH	0x80
 
+/*
+ *	Messaging API values
+ */
 
 #define	I2O_CMD_ADAPTER_ASSIGN		0xB3
 #define	I2O_CMD_ADAPTER_READ		0xB2
@@ -240,12 +281,18 @@ struct i2o_sys_tbl
 
 #define I2O_PRIVATE_MSG			0xFF
 
+/*
+ *	Init Outbound Q status
+ */
 
 #define I2O_CMD_OUTBOUND_INIT_IN_PROGRESS	0x01
 #define I2O_CMD_OUTBOUND_INIT_REJECTED		0x02
 #define I2O_CMD_OUTBOUND_INIT_FAILED		0x03
 #define I2O_CMD_OUTBOUND_INIT_COMPLETE		0x04
 
+/*
+ *	I2O Get Status State values
+ */
 
 #define	ADAPTER_STATE_INITIALIZING		0x01
 #define	ADAPTER_STATE_RESET			0x02
@@ -255,6 +302,7 @@ struct i2o_sys_tbl
 #define	ADAPTER_STATE_FAILED			0x10
 #define	ADAPTER_STATE_FAULTED			0x11
 
+/* I2O API function return values */
 
 #define I2O_RTN_NO_ERROR			0
 #define I2O_RTN_NOT_INIT			1
@@ -269,6 +317,7 @@ struct i2o_sys_tbl
 #define I2O_RTN_NO_FIRM_VER			10
 #define	I2O_RTN_NO_LINK_SPEED			11
 
+/* Reply message status defines for all messages */
 
 #define I2O_REPLY_STATUS_SUCCESS			0x00
 #define I2O_REPLY_STATUS_ABORT_DIRTY			0x01
@@ -283,6 +332,7 @@ struct i2o_sys_tbl
 #define	I2O_REPLY_STATUS_TRANSACTION_ERROR		0x0B
 #define	I2O_REPLY_STATUS_PROGRESS_REPORT		0x80
 
+/* Status codes and Error Information for Parameter functions */
 
 #define I2O_PARAMS_STATUS_SUCCESS		0x00
 #define I2O_PARAMS_STATUS_BAD_KEY_ABORT		0x01
@@ -302,6 +352,8 @@ struct i2o_sys_tbl
 #define I2O_PARAMS_STATUS_TABLE_ERROR		0x0F
 #define I2O_PARAMS_STATUS_WRONG_GROUP_TYPE	0x10
 
+/* DetailedStatusCode defines for Executive, DDM, Util and Transaction error
+ * messages: Table 3-2 Detailed Status Codes.*/
 
 #define I2O_DSC_SUCCESS                        0x0000
 #define I2O_DSC_BAD_KEY                        0x0002
@@ -331,13 +383,16 @@ struct i2o_sys_tbl
 #define I2O_DSC_DEVICE_BUSY                    0x001B
 #define I2O_DSC_DEVICE_NOT_AVAILABLE           0x001C
 
+/* Device Claim Types */
 #define	I2O_CLAIM_PRIMARY					0x01000000
 #define	I2O_CLAIM_MANAGEMENT					0x02000000
 #define	I2O_CLAIM_AUTHORIZED					0x03000000
 #define	I2O_CLAIM_SECONDARY					0x04000000
 
+/* Message header defines for VersionOffset */
 #define I2OVER15	0x0001
 #define I2OVER20	0x0002
+/* Default is 1.5, FIXME: Need support for both 1.5 and 2.0 */
 #define I2OVERSION	I2OVER15
 #define SGL_OFFSET_0    I2OVERSION
 #define SGL_OFFSET_4    (0x0040 | I2OVERSION)
@@ -352,7 +407,7 @@ struct i2o_sys_tbl
 #define TRL_OFFSET_5    (0x0050 | I2OVERSION)
 #define TRL_OFFSET_6    (0x0060 | I2OVERSION)
 
- 
+ /* msg header defines for MsgFlags */
 #define MSG_STATIC	0x0100
 #define MSG_64BIT_CNTXT	0x0200
 #define MSG_MULTI_TRANS	0x1000
@@ -360,7 +415,7 @@ struct i2o_sys_tbl
 #define MSG_LAST	0x4000
 #define MSG_REPLY	0x8000
 
- 
+ /* minimum size msg */
 #define THREE_WORD_MSG_SIZE	0x00030000
 #define FOUR_WORD_MSG_SIZE	0x00040000
 #define FIVE_WORD_MSG_SIZE	0x00050000
@@ -372,6 +427,7 @@ struct i2o_sys_tbl
 #define I2O_MESSAGE_SIZE(x)	((x)<<16)
 
 
+/* Special TID Assignments */
 
 #define ADAPTER_TID		0
 #define HOST_TID		1
@@ -385,6 +441,6 @@ struct i2o_sys_tbl
 #define I2O_POST_WAIT_TIMEOUT	-ETIMEDOUT
 
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _SCSI_I2O_H */

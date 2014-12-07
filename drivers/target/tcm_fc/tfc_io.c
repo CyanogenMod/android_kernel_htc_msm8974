@@ -24,6 +24,7 @@
  * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+/* XXX TBD some includes may be extraneous */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -53,6 +54,10 @@
 
 #include "tcm_fc.h"
 
+/*
+ * Deliver read data back to initiator.
+ * XXX TBD handle resource problems later.
+ */
 int ft_queue_data_in(struct se_cmd *se_cmd)
 {
 	struct ft_cmd *cmd = container_of(se_cmd, struct ft_cmd, se_cmd);
@@ -84,6 +89,9 @@ int ft_queue_data_in(struct se_cmd *se_cmd)
 
 	remaining = se_cmd->data_length;
 
+	/*
+	 * Setup to use first mem list entry, unless no data.
+	 */
 	BUG_ON(remaining && !se_cmd->t_data_sg);
 	if (remaining) {
 		sg = se_cmd->t_data_sg;
@@ -92,7 +100,7 @@ int ft_queue_data_in(struct se_cmd *se_cmd)
 		page = sg_page(sg);
 	}
 
-	
+	/* no scatter/gather in skb for odd word length due to fc_seq_send() */
 	use_sg = !(remaining % 4);
 
 	while (remaining) {
@@ -103,6 +111,11 @@ int ft_queue_data_in(struct se_cmd *se_cmd)
 			page = sg_page(sg);
 		}
 		if (!frame_len) {
+			/*
+			 * If lport's has capability of Large Send Offload LSO)
+			 * , then allow 'frame_len' to be as big as 'lso_max'
+			 * if indicated transfer length is >= lport->lso_max
+			 */
 			frame_len = (lport->seq_offload) ? lport->lso_max :
 							  cmd->sess->max_frame;
 			frame_len = min(frame_len, remaining);
@@ -112,6 +125,12 @@ int ft_queue_data_in(struct se_cmd *se_cmd)
 			to = fc_frame_payload_get(fp, 0);
 			fh_off = frame_off;
 			frame_off += frame_len;
+			/*
+			 * Setup the frame's max payload which is used by base
+			 * driver to indicate HW about max frame size, so that
+			 * HW can do fragmentation appropriately based on
+			 * "gso_max_size" of underline netdev.
+			 */
 			fr_max_payload(fp) = cmd->sess->max_frame;
 		}
 		tlen = min(mem_len, frame_len);
@@ -153,7 +172,7 @@ int ft_queue_data_in(struct se_cmd *se_cmd)
 			       FC_TYPE_FCP, f_ctl, fh_off);
 		error = lport->tt.seq_send(lport, cmd->seq, fp);
 		if (error) {
-			
+			/* XXX For now, initiator will retry */
 			pr_err_ratelimited("%s: Failed to send frame %p, "
 						"xid <0x%x>, remaining %zu, "
 						"lso_max <0x%x>\n",
@@ -164,6 +183,9 @@ int ft_queue_data_in(struct se_cmd *se_cmd)
 	return ft_queue_status(se_cmd);
 }
 
+/*
+ * Receive write data frame.
+ */
 void ft_recv_write_data(struct ft_cmd *cmd, struct fc_frame *fp)
 {
 	struct se_cmd *se_cmd = &cmd->se_cmd;
@@ -194,6 +216,10 @@ void ft_recv_write_data(struct ft_cmd *cmd, struct fc_frame *fp)
 	if (cmd->was_ddp_setup) {
 		BUG_ON(!ep);
 		BUG_ON(!lport);
+		/*
+		 * Since DDP (Large Rx offload) was setup for this request,
+		 * payload is expected to be copied directly to user buffers.
+		 */
 		buf = fc_frame_payload_get(fp, 1);
 		if (buf)
 			pr_err("%s: xid 0x%x, f_ctl 0x%x, cmd->sg %p, "
@@ -203,8 +229,23 @@ void ft_recv_write_data(struct ft_cmd *cmd, struct fc_frame *fp)
 				"'Sequence Initiative' bit in f_ctl is"
 				"not set\n", __func__, ep->xid, f_ctl,
 				cmd->sg, cmd->sg_cnt);
+		/*
+		 * Invalidate HW DDP context if it was setup for respective
+		 * command. Invalidation of HW DDP context is requited in both
+		 * situation (success and error).
+		 */
 		ft_invl_hw_context(cmd);
 
+		/*
+		 * If "Sequence Initiative (TSI)" bit set in f_ctl, means last
+		 * write data frame is received successfully where payload is
+		 * posted directly to user buffer and only the last frame's
+		 * header is posted in receive queue.
+		 *
+		 * If "Sequence Initiative (TSI)" bit is not set, means error
+		 * condition w.r.t. DDP, hence drop the packet and let explict
+		 * ABORTS from other end of exchange timer trigger the recovery.
+		 */
 		if (f_ctl & FC_FC_SEQ_INIT)
 			goto last_frame;
 		else
@@ -222,6 +263,9 @@ void ft_recv_write_data(struct ft_cmd *cmd, struct fc_frame *fp)
 	if (frame_len + rel_off > se_cmd->data_length)
 		frame_len = se_cmd->data_length - rel_off;
 
+	/*
+	 * Setup to use first mem list entry, unless no data.
+	 */
 	BUG_ON(frame_len && !se_cmd->t_data_sg);
 	if (frame_len) {
 		sg = se_cmd->t_data_sg;
@@ -269,6 +313,10 @@ drop:
 	fc_frame_free(fp);
 }
 
+/*
+ * Handle and cleanup any HW specific resources if
+ * received ABORTS, errors, timeouts.
+ */
 void ft_invl_hw_context(struct ft_cmd *cmd)
 {
 	struct fc_seq *seq = cmd->seq;
@@ -277,15 +325,25 @@ void ft_invl_hw_context(struct ft_cmd *cmd)
 
 	BUG_ON(!cmd);
 
-	
+	/* Cleanup the DDP context in HW if DDP was setup */
 	if (cmd->was_ddp_setup && seq) {
 		ep = fc_seq_exch(seq);
 		if (ep) {
 			lport = ep->lp;
 			if (lport && (ep->xid <= lport->lro_xid))
+				/*
+				 * "ddp_done" trigger invalidation of HW
+				 * specific DDP context
+				 */
 				cmd->write_data_len = lport->tt.ddp_done(lport,
 								      ep->xid);
 
+				/*
+				 * Resetting same variable to indicate HW's
+				 * DDP context has been invalidated to avoid
+				 * re_invalidation of same context (context is
+				 * identified using ep->xid)
+				 */
 				cmd->was_ddp_setup = 0;
 		}
 	}

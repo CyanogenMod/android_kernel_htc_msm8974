@@ -17,6 +17,9 @@
 #ifndef AR9003_PHY_H
 #define AR9003_PHY_H
 
+/*
+ * Channel Register Map
+ */
 #define AR_CHAN_BASE	0x9800
 
 #define AR_PHY_TIMING1      (AR_CHAN_BASE + 0x0)
@@ -45,7 +48,7 @@
 #define AR_PHY_SPUR_REG_ENABLE_NF_RSSI_SPUR_MIT         0x4000000
 #define AR_PHY_SPUR_REG_ENABLE_NF_RSSI_SPUR_MIT_S       26
 
-#define AR_PHY_SPUR_REG_ENABLE_MASK_PPM                         0x20000     
+#define AR_PHY_SPUR_REG_ENABLE_MASK_PPM                         0x20000     /* bins move with freq offset */
 #define AR_PHY_SPUR_REG_ENABLE_MASK_PPM_S                       17
 #define AR_PHY_SPUR_REG_SPUR_RSSI_THRESH            0x000000FF
 #define AR_PHY_SPUR_REG_SPUR_RSSI_THRESH_S          0
@@ -80,6 +83,7 @@
 #define AR_PHY_IQ_ADC_MEAS_2_B0     (AR_CHAN_BASE + 0xc8)
 #define AR_PHY_IQ_ADC_MEAS_3_B0     (AR_CHAN_BASE + 0xcc)
 
+/* The following registers changed position from AR9300 1.0 to AR9300 2.0 */
 #define AR_PHY_TX_PHASE_RAMP_0_9300_10      (AR_CHAN_BASE + 0xd0 - 0x10)
 #define AR_PHY_ADC_GAIN_DC_CORR_0_9300_10   (AR_CHAN_BASE + 0xd4 - 0x10)
 #define AR_PHY_IQ_ADC_MEAS_0_B0_9300_10     (AR_CHAN_BASE + 0xc0 + 0x8)
@@ -92,6 +96,9 @@
 #define AR_PHY_SPUR_REPORT_0        (AR_CHAN_BASE + 0xa8)
 #define AR_PHY_CHAN_INFO_TAB_0      (AR_CHAN_BASE + 0x300)
 
+/*
+ * Channel Field Definitions
+ */
 #define AR_PHY_TIMING2_USE_FORCE_PPM    0x00001000
 #define AR_PHY_TIMING2_FORCE_PPM_VAL    0x00000fff
 #define AR_PHY_TIMING3_DSC_MAN      0xFFFE0000
@@ -201,6 +208,9 @@
 #define AR_PHY_RX_IQCAL_CORR_LOOPBACK_IQCORR_Q_I_COFF   0x1fc00000
 #define AR_PHY_RX_IQCAL_CORR_LOOPBACK_IQCORR_Q_I_COFF_S 22
 
+/*
+ * MRC Register Map
+ */
 #define AR_MRC_BASE	0x9c00
 
 #define AR_PHY_TIMING_3A       (AR_MRC_BASE + 0x0)
@@ -223,12 +233,21 @@
 #define AR_PHY_CHAN_SPUR_MASK_CF_CHAN_MASK_A            0x1F
 #define AR_PHY_CHAN_SPUR_MASK_CF_CHAN_MASK_A_S		0
 
+/*
+ * MRC Feild Definitions
+ */
 #define AR_PHY_SGI_DSC_MAN   0x0007FFF0
 #define AR_PHY_SGI_DSC_MAN_S 4
 #define AR_PHY_SGI_DSC_EXP   0x0000000F
 #define AR_PHY_SGI_DSC_EXP_S 0
+/*
+ * BBB Register Map
+ */
 #define AR_BBB_BASE	0x9d00
 
+/*
+ * AGC Register Map
+ */
 #define AR_AGC_BASE	0x9e00
 
 #define AR_PHY_SETTLING         (AR_AGC_BASE + 0x0)
@@ -242,6 +261,9 @@
 #define AR_PHY_EXT_CCA0         (AR_AGC_BASE + 0x20)
 #define AR_PHY_RESTART          (AR_AGC_BASE + 0x24)
 
+/*
+ * Antenna Diversity  settings
+ */
 #define AR_PHY_MC_GAIN_CTRL     (AR_AGC_BASE + 0x28)
 #define AR_ANT_DIV_CTRL_ALL	0x7e000000
 #define AR_ANT_DIV_CTRL_ALL_S	25
@@ -317,6 +339,9 @@
 
 #define AR_PHY_CCA_NOM_VAL_9330_2GHZ          -118
 
+/*
+ * AGC Field Definitions
+ */
 #define AR_PHY_EXT_ATTEN_CTL_RXTX_MARGIN    0x00FC0000
 #define AR_PHY_EXT_ATTEN_CTL_RXTX_MARGIN_S  18
 #define AR_PHY_EXT_ATTEN_CTL_BSW_MARGIN     0x00003C00
@@ -401,6 +426,9 @@
 #define AR_PHY_TPC_6_ERROR_EST_MODE             0x03000000
 #define AR_PHY_TPC_6_ERROR_EST_MODE_S           24
 
+/*
+ * SM Register Map
+ */
 #define AR_SM_BASE	0xa200
 
 #define AR_PHY_D2_CHIP_ID        (AR_SM_BASE + 0x0)
@@ -584,6 +612,7 @@
 #define AR_PHY_BB_THERM_ADC_4_LATEST_VOLT_VALUE		0x0000ff00
 #define AR_PHY_BB_THERM_ADC_4_LATEST_VOLT_VALUE_S	8
 
+/* AIC Registers */
 #define AR_PHY_AIC_CTRL_0_B0	(AR_SM_BASE + 0x4b0)
 #define AR_PHY_AIC_CTRL_1_B0	(AR_SM_BASE + 0x4b4)
 #define AR_PHY_AIC_CTRL_2_B0	(AR_SM_BASE + 0x4b8)
@@ -680,6 +709,9 @@
 #define AR_PHY_MANRXGAIN_LONG_SHIFT		0x00000002
 #define AR_PHY_MANRXGAIN_LONG_SHIFT_S		1
 
+/*
+ * SM Field Definitions
+ */
 #define AR_PHY_CL_CAL_ENABLE          0x00000002
 #define AR_PHY_PARALLEL_CAL_ENABLE    0x00000001
 #define AR_PHY_TPCRG1_PD_CAL_ENABLE   0x00400000
@@ -690,22 +722,22 @@
 #define AR_PHY_FCAL20_CAP_STATUS_0    0x01f00000
 #define AR_PHY_FCAL20_CAP_STATUS_0_S  20
 
-#define AR_PHY_RFBUS_REQ_EN     0x00000001  
-#define AR_PHY_RFBUS_GRANT_EN   0x00000001  
-#define AR_PHY_GC_TURBO_MODE       0x00000001  
-#define AR_PHY_GC_TURBO_SHORT      0x00000002  
-#define AR_PHY_GC_DYN2040_EN       0x00000004  
-#define AR_PHY_GC_DYN2040_PRI_ONLY 0x00000008  
-#define AR_PHY_GC_DYN2040_PRI_CH   0x00000010  
+#define AR_PHY_RFBUS_REQ_EN     0x00000001  /* request for RF bus */
+#define AR_PHY_RFBUS_GRANT_EN   0x00000001  /* RF bus granted */
+#define AR_PHY_GC_TURBO_MODE       0x00000001  /* set turbo mode bits */
+#define AR_PHY_GC_TURBO_SHORT      0x00000002  /* set short symbols to turbo mode setting */
+#define AR_PHY_GC_DYN2040_EN       0x00000004  /* enable dyn 20/40 mode */
+#define AR_PHY_GC_DYN2040_PRI_ONLY 0x00000008  /* dyn 20/40 - primary only */
+#define AR_PHY_GC_DYN2040_PRI_CH   0x00000010  /* dyn 20/40 - primary ch offset (0=+10MHz, 1=-10MHz)*/
 #define AR_PHY_GC_DYN2040_PRI_CH_S 4
-#define AR_PHY_GC_DYN2040_EXT_CH   0x00000020  
-#define AR_PHY_GC_HT_EN            0x00000040  
-#define AR_PHY_GC_SHORT_GI_40      0x00000080  
-#define AR_PHY_GC_WALSH            0x00000100  
-#define AR_PHY_GC_SINGLE_HT_LTF1   0x00000200  
-#define AR_PHY_GC_GF_DETECT_EN     0x00000400  
-#define AR_PHY_GC_ENABLE_DAC_FIFO  0x00000800  
-#define AR_PHY_RX_DELAY_DELAY      0x00003FFF  
+#define AR_PHY_GC_DYN2040_EXT_CH   0x00000020  /* dyn 20/40 - ext ch spacing (0=20MHz/ 1=25MHz) */
+#define AR_PHY_GC_HT_EN            0x00000040  /* ht enable */
+#define AR_PHY_GC_SHORT_GI_40      0x00000080  /* allow short GI for HT 40 */
+#define AR_PHY_GC_WALSH            0x00000100  /* walsh spatial spreading for 2 chains,2 streams TX */
+#define AR_PHY_GC_SINGLE_HT_LTF1   0x00000200  /* single length (4us) 1st HT long training symbol */
+#define AR_PHY_GC_GF_DETECT_EN     0x00000400  /* enable Green Field detection. Only affects rx, not tx */
+#define AR_PHY_GC_ENABLE_DAC_FIFO  0x00000800  /* fifo between bb and dac */
+#define AR_PHY_RX_DELAY_DELAY      0x00003FFF  /* delay from wakeup to rx ena */
 
 #define AR_PHY_CALMODE_IQ           0x00000000
 #define AR_PHY_CALMODE_ADC_GAIN     0x00000001
@@ -831,6 +863,9 @@
 #define AR_PHY_65NM_CH0_RXTX4_THERM_ON          0x10000000
 #define AR_PHY_65NM_CH0_RXTX4_THERM_ON_S        28
 
+/*
+ * Channel 1 Register Map
+ */
 #define AR_CHAN1_BASE	0xa800
 
 #define AR_PHY_EXT_CCA_1            (AR_CHAN1_BASE + 0x30)
@@ -841,9 +876,15 @@
 #define AR_PHY_CHAN_INFO_TAB_1      (AR_CHAN1_BASE + 0x300)
 #define AR_PHY_RX_IQCAL_CORR_B1     (AR_CHAN1_BASE + 0xdc)
 
+/*
+ * Channel 1 Field Definitions
+ */
 #define AR_PHY_CH1_EXT_MINCCA_PWR   0x01FF0000
 #define AR_PHY_CH1_EXT_MINCCA_PWR_S 16
 
+/*
+ * AGC 1 Register Map
+ */
 #define AR_AGC1_BASE	0xae00
 
 #define AR_PHY_FORCEMAX_GAINS_1      (AR_AGC1_BASE + 0x4)
@@ -854,9 +895,15 @@
 #define AR_PHY_SPUR_CCK_REP_1        (AR_AGC1_BASE + 0x184)
 #define AR_PHY_RX_OCGAIN_2           (AR_AGC1_BASE + 0x200)
 
+/*
+ * AGC 1 Field Definitions
+ */
 #define AR_PHY_CH1_MINCCA_PWR   0x1FF00000
 #define AR_PHY_CH1_MINCCA_PWR_S 20
 
+/*
+ * SM 1 Register Map
+ */
 #define AR_SM1_BASE	0xb200
 
 #define AR_PHY_SWITCH_CHAIN_1   (AR_SM1_BASE + 0x84)
@@ -876,6 +923,7 @@
 #define AR_PHY_TX_IQCAL_STATUS_B1   (AR_SM1_BASE + 0x48c)
 #define AR_PHY_TX_IQCAL_CORR_COEFF_B1(_i)    (AR_SM1_BASE + 0x450 + ((_i) << 2))
 
+/* SM 1 AIC Registers */
 
 #define AR_PHY_AIC_CTRL_0_B1	(AR_SM1_BASE + 0x4b0)
 #define AR_PHY_AIC_CTRL_1_B1	(AR_SM1_BASE + 0x4b4)
@@ -894,6 +942,9 @@
 					AR_SM1_BASE : AR_SM_BASE))
 #define AR_PHY_RTT_TABLE_SW_INTF_1_B(i)	(0x388 + ((i) ? \
 					AR_SM1_BASE : AR_SM_BASE))
+/*
+ * Channel 2 Register Map
+ */
 #define AR_CHAN2_BASE	0xb800
 
 #define AR_PHY_EXT_CCA_2            (AR_CHAN2_BASE + 0x30)
@@ -904,8 +955,14 @@
 #define AR_PHY_CHAN_INFO_TAB_2      (AR_CHAN2_BASE + 0x300)
 #define AR_PHY_RX_IQCAL_CORR_B2     (AR_CHAN2_BASE + 0xdc)
 
+/*
+ * Channel 2 Field Definitions
+ */
 #define AR_PHY_CH2_EXT_MINCCA_PWR   0x01FF0000
 #define AR_PHY_CH2_EXT_MINCCA_PWR_S 16
+/*
+ * AGC 2 Register Map
+ */
 #define AR_AGC2_BASE	0xbe00
 
 #define AR_PHY_FORCEMAX_GAINS_2      (AR_AGC2_BASE + 0x4)
@@ -914,9 +971,15 @@
 #define AR_PHY_CCA_CTRL_2            (AR_AGC2_BASE + 0x20)
 #define AR_PHY_RSSI_2                (AR_AGC2_BASE + 0x180)
 
+/*
+ * AGC 2 Field Definitions
+ */
 #define AR_PHY_CH2_MINCCA_PWR   0x1FF00000
 #define AR_PHY_CH2_MINCCA_PWR_S 20
 
+/*
+ * SM 2 Register Map
+ */
 #define AR_SM2_BASE	0xc200
 
 #define AR_PHY_SWITCH_CHAIN_2    (AR_SM2_BASE + 0x84)
@@ -934,10 +997,14 @@
 
 #define AR_PHY_TX_IQCAL_STATUS_B2_FAILED    0x00000001
 
+/*
+ * AGC 3 Register Map
+ */
 #define AR_AGC3_BASE	0xce00
 
 #define AR_PHY_RSSI_3            (AR_AGC3_BASE + 0x180)
 
+/* GLB Registers */
 #define AR_GLB_BASE	0x20000
 #define AR_GLB_GPIO_CONTROL	(AR_GLB_BASE)
 #define AR_PHY_GLB_CONTROL	(AR_GLB_BASE + 0x44)
@@ -945,6 +1012,9 @@
 					(AR_SREV_9462_20(_ah) ? 0x4c : 0x50))
 #define AR_GLB_STATUS		(AR_GLB_BASE + 0x48)
 
+/*
+ * Misc helper defines
+ */
 #define AR_PHY_CHAIN_OFFSET     (AR_CHAN1_BASE - AR_CHAN_BASE)
 
 #define AR_PHY_NEW_ADC_DC_GAIN_CORR(_i) (AR_PHY_ADC_GAIN_DC_CORR_0 + (AR_PHY_CHAIN_OFFSET * (_i)))
@@ -995,6 +1065,9 @@
 
 #define AR_PHY_WATCHDOG_STATUS_CLR         0x00000008
 
+/*
+ * PAPRD registers
+ */
 #define AR_PHY_XPA_TIMING_CTL		(AR_SM_BASE + 0x64)
 
 #define AR_PHY_PAPRD_AM2AM		(AR_CHAN_BASE + 0xe4)
@@ -1149,4 +1222,4 @@
 #define AR_PHY_CL_TAB_CL_GAIN_MOD		0x1f
 #define AR_PHY_CL_TAB_CL_GAIN_MOD_S		0
 
-#endif  
+#endif  /* AR9003_PHY_H */

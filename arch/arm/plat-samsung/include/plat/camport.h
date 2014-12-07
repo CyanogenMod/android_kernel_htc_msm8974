@@ -16,7 +16,13 @@ enum s5p_camport_id {
 	S5P_CAMPORT_B,
 };
 
+/*
+ * The helper functions to configure GPIO for the camera parallel bus.
+ * The camera port can be multiplexed with any FIMC entity, even multiple
+ * FIMC entities are allowed to be attached to a single port simultaneously.
+ * These functions are to be used in the board setup code.
+ */
 int s5pv210_fimc_setup_gpio(enum s5p_camport_id id);
 int exynos4_fimc_setup_gpio(enum s5p_camport_id id);
 
-#endif 
+#endif /* __PLAT_SAMSUNG_CAMPORT_H */

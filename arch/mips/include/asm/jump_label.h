@@ -33,7 +33,7 @@ l_yes:
 	return true;
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
 #ifdef CONFIG_64BIT
 typedef u64 jump_label_t;
@@ -47,4 +47,4 @@ struct jump_entry {
 	jump_label_t key;
 };
 
-#endif 
+#endif /* _ASM_MIPS_JUMP_LABEL_H */

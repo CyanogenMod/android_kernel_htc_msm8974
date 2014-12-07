@@ -52,10 +52,10 @@
 #define FW_VERSION_MICRO 0
 
 enum {
-	MAX_NPORTS = 4,     
-	SERNUM_LEN = 24,    
-	EC_LEN     = 16,    
-	ID_LEN     = 16,    
+	MAX_NPORTS = 4,     /* max # of ports */
+	SERNUM_LEN = 24,    /* Serial # length */
+	EC_LEN     = 16,    /* E/C length */
+	ID_LEN     = 16,    /* ID length */
 };
 
 enum {
@@ -83,14 +83,14 @@ enum {
 };
 
 struct port_stats {
-	u64 tx_octets;            
-	u64 tx_frames;            
-	u64 tx_bcast_frames;      
-	u64 tx_mcast_frames;      
-	u64 tx_ucast_frames;      
-	u64 tx_error_frames;      
+	u64 tx_octets;            /* total # of octets in good frames */
+	u64 tx_frames;            /* all good frames */
+	u64 tx_bcast_frames;      /* all broadcast frames */
+	u64 tx_mcast_frames;      /* all multicast frames */
+	u64 tx_ucast_frames;      /* all unicast frames */
+	u64 tx_error_frames;      /* all error frames */
 
-	u64 tx_frames_64;         
+	u64 tx_frames_64;         /* # of Tx frames in a particular range */
 	u64 tx_frames_65_127;
 	u64 tx_frames_128_255;
 	u64 tx_frames_256_511;
@@ -98,30 +98,30 @@ struct port_stats {
 	u64 tx_frames_1024_1518;
 	u64 tx_frames_1519_max;
 
-	u64 tx_drop;              
-	u64 tx_pause;             
-	u64 tx_ppp0;              
-	u64 tx_ppp1;              
-	u64 tx_ppp2;              
-	u64 tx_ppp3;              
-	u64 tx_ppp4;              
-	u64 tx_ppp5;              
-	u64 tx_ppp6;              
-	u64 tx_ppp7;              
+	u64 tx_drop;              /* # of dropped Tx frames */
+	u64 tx_pause;             /* # of transmitted pause frames */
+	u64 tx_ppp0;              /* # of transmitted PPP prio 0 frames */
+	u64 tx_ppp1;              /* # of transmitted PPP prio 1 frames */
+	u64 tx_ppp2;              /* # of transmitted PPP prio 2 frames */
+	u64 tx_ppp3;              /* # of transmitted PPP prio 3 frames */
+	u64 tx_ppp4;              /* # of transmitted PPP prio 4 frames */
+	u64 tx_ppp5;              /* # of transmitted PPP prio 5 frames */
+	u64 tx_ppp6;              /* # of transmitted PPP prio 6 frames */
+	u64 tx_ppp7;              /* # of transmitted PPP prio 7 frames */
 
-	u64 rx_octets;            
-	u64 rx_frames;            
-	u64 rx_bcast_frames;      
-	u64 rx_mcast_frames;      
-	u64 rx_ucast_frames;      
-	u64 rx_too_long;          
-	u64 rx_jabber;            
-	u64 rx_fcs_err;           
-	u64 rx_len_err;           
-	u64 rx_symbol_err;        
-	u64 rx_runt;              
+	u64 rx_octets;            /* total # of octets in good frames */
+	u64 rx_frames;            /* all good frames */
+	u64 rx_bcast_frames;      /* all broadcast frames */
+	u64 rx_mcast_frames;      /* all multicast frames */
+	u64 rx_ucast_frames;      /* all unicast frames */
+	u64 rx_too_long;          /* # of frames exceeding MTU */
+	u64 rx_jabber;            /* # of jabber frames */
+	u64 rx_fcs_err;           /* # of received frames with bad FCS */
+	u64 rx_len_err;           /* # of received frames with length error */
+	u64 rx_symbol_err;        /* symbol errors */
+	u64 rx_runt;              /* # of short frames */
 
-	u64 rx_frames_64;         
+	u64 rx_frames_64;         /* # of Rx frames in a particular range */
 	u64 rx_frames_65_127;
 	u64 rx_frames_128_255;
 	u64 rx_frames_256_511;
@@ -129,24 +129,24 @@ struct port_stats {
 	u64 rx_frames_1024_1518;
 	u64 rx_frames_1519_max;
 
-	u64 rx_pause;             
-	u64 rx_ppp0;              
-	u64 rx_ppp1;              
-	u64 rx_ppp2;              
-	u64 rx_ppp3;              
-	u64 rx_ppp4;              
-	u64 rx_ppp5;              
-	u64 rx_ppp6;              
-	u64 rx_ppp7;              
+	u64 rx_pause;             /* # of received pause frames */
+	u64 rx_ppp0;              /* # of received PPP prio 0 frames */
+	u64 rx_ppp1;              /* # of received PPP prio 1 frames */
+	u64 rx_ppp2;              /* # of received PPP prio 2 frames */
+	u64 rx_ppp3;              /* # of received PPP prio 3 frames */
+	u64 rx_ppp4;              /* # of received PPP prio 4 frames */
+	u64 rx_ppp5;              /* # of received PPP prio 5 frames */
+	u64 rx_ppp6;              /* # of received PPP prio 6 frames */
+	u64 rx_ppp7;              /* # of received PPP prio 7 frames */
 
-	u64 rx_ovflow0;           
-	u64 rx_ovflow1;           
-	u64 rx_ovflow2;           
-	u64 rx_ovflow3;           
-	u64 rx_trunc0;            
-	u64 rx_trunc1;            
-	u64 rx_trunc2;            
-	u64 rx_trunc3;            
+	u64 rx_ovflow0;           /* drops due to buffer-group 0 overflows */
+	u64 rx_ovflow1;           /* drops due to buffer-group 1 overflows */
+	u64 rx_ovflow2;           /* drops due to buffer-group 2 overflows */
+	u64 rx_ovflow3;           /* drops due to buffer-group 3 overflows */
+	u64 rx_trunc0;            /* buffer-group 0 truncated packets */
+	u64 rx_trunc1;            /* buffer-group 1 truncated packets */
+	u64 rx_trunc2;            /* buffer-group 2 truncated packets */
+	u64 rx_trunc3;            /* buffer-group 3 truncated packets */
 };
 
 struct lb_port_stats {
@@ -198,8 +198,8 @@ struct tp_err_stats {
 };
 
 struct tp_params {
-	unsigned int ntxchan;        
-	unsigned int tre;            
+	unsigned int ntxchan;        /* # of Tx channels */
+	unsigned int tre;            /* log2 of core clocks per TP tick */
 };
 
 struct vpd_params {
@@ -219,9 +219,9 @@ struct adapter_params {
 	struct vpd_params vpd;
 	struct pci_params pci;
 
-	unsigned int sf_size;             
-	unsigned int sf_nsec;             
-	unsigned int sf_fw_start;         
+	unsigned int sf_size;             /* serial flash size in bytes */
+	unsigned int sf_nsec;             /* # of flash sectors */
+	unsigned int sf_fw_start;         /* start of FW image in flash */
 
 	unsigned int fw_vers;
 	unsigned int tp_vers;
@@ -231,9 +231,9 @@ struct adapter_params {
 	unsigned short a_wnd[NCCTRL_WIN];
 	unsigned short b_wnd[NCCTRL_WIN];
 
-	unsigned char nports;             
+	unsigned char nports;             /* # of ethernet ports */
 	unsigned char portvec;
-	unsigned char rev;                
+	unsigned char rev;                /* chip revision */
 	unsigned char offload;
 
 	unsigned int ofldq_wr_cred;
@@ -251,28 +251,28 @@ struct trace_params {
 };
 
 struct link_config {
-	unsigned short supported;        
-	unsigned short advertising;      
-	unsigned short requested_speed;  
-	unsigned short speed;            
-	unsigned char  requested_fc;     
-	unsigned char  fc;               
-	unsigned char  autoneg;          
-	unsigned char  link_ok;          
+	unsigned short supported;        /* link capabilities */
+	unsigned short advertising;      /* advertised capabilities */
+	unsigned short requested_speed;  /* speed user has requested */
+	unsigned short speed;            /* actual link speed */
+	unsigned char  requested_fc;     /* flow control user has requested */
+	unsigned char  fc;               /* actual link flow control */
+	unsigned char  autoneg;          /* autonegotiating? */
+	unsigned char  link_ok;          /* link up? */
 };
 
 #define FW_LEN16(fw_struct) FW_CMD_LEN16(sizeof(fw_struct) / 16)
 
 enum {
-	MAX_ETH_QSETS = 32,           
-	MAX_OFLD_QSETS = 16,          
-	MAX_CTRL_QUEUES = NCHAN,      
-	MAX_RDMA_QUEUES = NCHAN,      
+	MAX_ETH_QSETS = 32,           /* # of Ethernet Tx/Rx queue sets */
+	MAX_OFLD_QSETS = 16,          /* # of offload Tx/Rx queue sets */
+	MAX_CTRL_QUEUES = NCHAN,      /* # of control Tx queues */
+	MAX_RDMA_QUEUES = NCHAN,      /* # of streaming RDMA Rx queues */
 };
 
 enum {
-	MAX_EGRQ = 128,         
-	MAX_INGQ = 64           
+	MAX_EGRQ = 128,         /* max # of egress queues, including FLs */
+	MAX_INGQ = 64           /* max # of interrupt-capable ingress queues */
 };
 
 struct adapter;
@@ -281,16 +281,16 @@ struct sge_rspq;
 struct port_info {
 	struct adapter *adapter;
 	u16    viid;
-	s16    xact_addr_filt;        
-	u16    rss_size;              
+	s16    xact_addr_filt;        /* index of exact MAC address filter */
+	u16    rss_size;              /* size of VI's RSS table slice */
 	s8     mdio_addr;
 	u8     port_type;
 	u8     mod_type;
 	u8     port_id;
 	u8     tx_chan;
-	u8     lport;                 
-	u8     nqsets;                
-	u8     first_qset;            
+	u8     lport;                 /* associated offload logical port */
+	u8     nqsets;                /* # of qsets */
+	u8     first_qset;            /* index of first qset */
 	u8     rss_mode;
 	struct link_config link_cfg;
 	u16   *rss;
@@ -299,7 +299,7 @@ struct port_info {
 struct dentry;
 struct work_struct;
 
-enum {                                 
+enum {                                 /* adapter flags */
 	FULL_INIT_DONE     = (1 << 0),
 	USING_MSI          = (1 << 1),
 	USING_MSIX         = (1 << 2),
@@ -308,77 +308,78 @@ enum {
 
 struct rx_sw_desc;
 
-struct sge_fl {                     
-	unsigned int avail;         
-	unsigned int pend_cred;     
-	unsigned int cidx;          
-	unsigned int pidx;          
-	unsigned long alloc_failed; 
+struct sge_fl {                     /* SGE free-buffer queue state */
+	unsigned int avail;         /* # of available Rx buffers */
+	unsigned int pend_cred;     /* new buffers since last FL DB ring */
+	unsigned int cidx;          /* consumer index */
+	unsigned int pidx;          /* producer index */
+	unsigned long alloc_failed; /* # of times buffer allocation failed */
 	unsigned long large_alloc_failed;
 	unsigned long starving;
-	
-	unsigned int cntxt_id;      
-	unsigned int size;          
-	struct rx_sw_desc *sdesc;   
-	__be64 *desc;               
-	dma_addr_t addr;            
+	/* RO fields */
+	unsigned int cntxt_id;      /* SGE context id for the free list */
+	unsigned int size;          /* capacity of free list */
+	struct rx_sw_desc *sdesc;   /* address of SW Rx descriptor ring */
+	__be64 *desc;               /* address of HW Rx descriptor ring */
+	dma_addr_t addr;            /* bus address of HW ring start */
 };
 
+/* A packet gather list */
 struct pkt_gl {
 	struct page_frag frags[MAX_SKB_FRAGS];
-	void *va;                         
-	unsigned int nfrags;              
-	unsigned int tot_len;             
+	void *va;                         /* virtual address of first byte */
+	unsigned int nfrags;              /* # of fragments */
+	unsigned int tot_len;             /* total length of fragments */
 };
 
 typedef int (*rspq_handler_t)(struct sge_rspq *q, const __be64 *rsp,
 			      const struct pkt_gl *gl);
 
-struct sge_rspq {                   
+struct sge_rspq {                   /* state for an SGE response queue */
 	struct napi_struct napi;
-	const __be64 *cur_desc;     
-	unsigned int cidx;          
-	u8 gen;                     
-	u8 intr_params;             
-	u8 next_intr_params;        
-	u8 pktcnt_idx;              
-	u8 uld;                     
-	u8 idx;                     
-	int offset;                 
-	u16 cntxt_id;               
-	u16 abs_id;                 
-	__be64 *desc;               
-	dma_addr_t phys_addr;       
-	unsigned int iqe_len;       
-	unsigned int size;          
+	const __be64 *cur_desc;     /* current descriptor in queue */
+	unsigned int cidx;          /* consumer index */
+	u8 gen;                     /* current generation bit */
+	u8 intr_params;             /* interrupt holdoff parameters */
+	u8 next_intr_params;        /* holdoff params for next interrupt */
+	u8 pktcnt_idx;              /* interrupt packet threshold */
+	u8 uld;                     /* ULD handling this queue */
+	u8 idx;                     /* queue index within its group */
+	int offset;                 /* offset into current Rx buffer */
+	u16 cntxt_id;               /* SGE context id for the response q */
+	u16 abs_id;                 /* absolute SGE id for the response q */
+	__be64 *desc;               /* address of HW response ring */
+	dma_addr_t phys_addr;       /* physical address of the ring */
+	unsigned int iqe_len;       /* entry size */
+	unsigned int size;          /* capacity of response queue */
 	struct adapter *adap;
-	struct net_device *netdev;  
+	struct net_device *netdev;  /* associated net device */
 	rspq_handler_t handler;
 };
 
-struct sge_eth_stats {              
-	unsigned long pkts;         
-	unsigned long lro_pkts;     
-	unsigned long lro_merged;   
-	unsigned long rx_cso;       
-	unsigned long vlan_ex;      
-	unsigned long rx_drops;     
+struct sge_eth_stats {              /* Ethernet queue statistics */
+	unsigned long pkts;         /* # of ethernet packets */
+	unsigned long lro_pkts;     /* # of LRO super packets */
+	unsigned long lro_merged;   /* # of wire packets merged by LRO */
+	unsigned long rx_cso;       /* # of Rx checksum offloads */
+	unsigned long vlan_ex;      /* # of Rx VLAN extractions */
+	unsigned long rx_drops;     /* # of packets dropped due to no mem */
 };
 
-struct sge_eth_rxq {                
+struct sge_eth_rxq {                /* SW Ethernet Rx queue */
 	struct sge_rspq rspq;
 	struct sge_fl fl;
 	struct sge_eth_stats stats;
 } ____cacheline_aligned_in_smp;
 
-struct sge_ofld_stats {             
-	unsigned long pkts;         
-	unsigned long imm;          
-	unsigned long an;           
-	unsigned long nomem;        
+struct sge_ofld_stats {             /* offload queue statistics */
+	unsigned long pkts;         /* # of packets */
+	unsigned long imm;          /* # of immediate-data packets */
+	unsigned long an;           /* # of asynchronous notifications */
+	unsigned long nomem;        /* # of responses deferred due to no mem */
 };
 
-struct sge_ofld_rxq {               
+struct sge_ofld_rxq {               /* SW offload Rx queue */
 	struct sge_rspq rspq;
 	struct sge_fl fl;
 	struct sge_ofld_stats stats;
@@ -391,43 +392,43 @@ struct tx_desc {
 struct tx_sw_desc;
 
 struct sge_txq {
-	unsigned int  in_use;       
-	unsigned int  size;         
-	unsigned int  cidx;         
-	unsigned int  pidx;         
-	unsigned long stops;        
-	unsigned long restarts;     
-	unsigned int  cntxt_id;     
-	struct tx_desc *desc;       
-	struct tx_sw_desc *sdesc;   
-	struct sge_qstat *stat;     
-	dma_addr_t    phys_addr;    
+	unsigned int  in_use;       /* # of in-use Tx descriptors */
+	unsigned int  size;         /* # of descriptors */
+	unsigned int  cidx;         /* SW consumer index */
+	unsigned int  pidx;         /* producer index */
+	unsigned long stops;        /* # of times q has been stopped */
+	unsigned long restarts;     /* # of queue restarts */
+	unsigned int  cntxt_id;     /* SGE context id for the Tx q */
+	struct tx_desc *desc;       /* address of HW Tx descriptor ring */
+	struct tx_sw_desc *sdesc;   /* address of SW Tx descriptor ring */
+	struct sge_qstat *stat;     /* queue status entry */
+	dma_addr_t    phys_addr;    /* physical address of the ring */
 };
 
-struct sge_eth_txq {                
+struct sge_eth_txq {                /* state for an SGE Ethernet Tx queue */
 	struct sge_txq q;
-	struct netdev_queue *txq;   
-	unsigned long tso;          
-	unsigned long tx_cso;       
-	unsigned long vlan_ins;     
-	unsigned long mapping_err;  
+	struct netdev_queue *txq;   /* associated netdev TX queue */
+	unsigned long tso;          /* # of TSO requests */
+	unsigned long tx_cso;       /* # of Tx checksum offloads */
+	unsigned long vlan_ins;     /* # of Tx VLAN insertions */
+	unsigned long mapping_err;  /* # of I/O MMU packet mapping errors */
 } ____cacheline_aligned_in_smp;
 
-struct sge_ofld_txq {               
+struct sge_ofld_txq {               /* state for an SGE offload Tx queue */
 	struct sge_txq q;
 	struct adapter *adap;
-	struct sk_buff_head sendq;  
-	struct tasklet_struct qresume_tsk; 
-	u8 full;                    
-	unsigned long mapping_err;  
+	struct sk_buff_head sendq;  /* list of backpressured packets */
+	struct tasklet_struct qresume_tsk; /* restarts the queue */
+	u8 full;                    /* the Tx ring is full */
+	unsigned long mapping_err;  /* # of I/O MMU packet mapping errors */
 } ____cacheline_aligned_in_smp;
 
-struct sge_ctrl_txq {               
+struct sge_ctrl_txq {               /* state for an SGE control Tx queue */
 	struct sge_txq q;
 	struct adapter *adap;
-	struct sk_buff_head sendq;  
-	struct tasklet_struct qresume_tsk; 
-	u8 full;                    
+	struct sk_buff_head sendq;  /* list of backpressured packets */
+	struct tasklet_struct qresume_tsk; /* restarts the queue */
+	u8 full;                    /* the Tx ring is full */
 } ____cacheline_aligned_in_smp;
 
 struct sge {
@@ -443,11 +444,11 @@ struct sge {
 	struct sge_rspq intrq ____cacheline_aligned_in_smp;
 	spinlock_t intrq_lock;
 
-	u16 max_ethqsets;           
-	u16 ethqsets;               
-	u16 ethtxq_rover;           
-	u16 ofldqsets;              
-	u16 rdmaqs;                 
+	u16 max_ethqsets;           /* # of available Ethernet queue sets */
+	u16 ethqsets;               /* # of active Ethernet queue sets */
+	u16 ethtxq_rover;           /* Tx queue to clean up next */
+	u16 ofldqsets;              /* # of active offload queue sets */
+	u16 rdmaqs;                 /* # of available RDMA Rx queues */
 	u16 ofld_rxq[MAX_OFLD_QSETS];
 	u16 rdma_rxq[NCHAN];
 	u16 timer_val[SGE_NTIMERS];
@@ -456,12 +457,12 @@ struct sge {
 	u8 idma_state[2];
 	unsigned int egr_start;
 	unsigned int ingr_start;
-	void *egr_map[MAX_EGRQ];    
-	struct sge_rspq *ingr_map[MAX_INGQ]; 
+	void *egr_map[MAX_EGRQ];    /* qid->queue egress queue map */
+	struct sge_rspq *ingr_map[MAX_INGQ]; /* qid->queue ingress queue map */
 	DECLARE_BITMAP(starving_fl, MAX_EGRQ);
 	DECLARE_BITMAP(txq_maperr, MAX_EGRQ);
-	struct timer_list rx_timer; 
-	struct timer_list tx_timer; 
+	struct timer_list rx_timer; /* refills starving FLs */
+	struct timer_list tx_timer; /* checks Tx queues */
 };
 
 #define for_each_ethrxq(sge, i) for (i = 0; i < (sge)->ethqsets; i++)
@@ -493,7 +494,7 @@ struct adapter {
 	struct sge sge;
 
 	struct net_device *port[MAX_NPORTS];
-	u8 chan_map[NCHAN];                   
+	u8 chan_map[NCHAN];                   /* channel -> port map */
 
 	struct l2t_data *l2t;
 	void *uld_handle[CXGB4_ULD_MAX];
@@ -543,16 +544,35 @@ static inline void t4_write_reg64(struct adapter *adap, u32 reg_addr, u64 val)
 	writeq(val, adap->regs + reg_addr);
 }
 
+/**
+ * netdev2pinfo - return the port_info structure associated with a net_device
+ * @dev: the netdev
+ *
+ * Return the struct port_info associated with a net_device
+ */
 static inline struct port_info *netdev2pinfo(const struct net_device *dev)
 {
 	return netdev_priv(dev);
 }
 
+/**
+ * adap2pinfo - return the port_info of a port
+ * @adap: the adapter
+ * @idx: the port index
+ *
+ * Return the port_info structure for the port of the given index.
+ */
 static inline struct port_info *adap2pinfo(struct adapter *adap, int idx)
 {
 	return netdev_priv(adap->port[idx]);
 }
 
+/**
+ * netdev2adap - return the adapter structure associated with a net_device
+ * @dev: the netdev
+ *
+ * Return the struct adapter associated with a net_device
+ */
 static inline struct adapter *netdev2adap(const struct net_device *dev)
 {
 	return netdev2pinfo(dev)->adapter;
@@ -699,4 +719,4 @@ int t4_ctrl_eq_free(struct adapter *adap, unsigned int mbox, unsigned int pf,
 int t4_ofld_eq_free(struct adapter *adap, unsigned int mbox, unsigned int pf,
 		    unsigned int vf, unsigned int eqid);
 int t4_handle_fw_rpl(struct adapter *adap, const __be64 *rpl);
-#endif 
+#endif /* __CXGB4_H__ */

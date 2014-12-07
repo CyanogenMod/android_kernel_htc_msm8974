@@ -14,6 +14,9 @@ void (*pm_power_off)(void);
 static void kill_off_processes(void)
 {
 	if (proc_mm)
+		/*
+		 * FIXME: need to loop over userspace_pids
+		 */
 		os_kill_ptraced_process(userspace_pid[0], 1);
 	else {
 		struct task_struct *p;

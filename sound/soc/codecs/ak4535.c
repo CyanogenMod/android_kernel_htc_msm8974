@@ -28,11 +28,15 @@
 
 #include "ak4535.h"
 
+/* codec private data */
 struct ak4535_priv {
 	struct regmap *regmap;
 	unsigned int sysclk;
 };
 
+/*
+ * ak4535 register cache
+ */
 static const struct reg_default ak4535_reg_defaults[] = {
 	{ 0, 0x00 },
 	{ 1, 0x80 },
@@ -97,37 +101,46 @@ static const struct snd_kcontrol_new ak4535_snd_controls[] = {
 	SOC_SINGLE("Mic Sidetone Volume", AK4535_VOL, 4, 7, 0),
 };
 
+/* Mono 1 Mixer */
 static const struct snd_kcontrol_new ak4535_mono1_mixer_controls[] = {
 	SOC_DAPM_SINGLE("Mic Sidetone Switch", AK4535_SIG1, 4, 1, 0),
 	SOC_DAPM_SINGLE("Mono Playback Switch", AK4535_SIG1, 5, 1, 0),
 };
 
+/* Stereo Mixer */
 static const struct snd_kcontrol_new ak4535_stereo_mixer_controls[] = {
 	SOC_DAPM_SINGLE("Mic Sidetone Switch", AK4535_SIG2, 4, 1, 0),
 	SOC_DAPM_SINGLE("Playback Switch", AK4535_SIG2, 7, 1, 0),
 	SOC_DAPM_SINGLE("Aux Bypass Switch", AK4535_SIG2, 5, 1, 0),
 };
 
+/* Input Mixer */
 static const struct snd_kcontrol_new ak4535_input_mixer_controls[] = {
 	SOC_DAPM_SINGLE("Mic Capture Switch", AK4535_MIC, 2, 1, 0),
 	SOC_DAPM_SINGLE("Aux Capture Switch", AK4535_MIC, 5, 1, 0),
 };
 
+/* Input mux */
 static const struct snd_kcontrol_new ak4535_input_mux_control =
 	SOC_DAPM_ENUM("Input Select", ak4535_enum[4]);
 
+/* HP L switch */
 static const struct snd_kcontrol_new ak4535_hpl_control =
 	SOC_DAPM_SINGLE("Switch", AK4535_SIG2, 1, 1, 1);
 
+/* HP R switch */
 static const struct snd_kcontrol_new ak4535_hpr_control =
 	SOC_DAPM_SINGLE("Switch", AK4535_SIG2, 0, 1, 1);
 
+/* mono 2 switch */
 static const struct snd_kcontrol_new ak4535_mono2_control =
 	SOC_DAPM_SINGLE("Switch", AK4535_SIG1, 0, 1, 0);
 
+/* Line out switch */
 static const struct snd_kcontrol_new ak4535_line_control =
 	SOC_DAPM_SINGLE("Switch", AK4535_SIG2, 6, 1, 0);
 
+/* ak4535 dapm widgets */
 static const struct snd_soc_dapm_widget ak4535_dapm_widgets[] = {
 	SND_SOC_DAPM_MIXER("Stereo Mixer", SND_SOC_NOPM, 0, 0,
 		&ak4535_stereo_mixer_controls[0],
@@ -143,7 +156,7 @@ static const struct snd_soc_dapm_widget ak4535_dapm_widgets[] = {
 	SND_SOC_DAPM_DAC("DAC", "Playback", AK4535_PM2, 0, 0),
 	SND_SOC_DAPM_SWITCH("Mono 2 Enable", SND_SOC_NOPM, 0, 0,
 		&ak4535_mono2_control),
-	
+	/* speaker powersave bit */
 	SND_SOC_DAPM_PGA("Speaker Enable", AK4535_MODE2, 0, 0, NULL, 0),
 	SND_SOC_DAPM_SWITCH("Line Out Enable", SND_SOC_NOPM, 0, 0,
 		&ak4535_line_control),
@@ -179,16 +192,16 @@ static const struct snd_soc_dapm_widget ak4535_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route ak4535_audio_map[] = {
-	
+	/*stereo mixer */
 	{"Stereo Mixer", "Playback Switch", "DAC"},
 	{"Stereo Mixer", "Mic Sidetone Switch", "Mic"},
 	{"Stereo Mixer", "Aux Bypass Switch", "AUX In"},
 
-	
+	/* mono1 mixer */
 	{"Mono1 Mixer", "Mic Sidetone Switch", "Mic"},
 	{"Mono1 Mixer", "Mono Playback Switch", "DAC"},
 
-	
+	/* Mic */
 	{"Mic", NULL, "AIN"},
 	{"Input Mux", "Internal", "Mic Int Bias"},
 	{"Input Mux", "External", "Mic Ext Bias"},
@@ -196,40 +209,40 @@ static const struct snd_soc_dapm_route ak4535_audio_map[] = {
 	{"Mic Ext Bias", NULL, "MICEXT"},
 	{"MICOUT", NULL, "Input Mux"},
 
-	
+	/* line out */
 	{"LOUT", NULL, "Line Out Enable"},
 	{"ROUT", NULL, "Line Out Enable"},
 	{"Line Out Enable", "Switch", "Line Out"},
 	{"Line Out", NULL, "Stereo Mixer"},
 
-	
+	/* mono1 out */
 	{"MOUT1", NULL, "Mono Out"},
 	{"Mono Out", NULL, "Mono1 Mixer"},
 
-	
+	/* left HP */
 	{"HPL", NULL, "Left HP Enable"},
 	{"Left HP Enable", "Switch", "HP L Amp"},
 	{"HP L Amp", NULL, "Stereo Mixer"},
 
-	
+	/* right HP */
 	{"HPR", NULL, "Right HP Enable"},
 	{"Right HP Enable", "Switch", "HP R Amp"},
 	{"HP R Amp", NULL, "Stereo Mixer"},
 
-	
+	/* speaker */
 	{"SPP", NULL, "Speaker Enable"},
 	{"SPN", NULL, "Speaker Enable"},
 	{"Speaker Enable", "Switch", "Spk Amp"},
 	{"Spk Amp", NULL, "MIN"},
 
-	
+	/* mono 2 */
 	{"MOUT2", NULL, "Mono 2 Enable"},
 	{"Mono 2 Enable", "Switch", "Stereo Mixer"},
 
-	
+	/* Aux In */
 	{"Aux In", NULL, "AUX"},
 
-	
+	/* ADC */
 	{"ADC", NULL, "Input Mixer"},
 	{"Input Mixer", "Mic Capture Switch", "Mic"},
 	{"Input Mixer", "Aux Capture Switch", "Aux In"},
@@ -258,7 +271,7 @@ static int ak4535_hw_params(struct snd_pcm_substream *substream,
 	if (rate)
 		fs = ak4535->sysclk / rate;
 
-	
+	/* set fs */
 	switch (fs) {
 	case 1024:
 		mode2 |= (0x2 << 5);
@@ -270,7 +283,7 @@ static int ak4535_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* set rate */
 	snd_soc_write(codec, AK4535_MODE2, mode2);
 	return 0;
 }
@@ -281,7 +294,7 @@ static int ak4535_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	struct snd_soc_codec *codec = codec_dai->codec;
 	u8 mode1 = 0;
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		mode1 = 0x0002;
@@ -293,7 +306,7 @@ static int ak4535_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* use 32 fs for BCLK to save power */
 	mode1 |= 0x4;
 
 	snd_soc_write(codec, AK4535_MODE1, mode1);
@@ -385,7 +398,7 @@ static int ak4535_probe(struct snd_soc_codec *codec)
 		dev_err(codec->dev, "Failed to set cache I/O: %d\n", ret);
 		return ret;
 	}
-	
+	/* power on device */
 	ak4535_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
 	snd_soc_add_codec_controls(codec, ak4535_snd_controls,
@@ -393,6 +406,7 @@ static int ak4535_probe(struct snd_soc_codec *codec)
 	return 0;
 }
 
+/* power down chip */
 static int ak4535_remove(struct snd_soc_codec *codec)
 {
 	ak4535_set_bias_level(codec, SND_SOC_BIAS_OFF);

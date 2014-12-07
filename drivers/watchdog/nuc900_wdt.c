@@ -28,12 +28,24 @@
 
 #define REG_WTCR		0x1c
 #define WTCLK			(0x01 << 10)
-#define WTE			(0x01 << 7)	
+#define WTE			(0x01 << 7)	/*wdt enable*/
 #define WTIS			(0x03 << 4)
 #define WTIF			(0x01 << 3)
 #define WTRF			(0x01 << 2)
 #define WTRE			(0x01 << 1)
 #define WTR			(0x01 << 0)
+/*
+ * The watchdog time interval can be calculated via following formula:
+ * WTIS		real time interval (formula)
+ * 0x00		((2^ 14 ) * ((external crystal freq) / 256))seconds
+ * 0x01		((2^ 16 ) * ((external crystal freq) / 256))seconds
+ * 0x02		((2^ 18 ) * ((external crystal freq) / 256))seconds
+ * 0x03		((2^ 20 ) * ((external crystal freq) / 256))seconds
+ *
+ * The external crystal freq is 15Mhz in the nuc900 evaluation board.
+ * So 0x00 = +-0.28 seconds, 0x01 = +-1.12 seconds, 0x02 = +-4.48 seconds,
+ * 0x03 = +- 16.92 seconds..
+ */
 #define WDT_HW_TIMEOUT		0x02
 #define WDT_TIMEOUT		(HZ/2)
 #define WDT_HEARTBEAT		15
@@ -185,7 +197,7 @@ static ssize_t nuc900_wdt_write(struct file *file, const char __user *data,
 	if (!len)
 		return 0;
 
-	
+	/* Scan for magic character */
 	if (!nowayout) {
 		size_t i;
 

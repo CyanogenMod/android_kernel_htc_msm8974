@@ -104,45 +104,45 @@ l3_1tr6_setup_req(struct l3_process *pc, u_char pr, void *arg)
 		teln++;
 	}
 	if (channel) {
-		*p++ = 0x18;	
+		*p++ = 0x18;	/* channel indicator */
 		*p++ = 1;
 		*p++ = channel;
 	}
-	if (pc->para.spv) {	
-		
+	if (pc->para.spv) {	/* SPV ? */
+		/* NSF SPV */
 		*p++ = WE0_netSpecFac;
-		*p++ = 4;	
+		*p++ = 4;	/* Laenge */
 		*p++ = 0;
-		*p++ = FAC_SPV;	
-		*p++ = pc->para.setup.si1;	
-		*p++ = pc->para.setup.si2;	
+		*p++ = FAC_SPV;	/* SPV */
+		*p++ = pc->para.setup.si1;	/* 0 for all Services */
+		*p++ = pc->para.setup.si2;	/* 0 for all Services */
 		*p++ = WE0_netSpecFac;
-		*p++ = 4;	
+		*p++ = 4;	/* Laenge */
 		*p++ = 0;
-		*p++ = FAC_Activate;	
-		*p++ = pc->para.setup.si1;	
-		*p++ = pc->para.setup.si2;	
+		*p++ = FAC_Activate;	/* aktiviere SPV (default) */
+		*p++ = pc->para.setup.si1;	/* 0 for all Services */
+		*p++ = pc->para.setup.si2;	/* 0 for all Services */
 	}
 	eaz = pc->para.setup.eazmsn;
 	if (*eaz) {
 		*p++ = WE0_origAddr;
 		*p++ = strlen(eaz) + 1;
-		
-		*p++ = 0x81;	
+		/* Classify as AnyPref. */
+		*p++ = 0x81;	/* Ext = '1'B, Type = '000'B, Plan = '0001'B. */
 		while (*eaz)
 			*p++ = *eaz++ & 0x7f;
 	}
 	*p++ = WE0_destAddr;
 	*p++ = strlen(teln) + 1;
-	
-	*p++ = 0x81;		
+	/* Classify as AnyPref. */
+	*p++ = 0x81;		/* Ext = '1'B, Type = '000'B, Plan = '0001'B. */
 	while (*teln)
 		*p++ = *teln++ & 0x7f;
 
 	*p++ = WE_Shift_F6;
-	
+	/* Codesatz 6 fuer Service */
 	*p++ = WE6_serviceInd;
-	*p++ = 2;		
+	*p++ = 2;		/* len=2 info,info2 */
 	*p++ = pc->para.setup.si1;
 	*p++ = pc->para.setup.si2;
 
@@ -164,7 +164,7 @@ l3_1tr6_setup(struct l3_process *pc, u_char pr, void *arg)
 	char tmp[80];
 	struct sk_buff *skb = arg;
 
-	
+	/* Channel Identification */
 	p = findie(skb->data, skb->len, WE0_chanID, 0);
 	if (p) {
 		if (p[1] != 1) {
@@ -211,7 +211,7 @@ l3_1tr6_setup(struct l3_process *pc, u_char pr, void *arg)
 	}
 	dev_kfree_skb(skb);
 
-	
+	/* Signal all services, linklevel takes care of Service-Indicator */
 	if (bcfound) {
 		if ((pc->para.setup.si1 != 7) && (pc->st->l3.debug & L3_DEB_WARN)) {
 			sprintf(tmp, "non-digital call: %s -> %s",
@@ -291,7 +291,7 @@ l3_1tr6_alert(struct l3_process *pc, u_char pr, void *arg)
 	struct sk_buff *skb = arg;
 
 	dev_kfree_skb(skb);
-	L3DelTimer(&pc->timer);	
+	L3DelTimer(&pc->timer);	/* T304 */
 	newl3state(pc, 4);
 	pc->st->l3.l3l4(pc->st, CC_ALERTING | INDICATION, pc);
 }
@@ -338,7 +338,7 @@ l3_1tr6_connect(struct l3_process *pc, u_char pr, void *arg)
 {
 	struct sk_buff *skb = arg;
 
-	L3DelTimer(&pc->timer);	
+	L3DelTimer(&pc->timer);	/* T310 */
 	if (!findie(skb->data, skb->len, WE6_date, 6)) {
 		l3_1tr6_error(pc, "missing connect date", skb);
 		return;
@@ -480,18 +480,18 @@ l3_1tr6_setup_rsp(struct l3_process *pc, u_char pr, void *arg)
 	int l;
 
 	MsgHead(p, pc->callref, MT_N1_CONN, PROTO_DIS_N1);
-	if (pc->para.spv) {	
-		
+	if (pc->para.spv) {	/* SPV ? */
+		/* NSF SPV */
 		*p++ = WE0_netSpecFac;
-		*p++ = 4;	
+		*p++ = 4;	/* Laenge */
 		*p++ = 0;
-		*p++ = FAC_SPV;	
+		*p++ = FAC_SPV;	/* SPV */
 		*p++ = pc->para.setup.si1;
 		*p++ = pc->para.setup.si2;
 		*p++ = WE0_netSpecFac;
-		*p++ = 4;	
+		*p++ = 4;	/* Laenge */
 		*p++ = 0;
-		*p++ = FAC_Activate;	
+		*p++ = FAC_Activate;	/* aktiviere SPV */
 		*p++ = pc->para.setup.si1;
 		*p++ = pc->para.setup.si2;
 	}
@@ -523,7 +523,7 @@ l3_1tr6_disconnect_req(struct l3_process *pc, u_char pr, void *arg)
 
 	if (pc->para.cause > 0)
 		cause = pc->para.cause;
-	
+	/* Map DSS1 causes */
 	switch (cause & 0x7f) {
 	case 0x10:
 		clen = 0;
@@ -538,7 +538,7 @@ l3_1tr6_disconnect_req(struct l3_process *pc, u_char pr, void *arg)
 	StopAllL3Timer(pc);
 	MsgHead(p, pc->callref, MT_N1_DISC, PROTO_DIS_N1);
 	*p++ = WE0_cause;
-	*p++ = clen;		
+	*p++ = clen;		/* Laenge */
 	if (clen)
 		*p++ = cause | 0x80;
 	newl3state(pc, 11);
@@ -586,7 +586,7 @@ l3_1tr6_t305(struct l3_process *pc, u_char pr, void *arg)
 	L3DelTimer(&pc->timer);
 	if (pc->para.cause != NO_CAUSE)
 		cause = pc->para.cause;
-	
+	/* Map DSS1 causes */
 	switch (cause & 0x7f) {
 	case 0x10:
 		clen = 0;
@@ -597,7 +597,7 @@ l3_1tr6_t305(struct l3_process *pc, u_char pr, void *arg)
 	}
 	MsgHead(p, pc->callref, MT_N1_REL, PROTO_DIS_N1);
 	*p++ = WE0_cause;
-	*p++ = clen;		
+	*p++ = clen;		/* Laenge */
 	if (clen)
 		*p++ = cause;
 	newl3state(pc, 19);
@@ -656,12 +656,13 @@ static void
 l3_1tr6_dl_release(struct l3_process *pc, u_char pr, void *arg)
 {
 	newl3state(pc, 0);
-	pc->para.cause = 0x1b;          
+	pc->para.cause = 0x1b;          /* Destination out of order */
 	pc->para.loc = 0;
 	pc->st->l3.l3l4(pc->st, CC_RELEASE | INDICATION, pc);
 	release_l3_process(pc);
 }
 
+/* *INDENT-OFF* */
 static struct stateentry downstl[] =
 {
 	{SBIT(0),
@@ -737,6 +738,7 @@ static struct stateentry manstatelist[] =
 	 DL_RELEASE | INDICATION, l3_1tr6_dl_release},
 };
 
+/* *INDENT-ON* */
 
 static void
 up1tr6(struct PStack *st, int pr, void *arg)

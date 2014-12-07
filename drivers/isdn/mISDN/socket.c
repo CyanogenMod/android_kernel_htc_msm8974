@@ -218,10 +218,10 @@ mISDN_sock_sendmsg(struct kiocb *iocb, struct socket *sock,
 	skb_pull(skb, MISDN_HEADER_LEN);
 
 	if (msg->msg_namelen >= sizeof(struct sockaddr_mISDN)) {
-		
+		/* if we have a address, we use it */
 		maddr = (struct sockaddr_mISDN *)msg->msg_name;
 		mISDN_HEAD_ID(skb) = maddr->channel;
-	} else { 
+	} else { /* use default for L2 messages */
 		if ((sk->sk_protocol == ISDN_P_LAPD_TE) ||
 		    (sk->sk_protocol == ISDN_P_LAPD_NT))
 			mISDN_HEAD_ID(skb) = _pms(sk)->ch.nr;

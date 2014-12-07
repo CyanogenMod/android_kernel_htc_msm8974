@@ -214,10 +214,12 @@ static void hidp_input_report(struct hidp_session *session, struct sk_buff *skb)
 	int i, size = skb->len - 1;
 
 	switch (skb->data[0]) {
-	case 0x01:	
+	case 0x01:	/* Keyboard report */
 		for (i = 0; i < 8; i++)
 			input_report_key(dev, hidp_keycode[i + 224], (udata[0] >> i) & 1);
 
+		/* If all the key codes have been set to 0x01, it means
+		 * too many keys were pressed at the same time. */
 		if (!memcmp(udata + 2, hidp_mkeyspat, 6))
 			break;
 
@@ -240,7 +242,7 @@ static void hidp_input_report(struct hidp_session *session, struct sk_buff *skb)
 		memcpy(keys, udata, 8);
 		break;
 
-	case 0x02:	
+	case 0x02:	/* Mouse report */
 		input_report_key(dev, BTN_LEFT,   sdata[0] & 0x01);
 		input_report_key(dev, BTN_RIGHT,  sdata[0] & 0x02);
 		input_report_key(dev, BTN_MIDDLE, sdata[0] & 0x04);
@@ -377,20 +379,22 @@ static void hidp_process_handshake(struct hidp_session *session,
 
 	switch (param) {
 	case HIDP_HSHK_SUCCESSFUL:
-		
+		/* FIXME: Call into SET_ GET_ handlers here */
 		break;
 
 	case HIDP_HSHK_NOT_READY:
 	case HIDP_HSHK_ERR_INVALID_REPORT_ID:
 	case HIDP_HSHK_ERR_UNSUPPORTED_REQUEST:
 	case HIDP_HSHK_ERR_INVALID_PARAMETER:
-		
+		/* FIXME: Call into SET_ GET_ handlers here */
 		break;
 
 	case HIDP_HSHK_ERR_UNKNOWN:
 		break;
 
 	case HIDP_HSHK_ERR_FATAL:
+		/* Device requests a reboot, as this is the only way this error
+		 * can be recovered. */
 		__hidp_send_ctrl_message(session,
 			HIDP_TRANS_HID_CONTROL | HIDP_CTRL_SOFT_RESET, NULL, 0);
 		break;
@@ -408,11 +412,11 @@ static void hidp_process_hid_control(struct hidp_session *session,
 	BT_DBG("session %p param 0x%02x", session, param);
 
 	if (param == HIDP_CTRL_VIRTUAL_CABLE_UNPLUG) {
-		
+		/* Flush the transmit queues */
 		skb_queue_purge(&session->ctrl_transmit);
 		skb_queue_purge(&session->intr_transmit);
 
-		
+		/* Kill session thread */
 		atomic_inc(&session->terminate);
 		hidp_schedule(session);
 	}
@@ -623,7 +627,7 @@ static int hidp_session(void *arg)
 		session->hid = NULL;
 	}
 
-	
+	/* Wakeup user-space polling for socket errors */
 	session->intr_sock->sk->sk_err = EUNATCH;
 	session->ctrl_sock->sk->sk_err = EUNATCH;
 
@@ -965,15 +969,15 @@ int hidp_del_connection(struct hidp_conndel_req *req)
 			hidp_send_ctrl_message(session,
 				HIDP_TRANS_HID_CONTROL | HIDP_CTRL_VIRTUAL_CABLE_UNPLUG, NULL, 0);
 		} else {
-			
+			/* Flush the transmit queues */
 			skb_queue_purge(&session->ctrl_transmit);
 			skb_queue_purge(&session->intr_transmit);
 
-			
+			/* Wakeup user-space polling for socket errors */
 			session->intr_sock->sk->sk_err = EUNATCH;
 			session->ctrl_sock->sk->sk_err = EUNATCH;
 
-			
+			/* Kill session thread */
 			atomic_inc(&session->terminate);
 			hidp_schedule(session);
 		}

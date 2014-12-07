@@ -33,21 +33,21 @@
 #define AVECR IOMEM(0xfe700040)
 
 static struct r8a7779_pm_ch r8a7779_ch_cpu1 = {
-	.chan_offs = 0x40, 
-	.chan_bit = 1, 
-	.isr_bit = 1, 
+	.chan_offs = 0x40, /* PWRSR0 .. PWRER0 */
+	.chan_bit = 1, /* ARM1 */
+	.isr_bit = 1, /* ARM1 */
 };
 
 static struct r8a7779_pm_ch r8a7779_ch_cpu2 = {
-	.chan_offs = 0x40, 
-	.chan_bit = 2, 
-	.isr_bit = 2, 
+	.chan_offs = 0x40, /* PWRSR0 .. PWRER0 */
+	.chan_bit = 2, /* ARM2 */
+	.isr_bit = 2, /* ARM2 */
 };
 
 static struct r8a7779_pm_ch r8a7779_ch_cpu3 = {
-	.chan_offs = 0x40, 
-	.chan_bit = 3, 
-	.isr_bit = 3, 
+	.chan_offs = 0x40, /* PWRSR0 .. PWRER0 */
+	.chan_bit = 3, /* ARM3 */
+	.isr_bit = 3, /* ARM3 */
 };
 
 static struct r8a7779_pm_ch *r8a7779_ch_cpu[4] = {
@@ -83,7 +83,7 @@ static void modify_scu_cpu_psr(unsigned long set, unsigned long clr)
 	tmp |= set;
 	spin_unlock(&scu_lock);
 
-	
+	/* disable cache coherency after releasing the lock */
 	__raw_writel(tmp, scu_base + 8);
 }
 
@@ -101,7 +101,7 @@ int r8a7779_platform_cpu_kill(unsigned int cpu)
 
 	cpu = cpu_logical_map(cpu);
 
-	
+	/* disable cache coherency */
 	modify_scu_cpu_psr(3 << (cpu * 8), 0);
 
 	if (cpu < ARRAY_SIZE(r8a7779_ch_cpu))
@@ -125,7 +125,7 @@ int __cpuinit r8a7779_boot_secondary(unsigned int cpu)
 
 	cpu = cpu_logical_map(cpu);
 
-	
+	/* enable cache coherency */
 	modify_scu_cpu_psr(0, 3 << (cpu * 8));
 
 	if (cpu < ARRAY_SIZE(r8a7779_ch_cpu))
@@ -143,15 +143,15 @@ void __init r8a7779_smp_prepare_cpus(void)
 
 	scu_enable(scu_base_addr());
 
-	
+	/* Map the reset vector (in headsmp.S) */
 	__raw_writel(__pa(shmobile_secondary_vector), AVECR);
 
-	
+	/* enable cache coherency on CPU0 */
 	modify_scu_cpu_psr(0, 3 << (cpu * 8));
 
 	r8a7779_pm_init();
 
-	
+	/* power off secondary CPUs */
 	r8a7779_platform_cpu_kill(1);
 	r8a7779_platform_cpu_kill(2);
 	r8a7779_platform_cpu_kill(3);

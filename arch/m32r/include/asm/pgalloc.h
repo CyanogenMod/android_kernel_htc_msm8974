@@ -15,6 +15,9 @@ static __inline__ void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 }
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
+/*
+ * Allocate and free page tables.
+ */
 static __inline__ pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *pgd = (pgd_t *)__get_free_page(GFP_KERNEL|__GFP_ZERO);
@@ -57,6 +60,11 @@ static inline void pte_free(struct mm_struct *mm, pgtable_t pte)
 
 #define __pte_free_tlb(tlb, pte, addr)	pte_free((tlb)->mm, (pte))
 
+/*
+ * allocating and freeing a pmd is trivial: the 1-entry pmd is
+ * inside the pgd, so has no extra memory associated with it.
+ * (In the PAE case we free the pmds as part of the pgd.)
+ */
 
 #define pmd_alloc_one(mm, addr)		({ BUG(); ((pmd_t *)2); })
 #define pmd_free(mm, x)			do { } while (0)
@@ -65,4 +73,4 @@ static inline void pte_free(struct mm_struct *mm, pgtable_t pte)
 
 #define check_pgt_cache()	do { } while (0)
 
-#endif 
+#endif /* _ASM_M32R_PGALLOC_H */

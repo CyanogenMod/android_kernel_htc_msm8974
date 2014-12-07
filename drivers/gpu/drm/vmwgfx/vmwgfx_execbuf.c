@@ -56,6 +56,19 @@ static void vmw_resource_to_validate_list(struct vmw_sw_context *sw_context,
 		vmw_resource_unreference(p_res);
 }
 
+/**
+ * vmw_bo_to_validate_list - add a bo to a validate list
+ *
+ * @sw_context: The software context used for this command submission batch.
+ * @bo: The buffer object to add.
+ * @fence_flags: Fence flags to be or'ed with any other fence flags for
+ * this buffer on this submission batch.
+ * @p_val_node: If non-NULL Will be updated with the validate node number
+ * on return.
+ *
+ * Returns -EINVAL if the limit of number of buffer objects per command
+ * submission is reached.
+ */
 static int vmw_bo_to_validate_list(struct vmw_sw_context *sw_context,
 				   struct ttm_buffer_object *bo,
 				   uint32_t fence_flags,
@@ -262,6 +275,22 @@ static int vmw_cmd_present_check(struct vmw_private *dev_priv,
 	return vmw_cmd_sid_check(dev_priv, sw_context, &cmd->body.sid);
 }
 
+/**
+ * vmw_query_bo_switch_prepare - Prepare to switch pinned buffer for queries.
+ *
+ * @dev_priv: The device private structure.
+ * @cid: The hardware context for the next query.
+ * @new_query_bo: The new buffer holding query results.
+ * @sw_context: The software context used for this command submission.
+ *
+ * This function checks whether @new_query_bo is suitable for holding
+ * query results, and if another buffer currently is pinned for query
+ * results. If so, the function prepares the state of @sw_context for
+ * switching pinned buffers after successful submission of the current
+ * command batch. It also checks whether we're using a new query context.
+ * In that case, it makes sure we emit a query barrier for the old
+ * context before the current query buffer is fenced.
+ */
 static int vmw_query_bo_switch_prepare(struct vmw_private *dev_priv,
 				       uint32_t cid,
 				       struct ttm_buffer_object *new_query_bo,
@@ -326,6 +355,24 @@ static int vmw_query_bo_switch_prepare(struct vmw_private *dev_priv,
 }
 
 
+/**
+ * vmw_query_bo_switch_commit - Finalize switching pinned query buffer
+ *
+ * @dev_priv: The device private structure.
+ * @sw_context: The software context used for this command submission batch.
+ *
+ * This function will check if we're switching query buffers, and will then,
+ * if no other query waits are issued this command submission batch,
+ * issue a dummy occlusion query wait used as a query barrier. When the fence
+ * object following that query wait has signaled, we are sure that all
+ * preseding queries have finished, and the old query buffer can be unpinned.
+ * However, since both the new query buffer and the old one are fenced with
+ * that fence, we can do an asynchronus unpin now, and be sure that the
+ * old query buffer won't be moved until the fence has signaled.
+ *
+ * As mentioned above, both the new - and old query buffers need to be fenced
+ * using a sequence emitted *after* calling this function.
+ */
 static void vmw_query_bo_switch_commit(struct vmw_private *dev_priv,
 				     struct vmw_sw_context *sw_context)
 {
@@ -333,6 +380,10 @@ static void vmw_query_bo_switch_commit(struct vmw_private *dev_priv,
 	struct vmw_resource *ctx, *next_ctx;
 	int ret;
 
+	/*
+	 * The validate list should still hold references to all
+	 * contexts here.
+	 */
 
 	list_for_each_entry_safe(ctx, next_ctx, &sw_context->query_list,
 				 query_head) {
@@ -354,6 +405,11 @@ static void vmw_query_bo_switch_commit(struct vmw_private *dev_priv,
 
 		vmw_bo_pin(sw_context->cur_query_bo, true);
 
+		/*
+		 * We pin also the dummy_query_bo buffer so that we
+		 * don't need to validate it when emitting
+		 * dummy queries in context destroy paths.
+		 */
 
 		vmw_bo_pin(dev_priv->dummy_query_bo, true);
 		dev_priv->dummy_query_bo_pinned = true;
@@ -364,6 +420,14 @@ static void vmw_query_bo_switch_commit(struct vmw_private *dev_priv,
 	}
 }
 
+/**
+ * vmw_query_switch_backoff - clear query barrier list
+ * @sw_context: The sw context used for this submission batch.
+ *
+ * This function is used as part of an error path, where a previously
+ * set up list of query barriers needs to be cleared.
+ *
+ */
 static void vmw_query_switch_backoff(struct vmw_sw_context *sw_context)
 {
 	struct list_head *list, *next;
@@ -469,6 +533,10 @@ static int vmw_cmd_wait_query(struct vmw_private *dev_priv,
 
 	vmw_dmabuf_unreference(&vmw_bo);
 
+	/*
+	 * This wait will act as a barrier for previous waits for this
+	 * context.
+	 */
 
 	ctx = sw_context->cur_ctx;
 	if (!list_empty(&ctx->query_head))
@@ -513,6 +581,9 @@ static int vmw_cmd_dma(struct vmw_private *dev_priv,
 		goto out_no_validate;
 	}
 
+	/*
+	 * Patch command stream with device SID.
+	 */
 	cmd->dma.host.sid = srf->res.id;
 	vmw_kms_cursor_snoop(srf, sw_context->tfile, bo, header);
 
@@ -732,7 +803,7 @@ static int vmw_cmd_check(struct vmw_private *dev_priv,
 	int ret;
 
 	cmd_id = le32_to_cpu(((uint32_t *)buf)[0]);
-	
+	/* Handle any none 3D commands */
 	if (unlikely(cmd_id < SVGA_CMD_MAX))
 		return vmw_cmd_check_not_3d(dev_priv, sw_context, buf, size);
 
@@ -813,6 +884,9 @@ static void vmw_clear_validations(struct vmw_sw_context *sw_context)
 	struct ttm_validate_buffer *entry, *next;
 	struct vmw_resource *res, *res_next;
 
+	/*
+	 * Drop references to DMA buffers held during command submission.
+	 */
 	list_for_each_entry_safe(entry, next, &sw_context->validate_nodes,
 				 head) {
 		list_del(&entry->head);
@@ -822,6 +896,9 @@ static void vmw_clear_validations(struct vmw_sw_context *sw_context)
 	}
 	BUG_ON(sw_context->cur_val_buf != 0);
 
+	/*
+	 * Drop references to resources held during command submission.
+	 */
 	vmw_resource_unreserve(&sw_context->resource_list);
 	list_for_each_entry_safe(res, res_next, &sw_context->resource_list,
 				 validate_head) {
@@ -836,17 +913,30 @@ static int vmw_validate_single_buffer(struct vmw_private *dev_priv,
 	int ret;
 
 
+	/*
+	 * Don't validate pinned buffers.
+	 */
 
 	if (bo == dev_priv->pinned_bo ||
 	    (bo == dev_priv->dummy_query_bo &&
 	     dev_priv->dummy_query_bo_pinned))
 		return 0;
 
+	/**
+	 * Put BO in VRAM if there is space, otherwise as a GMR.
+	 * If there is no space in VRAM and GMR ids are all used up,
+	 * start evicting GMRs to make room. If the DMA buffer can't be
+	 * used as a GMR, this will return -ENOMEM.
+	 */
 
 	ret = ttm_bo_validate(bo, &vmw_vram_gmr_placement, true, false, false);
 	if (likely(ret == 0 || ret == -ERESTARTSYS))
 		return ret;
 
+	/**
+	 * If that failed, try VRAM again, this time evicting
+	 * previous contents.
+	 */
 
 	DRM_INFO("Falling through to VRAM.\n");
 	ret = ttm_bo_validate(bo, &vmw_vram_placement, true, false, false);
@@ -897,6 +987,16 @@ static int vmw_resize_cmd_bounce(struct vmw_sw_context *sw_context,
 	return 0;
 }
 
+/**
+ * vmw_execbuf_fence_commands - create and submit a command stream fence
+ *
+ * Creates a fence object and submits a command stream marker.
+ * If this fails for some reason, We sync the fifo and return NULL.
+ * It is then safe to fence buffers with a NULL pointer.
+ *
+ * If @p_handle is not NULL @file_priv must also not be NULL. Creates
+ * a userspace handle if @p_handle is not NULL, otherwise not.
+ */
 
 int vmw_execbuf_fence_commands(struct drm_file *file_priv,
 			       struct vmw_private *dev_priv,
@@ -907,7 +1007,7 @@ int vmw_execbuf_fence_commands(struct drm_file *file_priv,
 	int ret;
 	bool synced = false;
 
-	
+	/* p_handle implies file_priv. */
 	BUG_ON(p_handle != NULL && file_priv == NULL);
 
 	ret = vmw_fifo_send_fence(dev_priv, &sequence);
@@ -936,6 +1036,26 @@ int vmw_execbuf_fence_commands(struct drm_file *file_priv,
 	return 0;
 }
 
+/**
+ * vmw_execbuf_copy_fence_user - copy fence object information to
+ * user-space.
+ *
+ * @dev_priv: Pointer to a vmw_private struct.
+ * @vmw_fp: Pointer to the struct vmw_fpriv representing the calling file.
+ * @ret: Return value from fence object creation.
+ * @user_fence_rep: User space address of a struct drm_vmw_fence_rep to
+ * which the information should be copied.
+ * @fence: Pointer to the fenc object.
+ * @fence_handle: User-space fence handle.
+ *
+ * This function copies fence information to user-space. If copying fails,
+ * The user-space struct drm_vmw_fence_rep::error member is hopefully
+ * left untouched, and if it's preloaded with an -EFAULT by user-space,
+ * the error will hopefully be detected.
+ * Also if copying fails, user-space will be unable to signal the fence
+ * object so we wait for it immediately, and then unreference the
+ * user-space reference.
+ */
 void
 vmw_execbuf_copy_fence_user(struct vmw_private *dev_priv,
 			    struct vmw_fpriv *vmw_fp,
@@ -961,9 +1081,18 @@ vmw_execbuf_copy_fence_user(struct vmw_private *dev_priv,
 		fence_rep.passed_seqno = dev_priv->last_read_seqno;
 	}
 
+	/*
+	 * copy_to_user errors will be detected by user space not
+	 * seeing fence_rep::error filled in. Typically
+	 * user-space would have pre-set that member to -EFAULT.
+	 */
 	ret = copy_to_user(user_fence_rep, &fence_rep,
 			   sizeof(fence_rep));
 
+	/*
+	 * User-space lost the fence object. We need to sync
+	 * and unreference the handle.
+	 */
 	if (unlikely(ret != 0) && (fence_rep.error == 0)) {
 		ttm_ref_object_base_unref(vmw_fp->tfile,
 					  fence_handle, TTM_REF_USAGE);
@@ -1064,6 +1193,11 @@ int vmw_execbuf_process(struct drm_file *file_priv,
 	ret = vmw_execbuf_fence_commands(file_priv, dev_priv,
 					 &fence,
 					 (user_fence_rep) ? &handle : NULL);
+	/*
+	 * This error is harmless, because if fence submission fails,
+	 * vmw_fifo_send_fence will sync. The error will be propagated to
+	 * user-space in @fence_rep
+	 */
 
 	if (ret != 0)
 		DRM_ERROR("Fence submission error. Syncing.\n");
@@ -1075,7 +1209,7 @@ int vmw_execbuf_process(struct drm_file *file_priv,
 	vmw_execbuf_copy_fence_user(dev_priv, vmw_fpriv(file_priv), ret,
 				    user_fence_rep, fence, handle);
 
-	
+	/* Don't unreference when handing fence out */
 	if (unlikely(out_fence != NULL)) {
 		*out_fence = fence;
 		fence = NULL;
@@ -1097,6 +1231,15 @@ out_unlock:
 	return ret;
 }
 
+/**
+ * vmw_execbuf_unpin_panic - Idle the fifo and unpin the query buffer.
+ *
+ * @dev_priv: The device private structure.
+ *
+ * This function is called to idle the fifo and unpin the query buffer
+ * if the normal way to do this hits an error, which should typically be
+ * extremely rare.
+ */
 static void vmw_execbuf_unpin_panic(struct vmw_private *dev_priv)
 {
 	DRM_ERROR("Can't unpin query buffer. Trying to recover.\n");
@@ -1108,6 +1251,27 @@ static void vmw_execbuf_unpin_panic(struct vmw_private *dev_priv)
 }
 
 
+/**
+ * vmw_execbuf_release_pinned_bo - Flush queries and unpin the pinned
+ * query bo.
+ *
+ * @dev_priv: The device private structure.
+ * @only_on_cid_match: Only flush and unpin if the current active query cid
+ * matches @cid.
+ * @cid: Optional context id to match.
+ *
+ * This function should be used to unpin the pinned query bo, or
+ * as a query barrier when we need to make sure that all queries have
+ * finished before the next fifo command. (For example on hardware
+ * context destructions where the hardware may otherwise leak unfinished
+ * queries).
+ *
+ * This function does not return any failure codes, but make attempts
+ * to do safe unpinning in case of errors.
+ *
+ * The function will synchronize on the previous query barrier, and will
+ * thus not finish until that barrier has executed.
+ */
 void vmw_execbuf_release_pinned_bo(struct vmw_private *dev_priv,
 				   bool only_on_cid_match, uint32_t cid)
 {
@@ -1183,6 +1347,12 @@ int vmw_execbuf_ioctl(struct drm_device *dev, void *data,
 	struct vmw_master *vmaster = vmw_master(file_priv->master);
 	int ret;
 
+	/*
+	 * This will allow us to extend the ioctl argument while
+	 * maintaining backwards compatibility:
+	 * We take different code paths depending on the value of
+	 * arg->version.
+	 */
 
 	if (unlikely(arg->version != DRM_VMW_EXECBUF_VERSION)) {
 		DRM_ERROR("Incorrect execbuf version.\n");

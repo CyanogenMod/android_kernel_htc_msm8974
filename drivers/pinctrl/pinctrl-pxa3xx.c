@@ -82,6 +82,7 @@ static int pxa3xx_pmx_get_groups(struct pinctrl_dev *pctrldev, unsigned func,
 	return 0;
 }
 
+/* Return function number. If failure, return negative value. */
 static int match_mux(struct pxa3xx_mfp_pin *mfp, unsigned mux)
 {
 	int i;
@@ -94,6 +95,7 @@ static int match_mux(struct pxa3xx_mfp_pin *mfp, unsigned mux)
 	return i;
 }
 
+/* check whether current pin configuration is valid. Negative for failure */
 static int match_group_mux(struct pxa3xx_pin_group *grp,
 			   struct pxa3xx_pinmux_info *info,
 			   unsigned mux)
@@ -156,7 +158,7 @@ static int pxa3xx_pmx_request_gpio(struct pinctrl_dev *pctrldev,
 		return -EINVAL;
 	}
 	mfpr = info->mfp[pin].mfpr;
-	
+	/* write gpio function into mfpr register */
 	data = readl_relaxed(info->virt_base + mfpr) & ~MFPR_FUNC_MASK;
 	data |= pin_func;
 	writel_relaxed(data, info->virt_base + mfpr);

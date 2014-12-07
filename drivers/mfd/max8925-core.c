@@ -181,15 +181,15 @@ static struct mfd_cell regulator_devs[] = {
 };
 
 enum {
-	FLAGS_ADC = 1,	
-	FLAGS_RTC,	
+	FLAGS_ADC = 1,	/* register in ADC component */
+	FLAGS_RTC,	/* register in RTC component */
 };
 
 struct max8925_irq_data {
 	int	reg;
 	int	mask_reg;
-	int	enable;		
-	int	offs;		
+	int	enable;		/* enable or not */
+	int	offs;		/* bit offset in mask register */
 	int	flags;
 	int	tsc_irq;
 };
@@ -344,7 +344,7 @@ static irqreturn_t max8925_irq(int irq, void *data)
 
 	for (i = 0; i < ARRAY_SIZE(max8925_irqs); i++) {
 		irq_data = &max8925_irqs[i];
-		
+		/* TSC IRQ should be serviced in max8925_tsc_irq() */
 		if (irq_data->tsc_irq)
 			continue;
 		if (irq_data->flags == FLAGS_RTC)
@@ -373,7 +373,7 @@ static irqreturn_t max8925_tsc_irq(int irq, void *data)
 
 	for (i = 0; i < ARRAY_SIZE(max8925_irqs); i++) {
 		irq_data = &max8925_irqs[i];
-		
+		/* non TSC IRQ should be serviced in max8925_irq() */
 		if (!irq_data->tsc_irq)
 			continue;
 		if (irq_data->flags == FLAGS_RTC)
@@ -410,7 +410,7 @@ static void max8925_irq_sync_unlock(struct irq_data *data)
 	unsigned char irq_rtc, irq_tsc;
 	int i;
 
-	
+	/* Load cached value. In initial, all IRQs are masked */
 	irq_chg[0] = cache_chg[0];
 	irq_chg[1] = cache_chg[1];
 	irq_on[0] = cache_on[0];
@@ -419,7 +419,7 @@ static void max8925_irq_sync_unlock(struct irq_data *data)
 	irq_tsc = cache_tsc;
 	for (i = 0; i < ARRAY_SIZE(max8925_irqs); i++) {
 		irq_data = &max8925_irqs[i];
-		
+		/* 1 -- disable, 0 -- enable */
 		switch (irq_data->mask_reg) {
 		case MAX8925_CHG_IRQ1_MASK:
 			irq_chg[0] &= ~irq_data->enable;
@@ -444,7 +444,7 @@ static void max8925_irq_sync_unlock(struct irq_data *data)
 			break;
 		}
 	}
-	
+	/* update mask into registers */
 	if (cache_chg[0] != irq_chg[0]) {
 		cache_chg[0] = irq_chg[0];
 		max8925_reg_write(chip->i2c, MAX8925_CHG_IRQ1_MASK,
@@ -509,14 +509,14 @@ static int max8925_irq_init(struct max8925_chip *chip, int irq,
 		dev_warn(chip->dev, "No interrupt support on IRQ base\n");
 		return -EINVAL;
 	}
-	
+	/* clear all interrupts */
 	max8925_reg_read(chip->i2c, MAX8925_CHG_IRQ1);
 	max8925_reg_read(chip->i2c, MAX8925_CHG_IRQ2);
 	max8925_reg_read(chip->i2c, MAX8925_ON_OFF_IRQ1);
 	max8925_reg_read(chip->i2c, MAX8925_ON_OFF_IRQ2);
 	max8925_reg_read(chip->rtc, MAX8925_RTC_IRQ);
 	max8925_reg_read(chip->adc, MAX8925_TSC_IRQ);
-	
+	/* mask all interrupts except for TSC */
 	max8925_reg_write(chip->rtc, MAX8925_ALARM0_CNTL, 0);
 	max8925_reg_write(chip->rtc, MAX8925_ALARM1_CNTL, 0);
 	max8925_reg_write(chip->i2c, MAX8925_CHG_IRQ1_MASK, 0xff);
@@ -529,7 +529,7 @@ static int max8925_irq_init(struct max8925_chip *chip, int irq,
 	chip->core_irq = irq;
 	chip->irq_base = pdata->irq_base;
 
-	
+	/* register with genirq */
 	for (i = 0; i < ARRAY_SIZE(max8925_irqs); i++) {
 		__irq = i + chip->irq_base;
 		irq_set_chip_data(__irq, chip);
@@ -555,7 +555,7 @@ static int max8925_irq_init(struct max8925_chip *chip, int irq,
 	}
 
 tsc_irq:
-	
+	/* mask TSC interrupt */
 	max8925_reg_write(chip->adc, MAX8925_TSC_IRQ_MASK, 0x0f);
 
 	if (!pdata->tsc_irq) {
@@ -581,19 +581,19 @@ int __devinit max8925_device_init(struct max8925_chip *chip,
 	max8925_irq_init(chip, chip->i2c->irq, pdata);
 
 	if (pdata && (pdata->power || pdata->touch)) {
-		
+		/* enable ADC to control internal reference */
 		max8925_set_bits(chip->i2c, MAX8925_RESET_CNFG, 1, 1);
-		
+		/* enable internal reference for ADC */
 		max8925_set_bits(chip->adc, MAX8925_TSC_CNFG1, 3, 2);
-		
+		/* check for internal reference IRQ */
 		do {
 			ret = max8925_reg_read(chip->adc, MAX8925_TSC_IRQ);
 		} while (ret & MAX8925_NREF_OK);
-		
+		/* enaable ADC scheduler, interval is 1 second */
 		max8925_set_bits(chip->adc, MAX8925_ADC_SCHED, 3, 2);
 	}
 
-	
+	/* enable Momentary Power Loss */
 	max8925_set_bits(chip->rtc, MAX8925_MPL_CNTL, 1 << 4, 1 << 4);
 
 	ret = mfd_add_devices(chip->dev, 0, &rtc_devs[0],

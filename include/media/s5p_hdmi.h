@@ -15,6 +15,15 @@
 
 struct i2c_board_info;
 
+/**
+ * @hdmiphy_bus: controller id for HDMIPHY bus
+ * @hdmiphy_info: template for HDMIPHY I2C device
+ * @mhl_bus: controller id for MHL control bus
+ * @mhl_info: template for MHL I2C device
+ *
+ * NULL pointer for *_info fields indicates that
+ * the corresponding chip is not present
+ */
 struct s5p_hdmi_platform_data {
 	int hdmiphy_bus;
 	struct i2c_board_info *hdmiphy_info;
@@ -22,5 +31,5 @@ struct s5p_hdmi_platform_data {
 	struct i2c_board_info *mhl_info;
 };
 
-#endif 
+#endif /* S5P_HDMI_H */
 

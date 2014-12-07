@@ -110,7 +110,7 @@ static int map_madt_entry(int type, u32 acpi_id)
 	entry = (unsigned long)madt;
 	madt_end = entry + madt->header.length;
 
-	
+	/* Parse all entries looking for a match. */
 
 	entry += sizeof(struct acpi_table_madt);
 	while (entry + sizeof(struct acpi_subtable_header) < madt_end) {
@@ -174,6 +174,24 @@ int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
 	if (apic_id == -1)
 		apic_id = map_madt_entry(type, acpi_id);
 	if (apic_id == -1) {
+		/*
+		 * On UP processor, there is no _MAT or MADT table.
+		 * So above apic_id is always set to -1.
+		 *
+		 * BIOS may define multiple CPU handles even for UP processor.
+		 * For example,
+		 *
+		 * Scope (_PR)
+                 * {
+		 *     Processor (CPU0, 0x00, 0x00000410, 0x06) {}
+		 *     Processor (CPU1, 0x01, 0x00000410, 0x06) {}
+		 *     Processor (CPU2, 0x02, 0x00000410, 0x06) {}
+		 *     Processor (CPU3, 0x03, 0x00000410, 0x06) {}
+		 * }
+		 *
+		 * Ignores apic_id and always return 0 for CPU0's handle.
+		 * Return -1 for other CPU's handle.
+		 */
 		if (acpi_id == 0)
 			return acpi_id;
 		else
@@ -186,7 +204,7 @@ int acpi_get_cpuid(acpi_handle handle, int type, u32 acpi_id)
 			return i;
 	}
 #else
-	
+	/* In UP kernel, only processor 0 is valid */
 	if (apic_id == 0)
 		return apic_id;
 #endif
@@ -239,10 +257,10 @@ static void __cpuinit acpi_set_pdc_bits(u32 *buf)
 	buf[0] = ACPI_PDC_REVISION_ID;
 	buf[1] = 1;
 
-	
+	/* Enable coordination with firmware's _TSD info */
 	buf[2] = ACPI_PDC_SMP_T_SWCOORD;
 
-	
+	/* Twiddle arch-specific bits needed for _PDC */
 	arch_acpi_set_pdc_bits(buf);
 }
 
@@ -252,7 +270,7 @@ static struct acpi_object_list *__cpuinit acpi_processor_alloc_pdc(void)
 	union acpi_object *obj;
 	u32 *buf;
 
-	
+	/* allocate and initialize pdc. It will be used later. */
 	obj_list = kmalloc(sizeof(struct acpi_object_list), GFP_KERNEL);
 	if (!obj_list) {
 		printk(KERN_ERR "Memory allocation error\n");
@@ -285,12 +303,21 @@ static struct acpi_object_list *__cpuinit acpi_processor_alloc_pdc(void)
 	return obj_list;
 }
 
+/*
+ * _PDC is required for a BIOS-OS handshake for most of the newer
+ * ACPI processor features.
+ */
 static int __cpuinit
 acpi_processor_eval_pdc(acpi_handle handle, struct acpi_object_list *pdc_in)
 {
 	acpi_status status = AE_OK;
 
 	if (boot_option_idle_override == IDLE_NOMWAIT) {
+		/*
+		 * If mwait is disabled for CPU C-states, the C2C3_FFH access
+		 * mode will be disabled in the parameter of _PDC object.
+		 * Of course C1_FFH access mode will also be disabled.
+		 */
 		union acpi_object *obj;
 		u32 *buffer = NULL;
 
@@ -338,6 +365,10 @@ early_init_pdc(acpi_handle handle, u32 lvl, void *context, void **rv)
 
 void __init acpi_early_processor_set_pdc(void)
 {
+	/*
+	 * Check whether the system is DMI table. If yes, OSPM
+	 * should not use mwait for CPU-states.
+	 */
 	dmi_check_system(processor_idle_dmi_table);
 
 	acpi_walk_namespace(ACPI_TYPE_PROCESSOR, ACPI_ROOT_OBJECT,

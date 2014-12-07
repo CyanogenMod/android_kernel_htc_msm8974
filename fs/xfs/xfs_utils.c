@@ -37,16 +37,29 @@
 #include "xfs_utils.h"
 
 
+/*
+ * Allocates a new inode from disk and return a pointer to the
+ * incore copy. This routine will internally commit the current
+ * transaction and allocate a new one if the Space Manager needed
+ * to do an allocation to replenish the inode free-list.
+ *
+ * This routine is designed to be called from xfs_create and
+ * xfs_create_dir.
+ *
+ */
 int
 xfs_dir_ialloc(
-	xfs_trans_t	**tpp,		
-	xfs_inode_t	*dp,		
+	xfs_trans_t	**tpp,		/* input: current transaction;
+					   output: may be a new transaction. */
+	xfs_inode_t	*dp,		/* directory within whose allocate
+					   the inode. */
 	umode_t		mode,
 	xfs_nlink_t	nlink,
 	xfs_dev_t	rdev,
-	prid_t		prid,		
-	int		okalloc,	
-	xfs_inode_t	**ipp,		
+	prid_t		prid,		/* project id */
+	int		okalloc,	/* ok to allocate new space */
+	xfs_inode_t	**ipp,		/* pointer to inode; it will be
+					   locked. */
 	int		*committed)
 
 {
@@ -64,9 +77,29 @@ xfs_dir_ialloc(
 	tp = *tpp;
 	ASSERT(tp->t_flags & XFS_TRANS_PERM_LOG_RES);
 
+	/*
+	 * xfs_ialloc will return a pointer to an incore inode if
+	 * the Space Manager has an available inode on the free
+	 * list. Otherwise, it will do an allocation and replenish
+	 * the freelist.  Since we can only do one allocation per
+	 * transaction without deadlocks, we will need to commit the
+	 * current transaction and start a new one.  We will then
+	 * need to call xfs_ialloc again to get the inode.
+	 *
+	 * If xfs_ialloc did an allocation to replenish the freelist,
+	 * it returns the bp containing the head of the freelist as
+	 * ialloc_context. We will hold a lock on it across the
+	 * transaction commit so that no other process can steal
+	 * the inode(s) that we've just allocated.
+	 */
 	code = xfs_ialloc(tp, dp, mode, nlink, rdev, prid, okalloc,
 			  &ialloc_context, &call_again, &ip);
 
+	/*
+	 * Return an error if we were unable to allocate a new inode.
+	 * This should only happen if we run out of space on disk or
+	 * encounter a disk error.
+	 */
 	if (code) {
 		*ipp = NULL;
 		return code;
@@ -76,12 +109,34 @@ xfs_dir_ialloc(
 		return XFS_ERROR(ENOSPC);
 	}
 
+	/*
+	 * If call_again is set, then we were unable to get an
+	 * inode in one operation.  We need to commit the current
+	 * transaction and call xfs_ialloc() again.  It is guaranteed
+	 * to succeed the second time.
+	 */
 	if (call_again) {
 
+		/*
+		 * Normally, xfs_trans_commit releases all the locks.
+		 * We call bhold to hang on to the ialloc_context across
+		 * the commit.  Holding this buffer prevents any other
+		 * processes from doing any allocations in this
+		 * allocation group.
+		 */
 		xfs_trans_bhold(tp, ialloc_context);
+		/*
+		 * Save the log reservation so we can use
+		 * them in the next transaction.
+		 */
 		log_res = xfs_trans_get_log_res(tp);
 		log_count = xfs_trans_get_log_count(tp);
 
+		/*
+		 * We want the quota changes to be associated with the next
+		 * transaction, NOT this one. So, detach the dqinfo from this
+		 * and attach it to the next transaction.
+		 */
 		dqinfo = NULL;
 		tflags = 0;
 		if (tp->t_dqinfo) {
@@ -97,6 +152,11 @@ xfs_dir_ialloc(
 		if (committed != NULL) {
 			*committed = 1;
 		}
+		/*
+		 * If we get an error during the commit processing,
+		 * release the buffer that is still held and return
+		 * to the caller.
+		 */
 		if (code) {
 			xfs_buf_relse(ialloc_context);
 			if (dqinfo) {
@@ -108,9 +168,16 @@ xfs_dir_ialloc(
 			return code;
 		}
 
+		/*
+		 * transaction commit worked ok so we can drop the extra ticket
+		 * reference that we gained in xfs_trans_dup()
+		 */
 		xfs_log_ticket_put(tp->t_ticket);
 		code = xfs_trans_reserve(tp, 0, log_res, 0,
 					 XFS_TRANS_PERM_LOG_RES, log_count);
+		/*
+		 * Re-attach the quota info that we detached from prev trx.
+		 */
 		if (dqinfo) {
 			tp->t_dqinfo = dqinfo;
 			tp->t_flags |= tflags;
@@ -124,9 +191,18 @@ xfs_dir_ialloc(
 		}
 		xfs_trans_bjoin(tp, ialloc_context);
 
+		/*
+		 * Call ialloc again. Since we've locked out all
+		 * other allocations in this allocation group,
+		 * this call should always succeed.
+		 */
 		code = xfs_ialloc(tp, dp, mode, nlink, rdev, prid,
 				  okalloc, &ialloc_context, &call_again, &ip);
 
+		/*
+		 * If we get an error at this point, return to the caller
+		 * so that the current transaction can be aborted.
+		 */
 		if (code) {
 			*tpp = tp;
 			*ipp = NULL;
@@ -146,7 +222,12 @@ xfs_dir_ialloc(
 	return 0;
 }
 
-int				
+/*
+ * Decrement the link count on an inode & log the change.
+ * If this causes the link count to go to zero, initiate the
+ * logging activity required to truncate a file.
+ */
+int				/* error */
 xfs_droplink(
 	xfs_trans_t *tp,
 	xfs_inode_t *ip)
@@ -162,11 +243,24 @@ xfs_droplink(
 
 	error = 0;
 	if (ip->i_d.di_nlink == 0) {
+		/*
+		 * We're dropping the last link to this file.
+		 * Move the on-disk inode to the AGI unlinked list.
+		 * From xfs_inactive() we will pull the inode from
+		 * the list and free it.
+		 */
 		error = xfs_iunlink(tp, ip);
 	}
 	return error;
 }
 
+/*
+ * This gets called when the inode's version needs to be changed from 1 to 2.
+ * Currently this happens when the nlink field overflows the old 16-bit value
+ * or when chproj is called to change the project for the first time.
+ * As a side effect the superblock version will also get rev'd
+ * to contain the NLINK bit.
+ */
 void
 xfs_bump_ino_vers2(
 	xfs_trans_t	*tp,
@@ -191,9 +285,12 @@ xfs_bump_ino_vers2(
 			spin_unlock(&mp->m_sb_lock);
 		}
 	}
-	
+	/* Caller must log the inode */
 }
 
+/*
+ * Increment the link count on an inode & log the change.
+ */
 int
 xfs_bumplink(
 	xfs_trans_t *tp,
@@ -206,6 +303,14 @@ xfs_bumplink(
 	inc_nlink(VFS_I(ip));
 	if ((ip->i_d.di_version == 1) &&
 	    (ip->i_d.di_nlink > XFS_MAXLINK_1)) {
+		/*
+		 * The inode has increased its number of links beyond
+		 * what can fit in an old format inode.  It now needs
+		 * to be converted to a version 2 inode with a 32 bit
+		 * link count.  If this is the first inode in the file
+		 * system to do this, then we need to bump the superblock
+		 * version number as well.
+		 */
 		xfs_bump_ino_vers2(tp, ip);
 	}
 

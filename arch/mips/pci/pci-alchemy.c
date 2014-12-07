@@ -29,9 +29,9 @@
 #define PCI_ACCESS_WRITE	1
 
 struct alchemy_pci_context {
-	struct pci_controller alchemy_pci_ctrl;	
-	void __iomem *regs;			
-	
+	struct pci_controller alchemy_pci_ctrl;	/* leave as first member! */
+	void __iomem *regs;			/* ctrl base */
+	/* tools for wired entry for config space access */
 	unsigned long last_elo0;
 	unsigned long last_elo1;
 	int wired_entry;
@@ -43,9 +43,15 @@ struct alchemy_pci_context {
 	int (*board_pci_idsel)(unsigned int devsel, int assert);
 };
 
+/* for syscore_ops. There's only one PCI controller on Alchemy chips, so this
+ * should suffice for now.
+ */
 static struct alchemy_pci_context *__alchemy_pci_ctx;
 
 
+/* IO/MEM resources for PCI. Keep the memres in sync with __fixup_bigphys_addr
+ * in arch/mips/alchemy/common/setup.c
+ */
 static struct resource alchemy_pci_def_memres = {
 	.start	= ALCHEMY_PCI_MEMWIN_START,
 	.end	= ALCHEMY_PCI_MEMWIN_END,
@@ -67,7 +73,7 @@ static void mod_wired_entry(int entry, unsigned long entrylo0,
 	unsigned long old_pagemask;
 	unsigned long old_ctx;
 
-	
+	/* Save old context and create impossible VPN2 value */
 	old_ctx = read_c0_entryhi() & 0xff;
 	old_pagemask = read_c0_pagemask();
 	write_c0_index(entry);
@@ -107,26 +113,32 @@ static int config_access(unsigned char access_type, struct pci_bus *bus,
 	__raw_writel(r, ctx->regs + PCI_REG_STATCMD);
 	wmb();
 
+	/* Allow board vendors to implement their own off-chip IDSEL.
+	 * If it doesn't succeed, may as well bail out at this point.
+	 */
 	if (ctx->board_pci_idsel(device, 1) == 0) {
 		*data = 0xffffffff;
 		local_irq_restore(flags);
 		return -1;
 	}
 
-	
+	/* Setup the config window */
 	if (bus->number == 0)
 		cfg_base = (1 << device) << 11;
 	else
 		cfg_base = 0x80000000 | (bus->number << 16) | (device << 11);
 
-	
+	/* Setup the lower bits of the 36-bit address */
 	offset = (function << 8) | (where & ~0x3);
-	
+	/* Pick up any address that falls below the page mask */
 	offset |= cfg_base & ~PAGE_MASK;
 
-	
+	/* Page boundary */
 	cfg_base = cfg_base & PAGE_MASK;
 
+	/* To improve performance, if the current device is the same as
+	 * the last device accessed, we don't touch the TLB.
+	 */
 	entryLo0 = (6 << 26) | (cfg_base >> 6) | (2 << 3) | 7;
 	entryLo1 = (6 << 26) | (cfg_base >> 6) | (0x1000 >> 6) | (2 << 3) | 7;
 	if ((entryLo0 != ctx->last_elo0) || (entryLo1 != ctx->last_elo1)) {
@@ -145,7 +157,7 @@ static int config_access(unsigned char access_type, struct pci_bus *bus,
 	DBG("alchemy-pci: cfg access %d bus %u dev %u at %x dat %x conf %lx\n",
 	    access_type, bus->number, device, where, *data, offset);
 
-	
+	/* check for errors, master abort */
 	status = __raw_readl(ctx->regs + PCI_REG_STATCMD);
 	if (status & (1 << 29)) {
 		*data = 0xffffffff;
@@ -156,14 +168,14 @@ static int config_access(unsigned char access_type, struct pci_bus *bus,
 		DBG("alchemy-pci: PCI ERR detected: dev %d, status %lx\n",
 		    device, (status >> 28) & 0xf);
 
-		
+		/* clear errors */
 		__raw_writel(status & 0xf000ffff, ctx->regs + PCI_REG_STATCMD);
 
 		*data = 0xffffffff;
 		error = -1;
 	}
 
-	
+	/* Take away the IDSEL. */
 	(void)ctx->board_pci_idsel(device, 0);
 
 	local_irq_restore(flags);
@@ -285,9 +297,10 @@ static struct pci_ops alchemy_pci_ops = {
 
 static int alchemy_pci_def_idsel(unsigned int devsel, int assert)
 {
-	return 1;	
+	return 1;	/* success */
 }
 
+/* save PCI controller register contents. */
 static int alchemy_pci_suspend(void)
 {
 	struct alchemy_pci_context *ctx = __alchemy_pci_ctx;
@@ -331,8 +344,11 @@ static void alchemy_pci_resume(void)
 	__raw_writel(ctx->pm[1],  ctx->regs + PCI_REG_CONFIG);
 	wmb();
 
-	ctx->wired_entry = 8191;	
-	alchemy_pci_wired_entry(ctx);	
+	/* YAMON on all db1xxx boards wipes the TLB and writes zero to C0_wired
+	 * on resume, making it necessary to recreate it as soon as possible.
+	 */
+	ctx->wired_entry = 8191;	/* impossibly high value */
+	alchemy_pci_wired_entry(ctx);	/* install it */
 }
 
 static struct syscore_ops alchemy_pci_pmops = {
@@ -349,7 +365,7 @@ static int __devinit alchemy_pci_probe(struct platform_device *pdev)
 	struct resource *r;
 	int ret;
 
-	
+	/* need at least PCI IRQ mapping table */
 	if (!pd) {
 		dev_err(&pdev->dev, "need platform data for PCI setup\n");
 		ret = -ENODEV;
@@ -383,7 +399,10 @@ static int __devinit alchemy_pci_probe(struct platform_device *pdev)
 		goto out2;
 	}
 
-	
+	/* map parts of the PCI IO area */
+	/* REVISIT: if this changes with a newer variant (doubt it) make this
+	 * a platform resource.
+	 */
 	virt_io = ioremap(AU1500_PCI_IO_PHYS_ADDR, 0x00100000);
 	if (!virt_io) {
 		dev_err(&pdev->dev, "cannot remap pci io space\n");
@@ -393,7 +412,7 @@ static int __devinit alchemy_pci_probe(struct platform_device *pdev)
 	ctx->alchemy_pci_ctrl.io_map_base = (unsigned long)virt_io;
 
 #ifdef CONFIG_DMA_NONCOHERENT
-	
+	/* Au1500 revisions older than AD have borked coherent PCI */
 	if ((alchemy_get_cputype() == ALCHEMY_CPU_AU1500) &&
 	    (read_c0_prid() < 0x01030202)) {
 		val = __raw_readl(ctx->regs + PCI_REG_CONFIG);
@@ -412,27 +431,33 @@ static int __devinit alchemy_pci_probe(struct platform_device *pdev)
 	else
 		ctx->board_pci_idsel = alchemy_pci_def_idsel;
 
-	
+	/* fill in relevant pci_controller members */
 	ctx->alchemy_pci_ctrl.pci_ops = &alchemy_pci_ops;
 	ctx->alchemy_pci_ctrl.mem_resource = &alchemy_pci_def_memres;
 	ctx->alchemy_pci_ctrl.io_resource = &alchemy_pci_def_iores;
 
+	/* we can't ioremap the entire pci config space because it's too large,
+	 * nor can we dynamically ioremap it because some drivers use the
+	 * PCI config routines from within atomic contex and that becomes a
+	 * problem in get_vm_area().  Instead we use one wired TLB entry to
+	 * handle all config accesses for all busses.
+	 */
 	ctx->pci_cfg_vm = get_vm_area(0x2000, VM_IOREMAP);
 	if (!ctx->pci_cfg_vm) {
 		dev_err(&pdev->dev, "unable to get vm area\n");
 		ret = -ENOMEM;
 		goto out4;
 	}
-	ctx->wired_entry = 8191;	
-	alchemy_pci_wired_entry(ctx);	
+	ctx->wired_entry = 8191;	/* impossibly high value */
+	alchemy_pci_wired_entry(ctx);	/* install it */
 
 	set_io_port_base((unsigned long)ctx->alchemy_pci_ctrl.io_map_base);
 
-	
+	/* board may want to modify bits in the config register, do it now */
 	val = __raw_readl(ctx->regs + PCI_REG_CONFIG);
 	val &= ~pd->pci_cfg_clr;
 	val |= pd->pci_cfg_set;
-	val &= ~PCI_CONFIG_PD;		
+	val &= ~PCI_CONFIG_PD;		/* clear disable bit */
 	__raw_writel(val, ctx->regs + PCI_REG_CONFIG);
 	wmb();
 
@@ -465,7 +490,7 @@ static struct platform_driver alchemy_pcictl_driver = {
 
 static int __init alchemy_pci_init(void)
 {
-	
+	/* Au1500/Au1550 have PCI */
 	switch (alchemy_get_cputype()) {
 	case ALCHEMY_CPU_AU1500:
 	case ALCHEMY_CPU_AU1550:

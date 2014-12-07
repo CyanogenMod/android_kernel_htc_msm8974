@@ -19,12 +19,28 @@
 #ifndef __CRYPTO_VMAC_H
 #define __CRYPTO_VMAC_H
 
+/* --------------------------------------------------------------------------
+ * VMAC and VHASH Implementation by Ted Krovetz (tdk@acm.org) and Wei Dai.
+ * This implementation is herby placed in the public domain.
+ * The authors offers no warranty. Use at your own risk.
+ * Please send bug reports to the authors.
+ * Last modified: 17 APR 08, 1700 PDT
+ * ----------------------------------------------------------------------- */
 
+/*
+ * User definable settings.
+ */
 #define VMAC_TAG_LEN	64
-#define VMAC_KEY_SIZE	128
+#define VMAC_KEY_SIZE	128/* Must be 128, 192 or 256			*/
 #define VMAC_KEY_LEN	(VMAC_KEY_SIZE/8)
-#define VMAC_NHBYTES	128
+#define VMAC_NHBYTES	128/* Must 2^i for any 3 < i < 13 Standard = 128*/
 
+/*
+ * This implementation uses u32 and u64 as names for unsigned 32-
+ * and 64-bit integer types. These are defined in C99 stdint.h. The
+ * following may need adaptation if you are not running a C99 or
+ * Microsoft C environment.
+ */
 struct vmac_ctx {
 	u64 nhkey[(VMAC_NHBYTES/8)+2*(VMAC_TAG_LEN/64-1)];
 	u64 polykey[2*VMAC_TAG_LEN/64];
@@ -42,4 +58,4 @@ struct vmac_ctx_t {
 	struct vmac_ctx __vmac_ctx;
 };
 
-#endif 
+#endif /* __CRYPTO_VMAC_H */

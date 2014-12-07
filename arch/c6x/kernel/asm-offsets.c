@@ -1,3 +1,8 @@
+/*
+ * Generate definitions needed by assembly language modules.
+ * This code generates raw asm output which is post-processed
+ * to extract and format the required data.
+ */
 
 #include <linux/sched.h>
 #include <linux/thread_info.h>
@@ -98,6 +103,9 @@ void foo(void)
 	OFFSET(THREAD_INFO_PREEMPT_COUNT, thread_info, preempt_count);
 	BLANK();
 
+	/* These would be unneccessary if we ran asm files
+	 * through the preprocessor.
+	 */
 	DEFINE(KTHREAD_SIZE, THREAD_SIZE);
 	DEFINE(KTHREAD_SHIFT, THREAD_SHIFT);
 	DEFINE(KTHREAD_START_SP, THREAD_START_SP);

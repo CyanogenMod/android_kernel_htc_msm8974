@@ -29,14 +29,15 @@
 #define OMAP32_ID_1		0xfffed404
 
 struct omap_id {
-	u16	jtag_id;	
-	u8	die_rev;	
-	u32	omap_id;	
-	u32	type;		
+	u16	jtag_id;	/* Used to determine OMAP type */
+	u8	die_rev;	/* Processor revision */
+	u32	omap_id;	/* OMAP revision */
+	u32	type;		/* Cpu id bits [31:08], cpu class bits [07:00] */
 };
 
 static unsigned int omap_revision;
 
+/* Register values to detect the OMAP version */
 static struct omap_id omap_ids[] __initdata = {
 	{ .jtag_id = 0xb574, .die_rev = 0x2, .omap_id = 0x03310315, .type = 0x03100000},
 	{ .jtag_id = 0x355f, .die_rev = 0x0, .omap_id = 0x03320000, .type = 0x07300100},
@@ -66,6 +67,14 @@ unsigned int omap_rev(void)
 }
 EXPORT_SYMBOL(omap_rev);
 
+/*
+ * Get OMAP type from PROD_ID.
+ * 1710 has the PROD_ID in bits 15:00, not in 16:01 as documented in TRM.
+ * 1510 PROD_ID is empty, and 1610 PROD_ID does not make sense.
+ * Undocumented register in TEST BLOCK is used as fallback; This seems to
+ * work on 1510, 1610 & 1710. The official way hopefully will work in future
+ * processors.
+ */
 static u16 __init omap_get_jtag_id(void)
 {
 	u32 prod_id, omap_id;
@@ -73,7 +82,7 @@ static u16 __init omap_get_jtag_id(void)
 	prod_id = omap_readl(OMAP_PRODUCTION_ID_1);
 	omap_id = omap_readl(OMAP32_ID_1);
 
-	
+	/* Check for unusable OMAP_PRODUCTION_ID_1 on 1611B/5912 and 730/850 */
 	if (((prod_id >> 20) == 0) || (prod_id == omap_id))
 		prod_id = 0;
 	else
@@ -82,19 +91,25 @@ static u16 __init omap_get_jtag_id(void)
 	if (prod_id)
 		return prod_id;
 
-	
+	/* Use OMAP32_ID_1 as fallback */
 	prod_id = ((omap_id >> 12) & 0xffff);
 
 	return prod_id;
 }
 
+/*
+ * Get OMAP revision from DIE_REV.
+ * Early 1710 processors may have broken OMAP_DIE_ID, it contains PROD_ID.
+ * Undocumented register in the TEST BLOCK is used as fallback.
+ * REVISIT: This does not seem to work on 1510
+ */
 static u8 __init omap_get_die_rev(void)
 {
 	u32 die_rev;
 
 	die_rev = omap_readl(OMAP_DIE_ID_1);
 
-	
+	/* Check for broken OMAP_DIE_ID on early 1710 */
 	if (((die_rev >> 12) & 0xffff) == omap_get_jtag_id())
 		die_rev = 0;
 
@@ -137,7 +152,7 @@ void __init omap_check_revision(void)
 	system_serial_high = omap_readl(OMAP_DIE_ID_0);
 	system_serial_low = omap_readl(OMAP_DIE_ID_1);
 
-	
+	/* First check only the major version in a safe way */
 	for (i = 0; i < ARRAY_SIZE(omap_ids); i++) {
 		if (jtag_id == (omap_ids[i].jtag_id)) {
 			omap_revision = omap_ids[i].type;
@@ -145,7 +160,7 @@ void __init omap_check_revision(void)
 		}
 	}
 
-	
+	/* Check if we can find the die revision */
 	for (i = 0; i < ARRAY_SIZE(omap_ids); i++) {
 		if (jtag_id == omap_ids[i].jtag_id && die_rev == omap_ids[i].die_rev) {
 			omap_revision = omap_ids[i].type;
@@ -153,7 +168,7 @@ void __init omap_check_revision(void)
 		}
 	}
 
-	
+	/* Finally check also the omap_id */
 	for (i = 0; i < ARRAY_SIZE(omap_ids); i++) {
 		if (jtag_id == omap_ids[i].jtag_id
 		    && die_rev == omap_ids[i].die_rev
@@ -163,7 +178,7 @@ void __init omap_check_revision(void)
 		}
 	}
 
-	
+	/* Add the cpu class info (7xx, 15xx, 16xx, 24xx) */
 	cpu_type = omap_revision >> 24;
 
 	switch (cpu_type) {

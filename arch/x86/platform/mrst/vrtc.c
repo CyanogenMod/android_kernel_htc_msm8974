@@ -34,7 +34,7 @@ unsigned char vrtc_cmos_read(unsigned char reg)
 {
 	unsigned char retval;
 
-	
+	/* vRTC's registers range from 0x0 to 0xD */
 	if (reg > 0xd || !vrtc_virt_base)
 		return 0xff;
 
@@ -76,7 +76,7 @@ unsigned long vrtc_get_time(void)
 
 	spin_unlock_irqrestore(&rtc_lock, flags);
 
-	
+	/* vRTC YEAR reg contains the offset to 1972 */
 	year += 1972;
 
 	printk(KERN_INFO "vRTC: sec: %d min: %d hour: %d day: %d "
@@ -85,6 +85,7 @@ unsigned long vrtc_get_time(void)
 	return mktime(year, mon, mday, hour, min, sec);
 }
 
+/* Only care about the minutes and seconds */
 int vrtc_set_mmss(unsigned long nowtime)
 {
 	int real_sec, real_min;
@@ -123,6 +124,10 @@ void __init mrst_rtc_init(void)
 	x86_platform.set_wallclock = vrtc_set_mmss;
 }
 
+/*
+ * The Moorestown platform has a memory mapped virtual RTC device that emulates
+ * the programming interface of the RTC.
+ */
 
 static struct resource vrtc_resources[] = {
 	[0] = {
@@ -140,20 +145,21 @@ static struct platform_device vrtc_device = {
 	.num_resources	= ARRAY_SIZE(vrtc_resources),
 };
 
+/* Register the RTC device if appropriate */
 static int __init mrst_device_create(void)
 {
-	
+	/* No Moorestown, no device */
 	if (!mrst_identify_cpu())
 		return -ENODEV;
-	
+	/* No timer, no device */
 	if (!sfi_mrtc_num)
 		return -ENODEV;
 
-	
+	/* iomem resource */
 	vrtc_resources[0].start = sfi_mrtc_array[0].phys_addr;
 	vrtc_resources[0].end = sfi_mrtc_array[0].phys_addr +
 				MRST_VRTC_MAP_SZ;
-	
+	/* irq resource */
 	vrtc_resources[1].start = sfi_mrtc_array[0].irq;
 	vrtc_resources[1].end = sfi_mrtc_array[0].irq;
 

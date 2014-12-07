@@ -47,14 +47,17 @@ enum {
 	MTHCA_EQ_ENTRY_SIZE = 0x20
 };
 
+/*
+ * Must be packed because start is 64 bits but only aligned to 32 bits.
+ */
 struct mthca_eq_context {
 	__be32 flags;
 	__be64 start;
 	__be32 logsize_usrpage;
-	__be32 tavor_pd;	
+	__be32 tavor_pd;	/* reserved for Arbel */
 	u8     reserved1[3];
 	u8     intr;
-	__be32 arbel_pd;	
+	__be32 arbel_pd;	/* lost_count for Tavor */
 	__be32 lkey;
 	u32    reserved2[2];
 	__be32 consumer_index;
@@ -169,6 +172,14 @@ static inline u64 async_mask(struct mthca_dev *dev)
 
 static inline void tavor_set_eq_ci(struct mthca_dev *dev, struct mthca_eq *eq, u32 ci)
 {
+	/*
+	 * This barrier makes sure that all updates to ownership bits
+	 * done by set_eqe_hw() hit memory before the consumer index
+	 * is updated.  set_eq_ci() allows the HCA to possibly write
+	 * more EQ entries, and we want to avoid the exceedingly
+	 * unlikely possibility of the HCA writing an entry and then
+	 * having set_eqe_hw() overwrite the owner field.
+	 */
 	wmb();
 	mthca_write64(MTHCA_EQ_DB_SET_CI | eq->eqn, ci & (eq->nent - 1),
 		      dev->kar + MTHCA_EQ_DOORBELL,
@@ -177,11 +188,11 @@ static inline void tavor_set_eq_ci(struct mthca_dev *dev, struct mthca_eq *eq, u
 
 static inline void arbel_set_eq_ci(struct mthca_dev *dev, struct mthca_eq *eq, u32 ci)
 {
-	
+	/* See comment in tavor_set_eq_ci() above. */
 	wmb();
 	__raw_writel((__force u32) cpu_to_be32(ci),
 		     dev->eq_regs.arbel.eq_set_ci_base + eq->eqn * 8);
-	
+	/* We still want ordering, just not swabbing, so add a barrier */
 	mb();
 }
 
@@ -254,6 +265,10 @@ static int mthca_eq_int(struct mthca_dev *dev, struct mthca_eq *eq)
 	int set_ci = 0;
 
 	while ((eqe = next_eqe_sw(eq))) {
+		/*
+		 * Make sure we read EQ entry contents after we've
+		 * checked the ownership bit.
+		 */
 		rmb();
 
 		switch (eqe->type) {
@@ -349,12 +364,27 @@ static int mthca_eq_int(struct mthca_dev *dev, struct mthca_eq *eq)
 		eqes_found = 1;
 		++set_ci;
 
+		/*
+		 * The HCA will think the queue has overflowed if we
+		 * don't tell it we've been processing events.  We
+		 * create our EQs with MTHCA_NUM_SPARE_EQE extra
+		 * entries, so we must update our consumer index at
+		 * least that often.
+		 */
 		if (unlikely(set_ci >= MTHCA_NUM_SPARE_EQE)) {
+			/*
+			 * Conditional on hca_type is OK here because
+			 * this is a rare case, not the fast path.
+			 */
 			set_eq_ci(dev, eq, eq->cons_index);
 			set_ci = 0;
 		}
 	}
 
+	/*
+	 * Rely on caller to set consumer index so that we don't have
+	 * to test hca_type in our interrupt handling fast path.
+	 */
 	return eqes_found;
 }
 
@@ -394,7 +424,7 @@ static irqreturn_t mthca_tavor_msi_x_interrupt(int irq, void *eq_ptr)
 	tavor_set_eq_ci(dev, eq, eq->cons_index);
 	tavor_eq_req_not(dev, eq->eqn);
 
-	
+	/* MSI-X vectors always belong to us */
 	return IRQ_HANDLED;
 }
 
@@ -428,7 +458,7 @@ static irqreturn_t mthca_arbel_msi_x_interrupt(int irq, void *eq_ptr)
 	arbel_set_eq_ci(dev, eq, eq->cons_index);
 	arbel_eq_req_not(dev, eq->eqn_mask);
 
-	
+	/* MSI-X vectors always belong to us */
 	return IRQ_HANDLED;
 }
 
@@ -625,6 +655,13 @@ static int mthca_map_reg(struct mthca_dev *dev,
 static int mthca_map_eq_regs(struct mthca_dev *dev)
 {
 	if (mthca_is_memfree(dev)) {
+		/*
+		 * We assume that the EQ arm and EQ set CI registers
+		 * fall within the first BAR.  We can't trust the
+		 * values firmware gives us, since those addresses are
+		 * valid on the HCA's side of the PCI bus but not
+		 * necessarily the host side.
+		 */
 		if (mthca_map_reg(dev, (pci_resource_len(dev->pdev, 0) - 1) &
 				  dev->fw.arbel.clr_int_base, MTHCA_CLR_INT_SIZE,
 				  &dev->clr_base)) {
@@ -633,6 +670,10 @@ static int mthca_map_eq_regs(struct mthca_dev *dev)
 			return -ENOMEM;
 		}
 
+		/*
+		 * Add 4 because we limit ourselves to EQs 0 ... 31,
+		 * so we only need the low word of the register.
+		 */
 		if (mthca_map_reg(dev, ((pci_resource_len(dev->pdev, 0) - 1) &
 					dev->fw.arbel.eq_arm_base) + 4, 4,
 				  &dev->eq_regs.arbel.eq_arm)) {
@@ -688,6 +729,12 @@ int mthca_map_eq_icm(struct mthca_dev *dev, u64 icm_virt)
 {
 	int ret;
 
+	/*
+	 * We assume that mapping one page is enough for the whole EQ
+	 * context table.  This is fine with all current HCAs, because
+	 * we only use 32 EQs and each EQ uses 32 bytes of context
+	 * memory, or 1 KB total.
+	 */
 	dev->eq_table.icm_virt = icm_virt;
 	dev->eq_table.icm_page = alloc_page(GFP_HIGHUSER);
 	if (!dev->eq_table.icm_page)

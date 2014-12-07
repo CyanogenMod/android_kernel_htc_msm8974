@@ -37,7 +37,7 @@
 #define FRAME_SIZE	128
 #define CALLEE_REG_FRAME_SIZE	144
 #define ASM_ULONG_INSN	.dword
-#else	
+#else	/* CONFIG_64BIT */
 #define LDREG	ldw
 #define STREG	stw
 #define LDREGX  ldwx,s
@@ -72,6 +72,8 @@
 #ifdef __ASSEMBLY__
 
 #ifdef CONFIG_64BIT
+/* the 64-bit pa gnu assembler unfortunately defaults to .level 1.1 or 2.0 so
+ * work around that for now... */
 	.level 2.0w
 #endif
 
@@ -85,6 +87,14 @@
 	gp	=	27
 	ipsw	=	22
 
+	/*
+	 * We provide two versions of each macro to convert from physical
+	 * to virtual and vice versa. The "_r1" versions take one argument
+	 * register, but trashes r1 to do the conversion. The other
+	 * version takes two arguments: a src and destination register.
+	 * However, the source and destination registers can not be
+	 * the same register.
+	 */
 
 	.macro  tophys  grvirt, grphys
 	ldil    L%(__PAGE_OFFSET), \grphys
@@ -118,31 +128,35 @@
 	.endm
 
 
-	
+	/* Shift Left - note the r and t can NOT be the same! */
 	.macro shl r, sa, t
 	dep,z	\r, 31-(\sa), 32-(\sa), \t
 	.endm
 
-	
+	/* The PA 2.0 shift left */
 	.macro shlw r, sa, t
 	depw,z	\r, 31-(\sa), 32-(\sa), \t
 	.endm
 
-	
+	/* And the PA 2.0W shift left */
 	.macro shld r, sa, t
 	depd,z	\r, 63-(\sa), 64-(\sa), \t
 	.endm
 
-	
+	/* Shift Right - note the r and t can NOT be the same! */
 	.macro shr r, sa, t
 	extru \r, 31-(\sa), 32-(\sa), \t
 	.endm
 
-	
+	/* pa20w version of shift right */
 	.macro shrd r, sa, t
 	extrd,u \r, 63-(\sa), 64-(\sa), \t
 	.endm
 
+	/* load 32-bit 'value' into 'reg' compensating for the ldil
+	 * sign-extension when running in wide mode.
+	 * WARNING!! neither 'value' nor 'reg' can be expressions
+	 * containing '.'!!!! */
 	.macro	load32 value, reg
 	ldil	L%\value, \reg
 	ldo	R%\value(\reg), \reg
@@ -189,16 +203,16 @@
 	STREG %r23, PT_GR23(\regs)
 	STREG %r24, PT_GR24(\regs)
 	STREG %r25, PT_GR25(\regs)
-	
+	/* r26 is saved in get_stack and used to preserve a value across virt_map */
 	STREG %r27, PT_GR27(\regs)
 	STREG %r28, PT_GR28(\regs)
-	
-	
+	/* r29 is saved in get_stack and used to point to saved registers */
+	/* r30 stack pointer saved in get_stack */
 	STREG %r31, PT_GR31(\regs)
 	.endm
 
 	.macro	rest_general	regs
-	
+	/* r1 used as a temp in rest_stack and is restored there */
 	LDREG PT_GR2 (\regs), %r2
 	LDREG PT_GR3 (\regs), %r3
 	LDREG PT_GR4 (\regs), %r4
@@ -226,8 +240,8 @@
 	LDREG PT_GR26(\regs), %r26
 	LDREG PT_GR27(\regs), %r27
 	LDREG PT_GR28(\regs), %r28
-	
-	
+	/* r29 points to register save area, and is restored in rest_stack */
+	/* r30 stack pointer restored in rest_stack */
 	LDREG PT_GR31(\regs), %r31
 	.endm
 
@@ -370,7 +384,7 @@
 	ldd,mb	-CALLEE_REG_FRAME_SIZE(%r30),    %r3
 	.endm
 
-#else 
+#else /* ! CONFIG_64BIT */
 
 	.macro	callee_save
 	stw,ma	 %r3,	CALLEE_REG_FRAME_SIZE(%r30)
@@ -413,7 +427,7 @@
 	mtctl	%r3, %cr27
 	ldw,mb	-CALLEE_REG_FRAME_SIZE(%r30),   %r3
 	.endm
-#endif 
+#endif /* ! CONFIG_64BIT */
 
 	.macro	save_specials	regs
 
@@ -435,6 +449,11 @@
 	SAVE_CR  (%cr18, PT_IAOQ1(\regs))
 
 #ifdef CONFIG_64BIT
+	/* cr11 (sar) is a funny one.  5 bits on PA1.1 and 6 bit on PA2.0
+	 * For PA2.0 mtsar or mtctl always write 6 bits, but mfctl only
+	 * reads 5 bits.  Use mfctl,w to read all six bits.  Otherwise
+	 * we lose the 6th bit on a save/restore over interrupt.
+	 */
 	mfctl,w  %cr11, %r1
 	STREG    %r1, PT_SAR (\regs)
 #else
@@ -442,6 +461,10 @@
 #endif
 	SAVE_CR  (%cr19, PT_IIR  (\regs))
 
+	/*
+	 * Code immediately following this macro (in intr_save) relies
+	 * on r8 containing ipsw.
+	 */
 	mfctl    %cr22, %r8
 	STREG    %r8,   PT_PSW(\regs)
 	.endm
@@ -469,16 +492,29 @@
 	.endm
 
 
+	/* First step to create a "relied upon translation"
+	 * See PA 2.0 Arch. page F-4 and F-5.
+	 *
+	 * The ssm was originally necessary due to a "PCxT bug".
+	 * But someone decided it needed to be added to the architecture
+	 * and this "feature" went into rev3 of PA-RISC 1.1 Arch Manual.
+	 * It's been carried forward into PA 2.0 Arch as well. :^(
+	 *
+	 * "ssm 0,%r0" is a NOP with side effects (prefetch barrier).
+	 * rsm/ssm prevents the ifetch unit from speculatively fetching
+	 * instructions past this line in the code stream.
+	 * PA 2.0 processor will single step all insn in the same QUAD (4 insn).
+	 */
 	.macro	pcxt_ssm_bug
 	rsm	PSW_SM_I,%r0
-	nop	
-	nop	
-	nop	
-	nop	
-	nop	
-	nop	
-	nop	
+	nop	/* 1 */
+	nop	/* 2 */
+	nop	/* 3 */
+	nop	/* 4 */
+	nop	/* 5 */
+	nop	/* 6 */
+	nop	/* 7 */
 	.endm
 
-#endif 
+#endif /* __ASSEMBLY__ */
 #endif

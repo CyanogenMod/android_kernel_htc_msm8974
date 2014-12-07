@@ -15,5 +15,6 @@
 #ifndef _ASM_TILE_AUXVEC_H
 #define _ASM_TILE_AUXVEC_H
 
+/* No extensions to auxvec */
 
-#endif 
+#endif /* _ASM_TILE_AUXVEC_H */

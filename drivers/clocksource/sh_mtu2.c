@@ -45,14 +45,14 @@ struct sh_mtu2_priv {
 
 static DEFINE_SPINLOCK(sh_mtu2_lock);
 
-#define TSTR -1 
-#define TCR  0 
-#define TMDR 1 
-#define TIOR 2 
-#define TIER 3 
-#define TSR  4 
-#define TCNT 5 
-#define TGR  6 
+#define TSTR -1 /* shared register */
+#define TCR  0 /* channel register */
+#define TMDR 1 /* channel register */
+#define TIOR 2 /* channel register */
+#define TIER 3 /* channel register */
+#define TSR  4 /* channel register */
+#define TCNT 5 /* channel register */
+#define TGR  6 /* channel register */
 
 static unsigned long mtu2_reg_offs[] = {
 	[TCR] = 0,
@@ -106,7 +106,7 @@ static void sh_mtu2_start_stop_ch(struct sh_mtu2_priv *p, int start)
 	struct sh_timer_config *cfg = p->pdev->dev.platform_data;
 	unsigned long flags, value;
 
-	
+	/* start stop register shared by multiple timer channels */
 	spin_lock_irqsave(&sh_mtu2_lock, flags);
 	value = sh_mtu2_read(p, TSTR);
 
@@ -123,28 +123,28 @@ static int sh_mtu2_enable(struct sh_mtu2_priv *p)
 {
 	int ret;
 
-	
+	/* enable clock */
 	ret = clk_enable(p->clk);
 	if (ret) {
 		dev_err(&p->pdev->dev, "cannot enable clock\n");
 		return ret;
 	}
 
-	
+	/* make sure channel is disabled */
 	sh_mtu2_start_stop_ch(p, 0);
 
 	p->rate = clk_get_rate(p->clk) / 64;
 	p->periodic = (p->rate + HZ/2) / HZ;
 
-	
-	sh_mtu2_write(p, TCR, 0x23); 
+	/* "Periodic Counter Operation" */
+	sh_mtu2_write(p, TCR, 0x23); /* TGRA clear, divide clock by 64 */
 	sh_mtu2_write(p, TIOR, 0);
 	sh_mtu2_write(p, TGR, p->periodic);
 	sh_mtu2_write(p, TCNT, 0);
 	sh_mtu2_write(p, TMDR, 0);
 	sh_mtu2_write(p, TIER, 0x01);
 
-	
+	/* enable channel */
 	sh_mtu2_start_stop_ch(p, 1);
 
 	return 0;
@@ -152,10 +152,10 @@ static int sh_mtu2_enable(struct sh_mtu2_priv *p)
 
 static void sh_mtu2_disable(struct sh_mtu2_priv *p)
 {
-	
+	/* disable channel */
 	sh_mtu2_start_stop_ch(p, 0);
 
-	
+	/* stop clock */
 	clk_disable(p->clk);
 }
 
@@ -163,11 +163,11 @@ static irqreturn_t sh_mtu2_interrupt(int irq, void *dev_id)
 {
 	struct sh_mtu2_priv *p = dev_id;
 
-	
+	/* acknowledge interrupt */
 	sh_mtu2_read(p, TSR);
 	sh_mtu2_write(p, TSR, 0xfe);
 
-	
+	/* notify clockevent layer */
 	p->ced.event_handler(&p->ced);
 	return IRQ_HANDLED;
 }
@@ -183,7 +183,7 @@ static void sh_mtu2_clock_event_mode(enum clock_event_mode mode,
 	struct sh_mtu2_priv *p = ced_to_sh_mtu2(ced);
 	int disabled = 0;
 
-	
+	/* deal with old setting first */
 	switch (ced->mode) {
 	case CLOCK_EVT_MODE_PERIODIC:
 		sh_mtu2_disable(p);
@@ -271,14 +271,14 @@ static int sh_mtu2_setup(struct sh_mtu2_priv *p, struct platform_device *pdev)
 		goto err0;
 	}
 
-	
+	/* map memory, let mapbase point to our channel */
 	p->mapbase = ioremap_nocache(res->start, resource_size(res));
 	if (p->mapbase == NULL) {
 		dev_err(&p->pdev->dev, "failed to remap I/O memory\n");
 		goto err0;
 	}
 
-	
+	/* setup data for setup_irq() (too early for request_irq()) */
 	p->irqaction.name = dev_name(&p->pdev->dev);
 	p->irqaction.handler = sh_mtu2_interrupt;
 	p->irqaction.dev_id = p;
@@ -286,7 +286,7 @@ static int sh_mtu2_setup(struct sh_mtu2_priv *p, struct platform_device *pdev)
 	p->irqaction.flags = IRQF_DISABLED | IRQF_TIMER | \
 			     IRQF_IRQPOLL  | IRQF_NOBALANCING;
 
-	
+	/* get hold of clock */
 	p->clk = clk_get(&p->pdev->dev, "mtu2_fck");
 	if (IS_ERR(p->clk)) {
 		dev_err(&p->pdev->dev, "cannot get clock\n");
@@ -331,7 +331,7 @@ static int __devinit sh_mtu2_probe(struct platform_device *pdev)
 
 static int __devexit sh_mtu2_remove(struct platform_device *pdev)
 {
-	return -EBUSY; 
+	return -EBUSY; /* cannot unregister clockevent */
 }
 
 static struct platform_driver sh_mtu2_device_driver = {

@@ -163,11 +163,15 @@ static int max8997_i2c_probe(struct i2c_client *i2c,
 			ARRAY_SIZE(max8997_devs),
 			NULL, 0);
 
+	/*
+	 * TODO: enable others (flash, muic, rtc, battery, ...) and
+	 * check the return value
+	 */
 
 	if (ret < 0)
 		goto err_mfd;
 
-	
+	/* MAX8997 has a power button input. */
 	device_init_wakeup(max8997->dev, pdata->wakeup);
 
 	return ret;
@@ -441,6 +445,7 @@ static int __init max8997_i2c_init(void)
 {
 	return i2c_add_driver(&max8997_i2c_driver);
 }
+/* init early so consumer devices can complete system boot */
 subsys_initcall(max8997_i2c_init);
 
 static void __exit max8997_i2c_exit(void)

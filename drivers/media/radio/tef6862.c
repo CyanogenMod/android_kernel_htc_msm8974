@@ -34,6 +34,7 @@
 #define TEF6862_LO_FREQ (875 * FREQ_MUL / 10)
 #define TEF6862_HI_FREQ (108 * FREQ_MUL)
 
+/* Write mode sub addresses */
 #define WM_SUB_BANDWIDTH	0x0
 #define WM_SUB_PLLM		0x1
 #define WM_SUB_PLLL		0x2
@@ -47,6 +48,7 @@
 #define WM_SUB_ACD		0xA
 #define WM_SUB_TEST		0xF
 
+/* Different modes of the MSA register */
 #define MODE_BUFFER		0x0
 #define MODE_PRESET		0x1
 #define MODE_SEARCH		0x2
@@ -81,7 +83,7 @@ static int tef6862_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *v)
 	if (v->index > 0)
 		return -EINVAL;
 
-	
+	/* only support FM for now */
 	strlcpy(v->name, "FM", sizeof(v->name));
 	v->type = V4L2_TUNER_RADIO;
 	v->rangelow = TEF6862_LO_FREQ;
@@ -158,6 +160,10 @@ static const struct v4l2_subdev_ops tef6862_ops = {
 	.tuner = &tef6862_tuner_ops,
 };
 
+/*
+ * Generic i2c probe
+ * concerning the addresses: i2c wants 7 bit (without the r/w bit), so '>>1'
+ */
 
 static int __devinit tef6862_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
@@ -165,7 +171,7 @@ static int __devinit tef6862_probe(struct i2c_client *client,
 	struct tef6862_state *state;
 	struct v4l2_subdev *sd;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 

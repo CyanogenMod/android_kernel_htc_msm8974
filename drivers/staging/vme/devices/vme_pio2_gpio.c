@@ -52,6 +52,10 @@ static int pio2_gpio_get(struct gpio_chip *chip, unsigned int offset)
 		return 0;
 	}
 
+	/*
+	 * Remember, input on channels configured as both input and output
+	 * are inverted!
+	 */
 	if (reg & PIO2_CHANNEL_BIT[offset]) {
 		if (card->bank[PIO2_CHANNEL_BANK[offset]].config != BOTH)
 			return 0;
@@ -96,6 +100,7 @@ static void pio2_gpio_set(struct gpio_chip *chip, unsigned int offset,
 	card->bank[PIO2_CHANNEL_BANK[offset]].value = reg;
 }
 
+/* Directionality configured at board build - send appropriate response */
 static int pio2_gpio_dir_in(struct gpio_chip *chip, unsigned offset)
 {
 	int data;
@@ -114,6 +119,7 @@ static int pio2_gpio_dir_in(struct gpio_chip *chip, unsigned offset)
 	return data;
 }
 
+/* Directionality configured at board build - send appropriate response */
 static int pio2_gpio_dir_out(struct gpio_chip *chip, unsigned offset, int value)
 {
 	int data;
@@ -132,6 +138,10 @@ static int pio2_gpio_dir_out(struct gpio_chip *chip, unsigned offset, int value)
 	return data;
 }
 
+/*
+ * We return whether this has been successful - this is used in the probe to
+ * ensure we have a valid card.
+ */
 int pio2_gpio_reset(struct pio2_card *card)
 {
 	int retval = 0;
@@ -139,7 +149,7 @@ int pio2_gpio_reset(struct pio2_card *card)
 
 	u8 data = 0;
 
-	
+	/* Zero output registers */
 	for (i = 0; i < 4; i++) {
 		retval = vme_master_write(card->window, &data, 1,
 			PIO2_REGS_DATA[i]);
@@ -148,7 +158,7 @@ int pio2_gpio_reset(struct pio2_card *card)
 		card->bank[i].value = 0;
 	}
 
-	
+	/* Set input interrupt masks */
 	for (i = 0; i < 4; i++) {
 		retval = vme_master_write(card->window, &data, 1,
 			PIO2_REGS_INT_MASK[i * 2]);
@@ -164,7 +174,7 @@ int pio2_gpio_reset(struct pio2_card *card)
 			card->bank[i].irq[j] = NONE;
 	}
 
-	
+	/* Ensure all I/O interrupts are cleared */
 	for (i = 0; i < 4; i++) {
 		do {
 			retval = vme_master_read(card->window, &data, 1,
@@ -192,15 +202,15 @@ int __devinit pio2_gpio_init(struct pio2_card *card)
 	card->gc.label = label;
 
 	card->gc.ngpio = PIO2_NUM_CHANNELS;
-	
+	/* Dynamic allocation of base */
 	card->gc.base = -1;
-	
+	/* Setup pointers to chip functions */
 	card->gc.direction_input = pio2_gpio_dir_in;
 	card->gc.direction_output = pio2_gpio_dir_out;
 	card->gc.get = pio2_gpio_get;
 	card->gc.set = pio2_gpio_set;
 
-	
+	/* This function adds a memory mapped GPIO chip */
 	retval = gpiochip_add(&(card->gc));
 	if (retval) {
 		dev_err(&card->vdev->dev, "Unable to register GPIO\n");

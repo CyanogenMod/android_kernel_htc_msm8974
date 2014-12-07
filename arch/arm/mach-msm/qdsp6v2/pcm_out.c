@@ -211,7 +211,7 @@ static long pcm_out_ioctl(struct file *file, unsigned int cmd,
 		if (rc < 0)
 			pr_err("%s: Send channel gain failed rc=%d\n",
 							__func__, rc);
-		
+		/* disable mute by default */
 		rc = q6asm_set_mute(pcm->ac, 0);
 		if (rc < 0)
 			pr_err("%s: Send mute command failed rc=%d\n",

@@ -7,7 +7,7 @@ struct ucontext {
 	old_sigset_t	  uc_osf_sigmask;
 	stack_t		  uc_stack;
 	struct sigcontext uc_mcontext;
-	sigset_t	  uc_sigmask;	
+	sigset_t	  uc_sigmask;	/* mask last for extensibility */
 };
 
-#endif 
+#endif /* !_ASMAXP_UCONTEXT_H */

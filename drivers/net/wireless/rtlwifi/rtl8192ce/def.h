@@ -144,7 +144,7 @@ enum version_8192c {
 
 #define CUT_VERSION_MASK		(BIT(6)|BIT(7))
 #define CHIP_VENDOR_UMC			BIT(5)
-#define CHIP_VENDOR_UMC_B_CUT		BIT(6) 
+#define CHIP_VENDOR_UMC_B_CUT		BIT(6) /* Chip version for ECO */
 #define IS_VENDOR_UMC_A_CUT(version)	((IS_CHIP_VENDOR_UMC(version)) ? \
 	((GET_CVID_CUT_VERSION(version)) ? false : true) : false)
 #define IS_CHIP_VER_B(version)  ((version & CHIP_VER_B) ? true : false)

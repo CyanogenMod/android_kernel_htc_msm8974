@@ -14,6 +14,9 @@
 #include "hfs_fs.h"
 #include "btree.h"
 
+/*
+ * hfs_lookup()
+ */
 static struct dentry *hfs_lookup(struct inode *dir, struct dentry *dentry,
 				 struct nameidata *nd)
 {
@@ -28,7 +31,7 @@ static struct dentry *hfs_lookup(struct inode *dir, struct dentry *dentry,
 	if (res) {
 		hfs_find_exit(&fd);
 		if (res == -ENOENT) {
-			
+			/* No such entry */
 			inode = NULL;
 			goto done;
 		}
@@ -43,6 +46,9 @@ done:
 	return NULL;
 }
 
+/*
+ * hfs_readdir
+ */
 static int hfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
 	struct inode *inode = filp->f_path.dentry->d_inode;
@@ -65,11 +71,11 @@ static int hfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 
 	switch ((u32)filp->f_pos) {
 	case 0:
-		
+		/* This is completely artificial... */
 		if (filldir(dirent, ".", 1, 0, inode->i_ino, DT_DIR))
 			goto out;
 		filp->f_pos++;
-		
+		/* fall through */
 	case 1:
 		if (fd.entrylength > sizeof(entry) || fd.entrylength < 0) {
 			err = -EIO;
@@ -82,16 +88,16 @@ static int hfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 			err = -EIO;
 			goto out;
 		}
-		
-		
-		
-		
-		
+		//if (fd.entrylength < HFS_MIN_THREAD_SZ) {
+		//	printk(KERN_ERR "hfs: truncated catalog thread\n");
+		//	err = -EIO;
+		//	goto out;
+		//}
 		if (filldir(dirent, "..", 2, 1,
 			    be32_to_cpu(entry.thread.ParID), DT_DIR))
 			goto out;
 		filp->f_pos++;
-		
+		/* fall through */
 	default:
 		if (filp->f_pos >= inode->i_size)
 			goto out;
@@ -172,6 +178,14 @@ static int hfs_dir_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * hfs_create()
+ *
+ * This is the create() entry in the inode_operations structure for
+ * regular HFS directories.  The purpose is to create a new file in
+ * a directory and return a corresponding inode, given the inode for
+ * the directory and the name (and its length) of the new file.
+ */
 static int hfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		      struct nameidata *nd)
 {
@@ -194,6 +208,14 @@ static int hfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	return 0;
 }
 
+/*
+ * hfs_mkdir()
+ *
+ * This is the mkdir() entry in the inode_operations structure for
+ * regular HFS directories.  The purpose is to create a new directory
+ * in a directory, given the inode for the parent directory and the
+ * name (and its length) of the new directory.
+ */
 static int hfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	struct inode *inode;
@@ -215,6 +237,17 @@ static int hfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	return 0;
 }
 
+/*
+ * hfs_remove()
+ *
+ * This serves as both unlink() and rmdir() in the inode_operations
+ * structure for regular HFS directories.  The purpose is to delete
+ * an existing child, given the inode for the parent directory and
+ * the name (and its length) of the existing directory.
+ *
+ * HFS does not have hardlinks, so both rmdir and unlink set the
+ * link count to 0.  The only difference is the emptiness check.
+ */
 static int hfs_remove(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = dentry->d_inode;
@@ -232,12 +265,23 @@ static int hfs_remove(struct inode *dir, struct dentry *dentry)
 	return 0;
 }
 
+/*
+ * hfs_rename()
+ *
+ * This is the rename() entry in the inode_operations structure for
+ * regular HFS directories.  The purpose is to rename an existing
+ * file or directory, given the inode for the current directory and
+ * the name (and its length) of the existing file/directory and the
+ * inode for the new directory and the name (and its length) of the
+ * new file/directory.
+ * XXX: how do you handle must_be dir?
+ */
 static int hfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		      struct inode *new_dir, struct dentry *new_dentry)
 {
 	int res;
 
-	
+	/* Unlink destination if it already exists */
 	if (new_dentry->d_inode) {
 		res = hfs_remove(new_dir, new_dentry);
 		if (res)

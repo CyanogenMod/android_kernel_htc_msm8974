@@ -22,6 +22,7 @@
 #ifndef C_CAN_H
 #define C_CAN_H
 
+/* c_can IF registers */
 struct c_can_if_regs {
 	u16 com_req;
 	u16 com_mask;
@@ -34,6 +35,7 @@ struct c_can_if_regs {
 	u16 _reserved[13];
 };
 
+/* c_can hardware registers */
 struct c_can_regs {
 	u16 control;
 	u16 status;
@@ -43,7 +45,7 @@ struct c_can_regs {
 	u16 test;
 	u16 brp_ext;
 	u16 _reserved1;
-	struct c_can_if_regs ifregs[2]; 
+	struct c_can_if_regs ifregs[2]; /* [0] = IF1 and [1] = IF2 */
 	u16 _reserved2[8];
 	u16 txrqst1;
 	u16 txrqst2;
@@ -59,8 +61,9 @@ struct c_can_regs {
 	u16 _reserved6[6];
 };
 
+/* c_can private data structure */
 struct c_can_priv {
-	struct can_priv can;	
+	struct can_priv can;	/* must be the first member */
 	struct napi_struct napi;
 	struct net_device *dev;
 	int tx_object;
@@ -69,10 +72,10 @@ struct c_can_priv {
 	u16 (*read_reg) (struct c_can_priv *priv, void *reg);
 	void (*write_reg) (struct c_can_priv *priv, void *reg, u16 val);
 	struct c_can_regs __iomem *regs;
-	unsigned long irq_flags; 
+	unsigned long irq_flags; /* for request_irq() */
 	unsigned int tx_next;
 	unsigned int tx_echo;
-	void *priv;		
+	void *priv;		/* for board-specific data */
 };
 
 struct net_device *alloc_c_can_dev(void);
@@ -80,4 +83,4 @@ void free_c_can_dev(struct net_device *dev);
 int register_c_can_dev(struct net_device *dev);
 void unregister_c_can_dev(struct net_device *dev);
 
-#endif 
+#endif /* C_CAN_H */

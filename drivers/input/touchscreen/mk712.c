@@ -12,6 +12,13 @@
  * the Free Software Foundation.
  */
 
+/*
+ * This driver supports the ICS MicroClock MK712 TouchScreen controller,
+ * found in Gateway AOL Connected Touchpad computers.
+ *
+ * Documentation for ICS MK712 can be found at:
+ *	http://www.idt.com/products/getDoc.cfm?docID=18713923
+ */
 
 /*
  * 1999-12-18: original version, Daniel Quinlan
@@ -42,23 +49,26 @@ MODULE_AUTHOR("Daniel Quinlan <quinlan@pathname.com>, Vojtech Pavlik <vojtech@su
 MODULE_DESCRIPTION("ICS MicroClock MK712 TouchScreen driver");
 MODULE_LICENSE("GPL");
 
-static unsigned int mk712_io = 0x260;	
+static unsigned int mk712_io = 0x260;	/* Also 0x200, 0x208, 0x300 */
 module_param_named(io, mk712_io, uint, 0);
 MODULE_PARM_DESC(io, "I/O base address of MK712 touchscreen controller");
 
-static unsigned int mk712_irq = 10;	
+static unsigned int mk712_irq = 10;	/* Also 12, 14, 15 */
 module_param_named(irq, mk712_irq, uint, 0);
 MODULE_PARM_DESC(irq, "IRQ of MK712 touchscreen controller");
 
+/* eight 8-bit registers */
 #define MK712_STATUS		0
 #define MK712_X			2
 #define MK712_Y			4
 #define MK712_CONTROL		6
 #define MK712_RATE		7
 
+/* status */
 #define	MK712_STATUS_TOUCH			0x10
 #define	MK712_CONVERSION_COMPLETE		0x80
 
+/* control */
 #define MK712_ENABLE_INT			0x01
 #define MK712_INT_ON_CONVERSION_COMPLETE	0x02
 #define MK712_INT_ON_CHANGE_IN_TOUCH_STATUS	0x04
@@ -114,14 +124,14 @@ static int mk712_open(struct input_dev *dev)
 
 	spin_lock_irqsave(&mk712_lock, flags);
 
-	outb(0, mk712_io + MK712_CONTROL); 
+	outb(0, mk712_io + MK712_CONTROL); /* Reset */
 
 	outb(MK712_ENABLE_INT | MK712_INT_ON_CONVERSION_COMPLETE |
 		MK712_INT_ON_CHANGE_IN_TOUCH_STATUS |
 		MK712_ENABLE_PERIODIC_CONVERSIONS |
 		MK712_POWERUP, mk712_io + MK712_CONTROL);
 
-	outb(10, mk712_io + MK712_RATE); 
+	outb(10, mk712_io + MK712_RATE); /* 187 points per second */
 
 	spin_unlock_irqrestore(&mk712_lock, flags);
 
@@ -150,7 +160,7 @@ static int __init mk712_init(void)
 
 	outb(0, mk712_io + MK712_CONTROL);
 
-	if ((inw(mk712_io + MK712_X) & 0xf000) ||	
+	if ((inw(mk712_io + MK712_X) & 0xf000) ||	/* Sanity check */
 	    (inw(mk712_io + MK712_Y) & 0xf000) ||
 	    (inw(mk712_io + MK712_STATUS) & 0xf333)) {
 		printk(KERN_WARNING "mk712: device not present\n");

@@ -53,9 +53,9 @@ MODULE_SUPPORTED_DEVICE("{{Native Instruments, RigKontrol2},"
 			 "{Native Instruments, Traktor Kontrol S4}"
 			 "{Native Instruments, Maschine Controller}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX; 
-static char* id[SNDRV_CARDS] = SNDRV_DEFAULT_STR; 
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX; /* Index 0-max */
+static char* id[SNDRV_CARDS] = SNDRV_DEFAULT_STR; /* Id for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; /* Enable this card */
 static int snd_card_used[SNDRV_CARDS];
 
 module_param_array(index, int, NULL, 0444);
@@ -152,7 +152,7 @@ static struct usb_device_id snd_usb_id_table[] = {
 		.idVendor =     USB_VID_NATIVEINSTRUMENTS,
 		.idProduct =    USB_PID_MASCHINECONTROLLER
 	},
-	{  }
+	{ /* terminator */ }
 };
 
 static void usb_ep1_command_reply_dispatch (struct urb* urb)
@@ -257,7 +257,7 @@ int snd_usb_caiaq_set_audio_params (struct snd_usb_caiaqdev *dev,
 
 	tmp[2] = bpp & 0xff;
 	tmp[3] = bpp >> 8;
-	tmp[4] = 1; 
+	tmp[4] = 1; /* packets per microframe */
 
 	debug("setting audio params: %d Hz, %d bits, %d bpp\n",
 		rate, depth, bpp);
@@ -294,17 +294,17 @@ static void __devinit setup_card(struct snd_usb_caiaqdev *dev)
 	int ret;
 	char val[4];
 
-	
+	/* device-specific startup specials */
 	switch (dev->chip.usb_id) {
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_RIGKONTROL2):
-		
+		/* RigKontrol2 - display centered dash ('-') */
 		val[0] = 0x00;
 		val[1] = 0x00;
 		val[2] = 0x01;
 		snd_usb_caiaq_send_command(dev, EP1_CMD_WRITE_IO, val, 3);
 		break;
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_RIGKONTROL3):
-		
+		/* RigKontrol2 - display two centered dashes ('--') */
 		val[0] = 0x00;
 		val[1] = 0x40;
 		val[2] = 0x40;
@@ -312,12 +312,12 @@ static void __devinit setup_card(struct snd_usb_caiaqdev *dev)
 		snd_usb_caiaq_send_command(dev, EP1_CMD_WRITE_IO, val, 4);
 		break;
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AK1):
-		
+		/* Audio Kontrol 1 - make USB-LED stop blinking */
 		val[0] = 0x00;
 		snd_usb_caiaq_send_command(dev, EP1_CMD_WRITE_IO, val, 1);
 		break;
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO8DJ):
-		
+		/* Audio 8 DJ - trigger read of current settings */
 		dev->control_state[0] = 0xff;
 		snd_usb_caiaq_set_auto_msg(dev, 1, 0, 0);
 		snd_usb_caiaq_send_command(dev, EP1_CMD_READ_IO, NULL, 0);
@@ -326,7 +326,7 @@ static void __devinit setup_card(struct snd_usb_caiaqdev *dev)
 					dev->control_state[0] != 0xff, HZ))
 			return;
 
-		
+		/* fix up some defaults */
 		if ((dev->control_state[1] != 2) ||
 		    (dev->control_state[2] != 3) ||
 		    (dev->control_state[4] != 2)) {
@@ -362,7 +362,7 @@ static void __devinit setup_card(struct snd_usb_caiaqdev *dev)
 		log("Unable to set up input system (ret=%d)\n", ret);
 #endif
 
-	
+	/* finally, register the card and all its sub-instances */
 	ret = snd_card_register(dev->chip.card);
 	if (ret < 0) {
 		log("snd_card_register() returned %d\n", ret);
@@ -455,6 +455,9 @@ static int __devinit init_card(struct snd_usb_caiaqdev *dev)
 	strlcpy(card->shortname, dev->product_name, sizeof(card->shortname));
 	strlcpy(card->mixername, dev->product_name, sizeof(card->mixername));
 
+	/* if the id was not passed as module option, fill it with a shortened
+	 * version of the product string which does not contain any
+	 * whitespaces */
 
 	if (*card->id == '\0') {
 		char id[sizeof(card->id)];

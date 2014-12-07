@@ -33,7 +33,7 @@ struct biosmemcon_ebda {
 		} __packed v1;
 		struct {
 			u32 buffer_addr;
-			
+			/* Misdocumented as number of pages! */
 			u16 num_bytes;
 			u16 start;
 			u16 end;
@@ -83,6 +83,10 @@ static void found_v2_header(struct biosmemcon_ebda *hdr)
 					   + hdr->v2.start);
 }
 
+/*
+ * Search through the EBDA for the BIOS Memory Console, and
+ * set the global variables to point to it.  Return true if found.
+ */
 static bool found_memconsole(void)
 {
 	unsigned int address;
@@ -94,20 +98,24 @@ static bool found_memconsole(void)
 		return false;
 	}
 
-	
+	/* EBDA length is byte 0 of EBDA (in KB) */
 	length = *(u8 *)phys_to_virt(address);
-	length <<= 10; 
+	length <<= 10; /* convert to bytes */
 
+	/*
+	 * Search through EBDA for BIOS memory console structure
+	 * note: signature is not necessarily dword-aligned
+	 */
 	for (cur = 0; cur < length; cur++) {
 		struct biosmemcon_ebda *hdr = phys_to_virt(address + cur);
 
-		
+		/* memconsole v1 */
 		if (hdr->signature == BIOS_MEMCONSOLE_V1_MAGIC) {
 			found_v1_header(hdr);
 			return true;
 		}
 
-		
+		/* memconsole v2 */
 		if (hdr->signature == BIOS_MEMCONSOLE_V2_MAGIC) {
 			found_v2_header(hdr);
 			return true;

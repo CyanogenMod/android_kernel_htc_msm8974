@@ -150,7 +150,7 @@ nv40_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 	if (!info)
 		return ERR_PTR(-ENOMEM);
 
-	
+	/* core/geometric clock */
 	ret = nv40_calc_pll(dev, 0x004000, &pll, perflvl->core,
 			    &N1, &M1, &N2, &M2, &log2P);
 	if (ret < 0)
@@ -164,7 +164,7 @@ nv40_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 		info->npll_coef = (N2 << 24) | (M2 << 16) | (N1 << 8) | M1;
 	}
 
-	
+	/* use the second PLL for shader/rop clock, if it differs from core */
 	if (perflvl->shader && perflvl->shader != perflvl->core) {
 		ret = nv40_calc_pll(dev, 0x004008, &pll, perflvl->shader,
 				    &N1, &M1, NULL, NULL, &log2P);
@@ -178,7 +178,7 @@ nv40_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 		info->ctrl = 0x00000333;
 	}
 
-	
+	/* memory clock */
 	if (!perflvl->memory) {
 		info->mpll_ctrl = 0x00000000;
 		goto out;
@@ -233,7 +233,7 @@ nv40_pm_clocks_set(struct drm_device *dev, void *pre_state)
 	u8 sr1[2];
 	int i, ret = -EAGAIN;
 
-	
+	/* determine which CRTCs are active, fetch VGA_SR1 for each */
 	for (i = 0; i < 2; i++) {
 		u32 vbl = nv_rd32(dev, 0x600808 + (i * 0x2000));
 		u32 cnt = 0;
@@ -249,7 +249,7 @@ nv40_pm_clocks_set(struct drm_device *dev, void *pre_state)
 		} while (cnt++ < 32);
 	}
 
-	
+	/* halt and idle engines */
 	spin_lock_irqsave(&dev_priv->context_switch_lock, flags);
 	nv_mask(dev, 0x002500, 0x00000001, 0x00000000);
 	if (!nv_wait(dev, 0x002500, 0x00000010, 0x00000000))
@@ -265,7 +265,7 @@ nv40_pm_clocks_set(struct drm_device *dev, void *pre_state)
 
 	ret = 0;
 
-	
+	/* set engine clocks */
 	nv_mask(dev, 0x00c040, 0x00000333, 0x00000000);
 	nv_wr32(dev, 0x004004, info->npll_coef);
 	nv_mask(dev, 0x004000, 0xc0070100, info->npll_ctrl);
@@ -276,7 +276,7 @@ nv40_pm_clocks_set(struct drm_device *dev, void *pre_state)
 	if (!info->mpll_ctrl)
 		goto resume;
 
-	
+	/* wait for vblank start on active crtcs, disable memory access */
 	for (i = 0; i < 2; i++) {
 		if (!(crtc_mask & (1 << i)))
 			continue;
@@ -286,14 +286,14 @@ nv40_pm_clocks_set(struct drm_device *dev, void *pre_state)
 		nv_wr08(dev, 0x0c03c5 + (i * 0x2000), sr1[i] | 0x20);
 	}
 
-	
-	nv_wr32(dev, 0x1002d4, 0x00000001); 
-	nv_wr32(dev, 0x1002d0, 0x00000001); 
-	nv_wr32(dev, 0x1002d0, 0x00000001); 
-	nv_mask(dev, 0x100210, 0x80000000, 0x00000000); 
-	nv_wr32(dev, 0x1002dc, 0x00000001); 
+	/* prepare ram for reclocking */
+	nv_wr32(dev, 0x1002d4, 0x00000001); /* precharge */
+	nv_wr32(dev, 0x1002d0, 0x00000001); /* refresh */
+	nv_wr32(dev, 0x1002d0, 0x00000001); /* refresh */
+	nv_mask(dev, 0x100210, 0x80000000, 0x00000000); /* no auto refresh */
+	nv_wr32(dev, 0x1002dc, 0x00000001); /* enable self-refresh */
 
-	
+	/* change the PLL of each memory partition */
 	nv_mask(dev, 0x00c040, 0x0000c000, 0x00000000);
 	switch (dev_priv->chipset) {
 	case 0x40:
@@ -318,15 +318,18 @@ nv40_pm_clocks_set(struct drm_device *dev, void *pre_state)
 	udelay(100);
 	nv_mask(dev, 0x00c040, 0x0000c000, 0x0000c000);
 
-	
+	/* re-enable normal operation of memory controller */
 	nv_wr32(dev, 0x1002dc, 0x00000000);
 	nv_mask(dev, 0x100210, 0x80000000, 0x80000000);
 	udelay(100);
 
-	
+	/* execute memory reset script from vbios */
 	if (!bit_table(dev, 'M', &M))
 		nouveau_bios_init_exec(dev, ROM16(M.data[0]));
 
+	/* make sure we're in vblank (hopefully the same one as before), and
+	 * then re-enable crtc memory access
+	 */
 	for (i = 0; i < 2; i++) {
 		if (!(crtc_mask & (1 << i)))
 			continue;
@@ -335,7 +338,7 @@ nv40_pm_clocks_set(struct drm_device *dev, void *pre_state)
 		nv_wr08(dev, 0x0c03c5 + (i * 0x2000), sr1[i]);
 	}
 
-	
+	/* resume engines */
 resume:
 	nv_wr32(dev, 0x003250, 0x00000001);
 	nv_mask(dev, 0x003220, 0x00000001, 0x00000001);

@@ -453,7 +453,7 @@ static struct ib_mad_recv_wc * complete_rmpp(struct mad_rmpp_recv *rmpp_recv)
 
 	rmpp_wc = rmpp_recv->rmpp_wc;
 	rmpp_wc->mad_len = get_mad_len(rmpp_recv);
-	
+	/* 10 seconds until we can find the packet lifetime */
 	queue_delayed_work(rmpp_recv->agent->qp_info->port_priv->wq,
 			   &rmpp_recv->cleanup_work, msecs_to_jiffies(10000));
 	return rmpp_wc;
@@ -534,7 +534,7 @@ start_rmpp(struct ib_mad_agent_private *agent,
 	spin_lock_irqsave(&agent->lock, flags);
 	if (insert_rmpp_recv(agent, rmpp_recv)) {
 		spin_unlock_irqrestore(&agent->lock, flags);
-		
+		/* duplicate first MAD */
 		destroy_rmpp_recv(rmpp_recv);
 		return continue_rmpp(agent, mad_recv_wc);
 	}
@@ -546,7 +546,7 @@ start_rmpp(struct ib_mad_agent_private *agent,
 		complete_rmpp(rmpp_recv);
 	} else {
 		spin_unlock_irqrestore(&agent->lock, flags);
-		
+		/* 40 seconds until we can find the packet lifetimes */
 		queue_delayed_work(agent->qp_info->port_priv->wq,
 				   &rmpp_recv->timeout_work,
 				   msecs_to_jiffies(40000));
@@ -580,7 +580,7 @@ static int send_next_seg(struct ib_mad_send_wr_private *mad_send_wr)
 	}
 	rmpp_mad->rmpp_hdr.paylen_newwin = cpu_to_be32(paylen);
 
-	
+	/* 2 seconds for an ACK until we can find the packet lifetime */
 	timeout = mad_send_wr->send_buf.timeout_ms;
 	if (!timeout || timeout > 2000)
 		mad_send_wr->timeout = msecs_to_jiffies(2000);
@@ -598,11 +598,11 @@ static void abort_send(struct ib_mad_agent_private *agent,
 	spin_lock_irqsave(&agent->lock, flags);
 	mad_send_wr = ib_find_send_mad(agent, mad_recv_wc);
 	if (!mad_send_wr)
-		goto out;	
+		goto out;	/* Unmatched send */
 
 	if ((mad_send_wr->last_ack == mad_send_wr->send_buf.seg_count) ||
 	    (!mad_send_wr->timeout) || (mad_send_wr->status != IB_WC_SUCCESS))
-		goto out;	
+		goto out;	/* Send is already done */
 
 	ib_mark_mad_done(mad_send_wr);
 	spin_unlock_irqrestore(&agent->lock, flags);
@@ -666,19 +666,19 @@ static void process_rmpp_ack(struct ib_mad_agent_private *agent,
 	if (!mad_send_wr) {
 		if (!seg_num)
 			process_ds_ack(agent, mad_recv_wc, newwin);
-		goto out;	
+		goto out;	/* Unmatched or DS RMPP ACK */
 	}
 
 	if ((mad_send_wr->last_ack == mad_send_wr->send_buf.seg_count) &&
 	    (mad_send_wr->timeout)) {
 		spin_unlock_irqrestore(&agent->lock, flags);
 		ack_ds_ack(agent, mad_recv_wc);
-		return;		
+		return;		/* Repeated ACK for DS RMPP transaction */
 	}
 
 	if ((mad_send_wr->last_ack == mad_send_wr->send_buf.seg_count) ||
 	    (!mad_send_wr->timeout) || (mad_send_wr->status != IB_WC_SUCCESS))
-		goto out;	
+		goto out;	/* Send is already done */
 
 	if (seg_num > mad_send_wr->send_buf.seg_count ||
 	    seg_num > mad_send_wr->newwin) {
@@ -689,7 +689,7 @@ static void process_rmpp_ack(struct ib_mad_agent_private *agent,
 	}
 
 	if (newwin < mad_send_wr->newwin || seg_num < mad_send_wr->last_ack)
-		goto out;	
+		goto out;	/* Old ACK */
 
 	if (seg_num > mad_send_wr->last_ack) {
 		adjust_last_ack(mad_send_wr, seg_num);
@@ -697,7 +697,7 @@ static void process_rmpp_ack(struct ib_mad_agent_private *agent,
 	}
 	mad_send_wr->newwin = newwin;
 	if (mad_send_wr->last_ack == mad_send_wr->send_buf.seg_count) {
-		
+		/* If no response is expected, the ACK completes the send */
 		if (!mad_send_wr->send_buf.timeout_ms) {
 			struct ib_mad_send_wc wc;
 
@@ -719,7 +719,7 @@ static void process_rmpp_ack(struct ib_mad_agent_private *agent,
 	} else if (mad_send_wr->refcount == 1 &&
 		   mad_send_wr->seg_num < mad_send_wr->newwin &&
 		   mad_send_wr->seg_num < mad_send_wr->send_buf.seg_count) {
-		
+		/* Send failure will just result in a timeout/retry */
 		ret = send_next_seg(mad_send_wr);
 		if (ret)
 			goto out;
@@ -882,7 +882,7 @@ int ib_send_rmpp_mad(struct ib_mad_send_wr_private *mad_send_wr)
 
 	mad_send_wr->newwin = init_newwin(mad_send_wr);
 
-	
+	/* We need to wait for the final ACK even if there isn't a response */
 	mad_send_wr->refcount += (mad_send_wr->timeout == 0);
 	ret = send_next_seg(mad_send_wr);
 	if (!ret)
@@ -899,27 +899,27 @@ int ib_process_rmpp_send_wc(struct ib_mad_send_wr_private *mad_send_wr,
 	rmpp_mad = mad_send_wr->send_buf.mad;
 	if (!(ib_get_rmpp_flags(&rmpp_mad->rmpp_hdr) &
 	      IB_MGMT_RMPP_FLAG_ACTIVE))
-		return IB_RMPP_RESULT_UNHANDLED; 
+		return IB_RMPP_RESULT_UNHANDLED; /* RMPP not active */
 
 	if (rmpp_mad->rmpp_hdr.rmpp_type != IB_MGMT_RMPP_TYPE_DATA)
-		return IB_RMPP_RESULT_INTERNAL;	 
+		return IB_RMPP_RESULT_INTERNAL;	 /* ACK, STOP, or ABORT */
 
 	if (mad_send_wc->status != IB_WC_SUCCESS ||
 	    mad_send_wr->status != IB_WC_SUCCESS)
-		return IB_RMPP_RESULT_PROCESSED; 
+		return IB_RMPP_RESULT_PROCESSED; /* Canceled or send error */
 
 	if (!mad_send_wr->timeout)
-		return IB_RMPP_RESULT_PROCESSED; 
+		return IB_RMPP_RESULT_PROCESSED; /* Response received */
 
 	if (mad_send_wr->last_ack == mad_send_wr->send_buf.seg_count) {
 		mad_send_wr->timeout =
 			msecs_to_jiffies(mad_send_wr->send_buf.timeout_ms);
-		return IB_RMPP_RESULT_PROCESSED; 
+		return IB_RMPP_RESULT_PROCESSED; /* Send done */
 	}
 
 	if (mad_send_wr->seg_num == mad_send_wr->newwin ||
 	    mad_send_wr->seg_num == mad_send_wr->send_buf.seg_count)
-		return IB_RMPP_RESULT_PROCESSED; 
+		return IB_RMPP_RESULT_PROCESSED; /* Wait for ACK */
 
 	ret = send_next_seg(mad_send_wr);
 	if (ret) {
@@ -937,7 +937,7 @@ int ib_retry_rmpp(struct ib_mad_send_wr_private *mad_send_wr)
 	rmpp_mad = mad_send_wr->send_buf.mad;
 	if (!(ib_get_rmpp_flags(&rmpp_mad->rmpp_hdr) &
 	      IB_MGMT_RMPP_FLAG_ACTIVE))
-		return IB_RMPP_RESULT_UNHANDLED; 
+		return IB_RMPP_RESULT_UNHANDLED; /* RMPP not active */
 
 	if (mad_send_wr->last_ack == mad_send_wr->send_buf.seg_count)
 		return IB_RMPP_RESULT_PROCESSED;

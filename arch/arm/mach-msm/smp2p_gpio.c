@@ -24,6 +24,7 @@
 #include "smp2p_private_api.h"
 #include "smp2p_private.h"
 
+/* GPIO device - one per SMP2P entry. */
 struct smp2p_chip_dev {
 	struct list_head entry_list;
 	char name[SMP2P_MAX_ENTRY_NAME];
@@ -50,6 +51,7 @@ static struct irq_chip smp2p_gpio_irq_chip;
 static DEFINE_SPINLOCK(smp2p_entry_lock_lha1);
 static LIST_HEAD(smp2p_entry_list);
 
+/* Used for mapping edge to name for logging. */
 static const char * const edge_names[] = {
 	"-",
 	"0->1",
@@ -57,11 +59,13 @@ static const char * const edge_names[] = {
 	"-",
 };
 
+/* Used for mapping edge to value for logging. */
 static const char * const edge_name_rising[] = {
 	"-",
 	"0->1",
 };
 
+/* Used for mapping edge to value for logging. */
 static const char * const edge_name_falling[] = {
 	"-",
 	"1->0",
@@ -70,6 +74,17 @@ static const char * const edge_name_falling[] = {
 static int smp2p_gpio_to_irq(struct gpio_chip *cp,
 	unsigned offset);
 
+/**
+ * smp2p_get_value - Retrieves GPIO value.
+ *
+ * @cp:      GPIO chip pointer
+ * @offset:  Pin offset
+ * @returns: >=0: value of GPIO Pin; < 0 for error
+ *
+ * Error codes:
+ *   -ENODEV - chip/entry invalid
+ *   -ENETDOWN - valid entry, but entry not yet created
+ */
 static int smp2p_get_value(struct gpio_chip *cp,
 	unsigned offset)
 {
@@ -95,6 +110,13 @@ static int smp2p_get_value(struct gpio_chip *cp,
 	return ret;
 }
 
+/**
+ * smp2p_set_value - Sets GPIO value.
+ *
+ * @cp:     GPIO chip pointer
+ * @offset: Pin offset
+ * @value:  New value
+ */
 static void smp2p_set_value(struct gpio_chip *cp, unsigned offset, int value)
 {
 	struct smp2p_chip_dev *chip;
@@ -137,6 +159,13 @@ static void smp2p_set_value(struct gpio_chip *cp, unsigned offset, int value)
 			chip->gpio.base + offset, value);
 }
 
+/**
+ * smp2p_direction_input - Sets GPIO direction to input.
+ *
+ * @cp:      GPIO chip pointer
+ * @offset:  Pin offset
+ * @returns: 0 for success; < 0 for failure
+ */
 static int smp2p_direction_input(struct gpio_chip *cp, unsigned offset)
 {
 	struct smp2p_chip_dev *chip;
@@ -151,6 +180,14 @@ static int smp2p_direction_input(struct gpio_chip *cp, unsigned offset)
 	return 0;
 }
 
+/**
+ * smp2p_direction_output - Sets GPIO direction to output.
+ *
+ * @cp:      GPIO chip pointer
+ * @offset:  Pin offset
+ * @value:   Direction
+ * @returns: 0 for success; < 0 for failure
+ */
 static int smp2p_direction_output(struct gpio_chip *cp,
 	unsigned offset, int value)
 {
@@ -166,6 +203,13 @@ static int smp2p_direction_output(struct gpio_chip *cp,
 	return 0;
 }
 
+/**
+ * smp2p_gpio_to_irq - Convert GPIO pin to virtual IRQ pin.
+ *
+ * @cp:      GPIO chip pointer
+ * @offset:  Pin offset
+ * @returns: >0 for virtual irq value; < 0 for failure
+ */
 static int smp2p_gpio_to_irq(struct gpio_chip *cp, unsigned offset)
 {
 	struct smp2p_chip_dev *chip;
@@ -177,6 +221,12 @@ static int smp2p_gpio_to_irq(struct gpio_chip *cp, unsigned offset)
 	return chip->irq_base + offset;
 }
 
+/**
+ * smp2p_gpio_irq_mask_helper - Mask/Unmask interrupt.
+ *
+ * @d:    IRQ data
+ * @mask: true to mask (disable), false to unmask (enable)
+ */
 static void smp2p_gpio_irq_mask_helper(struct irq_data *d, bool mask)
 {
 	struct smp2p_chip_dev *chip;
@@ -196,16 +246,33 @@ static void smp2p_gpio_irq_mask_helper(struct irq_data *d, bool mask)
 	spin_unlock_irqrestore(&chip->irq_lock, flags);
 }
 
+/**
+ * smp2p_gpio_irq_mask - Mask interrupt.
+ *
+ * @d: IRQ data
+ */
 static void smp2p_gpio_irq_mask(struct irq_data *d)
 {
 	smp2p_gpio_irq_mask_helper(d, true);
 }
 
+/**
+ * smp2p_gpio_irq_unmask - Unmask interrupt.
+ *
+ * @d: IRQ data
+ */
 static void smp2p_gpio_irq_unmask(struct irq_data *d)
 {
 	smp2p_gpio_irq_mask_helper(d, false);
 }
 
+/**
+ * smp2p_gpio_irq_set_type - Set interrupt edge type.
+ *
+ * @d:      IRQ data
+ * @type:   Edge type for interrupt
+ * @returns 0 for success; < 0 for failure
+ */
 static int smp2p_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 {
 	struct smp2p_chip_dev *chip;
@@ -255,6 +322,14 @@ static int smp2p_gpio_irq_set_type(struct irq_data *d, unsigned int type)
 	return ret;
 }
 
+/**
+ * smp2p_irq_map - Creates or updates binding of virtual IRQ
+ *
+ * @domain_ptr: Interrupt domain pointer
+ * @virq:       Virtual IRQ
+ * @hw:         Hardware IRQ (same as virq for nomap)
+ * @returns:    0 for success
+ */
 static int smp2p_irq_map(struct irq_domain *domain_ptr, unsigned int virq,
 	irq_hw_number_t hw)
 {
@@ -266,7 +341,7 @@ static int smp2p_irq_map(struct irq_domain *domain_ptr, unsigned int virq,
 		return -ENODEV;
 	}
 
-	
+	/* map chip structures to device */
 	irq_set_lockdep_class(virq, &smp2p_gpio_lock_class);
 	irq_set_chip_and_handler(virq, &smp2p_gpio_irq_chip,
 				 handle_level_irq);
@@ -283,10 +358,21 @@ static struct irq_chip smp2p_gpio_irq_chip = {
 	.irq_set_type = smp2p_gpio_irq_set_type,
 };
 
+/* No-map interrupt Domain */
 static const struct irq_domain_ops smp2p_irq_domain_ops = {
 	.map = smp2p_irq_map,
 };
 
+/**
+ * msm_summary_irq_handler - Handles inbound entry change notification.
+ *
+ * @chip:  GPIO chip pointer
+ * @entry: Change notification data
+ *
+ * Whenever an entry changes, this callback is triggered to determine
+ * which bits changed and if the corresponding interrupts need to be
+ * triggered.
+ */
 static void msm_summary_irq_handler(struct smp2p_chip_dev *chip,
 	struct msm_smp2p_update_notif *entry)
 {
@@ -317,10 +403,10 @@ static void msm_summary_irq_handler(struct smp2p_chip_dev *chip,
 
 		if (test_bit(i, chip->irq_enabled)) {
 			if (edge == 0x1 && irq_rising)
-				
+				/* 0->1 transition */
 				trigger_interrrupt = true;
 			else if (edge == 0x2 && irq_falling)
-				
+				/* 1->0 transition */
 				trigger_interrrupt = true;
 		} else {
 			SMP2P_GPIO(
@@ -349,12 +435,18 @@ static void msm_summary_irq_handler(struct smp2p_chip_dev *chip,
 	}
 }
 
+/**
+ * Adds an interrupt domain based upon the DT node.
+ *
+ * @chip: pointer to GPIO chip
+ * @node: pointer to Device Tree node
+ */
 static void smp2p_add_irq_domain(struct smp2p_chip_dev *chip,
 	struct device_node *node)
 {
 	int i;
 
-	
+	/* map GPIO pins to interrupts */
 	chip->irq_domain = irq_domain_add_nomap(node, 0,
 			&smp2p_irq_domain_ops, chip);
 	if (!chip->irq_domain) {
@@ -376,6 +468,14 @@ static void smp2p_add_irq_domain(struct smp2p_chip_dev *chip,
 	}
 }
 
+/**
+ * Notifier function passed into smp2p API for out bound entries.
+ *
+ * @self:       Pointer to calling notifier block
+ * @event:	    Event
+ * @data:       Event-specific data
+ * @returns:    0
+ */
 static int smp2p_gpio_out_notify(struct notifier_block *self,
 		unsigned long event, void *data)
 {
@@ -398,6 +498,14 @@ static int smp2p_gpio_out_notify(struct notifier_block *self,
 	return 0;
 }
 
+/**
+ * Notifier function passed into smp2p API for in bound entries.
+ *
+ * @self:       Pointer to calling notifier block
+ * @event:	    Event
+ * @data:       Event-specific data
+ * @returns:    0
+ */
 static int smp2p_gpio_in_notify(struct notifier_block *self,
 		unsigned long event, void *data)
 {
@@ -421,6 +529,14 @@ static int smp2p_gpio_in_notify(struct notifier_block *self,
 	return 0;
 }
 
+/**
+ * Device tree probe function.
+ *
+ * @pdev:	 Pointer to device tree data.
+ * @returns: 0 on success; -ENODEV otherwise
+ *
+ * Called for each smp2pgpio entry in the device tree.
+ */
 static int __devinit smp2p_gpio_probe(struct platform_device *pdev)
 {
 	struct device_node *node;
@@ -439,7 +555,7 @@ static int __devinit smp2p_gpio_probe(struct platform_device *pdev)
 	}
 	spin_lock_init(&chip->irq_lock);
 
-	
+	/* parse device tree */
 	node = pdev->dev.of_node;
 	key = "qcom,entry-name";
 	ret = of_property_read_string(node, key, &name_tmp);
@@ -459,7 +575,7 @@ static int __devinit smp2p_gpio_probe(struct platform_device *pdev)
 	key = "qcom,is-inbound";
 	chip->is_inbound = of_property_read_bool(node, key);
 
-	
+	/* create virtual GPIO controller */
 	chip->gpio.label = chip->name;
 	chip->gpio.dev = &pdev->dev;
 	chip->gpio.owner = THIS_MODULE;
@@ -468,7 +584,7 @@ static int __devinit smp2p_gpio_probe(struct platform_device *pdev)
 	chip->gpio.direction_output = smp2p_direction_output,
 	chip->gpio.set = smp2p_set_value;
 	chip->gpio.to_irq = smp2p_gpio_to_irq,
-	chip->gpio.base = -1;	
+	chip->gpio.base = -1;	/* use dynamic GPIO pin allocation */
 	chip->gpio.ngpio = SMP2P_BITS_PER_ENTRY;
 	ret = gpiochip_add(&chip->gpio);
 	if (ret) {
@@ -477,6 +593,11 @@ static int __devinit smp2p_gpio_probe(struct platform_device *pdev)
 		goto fail;
 	}
 
+	/*
+	 * Test entries opened by GPIO Test conflict with loopback
+	 * support, so the test entries must be explicitly opened
+	 * in the unit test framework.
+	 */
 	if (strncmp("smp2p", chip->name, SMP2P_MAX_ENTRY_NAME) == 0)
 		is_test_entry = true;
 
@@ -504,6 +625,10 @@ static int __devinit smp2p_gpio_probe(struct platform_device *pdev)
 	list_add(&chip->entry_list, &smp2p_entry_list);
 	spin_unlock_irqrestore(&smp2p_entry_lock_lha1, flags);
 
+	/*
+	 * Create interrupt domain - note that chip can't be removed from the
+	 * interrupt domain, so chip cannot be deleted after this point.
+	 */
 	if (chip->is_inbound)
 		smp2p_add_irq_domain(chip, node);
 	else
@@ -523,13 +648,19 @@ fail:
 	return ret;
 }
 
+/**
+ * smp2p_gpio_open_close - Opens or closes entry.
+ *
+ * @entry:   Entry to open or close
+ * @do_open: true = open port; false = close
+ */
 static void smp2p_gpio_open_close(struct smp2p_chip_dev *entry,
 	bool do_open)
 {
 	int ret;
 
 	if (do_open) {
-		
+		/* open entry */
 		if (entry->is_inbound)
 			ret = msm_smp2p_in_register(entry->remote_pid,
 					entry->name, &entry->in_notifier);
@@ -543,7 +674,7 @@ static void smp2p_gpio_open_close(struct smp2p_chip_dev *entry,
 				entry->name, entry->remote_pid,
 				ret);
 	} else {
-		
+		/* close entry */
 		if (entry->is_inbound)
 			ret = msm_smp2p_in_unregister(entry->remote_pid,
 					entry->name, &entry->in_notifier);
@@ -557,6 +688,13 @@ static void smp2p_gpio_open_close(struct smp2p_chip_dev *entry,
 	}
 }
 
+/**
+ * smp2p_gpio_open_test_entry - Opens or closes test entries for unit testing.
+ *
+ * @name:       Name of the entry
+ * @remote_pid: Remote processor ID
+ * @do_open:    true = open port; false = close
+ */
 void smp2p_gpio_open_test_entry(const char *name, int remote_pid, bool do_open)
 {
 	struct smp2p_chip_dev *entry;
@@ -575,7 +713,7 @@ void smp2p_gpio_open_test_entry(const char *name, int remote_pid, bool do_open)
 	do {
 		if (!strncmp(entry->name, name, SMP2P_MAX_ENTRY_NAME)
 				&& entry->remote_pid == remote_pid) {
-			
+			/* found entry to change */
 			spin_unlock_irqrestore(&smp2p_entry_lock_lha1, flags);
 			smp2p_gpio_open_close(entry, do_open);
 			spin_lock_irqsave(&smp2p_entry_lock_lha1, flags);

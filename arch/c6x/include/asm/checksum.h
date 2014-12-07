@@ -31,4 +31,4 @@ csum_tcpudp_nofold(__be32 saddr, __be32 daddr, unsigned short len,
 
 #include <asm-generic/checksum.h>
 
-#endif 
+#endif /* _ASM_C6X_CHECKSUM_H */

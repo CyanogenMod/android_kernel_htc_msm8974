@@ -21,6 +21,8 @@
 
 #include <mach/iomux-v3.h>
 
+/* These 2 defines are for pins that may not have a mux register, but could
+ * have a pad setting register, and vice-versa. */
 #define __NA_	0x00
 
 #define MX53_UART_PAD_CTRL		(PAD_CTL_PKE | PAD_CTL_PUE |	\
@@ -1214,4 +1216,4 @@
 #define MX53_PAD_GPIO_18__ESDHC1_LCTL			IOMUX_PAD(0x6D4, 0x344, 6, __NA_, 0, NO_PAD_CTRL)
 #define MX53_PAD_GPIO_18__SRC_SYSTEM_RST		IOMUX_PAD(0x6D4, 0x344, 7, __NA_, 0, NO_PAD_CTRL)
 
-#endif	
+#endif	/* __MACH_IOMUX_MX53_H__ */

@@ -26,6 +26,7 @@
 
 static int x25_ioctl(struct net_device *dev, struct ifreq *ifr);
 
+/* These functions are callbacks called by LAPB layer */
 
 static void x25_connect_disconnect(struct net_device *dev, int reason, int code)
 {
@@ -81,7 +82,7 @@ static int x25_data_indication(struct net_device *dev, struct sk_buff *skb)
 static void x25_data_transmit(struct net_device *dev, struct sk_buff *skb)
 {
 	hdlc_device *hdlc = dev_to_hdlc(dev);
-	hdlc->xmit(skb, dev); 
+	hdlc->xmit(skb, dev); /* Ignore return value :-( */
 }
 
 
@@ -91,9 +92,9 @@ static netdev_tx_t x25_xmit(struct sk_buff *skb, struct net_device *dev)
 	int result;
 
 
-	
+	/* X.25 to LAPB */
 	switch (skb->data[0]) {
-	case X25_IFACE_DATA:	
+	case X25_IFACE_DATA:	/* Data to be transmitted */
 		skb_pull(skb, 1);
 		if ((result = lapb_data_request(dev, skb)) != LAPB_OK)
 			dev_kfree_skb(skb);
@@ -102,7 +103,7 @@ static netdev_tx_t x25_xmit(struct sk_buff *skb, struct net_device *dev)
 	case X25_IFACE_CONNECT:
 		if ((result = lapb_connect_request(dev))!= LAPB_OK) {
 			if (result == LAPB_CONNECTED)
-				
+				/* Send connect confirm. msg to level 3 */
 				x25_connected(dev, 0);
 			else
 				netdev_err(dev, "LAPB connect request failed, error code = %i\n",
@@ -113,7 +114,7 @@ static netdev_tx_t x25_xmit(struct sk_buff *skb, struct net_device *dev)
 	case X25_IFACE_DISCONNECT:
 		if ((result = lapb_disconnect_request(dev)) != LAPB_OK) {
 			if (result == LAPB_NOTCONNECTED)
-				
+				/* Send disconnect confirm. msg to level 3 */
 				x25_disconnected(dev, 0);
 			else
 				netdev_err(dev, "LAPB disconnect request failed, error code = %i\n",
@@ -121,7 +122,7 @@ static netdev_tx_t x25_xmit(struct sk_buff *skb, struct net_device *dev)
 		}
 		break;
 
-	default:		
+	default:		/* to be defined */
 		break;
 	}
 
@@ -196,7 +197,7 @@ static int x25_ioctl(struct net_device *dev, struct ifreq *ifr)
 		if (dev_to_hdlc(dev)->proto != &proto)
 			return -EINVAL;
 		ifr->ifr_settings.type = IF_PROTO_X25;
-		return 0; 
+		return 0; /* return protocol only, no settable parameters */
 
 	case IF_PROTO_X25:
 		if (!capable(CAP_NET_ADMIN))

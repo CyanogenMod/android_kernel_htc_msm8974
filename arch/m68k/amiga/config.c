@@ -8,6 +8,9 @@
  * for more details.
  */
 
+/*
+ * Miscellaneous Amiga stuff
+ */
 
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -91,6 +94,7 @@ static char amiga_model_name[13] = "Amiga ";
 static void amiga_sched_init(irq_handler_t handler);
 static void amiga_get_model(char *model);
 static void amiga_get_hardware_list(struct seq_file *m);
+/* amiga specific timer functions */
 static unsigned long amiga_gettimeoffset(void);
 extern void amiga_mksound(unsigned int count, unsigned int ticks);
 static void amiga_reset(void);
@@ -108,6 +112,9 @@ static struct console amiga_console_driver = {
 };
 
 
+    /*
+     *  Motherboard Resources present in all Amiga models
+     */
 
 static struct {
 	struct resource _ciab, _ciaa, _custom, _kickstart;
@@ -129,6 +136,9 @@ static struct {
 static struct resource ram_resource[NUM_MEMINFO];
 
 
+    /*
+     *  Parse an Amiga-specific record in the bootinfo
+     */
 
 int amiga_parse_bootinfo(const struct bi_record *record)
 {
@@ -172,11 +182,11 @@ int amiga_parse_bootinfo(const struct bi_record *record)
 			dev->resource.end = dev->resource.start + cd->cd_BoardSize - 1;
 		} else
 			printk("amiga_parse_bootinfo: too many AutoConfig devices\n");
-#endif 
+#endif /* CONFIG_ZORRO */
 		break;
 
 	case BI_AMIGA_SERPER:
-		
+		/* serial port period: ignored here */
 		break;
 
 	default:
@@ -185,10 +195,13 @@ int amiga_parse_bootinfo(const struct bi_record *record)
 	return unknown;
 }
 
+    /*
+     *  Identify builtin hardware
+     */
 
 static void __init amiga_identify(void)
 {
-	
+	/* Fill in some default values, if necessary */
 	if (amiga_eclock == 0)
 		amiga_eclock = 709379;
 
@@ -213,14 +226,14 @@ static void __init amiga_identify(void)
 	case AMI_1000:
 	case AMI_2000:
 	case AMI_2500:
-		AMIGAHW_SET(A2000_CLK);	
+		AMIGAHW_SET(A2000_CLK);	/* Is this correct for all models? */
 		goto Generic;
 
 	case AMI_3000:
 	case AMI_3000T:
 		AMIGAHW_SET(AMBER_FF);
 		AMIGAHW_SET(MAGIC_REKICK);
-		
+		/* fall through */
 	case AMI_3000PLUS:
 		AMIGAHW_SET(A3000_SCSI);
 		AMIGAHW_SET(A3000_CLK);
@@ -229,7 +242,7 @@ static void __init amiga_identify(void)
 
 	case AMI_4000T:
 		AMIGAHW_SET(A4000_SCSI);
-		
+		/* fall through */
 	case AMI_4000:
 		AMIGAHW_SET(A4000_IDE);
 		AMIGAHW_SET(A3000_CLK);
@@ -239,7 +252,7 @@ static void __init amiga_identify(void)
 	case AMI_CDTV:
 	case AMI_CD32:
 		AMIGAHW_SET(CD_ROM);
-		AMIGAHW_SET(A2000_CLK);             
+		AMIGAHW_SET(A2000_CLK);             /* Is this correct? */
 		goto Generic;
 
 	Generic:
@@ -345,6 +358,9 @@ static void __init amiga_identify(void)
 #undef AMIGAHW_ANNOUNCE
 }
 
+    /*
+     *  Setup the Amiga configuration info
+     */
 
 void __init config_amiga(void)
 {
@@ -352,7 +368,7 @@ void __init config_amiga(void)
 
 	amiga_identify();
 
-	
+	/* Yuk, we don't have PCI memory */
 	iomem_resource.name = "Memory";
 	for (i = 0; i < 4; i++)
 		request_resource(&iomem_resource, &((struct resource *)&mb_resources)[i]);
@@ -363,6 +379,11 @@ void __init config_amiga(void)
 	mach_get_hardware_list = amiga_get_hardware_list;
 	mach_gettimeoffset   = amiga_gettimeoffset;
 
+	/*
+	 * default MAX_DMA=0xffffffff on all machines. If we don't do so, the SCSI
+	 * code will not be able to allocate any mem for transfers, unless we are
+	 * dealing with a Z2 mem only system.                  /Jes
+	 */
 	mach_max_dma_address = 0xffffffff;
 
 	mach_reset           = amiga_reset;
@@ -374,15 +395,15 @@ void __init config_amiga(void)
 	mach_heartbeat = amiga_heartbeat;
 #endif
 
-	
-	amiga_colorclock = 5*amiga_eclock;	
+	/* Fill in the clock value (based on the 700 kHz E-Clock) */
+	amiga_colorclock = 5*amiga_eclock;	/* 3.5 MHz */
 
-	
+	/* clear all DMA bits */
 	amiga_custom.dmacon = DMAF_ALL;
-	
+	/* ensure that the DMA master bit is set */
 	amiga_custom.dmacon = DMAF_SETCLR | DMAF_MASTER;
 
-	
+	/* don't use Z2 RAM as system memory on Z3 capable machines */
 	if (AMIGAHW_PRESENT(ZORRO3)) {
 		int i, j;
 		u32 disabled_z2mem = 0;
@@ -390,7 +411,7 @@ void __init config_amiga(void)
 		for (i = 0; i < m68k_num_memory; i++) {
 			if (m68k_memory[i].addr < 16*1024*1024) {
 				if (i == 0) {
-					
+					/* don't cut off the branch we're sitting on */
 					printk("Warning: kernel runs in Zorro II memory\n");
 					continue;
 				}
@@ -406,7 +427,7 @@ void __init config_amiga(void)
 		disabled_z2mem>>10);
 	}
 
-	
+	/* request all RAM */
 	for (i = 0; i < m68k_num_memory; i++) {
 		ram_resource[i].name =
 			(m68k_memory[i].addr >= 0x01000000) ? "32-bit Fast RAM" :
@@ -417,13 +438,17 @@ void __init config_amiga(void)
 		request_resource(&iomem_resource, &ram_resource[i]);
 	}
 
-	
+	/* initialize chipram allocator */
 	amiga_chip_init();
 
-	
+	/* our beloved beeper */
 	if (AMIGAHW_PRESENT(AMI_AUDIO))
 		amiga_init_sound();
 
+	/*
+	 * if it is an A3000, set the magic bit that forces
+	 * a hard rekick
+	 */
 	if (AMIGAHW_PRESENT(MAGIC_REKICK))
 		*(unsigned char *)ZTWO_VADDR(0xde0002) |= 0x80;
 }
@@ -439,24 +464,30 @@ static void __init amiga_sched_init(irq_handler_t timer_routine)
 
 	if (request_resource(&mb_resources._ciab, &sched_res))
 		printk("Cannot allocate ciab.ta{lo,hi}\n");
-	ciab.cra &= 0xC0;   
+	ciab.cra &= 0xC0;   /* turn off timer A, continuous mode, from Eclk */
 	ciab.talo = jiffy_ticks % 256;
 	ciab.tahi = jiffy_ticks / 256;
 
+	/* install interrupt service routine for CIAB Timer A
+	 *
+	 * Please don't change this to use ciaa, as it interferes with the
+	 * SCSI code. We'll have to take a look at this later
+	 */
 	if (request_irq(IRQ_AMIGA_CIAB_TA, timer_routine, 0, "timer", NULL))
 		pr_err("Couldn't register timer interrupt\n");
-	
+	/* start timer */
 	ciab.cra |= 0x11;
 }
 
 #define TICK_SIZE 10000
 
+/* This is always executed with interrupts disabled.  */
 static unsigned long amiga_gettimeoffset(void)
 {
 	unsigned short hi, lo, hi2;
 	unsigned long ticks, offset = 0;
 
-	
+	/* read CIA B timer A current value */
 	hi  = ciab.tahi;
 	lo  = ciab.talo;
 	hi2 = ciab.tahi;
@@ -469,7 +500,7 @@ static unsigned long amiga_gettimeoffset(void)
 	ticks = hi << 8 | lo;
 
 	if (ticks > jiffy_ticks / 2)
-		
+		/* check for pending interrupt */
 		if (cia_set_irq(&ciab_base, 0) & CIA_ICR_TA)
 			offset = 10000;
 
@@ -488,38 +519,47 @@ static void amiga_reset(void)
 
 	local_irq_disable();
 	if (CPU_IS_040_OR_060)
+		/* Setup transparent translation registers for mapping
+		 * of 16 MB kernel segment before disabling translation
+		 */
 		asm volatile ("\n"
 			"	move.l	%0,%%d0\n"
 			"	and.l	#0xff000000,%%d0\n"
-			"	or.w	#0xe020,%%d0\n"   
+			"	or.w	#0xe020,%%d0\n"   /* map 16 MB, enable, cacheable */
 			"	.chip	68040\n"
 			"	movec	%%d0,%%itt0\n"
 			"	movec	%%d0,%%dtt0\n"
 			"	.chip	68k\n"
 			"	jmp	%0@\n"
-			: 
+			: /* no outputs */
 			: "a" (jmp_addr040)
 			: "d0");
 	else
+		/* for 680[23]0, just disable translation and jump to the physical
+		 * address of the label
+		 */
 		asm volatile ("\n"
 			"	pmove	%%tc,%@\n"
 			"	bclr	#7,%@\n"
 			"	pmove	%@,%%tc\n"
 			"	jmp	%0@\n"
-			: 
+			: /* no outputs */
 			: "a" (jmp_addr));
 jmp_addr_label040:
-	
+	/* disable translation on '040 now */
 	asm volatile ("\n"
 		"	moveq	#0,%%d0\n"
 		"	.chip	68040\n"
-		"	movec	%%d0,%%tc\n"	
+		"	movec	%%d0,%%tc\n"	/* disable MMU */
 		"	.chip	68k\n"
-		: 
-		: 
+		: /* no outputs */
+		: /* no inputs */
 		: "d0");
 
 	jmp_addr_label:
+	/* pickup reset address from AmigaOS ROM, reset devices and jump
+	 * to reset address
+	 */
 	asm volatile ("\n"
 		"	move.w	#0x2700,%sr\n"
 		"	lea	0x01000000,%a0\n"
@@ -527,7 +567,7 @@ jmp_addr_label040:
 		"	move.l	%a0@(4),%a0\n"
 		"	subq.l	#2,%a0\n"
 		"	jra	1f\n"
-		
+		/* align on a longword boundary */
 		"	" __ALIGN_STR "\n"
 		"1:\n"
 		"	reset\n"
@@ -538,16 +578,19 @@ jmp_addr_label040:
 }
 
 
+    /*
+     *  Debugging
+     */
 
 #define SAVEKMSG_MAXMEM		128*1024
 
-#define SAVEKMSG_MAGIC1		0x53415645	
-#define SAVEKMSG_MAGIC2		0x4B4D5347	
+#define SAVEKMSG_MAGIC1		0x53415645	/* 'SAVE' */
+#define SAVEKMSG_MAGIC2		0x4B4D5347	/* 'KMSG' */
 
 struct savekmsg {
-	unsigned long magic1;		
-	unsigned long magic2;		
-	unsigned long magicptr;		
+	unsigned long magic1;		/* SAVEKMSG_MAGIC1 */
+	unsigned long magic2;		/* SAVEKMSG_MAGIC2 */
+	unsigned long magicptr;		/* address of magic1 */
 	unsigned long size;
 	char data[0];
 };
@@ -573,7 +616,7 @@ static int __init amiga_savekmsg_setup(char *arg)
 		return -ENOMEM;
 	}
 
-	
+	/* Just steal the block, the chipram allocator isn't functional yet */
 	amiga_chip_size -= SAVEKMSG_MAXMEM;
 	savekmsg = (void *)ZTWO_VADDR(CHIP_PHYSADDR + amiga_chip_size);
 	savekmsg->magic1 = SAVEKMSG_MAGIC1;
@@ -618,7 +661,7 @@ int amiga_serial_console_wait_key(struct console *co)
 	while (!(amiga_custom.intreqr & IF_RBF))
 		barrier();
 	ch = amiga_custom.serdatr & 0xff;
-	
+	/* clear the interrupt, so that another character can be read */
 	amiga_custom.intreq = IF_RBF;
 	return ch;
 }
@@ -630,7 +673,7 @@ void amiga_serial_gets(struct console *co, char *s, int len)
 	while (1) {
 		ch = amiga_serial_console_wait_key(co);
 
-		
+		/* Check for backspace. */
 		if (ch == 8 || ch == 127) {
 			if (cnt == 0) {
 				amiga_serial_putc('\007');
@@ -641,22 +684,22 @@ void amiga_serial_gets(struct console *co, char *s, int len)
 			continue;
 		}
 
-		
+		/* Check for enter. */
 		if (ch == 10 || ch == 13)
 			break;
 
-		
+		/* See if line is too long. */
 		if (cnt >= len + 1) {
 			amiga_serial_putc(7);
 			cnt--;
 			continue;
 		}
 
-		
+		/* Store and echo character. */
 		s[cnt++] = ch;
 		amiga_serial_putc(ch);
 	}
-	
+	/* Print enter. */
 	amiga_serial_puts("\r\n");
 	s[cnt] = 0;
 }
@@ -665,7 +708,7 @@ void amiga_serial_gets(struct console *co, char *s, int len)
 static int __init amiga_debug_setup(char *arg)
 {
 	if (MACH_IS_AMIGA && !strcmp(arg, "ser")) {
-		
+		/* no initialization required (?) */
 		amiga_console_driver.write = amiga_serial_console_write;
 		register_console(&amiga_console_driver);
 	}
@@ -684,6 +727,9 @@ static void amiga_heartbeat(int on)
 }
 #endif
 
+    /*
+     *  Amiga specific parts of /proc
+     */
 
 static void amiga_get_model(char *model)
 {
@@ -757,11 +803,15 @@ static void amiga_get_hardware_list(struct seq_file *m)
 				"Device%s\n",
 				AMIGAHW_PRESENT(ZORRO3) ? "I" : "",
 				zorro_num_autocon, zorro_num_autocon == 1 ? "" : "s");
-#endif 
+#endif /* CONFIG_ZORRO */
 
 #undef AMIGAHW_ANNOUNCE
 }
 
+/*
+ * The Amiga keyboard driver needs key_maps, but we cannot export it in
+ * drivers/char/defkeymap.c, as it is autogenerated
+ */
 #ifdef CONFIG_HW_CONSOLE
 EXPORT_SYMBOL_GPL(key_maps);
 #endif

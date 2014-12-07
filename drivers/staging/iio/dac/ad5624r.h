@@ -30,12 +30,27 @@
 #define AD5624R_LDAC_PWRDN_100K			0x2
 #define AD5624R_LDAC_PWRDN_3STATE		0x3
 
+/**
+ * struct ad5624r_chip_info - chip specific information
+ * @channels:		channel spec for the DAC
+ * @int_vref_mv:	AD5620/40/60: the internal reference voltage
+ */
 
 struct ad5624r_chip_info {
 	const struct iio_chan_spec	*channels;
 	u16				int_vref_mv;
 };
 
+/**
+ * struct ad5446_state - driver instance specific data
+ * @indio_dev:		the industrial I/O device
+ * @us:			spi_device
+ * @chip_info:		chip model specific constants, available modes etc
+ * @reg:		supply regulator
+ * @vref_mv:		actual reference voltage used
+ * @pwr_down_mask	power down mask
+ * @pwr_down_mode	current power down mode
+ */
 
 struct ad5624r_state {
 	struct spi_device		*us;
@@ -46,6 +61,11 @@ struct ad5624r_state {
 	unsigned			pwr_down_mode;
 };
 
+/**
+ * ad5624r_supported_device_ids:
+ * The AD5624/44/64 parts are available in different
+ * fixed internal reference voltage options.
+ */
 
 enum ad5624r_supported_device_ids {
 	ID_AD5624R3,
@@ -56,4 +76,4 @@ enum ad5624r_supported_device_ids {
 	ID_AD5664R5,
 };
 
-#endif 
+#endif /* SPI_AD5624R_H_ */

@@ -40,17 +40,22 @@ MODULE_VERSION("0.1.1");
 #define MIN_H 32
 #define MAX_W 640
 #define MAX_H 480
-#define DIM_ALIGN_MASK 0x08 
+#define DIM_ALIGN_MASK 0x08 /* 8-alignment for dimensions */
 
+/* Flags that indicate a format can be used for capture/output */
 #define MEM2MEM_CAPTURE	(1 << 0)
 #define MEM2MEM_OUTPUT	(1 << 1)
 
 #define MEM2MEM_NAME		"m2m-testdev"
 
+/* Per queue */
 #define MEM2MEM_DEF_NUM_BUFS	VIDEO_MAX_FRAME
+/* In bytes, per queue */
 #define MEM2MEM_VID_MEM_LIMIT	(16 * 1024 * 1024)
 
+/* Default transaction time in msec */
 #define MEM2MEM_DEF_TRANSTIME	1000
+/* Default number of buffers per transaction */
 #define MEM2MEM_DEF_TRANSLEN	1
 #define MEM2MEM_COLOR_STEP	(0xff >> 4)
 #define MEM2MEM_NUM_TILES	8
@@ -71,27 +76,28 @@ struct m2mtest_fmt {
 	char	*name;
 	u32	fourcc;
 	int	depth;
-	
+	/* Types the format can be used for */
 	u32	types;
 };
 
 static struct m2mtest_fmt formats[] = {
 	{
 		.name	= "RGB565 (BE)",
-		.fourcc	= V4L2_PIX_FMT_RGB565X, 
+		.fourcc	= V4L2_PIX_FMT_RGB565X, /* rrrrrggg gggbbbbb */
 		.depth	= 16,
-		
+		/* Both capture and output format */
 		.types	= MEM2MEM_CAPTURE | MEM2MEM_OUTPUT,
 	},
 	{
 		.name	= "4:2:2, packed, YUYV",
 		.fourcc	= V4L2_PIX_FMT_YUYV,
 		.depth	= 16,
-		
+		/* Output-only format */
 		.types	= MEM2MEM_OUTPUT,
 	},
 };
 
+/* Per-queue, driver-specific private data */
 struct m2mtest_q_data {
 	unsigned int		width;
 	unsigned int		height;
@@ -104,6 +110,7 @@ enum {
 	V4L2_M2M_DST = 1,
 };
 
+/* Source and destination queue data */
 static struct m2mtest_q_data q_data[2];
 
 static struct m2mtest_q_data *get_q_data(enum v4l2_buf_type type)
@@ -179,15 +186,15 @@ struct m2mtest_dev {
 struct m2mtest_ctx {
 	struct m2mtest_dev	*dev;
 
-	
+	/* Processed buffers in this transaction */
 	u8			num_processed;
 
-	
+	/* Transaction length (i.e. how many buffers per transaction) */
 	u32			translen;
-	
+	/* Transaction time (i.e. simulated processing time) in milliseconds */
 	u32			transtime;
 
-	
+	/* Abort requested by m2m */
 	int			aborting;
 
 	struct v4l2_m2m_ctx	*m2m_ctx;
@@ -264,7 +271,13 @@ static void schedule_irq(struct m2mtest_dev *dev, int msec_timeout)
 	mod_timer(&dev->timer, jiffies + msecs_to_jiffies(msec_timeout));
 }
 
+/*
+ * mem2mem callbacks
+ */
 
+/**
+ * job_ready() - check whether an instance is ready to be scheduled to run
+ */
 static int job_ready(void *priv)
 {
 	struct m2mtest_ctx *ctx = priv;
@@ -282,7 +295,7 @@ static void job_abort(void *priv)
 {
 	struct m2mtest_ctx *ctx = priv;
 
-	
+	/* Will cancel the transaction in the next interrupt handler */
 	ctx->aborting = 1;
 }
 
@@ -301,6 +314,12 @@ static void m2mtest_unlock(void *priv)
 }
 
 
+/* device_run() - prepares and starts the device
+ *
+ * This simulates all the immediate preparations required before starting
+ * a device. This will be called by the framework when it decides to schedule
+ * a particular instance.
+ */
 static void device_run(void *priv)
 {
 	struct m2mtest_ctx *ctx = priv;
@@ -312,7 +331,7 @@ static void device_run(void *priv)
 
 	device_process(ctx, src_buf, dst_buf);
 
-	
+	/* Run a timer, which simulates a hardware irq  */
 	schedule_irq(dev, ctx->transtime);
 }
 
@@ -351,6 +370,9 @@ static void device_isr(unsigned long priv)
 	}
 }
 
+/*
+ * video ioctls
+ */
 static int vidioc_querycap(struct file *file, void *priv,
 			   struct v4l2_capability *cap)
 {
@@ -372,22 +394,24 @@ static int enum_fmt(struct v4l2_fmtdesc *f, u32 type)
 
 	for (i = 0; i < NUM_FORMATS; ++i) {
 		if (formats[i].types & type) {
-			
+			/* index-th format of type type found ? */
 			if (num == f->index)
 				break;
+			/* Correct type but haven't reached our index yet,
+			 * just increment per-type index */
 			++num;
 		}
 	}
 
 	if (i < NUM_FORMATS) {
-		
+		/* Format found */
 		fmt = &formats[i];
 		strncpy(f->description, fmt->name, sizeof(f->description) - 1);
 		f->pixelformat = fmt->fourcc;
 		return 0;
 	}
 
-	
+	/* Format not found */
 	return -EINVAL;
 }
 
@@ -447,6 +471,8 @@ static int vidioc_try_fmt(struct v4l2_format *f, struct m2mtest_fmt *fmt)
 	else if (V4L2_FIELD_NONE != field)
 		return -EINVAL;
 
+	/* V4L2 specification suggests the driver corrects the format struct
+	 * if any of the dimensions is unsupported */
 	f->fmt.pix.field = field;
 
 	if (f->fmt.pix.height < MIN_H)
@@ -708,6 +734,9 @@ static const struct v4l2_ioctl_ops m2mtest_ioctl_ops = {
 };
 
 
+/*
+ * Queue operations
+ */
 
 static int m2mtest_queue_setup(struct vb2_queue *vq,
 				const struct v4l2_format *fmt,
@@ -729,6 +758,10 @@ static int m2mtest_queue_setup(struct vb2_queue *vq,
 	*nbuffers = count;
 	sizes[0] = size;
 
+	/*
+	 * videobuf2-vmalloc allocator is context-less so no need to set
+	 * alloc_ctxs array.
+	 */
 
 	dprintk(ctx->dev, "get %d buffer(s) of size %d each.\n", count, size);
 
@@ -809,6 +842,9 @@ static int queue_init(void *priv, struct vb2_queue *src_vq, struct vb2_queue *ds
 	return vb2_queue_init(dst_vq);
 }
 
+/*
+ * File operations
+ */
 static int m2mtest_open(struct file *file)
 {
 	struct m2mtest_dev *dev = video_drvdata(file);

@@ -17,29 +17,34 @@
 #include <linux/u64_stats_sync.h>
 
 enum blkio_policy_id {
-	BLKIO_POLICY_PROP = 0,		
-	BLKIO_POLICY_THROTL,		
+	BLKIO_POLICY_PROP = 0,		/* Proportional Bandwidth division */
+	BLKIO_POLICY_THROTL,		/* Throttling */
 };
 
+/* Max limits for throttle policy */
 #define THROTL_IOPS_MAX		UINT_MAX
 
 #if defined(CONFIG_BLK_CGROUP) || defined(CONFIG_BLK_CGROUP_MODULE)
 
 #ifndef CONFIG_BLK_CGROUP
+/* When blk-cgroup is a module, its subsys_id isn't a compile-time constant */
 extern struct cgroup_subsys blkio_subsys;
 #define blkio_subsys_id blkio_subsys.subsys_id
 #endif
 
 enum stat_type {
+	/* Total time spent (in ns) between request dispatch to the driver and
+	 * request completion for IOs doen by this cgroup. This may not be
+	 * accurate when NCQ is turned on. */
 	BLKIO_STAT_SERVICE_TIME = 0,
-	
+	/* Total time spent waiting in scheduler queue in ns */
 	BLKIO_STAT_WAIT_TIME,
-	
+	/* Number of IOs queued up */
 	BLKIO_STAT_QUEUED,
-	
+	/* All the single valued stats go below this */
 	BLKIO_STAT_TIME,
 #ifdef CONFIG_DEBUG_BLK_CGROUP
-	
+	/* Time not charged to this cgroup */
 	BLKIO_STAT_UNACCOUNTED_TIME,
 	BLKIO_STAT_AVG_QUEUE_SIZE,
 	BLKIO_STAT_IDLE_TIME,
@@ -49,13 +54,14 @@ enum stat_type {
 #endif
 };
 
+/* Per cpu stats */
 enum stat_type_cpu {
 	BLKIO_STAT_CPU_SECTORS,
-	
+	/* Total bytes transferred */
 	BLKIO_STAT_CPU_SERVICE_BYTES,
-	
+	/* Total IOs serviced, post merge */
 	BLKIO_STAT_CPU_SERVICED,
-	
+	/* Number of IOs merged */
 	BLKIO_STAT_CPU_MERGED,
 	BLKIO_STAT_CPU_NR
 };
@@ -68,12 +74,14 @@ enum stat_sub_type {
 	BLKIO_STAT_TOTAL
 };
 
+/* blkg state flags */
 enum blkg_state_flags {
 	BLKG_waiting = 0,
 	BLKG_idling,
 	BLKG_empty,
 };
 
+/* cgroup files owned by proportional weight policy */
 enum blkcg_file_name_prop {
 	BLKIO_PROP_weight = 1,
 	BLKIO_PROP_weight_device,
@@ -93,6 +101,7 @@ enum blkcg_file_name_prop {
 	BLKIO_PROP_dequeue,
 };
 
+/* cgroup files owned by throttle policy */
 enum blkcg_file_name_throtl {
 	BLKIO_THROTL_read_bps_device,
 	BLKIO_THROTL_write_bps_device,
@@ -107,37 +116,42 @@ struct blkio_cgroup {
 	unsigned int weight;
 	spinlock_t lock;
 	struct hlist_head blkg_list;
-	struct list_head policy_list; 
+	struct list_head policy_list; /* list of blkio_policy_node */
 };
 
 struct blkio_group_stats {
-	
+	/* total disk time and nr sectors dispatched by this group */
 	uint64_t time;
 	uint64_t stat_arr[BLKIO_STAT_QUEUED + 1][BLKIO_STAT_TOTAL];
 #ifdef CONFIG_DEBUG_BLK_CGROUP
-	
+	/* Time not charged to this cgroup */
 	uint64_t unaccounted_time;
 
-	
+	/* Sum of number of IOs queued across all samples */
 	uint64_t avg_queue_size_sum;
-	
+	/* Count of samples taken for average */
 	uint64_t avg_queue_size_samples;
-	
+	/* How many times this group has been removed from service tree */
 	unsigned long dequeue;
 
-	
+	/* Total time spent waiting for it to be assigned a timeslice. */
 	uint64_t group_wait_time;
 	uint64_t start_group_wait_time;
 
-	
+	/* Time spent idling for this blkio_group */
 	uint64_t idle_time;
 	uint64_t start_idle_time;
+	/*
+	 * Total time when we have requests queued and do not contain the
+	 * current active queue.
+	 */
 	uint64_t empty_time;
 	uint64_t start_empty_time;
 	uint16_t flags;
 #endif
 };
 
+/* Per cpu blkio group stats */
 struct blkio_group_stats_cpu {
 	uint64_t sectors;
 	uint64_t stat_arr_cpu[BLKIO_STAT_CPU_NR][BLKIO_STAT_TOTAL];
@@ -145,34 +159,39 @@ struct blkio_group_stats_cpu {
 };
 
 struct blkio_group {
-	
+	/* An rcu protected unique identifier for the group */
 	void *key;
 	struct hlist_node blkcg_node;
 	unsigned short blkcg_id;
-	
+	/* Store cgroup path */
 	char path[128];
-	
+	/* The device MKDEV(major, minor), this group has been created for */
 	dev_t dev;
-	
+	/* policy which owns this blk group */
 	enum blkio_policy_id plid;
 
-	
+	/* Need to serialize the stats in the case of reset/update */
 	spinlock_t stats_lock;
 	struct blkio_group_stats stats;
-	
+	/* Per cpu stats pointer */
 	struct blkio_group_stats_cpu __percpu *stats_cpu;
 };
 
 struct blkio_policy_node {
 	struct list_head node;
 	dev_t dev;
-	
+	/* This node belongs to max bw policy or porportional weight policy */
 	enum blkio_policy_id plid;
-	
+	/* cgroup file to which this rule belongs to */
 	int fileid;
 
 	union {
 		unsigned int weight;
+		/*
+		 * Rate read/write in terms of bytes per second
+		 * Whether this rate represents read or write is determined
+		 * by file type "fileid".
+		 */
 		u64 bps;
 		unsigned int iops;
 	} val;
@@ -217,6 +236,7 @@ struct blkio_policy_type {
 	enum blkio_policy_id plid;
 };
 
+/* Blkio controller policy registration */
 extern void blkio_policy_register(struct blkio_policy_type *);
 extern void blkio_policy_unregister(struct blkio_policy_type *);
 
@@ -341,4 +361,4 @@ static inline void blkiocg_update_io_add_stats(struct blkio_group *blkg,
 static inline void blkiocg_update_io_remove_stats(struct blkio_group *blkg,
 						bool direction, bool sync) {}
 #endif
-#endif 
+#endif /* _BLK_CGROUP_H */

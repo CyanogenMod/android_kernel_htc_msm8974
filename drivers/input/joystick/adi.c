@@ -2,6 +2,9 @@
  *  Copyright (c) 1998-2005 Vojtech Pavlik
  */
 
+/*
+ * Logitech ADI joystick family driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -39,11 +42,14 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Times, array sizes, flags, ids.
+ */
 
-#define ADI_MAX_START		200	
-#define ADI_MAX_STROBE		40	
-#define ADI_INIT_DELAY		10	
-#define ADI_DATA_DELAY		4	
+#define ADI_MAX_START		200	/* Trigger to packet timeout [200us] */
+#define ADI_MAX_STROBE		40	/* Single bit timeout [40us] */
+#define ADI_INIT_DELAY		10	/* Delay after init packet [10ms] */
+#define ADI_DATA_DELAY		4	/* Delay after data packet [4ms] */
 
 #define ADI_MAX_LENGTH		256
 #define ADI_MIN_LENGTH		8
@@ -61,6 +67,9 @@ MODULE_LICENSE("GPL");
 #define ADI_ID_WGPE		0x08
 #define ADI_ID_MAX		0x0a
 
+/*
+ * Names, buttons, axes ...
+ */
 
 static char *adi_names[] = {	"WingMan Extreme Digital", "ThunderPad Digital", "SideCar", "CyberMan 2",
 				"WingMan Interceptor", "WingMan Formula", "WingMan GamePad",
@@ -84,12 +93,18 @@ static char* adi_abs[] = { adi_wmi_abs, adi_wmgpe_abs, adi_wmf_abs, adi_cm2_abs,
 static short* adi_key[] = { adi_wmi_key, adi_wmgpe_key, adi_cm2_key, adi_cm2_key, adi_wmi_key, adi_cm2_key,
 			    adi_wmgpe_key, adi_wmed3d_key, adi_wmgpe_key, adi_wmgpe_key, adi_wmi_key };
 
+/*
+ * Hat to axis conversion arrays.
+ */
 
 static struct {
 	int x;
 	int y;
 } adi_hat_to_axis[] = {{ 0, 0}, { 0,-1}, { 1,-1}, { 1, 0}, { 1, 1}, { 0, 1}, {-1, 1}, {-1, 0}, {-1,-1}};
 
+/*
+ * Per-port information.
+ */
 
 struct adi {
 	struct input_dev *dev;
@@ -117,6 +132,9 @@ struct adi_port {
 	int reads;
 };
 
+/*
+ * adi_read_packet() reads a Logitech ADI packet.
+ */
 
 static void adi_read_packet(struct adi_port *port)
 {
@@ -156,6 +174,10 @@ static void adi_read_packet(struct adi_port *port)
 	return;
 }
 
+/*
+ * adi_move_bits() detects a possible 2-stream mode, and moves
+ * the bits accordingly.
+ */
 
 static void adi_move_bits(struct adi_port *port, int length)
 {
@@ -174,6 +196,9 @@ static void adi_move_bits(struct adi_port *port, int length)
 	adi[1].ret = -1;
 }
 
+/*
+ * adi_get_bits() gathers bits from the data packet.
+ */
 
 static inline int adi_get_bits(struct adi *adi, int count)
 {
@@ -185,6 +210,9 @@ static inline int adi_get_bits(struct adi *adi, int count)
 	return bits;
 }
 
+/*
+ * adi_decode() decodes Logitech joystick data into input events.
+ */
 
 static int adi_decode(struct adi *adi)
 {
@@ -225,6 +253,9 @@ static int adi_decode(struct adi *adi)
 	return 0;
 }
 
+/*
+ * adi_read() reads the data packet and decodes it.
+ */
 
 static int adi_read(struct adi_port *port)
 {
@@ -241,6 +272,9 @@ static int adi_read(struct adi_port *port)
 	return result;
 }
 
+/*
+ * adi_poll() repeatedly polls the Logitech joysticks.
+ */
 
 static void adi_poll(struct gameport *gameport)
 {
@@ -250,6 +284,9 @@ static void adi_poll(struct gameport *gameport)
 	port->reads++;
 }
 
+/*
+ * adi_open() is a callback from the input open routine.
+ */
 
 static int adi_open(struct input_dev *dev)
 {
@@ -259,6 +296,9 @@ static int adi_open(struct input_dev *dev)
 	return 0;
 }
 
+/*
+ * adi_close() is a callback from the input close routine.
+ */
 
 static void adi_close(struct input_dev *dev)
 {
@@ -267,6 +307,10 @@ static void adi_close(struct input_dev *dev)
 	gameport_stop_polling(port->gameport);
 }
 
+/*
+ * adi_init_digital() sends a trigger & delay sequence
+ * to reset and initialize a Logitech joystick into digital mode.
+ */
 
 static void adi_init_digital(struct gameport *gameport)
 {
@@ -279,7 +323,7 @@ static void adi_init_digital(struct gameport *gameport)
 			msleep(seq[i]);
 		if (seq[i] < 0) {
 			mdelay(-seq[i]);
-			udelay(-seq[i]*14);	
+			udelay(-seq[i]*14);	/* It looks like mdelay() is off by approx 1.4% */
 		}
 	}
 }
@@ -288,7 +332,7 @@ static void adi_id_decode(struct adi *adi, struct adi_port *port)
 {
 	int i, t;
 
-	if (adi->ret < ADI_MIN_ID_LENGTH) 
+	if (adi->ret < ADI_MIN_ID_LENGTH) /* Minimum ID packet length */
 		return;
 
 	if (adi->ret < (t = adi_get_bits(adi, 10))) {
@@ -422,6 +466,9 @@ static void adi_init_center(struct adi *adi)
 	}
 }
 
+/*
+ * adi_connect() probes for Logitech ADI joysticks.
+ */
 
 static int adi_connect(struct gameport *gameport, struct gameport_driver *drv)
 {
@@ -510,6 +557,9 @@ static void adi_disconnect(struct gameport *gameport)
 	kfree(port);
 }
 
+/*
+ * The gameport device structure.
+ */
 
 static struct gameport_driver adi_drv = {
 	.driver		= {

@@ -1,3 +1,6 @@
+/* cnode related routines for the coda kernel code
+   (C) 1996 Peter Braam
+   */
 
 #include <linux/types.h>
 #include <linux/string.h>
@@ -19,6 +22,7 @@ static const struct inode_operations coda_symlink_inode_operations = {
 	.setattr	= coda_setattr,
 };
 
+/* cnode.c */
 static void coda_fill_inode(struct inode *inode, struct coda_vattr *attr)
 {
         coda_vattr_to_iattr(inode, attr);
@@ -66,25 +70,31 @@ struct inode * coda_iget(struct super_block * sb, struct CodaFid * fid,
 
 	if (inode->i_state & I_NEW) {
 		cii = ITOC(inode);
-		
+		/* we still need to set i_ino for things like stat(2) */
 		inode->i_ino = hash;
-		
+		/* inode is locked and unique, no need to grab cii->c_lock */
 		cii->c_mapcount = 0;
 		unlock_new_inode(inode);
 	}
 
-	
+	/* always replace the attributes, type might have changed */
 	coda_fill_inode(inode, attr);
 	return inode;
 }
 
+/* this is effectively coda_iget:
+   - get attributes (might be cached)
+   - get the inode for the fid using vfs iget
+   - link the two up if this is needed
+   - fill in the attributes
+*/
 struct inode *coda_cnode_make(struct CodaFid *fid, struct super_block *sb)
 {
         struct coda_vattr attr;
 	struct inode *inode;
         int error;
         
-	
+	/* We get inode numbers from Venus -- see venus source */
 	error = venus_getattr(sb, fid, &attr);
 	if (error)
 		return ERR_PTR(error);
@@ -96,6 +106,14 @@ struct inode *coda_cnode_make(struct CodaFid *fid, struct super_block *sb)
 }
 
 
+/* Although we treat Coda file identifiers as immutable, there is one
+ * special case for files created during a disconnection where they may
+ * not be globally unique. When an identifier collision is detected we
+ * first try to flush the cached inode from the kernel and finally
+ * resort to renaming/rehashing in-place. Userspace remembers both old
+ * and new values of the identifier to handle any in-flight upcalls.
+ * The real solution is to use globally unique UUIDs as identifiers, but
+ * retrofitting the existing userspace code for this is non-trivial. */
 void coda_replace_fid(struct inode *inode, struct CodaFid *oldfid, 
 		      struct CodaFid *newfid)
 {
@@ -104,14 +122,15 @@ void coda_replace_fid(struct inode *inode, struct CodaFid *oldfid,
 	
 	BUG_ON(!coda_fideq(&cii->c_fid, oldfid));
 
-	
-	
+	/* replace fid and rehash inode */
+	/* XXX we probably need to hold some lock here! */
 	remove_inode_hash(inode);
 	cii->c_fid = *newfid;
 	inode->i_ino = hash;
 	__insert_inode_hash(inode, hash);
 }
 
+/* convert a fid to an inode. */
 struct inode *coda_fid_to_inode(struct CodaFid *fid, struct super_block *sb) 
 {
 	struct inode *inode;
@@ -126,11 +145,14 @@ struct inode *coda_fid_to_inode(struct CodaFid *fid, struct super_block *sb)
 	if ( !inode )
 		return NULL;
 
+	/* we should never see newly created inodes because we intentionally
+	 * fail in the initialization callback */
 	BUG_ON(inode->i_state & I_NEW);
 
 	return inode;
 }
 
+/* the CONTROL inode is made without asking attributes from Venus */
 struct inode *coda_cnode_makectl(struct super_block *sb)
 {
 	struct inode *inode = new_inode(sb);

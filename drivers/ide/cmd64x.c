@@ -21,6 +21,9 @@
 
 #define DRV_NAME "cmd64x"
 
+/*
+ * CMD64x specific registers definition.
+ */
 #define CFR		0x50
 #define   CFR_INTR_CH0		0x04
 
@@ -64,20 +67,33 @@ static void cmd64x_program_timings(ide_drive_t *drive, u8 mode)
 
 	ide_timing_compute(drive, mode, &t, T, 0);
 
+	/*
+	 * In case we've got too long recovery phase, try to lengthen
+	 * the active phase
+	 */
 	if (t.recover > 16) {
 		t.active += t.recover - 16;
 		t.recover = 16;
 	}
-	if (t.active > 16)		
+	if (t.active > 16)		/* shouldn't actually happen... */
 		t.active = 16;
 
+	/*
+	 * Convert values to internal chipset representation
+	 */
 	t.recover = recovery_values[t.recover];
 	t.active &= 0x0f;
 
-	
+	/* Program the active/recovery counts into the DRWTIM register */
 	pci_write_config_byte(dev, drwtim_regs[drive->dn],
 			      (t.active << 4) | t.recover);
 
+	/*
+	 * The primary channel has individual address setup timing registers
+	 * for each drive and the hardware selects the slowest timing itself.
+	 * The secondary channel has one common register and we have to select
+	 * the slowest address setup timing ourselves.
+	 */
 	if (hwif->channel) {
 		ide_drive_t *pair = ide_get_pair_dev(drive);
 
@@ -94,9 +110,13 @@ static void cmd64x_program_timings(ide_drive_t *drive, u8 mode)
 		}
 	}
 
-	if (t.setup > 5)		
+	if (t.setup > 5)		/* shouldn't actually happen... */
 		t.setup = 5;
 
+	/*
+	 * Program the address setup clocks into the ARTTIM registers.
+	 * Avoid clearing the secondary channel's interrupt bit.
+	 */
 	(void) pci_read_config_byte (dev, arttim_regs[drive->dn], &arttim);
 	if (hwif->channel)
 		arttim &= ~ARTTIM23_INTR_CH1;
@@ -105,11 +125,19 @@ static void cmd64x_program_timings(ide_drive_t *drive, u8 mode)
 	(void) pci_write_config_byte(dev, arttim_regs[drive->dn], arttim);
 }
 
+/*
+ * Attempts to set drive's PIO mode.
+ * Special cases are 8: prefetch off, 9: prefetch on (both never worked)
+ */
 
 static void cmd64x_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
 	const u8 pio = drive->pio_mode - XFER_PIO_0;
 
+	/*
+	 * Filter out the prefetch control values
+	 * to prevent PIO5 from being programmed
+	 */
 	if (pio == 8 || pio == 9)
 		return;
 
@@ -164,7 +192,7 @@ static void cmd648_clear_irq(ide_drive_t *drive)
 						  MRDMODE_INTR_CH0;
 	u8  mrdmode		= inb(base + 1);
 
-	
+	/* clear the interrupt bit */
 	outb((mrdmode & ~(MRDMODE_INTR_CH0 | MRDMODE_INTR_CH1)) | irq_mask,
 	     base + 1);
 }
@@ -179,7 +207,7 @@ static void cmd64x_clear_irq(ide_drive_t *drive)
 	u8  irq_stat		= 0;
 
 	(void) pci_read_config_byte(dev, irq_reg, &irq_stat);
-	
+	/* clear the interrupt bit */
 	(void) pci_write_config_byte(dev, irq_reg, irq_stat | irq_mask);
 }
 
@@ -213,21 +241,25 @@ static int cmd64x_test_irq(ide_hwif_t *hwif)
 	return (irq_stat & irq_mask) ? 1 : 0;
 }
 
+/*
+ * ASUS P55T2P4D with CMD646 chipset revision 0x01 requires the old
+ * event order for DMA transfers.
+ */
 
 static int cmd646_1_dma_end(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
 	u8 dma_stat = 0, dma_cmd = 0;
 
-	
+	/* get DMA status */
 	dma_stat = inb(hwif->dma_base + ATA_DMA_STATUS);
-	
+	/* read DMA command state */
 	dma_cmd = inb(hwif->dma_base + ATA_DMA_CMD);
-	
+	/* stop DMA */
 	outb(dma_cmd & ~1, hwif->dma_base + ATA_DMA_CMD);
-	
+	/* clear the INTR & ERROR bits */
 	outb(dma_stat | 6, hwif->dma_base + ATA_DMA_STATUS);
-	
+	/* verify good DMA status */
 	return (dma_stat & 7) != 4;
 }
 
@@ -235,10 +267,17 @@ static int init_chipset_cmd64x(struct pci_dev *dev)
 {
 	u8 mrdmode = 0;
 
-	
+	/* Set a good latency timer and cache line size value. */
 	(void) pci_write_config_byte(dev, PCI_LATENCY_TIMER, 64);
-	
+	/* FIXME: pci_set_master() to ensure a good latency timer value */
 
+	/*
+	 * Enable interrupts, select MEMORY READ LINE for reads.
+	 *
+	 * NOTE: although not mentioned in the PCI0646U specs,
+	 * bits 0-1 are write only and won't be read back as
+	 * set or not -- PCI0646U2 specs clarify this point.
+	 */
 	(void) pci_read_config_byte (dev, MRDMODE, &mrdmode);
 	mrdmode &= ~0x30;
 	(void) pci_write_config_byte(dev, MRDMODE, (mrdmode | 0x02));
@@ -289,7 +328,7 @@ static const struct ide_dma_ops cmd646_rev1_dma_ops = {
 };
 
 static const struct ide_port_info cmd64x_chipsets[] __devinitdata = {
-	{	
+	{	/* 0: CMD643 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_cmd64x,
 		.enablebits	= {{0x00,0x00,0x00}, {0x51,0x08,0x08}},
@@ -299,9 +338,9 @@ static const struct ide_port_info cmd64x_chipsets[] __devinitdata = {
 				  IDE_HFLAG_SERIALIZE,
 		.pio_mask	= ATA_PIO5,
 		.mwdma_mask	= ATA_MWDMA2,
-		.udma_mask	= 0x00, 
+		.udma_mask	= 0x00, /* no udma */
 	},
-	{	
+	{	/* 1: CMD646 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_cmd64x,
 		.enablebits	= {{0x51,0x04,0x04}, {0x51,0x08,0x08}},
@@ -312,7 +351,7 @@ static const struct ide_port_info cmd64x_chipsets[] __devinitdata = {
 		.mwdma_mask	= ATA_MWDMA2,
 		.udma_mask	= ATA_UDMA2,
 	},
-	{	
+	{	/* 2: CMD648 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_cmd64x,
 		.enablebits	= {{0x51,0x04,0x04}, {0x51,0x08,0x08}},
@@ -322,7 +361,7 @@ static const struct ide_port_info cmd64x_chipsets[] __devinitdata = {
 		.mwdma_mask	= ATA_MWDMA2,
 		.udma_mask	= ATA_UDMA4,
 	},
-	{	
+	{	/* 3: CMD649 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_cmd64x,
 		.enablebits	= {{0x51,0x04,0x04}, {0x51,0x08,0x08}},
@@ -342,8 +381,25 @@ static int __devinit cmd64x_init_one(struct pci_dev *dev, const struct pci_devic
 	d = cmd64x_chipsets[idx];
 
 	if (idx == 1) {
+		/*
+		 * UltraDMA only supported on PCI646U and PCI646U2, which
+		 * correspond to revisions 0x03, 0x05 and 0x07 respectively.
+		 * Actually, although the CMD tech support people won't
+		 * tell me the details, the 0x03 revision cannot support
+		 * UDMA correctly without hardware modifications, and even
+		 * then it only works with Quantum disks due to some
+		 * hold time assumptions in the 646U part which are fixed
+		 * in the 646U2.
+		 *
+		 * So we only do UltraDMA on revision 0x05 and 0x07 chipsets.
+		 */
 		if (dev->revision < 5) {
 			d.udma_mask = 0x00;
+			/*
+			 * The original PCI0646 didn't have the primary
+			 * channel enable bit, it appeared starting with
+			 * PCI0646U (i.e. revision ID 3).
+			 */
 			if (dev->revision < 3) {
 				d.enablebits[0].reg = 0;
 				d.port_ops = &cmd64x_port_ops;

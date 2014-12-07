@@ -19,7 +19,7 @@ int ptrace_setregs(long pid, unsigned long *regs_in)
 {
     int i;
     for (i=0; i < sizeof(struct sys_pt_regs)/sizeof(PPC_REG); ++i) {
-	if (i != 34  && i <= PT_MQ) {
+	if (i != 34 /* FIXME: PT_ORIG_R3 */ && i <= PT_MQ) {
 	    if (ptrace(PTRACE_POKEUSR, pid, i*4, regs_in->regs[i]) < 0) {
 		return -errno;
 	    }

@@ -26,7 +26,7 @@ void fimc_hw_reset(struct fimc_dev *dev)
 	cfg |= S5P_CISRCFMT_ITU601_8BIT;
 	writel(cfg, dev->regs + S5P_CISRCFMT);
 
-	
+	/* Software reset. */
 	cfg = readl(dev->regs + S5P_CIGCTRL);
 	cfg |= (S5P_CIGCTRL_SWRST | S5P_CIGCTRL_IRQ_LEVEL);
 	writel(cfg, dev->regs + S5P_CIGCTRL);
@@ -79,6 +79,11 @@ void fimc_hw_set_rotation(struct fimc_ctx *ctx)
 	cfg &= ~(S5P_CITRGFMT_INROT90 | S5P_CITRGFMT_OUTROT90 |
 		 S5P_CITRGFMT_FLIP_180);
 
+	/*
+	 * The input and output rotator cannot work simultaneously.
+	 * Use the output rotator in output DMA mode or the input rotator
+	 * in direct fifo output mode.
+	 */
 	if (ctx->rotation == 90 || ctx->rotation == 270) {
 		if (ctx->out_path == FIMC_LCDFIFO)
 			cfg |= S5P_CITRGFMT_INROT90;
@@ -90,7 +95,7 @@ void fimc_hw_set_rotation(struct fimc_ctx *ctx)
 		cfg |= fimc_hw_get_target_flip(ctx);
 		writel(cfg, dev->regs + S5P_CITRGFMT);
 	} else {
-		
+		/* LCD FIFO path */
 		flip = readl(dev->regs + S5P_MSCTRL);
 		flip &= ~S5P_MSCTRL_FLIP_MASK;
 		flip |= fimc_hw_get_in_flip(ctx);
@@ -154,11 +159,11 @@ static void fimc_hw_set_out_dma_size(struct fimc_ctx *ctx)
 	cfg |= S5P_ORIG_SIZE_VER(frame->f_height);
 	writel(cfg, dev->regs + S5P_ORGOSIZE);
 
-	
+	/* Select color space conversion equation (HD/SD size).*/
 	cfg = readl(dev->regs + S5P_CIGCTRL);
-	if (frame->f_width >= 1280) 
+	if (frame->f_width >= 1280) /* HD */
 		cfg |= S5P_CIGCTRL_CSC_ITU601_709;
-	else	
+	else	/* SD */
 		cfg &= ~S5P_CIGCTRL_CSC_ITU601_709;
 	writel(cfg, dev->regs + S5P_CIGCTRL);
 
@@ -172,7 +177,7 @@ void fimc_hw_set_out_dma(struct fimc_ctx *ctx)
 	struct fimc_dma_offset *offset = &frame->dma_offset;
 	struct fimc_fmt *fmt = frame->fmt;
 
-	
+	/* Set the input dma offsets. */
 	cfg = 0;
 	cfg |= S5P_CIO_OFFS_HOR(offset->y_h);
 	cfg |= S5P_CIO_OFFS_VER(offset->y_v);
@@ -190,7 +195,7 @@ void fimc_hw_set_out_dma(struct fimc_ctx *ctx)
 
 	fimc_hw_set_out_dma_size(ctx);
 
-	
+	/* Configure chroma components order. */
 	cfg = readl(dev->regs + S5P_CIOCTRL);
 
 	cfg &= ~(S5P_CIOCTRL_ORDER2P_MASK | S5P_CIOCTRL_ORDER422_MASK |
@@ -355,10 +360,10 @@ void fimc_hw_en_capture(struct fimc_ctx *ctx)
 	u32 cfg = readl(dev->regs + S5P_CIIMGCPT);
 
 	if (ctx->out_path == FIMC_DMA) {
-		
+		/* one shot mode */
 		cfg |= S5P_CIIMGCPT_CPT_FREN_ENABLE | S5P_CIIMGCPT_IMGCPTEN;
 	} else {
-		
+		/* Continuous frame capture mode (freerun). */
 		cfg &= ~(S5P_CIIMGCPT_CPT_FREN_ENABLE |
 			 S5P_CIIMGCPT_CPT_FRMOD_CNT);
 		cfg |= S5P_CIIMGCPT_IMGCPTEN;
@@ -429,7 +434,7 @@ void fimc_hw_set_in_dma(struct fimc_ctx *ctx)
 	struct fimc_dma_offset *offset = &frame->dma_offset;
 	u32 cfg;
 
-	
+	/* Set the pixel offsets. */
 	cfg = S5P_CIO_OFFS_HOR(offset->y_h);
 	cfg |= S5P_CIO_OFFS_VER(offset->y_v);
 	writel(cfg, dev->regs + S5P_CIIYOFF);
@@ -442,13 +447,13 @@ void fimc_hw_set_in_dma(struct fimc_ctx *ctx)
 	cfg |= S5P_CIO_OFFS_VER(offset->cr_v);
 	writel(cfg, dev->regs + S5P_CIICROFF);
 
-	
+	/* Input original and real size. */
 	fimc_hw_set_in_dma_size(ctx);
 
-	
+	/* Use DMA autoload only in FIFO mode. */
 	fimc_hw_en_autoload(dev, ctx->out_path == FIMC_LCDFIFO);
 
-	
+	/* Set the input DMA to process single frame only. */
 	cfg = readl(dev->regs + S5P_MSCTRL);
 	cfg &= ~(S5P_MSCTRL_INFORMAT_MASK
 		| S5P_MSCTRL_IN_BURST_COUNT_MASK
@@ -493,7 +498,7 @@ void fimc_hw_set_in_dma(struct fimc_ctx *ctx)
 
 	writel(cfg, dev->regs + S5P_MSCTRL);
 
-	
+	/* Input/output DMA linear/tiled mode. */
 	cfg = readl(dev->regs + S5P_CIDMAPARAM);
 	cfg &= ~S5P_CIDMAPARAM_TILE_MASK;
 
@@ -606,7 +611,7 @@ int fimc_hw_set_camera_source(struct fimc_dev *fimc,
 		{ V4L2_MBUS_FMT_YVYU8_2X8, S5P_CISRCFMT_ORDER422_YCRYCB, 8 },
 		{ V4L2_MBUS_FMT_VYUY8_2X8, S5P_CISRCFMT_ORDER422_CRYCBY, 8 },
 		{ V4L2_MBUS_FMT_UYVY8_2X8, S5P_CISRCFMT_ORDER422_CBYCRY, 8 },
-		
+		/* TODO: Add pixel codes for 16-bit bus width */
 	};
 
 	if (cam->bus_type == FIMC_ITU_601 || cam->bus_type == FIMC_ITU_656) {
@@ -630,7 +635,7 @@ int fimc_hw_set_camera_source(struct fimc_dev *fimc,
 				cfg |= S5P_CISRCFMT_ITU601_8BIT;
 			else if (bus_width == 16)
 				cfg |= S5P_CISRCFMT_ITU601_16BIT;
-		} 
+		} /* else defaults to ITU-R BT.656 8-bit */
 	} else if (cam->bus_type == FIMC_MIPI_CSI2) {
 		if (fimc_fmt_is_jpeg(f->fmt->color))
 			cfg |= S5P_CISRCFMT_ITU601_8BIT;
@@ -655,7 +660,7 @@ int fimc_hw_set_camera_offset(struct fimc_dev *fimc, struct fimc_frame *f)
 
 	writel(cfg, fimc->regs + S5P_CIWDOFST);
 
-	
+	/* See CIWDOFSTn register description in the datasheet for details. */
 	hoff2 = f->o_width - f->width - f->offs_h;
 	voff2 = f->o_height - f->height - f->offs_v;
 	cfg = S5P_CIWDOFST2_HOROFF(hoff2) | S5P_CIWDOFST2_VEROFF(voff2);
@@ -672,7 +677,7 @@ int fimc_hw_set_camera_type(struct fimc_dev *fimc,
 
 	cfg = readl(fimc->regs + S5P_CIGCTRL);
 
-	
+	/* Select ITU B interface, disable Writeback path and test pattern. */
 	cfg &= ~(S5P_CIGCTRL_TESTPAT_MASK | S5P_CIGCTRL_SELCAM_ITU_A |
 		S5P_CIGCTRL_SELCAM_MIPI | S5P_CIGCTRL_CAMIF_SELWB |
 		S5P_CIGCTRL_SELCAM_MIPI_A | S5P_CIGCTRL_CAM_JPEG);
@@ -683,7 +688,7 @@ int fimc_hw_set_camera_type(struct fimc_dev *fimc,
 		if (cam->mux_id == 0)
 			cfg |= S5P_CIGCTRL_SELCAM_MIPI_A;
 
-		
+		/* TODO: add remaining supported formats. */
 		switch (vid_cap->mf.code) {
 		case V4L2_MBUS_FMT_VYUY8_2X8:
 			tmp = S5P_CSIIMGFMT_YCBCR422_8BIT;
@@ -704,7 +709,7 @@ int fimc_hw_set_camera_type(struct fimc_dev *fimc,
 
 	} else if (cam->bus_type == FIMC_ITU_601 ||
 		   cam->bus_type == FIMC_ITU_656) {
-		if (cam->mux_id == 0) 
+		if (cam->mux_id == 0) /* ITU-A, ITU-B: 0, 1 */
 			cfg |= S5P_CIGCTRL_SELCAM_ITU_A;
 	} else if (cam->bus_type == FIMC_LCD_WB) {
 		cfg |= S5P_CIGCTRL_CAMIF_SELWB;

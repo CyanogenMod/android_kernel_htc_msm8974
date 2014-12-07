@@ -8,26 +8,38 @@
 #ifndef IIO_DAC_AD5446_H_
 #define IIO_DAC_AD5446_H_
 
+/* DAC Control Bits */
 
-#define AD5446_LOAD		(0x0 << 14) 
-#define AD5446_SDO_DIS		(0x1 << 14) 
-#define AD5446_NOP		(0x2 << 14) 
-#define AD5446_CLK_RISING	(0x3 << 14) 
+#define AD5446_LOAD		(0x0 << 14) /* Load and update */
+#define AD5446_SDO_DIS		(0x1 << 14) /* Disable SDO */
+#define AD5446_NOP		(0x2 << 14) /* No operation */
+#define AD5446_CLK_RISING	(0x3 << 14) /* Clock data on rising edge */
 
-#define AD5620_LOAD		(0x0 << 14) 
-#define AD5620_PWRDWN_1k	(0x1 << 14) 
-#define AD5620_PWRDWN_100k	(0x2 << 14) 
-#define AD5620_PWRDWN_TRISTATE	(0x3 << 14) 
+#define AD5620_LOAD		(0x0 << 14) /* Load and update Norm Operation*/
+#define AD5620_PWRDWN_1k	(0x1 << 14) /* Power-down: 1kOhm to GND */
+#define AD5620_PWRDWN_100k	(0x2 << 14) /* Power-down: 100kOhm to GND */
+#define AD5620_PWRDWN_TRISTATE	(0x3 << 14) /* Power-down: Three-state */
 
-#define AD5660_LOAD		(0x0 << 16) 
-#define AD5660_PWRDWN_1k	(0x1 << 16) 
-#define AD5660_PWRDWN_100k	(0x2 << 16) 
-#define AD5660_PWRDWN_TRISTATE	(0x3 << 16) 
+#define AD5660_LOAD		(0x0 << 16) /* Load and update Norm Operation*/
+#define AD5660_PWRDWN_1k	(0x1 << 16) /* Power-down: 1kOhm to GND */
+#define AD5660_PWRDWN_100k	(0x2 << 16) /* Power-down: 100kOhm to GND */
+#define AD5660_PWRDWN_TRISTATE	(0x3 << 16) /* Power-down: Three-state */
 
 #define MODE_PWRDWN_1k		0x1
 #define MODE_PWRDWN_100k	0x2
 #define MODE_PWRDWN_TRISTATE	0x3
 
+/**
+ * struct ad5446_state - driver instance specific data
+ * @spi:		spi_device
+ * @chip_info:		chip model specific constants, available modes etc
+ * @reg:		supply regulator
+ * @poll_work:		bottom half of polling interrupt handler
+ * @vref_mv:		actual reference voltage used
+ * @xfer:		default spi transfer
+ * @msg:		default spi message
+ * @data:		spi transmit buffer
+ */
 
 struct ad5446_state {
 	struct spi_device		*spi;
@@ -46,6 +58,13 @@ struct ad5446_state {
 	} data;
 };
 
+/**
+ * struct ad5446_chip_info - chip specific information
+ * @channel:		channel spec for the DAC
+ * @int_vref_mv:	AD5620/40/60: the internal reference voltage
+ * @store_sample:	chip specific helper function to store the datum
+ * @store_sample:	chip specific helper function to store the powerpown cmd
+ */
 
 struct ad5446_chip_info {
 	struct iio_chan_spec	channel;
@@ -54,6 +73,13 @@ struct ad5446_chip_info {
 	void (*store_pwr_down)	(struct ad5446_state *st, unsigned mode);
 };
 
+/**
+ * ad5446_supported_device_ids:
+ * The AD5620/40/60 parts are available in different fixed internal reference
+ * voltage options. The actual part numbers may look differently
+ * (and a bit cryptic), however this style is used to make clear which
+ * parts are supported here.
+ */
 
 enum ad5446_supported_device_ids {
 	ID_AD5444,
@@ -74,4 +100,4 @@ enum ad5446_supported_device_ids {
 	ID_AD5660_1250,
 };
 
-#endif 
+#endif /* IIO_DAC_AD5446_H_ */

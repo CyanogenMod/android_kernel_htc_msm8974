@@ -24,6 +24,10 @@
 
 #include "softing.h"
 
+/*
+ * low level DPRAM command.
+ * Make sure that card->dpram[DPRAM_FCT_HOST] is preset
+ */
 static int _softing_fct_cmd(struct softing *card, int16_t cmd, uint16_t vector,
 		const char *msg)
 {
@@ -33,23 +37,23 @@ static int _softing_fct_cmd(struct softing *card, int16_t cmd, uint16_t vector,
 	iowrite16(cmd, &card->dpram[DPRAM_FCT_PARAM]);
 	iowrite8(vector >> 8, &card->dpram[DPRAM_FCT_HOST + 1]);
 	iowrite8(vector, &card->dpram[DPRAM_FCT_HOST]);
-	
+	/* be sure to flush this to the card */
 	wmb();
 	stamp = jiffies + 1 * HZ;
-	
+	/* wait for card */
 	do {
-		
+		/* DPRAM_FCT_HOST is _not_ aligned */
 		ret = ioread8(&card->dpram[DPRAM_FCT_HOST]) +
 			(ioread8(&card->dpram[DPRAM_FCT_HOST + 1]) << 8);
-		
+		/* don't have any cached variables */
 		rmb();
 		if (ret == RES_OK)
-			
+			/* read return-value now */
 			return ioread16(&card->dpram[DPRAM_FCT_RESULT]);
 
 		if ((ret != vector) || time_after(jiffies, stamp))
 			break;
-		
+		/* process context => relax */
 		usleep_range(500, 10000);
 	} while (1);
 
@@ -78,19 +82,19 @@ int softing_bootloader_command(struct softing *card, int16_t cmd,
 
 	iowrite16(RES_NONE, &card->dpram[DPRAM_RECEIPT]);
 	iowrite16(cmd, &card->dpram[DPRAM_COMMAND]);
-	
+	/* be sure to flush this to the card */
 	wmb();
 	stamp = jiffies + 3 * HZ;
-	
+	/* wait for card */
 	do {
 		ret = ioread16(&card->dpram[DPRAM_RECEIPT]);
-		
+		/* don't have any cached variables */
 		rmb();
 		if (ret == RES_OK)
 			return 0;
 		if (time_after(jiffies, stamp))
 			break;
-		
+		/* process context => relax */
 		usleep_range(500, 10000);
 	} while (!signal_pending(current));
 
@@ -106,19 +110,34 @@ static int fw_parse(const uint8_t **pmem, uint16_t *ptype, uint32_t *paddr,
 	const uint8_t *mem;
 	const uint8_t *end;
 
+	/*
+	 * firmware records are a binary, unaligned stream composed of:
+	 * uint16_t type;
+	 * uint32_t addr;
+	 * uint16_t len;
+	 * uint8_t dat[len];
+	 * uint16_t checksum;
+	 * all values in little endian.
+	 * We could define a struct for this, with __attribute__((packed)),
+	 * but would that solve the alignment in _all_ cases (cfr. the
+	 * struct itself may be an odd address)?
+	 *
+	 * I chose to use leXX_to_cpup() since this solves both
+	 * endianness & alignment.
+	 */
 	mem = *pmem;
 	*ptype = le16_to_cpup((void *)&mem[0]);
 	*paddr = le32_to_cpup((void *)&mem[2]);
 	*plen = le16_to_cpup((void *)&mem[6]);
 	*pdat = &mem[8];
-	
+	/* verify checksum */
 	end = &mem[8 + *plen];
 	checksum[0] = le16_to_cpup((void *)end);
 	for (checksum[1] = 0; mem < end; ++mem)
 		checksum[1] += *mem;
 	if (checksum[0] != checksum[1])
 		return -EINVAL;
-	
+	/* increment */
 	*pmem += 10 + *plen;
 	return 0;
 }
@@ -142,10 +161,10 @@ int softing_load_fw(const char *file, struct softing *card,
 		", offset %c0x%04x\n",
 		card->pdat->name, file, (unsigned int)fw->size,
 		(offset >= 0) ? '+' : '-', (unsigned int)abs(offset));
-	
+	/* parse the firmware */
 	mem = fw->data;
 	end = &mem[fw->size];
-	
+	/* look for header record */
 	ret = fw_parse(&mem, &type, &addr, &len, &dat);
 	if (ret < 0)
 		goto failed;
@@ -155,16 +174,16 @@ int softing_load_fw(const char *file, struct softing *card,
 		ret = -EINVAL;
 		goto failed;
 	}
-	
+	/* ok, we had a header */
 	while (mem < end) {
 		ret = fw_parse(&mem, &type, &addr, &len, &dat);
 		if (ret < 0)
 			goto failed;
 		if (type == 3) {
-			
+			/* start address, not used here */
 			continue;
 		} else if (type == 1) {
-			
+			/* eof */
 			type_end = 1;
 			break;
 		} else if (type != 0) {
@@ -175,10 +194,10 @@ int softing_load_fw(const char *file, struct softing *card,
 		if ((addr + len + offset) > size)
 			goto failed;
 		memcpy_toio(&dpram[addr + offset], dat, len);
-		
+		/* be sure to flush caches from IO space */
 		mb();
 		if (len > buflen) {
-			
+			/* align buflen */
 			buflen = (len + (1024-1)) & ~(1024-1);
 			buf = krealloc(buf, buflen, GFP_KERNEL);
 			if (!buf) {
@@ -186,17 +205,17 @@ int softing_load_fw(const char *file, struct softing *card,
 				goto failed;
 			}
 		}
-		
+		/* verify record data */
 		memcpy_fromio(buf, &dpram[addr + offset], len);
 		if (memcmp(buf, dat, len)) {
-			
+			/* is not ok */
 			dev_alert(&card->pdev->dev, "DPRAM readback failed\n");
 			ret = -EIO;
 			goto failed;
 		}
 	}
 	if (!type_end)
-		
+		/* no end record seen */
 		goto failed;
 	ret = 0;
 failed:
@@ -225,10 +244,10 @@ int softing_load_app_fw(const char *file, struct softing *card)
 	}
 	dev_dbg(&card->pdev->dev, "firmware(%s) got %lu bytes\n",
 		file, (unsigned long)fw->size);
-	
+	/* parse the firmware */
 	mem = fw->data;
 	end = &mem[fw->size];
-	
+	/* look for header record */
 	ret = fw_parse(&mem, &type, &addr, &len, &dat);
 	if (ret)
 		goto failed;
@@ -243,19 +262,19 @@ int softing_load_app_fw(const char *file, struct softing *card)
 				len, dat);
 		goto failed;
 	}
-	
+	/* ok, we had a header */
 	while (mem < end) {
 		ret = fw_parse(&mem, &type, &addr, &len, &dat);
 		if (ret)
 			goto failed;
 
 		if (type == 3) {
-			
+			/* start address */
 			start_addr = addr;
 			type_entrypoint = 1;
 			continue;
 		} else if (type == 1) {
-			
+			/* eof */
 			type_end = 1;
 			break;
 		} else if (type != 0) {
@@ -265,10 +284,10 @@ int softing_load_app_fw(const char *file, struct softing *card)
 			goto failed;
 		}
 
-		
+		/* regualar data */
 		for (sum = 0, j = 0; j < len; ++j)
 			sum += dat[j];
-		
+		/* work in 16bit (target) */
 		sum &= 0xffff;
 
 		memcpy_toio(&card->dpram[card->pdat->app.offs], dat, len);
@@ -280,7 +299,7 @@ int softing_load_app_fw(const char *file, struct softing *card)
 		ret = softing_bootloader_command(card, 1, "loading app.");
 		if (ret < 0)
 			goto failed;
-		
+		/* verify checksum */
 		rx_sum = ioread16(&card->dpram[DPRAM_RECEIPT + 2]);
 		if (rx_sum != sum) {
 			dev_alert(&card->pdev->dev, "SRAM seems to be damaged"
@@ -291,7 +310,7 @@ int softing_load_app_fw(const char *file, struct softing *card)
 	}
 	if (!type_end || !type_entrypoint)
 		goto failed;
-	
+	/* start application in card */
 	iowrite32(start_addr, &card->dpram[DPRAM_COMMAND + 2]);
 	iowrite8(1, &card->dpram[DPRAM_COMMAND + 6]);
 	ret = softing_bootloader_command(card, 3, "start app.");
@@ -310,7 +329,7 @@ static int softing_reset_chip(struct softing *card)
 	int ret;
 
 	do {
-		
+		/* reset chip */
 		iowrite8(0, &card->dpram[DPRAM_RESET_RX_FIFO]);
 		iowrite8(0, &card->dpram[DPRAM_RESET_RX_FIFO+1]);
 		iowrite8(1, &card->dpram[DPRAM_RESET]);
@@ -320,7 +339,7 @@ static int softing_reset_chip(struct softing *card)
 		if (!ret)
 			break;
 		if (signal_pending(current))
-			
+			/* don't wait any longer */
 			break;
 	} while (1);
 	card->tx.pending = 0;
@@ -330,7 +349,7 @@ static int softing_reset_chip(struct softing *card)
 int softing_chip_poweron(struct softing *card)
 {
 	int ret;
-	
+	/* sync */
 	ret = _softing_fct_cmd(card, 99, 0x55, "sync-a");
 	if (ret < 0)
 		goto failed;
@@ -342,12 +361,12 @@ int softing_chip_poweron(struct softing *card)
 	ret = softing_reset_chip(card);
 	if (ret < 0)
 		goto failed;
-	
+	/* get_serial */
 	ret = softing_fct_cmd(card, 43, "get_serial_number");
 	if (ret < 0)
 		goto failed;
 	card->id.serial = ioread32(&card->dpram[DPRAM_FCT_PARAM]);
-	
+	/* get_version */
 	ret = softing_fct_cmd(card, 12, "get_version");
 	if (ret < 0)
 		goto failed;
@@ -367,7 +386,7 @@ static void softing_initialize_timestamp(struct softing *card)
 
 	card->ts_ref = ktime_get();
 
-	
+	/* 16MHz is the reference */
 	ovf = 0x100000000ULL * 16;
 	do_div(ovf, card->pdat->freq ?: 16);
 
@@ -384,11 +403,11 @@ ktime_t softing_raw2ktime(struct softing *card, u32 raw)
 	now = ktime_get();
 	real_offset = ktime_sub(ktime_get_real(), now);
 
-	
+	/* find nsec from card */
 	rawl = raw * 16;
 	do_div(rawl, card->pdat->freq ?: 16);
 	target = ktime_add_us(card->ts_ref, rawl);
-	
+	/* test for overflows */
 	tmp = ktime_add(target, card->ts_overflow);
 	while (unlikely(ktime_to_ns(tmp) > ktime_to_ns(now))) {
 		card->ts_ref = ktime_add(card->ts_ref, card->ts_overflow);
@@ -429,9 +448,9 @@ int softing_startstop(struct net_device *dev, int up)
 
 	bus_bitmask_start = 0;
 	if (dev && up)
-		
+		/* prepare to start this bus as well */
 		bus_bitmask_start |= (1 << priv->index);
-	
+	/* bring netdevs down */
 	for (j = 0; j < ARRAY_SIZE(card->net); ++j) {
 		netdev = card->net[j];
 		if (!netdev)
@@ -447,6 +466,14 @@ int softing_startstop(struct net_device *dev, int up)
 			priv->tx.pending = 0;
 			priv->tx.echo_put = 0;
 			priv->tx.echo_get = 0;
+			/*
+			 * this bus' may just have called open_candev()
+			 * which is rather stupid to call close_candev()
+			 * already
+			 * but we may come here from busoff recovery too
+			 * in which case the echo_skb _needs_ flushing too.
+			 * just be sure to call open_candev() again
+			 */
 			close_candev(netdev);
 		}
 		priv->can.state = CAN_STATE_STOPPED;
@@ -458,7 +485,7 @@ int softing_startstop(struct net_device *dev, int up)
 	if (ret)
 		goto failed;
 	if (!bus_bitmask_start)
-		
+		/* no busses to be brought up */
 		goto card_done;
 
 	if ((bus_bitmask_start & 1) && (bus_bitmask_start & 2)
@@ -473,7 +500,7 @@ int softing_startstop(struct net_device *dev, int up)
 		netdev = card->net[0];
 		priv = netdev_priv(netdev);
 		error_reporting += softing_error_reporting(netdev);
-		
+		/* init chip 1 */
 		bt = &priv->can.bittiming;
 		iowrite16(bt->brp, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		iowrite16(bt->sjw, &card->dpram[DPRAM_FCT_PARAM + 4]);
@@ -485,17 +512,17 @@ int softing_startstop(struct net_device *dev, int up)
 		ret = softing_fct_cmd(card, 1, "initialize_chip[0]");
 		if (ret < 0)
 			goto failed;
-		
+		/* set mode */
 		iowrite16(0, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		iowrite16(0, &card->dpram[DPRAM_FCT_PARAM + 4]);
 		ret = softing_fct_cmd(card, 3, "set_mode[0]");
 		if (ret < 0)
 			goto failed;
-		
-		
+		/* set filter */
+		/* 11bit id & mask */
 		iowrite16(0x0000, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		iowrite16(0x07ff, &card->dpram[DPRAM_FCT_PARAM + 4]);
-		
+		/* 29bit id.lo & mask.lo & id.hi & mask.hi */
 		iowrite16(0x0000, &card->dpram[DPRAM_FCT_PARAM + 6]);
 		iowrite16(0xffff, &card->dpram[DPRAM_FCT_PARAM + 8]);
 		iowrite16(0x0000, &card->dpram[DPRAM_FCT_PARAM + 10]);
@@ -503,7 +530,7 @@ int softing_startstop(struct net_device *dev, int up)
 		ret = softing_fct_cmd(card, 7, "set_filter[0]");
 		if (ret < 0)
 			goto failed;
-		
+		/* set output control */
 		iowrite16(priv->output, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		ret = softing_fct_cmd(card, 5, "set_output[0]");
 		if (ret < 0)
@@ -513,7 +540,7 @@ int softing_startstop(struct net_device *dev, int up)
 		netdev = card->net[1];
 		priv = netdev_priv(netdev);
 		error_reporting += softing_error_reporting(netdev);
-		
+		/* init chip2 */
 		bt = &priv->can.bittiming;
 		iowrite16(bt->brp, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		iowrite16(bt->sjw, &card->dpram[DPRAM_FCT_PARAM + 4]);
@@ -525,17 +552,17 @@ int softing_startstop(struct net_device *dev, int up)
 		ret = softing_fct_cmd(card, 2, "initialize_chip[1]");
 		if (ret < 0)
 			goto failed;
-		
+		/* set mode2 */
 		iowrite16(0, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		iowrite16(0, &card->dpram[DPRAM_FCT_PARAM + 4]);
 		ret = softing_fct_cmd(card, 4, "set_mode[1]");
 		if (ret < 0)
 			goto failed;
-		
-		
+		/* set filter2 */
+		/* 11bit id & mask */
 		iowrite16(0x0000, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		iowrite16(0x07ff, &card->dpram[DPRAM_FCT_PARAM + 4]);
-		
+		/* 29bit id.lo & mask.lo & id.hi & mask.hi */
 		iowrite16(0x0000, &card->dpram[DPRAM_FCT_PARAM + 6]);
 		iowrite16(0xffff, &card->dpram[DPRAM_FCT_PARAM + 8]);
 		iowrite16(0x0000, &card->dpram[DPRAM_FCT_PARAM + 10]);
@@ -543,14 +570,25 @@ int softing_startstop(struct net_device *dev, int up)
 		ret = softing_fct_cmd(card, 8, "set_filter[1]");
 		if (ret < 0)
 			goto failed;
-		
+		/* set output control2 */
 		iowrite16(priv->output, &card->dpram[DPRAM_FCT_PARAM + 2]);
 		ret = softing_fct_cmd(card, 6, "set_output[1]");
 		if (ret < 0)
 			goto failed;
 	}
-	
-	
+	/* enable_error_frame */
+	/*
+	 * Error reporting is switched off at the moment since
+	 * the receiving of them is not yet 100% verified
+	 * This should be enabled sooner or later
+	 *
+	if (error_reporting) {
+		ret = softing_fct_cmd(card, 51, "enable_error_frame");
+		if (ret < 0)
+			goto failed;
+	}
+	*/
+	/* initialize interface */
 	iowrite16(1, &card->dpram[DPRAM_FCT_PARAM + 2]);
 	iowrite16(1, &card->dpram[DPRAM_FCT_PARAM + 4]);
 	iowrite16(1, &card->dpram[DPRAM_FCT_PARAM + 6]);
@@ -564,19 +602,19 @@ int softing_startstop(struct net_device *dev, int up)
 	ret = softing_fct_cmd(card, 17, "initialize_interface");
 	if (ret < 0)
 		goto failed;
-	
+	/* enable_fifo */
 	ret = softing_fct_cmd(card, 36, "enable_fifo");
 	if (ret < 0)
 		goto failed;
-	
+	/* enable fifo tx ack */
 	ret = softing_fct_cmd(card, 13, "fifo_tx_ack[0]");
 	if (ret < 0)
 		goto failed;
-	
+	/* enable fifo tx ack2 */
 	ret = softing_fct_cmd(card, 14, "fifo_tx_ack[1]");
 	if (ret < 0)
 		goto failed;
-	
+	/* start_chip */
 	ret = softing_fct_cmd(card, 11, "start_chip");
 	if (ret < 0)
 		goto failed;
@@ -584,12 +622,17 @@ int softing_startstop(struct net_device *dev, int up)
 	iowrite8(0, &card->dpram[DPRAM_INFO_BUSSTATE2]);
 	if (card->pdat->generation < 2) {
 		iowrite8(0, &card->dpram[DPRAM_V2_IRQ_TOHOST]);
-		
+		/* flush the DPRAM caches */
 		wmb();
 	}
 
 	softing_initialize_timestamp(card);
 
+	/*
+	 * do socketcan notifications/status changes
+	 * from here, no errors should occur, or the failed: part
+	 * must be reviewed
+	 */
 	memset(&msg, 0, sizeof(msg));
 	msg.can_id = CAN_ERR_FLAG | CAN_ERR_RESTARTED;
 	msg.can_dlc = CAN_ERR_DLC;
@@ -603,14 +646,14 @@ int softing_startstop(struct net_device *dev, int up)
 		priv->can.state = CAN_STATE_ERROR_ACTIVE;
 		open_candev(netdev);
 		if (dev != netdev) {
-			
+			/* notify other busses on the restart */
 			softing_netdev_rx(netdev, &msg, ktime_set(0, 0));
 			++priv->can.can_stats.restarts;
 		}
 		netif_wake_queue(netdev);
 	}
 
-	
+	/* enable interrupts */
 	ret = softing_enable_irq(card, 1);
 	if (ret)
 		goto failed;
@@ -623,7 +666,7 @@ failed:
 	softing_enable_irq(card, 0);
 	softing_reset_chip(card);
 	mutex_unlock(&card->fw.lock);
-	
+	/* bring all other interfaces down */
 	for (j = 0; j < ARRAY_SIZE(card->net); ++j) {
 		netdev = card->net[j];
 		if (!netdev)

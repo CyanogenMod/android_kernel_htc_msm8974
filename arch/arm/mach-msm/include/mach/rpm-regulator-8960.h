@@ -14,11 +14,30 @@
 #ifndef __ARCH_ARM_MACH_MSM_INCLUDE_MACH_RPM_REGULATOR_8960_H
 #define __ARCH_ARM_MACH_MSM_INCLUDE_MACH_RPM_REGULATOR_8960_H
 
+/* Pin control input signals. */
 #define RPM_VREG_PIN_CTRL_PM8921_D1	0x01
 #define RPM_VREG_PIN_CTRL_PM8921_A0	0x02
 #define RPM_VREG_PIN_CTRL_PM8921_A1	0x04
 #define RPM_VREG_PIN_CTRL_PM8921_A2	0x08
 
+/**
+ * enum rpm_vreg_pin_fn_8960 - RPM regulator pin function choices
+ * %RPM_VREG_PIN_FN_8960_DONT_CARE:	do not care about pin control state of
+ *					the regulator; allow another master
+ *					processor to specify pin control
+ * %RPM_VREG_PIN_FN_8960_ENABLE:	pin control switches between disable and
+ *					enable
+ * %RPM_VREG_PIN_FN_8960_MODE:		pin control switches between LPM and HPM
+ * %RPM_VREG_PIN_FN_8960_SLEEP_B:	regulator is forced into LPM when
+ *					sleep_b signal is asserted
+ * %RPM_VREG_PIN_FN_8960_NONE:		do not use pin control for the regulator
+ *					and do not allow another master to
+ *					request pin control
+ *
+ * The pin function specified in platform data corresponds to the active state
+ * pin function value.  Pin function will be NONE until a consumer requests
+ * pin control to be enabled.
+ */
 enum rpm_vreg_pin_fn_8960 {
 	RPM_VREG_PIN_FN_8960_DONT_CARE,
 	RPM_VREG_PIN_FN_8960_ENABLE,
@@ -27,20 +46,47 @@ enum rpm_vreg_pin_fn_8960 {
 	RPM_VREG_PIN_FN_8960_NONE,
 };
 
+/**
+ * enum rpm_vreg_force_mode_8960 - RPM regulator force mode choices
+ * %RPM_VREG_FORCE_MODE_8960_PIN_CTRL:	allow pin control usage
+ * %RPM_VREG_FORCE_MODE_8960_NONE:	do not force any mode
+ * %RPM_VREG_FORCE_MODE_8960_LPM:	force into low power mode
+ * %RPM_VREG_FORCE_MODE_8960_AUTO:	allow regulator to automatically select
+ *					its own mode based on realtime current
+ *					draw (only available for SMPS
+ *					regulators)
+ * %RPM_VREG_FORCE_MODE_8960_HPM:	force into high power mode
+ * %RPM_VREG_FORCE_MODE_8960_BYPASS:	set regulator to use bypass mode, i.e.
+ *					to act as a switch and not regulate
+ *					(only available for LDO regulators)
+ *
+ * Force mode is used to override aggregation with other masters and to set
+ * special operating modes.
+ */
 enum rpm_vreg_force_mode_8960 {
 	RPM_VREG_FORCE_MODE_8960_PIN_CTRL = 0,
 	RPM_VREG_FORCE_MODE_8960_NONE = 0,
 	RPM_VREG_FORCE_MODE_8960_LPM,
-	RPM_VREG_FORCE_MODE_8960_AUTO,		
+	RPM_VREG_FORCE_MODE_8960_AUTO,		/* SMPS only */
 	RPM_VREG_FORCE_MODE_8960_HPM,
-	RPM_VREG_FORCE_MODE_8960_BYPASS,	
+	RPM_VREG_FORCE_MODE_8960_BYPASS,	/* LDO only */
 };
 
+/**
+ * enum rpm_vreg_power_mode_8960 - power mode for SMPS regulators
+ * %RPM_VREG_POWER_MODE_8960_HYSTERETIC: Use hysteretic mode for HPM and when
+ *					 usage goes high in AUTO
+ * %RPM_VREG_POWER_MODE_8960_PWM:	 Use PWM mode for HPM and when usage
+ *					 goes high in AUTO
+ */
 enum rpm_vreg_power_mode_8960 {
 	RPM_VREG_POWER_MODE_8960_HYSTERETIC,
 	RPM_VREG_POWER_MODE_8960_PWM,
 };
 
+/**
+ * enum rpm_vreg_id - RPM regulator ID numbers (both real and pin control)
+ */
 enum rpm_vreg_id_8960 {
 	RPM_VREG_ID_PM8921_L1,
 	RPM_VREG_ID_PM8921_L2,
@@ -89,7 +135,7 @@ enum rpm_vreg_id_8960 {
 	RPM_VREG_ID_PM8921_NCP,
 	RPM_VREG_ID_PM8921_MAX_REAL = RPM_VREG_ID_PM8921_NCP,
 
-	
+	/* The following are IDs for regulator devices to enable pin control. */
 	RPM_VREG_ID_PM8921_L1_PC,
 	RPM_VREG_ID_PM8921_L2_PC,
 	RPM_VREG_ID_PM8921_L3_PC,
@@ -130,6 +176,7 @@ enum rpm_vreg_id_8960 {
 	RPM_VREG_ID_PM8921_MAX = RPM_VREG_ID_PM8921_LVS7_PC,
 };
 
+/* Minimum high power mode loads in uA. */
 #define RPM_VREG_8960_LDO_5_HPM_MIN_LOAD		0
 #define RPM_VREG_8960_LDO_50_HPM_MIN_LOAD		5000
 #define RPM_VREG_8960_LDO_150_HPM_MIN_LOAD		10000

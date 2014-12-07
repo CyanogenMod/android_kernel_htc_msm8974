@@ -45,13 +45,13 @@ static struct device_node *at91_aic_np;
 
 static void at91_aic_mask_irq(struct irq_data *d)
 {
-	
+	/* Disable interrupt on AIC */
 	at91_aic_write(AT91_AIC_IDCR, 1 << d->hwirq);
 }
 
 static void at91_aic_unmask_irq(struct irq_data *d)
 {
-	
+	/* Enable interrupt on AIC */
 	at91_aic_write(AT91_AIC_IECR, 1 << d->hwirq);
 }
 
@@ -71,13 +71,13 @@ static int at91_aic_set_type(struct irq_data *d, unsigned type)
 		srctype = AT91_AIC_SRCTYPE_RISING;
 		break;
 	case IRQ_TYPE_LEVEL_LOW:
-		if ((d->hwirq == AT91_ID_FIQ) || is_extern_irq(d->hwirq))		
+		if ((d->hwirq == AT91_ID_FIQ) || is_extern_irq(d->hwirq))		/* only supported on external interrupts */
 			srctype = AT91_AIC_SRCTYPE_LOW;
 		else
 			return -EINVAL;
 		break;
 	case IRQ_TYPE_EDGE_FALLING:
-		if ((d->hwirq == AT91_ID_FIQ) || is_extern_irq(d->hwirq))		
+		if ((d->hwirq == AT91_ID_FIQ) || is_extern_irq(d->hwirq))		/* only supported on external interrupts */
 			srctype = AT91_AIC_SRCTYPE_FALLING;
 		else
 			return -EINVAL;
@@ -139,15 +139,24 @@ static void __init at91_aic_hw_init(unsigned int spu_vector)
 {
 	int i;
 
+	/*
+	 * Perform 8 End Of Interrupt Command to make sure AIC
+	 * will not Lock out nIRQ
+	 */
 	for (i = 0; i < 8; i++)
 		at91_aic_write(AT91_AIC_EOICR, 0);
 
+	/*
+	 * Spurious Interrupt ID in Spurious Vector Register.
+	 * When there is no current interrupt, the IRQ Vector Register
+	 * reads the value stored in AIC_SPU
+	 */
 	at91_aic_write(AT91_AIC_SPU, spu_vector);
 
-	
+	/* No debugging in AIC: Debug (Protect) Control Register */
 	at91_aic_write(AT91_AIC_DCR, 0);
 
-	
+	/* Disable and clear all interrupts initially */
 	at91_aic_write(AT91_AIC_IDCR, 0xFFFFFFFF);
 	at91_aic_write(AT91_AIC_ICCR, 0xFFFFFFFF);
 }
@@ -156,10 +165,10 @@ static void __init at91_aic_hw_init(unsigned int spu_vector)
 static int at91_aic_irq_map(struct irq_domain *h, unsigned int virq,
 							irq_hw_number_t hw)
 {
-	
+	/* Put virq number in Source Vector Register */
 	at91_aic_write(AT91_AIC_SVR(hw), virq);
 
-	
+	/* Active Low interrupt, without priority */
 	at91_aic_write(AT91_AIC_SMR(hw), AT91_AIC_SRCTYPE_LOW);
 
 	irq_set_chip_and_handler(virq, &at91_aic_chip, handle_level_irq);
@@ -192,6 +201,9 @@ int __init at91_aic_of_init(struct device_node *node,
 }
 #endif
 
+/*
+ * Initialize the AIC interrupt controller.
+ */
 void __init at91_aic_init(unsigned int priority[NR_AIC_IRQS])
 {
 	unsigned int i;
@@ -201,7 +213,7 @@ void __init at91_aic_init(unsigned int priority[NR_AIC_IRQS])
 	if (!at91_aic_base)
 		panic("Unable to ioremap AIC registers\n");
 
-	
+	/* Add irq domain for AIC */
 	irq_base = irq_alloc_descs(-1, 0, NR_AIC_IRQS, 0);
 	if (irq_base < 0) {
 		WARN(1, "Cannot allocate irq_descs, assuming pre-allocated\n");
@@ -216,10 +228,14 @@ void __init at91_aic_init(unsigned int priority[NR_AIC_IRQS])
 
 	irq_set_default_host(at91_aic_domain);
 
+	/*
+	 * The IVR is used by macro get_irqnr_and_base to read and verify.
+	 * The irq number is NR_AIC_IRQS when a spurious interrupt has occurred.
+	 */
 	for (i = 0; i < NR_AIC_IRQS; i++) {
-		
+		/* Put hardware irq number in Source Vector Register: */
 		at91_aic_write(AT91_AIC_SVR(i), i);
-		
+		/* Active Low interrupt, with the specified priority */
 		at91_aic_write(AT91_AIC_SMR(i), AT91_AIC_SRCTYPE_LOW | priority[i]);
 
 		irq_set_chip_and_handler(i, &at91_aic_chip, handle_level_irq);

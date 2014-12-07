@@ -17,53 +17,63 @@
 #define S3C2410_MEMREG(x) (S3C24XX_VA_MEMCTRL + (x))
 #endif
 
+/* bus width, and wait state control */
 #define S3C2410_BWSCON			S3C2410_MEMREG(0x0000)
 
+/* bank zero config - note, pinstrapped from OM pins! */
 #define S3C2410_BWSCON_DW0_16		(1<<1)
 #define S3C2410_BWSCON_DW0_32		(2<<1)
 
+/* bank one configs */
 #define S3C2410_BWSCON_DW1_8		(0<<4)
 #define S3C2410_BWSCON_DW1_16		(1<<4)
 #define S3C2410_BWSCON_DW1_32		(2<<4)
 #define S3C2410_BWSCON_WS1		(1<<6)
 #define S3C2410_BWSCON_ST1		(1<<7)
 
+/* bank 2 configurations */
 #define S3C2410_BWSCON_DW2_8		(0<<8)
 #define S3C2410_BWSCON_DW2_16		(1<<8)
 #define S3C2410_BWSCON_DW2_32		(2<<8)
 #define S3C2410_BWSCON_WS2		(1<<10)
 #define S3C2410_BWSCON_ST2		(1<<11)
 
+/* bank 3 configurations */
 #define S3C2410_BWSCON_DW3_8		(0<<12)
 #define S3C2410_BWSCON_DW3_16		(1<<12)
 #define S3C2410_BWSCON_DW3_32		(2<<12)
 #define S3C2410_BWSCON_WS3		(1<<14)
 #define S3C2410_BWSCON_ST3		(1<<15)
 
+/* bank 4 configurations */
 #define S3C2410_BWSCON_DW4_8		(0<<16)
 #define S3C2410_BWSCON_DW4_16		(1<<16)
 #define S3C2410_BWSCON_DW4_32		(2<<16)
 #define S3C2410_BWSCON_WS4		(1<<18)
 #define S3C2410_BWSCON_ST4		(1<<19)
 
+/* bank 5 configurations */
 #define S3C2410_BWSCON_DW5_8		(0<<20)
 #define S3C2410_BWSCON_DW5_16		(1<<20)
 #define S3C2410_BWSCON_DW5_32		(2<<20)
 #define S3C2410_BWSCON_WS5		(1<<22)
 #define S3C2410_BWSCON_ST5		(1<<23)
 
+/* bank 6 configurations */
 #define S3C2410_BWSCON_DW6_8		(0<<24)
 #define S3C2410_BWSCON_DW6_16		(1<<24)
 #define S3C2410_BWSCON_DW6_32		(2<<24)
 #define S3C2410_BWSCON_WS6		(1<<26)
 #define S3C2410_BWSCON_ST6		(1<<27)
 
+/* bank 7 configurations */
 #define S3C2410_BWSCON_DW7_8		(0<<28)
 #define S3C2410_BWSCON_DW7_16		(1<<28)
 #define S3C2410_BWSCON_DW7_32		(2<<28)
 #define S3C2410_BWSCON_WS7		(1<<30)
 #define S3C2410_BWSCON_ST7		(1<<31)
 
+/* accesor functions for getting BANK(n) configuration. (n != 0) */
 
 #define S3C2410_BWSCON_GET(_bwscon, _bank) (((_bwscon) >> ((_bank) * 4)) & 0xf)
 
@@ -73,6 +83,7 @@
 #define S3C2410_BWSCON_WS		(1 << 2)
 #define S3C2410_BWSCON_ST		(1 << 3)
 
+/* memory set (rom, ram) */
 #define S3C2410_BANKCON0		S3C2410_MEMREG(0x0004)
 #define S3C2410_BANKCON1		S3C2410_MEMREG(0x0008)
 #define S3C2410_BANKCON2		S3C2410_MEMREG(0x000C)
@@ -82,12 +93,16 @@
 #define S3C2410_BANKCON6		S3C2410_MEMREG(0x001C)
 #define S3C2410_BANKCON7		S3C2410_MEMREG(0x0020)
 
+/* bank configuration registers */
 
 #define S3C2410_BANKCON_PMCnorm		(0x00)
 #define S3C2410_BANKCON_PMC4		(0x01)
 #define S3C2410_BANKCON_PMC8		(0x02)
 #define S3C2410_BANKCON_PMC16		(0x03)
 
+/* bank configurations for banks 0..7, note banks
+ * 6 and 7 have different configurations depending on
+ * the memory type bits */
 
 #define S3C2410_BANKCON_Tacp2		(0x0 << 2)
 #define S3C2410_BANKCON_Tacp3		(0x1 << 2)
@@ -132,10 +147,12 @@
 #define S3C2410_BANKCON_SRAM		(0x0 << 15)
 #define S3C2410_BANKCON_SDRAM		(0x3 << 15)
 
+/* next bits only for SDRAM in 6,7 */
 #define S3C2410_BANKCON_Trcd2		(0x00 << 2)
 #define S3C2410_BANKCON_Trcd3		(0x01 << 2)
 #define S3C2410_BANKCON_Trcd4		(0x02 << 2)
 
+/* control column address select */
 #define S3C2410_BANKCON_SCANb8		(0x00 << 0)
 #define S3C2410_BANKCON_SCANb9		(0x01 << 0)
 #define S3C2410_BANKCON_SCANb10		(0x02 << 0)
@@ -145,6 +162,7 @@
 #define S3C2410_MRSRB6			S3C2410_MEMREG(0x002C)
 #define S3C2410_MRSRB7			S3C2410_MEMREG(0x0030)
 
+/* refresh control */
 
 #define S3C2410_REFRESH_REFEN		(1<<23)
 #define S3C2410_REFRESH_SELF		(1<<22)
@@ -162,11 +180,13 @@
 #define S3C2410_REFRESH_TSRC_7clk	(3<<18)
 
 
+/* mode select register(s) */
 
 #define  S3C2410_MRSRB_CL1		(0x00 << 4)
 #define  S3C2410_MRSRB_CL2		(0x02 << 4)
 #define  S3C2410_MRSRB_CL3		(0x03 << 4)
 
+/* bank size register */
 #define S3C2410_BANKSIZE_128M		(0x2 << 0)
 #define S3C2410_BANKSIZE_64M		(0x1 << 0)
 #define S3C2410_BANKSIZE_32M		(0x0 << 0)
@@ -179,4 +199,4 @@
 #define S3C2410_BANKSIZE_SCKE_EN	(1<<5)
 #define S3C2410_BANKSIZE_BURST		(1<<7)
 
-#endif 
+#endif /* __ASM_ARM_MEMREGS_H */

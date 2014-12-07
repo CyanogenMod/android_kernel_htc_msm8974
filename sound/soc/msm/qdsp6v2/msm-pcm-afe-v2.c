@@ -178,6 +178,18 @@ static void pcm_afe_process_tx_pkt(uint32_t opcode,
 			switch (event) {
 			case AFE_EVENT_RTPORT_START: {
 				prtd->dsp_cnt = 0;
+				/* Calculate poll time.
+				 * Split steps to avoid overflow.
+				 * Poll time-time corresponding to one period
+				 * in bytes.
+				 * (Samplerate * channelcount * format) =
+				 * bytes in 1 sec.
+				 * Poll time =
+				 *	(period bytes / bytes in one sec) *
+				 *	 1000000 micro seconds.
+				 * Multiplication by 1000000 is done in two
+				 * steps to keep the accuracy of poll time.
+				 */
 				period_bytes = ((uint64_t)(
 					(snd_pcm_lib_period_bytes(
 						prtd->substream)) *
@@ -251,6 +263,14 @@ static void pcm_afe_process_rx_pkt(uint32_t opcode,
 		switch (event) {
 		case AFE_EVENT_RTPORT_START: {
 			prtd->dsp_cnt = 0;
+			/* Calculate poll time. Split steps to avoid overflow.
+			 * Poll time-time corresponding to one period in bytes.
+			 * (Samplerate * channelcount * format)=bytes in 1 sec.
+			 * Poll time =  (period bytes / bytes in one sec) *
+			 * 1000000 micro seconds.
+			 * Multiplication by 1000000 is done in two steps to
+			 * keep the accuracy of poll time.
+			 */
 			period_bytes = ((uint64_t)(
 				(snd_pcm_lib_period_bytes(prtd->substream)) *
 				 1000));
@@ -340,6 +360,7 @@ static int msm_afe_capture_prepare(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/* Conventional and unconventional sample rate supported */
 static unsigned int supported_sample_rates[] = {
 	8000, 16000, 48000
 };
@@ -396,7 +417,7 @@ static int msm_afe_open(struct snd_pcm_substream *substream)
 				&constraints_sample_rates);
 	if (ret < 0)
 		pr_err("snd_pcm_hw_constraint_list failed\n");
-	
+	/* Ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(runtime,
 					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)

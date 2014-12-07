@@ -1,3 +1,10 @@
+/*
+ *  fs/partitions/ultrix.c
+ *
+ *  Code extracted from drivers/block/genhd.c
+ *
+ *  Re-organised Jul 1999 Russell King
+ */
 
 #include "check.h"
 #include "ultrix.h"
@@ -8,16 +15,16 @@ int ultrix_partition(struct parsed_partitions *state)
 	Sector sect;
 	unsigned char *data;
 	struct ultrix_disklabel {
-		s32	pt_magic;	
-		s32	pt_valid;	
+		s32	pt_magic;	/* magic no. indicating part. info exits */
+		s32	pt_valid;	/* set by driver if pt is current */
 		struct  pt_info {
-			s32		pi_nblocks; 
-			u32		pi_blkoff;  
+			s32		pi_nblocks; /* no. of sectors */
+			u32		pi_blkoff;  /* block offset for start */
 		} pt_part[8];
 	} *label;
 
-#define PT_MAGIC	0x032957	
-#define PT_VALID	1		
+#define PT_MAGIC	0x032957	/* Partition magic number */
+#define PT_VALID	1		/* Indicates if struct is valid */
 
 	data = read_part_sector(state, (16384 - sizeof(*label))/512, &sect);
 	if (!data)

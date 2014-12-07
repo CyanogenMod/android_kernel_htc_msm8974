@@ -23,7 +23,7 @@ extern void asmlinkage __flush_tlb_mm(unsigned long contextid);
 extern void asmlinkage __flush_tlb_page(unsigned long contextid, unsigned long start);
 extern void asmlinkage __flush_tlb_range(unsigned long contextid,
 					 unsigned long start, unsigned long end);
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define flush_tlb_all()				\
 do {						\
@@ -70,4 +70,4 @@ do {								\
 #endif
 
 
-#endif 
+#endif /* _ASM_TLBFLUSH_H */

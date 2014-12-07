@@ -35,6 +35,7 @@ struct exynos_dp_device {
 	struct link_train	link_train;
 };
 
+/* exynos_dp_reg.c */
 void exynos_dp_enable_video_mute(struct exynos_dp_device *dp, bool enable);
 void exynos_dp_stop_video(struct exynos_dp_device *dp);
 void exynos_dp_lane_swap(struct exynos_dp_device *dp, bool enable);
@@ -128,6 +129,7 @@ void exynos_dp_config_video_slave_mode(struct exynos_dp_device *dp,
 void exynos_dp_enable_scrambling(struct exynos_dp_device *dp);
 void exynos_dp_disable_scrambling(struct exynos_dp_device *dp);
 
+/* I2C EDID Chip ID, Slave Address */
 #define I2C_EDID_DEVICE_ADDR			0x50
 #define I2C_E_EDID_DEVICE_ADDR			0x30
 
@@ -136,6 +138,7 @@ void exynos_dp_disable_scrambling(struct exynos_dp_device *dp);
 #define EDID_EXTENSION_FLAG			0x7e
 #define EDID_CHECKSUM				0x7f
 
+/* Definition for DPCD Register */
 #define DPCD_ADDR_DPCD_REV			0x0000
 #define DPCD_ADDR_MAX_LINK_RATE			0x0001
 #define DPCD_ADDR_MAX_LANE_COUNT		0x0002
@@ -152,18 +155,22 @@ void exynos_dp_disable_scrambling(struct exynos_dp_device *dp);
 #define DPCD_ADDR_TEST_EDID_CHECKSUM		0x0261
 #define DPCD_ADDR_SINK_POWER_STATE		0x0600
 
+/* DPCD_ADDR_MAX_LANE_COUNT */
 #define DPCD_ENHANCED_FRAME_CAP(x)		(((x) >> 7) & 0x1)
 #define DPCD_MAX_LANE_COUNT(x)			((x) & 0x1f)
 
+/* DPCD_ADDR_LANE_COUNT_SET */
 #define DPCD_ENHANCED_FRAME_EN			(0x1 << 7)
 #define DPCD_LANE_COUNT_SET(x)			((x) & 0x1f)
 
+/* DPCD_ADDR_TRAINING_PATTERN_SET */
 #define DPCD_SCRAMBLING_DISABLED		(0x1 << 5)
 #define DPCD_SCRAMBLING_ENABLED			(0x0 << 5)
 #define DPCD_TRAINING_PATTERN_2			(0x2 << 0)
 #define DPCD_TRAINING_PATTERN_1			(0x1 << 0)
 #define DPCD_TRAINING_PATTERN_DISABLED		(0x0 << 0)
 
+/* DPCD_ADDR_TRAINING_LANE0_SET */
 #define DPCD_MAX_PRE_EMPHASIS_REACHED		(0x1 << 5)
 #define DPCD_PRE_EMPHASIS_SET(x)		(((x) & 0x3) << 3)
 #define DPCD_PRE_EMPHASIS_GET(x)		(((x) >> 3) & 0x3)
@@ -173,6 +180,7 @@ void exynos_dp_disable_scrambling(struct exynos_dp_device *dp);
 #define DPCD_VOLTAGE_SWING_GET(x)		(((x) >> 0) & 0x3)
 #define DPCD_VOLTAGE_SWING_PATTERN1_LEVEL0	(0x0 << 0)
 
+/* DPCD_ADDR_LANE0_1_STATUS */
 #define DPCD_LANE_SYMBOL_LOCKED			(0x1 << 2)
 #define DPCD_LANE_CHANNEL_EQ_DONE		(0x1 << 1)
 #define DPCD_LANE_CR_DONE			(0x1 << 0)
@@ -180,15 +188,19 @@ void exynos_dp_disable_scrambling(struct exynos_dp_device *dp);
 						 DPCD_LANE_CHANNEL_EQ_DONE|\
 						 DPCD_LANE_SYMBOL_LOCKED)
 
+/* DPCD_ADDR_LANE_ALIGN__STATUS_UPDATED */
 #define DPCD_LINK_STATUS_UPDATED		(0x1 << 7)
 #define DPCD_DOWNSTREAM_PORT_STATUS_CHANGED	(0x1 << 6)
 #define DPCD_INTERLANE_ALIGN_DONE		(0x1 << 0)
 
+/* DPCD_ADDR_TEST_REQUEST */
 #define DPCD_TEST_EDID_READ			(0x1 << 2)
 
+/* DPCD_ADDR_TEST_RESPONSE */
 #define DPCD_TEST_EDID_CHECKSUM_WRITE		(0x1 << 2)
 
+/* DPCD_ADDR_SINK_POWER_STATE */
 #define DPCD_SET_POWER_STATE_D0			(0x1 << 0)
 #define DPCD_SET_POWER_STATE_D4			(0x2 << 0)
 
-#endif 
+#endif /* _EXYNOS_DP_CORE_H */

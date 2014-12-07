@@ -44,6 +44,13 @@ static struct scsi_device_handler *get_device_handler(const char *name)
 	return found;
 }
 
+/*
+ * device_handler_match_function - Match a device handler to a device
+ * @sdev - SCSI device to be tested
+ *
+ * Tests @sdev against the match function of all registered device_handler.
+ * Returns the found device handler or NULL if not found.
+ */
 static struct scsi_device_handler *
 device_handler_match_function(struct scsi_device *sdev)
 {
@@ -60,6 +67,15 @@ device_handler_match_function(struct scsi_device *sdev)
 	return found_dh;
 }
 
+/*
+ * device_handler_match - Attach a device handler to a device
+ * @scsi_dh - The device handler to match against or NULL
+ * @sdev - SCSI device to be tested against @scsi_dh
+ *
+ * Tests @sdev against the device handler @scsi_dh or against
+ * all registered device_handler if @scsi_dh == NULL.
+ * Returns the found device handler or NULL if not found.
+ */
 static struct scsi_device_handler *
 device_handler_match(struct scsi_device_handler *scsi_dh,
 		     struct scsi_device *sdev)
@@ -74,6 +90,11 @@ device_handler_match(struct scsi_device_handler *scsi_dh,
 	return found_dh;
 }
 
+/*
+ * scsi_dh_handler_attach - Attach a device handler to a device
+ * @sdev - SCSI device the device handler should attach to
+ * @scsi_dh - The device handler to attach
+ */
 static int scsi_dh_handler_attach(struct scsi_device *sdev,
 				  struct scsi_device_handler *scsi_dh)
 {
@@ -100,6 +121,14 @@ static void __detach_handler (struct kref *kref)
 	scsi_dh_data->scsi_dh->detach(scsi_dh_data->sdev);
 }
 
+/*
+ * scsi_dh_handler_detach - Detach a device handler from a device
+ * @sdev - SCSI device the device handler should be detached from
+ * @scsi_dh - Device handler to be detached
+ *
+ * Detach from a device handler. If a device handler is specified,
+ * only detach if the currently attached handler matches @scsi_dh.
+ */
 static void scsi_dh_handler_detach(struct scsi_device *sdev,
 				   struct scsi_device_handler *scsi_dh)
 {
@@ -116,6 +145,9 @@ static void scsi_dh_handler_detach(struct scsi_device *sdev,
 		kref_put(&sdev->scsi_dh_data->kref, __detach_handler);
 }
 
+/*
+ * Functions for sysfs attribute 'dh_state'
+ */
 static ssize_t
 store_dh_state(struct device *dev, struct device_attribute *attr,
 	       const char *buf, size_t count)
@@ -129,15 +161,24 @@ store_dh_state(struct device *dev, struct device_attribute *attr,
 		return -ENODEV;
 
 	if (!sdev->scsi_dh_data) {
+		/*
+		 * Attach to a device handler
+		 */
 		if (!(scsi_dh = get_device_handler(buf)))
 			return err;
 		err = scsi_dh_handler_attach(sdev, scsi_dh);
 	} else {
 		scsi_dh = sdev->scsi_dh_data->scsi_dh;
 		if (!strncmp(buf, "detach", 6)) {
+			/*
+			 * Detach from a device handler
+			 */
 			scsi_dh_handler_detach(sdev, scsi_dh);
 			err = 0;
 		} else if (!strncmp(buf, "activate", 8)) {
+			/*
+			 * Activate a device handler
+			 */
 			if (scsi_dh->activate)
 				err = scsi_dh->activate(sdev, NULL, NULL);
 			else
@@ -163,6 +204,9 @@ static struct device_attribute scsi_dh_state_attr =
 	__ATTR(dh_state, S_IRUGO | S_IWUSR, show_dh_state,
 	       store_dh_state);
 
+/*
+ * scsi_dh_sysfs_attr_add - Callback for scsi_init_dh
+ */
 static int scsi_dh_sysfs_attr_add(struct device *dev, void *data)
 {
 	struct scsi_device *sdev;
@@ -179,6 +223,9 @@ static int scsi_dh_sysfs_attr_add(struct device *dev, void *data)
 	return 0;
 }
 
+/*
+ * scsi_dh_sysfs_attr_remove - Callback for scsi_exit_dh
+ */
 static int scsi_dh_sysfs_attr_remove(struct device *dev, void *data)
 {
 	struct scsi_device *sdev;
@@ -194,6 +241,9 @@ static int scsi_dh_sysfs_attr_remove(struct device *dev, void *data)
 	return 0;
 }
 
+/*
+ * scsi_dh_notifier - notifier chain callback
+ */
 static int scsi_dh_notifier(struct notifier_block *nb,
 			    unsigned long action, void *data)
 {
@@ -209,7 +259,7 @@ static int scsi_dh_notifier(struct notifier_block *nb,
 
 	if (action == BUS_NOTIFY_ADD_DEVICE) {
 		err = device_create_file(dev, &scsi_dh_state_attr);
-		
+		/* don't care about err */
 		devinfo = device_handler_match(NULL, sdev);
 		if (devinfo)
 			err = scsi_dh_handler_attach(sdev, devinfo);
@@ -220,6 +270,9 @@ static int scsi_dh_notifier(struct notifier_block *nb,
 	return err;
 }
 
+/*
+ * scsi_dh_notifier_add - Callback for scsi_register_device_handler
+ */
 static int scsi_dh_notifier_add(struct device *dev, void *data)
 {
 	struct scsi_device_handler *scsi_dh = data;
@@ -241,6 +294,9 @@ static int scsi_dh_notifier_add(struct device *dev, void *data)
 	return 0;
 }
 
+/*
+ * scsi_dh_notifier_remove - Callback for scsi_unregister_device_handler
+ */
 static int scsi_dh_notifier_remove(struct device *dev, void *data)
 {
 	struct scsi_device_handler *scsi_dh = data;
@@ -261,6 +317,13 @@ static int scsi_dh_notifier_remove(struct device *dev, void *data)
 	return 0;
 }
 
+/*
+ * scsi_register_device_handler - register a device handler personality
+ *      module.
+ * @scsi_dh - device handler to be registered.
+ *
+ * Returns 0 on success, -EBUSY if handler already registered.
+ */
 int scsi_register_device_handler(struct scsi_device_handler *scsi_dh)
 {
 
@@ -278,6 +341,13 @@ int scsi_register_device_handler(struct scsi_device_handler *scsi_dh)
 }
 EXPORT_SYMBOL_GPL(scsi_register_device_handler);
 
+/*
+ * scsi_unregister_device_handler - register a device handler personality
+ *      module.
+ * @scsi_dh - device handler to be unregistered.
+ *
+ * Returns 0 on success, -ENODEV if handler not registered.
+ */
 int scsi_unregister_device_handler(struct scsi_device_handler *scsi_dh)
 {
 
@@ -296,6 +366,19 @@ int scsi_unregister_device_handler(struct scsi_device_handler *scsi_dh)
 }
 EXPORT_SYMBOL_GPL(scsi_unregister_device_handler);
 
+/*
+ * scsi_dh_activate - activate the path associated with the scsi_device
+ *      corresponding to the given request queue.
+ *     Returns immediately without waiting for activation to be completed.
+ * @q    - Request queue that is associated with the scsi_device to be
+ *         activated.
+ * @fn   - Function to be called upon completion of the activation.
+ *         Function fn is called with data (below) and the error code.
+ *         Function fn may be called from the same calling context. So,
+ *         do not hold the lock in the caller which may be needed in fn.
+ * @data - data passed to the function fn upon completion.
+ *
+ */
 int scsi_dh_activate(struct request_queue *q, activate_complete fn, void *data)
 {
 	int err = 0;
@@ -339,6 +422,16 @@ out:
 }
 EXPORT_SYMBOL_GPL(scsi_dh_activate);
 
+/*
+ * scsi_dh_set_params - set the parameters for the device as per the
+ *      string specified in params.
+ * @q - Request queue that is associated with the scsi_device for
+ *      which the parameters to be set.
+ * @params - parameters in the following format
+ *      "no_of_params\0param1\0param2\0param3\0...\0"
+ *      for example, string for 2 parameters with value 10 and 21
+ *      is specified as "2\010\021\0".
+ */
 int scsi_dh_set_params(struct request_queue *q, const char *params)
 {
 	int err = -SCSI_DH_NOSYS;
@@ -362,12 +455,22 @@ int scsi_dh_set_params(struct request_queue *q, const char *params)
 }
 EXPORT_SYMBOL_GPL(scsi_dh_set_params);
 
+/*
+ * scsi_dh_handler_exist - Return TRUE(1) if a device handler exists for
+ *	the given name. FALSE(0) otherwise.
+ * @name - name of the device handler.
+ */
 int scsi_dh_handler_exist(const char *name)
 {
 	return (get_device_handler(name) != NULL);
 }
 EXPORT_SYMBOL_GPL(scsi_dh_handler_exist);
 
+/*
+ * scsi_dh_attach - Attach device handler
+ * @sdev - sdev the handler should be attached to
+ * @name - name of the handler to attach
+ */
 int scsi_dh_attach(struct request_queue *q, const char *name)
 {
 	unsigned long flags;
@@ -393,6 +496,14 @@ int scsi_dh_attach(struct request_queue *q, const char *name)
 }
 EXPORT_SYMBOL_GPL(scsi_dh_attach);
 
+/*
+ * scsi_dh_detach - Detach device handler
+ * @sdev - sdev the handler should be detached from
+ *
+ * This function will detach the device handler only
+ * if the sdev is not part of the internal list, ie
+ * if it has been attached manually.
+ */
 void scsi_dh_detach(struct request_queue *q)
 {
 	unsigned long flags;

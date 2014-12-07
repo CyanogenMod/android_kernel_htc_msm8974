@@ -18,6 +18,7 @@
 #define w(x, a)	writel((x), d->regs + (a))
 #define r(a)	readl(d->regs + (a))
 
+/* g2d_reset clears all g2d registers */
 void g2d_reset(struct g2d_dev *d)
 {
 	w(1, SOFT_RESET_REG);
@@ -94,11 +95,11 @@ void g2d_set_cmd(struct g2d_dev *d, u32 c)
 
 void g2d_start(struct g2d_dev *d)
 {
-	
+	/* Clear cache */
 	w(0x7, CACHECTL_REG);
-	
+	/* Enable interrupt */
 	w(1, INTEN_REG);
-	
+	/* Start G2D engine */
 	w(1, BITBLT_START_REG);
 }
 

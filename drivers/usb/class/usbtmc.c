@@ -33,19 +33,35 @@
 
 #define USBTMC_MINOR_BASE	176
 
+/*
+ * Size of driver internal IO buffer. Must be multiple of 4 and at least as
+ * large as wMaxPacketSize (which is usually 512 bytes).
+ */
 #define USBTMC_SIZE_IOBUFFER	2048
 
+/* Default USB timeout (in milliseconds) */
 #define USBTMC_TIMEOUT		5000
 
+/*
+ * Maximum number of read cycles to empty bulk in endpoint during CLEAR and
+ * ABORT_BULK_IN requests. Ends the loop if (for whatever reason) a short
+ * packet is never read.
+ */
 #define USBTMC_MAX_READS_TO_CLEAR_BULK_IN	100
 
 static const struct usb_device_id usbtmc_devices[] = {
 	{ USB_INTERFACE_INFO(USB_CLASS_APP_SPEC, 3, 0), },
 	{ USB_INTERFACE_INFO(USB_CLASS_APP_SPEC, 3, 1), },
-	{ 0, } 
+	{ 0, } /* terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, usbtmc_devices);
 
+/*
+ * This structure is the capabilities for the device
+ * See section 4.2.1.8 of the USBTMC specification,
+ * and section 4.2.2 of the USBTMC usb488 subclass
+ * specification for details.
+ */
 struct usbtmc_dev_capabilities {
 	__u8 interface_capabilities;
 	__u8 device_capabilities;
@@ -53,6 +69,9 @@ struct usbtmc_dev_capabilities {
 	__u8 usb488_device_capabilities;
 };
 
+/* This structure holds private data for each USBTMC device. One copy is
+ * allocated for each USBTMC device in the driver's probe function.
+ */
 struct usbtmc_device_data {
 	const struct usb_device_id *id;
 	struct usb_device *usb_dev;
@@ -62,22 +81,23 @@ struct usbtmc_device_data {
 	unsigned int bulk_out;
 
 	u8 bTag;
-	u8 bTag_last_write;	
-	u8 bTag_last_read;	
+	u8 bTag_last_write;	/* needed for abort */
+	u8 bTag_last_read;	/* needed for abort */
 
-	
+	/* attributes from the USB TMC spec for this device */
 	u8 TermChar;
 	bool TermCharEnabled;
 	bool auto_abort;
 
-	bool zombie; 
+	bool zombie; /* fd of disconnected device */
 
 	struct usbtmc_dev_capabilities	capabilities;
 	struct kref kref;
-	struct mutex io_mutex;	
+	struct mutex io_mutex;	/* only one i/o function running at a time */
 };
 #define to_usbtmc_data(d) container_of(d, struct usbtmc_device_data, kref)
 
+/* Forward declarations */
 static struct usb_driver usbtmc_driver;
 
 static void usbtmc_delete(struct kref *kref)
@@ -105,7 +125,7 @@ static int usbtmc_open(struct inode *inode, struct file *filp)
 	data = usb_get_intfdata(intf);
 	kref_get(&data->kref);
 
-	
+	/* Store pointer in file structure's private data field */
 	filp->private_data = data;
 
 exit:
@@ -354,7 +374,7 @@ static ssize_t usbtmc_read(struct file *filp, char __user *buf,
 	int retval;
 	size_t this_part;
 
-	
+	/* Get pointer to private data structure */
 	data = filp->private_data;
 	dev = &data->intf->dev;
 
@@ -377,30 +397,33 @@ static ssize_t usbtmc_read(struct file *filp, char __user *buf,
 		else
 			this_part = remaining;
 
+		/* Setup IO buffer for DEV_DEP_MSG_IN message
+		 * Refer to class specs for details
+		 */
 		buffer[0] = 2;
 		buffer[1] = data->bTag;
 		buffer[2] = ~(data->bTag);
-		buffer[3] = 0; 
+		buffer[3] = 0; /* Reserved */
 		buffer[4] = (this_part) & 255;
 		buffer[5] = ((this_part) >> 8) & 255;
 		buffer[6] = ((this_part) >> 16) & 255;
 		buffer[7] = ((this_part) >> 24) & 255;
 		buffer[8] = data->TermCharEnabled * 2;
-		
+		/* Use term character? */
 		buffer[9] = data->TermChar;
-		buffer[10] = 0; 
-		buffer[11] = 0; 
+		buffer[10] = 0; /* Reserved */
+		buffer[11] = 0; /* Reserved */
 
-		
+		/* Send bulk URB */
 		retval = usb_bulk_msg(data->usb_dev,
 				      usb_sndbulkpipe(data->usb_dev,
 						      data->bulk_out),
 				      buffer, 12, &actual, USBTMC_TIMEOUT);
 
-		
+		/* Store bTag (in case we need to abort) */
 		data->bTag_last_write = data->bTag;
 
-		
+		/* Increment bTag -- and increment again if zero */
 		data->bTag++;
 		if (!data->bTag)
 			(data->bTag)++;
@@ -412,14 +435,14 @@ static ssize_t usbtmc_read(struct file *filp, char __user *buf,
 			goto exit;
 		}
 
-		
+		/* Send bulk URB */
 		retval = usb_bulk_msg(data->usb_dev,
 				      usb_rcvbulkpipe(data->usb_dev,
 						      data->bulk_in),
 				      buffer, USBTMC_SIZE_IOBUFFER, &actual,
 				      USBTMC_TIMEOUT);
 
-		
+		/* Store bTag (in case we need to abort) */
 		data->bTag_last_read = data->bTag;
 
 		if (retval < 0) {
@@ -429,44 +452,44 @@ static ssize_t usbtmc_read(struct file *filp, char __user *buf,
 			goto exit;
 		}
 
-		
+		/* How many characters did the instrument send? */
 		n_characters = buffer[4] +
 			       (buffer[5] << 8) +
 			       (buffer[6] << 16) +
 			       (buffer[7] << 24);
 
-		
+		/* Ensure the instrument doesn't lie about it */
 		if(n_characters > actual - 12) {
 			dev_err(dev, "Device lies about message size: %u > %d\n", n_characters, actual - 12);
 			n_characters = actual - 12;
 		}
 
-		
+		/* Ensure the instrument doesn't send more back than requested */
 		if(n_characters > this_part) {
 			dev_err(dev, "Device returns more than requested: %zu > %zu\n", done + n_characters, done + this_part);
 			n_characters = this_part;
 		}
 
-		
+		/* Bound amount of data received by amount of data requested */
 		if (n_characters > this_part)
 			n_characters = this_part;
 
-		
+		/* Copy buffer to user space */
 		if (copy_to_user(buf + done, &buffer[12], n_characters)) {
-			
+			/* There must have been an addressing problem */
 			retval = -EFAULT;
 			goto exit;
 		}
 
 		done += n_characters;
-		
+		/* Terminate if end-of-message bit received from device */
 		if ((buffer[8] &  0x01) && (actual >= n_characters + 12))
 			remaining = 0;
 		else
 			remaining -= n_characters;
 	}
 
-	
+	/* Update file position value */
 	*f_pos = *f_pos + done;
 	retval = done;
 
@@ -512,19 +535,19 @@ static ssize_t usbtmc_write(struct file *filp, const char __user *buf,
 			buffer[8] = 1;
 		}
 
-		
+		/* Setup IO buffer for DEV_DEP_MSG_OUT message */
 		buffer[0] = 1;
 		buffer[1] = data->bTag;
 		buffer[2] = ~(data->bTag);
-		buffer[3] = 0; 
+		buffer[3] = 0; /* Reserved */
 		buffer[4] = this_part & 255;
 		buffer[5] = (this_part >> 8) & 255;
 		buffer[6] = (this_part >> 16) & 255;
 		buffer[7] = (this_part >> 24) & 255;
-		
-		buffer[9] = 0; 
-		buffer[10] = 0; 
-		buffer[11] = 0; 
+		/* buffer[8] is set above... */
+		buffer[9] = 0; /* Reserved */
+		buffer[10] = 0; /* Reserved */
+		buffer[11] = 0; /* Reserved */
 
 		if (copy_from_user(&buffer[12], buf + done, this_part)) {
 			retval = -EFAULT;
@@ -998,15 +1021,15 @@ static int usbtmc_probe(struct usb_interface *intf,
 	mutex_init(&data->io_mutex);
 	data->zombie = 0;
 
-	
+	/* Initialize USBTMC bTag and other fields */
 	data->bTag	= 1;
 	data->TermCharEnabled = 0;
 	data->TermChar = '\n';
 
-	
+	/* USBTMC devices have only one setting, so use that */
 	iface_desc = data->intf->cur_altsetting;
 
-	
+	/* Find bulk in endpoint */
 	for (n = 0; n < iface_desc->desc.bNumEndpoints; n++) {
 		endpoint = &iface_desc->endpoint[n].desc;
 
@@ -1018,7 +1041,7 @@ static int usbtmc_probe(struct usb_interface *intf,
 		}
 	}
 
-	
+	/* Find bulk out endpoint */
 	for (n = 0; n < iface_desc->desc.bNumEndpoints; n++) {
 		endpoint = &iface_desc->endpoint[n].desc;
 
@@ -1075,7 +1098,7 @@ static void usbtmc_disconnect(struct usb_interface *intf)
 
 static int usbtmc_suspend(struct usb_interface *intf, pm_message_t message)
 {
-	
+	/* this driver does not have pending URBs */
 	return 0;
 }
 

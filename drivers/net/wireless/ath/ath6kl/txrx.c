@@ -18,6 +18,10 @@
 #include "core.h"
 #include "debug.h"
 
+/*
+ * tid - tid_mux0..tid_mux3
+ * aid - tid_mux4..tid_mux7
+ */
 #define ATH6KL_TID_MASK 0xf
 #define ATH6KL_AID_SHIFT 4
 
@@ -73,6 +77,10 @@ static u8 ath6kl_ibss_map_epid(struct sk_buff *skb, struct net_device *dev,
 			break;
 		}
 
+		/*
+		 * No free endpoint is available, start redistribution on
+		 * the inuse endpoints.
+		 */
 		if (i == ENDPOINT_5) {
 			ar->node_map[ep_map].ep_id = ar->next_ep_id;
 			ar->next_ep_id++;
@@ -100,6 +108,11 @@ static bool ath6kl_process_uapsdq(struct ath6kl_sta *conn,
 	struct ath6kl_llc_snap_hdr *llc_hdr;
 
 	if (conn->sta_flags & STA_PS_APSD_TRIGGER) {
+		/*
+		 * This tx is because of a uAPSD trigger, determine
+		 * more and EOSP bit. Set EOSP if queue is empty
+		 * or sufficient frames are delivered for this trigger.
+		 */
 		spin_lock_bh(&conn->psq_lock);
 		if (!skb_queue_empty(&conn->apsdq))
 			*flags |= WMI_DATA_HDR_FLAGS_MORE;
@@ -114,10 +127,10 @@ static bool ath6kl_process_uapsdq(struct ath6kl_sta *conn,
 	if (test_bit(WMM_ENABLED, &vif->flags)) {
 		ether_type = be16_to_cpu(datap->h_proto);
 		if (is_ethertype(ether_type)) {
-			
+			/* packet is in DIX format  */
 			ip_hdr = (u8 *)(datap + 1);
 		} else {
-			
+			/* packet is in 802.3 format */
 			llc_hdr = (struct ath6kl_llc_snap_hdr *)
 							(datap + 1);
 			ether_type = be16_to_cpu(llc_hdr->eth_type);
@@ -134,12 +147,16 @@ static bool ath6kl_process_uapsdq(struct ath6kl_sta *conn,
 	if ((conn->apsd_info & (1 << traffic_class)) == 0)
 		return false;
 
-	
+	/* Queue the frames if the STA is sleeping */
 	spin_lock_bh(&conn->psq_lock);
 	is_apsdq_empty = skb_queue_empty(&conn->apsdq);
 	skb_queue_tail(&conn->apsdq, skb);
 	spin_unlock_bh(&conn->psq_lock);
 
+	/*
+	 * If this is the first pkt getting queued
+	 * for this STA, update the PVB for this STA
+	 */
 	if (is_apsdq_empty) {
 		ath6kl_wmi_set_apsd_bfrd_traf(ar->wmi,
 					      vif->fw_vif_idx,
@@ -166,12 +183,17 @@ static bool ath6kl_process_psq(struct ath6kl_sta *conn,
 		return false;
 	}
 
-	
+	/* Queue the frames if the STA is sleeping */
 	spin_lock_bh(&conn->psq_lock);
 	is_psq_empty = skb_queue_empty(&conn->psq);
 	skb_queue_tail(&conn->psq, skb);
 	spin_unlock_bh(&conn->psq_lock);
 
+	/*
+	 * If this is the first pkt getting queued
+	 * for this STA, update the PVB for this
+	 * STA.
+	 */
 	if (is_psq_empty)
 		ath6kl_wmi_set_pvb_cmd(ar->wmi,
 				       vif->fw_vif_idx,
@@ -199,6 +221,10 @@ static bool ath6kl_powersave_ap(struct ath6kl_vif *vif, struct sk_buff *skb,
 		}
 
 		if (q_mcast) {
+			/*
+			 * If this transmit is not because of a Dtim Expiry
+			 * q it.
+			 */
 			if (!test_bit(DTIM_EXPIRED, &vif->flags)) {
 				bool is_mcastq_empty = false;
 
@@ -208,6 +234,11 @@ static bool ath6kl_powersave_ap(struct ath6kl_vif *vif, struct sk_buff *skb,
 				skb_queue_tail(&ar->mcastpsq, skb);
 				spin_unlock_bh(&ar->mcastpsq_lock);
 
+				/*
+				 * If this is the first Mcast pkt getting
+				 * queued indicate to the target to set the
+				 * BitmapControl LSB of the TIM IE.
+				 */
 				if (is_mcastq_empty)
 					ath6kl_wmi_set_pvb_cmd(ar->wmi,
 							       vif->fw_vif_idx,
@@ -215,6 +246,10 @@ static bool ath6kl_powersave_ap(struct ath6kl_vif *vif, struct sk_buff *skb,
 
 				ps_queued = true;
 			} else {
+				/*
+				 * This transmit is because of Dtim expiry.
+				 * Determine if MoreData bit has to be set.
+				 */
 				spin_lock_bh(&ar->mcastpsq_lock);
 				if (!skb_queue_empty(&ar->mcastpsq))
 					*flags |= WMI_DATA_HDR_FLAGS_MORE;
@@ -226,7 +261,7 @@ static bool ath6kl_powersave_ap(struct ath6kl_vif *vif, struct sk_buff *skb,
 		if (!conn) {
 			dev_kfree_skb(skb);
 
-			
+			/* Inform the caller that the skb is consumed */
 			return true;
 		}
 
@@ -241,6 +276,7 @@ static bool ath6kl_powersave_ap(struct ath6kl_vif *vif, struct sk_buff *skb,
 	return ps_queued;
 }
 
+/* Tx functions */
 
 int ath6kl_control_tx(void *devt, struct sk_buff *skb,
 		      enum htc_endpoint_id eid)
@@ -259,6 +295,10 @@ int ath6kl_control_tx(void *devt, struct sk_buff *skb,
 		   skb, skb->len, eid);
 
 	if (test_bit(WMI_CTRL_EP_FULL, &ar->flag) && (eid == ar->ctrl_ep)) {
+		/*
+		 * Control endpoint is full, don't allocate resources, we
+		 * are just going to drop this packet.
+		 */
 		cookie = NULL;
 		ath6kl_err("wmi ctrl ep full, dropping pkt : 0x%p, len:%d\n",
 			   skb, skb->len);
@@ -283,6 +323,10 @@ int ath6kl_control_tx(void *devt, struct sk_buff *skb,
 	set_htc_pkt_info(&cookie->htc_pkt, cookie, skb->data, skb->len,
 			 eid, ATH6KL_CONTROL_PKT_TAG);
 
+	/*
+	 * This interface is asynchronous, if there is an error, cleanup
+	 * will happen in the TX completion callback.
+	 */
 	ath6kl_htc_tx(ar->htc_target, &cookie->htc_pkt);
 
 	return 0;
@@ -300,7 +344,7 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 	struct ath6kl_vif *vif = netdev_priv(dev);
 	u32 map_no = 0;
 	u16 htc_tag = ATH6KL_DATA_PKT_TAG;
-	u8 ac = 99 ; 
+	u8 ac = 99 ; /* initialize to unmapped ac */
 	bool chk_adhoc_ps_mapping = false;
 	int ret;
 	struct wmi_tx_meta_v2 meta_v2;
@@ -313,7 +357,7 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 		   "%s: skb=0x%p, data=0x%p, len=0x%x\n", __func__,
 		   skb, skb->data, skb->len);
 
-	
+	/* If target is not associated */
 	if (!test_bit(CONNECTED, &vif->flags)) {
 		dev_kfree_skb(skb);
 		return 0;
@@ -327,7 +371,7 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 	if (!test_bit(WMI_READY, &ar->flag))
 		goto fail_tx;
 
-	
+	/* AP mode Power saving processing */
 	if (vif->nw_type == AP_NETWORK) {
 		if (ath6kl_powersave_ap(vif, skb, &flags))
 			return 0;
@@ -363,7 +407,7 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 			meta_v2.csum_start = csum_start;
 			meta_v2.csum_dest = csum_dest;
 
-			
+			/* instruct target to calculate checksum */
 			meta_v2.csum_flags = WMI_META_V2_FLAG_CSUM_OFFLOAD;
 			meta_ver = WMI_META_VERSION_2;
 			meta = &meta_v2;
@@ -387,7 +431,7 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 		    ar->ibss_ps_enable && test_bit(CONNECTED, &vif->flags))
 			chk_adhoc_ps_mapping = true;
 		else {
-			
+			/* get the stream mapping */
 			ret = ath6kl_wmi_implicit_create_pstream(ar->wmi,
 				    vif->fw_vif_idx, skb,
 				    0, test_bit(WMM_ENABLED, &vif->flags), &ac);
@@ -410,7 +454,7 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 		goto fail_tx;
 	}
 
-	
+	/* allocate resource for this packet */
 	cookie = ath6kl_alloc_cookie(ar);
 
 	if (!cookie) {
@@ -418,7 +462,7 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 		goto fail_tx;
 	}
 
-	
+	/* update counts while the lock is held */
 	ar->tx_pending[eid]++;
 	ar->total_tx_data_pend++;
 
@@ -426,6 +470,13 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 
 	if (!IS_ALIGNED((unsigned long) skb->data - HTC_HDR_LENGTH, 4) &&
 	    skb_cloned(skb)) {
+		/*
+		 * We will touch (move the buffer data to align it. Since the
+		 * skb buffer is cloned and not only the header is changed, we
+		 * have to copy it to allow the changes. Since we are copying
+		 * the data here, we may as well align it by reserving suitable
+		 * headroom to avoid the memmove in ath6kl_htc_tx_buf_align().
+		 */
 		struct sk_buff *nskb;
 
 		nskb = skb_copy_expand(skb, HTC_HDR_LENGTH, 0, GFP_ATOMIC);
@@ -443,6 +494,10 @@ int ath6kl_data_tx(struct sk_buff *skb, struct net_device *dev)
 	ath6kl_dbg_dump(ATH6KL_DBG_RAW_BYTES, __func__, "tx ",
 			skb->data, skb->len);
 
+	/*
+	 * HTC interface is asynchronous, if this fails, cleanup will
+	 * happen in the ath6kl_tx_complete callback.
+	 */
 	ath6kl_htc_tx(ar->htc_target, &cookie->htc_pkt);
 
 	return 0;
@@ -456,6 +511,7 @@ fail_tx:
 	return 0;
 }
 
+/* indicate tx activity or inactivity on a WMI stream */
 void ath6kl_indicate_tx_activity(void *devt, u8 traffic_class, bool active)
 {
 	struct ath6kl *ar = devt;
@@ -472,21 +528,38 @@ void ath6kl_indicate_tx_activity(void *devt, u8 traffic_class, bool active)
 	ar->ac_stream_active[traffic_class] = active;
 
 	if (active) {
+		/*
+		 * Keep track of the active stream with the highest
+		 * priority.
+		 */
 		if (ar->ac_stream_pri_map[traffic_class] >
 		    ar->hiac_stream_active_pri)
-			
+			/* set the new highest active priority */
 			ar->hiac_stream_active_pri =
 					ar->ac_stream_pri_map[traffic_class];
 
 	} else {
+		/*
+		 * We may have to search for the next active stream
+		 * that is the highest priority.
+		 */
 		if (ar->hiac_stream_active_pri ==
 			ar->ac_stream_pri_map[traffic_class]) {
+			/*
+			 * The highest priority stream just went inactive
+			 * reset and search for the "next" highest "active"
+			 * priority stream.
+			 */
 			ar->hiac_stream_active_pri = 0;
 
 			for (i = 0; i < WMM_NUM_AC; i++) {
 				if (ar->ac_stream_active[i] &&
 				    (ar->ac_stream_pri_map[i] >
 				     ar->hiac_stream_active_pri))
+					/*
+					 * Set the new highest active
+					 * priority.
+					 */
 					ar->hiac_stream_active_pri =
 						ar->ac_stream_pri_map[i];
 			}
@@ -496,7 +569,7 @@ void ath6kl_indicate_tx_activity(void *devt, u8 traffic_class, bool active)
 	spin_unlock_bh(&ar->lock);
 
 notify_htc:
-	
+	/* notify HTC, this may cause credit distribution changes */
 	ath6kl_htc_indicate_activity_change(ar->htc_target, eid, active);
 }
 
@@ -509,6 +582,12 @@ enum htc_send_full_action ath6kl_tx_queue_full(struct htc_target *target,
 	enum htc_send_full_action action = HTC_SEND_FULL_KEEP;
 
 	if (endpoint == ar->ctrl_ep) {
+		/*
+		 * Under normal WMI if this is getting full, then something
+		 * is running rampant the host should not be exhausting the
+		 * WMI queue with too many commands the only exception to
+		 * this is during testing using endpointping.
+		 */
 		set_bit(WMI_CTRL_EP_FULL, &ar->flag);
 		ath6kl_err("wmi ctrl ep is full\n");
 		return action;
@@ -517,13 +596,21 @@ enum htc_send_full_action ath6kl_tx_queue_full(struct htc_target *target,
 	if (packet->info.tx.tag == ATH6KL_CONTROL_PKT_TAG)
 		return action;
 
+	/*
+	 * The last MAX_HI_COOKIE_NUM "batch" of cookies are reserved for
+	 * the highest active stream.
+	 */
 	if (ar->ac_stream_pri_map[ar->ep2ac_map[endpoint]] <
 	    ar->hiac_stream_active_pri &&
 	    ar->cookie_count <=
 			target->endpoint[endpoint].tx_drop_packet_threshold)
+		/*
+		 * Give preference to the highest priority stream by
+		 * dropping the packets which overflowed.
+		 */
 		action = HTC_SEND_FULL_DROP;
 
-	
+	/* FIXME: Locking */
 	spin_lock_bh(&ar->list_lock);
 	list_for_each_entry(vif, &ar->vif_list, list) {
 		if (vif->nw_type == ADHOC_NETWORK ||
@@ -541,6 +628,7 @@ enum htc_send_full_action ath6kl_tx_queue_full(struct htc_target *target,
 	return action;
 }
 
+/* TODO this needs to be looked at */
 static void ath6kl_tx_clear_node_map(struct ath6kl_vif *vif,
 				     enum htc_endpoint_id eid, u32 map_no)
 {
@@ -595,10 +683,10 @@ void ath6kl_tx_complete(void *context, struct list_head *packet_queue)
 
 	skb_queue_head_init(&skb_queue);
 
-	
+	/* lock the driver as we update internal state */
 	spin_lock_bh(&ar->lock);
 
-	
+	/* reap completed packets */
 	while (!list_empty(packet_queue)) {
 
 		packet = list_first_entry(packet_queue, struct htc_packet,
@@ -651,7 +739,7 @@ void ath6kl_tx_complete(void *context, struct list_head *packet_queue)
 
 		if (status) {
 			if (status == -ECANCELED)
-				
+				/* a packet was flushed  */
 				flushing[if_idx] = true;
 
 			vif->net_stats.tx_errors++;
@@ -686,7 +774,7 @@ void ath6kl_tx_complete(void *context, struct list_head *packet_queue)
 
 	__skb_queue_purge(&skb_queue);
 
-	
+	/* FIXME: Locking */
 	spin_lock_bh(&ar->list_lock);
 	list_for_each_entry(vif, &ar->vif_list, list) {
 		if (test_bit(CONNECTED, &vif->flags) &&
@@ -713,12 +801,13 @@ void ath6kl_tx_data_cleanup(struct ath6kl *ar)
 {
 	int i;
 
-	
+	/* flush all the data (non-control) streams */
 	for (i = 0; i < WMM_NUM_AC; i++)
 		ath6kl_htc_flush_txep(ar->htc_target, ar->ac2ep_map[i],
 				      ATH6KL_DATA_PKT_TAG);
 }
 
+/* Rx functions */
 
 static void ath6kl_deliver_frames_to_nw_stack(struct net_device *dev,
 					      struct sk_buff *skb)
@@ -827,6 +916,10 @@ void ath6kl_refill_amsdu_rxbufs(struct ath6kl *ar, int count)
 	}
 }
 
+/*
+ * Callback to allocate a receive buffer for a pending packet. We use a
+ * pre-allocated list of buffers of maximum AMSDU size (4K).
+ */
 struct htc_packet *ath6kl_alloc_amsdu_rxbuf(struct htc_target *target,
 					    enum htc_endpoint_id endpoint,
 					    int len)
@@ -860,7 +953,7 @@ struct htc_packet *ath6kl_alloc_amsdu_rxbuf(struct htc_target *target,
 	refill_cnt = ATH6KL_MAX_AMSDU_RX_BUFFERS - depth;
 	spin_unlock_bh(&ar->lock);
 
-	
+	/* set actual endpoint ID */
 	packet->endpoint = endpoint;
 
 refill_buf:
@@ -910,10 +1003,13 @@ static void aggr_slice_amsdu(struct aggr_info *p_aggr,
 
 		skb_queue_tail(&rxtid->q, new_skb);
 
-		
+		/* Is this the last subframe within this aggregate ? */
 		if ((amsdu_len - frame_8023_len) == 0)
 			break;
 
+		/* Add the length of A-MSDU subframe padding bytes -
+		 * Round to nearest word.
+		 */
 		frame_8023_len = ALIGN(frame_8023_len, 4);
 
 		framep += frame_8023_len;
@@ -937,6 +1033,19 @@ static void aggr_deque_frms(struct aggr_info_conn *agg_conn, u8 tid,
 
 	idx = AGGR_WIN_IDX(rxtid->seq_next, rxtid->hold_q_sz);
 
+	/*
+	 * idx_end is typically the last possible frame in the window,
+	 * but changes to 'the' seq_no, when BAR comes. If seq_no
+	 * is non-zero, we will go up to that and stop.
+	 * Note: last seq no in current window will occupy the same
+	 * index position as index that is just previous to start.
+	 * An imp point : if win_sz is 7, for seq_no space of 4095,
+	 * then, there would be holes when sequence wrap around occurs.
+	 * Target should judiciously choose the win_sz, based on
+	 * this condition. For 4095, (TID_WINDOW_SZ = 2 x win_sz
+	 * 2, 4, 8, 16 win_sz works fine).
+	 * We must deque from "idx" to "idx_end", including both.
+	 */
 	seq_end = seq_no ? seq_no : rxtid->seq_next;
 	idx_end = AGGR_WIN_IDX(seq_end, rxtid->hold_q_sz);
 
@@ -998,7 +1107,7 @@ static bool aggr_process_recv_frm(struct aggr_info_conn *agg_conn, u8 tid,
 		return is_queued;
 	}
 
-	
+	/* Check the incoming sequence no, if it's in the window */
 	st = rxtid->seq_next;
 	cur = seq_no;
 	end = (st + rxtid->hold_q_sz-1) & ATH6KL_MAX_SEQ_NO;
@@ -1019,6 +1128,10 @@ static bool aggr_process_recv_frm(struct aggr_info_conn *agg_conn, u8 tid,
 				rxtid->seq_next = ATH6KL_MAX_SEQ_NO -
 						  (rxtid->hold_q_sz - 2 - cur);
 		} else {
+			/*
+			 * Dequeue only those frames that are outside the
+			 * new shifted window.
+			 */
 			if (cur >= rxtid->hold_q_sz - 1)
 				st = cur - (rxtid->hold_q_sz - 1);
 			else
@@ -1037,6 +1150,18 @@ static bool aggr_process_recv_frm(struct aggr_info_conn *agg_conn, u8 tid,
 
 	spin_lock_bh(&rxtid->lock);
 
+	/*
+	 * Is the cur frame duplicate or something beyond our window(hold_q
+	 * -> which is 2x, already)?
+	 *
+	 * 1. Duplicate is easy - drop incoming frame.
+	 * 2. Not falling in current sliding window.
+	 *  2a. is the frame_seq_no preceding current tid_seq_no?
+	 *      -> drop the frame. perhaps sender did not get our ACK.
+	 *         this is taken care of above.
+	 *  2b. is the frame_seq_no beyond window(st, TID_WINDOW_SZ);
+	 *      -> Taken care of it above, by moving window forward.
+	 */
 	dev_kfree_skb(node->skb);
 	stats->num_dups++;
 
@@ -1059,6 +1184,12 @@ static bool aggr_process_recv_frm(struct aggr_info_conn *agg_conn, u8 tid,
 	else
 		for (idx = 0 ; idx < rxtid->hold_q_sz; idx++) {
 			if (rxtid->hold_q[idx].skb) {
+				/*
+				 * There is a frame in the queue and no
+				 * timer so start a timer to ensure that
+				 * the frame doesn't remain stuck
+				 * forever.
+				 */
 				agg_conn->timer_scheduled = true;
 				mod_timer(&agg_conn->timer,
 					  (jiffies +
@@ -1080,9 +1211,23 @@ static void ath6kl_uapsd_trigger_frame_rx(struct ath6kl_vif *vif,
 	u32 num_frames_to_deliver, flags;
 	struct sk_buff *skb = NULL;
 
+	/*
+	 * If the APSD q for this STA is not empty, dequeue and
+	 * send a pkt from the head of the q. Also update the
+	 * More data bit in the WMI_DATA_HDR if there are
+	 * more pkts for this STA in the APSD q.
+	 * If there are no more pkts for this STA,
+	 * update the APSD bitmap for this STA.
+	 */
 
 	num_frames_to_deliver = (conn->apsd_info >> ATH6KL_APSD_NUM_OF_AC) &
 						    ATH6KL_APSD_FRAME_MASK;
+	/*
+	 * Number of frames to send in a service period is
+	 * indicated by the station
+	 * in the QOS_INFO of the association request
+	 * If it is zero, send all frames
+	 */
 	if (!num_frames_to_deliver)
 		num_frames_to_deliver = ATH6KL_APSD_ALL_FRAME;
 
@@ -1098,10 +1243,14 @@ static void ath6kl_uapsd_trigger_frame_rx(struct ath6kl_vif *vif,
 		is_apsdq_empty = skb_queue_empty(&conn->apsdq);
 		spin_unlock_bh(&conn->psq_lock);
 
+		/*
+		 * Set the STA flag to Trigger delivery,
+		 * so that the frame will go out
+		 */
 		conn->sta_flags |= STA_PS_APSD_TRIGGER;
 		num_frames_to_deliver--;
 
-		
+		/* Last frame in the service period, set EOSP or queue empty */
 		if ((is_apsdq_empty) || (!num_frames_to_deliver))
 			conn->sta_flags |= STA_PS_APSD_EOSP;
 
@@ -1179,6 +1328,10 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 		return;
 	}
 
+	/*
+	 * Take lock to protect buffer counts and adaptive power throughput
+	 * state.
+	 */
 	spin_lock_bh(&vif->if_lock);
 
 	vif->net_stats.rx_packets++;
@@ -1202,6 +1355,11 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 
 	dhdr = (struct wmi_data_hdr *) skb->data;
 
+	/*
+	 * In the case of AP mode we may receive NULL data frames
+	 * that do not have LLC hdr. They are 16 bytes in size.
+	 * Allow these frames in the AP mode.
+	 */
 	if (vif->nw_type != AP_NETWORK &&
 	    ((packet->act_len < min_hdr_len) ||
 	     (packet->act_len > WMI_MAX_AMSDU_RX_DATA_FRAME_LENGTH))) {
@@ -1212,7 +1370,7 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 		return;
 	}
 
-	
+	/* Get the Power save state of the STA */
 	if (vif->nw_type == AP_NETWORK) {
 		meta_type = wmi_data_hdr_get_meta(dhdr);
 
@@ -1243,6 +1401,15 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 			return;
 		}
 
+		/*
+		 * If there is a change in PS state of the STA,
+		 * take appropriate steps:
+		 *
+		 * 1. If Sleep-->Awake, flush the psq for the STA
+		 *    Clear the PVB for the STA.
+		 * 2. If Awake-->Sleep, Starting queueing frames
+		 *    the STA.
+		 */
 		prev_ps = !!(conn->sta_flags & STA_PS_SLEEP);
 
 		if (ps_state)
@@ -1250,7 +1417,7 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 		else
 			conn->sta_flags &= ~STA_PS_SLEEP;
 
-		
+		/* Accept trigger only when the station is in sleep */
 		if ((conn->sta_flags & STA_PS_SLEEP) && trig_state)
 			ath6kl_uapsd_trigger_frame_rx(vif, conn);
 
@@ -1305,13 +1472,13 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 							vif->fw_vif_idx,
 							conn->aid, 0, 0);
 
-				
+				/* Clear the PVB for this STA */
 				ath6kl_wmi_set_pvb_cmd(ar->wmi, vif->fw_vif_idx,
 						       conn->aid, 0);
 			}
 		}
 
-		
+		/* drop NULL data frames here */
 		if ((packet->act_len < min_hdr_len) ||
 		    (packet->act_len >
 		     WMI_MAX_AMSDU_RX_DATA_FRAME_LENGTH)) {
@@ -1349,6 +1516,10 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 		status = ath6kl_wmi_dot3_2_dix(skb);
 
 	if (status) {
+		/*
+		 * Drop frames that could not be processed (lack of
+		 * memory, etc.)
+		 */
 		dev_kfree_skb(skb);
 		return;
 	}
@@ -1361,8 +1532,18 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 	if (vif->nw_type == AP_NETWORK) {
 		datap = (struct ethhdr *) skb->data;
 		if (is_multicast_ether_addr(datap->h_dest))
+			/*
+			 * Bcast/Mcast frames should be sent to the
+			 * OS stack as well as on the air.
+			 */
 			skb1 = skb_copy(skb, GFP_ATOMIC);
 		else {
+			/*
+			 * Search for a connected STA with dstMac
+			 * as the Mac address. If found send the
+			 * frame to it on the air else send the
+			 * frame up the stack.
+			 */
 			conn = ath6kl_find_sta(vif, datap->h_dest);
 
 			if (conn && ar->intra_bss) {
@@ -1377,7 +1558,7 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 			ath6kl_data_tx(skb1, vif->ndev);
 
 		if (skb == NULL) {
-			
+			/* nothing to deliver up the stack */
 			return;
 		}
 	}
@@ -1395,7 +1576,7 @@ void ath6kl_rx(struct htc_target *target, struct htc_packet *packet)
 
 		if (aggr_process_recv_frm(aggr_conn, tid, seq_no,
 					  is_amsdu, skb)) {
-			
+			/* aggregation code will handle the skb */
 			return;
 		}
 	}
@@ -1622,6 +1803,7 @@ void aggr_reset_state(struct aggr_info_conn *aggr_conn)
 		aggr_delete_tid_state(aggr_conn, tid);
 }
 
+/* clean up our amsdu buffer list */
 void ath6kl_cleanup_amsdu_rxbufs(struct ath6kl *ar)
 {
 	struct htc_packet *packet, *tmp_pkt;

@@ -6,6 +6,9 @@
  *  68060 fixes by Jesper Skov
  */
 
+/*
+ * This file handles the architecture-dependent parts of process handling..
+ */
 
 #include <linux/errno.h>
 #include <linux/module.h>
@@ -33,21 +36,27 @@
 asmlinkage void ret_from_fork(void);
 
 
+/*
+ * Return saved PC from a blocked thread
+ */
 unsigned long thread_saved_pc(struct task_struct *tsk)
 {
 	struct switch_stack *sw = (struct switch_stack *)tsk->thread.ksp;
-	
+	/* Check whether the thread is blocked in resume() */
 	if (in_sched_functions(sw->retpc))
 		return ((unsigned long *)sw->a6)[1];
 	else
 		return sw->retpc;
 }
 
+/*
+ * The idle loop on an m68k..
+ */
 static void default_idle(void)
 {
 	if (!need_resched())
 #if defined(MACH_ATARI_ONLY)
-		
+		/* block out HSYNC on the atari (falcon) */
 		__asm__("stop #0x2200" : : : "cc");
 #else
 		__asm__("stop #0x2000" : : : "cc");
@@ -56,9 +65,15 @@ static void default_idle(void)
 
 void (*idle)(void) = default_idle;
 
+/*
+ * The idle thread. There's no useful work to be
+ * done, so just try to conserve power and have a
+ * low exit latency (ie sit in a loop waiting for
+ * somebody to say that they'd like to reschedule)
+ */
 void cpu_idle(void)
 {
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		while (!need_resched())
 			idle();
@@ -105,6 +120,9 @@ void show_regs(struct pt_regs * regs)
 		printk("USP: %08lx\n", rdusp());
 }
 
+/*
+ * Create a kernel thread
+ */
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	int pid;
@@ -120,17 +138,17 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	retval = __NR_clone;
 	__asm__ __volatile__
 	  ("clrl %%d2\n\t"
-	   "trap #0\n\t"		
-	   "tstl %0\n\t"		
-	   "jne 1f\n\t"			
+	   "trap #0\n\t"		/* Linux/m68k system call */
+	   "tstl %0\n\t"		/* child or parent */
+	   "jne 1f\n\t"			/* parent - jump */
 #ifdef CONFIG_MMU
-	   "lea %%sp@(%c7),%6\n\t"	
+	   "lea %%sp@(%c7),%6\n\t"	/* reload current */
 	   "movel %6@,%6\n\t"
 #endif
-	   "movel %3,%%sp@-\n\t"	
-	   "jsr %4@\n\t"		
-	   "movel %0,%%d1\n\t"		
-	   "movel %2,%%d0\n\t"		
+	   "movel %3,%%sp@-\n\t"	/* push argument */
+	   "jsr %4@\n\t"		/* call fn */
+	   "movel %0,%%d1\n\t"		/* pass exit value */
+	   "movel %2,%%d0\n\t"		/* exit */
 	   "trap #0\n"
 	   "1:"
 	   : "+d" (retval)
@@ -158,6 +176,12 @@ void flush_thread(void)
 #endif
 }
 
+/*
+ * "m68k_fork()".. By the time we get here, the
+ * non-volatile registers have also been saved on the
+ * stack. We do some ugly pointer stuff here.. (see
+ * also copy_thread)
+ */
 
 asmlinkage int m68k_fork(struct pt_regs *regs)
 {
@@ -180,7 +204,7 @@ asmlinkage int m68k_clone(struct pt_regs *regs)
 	unsigned long newsp;
 	int __user *parent_tidptr, *child_tidptr;
 
-	
+	/* syscall2 puts clone_flags in d1 and usp in d2 */
 	clone_flags = regs->d1;
 	newsp = regs->d2;
 	parent_tidptr = (int __user *)regs->d3;
@@ -217,11 +241,15 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	if (clone_flags & CLONE_SETTLS)
 		task_thread_info(p)->tp_value = regs->d5;
 
+	/*
+	 * Must save the current SFC/DFC value, NOT the value when
+	 * the parent was last descheduled - RGH  10-08-96
+	 */
 	p->thread.fs = get_fs().seg;
 
 #ifdef CONFIG_FPU
 	if (!FPU_IS_EMU) {
-		
+		/* Copy the current fpu state */
 		asm volatile ("fsave %0" : : "m" (p->thread.fpstate[0]) : "memory");
 
 		if (!CPU_IS_060 ? p->thread.fpstate[0] : p->thread.fpstate[2]) {
@@ -246,14 +274,15 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 			}
 		}
 
-		
+		/* Restore the state in case the fpu was busy */
 		asm volatile ("frestore %0" : : "m" (p->thread.fpstate[0]));
 	}
-#endif 
+#endif /* CONFIG_FPU */
 
 	return 0;
 }
 
+/* Fill in the fpu structure for a core dump.  */
 #ifdef CONFIG_FPU
 int dump_fpu (struct pt_regs *regs, struct user_m68kfp_struct *fpu)
 {
@@ -264,13 +293,16 @@ int dump_fpu (struct pt_regs *regs, struct user_m68kfp_struct *fpu)
 
 		memcpy(fpu->fpcntl, current->thread.fpcntl, 12);
 		memcpy(fpu->fpregs, current->thread.fp, 96);
+		/* Convert internal fpu reg representation
+		 * into long double format
+		 */
 		for (i = 0; i < 24; i += 3)
 			fpu->fpregs[i] = ((fpu->fpregs[i] & 0xffff0000) << 15) |
 			                 ((fpu->fpregs[i] & 0x0000ffff) << 16);
 		return 1;
 	}
 
-	
+	/* First dump the fpu context to avoid protocol violation.  */
 	asm volatile ("fsave %0" :: "m" (fpustate[0]) : "memory");
 	if (!CPU_IS_060 ? !fpustate[0] : !fpustate[2])
 		return 0;
@@ -300,8 +332,11 @@ int dump_fpu (struct pt_regs *regs, struct user_m68kfp_struct *fpu)
 	return 1;
 }
 EXPORT_SYMBOL(dump_fpu);
-#endif 
+#endif /* CONFIG_FPU */
 
+/*
+ * sys_execve() executes a new program.
+ */
 asmlinkage int sys_execve(const char __user *name,
 			  const char __user *const __user *argv,
 			  const char __user *const __user *envp)

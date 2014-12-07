@@ -34,19 +34,19 @@
 #include "regs.h"
 
 enum {
-	
+	/* MDIO_DEV_PMA_PMD registers */
 	AQ_LINK_STAT	= 0xe800,
 	AQ_IMASK_PMA	= 0xf000,
 
-	
+	/* MDIO_DEV_XGXS registers */
 	AQ_XAUI_RX_CFG	= 0xc400,
 	AQ_XAUI_TX_CFG	= 0xe400,
 
-	
+	/* MDIO_DEV_ANEG registers */
 	AQ_1G_CTRL	= 0xc400,
 	AQ_ANEG_STAT	= 0xc800,
 
-	
+	/* MDIO_DEV_VEND1 registers */
 	AQ_FW_VERSION	= 0x0020,
 	AQ_IFLAG_GLOBAL	= 0xfc00,
 	AQ_IMASK_GLOBAL	= 0xff00,
@@ -64,6 +64,10 @@ enum {
 
 static int aq100x_reset(struct cphy *phy, int wait)
 {
+	/*
+	 * Ignore the caller specified wait time; always wait for the reset to
+	 * complete. Can take up to 3s.
+	 */
 	int err = t3_phy_reset(phy, MDIO_MMD_VEND1, 3000);
 
 	if (err)
@@ -107,7 +111,7 @@ static int aq100x_intr_handler(struct cphy *phy)
 	if (err)
 		return err;
 
-	
+	/* Read (and reset) the latching version of the status */
 	t3_mdio_read(phy, MDIO_MMD_PMAPMD, MDIO_STAT1, &v);
 
 	return cphy_cause_link_change;
@@ -151,7 +155,7 @@ static int aq100x_advertise(struct cphy *phy, unsigned int advertise_map)
 	unsigned int adv;
 	int err;
 
-	
+	/* 10G advertisement */
 	adv = 0;
 	if (advertise_map & ADVERTISED_10000baseT_Full)
 		adv |= ADV_10G_FULL;
@@ -160,7 +164,7 @@ static int aq100x_advertise(struct cphy *phy, unsigned int advertise_map)
 	if (err)
 		return err;
 
-	
+	/* 1G advertisement */
 	adv = 0;
 	if (advertise_map & ADVERTISED_1000baseT_Full)
 		adv |= ADV_1G_FULL;
@@ -171,7 +175,7 @@ static int aq100x_advertise(struct cphy *phy, unsigned int advertise_map)
 	if (err)
 		return err;
 
-	
+	/* 100M, pause advertisement */
 	adv = 0;
 	if (advertise_map & ADVERTISED_100baseT_Half)
 		adv |= ADVERTISE_100HALF;
@@ -196,7 +200,7 @@ static int aq100x_set_loopback(struct cphy *phy, int mmd, int dir, int enable)
 
 static int aq100x_set_speed_duplex(struct cphy *phy, int speed, int duplex)
 {
-	
+	/* no can do */
 	return -1;
 }
 
@@ -270,18 +274,25 @@ int t3_aq100x_phy_prep(struct cphy *phy, struct adapter *adapter, int phy_addr,
 		  SUPPORTED_TP | SUPPORTED_Autoneg | SUPPORTED_AUI,
 		  "1000/10GBASE-T");
 
+	/*
+	 * The PHY has been out of reset ever since the system powered up.  So
+	 * we do a hard reset over here.
+	 */
 	gpio = phy_addr ? F_GPIO10_OUT_VAL : F_GPIO6_OUT_VAL;
 	t3_set_reg_field(adapter, A_T3DBG_GPIO_EN, gpio, 0);
 	msleep(1);
 	t3_set_reg_field(adapter, A_T3DBG_GPIO_EN, gpio, gpio);
 
+	/*
+	 * Give it enough time to load the firmware and get ready for mdio.
+	 */
 	msleep(1000);
-	wait = 500; 
+	wait = 500; /* in 10ms increments */
 	do {
 		err = t3_mdio_read(phy, MDIO_MMD_VEND1, MDIO_CTRL1, &v);
 		if (err || v == 0xffff) {
 
-			
+			/* Allow prep_adapter to succeed when ffff is read */
 
 			CH_WARN(adapter, "PHY%d: reset failed (0x%x, 0x%x).\n",
 				phy_addr, err, v);
@@ -296,20 +307,24 @@ int t3_aq100x_phy_prep(struct cphy *phy, struct adapter *adapter, int phy_addr,
 		CH_WARN(adapter, "PHY%d: reset timed out (0x%x).\n",
 			phy_addr, v);
 
-		goto done; 
+		goto done; /* let prep_adapter succeed */
 	}
 
-	
+	/* Datasheet says 3s max but this has been observed */
 	wait = (500 - wait) * 10 + 1000;
 	if (wait > 3000)
 		CH_WARN(adapter, "PHY%d: reset took %ums\n", phy_addr, wait);
 
-	
+	/* Firmware version check. */
 	t3_mdio_read(phy, MDIO_MMD_VEND1, AQ_FW_VERSION, &v);
 	if (v != 101)
 		CH_WARN(adapter, "PHY%d: unsupported firmware %d\n",
 			phy_addr, v);
 
+	/*
+	 * The PHY should start in really-low-power mode.  Prepare it for normal
+	 * operations.
+	 */
 	err = t3_mdio_read(phy, MDIO_MMD_VEND1, MDIO_CTRL1, &v);
 	if (err)
 		return err;
@@ -323,6 +338,9 @@ int t3_aq100x_phy_prep(struct cphy *phy, struct adapter *adapter, int phy_addr,
 		CH_WARN(adapter, "PHY%d does not start in low power mode.\n",
 			phy_addr);
 
+	/*
+	 * Verify XAUI settings, but let prep succeed no matter what.
+	 */
 	v = v2 = 0;
 	t3_mdio_read(phy, MDIO_MMD_PHYXS, AQ_XAUI_RX_CFG, &v);
 	t3_mdio_read(phy, MDIO_MMD_PHYXS, AQ_XAUI_TX_CFG, &v2);

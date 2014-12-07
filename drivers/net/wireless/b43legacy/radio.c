@@ -38,6 +38,7 @@
 #include "ilt.h"
 
 
+/* Table for b43legacy_radio_calibrationvalue() */
 static const u16 rcc_table[16] = {
 	0x0002, 0x0003, 0x0001, 0x000F,
 	0x0006, 0x0007, 0x0005, 0x000F,
@@ -45,6 +46,9 @@ static const u16 rcc_table[16] = {
 	0x000E, 0x000F, 0x000D, 0x000F,
 };
 
+/* Reverse the bits of a 4bit value.
+ * Example:  1101 is flipped 1011
+ */
 static u16 flip_4bit(u16 value)
 {
 	u16 flipped = 0x0000;
@@ -63,6 +67,9 @@ static u16 flip_4bit(u16 value)
 static inline
 u16 channel2freq_bg(u8 channel)
 {
+	/* Frequencies are given as frequencies_bg[index] + 2.4GHz
+	 * Starting with channel 1
+	 */
 	static const u16 frequencies_bg[14] = {
 		12, 17, 22, 27,
 		32, 37, 42, 47,
@@ -96,7 +103,7 @@ void b43legacy_radio_unlock(struct b43legacy_wldev *dev)
 {
 	u32 status;
 
-	b43legacy_read16(dev, B43legacy_MMIO_PHY_VER); 
+	b43legacy_read16(dev, B43legacy_MMIO_PHY_VER); /* dummy read */
 	status = b43legacy_read32(dev, B43legacy_MMIO_MACCTL);
 	B43legacy_WARN_ON(!(status & B43legacy_MACCTL_RADIOLOCK));
 	status &= ~B43legacy_MACCTL_RADIOLOCK;
@@ -213,6 +220,7 @@ static void b43legacy_set_original_gains(struct b43legacy_wldev *dev)
 	b43legacy_dummy_transmission(dev);
 }
 
+/* Synthetic PU workaround */
 static void b43legacy_synth_pu_workaround(struct b43legacy_wldev *dev,
 					  u8 channel)
 {
@@ -221,7 +229,7 @@ static void b43legacy_synth_pu_workaround(struct b43legacy_wldev *dev,
 	might_sleep();
 
 	if (phy->radio_ver != 0x2050 || phy->radio_rev >= 6)
-		
+		/* We do not need the workaround. */
 		return;
 
 	if (channel <= 10)
@@ -252,7 +260,7 @@ u8 b43legacy_radio_aci_detect(struct b43legacy_wldev *dev, u8 channel)
 		rssi = b43legacy_phy_read(dev, 0x048A) & 0x3F;
 	else
 		rssi = saved & 0x3F;
-	
+	/* clamp temp to signed 5bit */
 	if (rssi > 32)
 		rssi -= 64;
 	for (i = 0; i < 100; i++) {
@@ -321,6 +329,7 @@ u8 b43legacy_radio_aci_scan(struct b43legacy_wldev *dev)
 	return ret[channel - 1];
 }
 
+/* http://bcm-specs.sipsolutions.net/NRSSILookupTable */
 void b43legacy_nrssi_hw_write(struct b43legacy_wldev *dev, u16 offset, s16 val)
 {
 	b43legacy_phy_write(dev, B43legacy_PHY_NRSSILT_CTRL, offset);
@@ -328,6 +337,7 @@ void b43legacy_nrssi_hw_write(struct b43legacy_wldev *dev, u16 offset, s16 val)
 	b43legacy_phy_write(dev, B43legacy_PHY_NRSSILT_DATA, (u16)val);
 }
 
+/* http://bcm-specs.sipsolutions.net/NRSSILookupTable */
 s16 b43legacy_nrssi_hw_read(struct b43legacy_wldev *dev, u16 offset)
 {
 	u16 val;
@@ -338,6 +348,7 @@ s16 b43legacy_nrssi_hw_read(struct b43legacy_wldev *dev, u16 offset)
 	return (s16)val;
 }
 
+/* http://bcm-specs.sipsolutions.net/NRSSILookupTable */
 void b43legacy_nrssi_hw_update(struct b43legacy_wldev *dev, u16 val)
 {
 	u16 i;
@@ -351,6 +362,7 @@ void b43legacy_nrssi_hw_update(struct b43legacy_wldev *dev, u16 val)
 	}
 }
 
+/* http://bcm-specs.sipsolutions.net/NRSSILookupTable */
 void b43legacy_nrssi_mem_update(struct b43legacy_wldev *dev)
 {
 	struct b43legacy_phy *phy = &dev->phy;
@@ -828,7 +840,7 @@ void b43legacy_calc_nrssi_threshold(struct b43legacy_wldev *dev)
 			threshold = phy->nrssi[1] - 5;
 
 		threshold = clamp_val(threshold, 0, 0x3E);
-		b43legacy_phy_read(dev, 0x0020); 
+		b43legacy_phy_read(dev, 0x0020); /* dummy read */
 		b43legacy_phy_write(dev, 0x0020, (((u16)threshold) << 8)
 				    | 0x001C);
 
@@ -902,6 +914,10 @@ void b43legacy_calc_nrssi_threshold(struct b43legacy_wldev *dev)
 	}
 }
 
+/* Stack implementation to save/restore values from the
+ * interference mitigation code.
+ * It is save to restore values in random order.
+ */
 static void _stack_save(u32 *_stackptr, size_t *stackidx,
 			u8 id, u16 offset, u16 value)
 {
@@ -1520,7 +1536,7 @@ u16 b43legacy_radio_init2050(struct b43legacy_wldev *dev)
 			b43legacy_phy_write(dev, 0x0802,
 					    (b43legacy_phy_read(dev, 0x0802)
 					    & 0xFFFC));
-			if (phy->rev > 1) { 
+			if (phy->rev > 1) { /* loopback gain enabled */
 				backup[19] = b43legacy_phy_read(dev, 0x080F);
 				backup[20] = b43legacy_phy_read(dev, 0x0810);
 				if (phy->rev >= 3)
@@ -1551,7 +1567,7 @@ u16 b43legacy_radio_init2050(struct b43legacy_wldev *dev)
 	backup[11] = b43legacy_read16(dev, 0x03E6);
 	backup[12] = b43legacy_read16(dev, B43legacy_MMIO_CHANNEL_EXT);
 
-	
+	/* Initialization */
 	if (phy->analog == 0)
 		b43legacy_write16(dev, 0x03E6, 0x0122);
 	else {
@@ -1670,7 +1686,7 @@ u16 b43legacy_radio_init2050(struct b43legacy_wldev *dev)
 			break;
 	}
 
-	
+	/* Restore the registers */
 	b43legacy_phy_write(dev, 0x0015, backup[1]);
 	b43legacy_radio_write16(dev, 0x0051, backup[14]);
 	b43legacy_radio_write16(dev, 0x0052, backup[15]);
@@ -1763,6 +1779,7 @@ int b43legacy_radio_selectchannel(struct b43legacy_wldev *dev,
 		}
 	}
 
+/* TODO: Check if channel is valid - return -EINVAL if not */
 	if (synthetic_pu_workaround)
 		b43legacy_synth_pu_workaround(dev, channel);
 
@@ -1770,7 +1787,7 @@ int b43legacy_radio_selectchannel(struct b43legacy_wldev *dev,
 			  channel2freq_bg(channel));
 
 	if (channel == 14) {
-		if (dev->dev->bus->sprom.country_code == 5)   
+		if (dev->dev->bus->sprom.country_code == 5)   /* JAPAN) */
 			b43legacy_shm_write32(dev, B43legacy_SHM_SHARED,
 					      B43legacy_UCODEFLAGS_OFFSET,
 					      b43legacy_shm_read32(dev,
@@ -1793,6 +1810,8 @@ int b43legacy_radio_selectchannel(struct b43legacy_wldev *dev,
 				  B43legacy_MMIO_CHANNEL_EXT) & 0xF7BF);
 
 	phy->channel = channel;
+	/*XXX: Using the longer of 2 timeouts (8000 vs 2000 usecs). Specs states
+	 *     that 2000 usecs might suffice. */
 	msleep(8);
 
 	return 0;
@@ -1811,6 +1830,7 @@ void b43legacy_radio_set_txantenna(struct b43legacy_wldev *dev, u32 val)
 	b43legacy_shm_write16(dev, B43legacy_SHM_SHARED, 0x0054, tmp | val);
 }
 
+/* http://bcm-specs.sipsolutions.net/TX_Gain_Base_Band */
 static u16 b43legacy_get_txgain_base_band(u16 txpower)
 {
 	u16 ret;
@@ -1829,6 +1849,7 @@ static u16 b43legacy_get_txgain_base_band(u16 txpower)
 	return ret;
 }
 
+/* http://bcm-specs.sipsolutions.net/TX_Gain_Radio_Frequency_Power_Amplifier */
 static u16 b43legacy_get_txgain_freq_power_amp(u16 txpower)
 {
 	u16 ret;
@@ -1849,6 +1870,7 @@ static u16 b43legacy_get_txgain_freq_power_amp(u16 txpower)
 	return ret;
 }
 
+/* http://bcm-specs.sipsolutions.net/TX_Gain_Digital_Analog_Converter */
 static u16 b43legacy_get_txgain_dac(u16 txpower)
 {
 	u16 ret;
@@ -1905,7 +1927,7 @@ void b43legacy_radio_set_txpower_a(struct b43legacy_wldev *dev, u16 txpower)
 
 	phy->txpwr_offset = txpower;
 
-	
+	/* TODO: FuncPlaceholder (Adjust BB loft cancel) */
 }
 
 void b43legacy_radio_set_txpower_bg(struct b43legacy_wldev *dev,
@@ -1940,7 +1962,7 @@ void b43legacy_radio_set_txpower_bg(struct b43legacy_wldev *dev,
 		b43legacy_radio_write16(dev, 0x0052,
 					(b43legacy_radio_read16(dev, 0x0052)
 					& ~0x0070) | ((txpower << 4) & 0x0070));
-	
+	/* FIXME: The spec is very weird and unclear here. */
 	if (phy->type == B43legacy_PHYTYPE_G)
 		b43legacy_phy_lo_adjust(dev, 0);
 }
@@ -2075,7 +2097,7 @@ void b43legacy_radio_turn_on(struct b43legacy_wldev *dev)
 		b43legacy_phy_write(dev, 0x0015,
 				    (phy->gmode ? 0x00C0 : 0x0000));
 		if (phy->radio_off_context.valid) {
-			
+			/* Restore the RFover values. */
 			b43legacy_phy_write(dev, B43legacy_PHY_RFOVER,
 					    phy->radio_off_context.rfover);
 			b43legacy_phy_write(dev, B43legacy_PHY_RFOVERVAL,

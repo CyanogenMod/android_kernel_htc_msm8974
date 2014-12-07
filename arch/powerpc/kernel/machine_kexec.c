@@ -48,6 +48,11 @@ void machine_crash_shutdown(struct pt_regs *regs)
 	default_machine_crash_shutdown(regs);
 }
 
+/*
+ * Do what every setup is needed on image and the
+ * reboot code buffer to allow us to avoid allocations
+ * later.
+ */
 int machine_kexec_prepare(struct kimage *image)
 {
 	if (ppc_md.machine_kexec_prepare)
@@ -72,6 +77,10 @@ void arch_crash_save_vmcoreinfo(void)
 #endif
 }
 
+/*
+ * Do not allocate memory (or fail in any way) in machine_kexec().
+ * We are past the point of no return, committed to rebooting now.
+ */
 void machine_kexec(struct kimage *image)
 {
 	int save_ftrace_enabled;
@@ -85,7 +94,7 @@ void machine_kexec(struct kimage *image)
 
 	__ftrace_enabled_restore(save_ftrace_enabled);
 
-	
+	/* Fall back to normal restart if we're still alive. */
 	machine_restart(NULL);
 	for(;;);
 }
@@ -95,7 +104,7 @@ void __init reserve_crashkernel(void)
 	unsigned long long crash_size, crash_base;
 	int ret;
 
-	
+	/* use common parsing */
 	ret = parse_crashkernel(boot_command_line, memblock_phys_mem_size(),
 			&crash_size, &crash_base);
 	if (ret == 0 && crash_size > 0) {
@@ -108,6 +117,8 @@ void __init reserve_crashkernel(void)
 		return;
 	}
 
+	/* We might have got these values via the command line or the
+	 * device tree, either way sanitise them now. */
 
 	crash_size = resource_size(&crashk_res);
 
@@ -120,6 +131,11 @@ void __init reserve_crashkernel(void)
 #else
 	if (!crashk_res.start) {
 #ifdef CONFIG_PPC64
+		/*
+		 * On 64bit we split the RMO in half but cap it at half of
+		 * a small SLB (128MB) since the crash kernel needs to place
+		 * itself and some stacks to be in the first segment.
+		 */
 		crashk_res.start = min(0x80000000ULL, (ppc64_rma_size / 2));
 #else
 		crashk_res.start = KDUMP_KERNELBASE;
@@ -137,7 +153,7 @@ void __init reserve_crashkernel(void)
 	crash_size = PAGE_ALIGN(crash_size);
 	crashk_res.end = crashk_res.start + crash_size - 1;
 
-	
+	/* The crash region must not overlap the current kernel */
 	if (overlaps_crashkernel(__pa(_stext), _end - _stext)) {
 		printk(KERN_WARNING
 			"Crash kernel can not overlap current kernel\n");
@@ -145,7 +161,7 @@ void __init reserve_crashkernel(void)
 		return;
 	}
 
-	
+	/* Crash kernel trumps memory limit */
 	if (memory_limit && memory_limit <= crashk_res.end) {
 		memory_limit = crashk_res.end + 1;
 		printk("Adjusted memory limit for crashkernel, now 0x%llx\n",
@@ -166,6 +182,7 @@ int overlaps_crashkernel(unsigned long start, unsigned long size)
 	return (start + size) > crashk_res.start && start <= crashk_res.end;
 }
 
+/* Values we need to export to the second kernel via the device tree. */
 static phys_addr_t kernel_end;
 static phys_addr_t crashk_size;
 
@@ -191,6 +208,8 @@ static void __init export_crashk_values(struct device_node *node)
 {
 	struct property *prop;
 
+	/* There might be existing crash kernel properties, but we can't
+	 * be sure what's in them, so remove them. */
 	prop = of_find_property(node, "linux,crashkernel-base", NULL);
 	if (prop)
 		prom_remove_property(node, prop);
@@ -215,12 +234,12 @@ static int __init kexec_setup(void)
 	if (!node)
 		return -ENOENT;
 
-	
+	/* remove any stale properties so ours can be found */
 	prop = of_find_property(node, kernel_end_prop.name, NULL);
 	if (prop)
 		prom_remove_property(node, prop);
 
-	
+	/* information needed by userspace when using default_machine_kexec */
 	kernel_end = __pa(_end);
 	prom_add_property(node, &kernel_end_prop);
 

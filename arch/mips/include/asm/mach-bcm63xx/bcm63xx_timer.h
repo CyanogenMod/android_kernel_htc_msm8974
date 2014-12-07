@@ -8,4 +8,4 @@ int bcm63xx_timer_enable(int id);
 int bcm63xx_timer_disable(int id);
 unsigned int bcm63xx_timer_countdown(unsigned int countdown_us);
 
-#endif 
+#endif /* !BCM63XX_TIMER_H_ */

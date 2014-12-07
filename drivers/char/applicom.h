@@ -1,3 +1,4 @@
+/* $Id: applicom.h,v 1.2 1999/08/28 15:09:49 dwmw2 Exp $ */
 
 
 #ifndef __LINUX_APPLICOM_H__
@@ -30,24 +31,24 @@
 #define RAM_IT_TO_PC          0x03FF
 
 struct mailbox{
-	u16  stjb_codef;		
-	s16  stjb_status;     		
-	u16  stjb_ticuser_root;		
-	u8   stjb_piduser[4];		
-	u16  stjb_mode;			
-	u16  stjb_time;			
-	u16  stjb_stop;			
-	u16  stjb_nfonc;		
-	u16  stjb_ncard;		
-	u16  stjb_nchan;		
-	u16  stjb_nes;			
-	u16  stjb_nb;			
-	u16  stjb_typvar;		
-	u32  stjb_adr;			
-	u16  stjb_ticuser_dispcyc;	
-	u16  stjb_ticuser_protocol;	
-	u8   stjb_filler[12];		
-	u8   stjb_data[256];		
+	u16  stjb_codef;		/* offset 00 */
+	s16  stjb_status;     		/* offset 02 */
+	u16  stjb_ticuser_root;		/* offset 04 */
+	u8   stjb_piduser[4];		/* offset 06 */
+	u16  stjb_mode;			/* offset 0A */
+	u16  stjb_time;			/* offset 0C */
+	u16  stjb_stop;			/* offset 0E */
+	u16  stjb_nfonc;		/* offset 10 */
+	u16  stjb_ncard;		/* offset 12 */
+	u16  stjb_nchan;		/* offset 14 */
+	u16  stjb_nes;			/* offset 16 */
+	u16  stjb_nb;			/* offset 18 */
+	u16  stjb_typvar;		/* offset 1A */
+	u32  stjb_adr;			/* offset 1C */
+	u16  stjb_ticuser_dispcyc;	/* offset 20 */
+	u16  stjb_ticuser_protocol;	/* offset 22 */
+	u8   stjb_filler[12];		/* offset 24 */
+	u8   stjb_data[256];		/* offset 30 */
 	};
 
 struct st_ram_io 
@@ -81,4 +82,4 @@ struct st_ram_io
 };
 
 
-#endif 
+#endif /* __LINUX_APPLICOM_H__ */

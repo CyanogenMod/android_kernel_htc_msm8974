@@ -105,7 +105,7 @@ static int ndfc_calculate_ecc(struct mtd_info *mtd,
 
 	wmb();
 	ecc = in_be32(ndfc->ndfcbase + NDFC_ECC);
-	
+	/* The NDFC uses Smart Media (SMC) bytes order */
 	ecc_code[0] = p[1];
 	ecc_code[1] = p[2];
 	ecc_code[2] = p[3];
@@ -113,6 +113,13 @@ static int ndfc_calculate_ecc(struct mtd_info *mtd,
 	return 0;
 }
 
+/*
+ * Speedups for buffer read/write/verify
+ *
+ * NDFC allows 32bit read/write of data. So we can speed up the buffer
+ * functions. No further checking, as nand_base will always read/write
+ * page aligned.
+ */
 static void ndfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -145,6 +152,9 @@ static int ndfc_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 	return 0;
 }
 
+/*
+ * Initialize chip structure
+ */
 static int ndfc_chip_init(struct ndfc_controller *ndfc,
 			  struct device_node *node)
 {
@@ -207,7 +217,7 @@ static int __devinit ndfc_probe(struct platform_device *ofdev)
 	u32 ccr;
 	int err, len, cs;
 
-	
+	/* Read the reg property to get the chip select */
 	reg = of_get_property(ofdev->dev.of_node, "reg", &len);
 	if (reg == NULL || len != 12) {
 		dev_err(&ofdev->dev, "unable read reg property (%d)\n", len);
@@ -236,14 +246,14 @@ static int __devinit ndfc_probe(struct platform_device *ofdev)
 
 	ccr = NDFC_CCR_BS(ndfc->chip_select);
 
-	
+	/* It is ok if ccr does not exist - just default to 0 */
 	reg = of_get_property(ofdev->dev.of_node, "ccr", NULL);
 	if (reg)
 		ccr |= be32_to_cpup(reg);
 
 	out_be32(ndfc->ndfcbase + NDFC_CCR, ccr);
 
-	
+	/* Set the bank settings if given */
 	reg = of_get_property(ofdev->dev.of_node, "bank-settings", NULL);
 	if (reg) {
 		int offset = NDFC_BCFG0 + (ndfc->chip_select << 2);

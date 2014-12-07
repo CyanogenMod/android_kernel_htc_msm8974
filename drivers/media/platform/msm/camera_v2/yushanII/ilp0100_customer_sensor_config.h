@@ -20,13 +20,22 @@
 #                             Imaging Division
 ################################################################################
 ********************************************************************************/
+/*!
+ * \file	ilp0100_customer_sensor_config.h
+ * \brief	declaration of Ilp0100 structures that will be used for init and setup
+			for current project
+ * \author	sheena jain
+ */
 
 #ifndef ILP0100_CUSTOMER_SENSOR_CONFIG_H_
 #define ILP0100_CUSTOMER_SENSOR_CONFIG_H_
 
 #include "ilp0100_ST_definitions.h"
 
+/* Example file */
 
+/*  Structure containing All parameters for Ilp0100 depending on setup, but not sensor  */
+/*  Initialization phase. */
 #ifdef ST_SPECIFIC
 extern Ilp0100_structInit SystemInitStruct;
 extern Ilp0100_structFrameFormat SystemFrameFormat;
@@ -93,7 +102,7 @@ extern const Ilp0100_structFrameFormat Ilp0100AlishanHDR720pFrameFormat;
 
 extern const Ilp0100_structFrameFormat Ilp0100XxxxFullFrameFormat;
 
-#endif 
+#endif /*ST_SPECIFIC*/
 
 
-#endif 
+#endif /* ILP0100_CUSTOMER_SENSOR_CONFIG_H_ */

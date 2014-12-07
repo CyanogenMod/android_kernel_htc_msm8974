@@ -9,6 +9,11 @@
  *
  */
 
+/**
+ * struct iio_hw_ring_buffer- hardware ring buffer
+ * @buf:	generic ring buffer elements
+ * @private:	device specific data
+ */
 struct iio_hw_buffer {
 	struct iio_buffer buf;
 	void *private;

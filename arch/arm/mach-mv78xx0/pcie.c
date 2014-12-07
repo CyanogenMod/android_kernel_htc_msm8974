@@ -149,6 +149,9 @@ static int __init mv78xx0_pcie_setup(int nr, struct pci_sys_data *sys)
 	pp = &pcie_port[nr];
 	pp->root_bus_nr = sys->busnr;
 
+	/*
+	 * Generic PCIe unit setup.
+	 */
 	orion_pcie_set_local_bus_nr(pp->base, sys->busnr);
 	orion_pcie_setup(pp->base);
 
@@ -173,6 +176,10 @@ static struct pcie_port *bus_to_port(int bus)
 
 static int pcie_valid_config(struct pcie_port *pp, int bus, int dev)
 {
+	/*
+	 * Don't go out when trying to access nonexisting devices
+	 * on the local bus.
+	 */
 	if (bus == pp->root_bus_nr && dev > 1)
 		return 0;
 
@@ -222,6 +229,9 @@ static struct pci_ops pcie_ops = {
 
 static void __devinit rc_pci_fixup(struct pci_dev *dev)
 {
+	/*
+	 * Prevent enumeration of root complex.
+	 */
 	if (dev->bus->parent == NULL && dev->devfn == 0) {
 		int i;
 

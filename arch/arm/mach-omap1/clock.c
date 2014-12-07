@@ -36,6 +36,9 @@
 __u32 arm_idlect1_mask;
 struct clk *api_ck_p, *ck_dpll1_p, *ck_ref_p;
 
+/*
+ * Omap1 specific clock functions
+ */
 
 unsigned long omap1_uart_recalc(struct clk *clk)
 {
@@ -77,6 +80,19 @@ static void omap1_clk_deny_idle(struct clk *clk)
 
 static __u16 verify_ckctl_value(__u16 newval)
 {
+	/* This function checks for following limitations set
+	 * by the hardware (all conditions must be true):
+	 * DSPMMU_CK == DSP_CK  or  DSPMMU_CK == DSP_CK/2
+	 * ARM_CK >= TC_CK
+	 * DSP_CK >= TC_CK
+	 * DSPMMU_CK >= TC_CK
+	 *
+	 * In addition following rules are enforced:
+	 * LCD_CK <= TC_CK
+	 * ARMPER_CK <= TC_CK
+	 *
+	 * However, maximum frequencies are not checked for!
+	 */
 	__u8 per_exp;
 	__u8 lcd_exp;
 	__u8 arm_exp;
@@ -117,6 +133,17 @@ static __u16 verify_ckctl_value(__u16 newval)
 
 static int calc_dsor_exp(struct clk *clk, unsigned long rate)
 {
+	/* Note: If target frequency is too low, this function will return 4,
+	 * which is invalid value. Caller must check for this value and act
+	 * accordingly.
+	 *
+	 * Note: This function does not check for following limitations set
+	 * by the hardware (all conditions must be true):
+	 * DSPMMU_CK == DSP_CK  or  DSPMMU_CK == DSP_CK/2
+	 * ARM_CK >= TC_CK
+	 * DSP_CK >= TC_CK
+	 * DSPMMU_CK >= TC_CK
+	 */
 	unsigned long realrate;
 	struct clk * parent;
 	unsigned  dsor_exp;
@@ -138,7 +165,7 @@ static int calc_dsor_exp(struct clk *clk, unsigned long rate)
 
 unsigned long omap1_ckctl_recalc(struct clk *clk)
 {
-	
+	/* Calculate divisor encoded as 2-bit exponent */
 	int dsor = 1 << (3 & (omap_readw(ARM_CKCTL) >> clk->rate_offset));
 
 	return clk->parent->rate / dsor;
@@ -148,6 +175,13 @@ unsigned long omap1_ckctl_recalc_dsp_domain(struct clk *clk)
 {
 	int dsor;
 
+	/* Calculate divisor encoded as 2-bit exponent
+	 *
+	 * The clock control bits are in DSP domain,
+	 * so api_ck is needed for access.
+	 * Note that DSP_CKCTL virt addr = phys addr, so
+	 * we must use __raw_readw() instead of omap_readw().
+	 */
 	omap1_clk_enable(api_ck_p);
 	dsor = 1 << (3 & (__raw_readw(DSP_CKCTL) >> clk->rate_offset));
 	omap1_clk_disable(api_ck_p);
@@ -155,9 +189,10 @@ unsigned long omap1_ckctl_recalc_dsp_domain(struct clk *clk)
 	return clk->parent->rate / dsor;
 }
 
+/* MPU virtual clock functions */
 int omap1_select_table_rate(struct clk *clk, unsigned long rate)
 {
-	
+	/* Find the highest supported frequency <= rate and switch to it */
 	struct mpu_rate * ptr;
 	unsigned long dpll1_rate, ref_rate;
 
@@ -171,7 +206,7 @@ int omap1_select_table_rate(struct clk *clk, unsigned long rate)
 		if (ptr->xtal != ref_rate)
 			continue;
 
-		
+		/* Can check only after xtal frequency check */
 		if (ptr->rate <= rate)
 			break;
 	}
@@ -179,9 +214,13 @@ int omap1_select_table_rate(struct clk *clk, unsigned long rate)
 	if (!ptr->rate)
 		return -EINVAL;
 
+	/*
+	 * In most cases we should not need to reprogram DPLL.
+	 * Reprogramming the DPLL is tricky, it must be done from SRAM.
+	 */
 	omap_sram_reprogram_clock(ptr->dpllctl_val, ptr->ckctl_val);
 
-	
+	/* XXX Do we need to recalculate the tree below DPLL1 at this point? */
 	ck_dpll1_p->rate = ptr->pll_rate;
 
 	return 0;
@@ -239,7 +278,7 @@ int omap1_clk_set_rate_ckctl_arm(struct clk *clk, unsigned long rate)
 
 long omap1_round_to_table_rate(struct clk *clk, unsigned long rate)
 {
-	
+	/* Find the highest supported frequency <= rate */
 	struct mpu_rate * ptr;
 	long highest_rate;
 	unsigned long ref_rate;
@@ -257,7 +296,7 @@ long omap1_round_to_table_rate(struct clk *clk, unsigned long rate)
 
 		highest_rate = ptr->rate;
 
-		
+		/* Can check only after xtal frequency check */
 		if (ptr->rate <= rate)
 			break;
 	}
@@ -269,6 +308,15 @@ static unsigned calc_ext_dsor(unsigned long rate)
 {
 	unsigned dsor;
 
+	/* MCLK and BCLK divisor selection is not linear:
+	 * freq = 96MHz / dsor
+	 *
+	 * RATIO_SEL range: dsor <-> RATIO_SEL
+	 * 0..6: (RATIO_SEL+2) <-> (dsor-2)
+	 * 6..48:  (8+(RATIO_SEL-6)*2) <-> ((dsor-8)/2+6)
+	 * Minimum dsor is 2 and maximum is 96. Odd divisors starting from 9
+	 * can not be used.
+	 */
 	for (dsor = 2; dsor < 96; ++dsor) {
 		if ((dsor & 1) && dsor > 8)
 			continue;
@@ -278,6 +326,7 @@ static unsigned calc_ext_dsor(unsigned long rate)
 	return dsor;
 }
 
+/* XXX Only needed on 1510 */
 int omap1_set_uart_rate(struct clk *clk, unsigned long rate)
 {
 	unsigned int val;
@@ -295,6 +344,7 @@ int omap1_set_uart_rate(struct clk *clk, unsigned long rate)
 	return 0;
 }
 
+/* External clock (MCLK & BCLK) functions */
 int omap1_set_ext_clk_rate(struct clk *clk, unsigned long rate)
 {
 	unsigned dsor;
@@ -320,7 +370,7 @@ int omap1_set_sossi_rate(struct clk *clk, unsigned long rate)
 	unsigned long p_rate;
 
 	p_rate = clk->parent->rate;
-	
+	/* Round towards slower frequency */
 	div = (p_rate + rate - 1) / rate;
 	div--;
 	if (div < 0 || div > 7)
@@ -346,7 +396,7 @@ void omap1_init_ext_clk(struct clk *clk)
 	unsigned dsor;
 	__u16 ratio_bits;
 
-	
+	/* Determine current rate and ensure clock is based on 96MHz APLL */
 	ratio_bits = __raw_readw(clk->enable_reg) & ~1;
 	__raw_writew(ratio_bits, clk->enable_reg);
 
@@ -473,6 +523,7 @@ const struct clkops clkops_dspck = {
 	.disable	= omap1_clk_disable_dsp_domain,
 };
 
+/* XXX SYSC register handling does not belong in the clock framework */
 static int omap1_clk_enable_uart_functional_16xx(struct clk *clk)
 {
 	int ret;
@@ -480,7 +531,7 @@ static int omap1_clk_enable_uart_functional_16xx(struct clk *clk)
 
 	ret = omap1_clk_enable_generic(clk);
 	if (ret == 0) {
-		
+		/* Set smart idle acknowledgement mode */
 		uclk = (struct uart_clk *)clk;
 		omap_writeb((omap_readb(uclk->sysc_addr) & ~0x10) | 8,
 			    uclk->sysc_addr);
@@ -489,17 +540,19 @@ static int omap1_clk_enable_uart_functional_16xx(struct clk *clk)
 	return ret;
 }
 
+/* XXX SYSC register handling does not belong in the clock framework */
 static void omap1_clk_disable_uart_functional_16xx(struct clk *clk)
 {
 	struct uart_clk *uclk;
 
-	
+	/* Set force idle acknowledgement mode */
 	uclk = (struct uart_clk *)clk;
 	omap_writeb((omap_readb(uclk->sysc_addr) & ~0x18), uclk->sysc_addr);
 
 	omap1_clk_disable_generic(clk);
 }
 
+/* XXX SYSC register handling does not belong in the clock framework */
 const struct clkops clkops_uart_16xx = {
 	.enable		= omap1_clk_enable_uart_functional_16xx,
 	.disable	= omap1_clk_disable_uart_functional_16xx,
@@ -522,6 +575,9 @@ int omap1_clk_set_rate(struct clk *clk, unsigned long rate)
 	return ret;
 }
 
+/*
+ * Omap1 clock reset and init functions
+ */
 
 #ifdef CONFIG_OMAP_RESET_CLOCKS
 
@@ -529,13 +585,15 @@ void omap1_clk_disable_unused(struct clk *clk)
 {
 	__u32 regval32;
 
+	/* Clocks in the DSP domain need api_ck. Just assume bootloader
+	 * has not enabled any DSP clocks */
 	if (clk->enable_reg == DSP_IDLECT2) {
 		printk(KERN_INFO "Skipping reset check for DSP domain "
 		       "clock \"%s\"\n", clk->name);
 		return;
 	}
 
-	
+	/* Is the clock already disabled? */
 	if (clk->flags & ENABLE_REG_32BIT)
 		regval32 = __raw_readl(clk->enable_reg);
 	else

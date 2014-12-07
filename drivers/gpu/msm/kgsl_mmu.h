@@ -15,17 +15,25 @@
 
 #include <mach/iommu.h>
 #include "kgsl_iommu.h"
+/*
+ * These defines control the address range for allocations that
+ * are mapped into all pagetables.
+ */
 #define KGSL_IOMMU_GLOBAL_MEM_BASE	0xf8000000
 #define KGSL_IOMMU_GLOBAL_MEM_SIZE	SZ_4M
 
 #define KGSL_MMU_ALIGN_MASK     (~((1 << PAGE_SHIFT) - 1))
 
+/* defconfig option for disabling per process pagetables */
 #ifdef CONFIG_KGSL_PER_PROCESS_PAGE_TABLE
 #define KGSL_MMU_USE_PER_PROCESS_PT true
 #else
 #define KGSL_MMU_USE_PER_PROCESS_PT false
 #endif
 
+/* Identifier for the global page table */
+/* Per process page tables will probably pass in the thread group
+   as an identifier */
 
 #define KGSL_MMU_GLOBAL_PT 0
 #define KGSL_MMU_PRIV_BANK_TABLE_NAME 0xFFFFFFFF
@@ -37,6 +45,10 @@ struct kgsl_device;
 #define GSL_PT_PAGE_RV		0x00000002
 #define GSL_PT_PAGE_DIRTY	0x00000004
 
+/* MMU registers - the register locations for all cores are the
+   same.  The method for getting to those locations differs between
+   2D and 3D, but the 2D and 3D register functions do that magic
+   for us */
 
 #define MH_MMU_CONFIG                0x0040
 #define MH_MMU_VA_RANGE              0x0041
@@ -58,6 +70,7 @@ struct kgsl_device;
 #define MH_CLNT_INTF_CTRL_CONFIG1    0x0A54
 #define MH_CLNT_INTF_CTRL_CONFIG2    0x0A55
 
+/* MH_MMU_CONFIG bit definitions */
 
 #define MH_MMU_CONFIG__RB_W_CLNT_BEHAVIOR__SHIFT           0x00000004
 #define MH_MMU_CONFIG__CP_W_CLNT_BEHAVIOR__SHIFT           0x00000006
@@ -71,6 +84,7 @@ struct kgsl_device;
 #define MH_MMU_CONFIG__TC_R_CLNT_BEHAVIOR__SHIFT           0x00000016
 #define MH_MMU_CONFIG__PA_W_CLNT_BEHAVIOR__SHIFT           0x00000018
 
+/* MMU Flags */
 #define KGSL_MMUFLAGS_TLBFLUSH         0x10000000
 #define KGSL_MMUFLAGS_PTUPDATE         0x20000000
 
@@ -183,9 +197,9 @@ struct kgsl_mmu {
 	struct kgsl_device     *device;
 	unsigned int     config;
 	struct kgsl_memdesc    setstate_memory;
-	
+	/* current page table object being used by device mmu */
 	struct kgsl_pagetable  *defaultpagetable;
-	
+	/* pagetable object used for priv bank of IOMMU */
 	struct kgsl_pagetable  *priv_bank_table;
 	struct kgsl_pagetable  *hwpagetable;
 	const struct kgsl_mmu_ops *mmu_ops;
@@ -236,6 +250,11 @@ void kgsl_mmu_set_mmutype(char *mmutype);
 enum kgsl_mmutype kgsl_mmu_get_mmutype(void);
 int kgsl_mmu_gpuaddr_in_range(struct kgsl_pagetable *pt, unsigned int gpuaddr);
 
+/*
+ * Static inline functions of MMU that simply call the SMMU specific
+ * function using a function pointer. These functions can be thought
+ * of as wrappers around the actual function
+ */
 
 static inline phys_addr_t kgsl_mmu_get_current_ptbase(struct kgsl_mmu *mmu)
 {
@@ -325,7 +344,7 @@ static inline void kgsl_mmu_disable_clk_on_ts(struct kgsl_mmu *mmu,
 
 static inline unsigned int kgsl_mmu_get_int_mask(void)
 {
-	
+	/* Dont enable gpummu interrupts, if iommu is enabled */
 	if (KGSL_MMU_TYPE_GPU == kgsl_mmu_get_mmutype())
 		return KGSL_MMU_INT_MASK;
 	else
@@ -344,6 +363,17 @@ static inline unsigned int kgsl_mmu_get_reg_gpuaddr(struct kgsl_mmu *mmu,
 		return 0;
 }
 
+/*
+ * kgsl_mmu_get_reg_ahbaddr() - Calls the mmu specific function pointer to
+ * return the address that GPU can use to access register
+ * @mmu:		Pointer to the device mmu
+ * @iommu_unit_num:	There can be multiple iommu units used for graphics.
+ *			This parameter is an index to the iommu unit being used
+ * @ctx_id:		The context id within the iommu unit
+ * @reg:		Register whose address is to be returned
+ *
+ * Returns the ahb address of reg else 0
+ */
 static inline unsigned int kgsl_mmu_get_reg_ahbaddr(struct kgsl_mmu *mmu,
 						int iommu_unit_num,
 						int ctx_id,
@@ -364,6 +394,13 @@ static inline int kgsl_mmu_get_num_iommu_units(struct kgsl_mmu *mmu)
 		return 0;
 }
 
+/*
+ * kgsl_mmu_hw_halt_supported() - Runtime check for iommu hw halt
+ * @mmu: the mmu
+ *
+ * Returns non-zero if the iommu supports hw halt,
+ * 0 if not.
+ */
 static inline int kgsl_mmu_hw_halt_supported(struct kgsl_mmu *mmu,
 						int iommu_unit_num)
 {
@@ -373,21 +410,51 @@ static inline int kgsl_mmu_hw_halt_supported(struct kgsl_mmu *mmu,
 		return 0;
 }
 
+/*
+ * kgsl_mmu_is_perprocess() - Runtime check for per-process
+ * pagetables.
+ * @mmu: the mmu
+ *
+ * Returns true if per-process pagetables are enabled,
+ * false if not.
+ */
 static inline int kgsl_mmu_is_perprocess(struct kgsl_mmu *mmu)
 {
 	return mmu->pt_per_process;
 }
 
+/*
+ * kgsl_mmu_use_cpu_map() - Runtime check for matching the CPU
+ * address space on the GPU.
+ * @mmu: the mmu
+ *
+ * Returns true if supported false if not.
+ */
 static inline int kgsl_mmu_use_cpu_map(struct kgsl_mmu *mmu)
 {
 	return mmu->use_cpu_map;
 }
 
+/*
+ * kgsl_mmu_base_addr() - Get gpu virtual address base.
+ * @mmu: the mmu
+ *
+ * Returns the start address of the allocatable gpu
+ * virtual address space. Other mappings that mirror
+ * the CPU address space are possible outside this range.
+ */
 static inline unsigned int kgsl_mmu_get_base_addr(struct kgsl_mmu *mmu)
 {
 	return mmu->pt_base;
 }
 
+/*
+ * kgsl_mmu_get_ptsize() - Get gpu pagetable size
+ * @mmu: the mmu
+ *
+ * Returns the usable size of the gpu allocatable
+ * address space.
+ */
 static inline unsigned int kgsl_mmu_get_ptsize(struct kgsl_mmu *mmu)
 {
 	return mmu->pt_size;
@@ -422,4 +489,4 @@ static inline int kgsl_mmu_set_pagefault_policy(struct kgsl_mmu *mmu,
 		return 0;
 }
 
-#endif 
+#endif /* __KGSL_MMU_H */

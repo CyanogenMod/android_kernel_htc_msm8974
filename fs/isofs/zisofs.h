@@ -10,6 +10,9 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * Prototypes for functions exported from the compressed isofs subsystem
+ */
 
 #ifdef CONFIG_ZISOFS
 extern const struct address_space_operations zisofs_aops;

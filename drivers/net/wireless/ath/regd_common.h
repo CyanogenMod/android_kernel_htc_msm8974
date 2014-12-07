@@ -155,8 +155,9 @@ enum EnumRd {
 	DEBUG_REG_DMN = 0x01ff,
 };
 
+/* Regpair to CTL band mapping */
 static struct reg_dmn_pair_mapping regDomainPairs[] = {
-	
+	/* regpair, 5 GHz CTL, 2 GHz CTL */
 	{NO_ENUMRD, DEBUG_REG_DMN, DEBUG_REG_DMN},
 	{NULL1_WORLD, NO_CTL, CTL_ETSI},
 	{NULL1_ETSIB, NO_CTL, CTL_ETSI},
@@ -179,7 +180,7 @@ static struct reg_dmn_pair_mapping regDomainPairs[] = {
 	{ETSI5_WORLD, CTL_ETSI, CTL_ETSI},
 	{ETSI6_WORLD, CTL_ETSI, CTL_ETSI},
 
-	
+	/* XXX: For ETSI3_ETSIA, Was NO_CTL meant for the 2 GHz band ? */
 	{ETSI3_ETSIA, CTL_ETSI, CTL_ETSI},
 	{FRANCE_RES, CTL_ETSI, CTL_ETSI},
 
@@ -462,6 +463,9 @@ static struct country_code_to_enum_rd allCountries[] = {
 	{CTRY_UAE, NULL1_WORLD, "AE"},
 	{CTRY_UNITED_KINGDOM, ETSI1_WORLD, "GB"},
 	{CTRY_UNITED_STATES, FCC3_FCCA, "US"},
+	/* This "PS" is for US public safety actually... to support this we
+	 * would need to assign new special alpha2 to CRDA db as with the world
+	 * regdomain and use another alpha2 */
 	{CTRY_UNITED_STATES_FCC49, FCC4_FCCA, "PS"},
 	{CTRY_URUGUAY, FCC3_WORLD, "UY"},
 	{CTRY_UZBEKISTAN, FCC3_FCCA, "UZ"},

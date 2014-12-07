@@ -31,7 +31,7 @@ static inline void svcpu_put(struct kvmppc_book3s_shadow_vcpu *svcpu)
 
 #define PTE_SIZE	12
 #define VSID_ALL	0
-#define SR_INVALID	0x00000001	
+#define SR_INVALID	0x00000001	/* VSID 1 should always be unused */
 #define SR_KP		0x20000000
 #define PTE_V		0x80000000
 #define PTE_SEC		0x00000040
@@ -43,4 +43,4 @@ static inline void svcpu_put(struct kvmppc_book3s_shadow_vcpu *svcpu)
 #define ESID_MASK	0xf0000000
 #define VSID_MASK	0x00fffffff0000000ULL
 
-#endif 
+#endif /* __ASM_KVM_BOOK3S_32_H__ */

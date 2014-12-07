@@ -59,6 +59,10 @@ struct msm_bus_fab_list {
 LIST_HEAD(fabdata_list);
 LIST_HEAD(cl_list);
 
+/**
+ * The following structures and funtions are used for
+ * the test-client which can be created at run-time.
+ */
 
 static struct msm_bus_vectors init_vectors[1];
 static struct msm_bus_vectors current_vectors[1];
@@ -262,6 +266,10 @@ static int msm_bus_dbg_en_set(void  *data, u64 val)
 DEFINE_SIMPLE_ATTRIBUTE(shell_client_en_fops, msm_bus_dbg_en_get,
 	msm_bus_dbg_en_set, "%llu\n");
 
+/**
+ * The following funtions are used for viewing the client data
+ * and changing the client request at run-time
+ */
 
 static ssize_t client_data_read(struct file *file, char __user *buf,
 	size_t count, loff_t *ppos)
@@ -445,6 +453,10 @@ static ssize_t  msm_bus_dbg_update_request_write(struct file *file,
 	return cnt;
 }
 
+/**
+ * The following funtions are used for viewing the commit data
+ * for each fabric
+ */
 static ssize_t fabric_data_read(struct file *file, char __user *buf,
 	size_t count, loff_t *ppos)
 {
@@ -553,6 +565,12 @@ static const struct file_operations msm_bus_dbg_update_request_fops = {
 	.write = msm_bus_dbg_update_request_write,
 };
 
+/**
+ * msm_bus_dbg_client_data() - Add debug data for clients
+ * @pdata: Platform data of the client
+ * @index: The current index or operation to be performed
+ * @clid: Client handle obtained during registration
+ */
 void msm_bus_dbg_client_data(struct msm_bus_scale_pdata *pdata, int index,
 	uint32_t clid)
 {
@@ -572,6 +590,15 @@ void msm_bus_dbg_client_data(struct msm_bus_scale_pdata *pdata, int index,
 }
 EXPORT_SYMBOL(msm_bus_dbg_client_data);
 
+/**
+ * msm_bus_dbg_commit_data() - Add commit data from fabrics
+ * @fabname: Fabric name specified in platform data
+ * @cdata: Commit Data
+ * @nmasters: Number of masters attached to fabric
+ * @nslaves: Number of slaves attached to fabric
+ * @ntslaves: Number of tiered slaves attached to fabric
+ * @op: Operation to be performed
+ */
 void msm_bus_dbg_commit_data(const char *fabname, void *cdata,
 	int nmasters, int nslaves, int ntslaves, int op)
 {

@@ -30,6 +30,8 @@
 #define DRIVER_DESC "USB-to-WWAN Driver for Sierra Wireless modems"
 static const char driver_name[] = "sierra_net";
 
+/* if defined debug messages enabled */
+/*#define	DEBUG*/
 
 #include <linux/module.h>
 #include <linux/etherdevice.h>
@@ -47,17 +49,29 @@ static const char driver_name[] = "sierra_net";
 #define SWI_USB_REQUEST_GET_FW_ATTR	0x06
 #define SWI_GET_FW_ATTR_MASK		0x08
 
+/* atomic counter partially included in MAC address to make sure 2 devices
+ * do not end up with the same MAC - concept breaks in case of > 255 ifaces
+ */
 static	atomic_t iface_counter = ATOMIC_INIT(0);
 
+/*
+ * SYNC Timer Delay definition used to set the expiry time
+ */
 #define SIERRA_NET_SYNCDELAY (2*HZ)
 
+/* Max. MTU supported. The modem buffers are limited to 1500 */
 #define SIERRA_NET_MAX_SUPPORTED_MTU	1500
 
+/* The SIERRA_NET_USBCTL_BUF_LEN defines a buffer size allocated for control
+ * message reception ... and thus the max. received packet.
+ * (May be the cause for parse_hip returning -EINVAL)
+ */
 #define SIERRA_NET_USBCTL_BUF_LEN	1024
 
+/* list of interface numbers - used for constructing interface lists */
 struct sierra_net_iface_info {
-	const u32 infolen;	
-	const u8  *ifaceinfo;	
+	const u32 infolen;	/* number of interface numbers on list */
+	const u8  *ifaceinfo;	/* pointer to the array holding the numbers */
 };
 
 struct sierra_net_info_data {
@@ -65,26 +79,28 @@ struct sierra_net_info_data {
 	struct sierra_net_iface_info whitelist;
 };
 
+/* Private data structure */
 struct sierra_net_data {
 
-	u8 ethr_hdr_tmpl[ETH_HLEN]; 
+	u8 ethr_hdr_tmpl[ETH_HLEN]; /* ethernet header template for rx'd pkts */
 
-	u16 link_up;		
-	u8 tx_hdr_template[4];	
+	u16 link_up;		/* air link up or down */
+	u8 tx_hdr_template[4];	/* part of HIP hdr for tx'd packets */
 
-	u8 sync_msg[4];		
-	u8 shdwn_msg[4];	
+	u8 sync_msg[4];		/* SYNC message */
+	u8 shdwn_msg[4];	/* Shutdown message */
 
-	
+	/* Backpointer to the container */
 	struct usbnet *usbnet;
 
-	u8 ifnum;	
+	u8 ifnum;	/* interface number */
 
+/* Bit masks, must be a power of 2 */
 #define SIERRA_NET_EVENT_RESP_AVAIL    0x01
 #define SIERRA_NET_TIMER_EXPIRY        0x02
 	unsigned long kevent_flags;
 	struct work_struct sierra_net_kevent;
-	struct timer_list sync_timer; 
+	struct timer_list sync_timer; /* For retrying SYNC sequence */
 };
 
 struct param {
@@ -97,50 +113,57 @@ struct param {
 	};
 };
 
+/* HIP message type */
 #define SIERRA_NET_HIP_EXTENDEDID	0x7F
-#define SIERRA_NET_HIP_HSYNC_ID		0x60	
-#define SIERRA_NET_HIP_RESTART_ID	0x62	
-#define SIERRA_NET_HIP_MSYNC_ID		0x20	
-#define SIERRA_NET_HIP_SHUTD_ID		0x26	
+#define SIERRA_NET_HIP_HSYNC_ID		0x60	/* Modem -> host */
+#define SIERRA_NET_HIP_RESTART_ID	0x62	/* Modem -> host */
+#define SIERRA_NET_HIP_MSYNC_ID		0x20	/* Host -> modem */
+#define SIERRA_NET_HIP_SHUTD_ID		0x26	/* Host -> modem */
 
 #define SIERRA_NET_HIP_EXT_IP_IN_ID   0x0202
 #define SIERRA_NET_HIP_EXT_IP_OUT_ID  0x0002
 
+/* 3G UMTS Link Sense Indication definitions */
 #define SIERRA_NET_HIP_LSI_UMTSID	0x78
 
+/* Reverse Channel Grant Indication HIP message */
 #define SIERRA_NET_HIP_RCGI		0x64
 
+/* LSI Protocol types */
 #define SIERRA_NET_PROTOCOL_UMTS      0x01
+/* LSI Coverage */
 #define SIERRA_NET_COVERAGE_NONE      0x00
 #define SIERRA_NET_COVERAGE_NOPACKET  0x01
 
+/* LSI Session */
 #define SIERRA_NET_SESSION_IDLE       0x00
+/* LSI Link types */
 #define SIERRA_NET_AS_LINK_TYPE_IPv4  0x00
 
 struct lsi_umts {
 	u8 protocol;
 	u8 unused1;
 	__be16 length;
-	
+	/* eventually use a union for the rest - assume umts for now */
 	u8 coverage;
 	u8 unused2[41];
 	u8 session_state;
 	u8 unused3[33];
 	u8 link_type;
-	u8 pdp_addr_len; 
-	u8 pdp_addr[16]; 
+	u8 pdp_addr_len; /* NW-supplied PDP address len */
+	u8 pdp_addr[16]; /* NW-supplied PDP address (bigendian)) */
 	u8 unused4[23];
-	u8 dns1_addr_len; 
-	u8 dns1_addr[16]; 
-	u8 dns2_addr_len; 
-	u8 dns2_addr[16]; 
-	u8 wins1_addr_len; 
-	u8 wins1_addr[16]; 
-	u8 wins2_addr_len; 
-	u8 wins2_addr[16]; 
+	u8 dns1_addr_len; /* NW-supplied 1st DNS address len (bigendian) */
+	u8 dns1_addr[16]; /* NW-supplied 1st DNS address */
+	u8 dns2_addr_len; /* NW-supplied 2nd DNS address len */
+	u8 dns2_addr[16]; /* NW-supplied 2nd DNS address (bigendian)*/
+	u8 wins1_addr_len; /* NW-supplied 1st Wins address len */
+	u8 wins1_addr[16]; /* NW-supplied 1st Wins address (bigendian)*/
+	u8 wins2_addr_len; /* NW-supplied 2nd Wins address len */
+	u8 wins2_addr[16]; /* NW-supplied 2nd Wins address (bigendian) */
 	u8 unused5[4];
-	u8 gw_addr_len; 
-	u8 gw_addr[16]; 
+	u8 gw_addr_len; /* NW-supplied GW address len */
+	u8 gw_addr[16]; /* NW-supplied GW address (bigendian) */
 	u8 reserved[8];
 } __packed;
 
@@ -149,9 +172,11 @@ struct lsi_umts {
 #define SIERRA_NET_LSI_UMTS_STATUS_LEN \
 	(SIERRA_NET_LSI_UMTS_LEN - SIERRA_NET_LSI_COMMON_LEN)
 
+/* Forward definitions */
 static void sierra_sync_timer(unsigned long syncdata);
 static int sierra_net_change_mtu(struct net_device *net, int new_mtu);
 
+/* Our own net device operations structure */
 static const struct net_device_ops sierra_net_device_ops = {
 	.ndo_open               = usbnet_open,
 	.ndo_stop               = usbnet_stop,
@@ -162,25 +187,33 @@ static const struct net_device_ops sierra_net_device_ops = {
 	.ndo_validate_addr      = eth_validate_addr,
 };
 
+/* get private data associated with passed in usbnet device */
 static inline struct sierra_net_data *sierra_net_get_private(struct usbnet *dev)
 {
 	return (struct sierra_net_data *)dev->data[0];
 }
 
+/* set private data associated with passed in usbnet device */
 static inline void sierra_net_set_private(struct usbnet *dev,
 			struct sierra_net_data *priv)
 {
 	dev->data[0] = (unsigned long)priv;
 }
 
+/* is packet IPv4 */
 static inline int is_ip(struct sk_buff *skb)
 {
 	return skb->protocol == cpu_to_be16(ETH_P_IP);
 }
 
+/*
+ * check passed in packet and make sure that:
+ *  - it is linear (no scatter/gather)
+ *  - it is ethernet (mac_header properly set)
+ */
 static int check_ethip_packet(struct sk_buff *skb, struct usbnet *dev)
 {
-	skb_reset_mac_header(skb); 
+	skb_reset_mac_header(skb); /* ethernet header */
 
 	if (skb_is_nonlinear(skb)) {
 		netdev_err(dev->net, "Non linear buffer-dropping\n");
@@ -208,7 +241,12 @@ static const u8 *save8bit(struct param *p, const u8 *datap)
 	return datap + sizeof(p->byte);
 }
 
+/*----------------------------------------------------------------------------*
+ *                              BEGIN HIP                                     *
+ *----------------------------------------------------------------------------*/
+/* HIP header */
 #define SIERRA_NET_HIP_HDR_LEN 4
+/* Extended HIP header */
 #define SIERRA_NET_HIP_EXT_HDR_LEN 6
 
 struct hip_hdr {
@@ -232,21 +270,21 @@ static int parse_hip(const u8 *buf, const u32 buflen, struct hip_hdr *hh)
 	curp = save8bit(&hh->msgspecific, curp);
 
 	padded = hh->msgid.byte & 0x80;
-	hh->msgid.byte &= 0x7F;			
+	hh->msgid.byte &= 0x7F;			/* 7 bits */
 
 	hh->extmsgid.is_present = (hh->msgid.byte == SIERRA_NET_HIP_EXTENDEDID);
 	if (hh->extmsgid.is_present) {
 		if (buflen < SIERRA_NET_HIP_EXT_HDR_LEN)
 			return -EPROTO;
 
-		hh->payload_len.word &= 0x3FFF; 
+		hh->payload_len.word &= 0x3FFF; /* 14 bits */
 
 		curp = save16bit(&hh->extmsgid, curp);
-		hh->extmsgid.word &= 0x03FF;	
+		hh->extmsgid.word &= 0x03FF;	/* 10 bits */
 
 		hh->hdrlen = SIERRA_NET_HIP_EXT_HDR_LEN;
 	} else {
-		hh->payload_len.word &= 0x07FF;	
+		hh->payload_len.word &= 0x07FF;	/* 11 bits */
 		hh->hdrlen = SIERRA_NET_HIP_HDR_LEN;
 	}
 
@@ -255,7 +293,7 @@ static int parse_hip(const u8 *buf, const u32 buflen, struct hip_hdr *hh)
 		hh->payload_len.word--;
 	}
 
-	
+	/* if real packet shorter than the claimed length */
 	if (buflen < (hh->hdrlen + hh->payload_len.word))
 		return -EINVAL;
 
@@ -265,9 +303,15 @@ static int parse_hip(const u8 *buf, const u32 buflen, struct hip_hdr *hh)
 static void build_hip(u8 *buf, const u16 payloadlen,
 		struct sierra_net_data *priv)
 {
+	/* the following doesn't have the full functionality. We
+	 * currently build only one kind of header, so it is faster this way
+	 */
 	put_unaligned_be16(payloadlen, buf);
 	memcpy(buf+2, priv->tx_hdr_template, sizeof(priv->tx_hdr_template));
 }
+/*----------------------------------------------------------------------------*
+ *                              END HIP                                       *
+ *----------------------------------------------------------------------------*/
 
 static int sierra_net_send_cmd(struct usbnet *dev,
 		u8 *cmd, int cmdlen, const char * cmd_name)
@@ -331,35 +375,35 @@ static int sierra_net_parse_lsi(struct usbnet *dev, char *data, int datalen)
 		return -1;
 	}
 
-	
+	/* Validate the protocol  - only support UMTS for now */
 	if (lsi->protocol != SIERRA_NET_PROTOCOL_UMTS) {
 		netdev_err(dev->net, "Protocol unsupported, 0x%02x\n",
 			lsi->protocol);
 		return -1;
 	}
 
-	
+	/* Validate the link type */
 	if (lsi->link_type != SIERRA_NET_AS_LINK_TYPE_IPv4) {
 		netdev_err(dev->net, "Link type unsupported: 0x%02x\n",
 			lsi->link_type);
 		return -1;
 	}
 
-	
+	/* Validate the coverage */
 	if (lsi->coverage == SIERRA_NET_COVERAGE_NONE
 	   || lsi->coverage == SIERRA_NET_COVERAGE_NOPACKET) {
 		netdev_err(dev->net, "No coverage, 0x%02x\n", lsi->coverage);
 		return 0;
 	}
 
-	
+	/* Validate the session state */
 	if (lsi->session_state == SIERRA_NET_SESSION_IDLE) {
 		netdev_err(dev->net, "Session idle, 0x%02x\n",
 			lsi->session_state);
 		return 0;
 	}
 
-	
+	/* Set link_sense true */
 	return 1;
 }
 
@@ -392,7 +436,7 @@ static void sierra_net_dosync(struct usbnet *dev)
 
 	dev_dbg(&dev->udev->dev, "%s", __func__);
 
-	
+	/* tell modem we are ready */
 	status = sierra_net_send_sync(dev);
 	if (status < 0)
 		netdev_err(dev->net,
@@ -402,7 +446,7 @@ static void sierra_net_dosync(struct usbnet *dev)
 		netdev_err(dev->net,
 			"Send SYNC failed, status %d\n", status);
 
-	
+	/* Now, start a timer and make sure we get the Restart Indication */
 	priv->sync_timer.function = sierra_sync_timer;
 	priv->sync_timer.data = (unsigned long) dev;
 	priv->sync_timer.expires = jiffies + SIERRA_NET_SYNCDELAY;
@@ -422,7 +466,7 @@ static void sierra_net_kevent(struct work_struct *work)
 	if (test_bit(SIERRA_NET_EVENT_RESP_AVAIL, &priv->kevent_flags)) {
 		clear_bit(SIERRA_NET_EVENT_RESP_AVAIL, &priv->kevent_flags);
 
-		
+		/* Query the modem for the LSI message */
 		buf = kzalloc(SIERRA_NET_USBCTL_BUF_LEN, GFP_KERNEL);
 		if (!buf) {
 			netdev_err(dev->net,
@@ -453,7 +497,7 @@ static void sierra_net_kevent(struct work_struct *work)
 				return;
 			}
 
-			
+			/* Validate packet length */
 			if (len != hh.hdrlen + hh.payload_len.word) {
 				netdev_err(dev->net, "%s: Bad packet, received"
 					" %d, expected %d\n",	__func__, len,
@@ -462,7 +506,7 @@ static void sierra_net_kevent(struct work_struct *work)
 				return;
 			}
 
-			
+			/* Switch on received message types */
 			switch (hh.msgid.byte) {
 			case SIERRA_NET_HIP_LSI_UMTSID:
 				dev_dbg(&dev->udev->dev, "LSI for ctx:%d",
@@ -473,7 +517,7 @@ static void sierra_net_kevent(struct work_struct *work)
 				dev_dbg(&dev->udev->dev, "Restart reported: %d,"
 						" stopping sync timer",
 						hh.msgspecific.byte);
-				
+				/* Got sync resp - stop timer & clear mask */
 				del_timer_sync(&priv->sync_timer);
 				clear_bit(SIERRA_NET_TIMER_EXPIRY,
 					  &priv->kevent_flags);
@@ -490,7 +534,7 @@ static void sierra_net_kevent(struct work_struct *work)
 					"extmsgid 0x%04x\n", hh.extmsgid.word);
 				break;
 			case SIERRA_NET_HIP_RCGI:
-				
+				/* Ignored */
 				break;
 			default:
 				netdev_err(dev->net, "Unrecognized HIP msg, "
@@ -500,7 +544,7 @@ static void sierra_net_kevent(struct work_struct *work)
 		}
 		kfree(buf);
 	}
-	
+	/* The sync timer bit might be set */
 	if (test_bit(SIERRA_NET_TIMER_EXPIRY, &priv->kevent_flags)) {
 		clear_bit(SIERRA_NET_TIMER_EXPIRY, &priv->kevent_flags);
 		dev_dbg(&dev->udev->dev, "Deferred sync timer expiry");
@@ -520,12 +564,15 @@ static void sierra_net_defer_kevent(struct usbnet *dev, int work)
 	schedule_work(&priv->sierra_net_kevent);
 }
 
+/*
+ * Sync Retransmit Timer Handler. On expiry, kick the work queue
+ */
 void sierra_sync_timer(unsigned long syncdata)
 {
 	struct usbnet *dev = (struct usbnet *)syncdata;
 
 	dev_dbg(&dev->udev->dev, "%s", __func__);
-	
+	/* Kick the tasklet */
 	sierra_net_defer_kevent(dev, SIERRA_NET_TIMER_EXPIRY);
 }
 
@@ -538,12 +585,12 @@ static void sierra_net_status(struct usbnet *dev, struct urb *urb)
 	if (urb->actual_length < sizeof *event)
 		return;
 
-	
+	/* Add cases to handle other standard notifications. */
 	event = urb->transfer_buffer;
 	switch (event->bNotificationType) {
 	case USB_CDC_NOTIFY_NETWORK_CONNECTION:
 	case USB_CDC_NOTIFY_SPEED_CHANGE:
-		
+		/* USB 305 sends those */
 		break;
 	case USB_CDC_NOTIFY_RESPONSE_AVAILABLE:
 		sierra_net_defer_kevent(dev, SIERRA_NET_EVENT_RESP_AVAIL);
@@ -558,7 +605,7 @@ static void sierra_net_status(struct usbnet *dev, struct urb *urb)
 static void sierra_net_get_drvinfo(struct net_device *net,
 		struct ethtool_drvinfo *info)
 {
-	
+	/* Inherit standard device info */
 	usbnet_get_drvinfo(net, info);
 	strncpy(info->driver, driver_name, sizeof info->driver);
 	strncpy(info->version, DRIVER_VERSION, sizeof info->version);
@@ -567,7 +614,7 @@ static void sierra_net_get_drvinfo(struct net_device *net,
 static u32 sierra_net_get_link(struct net_device *net)
 {
 	struct usbnet *dev = netdev_priv(net);
-	
+	/* Report link is down whenever the interface is down */
 	return sierra_net_get_private(dev)->link_up && netif_running(net);
 }
 
@@ -581,6 +628,7 @@ static const struct ethtool_ops sierra_net_ethtool_ops = {
 	.nway_reset = usbnet_nway_reset,
 };
 
+/* MTU can not be more than 1500 bytes, enforce it. */
 static int sierra_net_change_mtu(struct net_device *net, int new_mtu)
 {
 	if (new_mtu > SIERRA_NET_MAX_SUPPORTED_MTU)
@@ -616,14 +664,14 @@ static int sierra_net_get_fw_attr(struct usbnet *dev, u16 *datap)
 	result = usb_control_msg(
 			dev->udev,
 			usb_rcvctrlpipe(dev->udev, 0),
-			
+			/* _u8 vendor specific request */
 			SWI_USB_REQUEST_GET_FW_ATTR,
-			USB_DIR_IN | USB_TYPE_VENDOR,	
-			0x0000,		
-			0x0000,		
-			attrdata,	
-			sizeof(*attrdata),		
-			USB_CTRL_SET_TIMEOUT);	
+			USB_DIR_IN | USB_TYPE_VENDOR,	/* __u8 request type */
+			0x0000,		/* __u16 value not used */
+			0x0000,		/* __u16 index  not used */
+			attrdata,	/* char *data */
+			sizeof(*attrdata),		/* __u16 size */
+			USB_CTRL_SET_TIMEOUT);	/* int timeout */
 
 	if (result < 0) {
 		kfree(attrdata);
@@ -636,6 +684,9 @@ static int sierra_net_get_fw_attr(struct usbnet *dev, u16 *datap)
 	return result;
 }
 
+/*
+ * collects the bulk endpoints, the status endpoint.
+ */
 static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 {
 	u8	ifacenum;
@@ -655,19 +706,19 @@ static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev_dbg(&dev->udev->dev, "%s", __func__);
 
 	ifacenum = intf->cur_altsetting->desc.bInterfaceNumber;
-	
+	/* We only accept certain interfaces */
 	if (!is_whitelisted(ifacenum, &data->whitelist)) {
 		dev_dbg(&dev->udev->dev, "Ignoring interface: %d", ifacenum);
 		return -ENODEV;
 	}
 	numendpoints = intf->cur_altsetting->desc.bNumEndpoints;
-	
+	/* We have three endpoints, bulk in and out, and a status */
 	if (numendpoints != 3) {
 		dev_err(&dev->udev->dev, "Expected 3 endpoints, found: %d",
 			numendpoints);
 		return -ENODEV;
 	}
-	
+	/* Status endpoint set in usbnet_get_endpoints() */
 	dev->status = NULL;
 	status = usbnet_get_endpoints(dev, intf);
 	if (status < 0) {
@@ -675,7 +726,7 @@ static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 			status);
 		return -ENODEV;
 	}
-	
+	/* Initialize sierra private data */
 	priv = kzalloc(sizeof *priv, GFP_KERNEL);
 	if (!priv) {
 		dev_err(&dev->udev->dev, "No memory");
@@ -686,21 +737,21 @@ static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 	priv->ifnum = ifacenum;
 	dev->net->netdev_ops = &sierra_net_device_ops;
 
-	
+	/* change MAC addr to include, ifacenum, and to be unique */
 	dev->net->dev_addr[ETH_ALEN-2] = atomic_inc_return(&iface_counter);
 	dev->net->dev_addr[ETH_ALEN-1] = ifacenum;
 
-	
+	/* we will have to manufacture ethernet headers, prepare template */
 	eth = (struct ethhdr *)priv->ethr_hdr_tmpl;
 	memcpy(&eth->h_dest, dev->net->dev_addr, ETH_ALEN);
 	eth->h_proto = cpu_to_be16(ETH_P_IP);
 
-	
+	/* prepare shutdown message template */
 	memcpy(priv->shdwn_msg, shdwn_tmplate, sizeof(priv->shdwn_msg));
-	
+	/* set context index initially to 0 - prepares tx hdr template */
 	sierra_net_set_ctx_index(priv, 0);
 
-	
+	/* decrease the rx_urb_size and max_tx_size to 4k on USB 1.1 */
 	dev->rx_urb_size  = data->rx_urb_size;
 	if (dev->udev->speed != USB_SPEED_HIGH)
 		dev->rx_urb_size  = min_t(size_t, 4096, data->rx_urb_size);
@@ -708,7 +759,7 @@ static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->net->hard_header_len += SIERRA_NET_HIP_EXT_HDR_LEN;
 	dev->hard_mtu = dev->net->mtu + dev->net->hard_header_len;
 
-	
+	/* Set up the netdev */
 	dev->net->flags |= IFF_NOARP;
 	dev->net->ethtool_ops = &sierra_net_ethtool_ops;
 	netif_carrier_off(dev->net);
@@ -717,28 +768,28 @@ static int sierra_net_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	priv->kevent_flags = 0;
 
-	
+	/* Use the shared workqueue */
 	INIT_WORK(&priv->sierra_net_kevent, sierra_net_kevent);
 
-	
+	/* Only need to do this once */
 	init_timer(&priv->sync_timer);
 
-	
+	/* verify fw attributes */
 	status = sierra_net_get_fw_attr(dev, &fwattr);
 	dev_dbg(&dev->udev->dev, "Fw attr: %x\n", fwattr);
 
-	
+	/* test whether firmware supports DHCP */
 	if (!(status == sizeof(fwattr) && (fwattr & SWI_GET_FW_ATTR_MASK))) {
-		
+		/* found incompatible firmware version */
 		dev_err(&dev->udev->dev, "Incompatible driver and firmware"
 			" versions\n");
 		kfree(priv);
 		return -ENODEV;
 	}
-	
+	/* prepare sync message from template */
 	memcpy(priv->sync_msg, sync_tmplate, sizeof(priv->sync_msg));
 
-	
+	/* initiate the sync sequence */
 	sierra_net_dosync(dev);
 
 	return 0;
@@ -751,11 +802,11 @@ static void sierra_net_unbind(struct usbnet *dev, struct usb_interface *intf)
 
 	dev_dbg(&dev->udev->dev, "%s", __func__);
 
-	
+	/* kill the timer and work */
 	del_timer_sync(&priv->sync_timer);
 	cancel_work_sync(&priv->sierra_net_kevent);
 
-	
+	/* tell modem we are going away */
 	status = sierra_net_send_cmd(dev, priv->shdwn_msg,
 			sizeof(priv->shdwn_msg), "Shutdown");
 	if (status < 0)
@@ -772,13 +823,13 @@ static struct sk_buff *sierra_net_skb_clone(struct usbnet *dev,
 {
 	struct sk_buff *new_skb;
 
-	
+	/* clone skb */
 	new_skb = skb_clone(skb, GFP_ATOMIC);
 
-	
+	/* remove len bytes from original */
 	skb_pull(skb, len);
 
-	
+	/* trim next packet to it's length */
 	if (new_skb) {
 		skb_trim(new_skb, len);
 	} else {
@@ -790,6 +841,7 @@ static struct sk_buff *sierra_net_skb_clone(struct usbnet *dev,
 	return new_skb;
 }
 
+/* ---------------------------- Receive data path ----------------------*/
 static int sierra_net_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 {
 	int err;
@@ -798,36 +850,36 @@ static int sierra_net_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 	dev_dbg(&dev->udev->dev, "%s", __func__);
 
-	
+	/* could contain multiple packets */
 	while (likely(skb->len)) {
 		err = parse_hip(skb->data, skb->len, &hh);
 		if (err) {
 			if (netif_msg_rx_err(dev))
 				netdev_err(dev->net, "Invalid HIP header %d\n",
 					err);
-			
+			/* dev->net->stats.rx_errors incremented by caller */
 			dev->net->stats.rx_length_errors++;
 			return 0;
 		}
 
-		
+		/* Validate Extended HIP header */
 		if (!hh.extmsgid.is_present
 		    || hh.extmsgid.word != SIERRA_NET_HIP_EXT_IP_IN_ID) {
 			if (netif_msg_rx_err(dev))
 				netdev_err(dev->net, "HIP/ETH: Invalid pkt\n");
 
 			dev->net->stats.rx_frame_errors++;
-			;
+			/* dev->net->stats.rx_errors incremented by caller */;
 			return 0;
 		}
 
 		skb_pull(skb, hh.hdrlen);
 
-		
+		/* We are going to accept this packet, prepare it */
 		memcpy(skb->data, sierra_net_get_private(dev)->ethr_hdr_tmpl,
 			ETH_HLEN);
 
-		
+		/* Last packet in batch handled by usbnet */
 		if (hh.payload_len.word == skb->len)
 			return 1;
 
@@ -835,11 +887,12 @@ static int sierra_net_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		if (new_skb)
 			usbnet_skb_return(dev, new_skb);
 
-	} 
+	} /* while */
 
 	return 0;
 }
 
+/* ---------------------------- Transmit data path ----------------------*/
 struct sk_buff *sierra_net_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 		gfp_t flags)
 {
@@ -852,12 +905,12 @@ struct sk_buff *sierra_net_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 
 	dev_dbg(&dev->udev->dev, "%s", __func__);
 	if (priv->link_up && check_ethip_packet(skb, dev) && is_ip(skb)) {
-		
+		/* enough head room as is? */
 		if (SIERRA_NET_HIP_EXT_HDR_LEN <= skb_headroom(skb)) {
-			
+			/* Save the Eth/IP length and set up HIP hdr */
 			len = skb->len;
 			skb_push(skb, SIERRA_NET_HIP_EXT_HDR_LEN);
-			
+			/* Handle ZLP issue */
 			need_tail = ((len + SIERRA_NET_HIP_EXT_HDR_LEN)
 				% dev->maxpacket == 0);
 			if (need_tail) {
@@ -875,16 +928,19 @@ struct sk_buff *sierra_net_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 			build_hip(skb->data, len, priv);
 			return skb;
 		} else {
+			/*
+			 * compensate in the future if necessary
+			 */
 			netdev_err(dev->net, "tx_fixup: no room for HIP\n");
-		} 
+		} /* headroom */
 	}
 
 	if (!priv->link_up)
 		dev->net->stats.tx_carrier_errors++;
 
-	
+	/* tx_dropped incremented by usbnet */
 
-	
+	/* filter the packet out, release it  */
 	dev_kfree_skb_any(skb);
 	return NULL;
 }
@@ -910,13 +966,14 @@ static const struct driver_info sierra_net_info_68A3 = {
 };
 
 static const struct usb_device_id products[] = {
-	{USB_DEVICE(0x1199, 0x68A3), 
+	{USB_DEVICE(0x1199, 0x68A3), /* Sierra Wireless USB-to-WWAN modem */
 	.driver_info = (unsigned long) &sierra_net_info_68A3},
 
-	{}, 
+	{}, /* last item */
 };
 MODULE_DEVICE_TABLE(usb, products);
 
+/* We are based on usbnet, so let it handle the USB driver specifics */
 static struct usb_driver sierra_net_driver = {
 	.name = "sierra_net",
 	.id_table = products,

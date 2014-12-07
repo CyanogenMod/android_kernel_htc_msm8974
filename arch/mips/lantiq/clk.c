@@ -32,6 +32,7 @@ struct clk {
 static struct clk *cpu_clk;
 static int cpu_clk_cnt;
 
+/* lantiq socs have 3 static clocks */
 static struct clk cpu_clk_generic[] = {
 	{
 		.name = "cpu",
@@ -52,6 +53,7 @@ static struct resource ltq_cgu_resource = {
 	.flags	= IORESOURCE_MEM,
 };
 
+/* remapped clock register range */
 void __iomem *ltq_cgu_membase;
 
 void clk_init(void)
@@ -94,20 +96,20 @@ EXPORT_SYMBOL(clk_get);
 
 void clk_put(struct clk *clk)
 {
-	
+	/* not used */
 }
 EXPORT_SYMBOL(clk_put);
 
 int clk_enable(struct clk *clk)
 {
-	
+	/* not used */
 	return 0;
 }
 EXPORT_SYMBOL(clk_enable);
 
 void clk_disable(struct clk *clk)
 {
-	
+	/* not used */
 }
 EXPORT_SYMBOL(clk_disable);
 
@@ -121,7 +123,7 @@ static inline u32 ltq_get_counter_resolution(void)
 		"rdhwr  %0, $3\n"
 		".set pop\n"
 		: "=&r" (res)
-		: 
+		: /* no input */
 		: "memory");
 
 	return res;

@@ -44,6 +44,14 @@ static inline unsigned int get_dmte_irq(unsigned int chan)
 #endif
 }
 
+/*
+ * We determine the correct shift size based off of the CHCR transmit size
+ * for the given channel. Since we know that it will take:
+ *
+ *	info->count >> ts_shift[transmit_size]
+ *
+ * iterations to complete the transfer.
+ */
 static unsigned int ts_shift[] = TS_SHIFT;
 static inline unsigned int calc_xmit_shift(struct dma_channel *chan)
 {
@@ -54,6 +62,12 @@ static inline unsigned int calc_xmit_shift(struct dma_channel *chan)
 	return ts_shift[cnt];
 }
 
+/*
+ * The transfer end interrupt must read the chcr register to end the
+ * hardware interrupt active condition.
+ * Besides that it needs to waken any waiting process, which should handle
+ * setting up the next transfer.
+ */
 static irqreturn_t dma_tei(int irq, void *dev_id)
 {
 	struct dma_channel *chan = dev_id;
@@ -146,11 +160,30 @@ static void sh_dmac_disable_dma(struct dma_channel *chan)
 
 static int sh_dmac_xfer_dma(struct dma_channel *chan)
 {
+	/*
+	 * If we haven't pre-configured the channel with special flags, use
+	 * the defaults.
+	 */
 	if (unlikely(!(chan->flags & DMA_CONFIGURED)))
 		sh_dmac_configure_channel(chan, 0);
 
 	sh_dmac_disable_dma(chan);
 
+	/*
+	 * Single-address mode usage note!
+	 *
+	 * It's important that we don't accidentally write any value to SAR/DAR
+	 * (this includes 0) that hasn't been directly specified by the user if
+	 * we're in single-address mode.
+	 *
+	 * In this case, only one address can be defined, anything else will
+	 * result in a DMA address error interrupt (at least on the SH-4),
+	 * which will subsequently halt the transfer.
+	 *
+	 * Channel 2 on the Dreamcast is a special case, as this is used for
+	 * cascading to the PVR2 DMAC. In this case, we still need to write
+	 * SAR and DAR, regardless of value, in order for cascading to work.
+	 */
 	if (chan->sar || (mach_is_dreamcast() &&
 			  chan->chan == PVR2_CASCADE_CHAN))
 		__raw_writel(chan->sar, (dma_base_addr[chan->chan]+SAR));
@@ -179,14 +212,14 @@ static inline int dmaor_reset(int no)
 {
 	unsigned long dmaor = dmaor_read_reg(no);
 
-	
+	/* Try to clear the error flags first, incase they are set */
 	dmaor &= ~(DMAOR_NMIF | DMAOR_AE);
 	dmaor_write_reg(no, dmaor);
 
 	dmaor |= DMAOR_INIT;
 	dmaor_write_reg(no, dmaor);
 
-	
+	/* See if we got an error again */
 	if ((dmaor_read_reg(no) & (DMAOR_AE | DMAOR_NMIF))) {
 		printk(KERN_ERR "dma-sh: Can't initialize DMAOR.\n");
 		return -EINVAL;
@@ -208,7 +241,7 @@ static irqreturn_t dma_err(int irq, void *dummy)
 	case DMTE0_IRQ:
 		if (dmaor_read_reg(cnt) & (DMAOR_NMIF | DMAOR_AE)) {
 			disable_irq(irq);
-			
+			/* DMA multi and error IRQ */
 			return IRQ_HANDLED;
 		}
 	default:
@@ -280,8 +313,12 @@ static int __init sh_dmac_init(void)
 			return i;
 		}
 	}
-#endif 
+#endif /* CONFIG_CPU_SH4 */
 
+	/*
+	 * Initialize DMAOR, and clean up any error flags that may have
+	 * been set.
+	 */
 	i = dmaor_reset(0);
 	if (unlikely(i != 0))
 		return i;
@@ -304,7 +341,7 @@ static void __exit sh_dmac_exit(void)
 	for (n = 0; n < NR_DMAE; n++) {
 		free_irq(get_dma_error_irq(n), (void *)dmae_name[n]);
 	}
-#endif 
+#endif /* CONFIG_CPU_SH4 */
 	unregister_dmac(&sh_dmac_info);
 }
 

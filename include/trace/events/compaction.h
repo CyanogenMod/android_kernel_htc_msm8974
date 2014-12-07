@@ -68,6 +68,7 @@ TRACE_EVENT(mm_compaction_migratepages,
 );
 
 
-#endif 
+#endif /* _TRACE_COMPACTION_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

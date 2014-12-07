@@ -32,6 +32,7 @@
 #include <net/llc_conn.h>
 #include <net/tcp_states.h>
 
+/* remember: uninitialized global data is zeroed because its in .bss */
 static u16 llc_ui_sap_last_autoport = LLC_SAP_DYN_START;
 static u16 llc_ui_sap_link_no_max[256];
 static struct sockaddr_llc llc_ui_addrnull;
@@ -47,25 +48,51 @@ static int llc_ui_wait_for_busy_core(struct sock *sk, long timeout);
 #define dprintk(args...)
 #endif
 
+/* Maybe we'll add some more in the future. */
 #define LLC_CMSG_PKTINFO	1
 
 
+/**
+ *	llc_ui_next_link_no - return the next unused link number for a sap
+ *	@sap: Address of sap to get link number from.
+ *
+ *	Return the next unused link number for a given sap.
+ */
 static inline u16 llc_ui_next_link_no(int sap)
 {
 	return llc_ui_sap_link_no_max[sap]++;
 }
 
+/**
+ *	llc_proto_type - return eth protocol for ARP header type
+ *	@arphrd: ARP header type.
+ *
+ *	Given an ARP header type return the corresponding ethernet protocol.
+ */
 static inline __be16 llc_proto_type(u16 arphrd)
 {
 	return arphrd == ARPHRD_IEEE802_TR ?
 			 htons(ETH_P_TR_802_2) : htons(ETH_P_802_2);
 }
 
+/**
+ *	llc_ui_addr_null - determines if a address structure is null
+ *	@addr: Address to test if null.
+ */
 static inline u8 llc_ui_addr_null(struct sockaddr_llc *addr)
 {
 	return !memcmp(addr, &llc_ui_addrnull, sizeof(*addr));
 }
 
+/**
+ *	llc_ui_header_len - return length of llc header based on operation
+ *	@sk: Socket which contains a valid llc socket type.
+ *	@addr: Complete sockaddr_llc structure received from the user.
+ *
+ *	Provide the length of the llc header depending on what kind of
+ *	operation the user would like to perform and the type of socket.
+ *	Returns the correct llc header length.
+ */
 static inline u8 llc_ui_header_len(struct sock *sk, struct sockaddr_llc *addr)
 {
 	u8 rc = LLC_PDU_LEN_U;
@@ -77,6 +104,15 @@ static inline u8 llc_ui_header_len(struct sock *sk, struct sockaddr_llc *addr)
 	return rc;
 }
 
+/**
+ *	llc_ui_send_data - send data via reliable llc2 connection
+ *	@sk: Connection the socket is using.
+ *	@skb: Data the user wishes to send.
+ *	@noblock: can we block waiting for data?
+ *
+ *	Send data via reliable llc2 connection.
+ *	Returns 0 upon success, non-zero if action did not succeed.
+ */
 static int llc_ui_send_data(struct sock* sk, struct sk_buff *skb, int noblock)
 {
 	struct llc_sock* llc = llc_sk(sk);
@@ -108,6 +144,17 @@ static struct proto llc_proto = {
 	.slab_flags = SLAB_DESTROY_BY_RCU,
 };
 
+/**
+ *	llc_ui_create - alloc and init a new llc_ui socket
+ *	@net: network namespace (must be default network)
+ *	@sock: Socket to initialize and attach allocated sk to.
+ *	@protocol: Unused.
+ *	@kern: on behalf of kernel or userspace
+ *
+ *	Allocate and initialize a new llc_ui socket, validate the user wants a
+ *	socket type we have available.
+ *	Returns 0 upon success, negative upon failure.
+ */
 static int llc_ui_create(struct net *net, struct socket *sock, int protocol,
 			 int kern)
 {
@@ -131,6 +178,12 @@ static int llc_ui_create(struct net *net, struct socket *sock, int protocol,
 	return rc;
 }
 
+/**
+ *	llc_ui_release - shutdown socket
+ *	@sock: Socket to release.
+ *
+ *	Shutdown and deallocate an existing socket.
+ */
 static int llc_ui_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
@@ -156,6 +209,13 @@ out:
 	return 0;
 }
 
+/**
+ *	llc_ui_autoport - provide dynamically allocate SAP number
+ *
+ *	Provide the caller with a dynamically allocated SAP number according
+ *	to the rules that are set in this function. Returns: 0, upon failure,
+ *	SAP number otherwise.
+ */
 static int llc_ui_autoport(void)
 {
 	struct llc_sap *sap;
@@ -179,6 +239,16 @@ out:
 	return i;
 }
 
+/**
+ *	llc_ui_autobind - automatically bind a socket to a sap
+ *	@sock: socket to bind
+ *	@addr: address to connect to
+ *
+ * 	Used by llc_ui_connect and llc_ui_sendmsg when the user hasn't
+ * 	specifically used llc_ui_bind to bind to an specific address/sap
+ *
+ *	Returns: 0 upon success, negative otherwise.
+ */
 static int llc_ui_autobind(struct socket *sock, struct sockaddr_llc *addr)
 {
 	struct sock *sk = sock->sk;
@@ -203,13 +273,13 @@ static int llc_ui_autobind(struct socket *sock, struct sockaddr_llc *addr)
 	llc->laddr.lsap = llc_ui_autoport();
 	if (!llc->laddr.lsap)
 		goto out;
-	rc = -EBUSY; 
+	rc = -EBUSY; /* some other network layer is using the sap */
 	sap = llc_sap_open(llc->laddr.lsap, NULL);
 	if (!sap)
 		goto out;
 	memcpy(llc->laddr.mac, llc->dev->dev_addr, IFHWADDRLEN);
 	memcpy(&llc->addr, addr, sizeof(llc->addr));
-	
+	/* assign new connection to its SAP */
 	llc_sap_add_socket(sap, sk);
 	sock_reset_flag(sk, SOCK_ZAPPED);
 	rc = 0;
@@ -217,6 +287,20 @@ out:
 	return rc;
 }
 
+/**
+ *	llc_ui_bind - bind a socket to a specific address.
+ *	@sock: Socket to bind an address to.
+ *	@uaddr: Address the user wants the socket bound to.
+ *	@addrlen: Length of the uaddr structure.
+ *
+ *	Bind a socket to a specific address. For llc a user is able to bind to
+ *	a specific sap only or mac + sap.
+ *	If the user desires to bind to a specific mac + sap, it is possible to
+ *	have multiple sap connections via multiple macs.
+ *	Bind and autobind for that matter must enforce the correct sap usage
+ *	otherwise all hell will break loose.
+ *	Returns: 0 upon success, negative otherwise.
+ */
 static int llc_ui_bind(struct socket *sock, struct sockaddr *uaddr, int addrlen)
 {
 	struct sockaddr_llc *addr = (struct sockaddr_llc *)uaddr;
@@ -265,7 +349,7 @@ static int llc_ui_bind(struct socket *sock, struct sockaddr *uaddr, int addrlen)
 	sap = llc_sap_find(addr->sllc_sap);
 	if (!sap) {
 		sap = llc_sap_open(addr->sllc_sap, NULL);
-		rc = -EBUSY; 
+		rc = -EBUSY; /* some other network layer is using the sap */
 		if (!sap)
 			goto out;
 	} else {
@@ -274,9 +358,13 @@ static int llc_ui_bind(struct socket *sock, struct sockaddr *uaddr, int addrlen)
 
 		memset(&laddr, 0, sizeof(laddr));
 		memset(&daddr, 0, sizeof(daddr));
+		/*
+		 * FIXME: check if the address is multicast,
+		 * 	  only SOCK_DGRAM can do this.
+		 */
 		memcpy(laddr.mac, addr->sllc_mac, IFHWADDRLEN);
 		laddr.lsap = addr->sllc_sap;
-		rc = -EADDRINUSE; 
+		rc = -EADDRINUSE; /* mac + sap clash. */
 		ask = llc_lookup_established(sap, &daddr, &laddr);
 		if (ask) {
 			sock_put(ask);
@@ -286,7 +374,7 @@ static int llc_ui_bind(struct socket *sock, struct sockaddr *uaddr, int addrlen)
 	llc->laddr.lsap = addr->sllc_sap;
 	memcpy(llc->laddr.mac, addr->sllc_mac, IFHWADDRLEN);
 	memcpy(&llc->addr, addr, sizeof(llc->addr));
-	
+	/* assign new connection to its SAP */
 	llc_sap_add_socket(sap, sk);
 	sock_reset_flag(sk, SOCK_ZAPPED);
 	rc = 0;
@@ -296,6 +384,17 @@ out:
 	return rc;
 }
 
+/**
+ *	llc_ui_shutdown - shutdown a connect llc2 socket.
+ *	@sock: Socket to shutdown.
+ *	@how: What part of the socket to shutdown.
+ *
+ *	Shutdown a connected llc2 socket. Currently this function only supports
+ *	shutting down both sends and receives (2), we could probably make this
+ *	function such that a user can shutdown only half the connection but not
+ *	right now.
+ *	Returns: 0 upon success, negative otherwise.
+ */
 static int llc_ui_shutdown(struct socket *sock, int how)
 {
 	struct sock *sk = sock->sk;
@@ -310,13 +409,27 @@ static int llc_ui_shutdown(struct socket *sock, int how)
 	rc = llc_send_disc(sk);
 	if (!rc)
 		rc = llc_ui_wait_for_disc(sk, sk->sk_rcvtimeo);
-	
+	/* Wake up anyone sleeping in poll */
 	sk->sk_state_change(sk);
 out:
 	release_sock(sk);
 	return rc;
 }
 
+/**
+ *	llc_ui_connect - Connect to a remote llc2 mac + sap.
+ *	@sock: Socket which will be connected to the remote destination.
+ *	@uaddr: Remote and possibly the local address of the new connection.
+ *	@addrlen: Size of uaddr structure.
+ *	@flags: Operational flags specified by the user.
+ *
+ *	Connect to a remote llc2 mac + sap. The caller must specify the
+ *	destination mac and address to connect to. If the user hasn't previously
+ *	called bind(2) with a smac the address of the first interface of the
+ *	specified arp type will be used.
+ *	This function will autobind if user did not previously call bind.
+ *	Returns: 0 upon success, negative otherwise.
+ */
 static int llc_ui_connect(struct socket *sock, struct sockaddr *uaddr,
 			  int addrlen, int flags)
 {
@@ -336,9 +449,9 @@ static int llc_ui_connect(struct socket *sock, struct sockaddr *uaddr,
 	rc = -EALREADY;
 	if (unlikely(sock->state == SS_CONNECTING))
 		goto out;
-	
+	/* bind connection to sap if user hasn't done it. */
 	if (sock_flag(sk, SOCK_ZAPPED)) {
-		
+		/* bind to sap with null dev, exclusive */
 		rc = llc_ui_autobind(sock, addr);
 		if (rc)
 			goto out;
@@ -382,6 +495,14 @@ sock_error:
 	goto out;
 }
 
+/**
+ *	llc_ui_listen - allow a normal socket to accept incoming connections
+ *	@sock: Socket to allow incoming connections on.
+ *	@backlog: Number of connections to queue.
+ *
+ *	Allow a normal socket to accept incoming connections.
+ *	Returns 0 upon success, negative otherwise.
+ */
 static int llc_ui_listen(struct socket *sock, int backlog)
 {
 	struct sock *sk = sock->sk;
@@ -397,7 +518,7 @@ static int llc_ui_listen(struct socket *sock, int backlog)
 	if (sock_flag(sk, SOCK_ZAPPED))
 		goto out;
 	rc = 0;
-	if (!(unsigned)backlog)	
+	if (!(unsigned)backlog)	/* BSDism */
 		backlog = 1;
 	sk->sk_max_ack_backlog = backlog;
 	if (sk->sk_state != TCP_LISTEN) {
@@ -477,6 +598,9 @@ static int llc_wait_data(struct sock *sk, long timeo)
 	int rc;
 
 	while (1) {
+		/*
+		 * POSIX 1003.1g mandates this order.
+		 */
 		rc = sock_error(sk);
 		if (rc)
 			break;
@@ -510,6 +634,15 @@ static void llc_cmsg_rcv(struct msghdr *msg, struct sk_buff *skb)
 	}
 }
 
+/**
+ *	llc_ui_accept - accept a new incoming connection.
+ *	@sock: Socket which connections arrive on.
+ *	@newsock: Socket to move incoming connection to.
+ *	@flags: User specified operational flags.
+ *
+ *	Accept a new incoming connection.
+ *	Returns 0 upon success, negative otherwise.
+ */
 static int llc_ui_accept(struct socket *sock, struct socket *newsock, int flags)
 {
 	struct sock *sk = sock->sk, *newsk;
@@ -526,7 +659,7 @@ static int llc_ui_accept(struct socket *sock, struct socket *newsock, int flags)
 	if (unlikely(sock->state != SS_UNCONNECTED ||
 		     sk->sk_state != TCP_LISTEN))
 		goto out;
-	
+	/* wait for a connection to arrive. */
 	if (skb_queue_empty(&sk->sk_receive_queue)) {
 		rc = llc_wait_data(sk, sk->sk_rcvtimeo);
 		if (rc)
@@ -540,7 +673,7 @@ static int llc_ui_accept(struct socket *sock, struct socket *newsock, int flags)
 		goto frees;
 	rc = 0;
 	newsk = skb->sk;
-	
+	/* attach connection to a new socket. */
 	llc_ui_sk_init(newsock, newsk);
 	sock_reset_flag(newsk, SOCK_ZAPPED);
 	newsk->sk_state		= TCP_ESTABLISHED;
@@ -550,7 +683,7 @@ static int llc_ui_accept(struct socket *sock, struct socket *newsock, int flags)
 	memcpy(&newllc->addr, &llc->addr, sizeof(newllc->addr));
 	newllc->link = llc_ui_next_link_no(newllc->laddr.lsap);
 
-	
+	/* put original socket back into a clean listen state. */
 	sk->sk_state = TCP_LISTEN;
 	sk->sk_ack_backlog--;
 	dprintk("%s: ok success on %02X, client on %02X\n", __func__,
@@ -562,6 +695,16 @@ out:
 	return rc;
 }
 
+/**
+ *	llc_ui_recvmsg - copy received data to the socket user.
+ *	@sock: Socket to copy data from.
+ *	@msg: Various user space related information.
+ *	@len: Size of user buffer.
+ *	@flags: User specified flags.
+ *
+ *	Copy received data to the socket user.
+ *	Returns non-negative upon success, negative otherwise.
+ */
 static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			  struct msghdr *msg, size_t len, int flags)
 {
@@ -575,7 +718,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 	u32 peek_seq = 0;
 	u32 *seq;
 	unsigned long used;
-	int target;	
+	int target;	/* Read at least this many bytes */
 	long timeo;
 
 	lock_sock(sk);
@@ -597,6 +740,11 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 	do {
 		u32 offset;
 
+		/*
+		 * We need to check signals first, to get correct SIGURG
+		 * handling. FIXME: Need to check this doesn't impact 1003.1g
+		 * and move it down to the bottom of the loop
+		 */
 		if (signal_pending(current)) {
 			if (copied)
 				break;
@@ -604,14 +752,14 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			break;
 		}
 
-		
+		/* Next get a buffer. */
 
 		skb = skb_peek(&sk->sk_receive_queue);
 		if (skb) {
 			offset = *seq;
 			goto found_ok_skb;
 		}
-		
+		/* Well, if we have backlog, try to process it now yet. */
 
 		if (copied >= target && !sk->sk_backlog.tail)
 			break;
@@ -636,6 +784,10 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 			if (sk->sk_type == SOCK_STREAM && sk->sk_state == TCP_CLOSE) {
 				if (!sock_flag(sk, SOCK_DONE)) {
+					/*
+					 * This occurs when user tries to read
+					 * from never connected socket.
+					 */
 					copied = -ENOTCONN;
 					break;
 				}
@@ -647,7 +799,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			}
 		}
 
-		if (copied >= target) { 
+		if (copied >= target) { /* Do not sleep, just process backlog. */
 			release_sock(sk);
 			lock_sock(sk);
 		} else
@@ -662,7 +814,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 		}
 		continue;
 	found_ok_skb:
-		
+		/* Ok so how much can we use? */
 		used = skb->len - offset;
 		if (len < used)
 			used = len;
@@ -671,7 +823,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			int rc = skb_copy_datagram_iovec(skb, offset,
 							 msg->msg_iov, used);
 			if (rc) {
-				
+				/* Exception. Bailout! */
 				if (!copied)
 					copied = -EFAULT;
 				break;
@@ -682,7 +834,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 		copied += used;
 		len -= used;
 
-		
+		/* For non stream protcols we get one packet per recvmsg call */
 		if (sk->sk_type != SOCK_STREAM)
 			goto copy_uaddr;
 
@@ -693,7 +845,7 @@ static int llc_ui_recvmsg(struct kiocb *iocb, struct socket *sock,
 			*seq = 0;
 		}
 
-		
+		/* Partial read */
 		if (used + offset < skb->len)
 			continue;
 	} while (len > 0);
@@ -719,6 +871,15 @@ copy_uaddr:
 	goto out;
 }
 
+/**
+ *	llc_ui_sendmsg - Transmit data provided by the socket user.
+ *	@sock: Socket to transmit data from.
+ *	@msg: Various user related information.
+ *	@len: Length of data to transmit.
+ *
+ *	Transmit data provided by the socket user.
+ *	Returns non-negative upon success, negative otherwise.
+ */
 static int llc_ui_sendmsg(struct kiocb *iocb, struct socket *sock,
 			  struct msghdr *msg, size_t len)
 {
@@ -742,9 +903,9 @@ static int llc_ui_sendmsg(struct kiocb *iocb, struct socket *sock,
 			goto release;
 		addr = &llc->addr;
 	}
-	
+	/* must bind connection to sap if user hasn't done it. */
 	if (sock_flag(sk, SOCK_ZAPPED)) {
-		
+		/* bind to sap with null dev, exclusive. */
 		rc = llc_ui_autobind(sock, addr);
 		if (rc)
 			goto release;
@@ -795,6 +956,15 @@ release:
 	return rc ? : copied;
 }
 
+/**
+ *	llc_ui_getname - return the address info of a socket
+ *	@sock: Socket to get address of.
+ *	@uaddr: Address structure to return information.
+ *	@uaddrlen: Length of address structure.
+ *	@peer: Does user want local or remote address information.
+ *
+ *	Return the address information of a socket.
+ */
 static int llc_ui_getname(struct socket *sock, struct sockaddr *uaddr,
 			  int *uaddrlen, int peer)
 {
@@ -837,12 +1007,30 @@ out:
 	return rc;
 }
 
+/**
+ *	llc_ui_ioctl - io controls for PF_LLC
+ *	@sock: Socket to get/set info
+ *	@cmd: command
+ *	@arg: optional argument for cmd
+ *
+ *	get/set info on llc sockets
+ */
 static int llc_ui_ioctl(struct socket *sock, unsigned int cmd,
 			unsigned long arg)
 {
 	return -ENOIOCTLCMD;
 }
 
+/**
+ *	llc_ui_setsockopt - set various connection specific parameters.
+ *	@sock: Socket to set options on.
+ *	@level: Socket level user is requesting operations on.
+ *	@optname: Operation name.
+ *	@optval User provided operation data.
+ *	@optlen: Length of optval.
+ *
+ *	Set various connection specific parameters.
+ */
 static int llc_ui_setsockopt(struct socket *sock, int level, int optname,
 			     char __user *optval, unsigned int optlen)
 {
@@ -915,6 +1103,16 @@ out:
 	return rc;
 }
 
+/**
+ *	llc_ui_getsockopt - get connection specific socket info
+ *	@sock: Socket to get information from.
+ *	@level: Socket level user is requesting operations on.
+ *	@optname: Operation name.
+ *	@optval: Variable to return operation data in.
+ *	@optlen: Length of optval.
+ *
+ *	Get connection specific socket information.
+ */
 static int llc_ui_getsockopt(struct socket *sock, int level, int optname,
 			     char __user *optval, int __user *optlen)
 {

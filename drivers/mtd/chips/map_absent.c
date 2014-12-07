@@ -85,12 +85,12 @@ static int map_absent_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 static void map_absent_sync(struct mtd_info *mtd)
 {
-	
+	/* nop */
 }
 
 static void map_absent_destroy(struct mtd_info *mtd)
 {
-	
+	/* nop */
 }
 
 static int __init map_absent_init(void)

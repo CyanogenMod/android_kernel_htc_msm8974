@@ -7,8 +7,11 @@
 
 #include <asm/smp.h>
 
-struct bootmem_data_t; 
+struct bootmem_data_t; /* stupid forward decl. */
 
+/*
+ * Following are macros that are specific to this numa platform.
+ */
 
 extern pg_data_t node_data[];
 
@@ -45,13 +48,25 @@ PLAT_NODE_DATA_LOCALNR(unsigned long p, int n)
 
 #ifdef CONFIG_DISCONTIGMEM
 
+/*
+ * Following are macros that each numa implementation must define.
+ */
 
+/*
+ * Given a kernel address, find the home node of the underlying memory.
+ */
 #define kvaddr_to_nid(kaddr)	pa_to_nid(__pa(kaddr))
 
+/*
+ * Given a kaddr, LOCAL_BASE_ADDR finds the owning node of the memory
+ * and returns the kaddr corresponding to first physical page in the
+ * node's mem_map.
+ */
 #define LOCAL_BASE_ADDR(kaddr)						  \
     ((unsigned long)__va(NODE_DATA(kvaddr_to_nid(kaddr))->node_start_pfn  \
 			 << PAGE_SHIFT))
 
+/* XXX: FIXME -- wli */
 #define kern_addr_valid(kaddr)	(0)
 
 #define virt_to_page(kaddr)	pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
@@ -94,6 +109,6 @@ PLAT_NODE_DATA_LOCALNR(unsigned long p, int n)
 
 #define virt_addr_valid(kaddr)	pfn_valid((__pa(kaddr) >> PAGE_SHIFT))
 
-#endif 
+#endif /* CONFIG_DISCONTIGMEM */
 
-#endif 
+#endif /* _ASM_MMZONE_H_ */

@@ -6,6 +6,9 @@
  * under the terms of the GNU General Public License version 2 as published
  * by the Free Software Foundation, incorporated herein by reference.
  */
+/*
+ * Driver for AMCC QT202x SFP+ and XFP adapters; see www.amcc.com for details
+ */
 
 #include <linux/slab.h>
 #include <linux/timer.h>
@@ -23,8 +26,11 @@
 			  (1 << LOOPBACK_PMAPMD) |	\
 			  (1 << LOOPBACK_PHYXS_WS))
 
+/****************************************************************************/
+/* Quake-specific MDIO registers */
 #define MDIO_QUAKE_LED0_REG	(0xD006)
 
+/* QT2025C only */
 #define PCS_FW_HEARTBEAT_REG	0xd7ee
 #define PCS_FW_HEARTB_LBN	0
 #define PCS_FW_HEARTB_WIDTH	8
@@ -72,7 +78,7 @@ static int qt2025c_wait_heartbeat(struct efx_nic *efx)
 	unsigned long timeout = jiffies + QT2025C_MAX_HEARTB_TIME;
 	int reg, old_counter = 0;
 
-	
+	/* Wait for firmware heartbeat to start */
 	for (;;) {
 		int counter;
 		reg = efx_mdio_read(efx, MDIO_MMD_PCS, PCS_FW_HEARTBEAT_REG);
@@ -85,6 +91,8 @@ static int qt2025c_wait_heartbeat(struct efx_nic *efx)
 		else if (counter != old_counter)
 			break;
 		if (time_after(jiffies, timeout)) {
+			/* Some cables have EEPROMs that conflict with the
+			 * PHY's on-board EEPROM so it cannot load firmware */
 			netif_err(efx, hw, efx->net_dev,
 				  "If an SFP+ direct attach cable is"
 				  " connected, please check that it complies"
@@ -102,7 +110,7 @@ static int qt2025c_wait_fw_status_good(struct efx_nic *efx)
 	unsigned long timeout = jiffies + QT2025C_MAX_FWSTART_TIME;
 	int reg;
 
-	
+	/* Wait for firmware status to look good */
 	for (;;) {
 		reg = efx_mdio_read(efx, MDIO_MMD_PCS, PCS_UC8051_STATUS_REG);
 		if (reg < 0)
@@ -121,7 +129,7 @@ static int qt2025c_wait_fw_status_good(struct efx_nic *efx)
 
 static void qt2025c_restart_firmware(struct efx_nic *efx)
 {
-	
+	/* Restart microcontroller execution of firmware from RAM */
 	efx_mdio_write(efx, 3, 0xe854, 0x00c0);
 	efx_mdio_write(efx, 3, 0xe854, 0x0040);
 	msleep(50);
@@ -137,6 +145,9 @@ static int qt2025c_wait_reset(struct efx_nic *efx)
 
 	rc = qt2025c_wait_fw_status_good(efx);
 	if (rc == -ETIMEDOUT) {
+		/* Bug 17689: occasionally heartbeat starts but firmware status
+		 * code never progresses beyond 0x00.  Try again, once, after
+		 * restarting execution of the firmware image. */
 		netif_dbg(efx, hw, efx->net_dev,
 			  "bashing QT2025C microcontroller\n");
 		qt2025c_restart_firmware(efx);
@@ -173,6 +184,12 @@ static void qt2025c_bug17190_workaround(struct efx_nic *efx)
 {
 	struct qt202x_phy_data *phy_data = efx->phy_data;
 
+	/* The PHY can get stuck in a state where it reports PHY_XS and PMA/PMD
+	 * layers up, but PCS down (no block_lock).  If we notice this state
+	 * persisting for a couple of seconds, we switch PMA/PMD loopback
+	 * briefly on and then off again, which is normally sufficient to
+	 * recover it.
+	 */
 	if (efx->link_state.up ||
 	    !efx_mdio_links_ok(efx, MDIO_DEVS_PMAPMD | MDIO_DEVS_PHYXS)) {
 		phy_data->bug17190_in_bad_state = false;
@@ -203,19 +220,34 @@ static int qt2025c_select_phy_mode(struct efx_nic *efx)
 	int reg, rc, i;
 	uint16_t phy_op_mode;
 
+	/* Only 2.0.1.0+ PHY firmware supports the more optimal SFP+
+	 * Self-Configure mode.  Don't attempt any switching if we encounter
+	 * older firmware. */
 	if (phy_data->firmware_ver < 0x02000100)
 		return 0;
 
+	/* In general we will get optimal behaviour in "SFP+ Self-Configure"
+	 * mode; however, that powers down most of the PHY when no module is
+	 * present, so we must use a different mode (any fixed mode will do)
+	 * to be sure that loopbacks will work. */
 	phy_op_mode = (efx->loopback_mode == LOOPBACK_NONE) ? 0x0038 : 0x0020;
 
-	
+	/* Only change mode if really necessary */
 	reg = efx_mdio_read(efx, 1, 0xc319);
 	if ((reg & 0x0038) == phy_op_mode)
 		return 0;
 	netif_dbg(efx, hw, efx->net_dev, "Switching PHY to mode 0x%04x\n",
 		  phy_op_mode);
 
+	/* This sequence replicates the register writes configured in the boot
+	 * EEPROM (including the differences between board revisions), except
+	 * that the operating mode is changed, and the PHY is prevented from
+	 * unnecessarily reloading the main firmware image again. */
 	efx_mdio_write(efx, 1, 0xc300, 0x0000);
+	/* (Note: this portion of the boot EEPROM sequence, which bit-bashes 9
+	 * STOPs onto the firmware/module I2C bus to reset it, varies across
+	 * board revisions, as the bus is connected to different GPIO/LED
+	 * outputs on the PHY.) */
 	if (board->major == 0 && board->minor < 2) {
 		efx_mdio_write(efx, 1, 0xc303, 0x4498);
 		for (i = 0; i < 9; i++) {
@@ -247,16 +279,22 @@ static int qt2025c_select_phy_mode(struct efx_nic *efx)
 	efx_mdio_write(efx, 1, 0xd006, 0x000a);
 	efx_mdio_write(efx, 1, 0xd007, 0x0009);
 	efx_mdio_write(efx, 1, 0xd008, 0x0004);
+	/* This additional write is not present in the boot EEPROM.  It
+	 * prevents the PHY's internal boot ROM doing another pointless (and
+	 * slow) reload of the firmware image (the microcontroller's code
+	 * memory is not affected by the microcontroller reset). */
 	efx_mdio_write(efx, 1, 0xc317, 0x00ff);
+	/* PMA/PMD loopback sets RXIN to inverse polarity and the firmware
+	 * restart doesn't reset it. We need to do that ourselves. */
 	efx_mdio_set_flag(efx, 1, PMA_PMD_MODE_REG,
 			  1 << PMA_PMD_RXIN_SEL_LBN, false);
 	efx_mdio_write(efx, 1, 0xc300, 0x0002);
 	msleep(20);
 
-	
+	/* Restart microcontroller execution of firmware from RAM */
 	qt2025c_restart_firmware(efx);
 
-	
+	/* Wait for the microcontroller to be ready again */
 	rc = qt2025c_wait_reset(efx);
 	if (rc < 0) {
 		netif_err(efx, hw, efx->net_dev,
@@ -273,10 +311,14 @@ static int qt202x_reset_phy(struct efx_nic *efx)
 	int rc;
 
 	if (efx->phy_type == PHY_TYPE_QT2025C) {
+		/* Wait for the reset triggered by falcon_reset_hw()
+		 * to complete */
 		rc = qt2025c_wait_reset(efx);
 		if (rc < 0)
 			goto fail;
 	} else {
+		/* Reset the PHYXS MMD. This is documented as doing
+		 * a complete soft reset. */
 		rc = efx_mdio_reset_mmd(efx, MDIO_MMD_PHYXS,
 					QT2022C2_MAX_RESET_TIME /
 					QT2022C2_RESET_WAIT,
@@ -285,7 +327,7 @@ static int qt202x_reset_phy(struct efx_nic *efx)
 			goto fail;
 	}
 
-	
+	/* Wait 250ms for the PHY to complete bootup */
 	msleep(250);
 
 	falcon_board(efx)->type->init_phy(efx);
@@ -367,6 +409,11 @@ static int qt202x_phy_reconfigure(struct efx_nic *efx)
 		if (rc)
 			return rc;
 
+		/* There are several different register bits which can
+		 * disable TX (and save power) on direct-attach cables
+		 * or optical transceivers, varying somewhat between
+		 * firmware versions.  Only 'static mode' appears to
+		 * cover everything. */
 		mdio_set_flag(
 			&efx->mdio, efx->mdio.prtad, MDIO_MMD_PMAPMD,
 			PMA_PMD_FTX_CTRL2_REG, 1 << PMA_PMD_FTX_STATIC_LBN,
@@ -375,7 +422,7 @@ static int qt202x_phy_reconfigure(struct efx_nic *efx)
 			efx->loopback_mode == LOOPBACK_PCS ||
 			efx->loopback_mode == LOOPBACK_PMAPMD);
 	} else {
-		
+		/* Reset the PHY when moving from tx off to tx on */
 		if (!(efx->phy_mode & PHY_MODE_TX_DISABLED) &&
 		    (phy_data->phy_mode & PHY_MODE_TX_DISABLED))
 			qt202x_reset_phy(efx);
@@ -397,7 +444,7 @@ static void qt202x_phy_get_settings(struct efx_nic *efx, struct ethtool_cmd *ecm
 
 static void qt202x_phy_remove(struct efx_nic *efx)
 {
-	
+	/* Free the context block */
 	kfree(efx->phy_data);
 	efx->phy_data = NULL;
 }

@@ -41,36 +41,36 @@
 #define WM8994_GP_FN_FLL1_OUT       21
 #define WM8994_GP_FN_FLL2_OUT       22
 
-#define WM8994_GPN_DIR                          0x8000  
-#define WM8994_GPN_DIR_MASK                     0x8000  
-#define WM8994_GPN_DIR_SHIFT                        15  
-#define WM8994_GPN_DIR_WIDTH                         1  
-#define WM8994_GPN_PU                           0x4000  
-#define WM8994_GPN_PU_MASK                      0x4000  
-#define WM8994_GPN_PU_SHIFT                         14  
-#define WM8994_GPN_PU_WIDTH                          1  
-#define WM8994_GPN_PD                           0x2000  
-#define WM8994_GPN_PD_MASK                      0x2000  
-#define WM8994_GPN_PD_SHIFT                         13  
-#define WM8994_GPN_PD_WIDTH                          1  
-#define WM8994_GPN_POL                          0x0400  
-#define WM8994_GPN_POL_MASK                     0x0400  
-#define WM8994_GPN_POL_SHIFT                        10  
-#define WM8994_GPN_POL_WIDTH                         1  
-#define WM8994_GPN_OP_CFG                       0x0200  
-#define WM8994_GPN_OP_CFG_MASK                  0x0200  
-#define WM8994_GPN_OP_CFG_SHIFT                      9  
-#define WM8994_GPN_OP_CFG_WIDTH                      1  
-#define WM8994_GPN_DB                           0x0100  
-#define WM8994_GPN_DB_MASK                      0x0100  
-#define WM8994_GPN_DB_SHIFT                          8  
-#define WM8994_GPN_DB_WIDTH                          1  
-#define WM8994_GPN_LVL                          0x0040  
-#define WM8994_GPN_LVL_MASK                     0x0040  
-#define WM8994_GPN_LVL_SHIFT                         6  
-#define WM8994_GPN_LVL_WIDTH                         1  
-#define WM8994_GPN_FN_MASK                      0x001F  
-#define WM8994_GPN_FN_SHIFT                          0  
-#define WM8994_GPN_FN_WIDTH                          5  
+#define WM8994_GPN_DIR                          0x8000  /* GPN_DIR */
+#define WM8994_GPN_DIR_MASK                     0x8000  /* GPN_DIR */
+#define WM8994_GPN_DIR_SHIFT                        15  /* GPN_DIR */
+#define WM8994_GPN_DIR_WIDTH                         1  /* GPN_DIR */
+#define WM8994_GPN_PU                           0x4000  /* GPN_PU */
+#define WM8994_GPN_PU_MASK                      0x4000  /* GPN_PU */
+#define WM8994_GPN_PU_SHIFT                         14  /* GPN_PU */
+#define WM8994_GPN_PU_WIDTH                          1  /* GPN_PU */
+#define WM8994_GPN_PD                           0x2000  /* GPN_PD */
+#define WM8994_GPN_PD_MASK                      0x2000  /* GPN_PD */
+#define WM8994_GPN_PD_SHIFT                         13  /* GPN_PD */
+#define WM8994_GPN_PD_WIDTH                          1  /* GPN_PD */
+#define WM8994_GPN_POL                          0x0400  /* GPN_POL */
+#define WM8994_GPN_POL_MASK                     0x0400  /* GPN_POL */
+#define WM8994_GPN_POL_SHIFT                        10  /* GPN_POL */
+#define WM8994_GPN_POL_WIDTH                         1  /* GPN_POL */
+#define WM8994_GPN_OP_CFG                       0x0200  /* GPN_OP_CFG */
+#define WM8994_GPN_OP_CFG_MASK                  0x0200  /* GPN_OP_CFG */
+#define WM8994_GPN_OP_CFG_SHIFT                      9  /* GPN_OP_CFG */
+#define WM8994_GPN_OP_CFG_WIDTH                      1  /* GPN_OP_CFG */
+#define WM8994_GPN_DB                           0x0100  /* GPN_DB */
+#define WM8994_GPN_DB_MASK                      0x0100  /* GPN_DB */
+#define WM8994_GPN_DB_SHIFT                          8  /* GPN_DB */
+#define WM8994_GPN_DB_WIDTH                          1  /* GPN_DB */
+#define WM8994_GPN_LVL                          0x0040  /* GPN_LVL */
+#define WM8994_GPN_LVL_MASK                     0x0040  /* GPN_LVL */
+#define WM8994_GPN_LVL_SHIFT                         6  /* GPN_LVL */
+#define WM8994_GPN_LVL_WIDTH                         1  /* GPN_LVL */
+#define WM8994_GPN_FN_MASK                      0x001F  /* GPN_FN - [4:0] */
+#define WM8994_GPN_FN_SHIFT                          0  /* GPN_FN - [4:0] */
+#define WM8994_GPN_FN_WIDTH                          5  /* GPN_FN - [4:0] */
 
 #endif

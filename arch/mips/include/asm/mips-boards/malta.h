@@ -25,9 +25,14 @@
 #include <asm/mips-boards/msc01_pci.h>
 #include <asm/gt64120.h>
 
+/* Mips interrupt controller found in SOCit variations */
 #define MIPS_MSC01_IC_REG_BASE		0x1bc40000
 #define MIPS_SOCITSC_IC_REG_BASE	0x1ffa0000
 
+/*
+ * Malta I/O ports base address for the Galileo GT64120 and Algorithmics
+ * Bonito system controllers.
+ */
 #define MALTA_GT_PORT_BASE      get_gt_port_base(GT_PCI0IOLD_OFS)
 #define MALTA_BONITO_PORT_BASE  ((unsigned long)ioremap (0x1fd00000, 0x10000))
 #define MALTA_MSC_PORT_BASE     get_msc_port_base(MSC01_PCI_SC2PIOBASL)
@@ -46,12 +51,22 @@ static inline unsigned long get_msc_port_base(unsigned long reg)
 	return (unsigned long) ioremap(addr, 0x10000);
 }
 
+/*
+ * GCMP Specific definitions
+ */
 #define GCMP_BASE_ADDR			0x1fbf8000
 #define GCMP_ADDRSPACE_SZ		(256 * 1024)
 
+/*
+ * GIC Specific definitions
+ */
 #define GIC_BASE_ADDR			0x1bdc0000
 #define GIC_ADDRSPACE_SZ		(128 * 1024)
 
+/*
+ * MSC01 BIU Specific definitions
+ * FIXME : These should be elsewhere ?
+ */
 #define MSC01_BIU_REG_BASE		0x1bc80000
 #define MSC01_BIU_ADDRSPACE_SZ		(256 * 1024)
 #define MSC01_SC_CFG_OFS		0x0110
@@ -59,9 +74,15 @@ static inline unsigned long get_msc_port_base(unsigned long reg)
 #define MSC01_SC_CFG_GICPRES_SHF	2
 #define MSC01_SC_CFG_GICENA_SHF		3
 
+/*
+ * Malta RTC-device indirect register access.
+ */
 #define MALTA_RTC_ADR_REG       0x70
 #define MALTA_RTC_DAT_REG       0x71
 
+/*
+ * Malta SMSC FDC37M817 Super I/O Controller register.
+ */
 #define SMSC_CONFIG_REG		0x3f0
 #define SMSC_DATA_REG		0x3f1
 
@@ -78,4 +99,4 @@ static inline unsigned long get_msc_port_base(unsigned long reg)
 
 #define MALTA_JMPRS_REG		0x1f000210
 
-#endif 
+#endif /* __ASM_MIPS_BOARDS_MALTA_H */

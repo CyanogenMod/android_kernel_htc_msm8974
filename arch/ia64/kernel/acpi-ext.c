@@ -15,6 +15,13 @@
 
 #include <asm/acpi-ext.h>
 
+/*
+ * Device CSRs that do not appear in PCI config space should be described
+ * via ACPI.  This would normally be done with Address Space Descriptors
+ * marked as "consumer-only," but old versions of Windows and Linux ignore
+ * the producer/consumer flag, so HP invented a vendor-defined resource to
+ * describe the location and size of CSR space.
+ */
 
 struct acpi_vendor_uuid hp_ccsr_uuid = {
 	.subtype = 2,
@@ -68,7 +75,7 @@ static acpi_status find_csr_space(struct acpi_resource *resource, void *data)
 		space->length = addr.address_length;
 		return AE_CTRL_TERMINATE;
 	}
-	return AE_OK;		
+	return AE_OK;		/* keep looking */
 }
 
 static acpi_status hp_crs_locate(acpi_handle obj, u64 *base, u64 *length)

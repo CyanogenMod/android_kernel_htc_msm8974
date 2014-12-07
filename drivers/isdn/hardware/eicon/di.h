@@ -23,7 +23,11 @@
  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
  */
+/*
+ *  some macros for detailed trace management
+ */
 #include "di_dbg.h"
+/*****************************************************************************/
 #define XMOREC 0x1f
 #define XMOREF 0x20
 #define XBUSY  0x40
@@ -31,6 +35,8 @@
 #define DIVA_MISC_FLAGS_REMOVE_PENDING    0x01
 #define DIVA_MISC_FLAGS_NO_RC_CANCELLING  0x02
 #define DIVA_MISC_FLAGS_RX_DMA            0x04
+/* structure for all information we have to keep on a per   */
+/* adapater basis                                           */
 typedef struct adapter_s ADAPTER;
 struct adapter_s {
 	void *io;
@@ -70,10 +76,16 @@ struct adapter_s {
 	byte stream_buffer[4];
 #endif
 };
+/*------------------------------------------------------------------*/
+/* public functions of IDI common code                              */
+/*------------------------------------------------------------------*/
 void pr_out(ADAPTER *a);
 byte pr_dpc(ADAPTER *a);
 byte scom_test_int(ADAPTER *a);
 void scom_clear_int(ADAPTER *a);
+/*------------------------------------------------------------------*/
+/* OS specific functions used by IDI common code                    */
+/*------------------------------------------------------------------*/
 void free_entity(ADAPTER *a, byte e_no);
 void assign_queue(ADAPTER *a, byte e_no, word ref);
 byte get_assign(ADAPTER *a, word ref);

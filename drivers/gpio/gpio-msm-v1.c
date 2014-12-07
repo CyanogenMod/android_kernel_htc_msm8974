@@ -28,6 +28,16 @@
 #include <mach/proc_comm.h>
 
 
+/* see 80-VA736-2 Rev C pp 695-751
+**
+** These are actually the *shadow* gpio registers, since the
+** real ones (which allow full access) are only available to the
+** ARM9 side of the world.
+**
+** Since the _BASE need to be page-aligned when we're mapping them
+** to virtual addresses, adjust for the additional offset in these
+** macros.
+*/
 
 #if defined(CONFIG_ARCH_MSM7X30)
 #define MSM_GPIO1_REG(off) (MSM_GPIO1_BASE + (off))
@@ -40,13 +50,15 @@
 #if defined(CONFIG_ARCH_MSM7X00A) || defined(CONFIG_ARCH_MSM7X25) ||\
     defined(CONFIG_ARCH_MSM7X27)
 
-#define MSM_GPIO_OUT_0         MSM_GPIO1_REG(0x00)  
-#define MSM_GPIO_OUT_1         MSM_GPIO2_REG(0x00)  
-#define MSM_GPIO_OUT_2         MSM_GPIO1_REG(0x04)  
-#define MSM_GPIO_OUT_3         MSM_GPIO1_REG(0x08)  
-#define MSM_GPIO_OUT_4         MSM_GPIO1_REG(0x0C)  
-#define MSM_GPIO_OUT_5         MSM_GPIO1_REG(0x50)  
+/* output value */
+#define MSM_GPIO_OUT_0         MSM_GPIO1_REG(0x00)  /* gpio  15-0  */
+#define MSM_GPIO_OUT_1         MSM_GPIO2_REG(0x00)  /* gpio  42-16 */
+#define MSM_GPIO_OUT_2         MSM_GPIO1_REG(0x04)  /* gpio  67-43 */
+#define MSM_GPIO_OUT_3         MSM_GPIO1_REG(0x08)  /* gpio  94-68 */
+#define MSM_GPIO_OUT_4         MSM_GPIO1_REG(0x0C)  /* gpio 106-95 */
+#define MSM_GPIO_OUT_5         MSM_GPIO1_REG(0x50)  /* gpio 107-121 */
 
+/* same pin map as above, output enable */
 #define MSM_GPIO_OE_0          MSM_GPIO1_REG(0x10)
 #define MSM_GPIO_OE_1          MSM_GPIO2_REG(0x08)
 #define MSM_GPIO_OE_2          MSM_GPIO1_REG(0x14)
@@ -54,6 +66,7 @@
 #define MSM_GPIO_OE_4          MSM_GPIO1_REG(0x1C)
 #define MSM_GPIO_OE_5          MSM_GPIO1_REG(0x54)
 
+/* same pin map as above, input read */
 #define MSM_GPIO_IN_0          MSM_GPIO1_REG(0x34)
 #define MSM_GPIO_IN_1          MSM_GPIO2_REG(0x20)
 #define MSM_GPIO_IN_2          MSM_GPIO1_REG(0x38)
@@ -61,6 +74,7 @@
 #define MSM_GPIO_IN_4          MSM_GPIO1_REG(0x40)
 #define MSM_GPIO_IN_5          MSM_GPIO1_REG(0x44)
 
+/* same pin map as above, 1=edge 0=level interrup */
 #define MSM_GPIO_INT_EDGE_0    MSM_GPIO1_REG(0x60)
 #define MSM_GPIO_INT_EDGE_1    MSM_GPIO2_REG(0x50)
 #define MSM_GPIO_INT_EDGE_2    MSM_GPIO1_REG(0x64)
@@ -68,6 +82,7 @@
 #define MSM_GPIO_INT_EDGE_4    MSM_GPIO1_REG(0x6C)
 #define MSM_GPIO_INT_EDGE_5    MSM_GPIO1_REG(0xC0)
 
+/* same pin map as above, 1=positive 0=negative */
 #define MSM_GPIO_INT_POS_0     MSM_GPIO1_REG(0x70)
 #define MSM_GPIO_INT_POS_1     MSM_GPIO2_REG(0x58)
 #define MSM_GPIO_INT_POS_2     MSM_GPIO1_REG(0x74)
@@ -75,6 +90,7 @@
 #define MSM_GPIO_INT_POS_4     MSM_GPIO1_REG(0x7C)
 #define MSM_GPIO_INT_POS_5     MSM_GPIO1_REG(0xBC)
 
+/* same pin map as above, interrupt enable */
 #define MSM_GPIO_INT_EN_0      MSM_GPIO1_REG(0x80)
 #define MSM_GPIO_INT_EN_1      MSM_GPIO2_REG(0x60)
 #define MSM_GPIO_INT_EN_2      MSM_GPIO1_REG(0x84)
@@ -82,6 +98,7 @@
 #define MSM_GPIO_INT_EN_4      MSM_GPIO1_REG(0x8C)
 #define MSM_GPIO_INT_EN_5      MSM_GPIO1_REG(0xB8)
 
+/* same pin map as above, write 1 to clear interrupt */
 #define MSM_GPIO_INT_CLEAR_0   MSM_GPIO1_REG(0x90)
 #define MSM_GPIO_INT_CLEAR_1   MSM_GPIO2_REG(0x68)
 #define MSM_GPIO_INT_CLEAR_2   MSM_GPIO1_REG(0x94)
@@ -89,6 +106,7 @@
 #define MSM_GPIO_INT_CLEAR_4   MSM_GPIO1_REG(0x9C)
 #define MSM_GPIO_INT_CLEAR_5   MSM_GPIO1_REG(0xB4)
 
+/* same pin map as above, 1=interrupt pending */
 #define MSM_GPIO_INT_STATUS_0  MSM_GPIO1_REG(0xA0)
 #define MSM_GPIO_INT_STATUS_1  MSM_GPIO2_REG(0x70)
 #define MSM_GPIO_INT_STATUS_2  MSM_GPIO1_REG(0xA4)
@@ -100,15 +118,17 @@
 
 #if defined(CONFIG_ARCH_MSM7X30)
 
-#define MSM_GPIO_OUT_0         MSM_GPIO1_REG(0x00)   
-#define MSM_GPIO_OUT_1         MSM_GPIO2_REG(0x00)   
-#define MSM_GPIO_OUT_2         MSM_GPIO1_REG(0x04)   
-#define MSM_GPIO_OUT_3         MSM_GPIO1_REG(0x08)   
-#define MSM_GPIO_OUT_4         MSM_GPIO1_REG(0x0C)   
-#define MSM_GPIO_OUT_5         MSM_GPIO1_REG(0x50)   
-#define MSM_GPIO_OUT_6         MSM_GPIO1_REG(0xC4)   
-#define MSM_GPIO_OUT_7         MSM_GPIO1_REG(0x214)  
+/* output value */
+#define MSM_GPIO_OUT_0         MSM_GPIO1_REG(0x00)   /* gpio  15-0   */
+#define MSM_GPIO_OUT_1         MSM_GPIO2_REG(0x00)   /* gpio  43-16  */
+#define MSM_GPIO_OUT_2         MSM_GPIO1_REG(0x04)   /* gpio  67-44  */
+#define MSM_GPIO_OUT_3         MSM_GPIO1_REG(0x08)   /* gpio  94-68  */
+#define MSM_GPIO_OUT_4         MSM_GPIO1_REG(0x0C)   /* gpio 106-95  */
+#define MSM_GPIO_OUT_5         MSM_GPIO1_REG(0x50)   /* gpio 133-107 */
+#define MSM_GPIO_OUT_6         MSM_GPIO1_REG(0xC4)   /* gpio 150-134 */
+#define MSM_GPIO_OUT_7         MSM_GPIO1_REG(0x214)  /* gpio 181-151 */
 
+/* same pin map as above, output enable */
 #define MSM_GPIO_OE_0          MSM_GPIO1_REG(0x10)
 #define MSM_GPIO_OE_1          MSM_GPIO2_REG(0x08)
 #define MSM_GPIO_OE_2          MSM_GPIO1_REG(0x14)
@@ -118,6 +138,7 @@
 #define MSM_GPIO_OE_6          MSM_GPIO1_REG(0xC8)
 #define MSM_GPIO_OE_7          MSM_GPIO1_REG(0x218)
 
+/* same pin map as above, input read */
 #define MSM_GPIO_IN_0          MSM_GPIO1_REG(0x34)
 #define MSM_GPIO_IN_1          MSM_GPIO2_REG(0x20)
 #define MSM_GPIO_IN_2          MSM_GPIO1_REG(0x38)
@@ -127,6 +148,7 @@
 #define MSM_GPIO_IN_6          MSM_GPIO1_REG(0xCC)
 #define MSM_GPIO_IN_7          MSM_GPIO1_REG(0x21C)
 
+/* same pin map as above, 1=edge 0=level interrup */
 #define MSM_GPIO_INT_EDGE_0    MSM_GPIO1_REG(0x60)
 #define MSM_GPIO_INT_EDGE_1    MSM_GPIO2_REG(0x50)
 #define MSM_GPIO_INT_EDGE_2    MSM_GPIO1_REG(0x64)
@@ -136,6 +158,7 @@
 #define MSM_GPIO_INT_EDGE_6    MSM_GPIO1_REG(0xD0)
 #define MSM_GPIO_INT_EDGE_7    MSM_GPIO1_REG(0x240)
 
+/* same pin map as above, 1=positive 0=negative */
 #define MSM_GPIO_INT_POS_0     MSM_GPIO1_REG(0x70)
 #define MSM_GPIO_INT_POS_1     MSM_GPIO2_REG(0x58)
 #define MSM_GPIO_INT_POS_2     MSM_GPIO1_REG(0x74)
@@ -145,6 +168,7 @@
 #define MSM_GPIO_INT_POS_6     MSM_GPIO1_REG(0xD4)
 #define MSM_GPIO_INT_POS_7     MSM_GPIO1_REG(0x228)
 
+/* same pin map as above, interrupt enable */
 #define MSM_GPIO_INT_EN_0      MSM_GPIO1_REG(0x80)
 #define MSM_GPIO_INT_EN_1      MSM_GPIO2_REG(0x60)
 #define MSM_GPIO_INT_EN_2      MSM_GPIO1_REG(0x84)
@@ -154,6 +178,7 @@
 #define MSM_GPIO_INT_EN_6      MSM_GPIO1_REG(0xD8)
 #define MSM_GPIO_INT_EN_7      MSM_GPIO1_REG(0x22C)
 
+/* same pin map as above, write 1 to clear interrupt */
 #define MSM_GPIO_INT_CLEAR_0   MSM_GPIO1_REG(0x90)
 #define MSM_GPIO_INT_CLEAR_1   MSM_GPIO2_REG(0x68)
 #define MSM_GPIO_INT_CLEAR_2   MSM_GPIO1_REG(0x94)
@@ -163,6 +188,7 @@
 #define MSM_GPIO_INT_CLEAR_6   MSM_GPIO1_REG(0xDC)
 #define MSM_GPIO_INT_CLEAR_7   MSM_GPIO1_REG(0x230)
 
+/* same pin map as above, 1=interrupt pending */
 #define MSM_GPIO_INT_STATUS_0  MSM_GPIO1_REG(0xA0)
 #define MSM_GPIO_INT_STATUS_1  MSM_GPIO2_REG(0x70)
 #define MSM_GPIO_INT_STATUS_2  MSM_GPIO1_REG(0xA4)
@@ -229,7 +255,7 @@ struct msm_gpio_chip {
 	unsigned                int_status_copy;
 #endif
 	unsigned int            both_edge_detect;
-	unsigned int            int_enable[2]; 
+	unsigned int            int_enable[2]; /* 0: awake, 1: sleep */
 };
 
 static int msm_gpio_write(struct msm_gpio_chip *msm_chip,
@@ -271,9 +297,9 @@ static int msm_gpio_clear_detect_status(struct msm_gpio_chip *msm_chip,
 	unsigned bit = BIT(offset);
 
 #if MSM_GPIO_BROKEN_INT_CLEAR
-	
-	
-	
+	/* Save interrupts that already triggered before we loose them. */
+	/* Any interrupt that triggers between the read of int_status */
+	/* and the write to int_clear will still be lost though. */
 	msm_chip->int_status_copy |= __raw_readl(msm_chip->regs.int_status);
 	msm_chip->int_status_copy &= ~bit;
 #endif
@@ -408,7 +434,7 @@ static void msm_gpio_irq_mask(struct irq_data *d)
 	unsigned offset = d->irq - gpio_to_irq(msm_chip->chip.base);
 
 	spin_lock_irqsave(&msm_chip->lock, irq_flags);
-	
+	/* level triggered interrupts are also latched */
 	if (!(__raw_readl(msm_chip->regs.int_edge) & BIT(offset)))
 		msm_gpio_clear_detect_status(msm_chip, offset);
 	msm_chip->int_enable[0] &= ~BIT(offset);
@@ -424,7 +450,7 @@ static void msm_gpio_irq_unmask(struct irq_data *d)
 	unsigned offset = d->irq - gpio_to_irq(msm_chip->chip.base);
 
 	spin_lock_irqsave(&msm_chip->lock, irq_flags);
-	
+	/* level triggered interrupts are also latched */
 	if (!(__raw_readl(msm_chip->regs.int_edge) & BIT(offset)))
 		msm_gpio_clear_detect_status(msm_chip, offset);
 	msm_chip->int_enable[0] |= BIT(offset);
@@ -497,6 +523,9 @@ static void msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 		while (val) {
 			mask = val & -val;
 			j = fls(mask) - 1;
+			/* printk("%s %08x %08x bit %d gpio %d irq %d\n",
+				__func__, v, m, j, msm_chip->chip.start + j,
+				FIRST_GPIO_IRQ + msm_chip->chip.start + j); */
 			val &= ~mask;
 			generic_handle_irq(FIRST_GPIO_IRQ +
 					   msm_chip->chip.base + j);
@@ -541,7 +570,7 @@ static void msm_gpio_sleep_int(unsigned long arg)
 	for (i = 0; i < GPIO_SMEM_NUM_GROUPS; i++) {
 		int count = smem_gpio->num_fired[i];
 		for (j = 0; j < count; j++) {
-			
+			/* TODO: Check mask */
 			generic_handle_irq(
 				MSM_GPIO_TO_INT(smem_gpio->fired[i][j]));
 		}
@@ -741,6 +770,11 @@ int msm_gpios_disable(const struct msm_gpio *table, int size)
 }
 EXPORT_SYMBOL(msm_gpios_disable);
 
+/* Locate the GPIO_OUT register for the given GPIO and return its address
+ * and the bit position of the gpio's bit within the register.
+ *
+ * This function is used by gpiomux-v1 in order to support output transitions.
+ */
 void msm_gpio_find_out(const unsigned gpio, void __iomem **out,
 	unsigned *offset)
 {

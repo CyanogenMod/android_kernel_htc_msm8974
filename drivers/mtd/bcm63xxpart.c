@@ -35,10 +35,10 @@
 #include <asm/mach-bcm63xx/bcm963xx_tag.h>
 #include <asm/mach-bcm63xx/board_bcm963xx.h>
 
-#define BCM63XX_EXTENDED_SIZE	0xBFC00000	
+#define BCM63XX_EXTENDED_SIZE	0xBFC00000	/* Extended flash address */
 
-#define BCM63XX_MIN_CFE_SIZE	0x10000		
-#define BCM63XX_MIN_NVRAM_SIZE	0x10000		
+#define BCM63XX_MIN_CFE_SIZE	0x10000		/* always at least 64KiB */
+#define BCM63XX_MIN_NVRAM_SIZE	0x10000		/* always at least 64KiB */
 
 #define BCM63XX_CFE_MAGIC_OFFSET 0x4e0
 
@@ -58,7 +58,7 @@ static int bcm63xx_detect_cfe(struct mtd_info *master)
 	if (strncmp("cfe-v", buf, 5) == 0)
 		return 0;
 
-	
+	/* very old CFE's do not have the cfe-v string, so check for magic */
 	ret = mtd_read(master, BCM63XX_CFE_MAGIC_OFFSET, 8, &retlen,
 		       (void *)buf);
 	buf[retlen] = 0;
@@ -70,7 +70,7 @@ static int bcm63xx_parse_cfe_partitions(struct mtd_info *master,
 					struct mtd_partition **pparts,
 					struct mtd_part_parser_data *data)
 {
-	
+	/* CFE, NVRAM and global Linux are always present */
 	int nrparts = 3, curpart = 0;
 	struct bcm_tag *buf;
 	struct mtd_partition *parts;
@@ -89,12 +89,12 @@ static int bcm63xx_parse_cfe_partitions(struct mtd_info *master,
 	cfelen = max_t(uint32_t, master->erasesize, BCM63XX_MIN_CFE_SIZE);
 	nvramlen = max_t(uint32_t, master->erasesize, BCM63XX_MIN_NVRAM_SIZE);
 
-	
+	/* Allocate memory for buffer */
 	buf = vmalloc(sizeof(struct bcm_tag));
 	if (!buf)
 		return -ENOMEM;
 
-	
+	/* Get the tag */
 	ret = mtd_read(master, cfelen, sizeof(struct bcm_tag), &retlen,
 		       (void *)buf);
 
@@ -131,7 +131,7 @@ static int bcm63xx_parse_cfe_partitions(struct mtd_info *master,
 		sparelen = master->size - cfelen - nvramlen;
 	}
 
-	
+	/* Determine number of partitions */
 	namelen = 8;
 	if (rootfslen > 0) {
 		nrparts++;
@@ -142,14 +142,14 @@ static int bcm63xx_parse_cfe_partitions(struct mtd_info *master,
 		namelen += 6;
 	}
 
-	
+	/* Ask kernel for more memory */
 	parts = kzalloc(sizeof(*parts) * nrparts + 10 * nrparts, GFP_KERNEL);
 	if (!parts) {
 		vfree(buf);
 		return -ENOMEM;
 	}
 
-	
+	/* Start building partition list */
 	parts[curpart].name = "CFE";
 	parts[curpart].offset = 0;
 	parts[curpart].size = cfelen;
@@ -175,7 +175,7 @@ static int bcm63xx_parse_cfe_partitions(struct mtd_info *master,
 	parts[curpart].offset = master->size - nvramlen;
 	parts[curpart].size = nvramlen;
 
-	
+	/* Global partition "linux" to make easy firmware upgrade */
 	curpart++;
 	parts[curpart].name = "linux";
 	parts[curpart].offset = cfelen;

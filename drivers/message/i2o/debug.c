@@ -9,6 +9,10 @@ static void i2o_report_fail_status(u8 req_status, u32 * msg);
 static void i2o_report_common_status(u8 req_status);
 static void i2o_report_common_dsc(u16 detailed_status);
 
+/*
+ * Used for error reporting/debugging purposes.
+ * Report Cmd name, Request status, Detailed Status.
+ */
 void i2o_report_status(const char *severity, const char *str,
 		       struct i2o_message *m)
 {
@@ -18,17 +22,17 @@ void i2o_report_status(const char *severity, const char *str,
 	u16 detailed_status = msg[4] & 0xFFFF;
 
 	if (cmd == I2O_CMD_UTIL_EVT_REGISTER)
-		return;		
+		return;		// No status in this reply
 
 	printk("%s%s: ", severity, str);
 
-	if (cmd < 0x1F)		
+	if (cmd < 0x1F)		// Utility cmd
 		i2o_report_util_cmd(cmd);
 
-	else if (cmd >= 0xA0 && cmd <= 0xEF)	
+	else if (cmd >= 0xA0 && cmd <= 0xEF)	// Executive cmd
 		i2o_report_exec_cmd(cmd);
 	else
-		printk("Cmd = %0#2x, ", cmd);	
+		printk("Cmd = %0#2x, ", cmd);	// Other cmds
 
 	if (msg[0] & MSG_FAIL) {
 		i2o_report_fail_status(req_status, msg);
@@ -44,6 +48,7 @@ void i2o_report_status(const char *severity, const char *str,
 		       detailed_status);
 }
 
+/* Used to dump a message to syslog during debugging */
 void i2o_dump_message(struct i2o_message *m)
 {
 #ifdef DEBUG
@@ -56,12 +61,17 @@ void i2o_dump_message(struct i2o_message *m)
 #endif
 }
 
+/*
+ * Used for error reporting/debugging purposes.
+ * Following fail status are common to all classes.
+ * The preserved message must be handled in the reply handler.
+ */
 static void i2o_report_fail_status(u8 req_status, u32 * msg)
 {
 	static char *FAIL_STATUS[] = {
-		"0x80",		
-		"SERVICE_SUSPENDED",	
-		"SERVICE_TERMINATED",	
+		"0x80",		/* not used */
+		"SERVICE_SUSPENDED",	/* 0x81 */
+		"SERVICE_TERMINATED",	/* 0x82 */
 		"CONGESTION",
 		"FAILURE",
 		"STATE_ERROR",
@@ -74,8 +84,8 @@ static void i2o_report_fail_status(u8 req_status, u32 * msg)
 		"FRAME_TOO_LARGE",
 		"INVALID_TARGET_ID",
 		"INVALID_INITIATOR_ID",
-		"INVALID_INITIATOR_CONTEX",	
-		"UNKNOWN_FAILURE"	
+		"INVALID_INITIATOR_CONTEX",	/* 0x8F */
+		"UNKNOWN_FAILURE"	/* 0xFF */
 	};
 
 	if (req_status == I2O_FSC_TRANSPORT_UNKNOWN_FAILURE)
@@ -85,7 +95,7 @@ static void i2o_report_fail_status(u8 req_status, u32 * msg)
 		printk("TRANSPORT_%s.\n",
 		       FAIL_STATUS[req_status & 0x0F]);
 
-	
+	/* Dump some details */
 
 	printk(KERN_ERR "  InitiatorId = %d, TargetId = %d\n",
 	       (msg[1] >> 12) & 0xFFF, msg[1] & 0xFFF);
@@ -110,6 +120,10 @@ static void i2o_report_fail_status(u8 req_status, u32 * msg)
 		       "do not retry immediately.\n");
 }
 
+/*
+ * Used for error reporting/debugging purposes.
+ * Following reply status are common to all classes.
+ */
 static void i2o_report_common_status(u8 req_status)
 {
 	static char *REPLY_STATUS[] = {
@@ -133,18 +147,23 @@ static void i2o_report_common_status(u8 req_status)
 		printk("%s", REPLY_STATUS[req_status]);
 }
 
+/*
+ * Used for error reporting/debugging purposes.
+ * Following detailed status are valid  for executive class,
+ * utility class, DDM class and for transaction error replies.
+ */
 static void i2o_report_common_dsc(u16 detailed_status)
 {
 	static char *COMMON_DSC[] = {
 		"SUCCESS",
-		"0x01",		
+		"0x01",		// not used
 		"BAD_KEY",
 		"TCL_ERROR",
 		"REPLY_BUFFER_FULL",
 		"NO_SUCH_PAGE",
 		"INSUFFICIENT_RESOURCE_SOFT",
 		"INSUFFICIENT_RESOURCE_HARD",
-		"0x08",		
+		"0x08",		// not used
 		"CHAIN_BUFFER_TOO_LARGE",
 		"UNSUPPORTED_FUNCTION",
 		"DEVICE_LOCKED",
@@ -174,6 +193,9 @@ static void i2o_report_common_dsc(u16 detailed_status)
 		printk(" / %s.\n", COMMON_DSC[detailed_status]);
 }
 
+/*
+ * Used for error reporting/debugging purposes
+ */
 static void i2o_report_util_cmd(u8 cmd)
 {
 	switch (cmd) {
@@ -224,6 +246,9 @@ static void i2o_report_util_cmd(u8 cmd)
 	}
 }
 
+/*
+ * Used for error reporting/debugging purposes
+ */
 static void i2o_report_exec_cmd(u8 cmd)
 {
 	switch (cmd) {
@@ -396,45 +421,45 @@ void i2o_dump_hrt(struct i2o_controller *c)
 		printk("TID %04X:[", state & 0xFFF);
 		state >>= 12;
 		if (state & (1 << 0))
-			printk("H");	
+			printk("H");	/* Hidden */
 		if (state & (1 << 2)) {
-			printk("P");	
+			printk("P");	/* Present */
 			if (state & (1 << 1))
-				printk("C");	
+				printk("C");	/* Controlled */
 		}
 		if (state > 9)
-			printk("*");	
+			printk("*");	/* Hard */
 
 		printk("]:");
 
 		switch (p[3] & 0xFFFF) {
 		case 0:
-			
+			/* Adapter private bus - easy */
 			printk("Local bus %d: I/O at 0x%04X Mem 0x%08X", p[2],
 			       d[1] << 8 | d[0], *(u32 *) (d + 4));
 			break;
 		case 1:
-			
+			/* ISA bus */
 			printk("ISA %d: CSN %d I/O at 0x%04X Mem 0x%08X", p[2],
 			       d[2], d[1] << 8 | d[0], *(u32 *) (d + 4));
 			break;
 
-		case 2:	
+		case 2:	/* EISA bus */
 			printk("EISA %d: Slot %d I/O at 0x%04X Mem 0x%08X",
 			       p[2], d[3], d[1] << 8 | d[0], *(u32 *) (d + 4));
 			break;
 
-		case 3:	
+		case 3:	/* MCA bus */
 			printk("MCA %d: Slot %d I/O at 0x%04X Mem 0x%08X", p[2],
 			       d[3], d[1] << 8 | d[0], *(u32 *) (d + 4));
 			break;
 
-		case 4:	
+		case 4:	/* PCI bus */
 			printk("PCI %d: Bus %d Device %d Function %d", p[2],
 			       d[2], d[1], d[0]);
 			break;
 
-		case 0x80:	
+		case 0x80:	/* Other */
 		default:
 			printk("Unsupported bus type.");
 			break;

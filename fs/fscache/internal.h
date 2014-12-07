@@ -9,6 +9,18 @@
  * 2 of the License, or (at your option) any later version.
  */
 
+/*
+ * Lock order, in the order in which multiple locks should be obtained:
+ * - fscache_addremove_sem
+ * - cookie->lock
+ * - cookie->parent->lock
+ * - cache->object_list_lock
+ * - object->lock
+ * - object->parent->lock
+ * - cookie->stores_lock
+ * - fscache_thread_lock
+ *
+ */
 
 #include <linux/fscache-cache.h>
 #include <linux/sched.h>
@@ -16,20 +28,32 @@
 #define FSCACHE_MIN_THREADS	4
 #define FSCACHE_MAX_THREADS	32
 
+/*
+ * cache.c
+ */
 extern struct list_head fscache_cache_list;
 extern struct rw_semaphore fscache_addremove_sem;
 
 extern struct fscache_cache *fscache_select_cache_for_object(
 	struct fscache_cookie *);
 
+/*
+ * cookie.c
+ */
 extern struct kmem_cache *fscache_cookie_jar;
 
 extern void fscache_cookie_init_once(void *);
 extern void __fscache_cookie_put(struct fscache_cookie *);
 
+/*
+ * fsdef.c
+ */
 extern struct fscache_cookie fscache_fsdef_index;
 extern struct fscache_cookie_def fscache_fsdef_netfs_def;
 
+/*
+ * histogram.c
+ */
 #ifdef CONFIG_FSCACHE_HISTOGRAM
 extern atomic_t fscache_obj_instantiate_histogram[HZ];
 extern atomic_t fscache_objs_histogram[HZ];
@@ -51,6 +75,9 @@ extern const struct file_operations fscache_histogram_fops;
 #define fscache_hist(hist, start_jif) do {} while (0)
 #endif
 
+/*
+ * main.c
+ */
 extern unsigned fscache_defer_lookup;
 extern unsigned fscache_defer_create;
 extern unsigned fscache_debug;
@@ -67,12 +94,18 @@ static inline bool fscache_object_congested(void)
 extern int fscache_wait_bit(void *);
 extern int fscache_wait_bit_interruptible(void *);
 
+/*
+ * object.c
+ */
 extern const char fscache_object_states_short[FSCACHE_OBJECT__NSTATES][5];
 
 extern void fscache_withdrawing_object(struct fscache_cache *,
 				       struct fscache_object *);
 extern void fscache_enqueue_object(struct fscache_object *);
 
+/*
+ * object-list.c
+ */
 #ifdef CONFIG_FSCACHE_OBJECT_LIST
 extern const struct file_operations fscache_objlist_fops;
 
@@ -81,6 +114,9 @@ extern void fscache_objlist_add(struct fscache_object *);
 #define fscache_objlist_add(object) do {} while(0)
 #endif
 
+/*
+ * operation.c
+ */
 extern int fscache_submit_exclusive_op(struct fscache_object *,
 				       struct fscache_operation *);
 extern int fscache_submit_op(struct fscache_object *,
@@ -90,6 +126,9 @@ extern void fscache_abort_object(struct fscache_object *);
 extern void fscache_start_operations(struct fscache_object *);
 extern void fscache_operation_gc(struct work_struct *);
 
+/*
+ * proc.c
+ */
 #ifdef CONFIG_PROC_FS
 extern int __init fscache_proc_init(void);
 extern void fscache_proc_cleanup(void);
@@ -98,6 +137,9 @@ extern void fscache_proc_cleanup(void);
 #define fscache_proc_cleanup()	do {} while (0)
 #endif
 
+/*
+ * stats.c
+ */
 #ifdef CONFIG_FSCACHE_STATS
 extern atomic_t fscache_n_ops_processed[FSCACHE_MAX_THREADS];
 extern atomic_t fscache_n_objs_processed[FSCACHE_MAX_THREADS];
@@ -228,6 +270,11 @@ extern const struct file_operations fscache_stats_fops;
 #define fscache_stat_d(stat) do {} while (0)
 #endif
 
+/*
+ * raise an event on an object
+ * - if the event is not masked for that object, then the object is
+ *   queued for attention by the thread pool.
+ */
 static inline void fscache_raise_event(struct fscache_object *object,
 				       unsigned event)
 {
@@ -236,6 +283,9 @@ static inline void fscache_raise_event(struct fscache_object *object,
 		fscache_enqueue_object(object);
 }
 
+/*
+ * drop a reference to a cookie
+ */
 static inline void fscache_cookie_put(struct fscache_cookie *cookie)
 {
 	BUG_ON(atomic_read(&cookie->usage) <= 0);
@@ -243,6 +293,9 @@ static inline void fscache_cookie_put(struct fscache_cookie *cookie)
 		__fscache_cookie_put(cookie);
 }
 
+/*
+ * get an extra reference to a netfs retrieval context
+ */
 static inline
 void *fscache_get_context(struct fscache_cookie *cookie, void *context)
 {
@@ -251,6 +304,9 @@ void *fscache_get_context(struct fscache_cookie *cookie, void *context)
 	return context;
 }
 
+/*
+ * release a reference to a netfs retrieval context
+ */
 static inline
 void fscache_put_context(struct fscache_cookie *cookie, void *context)
 {
@@ -258,6 +314,10 @@ void fscache_put_context(struct fscache_cookie *cookie, void *context)
 		cookie->def->put_context(cookie->netfs_data, context);
 }
 
+/*****************************************************************************/
+/*
+ * debug tracing
+ */
 #define dbgprintk(FMT, ...) \
 	printk(KERN_DEBUG "[%-6.6s] "FMT"\n", current->comm, ##__VA_ARGS__)
 
@@ -297,6 +357,11 @@ do {						\
 #define _debug(FMT, ...) no_printk(FMT, ##__VA_ARGS__)
 #endif
 
+/*
+ * determine whether a particular optional debugging point should be logged
+ * - we need to go through three steps to persuade cpp to correctly join the
+ *   shorthand in FSCACHE_DEBUG_LEVEL with its prefix
+ */
 #define ____do_kdebug(LEVEL, POINT) \
 	unlikely((fscache_debug & \
 		  (FSCACHE_POINT_##POINT << (FSCACHE_DEBUG_ ## LEVEL * 3))))
@@ -318,7 +383,10 @@ do {						\
 #define FSCACHE_DEBUG_LEVEL CACHE
 #endif
 
-#if 1 
+/*
+ * assertions
+ */
+#if 1 /* defined(__KDEBUGALL) */
 
 #define ASSERT(X)							\
 do {									\
@@ -367,4 +435,4 @@ do {									\
 #define ASSERTIF(C, X)			do {} while (0)
 #define ASSERTIFCMP(C, X, OP, Y)	do {} while (0)
 
-#endif 
+#endif /* assert or not */

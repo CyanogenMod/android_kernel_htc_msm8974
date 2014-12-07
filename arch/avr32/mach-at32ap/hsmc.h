@@ -10,6 +10,7 @@
 #ifndef __ASM_AVR32_HSMC_H__
 #define __ASM_AVR32_HSMC_H__
 
+/* HSMC register offsets */
 #define HSMC_SETUP0				0x0000
 #define HSMC_PULSE0				0x0004
 #define HSMC_CYCLE0				0x0008
@@ -35,6 +36,7 @@
 #define HSMC_CYCLE5				0x0058
 #define HSMC_MODE5				0x005c
 
+/* Bitfields in SETUP0 */
 #define HSMC_NWE_SETUP_OFFSET			0
 #define HSMC_NWE_SETUP_SIZE			6
 #define HSMC_NCS_WR_SETUP_OFFSET		8
@@ -44,6 +46,7 @@
 #define HSMC_NCS_RD_SETUP_OFFSET		24
 #define HSMC_NCS_RD_SETUP_SIZE			6
 
+/* Bitfields in PULSE0 */
 #define HSMC_NWE_PULSE_OFFSET			0
 #define HSMC_NWE_PULSE_SIZE			7
 #define HSMC_NCS_WR_PULSE_OFFSET		8
@@ -53,11 +56,13 @@
 #define HSMC_NCS_RD_PULSE_OFFSET		24
 #define HSMC_NCS_RD_PULSE_SIZE			7
 
+/* Bitfields in CYCLE0 */
 #define HSMC_NWE_CYCLE_OFFSET			0
 #define HSMC_NWE_CYCLE_SIZE			9
 #define HSMC_NRD_CYCLE_OFFSET			16
 #define HSMC_NRD_CYCLE_SIZE			9
 
+/* Bitfields in MODE0 */
 #define HSMC_READ_MODE_OFFSET			0
 #define HSMC_READ_MODE_SIZE			1
 #define HSMC_WRITE_MODE_OFFSET			1
@@ -77,24 +82,30 @@
 #define HSMC_PS_OFFSET				28
 #define HSMC_PS_SIZE				2
 
+/* Constants for READ_MODE */
 #define HSMC_READ_MODE_NCS_CONTROLLED		0
 #define HSMC_READ_MODE_NRD_CONTROLLED		1
 
+/* Constants for WRITE_MODE */
 #define HSMC_WRITE_MODE_NCS_CONTROLLED		0
 #define HSMC_WRITE_MODE_NWE_CONTROLLED		1
 
+/* Constants for EXNW_MODE */
 #define HSMC_EXNW_MODE_DISABLED			0
 #define HSMC_EXNW_MODE_RESERVED			1
 #define HSMC_EXNW_MODE_FROZEN			2
 #define HSMC_EXNW_MODE_READY			3
 
+/* Constants for BAT */
 #define HSMC_BAT_BYTE_SELECT			0
 #define HSMC_BAT_BYTE_WRITE			1
 
+/* Constants for DBW */
 #define HSMC_DBW_8_BITS				0
 #define HSMC_DBW_16_BITS			1
 #define HSMC_DBW_32_BITS			2
 
+/* Bit manipulation macros */
 #define HSMC_BIT(name)							\
 	(1 << HSMC_##name##_OFFSET)
 #define HSMC_BF(name,value)						\
@@ -107,9 +118,10 @@
 	(((old) & ~(((1 << HSMC_##name##_SIZE) - 1)			\
 		    << HSMC_##name##_OFFSET)) | HSMC_BF(name,value))
 
+/* Register access macros */
 #define hsmc_readl(port,reg)						\
 	__raw_readl((port)->regs + HSMC_##reg)
 #define hsmc_writel(port,reg,value)					\
 	__raw_writel((value), (port)->regs + HSMC_##reg)
 
-#endif 
+#endif /* __ASM_AVR32_HSMC_H__ */

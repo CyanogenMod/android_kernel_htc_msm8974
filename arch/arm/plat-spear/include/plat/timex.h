@@ -16,4 +16,4 @@
 
 #define CLOCK_TICK_RATE			48000000
 
-#endif 
+#endif /* __PLAT_TIMEX_H */

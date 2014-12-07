@@ -49,6 +49,6 @@ static inline int mips_machtype_setup(char *id) { return 1; }
 static inline void mips_machine_setup(void) { }
 static inline void mips_set_machine_name(const char *name) { }
 static inline char *mips_get_machine_name(void) { return NULL; }
-#endif 
+#endif /* CONFIG_MIPS_MACHINE */
 
-#endif 
+#endif /* __ASM_MIPS_MACHINE_H */

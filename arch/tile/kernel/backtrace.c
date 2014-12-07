@@ -48,6 +48,7 @@ typedef long long bt_int_reg_t;
 typedef int bt_int_reg_t;
 #endif
 
+/* A decoded bundle used for backtracer analysis. */
 struct BacktraceBundle {
 	tile_bundle_bits bits;
 	int num_insns;
@@ -56,6 +57,10 @@ struct BacktraceBundle {
 };
 
 
+/* Locates an instruction inside the given bundle that
+ * has the specified mnemonic, and whose first 'num_operands_to_match'
+ * operands exactly match those in 'operand_values'.
+ */
 static const struct tile_decoded_instruction *find_matching_insn(
 	const struct BacktraceBundle *bundle,
 	tile_mnemonic mnemonic,
@@ -87,11 +92,15 @@ static const struct tile_decoded_instruction *find_matching_insn(
 	return NULL;
 }
 
+/* Does this bundle contain an 'iret' instruction? */
 static inline bool bt_has_iret(const struct BacktraceBundle *bundle)
 {
 	return find_matching_insn(bundle, TILE_OPC_IRET, NULL, 0) != NULL;
 }
 
+/* Does this bundle contain an 'addi sp, sp, OFFSET' or
+ * 'addli sp, sp, OFFSET' instruction, and if so, what is OFFSET?
+ */
 static bool bt_has_addi_sp(const struct BacktraceBundle *bundle, int *adjust)
 {
 	static const int vals[2] = { TREG_SP, TREG_SP };
@@ -113,6 +122,11 @@ static bool bt_has_addi_sp(const struct BacktraceBundle *bundle, int *adjust)
 	return true;
 }
 
+/* Does this bundle contain any 'info OP' or 'infol OP'
+ * instruction, and if so, what are their OP?  Note that OP is interpreted
+ * as an unsigned value by this code since that's what the caller wants.
+ * Returns the number of info ops found.
+ */
 static int bt_get_info_ops(const struct BacktraceBundle *bundle,
 		int operands[MAX_INFO_OPS_PER_BUNDLE])
 {
@@ -132,6 +146,9 @@ static int bt_get_info_ops(const struct BacktraceBundle *bundle,
 	return num_ops;
 }
 
+/* Does this bundle contain a jrp instruction, and if so, to which
+ * register is it jumping?
+ */
 static bool bt_has_jrp(const struct BacktraceBundle *bundle, int *target_reg)
 {
 	const struct tile_decoded_instruction *insn =
@@ -143,6 +160,7 @@ static bool bt_has_jrp(const struct BacktraceBundle *bundle, int *target_reg)
 	return true;
 }
 
+/* Does this bundle modify the specified register in any way? */
 static bool bt_modifies_reg(const struct BacktraceBundle *bundle, int reg)
 {
 	int i, j;
@@ -162,22 +180,26 @@ static bool bt_modifies_reg(const struct BacktraceBundle *bundle, int reg)
 	return false;
 }
 
+/* Does this bundle modify sp? */
 static inline bool bt_modifies_sp(const struct BacktraceBundle *bundle)
 {
 	return bt_modifies_reg(bundle, TREG_SP);
 }
 
+/* Does this bundle modify lr? */
 static inline bool bt_modifies_lr(const struct BacktraceBundle *bundle)
 {
 	return bt_modifies_reg(bundle, TREG_LR);
 }
 
+/* Does this bundle contain the instruction 'move fp, sp'? */
 static inline bool bt_has_move_r52_sp(const struct BacktraceBundle *bundle)
 {
 	static const int vals[2] = { 52, TREG_SP };
 	return find_matching_insn(bundle, TILE_OPC_MOVE, vals, 2) != NULL;
 }
 
+/* Does this bundle contain a store of lr to sp? */
 static inline bool bt_has_sw_sp_lr(const struct BacktraceBundle *bundle)
 {
 	static const int vals[2] = { TREG_SP, TREG_LR };
@@ -185,6 +207,7 @@ static inline bool bt_has_sw_sp_lr(const struct BacktraceBundle *bundle)
 }
 
 #ifdef __tilegx__
+/* Track moveli values placed into registers. */
 static inline void bt_update_moveli(const struct BacktraceBundle *bundle,
 				    int moveli_args[])
 {
@@ -200,6 +223,10 @@ static inline void bt_update_moveli(const struct BacktraceBundle *bundle,
 	}
 }
 
+/* Does this bundle contain an 'add sp, sp, reg' instruction
+ * from a register that we saw a moveli into, and if so, what
+ * is the value in the register?
+ */
 static bool bt_has_add_sp(const struct BacktraceBundle *bundle, int *adjust,
 			  int moveli_args[])
 {
@@ -218,39 +245,52 @@ static bool bt_has_add_sp(const struct BacktraceBundle *bundle, int *adjust,
 }
 #endif
 
+/* Locates the caller's PC and SP for a program starting at the
+ * given address.
+ */
 static void find_caller_pc_and_caller_sp(CallerLocation *location,
 					 const unsigned long start_pc,
 					 BacktraceMemoryReader read_memory_func,
 					 void *read_memory_func_extra)
 {
+	/* Have we explicitly decided what the sp is,
+	 * rather than just the default?
+	 */
 	bool sp_determined = false;
 
-	
+	/* Has any bundle seen so far modified lr? */
 	bool lr_modified = false;
 
-	
+	/* Have we seen a move from sp to fp? */
 	bool sp_moved_to_r52 = false;
 
-	
+	/* Have we seen a terminating bundle? */
 	bool seen_terminating_bundle = false;
 
+	/* Cut down on round-trip reading overhead by reading several
+	 * bundles at a time.
+	 */
 	tile_bundle_bits prefetched_bundles[32];
 	int num_bundles_prefetched = 0;
 	int next_bundle = 0;
 	unsigned long pc;
 
 #ifdef __tilegx__
-	
+	/* Naively try to track moveli values to support addx for -m32. */
 	int moveli_args[TILEGX_NUM_REGISTERS] = { 0 };
 #endif
 
+	/* Default to assuming that the caller's sp is the current sp.
+	 * This is necessary to handle the case where we start backtracing
+	 * right at the end of the epilog.
+	 */
 	location->sp_location = SP_LOC_OFFSET;
 	location->sp_offset = 0;
 
-	
+	/* Default to having no idea where the caller PC is. */
 	location->pc_location = PC_LOC_UNKNOWN;
 
-	
+	/* Don't even try if the PC is not aligned. */
 	if (start_pc % TILE_BUNDLE_ALIGNMENT_IN_BYTES != 0)
 		return;
 
@@ -262,6 +302,13 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 		bool has_jrp;
 
 		if (next_bundle >= num_bundles_prefetched) {
+			/* Prefetch some bytes, but don't cross a page
+			 * boundary since that might cause a read failure we
+			 * don't care about if we only need the first few
+			 * bytes. Note: we don't care what the actual page
+			 * size is; using the minimum possible page size will
+			 * prevent any problems.
+			 */
 			unsigned int bytes_to_prefetch = 4096 - (pc & 4095);
 			if (bytes_to_prefetch > sizeof prefetched_bundles)
 				bytes_to_prefetch = sizeof prefetched_bundles;
@@ -270,11 +317,17 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 					      bytes_to_prefetch,
 					      read_memory_func_extra)) {
 				if (pc == start_pc) {
+					/* The program probably called a bad
+					 * address, such as a NULL pointer.
+					 * So treat this as if we are at the
+					 * start of the function prolog so the
+					 * backtrace will show how we got here.
+					 */
 					location->pc_location = PC_LOC_IN_LR;
 					return;
 				}
 
-				
+				/* Unreadable address. Give up. */
 				break;
 			}
 
@@ -283,29 +336,37 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 				bytes_to_prefetch / sizeof(tile_bundle_bits);
 		}
 
-		
+		/* Decode the next bundle. */
 		bundle.bits = prefetched_bundles[next_bundle++];
 		bundle.num_insns =
 			parse_insn_tile(bundle.bits, pc, bundle.insns);
 		num_info_ops = bt_get_info_ops(&bundle, info_operands);
 
+		/* First look at any one_ago info ops if they are interesting,
+		 * since they should shadow any non-one-ago info ops.
+		 */
 		for (one_ago = (pc != start_pc) ? 1 : 0;
 		     one_ago >= 0; one_ago--) {
 			int i;
 			for (i = 0; i < num_info_ops; i++) {
 				int info_operand = info_operands[i];
 				if (info_operand < CALLER_UNKNOWN_BASE)	{
-					
+					/* Weird; reserved value, ignore it. */
 					continue;
 				}
 
+				/* Skip info ops which are not in the
+				 * "one_ago" mode we want right now.
+				 */
 				if (((info_operand & ONE_BUNDLE_AGO_FLAG) != 0)
 				    != (one_ago != 0))
 					continue;
 
+				/* Clear the flag to make later checking
+				 * easier. */
 				info_operand &= ~ONE_BUNDLE_AGO_FLAG;
 
-				
+				/* Default to looking at PC_IN_LR_FLAG. */
 				if (info_operand & PC_IN_LR_FLAG)
 					location->pc_location =
 						PC_LOC_IN_LR;
@@ -331,12 +392,20 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 					const unsigned int sp_offset =
 						(val >> NUM_INFO_OP_FLAGS) * 8;
 					if (sp_offset < 32768) {
+						/* This is a properly encoded
+						 * SP offset. */
 						location->sp_location =
 							SP_LOC_OFFSET;
 						location->sp_offset =
 							sp_offset;
 						return;
 					} else {
+						/* This looked like an SP
+						 * offset, but it's outside
+						 * the legal range, so this
+						 * must be an unrecognized
+						 * info operand.  Ignore it.
+						 */
 					}
 				}
 				break;
@@ -345,13 +414,22 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 		}
 
 		if (seen_terminating_bundle) {
+			/* We saw a terminating bundle during the previous
+			 * iteration, so we were only looking for an info op.
+			 */
 			break;
 		}
 
 		if (bundle.bits == 0) {
+			/* Wacky terminating bundle. Stop looping, and hope
+			 * we've already seen enough to find the caller.
+			 */
 			break;
 		}
 
+		/*
+		 * Try to determine caller's SP.
+		 */
 
 		if (!sp_determined) {
 			int adjust;
@@ -363,24 +441,43 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 				location->sp_location = SP_LOC_OFFSET;
 
 				if (adjust <= 0) {
+					/* We are in prolog about to adjust
+					 * SP. */
 					location->sp_offset = 0;
 				} else {
-					
+					/* We are in epilog restoring SP. */
 					location->sp_offset = adjust;
 				}
 
 				sp_determined = true;
 			} else {
 				if (bt_has_move_r52_sp(&bundle)) {
+					/* Maybe in prolog, creating an
+					 * alloca-style frame.  But maybe in
+					 * the middle of a fixed-size frame
+					 * clobbering r52 with SP.
+					 */
 					sp_moved_to_r52 = true;
 				}
 
 				if (bt_modifies_sp(&bundle)) {
 					if (sp_moved_to_r52) {
+						/* We saw SP get saved into
+						 * r52 earlier (or now), which
+						 * must have been in the
+						 * prolog, so we now know that
+						 * SP is still holding the
+						 * caller's sp value.
+						 */
 						location->sp_location =
 							SP_LOC_OFFSET;
 						location->sp_offset = 0;
 					} else {
+						/* Someone must have saved
+						 * aside the caller's SP value
+						 * into r52, so r52 holds the
+						 * current value.
+						 */
 						location->sp_location =
 							SP_LOC_IN_R52;
 					}
@@ -389,17 +486,20 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 			}
 
 #ifdef __tilegx__
-			
+			/* Track moveli arguments for -m32 mode. */
 			bt_update_moveli(&bundle, moveli_args);
 #endif
 		}
 
 		if (bt_has_iret(&bundle)) {
-			
+			/* This is a terminating bundle. */
 			seen_terminating_bundle = true;
 			continue;
 		}
 
+		/*
+		 * Try to determine caller's PC.
+		 */
 
 		jrp_reg = -1;
 		has_jrp = bt_has_jrp(&bundle, &jrp_reg);
@@ -409,6 +509,8 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 		if (location->pc_location == PC_LOC_UNKNOWN) {
 			if (has_jrp) {
 				if (jrp_reg == TREG_LR && !lr_modified) {
+					/* Looks like a leaf function, or else
+					 * lr is already restored. */
 					location->pc_location =
 						PC_LOC_IN_LR;
 				} else {
@@ -416,7 +518,7 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 						PC_LOC_ON_STACK;
 				}
 			} else if (bt_has_sw_sp_lr(&bundle)) {
-				
+				/* In prolog, spilling initial lr to stack. */
 				location->pc_location = PC_LOC_IN_LR;
 			} else if (bt_modifies_lr(&bundle)) {
 				lr_modified = true;
@@ -425,6 +527,18 @@ static void find_caller_pc_and_caller_sp(CallerLocation *location,
 	}
 }
 
+/* Initializes a backtracer to start from the given location.
+ *
+ * If the frame pointer cannot be determined it is set to -1.
+ *
+ * state: The state to be filled in.
+ * read_memory_func: A callback that reads memory.
+ * read_memory_func_extra: An arbitrary argument to read_memory_func.
+ * pc: The current PC.
+ * lr: The current value of the 'lr' register.
+ * sp: The current value of the 'sp' register.
+ * r52: The current value of the 'r52' register.
+ */
 void backtrace_init(BacktraceIterator *state,
 		    BacktraceMemoryReader read_memory_func,
 		    void *read_memory_func_extra,
@@ -434,13 +548,13 @@ void backtrace_init(BacktraceIterator *state,
 	CallerLocation location;
 	unsigned long fp, initial_frame_caller_pc;
 
-	
+	/* Find out where we are in the initial frame. */
 	find_caller_pc_and_caller_sp(&location, pc,
 				     read_memory_func, read_memory_func_extra);
 
 	switch (location.sp_location) {
 	case SP_LOC_UNKNOWN:
-		
+		/* Give up. */
 		fp = -1;
 		break;
 
@@ -453,26 +567,29 @@ void backtrace_init(BacktraceIterator *state,
 		break;
 
 	default:
-		
+		/* Give up. */
 		fp = -1;
 		break;
 	}
 
+	/* If the frame pointer is not aligned to the basic word size
+	 * something terrible happened and we should mark it as invalid.
+	 */
 	if (fp % sizeof(bt_int_reg_t) != 0)
 		fp = -1;
 
-	
+	/* -1 means "don't know initial_frame_caller_pc". */
 	initial_frame_caller_pc = -1;
 
 	switch (location.pc_location) {
 	case PC_LOC_UNKNOWN:
-		
+		/* Give up. */
 		fp = -1;
 		break;
 
 	case PC_LOC_IN_LR:
 		if (lr == 0 || lr % TILE_BUNDLE_ALIGNMENT_IN_BYTES != 0) {
-			
+			/* Give up. */
 			fp = -1;
 		} else {
 			initial_frame_caller_pc = lr;
@@ -480,10 +597,13 @@ void backtrace_init(BacktraceIterator *state,
 		break;
 
 	case PC_LOC_ON_STACK:
+		/* Leave initial_frame_caller_pc as -1,
+		 * meaning check the stack.
+		 */
 		break;
 
 	default:
-		
+		/* Give up. */
 		fp = -1;
 		break;
 	}
@@ -496,22 +616,26 @@ void backtrace_init(BacktraceIterator *state,
 	state->read_memory_func_extra = read_memory_func_extra;
 }
 
+/* Handle the case where the register holds more bits than the VA. */
 static bool valid_addr_reg(bt_int_reg_t reg)
 {
 	return ((unsigned long)reg == reg);
 }
 
+/* Advances the backtracing state to the calling frame, returning
+ * true iff successful.
+ */
 bool backtrace_next(BacktraceIterator *state)
 {
 	unsigned long next_fp, next_pc;
 	bt_int_reg_t next_frame[2];
 
 	if (state->fp == -1) {
-		
+		/* No parent frame. */
 		return false;
 	}
 
-	
+	/* Try to read the frame linkage data chaining to the next function. */
 	if (!state->read_memory_func(&next_frame, state->fp, sizeof next_frame,
 				     state->read_memory_func_extra)) {
 		return false;
@@ -520,25 +644,32 @@ bool backtrace_next(BacktraceIterator *state)
 	next_fp = next_frame[1];
 	if (!valid_addr_reg(next_frame[1]) ||
 	    next_fp % sizeof(bt_int_reg_t) != 0) {
-		
+		/* Caller's frame pointer is suspect, so give up. */
 		return false;
 	}
 
 	if (state->initial_frame_caller_pc != -1) {
+		/* We must be in the initial stack frame and already know the
+		 * caller PC.
+		 */
 		next_pc = state->initial_frame_caller_pc;
 
+		/* Force reading stack next time, in case we were in the
+		 * initial frame.  We don't do this above just to paranoidly
+		 * avoid changing the struct at all when we return false.
+		 */
 		state->initial_frame_caller_pc = -1;
 	} else {
-		
+		/* Get the caller PC from the frame linkage area. */
 		next_pc = next_frame[0];
 		if (!valid_addr_reg(next_frame[0]) || next_pc == 0 ||
 		    next_pc % TILE_BUNDLE_ALIGNMENT_IN_BYTES != 0) {
-			
+			/* The PC is suspect, so give up. */
 			return false;
 		}
 	}
 
-	
+	/* Update state to become the caller's stack frame. */
 	state->pc = next_pc;
 	state->sp = state->fp;
 	state->fp = next_fp;

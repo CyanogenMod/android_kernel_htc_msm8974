@@ -26,7 +26,14 @@ static char *state2str(unsigned short state)
 	}
 }
 
+// /proc/capi
+// ===========================================================================
 
+// /proc/capi/controller:
+//      cnr driver cardstate name driverinfo
+// /proc/capi/contrstats:
+//      cnr nrecvctlpkt nrecvdatapkt nsentctlpkt nsentdatapkt
+// ---------------------------------------------------------------------------
 
 static void *controller_start(struct seq_file *seq, loff_t *pos)
 	__acquires(capi_controller_lock)
@@ -127,6 +134,11 @@ static const struct file_operations proc_contrstats_ops = {
 	.release	= seq_release,
 };
 
+// /proc/capi/applications:
+//      applid l3cnt dblkcnt dblklen #ncci recvqueuelen
+// /proc/capi/applstats:
+//      applid nrecvctlpkt nrecvdatapkt nsentctlpkt nsentdatapkt
+// ---------------------------------------------------------------------------
 
 static void *applications_start(struct seq_file *seq, loff_t *pos)
 	__acquires(capi_controller_lock)
@@ -232,6 +244,7 @@ static const struct file_operations proc_applstats_ops = {
 	.release	= seq_release,
 };
 
+// ---------------------------------------------------------------------------
 
 static void *capi_driver_start(struct seq_file *seq, loff_t *pos)
 	__acquires(&capi_drivers_lock)
@@ -282,6 +295,7 @@ static const struct file_operations proc_driver_ops = {
 	.release	= seq_release,
 };
 
+// ---------------------------------------------------------------------------
 
 void __init
 kcapi_proc_init(void)

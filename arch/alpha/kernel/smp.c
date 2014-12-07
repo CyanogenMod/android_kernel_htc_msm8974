@@ -1,3 +1,14 @@
+/*
+ *	linux/arch/alpha/kernel/smp.c
+ *
+ *      2001-07-09 Phil Ezolt (Phillip.Ezolt@compaq.com)
+ *            Renamed modified smp_call_function to smp_call_function_on_cpu()
+ *            Created an function that conforms to the old calling convention
+ *            of smp_call_function().
+ *
+ *            This is helpful for DCPI.
+ *
+ */
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -40,9 +51,11 @@
 #define DBGS(args)
 #endif
 
+/* A collection of per-processor data.  */
 struct cpuinfo_alpha cpu_data[NR_CPUS];
 EXPORT_SYMBOL(cpu_data);
 
+/* A collection of single bit ipi messages.  */
 static struct {
 	unsigned long bits ____cacheline_aligned;
 } ipi_data[NR_CPUS] __cacheline_aligned;
@@ -54,12 +67,17 @@ enum ipi_message_type {
 	IPI_CPU_STOP,
 };
 
+/* Set to a secondary's cpuid when it comes online.  */
 static int smp_secondary_alive __devinitdata = 0;
 
-int smp_num_probed;		
-int smp_num_cpus = 1;		
+int smp_num_probed;		/* Internal processor count */
+int smp_num_cpus = 1;		/* Number that came online.  */
 EXPORT_SYMBOL(smp_num_cpus);
 
+/*
+ * Called by both boot and secondaries to move global data into
+ *  per-processor storage.
+ */
 static inline void __init
 smp_store_cpu_info(int cpuid)
 {
@@ -69,6 +87,9 @@ smp_store_cpu_info(int cpuid)
 	cpu_data[cpuid].asn_lock = 0;
 }
 
+/*
+ * Ideally sets up per-cpu profiling hooks.  Doesn't do much now...
+ */
 static inline void __init
 smp_setup_percpu_timer(int cpuid)
 {
@@ -92,6 +113,9 @@ wait_boot_cpu_to_stop(int cpuid)
 		barrier();
 }
 
+/*
+ * Where secondaries begin a life of C.
+ */
 void __cpuinit
 smp_callin(void)
 {
@@ -103,31 +127,33 @@ smp_callin(void)
 	}
 	set_cpu_online(cpuid, true);
 
-	
+	/* Turn on machine checks.  */
 	wrmces(7);
 
-	
+	/* Set trap vectors.  */
 	trap_init();
 
-	
+	/* Set interrupt vector.  */
 	wrent(entInt, 0);
 
-	
+	/* Get our local ticker going. */
 	smp_setup_percpu_timer(cpuid);
 
-	
+	/* Call platform-specific callin, if specified */
 	if (alpha_mv.smp_callin) alpha_mv.smp_callin();
 
-	
+	/* All kernel threads share the same mm context.  */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 
-	
+	/* inform the notifiers about the new cpu */
 	notify_cpu_starting(cpuid);
 
-	
+	/* Must have completely accurate bogos.  */
 	local_irq_enable();
 
+	/* Wait boot CPU to stop with irq enabled before running
+	   calibrate_delay. */
 	wait_boot_cpu_to_stop(cpuid);
 	mb();
 	calibrate_delay();
@@ -140,10 +166,11 @@ smp_callin(void)
 	DBGS(("smp_callin: commencing CPU %d current %p active_mm %p\n",
 	      cpuid, current, current->active_mm));
 
-	
+	/* Do nothing.  */
 	cpu_idle();
 }
 
+/* Wait until hwrpb->txrdy is clear for cpu.  Return -1 on timeout.  */
 static int __devinit
 wait_for_txrdy (unsigned long cpumask)
 {
@@ -163,6 +190,10 @@ wait_for_txrdy (unsigned long cpumask)
 	return -1;
 }
 
+/*
+ * Send a message to a secondary's console.  "START" is one such
+ * interesting message.  ;-)
+ */
 static void __cpuinit
 send_secondary_console_msg(char *str, int cpuid)
 {
@@ -186,7 +217,7 @@ send_secondary_console_msg(char *str, int cpuid)
 	cp1 = (char *) &cpu->ipc_buffer[1];
 	memcpy(cp1, cp2, len);
 
-	
+	/* atomic test and set */
 	wmb();
 	set_bit(cpuid, &hwrpb->rxrdy);
 
@@ -198,6 +229,9 @@ send_secondary_console_msg(char *str, int cpuid)
 	printk("Processor %x not ready\n", cpuid);
 }
 
+/*
+ * A secondary console wants to send a message.  Receive it.
+ */
 static void
 recv_secondary_console_msg(void)
 {
@@ -248,6 +282,9 @@ recv_secondary_console_msg(void)
 	hwrpb->txrdy = 0;
 }
 
+/*
+ * Convince the console to have a secondary cpu begin execution.
+ */
 static int __cpuinit
 secondary_cpu_start(int cpuid, struct task_struct *idle)
 {
@@ -262,6 +299,10 @@ secondary_cpu_start(int cpuid, struct task_struct *idle)
 	hwpcb = (struct pcb_struct *) cpu->hwpcb;
 	ipcb = &task_thread_info(idle)->pcb;
 
+	/* Initialize the CPU's HWPCB to something just good enough for
+	   us to get started.  Immediately after starting, we'll swpctx
+	   to the target idle task's pcb.  Reuse the stack in the mean
+	   time.  Precalculate the target PCBB.  */
 	hwpcb->ksp = (unsigned long)ipcb + sizeof(union thread_union) - 16;
 	hwpcb->usp = 0;
 	hwpcb->ptbr = ipcb->ptbr;
@@ -278,22 +319,25 @@ secondary_cpu_start(int cpuid, struct task_struct *idle)
 	DBGS(("Starting secondary cpu %d: state 0x%lx pal_flags 0x%lx\n",
 	      cpuid, idle->state, ipcb->flags));
 
-	
+	/* Setup HWRPB fields that SRM uses to activate secondary CPU */
 	hwrpb->CPU_restart = __smp_callin;
 	hwrpb->CPU_restart_data = (unsigned long) __smp_callin;
 
-	
+	/* Recalculate and update the HWRPB checksum */
 	hwrpb_update_checksum(hwrpb);
 
+	/*
+	 * Send a "start" command to the specified processor.
+	 */
 
-	
-	cpu->flags |= 0x22;	
-	cpu->flags &= ~1;	
+	/* SRM III 3.4.1.3 */
+	cpu->flags |= 0x22;	/* turn on Context Valid and Restart Capable */
+	cpu->flags &= ~1;	/* turn off Bootstrap In Progress */
 	wmb();
 
 	send_secondary_console_msg("START\r\n", cpuid);
 
-	
+	/* Wait 10 seconds for an ACK from the console.  */
 	timeout = jiffies + 10*HZ;
 	while (time_before(jiffies, timeout)) {
 		if (cpu->flags & 1)
@@ -309,12 +353,21 @@ secondary_cpu_start(int cpuid, struct task_struct *idle)
 	return 0;
 }
 
+/*
+ * Bring one cpu online.
+ */
 static int __cpuinit
 smp_boot_one_cpu(int cpuid)
 {
 	struct task_struct *idle;
 	unsigned long timeout;
 
+	/* Cook up an idler for this guy.  Note that the address we
+	   give to kernel_thread is irrelevant -- it's going to start
+	   where HWRPB.CPU_restart says to start.  But this gets all
+	   the other task-y sort of data structures set up like we
+	   wish.  We can't use kernel_thread since we must avoid
+	   rescheduling the child.  */
 	idle = fork_idle(cpuid);
 	if (IS_ERR(idle))
 		panic("failed fork for CPU %d", cpuid);
@@ -322,17 +375,19 @@ smp_boot_one_cpu(int cpuid)
 	DBGS(("smp_boot_one_cpu: CPU %d state 0x%lx flags 0x%lx\n",
 	      cpuid, idle->state, idle->flags));
 
-	
+	/* Signal the secondary to wait a moment.  */
 	smp_secondary_alive = -1;
 
-	
+	/* Whirrr, whirrr, whirrrrrrrrr... */
 	if (secondary_cpu_start(cpuid, idle))
 		return -1;
 
-	
+	/* Notify the secondary CPU it can run calibrate_delay.  */
 	mb();
 	smp_secondary_alive = 0;
 
+	/* We've been acked by the console; wait one second for
+	   the task to start up for real.  */
 	timeout = jiffies + 1*HZ;
 	while (time_before(jiffies, timeout)) {
 		if (smp_secondary_alive == 1)
@@ -341,16 +396,20 @@ smp_boot_one_cpu(int cpuid)
 		barrier();
 	}
 
-	
+	/* We failed to boot the CPU.  */
 
 	printk(KERN_ERR "SMP: Processor %d is stuck.\n", cpuid);
 	return -1;
 
  alive:
-	
+	/* Another "Red Snapper". */
 	return 0;
 }
 
+/*
+ * Called from setup_arch.  Detect an SMP system and which processors
+ * are present.
+ */
 void __init
 setup_smp(void)
 {
@@ -395,10 +454,13 @@ setup_smp(void)
 	       smp_num_probed, cpumask_bits(cpu_present_mask)[0]);
 }
 
+/*
+ * Called by smp_init prepare the secondaries
+ */
 void __init
 smp_prepare_cpus(unsigned int max_cpus)
 {
-	
+	/* Take care of some initial bookkeeping.  */
 	memset(ipi_data, 0, sizeof(ipi_data));
 
 	current_thread_info()->cpu = boot_cpuid;
@@ -406,7 +468,7 @@ smp_prepare_cpus(unsigned int max_cpus)
 	smp_store_cpu_info(boot_cpuid);
 	smp_setup_percpu_timer(boot_cpuid);
 
-	
+	/* Nothing to do on a UP box, or when told not to.  */
 	if (smp_num_probed == 1 || max_cpus == 0) {
 		init_cpu_possible(cpumask_of(boot_cpuid));
 		init_cpu_present(cpumask_of(boot_cpuid));
@@ -460,10 +522,13 @@ smp_percpu_timer_interrupt(struct pt_regs *regs)
 
 	old_regs = set_irq_regs(regs);
 
-	
+	/* Record kernel PC.  */
 	profile_tick(CPU_PROFILING);
 
 	if (!--data->prof_counter) {
+		/* We need to make like a normal interrupt -- otherwise
+		   timer interrupts ignore the global interrupt lock,
+		   which would be a Bad Thing.  */
 		irq_enter();
 
 		update_process_times(user);
@@ -508,9 +573,9 @@ handle_ipi(struct pt_regs *regs)
 	      this_cpu, *pending_ipis, regs->pc));
 #endif
 
-	mb();	
+	mb();	/* Order interrupt and bit testing. */
 	while ((ops = xchg(pending_ipis, 0)) != 0) {
-	  mb();	
+	  mb();	/* Order bit clearing and data access. */
 	  do {
 		unsigned long which;
 
@@ -541,7 +606,7 @@ handle_ipi(struct pt_regs *regs)
 		}
 	  } while (ops);
 
-	  mb();	
+	  mb();	/* Order data access and bit testing. */
 	}
 
 	cpu_data[this_cpu].ipi_count++;
@@ -593,7 +658,7 @@ ipi_imb(void *ignored)
 void
 smp_imb(void)
 {
-	
+	/* Must wait other processors to flush their icache before continue. */
 	if (on_each_cpu(ipi_imb, NULL, 1))
 		printk(KERN_CRIT "smp_imb: timed out\n");
 }
@@ -608,6 +673,8 @@ ipi_flush_tlb_all(void *ignored)
 void
 flush_tlb_all(void)
 {
+	/* Although we don't have any data to pass, we do want to
+	   synchronize with the other processors.  */
 	if (on_each_cpu(ipi_flush_tlb_all, NULL, 1)) {
 		printk(KERN_CRIT "flush_tlb_all: timed out\n");
 	}
@@ -709,7 +776,7 @@ EXPORT_SYMBOL(flush_tlb_page);
 void
 flush_tlb_range(struct vm_area_struct *vma, unsigned long start, unsigned long end)
 {
-	
+	/* On the Alpha we always flush the whole user tlb.  */
 	flush_tlb_mm(vma->vm_mm);
 }
 EXPORT_SYMBOL(flush_tlb_range);

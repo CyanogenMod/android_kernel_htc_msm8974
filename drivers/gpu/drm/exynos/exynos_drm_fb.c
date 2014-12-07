@@ -37,6 +37,12 @@
 
 #define to_exynos_fb(x)	container_of(x, struct exynos_drm_fb, fb)
 
+/*
+ * exynos specific framebuffer structure.
+ *
+ * @fb: drm framebuffer obejct.
+ * @exynos_gem_obj: array of exynos specific gem object containing a gem object.
+ */
 struct exynos_drm_fb {
 	struct drm_framebuffer		fb;
 	struct exynos_drm_gem_obj	*exynos_gem_obj[MAX_FB_BUFFER];
@@ -73,7 +79,7 @@ static int exynos_drm_fb_dirty(struct drm_framebuffer *fb,
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO */
 
 	return 0;
 }
@@ -195,6 +201,11 @@ void exynos_drm_mode_config_init(struct drm_device *dev)
 	dev->mode_config.min_width = 0;
 	dev->mode_config.min_height = 0;
 
+	/*
+	 * set max width and height as default value(4096x4096).
+	 * this value would be used to check framebuffer size limitation
+	 * at drm_mode_addfb().
+	 */
 	dev->mode_config.max_width = 4096;
 	dev->mode_config.max_height = 4096;
 

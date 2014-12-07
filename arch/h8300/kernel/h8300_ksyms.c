@@ -16,8 +16,11 @@
 #include <asm/current.h>
 #include <asm/gpio.h>
 
+//asmlinkage long long __ashrdi3 (long long, int);
+//asmlinkage long long __lshrdi3 (long long, int);
 extern char h8300_debug_device[];
 
+/* platform dependent support */
 
 EXPORT_SYMBOL(strnlen);
 EXPORT_SYMBOL(strrchr);
@@ -34,14 +37,26 @@ EXPORT_SYMBOL(kernel_thread);
 EXPORT_SYMBOL(enable_irq);
 EXPORT_SYMBOL(disable_irq);
 
+/* Networking helper routines. */
 EXPORT_SYMBOL(csum_partial_copy_nocheck);
 
+/* The following are special because they're not called
+   explicitly (the C compiler generates them).  Fortunately,
+   their interface isn't gonna change any time soon now, so
+   it's OK to leave it out of version control.  */
+//EXPORT_SYMBOL(__ashrdi3);
+//EXPORT_SYMBOL(__lshrdi3);
 EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(memset);
 EXPORT_SYMBOL(memcmp);
 EXPORT_SYMBOL(memscan);
 EXPORT_SYMBOL(memmove);
 
+/*
+ * libgcc functions - functions that are used internally by the
+ * compiler...  (prototypes are not correct though, but that
+ * doesn't really matter since they're not versioned).
+ */
 extern void __gcc_bcmp(void);
 extern void __ashldi3(void);
 extern void __ashrdi3(void);
@@ -61,7 +76,7 @@ extern void __udivsi3(void);
 extern void __umoddi3(void);
 extern void __umodsi3(void);
 
-        
+        /* gcc lib functions */
 EXPORT_SYMBOL(__gcc_bcmp);
 EXPORT_SYMBOL(__ashldi3);
 EXPORT_SYMBOL(__ashrdi3);

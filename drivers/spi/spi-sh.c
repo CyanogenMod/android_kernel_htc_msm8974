@@ -42,6 +42,7 @@
 #define SPI_SH_CR4		0x20
 #define SPI_SH_CR5		0x28
 
+/* CR1 */
 #define SPI_SH_TBE		0x80
 #define SPI_SH_TBF		0x40
 #define SPI_SH_RBE		0x20
@@ -51,14 +52,17 @@
 #define SPI_SH_SSD		0x02
 #define SPI_SH_SSA		0x01
 
+/* CR2 */
 #define SPI_SH_RSTF		0x80
 #define SPI_SH_LOOPBK		0x40
 #define SPI_SH_CPOL		0x20
 #define SPI_SH_CPHA		0x10
 #define SPI_SH_L1M0		0x08
 
+/* CR3 */
 #define SPI_SH_MAX_BYTE		0xFF
 
+/* CR4 */
 #define SPI_SH_TBEI		0x80
 #define SPI_SH_TBFI		0x40
 #define SPI_SH_RBEI		0x20
@@ -66,6 +70,7 @@
 #define SPI_SH_WPABRT		0x04
 #define SPI_SH_SSS		0x01
 
+/* CR8 */
 #define SPI_SH_P1L0		0x80
 #define SPI_SH_PP1L0		0x40
 #define SPI_SH_MUXI		0x20
@@ -183,7 +188,7 @@ static int spi_sh_send(struct spi_sh_data *ss, struct spi_message *mesg,
 			spi_sh_write(ss, (unsigned long)data[i], SPI_SH_TBR);
 
 		if (spi_sh_read(ss, SPI_SH_CR4) & SPI_SH_WPABRT) {
-			
+			/* Abort SPI operation */
 			spi_sh_set_bit(ss, SPI_SH_WPABRT, SPI_SH_CR4);
 			retval = -EIO;
 			break;
@@ -275,7 +280,7 @@ static int spi_sh_receive(struct spi_sh_data *ss, struct spi_message *mesg,
 		data += cur_len;
 	}
 
-	
+	/* deassert CS when SPI is receiving. */
 	if (t->len > SPI_SH_MAX_BYTE) {
 		clear_fifo(ss);
 		spi_sh_write(ss, 1, SPI_SH_CR3);
@@ -358,13 +363,13 @@ static int spi_sh_setup(struct spi_device *spi)
 
 	pr_debug("%s: enter\n", __func__);
 
-	spi_sh_write(ss, 0xfe, SPI_SH_CR1);	
-	spi_sh_write(ss, 0x00, SPI_SH_CR1);	
-	spi_sh_write(ss, 0x00, SPI_SH_CR3);	
+	spi_sh_write(ss, 0xfe, SPI_SH_CR1);	/* SPI sycle stop */
+	spi_sh_write(ss, 0x00, SPI_SH_CR1);	/* CR1 init */
+	spi_sh_write(ss, 0x00, SPI_SH_CR3);	/* CR3 init */
 
 	clear_fifo(ss);
 
-	
+	/* 1/8 clock */
 	spi_sh_write(ss, spi_sh_read(ss, SPI_SH_CR2) | 0x07, SPI_SH_CR2);
 	udelay(10);
 
@@ -446,7 +451,7 @@ static int __devinit spi_sh_probe(struct platform_device *pdev)
 	struct spi_sh_data *ss;
 	int ret, irq;
 
-	
+	/* get base addr */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (unlikely(res == NULL)) {
 		dev_err(&pdev->dev, "invalid resource\n");

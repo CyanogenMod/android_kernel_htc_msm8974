@@ -30,10 +30,28 @@
 #include <asm/xen/hypervisor.h>
 #include <asm/xen/xencomm.h>
 
+/* Xencomm notes:
+ * This file defines hypercalls to be used by xencomm.  The hypercalls simply
+ * create inlines or mini descriptors for pointers and then call the raw arch
+ * hypercall xencomm_arch_hypercall_XXX
+ *
+ * If the arch wants to directly use these hypercalls, simply define macros
+ * in asm/xen/hypercall.h, eg:
+ *  #define HYPERVISOR_sched_op xencomm_hypercall_sched_op
+ *
+ * The arch may also define HYPERVISOR_xxx as a function and do more operations
+ * before/after doing the hypercall.
+ *
+ * Note: because only inline or mini descriptors are created these functions
+ * must only be called with in kernel memory parameters.
+ */
 
 int
 xencomm_hypercall_console_io(int cmd, int count, char *str)
 {
+	/* xen early printk uses console io hypercall before
+	 * xencomm initialization. In that case, we just ignore it.
+	 */
 	if (!xencomm_is_initialized())
 		return 0;
 
@@ -62,7 +80,7 @@ xencomm_hypercall_xen_version(int cmd, void *arg)
 
 	switch (cmd) {
 	case XENVER_version:
-		
+		/* do not actually pass an argument */
 		return xencomm_arch_hypercall_xen_version(cmd, 0);
 	case XENVER_extraversion:
 		argsize = sizeof(struct xen_extraversion);
@@ -255,7 +273,7 @@ xencomm_hypercall_multicall(void *call_list, int nr_calls)
 		switch (mce->op) {
 		case __HYPERVISOR_update_va_mapping:
 		case __HYPERVISOR_mmu_update:
-			
+			/* No-op on ia64.  */
 			break;
 		case __HYPERVISOR_grant_table_op:
 			rc = xencommize_grant_table_op

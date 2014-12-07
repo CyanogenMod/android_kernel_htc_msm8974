@@ -55,7 +55,7 @@ extern u64 of_translate_dcr_address(struct device_node *dev,
 				    unsigned int dcr_n,
 				    unsigned int *stride);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_DCR_MMIO_H */
 
 

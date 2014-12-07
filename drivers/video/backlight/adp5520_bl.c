@@ -32,12 +32,16 @@ static int adp5520_bl_set(struct backlight_device *bl, int brightness)
 
 	if (data->pdata->en_ambl_sens) {
 		if ((brightness > 0) && (brightness < ADP5020_MAX_BRIGHTNESS)) {
-			
+			/* Disable Ambient Light auto adjust */
 			ret |= adp5520_clr_bits(master, ADP5520_BL_CONTROL,
 					ADP5520_BL_AUTO_ADJ);
 			ret |= adp5520_write(master, ADP5520_DAYLIGHT_MAX,
 					brightness);
 		} else {
+			/*
+			 * MAX_BRIGHTNESS -> Enable Ambient Light auto adjust
+			 * restore daylight l3 sysfs brightness
+			 */
 			ret |= adp5520_write(master, ADP5520_DAYLIGHT_MAX,
 					 data->cached_daylight_max);
 			ret |= adp5520_set_bits(master, ADP5520_BL_CONTROL,

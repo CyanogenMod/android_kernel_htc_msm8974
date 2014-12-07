@@ -1,3 +1,4 @@
+/* FTP extension for TCP NAT alteration. */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2006 Netfilter Core Team <coreteam@netfilter.org>
@@ -24,6 +25,7 @@ MODULE_AUTHOR("Rusty Russell <rusty@rustcorp.com.au>");
 MODULE_DESCRIPTION("ftp NAT helper");
 MODULE_ALIAS("ip_nat_ftp");
 
+/* FIXME: Time out? --RR */
 
 static int nf_nat_ftp_fmt_cmd(enum nf_ct_ftp_type type,
 			      char *buffer, size_t buflen,
@@ -48,6 +50,8 @@ static int nf_nat_ftp_fmt_cmd(enum nf_ct_ftp_type type,
 	return 0;
 }
 
+/* So, this packet has hit the connection tracking matching code.
+   Mangle it, and change the expectation to match the new version. */
 static unsigned int nf_nat_ftp(struct sk_buff *skb,
 			       enum ip_conntrack_info ctinfo,
 			       enum nf_ct_ftp_type type,
@@ -64,14 +68,16 @@ static unsigned int nf_nat_ftp(struct sk_buff *skb,
 
 	pr_debug("FTP_NAT: type %i, off %u len %u\n", type, matchoff, matchlen);
 
-	
+	/* Connection will come from wherever this packet goes, hence !dir */
 	newip = ct->tuplehash[!dir].tuple.dst.u3.ip;
 	exp->saved_proto.tcp.port = exp->tuple.dst.u.tcp.port;
 	exp->dir = !dir;
 
+	/* When you see the packet, we need to NAT it the same as the
+	 * this one. */
 	exp->expectfn = nf_nat_follow_master;
 
-	
+	/* Try to get same port: if not, try to change it. */
 	for (port = ntohs(exp->saved_proto.tcp.port); port != 0; port++) {
 		int ret;
 
@@ -118,6 +124,7 @@ static int __init nf_nat_ftp_init(void)
 	return 0;
 }
 
+/* Prior to 2.6.11, we had a ports param.  No longer, but don't break users. */
 static int warn_set(const char *val, struct kernel_param *kp)
 {
 	printk(KERN_INFO KBUILD_MODNAME

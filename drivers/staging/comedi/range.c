@@ -38,6 +38,19 @@ EXPORT_SYMBOL(range_unipolar5);
 const struct comedi_lrange range_unknown = { 1, {{0, 1000000, UNIT_none} } };
 EXPORT_SYMBOL(range_unknown);
 
+/*
+	COMEDI_RANGEINFO
+	range information ioctl
+
+	arg:
+		pointer to rangeinfo structure
+
+	reads:
+		range info structure
+
+	writes:
+		n struct comedi_krange structures to rangeinfo->range_ptr
+*/
 int do_rangeinfo_ioctl(struct comedi_device *dev,
 		       struct comedi_rangeinfo __user *arg)
 {
@@ -83,7 +96,7 @@ static int aref_invalid(struct comedi_subdevice *s, unsigned int chanspec)
 {
 	unsigned int aref;
 
-	
+	/*  disable reporting invalid arefs... maybe someday */
 	return 0;
 
 	aref = CR_AREF(chanspec);
@@ -111,6 +124,10 @@ static int aref_invalid(struct comedi_subdevice *s, unsigned int chanspec)
 	return 1;
 }
 
+/*
+   This function checks each element in a channel/gain list to make
+   make sure it is valid.
+*/
 int comedi_check_chanlist(struct comedi_subdevice *s, int n,
 			  unsigned int *chanlist)
 {

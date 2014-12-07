@@ -28,36 +28,36 @@
 #include "../w1_int.h"
 
 
-#define DS1WM_CMD	0x00	
-#define DS1WM_DATA	0x01	
-#define DS1WM_INT	0x02	
-#define DS1WM_INT_EN	0x03	
-#define DS1WM_CLKDIV	0x04	
-#define DS1WM_CNTRL	0x05	
+#define DS1WM_CMD	0x00	/* R/W 4 bits command */
+#define DS1WM_DATA	0x01	/* R/W 8 bits, transmit/receive buffer */
+#define DS1WM_INT	0x02	/* R/W interrupt status */
+#define DS1WM_INT_EN	0x03	/* R/W interrupt enable */
+#define DS1WM_CLKDIV	0x04	/* R/W 5 bits of divisor and pre-scale */
+#define DS1WM_CNTRL	0x05	/* R/W master control register (not used yet) */
 
-#define DS1WM_CMD_1W_RESET  (1 << 0)	
-#define DS1WM_CMD_SRA	    (1 << 1)	
-#define DS1WM_CMD_DQ_OUTPUT (1 << 2)	
-#define DS1WM_CMD_DQ_INPUT  (1 << 3)	
-#define DS1WM_CMD_RST	    (1 << 5)	
-#define DS1WM_CMD_OD	    (1 << 7)	
+#define DS1WM_CMD_1W_RESET  (1 << 0)	/* force reset on 1-wire bus */
+#define DS1WM_CMD_SRA	    (1 << 1)	/* enable Search ROM accelerator mode */
+#define DS1WM_CMD_DQ_OUTPUT (1 << 2)	/* write only - forces bus low */
+#define DS1WM_CMD_DQ_INPUT  (1 << 3)	/* read only - reflects state of bus */
+#define DS1WM_CMD_RST	    (1 << 5)	/* software reset */
+#define DS1WM_CMD_OD	    (1 << 7)	/* overdrive */
 
-#define DS1WM_INT_PD	    (1 << 0)	
-#define DS1WM_INT_PDR	    (1 << 1)	
-#define DS1WM_INT_TBE	    (1 << 2)	
-#define DS1WM_INT_TSRE	    (1 << 3)	
-#define DS1WM_INT_RBF	    (1 << 4)	
-#define DS1WM_INT_RSRF	    (1 << 5)	
+#define DS1WM_INT_PD	    (1 << 0)	/* presence detect */
+#define DS1WM_INT_PDR	    (1 << 1)	/* presence detect result */
+#define DS1WM_INT_TBE	    (1 << 2)	/* tx buffer empty */
+#define DS1WM_INT_TSRE	    (1 << 3)	/* tx shift register empty */
+#define DS1WM_INT_RBF	    (1 << 4)	/* rx buffer full */
+#define DS1WM_INT_RSRF	    (1 << 5)	/* rx shift register full */
 
-#define DS1WM_INTEN_EPD	    (1 << 0)	
-#define DS1WM_INTEN_IAS	    (1 << 1)	
-#define DS1WM_INTEN_ETBE    (1 << 2)	
-#define DS1WM_INTEN_ETMT    (1 << 3)	
-#define DS1WM_INTEN_ERBF    (1 << 4)	
-#define DS1WM_INTEN_ERSRF   (1 << 5)	
-#define DS1WM_INTEN_DQO	    (1 << 6)	
+#define DS1WM_INTEN_EPD	    (1 << 0)	/* enable presence detect int */
+#define DS1WM_INTEN_IAS	    (1 << 1)	/* INTR active state */
+#define DS1WM_INTEN_ETBE    (1 << 2)	/* enable tx buffer empty int */
+#define DS1WM_INTEN_ETMT    (1 << 3)	/* enable tx shift register empty int */
+#define DS1WM_INTEN_ERBF    (1 << 4)	/* enable rx buffer full int */
+#define DS1WM_INTEN_ERSRF   (1 << 5)	/* enable rx shift register full int */
+#define DS1WM_INTEN_DQO	    (1 << 6)	/* enable direct bus driving ops */
 
-#define DS1WM_INTEN_NOT_IAS (~DS1WM_INTEN_IAS)	
+#define DS1WM_INTEN_NOT_IAS (~DS1WM_INTEN_IAS)	/* all but INTR active state */
 
 #define DS1WM_TIMEOUT (HZ * 5)
 
@@ -89,11 +89,13 @@ static struct {
 	{  96000000, 0x95 },
 	{ 112000000, 0x93 },
 	{ 128000000, 0x9c },
+/* you can continue this table, consult the OPERATION - CLOCK DIVISOR
+   section of the ds1wm spec sheet. */
 };
 
 struct ds1wm_data {
 	void     __iomem *map;
-	int      bus_shift; 
+	int      bus_shift; /* # of shifts to calc register offsets */
 	struct platform_device *pdev;
 	const struct mfd_cell   *cell;
 	int      irq;
@@ -102,12 +104,12 @@ struct ds1wm_data {
 	void     *read_complete;
 	void     *write_complete;
 	int      read_error;
-	
+	/* last byte received */
 	u8       read_byte;
-	
-	
+	/* byte to write that makes all intr disabled, */
+	/* considering active_state (IAS) (optimization) */
 	u8       int_en_reg_none;
-	unsigned int reset_recover_delay; 
+	unsigned int reset_recover_delay; /* see ds1wm.h */
 };
 
 static inline void ds1wm_write_register(struct ds1wm_data *ds1wm_data, u32 reg,
@@ -127,13 +129,15 @@ static irqreturn_t ds1wm_isr(int isr, void *data)
 	struct ds1wm_data *ds1wm_data = data;
 	u8 intr;
 	u8 inten = ds1wm_read_register(ds1wm_data, DS1WM_INT_EN);
+	/* if no bits are set in int enable register (except the IAS)
+	than go no further, reading the regs below has side effects */
 	if (!(inten & DS1WM_INTEN_NOT_IAS))
 		return IRQ_NONE;
 
 	ds1wm_write_register(ds1wm_data,
 		DS1WM_INT_EN, ds1wm_data->int_en_reg_none);
 
-	
+	/* this read action clears the INTR and certain flags in ds1wm */
 	intr = ds1wm_read_register(ds1wm_data, DS1WM_INT);
 
 	ds1wm_data->slave_present = (intr & DS1WM_INT_PDR) ? 0 : 1;
@@ -143,7 +147,7 @@ static irqreturn_t ds1wm_isr(int isr, void *data)
 		complete(ds1wm_data->write_complete);
 	}
 	if (intr & DS1WM_INT_RBF) {
-		
+		/* this read clears the RBF flag */
 		ds1wm_data->read_byte = ds1wm_read_register(ds1wm_data,
 		DS1WM_DATA);
 		inten &= ~DS1WM_INTEN_ERBF;
@@ -166,7 +170,7 @@ static int ds1wm_reset(struct ds1wm_data *ds1wm_data)
 
 	ds1wm_data->reset_complete = &reset_done;
 
-	
+	/* enable Presence detect only */
 	ds1wm_write_register(ds1wm_data, DS1WM_INT_EN, DS1WM_INTEN_EPD |
 	ds1wm_data->int_en_reg_none);
 
@@ -266,7 +270,7 @@ static void ds1wm_up(struct ds1wm_data *ds1wm_data)
 	}
 	ds1wm_write_register(ds1wm_data, DS1WM_CLKDIV, divisor);
 
-	
+	/* Let the w1 clock stabilize. */
 	msleep(1);
 
 	ds1wm_reset(ds1wm_data);
@@ -276,7 +280,7 @@ static void ds1wm_down(struct ds1wm_data *ds1wm_data)
 {
 	ds1wm_reset(ds1wm_data);
 
-	
+	/* Disable interrupts. */
 	ds1wm_write_register(ds1wm_data, DS1WM_INT_EN,
 		ds1wm_data->int_en_reg_none);
 
@@ -284,6 +288,8 @@ static void ds1wm_down(struct ds1wm_data *ds1wm_data)
 		ds1wm_data->cell->disable(ds1wm_data->pdev);
 }
 
+/* --------------------------------------------------------------------- */
+/* w1 methods */
 
 static u8 ds1wm_read_byte(void *data)
 {
@@ -314,7 +320,7 @@ static void ds1wm_search(void *data, struct w1_master *master_dev,
 	struct ds1wm_data *ds1wm_data = data;
 	int i;
 	int ms_discrep_bit = -1;
-	u64 r = 0; 
+	u64 r = 0; /* holds the progress of the search */
 	u64 r_prime, d;
 	unsigned slaves_found = 0;
 	unsigned int pass = 0;
@@ -345,8 +351,8 @@ static void ds1wm_search(void *data, struct w1_master *master_dev,
 
 		r_prime = 0;
 		d = 0;
-		
-		
+		/* we work one nibble at a time */
+		/* each nibble is interleaved to form a byte */
 		for (i = 0; i < 16; i++) {
 
 			unsigned char resp, _r, _r_prime, _d;
@@ -357,7 +363,7 @@ static void ds1wm_search(void *data, struct w1_master *master_dev,
 			((_r & 0x4) << 3) |
 			((_r & 0x8) << 4);
 
-			
+			/* writes _r, then reads back: */
 			resp = ds1wm_read(ds1wm_data, _r);
 
 			if (ds1wm_data->read_error) {
@@ -397,7 +403,7 @@ static void ds1wm_search(void *data, struct w1_master *master_dev,
 		if ((r_prime & ((u64)1 << 63)) && (d & ((u64)1 << 63))) {
 			dev_err(&ds1wm_data->pdev->dev,
 				"pass: %d bus error, retrying\n", pass);
-			continue; 
+			continue; /* start over */
 		}
 
 
@@ -408,23 +414,29 @@ static void ds1wm_search(void *data, struct w1_master *master_dev,
 		dev_dbg(&ds1wm_data->pdev->dev,
 			"pass: %d complete, preparing next pass\n", pass);
 
+		/* any discrepency found which we already choose the
+		   '1' branch is now is now irrelevant we reveal the
+		   next branch with this: */
 		d &= ~r;
-		
+		/* find last bit set, i.e. the most signif. bit set */
 		ms_discrep_bit = fls64(d) - 1;
 		dev_dbg(&ds1wm_data->pdev->dev,
 			"pass: %d new d:%0#18llx MS discrep bit:%d\n",
 			pass, d, ms_discrep_bit);
 
+		/* prev_ms_discrep_bit = ms_discrep_bit;
+		   prepare for next ROM search:		    */
 		if (ms_discrep_bit == -1)
 			break;
 
 		r = (r &  ~(~0ull << (ms_discrep_bit))) | 1 << ms_discrep_bit;
-	} 
+	} /* end while true */
 	dev_dbg(&ds1wm_data->pdev->dev,
 		"pass: %d total: %d search done ms d bit pos: %d\n", pass,
 		slaves_found, ms_discrep_bit);
 }
 
+/* --------------------------------------------------------------------- */
 
 static struct w1_bus_master ds1wm_master = {
 	.read_byte  = ds1wm_read_byte,
@@ -460,7 +472,7 @@ static int ds1wm_probe(struct platform_device *pdev)
 		goto err0;
 	}
 
-	
+	/* calculate bus shift from mem resource */
 	ds1wm_data->bus_shift = resource_size(res) >> 3;
 
 	ds1wm_data->pdev = pdev;

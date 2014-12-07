@@ -153,6 +153,7 @@
 #define   G_000E40_GUI_ACTIVE(x)                       (((x) >> 31) & 0x1)
 #define   C_000E40_GUI_ACTIVE                          0x7FFFFFFF
 
+/* CLK registers */
 #define R_00000D_SCLK_CNTL                           0x00000D
 #define   S_00000D_SCLK_SRC_SEL(x)                     (((x) & 0x7) << 0)
 #define   G_00000D_SCLK_SRC_SEL(x)                     (((x) >> 0) & 0x7)

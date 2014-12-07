@@ -37,13 +37,13 @@
 #define INT51X1_VENDOR_ID	0x09e1
 #define INT51X1_PRODUCT_ID	0x5121
 
-#define INT51X1_HEADER_SIZE	2	
+#define INT51X1_HEADER_SIZE	2	/* 2 byte header */
 
 #define PACKET_TYPE_PROMISCUOUS		(1 << 0)
-#define PACKET_TYPE_ALL_MULTICAST	(1 << 1) 
+#define PACKET_TYPE_ALL_MULTICAST	(1 << 1) /* no filter */
 #define PACKET_TYPE_DIRECTED		(1 << 2)
 #define PACKET_TYPE_BROADCAST		(1 << 3)
-#define PACKET_TYPE_MULTICAST		(1 << 4) 
+#define PACKET_TYPE_MULTICAST		(1 << 4) /* filtered */
 
 #define SET_ETHERNET_PACKET_FILTER	0x43
 
@@ -73,9 +73,14 @@ static struct sk_buff *int51x1_tx_fixup(struct usbnet *dev,
 	int need_tail = 0;
 	__le16 *len;
 
-	
+	/* if packet and our header is smaler than 64 pad to 64 (+ ZLP) */
 	if ((pack_with_header_len) < dev->maxpacket)
 		need_tail = dev->maxpacket - pack_with_header_len + 1;
+	/*
+	 * usbnet would send a ZLP if packetlength mod urbsize == 0 for us,
+	 * but we need to know ourself, because this would add to the length
+	 * we send down to the device...
+	 */
 	else if (!(pack_with_header_len % dev->maxpacket))
 		need_tail = 1;
 
@@ -132,7 +137,7 @@ static void int51x1_set_multicast(struct net_device *netdev)
 	u16 filter = PACKET_TYPE_DIRECTED | PACKET_TYPE_BROADCAST;
 
 	if (netdev->flags & IFF_PROMISC) {
-		
+		/* do not expect to see traffic of other PLCs */
 		filter |= PACKET_TYPE_PROMISCUOUS;
 		netdev_info(dev->net, "promiscuous mode enabled\n");
 	} else if (!netdev_mc_empty(netdev) ||
@@ -140,7 +145,7 @@ static void int51x1_set_multicast(struct net_device *netdev)
 		filter |= PACKET_TYPE_ALL_MULTICAST;
 		netdev_dbg(dev->net, "receive all multicast enabled\n");
 	} else {
-		
+		/* ~PROMISCUOUS, ~MULTICAST */
 		netdev_dbg(dev->net, "receive own packets only\n");
 	}
 

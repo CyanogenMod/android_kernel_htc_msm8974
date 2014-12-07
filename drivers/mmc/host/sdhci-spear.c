@@ -33,10 +33,12 @@ struct spear_sdhci {
 	struct sdhci_plat_data *data;
 };
 
+/* sdhci ops */
 static struct sdhci_ops sdhci_pltfm_ops = {
-	
+	/* Nothing to do for now. */
 };
 
+/* gpio card detection interrupt handler */
 static irqreturn_t sdhci_gpio_irq(int irq, void *dev_id)
 {
 	struct platform_device *pdev = dev_id;
@@ -47,20 +49,20 @@ static irqreturn_t sdhci_gpio_irq(int irq, void *dev_id)
 
 	val = gpio_get_value(sdhci->data->card_int_gpio);
 
-	
-	
+	/* val == 1 -> card removed, val == 0 -> card inserted */
+	/* if card removed - set irq for low level, else vice versa */
 	gpio_irq_type = val ? IRQF_TRIGGER_LOW : IRQF_TRIGGER_HIGH;
 	irq_set_irq_type(irq, gpio_irq_type);
 
 	if (sdhci->data->card_power_gpio >= 0) {
 		if (!sdhci->data->power_always_enb) {
-			
+			/* if card inserted, give power, otherwise remove it */
 			val = sdhci->data->power_active_high ? !val : val ;
 			gpio_set_value(sdhci->data->card_power_gpio, val);
 		}
 	}
 
-	
+	/* inform sdhci driver about card insertion/removal */
 	tasklet_schedule(&host->card_tasklet);
 
 	return IRQ_HANDLED;
@@ -96,7 +98,7 @@ static int __devinit sdhci_probe(struct platform_device *pdev)
 		goto err_kzalloc;
 	}
 
-	
+	/* clk enable */
 	sdhci->clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(sdhci->clk)) {
 		ret = PTR_ERR(sdhci->clk);
@@ -110,7 +112,7 @@ static int __devinit sdhci_probe(struct platform_device *pdev)
 		goto err_clk_enb;
 	}
 
-	
+	/* overwrite platform_data */
 	sdhci->data = dev_get_platdata(&pdev->dev);
 	pdev->dev.platform_data = sdhci;
 
@@ -145,6 +147,14 @@ static int __devinit sdhci_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, host);
 
+	/*
+	 * It is optional to use GPIOs for sdhci Power control & sdhci card
+	 * interrupt detection. If sdhci->data is NULL, then use original sdhci
+	 * lines otherwise GPIO lines.
+	 * If GPIO is selected for power control, then power should be disabled
+	 * after card removal and should be enabled when card insertion
+	 * interrupt occurs
+	 */
 	if (!sdhci->data)
 		return 0;
 

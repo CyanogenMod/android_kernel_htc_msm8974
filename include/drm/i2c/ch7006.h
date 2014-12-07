@@ -27,6 +27,15 @@
 #ifndef __DRM_I2C_CH7006_H__
 #define __DRM_I2C_CH7006_H__
 
+/**
+ * struct ch7006_encoder_params
+ *
+ * Describes how the ch7006 is wired up with the GPU. It should be
+ * used as the @params parameter of its @set_config method.
+ *
+ * See "http://www.chrontel.com/pdf/7006.pdf" for their precise
+ * meaning.
+ */
 struct ch7006_encoder_params {
 	enum {
 		CH7006_FORMAT_RGB16 = 0,

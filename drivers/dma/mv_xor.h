@@ -58,6 +58,14 @@ struct mv_xor_shared_private {
 };
 
 
+/**
+ * struct mv_xor_device - internal representation of a XOR device
+ * @pdev: Platform device
+ * @id: HW XOR Device selector
+ * @dma_desc_pool: base of DMA descriptor region (DMA address)
+ * @dma_desc_pool_virt: base of DMA descriptor region (CPU address)
+ * @common: embedded struct dma_device
+ */
 struct mv_xor_device {
 	struct platform_device		*pdev;
 	int				id;
@@ -67,9 +75,24 @@ struct mv_xor_device {
 	struct mv_xor_shared_private	*shared;
 };
 
+/**
+ * struct mv_xor_chan - internal representation of a XOR channel
+ * @pending: allows batching of hardware operations
+ * @lock: serializes enqueue/dequeue operations to the descriptors pool
+ * @mmr_base: memory mapped register base
+ * @idx: the index of the xor channel
+ * @chain: device chain view of the descriptors
+ * @completed_slots: slots completed by HW but still need to be acked
+ * @device: parent device
+ * @common: common dmaengine channel object members
+ * @last_used: place holder for allocation to continue from where it left off
+ * @all_slots: complete domain of slots usable by the channel
+ * @slots_allocated: records the actual size of the descriptor slot pool
+ * @irq_tasklet: bottom half where mv_xor_slot_cleanup runs
+ */
 struct mv_xor_chan {
 	int			pending;
-	spinlock_t		lock; 
+	spinlock_t		lock; /* protects the descriptor slot pool */
 	void __iomem		*mmr_base;
 	unsigned int		idx;
 	enum dma_transaction_type	current_type;
@@ -87,6 +110,24 @@ struct mv_xor_chan {
 #endif
 };
 
+/**
+ * struct mv_xor_desc_slot - software descriptor
+ * @slot_node: node on the mv_xor_chan.all_slots list
+ * @chain_node: node on the mv_xor_chan.chain list
+ * @completed_node: node on the mv_xor_chan.completed_slots list
+ * @hw_desc: virtual address of the hardware descriptor chain
+ * @phys: hardware address of the hardware descriptor chain
+ * @group_head: first operation in a transaction
+ * @slot_cnt: total slots used in an transaction (group of operations)
+ * @slots_per_op: number of slots per operation
+ * @idx: pool index
+ * @unmap_src_cnt: number of xor sources
+ * @unmap_len: transaction bytecount
+ * @tx_list: list of slots that make up a multi-descriptor transaction
+ * @async_tx: support for the async_tx api
+ * @xor_check_result: result of zero sum
+ * @crc32_result: result crc calculation
+ */
 struct mv_xor_desc_slot {
 	struct list_head	slot_node;
 	struct list_head	chain_node;
@@ -112,14 +153,15 @@ struct mv_xor_desc_slot {
 #endif
 };
 
+/* This structure describes XOR descriptor size 64bytes	*/
 struct mv_xor_desc {
-	u32 status;		
-	u32 crc32_result;	
-	u32 desc_command;	
-	u32 phy_next_desc;	
-	u32 byte_count;		
-	u32 phy_dest_addr;	
-	u32 phy_src_addr[8];	
+	u32 status;		/* descriptor execution status */
+	u32 crc32_result;	/* result of CRC-32 calculation */
+	u32 desc_command;	/* type of operation to be carried out */
+	u32 phy_next_desc;	/* next descriptor address pointer */
+	u32 byte_count;		/* size of src/dst blocks in bytes */
+	u32 phy_dest_addr;	/* destination block address */
+	u32 phy_src_addr[8];	/* source block addresses */
 	u32 reserved0;
 	u32 reserved1;
 };

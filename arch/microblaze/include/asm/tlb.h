@@ -22,4 +22,4 @@
 #define __tlb_remove_tlb_entry(tlb, pte, address) do { } while (0)
 #endif
 
-#endif 
+#endif /* _ASM_MICROBLAZE_TLB_H */

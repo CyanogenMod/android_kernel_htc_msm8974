@@ -31,6 +31,20 @@
 
 struct nilfs_root;
 
+/**
+ * struct nilfs_recovery_info - Recovery information
+ * @ri_need_recovery: Recovery status
+ * @ri_super_root: Block number of the last super root
+ * @ri_ri_cno: Number of the last checkpoint
+ * @ri_lsegs_start: Region for roll-forwarding (start block number)
+ * @ri_lsegs_end: Region for roll-forwarding (end block number)
+ * @ri_lseg_start_seq: Sequence value of the segment at ri_lsegs_start
+ * @ri_used_segments: List of segments to be mark active
+ * @ri_pseg_start: Block number of the last partial segment
+ * @ri_seq: Sequence number on the last partial segment
+ * @ri_segnum: Segment number on the last partial segment
+ * @ri_nextnum: Next segment number on the last partial segment
+ */
 struct nilfs_recovery_info {
 	int			ri_need_recovery;
 	sector_t		ri_super_root;
@@ -46,9 +60,17 @@ struct nilfs_recovery_info {
 	__u64			ri_nextnum;
 };
 
-#define NILFS_RECOVERY_SR_UPDATED	 1  
-#define NILFS_RECOVERY_ROLLFORWARD_DONE	 2  
+/* ri_need_recovery */
+#define NILFS_RECOVERY_SR_UPDATED	 1  /* The super root was updated */
+#define NILFS_RECOVERY_ROLLFORWARD_DONE	 2  /* Rollforward was carried out */
 
+/**
+ * struct nilfs_cstage - Context of collection stage
+ * @scnt: Stage count
+ * @flags: State flags
+ * @dirty_file_ptr: Pointer on dirty_files list, or inode of a target file
+ * @gc_inode_ptr: Pointer on the list of gc-inodes
+ */
 struct nilfs_cstage {
 	int			scnt;
 	unsigned		flags;
@@ -60,7 +82,7 @@ struct nilfs_segment_buffer;
 
 struct nilfs_segsum_pointer {
 	struct buffer_head     *bh;
-	unsigned		offset; 
+	unsigned		offset; /* offset in bytes */
 };
 
 /**
@@ -121,7 +143,7 @@ struct nilfs_sc_info {
 	loff_t			sc_dsync_start;
 	loff_t			sc_dsync_end;
 
-	
+	/* Segment buffers */
 	struct list_head	sc_segbufs;
 	struct list_head	sc_write_logs;
 	unsigned long		sc_segbuf_nblocks;
@@ -153,33 +175,53 @@ struct nilfs_sc_info {
 	int			sc_sync;
 	unsigned long		sc_interval;
 	unsigned long		sc_mjcp_freq;
-	unsigned long		sc_lseg_stime;	
+	unsigned long		sc_lseg_stime;	/* in 1/HZ seconds */
 	unsigned long		sc_watermark;
 
 	struct timer_list	sc_timer;
 	struct task_struct     *sc_task;
 };
 
+/* sc_flags */
 enum {
-	NILFS_SC_DIRTY,		
-	NILFS_SC_UNCLOSED,	
-	NILFS_SC_SUPER_ROOT,	
-	NILFS_SC_PRIOR_FLUSH,	
-	NILFS_SC_HAVE_DELTA,	
+	NILFS_SC_DIRTY,		/* One or more dirty meta-data blocks exist */
+	NILFS_SC_UNCLOSED,	/* Logical segment is not closed */
+	NILFS_SC_SUPER_ROOT,	/* The latest segment has a super root */
+	NILFS_SC_PRIOR_FLUSH,	/* Requesting immediate flush without making a
+				   checkpoint */
+	NILFS_SC_HAVE_DELTA,	/* Next checkpoint will have update of files
+				   other than DAT, cpfile, sufile, or files
+				   moved by GC */
 };
 
-#define NILFS_SEGCTOR_QUIT	    0x0001  
-#define NILFS_SEGCTOR_COMMIT	    0x0004  
+/* sc_state */
+#define NILFS_SEGCTOR_QUIT	    0x0001  /* segctord is being destroyed */
+#define NILFS_SEGCTOR_COMMIT	    0x0004  /* committed transaction exists */
 
-#define NILFS_SC_CLEANUP_RETRY	    3  
+/*
+ * Constant parameters
+ */
+#define NILFS_SC_CLEANUP_RETRY	    3  /* Retry count of construction when
+					  destroying segctord */
 
-#define NILFS_SC_DEFAULT_TIMEOUT    5   
-#define NILFS_SC_DEFAULT_SR_FREQ    30  
+/*
+ * Default values of timeout, in seconds.
+ */
+#define NILFS_SC_DEFAULT_TIMEOUT    5   /* Timeout value of dirty blocks.
+					   It triggers construction of a
+					   logical segment with a super root */
+#define NILFS_SC_DEFAULT_SR_FREQ    30  /* Maximum frequency of super root
+					   creation */
 
+/*
+ * The default threshold amount of data, in block counts.
+ */
 #define NILFS_SC_DEFAULT_WATERMARK  3600
 
+/* super.c */
 extern struct kmem_cache *nilfs_transaction_cachep;
 
+/* segment.c */
 extern void nilfs_relax_pressure_in_lock(struct super_block *);
 
 extern int nilfs_construct_segment(struct super_block *);
@@ -192,6 +234,7 @@ extern int nilfs_clean_segments(struct super_block *, struct nilfs_argv *,
 int nilfs_attach_log_writer(struct super_block *sb, struct nilfs_root *root);
 void nilfs_detach_log_writer(struct super_block *sb);
 
+/* recovery.c */
 extern int nilfs_read_super_root_block(struct the_nilfs *, sector_t,
 				       struct buffer_head **, int);
 extern int nilfs_search_super_root(struct the_nilfs *,
@@ -200,4 +243,4 @@ int nilfs_salvage_orphan_logs(struct the_nilfs *nilfs, struct super_block *sb,
 			      struct nilfs_recovery_info *ri);
 extern void nilfs_dispose_segment_list(struct list_head *);
 
-#endif 
+#endif /* _NILFS_SEGMENT_H */

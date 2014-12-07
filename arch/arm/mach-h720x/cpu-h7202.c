@@ -101,6 +101,10 @@ static struct platform_device *devices[] __initdata = {
 	&serial_device,
 };
 
+/* Although we have two interrupt lines for the timers, we only have one
+ * status register which clears all pending timer interrupts on reading. So
+ * we have to handle all timer interrupts in one place.
+ */
 static void
 h7202_timerx_demux_handler(unsigned int irq_unused, struct irq_desc *desc)
 {
@@ -124,6 +128,9 @@ h7202_timerx_demux_handler(unsigned int irq_unused, struct irq_desc *desc)
 	}
 }
 
+/*
+ * Timer interrupt handler
+ */
 static irqreturn_t
 h7202_timer_interrupt(int irq, void *dev_id)
 {
@@ -131,6 +138,9 @@ h7202_timer_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * mask multiplexed timer IRQs
+ */
 static void inline __mask_timerx_irq(unsigned int irq)
 {
 	unsigned int bit;
@@ -143,6 +153,9 @@ static void inline mask_timerx_irq(struct irq_data *d)
 	__mask_timerx_irq(d->irq);
 }
 
+/*
+ * unmask multiplexed timer IRQs
+ */
 static void inline unmask_timerx_irq(struct irq_data *d)
 {
 	unsigned int bit;
@@ -162,6 +175,9 @@ static struct irqaction h7202_timer_irq = {
 	.handler	= h7202_timer_interrupt,
 };
 
+/*
+ * Setup TIMER0 as system timer
+ */
 void __init h7202_init_time(void)
 {
 	CPU_REG (TIMER_VIRT, TM0_PERIOD) = LATCH;
@@ -197,7 +213,7 @@ void __init h7202_init_irq (void)
 
 void __init init_hw_h7202(void)
 {
-	
+	/* Enable clocks */
 	CPU_REG (PMU_BASE, PMU_PLL_CTRL) |= PLL_2_EN | PLL_1_EN | PLL_3_MUTE;
 
 	CPU_REG (SERIAL0_VIRT, SERIAL_ENABLE) = SERIAL_ENABLE_EN;

@@ -6,6 +6,14 @@
 
 #include "common.h"
 
+/**
+ * tomoyo_check_env_acl - Check permission for environment variable's name.
+ *
+ * @r:   Pointer to "struct tomoyo_request_info".
+ * @ptr: Pointer to "struct tomoyo_acl_info".
+ *
+ * Returns true if granted, false otherwise.
+ */
 static bool tomoyo_check_env_acl(struct tomoyo_request_info *r,
 				 const struct tomoyo_acl_info *ptr)
 {
@@ -15,12 +23,29 @@ static bool tomoyo_check_env_acl(struct tomoyo_request_info *r,
 	return tomoyo_path_matches_pattern(r->param.environ.name, acl->env);
 }
 
+/**
+ * tomoyo_audit_env_log - Audit environment variable name log.
+ *
+ * @r: Pointer to "struct tomoyo_request_info".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_audit_env_log(struct tomoyo_request_info *r)
 {
 	return tomoyo_supervisor(r, "misc env %s\n",
 				 r->param.environ.name->name);
 }
 
+/**
+ * tomoyo_env_perm - Check permission for environment variable's name.
+ *
+ * @r:   Pointer to "struct tomoyo_request_info".
+ * @env: The name of environment variable.
+ *
+ * Returns 0 on success, negative value otherwise.
+ *
+ * Caller holds tomoyo_read_lock().
+ */
 int tomoyo_env_perm(struct tomoyo_request_info *r, const char *env)
 {
 	struct tomoyo_path_info environ;
@@ -39,6 +64,14 @@ int tomoyo_env_perm(struct tomoyo_request_info *r, const char *env)
 	return error;
 }
 
+/**
+ * tomoyo_same_env_acl - Check for duplicated "struct tomoyo_env_acl" entry.
+ *
+ * @a: Pointer to "struct tomoyo_acl_info".
+ * @b: Pointer to "struct tomoyo_acl_info".
+ *
+ * Returns true if @a == @b, false otherwise.
+ */
 static bool tomoyo_same_env_acl(const struct tomoyo_acl_info *a,
 				const struct tomoyo_acl_info *b)
 {
@@ -48,6 +81,15 @@ static bool tomoyo_same_env_acl(const struct tomoyo_acl_info *a,
 	return p1->env == p2->env;
 }
 
+/**
+ * tomoyo_write_env - Write "struct tomoyo_env_acl" list.
+ *
+ * @param: Pointer to "struct tomoyo_acl_param".
+ *
+ * Returns 0 on success, negative value otherwise.
+ *
+ * Caller holds tomoyo_read_lock().
+ */
 static int tomoyo_write_env(struct tomoyo_acl_param *param)
 {
 	struct tomoyo_env_acl e = { .head.type = TOMOYO_TYPE_ENV_ACL };
@@ -65,6 +107,13 @@ static int tomoyo_write_env(struct tomoyo_acl_param *param)
 	return error;
 }
 
+/**
+ * tomoyo_write_misc - Update environment variable list.
+ *
+ * @param: Pointer to "struct tomoyo_acl_param".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 int tomoyo_write_misc(struct tomoyo_acl_param *param)
 {
 	if (tomoyo_str_starts(&param->data, "env "))

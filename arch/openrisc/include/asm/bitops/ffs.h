@@ -29,4 +29,4 @@ static inline int ffs(int x)
 #include <asm-generic/bitops/ffs.h>
 #endif
 
-#endif 
+#endif /* __ASM_OPENRISC_FFS_H */

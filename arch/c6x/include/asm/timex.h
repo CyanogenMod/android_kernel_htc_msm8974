@@ -15,6 +15,7 @@
 
 #define CLOCK_TICK_RATE ((1000 * 1000000UL) / 6)
 
+/* 64-bit timestamp */
 typedef unsigned long long cycles_t;
 
 static inline cycles_t get_cycles(void)
@@ -29,4 +30,4 @@ static inline cycles_t get_cycles(void)
 	return ((cycles_t)h << 32) | l;
 }
 
-#endif 
+#endif /* _ASM_C6X_TIMEX_H */

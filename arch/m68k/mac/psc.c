@@ -1,3 +1,17 @@
+/*
+ *	Apple Peripheral System Controller (PSC)
+ *
+ *	The PSC is used on the AV Macs to control IO functions not handled
+ *	by the VIAs (Ethernet, DSP, SCC).
+ *
+ * TO DO:
+ *
+ * Try to figure out what's going on in pIFR5 and pIFR6. There seem to be
+ * persisant interrupt conditions in those registers and I have no idea what
+ * they are. Granted it doesn't affect since we're not enabling any interrupts
+ * on those levels at the moment, but it would be nice to know. I have a feeling
+ * they aren't actually interrupt lines but data lines (to the DSP?)
+ */
 
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -17,6 +31,9 @@
 int psc_present;
 volatile __u8 *psc;
 
+/*
+ * Debugging dump, used in various places to see what's going on.
+ */
 
 static void psc_debug_dump(void)
 {
@@ -31,6 +48,11 @@ static void psc_debug_dump(void)
 	}
 }
 
+/*
+ * Try to kill all DMA channels on the PSC. Not sure how this his
+ * supposed to work; this is code lifted from macmace.c and then
+ * expanded to cover what I think are the other 7 channels.
+ */
 
 static void psc_dma_die_die_die(void)
 {
@@ -46,6 +68,10 @@ static void psc_dma_die_die_die(void)
 	printk("done!\n");
 }
 
+/*
+ * Initialize the PSC. For now this just involves shutting down all
+ * interrupt sources using the IERs.
+ */
 
 void __init psc_init(void)
 {
@@ -59,6 +85,10 @@ void __init psc_init(void)
 		return;
 	}
 
+	/*
+	 * The PSC is always at the same spot, but using psc
+	 * keeps things consistent with the psc_xxxx functions.
+	 */
 
 	psc = (void *) PSC_BASE;
 	psc_present = 1;
@@ -70,6 +100,9 @@ void __init psc_init(void)
 #ifdef DEBUG_PSC
 	psc_debug_dump();
 #endif
+	/*
+	 * Mask and clear all possible interrupts
+	 */
 
 	for (i = 0x30 ; i < 0x70 ; i += 0x10) {
 		psc_write_byte(pIERbase + i, 0x0F);
@@ -77,6 +110,9 @@ void __init psc_init(void)
 	}
 }
 
+/*
+ * PSC interrupt handler. It's a lot like the VIA interrupt handler.
+ */
 
 static void psc_irq(unsigned int irq, struct irq_desc *desc)
 {
@@ -107,6 +143,9 @@ static void psc_irq(unsigned int irq, struct irq_desc *desc)
 	} while (events >= irq_bit);
 }
 
+/*
+ * Register the PSC interrupt dispatchers for autovector interrupts 3-6.
+ */
 
 void __init psc_register_interrupts(void)
 {

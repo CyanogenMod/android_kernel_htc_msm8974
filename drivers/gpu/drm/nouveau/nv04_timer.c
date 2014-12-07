@@ -13,15 +13,15 @@ nv04_timer_init(struct drm_device *dev)
 	nv_wr32(dev, NV04_PTIMER_INTR_EN_0, 0x00000000);
 	nv_wr32(dev, NV04_PTIMER_INTR_0, 0xFFFFFFFF);
 
-	
+	/* aim for 31.25MHz, which gives us nanosecond timestamps */
 	d = 1000000 / 32;
 
-	
+	/* determine base clock for timer source */
 	if (dev_priv->chipset < 0x40) {
 		n = nouveau_hw_get_clock(dev, PLL_CORE);
 	} else
 	if (dev_priv->chipset == 0x40) {
-		
+		/*XXX: figure this out */
 		n = 0;
 	} else {
 		n = dev_priv->crystal;
@@ -44,7 +44,7 @@ nv04_timer_init(struct drm_device *dev)
 		return 0;
 	}
 
-	
+	/* reduce ratio to acceptable values */
 	while (((n % 5) == 0) && ((d % 5) == 0)) {
 		n /= 5;
 		d /= 5;

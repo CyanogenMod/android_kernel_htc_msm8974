@@ -20,6 +20,16 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: cb_das16_cs
+Description: Computer Boards PC-CARD DAS16/16
+Devices: [ComputerBoards] PC-CARD DAS16/16 (cb_das16_cs), PC-CARD DAS16/16-AO
+Author: ds
+Updated: Mon, 04 Nov 2002 20:04:21 -0800
+Status: experimental
+
+
+*/
 
 #include <linux/interrupt.h>
 #include <linux/slab.h>
@@ -51,7 +61,7 @@ struct das16cs_board {
 };
 static const struct das16cs_board das16cs_boards[] = {
 	{
-	 .device_id = 0x0000,	
+	 .device_id = 0x0000,	/* unknown */
 	 .name = "PC-CARD DAS16/16",
 	 .n_ao_chans = 0,
 	 },
@@ -155,7 +165,7 @@ static int das16cs_attach(struct comedi_device *dev,
 
 	dev_dbg(dev->hw_dev, "comedi%d: cb_das16_cs: attached\n", dev->minor);
 
-	link = cur_dev;		
+	link = cur_dev;		/* XXX hack */
 	if (!link)
 		return -EIO;
 
@@ -190,7 +200,7 @@ static int das16cs_attach(struct comedi_device *dev,
 
 	s = dev->subdevices + 0;
 	dev->read_subdev = s;
-	
+	/* analog input subdevice */
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND | SDF_DIFF | SDF_CMD_READ;
 	s->n_chan = 16;
@@ -202,7 +212,7 @@ static int das16cs_attach(struct comedi_device *dev,
 	s->do_cmdtest = das16cs_ai_cmdtest;
 
 	s = dev->subdevices + 1;
-	
+	/* analog output subdevice */
 	if (thisboard->n_ao_chans) {
 		s->type = COMEDI_SUBD_AO;
 		s->subdev_flags = SDF_WRITABLE;
@@ -214,7 +224,7 @@ static int das16cs_attach(struct comedi_device *dev,
 	}
 
 	s = dev->subdevices + 2;
-	
+	/* digital i/o subdevice */
 	if (1) {
 		s->type = COMEDI_SUBD_DIO;
 		s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
@@ -228,7 +238,7 @@ static int das16cs_attach(struct comedi_device *dev,
 	}
 
 	s = dev->subdevices + 3;
-	
+	/* timer subdevice */
 	if (0) {
 		s->type = COMEDI_SUBD_TIMER;
 		s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
@@ -258,10 +268,14 @@ static int das16cs_detach(struct comedi_device *dev)
 
 static irqreturn_t das16cs_interrupt(int irq, void *d)
 {
-	
+	/* struct comedi_device *dev = d; */
 	return IRQ_HANDLED;
 }
 
+/*
+ * "instructions" read/write data in "one-shot" or "software-triggered"
+ * mode.
+ */
 static int das16cs_ai_rinsn(struct comedi_device *dev,
 			    struct comedi_subdevice *s,
 			    struct comedi_insn *insn, unsigned int *data)
@@ -317,8 +331,14 @@ static int das16cs_ai_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
+	/* cmdtest tests a particular command to see if it is valid.
+	 * Using the cmdtest ioctl, a user can create a valid cmd
+	 * and then have it executes by the cmd ioctl.
+	 *
+	 * cmdtest returns 1,2,3,4 or 0, depending on which tests
+	 * the command passes. */
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -348,8 +368,10 @@ static int das16cs_ai_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
+	/* step 2: make sure trigger sources are unique and
+	 * mutually compatible */
 
-	
+	/* note that mutual compatibility is not an issue here */
 	if (cmd->scan_begin_src != TRIG_TIMER &&
 	    cmd->scan_begin_src != TRIG_EXT)
 		err++;
@@ -361,14 +383,14 @@ static int das16cs_ai_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
 		err++;
 	}
-#define MAX_SPEED	10000	
-#define MIN_SPEED	1000000000	
+#define MAX_SPEED	10000	/* in nanoseconds */
+#define MIN_SPEED	1000000000	/* in nanoseconds */
 
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		if (cmd->scan_begin_arg < MAX_SPEED) {
@@ -380,9 +402,9 @@ static int das16cs_ai_cmdtest(struct comedi_device *dev,
 			err++;
 		}
 	} else {
-		
-		
-		
+		/* external trigger */
+		/* should be level/edge, hi/lo specification here */
+		/* should specify multiple external triggers */
 		if (cmd->scan_begin_arg > 9) {
 			cmd->scan_begin_arg = 9;
 			err++;
@@ -398,8 +420,8 @@ static int das16cs_ai_cmdtest(struct comedi_device *dev,
 			err++;
 		}
 	} else {
-		
-		
+		/* external trigger */
+		/* see above */
 		if (cmd->convert_arg > 9) {
 			cmd->convert_arg = 9;
 			err++;
@@ -416,7 +438,7 @@ static int das16cs_ai_cmdtest(struct comedi_device *dev,
 			err++;
 		}
 	} else {
-		
+		/* TRIG_NONE */
 		if (cmd->stop_arg != 0) {
 			cmd->stop_arg = 0;
 			err++;
@@ -426,7 +448,7 @@ static int das16cs_ai_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		unsigned int div1 = 0, div2 = 0;
@@ -485,23 +507,30 @@ static int das16cs_ao_winsn(struct comedi_device *dev,
 		else
 			status1 |= 0x0008;
 
+/*		printk("0x%04x\n",status1);*/
 		outw(status1, dev->iobase + 4);
 		udelay(1);
 
 		for (bit = 15; bit >= 0; bit--) {
 			int b = (d >> bit) & 0x1;
 			b <<= 1;
+/*			printk("0x%04x\n",status1 | b | 0x0000);*/
 			outw(status1 | b | 0x0000, dev->iobase + 4);
 			udelay(1);
+/*			printk("0x%04x\n",status1 | b | 0x0004);*/
 			outw(status1 | b | 0x0004, dev->iobase + 4);
 			udelay(1);
 		}
+/*		make high both DAC0CS and DAC1CS to load
+		new data and update analog output*/
 		outw(status1 | 0x9, dev->iobase + 4);
 	}
 
 	return i;
 }
 
+/* AO subdevices should have a read insn as well as a write insn.
+ * Usually this means copying a value stored in devpriv. */
 static int das16cs_ao_rinsn(struct comedi_device *dev,
 			    struct comedi_subdevice *s,
 			    struct comedi_insn *insn, unsigned int *data)
@@ -515,6 +544,11 @@ static int das16cs_ao_rinsn(struct comedi_device *dev,
 	return i;
 }
 
+/* DIO devices are slightly special.  Although it is possible to
+ * implement the insn_read/insn_write interface, it is much more
+ * useful to applications if you implement the insn_bits interface.
+ * This allows packed reading/writing of the DIO channels.  The
+ * comedi core can convert between insn_bits and insn_read/write */
 static int das16cs_dio_insn_bits(struct comedi_device *dev,
 				 struct comedi_subdevice *s,
 				 struct comedi_insn *insn, unsigned int *data)
@@ -529,6 +563,8 @@ static int das16cs_dio_insn_bits(struct comedi_device *dev,
 		outw(s->state, dev->iobase + 16);
 	}
 
+	/* on return, data[1] contains the value of the digital
+	 * input and output lines. */
 	data[1] = inw(dev->iobase + 16);
 
 	return 2;
@@ -587,6 +623,7 @@ static int das16cs_timer_insn_config(struct comedi_device *dev,
 	return -EINVAL;
 }
 
+/* PCMCIA stuff */
 
 /*======================================================================
 
@@ -606,10 +643,21 @@ static void das16cs_pcmcia_release(struct pcmcia_device *link);
 static int das16cs_pcmcia_suspend(struct pcmcia_device *p_dev);
 static int das16cs_pcmcia_resume(struct pcmcia_device *p_dev);
 
+/*
+   The attach() and detach() entry points are used to create and destroy
+   "instances" of the driver, where each instance represents everything
+   needed to manage one actual PCMCIA card.
+*/
 
 static int das16cs_pcmcia_attach(struct pcmcia_device *);
 static void das16cs_pcmcia_detach(struct pcmcia_device *);
 
+/*
+   You'll also need to prototype all the functions that will actually
+   be used to talk to your device.  See 'memory_cs' for a good example
+   of a fully self-sufficient driver; the other drivers rely more or
+   less on other parts of the kernel.
+*/
 
 struct local_info_t {
 	struct pcmcia_device *link;
@@ -617,6 +665,17 @@ struct local_info_t {
 	struct bus_operations *bus;
 };
 
+/*======================================================================
+
+    das16cs_pcmcia_attach() creates an "instance" of the driver, allocating
+    local data structures for one device.  The device is registered
+    with Card Services.
+
+    The dev_link structure is initialized, but we don't actually
+    configure the card at this point -- we wait until we receive a
+    card insertion event.
+
+======================================================================*/
 
 static int das16cs_pcmcia_attach(struct pcmcia_device *link)
 {
@@ -624,7 +683,7 @@ static int das16cs_pcmcia_attach(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "das16cs_pcmcia_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(struct local_info_t), GFP_KERNEL);
 	if (!local)
 		return -ENOMEM;
@@ -636,7 +695,7 @@ static int das16cs_pcmcia_attach(struct pcmcia_device *link)
 	das16cs_pcmcia_config(link);
 
 	return 0;
-}				
+}				/* das16cs_pcmcia_attach */
 
 static void das16cs_pcmcia_detach(struct pcmcia_device *link)
 {
@@ -644,9 +703,9 @@ static void das16cs_pcmcia_detach(struct pcmcia_device *link)
 
 	((struct local_info_t *)link->priv)->stop = 1;
 	das16cs_pcmcia_release(link);
-	
+	/* This points to the parent struct local_info_t struct */
 	kfree(link->priv);
-}				
+}				/* das16cs_pcmcia_detach */
 
 
 static int das16cs_pcmcia_config_loop(struct pcmcia_device *p_dev,
@@ -664,7 +723,7 @@ static void das16cs_pcmcia_config(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "das16cs_pcmcia_config\n");
 
-	
+	/* Do we need to allocate an interrupt? */
 	link->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO;
 
 	ret = pcmcia_loop_config(link, das16cs_pcmcia_config_loop, NULL);
@@ -684,23 +743,23 @@ static void das16cs_pcmcia_config(struct pcmcia_device *link)
 
 failed:
 	das16cs_pcmcia_release(link);
-}				
+}				/* das16cs_pcmcia_config */
 
 static void das16cs_pcmcia_release(struct pcmcia_device *link)
 {
 	dev_dbg(&link->dev, "das16cs_pcmcia_release\n");
 	pcmcia_disable_device(link);
-}				
+}				/* das16cs_pcmcia_release */
 
 static int das16cs_pcmcia_suspend(struct pcmcia_device *link)
 {
 	struct local_info_t *local = link->priv;
 
-	
+	/* Mark the device as stopped, to block IO until later */
 	local->stop = 1;
 
 	return 0;
-}				
+}				/* das16cs_pcmcia_suspend */
 
 static int das16cs_pcmcia_resume(struct pcmcia_device *link)
 {
@@ -708,8 +767,9 @@ static int das16cs_pcmcia_resume(struct pcmcia_device *link)
 
 	local->stop = 0;
 	return 0;
-}				
+}				/* das16cs_pcmcia_resume */
 
+/*====================================================================*/
 
 static const struct pcmcia_device_id das16cs_id_table[] = {
 	PCMCIA_DEVICE_MANF_CARD(0x01c5, 0x0039),
@@ -774,4 +834,4 @@ static void __exit driver_das16cs_cleanup_module(void)
 
 module_init(driver_das16cs_init_module);
 module_exit(driver_das16cs_cleanup_module);
-#endif 
+#endif /* CONFIG_PCMCIA */

@@ -1,3 +1,13 @@
+/*
+ * This header is used to share core functionality between the
+ * standalone connection tracking module, and the compatibility layer's use
+ * of connection tracking.
+ *
+ * 16 Dec 2003: Yasuyuki Kozakai @USAGI <yasuyuki.kozakai@toshiba.co.jp>
+ *	- generalize L3 protocol dependent part.
+ *
+ * Derived from include/linux/netfiter_ipv4/ip_conntrack_core.h
+ */
 
 #ifndef _NF_CONNTRACK_CORE_H
 #define _NF_CONNTRACK_CORE_H
@@ -7,6 +17,9 @@
 #include <net/netfilter/nf_conntrack_l4proto.h>
 #include <net/netfilter/nf_conntrack_ecache.h>
 
+/* This header is used to share core functionality between the
+   standalone connection tracking module, and the compatibility layer's use
+   of connection tracking. */
 extern unsigned int nf_conntrack_in(struct net *net,
 				    u_int8_t pf,
 				    unsigned int hooknum,
@@ -34,12 +47,14 @@ nf_ct_invert_tuple(struct nf_conntrack_tuple *inverse,
 		   const struct nf_conntrack_l3proto *l3proto,
 		   const struct nf_conntrack_l4proto *l4proto);
 
+/* Find a connection corresponding to a tuple. */
 extern struct nf_conntrack_tuple_hash *
 nf_conntrack_find_get(struct net *net, u16 zone,
 		      const struct nf_conntrack_tuple *tuple);
 
 extern int __nf_conntrack_confirm(struct sk_buff *skb);
 
+/* Confirm a connection: returns NF_DROP if packet must be dropped. */
 static inline int nf_conntrack_confirm(struct sk_buff *skb)
 {
 	struct nf_conn *ct = (struct nf_conn *)skb->nfct;
@@ -61,4 +76,4 @@ print_tuple(struct seq_file *s, const struct nf_conntrack_tuple *tuple,
 
 extern spinlock_t nf_conntrack_lock ;
 
-#endif 
+#endif /* _NF_CONNTRACK_CORE_H */

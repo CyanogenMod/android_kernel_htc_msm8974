@@ -38,6 +38,7 @@
 #include <asm/sgi/ip22.h>
 #include <asm/i8259.h>
 
+/* I2 has four EISA slots. */
 #define IP22_EISA_MAX_SLOTS	  4
 #define EISA_MAX_IRQ             16
 
@@ -84,7 +85,7 @@ static irqreturn_t ip22_eisa_intr(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
-	
+	/* Oops, Bad Stuff Happened... */
 	printk(KERN_ERR "eisa_irq %d out of bound\n", eisa_irq);
 
 	outb(0x20, EISA_INT2_CTRL);
@@ -121,20 +122,24 @@ int __init ip22_eisa_init(void)
 	printk(KERN_INFO "ISA support compiled in.\n");
 #endif
 
+	/* Warning : BlackMagicAhead(tm).
+	   Please wave your favorite dead chicken over the busses */
 
-	
+	/* First say hello to the EIU */
 	outl(0x0000FFFF, EIU_PREMPT_REG);
 	outl(1, EIU_QUIET_REG);
 	outl(0x40f3c07F, EIU_MODE_REG);
 
-	
+	/* Now be nice to the EISA chipset */
 	outb(1, EISA_EXT_NMI_RESET_CTRL);
-	udelay(50);	
+	udelay(50);	/* Wait long enough for the dust to settle */
 	outb(0, EISA_EXT_NMI_RESET_CTRL);
 	outb(0, EISA_DMA2_WRITE_SINGLE);
 
 	init_i8259_irqs();
 
+	/* Cannot use request_irq because of kmalloc not being ready at such
+	 * an early stage. Yes, I've been bitten... */
 	setup_irq(SGI_EISA_IRQ, &eisa_action);
 
 	EISA_bus = 1;

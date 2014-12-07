@@ -44,6 +44,9 @@ static void rif_check_expire(unsigned long dummy);
 
 #define TR_SR_DEBUG 0
 
+/*
+ *	Each RIF entry we learn is kept this way
+ */
 
 struct rif_cache {
 	unsigned char addr[TR_ALEN];
@@ -57,12 +60,19 @@ struct rif_cache {
 
 #define RIF_TABLE_SIZE 32
 
+/*
+ *	We hash the RIF cache 32 ways. We do after all have to look it
+ *	up a lot.
+ */
 
 static struct rif_cache *rif_table[RIF_TABLE_SIZE];
 
 static DEFINE_SPINLOCK(rif_lock);
 
 
+/*
+ *	Garbage disposal timer.
+ */
 
 static struct timer_list rif_timer;
 
@@ -84,6 +94,10 @@ static inline unsigned long rif_hash(const unsigned char *addr)
 	return x & (RIF_TABLE_SIZE - 1);
 }
 
+/*
+ *	Put the headers on a token ring packet. Token ring source routing
+ *	makes this a little more exciting than on ethernet.
+ */
 
 static int tr_header(struct sk_buff *skb, struct net_device *dev,
 		     unsigned short type,
@@ -92,6 +106,10 @@ static int tr_header(struct sk_buff *skb, struct net_device *dev,
 	struct trh_hdr *trh;
 	int hdr_len;
 
+	/*
+	 * Add the 802.2 SNAP header if IP as the IPv4/IPv6 code calls
+	 * dev->hard_header directly.
+	 */
 	if (type == ETH_P_IP || type == ETH_P_IPV6 || type == ETH_P_ARP)
 	{
 		struct trllc *trllc;
@@ -118,6 +136,9 @@ static int tr_header(struct sk_buff *skb, struct net_device *dev,
 	else
 		memcpy(trh->saddr,dev->dev_addr,dev->addr_len);
 
+	/*
+	 *	Build the destination and then source route the frame
+	 */
 
 	if(daddr)
 	{
@@ -129,6 +150,10 @@ static int tr_header(struct sk_buff *skb, struct net_device *dev,
 	return -hdr_len;
 }
 
+/*
+ *	A neighbour discovery of some species (eg arp) has completed. We
+ *	can now send the packet.
+ */
 
 static int tr_rebuild_header(struct sk_buff *skb)
 {
@@ -136,6 +161,9 @@ static int tr_rebuild_header(struct sk_buff *skb)
 	struct trllc *trllc=(struct trllc *)(skb->data+sizeof(struct trh_hdr));
 	struct net_device *dev = skb->dev;
 
+	/*
+	 *	FIXME: We don't yet support IPv6 over token rings
+	 */
 
 	if(trllc->ethertype != htons(ETH_P_IP)) {
 		printk("tr_rebuild_header: Don't know how to resolve type %04X addresses ?\n", ntohs(trllc->ethertype));
@@ -154,6 +182,11 @@ static int tr_rebuild_header(struct sk_buff *skb)
 	}
 }
 
+/*
+ *	Some of this is a bit hackish. We intercept RIF information
+ *	used for source routing. We also grab IP directly and don't feed
+ *	it via SNAP.
+ */
 
 __be16 tr_type_trans(struct sk_buff *skb, struct net_device *dev)
 {
@@ -194,6 +227,10 @@ __be16 tr_type_trans(struct sk_buff *skb, struct net_device *dev)
 	    (skb->pkt_type != PACKET_MULTICAST))
 		tr_add_rif_info(trh,dev) ;
 
+	/*
+	 * Strip the SNAP header from ARP packets since we don't
+	 * pass them through to the 802.2/SNAP layers.
+	 */
 
 	if (trllc->dsap == EXTENDED_SAP &&
 	    (trllc->ethertype == htons(ETH_P_IP) ||
@@ -207,6 +244,9 @@ __be16 tr_type_trans(struct sk_buff *skb, struct net_device *dev)
 	return htons(ETH_P_TR_802_2);
 }
 
+/*
+ *	We try to do source routing...
+ */
 
 void tr_source_route(struct sk_buff *skb,struct trh_hdr *trh,
 		     struct net_device *dev)
@@ -221,6 +261,9 @@ void tr_source_route(struct sk_buff *skb,struct trh_hdr *trh,
 
 	spin_lock_irqsave(&rif_lock, flags);
 
+	/*
+	 *	Broadcasts are single route as stated in RFC 1042
+	 */
 	if( (!memcmp(&(trh->daddr[0]),&(dev->broadcast[0]),TR_ALEN)) ||
 	    (!memcmp(&(trh->daddr[0]),&(mcast_func_addr[0]), TR_ALEN))  )
 	{
@@ -231,8 +274,14 @@ void tr_source_route(struct sk_buff *skb,struct trh_hdr *trh,
 	else
 	{
 		hash = rif_hash(trh->daddr);
+		/*
+		 *	Walk the hash table and look for an entry
+		 */
 		for(entry=rif_table[hash];entry && memcmp(&(entry->addr[0]),&(trh->daddr[0]),TR_ALEN);entry=entry->next);
 
+		/*
+		 *	If we found an entry we can route the frame.
+		 */
 		if(entry)
 		{
 #if TR_SR_DEBUG
@@ -243,7 +292,7 @@ printk("source routing for %pM\n", trh->daddr);
 				trh->rcf=entry->rcf;
 				memcpy(&trh->rseg[0],&entry->rseg[0],8*sizeof(unsigned short));
 				trh->rcf^=htons(TR_RCF_DIR_BIT);
-				trh->rcf&=htons(0x1fff);	
+				trh->rcf&=htons(0x1fff);	/* Issam Chehab <ichehab@madge1.demon.co.uk> */
 
 				trh->saddr[0]|=TR_RII;
 #if TR_SR_DEBUG
@@ -258,6 +307,11 @@ printk("source routing for %pM\n", trh->daddr);
 		}
 		else
 		{
+			/*
+			 *	Without the information we simply have to shout
+			 *	on the wire. The replies should rapidly clean this
+			 *	situation up.
+			 */
 			trh->rcf=htons((((sizeof(trh->rcf)) << 8) & TR_RCF_LEN_MASK)
 				       | TR_RCF_FRAME2K | TR_RCF_LIMITED_BROADCAST);
 			trh->saddr[0]|=TR_RII;
@@ -267,7 +321,7 @@ printk("source routing for %pM\n", trh->daddr);
 		}
 	}
 
-	
+	/* Compress the RIF here so we don't have to do it in the driver(s) */
 	if (!(trh->saddr[0] & 0x80))
 		slack = 18;
 	else
@@ -279,6 +333,10 @@ printk("source routing for %pM\n", trh->daddr);
 	memmove(skb->data, olddata, sizeof(struct trh_hdr) - slack);
 }
 
+/*
+ *	We have learned some new RIF information for our source
+ *	routing.
+ */
 
 static void tr_add_rif_info(struct trh_hdr *trh, struct net_device *dev)
 {
@@ -290,6 +348,9 @@ static void tr_add_rif_info(struct trh_hdr *trh, struct net_device *dev)
 	spin_lock_irqsave(&rif_lock, flags);
 	saddr0 = trh->saddr[0];
 
+	/*
+	 *	Firstly see if the entry exists
+	 */
 
 	if(trh->saddr[0] & TR_RII)
 	{
@@ -309,6 +370,13 @@ static void tr_add_rif_info(struct trh_hdr *trh, struct net_device *dev)
 		printk("adding rif_entry: addr:%pM rcf:%04X\n",
 		       trh->saddr, ntohs(trh->rcf));
 #endif
+		/*
+		 *	Allocate our new entry. A failure to allocate loses
+		 *	use the information. This is harmless.
+		 *
+		 *	FIXME: We ought to keep some kind of cache size
+		 *	limiting and adjust the timers to suit.
+		 */
 		entry=kmalloc(sizeof(struct rif_cache),GFP_ATOMIC);
 
 		if(!entry)
@@ -335,8 +403,11 @@ static void tr_add_rif_info(struct trh_hdr *trh, struct net_device *dev)
 			entry->local_ring = 1;
 		}
 	}
-	else	
+	else	/* Y. Tahara added */
 	{
+		/*
+		 *	Update existing entries
+		 */
 		if (!entry->local_ring)
 		    if (entry->rcf != (trh->rcf & htons((unsigned short)~TR_RCF_BROADCAST_MASK)) &&
 			 !(trh->rcf & htons(TR_RCF_BROADCAST_MASK)))
@@ -350,10 +421,13 @@ printk("updating rif_entry: addr:%pM rcf:%04X\n",
 		    }
 		entry->last_used=jiffies;
 	}
-	trh->saddr[0]=saddr0; 
+	trh->saddr[0]=saddr0; /* put the routing indicator back for tcpdump */
 	spin_unlock_irqrestore(&rif_lock, flags);
 }
 
+/*
+ *	Scan the cache with a timer and see what we need to throw out.
+ */
 
 static void rif_check_expire(unsigned long dummy)
 {
@@ -388,6 +462,10 @@ static void rif_check_expire(unsigned long dummy)
 
 }
 
+/*
+ *	Generate the /proc/net information for the token ring RIF
+ *	routing.
+ */
 
 #ifdef CONFIG_PROC_FS
 
@@ -520,6 +598,9 @@ static const struct header_ops tr_header_ops = {
 
 static void tr_setup(struct net_device *dev)
 {
+	/*
+	 *	Configure and register
+	 */
 
 	dev->header_ops	= &tr_header_ops;
 
@@ -527,14 +608,25 @@ static void tr_setup(struct net_device *dev)
 	dev->hard_header_len	= TR_HLEN;
 	dev->mtu		= 2000;
 	dev->addr_len		= TR_ALEN;
-	dev->tx_queue_len	= 100;	
+	dev->tx_queue_len	= 100;	/* Long queues on tr */
 
 	memset(dev->broadcast,0xFF, TR_ALEN);
 
-	
+	/* New-style flags. */
 	dev->flags		= IFF_BROADCAST | IFF_MULTICAST ;
 }
 
+/**
+ * alloc_trdev - Register token ring device
+ * @sizeof_priv: Size of additional driver-private structure to be allocated
+ *	for this token ring device
+ *
+ * Fill in the fields of the device structure with token ring-generic values.
+ *
+ * Constructs a new net device, complete with a private data area of
+ * size @sizeof_priv.  A 32-byte (not bit) alignment is enforced for
+ * this private data area.
+ */
 struct net_device *alloc_trdev(int sizeof_priv)
 {
 	return alloc_netdev(sizeof_priv, "tr%d", tr_setup);
@@ -559,6 +651,10 @@ static __initdata struct ctl_path tr_path[] = {
 };
 #endif
 
+/*
+ *	Called during bootup.  We don't actually have to initialise
+ *	too much for this.
+ */
 
 static int __init rif_init(void)
 {

@@ -7,6 +7,9 @@
 #include "maintidi.h"
 #include "man_defs.h"
 
+/*
+  LOCALS
+*/
 #define DBG_MAGIC (0x47114711L)
 
 static void DI_register(void *arg);
@@ -71,18 +74,18 @@ static void diva_maint_trace_notify(void *user_context,
 
 
 typedef struct MSG_QUEUE {
-	dword	Size;		
-	byte	*Base;		
-	byte	*High;		
-	byte	*Head;		
-	byte	*Tail;		
-	byte	*Wrap;		
-	dword	Count;		
+	dword	Size;		/* total size of queue (constant)	*/
+	byte	*Base;		/* lowest address (constant)		*/
+	byte	*High;		/* Base + Size (constant)		*/
+	byte	*Head;		/* first message in queue (if any)	*/
+	byte	*Tail;		/* first free position			*/
+	byte	*Wrap;		/* current wraparound position		*/
+	dword	Count;		/* current no of bytes in queue		*/
 } MSG_QUEUE;
 
 typedef struct MSG_HEAD {
-	volatile dword	Size;		
-#define	MSG_INCOMPLETE	0x8000	
+	volatile dword	Size;		/* size of data following MSG_HEAD	*/
+#define	MSG_INCOMPLETE	0x8000	/* ored to Size until queueCompleteMsg	*/
 } MSG_HEAD;
 
 #define queueCompleteMsg(p) do { ((MSG_HEAD *)p - 1)->Size &= ~MSG_INCOMPLETE; } while (0)
@@ -99,30 +102,37 @@ static void queueInit(MSG_QUEUE *Q, byte *Buffer, dword sizeBuffer) {
 }
 
 static byte *queueAllocMsg(MSG_QUEUE *Q, word size) {
+	/* Allocate 'size' bytes at tail of queue which will be filled later
+	 * directly with callers own message header info and/or message.
+	 * An 'alloced' message is marked incomplete by oring the 'Size' field
+	 * with MSG_INCOMPLETE.
+	 * This must be reset via queueCompleteMsg() after the message is filled.
+	 * As long as a message is marked incomplete queuePeekMsg() will return
+	 * a 'queue empty' condition when it reaches such a message.  */
 
 	MSG_HEAD *Msg;
 	word need = MSG_NEED(size);
 
 	if (Q->Tail == Q->Head) {
 		if (Q->Wrap || need > Q->Size) {
-			return NULL; 
+			return NULL; /* full */
 		}
-		goto alloc; 
+		goto alloc; /* empty */
 	}
 
 	if (Q->Tail > Q->Head) {
-		if (Q->Tail + need <= Q->High) goto alloc; 
+		if (Q->Tail + need <= Q->High) goto alloc; /* append */
 		if (Q->Base + need > Q->Head) {
-			return NULL; 
+			return NULL; /* too much */
 		}
-		
+		/* wraparound the queue (but not the message) */
 		Q->Wrap = Q->Tail;
 		Q->Tail = Q->Base;
 		goto alloc;
 	}
 
 	if (Q->Tail + need > Q->Head) {
-		return NULL; 
+		return NULL; /* too much */
 	}
 
 alloc:
@@ -139,6 +149,7 @@ alloc:
 }
 
 static void queueFreeMsg(MSG_QUEUE *Q) {
+/* Free the message at head of queue */
 
 	word size = ((MSG_HEAD *)Q->Head)->Size & ~MSG_INCOMPLETE;
 
@@ -156,6 +167,9 @@ static void queueFreeMsg(MSG_QUEUE *Q) {
 }
 
 static byte *queuePeekMsg(MSG_QUEUE *Q, word *size) {
+	/* Show the first valid message in queue BUT DON'T free the message.
+	 * After looking on the message contents it can be freed queueFreeMsg()
+	 * or simply remain in message queue.  */
 
 	MSG_HEAD *Msg = (MSG_HEAD *)Q->Head;
 
@@ -168,6 +182,9 @@ static byte *queuePeekMsg(MSG_QUEUE *Q, word *size) {
 	}
 }
 
+/*
+  Message queue header
+*/
 static MSG_QUEUE *dbg_queue;
 static byte *dbg_base;
 static int                 external_dbg_queue;
@@ -178,6 +195,15 @@ static volatile dword      dbg_sequence;
 static dword               start_sec;
 static dword               start_usec;
 
+/*
+  INTERFACE:
+  Initialize run time queue structures.
+  base:    base of the message queue
+  length:  length of the message queue
+  do_init: perfor queue reset
+
+  return:  zero on success, -1 on error
+*/
 int diva_maint_init(byte *base, unsigned long length, int do_init) {
 	if (dbg_queue || (!base) || (length < (4096 * 4))) {
 		return (-1);
@@ -191,11 +217,11 @@ int diva_maint_init(byte *base, unsigned long length, int do_init) {
 
 	diva_os_get_time(&start_sec, &start_usec);
 
-	*(dword *)base  = (dword)DBG_MAGIC; 
+	*(dword *)base  = (dword)DBG_MAGIC; /* Store Magic */
 	base   += sizeof(dword);
 	length -= sizeof(dword);
 
-	*(dword *)base = 2048; 
+	*(dword *)base = 2048; /* Extension Field Length */
 	base   += sizeof(dword);
 	length -= sizeof(dword);
 
@@ -203,11 +229,11 @@ int diva_maint_init(byte *base, unsigned long length, int do_init) {
 	base   += 2048;
 	length -= 2048;
 
-	*(dword *)base = 0; 
+	*(dword *)base = 0; /* Terminate extension */
 	base   += sizeof(dword);
 	length -= sizeof(dword);
 
-	*(void **)base  =  (void *)(base + sizeof(void *)); 
+	*(void **)base  =  (void *)(base + sizeof(void *)); /* Store Base  */
 	base   += sizeof(void *);
 	length -= sizeof(void *);
 
@@ -216,7 +242,7 @@ int diva_maint_init(byte *base, unsigned long length, int do_init) {
 	external_dbg_queue = 0;
 
 	if (!do_init) {
-		external_dbg_queue = 1; 
+		external_dbg_queue = 1; /* memory was located on the external device */
 	}
 
 
@@ -238,6 +264,12 @@ int diva_maint_init(byte *base, unsigned long length, int do_init) {
 	return (0);
 }
 
+/*
+  INTERFACE:
+  Finit at unload time
+  return address of internal queue or zero if queue
+  was external
+*/
 void *diva_maint_finit(void) {
 	void *ret = (void *)dbg_base;
 	int i;
@@ -264,10 +296,19 @@ void *diva_maint_finit(void) {
 	return (ret);
 }
 
+/*
+  INTERFACE:
+  Return amount of messages in debug queue
+*/
 dword diva_dbg_q_length(void) {
 	return (dbg_queue ? queueCount(dbg_queue)	: 0);
 }
 
+/*
+  INTERFACE:
+  Lock message queue and return the pointer to the first
+  entry.
+*/
 diva_dbg_entry_head_t *diva_maint_get_message(word *size,
 					      diva_os_spin_lock_magic_t *old_irql) {
 	diva_dbg_entry_head_t *pmsg = NULL;
@@ -287,6 +328,10 @@ diva_dbg_entry_head_t *diva_maint_get_message(word *size,
 	return (pmsg);
 }
 
+/*
+  INTERFACE:
+  acknowledge last message and unlock queue
+*/
 void diva_maint_ack_message(int do_release,
 			    diva_os_spin_lock_magic_t *old_irql) {
 	if (!dbg_q_busy) {
@@ -300,6 +345,12 @@ void diva_maint_ack_message(int do_release,
 }
 
 
+/*
+  INTERFACE:
+  PRT COMP function used to register
+  with MAINT adapter or log in compatibility
+  mode in case older driver version is connected too
+*/
 void diva_maint_prtComp(char *format, ...) {
 	void    *hDbg;
 	va_list ap;
@@ -309,8 +360,11 @@ void diva_maint_prtComp(char *format, ...) {
 
 	va_start(ap, format);
 
+	/*
+	  register to new log driver functions
+	*/
 	if ((format[0] == 0) && ((unsigned char)format[1] == 255)) {
-		hDbg = va_arg(ap, void *); 
+		hDbg = va_arg(ap, void *); /* ptr to DbgHandle */
 		DI_register(hDbg);
 	}
 
@@ -326,6 +380,9 @@ static void DI_register(void *arg) {
 	diva_os_get_time(&sec, &usec);
 
 	hDbg = (pDbgHandle)arg;
+	/*
+	  Check for bad args, specially for the old obsolete debug handle
+	*/
 	if ((hDbg == NULL) ||
 	    ((hDbg->id == 0) && (((_OldDbgHandle_ *)hDbg)->id == -1)) ||
 	    (hDbg->Registered != 0)) {
@@ -336,18 +393,25 @@ static void DI_register(void *arg) {
 
 	for (id = 1; id < ARRAY_SIZE(clients); id++) {
 		if (clients[id].hDbg == hDbg) {
+			/*
+			  driver already registered
+			*/
 			diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register");
 			return;
 		}
-		if (clients[id].hDbg) { 
+		if (clients[id].hDbg) { /* slot is busy */
 			continue;
 		}
 		free_id = id;
 		if (!strcmp(clients[id].drvName, hDbg->drvName)) {
+			/*
+			  This driver was already registered with this name
+			  and slot is still free - reuse it
+			*/
 			best_id = 1;
 			break;
 		}
-		if (!clients[id].hDbg) { 
+		if (!clients[id].hDbg) { /* slot is busy */
 			break;
 		}
 	}
@@ -358,6 +422,9 @@ static void DI_register(void *arg) {
 		char tmp[256];
 		word size;
 
+		/*
+		  Register new driver with id == free_id
+		*/
 		clients[free_id].hDbg = hDbg;
 		clients[free_id].sec  = sec;
 		clients[free_id].usec = usec;
@@ -381,6 +448,9 @@ static void DI_register(void *arg) {
 		}
 		hDbg->next       = (pDbgHandle)DBG_MAGIC;
 
+		/*
+		  Log driver register, MAINT driver ID is '0'
+		*/
 		len = sprintf(tmp, "DIMAINT - drv # %d = '%s' registered",
 			      free_id, hDbg->drvName);
 
@@ -399,7 +469,7 @@ static void DI_register(void *arg) {
 			pmsg->time_usec   = usec;
 			pmsg->facility    = MSG_TYPE_STRING;
 			pmsg->dli         = DLI_REG;
-			pmsg->drv_id      = 0; 
+			pmsg->drv_id      = 0; /* id 0 - DIMAINT */
 			pmsg->di_cpu      = 0;
 			pmsg->data_length = len + 1;
 
@@ -450,6 +520,9 @@ static void DI_deregister(pDbgHandle hDbg) {
 				clients[i].pmem = NULL;
 			}
 
+			/*
+			  Log driver register, MAINT driver ID is '0'
+			*/
 			len = sprintf(tmp, "DIMAINT - drv # %d = '%s' de-registered",
 				      i, hDbg->drvName);
 
@@ -468,7 +541,7 @@ static void DI_deregister(pDbgHandle hDbg) {
 				pmsg->time_usec   = usec;
 				pmsg->facility    = MSG_TYPE_STRING;
 				pmsg->dli         = DLI_REG;
-				pmsg->drv_id      = 0; 
+				pmsg->drv_id      = 0; /* id 0 - DIMAINT */
 				pmsg->di_cpu      = 0;
 				pmsg->data_length = len + 1;
 
@@ -553,8 +626,8 @@ static void DI_format(int do_lock,
 			pmsg->time_sec    = sec;
 			pmsg->time_usec   = usec;
 			pmsg->facility    = MSG_TYPE_BINARY;
-			pmsg->dli         = type; 
-			pmsg->drv_id      = id;   
+			pmsg->dli         = type; /* DLI_XXX */
+			pmsg->drv_id      = id;   /* driver MAINT id */
 			pmsg->di_cpu      = 0;
 			pmsg->data_length = length;
 			queueCompleteMsg(pmsg);
@@ -591,8 +664,8 @@ static void DI_format(int do_lock,
 			pmsg->time_sec    = sec;
 			pmsg->time_usec   = usec;
 			pmsg->facility    = MSG_TYPE_BINARY;
-			pmsg->dli         = type; 
-			pmsg->drv_id      = id;   
+			pmsg->dli         = type; /* DLI_XXX */
+			pmsg->drv_id      = id;   /* driver MAINT id */
 			pmsg->di_cpu      = 0;
 			pmsg->data_length = length;
 			queueCompleteMsg(pmsg);
@@ -632,8 +705,8 @@ static void DI_format(int do_lock,
 			pmsg->time_sec    = sec;
 			pmsg->time_usec   = usec;
 			pmsg->facility    = MSG_TYPE_STRING;
-			pmsg->dli         = type; 
-			pmsg->drv_id      = id;   
+			pmsg->dli         = type; /* DLI_XXX */
+			pmsg->drv_id      = id;   /* driver MAINT id */
 			pmsg->di_cpu      = 0;
 			pmsg->data_length = length - sizeof(*pmsg);
 
@@ -642,7 +715,7 @@ static void DI_format(int do_lock,
 		}
 		break;
 
-	} 
+	} /* switch type */
 
 
 	if (queueCount(dbg_queue)) {
@@ -654,6 +727,9 @@ static void DI_format(int do_lock,
 	}
 }
 
+/*
+  Write driver ID and driver revision to callers buffer
+*/
 int diva_get_driver_info(dword id, byte *data, int data_length) {
 	diva_os_spin_lock_magic_t old_irql;
 	byte *p = data;
@@ -668,12 +744,12 @@ int diva_get_driver_info(dword id, byte *data, int data_length) {
 
 	if (clients[id].hDbg) {
 		*p++ = 1;
-		*p++ = (byte)clients[id].sec; 
+		*p++ = (byte)clients[id].sec; /* save seconds */
 		*p++ = (byte)(clients[id].sec >>  8);
 		*p++ = (byte)(clients[id].sec >> 16);
 		*p++ = (byte)(clients[id].sec >> 24);
 
-		*p++ = (byte)(clients[id].usec / 1000); 
+		*p++ = (byte)(clients[id].usec / 1000); /* save mseconds */
 		*p++ = (byte)((clients[id].usec / 1000) >>  8);
 		*p++ = (byte)((clients[id].usec / 1000) >> 16);
 		*p++ = (byte)((clients[id].usec / 1000) >> 24);
@@ -779,6 +855,9 @@ static int diva_get_idi_adapter_info(IDI_CALL request, dword *serial, dword *log
 	return (0);
 }
 
+/*
+  Register XDI adapter as MAINT compatible driver
+*/
 void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	dword sec, usec, logical, serial, org_mask;
@@ -815,13 +894,17 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 			diva_os_free(0, pmem);
 			return;
 		}
-		if (clients[id].hDbg) { 
+		if (clients[id].hDbg) { /* slot is busy */
 			continue;
 		}
 		if (free_id < 0) {
 			free_id = id;
 		}
 		if (!strcmp(clients[id].drvName, tmp)) {
+			/*
+			  This driver was already registered with this name
+			  and slot is still free - reuse it
+			*/
 			free_id = id;
 			break;
 		}
@@ -868,6 +951,9 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 									    diva_maint_trace_notify,
 									    diva_maint_error };
 
+		/*
+		  Attach to adapter management interface
+		*/
 		if ((clients[id].pIdiLib =
 		     DivaSTraceLibraryCreateInstance((int)logical, &diva_maint_user_ifc, pmem))) {
 			if (((*(clients[id].pIdiLib->DivaSTraceLibraryStart))(clients[id].pIdiLib->hLib))) {
@@ -890,6 +976,9 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 		return;
 	}
 
+	/*
+	  Log driver register, MAINT driver ID is '0'
+	*/
 	len = sprintf(tmp, "DIMAINT - drv # %d = '%s' registered",
 		      id, clients[id].Dbg.drvName);
 
@@ -908,7 +997,7 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 		pmsg->time_usec   = usec;
 		pmsg->facility    = MSG_TYPE_STRING;
 		pmsg->dli         = DLI_REG;
-		pmsg->drv_id      = 0; 
+		pmsg->drv_id      = 0; /* id 0 - DIMAINT */
 		pmsg->di_cpu      = 0;
 		pmsg->data_length = len + 1;
 
@@ -932,6 +1021,9 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 	diva_set_driver_dbg_mask(id, org_mask);
 }
 
+/*
+  De-Register XDI adapter
+*/
 void diva_mnt_remove_xdi_adapter(const DESCRIPTOR *d) {
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	dword sec, usec;
@@ -961,11 +1053,17 @@ void diva_mnt_remove_xdi_adapter(const DESCRIPTOR *d) {
 			clients[i].hDbg    = NULL;
 			clients[i].request_pending = 0;
 			if (clients[i].dma_handle >= 0) {
+				/*
+				  Free DMA handle
+				*/
 				diva_free_dma_descriptor(clients[i].request, clients[i].dma_handle);
 				clients[i].dma_handle = -1;
 			}
 			clients[i].request = NULL;
 
+			/*
+			  Log driver register, MAINT driver ID is '0'
+			*/
 			len = sprintf(tmp, "DIMAINT - drv # %d = '%s' de-registered",
 				      i, clients[i].Dbg.drvName);
 
@@ -986,7 +1084,7 @@ void diva_mnt_remove_xdi_adapter(const DESCRIPTOR *d) {
 				pmsg->time_usec   = usec;
 				pmsg->facility    = MSG_TYPE_STRING;
 				pmsg->dli         = DLI_REG;
-				pmsg->drv_id      = 0; 
+				pmsg->drv_id      = 0; /* id 0 - DIMAINT */
 				pmsg->di_cpu      = 0;
 				pmsg->data_length = len + 1;
 
@@ -1007,6 +1105,12 @@ void diva_mnt_remove_xdi_adapter(const DESCRIPTOR *d) {
 	}
 }
 
+/* ----------------------------------------------------------------
+   Low level interface for management interface client
+   ---------------------------------------------------------------- */
+/*
+  Return handle to client structure
+*/
 void *SuperTraceOpenAdapter(int AdapterNumber) {
 	int i;
 
@@ -1032,11 +1136,11 @@ int SuperTraceReadRequest(void *AdapterHandle, const char *name, byte *data) {
 		char tmp = 0;
 		word length;
 
-		if (!strcmp(name, "\\")) { 
+		if (!strcmp(name, "\\")) { /* Read ROOT */
 			name = &tmp;
 		}
 		length = SuperTraceCreateReadReq(xdata, name);
-		single_p(xdata, &length, 0); 
+		single_p(xdata, &length, 0); /* End Of Message */
 
 		e->Req        = MAN_READ;
 		e->ReqCh      = 0;
@@ -1151,11 +1255,11 @@ int SuperTraceTraceOnRequest(void *hAdapter, const char *name, byte *data) {
 		char tmp = 0;
 		word length;
 
-		if (!strcmp(name, "\\")) { 
+		if (!strcmp(name, "\\")) { /* Read ROOT */
 			name = &tmp;
 		}
 		length = SuperTraceCreateReadReq(xdata, name);
-		single_p(xdata, &length, 0); 
+		single_p(xdata, &length, 0); /* End Of Message */
 		e->Req          = MAN_EVENT_ON;
 		e->ReqCh        = 0;
 		e->X->PLength   = length;
@@ -1187,7 +1291,7 @@ int SuperTraceWriteVar(void *AdapterHandle,
 		pVar->length += var_length;
 		pVar->value_length = var_length;
 		pVar->type = type;
-		single_p((byte *)pVar, &length, 0); 
+		single_p((byte *)pVar, &length, 0); /* End Of Message */
 
 		e->Req = MAN_WRITE;
 		e->ReqCh = 0;
@@ -1213,7 +1317,7 @@ int SuperTraceExecuteRequest(void *AdapterHandle,
 		word length;
 
 		length = SuperTraceCreateReadReq(xdata, name);
-		single_p(xdata, &length, 0); 
+		single_p(xdata, &length, 0); /* End Of Message */
 
 		e->Req = MAN_EXECUTE;
 		e->ReqCh = 0;
@@ -1236,11 +1340,11 @@ static word SuperTraceCreateReadReq(byte *P, const char *path) {
 
 	*P++ = ESC;
 	plen = P++;
-	*P++ = 0x80; 
-	*P++ = 0x00; 
-	*P++ = 0x00; 
-	*P++ = 0x00; 
-	*P++ = 0x00; 
+	*P++ = 0x80; /* MAN_IE */
+	*P++ = 0x00; /* Type */
+	*P++ = 0x00; /* Attribute */
+	*P++ = 0x00; /* Status */
+	*P++ = 0x00; /* Variable Length */
 	*P++ = var_length;
 	memcpy(P, path, var_length);
 	P += var_length;
@@ -1269,6 +1373,9 @@ static void diva_maint_xdi_cb(ENTITY *e) {
 			diva_mnt_internal_dprintf(0, DLI_ERR, "Trace internal library error");
 		}
 	} else {
+		/*
+		  Process combined management interface indication
+		*/
 		if ((*(pLib->instance.DivaSTraceMessageInput))(&pLib->instance)) {
 			diva_mnt_internal_dprintf(0, DLI_ERR, "Trace internal library error (DMA mode)");
 		}
@@ -1332,6 +1439,9 @@ static void diva_maint_state_change_notify(void *user_context,
 	switch (notify_subject) {
 	case DIVA_SUPER_TRACE_NOTIFY_LINE_CHANGE: {
 		int view = (TraceFilter[0] == 0);
+		/*
+		  Process selective Trace
+		*/
 		if (channel->Line[0] == 'I' && channel->Line[1] == 'd' &&
 		    channel->Line[2] == 'l' && channel->Line[3] == 'e') {
 			if ((TraceFilterIdent == pC->hDbg->id) && (TraceFilterChannel == (int)channel->ChannelNumber)) {
@@ -1346,10 +1456,10 @@ static void diva_maint_state_change_notify(void *user_context,
 		} else if (TraceFilter[0] && (TraceFilterIdent < 0) && !(diva_mnt_cmp_nmbr(&channel->RemoteAddress[0]) &&
 									 diva_mnt_cmp_nmbr(&channel->LocalAddress[0]))) {
 
-			if ((pC->hDbg->dbgMask & DIVA_MGT_DBG_IFC_BCHANNEL) != 0) { 
+			if ((pC->hDbg->dbgMask & DIVA_MGT_DBG_IFC_BCHANNEL) != 0) { /* Activate B-channel trace */
 				(*(hLib->DivaSTraceSetBChannel))(hLib, (int)channel->ChannelNumber, 1);
 			}
-			if ((pC->hDbg->dbgMask & DIVA_MGT_DBG_IFC_AUDIO) != 0) { 
+			if ((pC->hDbg->dbgMask & DIVA_MGT_DBG_IFC_AUDIO) != 0) { /* Activate AudioTap Trace */
 				(*(hLib->DivaSTraceSetAudioTap))(hLib, (int)channel->ChannelNumber, 1);
 			}
 
@@ -1486,6 +1596,9 @@ static void diva_maint_state_change_notify(void *user_context,
 
 	case DIVA_SUPER_TRACE_NOTIFY_STAT_CHANGE:
 		if (pC->hDbg->dbgMask & DIVA_MGT_DBG_IFC_STATISTICS) {
+			/*
+			  Incoming Statistics
+			*/
 			if (channel->pInterfaceStat->inc.Calls) {
 				diva_mnt_internal_dprintf(pC->hDbg->id, DLI_LOG,
 							  "Inc Calls                     =%lu", channel->pInterfaceStat->inc.Calls);
@@ -1519,6 +1632,9 @@ static void diva_maint_state_change_notify(void *user_context,
 							  "Inc Ignored                   =%lu", channel->pInterfaceStat->inc.Ignored);
 			}
 
+			/*
+			  Outgoing Statistics
+			*/
 			if (channel->pInterfaceStat->outg.Calls) {
 				diva_mnt_internal_dprintf(pC->hDbg->id, DLI_LOG,
 							  "Outg Calls                    =%lu", channel->pInterfaceStat->outg.Calls);
@@ -1666,6 +1782,11 @@ static void diva_maint_state_change_notify(void *user_context,
 	}
 }
 
+/*
+  Receive trace information from the Management Interface and store it in the
+  internal trace buffer with MSG_TYPE_MLOG as is, without any filtering.
+  Event Filtering and formatting is done in  Management Interface self.
+*/
 static void diva_maint_trace_notify(void *user_context,
 				    diva_strace_library_interface_t *hLib,
 				    int Adapter,
@@ -1678,6 +1799,9 @@ static void diva_maint_trace_notify(void *user_context,
 	int ch = TraceFilterChannel;
 	int id = TraceFilterIdent;
 
+	/*
+	  Selective trace
+	*/
 	if ((id >= 0) && (ch >= 0) && (id < ARRAY_SIZE(clients)) &&
 	    (clients[id].Dbg.id == (byte)id) && (clients[id].pIdiLib == hLib)) {
 		const char *p = NULL;
@@ -1685,7 +1809,7 @@ static void diva_maint_trace_notify(void *user_context,
 		MI_XLOG_HDR *TrcData = (MI_XLOG_HDR *)xlog_buffer;
 
 		if (Adapter != clients[id].logical) {
-			return; 
+			return; /* Ignore all trace messages from other adapters */
 		}
 
 		if (TrcData->code == 24) {
@@ -1693,6 +1817,10 @@ static void diva_maint_trace_notify(void *user_context,
 			p += 2;
 		}
 
+		/*
+		  All L1 messages start as [dsp,ch], so we can filter this information
+		  and filter out all messages that use different channel
+		*/
 		if (p && p[0] == '[') {
 			if (p[2] == ',') {
 				p += 3;
@@ -1706,13 +1834,13 @@ static void diva_maint_trace_notify(void *user_context,
 					ch_value = ch_value * 10 + p[1] - '0';
 				}
 				if (ch_value != ch) {
-					return; 
+					return; /* Ignore other channels */
 				}
 			}
 		}
 
 	} else if (TraceFilter[0] != 0) {
-		return; 
+		return; /* Ignore trace if trace filter is activated, but idle */
 	}
 
 	diva_os_get_time(&sec, &usec);
@@ -1743,6 +1871,10 @@ static void diva_maint_trace_notify(void *user_context,
 }
 
 
+/*
+  Convert MAINT trace mask to management interface trace mask/work/facility and
+  issue command to management interface
+*/
 static void diva_change_management_debug_mask(diva_maint_client_t *pC, dword old_mask) {
 	if (pC->request && pC->hDbg && pC->pIdiLib) {
 		dword changed = pC->hDbg->dbgMask ^ old_mask;
@@ -1783,6 +1915,9 @@ void diva_mnt_internal_dprintf(dword drv_id, dword type, char *fmt, ...) {
 	va_end(ap);
 }
 
+/*
+  Shutdown all adapters before driver removal
+*/
 int diva_mnt_shutdown_xdi_adapters(void) {
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	int i, fret = 0;
@@ -1797,6 +1932,9 @@ int diva_mnt_shutdown_xdi_adapters(void) {
 
 		if (clients[i].hDbg && clients[i].pIdiLib && clients[i].request) {
 			if ((*(clients[i].pIdiLib->DivaSTraceLibraryStop))(clients[i].pIdiLib) == 1) {
+				/*
+				  Adapter removal complete
+				*/
 				if (clients[i].pIdiLib) {
 					(*(clients[i].pIdiLib->DivaSTraceLibraryFinit))(clients[i].pIdiLib->hLib);
 					clients[i].pIdiLib = NULL;
@@ -1808,6 +1946,9 @@ int diva_mnt_shutdown_xdi_adapters(void) {
 				clients[i].request_pending = 0;
 
 				if (clients[i].dma_handle >= 0) {
+					/*
+					  Free DMA handle
+					*/
 					diva_free_dma_descriptor(clients[i].request, clients[i].dma_handle);
 					clients[i].dma_handle = -1;
 				}
@@ -1836,6 +1977,10 @@ int diva_mnt_shutdown_xdi_adapters(void) {
 	return (fret);
 }
 
+/*
+  Set/Read the trace filter used for selective tracing.
+  Affects B- and Audio Tap trace mask at run time
+*/
 int diva_set_trace_filter(int filter_length, const char *filter) {
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	int i, ch, on, client_b_on, client_atap_on;
@@ -1905,6 +2050,12 @@ static int diva_dbg_cmp_key(const char *ref, const char *key) {
 	return (!*key && !*ref);
 }
 
+/*
+  In case trace filter starts with "C" character then
+  all following characters are interpreted as command.
+  Followings commands are available:
+  - single, trace single call at time, independent from CPN/CiPN
+*/
 static int diva_mnt_cmp_nmbr(const char *nmbr) {
 	const char *ref = &TraceFilter[0];
 	int ref_len = strlen(&TraceFilter[0]), nmbr_len = strlen(nmbr);

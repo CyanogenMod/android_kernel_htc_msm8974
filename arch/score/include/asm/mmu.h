@@ -3,4 +3,4 @@
 
 typedef unsigned long mm_context_t;
 
-#endif 
+#endif /* _ASM_SCORE_MMU_H */

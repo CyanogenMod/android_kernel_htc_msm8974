@@ -33,6 +33,7 @@
 #define mc_printk(level, format, arg...)	\
 	printk(level "mc44s803: " format , ## arg)
 
+/* Writes a single register */
 static int mc44s803_writereg(struct mc44s803_priv *priv, u32 val)
 {
 	u8 buf[3];
@@ -51,6 +52,7 @@ static int mc44s803_writereg(struct mc44s803_priv *priv, u32 val)
 	return 0;
 }
 
+/* Reads a single register */
 static int mc44s803_readreg(struct mc44s803_priv *priv, u8 reg, u32 *val)
 {
 	u32 wval;
@@ -97,6 +99,7 @@ static int mc44s803_init(struct dvb_frontend *fe)
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 
+/* Reset chip */
 	val = MC44S803_REG_SM(MC44S803_REG_RESET, MC44S803_ADDR) |
 	      MC44S803_REG_SM(1, MC44S803_RS);
 
@@ -110,6 +113,7 @@ static int mc44s803_init(struct dvb_frontend *fe)
 	if (err)
 		goto exit;
 
+/* Power Up and Start Osc */
 
 	val = MC44S803_REG_SM(MC44S803_REG_REFOSC, MC44S803_ADDR) |
 	      MC44S803_REG_SM(0xC0, MC44S803_REFOSC) |
@@ -138,6 +142,7 @@ static int mc44s803_init(struct dvb_frontend *fe)
 
 	msleep(20);
 
+/* Setup Mixer */
 
 	val = MC44S803_REG_SM(MC44S803_REG_MIXER, MC44S803_ADDR) |
 	      MC44S803_REG_SM(1, MC44S803_TRI_STATE) |
@@ -147,6 +152,7 @@ static int mc44s803_init(struct dvb_frontend *fe)
 	if (err)
 		goto exit;
 
+/* Setup Cirquit Adjust */
 
 	val = MC44S803_REG_SM(MC44S803_REG_CIRCADJ, MC44S803_ADDR) |
 	      MC44S803_REG_SM(1, MC44S803_G1) |
@@ -174,6 +180,7 @@ static int mc44s803_init(struct dvb_frontend *fe)
 	if (err)
 		goto exit;
 
+/* Setup Digtune */
 
 	val = MC44S803_REG_SM(MC44S803_REG_DIGTUNE, MC44S803_ADDR) |
 	      MC44S803_REG_SM(3, MC44S803_XOD);
@@ -182,6 +189,7 @@ static int mc44s803_init(struct dvb_frontend *fe)
 	if (err)
 		goto exit;
 
+/* Setup AGC */
 
 	val = MC44S803_REG_SM(MC44S803_REG_LNAAGC, MC44S803_ADDR) |
 	      MC44S803_REG_SM(1, MC44S803_AT1) |
@@ -304,6 +312,8 @@ static const struct dvb_tuner_ops mc44s803_tuner_ops = {
 	.get_frequency = mc44s803_get_frequency
 };
 
+/* This functions tries to identify a MC44S803 tuner by reading the ID
+   register. This is hasty. */
 struct dvb_frontend *mc44s803_attach(struct dvb_frontend *fe,
 	 struct i2c_adapter *i2c, struct mc44s803_config *cfg)
 {
@@ -323,7 +333,7 @@ struct dvb_frontend *mc44s803_attach(struct dvb_frontend *fe,
 	priv->fe  = fe;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open i2c_gate */
 
 	ret = mc44s803_readreg(priv, MC44S803_REG_ID, &reg);
 	if (ret)
@@ -344,13 +354,13 @@ struct dvb_frontend *mc44s803_attach(struct dvb_frontend *fe,
 	fe->tuner_priv = priv;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	return fe;
 
 error:
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close i2c_gate */
 
 	kfree(priv);
 	return NULL;

@@ -35,4 +35,4 @@ struct o2hb_disk_heartbeat_block {
 	__le32 hb_dead_ms;
 };
 
-#endif 
+#endif /* _OCFS2_HEARTBEAT_H */

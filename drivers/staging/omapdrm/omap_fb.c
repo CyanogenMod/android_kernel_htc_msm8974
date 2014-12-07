@@ -22,39 +22,44 @@
 #include "drm_crtc.h"
 #include "drm_crtc_helper.h"
 
+/*
+ * framebuffer funcs
+ */
 
+/* per-format info: */
 struct format {
 	enum omap_color_mode dss_format;
 	uint32_t pixel_format;
 	struct {
-		int stride_bpp;           
-		int sub_y;                
+		int stride_bpp;           /* this times width is stride */
+		int sub_y;                /* sub-sample in y dimension */
 	} planes[4];
 	bool yuv;
 };
 
 static const struct format formats[] = {
-	
-	{ OMAP_DSS_COLOR_RGB16,       DRM_FORMAT_RGB565,   {{2, 1}}, false }, 
-	{ OMAP_DSS_COLOR_RGB12U,      DRM_FORMAT_RGBX4444, {{2, 1}}, false }, 
-	{ OMAP_DSS_COLOR_RGBX16,      DRM_FORMAT_XRGB4444, {{2, 1}}, false }, 
-	{ OMAP_DSS_COLOR_RGBA16,      DRM_FORMAT_RGBA4444, {{2, 1}}, false }, 
-	{ OMAP_DSS_COLOR_ARGB16,      DRM_FORMAT_ARGB4444, {{2, 1}}, false }, 
-	{ OMAP_DSS_COLOR_XRGB16_1555, DRM_FORMAT_XRGB1555, {{2, 1}}, false }, 
-	{ OMAP_DSS_COLOR_ARGB16_1555, DRM_FORMAT_ARGB1555, {{2, 1}}, false }, 
-	
-	{ OMAP_DSS_COLOR_RGB24P,      DRM_FORMAT_RGB888,   {{3, 1}}, false }, 
-	
-	{ OMAP_DSS_COLOR_RGBX32,      DRM_FORMAT_RGBX8888, {{4, 1}}, false }, 
-	{ OMAP_DSS_COLOR_RGB24U,      DRM_FORMAT_XRGB8888, {{4, 1}}, false }, 
-	{ OMAP_DSS_COLOR_RGBA32,      DRM_FORMAT_RGBA8888, {{4, 1}}, false }, 
-	{ OMAP_DSS_COLOR_ARGB32,      DRM_FORMAT_ARGB8888, {{4, 1}}, false }, 
-	
+	/* 16bpp [A]RGB: */
+	{ OMAP_DSS_COLOR_RGB16,       DRM_FORMAT_RGB565,   {{2, 1}}, false }, /* RGB16-565 */
+	{ OMAP_DSS_COLOR_RGB12U,      DRM_FORMAT_RGBX4444, {{2, 1}}, false }, /* RGB12x-4444 */
+	{ OMAP_DSS_COLOR_RGBX16,      DRM_FORMAT_XRGB4444, {{2, 1}}, false }, /* xRGB12-4444 */
+	{ OMAP_DSS_COLOR_RGBA16,      DRM_FORMAT_RGBA4444, {{2, 1}}, false }, /* RGBA12-4444 */
+	{ OMAP_DSS_COLOR_ARGB16,      DRM_FORMAT_ARGB4444, {{2, 1}}, false }, /* ARGB16-4444 */
+	{ OMAP_DSS_COLOR_XRGB16_1555, DRM_FORMAT_XRGB1555, {{2, 1}}, false }, /* xRGB15-1555 */
+	{ OMAP_DSS_COLOR_ARGB16_1555, DRM_FORMAT_ARGB1555, {{2, 1}}, false }, /* ARGB16-1555 */
+	/* 24bpp RGB: */
+	{ OMAP_DSS_COLOR_RGB24P,      DRM_FORMAT_RGB888,   {{3, 1}}, false }, /* RGB24-888 */
+	/* 32bpp [A]RGB: */
+	{ OMAP_DSS_COLOR_RGBX32,      DRM_FORMAT_RGBX8888, {{4, 1}}, false }, /* RGBx24-8888 */
+	{ OMAP_DSS_COLOR_RGB24U,      DRM_FORMAT_XRGB8888, {{4, 1}}, false }, /* xRGB24-8888 */
+	{ OMAP_DSS_COLOR_RGBA32,      DRM_FORMAT_RGBA8888, {{4, 1}}, false }, /* RGBA32-8888 */
+	{ OMAP_DSS_COLOR_ARGB32,      DRM_FORMAT_ARGB8888, {{4, 1}}, false }, /* ARGB32-8888 */
+	/* YUV: */
 	{ OMAP_DSS_COLOR_NV12,        DRM_FORMAT_NV12,     {{1, 1}, {1, 2}}, true },
 	{ OMAP_DSS_COLOR_YUV2,        DRM_FORMAT_YUYV,     {{2, 1}}, true },
 	{ OMAP_DSS_COLOR_UYVY,        DRM_FORMAT_UYVY,     {{2, 1}}, true },
 };
 
+/* convert from overlay's pixel formats bitmask to an array of fourcc's */
 uint32_t omap_framebuffer_get_formats(uint32_t *pixel_formats,
 		uint32_t max_formats, enum omap_color_mode supported_modes)
 {
@@ -68,6 +73,7 @@ uint32_t omap_framebuffer_get_formats(uint32_t *pixel_formats,
 	return nformats;
 }
 
+/* per-plane info for the fb: */
 struct plane {
 	struct drm_gem_object *bo;
 	uint32_t pitch;
@@ -131,6 +137,8 @@ static const struct drm_framebuffer_funcs omap_framebuffer_funcs = {
 	.dirty = omap_framebuffer_dirty,
 };
 
+/* update ovl info for scanout, handles cases of multi-planar fb's, etc.
+ */
 void omap_framebuffer_update_scanout(struct drm_framebuffer *fb, int x, int y,
 		struct omap_overlay_info *info)
 {
@@ -158,6 +166,15 @@ void omap_framebuffer_update_scanout(struct drm_framebuffer *fb, int x, int y,
 	}
 }
 
+/* Call for unpin 'a' (if not NULL), and pin 'b' (if not NULL).  Although
+ * buffers to unpin are just just pushed to the unpin fifo so that the
+ * caller can defer unpin until vblank.
+ *
+ * Note if this fails (ie. something went very wrong!), all buffers are
+ * unpinned, and the caller disables the overlay.  We could have tried
+ * to revert back to the previous set of pinned buffers but if things are
+ * hosed there is no guarantee that would succeed.
+ */
 int omap_framebuffer_replace(struct drm_framebuffer *a,
 		struct drm_framebuffer *b, void *arg,
 		void (*unpin)(void *arg, struct drm_gem_object *bo))
@@ -185,7 +202,7 @@ int omap_framebuffer_replace(struct drm_framebuffer *a,
 	}
 
 	if (ret) {
-		
+		/* something went wrong.. unpin what has been pinned */
 		for (i = 0; i < nb; i++) {
 			struct plane *pb = &ofba->planes[i];
 			if (pb->paddr) {
@@ -206,6 +223,9 @@ struct drm_gem_object *omap_framebuffer_bo(struct drm_framebuffer *fb, int p)
 	return omap_fb->planes[p].bo;
 }
 
+/* iterate thru all the connectors, returning ones that are attached
+ * to the same fb..
+ */
 struct drm_connector *omap_framebuffer_get_next_connector(
 		struct drm_framebuffer *fb, struct drm_connector *from)
 {
@@ -230,6 +250,9 @@ struct drm_connector *omap_framebuffer_get_next_connector(
 	return NULL;
 }
 
+/* flush an area of the framebuffer (in case of manual update display that
+ * is not automatically flushed)
+ */
 void omap_framebuffer_flush(struct drm_framebuffer *fb,
 		int x, int y, int w, int h)
 {
@@ -238,8 +261,11 @@ void omap_framebuffer_flush(struct drm_framebuffer *fb,
 	VERB("flush: %d,%d %dx%d, fb=%p", x, y, w, h, fb);
 
 	while ((connector = omap_framebuffer_get_next_connector(fb, connector))) {
-		
+		/* only consider connectors that are part of a chain */
 		if (connector->encoder && connector->encoder->crtc) {
+			/* TODO: maybe this should propagate thru the crtc who
+			 * could do the coordinate translation..
+			 */
 			struct drm_crtc *crtc = connector->encoder->crtc;
 			int cx = max(0, x - crtc->x);
 			int cy = max(0, y - crtc->y);

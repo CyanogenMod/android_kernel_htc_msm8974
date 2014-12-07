@@ -77,6 +77,39 @@
 struct uwb_rccb;
 struct uwb_rceb;
 
+/*
+ * Common firmware upload handlers
+ *
+ * Normally you embed this struct in another one specific to your hw.
+ *
+ * @write	Write to device's memory from buffer.
+ * @read	Read from device's memory to i1480->evt_buf.
+ * @setup	Setup device after basic firmware is uploaded
+ * @wait_init_done
+ *              Wait for the device to send a notification saying init
+ *              is done.
+ * @cmd         FOP for issuing the command to the hardware. The
+ *              command data is contained in i1480->cmd_buf and the size
+ *              is supplied as an argument. The command replied is put
+ *              in i1480->evt_buf and the size in i1480->evt_result (or if
+ *              an error, a < 0 errno code).
+ *
+ * @cmd_buf	Memory buffer used to send commands to the device.
+ *              Allocated by the upper layers i1480_fw_upload().
+ *              Size has to be @buf_size.
+ * @evt_buf	Memory buffer used to place the async notifications
+ *              received by the hw. Allocated by the upper layers
+ *              i1480_fw_upload().
+ *              Size has to be @buf_size.
+ * @cmd_complete
+ *              Low level driver uses this to notify code waiting afor
+ *              an event that the event has arrived and data is in
+ *              i1480->evt_buf (and size/result in i1480->evt_result).
+ * @hw_rev
+ *              Use this value to activate dfu code to support new revisions
+ *              of hardware.  i1480_init() sets this to a default value.
+ *              It should be updated by the USB and PCI code.
+ */
 struct i1480 {
 	struct device *dev;
 
@@ -88,11 +121,11 @@ struct i1480 {
 	int (*cmd)(struct i1480 *, const char *cmd_name, size_t cmd_size);
 	const char *pre_fw_name;
 	const char *mac_fw_name;
-	const char *mac_fw_name_deprecate;	
+	const char *mac_fw_name_deprecate;	/* FIXME: Will go away */
 	const char *phy_fw_name;
 	u8 hw_rev;
 
-	size_t buf_size;	
+	size_t buf_size;	/* size of both evt_buf and cmd_buf */
 	void *evt_buf, *cmd_buf;
 	ssize_t evt_result;
 	struct completion evt_complete;
@@ -115,14 +148,14 @@ extern int i1480_rceb_check(const struct i1480 *,
 			    u8, unsigned);
 
 enum {
-	
+	/* Vendor specific command type */
 	i1480_CET_VS1 = 		0xfd,
-	
+	/* i1480 commands */
 	i1480_CMD_SET_IP_MAS = 		0x000e,
 	i1480_CMD_GET_MAC_PHY_INFO = 	0x0003,
 	i1480_CMD_MPI_WRITE =		0x000f,
 	i1480_CMD_MPI_READ = 		0x0010,
-	
+	/* i1480 events */
 #if i1480_FW > 0x00000302
 	i1480_EVT_CONFIRM = 		0x0002,
 	i1480_EVT_RM_INIT_DONE = 	0x0101,
@@ -158,17 +191,22 @@ struct i1480_rceb {
 } __attribute__((packed));
 
 
+/**
+ * Get MAC & PHY Information confirm event structure
+ *
+ * Confirm event returned by the command.
+ */
 struct i1480_evt_confirm_GMPI {
 #if i1480_FW > 0x00000302
 	struct uwb_rceb rceb;
 	__le16 wParamLength;
 	__le16 status;
-	u8 mac_addr[6];		
+	u8 mac_addr[6];		/* EUI-64 bit IEEE address [still 8 bytes?] */
 	u8 dev_addr[2];
-	__le16 mac_fw_rev;	
+	__le16 mac_fw_rev;	/* major = v >> 8; minor = v & 0xff */
 	u8 hw_rev;
 	u8 phy_vendor;
-	u8 phy_rev;		
+	u8 phy_rev;		/* major v = >> 8; minor = v & 0xff */
 	__le16 mac_caps;
 	u8 phy_caps[3];
 	u8 key_stores;
@@ -177,10 +215,10 @@ struct i1480_evt_confirm_GMPI {
 #else
 	struct uwb_rceb rceb;
 	u8 status;
-	u8 mac_addr[8];         
+	u8 mac_addr[8];         /* EUI-64 bit IEEE address [still 8 bytes?] */
 	u8 dev_addr[2];
-	__le16 mac_fw_rev;      
-	__le16 phy_fw_rev;      
+	__le16 mac_fw_rev;      /* major = v >> 8; minor = v & 0xff */
+	__le16 phy_fw_rev;      /* major v = >> 8; minor = v & 0xff */
 	__le16 mac_caps;
 	u8 phy_caps;
 	u8 key_stores;
@@ -219,4 +257,4 @@ struct i1480_evt_mpi_read {
 } __attribute__((packed));
 
 
-#endif 
+#endif /* #ifndef __i1480_DFU_H__ */

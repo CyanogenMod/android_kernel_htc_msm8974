@@ -73,10 +73,14 @@ struct wmi_block {
 };
 
 
+/*
+ * If the GUID data block is marked as expensive, we must enable and
+ * explicitily disable data collection.
+ */
 #define ACPI_WMI_EXPENSIVE   0x1
-#define ACPI_WMI_METHOD      0x2	
-#define ACPI_WMI_STRING      0x4	
-#define ACPI_WMI_EVENT       0x8	
+#define ACPI_WMI_METHOD      0x2	/* GUID is a method */
+#define ACPI_WMI_STRING      0x4	/* GUID takes & returns a string */
+#define ACPI_WMI_EVENT       0x8	/* GUID is an event */
 
 static bool debug_event;
 module_param(debug_event, bool, 0444);
@@ -110,24 +114,43 @@ static struct acpi_driver acpi_wmi_driver = {
 	},
 };
 
+/*
+ * GUID parsing functions
+ */
 
+/**
+ * wmi_parse_hexbyte - Convert a ASCII hex number to a byte
+ * @src:  Pointer to at least 2 characters to convert.
+ *
+ * Convert a two character ASCII hex string to a number.
+ *
+ * Return:  0-255  Success, the byte was parsed correctly
+ *          -1     Error, an invalid character was supplied
+ */
 static int wmi_parse_hexbyte(const u8 *src)
 {
 	int h;
 	int value;
 
-	
+	/* high part */
 	h = value = hex_to_bin(src[0]);
 	if (value < 0)
 		return -1;
 
-	
+	/* low part */
 	value = hex_to_bin(src[1]);
 	if (value >= 0)
 		return (h << 4) | value;
 	return -1;
 }
 
+/**
+ * wmi_swap_bytes - Rearrange GUID bytes to match GUID binary
+ * @src:   Memory block holding binary GUID (16 bytes)
+ * @dest:  Memory block to hold byte swapped binary GUID (16 bytes)
+ *
+ * Byte swap a binary GUID to match it's real GUID value
+ */
 static void wmi_swap_bytes(u8 *src, u8 *dest)
 {
 	int i;
@@ -144,6 +167,16 @@ static void wmi_swap_bytes(u8 *src, u8 *dest)
 	memcpy(dest + 8, src + 8, 8);
 }
 
+/**
+ * wmi_parse_guid - Convert GUID from ASCII to binary
+ * @src:   36 char string of the form fa50ff2b-f2e8-45de-83fa-65417f2f49ba
+ * @dest:  Memory block to hold binary GUID (16 bytes)
+ *
+ * N.B. The GUID need not be NULL terminated.
+ *
+ * Return:  'true'   @dest contains binary GUID
+ *          'false'  @dest contents are undefined
+ */
 static bool wmi_parse_guid(const u8 *src, u8 *dest)
 {
 	static const int size[] = { 4, 2, 2, 2, 6 };
@@ -164,6 +197,9 @@ static bool wmi_parse_guid(const u8 *src, u8 *dest)
 	return true;
 }
 
+/*
+ * Convert a raw GUID to the ACII string representation
+ */
 static int wmi_gtoa(const char *in, char *out)
 {
 	int i;
@@ -241,6 +277,19 @@ static acpi_status wmi_method_enable(struct wmi_block *wblock, int enable)
 		return AE_OK;
 }
 
+/*
+ * Exported WMI functions
+ */
+/**
+ * wmi_evaluate_method - Evaluate a WMI method
+ * @guid_string: 36 char string of the form fa50ff2b-f2e8-45de-83fa-65417f2f49ba
+ * @instance: Instance index
+ * @method_id: Method ID to call
+ * &in: Buffer containing input for the method call
+ * &out: Empty buffer to return the method results
+ *
+ * Call an ACPI-WMI method
+ */
 acpi_status wmi_evaluate_method(const char *guid_string, u8 instance,
 u32 method_id, const struct acpi_buffer *in, struct acpi_buffer *out)
 {
@@ -291,6 +340,14 @@ u32 method_id, const struct acpi_buffer *in, struct acpi_buffer *out)
 }
 EXPORT_SYMBOL_GPL(wmi_evaluate_method);
 
+/**
+ * wmi_query_block - Return contents of a WMI block
+ * @guid_string: 36 char string of the form fa50ff2b-f2e8-45de-83fa-65417f2f49ba
+ * @instance: Instance index
+ * &out: Empty buffer to return the contents of the data block to
+ *
+ * Return the contents of an ACPI-WMI data block to a buffer
+ */
 acpi_status wmi_query_block(const char *guid_string, u8 instance,
 struct acpi_buffer *out)
 {
@@ -315,7 +372,7 @@ struct acpi_buffer *out)
 	if (block->instance_count < instance)
 		return AE_BAD_PARAMETER;
 
-	
+	/* Check GUID is a data block */
 	if (block->flags & (ACPI_WMI_EVENT | ACPI_WMI_METHOD))
 		return AE_ERROR;
 
@@ -324,6 +381,10 @@ struct acpi_buffer *out)
 	wq_params[0].type = ACPI_TYPE_INTEGER;
 	wq_params[0].integer.value = instance;
 
+	/*
+	 * If ACPI_WMI_EXPENSIVE, call the relevant WCxx method first to
+	 * enable collection.
+	 */
 	if (block->flags & ACPI_WMI_EXPENSIVE) {
 		wc_input.count = 1;
 		wc_input.pointer = wc_params;
@@ -332,6 +393,11 @@ struct acpi_buffer *out)
 
 		strncat(wc_method, block->object_id, 2);
 
+		/*
+		 * Some GUIDs break the specification by declaring themselves
+		 * expensive, but have no corresponding WCxx method. So we
+		 * should not fail if this happens.
+		 */
 		wc_status = acpi_get_handle(handle, wc_method, &wc_handle);
 		if (ACPI_SUCCESS(wc_status))
 			wc_status = acpi_evaluate_object(handle, wc_method,
@@ -343,6 +409,10 @@ struct acpi_buffer *out)
 
 	status = acpi_evaluate_object(handle, method, &input, out);
 
+	/*
+	 * If ACPI_WMI_EXPENSIVE, call the relevant WCxx method, even if
+	 * the WQxx method failed - we should disable collection anyway.
+	 */
 	if ((block->flags & ACPI_WMI_EXPENSIVE) && ACPI_SUCCESS(wc_status)) {
 		wc_params[0].integer.value = 0;
 		status = acpi_evaluate_object(handle,
@@ -353,6 +423,14 @@ struct acpi_buffer *out)
 }
 EXPORT_SYMBOL_GPL(wmi_query_block);
 
+/**
+ * wmi_set_block - Write to a WMI block
+ * @guid_string: 36 char string of the form fa50ff2b-f2e8-45de-83fa-65417f2f49ba
+ * @instance: Instance index
+ * &in: Buffer containing new values for the data block
+ *
+ * Write the contents of the input buffer to an ACPI-WMI data block
+ */
 acpi_status wmi_set_block(const char *guid_string, u8 instance,
 const struct acpi_buffer *in)
 {
@@ -375,7 +453,7 @@ const struct acpi_buffer *in)
 	if (block->instance_count < instance)
 		return AE_BAD_PARAMETER;
 
-	
+	/* Check GUID is a data block */
 	if (block->flags & (ACPI_WMI_EVENT | ACPI_WMI_METHOD))
 		return AE_ERROR;
 
@@ -461,6 +539,13 @@ static void wmi_notify_debug(u32 value, void *context)
 	kfree(obj);
 }
 
+/**
+ * wmi_install_notify_handler - Register handler for WMI events
+ * @handler: Function to handle notifications
+ * @data: Data to be returned to handler when event is fired
+ *
+ * Register a handler for events sent to the ACPI-WMI mapper device.
+ */
 acpi_status wmi_install_notify_handler(const char *guid,
 wmi_notify_handler handler, void *data)
 {
@@ -498,6 +583,11 @@ wmi_notify_handler handler, void *data)
 }
 EXPORT_SYMBOL_GPL(wmi_install_notify_handler);
 
+/**
+ * wmi_uninstall_notify_handler - Unregister handler for WMI events
+ *
+ * Unregister handler for events sent to the ACPI-WMI mapper device.
+ */
 acpi_status wmi_remove_notify_handler(const char *guid)
 {
 	struct wmi_block *block;
@@ -539,6 +629,14 @@ acpi_status wmi_remove_notify_handler(const char *guid)
 }
 EXPORT_SYMBOL_GPL(wmi_remove_notify_handler);
 
+/**
+ * wmi_get_event_data - Get WMI data associated with an event
+ *
+ * @event: Event to find
+ * @out: Buffer to hold event data. out->pointer should be freed with kfree()
+ *
+ * Returns extra data associated with an event in WMI.
+ */
 acpi_status wmi_get_event_data(u32 event, struct acpi_buffer *out)
 {
 	struct acpi_object_list input;
@@ -566,12 +664,21 @@ acpi_status wmi_get_event_data(u32 event, struct acpi_buffer *out)
 }
 EXPORT_SYMBOL_GPL(wmi_get_event_data);
 
+/**
+ * wmi_has_guid - Check if a GUID is available
+ * @guid_string: 36 char string of the form fa50ff2b-f2e8-45de-83fa-65417f2f49ba
+ *
+ * Check if a given GUID is defined by _WDG
+ */
 bool wmi_has_guid(const char *guid_string)
 {
 	return find_guid(guid_string, NULL);
 }
 EXPORT_SYMBOL_GPL(wmi_has_guid);
 
+/*
+ * sysfs interface
+ */
 static ssize_t modalias_show(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
@@ -647,7 +754,7 @@ static void wmi_free_devices(void)
 {
 	struct wmi_block *wblock, *next;
 
-	
+	/* Delete devices for all the GUIDs */
 	list_for_each_entry_safe(wblock, next, &wmi_block_list, list) {
 		list_del(&wblock->list);
 		if (wblock->dev.class)
@@ -668,6 +775,9 @@ static bool guid_already_parsed(const char *guid_string)
 	return false;
 }
 
+/*
+ * Parse the _WDG method for the GUID data blocks
+ */
 static acpi_status parse_wdg(acpi_handle handle)
 {
 	struct acpi_buffer out = {ACPI_ALLOCATE_BUFFER, NULL};
@@ -705,6 +815,12 @@ static acpi_status parse_wdg(acpi_handle handle)
 		wblock->handle = handle;
 		wblock->gblock = gblock[i];
 
+		/*
+		  Some WMI devices, like those for nVidia hooks, have a
+		  duplicate GUID. It's not clear what we should do in this
+		  case yet, so for now, we'll just ignore the duplicate
+		  for device creation.
+		*/
 		if (!guid_already_parsed(gblock[i].guid)) {
 			retval = wmi_create_device(&gblock[i], wblock, handle);
 			if (retval) {
@@ -729,6 +845,10 @@ out_free_pointer:
 	return retval;
 }
 
+/*
+ * WMI can have EmbeddedControl access regions. In which case, we just want to
+ * hand these off to the EC driver.
+ */
 static acpi_status
 acpi_wmi_ec_space_handler(u32 function, acpi_physical_address address,
 		      u32 bits, u64 *value,

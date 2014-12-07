@@ -192,7 +192,7 @@ isac_interrupt(struct IsdnCardState *cs, u_char val)
 
 	if (cs->debug & L1_DEB_ISAC)
 		debugl1(cs, "ISAC interrupt %x", val);
-	if (val & 0x80) {	
+	if (val & 0x80) {	/* RME */
 		exval = cs->readisac(cs, ISAC_RSTA);
 		if ((exval & 0x70) != 0x20) {
 			if (exval & 0x40) {
@@ -228,15 +228,15 @@ isac_interrupt(struct IsdnCardState *cs, u_char val)
 		cs->rcvidx = 0;
 		schedule_event(cs, D_RCVBUFREADY);
 	}
-	if (val & 0x40) {	
+	if (val & 0x40) {	/* RPF */
 		isac_empty_fifo(cs, 32);
 	}
-	if (val & 0x20) {	
-		
+	if (val & 0x20) {	/* RSC */
+		/* never */
 		if (cs->debug & L1_DEB_WARN)
 			debugl1(cs, "ISAC RSC interrupt");
 	}
-	if (val & 0x10) {	
+	if (val & 0x10) {	/* XPR */
 		if (test_and_clear_bit(FLG_DBUSY_TIMER, &cs->HW_Flags))
 			del_timer(&cs->dbusytimer);
 		if (test_and_clear_bit(FLG_L1_DBUSY, &cs->HW_Flags))
@@ -258,7 +258,7 @@ isac_interrupt(struct IsdnCardState *cs, u_char val)
 			schedule_event(cs, D_XMTBUFREADY);
 	}
 afterXPR:
-	if (val & 0x04) {	
+	if (val & 0x04) {	/* CISQ */
 		exval = cs->readisac(cs, ISAC_CIR0);
 		if (cs->debug & L1_DEB_ISAC)
 			debugl1(cs, "ISAC CIR0 %02X", exval);
@@ -274,20 +274,20 @@ afterXPR:
 				debugl1(cs, "ISAC CIR1 %02X", exval);
 		}
 	}
-	if (val & 0x02) {	
-		
+	if (val & 0x02) {	/* SIN */
+		/* never */
 		if (cs->debug & L1_DEB_WARN)
 			debugl1(cs, "ISAC SIN interrupt");
 	}
-	if (val & 0x01) {	
+	if (val & 0x01) {	/* EXI */
 		exval = cs->readisac(cs, ISAC_EXIR);
 		if (cs->debug & L1_DEB_WARN)
 			debugl1(cs, "ISAC EXIR %02x", exval);
-		if (exval & 0x80) {  
+		if (exval & 0x80) {  /* XMR */
 			debugl1(cs, "ISAC XMR");
 			printk(KERN_WARNING "HiSax: ISAC XMR\n");
 		}
-		if (exval & 0x40) {  
+		if (exval & 0x40) {  /* XDU */
 			debugl1(cs, "ISAC XDU");
 			printk(KERN_WARNING "HiSax: ISAC XDU\n");
 #ifdef ERROR_STATISTIC
@@ -297,7 +297,7 @@ afterXPR:
 				del_timer(&cs->dbusytimer);
 			if (test_and_clear_bit(FLG_L1_DBUSY, &cs->HW_Flags))
 				schedule_event(cs, D_CLEARBUSY);
-			if (cs->tx_skb) { 
+			if (cs->tx_skb) { /* Restart frame */
 				skb_push(cs->tx_skb, cs->tx_cnt);
 				cs->tx_cnt = 0;
 				isac_fill_fifo(cs);
@@ -306,7 +306,7 @@ afterXPR:
 				debugl1(cs, "ISAC XDU no skb");
 			}
 		}
-		if (exval & 0x04) {  
+		if (exval & 0x04) {  /* MOS */
 			v1 = cs->readisac(cs, ISAC_MOSR);
 			if (cs->debug & L1_DEB_MONITOR)
 				debugl1(cs, "ISAC MOSR %02x", v1);
@@ -451,14 +451,14 @@ ISAC_l1hw(struct PStack *st, int pr, void *arg)
 		spin_lock_irqsave(&cs->lock, flags);
 		if (cs->tx_skb) {
 			skb_queue_tail(&cs->sq, skb);
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 			if (cs->debug & L1_DEB_LAPD)
 				Logl2Frame(cs, skb, "PH_DATA Queued", 0);
 #endif
 		} else {
 			cs->tx_skb = skb;
 			cs->tx_cnt = 0;
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 			if (cs->debug & L1_DEB_LAPD)
 				Logl2Frame(cs, skb, "PH_DATA", 0);
 #endif
@@ -479,7 +479,7 @@ ISAC_l1hw(struct PStack *st, int pr, void *arg)
 				dlogframe(cs, skb, 0);
 			cs->tx_skb = skb;
 			cs->tx_cnt = 0;
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 			if (cs->debug & L1_DEB_LAPD)
 				Logl2Frame(cs, skb, "PH_DATA_PULLED", 0);
 #endif
@@ -488,7 +488,7 @@ ISAC_l1hw(struct PStack *st, int pr, void *arg)
 		spin_unlock_irqrestore(&cs->lock, flags);
 		break;
 	case (PH_PULL | REQUEST):
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 		if (cs->debug & L1_DEB_LAPD)
 			debugl1(cs, "-> PH_REQUEST_PULL");
 #endif
@@ -526,7 +526,7 @@ ISAC_l1hw(struct PStack *st, int pr, void *arg)
 		if (2 & (long) arg)
 			val |= 0x3;
 		if (test_bit(HW_IOM1, &cs->HW_Flags)) {
-			
+			/* IOM 1 Mode */
 			if (!val) {
 				cs->writeisac(cs, ISAC_SPCR, 0xa);
 				cs->writeisac(cs, ISAC_ADF1, 0x2);
@@ -535,7 +535,7 @@ ISAC_l1hw(struct PStack *st, int pr, void *arg)
 				cs->writeisac(cs, ISAC_ADF1, 0xa);
 			}
 		} else {
-			
+			/* IOM 2 Mode */
 			cs->writeisac(cs, ISAC_SPCR, val);
 			if (val)
 				cs->writeisac(cs, ISAC_ADF1, 0x8);
@@ -590,7 +590,7 @@ dbusy_timer_handler(struct IsdnCardState *cs)
 		if (cs->debug)
 			debugl1(cs, "D-Channel Busy RBCH %02x STAR %02x",
 				rbch, star);
-		if (rbch & ISAC_RBCH_XAC) { 
+		if (rbch & ISAC_RBCH_XAC) { /* D-Channel Busy */
 			test_and_set_bit(FLG_L1_DBUSY, &cs->HW_Flags);
 			stptr = cs->stlist;
 			while (stptr != NULL) {
@@ -598,7 +598,7 @@ dbusy_timer_handler(struct IsdnCardState *cs)
 				stptr = stptr->next;
 			}
 		} else {
-			
+			/* discard frame; reset transceiver */
 			test_and_clear_bit(FLG_DBUSY_TIMER, &cs->HW_Flags);
 			if (cs->tx_skb) {
 				dev_kfree_skb_any(cs->tx_skb);
@@ -608,7 +608,7 @@ dbusy_timer_handler(struct IsdnCardState *cs)
 				printk(KERN_WARNING "HiSax: ISAC D-Channel Busy no skb\n");
 				debugl1(cs, "D-Channel Busy no skb");
 			}
-			cs->writeisac(cs, ISAC_CMDR, 0x01); 
+			cs->writeisac(cs, ISAC_CMDR, 0x01); /* Transmitter reset */
 			cs->irq_func(cs->irq, cs);
 		}
 	}
@@ -623,14 +623,14 @@ void initisac(struct IsdnCardState *cs)
 	cs->writeisac(cs, ISAC_MASK, 0xff);
 	cs->dc.isac.mocr = 0xaa;
 	if (test_bit(HW_IOM1, &cs->HW_Flags)) {
-		
+		/* IOM 1 Mode */
 		cs->writeisac(cs, ISAC_ADF2, 0x0);
 		cs->writeisac(cs, ISAC_SPCR, 0xa);
 		cs->writeisac(cs, ISAC_ADF1, 0x2);
 		cs->writeisac(cs, ISAC_STCR, 0x70);
 		cs->writeisac(cs, ISAC_MODE, 0xc9);
 	} else {
-		
+		/* IOM 2 Mode */
 		if (!cs->dc.isac.adf2)
 			cs->dc.isac.adf2 = 0x80;
 		cs->writeisac(cs, ISAC_ADF2, cs->dc.isac.adf2);
@@ -665,7 +665,7 @@ void clear_pending_isac_ints(struct IsdnCardState *cs)
 	debugl1(cs, "ISAC CIR0 %x", val);
 	cs->dc.isac.ph_state = (val >> 2) & 0xf;
 	schedule_event(cs, D_L1STATECHANGE);
-	
+	/* Disable all IRQ */
 	cs->writeisac(cs, ISAC_MASK, 0xFF);
 }
 

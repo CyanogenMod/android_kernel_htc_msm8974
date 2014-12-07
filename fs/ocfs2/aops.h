@@ -57,6 +57,7 @@ int ocfs2_size_fits_inline_data(struct buffer_head *di_bh, u64 new_size);
 
 int ocfs2_get_block(struct inode *inode, sector_t iblock,
 		    struct buffer_head *bh_result, int create);
+/* all ocfs2_dio_end_io()'s fault */
 #define ocfs2_iocb_is_rw_locked(iocb) \
 	test_bit(0, (unsigned long *)&iocb->private)
 static inline void ocfs2_iocb_set_rw_locked(struct kiocb *iocb, int level)
@@ -68,6 +69,11 @@ static inline void ocfs2_iocb_set_rw_locked(struct kiocb *iocb, int level)
 		clear_bit(1, (unsigned long *)&iocb->private);
 }
 
+/*
+ * Using a named enum representing lock types in terms of #N bit stored in
+ * iocb->private, which is going to be used for communication between
+ * ocfs2_dio_end_io() and ocfs2_file_aio_write/read().
+ */
 enum ocfs2_iocb_lock_bits {
 	OCFS2_IOCB_RW_LOCK = 0,
 	OCFS2_IOCB_RW_LOCK_LEVEL,
@@ -99,4 +105,4 @@ enum ocfs2_iocb_lock_bits {
 					    OCFS2_IOEND_WQ_HASH_SZ])
 extern wait_queue_head_t ocfs2__ioend_wq[OCFS2_IOEND_WQ_HASH_SZ];
 
-#endif 
+#endif /* OCFS2_FILE_H */

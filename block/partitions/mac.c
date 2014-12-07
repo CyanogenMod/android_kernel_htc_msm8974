@@ -15,6 +15,9 @@
 extern void note_bootable_part(dev_t dev, int part, int goodness);
 #endif
 
+/*
+ * Code to understand MacOS partition tables.
+ */
 
 static inline void mac_fix_string(char *stg, int len)
 {
@@ -37,7 +40,7 @@ int mac_partition(struct parsed_partitions *state)
 	struct mac_partition *part;
 	struct mac_driver_desc *md;
 
-	
+	/* Get 0th block and look at the first partition map entry. */
 	md = read_part_sector(state, 0, &sect);
 	if (!md)
 		return -1;
@@ -53,7 +56,7 @@ int mac_partition(struct parsed_partitions *state)
 	part = (struct mac_partition *) (data + secsize%512);
 	if (be16_to_cpu(part->signature) != MAC_PARTITION_MAGIC) {
 		put_dev_sector(sect);
-		return 0;		
+		return 0;		/* not a MacOS disk */
 	}
 	blocks_in_map = be32_to_cpu(part->map_count);
 	if (blocks_in_map < 0 || blocks_in_map >= DISK_MAX_PARTS) {
@@ -77,6 +80,10 @@ int mac_partition(struct parsed_partitions *state)
 		if (!strnicmp(part->type, "Linux_RAID", 10))
 			state->parts[slot].flags = ADDPART_FLAG_RAID;
 #ifdef CONFIG_PPC_PMAC
+		/*
+		 * If this is the first bootable partition, tell the
+		 * setup code, in case it wants to make this the root.
+		 */
 		if (machine_is(powermac)) {
 			int goodness = 0;
 
@@ -113,7 +120,7 @@ int mac_partition(struct parsed_partitions *state)
 				found_root_goodness = goodness;
 			}
 		}
-#endif 
+#endif /* CONFIG_PPC_PMAC */
 	}
 #ifdef CONFIG_PPC_PMAC
 	if (found_root_goodness)

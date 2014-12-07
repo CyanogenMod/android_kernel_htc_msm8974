@@ -139,7 +139,7 @@ RTY_SEND_CMD:
 
 	if (CHECK_USB(chip, USB_20)) {
 		if (rsp_type == SD_RSP_TYPE_R2) {
-			
+			/* Read data from ping-pong buffer */
 			for (reg_addr = PPBUF_BASE2;
 			     reg_addr < PPBUF_BASE2 + 16; reg_addr++) {
 				rts51x_add_cmd(chip, READ_REG_CMD, reg_addr, 0,
@@ -147,7 +147,7 @@ RTY_SEND_CMD:
 			}
 			len = 18;
 		} else if (rsp_type != SD_RSP_TYPE_R0) {
-			
+			/* Read data from SD_CMDx registers */
 			for (reg_addr = SD_CMD0; reg_addr <= SD_CMD4;
 			     reg_addr++) {
 				rts51x_add_cmd(chip, READ_REG_CMD, reg_addr, 0,
@@ -216,12 +216,12 @@ RTY_SEND_CMD:
 	}
 	stat = chip->rsp_buf[1];
 
-	
+	/* Check (Start,Transmission) bit of Response */
 	if ((buf[0] & 0xC0) != 0) {
 		sd_set_err_code(chip, SD_STS_ERR);
 		TRACE_RET(chip, STATUS_FAIL);
 	}
-	
+	/* Check CRC7 */
 	if (!(rsp_type & SD_NO_CHECK_CRC7)) {
 		if (stat & SD_CRC7_ERR) {
 			if (cmd_idx == WRITE_MULTIPLE_BLOCK) {
@@ -238,7 +238,7 @@ RTY_SEND_CMD:
 			}
 		}
 	}
-	
+	/* Check Status */
 	if ((rsp_type == SD_RSP_TYPE_R1) || (rsp_type == SD_RSP_TYPE_R1b)) {
 		if ((cmd_idx != SEND_RELATIVE_ADDR)
 		    && (cmd_idx != SEND_IF_COND)) {
@@ -247,7 +247,7 @@ RTY_SEND_CMD:
 					TRACE_RET(chip, STATUS_FAIL);
 			}
 #ifdef SUPPORT_SD_LOCK
-			
+			/* exclude bit25 CARD_IS_LOCKED */
 			if (buf[1] & 0x7D) {
 #else
 			if (buf[1] & 0x7F) {
@@ -264,7 +264,7 @@ RTY_SEND_CMD:
 				TRACE_RET(chip, STATUS_FAIL);
 			}
 			if (buf[3] & 0x01) {
-				
+				/* Get "READY_FOR_DATA" bit */
 				sd_card->sd_data_buf_ready = 1;
 			} else {
 				sd_card->sd_data_buf_ready = 0;
@@ -306,7 +306,7 @@ int sd_read_data(struct rts51x_chip *chip, u8 trans_mode, u8 *cmd, int cmd_len,
 		buf_len = 0;
 
 	if (buf_len > 512)
-		
+		/* This function can't read data more than one page */
 		TRACE_RET(chip, STATUS_FAIL);
 
 	rts51x_init_cmd(chip);
@@ -377,7 +377,7 @@ static int sd_write_data(struct rts51x_chip *chip, u8 trans_mode,
 	if (!buf)
 		buf_len = 0;
 
-	
+	/* This function can't write data more than one page */
 	if (buf_len > 512)
 		TRACE_RET(chip, STATUS_FAIL);
 
@@ -465,78 +465,85 @@ static int sd_check_csd(struct rts51x_chip *chip, char check_wp)
 	if (i == 6)
 		TRACE_RET(chip, STATUS_FAIL);
 	memcpy(sd_card->raw_csd, rsp + 1, 15);
-	
+	/* Get CRC7 */
 	RTS51X_READ_REG(chip, SD_CMD5, sd_card->raw_csd + 15);
 
 	RTS51X_DEBUGP("CSD Response:\n");
 	RTS51X_DUMP(rsp, 16);
 
-	
+	/* Get CSD Version */
 	csd_ver = (rsp[1] & 0xc0) >> 6;
 	RTS51X_DEBUGP("csd_ver = %d\n", csd_ver);
 
 	trans_speed = rsp[4];
-	if ((trans_speed & 0x07) == 0x02) {	
-		if ((trans_speed & 0xf8) >= 0x30) {	
+	if ((trans_speed & 0x07) == 0x02) {	/* 10Mbits/s */
+		if ((trans_speed & 0xf8) >= 0x30) {	/* >25Mbits/s */
 			if (chip->asic_code)
 				sd_card->sd_clock = 46;
 			else
 				sd_card->sd_clock = CLK_50;
-		} else if ((trans_speed & 0xf8) == 0x28) { 
+		} else if ((trans_speed & 0xf8) == 0x28) { /* 20Mbits/s */
 			if (chip->asic_code)
 				sd_card->sd_clock = 39;
 			else
 				sd_card->sd_clock = CLK_40;
-		} else if ((trans_speed & 0xf8) == 0x20) { 
+		} else if ((trans_speed & 0xf8) == 0x20) { /* 15Mbits/s */
 			if (chip->asic_code)
 				sd_card->sd_clock = 29;
 			else
 				sd_card->sd_clock = CLK_30;
-		} else if ((trans_speed & 0xf8) >= 0x10) { 
+		} else if ((trans_speed & 0xf8) >= 0x10) { /* 12Mbits/s */
 			if (chip->asic_code)
 				sd_card->sd_clock = 23;
 			else
 				sd_card->sd_clock = CLK_20;
-		} else if ((trans_speed & 0x08) >= 0x08) { 
+		} else if ((trans_speed & 0x08) >= 0x08) { /* 10Mbits/s */
 			if (chip->asic_code)
 				sd_card->sd_clock = 19;
 			else
 				sd_card->sd_clock = CLK_20;
-		} 
-			
-			
-		
+		} /*else { */
+			/*If this ,then slow card will use 30M clock */
+			/* TRACE_RET(chip, STATUS_FAIL); */
+		/* } */
 	}
+	/*else {
+	   TRACE_RET(chip, STATUS_FAIL);
+	   } */
 	if (CHK_MMC_SECTOR_MODE(sd_card)) {
 		sd_card->capacity = 0;
 	} else {
-		
+		/* For High-Capacity Card, CSD_STRUCTURE always be "0x1" */
 		if ((!CHK_SD_HCXC(sd_card)) || (csd_ver == 0)) {
+			/* Calculate total sector according to C_SIZE,
+			 * C_SIZE_MULT & READ_BL_LEN */
 			u8 blk_size, c_size_mult;
 			u16 c_size;
-			
+			/* Get READ_BL_LEN */
 			blk_size = rsp[6] & 0x0F;
-			
+			/* Get C_SIZE */
 			c_size = ((u16) (rsp[7] & 0x03) << 10)
 			    + ((u16) rsp[8] << 2)
 			    + ((u16) (rsp[9] & 0xC0) >> 6);
-			
+			/* Get C_SIZE_MUL */
 			c_size_mult = (u8) ((rsp[10] & 0x03) << 1);
 			c_size_mult += (rsp[11] & 0x80) >> 7;
-			
+			/* Calculate total Capacity  */
 			sd_card->capacity =
 			    (((u32) (c_size + 1)) *
 			     (1 << (c_size_mult + 2))) << (blk_size - 9);
 		} else {
-			
+			/* High Capacity Card and Use CSD2.0 Version */
 			u32 total_sector = 0;
 			total_sector = (((u32) rsp[8] & 0x3f) << 16) |
 			    ((u32) rsp[9] << 8) | (u32) rsp[10];
+			/* Total Capacity= (C_SIZE+1) *
+			 * 512K Byte = (C_SIZE+1)K Sector,1K = 1024 Bytes */
 			sd_card->capacity = (total_sector + 1) << 10;
 		}
 	}
 
-	
+	/* We need check Write-Protected Status by Field PERM WP or TEMP WP */
 	if (check_wp) {
 		if (rsp[15] & 0x30)
 			chip->card_wp |= SD_CARD;
@@ -724,7 +731,7 @@ int sd_update_lock_status(struct rts51x_chip *chip)
 		       sd_card->sd_lock_status);
 
 	if (rsp[1] & 0x01) {
-		
+		/* LOCK_UNLOCK_FAILED */
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
@@ -1153,7 +1160,7 @@ static int sd_switch_function(struct rts51x_chip *chip, u8 bus_width)
 	int i;
 	u8 func_to_switch = 0;
 
-	
+	/* Get supported functions */
 	retval = sd_check_switch_mode(chip, SD_CHECK_MODE,
 				      NO_ARGUMENT, NO_ARGUMENT, bus_width);
 	if (retval != STATUS_SUCCESS)
@@ -1284,7 +1291,7 @@ static int sd_sdr_tuning_rx_cmd(struct rts51x_chip *chip, u8 sample_point)
 	retval = sd_read_data(chip, SD_TM_AUTO_TUNING,
 			      cmd, 5, 0x40, 1, SD_BUS_WIDTH_4, NULL, 0, 100);
 	if (retval != STATUS_SUCCESS) {
-		
+		/* Wait till SD DATA IDLE */
 		(void)sd_wait_data_idle(chip);
 
 		rts51x_clear_sd_error(chip);
@@ -1321,7 +1328,7 @@ static int sd_ddr_tuning_rx_cmd(struct rts51x_chip *chip, u8 sample_point)
 	retval = sd_read_data(chip, SD_TM_NORMAL_READ,
 			      cmd, 5, 64, 1, SD_BUS_WIDTH_4, NULL, 0, 100);
 	if (retval != STATUS_SUCCESS) {
-		
+		/* Wait till SD DATA IDLE */
 		(void)sd_wait_data_idle(chip);
 
 		rts51x_clear_sd_error(chip);
@@ -1359,7 +1366,7 @@ static int mmc_ddr_tunning_rx_cmd(struct rts51x_chip *chip, u8 sample_point)
 	retval = sd_read_data(chip, SD_TM_NORMAL_READ,
 			      cmd, 5, 0x200, 1, bus_width, NULL, 0, 100);
 	if (retval != STATUS_SUCCESS) {
-		
+		/* Wait till SD DATA IDLE */
 		(void)sd_wait_data_idle(chip);
 
 		rts51x_clear_sd_error(chip);
@@ -1385,7 +1392,7 @@ static int sd_sdr_tuning_tx_cmd(struct rts51x_chip *chip, u8 sample_point)
 				     SD_RSP_TYPE_R1, NULL, 0);
 	if (retval != STATUS_SUCCESS) {
 		if (sd_check_err_code(chip, SD_RSP_TIMEOUT)) {
-			
+			/* Tunning TX fail */
 			rts51x_ep0_write_register(chip, SD_CFG3,
 						  SD_RSP_80CLK_TIMEOUT_EN, 0);
 			TRACE_RET(chip, STATUS_FAIL);
@@ -1434,7 +1441,7 @@ static int sd_ddr_tuning_tx_cmd(struct rts51x_chip *chip, u8 sample_point)
 			cmd, 5, 16, 1, bus_width, sd_card->raw_csd, 16, 100);
 	if (retval != STATUS_SUCCESS) {
 		rts51x_clear_sd_error(chip);
-		
+		/* Tunning TX fail */
 		rts51x_ep0_write_register(chip, SD_CFG3,
 					  SD_RSP_80CLK_TIMEOUT_EN, 0);
 		TRACE_RET(chip, STATUS_FAIL);
@@ -1831,7 +1838,7 @@ static int sd_prepare_reset(struct rts51x_chip *chip)
 	else
 		sd_card->sd_clock = CLK_30;
 
-	
+	/* Set SD Clocks */
 	retval = sd_set_init_para(chip);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
@@ -1949,7 +1956,7 @@ static int sd_init_power(struct rts51x_chip *chip)
 		}
 #endif
 
-		
+		/* Power on card */
 		retval = card_power_on(chip, SD_CARD);
 		if (retval != STATUS_SUCCESS)
 			TRACE_RET(chip, retval);
@@ -2028,7 +2035,7 @@ Switch_Fail:
 
 	sd_dummy_clock(chip);
 
-	
+	/* Start Initialization Process of SD Card */
 RTY_SD_RST:
 	retval =
 	    sd_send_cmd_get_rsp(chip, GO_IDLE_STATE, 0, SD_RSP_TYPE_R0, NULL,
@@ -2068,7 +2075,7 @@ RTY_SD_RST:
 		wait_timeout(20);
 	}
 
-	
+	/* ACMD41 */
 	do {
 		{
 			u8 temp = 0;
@@ -2121,10 +2128,10 @@ RTY_CMD55:
 
 		i++;
 		wait_timeout(20);
-	} while (!(rsp[1] & 0x80) && (i < 255)); 
+	} while (!(rsp[1] & 0x80) && (i < 255)); /* Not complete power on */
 
 	if (i == 255) {
-		
+		/* Time out */
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
@@ -2145,7 +2152,7 @@ RTY_CMD55:
 		support_1v8 = 0;
 	}
 
-	
+	/* CMD11: Switch Voltage */
 	if (support_1v8 && CHECK_UHS50(chip)
 	    && !(((u8) chip->option.sd_speed_prior & SDR104_SUPPORT) ==
 		 HS_SUPPORT)) {
@@ -2158,13 +2165,13 @@ RTY_CMD55:
 		}
 	}
 
-	
+	/* CMD 2 */
 	retval =
 	    sd_send_cmd_get_rsp(chip, ALL_SEND_CID, 0, SD_RSP_TYPE_R2, NULL, 0);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
 
-	
+	/* CMD 3 */
 	retval =
 	    sd_send_cmd_get_rsp(chip, SEND_RELATIVE_ADDR, 0, SD_RSP_TYPE_R6,
 				rsp, 5);
@@ -2174,16 +2181,18 @@ RTY_CMD55:
 	sd_card->sd_addr = (u32) rsp[1] << 24;
 	sd_card->sd_addr += (u32) rsp[2] << 16;
 
+	/* Get CSD register for Calculating Timing,Capacity,
+	 * Check CSD to determaine as if this is the SD ROM card */
 	retval = sd_check_csd(chip, 1);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
-	
+	/* Select SD card */
 	retval = sd_select_card(chip, 1);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
 #ifdef SUPPORT_SD_LOCK
 SD_UNLOCK_ENTRY:
-	
+	/* Get SD lock status */
 	retval = sd_update_lock_status(chip);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, STATUS_FAIL);
@@ -2196,7 +2205,7 @@ SD_UNLOCK_ENTRY:
 	}
 #endif
 
-	
+	/* ACMD42 */
 	retval =
 	    sd_send_cmd_get_rsp(chip, APP_CMD, sd_card->sd_addr, SD_RSP_TYPE_R1,
 				NULL, 0);
@@ -2210,13 +2219,13 @@ SD_UNLOCK_ENTRY:
 		TRACE_RET(chip, retval);
 
 	if (support_1v8) {
-		
+		/* ACMD6 */
 		retval =
 		    sd_send_cmd_get_rsp(chip, APP_CMD, sd_card->sd_addr,
 					SD_RSP_TYPE_R1, NULL, 0);
 		if (retval != STATUS_SUCCESS)
 			TRACE_RET(chip, retval);
-		
+		/* Enable 4 bit data bus */
 		retval =
 		    sd_send_cmd_get_rsp(chip, SET_BUS_WIDTH, 2, SD_RSP_TYPE_R1,
 					NULL, 0);
@@ -2227,7 +2236,7 @@ SD_UNLOCK_ENTRY:
 		switch_bus_width = SD_BUS_WIDTH_1;
 	}
 
-	
+	/* Set block length 512 bytes for all block commands */
 	retval = sd_send_cmd_get_rsp(chip, SET_BLOCKLEN,
 			0x200, SD_RSP_TYPE_R1, NULL, 0);
 	if (retval != STATUS_SUCCESS)
@@ -2241,7 +2250,7 @@ SD_UNLOCK_ENTRY:
 	}
 
 	if (!sd_dont_switch) {
-		
+		/* Check the card whether flow SD1.1 spec or higher */
 		retval = sd_check_spec(chip, switch_bus_width);
 		if (retval == STATUS_SUCCESS) {
 			retval = sd_switch_function(chip, switch_bus_width);
@@ -2272,13 +2281,13 @@ SD_UNLOCK_ENTRY:
 	}
 
 	if (!support_1v8) {
-		
+		/* ACMD6 */
 		retval =
 		    sd_send_cmd_get_rsp(chip, APP_CMD, sd_card->sd_addr,
 					SD_RSP_TYPE_R1, NULL, 0);
 		if (retval != STATUS_SUCCESS)
 			TRACE_RET(chip, retval);
-		
+		/* Enable 4 bit data bus */
 		retval =
 		    sd_send_cmd_get_rsp(chip, SET_BUS_WIDTH, 2, SD_RSP_TYPE_R1,
 					NULL, 0);
@@ -2286,7 +2295,7 @@ SD_UNLOCK_ENTRY:
 			TRACE_RET(chip, retval);
 	}
 #ifdef SUPPORT_SD_LOCK
-	
+	/* clear 1 bit mode status */
 	sd_card->sd_lock_status &= ~SD_LOCK_1BIT_MODE;
 #endif
 
@@ -2362,7 +2371,7 @@ SD_UNLOCK_ENTRY:
 				    SD_RSP_TYPE_R1, NULL, 0);
 	}
 
-	
+	/* Check SD Machanical Write-Protect Switch */
 	retval = rts51x_get_card_status(chip, &(chip->card_status));
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
@@ -2427,7 +2436,7 @@ static int mmc_test_switch_bus(struct rts51x_chip *chip, u8 width)
 
 	rts51x_init_cmd(chip);
 
-	
+	/* CMD14 */
 	rts51x_add_cmd(chip, WRITE_REG_CMD, SD_CMD0, 0xFF, 0x40 | BUSTEST_R);
 
 	if (width == MMC_8BIT_BUS)
@@ -2479,7 +2488,7 @@ static int mmc_test_switch_bus(struct rts51x_chip *chip, u8 width)
 				arg = 0x03B70600;
 			else
 				arg = 0x03B70200;
-			
+			/* Switch MMC to  8-bit mode */
 			retval =
 			    sd_send_cmd_get_rsp(chip, SWITCH, arg,
 						SD_RSP_TYPE_R1b, rsp, 5);
@@ -2497,7 +2506,7 @@ static int mmc_test_switch_bus(struct rts51x_chip *chip, u8 width)
 				arg = 0x03B70500;
 			else
 				arg = 0x03B70100;
-			
+			/* Switch MMC to  4-bit mode */
 			retval =
 			    sd_send_cmd_get_rsp(chip, SWITCH, arg,
 						SD_RSP_TYPE_R1b, rsp, 5);
@@ -2523,7 +2532,7 @@ static int mmc_switch_timing_bus(struct rts51x_chip *chip)
 
 	rts51x_init_cmd(chip);
 
-	
+	/* SEND_EXT_CSD command */
 	rts51x_add_cmd(chip, WRITE_REG_CMD, SD_CMD0, 0xFF,
 			0x40 | SEND_EXT_CSD);
 	rts51x_add_cmd(chip, WRITE_REG_CMD, SD_CMD1, 0xFF, 0);
@@ -2592,7 +2601,7 @@ static int mmc_switch_timing_bus(struct rts51x_chip *chip)
 
 	card_type = buf[1] & card_type_mask;
 	if (card_type) {
-		
+		/* CARD TYPE FIELD = DDR52MHz, 52MHz or 26MHz */
 		u8 rsp[5];
 
 		if (card_type & 0x04)
@@ -2613,7 +2622,7 @@ static int mmc_switch_timing_bus(struct rts51x_chip *chip)
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
 
-	
+	/* Test Bus Procedure */
 	if (mmc_test_switch_bus(chip, MMC_8BIT_BUS) == STATUS_SUCCESS) {
 		SET_MMC_8BIT(sd_card);
 		chip->card_bus_width[chip->card2lun[SD_CARD]] = 8;
@@ -2677,7 +2686,7 @@ RTY_MMC_RST:
 			}
 		}
 
-		
+		/* CMD  1 */
 		retval = sd_send_cmd_get_rsp(chip, SEND_OP_COND,
 					     (SUPPORT_VOLTAGE | 0x40000000),
 					     SD_RSP_TYPE_R3, rsp, 5);
@@ -2709,10 +2718,10 @@ RTY_MMC_RST:
 
 		wait_timeout(20);
 		i++;
-	} while (!(rsp[1] & 0x80) && (i < 100)); 
+	} while (!(rsp[1] & 0x80) && (i < 100)); /* Not complete power on */
 
 	if (i == 100) {
-		
+		/* Time out */
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
@@ -2721,13 +2730,13 @@ RTY_MMC_RST:
 	else
 		CLR_MMC_SECTOR_MODE(sd_card);
 
-	
+	/* CMD 2 */
 	retval =
 	    sd_send_cmd_get_rsp(chip, ALL_SEND_CID, 0, SD_RSP_TYPE_R2, NULL, 0);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
 
-	
+	/* CMD 3 */
 	sd_card->sd_addr = 0x00100000;
 	retval =
 	    sd_send_cmd_get_rsp(chip, SET_RELATIVE_ADDR, sd_card->sd_addr,
@@ -2735,18 +2744,20 @@ RTY_MMC_RST:
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
 
+	/* Get CSD register for Calculating Timing,Capacity
+	 * Check CSD to determaine as if this is the SD ROM card */
 	retval = sd_check_csd(chip, 1);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
-	
+	/* Get MMC Spec_Ver in the CSD register */
 	spec_ver = (sd_card->raw_csd[0] & 0x3C) >> 2;
 
-	
+	/* Select MMC card */
 	retval = sd_select_card(chip, 1);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, retval);
 
-	
+	/* Set block length 512 bytes for all block commands */
 	retval =
 	    sd_send_cmd_get_rsp(chip, SET_BLOCKLEN, 0x200, SD_RSP_TYPE_R1, NULL,
 				0);
@@ -2754,7 +2765,7 @@ RTY_MMC_RST:
 		TRACE_RET(chip, retval);
 #ifdef SUPPORT_SD_LOCK
 MMC_UNLOCK_ENTRY:
-	
+	/* Get SD lock status */
 	retval = sd_update_lock_status(chip);
 	if (retval != STATUS_SUCCESS)
 		TRACE_RET(chip, STATUS_FAIL);
@@ -2769,7 +2780,7 @@ MMC_UNLOCK_ENTRY:
 
 	chip->card_bus_width[chip->card2lun[SD_CARD]] = 1;
 	if (spec_ver == 4) {
-		
+		/* MMC 4.x Cards */
 		(void)mmc_switch_timing_bus(chip);
 	}
 
@@ -2777,7 +2788,7 @@ MMC_UNLOCK_ENTRY:
 		TRACE_RET(chip, STATUS_FAIL);
 
 	if (CHK_MMC_DDR52(sd_card) && change_to_ddr52) {
-		
+		/* Card is extracted while identifying */
 		if (monitor_card_cd(chip, SD_CARD) == CD_NOT_EXIST)
 			TRACE_RET(chip, STATUS_FAIL);
 
@@ -2861,7 +2872,7 @@ int reset_sd_card(struct rts51x_chip *chip)
 
 	memset(sd_card, 0, sizeof(struct sd_info));
 
-	
+	/* Init variables */
 	sd_card->sd_type = 0;
 	sd_card->seq_mode = 0;
 	sd_card->sd_data_buf_ready = 0;
@@ -2880,10 +2891,10 @@ int reset_sd_card(struct rts51x_chip *chip)
 
 	chip->reset_need_retry = 0;
 	for (i = 0; i < 3; i++) {
-		if (!chip->option.reset_mmc_first) { 
+		if (!chip->option.reset_mmc_first) { /* reset sd first */
 			retval = reset_sd(chip);
 			if (retval != STATUS_SUCCESS) {
-				
+				/* Switch SD bus to 3V3 signal */
 				RTS51X_WRITE_REG(chip, SD_PAD_CTL,
 						 SD_IO_USING_1V8, 0);
 				if (sd_check_reset_fail(chip, SD_RESET_FAIL))
@@ -2891,7 +2902,7 @@ int reset_sd_card(struct rts51x_chip *chip)
 				else
 					retval = reset_mmc(chip);
 			}
-		} else { 
+		} else { /* reset MMC first */
 			retval = reset_mmc(chip);
 			if (retval != STATUS_SUCCESS) {
 				if (sd_check_reset_fail(chip, MMC_RESET_FAIL)) {
@@ -2899,6 +2910,8 @@ int reset_sd_card(struct rts51x_chip *chip)
 				} else {
 					retval = reset_sd(chip);
 					if (retval != STATUS_SUCCESS) {
+						/* Switch SD bus to
+						 * 3V3 signal */
 						RTS51X_WRITE_REG(chip,
 							SD_PAD_CTL,
 							SD_IO_USING_1V8, 0);
@@ -2908,11 +2921,11 @@ int reset_sd_card(struct rts51x_chip *chip)
 		}
 
 		if ((retval == STATUS_SUCCESS) || (!chip->reset_need_retry)) {
-			
+			/* if reset success or don't need retry,then break */
 			break;
 		}
 		if (monitor_card_cd(chip, SD_CARD) == CD_NOT_EXIST) {
-			
+			/* card is extracted */
 			break;
 		}
 		RTS51X_DEBUGP("retry reset sd card,%d\n", i);
@@ -2945,7 +2958,7 @@ int reset_sd_card(struct rts51x_chip *chip)
 	if (chip->option.sd_send_status_en) {
 		sd_card->sd_send_status_en = 1;
 	} else {
-		if (sd_card->capacity > 0x20000) { 
+		if (sd_card->capacity > 0x20000) { /* 64MB */
 			sd_card->sd_send_status_en = 0;
 		} else {
 			sd_card->sd_send_status_en = 1;
@@ -3093,7 +3106,7 @@ int sd_rw(struct scsi_cmnd *srb, struct rts51x_chip *chip, u32 start_sector,
 		    && !CHK_SD_HS(sd_card)
 		    && !CHK_MMC_HS(sd_card)
 		    && sd_card->sd_send_status_en) {
-			
+			/* random rw, so pre_sec_cnt < 0x80 */
 			sd_send_cmd_get_rsp(chip, SEND_STATUS,
 					    sd_card->sd_addr, SD_RSP_TYPE_R1,
 					    NULL, 0);
@@ -3363,7 +3376,7 @@ int release_sd_card(struct rts51x_chip *chip)
 			       FPGA_SD_PULL_CTL_BIT | 0x20,
 			       FPGA_SD_PULL_CTL_BIT);
 
-	
+	/* Switch LDO3318 to 3.3V */
 	rts51x_add_cmd(chip, WRITE_REG_CMD, LDO_POWER_CFG, TUNE_SD18_MASK,
 		       TUNE_SD18_3V3);
 
@@ -3374,7 +3387,7 @@ int release_sd_card(struct rts51x_chip *chip)
 	if (CHK_SD30_SPEED(sd_card) || CHK_MMC(sd_card))
 		rts51x_add_cmd(chip, WRITE_REG_CMD, SD30_DRIVE_SEL,
 			       SD30_DRIVE_MASK, chip->option.sd30_pad_drive);
-	
+	/* Suspend LDO3318 */
 	rts51x_add_cmd(chip, WRITE_REG_CMD, CARD_PWR_CTL, LDO3318_PWR_MASK,
 		       LDO_SUSPEND);
 

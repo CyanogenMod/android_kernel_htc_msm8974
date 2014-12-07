@@ -1,3 +1,16 @@
+/*
+ * CIPSO - Commercial IP Security Option
+ *
+ * This is an implementation of the CIPSO 2.2 protocol as specified in
+ * draft-ietf-cipso-ipsecurity-01.txt with additional tag types as found in
+ * FIPS-188, copies of both documents can be found in the Documentation
+ * directory.  While CIPSO never became a full IETF RFC standard many vendors
+ * have chosen to adopt the protocol and over the years it has become a
+ * de-facto standard for labeled networking.
+ *
+ * Author: Paul Moore <paul@paul-moore.com>
+ *
+ */
 
 /*
  * (c) Copyright Hewlett-Packard Development Company, L.P., 2006
@@ -30,8 +43,10 @@
 #include <net/request_sock.h>
 #include <linux/atomic.h>
 
+/* known doi values */
 #define CIPSO_V4_DOI_UNKNOWN          0x00000000
 
+/* standard tag types */
 #define CIPSO_V4_TAG_INVALID          0
 #define CIPSO_V4_TAG_RBITMAP          1
 #define CIPSO_V4_TAG_ENUM             2
@@ -39,13 +54,16 @@
 #define CIPSO_V4_TAG_PBITMAP          6
 #define CIPSO_V4_TAG_FREEFORM         7
 
+/* non-standard tag types (tags > 127) */
 #define CIPSO_V4_TAG_LOCAL            128
 
+/* doi mapping types */
 #define CIPSO_V4_MAP_UNKNOWN          0
 #define CIPSO_V4_MAP_TRANS            1
 #define CIPSO_V4_MAP_PASS             2
 #define CIPSO_V4_MAP_LOCAL            3
 
+/* limits */
 #define CIPSO_V4_MAX_REM_LVLS         255
 #define CIPSO_V4_INV_LVL              0x80000000
 #define CIPSO_V4_MAX_LOC_LVLS         (CIPSO_V4_INV_LVL - 1)
@@ -53,7 +71,11 @@
 #define CIPSO_V4_INV_CAT              0x80000000
 #define CIPSO_V4_MAX_LOC_CATS         (CIPSO_V4_INV_CAT - 1)
 
+/*
+ * CIPSO DOI definitions
+ */
 
+/* DOI definition struct */
 #define CIPSO_V4_TAG_MAXCNT           5
 struct cipso_v4_doi {
 	u32 doi;
@@ -68,6 +90,10 @@ struct cipso_v4_doi {
 	struct rcu_head rcu;
 };
 
+/* Standard CIPSO mapping table */
+/* NOTE: the highest order bit (i.e. 0x80000000) is an 'invalid' flag, if the
+ *       bit is set then consider that value as unspecified, meaning the
+ *       mapping for that particular level/category is invalid */
 struct cipso_v4_std_map_tbl {
 	struct {
 		u32 *cipso;
@@ -83,6 +109,9 @@ struct cipso_v4_std_map_tbl {
 	} cat;
 };
 
+/*
+ * Sysctl Variables
+ */
 
 #ifdef CONFIG_NETLABEL
 extern int cipso_v4_cache_enabled;
@@ -91,10 +120,16 @@ extern int cipso_v4_rbm_optfmt;
 extern int cipso_v4_rbm_strictvalid;
 #endif
 
+/*
+ * Helper Functions
+ */
 
 #define CIPSO_V4_OPTEXIST(x) (IPCB(x)->opt.cipso != 0)
 #define CIPSO_V4_OPTPTR(x) (skb_network_header(x) + IPCB(x)->opt.cipso)
 
+/*
+ * DOI List Functions
+ */
 
 #ifdef CONFIG_NETLABEL
 int cipso_v4_doi_add(struct cipso_v4_doi *doi_def,
@@ -147,8 +182,11 @@ static inline int cipso_v4_doi_domhsh_remove(struct cipso_v4_doi *doi_def,
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_NETLABEL */
 
+/*
+ * Label Mapping Cache Functions
+ */
 
 #ifdef CONFIG_NETLABEL
 void cipso_v4_cache_invalidate(void);
@@ -165,8 +203,11 @@ static inline int cipso_v4_cache_add(const struct sk_buff *skb,
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_NETLABEL */
 
+/*
+ * Protocol Handling Functions
+ */
 
 #ifdef CONFIG_NETLABEL
 void cipso_v4_error(struct sk_buff *skb, int error, u32 gateway);
@@ -246,6 +287,6 @@ static inline int cipso_v4_validate(const struct sk_buff *skb,
 {
 	return -ENOSYS;
 }
-#endif 
+#endif /* CONFIG_NETLABEL */
 
-#endif 
+#endif /* _CIPSO_IPV4_H */

@@ -30,7 +30,7 @@ bfad_iocmd_ioc_enable(struct bfad_s *bfad, void *cmd)
 	unsigned long	flags;
 
 	spin_lock_irqsave(&bfad->bfad_lock, flags);
-	
+	/* If IOC is not in disabled state - return */
 	if (!bfa_ioc_is_disabled(&bfad->bfa.ioc)) {
 		spin_unlock_irqrestore(&bfad->bfad_lock, flags);
 		iocmd->status = BFA_STATUS_IOC_FAILURE;
@@ -99,7 +99,7 @@ bfad_iocmd_ioc_get_info(struct bfad_s *bfad, void *cmd)
 	strcpy(iocmd->port_name, bfad->port_name);
 	strcpy(iocmd->hwpath, bfad->pci_name);
 
-	
+	/* set adapter hw path */
 	strcpy(iocmd->adapter_hwpath, bfad->pci_name);
 	i = strlen(iocmd->adapter_hwpath) - 1;
 	while (iocmd->adapter_hwpath[i] != '.')
@@ -119,7 +119,7 @@ bfad_iocmd_ioc_get_attr(struct bfad_s *bfad, void *cmd)
 	bfa_ioc_get_attr(&bfad->bfa.ioc, &iocmd->ioc_attr);
 	spin_unlock_irqrestore(&bfad->bfad_lock, flags);
 
-	
+	/* fill in driver attr info */
 	strcpy(iocmd->ioc_attr.driver_attr.driver, BFAD_DRIVER_NAME);
 	strncpy(iocmd->ioc_attr.driver_attr.driver_ver,
 		BFAD_DRIVER_VERSION, BFA_VERSION_LEN);
@@ -482,7 +482,7 @@ bfad_iocmd_lport_reset_stats(struct bfad_s *bfad, void *cmd)
 	}
 
 	bfa_fcs_lport_clear_stats(fcs_port);
-	
+	/* clear IO stats from all active itnims */
 	list_for_each_safe(qe, qen, &fcpim->itnim_q) {
 		itnim = (struct bfa_itnim_s *) qe;
 		if (itnim->rport->rport_info.lp_tag != fcs_port->lp_tag)
@@ -742,7 +742,7 @@ bfad_iocmd_rport_set_speed(struct bfad_s *bfad, void *cmd)
 	}
 
 	fcs_rport->rpf.assigned_speed  = iocmd->speed;
-	
+	/* Set this speed in f/w only if the RPSC speed is not available */
 	if (fcs_rport->rpf.rpsc_speed == BFA_PORT_SPEED_UNKNOWN)
 		bfa_rport_speed(fcs_rport->bfa_rport, iocmd->speed);
 	spin_unlock_irqrestore(&bfad->bfad_lock, flags);
@@ -901,7 +901,7 @@ bfad_iocmd_ratelim_speed(struct bfad_s *bfad, unsigned int cmd, void *pcmd)
 
 	spin_lock_irqsave(&bfad->bfad_lock, flags);
 
-	
+	/* Auto and speeds greater than the supported speed, are invalid */
 	if ((iocmd->speed == BFA_PORT_SPEED_AUTO) ||
 	    (iocmd->speed > fcport->speed_sup)) {
 		iocmd->status = BFA_STATUS_UNSUPP_SPEED;
@@ -940,7 +940,7 @@ bfad_iocmd_fcpim_get_modstats(struct bfad_s *bfad, void *cmd)
 	unsigned long	flags;
 
 	spin_lock_irqsave(&bfad->bfad_lock, flags);
-	
+	/* accumulate IO stats from itnim */
 	memset((void *)&iocmd->modstats, 0, sizeof(struct bfa_itnim_iostats_s));
 	list_for_each_safe(qe, qen, &fcpim->itnim_q) {
 		itnim = (struct bfa_itnim_s *) qe;
@@ -1866,7 +1866,7 @@ out:
 	return 0;
 }
 
-#define BFA_DEBUG_FW_CORE_CHUNK_SZ	0x4000U 
+#define BFA_DEBUG_FW_CORE_CHUNK_SZ	0x4000U /* 16K chunks for FW dump */
 int
 bfad_iocmd_debug_fw_core(struct bfad_s *bfad, void *cmd,
 			unsigned int payload_len)
@@ -2239,7 +2239,7 @@ bfad_iocmd_qos_get_vc_attr(struct bfad_s *bfad, void *cmd)
 	iocmd->attr.elp_opmode_flags  =
 				be32_to_cpu(bfa_vc_attr->elp_opmode_flags);
 
-	
+	/* Individual VC info */
 	while (i < iocmd->attr.total_vc_count) {
 		iocmd->attr.vc_info[i].vc_credit =
 				bfa_vc_attr->vc_info[i].vc_credit;
@@ -2353,16 +2353,17 @@ out:
 	return 0;
 }
 
+/* Function to reset the LUN SCAN mode */
 static void
 bfad_iocmd_lunmask_reset_lunscan_mode(struct bfad_s *bfad, int lunmask_cfg)
 {
 	struct bfad_im_port_s *pport_im = bfad->pport.im_port;
 	struct bfad_vport_s *vport = NULL;
 
-	
+	/* Set the scsi device LUN SCAN flags for base port */
 	bfad_reset_sdev_bflags(pport_im, lunmask_cfg);
 
-	
+	/* Set the scsi device LUN SCAN flags for the vports */
 	list_for_each_entry(vport, &bfad->vport_list, list_entry)
 		bfad_reset_sdev_bflags(vport->drv_port.im_port, lunmask_cfg);
 }
@@ -2376,12 +2377,12 @@ bfad_iocmd_lunmask(struct bfad_s *bfad, void *pcmd, unsigned int v_cmd)
 	spin_lock_irqsave(&bfad->bfad_lock, flags);
 	if (v_cmd == IOCMD_FCPIM_LUNMASK_ENABLE) {
 		iocmd->status = bfa_fcpim_lunmask_update(&bfad->bfa, BFA_TRUE);
-		
+		/* Set the LUN Scanning mode to be Sequential scan */
 		if (iocmd->status == BFA_STATUS_OK)
 			bfad_iocmd_lunmask_reset_lunscan_mode(bfad, BFA_TRUE);
 	} else if (v_cmd == IOCMD_FCPIM_LUNMASK_DISABLE) {
 		iocmd->status = bfa_fcpim_lunmask_update(&bfad->bfa, BFA_FALSE);
-		
+		/* Set the LUN Scanning mode to default REPORT_LUNS scan */
 		if (iocmd->status == BFA_STATUS_OK)
 			bfad_iocmd_lunmask_reset_lunscan_mode(bfad, BFA_FALSE);
 	} else if (v_cmd == IOCMD_FCPIM_LUNMASK_CLEAR)
@@ -2765,36 +2766,40 @@ bfad_im_bsg_vendor_request(struct fc_bsg_job *job)
 	void *payload_kbuf;
 	int rc = -EINVAL;
 
+	/*
+	 * Set the BSG device request_queue size to 256 to support
+	 * payloads larger than 512*1024K bytes.
+	 */
 	blk_queue_max_segments(request_q, 256);
 
-	
+	/* Allocate a temp buffer to hold the passed in user space command */
 	payload_kbuf = kzalloc(job->request_payload.payload_len, GFP_KERNEL);
 	if (!payload_kbuf) {
 		rc = -ENOMEM;
 		goto out;
 	}
 
-	
+	/* Copy the sg_list passed in to a linear buffer: holds the cmnd data */
 	sg_copy_to_buffer(job->request_payload.sg_list,
 			  job->request_payload.sg_cnt, payload_kbuf,
 			  job->request_payload.payload_len);
 
-	
+	/* Invoke IOCMD handler - to handle all the vendor command requests */
 	rc = bfad_iocmd_handler(bfad, vendor_cmd, payload_kbuf,
 				job->request_payload.payload_len);
 	if (rc != BFA_STATUS_OK)
 		goto error;
 
-	
+	/* Copy the response data to the job->reply_payload sg_list */
 	sg_copy_from_buffer(job->reply_payload.sg_list,
 			    job->reply_payload.sg_cnt,
 			    payload_kbuf,
 			    job->reply_payload.payload_len);
 
-	
+	/* free the command buffer */
 	kfree(payload_kbuf);
 
-	
+	/* Fill the BSG job reply data */
 	job->reply_len = job->reply_payload.payload_len;
 	job->reply->reply_payload_rcv_len = job->reply_payload.payload_len;
 	job->reply->result = rc;
@@ -2802,7 +2807,7 @@ bfad_im_bsg_vendor_request(struct fc_bsg_job *job)
 	job->job_done(job);
 	return rc;
 error:
-	
+	/* free the command buffer */
 	kfree(payload_kbuf);
 out:
 	job->reply->result = rc;
@@ -2811,6 +2816,7 @@ out:
 	return rc;
 }
 
+/* FC passthru call backs */
 u64
 bfad_fcxp_get_req_sgaddr_cb(void *bfad_fcxp, int sgeid)
 {
@@ -2865,7 +2871,7 @@ bfad_send_fcpt_cb(void *bfad_fcxp, struct bfa_fcxp_s *fcxp, void *cbarg,
 	drv_fcxp->req_status = req_status;
 	drv_fcxp->rsp_len = rsp_len;
 
-	
+	/* bfa_fcxp will be automatically freed by BFA */
 	drv_fcxp->bfa_fcxp = NULL;
 	complete(&drv_fcxp->comp);
 }
@@ -2886,7 +2892,7 @@ bfad_fcxp_map_sg(struct bfad_s *bfad, void *payload_kbuf,
 	sg_table = (struct bfa_sge_s *) (((uint8_t *)buf_base) +
 			(sizeof(struct bfad_buf_info) * sge_num));
 
-	
+	/* Allocate dma coherent memory */
 	buf_info = buf_base;
 	buf_info->size = payload_len;
 	buf_info->virt = dma_alloc_coherent(&bfad->pcidev->dev, buf_info->size,
@@ -2894,10 +2900,13 @@ bfad_fcxp_map_sg(struct bfad_s *bfad, void *payload_kbuf,
 	if (!buf_info->virt)
 		goto out_free_mem;
 
-	
+	/* copy the linear bsg buffer to buf_info */
 	memset(buf_info->virt, 0, buf_info->size);
 	memcpy(buf_info->virt, payload_kbuf, buf_info->size);
 
+	/*
+	 * Setup SG table
+	 */
 	sg_table->sg_len = buf_info->size;
 	sg_table->sg_addr = (void *)(size_t) buf_info->phys;
 
@@ -2939,7 +2948,7 @@ bfad_fcxp_bsg_send(struct fc_bsg_job *job, struct bfad_fcxp *drv_fcxp,
 
 	spin_lock_irqsave(&bfad->bfad_lock, flags);
 
-	
+	/* Allocate bfa_fcxp structure */
 	hal_fcxp = bfa_fcxp_alloc(drv_fcxp, &bfad->bfa,
 				  drv_fcxp->num_req_sgles,
 				  drv_fcxp->num_rsp_sgles,
@@ -2985,15 +2994,19 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 	void *req_kbuf = NULL, *rsp_kbuf = NULL;
 	int rc = -EINVAL;
 
-	job->reply_len  = sizeof(uint32_t);	
+	job->reply_len  = sizeof(uint32_t);	/* Atleast uint32_t reply_len */
 	job->reply->reply_payload_rcv_len = 0;
 
-	
+	/* Get the payload passed in from userspace */
 	bsg_data = (struct bfa_bsg_data *) (((char *)job->request) +
 					sizeof(struct fc_bsg_request));
 	if (bsg_data == NULL)
 		goto out;
 
+	/*
+	 * Allocate buffer for bsg_fcpt and do a copy_from_user op for payload
+	 * buffer of size bsg_data->payload_len
+	 */
 	bsg_fcpt = kzalloc(bsg_data->payload_len, GFP_KERNEL);
 	if (!bsg_fcpt)
 		goto out;
@@ -3020,7 +3033,7 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 		goto out_free_mem;
 	}
 
-	
+	/* Check if the port is online before sending FC Passthru cmd */
 	if (!bfa_fcs_lport_is_online(fcs_port)) {
 		bsg_fcpt->status = BFA_STATUS_PORT_OFFLINE;
 		spin_unlock_irqrestore(&bfad->bfad_lock, flags);
@@ -3032,15 +3045,15 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 	if (drv_fcxp->port->bfad == 0)
 		drv_fcxp->port->bfad = bfad;
 
-	
+	/* Fetch the bfa_rport - if nexus needed */
 	if (command_type == FC_BSG_HST_ELS_NOLOGIN ||
 	    command_type == FC_BSG_HST_CT) {
-		
+		/* BSG HST commands: no nexus needed */
 		drv_fcxp->bfa_rport = NULL;
 
 	} else if (command_type == FC_BSG_RPT_ELS ||
 		   command_type == FC_BSG_RPT_CT) {
-		
+		/* BSG RPT commands: nexus needed */
 		fcs_rport = bfa_fcs_lport_get_rport_by_pwwn(fcs_port,
 							    bsg_fcpt->dpwwn);
 		if (fcs_rport == NULL) {
@@ -3051,14 +3064,14 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 
 		drv_fcxp->bfa_rport = fcs_rport->bfa_rport;
 
-	} else { 
+	} else { /* Unknown BSG msgcode; return -EINVAL */
 		spin_unlock_irqrestore(&bfad->bfad_lock, flags);
 		goto out_free_mem;
 	}
 
 	spin_unlock_irqrestore(&bfad->bfad_lock, flags);
 
-	
+	/* allocate memory for req / rsp buffers */
 	req_kbuf = kzalloc(job->request_payload.payload_len, GFP_KERNEL);
 	if (!req_kbuf) {
 		printk(KERN_INFO "bfa %s: fcpt request buffer alloc failed\n",
@@ -3075,7 +3088,7 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 		goto out_free_mem;
 	}
 
-	
+	/* map req sg - copy the sg_list passed in to the linear buffer */
 	sg_copy_to_buffer(job->request_payload.sg_list,
 			  job->request_payload.sg_cnt, req_kbuf,
 			  job->request_payload.payload_len);
@@ -3095,7 +3108,7 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 			    (sizeof(struct bfad_buf_info) *
 					drv_fcxp->num_req_sgles));
 
-	
+	/* map rsp sg */
 	drv_fcxp->rspbuf_info = bfad_fcxp_map_sg(bfad, rsp_kbuf,
 					job->reply_payload.payload_len,
 					&drv_fcxp->num_rsp_sgles);
@@ -3112,7 +3125,7 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 			    (sizeof(struct bfad_buf_info) *
 					drv_fcxp->num_rsp_sgles));
 
-	
+	/* fcxp send */
 	init_completion(&drv_fcxp->comp);
 	rc = bfad_fcxp_bsg_send(job, drv_fcxp, bsg_fcpt);
 	if (rc == BFA_STATUS_OK) {
@@ -3123,7 +3136,7 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 		goto out_free_mem;
 	}
 
-	
+	/* fill the job->reply data */
 	if (drv_fcxp->req_status == BFA_STATUS_OK) {
 		job->reply_len = drv_fcxp->rsp_len;
 		job->reply->reply_payload_rcv_len = drv_fcxp->rsp_len;
@@ -3136,7 +3149,7 @@ bfad_im_bsg_els_ct_request(struct fc_bsg_job *job)
 						FC_CTELS_STATUS_REJECT;
 	}
 
-	
+	/* Copy the response data to the reply_payload sg list */
 	sg_copy_from_buffer(job->reply_payload.sg_list,
 			    job->reply_payload.sg_cnt,
 			    (uint8_t *)rsp_buf_info->virt,
@@ -3150,7 +3163,7 @@ out_free_mem:
 	kfree(req_kbuf);
 	kfree(rsp_kbuf);
 
-	
+	/* Need a copy to user op */
 	if (copy_to_user(bsg_data->payload, (void *) bsg_fcpt,
 			 bsg_data->payload_len))
 		rc = -EIO;
@@ -3173,14 +3186,14 @@ bfad_im_bsg_request(struct fc_bsg_job *job)
 
 	switch (job->request->msgcode) {
 	case FC_BSG_HST_VENDOR:
-		
+		/* Process BSG HST Vendor requests */
 		rc = bfad_im_bsg_vendor_request(job);
 		break;
 	case FC_BSG_HST_ELS_NOLOGIN:
 	case FC_BSG_RPT_ELS:
 	case FC_BSG_HST_CT:
 	case FC_BSG_RPT_CT:
-		
+		/* Process BSG ELS/CT commands */
 		rc = bfad_im_bsg_els_ct_request(job);
 		break;
 	default:
@@ -3195,5 +3208,9 @@ bfad_im_bsg_request(struct fc_bsg_job *job)
 int
 bfad_im_bsg_timeout(struct fc_bsg_job *job)
 {
+	/* Don't complete the BSG job request - return -EAGAIN
+	 * to reset bsg job timeout : for ELS/CT pass thru we
+	 * already have timer to track the request.
+	 */
 	return -EAGAIN;
 }

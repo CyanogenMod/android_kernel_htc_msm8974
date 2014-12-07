@@ -20,6 +20,7 @@ MODULE_DESCRIPTION("Ultra45 environmental monitor driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_MODULE_VERSION);
 
+/* PIC device registers */
 #define REG_CMD		0x00UL
 #define  REG_CMD_RESET	0x80
 #define  REG_CMD_ESTAR	0x01
@@ -33,6 +34,7 @@ MODULE_VERSION(DRV_MODULE_VERSION);
 #define REG_ADDR	0x41UL
 #define REG_SIZE	0x42UL
 
+/* Registers accessed indirectly via REG_DATA/REG_ADDR */
 #define IREG_FAN0		0x00
 #define IREG_FAN1		0x01
 #define IREG_FAN2		0x02
@@ -81,6 +83,10 @@ static void env_write(struct env *p, u8 ireg, u8 val)
 	spin_unlock(&p->lock);
 }
 
+/*
+ * There seems to be a adr7462 providing these values, thus a lot
+ * of these calculations are borrowed from the adt7470 driver.
+ */
 #define FAN_PERIOD_TO_RPM(x)	((90000 * 60) / (x))
 #define FAN_RPM_TO_PERIOD	FAN_PERIOD_TO_RPM
 #define FAN_PERIOD_INVALID	(0xff << 8)

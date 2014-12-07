@@ -35,6 +35,6 @@ static inline struct dvb_frontend *zl10039_attach(struct dvb_frontend *fe,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_ZL10039 */
 
-#endif 
+#endif /* ZL10039_H */

@@ -59,9 +59,9 @@ static int ucd9000_get_fan_config(struct i2c_client *client, int fan)
 	  = to_ucd9000_data(pmbus_get_driver_info(client));
 
 	if (data->fan_data[fan][3] & 1)
-		fan_config |= PB_FAN_2_INSTALLED;   
+		fan_config |= PB_FAN_2_INSTALLED;   /* Use lower bit position */
 
-	
+	/* Pulses/revolution */
 	fan_config |= (data->fan_data[fan][3] & 0x06) >> 1;
 
 	return fan_config;
@@ -173,10 +173,10 @@ static int ucd9000_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	
+	/* The internal temperature sensor is always active */
 	info->func[0] = PMBUS_HAVE_TEMP;
 
-	
+	/* Everything else is configurable */
 	ret = i2c_smbus_read_block_data(client, UCD9000_MONITOR_CONFIG,
 					block_buffer);
 	if (ret <= 0) {
@@ -208,7 +208,7 @@ static int ucd9000_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* Fan configuration */
 	if (mid->driver_data == ucd90124) {
 		for (i = 0; i < UCD9000_NUM_FAN; i++) {
 			i2c_smbus_write_byte_data(client,
@@ -229,6 +229,7 @@ static int ucd9000_probe(struct i2c_client *client,
 	return pmbus_do_probe(client, mid, info);
 }
 
+/* This is the driver that will be inserted */
 static struct i2c_driver ucd9000_driver = {
 	.driver = {
 		.name = "ucd9000",

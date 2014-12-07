@@ -143,106 +143,108 @@ static void novatek_fpga_read(uint8 addr)
 #endif
 
 
+/* novatek blue panel */
 
 #ifdef NOVETAK_COMMANDS_UNUSED
 static char display_config_cmd_mode1[] = {
-	
+	/* TYPE_DCS_LWRITE */
 	0x2A, 0x00, 0x00, 0x01,
 	0x3F, 0xFF, 0xFF, 0xFF
 };
 
 static char display_config_cmd_mode2[] = {
-	
+	/* DTYPE_DCS_LWRITE */
 	0x2B, 0x00, 0x00, 0x01,
 	0xDF, 0xFF, 0xFF, 0xFF
 };
 
 static char display_config_cmd_mode3_666[] = {
-	
-	0x3A, 0x66, 0x15, 0x80 
+	/* DTYPE_DCS_WRITE1 */
+	0x3A, 0x66, 0x15, 0x80 /* 666 Packed (18-bits) */
 };
 
 static char display_config_cmd_mode3_565[] = {
-	
-	0x3A, 0x55, 0x15, 0x80 
+	/* DTYPE_DCS_WRITE1 */
+	0x3A, 0x55, 0x15, 0x80 /* 565 mode */
 };
 
 static char display_config_321[] = {
-	
-	0x66, 0x2e, 0x15, 0x00 
+	/* DTYPE_DCS_WRITE1 */
+	0x66, 0x2e, 0x15, 0x00 /* Reg 0x66 : 2E */
 };
 
 static char display_config_323[] = {
-	
-	0x13, 0x00, 0x05, 0x00 
+	/* DTYPE_DCS_WRITE */
+	0x13, 0x00, 0x05, 0x00 /* Reg 0x13 < Set for Normal Mode> */
 };
 
 static char display_config_2lan[] = {
-	
-	0x61, 0x01, 0x02, 0xff 
+	/* DTYPE_DCS_WRITE */
+	0x61, 0x01, 0x02, 0xff /* Reg 0x61 : 01,02 < Set for 2 Data Lane > */
 };
 
 static char display_config_exit_sleep[] = {
-	
-	0x11, 0x00, 0x05, 0x80 
+	/* DTYPE_DCS_WRITE */
+	0x11, 0x00, 0x05, 0x80 /* Reg 0x11 < exit sleep mode> */
 };
 
 static char display_config_TE_ON[] = {
-	
+	/* DTYPE_DCS_WRITE1 */
 	0x35, 0x00, 0x15, 0x80
 };
 
 static char display_config_39H[] = {
-	
+	/* DTYPE_DCS_WRITE */
 	0x39, 0x00, 0x05, 0x80
 };
 
 static char display_config_set_tear_scanline[] = {
-	
+	/* DTYPE_DCS_LWRITE */
 	0x44, 0x00, 0x00, 0xff
 };
 
 static char display_config_set_twolane[] = {
-	
+	/* DTYPE_DCS_WRITE1 */
 	0xae, 0x03, 0x15, 0x80
 };
 
 static char display_config_set_threelane[] = {
-	
+	/* DTYPE_DCS_WRITE1 */
 	0xae, 0x05, 0x15, 0x80
 };
 
 #else
 
-static char sw_reset[2] = {0x01, 0x00}; 
-static char enter_sleep[2] = {0x10, 0x00}; 
-static char exit_sleep[2] = {0x11, 0x00}; 
-static char display_off[2] = {0x28, 0x00}; 
-static char display_on[2] = {0x29, 0x00}; 
+static char sw_reset[2] = {0x01, 0x00}; /* DTYPE_DCS_WRITE */
+static char enter_sleep[2] = {0x10, 0x00}; /* DTYPE_DCS_WRITE */
+static char exit_sleep[2] = {0x11, 0x00}; /* DTYPE_DCS_WRITE */
+static char display_off[2] = {0x28, 0x00}; /* DTYPE_DCS_WRITE */
+static char display_on[2] = {0x29, 0x00}; /* DTYPE_DCS_WRITE */
 
 
 
-static char rgb_888[2] = {0x3A, 0x77}; 
+static char rgb_888[2] = {0x3A, 0x77}; /* DTYPE_DCS_WRITE1 */
 
 #if defined(NOVATEK_TWO_LANE)
-static char set_num_of_lanes[2] = {0xae, 0x03}; 
-#else  
-static char set_num_of_lanes[2] = {0xae, 0x01}; 
+static char set_num_of_lanes[2] = {0xae, 0x03}; /* DTYPE_DCS_WRITE1 */
+#else  /* 1 lane */
+static char set_num_of_lanes[2] = {0xae, 0x01}; /* DTYPE_DCS_WRITE1 */
 #endif
-static char novatek_f4[2] = {0xf4, 0x55}; 
-static char novatek_8c[16] = { 
+/* commands by Novatke */
+static char novatek_f4[2] = {0xf4, 0x55}; /* DTYPE_DCS_WRITE1 */
+static char novatek_8c[16] = { /* DTYPE_DCS_LWRITE */
 	0x8C, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x08, 0x08, 0x00, 0x30, 0xC0, 0xB7, 0x37};
-static char novatek_ff[2] = {0xff, 0x55 }; 
+static char novatek_ff[2] = {0xff, 0x55 }; /* DTYPE_DCS_WRITE1 */
 
-static char set_width[5] = { 
-	0x2A, 0x00, 0x00, 0x02, 0x1B}; 
-static char set_height[5] = { 
-	0x2B, 0x00, 0x00, 0x03, 0xBF}; 
+static char set_width[5] = { /* DTYPE_DCS_LWRITE */
+	0x2A, 0x00, 0x00, 0x02, 0x1B}; /* 540 - 1 */
+static char set_height[5] = { /* DTYPE_DCS_LWRITE */
+	0x2B, 0x00, 0x00, 0x03, 0xBF}; /* 960 - 1 */
 #endif
 
-static char led_pwm2[2] = {0x53, 0x24}; 
-static char led_pwm3[2] = {0x55, 0x00}; 
+static char led_pwm2[2] = {0x53, 0x24}; /* DTYPE_DCS_WRITE1 */
+static char led_pwm3[2] = {0x55, 0x00}; /* DTYPE_DCS_WRITE1 */
 
 static struct dsi_cmd_desc novatek_video_on_cmds[] = {
 	{DTYPE_DCS_WRITE, 1, 0, 0, 50,
@@ -295,7 +297,7 @@ static struct dsi_cmd_desc novatek_display_off_cmds[] = {
 		sizeof(enter_sleep), enter_sleep}
 };
 
-static char manufacture_id[2] = {0x04, 0x00}; 
+static char manufacture_id[2] = {0x04, 0x00}; /* DTYPE_DCS_READ */
 
 static struct dsi_cmd_desc novatek_manufacture_id_cmd = {
 	DTYPE_DCS_READ, 1, 0, 1, 5, sizeof(manufacture_id), manufacture_id};
@@ -318,8 +320,11 @@ static uint32 mipi_novatek_manufacture_id(struct msm_fb_data_type *mfd)
 	cmdreq.flags = CMD_REQ_RX | CMD_REQ_COMMIT;
 	cmdreq.rlen = 3;
 	cmdreq.rbuf = NULL;
-	cmdreq.cb = mipi_novatek_manufacture_cb; 
+	cmdreq.cb = mipi_novatek_manufacture_cb; /* call back */
 	mipi_dsi_cmdlist_put(&cmdreq);
+	/*
+	 * blocked here, untill call back called
+	 */
 
 	return manu_id;
 }
@@ -416,7 +421,7 @@ static int mipi_novatek_lcd_on(struct platform_device *pdev)
 		cmdreq.cb = NULL;
 		mipi_dsi_cmdlist_put(&cmdreq);
 
-		
+		/* clean up ack_err_status */
 		mipi_dsi_cmd_bta_sw_trigger();
 		mipi_novatek_manufacture_id(mfd);
 	}
@@ -453,7 +458,7 @@ static int mipi_novatek_lcd_late_init(struct platform_device *pdev)
 
 DEFINE_LED_TRIGGER(bkl_led_trigger);
 
-static char led_pwm1[2] = {0x51, 0x0};	
+static char led_pwm1[2] = {0x51, 0x0};	/* DTYPE_DCS_WRITE1 */
 static struct dsi_cmd_desc backlight_cmd = {
 	DTYPE_DCS_LWRITE, 1, 0, 0, 1, sizeof(led_pwm1), led_pwm1};
 
@@ -514,7 +519,7 @@ static int __devinit mipi_novatek_lcd_probe(struct platform_device *pdev)
 			mipi_novatek_3d_init(mipi_novatek_pdata
 	->fpga_3d_config_addr, mipi_novatek_pdata->fpga_ctrl_mode);
 
-		
+		/* create sysfs to control 3D barrier for the Sharp panel */
 		if (mipi_dsi_3d_barrier_sysfs_register(&pdev->dev)) {
 			pr_err("%s: Failed to register 3d Barrier sysfs\n",
 						__func__);

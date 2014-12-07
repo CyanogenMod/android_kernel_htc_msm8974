@@ -1,3 +1,10 @@
+/*
+ * Chip register definitions for PCILynx chipset.  Based on pcilynx.h
+ * from the Linux 1394 drivers, but modified a bit so the names here
+ * match the specification exactly (even though they have weird names,
+ * like xxx_OVER_FLOW, or arbitrary abbreviations like SNTRJ for "sent
+ * reject" etc.)
+ */
 
 #define PCILYNX_MAX_REGISTER     0xfff
 #define PCILYNX_MAX_MEMORY       0xffff
@@ -11,6 +18,7 @@
 
 #define PCI_INT_STATUS                    0x48
 #define PCI_INT_ENABLE                    0x4c
+/* status and enable have identical bit numbers */
 #define PCI_INT_INT_PEND                  (1<<31)
 #define PCI_INT_FRC_INT                   (1<<30)
 #define PCI_INT_SLV_ADR_PERR              (1<<28)
@@ -31,6 +39,7 @@
 #define PCI_INT_DMA1_HLT                  (1<<2)
 #define PCI_INT_DMA0_PCL                  (1<<1)
 #define PCI_INT_DMA0_HLT                  (1<<0)
+/* all DMA interrupts combined: */
 #define PCI_INT_DMA_ALL                   0x3ff
 
 #define PCI_INT_DMA_HLT(chan)             (1 << (chan * 2))
@@ -51,6 +60,7 @@
 
 #define PCL_NEXT_INVALID (1<<0)
 
+/* transfer commands */
 #define PCL_CMD_RCV            (0x1<<24)
 #define PCL_CMD_RCV_AND_UPDATE (0xa<<24)
 #define PCL_CMD_XMT            (0x2<<24)
@@ -58,6 +68,7 @@
 #define PCL_CMD_PCI_TO_LBUS    (0x8<<24)
 #define PCL_CMD_LBUS_TO_PCI    (0x9<<24)
 
+/* aux commands */
 #define PCL_CMD_NOP            (0x0<<24)
 #define PCL_CMD_LOAD           (0x3<<24)
 #define PCL_CMD_STOREQ         (0x4<<24)
@@ -69,6 +80,7 @@
 #define PCL_CMD_ADD            (0xd<<24)
 #define PCL_CMD_BRANCH         (0x7<<24)
 
+/* BRANCH condition codes */
 #define PCL_COND_DMARDY_SET    (0x1<<20)
 #define PCL_COND_DMARDY_CLEAR  (0x2<<20)
 
@@ -99,6 +111,7 @@
 #define DMA3_CHAN_STAT                    0x16c
 #define DMA4_CHAN_STAT                    0x18c
 #define DMA_CHAN_STAT(chan)               (DMA_BREG(DMA0_CHAN_STAT, chan))
+/* CHAN_STATUS registers share bits */
 #define DMA_CHAN_STAT_SELFID              (1<<31)
 #define DMA_CHAN_STAT_ISOPKT              (1<<30)
 #define DMA_CHAN_STAT_PCIERR              (1<<29)
@@ -112,6 +125,7 @@
 #define DMA3_CHAN_CTRL                    0x170
 #define DMA4_CHAN_CTRL                    0x190
 #define DMA_CHAN_CTRL(chan)               (DMA_BREG(DMA0_CHAN_CTRL, chan))
+/* CHAN_CTRL registers share bits */
 #define DMA_CHAN_CTRL_ENABLE              (1<<31)
 #define DMA_CHAN_CTRL_BUSY                (1<<30)
 #define DMA_CHAN_CTRL_LINK                (1<<29)
@@ -161,6 +175,7 @@
 #define DMA3_WORD1_CMP_ENABLE             0xb3c
 #define DMA4_WORD1_CMP_ENABLE             0xb4c
 #define DMA_WORD1_CMP_ENABLE(chan)	(DMA_SREG(DMA0_WORD1_CMP_ENABLE, chan))
+/* word 1 compare enable flags */
 #define DMA_WORD1_CMP_MATCH_OTHERBUS      (1<<15)
 #define DMA_WORD1_CMP_MATCH_BROADCAST     (1<<14)
 #define DMA_WORD1_CMP_MATCH_BUS_BCAST     (1<<13)
@@ -198,6 +213,7 @@
 
 #define LINK_INT_STATUS                   0xf14
 #define LINK_INT_ENABLE                   0xf18
+/* status and enable have identical bit numbers */
 #define LINK_INT_LINK_INT                 (1<<31)
 #define LINK_INT_PHY_TIME_OUT             (1<<30)
 #define LINK_INT_PHY_REG_RCVD             (1<<29)

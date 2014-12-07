@@ -35,15 +35,22 @@
 #define RMI4_SPI_DRIVER_NAME "rmi4_ts"
 #define RMI4_SPI_DEVICE_NAME "rmi4_ts"
 
+/** Platform-specific configuration data.
+ * This structure is used by the platform-specific driver to designate
+ * specific information about the hardware.  A platform client may supply
+ * an array of these to the rmi_phys_spi driver.
+ */
 struct rmi_spi_platformdata {
 	int chip;
 
-	
+	/* The number of the irq.  Set to zero if polling is required. */
 	int irq;
 
+	/* The type of the irq (e.g., IRQF_TRIGGER_FALLING).  Only valid if
+	* irq != 0 */
 	int irq_type;
 
-	
+	/* Use this to specify platformdata that is not I2C specific. */
 	struct rmi_sensordata *sensordata;
 };
 

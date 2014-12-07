@@ -49,6 +49,16 @@ static u64 value_read(int offset, int size, void *structure)
 	}
 }
 
+/**
+ * ib_pack - Pack a structure into a buffer
+ * @desc:Array of structure field descriptions
+ * @desc_len:Number of entries in @desc
+ * @structure:Structure to pack from
+ * @buf:Buffer to pack into
+ *
+ * ib_pack() packs a list of structure fields into a buffer,
+ * controlled by the array of fields in @desc.
+ */
 void ib_pack(const struct ib_field        *desc,
 	     int                           desc_len,
 	     void                         *structure,
@@ -126,6 +136,16 @@ static void value_write(int offset, int size, u64 val, void *structure)
 	}
 }
 
+/**
+ * ib_unpack - Unpack a buffer into a structure
+ * @desc:Array of structure field descriptions
+ * @desc_len:Number of entries in @desc
+ * @buf:Buffer to unpack from
+ * @structure:Structure to unpack into
+ *
+ * ib_pack() unpacks a list of structure fields from a buffer,
+ * controlled by the array of fields in @desc.
+ */
 void ib_unpack(const struct ib_field        *desc,
 	       int                           desc_len,
 	       void                         *buf,

@@ -48,15 +48,34 @@
 #include "mac.h"
 #include "srom.h"
 
+/*---------------------  Static Definitions -------------------------*/
+
+/*---------------------  Static Classes  ----------------------------*/
+
+/*---------------------  Static Variables  --------------------------*/
+
+/*---------------------  Static Functions  --------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
+
+/*---------------------  Export Functions  --------------------------*/
 
 
 
 
-
-
-
-
-
+/*
+ * Description: Read a byte from EEPROM, by MAC I2C
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      byContntOffset  - address of EEPROM
+ *  Out:
+ *      none
+ *
+ * Return Value: data read
+ *
+ */
 unsigned char SROMbyReadEmbedded(unsigned long dwIoBase, unsigned char byContntOffset)
 {
     unsigned short wDelay, wNoACK;
@@ -66,15 +85,15 @@ unsigned char SROMbyReadEmbedded(unsigned long dwIoBase, unsigned char byContntO
 
     byData = 0xFF;
     VNSvInPortB(dwIoBase + MAC_REG_I2MCFG, &byOrg);
-    
+    /* turn off hardware retry for getting NACK */
     VNSvOutPortB(dwIoBase + MAC_REG_I2MCFG, (byOrg & (~I2MCFG_NORETRY)));
     for (wNoACK = 0; wNoACK < W_MAX_I2CRETRY; wNoACK++) {
         VNSvOutPortB(dwIoBase + MAC_REG_I2MTGID, EEP_I2C_DEV_ID);
         VNSvOutPortB(dwIoBase + MAC_REG_I2MTGAD, byContntOffset);
 
-        
+        /* issue read command */
         VNSvOutPortB(dwIoBase + MAC_REG_I2MCSR, I2MCSR_EEMR);
-        
+        /* wait DONE be set */
         for (wDelay = 0; wDelay < W_MAX_TIMEOUT; wDelay++) {
             VNSvInPortB(dwIoBase + MAC_REG_I2MCSR, &byWait);
             if (byWait & (I2MCSR_DONE | I2MCSR_NACK))
@@ -92,6 +111,20 @@ unsigned char SROMbyReadEmbedded(unsigned long dwIoBase, unsigned char byContntO
 }
 
 
+/*
+ * Description: Write a byte to EEPROM, by MAC I2C
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      byContntOffset  - address of EEPROM
+ *      wData           - data to write
+ *  Out:
+ *      none
+ *
+ * Return Value: true if succeeded; false if failed.
+ *
+ */
 bool SROMbWriteEmbedded(unsigned long dwIoBase, unsigned char byContntOffset, unsigned char byData)
 {
     unsigned short wDelay, wNoACK;
@@ -100,16 +133,16 @@ bool SROMbWriteEmbedded(unsigned long dwIoBase, unsigned char byContntOffset, un
     unsigned char byOrg;
 
     VNSvInPortB(dwIoBase + MAC_REG_I2MCFG, &byOrg);
-    
+    /* turn off hardware retry for getting NACK */
     VNSvOutPortB(dwIoBase + MAC_REG_I2MCFG, (byOrg & (~I2MCFG_NORETRY)));
     for (wNoACK = 0; wNoACK < W_MAX_I2CRETRY; wNoACK++) {
         VNSvOutPortB(dwIoBase + MAC_REG_I2MTGID, EEP_I2C_DEV_ID);
         VNSvOutPortB(dwIoBase + MAC_REG_I2MTGAD, byContntOffset);
         VNSvOutPortB(dwIoBase + MAC_REG_I2MDOPT, byData);
 
-        
+        /* issue write command */
         VNSvOutPortB(dwIoBase + MAC_REG_I2MCSR, I2MCSR_EEMW);
-        
+        /* wait DONE be set */
         for (wDelay = 0; wDelay < W_MAX_TIMEOUT; wDelay++) {
             VNSvInPortB(dwIoBase + MAC_REG_I2MCSR, &byWait);
             if (byWait & (I2MCSR_DONE | I2MCSR_NACK))
@@ -131,6 +164,20 @@ bool SROMbWriteEmbedded(unsigned long dwIoBase, unsigned char byContntOffset, un
 }
 
 
+/*
+ * Description: Turn bits on in eeprom
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      byContntOffset  - address of EEPROM
+ *      byBits          - bits to turn on
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void SROMvRegBitsOn(unsigned long dwIoBase, unsigned char byContntOffset, unsigned char byBits)
 {
     unsigned char byOrgData;
@@ -140,6 +187,18 @@ void SROMvRegBitsOn(unsigned long dwIoBase, unsigned char byContntOffset, unsign
 }
 
 
+/*
+ * Description: Turn bits off in eeprom
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      byContntOffset  - address of EEPROM
+ *      byBits          - bits to turn off
+ *  Out:
+ *      none
+ *
+ */
 void SROMvRegBitsOff(unsigned long dwIoBase, unsigned char byContntOffset, unsigned char byBits)
 {
     unsigned char byOrgData;
@@ -149,6 +208,20 @@ void SROMvRegBitsOff(unsigned long dwIoBase, unsigned char byContntOffset, unsig
 }
 
 
+/*
+ * Description: Test if bits on in eeprom
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      byContntOffset  - address of EEPROM
+ *      byTestBits      - bits to test
+ *  Out:
+ *      none
+ *
+ * Return Value: true if all test bits on; otherwise false
+ *
+ */
 bool SROMbIsRegBitsOn(unsigned long dwIoBase, unsigned char byContntOffset, unsigned char byTestBits)
 {
     unsigned char byOrgData;
@@ -158,6 +231,20 @@ bool SROMbIsRegBitsOn(unsigned long dwIoBase, unsigned char byContntOffset, unsi
 }
 
 
+/*
+ * Description: Test if bits off in eeprom
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      byContntOffset  - address of EEPROM
+ *      byTestBits      - bits to test
+ *  Out:
+ *      none
+ *
+ * Return Value: true if all test bits off; otherwise false
+ *
+ */
 bool SROMbIsRegBitsOff(unsigned long dwIoBase, unsigned char byContntOffset, unsigned char byTestBits)
 {
     unsigned char byOrgData;
@@ -167,11 +254,23 @@ bool SROMbIsRegBitsOff(unsigned long dwIoBase, unsigned char byContntOffset, uns
 }
 
 
+/*
+ * Description: Read all contents of eeprom to buffer
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *  Out:
+ *      pbyEepromRegs   - EEPROM content Buffer
+ *
+ * Return Value: none
+ *
+ */
 void SROMvReadAllContents(unsigned long dwIoBase, unsigned char *pbyEepromRegs)
 {
     int     ii;
 
-    
+    /* ii = Rom Address */
     for (ii = 0; ii < EEP_MAX_CONTEXT_SIZE; ii++) {
         *pbyEepromRegs = SROMbyReadEmbedded(dwIoBase,(unsigned char) ii);
         pbyEepromRegs++;
@@ -179,11 +278,24 @@ void SROMvReadAllContents(unsigned long dwIoBase, unsigned char *pbyEepromRegs)
 }
 
 
+/*
+ * Description: Write all contents of buffer to eeprom
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      pbyEepromRegs   - EEPROM content Buffer
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void SROMvWriteAllContents(unsigned long dwIoBase, unsigned char *pbyEepromRegs)
 {
     int     ii;
 
-    
+    /* ii = Rom Address */
     for (ii = 0; ii < EEP_MAX_CONTEXT_SIZE; ii++) {
         SROMbWriteEmbedded(dwIoBase,(unsigned char) ii, *pbyEepromRegs);
         pbyEepromRegs++;
@@ -191,11 +303,23 @@ void SROMvWriteAllContents(unsigned long dwIoBase, unsigned char *pbyEepromRegs)
 }
 
 
+/*
+ * Description: Read Ethernet Address from eeprom to buffer
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *  Out:
+ *      pbyEtherAddress - Ethernet Address buffer
+ *
+ * Return Value: none
+ *
+ */
 void SROMvReadEtherAddress(unsigned long dwIoBase, unsigned char *pbyEtherAddress)
 {
     unsigned char ii;
 
-    
+    /* ii = Rom Address */
     for (ii = 0; ii < ETH_ALEN; ii++) {
         *pbyEtherAddress = SROMbyReadEmbedded(dwIoBase, ii);
         pbyEtherAddress++;
@@ -203,11 +327,24 @@ void SROMvReadEtherAddress(unsigned long dwIoBase, unsigned char *pbyEtherAddres
 }
 
 
+/*
+ * Description: Write Ethernet Address from buffer to eeprom
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *      pbyEtherAddress - Ethernet Address buffer
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void SROMvWriteEtherAddress(unsigned long dwIoBase, unsigned char *pbyEtherAddress)
 {
     unsigned char ii;
 
-    
+    /* ii = Rom Address */
     for (ii = 0; ii < ETH_ALEN; ii++) {
         SROMbWriteEmbedded(dwIoBase, ii, *pbyEtherAddress);
         pbyEtherAddress++;
@@ -215,19 +352,43 @@ void SROMvWriteEtherAddress(unsigned long dwIoBase, unsigned char *pbyEtherAddre
 }
 
 
+/*
+ * Description: Read Sub_VID and Sub_SysId from eeprom to buffer
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *  Out:
+ *      pdwSubSysVenId  - Sub_VID and Sub_SysId read
+ *
+ * Return Value: none
+ *
+ */
 void SROMvReadSubSysVenId(unsigned long dwIoBase, unsigned long *pdwSubSysVenId)
 {
     unsigned char *pbyData;
 
     pbyData = (unsigned char *)pdwSubSysVenId;
-    
+    /* sub vendor */
     *pbyData = SROMbyReadEmbedded(dwIoBase, 6);
     *(pbyData+1) = SROMbyReadEmbedded(dwIoBase, 7);
-    
+    /* sub system */
     *(pbyData+2) = SROMbyReadEmbedded(dwIoBase, 8);
     *(pbyData+3) = SROMbyReadEmbedded(dwIoBase, 9);
 }
 
+/*
+ * Description: Auto Load EEPROM to MAC register
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - I/O base address
+ *  Out:
+ *      none
+ *
+ * Return Value: true if success; otherwise false
+ *
+ */
 bool SROMbAutoLoad(unsigned long dwIoBase)
 {
     unsigned char byWait;
@@ -236,12 +397,12 @@ bool SROMbAutoLoad(unsigned long dwIoBase)
     unsigned char byOrg;
 
     VNSvInPortB(dwIoBase + MAC_REG_I2MCFG, &byOrg);
-    
+    /* turn on hardware retry */
     VNSvOutPortB(dwIoBase + MAC_REG_I2MCFG, (byOrg | I2MCFG_NORETRY));
 
     MACvRegBitsOn(dwIoBase, MAC_REG_I2MCSR, I2MCSR_AUTOLD);
 
-    
+    /* ii = Rom Address */
     for (ii = 0; ii < EEP_MAX_CONTEXT_SIZE; ii++) {
         MACvTimer0MicroSDelay(dwIoBase, CB_EEPROM_READBYTE_WAIT);
         VNSvInPortB(dwIoBase + MAC_REG_I2MCSR, &byWait);

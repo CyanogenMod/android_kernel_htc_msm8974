@@ -33,6 +33,12 @@ struct perf_session {
 	struct machine		host_machine;
 	struct rb_root		machines;
 	struct perf_evlist	*evlist;
+	/*
+	 * FIXME: Need to split this up further, we need global
+	 *	  stats + per event stats. 'perf diff' also needs
+	 *	  to properly support multiple events in a single
+	 *	  perf.data file.
+	 */
 	struct hists		hists;
 	u64			sample_type;
 	int			sample_size;
@@ -151,4 +157,4 @@ int perf_session__cpu_bitmap(struct perf_session *session,
 			     const char *cpu_list, unsigned long *cpu_bitmap);
 
 void perf_session__fprintf_info(struct perf_session *s, FILE *fp, bool full);
-#endif 
+#endif /* __PERF_SESSION_H */

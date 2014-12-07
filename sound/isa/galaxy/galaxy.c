@@ -70,6 +70,9 @@ MODULE_PARM_DESC(dma1, "Playback DMA # for " CRD_NAME " driver.");
 module_param_array(dma2, int, NULL, 0444);
 MODULE_PARM_DESC(dma2, "Capture DMA # for " CRD_NAME " driver.");
 
+/*
+ * Generic SB DSP support routines
+ */
 
 #define DSP_PORT_RESET		0x6
 #define DSP_PORT_READ		0xa
@@ -140,6 +143,9 @@ static int __devinit dsp_get_version(void __iomem *port, u8 *major, u8 *minor)
 	return 0;
 }
 
+/*
+ * Generic WSS support routines
+ */
 
 #define WSS_CONFIG_DMA_0	(1 << 0)
 #define WSS_CONFIG_DMA_1	(2 << 0)
@@ -168,6 +174,9 @@ static void wss_set_config(void __iomem *wss_port, u8 wss_config)
 	iowrite8(wss_config, wss_port + WSS_PORT_CONFIG);
 }
 
+/*
+ * Aztech Sound Galaxy specifics
+ */
 
 #define GALAXY_PORT_CONFIG	1024
 #define CONFIG_PORT_SET		4
@@ -415,6 +424,9 @@ static int __devinit galaxy_set_mode(struct snd_galaxy *galaxy, u8 mode)
 		return err;
 
 #ifdef AZT1605
+	/*
+	 * Needed for MPU IRQ on AZT1605, but AZT2316 loses WSS again
+	 */
 	err = dsp_reset(galaxy->port);
 	if (err < 0)
 		return err;

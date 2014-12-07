@@ -49,22 +49,37 @@
 
 #define BOOTLDRFAMILY(byte1, byte0) (((byte1) << 8) | (byte0))
 
+/*
+ * Forward Prototypes
+ */
 static void pmem_setup_resource(void);
 
+/*
+ * Global Variables
+ */
 enum asic_type asic;
 
 unsigned int platform_features;
 unsigned int platform_family;
 struct register_map _asic_register_map;
-EXPORT_SYMBOL(_asic_register_map);		
+EXPORT_SYMBOL(_asic_register_map);		/* Exported for testing */
 unsigned long asic_phy_base;
 unsigned long asic_base;
-EXPORT_SYMBOL(asic_base);			
+EXPORT_SYMBOL(asic_base);			/* Exported for testing */
 struct resource *gp_resources;
 
+/*
+ * Don't recommend to use it directly, it is usually used by kernel internally.
+ * Portable code should be using interfaces such as ioremp, dma_map_single, etc.
+ */
 unsigned long phys_to_dma_offset;
 EXPORT_SYMBOL(phys_to_dma_offset);
 
+/*
+ *
+ * IO Resource Definition
+ *
+ */
 
 struct resource asic_resource = {
 	.name  = "ASIC Resource",
@@ -73,10 +88,20 @@ struct resource asic_resource = {
 	.flags = IORESOURCE_MEM,
 };
 
+/*
+ * Allow override of bootloader-specified model
+ * Returns zero on success, a negative errno value on failure.  This parameter
+ * allows overriding of the bootloader-specified model.
+ */
 static char __initdata cmdline[COMMAND_LINE_SIZE];
 
 #define	FORCEFAMILY_PARAM	"forcefamily"
 
+/*
+ * check_forcefamily - check for, and parse, forcefamily command line parameter
+ * @forced_family:	Pointer to two-character array in which to store the
+ *			value of the forcedfamily parameter, if any.
+ */
 static __init int check_forcefamily(unsigned char forced_family[2])
 {
 	const char *p;
@@ -84,7 +109,7 @@ static __init int check_forcefamily(unsigned char forced_family[2])
 	forced_family[0] = '\0';
 	forced_family[1] = '\0';
 
-	
+	/* Check the command line for a forcefamily directive */
 	strncpy(cmdline, arcs_cmdline, COMMAND_LINE_SIZE - 1);
 	p = strstr(cmdline, FORCEFAMILY_PARAM);
 	if (p && (p != cmdline) && (*(p - 1) != ' '))
@@ -107,6 +132,13 @@ static __init int check_forcefamily(unsigned char forced_family[2])
 	return 0;
 }
 
+/*
+ * platform_set_family - determine major platform family type.
+ *
+ * Returns family type; -1 if none
+ * Returns the family type; -1 if none
+ *
+ */
 static __init noinline void platform_set_family(void)
 {
 	unsigned char forced_family[2];
@@ -177,12 +209,23 @@ unsigned int platform_get_family(void)
 }
 EXPORT_SYMBOL(platform_get_family);
 
+/*
+ * platform_get_asic - determine the ASIC type.
+ *
+ * Returns the ASIC type, or ASIC_UNKNOWN if unknown
+ *
+ */
 enum asic_type platform_get_asic(void)
 {
 	return asic;
 }
 EXPORT_SYMBOL(platform_get_asic);
 
+/*
+ * set_register_map - set ASIC register configuration
+ * @phys_base:	Physical address of the base of the ASIC registers
+ * @map:	Description of key ASIC registers
+ */
 static void __init set_register_map(unsigned long phys_base,
 	const struct register_map *map)
 {
@@ -192,6 +235,9 @@ static void __init set_register_map(unsigned long phys_base,
 	asic_base = (unsigned long)ioremap_nocache(phys_base, ASIC_IO_SIZE);
 }
 
+/**
+ * configure_platform - configuration based on platform type.
+ */
 void __init configure_platform(void)
 {
 	platform_set_family();
@@ -233,11 +279,15 @@ void __init configure_platform(void)
 	{
 		unsigned int chipversion = 0;
 
+		/* The settop has PCIE but it isn't used, so don't advertise
+		 * it*/
 		platform_features = FFS_CAPABLE | DISPLAY_CAPABLE;
 
-		
+		/* Cronus and Cronus Lite have the same register map */
 		set_register_map(CRONUS_IO_BASE, &cronus_register_map);
 
+		/* ASIC version will determine if this is a real CronusLite or
+		 * Castrati(Cronus) */
 		chipversion  = asic_read(chipver3) << 24;
 		chipversion |= asic_read(chipver2) << 16;
 		chipversion |= asic_read(chipver1) << 8;
@@ -309,8 +359,13 @@ void __init configure_platform(void)
 		phys_to_dma_offset = 0x10000000;
 		break;
 	case ASIC_CRONUSLITE:
-		
+		/* Fall through */
 	case ASIC_CRONUS:
+		/*
+		 * TODO: We suppose 0x10000000 aliases into 0x20000000-
+		 * 0x2XXXXXXX. If 0x10000000 aliases into 0x60000000-
+		 * 0x6XXXXXXX, the offset should be 0x50000000, not 0x10000000.
+		 */
 		phys_to_dma_offset = 0x10000000;
 		break;
 	default:
@@ -319,14 +374,25 @@ void __init configure_platform(void)
 	}
 }
 
+/*
+ * RESOURCE ALLOCATION
+ *
+ */
+/*
+ * Allocates/reserves the Platform memory resources early in the boot process.
+ * This ignores any resources that are designated IORESOURCE_IO
+ */
 void __init platform_alloc_bootmem(void)
 {
 	int i;
 	int total = 0;
 
+	/* Get persistent memory data from command line before allocating
+	 * resources. This need to happen before normal command line parsing
+	 * has been done */
 	pmem_setup_resource();
 
-	
+	/* Loop through looking for resources that want a particular address */
 	for (i = 0; gp_resources[i].flags != 0; i++) {
 		int size = resource_size(&gp_resources[i]);
 		if ((gp_resources[i].start != 0) &&
@@ -340,7 +406,7 @@ void __init platform_alloc_bootmem(void)
 		}
 	}
 
-	
+	/* Loop through assigning addresses for those that are left */
 	for (i = 0; gp_resources[i].flags != 0; i++) {
 		int size = resource_size(&gp_resources[i]);
 		if ((gp_resources[i].start == 0) &&
@@ -367,7 +433,7 @@ void __init platform_alloc_bootmem(void)
 
 	pr_info("Total Platform driver memory allocation: 0x%08x\n", total);
 
-	
+	/* indicate resources that are platform I/O related */
 	for (i = 0; gp_resources[i].flags != 0; i++) {
 		if ((gp_resources[i].start != 0) &&
 			((gp_resources[i].flags & IORESOURCE_IO) != 0)) {
@@ -377,6 +443,11 @@ void __init platform_alloc_bootmem(void)
 	}
 }
 
+/*
+ *
+ * PERSISTENT MEMORY (PMEM) CONFIGURATION
+ *
+ */
 static unsigned long pmemaddr __initdata;
 
 static int __init early_param_pmemaddr(char *p)
@@ -390,6 +461,7 @@ static long pmemlen __initdata;
 
 static int __init early_param_pmemlen(char *p)
 {
+/* TODO: we can use this code when and if the bootloader ever changes this */
 #if 0
 	pmemlen = (unsigned long)simple_strtoul(p, NULL, 0);
 #else
@@ -399,12 +471,18 @@ static int __init early_param_pmemlen(char *p)
 }
 early_param("pmemlen", early_param_pmemlen);
 
+/*
+ * Set up persistent memory. If we were given values, we patch the array of
+ * resources. Otherwise, persistent memory may be allocated anywhere at all.
+ */
 static void __init pmem_setup_resource(void)
 {
 	struct resource *resource;
 	resource = asic_resource_get("DiagPersistentMemory");
 
 	if (resource && pmemaddr && pmemlen) {
+		/* The address provided by bootloader is in kseg0. Convert to
+		 * a bus address. */
 		resource->start = phys_to_dma(pmemaddr - 0x80000000);
 		resource->end = resource->start + pmemlen - 1;
 
@@ -413,7 +491,21 @@ static void __init pmem_setup_resource(void)
 	}
 }
 
+/*
+ *
+ * RESOURCE ACCESS FUNCTIONS
+ *
+ */
 
+/**
+ * asic_resource_get - retrieves parameters for a platform resource.
+ * @name:	string to match resource
+ *
+ * Returns a pointer to a struct resource corresponding to the given name.
+ *
+ * CANNOT BE NAMED platform_resource_get, which would be the obvious choice,
+ * as this function name is already declared
+ */
 struct resource *asic_resource_get(const char *name)
 {
 	int i;
@@ -427,6 +519,14 @@ struct resource *asic_resource_get(const char *name)
 }
 EXPORT_SYMBOL(asic_resource_get);
 
+/**
+ * platform_release_memory - release pre-allocated memory
+ * @ptr:	pointer to memory to release
+ * @size:	size of resource
+ *
+ * This must only be called for memory allocated or reserved via the boot
+ * memory allocator.
+ */
 void platform_release_memory(void *ptr, int size)
 {
 	unsigned long addr;
@@ -443,6 +543,11 @@ void platform_release_memory(void *ptr, int size)
 }
 EXPORT_SYMBOL(platform_release_memory);
 
+/*
+ *
+ * FEATURE AVAILABILITY FUNCTIONS
+ *
+ */
 int platform_supports_dvr(void)
 {
 	return (platform_features & DVR_CAPABLE) != 0;

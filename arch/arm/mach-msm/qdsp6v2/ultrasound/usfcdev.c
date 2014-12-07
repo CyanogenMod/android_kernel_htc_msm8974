@@ -62,7 +62,7 @@ static const struct input_device_id usfc_tsc_ids[] = {
 			INPUT_DEVICE_ID_MATCH_ABSBIT,
 		.evbit = { BIT_MASK(EV_ABS) | BIT_MASK(EV_KEY) },
 		.keybit = { [BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH) },
-		
+		/* assumption: ABS_X & ABS_Y are in the same long */
 		.absbit = { [BIT_WORD(ABS_X)] = BIT_MASK(ABS_X) |
 						BIT_MASK(ABS_Y) },
 	},
@@ -72,32 +72,39 @@ static const struct input_device_id usfc_tsc_ids[] = {
 			INPUT_DEVICE_ID_MATCH_ABSBIT,
 		.evbit = { BIT_MASK(EV_ABS) | BIT_MASK(EV_KEY) },
 		.keybit = { [BIT_WORD(BTN_TOUCH)] = BIT_MASK(BTN_TOUCH) },
-		
+		/* assumption: MT_.._X & MT_.._Y are in the same long */
 		.absbit = { [BIT_WORD(ABS_MT_POSITION_X)] =
 			BIT_MASK(ABS_MT_POSITION_X) |
 			BIT_MASK(ABS_MT_POSITION_Y) },
 	},
-	{ } 
+	{ } /* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(input, usfc_tsc_ids);
 
 static struct input_handler s_usfc_handlers[MAX_EVENT_TYPE_NUM] = {
-	{ 
+	{ /* TSC handler */
 		.filter         = usfcdev_filter,
 		.match          = usfcdev_match,
 		.connect        = usfcdev_connect,
 		.disconnect     = usfcdev_disconnect,
-		
-		
+		/* .minor can be used as index in the container, */
+		/*  because .fops isn't supported */
 		.minor          = TSC_EVENT_TYPE_IND,
 		.name           = "usfc_tsc_handler",
 		.id_table       = usfc_tsc_ids,
 	},
 };
 
+/*
+ * For each event type, there are a number conflicting devices (handles)
+ * The first registered device (primary) is real TSC device; it's mandatory
+ * Optionally, later registered devices are simulated ones.
+ * They are dynamically managed
+ * The primary device's handles are stored in the below static array
+ */
 static struct input_handle s_usfc_primary_handles[MAX_EVENT_TYPE_NUM] = {
-	{ 
+	{ /* TSC handle */
 		.handler	= &s_usfc_handlers[TSC_EVENT_TYPE_IND],
 		.name		= "usfc_tsc_handle",
 	},
@@ -214,7 +221,7 @@ static bool usfcdev_filter(struct input_handle *handle,
 	bool rc = (s_usfcdev_events[ind].event_status != USFCDEV_EVENT_ENABLED);
 
 	if (s_usf_pid == sys_getpid()) {
-		
+		/* Pass events from usfcdev driver */
 		rc = false;
 		pr_debug("%s: event_type=%d; type=%d; code=%d; val=%d",
 			__func__,
@@ -226,7 +233,7 @@ static bool usfcdev_filter(struct input_handle *handle,
 						USFCDEV_EVENT_DISABLING) {
 		uint32_t u_value = value;
 		s_usfcdev_events[ind].interleaved = true;
-		
+		/* Pass events for freeing slots from TSC driver */
 		for (i = 0; i < ARRAY_SIZE(no_filter_cmds); ++i) {
 			if ((no_filter_cmds[i].type == type) &&
 			    (no_filter_cmds[i].code == code) &&
@@ -328,7 +335,7 @@ static void usfcdev_clean_dev(uint16_t event_type_ind)
 			event_type_ind);
 		return;
 	}
-	
+	/* Only primary device must exist */
 	dev = s_usfc_primary_handles[event_type_ind].dev;
 	if (dev == NULL) {
 		pr_err("%s: NULL primary device\n",
@@ -340,7 +347,7 @@ static void usfcdev_clean_dev(uint16_t event_type_ind)
 		usfcdev_send_cmd(dev, initial_clear_cmds[i]);
 	input_sync(dev);
 
-	
+	/* Send commands to free all slots */
 	for (i = 0; i < dev->mtsize; i++) {
 		s_usfcdev_events[event_type_ind].interleaved = false;
 		if (input_mt_get_value(&dev->mt[i], ABS_MT_TRACKING_ID) < 0) {

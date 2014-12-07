@@ -211,7 +211,7 @@ DChannel_proc_rcv(struct IsdnCardState *cs)
 		if (test_bit(FLG_L1_ACTTIMER, &stptr->l1.Flags))
 			FsmEvent(&stptr->l1.l1m, EV_TIMER_ACT, NULL);
 	while ((skb = skb_dequeue(&cs->rq))) {
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 		if (cs->debug & L1_DEB_LAPD)
 			Logl2Frame(cs, skb, "PH_DATA", 1);
 #endif
@@ -233,7 +233,7 @@ DChannel_proc_rcv(struct IsdnCardState *cs)
 		if (cs->debug & DEB_DLOG_VERBOSE)
 			dlogframe(cs, skb, 1);
 		if (tei == GROUP_TEI) {
-			if (sapi == CTRL_SAPI) { 
+			if (sapi == CTRL_SAPI) { /* sapi 0 */
 				while (stptr != NULL) {
 					if ((nskb = skb_clone(skb, GFP_ATOMIC)))
 						stptr->l1.l1l2(stptr, PH_DATA | INDICATION, nskb);
@@ -251,7 +251,7 @@ DChannel_proc_rcv(struct IsdnCardState *cs)
 				}
 			}
 			dev_kfree_skb(skb);
-		} else if (sapi == CTRL_SAPI) { 
+		} else if (sapi == CTRL_SAPI) { /* sapi 0 */
 			found = 0;
 			while (stptr != NULL)
 				if (tei == stptr->l2.tei) {
@@ -372,7 +372,7 @@ init_bcstate(struct IsdnCardState *cs, int bc)
 	bcs->Flag = 0;
 }
 
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 
 static char *
 l2cmd(u_char cmd)

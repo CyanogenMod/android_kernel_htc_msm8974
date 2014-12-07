@@ -7,6 +7,7 @@
 #ifndef JR_H
 #define JR_H
 
+/* Prototypes for backend-level services exposed to APIs */
 int caam_jr_register(struct device *ctrldev, struct device **rdev);
 int caam_jr_deregister(struct device *rdev);
 int caam_jr_enqueue(struct device *dev, u32 *desc,
@@ -17,4 +18,4 @@ int caam_jr_enqueue(struct device *dev, u32 *desc,
 extern int caam_jr_probe(struct platform_device *pdev, struct device_node *np,
 			 int ring);
 extern int caam_jr_shutdown(struct device *dev);
-#endif 
+#endif /* JR_H */

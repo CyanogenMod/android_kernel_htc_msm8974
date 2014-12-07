@@ -5,8 +5,14 @@
 #include <linux/sched.h>
 #include <asm/ptrace.h>
 
+/*
+ * The syscall table always contains 32 bit pointers since we know that the
+ * address of the function to be called is (way) below 4GB.  So the "int"
+ * type here is what we want [need] for both 32 bit and 64 bit systems.
+ */
 extern const unsigned int sys_call_table[];
 
+/* The system call number is given by the user in %g1 */
 static inline long syscall_get_nr(struct task_struct *task,
 				  struct pt_regs *regs)
 {
@@ -18,6 +24,13 @@ static inline long syscall_get_nr(struct task_struct *task,
 static inline void syscall_rollback(struct task_struct *task,
 				    struct pt_regs *regs)
 {
+	/* XXX This needs some thought.  On Sparc we don't
+	 * XXX save away the original %o0 value somewhere.
+	 * XXX Instead we hold it in register %l5 at the top
+	 * XXX level trap frame and pass this down to the signal
+	 * XXX dispatch code which is the only place that value
+	 * XXX ever was needed.
+	 */
 }
 
 #ifdef CONFIG_SPARC32
@@ -111,4 +124,4 @@ static inline void syscall_set_arguments(struct task_struct *task,
 		regs->u_regs[UREG_I0 + i + j] = args[j];
 }
 
-#endif 
+#endif /* __ASM_SPARC_SYSCALL_H */

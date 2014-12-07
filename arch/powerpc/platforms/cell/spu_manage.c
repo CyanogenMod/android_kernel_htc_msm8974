@@ -49,17 +49,17 @@ static u64 __init find_spu_unit_number(struct device_node *spe)
 	const unsigned int *prop;
 	int proplen;
 
-	
+	/* new device trees should provide the physical-id attribute */
 	prop = of_get_property(spe, "physical-id", &proplen);
 	if (proplen == 4)
 		return (u64)*prop;
 
-	
+	/* celleb device tree provides the unit-id */
 	prop = of_get_property(spe, "unit-id", &proplen);
 	if (proplen == 4)
 		return (u64)*prop;
 
-	
+	/* legacy device trees provide the id in the reg attribute */
 	prop = of_get_property(spe, "reg", &proplen);
 	if (proplen == 4)
 		return (u64)*prop;
@@ -83,7 +83,7 @@ static int __init spu_map_interrupts_old(struct spu *spu,
 	const u32 *tmp;
 	int nid;
 
-	
+	/* Get the interrupt source unit from the device-tree */
 	tmp = of_get_property(np, "isrc", NULL);
 	if (!tmp)
 		return -ENODEV;
@@ -96,15 +96,15 @@ static int __init spu_map_interrupts_old(struct spu *spu,
 	} else
 		nid = tmp[0];
 
-	
+	/* Add the node number */
 	isrc |= nid << IIC_IRQ_NODE_SHIFT;
 
-	
+	/* Now map interrupts of all 3 classes */
 	spu->irqs[0] = irq_create_mapping(NULL, IIC_IRQ_CLASS_0 | isrc);
 	spu->irqs[1] = irq_create_mapping(NULL, IIC_IRQ_CLASS_1 | isrc);
 	spu->irqs[2] = irq_create_mapping(NULL, IIC_IRQ_CLASS_2 | isrc);
 
-	
+	/* Right now, we only fail if class 2 failed */
 	return spu->irqs[2] == NO_IRQ ? -EINVAL : 0;
 }
 
@@ -141,7 +141,7 @@ static int __init spu_map_device_old(struct spu *spu)
 		goto out;
 	spu->local_store_phys = *(unsigned long *)prop;
 
-	
+	/* we use local store as ram, not io memory */
 	spu->local_store = (void __force *)
 		spu_map_prop_old(spu, node, "local-store");
 	if (!spu->local_store)
@@ -379,6 +379,7 @@ static void disable_spu_by_master_run(struct spu_context *ctx)
 	ctx->ops->master_stop(ctx);
 }
 
+/* Hardcoded affinity idxs for qs20 */
 #define QS20_SPES_PER_BE 8
 static int qs20_reg_idxs[QS20_SPES_PER_BE] =   { 0, 2, 4, 6, 7, 5, 3, 1 };
 static int qs20_reg_memory[QS20_SPES_PER_BE] = { 1, 1, 0, 0, 0, 0, 0, 0 };
@@ -478,6 +479,10 @@ static void init_affinity_node(int cbe)
 		last_spu_dn = spu_devnode(last_spu);
 		vic_handles = of_get_property(last_spu_dn, "vicinity", &lenp);
 
+		/*
+		 * Walk through each phandle in vicinity property of the spu
+		 * (tipically two vicinity phandles per spe node)
+		 */
 		for (i = 0; i < (lenp / sizeof(phandle)); i++) {
 			if (vic_handles[i] == avoid_ph)
 				continue;
@@ -486,7 +491,7 @@ static void init_affinity_node(int cbe)
 			if (!vic_dn)
 				continue;
 
-			
+			/* a neighbour might be spe, mic-tm, or bif0 */
 			name = of_get_property(vic_dn, "name", NULL);
 			if (!name)
 				continue;
@@ -495,6 +500,12 @@ static void init_affinity_node(int cbe)
 				spu = devnode_spu(cbe, vic_dn);
 				avoid_ph = last_spu_dn->phandle;
 			} else {
+				/*
+				 * "mic-tm" and "bif0" nodes do not have
+				 * vicinity property. So we need to find the
+				 * spe which has vic_dn as neighbour, but
+				 * skipping the one we came from (last_spu_dn)
+				 */
 				spu = neighbour_spu(cbe, vic_dn, last_spu_dn);
 				if (!spu)
 					continue;

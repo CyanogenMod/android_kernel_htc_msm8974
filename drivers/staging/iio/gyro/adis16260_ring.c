@@ -10,6 +10,11 @@
 #include "../trigger_consumer.h"
 #include "adis16260.h"
 
+/**
+ * adis16260_read_ring_data() read data registers which will be placed into ring
+ * @dev: device associated with child of actual device (iio_dev or iio_trig)
+ * @rx: somewhere to pass back the value read
+ **/
 static int adis16260_read_ring_data(struct device *dev, u8 *rx)
 {
 	struct spi_message msg;
@@ -30,11 +35,11 @@ static int adis16260_read_ring_data(struct device *dev, u8 *rx)
 		xfers[i].len = 2;
 		xfers[i].delay_usecs = 30;
 		xfers[i].tx_buf = st->tx + 2 * i;
-		if (i < 2) 
+		if (i < 2) /* SUPPLY_OUT:0x02 GYRO_OUT:0x04 */
 			st->tx[2 * i]
 				= ADIS16260_READ_REG(ADIS16260_SUPPLY_OUT
 						+ 2 * i);
-		else 
+		else /* 0x06 to 0x09 is reserved */
 			st->tx[2 * i]
 				= ADIS16260_READ_REG(ADIS16260_SUPPLY_OUT
 						+ 2 * i + 4);
@@ -75,7 +80,7 @@ static irqreturn_t adis16260_trigger_handler(int irq, void *p)
 					 indio_dev->masklength); i++)
 			data[i] = be16_to_cpup((__be16 *)&(st->rx[i*2]));
 
-	
+	/* Guaranteed to be aligned with 8 byte boundary */
 	if (ring->scan_timestamp)
 		*((s64 *)(data + ((i + 3)/4)*4)) = pf->timestamp;
 

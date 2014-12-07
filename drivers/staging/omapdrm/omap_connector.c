@@ -22,6 +22,9 @@
 #include "drm_crtc.h"
 #include "drm_crtc_helper.h"
 
+/*
+ * connector funcs
+ */
 
 #define to_omap_connector(x) container_of(x, struct omap_connector, base)
 
@@ -45,6 +48,13 @@ static inline void copy_timings_omap_to_drm(struct drm_display_mode *mode,
 	mode->vsync_end = mode->vsync_start + timings->vsw;
 	mode->vtotal = mode->vsync_end + timings->vbp;
 
+	/* note: whether or not it is interlaced, +/- h/vsync, etc,
+	 * which should be set in the mode flags, is not exposed in
+	 * the omap_video_timings struct.. but hdmi driver tracks
+	 * those separately so all we have to have to set the mode
+	 * is the way to recover these timings values, and the
+	 * omap_dss_driver would do the rest.
+	 */
 }
 
 static inline void copy_timings_drm_to_omap(struct omap_video_timings *timings,
@@ -73,12 +83,12 @@ static void omap_connector_dpms(struct drm_connector *connector, int mode)
 
 	old_dpms = connector->dpms;
 
-	
+	/* from off to on, do from crtc to connector */
 	if (mode < old_dpms)
 		drm_helper_connector_dpms(connector, mode);
 
 	if (mode == DRM_MODE_DPMS_ON) {
-		
+		/* store resume info for suspended displays */
 		switch (dssdev->state) {
 		case OMAP_DSS_DISPLAY_SUSPENDED:
 			dssdev->activate_after_resume = true;
@@ -96,10 +106,10 @@ static void omap_connector_dpms(struct drm_connector *connector, int mode)
 			break;
 		}
 	} else {
-		
+		/* TODO */
 	}
 
-	
+	/* from on to off, do from connector to crtc */
 	if (mode > old_dpms)
 		drm_helper_connector_dpms(connector, mode);
 }
@@ -154,6 +164,11 @@ static int omap_connector_get_modes(struct drm_connector *connector)
 
 	DBG("%s", omap_connector->dssdev->name);
 
+	/* if display exposes EDID, then we parse that in the normal way to
+	 * build table of supported modes.. otherwise (ie. fixed resolution
+	 * LCD panels) we just return a single mode corresponding to the
+	 * currently configured timings:
+	 */
 	if (dssdrv->read_edid) {
 		void *edid = kzalloc(MAX_EDID, GFP_KERNEL);
 
@@ -203,7 +218,7 @@ static int omap_connector_mode_valid(struct drm_connector *connector,
 	mode->vrefresh = drm_mode_vrefresh(mode);
 
 	if (!dssdrv->check_timings(dssdev, &timings)) {
-		
+		/* check if vrefresh is still valid */
 		new_mode = drm_mode_duplicate(dev, mode);
 		new_mode->clock = timings.pixel_clock;
 		new_mode->vrefresh = 0;
@@ -268,6 +283,7 @@ static const struct drm_connector_helper_funcs omap_connector_helper_funcs = {
 	.best_encoder = omap_connector_attached_encoder,
 };
 
+/* called from encoder when mode is set, to propagate settings to the dssdev */
 void omap_connector_mode_set(struct drm_connector *connector,
 		struct drm_display_mode *mode)
 {
@@ -295,15 +311,19 @@ void omap_connector_mode_set(struct drm_connector *connector,
 	dssdrv->set_timings(dssdev, &timings);
 }
 
+/* flush an area of the framebuffer (in case of manual update display that
+ * is not automatically flushed)
+ */
 void omap_connector_flush(struct drm_connector *connector,
 		int x, int y, int w, int h)
 {
 	struct omap_connector *omap_connector = to_omap_connector(connector);
 
-	
+	/* TODO: enable when supported in dss */
 	VERB("%s: %d,%d, %dx%d", omap_connector->dssdev->name, x, y, w, h);
 }
 
+/* initialize connector */
 struct drm_connector *omap_connector_init(struct drm_device *dev,
 		int connector_type, struct omap_dss_device *dssdev)
 {
@@ -327,7 +347,7 @@ struct drm_connector *omap_connector_init(struct drm_device *dev,
 				connector_type);
 	drm_connector_helper_add(connector, &omap_connector_helper_funcs);
 
-#if 0 
+#if 0 /* enable when dss2 supports hotplug */
 	if (dssdev->caps & OMAP_DSS_DISPLAY_CAP_HPD)
 		connector->polled = 0;
 	else

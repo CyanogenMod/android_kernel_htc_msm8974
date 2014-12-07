@@ -1,3 +1,6 @@
+/*
+ * Generic PWM backlight driver data - see drivers/video/backlight/pwm_bl.c
+ */
 #ifndef __LINUX_PWM_BACKLIGHT_H
 #define __LINUX_PWM_BACKLIGHT_H
 

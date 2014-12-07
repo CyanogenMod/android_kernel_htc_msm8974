@@ -8,45 +8,61 @@ typedef __u32 __bitwise __fs32;
 
 #include <linux/sysv_fs.h>
 
+/*
+ * SystemV/V7/Coherent super-block data in memory
+ *
+ * The SystemV/V7/Coherent superblock contains dynamic data (it gets modified
+ * while the system is running). This is in contrast to the Minix and Berkeley
+ * filesystems (where the superblock is never modified). This affects the
+ * sync() operation: we must keep the superblock in a disk buffer and use this
+ * one as our "working copy".
+ */
 
 struct sysv_sb_info {
-	struct super_block *s_sb;	
-	int	       s_type;		
-	char	       s_bytesex;	
-	char	       s_truncate;	
-					
-	unsigned int   s_inodes_per_block;	
-	unsigned int   s_inodes_per_block_1;	
-	unsigned int   s_inodes_per_block_bits;	
-	unsigned int   s_ind_per_block;		
-	unsigned int   s_ind_per_block_bits;	
-	unsigned int   s_ind_per_block_2;	
-	unsigned int   s_toobig_block;		
-	unsigned int   s_block_base;	
-	unsigned short s_fic_size;	
-	unsigned short s_flc_size;	
-	
+	struct super_block *s_sb;	/* VFS superblock */
+	int	       s_type;		/* file system type: FSTYPE_{XENIX|SYSV|COH} */
+	char	       s_bytesex;	/* bytesex (le/be/pdp) */
+	char	       s_truncate;	/* if 1: names > SYSV_NAMELEN chars are truncated */
+					/* if 0: they are disallowed (ENAMETOOLONG) */
+	unsigned int   s_inodes_per_block;	/* number of inodes per block */
+	unsigned int   s_inodes_per_block_1;	/* inodes_per_block - 1 */
+	unsigned int   s_inodes_per_block_bits;	/* log2(inodes_per_block) */
+	unsigned int   s_ind_per_block;		/* number of indirections per block */
+	unsigned int   s_ind_per_block_bits;	/* log2(ind_per_block) */
+	unsigned int   s_ind_per_block_2;	/* ind_per_block ^ 2 */
+	unsigned int   s_toobig_block;		/* 10 + ipb + ipb^2 + ipb^3 */
+	unsigned int   s_block_base;	/* physical block number of block 0 */
+	unsigned short s_fic_size;	/* free inode cache size, NICINOD */
+	unsigned short s_flc_size;	/* free block list chunk size, NICFREE */
+	/* The superblock is kept in one or two disk buffers: */
 	struct buffer_head *s_bh1;
 	struct buffer_head *s_bh2;
-	char *         s_sbd1;		
-	char *         s_sbd2;		
-	__fs16         *s_sb_fic_count;	
-        sysv_ino_t     *s_sb_fic_inodes; 
-	__fs16         *s_sb_total_free_inodes; 
-	__fs16         *s_bcache_count;	
-	sysv_zone_t    *s_bcache;	
-	__fs32         *s_free_blocks;	
-	__fs32         *s_sb_time;	
-	__fs32         *s_sb_state;	
-	u32            s_firstinodezone; 
-	u32            s_firstdatazone;	
-	u32            s_ninodes;	
-	u32            s_ndatazones;	
-	u32            s_nzones;	
-	u16	       s_namelen;       
+	/* These are pointers into the disk buffer, to compensate for
+	   different superblock layout. */
+	char *         s_sbd1;		/* entire superblock data, for part 1 */
+	char *         s_sbd2;		/* entire superblock data, for part 2 */
+	__fs16         *s_sb_fic_count;	/* pointer to s_sbd->s_ninode */
+        sysv_ino_t     *s_sb_fic_inodes; /* pointer to s_sbd->s_inode */
+	__fs16         *s_sb_total_free_inodes; /* pointer to s_sbd->s_tinode */
+	__fs16         *s_bcache_count;	/* pointer to s_sbd->s_nfree */
+	sysv_zone_t    *s_bcache;	/* pointer to s_sbd->s_free */
+	__fs32         *s_free_blocks;	/* pointer to s_sbd->s_tfree */
+	__fs32         *s_sb_time;	/* pointer to s_sbd->s_time */
+	__fs32         *s_sb_state;	/* pointer to s_sbd->s_state, only FSTYPE_SYSV */
+	/* We keep those superblock entities that don't change here;
+	   this saves us an indirection and perhaps a conversion. */
+	u32            s_firstinodezone; /* index of first inode zone */
+	u32            s_firstdatazone;	/* same as s_sbd->s_isize */
+	u32            s_ninodes;	/* total number of inodes */
+	u32            s_ndatazones;	/* total number of data zones */
+	u32            s_nzones;	/* same as s_sbd->s_fsize */
+	u16	       s_namelen;       /* max length of dir entry */
 	int	       s_forced_ro;
 };
 
+/*
+ * SystemV/V7/Coherent FS inode data in memory
+ */
 struct sysv_inode_info {
 	__fs32		i_data[13];
 	u32		i_dir_start_lookup;
@@ -65,6 +81,7 @@ static inline struct sysv_sb_info *SYSV_SB(struct super_block *sb)
 }
 
 
+/* identify the FS in memory */
 enum {
 	FSTYPE_NONE = 0,
 	FSTYPE_XENIX,
@@ -84,10 +101,11 @@ enum {
 #define COH_SUPER_MAGIC		(SYSV_MAGIC_BASE+FSTYPE_COH)
 
 
+/* Admissible values for i_nlink: 0.._LINK_MAX */
 enum {
-	XENIX_LINK_MAX	=	126,	
-	SYSV_LINK_MAX	=	126,	
-	V7_LINK_MAX     =	126,	
+	XENIX_LINK_MAX	=	126,	/* ?? */
+	SYSV_LINK_MAX	=	126,	/* 127? 251? */
+	V7_LINK_MAX     =	126,	/* ?? */
 	COH_LINK_MAX	=	10000,
 };
 
@@ -103,19 +121,23 @@ static inline void dirty_sb(struct super_block *sb)
 }
 
 
+/* ialloc.c */
 extern struct sysv_inode *sysv_raw_inode(struct super_block *, unsigned,
 			struct buffer_head **);
 extern struct inode * sysv_new_inode(const struct inode *, umode_t);
 extern void sysv_free_inode(struct inode *);
 extern unsigned long sysv_count_free_inodes(struct super_block *);
 
+/* balloc.c */
 extern sysv_zone_t sysv_new_block(struct super_block *);
 extern void sysv_free_block(struct super_block *, sysv_zone_t);
 extern unsigned long sysv_count_free_blocks(struct super_block *);
 
+/* itree.c */
 extern void sysv_truncate(struct inode *);
 extern int sysv_prepare_chunk(struct page *page, loff_t pos, unsigned len);
 
+/* inode.c */
 extern struct inode *sysv_iget(struct super_block *, unsigned int);
 extern int sysv_write_inode(struct inode *, struct writeback_control *wbc);
 extern int sysv_sync_inode(struct inode *);
@@ -125,6 +147,7 @@ extern int sysv_init_icache(void);
 extern void sysv_destroy_icache(void);
 
 
+/* dir.c */
 extern struct sysv_dir_entry *sysv_find_entry(struct dentry *, struct page **);
 extern int sysv_add_link(struct dentry *, struct inode *);
 extern int sysv_delete_entry(struct sysv_dir_entry *, struct page *);
@@ -221,4 +244,4 @@ static inline __fs16 fs16_add(struct sysv_sb_info *sbi, __fs16 *n, int d)
 	return *n;
 }
 
-#endif 
+#endif /* _SYSV_H */

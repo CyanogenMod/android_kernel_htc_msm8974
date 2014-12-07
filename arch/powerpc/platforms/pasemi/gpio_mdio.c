@@ -93,30 +93,31 @@ static void clock_out(struct mii_bus *bus, int bit)
 	mdc_lo(bus);
 }
 
+/* Utility to send the preamble, address, and register (common to read and write). */
 static void bitbang_pre(struct mii_bus *bus, int read, u8 addr, u8 reg)
 {
 	int i;
 
-	
+	/* CFE uses a really long preamble (40 bits). We'll do the same. */
 	mdio_active(bus);
 	for (i = 0; i < 40; i++) {
 		clock_out(bus, 1);
 	}
 
-	
+	/* send the start bit (01) and the read opcode (10) or write (10) */
 	clock_out(bus, 0);
 	clock_out(bus, 1);
 
 	clock_out(bus, read);
 	clock_out(bus, !read);
 
-	
+	/* send the PHY address */
 	for (i = 0; i < 5; i++) {
 		clock_out(bus, (addr & 0x10) != 0);
 		addr <<= 1;
 	}
 
-	
+	/* send the register address */
 	for (i = 0; i < 5; i++) {
 		clock_out(bus, (reg & 0x10) != 0);
 		reg <<= 1;
@@ -132,14 +133,14 @@ static int gpio_mdio_read(struct mii_bus *bus, int phy_id, int location)
 
 	bitbang_pre(bus, 1, addr, reg);
 
-	
+	/* tri-state our MDIO I/O pin so we can read */
 	mdio_tristate(bus);
 	udelay(DELAY);
 	mdc_hi(bus);
 	udelay(DELAY);
 	mdc_lo(bus);
 
-	
+	/* read 16 bits of register data, MSB first */
 	rdreg = 0;
 	for (i = 0; i < 16; i++) {
 		mdc_lo(bus);
@@ -172,7 +173,7 @@ static int gpio_mdio_write(struct mii_bus *bus, int phy_id, int location, u16 va
 
 	bitbang_pre(bus, 0, addr, reg);
 
-	
+	/* send the turnaround (10) */
 	mdc_lo(bus);
 	mdio_hi(bus);
 	udelay(DELAY);
@@ -184,7 +185,7 @@ static int gpio_mdio_write(struct mii_bus *bus, int phy_id, int location, u16 va
 	mdc_hi(bus);
 	udelay(DELAY);
 
-	
+	/* write 16 bits of register data, MSB first */
 	for (i = 0; i < 16; i++) {
 		mdc_lo(bus);
 		if (value & 0x8000)
@@ -197,6 +198,9 @@ static int gpio_mdio_write(struct mii_bus *bus, int phy_id, int location, u16 va
 		value <<= 1;
 	}
 
+	/*
+	 * Tri-state the MDIO line.
+	 */
 	mdio_tristate(bus);
 	mdc_lo(bus);
 	udelay(DELAY);
@@ -207,7 +211,7 @@ static int gpio_mdio_write(struct mii_bus *bus, int phy_id, int location, u16 va
 
 static int gpio_mdio_reset(struct mii_bus *bus)
 {
-	
+	/*nothing here - dunno how to reset it*/
 	return 0;
 }
 

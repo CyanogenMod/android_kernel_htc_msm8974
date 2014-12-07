@@ -512,6 +512,9 @@ struct journal_s
 	unsigned int		j_failed_commit;
 
 	void *j_private;
+
+	
+	atomic_t j_log_wait;
 };
 
 #define JBD2_UNMOUNT	0x001	

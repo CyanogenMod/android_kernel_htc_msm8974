@@ -25,7 +25,7 @@
 		: "i" (low), "i" (high));			\
 	})
 
-#else 
+#else /* __s390x__ */
 
 #define __ctl_load(array, low, high) ({				\
 	typedef struct { char _[sizeof(array)]; } addrtype;	\
@@ -43,7 +43,7 @@
 		: "i" (low), "i" (high));			\
 	})
 
-#endif 
+#endif /* __s390x__ */
 
 #define __ctl_set_bit(cr, bit) ({	\
 	unsigned long __dummy;		\
@@ -71,6 +71,6 @@ extern void smp_ctl_clear_bit(int cr, int bit);
 #define ctl_set_bit(cr, bit) __ctl_set_bit(cr, bit)
 #define ctl_clear_bit(cr, bit) __ctl_clear_bit(cr, bit)
 
-#endif 
+#endif /* CONFIG_SMP */
 
-#endif 
+#endif /* __ASM_CTL_REG_H */

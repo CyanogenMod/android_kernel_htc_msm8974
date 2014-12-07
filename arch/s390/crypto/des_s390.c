@@ -38,7 +38,7 @@ static int des_setkey(struct crypto_tfm *tfm, const u8 *key,
 	u32 *flags = &tfm->crt_flags;
 	u32 tmp[DES_EXPKEY_WORDS];
 
-	
+	/* check for weak keys */
 	if (!des_ekey(tmp, key) && (*flags & CRYPTO_TFM_REQ_WEAK_KEY)) {
 		*flags |= CRYPTO_TFM_RES_WEAK_KEY;
 		return -EINVAL;
@@ -89,7 +89,7 @@ static int ecb_desall_crypt(struct blkcipher_desc *desc, long func,
 	unsigned int nbytes;
 
 	while ((nbytes = walk->nbytes)) {
-		
+		/* only use complete blocks */
 		unsigned int n = nbytes & ~(DES_BLOCK_SIZE - 1);
 		u8 *out = walk->dst.virt.addr;
 		u8 *in = walk->src.virt.addr;
@@ -115,7 +115,7 @@ static int cbc_desall_crypt(struct blkcipher_desc *desc, long func,
 
 	memcpy(iv, walk->iv, DES_BLOCK_SIZE);
 	do {
-		
+		/* only use complete blocks */
 		unsigned int n = nbytes & ~(DES_BLOCK_SIZE - 1);
 		u8 *out = walk->dst.virt.addr;
 		u8 *in = walk->src.virt.addr;
@@ -219,6 +219,19 @@ static struct crypto_alg cbc_des_alg = {
 	}
 };
 
+/*
+ * RFC2451:
+ *
+ *   For DES-EDE3, there is no known need to reject weak or
+ *   complementation keys.  Any weakness is obviated by the use of
+ *   multiple keys.
+ *
+ *   However, if the first two or last two independent 64-bit keys are
+ *   equal (k1 == k2 or k2 == k3), then the DES3 operation is simply the
+ *   same as DES.  Implementers MUST reject keys that exhibit this
+ *   property.
+ *
+ */
 static int des3_setkey(struct crypto_tfm *tfm, const u8 *key,
 		       unsigned int key_len)
 {
@@ -372,7 +385,7 @@ static int ctr_desall_crypt(struct blkcipher_desc *desc, long func,
 		out = walk->dst.virt.addr;
 		in = walk->src.virt.addr;
 		while (nbytes >= DES_BLOCK_SIZE) {
-			
+			/* align to block size, max. PAGE_SIZE */
 			n = (nbytes > PAGE_SIZE) ? PAGE_SIZE :
 				nbytes & ~(DES_BLOCK_SIZE - 1);
 			for (i = DES_BLOCK_SIZE; i < n; i += DES_BLOCK_SIZE) {
@@ -393,7 +406,7 @@ static int ctr_desall_crypt(struct blkcipher_desc *desc, long func,
 		ret = blkcipher_walk_done(desc, walk, nbytes);
 	}
 
-	
+	/* final block may be < DES_BLOCK_SIZE, copy only nbytes */
 	if (nbytes) {
 		out = walk->dst.virt.addr;
 		in = walk->src.virt.addr;

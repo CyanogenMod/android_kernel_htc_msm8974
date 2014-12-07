@@ -1,3 +1,6 @@
+/*
+ *  linux/arch/arm/mach-sa1100/clock.c
+ */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/clk.h>

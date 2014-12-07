@@ -35,6 +35,7 @@
 
 static DEFINE_SPINLOCK(nf_nat_seqofs_lock);
 
+/* Setup TCP sequence correction given this change at this sequence */
 static inline void
 adjust_tcp_sequence(u32 seq,
 		    int sizediff,
@@ -58,6 +59,10 @@ adjust_tcp_sequence(u32 seq,
 
 	spin_lock_bh(&nf_nat_seqofs_lock);
 
+	/* SYN adjust. If it's uninitialized, or this is after last
+	 * correction, record it: we don't handle more than one
+	 * adjustment in the window, but do deal with common case of a
+	 * retransmit */
 	if (this_way->offset_before == this_way->offset_after ||
 	    before(this_way->correction_pos, seq)) {
 		this_way->correction_pos = seq;
@@ -70,6 +75,7 @@ adjust_tcp_sequence(u32 seq,
 	DUMP_OFFSET(this_way);
 }
 
+/* Get the offset value, for conntrack */
 s16 nf_nat_get_offset(const struct nf_conn *ct,
 		      enum ip_conntrack_dir dir,
 		      u32 seq)
@@ -91,6 +97,7 @@ s16 nf_nat_get_offset(const struct nf_conn *ct,
 }
 EXPORT_SYMBOL_GPL(nf_nat_get_offset);
 
+/* Frobs data inside this packet, which is linear. */
 static void mangle_contents(struct sk_buff *skb,
 			    unsigned int dataoff,
 			    unsigned int match_offset,
@@ -103,16 +110,16 @@ static void mangle_contents(struct sk_buff *skb,
 	BUG_ON(skb_is_nonlinear(skb));
 	data = skb_network_header(skb) + dataoff;
 
-	
+	/* move post-replacement */
 	memmove(data + match_offset + rep_len,
 		data + match_offset + match_len,
 		skb->tail - (skb->network_header + dataoff +
 			     match_offset + match_len));
 
-	
+	/* insert data from buffer */
 	memcpy(data + match_offset, rep_buffer, rep_len);
 
-	
+	/* update skb info */
 	if (rep_len > match_len) {
 		pr_debug("nf_nat_mangle_packet: Extending packet by "
 			 "%u from %u bytes\n", rep_len - match_len, skb->len);
@@ -123,11 +130,12 @@ static void mangle_contents(struct sk_buff *skb,
 		__skb_trim(skb, skb->len + rep_len - match_len);
 	}
 
-	
+	/* fix IP hdr checksum information */
 	ip_hdr(skb)->tot_len = htons(skb->len);
 	ip_send_check(ip_hdr(skb));
 }
 
+/* Unusual, but possible case. */
 static int enlarge_skb(struct sk_buff *skb, unsigned int extra)
 {
 	if (skb->len + extra > 65535)
@@ -179,6 +187,14 @@ static void nf_nat_csum(struct sk_buff *skb, const struct iphdr *iph, void *data
 					 htons(oldlen), htons(datalen), 1);
 }
 
+/* Generic function for mangling variable-length address changes inside
+ * NATed TCP connections (like the PORT XXX,XXX,XXX,XXX,XXX,XXX
+ * command in FTP).
+ *
+ * Takes care about all the nasty sequence number changes, checksumming,
+ * skb enlargement, ...
+ *
+ * */
 int __nf_nat_mangle_tcp_packet(struct sk_buff *skb,
 			       struct nf_conn *ct,
 			       enum ip_conntrack_info ctinfo,
@@ -219,6 +235,16 @@ int __nf_nat_mangle_tcp_packet(struct sk_buff *skb,
 }
 EXPORT_SYMBOL(__nf_nat_mangle_tcp_packet);
 
+/* Generic function for mangling variable-length address changes inside
+ * NATed UDP connections (like the CONNECT DATA XXXXX MESG XXXXX INDEX XXXXX
+ * command in the Amanda protocol)
+ *
+ * Takes care about all the nasty sequence number changes, checksumming,
+ * skb enlargement, ...
+ *
+ * XXX - This function could be merged with nf_nat_mangle_tcp_packet which
+ *       should be fairly easy to do.
+ */
 int
 nf_nat_mangle_udp_packet(struct sk_buff *skb,
 			 struct nf_conn *ct,
@@ -247,11 +273,11 @@ nf_nat_mangle_udp_packet(struct sk_buff *skb,
 	mangle_contents(skb, iph->ihl*4 + sizeof(*udph),
 			match_offset, match_len, rep_buffer, rep_len);
 
-	
+	/* update the length of the UDP packet */
 	datalen = skb->len - iph->ihl*4;
 	udph->len = htons(datalen);
 
-	
+	/* fix udp checksum if udp checksum was previously calculated */
 	if (!udph->check && skb->ip_summed != CHECKSUM_PARTIAL)
 		return 1;
 
@@ -261,6 +287,7 @@ nf_nat_mangle_udp_packet(struct sk_buff *skb,
 }
 EXPORT_SYMBOL(nf_nat_mangle_udp_packet);
 
+/* Adjust one found SACK option including checksum correction */
 static void
 sack_adjust(struct sk_buff *skb,
 	    struct tcphdr *tcph,
@@ -303,6 +330,7 @@ sack_adjust(struct sk_buff *skb,
 	}
 }
 
+/* TCP SACK sequence number adjustment */
 static inline unsigned int
 nf_nat_sack_adjust(struct sk_buff *skb,
 		   struct tcphdr *tcph,
@@ -321,7 +349,7 @@ nf_nat_sack_adjust(struct sk_buff *skb,
 	dir = CTINFO2DIR(ctinfo);
 
 	while (optoff < optend) {
-		
+		/* Usually: option, length. */
 		unsigned char *op = skb->data + optoff;
 
 		switch (op[0]) {
@@ -331,7 +359,7 @@ nf_nat_sack_adjust(struct sk_buff *skb,
 			optoff++;
 			continue;
 		default:
-			
+			/* no partial options */
 			if (optoff + 1 == optend ||
 			    optoff + op[1] > optend ||
 			    op[1] < 2)
@@ -347,6 +375,7 @@ nf_nat_sack_adjust(struct sk_buff *skb,
 	return 1;
 }
 
+/* TCP sequence number adjustment.  Returns 1 on success, 0 on failure */
 int
 nf_nat_seq_adjust(struct sk_buff *skb,
 		  struct nf_conn *ct,
@@ -400,21 +429,23 @@ nf_nat_seq_adjust(struct sk_buff *skb,
 	return nf_nat_sack_adjust(skb, tcph, ct, ctinfo);
 }
 
+/* Setup NAT on this expected conntrack so it follows master. */
+/* If we fail to get a free NAT slot, we'll get dropped on confirm */
 void nf_nat_follow_master(struct nf_conn *ct,
 			  struct nf_conntrack_expect *exp)
 {
 	struct nf_nat_ipv4_range range;
 
-	
+	/* This must be a fresh one. */
 	BUG_ON(ct->status & IPS_NAT_DONE_MASK);
 
-	
+	/* Change src to where master sends to */
 	range.flags = NF_NAT_RANGE_MAP_IPS;
 	range.min_ip = range.max_ip
 		= ct->master->tuplehash[!exp->dir].tuple.dst.u3.ip;
 	nf_nat_setup_info(ct, &range, NF_NAT_MANIP_SRC);
 
-	
+	/* For DST manip, map port here to where it's expected. */
 	range.flags = (NF_NAT_RANGE_MAP_IPS | NF_NAT_RANGE_PROTO_SPECIFIED);
 	range.min = range.max = exp->saved_proto;
 	range.min_ip = range.max_ip

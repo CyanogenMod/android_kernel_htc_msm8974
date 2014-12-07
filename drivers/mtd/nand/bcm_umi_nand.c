@@ -12,6 +12,7 @@
 * consent.
 *****************************************************************************/
 
+/* ---- Include Files ---------------------------------------------------- */
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/init.h>
@@ -43,6 +44,10 @@
 #include <linux/dma-mapping.h>
 #include <linux/completion.h>
 
+/* ---- External Variable Declarations ----------------------------------- */
+/* ---- External Function Prototypes ------------------------------------- */
+/* ---- Public Variables ------------------------------------------------- */
+/* ---- Private Constants and Types -------------------------------------- */
 static const __devinitconst char gBanner[] = KERN_INFO \
 	"BCM UMI MTD NAND Driver: 1.00\n";
 
@@ -57,29 +62,43 @@ static struct nand_bbt_descr largepage_bbt = {
 };
 #endif
 
+/*
+** Preallocate a buffer to avoid having to do this every dma operation.
+** This is the size of the preallocated coherent DMA buffer.
+*/
 #if USE_DMA
 #define DMA_MIN_BUFLEN	512
 #define DMA_MAX_BUFLEN	PAGE_SIZE
 #define USE_DIRECT_IO(len)	(((len) < DMA_MIN_BUFLEN) || \
 	((len) > DMA_MAX_BUFLEN))
 
+/*
+ * The current NAND data space goes from 0x80001900 to 0x80001FFF,
+ * which is only 0x700 = 1792 bytes long. This is too small for 2K, 4K page
+ * size NAND flash. Need to break the DMA down to multiple 1Ks.
+ *
+ * Need to make sure REG_NAND_DATA_PADDR + DMA_MAX_LEN < 0x80002000
+ */
 #define DMA_MAX_LEN             1024
 
-#else 
+#else /* !USE_DMA */
 #define DMA_MIN_BUFLEN          0
 #define DMA_MAX_BUFLEN          0
 #define USE_DIRECT_IO(len)      1
 #endif
+/* ---- Private Function Prototypes -------------------------------------- */
 static void bcm_umi_nand_read_buf(struct mtd_info *mtd, u_char * buf, int len);
 static void bcm_umi_nand_write_buf(struct mtd_info *mtd, const u_char * buf,
 				   int len);
 
+/* ---- Private Variables ------------------------------------------------ */
 static struct mtd_info *board_mtd;
 static void __iomem *bcm_umi_io_base;
 static void *virtPtr;
 static dma_addr_t physPtr;
 static struct completion nand_comp;
 
+/* ---- Private Functions ------------------------------------------------ */
 #if NAND_ECC_BCH
 #include "bcm_umi_bch.c"
 #else
@@ -88,6 +107,7 @@ static struct completion nand_comp;
 
 #if USE_DMA
 
+/* Handler called when the DMA finishes. */
 static void nand_dma_handler(DMA_Device_t dev, int reason, void *userData)
 {
 	complete(&nand_comp);
@@ -218,22 +238,30 @@ static int nand_dev_ready(struct mtd_info *mtd)
 	return nand_bcm_umi_dev_ready();
 }
 
+/****************************************************************************
+*
+*  bcm_umi_nand_inithw
+*
+*   This routine does the necessary hardware (board-specific)
+*   initializations.  This includes setting up the timings, etc.
+*
+***************************************************************************/
 int bcm_umi_nand_inithw(void)
 {
-	
+	/* Configure nand timing parameters */
 	REG_UMI_NAND_TCR &= ~0x7ffff;
 	REG_UMI_NAND_TCR |= HW_CFG_NAND_TCR;
 
 #if !defined(CONFIG_MTD_NAND_BCM_UMI_HWCS)
-	
+	/* enable software control of CS */
 	REG_UMI_NAND_TCR |= REG_UMI_NAND_TCR_CS_SWCTRL;
 #endif
 
-	
+	/* keep NAND chip select asserted */
 	REG_UMI_NAND_RCSR |= REG_UMI_NAND_RCSR_CS_ASSERTED;
 
 	REG_UMI_NAND_TCR &= ~REG_UMI_NAND_TCR_WORD16;
-	
+	/* enable writes to flash */
 	REG_UMI_MMD_ICR |= REG_UMI_MMD_ICR_FLASH_WP;
 
 	writel(NAND_CMD_RESET, bcm_umi_io_base + REG_NAND_CMD_OFFSET);
@@ -246,10 +274,11 @@ int bcm_umi_nand_inithw(void)
 	return 0;
 }
 
+/* Used to turn latch the proper register for access. */
 static void bcm_umi_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 				   unsigned int ctrl)
 {
-	
+	/* send command to hardware */
 	struct nand_chip *chip = mtd->priv;
 	if (ctrl & NAND_CTRL_CHANGE) {
 		if (ctrl & NAND_CLE) {
@@ -265,7 +294,7 @@ static void bcm_umi_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 	}
 
 CMD:
-	
+	/* Send command to chip directly */
 	if (cmd != NAND_CMD_NONE)
 		writeb(cmd, chip->IO_ADDR_W);
 }
@@ -274,6 +303,8 @@ static void bcm_umi_nand_write_buf(struct mtd_info *mtd, const u_char * buf,
 				   int len)
 {
 	if (USE_DIRECT_IO(len)) {
+		/* Do it the old way if the buffer is small or too large.
+		 * Probably quicker than starting and checking dma. */
 		int i;
 		struct nand_chip *this = mtd->priv;
 
@@ -305,6 +336,10 @@ static uint8_t readbackbuf[NAND_MAX_PAGESIZE];
 static int bcm_umi_nand_verify_buf(struct mtd_info *mtd, const u_char * buf,
 				   int len)
 {
+	/*
+	 * Try to readback page with ECC correction. This is necessary
+	 * for MLC parts which may have permanently stuck bits.
+	 */
 	struct nand_chip *chip = mtd->priv;
 	int ret = chip->ecc.read_page(mtd, chip, readbackbuf, 0);
 	if (ret < 0)
@@ -326,7 +361,7 @@ static int __devinit bcm_umi_nand_probe(struct platform_device *pdev)
 
 	printk(gBanner);
 
-	
+	/* Allocate memory for MTD device structure and private data */
 	board_mtd =
 	    kmalloc(sizeof(struct mtd_info) + sizeof(struct nand_chip),
 		    GFP_KERNEL);
@@ -343,7 +378,7 @@ static int __devinit bcm_umi_nand_probe(struct platform_device *pdev)
 		goto out_free;
 	}
 
-	
+	/* map physical address */
 	bcm_umi_io_base = ioremap(r->start, resource_size(r));
 
 	if (!bcm_umi_io_base) {
@@ -352,30 +387,30 @@ static int __devinit bcm_umi_nand_probe(struct platform_device *pdev)
 		goto out_free;
 	}
 
-	
+	/* Get pointer to private data */
 	this = (struct nand_chip *)(&board_mtd[1]);
 
-	
+	/* Initialize structures */
 	memset((char *)board_mtd, 0, sizeof(struct mtd_info));
 	memset((char *)this, 0, sizeof(struct nand_chip));
 
-	
+	/* Link the private data with the MTD structure */
 	board_mtd->priv = this;
 
-	
+	/* Initialize the NAND hardware.  */
 	if (bcm_umi_nand_inithw() < 0) {
 		printk(KERN_ERR "BCM UMI NAND chip could not be initialized\n");
 		err = -EIO;
 		goto out_unmap;
 	}
 
-	
+	/* Set address of NAND IO lines */
 	this->IO_ADDR_W = bcm_umi_io_base + REG_NAND_DATA8_OFFSET;
 	this->IO_ADDR_R = bcm_umi_io_base + REG_NAND_DATA8_OFFSET;
 
-	
+	/* Set command delay time, see datasheet for correct value */
 	this->chip_delay = 0;
-	
+	/* Assign the device ready function, if available */
 	this->dev_ready = nand_dev_ready;
 	this->options = 0;
 
@@ -402,6 +437,10 @@ static int __devinit bcm_umi_nand_probe(struct platform_device *pdev)
 		goto out_unmap;
 #endif
 
+	/* Figure out the size of the device that we have.
+	 * We need to do this to figure out which ECC
+	 * layout we'll be using.
+	 */
 
 	err = nand_scan_ident(board_mtd, 1, NULL);
 	if (err) {
@@ -409,9 +448,9 @@ static int __devinit bcm_umi_nand_probe(struct platform_device *pdev)
 		goto out_unmap;
 	}
 
-	
+	/* Now that we know the nand size, we can setup the ECC layout */
 
-	switch (board_mtd->writesize) {	
+	switch (board_mtd->writesize) {	/* writesize is the pagesize */
 	case 4096:
 		this->ecc.layout = &nand_hw_eccoob_4096;
 		break;
@@ -437,11 +476,16 @@ static int __devinit bcm_umi_nand_probe(struct platform_device *pdev)
 		this->badblock_pattern = &largepage_bbt;
 	}
 
+	/*
+	 * FIXME: ecc strength value of 6 bits per 512 bytes of data is a
+	 * conservative guess, given 13 ecc bytes and using bch alg.
+	 * (Assume Galois field order m=15 to allow a margin of error.)
+	 */
 	this->ecc.strength = 6;
 
 #endif
 
-	
+	/* Now finish off the scan, now that ecc.layout has been initialized. */
 
 	err = nand_scan_tail(board_mtd);
 	if (err) {
@@ -449,11 +493,11 @@ static int __devinit bcm_umi_nand_probe(struct platform_device *pdev)
 		goto out_unmap;
 	}
 
-	
+	/* Register the partitions */
 	board_mtd->name = "bcm_umi-nand";
 	mtd_device_parse_register(board_mtd, NULL, NULL, NULL, 0);
 
-	
+	/* Return happy */
 	return 0;
 out_unmap:
 	iounmap(bcm_umi_io_base);
@@ -468,13 +512,13 @@ static int bcm_umi_nand_remove(struct platform_device *pdev)
 	nand_dma_term();
 #endif
 
-	
+	/* Release resources, unregister device */
 	nand_release(board_mtd);
 
-	
+	/* unmap physical address */
 	iounmap(bcm_umi_io_base);
 
-	
+	/* Free the MTD device structure */
 	kfree(board_mtd);
 
 	return 0;

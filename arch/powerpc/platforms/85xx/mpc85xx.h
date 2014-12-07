@@ -6,6 +6,6 @@ extern int mpc85xx_common_publish_devices(void);
 extern void mpc85xx_cpm2_pic_init(void);
 #else
 static inline void __init mpc85xx_cpm2_pic_init(void) {}
-#endif 
+#endif /* CONFIG_CPM2 */
 
 #endif

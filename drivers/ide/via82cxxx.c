@@ -49,18 +49,21 @@
 #define VIA_ADDRESS_SETUP	0x4c
 #define VIA_UDMA_TIMING		0x50
 
-#define VIA_BAD_PREQ		0x01 
-#define VIA_BAD_CLK66		0x02 
-#define VIA_SET_FIFO		0x04 
-#define VIA_NO_UNMASK		0x08 
-#define VIA_BAD_ID		0x10 
-#define VIA_BAD_AST		0x20 
-#define VIA_SATA_PATA		0x80 
+#define VIA_BAD_PREQ		0x01 /* Crashes if PREQ# till DDACK# set */
+#define VIA_BAD_CLK66		0x02 /* 66 MHz clock doesn't work correctly */
+#define VIA_SET_FIFO		0x04 /* Needs to have FIFO split set */
+#define VIA_NO_UNMASK		0x08 /* Doesn't work with IRQ unmasking on */
+#define VIA_BAD_ID		0x10 /* Has wrong vendor ID (0x1107) */
+#define VIA_BAD_AST		0x20 /* Don't touch Address Setup Timing */
+#define VIA_SATA_PATA		0x80 /* SATA/PATA combined configuration */
 
 enum {
-	VIA_IDFLAG_SINGLE = (1 << 1), 
+	VIA_IDFLAG_SINGLE = (1 << 1), /* single channel controller */
 };
 
+/*
+ * VIA SouthBridge chips.
+ */
 
 static struct via_isa_bridge {
 	char *name;
@@ -110,6 +113,14 @@ struct via82cxxx_dev
 	unsigned int via_80w;
 };
 
+/**
+ *	via_set_speed			-	write timing registers
+ *	@dev: PCI device
+ *	@dn: device
+ *	@timing: IDE timing data to use
+ *
+ *	via_set_speed writes timing values to the chipset registers
+ */
 
 static void via_set_speed(ide_hwif_t *hwif, u8 dn, struct ide_timing *timing)
 {
@@ -137,17 +148,17 @@ static void via_set_speed(ide_hwif_t *hwif, u8 dn, struct ide_timing *timing)
 	case ATA_UDMA6: t = timing->udma ? (0xe0 | (clamp_val(timing->udma, 2, 9) - 2)) : 0x07; break;
 	}
 
-	
+	/* Set UDMA unless device is not UDMA capable */
 	if (vdev->via_config->udma_mask) {
 		u8 udma_etc;
 
 		pci_read_config_byte(dev, VIA_UDMA_TIMING + 3 - dn, &udma_etc);
 
-		
+		/* clear transfer mode bit */
 		udma_etc &= ~0x20;
 
 		if (timing->udma) {
-			
+			/* preserve 80-wire cable detection bit */
 			udma_etc &= 0x10;
 			udma_etc |= t;
 		}
@@ -156,6 +167,14 @@ static void via_set_speed(ide_hwif_t *hwif, u8 dn, struct ide_timing *timing)
 	}
 }
 
+/**
+ *	via_set_drive		-	configure transfer mode
+ *	@hwif: port
+ *	@drive: Drive to set up
+ *
+ *	via_set_drive() computes timing values configures the chipset to
+ *	a desired transfer mode.  It also can be called by upper layers.
+ */
 
 static void via_set_drive(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -187,6 +206,13 @@ static void via_set_drive(ide_hwif_t *hwif, ide_drive_t *drive)
 	via_set_speed(hwif, drive->dn, &t);
 }
 
+/**
+ *	via_set_pio_mode	-	set host controller for PIO mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	A callback from the upper layers for PIO-only tuning.
+ */
 
 static void via_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -213,6 +239,9 @@ static struct via_isa_bridge *via_config_find(struct pci_dev **isa)
 	return via_config;
 }
 
+/*
+ * Check and handle 80-wire cable presence
+ */
 static void via_cable_detect(struct via82cxxx_dev *vdev, u32 u)
 {
 	int i;
@@ -223,6 +252,10 @@ static void via_cable_detect(struct via82cxxx_dev *vdev, u32 u)
 				if (((u >> (i & 16)) & 8) &&
 				    ((u >> i) & 0x20) &&
 				     (((u >> i) & 7) < 2)) {
+					/*
+					 * 2x PCI clock and
+					 * UDMA w/ < 3T/cycle
+					 */
 					vdev->via_80w |= (1 << (1 - (i >> 4)));
 				}
 			break;
@@ -232,6 +265,9 @@ static void via_cable_detect(struct via82cxxx_dev *vdev, u32 u)
 				if (((u >> i) & 0x10) ||
 				    (((u >> i) & 0x20) &&
 				     (((u >> i) & 7) < 4))) {
+					/* BIOS 80-wire bit or
+					 * UDMA w/ < 60ns/cycle
+					 */
 					vdev->via_80w |= (1 << (1 - (i >> 4)));
 				}
 			break;
@@ -241,12 +277,22 @@ static void via_cable_detect(struct via82cxxx_dev *vdev, u32 u)
 				if (((u >> i) & 0x10) ||
 				    (((u >> i) & 0x20) &&
 				     (((u >> i) & 7) < 6))) {
+					/* BIOS 80-wire bit or
+					 * UDMA w/ < 60ns/cycle
+					 */
 					vdev->via_80w |= (1 << (1 - (i >> 4)));
 				}
 			break;
 	}
 }
 
+/**
+ *	init_chipset_via82cxxx	-	initialization handler
+ *	@dev: PCI device
+ *
+ *	The initialization callback. Here we determine the IDE chip type
+ *	and initialize its drive independent registers.
+ */
 
 static int init_chipset_via82cxxx(struct pci_dev *dev)
 {
@@ -256,37 +302,46 @@ static int init_chipset_via82cxxx(struct pci_dev *dev)
 	u8 t, v;
 	u32 u;
 
+	/*
+	 * Detect cable and configure Clk66
+	 */
 	pci_read_config_dword(dev, VIA_UDMA_TIMING, &u);
 
 	via_cable_detect(vdev, u);
 
 	if (via_config->udma_mask == ATA_UDMA4) {
-		
+		/* Enable Clk66 */
 		pci_write_config_dword(dev, VIA_UDMA_TIMING, u|0x80008);
 	} else if (via_config->flags & VIA_BAD_CLK66) {
-		
+		/* Would cause trouble on 596a and 686 */
 		pci_write_config_dword(dev, VIA_UDMA_TIMING, u & ~0x80008);
 	}
 
+	/*
+	 * Check whether interfaces are enabled.
+	 */
 
 	pci_read_config_byte(dev, VIA_IDE_ENABLE, &v);
 
+	/*
+	 * Set up FIFO sizes and thresholds.
+	 */
 
 	pci_read_config_byte(dev, VIA_FIFO_CONFIG, &t);
 
-	
+	/* Disable PREQ# till DDACK# */
 	if (via_config->flags & VIA_BAD_PREQ) {
-		
+		/* Would crash on 586b rev 41 */
 		t &= 0x7f;
 	}
 
-	
+	/* Fix FIFO split between channels */
 	if (via_config->flags & VIA_SET_FIFO) {
 		t &= (t & 0x9f);
 		switch (v & 3) {
-			case 2: t |= 0x00; break;	
-			case 1: t |= 0x60; break;	
-			case 3: t |= 0x20; break;	
+			case 2: t |= 0x00; break;	/* 16 on primary */
+			case 1: t |= 0x60; break;	/* 16 on secondary */
+			case 3: t |= 0x20; break;	/* 8 pri 8 sec */
 		}
 	}
 
@@ -295,6 +350,9 @@ static int init_chipset_via82cxxx(struct pci_dev *dev)
 	return 0;
 }
 
+/*
+ *	Cable special cases
+ */
 
 static const struct dmi_system_id cable_dmi_table[] = {
 	{
@@ -309,11 +367,11 @@ static const struct dmi_system_id cable_dmi_table[] = {
 
 static int via_cable_override(struct pci_dev *pdev)
 {
-	
+	/* Systems by DMI */
 	if (dmi_check_system(cable_dmi_table))
 		return 1;
 
-	
+	/* Arima W730-K8/Targa Visionary 811/... */
 	if (pdev->subsystem_vendor == 0x161F &&
 	    pdev->subsystem_device == 0x2032)
 		return 1;
@@ -369,8 +427,14 @@ static int __devinit via_init_one(struct pci_dev *dev, const struct pci_device_i
 
 	d = via82cxxx_chipset;
 
+	/*
+	 * Find the ISA bridge and check we know what it is.
+	 */
 	via_config = via_config_find(&isa);
 
+	/*
+	 * Print the boot message.
+	 */
 	printk(KERN_INFO DRV_NAME " %s: VIA %s (rev %02x) IDE %sDMA%s\n",
 		pci_name(dev), via_config->name, isa->revision,
 		via_config->udma_mask ? "U" : "MW",
@@ -379,6 +443,9 @@ static int __devinit via_init_one(struct pci_dev *dev, const struct pci_device_i
 
 	pci_dev_put(isa);
 
+	/*
+	 * Determine system bus clock.
+	 */
 	via_clock = (ide_pci_clk ? ide_pci_clk : 33) * 1000;
 
 	switch (via_clock) {

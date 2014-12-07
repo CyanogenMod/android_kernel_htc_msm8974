@@ -43,6 +43,10 @@
 
 static struct se_subsystem_api rd_mcp_template;
 
+/*	rd_attach_hba(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static int rd_attach_hba(struct se_hba *hba, u32 host_id)
 {
 	struct rd_host *rd_host;
@@ -78,6 +82,10 @@ static void rd_detach_hba(struct se_hba *hba)
 	hba->hba_ptr = NULL;
 }
 
+/*	rd_release_device_space():
+ *
+ *
+ */
 static void rd_release_device_space(struct rd_dev *rd_dev)
 {
 	u32 i, j, page_count = 0, sg_per_table;
@@ -116,6 +124,10 @@ static void rd_release_device_space(struct rd_dev *rd_dev)
 }
 
 
+/*	rd_build_device_space():
+ *
+ *
+ */
 static int rd_build_device_space(struct rd_dev *rd_dev)
 {
 	u32 i = 0, j, page_offset = 0, sg_per_table, sg_tables, total_sg_needed;
@@ -212,6 +224,10 @@ static void *rd_MEMCPY_allocate_virtdevice(struct se_hba *hba, const char *name)
 	return rd_allocate_virtdevice(hba, name, 0);
 }
 
+/*	rd_create_virtdevice():
+ *
+ *
+ */
 static struct se_device *rd_create_virtdevice(
 	struct se_hba *hba,
 	struct se_subsystem_dev *se_dev,
@@ -272,6 +288,10 @@ static struct se_device *rd_MEMCPY_create_virtdevice(
 	return rd_create_virtdevice(hba, se_dev, p, 0);
 }
 
+/*	rd_free_device(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static void rd_free_device(void *p)
 {
 	struct rd_dev *rd_dev = p;
@@ -299,6 +319,10 @@ rd_alloc_task(unsigned char *cdb)
 	return &rd_req->rd_task;
 }
 
+/*	rd_get_sg_table():
+ *
+ *
+ */
 static struct rd_dev_sg_table *rd_get_sg_table(struct rd_dev *rd_dev, u32 page)
 {
 	u32 i;
@@ -366,7 +390,7 @@ static int rd_MEMCPY(struct rd_request *req, u32 read_rd)
 			continue;
 		}
 
-		
+		/* rd page completed, next one please */
 		req->rd_page++;
 		rd_offset = 0;
 		src_len = PAGE_SIZE;
@@ -381,13 +405,17 @@ static int rd_MEMCPY(struct rd_request *req, u32 read_rd)
 			return -EINVAL;
 		}
 
-		
+		/* since we increment, the first sg entry is correct */
 		rd_sg = table->sg_table;
 	}
 	sg_miter_stop(&m);
 	return 0;
 }
 
+/*	rd_MEMCPY_do_task(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static int rd_MEMCPY_do_task(struct se_task *task)
 {
 	struct se_device *dev = task->task_se_cmd->se_dev;
@@ -409,6 +437,10 @@ static int rd_MEMCPY_do_task(struct se_task *task)
 	return 0;
 }
 
+/*	rd_free_task(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static void rd_free_task(struct se_task *task)
 {
 	kfree(RD_REQ(task));
@@ -491,7 +523,7 @@ static ssize_t rd_show_configfs_dev_params(
 
 static u32 rd_get_device_rev(struct se_device *dev)
 {
-	return SCSI_SPC_2; 
+	return SCSI_SPC_2; /* Returns SPC-3 in Initiator Data */
 }
 
 static u32 rd_get_device_type(struct se_device *dev)

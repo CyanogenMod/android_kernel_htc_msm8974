@@ -79,4 +79,4 @@ static inline int pxa910_add_nand(struct pxa3xx_nand_platform_data *info)
 {
 	return pxa_register_device(&pxa910_device_nand, info, sizeof(*info));
 }
-#endif 
+#endif /* __ASM_MACH_PXA910_H */

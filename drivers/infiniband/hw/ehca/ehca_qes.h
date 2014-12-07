@@ -46,6 +46,7 @@
 
 #include "ehca_tools.h"
 
+/* virtual scatter gather entry to specify remote addresses with length */
 struct ehca_vsgentry {
 	u64 vaddr;
 	u32 lkey;
@@ -60,6 +61,10 @@ struct ehca_vsgentry {
 #define GRH_NEXTHEADER_MASK  EHCA_BMASK_IBM(48, 55)
 #define GRH_HOPLIMIT_MASK    EHCA_BMASK_IBM(56, 63)
 
+/*
+ * Unreliable Datagram Address Vector Format
+ * see IBTA Vol1 chapter 8.3 Global Routing Header
+ */
 struct ehca_ud_av {
 	u8 sl;
 	u8 lnh;
@@ -76,8 +81,8 @@ struct ehca_ud_av {
 	u64 reserved7;
 	union {
 		struct {
-			u64 word_0; 
-			
+			u64 word_0; /* always set to 6  */
+			/*should be 0x1B for IB transport */
 			u64 word_1;
 			u64 word_2;
 			u64 word_3;
@@ -86,14 +91,14 @@ struct ehca_ud_av {
 		struct {
 			u32 wd_0;
 			u32 wd_1;
-			
+			/* DWord_1 --> SGID */
 
 			u32 sgid_wd3;
 			u32 sgid_wd2;
 
 			u32 sgid_wd1;
 			u32 sgid_wd0;
-			
+			/* DWord_3 --> DGID */
 
 			u32 dgid_wd3;
 			u32 dgid_wd2;
@@ -104,6 +109,7 @@ struct ehca_ud_av {
 	};
 };
 
+/* maximum number of sg entries allowed in a WQE */
 #define MAX_WQE_SG_ENTRIES 252
 
 #define WQE_OPTYPE_SEND             0x80
@@ -242,7 +248,7 @@ struct ehca_eqe {
 
 struct ehca_mrte {
 	u64 starting_va;
-	u64 length; 
+	u64 length; /* length of memory region in bytes*/
 	u32 pd;
 	u8 key_instance;
 	u8 pagesize;
@@ -251,4 +257,4 @@ struct ehca_mrte {
 	u8 reserved[0x20 - 0x18];
 	u64 at_pointer[4];
 };
-#endif 
+#endif /*_EHCA_QES_H_*/

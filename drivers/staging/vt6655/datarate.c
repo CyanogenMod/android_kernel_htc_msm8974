@@ -43,13 +43,17 @@
 #include "baseband.h"
 #include "srom.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
 
 
 
+/*---------------------  Static Classes  ----------------------------*/
 
 
- extern unsigned short TxRate_iwconfig; 
+ extern unsigned short TxRate_iwconfig; //2008-5-8 <add> by chester
+/*---------------------  Static Variables  --------------------------*/
+//static int          msglevel                =MSG_LEVEL_DEBUG;
 static int          msglevel                =MSG_LEVEL_INFO;
 const unsigned char acbyIERate[MAX_RATE] =
 {0x02, 0x04, 0x0B, 0x16, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C};
@@ -58,6 +62,7 @@ const unsigned char acbyIERate[MAX_RATE] =
 #define AUTORATE_TXFAIL_CNT     0x0064
 #define AUTORATE_TIMEOUT        10
 
+/*---------------------  Static Functions  --------------------------*/
 
 void s_vResetCounter (
     PKnownNodeDB psNodeDBTable
@@ -72,17 +77,33 @@ s_vResetCounter (
 {
     unsigned char ii;
 
-    
+    // clear statistic counter for auto_rate
     for(ii=0;ii<=MAX_RATE;ii++) {
         psNodeDBTable->uTxOk[ii] = 0;
         psNodeDBTable->uTxFail[ii] = 0;
     }
 }
 
+/*---------------------  Export Variables  --------------------------*/
 
 
+/*---------------------  Export Functions  --------------------------*/
 
 
+/*+
+ *
+ * Description:
+ *      Get RateIdx from the value in SuppRates IE or ExtSuppRates IE
+ *
+ * Parameters:
+ *  In:
+ *      unsigned char - Rate value in SuppRates IE or ExtSuppRates IE
+ *  Out:
+ *      none
+ *
+ * Return Value: RateIdx
+ *
+-*/
 unsigned char
 DATARATEbyGetRateIdx (
     unsigned char byRate
@@ -90,8 +111,8 @@ DATARATEbyGetRateIdx (
 {
     unsigned char ii;
 
-    
-    byRate = byRate & 0x7F;
+    //Erase basicRate flag.
+    byRate = byRate & 0x7F;//0111 1111
 
     for (ii = 0; ii < MAX_RATE; ii ++) {
         if (acbyIERate[ii] == byRate)
@@ -102,12 +123,41 @@ DATARATEbyGetRateIdx (
 
 
 
+/*+
+ *
+ * Routine Description:
+ *      Rate fallback Algorithm Implementaion
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - Pointer to the adapter
+ *      psNodeDBTable   - Pointer to Node Data Base
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 #define AUTORATE_TXCNT_THRESHOLD        20
 #define AUTORATE_INC_THRESHOLD          30
 
 
 
 
+/*+
+ *
+ * Description:
+ *      Get RateIdx from the value in SuppRates IE or ExtSuppRates IE
+ *
+ * Parameters:
+ *  In:
+ *      unsigned char - Rate value in SuppRates IE or ExtSuppRates IE
+ *  Out:
+ *      none
+ *
+ * Return Value: RateIdx
+ *
+-*/
 unsigned short
 wGetRateIdx(
     unsigned char byRate
@@ -115,8 +165,8 @@ wGetRateIdx(
 {
     unsigned short ii;
 
-    
-    byRate = byRate & 0x7F;
+    //Erase basicRate flag.
+    byRate = byRate & 0x7F;//0111 1111
 
     for (ii = 0; ii < MAX_RATE; ii ++) {
         if (acbyIERate[ii] == byRate)
@@ -125,6 +175,25 @@ wGetRateIdx(
     return 0;
 }
 
+/*+
+ *
+ * Description:
+ *      Parsing the highest basic & support rate in rate field of frame.
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - Pointer to the adapter
+ *      pItemRates      - Pointer to Rate field defined in 802.11 spec.
+ *      pItemExtRates      - Pointer to Extended Rate field defined in 802.11 spec.
+ *  Out:
+ *      pwMaxBasicRate  - Maximum Basic Rate
+ *      pwMaxSuppRate   - Maximum Supported Rate
+ *      pbyTopCCKRate   - Maximum Basic Rate in CCK mode
+ *      pbyTopOFDMRate  - Maximum Basic Rate in OFDM mode
+ *
+ * Return Value: none
+ *
+-*/
 void
 RATEvParseMaxRate (
     void *pDeviceHandler,
@@ -165,7 +234,7 @@ unsigned int uRateLen;
     	byRate = (unsigned char)(pItemRates->abyRates[ii]);
         if (WLAN_MGMT_IS_BASICRATE(byRate) &&
             (bUpdateBasicRate == true))  {
-            
+            // Add to basic rate set, update pDevice->byTopCCKBasicRate and pDevice->byTopOFDMBasicRate
             CARDbAddBasicRate((void *)pDevice, wGetRateIdx(byRate));
             DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"ParseMaxRate AddBasicRate: %d\n", wGetRateIdx(byRate));
         }
@@ -186,9 +255,9 @@ unsigned int uRateLen;
 
         for (ii = 0; ii < uExtRateLen ; ii++) {
             byRate = (unsigned char)(pItemExtRates->abyRates[ii]);
-            
+            // select highest basic rate
             if (WLAN_MGMT_IS_BASICRATE(pItemExtRates->abyRates[ii])) {
-            	
+            	// Add to basic rate set, update pDevice->byTopCCKBasicRate and pDevice->byTopOFDMBasicRate
                 CARDbAddBasicRate((void *)pDevice, wGetRateIdx(byRate));
                 DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"ParseMaxRate AddBasicRate: %d\n", wGetRateIdx(byRate));
             }
@@ -198,9 +267,9 @@ unsigned int uRateLen;
             if (byRate > byHighSuppRate)
                 byHighSuppRate = byRate;
             *pwSuppRate |= (1<<wGetRateIdx(byRate));
-            
+            //DBG_PRN_GRP09(("ParseMaxRate : HighSuppRate: %d, %X\n", wGetRateIdx(byRate), byRate));
         }
-    } 
+    } //if(pItemExtRates != NULL)
 
     if ((pDevice->byPacketType == PK_TYPE_11GB) && CARDbIsOFDMinBasicRate((void *)pDevice)) {
         pDevice->byPacketType = PK_TYPE_11GA;
@@ -220,6 +289,21 @@ unsigned int uRateLen;
 }
 
 
+/*+
+ *
+ * Routine Description:
+ *      Rate fallback Algorithm Implementaion
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - Pointer to the adapter
+ *      psNodeDBTable   - Pointer to Node Data Base
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 #define AUTORATE_TXCNT_THRESHOLD        20
 #define AUTORATE_INC_THRESHOLD          30
 
@@ -232,6 +316,7 @@ RATEvTxRateFallBack (
 PSDevice        pDevice = (PSDevice) pDeviceHandler;
 unsigned short wIdxDownRate = 0;
 unsigned int ii;
+//unsigned long dwRateTable[MAX_RATE]  = {1,   2,   5,   11,  6,    9,    12,   18,  24,  36,  48,  54};
 bool bAutoRate[MAX_RATE]    = {true,true,true,true,false,false,true,true,true,true,true,true};
 	unsigned long dwThroughputTbl[MAX_RATE] = {10, 20, 55, 110, 60, 90, 120, 180, 240, 360, 480, 540};
 	unsigned long dwThroughput = 0;
@@ -239,7 +324,7 @@ bool bAutoRate[MAX_RATE]    = {true,true,true,true,false,false,true,true,true,tr
 	unsigned long dwTxDiff = 0;
 
     if (pDevice->pMgmt->eScanState != WMAC_NO_SCANNING) {
-        
+        // Don't do Fallback when scanning Channel
         return;
     }
 
@@ -278,6 +363,8 @@ bool bAutoRate[MAX_RATE]    = {true,true,true,true,false,false,true,true,true,tr
             }
             dwThroughputTbl[ii] /= (psNodeDBTable->uTxOk[ii] + psNodeDBTable->uTxFail[ii]);
         }
+//        DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"Rate %d,Ok: %d, Fail:%d, Throughput:%d\n",
+//                       ii, psNodeDBTable->uTxOk[ii], psNodeDBTable->uTxFail[ii], dwThroughputTbl[ii]);
     }
     dwThroughput = dwThroughputTbl[psNodeDBTable->wTxDataRate];
 
@@ -296,17 +383,32 @@ bool bAutoRate[MAX_RATE]    = {true,true,true,true,false,false,true,true,true,tr
            (psNodeDBTable->uTxFail[MAX_RATE] * 4) ) {
             psNodeDBTable->wTxDataRate = wIdxUpRate;
         }
-    }else { 
+    }else { // adhoc, if uTxOk =0 & uTxFail = 0
         if (psNodeDBTable->uTxFail[MAX_RATE] == 0)
             psNodeDBTable->wTxDataRate = wIdxUpRate;
     }
+//2008-5-8 <add> by chester
 TxRate_iwconfig=psNodeDBTable->wTxDataRate;
     s_vResetCounter(psNodeDBTable);
+//    DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"Rate: %d, U:%d, D:%d\n", psNodeDBTable->wTxDataRate, wIdxUpRate, wIdxDownRate);
 
     return;
 
 }
 
+/*+
+ *
+ * Description:
+ *    This routine is used to assemble available Rate IE.
+ *
+ * Parameters:
+ *  In:
+ *    pDevice
+ *  Out:
+ *
+ * Return Value: None
+ *
+-*/
 unsigned char
 RATEuSetIE (
     PWLAN_IE_SUPP_RATES pSrcRates,

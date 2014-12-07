@@ -46,9 +46,17 @@ static struct country_code_to_enum_rd allCountries[] = {
 	{COUNTRY_CODE_TELEC_NETGEAR, "EC"},
 };
 
+/*
+ *Only these channels all allow active
+ *scan on all world regulatory domains
+ */
 #define RTL819x_2GHZ_CH01_11	\
 	REG_RULE(2412-10, 2462+10, 40, 0, 20, 0)
 
+/*
+ *We enable active scan on these a case
+ *by case basis by regulatory domain
+ */
 #define RTL819x_2GHZ_CH12_13	\
 	REG_RULE(2467-10, 2472+10, 40, 0, 20,\
 	NL80211_RRF_PASSIVE_SCAN)
@@ -58,16 +66,19 @@ static struct country_code_to_enum_rd allCountries[] = {
 	NL80211_RRF_PASSIVE_SCAN | \
 	NL80211_RRF_NO_OFDM)
 
+/* 5G chan 36 - chan 64*/
 #define RTL819x_5GHZ_5150_5350	\
 	REG_RULE(5150-10, 5350+10, 40, 0, 30, \
 	NL80211_RRF_PASSIVE_SCAN | \
 	NL80211_RRF_NO_IBSS)
 
+/* 5G chan 100 - chan 165*/
 #define RTL819x_5GHZ_5470_5850	\
 	REG_RULE(5470-10, 5850+10, 40, 0, 30, \
 	NL80211_RRF_PASSIVE_SCAN | \
 	NL80211_RRF_NO_IBSS)
 
+/* 5G chan 149 - chan 165*/
 #define RTL819x_5GHZ_5725_5850	\
 	REG_RULE(5725-10, 5850+10, 40, 0, 30, \
 	NL80211_RRF_PASSIVE_SCAN | \
@@ -168,6 +179,14 @@ static void _rtl_reg_apply_beaconing_flags(struct wiphy *wiphy,
 				if (r)
 					continue;
 
+				/*
+				 *If 11d had a rule for this channel ensure
+				 *we enable adhoc/beaconing if it allows us to
+				 *use it. Note that we would have disabled it
+				 *by applying our static world regdomain by
+				 *default during init, prior to calling our
+				 *regulatory_hint().
+				 */
 
 				if (!(reg_rule->flags & NL80211_RRF_NO_IBSS))
 					ch->flags &= ~IEEE80211_CHAN_NO_IBSS;
@@ -184,6 +203,7 @@ static void _rtl_reg_apply_beaconing_flags(struct wiphy *wiphy,
 	}
 }
 
+/* Allows active scan scan on Ch 12 and 13 */
 static void _rtl_reg_apply_active_scan_flags(struct wiphy *wiphy,
 					     enum nl80211_reg_initiator
 					     initiator)
@@ -198,18 +218,28 @@ static void _rtl_reg_apply_active_scan_flags(struct wiphy *wiphy,
 		return;
 	sband = wiphy->bands[IEEE80211_BAND_2GHZ];
 
+	/*
+	 *If no country IE has been received always enable active scan
+	 *on these channels. This is only done for specific regulatory SKUs
+	 */
 	if (initiator != NL80211_REGDOM_SET_BY_COUNTRY_IE) {
-		ch = &sband->channels[11];	
+		ch = &sband->channels[11];	/* CH 12 */
 		if (ch->flags & IEEE80211_CHAN_PASSIVE_SCAN)
 			ch->flags &= ~IEEE80211_CHAN_PASSIVE_SCAN;
-		ch = &sband->channels[12];	
+		ch = &sband->channels[12];	/* CH 13 */
 		if (ch->flags & IEEE80211_CHAN_PASSIVE_SCAN)
 			ch->flags &= ~IEEE80211_CHAN_PASSIVE_SCAN;
 		return;
 	}
 
+	/*
+	 *If a country IE has been received check its rule for this
+	 *channel first before enabling active scan. The passive scan
+	 *would have been enforced by the initial processing of our
+	 *custom regulatory domain.
+	 */
 
-	ch = &sband->channels[11];	
+	ch = &sband->channels[11];	/* CH 12 */
 	r = freq_reg_info(wiphy, ch->center_freq, bandwidth, &reg_rule);
 	if (!r) {
 		if (!(reg_rule->flags & NL80211_RRF_PASSIVE_SCAN))
@@ -217,7 +247,7 @@ static void _rtl_reg_apply_active_scan_flags(struct wiphy *wiphy,
 				ch->flags &= ~IEEE80211_CHAN_PASSIVE_SCAN;
 	}
 
-	ch = &sband->channels[12];	
+	ch = &sband->channels[12];	/* CH 13 */
 	r = freq_reg_info(wiphy, ch->center_freq, bandwidth, &reg_rule);
 	if (!r) {
 		if (!(reg_rule->flags & NL80211_RRF_PASSIVE_SCAN))
@@ -226,6 +256,10 @@ static void _rtl_reg_apply_active_scan_flags(struct wiphy *wiphy,
 	}
 }
 
+/*
+ *Always apply Radar/DFS rules on
+ *freq range 5260 MHz - 5700 MHz
+ */
 static void _rtl_reg_apply_radar_flags(struct wiphy *wiphy)
 {
 	struct ieee80211_supported_band *sband;
@@ -242,6 +276,17 @@ static void _rtl_reg_apply_radar_flags(struct wiphy *wiphy)
 		if (!_rtl_is_radar_freq(ch->center_freq))
 			continue;
 
+		/*
+		 *We always enable radar detection/DFS on this
+		 *frequency range. Additionally we also apply on
+		 *this frequency range:
+		 *- If STA mode does not yet have DFS supports disable
+		 * active scanning
+		 *- If adhoc mode does not support DFS yet then disable
+		 * adhoc in the frequency.
+		 *- If AP mode does not yet support radar detection/DFS
+		 *do not allow AP mode
+		 */
 		if (!(ch->flags & IEEE80211_CHAN_DISABLED))
 			ch->flags |= IEEE80211_CHAN_RADAR |
 			    IEEE80211_CHAN_NO_IBSS |
@@ -262,7 +307,7 @@ static int _rtl_reg_notifier_apply(struct wiphy *wiphy,
 				   struct regulatory_request *request,
 				   struct rtl_regulatory *reg)
 {
-	
+	/* We always apply this */
 	_rtl_reg_apply_radar_flags(wiphy);
 
 	switch (request->initiator) {
@@ -349,7 +394,7 @@ int rtl_regd_init(struct ieee80211_hw *hw,
 	if (wiphy == NULL || &rtlpriv->regd == NULL)
 		return -EINVAL;
 
-	
+	/* init country_code from efuse channel plan */
 	rtlpriv->regd.country_code = rtlpriv->efuse.channel_plan;
 
 	RT_TRACE(rtlpriv, COMP_REGD, DBG_TRACE,

@@ -24,30 +24,41 @@
  */
 #include <linux/types.h>
 
+/*  ----------------------------------- Host OS */
 #include <dspbridge/host_os.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/*  ----------------------------------- Platform Manager */
 #include <dspbridge/cod.h>
 
+/*  ----------------------------------- Others */
 #include <dspbridge/uuidutil.h>
 
+/*  ----------------------------------- This */
 #include <dspbridge/dbdcd.h>
 
-#define MAX_INT2CHAR_LENGTH     16	
+/*  ----------------------------------- Global defines. */
+#define MAX_INT2CHAR_LENGTH     16	/* Max int2char len of 32 bit int */
 
+/* Name of section containing dependent libraries */
 #define DEPLIBSECT		".dspbridge_deplibs"
 
+/* DCD specific structures. */
 struct dcd_manager {
-	struct cod_manager *cod_mgr;	
+	struct cod_manager *cod_mgr;	/* Handle to COD manager object. */
 };
 
+/*  Pointer to the registry support key */
 static struct list_head reg_key_list;
 static DEFINE_SPINLOCK(dbdcd_lock);
 
+/* Global reference variables. */
 static u32 refs;
 static u32 enum_refs;
 
+/* Helper function prototypes. */
 static s32 atoi(char *psz_buf);
 static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 				     enum dsp_dcdobjtype obj_type,
@@ -62,6 +73,11 @@ static int get_dep_lib_info(struct dcd_manager *hdcd_mgr,
 				   bool *prstnt_dep_libs,
 				   enum nldr_phase phase);
 
+/*
+ *  ======== dcd_auto_register ========
+ *  Purpose:
+ *      Parses the supplied image and resigsters with DCD.
+ */
 int dcd_auto_register(struct dcd_manager *hdcd_mgr,
 			     char *sz_coff_path)
 {
@@ -77,6 +93,11 @@ int dcd_auto_register(struct dcd_manager *hdcd_mgr,
 	return status;
 }
 
+/*
+ *  ======== dcd_auto_unregister ========
+ *  Purpose:
+ *      Parses the supplied DSP image and unresiters from DCD.
+ */
 int dcd_auto_unregister(struct dcd_manager *hdcd_mgr,
 			       char *sz_coff_path)
 {
@@ -92,28 +113,37 @@ int dcd_auto_unregister(struct dcd_manager *hdcd_mgr,
 	return status;
 }
 
+/*
+ *  ======== dcd_create_manager ========
+ *  Purpose:
+ *      Creates DCD manager.
+ */
 int dcd_create_manager(char *sz_zl_dll_name,
 			      struct dcd_manager **dcd_mgr)
 {
-	struct cod_manager *cod_mgr;	
-	struct dcd_manager *dcd_mgr_obj = NULL;	
+	struct cod_manager *cod_mgr;	/* COD manager handle */
+	struct dcd_manager *dcd_mgr_obj = NULL;	/* DCD Manager pointer */
 	int status = 0;
 
 	status = cod_create(&cod_mgr, sz_zl_dll_name);
 	if (status)
 		goto func_end;
 
-	
+	/* Create a DCD object. */
 	dcd_mgr_obj = kzalloc(sizeof(struct dcd_manager), GFP_KERNEL);
 	if (dcd_mgr_obj != NULL) {
-		
+		/* Fill out the object. */
 		dcd_mgr_obj->cod_mgr = cod_mgr;
 
-		
+		/* Return handle to this DCD interface. */
 		*dcd_mgr = dcd_mgr_obj;
 	} else {
 		status = -ENOMEM;
 
+		/*
+		 * If allocation of DcdManager object failed, delete the
+		 * COD manager.
+		 */
 		cod_delete(cod_mgr);
 	}
 
@@ -121,16 +151,21 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== dcd_destroy_manager ========
+ *  Purpose:
+ *      Frees DCD Manager object.
+ */
 int dcd_destroy_manager(struct dcd_manager *hdcd_mgr)
 {
 	struct dcd_manager *dcd_mgr_obj = hdcd_mgr;
 	int status = -EFAULT;
 
 	if (hdcd_mgr) {
-		
+		/* Delete the COD manager. */
 		cod_delete(dcd_mgr_obj->cod_mgr);
 
-		
+		/* Deallocate a DCD manager object. */
 		kfree(dcd_mgr_obj);
 
 		status = 0;
@@ -139,6 +174,11 @@ int dcd_destroy_manager(struct dcd_manager *hdcd_mgr)
 	return status;
 }
 
+/*
+ *  ======== dcd_enumerate_object ========
+ *  Purpose:
+ *      Enumerates objects in the DCD.
+ */
 int dcd_enumerate_object(s32 index, enum dsp_dcdobjtype obj_type,
 				struct dsp_uuid *uuid_obj)
 {
@@ -146,16 +186,27 @@ int dcd_enumerate_object(s32 index, enum dsp_dcdobjtype obj_type,
 	char sz_reg_key[DCD_MAXPATHLENGTH];
 	char sz_value[DCD_MAXPATHLENGTH];
 	struct dsp_uuid dsp_uuid_obj;
-	char sz_obj_type[MAX_INT2CHAR_LENGTH];	
+	char sz_obj_type[MAX_INT2CHAR_LENGTH];	/* str. rep. of obj_type. */
 	u32 dw_key_len = 0;
 	struct dcd_key_elem *dcd_key;
 	int len;
 
 	if ((index != 0) && (enum_refs == 0)) {
+		/*
+		 * If an enumeration is being performed on an index greater
+		 * than zero, then the current enum_refs must have been
+		 * incremented to greater than zero.
+		 */
 		status = -EIDRM;
 	} else {
+		/*
+		 * Pre-determine final key length. It's length of DCD_REGKEY +
+		 *  "_\0" + length of sz_obj_type string + terminating NULL.
+		 */
 		dw_key_len = strlen(DCD_REGKEY) + 1 + sizeof(sz_obj_type) + 1;
 
+		/* Create proper REG key; concatenate DCD_REGKEY with
+		 * obj_type. */
 		strncpy(sz_reg_key, DCD_REGKEY, strlen(DCD_REGKEY) + 1);
 		if ((strlen(sz_reg_key) + strlen("_\0")) <
 		    DCD_MAXPATHLENGTH) {
@@ -164,6 +215,8 @@ int dcd_enumerate_object(s32 index, enum dsp_dcdobjtype obj_type,
 			status = -EPERM;
 		}
 
+		/* This snprintf is guaranteed not to exceed max size of an
+		 * integer. */
 		status = snprintf(sz_obj_type, MAX_INT2CHAR_LENGTH, "%d",
 				  obj_type);
 
@@ -198,18 +251,24 @@ int dcd_enumerate_object(s32 index, enum dsp_dcdobjtype obj_type,
 		}
 
 		if (!status) {
+			/* Create UUID value using string retrieved from
+			 * registry. */
 			uuid_uuid_from_string(sz_value, &dsp_uuid_obj);
 
 			*uuid_obj = dsp_uuid_obj;
 
-			
+			/* Increment enum_refs to update reference count. */
 			enum_refs++;
 
 			status = 0;
 		} else if (status == -ENODATA) {
-			
+			/* At the end of enumeration. Reset enum_refs. */
 			enum_refs = 0;
 
+			/*
+			 * TODO: Revisit, this is not an error case but code
+			 * expects non-zero value.
+			 */
 			status = ENODATA;
 		} else {
 			status = -EPERM;
@@ -219,6 +278,11 @@ int dcd_enumerate_object(s32 index, enum dsp_dcdobjtype obj_type,
 	return status;
 }
 
+/*
+ *  ======== dcd_exit ========
+ *  Purpose:
+ *      Discontinue usage of the DCD module.
+ */
 void dcd_exit(void)
 {
 	struct dcd_key_elem *rv, *rv_tmp;
@@ -234,6 +298,9 @@ void dcd_exit(void)
 
 }
 
+/*
+ *  ======== dcd_get_dep_libs ========
+ */
 int dcd_get_dep_libs(struct dcd_manager *hdcd_mgr,
 			    struct dsp_uuid *uuid_obj,
 			    u16 num_libs, struct dsp_uuid *dep_lib_uuids,
@@ -249,6 +316,9 @@ int dcd_get_dep_libs(struct dcd_manager *hdcd_mgr,
 	return status;
 }
 
+/*
+ *  ======== dcd_get_num_dep_libs ========
+ */
 int dcd_get_num_dep_libs(struct dcd_manager *hdcd_mgr,
 				struct dsp_uuid *uuid_obj,
 				u16 *num_libs, u16 *num_pers_libs,
@@ -262,24 +332,30 @@ int dcd_get_num_dep_libs(struct dcd_manager *hdcd_mgr,
 	return status;
 }
 
+/*
+ *  ======== dcd_get_object_def ========
+ *  Purpose:
+ *      Retrieves the properties of a node or processor based on the UUID and
+ *      object type.
+ */
 int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 			      struct dsp_uuid *obj_uuid,
 			      enum dsp_dcdobjtype obj_type,
 			      struct dcd_genericobj *obj_def)
 {
-	struct dcd_manager *dcd_mgr_obj = hdcd_mgr;	
+	struct dcd_manager *dcd_mgr_obj = hdcd_mgr;	/* ptr to DCD mgr */
 	struct cod_libraryobj *lib = NULL;
 	int status = 0;
-	u32 ul_addr = 0;	
-	u32 ul_len = 0;		
-	u32 dw_buf_size;	
+	u32 ul_addr = 0;	/* Used by cod_get_section */
+	u32 ul_len = 0;		/* Used by cod_get_section */
+	u32 dw_buf_size;	/* Used by REG functions */
 	char sz_reg_key[DCD_MAXPATHLENGTH];
-	char *sz_uuid;		
+	char *sz_uuid;		/*[MAXUUIDLEN]; */
 	struct dcd_key_elem *dcd_key = NULL;
-	char sz_sect_name[MAXUUIDLEN + 2];	
+	char sz_sect_name[MAXUUIDLEN + 2];	/* ".[UUID]\0" */
 	char *psz_coff_buf;
-	u32 dw_key_len;		
-	char sz_obj_type[MAX_INT2CHAR_LENGTH];	
+	u32 dw_key_len;		/* Len of REG key. */
+	char sz_obj_type[MAX_INT2CHAR_LENGTH];	/* str. rep. of obj_type. */
 
 	sz_uuid = kzalloc(MAXUUIDLEN, GFP_KERNEL);
 	if (!sz_uuid) {
@@ -292,9 +368,11 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 		goto func_end;
 	}
 
+	/* Pre-determine final key length. It's length of DCD_REGKEY +
+	 *  "_\0" + length of sz_obj_type string + terminating NULL */
 	dw_key_len = strlen(DCD_REGKEY) + 1 + sizeof(sz_obj_type) + 1;
 
-	
+	/* Create proper REG key; concatenate DCD_REGKEY with obj_type. */
 	strncpy(sz_reg_key, DCD_REGKEY, strlen(DCD_REGKEY) + 1);
 
 	if ((strlen(sz_reg_key) + strlen("_\0")) < DCD_MAXPATHLENGTH)
@@ -316,7 +394,7 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 			status = -EPERM;
 		}
 
-		
+		/* Create UUID value to set in registry. */
 		uuid_uuid_to_string(obj_uuid, sz_uuid, MAXUUIDLEN);
 
 		if ((strlen(sz_reg_key) + MAXUUIDLEN) < DCD_MAXPATHLENGTH)
@@ -324,7 +402,7 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 		else
 			status = -EPERM;
 
-		
+		/* Retrieve paths from the registry based on struct dsp_uuid */
 		dw_buf_size = DCD_MAXPATHLENGTH;
 	}
 	if (!status) {
@@ -342,7 +420,7 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 	}
 
 
-	
+	/* Open COFF file. */
 	status = cod_open(dcd_mgr_obj->cod_mgr, dcd_key->path,
 							COD_NOLOAD, &lib);
 	if (status) {
@@ -350,19 +428,22 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 		goto func_end;
 	}
 
-	
+	/* Ensure sz_uuid + 1 is not greater than sizeof sz_sect_name. */
 
+	/* Create section name based on node UUID. A period is
+	 * pre-pended to the UUID string to form the section name.
+	 * I.e. ".24BC8D90_BB45_11d4_B756_006008BDB66F" */
 	strncpy(sz_sect_name, ".", 2);
 	strncat(sz_sect_name, sz_uuid, strlen(sz_uuid));
 
-	
+	/* Get section information. */
 	status = cod_get_section(lib, sz_sect_name, &ul_addr, &ul_len);
 	if (status) {
 		status = -EACCES;
 		goto func_end;
 	}
 
-	
+	/* Allocate zeroed buffer. */
 	psz_coff_buf = kzalloc(ul_len + 4, GFP_KERNEL);
 	if (psz_coff_buf == NULL) {
 		status = -ENOMEM;
@@ -370,7 +451,7 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 	}
 #ifdef _DB_TIOMAP
 	if (strstr(dcd_key->path, "iva") == NULL) {
-		
+		/* Locate section by objectID and read its content. */
 		status =
 		    cod_read_section(lib, sz_sect_name, psz_coff_buf, ul_len);
 	} else {
@@ -382,7 +463,7 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 	status = cod_read_section(lib, sz_sect_name, psz_coff_buf, ul_len);
 #endif
 	if (!status) {
-		
+		/* Compres DSP buffer to conform to PC format. */
 		if (strstr(dcd_key->path, "iva") == NULL) {
 			compress_buf(psz_coff_buf, ul_len, DSPWORDSIZE);
 		} else {
@@ -391,7 +472,7 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 				"for IVA!!\n", __func__);
 		}
 
-		
+		/* Parse the content of the COFF buffer. */
 		status =
 		    get_attrs_from_buf(psz_coff_buf, ul_len, obj_type, obj_def);
 		if (status)
@@ -400,7 +481,7 @@ int dcd_get_object_def(struct dcd_manager *hdcd_mgr,
 		status = -EACCES;
 	}
 
-	
+	/* Free the previously allocated dynamic buffer. */
 	kfree(psz_coff_buf);
 func_end:
 	if (lib)
@@ -411,6 +492,9 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== dcd_get_objects ========
+ */
 int dcd_get_objects(struct dcd_manager *hdcd_mgr,
 			   char *sz_coff_path, dcd_registerfxn register_fxn,
 			   void *handle)
@@ -420,8 +504,8 @@ int dcd_get_objects(struct dcd_manager *hdcd_mgr,
 	char *psz_coff_buf;
 	char *psz_cur;
 	struct cod_libraryobj *lib = NULL;
-	u32 ul_addr = 0;	
-	u32 ul_len = 0;		
+	u32 ul_addr = 0;	/* Used by cod_get_section */
+	u32 ul_len = 0;		/* Used by cod_get_section */
 	char seps[] = ":, ";
 	char *token = NULL;
 	struct dsp_uuid dsp_uuid_obj;
@@ -432,21 +516,21 @@ int dcd_get_objects(struct dcd_manager *hdcd_mgr,
 		goto func_end;
 	}
 
-	
+	/* Open DSP coff file, don't load symbols. */
 	status = cod_open(dcd_mgr_obj->cod_mgr, sz_coff_path, COD_NOLOAD, &lib);
 	if (status) {
 		status = -EACCES;
 		goto func_cont;
 	}
 
-	
+	/* Get DCD_RESIGER_SECTION section information. */
 	status = cod_get_section(lib, DCD_REGISTER_SECTION, &ul_addr, &ul_len);
 	if (status || !(ul_len > 0)) {
 		status = -EACCES;
 		goto func_cont;
 	}
 
-	
+	/* Allocate zeroed buffer. */
 	psz_coff_buf = kzalloc(ul_len + 4, GFP_KERNEL);
 	if (psz_coff_buf == NULL) {
 		status = -ENOMEM;
@@ -454,7 +538,7 @@ int dcd_get_objects(struct dcd_manager *hdcd_mgr,
 	}
 #ifdef _DB_TIOMAP
 	if (strstr(sz_coff_path, "iva") == NULL) {
-		
+		/* Locate section by objectID and read its content. */
 		status = cod_read_section(lib, DCD_REGISTER_SECTION,
 					  psz_coff_buf, ul_len);
 	} else {
@@ -467,7 +551,7 @@ int dcd_get_objects(struct dcd_manager *hdcd_mgr,
 	    cod_read_section(lib, DCD_REGISTER_SECTION, psz_coff_buf, ul_len);
 #endif
 	if (!status) {
-		
+		/* Compress DSP buffer to conform to PC format. */
 		if (strstr(sz_coff_path, "iva") == NULL) {
 			compress_buf(psz_coff_buf, ul_len, DSPWORDSIZE);
 		} else {
@@ -476,22 +560,30 @@ int dcd_get_objects(struct dcd_manager *hdcd_mgr,
 				"for IVA!!\n", __func__);
 		}
 
-		
+		/* Read from buffer and register object in buffer. */
 		psz_cur = psz_coff_buf;
 		while ((token = strsep(&psz_cur, seps)) && *token != '\0') {
-			
+			/*  Retrieve UUID string. */
 			uuid_uuid_from_string(token, &dsp_uuid_obj);
 
-			
+			/*  Retrieve object type */
 			token = strsep(&psz_cur, seps);
 
-			
+			/*  Retrieve object type */
 			object_type = atoi(token);
 
+			/*
+			 *  Apply register_fxn to the found DCD object.
+			 *  Possible actions include:
+			 *
+			 *  1) Register found DCD object.
+			 *  2) Unregister found DCD object (when handle == NULL)
+			 *  3) Add overlay node.
+			 */
 			status =
 			    register_fxn(&dsp_uuid_obj, object_type, handle);
 			if (status) {
-				
+				/* if error occurs, break from while loop. */
 				break;
 			}
 		}
@@ -499,7 +591,7 @@ int dcd_get_objects(struct dcd_manager *hdcd_mgr,
 		status = -EACCES;
 	}
 
-	
+	/* Free the previously allocated dynamic buffer. */
 	kfree(psz_coff_buf);
 func_cont:
 	if (lib)
@@ -509,6 +601,12 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== dcd_get_library_name ========
+ *  Purpose:
+ *      Retrieves the library name for the given UUID.
+ *
+ */
 int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 				struct dsp_uuid *uuid_obj,
 				char *str_lib_name,
@@ -517,8 +615,8 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 {
 	char sz_reg_key[DCD_MAXPATHLENGTH];
 	char sz_uuid[MAXUUIDLEN];
-	u32 dw_key_len;		
-	char sz_obj_type[MAX_INT2CHAR_LENGTH];	
+	u32 dw_key_len;		/* Len of REG key. */
+	char sz_obj_type[MAX_INT2CHAR_LENGTH];	/* str. rep. of obj_type. */
 	int status = 0;
 	struct dcd_key_elem *dcd_key = NULL;
 
@@ -526,9 +624,13 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 		" buff_size %p\n", __func__, hdcd_mgr, uuid_obj, str_lib_name,
 		buff_size);
 
+	/*
+	 *  Pre-determine final key length. It's length of DCD_REGKEY +
+	 *  "_\0" + length of sz_obj_type string + terminating NULL.
+	 */
 	dw_key_len = strlen(DCD_REGKEY) + 1 + sizeof(sz_obj_type) + 1;
 
-	
+	/* Create proper REG key; concatenate DCD_REGKEY with obj_type. */
 	strncpy(sz_reg_key, DCD_REGKEY, strlen(DCD_REGKEY) + 1);
 	if ((strlen(sz_reg_key) + strlen("_\0")) < DCD_MAXPATHLENGTH)
 		strncat(sz_reg_key, "_\0", 2);
@@ -537,19 +639,19 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 
 	switch (phase) {
 	case NLDR_CREATE:
-		
+		/* create phase type */
 		sprintf(sz_obj_type, "%d", DSP_DCDCREATELIBTYPE);
 		break;
 	case NLDR_EXECUTE:
-		
+		/* execute phase type */
 		sprintf(sz_obj_type, "%d", DSP_DCDEXECUTELIBTYPE);
 		break;
 	case NLDR_DELETE:
-		
+		/* delete phase type */
 		sprintf(sz_obj_type, "%d", DSP_DCDDELETELIBTYPE);
 		break;
 	case NLDR_NOPHASE:
-		
+		/* known to be a dependent library */
 		sprintf(sz_obj_type, "%d", DSP_DCDLIBRARYTYPE);
 		break;
 	default:
@@ -563,7 +665,7 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 		} else {
 			status = -EPERM;
 		}
-		
+		/* Create UUID value to find match in registry. */
 		uuid_uuid_to_string(uuid_obj, sz_uuid, MAXUUIDLEN);
 		if ((strlen(sz_reg_key) + MAXUUIDLEN) < DCD_MAXPATHLENGTH)
 			strncat(sz_reg_key, sz_uuid, MAXUUIDLEN);
@@ -573,7 +675,7 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 	if (!status) {
 		spin_lock(&dbdcd_lock);
 		list_for_each_entry(dcd_key, &reg_key_list, link) {
-			
+			/*  See if the name matches. */
 			if (!strncmp(dcd_key->name, sz_reg_key,
 						strlen(sz_reg_key) + 1))
 				break;
@@ -584,7 +686,7 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 	if (&dcd_key->link == &reg_key_list)
 		status = -ENOKEY;
 
-	
+	/* If can't find, phases might be registered as generic LIBRARYTYPE */
 	if (status && phase != NLDR_NOPHASE) {
 		if (phase_split)
 			*phase_split = false;
@@ -612,7 +714,7 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 
 		spin_lock(&dbdcd_lock);
 		list_for_each_entry(dcd_key, &reg_key_list, link) {
-			
+			/*  See if the name matches. */
 			if (!strncmp(dcd_key->name, sz_reg_key,
 						strlen(sz_reg_key) + 1))
 				break;
@@ -628,6 +730,11 @@ int dcd_get_library_name(struct dcd_manager *hdcd_mgr,
 	return status;
 }
 
+/*
+ *  ======== dcd_init ========
+ *  Purpose:
+ *      Initialize the DCD module.
+ */
 bool dcd_init(void)
 {
 	bool ret = true;
@@ -641,6 +748,12 @@ bool dcd_init(void)
 	return ret;
 }
 
+/*
+ *  ======== dcd_register_object ========
+ *  Purpose:
+ *      Registers a node or a processor with the DCD.
+ *      If psz_path_name == NULL, unregister the specified DCD object.
+ */
 int dcd_register_object(struct dsp_uuid *uuid_obj,
 			       enum dsp_dcdobjtype obj_type,
 			       char *psz_path_name)
@@ -649,16 +762,20 @@ int dcd_register_object(struct dsp_uuid *uuid_obj,
 	char sz_reg_key[DCD_MAXPATHLENGTH];
 	char sz_uuid[MAXUUIDLEN + 1];
 	u32 dw_path_size = 0;
-	u32 dw_key_len;		
-	char sz_obj_type[MAX_INT2CHAR_LENGTH];	
+	u32 dw_key_len;		/* Len of REG key. */
+	char sz_obj_type[MAX_INT2CHAR_LENGTH];	/* str. rep. of obj_type. */
 	struct dcd_key_elem *dcd_key = NULL;
 
 	dev_dbg(bridge, "%s: object UUID %p, obj_type %d, szPathName %s\n",
 		__func__, uuid_obj, obj_type, psz_path_name);
 
+	/*
+	 * Pre-determine final key length. It's length of DCD_REGKEY +
+	 *  "_\0" + length of sz_obj_type string + terminating NULL.
+	 */
 	dw_key_len = strlen(DCD_REGKEY) + 1 + sizeof(sz_obj_type) + 1;
 
-	
+	/* Create proper REG key; concatenate DCD_REGKEY with obj_type. */
 	strncpy(sz_reg_key, DCD_REGKEY, strlen(DCD_REGKEY) + 1);
 	if ((strlen(sz_reg_key) + strlen("_\0")) < DCD_MAXPATHLENGTH)
 		strncat(sz_reg_key, "_\0", 2);
@@ -679,7 +796,7 @@ int dcd_register_object(struct dsp_uuid *uuid_obj,
 		} else
 			status = -EPERM;
 
-		
+		/* Create UUID value to set in registry. */
 		uuid_uuid_to_string(uuid_obj, sz_uuid, MAXUUIDLEN);
 		if ((strlen(sz_reg_key) + MAXUUIDLEN) < DCD_MAXPATHLENGTH)
 			strncat(sz_reg_key, sz_uuid, MAXUUIDLEN);
@@ -690,18 +807,26 @@ int dcd_register_object(struct dsp_uuid *uuid_obj,
 	if (status)
 		goto func_end;
 
+	/*
+	 * If psz_path_name != NULL, perform registration, otherwise,
+	 * perform unregistration.
+	 */
 
 	if (psz_path_name) {
 		dw_path_size = strlen(psz_path_name) + 1;
 		spin_lock(&dbdcd_lock);
 		list_for_each_entry(dcd_key, &reg_key_list, link) {
-			
+			/*  See if the name matches. */
 			if (!strncmp(dcd_key->name, sz_reg_key,
 						strlen(sz_reg_key) + 1))
 				break;
 		}
 		spin_unlock(&dbdcd_lock);
 		if (&dcd_key->link == &reg_key_list) {
+			/*
+			 * Add new reg value (UUID+obj_type)
+			 * with COFF path info
+			 */
 
 			dcd_key = kmalloc(sizeof(struct dcd_key_elem),
 								GFP_KERNEL);
@@ -727,10 +852,10 @@ int dcd_register_object(struct dsp_uuid *uuid_obj,
 			list_add_tail(&dcd_key->link, &reg_key_list);
 			spin_unlock(&dbdcd_lock);
 		} else {
-			
+			/*  Make sure the new data is the same. */
 			if (strncmp(dcd_key->path, psz_path_name,
 							dw_path_size)) {
-				
+				/*  The caller needs a different data size! */
 				kfree(dcd_key->path);
 				dcd_key->path = kmalloc(dw_path_size,
 								GFP_KERNEL);
@@ -740,13 +865,13 @@ int dcd_register_object(struct dsp_uuid *uuid_obj,
 				}
 			}
 
-			
+			/*  We have a match!  Copy out the data. */
 			memcpy(dcd_key->path, psz_path_name, dw_path_size);
 		}
 		dev_dbg(bridge, "%s: psz_path_name=%s, dw_path_size=%d\n",
 			__func__, psz_path_name, dw_path_size);
 	} else {
-		
+		/* Deregister an existing object */
 		spin_lock(&dbdcd_lock);
 		list_for_each_entry(dcd_key, &reg_key_list, link) {
 			if (!strncmp(dcd_key->name, sz_reg_key,
@@ -763,23 +888,49 @@ int dcd_register_object(struct dsp_uuid *uuid_obj,
 	}
 
 	if (!status) {
+		/*
+		 *  Because the node database has been updated through a
+		 *  successful object registration/de-registration operation,
+		 *  we need to reset the object enumeration counter to allow
+		 *  current enumerations to reflect this update in the node
+		 *  database.
+		 */
 		enum_refs = 0;
 	}
 func_end:
 	return status;
 }
 
+/*
+ *  ======== dcd_unregister_object ========
+ *  Call DCD_Register object with psz_path_name set to NULL to
+ *  perform actual object de-registration.
+ */
 int dcd_unregister_object(struct dsp_uuid *uuid_obj,
 				 enum dsp_dcdobjtype obj_type)
 {
 	int status = 0;
 
+	/*
+	 *  When dcd_register_object is called with NULL as pathname,
+	 *  it indicates an unregister object operation.
+	 */
 	status = dcd_register_object(uuid_obj, obj_type, NULL);
 
 	return status;
 }
 
+/*
+ **********************************************************************
+ * DCD Helper Functions
+ **********************************************************************
+ */
 
+/*
+ *  ======== atoi ========
+ *  Purpose:
+ *      This function converts strings in decimal or hex format to integers.
+ */
 static s32 atoi(char *psz_buf)
 {
 	char *pch = psz_buf;
@@ -798,6 +949,13 @@ static s32 atoi(char *psz_buf)
 	return simple_strtoul(pch, NULL, base);
 }
 
+/*
+ *  ======== get_attrs_from_buf ========
+ *  Purpose:
+ *      Parse the content of a buffer filled with DSP-side data and
+ *      retrieve an object's attributes from it. IMPORTANT: Assume the
+ *      buffer has been converted from DSP format to GPP format.
+ */
 static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 				     enum dsp_dcdobjtype obj_type,
 				     struct dcd_genericobj *gen_obj)
@@ -814,21 +972,25 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 
 	switch (obj_type) {
 	case DSP_DCDNODETYPE:
+		/*
+		 * Parse COFF sect buffer to retrieve individual tokens used
+		 * to fill in object attrs.
+		 */
 		psz_cur = psz_buf;
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 cb_struct */
 		gen_obj->obj_data.node_obj.ndb_props.cb_struct =
 		    (u32) atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* dsp_uuid ui_node_id */
 		uuid_uuid_from_string(token,
 				      &gen_obj->obj_data.node_obj.ndb_props.
 				      ui_node_id);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* ac_name */
 		token_len = strlen(token);
 		if (token_len > DSP_MAXNAMELEN - 1)
 			token_len = DSP_MAXNAMELEN - 1;
@@ -837,13 +999,13 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 			token, token_len);
 		gen_obj->obj_data.node_obj.ndb_props.ac_name[token_len] = '\0';
 		token = strsep(&psz_cur, seps);
-		
+		/* u32 ntype */
 		gen_obj->obj_data.node_obj.ndb_props.ntype = atoi(token);
 		token = strsep(&psz_cur, seps);
-		
+		/* u32 cache_on_gpp */
 		gen_obj->obj_data.node_obj.ndb_props.cache_on_gpp = atoi(token);
 		token = strsep(&psz_cur, seps);
-		
+		/* dsp_resourcereqmts dsp_resource_reqmts */
 		gen_obj->obj_data.node_obj.ndb_props.dsp_resource_reqmts.
 		    cb_struct = (u32) atoi(token);
 		token = strsep(&psz_cur, seps);
@@ -876,43 +1038,43 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 		    dsp_resource_reqmts.minimum_period = atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* s32 prio */
 		gen_obj->obj_data.node_obj.ndb_props.prio = atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 stack_size */
 		gen_obj->obj_data.node_obj.ndb_props.stack_size = atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 sys_stack_size */
 		gen_obj->obj_data.node_obj.ndb_props.sys_stack_size =
 		    atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 stack_seg */
 		gen_obj->obj_data.node_obj.ndb_props.stack_seg = atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 message_depth */
 		gen_obj->obj_data.node_obj.ndb_props.message_depth =
 		    atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 num_input_streams */
 		gen_obj->obj_data.node_obj.ndb_props.num_input_streams =
 		    atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 num_output_streams */
 		gen_obj->obj_data.node_obj.ndb_props.num_output_streams =
 		    atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* u32 timeout */
 		gen_obj->obj_data.node_obj.ndb_props.timeout = atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* char *str_create_phase_fxn */
 		token_len = strlen(token);
 		gen_obj->obj_data.node_obj.str_create_phase_fxn =
 					kzalloc(token_len + 1, GFP_KERNEL);
@@ -922,7 +1084,7 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 		    '\0';
 		token = strsep(&psz_cur, seps);
 
-		
+		/* char *str_execute_phase_fxn */
 		token_len = strlen(token);
 		gen_obj->obj_data.node_obj.str_execute_phase_fxn =
 					kzalloc(token_len + 1, GFP_KERNEL);
@@ -932,7 +1094,7 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 		    '\0';
 		token = strsep(&psz_cur, seps);
 
-		
+		/* char *str_delete_phase_fxn */
 		token_len = strlen(token);
 		gen_obj->obj_data.node_obj.str_delete_phase_fxn =
 					kzalloc(token_len + 1, GFP_KERNEL);
@@ -942,15 +1104,15 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 		    '\0';
 		token = strsep(&psz_cur, seps);
 
-		
+		/* Segment id for message buffers */
 		gen_obj->obj_data.node_obj.msg_segid = atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* Message notification type */
 		gen_obj->obj_data.node_obj.msg_notify_type = atoi(token);
 		token = strsep(&psz_cur, seps);
 
-		
+		/* char *str_i_alg_name */
 		if (token) {
 			token_len = strlen(token);
 			gen_obj->obj_data.node_obj.str_i_alg_name =
@@ -962,27 +1124,27 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 			token = strsep(&psz_cur, seps);
 		}
 
-		
+		/* Load type (static, dynamic, or overlay) */
 		if (token) {
 			gen_obj->obj_data.node_obj.load_type = atoi(token);
 			token = strsep(&psz_cur, seps);
 		}
 
-		
+		/* Dynamic load data requirements */
 		if (token) {
 			gen_obj->obj_data.node_obj.data_mem_seg_mask =
 			    atoi(token);
 			token = strsep(&psz_cur, seps);
 		}
 
-		
+		/* Dynamic load code requirements */
 		if (token) {
 			gen_obj->obj_data.node_obj.code_mem_seg_mask =
 			    atoi(token);
 			token = strsep(&psz_cur, seps);
 		}
 
-		
+		/* Extract node profiles into node properties */
 		if (token) {
 
 			gen_obj->obj_data.node_obj.ndb_props.count_profiles =
@@ -993,7 +1155,7 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 			     ndb_props.count_profiles; i++) {
 				token = strsep(&psz_cur, seps);
 				if (token) {
-					
+					/* Heap Size for the node */
 					gen_obj->obj_data.node_obj.
 					    ndb_props.node_profiles[i].
 					    heap_size = atoi(token);
@@ -1009,6 +1171,10 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 		break;
 
 	case DSP_DCDPROCESSORTYPE:
+		/*
+		 * Parse COFF sect buffer to retrieve individual tokens used
+		 * to fill in object attrs.
+		 */
 		psz_cur = psz_buf;
 		token = strsep(&psz_cur, seps);
 
@@ -1042,8 +1208,8 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 		gen_obj->obj_data.proc_info.node_max_priority = atoi(token);
 
 #ifdef _DB_TIOMAP
-		
-		
+		/* Proc object may contain additional(extended) attributes. */
+		/* attr must match proc.hxx */
 		for (entry_id = 0; entry_id < 7; entry_id++) {
 			token = strsep(&psz_cur, seps);
 			gen_obj->obj_data.ext_proc_obj.ty_tlb[entry_id].
@@ -1065,6 +1231,11 @@ static int get_attrs_from_buf(char *psz_buf, u32 ul_buf_size,
 	return status;
 }
 
+/*
+ *  ======== CompressBuffer ========
+ *  Purpose:
+ *      Compress the DSP buffer, if necessary, to conform to PC format.
+ */
 static void compress_buf(char *psz_buf, u32 ul_buf_size, s32 char_size)
 {
 	char *p;
@@ -1108,11 +1279,16 @@ static void compress_buf(char *psz_buf, u32 ul_buf_size, s32 char_size)
 		q += char_size;
 	}
 
-	
+	/* NULL out remainder of buffer. */
 	while (p < q)
 		*p++ = '\0';
 }
 
+/*
+ *  ======== dsp_char2_gpp_char ========
+ *  Purpose:
+ *      Convert DSP char to host GPP char in a portable manner
+ */
 static char dsp_char2_gpp_char(char *word, s32 dsp_char_size)
 {
 	char ch = '\0';
@@ -1125,6 +1301,9 @@ static char dsp_char2_gpp_char(char *word, s32 dsp_char_size)
 	return ch;
 }
 
+/*
+ *  ======== get_dep_lib_info ========
+ */
 static int get_dep_lib_info(struct dcd_manager *hdcd_mgr,
 				   struct dsp_uuid *uuid_obj,
 				   u16 *num_libs,
@@ -1138,8 +1317,8 @@ static int get_dep_lib_info(struct dcd_manager *hdcd_mgr,
 	char *psz_cur;
 	char *psz_file_name = NULL;
 	struct cod_libraryobj *lib = NULL;
-	u32 ul_addr = 0;	
-	u32 ul_len = 0;		
+	u32 ul_addr = 0;	/* Used by cod_get_section */
+	u32 ul_len = 0;		/* Used by cod_get_section */
 	u32 dw_data_size = COD_MAXPATHLENGTH;
 	char seps[] = ", ";
 	char *token = NULL;
@@ -1147,32 +1326,34 @@ static int get_dep_lib_info(struct dcd_manager *hdcd_mgr,
 	u16 dep_libs = 0;
 	int status = 0;
 
+	/*  Initialize to 0 dependent libraries, if only counting number of
+	 *  dependent libraries */
 	if (!get_uuids) {
 		*num_libs = 0;
 		*num_pers_libs = 0;
 	}
 
-	
+	/* Allocate a buffer for file name */
 	psz_file_name = kzalloc(dw_data_size, GFP_KERNEL);
 	if (psz_file_name == NULL) {
 		status = -ENOMEM;
 	} else {
-		
+		/* Get the name of the library */
 		status = dcd_get_library_name(hdcd_mgr, uuid_obj, psz_file_name,
 					      &dw_data_size, phase, NULL);
 	}
 
-	
+	/* Open the library */
 	if (!status) {
 		status = cod_open(dcd_mgr_obj->cod_mgr, psz_file_name,
 				  COD_NOLOAD, &lib);
 	}
 	if (!status) {
-		
+		/* Get dependent library section information. */
 		status = cod_get_section(lib, DEPLIBSECT, &ul_addr, &ul_len);
 
 		if (status) {
-			
+			/* Ok, no dependent libraries */
 			ul_len = 0;
 			status = 0;
 		}
@@ -1181,43 +1362,43 @@ static int get_dep_lib_info(struct dcd_manager *hdcd_mgr,
 	if (status || !(ul_len > 0))
 		goto func_cont;
 
-	
+	/* Allocate zeroed buffer. */
 	psz_coff_buf = kzalloc(ul_len + 4, GFP_KERNEL);
 	if (psz_coff_buf == NULL)
 		status = -ENOMEM;
 
-	
+	/* Read section contents. */
 	status = cod_read_section(lib, DEPLIBSECT, psz_coff_buf, ul_len);
 	if (status)
 		goto func_cont;
 
-	
+	/* Compress and format DSP buffer to conform to PC format. */
 	compress_buf(psz_coff_buf, ul_len, DSPWORDSIZE);
 
-	
+	/* Read from buffer */
 	psz_cur = psz_coff_buf;
 	while ((token = strsep(&psz_cur, seps)) && *token != '\0') {
 		if (get_uuids) {
 			if (dep_libs >= *num_libs) {
-				
+				/* Gone beyond the limit */
 				break;
 			} else {
-				
+				/* Retrieve UUID string. */
 				uuid_uuid_from_string(token,
 						      &(dep_lib_uuids
 							[dep_libs]));
-				
+				/* Is this library persistent? */
 				token = strsep(&psz_cur, seps);
 				prstnt_dep_libs[dep_libs] = atoi(token);
 				dep_libs++;
 			}
 		} else {
-			
+			/* Advanc to next token */
 			token = strsep(&psz_cur, seps);
 			if (atoi(token))
 				(*num_pers_libs)++;
 
-			
+			/* Just counting number of dependent libraries */
 			(*num_libs)++;
 		}
 	}
@@ -1225,7 +1406,7 @@ func_cont:
 	if (lib)
 		cod_close(lib);
 
-	
+	/* Free previously allocated dynamic buffers. */
 	kfree(psz_file_name);
 
 	kfree(psz_coff_buf);

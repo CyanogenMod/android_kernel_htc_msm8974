@@ -43,4 +43,4 @@ extern struct callvectors *debug_vectors;
 #define pmon_semlock(sem)		debug_vectors->semlock(sem)
 #define pmon_semunlock(sem)		debug_vectors->semunlock(sem)
 
-#endif 
+#endif /* _ASM_PMON_H */

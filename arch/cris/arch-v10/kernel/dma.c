@@ -10,6 +10,7 @@
 #include <arch/svinto.h>
 #include <arch/system.h>
 
+/* Macro to access ETRAX 100 registers */
 #define SETS(var, reg, field, val) var = (var & ~IO_MASK_(reg##_, field##_)) | \
 					  IO_STATE_(reg##_, field##_, _##val)
 
@@ -200,7 +201,7 @@ int cris_request_dma(unsigned int dmanr, const char * device_id,
 		volatile int i;
 		genconfig_shadow = gens;
 		*R_GEN_CONFIG = genconfig_shadow;
-		
+		/* Wait 12 cycles before doing any DMA command */
 		for(i = 6; i > 0; i--)
 			nop();
 	}

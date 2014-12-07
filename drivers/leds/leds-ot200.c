@@ -23,6 +23,10 @@ struct ot200_led {
 	u8 mask;
 };
 
+/*
+ * The device has three leds on the back panel (led_err, led_init and led_run)
+ * and can handle up to seven leds on the front panel.
+ */
 
 static struct ot200_led leds[] = {
 	{
@@ -79,6 +83,10 @@ static struct ot200_led leds[] = {
 
 static DEFINE_SPINLOCK(value_lock);
 
+/*
+ * we need to store the current led states, as it is not
+ * possible to read the current led state via inb().
+ */
 static u8 leds_back;
 static u8 leds_front;
 
@@ -122,8 +130,8 @@ static int __devinit ot200_led_probe(struct platform_device *pdev)
 			goto err;
 	}
 
-	leds_front = 0;		
-	leds_back = BIT(1);	
+	leds_front = 0;		/* turn off all front leds */
+	leds_back = BIT(1);	/* turn on init led */
 	outb(leds_front, 0x49);
 	outb(leds_back, 0x5a);
 

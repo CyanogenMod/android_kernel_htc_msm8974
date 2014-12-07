@@ -12,6 +12,6 @@
 
 #define pfn_to_nid(pfn)		pa_to_nid((pfn) << PAGE_SHIFT)
 
-#endif 
+#endif /* CONFIG_DISCONTIGMEM */
 
-#endif 
+#endif /* _ASM_MMZONE_H_ */

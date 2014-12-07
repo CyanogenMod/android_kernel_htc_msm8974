@@ -30,4 +30,4 @@ int rmnet_vnd_is_vnd(struct net_device *dev);
 int rmnet_vnd_init(void);
 void rmnet_vnd_exit(void);
 
-#endif 
+#endif /* _RMNET_DATA_VND_H_ */

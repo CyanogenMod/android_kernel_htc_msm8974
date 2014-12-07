@@ -14,6 +14,9 @@
  *
  ******************************************************************************/
 
+/*
+	SMT Event Queue Management
+*/
 
 #include "h/types.h"
 #include "h/fddi.h"
@@ -25,11 +28,17 @@ static const char ID_sccs[] = "@(#)queue.c	2.9 97/08/04 (C) SK " ;
 
 #define PRINTF(a,b,c)
 
+/*
+ * init event queue management
+ */
 void ev_init(struct s_smc *smc)
 {
 	smc->q.ev_put = smc->q.ev_get = smc->q.ev_queue ;
 }
 
+/*
+ * add event to queue
+ */
 void queue_event(struct s_smc *smc, int class, int event)
 {
 	PRINTF("queue class %d event %d\n",class,event) ;
@@ -43,6 +52,9 @@ void queue_event(struct s_smc *smc, int class, int event)
 	}
 }
 
+/*
+ * timer_event is called from HW timer package.
+ */
 void timer_event(struct s_smc *smc, u_long token)
 {
 	PRINTF("timer event class %d token %d\n",
@@ -51,9 +63,16 @@ void timer_event(struct s_smc *smc, u_long token)
 	queue_event(smc,EV_T_CLASS(token),EV_T_EVENT(token));
 }
 
+/*
+ * event dispatcher
+ *	while event queue is not empty
+ *		get event from queue
+ *		send command to state machine
+ *	end
+ */
 void ev_dispatcher(struct s_smc *smc)
 {
-	struct event_queue *ev ;	
+	struct event_queue *ev ;	/* pointer into queue */
 	int		class ;
 
 	ev = smc->q.ev_get ;
@@ -61,13 +80,13 @@ void ev_dispatcher(struct s_smc *smc)
 	while (ev != smc->q.ev_put) {
 		PRINTF("dispatch class %d event %d\n",ev->class,ev->event) ;
 		switch(class = ev->class) {
-		case EVENT_ECM :		
+		case EVENT_ECM :		/* Entity Corordination  Man. */
 			ecm(smc,(int)ev->event) ;
 			break ;
-		case EVENT_CFM :		
+		case EVENT_CFM :		/* Configuration Man. */
 			cfm(smc,(int)ev->event) ;
 			break ;
-		case EVENT_RMT :		
+		case EVENT_RMT :		/* Ring Man. */
 			rmt(smc,(int)ev->event) ;
 			break ;
 		case EVENT_SMT :
@@ -78,8 +97,8 @@ void ev_dispatcher(struct s_smc *smc)
 			timer_test_event(smc,(int)ev->event) ;
 			break ;
 #endif
-		case EVENT_PCMA :		
-		case EVENT_PCMB :		
+		case EVENT_PCMA :		/* PHY A */
+		case EVENT_PCMB :		/* PHY B */
 		default :
 			if (class >= EVENT_PCMA &&
 			    class < EVENT_PCMA + NUMPHYS) {
@@ -93,11 +112,18 @@ void ev_dispatcher(struct s_smc *smc)
 		if (++ev == &smc->q.ev_queue[MAX_EVENT])
 			ev = smc->q.ev_queue ;
 
-		
+		/* Renew get: it is used in queue_events to detect overruns */
 		smc->q.ev_get = ev;
 	}
 }
 
+/*
+ * smt_online connects to or disconnects from the ring
+ * MUST be called to initiate connection establishment
+ *
+ *	on	0	disconnect
+ *	on	1	connect
+ */
 u_short smt_online(struct s_smc *smc, int on)
 {
 	queue_event(smc,EVENT_ECM,on ? EC_CONNECT : EC_DISCONNECT) ;
@@ -105,6 +131,12 @@ u_short smt_online(struct s_smc *smc, int on)
 	return smc->mib.fddiSMTCF_State;
 }
 
+/*
+ * set SMT flag to value
+ *	flag		flag name
+ *	value		flag value
+ * dump current flag setting
+ */
 #ifdef	CONCENTRATOR
 void do_smt_flag(struct s_smc *smc, char *flag, int value)
 {
@@ -136,6 +168,6 @@ void do_smt_flag(struct s_smc *smc, char *flag, int value)
 	printf("rmt	%d\n",deb->d_rmt) ;
 	printf("cfm	%d\n",deb->d_cfm) ;
 	printf("ecm	%d\n",deb->d_ecm) ;
-#endif	
+#endif	/* DEBUG */
 }
 #endif

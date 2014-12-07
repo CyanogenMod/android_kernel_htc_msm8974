@@ -52,6 +52,10 @@ static int (*fault_handlers[S5P_SYSMMU_TOTAL_IPNUM])(
 		unsigned long pgtable_base,
 		unsigned long fault_addr);
 
+/*
+ * If adjacent 2 bits are true, the system MMU is enabled.
+ * The system MMU is disabled, otherwise.
+ */
 static unsigned long sysmmu_states;
 
 static inline void set_sysmmu_active(sysmmu_ips ips)
@@ -93,9 +97,9 @@ static inline void __sysmmu_set_ptbase(sysmmu_ips ips, unsigned long pgd)
 {
 	if (unlikely(pgd == 0)) {
 		pgd = (unsigned long)ZERO_PAGE(0);
-		__raw_writel(0x20, sysmmusfrs[ips] + S5P_MMU_CFG); 
+		__raw_writel(0x20, sysmmusfrs[ips] + S5P_MMU_CFG); /* 4KB LV1 */
 	} else {
-		__raw_writel(0x0, sysmmusfrs[ips] + S5P_MMU_CFG); 
+		__raw_writel(0x0, sysmmusfrs[ips] + S5P_MMU_CFG); /* 16KB LV1 */
 	}
 
 	__raw_writel(pgd, sysmmusfrs[ips] + S5P_PT_BASE_ADDR);
@@ -116,7 +120,7 @@ void sysmmu_set_fault_handler(sysmmu_ips ips,
 
 static irqreturn_t s5p_sysmmu_irq(int irq, void *dev_id)
 {
-	
+	/* SYSMMU is in blocked when interrupt occurred. */
 	unsigned long base = 0;
 	sysmmu_ips ips = (sysmmu_ips)dev_id;
 	enum S5P_SYSMMU_INTERRUPT_TYPE itype;

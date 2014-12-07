@@ -13,6 +13,19 @@
  */
 
 
+/*
+ * The Mass Storage Gadget acts as a USB Mass Storage device,
+ * appearing to the host as a disk drive or as a CD-ROM drive.  In
+ * addition to providing an example of a genuinely useful gadget
+ * driver for a USB device, it also illustrates a technique of
+ * double-buffering for increased throughput.  Last but not least, it
+ * gives an easy way to probe the behavior of the Mass Storage drivers
+ * in a USB host.
+ *
+ * Since this file serves only administrative purposes and all the
+ * business logic is implemented in f_mass_storage.* file.  Read
+ * comments in this file for more detailed description.
+ */
 
 
 #include <linux/kernel.h>
@@ -20,11 +33,20 @@
 #include <linux/usb/ch9.h>
 
 
+/*-------------------------------------------------------------------------*/
 
 #define DRIVER_DESC		"Mass Storage Gadget"
 #define DRIVER_VERSION		"2009/09/11"
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
 
 #include "composite.c"
 #include "usbstring.c"
@@ -32,6 +54,7 @@
 #include "epautoconf.c"
 #include "f_mass_storage.c"
 
+/*-------------------------------------------------------------------------*/
 
 static struct usb_device_descriptor msg_device_desc = {
 	.bLength =		sizeof msg_device_desc,
@@ -40,7 +63,7 @@ static struct usb_device_descriptor msg_device_desc = {
 	.bcdUSB =		cpu_to_le16(0x0200),
 	.bDeviceClass =		USB_CLASS_PER_INTERFACE,
 
-	
+	/* Vendor and product id can be overridden by module parameters.  */
 	.idVendor =		cpu_to_le16(FSG_VENDOR_ID),
 	.idProduct =		cpu_to_le16(FSG_PRODUCT_ID),
 	.bNumConfigurations =	1,
@@ -50,6 +73,10 @@ static struct usb_otg_descriptor otg_descriptor = {
 	.bLength =		sizeof otg_descriptor,
 	.bDescriptorType =	USB_DT_OTG,
 
+	/*
+	 * REVISIT SRP-only hardware is possible, although
+	 * it would not be called "OTG" ...
+	 */
 	.bmAttributes =		USB_OTG_SRP | USB_OTG_HNP,
 };
 
@@ -59,11 +86,12 @@ static const struct usb_descriptor_header *otg_desc[] = {
 };
 
 
+/****************************** Configurations ******************************/
 
 static struct fsg_module_parameters mod_data = {
 	.stall = 1
 };
-FSG_MODULE_PARAMETERS(, mod_data);
+FSG_MODULE_PARAMETERS(/* no prefix */, mod_data);
 
 static unsigned long msg_registered;
 static void msg_cleanup(void);
@@ -109,6 +137,7 @@ static struct usb_configuration msg_config_driver = {
 };
 
 
+/****************************** Gadget Bind ******************************/
 
 static int __init msg_bind(struct usb_composite_dev *cdev)
 {
@@ -125,6 +154,7 @@ static int __init msg_bind(struct usb_composite_dev *cdev)
 }
 
 
+/****************************** Some noise ******************************/
 
 static struct usb_composite_driver msg_driver = {
 	.name		= "g_mass_storage",

@@ -73,6 +73,9 @@ static void __init espresso_init(void)
 {
 	platform_device_register(&espresso_flash);
 
+	/*
+	 * Mark flash as writeable.
+	 */
 	IXP23XX_EXP_CS0[0] |= IXP23XX_FLASH_WRITABLE;
 	IXP23XX_EXP_CS0[1] |= IXP23XX_FLASH_WRITABLE;
 
@@ -80,7 +83,7 @@ static void __init espresso_init(void)
 }
 
 MACHINE_START(ESPRESSO, "IP Fabrics Double Espresso")
-	
+	/* Maintainer: Lennert Buytenhek */
 	.map_io		= ixp23xx_map_io,
 	.init_irq	= ixp23xx_init_irq,
 	.timer		= &ixp23xx_timer,

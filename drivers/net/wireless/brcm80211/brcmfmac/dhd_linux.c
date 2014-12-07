@@ -52,15 +52,17 @@ MODULE_SUPPORTED_DEVICE("Broadcom 802.11n WLAN fullmac cards");
 MODULE_LICENSE("Dual BSD/GPL");
 
 
+/* Interface control information */
 struct brcmf_if {
-	struct brcmf_pub *drvr;	
-	
+	struct brcmf_pub *drvr;	/* back pointer to brcmf_pub */
+	/* OS/stack specifics */
 	struct net_device *ndev;
 	struct net_device_stats stats;
-	int idx;		
-	u8 mac_addr[ETH_ALEN];	
+	int idx;		/* iface idx in dongle */
+	u8 mac_addr[ETH_ALEN];	/* assigned MAC address */
 };
 
+/* Error bits */
 int brcmf_msg_level = BRCMF_ERROR_VAL;
 module_param(brcmf_msg_level, int, 0);
 
@@ -80,7 +82,7 @@ int brcmf_ifname2idx(struct brcmf_pub *drvr, char *name)
 
 	brcmf_dbg(TRACE, "return idx %d for \"%s\"\n", i, name);
 
-	return i;		
+	return i;		/* default - the primary interface */
 }
 
 char *brcmf_ifname(struct brcmf_pub *drvr, int ifidx)
@@ -120,10 +122,10 @@ static void _brcmf_set_multicast_list(struct work_struct *work)
 	ndev = drvr->iflist[0]->ndev;
 	cnt = netdev_mc_count(ndev);
 
-	
+	/* Determine initial value of allmulti flag */
 	dcmd_value = (ndev->flags & IFF_ALLMULTI) ? true : false;
 
-	
+	/* Send down the multicast list first. */
 
 	buflen = sizeof("mcast_list") + sizeof(cnt) + (cnt * ETH_ALEN);
 	bufp = buf = kmalloc(buflen, GFP_ATOMIC);
@@ -160,6 +162,10 @@ static void _brcmf_set_multicast_list(struct work_struct *work)
 
 	kfree(buf);
 
+	/* Now send the allmulti setting.  This is based on the setting in the
+	 * net_device flags, but might be modified above to be turned on if we
+	 * were trying to set some addresses and dongle rejected it...
+	 */
 
 	buflen = sizeof("allmulti") + sizeof(dcmd_value);
 	buf = kmalloc(buflen, GFP_ATOMIC);
@@ -193,6 +199,8 @@ static void _brcmf_set_multicast_list(struct work_struct *work)
 
 	kfree(buf);
 
+	/* Finally, pick up the PROMISC flag as well, like the NIC
+		 driver does */
 
 	dcmd_value = (ndev->flags & IFF_PROMISC) ? true : false;
 	dcmd_le_value = cpu_to_le32(dcmd_value);
@@ -266,11 +274,11 @@ static void brcmf_netdev_set_multicast_list(struct net_device *ndev)
 
 int brcmf_sendpkt(struct brcmf_pub *drvr, int ifidx, struct sk_buff *pktbuf)
 {
-	
+	/* Reject if down */
 	if (!drvr->bus_if->drvr_up || (drvr->bus_if->state == BRCMF_BUS_DOWN))
 		return -ENODEV;
 
-	
+	/* Update multicast statistic */
 	if (pktbuf->len >= ETH_ALEN) {
 		u8 *pktdata = (u8 *) (pktbuf->data);
 		struct ethhdr *eh = (struct ethhdr *)pktdata;
@@ -281,10 +289,10 @@ int brcmf_sendpkt(struct brcmf_pub *drvr, int ifidx, struct sk_buff *pktbuf)
 			atomic_inc(&drvr->pend_8021x_cnt);
 	}
 
-	
+	/* If the protocol uses a data header, apply it */
 	brcmf_proto_hdrpush(drvr, ifidx, pktbuf);
 
-	
+	/* Use bus module to send data frame */
 	return drvr->bus_if->brcmf_bus_txdata(drvr->dev, pktbuf);
 }
 
@@ -296,7 +304,7 @@ static int brcmf_netdev_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* Reject if down */
 	if (!drvr->bus_if->drvr_up ||
 	    (drvr->bus_if->state == BRCMF_BUS_DOWN)) {
 		brcmf_dbg(ERROR, "xmit rejected drvup=%d state=%d\n",
@@ -312,7 +320,7 @@ static int brcmf_netdev_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		return -ENODEV;
 	}
 
-	
+	/* Make sure there's enough room for any header */
 	if (skb_headroom(skb) < drvr->hdrlen) {
 		struct sk_buff *skb2;
 
@@ -338,7 +346,7 @@ done:
 	else
 		drvr->bus_if->dstats.tx_packets++;
 
-	
+	/* Return ok: we always eat the packet */
 	return 0;
 }
 
@@ -391,6 +399,18 @@ void brcmf_rx_frame(struct device *dev, int ifidx,
 	skb_queue_walk_safe(skb_list, skb, pnext) {
 		skb_unlink(skb, skb_list);
 
+		/* Get the protocol, maintain skb around eth_type_trans()
+		 * The main reason for this hack is for the limitation of
+		 * Linux 2.4 where 'eth_type_trans' uses the
+		 * 'net->hard_header_len'
+		 * to perform skb_pull inside vs ETH_HLEN. Since to avoid
+		 * coping of the packet coming from the network stack to add
+		 * BDC, Hardware header etc, during network interface
+		 * registration
+		 * we set the 'net->hard_header_len' to ETH_HLEN + extra space
+		 * required
+		 * for BDC, Hardware header etc. and not just the ETH_HLEN
+		 */
 		eth = skb->data;
 		len = skb->len;
 
@@ -413,10 +433,10 @@ void brcmf_rx_frame(struct device *dev, int ifidx,
 		skb->data = eth;
 		skb->len = len;
 
-		
+		/* Strip header, count, deliver upward */
 		skb_pull(skb, ETH_HLEN);
 
-		
+		/* Process special event packets and then discard them */
 		if (ntohs(skb->protocol) == ETH_P_LINK_CTL)
 			brcmf_host_event(drvr, &ifidx,
 					  skb_mac_header(skb),
@@ -428,11 +448,17 @@ void brcmf_rx_frame(struct device *dev, int ifidx,
 		}
 
 		bus_if->dstats.rx_bytes += skb->len;
-		bus_if->dstats.rx_packets++;	
+		bus_if->dstats.rx_packets++;	/* Local count */
 
 		if (in_interrupt())
 			netif_rx(skb);
 		else
+			/* If the receive is not processed inside an ISR,
+			 * the softirqd must be woken explicitly to service
+			 * the NET_RX_SOFTIRQ.  In 2.6 kernels, this is handled
+			 * by netif_rx_ni(), but in earlier kernels, we need
+			 * to do it manually.
+			 */
 			netif_rx_ni(skb);
 	}
 }
@@ -462,7 +488,7 @@ static struct net_device_stats *brcmf_netdev_get_stats(struct net_device *ndev)
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* Copy dongle stats to net device stats */
 	ifp->stats.rx_packets = bus_if->dstats.rx_packets;
 	ifp->stats.tx_packets = bus_if->dstats.tx_packets;
 	ifp->stats.rx_bytes = bus_if->dstats.rx_bytes;
@@ -476,6 +502,8 @@ static struct net_device_stats *brcmf_netdev_get_stats(struct net_device *ndev)
 	return &ifp->stats;
 }
 
+/* Retrieve current toe component enables, which are kept
+	 as a bitmap in toe_ol iovar */
 static int brcmf_toe_get(struct brcmf_pub *drvr, int ifidx, u32 *toe_ol)
 {
 	struct brcmf_dcmd dcmd;
@@ -493,7 +521,7 @@ static int brcmf_toe_get(struct brcmf_pub *drvr, int ifidx, u32 *toe_ol)
 	strcpy(buf, "toe_ol");
 	ret = brcmf_proto_dcmd(drvr, ifidx, &dcmd, dcmd.len);
 	if (ret < 0) {
-		
+		/* Check for older dongle image that doesn't support toe_ol */
 		if (ret == -EIO) {
 			brcmf_dbg(ERROR, "%s: toe not supported by device\n",
 				  brcmf_ifname(drvr, ifidx));
@@ -510,6 +538,8 @@ static int brcmf_toe_get(struct brcmf_pub *drvr, int ifidx, u32 *toe_ol)
 	return 0;
 }
 
+/* Set current toe component enables in toe_ol iovar,
+	 and set toe global enable iovar */
 static int brcmf_toe_set(struct brcmf_pub *drvr, int ifidx, u32 toe_ol)
 {
 	struct brcmf_dcmd dcmd;
@@ -524,7 +554,7 @@ static int brcmf_toe_set(struct brcmf_pub *drvr, int ifidx, u32 toe_ol)
 	dcmd.len = (uint) sizeof(buf);
 	dcmd.set = true;
 
-	
+	/* Set toe_ol as requested */
 	strcpy(buf, "toe_ol");
 	memcpy(&buf[sizeof("toe_ol")], &toe_le, sizeof(u32));
 
@@ -535,7 +565,7 @@ static int brcmf_toe_set(struct brcmf_pub *drvr, int ifidx, u32 toe_ol)
 		return ret;
 	}
 
-	
+	/* Enable toe globally only if any components are enabled. */
 	toe_le = cpu_to_le32(toe_ol != 0);
 
 	strcpy(buf, "toe");
@@ -577,35 +607,35 @@ static int brcmf_ethtool(struct brcmf_pub *drvr, void __user *uaddr)
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* all ethtool calls start with a cmd word */
 	if (copy_from_user(&cmd, uaddr, sizeof(u32)))
 		return -EFAULT;
 
 	switch (cmd) {
 	case ETHTOOL_GDRVINFO:
-		
+		/* Copy out any request driver name */
 		if (copy_from_user(&info, uaddr, sizeof(info)))
 			return -EFAULT;
 		strncpy(drvname, info.driver, sizeof(info.driver));
 		drvname[sizeof(info.driver) - 1] = '\0';
 
-		
+		/* clear struct for return */
 		memset(&info, 0, sizeof(info));
 		info.cmd = cmd;
 
-		
+		/* if requested, identify ourselves */
 		if (strcmp(drvname, "?dhd") == 0) {
 			sprintf(info.driver, "dhd");
 			strcpy(info.version, BRCMF_VERSION_STR);
 		}
 
-		
+		/* otherwise, require dongle to be up */
 		else if (!drvr->bus_if->drvr_up) {
 			brcmf_dbg(ERROR, "dongle is not up\n");
 			return -ENODEV;
 		}
 
-		
+		/* finally, report dongle driver type */
 		else if (drvr->iswl)
 			sprintf(info.driver, "wl");
 		else
@@ -618,7 +648,7 @@ static int brcmf_ethtool(struct brcmf_pub *drvr, void __user *uaddr)
 			  (int)sizeof(drvname), drvname, info.driver);
 		break;
 
-		
+		/* Get toe offload components from dongle */
 	case ETHTOOL_GRXCSUM:
 	case ETHTOOL_GTXCSUM:
 		ret = brcmf_toe_get(drvr, 0, &toe_cmpnt);
@@ -635,13 +665,13 @@ static int brcmf_ethtool(struct brcmf_pub *drvr, void __user *uaddr)
 			return -EFAULT;
 		break;
 
-		
+		/* Set toe offload components in dongle */
 	case ETHTOOL_SRXCSUM:
 	case ETHTOOL_STXCSUM:
 		if (copy_from_user(&edata, uaddr, sizeof(edata)))
 			return -EFAULT;
 
-		
+		/* Read the current settings, update and write back */
 		ret = brcmf_toe_get(drvr, 0, &toe_cmpnt);
 		if (ret < 0)
 			return ret;
@@ -658,7 +688,7 @@ static int brcmf_ethtool(struct brcmf_pub *drvr, void __user *uaddr)
 		if (ret < 0)
 			return ret;
 
-		
+		/* If setting TX checksum mode, tell Linux the new mode */
 		if (cmd == ETHTOOL_STXCSUM) {
 			if (edata.data)
 				drvr->iflist[0]->ndev->features |=
@@ -694,6 +724,7 @@ static int brcmf_netdev_ioctl_entry(struct net_device *ndev, struct ifreq *ifr,
 	return -EOPNOTSUPP;
 }
 
+/* called only from within this driver. Sends a command to the dongle. */
 s32 brcmf_exec_dcmd(struct net_device *ndev, u32 cmd, void *arg, u32 len)
 {
 	struct brcmf_dcmd dcmd;
@@ -711,7 +742,7 @@ s32 brcmf_exec_dcmd(struct net_device *ndev, u32 cmd, void *arg, u32 len)
 	if (dcmd.buf != NULL)
 		buflen = min_t(uint, dcmd.len, BRCMF_DCMD_MAXLEN);
 
-	
+	/* send to dongle (must be up, and wl) */
 	if ((drvr->bus_if->state != BRCMF_BUS_DATA)) {
 		brcmf_dbg(ERROR, "DONGLE_DOWN\n");
 		err = -EIO;
@@ -723,6 +754,10 @@ s32 brcmf_exec_dcmd(struct net_device *ndev, u32 cmd, void *arg, u32 len)
 		goto done;
 	}
 
+	/*
+	 * Intercept BRCMF_C_SET_KEY CMD - serialize M4 send and
+	 * set key CMD to prevent M4 encryption.
+	 */
 	is_set_key_cmd = ((dcmd.cmd == BRCMF_C_SET_KEY) ||
 			  ((dcmd.cmd == BRCMF_C_SET_VAR) &&
 			   !(strncmp("wsec_key", dcmd.buf, 9))) ||
@@ -750,7 +785,7 @@ static int brcmf_netdev_stop(struct net_device *ndev)
 	if (drvr->bus_if->drvr_up == 0)
 		return 0;
 
-	
+	/* Set state and stop OS transmissions */
 	drvr->bus_if->drvr_up = false;
 	netif_stop_queue(ndev);
 
@@ -767,8 +802,8 @@ static int brcmf_netdev_open(struct net_device *ndev)
 
 	brcmf_dbg(TRACE, "ifidx %d\n", ifp->idx);
 
-	if (ifp->idx == 0) {	
-		
+	if (ifp->idx == 0) {	/* do it only for primary eth0 */
+		/* If bus is not ready, can't continue */
 		if (bus_if->state != BRCMF_BUS_DATA) {
 			brcmf_dbg(ERROR, "failed bus is not ready\n");
 			return -EAGAIN;
@@ -778,7 +813,7 @@ static int brcmf_netdev_open(struct net_device *ndev)
 
 		memcpy(ndev->dev_addr, drvr->mac, ETH_ALEN);
 
-		
+		/* Get current TOE mode from dongle */
 		if (brcmf_toe_get(drvr, ifp->idx, &toe_ol) >= 0
 		    && (toe_ol & TOE_TX_CSUM_OL) != 0)
 			drvr->iflist[ifp->idx]->ndev->features |=
@@ -787,7 +822,7 @@ static int brcmf_netdev_open(struct net_device *ndev)
 			drvr->iflist[ifp->idx]->ndev->features &=
 				~NETIF_F_IP_CSUM;
 	}
-	
+	/* Allow transmit calls */
 	netif_start_queue(ndev);
 	drvr->bus_if->drvr_up = true;
 	if (brcmf_cfg80211_up(drvr->config)) {
@@ -819,6 +854,10 @@ brcmf_add_if(struct device *dev, int ifidx, char *name, u8 *mac_addr)
 	brcmf_dbg(TRACE, "idx %d\n", ifidx);
 
 	ifp = drvr->iflist[ifidx];
+	/*
+	 * Delete the existing interface before overwriting it
+	 * in case we missed the BRCMF_E_IF_DEL event.
+	 */
 	if (ifp) {
 		brcmf_dbg(ERROR, "ERROR: netdev:%s already exists, try free & unregister\n",
 			  ifp->ndev->name);
@@ -828,7 +867,7 @@ brcmf_add_if(struct device *dev, int ifidx, char *name, u8 *mac_addr)
 		drvr->iflist[ifidx] = NULL;
 	}
 
-	
+	/* Allocate netdev, including space for private structure */
 	ndev = alloc_netdev(sizeof(struct brcmf_if), name, ether_setup);
 	if (!ndev) {
 		brcmf_dbg(ERROR, "OOM - alloc_netdev\n");
@@ -893,20 +932,20 @@ int brcmf_attach(uint bus_hdrlen, struct device *dev)
 
 	brcmf_dbg(TRACE, "Enter\n");
 
-	
+	/* Allocate primary brcmf_info */
 	drvr = kzalloc(sizeof(struct brcmf_pub), GFP_ATOMIC);
 	if (!drvr)
 		return -ENOMEM;
 
 	mutex_init(&drvr->proto_block);
 
-	
+	/* Link to bus module */
 	drvr->hdrlen = bus_hdrlen;
 	drvr->bus_if = dev_get_drvdata(dev);
 	drvr->bus_if->drvr = drvr;
 	drvr->dev = dev;
 
-	
+	/* Attach and link in the protocol */
 	ret = brcmf_proto_attach(drvr);
 	if (ret != 0) {
 		brcmf_dbg(ERROR, "brcmf_prot_attach failed\n");
@@ -927,14 +966,14 @@ fail:
 int brcmf_bus_start(struct device *dev)
 {
 	int ret = -1;
-	
+	/* Room for "event_msgs" + '\0' + bitvec */
 	char iovbuf[BRCMF_EVENTING_MASK_LEN + 12];
 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
 	struct brcmf_pub *drvr = bus_if->drvr;
 
 	brcmf_dbg(TRACE, "\n");
 
-	
+	/* Bring up the bus */
 	ret = bus_if->brcmf_bus_init(dev);
 	if (ret != 0) {
 		brcmf_dbg(ERROR, "brcmf_sdbrcm_bus_init failed %d\n", ret);
@@ -966,17 +1005,18 @@ int brcmf_bus_start(struct device *dev)
 	setbit(drvr->eventmask, BRCMF_E_JOIN_START);
 	setbit(drvr->eventmask, BRCMF_E_SCAN_COMPLETE);
 
+/* enable dongle roaming event */
 
 	drvr->pktfilter_count = 1;
-	
+	/* Setup filter to allow only unicast */
 	drvr->pktfilter[0] = "100 0 0 0 0x01 0x00";
 
-	
+	/* Bus is ready, do any protocol initialization */
 	ret = brcmf_proto_init(drvr);
 	if (ret < 0)
 		return ret;
 
-	
+	/* signal bus ready */
 	bus_if->state = BRCMF_BUS_DATA;
 	return 0;
 }
@@ -992,16 +1032,20 @@ int brcmf_net_attach(struct brcmf_pub *drvr, int ifidx)
 	ndev = drvr->iflist[ifidx]->ndev;
 	ndev->netdev_ops = &brcmf_netdev_ops_pri;
 
+	/*
+	 * We have to use the primary MAC for virtual interfaces
+	 */
 	if (ifidx != 0) {
-		
+		/* for virtual interfaces use the primary MAC  */
 		memcpy(temp_addr, drvr->mac, ETH_ALEN);
 
 	}
 
 	if (ifidx == 1) {
 		brcmf_dbg(TRACE, "ACCESS POINT MAC:\n");
-		
-		temp_addr[0] |= 0X02;	
+		/*  ACCESSPOINT INTERFACE CASE */
+		temp_addr[0] |= 0X02;	/* set bit 2 ,
+			 - Locally Administered address  */
 
 	}
 	ndev->hard_header_len = ETH_HLEN + drvr->hdrlen;
@@ -1012,7 +1056,7 @@ int brcmf_net_attach(struct brcmf_pub *drvr, int ifidx)
 
 	memcpy(ndev->dev_addr, temp_addr, ETH_ALEN);
 
-	
+	/* attach to cfg80211 for primary interface */
 	if (!ifidx) {
 		drvr->config = brcmf_cfg80211_attach(ndev, drvr->dev, drvr);
 		if (drvr->config == NULL) {
@@ -1040,10 +1084,10 @@ static void brcmf_bus_detach(struct brcmf_pub *drvr)
 	brcmf_dbg(TRACE, "Enter\n");
 
 	if (drvr) {
-		
+		/* Stop the protocol module */
 		brcmf_proto_stop(drvr);
 
-		
+		/* Stop the bus module */
 		drvr->bus_if->brcmf_bus_stop(drvr->dev);
 	}
 }
@@ -1057,7 +1101,7 @@ void brcmf_detach(struct device *dev)
 	brcmf_dbg(TRACE, "Enter\n");
 
 
-	
+	/* make sure primary interface removed last */
 	for (i = BRCMF_MAX_IFS-1; i > -1; i--)
 		if (drvr->iflist[i])
 			brcmf_del_if(drvr, i);
@@ -1109,11 +1153,11 @@ int brcmf_write_to_file(struct brcmf_pub *drvr, const u8 *buf, int size)
 	mm_segment_t old_fs;
 	loff_t pos = 0;
 
-	
+	/* change to KERNEL_DS address limit */
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	
+	/* open file to write */
 	fp = filp_open("/tmp/mem_dump", O_WRONLY | O_CREAT, 0640);
 	if (!fp) {
 		brcmf_dbg(ERROR, "open file error\n");
@@ -1121,21 +1165,21 @@ int brcmf_write_to_file(struct brcmf_pub *drvr, const u8 *buf, int size)
 		goto exit;
 	}
 
-	
+	/* Write buf to file */
 	fp->f_op->write(fp, (char __user *)buf, size, &pos);
 
 exit:
-	
+	/* free buf before return */
 	kfree(buf);
-	
+	/* close file before return */
 	if (fp)
 		filp_close(fp, current->files);
-	
+	/* restore previous address limit */
 	set_fs(old_fs);
 
 	return ret;
 }
-#endif				
+#endif				/* DEBUG */
 
 static void brcmf_driver_init(struct work_struct *work)
 {

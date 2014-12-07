@@ -126,7 +126,7 @@ void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 		return;
 	}
 
-	
+	/* VIPT non-aliasing D-cache */
 	if (vma->vm_flags & VM_EXEC) {
 		unsigned long addr = (unsigned long)kaddr;
 		if (icache_is_vipt_aliasing())
@@ -139,6 +139,13 @@ void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 	}
 }
 
+/*
+ * Copy user data from/to a page which is mapped into a different
+ * processes address space.  Really, we want to allow our "user
+ * space" model to handle this.
+ *
+ * Note that this code needs to run on the current CPU.
+ */
 void copy_to_user_page(struct vm_area_struct *vma, struct page *page,
 		       unsigned long uaddr, void *dst, const void *src,
 		       unsigned long len)
@@ -155,6 +162,11 @@ void copy_to_user_page(struct vm_area_struct *vma, struct page *page,
 
 void __flush_dcache_page(struct address_space *mapping, struct page *page)
 {
+	/*
+	 * Writeback any data associated with the kernel mapping of this
+	 * page.  This ensures that data in the physical page is mutually
+	 * coherent with the kernels mapping.
+	 */
 	if (!PageHighMem(page)) {
 		__cpuc_flush_dcache_area(page_address(page), PAGE_SIZE);
 	} else {
@@ -173,6 +185,11 @@ void __flush_dcache_page(struct address_space *mapping, struct page *page)
 		}
 	}
 
+	/*
+	 * If this is a page cache page, and we have an aliasing VIPT cache,
+	 * we only need to do one flush - which would be at the relevant
+	 * userspace colour, which is congruent with page->index.
+	 */
 	if (mapping && cache_is_vipt_aliasing())
 		flush_pfn_alias(page_to_pfn(page),
 				page->index << PAGE_CACHE_SHIFT);
@@ -185,12 +202,21 @@ static void __flush_dcache_aliases(struct address_space *mapping, struct page *p
 	struct prio_tree_iter iter;
 	pgoff_t pgoff;
 
+	/*
+	 * There are possible user space mappings of this page:
+	 * - VIVT cache: we need to also write back and invalidate all user
+	 *   data in the current VM view associated with this page.
+	 * - aliasing VIPT: we only need to find one mapping of this page.
+	 */
 	pgoff = page->index << (PAGE_CACHE_SHIFT - PAGE_SHIFT);
 
 	flush_dcache_mmap_lock(mapping);
 	vma_prio_tree_foreach(mpnt, &iter, &mapping->i_mmap, pgoff, pgoff) {
 		unsigned long offset;
 
+		/*
+		 * If this VMA is not in our MM, we can ignore it.
+		 */
 		if (mpnt->vm_mm != mm)
 			continue;
 		if (!(mpnt->vm_flags & VM_MAYSHARE))
@@ -211,7 +237,7 @@ void __sync_icache_dcache(pte_t pteval)
 	if (!pte_present_user(pteval))
 		return;
 	if (cache_is_vipt_nonaliasing() && !pte_exec(pteval))
-		
+		/* only flush non-aliasing VIPT caches for exec mappings */
 		return;
 	pfn = pte_pfn(pteval);
 	if (!pfn_valid(pfn))
@@ -231,6 +257,25 @@ void __sync_icache_dcache(pte_t pteval)
 }
 #endif
 
+/*
+ * Ensure cache coherency between kernel mapping and userspace mapping
+ * of this page.
+ *
+ * We have three cases to consider:
+ *  - VIPT non-aliasing cache: fully coherent so nothing required.
+ *  - VIVT: fully aliasing, so we need to handle every alias in our
+ *          current VM view.
+ *  - VIPT aliasing: need to handle one alias in our current VM view.
+ *
+ * If we need to handle aliasing:
+ *  If the page only exists in the page cache and there are no user
+ *  space mappings, we can be lazy and remember that we may have dirty
+ *  kernel cache lines for later.  Otherwise, we assume we have
+ *  aliasing mappings.
+ *
+ * Note that we disable the lazy flush for SMP configurations where
+ * the cache maintenance operations are not automatically broadcasted.
+ */
 void flush_dcache_page(struct page *page)
 {
 	struct address_space *mapping;
@@ -271,17 +316,29 @@ void __flush_anon_page(struct vm_area_struct *vma, struct page *page, unsigned l
 {
 	unsigned long pfn;
 
-	
+	/* VIPT non-aliasing caches need do nothing */
 	if (cache_is_vipt_nonaliasing())
 		return;
 
+	/*
+	 * Write back and invalidate userspace mapping.
+	 */
 	pfn = page_to_pfn(page);
 	if (cache_is_vivt()) {
 		flush_cache_page(vma, vmaddr, pfn);
 	} else {
+		/*
+		 * For aliasing VIPT, we can flush an alias of the
+		 * userspace address only.
+		 */
 		flush_pfn_alias(pfn, vmaddr);
 		__flush_icache_all();
 	}
 
+	/*
+	 * Invalidate kernel mapping.  No data should be contained
+	 * in this mapping of the page.  FIXME: this is overkill
+	 * since we actually ask for a write-back and invalidate.
+	 */
 	__cpuc_flush_dcache_area(page_address(page), PAGE_SIZE);
 }

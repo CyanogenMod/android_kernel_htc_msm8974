@@ -39,13 +39,17 @@ struct uda134x_priv {
 	struct snd_pcm_substream *slave_substream;
 };
 
+/* In-data addresses are hard-coded into the reg-cache values */
 static const char uda134x_reg[UDA134X_REGS_NUM] = {
-	
+	/* Extended address registers */
 	0x04, 0x04, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
-	
+	/* Status, data regs */
 	0x00, 0x83, 0x00, 0x40, 0x80, 0xC0, 0x00,
 };
 
+/*
+ * The codec has no support for reading its registers except for peak level...
+ */
 static inline unsigned int uda134x_read_reg_cache(struct snd_soc_codec *codec,
 	unsigned int reg)
 {
@@ -56,6 +60,9 @@ static inline unsigned int uda134x_read_reg_cache(struct snd_soc_codec *codec,
 	return cache[reg];
 }
 
+/*
+ * Write the register cache
+ */
 static inline void uda134x_write_reg_cache(struct snd_soc_codec *codec,
 	u8 reg, unsigned int value)
 {
@@ -66,6 +73,10 @@ static inline void uda134x_write_reg_cache(struct snd_soc_codec *codec,
 	cache[reg] = value;
 }
 
+/*
+ * Write to the uda134x registers
+ *
+ */
 static int uda134x_write(struct snd_soc_codec *codec, unsigned int reg,
 	unsigned int value)
 {
@@ -99,7 +110,7 @@ static int uda134x_write(struct snd_soc_codec *codec, unsigned int reg,
 		addr = UDA134X_DATA1_ADDR;
 		break;
 	default:
-		
+		/* It's an extended address register */
 		addr =  (reg | UDA134X_EXTADDR_PREFIX);
 
 		ret = l3_write(&pd->l3,
@@ -212,7 +223,7 @@ static int uda134x_hw_params(struct snd_pcm_substream *substream,
 	pr_debug("%s sysclk: %d, rate:%d\n", __func__,
 		 uda134x->sysclk, params_rate(params));
 
-	
+	/* set SYSCLK / fs ratio */
 	switch (uda134x->sysclk / params_rate(params)) {
 	case 512:
 		break;
@@ -230,7 +241,7 @@ static int uda134x_hw_params(struct snd_pcm_substream *substream,
 	pr_debug("%s dai_fmt: %d, params_format:%d\n", __func__,
 		 uda134x->dai_fmt, params_format(params));
 
-	
+	/* set DAI format and word length */
 	switch (uda134x->dai_fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		break;
@@ -273,6 +284,10 @@ static int uda134x_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	pr_debug("%s clk_id: %d, freq: %u, dir: %d\n", __func__,
 		 clk_id, freq, dir);
 
+	/* Anything between 256fs*8Khz and 512fs*48Khz should be acceptable
+	   because the codec is slave. Of course limitations of the clock
+	   master (the IIS controller) apply.
+	   We'll error out on set_hw_params if it's not OK */
 	if ((freq >= (256 * 8000)) && (freq <= (512 * 48000))) {
 		uda134x->sysclk = freq;
 		return 0;
@@ -290,20 +305,20 @@ static int uda134x_set_dai_fmt(struct snd_soc_dai *codec_dai,
 
 	pr_debug("%s fmt: %08X\n", __func__, fmt);
 
-	
+	/* codec supports only full slave mode */
 	if ((fmt & SND_SOC_DAIFMT_MASTER_MASK) != SND_SOC_DAIFMT_CBS_CFS) {
 		printk(KERN_ERR "%s unsupported slave mode\n", __func__);
 		return -EINVAL;
 	}
 
-	
+	/* no support for clock inversion */
 	if ((fmt & SND_SOC_DAIFMT_INV_MASK) != SND_SOC_DAIFMT_NB_NF) {
 		printk(KERN_ERR "%s unsupported clock inversion\n", __func__);
 		return -EINVAL;
 	}
 
-	
-	
+	/* We can't setup DAI format here as it depends on the word bit num */
+	/* so let's just store the value for later */
 	uda134x->dai_fmt = fmt;
 
 	return 0;
@@ -321,7 +336,7 @@ static int uda134x_set_bias_level(struct snd_soc_codec *codec,
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		
+		/* ADC, DAC on */
 		switch (pd->model) {
 		case UDA134X_UDA1340:
 		case UDA134X_UDA1344:
@@ -340,16 +355,16 @@ static int uda134x_set_bias_level(struct snd_soc_codec *codec,
 		}
 		break;
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* power on */
 		if (pd->power) {
 			pd->power(1);
-			
+			/* Sync reg_cache with the hardware */
 			for (i = 0; i < ARRAY_SIZE(uda134x_reg); i++)
 				codec->driver->write(codec, i, *cache++);
 		}
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		
+		/* ADC, DAC power off */
 		switch (pd->model) {
 		case UDA134X_UDA1340:
 		case UDA134X_UDA1344:
@@ -368,7 +383,7 @@ static int uda134x_set_bias_level(struct snd_soc_codec *codec,
 		}
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* power off */
 		if (pd->power)
 			pd->power(0);
 		break;
@@ -448,7 +463,7 @@ static const struct snd_soc_dai_ops uda134x_dai_ops = {
 
 static struct snd_soc_dai_driver uda134x_dai = {
 	.name = "uda134x-hifi",
-	
+	/* playback capabilities */
 	.playback = {
 		.stream_name = "Playback",
 		.channels_min = 1,
@@ -456,7 +471,7 @@ static struct snd_soc_dai_driver uda134x_dai = {
 		.rates = UDA134X_RATES,
 		.formats = UDA134X_FORMATS,
 	},
-	
+	/* capture capabilities */
 	.capture = {
 		.stream_name = "Capture",
 		.channels_min = 1,
@@ -464,7 +479,7 @@ static struct snd_soc_dai_driver uda134x_dai = {
 		.rates = UDA134X_RATES,
 		.formats = UDA134X_FORMATS,
 	},
-	
+	/* pcm operations */
 	.ops = &uda134x_dai_ops,
 };
 
@@ -543,6 +558,7 @@ static int uda134x_soc_probe(struct snd_soc_codec *codec)
 	return 0;
 }
 
+/* power down chip */
 static int uda134x_soc_remove(struct snd_soc_codec *codec)
 {
 	struct uda134x_priv *uda134x = snd_soc_codec_get_drvdata(codec);
@@ -571,7 +587,7 @@ static int uda134x_soc_resume(struct snd_soc_codec *codec)
 #else
 #define uda134x_soc_suspend NULL
 #define uda134x_soc_resume NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static struct snd_soc_codec_driver soc_codec_dev_uda134x = {
 	.probe =        uda134x_soc_probe,

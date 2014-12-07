@@ -120,7 +120,7 @@ static int atl1e_set_settings(struct net_device *netdev,
 		return -EINVAL;
 	}
 
-	
+	/* reset the link */
 
 	if (netif_running(adapter->netdev)) {
 		atl1e_down(adapter);
@@ -218,7 +218,7 @@ static int atl1e_get_eeprom(struct net_device *netdev,
 	if (eeprom->len == 0)
 		return -EINVAL;
 
-	if (atl1e_check_eeprom_exist(hw)) 
+	if (atl1e_check_eeprom_exist(hw)) /* not exist */
 		return -EINVAL;
 
 	eeprom->magic = hw->vendor_id | (hw->device_id << 16);
@@ -271,8 +271,8 @@ static int atl1e_set_eeprom(struct net_device *netdev,
 	ptr = (u32 *)eeprom_buff;
 
 	if (eeprom->offset & 3) {
-		
-		
+		/* need read/modify/write of first changed EEPROM word */
+		/* only the second byte of the word is being modified */
 		if (!atl1e_read_eeprom(hw, first_dword * 4, &(eeprom_buff[0]))) {
 			ret_val = -EIO;
 			goto out;
@@ -280,8 +280,8 @@ static int atl1e_set_eeprom(struct net_device *netdev,
 		ptr++;
 	}
 	if (((eeprom->offset + eeprom->len) & 3)) {
-		
-		
+		/* need read/modify/write of last changed EEPROM word */
+		/* only the first byte of the word is being modified */
 
 		if (!atl1e_read_eeprom(hw, last_dword * 4,
 				&(eeprom_buff[last_dword - first_dword]))) {
@@ -290,7 +290,7 @@ static int atl1e_set_eeprom(struct net_device *netdev,
 		}
 	}
 
-	
+	/* Device's eeprom is always little-endian, word addressable */
 	memcpy(ptr, bytes, eeprom->len);
 
 	for (i = 0; i < last_dword - first_dword + 1; i++) {
@@ -349,7 +349,7 @@ static int atl1e_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 	if (wol->wolopts & (WAKE_ARP | WAKE_MAGICSECURE |
 			    WAKE_UCAST | WAKE_MCAST | WAKE_BCAST))
 		return -EOPNOTSUPP;
-	
+	/* these settings will always override what we currently have */
 	adapter->wol = 0;
 
 	if (wol->wolopts & WAKE_MAGIC)

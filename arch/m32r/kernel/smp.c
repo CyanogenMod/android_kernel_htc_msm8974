@@ -32,10 +32,19 @@
 #include <asm/m32r.h>
 #include <asm/tlbflush.h>
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Data structures and variables                                             */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/*
+ * For flush_cache_all()
+ */
 static DEFINE_SPINLOCK(flushcache_lock);
 static volatile unsigned long flushcache_cpumask = 0;
 
+/*
+ * For flush_tlb_others()
+ */
 static volatile cpumask_t flush_cpumask;
 static struct mm_struct *flush_mm;
 static struct vm_area_struct *flush_vma;
@@ -49,6 +58,9 @@ DECLARE_PER_CPU(int, prof_counter);
 
 extern spinlock_t ipi_lock[];
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Function Prototypes                                                       */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
 void smp_reschedule_interrupt(void);
 void smp_flush_cache_all_interrupt(void);
@@ -67,18 +79,73 @@ void smp_local_timer_interrupt(void);
 static void send_IPI_allbutself(int, int);
 static void send_IPI_mask(const struct cpumask *, int, int);
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Rescheduling request Routines                                             */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/*==========================================================================*
+ * Name:         smp_send_reschedule
+ *
+ * Description:  This routine requests other CPU to execute rescheduling.
+ *               1.Send 'RESCHEDULE_IPI' to other CPU.
+ *                 Request other CPU to execute 'smp_reschedule_interrupt()'.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    cpu_id - Target CPU ID
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_send_reschedule(int cpu_id)
 {
 	WARN_ON(cpu_is_offline(cpu_id));
 	send_IPI_mask(cpumask_of(cpu_id), RESCHEDULE_IPI, 1);
 }
 
+/*==========================================================================*
+ * Name:         smp_reschedule_interrupt
+ *
+ * Description:  This routine executes on CPU which received
+ *               'RESCHEDULE_IPI'.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_reschedule_interrupt(void)
 {
 	scheduler_ipi();
 }
 
+/*==========================================================================*
+ * Name:         smp_flush_cache_all
+ *
+ * Description:  This routine sends a 'INVALIDATE_CACHE_IPI' to all other
+ *               CPUs in the system.
+ *
+ * Born on Date: 2003-05-28
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_flush_cache_all(void)
 {
 	cpumask_t cpumask;
@@ -104,7 +171,28 @@ void smp_flush_cache_all_interrupt(void)
 	clear_bit(smp_processor_id(), &flushcache_cpumask);
 }
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* TLB flush request Routines                                                */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/*==========================================================================*
+ * Name:         smp_flush_tlb_all
+ *
+ * Description:  This routine flushes all processes TLBs.
+ *               1.Request other CPU to execute 'flush_tlb_all_ipi()'.
+ *               2.Execute 'do_flush_tlb_all_local()'.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_flush_tlb_all(void)
 {
 	unsigned long flags;
@@ -117,11 +205,44 @@ void smp_flush_tlb_all(void)
 	preempt_enable();
 }
 
+/*==========================================================================*
+ * Name:         flush_tlb_all_ipi
+ *
+ * Description:  This routine flushes all local TLBs.
+ *               1.Execute 'do_flush_tlb_all_local()'.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    *info - not used
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 static void flush_tlb_all_ipi(void *info)
 {
 	__flush_tlb_all();
 }
 
+/*==========================================================================*
+ * Name:         smp_flush_tlb_mm
+ *
+ * Description:  This routine flushes the specified mm context TLB's.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    *mm - a pointer to the mm struct for flush TLB
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_flush_tlb_mm(struct mm_struct *mm)
 {
 	int cpu_id;
@@ -150,12 +271,47 @@ void smp_flush_tlb_mm(struct mm_struct *mm)
 	preempt_enable();
 }
 
+/*==========================================================================*
+ * Name:         smp_flush_tlb_range
+ *
+ * Description:  This routine flushes a range of pages.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    *mm - a pointer to the mm struct for flush TLB
+ *               start - not used
+ *               end - not used
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 	unsigned long end)
 {
 	smp_flush_tlb_mm(vma->vm_mm);
 }
 
+/*==========================================================================*
+ * Name:         smp_flush_tlb_page
+ *
+ * Description:  This routine flushes one page.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    *vma - a pointer to the vma struct include va
+ *               va - virtual address for flush TLB
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_flush_tlb_page(struct vm_area_struct *vma, unsigned long va)
 {
 	struct mm_struct *mm = vma->vm_mm;
@@ -188,6 +344,29 @@ void smp_flush_tlb_page(struct vm_area_struct *vma, unsigned long va)
 	preempt_enable();
 }
 
+/*==========================================================================*
+ * Name:         flush_tlb_others
+ *
+ * Description:  This routine requests other CPU to execute flush TLB.
+ *               1.Setup parameters.
+ *               2.Send 'INVALIDATE_TLB_IPI' to other CPU.
+ *                 Request other CPU to execute 'smp_invalidate_interrupt()'.
+ *               3.Wait for other CPUs operation finished.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    cpumask - bitmap of target CPUs
+ *               *mm -  a pointer to the mm struct for flush TLB
+ *               *vma -  a pointer to the vma struct include va
+ *               va - virtual address for flush TLB
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 static void flush_tlb_others(cpumask_t cpumask, struct mm_struct *mm,
 	struct vm_area_struct *vma, unsigned long va)
 {
@@ -195,20 +374,33 @@ static void flush_tlb_others(cpumask_t cpumask, struct mm_struct *mm,
 #ifdef DEBUG_SMP
 	unsigned long flags;
 	__save_flags(flags);
-	if (!(flags & 0x0040))	
+	if (!(flags & 0x0040))	/* Interrupt Disable NONONO */
 		BUG();
-#endif 
+#endif /* DEBUG_SMP */
 
+	/*
+	 * A couple of (to be removed) sanity checks:
+	 *
+	 * - we do not send IPIs to not-yet booted CPUs.
+	 * - current CPU must not be in mask
+	 * - mask must exist :)
+	 */
 	BUG_ON(cpumask_empty(&cpumask));
 
 	BUG_ON(cpumask_test_cpu(smp_processor_id(), &cpumask));
 	BUG_ON(!mm);
 
-	
+	/* If a CPU which we ran on has gone down, OK. */
 	cpumask_and(&cpumask, &cpumask, cpu_online_mask);
 	if (cpumask_empty(&cpumask))
 		return;
 
+	/*
+	 * i'm not happy about this global shared spinlock in the
+	 * MM hot path, but we'll see how contended it is.
+	 * Temporarily this turns IRQs off, so that lockups are
+	 * detected by the NMI watchdog.
+	 */
 	spin_lock(&tlbstate_lock);
 
 	flush_mm = mm;
@@ -217,10 +409,14 @@ static void flush_tlb_others(cpumask_t cpumask, struct mm_struct *mm,
 	mask=cpumask_bits(&cpumask);
 	atomic_set_mask(*mask, (atomic_t *)&flush_cpumask);
 
+	/*
+	 * We have to send the IPI only to
+	 * CPUs affected.
+	 */
 	send_IPI_mask(&cpumask, INVALIDATE_TLB_IPI, 0);
 
 	while (!cpumask_empty((cpumask_t*)&flush_cpumask)) {
-		
+		/* nothing. lockup detection does not belong here */
 		mb();
 	}
 
@@ -230,6 +426,25 @@ static void flush_tlb_others(cpumask_t cpumask, struct mm_struct *mm,
 	spin_unlock(&tlbstate_lock);
 }
 
+/*==========================================================================*
+ * Name:         smp_invalidate_interrupt
+ *
+ * Description:  This routine executes on CPU which received
+ *               'INVALIDATE_TLB_IPI'.
+ *               1.Flush local TLB.
+ *               2.Report flush TLB process was finished.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_invalidate_interrupt(void)
 {
 	int cpu_id = smp_processor_id();
@@ -256,21 +471,65 @@ void smp_invalidate_interrupt(void)
 	cpumask_clear_cpu(cpu_id, (cpumask_t*)&flush_cpumask);
 }
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Stop CPU request Routines                                                 */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/*==========================================================================*
+ * Name:         smp_send_stop
+ *
+ * Description:  This routine requests stop all CPUs.
+ *               1.Request other CPU to execute 'stop_this_cpu()'.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_send_stop(void)
 {
 	smp_call_function(stop_this_cpu, NULL, 0);
 }
 
+/*==========================================================================*
+ * Name:         stop_this_cpu
+ *
+ * Description:  This routine halt CPU.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 static void stop_this_cpu(void *dummy)
 {
 	int cpu_id = smp_processor_id();
 
+	/*
+	 * Remove this CPU:
+	 */
 	set_cpu_online(cpu_id, false);
 
+	/*
+	 * PSW IE = 1;
+	 * IMASK = 0;
+	 * goto SLEEP
+	 */
 	local_irq_disable();
 	outl(0, M32R_ICU_IMASK_PORTL);
-	inl(M32R_ICU_IMASK_PORTL);	
+	inl(M32R_ICU_IMASK_PORTL);	/* dummy read */
 	local_irq_enable();
 
 	for ( ; ; );
@@ -286,6 +545,23 @@ void arch_send_call_function_single_ipi(int cpu)
 	send_IPI_mask(cpumask_of(cpu), CALL_FUNC_SINGLE_IPI, 0);
 }
 
+/*==========================================================================*
+ * Name:         smp_call_function_interrupt
+ *
+ * Description:  This routine executes on CPU which received
+ *               'CALL_FUNCTION_IPI'.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_call_function_interrupt(void)
 {
 	irq_enter();
@@ -300,12 +576,49 @@ void smp_call_function_single_interrupt(void)
 	irq_exit();
 }
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Timer Routines                                                            */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/*==========================================================================*
+ * Name:         smp_send_timer
+ *
+ * Description:  This routine sends a 'LOCAL_TIMER_IPI' to all other CPUs
+ *               in the system.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_send_timer(void)
 {
 	send_IPI_allbutself(LOCAL_TIMER_IPI, 1);
 }
 
+/*==========================================================================*
+ * Name:         smp_send_timer
+ *
+ * Description:  This routine executes on CPU which received
+ *               'LOCAL_TIMER_IPI'.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    *regs - a pointer to the saved regster info
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 void smp_ipi_timer_interrupt(struct pt_regs *regs)
 {
 	struct pt_regs *old_regs;
@@ -316,15 +629,52 @@ void smp_ipi_timer_interrupt(struct pt_regs *regs)
 	set_irq_regs(old_regs);
 }
 
+/*==========================================================================*
+ * Name:         smp_local_timer_interrupt
+ *
+ * Description:  Local timer interrupt handler. It does both profiling and
+ *               process statistics/rescheduling.
+ *               We do profiling in every local tick, statistics/rescheduling
+ *               happen only every 'profiling multiplier' ticks. The default
+ *               multiplier is 1 and it can be changed by writing the new
+ *               multiplier value into /proc/profile.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    *regs - a pointer to the saved regster info
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Original:     arch/i386/kernel/apic.c
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ * 2003-06-24 hy  use per_cpu structure.
+ *==========================================================================*/
 void smp_local_timer_interrupt(void)
 {
 	int user = user_mode(get_irq_regs());
 	int cpu_id = smp_processor_id();
 
+	/*
+	 * The profiling function is SMP safe. (nothing can mess
+	 * around with "current", and the profiling counters are
+	 * updated with atomic operations). This is especially
+	 * useful with a profiling multiplier != 1
+	 */
 
 	profile_tick(CPU_PROFILING);
 
 	if (--per_cpu(prof_counter, cpu_id) <= 0) {
+		/*
+		 * The multiplier may have changed since the last time we got
+		 * to this point as a result of the user writing to
+		 * /proc/profile. In this case we need to adjust the APIC
+		 * timer accordingly.
+		 *
+		 * Interrupts are already masked off at this point.
+		 */
 		per_cpu(prof_counter, cpu_id)
 			= per_cpu(prof_multiplier, cpu_id);
 		if (per_cpu(prof_counter, cpu_id)
@@ -338,7 +688,29 @@ void smp_local_timer_interrupt(void)
 	}
 }
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Send IPI Routines                                                         */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/*==========================================================================*
+ * Name:         send_IPI_allbutself
+ *
+ * Description:  This routine sends a IPI to all other CPUs in the system.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    ipi_num - Number of IPI
+ *               try -  0 : Send IPI certainly.
+ *                     !0 : The following IPI is not sent when Target CPU
+ *                          has not received the before IPI.
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 static void send_IPI_allbutself(int ipi_num, int try)
 {
 	cpumask_t cpumask;
@@ -349,13 +721,33 @@ static void send_IPI_allbutself(int ipi_num, int try)
 	send_IPI_mask(&cpumask, ipi_num, try);
 }
 
+/*==========================================================================*
+ * Name:         send_IPI_mask
+ *
+ * Description:  This routine sends a IPI to CPUs in the system.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    cpu_mask - Bitmap of target CPUs logical ID
+ *               ipi_num - Number of IPI
+ *               try -  0 : Send IPI certainly.
+ *                     !0 : The following IPI is not sent when Target CPU
+ *                          has not received the before IPI.
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 static void send_IPI_mask(const struct cpumask *cpumask, int ipi_num, int try)
 {
 	cpumask_t physid_mask, tmp;
 	int cpu_id, phys_id;
 	int num_cpus = num_online_cpus();
 
-	if (num_cpus <= 1)	
+	if (num_cpus <= 1)	/* NO MP */
 		return;
 
 	cpumask_and(&tmp, cpumask, cpu_online_mask);
@@ -370,6 +762,26 @@ static void send_IPI_mask(const struct cpumask *cpumask, int ipi_num, int try)
 	send_IPI_mask_phys(&physid_mask, ipi_num, try);
 }
 
+/*==========================================================================*
+ * Name:         send_IPI_mask_phys
+ *
+ * Description:  This routine sends a IPI to other CPUs in the system.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    cpu_mask - Bitmap of target CPUs physical ID
+ *               ipi_num - Number of IPI
+ *               try -  0 : Send IPI certainly.
+ *                     !0 : The following IPI is not sent when Target CPU
+ *                          has not received the before IPI.
+ *
+ * Returns:      IPICRi regster value.
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ *
+ *==========================================================================*/
 unsigned long send_IPI_mask_phys(const cpumask_t *physid_mask, int ipi_num,
 	int try)
 {
@@ -391,6 +803,12 @@ unsigned long send_IPI_mask_phys(const cpumask_t *physid_mask, int ipi_num,
 		+ (ipi_num << 2));
 	my_physid_mask = ~(1 << smp_processor_id());
 
+	/*
+	 * lock ipi_lock[i]
+	 * check IPICRi == 0
+	 * write IPICRi (send IPIi)
+	 * unlock ipi_lock[i]
+	 */
 	spin_lock(ipilock);
 	__asm__ __volatile__ (
 		";; CHECK IPICRi == 0		\n\t"

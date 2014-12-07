@@ -68,6 +68,13 @@ static inline int
 xfs_buf_is_vmapped(
 	struct xfs_buf	*bp)
 {
+	/*
+	 * Return true if the buffer is vmapped.
+	 *
+	 * The XBF_MAPPED flag is set if the buffer should be mapped, but the
+	 * code is clever enough to know it doesn't have to map a single page,
+	 * so the check has to be both for XBF_MAPPED and bp->b_page_count > 1.
+	 */
 	return (bp->b_flags & XBF_MAPPED) && bp->b_page_count > 1;
 }
 
@@ -78,6 +85,12 @@ xfs_buf_vmap_len(
 	return (bp->b_page_count * PAGE_SIZE) - bp->b_offset;
 }
 
+/*
+ * xfs_buf_lru_add - add a buffer to the LRU.
+ *
+ * The LRU takes a new reference to the buffer so that it will only be freed
+ * once the shrinker takes the buffer off the LRU.
+ */
 STATIC void
 xfs_buf_lru_add(
 	struct xfs_buf	*bp)
@@ -93,6 +106,15 @@ xfs_buf_lru_add(
 	spin_unlock(&btp->bt_lru_lock);
 }
 
+/*
+ * xfs_buf_lru_del - remove a buffer from the LRU
+ *
+ * The unlocked check is safe here because it only occurs when there are not
+ * b_lru_ref counts left on the inode under the pag->pag_buf_lock. it is there
+ * to optimise the shrinker removing the buffer from the LRU and calling
+ * xfs_buf_free(). i.e. it removes an unnecessary round trip on the
+ * bt_lru_lock.
+ */
 STATIC void
 xfs_buf_lru_del(
 	struct xfs_buf	*bp)
@@ -110,6 +132,14 @@ xfs_buf_lru_del(
 	spin_unlock(&btp->bt_lru_lock);
 }
 
+/*
+ * When we mark a buffer stale, we remove the buffer from the LRU and clear the
+ * b_lru_ref count so that the buffer is freed immediately when the buffer
+ * reference count falls to zero. If the buffer is already on the LRU, we need
+ * to remove the reference that LRU holds on the buffer.
+ *
+ * This prevents build-up of stale buffers on the LRU.
+ */
 void
 xfs_buf_stale(
 	struct xfs_buf	*bp)
@@ -144,6 +174,9 @@ xfs_buf_alloc(
 	if (unlikely(!bp))
 		return NULL;
 
+	/*
+	 * We don't want certain flags to appear in b_flags.
+	 */
 	flags &= ~(XBF_LOCK|XBF_MAPPED|XBF_DONT_BLOCK|XBF_READ_AHEAD);
 
 	memset(bp, 0, sizeof(xfs_buf_t));
@@ -153,10 +186,15 @@ xfs_buf_alloc(
 	INIT_LIST_HEAD(&bp->b_lru);
 	INIT_LIST_HEAD(&bp->b_list);
 	RB_CLEAR_NODE(&bp->b_rbnode);
-	sema_init(&bp->b_sema, 0); 
+	sema_init(&bp->b_sema, 0); /* held, no waiters */
 	XB_SET_OWNER(bp);
 	bp->b_target = target;
 	bp->b_file_offset = range_base;
+	/*
+	 * Set buffer_length and count_desired to the same value initially.
+	 * I/O routines should use count_desired, which will be the same in
+	 * most cases but may be reset (e.g. XFS recovery).
+	 */
 	bp->b_buffer_length = bp->b_count_desired = range_length;
 	bp->b_flags = flags;
 	bp->b_bn = XFS_BUF_DADDR_NULL;
@@ -169,13 +207,17 @@ xfs_buf_alloc(
 	return bp;
 }
 
+/*
+ *	Allocate a page array capable of holding a specified number
+ *	of pages, and point the page buf at it.
+ */
 STATIC int
 _xfs_buf_get_pages(
 	xfs_buf_t		*bp,
 	int			page_count,
 	xfs_buf_flags_t		flags)
 {
-	
+	/* Make sure that we have a page list */
 	if (bp->b_pages == NULL) {
 		bp->b_offset = xfs_buf_poff(bp->b_file_offset);
 		bp->b_page_count = page_count;
@@ -192,6 +234,9 @@ _xfs_buf_get_pages(
 	return 0;
 }
 
+/*
+ *	Frees b_pages if it was allocated.
+ */
 STATIC void
 _xfs_buf_free_pages(
 	xfs_buf_t	*bp)
@@ -202,6 +247,13 @@ _xfs_buf_free_pages(
 	}
 }
 
+/*
+ *	Releases the specified buffer.
+ *
+ * 	The modification state of any associated pages is left unchanged.
+ * 	The buffer most not be on any hash - use xfs_buf_rele instead for
+ * 	hashed and refcounted buffers
+ */
 void
 xfs_buf_free(
 	xfs_buf_t		*bp)
@@ -228,6 +280,9 @@ xfs_buf_free(
 	kmem_zone_free(xfs_buf_zone, bp);
 }
 
+/*
+ * Allocates all the pages for buffer in question and builds it's page list.
+ */
 STATIC int
 xfs_buf_allocate_memory(
 	xfs_buf_t		*bp,
@@ -240,17 +295,22 @@ xfs_buf_allocate_memory(
 	xfs_off_t		end;
 	int			error;
 
+	/*
+	 * for buffers that are contained within a single page, just allocate
+	 * the memory from the heap - there's no need for the complexity of
+	 * page arrays to keep allocation down to order 0.
+	 */
 	if (bp->b_buffer_length < PAGE_SIZE) {
 		bp->b_addr = kmem_alloc(bp->b_buffer_length, xb_to_km(flags));
 		if (!bp->b_addr) {
-			
+			/* low memory - use alloc_page loop instead */
 			goto use_alloc_page;
 		}
 
 		if (((unsigned long)(bp->b_addr + bp->b_buffer_length - 1) &
 								PAGE_MASK) !=
 		    ((unsigned long)bp->b_addr & PAGE_MASK)) {
-			
+			/* b_addr spans two pages - use alloc_page instead */
 			kmem_free(bp->b_addr);
 			bp->b_addr = NULL;
 			goto use_alloc_page;
@@ -285,6 +345,12 @@ retry:
 				goto out_free_pages;
 			}
 
+			/*
+			 * This could deadlock.
+			 *
+			 * But until all the XFS lowlevel code is revamped to
+			 * handle buffer allocation failures we can't do much.
+			 */
 			if (!(++retries % 100))
 				xfs_err(NULL,
 		"possible memory allocation deadlock in %s (mode:0x%x)",
@@ -310,6 +376,9 @@ out_free_pages:
 	return error;
 }
 
+/*
+ *	Map buffer into kernel address-space if necessary.
+ */
 STATIC int
 _xfs_buf_map_pages(
 	xfs_buf_t		*bp,
@@ -317,7 +386,7 @@ _xfs_buf_map_pages(
 {
 	ASSERT(bp->b_flags & _XBF_PAGES);
 	if (bp->b_page_count == 1) {
-		
+		/* A single page buffer is always mappable */
 		bp->b_addr = page_address(bp->b_pages[0]) + bp->b_offset;
 		bp->b_flags |= XBF_MAPPED;
 	} else if (flags & XBF_MAPPED) {
@@ -340,12 +409,20 @@ _xfs_buf_map_pages(
 	return 0;
 }
 
+/*
+ *	Finding and Reading Buffers
+ */
 
+/*
+ *	Look up, and creates if absent, a lockable buffer for
+ *	a given range of an inode.  The buffer is returned
+ *	locked.	No I/O is implied by this call.
+ */
 xfs_buf_t *
 _xfs_buf_find(
-	xfs_buftarg_t		*btp,	
-	xfs_off_t		ioff,	
-	size_t			isize,	
+	xfs_buftarg_t		*btp,	/* block device target		*/
+	xfs_off_t		ioff,	/* starting offset of range	*/
+	size_t			isize,	/* length of range		*/
 	xfs_buf_flags_t		flags,
 	xfs_buf_t		*new_bp)
 {
@@ -359,15 +436,15 @@ _xfs_buf_find(
 	range_base = (ioff << BBSHIFT);
 	range_length = (isize << BBSHIFT);
 
-	
+	/* Check for IOs smaller than the sector size / not sector aligned */
 	ASSERT(!(range_length < (1 << btp->bt_sshift)));
 	ASSERT(!(range_base & (xfs_off_t)btp->bt_smask));
 
-	
+	/* get tree root */
 	pag = xfs_perag_get(btp->bt_mount,
 				xfs_daddr_to_agno(btp->bt_mount, ioff));
 
-	
+	/* walk tree */
 	spin_lock(&pag->pag_buf_lock);
 	rbp = &pag->pag_buf_tree.rb_node;
 	parent = NULL;
@@ -381,6 +458,14 @@ _xfs_buf_find(
 		else if (range_base > bp->b_file_offset)
 			rbp = &(*rbp)->rb_right;
 		else {
+			/*
+			 * found a block offset match. If the range doesn't
+			 * match, the only way this is allowed is if the buffer
+			 * in the cache is stale and the transaction that made
+			 * it stale has not yet committed. i.e. we are
+			 * reallocating a busy extent. Skip this buffer and
+			 * continue searching to the right for an exact match.
+			 */
 			if (bp->b_buffer_length != range_length) {
 				ASSERT(bp->b_flags & XBF_STALE);
 				rbp = &(*rbp)->rb_right;
@@ -391,11 +476,11 @@ _xfs_buf_find(
 		}
 	}
 
-	
+	/* No match found */
 	if (new_bp) {
 		rb_link_node(&new_bp->b_rbnode, parent, rbp);
 		rb_insert_color(&new_bp->b_rbnode, &pag->pag_buf_tree);
-		
+		/* the buffer keeps the perag reference until it is freed */
 		new_bp->b_pag = pag;
 		spin_unlock(&pag->pag_buf_lock);
 	} else {
@@ -419,6 +504,11 @@ found:
 		XFS_STATS_INC(xb_get_locked_waited);
 	}
 
+	/*
+	 * if the buffer is stale, clear all the external state associated with
+	 * it. We need to keep flags such as how we allocated the buffer memory
+	 * intact here.
+	 */
 	if (bp->b_flags & XBF_STALE) {
 		ASSERT((bp->b_flags & _XBF_DELWRI_Q) == 0);
 		bp->b_flags &= XBF_MAPPED | _XBF_KMEM | _XBF_PAGES;
@@ -429,11 +519,16 @@ found:
 	return bp;
 }
 
+/*
+ * Assembles a buffer covering the specified range. The code is optimised for
+ * cache hits, as metadata intensive workloads will see 3 orders of magnitude
+ * more hits than misses.
+ */
 struct xfs_buf *
 xfs_buf_get(
-	xfs_buftarg_t		*target,
-	xfs_off_t		ioff,	
-	size_t			isize,	
+	xfs_buftarg_t		*target,/* target for buffer		*/
+	xfs_off_t		ioff,	/* starting offset of range	*/
+	size_t			isize,	/* length of range		*/
 	xfs_buf_flags_t		flags)
 {
 	struct xfs_buf		*bp;
@@ -462,6 +557,10 @@ xfs_buf_get(
 	} else
 		kmem_zone_free(xfs_buf_zone, new_bp);
 
+	/*
+	 * Now we have a workable buffer, fill in the block number so
+	 * that we can do IO on it.
+	 */
 	bp->b_bn = ioff;
 	bp->b_count_desired = bp->b_buffer_length;
 
@@ -524,9 +623,13 @@ xfs_buf_read(
 			XFS_STATS_INC(xb_get_read);
 			_xfs_buf_read(bp, flags);
 		} else if (flags & XBF_ASYNC) {
+			/*
+			 * Read ahead call which is already satisfied,
+			 * drop the buffer
+			 */
 			goto no_buffer;
 		} else {
-			
+			/* We do not want read in the flags */
 			bp->b_flags &= ~XBF_READ;
 		}
 	}
@@ -540,6 +643,10 @@ xfs_buf_read(
 	return NULL;
 }
 
+/*
+ *	If we are not low on memory then do the readahead in a deadlock
+ *	safe manner.
+ */
 void
 xfs_buf_readahead(
 	xfs_buftarg_t		*target,
@@ -553,6 +660,10 @@ xfs_buf_readahead(
 		     XBF_TRYLOCK|XBF_ASYNC|XBF_READ_AHEAD|XBF_DONT_BLOCK);
 }
 
+/*
+ * Read an uncached buffer from disk. Allocates and returns a locked
+ * buffer containing the disk contents or nothing.
+ */
 struct xfs_buf *
 xfs_buf_read_uncached(
 	struct xfs_mount	*mp,
@@ -568,7 +679,7 @@ xfs_buf_read_uncached(
 	if (!bp)
 		return NULL;
 
-	
+	/* set up the buffer for a read IO */
 	XFS_BUF_SET_ADDR(bp, daddr);
 	XFS_BUF_READ(bp);
 
@@ -581,6 +692,10 @@ xfs_buf_read_uncached(
 	return bp;
 }
 
+/*
+ * Return a buffer allocated as an empty buffer and associated to external
+ * memory via xfs_buf_associate_memory() back to it's empty state.
+ */
 void
 xfs_buf_set_empty(
 	struct xfs_buf		*bp,
@@ -627,7 +742,7 @@ xfs_buf_associate_memory(
 	buflen = PAGE_ALIGN(len + offset);
 	page_count = buflen >> PAGE_SHIFT;
 
-	
+	/* Free any previous set of page pointers */
 	if (bp->b_pages)
 		_xfs_buf_free_pages(bp);
 
@@ -697,6 +812,11 @@ xfs_buf_get_uncached(
 	return NULL;
 }
 
+/*
+ *	Increment reference count on buffer, to hold the buffer concurrently
+ *	with another thread which may release (free) the buffer asynchronously.
+ *	Must hold the buffer already to call this function.
+ */
 void
 xfs_buf_hold(
 	xfs_buf_t		*bp)
@@ -705,6 +825,10 @@ xfs_buf_hold(
 	atomic_inc(&bp->b_hold);
 }
 
+/*
+ *	Releases a hold on the specified buffer.  If the
+ *	the hold count is 1, calls xfs_buf_free.
+ */
 void
 xfs_buf_rele(
 	xfs_buf_t		*bp)
@@ -741,6 +865,17 @@ xfs_buf_rele(
 }
 
 
+/*
+ *	Lock a buffer object, if it is not already locked.
+ *
+ *	If we come across a stale, pinned, locked buffer, we know that we are
+ *	being asked to lock a buffer that has been reallocated. Because it is
+ *	pinned, we know that the log has not been pushed to disk and hence it
+ *	will still be locked.  Rather than continuing to have trylock attempts
+ *	fail until someone else pushes the log, push it ourselves before
+ *	returning.  This means that the xfsaild will not get stuck trying
+ *	to push on stale inode buffers.
+ */
 int
 xfs_buf_trylock(
 	struct xfs_buf		*bp)
@@ -757,6 +892,15 @@ xfs_buf_trylock(
 	return locked;
 }
 
+/*
+ *	Lock a buffer object.
+ *
+ *	If we come across a stale, pinned, locked buffer, we know that we
+ *	are being asked to lock a buffer that has been reallocated. Because
+ *	it is pinned, we know that the log has not been pushed to disk and
+ *	hence it will still be locked. Rather than sleeping until someone
+ *	else pushes the log, push it ourselves before trying to get the lock.
+ */
 void
 xfs_buf_lock(
 	struct xfs_buf		*bp)
@@ -771,6 +915,13 @@ xfs_buf_lock(
 	trace_xfs_buf_lock_done(bp, _RET_IP_);
 }
 
+/*
+ *	Releases the lock on the buffer object.
+ *	If the buffer is marked delwri but is not queued, do so before we
+ *	unlock the buffer as we need to set flags correctly.  We also need to
+ *	take a reference for the delwri queue because the unlocker is going to
+ *	drop their's and they don't know we just queued it.
+ */
 void
 xfs_buf_unlock(
 	struct xfs_buf		*bp)
@@ -801,6 +952,9 @@ xfs_buf_wait_unpin(
 	set_current_state(TASK_RUNNING);
 }
 
+/*
+ *	Buffer Utility Routines
+ */
 
 STATIC void
 xfs_buf_iodone_work(
@@ -892,8 +1046,14 @@ xfs_bioerror(
 	ASSERT(XFS_BUF_ISREAD(bp) || bp->b_iodone);
 #endif
 
+	/*
+	 * No need to wait until the buffer is unpinned, we aren't flushing it.
+	 */
 	xfs_buf_ioerror(bp, EIO);
 
+	/*
+	 * We're calling xfs_buf_ioend, so delete XBF_DONE flag.
+	 */
 	XFS_BUF_UNREAD(bp);
 	XFS_BUF_UNDONE(bp);
 	xfs_buf_stale(bp);
@@ -903,16 +1063,36 @@ xfs_bioerror(
 	return EIO;
 }
 
+/*
+ * Same as xfs_bioerror, except that we are releasing the buffer
+ * here ourselves, and avoiding the xfs_buf_ioend call.
+ * This is meant for userdata errors; metadata bufs come with
+ * iodone functions attached, so that we can track down errors.
+ */
 STATIC int
 xfs_bioerror_relse(
 	struct xfs_buf	*bp)
 {
 	int64_t		fl = bp->b_flags;
+	/*
+	 * No need to wait until the buffer is unpinned.
+	 * We aren't flushing it.
+	 *
+	 * chunkhold expects B_DONE to be set, whether
+	 * we actually finish the I/O or not. We don't want to
+	 * change that interface.
+	 */
 	XFS_BUF_UNREAD(bp);
 	XFS_BUF_DONE(bp);
 	xfs_buf_stale(bp);
 	bp->b_iodone = NULL;
 	if (!(fl & XBF_ASYNC)) {
+		/*
+		 * Mark b_error and B_ERROR _both_.
+		 * Lot's of chunkcache code assumes that.
+		 * There's no reason to mark error for
+		 * ASYNC buffers.
+		 */
 		xfs_buf_ioerror(bp, EIO);
 		complete(&bp->b_iowait);
 	} else {
@@ -923,6 +1103,12 @@ xfs_bioerror_relse(
 }
 
 
+/*
+ * All xfs metadata buffers except log state machine buffers
+ * get this attached as their b_bdstrat callback function.
+ * This is so that we can catch a buffer
+ * after prematurely unpinning it to forcibly shutdown the filesystem.
+ */
 int
 xfs_bdstrat_cb(
 	struct xfs_buf	*bp)
@@ -944,6 +1130,11 @@ xfs_bdstrat_cb(
 	return 0;
 }
 
+/*
+ * Wrapper around bdstrat so that we can stop data from going to disk in case
+ * we are shutting down the filesystem.  Typically user data goes thru this
+ * path; one of the exceptions is the superblock.
+ */
 void
 xfsbdstrat(
 	struct xfs_mount	*mp,
@@ -1011,7 +1202,7 @@ _xfs_buf_ioapply(
 		rw = READ;
 	}
 
-	
+	/* we only use the buffer cache for meta-data */
 	rw |= REQ_META;
 
 next_chunk:
@@ -1069,6 +1260,10 @@ xfs_buf_iorequest(
 		xfs_buf_wait_unpin(bp);
 	xfs_buf_hold(bp);
 
+	/* Set the count to 1 initially, this will stop an I/O
+	 * completion callout which happens before we have started
+	 * all the I/O from calling xfs_buf_ioend too early.
+	 */
 	atomic_set(&bp->b_io_remaining, 1);
 	_xfs_buf_ioapply(bp);
 	_xfs_buf_ioend(bp, 0);
@@ -1077,6 +1272,11 @@ xfs_buf_iorequest(
 	return 0;
 }
 
+/*
+ *	Waits for I/O to complete on the buffer supplied.
+ *	It returns immediately if no I/O is pending.
+ *	It returns the I/O error code, if any, or 0 if there was no error.
+ */
 int
 xfs_buf_iowait(
 	xfs_buf_t		*bp)
@@ -1104,13 +1304,16 @@ xfs_buf_offset(
 	return (xfs_caddr_t)page_address(page) + (offset & (PAGE_SIZE-1));
 }
 
+/*
+ *	Move data into or out of a buffer.
+ */
 void
 xfs_buf_iomove(
-	xfs_buf_t		*bp,	
-	size_t			boff,	
-	size_t			bsize,	
-	void			*data,	
-	xfs_buf_rw_t		mode)	
+	xfs_buf_t		*bp,	/* buffer to process		*/
+	size_t			boff,	/* starting buffer offset	*/
+	size_t			bsize,	/* length to copy		*/
+	void			*data,	/* data address			*/
+	xfs_buf_rw_t		mode)	/* read/write/zero flag		*/
 {
 	size_t			bend, cpoff, csize;
 	struct page		*page;
@@ -1140,7 +1343,15 @@ xfs_buf_iomove(
 	}
 }
 
+/*
+ *	Handling of buffer targets (buftargs).
+ */
 
+/*
+ * Wait for any bufs with callbacks that have been submitted but have not yet
+ * returned. These buffers will have an elevated hold count, so wait on those
+ * while freeing all the buffers only held by the LRU.
+ */
 void
 xfs_wait_buftarg(
 	struct xfs_buftarg	*btp)
@@ -1156,6 +1367,10 @@ restart:
 			delay(100);
 			goto restart;
 		}
+		/*
+		 * clear the LRU reference count so the buffer doesn't get
+		 * ignored in xfs_buf_rele().
+		 */
 		atomic_set(&bp->b_lru_ref, 0);
 		spin_unlock(&btp->bt_lru_lock);
 		xfs_buf_rele(bp);
@@ -1185,11 +1400,20 @@ xfs_buftarg_shrink(
 
 		bp = list_first_entry(&btp->bt_lru, struct xfs_buf, b_lru);
 
+		/*
+		 * Decrement the b_lru_ref count unless the value is already
+		 * zero. If the value is already zero, we need to reclaim the
+		 * buffer, otherwise it gets another trip through the LRU.
+		 */
 		if (!atomic_add_unless(&bp->b_lru_ref, -1, 0)) {
 			list_move_tail(&bp->b_lru, &btp->bt_lru);
 			continue;
 		}
 
+		/*
+		 * remove the buffer from the LRU now to avoid needing another
+		 * lock round trip inside xfs_buf_rele().
+		 */
 		list_move(&bp->b_lru, &dispose);
 		btp->bt_lru_nr--;
 	}
@@ -1244,6 +1468,11 @@ xfs_setsize_buftarg_flags(
 	return 0;
 }
 
+/*
+ *	When allocating the initial buffer target we have not yet
+ *	read in the superblock, so don't know what sized sectors
+ *	are being used is at this early stage.  Play safe.
+ */
 STATIC int
 xfs_setsize_buftarg_early(
 	xfs_buftarg_t		*btp,
@@ -1311,6 +1540,9 @@ error:
 }
 
 
+/*
+ *	Delayed write buffer handling
+ */
 void
 xfs_buf_delwri_queue(
 	xfs_buf_t		*bp)
@@ -1323,11 +1555,11 @@ xfs_buf_delwri_queue(
 
 	spin_lock(&btp->bt_delwri_lock);
 	if (!list_empty(&bp->b_list)) {
-		
+		/* if already in the queue, move it to the tail */
 		ASSERT(bp->b_flags & _XBF_DELWRI_Q);
 		list_move_tail(&bp->b_list, &btp->bt_delwri_queue);
 	} else {
-		
+		/* start xfsbufd as it is about to have something to do */
 		if (list_empty(&btp->bt_delwri_queue))
 			wake_up_process(bp->b_target->bt_task);
 
@@ -1360,6 +1592,13 @@ xfs_buf_delwri_dequeue(
 	trace_xfs_buf_delwri_dequeue(bp, _RET_IP_);
 }
 
+/*
+ * If a delwri buffer needs to be pushed before it has aged out, then promote
+ * it to the head of the delwri queue so that it will be flushed on the next
+ * xfsbufd run. We do this by resetting the queuetime of the buffer to be older
+ * than the age currently needed to flush the buffer. Hence the next time the
+ * xfsbufd sees it is guaranteed to be considered old enough to flush.
+ */
 void
 xfs_buf_delwri_promote(
 	struct xfs_buf	*bp)
@@ -1370,6 +1609,10 @@ xfs_buf_delwri_promote(
 	ASSERT(bp->b_flags & XBF_DELWRI);
 	ASSERT(bp->b_flags & _XBF_DELWRI_Q);
 
+	/*
+	 * Check the buffer age before locking the delayed write queue as we
+	 * don't need to promote buffers that are already past the flush age.
+	 */
 	if (bp->b_queuetime < jiffies - age)
 		return;
 	bp->b_queuetime = jiffies - age;
@@ -1378,6 +1621,10 @@ xfs_buf_delwri_promote(
 	spin_unlock(&btp->bt_delwri_lock);
 }
 
+/*
+ * Move as many buffers as specified to the supplied list
+ * idicating if we skipped any buffers to prevent deadlocks.
+ */
 STATIC int
 xfs_buf_delwri_split(
 	xfs_buftarg_t	*target,
@@ -1413,6 +1660,11 @@ xfs_buf_delwri_split(
 	return skipped;
 }
 
+/*
+ * Compare function is more complex than it needs to be because
+ * the return value is only 32 bits and we are doing comparisons
+ * on 64 bit values
+ */
 static int
 xfs_buf_cmp(
 	void		*priv,
@@ -1450,7 +1702,7 @@ xfsbufd(
 		if (unlikely(freezing(current)))
 			try_to_freeze();
 
-		
+		/* sleep for a long time if there is nothing to do. */
 		if (list_empty(&target->bt_delwri_queue))
 			tout = MAX_SCHEDULE_TIMEOUT;
 		schedule_timeout_interruptible(tout);
@@ -1471,6 +1723,11 @@ xfsbufd(
 	return 0;
 }
 
+/*
+ *	Go through all incore buffers, and release buffers if they belong to
+ *	the given device. This is used in filesystem error handling to
+ *	preserve the consistency of its metadata.
+ */
 int
 xfs_flush_buftarg(
 	xfs_buftarg_t	*target,
@@ -1487,6 +1744,11 @@ xfs_flush_buftarg(
 	set_bit(XBT_FORCE_FLUSH, &target->bt_flags);
 	pincount = xfs_buf_delwri_split(target, &tmp_list, 0);
 
+	/*
+	 * Dropped the delayed write list lock, now walk the temporary list.
+	 * All I/O is issued async and then if we need to wait for completion
+	 * we do that after issuing all the IO.
+	 */
 	list_sort(NULL, &tmp_list, xfs_buf_cmp);
 
 	blk_start_plug(&plug);
@@ -1503,7 +1765,7 @@ xfs_flush_buftarg(
 	blk_finish_plug(&plug);
 
 	if (wait) {
-		
+		/* Wait for IO to complete. */
 		while (!list_empty(&wait_list)) {
 			bp = list_first_entry(&wait_list, struct xfs_buf, b_list);
 

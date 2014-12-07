@@ -14,6 +14,7 @@
 #ifndef __ASM_ARCH_REGS_EBI_H
 #define __ASM_ARCH_REGS_EBI_H
 
+/* EBI Control Registers */
 
 #define EBI_BA		W90X900_VA_EBI
 #define REG_EBICON	(EBI_BA + 0x00)
@@ -29,4 +30,4 @@
 #define REG_EXT4CON	(EBI_BA + 0x28)
 #define REG_CKSKEW	(EBI_BA + 0x2C)
 
-#endif 
+#endif /*  __ASM_ARCH_REGS_EBI_H */

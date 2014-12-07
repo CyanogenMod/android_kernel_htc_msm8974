@@ -34,4 +34,4 @@ static inline phys_addr_t *MWIFIEX_SKB_PACB(struct sk_buff *skb)
 {
 	return (phys_addr_t *)skb->cb;
 }
-#endif 
+#endif /* !_MWIFIEX_UTIL_H_ */

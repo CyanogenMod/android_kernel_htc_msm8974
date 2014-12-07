@@ -113,12 +113,31 @@ int rx_napi_weight = 32;
 module_param(rx_napi_weight, int, 0444);
 MODULE_PARM_DESC(rx_napi_weight, "The NAPI WEIGHT parameter.");
 
+/*
+ * The offset from mac_addr_base that should be used for the next port
+ * that is configured.  By convention, if any mgmt ports exist on the
+ * chip, they get the first mac addresses, The ports controlled by
+ * this driver are numbered sequencially following any mgmt addresses
+ * that may exist.
+ */
 static unsigned int cvm_oct_mac_addr_offset;
 
+/**
+ * cvm_oct_poll_queue - Workqueue for polling operations.
+ */
 struct workqueue_struct *cvm_oct_poll_queue;
 
+/**
+ * cvm_oct_poll_queue_stopping - flag to indicate polling should stop.
+ *
+ * Set to one right before cvm_oct_poll_queue is destroyed.
+ */
 atomic_t cvm_oct_poll_queue_stopping = ATOMIC_INIT(0);
 
+/**
+ * Array of every ethernet device owned by this driver indexed by
+ * the ipd input port number.
+ */
 struct net_device *cvm_oct_device[TOTAL_NUMBER_OF_PORTS];
 
 u64 cvm_oct_tx_poll_interval;
@@ -128,6 +147,13 @@ static DECLARE_DELAYED_WORK(cvm_oct_rx_refill_work, cvm_oct_rx_refill_worker);
 
 static void cvm_oct_rx_refill_worker(struct work_struct *work)
 {
+	/*
+	 * FPA 0 may have been drained, try to refill it if we need
+	 * more than num_packet_buffers / 2, otherwise normal receive
+	 * processing will refill it.  If it were drained, no packets
+	 * could be received so cvm_oct_napi_poll would never be
+	 * invoked to do the refill.
+	 */
 	cvm_oct_rx_refill_pool(num_packet_buffers / 2);
 
 	if (!atomic_read(&cvm_oct_poll_queue_stopping))
@@ -152,7 +178,7 @@ static void cvm_oct_periodic_worker(struct work_struct *work)
 
 static __init void cvm_oct_configure_common_hw(void)
 {
-	
+	/* Setup the FPA */
 	cvmx_fpa_enable();
 	cvm_oct_mem_fill_fpa(CVMX_FPA_PACKET_POOL, CVMX_FPA_PACKET_POOL_SIZE,
 			     num_packet_buffers);
@@ -168,6 +194,13 @@ static __init void cvm_oct_configure_common_hw(void)
 
 }
 
+/**
+ * cvm_oct_free_work- Free a work queue entry
+ *
+ * @work_queue_entry: Work queue entry to free
+ *
+ * Returns Zero on success, Negative on failure.
+ */
 int cvm_oct_free_work(void *work_queue_entry)
 {
 	cvmx_wqe_t *work = work_queue_entry;
@@ -191,6 +224,12 @@ int cvm_oct_free_work(void *work_queue_entry)
 }
 EXPORT_SYMBOL(cvm_oct_free_work);
 
+/**
+ * cvm_oct_common_get_stats - get the low level ethernet statistics
+ * @dev:    Device to get the statistics from
+ *
+ * Returns Pointer to the statistics
+ */
 static struct net_device_stats *cvm_oct_common_get_stats(struct net_device *dev)
 {
 	cvmx_pip_port_status_t rx_status;
@@ -199,7 +238,7 @@ static struct net_device_stats *cvm_oct_common_get_stats(struct net_device *dev)
 
 	if (priv->port < CVMX_PIP_NUM_INPUT_PORTS) {
 		if (octeon_is_simulation()) {
-			
+			/* The simulator doesn't support statistics */
 			memset(&rx_status, 0, sizeof(rx_status));
 			memset(&tx_status, 0, sizeof(tx_status));
 		} else {
@@ -215,6 +254,10 @@ static struct net_device_stats *cvm_oct_common_get_stats(struct net_device *dev)
 		priv->stats.rx_crc_errors += rx_status.inb_errors;
 		priv->stats.rx_frame_errors += rx_status.fcs_align_err_packets;
 
+		/*
+		 * The drop counter must be incremented atomically
+		 * since the RX tasklet also increments it.
+		 */
 #ifdef CONFIG_64BIT
 		atomic64_add(rx_status.dropped_packets,
 			     (atomic64_t *)&priv->stats.rx_dropped);
@@ -227,6 +270,13 @@ static struct net_device_stats *cvm_oct_common_get_stats(struct net_device *dev)
 	return &priv->stats;
 }
 
+/**
+ * cvm_oct_common_change_mtu - change the link MTU
+ * @dev:     Device to change
+ * @new_mtu: The new MTU
+ *
+ * Returns Zero on success
+ */
 static int cvm_oct_common_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct octeon_ethernet *priv = netdev_priv(dev);
@@ -238,6 +288,10 @@ static int cvm_oct_common_change_mtu(struct net_device *dev, int new_mtu)
 	int vlan_bytes = 0;
 #endif
 
+	/*
+	 * Limit the MTU to make sure the ethernet packets are between
+	 * 64 bytes and 65535 bytes.
+	 */
 	if ((new_mtu + 14 + 4 + vlan_bytes < 64)
 	    || (new_mtu + 14 + 4 + vlan_bytes > 65392)) {
 		pr_err("MTU must be between %d and %d.\n",
@@ -249,15 +303,19 @@ static int cvm_oct_common_change_mtu(struct net_device *dev, int new_mtu)
 	if ((interface < 2)
 	    && (cvmx_helper_interface_get_mode(interface) !=
 		CVMX_HELPER_INTERFACE_MODE_SPI)) {
-		
+		/* Add ethernet header and FCS, and VLAN if configured. */
 		int max_packet = new_mtu + 14 + 4 + vlan_bytes;
 
 		if (OCTEON_IS_MODEL(OCTEON_CN3XXX)
 		    || OCTEON_IS_MODEL(OCTEON_CN58XX)) {
-			
+			/* Signal errors on packets larger than the MTU */
 			cvmx_write_csr(CVMX_GMXX_RXX_FRM_MAX(index, interface),
 				       max_packet);
 		} else {
+			/*
+			 * Set the hardware to truncate packets larger
+			 * than the MTU and smaller the 64 bytes.
+			 */
 			union cvmx_pip_frm_len_chkx frm_len_chk;
 			frm_len_chk.u64 = 0;
 			frm_len_chk.s.minlen = 64;
@@ -265,12 +323,21 @@ static int cvm_oct_common_change_mtu(struct net_device *dev, int new_mtu)
 			cvmx_write_csr(CVMX_PIP_FRM_LEN_CHKX(interface),
 				       frm_len_chk.u64);
 		}
+		/*
+		 * Set the hardware to truncate packets larger than
+		 * the MTU. The jabber register must be set to a
+		 * multiple of 8 bytes, so round up.
+		 */
 		cvmx_write_csr(CVMX_GMXX_RXX_JABBER(index, interface),
 			       (max_packet + 7) & ~7u);
 	}
 	return 0;
 }
 
+/**
+ * cvm_oct_common_set_multicast_list - set the multicast list
+ * @dev:    Device to work on
+ */
 static void cvm_oct_common_set_multicast_list(struct net_device *dev)
 {
 	union cvmx_gmxx_prtx_cfg gmx_cfg;
@@ -283,20 +350,24 @@ static void cvm_oct_common_set_multicast_list(struct net_device *dev)
 		CVMX_HELPER_INTERFACE_MODE_SPI)) {
 		union cvmx_gmxx_rxx_adr_ctl control;
 		control.u64 = 0;
-		control.s.bcst = 1;	
+		control.s.bcst = 1;	/* Allow broadcast MAC addresses */
 
 		if (!netdev_mc_empty(dev) || (dev->flags & IFF_ALLMULTI) ||
 		    (dev->flags & IFF_PROMISC))
-			
+			/* Force accept multicast packets */
 			control.s.mcst = 2;
 		else
-			
+			/* Force reject multicat packets */
 			control.s.mcst = 1;
 
 		if (dev->flags & IFF_PROMISC)
+			/*
+			 * Reject matches if promisc. Since CAM is
+			 * shut off, should accept everything.
+			 */
 			control.s.cam_mode = 0;
 		else
-			
+			/* Filter packets based on the CAM */
 			control.s.cam_mode = 1;
 
 		gmx_cfg.u64 =
@@ -318,6 +389,13 @@ static void cvm_oct_common_set_multicast_list(struct net_device *dev)
 	}
 }
 
+/**
+ * cvm_oct_common_set_mac_address - set the hardware MAC address for a device
+ * @dev:    The device in question.
+ * @addr:   Address structure to change it too.
+
+ * Returns Zero on success
+ */
 static int cvm_oct_common_set_mac_address(struct net_device *dev, void *addr)
 {
 	struct octeon_ethernet *priv = netdev_priv(dev);
@@ -361,6 +439,12 @@ static int cvm_oct_common_set_mac_address(struct net_device *dev, void *addr)
 	return 0;
 }
 
+/**
+ * cvm_oct_common_init - per network device initialization
+ * @dev:    Device to initialize
+ *
+ * Returns Zero on success
+ */
 int cvm_oct_common_init(struct net_device *dev)
 {
 	struct octeon_ethernet *priv = netdev_priv(dev);
@@ -385,6 +469,10 @@ int cvm_oct_common_init(struct net_device *dev)
 			" %pM\n", dev->name, sa.sa_data);
 	cvm_oct_mac_addr_offset++;
 
+	/*
+	 * Force the interface to use the POW send if always_use_pow
+	 * was specified or it is in the pow send list.
+	 */
 	if ((pow_send_group != -1)
 	    && (always_use_pow || strstr(pow_send_list, dev->name)))
 		priv->queue = -1;
@@ -395,7 +483,7 @@ int cvm_oct_common_init(struct net_device *dev)
 			dev->features |= NETIF_F_IP_CSUM;
 	}
 
-	
+	/* We do our own locking, Linux doesn't need to */
 	dev->features |= NETIF_F_LLTX;
 	SET_ETHTOOL_OPS(dev, &cvm_oct_ethtool_ops);
 
@@ -403,6 +491,10 @@ int cvm_oct_common_init(struct net_device *dev)
 	dev->netdev_ops->ndo_set_mac_address(dev, &sa);
 	dev->netdev_ops->ndo_change_mtu(dev, dev->mtu);
 
+	/*
+	 * Zero out stats for port so we won't mistakenly show
+	 * counters from the bootloader.
+	 */
 	memset(dev->netdev_ops->ndo_get_stats(dev), 0,
 	       sizeof(struct net_device_stats));
 
@@ -514,9 +606,9 @@ static int __init cvm_oct_init_module(void)
 	pr_notice("cavium-ethernet %s\n", OCTEON_ETHERNET_VERSION);
 
 	if (OCTEON_IS_MODEL(OCTEON_CN52XX))
-		cvm_oct_mac_addr_offset = 2; 
+		cvm_oct_mac_addr_offset = 2; /* First two are the mgmt ports. */
 	else if (OCTEON_IS_MODEL(OCTEON_CN56XX))
-		cvm_oct_mac_addr_offset = 1; 
+		cvm_oct_mac_addr_offset = 1; /* First one is the mgmt port. */
 	else
 		cvm_oct_mac_addr_offset = 0;
 
@@ -530,7 +622,7 @@ static int __init cvm_oct_init_module(void)
 
 	cvmx_helper_initialize_packet_io_global();
 
-	
+	/* Change the input group for all ports before input is enabled */
 	num_interfaces = cvmx_helper_get_number_of_interfaces();
 	for (interface = 0; interface < num_interfaces; interface++) {
 		int num_ports = cvmx_helper_ports_on_interface(interface);
@@ -552,9 +644,13 @@ static int __init cvm_oct_init_module(void)
 
 	memset(cvm_oct_device, 0, sizeof(cvm_oct_device));
 
+	/*
+	 * Initialize the FAU used for counting packet buffers that
+	 * need to be freed.
+	 */
 	cvmx_fau_atomic_write32(FAU_NUM_PACKET_BUFFERS_TO_FREE, 0);
 
-	
+	/* Initialize the FAU used for counting tx SKBs that need to be freed */
 	cvmx_fau_atomic_write32(FAU_TOTAL_TX_TO_CLEAN, 0);
 
 	if ((pow_send_group != -1)) {
@@ -562,7 +658,7 @@ static int __init cvm_oct_init_module(void)
 		pr_info("\tConfiguring device for POW only access\n");
 		dev = alloc_etherdev(sizeof(struct octeon_ethernet));
 		if (dev) {
-			
+			/* Initialize the device private structure. */
 			struct octeon_ethernet *priv = netdev_priv(dev);
 
 			dev->netdev_ops = &cvm_oct_pow_netdev_ops;
@@ -605,7 +701,7 @@ static int __init cvm_oct_init_module(void)
 				continue;
 			}
 
-			
+			/* Initialize the device private structure. */
 			priv = netdev_priv(dev);
 
 			INIT_DELAYED_WORK(&priv->port_periodic_work,
@@ -622,7 +718,7 @@ static int __init cvm_oct_init_module(void)
 
 			switch (priv->imode) {
 
-			
+			/* These types don't support ports to IPD/PKO */
 			case CVMX_HELPER_INTERFACE_MODE_DISABLED:
 			case CVMX_HELPER_INTERFACE_MODE_PCIE:
 			case CVMX_HELPER_INTERFACE_MODE_PICMG:
@@ -681,6 +777,9 @@ static int __init cvm_oct_init_module(void)
 	cvm_oct_tx_initialize();
 	cvm_oct_rx_initialize();
 
+	/*
+	 * 150 uS: about 10 1500-byte packtes at 1GE.
+	 */
 	cvm_oct_tx_poll_interval = 150 * (octeon_get_clock_rate() / 1000000);
 
 	queue_delayed_work(cvm_oct_poll_queue, &cvm_oct_rx_refill_work, HZ);
@@ -692,12 +791,12 @@ static void __exit cvm_oct_cleanup_module(void)
 {
 	int port;
 
-	
+	/* Disable POW interrupt */
 	cvmx_write_csr(CVMX_POW_WQ_INT_THRX(pow_receive_group), 0);
 
 	cvmx_ipd_disable();
 
-	
+	/* Free the interrupt handler */
 	free_irq(OCTEON_IRQ_WORKQ0 + pow_receive_group, cvm_oct_device);
 
 	atomic_inc_return(&cvm_oct_poll_queue_stopping);
@@ -708,7 +807,7 @@ static void __exit cvm_oct_cleanup_module(void)
 
 	cvmx_pko_disable();
 
-	
+	/* Free the ethernet devices */
 	for (port = 0; port < TOTAL_NUMBER_OF_PORTS; port++) {
 		if (cvm_oct_device[port]) {
 			struct net_device *dev = cvm_oct_device[port];
@@ -728,7 +827,7 @@ static void __exit cvm_oct_cleanup_module(void)
 
 	cvmx_ipd_free_ptr();
 
-	
+	/* Free the HW pools */
 	cvm_oct_mem_empty_fpa(CVMX_FPA_PACKET_POOL, CVMX_FPA_PACKET_POOL_SIZE,
 			      num_packet_buffers);
 	cvm_oct_mem_empty_fpa(CVMX_FPA_WQE_POOL, CVMX_FPA_WQE_POOL_SIZE,

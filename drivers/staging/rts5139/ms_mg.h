@@ -38,4 +38,4 @@ int mg_rsp(struct scsi_cmnd *srb, struct rts51x_chip *chip);
 int mg_get_ICV(struct scsi_cmnd *srb, struct rts51x_chip *chip);
 int mg_set_ICV(struct scsi_cmnd *srb, struct rts51x_chip *chip);
 
-#endif 
+#endif /* __RTS51X_MS_MG_H */

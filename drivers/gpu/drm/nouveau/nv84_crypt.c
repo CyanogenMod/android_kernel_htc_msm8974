@@ -71,6 +71,10 @@ nv84_crypt_context_del(struct nouveau_channel *chan, int engine)
 	inst  = (chan->ramin->vinst >> 12);
 	inst |= 0x80000000;
 
+	/* mark context as invalid if still on the hardware, not
+	 * doing this causes issues the next time PCRYPT is used,
+	 * unsurprisingly :)
+	 */
 	nv_wr32(dev, 0x10200c, 0x00000000);
 	if (nv_rd32(dev, 0x102188) == inst)
 		nv_mask(dev, 0x102188, 0x80000000, 0x00000000);

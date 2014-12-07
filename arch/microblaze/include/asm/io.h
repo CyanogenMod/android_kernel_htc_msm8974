@@ -14,7 +14,7 @@
 #include <asm/byteorder.h>
 #include <asm/page.h>
 #include <linux/types.h>
-#include <linux/mm.h>          
+#include <linux/mm.h>          /* Get struct page {...} */
 #include <asm-generic/iomap.h>
 
 #ifndef CONFIG_PCI
@@ -68,6 +68,11 @@ static inline void __raw_writeq(unsigned long v, volatile void __iomem *addr)
 	*(volatile unsigned long __force *)addr = v;
 }
 
+/*
+ * read (readb, readw, readl, readq) and write (writeb, writew,
+ * writel, writeq) accessors are for PCI and thus little endian.
+ * Linux 2.4 for Microblaze had this wrong.
+ */
 static inline unsigned char readb(const volatile void __iomem *addr)
 {
 	return *(volatile unsigned char __force *)addr;
@@ -93,6 +98,9 @@ static inline void writel(unsigned int v, volatile void __iomem *addr)
 	*(volatile unsigned int __force *)addr = cpu_to_le32(v);
 }
 
+/* ioread and iowrite variants. thease are for now same as __raw_
+ * variants of accessors. we might check for endianess in the feature
+ */
 #define ioread8(addr)		__raw_readb((u8 *)(addr))
 #define ioread16(addr)		__raw_readw((u16 *)(addr))
 #define ioread32(addr)		__raw_readl((u32 *)(addr))
@@ -105,6 +113,12 @@ static inline void writel(unsigned int v, volatile void __iomem *addr)
 #define iowrite16be(v, addr)	__raw_writew((u16)(v), (u16 *)(addr))
 #define iowrite32be(v, addr)	__raw_writel((u32)(v), (u32 *)(addr))
 
+/* These are the definitions for the x86 IO instructions
+ * inb/inw/inl/outb/outw/outl, the "string" versions
+ * insb/insw/insl/outsb/outsw/outsl, and the "pausing" versions
+ * inb_p/inw_p/...
+ * The macros don't do byte-swapping.
+ */
 #define inb(port)		readb((u8 *)((port)))
 #define outb(val, port)		writeb((val), (u8 *)((unsigned long)(port)))
 #define inw(port)		readw((u16 *)((port)))
@@ -133,13 +147,27 @@ static inline void writel(unsigned int v, volatile void __iomem *addr)
 #define bus_to_virt(addr)	(phys_to_virt(addr))
 
 extern void iounmap(void *addr);
+/*extern void *__ioremap(phys_addr_t address, unsigned long size,
+		unsigned long flags);*/
 extern void __iomem *ioremap(phys_addr_t address, unsigned long size);
 #define ioremap_writethrough(addr, size) ioremap((addr), (size))
 #define ioremap_nocache(addr, size)      ioremap((addr), (size))
 #define ioremap_fullcache(addr, size)    ioremap((addr), (size))
 
-#else 
+#else /* CONFIG_MMU */
 
+/**
+ *	virt_to_phys - map virtual addresses to physical
+ *	@address: address to remap
+ *
+ *	The returned physical address is the physical (CPU) mapping for
+ *	the memory address given. It is only valid to use this function on
+ *	addresses directly mapped or allocated via kmalloc.
+ *
+ *	This function does not give bus mappings for DMA transfers. In
+ *	almost all conceivable cases a device driver should not be using
+ *	this function
+ */
 static inline unsigned long __iomem virt_to_phys(volatile void *address)
 {
 	return __pa((unsigned long)address);
@@ -147,6 +175,18 @@ static inline unsigned long __iomem virt_to_phys(volatile void *address)
 
 #define virt_to_bus virt_to_phys
 
+/**
+ *	phys_to_virt - map physical address to virtual
+ *	@address: address to remap
+ *
+ *	The returned virtual address is a current CPU mapping for
+ *	the memory address given. It is only valid to use this function on
+ *	addresses that have a kernel mapping
+ *
+ *	This function does not handle bus mappings for DMA transfers. In
+ *	almost all conceivable cases a device driver should not be using
+ *	this function
+ */
 static inline void *phys_to_virt(unsigned long address)
 {
 	return (void *)__va(address);
@@ -164,12 +204,22 @@ static inline void __iomem *__ioremap(phys_addr_t address, unsigned long size,
 #define iounmap(addr)		((void)0)
 #define ioremap_nocache(physaddr, size)	ioremap(physaddr, size)
 
-#endif 
+#endif /* CONFIG_MMU */
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
+/*
+ * Big Endian
+ */
 #define out_be32(a, v) __raw_writel((v), (void __iomem __force *)(a))
 #define out_be16(a, v) __raw_writew((v), (a))
 
@@ -179,6 +229,9 @@ static inline void __iomem *__ioremap(phys_addr_t address, unsigned long size,
 #define writel_be(v, a)	out_be32((__force unsigned *)a, v)
 #define readl_be(a)	in_be32((__force unsigned *)a)
 
+/*
+ * Little endian
+ */
 
 #define out_le32(a, v) __raw_writel(__cpu_to_le32(v), (a))
 #define out_le16(a, v) __raw_writew(__cpu_to_le16(v), (a))
@@ -186,6 +239,7 @@ static inline void __iomem *__ioremap(phys_addr_t address, unsigned long size,
 #define in_le32(a) __le32_to_cpu(__raw_readl(a))
 #define in_le16(a) __le16_to_cpu(__raw_readw(a))
 
+/* Byte ops */
 #define out_8(a, v) __raw_writeb((v), (a))
 #define in_8(a) __raw_readb(a)
 
@@ -194,4 +248,4 @@ static inline void __iomem *__ioremap(phys_addr_t address, unsigned long size,
 #define ioport_map(port, nr)	((void __iomem *)(port))
 #define ioport_unmap(addr)
 
-#endif 
+#endif /* _ASM_MICROBLAZE_IO_H */

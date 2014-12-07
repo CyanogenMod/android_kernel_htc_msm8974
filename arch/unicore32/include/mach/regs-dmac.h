@@ -1,19 +1,58 @@
+/*
+ * PKUnity Direct Memory Access Controller (DMAC)
+ */
 
+/*
+ * Interrupt Status Reg DMAC_ISR.
+ */
 #define DMAC_ISR		(PKUNITY_DMAC_BASE + 0x0020)
+/*
+ * Interrupt Transfer Complete Status Reg DMAC_ITCSR.
+ */
 #define DMAC_ITCSR		(PKUNITY_DMAC_BASE + 0x0050)
+/*
+ * Interrupt Transfer Complete Clear Reg DMAC_ITCCR.
+ */
 #define DMAC_ITCCR		(PKUNITY_DMAC_BASE + 0x0060)
+/*
+ * Interrupt Error Status Reg DMAC_IESR.
+ */
 #define DMAC_IESR		(PKUNITY_DMAC_BASE + 0x0080)
+/*
+ * Interrupt Error Clear Reg DMAC_IECR.
+ */
 #define DMAC_IECR		(PKUNITY_DMAC_BASE + 0x0090)
+/*
+ * Enable Channels Reg DMAC_ENCH.
+ */
 #define DMAC_ENCH		(PKUNITY_DMAC_BASE + 0x00B0)
 
+/*
+ * DMA control reg. Space [byte]
+ */
 #define DMASp                   0x00000100
 
+/*
+ * Source Addr DMAC_SRCADDR(ch).
+ */
 #define DMAC_SRCADDR(ch)	(PKUNITY_DMAC_BASE + (ch)*DMASp + 0x00)
+/*
+ * Destination Addr DMAC_DESTADDR(ch).
+ */
 #define DMAC_DESTADDR(ch)	(PKUNITY_DMAC_BASE + (ch)*DMASp + 0x04)
+/*
+ * Control Reg DMAC_CONTROL(ch).
+ */
 #define DMAC_CONTROL(ch)	(PKUNITY_DMAC_BASE + (ch)*DMASp + 0x0C)
+/*
+ * Configuration Reg DMAC_CONFIG(ch).
+ */
 #define DMAC_CONFIG(ch)		(PKUNITY_DMAC_BASE + (ch)*DMASp + 0x10)
 
 #define DMAC_IR_MASK            FMASK(6, 0)
+/*
+ * select channel (ch)
+ */
 #define DMAC_CHANNEL(ch)	FIELD(1, 1, (ch))
 
 #define DMAC_CONTROL_SIZE_BYTE(v)       (FIELD((v), 12, 14) | \

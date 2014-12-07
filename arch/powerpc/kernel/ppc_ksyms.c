@@ -93,7 +93,7 @@ EXPORT_SYMBOL(copy_page);
 EXPORT_SYMBOL(isa_io_base);
 EXPORT_SYMBOL(isa_mem_base);
 EXPORT_SYMBOL(pci_dram_offset);
-#endif 
+#endif /* CONFIG_PCI */
 
 EXPORT_SYMBOL(start_thread);
 EXPORT_SYMBOL(kernel_thread);
@@ -101,14 +101,14 @@ EXPORT_SYMBOL(kernel_thread);
 EXPORT_SYMBOL(giveup_fpu);
 #ifdef CONFIG_ALTIVEC
 EXPORT_SYMBOL(giveup_altivec);
-#endif 
+#endif /* CONFIG_ALTIVEC */
 #ifdef CONFIG_VSX
 EXPORT_SYMBOL(giveup_vsx);
 EXPORT_SYMBOL_GPL(__giveup_vsx);
-#endif 
+#endif /* CONFIG_VSX */
 #ifdef CONFIG_SPE
 EXPORT_SYMBOL(giveup_spe);
-#endif 
+#endif /* CONFIG_SPE */
 
 #ifndef CONFIG_PPC64
 EXPORT_SYMBOL(flush_instruction_cache);
@@ -128,11 +128,11 @@ EXPORT_SYMBOL(adb_register);
 EXPORT_SYMBOL(adb_unregister);
 EXPORT_SYMBOL(adb_poll);
 EXPORT_SYMBOL(adb_try_handler_change);
-#endif 
+#endif /* CONFIG_ADB */
 #ifdef CONFIG_ADB_CUDA
 EXPORT_SYMBOL(cuda_request);
 EXPORT_SYMBOL(cuda_poll);
-#endif 
+#endif /* CONFIG_ADB_CUDA */
 EXPORT_SYMBOL(to_tm);
 
 #ifdef CONFIG_PPC32
@@ -169,15 +169,15 @@ EXPORT_SYMBOL(switch_mmu_context);
 
 #ifdef CONFIG_PPC_STD_MMU_32
 extern long mol_trampoline;
-EXPORT_SYMBOL(mol_trampoline); 
-EXPORT_SYMBOL(flush_hash_pages); 
+EXPORT_SYMBOL(mol_trampoline); /* For MOL */
+EXPORT_SYMBOL(flush_hash_pages); /* For MOL */
 #ifdef CONFIG_SMP
 extern int mmu_hash_lock;
-EXPORT_SYMBOL(mmu_hash_lock); 
-#endif 
+EXPORT_SYMBOL(mmu_hash_lock); /* For MOL */
+#endif /* CONFIG_SMP */
 extern long *intercept_table;
 EXPORT_SYMBOL(intercept_table);
-#endif 
+#endif /* CONFIG_PPC_STD_MMU_32 */
 #ifdef CONFIG_PPC_DCR_NATIVE
 EXPORT_SYMBOL(__mtdcr);
 EXPORT_SYMBOL(__mfdcr);

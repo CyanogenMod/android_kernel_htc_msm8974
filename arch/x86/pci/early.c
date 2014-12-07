@@ -4,6 +4,8 @@
 #include <asm/io.h>
 #include <asm/pci_x86.h>
 
+/* Direct PCI access. This is used for PCI accesses in early boot before
+   the PCI subsystem works. */
 
 u32 read_pci_config(u8 bus, u8 slot, u8 func, u8 offset)
 {

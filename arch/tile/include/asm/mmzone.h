@@ -24,6 +24,15 @@ extern void get_memcfg_numa(void);
 
 #include <asm/page.h>
 
+/*
+ * Generally, memory ranges are always doled out by the hypervisor in
+ * fixed-size, power-of-two increments.  That would make computing the node
+ * very easy.  We could just take a couple high bits of the PA, which
+ * denote the memory shim, and we'd be done.  However, when we're doing
+ * memory striping, this may not be true; PAs with different high bit
+ * values might be in the same node.  Thus, we keep a lookup table to
+ * translate the high bits of the PFN to the node number.
+ */
 extern int highbits_to_node[];
 
 static inline int pfn_to_nid(unsigned long pfn)
@@ -42,6 +51,7 @@ static inline int pfn_valid(int pfn)
 	return 0;
 }
 
+/* Information on the NUMA nodes that we compute early */
 extern unsigned long node_start_pfn[];
 extern unsigned long node_end_pfn[];
 extern unsigned long node_memmap_pfn[];
@@ -55,6 +65,6 @@ extern unsigned long pci_reserve_start_pfn;
 extern unsigned long pci_reserve_end_pfn;
 #endif
 
-#endif 
+#endif /* CONFIG_DISCONTIGMEM */
 
-#endif 
+#endif /* _ASM_TILE_MMZONE_H */

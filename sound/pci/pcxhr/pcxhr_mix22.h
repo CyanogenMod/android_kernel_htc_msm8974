@@ -35,15 +35,15 @@ int hr222_get_external_clock(struct pcxhr_mgr *mgr,
 int hr222_read_gpio(struct pcxhr_mgr *mgr, int is_gpi, int *value);
 int hr222_write_gpo(struct pcxhr_mgr *mgr, int value);
 
-#define HR222_LINE_PLAYBACK_LEVEL_MIN		0	
-#define HR222_LINE_PLAYBACK_ZERO_LEVEL		51	
-#define HR222_LINE_PLAYBACK_LEVEL_MAX		99	
+#define HR222_LINE_PLAYBACK_LEVEL_MIN		0	/* -25.5 dB */
+#define HR222_LINE_PLAYBACK_ZERO_LEVEL		51	/* 0.0 dB */
+#define HR222_LINE_PLAYBACK_LEVEL_MAX		99	/* +24.0 dB */
 
-#define HR222_LINE_CAPTURE_LEVEL_MIN		0	
-#define HR222_LINE_CAPTURE_ZERO_LEVEL		223	
-#define HR222_LINE_CAPTURE_LEVEL_MAX		255	
-#define HR222_MICRO_CAPTURE_LEVEL_MIN		0	
-#define HR222_MICRO_CAPTURE_LEVEL_MAX		210	
+#define HR222_LINE_CAPTURE_LEVEL_MIN		0	/* -111.5 dB */
+#define HR222_LINE_CAPTURE_ZERO_LEVEL		223	/* 0.0 dB */
+#define HR222_LINE_CAPTURE_LEVEL_MAX		255	/* +16 dB */
+#define HR222_MICRO_CAPTURE_LEVEL_MIN		0	/* -98.5 dB */
+#define HR222_MICRO_CAPTURE_LEVEL_MAX		210	/* +6.5 dB */
 
 int hr222_update_analog_audio_level(struct snd_pcxhr *chip,
 				    int is_capture,
@@ -56,4 +56,4 @@ int hr222_iec958_update_byte(struct snd_pcxhr *chip, int aes_idx,
 
 int hr222_add_mic_controls(struct snd_pcxhr *chip);
 
-#endif 
+#endif /* __SOUND_PCXHR_MIX22_H */

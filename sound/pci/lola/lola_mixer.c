@@ -40,18 +40,20 @@ static int __devinit lola_init_pin(struct lola *chip, struct lola_pin *pin,
 		printk(KERN_ERR SFX "Can't read wcaps for 0x%x\n", nid);
 		return err;
 	}
-	val &= 0x00f00fff; 
-	if (val == 0x00400200)    
+	val &= 0x00f00fff; /* test TYPE and bits 0..11 */
+	if (val == 0x00400200)    /* Type = 4, Digital = 1 */
 		pin->is_analog = false;
-	else if (val == 0x0040000a && dir == CAPT) 
+	else if (val == 0x0040000a && dir == CAPT) /* Dig=0, InAmp/ovrd */
 		pin->is_analog = true;
-	else if (val == 0x0040000c && dir == PLAY) 
+	else if (val == 0x0040000c && dir == PLAY) /* Dig=0, OutAmp/ovrd */
 		pin->is_analog = true;
 	else {
 		printk(KERN_ERR SFX "Invalid wcaps 0x%x for 0x%x\n", val, nid);
 		return -EINVAL;
 	}
 
+	/* analog parameters only following, so continue in case of Digital pin
+	 */
 	if (!pin->is_analog)
 		return 0;
 
@@ -68,7 +70,7 @@ static int __devinit lola_init_pin(struct lola *chip, struct lola_pin *pin,
 	pin->amp_step_size = LOLA_AMP_STEP_SIZE(val);
 	pin->amp_num_steps = LOLA_AMP_NUM_STEPS(val);
 	if (pin->amp_num_steps) {
-		
+		/* zero as mute state */
 		pin->amp_num_steps++;
 		pin->amp_step_size++;
 	}
@@ -80,7 +82,7 @@ static int __devinit lola_init_pin(struct lola *chip, struct lola_pin *pin,
 		printk(KERN_ERR SFX "Can't get MAX_LEVEL 0x%x\n", nid);
 		return err;
 	}
-	pin->max_level = val & 0x3ff;   
+	pin->max_level = val & 0x3ff;   /* 10 bits */
 
 	pin->config_default_reg = 0;
 	pin->fixed_gain_list_len = 0;
@@ -121,7 +123,7 @@ int __devinit lola_init_mixer_widget(struct lola *chip, int nid)
 		return err;
 	}
 
-	if ((val & 0xfff00000) != 0x02f00000) { 
+	if ((val & 0xfff00000) != 0x02f00000) { /* test SubType and Type */
 		snd_printdd("No valid mixer widget\n");
 		return 0;
 	}
@@ -131,22 +133,73 @@ int __devinit lola_init_mixer_widget(struct lola *chip, int nid)
 	chip->mixer.array = (struct lola_mixer_array __iomem *)
 		(chip->bar[BAR1].remap_addr + LOLA_BAR1_SOURCE_GAIN_ENABLE);
 
-	
+	/* reserve memory to copy mixer data for sleep mode transitions */
 	chip->mixer.array_saved = vmalloc(sizeof(struct lola_mixer_array));
 
-	
+	/* mixer matrix sources are physical input data and play streams */
 	chip->mixer.src_stream_outs = chip->pcm[PLAY].num_streams;
 	chip->mixer.src_phys_ins = chip->pin[CAPT].num_pins;
 
-	
+	/* mixer matrix destinations are record streams and physical output */
 	chip->mixer.dest_stream_ins = chip->pcm[CAPT].num_streams;
 	chip->mixer.dest_phys_outs = chip->pin[PLAY].num_pins;
 
+	/* mixer matrix may have unused areas between PhysIn and
+	 * Play or Record and PhysOut zones
+	 */
 	chip->mixer.src_stream_out_ofs = chip->mixer.src_phys_ins +
 		LOLA_MIXER_SRC_INPUT_PLAY_SEPARATION(val);
 	chip->mixer.dest_phys_out_ofs = chip->mixer.dest_stream_ins +
 		LOLA_MIXER_DEST_REC_OUTPUT_SEPARATION(val);
 
+	/* example : MixerMatrix of LoLa881 (LoLa16161 uses unused zones)
+	 * +-+  0-------8------16-------8------16
+	 * | |  |       |       |       |       |
+	 * |s|  | INPUT |       | INPUT |       |
+	 * | |->|  ->   |unused |  ->   |unused |
+	 * |r|  |CAPTURE|       | OUTPUT|       |
+	 * | |  |  MIX  |       |  MIX  |       |
+	 * |c|  8--------------------------------
+	 * | |  |       |       |       |       |
+	 * | |  |       |       |       |       |
+	 * |g|  |unused |unused |unused |unused |
+	 * | |  |       |       |       |       |
+	 * |a|  |       |       |       |       |
+	 * | |  16-------------------------------
+	 * |i|  |       |       |       |       |
+	 * | |  | PLAYBK|       | PLAYBK|       |
+	 * |n|->|  ->   |unused |  ->   |unused |
+	 * | |  |CAPTURE|       | OUTPUT|       |
+	 * | |  |  MIX  |       |  MIX  |       |
+	 * |a|  8--------------------------------
+	 * |r|  |       |       |       |       |
+	 * |r|  |       |       |       |       |
+	 * |a|  |unused |unused |unused |unused |
+	 * |y|  |       |       |       |       |
+	 * | |  |       |       |       |       |
+	 * +++  16--|---------------|------------
+	 *      +---V---------------V-----------+
+	 *      |  dest_mix_gain_enable array   |
+	 *      +-------------------------------+
+	 */
+	/* example : MixerMatrix of LoLa280
+	 * +-+  0-------8-2
+	 * | |  |       | |
+	 * |s|  | INPUT | |     INPUT
+	 * |r|->|  ->   | |      ->
+	 * |c|  |CAPTURE| | <-  OUTPUT
+	 * | |  |  MIX  | |      MIX
+	 * |g|  8----------
+	 * |a|  |       | |
+	 * |i|  | PLAYBK| |     PLAYBACK
+	 * |n|->|  ->   | |      ->
+	 * | |  |CAPTURE| | <-  OUTPUT
+	 * |a|  |  MIX  | |      MIX
+	 * |r|  8---|----|-
+	 * |r|  +---V----V-------------------+
+	 * |a|  | dest_mix_gain_enable array |
+	 * |y|  +----------------------------+
+	 */
 	if (chip->mixer.src_stream_out_ofs > MAX_AUDIO_INOUT_COUNT ||
 	    chip->mixer.dest_phys_out_ofs > MAX_STREAM_IN_COUNT) {
 		printk(KERN_ERR SFX "Invalid mixer widget size\n");
@@ -178,7 +231,7 @@ static int lola_mixer_set_src_gain(struct lola *chip, unsigned int id,
 		val |= (1 << id);
 	else
 		val &= ~(1 << id);
-	
+	/* test if values unchanged */
 	if ((val == oldval) &&
 	    (gain == readw(&chip->mixer.array->src_gain[id])))
 		return 0;
@@ -188,12 +241,12 @@ static int lola_mixer_set_src_gain(struct lola *chip, unsigned int id,
 	writew(gain, &chip->mixer.array->src_gain[id]);
 	writel(val, &chip->mixer.array->src_gain_enable);
 	lola_codec_flush(chip);
-	
+	/* inform micro-controller about the new source gain */
 	return lola_codec_write(chip, chip->mixer.nid,
 				LOLA_VERB_SET_SOURCE_GAIN, id, 0);
 }
 
-#if 0 
+#if 0 /* not used */
 static int lola_mixer_set_src_gains(struct lola *chip, unsigned int mask,
 				    unsigned short *gains)
 {
@@ -210,11 +263,11 @@ static int lola_mixer_set_src_gains(struct lola *chip, unsigned int mask,
 	writel(mask, &chip->mixer.array->src_gain_enable);
 	lola_codec_flush(chip);
 	if (chip->mixer.caps & LOLA_PEAK_METER_CAN_AGC_MASK) {
-		
+		/* update for all srcs at once */
 		return lola_codec_write(chip, chip->mixer.nid,
 					LOLA_VERB_SET_SOURCE_GAIN, 0x80, 0);
 	}
-	
+	/* update manually */
 	for (i = 0; i < LOLA_MIXER_DIM; i++) {
 		if (mask & (1 << i)) {
 			lola_codec_write(chip, chip->mixer.nid,
@@ -223,7 +276,7 @@ static int lola_mixer_set_src_gains(struct lola *chip, unsigned int mask,
 	}
 	return 0;
 }
-#endif 
+#endif /* not used */
 
 static int lola_mixer_set_mapping_gain(struct lola *chip,
 				       unsigned int src, unsigned int dest,
@@ -247,7 +300,7 @@ static int lola_mixer_set_mapping_gain(struct lola *chip,
 				src, dest);
 }
 
-#if 0 
+#if 0 /* not used */
 static int lola_mixer_set_dest_gains(struct lola *chip, unsigned int id,
 				     unsigned int mask, unsigned short *gains)
 {
@@ -264,12 +317,14 @@ static int lola_mixer_set_dest_gains(struct lola *chip, unsigned int id,
 	}
 	writel(mask, &chip->mixer.array->dest_mix_gain_enable[id]);
 	lola_codec_flush(chip);
-	
+	/* update for all dests at once */
 	return lola_codec_write(chip, chip->mixer.nid,
 				LOLA_VERB_SET_DESTINATION_GAIN, id, 0);
 }
-#endif 
+#endif /* not used */
 
+/*
+ */
 
 static int set_analog_volume(struct lola *chip, int dir,
 			     unsigned int idx, unsigned int val,
@@ -285,7 +340,7 @@ int lola_setup_all_analog_gains(struct lola *chip, int dir, bool mute)
 	for (idx = 0; idx < max_idx; idx++) {
 		if (pin[idx].is_analog) {
 			unsigned int val = mute ? 0 : pin[idx].cur_gain_step;
-			
+			/* set volume and do not save the value */
 			set_analog_volume(chip, dir, idx, val, false);
 		}
 	}
@@ -294,24 +349,27 @@ int lola_setup_all_analog_gains(struct lola *chip, int dir, bool mute)
 
 void lola_save_mixer(struct lola *chip)
 {
-	
+	/* mute analog output */
 	if (chip->mixer.array_saved) {
-		
+		/* store contents of mixer array */
 		memcpy_fromio(chip->mixer.array_saved, chip->mixer.array,
 			      sizeof(*chip->mixer.array));
 	}
-	lola_setup_all_analog_gains(chip, PLAY, true); 
+	lola_setup_all_analog_gains(chip, PLAY, true); /* output mute */
 }
 
 void lola_restore_mixer(struct lola *chip)
 {
 	int i;
 
-	
+	/*lola_reset_setups(chip);*/
 	if (chip->mixer.array_saved) {
-		
+		/* restore contents of mixer array */
 		memcpy_toio(chip->mixer.array, chip->mixer.array_saved,
 			    sizeof(*chip->mixer.array));
+		/* inform micro-controller about all restored values
+		 * and ignore return values
+		 */
 		for (i = 0; i < chip->mixer.src_phys_ins; i++)
 			lola_codec_write(chip, chip->mixer.nid,
 					 LOLA_VERB_SET_SOURCE_GAIN,
@@ -332,6 +390,8 @@ void lola_restore_mixer(struct lola *chip)
 	}
 }
 
+/*
+ */
 
 static int set_analog_volume(struct lola *chip, int dir,
 			     unsigned int idx, unsigned int val,
@@ -366,21 +426,21 @@ int lola_set_src_config(struct lola *chip, unsigned int src_mask, bool update)
 	int success = 0;
 	int n, err;
 
-	
+	/* SRC can be activated and the dwInputSRCMask is valid? */
 	if ((chip->input_src_caps_mask & src_mask) != src_mask)
 		return -EINVAL;
-	
+	/* handle all even Inputs - SRC is a stereo setting !!! */
 	for (n = 0; n < chip->pin[CAPT].num_pins; n += 2) {
-		unsigned int mask = 3U << n; 
+		unsigned int mask = 3U << n; /* handle the stereo case */
 		unsigned int new_src, src_state;
 		if (!(chip->input_src_caps_mask & mask))
 			continue;
-		
+		/* if one IO needs SRC, both stereo IO will get SRC */
 		new_src = (src_mask & mask) != 0;
 		if (update) {
 			src_state = (chip->input_src_mask & mask) != 0;
 			if (src_state == new_src)
-				continue;   
+				continue;   /* nothing to change for this IO */
 		}
 		err = lola_codec_write(chip, chip->pcm[CAPT].streams[n].nid,
 				       LOLA_VERB_SET_SRC, new_src, 0);
@@ -396,40 +456,46 @@ int lola_set_src_config(struct lola *chip, unsigned int src_mask, bool update)
 	return ret;
 }
 
+/*
+ */
 static int init_mixer_values(struct lola *chip)
 {
 	int i;
 
-	
+	/* all sample rate converters on */
 	lola_set_src_config(chip, (1 << chip->pin[CAPT].num_pins) - 1, false);
 
-	
+	/* clear all mixer matrix settings */
 	memset_io(chip->mixer.array, 0, sizeof(*chip->mixer.array));
-	
+	/* inform firmware about all updated matrix columns - capture part */
 	for (i = 0; i < chip->mixer.dest_stream_ins; i++)
 		lola_codec_write(chip, chip->mixer.nid,
 				 LOLA_VERB_SET_DESTINATION_GAIN,
 				 i, 0);
-	
+	/* inform firmware about all updated matrix columns - output part */
 	for (i = 0; i < chip->mixer.dest_phys_outs; i++)
 		lola_codec_write(chip, chip->mixer.nid,
 				 LOLA_VERB_SET_DESTINATION_GAIN,
 				 chip->mixer.dest_phys_out_ofs + i, 0);
 
-	
+	/* set all digital input source (master) gains to 0dB */
 	for (i = 0; i < chip->mixer.src_phys_ins; i++)
-		lola_mixer_set_src_gain(chip, i, 336, true); 
+		lola_mixer_set_src_gain(chip, i, 336, true); /* 0dB */
 
-	
+	/* set all digital playback source (master) gains to 0dB */
 	for (i = 0; i < chip->mixer.src_stream_outs; i++)
 		lola_mixer_set_src_gain(chip,
 					i + chip->mixer.src_stream_out_ofs,
-					336, true); 
-	
+					336, true); /* 0dB */
+	/* set gain value 0dB diagonally in matrix - part INPUT -> CAPTURE */
 	for (i = 0; i < chip->mixer.dest_stream_ins; i++) {
 		int src = i % chip->mixer.src_phys_ins;
 		lola_mixer_set_mapping_gain(chip, src, i, 336, true);
 	}
+	/* set gain value 0dB diagonally in matrix , part PLAYBACK -> OUTPUT
+	 * (LoLa280 : playback channel 0,2,4,6 linked to output channel 0)
+	 * (LoLa280 : playback channel 1,3,5,7 linked to output channel 1)
+	 */
 	for (i = 0; i < chip->mixer.src_stream_outs; i++) {
 		int src = chip->mixer.src_stream_out_ofs + i;
 		int dst = chip->mixer.dest_phys_out_ofs +
@@ -439,6 +505,9 @@ static int init_mixer_values(struct lola *chip)
 	return 0;
 }
 
+/*
+ * analog mixer control element
+ */
 static int lola_analog_vol_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
@@ -525,7 +594,7 @@ static int __devinit create_analog_mixer(struct lola *chip, int dir, char *name)
 {
 	if (!chip->pin[dir].num_pins)
 		return 0;
-	
+	/* no analog volumes on digital only adapters */
 	if (chip->pin[dir].num_pins != chip->pin[dir].num_analog_pins)
 		return 0;
 	lola_analog_mixer.name = name;
@@ -534,6 +603,9 @@ static int __devinit create_analog_mixer(struct lola *chip, int dir, char *name)
 			   snd_ctl_new1(&lola_analog_mixer, chip));
 }
 
+/*
+ * Hardware sample rate converter on digital input
+ */
 static int lola_input_src_info(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_info *uinfo)
 {
@@ -580,6 +652,10 @@ static struct snd_kcontrol_new lola_input_src_mixer __devinitdata = {
 	.put = lola_input_src_put,
 };
 
+/*
+ * Lola16161 or Lola881 can have Hardware sample rate converters
+ * on its digital input pins
+ */
 static int __devinit create_input_src_mixer(struct lola *chip)
 {
 	if (!chip->input_src_caps_mask)
@@ -589,6 +665,9 @@ static int __devinit create_input_src_mixer(struct lola *chip)
 			   snd_ctl_new1(&lola_input_src_mixer, chip));
 }
 
+/*
+ * src gain mixer
+ */
 static int lola_src_gain_info(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_info *uinfo)
 {
@@ -644,6 +723,7 @@ static int lola_src_gain_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* raw value: 0 = -84dB, 336 = 0dB, 408=18dB, incremented 1 for mute */
 static const DECLARE_TLV_DB_SCALE(lola_src_gain_tlv, -8425, 25, 1);
 
 static struct snd_kcontrol_new lola_src_gain_mixer __devinitdata = {
@@ -665,7 +745,10 @@ static int __devinit create_src_gain_mixer(struct lola *chip,
 			   snd_ctl_new1(&lola_src_gain_mixer, chip));
 }
 
-#if 0 
+#if 0 /* not used */
+/*
+ * destination gain (matrix-like) mixer
+ */
 static int lola_dest_gain_info(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_info *uinfo)
 {
@@ -751,8 +834,10 @@ static int __devinit create_dest_gain_mixer(struct lola *chip,
 	return snd_ctl_add(chip->card,
 			  snd_ctl_new1(&lola_dest_gain_mixer, chip));
 }
-#endif 
+#endif /* not used */
 
+/*
+ */
 int __devinit lola_create_mixer(struct lola *chip)
 {
 	int err;
@@ -776,6 +861,7 @@ int __devinit lola_create_mixer(struct lola *chip)
 	if (err < 0)
 		return err;
 #if 0
+/* FIXME: buggy mixer matrix handling */
 	err = create_dest_gain_mixer(chip,
 				     chip->mixer.src_phys_ins, 0,
 				     chip->mixer.dest_stream_ins, 0,
@@ -804,6 +890,6 @@ int __devinit lola_create_mixer(struct lola *chip)
 				     "Stream Playback Volume");
 	if (err < 0)
 		return err;
-#endif 
+#endif /* FIXME */
 	return init_mixer_values(chip);
 }

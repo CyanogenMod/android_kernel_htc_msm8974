@@ -31,7 +31,7 @@
 #include <asm/page.h>
 #include <asm/pgtable.h>
 #include <asm/vaddrs.h>
-#include <asm/pgalloc.h>	
+#include <asm/pgalloc.h>	/* bug in asm-generic/tlb.h: check_pgt_cache */
 #include <asm/tlb.h>
 #include <asm/prom.h>
 #include <asm/leon.h>
@@ -53,6 +53,7 @@ unsigned long sparc_unmapped_base;
 
 struct pgtable_cache_struct pgt_quicklists;
 
+/* Initial ramdisk setup */
 extern unsigned int sparc_ramdisk_image;
 extern unsigned int sparc_ramdisk_size;
 
@@ -66,7 +67,7 @@ pgprot_t kmap_prot;
 
 void __init kmap_init(void)
 {
-	
+	/* cache the first kmap pte */
 	kmap_pte = kmap_get_fixmap_pte(__fix_to_virt(FIX_KMAP_BEGIN));
 	kmap_prot = __pgprot(SRMMU_ET_PTE | SRMMU_PRIV | SRMMU_CACHE);
 }
@@ -79,7 +80,7 @@ void show_mem(unsigned int filter)
 	       get_nr_swap_pages() << (PAGE_SHIFT-10));
 	printk("%ld pages of RAM\n", totalram_pages);
 	printk("%ld free pages\n", nr_free_pages());
-#if 0 
+#if 0 /* undefined pgtable_cache_size, pgd_cache_size */
 	printk("%ld pages in page table cache\n",pgtable_cache_size);
 #ifndef CONFIG_SMP
 	if (sparc_cpu_model == sun4m || sparc_cpu_model == sun4d)
@@ -184,9 +185,12 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 		}
 	}
 
+	/* Start with page aligned address of last symbol in kernel
+	 * image.  
+	 */
 	start_pfn  = (unsigned long)__pa(PAGE_ALIGN((unsigned long) &_end));
 
-	
+	/* Now shift down to get the real physical page frame number. */
 	start_pfn >>= PAGE_SHIFT;
 
 	bootmap_pfn = start_pfn;
@@ -204,7 +208,7 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 	}
 
 #ifdef CONFIG_BLK_DEV_INITRD
-	
+	/* Now have to check initial ramdisk, so that bootmap does not overwrite it */
 	if (sparc_ramdisk_image) {
 		if (sparc_ramdisk_image >= (unsigned long)&_end - 2 * PAGE_SIZE)
 			sparc_ramdisk_image -= KERNBASE;
@@ -223,10 +227,13 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 		}
 	}
 #endif	
-	
+	/* Initialize the boot-time allocator. */
 	bootmap_size = init_bootmem_node(NODE_DATA(0), bootmap_pfn, pfn_base,
 					 max_low_pfn);
 
+	/* Now register the available physical memory with the
+	 * allocator.
+	 */
 	*pages_avail = 0;
 	for (i = 0; sp_banks[i].num_bytes != 0; i++) {
 		unsigned long curr_pfn, last_pfn;
@@ -239,6 +246,10 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 		if (last_pfn > max_low_pfn)
 			last_pfn = max_low_pfn;
 
+		/*
+		 * .. finally, did all the rounding and playing
+		 * around just make the area go away?
+		 */
 		if (last_pfn <= curr_pfn)
 			continue;
 
@@ -250,7 +261,7 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (initrd_start) {
-		
+		/* Reserve the initrd image area. */
 		size = initrd_end - initrd_start;
 		reserve_bootmem(initrd_start, size, BOOTMEM_DEFAULT);
 		*pages_avail -= PAGE_ALIGN(size) >> PAGE_SHIFT;
@@ -259,11 +270,15 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 		initrd_end = (initrd_end - phys_base) + PAGE_OFFSET;		
 	}
 #endif
-	
+	/* Reserve the kernel text/data/bss. */
 	size = (start_pfn << PAGE_SHIFT) - phys_base;
 	reserve_bootmem(phys_base, size, BOOTMEM_DEFAULT);
 	*pages_avail -= PAGE_ALIGN(size) >> PAGE_SHIFT;
 
+	/* Reserve the bootmem map.   We do not account for it
+	 * in pages_avail because we will release that memory
+	 * in free_all_bootmem.
+	 */
 	size = bootmap_size;
 	reserve_bootmem((bootmap_pfn << PAGE_SHIFT), size, BOOTMEM_DEFAULT);
 	*pages_avail -= PAGE_ALIGN(size) >> PAGE_SHIFT;
@@ -271,6 +286,16 @@ unsigned long __init bootmem_init(unsigned long *pages_avail)
 	return max_pfn;
 }
 
+/*
+ * check_pgt_cache
+ *
+ * This is called at the end of unmapping of VMA (zap_page_range),
+ * to rescan the page cache for architecture specific things,
+ * presumably something like sun4/sun4c PMEGs. Most architectures
+ * define check_pgt_cache empty.
+ *
+ * We simply copy the 2.4 implementation for now.
+ */
 static int pgt_cache_water[2] = { 25, 50 };
 
 void check_pgt_cache(void)
@@ -278,6 +303,11 @@ void check_pgt_cache(void)
 	do_check_pgt_cache(pgt_cache_water[0], pgt_cache_water[1]);
 }
 
+/*
+ * paging_init() sets up the page tables: We call the MMU specific
+ * init routine based upon the Sun model type on the Sparc.
+ *
+ */
 extern void sun4c_paging_init(void);
 extern void srmmu_paging_init(void);
 extern void device_scan(void);
@@ -297,7 +327,7 @@ void __init paging_init(void)
 		break;
 	case sparc_leon:
 		leon_init();
-		
+		/* fall through */
 	case sun4m:
 	case sun4d:
 		srmmu_paging_init();
@@ -311,7 +341,7 @@ void __init paging_init(void)
 		prom_halt();
 	}
 
-	
+	/* Initialize the protection map with non-constant, MMU dependent values. */
 	protection_map[0] = PAGE_NONE;
 	protection_map[1] = PAGE_READONLY;
 	protection_map[2] = PAGE_COPY;
@@ -388,7 +418,7 @@ void __init mem_init(void)
 	}
 
 
-	
+	/* Saves us work later. */
 	memset((void *)&empty_zero_page, 0, PAGE_SIZE);
 
 	i = last_valid_pfn >> ((20 - PAGE_SHIFT) + 5);
@@ -433,7 +463,7 @@ void __init mem_init(void)
 	initpages = (((unsigned long) &__init_end) - ((unsigned long) &__init_begin));
 	initpages = PAGE_ALIGN(initpages) >> PAGE_SHIFT;
 
-	
+	/* Ignore memory holes for the purpose of counting reserved pages */
 	for (i=0; i < max_low_pfn; i++)
 		if (test_bit(i >> (20 - PAGE_SHIFT), sparc_valid_addr_bitmap)
 		    && PageReserved(pfn_to_page(i)))

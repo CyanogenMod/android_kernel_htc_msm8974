@@ -26,30 +26,30 @@ struct file;
 struct soc_camera_link;
 
 struct soc_camera_device {
-	struct list_head list;		
+	struct list_head list;		/* list of all registered devices */
 	struct soc_camera_link *link;
-	struct device *pdev;		
-	struct device *parent;		
-	struct device *control;		
+	struct device *pdev;		/* Platform device */
+	struct device *parent;		/* Camera host device */
+	struct device *control;		/* E.g., the i2c client */
 	s32 user_width;
 	s32 user_height;
-	u32 bytesperline;		
+	u32 bytesperline;		/* for padding, zero if unused */
 	u32 sizeimage;
 	enum v4l2_colorspace colorspace;
-	unsigned char iface;		
-	unsigned char devnum;		
-	struct soc_camera_sense *sense;	
+	unsigned char iface;		/* Host number */
+	unsigned char devnum;		/* Device number per host */
+	struct soc_camera_sense *sense;	/* See comment in struct definition */
 	struct video_device *vdev;
 	struct v4l2_ctrl_handler ctrl_handler;
 	const struct soc_camera_format_xlate *current_fmt;
 	struct soc_camera_format_xlate *user_formats;
 	int num_user_formats;
-	enum v4l2_field field;		
-	void *host_priv;		
-	
+	enum v4l2_field field;		/* Preserve field over close() */
+	void *host_priv;		/* Per-device host private data */
+	/* soc_camera.c private count. Only accessed with .video_lock held */
 	int use_count;
-	struct mutex video_lock;	
-	struct file *streamer;		
+	struct mutex video_lock;	/* Protects device data */
+	struct file *streamer;		/* stream owner */
 	union {
 		struct videobuf_queue vb_vidq;
 		struct vb2_queue vb2_vidq;
@@ -59,8 +59,8 @@ struct soc_camera_device {
 struct soc_camera_host {
 	struct v4l2_device v4l2_dev;
 	struct list_head list;
-	struct mutex host_lock;		
-	unsigned char nr;		
+	struct mutex host_lock;		/* Protect during probing */
+	unsigned char nr;		/* Host number */
 	void *priv;
 	const char *drv_name;
 	struct soc_camera_host_ops *ops;
@@ -70,12 +70,22 @@ struct soc_camera_host_ops {
 	struct module *owner;
 	int (*add)(struct soc_camera_device *);
 	void (*remove)(struct soc_camera_device *);
+	/*
+	 * .get_formats() is called for each client device format, but
+	 * .put_formats() is only called once. Further, if any of the calls to
+	 * .get_formats() fail, .put_formats() will not be called at all, the
+	 * failing .get_formats() must then clean up internally.
+	 */
 	int (*get_formats)(struct soc_camera_device *, unsigned int,
 			   struct soc_camera_format_xlate *);
 	void (*put_formats)(struct soc_camera_device *);
 	int (*cropcap)(struct soc_camera_device *, struct v4l2_cropcap *);
 	int (*get_crop)(struct soc_camera_device *, struct v4l2_crop *);
 	int (*set_crop)(struct soc_camera_device *, struct v4l2_crop *);
+	/*
+	 * The difference to .set_crop() is, that .set_livecrop is not allowed
+	 * to change the output sizes
+	 */
 	int (*set_livecrop)(struct soc_camera_device *, struct v4l2_crop *);
 	int (*set_fmt)(struct soc_camera_device *, struct v4l2_format *);
 	int (*try_fmt)(struct soc_camera_device *, struct v4l2_format *);
@@ -102,24 +112,33 @@ struct i2c_board_info;
 struct regulator_bulk_data;
 
 struct soc_camera_link {
-	
+	/* Camera bus id, used to match a camera and a bus */
 	int bus_id;
-	
+	/* Per camera SOCAM_SENSOR_* bus flags */
 	unsigned long flags;
 	int i2c_adapter_id;
 	struct i2c_board_info *board_info;
 	const char *module_name;
 	void *priv;
 
-	
+	/* Optional regulators that have to be managed on power on/off events */
 	struct regulator_bulk_data *regulators;
 	int num_regulators;
 
+	/*
+	 * For non-I2C devices platform has to provide methods to add a device
+	 * to the system and to remove it
+	 */
 	int (*add_device)(struct soc_camera_device *);
 	void (*del_device)(struct soc_camera_device *);
-	
+	/* Optional callbacks to power on or off and reset the sensor */
 	int (*power)(struct device *, int);
 	int (*reset)(struct device *);
+	/*
+	 * some platforms may support different data widths than the sensors
+	 * native ones due to different data line routing. Let the board code
+	 * overwrite the width flags.
+	 */
 	int (*set_bus_param)(struct soc_camera_link *, unsigned long flags);
 	unsigned long (*query_bus_param)(struct soc_camera_link *);
 	void (*free_bus)(struct soc_camera_link *);
@@ -158,6 +177,16 @@ void soc_camera_host_unregister(struct soc_camera_host *ici);
 const struct soc_camera_format_xlate *soc_camera_xlate_by_fourcc(
 	struct soc_camera_device *icd, unsigned int fourcc);
 
+/**
+ * struct soc_camera_format_xlate - match between host and sensor formats
+ * @code: code of a sensor provided format
+ * @host_fmt: host format after host translation from code
+ *
+ * Host and sensor translation structure. Used in table of host and sensor
+ * formats matchings in soc_camera_device. A host can override the generic list
+ * generation by implementing get_formats(), and use it for format checks and
+ * format setup.
+ */
 struct soc_camera_format_xlate {
 	enum v4l2_mbus_pixelcode code;
 	const struct soc_mbus_pixelfmt *host_fmt;
@@ -165,6 +194,23 @@ struct soc_camera_format_xlate {
 
 #define SOCAM_SENSE_PCLK_CHANGED	(1 << 0)
 
+/**
+ * This struct can be attached to struct soc_camera_device by the host driver
+ * to request sense from the camera, for example, when calling .set_fmt(). The
+ * host then can check which flags are set and verify respective values if any.
+ * For example, if SOCAM_SENSE_PCLK_CHANGED is set, it means, pixclock has
+ * changed during this operation. After completion the host should detach sense.
+ *
+ * @flags		ored SOCAM_SENSE_* flags
+ * @master_clock	if the host wants to be informed about pixel-clock
+ *			change, it better set master_clock.
+ * @pixel_clock_max	maximum pixel clock frequency supported by the host,
+ *			camera is not allowed to exceed this.
+ * @pixel_clock		if the camera driver changed pixel clock during this
+ *			operation, it sets SOCAM_SENSE_PCLK_CHANGED, uses
+ *			master_clock to calculate the new pixel-clock and
+ *			sets this field.
+ */
 struct soc_camera_sense {
 	unsigned long flags;
 	unsigned long master_clock;
@@ -204,6 +250,7 @@ unsigned long soc_camera_apply_sensor_flags(struct soc_camera_link *icl,
 unsigned long soc_camera_apply_board_flags(struct soc_camera_link *icl,
 					   const struct v4l2_mbus_config *cfg);
 
+/* This is only temporary here - until v4l2-subdev begins to link to video_device */
 #include <linux/i2c.h>
 static inline struct video_device *soc_camera_i2c_to_vdev(const struct i2c_client *client)
 {

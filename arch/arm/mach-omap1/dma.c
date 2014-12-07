@@ -58,7 +58,7 @@ static u16 reg_map[] = {
 	[PCH1_SR]	= 0x482,
 	[PCHD_SR]	= 0x4c0,
 
-	
+	/* Common Registers */
 	[CSDP]		= 0x00,
 	[CCR]		= 0x02,
 	[CICR]		= 0x04,
@@ -67,14 +67,14 @@ static u16 reg_map[] = {
 	[CFN]		= 0x12,
 	[CSFI]		= 0x14,
 	[CSEI]		= 0x16,
-	[CPC]		= 0x18,	
+	[CPC]		= 0x18,	/* 15xx only */
 	[CSAC]		= 0x18,
 	[CDAC]		= 0x1a,
 	[CDEI]		= 0x1c,
 	[CDFI]		= 0x1e,
 	[CLNK_CTRL]	= 0x28,
 
-	
+	/* Channel specific register offsets */
 	[CSSA]		= 0x08,
 	[CDSA]		= 0x0c,
 	[COLOR]		= 0x20,
@@ -118,13 +118,13 @@ static struct resource res[] __initdata = {
 		.start  = INT_DMA_CH5,
 		.flags  = IORESOURCE_IRQ,
 	},
-	
+	/* Handled in lcd_dma.c */
 	[7] = {
 		.name   = "6",
 		.start  = INT_1610_DMA_CH6,
 		.flags  = IORESOURCE_IRQ,
 	},
-	
+	/* irq's for omap16xx and omap7xx */
 	[8] = {
 		.name   = "7",
 		.start  = INT_1610_DMA_CH7,
@@ -229,7 +229,7 @@ static void omap1_clear_dma(int lch)
 	l &= ~OMAP_DMA_CCR_EN;
 	dma_write(l, CCR, lch);
 
-	
+	/* Clear pending interrupts */
 	l = dma_read(CSR, lch);
 }
 
@@ -246,7 +246,7 @@ static void omap1_show_dma_caps(void)
 			dma_read(CAPS_2, 0), dma_read(CAPS_3, 0),
 			dma_read(CAPS_4, 0));
 
-		
+		/* Disable OMAP 3.0/3.1 compatibility mode. */
 		w = dma_read(GSCR, 0);
 		w |= 1 << 3;
 		dma_write(w, GSCR, 0);
@@ -257,6 +257,10 @@ static void omap1_show_dma_caps(void)
 static u32 configure_dma_errata(void)
 {
 
+	/*
+	 * Erratum 3.2/3.3: sometimes 0 is returned if CSAC/CDAC is
+	 * read before the DMA controller finished disabling the channel.
+	 */
 	if (!cpu_is_omap15xx())
 		SET_DMA_ERRATA(DMA_ERRATA_3_3);
 
@@ -309,7 +313,7 @@ static int __init omap1_system_dma_init(void)
 
 	d->lch_count		= OMAP1_LOGICAL_DMA_CH_COUNT;
 
-	
+	/* Valid attributes for omap1 plus processors */
 	if (cpu_is_omap15xx())
 		d->dev_caps = ENABLE_1510_MODE;
 	enable_1510_mode = d->dev_caps & ENABLE_1510_MODE;

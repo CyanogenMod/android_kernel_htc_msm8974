@@ -25,26 +25,46 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/*
+ * Implementation of the Level 2 Cache (L2C) control,
+ * measurement, and debugging facilities.
+ */
 
 #include <asm/octeon/cvmx.h>
 #include <asm/octeon/cvmx-l2c.h>
 #include <asm/octeon/cvmx-spinlock.h>
 
+/*
+ * This spinlock is used internally to ensure that only one core is
+ * performing certain L2 operations at a time.
+ *
+ * NOTE: This only protects calls from within a single application -
+ * if multiple applications or operating systems are running, then it
+ * is up to the user program to coordinate between them.
+ */
 cvmx_spinlock_t cvmx_l2c_spinlock;
 
 int cvmx_l2c_get_core_way_partition(uint32_t core)
 {
 	uint32_t field;
 
-	
+	/* Validate the core number */
 	if (core >= cvmx_octeon_num_cores())
 		return -1;
 
 	if (OCTEON_IS_MODEL(OCTEON_CN63XX))
 		return cvmx_read_csr(CVMX_L2C_WPAR_PPX(core)) & 0xffff;
 
+	/*
+	 * Use the lower two bits of the coreNumber to determine the
+	 * bit offset of the UMSK[] field in the L2C_SPAR register.
+	 */
 	field = (core & 0x3) * 8;
 
+	/*
+	 * Return the UMSK[] field from the appropriate L2C_SPAR
+	 * register based on the coreNumber.
+	 */
 
 	switch (core & 0xC) {
 	case 0x0:
@@ -68,11 +88,11 @@ int cvmx_l2c_set_core_way_partition(uint32_t core, uint32_t mask)
 
 	mask &= valid_mask;
 
-	
+	/* A UMSK setting which blocks all L2C Ways is an error on some chips */
 	if (mask == valid_mask && !OCTEON_IS_MODEL(OCTEON_CN63XX))
 		return -1;
 
-	
+	/* Validate the core number */
 	if (core >= cvmx_octeon_num_cores())
 		return -1;
 
@@ -81,8 +101,17 @@ int cvmx_l2c_set_core_way_partition(uint32_t core, uint32_t mask)
 		return 0;
 	}
 
+	/*
+	 * Use the lower two bits of core to determine the bit offset of the
+	 * UMSK[] field in the L2C_SPAR register.
+	 */
 	field = (core & 0x3) * 8;
 
+	/*
+	 * Assign the new mask setting to the UMSK[] field in the appropriate
+	 * L2C_SPAR register based on the core_num.
+	 *
+	 */
 	switch (core & 0xC) {
 	case 0x0:
 		cvmx_write_csr(CVMX_L2C_SPAR0,
@@ -115,7 +144,7 @@ int cvmx_l2c_set_hw_way_partition(uint32_t mask)
 	valid_mask = (0x1 << cvmx_l2c_get_num_assoc()) - 1;
 	mask &= valid_mask;
 
-	
+	/* A UMSK setting which blocks all L2C Ways is an error on some chips */
 	if (mask == valid_mask  && !OCTEON_IS_MODEL(OCTEON_CN63XX))
 		return -1;
 
@@ -246,13 +275,28 @@ uint64_t cvmx_l2c_read_perf(uint32_t counter)
 	}
 }
 
+/**
+ * @INTERNAL
+ * Helper function use to fault in cache lines for L2 cache locking
+ *
+ * @addr:   Address of base of memory region to read into L2 cache
+ * @len:    Length (in bytes) of region to fault in
+ */
 static void fault_in(uint64_t addr, int len)
 {
 	volatile char *ptr;
 	volatile char dummy;
+	/*
+	 * Adjust addr and length so we get all cache lines even for
+	 * small ranges spanning two cache lines.
+	 */
 	len += addr & CVMX_CACHE_LINE_MASK;
 	addr &= ~CVMX_CACHE_LINE_MASK;
 	ptr = (volatile char *)cvmx_phys_to_ptr(addr);
+	/*
+	 * Invalidate L1 cache to make sure all loads result in data
+	 * being in L2.
+	 */
 	CVMX_DCACHE_INVALIDATE;
 	while (len > 0) {
 		dummy += *ptr;
@@ -273,25 +317,25 @@ int cvmx_l2c_lock_line(uint64_t addr)
 
 		CVMX_CACHE_LCKL2(CVMX_ADD_SEG(CVMX_MIPS_SPACE_XKPHYS, addr), 0);
 
-		
+		/* Make sure we were able to lock the line */
 		for (way = 0; way < assoc; way++) {
 			CVMX_CACHE_LTGL2I(index | (way << shift), 0);
-			
+			/* make sure CVMX_L2C_TADX_TAG is updated */
 			CVMX_SYNC;
 			l2c_tadx_tag.u64 = cvmx_read_csr(CVMX_L2C_TADX_TAG(0));
 			if (l2c_tadx_tag.s.valid && l2c_tadx_tag.s.tag == tag)
 				break;
 		}
 
-		
+		/* Check if a valid line is found */
 		if (way >= assoc) {
-			
+			/* cvmx_dprintf("ERROR: cvmx_l2c_lock_line: line not found for locking at 0x%llx address\n", (unsigned long long)addr); */
 			return -1;
 		}
 
-		
+		/* Check if lock bit is not set */
 		if (!l2c_tadx_tag.s.lock) {
-			
+			/* cvmx_dprintf("ERROR: cvmx_l2c_lock_line: Not able to lock at 0x%llx address\n", (unsigned long long)addr); */
 			return -1;
 		}
 		return way;
@@ -308,7 +352,7 @@ int cvmx_l2c_lock_line(uint64_t addr)
 		lckbase.u64 = 0;
 		lckoff.u64 = 0;
 
-		
+		/* Clear l2t error bits if set */
 		l2t_err.u64 = cvmx_read_csr(CVMX_L2T_ERR);
 		l2t_err.s.lckerr = 1;
 		l2t_err.s.lckerr2 = 1;
@@ -316,13 +360,13 @@ int cvmx_l2c_lock_line(uint64_t addr)
 
 		addr &= ~CVMX_CACHE_LINE_MASK;
 
-		
+		/* Set this core as debug core */
 		l2cdbg.s.ppnum = cvmx_get_core_num();
 		CVMX_SYNC;
 		cvmx_write_csr(CVMX_L2C_DBG, l2cdbg.u64);
 		cvmx_read_csr(CVMX_L2C_DBG);
 
-		lckoff.s.lck_offset = 0; 
+		lckoff.s.lck_offset = 0; /* Only lock 1 line at a time */
 		cvmx_write_csr(CVMX_L2C_LCKOFF, lckoff.u64);
 		cvmx_read_csr(CVMX_L2C_LCKOFF);
 
@@ -336,23 +380,23 @@ int cvmx_l2c_lock_line(uint64_t addr)
 
 		lckbase.s.lck_ena = 1;
 		cvmx_write_csr(CVMX_L2C_LCKBASE, lckbase.u64);
-		
+		/* Make sure it gets there */
 		cvmx_read_csr(CVMX_L2C_LCKBASE);
 
 		fault_in(addr, CVMX_CACHE_LINE_SIZE);
 
 		lckbase.s.lck_ena = 0;
 		cvmx_write_csr(CVMX_L2C_LCKBASE, lckbase.u64);
-		
+		/* Make sure it gets there */
 		cvmx_read_csr(CVMX_L2C_LCKBASE);
 
-		
+		/* Stop being debug core */
 		cvmx_write_csr(CVMX_L2C_DBG, 0);
 		cvmx_read_csr(CVMX_L2C_DBG);
 
 		l2t_err.u64 = cvmx_read_csr(CVMX_L2T_ERR);
 		if (l2t_err.s.lckerr || l2t_err.s.lckerr2)
-			retval = 1;  
+			retval = 1;  /* We were unable to lock the line */
 
 		cvmx_spinlock_unlock(&cvmx_l2c_spinlock);
 		return retval;
@@ -363,7 +407,7 @@ int cvmx_l2c_lock_mem_region(uint64_t start, uint64_t len)
 {
 	int retval = 0;
 
-	
+	/* Round start/end to cache line boundaries */
 	len += start & CVMX_CACHE_LINE_MASK;
 	start &= ~CVMX_CACHE_LINE_MASK;
 	len = (len + CVMX_CACHE_LINE_MASK) & ~CVMX_CACHE_LINE_MASK;
@@ -386,7 +430,7 @@ void cvmx_l2c_flush(void)
 
 	if (OCTEON_IS_MODEL(OCTEON_CN6XXX)) {
 		uint64_t address;
-		
+		/* These may look like constants, but they aren't... */
 		int assoc_shift = CVMX_L2C_TAG_ADDR_ALIAS_SHIFT;
 		int set_shift = CVMX_L2C_IDX_ADDR_SHIFT;
 		for (set = 0; set < n_set; set++) {
@@ -415,6 +459,12 @@ int cvmx_l2c_unlock_line(uint64_t address)
 
 		tag_addr = ((address >> CVMX_L2C_TAG_ADDR_ALIAS_SHIFT) & ((1 << CVMX_L2C_TAG_ADDR_ALIAS_SHIFT) - 1));
 
+		/*
+		 * For 63XX, we can flush a line by using the physical
+		 * address directly, so finding the cache line used by
+		 * the address is only required to provide the proper
+		 * return value for the function.
+		 */
 		for (assoc = 0; assoc < CVMX_L2_ASSOC; assoc++) {
 			tag = cvmx_l2c_get_tag(assoc, index);
 
@@ -430,7 +480,7 @@ int cvmx_l2c_unlock_line(uint64_t address)
 
 		uint32_t index = cvmx_l2c_address_to_index(address);
 
-		
+		/* Compute portion of address that is stored in tag */
 		tag_addr = ((address >> CVMX_L2C_TAG_ADDR_ALIAS_SHIFT) & ((1 << CVMX_L2C_TAG_ADDR_ALIAS_SHIFT) - 1));
 		for (assoc = 0; assoc < CVMX_L2_ASSOC; assoc++) {
 			tag = cvmx_l2c_get_tag(assoc, index);
@@ -447,7 +497,7 @@ int cvmx_l2c_unlock_line(uint64_t address)
 int cvmx_l2c_unlock_mem_region(uint64_t start, uint64_t len)
 {
 	int num_unlocked = 0;
-	
+	/* Round start/end to cache line boundaries */
 	len += start & CVMX_CACHE_LINE_MASK;
 	start &= ~CVMX_CACHE_LINE_MASK;
 	len = (len + CVMX_CACHE_LINE_MASK) & ~CVMX_CACHE_LINE_MASK;
@@ -460,53 +510,70 @@ int cvmx_l2c_unlock_mem_region(uint64_t start, uint64_t len)
 	return num_unlocked;
 }
 
+/*
+ * Internal l2c tag types.  These are converted to a generic structure
+ * that can be used on all chips.
+ */
 union __cvmx_l2c_tag {
 	uint64_t u64;
 	struct cvmx_l2c_tag_cn50xx {
 		uint64_t reserved:40;
-		uint64_t V:1;		
-		uint64_t D:1;		
-		uint64_t L:1;		
-		uint64_t U:1;		
-		uint64_t addr:20;	
+		uint64_t V:1;		/* Line valid */
+		uint64_t D:1;		/* Line dirty */
+		uint64_t L:1;		/* Line locked */
+		uint64_t U:1;		/* Use, LRU eviction */
+		uint64_t addr:20;	/* Phys mem addr (33..14) */
 	} cn50xx;
 	struct cvmx_l2c_tag_cn30xx {
 		uint64_t reserved:41;
-		uint64_t V:1;		
-		uint64_t D:1;		
-		uint64_t L:1;		
-		uint64_t U:1;		
-		uint64_t addr:19;	
+		uint64_t V:1;		/* Line valid */
+		uint64_t D:1;		/* Line dirty */
+		uint64_t L:1;		/* Line locked */
+		uint64_t U:1;		/* Use, LRU eviction */
+		uint64_t addr:19;	/* Phys mem addr (33..15) */
 	} cn30xx;
 	struct cvmx_l2c_tag_cn31xx {
 		uint64_t reserved:42;
-		uint64_t V:1;		
-		uint64_t D:1;		
-		uint64_t L:1;		
-		uint64_t U:1;		
-		uint64_t addr:18;	
+		uint64_t V:1;		/* Line valid */
+		uint64_t D:1;		/* Line dirty */
+		uint64_t L:1;		/* Line locked */
+		uint64_t U:1;		/* Use, LRU eviction */
+		uint64_t addr:18;	/* Phys mem addr (33..16) */
 	} cn31xx;
 	struct cvmx_l2c_tag_cn38xx {
 		uint64_t reserved:43;
-		uint64_t V:1;		
-		uint64_t D:1;		
-		uint64_t L:1;		
-		uint64_t U:1;		
-		uint64_t addr:17;	
+		uint64_t V:1;		/* Line valid */
+		uint64_t D:1;		/* Line dirty */
+		uint64_t L:1;		/* Line locked */
+		uint64_t U:1;		/* Use, LRU eviction */
+		uint64_t addr:17;	/* Phys mem addr (33..17) */
 	} cn38xx;
 	struct cvmx_l2c_tag_cn58xx {
 		uint64_t reserved:44;
-		uint64_t V:1;		
-		uint64_t D:1;		
-		uint64_t L:1;		
-		uint64_t U:1;		
-		uint64_t addr:16;	
+		uint64_t V:1;		/* Line valid */
+		uint64_t D:1;		/* Line dirty */
+		uint64_t L:1;		/* Line locked */
+		uint64_t U:1;		/* Use, LRU eviction */
+		uint64_t addr:16;	/* Phys mem addr (33..18) */
 	} cn58xx;
-	struct cvmx_l2c_tag_cn58xx cn56xx;	
-	struct cvmx_l2c_tag_cn31xx cn52xx;	
+	struct cvmx_l2c_tag_cn58xx cn56xx;	/* 2048 sets */
+	struct cvmx_l2c_tag_cn31xx cn52xx;	/* 512 sets */
 };
 
 
+/**
+ * @INTERNAL
+ * Function to read a L2C tag.  This code make the current core
+ * the 'debug core' for the L2.  This code must only be executed by
+ * 1 core at a time.
+ *
+ * @assoc:  Association (way) of the tag to dump
+ * @index:  Index of the cacheline
+ *
+ * Returns The Octeon model specific tag structure.  This is
+ *         translated by a wrapper function to a generic form that is
+ *         easier for applications to use.
+ */
 static union __cvmx_l2c_tag __read_l2_tag(uint64_t assoc, uint64_t index)
 {
 
@@ -518,26 +585,43 @@ static union __cvmx_l2c_tag __read_l2_tag(uint64_t assoc, uint64_t index)
 
 	union cvmx_l2c_dbg debug_val;
 	debug_val.u64 = 0;
+	/*
+	 * For low core count parts, the core number is always small
+	 * enough to stay in the correct field and not set any
+	 * reserved bits.
+	 */
 	debug_val.s.ppnum = core;
 	debug_val.s.l2t = 1;
 	debug_val.s.set = assoc;
 
 	local_irq_save(flags);
+	/*
+	 * Make sure core is quiet (no prefetches, etc.) before
+	 * entering debug mode.
+	 */
 	CVMX_SYNC;
-	
+	/* Flush L1 to make sure debug load misses L1 */
 	CVMX_DCACHE_INVALIDATE;
 
+	/*
+	 * The following must be done in assembly as when in debug
+	 * mode all data loads from L2 return special debug data, not
+	 * normal memory contents.  Also, interrupts must be disabled,
+	 * since if an interrupt occurs while in debug mode the ISR
+	 * will get debug data from all its memory * reads instead of
+	 * the contents of memory.
+	 */
 
 	asm volatile (
 		".set push\n\t"
 		".set mips64\n\t"
 		".set noreorder\n\t"
-		"sd    %[dbg_val], 0(%[dbg_addr])\n\t"   
+		"sd    %[dbg_val], 0(%[dbg_addr])\n\t"   /* Enter debug mode, wait for store */
 		"ld    $0, 0(%[dbg_addr])\n\t"
-		"ld    %[tag_val], 0(%[tag_addr])\n\t"   
-		"sd    $0, 0(%[dbg_addr])\n\t"          
+		"ld    %[tag_val], 0(%[tag_addr])\n\t"   /* Read L2C tag data */
+		"sd    $0, 0(%[dbg_addr])\n\t"          /* Exit debug mode, wait for store */
 		"ld    $0, 0(%[dbg_addr])\n\t"
-		"cache 9, 0($0)\n\t"             
+		"cache 9, 0($0)\n\t"             /* Invalidate dcache to discard debug data */
 		".set pop"
 		: [tag_val] "=r" (tag_val)
 		: [dbg_addr] "r" (dbg_addr), [dbg_val] "r" (debug_val), [tag_addr] "r" (debug_tag_addr)
@@ -568,8 +652,14 @@ union cvmx_l2c_tag cvmx_l2c_get_tag(uint32_t association, uint32_t index)
 		uint64_t address = CVMX_ADD_SEG(CVMX_MIPS_SPACE_XKPHYS,
 						(association << CVMX_L2C_TAG_ADDR_ALIAS_SHIFT) |
 						(index << CVMX_L2C_IDX_ADDR_SHIFT));
+		/*
+		 * Use L2 cache Index load tag cache instruction, as
+		 * hardware loads the virtual tag for the L2 cache
+		 * block with the contents of L2C_TAD0_TAG
+		 * register.
+		 */
 		CVMX_CACHE_LTGL2I(address, 0);
-		CVMX_SYNC;   
+		CVMX_SYNC;   /* make sure CVMX_L2C_TADX_TAG is updated */
 		l2c_tadx_tag.u64 = cvmx_read_csr(CVMX_L2C_TADX_TAG(0));
 
 		tag.s.V     = l2c_tadx_tag.s.valid;
@@ -579,9 +669,13 @@ union cvmx_l2c_tag cvmx_l2c_get_tag(uint32_t association, uint32_t index)
 		tag.s.addr  = l2c_tadx_tag.s.tag;
 	} else {
 		union __cvmx_l2c_tag tmp_tag;
-		
+		/* __read_l2_tag is intended for internal use only */
 		tmp_tag = __read_l2_tag(association, index);
 
+		/*
+		 * Convert all tag structure types to generic version,
+		 * as it can represent all models.
+		 */
 		if (OCTEON_IS_MODEL(OCTEON_CN58XX) || OCTEON_IS_MODEL(OCTEON_CN56XX)) {
 			tag.s.V    = tmp_tag.cn58xx.V;
 			tag.s.D    = tmp_tag.cn58xx.D;
@@ -653,31 +747,37 @@ int cvmx_l2c_get_cache_size_bytes(void)
 		CVMX_CACHE_LINE_SIZE;
 }
 
+/**
+ * Return log base 2 of the number of sets in the L2 cache
+ * Returns
+ */
 int cvmx_l2c_get_set_bits(void)
 {
 	int l2_set_bits;
 	if (OCTEON_IS_MODEL(OCTEON_CN56XX) || OCTEON_IS_MODEL(OCTEON_CN58XX))
-		l2_set_bits = 11;	
+		l2_set_bits = 11;	/* 2048 sets */
 	else if (OCTEON_IS_MODEL(OCTEON_CN38XX) || OCTEON_IS_MODEL(OCTEON_CN63XX))
-		l2_set_bits = 10;	
+		l2_set_bits = 10;	/* 1024 sets */
 	else if (OCTEON_IS_MODEL(OCTEON_CN31XX) || OCTEON_IS_MODEL(OCTEON_CN52XX))
-		l2_set_bits = 9;	
+		l2_set_bits = 9;	/* 512 sets */
 	else if (OCTEON_IS_MODEL(OCTEON_CN30XX))
-		l2_set_bits = 8;	
+		l2_set_bits = 8;	/* 256 sets */
 	else if (OCTEON_IS_MODEL(OCTEON_CN50XX))
-		l2_set_bits = 7;	
+		l2_set_bits = 7;	/* 128 sets */
 	else {
 		cvmx_dprintf("Unsupported OCTEON Model in %s\n", __func__);
-		l2_set_bits = 11;	
+		l2_set_bits = 11;	/* 2048 sets */
 	}
 	return l2_set_bits;
 }
 
+/* Return the number of sets in the L2 Cache */
 int cvmx_l2c_get_num_sets(void)
 {
 	return 1 << cvmx_l2c_get_set_bits();
 }
 
+/* Return the number of associations in the L2 Cache */
 int cvmx_l2c_get_num_assoc(void)
 {
 	int l2_assoc;
@@ -697,11 +797,23 @@ int cvmx_l2c_get_num_assoc(void)
 		l2_assoc = 8;
 	}
 
-	
+	/* Check to see if part of the cache is disabled */
 	if (OCTEON_IS_MODEL(OCTEON_CN63XX)) {
 		union cvmx_mio_fus_dat3 mio_fus_dat3;
 
 		mio_fus_dat3.u64 = cvmx_read_csr(CVMX_MIO_FUS_DAT3);
+		/*
+		 * cvmx_mio_fus_dat3.s.l2c_crip fuses map as follows
+		 * <2> will be not used for 63xx
+		 * <1> disables 1/2 ways
+		 * <0> disables 1/4 ways
+		 * They are cumulative, so for 63xx:
+		 * <1> <0>
+		 * 0 0 16-way 2MB cache
+		 * 0 1 12-way 1.5MB cache
+		 * 1 0 8-way 1MB cache
+		 * 1 1 4-way 512KB cache
+		 */
 
 		if (mio_fus_dat3.s.l2c_crip == 3)
 			l2_assoc = 4;
@@ -712,6 +824,11 @@ int cvmx_l2c_get_num_assoc(void)
 	} else {
 		union cvmx_l2d_fus3 val;
 		val.u64 = cvmx_read_csr(CVMX_L2D_FUS3);
+		/*
+		 * Using shifts here, as bit position names are
+		 * different for each model but they all mean the
+		 * same.
+		 */
 		if ((val.u64 >> 35) & 0x1)
 			l2_assoc = l2_assoc >> 2;
 		else if ((val.u64 >> 34) & 0x1)
@@ -720,15 +837,23 @@ int cvmx_l2c_get_num_assoc(void)
 	return l2_assoc;
 }
 
+/**
+ * Flush a line from the L2 cache
+ * This should only be called from one core at a time, as this routine
+ * sets the core to the 'debug' core in order to flush the line.
+ *
+ * @assoc:  Association (or way) to flush
+ * @index:  Index to flush
+ */
 void cvmx_l2c_flush_line(uint32_t assoc, uint32_t index)
 {
-	
+	/* Check the range of the index. */
 	if (index > (uint32_t)cvmx_l2c_get_num_sets()) {
 		cvmx_dprintf("ERROR: cvmx_l2c_flush_line index out of range.\n");
 		return;
 	}
 
-	
+	/* Check the range of association. */
 	if (assoc > (uint32_t)cvmx_l2c_get_num_assoc()) {
 		cvmx_dprintf("ERROR: cvmx_l2c_flush_line association out of range.\n");
 		return;
@@ -736,6 +861,11 @@ void cvmx_l2c_flush_line(uint32_t assoc, uint32_t index)
 
 	if (OCTEON_IS_MODEL(OCTEON_CN63XX)) {
 		uint64_t address;
+		/* Create the address based on index and association.
+		 * Bits<20:17> select the way of the cache block involved in
+		 *             the operation
+		 * Bits<16:7> of the effect address select the index
+		 */
 		address = CVMX_ADD_SEG(CVMX_MIPS_SPACE_XKPHYS,
 				(assoc << CVMX_L2C_TAG_ADDR_ALIAS_SHIFT) |
 				(index << CVMX_L2C_IDX_ADDR_SHIFT));
@@ -750,6 +880,10 @@ void cvmx_l2c_flush_line(uint32_t assoc, uint32_t index)
 
 		l2cdbg.s.set = assoc;
 		cvmx_spinlock_lock(&cvmx_l2c_spinlock);
+		/*
+		 * Enter debug mode, and make sure all other writes
+		 * complete before we enter debug mode
+		 */
 		CVMX_SYNC;
 		cvmx_write_csr(CVMX_L2C_DBG, l2cdbg.u64);
 		cvmx_read_csr(CVMX_L2C_DBG);
@@ -757,7 +891,7 @@ void cvmx_l2c_flush_line(uint32_t assoc, uint32_t index)
 		CVMX_PREPARE_FOR_STORE(CVMX_ADD_SEG(CVMX_MIPS_SPACE_XKPHYS,
 						    index * CVMX_CACHE_LINE_SIZE),
 				       0);
-		
+		/* Exit debug mode */
 		CVMX_SYNC;
 		cvmx_write_csr(CVMX_L2C_DBG, 0);
 		cvmx_read_csr(CVMX_L2C_DBG);

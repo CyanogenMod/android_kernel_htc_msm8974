@@ -24,6 +24,12 @@
 #ifndef __DRX3973D_MAP__H__
 #define __DRX3973D_MAP__H__
 
+/*
+ * Note: originally, this file contained 12000+ lines of data
+ * Probably a few lines for every firwmare assembler instruction. However,
+ * only a few defines were actually used. So, removed all uneeded lines.
+ * If ever needed, the other lines can be easily obtained via git history.
+ */
 
 #define HI_COMM_EXEC__A                                              0x400000
 #define HI_COMM_MB__A                                                0x400002

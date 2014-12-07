@@ -68,8 +68,8 @@ static void bcmring_unmask_irq2(struct irq_data *d)
 static struct irq_chip bcmring_irq0_chip = {
 	.name = "ARM-INTC0",
 	.irq_ack = bcmring_mask_irq0,
-	.irq_mask = bcmring_mask_irq0,	
-	.irq_unmask = bcmring_unmask_irq0,	
+	.irq_mask = bcmring_mask_irq0,	/* mask a specific interrupt, blocking its delivery. */
+	.irq_unmask = bcmring_unmask_irq0,	/* unmaks an interrupt */
 };
 
 static struct irq_chip bcmring_irq1_chip = {
@@ -116,7 +116,7 @@ void __init bcmring_init_irq(void)
 	vic_init((void __iomem *)MM_IO_BASE_SINTC, &bcmring_irq2_chip,
 		 IRQ_SINTC_START, IRQ_SINTC_VALID_MASK);
 
-	
+	/* special cases */
 	if (INTCHW_INTC1_GPIO0 & IRQ_INTC1_VALID_MASK) {
 		irq_set_handler(IRQ_GPIO0, handle_simple_irq);
 	}

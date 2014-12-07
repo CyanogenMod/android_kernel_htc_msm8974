@@ -118,9 +118,6 @@ struct mmc_request {
 struct mmc_card;
 struct mmc_async_req;
 
-#define MMC_WORK_BKOPS         1
-#define MMC_WORK_SANITIZE      2
-
 extern int mmc_stop_bkops(struct mmc_card *);
 extern int mmc_read_bkops_status(struct mmc_card *);
 extern bool mmc_card_is_prog_state(struct mmc_card *);
@@ -132,9 +129,8 @@ extern int mmc_wait_for_cmd(struct mmc_host *, struct mmc_command *, int);
 extern int mmc_app_cmd(struct mmc_host *, struct mmc_card *);
 extern int mmc_wait_for_app_cmd(struct mmc_host *, struct mmc_card *,
 	struct mmc_command *, int);
-extern int mmc_card_start_sanitize(struct mmc_card *host);
 extern int mmc_card_start_bkops(struct mmc_card *host);
-extern int mmc_card_stop_bkops_sanitize(struct mmc_card *card, int work);
+extern int mmc_card_stop_bkops(struct mmc_card *card);
 extern void mmc_start_bkops(struct mmc_card *card, bool from_exception);
 extern void mmc_start_delayed_bkops(struct mmc_card *card);
 extern void mmc_start_idle_time_bkops(struct work_struct *work);

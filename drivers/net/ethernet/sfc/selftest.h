@@ -13,6 +13,9 @@
 
 #include "net_driver.h"
 
+/*
+ * Self tests
+ */
 
 struct efx_loopback_self_tests {
 	int tx_sent[EFX_TXQ_TYPES];
@@ -23,14 +26,18 @@ struct efx_loopback_self_tests {
 
 #define EFX_MAX_PHY_TESTS 20
 
+/* Efx self test results
+ * For fields which are not counters, 1 indicates success and -1
+ * indicates failure.
+ */
 struct efx_self_tests {
-	
+	/* online tests */
 	int phy_alive;
 	int nvram;
 	int interrupt;
 	int eventq_dma[EFX_MAX_CHANNELS];
 	int eventq_int[EFX_MAX_CHANNELS];
-	
+	/* offline tests */
 	int registers;
 	int phy_ext[EFX_MAX_PHY_TESTS];
 	struct efx_loopback_self_tests loopback[LOOPBACK_TEST_MAX + 1];
@@ -45,4 +52,4 @@ extern void efx_selftest_async_start(struct efx_nic *efx);
 extern void efx_selftest_async_cancel(struct efx_nic *efx);
 extern void efx_selftest_async_work(struct work_struct *data);
 
-#endif 
+#endif /* EFX_SELFTEST_H */

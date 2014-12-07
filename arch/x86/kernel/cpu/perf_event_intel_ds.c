@@ -7,11 +7,22 @@
 
 #include "perf_event.h"
 
+/* The size of a BTS record in bytes: */
 #define BTS_RECORD_SIZE		24
 
 #define BTS_BUFFER_SIZE		(PAGE_SIZE << 4)
 #define PEBS_BUFFER_SIZE	PAGE_SIZE
 
+/*
+ * pebs_record_32 for p4 and core not supported
+
+struct pebs_record_32 {
+	u32 flags, ip;
+	u32 ax, bc, cx, dx;
+	u32 si, di, bp, sp;
+};
+
+ */
 
 struct pebs_record_core {
 	u64 flags, ip;
@@ -54,7 +65,7 @@ static int alloc_pebs_buffer(int cpu)
 {
 	struct debug_store *ds = per_cpu(cpu_hw_events, cpu).ds;
 	int node = cpu_to_node(cpu);
-	int max, thresh = 1; 
+	int max, thresh = 1; /* always use a single PEBS record */
 	void *buffer;
 
 	if (!x86_pmu.pebs)
@@ -232,6 +243,9 @@ void reserve_ds_buffers(void)
 	put_online_cpus();
 }
 
+/*
+ * BTS
+ */
 
 struct event_constraint bts_constraint =
 	EVENT_CONSTRAINT(0, 1ULL << X86_PMC_IDX_FIXED_BTS, 0);
@@ -306,6 +320,11 @@ int intel_pmu_drain_bts_buffer(void)
 	data.period = event->hw.last_period;
 	regs.ip     = 0;
 
+	/*
+	 * Prepare a generic sample, i.e. fill in the invariant fields.
+	 * We will overwrite the from and to address before we output
+	 * the sample.
+	 */
 	perf_prepare_sample(&header, &data, event, &regs);
 
 	if (perf_output_begin(&handle, event, header.size * (top - at)))
@@ -320,76 +339,79 @@ int intel_pmu_drain_bts_buffer(void)
 
 	perf_output_end(&handle);
 
-	
+	/* There's new data available. */
 	event->hw.interrupts++;
 	event->pending_kill = POLL_IN;
 	return 1;
 }
 
+/*
+ * PEBS
+ */
 struct event_constraint intel_core2_pebs_event_constraints[] = {
-	INTEL_UEVENT_CONSTRAINT(0x00c0, 0x1), 
-	INTEL_UEVENT_CONSTRAINT(0xfec1, 0x1), 
-	INTEL_UEVENT_CONSTRAINT(0x00c5, 0x1), 
-	INTEL_UEVENT_CONSTRAINT(0x1fc7, 0x1), 
-	INTEL_EVENT_CONSTRAINT(0xcb, 0x1),    
+	INTEL_UEVENT_CONSTRAINT(0x00c0, 0x1), /* INST_RETIRED.ANY */
+	INTEL_UEVENT_CONSTRAINT(0xfec1, 0x1), /* X87_OPS_RETIRED.ANY */
+	INTEL_UEVENT_CONSTRAINT(0x00c5, 0x1), /* BR_INST_RETIRED.MISPRED */
+	INTEL_UEVENT_CONSTRAINT(0x1fc7, 0x1), /* SIMD_INST_RETURED.ANY */
+	INTEL_EVENT_CONSTRAINT(0xcb, 0x1),    /* MEM_LOAD_RETIRED.* */
 	EVENT_CONSTRAINT_END
 };
 
 struct event_constraint intel_atom_pebs_event_constraints[] = {
-	INTEL_UEVENT_CONSTRAINT(0x00c0, 0x1), 
-	INTEL_UEVENT_CONSTRAINT(0x00c5, 0x1), 
-	INTEL_EVENT_CONSTRAINT(0xcb, 0x1),    
+	INTEL_UEVENT_CONSTRAINT(0x00c0, 0x1), /* INST_RETIRED.ANY */
+	INTEL_UEVENT_CONSTRAINT(0x00c5, 0x1), /* MISPREDICTED_BRANCH_RETIRED */
+	INTEL_EVENT_CONSTRAINT(0xcb, 0x1),    /* MEM_LOAD_RETIRED.* */
 	EVENT_CONSTRAINT_END
 };
 
 struct event_constraint intel_nehalem_pebs_event_constraints[] = {
-	INTEL_EVENT_CONSTRAINT(0x0b, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0x0f, 0xf),    
-	INTEL_UEVENT_CONSTRAINT(0x010c, 0xf), 
-	INTEL_EVENT_CONSTRAINT(0xc0, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xc2, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xc4, 0xf),    
-	INTEL_UEVENT_CONSTRAINT(0x02c5, 0xf), 
-	INTEL_EVENT_CONSTRAINT(0xc7, 0xf),    
-	INTEL_UEVENT_CONSTRAINT(0x20c8, 0xf), 
-	INTEL_EVENT_CONSTRAINT(0xcb, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xf7, 0xf),    
+	INTEL_EVENT_CONSTRAINT(0x0b, 0xf),    /* MEM_INST_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0x0f, 0xf),    /* MEM_UNCORE_RETIRED.* */
+	INTEL_UEVENT_CONSTRAINT(0x010c, 0xf), /* MEM_STORE_RETIRED.DTLB_MISS */
+	INTEL_EVENT_CONSTRAINT(0xc0, 0xf),    /* INST_RETIRED.ANY */
+	INTEL_EVENT_CONSTRAINT(0xc2, 0xf),    /* UOPS_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xc4, 0xf),    /* BR_INST_RETIRED.* */
+	INTEL_UEVENT_CONSTRAINT(0x02c5, 0xf), /* BR_MISP_RETIRED.NEAR_CALL */
+	INTEL_EVENT_CONSTRAINT(0xc7, 0xf),    /* SSEX_UOPS_RETIRED.* */
+	INTEL_UEVENT_CONSTRAINT(0x20c8, 0xf), /* ITLB_MISS_RETIRED */
+	INTEL_EVENT_CONSTRAINT(0xcb, 0xf),    /* MEM_LOAD_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xf7, 0xf),    /* FP_ASSIST.* */
 	EVENT_CONSTRAINT_END
 };
 
 struct event_constraint intel_westmere_pebs_event_constraints[] = {
-	INTEL_EVENT_CONSTRAINT(0x0b, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0x0f, 0xf),    
-	INTEL_UEVENT_CONSTRAINT(0x010c, 0xf), 
-	INTEL_EVENT_CONSTRAINT(0xc0, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xc2, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xc4, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xc5, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xc7, 0xf),    
-	INTEL_UEVENT_CONSTRAINT(0x20c8, 0xf), 
-	INTEL_EVENT_CONSTRAINT(0xcb, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xf7, 0xf),    
+	INTEL_EVENT_CONSTRAINT(0x0b, 0xf),    /* MEM_INST_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0x0f, 0xf),    /* MEM_UNCORE_RETIRED.* */
+	INTEL_UEVENT_CONSTRAINT(0x010c, 0xf), /* MEM_STORE_RETIRED.DTLB_MISS */
+	INTEL_EVENT_CONSTRAINT(0xc0, 0xf),    /* INSTR_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xc2, 0xf),    /* UOPS_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xc4, 0xf),    /* BR_INST_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xc5, 0xf),    /* BR_MISP_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xc7, 0xf),    /* SSEX_UOPS_RETIRED.* */
+	INTEL_UEVENT_CONSTRAINT(0x20c8, 0xf), /* ITLB_MISS_RETIRED */
+	INTEL_EVENT_CONSTRAINT(0xcb, 0xf),    /* MEM_LOAD_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xf7, 0xf),    /* FP_ASSIST.* */
 	EVENT_CONSTRAINT_END
 };
 
 struct event_constraint intel_snb_pebs_event_constraints[] = {
-	INTEL_UEVENT_CONSTRAINT(0x01c0, 0x2), 
-	INTEL_UEVENT_CONSTRAINT(0x01c2, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x02c2, 0xf), 
-	INTEL_EVENT_CONSTRAINT(0xc4, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xc5, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xcd, 0x8),    
-	INTEL_UEVENT_CONSTRAINT(0x11d0, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x12d0, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x21d0, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x22d0, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x41d0, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x42d0, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x81d0, 0xf), 
-	INTEL_UEVENT_CONSTRAINT(0x82d0, 0xf), 
-	INTEL_EVENT_CONSTRAINT(0xd1, 0xf),    
-	INTEL_EVENT_CONSTRAINT(0xd2, 0xf),    
-	INTEL_UEVENT_CONSTRAINT(0x02d4, 0xf), 
+	INTEL_UEVENT_CONSTRAINT(0x01c0, 0x2), /* INST_RETIRED.PRECDIST */
+	INTEL_UEVENT_CONSTRAINT(0x01c2, 0xf), /* UOPS_RETIRED.ALL */
+	INTEL_UEVENT_CONSTRAINT(0x02c2, 0xf), /* UOPS_RETIRED.RETIRE_SLOTS */
+	INTEL_EVENT_CONSTRAINT(0xc4, 0xf),    /* BR_INST_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xc5, 0xf),    /* BR_MISP_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xcd, 0x8),    /* MEM_TRANS_RETIRED.* */
+	INTEL_UEVENT_CONSTRAINT(0x11d0, 0xf), /* MEM_UOP_RETIRED.STLB_MISS_LOADS */
+	INTEL_UEVENT_CONSTRAINT(0x12d0, 0xf), /* MEM_UOP_RETIRED.STLB_MISS_STORES */
+	INTEL_UEVENT_CONSTRAINT(0x21d0, 0xf), /* MEM_UOP_RETIRED.LOCK_LOADS */
+	INTEL_UEVENT_CONSTRAINT(0x22d0, 0xf), /* MEM_UOP_RETIRED.LOCK_STORES */
+	INTEL_UEVENT_CONSTRAINT(0x41d0, 0xf), /* MEM_UOP_RETIRED.SPLIT_LOADS */
+	INTEL_UEVENT_CONSTRAINT(0x42d0, 0xf), /* MEM_UOP_RETIRED.SPLIT_STORES */
+	INTEL_UEVENT_CONSTRAINT(0x81d0, 0xf), /* MEM_UOP_RETIRED.ANY_LOADS */
+	INTEL_UEVENT_CONSTRAINT(0x82d0, 0xf), /* MEM_UOP_RETIRED.ANY_STORES */
+	INTEL_EVENT_CONSTRAINT(0xd1, 0xf),    /* MEM_LOAD_UOPS_RETIRED.* */
+	INTEL_EVENT_CONSTRAINT(0xd2, 0xf),    /* MEM_LOAD_UOPS_LLC_HIT_RETIRED.* */
+	INTEL_UEVENT_CONSTRAINT(0x02d4, 0xf), /* MEM_LOAD_UOPS_MISC_RETIRED.LLC_MISS */
 	EVENT_CONSTRAINT_END
 };
 
@@ -456,18 +478,34 @@ static int intel_pmu_pebs_fixup_ip(struct pt_regs *regs)
 	unsigned long ip = regs->ip;
 	int is_64bit = 0;
 
+	/*
+	 * We don't need to fixup if the PEBS assist is fault like
+	 */
 	if (!x86_pmu.intel_cap.pebs_trap)
 		return 1;
 
+	/*
+	 * No LBR entry, no basic block, no rewinding
+	 */
 	if (!cpuc->lbr_stack.nr || !from || !to)
 		return 0;
 
+	/*
+	 * Basic blocks should never cross user/kernel boundaries
+	 */
 	if (kernel_ip(ip) != kernel_ip(to))
 		return 0;
 
+	/*
+	 * unsigned math, either ip is before the start (impossible) or
+	 * the basic block is larger than 1 page (sanity)
+	 */
 	if ((ip - to) > PAGE_SIZE)
 		return 0;
 
+	/*
+	 * We sampled a branch insn, rewind using the LBR stack
+	 */
 	if (ip == to) {
 		regs->ip = from;
 		return 1;
@@ -503,12 +541,21 @@ static int intel_pmu_pebs_fixup_ip(struct pt_regs *regs)
 		return 1;
 	}
 
+	/*
+	 * Even though we decoded the basic block, the instruction stream
+	 * never matched the given IP, either the TO or the IP got corrupted.
+	 */
 	return 0;
 }
 
 static void __intel_pmu_pebs_event(struct perf_event *event,
 				   struct pt_regs *iregs, void *__pebs)
 {
+	/*
+	 * We cast to pebs_record_core since that is a subset of
+	 * both formats and we don't use the other fields in this
+	 * routine.
+	 */
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
 	struct pebs_record_core *pebs = __pebs;
 	struct perf_sample_data data;
@@ -520,6 +567,16 @@ static void __intel_pmu_pebs_event(struct perf_event *event,
 	perf_sample_data_init(&data, 0);
 	data.period = event->hw.last_period;
 
+	/*
+	 * We use the interrupt regs as a base because the PEBS record
+	 * does not contain a full regs set, specifically it seems to
+	 * lack segment descriptors, which get used by things like
+	 * user_mode().
+	 *
+	 * In the simple case fix up only the IP and BP,SP regs, for
+	 * PERF_SAMPLE_IP and PERF_SAMPLE_CALLCHAIN to function properly.
+	 * A possible PERF_SAMPLE_REGS will have to transfer all regs.
+	 */
 	regs = *iregs;
 	regs.ip = pebs->ip;
 	regs.bp = pebs->bp;
@@ -541,7 +598,7 @@ static void intel_pmu_drain_pebs_core(struct pt_regs *iregs)
 {
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
 	struct debug_store *ds = cpuc->ds;
-	struct perf_event *event = cpuc->events[0]; 
+	struct perf_event *event = cpuc->events[0]; /* PMC0 only */
 	struct pebs_record_core *at, *top;
 	int n;
 
@@ -551,6 +608,9 @@ static void intel_pmu_drain_pebs_core(struct pt_regs *iregs)
 	at  = (struct pebs_record_core *)(unsigned long)ds->pebs_buffer_base;
 	top = (struct pebs_record_core *)(unsigned long)ds->pebs_index;
 
+	/*
+	 * Whatever else happens, drain the thing
+	 */
 	ds->pebs_index = ds->pebs_buffer_base;
 
 	if (!test_bit(0, cpuc->active_mask))
@@ -565,6 +625,10 @@ static void intel_pmu_drain_pebs_core(struct pt_regs *iregs)
 	if (n <= 0)
 		return;
 
+	/*
+	 * Should not happen, we program the threshold at 1 and do not
+	 * set a reset value.
+	 */
 	WARN_ON_ONCE(n > 1);
 	at += n - 1;
 
@@ -592,6 +656,10 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs)
 	if (n <= 0)
 		return;
 
+	/*
+	 * Should not happen, we program the threshold at 1 and do not
+	 * set a reset value.
+	 */
 	WARN_ON_ONCE(n > MAX_PEBS_EVENTS);
 
 	for ( ; at < top; at++) {
@@ -618,9 +686,15 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs)
 	}
 }
 
+/*
+ * BTS, PEBS probe and setup
+ */
 
 void intel_ds_init(void)
 {
+	/*
+	 * No support for 32bit formats
+	 */
 	if (!boot_cpu_has(X86_FEATURE_DTES64))
 		return;
 

@@ -25,6 +25,9 @@
 #include <linux/errno.h>
 #include <linux/pnp.h>
 
+/*
+ *
+ */
 
 #define ISAPNP_VENDOR(a,b,c)	(((((a)-'A'+1)&0x3f)<<2)|\
 				((((b)-'A'+1)&0x18)>>3)|((((b)-'A'+1)&7)<<13)|\
@@ -35,6 +38,9 @@
 				 (((x)&0x000f)<<8))
 #define ISAPNP_FUNCTION(x)	ISAPNP_DEVICE(x)
 
+/*
+ *
+ */
 
 #ifdef __KERNEL__
 #include <linux/mod_devicetable.h>
@@ -50,15 +56,16 @@
 #define ISAPNP_DEVICE_ID(_va, _vb, _vc, _function) \
 		{ .vendor = ISAPNP_VENDOR(_va, _vb, _vc), .function = ISAPNP_FUNCTION(_function) }
 
+/* export used IDs outside module */
 #define ISAPNP_CARD_TABLE(name) \
 		MODULE_GENERIC_TABLE(isapnp_card, name)
 
 struct isapnp_card_id {
-	unsigned long driver_data;	
+	unsigned long driver_data;	/* data private to the driver */
 	unsigned short card_vendor, card_device;
 	struct {
 		unsigned short vendor, function;
-	} devs[ISAPNP_CARD_DEVS];	
+	} devs[ISAPNP_CARD_DEVS];	/* logical devices */
 };
 
 #define ISAPNP_DEVICE_SINGLE(_cva, _cvb, _cvc, _cdevice, _dva, _dvb, _dvc, _dfunction) \
@@ -71,6 +78,7 @@ struct isapnp_card_id {
 
 #define __ISAPNP__
 
+/* lowlevel configuration */
 int isapnp_present(void);
 int isapnp_cfg_begin(int csn, int device);
 int isapnp_cfg_end(void);
@@ -85,6 +93,7 @@ static inline int isapnp_proc_init(void) { return 0; }
 static inline int isapnp_proc_done(void) { return 0; }
 #endif
 
+/* compat */
 struct pnp_card *pnp_find_card(unsigned short vendor,
 			       unsigned short device,
 			       struct pnp_card *from);
@@ -93,8 +102,9 @@ struct pnp_dev *pnp_find_dev(struct pnp_card *card,
 			     unsigned short function,
 			     struct pnp_dev *from);
 
-#else 
+#else /* !CONFIG_ISAPNP */
 
+/* lowlevel configuration */
 static inline int isapnp_present(void) { return 0; }
 static inline int isapnp_cfg_begin(int csn, int device) { return -ENODEV; }
 static inline int isapnp_cfg_end(void) { return -ENODEV; }
@@ -109,7 +119,7 @@ static inline struct pnp_dev *pnp_find_dev(struct pnp_card *card,
 					   unsigned short function,
 					   struct pnp_dev *from) { return NULL; }
 
-#endif 
+#endif /* CONFIG_ISAPNP */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* LINUX_ISAPNP_H */

@@ -13,6 +13,9 @@
 
 #include <mach/hardware.h>
 
+/*
+ * OneNAND Controller
+ */
 #define MEM_CFG_OFFSET		0x0000
 #define BURST_LEN_OFFSET	0x0010
 #define MEM_RESET_OFFSET	0x0020
@@ -34,7 +37,7 @@
 #define INT_PIN_ENABLE_OFFSET	0x01A0
 #define ACC_CLOCK_OFFSET	0x01C0
 #define FLASH_VER_ID_OFFSET	0x01F0
-#define FLASH_AUX_CNTRL_OFFSET	0x0300		
+#define FLASH_AUX_CNTRL_OFFSET	0x0300		/* s3c64xx only */
 
 #define ONENAND_MEM_RESET_HOT	0x3
 #define ONENAND_MEM_RESET_COLD	0x2

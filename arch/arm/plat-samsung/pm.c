@@ -32,9 +32,15 @@
 #include <plat/pm.h>
 #include <mach/pm-core.h>
 
+/* for external use */
 
 unsigned long s3c_pm_flags;
 
+/* Debug code:
+ *
+ * This code supports debug output to the low level UARTs for use on
+ * resume before the console layer is available.
+*/
 
 #ifdef CONFIG_SAMSUNG_PM_DEBUG
 extern void printascii(const char *);
@@ -53,15 +59,16 @@ void s3c_pm_dbg(const char *fmt, ...)
 
 static inline void s3c_pm_debug_init(void)
 {
-	
+	/* restart uart clocks so we can use them to output */
 	s3c_pm_debug_init_uart();
 }
 
 #else
 #define s3c_pm_debug_init() do { } while(0)
 
-#endif 
+#endif /* CONFIG_SAMSUNG_PM_DEBUG */
 
+/* Save the UART configurations if we are configured for debug. */
 
 unsigned char pm_uart_udivslot;
 
@@ -124,6 +131,8 @@ static void s3c_pm_save_uarts(void) { }
 static void s3c_pm_restore_uarts(void) { }
 #endif
 
+/* The IRQ ext-int code goes here, it is too small to currently bother
+ * with its own file. */
 
 unsigned long s3c_irqwake_intmask	= 0xffffffffL;
 unsigned long s3c_irqwake_eintmask	= 0xffffffffL;
@@ -146,7 +155,16 @@ int s3c_irqext_wake(struct irq_data *data, unsigned int state)
 	return 0;
 }
 
+/* helper functions to save and restore register state */
 
+/**
+ * s3c_pm_do_save() - save a set of registers for restoration on resume.
+ * @ptr: Pointer to an array of registers.
+ * @count: Size of the ptr array.
+ *
+ * Run through the list of registers given, saving their contents in the
+ * array for later restoration when we wakeup.
+ */
 void s3c_pm_do_save(struct sleep_save *ptr, int count)
 {
 	for (; count > 0; count--, ptr++) {
@@ -155,6 +173,16 @@ void s3c_pm_do_save(struct sleep_save *ptr, int count)
 	}
 }
 
+/**
+ * s3c_pm_do_restore() - restore register values from the save list.
+ * @ptr: Pointer to an array of registers.
+ * @count: Size of the ptr array.
+ *
+ * Restore the register values saved from s3c_pm_do_save().
+ *
+ * Note, we do not use S3C_PMDBG() in here, as the system may not have
+ * restore the UARTs state yet
+*/
 
 void s3c_pm_do_restore(struct sleep_save *ptr, int count)
 {
@@ -166,6 +194,16 @@ void s3c_pm_do_restore(struct sleep_save *ptr, int count)
 	}
 }
 
+/**
+ * s3c_pm_do_restore_core() - early restore register values from save list.
+ *
+ * This is similar to s3c_pm_do_restore() except we try and minimise the
+ * side effects of the function in case registers that hardware might need
+ * to work has been restored.
+ *
+ * WARNING: Do not put any debug in here that may effect memory or use
+ * peripherals, as things may be changing!
+*/
 
 void s3c_pm_do_restore_core(struct sleep_save *ptr, int count)
 {
@@ -173,6 +211,10 @@ void s3c_pm_do_restore_core(struct sleep_save *ptr, int count)
 		__raw_writel(ptr->val, ptr->reg);
 }
 
+/* s3c2410_pm_show_resume_irqs
+ *
+ * print any IRQs asserted at resume time (ie, we woke from)
+*/
 static void __maybe_unused s3c_pm_show_resume_irqs(int start,
 						   unsigned long which,
 						   unsigned long mask)
@@ -194,10 +236,14 @@ int (*pm_cpu_sleep)(unsigned long);
 
 #define any_allowed(mask, allow) (((mask) & (allow)) != (allow))
 
+/* s3c_pm_enter
+ *
+ * central control for sleep/resume process
+*/
 
 static int s3c_pm_enter(suspend_state_t state)
 {
-	
+	/* ensure the debug is initialised (if enabled) */
 
 	s3c_pm_debug_init();
 
@@ -208,6 +254,10 @@ static int s3c_pm_enter(suspend_state_t state)
 		return -EINVAL;
 	}
 
+	/* check if we have anything to wake-up with... bad things seem
+	 * to happen if you suspend with no wakeup (system will often
+	 * require a full power-cycle)
+	*/
 
 	if (!any_allowed(s3c_irqwake_intmask, s3c_irqwake_intallow) &&
 	    !any_allowed(s3c_irqwake_eintmask, s3c_irqwake_eintallow)) {
@@ -216,14 +266,14 @@ static int s3c_pm_enter(suspend_state_t state)
 		return -EINVAL;
 	}
 
-	
+	/* save all necessary core registers not covered by the drivers */
 
 	samsung_pm_save_gpios();
 	samsung_pm_saved_gpios();
 	s3c_pm_save_uarts();
 	s3c_pm_save_core();
 
-	
+	/* set the irq configuration for wake */
 
 	s3c_pm_configure_extint();
 
@@ -232,24 +282,27 @@ static int s3c_pm_enter(suspend_state_t state)
 
 	s3c_pm_arch_prepare_irqs();
 
-	
+	/* call cpu specific preparation */
 
 	pm_cpu_prep();
 
-	
+	/* flush cache back to ram */
 
 	flush_cache_all();
 
 	s3c_pm_check_store();
 
-	
+	/* send the cpu to sleep... */
 
 	s3c_pm_arch_stop_clocks();
 
+	/* this will also act as our return point from when
+	 * we resume as it saves its own register state and restores it
+	 * during the resume.  */
 
 	cpu_suspend(0, pm_cpu_sleep);
 
-	
+	/* restore the system state */
 
 	s3c_pm_restore_core();
 	s3c_pm_restore_uarts();
@@ -258,18 +311,18 @@ static int s3c_pm_enter(suspend_state_t state)
 
 	s3c_pm_debug_init();
 
-	
+	/* check what irq (if any) restored the system */
 
 	s3c_pm_arch_show_resume_irqs();
 
 	S3C_PMDBG("%s: post sleep, preparing to return\n", __func__);
 
-	
+	/* LEDs should now be 1110 */
 	s3c_pm_debug_smdkled(1 << 1, 0);
 
 	s3c_pm_check_restore();
 
-	
+	/* ok, let's return from sleep */
 
 	S3C_PMDBG("S3C PM Resume (post-restore)\n");
 	return 0;
@@ -277,7 +330,7 @@ static int s3c_pm_enter(suspend_state_t state)
 
 static int s3c_pm_prepare(void)
 {
-	
+	/* prepare check area if configured */
 
 	s3c_pm_check_prepare();
 	return 0;
@@ -295,6 +348,12 @@ static const struct platform_suspend_ops s3c_pm_ops = {
 	.valid		= suspend_valid_only_mem,
 };
 
+/* s3c_pm_init
+ *
+ * Attach the power management functions. This should be called
+ * from the board specific initialisation if the board supports
+ * it.
+*/
 
 int __init s3c_pm_init(void)
 {

@@ -100,5 +100,5 @@ static inline int mmp2_add_isram(struct sram_platdata *data)
 	return pxa_register_device(&mmp2_device_isram, data, sizeof(*data));
 }
 
-#endif 
+#endif /* __ASM_MACH_MMP2_H */
 

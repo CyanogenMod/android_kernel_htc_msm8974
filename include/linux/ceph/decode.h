@@ -7,6 +7,11 @@
 
 #include "types.h"
 
+/*
+ * in all cases,
+ *   void **p     pointer to position pointer
+ *   void *end    pointer to end of buffer (last byte + 1)
+ */
 
 static inline u64 ceph_decode_64(void **p)
 {
@@ -38,6 +43,9 @@ static inline void ceph_decode_copy(void **p, void *pv, size_t n)
 	*p += n;
 }
 
+/*
+ * bounds check input.
+ */
 #define ceph_decode_need(p, end, n, bad)		\
 	do {						\
 		if (unlikely(*(p) + (n) > (end))) 	\
@@ -71,6 +79,9 @@ static inline void ceph_decode_copy(void **p, void *pv, size_t n)
 		ceph_decode_copy(p, pv, n);			\
 	} while (0)
 
+/*
+ * struct ceph_timespec <-> struct timespec
+ */
 static inline void ceph_decode_timespec(struct timespec *ts,
 					const struct ceph_timespec *tv)
 {
@@ -84,6 +95,9 @@ static inline void ceph_encode_timespec(struct ceph_timespec *tv,
 	tv->tv_nsec = cpu_to_le32(ts->tv_nsec);
 }
 
+/*
+ * sockaddr_storage <-> ceph_sockaddr
+ */
 static inline void ceph_encode_addr(struct ceph_entity_addr *a)
 {
 	__be16 ss_family = htons(a->in_addr.ss_family);
@@ -96,6 +110,9 @@ static inline void ceph_decode_addr(struct ceph_entity_addr *a)
 	WARN_ON(a->in_addr.ss_family == 512);
 }
 
+/*
+ * encoders
+ */
 static inline void ceph_encode_64(void **p, u64 v)
 {
 	put_unaligned_le64(v, (__le64 *)*p);
@@ -122,6 +139,9 @@ static inline void ceph_encode_copy(void **p, const void *s, int len)
 	*p += len;
 }
 
+/*
+ * filepath, string encoders
+ */
 static inline void ceph_encode_filepath(void **p, void *end,
 					u64 ino, const char *path)
 {

@@ -48,8 +48,9 @@
 #define MXC_CSPIINT		0x0c
 #define MXC_RESET		0x1c
 
-#define MXC_INT_RR	(1 << 0) 
-#define MXC_INT_TE	(1 << 1) 
+/* generic defines to abstract from the different register layouts */
+#define MXC_INT_RR	(1 << 0) /* Receive data ready interrupt */
+#define MXC_INT_TE	(1 << 1) /* Transmit FIFO empty interrupt */
 
 struct spi_imx_config {
 	unsigned int speed_hz;
@@ -63,8 +64,8 @@ enum spi_imx_devtype {
 	IMX21_CSPI,
 	IMX27_CSPI,
 	IMX31_CSPI,
-	IMX35_CSPI,	
-	IMX51_ECSPI,	
+	IMX35_CSPI,	/* CSPI on all i.mx except above */
+	IMX51_ECSPI,	/* ECSPI on i.mx51 and later */
 };
 
 struct spi_imx_data;
@@ -92,7 +93,7 @@ struct spi_imx_data {
 	void (*rx)(struct spi_imx_data *);
 	void *rx_buf;
 	const void *tx_buf;
-	unsigned int txfifo; 
+	unsigned int txfifo; /* number of words pushed in tx FIFO */
 
 	struct spi_imx_devtype_data *devtype_data;
 	int chipselect[0];
@@ -146,9 +147,13 @@ MXC_SPI_BUF_TX(u16)
 MXC_SPI_BUF_RX(u32)
 MXC_SPI_BUF_TX(u32)
 
+/* First entry is reserved, second entry is valid only if SDHC_SPIEN is set
+ * (which is currently not the case in this driver)
+ */
 static int mxc_clkdivs[] = {0, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192,
 	256, 384, 512, 768, 1024};
 
+/* MX21, MX27 */
 static unsigned int spi_imx_clkdiv_1(unsigned int fin,
 		unsigned int fspi, unsigned int max)
 {
@@ -161,6 +166,7 @@ static unsigned int spi_imx_clkdiv_1(unsigned int fin,
 	return max;
 }
 
+/* MX1, MX31, MX35, MX51 CSPI */
 static unsigned int spi_imx_clkdiv_2(unsigned int fin,
 		unsigned int fspi)
 {
@@ -197,8 +203,13 @@ static unsigned int spi_imx_clkdiv_2(unsigned int fin,
 #define MX51_ECSPI_STAT		0x18
 #define MX51_ECSPI_STAT_RR		(1 <<  3)
 
+/* MX51 eCSPI */
 static unsigned int mx51_ecspi_clkdiv(unsigned int fin, unsigned int fspi)
 {
+	/*
+	 * there are two 4-bit dividers, the pre-divider divides by
+	 * $pre, the post-divider by 2^$post
+	 */
 	unsigned int pre, post;
 
 	if (unlikely(fspi > fin))
@@ -208,7 +219,7 @@ static unsigned int mx51_ecspi_clkdiv(unsigned int fin, unsigned int fspi)
 	if (fin > fspi << post)
 		post++;
 
-	
+	/* now we have: (fin <= fspi << post) with post being minimal */
 
 	post = max(4U, post) - 4;
 	if (unlikely(post > 0xf)) {
@@ -261,10 +272,10 @@ static int __maybe_unused mx51_ecspi_config(struct spi_imx_data *spi_imx,
 	 */
 	ctrl |= MX51_ECSPI_CTRL_MODE_MASK;
 
-	
+	/* set clock speed */
 	ctrl |= mx51_ecspi_clkdiv(spi_imx->spi_clk, config->speed_hz);
 
-	
+	/* set chip select to use */
 	ctrl |= MX51_ECSPI_CTRL_CS(config->cs);
 
 	ctrl |= (config->bpw - 1) << MX51_ECSPI_CTRL_BL_OFFSET;
@@ -293,7 +304,7 @@ static int __maybe_unused mx51_ecspi_rx_available(struct spi_imx_data *spi_imx)
 
 static void __maybe_unused mx51_ecspi_reset(struct spi_imx_data *spi_imx)
 {
-	
+	/* drain receive buffer */
 	while (mx51_ecspi_rx_available(spi_imx))
 		readl(spi_imx->base + MXC_CSPIRXDATA);
 }
@@ -317,6 +328,10 @@ static void __maybe_unused mx51_ecspi_reset(struct spi_imx_data *spi_imx)
 #define MX31_CSPISTATUS		0x14
 #define MX31_STATUS_RR		(1 << 3)
 
+/* These functions also work for the i.MX35, but be aware that
+ * the i.MX35 has a slightly different register layout for bits
+ * we do not use here.
+ */
 static void __maybe_unused mx31_intctrl(struct spi_imx_data *spi_imx, int enable)
 {
 	unsigned int val = 0;
@@ -377,7 +392,7 @@ static int __maybe_unused mx31_rx_available(struct spi_imx_data *spi_imx)
 
 static void __maybe_unused mx31_reset(struct spi_imx_data *spi_imx)
 {
-	
+	/* drain receive buffer */
 	while (readl(spi_imx->base + MX31_CSPISTATUS) & MX31_STATUS_RR)
 		readl(spi_imx->base + MXC_CSPIRXDATA);
 }
@@ -531,7 +546,7 @@ static struct spi_imx_devtype_data imx21_cspi_devtype_data = {
 };
 
 static struct spi_imx_devtype_data imx27_cspi_devtype_data = {
-	
+	/* i.mx27 cspi shares the functions with i.mx21 one */
 	.intctrl = mx21_intctrl,
 	.config = mx21_config,
 	.trigger = mx21_trigger,
@@ -550,7 +565,7 @@ static struct spi_imx_devtype_data imx31_cspi_devtype_data = {
 };
 
 static struct spi_imx_devtype_data imx35_cspi_devtype_data = {
-	
+	/* i.mx35 and later cspi shares the functions with i.mx31 one */
 	.intctrl = mx31_intctrl,
 	.config = mx31_config,
 	.trigger = mx31_trigger,
@@ -588,7 +603,7 @@ static struct platform_device_id spi_imx_devtype[] = {
 		.name = "imx51-ecspi",
 		.driver_data = (kernel_ulong_t) &imx51_ecspi_devtype_data,
 	}, {
-		
+		/* sentinel */
 	}
 };
 
@@ -599,7 +614,7 @@ static const struct of_device_id spi_imx_dt_ids[] = {
 	{ .compatible = "fsl,imx31-cspi", .data = &imx31_cspi_devtype_data, },
 	{ .compatible = "fsl,imx35-cspi", .data = &imx35_cspi_devtype_data, },
 	{ .compatible = "fsl,imx51-ecspi", .data = &imx51_ecspi_devtype_data, },
-	{  }
+	{ /* sentinel */ }
 };
 
 static void spi_imx_chipselect(struct spi_device *spi, int is_active)
@@ -642,6 +657,9 @@ static irqreturn_t spi_imx_isr(int irq, void *dev_id)
 	}
 
 	if (spi_imx->txfifo) {
+		/* No data left to push, but still waiting for rx data,
+		 * enable receive data available interrupt.
+		 */
 		spi_imx->devtype_data->intctrl(
 				spi_imx, MXC_INT_RR);
 		return IRQ_HANDLED;
@@ -671,7 +689,7 @@ static int spi_imx_setupxfer(struct spi_device *spi,
 	if (!config.speed_hz)
 		config.speed_hz = spi->max_speed_hz;
 
-	
+	/* Initialize the functions for transfer */
 	if (config.bpw <= 8) {
 		spi_imx->rx = spi_imx_buf_rx_u8;
 		spi_imx->tx = spi_imx_buf_tx_u8;

@@ -33,6 +33,9 @@ void free_initmem(void)
 {
 }
 
+/*
+ * ColdFire paging_init derived from sun3.
+ */
 void __init paging_init(void)
 {
 	pgd_t *pg_dir;
@@ -63,7 +66,7 @@ void __init paging_init(void)
 		pgd_val(*pg_dir) = (unsigned long) pg_table;
 		pg_dir++;
 
-		
+		/* now change pg_table to kernel virtual addresses */
 		for (i = 0; i < PTRS_PER_PTE; ++i, ++pg_table) {
 			pte_t pte = pfn_pte(virt_to_pfn(address), PAGE_INIT);
 			if (address >= (unsigned long) high_memory)
@@ -151,16 +154,42 @@ int cf_tlb_miss(struct pt_regs *regs, int write, int dtlb, int extension_word)
 	return 0;
 }
 
+/*
+ * Initialize the context management stuff.
+ * The following was taken from arch/ppc/mmu_context.c
+ */
 void __init mmu_context_init(void)
 {
+	/*
+	 * Some processors have too few contexts to reserve one for
+	 * init_mm, and require using context 0 for a normal task.
+	 * Other processors reserve the use of context zero for the kernel.
+	 * This code assumes FIRST_CONTEXT < 32.
+	 */
 	context_map[0] = (1 << FIRST_CONTEXT) - 1;
 	next_mmu_context = FIRST_CONTEXT;
 	atomic_set(&nr_free_contexts, LAST_CONTEXT - FIRST_CONTEXT + 1);
 }
 
+/*
+ * Steal a context from a task that has one at the moment.
+ * This is only used on 8xx and 4xx and we presently assume that
+ * they don't do SMP.  If they do then thicfpgalloc.hs will have to check
+ * whether the MM we steal is in use.
+ * We also assume that this is only used on systems that don't
+ * use an MMU hash table - this is true for 8xx and 4xx.
+ * This isn't an LRU system, it just frees up each context in
+ * turn (sort-of pseudo-random replacement :).  This would be the
+ * place to implement an LRU scheme if anyone was motivated to do it.
+ *  -- paulus
+ */
 void steal_context(void)
 {
 	struct mm_struct *mm;
+	/*
+	 * free up context `next_mmu_context'
+	 * if we shouldn't free context 0, don't...
+	 */
 	if (next_mmu_context < FIRST_CONTEXT)
 		next_mmu_context = FIRST_CONTEXT;
 	mm = context_mm[next_mmu_context];

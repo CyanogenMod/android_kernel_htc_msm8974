@@ -26,7 +26,36 @@
 
 */
 
+/*
+   This code forms the interface between the USB layers and the Philips
+   specific stuff. Some adanved stuff of the driver falls under an
+   NDA, signed between me and Philips B.V., Eindhoven, the Netherlands, and
+   is thus not distributed in source form. The binary pwcx.o module
+   contains the code that falls under the NDA.
 
+   In case you're wondering: 'pwc' stands for "Philips WebCam", but
+   I really didn't want to type 'philips_web_cam' every time (I'm lazy as
+   any Linux kernel hacker, but I don't like uncomprehensible abbreviations
+   without explanation).
+
+   Oh yes, convention: to disctinguish between all the various pointers to
+   device-structures, I use these names for the pointer variables:
+   udev: struct usb_device *
+   vdev: struct video_device (member of pwc_dev)
+   pdev: struct pwc_devive *
+*/
+
+/* Contributors:
+   - Alvarado: adding whitebalance code
+   - Alistar Moire: QuickCam 3000 Pro device/product ID
+   - Tony Hoyle: Creative Labs Webcam 5 device/product ID
+   - Mark Burazin: solving hang in VIDIOCSYNC when camera gets unplugged
+   - Jk Fang: Sotec Afina Eye ID
+   - Xavier Roche: QuickCam Pro 4000 ID
+   - Jens Knudsen: QuickCam Zoom ID
+   - J. Debert: QuickCam for Notebooks ID
+   - Pham Thanh Nam: webcam snapshot button as an event input device
+*/
 
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -39,7 +68,7 @@
 #endif
 #include <linux/vmalloc.h>
 #include <asm/io.h>
-#include <linux/kernel.h>		
+#include <linux/kernel.h>		/* simple_strtol() */
 
 #include "pwc.h"
 #include "pwc-kiara.h"
@@ -47,37 +76,39 @@
 #include "pwc-dec23.h"
 #include "pwc-dec1.h"
 
+/* Function prototypes and driver templates */
 
+/* hotplug device table support */
 static const struct usb_device_id pwc_device_table [] = {
-	{ USB_DEVICE(0x0471, 0x0302) }, 
+	{ USB_DEVICE(0x0471, 0x0302) }, /* Philips models */
 	{ USB_DEVICE(0x0471, 0x0303) },
 	{ USB_DEVICE(0x0471, 0x0304) },
 	{ USB_DEVICE(0x0471, 0x0307) },
 	{ USB_DEVICE(0x0471, 0x0308) },
 	{ USB_DEVICE(0x0471, 0x030C) },
 	{ USB_DEVICE(0x0471, 0x0310) },
-	{ USB_DEVICE(0x0471, 0x0311) }, 
+	{ USB_DEVICE(0x0471, 0x0311) }, /* Philips ToUcam PRO II */
 	{ USB_DEVICE(0x0471, 0x0312) },
-	{ USB_DEVICE(0x0471, 0x0313) }, 
-	{ USB_DEVICE(0x0471, 0x0329) }, 
-	{ USB_DEVICE(0x069A, 0x0001) }, 
-	{ USB_DEVICE(0x046D, 0x08B0) }, 
-	{ USB_DEVICE(0x046D, 0x08B1) }, 
-	{ USB_DEVICE(0x046D, 0x08B2) }, 
-	{ USB_DEVICE(0x046D, 0x08B3) }, 
-	{ USB_DEVICE(0x046D, 0x08B4) }, 
-	{ USB_DEVICE(0x046D, 0x08B5) }, 
-	{ USB_DEVICE(0x046D, 0x08B6) }, 
-	{ USB_DEVICE(0x046D, 0x08B7) }, 
-	{ USB_DEVICE(0x046D, 0x08B8) }, 
-	{ USB_DEVICE(0x055D, 0x9000) }, 
-	{ USB_DEVICE(0x055D, 0x9001) }, 
-	{ USB_DEVICE(0x055D, 0x9002) },	
-	{ USB_DEVICE(0x041E, 0x400C) }, 
-	{ USB_DEVICE(0x041E, 0x4011) }, 
-	{ USB_DEVICE(0x04CC, 0x8116) }, 
-	{ USB_DEVICE(0x06BE, 0x8116) }, 
-	{ USB_DEVICE(0x0d81, 0x1910) }, 
+	{ USB_DEVICE(0x0471, 0x0313) }, /* the 'new' 720K */
+	{ USB_DEVICE(0x0471, 0x0329) }, /* Philips SPC 900NC PC Camera */
+	{ USB_DEVICE(0x069A, 0x0001) }, /* Askey */
+	{ USB_DEVICE(0x046D, 0x08B0) }, /* Logitech QuickCam Pro 3000 */
+	{ USB_DEVICE(0x046D, 0x08B1) }, /* Logitech QuickCam Notebook Pro */
+	{ USB_DEVICE(0x046D, 0x08B2) }, /* Logitech QuickCam Pro 4000 */
+	{ USB_DEVICE(0x046D, 0x08B3) }, /* Logitech QuickCam Zoom (old model) */
+	{ USB_DEVICE(0x046D, 0x08B4) }, /* Logitech QuickCam Zoom (new model) */
+	{ USB_DEVICE(0x046D, 0x08B5) }, /* Logitech QuickCam Orbit/Sphere */
+	{ USB_DEVICE(0x046D, 0x08B6) }, /* Cisco VT Camera */
+	{ USB_DEVICE(0x046D, 0x08B7) }, /* Logitech ViewPort AV 100 */
+	{ USB_DEVICE(0x046D, 0x08B8) }, /* Logitech (reserved) */
+	{ USB_DEVICE(0x055D, 0x9000) }, /* Samsung MPC-C10 */
+	{ USB_DEVICE(0x055D, 0x9001) }, /* Samsung MPC-C30 */
+	{ USB_DEVICE(0x055D, 0x9002) },	/* Samsung SNC-35E (Ver3.0) */
+	{ USB_DEVICE(0x041E, 0x400C) }, /* Creative Webcam 5 */
+	{ USB_DEVICE(0x041E, 0x4011) }, /* Creative Webcam Pro Ex */
+	{ USB_DEVICE(0x04CC, 0x8116) }, /* Afina Eye */
+	{ USB_DEVICE(0x06BE, 0x8116) }, /* new Afina Eye */
+	{ USB_DEVICE(0x0d81, 0x1910) }, /* Visionite */
 	{ USB_DEVICE(0x0d81, 0x1900) },
 	{ }
 };
@@ -88,10 +119,10 @@ static void usb_pwc_disconnect(struct usb_interface *intf);
 static void pwc_isoc_cleanup(struct pwc_device *pdev);
 
 static struct usb_driver pwc_driver = {
-	.name =			"Philips webcam",	
+	.name =			"Philips webcam",	/* name */
 	.id_table =		pwc_device_table,
-	.probe =		usb_pwc_probe,		
-	.disconnect =		usb_pwc_disconnect,	
+	.probe =		usb_pwc_probe,		/* probe() */
+	.disconnect =		usb_pwc_disconnect,	/* disconnect() */
 };
 
 #define MAX_DEV_HINTS	20
@@ -103,6 +134,7 @@ static struct usb_driver pwc_driver = {
 static int power_save = -1;
 static int leds[2] = { 100, 0 };
 
+/***/
 
 static int pwc_video_close(struct file *file);
 static ssize_t pwc_video_read(struct file *file, char __user *buf,
@@ -120,12 +152,14 @@ static const struct v4l2_file_operations pwc_fops = {
 	.unlocked_ioctl = video_ioctl2,
 };
 static struct video_device pwc_template = {
-	.name =		"Philips Webcam",	
+	.name =		"Philips Webcam",	/* Filled in later */
 	.release =	video_device_release_empty,
 	.fops =         &pwc_fops,
 	.ioctl_ops =	&pwc_ioctl_ops,
 };
 
+/***************************************************************************/
+/* Private functions */
 
 struct pwc_frame_buf *pwc_get_next_fill_buf(struct pwc_device *pdev)
 {
@@ -163,6 +197,10 @@ static void pwc_frame_complete(struct pwc_device *pdev)
 {
 	struct pwc_frame_buf *fbuf = pdev->fill_buf;
 
+	/* The ToUCam Fun CMOS sensor causes the firmware to send 2 or 3 bogus
+	   frames on the USB wire after an exposure change. This conditition is
+	   however detected  in the cam and a bit is set in the header.
+	   */
 	if (pdev->type == 730) {
 		unsigned char *ptr = (unsigned char *)fbuf->data;
 
@@ -180,6 +218,15 @@ static void pwc_frame_complete(struct pwc_device *pdev)
 				PWC_TRACE("Image is normal.\n");
 		}
 		pdev->vmirror = ptr[0] & 0x03;
+		/* Sometimes the trailer of the 730 is still sent as a 4 byte packet
+		   after a short frame; this condition is filtered out specifically. A 4 byte
+		   frame doesn't make sense anyway.
+		   So we get either this sequence:
+		   drop_bit set -> 4 byte frame -> short frame -> good frame
+		   Or this one:
+		   drop_bit set -> short frame -> good frame
+		   So we drop either 3 or 2 frames in all!
+		   */
 		if (fbuf->filled == 4)
 			pdev->drop_frames++;
 	} else if (pdev->type == 740 || pdev->type == 720) {
@@ -190,11 +237,11 @@ static void pwc_frame_complete(struct pwc_device *pdev)
 		pdev->vmirror = ptr[0] & 0x03;
 	}
 
-	
+	/* In case we were instructed to drop the frame, do so silently. */
 	if (pdev->drop_frames > 0) {
 		pdev->drop_frames--;
 	} else {
-		
+		/* Check for underflow first */
 		if (fbuf->filled < pdev->frame_total_size) {
 			PWC_DEBUG_FLOW("Frame buffer underflow (%d bytes);"
 				       " discarded.\n", fbuf->filled);
@@ -205,10 +252,13 @@ static void pwc_frame_complete(struct pwc_device *pdev)
 			pdev->fill_buf = NULL;
 			pdev->vsync = 0;
 		}
-	} 
+	} /* !drop_frames */
 	pdev->vframe_count++;
 }
 
+/* This gets called for the Isochronous pipe (video). This is done in
+ * interrupt time, so it has to be fast, not crash, and not stall. Neat.
+ */
 static void pwc_isoc_handler(struct urb *urb)
 {
 	struct pwc_device *pdev = (struct pwc_device *)urb->context;
@@ -238,7 +288,7 @@ static void pwc_isoc_handler(struct urb *urb)
 		}
 		PWC_ERROR("pwc_isoc_handler() called with status %d [%s].\n",
 			  urb->status, errmsg);
-		
+		/* Give up after a number of contiguous errors */
 		if (++pdev->visoc_errors > MAX_ISOC_ERRORS)
 		{
 			PWC_ERROR("Too many ISOC errors, bailing out.\n");
@@ -248,14 +298,18 @@ static void pwc_isoc_handler(struct urb *urb)
 				pdev->fill_buf = NULL;
 			}
 		}
-		pdev->vsync = 0; 
+		pdev->vsync = 0; /* Drop the current frame */
 		goto handler_end;
 	}
 
-	
+	/* Reset ISOC error counter. We did get here, after all. */
 	pdev->visoc_errors = 0;
 
-	
+	/* vsync: 0 = don't copy data
+		  1 = sync-hunt
+		  2 = synched
+	 */
+	/* Compact data */
 	for (i = 0; i < urb->number_of_packets; i++) {
 		fst  = urb->iso_frame_desc[i].status;
 		flen = urb->iso_frame_desc[i].actual_length;
@@ -276,7 +330,7 @@ static void pwc_isoc_handler(struct urb *urb)
 				PWC_ERROR("Frame overflow (%d > %d)\n",
 					  flen + fbuf->filled,
 					  pdev->frame_total_size);
-				pdev->vsync = 0; 
+				pdev->vsync = 0; /* Let's wait for an EOF */
 			} else {
 				memcpy(fbuf->data + fbuf->filled, iso_buf,
 				       flen);
@@ -284,7 +338,7 @@ static void pwc_isoc_handler(struct urb *urb)
 			}
 		}
 		if (flen < pdev->vlast_packet_size) {
-			
+			/* Shorter packet... end of frame */
 			if (pdev->vsync == 2)
 				pwc_frame_complete(pdev);
 			if (pdev->fill_buf == NULL)
@@ -310,7 +364,7 @@ static int pwc_isoc_init(struct pwc_device *pdev)
 	int i, j, ret;
 	struct usb_interface *intf;
 	struct usb_host_interface *idesc = NULL;
-	int compression = 0; 
+	int compression = 0; /* 0..3 = uncompressed..high */
 
 	if (pdev->iso_init)
 		return 0;
@@ -323,17 +377,19 @@ static int pwc_isoc_init(struct pwc_device *pdev)
 	udev = pdev->udev;
 
 retry:
+	/* We first try with low compression and then retry with a higher
+	   compression setting if there is not enough bandwidth. */
 	ret = pwc_set_video_mode(pdev, pdev->width, pdev->height, pdev->pixfmt,
 				 pdev->vframes, &compression, 1);
 
-	
+	/* Get the current alternate interface, adjust packet size */
 	intf = usb_ifnum_to_if(udev, 0);
 	if (intf)
 		idesc = usb_altnum_to_altsetting(intf, pdev->valternate);
 	if (!idesc)
 		return -EIO;
 
-	
+	/* Search video endpoint */
 	pdev->vmax_packet_size = -1;
 	for (i = 0; i < idesc->desc.bNumEndpoints; i++) {
 		if ((idesc->endpoint[i].desc.bEndpointAddress & 0xF) == pdev->vendpoint) {
@@ -344,10 +400,10 @@ retry:
 
 	if (pdev->vmax_packet_size < 0 || pdev->vmax_packet_size > ISO_MAX_FRAME_SIZE) {
 		PWC_ERROR("Failed to find packet size for video endpoint in current alternate setting.\n");
-		return -ENFILE; 
+		return -ENFILE; /* Odd error, that should be noticeable */
 	}
 
-	
+	/* Set alternate interface */
 	PWC_DEBUG_OPEN("Setting alternate interface %d\n", pdev->valternate);
 	ret = usb_set_interface(pdev->udev, 0, pdev->valternate);
 	if (ret == -ENOSPC && compression < 3) {
@@ -357,7 +413,7 @@ retry:
 	if (ret < 0)
 		return ret;
 
-	
+	/* Allocate and init Isochronuous urbs */
 	for (i = 0; i < MAX_ISO_BUFS; i++) {
 		urb = usb_alloc_urb(ISO_FRAMES_PER_DESC, GFP_KERNEL);
 		if (urb == NULL) {
@@ -369,7 +425,7 @@ retry:
 		pdev->urbs[i] = urb;
 		PWC_DEBUG_MEMORY("Allocated URB at 0x%p\n", urb);
 
-		urb->interval = 1; 
+		urb->interval = 1; // devik
 		urb->dev = udev;
 		urb->pipe = usb_rcvisocpipe(udev, pdev->vendpoint);
 		urb->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
@@ -394,7 +450,7 @@ retry:
 		}
 	}
 
-	
+	/* link */
 	for (i = 0; i < MAX_ISO_BUFS; i++) {
 		ret = usb_submit_urb(pdev->urbs[i], GFP_KERNEL);
 		if (ret == -ENOSPC && compression < 3) {
@@ -412,7 +468,7 @@ retry:
 		PWC_DEBUG_MEMORY("URB 0x%p submitted.\n", pdev->urbs[i]);
 	}
 
-	
+	/* All is done... */
 	pdev->iso_init = 1;
 	PWC_DEBUG_OPEN("<< pwc_isoc_init()\n");
 	return 0;
@@ -422,7 +478,7 @@ static void pwc_iso_stop(struct pwc_device *pdev)
 {
 	int i;
 
-	
+	/* Unlinking ISOC buffers one by one */
 	for (i = 0; i < MAX_ISO_BUFS; i++) {
 		if (pdev->urbs[i]) {
 			PWC_DEBUG_MEMORY("Unlinking URB %p\n", pdev->urbs[i]);
@@ -435,7 +491,7 @@ static void pwc_iso_free(struct pwc_device *pdev)
 {
 	int i;
 
-	
+	/* Freeing ISOC buffers one by one */
 	for (i = 0; i < MAX_ISO_BUFS; i++) {
 		if (pdev->urbs[i]) {
 			PWC_DEBUG_MEMORY("Freeing URB\n");
@@ -512,6 +568,8 @@ static const char *pwc_sensor_type_to_string(unsigned int sensor_type)
 }
 #endif
 
+/***************************************************************************/
+/* Video4Linux functions */
 
 int pwc_test_n_set_capt_file(struct pwc_device *pdev, struct file *file)
 {
@@ -584,6 +642,8 @@ static int pwc_video_mmap(struct file *file, struct vm_area_struct *vma)
 	return vb2_mmap(&pdev->vb_queue, vma);
 }
 
+/***************************************************************************/
+/* Videobuf2 operations */
 
 static int queue_setup(struct vb2_queue *vq, const struct v4l2_format *fmt,
 				unsigned int *nbuffers, unsigned int *nplanes,
@@ -610,7 +670,7 @@ static int buffer_init(struct vb2_buffer *vb)
 {
 	struct pwc_frame_buf *buf = container_of(vb, struct pwc_frame_buf, vb);
 
-	
+	/* need vmalloc since frame buffer > 128K */
 	buf->data = vzalloc(PWC_FRAME_SIZE);
 	if (buf->data == NULL)
 		return -ENOMEM;
@@ -622,7 +682,7 @@ static int buffer_prepare(struct vb2_buffer *vb)
 {
 	struct pwc_device *pdev = vb2_get_drv_priv(vb->vb2_queue);
 
-	
+	/* Don't allow queing new buffers after device disconnection */
 	if (!pdev->udev)
 		return -ENODEV;
 
@@ -634,6 +694,11 @@ static int buffer_finish(struct vb2_buffer *vb)
 	struct pwc_device *pdev = vb2_get_drv_priv(vb->vb2_queue);
 	struct pwc_frame_buf *buf = container_of(vb, struct pwc_frame_buf, vb);
 
+	/*
+	 * Application has called dqbuf and is getting back a buffer we've
+	 * filled, take the pwc data we've stored in buf->data and decompress
+	 * it into a usable format, storing the result in the vb2_buffer
+	 */
 	return pwc_decompress(pdev, buf);
 }
 
@@ -651,7 +716,7 @@ static void buffer_queue(struct vb2_buffer *vb)
 	unsigned long flags = 0;
 
 	spin_lock_irqsave(&pdev->queued_bufs_lock, flags);
-	
+	/* Check the device has not disconnected between prep and queuing */
 	if (pdev->udev)
 		list_add_tail(&buf->list, &pdev->queued_bufs);
 	else
@@ -670,16 +735,16 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 		goto leave;
 	}
 
-	
+	/* Turn on camera and set LEDS on */
 	pwc_camera_power(pdev, 1);
 	pwc_set_leds(pdev, leds[0], leds[1]);
 
 	r = pwc_isoc_init(pdev);
 	if (r) {
-		
+		/* If we failed turn camera and LEDS back off */
 		pwc_set_leds(pdev, 0, 0);
 		pwc_camera_power(pdev, 0);
-		
+		/* And cleanup any queued bufs!! */
 		pwc_cleanup_queued_bufs(pdev);
 	}
 leave:
@@ -715,7 +780,12 @@ static struct vb2_ops pwc_vb_queue_ops = {
 	.stop_streaming		= stop_streaming,
 };
 
+/***************************************************************************/
+/* USB functions */
 
+/* This function gets called when a new device is plugged in or the usb core
+ * is loaded.
+ */
 
 static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {
@@ -731,11 +801,15 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	vendor_id = le16_to_cpu(udev->descriptor.idVendor);
 	product_id = le16_to_cpu(udev->descriptor.idProduct);
 
-	
+	/* Check if we can handle this device */
 	PWC_DEBUG_PROBE("probe() called [%04X %04X], if %d\n",
 		vendor_id, product_id,
 		intf->altsetting->desc.bInterfaceNumber);
 
+	/* the interfaces are probed one by one. We are only interested in the
+	   video interface (0) now.
+	   Interface 1 is the Audio Control, and interface 2 Audio itself.
+	 */
 	if (intf->altsetting->desc.bInterfaceNumber > 0)
 		return -ENODEV;
 
@@ -818,36 +892,36 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 		case 0x08b0:
 			PWC_INFO("Logitech QuickCam Pro 3000 USB webcam detected.\n");
 			name = "Logitech QuickCam Pro 3000";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			break;
 		case 0x08b1:
 			PWC_INFO("Logitech QuickCam Notebook Pro USB webcam detected.\n");
 			name = "Logitech QuickCam Notebook Pro";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			break;
 		case 0x08b2:
 			PWC_INFO("Logitech QuickCam 4000 Pro USB webcam detected.\n");
 			name = "Logitech QuickCam Pro 4000";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			if (my_power_save == -1)
 				my_power_save = 1;
 			break;
 		case 0x08b3:
 			PWC_INFO("Logitech QuickCam Zoom USB webcam detected.\n");
 			name = "Logitech QuickCam Zoom";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			break;
 		case 0x08B4:
 			PWC_INFO("Logitech QuickCam Zoom (new model) USB webcam detected.\n");
 			name = "Logitech QuickCam Zoom";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			if (my_power_save == -1)
 				my_power_save = 1;
 			break;
 		case 0x08b5:
 			PWC_INFO("Logitech QuickCam Orbit/Sphere USB webcam detected.\n");
 			name = "Logitech QuickCam Orbit";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			if (my_power_save == -1)
 				my_power_save = 1;
 			features |= FEATURE_MOTOR_PANTILT;
@@ -855,17 +929,17 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 		case 0x08b6:
 			PWC_INFO("Logitech/Cisco VT Camera webcam detected.\n");
 			name = "Cisco VT Camera";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			break;
 		case 0x08b7:
 			PWC_INFO("Logitech ViewPort AV 100 webcam detected.\n");
 			name = "Logitech ViewPort AV 100";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			break;
-		case 0x08b8: 
+		case 0x08b8: /* Where this released? */
 			PWC_INFO("Logitech QuickCam detected (reserved ID).\n");
 			name = "Logitech QuickCam (res.)";
-			type_id = 730; 
+			type_id = 730; /* Assuming CMOS */
 			break;
 		default:
 			return -ENODEV;
@@ -873,6 +947,10 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 		}
 	}
 	else if (vendor_id == 0x055d) {
+		/* I don't know the difference between the C10 and the C30;
+		   I suppose the difference is the sensor, but both cameras
+		   work equally well with a type_id of 675
+		 */
 		switch(product_id) {
 		case 0x9000:
 			PWC_INFO("Samsung MPC-C10 USB webcam detected.\n");
@@ -928,7 +1006,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	else if (vendor_id == 0x06be) {
 		switch(product_id) {
 		case 0x8116:
-			
+			/* This is essentially the same cam as the Sotec Afina Eye */
 			PWC_INFO("AME Co. Afina Eye USB webcam detected.\n");
 			name = "AME Co. Afina Eye";
 			type_id = 750;
@@ -944,12 +1022,12 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 		case 0x1900:
 			PWC_INFO("Visionite VCS-UC300 USB webcam detected.\n");
 			name = "Visionite VCS-UC300";
-			type_id = 740; 
+			type_id = 740; /* CCD sensor */
 			break;
 		case 0x1910:
 			PWC_INFO("Visionite VCS-UM100 USB webcam detected.\n");
 			name = "Visionite VCS-UM100";
-			type_id = 730; 
+			type_id = 730; /* CMOS sensor */
 			break;
 		default:
 			return -ENODEV;
@@ -957,7 +1035,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 		}
 	}
 	else
-		return -ENODEV; 
+		return -ENODEV; /* Not any of the know types; but the list keeps growing. */
 
 	if (my_power_save == -1)
 		my_power_save = 0;
@@ -969,7 +1047,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	if (udev->descriptor.bNumConfigurations > 1)
 		PWC_WARNING("Warning: more than 1 configuration available.\n");
 
-	
+	/* Allocate structure, initialize pointers, mutexes, etc. and link it to the usb_device */
 	pdev = kzalloc(sizeof(struct pwc_device), GFP_KERNEL);
 	if (pdev == NULL) {
 		PWC_ERROR("Oops, could not allocate memory for pwc_device.\n");
@@ -977,7 +1055,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	}
 	pdev->type = type_id;
 	pdev->features = features;
-	pwc_construct(pdev); 
+	pwc_construct(pdev); /* set min/max sizes correct */
 
 	mutex_init(&pdev->capt_file_lock);
 	mutex_init(&pdev->udevlock);
@@ -987,7 +1065,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	pdev->udev = udev;
 	pdev->power_save = my_power_save;
 
-	
+	/* Init videobuf2 queue structure */
 	memset(&pdev->vb_queue, 0, sizeof(pdev->vb_queue));
 	pdev->vb_queue.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	pdev->vb_queue.io_modes = VB2_MMAP | VB2_USERPTR | VB2_READ;
@@ -997,7 +1075,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	pdev->vb_queue.mem_ops = &vb2_vmalloc_memops;
 	vb2_queue_init(&pdev->vb_queue);
 
-	
+	/* Init video_device structure */
 	memcpy(&pdev->vdev, &pwc_template, sizeof(pwc_template));
 	strcpy(pdev->vdev.name, name);
 	set_bit(V4L2_FL_USE_FH_PRIO, &pdev->vdev.flags);
@@ -1006,7 +1084,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	pdev->release = le16_to_cpu(udev->descriptor.bcdDevice);
 	PWC_DEBUG_PROBE("Release: %04x\n", pdev->release);
 
-	
+	/* Allocate USB command buffers */
 	pdev->ctrl_buf = kmalloc(sizeof(pdev->cmd_buf), GFP_KERNEL);
 	if (!pdev->ctrl_buf) {
 		PWC_ERROR("Oops, could not allocate memory for pwc_device.\n");
@@ -1015,7 +1093,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	}
 
 #ifdef CONFIG_USB_PWC_DEBUG
-	
+	/* Query sensor type */
 	if (pwc_get_cmos_sensor(pdev, &rc) >= 0) {
 		PWC_DEBUG_OPEN("This %s camera is equipped with a %s (%d).\n",
 				pdev->vdev.name,
@@ -1023,26 +1101,26 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	}
 #endif
 
-	
+	/* Set the leds off */
 	pwc_set_leds(pdev, 0, 0);
 
-	
+	/* Setup intial videomode */
 	rc = pwc_set_video_mode(pdev, MAX_WIDTH, MAX_HEIGHT,
 				V4L2_PIX_FMT_YUV420, 30, &compression, 1);
 	if (rc)
 		goto err_free_mem;
 
-	
+	/* Register controls (and read default values from camera */
 	rc = pwc_init_controls(pdev);
 	if (rc) {
 		PWC_ERROR("Failed to register v4l2 controls (%d).\n", rc);
 		goto err_free_mem;
 	}
 
-	
+	/* And powerdown the camera until streaming starts */
 	pwc_camera_power(pdev, 0);
 
-	
+	/* Register the v4l2_device structure */
 	pdev->v4l2_dev.release = pwc_video_release;
 	rc = v4l2_device_register(&intf->dev, &pdev->v4l2_dev);
 	if (rc) {
@@ -1061,7 +1139,7 @@ static int usb_pwc_probe(struct usb_interface *intf, const struct usb_device_id 
 	PWC_INFO("Registered as %s.\n", video_device_node_name(&pdev->vdev));
 
 #ifdef CONFIG_USB_PWC_INPUT_EVDEV
-	
+	/* register webcam snapshot button input device */
 	pdev->button_dev = input_allocate_device();
 	if (!pdev->button_dev) {
 		PWC_ERROR("Err, insufficient memory for webcam snapshot button device.");
@@ -1101,13 +1179,14 @@ err_free_mem:
 	return rc;
 }
 
+/* The user yanked out the cable... */
 static void usb_pwc_disconnect(struct usb_interface *intf)
 {
 	struct v4l2_device *v = usb_get_intfdata(intf);
 	struct pwc_device *pdev = container_of(v, struct pwc_device, v4l2_dev);
 
 	mutex_lock(&pdev->udevlock);
-	
+	/* No need to keep the urbs around after disconnection */
 	pwc_isoc_cleanup(pdev);
 	pdev->udev = NULL;
 	mutex_unlock(&pdev->udevlock);
@@ -1126,6 +1205,9 @@ static void usb_pwc_disconnect(struct usb_interface *intf)
 }
 
 
+/*
+ * Initialization code & module stuff
+ */
 
 static unsigned int leds_nargs;
 

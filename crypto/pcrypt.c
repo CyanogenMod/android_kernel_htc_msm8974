@@ -33,6 +33,22 @@ struct padata_pcrypt {
 	struct padata_instance *pinst;
 	struct workqueue_struct *wq;
 
+	/*
+	 * Cpumask for callback CPUs. It should be
+	 * equal to serial cpumask of corresponding padata instance,
+	 * so it is updated when padata notifies us about serial
+	 * cpumask change.
+	 *
+	 * cb_cpumask is protected by RCU. This fact prevents us from
+	 * using cpumask_var_t directly because the actual type of
+	 * cpumsak_var_t depends on kernel configuration(particularly on
+	 * CONFIG_CPUMASK_OFFSTACK macro). Depending on the configuration
+	 * cpumask_var_t may be either a pointer to the struct cpumask
+	 * or a variable allocated on the stack. Thus we can not safely use
+	 * cpumask_var_t with RCU operations such as rcu_assign_pointer or
+	 * rcu_dereference. So cpumask_var_t is wrapped with struct
+	 * pcrypt_cpumask which makes possible to use it with RCU.
+	 */
 	struct pcrypt_cpumask {
 		cpumask_var_t mask;
 	} *cb_cpumask;

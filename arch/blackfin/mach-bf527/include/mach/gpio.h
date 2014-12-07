@@ -66,4 +66,4 @@
 #include <mach-common/ports-g.h>
 #include <mach-common/ports-h.h>
 
-#endif 
+#endif /* _MACH_GPIO_H_ */

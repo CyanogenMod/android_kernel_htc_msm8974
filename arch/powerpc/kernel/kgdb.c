@@ -26,63 +26,68 @@
 #include <asm/machdep.h>
 #include <asm/debug.h>
 
+/*
+ * This table contains the mapping between PowerPC hardware trap types, and
+ * signals, which are primarily what GDB understands.  GDB and the kernel
+ * don't always agree on values, so we use constants taken from gdb-6.2.
+ */
 static struct hard_trap_info
 {
-	unsigned int tt;		
-	unsigned char signo;		
+	unsigned int tt;		/* Trap type code for powerpc */
+	unsigned char signo;		/* Signal that we map this trap into */
 } hard_trap_info[] = {
-	{ 0x0100, 0x02   },		
-	{ 0x0200, 0x0b  },		
-	{ 0x0300, 0x0b  },		
-	{ 0x0400, 0x0b  },		
-	{ 0x0500, 0x02   },		
-	{ 0x0600, 0x0a   },		
-	{ 0x0700, 0x05  },		
-	{ 0x0800, 0x08   },		
-	{ 0x0900, 0x0e  },		
-	{ 0x0c00, 0x14  },		
+	{ 0x0100, 0x02 /* SIGINT */  },		/* system reset */
+	{ 0x0200, 0x0b /* SIGSEGV */ },		/* machine check */
+	{ 0x0300, 0x0b /* SIGSEGV */ },		/* data access */
+	{ 0x0400, 0x0b /* SIGSEGV */ },		/* instruction access */
+	{ 0x0500, 0x02 /* SIGINT */  },		/* external interrupt */
+	{ 0x0600, 0x0a /* SIGBUS */  },		/* alignment */
+	{ 0x0700, 0x05 /* SIGTRAP */ },		/* program check */
+	{ 0x0800, 0x08 /* SIGFPE */  },		/* fp unavailable */
+	{ 0x0900, 0x0e /* SIGALRM */ },		/* decrementer */
+	{ 0x0c00, 0x14 /* SIGCHLD */ },		/* system call */
 #if defined(CONFIG_40x) || defined(CONFIG_BOOKE)
-	{ 0x2002, 0x05  },		
+	{ 0x2002, 0x05 /* SIGTRAP */ },		/* debug */
 #if defined(CONFIG_FSL_BOOKE)
-	{ 0x2010, 0x08   },		
-	{ 0x2020, 0x08   },		
-	{ 0x2030, 0x08   },		
-	{ 0x2040, 0x08   },		
-	{ 0x2050, 0x08   },		
-	{ 0x2060, 0x0e   },		
-	{ 0x2900, 0x08   },		
-	{ 0x3100, 0x0e  },		
-	{ 0x3200, 0x02   }, 	
-#else 
-	{ 0x1000, 0x0e  },		
-	{ 0x1010, 0x0e  },		
-	{ 0x1020, 0x02   }, 	
-	{ 0x2010, 0x08   },		
-	{ 0x2020, 0x08   },		
+	{ 0x2010, 0x08 /* SIGFPE */  },		/* spe unavailable */
+	{ 0x2020, 0x08 /* SIGFPE */  },		/* spe unavailable */
+	{ 0x2030, 0x08 /* SIGFPE */  },		/* spe fp data */
+	{ 0x2040, 0x08 /* SIGFPE */  },		/* spe fp data */
+	{ 0x2050, 0x08 /* SIGFPE */  },		/* spe fp round */
+	{ 0x2060, 0x0e /* SIGILL */  },		/* performance monitor */
+	{ 0x2900, 0x08 /* SIGFPE */  },		/* apu unavailable */
+	{ 0x3100, 0x0e /* SIGALRM */ },		/* fixed interval timer */
+	{ 0x3200, 0x02 /* SIGINT */  }, 	/* watchdog */
+#else /* ! CONFIG_FSL_BOOKE */
+	{ 0x1000, 0x0e /* SIGALRM */ },		/* prog interval timer */
+	{ 0x1010, 0x0e /* SIGALRM */ },		/* fixed interval timer */
+	{ 0x1020, 0x02 /* SIGINT */  }, 	/* watchdog */
+	{ 0x2010, 0x08 /* SIGFPE */  },		/* fp unavailable */
+	{ 0x2020, 0x08 /* SIGFPE */  },		/* ap unavailable */
 #endif
-#else 
-	{ 0x0d00, 0x05  },		
+#else /* ! (defined(CONFIG_40x) || defined(CONFIG_BOOKE)) */
+	{ 0x0d00, 0x05 /* SIGTRAP */ },		/* single-step */
 #if defined(CONFIG_8xx)
-	{ 0x1000, 0x04   },		
-#else 
-	{ 0x0f00, 0x04   },		
-	{ 0x0f20, 0x08   },		
-	{ 0x1300, 0x05  }, 	
+	{ 0x1000, 0x04 /* SIGILL */  },		/* software emulation */
+#else /* ! CONFIG_8xx */
+	{ 0x0f00, 0x04 /* SIGILL */  },		/* performance monitor */
+	{ 0x0f20, 0x08 /* SIGFPE */  },		/* altivec unavailable */
+	{ 0x1300, 0x05 /* SIGTRAP */ }, 	/* instruction address break */
 #if defined(CONFIG_PPC64)
-	{ 0x1200, 0x05   },		
-	{ 0x1500, 0x04   },		
-	{ 0x1600, 0x04   },		
-	{ 0x1700, 0x08   },		
-	{ 0x1800, 0x04   },		
-#else 
-	{ 0x1400, 0x02   },		
-	{ 0x1600, 0x08   },		
-	{ 0x1700, 0x04   },		
-	{ 0x2000, 0x05  },		
+	{ 0x1200, 0x05 /* SIGILL */  },		/* system error */
+	{ 0x1500, 0x04 /* SIGILL */  },		/* soft patch */
+	{ 0x1600, 0x04 /* SIGILL */  },		/* maintenance */
+	{ 0x1700, 0x08 /* SIGFPE */  },		/* altivec assist */
+	{ 0x1800, 0x04 /* SIGILL */  },		/* thermal */
+#else /* ! CONFIG_PPC64 */
+	{ 0x1400, 0x02 /* SIGINT */  },		/* SMI */
+	{ 0x1600, 0x08 /* SIGFPE */  },		/* altivec assist */
+	{ 0x1700, 0x04 /* SIGILL */  },		/* TAU */
+	{ 0x2000, 0x05 /* SIGTRAP */ },		/* run mode */
 #endif
 #endif
 #endif
-	{ 0x0000, 0x00 }			
+	{ 0x0000, 0x00 }			/* Must be last */
 };
 
 static int computeSignal(unsigned int tt)
@@ -93,7 +98,7 @@ static int computeSignal(unsigned int tt)
 		if (ht->tt == tt)
 			return ht->signo;
 
-	return SIGHUP;		
+	return SIGHUP;		/* default for things we don't know about */
 }
 
 static int kgdb_call_nmi_hook(struct pt_regs *regs)
@@ -109,6 +114,7 @@ void kgdb_roundup_cpus(unsigned long flags)
 }
 #endif
 
+/* KGDB functions to use existing PowerPC64 hooks. */
 static int kgdb_debugger(struct pt_regs *regs)
 {
 	return !kgdb_handle_exception(1, computeSignal(TRAP(regs)),
@@ -136,6 +142,16 @@ static int kgdb_singlestep(struct pt_regs *regs)
 	if (user_mode(regs))
 		return 0;
 
+	/*
+	 * On Book E and perhaps other processors, singlestep is handled on
+	 * the critical exception stack.  This causes current_thread_info()
+	 * to fail, since it it locates the thread_info by masking off
+	 * the low bits of the current stack pointer.  We work around
+	 * this issue by copying the thread_info from the kernel stack
+	 * before calling kgdb_handle_exception, and copying it back
+	 * afterwards.  On most processors the copy is avoided since
+	 * exception_thread_info == thread_info.
+	 */
 	thread_info = (struct thread_info *)(regs->gpr[1] & ~(THREAD_SIZE-1));
 	exception_thread_info = current_thread_info();
 
@@ -188,14 +204,14 @@ void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 
 	memset(gdb_regs, 0, NUMREGBYTES);
 
-	
+	/* Regs GPR0-2 */
 	for (reg = 0; reg < 3; reg++)
 		PACK64(ptr, regs->gpr[reg]);
 
-	
+	/* Regs GPR3-13 are caller saved, not in regs->gpr[] */
 	ptr += 11;
 
-	
+	/* Regs GPR14-31 */
 	for (reg = 14; reg < 32; reg++)
 		PACK64(ptr, regs->gpr[reg]);
 
@@ -207,7 +223,7 @@ void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 	ptr += 32;
 #endif
 #else
-	
+	/* fp registers not used by kernel, leave zero */
 	ptr += 32 * 8 / sizeof(long);
 #endif
 
@@ -313,19 +329,19 @@ char *dbg_get_reg(int regno, void *mem, struct pt_regs *regs)
 		return NULL;
 
 	if (regno < 32 || regno >= 64)
-		
-		
+		/* First 0 -> 31 gpr registers*/
+		/* pc, msr, ls... registers 64 -> 69 */
 		memcpy(mem, (void *)regs + dbg_reg_def[regno].offset,
 				dbg_reg_def[regno].size);
 
 	if (regno >= 32 && regno < 64) {
-		
+		/* FP registers 32 -> 63 */
 #if defined(CONFIG_FSL_BOOKE) && defined(CONFIG_SPE)
 		if (current)
 			memcpy(mem, &current->thread.evr[regno-32],
 					dbg_reg_def[regno].size);
 #else
-		
+		/* fp registers not used by kernel, leave zero */
 		memset(mem, 0, dbg_reg_def[regno].size);
 #endif
 	}
@@ -339,18 +355,18 @@ int dbg_set_reg(int regno, void *mem, struct pt_regs *regs)
 		return -EINVAL;
 
 	if (regno < 32 || regno >= 64)
-		
-		
+		/* First 0 -> 31 gpr registers*/
+		/* pc, msr, ls... registers 64 -> 69 */
 		memcpy((void *)regs + dbg_reg_def[regno].offset, mem,
 				dbg_reg_def[regno].size);
 
 	if (regno >= 32 && regno < 64) {
-		
+		/* FP registers 32 -> 63 */
 #if defined(CONFIG_FSL_BOOKE) && defined(CONFIG_SPE)
 		memcpy(&current->thread.evr[regno-32], mem,
 				dbg_reg_def[regno].size);
 #else
-		
+		/* fp registers not used by kernel, leave zero */
 		return 0;
 #endif
 	}
@@ -363,6 +379,9 @@ void kgdb_arch_set_pc(struct pt_regs *regs, unsigned long pc)
 	regs->nip = pc;
 }
 
+/*
+ * This function does PowerPC specific procesing for interfacing to gdb.
+ */
 int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 			       char *remcom_in_buffer, char *remcom_out_buffer,
 			       struct pt_regs *linux_regs)
@@ -371,14 +390,18 @@ int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 	unsigned long addr;
 
 	switch (remcom_in_buffer[0]) {
+		/*
+		 * sAA..AA   Step one instruction from AA..AA
+		 * This will return an error to gdb ..
+		 */
 	case 's':
 	case 'c':
-		
+		/* handle the optional parameter */
 		if (kgdb_hex2long(&ptr, &addr))
 			linux_regs->nip = addr;
 
 		atomic_set(&kgdb_cpu_doing_single_step, -1);
-		
+		/* set the trace bit if we're stepping */
 		if (remcom_in_buffer[0] == 's') {
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
 			mtspr(SPRN_DBCR0,
@@ -397,6 +420,9 @@ int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 	return -1;
 }
 
+/*
+ * Global data
+ */
 struct kgdb_arch arch_kgdb_ops = {
 	.gdb_bpt_instr = {0x7d, 0x82, 0x10, 0x08},
 };

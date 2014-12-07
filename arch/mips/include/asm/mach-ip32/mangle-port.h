@@ -23,4 +23,4 @@
 # define ioswabq(a, x)		(x)
 # define __mem_ioswabq(a, x)	cpu_to_le32(x)
 
-#endif 
+#endif /* __ASM_MACH_IP32_MANGLE_PORT_H */

@@ -37,14 +37,16 @@ struct sharpsl_nand {
 
 #define mtd_to_sharpsl(_mtd)	container_of(_mtd, struct sharpsl_nand, mtd)
 
-#define ECCLPLB		0x00	
-#define ECCLPUB		0x04	
-#define ECCCP		0x08	
-#define ECCCNTR		0x0C	
-#define ECCCLRR		0x10	
-#define FLASHIO		0x14	
-#define FLASHCTL	0x18	
+/* register offset */
+#define ECCLPLB		0x00	/* line parity 7 - 0 bit */
+#define ECCLPUB		0x04	/* line parity 15 - 8 bit */
+#define ECCCP		0x08	/* column parity 5 - 0 bit */
+#define ECCCNTR		0x0C	/* ECC byte counter */
+#define ECCCLRR		0x10	/* cleare ECC */
+#define FLASHIO		0x14	/* Flash I/O */
+#define FLASHCTL	0x18	/* Flash Control */
 
+/* Flash control bit */
 #define FLRYBY		(1 << 5)
 #define FLCE1		(1 << 4)
 #define FLWP		(1 << 3)
@@ -52,6 +54,14 @@ struct sharpsl_nand {
 #define FLCLE		(1 << 1)
 #define FLCE0		(1 << 0)
 
+/*
+ *	hardware specific access to control-lines
+ *	ctrl:
+ *	NAND_CNE: bit 0 -> ! bit 0 & 4
+ *	NAND_CLE: bit 1 -> bit 1
+ *	NAND_ALE: bit 2 -> bit 2
+ *
+ */
 static void sharpsl_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 				   unsigned int ctrl)
 {
@@ -93,6 +103,9 @@ static int sharpsl_nand_calculate_ecc(struct mtd_info *mtd, const u_char * dat, 
 	return readb(sharpsl->io + ECCCNTR) != 0;
 }
 
+/*
+ * Main initialization routine
+ */
 static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 {
 	struct nand_chip *this;
@@ -106,7 +119,7 @@ static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* Allocate memory for MTD device structure and private data */
 	sharpsl = kzalloc(sizeof(struct sharpsl_nand), GFP_KERNEL);
 	if (!sharpsl) {
 		printk("Unable to allocate SharpSL NAND MTD device structure.\n");
@@ -120,7 +133,7 @@ static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 		goto err_get_res;
 	}
 
-	
+	/* map physical address */
 	sharpsl->io = ioremap(r->start, resource_size(r));
 	if (!sharpsl->io) {
 		printk("ioremap to access Sharp SL NAND chip failed\n");
@@ -128,26 +141,29 @@ static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 		goto err_ioremap;
 	}
 
-	
+	/* Get pointer to private data */
 	this = (struct nand_chip *)(&sharpsl->chip);
 
-	
+	/* Link the private data with the MTD structure */
 	sharpsl->mtd.priv = this;
 	sharpsl->mtd.owner = THIS_MODULE;
 
 	platform_set_drvdata(pdev, sharpsl);
 
+	/*
+	 * PXA initialize
+	 */
 	writeb(readb(sharpsl->io + FLASHCTL) | FLWP, sharpsl->io + FLASHCTL);
 
-	
+	/* Set address of NAND IO lines */
 	this->IO_ADDR_R = sharpsl->io + FLASHIO;
 	this->IO_ADDR_W = sharpsl->io + FLASHIO;
-	
+	/* Set address of hardware control function */
 	this->cmd_ctrl = sharpsl_nand_hwcontrol;
 	this->dev_ready = sharpsl_nand_dev_ready;
-	
+	/* 15 us command delay time */
 	this->chip_delay = 15;
-	
+	/* set eccmode using hardware ECC */
 	this->ecc.mode = NAND_ECC_HW;
 	this->ecc.size = 256;
 	this->ecc.bytes = 3;
@@ -158,12 +174,12 @@ static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 	this->ecc.calculate = sharpsl_nand_calculate_ecc;
 	this->ecc.correct = nand_correct_data;
 
-	
+	/* Scan to find existence of the device */
 	err = nand_scan(&sharpsl->mtd, 1);
 	if (err)
 		goto err_scan;
 
-	
+	/* Register the partitions */
 	sharpsl->mtd.name = "sharpsl-nand";
 
 	err = mtd_device_parse_register(&sharpsl->mtd, NULL, NULL,
@@ -171,7 +187,7 @@ static int __devinit sharpsl_nand_probe(struct platform_device *pdev)
 	if (err)
 		goto err_add;
 
-	
+	/* Return happy */
 	return 0;
 
 err_add:
@@ -186,18 +202,21 @@ err_get_res:
 	return err;
 }
 
+/*
+ * Clean up routine
+ */
 static int __devexit sharpsl_nand_remove(struct platform_device *pdev)
 {
 	struct sharpsl_nand *sharpsl = platform_get_drvdata(pdev);
 
-	
+	/* Release resources, unregister device */
 	nand_release(&sharpsl->mtd);
 
 	platform_set_drvdata(pdev, NULL);
 
 	iounmap(sharpsl->io);
 
-	
+	/* Free the MTD device structure */
 	kfree(sharpsl);
 
 	return 0;

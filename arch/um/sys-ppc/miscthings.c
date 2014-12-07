@@ -1,7 +1,14 @@
 #include "linux/threads.h"
-#include "linux/stddef.h"  
-#include "linux/elf.h"  
+#include "linux/stddef.h"  // for NULL
+#include "linux/elf.h"  // for AT_NULL
 
+/* The following function nicked from arch/ppc/kernel/process.c and
+ * adapted slightly */
+/*
+ * XXX ld.so expects the auxiliary table to start on
+ * a 16-byte boundary, so we have to find it and
+ * move it up. :-(
+ */
 void shove_aux_table(unsigned long sp)
 {
 	int argc;
@@ -11,13 +18,13 @@ void shove_aux_table(unsigned long sp)
 
 	argc = *(int *)sp;
 	sp += sizeof(int) + (argc + 1) * sizeof(char *);
-	
+	/* skip over the environment pointers */
 	do {
 		p = *(char **)sp;
 		sp += sizeof(char *);
 	} while (p != NULL);
 	aux_start = sp;
-	
+	/* skip to the end of the auxiliary table */
 	do {
 		e = *(unsigned long *)sp;
 		sp += 2 * sizeof(unsigned long);
@@ -31,4 +38,5 @@ void shove_aux_table(unsigned long sp)
 		} while (sp > aux_start);
 	}
 }
+/* END stuff taken from arch/ppc/kernel/process.c */
 

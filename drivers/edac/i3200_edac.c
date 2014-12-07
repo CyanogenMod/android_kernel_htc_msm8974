@@ -27,37 +27,75 @@
 #define I3200_RANKS_PER_CHANNEL	4
 #define I3200_CHANNELS		2
 
+/* Intel 3200 register addresses - device 0 function 0 - DRAM Controller */
 
-#define I3200_MCHBAR_LOW	0x48	
+#define I3200_MCHBAR_LOW	0x48	/* MCH Memory Mapped Register BAR */
 #define I3200_MCHBAR_HIGH	0x4c
-#define I3200_MCHBAR_MASK	0xfffffc000ULL	
+#define I3200_MCHBAR_MASK	0xfffffc000ULL	/* bits 35:14 */
 #define I3200_MMR_WINDOW_SIZE	16384
 
-#define I3200_TOM		0xa0	
-#define I3200_TOM_MASK		0x3ff	
-#define I3200_TOM_SHIFT		26	
+#define I3200_TOM		0xa0	/* Top of Memory (16b)
+		 *
+		 * 15:10 reserved
+		 *  9:0  total populated physical memory
+		 */
+#define I3200_TOM_MASK		0x3ff	/* bits 9:0 */
+#define I3200_TOM_SHIFT		26	/* 64MiB grain */
 
-#define I3200_ERRSTS		0xc8	
+#define I3200_ERRSTS		0xc8	/* Error Status Register (16b)
+		 *
+		 * 15    reserved
+		 * 14    Isochronous TBWRR Run Behind FIFO Full
+		 *       (ITCV)
+		 * 13    Isochronous TBWRR Run Behind FIFO Put
+		 *       (ITSTV)
+		 * 12    reserved
+		 * 11    MCH Thermal Sensor Event
+		 *       for SMI/SCI/SERR (GTSE)
+		 * 10    reserved
+		 *  9    LOCK to non-DRAM Memory Flag (LCKF)
+		 *  8    reserved
+		 *  7    DRAM Throttle Flag (DTF)
+		 *  6:2  reserved
+		 *  1    Multi-bit DRAM ECC Error Flag (DMERR)
+		 *  0    Single-bit DRAM ECC Error Flag (DSERR)
+		 */
 #define I3200_ERRSTS_UE		0x0002
 #define I3200_ERRSTS_CE		0x0001
 #define I3200_ERRSTS_BITS	(I3200_ERRSTS_UE | I3200_ERRSTS_CE)
 
 
+/* Intel  MMIO register space - device 0 function 0 - MMR space */
 
-#define I3200_C0DRB	0x200	
-#define I3200_C1DRB	0x600	
-#define I3200_DRB_MASK	0x3ff	
-#define I3200_DRB_SHIFT	26	
+#define I3200_C0DRB	0x200	/* Channel 0 DRAM Rank Boundary (16b x 4)
+		 *
+		 * 15:10 reserved
+		 *  9:0  Channel 0 DRAM Rank Boundary Address
+		 */
+#define I3200_C1DRB	0x600	/* Channel 1 DRAM Rank Boundary (16b x 4) */
+#define I3200_DRB_MASK	0x3ff	/* bits 9:0 */
+#define I3200_DRB_SHIFT	26	/* 64MiB grain */
 
-#define I3200_C0ECCERRLOG	0x280	
-#define I3200_C1ECCERRLOG		0x680	
+#define I3200_C0ECCERRLOG	0x280	/* Channel 0 ECC Error Log (64b)
+		 *
+		 * 63:48 Error Column Address (ERRCOL)
+		 * 47:32 Error Row Address (ERRROW)
+		 * 31:29 Error Bank Address (ERRBANK)
+		 * 28:27 Error Rank Address (ERRRANK)
+		 * 26:24 reserved
+		 * 23:16 Error Syndrome (ERRSYND)
+		 * 15: 2 reserved
+		 *    1  Multiple Bit Error Status (MERRSTS)
+		 *    0  Correctable Error Status (CERRSTS)
+		 */
+#define I3200_C1ECCERRLOG		0x680	/* Chan 1 ECC Error Log (64b) */
 #define I3200_ECCERRLOG_CE		0x1
 #define I3200_ECCERRLOG_UE		0x2
 #define I3200_ECCERRLOG_RANK_BITS	0x18000000
 #define I3200_ECCERRLOG_RANK_SHIFT	27
 #define I3200_ECCERRLOG_SYNDROME_BITS	0xff0000
 #define I3200_ECCERRLOG_SYNDROME_SHIFT	16
-#define I3200_CAPID0			0xe0	
+#define I3200_CAPID0			0xe0	/* P.95 of spec for details */
 
 struct i3200_priv {
 	void __iomem *window;
@@ -67,10 +105,10 @@ static int nr_channels;
 
 static int how_many_channels(struct pci_dev *pdev)
 {
-	unsigned char capid0_8b; 
+	unsigned char capid0_8b; /* 8th byte of CAPID0 */
 
 	pci_read_config_byte(pdev, I3200_CAPID0 + 8, &capid0_8b);
-	if (capid0_8b & 0x20) { 
+	if (capid0_8b & 0x20) { /* check DCD: Dual Channel Disable */
 		debugf0("In single channel mode.\n");
 		return 1;
 	} else {
@@ -122,6 +160,10 @@ static void i3200_clear_error_info(struct mem_ctl_info *mci)
 
 	pdev = to_pci_dev(mci->dev);
 
+	/*
+	 * Clear any error bits.
+	 * (Yes, we really clear bits by writing 1 to them.)
+	 */
 	pci_write_bits16(pdev, I3200_ERRSTS, I3200_ERRSTS_BITS,
 		I3200_ERRSTS_BITS);
 }
@@ -150,6 +192,12 @@ static void i3200_get_and_clear_error_info(struct mem_ctl_info *mci,
 
 	pci_read_config_word(pdev, I3200_ERRSTS, &info->errsts2);
 
+	/*
+	 * If the error is the same for both reads then the first set
+	 * of reads is valid.  If there is a change then there is a CE
+	 * with no info and the second set of reads is valid and
+	 * should be UE info.
+	 */
 	if ((info->errsts ^ info->errsts2) & I3200_ERRSTS_BITS) {
 		info->eccerrlog[0] = readq(window + I3200_C0ECCERRLOG);
 		if (nr_channels == 2)
@@ -312,6 +360,12 @@ static int i3200_probe1(struct pci_dev *pdev, int dev_idx)
 
 	stacked = i3200_is_stacked(pdev, drbs);
 
+	/*
+	 * The dram rank boundary (DRB) reg values are boundary addresses
+	 * for each DRAM rank with a granularity of 64MB.  DRB regs are
+	 * cumulative; the last one will contain the total memory
+	 * contained in all ranks.
+	 */
 	last_page = -1UL;
 	for (i = 0; i < mci->nr_csrows; i++) {
 		unsigned long nr_pages;
@@ -345,7 +399,7 @@ static int i3200_probe1(struct pci_dev *pdev, int dev_idx)
 		goto fail;
 	}
 
-	
+	/* get this far and it's successful */
 	debugf3("MC: %s(): success\n", __func__);
 	return 0;
 
@@ -397,7 +451,7 @@ static DEFINE_PCI_DEVICE_TABLE(i3200_pci_tbl) = {
 		I3200},
 	{
 		0,
-	}            
+	}            /* 0 terminated list. */
 };
 
 MODULE_DEVICE_TABLE(pci, i3200_pci_tbl);
@@ -415,7 +469,7 @@ static int __init i3200_init(void)
 
 	debugf3("MC: %s()\n", __func__);
 
-	
+	/* Ensure that the OPSTATE is set correctly for POLL or NMI */
 	opstate_init();
 
 	pci_rc = pci_register_driver(&i3200_driver);

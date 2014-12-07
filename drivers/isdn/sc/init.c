@@ -26,6 +26,7 @@ static const char version[] = "2.0b1";
 
 static const char *boardname[] = { "DataCommute/BRI", "DataCommute/PRI", "TeleCommute/BRI" };
 
+/* insmod set parameters */
 static unsigned int io[] = {0, 0, 0, 0};
 static unsigned char irq[] = {0, 0, 0, 0};
 static unsigned long ram[] = {0, 0, 0, 0};
@@ -63,14 +64,23 @@ static int __init sc_init(void)
 
 	while (b++ < MAX_CARDS - 1) {
 		pr_debug("Probing for adapter #%d\n", b);
+		/*
+		 * Initialize reusable variables
+		 */
 		model = -1;
 		magic = 0;
 		channels = 0;
 		pgport = 0;
 
+		/*
+		 * See if we should probe for IO base
+		 */
 		pr_debug("I/O Base for board %d is 0x%x, %s probe\n", b, io[b],
 			 io[b] == 0 ? "will" : "won't");
 		if (io[b]) {
+			/*
+			 * No, I/O Base has been provided
+			 */
 			for (i = 0; i < MAX_IO_REGS - 1; i++) {
 				if (!request_region(io[b] + i * 0x400, 1, "sc test")) {
 					pr_debug("request_region for 0x%x failed\n", io[b] + i * 0x400);
@@ -80,6 +90,9 @@ static int __init sc_init(void)
 					release_region(io[b] + i * 0x400, 1);
 			}
 
+			/*
+			 * Confirm the I/O Address with a test
+			 */
 			if (io[b] == 0) {
 				pr_debug("I/O Address invalid.\n");
 				continue;
@@ -93,6 +106,9 @@ static int __init sc_init(void)
 			}
 		}
 		else {
+			/*
+			 * Yes, probe for I/O Base
+			 */
 			if (probe_exhasted) {
 				pr_debug("All probe addresses exhasted, skipping\n");
 				continue;
@@ -101,7 +117,7 @@ static int __init sc_init(void)
 			for (i = last_base; i <= IOBASE_MAX; i += IOBASE_OFFSET) {
 				int found_io = 1;
 				if (i == IOBASE_MAX) {
-					probe_exhasted = 1; 
+					probe_exhasted = 1; /* No more addresses to probe */
 					pr_debug("End of Probes\n");
 				}
 				last_base = i + IOBASE_OFFSET;
@@ -131,6 +147,9 @@ static int __init sc_init(void)
 			}
 		}
 
+		/*
+		 * See if we should probe for shared RAM
+		 */
 		if (do_reset) {
 			pr_debug("Doing a SAFE probe reset\n");
 			outb(0xFF, io[b] + RESET_OFFSET);
@@ -140,6 +159,11 @@ static int __init sc_init(void)
 			 ram[b], ram[b] == 0 ? "will" : "won't");
 
 		if (ram[b]) {
+			/*
+			 * No, the RAM base has been provided
+			 * Just look for a signature and ID the
+			 * board model
+			 */
 			if (request_region(ram[b], SRAM_PAGESIZE, "sc test")) {
 				pr_debug("request_region for RAM base 0x%lx succeeded\n", ram[b]);
 				model = identify_board(ram[b], io[b]);
@@ -147,6 +171,10 @@ static int __init sc_init(void)
 			}
 		}
 		else {
+			/*
+			 * Yes, probe for free RAM and look for
+			 * a signature and id the board model
+			 */
 			for (i = SRAM_MIN; i < SRAM_MAX; i += SRAM_PAGESIZE) {
 				pr_debug("Checking RAM address 0x%x...\n", i);
 				if (request_region(i, SRAM_PAGESIZE, "sc test")) {
@@ -165,11 +193,21 @@ static int __init sc_init(void)
 				pr_debug("  request failed\n");
 			}
 		}
+		/*
+		 * See if we found free RAM and the board model
+		 */
 		if (!ram[b] || model < 0) {
+			/*
+			 * Nope, there was no place in RAM for the
+			 * board, or it couldn't be identified
+			 */
 			pr_debug("Failed to find an adapter at 0x%lx\n", ram[b]);
 			continue;
 		}
 
+		/*
+		 * Set the board's magic number, memory size and page register
+		 */
 		switch (model) {
 		case PRI_BOARD:
 			channels = 23;
@@ -214,13 +252,26 @@ static int __init sc_init(void)
 
 		pr_debug("current IRQ: %d  b: %d\n", irq[b], b);
 
+		/*
+		 * Make sure we got an IRQ
+		 */
 		if (!irq[b]) {
+			/*
+			 * No interrupt could be used
+			 */
 			pr_debug("Failed to acquire an IRQ line\n");
 			continue;
 		}
 
+		/*
+		 * Horray! We found a board, Make sure we can register
+		 * it with ISDN4Linux
+		 */
 		interface = kzalloc(sizeof(isdn_if), GFP_KERNEL);
 		if (interface == NULL) {
+			/*
+			 * Oops, can't malloc isdn_if
+			 */
 			continue;
 		}
 
@@ -235,14 +286,23 @@ static int __init sc_init(void)
 		strcpy(interface->id, devname);
 		interface->id[2] = '0' + cinst;
 
+		/*
+		 * Allocate the board structure
+		 */
 		sc_adapter[cinst] = kzalloc(sizeof(board), GFP_KERNEL);
 		if (sc_adapter[cinst] == NULL) {
+			/*
+			 * Oops, can't alloc memory for the board
+			 */
 			kfree(interface);
 			continue;
 		}
 		spin_lock_init(&sc_adapter[cinst]->lock);
 
 		if (!register_isdn(interface)) {
+			/*
+			 * Oops, couldn't register for some reason
+			 */
 			kfree(interface);
 			kfree(sc_adapter[cinst]);
 			continue;
@@ -257,21 +317,30 @@ static int __init sc_init(void)
 		sc_adapter[cinst]->shmem_pgport = pgport;
 		sc_adapter[cinst]->StartOnReset = 1;
 
+		/*
+		 * Allocate channels status structures
+		 */
 		sc_adapter[cinst]->channel = kzalloc(sizeof(bchan) * channels, GFP_KERNEL);
 		if (sc_adapter[cinst]->channel == NULL) {
-			indicate_status(cinst, ISDN_STAT_UNLOAD, 0, NULL);	
+			/*
+			 * Oops, can't alloc memory for the channels
+			 */
+			indicate_status(cinst, ISDN_STAT_UNLOAD, 0, NULL);	/* Fix me */
 			kfree(interface);
 			kfree(sc_adapter[cinst]);
 			continue;
 		}
 
+		/*
+		 * Lock down the hardware resources
+		 */
 		sc_adapter[cinst]->interrupt = irq[b];
 		if (request_irq(sc_adapter[cinst]->interrupt, interrupt_handler,
 				IRQF_DISABLED, interface->id,
 				(void *)(unsigned long) cinst))
 		{
 			kfree(sc_adapter[cinst]->channel);
-			indicate_status(cinst, ISDN_STAT_UNLOAD, 0, NULL);	
+			indicate_status(cinst, ISDN_STAT_UNLOAD, 0, NULL);	/* Fix me */
 			kfree(interface);
 			kfree(sc_adapter[cinst]);
 			continue;
@@ -299,6 +368,9 @@ static int __init sc_init(void)
 			sc_adapter[cinst]->driverId,
 			boardname[model], channels, irq[b], io[b], ram[b]);
 
+		/*
+		 * reset the adapter to put things in motion
+		 */
 		reset(cinst);
 
 		cinst++;
@@ -315,18 +387,36 @@ static void __exit sc_exit(void)
 
 	for (i = 0; i < cinst; i++) {
 		pr_debug("Cleaning up after adapter %d\n", i);
+		/*
+		 * kill the timers
+		 */
 		del_timer(&(sc_adapter[i]->reset_timer));
 		del_timer(&(sc_adapter[i]->stat_timer));
 
+		/*
+		 * Tell I4L we're toast
+		 */
 		indicate_status(i, ISDN_STAT_STOP, 0, NULL);
 		indicate_status(i, ISDN_STAT_UNLOAD, 0, NULL);
 
+		/*
+		 * Release shared RAM
+		 */
 		release_region(sc_adapter[i]->rambase, SRAM_PAGESIZE);
 
+		/*
+		 * Release the IRQ
+		 */
 		free_irq(sc_adapter[i]->interrupt, NULL);
 
+		/*
+		 * Reset for a clean start
+		 */
 		outb(0xFF, sc_adapter[i]->ioport[SFT_RESET]);
 
+		/*
+		 * Release the I/O Port regions
+		 */
 		for (j = 0; j < MAX_IO_REGS - 1; j++) {
 			release_region(sc_adapter[i]->ioport[j], 1);
 			pr_debug("Releasing I/O Port %#x\n",
@@ -336,6 +426,9 @@ static void __exit sc_exit(void)
 		pr_debug("Releasing I/O Port %#x\n",
 			 sc_adapter[i]->ioport[IRQ_SELECT]);
 
+		/*
+		 * Release any memory we alloced
+		 */
 		kfree(sc_adapter[i]->channel);
 		kfree(sc_adapter[i]->card);
 		kfree(sc_adapter[i]);
@@ -356,6 +449,9 @@ static int identify_board(unsigned long rambase, unsigned int iobase)
 	pr_debug("Attempting to identify adapter @ 0x%lx io 0x%x\n",
 		 rambase, iobase);
 
+	/*
+	 * Enable the base pointer
+	 */
 	outb(rambase >> 12, iobase + 0x2c00);
 
 	switch (rambase >> 12 & 0x0F) {
@@ -383,6 +479,9 @@ static int identify_board(unsigned long rambase, unsigned int iobase)
 		return -1;
 	}
 
+	/*
+	 * Try to identify a PRI card
+	 */
 	outb(PRI_BASEPG_VAL, pgport);
 	msleep_interruptible(1000);
 	sig = readl(rambase + SIG_OFFSET);
@@ -390,6 +489,9 @@ static int identify_board(unsigned long rambase, unsigned int iobase)
 	if (sig == SIGNATURE)
 		return PRI_BOARD;
 
+	/*
+	 * Try to identify a PRI card
+	 */
 	outb(BRI_BASEPG_VAL, pgport);
 	msleep_interruptible(1000);
 	sig = readl(rambase + SIG_OFFSET);
@@ -399,6 +501,9 @@ static int identify_board(unsigned long rambase, unsigned int iobase)
 
 	return -1;
 
+	/*
+	 * Try to spot a card
+	 */
 	sig = readl(rambase + SIG_OFFSET);
 	pr_debug("Looking for a signature, got 0x%lx\n", sig);
 	if (sig != SIGNATURE)
@@ -414,6 +519,9 @@ static int identify_board(unsigned long rambase, unsigned int iobase)
 	memcpy_toio(&(dpm->req_queue[dpm->req_head++]), &sndmsg, MSG_LEN);
 	outb(0, iobase + 0x400);
 	pr_debug("Sent HWConfig message\n");
+	/*
+	 * Wait for the response
+	 */
 	x = 0;
 	while ((inb(iobase + FIFOSTAT_OFFSET) & RF_HAS_DATA) && x < 100) {
 		schedule_timeout_interruptible(1);

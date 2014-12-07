@@ -54,7 +54,7 @@ static inline unsigned long __xchg_u32(volatile int * m, unsigned int val)
 		raw_local_irq_save(flags);
 		retval = *m;
 		*m = val;
-		raw_local_irq_restore(flags);	
+		raw_local_irq_restore(flags);	/* implies memory barrier  */
 	}
 
 	smp_llsc_mb();
@@ -102,7 +102,7 @@ static inline __u64 __xchg_u64(volatile __u64 * m, __u64 val)
 		raw_local_irq_save(flags);
 		retval = *m;
 		*m = val;
-		raw_local_irq_restore(flags);	
+		raw_local_irq_restore(flags);	/* implies memory barrier  */
 	}
 
 	smp_llsc_mb();
@@ -187,6 +187,10 @@ static inline unsigned long __xchg(unsigned long x, volatile void * ptr, int siz
 	__ret;								\
 })
 
+/*
+ * This function doesn't exist, so you'll get a linker error
+ * if something tries to do an invalid cmpxchg().
+ */
 extern void __cmpxchg_called_with_bad_pointer(void);
 
 #define __cmpxchg(ptr, old, new, pre_barrier, post_barrier)		\
@@ -238,4 +242,4 @@ extern void __cmpxchg_called_with_bad_pointer(void);
 #define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 #endif
 
-#endif 
+#endif /* __ASM_CMPXCHG_H */

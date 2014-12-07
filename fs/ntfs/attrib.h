@@ -31,6 +31,24 @@
 #include "runlist.h"
 #include "volume.h"
 
+/**
+ * ntfs_attr_search_ctx - used in attribute search functions
+ * @mrec:	buffer containing mft record to search
+ * @attr:	attribute record in @mrec where to begin/continue search
+ * @is_first:	if true ntfs_attr_lookup() begins search with @attr, else after
+ *
+ * Structure must be initialized to zero before the first call to one of the
+ * attribute search functions. Initialize @mrec to point to the mft record to
+ * search, and @attr to point to the first attribute within @mrec (not necessary
+ * if calling the _first() functions), and set @is_first to 'true' (not necessary
+ * if calling the _first() functions).
+ *
+ * If @is_first is 'true', the search begins with @attr. If @is_first is 'false',
+ * the search begins after @attr. This is so that, after the first call to one
+ * of the search attribute functions, we can call the function again, without
+ * any modification of the search context, to automagically get the next
+ * matching attribute.
+ */
 typedef struct {
 	MFT_RECORD *mrec;
 	ATTR_RECORD *attr;
@@ -93,6 +111,6 @@ extern s64 ntfs_attr_extend_allocation(ntfs_inode *ni, s64 new_alloc_size,
 extern int ntfs_attr_set(ntfs_inode *ni, const s64 ofs, const s64 cnt,
 		const u8 val);
 
-#endif 
+#endif /* NTFS_RW */
 
-#endif 
+#endif /* _LINUX_NTFS_ATTRIB_H */

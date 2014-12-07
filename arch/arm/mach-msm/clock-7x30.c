@@ -35,6 +35,7 @@
 #define REG_BASE(off) (MSM_CLK_CTL_BASE + (off))
 #define REG(off) (MSM_CLK_CTL_SH2_BASE + (off))
 
+/* Shadow-region 2 (SH2) registers. */
 #define	QUP_I2C_NS_REG		REG(0x04F0)
 #define CAM_NS_REG		REG(0x0374)
 #define CAM_VFE_NS_REG		REG(0x0044)
@@ -84,6 +85,7 @@
 #define USBH_NS_REG		REG(0x02C0)
 #define VPE_NS_REG		REG(0x015C)
 
+/* Registers in the base (non-shadow) region. */
 #define CLK_TEST_BASE_REG	REG_BASE(0x011C)
 #define CLK_TEST_2_BASE_REG	REG_BASE(0x0384)
 #define MISC_CLK_CTL_BASE_REG	REG_BASE(0x0110)
@@ -106,16 +108,18 @@
 #define TCXO_CNT_DONE_BASE_REG	REG_BASE(0x00F8)
 
 
-#define SRC_SEL_pll0		4 
-#define SRC_SEL_pll1		1 
-#define SRC_SEL_pll3		3 
-#define SRC_SEL_pll4		2 
-#define SRC_SEL_SDAC_lpxo	5 
-#define SRC_SEL_lpxo		6 
-#define SRC_SEL_tcxo		0 
-#define SRC_SEL_axi		0 
-#define SRC_SEL_gnd		7 
+/* MUX source input identifiers. */
+#define SRC_SEL_pll0		4 /* Modem PLL */
+#define SRC_SEL_pll1		1 /* Global PLL */
+#define SRC_SEL_pll3		3 /* Multimedia/Peripheral PLL or Backup PLL1 */
+#define SRC_SEL_pll4		2 /* Display PLL */
+#define SRC_SEL_SDAC_lpxo	5 /* Low-power XO for SDAC */
+#define SRC_SEL_lpxo		6 /* Low-power XO */
+#define SRC_SEL_tcxo		0 /* Used for rates from TCXO */
+#define SRC_SEL_axi		0 /* Used for rates that sync to AXI */
+#define SRC_SEL_gnd		7 /* No clock */
 
+/* Clock declaration macros. */
 #define N8(msb, lsb, m, n)	(BVAL(msb, lsb, ~(n-m)) | BVAL(6, 5, \
 					(MN_MODE_DUAL_EDGE * !!(n))))
 #define N16(m, n)		(BVAL(31, 16, ~(n-m)) | BVAL(6, 5, \
@@ -126,6 +130,9 @@
 #define F_MASK_MND16		(BM(31, 16)|BM(6, 5)|BM(4, 3)|BM(2, 0))
 #define F_MASK_MND8(m, l)	(BM(m, l)|BM(6, 5)|BM(4, 3)|BM(2, 0))
 
+/*
+ * Clock frequency definitions and macros
+ */
 #define F_BASIC(f, s, div) \
 	{ \
 		.freq_hz = f, \
@@ -206,7 +213,7 @@ static bool pcom_is_local(struct clk *c)
 
 static int pcom_xo_enable(unsigned pcom_id, unsigned enable)
 {
-	
+	/* TODO: Check return code in pcom_id */
 	return msm_proc_comm(PCOM_CLKCTL_RPC_SRC_REQUEST, &pcom_id, &enable);
 }
 
@@ -289,7 +296,7 @@ static struct pll_vote_clk pll2_clk = {
 	.c = {
 		.parent = &tcxo_clk.c,
 		.dbg_name = "pll2_clk",
-		.rate = 806400000, 
+		.rate = 806400000, /* TODO: Support scaling */
 		.ops = &clk_ops_pll_vote,
 		CLK_INIT(pll2_clk.c),
 	},
@@ -328,6 +335,7 @@ static struct clk_freq_tbl clk_tbl_axi[] = {
 	F_END,
 };
 
+/* For global clocks to be on we must have GLBL_ROOT_ENA set */
 static struct rcg_clk glbl_root_clk = {
 	.b = {
 		.ctl_reg = GLBL_CLK_ENA_SC_REG,
@@ -346,6 +354,7 @@ static struct rcg_clk glbl_root_clk = {
 	},
 };
 
+/* AXI bridge clocks. */
 static struct branch_clk axi_li_apps_clk = {
 	.b = {
 		.ctl_reg = GLBL_CLK_ENA_SC_REG,
@@ -523,6 +532,7 @@ static struct branch_clk axi_vpe_clk = {
 	},
 };
 
+/* Peripheral bus clocks. */
 static struct branch_clk adm_clk = {
 	.b = {
 		.ctl_reg = GLBL_CLK_ENA_SC_REG,
@@ -1254,7 +1264,7 @@ static struct clk_freq_tbl clk_tbl_grp[] = {
 	F_BASIC(184320000, pll3,  4),
 	F_BASIC(192000000, pll1,  4),
 	F_BASIC(245760000, pll3,  3),
-	
+	/* Sync to AXI. Hence this "rate" is not fixed. */
 	F_RAW(1, &lpxo_clk.c, 0, BIT(14), 0, NULL),
 	F_END,
 };
@@ -1837,6 +1847,7 @@ static struct branch_clk tv_enc_clk = {
 	},
 };
 
+/* Hacking root & branch into one param. */
 static struct branch_clk tsif_ref_clk = {
 	.b = {
 		.ctl_reg = TSIF_NS_REG,
@@ -2249,10 +2260,10 @@ static struct rcg_clk spi_clk = {
 };
 
 static struct clk_freq_tbl clk_tbl_lpa_codec[] = {
-	F_RAW(1, NULL, 0, 0, 0, NULL), 
-	F_RAW(2, NULL, 0, 1, 0, NULL), 
-	F_RAW(3, NULL, 0, 2, 0, NULL), 
-	F_RAW(4, NULL, 0, 3, 0, NULL), 
+	F_RAW(1, NULL, 0, 0, 0, NULL), /* src MI2S_CODEC_RX */
+	F_RAW(2, NULL, 0, 1, 0, NULL), /* src ECODEC_CIF */
+	F_RAW(3, NULL, 0, 2, 0, NULL), /* src MI2S */
+	F_RAW(4, NULL, 0, 3, 0, NULL), /* src SDAC */
 	F_END,
 };
 
@@ -2544,9 +2555,9 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Program test vector. */
 	if (p->test_vector <= 0xFF) {
-		
+		/* Select CLK_TEST_2 */
 		writel_relaxed(0x4D40, CLK_TEST_BASE_REG);
 		writel_relaxed(p->test_vector, CLK_TEST_2_BASE_REG);
 	} else
@@ -2557,27 +2568,30 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 	return 0;
 }
 
+/* Sample clock for 'tcxo4_ticks' reference clock ticks. */
 static unsigned long run_measurement(unsigned tcxo4_ticks)
 {
-	
+	/* TCXO4_CNT_EN and RINGOSC_CNT_EN register values. */
 	u32 reg_val_enable = readl_relaxed(MISC_CLK_CTL_BASE_REG) | 0x3;
 	u32 reg_val_disable = reg_val_enable & ~0x3;
 
-	
+	/* Stop counters and set the TCXO4 counter start value. */
 	writel_relaxed(reg_val_disable, MISC_CLK_CTL_BASE_REG);
 	writel_relaxed(tcxo4_ticks, TCXO_CNT_BASE_REG);
 
-	
+	/* Run measurement and wait for completion. */
 	writel_relaxed(reg_val_enable, MISC_CLK_CTL_BASE_REG);
 	while (readl_relaxed(TCXO_CNT_DONE_BASE_REG) == 0)
 		cpu_relax();
 
-	
+	/* Stop counters. */
 	writel_relaxed(reg_val_disable, MISC_CLK_CTL_BASE_REG);
 
 	return readl_relaxed(RINGOSC_CNT_BASE_REG);
 }
 
+/* Perform a hardware rate measurement for a given clock.
+   FOR DEBUG USE ONLY: Measurements take ~15 ms! */
 static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	unsigned long flags;
@@ -2589,27 +2603,33 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Enable TCXO4 clock branch and root. */
 	prph_web_reg_old = readl_relaxed(PRPH_WEB_NS_BASE_REG);
 	regval = prph_web_reg_old | BIT(9) | BIT(11);
 	writel_relaxed(regval, PRPH_WEB_NS_BASE_REG);
 
+	/*
+	 * The ring oscillator counter will not reset if the measured clock
+	 * is not running.  To detect this, run a short measurement before
+	 * the full measurement.  If the raw results of the two are the same
+	 * then the clock must be off.
+	 */
 
-	
+	/* Run a short measurement. (~1 ms) */
 	raw_count_short = run_measurement(0x1000);
-	
+	/* Run a full measurement. (~14 ms) */
 	raw_count_full = run_measurement(0x10000);
 
-	
+	/* Disable TCXO4 clock branch and root. */
 	writel_relaxed(prph_web_reg_old, PRPH_WEB_NS_BASE_REG);
 
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
-	
+	/* Return 0 if the clock is off. */
 	if (raw_count_full == raw_count_short)
 		ret = 0;
 	else {
-		
+		/* Compute rate in Hz. */
 		raw_count_full = ((raw_count_full * 10) + 15) * 4800000;
 		do_div(raw_count_full, ((0x10000 * 10) + 35));
 		ret = raw_count_full;
@@ -2619,7 +2639,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	return ret;
 }
-#else 
+#else /* !CONFIG_DEBUG_FS */
 static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 {
 	return -EINVAL;
@@ -2629,7 +2649,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static struct clk_ops clk_ops_measure = {
 	.set_parent = measure_clk_set_parent,
@@ -2642,6 +2662,7 @@ static struct clk measure_clk = {
 	CLK_INIT(measure_clk),
 };
 
+/* Implementation for clk_set_flags(). */
 int soc_clk_set_flags(struct clk *c, unsigned clk_flags)
 {
 	uint32_t regval, ret = 0;
@@ -2651,17 +2672,19 @@ int soc_clk_set_flags(struct clk *c, unsigned clk_flags)
 
 	if (c == &vfe_clk.c) {
 		regval = readl_relaxed(CAM_VFE_NS_REG);
+		/* Flag values chosen for backward compatibility
+		 * with proc_comm remote clock control. */
 		if (clk_flags == 0x00000100) {
-			
+			/* Select external source. */
 			regval |= BIT(14);
 		} else if (clk_flags == 0x00000200) {
-			
+			/* Select internal source. */
 			regval &= ~BIT(14);
 		} else
 			ret = -EINVAL;
 
 		writel_relaxed(regval, CAM_VFE_NS_REG);
-		
+		/* Make sure write is issued before returning. */
 		mb();
 	} else
 		ret = -EPERM;
@@ -2673,7 +2696,7 @@ int soc_clk_set_flags(struct clk *c, unsigned clk_flags)
 
 static int msm7x30_clk_reset(struct clk *c, enum clk_reset_action action)
 {
-	
+	/* reset_mask is actually a proc_comm id */
 	return pc_clk_reset(to_rcg_clk(c)->b.reset_mask, action);
 }
 
@@ -2682,6 +2705,9 @@ static int soc_branch_clk_reset(struct clk *c, enum clk_reset_action action)
 	return pc_clk_reset(to_branch_clk(c)->b.reset_mask, action);
 }
 
+/*
+ * Clock ownership detection code
+ */
 
 enum {
 	SH2_OWN_GLBL,
@@ -2729,13 +2755,13 @@ static struct clk_local_ownership {
 	const u32 bit;
 	struct clk *remote;
 } ownership_map[] __initdata = {
-	
+	/* Sources */
 	{ CLK_LOOKUP("pll1_clk",	pll1_clk.c,	"acpu") },
 	{ CLK_LOOKUP("pll2_clk",	pll2_clk.c,	"acpu") },
 	{ CLK_LOOKUP("pll3_clk",	pll3_clk.c,	"acpu") },
 	{ CLK_LOOKUP("measure",		measure_clk,	"debug") },
 
-	
+	/* PCOM */
 	{ CLK_LOOKUP("adsp_clk",	adsp_clk.c,	NULL) },
 	{ CLK_LOOKUP("codec_ssbi_clk",	codec_ssbi_clk.c,	NULL) },
 	{ CLK_LOOKUP("ebi1_clk",	ebi1_clk.c,	NULL) },
@@ -2745,7 +2771,7 @@ static struct clk_local_ownership {
 	{ CLK_LOOKUP("core_clk",	uart3_clk.c,	"msm_serial.2") },
 	{ CLK_LOOKUP("phy_clk",		usb_phy_clk.c,	"msm_otg") },
 
-	
+	/* Voters */
 	{ CLK_LOOKUP("mem_clk",	ebi_dtv_clk.c,	"dtv.0") },
 	{ CLK_LOOKUP("bus_clk",		ebi_grp_2d_clk.c, "kgsl-2d0.0") },
 	{ CLK_LOOKUP("bus_clk",		ebi_grp_3d_clk.c, "kgsl-3d0.0") },
@@ -2756,6 +2782,13 @@ static struct clk_local_ownership {
 	{ CLK_LOOKUP("ebi1_vfe_clk",	ebi_vfe_clk.c,	NULL) },
 	{ CLK_LOOKUP("mem_clk",		ebi_adm_clk.c,	"msm_dmov") },
 
+	/*
+	 * This is a many-to-one mapping because we don't know how the remote
+	 * clock code has decided to handle the dependencies between clocks for
+	 * a particular hardware block. We determine the ownership for all the
+	 * clocks going into a block by checking the ownership bit of one
+	 * register (usually the ns register).
+	 */
 	OWN(APPS1,  6, "core_clk",	grp_2d_clk,	"kgsl-2d0.0"),
 	OWN(APPS1,  6, "core_clk",	grp_2d_clk,	"footswitch-pcom.0"),
 	OWN(APPS1,  6, "iface_clk",	grp_2d_p_clk,	"kgsl-2d0.0"),
@@ -2888,41 +2921,44 @@ static void __init set_clock_ownership(void)
 	}
 }
 
+/*
+ * Miscellaneous clock register initializations
+ */
 static const struct reg_init {
 	const void __iomem *reg;
 	uint32_t mask;
 	uint32_t val;
 } ri_list[] __initconst = {
-	
+	/* Enable UMDX_P clock. Known to causes issues, so never turn off. */
 	{GLBL_CLK_ENA_2_SC_REG, BIT(2), BIT(2)},
 
-	
+	/* Disable all the child clocks of USB_HS_SRC. */
 	{ USBH_NS_REG, BIT(13) | BIT(9), 0 },
 	{ USBH2_NS_REG, BIT(9) | BIT(4), 0 },
 	{ USBH3_NS_REG, BIT(9) | BIT(4), 0 },
 
-	{EMDH_NS_REG, BM(18, 17) , BVAL(18, 17, 0x3)}, 
-	{PMDH_NS_REG, BM(18, 17), BVAL(18, 17, 0x3)}, 
-	
+	{EMDH_NS_REG, BM(18, 17) , BVAL(18, 17, 0x3)}, /* RX div = div-4. */
+	{PMDH_NS_REG, BM(18, 17), BVAL(18, 17, 0x3)}, /* RX div = div-4. */
+	/* MI2S_CODEC_RX_S src = MI2S_CODEC_RX_M. */
 	{MI2S_RX_NS_REG, BIT(14), 0x0},
-	
+	/* MI2S_CODEC_TX_S src = MI2S_CODEC_TX_M. */
 	{MI2S_TX_NS_REG, BIT(14), 0x0},
-	{MI2S_NS_REG, BIT(14), 0x0}, 
-	
+	{MI2S_NS_REG, BIT(14), 0x0}, /* MI2S_S src = MI2S_M. */
+	/* Allow DSP to decide the LPA CORE src. */
 	{LPA_CORE_CLK_MA0_REG, BIT(0), BIT(0)},
 	{LPA_CORE_CLK_MA2_REG, BIT(0), BIT(0)},
-	{MI2S_CODEC_RX_DIV_REG, 0xF, 0xD}, 
-	{MI2S_CODEC_TX_DIV_REG, 0xF, 0xD}, 
-	{MI2S_DIV_REG, 0xF, 0x7}, 
-	{MDC_NS_REG, 0x3, 0x3}, 
-	{SDAC_NS_REG, BM(15, 14), 0x0}, 
-	
+	{MI2S_CODEC_RX_DIV_REG, 0xF, 0xD}, /* MI2S_CODEC_RX_S div = div-8. */
+	{MI2S_CODEC_TX_DIV_REG, 0xF, 0xD}, /* MI2S_CODEC_TX_S div = div-8. */
+	{MI2S_DIV_REG, 0xF, 0x7}, /* MI2S_S div = div-8. */
+	{MDC_NS_REG, 0x3, 0x3}, /* MDC src = external MDH src. */
+	{SDAC_NS_REG, BM(15, 14), 0x0}, /* SDAC div = div-1. */
+	/* Disable sources TCXO/5 & TCXO/6. UART1 src = TCXO*/
 	{UART_NS_REG, BM(26, 25) | BM(2, 0), 0x0},
-	
+	/* HDMI div = div-1, non-inverted. tv_enc_src = tv_clk_src */
 	{HDMI_NS_REG, 0x7, 0x0},
-	{TV_NS_REG, BM(15, 14), 0x0}, 
+	{TV_NS_REG, BM(15, 14), 0x0}, /* tv_clk_src_div2 = div-1 */
 
-	
+	/* USBH core clocks src = USB_HS_SRC. */
 	{USBH_NS_REG, BIT(15), BIT(15)},
 	{USBH2_NS_REG, BIT(6), BIT(6)},
 	{USBH3_NS_REG, BIT(6), BIT(6)},
@@ -2941,6 +2977,9 @@ static void __init msm7x30_clock_pre_init(void)
 	print_ownership();
 	set_clock_ownership();
 
+	/* When we have no local clock control, the rest of the code in this
+	 * function is a NOP since writes to shadow regions that we don't own
+	 * are ignored. */
 
 	for (i = 0; i < ARRAY_SIZE(ri_list); i++) {
 		val = readl_relaxed(ri_list[i].reg);
@@ -2962,9 +3001,9 @@ static void __init msm7x30_clock_post_init(void)
 	clk_set_rate(&mdp_vsync_clk.c, 24576000);
 	clk_set_rate(&glbl_root_clk.c, 1);
 	clk_set_rate(&mdc_clk.c, 1);
-	
+	/* Sync the LPA_CODEC clock to MI2S_CODEC_RX */
 	clk_set_rate(&lpa_codec_clk.c, 1);
-	
+	/* Sync the GRP2D clock to AXI */
 	clk_set_rate(&grp_2d_clk.c, 1);
 }
 

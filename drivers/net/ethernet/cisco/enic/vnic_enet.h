@@ -20,6 +20,7 @@
 #ifndef _VNIC_ENIC_H_
 #define _VNIC_ENIC_H_
 
+/* Device-specific region: enet configuration */
 struct vnic_enet_config {
 	u32 flags;
 	u32 wq_desc_count;
@@ -33,24 +34,24 @@ struct vnic_enet_config {
 	u16 loop_tag;
 };
 
-#define VENETF_TSO		0x1	
-#define VENETF_LRO		0x2	
-#define VENETF_RXCSUM		0x4	
-#define VENETF_TXCSUM		0x8	
-#define VENETF_RSS		0x10	
-#define VENETF_RSSHASH_IPV4	0x20	
-#define VENETF_RSSHASH_TCPIPV4	0x40	
-#define VENETF_RSSHASH_IPV6	0x80	
-#define VENETF_RSSHASH_TCPIPV6	0x100	
-#define VENETF_RSSHASH_IPV6_EX	0x200	
-#define VENETF_RSSHASH_TCPIPV6_EX 0x400	
-#define VENETF_LOOP		0x800	
+#define VENETF_TSO		0x1	/* TSO enabled */
+#define VENETF_LRO		0x2	/* LRO enabled */
+#define VENETF_RXCSUM		0x4	/* RX csum enabled */
+#define VENETF_TXCSUM		0x8	/* TX csum enabled */
+#define VENETF_RSS		0x10	/* RSS enabled */
+#define VENETF_RSSHASH_IPV4	0x20	/* Hash on IPv4 fields */
+#define VENETF_RSSHASH_TCPIPV4	0x40	/* Hash on TCP + IPv4 fields */
+#define VENETF_RSSHASH_IPV6	0x80	/* Hash on IPv6 fields */
+#define VENETF_RSSHASH_TCPIPV6	0x100	/* Hash on TCP + IPv6 fields */
+#define VENETF_RSSHASH_IPV6_EX	0x200	/* Hash on IPv6 extended fields */
+#define VENETF_RSSHASH_TCPIPV6_EX 0x400	/* Hash on TCP + IPv6 ext. fields */
+#define VENETF_LOOP		0x800	/* Loopback enabled */
 
-#define VENET_INTR_TYPE_MIN	0	
-#define VENET_INTR_TYPE_IDLE	1	
+#define VENET_INTR_TYPE_MIN	0	/* Timer specs min interrupt spacing */
+#define VENET_INTR_TYPE_IDLE	1	/* Timer specs idle time before irq */
 
-#define VENET_INTR_MODE_ANY	0	
-#define VENET_INTR_MODE_MSI	1	
-#define VENET_INTR_MODE_INTX	2	
+#define VENET_INTR_MODE_ANY	0	/* Try MSI-X, then MSI, then INTx */
+#define VENET_INTR_MODE_MSI	1	/* Try MSI then INTx */
+#define VENET_INTR_MODE_INTX	2	/* Try INTx only */
 
-#endif 
+#endif /* _VNIC_ENIC_H_ */

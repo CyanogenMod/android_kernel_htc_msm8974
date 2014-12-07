@@ -49,6 +49,7 @@
 #include "common.h"
 #include "board-h2.h"
 
+/* At OMAP1610 Innovator the Ethernet is directly connected to CS1 */
 #define OMAP1610_ETHR_START		0x04000300
 
 static const unsigned int h2_keymap[] = {
@@ -90,28 +91,28 @@ static const unsigned int h2_keymap[] = {
 };
 
 static struct mtd_partition h2_nor_partitions[] = {
-	
+	/* bootloader (U-Boot, etc) in first sector */
 	{
 	      .name		= "bootloader",
 	      .offset		= 0,
 	      .size		= SZ_128K,
-	      .mask_flags	= MTD_WRITEABLE, 
+	      .mask_flags	= MTD_WRITEABLE, /* force read-only */
 	},
-	
+	/* bootloader params in the next sector */
 	{
 	      .name		= "params",
 	      .offset		= MTDPART_OFS_APPEND,
 	      .size		= SZ_128K,
 	      .mask_flags	= 0,
 	},
-	
+	/* kernel */
 	{
 	      .name		= "kernel",
 	      .offset		= MTDPART_OFS_APPEND,
 	      .size		= SZ_2M,
 	      .mask_flags	= 0
 	},
-	
+	/* file system */
 	{
 	      .name		= "filesystem",
 	      .offset		= MTDPART_OFS_APPEND,
@@ -128,7 +129,7 @@ static struct physmap_flash_data h2_nor_data = {
 };
 
 static struct resource h2_nor_resource = {
-	
+	/* This is on CS3, wherever it's mapped */
 	.flags		= IORESOURCE_MEM,
 };
 
@@ -144,17 +145,21 @@ static struct platform_device h2_nor_device = {
 
 static struct mtd_partition h2_nand_partitions[] = {
 #if 0
+	/* REVISIT:  enable these partitions if you make NAND BOOT
+	 * work on your H2 (rev C or newer); published versions of
+	 * x-load only support P2 and H3.
+	 */
 	{
 		.name		= "xloader",
 		.offset		= 0,
 		.size		= 64 * 1024,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "bootloader",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= 256 * 1024,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "params",
@@ -235,7 +240,7 @@ static struct smc91x_platdata h2_smc91x_info = {
 
 static struct resource h2_smc91x_resources[] = {
 	[0] = {
-		.start	= OMAP1610_ETHR_START,		
+		.start	= OMAP1610_ETHR_START,		/* Physical */
 		.end	= OMAP1610_ETHR_START + 0xf,
 		.flags	= IORESOURCE_MEM,
 	},
@@ -359,15 +364,15 @@ static struct i2c_board_info __initdata h2_i2c_board_info[] = {
 };
 
 static struct omap_usb_config h2_usb_config __initdata = {
-	
+	/* usb1 has a Mini-AB port and external isp1301 transceiver */
 	.otg		= 2,
 
 #ifdef	CONFIG_USB_GADGET_OMAP
-	.hmc_mode	= 19,	
-		
+	.hmc_mode	= 19,	/* 0:host(off) 1:dev|otg 2:disabled */
+	/* .hmc_mode	= 21,*/	/* 0:host(off) 1:dev(loopback) 2:host(loopback) */
 #elif	defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
-	
-	.hmc_mode	= 20,	
+	/* needs OTG cable, or NONSTANDARD (B-to-MiniB) */
+	.hmc_mode	= 20,	/* 1:dev|otg(off) 1:host 2:disabled */
 #endif
 
 	.pins[1]	= 3,
@@ -381,6 +386,15 @@ static void __init h2_init(void)
 {
 	h2_init_smc91x();
 
+	/* Here we assume the NOR boot config:  NOR on CS3 (possibly swapped
+	 * to address 0 by a dip switch), NAND on CS2B.  The NAND driver will
+	 * notice whether a NAND chip is enabled at probe time.
+	 *
+	 * FIXME revC boards (and H3) support NAND-boot, with a dip switch to
+	 * put NOR on CS2B and NAND (which on H2 may be 16bit) on CS3.  Try
+	 * detecting that in code here, to avoid probing every possible flash
+	 * configuration...
+	 */
 	h2_nor_resource.end = h2_nor_resource.start = omap_cs3_phys();
 	h2_nor_resource.end += SZ_32M - 1;
 
@@ -393,11 +407,11 @@ static void __init h2_init(void)
 	omap_cfg_reg(L3_1610_FLASH_CS2B_OE);
 	omap_cfg_reg(M8_1610_FLASH_CS2B_WE);
 
-	
-			
-	omap_cfg_reg(BALLOUT_V8_ARMIO3);	
+	/* MMC:  card detect and WP */
+	/* omap_cfg_reg(U19_ARMIO1); */		/* CD */
+	omap_cfg_reg(BALLOUT_V8_ARMIO3);	/* WP */
 
-	
+	/* Mux pins for keypad */
 	omap_cfg_reg(F18_1610_KBC0);
 	omap_cfg_reg(D20_1610_KBC1);
 	omap_cfg_reg(D19_1610_KBC2);
@@ -425,7 +439,7 @@ static void __init h2_init(void)
 }
 
 MACHINE_START(OMAP_H2, "TI-H2")
-	
+	/* Maintainer: Imre Deak <imre.deak@nokia.com> */
 	.atag_offset	= 0x100,
 	.map_io		= omap16xx_map_io,
 	.init_early     = omap1_init_early,

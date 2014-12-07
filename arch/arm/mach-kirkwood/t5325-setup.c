@@ -143,8 +143,8 @@ static unsigned int hp_t5325_mpp_config[] __initdata = {
 	MPP43_AU_I2SDI,
 	MPP41_AU_I2SLRCLK,
 	MPP42_AU_I2SMCLK,
-	MPP45_GPIO,		
-	MPP48_GPIO,		
+	MPP45_GPIO,		/* Power button */
+	MPP48_GPIO,		/* Board power off */
 	0
 };
 
@@ -169,6 +169,9 @@ static void hp_t5325_power_off(void)
 
 static void __init hp_t5325_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(hp_t5325_mpp_config);
 
@@ -203,7 +206,7 @@ static int __init hp_t5325_pci_init(void)
 subsys_initcall(hp_t5325_pci_init);
 
 MACHINE_START(T5325, "HP t5325 Thin Client")
-	
+	/* Maintainer: Martin Michlmayr <tbm@cyrius.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= hp_t5325_init,
 	.map_io		= kirkwood_map_io,

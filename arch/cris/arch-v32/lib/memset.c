@@ -26,7 +26,13 @@
    IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
    POSSIBILITY OF SUCH DAMAGE.  */
 
+/* FIXME: This file should really only be used for reference, as the
+   result is somewhat depending on gcc generating what we expect rather
+   than what we describe.  An assembly file should be used instead.  */
 
+/* Note the multiple occurrence of the expression "12*4", including the
+   asm.  It is hard to get it into the asm in a good way.  Thus better to
+   expose the problem everywhere: no macro.  */
 
 /* Assuming one cycle per dword written or read (ok, not really true; the
    world is not ideal), and one cycle per instruction, then 43+3*(n/48-1)
@@ -35,31 +41,38 @@
 
 #define MEMSET_BY_BLOCK_THRESHOLD (1 * 48)
 
+/* No name ambiguities in this file.  */
 __asm__ (".syntax no_register_prefix");
 
 void *memset(void *pdst, int c, unsigned int plen)
 {
+  /* Now we want the parameters in special registers.  Make sure the
+     compiler does something usable with this.  */
 
   register char *return_dst __asm__ ("r10") = pdst;
   register int n __asm__ ("r12") = plen;
   register int lc __asm__ ("r11") = c;
 
+  /* Most apps use memset sanely.  Memsetting about 3..4 bytes or less get
+     penalized here compared to the generic implementation.  */
 
+  /* This is fragile performancewise at best.  Check with newer GCC
+     releases, if they compile cascaded "x |= x << 8" to sane code.  */
   __asm__("movu.b %0,r13						\n\
 	   lslq 8,r13							\n\
 	   move.b %0,r13						\n\
 	   move.d r13,%0						\n\
 	   lslq 16,r13							\n\
 	   or.d r13,%0"
-          : "=r" (lc)		
-	  : "0" (lc)		
-	  : "r13");		
+          : "=r" (lc)		/* Inputs.  */
+	  : "0" (lc)		/* Outputs.  */
+	  : "r13");		/* Trash.  */
 
   {
     register char *dst __asm__ ("r13") = pdst;
 
     if (((unsigned long) pdst & 3) != 0
-	
+	/* Oops! n = 0 must be a valid call, regardless of alignment.  */
 	&& n >= 3)
       {
 	if ((unsigned long) dst & 1)
@@ -77,9 +90,13 @@ void *memset(void *pdst, int c, unsigned int plen)
 	  }
       }
 
-    
+    /* Decide which setting method to use.  */
     if (n >= MEMSET_BY_BLOCK_THRESHOLD)
       {
+	/* It is not optimal to tell the compiler about clobbering any
+	   registers; that will move the saving/restoring of those registers
+	   to the function prologue/epilogue, and make non-block sizes
+	   suboptimal.  */
 	__asm__ volatile
 	  ("\
 	   ;; GCC does promise correct register allocations, but let's	\n\
@@ -115,6 +132,8 @@ void *memset(void *pdst, int c, unsigned int plen)
 0:									\n\
 "
 #ifdef __arch_common_v10_v32
+	   /* Cater to branch offset difference between v32 and v10.  We
+	      assume the branch below has an 8-bit offset.  */
 "	   setf\n"
 #endif
 "	   subq	  12*4,r12						\n\
@@ -127,14 +146,14 @@ void *memset(void *pdst, int c, unsigned int plen)
 	   ;; Restore registers from stack.				\n\
 	   movem [sp+],r10"
 
-	   
+	   /* Outputs.	*/
 	   : "=r" (dst), "=r" (n)
 
-	   
+	   /* Inputs.  */
 	   : "0" (dst), "1" (n), "r" (lc));
       }
 
-    
+    /* An ad-hoc unroll, used for 4*12-1..16 bytes. */
     while (n >= 16)
       {
 	*(long *) dst = lc; dst += 4;

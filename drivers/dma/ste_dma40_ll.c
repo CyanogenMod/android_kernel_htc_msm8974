@@ -10,28 +10,29 @@
 
 #include "ste_dma40_ll.h"
 
+/* Sets up proper LCSP1 and LCSP3 register for a logical channel */
 void d40_log_cfg(struct stedma40_chan_cfg *cfg,
 		 u32 *lcsp1, u32 *lcsp3)
 {
-	u32 l3 = 0; 
-	u32 l1 = 0; 
+	u32 l3 = 0; /* dst */
+	u32 l1 = 0; /* src */
 
-	
+	/* src is mem? -> increase address pos */
 	if (cfg->dir ==  STEDMA40_MEM_TO_PERIPH ||
 	    cfg->dir ==  STEDMA40_MEM_TO_MEM)
 		l1 |= 1 << D40_MEM_LCSP1_SCFG_INCR_POS;
 
-	
+	/* dst is mem? -> increase address pos */
 	if (cfg->dir ==  STEDMA40_PERIPH_TO_MEM ||
 	    cfg->dir ==  STEDMA40_MEM_TO_MEM)
 		l3 |= 1 << D40_MEM_LCSP3_DCFG_INCR_POS;
 
-	
+	/* src is hw? -> master port 1 */
 	if (cfg->dir ==  STEDMA40_PERIPH_TO_MEM ||
 	    cfg->dir ==  STEDMA40_PERIPH_TO_PERIPH)
 		l1 |= 1 << D40_MEM_LCSP1_SCFG_MST_POS;
 
-	
+	/* dst is hw? -> master port 1 */
 	if (cfg->dir ==  STEDMA40_MEM_TO_PERIPH ||
 	    cfg->dir ==  STEDMA40_PERIPH_TO_PERIPH)
 		l3 |= 1 << D40_MEM_LCSP3_DCFG_MST_POS;
@@ -49,6 +50,7 @@ void d40_log_cfg(struct stedma40_chan_cfg *cfg,
 
 }
 
+/* Sets up SRC and DST CFG register for both logical and physical channels */
 void d40_phy_cfg(struct stedma40_chan_cfg *cfg,
 		 u32 *src_cfg, u32 *dst_cfg, bool is_log)
 {
@@ -56,10 +58,10 @@ void d40_phy_cfg(struct stedma40_chan_cfg *cfg,
 	u32 dst = 0;
 
 	if (!is_log) {
-		
+		/* Physical channel */
 		if ((cfg->dir ==  STEDMA40_PERIPH_TO_MEM) ||
 		    (cfg->dir == STEDMA40_PERIPH_TO_PERIPH)) {
-			
+			/* Set master port to 1 */
 			src |= 1 << D40_SREG_CFG_MST_POS;
 			src |= D40_TYPE_TO_EVENT(cfg->src_dev_type);
 
@@ -70,7 +72,7 @@ void d40_phy_cfg(struct stedma40_chan_cfg *cfg,
 		}
 		if ((cfg->dir ==  STEDMA40_MEM_TO_PERIPH) ||
 		    (cfg->dir == STEDMA40_PERIPH_TO_PERIPH)) {
-			
+			/* Set master port to 1 */
 			dst |= 1 << D40_SREG_CFG_MST_POS;
 			dst |= D40_TYPE_TO_EVENT(cfg->dst_dev_type);
 
@@ -79,14 +81,14 @@ void d40_phy_cfg(struct stedma40_chan_cfg *cfg,
 			else
 				dst |= 3 << D40_SREG_CFG_PHY_TM_POS;
 		}
-		
+		/* Interrupt on end of transfer for destination */
 		dst |= 1 << D40_SREG_CFG_TIM_POS;
 
-		
+		/* Generate interrupt on error */
 		src |= 1 << D40_SREG_CFG_EIM_POS;
 		dst |= 1 << D40_SREG_CFG_EIM_POS;
 
-		
+		/* PSIZE */
 		if (cfg->src_info.psize != STEDMA40_PSIZE_PHY_1) {
 			src |= 1 << D40_SREG_CFG_PHY_PEN_POS;
 			src |= cfg->src_info.psize << D40_SREG_CFG_PSIZE_POS;
@@ -96,12 +98,12 @@ void d40_phy_cfg(struct stedma40_chan_cfg *cfg,
 			dst |= cfg->dst_info.psize << D40_SREG_CFG_PSIZE_POS;
 		}
 
-		
+		/* Element size */
 		src |= cfg->src_info.data_width << D40_SREG_CFG_ESIZE_POS;
 		dst |= cfg->dst_info.data_width << D40_SREG_CFG_ESIZE_POS;
 
 	} else {
-		
+		/* Logical channel */
 		dst |= 1 << D40_SREG_CFG_LOG_GIM_POS;
 		src |= 1 << D40_SREG_CFG_LOG_GIM_POS;
 	}
@@ -139,38 +141,42 @@ static int d40_phy_fill_lli(struct d40_phy_lli *lli,
 	else
 		num_elems = 2 << psize;
 
-	
+	/* Must be aligned */
 	if (!IS_ALIGNED(data, 0x1 << data_width))
 		return -EINVAL;
 
-	
+	/* Transfer size can't be smaller than (num_elms * elem_size) */
 	if (data_size < num_elems * (0x1 << data_width))
 		return -EINVAL;
 
-	
+	/* The number of elements. IE now many chunks */
 	lli->reg_elt = (data_size >> data_width) << D40_SREG_ELEM_PHY_ECNT_POS;
 
+	/*
+	 * Distance to next element sized entry.
+	 * Usually the size of the element unless you want gaps.
+	 */
 	if (addr_inc)
 		lli->reg_elt |= (0x1 << data_width) <<
 			D40_SREG_ELEM_PHY_EIDX_POS;
 
-	
+	/* Where the data is */
 	lli->reg_ptr = data;
 	lli->reg_cfg = reg_cfg;
 
-	
+	/* If this scatter list entry is the last one, no next link */
 	if (next_lli == 0)
 		lli->reg_lnk = 0x1 << D40_SREG_LNK_PHY_TCP_POS;
 	else
 		lli->reg_lnk = next_lli;
 
-	
+	/* Set/clear interrupt generation on this link item.*/
 	if (term_int)
 		lli->reg_cfg |= 0x1 << D40_SREG_CFG_TIM_POS;
 	else
 		lli->reg_cfg &= ~(0x1 << D40_SREG_CFG_TIM_POS);
 
-	
+	/* Post link */
 	lli->reg_lnk |= 0 << D40_SREG_LNK_PHY_PRE_POS;
 
 	return 0;
@@ -210,6 +216,10 @@ d40_phy_buf_to_lli(struct d40_phy_lli *lli, dma_addr_t addr, u32 size,
 	int size_rest = size;
 	int size_seg = 0;
 
+	/*
+	 * This piece may be split up based on d40_seg_size(); we only want the
+	 * term int on the last part.
+	 */
 	if (term_int)
 		flags &= ~LLI_TERM_INT;
 
@@ -287,6 +297,7 @@ int d40_phy_sg_to_lli(struct scatterlist *sg,
 }
 
 
+/* DMA logical lli operations */
 
 static void d40_log_lli_link(struct d40_log_lli *lli_dst,
 			     struct d40_log_lli *lli_src,
@@ -349,15 +360,15 @@ static void d40_log_fill_lli(struct d40_log_lli *lli,
 
 	lli->lcsp13 = reg_cfg;
 
-	
+	/* The number of elements to transfer */
 	lli->lcsp02 = ((data_size >> data_width) <<
 		       D40_MEM_LCSP0_ECNT_POS) & D40_MEM_LCSP0_ECNT_MASK;
 
 	BUG_ON((data_size >> data_width) > STEDMA40_MAX_SEG_SIZE);
 
-	
+	/* 16 LSBs address of the current element */
 	lli->lcsp02 |= data & D40_MEM_LCSP0_SPTR_MASK;
-	
+	/* 16 MSBs address of the current element */
 	lli->lcsp13 |= data & D40_MEM_LCSP1_SPTR_MASK;
 
 	if (addr_inc)
@@ -368,7 +379,7 @@ static void d40_log_fill_lli(struct d40_log_lli *lli,
 static struct d40_log_lli *d40_log_buf_to_lli(struct d40_log_lli *lli_sg,
 				       dma_addr_t addr,
 				       int size,
-				       u32 lcsp13, 
+				       u32 lcsp13, /* src or dst*/
 				       u32 data_width1,
 				       u32 data_width2,
 				       unsigned int flags)
@@ -399,7 +410,7 @@ int d40_log_sg_to_lli(struct scatterlist *sg,
 		      int sg_len,
 		      dma_addr_t dev_addr,
 		      struct d40_log_lli *lli_sg,
-		      u32 lcsp13, 
+		      u32 lcsp13, /* src or dst*/
 		      u32 data_width1, u32 data_width2)
 {
 	int total_size = 0;

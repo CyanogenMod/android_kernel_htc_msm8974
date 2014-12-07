@@ -75,12 +75,17 @@ static struct inode **get_local_system_inode(struct ocfs2_super *osb,
 					      GFP_NOFS);
 		if (!local_system_inodes) {
 			mlog_errno(-ENOMEM);
+			/*
+			 * return NULL here so that ocfs2_get_sytem_file_inodes
+			 * will try to create an inode and use it. We will try
+			 * to initialize local_system_inodes next time.
+			 */
 			return NULL;
 		}
 
 		spin_lock(&osb->osb_lock);
 		if (osb->local_system_inodes) {
-			
+			/* Someone has initialized it for us. */
 			free = local_system_inodes;
 			local_system_inodes = osb->local_system_inodes;
 		} else
@@ -103,24 +108,24 @@ struct inode *ocfs2_get_system_file_inode(struct ocfs2_super *osb,
 	struct inode *inode = NULL;
 	struct inode **arr = NULL;
 
-	
+	/* avoid the lookup if cached in local system file array */
 	if (is_global_system_inode(type)) {
 		arr = &(osb->global_system_inodes[type]);
 	} else
 		arr = get_local_system_inode(osb, type, slot);
 
 	if (arr && ((inode = *arr) != NULL)) {
-		
+		/* get a ref in addition to the array ref */
 		inode = igrab(inode);
 		BUG_ON(!inode);
 
 		return inode;
 	}
 
-	
+	/* this gets one ref thru iget */
 	inode = _ocfs2_get_system_file_inode(osb, type, slot);
 
-	
+	/* add one more if putting into array for first time */
 	if (arr && inode) {
 		*arr = igrab(inode);
 		BUG_ON(!*arr);
@@ -157,6 +162,9 @@ static struct inode * _ocfs2_get_system_file_inode(struct ocfs2_super *osb,
 	if (type == LOCAL_USER_QUOTA_SYSTEM_INODE ||
 	    type == LOCAL_GROUP_QUOTA_SYSTEM_INODE ||
 	    type == JOURNAL_SYSTEM_INODE) {
+		/* Ignore inode lock on these inodes as the lock does not
+		 * really belong to any process and lockdep cannot handle
+		 * that */
 		OCFS2_I(inode)->ip_inode_lockres.l_lockdep_map.key = NULL;
 	} else {
 		lockdep_init_map(&OCFS2_I(inode)->ip_inode_lockres.

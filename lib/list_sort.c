@@ -6,6 +6,11 @@
 
 #define MAX_LIST_LENGTH_BITS 20
 
+/*
+ * Returns a list organized in an intermediate format suited
+ * to chaining of merge() calls: null-terminated, no reserved or
+ * sentinel head node, "prev" links not maintained.
+ */
 static struct list_head *merge(void *priv,
 				int (*cmp)(void *priv, struct list_head *a,
 					struct list_head *b),
@@ -14,7 +19,7 @@ static struct list_head *merge(void *priv,
 	struct list_head head, *tail = &head;
 
 	while (a && b) {
-		
+		/* if equal, take 'a' -- important for sort stability */
 		if ((*cmp)(priv, a, b) <= 0) {
 			tail->next = a;
 			a = a->next;
@@ -28,6 +33,13 @@ static struct list_head *merge(void *priv,
 	return head.next;
 }
 
+/*
+ * Combine final list merge with restoration of standard doubly-linked
+ * list structure.  This approach duplicates code from merge(), but
+ * runs faster than the tidier alternatives of either a separate final
+ * prev-link restoration pass, or maintaining the prev links
+ * throughout.
+ */
 static void merge_and_restore_back_links(void *priv,
 				int (*cmp)(void *priv, struct list_head *a,
 					struct list_head *b),
@@ -37,7 +49,7 @@ static void merge_and_restore_back_links(void *priv,
 	struct list_head *tail = head;
 
 	while (a && b) {
-		
+		/* if equal, take 'a' -- important for sort stability */
 		if ((*cmp)(priv, a, b) <= 0) {
 			tail->next = a;
 			a->prev = tail;
@@ -52,6 +64,12 @@ static void merge_and_restore_back_links(void *priv,
 	tail->next = a ? : b;
 
 	do {
+		/*
+		 * In worst cases this loop may run many iterations.
+		 * Continue callbacks to the client even though no
+		 * element comparison is needed, so the client's cmp()
+		 * routine can invoke cond_resched() periodically.
+		 */
 		(*cmp)(priv, tail->next, tail->next);
 
 		tail->next->prev = tail;
@@ -62,12 +80,27 @@ static void merge_and_restore_back_links(void *priv,
 	head->prev = tail;
 }
 
+/**
+ * list_sort - sort a list
+ * @priv: private data, opaque to list_sort(), passed to @cmp
+ * @head: the list to sort
+ * @cmp: the elements comparison function
+ *
+ * This function implements "merge sort", which has O(nlog(n))
+ * complexity.
+ *
+ * The comparison function @cmp must return a negative value if @a
+ * should sort before @b, and a positive value if @a should sort after
+ * @b. If @a and @b are equivalent, and their original relative
+ * ordering is to be preserved, @cmp must return 0.
+ */
 void list_sort(void *priv, struct list_head *head,
 		int (*cmp)(void *priv, struct list_head *a,
 			struct list_head *b))
 {
-	struct list_head *part[MAX_LIST_LENGTH_BITS+1]; 
-	int lev;  
+	struct list_head *part[MAX_LIST_LENGTH_BITS+1]; /* sorted partial lists
+						-- last slot is a sentinel */
+	int lev;  /* index into part[] */
 	int max_lev = 0;
 	struct list_head *list;
 
@@ -112,7 +145,11 @@ EXPORT_SYMBOL(list_sort);
 
 #include <linux/random.h>
 
-#define TEST_LIST_LEN (512+128+2) 
+/*
+ * The pattern of set bits in the list length determines which cases
+ * are hit in list_sort().
+ */
+#define TEST_LIST_LEN (512+128+2) /* not including head */
 
 #define TEST_POISON1 0xDEADBEEF
 #define TEST_POISON2 0xA324354C
@@ -125,6 +162,7 @@ struct debug_el {
 	unsigned serial;
 };
 
+/* Array, containing pointers to all elements in the test list */
 static struct debug_el **elts __initdata;
 
 static int __init check(struct debug_el *ela, struct debug_el *elb)
@@ -190,7 +228,7 @@ static int __init list_sort_test(void)
 					"allocate memory\n");
 			goto exit;
 		}
-		 
+		 /* force some equivalencies */
 		el->value = random32() % (TEST_LIST_LEN/3);
 		el->serial = i;
 		el->poison1 = TEST_POISON1;
@@ -250,4 +288,4 @@ exit:
 	return err;
 }
 module_init(list_sort_test);
-#endif 
+#endif /* CONFIG_TEST_LIST_SORT */

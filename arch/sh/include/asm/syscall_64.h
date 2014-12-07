@@ -5,6 +5,7 @@
 #include <linux/sched.h>
 #include <asm/ptrace.h>
 
+/* The system call number is given by the user in R9 */
 static inline long syscall_get_nr(struct task_struct *task,
 				  struct pt_regs *regs)
 {
@@ -14,6 +15,10 @@ static inline long syscall_get_nr(struct task_struct *task,
 static inline void syscall_rollback(struct task_struct *task,
 				    struct pt_regs *regs)
 {
+	/*
+	 * XXX: This needs some thought. On SH we don't
+	 * save away the original R9 value anywhere.
+	 */
 }
 
 static inline long syscall_get_error(struct task_struct *task,
@@ -56,4 +61,4 @@ static inline void syscall_set_arguments(struct task_struct *task,
 	memcpy(&regs->regs[2 + i], args, n * sizeof(args[0]));
 }
 
-#endif 
+#endif /* __ASM_SH_SYSCALL_64_H */

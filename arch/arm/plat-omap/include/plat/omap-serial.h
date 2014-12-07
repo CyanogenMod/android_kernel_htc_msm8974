@@ -25,16 +25,26 @@
 
 #define DRIVER_NAME	"omap_uart"
 
+/*
+ * Use tty device name as ttyO, [O -> OMAP]
+ * in bootargs we specify as console=ttyO0 if uart1
+ * is used as console uart.
+ */
 #define OMAP_SERIAL_NAME	"ttyO"
 
 #define OMAP_MODE13X_SPEED	230400
 
 #define OMAP_UART_SCR_TX_EMPTY	0x08
 
+/* WER = 0x7F
+ * Enable module level wakeup in WER reg
+ */
 #define OMAP_UART_WER_MOD_WKUP	0X7F
 
+/* Enable XON/XOFF flow control on output */
 #define OMAP_UART_SW_TX		0x04
 
+/* Enable XON/XOFF flow control on input */
 #define OMAP_UART_SW_RX		0x04
 
 #define OMAP_UART_SYSC_RESET	0X07
@@ -52,9 +62,9 @@
 #define UART_ERRATA_i291_DMA_FORCEIDLE	BIT(1)
 
 struct omap_uart_port_info {
-	bool			dma_enabled;	
-	unsigned int		uartclk;	
-	upf_t			flags;		
+	bool			dma_enabled;	/* To specify DMA Mode */
+	unsigned int		uartclk;	/* UART clock rate */
+	upf_t			flags;		/* UPF_* flags */
 	u32			errata;
 	unsigned int		dma_rx_buf_size;
 	unsigned int		dma_rx_timeout;
@@ -75,6 +85,10 @@ struct uart_omap_dma {
 	dma_addr_t		rx_buf_dma_phys;
 	dma_addr_t		tx_buf_dma_phys;
 	unsigned int		uart_base;
+	/*
+	 * Buffer for rx dma.It is not required for tx because the buffer
+	 * comes from port structure.
+	 */
 	unsigned char		*rx_buf;
 	unsigned int		prev_rx_dma_pos;
 	int			tx_buf_size;
@@ -82,7 +96,7 @@ struct uart_omap_dma {
 	int			rx_dma_used;
 	spinlock_t		tx_lock;
 	spinlock_t		rx_lock;
-	
+	/* timer to poll activity on rx dma */
 	struct timer_list	rx_timer;
 	unsigned int		rx_buf_size;
 	unsigned int		rx_poll_rate;
@@ -105,6 +119,11 @@ struct uart_omap_port {
 	unsigned char		scr;
 
 	int			use_dma;
+	/*
+	 * Some bits in registers are cleared on a read, so they must
+	 * be saved whenever the register is read but the bits will not
+	 * be immediately processed.
+	 */
 	unsigned int		lsr_break_flag;
 	unsigned char		msr_saved_flags;
 	char			name[20];
@@ -119,4 +138,4 @@ struct uart_omap_port {
 	struct work_struct	qos_work;
 };
 
-#endif 
+#endif /* __OMAP_SERIAL_H__ */

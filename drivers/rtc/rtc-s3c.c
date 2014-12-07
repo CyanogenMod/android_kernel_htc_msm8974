@@ -44,6 +44,8 @@ struct s3c_rtc_drv_data {
 	int cpu_type;
 };
 
+/* I have yet to find an S3C implementation with more than one
+ * of these rtc blocks in */
 
 static struct resource *s3c_rtc_mem;
 
@@ -77,6 +79,7 @@ static void s3c_rtc_alarm_clk_enable(bool enable)
 	spin_unlock_irqrestore(&s3c_rtc_alarm_clk_lock, irq_flags);
 }
 
+/* IRQ Handlers */
 
 static irqreturn_t s3c_rtc_alarmirq(int irq, void *id)
 {
@@ -109,6 +112,7 @@ static irqreturn_t s3c_rtc_tickirq(int irq, void *id)
 	return IRQ_HANDLED;
 }
 
+/* Update control registers */
 static int s3c_rtc_setaie(struct device *dev, unsigned int enabled)
 {
 	unsigned int tmp;
@@ -166,6 +170,7 @@ static int s3c_rtc_setfreq(struct device *dev, int freq)
 	return 0;
 }
 
+/* Time read/write */
 
 static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 {
@@ -181,6 +186,10 @@ static int s3c_rtc_gettime(struct device *dev, struct rtc_time *rtc_tm)
 	rtc_tm->tm_year = readb(base + S3C2410_RTCYEAR);
 	rtc_tm->tm_sec  = readb(base + S3C2410_RTCSEC);
 
+	/* the only way to work out wether the system was mid-update
+	 * when we read it is to check the second counter, and if it
+	 * is zero, then we re-try the entire read
+	 */
 
 	if (rtc_tm->tm_sec == 0 && !have_retried) {
 		have_retried = 1;
@@ -215,7 +224,7 @@ static int s3c_rtc_settime(struct device *dev, struct rtc_time *tm)
 		 1900 + tm->tm_year, tm->tm_mon, tm->tm_mday,
 		 tm->tm_hour, tm->tm_min, tm->tm_sec);
 
-	
+	/* we get around y2k by simply not supporting it */
 
 	if (year < 0 || year >= 100) {
 		dev_err(dev, "rtc only supports 100 years\n");
@@ -258,7 +267,7 @@ static int s3c_rtc_getalarm(struct device *dev, struct rtc_wkalrm *alrm)
 		 alm_tm->tm_hour, alm_tm->tm_min, alm_tm->tm_sec);
 
 
-	
+	/* decode the alarm enable field */
 
 	if (alm_en & S3C2410_RTCALM_SECEN)
 		alm_tm->tm_sec = bcd2bin(alm_tm->tm_sec);
@@ -385,7 +394,7 @@ static void s3c_rtc_enable(struct platform_device *pdev, int en)
 			writeb(tmp, base + S3C2410_TICNT);
 		}
 	} else {
-		
+		/* re-enable the device, and check it is ok */
 
 		if ((readw(base+S3C2410_RTCCON) & S3C2410_RTCCON_RTCEN) == 0) {
 			dev_info(&pdev->dev, "rtc disabled, re-enabling\n");
@@ -462,7 +471,7 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 
 	pr_debug("%s: probe=%p\n", __func__, pdev);
 
-	
+	/* find the IRQs */
 
 	s3c_rtc_tickno = platform_get_irq(pdev, 1);
 	if (s3c_rtc_tickno < 0) {
@@ -479,7 +488,7 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 	pr_debug("s3c2410_rtc: tick irq %d, alarm irq %d\n",
 		 s3c_rtc_tickno, s3c_rtc_alarmno);
 
-	
+	/* get the memory region */
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (res == NULL) {
@@ -513,7 +522,7 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 
 	clk_enable(rtc_clk);
 
-	
+	/* check to see if everything is setup correctly */
 
 	s3c_rtc_enable(pdev, 1);
 
@@ -522,7 +531,7 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 
 	device_init_wakeup(&pdev->dev, 1);
 
-	
+	/* register RTC and exit */
 
 	rtc = rtc_device_register("s3c", &pdev->dev, &s3c_rtcops,
 				  THIS_MODULE);
@@ -535,7 +544,7 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 
 	s3c_rtc_cpu_type = s3c_rtc_get_driver_data(pdev);
 
-	
+	/* Check RTC Time */
 
 	s3c_rtc_gettime(NULL, &rtc_tm);
 
@@ -610,13 +619,14 @@ static int __devinit s3c_rtc_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_PM
 
+/* RTC Power management control */
 
 static int ticnt_save, ticnt_en_save;
 
 static int s3c_rtc_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	clk_enable(rtc_clk);
-	
+	/* save TICNT for anyone using periodic interrupts */
 	ticnt_save = readb(s3c_rtc_base + S3C2410_TICNT);
 	if (s3c_rtc_cpu_type == TYPE_S3C64XX) {
 		ticnt_en_save = readw(s3c_rtc_base + S3C2410_RTCCON);

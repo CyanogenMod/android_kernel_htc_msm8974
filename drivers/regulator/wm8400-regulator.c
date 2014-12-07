@@ -77,14 +77,14 @@ static int wm8400_ldo_set_voltage(struct regulator_dev *dev,
 		return -EINVAL;
 
 	if (min_uV < 1700000) {
-		
+		/* Steps of 50mV from 900mV;  */
 		val = DIV_ROUND_UP(min_uV - 900000, 50000);
 
 		if ((val * 50000) + 900000 > max_uV)
 			return -EINVAL;
 		BUG_ON((val * 50000) + 900000 < min_uV);
 	} else {
-		
+		/* Steps of 100mV from 1700mV */
 		val = DIV_ROUND_UP(min_uV - 1700000, 100000);
 
 		if ((val * 100000) + 1700000 > max_uV)
@@ -192,15 +192,15 @@ static unsigned int wm8400_dcdc_get_mode(struct regulator_dev *dev)
 	if (ret != 0)
 		return 0;
 
-	
+	/* Datasheet: hibernate */
 	if (data[0] & WM8400_DC1_SLEEP)
 		return REGULATOR_MODE_STANDBY;
 
-	
+	/* Datasheet: standby */
 	if (!(data[0] & WM8400_DC1_ACTIVE))
 		return REGULATOR_MODE_IDLE;
 
-	
+	/* Datasheet: active with or without force PWM */
 	if (data[1] & WM8400_DC1_FRC_PWM)
 		return REGULATOR_MODE_FAST;
 	else
@@ -215,7 +215,7 @@ static int wm8400_dcdc_set_mode(struct regulator_dev *dev, unsigned int mode)
 
 	switch (mode) {
 	case REGULATOR_MODE_FAST:
-		
+		/* Datasheet: active with force PWM */
 		ret = wm8400_set_bits(wm8400, WM8400_DCDC1_CONTROL_2 + offset,
 				      WM8400_DC1_FRC_PWM, WM8400_DC1_FRC_PWM);
 		if (ret != 0)
@@ -226,7 +226,7 @@ static int wm8400_dcdc_set_mode(struct regulator_dev *dev, unsigned int mode)
 				       WM8400_DC1_ACTIVE);
 
 	case REGULATOR_MODE_NORMAL:
-		
+		/* Datasheet: active */
 		ret = wm8400_set_bits(wm8400, WM8400_DCDC1_CONTROL_2 + offset,
 				      WM8400_DC1_FRC_PWM, 0);
 		if (ret != 0)
@@ -237,7 +237,7 @@ static int wm8400_dcdc_set_mode(struct regulator_dev *dev, unsigned int mode)
 				       WM8400_DC1_ACTIVE);
 
 	case REGULATOR_MODE_IDLE:
-		
+		/* Datasheet: standby */
 		ret = wm8400_set_bits(wm8400, WM8400_DCDC1_CONTROL_1 + offset,
 				      WM8400_DC1_ACTIVE, 0);
 		if (ret != 0)
@@ -354,6 +354,17 @@ static struct platform_driver wm8400_regulator_driver = {
 	.remove = __devexit_p(wm8400_regulator_remove),
 };
 
+/**
+ * wm8400_register_regulator - enable software control of a WM8400 regulator
+ *
+ * This function enables software control of a WM8400 regulator via
+ * the regulator API.  It is intended to be called from the
+ * platform_init() callback of the WM8400 MFD driver.
+ *
+ * @param dev      The WM8400 device to operate on.
+ * @param reg      The regulator to control.
+ * @param initdata Regulator initdata for the regulator.
+ */
 int wm8400_register_regulator(struct device *dev, int reg,
 			      struct regulator_init_data *initdata)
 {

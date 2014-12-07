@@ -38,18 +38,25 @@
 
 #include "devices-imx31.h"
 
+/* Base address of PBC controller */
 #define PBC_BASE_ADDRESS	MX31_CS4_BASE_ADDR_VIRT
 
+/* PBC Board interrupt status register */
 #define PBC_INTSTATUS           0x000016
 
+/* PBC Board interrupt current status register */
 #define PBC_INTCURR_STATUS      0x000018
 
+/* PBC Interrupt mask register set address */
 #define PBC_INTMASK_SET         0x00001A
 
+/* PBC Interrupt mask register clear address */
 #define PBC_INTMASK_CLEAR       0x00001C
 
+/* External UART A */
 #define PBC_SC16C652_UARTA      0x010000
 
+/* External UART B */
 #define PBC_SC16C652_UARTB      0x010010
 
 #define PBC_INTSTATUS_REG	(PBC_INTSTATUS + PBC_BASE_ADDRESS)
@@ -65,9 +72,13 @@
 
 #define MXC_MAX_EXP_IO_LINES	16
 
+/* CS8900 */
 #define EXPIO_INT_ENET_INT	(MXC_EXP_IO_BASE + 8)
 #define CS4_CS8900_MMIO_START	0x20000
 
+/*
+ * The serial port definition structure.
+ */
 static struct plat_serial8250_port serial_platform_data[] = {
 	{
 		.membase  = (void *)(PBC_BASE_ADDRESS + PBC_SC16C652_UARTA),
@@ -155,25 +166,37 @@ static void mx31ads_expio_irq_handler(u32 irq, struct irq_desc *desc)
 	}
 }
 
+/*
+ * Disable an expio pin's interrupt by setting the bit in the imr.
+ * @param d	an expio virtual irq description
+ */
 static void expio_mask_irq(struct irq_data *d)
 {
 	u32 expio = MXC_IRQ_TO_EXPIO(d->irq);
-	
+	/* mask the interrupt */
 	__raw_writew(1 << expio, PBC_INTMASK_CLEAR_REG);
 	__raw_readw(PBC_INTMASK_CLEAR_REG);
 }
 
+/*
+ * Acknowledge an expanded io pin's interrupt by clearing the bit in the isr.
+ * @param d	an expio virtual irq description
+ */
 static void expio_ack_irq(struct irq_data *d)
 {
 	u32 expio = MXC_IRQ_TO_EXPIO(d->irq);
-	
+	/* clear the interrupt status */
 	__raw_writew(1 << expio, PBC_INTSTATUS_REG);
 }
 
+/*
+ * Enable a expio pin's interrupt by clearing the bit in the imr.
+ * @param d	an expio virtual irq description
+ */
 static void expio_unmask_irq(struct irq_data *d)
 {
 	u32 expio = MXC_IRQ_TO_EXPIO(d->irq);
-	
+	/* unmask the interrupt */
 	__raw_writew(1 << expio, PBC_INTMASK_SET_REG);
 }
 
@@ -190,9 +213,12 @@ static void __init mx31ads_init_expio(void)
 
 	printk(KERN_INFO "MX31ADS EXPIO(CPLD) hardware\n");
 
+	/*
+	 * Configure INT line as GPIO input
+	 */
 	mxc_iomux_alloc_pin(IOMUX_MODE(MX31_PIN_GPIO1_4, IOMUX_CONFIG_GPIO), "expio");
 
-	
+	/* disable the interrupt and clear the status */
 	__raw_writew(0xFFFF, PBC_INTMASK_CLEAR_REG);
 	__raw_writew(0xFFFF, PBC_INTSTATUS_REG);
 	for (i = MXC_EXP_IO_BASE; i < (MXC_EXP_IO_BASE + MXC_MAX_EXP_IO_LINES);
@@ -205,7 +231,15 @@ static void __init mx31ads_init_expio(void)
 }
 
 #ifdef CONFIG_MACH_MX31ADS_WM1133_EV1
+/* This section defines setup for the Wolfson Microelectronics
+ * 1133-EV1 PMU/audio board.  When other PMU boards are supported the
+ * regulator definitions may be shared with them, but for now they can
+ * only be used with this board so would generate warnings about
+ * unused statics and some of the configuration is specific to this
+ * module.
+ */
 
+/* CPU */
 static struct regulator_consumer_supply sw1a_consumers[] = {
 	{
 		.supply = "cpu_vcc",
@@ -234,6 +268,7 @@ static struct regulator_init_data sw1a_data = {
 	.consumer_supplies = sw1a_consumers,
 };
 
+/* System IO - High */
 static struct regulator_init_data viohi_data = {
 	.constraints = {
 		.name = "VIOHO",
@@ -250,6 +285,7 @@ static struct regulator_init_data viohi_data = {
 	},
 };
 
+/* System IO - Low */
 static struct regulator_init_data violo_data = {
 	.constraints = {
 		.name = "VIOLO",
@@ -266,6 +302,7 @@ static struct regulator_init_data violo_data = {
 	},
 };
 
+/* DDR RAM */
 static struct regulator_init_data sw2a_data = {
 	.constraints = {
 		.name = "SW2A",
@@ -303,6 +340,7 @@ static struct regulator_consumer_supply ldo2_consumers[] = {
 	{ .supply = "HPVDD", .dev_name = "1-001a" },
 };
 
+/* CODEC and SIM */
 static struct regulator_init_data ldo2_data = {
 	.constraints = {
 		.name = "VESIM/VSIM/AVDD",
@@ -316,6 +354,7 @@ static struct regulator_init_data ldo2_data = {
 	.consumer_supplies = ldo2_consumers,
 };
 
+/* General */
 static struct regulator_init_data vdig_data = {
 	.constraints = {
 		.name = "VDIG",
@@ -328,6 +367,7 @@ static struct regulator_init_data vdig_data = {
 	},
 };
 
+/* Tranceivers */
 static struct regulator_init_data ldo4_data = {
 	.constraints = {
 		.name = "VRF1/CVDD_2.775",
@@ -412,7 +452,7 @@ static int mx31_wm8350_init(struct wm8350 *wm8350)
 	wm8350_register_regulator(wm8350, WM8350_LDO_3, &vdig_data);
 	wm8350_register_regulator(wm8350, WM8350_LDO_4, &ldo4_data);
 
-	
+	/* LEDs */
 	wm8350_dcdc_set_slot(wm8350, WM8350_DCDC_5, 1, 1,
 			     WM8350_DC5_ERRACT_SHUTDOWN_CONV);
 	wm8350_isink_set_flash(wm8350, WM8350_ISINK_A,
@@ -477,6 +517,10 @@ static void __init mxc_init_audio(void)
 	mxc_iomux_setup_multiple_pins(ssi_pins, ARRAY_SIZE(ssi_pins), "ssi");
 }
 
+/*
+ * Static mappings, starting from the CS4 start address up to the start address
+ * of the CS8900.
+ */
 static struct map_desc mx31ads_io_desc[] __initdata = {
 	{
 		.virtual	= MX31_CS4_BASE_ADDR_VIRT,
@@ -519,7 +563,7 @@ static struct sys_timer mx31ads_timer = {
 };
 
 MACHINE_START(MX31ADS, "Freescale MX31ADS")
-	
+	/* Maintainer: Freescale Semiconductor, Inc. */
 	.atag_offset = 0x100,
 	.map_io = mx31ads_map_io,
 	.init_early = imx31_init_early,

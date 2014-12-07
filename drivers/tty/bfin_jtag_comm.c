@@ -29,10 +29,11 @@
 
 #define pr_init(fmt, args...) ({ static const __initconst char __fmt[] = fmt; printk(__fmt, ## args); })
 
-#define EMUDOF   0x00000001	
-#define EMUDIF   0x00000002	
-#define EMUDOOVF 0x00000004	
-#define EMUDIOVF 0x00000008	
+/* See the Debug/Emulation chapter in the HRM */
+#define EMUDOF   0x00000001	/* EMUDAT_OUT full & valid */
+#define EMUDIF   0x00000002	/* EMUDAT_IN full & valid */
+#define EMUDOOVF 0x00000004	/* EMUDAT_OUT overflow */
+#define EMUDIOVF 0x00000008	/* EMUDAT_IN overflow */
 
 static inline uint32_t bfin_write_emudat(uint32_t emudat)
 {
@@ -52,7 +53,7 @@ static inline uint32_t bfin_write_emudat_chars(char a, char b, char c, char d)
 	return bfin_write_emudat((a << 0) | (b << 8) | (c << 16) | (d << 24));
 }
 
-#define CIRC_SIZE 2048	
+#define CIRC_SIZE 2048	/* see comment in tty_io.c:do_tty_write() */
 #define CIRC_MASK (CIRC_SIZE - 1)
 #define circ_empty(circ)     ((circ)->head == (circ)->tail)
 #define circ_free(circ)      CIRC_SPACE((circ)->head, (circ)->tail, CIRC_SIZE)
@@ -72,7 +73,7 @@ bfin_jc_emudat_manager(void *arg)
 	uint32_t inbound_len = 0, outbound_len = 0;
 
 	while (!kthread_should_stop()) {
-		
+		/* no one left to give data to, so sleep */
 		if (bfin_jc_tty == NULL && circ_empty(&bfin_jc_write_buf)) {
 			pr_debug("waiting for readers\n");
 			__set_current_state(TASK_UNINTERRUPTIBLE);
@@ -80,7 +81,7 @@ bfin_jc_emudat_manager(void *arg)
 			__set_current_state(TASK_RUNNING);
 		}
 
-		
+		/* no data available, so just chill */
 		if (!(bfin_read_DBGSTAT() & EMUDIF) && circ_empty(&bfin_jc_write_buf)) {
 			pr_debug("waiting for data (in_len = %i) (circ: %i %i)\n",
 				inbound_len, bfin_jc_write_buf.tail, bfin_jc_write_buf.head);
@@ -91,7 +92,7 @@ bfin_jc_emudat_manager(void *arg)
 			continue;
 		}
 
-		
+		/* if incoming data is ready, eat it */
 		if (bfin_read_DBGSTAT() & EMUDIF) {
 			struct tty_struct *tty;
 			mutex_lock(&bfin_jc_tty_mutex);
@@ -112,7 +113,7 @@ bfin_jc_emudat_manager(void *arg)
 			mutex_unlock(&bfin_jc_tty_mutex);
 		}
 
-		
+		/* if outgoing data is ready, post it */
 		if (!(bfin_read_DBGSTAT() & EMUDOF) && !circ_empty(&bfin_jc_write_buf)) {
 			if (outbound_len == 0) {
 				outbound_len = circ_cnt(&bfin_jc_write_buf);
@@ -168,6 +169,7 @@ bfin_jc_close(struct tty_struct *tty, struct file *filp)
 	mutex_unlock(&bfin_jc_tty_mutex);
 }
 
+/* XXX: we dont handle the put_char() case where we must handle count = 1 */
 static int
 bfin_jc_circ_write(const unsigned char *buf, int count)
 {
@@ -229,7 +231,7 @@ static const struct tty_operations bfin_jc_ops = {
 	.open            = bfin_jc_open,
 	.close           = bfin_jc_close,
 	.write           = bfin_jc_write,
-	
+	/*.put_char        = bfin_jc_put_char,*/
 	.flush_chars     = bfin_jc_flush_chars,
 	.write_room      = bfin_jc_write_room,
 	.chars_in_buffer = bfin_jc_chars_in_buffer,

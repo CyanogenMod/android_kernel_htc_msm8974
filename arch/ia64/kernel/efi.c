@@ -202,7 +202,7 @@ prefix##_reset_system (int reset_type, efi_status_t status,		       \
 	efi_call_##prefix(						       \
 		(efi_reset_system_t *) __va(runtime->reset_system),	       \
 		reset_type, status, data_size, adata);			       \
-				       \
+	/* should not return, but just in case... */			       \
 	ia64_load_scratch_fpregs(fr);					       \
 }
 
@@ -314,18 +314,31 @@ walk (efi_freemem_callback_t callback, void *arg, u64 attr)
 	}
 }
 
+/*
+ * Walk the EFI memory map and call CALLBACK once for each EFI memory
+ * descriptor that has memory that is available for OS use.
+ */
 void
 efi_memmap_walk (efi_freemem_callback_t callback, void *arg)
 {
 	walk(callback, arg, EFI_MEMORY_WB);
 }
 
+/*
+ * Walk the EFI memory map and call CALLBACK once for each EFI memory
+ * descriptor that has memory that is available for uncached allocator.
+ */
 void
 efi_memmap_walk_uc (efi_freemem_callback_t callback, void *arg)
 {
 	walk(callback, arg, EFI_MEMORY_UC);
 }
 
+/*
+ * Look for the PAL_CODE region reported by EFI and map it using an
+ * ITR to enable safe PAL calls in virtual mode.  See IA-64 Processor
+ * Abstraction Layer chapter 11 in ADAG
+ */
 void *
 efi_get_pal_addr (void)
 {
@@ -349,9 +362,26 @@ efi_get_pal_addr (void)
 			       "dropped @ %llx\n", md->phys_addr);
 			continue;
 		}
+		/*
+		 * The only ITLB entry in region 7 that is used is the one
+		 * installed by __start().  That entry covers a 64MB range.
+		 */
 		mask  = ~((1 << KERNEL_TR_PAGE_SHIFT) - 1);
 		vaddr = PAGE_OFFSET + md->phys_addr;
 
+		/*
+		 * We must check that the PAL mapping won't overlap with the
+		 * kernel mapping.
+		 *
+		 * PAL code is guaranteed to be aligned on a power of 2 between
+		 * 4k and 256KB and that only one ITR is needed to map it. This
+		 * implies that the PAL code is always aligned on its size,
+		 * i.e., the closest matching page size supported by the TLB.
+		 * Therefore PAL code is guaranteed never to cross a 64MB unless
+		 * it is bigger than 64MB (very unlikely!).  So for now the
+		 * following test is enough to determine whether or not we need
+		 * a dedicated ITR for the PAL code.
+		 */
 		if ((vaddr & mask) == (KERNEL_START & mask)) {
 			printk(KERN_INFO "%s: no need to install ITR for PAL code\n",
 			       __func__);
@@ -389,6 +419,10 @@ static u8 __init palo_checksum(u8 *buffer, u32 length)
 	return sum;
 }
 
+/*
+ * Parse and handle PALO table which is published at:
+ * http://www.dig64.org/home/DIG64_PALO_R1_0.pdf
+ */
 static void __init handle_palo(unsigned long palo_phys)
 {
 	struct palo_table *palo = __va(palo_phys);
@@ -417,13 +451,16 @@ efi_map_pal_code (void)
 	if (!pal_vaddr)
 		return;
 
+	/*
+	 * Cannot write to CRx with PSR.ic=1
+	 */
 	psr = ia64_clear_ic();
 	ia64_itr(0x1, IA64_TR_PALCODE,
 		 GRANULEROUNDDOWN((unsigned long) pal_vaddr),
 		 pte_val(pfn_pte(__pa(pal_vaddr) >> PAGE_SHIFT, PAGE_KERNEL)),
 		 IA64_GRANULE_SHIFT);
 	paravirt_dv_serialize_data();
-	ia64_set_psr(psr);		
+	ia64_set_psr(psr);		/* restore psr */
 }
 
 void __init
@@ -437,6 +474,10 @@ efi_init (void)
 	int i;
 	unsigned long palo_phys;
 
+	/*
+	 * It's too early to be able to use the standard kernel command line
+	 * support...
+	 */
 	for (cp = boot_command_line; *cp; ) {
 		if (memcmp(cp, "mem=", 4) == 0) {
 			mem_limit = memparse(cp + 4, &cp);
@@ -460,6 +501,9 @@ efi_init (void)
 
 	efi.systab = __va(ia64_boot_param->efi_systab);
 
+	/*
+	 * Verify the EFI Table
+	 */
 	if (efi.systab == NULL)
 		panic("Whoa! Can't find EFI system table.\n");
 	if (efi.systab->hdr.signature != EFI_SYSTEM_TABLE_SIGNATURE)
@@ -472,7 +516,7 @@ efi_init (void)
 
 	config_tables = __va(efi.systab->tables);
 
-	
+	/* Show what we know for posterity */
 	c16 = __va(efi.systab->fw_vendor);
 	if (c16) {
 		for (i = 0;i < (int) sizeof(vendor) - 1 && *c16; ++i)
@@ -541,7 +585,7 @@ efi_init (void)
 	efi_desc_size = ia64_boot_param->efi_memdesc_size;
 
 #if EFI_DEBUG
-	
+	/* print EFI memory map: */
 	{
 		efi_memory_desc_t *md;
 		void *p;
@@ -596,6 +640,10 @@ efi_enter_virtual_mode (void)
 	for (p = efi_map_start; p < efi_map_end; p += efi_desc_size) {
 		md = p;
 		if (md->attribute & EFI_MEMORY_RUNTIME) {
+			/*
+			 * Some descriptors have multiple bits set, so the
+			 * order of the tests is relevant.
+			 */
 			if (md->attribute & EFI_MEMORY_WB) {
 				md->virt_addr = (u64) __va(md->phys_addr);
 			} else if (md->attribute & EFI_MEMORY_UC) {
@@ -641,6 +689,10 @@ efi_enter_virtual_mode (void)
 		return;
 	}
 
+	/*
+	 * Now that EFI is in virtual mode, we call the EFI functions more
+	 * efficiently:
+	 */
 	efi.get_time = virt_get_time;
 	efi.set_time = virt_set_time;
 	efi.get_wakeup_time = virt_get_wakeup_time;
@@ -652,6 +704,10 @@ efi_enter_virtual_mode (void)
 	efi.reset_system = virt_reset_system;
 }
 
+/*
+ * Walk the EFI memory map looking for the I/O port range.  There can only be
+ * one entry of this type, other I/O port ranges should be described via ACPI.
+ */
 u64
 efi_get_iobase (void)
 {
@@ -758,6 +814,10 @@ efi_mem_attribute (unsigned long phys_addr, unsigned long size)
 	if (!md)
 		return 0;
 
+	/*
+	 * EFI_MEMORY_RUNTIME is not a memory attribute; it just tells
+	 * the kernel that firmware needs this region mapped.
+	 */
 	attr = md->attribute & ~EFI_MEMORY_RUNTIME;
 	do {
 		unsigned long md_end = efi_md_end(md);
@@ -769,7 +829,7 @@ efi_mem_attribute (unsigned long phys_addr, unsigned long size)
 		if (!md || (md->attribute & ~EFI_MEMORY_RUNTIME) != attr)
 			return 0;
 	} while (md);
-	return 0;	
+	return 0;	/* never reached */
 }
 
 u64
@@ -779,6 +839,10 @@ kern_mem_attribute (unsigned long phys_addr, unsigned long size)
 	struct kern_memdesc *md;
 	u64 attr;
 
+	/*
+	 * This is a hack for ioremap calls before we set up kern_memmap.
+	 * Maybe we should do efi_memmap_init() earlier instead.
+	 */
 	if (!kern_memmap) {
 		attr = efi_mem_attribute(phys_addr, size);
 		if (attr & EFI_MEMORY_WB)
@@ -801,7 +865,7 @@ kern_mem_attribute (unsigned long phys_addr, unsigned long size)
 		if (!md || md->attribute != attr)
 			return 0;
 	} while (md);
-	return 0;	
+	return 0;	/* never reached */
 }
 EXPORT_SYMBOL(kern_mem_attribute);
 
@@ -810,6 +874,12 @@ valid_phys_addr_range (unsigned long phys_addr, unsigned long size)
 {
 	u64 attr;
 
+	/*
+	 * /dev/mem reads and writes use copy_to_user(), which implicitly
+	 * uses a granule-sized kernel identity mapping.  It's really
+	 * only safe to do this for regions in kern_memmap.  For more
+	 * details, see Documentation/ia64/aliasing.txt.
+	 */
 	attr = kern_mem_attribute(phys_addr, size);
 	if (attr & EFI_MEMORY_WB || attr & EFI_MEMORY_UC)
 		return 1;
@@ -824,9 +894,20 @@ valid_mmap_phys_addr_range (unsigned long pfn, unsigned long size)
 
 	attr = efi_mem_attribute(phys_addr, size);
 
+	/*
+	 * /dev/mem mmap uses normal user pages, so we don't need the entire
+	 * granule, but the entire region we're mapping must support the same
+	 * attribute.
+	 */
 	if (attr & EFI_MEMORY_WB || attr & EFI_MEMORY_UC)
 		return 1;
 
+	/*
+	 * Intel firmware doesn't tell us about all the MMIO regions, so
+	 * in general we have to allow mmap requests.  But if EFI *does*
+	 * tell us about anything inside this region, we should deny it.
+	 * The user can always map a smaller region to avoid the overlap.
+	 */
 	if (efi_memmap_intersects(phys_addr, size))
 		return 0;
 
@@ -840,12 +921,21 @@ phys_mem_access_prot(struct file *file, unsigned long pfn, unsigned long size,
 	unsigned long phys_addr = pfn << PAGE_SHIFT;
 	u64 attr;
 
+	/*
+	 * For /dev/mem mmap, we use user mappings, but if the region is
+	 * in kern_memmap (and hence may be covered by a kernel mapping),
+	 * we must use the same attribute as the kernel mapping.
+	 */
 	attr = kern_mem_attribute(phys_addr, size);
 	if (attr & EFI_MEMORY_WB)
 		return pgprot_cacheable(vma_prot);
 	else if (attr & EFI_MEMORY_UC)
 		return pgprot_noncached(vma_prot);
 
+	/*
+	 * Some chipsets don't support UC access to memory.  If
+	 * WB is supported, we prefer that.
+	 */
 	if (efi_mem_attribute(phys_addr, size) & EFI_MEMORY_WB)
 		return pgprot_cacheable(vma_prot);
 
@@ -864,7 +954,7 @@ efi_uart_console_only(void)
 	struct efi_generic_dev_path *hdr, *end_addr;
 	int uart = 0;
 
-	
+	/* Convert to UTF-16 */
 	utf16 = name_utf16;
 	s = name;
 	while (*s)
@@ -897,6 +987,11 @@ efi_uart_console_only(void)
 	return 0;
 }
 
+/*
+ * Look for the first granule aligned memory descriptor memory
+ * that is big enough to hold EFI memory map. Make sure this
+ * descriptor is atleast granule sized so it does not get trimmed
+ */
 struct kern_memdesc *
 find_memmap_space (void)
 {
@@ -911,6 +1006,11 @@ find_memmap_space (void)
 	efi_map_end   = efi_map_start + ia64_boot_param->efi_memmap_size;
 	efi_desc_size = ia64_boot_param->efi_memdesc_size;
 
+	/*
+	 * Worst case: we need 3 kernel descriptors for each efi descriptor
+	 * (if every entry has a WB part in the middle, and UC head and tail),
+	 * plus one for the end marker.
+	 */
 	space_needed = sizeof(kern_memdesc_t) *
 		(3 * (ia64_boot_param->efi_memmap_size/efi_desc_size) + 1);
 
@@ -937,17 +1037,17 @@ find_memmap_space (void)
 		if (!is_memory_available(md) || md->type == EFI_LOADER_DATA)
 			continue;
 
-		
+		/* Round ends inward to granule boundaries */
 		as = max(contig_low, md->phys_addr);
 		ae = min(contig_high, efi_md_end(md));
 
-		
+		/* keep within max_addr= and min_addr= command line arg */
 		as = max(as, min_addr);
 		ae = min(ae, max_addr);
 		if (ae <= as)
 			continue;
 
-		
+		/* avoid going over mem= command line arg */
 		if (total_mem + (ae - as) > mem_limit)
 			ae -= total_mem + (ae - as) - mem_limit;
 
@@ -963,6 +1063,11 @@ find_memmap_space (void)
 	return __va(as);
 }
 
+/*
+ * Walk the EFI memory map and gather all memory available for kernel
+ * to use.  We can allocate partial granules only if the unavailable
+ * parts exist, and are WB.
+ */
 unsigned long
 efi_memmap_init(u64 *s, u64 *e)
 {
@@ -1012,10 +1117,14 @@ efi_memmap_init(u64 *s, u64 *e)
 			continue;
 
 #ifdef CONFIG_CRASH_DUMP
-		
+		/* saved_max_pfn should ignore max_addr= command line arg */
 		if (saved_max_pfn < (efi_md_end(md) >> PAGE_SHIFT))
 			saved_max_pfn = (efi_md_end(md) >> PAGE_SHIFT);
 #endif
+		/*
+		 * Round ends inward to granule boundaries
+		 * Give trimmings to uncached allocator
+		 */
 		if (md->phys_addr < contig_low) {
 			lim = min(efi_md_end(md), contig_low);
 			if (efi_uc(md)) {
@@ -1056,13 +1165,13 @@ efi_memmap_init(u64 *s, u64 *e)
 		} else
 			ae = efi_md_end(md);
 
-		
+		/* keep within max_addr= and min_addr= command line arg */
 		as = max(as, min_addr);
 		ae = min(ae, max_addr);
 		if (ae <= as)
 			continue;
 
-		
+		/* avoid going over mem= command line arg */
 		if (total_mem + (ae - as) > mem_limit)
 			ae -= total_mem + (ae - as) - mem_limit;
 
@@ -1079,9 +1188,9 @@ efi_memmap_init(u64 *s, u64 *e)
 		total_mem += ae - as;
 		prev = k++;
 	}
-	k->start = ~0L; 
+	k->start = ~0L; /* end-marker */
 
-	
+	/* reserve the memory we are using for kern_memmap */
 	*s = (u64)kern_memmap;
 	*e = (u64)++k;
 
@@ -1109,7 +1218,7 @@ efi_initialize_iomem_resources(struct resource *code_resource,
 	for (p = efi_map_start; p < efi_map_end; p += efi_desc_size) {
 		md = p;
 
-		if (md->num_pages == 0) 
+		if (md->num_pages == 0) /* should not happen */
 			continue;
 
 		flags = IORESOURCE_MEM | IORESOURCE_BUSY;
@@ -1166,6 +1275,11 @@ efi_initialize_iomem_resources(struct resource *code_resource,
 		if (insert_resource(&iomem_resource, res) < 0)
 			kfree(res);
 		else {
+			/*
+			 * We don't know which region contains
+			 * kernel data so we try it repeatedly and
+			 * let the resource manager test it.
+			 */
 			insert_resource(res, code_resource);
 			insert_resource(res, data_resource);
 			insert_resource(res, bss_resource);
@@ -1180,6 +1294,9 @@ efi_initialize_iomem_resources(struct resource *code_resource,
 }
 
 #ifdef CONFIG_KEXEC
+/* find a block of memory aligned to 64M exclude reserved regions
+   rsvd_regions are sorted
+ */
 unsigned long __init
 kdump_find_rsvd_region (unsigned long size, struct rsvd_region *r, int n)
 {
@@ -1223,6 +1340,7 @@ kdump_find_rsvd_region (unsigned long size, struct rsvd_region *r, int n)
 #endif
 
 #ifdef CONFIG_CRASH_DUMP
+/* locate the size find a the descriptor at a certain address */
 unsigned long __init
 vmcore_find_descriptor_size (unsigned long address)
 {

@@ -24,8 +24,8 @@
 #include "prom.h"
 #include "irq.h"
 
-struct leon3_irqctrl_regs_map *leon3_irqctrl_regs; 
-struct leon3_gptimer_regs_map *leon3_gptimer_regs; 
+struct leon3_irqctrl_regs_map *leon3_irqctrl_regs; /* interrupt controller base address */
+struct leon3_gptimer_regs_map *leon3_gptimer_regs; /* timer controller base address */
 
 int leondebug_irq_disable;
 int leon_debug_irqout;
@@ -33,29 +33,34 @@ static int dummy_master_l10_counter;
 unsigned long amba_system_id;
 static DEFINE_SPINLOCK(leon_irq_lock);
 
-unsigned long leon3_gptimer_irq; 
-unsigned long leon3_gptimer_idx; 
-int leon3_ticker_irq; 
+unsigned long leon3_gptimer_irq; /* interrupt controller irq number */
+unsigned long leon3_gptimer_idx; /* Timer Index (0..6) within Timer Core */
+int leon3_ticker_irq; /* Timer ticker IRQ */
 unsigned int sparc_leon_eirq;
 #define LEON_IMASK(cpu) (&leon3_irqctrl_regs->mask[cpu])
 #define LEON_IACK (&leon3_irqctrl_regs->iclear)
 #define LEON_DO_ACK_HW 1
 
+/* Return the last ACKed IRQ by the Extended IRQ controller. It has already
+ * been (automatically) ACKed when the CPU takes the trap.
+ */
 static inline unsigned int leon_eirq_get(int cpu)
 {
 	return LEON3_BYPASS_LOAD_PA(&leon3_irqctrl_regs->intid[cpu]) & 0x1f;
 }
 
+/* Handle one or multiple IRQs from the extended interrupt controller */
 static void leon_handle_ext_irq(unsigned int irq, struct irq_desc *desc)
 {
 	unsigned int eirq;
 	int cpu = sparc_leon3_cpuid();
 
 	eirq = leon_eirq_get(cpu);
-	if ((eirq & 0x10) && irq_map[eirq]->irq) 
+	if ((eirq & 0x10) && irq_map[eirq]->irq) /* bit4 tells if IRQ happened */
 		generic_handle_irq(irq_map[eirq]->irq);
 }
 
+/* The extended IRQ controller has been found, this function registers it */
 void leon_eirq_setup(unsigned int eirq)
 {
 	unsigned long mask, oldmask;
@@ -68,6 +73,10 @@ void leon_eirq_setup(unsigned int eirq)
 
 	veirq = leon_build_device_irq(eirq, leon_handle_ext_irq, "extirq", 0);
 
+	/*
+	 * Unmask the Extended IRQ, the IRQs routed through the Ext-IRQ
+	 * controller have a mask-bit of their own, so this is safe.
+	 */
 	irq_link(veirq);
 	mask = 1 << eirq;
 	oldmask = LEON3_BYPASS_LOAD_PA(LEON_IMASK(boot_cpu_id));
@@ -118,7 +127,7 @@ static int leon_set_affinity(struct irq_data *data, const struct cpumask *dest,
 	if (oldcpu == newcpu)
 		goto out;
 
-	
+	/* unmask on old CPU first before enabling on the selected CPU */
 	spin_lock_irqsave(&leon_irq_lock, flags);
 	oldmask = LEON3_BYPASS_LOAD_PA(LEON_IMASK(oldcpu));
 	LEON3_BYPASS_STORE_PA(LEON_IMASK(oldcpu), (oldmask & ~mask));
@@ -168,6 +177,7 @@ static void leon_shutdown_irq(struct irq_data *data)
 	irq_unlink(data->irq);
 }
 
+/* Used by external level sensitive IRQ handlers on the LEON: ACK IRQ ctrl */
 static void leon_eoi_irq(struct irq_data *data)
 {
 	unsigned long mask = (unsigned long)data->chip_data;
@@ -186,6 +196,12 @@ static struct irq_chip leon_irq = {
 	.irq_set_affinity	= leon_set_affinity,
 };
 
+/*
+ * Build a LEON IRQ for the edge triggered LEON IRQ controller:
+ *  Edge (normal) IRQ           - handle_simple_irq, ack=DONT-CARE, never ack
+ *  Level IRQ (PCI|Level-GPIO)  - handle_fasteoi_irq, ack=1, ack after ISR
+ *  Per-CPU Edge                - handle_percpu_irq, ack=0
+ */
 unsigned int leon_build_device_irq(unsigned int real_irq,
 				    irq_flow_handler_t flow_handler,
 				    const char *name, int do_ack)
@@ -253,12 +269,12 @@ void __init leon_init_timers(irq_handler_t counter_fn)
 	if (!rootnp)
 		goto bad;
 
-	
+	/* Find System ID: GRLIB build ID and optional CHIP ID */
 	pp = of_find_property(rootnp, "systemid", &len);
 	if (pp)
 		amba_system_id = *(unsigned long *)pp->value;
 
-	
+	/* Find IRQMP IRQ Controller Registers base adr otherwise bail out */
 	np = of_find_node_by_name(rootnp, "GAISLER_IRQMP");
 	if (!np) {
 		np = of_find_node_by_name(rootnp, "01_00d");
@@ -270,7 +286,7 @@ void __init leon_init_timers(irq_handler_t counter_fn)
 		goto bad;
 	leon3_irqctrl_regs = *(struct leon3_irqctrl_regs_map **)pp->value;
 
-	
+	/* Find GPTIMER Timer Registers base address otherwise bail out. */
 	nnp = rootnp;
 	do {
 		np = of_find_node_by_name(nnp, "GAISLER_GPTIMER");
@@ -285,12 +301,14 @@ void __init leon_init_timers(irq_handler_t counter_fn)
 		if (pp) {
 			ampopts = *(int *)pp->value;
 			if (ampopts == 0) {
+				/* Skip this instance, resource already
+				 * allocated by other OS */
 				nnp = np;
 				continue;
 			}
 		}
 
-		
+		/* Select Timer-Instance on Timer Core. Default is zero */
 		leon3_gptimer_idx = ampopts & 0x7;
 
 		pp = of_find_property(np, "reg", &len);
@@ -328,14 +346,23 @@ void __init leon_init_timers(irq_handler_t counter_fn)
 				0);
 #endif
 
+	/*
+	 * The IRQ controller may (if implemented) consist of multiple
+	 * IRQ controllers, each mapped on a 4Kb boundary.
+	 * Each CPU may be routed to different IRQCTRLs, however
+	 * we assume that all CPUs (in SMP system) is routed to the
+	 * same IRQ Controller, and for non-SMP only one IRQCTRL is
+	 * accessed anyway.
+	 * In AMP systems, Linux must run on CPU0 for the time being.
+	 */
 	icsel = LEON3_BYPASS_LOAD_PA(&leon3_irqctrl_regs->icsel[boot_cpu_id/8]);
 	icsel = (icsel >> ((7 - (boot_cpu_id&0x7)) * 4)) & 0xf;
 	leon3_irqctrl_regs += icsel;
 
-	
+	/* Mask all IRQs on boot-cpu IRQ controller */
 	LEON3_BYPASS_STORE_PA(&leon3_irqctrl_regs->mask[boot_cpu_id], 0);
 
-	
+	/* Probe extended IRQ controller */
 	eirq = (LEON3_BYPASS_LOAD_PA(&leon3_irqctrl_regs->mpstatus)
 		>> 16) & 0xf;
 	if (eirq != 0)
@@ -352,8 +379,13 @@ void __init leon_init_timers(irq_handler_t counter_fn)
 	{
 		unsigned long flags;
 
+		/*
+		 * In SMP, sun4m adds a IPI handler to IRQ trap handler that
+		 * LEON never must take, sun4d and LEON overwrites the branch
+		 * with a NOP.
+		 */
 		local_irq_save(flags);
-		patchme_maybe_smp_msg[0] = 0x01000000; 
+		patchme_maybe_smp_msg[0] = 0x01000000; /* NOP out the branch */
 		local_flush_cache_all();
 		local_irq_restore(flags);
 	}
@@ -366,7 +398,7 @@ void __init leon_init_timers(irq_handler_t counter_fn)
 			      LEON3_GPTIMER_IRQEN);
 
 #ifdef CONFIG_SMP
-	
+	/* Install per-cpu IRQ handler for broadcasted ticker */
 	irq = leon_build_device_irq(leon3_ticker_irq, handle_percpu_irq,
 				    "per-cpu", 0);
 	err = request_irq(irq, leon_percpu_timer_interrupt,

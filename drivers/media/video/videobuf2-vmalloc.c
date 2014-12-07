@@ -102,10 +102,10 @@ static void *vb2_vmalloc_get_userptr(void *alloc_ctx, unsigned long vaddr,
 		if (!buf->pages)
 			goto fail_pages_array_alloc;
 
-		
+		/* current->mm->mmap_sem is taken by videobuf2 core */
 		n_pages = get_user_pages(current, current->mm,
 					 vaddr & PAGE_MASK, buf->n_pages,
-					 write, 1, 
+					 write, 1, /* force */
 					 buf->pages, NULL);
 		if (n_pages != buf->n_pages)
 			goto fail_get_user_pages;
@@ -190,8 +190,14 @@ static int vb2_vmalloc_mmap(void *buf_priv, struct vm_area_struct *vma)
 		return ret;
 	}
 
+	/*
+	 * Make sure that vm_areas for 2 buffers won't be merged together
+	 */
 	vma->vm_flags		|= VM_DONTEXPAND;
 
+	/*
+	 * Use common vm_area operations to track buffer refcount.
+	 */
 	vma->vm_private_data	= &buf->handler;
 	vma->vm_ops		= &vb2_common_vm_ops;
 

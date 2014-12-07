@@ -44,6 +44,12 @@
 
 #define DRV_NAME "siimage"
 
+/**
+ *	pdev_is_sata		-	check if device is SATA
+ *	@pdev:	PCI device to check
+ *
+ *	Returns true if this is a SATA controller
+ */
 
 static int pdev_is_sata(struct pci_dev *pdev)
 {
@@ -60,12 +66,28 @@ static int pdev_is_sata(struct pci_dev *pdev)
 	return 0;
 }
 
+/**
+ *	is_sata			-	check if hwif is SATA
+ *	@hwif:	interface to check
+ *
+ *	Returns true if this is a SATA controller
+ */
 
 static inline int is_sata(ide_hwif_t *hwif)
 {
 	return pdev_is_sata(to_pci_dev(hwif->dev));
 }
 
+/**
+ *	siimage_selreg		-	return register base
+ *	@hwif: interface
+ *	@r: config offset
+ *
+ *	Turn a config register offset into the right address in either
+ *	PCI space or MMIO space to access the control register in question
+ *	Thankfully this is a configuration operation, so isn't performance
+ *	critical.
+ */
 
 static unsigned long siimage_selreg(ide_hwif_t *hwif, int r)
 {
@@ -79,6 +101,15 @@ static unsigned long siimage_selreg(ide_hwif_t *hwif, int r)
 	return base;
 }
 
+/**
+ *	siimage_seldev		-	return register base
+ *	@hwif: interface
+ *	@r: config offset
+ *
+ *	Turn a config register offset into the right address in either
+ *	PCI space or MMIO space to access the control register in question
+ *	including accounting for the unit shift.
+ */
 
 static inline unsigned long siimage_seldev(ide_drive_t *drive, int r)
 {
@@ -151,6 +182,15 @@ static void sil_iowrite32(struct pci_dev *dev, u32 val, unsigned long addr)
 		pci_write_config_dword(dev, addr, val);
 }
 
+/**
+ *	sil_udma_filter		-	compute UDMA mask
+ *	@drive: IDE device
+ *
+ *	Compute the available UDMA speeds for the device on the interface.
+ *
+ *	For the CMD680 this depends on the clocking mode (scsc), for the
+ *	SI3112 SATA controller life is a bit simpler.
+ */
 
 static u8 sil_pata_udma_filter(ide_drive_t *drive)
 {
@@ -164,16 +204,16 @@ static u8 sil_pata_udma_filter(ide_drive_t *drive)
 	scsc = sil_ioread8(dev, base);
 
 	switch (scsc & 0x30) {
-	case 0x10:	
+	case 0x10:	/* 133 */
 		mask = ATA_UDMA6;
 		break;
-	case 0x20:	
+	case 0x20:	/* 2xPCI */
 		mask = ATA_UDMA6;
 		break;
-	case 0x00:	
+	case 0x00:	/* 100 */
 		mask = ATA_UDMA5;
 		break;
-	default: 	
+	default: 	/* Disabled ? */
 		BUG();
 	}
 
@@ -187,6 +227,14 @@ static u8 sil_sata_udma_filter(ide_drive_t *drive)
 	return strstr(m, "Maxtor") ? ATA_UDMA5 : ATA_UDMA6;
 }
 
+/**
+ *	sil_set_pio_mode	-	set host controller for PIO mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Load the timing settings for this device mode into the
+ *	controller.
+ */
 
 static void sil_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -208,7 +256,7 @@ static void sil_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	u8 mode			= 0;
 	u8 unit			= drive->dn & 1;
 
-	
+	/* trim *taskfile* PIO to the slowest of the master/slave */
 	if (pair) {
 		u8 pair_pio = pair->pio_mode - XFER_PIO_0;
 
@@ -216,14 +264,14 @@ static void sil_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 			tf_pio = pair_pio;
 	}
 
-	
+	/* cheat for now and use the docs */
 	speedp = data_speed[pio];
 	speedt = tf_speed[tf_pio];
 
 	sil_iowrite16(dev, speedp, addr);
 	sil_iowrite16(dev, speedt, tfaddr);
 
-	
+	/* now set up IORDY */
 	speedp = sil_ioread16(dev, tfaddr - 2);
 	speedp &= ~0x200;
 
@@ -239,6 +287,13 @@ static void sil_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	sil_iowrite8(dev, mode, base + addr_mask);
 }
 
+/**
+ *	sil_set_dma_mode	-	set host controller for DMA mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Tune the SiI chipset for the desired DMA mode.
+ */
 
 static void sil_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -289,10 +344,17 @@ static int sil_test_irq(ide_hwif_t *hwif)
 	unsigned long addr	= siimage_selreg(hwif, 1);
 	u8 val			= sil_ioread8(dev, addr);
 
-	
+	/* Return 1 if INTRQ asserted */
 	return (val & 8) ? 1 : 0;
 }
 
+/**
+ *	siimage_mmio_dma_test_irq	-	check we caused an IRQ
+ *	@drive: drive we are testing
+ *
+ *	Check if we caused an IDE DMA interrupt. We may also have caused
+ *	SATA status interrupts, if so we clean them up and continue.
+ */
 
 static int siimage_mmio_dma_test_irq(ide_drive_t *drive)
 {
@@ -321,7 +383,7 @@ static int siimage_mmio_dma_test_irq(ide_drive_t *drive)
 			return 0;
 	}
 
-	
+	/* return 1 if INTR asserted */
 	if (readb((void __iomem *)(hwif->dma_base + ATA_DMA_STATUS)) & 4)
 		return 1;
 
@@ -336,6 +398,13 @@ static int siimage_dma_test_irq(ide_drive_t *drive)
 		return ide_dma_test_irq(drive);
 }
 
+/**
+ *	sil_sata_reset_poll	-	wait for SATA reset
+ *	@drive: drive we are resetting
+ *
+ *	Poll the SATA phy and see whether it has come back from the dead
+ *	yet.
+ */
 
 static int sil_sata_reset_poll(ide_drive_t *drive)
 {
@@ -344,7 +413,7 @@ static int sil_sata_reset_poll(ide_drive_t *drive)
 		= (void __iomem *)hwif->sata_scr[SATA_STATUS_OFFSET];
 
 	if (sata_status_addr) {
-		
+		/* SATA Status is available only when in MMIO mode */
 		u32 sata_stat = readl(sata_status_addr);
 
 		if ((sata_stat & 0x03) != 0x03) {
@@ -357,6 +426,13 @@ static int sil_sata_reset_poll(ide_drive_t *drive)
 	return 0;
 }
 
+/**
+ *	sil_sata_pre_reset	-	reset hook
+ *	@drive: IDE device being reset
+ *
+ *	For the SATA devices we need to handle recalibration/geometry
+ *	differently
+ */
 
 static void sil_sata_pre_reset(ide_drive_t *drive)
 {
@@ -366,6 +442,13 @@ static void sil_sata_pre_reset(ide_drive_t *drive)
 	}
 }
 
+/**
+ *	init_chipset_siimage	-	set up an SI device
+ *	@dev: PCI device
+ *
+ *	Perform the initial PCI set up for this device. Attempt to switch
+ *	to 133 MHz clocking if the system isn't already set up to do it.
+ */
 
 static int init_chipset_siimage(struct pci_dev *dev)
 {
@@ -384,13 +467,13 @@ static int init_chipset_siimage(struct pci_dev *dev)
 	if (ioaddr && pdev_is_sata(dev)) {
 		u32 tmp32, irq_mask;
 
-		
+		/* make sure IDE0/1 interrupts are not masked */
 		irq_mask = (1 << 22) | (1 << 23);
 		tmp32 = readl(ioaddr + 0x48);
 		if (tmp32 & irq_mask) {
 			tmp32 &= ~irq_mask;
 			writel(tmp32, ioaddr + 0x48);
-			readl(ioaddr + 0x48); 
+			readl(ioaddr + 0x48); /* flush */
 		}
 		writel(0, ioaddr + 0x148);
 		writel(0, ioaddr + 0x1C8);
@@ -404,17 +487,17 @@ static int init_chipset_siimage(struct pci_dev *dev)
 
 	switch (tmp & 0x30) {
 	case 0x00:
-		
+		/* On 100 MHz clocking, try and switch to 133 MHz */
 		sil_iowrite8(dev, tmp | 0x10, scsc_addr);
 		break;
 	case 0x30:
-		
+		/* Clocking is disabled, attempt to force 133MHz clocking. */
 		sil_iowrite8(dev, tmp & ~0x20, scsc_addr);
 	case 0x10:
-		
+		/* On 133Mhz clocking. */
 		break;
 	case 0x20:
-		
+		/* On PCIx2 clocking. */
 		break;
 	}
 
@@ -438,7 +521,7 @@ static int init_chipset_siimage(struct pci_dev *dev)
 		writel(0x00680000, ioaddr + 0x1C8);
 	}
 
-	
+	/* report the clocking mode of the controller */
 	if (!pdev_is_sata(dev)) {
 		static const char *clk_str[] =
 			{ "== 100", "== 133", "== 2X PCI", "DISABLED!" };
@@ -451,6 +534,17 @@ static int init_chipset_siimage(struct pci_dev *dev)
 	return 0;
 }
 
+/**
+ *	init_mmio_iops_siimage	-	set up the iops for MMIO
+ *	@hwif: interface to set up
+ *
+ *	The basic setup here is fairly simple, we can use standard MMIO
+ *	operations. However we do have to set the taskfile register offsets
+ *	by hand as there isn't a standard defined layout for them this time.
+ *
+ *	The hardware supports buffered taskfiles and also some rather nice
+ *	extended PRD tables. For better SI3112 support use the libata driver
+ */
 
 static void __devinit init_mmio_iops_siimage(ide_hwif_t *hwif)
 {
@@ -461,10 +555,17 @@ static void __devinit init_mmio_iops_siimage(ide_hwif_t *hwif)
 	struct ide_io_ports *io_ports = &hwif->io_ports;
 	unsigned long base;
 
+	/*
+	 *	Fill in the basic hwif bits
+	 */
 	hwif->host_flags |= IDE_HFLAG_MMIO;
 
 	hwif->hwif_data	= addr;
 
+	/*
+	 *	Now set up the hw. We have to do this ourselves as the
+	 *	MMIO layout isn't the same as the standard port based I/O.
+	 */
 	memset(io_ports, 0, sizeof(*io_ports));
 
 	base = (unsigned long)addr;
@@ -473,6 +574,10 @@ static void __devinit init_mmio_iops_siimage(ide_hwif_t *hwif)
 	else
 		base += 0x80;
 
+	/*
+	 *	The buffered task file doesn't have status/control, so we
+	 *	can't currently use it sanely since we want to use LBA48 mode.
+	 */
 	io_ports->data_addr	= base;
 	io_ports->error_addr	= base + 1;
 	io_ports->nsect_addr	= base + 2;
@@ -513,16 +618,33 @@ static int is_dev_seagate_sata(ide_drive_t *drive)
 	return 0;
 }
 
+/**
+ *	sil_quirkproc		-	post probe fixups
+ *	@drive: drive
+ *
+ *	Called after drive probe we use this to decide whether the
+ *	Seagate fixup must be applied. This used to be in init_iops but
+ *	that can occur before we know what drives are present.
+ */
 
 static void sil_quirkproc(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
 
-	
+	/* Try and rise the rqsize */
 	if (!is_sata(hwif) || !is_dev_seagate_sata(drive))
 		hwif->rqsize = 128;
 }
 
+/**
+ *	init_iops_siimage	-	set up iops
+ *	@hwif: interface to set up
+ *
+ *	Do the basic setup for the SIIMAGE hardware interface
+ *	and then do the MMIO setup if we can. This is the first
+ *	look in we get for setting up the hwif so that we
+ *	can get the iops right before using them.
+ */
 
 static void __devinit init_iops_siimage(ide_hwif_t *hwif)
 {
@@ -531,13 +653,19 @@ static void __devinit init_iops_siimage(ide_hwif_t *hwif)
 
 	hwif->hwif_data = NULL;
 
-	
+	/* Pessimal until we finish probing */
 	hwif->rqsize = 15;
 
 	if (host->host_priv)
 		init_mmio_iops_siimage(hwif);
 }
 
+/**
+ *	sil_cable_detect	-	cable detection
+ *	@hwif: interface to check
+ *
+ *	Check for the presence of an ATA66 capable cable on the interface.
+ */
 
 static u8 sil_cable_detect(ide_hwif_t *hwif)
 {
@@ -592,10 +720,18 @@ static const struct ide_dma_ops sil_dma_ops = {
 	}
 
 static const struct ide_port_info siimage_chipsets[] __devinitdata = {
-	  DECLARE_SII_DEV(&sil_pata_port_ops),
-	 DECLARE_SII_DEV(&sil_sata_port_ops)
+	/* 0: SiI680 */  DECLARE_SII_DEV(&sil_pata_port_ops),
+	/* 1: SiI3112 */ DECLARE_SII_DEV(&sil_sata_port_ops)
 };
 
+/**
+ *	siimage_init_one	-	PCI layer discovery entry
+ *	@dev: PCI device
+ *	@id: ident table entry
+ *
+ *	Called by the PCI code when it finds an SiI680 or SiI3112 controller.
+ *	We then use the IDE PCI generic helper to do most of the work.
+ */
 
 static int __devinit siimage_init_one(struct pci_dev *dev,
 				      const struct pci_device_id *id)
@@ -628,6 +764,10 @@ static int __devinit siimage_init_one(struct pci_dev *dev,
 
 	pci_read_config_byte(dev, 0x8A, &BA5_EN);
 	if ((BA5_EN & 0x01) || bar5) {
+		/*
+		* Drop back to PIO if we can't map the MMIO. Some systems
+		* seem to get terminally confused in the PCI spaces.
+		*/
 		if (!request_mem_region(bar5, barsize, d.name)) {
 			printk(KERN_WARNING DRV_NAME " %s: MMIO ports not "
 				"available\n", pci_name(dev));

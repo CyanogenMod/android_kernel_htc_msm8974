@@ -86,6 +86,7 @@ static int of_call_prom_ret(const char *service, int nargs, int nret,
 	return (nret > 0)? args.args[nargs]: 0;
 }
 
+/* returns true if s2 is a prefix of s1 */
 static int string_match(const char *s1, const char *s2)
 {
 	for (; *s2; ++s2)
@@ -94,6 +95,12 @@ static int string_match(const char *s1, const char *s2)
 	return 1;
 }
 
+/*
+ * Older OF's require that when claiming a specific range of addresses,
+ * we claim the physical space in the /memory node and the virtual
+ * space in the chosen mmu node, and then do a map operation to
+ * map virtual to physical.
+ */
 static int need_map = -1;
 static ihandle chosen_mmu;
 static phandle memory;
@@ -153,7 +160,7 @@ void *of_claim(unsigned long virt, unsigned long size, unsigned long align)
 		return (void *) -1;
 	ret = of_call_prom_ret("call-method", 5, 2, &result, "claim", chosen_mmu,
 			       align, size, virt);
-	
+	/* 0x12 == coherent + read/write */
 	ret = of_call_prom("call-method", 6, 1, "map", chosen_mmu,
 			   0x12, size, virt, virt);
 	return (void *) virt;
@@ -165,6 +172,10 @@ void *of_vmlinux_alloc(unsigned long size)
 	void *addr;
 	void *p;
 
+	/* With some older POWER4 firmware we need to claim the area the kernel
+	 * will reside in.  Newer firmwares don't need this so we just ignore
+	 * the return value.
+	 */
 	addr = of_claim(start, end - start, 0);
 	printf("Trying to claim from 0x%lx to 0x%lx (0x%lx) got %p\r\n",
 	       start, end, end - start, addr);
@@ -181,6 +192,9 @@ void of_exit(void)
 	of_call_prom("exit", 0, 0);
 }
 
+/*
+ * OF device tree routines
+ */
 void *of_finddevice(const char *name)
 {
 	return (phandle) of_call_prom("finddevice", 1, 1, name);

@@ -3,4 +3,4 @@
 
 extern const struct ethtool_ops cfg80211_ethtool_ops;
 
-#endif 
+#endif /* __CFG80211_ETHTOOL__ */

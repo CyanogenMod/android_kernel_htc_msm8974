@@ -9,23 +9,27 @@
 #define _ASM_ELF_H
 
 
-#define EF_MIPS_ARCH_1		0x00000000	
-#define EF_MIPS_ARCH_2		0x10000000	
-#define EF_MIPS_ARCH_3		0x20000000	
-#define EF_MIPS_ARCH_4		0x30000000	
-#define EF_MIPS_ARCH_5		0x40000000	
-#define EF_MIPS_ARCH_32		0x50000000	
-#define EF_MIPS_ARCH_64		0x60000000	
-#define EF_MIPS_ARCH_32R2	0x70000000	
-#define EF_MIPS_ARCH_64R2	0x80000000	
+/* ELF header e_flags defines. */
+/* MIPS architecture level. */
+#define EF_MIPS_ARCH_1		0x00000000	/* -mips1 code.  */
+#define EF_MIPS_ARCH_2		0x10000000	/* -mips2 code.  */
+#define EF_MIPS_ARCH_3		0x20000000	/* -mips3 code.  */
+#define EF_MIPS_ARCH_4		0x30000000	/* -mips4 code.  */
+#define EF_MIPS_ARCH_5		0x40000000	/* -mips5 code.  */
+#define EF_MIPS_ARCH_32		0x50000000	/* MIPS32 code.  */
+#define EF_MIPS_ARCH_64		0x60000000	/* MIPS64 code.  */
+#define EF_MIPS_ARCH_32R2	0x70000000	/* MIPS32 R2 code.  */
+#define EF_MIPS_ARCH_64R2	0x80000000	/* MIPS64 R2 code.  */
 
-#define EF_MIPS_ABI_O32		0x00001000	
-#define EF_MIPS_ABI_O64		0x00002000	
+/* The ABI of a file. */
+#define EF_MIPS_ABI_O32		0x00001000	/* O32 ABI.  */
+#define EF_MIPS_ABI_O64		0x00002000	/* O32 extended for 64 bit.  */
 
 #define PT_MIPS_REGINFO		0x70000000
 #define PT_MIPS_RTPROC		0x70000001
 #define PT_MIPS_OPTIONS		0x70000002
 
+/* Flags in the e_flags field of the header */
 #define EF_MIPS_NOREORDER	0x00000001
 #define EF_MIPS_PIC		0x00000002
 #define EF_MIPS_CPIC		0x00000004
@@ -69,6 +73,8 @@
 #define R_MIPS_PC16		10
 #define R_MIPS_CALL16		11
 #define R_MIPS_GPREL32		12
+/* The remaining relocs are defined on Irix, although they are not
+   in the MIPS ELF ABI.  */
 #define R_MIPS_UNUSED1		13
 #define R_MIPS_UNUSED2		14
 #define R_MIPS_UNUSED3		15
@@ -78,6 +84,10 @@
 #define R_MIPS_GOT_DISP		19
 #define R_MIPS_GOT_PAGE		20
 #define R_MIPS_GOT_OFST		21
+/*
+ * The following two relocation types are specified in the MIPS ABI
+ * conformance guide version 1.2 but not yet in the psABI.
+ */
 #define R_MIPS_GOTHI16		22
 #define R_MIPS_GOTLO16		23
 #define R_MIPS_SUB		24
@@ -86,16 +96,23 @@
 #define R_MIPS_DELETE		27
 #define R_MIPS_HIGHER		28
 #define R_MIPS_HIGHEST		29
+/*
+ * The following two relocation types are specified in the MIPS ABI
+ * conformance guide version 1.2 but not yet in the psABI.
+ */
 #define R_MIPS_CALLHI16		30
 #define R_MIPS_CALLLO16		31
+/*
+ * This range is reserved for vendor specific relocations.
+ */
 #define R_MIPS_LOVENDOR		100
 #define R_MIPS_HIVENDOR		127
 
-#define SHN_MIPS_ACCOMON	0xff00		
-#define SHN_MIPS_TEXT		0xff01		
-#define SHN_MIPS_DATA		0xff02		
-#define SHN_MIPS_SCOMMON	0xff03		
-#define SHN_MIPS_SUNDEFINED	0xff04		
+#define SHN_MIPS_ACCOMON	0xff00		/* Allocated common symbols */
+#define SHN_MIPS_TEXT		0xff01		/* Allocated test symbols.  */
+#define SHN_MIPS_DATA		0xff02		/* Allocated data symbols.  */
+#define SHN_MIPS_SCOMMON	0xff03		/* Small common symbols */
+#define SHN_MIPS_SUNDEFINED	0xff04		/* Small undefined symbols */
 
 #define SHT_MIPS_LIST		0x70000000
 #define SHT_MIPS_CONFLICT	0x70000002
@@ -146,6 +163,7 @@
 #define SHF_MIPS_NODUPES	0x01000000
 
 #ifndef ELF_ARCH
+/* ELF register definitions */
 #define ELF_NGREG	45
 #define ELF_NFPREG	33
 
@@ -157,6 +175,9 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
 #ifdef CONFIG_32BIT
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(hdr)						\
 ({									\
 	int __res = 1;							\
@@ -175,11 +196,17 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 	__res;								\
 })
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #define ELF_CLASS	ELFCLASS32
 
-#endif 
+#endif /* CONFIG_32BIT */
 
 #ifdef CONFIG_64BIT
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(hdr)						\
 ({									\
 	int __res = 1;							\
@@ -193,10 +220,16 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 	__res;								\
 })
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #define ELF_CLASS	ELFCLASS64
 
-#endif 
+#endif /* CONFIG_64BIT */
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #ifdef __MIPSEB__
 #define ELF_DATA	ELFDATA2MSB
 #elif defined(__MIPSEL__)
@@ -204,7 +237,7 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 #endif
 #define ELF_ARCH	EM_MIPS
 
-#endif 
+#endif /* !defined(ELF_ARCH) */
 
 struct mips_abi;
 
@@ -222,7 +255,7 @@ do {									\
 	current->thread.abi = &mips_abi;				\
 } while (0)
 
-#endif 
+#endif /* CONFIG_32BIT */
 
 #ifdef CONFIG_64BIT
 
@@ -279,7 +312,7 @@ do {									\
 		set_personality(PER_LINUX);				\
 } while (0)
 
-#endif 
+#endif /* CONFIG_64BIT */
 
 struct pt_regs;
 struct task_struct;
@@ -300,13 +333,25 @@ extern int dump_task_fpu(struct task_struct *, elf_fpregset_t *);
 
 #define ELF_EXEC_PAGESIZE	PAGE_SIZE
 
+/* This yields a mask that user programs can use to figure out what
+   instruction set this cpu supports.  This could be done in userspace,
+   but it's not easy, and we've already done it here.  */
 
 #define ELF_HWCAP       (0)
 
+/*
+ * This yields a string that ld.so will use to load implementation
+ * specific libraries for optimization.  This is more specific in
+ * intent than poking at uname or /proc/cpuinfo.
+ */
 
 #define ELF_PLATFORM  __elf_platform
 extern const char *__elf_platform;
 
+/*
+ * See comments in asm-alpha/elf.h, this is the same thing
+ * on the MIPS.
+ */
 #define ELF_PLAT_INIT(_r, load_addr)	do { \
 	_r->regs[1] = _r->regs[2] = _r->regs[3] = _r->regs[4] = 0;	\
 	_r->regs[5] = _r->regs[6] = _r->regs[7] = _r->regs[8] = 0;	\
@@ -318,6 +363,10 @@ extern const char *__elf_platform;
 	_r->regs[30] = _r->regs[31] = 0;				\
 } while (0)
 
+/* This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+   use of this is to invoke "./ld.so someprog" to test out a new version of
+   the loader.  We need to make sure that it is out of the way of the program
+   that it will "exec", and that there is sufficient room for the brk.  */
 
 #ifndef ELF_ET_DYN_BASE
 #define ELF_ET_DYN_BASE         (TASK_SIZE / 3 * 2)
@@ -332,4 +381,4 @@ struct mm_struct;
 extern unsigned long arch_randomize_brk(struct mm_struct *mm);
 #define arch_randomize_brk arch_randomize_brk
 
-#endif 
+#endif /* _ASM_ELF_H */

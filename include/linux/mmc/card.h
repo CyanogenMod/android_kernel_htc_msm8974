@@ -94,6 +94,7 @@ struct mmc_ext_csd {
 	u8			raw_erased_mem_count;	
 	u8			raw_ext_csd_structure;	
 	u8			raw_card_type;		
+	u8			raw_drive_strength;	
 	u8			out_of_int_time;	
 	u8			raw_s_a_timeout;		
 	u8			raw_hc_erase_gap_size;	
@@ -290,7 +291,6 @@ struct mmc_bkops_info {
 	bool			cancel_delayed_work;
 	unsigned int		sectors_changed;
 #define BKOPS_SIZE_PERCENTAGE_TO_QUEUE_DELAYED_WORK 1 
-	bool                    doing_bkops_in_suspend;
 };
 
 struct mmc_card {
@@ -319,9 +319,7 @@ struct mmc_card {
 #define MMC_STATE_HIGHSPEED_400	(1<<9)		
 #define MMC_STATE_DOING_BKOPS	(1<<10)		
 #define MMC_STATE_NEED_BKOPS	(1<<11)		
-#define MMC_STATE_DOING_SANITIZE (1<<29)       
-#define MMC_STATE_FORCE_SANITIZE (1<<30)        
-#define MMC_STATE_FORCE_BKOPS   (1<<31)         
+#define MMC_STATE_NEED_BKOPS_IN_SUSPEND   (1<<31)         
 	unsigned int		quirks; 	
 #define MMC_QUIRK_LENIENT_FN0	(1<<0)		
 #define MMC_QUIRK_BLKSZ_FOR_BYTE_MODE (1<<1)	
@@ -339,6 +337,11 @@ struct mmc_card {
 						
 #define MMC_QUIRK_INAND_DATA_TIMEOUT  (1<<8)    
 #define MMC_QUIRK_BROKEN_HPI (1 << 11)
+ 
+#define MMC_QUIRK_BROKEN_DATA_TIMEOUT	(1<<12)
+
+#define MMC_QUIRK_CACHE_DISABLE (1 << 14)       
+#define MMC_QUIRK_URGENT_REQUEST_DISABLE (1 << 31)	
 
 	unsigned int		erase_size;	
  	unsigned int		erase_shift;	
@@ -379,7 +382,6 @@ struct mmc_card {
 
 	struct device_attribute rpm_attrib;
 	unsigned int		idle_timeout;
-	int                     need_sanitize;
 	struct notifier_block        reboot_notify;
 	bool issue_long_pon;
 	u8 *cached_ext_csd;
@@ -429,9 +431,11 @@ struct mmc_fixup {
 #define EXT_CSD_REV_ANY (-1u)
 
 #define CID_MANFID_SANDISK	0x2
+#define CID_MANFID_SANDISK_2	0x45
 #define CID_MANFID_TOSHIBA	0x11
 #define CID_MANFID_MICRON	0x13
 #define CID_MANFID_SAMSUNG	0x15
+#define CID_MANFID_KINGSTON	0x70
 #define CID_MANFID_HYNIX	0x90
 
 #define END_FIXUP { 0 }
@@ -518,9 +522,7 @@ static inline void __maybe_unused remove_quirk(struct mmc_card *card, int data)
 #define mmc_card_removed(c)	((c) && ((c)->state & MMC_CARD_REMOVED))
 #define mmc_card_doing_bkops(c)	((c)->state & MMC_STATE_DOING_BKOPS)
 #define mmc_card_need_bkops(c)	((c)->state & MMC_STATE_NEED_BKOPS)
-#define mmc_card_doing_sanitize(c)     ((c)->state & MMC_STATE_DOING_SANITIZE)
-#define mmc_card_force_sanitize(c)   ((c)->state & MMC_STATE_FORCE_SANITIZE)
-#define mmc_card_force_bkops(c) ((c)->state & MMC_STATE_FORCE_BKOPS)
+#define mmc_card_need_bkops_in_suspend(c) ((c)->state & MMC_STATE_NEED_BKOPS_IN_SUSPEND)
 
 #define mmc_card_set_present(c)	((c)->state |= MMC_STATE_PRESENT)
 #define mmc_card_set_readonly(c) ((c)->state |= MMC_STATE_READONLY)
@@ -541,12 +543,8 @@ static inline void __maybe_unused remove_quirk(struct mmc_card *card, int data)
 #define mmc_card_clr_doing_bkops(c)	((c)->state &= ~MMC_STATE_DOING_BKOPS)
 #define mmc_card_set_need_bkops(c)	((c)->state |= MMC_STATE_NEED_BKOPS)
 #define mmc_card_clr_need_bkops(c)	((c)->state &= ~MMC_STATE_NEED_BKOPS)
-#define mmc_card_set_doing_sanitize(c)  ((c)->state |= MMC_STATE_DOING_SANITIZE)
-#define mmc_card_clr_doing_sanitize(c)  ((c)->state &= ~MMC_STATE_DOING_SANITIZE)
-#define mmc_card_set_force_sanitize(c) ((c)->state |= MMC_STATE_FORCE_SANITIZE)
-#define mmc_card_clr_force_sanitize(c) ((c)->state &= ~MMC_STATE_FORCE_SANITIZE)
-#define mmc_card_set_force_bkops(c)     ((c)->state |= MMC_STATE_FORCE_BKOPS)
-#define mmc_card_clr_force_bkops(c)     ((c)->state &= ~MMC_STATE_FORCE_BKOPS)
+#define mmc_card_set_need_bkops_in_suspend(c)     ((c)->state |= MMC_STATE_NEED_BKOPS_IN_SUSPEND)
+#define mmc_card_clr_need_bkops_in_suspend(c)     ((c)->state &= ~MMC_STATE_NEED_BKOPS_IN_SUSPEND)
 
 static inline void __maybe_unused add_quirk_mmc(struct mmc_card *card, int data)
 {

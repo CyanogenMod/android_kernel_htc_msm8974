@@ -11,6 +11,10 @@
  * any later version.
  */
 
+/*
+ * Roccat Kone[+] is an updated/improved version of the Kone with more memory
+ * and functionality and without the non-standard behaviours the Kone had.
+ */
 
 #include <linux/device.h>
 #include <linux/input.h>
@@ -59,20 +63,20 @@ static int koneplus_receive_control_status(struct usb_device *usb_dev)
 		retval = roccat_common_receive(usb_dev, KONEPLUS_COMMAND_CONTROL,
 				&control, sizeof(struct koneplus_control));
 
-		
+		/* check if we get a completely wrong answer */
 		if (retval)
 			return retval;
 
 		if (control.value == KONEPLUS_CONTROL_REQUEST_STATUS_OK)
 			return 0;
 
-		
+		/* indicates that hardware needs some more time to complete action */
 		if (control.value == KONEPLUS_CONTROL_REQUEST_STATUS_WAIT) {
-			msleep(500); 
+			msleep(500); /* windows driver uses 1000 */
 			continue;
 		}
 
-		
+		/* seems to be critical - replug necessary */
 		if (control.value == KONEPLUS_CONTROL_REQUEST_STATUS_OVERLOAD)
 			return -EINVAL;
 
@@ -103,7 +107,7 @@ static int koneplus_select_profile(struct usb_device *usb_dev, uint number,
 	if (retval)
 		return retval;
 
-	
+	/* allow time to settle things - windows driver uses 500 */
 	msleep(100);
 
 	retval = koneplus_receive_control_status(usb_dev);
@@ -162,6 +166,7 @@ static int koneplus_set_profile_buttons(struct usb_device *usb_dev,
 			buttons, sizeof(struct koneplus_profile_buttons));
 }
 
+/* retval is 0-4 on success, < 0 on error */
 static int koneplus_get_actual_profile(struct usb_device *usb_dev)
 {
 	struct koneplus_actual_profile buf;
@@ -779,7 +784,7 @@ static int __init koneplus_init(void)
 {
 	int retval;
 
-	
+	/* class name has to be same as driver name */
 	koneplus_class = class_create(THIS_MODULE, "koneplus");
 	if (IS_ERR(koneplus_class))
 		return PTR_ERR(koneplus_class);

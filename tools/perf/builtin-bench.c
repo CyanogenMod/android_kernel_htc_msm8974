@@ -8,6 +8,13 @@
  *
  */
 
+/*
+ *
+ * Available subsystem list:
+ *  sched ... scheduler and IPC mechanism
+ *  mem   ... memory access performance
+ *
+ */
 
 #include "perf.h"
 #include "util/util.h"
@@ -25,6 +32,7 @@ struct bench_suite {
 	int (*fn)(int, const char **, const char *);
 };
 						\
+/* sentinel: easy for help */
 #define suite_all { "all", "test all suite (pseudo suite)", NULL }
 
 static struct bench_suite sched_suites[] = {
@@ -66,7 +74,7 @@ static struct bench_subsys subsystems[] = {
 	{ "mem",
 	  "memory access performance",
 	  mem_suites },
-	{ "all",		
+	{ "all",		/* sentinel: easy for help */
 	  "test all subsystem (pseudo subsystem)",
 	  NULL },
 	{ NULL,
@@ -134,13 +142,19 @@ static int bench_str2int(const char *str)
 	return BENCH_FORMAT_UNKNOWN;
 }
 
-static void all_suite(struct bench_subsys *subsys)	  
+static void all_suite(struct bench_subsys *subsys)	  /* FROM HERE */
 {
 	int i;
 	const char *argv[2];
 	struct bench_suite *suites = subsys->suites;
 
 	argv[1] = NULL;
+	/*
+	 * TODO:
+	 * preparing preset parameters for
+	 * embedded, ordinary PC, HPC, etc...
+	 * will be helpful
+	 */
 	for (i = 0; suites[i].fn; i++) {
 		printf("# Running %s/%s benchmark...\n",
 		       subsys->name,
@@ -164,7 +178,7 @@ int cmd_bench(int argc, const char **argv, const char *prefix __used)
 	int i, j, status = 0;
 
 	if (argc < 2) {
-		
+		/* No subsystem specified. */
 		print_usage();
 		goto end;
 	}
@@ -193,7 +207,7 @@ int cmd_bench(int argc, const char **argv, const char *prefix __used)
 			continue;
 
 		if (argc < 2) {
-			
+			/* No suite specified. */
 			dump_suites(i);
 			goto end;
 		}

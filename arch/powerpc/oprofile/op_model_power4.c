@@ -27,6 +27,7 @@ static unsigned long reset_value[OP_MAX_COUNTER];
 static int oprofile_running;
 static int use_slot_nums;
 
+/* mmcr values are set in power4_reg_setup, used in power4_cpu_setup */
 static u32 mmcr0_val;
 static u64 mmcr1_val;
 static u64 mmcra_val;
@@ -37,6 +38,11 @@ static int power4_reg_setup(struct op_counter_config *ctr,
 {
 	int i;
 
+	/*
+	 * The performance counter event settings are given in the mmcr0,
+	 * mmcr1 and mmcra values passed from the user in the
+	 * op_system_config structure (sys variable).
+	 */
 	mmcr0_val = sys->mmcr0;
 	mmcr1_val = sys->mmcr1;
 	mmcra_val = sys->mmcra;
@@ -44,7 +50,7 @@ static int power4_reg_setup(struct op_counter_config *ctr,
 	for (i = 0; i < cur_cpu_spec->num_pmcs; ++i)
 		reset_value[i] = 0x80000000UL - ctr[i].count;
 
-	
+	/* setup user and kernel profiling */
 	if (sys->enable_kernel)
 		mmcr0_val &= ~MMCR0_KERNEL_DISABLE;
 	else
@@ -66,6 +72,16 @@ static int power4_reg_setup(struct op_counter_config *ctr,
 
 extern void ppc_enable_pmcs(void);
 
+/*
+ * Older CPUs require the MMCRA sample bit to be always set, but newer 
+ * CPUs only want it set for some groups. Eventually we will remove all
+ * knowledge of this bit in the kernel, oprofile userspace should be
+ * setting it when required.
+ *
+ * In order to keep current installations working we force the bit for
+ * those older CPUs. Once everyone has updated their oprofile userspace we
+ * can remove this hack.
+ */
 static inline int mmcra_must_set_sample(void)
 {
 	if (__is_processor(PV_POWER4) || __is_processor(PV_POWER4p) ||
@@ -83,7 +99,7 @@ static int power4_cpu_setup(struct op_counter_config *ctr)
 
 	ppc_enable_pmcs();
 
-	
+	/* set the freeze bit */
 	mmcr0 |= MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
 
@@ -112,7 +128,7 @@ static int power4_start(struct op_counter_config *ctr)
 	int i;
 	unsigned int mmcr0;
 
-	
+	/* set the PMM bit (see comment below) */
 	mtmsrd(mfmsr() | MSR_PMM);
 
 	for (i = 0; i < cur_cpu_spec->num_pmcs; ++i) {
@@ -125,8 +141,17 @@ static int power4_start(struct op_counter_config *ctr)
 
 	mmcr0 = mfspr(SPRN_MMCR0);
 
+	/*
+	 * We must clear the PMAO bit on some (GQ) chips. Just do it
+	 * all the time
+	 */
 	mmcr0 &= ~MMCR0_PMAO;
 
+	/*
+	 * now clear the freeze bit, counting will not start until we
+	 * rfid from this excetion, because only at that point will
+	 * the PMM bit be cleared
+	 */
 	mmcr0 &= ~MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
 
@@ -140,7 +165,7 @@ static void power4_stop(void)
 {
 	unsigned int mmcr0;
 
-	
+	/* freeze counters */
 	mmcr0 = mfspr(SPRN_MMCR0);
 	mmcr0 |= MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
@@ -152,6 +177,7 @@ static void power4_stop(void)
 	mb();
 }
 
+/* Fake functions used by canonicalize_pc */
 static void __used hypervisor_bucket(void)
 {
 }
@@ -164,13 +190,23 @@ static void __used kernel_unknown_bucket(void)
 {
 }
 
+/*
+ * On GQ and newer the MMCRA stores the HV and PR bits at the time
+ * the SIAR was sampled. We use that to work out if the SIAR was sampled in
+ * the hypervisor, our exception vectors or RTAS.
+ * If the MMCRA_SAMPLE_ENABLE bit is set, we can use the MMCRA[slot] bits
+ * to more accurately identify the address of the sampled instruction. The
+ * mmcra[slot] bits represent the slot number of a sampled instruction
+ * within an instruction group.  The slot will contain a value between 1
+ * and 5 if MMCRA_SAMPLE_ENABLE is set, otherwise 0.
+ */
 static unsigned long get_pc(struct pt_regs *regs)
 {
 	unsigned long pc = mfspr(SPRN_SIAR);
 	unsigned long mmcra;
 	unsigned long slot;
 
-	
+	/* Can't do much about it */
 	if (!cur_cpu_spec->oprofile_mmcra_sihv)
 		return pc;
 
@@ -182,30 +218,30 @@ static unsigned long get_pc(struct pt_regs *regs)
 			pc += 4 * (slot - 1);
 	}
 
-	
+	/* Were we in the hypervisor? */
 	if (firmware_has_feature(FW_FEATURE_LPAR) &&
 	    (mmcra & cur_cpu_spec->oprofile_mmcra_sihv))
-		
+		/* function descriptor madness */
 		return *((unsigned long *)hypervisor_bucket);
 
-	
+	/* We were in userspace, nothing to do */
 	if (mmcra & cur_cpu_spec->oprofile_mmcra_sipr)
 		return pc;
 
 #ifdef CONFIG_PPC_RTAS
-	
+	/* Were we in RTAS? */
 	if (pc >= rtas.base && pc < (rtas.base + rtas.size))
-		
+		/* function descriptor madness */
 		return *((unsigned long *)rtas_bucket);
 #endif
 
-	
+	/* Were we in our exception vectors or SLB real mode miss handler? */
 	if (pc < 0x1000000UL)
 		return (unsigned long)__va(pc);
 
-	
+	/* Not sure where we were */
 	if (!is_kernel_addr(pc))
-		
+		/* function descriptor madness */
 		return *((unsigned long *)kernel_unknown_bucket);
 
 	return pc;
@@ -229,6 +265,17 @@ static bool pmc_overflow(unsigned long val)
 	if ((int)val < 0)
 		return true;
 
+	/*
+	 * Events on POWER7 can roll back if a speculative event doesn't
+	 * eventually complete. Unfortunately in some rare cases they will
+	 * raise a performance monitor exception. We need to catch this to
+	 * ensure we reset the PMC. In all cases the PMC will be 256 or less
+	 * cycles from overflow.
+	 *
+	 * We only do this if the first pass fails to find any overflowing
+	 * PMCs because a user might set a period of less than 256 and we
+	 * don't want to mistakenly reset them.
+	 */
 	if (__is_processor(PV_POWER7) && ((0x80000000 - val) <= 256))
 		return true;
 
@@ -250,7 +297,7 @@ static void power4_handle_interrupt(struct pt_regs *regs,
 	pc = get_pc(regs);
 	is_kernel = get_kernel(pc, mmcra);
 
-	
+	/* set the PMM bit (see comment below) */
 	mtmsrd(mfmsr() | MSR_PMM);
 
 	for (i = 0; i < cur_cpu_spec->num_pmcs; ++i) {
@@ -267,15 +314,24 @@ static void power4_handle_interrupt(struct pt_regs *regs,
 
 	mmcr0 = mfspr(SPRN_MMCR0);
 
-	
+	/* reset the perfmon trigger */
 	mmcr0 |= MMCR0_PMXE;
 
+	/*
+	 * We must clear the PMAO bit on some (GQ) chips. Just do it
+	 * all the time
+	 */
 	mmcr0 &= ~MMCR0_PMAO;
 
-	
+	/* Clear the appropriate bits in the MMCRA */
 	mmcra &= ~cur_cpu_spec->oprofile_mmcra_clear;
 	mtspr(SPRN_MMCRA, mmcra);
 
+	/*
+	 * now clear the freeze bit, counting will not start until we
+	 * rfid from this exception, because only at that point will
+	 * the PMM bit be cleared
+	 */
 	mmcr0 &= ~MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
 }

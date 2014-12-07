@@ -12,6 +12,9 @@
 #ifndef __MACH_PUV3_DMA_H__
 #define __MACH_PUV3_DMA_H__
 
+/*
+ * The PKUnity has six internal DMA channels.
+ */
 #define MAX_DMA_CHANNELS	6
 
 typedef enum {
@@ -20,6 +23,9 @@ typedef enum {
 	DMA_PRIO_LOW = 2
 } puv3_dma_prio;
 
+/*
+ * DMA registration
+ */
 
 extern int puv3_request_dma(char *name,
 			 puv3_dma_prio prio,
@@ -39,4 +45,4 @@ static inline void puv3_resume_dma(int ch)
 	writel(readl(DMAC_CONFIG(ch)) | DMAC_CONFIG_EN, DMAC_CONFIG(ch));
 }
 
-#endif 
+#endif /* __MACH_PUV3_DMA_H__ */

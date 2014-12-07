@@ -38,6 +38,10 @@ static void __iomem *virt_base_2700;
 
 #define write_reg(val, reg) do { writel((val), (reg)); } while(0)
 
+/* Without this delay, the graphics appears somehow scaled and
+ * there is a lot of jitter in scanlines. This delay is probably
+ * needed only after setting some specific register(s) somewhere,
+ * not all over the place... */
 #define write_reg_dly(val, reg) do { writel((val), reg); udelay(1000); } while(0)
 
 #define MIN_XRES	16
@@ -47,6 +51,8 @@ static void __iomem *virt_base_2700;
 
 #define MAX_PALETTES	16
 
+/* FIXME: take care of different chip revisions with different sizes
+   of ODFB */
 #define MEMORY_OFFSET	0x60000
 
 struct mbxfb_info {
@@ -121,13 +127,23 @@ static unsigned int mbxfb_get_pixclock(unsigned int pixclock_ps,
 	unsigned int min_err = ~0x0;
 	unsigned int clk;
 	unsigned int best_clk = 0;
-	unsigned int ref_clk = 13000;	
+	unsigned int ref_clk = 13000;	/* FIXME: take from platform data */
 	unsigned int pixclock;
 
-	
+	/* convert pixclock to KHz */
 	pixclock = PICOS2KHZ(pixclock_ps);
 
+	/* PLL output freq = (ref_clk * M) / (N * 2^P)
+	 *
+	 * M: 1 to 63
+	 * N: 1 to 7
+	 * P: 0 to 7
+	 */
 
+	/* RAPH: When N==1, the resulting pixel clock appears to
+	 * get divided by 2. Preventing N=1 by starting the following
+	 * loop at 2 prevents this. Is this a bug with my chip
+	 * revision or something I dont understand? */
 	for (m = 1; m < 64; m++) {
 		for (n = 2; n < 8; n++) {
 			for (p = 0; p < 8; p++) {
@@ -182,7 +198,7 @@ static int mbxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	var->yres_virtual = max(var->yres_virtual, var->yres);
 
 	switch (var->bits_per_pixel) {
-		
+		/* 8 bits-per-pixel is not supported yet */
 	case 8:
 		return -EINVAL;
 	case 16:
@@ -195,8 +211,8 @@ static int mbxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		var->red.offset = 5 + var->green.length;
 		var->transp.offset = (5 + var->red.offset) & 15;
 		break;
-	case 24:		
-	case 32:		
+	case 24:		/* RGB 888   */
+	case 32:		/* RGBA 8888 */
 		var->red.offset = 16;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -226,9 +242,9 @@ static int mbxfb_set_par(struct fb_info *info)
 
 	info->fix.line_length = var->xres_virtual * var->bits_per_pixel / 8;
 
-	
+	/* setup color mode */
 	gsctrl &= ~(FMsk(GSCTRL_GPIXFMT));
-	
+	/* FIXME: add *WORKING* support for 8-bits per color */
 	if (info->var.bits_per_pixel == 8) {
 		return -EINVAL;
 	} else {
@@ -252,7 +268,7 @@ static int mbxfb_set_par(struct fb_info *info)
 		}
 	}
 
-	
+	/* setup resolution */
 	gsctrl &= ~(FMsk(GSCTRL_GSWIDTH) | FMsk(GSCTRL_GSHEIGHT));
 	gsctrl |= Gsctrl_Width(info->var.xres) |
 		Gsctrl_Height(info->var.yres);
@@ -263,7 +279,7 @@ static int mbxfb_set_par(struct fb_info *info)
 				 (8 * 16) - 1);
 	write_reg_dly(gsadr, GSADR);
 
-	
+	/* setup timings */
 	var->pixclock = mbxfb_get_pixclock(info->var.pixclock, &div);
 
 	write_reg_dly((Disp_Pll_M(div.m) | Disp_Pll_N(div.n) |
@@ -326,6 +342,8 @@ static int mbxfb_setupOverlay(struct mbxfb_overlaySetup *set)
 	if (set->scaled_width==0 || set->scaled_height==0)
 		return -EINVAL;
 
+	/* read registers which have reserved bits
+	 * so we can write them back as-is. */
 	vovrclk = readl(VOVRCLK);
 	vsctrl = readl(VSCTRL);
 	vscadr = readl(VSCADR);
@@ -381,6 +399,15 @@ static int mbxfb_setupOverlay(struct mbxfb_overlaySetup *set)
 		return -EINVAL;
 	}
 
+	/* VSCTRL has the bits which sets the Video Pixel Format.
+	 * When passing from a packed to planar format,
+	 * if we write VSCTRL first, VVBASE and VUBASE would
+	 * be zero if we would not set them here. (And then,
+	 * the chips hangs and only a reset seems to fix it).
+	 *
+	 * If course, the values calculated here have no meaning
+	 * for packed formats.
+	 */
 	set->UV_stride = ((set->width/2) + 0x7 ) & ~0x7;
 		set->U_offset = set->height * set->Y_stride;
 		set->V_offset = set->U_offset +
@@ -409,7 +436,7 @@ static int mbxfb_setupOverlay(struct mbxfb_overlaySetup *set)
 			FMsk(SPOCTRL_VPITCH));
 	spoctrl |= Spoctrl_Vpitch((set->height<<11)/set->scaled_height);
 
-	
+	/* Bypass horiz/vert scaler when same size */
 	if (set->scaled_width == set->width)
 		spoctrl |= SPOCTRL_H_SC_BP;
 	if (set->scaled_height == set->height)
@@ -418,19 +445,19 @@ static int mbxfb_setupOverlay(struct mbxfb_overlaySetup *set)
 	shctrl &= ~(FMsk(SHCTRL_HPITCH) | SHCTRL_HDECIM);
 	shctrl |= Shctrl_Hpitch((set->width<<11)/set->scaled_width);
 
-	
+	/* Video plane registers */
 	write_reg(vsctrl, VSCTRL);
 	write_reg(vscadr, VSCADR);
 	write_reg(vubase, VUBASE);
 	write_reg(vvbase, VVBASE);
 	write_reg(vsadr, VSADR);
 
-	
+	/* Video scaler registers */
 	write_reg(sssize, SSSIZE);
 	write_reg(spoctrl, SPOCTRL);
 	write_reg(shctrl, SHCTRL);
 
-	
+	/* Clock */
 	if (set->enable)
 		vovrclk |= 1;
 	else
@@ -618,7 +645,7 @@ static int mbxfb_ioctl(struct fb_info *info, unsigned int cmd,
 						sizeof(struct mbxfb_reg)))
 				return -EFAULT;
 
-			if (reg.addr >= 0x10000) 
+			if (reg.addr >= 0x10000) /* regs are from 0x3fe0000 to 0x3feffff */
 				return -EINVAL;
 
 			tmp = readl(virt_base_2700 + reg.addr);
@@ -632,7 +659,7 @@ static int mbxfb_ioctl(struct fb_info *info, unsigned int cmd,
 						sizeof(struct mbxfb_reg)))
 				return -EFAULT;
 
-			if (reg.addr >= 0x10000)	
+			if (reg.addr >= 0x10000)	/* regs are from 0x3fe0000 to 0x3feffff */
 				return -EINVAL;
 			reg.val = readl(virt_base_2700 + reg.addr);
 
@@ -657,32 +684,36 @@ static struct fb_ops mbxfb_ops = {
 	.fb_ioctl = mbxfb_ioctl,
 };
 
+/*
+  Enable external SDRAM controller. Assume that all clocks are active
+  by now.
+*/
 static void __devinit setup_memc(struct fb_info *fbi)
 {
 	unsigned long tmp;
 	int i;
 
-	
-	
+	/* FIXME: use platform specific parameters */
+	/* setup SDRAM controller */
 	write_reg_dly((LMCFG_LMC_DS | LMCFG_LMC_TS | LMCFG_LMD_TS |
 		LMCFG_LMA_TS),
 	       LMCFG);
 
 	write_reg_dly(LMPWR_MC_PWR_ACT, LMPWR);
 
-	
+	/* setup SDRAM timings */
 	write_reg_dly((Lmtim_Tras(7) | Lmtim_Trp(3) | Lmtim_Trcd(3) |
 		Lmtim_Trc(9) | Lmtim_Tdpl(2)),
 	       LMTIM);
-	
+	/* setup SDRAM refresh rate */
 	write_reg_dly(0xc2b, LMREFRESH);
-	
+	/* setup SDRAM type parameters */
 	write_reg_dly((LMTYPE_CASLAT_3 | LMTYPE_BKSZ_2 | LMTYPE_ROWSZ_11 |
 		LMTYPE_COLSZ_8),
 	       LMTYPE);
-	
+	/* enable memory controller */
 	write_reg_dly(LMPWR_MC_PWR_ACT, LMPWR);
-	
+	/* perform dummy reads */
 	for ( i = 0; i < 16; i++ ) {
 		tmp = readl(fbi->screen_base);
 	}
@@ -690,11 +721,16 @@ static void __devinit setup_memc(struct fb_info *fbi)
 
 static void enable_clocks(struct fb_info *fbi)
 {
-	
+	/* enable clocks */
 	write_reg_dly(SYSCLKSRC_PLL_2, SYSCLKSRC);
 	write_reg_dly(PIXCLKSRC_PLL_1, PIXCLKSRC);
 	write_reg_dly(0x00000000, CLKSLEEP);
 
+	/* PLL output = (Frefclk * M) / (N * 2^P )
+	 *
+	 * M: 0x17, N: 0x3, P: 0x0 == 100 Mhz!
+	 * M: 0xb, N: 0x1, P: 0x1 == 71 Mhz
+	 * */
 	write_reg_dly((Core_Pll_M(0xb) | Core_Pll_N(0x1) | Core_Pll_P(0x1) |
 		CORE_PLL_EN),
 	       COREPLL);
@@ -766,7 +802,7 @@ static void __devinit enable_controller(struct fb_info *fbi)
 
 	write_reg_dly(SYSRST_RST, SYSRST);
 
-	
+	/* setup a timeout, raise drive strength */
 	write_reg_dly(0xffffff0c, SYSCFG);
 
 	enable_clocks(fbi);
@@ -785,6 +821,8 @@ static void __devinit enable_controller(struct fb_info *fbi)
 	writel(SPOCTRL_H_SC_BP | SPOCTRL_V_SC_BP | SPOCTRL_VORDER_4TAP
 			, SPOCTRL);
 
+	/* Those coefficients are good for scaling up. For scaling
+	 * down, the application has to calculate them. */
 	write_reg(0xff000100, VSCOEFF0);
 	write_reg(0xfdfcfdfe, VSCOEFF1);
 	write_reg(0x170d0500, VSCOEFF2);
@@ -804,14 +842,18 @@ static void __devinit enable_controller(struct fb_info *fbi)
 }
 
 #ifdef CONFIG_PM
+/*
+ * Power management hooks.  Note that we won't be called from IRQ context,
+ * unlike the blank functions above, so we may sleep.
+ */
 static int mbxfb_suspend(struct platform_device *dev, pm_message_t state)
 {
-	
+	/* make frame buffer memory enter self-refresh mode */
 	write_reg_dly(LMPWR_MC_PWR_SRM, LMPWR);
 	while (readl(LMPWRSTAT) != LMPWRSTAT_MC_PWR_SRM)
-		; 
+		; /* empty statement */
 
-	
+	/* reset the device, since it's initial state is 'mostly sleeping' */
 	write_reg_dly(SYSRST_RST, SYSRST);
 	return 0;
 }
@@ -821,6 +863,8 @@ static int mbxfb_resume(struct platform_device *dev)
 	struct fb_info *fbi = platform_get_drvdata(dev);
 
 	enable_clocks(fbi);
+/* 	setup_graphics(fbi); */
+/* 	setup_display(fbi); */
 
 	write_reg_dly((readl(DSCTRL) | DSCTRL_SYNCGEN_EN), DSCTRL);
 	return 0;
@@ -830,6 +874,7 @@ static int mbxfb_resume(struct platform_device *dev)
 #define mbxfb_resume	NULL
 #endif
 
+/* debugfs entries */
 #ifndef CONFIG_FB_MBX_DEBUG
 #define mbxfb_debugfs_init(x)	do {} while(0)
 #define mbxfb_debugfs_remove(x)	do {} while(0)

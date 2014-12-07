@@ -24,6 +24,9 @@
 
 #include "mutex-debug.h"
 
+/*
+ * Must be called with lock->wait_lock held.
+ */
 void debug_mutex_lock_common(struct mutex *lock, struct mutex_waiter *waiter)
 {
 	memset(waiter, MUTEX_DEBUG_INIT, sizeof(*waiter));
@@ -50,7 +53,7 @@ void debug_mutex_add_waiter(struct mutex *lock, struct mutex_waiter *waiter,
 {
 	SMP_DEBUG_LOCKS_WARN_ON(!spin_is_locked(&lock->wait_lock));
 
-	
+	/* Mark the current thread as blocked on the lock: */
 	ti->task->blocked_on = waiter;
 	ti->task->blocked_by = lock->owner;
 	ti->task->blocked_since = jiffies;
@@ -85,12 +88,23 @@ void debug_mutex_init(struct mutex *lock, const char *name,
 		      struct lock_class_key *key)
 {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
+	/*
+	 * Make sure we are not reinitializing a held lock:
+	 */
 	debug_check_no_locks_freed((void *)lock, sizeof(*lock));
 	lockdep_init_map(&lock->dep_map, name, key, 0);
 #endif
 	lock->magic = lock;
 }
 
+/***
+ * mutex_destroy - mark a mutex unusable
+ * @lock: the mutex to be destroyed
+ *
+ * This function marks the mutex uninitialized, and any subsequent
+ * use of the mutex is forbidden. The mutex must not be locked when
+ * this function is called.
+ */
 void mutex_destroy(struct mutex *lock)
 {
 	DEBUG_LOCKS_WARN_ON(mutex_is_locked(lock));

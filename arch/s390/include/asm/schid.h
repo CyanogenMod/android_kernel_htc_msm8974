@@ -15,6 +15,7 @@ struct subchannel_id {
 #ifdef __KERNEL__
 #include <linux/string.h>
 
+/* Helper function for sane state of pre-allocated subchannel_id. */
 static inline void
 init_subchannel_id(struct subchannel_id *schid)
 {
@@ -28,6 +29,6 @@ schid_equal(struct subchannel_id *schid1, struct subchannel_id *schid2)
 	return !memcmp(schid1, schid2, sizeof(struct subchannel_id));
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* ASM_SCHID_H */

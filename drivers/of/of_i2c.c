@@ -23,7 +23,7 @@ void of_i2c_register_devices(struct i2c_adapter *adap)
 	void *result;
 	struct device_node *node;
 
-	
+	/* Only register child devices if the adapter has a node pointer set */
 	if (!adap->dev.of_node)
 		return;
 
@@ -80,6 +80,7 @@ static int of_dev_node_match(struct device *dev, void *data)
         return dev->of_node == data;
 }
 
+/* must call put_device() when done with returned i2c_client device */
 struct i2c_client *of_find_i2c_device_by_node(struct device_node *node)
 {
 	struct device *dev;

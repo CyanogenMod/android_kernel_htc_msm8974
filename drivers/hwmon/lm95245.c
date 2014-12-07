@@ -39,32 +39,41 @@
 static const unsigned short normal_i2c[] = {
 	0x18, 0x19, 0x29, 0x4c, 0x4d, I2C_CLIENT_END };
 
+/* LM95245 registers */
+/* general registers */
 #define LM95245_REG_RW_CONFIG1		0x03
 #define LM95245_REG_RW_CONVERS_RATE	0x04
 #define LM95245_REG_W_ONE_SHOT		0x0F
 
+/* diode configuration */
 #define LM95245_REG_RW_CONFIG2		0xBF
 #define LM95245_REG_RW_REMOTE_OFFH	0x11
 #define LM95245_REG_RW_REMOTE_OFFL	0x12
 
+/* status registers */
 #define LM95245_REG_R_STATUS1		0x02
 #define LM95245_REG_R_STATUS2		0x33
 
+/* limit registers */
 #define LM95245_REG_RW_REMOTE_OS_LIMIT		0x07
 #define LM95245_REG_RW_LOCAL_OS_TCRIT_LIMIT	0x20
 #define LM95245_REG_RW_REMOTE_TCRIT_LIMIT	0x19
 #define LM95245_REG_RW_COMMON_HYSTERESIS	0x21
 
+/* temperature signed */
 #define LM95245_REG_R_LOCAL_TEMPH_S	0x00
 #define LM95245_REG_R_LOCAL_TEMPL_S	0x30
 #define LM95245_REG_R_REMOTE_TEMPH_S	0x01
 #define LM95245_REG_R_REMOTE_TEMPL_S	0x10
+/* temperature unsigned */
 #define LM95245_REG_R_REMOTE_TEMPH_U	0x31
 #define LM95245_REG_R_REMOTE_TEMPL_U	0x32
 
+/* id registers */
 #define LM95245_REG_R_MAN_ID		0xFE
 #define LM95245_REG_R_CHIP_ID		0xFF
 
+/* LM95245 specific bitfields */
 #define CFG_STOP		0x40
 #define CFG_REMOTE_TCRIT_MASK	0x10
 #define CFG_REMOTE_OS_MASK	0x08
@@ -78,6 +87,7 @@ static const unsigned short normal_i2c[] = {
 #define CFG2_REMOTE_FILTER_DIS	0x00
 #define CFG2_REMOTE_FILTER_EN	0x06
 
+/* conversation rate in ms */
 #define RATE_CR0063	0x00
 #define RATE_CR0364	0x01
 #define RATE_CR1000	0x02
@@ -103,17 +113,19 @@ static const u8 lm95245_reg_address[] = {
 	LM95245_REG_R_STATUS1,
 };
 
+/* Client data (each client gets its own) */
 struct lm95245_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	unsigned long last_updated;	
-	unsigned long interval;	
-	bool valid;		
-	
+	unsigned long last_updated;	/* in jiffies */
+	unsigned long interval;	/* in msecs */
+	bool valid;		/* zero until following fields are valid */
+	/* registers values */
 	u8 regs[ARRAY_SIZE(lm95245_reg_address)];
 	u8 config1, config2;
 };
 
+/* Conversions */
 static int temp_from_reg_unsigned(u8 val_h, u8 val_l)
 {
 	return val_h * 1000 + val_l * 1000 / 256;
@@ -201,6 +213,7 @@ static unsigned long lm95245_set_conversion_rate(struct i2c_client *client,
 	return interval;
 }
 
+/* Sysfs stuff */
 static ssize_t show_input(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
@@ -208,6 +221,11 @@ static ssize_t show_input(struct device *dev, struct device_attribute *attr,
 	int temp;
 	int index = to_sensor_dev_attr(attr)->index;
 
+	/*
+	 * Index 0 (Local temp) is always signed
+	 * Index 2 (Remote temp) has both signed and unsigned data
+	 * use signed calculation for remote if signed bit is set
+	 */
 	if (index == 0 || data->regs[index] & 0x80)
 		temp = temp_from_reg_signed(data->regs[index],
 			    data->regs[index + 1]);
@@ -272,7 +290,7 @@ static ssize_t set_crit_hyst(struct device *dev, struct device_attribute *attr,
 
 	data->valid = 0;
 
-	
+	/* shared crit hysteresis */
 	i2c_smbus_write_byte_data(client, LM95245_REG_RW_COMMON_HYSTERESIS,
 		val);
 
@@ -399,6 +417,7 @@ static const struct attribute_group lm95245_group = {
 	.attrs = lm95245_attributes,
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int lm95245_detect(struct i2c_client *new_client,
 			  struct i2c_board_info *info)
 {
@@ -430,7 +449,7 @@ static void lm95245_init_client(struct i2c_client *client)
 		LM95245_REG_RW_CONFIG2);
 
 	if (data->config1 & CFG_STOP) {
-		
+		/* Clear the standby bit */
 		data->config1 &= ~CFG_STOP;
 		i2c_smbus_write_byte_data(client, LM95245_REG_RW_CONFIG1,
 			data->config1);
@@ -452,10 +471,10 @@ static int lm95245_probe(struct i2c_client *new_client,
 	i2c_set_clientdata(new_client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the LM95245 chip */
 	lm95245_init_client(new_client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&new_client->dev.kobj, &lm95245_group);
 	if (err)
 		goto exit_free;
@@ -487,6 +506,7 @@ static int lm95245_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* Driver data (common to all clients) */
 static const struct i2c_device_id lm95245_id[] = {
 	{ DEVNAME, 0 },
 	{ }

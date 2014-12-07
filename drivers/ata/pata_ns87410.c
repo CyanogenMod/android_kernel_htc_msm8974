@@ -29,6 +29,13 @@
 #define DRV_NAME "pata_ns87410"
 #define DRV_VERSION "0.4.6"
 
+/**
+ *	ns87410_pre_reset		-	probe begin
+ *	@link: ATA link
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	Check enabled ports
+ */
 
 static int ns87410_pre_reset(struct ata_link *link, unsigned long deadline)
 {
@@ -45,6 +52,14 @@ static int ns87410_pre_reset(struct ata_link *link, unsigned long deadline)
 	return ata_sff_prereset(link, deadline);
 }
 
+/**
+ *	ns87410_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Program timing data. This is kept per channel not per device,
+ *	and only affects the data port.
+ */
 
 static void ns87410_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -66,7 +81,7 @@ static void ns87410_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	pci_read_config_byte(pdev, port + 3, &idefr);
 
 	if (ata_pio_need_iordy(adev))
-		idefr |= 0x04;	
+		idefr |= 0x04;	/* IORDY enable */
 	else
 		idefr &= ~0x04;
 
@@ -83,15 +98,29 @@ static void ns87410_set_piomode(struct ata_port *ap, struct ata_device *adev)
 
 	pci_write_config_byte(pdev, port, idetcr);
 	pci_write_config_byte(pdev, port + 3, idefr);
+	/* We use ap->private_data as a pointer to the device currently
+	   loaded for timing */
 	ap->private_data = adev;
 }
 
+/**
+ *	ns87410_qc_issue	-	command issue
+ *	@qc: command pending
+ *
+ *	Called when the libata layer is about to issue a command. We wrap
+ *	this interface so that we can load the correct ATA timings if
+ *	necessary.
+ */
 
 static unsigned int ns87410_qc_issue(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
 	struct ata_device *adev = qc->dev;
 
+	/* If modes have been configured and the channel data is not loaded
+	   then load it. We have to check if pio_mode is set as the core code
+	   does not set adev->pio_mode to XFER_PIO_0 while probing as would be
+	   logical */
 
 	if (adev->pio_mode && adev != ap->private_data)
 		ns87410_set_piomode(ap, adev);

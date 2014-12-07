@@ -16,4 +16,4 @@
 
 #include <plat/timex.h>
 
-#endif 
+#endif /* __MACH_TIMEX_H */

@@ -21,6 +21,10 @@
 #if !defined(_ISL_OID_H)
 #define _ISL_OID_H
 
+/*
+ * MIB related constant and structure definitions for communicating
+ * with the device firmware
+ */
 
 struct obj_ssid {
 	u8 length;
@@ -28,7 +32,7 @@ struct obj_ssid {
 } __packed;
 
 struct obj_key {
-	u8 type;		
+	u8 type;		/* dot11_priv_t */
 	u8 length;
 	char key[32];
 } __packed;
@@ -51,12 +55,12 @@ struct obj_mlmeex {
 
 struct obj_buffer {
 	u32 size;
-	u32 addr;		
+	u32 addr;		/* 32bit bus address */
 } __packed;
 
 struct obj_bss {
 	u8 address[6];
-	int:16;			
+	int:16;			/* padding */
 
 	char state;
 	char reserved;
@@ -72,7 +76,7 @@ struct obj_bss {
 	short capinfo;
 	short rates;
 	short basic_rates;
-	int:16;			
+	int:16;			/* padding */
 } __packed;
 
 struct obj_bsslist {
@@ -93,6 +97,10 @@ struct obj_attachment {
 	char data[0];
 } __packed;
 
+/*
+ * in case everything's ok, the inlined function below will be
+ * optimized away by the compiler...
+ */
 static inline void
 __bug_on_wrong_struct_sizes(void)
 {
@@ -142,64 +150,131 @@ enum dot11_priv_t {
 	DOT11_PRIV_TKIP = 1
 };
 
+/* Prism "Nitro" / Frameburst / "Packet Frame Grouping"
+ * Value is in microseconds. Represents the # microseconds
+ * the firmware will take to group frames before sending out then out
+ * together with a CSMA contention. Without this all frames are
+ * sent with a CSMA contention.
+ * Bibliography:
+ * http://www.hpl.hp.com/personal/Jean_Tourrilhes/Papers/Packet.Frame.Grouping.html
+ */
 enum dot11_maxframeburst_t {
-	
-	DOT11_MAXFRAMEBURST_OFF = 0, 
-	DOT11_MAXFRAMEBURST_MIXED_SAFE = 650, 
-	DOT11_MAXFRAMEBURST_IDEAL = 1300, 
-	DOT11_MAXFRAMEBURST_MAX = 5000, 
+	/* Values for DOT11_OID_MAXFRAMEBURST */
+	DOT11_MAXFRAMEBURST_OFF = 0, /* Card firmware default */
+	DOT11_MAXFRAMEBURST_MIXED_SAFE = 650, /* 802.11 a,b,g safe */
+	DOT11_MAXFRAMEBURST_IDEAL = 1300, /* Theoretical ideal level */
+	DOT11_MAXFRAMEBURST_MAX = 5000, /* Use this as max,
+		* Note: firmware allows for greater values. This is a
+		* recommended max. I'll update this as I find
+		* out what the real MAX is. Also note that you don't necessarily
+		* get better results with a greater value here.
+		*/
 };
 
+/* Support for 802.11 long and short frame preambles.
+ * Long	 preamble uses 128-bit sync field, 8-bit  CRC
+ * Short preamble uses 56-bit  sync field, 16-bit CRC
+ *
+ * 802.11a -- not sure, both optionally ?
+ * 802.11b supports long and optionally short
+ * 802.11g supports both */
 enum dot11_preamblesettings_t {
 	DOT11_PREAMBLESETTING_LONG = 0,
-		
+		/* Allows *only* long 802.11 preambles */
 	DOT11_PREAMBLESETTING_SHORT = 1,
-		
+		/* Allows *only* short 802.11 preambles */
 	DOT11_PREAMBLESETTING_DYNAMIC = 2
-		
+		/* AutomatiGically set */
 };
 
+/* Support for 802.11 slot timing (time between packets).
+ *
+ * Long uses 802.11a slot timing  (9 usec ?)
+ * Short uses 802.11b slot timing (20 use ?) */
 enum dot11_slotsettings_t {
 	DOT11_SLOTSETTINGS_LONG = 0,
-		
+		/* Allows *only* long 802.11b slot timing */
 	DOT11_SLOTSETTINGS_SHORT = 1,
-		
+		/* Allows *only* long 802.11a slot timing */
 	DOT11_SLOTSETTINGS_DYNAMIC = 2
-		
+		/* AutomatiGically set */
 };
 
+/* All you need to know, ERP is "Extended Rate PHY".
+ * An Extended Rate PHY (ERP) STA or AP shall support three different
+ * preamble and header formats:
+ * Long  preamble (refer to above)
+ * Short preamble (refer to above)
+ * OFDM  preamble ( ? )
+ *
+ * I'm assuming here Protection tells the AP
+ * to be careful, a STA which cannot handle the long pre-amble
+ * has joined.
+ */
 enum do11_nonerpstatus_t {
 	DOT11_ERPSTAT_NONEPRESENT = 0,
 	DOT11_ERPSTAT_USEPROTECTION = 1
 };
 
+/* (ERP is "Extended Rate PHY") Way to read NONERP is NON-ERP-*
+ * The key here is DOT11 NON ERP NEVER protects against
+ * NON ERP STA's. You *don't* want this unless
+ * you know what you are doing. It means you will only
+ * get Extended Rate capabilities */
 enum dot11_nonerpprotection_t {
 	DOT11_NONERP_NEVER = 0,
 	DOT11_NONERP_ALWAYS = 1,
 	DOT11_NONERP_DYNAMIC = 2
 };
 
-enum dot11_profile_t { 
-	
+/* Preset OID configuration for 802.11 modes
+ * Note: DOT11_OID_CW[MIN|MAX] hold the values of the
+ * DCS MIN|MAX backoff used */
+enum dot11_profile_t { /* And set/allowed values */
+	/* Allowed values for DOT11_OID_PROFILES */
 	DOT11_PROFILE_B_ONLY = 0,
+		/* DOT11_OID_RATES: 1, 2, 5.5, 11Mbps
+		 * DOT11_OID_PREAMBLESETTINGS: DOT11_PREAMBLESETTING_DYNAMIC
+		 * DOT11_OID_CWMIN: 31
+		 * DOT11_OID_NONEPROTECTION: DOT11_NOERP_DYNAMIC
+		 * DOT11_OID_SLOTSETTINGS: DOT11_SLOTSETTINGS_LONG
+		 */
 	DOT11_PROFILE_MIXED_G_WIFI = 1,
-	DOT11_PROFILE_MIXED_LONG = 2, 
-		
+		/* DOT11_OID_RATES: 1, 2, 5.5, 11, 6, 9, 12, 18, 24, 36, 48, 54Mbs
+		 * DOT11_OID_PREAMBLESETTINGS: DOT11_PREAMBLESETTING_DYNAMIC
+		 * DOT11_OID_CWMIN: 15
+		 * DOT11_OID_NONEPROTECTION: DOT11_NOERP_DYNAMIC
+		 * DOT11_OID_SLOTSETTINGS: DOT11_SLOTSETTINGS_DYNAMIC
+		 */
+	DOT11_PROFILE_MIXED_LONG = 2, /* "Long range" */
+		/* Same as Profile MIXED_G_WIFI */
 	DOT11_PROFILE_G_ONLY = 3,
-		
+		/* Same as Profile MIXED_G_WIFI */
 	DOT11_PROFILE_TEST = 4,
+		/* Same as Profile MIXED_G_WIFI except:
+		 * DOT11_OID_PREAMBLESETTINGS: DOT11_PREAMBLESETTING_SHORT
+		 * DOT11_OID_NONEPROTECTION: DOT11_NOERP_NEVER
+		 * DOT11_OID_SLOTSETTINGS: DOT11_SLOTSETTINGS_SHORT
+		 */
 	DOT11_PROFILE_B_WIFI = 5,
-		
+		/* Same as Profile B_ONLY */
 	DOT11_PROFILE_A_ONLY = 6,
+		/* Same as Profile MIXED_G_WIFI except:
+		 * DOT11_OID_RATES: 6, 9, 12, 18, 24, 36, 48, 54Mbs
+		 */
 	DOT11_PROFILE_MIXED_SHORT = 7
-		
+		/* Same as MIXED_G_WIFI */
 };
 
 
+/* The dot11d conformance level configures the 802.11d conformance levels.
+ * The following conformance levels exist:*/
 enum oid_inl_conformance_t {
-	OID_INL_CONFORMANCE_NONE = 0,	
-	OID_INL_CONFORMANCE_STRICT = 1,	
-	OID_INL_CONFORMANCE_FLEXIBLE = 2,	
+	OID_INL_CONFORMANCE_NONE = 0,	/* Perform active scanning */
+	OID_INL_CONFORMANCE_STRICT = 1,	/* Strictly adhere to 802.11d */
+	OID_INL_CONFORMANCE_FLEXIBLE = 2,	/* Use passed 802.11d info to
+		* determine channel AND/OR just make assumption that active
+		* channels are valid  channels */
 };
 
 enum oid_inl_mode_t {
@@ -222,7 +297,7 @@ enum oid_inl_config_t {
 enum oid_inl_phycap_t {
 	INL_PHYCAP_2400MHZ = 1,
 	INL_PHYCAP_5000MHZ = 2,
-	INL_PHYCAP_FAA = 0x80000000,	
+	INL_PHYCAP_FAA = 0x80000000,	/* Means card supports the FAA switch */
 };
 
 
@@ -234,7 +309,7 @@ enum oid_num_t {
 	GEN_OID_OPTIONS,
 	GEN_OID_LEDCONFIG,
 
-	
+	/* 802.11 */
 	DOT11_OID_BSSTYPE,
 	DOT11_OID_BSSID,
 	DOT11_OID_SSID,
@@ -255,7 +330,7 @@ enum oid_num_t {
 	DOT11_OID_PRIVACYINVOKED,
 	DOT11_OID_EXUNENCRYPTED,
 	DOT11_OID_DEFKEYID,
-	DOT11_OID_DEFKEYX,	
+	DOT11_OID_DEFKEYX,	/* DOT11_OID_DEFKEY1,...DOT11_OID_DEFKEY4 */
 	DOT11_OID_STAKEY,
 	DOT11_OID_REKEYTHRESHOLD,
 	DOT11_OID_STASC,
@@ -293,7 +368,7 @@ enum oid_num_t {
 	DOT11_OID_BRIDGELOCAL,
 	DOT11_OID_CLIENTS,
 	DOT11_OID_CLIENTSASSOCIATED,
-	DOT11_OID_CLIENTX,	
+	DOT11_OID_CLIENTX,	/* DOT11_OID_CLIENTX,...DOT11_OID_CLIENT2007 */
 
 	DOT11_OID_CLIENTFIND,
 	DOT11_OID_WDSLINKADD,
@@ -319,8 +394,8 @@ enum oid_num_t {
 	DOT11_OID_FRAMEABORTSPHY,
 
 	DOT11_OID_SLOTTIME,
-	DOT11_OID_CWMIN, 
-	DOT11_OID_CWMAX, 
+	DOT11_OID_CWMIN, /* MIN DCS backoff */
+	DOT11_OID_CWMAX, /* MAX DCS backoff */
 	DOT11_OID_ACKWINDOW,
 	DOT11_OID_ANTENNARX,
 	DOT11_OID_ANTENNATX,
@@ -369,7 +444,7 @@ enum oid_num_t {
 	DOT11_OID_PSMBUFFER,
 
 	DOT11_OID_BSSS,
-	DOT11_OID_BSSX,		
+	DOT11_OID_BSSX,		/*DOT11_OID_BSS1,...,DOT11_OID_BSS64 */
 	DOT11_OID_BSSFIND,
 	DOT11_OID_BSSLIST,
 
@@ -405,11 +480,14 @@ enum oid_num_t {
 #define OID_TYPE_RAW		0x0B
 #define OID_TYPE_ATTACH		0x0C
 
+/* OID_TYPE_MLMEEX is special because of a variable size field when sending.
+ * Not yet implemented (not used in driver anyway).
+ */
 
 struct oid_t {
 	enum oid_num_t oid;
-	short range;		
-	short size;		
+	short range;		/* to define a range of oid */
+	short size;		/* max size of the associated data */
 	char flags;
 };
 
@@ -423,4 +501,5 @@ union oid_res_t {
 #define IWMAX_FREQ	30
 #define PRIV_STR_SIZE	1024
 
-#endif				
+#endif				/* !defined(_ISL_OID_H) */
+/* EOF */

@@ -27,9 +27,6 @@
 
 #include "smem_private.h"
 
-#define OVERFLOW_ADD_UNSIGNED(type, a, b) \
-	(((type)~0 - (a)) < (b) ? true : false)
-
 #define MODEM_SBL_VERSION_INDEX 7
 #define SMEM_VERSION_INFO_SIZE (32 * 4)
 #define SMEM_VERSION 0x000B
@@ -78,9 +75,10 @@ static int smem_module_inited;
 static RAW_NOTIFIER_HEAD(smem_module_init_notifier_list);
 static DEFINE_MUTEX(smem_module_init_notifier_lock);
 
-#define SMEM_TOC_IDENTIFIER 0x434f5424 
+/* smem security feature components */
+#define SMEM_TOC_IDENTIFIER 0x434f5424 /* "$TOC" */
 #define SMEM_TOC_MAX_EXCLUSIONS 4
-#define SMEM_PART_HDR_IDENTIFIER 0x54525024 
+#define SMEM_PART_HDR_IDENTIFIER 0x54525024 /* "$PRT" */
 #define SMEM_ALLOCATION_CANARY 0xa5a5
 
 struct smem_toc_entry {
@@ -95,7 +93,7 @@ struct smem_toc_entry {
 };
 
 struct smem_toc {
-	
+	/* Identifier is a constant, set to SMEM_TOC_IDENTIFIER. */
 	uint32_t identifier;
 	uint32_t version;
 	uint32_t num_entries;
@@ -104,7 +102,7 @@ struct smem_toc {
 };
 
 struct smem_partition_header {
-	
+	/* Identifier is a constant, set to SMEM_PART_HDR_IDENTIFIER. */
 	uint32_t identifier;
 	uint16_t host0;
 	uint16_t host1;
@@ -115,10 +113,10 @@ struct smem_partition_header {
 };
 
 struct smem_partition_allocation_header {
-	
+	/* Canary is a constant, set to SMEM_ALLOCATION_CANARY */
 	uint16_t canary;
 	uint16_t smem_type;
-	uint32_t size; 
+	uint32_t size; /* includes padding bytes */
 	uint16_t padding_data;
 	uint16_t padding_hdr;
 	uint32_t reserved[1];
@@ -131,6 +129,7 @@ struct smem_partition_info {
 };
 
 static struct smem_partition_info partitions[NUM_SMEM_SUBSYSTEMS];
+/* end smem security feature components */
 
 struct restart_notifier_block {
 	unsigned processor;
@@ -153,6 +152,17 @@ static struct restart_notifier_block restart_notifiers[] = {
 
 static int init_smem_remote_spinlock(void);
 
+/**
+ * smem_phys_to_virt() - Convert a physical base and offset to virtual address
+ *
+ * @base: physical base address to check
+ * @offset: offset from the base to get the final address
+ * @returns: virtual SMEM address; NULL for failure
+ *
+ * Takes a physical address and an offset and checks if the resulting physical
+ * address would fit into one of the smem regions.  If so, returns the
+ * corresponding virtual address.  Otherwise returns NULL.
+ */
 static void *smem_phys_to_virt(phys_addr_t base, unsigned offset)
 {
 	int i;
@@ -163,6 +173,17 @@ static void *smem_phys_to_virt(phys_addr_t base, unsigned offset)
 		return NULL;
 
 	if (!smem_areas) {
+		/*
+		 * Early boot - no area configuration yet, so default
+		 * to using the main memory region.
+		 *
+		 * To remove the MSM_SHARED_RAM_BASE and the static
+		 * mapping of SMEM in the future, add dump_stack()
+		 * to identify the early callers of smem_get_entry()
+		 * (which calls this function) and replace those calls
+		 * with a new function that knows how to lookup the
+		 * SMEM base address before SMEM has been probed.
+		 */
 		phys_addr = msm_shared_ram_phys;
 		size = MSM_SHARED_RAM_SIZE;
 
@@ -199,6 +220,15 @@ static void *smem_phys_to_virt(phys_addr_t base, unsigned offset)
 	return NULL;
 }
 
+/**
+ * smem_virt_to_phys() - Convert SMEM address to physical address.
+ *
+ * @smem_address: Address of SMEM item (returned by smem_alloc(), etc)
+ * @returns: Physical address (or NULL if there is a failure)
+ *
+ * This function should only be used if an SMEM item needs to be handed
+ * off to a DMA engine.
+ */
 phys_addr_t smem_virt_to_phys(void *smem_address)
 {
 	phys_addr_t phys_addr = 0;
@@ -223,12 +253,24 @@ phys_addr_t smem_virt_to_phys(void *smem_address)
 }
 EXPORT_SYMBOL(smem_virt_to_phys);
 
+/* smem_alloc returns the pointer to smem item if it is already allocated.
+ * Otherwise, it returns NULL.
+ */
 void *smem_alloc(unsigned id, unsigned size)
 {
 	return smem_find(id, size);
 }
 EXPORT_SYMBOL(smem_alloc);
 
+/**
+ * smem_alloc_to_proc - Find existing item with security support
+ *
+ * @id:       ID of SMEM item
+ * @size:     Size of the SMEM item
+ * @to_proc:  SMEM host that shares the item with apps
+ * @flags:    Item attribute flags
+ * @returns:  Pointer to SMEM item or NULL if it doesn't exist
+ */
 void *smem_alloc_to_proc(unsigned id, unsigned size, unsigned to_proc,
 								unsigned flags)
 {
@@ -236,6 +278,15 @@ void *smem_alloc_to_proc(unsigned id, unsigned size, unsigned to_proc,
 }
 EXPORT_SYMBOL(smem_alloc_to_proc);
 
+/**
+ * __smem_get_entry - Get pointer and size of existing SMEM item
+ *
+ * @id:              ID of SMEM item
+ * @size:            Pointer to size variable for storing the result
+ * @skip_init_check: True means do not verify that SMEM has been initialized
+ * @use_rspinlock:   True to use the remote spinlock
+ * @returns:         Pointer to SMEM item or NULL if it doesn't exist
+ */
 static void *__smem_get_entry(unsigned id, unsigned *size,
 		bool skip_init_check, bool use_rspinlock)
 {
@@ -253,7 +304,7 @@ static void *__smem_get_entry(unsigned id, unsigned *size,
 
 	if (use_spinlocks)
 		remote_spin_lock_irqsave(&remote_spinlock, flags);
-	
+	/* toc is in device memory and cannot be speculatively accessed */
 	if (toc[id].allocated) {
 		phys_addr_t phys_base;
 
@@ -273,6 +324,18 @@ static void *__smem_get_entry(unsigned id, unsigned *size,
 	return ret;
 }
 
+/**
+ * __smem_get_entry_to_proc - Get pointer and size of existing SMEM item with
+ *                   security support
+ *
+ * @id:              ID of SMEM item
+ * @size:            Pointer to size variable for storing the result
+ * @to_proc:         SMEM host that shares the item with apps
+ * @flags:           Item attribute flags
+ * @skip_init_check: True means do not verify that SMEM has been initialized
+ * @use_rspinlock:   True to use the remote spinlock
+ * @returns:         Pointer to SMEM item or NULL if it doesn't exist
+ */
 static void *__smem_get_entry_to_proc(unsigned id,
 					unsigned *size,
 					unsigned to_proc,
@@ -351,7 +414,7 @@ static void *__smem_get_entry_to_proc(unsigned id,
 
 			}
 			if (alloc_hdr->smem_type == id) {
-				
+				/* 8 byte alignment to match legacy */
 				*size = ALIGN(alloc_hdr->size -
 						alloc_hdr->padding_data, 8);
 				item = (void *)(alloc_hdr) - alloc_hdr->size;
@@ -377,7 +440,7 @@ static void *__smem_get_entry_to_proc(unsigned id,
 
 			}
 			if (alloc_hdr->smem_type == id) {
-				
+				/* 8 byte alignment to match legacy */
 				*size = ALIGN(alloc_hdr->size -
 						alloc_hdr->padding_data, 8);
 				item = (void *)(alloc_hdr) +
@@ -418,6 +481,15 @@ void *smem_find(unsigned id, unsigned size_in)
 }
 EXPORT_SYMBOL(smem_find);
 
+/**
+ * smem_find_to_proc - Find existing item with security support
+ *
+ * @id:       ID of SMEM item
+ * @size_in:  Size of the SMEM item
+ * @to_proc:  SMEM host that shares the item with apps
+ * @flags:    Item attribute flags
+ * @returns:  Pointer to SMEM item or NULL if it doesn't exist
+ */
 void *smem_find_to_proc(unsigned id, unsigned size_in, unsigned to_proc,
 								unsigned flags)
 {
@@ -442,6 +514,17 @@ void *smem_find_to_proc(unsigned id, unsigned size_in, unsigned to_proc,
 }
 EXPORT_SYMBOL(smem_find_to_proc);
 
+/**
+ * alloc_item_nonsecure - Allocate an SMEM item in the nonsecure partition
+ *
+ * @id:              ID of SMEM item
+ * @size_in:         Size to allocate
+ * @returns:         Pointer to SMEM item or NULL for error
+ *
+ * Assumes the id parameter is valid and does not already exist.  Assumes
+ * size_in is already adjusted for alignment, if necessary.  Requires the
+ * remote spinlock to already be locked.
+ */
 static void *alloc_item_nonsecure(unsigned id, unsigned size_in)
 {
 	void *smem_base = MSM_SHARED_RAM_BASE;
@@ -452,12 +535,22 @@ static void *alloc_item_nonsecure(unsigned id, unsigned size_in)
 	if (shared->heap_info.heap_remaining >= size_in) {
 		toc[id].offset = shared->heap_info.free_offset;
 		toc[id].size = size_in;
+		/*
+		 * wmb() is necessary to ensure the allocation data is
+		 * consistent before setting the allocated flag to prevent race
+		 * conditions with remote processors
+		 */
 		wmb();
 		toc[id].allocated = 1;
 
 		shared->heap_info.free_offset += size_in;
 		shared->heap_info.heap_remaining -= size_in;
 		ret = smem_base + toc[id].offset;
+		/*
+		 * wmb() is necessary to ensure the heap data is consistent
+		 * before continuing to prevent race conditions with remote
+		 * processors
+		 */
 		wmb();
 	} else {
 		SMEM_INFO("%s: id %u not enough memory %u (required %u)\n",
@@ -468,6 +561,20 @@ static void *alloc_item_nonsecure(unsigned id, unsigned size_in)
 	return ret;
 }
 
+/**
+ * alloc_item_secure - Allocate an SMEM item in a secure partition
+ *
+ * @id:              ID of SMEM item
+ * @size_in:         Size to allocate
+ * @to_proc:         SMEM host that shares the item with apps
+ * @flags:           Item attribute flags
+ * @returns:         Pointer to SMEM item or NULL for error
+ *
+ * Assumes the id parameter is valid and does  not already exist.  Assumes
+ * size_in is the raw size requested by the client.  Assumes to_proc is a valid
+ * host, and a valid partition to that host exists.  Requires the remote
+ * spinlock to already be locked.
+ */
 static void *alloc_item_secure(unsigned id, unsigned size_in, unsigned to_proc,
 								unsigned flags)
 {
@@ -518,6 +625,15 @@ static void *alloc_item_secure(unsigned id, unsigned size_in, unsigned to_proc,
 		hdr->offset_free_cached = hdr->offset_free_cached -
 						a_hdr_size - a_data_size;
 		ret = (void *)(alloc_hdr) - a_data_size;
+		/*
+		 * The SMEM protocol currently does not support cacheable
+		 * areas within the smem region, but if it ever does in the
+		 * future, then cache management needs to be done here.
+		 * The area of memory this item is allocated from will need to
+		 * be dynamically made cachable, and a cache flush of the
+		 * allocation header using __cpuc_flush_dcache_area and
+		 * outer_flush_area will need to be done.
+		 */
 	} else {
 		a_hdr_size = sizeof(*alloc_hdr);
 		a_data_size = ALIGN(size_in, 8);
@@ -538,11 +654,19 @@ static void *alloc_item_secure(unsigned id, unsigned size_in, unsigned to_proc,
 						a_hdr_size + a_data_size;
 		ret = alloc_hdr + 1;
 	}
+	/*
+	 * wmb() is necessary to ensure the heap and allocation data is
+	 * consistent before continuing to prevent race conditions with remote
+	 * processors
+	 */
 	wmb();
 
 	return ret;
 }
 
+/* smem_alloc2 returns the pointer to smem item.  If it is not allocated,
+ * it allocates it and then returns the pointer to it.
+ */
 void *smem_alloc2(unsigned id, unsigned size_in)
 {
 	struct smem_shared *shared = (void *) MSM_SHARED_RAM_BASE;
@@ -586,6 +710,16 @@ void *smem_alloc2(unsigned id, unsigned size_in)
 }
 EXPORT_SYMBOL(smem_alloc2);
 
+/**
+ * smem_alloc2_to_proc - Find an existing item, otherwise allocate it with
+ *				security support
+ *
+ * @id:       ID of SMEM item
+ * @size_in:  Size of the SMEM item
+ * @to_proc:  SMEM host that shares the item with apps
+ * @flags:    Item attribute flags
+ * @returns:  Pointer to SMEM item or NULL if it couldn't be found/allocated
+ */
 void *smem_alloc2_to_proc(unsigned id, unsigned size_in, unsigned to_proc,
 								unsigned flags)
 {
@@ -663,6 +797,15 @@ void *smem_get_entry(unsigned id, unsigned *size)
 }
 EXPORT_SYMBOL(smem_get_entry);
 
+/**
+ * smem_get_entry_to_proc - Get existing item with security support
+ *
+ * @id:       ID of SMEM item
+ * @size:     Pointer to size variable for storing the result
+ * @to_proc:  SMEM host that shares the item with apps
+ * @flags:    Item attribute flags
+ * @returns:  Pointer to SMEM item or NULL if it doesn't exist
+ */
 void *smem_get_entry_to_proc(unsigned id, unsigned *size, unsigned to_proc,
 								unsigned flags)
 {
@@ -672,12 +815,28 @@ void *smem_get_entry_to_proc(unsigned id, unsigned *size, unsigned to_proc,
 }
 EXPORT_SYMBOL(smem_get_entry_to_proc);
 
+/**
+ * smem_get_entry_no_rlock - Get existing item without using remote spinlock
+ *
+ * @id:       ID of SMEM item
+ * @size_out: Pointer to size variable for storing the result
+ * @returns:  Pointer to SMEM item or NULL if it doesn't exist
+ *
+ * This function does not lock the remote spinlock and should only be used in
+ * failure-recover cases such as retrieving the subsystem failure reason during
+ * subsystem restart.
+ */
 void *smem_get_entry_no_rlock(unsigned id, unsigned *size_out)
 {
 	return __smem_get_entry(id, size_out, false, false);
 }
 EXPORT_SYMBOL(smem_get_entry_no_rlock);
 
+/**
+ * smem_get_remote_spinlock - Remote spinlock pointer for unit testing.
+ *
+ * @returns: pointer to SMEM remote spinlock
+ */
 remote_spinlock_t *smem_get_remote_spinlock(void)
 {
 	if (unlikely(!spinlocks_initialized))
@@ -686,6 +845,21 @@ remote_spinlock_t *smem_get_remote_spinlock(void)
 }
 EXPORT_SYMBOL(smem_get_remote_spinlock);
 
+/**
+ * smem_get_free_space() - Get the available allocation free space for a
+ *				partition
+ *
+ * @to_proc: remote SMEM host.  Determines the applicable partition
+ * @returns: size in bytes available to allocate
+ *
+ * Helper function for SMD so that SMD only scans the channel allocation
+ * table for a partition when it is reasonably certain that a channel has
+ * actually been created, because scanning can be expensive.  Creating a channel
+ * will consume some of the free space in a partition, so SMD can compare the
+ * last free space size against the current free space size to determine if
+ * a channel may have been created.  SMD can't do this directly, because the
+ * necessary partition internals are restricted to just SMEM.
+ */
 unsigned smem_get_free_space(unsigned to_proc)
 {
 	struct smem_partition_header *hdr;
@@ -712,10 +886,22 @@ unsigned smem_get_free_space(unsigned to_proc)
 }
 EXPORT_SYMBOL(smem_get_free_space);
 
+/**
+ * init_smem_remote_spinlock - Reentrant remote spinlock initialization
+ *
+ * @returns: success or error code for failure
+ */
 static int init_smem_remote_spinlock(void)
 {
 	int rc = 0;
 
+	/*
+	 * Optimistic locking.  Init only needs to be done once by the first
+	 * caller.  After that, serializing inits between different callers
+	 * is unnecessary.  The second check after the lock ensures init
+	 * wasn't previously completed by someone else before the lock could
+	 * be grabbed.
+	 */
 	if (!spinlocks_initialized) {
 		mutex_lock(&spinlock_init_lock);
 		if (!spinlocks_initialized) {
@@ -729,6 +915,11 @@ static int init_smem_remote_spinlock(void)
 	return rc;
 }
 
+/**
+ * smem_initialized_check - Reentrant check that smem has been initialized
+ *
+ * @returns: true if initialized, false if not.
+ */
 bool smem_initialized_check(void)
 {
 	static int checked;
@@ -763,6 +954,12 @@ bool smem_initialized_check(void)
 	if (version_array == NULL)
 		goto failed;
 
+	/*
+	 * The Modem SBL is now the Master SBL version and is required to
+	 * pre-initialize SMEM and fill in any necessary configuration
+	 * structures.  Without the extra configuration data, the SMEM driver
+	 * cannot be properly initialized.
+	 */
 	if (version_array[MODEM_SBL_VERSION_INDEX] != SMEM_VERSION << 16) {
 		pr_err("%s: SBL version not correct\n", __func__);
 		goto failed;
@@ -804,6 +1001,12 @@ static int restart_notifier_cb(struct notifier_block *this,
 			int ret;
 
 			SMEM_DBG("%s: saving ramdump\n", __func__);
+			/*
+			 * XPU protection does not currently allow the
+			 * auxiliary memory regions to be dumped.  If this
+			 * changes, then num_smem_areas + 1 should be passed
+			 * into do_elf_ramdump() to dump all regions.
+			 */
 			ret = do_elf_ramdump(smem_ramdump_dev,
 					smem_ramdump_segments, 1);
 			if (ret < 0)
@@ -875,6 +1078,20 @@ static void smem_module_init_notify(uint32_t state, void *data)
 	mutex_unlock(&smem_module_init_notifier_lock);
 }
 
+/**
+ * smem_init_security_partition - Init local structures for a secured smem
+ *                   partition that has apps as one of the hosts
+ *
+ * @entry:           Entry in the security TOC for the partition to init
+ * @num:             Partition ID
+ *
+ * Initialize local data structures to point to a secured smem partition
+ * that is accessible by apps and another processor.  Assumes that one of the
+ * listed hosts is apps.  Verifiess that the partition is valid, otherwise will
+ * skip.  Checks for memory corruption and will BUG() if detected.  Assumes
+ * smem_areas is already initialized and that smem_areas[0] corresponds to the
+ * smem region with the secured partitions.
+ */
 static void smem_init_security_partition(struct smem_toc_entry *entry,
 								uint32_t num)
 {
@@ -944,6 +1161,14 @@ static void smem_init_security_partition(struct smem_toc_entry *entry,
 								remote_host);
 }
 
+/**
+ * smem_init_security - Init local support for secured smem
+ *
+ * Looks for a valid security TOC, and if one is found, parses it looking for
+ * partitions that apps can access.  If any such partitions are found, do the
+ * required local initialization to support them.  Assumes smem_areas is inited
+ * and smem_area[0] corresponds to the smem region with the TOC.
+ */
 static void smem_init_security(void)
 {
 	struct smem_toc *toc;
@@ -977,7 +1202,7 @@ static int msm_smem_probe(struct platform_device *pdev)
 	struct resource *r;
 	phys_addr_t aux_mem_base;
 	resource_size_t aux_mem_size;
-	int temp_string_size = 11; 
+	int temp_string_size = 11; /* max 3 digit count */
 	char temp_string[temp_string_size];
 	int ret;
 	struct ramdump_segment *ramdump_segments_tmp = NULL;
@@ -1011,7 +1236,7 @@ static int msm_smem_probe(struct platform_device *pdev)
 			break;
 		}
 	}
-	
+	/* Initialize main SMEM region and SSR ramdump region */
 	key = "smem";
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, key);
 	if (!r) {
@@ -1042,7 +1267,7 @@ static int msm_smem_probe(struct platform_device *pdev)
 	ramdump_segments_tmp[smem_idx].size = resource_size(r);
 	++smem_idx;
 
-	
+	/* Configure auxiliary SMEM regions */
 	while (1) {
 		scnprintf(temp_string, temp_string_size, "aux-mem%d",
 								smem_idx);

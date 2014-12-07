@@ -11,20 +11,26 @@
 #ifndef _L2TP_CORE_H_
 #define _L2TP_CORE_H_
 
+/* Just some random numbers */
 #define L2TP_TUNNEL_MAGIC	0x42114DDA
 #define L2TP_SESSION_MAGIC	0x0C04EB7D
 
+/* Per tunnel, session hash table size */
 #define L2TP_HASH_BITS	4
 #define L2TP_HASH_SIZE	(1 << L2TP_HASH_BITS)
 
+/* System-wide, session hash table size */
 #define L2TP_HASH_BITS_2	8
 #define L2TP_HASH_SIZE_2	(1 << L2TP_HASH_BITS_2)
 
+/* Debug message categories for the DEBUG socket option */
 enum {
-	L2TP_MSG_DEBUG		= (1 << 0),	
-	L2TP_MSG_CONTROL	= (1 << 1),	
-	L2TP_MSG_SEQ		= (1 << 2),	
-	L2TP_MSG_DATA		= (1 << 3),	
+	L2TP_MSG_DEBUG		= (1 << 0),	/* verbose debug (if
+						 * compiled in) */
+	L2TP_MSG_CONTROL	= (1 << 1),	/* userspace - kernel
+						 * interface */
+	L2TP_MSG_SEQ		= (1 << 2),	/* sequence numbers */
+	L2TP_MSG_DATA		= (1 << 3),	/* data packets */
 };
 
 struct sk_buff;
@@ -43,60 +49,84 @@ struct l2tp_stats {
 
 struct l2tp_tunnel;
 
+/* Describes a session. Contains information to determine incoming
+ * packets and transmit outgoing ones.
+ */
 struct l2tp_session_cfg {
 	enum l2tp_pwtype	pw_type;
-	unsigned		data_seq:2;	
-	unsigned		recv_seq:1;	
-	unsigned		send_seq:1;	
-	unsigned		lns_mode:1;	
-	int			debug;		
-	u16			vlan_id;	
-	u16			offset;		
-	u16			l2specific_len;	
-	u16			l2specific_type; 
-	u8			cookie[8];	
-	int			cookie_len;	
-	u8			peer_cookie[8];	
-	int			peer_cookie_len; 
-	int			reorder_timeout; 
+	unsigned		data_seq:2;	/* data sequencing level
+						 * 0 => none, 1 => IP only,
+						 * 2 => all
+						 */
+	unsigned		recv_seq:1;	/* expect receive packets with
+						 * sequence numbers? */
+	unsigned		send_seq:1;	/* send packets with sequence
+						 * numbers? */
+	unsigned		lns_mode:1;	/* behave as LNS? LAC enables
+						 * sequence numbers under
+						 * control of LNS. */
+	int			debug;		/* bitmask of debug message
+						 * categories */
+	u16			vlan_id;	/* VLAN pseudowire only */
+	u16			offset;		/* offset to payload */
+	u16			l2specific_len;	/* Layer 2 specific length */
+	u16			l2specific_type; /* Layer 2 specific type */
+	u8			cookie[8];	/* optional cookie */
+	int			cookie_len;	/* 0, 4 or 8 bytes */
+	u8			peer_cookie[8];	/* peer's cookie */
+	int			peer_cookie_len; /* 0, 4 or 8 bytes */
+	int			reorder_timeout; /* configured reorder timeout
+						  * (in jiffies) */
 	int			mtu;
 	int			mru;
 	char			*ifname;
 };
 
 struct l2tp_session {
-	int			magic;		
+	int			magic;		/* should be
+						 * L2TP_SESSION_MAGIC */
 
-	struct l2tp_tunnel	*tunnel;	
+	struct l2tp_tunnel	*tunnel;	/* back pointer to tunnel
+						 * context */
 	u32			session_id;
 	u32			peer_session_id;
 	u8			cookie[8];
 	int			cookie_len;
 	u8			peer_cookie[8];
 	int			peer_cookie_len;
-	u16			offset;		
+	u16			offset;		/* offset from end of L2TP header
+						   to beginning of data */
 	u16			l2specific_len;
 	u16			l2specific_type;
 	u16			hdr_len;
-	u32			nr;		
-	u32			ns;		
-	struct sk_buff_head	reorder_q;	
-	struct hlist_node	hlist;		
+	u32			nr;		/* session NR state (receive) */
+	u32			ns;		/* session NR state (send) */
+	struct sk_buff_head	reorder_q;	/* receive reorder queue */
+	struct hlist_node	hlist;		/* Hash list node */
 	atomic_t		ref_count;
 
-	char			name[32];	
+	char			name[32];	/* for logging */
 	char			ifname[IFNAMSIZ];
-	unsigned		data_seq:2;	
-	unsigned		recv_seq:1;	
-	unsigned		send_seq:1;	
-	unsigned		lns_mode:1;	
-	int			debug;		
-	int			reorder_timeout; 
+	unsigned		data_seq:2;	/* data sequencing level
+						 * 0 => none, 1 => IP only,
+						 * 2 => all
+						 */
+	unsigned		recv_seq:1;	/* expect receive packets with
+						 * sequence numbers? */
+	unsigned		send_seq:1;	/* send packets with sequence
+						 * numbers? */
+	unsigned		lns_mode:1;	/* behave as LNS? LAC enables
+						 * sequence numbers under
+						 * control of LNS. */
+	int			debug;		/* bitmask of debug message
+						 * categories */
+	int			reorder_timeout; /* configured reorder timeout
+						  * (in jiffies) */
 	int			mtu;
 	int			mru;
 	enum l2tp_pwtype	pwtype;
 	struct l2tp_stats	stats;
-	struct hlist_node	global_hlist;	
+	struct hlist_node	global_hlist;	/* Global hash list node */
 
 	int (*build_header)(struct l2tp_session *session, void *buf);
 	void (*recv_skb)(struct l2tp_session *session, struct sk_buff *skb, int data_len);
@@ -106,14 +136,18 @@ struct l2tp_session {
 #if defined(CONFIG_L2TP_DEBUGFS) || defined(CONFIG_L2TP_DEBUGFS_MODULE)
 	void (*show)(struct seq_file *m, void *priv);
 #endif
-	uint8_t			priv[0];	
+	uint8_t			priv[0];	/* private data */
 };
 
+/* Describes the tunnel. It contains info to track all the associated
+ * sessions so incoming packets can be sorted out
+ */
 struct l2tp_tunnel_cfg {
-	int			debug;		
+	int			debug;		/* bitmask of debug message
+						 * categories */
 	enum l2tp_encap_type	encap;
 
-	
+	/* Used only for kernel-created sockets */
 	struct in_addr		local_ip;
 	struct in_addr		peer_ip;
 	u16			local_udp_port;
@@ -122,20 +156,23 @@ struct l2tp_tunnel_cfg {
 };
 
 struct l2tp_tunnel {
-	int			magic;		
-	rwlock_t		hlist_lock;	
+	int			magic;		/* Should be L2TP_TUNNEL_MAGIC */
+	rwlock_t		hlist_lock;	/* protect session_hlist */
 	struct hlist_head	session_hlist[L2TP_HASH_SIZE];
+						/* hashed list of sessions,
+						 * hashed by id */
 	u32			tunnel_id;
 	u32			peer_tunnel_id;
-	int			version;	
+	int			version;	/* 2=>L2TPv2, 3=>L2TPv3 */
 
-	char			name[20];	
-	int			debug;		
+	char			name[20];	/* for logging */
+	int			debug;		/* bitmask of debug message
+						 * categories */
 	enum l2tp_encap_type	encap;
 	struct l2tp_stats	stats;
 
-	struct list_head	list;		
-	struct net		*l2tp_net;	
+	struct list_head	list;		/* Keep a list of all tunnels */
+	struct net		*l2tp_net;	/* the net we belong to */
 
 	atomic_t		ref_count;
 #ifdef CONFIG_DEBUG_FS
@@ -143,10 +180,10 @@ struct l2tp_tunnel {
 #endif
 	int (*recv_payload_hook)(struct sk_buff *skb);
 	void (*old_sk_destruct)(struct sock *);
-	struct sock		*sock;		
+	struct sock		*sock;		/* Parent socket */
 	int			fd;
 
-	uint8_t			priv[0];	
+	uint8_t			priv[0];	/* private data */
 };
 
 struct l2tp_nl_cmd_ops {
@@ -203,6 +240,9 @@ extern int l2tp_xmit_skb(struct l2tp_session *session, struct sk_buff *skb, int 
 extern int l2tp_nl_register_ops(enum l2tp_pwtype pw_type, const struct l2tp_nl_cmd_ops *ops);
 extern void l2tp_nl_unregister_ops(enum l2tp_pwtype pw_type);
 
+/* Session reference counts. Incremented when code obtains a reference
+ * to a session.
+ */
 static inline void l2tp_session_inc_refcount_1(struct l2tp_session *session)
 {
 	atomic_inc(&session->ref_count);
@@ -228,4 +268,4 @@ static inline void l2tp_session_dec_refcount_1(struct l2tp_session *session)
 #define l2tp_session_dec_refcount(s) l2tp_session_dec_refcount_1(s)
 #endif
 
-#endif 
+#endif /* _L2TP_CORE_H_ */

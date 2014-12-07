@@ -22,26 +22,74 @@
  *          Andreas Arnez
  */
 
+/*
+ * This file defines the layout of UBI headers and all the other UBI on-flash
+ * data structures.
+ */
 
 #ifndef __UBI_MEDIA_H__
 #define __UBI_MEDIA_H__
 
 #include <asm/byteorder.h>
 
+/* The version of UBI images supported by this implementation */
 #define UBI_VERSION 1
 
+/* The highest erase counter value supported by this implementation */
 #define UBI_MAX_ERASECOUNTER 0x7FFFFFFF
 
+/* The initial CRC32 value used when calculating CRC checksums */
 #define UBI_CRC32_INIT 0xFFFFFFFFU
 
+/* Erase counter header magic number (ASCII "UBI#") */
 #define UBI_EC_HDR_MAGIC  0x55424923
+/* Volume identifier header magic number (ASCII "UBI!") */
 #define UBI_VID_HDR_MAGIC 0x55424921
 
+/*
+ * Volume type constants used in the volume identifier header.
+ *
+ * @UBI_VID_DYNAMIC: dynamic volume
+ * @UBI_VID_STATIC: static volume
+ */
 enum {
 	UBI_VID_DYNAMIC = 1,
 	UBI_VID_STATIC  = 2
 };
 
+/*
+ * Volume flags used in the volume table record.
+ *
+ * @UBI_VTBL_AUTORESIZE_FLG: auto-resize this volume
+ *
+ * %UBI_VTBL_AUTORESIZE_FLG flag can be set only for one volume in the volume
+ * table. UBI automatically re-sizes the volume which has this flag and makes
+ * the volume to be of largest possible size. This means that if after the
+ * initialization UBI finds out that there are available physical eraseblocks
+ * present on the device, it automatically appends all of them to the volume
+ * (the physical eraseblocks reserved for bad eraseblocks handling and other
+ * reserved physical eraseblocks are not taken). So, if there is a volume with
+ * the %UBI_VTBL_AUTORESIZE_FLG flag set, the amount of available logical
+ * eraseblocks will be zero after UBI is loaded, because all of them will be
+ * reserved for this volume. Note, the %UBI_VTBL_AUTORESIZE_FLG bit is cleared
+ * after the volume had been initialized.
+ *
+ * The auto-resize feature is useful for device production purposes. For
+ * example, different NAND flash chips may have different amount of initial bad
+ * eraseblocks, depending of particular chip instance. Manufacturers of NAND
+ * chips usually guarantee that the amount of initial bad eraseblocks does not
+ * exceed certain percent, e.g. 2%. When one creates an UBI image which will be
+ * flashed to the end devices in production, he does not know the exact amount
+ * of good physical eraseblocks the NAND chip on the device will have, but this
+ * number is required to calculate the volume sized and put them to the volume
+ * table of the UBI image. In this case, one of the volumes (e.g., the one
+ * which will store the root file system) is marked as "auto-resizable", and
+ * UBI will adjust its size on the first boot if needed.
+ *
+ * Note, first UBI reserves some amount of physical eraseblocks for bad
+ * eraseblock handling, and then re-sizes the volume, not vice-versa. This
+ * means that the pool of reserved physical eraseblocks will always be present.
+ */
 enum {
 	UBI_VTBL_AUTORESIZE_FLG = 0x01,
 };
@@ -64,17 +112,53 @@ enum {
 	UBI_COMPAT_REJECT   = 5
 };
 
+/* Sizes of UBI headers */
 #define UBI_EC_HDR_SIZE  sizeof(struct ubi_ec_hdr)
 #define UBI_VID_HDR_SIZE sizeof(struct ubi_vid_hdr)
 
+/* Sizes of UBI headers without the ending CRC */
 #define UBI_EC_HDR_SIZE_CRC  (UBI_EC_HDR_SIZE  - sizeof(__be32))
 #define UBI_VID_HDR_SIZE_CRC (UBI_VID_HDR_SIZE - sizeof(__be32))
 
+/**
+ * struct ubi_ec_hdr - UBI erase counter header.
+ * @magic: erase counter header magic number (%UBI_EC_HDR_MAGIC)
+ * @version: version of UBI implementation which is supposed to accept this
+ *           UBI image
+ * @padding1: reserved for future, zeroes
+ * @ec: the erase counter
+ * @vid_hdr_offset: where the VID header starts
+ * @data_offset: where the user data start
+ * @image_seq: image sequence number
+ * @padding2: reserved for future, zeroes
+ * @hdr_crc: erase counter header CRC checksum
+ *
+ * The erase counter header takes 64 bytes and has a plenty of unused space for
+ * future usage. The unused fields are zeroed. The @version field is used to
+ * indicate the version of UBI implementation which is supposed to be able to
+ * work with this UBI image. If @version is greater than the current UBI
+ * version, the image is rejected. This may be useful in future if something
+ * is changed radically. This field is duplicated in the volume identifier
+ * header.
+ *
+ * The @vid_hdr_offset and @data_offset fields contain the offset of the the
+ * volume identifier header and user data, relative to the beginning of the
+ * physical eraseblock. These values have to be the same for all physical
+ * eraseblocks.
+ *
+ * The @image_seq field is used to validate a UBI image that has been prepared
+ * for a UBI device. The @image_seq value can be any value, but it must be the
+ * same on all eraseblocks. UBI will ensure that all new erase counter headers
+ * also contain this value, and will check the value when scanning at start-up.
+ * One way to make use of @image_seq is to increase its value by one every time
+ * an image is flashed over an existing image, then, if the flashing does not
+ * complete, UBI will detect the error when scanning.
+ */
 struct ubi_ec_hdr {
 	__be32  magic;
 	__u8    version;
 	__u8    padding1[3];
-	__be64  ec; 
+	__be64  ec; /* Warning: the current limit is 31-bit anyway! */
 	__be32  vid_hdr_offset;
 	__be32  data_offset;
 	__be32  image_seq;
@@ -210,10 +294,16 @@ struct ubi_vid_hdr {
 	__be32  hdr_crc;
 } __packed;
 
+/* Internal UBI volumes count */
 #define UBI_INT_VOL_COUNT 1
 
+/*
+ * Starting ID of internal volumes. There is reserved room for 4096 internal
+ * volumes.
+ */
 #define UBI_INTERNAL_VOL_START (0x7FFFFFFF - 4096)
 
+/* The layout volume contains the volume table */
 
 #define UBI_LAYOUT_VOLUME_ID     UBI_INTERNAL_VOL_START
 #define UBI_LAYOUT_VOLUME_TYPE   UBI_VID_DYNAMIC
@@ -222,14 +312,56 @@ struct ubi_vid_hdr {
 #define UBI_LAYOUT_VOLUME_NAME   "layout volume"
 #define UBI_LAYOUT_VOLUME_COMPAT UBI_COMPAT_REJECT
 
+/* The maximum number of volumes per one UBI device */
 #define UBI_MAX_VOLUMES 128
 
+/* The maximum volume name length */
 #define UBI_VOL_NAME_MAX 127
 
+/* Size of the volume table record */
 #define UBI_VTBL_RECORD_SIZE sizeof(struct ubi_vtbl_record)
 
+/* Size of the volume table record without the ending CRC */
 #define UBI_VTBL_RECORD_SIZE_CRC (UBI_VTBL_RECORD_SIZE - sizeof(__be32))
 
+/**
+ * struct ubi_vtbl_record - a record in the volume table.
+ * @reserved_pebs: how many physical eraseblocks are reserved for this volume
+ * @alignment: volume alignment
+ * @data_pad: how many bytes are unused at the end of the each physical
+ * eraseblock to satisfy the requested alignment
+ * @vol_type: volume type (%UBI_DYNAMIC_VOLUME or %UBI_STATIC_VOLUME)
+ * @upd_marker: if volume update was started but not finished
+ * @name_len: volume name length
+ * @name: the volume name
+ * @flags: volume flags (%UBI_VTBL_AUTORESIZE_FLG)
+ * @padding: reserved, zeroes
+ * @crc: a CRC32 checksum of the record
+ *
+ * The volume table records are stored in the volume table, which is stored in
+ * the layout volume. The layout volume consists of 2 logical eraseblock, each
+ * of which contains a copy of the volume table (i.e., the volume table is
+ * duplicated). The volume table is an array of &struct ubi_vtbl_record
+ * objects indexed by the volume ID.
+ *
+ * If the size of the logical eraseblock is large enough to fit
+ * %UBI_MAX_VOLUMES records, the volume table contains %UBI_MAX_VOLUMES
+ * records. Otherwise, it contains as many records as it can fit (i.e., size of
+ * logical eraseblock divided by sizeof(struct ubi_vtbl_record)).
+ *
+ * The @upd_marker flag is used to implement volume update. It is set to %1
+ * before update and set to %0 after the update. So if the update operation was
+ * interrupted, UBI knows that the volume is corrupted.
+ *
+ * The @alignment field is specified when the volume is created and cannot be
+ * later changed. It may be useful, for example, when a block-oriented file
+ * system works on top of UBI. The @data_pad field is calculated using the
+ * logical eraseblock size and @alignment. The alignment must be multiple to the
+ * minimal flash I/O unit. If @alignment is 1, all the available space of
+ * the physical eraseblocks is used.
+ *
+ * Empty records contain all zeroes and the CRC checksum of those zeroes.
+ */
 struct ubi_vtbl_record {
 	__be32  reserved_pebs;
 	__be32  alignment;
@@ -243,4 +375,4 @@ struct ubi_vtbl_record {
 	__be32  crc;
 } __packed;
 
-#endif 
+#endif /* !__UBI_MEDIA_H__ */

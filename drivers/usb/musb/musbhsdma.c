@@ -39,7 +39,7 @@
 
 static int dma_controller_start(struct dma_controller *c)
 {
-	
+	/* nothing to do */
 	return 0;
 }
 
@@ -92,7 +92,7 @@ static struct dma_channel *dma_channel_allocate(struct dma_controller *c,
 			channel->private_data = musb_channel;
 			channel->status = MUSB_DMA_STATUS_FREE;
 			channel->max_len = 0x100000;
-			
+			/* Tx => mode 1; Rx => mode 0 */
 			channel->desired_mode = transmit;
 			channel->actual_len = 0;
 			break;
@@ -144,11 +144,11 @@ static void configure_channel(struct dma_channel *channel,
 				? (1 << MUSB_HSDMA_TRANSMIT_SHIFT)
 				: 0);
 
-	
+	/* address/count */
 	musb_write_hsdma_addr(mbase, bchannel, dma_addr);
 	musb_write_hsdma_count(mbase, bchannel, len);
 
-	
+	/* control (this should start things) */
 	musb_writew(mbase,
 		MUSB_HSDMA_CHANNEL_OFFSET(bchannel, MUSB_HSDMA_CONTROL),
 		csr);
@@ -170,7 +170,7 @@ static int dma_channel_program(struct dma_channel *channel,
 	BUG_ON(channel->status == MUSB_DMA_STATUS_UNKNOWN ||
 		channel->status == MUSB_DMA_STATUS_BUSY);
 
-	
+	/* Let targets check/tweak the arguments */
 	if (musb->ops->adjust_channel_params) {
 		int ret = musb->ops->adjust_channel_params(channel,
 			packet_sz, &mode, &dma_addr, &len);
@@ -178,6 +178,15 @@ static int dma_channel_program(struct dma_channel *channel,
 			return ret;
 	}
 
+	/*
+	 * The DMA engine in RTL1.8 and above cannot handle
+	 * DMA addresses that are not aligned to a 4 byte boundary.
+	 * It ends up masking the last two bits of the address
+	 * programmed in DMA_ADDR.
+	 *
+	 * Fail such DMA transfers, so that the backup PIO mode
+	 * can carry out the transfer
+	 */
 	if ((musb->hwvers >= MUSB_HWVERS_1800) && (dma_addr % 4))
 		return false;
 
@@ -206,6 +215,10 @@ static int dma_channel_abort(struct dma_channel *channel)
 			offset = MUSB_EP_OFFSET(musb_channel->epnum,
 						MUSB_TXCSR);
 
+			/*
+			 * The programming guide says that we must clear
+			 * the DMAENAB bit before the DMAMODE bit...
+			 */
 			csr = musb_readw(mbase, offset);
 			csr &= ~(MUSB_TXCSR_AUTOSET | MUSB_TXCSR_DMAENAB);
 			musb_writew(mbase, offset, csr);
@@ -257,7 +270,7 @@ static irqreturn_t dma_controller_irq(int irq, void *private_data)
 	int_hsdma = musb_readb(mbase, MUSB_HSDMA_INTR);
 
 #ifdef CONFIG_BLACKFIN
-	
+	/* Clear DMA interrupt flags */
 	musb_writeb(mbase, MUSB_HSDMA_INTR, int_hsdma);
 #endif
 
@@ -315,7 +328,7 @@ static irqreturn_t dma_controller_irq(int irq, void *private_data)
 
 				channel->status = MUSB_DMA_STATUS_FREE;
 
-				
+				/* completed */
 				if ((devctl & MUSB_DEVCTL_HM)
 					&& (musb_channel->transmit)
 					&& ((channel->desired_mode == 0)
@@ -327,12 +340,16 @@ static irqreturn_t dma_controller_irq(int irq, void *private_data)
 								    MUSB_TXCSR);
 					u16 txcsr;
 
+					/*
+					 * The programming guide says that we
+					 * must clear DMAENAB before DMAMODE.
+					 */
 					musb_ep_select(mbase, epnum);
 					txcsr = musb_readw(mbase, offset);
 					txcsr &= ~(MUSB_TXCSR_DMAENAB
 							| MUSB_TXCSR_AUTOSET);
 					musb_writew(mbase, offset, txcsr);
-					
+					/* Send out the packet */
 					txcsr &= ~MUSB_TXCSR_DMAMODE;
 					txcsr |=  MUSB_TXCSR_TXPKTRDY;
 					musb_writew(mbase, offset, txcsr);

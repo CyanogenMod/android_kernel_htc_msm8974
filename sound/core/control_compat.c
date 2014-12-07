@@ -18,6 +18,7 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
+/* this file included from control.c */
 
 #include <linux/compat.h>
 #include <linux/slab.h>
@@ -29,7 +30,7 @@ struct snd_ctl_elem_list32 {
 	u32 count;
 	u32 pids;
 	unsigned char reserved[50];
-} ;
+} /* don't set packed attribute here */;
 
 static int snd_ctl_elem_list_compat(struct snd_card *card,
 				    struct snd_ctl_elem_list32 __user *data32)
@@ -40,25 +41,29 @@ static int snd_ctl_elem_list_compat(struct snd_card *card,
 
 	data = compat_alloc_user_space(sizeof(*data));
 
-	
+	/* offset, space, used, count */
 	if (copy_in_user(data, data32, 4 * sizeof(u32)))
 		return -EFAULT;
-	
+	/* pids */
 	if (get_user(ptr, &data32->pids) ||
 	    put_user(compat_ptr(ptr), &data->pids))
 		return -EFAULT;
 	err = snd_ctl_elem_list(card, data);
 	if (err < 0)
 		return err;
-	
+	/* copy the result */
 	if (copy_in_user(data32, data, 4 * sizeof(u32)))
 		return -EFAULT;
 	return 0;
 }
 
+/*
+ * control element info
+ * it uses union, so the things are not easy..
+ */
 
 struct snd_ctl_elem_info32 {
-	struct snd_ctl_elem_id id; 
+	struct snd_ctl_elem_id id; // the size of struct is same
 	s32 type;
 	u32 access;
 	u32 count;
@@ -97,9 +102,12 @@ static int snd_ctl_elem_info_compat(struct snd_ctl_file *ctl,
 		return -ENOMEM;
 
 	err = -EFAULT;
-	
+	/* copy id */
 	if (copy_from_user(&data->id, &data32->id, sizeof(data->id)))
 		goto error;
+	/* we need to copy the item index.
+	 * hope this doesn't break anything..
+	 */
 	if (get_user(data->value.enumerated.item, &data32->value.enumerated.item))
 		goto error;
 
@@ -111,9 +119,9 @@ static int snd_ctl_elem_info_compat(struct snd_ctl_file *ctl,
 
 	if (err < 0)
 		goto error;
-	
+	/* restore info to 32bit */
 	err = -EFAULT;
-	
+	/* id, type, access, count */
 	if (copy_to_user(&data32->id, &data->id, sizeof(data->id)) ||
 	    copy_to_user(&data32->type, &data->type, 3 * sizeof(u32)))
 		goto error;
@@ -148,9 +156,10 @@ static int snd_ctl_elem_info_compat(struct snd_ctl_file *ctl,
 	return err;
 }
 
+/* read / write */
 struct snd_ctl_elem_value32 {
 	struct snd_ctl_elem_id id;
-	unsigned int indirect;	
+	unsigned int indirect;	/* bit-field causes misalignment */
         union {
 		s32 integer[128];
 		unsigned char data[512];
@@ -162,6 +171,7 @@ struct snd_ctl_elem_value32 {
 };
 
 
+/* get the value type and count of the control */
 static int get_ctl_type(struct snd_card *card, struct snd_ctl_elem_id *id,
 			int *countp)
 {
@@ -250,6 +260,7 @@ static int copy_ctl_value_from_user(struct snd_card *card,
 	return 0;
 }
 
+/* restore the value to 32bit */
 static int copy_ctl_value_to_user(struct snd_ctl_elem_value32 __user *data32,
 				  struct snd_ctl_elem_value *data,
 				  int type, int count)
@@ -324,6 +335,7 @@ static int snd_ctl_elem_write_user_compat(struct snd_ctl_file *file,
 	return err;
 }
 
+/* add or replace a user control */
 static int snd_ctl_elem_add_compat(struct snd_ctl_file *file,
 				   struct snd_ctl_elem_info32 __user *data32,
 				   int replace)
@@ -336,7 +348,7 @@ static int snd_ctl_elem_add_compat(struct snd_ctl_file *file,
 		return -ENOMEM;
 
 	err = -EFAULT;
-	 \
+	/* id, type, access, count */ \
 	if (copy_from_user(&data->id, &data32->id, sizeof(data->id)) ||
 	    copy_from_user(&data->type, &data32->type, 3 * sizeof(u32)))
 		goto error;

@@ -17,6 +17,10 @@
  *
  */
 
+/*
+ * This driver supports the asynchrounous DMA copy and RAID engines available
+ * on the Intel Xscale(R) family of I/O Processors (IOP 32x, 33x, 134x)
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -40,6 +44,11 @@
 #define tx_to_iop_adma_slot(tx) \
 	container_of(tx, struct iop_adma_desc_slot, async_tx)
 
+/**
+ * iop_adma_free_slots - flags descriptor slots for reuse
+ * @slot: Slot to free
+ * Caller must hold &iop_chan->lock while calling this function
+ */
 static void iop_adma_free_slots(struct iop_adma_desc_slot *slot)
 {
 	int stride = slot->slots_per_op;
@@ -69,7 +78,7 @@ iop_desc_unmap(struct iop_adma_chan *iop_chan, struct iop_adma_desc_slot *desc)
 	if (!(flags & DMA_COMPL_SKIP_DEST_UNMAP)) {
 		enum dma_data_direction dir;
 
-		if (src_cnt > 1) 
+		if (src_cnt > 1) /* is xor? */
 			dir = DMA_BIDIRECTIONAL;
 		else
 			dir = DMA_FROM_DEVICE;
@@ -137,9 +146,15 @@ iop_adma_run_tx_complete_actions(struct iop_adma_desc_slot *desc,
 		cookie = tx->cookie;
 		tx->cookie = 0;
 
+		/* call the callback (must not sleep or submit new
+		 * operations to this channel)
+		 */
 		if (tx->callback)
 			tx->callback(tx->callback_param);
 
+		/* unmap dma addresses
+		 * (unmap_single vs unmap_page?)
+		 */
 		if (desc->group_head && desc->unmap_len) {
 			if (iop_desc_is_pq(desc))
 				iop_desc_unmap_pq(iop_chan, desc);
@@ -148,7 +163,7 @@ iop_adma_run_tx_complete_actions(struct iop_adma_desc_slot *desc,
 		}
 	}
 
-	
+	/* run dependent operations */
 	dma_run_dependencies(tx);
 
 	return cookie;
@@ -158,9 +173,15 @@ static int
 iop_adma_clean_slot(struct iop_adma_desc_slot *desc,
 	struct iop_adma_chan *iop_chan)
 {
+	/* the client is allowed to attach dependent operations
+	 * until 'ack' is set
+	 */
 	if (!async_tx_test_ack(&desc->async_tx))
 		return 0;
 
+	/* leave the last descriptor in the chain
+	 * so we can append to it
+	 */
 	if (desc->chain_node.next == &iop_chan->chain)
 		return 1;
 
@@ -183,6 +204,9 @@ static void __iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 	int seen_current = 0, slot_cnt = 0, slots_per_op = 0;
 
 	dev_dbg(iop_chan->device->common.dev, "%s\n", __func__);
+	/* free completed slots from the chain starting with
+	 * the oldest descriptor
+	 */
 	list_for_each_entry_safe(iter, _iter, &iop_chan->chain,
 					chain_node) {
 		pr_debug("\tcookie: %d slot: %d busy: %d "
@@ -193,16 +217,24 @@ static void __iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 		prefetch(_iter);
 		prefetch(&_iter->async_tx);
 
+		/* do not advance past the current descriptor loaded into the
+		 * hardware channel, subsequent descriptors are either in
+		 * process or have not been submitted
+		 */
 		if (seen_current)
 			break;
 
+		/* stop the search if we reach the current descriptor and the
+		 * channel is busy, or if it appears that the current descriptor
+		 * needs to be re-read (i.e. has been appended to)
+		 */
 		if (iter->async_tx.phys == current_desc) {
 			BUG_ON(seen_current++);
 			if (busy || iop_desc_get_next_desc(iter))
 				break;
 		}
 
-		
+		/* detect the start of a group transaction */
 		if (!slot_cnt && !slots_per_op) {
 			slot_cnt = iter->slot_cnt;
 			slots_per_op = iter->slots_per_op;
@@ -219,13 +251,13 @@ static void __iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 			slot_cnt -= slots_per_op;
 		}
 
-		
+		/* all the members of a group are complete */
 		if (slots_per_op != 0 && slot_cnt == 0) {
 			struct iop_adma_desc_slot *grp_iter, *_grp_iter;
 			int end_of_chain = 0;
 			pr_debug("\tgroup end\n");
 
-			
+			/* collect the total results */
 			if (grp_start->xor_check_result) {
 				u32 zero_sum_result = 0;
 				slot_cnt = grp_start->slot_cnt;
@@ -246,7 +278,7 @@ static void __iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 				*grp_start->xor_check_result = zero_sum_result;
 			}
 
-			
+			/* clean up the group */
 			slot_cnt = grp_start->slot_cnt;
 			grp_iter = grp_start;
 			list_for_each_entry_safe_from(grp_iter, _grp_iter,
@@ -262,7 +294,7 @@ static void __iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 					break;
 			}
 
-			
+			/* the group should be complete at this point */
 			BUG_ON(slot_cnt);
 
 			slots_per_op = 0;
@@ -271,10 +303,10 @@ static void __iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 				break;
 			else
 				continue;
-		} else if (slots_per_op) 
+		} else if (slots_per_op) /* wait for group completion */
 			continue;
 
-		
+		/* write back zero sum results (single descriptor case) */
 		if (iter->xor_check_result && iter->async_tx.cookie)
 			*iter->xor_check_result =
 				iop_desc_get_zero_result(iter);
@@ -304,6 +336,11 @@ static void iop_adma_tasklet(unsigned long data)
 {
 	struct iop_adma_chan *iop_chan = (struct iop_adma_chan *) data;
 
+	/* lockdep will flag depedency submissions as potentially
+	 * recursive locking, this is not the case as a dependency
+	 * submission will never recurse a channels submit routine.
+	 * There are checks in async_tx.c to prevent this.
+	 */
 	spin_lock_nested(&iop_chan->lock, SINGLE_DEPTH_NESTING);
 	__iop_adma_slot_cleanup(iop_chan);
 	spin_unlock(&iop_chan->lock);
@@ -317,6 +354,10 @@ iop_adma_alloc_slots(struct iop_adma_chan *iop_chan, int num_slots,
 	LIST_HEAD(chain);
 	int slots_found, retry = 0;
 
+	/* start search from the last allocated descrtiptor
+	 * if a contiguous allocation can not be found start searching
+	 * from the beginning of the list
+	 */
 retry:
 	slots_found = 0;
 	if (retry == 0)
@@ -331,6 +372,9 @@ retry:
 		prefetch(_iter);
 		prefetch(&_iter->async_tx);
 		if (iter->slots_per_op) {
+			/* give up after finding the first busy slot
+			 * on the second pass through the list
+			 */
 			if (retry)
 				break;
 
@@ -338,7 +382,7 @@ retry:
 			continue;
 		}
 
-		
+		/* start the allocation if the slot is correctly aligned */
 		if (!slots_found++) {
 			if (iop_desc_is_aligned(iter, slots_per_op))
 				alloc_start = iter;
@@ -360,7 +404,7 @@ retry:
 					iter->idx, iter->hw_desc,
 					iter->async_tx.phys, slots_per_op);
 
-				
+				/* pre-ack all but the last descriptor */
 				if (num_slots != slots_per_op)
 					async_tx_ack(&iter->async_tx);
 
@@ -390,7 +434,7 @@ retry:
 	if (!retry++)
 		goto retry;
 
-	
+	/* perform direct reclaim if the allocation fails */
 	__iop_adma_slot_cleanup(iop_chan);
 
 	return NULL;
@@ -430,14 +474,19 @@ iop_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 	list_splice_init(&sw_desc->tx_list,
 			 &old_chain_tail->chain_node);
 
-	
+	/* fix up the hardware chain */
 	next_dma = grp_start->async_tx.phys;
 	iop_desc_set_next_desc(old_chain_tail, next_dma);
-	BUG_ON(iop_desc_get_next_desc(old_chain_tail) != next_dma); 
+	BUG_ON(iop_desc_get_next_desc(old_chain_tail) != next_dma); /* flush */
 
-	
+	/* check for pre-chained descriptors */
 	iop_paranoia(iop_desc_get_next_desc(sw_desc));
 
+	/* increment the pending count by the number of slots
+	 * memcpy operations have a 1:1 (slot:operation) relation
+	 * other operations are heavier and will pop the threshold
+	 * more often.
+	 */
 	iop_chan->pending += slot_cnt;
 	iop_adma_check_threshold(iop_chan);
 	spin_unlock_bh(&iop_chan->lock);
@@ -451,6 +500,16 @@ iop_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 static void iop_chan_start_null_memcpy(struct iop_adma_chan *iop_chan);
 static void iop_chan_start_null_xor(struct iop_adma_chan *iop_chan);
 
+/**
+ * iop_adma_alloc_chan_resources -  returns the number of allocated descriptors
+ * @chan - allocate descriptor resources for this channel
+ * @client - current client requesting the channel be ready for requests
+ *
+ * Note: We keep the slots for 1 operation on iop_chan->chain at all times.  To
+ * avoid deadlock, via async_xor, num_descs_in_pool must at a minimum be
+ * greater than 2x the number slots needed to satisfy a device->max_xor
+ * request.
+ * */
 static int iop_adma_alloc_chan_resources(struct dma_chan *chan)
 {
 	char *hw_desc;
@@ -462,7 +521,7 @@ static int iop_adma_alloc_chan_resources(struct dma_chan *chan)
 		iop_chan->device->pdev->dev.platform_data;
 	int num_descs_in_pool = plat_data->pool_size/IOP_ADMA_SLOT_SIZE;
 
-	
+	/* Allocate descriptor slots */
 	do {
 		idx = iop_chan->slots_allocated;
 		if (idx == num_descs_in_pool)
@@ -502,7 +561,7 @@ static int iop_adma_alloc_chan_resources(struct dma_chan *chan)
 		"allocated %d descriptor slots last_used: %p\n",
 		iop_chan->slots_allocated, iop_chan->last_used);
 
-	
+	/* initialize the channel and the chain with a null operation */
 	if (init) {
 		if (dma_has_cap(DMA_MEMCPY,
 			iop_chan->device->common.cap_mask))
@@ -728,6 +787,10 @@ iop_adma_prep_dma_pq(struct dma_chan *chan, dma_addr_t *dst, dma_addr_t *src,
 		for (i = 0; i < src_cnt; i++)
 			iop_desc_set_pq_src_addr(g, i, src[i], scf[i]);
 
+		/* if we are continuing a previous operation factor in
+		 * the old p and q values, see the comment for dma_maxpq
+		 * in include/linux/dmaengine.h
+		 */
 		if (dmaf_p_disabled_continue(flags))
 			iop_desc_set_pq_src_addr(g, i++, dst[1], 1);
 		else if (dmaf_continue(flags)) {
@@ -763,6 +826,9 @@ iop_adma_prep_dma_pq_val(struct dma_chan *chan, dma_addr_t *pq, dma_addr_t *src,
 	slot_cnt = iop_chan_pq_zero_sum_slot_count(len, src_cnt + 2, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
+		/* for validate operations p and q are tagged onto the
+		 * end of the source list
+		 */
 		int pq_idx = src_cnt;
 
 		g = sw_desc->group_head;
@@ -811,12 +877,18 @@ static void iop_adma_free_chan_resources(struct dma_chan *chan)
 		__func__, iop_chan->slots_allocated);
 	spin_unlock_bh(&iop_chan->lock);
 
-	
+	/* one is ok since we left it on there on purpose */
 	if (in_use_descs > 1)
 		printk(KERN_ERR "IOP: Freeing %d in use descriptors!\n",
 			in_use_descs - 1);
 }
 
+/**
+ * iop_adma_status - poll the status of an ADMA transaction
+ * @chan: ADMA channel handle
+ * @cookie: ADMA transaction identifier
+ * @txstate: a holder for the current state of the channel or NULL
+ */
 static enum dma_status iop_adma_status(struct dma_chan *chan,
 					dma_cookie_t cookie,
 					struct dma_tx_state *txstate)
@@ -891,6 +963,9 @@ static void iop_adma_issue_pending(struct dma_chan *chan)
 	}
 }
 
+/*
+ * Perform a transaction to verify the HW works.
+ */
 #define IOP_ADMA_TEST_SIZE 2000
 
 static int __devinit iop_adma_memcpy_self_test(struct iop_adma_device *device)
@@ -915,11 +990,11 @@ static int __devinit iop_adma_memcpy_self_test(struct iop_adma_device *device)
 		return -ENOMEM;
 	}
 
-	
+	/* Fill in src buffer */
 	for (i = 0; i < IOP_ADMA_TEST_SIZE; i++)
 		((u8 *) src)[i] = (u8)i;
 
-	
+	/* Start copy, using first DMA channel */
 	dma_chan = container_of(device->common.channels.next,
 				struct dma_chan,
 				device_node);
@@ -966,7 +1041,7 @@ out:
 	return err;
 }
 
-#define IOP_ADMA_NUM_SRC_TEST 4 
+#define IOP_ADMA_NUM_SRC_TEST 4 /* must be <= 15 */
 static int __devinit
 iop_adma_xor_val_self_test(struct iop_adma_device *device)
 {
@@ -1003,7 +1078,7 @@ iop_adma_xor_val_self_test(struct iop_adma_device *device)
 		return -ENOMEM;
 	}
 
-	
+	/* Fill in src buffers */
 	for (src_idx = 0; src_idx < IOP_ADMA_NUM_SRC_TEST; src_idx++) {
 		u8 *ptr = page_address(xor_srcs[src_idx]);
 		for (i = 0; i < PAGE_SIZE; i++)
@@ -1026,7 +1101,7 @@ iop_adma_xor_val_self_test(struct iop_adma_device *device)
 		goto out;
 	}
 
-	
+	/* test xor */
 	dest_dma = dma_map_page(dma_chan->device->dev, dest, 0,
 				PAGE_SIZE, DMA_FROM_DEVICE);
 	for (i = 0; i < IOP_ADMA_NUM_SRC_TEST; i++)
@@ -1063,11 +1138,11 @@ iop_adma_xor_val_self_test(struct iop_adma_device *device)
 	dma_sync_single_for_device(&iop_chan->device->pdev->dev, dest_dma,
 		PAGE_SIZE, DMA_TO_DEVICE);
 
-	
+	/* skip zero sum if the capability is not present */
 	if (!dma_has_cap(DMA_XOR_VAL, dma_chan->device->cap_mask))
 		goto free_resources;
 
-	
+	/* zero sum the sources with the destintation page */
 	for (i = 0; i < IOP_ADMA_NUM_SRC_TEST; i++)
 		zero_sum_srcs[i] = xor_srcs[i];
 	zero_sum_srcs[i] = dest;
@@ -1101,7 +1176,7 @@ iop_adma_xor_val_self_test(struct iop_adma_device *device)
 		goto free_resources;
 	}
 
-	
+	/* test memset */
 	dma_addr = dma_map_page(dma_chan->device->dev, dest, 0,
 			PAGE_SIZE, DMA_FROM_DEVICE);
 	tx = iop_adma_prep_dma_memset(dma_chan, dma_addr, 0, PAGE_SIZE,
@@ -1128,7 +1203,7 @@ iop_adma_xor_val_self_test(struct iop_adma_device *device)
 		}
 	}
 
-	
+	/* test for non-zero parity sum */
 	zero_sum_result = 0;
 	for (i = 0; i < IOP_ADMA_NUM_SRC_TEST + 1; i++)
 		dma_srcs[i] = dma_map_page(dma_chan->device->dev,
@@ -1171,11 +1246,11 @@ out:
 static int __devinit
 iop_adma_pq_zero_sum_self_test(struct iop_adma_device *device)
 {
-	
+	/* combined sources, software pq results, and extra hw pq results */
 	struct page *pq[IOP_ADMA_NUM_SRC_TEST+2+2];
-	
+	/* ptr to the extra hw pq buffers defined above */
 	struct page **pq_hw = &pq[IOP_ADMA_NUM_SRC_TEST+2];
-	
+	/* address conversion buffers (dma_map / page_address) */
 	void *pq_sw[IOP_ADMA_NUM_SRC_TEST+2];
 	dma_addr_t pq_src[IOP_ADMA_NUM_SRC_TEST+2];
 	dma_addr_t *pq_dest = &pq_src[IOP_ADMA_NUM_SRC_TEST];
@@ -1199,7 +1274,7 @@ iop_adma_pq_zero_sum_self_test(struct iop_adma_device *device)
 		}
 	}
 
-	
+	/* Fill in src buffers */
 	for (i = 0; i < IOP_ADMA_NUM_SRC_TEST; i++) {
 		pq_sw[i] = page_address(pq[i]);
 		memset(pq_sw[i], 0x11111111 * (1<<i), PAGE_SIZE);
@@ -1217,11 +1292,11 @@ iop_adma_pq_zero_sum_self_test(struct iop_adma_device *device)
 
 	dev = dma_chan->device->dev;
 
-	
+	/* initialize the dests */
 	memset(page_address(pq_hw[0]), 0 , PAGE_SIZE);
 	memset(page_address(pq_hw[1]), 0 , PAGE_SIZE);
 
-	
+	/* test pq */
 	pq_dest[0] = dma_map_page(dev, pq_hw[0], 0, PAGE_SIZE, DMA_FROM_DEVICE);
 	pq_dest[1] = dma_map_page(dev, pq_hw[1], 0, PAGE_SIZE, DMA_FROM_DEVICE);
 	for (i = 0; i < IOP_ADMA_NUM_SRC_TEST; i++)
@@ -1260,7 +1335,7 @@ iop_adma_pq_zero_sum_self_test(struct iop_adma_device *device)
 		goto free_resources;
 	}
 
-	
+	/* test correct zero sum using the software generated pq values */
 	for (i = 0; i < IOP_ADMA_NUM_SRC_TEST + 2; i++)
 		pq_src[i] = dma_map_page(dev, pq[i], 0, PAGE_SIZE,
 					 DMA_TO_DEVICE);
@@ -1289,7 +1364,7 @@ iop_adma_pq_zero_sum_self_test(struct iop_adma_device *device)
 		goto free_resources;
 	}
 
-	
+	/* test incorrect zero sum */
 	i = IOP_ADMA_NUM_SRC_TEST;
 	memset(pq_sw[i] + 100, 0, 100);
 	memset(pq_sw[i+1] + 200, 0, 200);
@@ -1376,6 +1451,10 @@ static int __devinit iop_adma_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	dma_dev = &adev->common;
 
+	/* allocate coherent memory for hardware descriptors
+	 * note: writecombine gives slightly better performance, but
+	 * requires that we explicitly flush the writes
+	 */
 	if ((adev->dma_desc_pool_virt = dma_alloc_writecombine(&pdev->dev,
 					plat_data->pool_size,
 					&adev->dma_desc_pool,
@@ -1390,7 +1469,7 @@ static int __devinit iop_adma_probe(struct platform_device *pdev)
 
 	adev->id = plat_data->hw_id;
 
-	
+	/* discover transaction capabilites from the platform data */
 	dma_dev->cap_mask = plat_data->cap_mask;
 
 	adev->pdev = pdev;
@@ -1398,14 +1477,14 @@ static int __devinit iop_adma_probe(struct platform_device *pdev)
 
 	INIT_LIST_HEAD(&dma_dev->channels);
 
-	
+	/* set base routines */
 	dma_dev->device_alloc_chan_resources = iop_adma_alloc_chan_resources;
 	dma_dev->device_free_chan_resources = iop_adma_free_chan_resources;
 	dma_dev->device_tx_status = iop_adma_status;
 	dma_dev->device_issue_pending = iop_adma_issue_pending;
 	dma_dev->dev = &pdev->dev;
 
-	
+	/* set prep routines based on capability */
 	if (dma_has_cap(DMA_MEMCPY, dma_dev->cap_mask))
 		dma_dev->device_prep_dma_memcpy = iop_adma_prep_dma_memcpy;
 	if (dma_has_cap(DMA_MEMSET, dma_dev->cap_mask))
@@ -1444,7 +1523,7 @@ static int __devinit iop_adma_probe(struct platform_device *pdev)
 	tasklet_init(&iop_chan->irq_tasklet, iop_adma_tasklet, (unsigned long)
 		iop_chan);
 
-	
+	/* clear errors before enabling interrupts */
 	iop_adma_device_clear_err_status(iop_chan);
 
 	for (i = 0; i < 3; i++) {
@@ -1491,7 +1570,7 @@ static int __devinit iop_adma_probe(struct platform_device *pdev)
 		ret = iop_adma_pq_zero_sum_self_test(adev);
 		dev_dbg(&pdev->dev, "pq self test returned %d\n", ret);
 		#else
-		
+		/* can not test raid6, so do not publish capability */
 		dma_cap_clear(DMA_PQ, dma_dev->cap_mask);
 		dma_cap_clear(DMA_PQ_VAL, dma_dev->cap_mask);
 		ret = 0;
@@ -1547,23 +1626,29 @@ static void iop_chan_start_null_memcpy(struct iop_adma_chan *iop_chan)
 
 		cookie = dma_cookie_assign(&sw_desc->async_tx);
 
+		/* initialize the completed cookie to be less than
+		 * the most recently used cookie
+		 */
 		iop_chan->common.completed_cookie = cookie - 1;
 
-		
+		/* channel should not be busy */
 		BUG_ON(iop_chan_is_busy(iop_chan));
 
-		
+		/* clear any prior error-status bits */
 		iop_adma_device_clear_err_status(iop_chan);
 
-		
+		/* disable operation */
 		iop_chan_disable(iop_chan);
 
-		
+		/* set the descriptor address */
 		iop_chan_set_next_descriptor(iop_chan, sw_desc->async_tx.phys);
 
+		/* 1/ don't add pre-chained descriptors
+		 * 2/ dummy read to flush next_desc write
+		 */
 		BUG_ON(iop_desc_get_next_desc(sw_desc));
 
-		
+		/* run the descriptor */
 		iop_chan_enable(iop_chan);
 	} else
 		dev_printk(KERN_ERR, iop_chan->device->common.dev,
@@ -1594,23 +1679,29 @@ static void iop_chan_start_null_xor(struct iop_adma_chan *iop_chan)
 
 		cookie = dma_cookie_assign(&sw_desc->async_tx);
 
+		/* initialize the completed cookie to be less than
+		 * the most recently used cookie
+		 */
 		iop_chan->common.completed_cookie = cookie - 1;
 
-		
+		/* channel should not be busy */
 		BUG_ON(iop_chan_is_busy(iop_chan));
 
-		
+		/* clear any prior error-status bits */
 		iop_adma_device_clear_err_status(iop_chan);
 
-		
+		/* disable operation */
 		iop_chan_disable(iop_chan);
 
-		
+		/* set the descriptor address */
 		iop_chan_set_next_descriptor(iop_chan, sw_desc->async_tx.phys);
 
+		/* 1/ don't add pre-chained descriptors
+		 * 2/ dummy read to flush next_desc write
+		 */
 		BUG_ON(iop_desc_get_next_desc(sw_desc));
 
-		
+		/* run the descriptor */
 		iop_chan_enable(iop_chan);
 	} else
 		dev_printk(KERN_ERR, iop_chan->device->common.dev,

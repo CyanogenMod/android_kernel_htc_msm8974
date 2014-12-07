@@ -80,6 +80,13 @@ err_busy:
 	return ret;
 }
 
+/**
+ * fiq_glue_resume - Restore fiqs after suspend or low power idle states
+ *
+ * This must be called before calling local_fiq_enable after returning from a
+ * power state where the fiq mode registers were lost. If a driver provided
+ * a resume hook when it registered the handler it will be called.
+ */
 
 void fiq_glue_resume(void)
 {

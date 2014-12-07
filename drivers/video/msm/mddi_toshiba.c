@@ -113,6 +113,12 @@ static boolean mddi_toshiba_report_refresh_measurements = FALSE;
 
 boolean mddi_toshiba_61Hz_refresh = TRUE;
 
+/* Modifications to timing to increase refresh rate to > 60Hz.
+ *   20MHz dot clock.
+ *   646 total rows.
+ *   506 total columns.
+ *   refresh rate = 61.19Hz
+ */
 static uint32 mddi_toshiba_rows_per_second = 39526;
 static uint32 mddi_toshiba_usecs_per_refresh = 16344;
 static uint32 mddi_toshiba_rows_per_refresh = 646;
@@ -139,24 +145,24 @@ static void mddi_toshiba_state_transition(mddi_toshiba_state_t a,
 	toshiba_state = b;
 }
 
-#define GORDON_REG_IMGCTL1      0x10	
-#define GORDON_REG_IMGCTL2      0x11	
-#define GORDON_REG_IMGSET1      0x12	
-#define GORDON_REG_IMGSET2      0x13	
-#define GORDON_REG_IVBP1        0x14	
-#define GORDON_REG_IHBP1        0x15	
-#define GORDON_REG_IVNUM1       0x16	
-#define GORDON_REG_IHNUM1       0x17	
-#define GORDON_REG_IVBP2        0x18	
-#define GORDON_REG_IHBP2        0x19	
-#define GORDON_REG_IVNUM2       0x1A	
-#define GORDON_REG_IHNUM2       0x1B	
-#define GORDON_REG_LCDIFCTL1    0x30	
-#define GORDON_REG_VALTRAN      0x31	
+#define GORDON_REG_IMGCTL1      0x10	/* Image interface control 1   */
+#define GORDON_REG_IMGCTL2      0x11	/* Image interface control 2   */
+#define GORDON_REG_IMGSET1      0x12	/* Image interface settings 1  */
+#define GORDON_REG_IMGSET2      0x13	/* Image interface settings 2  */
+#define GORDON_REG_IVBP1        0x14	/* DM0: Vert back porch        */
+#define GORDON_REG_IHBP1        0x15	/* DM0: Horiz back porch       */
+#define GORDON_REG_IVNUM1       0x16	/* DM0: Num of vert lines      */
+#define GORDON_REG_IHNUM1       0x17	/* DM0: Num of pixels per line */
+#define GORDON_REG_IVBP2        0x18	/* DM1: Vert back porch        */
+#define GORDON_REG_IHBP2        0x19	/* DM1: Horiz back porch       */
+#define GORDON_REG_IVNUM2       0x1A	/* DM1: Num of vert lines      */
+#define GORDON_REG_IHNUM2       0x1B	/* DM1: Num of pixels per line */
+#define GORDON_REG_LCDIFCTL1    0x30	/* LCD interface control 1     */
+#define GORDON_REG_VALTRAN      0x31	/* LCD IF ctl: VALTRAN sync flag */
 #define GORDON_REG_AVCTL        0x33
-#define GORDON_REG_LCDIFCTL2    0x34	
-#define GORDON_REG_LCDIFCTL3    0x35	
-#define GORDON_REG_LCDIFSET1    0x36	
+#define GORDON_REG_LCDIFCTL2    0x34	/* LCD interface control 2     */
+#define GORDON_REG_LCDIFCTL3    0x35	/* LCD interface control 3     */
+#define GORDON_REG_LCDIFSET1    0x36	/* LCD interface settings 1    */
 #define GORDON_REG_PCCTL        0x3C
 #define GORDON_REG_TPARAM1      0x40
 #define GORDON_REG_TLCDIF1      0x41
@@ -218,23 +224,23 @@ void serigo(uint16 reg, uint8 data)
 	mddi_queue_register_read(SSIINTS, &mddi_val, TRUE, 0);
 	if (mddi_val & (1 << 8))
 		mddi_wait(1);
-	
+	/* No De-assert of CS and send 2 bytes */
 	mddi_val = 0x90000 | ((0x00FF & reg) << 8) | data;
 	mddi_queue_register_write(SSITX, mddi_val, TRUE, 0);
 }
 
 void gordon_init(void)
 {
-       
+       /* Image interface settings ***/
 	serigo(GORDON_REG_IMGCTL2, 0x00);
 	serigo(GORDON_REG_IMGSET1, 0x01);
 
-	
+	/* Exchange the RGB signal for J510(Softbank mobile) */
 	serigo(GORDON_REG_IMGSET2, 0x12);
 	serigo(GORDON_REG_LCDIFSET1, 0x00);
 	mddi_wait(2);
 
-	
+	/* Pre-charge settings */
 	serigo(GORDON_REG_PCCTL, 0x09);
 	serigo(GORDON_REG_LCDIFCTL2, 0x1B);
 	mddi_wait(1);
@@ -242,8 +248,8 @@ void gordon_init(void)
 
 void gordon_disp_on(void)
 {
-	
-	
+	/*gordon_dispmode setting */
+	/*VGA settings */
 	serigo(GORDON_REG_TPARAM1, 0x30);
 	serigo(GORDON_REG_TLCDIF1, 0x00);
 	serigo(GORDON_REG_TSSPB_ST1, 0x8B);
@@ -1092,29 +1098,29 @@ static void toshiba_sec_start(struct msm_fb_data_type *mfd)
 	write_client_reg(ASY_CMDSET, 0x0000000C, TRUE);
 	mddi_wait(20);
 	write_client_reg(ASY_DATA, 0x80000059, TRUE);
-	
+	/* LTPS I/F control */
 	write_client_reg(ASY_DATB, 0x00000019, TRUE);
-	
+	/* Direct cmd transfer enable */
 	write_client_reg(ASY_CMDSET, 0x00000005, TRUE);
-	
+	/* Direct cmd transfer disable */
 	write_client_reg(ASY_CMDSET, 0x00000004, TRUE);
 	mddi_wait(20);
-	
+	/* Index setting of SUB LCDD */
 	write_client_reg(ASY_DATA, 0x80000059, TRUE);
-	
+	/* LTPS I/F control */
 	write_client_reg(ASY_DATB, 0x00000079, TRUE);
-	
+	/* Direct cmd transfer enable */
 	write_client_reg(ASY_CMDSET, 0x00000005, TRUE);
-	
+	/* Direct cmd transfer disable */
 	write_client_reg(ASY_CMDSET, 0x00000004, TRUE);
 	mddi_wait(20);
-	
+	/* Index setting of SUB LCDD */
 	write_client_reg(ASY_DATA, 0x80000059, TRUE);
-	
+	/* LTPS I/F control */
 	write_client_reg(ASY_DATB, 0x000003FD, TRUE);
-	
+	/* Direct cmd transfer enable */
 	write_client_reg(ASY_CMDSET, 0x00000005, TRUE);
-	
+	/* Direct cmd transfer disable */
 	write_client_reg(ASY_CMDSET, 0x00000004, TRUE);
 	mddi_wait(20);
 	mddi_toshiba_state_transition(TOSHIBA_STATE_PRIM_SEC_READY,
@@ -1127,7 +1133,7 @@ static void toshiba_prim_lcd_off(struct msm_fb_data_type *mfd)
 		gordon_disp_off();
 	} else{
 
-		
+		/* Main panel power off (Deep standby in) */
 		write_client_reg(SSITX, 0x000800BC, TRUE);
 		write_client_reg(SSITX, 0x00000100, TRUE);
 		write_client_reg(SSITX, 0x00000028, TRUE);
@@ -1315,7 +1321,7 @@ static void toshiba_sec_sleep_in(struct msm_fb_data_type *mfd)
 	write_client_reg(PXL, 0x00000000, TRUE);
 	write_client_reg(START, 0x00000000, TRUE);
 	write_client_reg(REGENB, 0x00000001, TRUE);
-	
+	/* Sleep in sequence */
 	write_client_reg(ASY_DATA, 0x80000010, TRUE);
 	write_client_reg(ASY_DATB, 0x00000302, TRUE);
 	write_client_reg(ASY_CMDSET, 0x00000005, TRUE);
@@ -1333,7 +1339,7 @@ static void toshiba_sec_sleep_out(struct msm_fb_data_type *mfd)
 	write_client_reg(ASY_DATB, 0x00000300, TRUE);
 	write_client_reg(ASY_CMDSET, 0x00000005, TRUE);
 	write_client_reg(ASY_CMDSET, 0x00000004, TRUE);
-	
+	/*  Display ON sequence */
 	write_client_reg(ASY_DATA, 0x80000011, TRUE);
 	write_client_reg(ASY_DATB, 0x00000812, TRUE);
 	write_client_reg(ASY_DATC, 0x80000012, TRUE);
@@ -1421,75 +1427,88 @@ static void mddi_toshiba_lcd_set_backlight(struct msm_fb_data_type *mfd)
 	write_client_reg(PWM0OFF, level, TRUE);
 }
 
-static void mddi_toshiba_vsync_set_handler(msm_fb_vsync_handler_type handler,	
+static void mddi_toshiba_vsync_set_handler(msm_fb_vsync_handler_type handler,	/* ISR to be executed */
 					   void *arg)
 {
 	boolean error = FALSE;
 	unsigned long flags;
 
-	
+	/* Disable interrupts */
 	spin_lock_irqsave(&mddi_host_spin_lock, flags);
-	
+	/* INTLOCK(); */
 
 	if (mddi_toshiba_vsync_handler != NULL) {
 		error = TRUE;
 	} else {
-		
+		/* Register the handler for this particular GROUP interrupt source */
 		mddi_toshiba_vsync_handler = handler;
 		mddi_toshiba_vsync_handler_arg = arg;
 	}
 
-	
+	/* Restore interrupts */
 	spin_unlock_irqrestore(&mddi_host_spin_lock, flags);
-	
+	/* MDDI_INTFREE(); */
 	if (error) {
 		MDDI_MSG_ERR("MDDI: Previous Vsync handler never called\n");
 	} else {
-		
+		/* Enable the vsync wakeup */
 		mddi_queue_register_write(INTMSK, 0x0000, FALSE, 0);
 
 		mddi_toshiba_vsync_attempts = 1;
 		mddi_vsync_detect_enabled = TRUE;
 	}
-}				
+}				/* mddi_toshiba_vsync_set_handler */
 
 static void mddi_toshiba_lcd_vsync_detected(boolean detected)
 {
-	
+	/* static timetick_type start_time = 0; */
 	static struct timeval start_time;
 	static boolean first_time = TRUE;
-	
-	
+	/* uint32 mdp_cnt_val = 0; */
+	/* timetick_type elapsed_us; */
 	struct timeval now;
 	uint32 elapsed_us;
 	uint32 num_vsyncs;
 
 	if ((detected) || (mddi_toshiba_vsync_attempts > 5)) {
 		if ((detected) && (mddi_toshiba_monitor_refresh_value)) {
-			
+			/* if (start_time != 0) */
 			if (!first_time) {
 				jiffies_to_timeval(jiffies, &now);
 				elapsed_us =
 				    (now.tv_sec - start_time.tv_sec) * 1000000 +
 				    now.tv_usec - start_time.tv_usec;
+				/*
+				 * LCD is configured for a refresh every usecs,
+				 *  so to determine the number of vsyncs that
+				 *  have occurred since the last measurement
+				 *  add half that to the time difference and
+				 *  divide by the refresh rate.
+				 */
 				num_vsyncs = (elapsed_us +
 					      (mddi_toshiba_usecs_per_refresh >>
 					       1)) /
 				    mddi_toshiba_usecs_per_refresh;
+				/*
+				 * LCD is configured for * hsyncs (rows) per
+				 * refresh cycle. Calculate new rows_per_second
+				 * value based upon these new measurements.
+				 * MDP can update with this new value.
+				 */
 				mddi_toshiba_rows_per_second =
 				    (mddi_toshiba_rows_per_refresh * 1000 *
 				     num_vsyncs) / (elapsed_us / 1000);
 			}
-			
+			/* start_time = timetick_get(); */
 			first_time = FALSE;
 			jiffies_to_timeval(jiffies, &start_time);
 			if (mddi_toshiba_report_refresh_measurements) {
 				(void)mddi_queue_register_read_int(VPOS,
 								   &mddi_toshiba_curr_vpos);
-				
+				/* mdp_cnt_val = MDP_LINE_COUNT; */
 			}
 		}
-		
+		/* if detected = TRUE, client initiated wakeup was detected */
 		if (mddi_toshiba_vsync_handler != NULL) {
 			(*mddi_toshiba_vsync_handler)
 			    (mddi_toshiba_vsync_handler_arg);
@@ -1497,24 +1516,27 @@ static void mddi_toshiba_lcd_vsync_detected(boolean detected)
 		}
 		mddi_vsync_detect_enabled = FALSE;
 		mddi_toshiba_vsync_attempts = 0;
-		
+		/* need to disable the interrupt wakeup */
 		if (!mddi_queue_register_write_int(INTMSK, 0x0001))
 			MDDI_MSG_ERR("Vsync interrupt disable failed!\n");
 		if (!detected) {
-			
+			/* give up after 5 failed attempts but show error */
 			MDDI_MSG_NOTICE("Vsync detection failed!\n");
 		} else if ((mddi_toshiba_monitor_refresh_value) &&
 			   (mddi_toshiba_report_refresh_measurements)) {
 			MDDI_MSG_NOTICE("  Last Line Counter=%d!\n",
 					mddi_toshiba_curr_vpos);
-		
+		/* MDDI_MSG_NOTICE("  MDP Line Counter=%d!\n",mdp_cnt_val); */
 			MDDI_MSG_NOTICE("  Lines Per Second=%d!\n",
 					mddi_toshiba_rows_per_second);
 		}
-		
+		/* clear the interrupt */
 		if (!mddi_queue_register_write_int(INTFLG, 0x0001))
 			MDDI_MSG_ERR("Vsync interrupt clear failed!\n");
 	} else {
+		/* if detected = FALSE, we woke up from hibernation, but did not
+		 * detect client initiated wakeup.
+		 */
 		mddi_toshiba_vsync_attempts++;
 	}
 }

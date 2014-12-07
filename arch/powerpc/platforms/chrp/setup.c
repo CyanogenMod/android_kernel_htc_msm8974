@@ -4,6 +4,9 @@
  *  Modified by Cort Dougan (cort@cs.nmt.edu)
  */
 
+/*
+ * bootup setup stuff..
+ */
 
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -54,11 +57,13 @@ EXPORT_SYMBOL(_chrp_type);
 
 static struct mpic *chrp_mpic;
 
+/* Used for doing CHRP event-scans */
 DEFINE_PER_CPU(struct timer_list, heartbeat_timer);
 unsigned long event_scan_interval;
 
 extern unsigned long loops_per_jiffy;
 
+/* To be replaced by RTAS when available */
 static unsigned int __iomem *briq_SPOR;
 
 #ifdef CONFIG_SMP
@@ -100,10 +105,10 @@ void chrp_show_cpuinfo(struct seq_file *m)
 		model = of_get_property(root, "model", NULL);
 	seq_printf(m, "machine\t\t: CHRP %s\n", model);
 
-	
+	/* longtrail (goldengate) stuff */
 	if (model && !strncmp(model, "IBM,LongTrail", 13)) {
-		
-		
+		/* VLSI VAS96011/12 `Golden Gate 2' */
+		/* Memory banks */
 		sdramen = (in_le32(gg2_pci_config_base + GG2_PCI_DRAM_CTRL)
 			   >>31) & 1;
 		for (i = 0; i < (sdramen ? 4 : 6); i++) {
@@ -138,7 +143,7 @@ void chrp_show_cpuinfo(struct seq_file *m)
 			seq_printf(m, "memory bank %d\t: %s %s\n", i, model,
 				   gg2_memtypes[sdramen ? 1 : ((t>>1) & 3)]);
 		}
-		
+		/* L2 cache */
 		t = in_le32(gg2_pci_config_base+GG2_PCI_CC_CTRL);
 		seq_printf(m, "board l2\t: %s %s (%s)\n",
 			   gg2_cachesizes[(t>>7) & 3],
@@ -148,6 +153,12 @@ void chrp_show_cpuinfo(struct seq_file *m)
 	of_node_put(root);
 }
 
+/*
+ *  Fixes for the National Semiconductor PC78308VUL SuperI/O
+ *
+ *  Some versions of Open Firmware incorrectly initialize the IRQ settings
+ *  for keyboard and mouse
+ */
 static inline void __init sio_write(u8 val, u8 index)
 {
 	outb(index, 0x15c);
@@ -165,7 +176,7 @@ static void __init sio_fixup_irq(const char *name, u8 device, u8 level,
 {
 	u8 level0, type0, active;
 
-	
+	/* select logical device */
 	sio_write(device, 0x07);
 	active = sio_read(0x30);
 	level0 = sio_read(0x70);
@@ -191,9 +202,9 @@ static void __init sio_init(void)
 
 	model = of_get_property(root, "model", NULL);
 	if (model && !strncmp(model, "IBM,LongTrail", 13)) {
-		
+		/* logical device 0 (KBC/Keyboard) */
 		sio_fixup_irq("keyboard", 0, 1, 2);
-		
+		/* select logical device 1 (KBC/Mouse) */
 		sio_fixup_irq("mouse", 1, 12, 2);
 	}
 
@@ -205,11 +216,11 @@ static void __init pegasos_set_l2cr(void)
 {
 	struct device_node *np;
 
-	
+	/* On Pegasos, enable the l2 cache if needed, as the OF forgets it */
 	if (_chrp_type != _CHRP_Pegasos)
 		return;
 
-	
+	/* Enable L2 cache if needed */
 	np = of_find_node_by_type(NULL, "cpu");
 	if (np != NULL) {
 		const unsigned int *l2cr = of_get_property(np, "l2cr", NULL);
@@ -236,6 +247,12 @@ static void briq_restart(char *cmd)
 	for(;;);
 }
 
+/*
+ * Per default, input/output-device points to the keyboard/screen
+ * If no card is installed, the built-in serial port is used as a fallback.
+ * But unfortunately, the firmware does not connect /chosen/{stdin,stdout}
+ * the the built-in serial node. Instead, a /failsafe node is created.
+ */
 static void chrp_init_early(void)
 {
 	struct device_node *node;
@@ -243,7 +260,7 @@ static void chrp_init_early(void)
 
 	if (strstr(cmd_line, "console="))
 		return;
-	
+	/* find the boot console from /chosen/stdout */
 	if (!of_chosen)
 		return;
 	node = of_find_node_by_path("/");
@@ -254,7 +271,7 @@ static void chrp_init_early(void)
 		goto out_put;
 	if (strcmp(property, "Pegasos2"))
 		goto out_put;
-	
+	/* this is a Pegasos2 */
 	property = of_get_property(of_chosen, "linux,stdout-path", NULL);
 	if (!property)
 		goto out_put;
@@ -267,6 +284,11 @@ static void chrp_init_early(void)
 		goto out_put;
 	if (strcmp(property, "serial"))
 		goto out_put;
+	/*
+	 * The 9pin connector is either /failsafe
+	 * or /pci@80000000/isa@C/serial@i2F8
+	 * The optional graphics card has also type 'serial' in VGA mode.
+	 */
 	property = of_get_property(node, "name", NULL);
 	if (!property)
 		goto out_put;
@@ -281,7 +303,7 @@ void __init chrp_setup_arch(void)
 	struct device_node *root = of_find_node_by_path("/");
 	const char *machine = NULL;
 
-	
+	/* init to some ~sane value until calibrate_delay() runs */
 	loops_per_jiffy = 50000000/HZ;
 
 	if (root)
@@ -294,11 +316,11 @@ void __init chrp_setup_arch(void)
 		_chrp_type = _CHRP_Motorola;
 	} else if (machine && strncmp(machine, "TotalImpact,BRIQ-1", 18) == 0) {
 		_chrp_type = _CHRP_briq;
-		
+		/* Map the SPOR register on briq and change the restart hook */
 		briq_SPOR = ioremap(0xff0000e8, 4);
 		ppc_md.restart = briq_restart;
 	} else {
-		
+		/* Let's assume it is an IBM chrp if all else fails */
 		_chrp_type = _CHRP_IBM;
 	}
 	of_node_put(root);
@@ -308,25 +330,36 @@ void __init chrp_setup_arch(void)
 	if (rtas_token("display-character") >= 0)
 		ppc_md.progress = rtas_progress;
 
-	
+	/* use RTAS time-of-day routines if available */
 	if (rtas_token("get-time-of-day") != RTAS_UNKNOWN_SERVICE) {
 		ppc_md.get_boot_time	= rtas_get_boot_time;
 		ppc_md.get_rtc_time	= rtas_get_rtc_time;
 		ppc_md.set_rtc_time	= rtas_set_rtc_time;
 	}
 
-	
+	/* On pegasos, enable the L2 cache if not already done by OF */
 	pegasos_set_l2cr();
 
-	
+	/* Lookup PCI host bridges */
 	chrp_find_bridges();
 
-	hydra_init();		
+	/*
+	 *  Temporary fixes for PCI devices.
+	 *  -- Geert
+	 */
+	hydra_init();		/* Mac I/O */
 
+	/*
+	 *  Fix the Super I/O configuration
+	 */
 	sio_init();
 
 	pci_create_OF_bus_map();
 
+	/*
+	 * Print the banner, then scroll down so boot progress
+	 * can be printed.  -- Cort
+	 */
 	if (ppc_md.progress) ppc_md.progress("Linux/PPC "UTS_RELEASE"\n", 0x0);
 }
 
@@ -341,6 +374,9 @@ static void chrp_8259_cascade(unsigned int irq, struct irq_desc *desc)
 	chip->irq_eoi(&desc->irq_data);
 }
 
+/*
+ * Finds the open-pic node and sets up the mpic driver.
+ */
 static void __init chrp_find_openpic(void)
 {
 	struct device_node *np, *root;
@@ -360,7 +396,7 @@ static void __init chrp_find_openpic(void)
 		na = of_n_addr_cells(root);
 	}
 	if (opprop && oplen >= na * sizeof(unsigned int)) {
-		opaddr = opprop[na-1];	
+		opaddr = opprop[na-1];	/* assume 32-bit */
 		oplen /= na * sizeof(unsigned int);
 	} else {
 		struct resource r;
@@ -375,10 +411,14 @@ static void __init chrp_find_openpic(void)
 
 	iranges = of_get_property(np, "interrupt-ranges", &len);
 	if (iranges == NULL)
-		len = 0;	
+		len = 0;	/* non-distributed mpic */
 	else
 		len /= 2 * sizeof(unsigned int);
 
+	/*
+	 * The first pair of cells in interrupt-ranges refers to the
+	 * IDU; subsequent pairs refer to the ISUs.
+	 */
 	if (oplen < len) {
 		printk(KERN_ERR "Insufficient addresses for distributed"
 		       " OpenPIC (%d < %d)\n", oplen, len);
@@ -431,18 +471,28 @@ static void __init chrp_find_8259(void)
 	unsigned long chrp_int_ack = 0;
 	unsigned int cascade_irq;
 
-	
+	/* Look for cascade */
 	for_each_node_by_type(np, "interrupt-controller")
 		if (of_device_is_compatible(np, "chrp,iic")) {
 			pic = np;
 			break;
 		}
+	/* Ok, 8259 wasn't found. We need to handle the case where
+	 * we have a pegasos that claims to be chrp but doesn't have
+	 * a proper interrupt tree
+	 */
 	if (pic == NULL && chrp_mpic != NULL) {
 		printk(KERN_ERR "i8259: Not found in device-tree"
 		       " assuming no legacy interrupts\n");
 		return;
 	}
 
+	/* Look for intack. In a perfect world, we would look for it on
+	 * the ISA bus that holds the 8259 but heh... Works that way. If
+	 * we ever see a problem, we can try to re-use the pSeries code here.
+	 * Also, Pegasos-type platforms don't have a proper node to start
+	 * from anyway
+	 */
 	for_each_node_by_name(np, "pci") {
 		const unsigned int *addrp = of_get_property(np,
 				"8259-interrupt-acknowledge", NULL);
@@ -481,14 +531,19 @@ void __init chrp_init_IRQ(void)
 	chrp_find_8259();
 
 #ifdef CONFIG_SMP
+	/* Pegasos has no MPIC, those ops would make it crash. It might be an
+	 * option to move setting them to after we probe the PIC though
+	 */
 	if (chrp_mpic != NULL)
 		smp_ops = &chrp_smp_ops;
-#endif 
+#endif /* CONFIG_SMP */
 
 	if (_chrp_type == _CHRP_Pegasos)
 		ppc_md.get_irq        = i8259_irq;
 
 #if defined(CONFIG_VT) && defined(CONFIG_INPUT_ADBHID) && defined(CONFIG_XMON)
+	/* see if there is a keyboard in the device tree
+	   with a parent of type "adb" */
 	for_each_node_by_name(kbd, "keyboard")
 		if (kbd->parent && kbd->parent->type
 		    && strcmp(kbd->parent->type, "adb") == 0)

@@ -1,3 +1,7 @@
+/*
+ * CE4100's SPI device is more or less the same one as found on PXA
+ *
+ */
 #include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/of_device.h>

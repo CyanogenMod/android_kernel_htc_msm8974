@@ -4,7 +4,7 @@
 struct sigcontext {
 	unsigned long	oldmask;
 
-	
+	/* CPU registers */
 	unsigned long sc_regs[16];
 	unsigned long sc_pc;
 	unsigned long sc_pr;
@@ -13,7 +13,7 @@ struct sigcontext {
 	unsigned long sc_mach;
 	unsigned long sc_macl;
 
-	
+	/* FPU registers */
 	unsigned long sc_fpregs[16];
 	unsigned long sc_xfpregs[16];
 	unsigned int sc_fpscr;
@@ -21,4 +21,4 @@ struct sigcontext {
 	unsigned int sc_ownedfp;
 };
 
-#endif 
+#endif /* __ASM_CPU_SH4_SIGCONTEXT_H */

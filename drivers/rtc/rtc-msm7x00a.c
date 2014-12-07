@@ -142,8 +142,8 @@ msmrtc_timeremote_read_time(struct device *dev, struct rtc_time *tm)
 	       tm->tm_hour, tm->tm_min, tm->tm_sec, tm->tm_wday);
 #endif
 
-	tm->tm_year -= 1900;	
-	tm->tm_mon--;		
+	tm->tm_year -= 1900;	/* RTC layer expects years to start at 1900 */
+	tm->tm_mon--;		/* RTC layer expects mons to be 0 based */
 
 	if (rtc_valid_tm(tm) < 0) {
 		dev_err(dev, "retrieved date/time is not valid.\n");

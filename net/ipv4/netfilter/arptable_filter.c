@@ -25,6 +25,7 @@ static const struct xt_table packet_filter = {
 	.priority	= NF_IP_PRI_FILTER,
 };
 
+/* The work comes in here from netfilter.c */
 static unsigned int
 arptable_filter_hook(unsigned int hook, struct sk_buff *skb,
 		     const struct net_device *in, const struct net_device *out,

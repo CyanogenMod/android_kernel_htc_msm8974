@@ -23,6 +23,10 @@
 
 struct btrfs_transaction {
 	u64 transid;
+	/*
+	 * total writers in this transaction, it must be zero before the
+	 * transaction can end
+	 */
 	atomic_t num_writers;
 	atomic_t use_count;
 
@@ -59,9 +63,9 @@ struct btrfs_pending_snapshot {
 	struct dentry *dentry;
 	struct btrfs_root *root;
 	struct btrfs_root *snap;
-	
+	/* block reservation for the operation */
 	struct btrfs_block_rsv block_rsv;
-	
+	/* extra metadata reseration for relocation */
 	int error;
 	bool readonly;
 	struct list_head list;

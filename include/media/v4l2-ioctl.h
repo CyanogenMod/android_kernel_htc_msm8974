@@ -269,6 +269,10 @@ struct v4l2_ioctl_ops {
 	
 	long (*vidioc_default)	       (struct file *file, void *fh,
 					bool valid_prio, int cmd, void *arg);
+
+	
+	int (*vidioc_htc_set_callingpid_name)(struct file *file, void *fh, struct htc_callingpid_data *b);
+	
 };
 
 

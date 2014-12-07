@@ -38,6 +38,13 @@
 #include "ipath_verbs.h"
 #include "ipath_common.h"
 
+/**
+ * ipath_parse_ushort - parse an unsigned short value in an arbitrary base
+ * @str: the string containing the number
+ * @valp: where to put the result
+ *
+ * returns the number of bytes consumed, or negative value on error
+ */
 int ipath_parse_ushort(const char *str, unsigned short *valp)
 {
 	unsigned long val;
@@ -68,7 +75,7 @@ bail:
 
 static ssize_t show_version(struct device_driver *dev, char *buf)
 {
-	
+	/* The string printed here is already newline-terminated. */
 	return scnprintf(buf, PAGE_SIZE, "%s", ib_ipath_version);
 }
 
@@ -101,8 +108,8 @@ static const char *ipath_status_str[] = {
 	"Initted",
 	"Disabled",
 	"Admin_Disabled",
-	"", 
-	"", 
+	"", /* This used to be the old "OIB_SMA" status. */
+	"", /* This used to be the old "SMA" status. */
 	"Present",
 	"IB_link_up",
 	"IB_configured",
@@ -131,7 +138,7 @@ static ssize_t show_status_str(struct device *dev,
 		if (s & 1) {
 			if (any && strlcat(buf, " ", PAGE_SIZE) >=
 			    PAGE_SIZE)
-				
+				/* overflow */
 				break;
 			if (strlcat(buf, ipath_status_str[i],
 				    PAGE_SIZE) >= PAGE_SIZE)
@@ -154,7 +161,7 @@ static ssize_t show_boardversion(struct device *dev,
 			       char *buf)
 {
 	struct ipath_devdata *dd = dev_get_drvdata(dev);
-	
+	/* The string printed here is already newline-terminated. */
 	return scnprintf(buf, PAGE_SIZE, "%s", dd->ipath_boardversion);
 }
 
@@ -163,7 +170,7 @@ static ssize_t show_localbus_info(struct device *dev,
 			       char *buf)
 {
 	struct ipath_devdata *dd = dev_get_drvdata(dev);
-	
+	/* The string printed here is already newline-terminated. */
 	return scnprintf(buf, PAGE_SIZE, "%s", dd->ipath_lbus_info);
 }
 
@@ -344,7 +351,7 @@ static ssize_t show_nports(struct device *dev,
 {
 	struct ipath_devdata *dd = dev_get_drvdata(dev);
 
-	
+	/* Return the number of user ports available. */
 	return scnprintf(buf, PAGE_SIZE, "%u\n", dd->ipath_cfgports - 1);
 }
 
@@ -543,6 +550,11 @@ static ssize_t store_reset(struct device *dev,
 	}
 
 	if (dd->ipath_flags & IPATH_DISABLED) {
+		/*
+		 * post-reset init would re-enable interrupts, etc.
+		 * so don't allow reset on disabled devices.  Not
+		 * perfect error, but about the best choice.
+		 */
 		dev_info(dev,"Unit %d is disabled, can't reset\n",
 			 dd->ipath_unit);
 		ret = -EINVAL;
@@ -641,7 +653,7 @@ static ssize_t store_enabled(struct device *dev,
 			goto bail;
 
 		dev_info(dev, "Enabling unit %d\n", dd->ipath_unit);
-		
+		/* same as post-reset */
 		ret = ipath_init_chip(dd, 1);
 		if (ret)
 			ipath_dev_err(dd, "Failed to enable unit %d\n",
@@ -712,7 +724,7 @@ static ssize_t show_logged_errs(struct device *dev,
 	struct ipath_devdata *dd = dev_get_drvdata(dev);
 	int idx, count;
 
-	
+	/* force consistency with actual EEPROM */
 	if (ipath_update_eeprom_log(dd) != 0)
 		return -ENXIO;
 
@@ -726,6 +738,12 @@ static ssize_t show_logged_errs(struct device *dev,
 	return count;
 }
 
+/*
+ * New sysfs entries to control various IB config. These all turn into
+ * accesses via ipath_f_get/set_ib_cfg.
+ *
+ * Get/Set heartbeat enable. Or of 1=enabled, 2=auto
+ */
 static ssize_t show_hrtbt_enb(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
@@ -756,6 +774,13 @@ static ssize_t store_hrtbt_enb(struct device *dev,
 		goto bail;
 	}
 
+	/*
+	 * Set the "intentional" heartbeat enable per either of
+	 * "Enable" and "Auto", as these are normally set together.
+	 * This bit is consulted when leaving loopback mode,
+	 * because entering loopback mode overrides it and automatically
+	 * disables heartbeat.
+	 */
 	r = dd->ipath_f_set_ib_cfg(dd, IPATH_IB_CFG_HRTBT, val);
 	if (r < 0)
 		ret = r;
@@ -768,6 +793,10 @@ bail:
 	return ret;
 }
 
+/*
+ * Get/Set Link-widths enabled. Or of 1=1x, 2=4x (this is human/IB centric,
+ * _not_ the particular encoding of any given chip)
+ */
 static ssize_t show_lwid_enb(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
@@ -807,6 +836,7 @@ bail:
 	return ret;
 }
 
+/* Get current link width */
 static ssize_t show_lwid(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
@@ -821,6 +851,9 @@ static ssize_t show_lwid(struct device *dev,
 	return ret;
 }
 
+/*
+ * Get/Set Link-speeds enabled. Or of 1=SDR 2=DDR.
+ */
 static ssize_t show_spd_enb(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
@@ -860,6 +893,7 @@ bail:
 	return ret;
 }
 
+/* Get current link speed */
 static ssize_t show_spd(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
@@ -873,6 +907,9 @@ static ssize_t show_spd(struct device *dev,
 	return ret;
 }
 
+/*
+ * Get/Set RX polarity-invert enable. 0=no, 1=yes.
+ */
 static ssize_t show_rx_polinv_enb(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
@@ -911,6 +948,9 @@ bail:
 	return ret;
 }
 
+/*
+ * Get/Set RX lane-reversal enable. 0=no, 1=yes.
+ */
 static ssize_t show_lanerev_enb(struct device *dev,
 			 struct device_attribute *attr,
 			 char *buf)
@@ -976,7 +1016,7 @@ static ssize_t store_tempsense(struct device *dev,
 		ipath_dev_err(dd, "attempt to set invalid tempsense config\n");
 		goto bail;
 	}
-	
+	/* If anything but the highest limit, enable T_CRIT_A "interrupt" */
 	stat = ipath_tempsense_write(dd, 9, (val == 0x7f7f) ? 0x80 : 0);
 	if (stat) {
 		ipath_dev_err(dd, "Unable to set tempsense config\n");
@@ -1000,6 +1040,9 @@ bail:
 	return ret;
 }
 
+/*
+ * dump tempsense regs. in decimal, to ease shell-scripts.
+ */
 static ssize_t show_tempsense(struct device *dev,
 			      struct device_attribute *attr,
 			      char *buf)
@@ -1114,6 +1157,17 @@ static struct attribute_group dev_ibcfg_attr_group = {
 	.attrs = dev_ibcfg_attributes
 };
 
+/**
+ * ipath_expose_reset - create a device reset file
+ * @dev: the device structure
+ *
+ * Only expose a file that lets us reset the device after someone
+ * enters diag mode.  A device reset is quite likely to crash the
+ * machine entirely, so we don't want to normally make it
+ * available.
+ *
+ * Called with ipath_mutex held.
+ */
 int ipath_expose_reset(struct device *dev)
 {
 	static int exposed;

@@ -14,4 +14,4 @@ static inline void pci_swiotlb_init(void)
 }
 #endif
 
-#endif 
+#endif /* ASM_IA64__SWIOTLB_H */

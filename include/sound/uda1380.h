@@ -19,4 +19,4 @@ struct uda1380_platform_data {
 #define UDA1380_DAC_CLK_WSPLL  1
 };
 
-#endif 
+#endif /* __UDA1380_H */

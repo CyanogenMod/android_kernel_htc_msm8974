@@ -42,6 +42,9 @@
 #include <asm/mach/time.h>
 
 static struct map_desc sh7372_io_desc[] __initdata = {
+	/* create a 1:1 entity map for 0xe6xxxxxx
+	 * used by CPGA, INTC and PFC.
+	 */
 	{
 		.virtual	= 0xe6000000,
 		.pfn		= __phys_to_pfn(0xe6000000),
@@ -54,9 +57,14 @@ void __init sh7372_map_io(void)
 {
 	iotable_init(sh7372_io_desc, ARRAY_SIZE(sh7372_io_desc));
 
+	/*
+	 * DMA memory at 0xff200000 - 0xffdfffff. The default 2MB size isn't
+	 * enough to allocate the frame buffer memory.
+	 */
 	init_consistent_dma_size(12 << 20);
 }
 
+/* SCIFA0 */
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase	= 0xe6c40000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -75,6 +83,7 @@ static struct platform_device scif0_device = {
 	},
 };
 
+/* SCIFA1 */
 static struct plat_sci_port scif1_platform_data = {
 	.mapbase	= 0xe6c50000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -93,6 +102,7 @@ static struct platform_device scif1_device = {
 	},
 };
 
+/* SCIFA2 */
 static struct plat_sci_port scif2_platform_data = {
 	.mapbase	= 0xe6c60000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -111,6 +121,7 @@ static struct platform_device scif2_device = {
 	},
 };
 
+/* SCIFA3 */
 static struct plat_sci_port scif3_platform_data = {
 	.mapbase	= 0xe6c70000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -129,6 +140,7 @@ static struct platform_device scif3_device = {
 	},
 };
 
+/* SCIFA4 */
 static struct plat_sci_port scif4_platform_data = {
 	.mapbase	= 0xe6c80000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -147,6 +159,7 @@ static struct platform_device scif4_device = {
 	},
 };
 
+/* SCIFA5 */
 static struct plat_sci_port scif5_platform_data = {
 	.mapbase	= 0xe6cb0000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -165,6 +178,7 @@ static struct platform_device scif5_device = {
 	},
 };
 
+/* SCIFB */
 static struct plat_sci_port scif6_platform_data = {
 	.mapbase	= 0xe6c30000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -183,6 +197,7 @@ static struct platform_device scif6_device = {
 	},
 };
 
+/* CMT */
 static struct sh_timer_config cmt2_platform_data = {
 	.name = "CMT2",
 	.channel_offset = 0x40,
@@ -199,7 +214,7 @@ static struct resource cmt2_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x0b80), 
+		.start	= evt2irq(0x0b80), /* CMT2 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -214,6 +229,7 @@ static struct platform_device cmt2_device = {
 	.num_resources	= ARRAY_SIZE(cmt2_resources),
 };
 
+/* TMU */
 static struct sh_timer_config tmu00_platform_data = {
 	.name = "TMU00",
 	.channel_offset = 0x4,
@@ -229,7 +245,7 @@ static struct resource tmu00_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= intcs_evt2irq(0xe80), 
+		.start	= intcs_evt2irq(0xe80), /* TMU_TUNI0 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -259,7 +275,7 @@ static struct resource tmu01_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= intcs_evt2irq(0xea0), 
+		.start	= intcs_evt2irq(0xea0), /* TMU_TUNI1 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -274,6 +290,7 @@ static struct platform_device tmu01_device = {
 	.num_resources	= ARRAY_SIZE(tmu01_resources),
 };
 
+/* I2C */
 static struct resource iic0_resources[] = {
 	[0] = {
 		.name	= "IIC0",
@@ -282,15 +299,15 @@ static struct resource iic0_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = intcs_evt2irq(0xe00), 
-		.end    = intcs_evt2irq(0xe60), 
+		.start  = intcs_evt2irq(0xe00), /* IIC0_ALI0 */
+		.end    = intcs_evt2irq(0xe60), /* IIC0_DTEI0 */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
 
 static struct platform_device iic0_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 0, 
+	.id             = 0, /* "i2c0" clock */
 	.num_resources  = ARRAY_SIZE(iic0_resources),
 	.resource       = iic0_resources,
 };
@@ -303,19 +320,21 @@ static struct resource iic1_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = evt2irq(0x780), 
-		.end    = evt2irq(0x7e0), 
+		.start  = evt2irq(0x780), /* IIC1_ALI1 */
+		.end    = evt2irq(0x7e0), /* IIC1_DTEI1 */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
 
 static struct platform_device iic1_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 1, 
+	.id             = 1, /* "i2c1" clock */
 	.num_resources  = ARRAY_SIZE(iic1_resources),
 	.resource       = iic1_resources,
 };
 
+/* DMA */
+/* Transmit sizes and respective CHCR register values */
 enum {
 	XMIT_SZ_8BIT		= 0,
 	XMIT_SZ_16BIT		= 1,
@@ -326,6 +345,7 @@ enum {
 	XMIT_SZ_512BIT		= 5,
 };
 
+/* log2(size / 8) - used to calculate number of transfers */
 #define TS_SHIFT {			\
 	[XMIT_SZ_8BIT]		= 0,	\
 	[XMIT_SZ_16BIT]		= 1,	\
@@ -498,7 +518,7 @@ static struct sh_dmae_pdata dma_platform_data = {
 	.channel_num	= ARRAY_SIZE(sh7372_dmae_channels),
 	.ts_low_shift	= 3,
 	.ts_low_mask	= 0x18,
-	.ts_high_shift	= (20 - 2),	
+	.ts_high_shift	= (20 - 2),	/* 2 bits for shifted low TS */
 	.ts_high_mask	= 0x00300000,
 	.ts_shift	= ts_shift,
 	.ts_shift_num	= ARRAY_SIZE(ts_shift),
@@ -506,15 +526,16 @@ static struct sh_dmae_pdata dma_platform_data = {
 	.chclr_present	= 1,
 };
 
+/* Resource order important! */
 static struct resource sh7372_dmae0_resources[] = {
 	{
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfe008020,
 		.end	= 0xfe00828f,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* DMARSx */
 		.start	= 0xfe009000,
 		.end	= 0xfe00900b,
 		.flags	= IORESOURCE_MEM,
@@ -526,22 +547,23 @@ static struct resource sh7372_dmae0_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 0-5 */
 		.start	= evt2irq(0x2000),
 		.end	= evt2irq(0x20a0),
 		.flags	= IORESOURCE_IRQ,
 	},
 };
 
+/* Resource order important! */
 static struct resource sh7372_dmae1_resources[] = {
 	{
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfe018020,
 		.end	= 0xfe01828f,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* DMARSx */
 		.start	= 0xfe019000,
 		.end	= 0xfe01900b,
 		.flags	= IORESOURCE_MEM,
@@ -553,22 +575,23 @@ static struct resource sh7372_dmae1_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 0-5 */
 		.start	= evt2irq(0x2100),
 		.end	= evt2irq(0x21a0),
 		.flags	= IORESOURCE_IRQ,
 	},
 };
 
+/* Resource order important! */
 static struct resource sh7372_dmae2_resources[] = {
 	{
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfe028020,
 		.end	= 0xfe02828f,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* DMARSx */
 		.start	= 0xfe029000,
 		.end	= 0xfe02900b,
 		.flags	= IORESOURCE_MEM,
@@ -580,7 +603,7 @@ static struct resource sh7372_dmae2_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 0-5 */
 		.start	= evt2irq(0x2200),
 		.end	= evt2irq(0x22a0),
 		.flags	= IORESOURCE_IRQ,
@@ -617,6 +640,9 @@ static struct platform_device dma2_device = {
 	},
 };
 
+/*
+ * USB-DMAC
+ */
 
 unsigned int usbts_shift[] = {3, 4, 5};
 
@@ -636,6 +662,7 @@ static const struct sh_dmae_channel sh7372_usb_dmae_channels[] = {
 	},
 };
 
+/* USB DMAC0 */
 static const struct sh_dmae_slave_config sh7372_usb_dmae0_slaves[] = {
 	{
 		.slave_id	= SHDMA_SLAVE_USB0_TX,
@@ -668,19 +695,19 @@ static struct sh_dmae_pdata usb_dma0_platform_data = {
 
 static struct resource sh7372_usb_dmae0_resources[] = {
 	{
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xe68a0020,
 		.end	= 0xe68a0064 - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* VCR/SWR/DMICR */
 		.start	= 0xe68a0000,
 		.end	= 0xe68a0014 - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* IRQ for channels */
 		.start	= evt2irq(0x0a00),
 		.end	= evt2irq(0x0a00),
 		.flags	= IORESOURCE_IRQ,
@@ -697,6 +724,7 @@ static struct platform_device usb_dma0_device = {
 	},
 };
 
+/* USB DMAC1 */
 static const struct sh_dmae_slave_config sh7372_usb_dmae1_slaves[] = {
 	{
 		.slave_id	= SHDMA_SLAVE_USB1_TX,
@@ -729,19 +757,19 @@ static struct sh_dmae_pdata usb_dma1_platform_data = {
 
 static struct resource sh7372_usb_dmae1_resources[] = {
 	{
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xe68c0020,
 		.end	= 0xe68c0064 - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* VCR/SWR/DMICR */
 		.start	= 0xe68c0000,
 		.end	= 0xe68c0014 - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* IRQ for channels */
 		.start	= evt2irq(0x1d00),
 		.end	= evt2irq(0x1d00),
 		.flags	= IORESOURCE_IRQ,
@@ -758,6 +786,7 @@ static struct platform_device usb_dma1_device = {
 	},
 };
 
+/* VPU */
 static struct uio_info vpu_platform_data = {
 	.name = "VPU5HG",
 	.version = "0",
@@ -783,6 +812,7 @@ static struct platform_device vpu_device = {
 	.num_resources	= ARRAY_SIZE(vpu_resources),
 };
 
+/* VEU0 */
 static struct uio_info veu0_platform_data = {
 	.name = "VEU0",
 	.version = "0",
@@ -808,6 +838,7 @@ static struct platform_device veu0_device = {
 	.num_resources	= ARRAY_SIZE(veu0_resources),
 };
 
+/* VEU1 */
 static struct uio_info veu1_platform_data = {
 	.name = "VEU1",
 	.version = "0",
@@ -833,6 +864,7 @@ static struct platform_device veu1_device = {
 	.num_resources	= ARRAY_SIZE(veu1_resources),
 };
 
+/* VEU2 */
 static struct uio_info veu2_platform_data = {
 	.name = "VEU2",
 	.version = "0",
@@ -858,6 +890,7 @@ static struct platform_device veu2_device = {
 	.num_resources	= ARRAY_SIZE(veu2_resources),
 };
 
+/* VEU3 */
 static struct uio_info veu3_platform_data = {
 	.name = "VEU3",
 	.version = "0",
@@ -883,6 +916,7 @@ static struct platform_device veu3_device = {
 	.num_resources	= ARRAY_SIZE(veu3_resources),
 };
 
+/* JPU */
 static struct uio_info jpu_platform_data = {
 	.name = "JPU",
 	.version = "0",
@@ -908,6 +942,7 @@ static struct platform_device jpu_device = {
 	.num_resources	= ARRAY_SIZE(jpu_resources),
 };
 
+/* SPU2DSP0 */
 static struct uio_info spu0_platform_data = {
 	.name = "SPU2DSP0",
 	.version = "0",
@@ -933,6 +968,7 @@ static struct platform_device spu0_device = {
 	.num_resources	= ARRAY_SIZE(spu0_resources),
 };
 
+/* SPU2DSP1 */
 static struct uio_info spu1_platform_data = {
 	.name = "SPU2DSP1",
 	.version = "0",
@@ -1050,9 +1086,9 @@ void __init sh7372_add_early_devices(void)
 	early_platform_add_devices(sh7372_early_devices,
 				   ARRAY_SIZE(sh7372_early_devices));
 
-	
+	/* setup early console here as well */
 	shmobile_setup_console();
 
-	
+	/* override timer setup with soc-specific code */
 	shmobile_timer.init = sh7372_earlytimer_init;
 }

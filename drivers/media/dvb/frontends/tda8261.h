@@ -21,14 +21,15 @@
 #define __TDA8261_H
 
 enum tda8261_step {
-	TDA8261_STEP_2000 = 0,	
-	TDA8261_STEP_1000,	
-	TDA8261_STEP_500,	
-	TDA8261_STEP_250,	
-	TDA8261_STEP_125	
+	TDA8261_STEP_2000 = 0,	/* 2000 kHz */
+	TDA8261_STEP_1000,	/* 1000 kHz */
+	TDA8261_STEP_500,	/*  500 kHz */
+	TDA8261_STEP_250,	/*  250 kHz */
+	TDA8261_STEP_125	/*  125 kHz */
 };
 
 struct tda8261_config {
+//	u8			buf[16];
 	u8			addr;
 	enum tda8261_step	step_size;
 };
@@ -49,6 +50,6 @@ static inline struct dvb_frontend *tda8261_attach(struct dvb_frontend *fe,
 	return NULL;
 }
 
-#endif 
+#endif //CONFIG_DVB_TDA8261
 
-#endif
+#endif// __TDA8261_H

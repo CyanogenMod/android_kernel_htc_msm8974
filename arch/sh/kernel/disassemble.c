@@ -12,6 +12,9 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 
+/*
+ * Format of an instruction in memory.
+ */
 typedef enum {
 	HEX_0, HEX_1, HEX_2, HEX_3, HEX_4, HEX_5, HEX_6, HEX_7,
 	HEX_8, HEX_9, HEX_A, HEX_B, HEX_C, HEX_D, HEX_E, HEX_F,
@@ -34,8 +37,8 @@ typedef enum {
 	A_PR, A_R0, A_R0_GBR, A_REG_M, A_REG_N, A_REG_B,
 	A_SR, A_VBR, A_SSR, A_SPC, A_SGR, A_DBR,
 	F_REG_N, F_REG_M, D_REG_N, D_REG_M,
-	X_REG_N, 
-	X_REG_M, 
+	X_REG_N, /* Only used for argument parsing */
+	X_REG_M, /* Only used for argument parsing */
 	DX_REG_N, DX_REG_M, V_REG_N, V_REG_M,
 	FD_REG_N,
 	XMTRX_M4,

@@ -35,6 +35,7 @@
 #include "peripheral-loader.h"
 #include "scm-pas.h"
 
+/* VENUS WRAPPER registers */
 #define VENUS_WRAPPER_HW_VERSION			0x0
 #define VENUS_WRAPPER_CLOCK_CONFIG			0x4
 
@@ -51,6 +52,7 @@
 #define VENUS_WRAPPER_CPU_CLOCK_CONFIG			0x2000
 #define VENUS_WRAPPER_SW_RESET				0x3000
 
+/* VENUS VBIF registers */
 #define VENUS_VBIF_CLKON				0x4
 #define VENUS_VBIF_CLKON_FORCE_ON			BIT(0)
 
@@ -62,8 +64,10 @@
 #define VENUS_VBIF_AXI_HALT_ACK_TIMEOUT_US		500000
 
 
+/* PIL proxy vote timeout */
 #define VENUS_PROXY_TIMEOUT				2000
 
+/* Poll interval in uS */
 #define POLL_INTERVAL_US				50
 
 static const char * const clk_names[] = {
@@ -113,6 +117,7 @@ static int venus_register_domain(u32 fw_max_sz)
 	return msm_register_domain(&venus_fw_layout);
 }
 
+/* Get venus clocks and set rates for rate-settable clocks */
 static int venus_clock_setup(struct device *dev)
 {
 	struct venus_data *drv = dev_get_drvdata(dev);
@@ -125,7 +130,7 @@ static int venus_clock_setup(struct device *dev)
 				clk_names[i]);
 			return PTR_ERR(drv->clks[i]);
 		}
-		
+		/* Make sure rate-settable clocks' rates are set */
 		if (clk_get_rate(drv->clks[i]) == 0)
 			clk_set_rate(drv->clks[i],
 				     clk_round_rate(drv->clks[i], 0));
@@ -176,7 +181,7 @@ static struct msm_bus_vectors pil_venus_vote_bw_vector[] = {
 		.src = MSM_BUS_MASTER_VIDEO_P0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = 16 * 19 * 1000000UL, 
+		.ib = 16 * 19 * 1000000UL, /* At least 19.2MHz on bus. */
 	},
 };
 
@@ -202,6 +207,12 @@ static int pil_venus_make_proxy_vote(struct pil_desc *pil)
 	struct venus_data *drv = dev_get_drvdata(pil->dev);
 	int rc;
 
+	/*
+	 * Clocks need to be proxy voted to be able to pass control
+	 * of clocks from PIL driver to the Venus driver. But GDSC
+	 * needs to be turned on before clocks can be turned on. So
+	 * enable the GDSC here.
+	 */
 	rc = regulator_enable(drv->gdsc);
 	if (rc) {
 		dev_err(pil->dev, "GDSC enable failed\n");
@@ -238,7 +249,7 @@ static void pil_venus_remove_proxy_vote(struct pil_desc *pil)
 
 	venus_clock_disable_unprepare(pil->dev);
 
-	
+	/* Disable GDSC */
 	regulator_disable(drv->gdsc);
 }
 
@@ -248,7 +259,7 @@ static int pil_venus_mem_setup(struct pil_desc *pil, phys_addr_t addr,
 	int domain;
 	struct venus_data *drv = dev_get_drvdata(pil->dev);
 
-	
+	/* TODO: unregister? */
 	if (!drv->venus_domain_num) {
 		size = round_up(size, SZ_4K);
 		domain = venus_register_domain(size);
@@ -277,7 +288,7 @@ static int pil_venus_reset(struct pil_desc *pil)
 	unsigned long iova;
 	u32 ver, cpa_start_addr, cpa_end_addr, fw_start_addr, fw_end_addr;
 
-	
+	/* Get Venus version number */
 	if (!drv->hw_ver_checked) {
 		ver = readl_relaxed(wrapper_base + VENUS_WRAPPER_HW_VERSION);
 		drv->hw_ver_minor = (ver & 0x0FFF0000) >> 16;
@@ -285,7 +296,7 @@ static int pil_venus_reset(struct pil_desc *pil)
 		drv->hw_ver_checked = 1;
 	}
 
-	
+	/* Get the cpa and fw start/end addr based on Venus version */
 	if (drv->hw_ver_major == 0x1 && drv->hw_ver_minor <= 1) {
 		cpa_start_addr = VENUS_WRAPPER_VBIF_SS_SEC_CPA_START_ADDR_v1;
 		cpa_end_addr = VENUS_WRAPPER_VBIF_SS_SEC_CPA_END_ADDR_v1;
@@ -298,21 +309,25 @@ static int pil_venus_reset(struct pil_desc *pil)
 		fw_end_addr = VENUS_WRAPPER_VBIF_SS_SEC_FW_END_ADDR_v2;
 	}
 
-	
+	/* Program CPA start and end address */
 	writel_relaxed(0, wrapper_base + cpa_start_addr);
 	writel_relaxed(drv->fw_sz, wrapper_base + cpa_end_addr);
 
-	
+	/* Program FW start and end address */
 	writel_relaxed(0, wrapper_base + fw_start_addr);
 	writel_relaxed(drv->fw_sz, wrapper_base + fw_end_addr);
 
-	
+	/* Enable all Venus internal clocks */
 	writel_relaxed(0, wrapper_base + VENUS_WRAPPER_CLOCK_CONFIG);
 	writel_relaxed(0, wrapper_base + VENUS_WRAPPER_CPU_CLOCK_CONFIG);
 
-	
+	/* Make sure clocks are enabled */
 	mb();
 
+	/*
+	 * Need to wait 10 cycles of internal clocks before bringing ARM9
+	 * out of reset.
+	 */
 	udelay(1);
 
 	rc = iommu_attach_device(drv->iommu_fw_domain, drv->iommu_fw_ctx);
@@ -321,7 +336,7 @@ static int pil_venus_reset(struct pil_desc *pil)
 		return rc;
 	}
 
-	
+	/* Map virtual addr space 0 - fw_sz to firmware physical addr space */
 	rc = msm_iommu_map_contig_buffer(pa, drv->venus_domain_num, 0,
 					 drv->fw_sz, SZ_4K, 0, &iova);
 
@@ -330,7 +345,7 @@ static int pil_venus_reset(struct pil_desc *pil)
 		goto err_iommu_map;
 	}
 
-	
+	/* Bring Arm9 out of reset */
 	writel_relaxed(0, wrapper_base + VENUS_WRAPPER_SW_RESET);
 
 	drv->is_booted = 1;
@@ -356,12 +371,12 @@ static int pil_venus_shutdown(struct pil_desc *pil)
 
 	venus_clock_prepare_enable(pil->dev);
 
-	
+	/* Assert the reset to ARM9 */
 	reg = readl_relaxed(wrapper_base + VENUS_WRAPPER_SW_RESET);
 	reg |= BIT(4);
 	writel_relaxed(reg, wrapper_base + VENUS_WRAPPER_SW_RESET);
 
-	
+	/* Make sure reset is asserted before the mapping is removed */
 	mb();
 
 	msm_iommu_unmap_contig_buffer(0, drv->venus_domain_num,
@@ -369,6 +384,10 @@ static int pil_venus_shutdown(struct pil_desc *pil)
 
 	iommu_detach_device(drv->iommu_fw_domain, drv->iommu_fw_ctx);
 
+	/*
+	 * Force the VBIF clk to be on to avoid AXI bridge halt ack failure
+	 * for certain Venus version.
+	 */
 	if (drv->hw_ver_major == 0x1 &&
 		(drv->hw_ver_minor == 0x2 || drv->hw_ver_minor == 0x3)) {
 		reg = readl_relaxed(vbif_base + VENUS_VBIF_CLKON);
@@ -376,12 +395,12 @@ static int pil_venus_shutdown(struct pil_desc *pil)
 		writel_relaxed(reg, vbif_base + VENUS_VBIF_CLKON);
 	}
 
-	
+	/* Halt AXI and AXI OCMEM VBIF Access */
 	reg = readl_relaxed(vbif_base + VENUS_VBIF_AXI_HALT_CTRL0);
 	reg |= VENUS_VBIF_AXI_HALT_CTRL0_HALT_REQ;
 	writel_relaxed(reg, vbif_base + VENUS_VBIF_AXI_HALT_CTRL0);
 
-	
+	/* Request for AXI bus port halt */
 	rc = readl_poll_timeout(vbif_base + VENUS_VBIF_AXI_HALT_CTRL1,
 			reg, reg & VENUS_VBIF_AXI_HALT_CTRL1_HALT_ACK,
 			POLL_INTERVAL_US,

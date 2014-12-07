@@ -104,6 +104,9 @@ void exynos_mipi_dsi_init_fifo_pointer(struct mipi_dsim_device *dsim,
 	writel(reg, dsim->reg_base + EXYNOS_DSIM_FIFOCTRL);
 }
 
+/*
+ * this function set PLL P, M and S value in D-PHY
+ */
 void exynos_mipi_dsi_set_phy_tunning(struct mipi_dsim_device *dsim,
 		unsigned int value)
 {
@@ -130,7 +133,7 @@ void exynos_mipi_dsi_set_main_disp_resol(struct mipi_dsim_device *dsim,
 {
 	unsigned int reg;
 
-	
+	/* standby should be set after configuration so set to not ready*/
 	reg = (readl(dsim->reg_base + EXYNOS_DSIM_MDRESOL)) &
 		~(DSIM_MAIN_STAND_BY);
 	writel(reg, dsim->reg_base + EXYNOS_DSIM_MDRESOL);
@@ -239,7 +242,7 @@ void exynos_mipi_dsi_display_config(struct mipi_dsim_device *dsim,
 		return;
 	}
 
-	
+	/* main lcd */
 	reg |= ((u8) (dsim_config->e_burst_mode) & 0x3) << 26 |
 		((u8) (dsim_config->e_virtual_ch) & 0x3) << 18 |
 		((u8) (dsim_config->e_pixel_format) & 0x7) << 12;
@@ -268,7 +271,7 @@ void exynos_mipi_dsi_set_data_lane_number(struct mipi_dsim_device *dsim,
 {
 	unsigned int cfg;
 
-	
+	/* get the data lane number. */
 	cfg = DSIM_NUM_OF_DATALANE_SHIFT(count);
 
 	writel(cfg, dsim->reg_base + EXYNOS_DSIM_CONFIG);
@@ -414,6 +417,12 @@ unsigned int exynos_mipi_dsi_is_lane_state(struct mipi_dsim_device *dsim)
 {
 	unsigned int reg = readl(dsim->reg_base + EXYNOS_DSIM_STATUS);
 
+	/**
+	 * check clock and data lane states.
+	 * if MIPI-DSI controller was enabled at bootloader then
+	 * TX_READY_HS_CLK is enabled otherwise STOP_STATE_CLK.
+	 * so it should be checked for two case.
+	 */
 	if ((reg & DSIM_STOP_STATE_DAT(0xf)) &&
 			((reg & DSIM_STOP_STATE_CLK) ||
 			 (reg & DSIM_TX_READY_HS_CLK)))

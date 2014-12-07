@@ -40,6 +40,8 @@ to_uio_pci_generic_dev(struct uio_info *info)
 	return container_of(info, struct uio_pci_generic_dev, info);
 }
 
+/* Interrupt handler. Read/modify/write the command register to disable
+ * the interrupt. */
 static irqreturn_t irqhandler(int irq, struct uio_info *info)
 {
 	struct uio_pci_generic_dev *gdev = to_uio_pci_generic_dev(info);
@@ -47,7 +49,7 @@ static irqreturn_t irqhandler(int irq, struct uio_info *info)
 	if (!pci_check_and_mask_intx(gdev->pdev))
 		return IRQ_NONE;
 
-	
+	/* UIO core will signal the user process. */
 	return IRQ_HANDLED;
 }
 
@@ -113,7 +115,7 @@ static void remove(struct pci_dev *pdev)
 
 static struct pci_driver driver = {
 	.name = "uio_pci_generic",
-	.id_table = NULL, 
+	.id_table = NULL, /* only dynamic id's */
 	.probe = probe,
 	.remove = remove,
 };

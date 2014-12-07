@@ -737,7 +737,7 @@ static int cap_tun_dev_attach(struct sock *sk)
 {
 	return 0;
 }
-#endif	
+#endif	/* CONFIG_SECURITY_NETWORK */
 
 #ifdef CONFIG_SECURITY_NETWORK_XFRM
 static int cap_xfrm_policy_alloc_security(struct xfrm_sec_ctx **ctxp,
@@ -794,7 +794,7 @@ static int cap_xfrm_decode_session(struct sk_buff *skb, u32 *fl, int ckall)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_SECURITY_NETWORK_XFRM */
 static void cap_d_instantiate(struct dentry *dentry, struct inode *inode)
 {
 }
@@ -862,7 +862,7 @@ static int cap_key_getsecurity(struct key *key, char **_buffer)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_KEYS */
 
 #ifdef CONFIG_AUDIT
 static int cap_audit_rule_init(u32 field, u32 op, char *rulestr, void **lsmrule)
@@ -884,7 +884,7 @@ static int cap_audit_rule_match(u32 secid, u32 field, u32 op, void *lsmrule,
 static void cap_audit_rule_free(void *lsmrule)
 {
 }
-#endif 
+#endif /* CONFIG_AUDIT */
 
 #define set_to_cap_if_null(ops, function)				\
 	do {								\
@@ -1070,7 +1070,7 @@ void __init security_fixup_ops(struct security_operations *ops)
 	set_to_cap_if_null(ops, tun_dev_create);
 	set_to_cap_if_null(ops, tun_dev_post_create);
 	set_to_cap_if_null(ops, tun_dev_attach);
-#endif	
+#endif	/* CONFIG_SECURITY_NETWORK */
 #ifdef CONFIG_SECURITY_NETWORK_XFRM
 	set_to_cap_if_null(ops, xfrm_policy_alloc_security);
 	set_to_cap_if_null(ops, xfrm_policy_clone_security);
@@ -1082,13 +1082,13 @@ void __init security_fixup_ops(struct security_operations *ops)
 	set_to_cap_if_null(ops, xfrm_policy_lookup);
 	set_to_cap_if_null(ops, xfrm_state_pol_flow_match);
 	set_to_cap_if_null(ops, xfrm_decode_session);
-#endif	
+#endif	/* CONFIG_SECURITY_NETWORK_XFRM */
 #ifdef CONFIG_KEYS
 	set_to_cap_if_null(ops, key_alloc);
 	set_to_cap_if_null(ops, key_free);
 	set_to_cap_if_null(ops, key_permission);
 	set_to_cap_if_null(ops, key_getsecurity);
-#endif	
+#endif	/* CONFIG_KEYS */
 #ifdef CONFIG_AUDIT
 	set_to_cap_if_null(ops, audit_rule_init);
 	set_to_cap_if_null(ops, audit_rule_known);

@@ -15,6 +15,8 @@
 
 #ifdef	CONFIG_ARCH_FPGA
 
+/* in FPGA, APB clock is 33M, and OST clock is 32K, */
+/* so, 1M is selected for timer interrupt correctly */
 #define	CLOCK_TICK_RATE		(32*1024)
 
 #endif

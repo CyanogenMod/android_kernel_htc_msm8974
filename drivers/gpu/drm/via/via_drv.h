@@ -92,7 +92,7 @@ typedef struct drm_via_private {
 	struct drm_mm vram_mm;
 	int agp_initialized;
 	struct drm_mm agp_mm;
-	
+	/** Mapping of userspace keys to mm objects */
 	struct idr object_idr;
 	unsigned long vram_offset;
 	unsigned long agp_offset;
@@ -101,11 +101,12 @@ typedef struct drm_via_private {
 } drm_via_private_t;
 
 enum via_family {
-  VIA_OTHER = 0,     
-  VIA_PRO_GROUP_A,   
-  VIA_DX9_0          
+  VIA_OTHER = 0,     /* Baseline */
+  VIA_PRO_GROUP_A,   /* Another video engine and DMA commands */
+  VIA_DX9_0          /* Same video as pro_group_a, but 3D is unsupported */
 };
 
+/* VIA MMIO register access */
 #define VIA_BASE ((dev_priv->mmio))
 
 #define VIA_READ(reg)		DRM_READ32(VIA_BASE, reg)

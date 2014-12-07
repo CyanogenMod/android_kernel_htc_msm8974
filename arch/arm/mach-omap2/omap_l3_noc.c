@@ -30,6 +30,29 @@
 
 #include "omap_l3_noc.h"
 
+/*
+ * Interrupt Handler for L3 error detection.
+ *	1) Identify the L3 clockdomain partition to which the error belongs to.
+ *	2) Identify the slave where the error information is logged
+ *	3) Print the logged information.
+ *	4) Add dump stack to provide kernel trace.
+ *
+ * Two Types of errors :
+ *	1) Custom errors in L3 :
+ *		Target like DMM/FW/EMIF generates SRESP=ERR error
+ *	2) Standard L3 error:
+ *		- Unsupported CMD.
+ *			L3 tries to access target while it is idle
+ *		- OCP disconnect.
+ *		- Address hole error:
+ *			If DSS/ISS/FDIF/USBHOSTFS access a target where they
+ *			do not have connectivity, the error is logged in
+ *			their default target which is DMM2.
+ *
+ *	On High Secure devices, firewall errors are possible and those
+ *	can be trapped as well. But the trapping is implemented as part
+ *	secure software and hence need not be implemented here.
+ */
 static irqreturn_t l3_interrupt_handler(int irq, void *_l3)
 {
 
@@ -40,20 +63,24 @@ static irqreturn_t l3_interrupt_handler(int irq, void *_l3)
 	void __iomem *base, *l3_targ_base;
 	char *target_name, *master_name = "UN IDENTIFIED";
 
-	
+	/* Get the Type of interrupt */
 	inttype = irq == l3->app_irq ? L3_APPLICATION_ERROR : L3_DEBUG_ERROR;
 
 	for (i = 0; i < L3_MODULES; i++) {
+		/*
+		 * Read the regerr register of the clock domain
+		 * to determine the source
+		 */
 		base = l3->l3_base[i];
 		err_reg = __raw_readl(base + l3_flagmux[i] +
 					+ L3_FLAGMUX_REGERR0 + (inttype << 3));
 
-		
+		/* Get the corresponding error and analyse */
 		if (err_reg) {
-			
+			/* Identify the source from control status register */
 			err_src = __ffs(err_reg);
 
-			
+			/* Read the stderrlog_main_source from clk domain */
 			l3_targ_base = base + *(l3_targ[i] + err_src);
 			std_err_main =  __raw_readl(l3_targ_base +
 					L3_TARG_STDERRLOG_MAIN);
@@ -68,7 +95,7 @@ static irqreturn_t l3_interrupt_handler(int irq, void *_l3)
 					target_name,
 					__raw_readl(l3_targ_base +
 						L3_TARG_STDERRLOG_SLVOFSLSB));
-				
+				/* clear the std error log*/
 				clear = std_err_main | CLEAR_STDERR_LOG;
 				writel(clear, l3_targ_base +
 					L3_TARG_STDERRLOG_MAIN);
@@ -84,17 +111,17 @@ static irqreturn_t l3_interrupt_handler(int irq, void *_l3)
 				}
 				WARN(true, "L3 custom error: MASTER:%s TARGET:%s\n",
 					master_name, target_name);
-				
+				/* clear the std error log*/
 				clear = std_err_main | CLEAR_STDERR_LOG;
 				writel(clear, l3_targ_base +
 					L3_TARG_STDERRLOG_MAIN);
 				break;
 
 			default:
-				
+				/* Nothing to be handled here as of now */
 				break;
 			}
-		
+		/* Error found so break the for loop */
 		break;
 		}
 	}
@@ -154,6 +181,9 @@ static int __devinit omap4_l3_probe(struct platform_device *pdev)
 		goto err2;
 	}
 
+	/*
+	 * Setup interrupt Handlers
+	 */
 	l3->debug_irq = platform_get_irq(pdev, 0);
 	ret = request_irq(l3->debug_irq,
 			l3_interrupt_handler,

@@ -47,93 +47,118 @@
 
 #define EHCA_MAX_MTU 4
 
+/* QP Table Entry Memory Map */
 struct hipz_qptemm {
 	u64 qpx_hcr;
 	u64 qpx_c;
 	u64 qpx_herr;
 	u64 qpx_aer;
+/* 0x20*/
 	u64 qpx_sqa;
 	u64 qpx_sqc;
 	u64 qpx_rqa;
 	u64 qpx_rqc;
+/* 0x40*/
 	u64 qpx_st;
 	u64 qpx_pmstate;
 	u64 qpx_pmfa;
 	u64 qpx_pkey;
+/* 0x60*/
 	u64 qpx_pkeya;
 	u64 qpx_pkeyb;
 	u64 qpx_pkeyc;
 	u64 qpx_pkeyd;
+/* 0x80*/
 	u64 qpx_qkey;
 	u64 qpx_dqp;
 	u64 qpx_dlidp;
 	u64 qpx_portp;
+/* 0xa0*/
 	u64 qpx_slidp;
 	u64 qpx_slidpp;
 	u64 qpx_dlida;
 	u64 qpx_porta;
+/* 0xc0*/
 	u64 qpx_slida;
 	u64 qpx_slidpa;
 	u64 qpx_slvl;
 	u64 qpx_ipd;
+/* 0xe0*/
 	u64 qpx_mtu;
 	u64 qpx_lato;
 	u64 qpx_rlimit;
 	u64 qpx_rnrlimit;
+/* 0x100*/
 	u64 qpx_t;
 	u64 qpx_sqhp;
 	u64 qpx_sqptp;
 	u64 qpx_nspsn;
+/* 0x120*/
 	u64 qpx_nspsnhwm;
 	u64 reserved1;
 	u64 qpx_sdsi;
 	u64 qpx_sdsbc;
+/* 0x140*/
 	u64 qpx_sqwsize;
 	u64 qpx_sqwts;
 	u64 qpx_lsn;
 	u64 qpx_nssn;
+/* 0x160 */
 	u64 qpx_mor;
 	u64 qpx_cor;
 	u64 qpx_sqsize;
 	u64 qpx_erc;
+/* 0x180*/
 	u64 qpx_rnrrc;
 	u64 qpx_ernrwt;
 	u64 qpx_rnrresp;
 	u64 qpx_lmsna;
+/* 0x1a0 */
 	u64 qpx_sqhpc;
 	u64 qpx_sqcptp;
 	u64 qpx_sigt;
 	u64 qpx_wqecnt;
+/* 0x1c0*/
 	u64 qpx_rqhp;
 	u64 qpx_rqptp;
 	u64 qpx_rqsize;
 	u64 qpx_nrr;
+/* 0x1e0*/
 	u64 qpx_rdmac;
 	u64 qpx_nrpsn;
 	u64 qpx_lapsn;
 	u64 qpx_lcr;
+/* 0x200*/
 	u64 qpx_rwc;
 	u64 qpx_rwva;
 	u64 qpx_rdsi;
 	u64 qpx_rdsbc;
+/* 0x220*/
 	u64 qpx_rqwsize;
 	u64 qpx_crmsn;
 	u64 qpx_rdd;
 	u64 qpx_larpsn;
+/* 0x240*/
 	u64 qpx_pd;
 	u64 qpx_scqn;
 	u64 qpx_rcqn;
 	u64 qpx_aeqn;
+/* 0x260*/
 	u64 qpx_aaelog;
 	u64 qpx_ram;
 	u64 qpx_rdmaqe0;
 	u64 qpx_rdmaqe1;
+/* 0x280*/
 	u64 qpx_rdmaqe2;
 	u64 qpx_rdmaqe3;
 	u64 qpx_nrpsnhwm;
+/* 0x298*/
 	u64 reserved[(0x400 - 0x298) / 8];
+/* 0x400 extended data */
 	u64 reserved_ext[(0x500 - 0x400) / 8];
+/* 0x500 */
 	u64 reserved2[(0x1000 - 0x500) / 8];
+/* 0x1000      */
 };
 
 #define QPX_SQADDER EHCA_BMASK_IBM(48, 63)
@@ -142,21 +167,22 @@ struct hipz_qptemm {
 
 #define QPTEMM_OFFSET(x) offsetof(struct hipz_qptemm, x)
 
+/* MRMWPT Entry Memory Map */
 struct hipz_mrmwmm {
-	
+	/* 0x00 */
 	u64 mrx_hcr;
 
 	u64 mrx_c;
 	u64 mrx_herr;
 	u64 mrx_aer;
-	
+	/* 0x20 */
 	u64 mrx_pp;
 	u64 reserved1;
 	u64 reserved2;
 	u64 reserved3;
-	
+	/* 0x40 */
 	u64 reserved4[(0x200 - 0x40) / 8];
-	
+	/* 0x200 */
 	u64 mrx_ctl[64];
 
 };
@@ -164,71 +190,77 @@ struct hipz_mrmwmm {
 #define MRMWMM_OFFSET(x) offsetof(struct hipz_mrmwmm, x)
 
 struct hipz_qpedmm {
-	
+	/* 0x00 */
 	u64 reserved0[(0x400) / 8];
-	
+	/* 0x400 */
 	u64 qpedx_phh;
 	u64 qpedx_ppsgp;
-	
+	/* 0x410 */
 	u64 qpedx_ppsgu;
 	u64 qpedx_ppdgp;
-	
+	/* 0x420 */
 	u64 qpedx_ppdgu;
 	u64 qpedx_aph;
-	
+	/* 0x430 */
 	u64 qpedx_apsgp;
 	u64 qpedx_apsgu;
-	
+	/* 0x440 */
 	u64 qpedx_apdgp;
 	u64 qpedx_apdgu;
-	
+	/* 0x450 */
 	u64 qpedx_apav;
 	u64 qpedx_apsav;
-	
+	/* 0x460  */
 	u64 qpedx_hcr;
 	u64 reserved1[4];
-	
+	/* 0x488 */
 	u64 qpedx_rrl0;
-	
+	/* 0x490 */
 	u64 qpedx_rrrkey0;
 	u64 qpedx_rrva0;
-	
+	/* 0x4a0 */
 	u64 reserved2;
 	u64 qpedx_rrl1;
-	
+	/* 0x4b0 */
 	u64 qpedx_rrrkey1;
 	u64 qpedx_rrva1;
-	
+	/* 0x4c0 */
 	u64 reserved3;
 	u64 qpedx_rrl2;
-	
+	/* 0x4d0 */
 	u64 qpedx_rrrkey2;
 	u64 qpedx_rrva2;
-	
+	/* 0x4e0 */
 	u64 reserved4;
 	u64 qpedx_rrl3;
-	
+	/* 0x4f0 */
 	u64 qpedx_rrrkey3;
 	u64 qpedx_rrva3;
 };
 
 #define QPEDMM_OFFSET(x) offsetof(struct hipz_qpedmm, x)
 
+/* CQ Table Entry Memory Map */
 struct hipz_cqtemm {
 	u64 cqx_hcr;
 	u64 cqx_c;
 	u64 cqx_herr;
 	u64 cqx_aer;
+/* 0x20  */
 	u64 cqx_ptp;
 	u64 cqx_tp;
 	u64 cqx_fec;
 	u64 cqx_feca;
+/* 0x40  */
 	u64 cqx_ep;
 	u64 cqx_eq;
+/* 0x50  */
 	u64 reserved1;
 	u64 cqx_n0;
+/* 0x60  */
 	u64 cqx_n1;
 	u64 reserved2[(0x1000 - 0x60) / 8];
+/* 0x1000 */
 };
 
 #define CQX_FEC_CQE_CNT           EHCA_BMASK_IBM(32, 63)
@@ -238,33 +270,39 @@ struct hipz_cqtemm {
 
 #define CQTEMM_OFFSET(x) offsetof(struct hipz_cqtemm, x)
 
+/* EQ Table Entry Memory Map */
 struct hipz_eqtemm {
 	u64 eqx_hcr;
 	u64 eqx_c;
 
 	u64 eqx_herr;
 	u64 eqx_aer;
+/* 0x20 */
 	u64 eqx_ptp;
 	u64 eqx_tp;
 	u64 eqx_ssba;
 	u64 eqx_psba;
 
+/* 0x40 */
 	u64 eqx_cec;
 	u64 eqx_meql;
 	u64 eqx_xisbi;
 	u64 eqx_xisc;
+/* 0x60 */
 	u64 eqx_it;
 
 };
 
 #define EQTEMM_OFFSET(x) offsetof(struct hipz_eqtemm, x)
 
+/* access control defines for MR/MW */
 #define HIPZ_ACCESSCTRL_L_WRITE  0x00800000
 #define HIPZ_ACCESSCTRL_R_WRITE  0x00400000
 #define HIPZ_ACCESSCTRL_R_READ   0x00200000
 #define HIPZ_ACCESSCTRL_R_ATOMIC 0x00100000
 #define HIPZ_ACCESSCTRL_MW_BIND  0x00080000
 
+/* query hca response block */
 struct hipz_query_hca {
 	u32 cur_reliable_dg;
 	u32 cur_qp;
@@ -342,6 +380,7 @@ struct hipz_query_hca {
 #define HCA_CAP_MINI_QP               EHCA_BMASK_IBM(18, 18)
 #define HCA_CAP_H_ALLOC_RES_SYNC      EHCA_BMASK_IBM(19, 19)
 
+/* query port response block */
 struct hipz_query_port {
 	u32 state;
 	u32 bad_pkey_cntr;

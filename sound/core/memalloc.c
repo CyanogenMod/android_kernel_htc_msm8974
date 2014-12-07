@@ -40,20 +40,29 @@ MODULE_DESCRIPTION("Memory allocator for ALSA system.");
 MODULE_LICENSE("GPL");
 
 
+/*
+ */
 
 static DEFINE_MUTEX(list_mutex);
 static LIST_HEAD(mem_list_head);
 
+/* buffer preservation list */
 struct snd_mem_list {
 	struct snd_dma_buffer buffer;
 	unsigned int id;
 	struct list_head list;
 };
 
+/* id for pre-allocated buffers */
 #define SNDRV_DMA_DEVICE_UNUSED (unsigned int)-1
 
+/*
+ *
+ *  Generic memory allocators
+ *
+ */
 
-static long snd_allocated_pages; 
+static long snd_allocated_pages; /* holding the number of allocated pages */
 
 static inline void inc_snd_pages(int order)
 {
@@ -65,6 +74,15 @@ static inline void dec_snd_pages(int order)
 	snd_allocated_pages -= 1 << order;
 }
 
+/**
+ * snd_malloc_pages - allocate pages with the given size
+ * @size: the size to allocate in bytes
+ * @gfp_flags: the allocation conditions, GFP_XXX
+ *
+ * Allocates the physically contiguous pages with the given size.
+ *
+ * Returns the pointer of the buffer, or NULL if no enoguh memory.
+ */
 void *snd_malloc_pages(size_t size, gfp_t gfp_flags)
 {
 	int pg;
@@ -74,13 +92,20 @@ void *snd_malloc_pages(size_t size, gfp_t gfp_flags)
 		return NULL;
 	if (WARN_ON(!gfp_flags))
 		return NULL;
-	gfp_flags |= __GFP_COMP;	
+	gfp_flags |= __GFP_COMP;	/* compound page lets parts be mapped */
 	pg = get_order(size);
 	if ((res = (void *) __get_free_pages(gfp_flags, pg)) != NULL)
 		inc_snd_pages(pg);
 	return res;
 }
 
+/**
+ * snd_free_pages - release the pages
+ * @ptr: the buffer pointer to release
+ * @size: the allocated buffer size
+ *
+ * Releases the buffer allocated via snd_malloc_pages().
+ */
 void snd_free_pages(void *ptr, size_t size)
 {
 	int pg;
@@ -92,8 +117,14 @@ void snd_free_pages(void *ptr, size_t size)
 	free_pages((unsigned long) ptr, pg);
 }
 
+/*
+ *
+ *  Bus-specific memory allocators
+ *
+ */
 
 #ifdef CONFIG_HAS_DMA
+/* allocate the coherent DMA pages */
 static void *snd_malloc_dev_pages(struct device *dev, size_t size, dma_addr_t *dma)
 {
 	int pg;
@@ -104,9 +135,9 @@ static void *snd_malloc_dev_pages(struct device *dev, size_t size, dma_addr_t *d
 		return NULL;
 	pg = get_order(size);
 	gfp_flags = GFP_KERNEL
-		| __GFP_COMP	
-		| __GFP_NORETRY 
-		| __GFP_NOWARN; 
+		| __GFP_COMP	/* compound page lets parts be mapped */
+		| __GFP_NORETRY /* don't trigger OOM-killer */
+		| __GFP_NOWARN; /* no stack trace print - this call is non-critical */
 	res = dma_alloc_coherent(dev, PAGE_SIZE << pg, dma, gfp_flags);
 	if (res != NULL)
 		inc_snd_pages(pg);
@@ -114,6 +145,7 @@ static void *snd_malloc_dev_pages(struct device *dev, size_t size, dma_addr_t *d
 	return res;
 }
 
+/* free the coherent DMA pages */
 static void snd_free_dev_pages(struct device *dev, size_t size, void *ptr,
 			       dma_addr_t dma)
 {
@@ -125,10 +157,28 @@ static void snd_free_dev_pages(struct device *dev, size_t size, void *ptr,
 	dec_snd_pages(pg);
 	dma_free_coherent(dev, PAGE_SIZE << pg, ptr, dma);
 }
-#endif 
+#endif /* CONFIG_HAS_DMA */
+
+/*
+ *
+ *  ALSA generic memory management
+ *
+ */
 
 
-
+/**
+ * snd_dma_alloc_pages - allocate the buffer area according to the given type
+ * @type: the DMA buffer type
+ * @device: the device pointer
+ * @size: the buffer size to allocate
+ * @dmab: buffer allocation record to store the allocated data
+ *
+ * Calls the memory-allocator function for the corresponding
+ * buffer type.
+ * 
+ * Returns zero if the buffer with the given size is allocated successfully,
+ * other a negative value at error.
+ */
 int snd_dma_alloc_pages(int type, struct device *device, size_t size,
 			struct snd_dma_buffer *dmab)
 {
@@ -168,6 +218,21 @@ int snd_dma_alloc_pages(int type, struct device *device, size_t size,
 	return 0;
 }
 
+/**
+ * snd_dma_alloc_pages_fallback - allocate the buffer area according to the given type with fallback
+ * @type: the DMA buffer type
+ * @device: the device pointer
+ * @size: the buffer size to allocate
+ * @dmab: buffer allocation record to store the allocated data
+ *
+ * Calls the memory-allocator function for the corresponding
+ * buffer type.  When no space is left, this function reduces the size and
+ * tries to allocate again.  The size actually allocated is stored in
+ * res_size argument.
+ * 
+ * Returns zero if the buffer with the given size is allocated successfully,
+ * other a negative value at error.
+ */
 int snd_dma_alloc_pages_fallback(int type, struct device *device, size_t size,
 				 struct snd_dma_buffer *dmab)
 {
@@ -191,6 +256,12 @@ int snd_dma_alloc_pages_fallback(int type, struct device *device, size_t size,
 }
 
 
+/**
+ * snd_dma_free_pages - release the allocated buffer
+ * @dmab: the buffer allocation record to release
+ *
+ * Releases the allocated buffer via snd_dma_alloc_pages().
+ */
 void snd_dma_free_pages(struct snd_dma_buffer *dmab)
 {
 	switch (dmab->dev.type) {
@@ -213,6 +284,16 @@ void snd_dma_free_pages(struct snd_dma_buffer *dmab)
 }
 
 
+/**
+ * snd_dma_get_reserved - get the reserved buffer for the given device
+ * @dmab: the buffer allocation record to store
+ * @id: the buffer id
+ *
+ * Looks for the reserved-buffer list and re-uses if the same buffer
+ * is found in the list.  When the buffer is found, it's removed from the free list.
+ *
+ * Returns the size of buffer if the buffer is found, or zero if not found.
+ */
 size_t snd_dma_get_reserved_buf(struct snd_dma_buffer *dmab, unsigned int id)
 {
 	struct snd_mem_list *mem;
@@ -239,6 +320,15 @@ size_t snd_dma_get_reserved_buf(struct snd_dma_buffer *dmab, unsigned int id)
 	return 0;
 }
 
+/**
+ * snd_dma_reserve_buf - reserve the buffer
+ * @dmab: the buffer to reserve
+ * @id: the buffer id
+ *
+ * Reserves the given buffer as a reserved buffer.
+ * 
+ * Returns zero if successful, or a negative code at error.
+ */
 int snd_dma_reserve_buf(struct snd_dma_buffer *dmab, unsigned int id)
 {
 	struct snd_mem_list *mem;
@@ -256,6 +346,9 @@ int snd_dma_reserve_buf(struct snd_dma_buffer *dmab, unsigned int id)
 	return 0;
 }
 
+/*
+ * purge all reserved buffers
+ */
 static void free_all_reserved_pages(void)
 {
 	struct list_head *p;
@@ -274,6 +367,9 @@ static void free_all_reserved_pages(void)
 
 
 #ifdef CONFIG_PROC_FS
+/*
+ * proc file interface
+ */
 #define SND_MEM_PROC_FILE	"driver/snd-page-alloc"
 static struct proc_dir_entry *snd_mem_proc;
 
@@ -305,6 +401,7 @@ static int snd_mem_proc_open(struct inode *inode, struct file *file)
 	return single_open(file, snd_mem_proc_read, NULL);
 }
 
+/* FIXME: for pci only - other bus? */
 #ifdef CONFIG_PCI
 #define gettoken(bufp) strsep(bufp, " \t\n")
 
@@ -339,7 +436,7 @@ static ssize_t snd_mem_proc_write(struct file *file, const char __user * buffer,
 		    (mask = simple_strtol(token, NULL, 0)) < 0 ||
 		    (token = gettoken(&p)) == NULL ||
 		    (size = memparse(token, &endp)) < 64*1024 ||
-		    size > 16*1024*1024  ||
+		    size > 16*1024*1024 /* too big */ ||
 		    (token = gettoken(&p)) == NULL ||
 		    (buffers = simple_strtol(token, NULL, 0)) <= 0 ||
 		    buffers > 4) {
@@ -377,6 +474,9 @@ static ssize_t snd_mem_proc_write(struct file *file, const char __user * buffer,
 			for (i = 0; i < buffers; i++) {
 				struct snd_dma_buffer dmab;
 				memset(&dmab, 0, sizeof(dmab));
+				/* FIXME: We can allocate only in ZONE_DMA
+				 * without a device pointer!
+				 */
 				if (snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV, NULL,
 							size, &dmab) < 0) {
 					printk(KERN_ERR "snd-page-alloc: cannot allocate buffer pages (size = %d)\n", size);
@@ -386,13 +486,13 @@ static ssize_t snd_mem_proc_write(struct file *file, const char __user * buffer,
 			}
 		}
 	} else if (strcmp(token, "erase") == 0)
-		
+		/* FIXME: need for releasing each buffer chunk? */
 		free_all_reserved_pages();
 	else
 		printk(KERN_ERR "snd-page-alloc: invalid proc cmd\n");
 	return count;
 }
-#endif 
+#endif /* CONFIG_PCI */
 
 static const struct file_operations snd_mem_proc_fops = {
 	.owner		= THIS_MODULE,
@@ -405,8 +505,11 @@ static const struct file_operations snd_mem_proc_fops = {
 	.release	= single_release,
 };
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
+/*
+ * module entry
+ */
 
 static int __init snd_mem_init(void)
 {
@@ -430,6 +533,9 @@ module_init(snd_mem_init)
 module_exit(snd_mem_exit)
 
 
+/*
+ * exports
+ */
 EXPORT_SYMBOL(snd_dma_alloc_pages);
 EXPORT_SYMBOL(snd_dma_alloc_pages_fallback);
 EXPORT_SYMBOL(snd_dma_free_pages);

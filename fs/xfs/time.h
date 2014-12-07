@@ -33,4 +33,4 @@ static inline void nanotime(struct timespec *tvp)
 	*tvp = CURRENT_TIME;
 }
 
-#endif 
+#endif /* __XFS_SUPPORT_TIME_H__ */

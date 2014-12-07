@@ -40,6 +40,13 @@
 
 struct device_attribute dev_attr_cxdev_control;
 
+/**
+ * tiocx_match - Try to match driver id list with device.
+ * @dev: device pointer
+ * @drv: driver pointer
+ *
+ * Returns 1 if match, 0 otherwise.
+ */
 static int tiocx_match(struct device *dev, struct device_driver *drv)
 {
 	struct cx_dev *cx_dev = to_cx_dev(dev);
@@ -68,10 +75,22 @@ static void tiocx_bus_release(struct device *dev)
 	kfree(to_cx_dev(dev));
 }
 
+/**
+ * cx_device_match - Find cx_device in the id table.
+ * @ids: id table from driver
+ * @cx_device: part/mfg id for the device
+ *
+ */
 static const struct cx_device_id *cx_device_match(const struct cx_device_id
 						  *ids,
 						  struct cx_dev *cx_device)
 {
+	/*
+	 * NOTES: We may want to check for CX_ANY_ID too.
+	 *        Do we want to match against nasid too?
+	 *        CX_DEV_NONE == 0, if the driver tries to register for
+	 *        part/mfg == 0 we should return no-match (NULL) here.
+	 */
 	while (ids->part_num && ids->mfg_num) {
 		if (ids->part_num == cx_device->cx_id.part_num &&
 		    ids->mfg_num == cx_device->cx_id.mfg_num)
@@ -82,6 +101,12 @@ static const struct cx_device_id *cx_device_match(const struct cx_device_id
 	return NULL;
 }
 
+/**
+ * cx_device_probe - Look for matching device.
+ *			Call driver probe routine if found.
+ * @cx_driver: driver table (cx_drv struct) from driver
+ * @cx_device: part/mfg id for the device
+ */
 static int cx_device_probe(struct device *dev)
 {
 	const struct cx_device_id *id;
@@ -102,6 +127,10 @@ static int cx_device_probe(struct device *dev)
 	return error;
 }
 
+/**
+ * cx_driver_remove - Remove driver from device struct.
+ * @dev: device
+ */
 static int cx_driver_remove(struct device *dev)
 {
 	struct cx_dev *cx_dev = to_cx_dev(dev);
@@ -120,6 +149,15 @@ struct bus_type tiocx_bus_type = {
 	.remove = cx_driver_remove,
 };
 
+/**
+ * cx_driver_register - Register the driver.
+ * @cx_driver: driver table (cx_drv struct) from driver
+ * 
+ * Called from the driver init routine to register a driver.
+ * The cx_drv struct contains the driver name, a pointer to
+ * a table of part/mfg numbers and a pointer to the driver's
+ * probe/attach routine.
+ */
 int cx_driver_register(struct cx_drv *cx_driver)
 {
 	cx_driver->driver.name = cx_driver->name;
@@ -128,12 +166,25 @@ int cx_driver_register(struct cx_drv *cx_driver)
 	return driver_register(&cx_driver->driver);
 }
 
+/**
+ * cx_driver_unregister - Unregister the driver.
+ * @cx_driver: driver table (cx_drv struct) from driver
+ */
 int cx_driver_unregister(struct cx_drv *cx_driver)
 {
 	driver_unregister(&cx_driver->driver);
 	return 0;
 }
 
+/**
+ * cx_device_register - Register a device.
+ * @nasid: device's nasid
+ * @part_num: device's part number
+ * @mfg_num: device's manufacturer number
+ * @hubdev: hub info associated with this device
+ * @bt: board type of the device
+ *
+ */
 int
 cx_device_register(nasid_t nasid, int part_num, int mfg_num,
 		   struct hubdev_info *hubdev, int bt)
@@ -168,6 +219,10 @@ cx_device_register(nasid_t nasid, int part_num, int mfg_num,
 	return 0;
 }
 
+/**
+ * cx_device_unregister - Unregister a device.
+ * @cx_dev: part/mfg id for the device
+ */
 int cx_device_unregister(struct cx_dev *cx_dev)
 {
 	put_device(&cx_dev->dev);
@@ -175,6 +230,15 @@ int cx_device_unregister(struct cx_dev *cx_dev)
 	return 0;
 }
 
+/**
+ * cx_device_reload - Reload the device.
+ * @nasid: device's nasid
+ * @part_num: device's part number
+ * @mfg_num: device's manufacturer number
+ *
+ * Remove the device associated with 'nasid' from device list and then
+ * call device-register with the given part/mfg numbers.
+ */
 static int cx_device_reload(struct cx_dev *cx_dev)
 {
 	cx_device_unregister(cx_dev);
@@ -279,11 +343,11 @@ static void tio_conveyor_set(nasid_t nasid, int enable_flag)
 
 	ice_frz = REMOTE_HUB_L(nasid, TIO_ICE_FRZ_CFG);
 	if (enable_flag) {
-		if (!(ice_frz & disable_cb))	
+		if (!(ice_frz & disable_cb))	/* already enabled */
 			return;
 		ice_frz &= ~disable_cb;
 	} else {
-		if (ice_frz & disable_cb)	
+		if (ice_frz & disable_cb)	/* already disabled */
 			return;
 		ice_frz |= disable_cb;
 	}
@@ -307,7 +371,7 @@ static void tio_corelet_reset(nasid_t nasid, int corelet)
 
 static int is_fpga_tio(int nasid, int *bt)
 {
-	u16 uninitialized_var(ioboard_type);	
+	u16 uninitialized_var(ioboard_type);	/* GCC be quiet */
 	long rc;
 
 	rc = ia64_sn_sysctl_ioboard_get(nasid, &ioboard_type);
@@ -359,7 +423,7 @@ static int tiocx_reload(struct cx_dev *cx_dev)
 			part_num = XWIDGET_PART_NUM(cx_id);
 			mfg_num = XWIDGET_MFG_NUM(cx_id);
 			DBG("part= 0x%x, mfg= 0x%x\n", part_num, mfg_num);
-			
+			/* just ignore it if it's a CE */
 			if (part_num == TIO_CE_ASIC_PARTNUM)
 				return 0;
 		}
@@ -368,6 +432,13 @@ static int tiocx_reload(struct cx_dev *cx_dev)
 	cx_dev->cx_id.part_num = part_num;
 	cx_dev->cx_id.mfg_num = mfg_num;
 
+	/*
+	 * Delete old device and register the new one.  It's ok if
+	 * part_num/mfg_num == CX_DEV_NONE.  We want to register
+	 * devices in the table even if a bitstream isn't loaded.
+	 * That allows use to see that a bitstream isn't loaded via
+	 * TIOCX_IOCTL_DEV_LIST.
+	 */
 	return cx_device_reload(cx_dev);
 }
 
@@ -442,7 +513,7 @@ static int __init tiocx_init(void)
 
 			widgetp = &hubdev->hdi_xwidget_info[TIOCX_CORELET];
 
-			
+			/* The CE hangs off of the CX port but is not an FPGA */
 			if (widgetp->xwi_hwid.part_num == TIO_CE_ASIC_PARTNUM)
 				continue;
 
@@ -458,7 +529,7 @@ static int __init tiocx_init(void)
 		}
 	}
 
-	
+	/* It's ok if we find zero devices. */
 	DBG("found_tiocx_device= %d\n", found_tiocx_device);
 
 	return 0;
@@ -476,6 +547,9 @@ static void __exit tiocx_exit(void)
 {
 	DBG("tiocx_exit\n");
 
+	/*
+	 * Unregister devices.
+	 */
 	bus_for_each_dev(&tiocx_bus_type, NULL, NULL, cx_remove_device);
 	bus_unregister(&tiocx_bus_type);
 }
@@ -483,6 +557,9 @@ static void __exit tiocx_exit(void)
 fs_initcall(tiocx_init);
 module_exit(tiocx_exit);
 
+/************************************************************************
+ * Module licensing and description
+ ************************************************************************/
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Bruce Losure <blosure@sgi.com>");
 MODULE_DESCRIPTION("TIOCX module");

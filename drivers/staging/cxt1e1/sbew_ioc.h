@@ -29,12 +29,19 @@
 #define SBE_IOC_COOKIE     0x19780926
 #define SBE_IOC_MAGIC      ('s')
 
+/* IOW write - data has to go into driver from application */
+/* IOR read - data has to be returned to application from driver */
 
+/*
+ * Note: for an IOWR Ioctl, the read and write data do not have to
+ * be the same size, but the entity declared within the IOC must be
+ * the larger of the two.
+ */
 
 #define SBE_IOC_LOGLEVEL       _IOW(SBE_IOC_MAGIC, 0x00, int)
-#define SBE_IOC_CHAN_NEW       _IOW(SBE_IOC_MAGIC, 0x01,int)    
-#define SBE_IOC_CHAN_UP        _IOW(SBE_IOC_MAGIC, 0x02,int)    
-#define SBE_IOC_CHAN_DOWN      _IOW(SBE_IOC_MAGIC, 0x03,int)    
+#define SBE_IOC_CHAN_NEW       _IOW(SBE_IOC_MAGIC, 0x01,int)    /* unused */
+#define SBE_IOC_CHAN_UP        _IOW(SBE_IOC_MAGIC, 0x02,int)    /* unused */
+#define SBE_IOC_CHAN_DOWN      _IOW(SBE_IOC_MAGIC, 0x03,int)    /* unused */
 #define SBE_IOC_CHAN_GET       _IOWR(SBE_IOC_MAGIC,0x04, struct sbecom_chan_param)
 #define SBE_IOC_CHAN_SET       _IOW(SBE_IOC_MAGIC, 0x05, struct sbecom_chan_param)
 #define SBE_IOC_CHAN_GET_STAT  _IOWR(SBE_IOC_MAGIC,0x06, struct sbecom_chan_stats)
@@ -64,7 +71,11 @@
 #define SBE_IOC_TSIOC_SET      _IOW(SBE_IOC_MAGIC, 0x17, struct wanc1t3_ts_param)
 #endif
 
+/*
+ * Restrict SBE_IOC_WRITE_VEC & READ_VEC to a single parameter pair, application
+ * then must issue multiple Ioctls for large blocks of contiguous data.
+ */
 
 #define SBE_IOC_MAXVEC    1
 
-#endif                          
+#endif                          /*** _INC_SBEWIOC_H_ ***/

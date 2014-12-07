@@ -30,6 +30,7 @@
  * SOFTWARE.
  */
 
+/* This file is mechanically generated from RTL. Any hand-edits will be lost! */
 
 #define QIB_6120_Revision_OFFS 0x0
 #define QIB_6120_Revision_R_Simulator_LSB 0x3F

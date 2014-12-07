@@ -10,6 +10,7 @@
 #include <linux/io.h>
 #include <cpu/registers.h>
 
+/* THIS IS A PHYSICAL ADDRESS */
 #define HDSP2534_ADDR (0x04002100)
 
 static void poor_mans_delay(void)
@@ -37,7 +38,7 @@ panic_handler(unsigned long panicPC, unsigned long panicSSR,
 	      unsigned long panicEXPEVT)
 {
 	while (1) {
-		
+		/* This piece of code displays the PC on the LED display */
 		show_value(panicPC);
 		poor_mans_delay();
 		show_value(panicSSR);

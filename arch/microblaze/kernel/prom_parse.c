@@ -17,7 +17,7 @@ void of_parse_dma_window(struct device_node *dn, const void *dma_window_prop,
 
 	dma_window = dma_window_prop;
 
-	
+	/* busno is always one cell */
 	*busno = *(dma_window++);
 
 	prop = of_get_property(dn, "ibm,#dma-address-cells", NULL);

@@ -87,6 +87,14 @@ static int beyond_eof(struct inode *inode, loff_t bix)
 	return pos >= i_size_read(inode);
 }
 
+/*
+ * Prime value was chosen to be roughly 256 + 26.  r5 hash uses 11,
+ * so short names (len <= 9) don't even occupy the complete 32bit name
+ * space.  A prime >256 ensures short names quickly spread the 32bit
+ * name space.  Add about 26 for the estimated amount of information
+ * of each character and pick a prime nearby, preferably a bit-sparse
+ * one.
+ */
 static u32 hash_32(const char *s, int len, u32 seed)
 {
 	u32 hash = seed;
@@ -97,6 +105,32 @@ static u32 hash_32(const char *s, int len, u32 seed)
 	return hash;
 }
 
+/*
+ * We have to satisfy several conflicting requirements here.  Small
+ * directories should stay fairly compact and not require too many
+ * indirect blocks.  The number of possible locations for a given hash
+ * should be small to make lookup() fast.  And we should try hard not
+ * to overflow the 32bit name space or nfs and 32bit host systems will
+ * be unhappy.
+ *
+ * So we use the following scheme.  First we reduce the hash to 0..15
+ * and try a direct block.  If that is occupied we reduce the hash to
+ * 16..255 and try an indirect block.  Same for 2x and 3x indirect
+ * blocks.  Lastly we reduce the hash to 0x800_0000 .. 0xffff_ffff,
+ * but use buckets containing eight entries instead of a single one.
+ *
+ * Using 16 entries should allow for a reasonable amount of hash
+ * collisions, so the 32bit name space can be packed fairly tight
+ * before overflowing.  Oh and currently we don't overflow but return
+ * and error.
+ *
+ * How likely are collisions?  Doing the appropriate math is beyond me
+ * and the Bronstein textbook.  But running a test program to brute
+ * force collisions for a couple of days showed that on average the
+ * first collision occurs after 598M entries, with 290M being the
+ * smallest result.  Obviously 21 entries could already cause a
+ * collision if all entries are carefully chosen.
+ */
 static pgoff_t hash_index(u32 hash, int round)
 {
 	u32 i0_blocks = I0_BLOCKS;
@@ -245,6 +279,8 @@ static int logfs_rmdir(struct inode *dir, struct dentry *dentry)
 	return logfs_unlink(dir, dentry);
 }
 
+/* FIXME: readdir currently has it's own dir_walk code.  I don't see a good
+ * way to combine the two copies */
 #define IMPLICIT_NODES 2
 static int __logfs_readdir(struct file *file, void *buf, filldir_t filldir)
 {
@@ -259,7 +295,7 @@ static int __logfs_readdir(struct file *file, void *buf, filldir_t filldir)
 		if (beyond_eof(dir, pos))
 			break;
 		if (!logfs_exist_block(dir, pos)) {
-			
+			/* deleted dentry */
 			pos = dir_seek_data(dir, pos);
 			continue;
 		}
@@ -380,6 +416,10 @@ static int logfs_write_dir(struct inode *dir, struct dentry *dentry,
 			grow_dir(dir, index);
 		return err;
 	}
+	/* FIXME: Is there a better return value?  In most cases neither
+	 * the filesystem nor the directory are full.  But we have had
+	 * too many collisions for this particular hash and no fallback.
+	 */
 	return -ENOSPC;
 }
 
@@ -404,18 +444,18 @@ static int __logfs_create(struct inode *dir, struct dentry *dentry,
 	logfs_add_transaction(inode, ta);
 
 	if (dest) {
-		
+		/* symlink */
 		ret = logfs_inode_write(inode, dest, destlen, 0, WF_LOCK, NULL);
 		if (!ret)
 			ret = write_inode(inode);
 	} else {
-		
+		/* creat/mkdir/mknod */
 		ret = write_inode(inode);
 	}
 	if (ret) {
 		abort_transaction(inode, ta);
 		li->li_flags |= LOGFS_IF_STILLBORN;
-		
+		/* FIXME: truncate symlink */
 		drop_nlink(inode);
 		iput(inode);
 		goto out;
@@ -424,7 +464,7 @@ static int __logfs_create(struct inode *dir, struct dentry *dentry,
 	ta->state = CREATE_2;
 	logfs_add_transaction(dir, ta);
 	ret = logfs_write_dir(dir, dentry, inode);
-	
+	/* sync directory */
 	if (!ret)
 		ret = write_inode(dir);
 
@@ -446,6 +486,11 @@ static int logfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	struct inode *inode;
 
+	/*
+	 * FIXME: why do we have to fill in S_IFDIR, while the mode is
+	 * correct for mknod, creat, etc.?  Smells like the vfs *should*
+	 * do it for us but for some reason fails to do so.
+	 */
 	inode = logfs_new_inode(dir, S_IFDIR | mode);
 	if (IS_ERR(inode))
 		return PTR_ERR(inode);
@@ -540,12 +585,22 @@ static int logfs_get_dd(struct inode *dir, struct dentry *dentry,
 
 static int logfs_delete_dd(struct inode *dir, loff_t pos)
 {
+	/*
+	 * Getting called with pos somewhere beyond eof is either a goofup
+	 * within this file or means someone maliciously edited the
+	 * (crc-protected) journal.
+	 */
 	BUG_ON(beyond_eof(dir, pos));
 	dir->i_ctime = dir->i_mtime = CURRENT_TIME;
 	log_dir(" Delete dentry (%lx, %llx)\n", dir->i_ino, pos);
 	return logfs_delete(dir, pos, NULL);
 }
 
+/*
+ * Cross-directory rename, target does not exist.  Just a little nasty.
+ * Create a new dentry in the target dir, then remove the old dentry,
+ * all the while taking care to remember our operation in the journal.
+ */
 static int logfs_rename_cross(struct inode *old_dir, struct dentry *old_dentry,
 			      struct inode *new_dir, struct dentry *new_dentry)
 {
@@ -555,7 +610,7 @@ static int logfs_rename_cross(struct inode *old_dir, struct dentry *old_dentry,
 	loff_t pos;
 	int err;
 
-	
+	/* 1. locate source dd */
 	err = logfs_get_dd(old_dir, old_dentry, &dd, &pos);
 	if (err)
 		return err;
@@ -568,7 +623,7 @@ static int logfs_rename_cross(struct inode *old_dir, struct dentry *old_dentry,
 	ta->dir = old_dir->i_ino;
 	ta->pos = pos;
 
-	
+	/* 2. write target dd */
 	mutex_lock(&super->s_dirop_mutex);
 	logfs_add_transaction(new_dir, ta);
 	err = logfs_write_dir(new_dir, new_dentry, old_dentry->d_inode);
@@ -582,7 +637,7 @@ static int logfs_rename_cross(struct inode *old_dir, struct dentry *old_dentry,
 		goto out;
 	}
 
-	
+	/* 3. remove source dd */
 	ta->state = CROSS_RENAME_2;
 	logfs_add_transaction(old_dir, ta);
 	err = logfs_delete_dd(old_dir, pos);
@@ -614,6 +669,10 @@ static int logfs_replace_inode(struct inode *dir, struct dentry *dentry,
 	return write_inode(dir);
 }
 
+/* Target dentry exists - the worst case.  We need to attach the source
+ * inode to the target dentry, then remove the orphaned target inode and
+ * source dentry.
+ */
 static int logfs_rename_target(struct inode *old_dir, struct dentry *old_dentry,
 			       struct inode *new_dir, struct dentry *new_dentry)
 {
@@ -632,7 +691,7 @@ static int logfs_rename_target(struct inode *old_dir, struct dentry *old_dentry,
 			return -ENOTEMPTY;
 	}
 
-	
+	/* 1. locate source dd */
 	err = logfs_get_dd(old_dir, old_dentry, &dd, &pos);
 	if (err)
 		return err;
@@ -646,7 +705,7 @@ static int logfs_rename_target(struct inode *old_dir, struct dentry *old_dentry,
 	ta->pos = pos;
 	ta->ino = new_inode->i_ino;
 
-	
+	/* 2. attach source inode to target dd */
 	mutex_lock(&super->s_dirop_mutex);
 	logfs_add_transaction(new_dir, ta);
 	err = logfs_replace_inode(new_dir, new_dentry, &dd, old_inode);
@@ -658,7 +717,7 @@ static int logfs_rename_target(struct inode *old_dir, struct dentry *old_dentry,
 		goto out;
 	}
 
-	
+	/* 3. remove source dd */
 	ta->state = TARGET_RENAME_2;
 	logfs_add_transaction(old_dir, ta);
 	err = logfs_delete_dd(old_dir, pos);
@@ -666,7 +725,7 @@ static int logfs_rename_target(struct inode *old_dir, struct dentry *old_dentry,
 		err = write_inode(old_dir);
 	LOGFS_BUG_ON(err, old_dir->i_sb);
 
-	
+	/* 4. remove target inode */
 	ta->state = TARGET_RENAME_3;
 	logfs_add_transaction(new_inode, ta);
 	err = logfs_remove_inode(new_inode);
@@ -685,6 +744,7 @@ static int logfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	return logfs_rename_cross(old_dir, old_dentry, new_dir, new_dentry);
 }
 
+/* No locking done here, as this is called before .get_sb() returns. */
 int logfs_replay_journal(struct super_block *sb)
 {
 	struct logfs_super *super = logfs_super(sb);
@@ -693,7 +753,7 @@ int logfs_replay_journal(struct super_block *sb)
 	int err;
 
 	if (super->s_victim_ino) {
-		
+		/* delete victim inode */
 		ino = super->s_victim_ino;
 		printk(KERN_INFO"LogFS: delete unmapped inode #%llx\n", ino);
 		inode = logfs_iget(sb, ino);
@@ -710,7 +770,7 @@ int logfs_replay_journal(struct super_block *sb)
 		}
 	}
 	if (super->s_rename_dir) {
-		
+		/* delete old dd from rename */
 		ino = super->s_rename_dir;
 		pos = super->s_rename_pos;
 		printk(KERN_INFO"LogFS: delete unbacked dentry (%llx, %llx)\n",

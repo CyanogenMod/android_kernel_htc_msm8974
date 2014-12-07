@@ -5,4 +5,4 @@
 #include <linux/virtio_ids.h>
 #include <linux/virtio_config.h>
 
-#endif 
+#endif /* _LINUX_VIRTIO_RNG_H */

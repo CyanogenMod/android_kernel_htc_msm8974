@@ -35,33 +35,33 @@ MODULE_LICENSE("GPL");
 
 struct sdo_format {
 	v4l2_std_id id;
-	
+	/* all modes are 720 pixels wide */
 	unsigned int height;
 	unsigned int cookie;
 };
 
 struct sdo_device {
-	
+	/** pointer to device parent */
 	struct device *dev;
-	
+	/** base address of SDO registers */
 	void __iomem *regs;
-	
+	/** SDO interrupt */
 	unsigned int irq;
-	
+	/** DAC source clock */
 	struct clk *sclk_dac;
-	
+	/** DAC clock */
 	struct clk *dac;
-	
+	/** DAC physical interface */
 	struct clk *dacphy;
-	
+	/** clock for control of VPLL */
 	struct clk *fout_vpll;
-	
+	/** regulator for SDO IP power */
 	struct regulator *vdac;
-	
+	/** regulator for SDO plug detection */
 	struct regulator *vdet;
-	
+	/** subdev used as device interface */
 	struct v4l2_subdev sd;
-	
+	/** current format */
 	const struct sdo_format *fmt;
 };
 
@@ -94,7 +94,7 @@ static irqreturn_t sdo_irq_handler(int irq, void *dev_data)
 {
 	struct sdo_device *sdev = dev_data;
 
-	
+	/* clear interrupt */
 	sdo_write_mask(sdev, SDO_IRQ, ~0, SDO_VSYNC_IRQ_PEND);
 	return IRQ_HANDLED;
 }
@@ -165,7 +165,7 @@ static int sdo_g_mbus_fmt(struct v4l2_subdev *sd,
 
 	if (!sdev->fmt)
 		return -ENXIO;
-	
+	/* all modes are 720 pixels wide */
 	fmt->width = 720;
 	fmt->height = sdev->fmt->height;
 	fmt->code = V4L2_MBUS_FMT_FIXED;
@@ -187,20 +187,20 @@ static int sdo_s_power(struct v4l2_subdev *sd, int on)
 	else
 		ret = pm_runtime_put_sync(dev);
 
-	
+	/* only values < 0 indicate errors */
 	return IS_ERR_VALUE(ret) ? ret : 0;
 }
 
 static int sdo_streamon(struct sdo_device *sdev)
 {
-	
+	/* set proper clock for Timing Generator */
 	clk_set_rate(sdev->fout_vpll, 54000000);
 	dev_info(sdev->dev, "fout_vpll.rate = %lu\n",
 	clk_get_rate(sdev->fout_vpll));
-	
+	/* enable clock in SDO */
 	sdo_write_mask(sdev, SDO_CLKCON, ~0, SDO_TVOUT_CLOCK_ON);
 	clk_enable(sdev->dacphy);
-	
+	/* enable DAC */
 	sdo_write_mask(sdev, SDO_DAC, ~0, SDO_POWER_ON_DAC);
 	sdo_reg_debug(sdev);
 	return 0;
@@ -268,19 +268,19 @@ static int sdo_runtime_resume(struct device *dev)
 	regulator_enable(sdev->vdac);
 	regulator_enable(sdev->vdet);
 
-	
+	/* software reset */
 	sdo_write_mask(sdev, SDO_CLKCON, ~0, SDO_TVOUT_SW_RESET);
 	mdelay(10);
 	sdo_write_mask(sdev, SDO_CLKCON, 0, SDO_TVOUT_SW_RESET);
 
-	
+	/* setting TV mode */
 	sdo_write_mask(sdev, SDO_CONFIG, sdev->fmt->cookie, SDO_STANDARD_MASK);
-	
+	/* XXX: forcing interlaced mode using undocumented bit */
 	sdo_write_mask(sdev, SDO_CONFIG, 0, SDO_PROGRESSIVE);
-	
+	/* turn all VBI off */
 	sdo_write_mask(sdev, SDO_VBI, 0, SDO_CVBS_WSS_INS |
 		SDO_CVBS_CLOSED_CAPTION_MASK);
-	
+	/* turn all post processing off */
 	sdo_write_mask(sdev, SDO_CCCON, ~0, SDO_COMPENSATION_BHS_ADJ_OFF |
 		SDO_COMPENSATION_CVBS_COMP_OFF);
 	sdo_reg_debug(sdev);
@@ -309,7 +309,7 @@ static int __devinit sdo_probe(struct platform_device *pdev)
 	}
 	sdev->dev = dev;
 
-	
+	/* mapping registers */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (res == NULL) {
 		dev_err(dev, "get memory resource failed.\n");
@@ -324,7 +324,7 @@ static int __devinit sdo_probe(struct platform_device *pdev)
 		goto fail;
 	}
 
-	
+	/* acquiring interrupt */
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (res == NULL) {
 		dev_err(dev, "get interrupt resource failed.\n");
@@ -339,7 +339,7 @@ static int __devinit sdo_probe(struct platform_device *pdev)
 	}
 	sdev->irq = res->start;
 
-	
+	/* acquire clocks */
 	sdev->sclk_dac = clk_get(dev, "sclk_dac");
 	if (IS_ERR_OR_NULL(sdev->sclk_dac)) {
 		dev_err(dev, "failed to get clock 'sclk_dac'\n");
@@ -373,7 +373,7 @@ static int __devinit sdo_probe(struct platform_device *pdev)
 	}
 	dev_info(dev, "fout_vpll.rate = %lu\n", clk_get_rate(sclk_vpll));
 
-	
+	/* acquire regulator */
 	sdev->vdac = regulator_get(dev, "vdd33a_dac");
 	if (IS_ERR_OR_NULL(sdev->vdac)) {
 		dev_err(dev, "failed to get regulator 'vdac'\n");
@@ -385,22 +385,22 @@ static int __devinit sdo_probe(struct platform_device *pdev)
 		goto fail_vdac;
 	}
 
-	
+	/* enable gate for dac clock, because mixer uses it */
 	clk_enable(sdev->dac);
 
-	
+	/* configure power management */
 	pm_runtime_enable(dev);
 
-	
+	/* configuration of interface subdevice */
 	v4l2_subdev_init(&sdev->sd, &sdo_sd_ops);
 	sdev->sd.owner = THIS_MODULE;
 	strlcpy(sdev->sd.name, "s5p-sdo", sizeof sdev->sd.name);
 
-	
+	/* set default format */
 	sdev->fmt = sdo_find_format(SDO_DEFAULT_STD);
 	BUG_ON(sdev->fmt == NULL);
 
-	
+	/* keeping subdev in device's private for use by other drivers */
 	dev_set_drvdata(dev, &sdev->sd);
 
 	dev_info(dev, "probe succeeded\n");

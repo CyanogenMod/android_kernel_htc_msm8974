@@ -96,6 +96,9 @@ struct ehca_sma_attr {
 struct ehca_sport {
 	struct ib_cq *ibcq_aqp1;
 	struct ib_qp *ibqp_sqp[2];
+	/* lock to serialze modify_qp() calls for sqp in normal
+	 * and irq path (when event PORT_ACTIVE is received first time)
+	 */
 	spinlock_t mod_sqp_lock;
 	enum ib_port_state port_state;
 	struct ehca_sma_attr saved_attr;
@@ -122,7 +125,7 @@ struct ehca_shca {
 	struct h_galpas galpas;
 	struct mutex modify_mutex;
 	u64 hca_cap;
-	
+	/* MR pgsize: bit 0-3 means 4K, 64K, 1M, 16M respectively */
 	u32 hca_cap_mr_pgsize;
 	int max_mtu;
 	int max_num_qps;
@@ -134,7 +137,7 @@ struct ehca_shca {
 struct ehca_pd {
 	struct ib_pd ib_pd;
 	struct ipz_pd fw_pd;
-	
+	/* small queue mgmt */
 	struct mutex lock;
 	struct list_head free[2];
 	struct list_head full[2];
@@ -147,6 +150,7 @@ enum ehca_ext_qp_type {
 	EQPT_SRQ       = 3,
 };
 
+/* struct to cache modify_qp()'s parms for GSI/SMI qp */
 struct ehca_mod_qp_parm {
 	int mask;
 	struct ib_qp_attr attr;
@@ -156,6 +160,7 @@ struct ehca_mod_qp_parm {
 
 #define QMAP_IDX_MASK 0xFFFFULL
 
+/* struct for tracking if cqes have been reported to the application */
 struct ehca_qmap_entry {
 	u16 app_wr_id;
 	u8 reported;
@@ -167,9 +172,10 @@ struct ehca_queue_map {
 	unsigned int entries;
 	unsigned int tail;
 	unsigned int left_to_poll;
-	unsigned int next_wqe_idx;   
+	unsigned int next_wqe_idx;   /* Idx to first wqe to be flushed */
 };
 
+/* function to calculate the next index for the qmap */
 static inline unsigned int next_index(unsigned int cur_index, unsigned int limit)
 {
 	unsigned int temp = cur_index + 1;
@@ -202,19 +208,19 @@ struct ehca_qp {
 	struct ehca_cq *recv_cq;
 	unsigned int sqerr_purgeflag;
 	struct hlist_node list_entries;
-	
+	/* array to cache modify_qp()'s parms for GSI/SMI qp */
 	struct ehca_mod_qp_parm *mod_qp_parm;
 	int mod_qp_parm_idx;
-	
+	/* mmap counter for resources mapped into user space */
 	u32 mm_count_squeue;
 	u32 mm_count_rqueue;
 	u32 mm_count_galpa;
-	
+	/* unsolicited ack circumvention */
 	int unsol_ack_circ;
 	int mtu_shift;
 	u32 message_count;
 	u32 packet_count;
-	atomic_t nr_events; 
+	atomic_t nr_events; /* events seen */
 	wait_queue_head_t wait_completion;
 	int mig_armed;
 	struct list_head sq_err_node;
@@ -225,6 +231,7 @@ struct ehca_qp {
 #define HAS_SQ(qp) (qp->ext_type != EQPT_SRQ)
 #define HAS_RQ(qp) (qp->ext_type != EQPT_SRQBASE)
 
+/* must be power of 2 */
 #define QP_HASHTAB_LEN 8
 
 struct ehca_cq {
@@ -240,11 +247,11 @@ struct ehca_cq {
 	spinlock_t cb_lock;
 	struct hlist_head qp_hashtab[QP_HASHTAB_LEN];
 	struct list_head entry;
-	u32 nr_callbacks;   
-	atomic_t nr_events; 
+	u32 nr_callbacks;   /* #events assigned to cpu by scaling code */
+	atomic_t nr_events; /* #events seen */
 	wait_queue_head_t wait_completion;
 	spinlock_t task_lock;
-	
+	/* mmap counter for resources mapped into user space */
 	u32 mm_count_queue;
 	u32 mm_count_galpa;
 	struct list_head sqp_err_list;
@@ -252,71 +259,73 @@ struct ehca_cq {
 };
 
 enum ehca_mr_flag {
-	EHCA_MR_FLAG_FMR = 0x80000000,	 
-	EHCA_MR_FLAG_MAXMR = 0x40000000, 
+	EHCA_MR_FLAG_FMR = 0x80000000,	 /* FMR, created with ehca_alloc_fmr */
+	EHCA_MR_FLAG_MAXMR = 0x40000000, /* max-MR                           */
 };
 
 struct ehca_mr {
 	union {
-		struct ib_mr ib_mr;	
-		struct ib_fmr ib_fmr;	
+		struct ib_mr ib_mr;	/* must always be first in ehca_mr */
+		struct ib_fmr ib_fmr;	/* must always be first in ehca_mr */
 	} ib;
 	struct ib_umem *umem;
 	spinlock_t mrlock;
 
 	enum ehca_mr_flag flags;
-	u32 num_kpages;		
-	u32 num_hwpages;	
-	u64 hwpage_size;	
-	int acl;		
-	u64 *start;		
-				
-	u64 size;		
-	u32 fmr_page_size;	
-	u32 fmr_max_pages;	
-	u32 fmr_max_maps;	
-	u32 fmr_map_cnt;	
-	
-	struct ipz_mrmw_handle ipz_mr_handle;	
+	u32 num_kpages;		/* number of kernel pages */
+	u32 num_hwpages;	/* number of hw pages to form MR */
+	u64 hwpage_size;	/* hw page size used for this MR */
+	int acl;		/* ACL (stored here for usage in reregister) */
+	u64 *start;		/* virtual start address (stored here for */
+				/* usage in reregister) */
+	u64 size;		/* size (stored here for usage in reregister) */
+	u32 fmr_page_size;	/* page size for FMR */
+	u32 fmr_max_pages;	/* max pages for FMR */
+	u32 fmr_max_maps;	/* max outstanding maps for FMR */
+	u32 fmr_map_cnt;	/* map counter for FMR */
+	/* fw specific data */
+	struct ipz_mrmw_handle ipz_mr_handle;	/* MR handle for h-calls */
 	struct h_galpas galpas;
 };
 
 struct ehca_mw {
-	struct ib_mw ib_mw;	
+	struct ib_mw ib_mw;	/* gen2 mw, must always be first in ehca_mw */
 	spinlock_t mwlock;
 
-	u8 never_bound;		
-	struct ipz_mrmw_handle ipz_mw_handle;	
+	u8 never_bound;		/* indication MW was never bound */
+	struct ipz_mrmw_handle ipz_mw_handle;	/* MW handle for h-calls */
 	struct h_galpas galpas;
 };
 
 enum ehca_mr_pgi_type {
-	EHCA_MR_PGI_PHYS   = 1,  
-	EHCA_MR_PGI_USER   = 2,  
-	EHCA_MR_PGI_FMR    = 3   
+	EHCA_MR_PGI_PHYS   = 1,  /* type of ehca_reg_phys_mr,
+				  * ehca_rereg_phys_mr,
+				  * ehca_reg_internal_maxmr */
+	EHCA_MR_PGI_USER   = 2,  /* type of ehca_reg_user_mr */
+	EHCA_MR_PGI_FMR    = 3   /* type of ehca_map_phys_fmr */
 };
 
 struct ehca_mr_pginfo {
 	enum ehca_mr_pgi_type type;
 	u64 num_kpages;
 	u64 kpage_cnt;
-	u64 hwpage_size;     
-	u64 num_hwpages;     
-	u64 hwpage_cnt;      
-	u64 next_hwpage;     
+	u64 hwpage_size;     /* hw page size used for this MR */
+	u64 num_hwpages;     /* number of hw pages */
+	u64 hwpage_cnt;      /* counter for hw pages */
+	u64 next_hwpage;     /* next hw page in buffer/chunk/listelem */
 
 	union {
-		struct { 
+		struct { /* type EHCA_MR_PGI_PHYS section */
 			int num_phys_buf;
 			struct ib_phys_buf *phys_buf_array;
 			u64 next_buf;
 		} phy;
-		struct { 
+		struct { /* type EHCA_MR_PGI_USER section */
 			struct ib_umem *region;
 			struct ib_umem_chunk *next_chunk;
 			u64 next_nmap;
 		} usr;
-		struct { 
+		struct { /* type EHCA_MR_PGI_FMR section */
 			u64 fmr_pgsize;
 			u64 *page_list;
 			u64 next_listelem;
@@ -324,6 +333,7 @@ struct ehca_mr_pginfo {
 	} u;
 };
 
+/* output parameters for MR/FMR hipz calls */
 struct ehca_mr_hipzout_parms {
 	struct ipz_mrmw_handle handle;
 	u32 lkey;
@@ -333,6 +343,7 @@ struct ehca_mr_hipzout_parms {
 	u32 acl;
 };
 
+/* output parameters for MW hipz calls */
 struct ehca_mw_hipzout_parms {
 	struct ipz_mrmw_handle handle;
 	u32 rkey;
@@ -376,12 +387,12 @@ extern int ehca_max_cq;
 extern int ehca_max_qp;
 
 struct ipzu_queue_resp {
-	u32 qe_size;      
+	u32 qe_size;      /* queue entry size */
 	u32 act_nr_of_sg;
-	u32 queue_length; 
+	u32 queue_length; /* queue length allocated in bytes */
 	u32 pagesize;
 	u32 toggle_state;
-	u32 offset; 
+	u32 offset; /* save offset within a page for small_qp */
 };
 
 struct ehca_create_cq_resp {
@@ -398,7 +409,7 @@ struct ehca_create_qp_resp {
 	u32 qp_type;
 	u32 ext_type;
 	u32 qkey;
-	
+	/* qp_num assigned by ehca: sqp0/1 may have got different numbers */
 	u32 real_qp_num;
 	u32 fw_handle_ofs;
 	u32 dummy;
@@ -427,23 +438,23 @@ enum ehca_ll_comp_flags {
 };
 
 struct ehca_alloc_queue_parms {
-	
+	/* input parameters */
 	int max_wr;
 	int max_sge;
 	int page_size;
 	int is_small;
 
-	
+	/* output parameters */
 	u16 act_nr_wqes;
 	u8  act_nr_sges;
-	u32 queue_size; 
+	u32 queue_size; /* bytes for small queues, pages otherwise */
 };
 
 struct ehca_alloc_qp_parms {
 	struct ehca_alloc_queue_parms squeue;
 	struct ehca_alloc_queue_parms rqueue;
 
-	
+	/* input parameters */
 	enum ehca_service_type servicetype;
 	int qp_storage;
 	int sigtype;
@@ -458,7 +469,7 @@ struct ehca_alloc_qp_parms {
 
 	u32 srq_qpn, srq_token, srq_limit;
 
-	
+	/* output parameters */
 	u32 real_qp_num;
 	struct ipz_qp_handle qp_handle;
 	struct h_galpas galpas;

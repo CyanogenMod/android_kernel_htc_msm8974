@@ -14,10 +14,19 @@
 #include "of_device_common.h"
 #include "irq.h"
 
+/*
+ * PCI bus specific translator
+ */
 
 static int of_bus_pci_match(struct device_node *np)
 {
 	if (!strcmp(np->type, "pci") || !strcmp(np->type, "pciex")) {
+		/* Do not do PCI specific frobbing if the
+		 * PCI bridge lacks a ranges property.  We
+		 * want to pass it through up to the next
+		 * parent as-is, not with the PCI translate
+		 * method which chops off the top address cell.
+		 */
 		if (!of_find_property(np, "ranges", NULL))
 			return 0;
 
@@ -42,7 +51,7 @@ static int of_bus_pci_map(u32 *addr, const u32 *range,
 	u32 result[OF_MAX_ADDR_CELLS];
 	int i;
 
-	
+	/* Check address type match */
 	if ((addr[0] ^ range[0]) & 0x03000000)
 		return -EINVAL;
 
@@ -50,10 +59,10 @@ static int of_bus_pci_map(u32 *addr, const u32 *range,
 			    na - 1, ns))
 		return -EINVAL;
 
-	
+	/* Start with the parent range base.  */
 	memcpy(result, range + na, pna * 4);
 
-	
+	/* Add in the child address offset, skipping high cell.  */
 	for (i = 0; i < na - 1; i++)
 		result[pna - 1 - i] +=
 			(addr[na - 1 - i] -
@@ -68,15 +77,15 @@ static unsigned long of_bus_pci_get_flags(const u32 *addr, unsigned long flags)
 {
 	u32 w = addr[0];
 
-	
+	/* For PCI, we override whatever child busses may have used.  */
 	flags = 0;
 	switch((w >> 24) & 0x03) {
 	case 0x01:
 		flags |= IORESOURCE_IO;
 		break;
 
-	case 0x02: 
-	case 0x03: 
+	case 0x02: /* 32 bits */
+	case 0x03: /* 64 bits */
 		flags |= IORESOURCE_MEM;
 		break;
 	}
@@ -90,6 +99,9 @@ static unsigned long of_bus_sbus_get_flags(const u32 *addr, unsigned long flags)
 	return IORESOURCE_MEM;
 }
 
+ /*
+ * AMBAPP bus specific translator
+ */
 
 static int of_bus_ambapp_match(struct device_node *np)
 {
@@ -117,9 +129,12 @@ static unsigned long of_bus_ambapp_get_flags(const u32 *addr,
 	return IORESOURCE_MEM;
 }
 
+/*
+ * Array of bus specific translators
+ */
 
 static struct of_bus of_busses[] = {
-	
+	/* PCI */
 	{
 		.name = "pci",
 		.addr_prop_name = "assigned-addresses",
@@ -128,7 +143,7 @@ static struct of_bus of_busses[] = {
 		.map = of_bus_pci_map,
 		.get_flags = of_bus_pci_get_flags,
 	},
-	
+	/* SBUS */
 	{
 		.name = "sbus",
 		.addr_prop_name = "reg",
@@ -137,7 +152,7 @@ static struct of_bus of_busses[] = {
 		.map = of_bus_default_map,
 		.get_flags = of_bus_sbus_get_flags,
 	},
-	
+	/* AMBA */
 	{
 		.name = "ambapp",
 		.addr_prop_name = "reg",
@@ -146,7 +161,7 @@ static struct of_bus of_busses[] = {
 		.map = of_bus_ambapp_map,
 		.get_flags = of_bus_ambapp_get_flags,
 	},
-	
+	/* Default */
 	{
 		.name = "default",
 		.addr_prop_name = "reg",
@@ -192,7 +207,7 @@ static int __init build_one_resource(struct device_node *parent,
 		return 0;
 	}
 
-	
+	/* Now walk through the ranges */
 	rlen /= 4;
 	rone = na + pna + ns;
 	for (; rlen >= rone; rlen -= rone, ranges += rone) {
@@ -205,10 +220,16 @@ static int __init build_one_resource(struct device_node *parent,
 
 static int __init use_1to1_mapping(struct device_node *pp)
 {
-	
+	/* If we have a ranges property in the parent, use it.  */
 	if (of_find_property(pp, "ranges", NULL) != NULL)
 		return 0;
 
+	/* Some SBUS devices use intermediate nodes to express
+	 * hierarchy within the device itself.  These aren't
+	 * real bus nodes, and don't have a 'ranges' property.
+	 * But, we should still pass the translation work up
+	 * to the SBUS itself.
+	 */
 	if (!strcmp(pp->name, "dma") ||
 	    !strcmp(pp->name, "espdma") ||
 	    !strcmp(pp->name, "ledma") ||
@@ -240,10 +261,10 @@ static void __init build_device_resources(struct platform_device *op,
 	if (!preg || num_reg == 0)
 		return;
 
-	
+	/* Convert to num-cells.  */
 	num_reg /= 4;
 
-	
+	/* Conver to num-entries.  */
 	num_reg /= na + ns;
 
 	op->resource = op->archdata.resource;

@@ -21,4 +21,4 @@ struct msm_ce_hw_support {
 	void *bus_scale_table;
 };
 
-#endif 
+#endif /* __QCOM_CRYPTO_DEVICE__H */

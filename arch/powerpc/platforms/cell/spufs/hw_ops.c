@@ -66,6 +66,10 @@ static unsigned int spu_hw_mbox_stat_poll(struct spu_context *ctx,
 	spin_lock_irq(&spu->register_lock);
 	stat = in_be32(&spu->problem->mb_stat_R);
 
+	/* if the requested event is there, return the poll
+	   mask, otherwise enable the interrupt to get notified,
+	   but first mark any pending interrupts as done so
+	   we don't get woken up unnecessarily */
 
 	if (events & (POLLIN | POLLRDNORM)) {
 		if (stat & 0xff0000)
@@ -98,11 +102,11 @@ static int spu_hw_ibox_read(struct spu_context *ctx, u32 * data)
 
 	spin_lock_irq(&spu->register_lock);
 	if (in_be32(&prob->mb_stat_R) & 0xff0000) {
-		
+		/* read the first available word */
 		*data = in_be64(&priv2->puint_mb_R);
 		ret = 4;
 	} else {
-		
+		/* make sure we get woken up by the interrupt */
 		spu_int_mask_or(spu, 2, CLASS2_ENABLE_MAILBOX_INTR);
 		ret = 0;
 	}
@@ -118,10 +122,12 @@ static int spu_hw_wbox_write(struct spu_context *ctx, u32 data)
 
 	spin_lock_irq(&spu->register_lock);
 	if (in_be32(&prob->mb_stat_R) & 0x00ff00) {
-		
+		/* we have space to write wbox_data to */
 		out_be32(&prob->spu_mb_W, data);
 		ret = 4;
 	} else {
+		/* make sure we get woken up by the interrupt when space
+		   becomes available */
 		spu_int_mask_or(spu, 2, CLASS2_ENABLE_MAILBOX_THRESHOLD_INTR);
 		ret = 0;
 	}

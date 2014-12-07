@@ -53,4 +53,4 @@ int nilfs_ifile_read(struct super_block *sb, struct nilfs_root *root,
 		     size_t inode_size, struct nilfs_inode *raw_inode,
 		     struct inode **inodep);
 
-#endif	
+#endif	/* _NILFS_IFILE_H */

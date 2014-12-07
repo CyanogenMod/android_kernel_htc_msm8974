@@ -36,7 +36,7 @@
 #define WM5100_NUM_CORE_SUPPLIES 2
 static const char *wm5100_core_supply_names[WM5100_NUM_CORE_SUPPLIES] = {
 	"DBVDD1",
-	"LDOVDD", 
+	"LDOVDD", /* If DCVDD is supplied externally specify as LDOVDD */
 };
 
 #define WM5100_AIFS     3
@@ -49,6 +49,7 @@ struct wm5100_fll {
 	struct completion lock;
 };
 
+/* codec private data */
 struct wm5100_priv {
 	struct device *dev;
 	struct regmap *regmap;
@@ -130,7 +131,7 @@ static int wm5100_alloc_sr(struct snd_soc_codec *codec, int rate)
 	sr_code = i;
 
 	if ((wm5100->sysclk % rate) == 0) {
-		
+		/* Is this rate already in use? */
 		sr_free = -1;
 		for (i = 0; i < ARRAY_SIZE(wm5100_sr_regs); i++) {
 			if (!wm5100->sr_ref[i] && sr_free == -1) {
@@ -298,10 +299,10 @@ static const char *wm5100_mixer_texts[] = {
 
 static int wm5100_mixer_values[] = {
 	0x00,
-	0x04,   
+	0x04,   /* Tone */
 	0x05,
-	0x08,   
-	0x10,   
+	0x08,   /* AEC */
+	0x10,   /* Input */
 	0x11,
 	0x12,
 	0x13,
@@ -309,7 +310,7 @@ static int wm5100_mixer_values[] = {
 	0x15,
 	0x16,
 	0x17,
-	0x20,   
+	0x20,   /* AIF */
 	0x21,
 	0x22,
 	0x23,
@@ -319,54 +320,54 @@ static int wm5100_mixer_values[] = {
 	0x27,
 	0x28,
 	0x29,
-	0x30,   
+	0x30,   /* AIF3 - check */
 	0x31,
-	0x50,   
+	0x50,   /* EQ */
 	0x51,
 	0x52,
 	0x53,
 	0x54,
-	0x58,   
+	0x58,   /* DRC */
 	0x59,
-	0x60,   
-	0x61,   
-	0x62,   
-	0x63,   
-	0x68,   
+	0x60,   /* LHPF1 */
+	0x61,   /* LHPF2 */
+	0x62,   /* LHPF3 */
+	0x63,   /* LHPF4 */
+	0x68,   /* DSP1 */
 	0x69,
 	0x6a,
 	0x6b,
 	0x6c,
 	0x6d,
-	0x70,   
+	0x70,   /* DSP2 */
 	0x71,
 	0x72,
 	0x73,
 	0x74,
 	0x75,
-	0x78,   
+	0x78,   /* DSP3 */
 	0x79,
 	0x7a,
 	0x7b,
 	0x7c,
 	0x7d,
-	0x90,   
+	0x90,   /* ASRC1 */
 	0x91,
-	0x92,   
+	0x92,   /* ASRC2 */
 	0x93,
-	0xa0,   
+	0xa0,   /* ISRC1DEC1 */
 	0xa1,
 	0xa2,
 	0xa3,
-	0xa4,   
+	0xa4,   /* ISRC1INT1 */
 	0xa5,
 	0xa6,
 	0xa7,
-	0xa8,   
+	0xa8,   /* ISRC2DEC1 */
 	0xa9,
 	0xaa,
 	0xab,
-	0xac,   
+	0xac,   /* ISRC2INT1 */
 	0xad,
 	0xae,
 	0xaf,
@@ -530,6 +531,7 @@ SOC_SINGLE("IN3 High Performance Switch", WM5100_IN3L_CONTROL,
 SOC_SINGLE("IN4 High Performance Switch", WM5100_IN4L_CONTROL,
 	   WM5100_IN4_OSR_SHIFT, 1, 0),
 
+/* Only applicable for analogue inputs */
 SOC_DOUBLE_R_TLV("IN1 Volume", WM5100_IN1L_CONTROL, WM5100_IN1R_CONTROL,
 		 WM5100_IN1L_PGA_VOL_SHIFT, 94, 0, in_tlv),
 SOC_DOUBLE_R_TLV("IN2 Volume", WM5100_IN2L_CONTROL, WM5100_IN2R_CONTROL,
@@ -606,6 +608,7 @@ SOC_DOUBLE_R("SPKDAT1 Digital Switch", WM5100_DAC_DIGITAL_VOLUME_5L,
 SOC_DOUBLE_R("SPKDAT2 Digital Switch", WM5100_DAC_DIGITAL_VOLUME_6L,
 	     WM5100_DAC_DIGITAL_VOLUME_6R, WM5100_OUT6L_MUTE_SHIFT, 1, 1),
 
+/* FIXME: Only valid from -12dB to 0dB (52-64) */
 SOC_DOUBLE_R_TLV("HPOUT1 Volume", WM5100_OUT_VOLUME_1L, WM5100_OUT_VOLUME_1R,
 		 WM5100_OUT1L_PGA_VOL_SHIFT, 64, 0, out_tlv),
 SOC_DOUBLE_R_TLV("HPOUT2 Volume", WM5100_OUT_VOLUME_2L, WM5100_OUT_VOLUME_2R,
@@ -723,7 +726,7 @@ static void wm5100_seq_notifier(struct snd_soc_dapm_context *dapm,
 	struct wm5100_priv *wm5100 = snd_soc_codec_get_drvdata(codec);
 	u16 val, expect, i;
 
-	
+	/* Wait for the outputs to flag themselves as enabled */
 	if (wm5100->out_ena[0]) {
 		expect = snd_soc_read(codec, WM5100_CHANNEL_ENABLES_1);
 		for (i = 0; i < 200; i++) {
@@ -1056,6 +1059,10 @@ SND_SOC_DAPM_OUTPUT("PWM1"),
 SND_SOC_DAPM_OUTPUT("PWM2"),
 };
 
+/* We register a _POST event if we don't have IRQ support so we can
+ * look at the error status from the CODEC - if we've got the IRQ
+ * hooked up then we will get prompted to look by an interrupt.
+ */
 static const struct snd_soc_dapm_widget wm5100_dapm_widgets_noirq[] = {
 SND_SOC_DAPM_POST("Post", wm5100_post_ev),
 };
@@ -1411,7 +1418,7 @@ static int wm5100_hw_params(struct snd_pcm_substream *substream,
 	if (base < 0)
 		return base;
 
-	
+	/* Data sizes if not using TDM */
 	wl = snd_pcm_format_width(params_format(params));
 	if (wl < 0)
 		return wl;
@@ -1422,19 +1429,19 @@ static int wm5100_hw_params(struct snd_pcm_substream *substream,
 	dev_dbg(codec->dev, "Word length %d bits, frame length %d bits\n",
 		wl, fl);
 
-	
+	/* Target BCLK rate */
 	bclk = snd_soc_params_to_bclk(params);
 	if (bclk < 0)
 		return bclk;
 
-	
+	/* Root for BCLK depends on SYS/ASYNCCLK */
 	if (!async) {
 		aif_rate = wm5100->sysclk;
 		sr = wm5100_alloc_sr(codec, params_rate(params));
 		if (sr < 0)
 			return sr;
 	} else {
-		
+		/* If we're in ASYNCCLK set the ASYNC sample rate */
 		aif_rate = wm5100->asyncclk;
 		sr = 3;
 
@@ -1447,7 +1454,7 @@ static int wm5100_hw_params(struct snd_pcm_substream *substream,
 			return -EINVAL;
 		}
 
-		
+		/* TODO: We should really check for symmetry */
 		snd_soc_update_bits(codec, WM5100_CLOCKING_8,
 				    WM5100_ASYNC_SAMPLE_RATE_MASK, i);
 	}
@@ -1527,7 +1534,7 @@ static int wm5100_set_sysclk(struct snd_soc_codec *codec, int clk_id,
 		rate_store = &wm5100->asyncclk;
 		break;
 	case WM5100_CLK_32KHZ:
-		
+		/* The 32kHz clock is slightly different to the others */
 		switch (source) {
 		case WM5100_CLKSRC_MCLK1:
 		case WM5100_CLKSRC_MCLK2:
@@ -1544,7 +1551,7 @@ static int wm5100_set_sysclk(struct snd_soc_codec *codec, int clk_id,
 	case WM5100_CLK_AIF1:
 	case WM5100_CLK_AIF2:
 	case WM5100_CLK_AIF3:
-		
+		/* Not real clocks, record which clock domain they're in */
 		switch (source) {
 		case WM5100_CLKSRC_SYSCLK:
 			wm5100->aif_async[clk_id - 1] = false;
@@ -1631,11 +1638,18 @@ static int wm5100_set_sysclk(struct snd_soc_codec *codec, int clk_id,
 		break;
 	}
 
+	/* TODO: Check if MCLKs are in use and enable/disable pulls to
+	 * match.
+	 */
 
 	snd_soc_update_bits(codec, reg, WM5100_SYSCLK_FREQ_MASK |
 			    WM5100_SYSCLK_SRC_MASK,
 			    fval << WM5100_SYSCLK_FREQ_SHIFT | source);
 
+	/* If this is SYSCLK then configure the clock rate for the
+	 * internal audio functions to the natural sample rate for
+	 * this clock rate.
+	 */
 	if (clk_id == WM5100_CLK_SYSCLK) {
 		dev_dbg(codec->dev, "Setting primary audio rate to %dHz",
 			audio_rate);
@@ -1682,7 +1696,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 	unsigned int fratio, gcd_fll;
 	int i;
 
-	
+	/* Fref must be <=13.5MHz */
 	div = 1;
 	fll_div->fll_refclk_div = 0;
 	while ((Fref / div) > 13500000) {
@@ -1698,10 +1712,10 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 
 	pr_debug("FLL Fref=%u Fout=%u\n", Fref, Fout);
 
-	
+	/* Apply the division for our remaining calculations */
 	Fref /= div;
 
-	
+	/* Fvco should be 90-100MHz; don't check the upper bound */
 	div = 2;
 	while (Fout * div < 90000000) {
 		div++;
@@ -1716,7 +1730,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 
 	pr_debug("FLL Fvco=%dHz\n", target);
 
-	
+	/* Find an appropraite FLL_FRATIO and factor it out of the target */
 	for (i = 0; i < ARRAY_SIZE(fll_fratios); i++) {
 		if (fll_fratios[i].min <= Fref && Fref <= fll_fratios[i].max) {
 			fll_div->fll_fratio = fll_fratios[i].fll_fratio;
@@ -1803,7 +1817,7 @@ static int wm5100_set_fll(struct snd_soc_codec *codec, int fll_id, int source,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Disable the FLL while we reconfigure */
 	snd_soc_update_bits(codec, base + 1, WM5100_FLL1_ENA, 0);
 
 	snd_soc_update_bits(codec, base + 2,
@@ -1821,7 +1835,7 @@ static int wm5100_set_fll(struct snd_soc_codec *codec, int fll_id, int source,
 	snd_soc_update_bits(codec, base + 7, WM5100_FLL1_LAMBDA_MASK,
 			    factors.lambda);
 
-	
+	/* Clear any pending completions */
 	try_wait_for_completion(&fll->lock);
 
 	pm_runtime_get_sync(codec->dev);
@@ -1836,7 +1850,7 @@ static int wm5100_set_fll(struct snd_soc_codec *codec, int fll_id, int source,
 	snd_soc_update_bits(codec, WM5100_CLOCKING_3, WM5100_SYSCLK_ENA,
 			    WM5100_SYSCLK_ENA);
 
-	
+	/* Poll for the lock; will use interrupt when we can test */
 	for (i = 0; i < timeout; i++) {
 		if (i2c->irq) {
 			ret = wait_for_completion_timeout(&fll->lock,
@@ -1874,6 +1888,7 @@ static int wm5100_set_fll(struct snd_soc_codec *codec, int fll_id, int source,
 	return 0;
 }
 
+/* Actually go much higher */
 #define WM5100_RATES SNDRV_PCM_RATE_8000_192000
 
 #define WM5100_FORMATS (SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S20_3LE |\
@@ -1991,7 +2006,7 @@ static void wm5100_report_headphone(struct wm5100_priv *wm5100)
 	snd_soc_jack_report(wm5100->jack, SND_JACK_HEADPHONE,
 			    SND_JACK_HEADPHONE);
 
-	
+	/* Increase the detection rate a bit for responsiveness. */
 	regmap_update_bits(wm5100->regmap, WM5100_MIC_DETECT_1,
 			   WM5100_ACCDET_RATE_MASK,
 			   7 << WM5100_ACCDET_RATE_SHIFT);
@@ -2016,7 +2031,7 @@ static void wm5100_micd_irq(struct wm5100_priv *wm5100)
 		return;
 	}
 
-	
+	/* No accessory, reset everything and report removal */
 	if (!(val & WM5100_ACCDET_STS)) {
 		dev_dbg(wm5100->dev, "Jack removal detected\n");
 		wm5100->jack_mic = false;
@@ -2032,6 +2047,10 @@ static void wm5100_micd_irq(struct wm5100_priv *wm5100)
 		return;
 	}
 
+	/* If the measurement is very high we've got a microphone,
+	 * either we just detected one or if we already reported then
+	 * we've got a button release event.
+	 */
 	if (val & 0x400) {
 		if (wm5100->jack_detecting) {
 			dev_dbg(wm5100->dev, "Microphone detected\n");
@@ -2041,6 +2060,8 @@ static void wm5100_micd_irq(struct wm5100_priv *wm5100)
 					    SND_JACK_HEADSET,
 					    SND_JACK_HEADSET | SND_JACK_BTN_0);
 
+			/* Increase poll rate to give better responsiveness
+			 * for buttons */
 			regmap_update_bits(wm5100->regmap, WM5100_MIC_DETECT_1,
 					   WM5100_ACCDET_RATE_MASK,
 					   5 << WM5100_ACCDET_RATE_SHIFT);
@@ -2052,6 +2073,12 @@ static void wm5100_micd_irq(struct wm5100_priv *wm5100)
 		return;
 	}
 
+	/* If we detected a lower impedence during initial startup
+	 * then we probably have the wrong polarity, flip it.  Don't
+	 * do this for the lowest impedences to speed up detection of
+	 * plain headphones and give up if neither polarity looks
+	 * sensible.
+	 */
 	if (wm5100->jack_detecting && (val & 0x3f8)) {
 		wm5100->jack_flips++;
 
@@ -2063,6 +2090,9 @@ static void wm5100_micd_irq(struct wm5100_priv *wm5100)
 		return;
 	}
 
+	/* Don't distinguish between buttons, just report any low
+	 * impedence as BTN_0.
+	 */
 	if (val & 0x3fc) {
 		if (wm5100->jack_mic) {
 			dev_dbg(wm5100->dev, "Mic button detected\n");
@@ -2085,17 +2115,22 @@ int wm5100_detect(struct snd_soc_codec *codec, struct snd_soc_jack *jack)
 
 		wm5100_set_detect_mode(wm5100, 0);
 
+		/* Slowest detection rate, gives debounce for initial
+		 * detection */
 		snd_soc_update_bits(codec, WM5100_MIC_DETECT_1,
 				    WM5100_ACCDET_BIAS_STARTTIME_MASK |
 				    WM5100_ACCDET_RATE_MASK,
 				    (7 << WM5100_ACCDET_BIAS_STARTTIME_SHIFT) |
 				    WM5100_ACCDET_RATE_MASK);
 
-		
+		/* We need the charge pump to power MICBIAS */
 		snd_soc_dapm_force_enable_pin(&codec->dapm, "CP2");
 		snd_soc_dapm_force_enable_pin(&codec->dapm, "SYSCLK");
 		snd_soc_dapm_sync(&codec->dapm);
 
+		/* We start off just enabling microphone detection - even a
+		 * plain headphone will trigger detection.
+		 */
 		snd_soc_update_bits(codec, WM5100_MIC_DETECT_1,
 				    WM5100_ACCDET_ENA, WM5100_ACCDET_ENA);
 
@@ -2320,11 +2355,11 @@ static int wm5100_probe(struct snd_soc_codec *codec)
 		snd_soc_update_bits(codec, wm5100_dig_vu[i], WM5100_OUT_VU,
 				    WM5100_OUT_VU);
 
-	
+	/* Don't debounce interrupts to support use of SYSCLK only */
 	snd_soc_write(codec, WM5100_IRQ_DEBOUNCE_1, 0);
 	snd_soc_write(codec, WM5100_IRQ_DEBOUNCE_2, 0);
 
-	
+	/* TODO: check if we're symmetric */
 
 	if (i2c->irq)
 		snd_soc_dapm_new_controls(&codec->dapm,
@@ -2564,7 +2599,7 @@ static __devinit int wm5100_i2c_probe(struct i2c_client *i2c,
 			dev_err(&i2c->dev, "Failed to request IRQ %d: %d\n",
 				i2c->irq, ret);
 		} else {
-			
+			/* Enable default interrupts */
 			regmap_update_bits(wm5100->regmap,
 					   WM5100_INTERRUPT_STATUS_3_MASK,
 					   WM5100_IM_SPK_SHUTDOWN_WARN_EINT |

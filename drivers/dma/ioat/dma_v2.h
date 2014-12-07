@@ -30,6 +30,10 @@
 extern int ioat_pending_level;
 extern int ioat_ring_alloc_order;
 
+/*
+ * workaround for IOAT ver.3.0 null descriptor issue
+ * (channel returns error when size is 0)
+ */
 #define NULL_DESC_BUFFER_SIZE 1
 
 #define IOAT_MAX_ORDER 16
@@ -38,6 +42,18 @@ extern int ioat_ring_alloc_order;
 #define ioat_get_max_alloc_order() \
 	(min(ioat_ring_max_alloc_order, IOAT_MAX_ORDER))
 
+/* struct ioat2_dma_chan - ioat v2 / v3 channel attributes
+ * @base: common ioat channel parameters
+ * @xfercap_log; log2 of channel max transfer length (for fast division)
+ * @head: allocated index
+ * @issued: hardware notification point
+ * @tail: cleanup index
+ * @dmacount: identical to 'head' except for occasionally resetting to zero
+ * @alloc_order: log2 of the number of allocated descriptors
+ * @produce: number of descriptors to produce at submit time
+ * @ring: software ring buffer implementation of hardware ring
+ * @prep_lock: serializes descriptor preparation (producers)
+ */
 struct ioat2_dma_chan {
 	struct ioat_chan_common base;
 	size_t xfercap_log;
@@ -63,11 +79,13 @@ static inline u32 ioat2_ring_size(struct ioat2_dma_chan *ioat)
 	return 1 << ioat->alloc_order;
 }
 
+/* count of descriptors in flight with the engine */
 static inline u16 ioat2_ring_active(struct ioat2_dma_chan *ioat)
 {
 	return CIRC_CNT(ioat->head, ioat->tail, ioat2_ring_size(ioat));
 }
 
+/* count of descriptors pending submission to hardware */
 static inline u16 ioat2_ring_pending(struct ioat2_dma_chan *ioat)
 {
 	return CIRC_CNT(ioat->head, ioat->issued, ioat2_ring_size(ioat));
@@ -86,6 +104,21 @@ static inline u16 ioat2_xferlen_to_descs(struct ioat2_dma_chan *ioat, size_t len
 	return num_descs;
 }
 
+/**
+ * struct ioat_ring_ent - wrapper around hardware descriptor
+ * @hw: hardware DMA descriptor (for memcpy)
+ * @fill: hardware fill descriptor
+ * @xor: hardware xor descriptor
+ * @xor_ex: hardware xor extension descriptor
+ * @pq: hardware pq descriptor
+ * @pq_ex: hardware pq extension descriptor
+ * @pqu: hardware pq update descriptor
+ * @raw: hardware raw (un-typed) descriptor
+ * @txd: the generic software descriptor for all engines
+ * @len: total transaction length for unmap
+ * @result: asynchronous result of validate operations
+ * @id: identifier for debug
+ */
 
 struct ioat_ring_ent {
 	union {
@@ -143,4 +176,4 @@ int ioat2_quiesce(struct ioat_chan_common *chan, unsigned long tmo);
 int ioat2_reset_sync(struct ioat_chan_common *chan, unsigned long tmo);
 extern struct kobj_type ioat2_ktype;
 extern struct kmem_cache *ioat2_cache;
-#endif 
+#endif /* IOATDMA_V2_H */

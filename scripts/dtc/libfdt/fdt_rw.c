@@ -157,7 +157,7 @@ static int _fdt_find_add_string(void *fdt, const char *s)
 
 	p = _fdt_find_string(strtab, fdt_size_dt_strings(fdt), s);
 	if (p)
-		
+		/* found it */
 		return (p - strtab);
 
 	new = strtab + fdt_size_dt_strings(fdt);
@@ -349,8 +349,8 @@ int fdt_add_subnode_namelen(void *fdt, int parentoffset,
 	else if (offset != -FDT_ERR_NOTFOUND)
 		return offset;
 
-	
-	fdt_next_tag(fdt, parentoffset, &nextoffset); 
+	/* Try to place the new node after the parent's properties */
+	fdt_next_tag(fdt, parentoffset, &nextoffset); /* skip the BEGIN_NODE */
 	do {
 		offset = nextoffset;
 		tag = fdt_next_tag(fdt, offset, &nextoffset);
@@ -438,7 +438,7 @@ int fdt_open_into(const void *fdt, void *buf, int bufsize)
 	}
 
 	if (!_fdt_blocks_misordered(fdt, mem_rsv_size, struct_size)) {
-		
+		/* no further work necessary */
 		err = fdt_move(fdt, buf, bufsize);
 		if (err)
 			return err;
@@ -448,18 +448,18 @@ int fdt_open_into(const void *fdt, void *buf, int bufsize)
 		return 0;
 	}
 
-	
+	/* Need to reorder */
 	newsize = FDT_ALIGN(sizeof(struct fdt_header), 8) + mem_rsv_size
 		+ struct_size + fdt_size_dt_strings(fdt);
 
 	if (bufsize < newsize)
 		return -FDT_ERR_NOSPACE;
 
-	
+	/* First attempt to build converted tree at beginning of buffer */
 	tmp = buf;
-	
+	/* But if that overlaps with the old tree... */
 	if (((tmp + newsize) > fdtstart) && (tmp < fdtend)) {
-		
+		/* Try right after the old tree instead */
 		tmp = (char *)(uintptr_t)fdtend;
 		if ((tmp + newsize) > ((char *)buf + bufsize))
 			return -FDT_ERR_NOSPACE;

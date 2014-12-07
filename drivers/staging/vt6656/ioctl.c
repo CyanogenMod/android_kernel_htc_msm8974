@@ -116,28 +116,28 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		}
 
 		if (sZoneTypeCmd.bWrite == TRUE) {
-			
+			/* write zonetype */
 			if (sZoneTypeCmd.ZoneType == ZoneType_USA) {
-				
+				/* set to USA */
 				printk("set_ZoneType:USA\n");
 			} else if (sZoneTypeCmd.ZoneType == ZoneType_Japan) {
-				
+				/* set to Japan */
 				printk("set_ZoneType:Japan\n");
 			} else if (sZoneTypeCmd.ZoneType == ZoneType_Europe) {
-				
+				/* set to Europe */
 				printk("set_ZoneType:Europe\n");
 			}
 		} else {
-			
+			/* read zonetype */
 			BYTE zonetype = 0;
 
-			if (zonetype == 0x00) {        
+			if (zonetype == 0x00) {        /* USA */
 				sZoneTypeCmd.ZoneType = ZoneType_USA;
-			} else if (zonetype == 0x01) { 
+			} else if (zonetype == 0x01) { /* Japan */
 				sZoneTypeCmd.ZoneType = ZoneType_Japan;
-			} else if (zonetype == 0x02) { 
+			} else if (zonetype == 0x02) { /* Europe */
 				sZoneTypeCmd.ZoneType = ZoneType_Europe;
-			} else {                       
+			} else {                       /* Unknown ZoneType */
 				printk("Error:ZoneType[%x] Unknown ???\n", zonetype);
 				result = -EFAULT;
 				break;
@@ -314,7 +314,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 				pList->sBSSIDList[ii].wCapInfo = pBSS->wCapInfo;
 				RFvRSSITodBm(pDevice, (BYTE)(pBSS->uRSSI), &ldBm);
 				pList->sBSSIDList[ii].uRSSI = (unsigned int) ldBm;
-				
+				/* pList->sBSSIDList[ii].uRSSI = pBSS->uRSSI; */
 				memcpy(pList->sBSSIDList[ii].abyBSSID, pBSS->abyBSSID, WLAN_BSSID_LEN);
 				pItemSSID = (PWLAN_IE_SSID)pBSS->abySSID;
 				memset(pList->sBSSIDList[ii].abySSID, 0, WLAN_SSID_MAXLEN + 1);
@@ -358,7 +358,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		break;
 	case WLAN_CMD_STOP_MAC:
 		DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO "WLAN_CMD_STOP_MAC\n");
-		
+		/* Todo xxxxxx */
 		netif_stop_queue(pDevice->dev);
 		spin_lock_irq(&pDevice->lock);
 		if (pDevice->bRadioOff == FALSE) {
@@ -368,15 +368,15 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		ControlvMaskByte(pDevice, MESSAGE_REQUEST_MACREG, MAC_REG_PAPEDELAY, LEDSTS_STS, LEDSTS_SLOW);
 		memset(pMgmt->abyCurrBSSID, 0, 6);
 		pMgmt->eCurrState = WMAC_STATE_IDLE;
-		
-		
+		/* del_timer(&pDevice->sTimerCommand); */
+		/* del_timer(&pMgmt->sTimerSecondCallback); */
 		pDevice->bCmdRunning = FALSE;
 		spin_unlock_irq(&pDevice->lock);
 		break;
 
 	case WLAN_CMD_START_MAC:
 		DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO "WLAN_CMD_START_MAC\n");
-		
+		/* Todo xxxxxxx */
 		if (pDevice->bRadioOff == TRUE)
 			CARDbRadioPowerOn(pDevice);
 		break;
@@ -521,7 +521,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		} else if (sStartAPCmd.byBasicRate & BIT1) {
 			pMgmt->abyIBSSSuppRates[2] |= BIT7;
 		} else {
-			
+			/* default 1,2M */
 			pMgmt->abyIBSSSuppRates[2] |= BIT7;
 			pMgmt->abyIBSSSuppRates[3] |= BIT7;
 		}
@@ -620,7 +620,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 			result = -EFAULT;
 			break;
 		}
-		
+		/* for some AP maybe good authenticate */
 		if (wpa_Result.key_mgmt == 0x20)
 			pMgmt->Cisco_cckm = 1;
 		else
@@ -637,7 +637,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 				wireless_send_event(pDevice->dev, IWEVCUSTOM, &wrqu, pItemSSID->abySSID);
 			}
 
-			pDevice->fWPA_Authened = TRUE; 
+			pDevice->fWPA_Authened = TRUE; /* is successful peer to wpa_Result.authenticated? */
 		}
 
 		pReq->wResult = 0;

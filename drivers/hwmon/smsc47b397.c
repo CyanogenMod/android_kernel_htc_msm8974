@@ -49,9 +49,10 @@ static struct platform_device *pdev;
 
 #define DRVNAME "smsc47b397"
 
+/* Super-I/0 registers and commands */
 
-#define	REG	0x2e	
-#define	VAL	0x2f	
+#define	REG	0x2e	/* The register to read/write */
+#define	VAL	0x2f	/* The value to read/write */
 
 static inline void superio_outb(int reg, int val)
 {
@@ -65,6 +66,7 @@ static inline int superio_inb(int reg)
 	return inb(VAL);
 }
 
+/* select superio logical device */
 static inline void superio_select(int ld)
 {
 	superio_outb(0x07, ld);
@@ -88,9 +90,11 @@ static inline void superio_exit(void)
 
 #define SMSC_EXTENT		0x02
 
+/* 0 <= nr <= 3 */
 static u8 smsc47b397_reg_temp[] = {0x25, 0x26, 0x27, 0x80};
 #define SMSC47B397_REG_TEMP(nr)	(smsc47b397_reg_temp[(nr)])
 
+/* 0 <= nr <= 3 */
 #define SMSC47B397_REG_FAN_LSB(nr) (0x28 + 2 * (nr))
 #define SMSC47B397_REG_FAN_MSB(nr) (0x29 + 2 * (nr))
 
@@ -101,10 +105,10 @@ struct smsc47b397_data {
 	struct mutex lock;
 
 	struct mutex update_lock;
-	unsigned long last_updated; 
+	unsigned long last_updated; /* in jiffies */
 	int valid;
 
-	
+	/* register values */
 	u16 fan[4];
 	u8 temp[4];
 };
@@ -130,12 +134,12 @@ static struct smsc47b397_data *smsc47b397_update_device(struct device *dev)
 	if (time_after(jiffies, data->last_updated + HZ) || !data->valid) {
 		dev_dbg(dev, "starting device update...\n");
 
-		
+		/* 4 temperature inputs, 4 fan inputs */
 		for (i = 0; i < 4; i++) {
 			data->temp[i] = smsc47b397_read_value(data,
 					SMSC47B397_REG_TEMP(i));
 
-			
+			/* must read LSB first */
 			data->fan[i]  = smsc47b397_read_value(data,
 					SMSC47B397_REG_FAN_LSB(i));
 			data->fan[i] |= smsc47b397_read_value(data,
@@ -153,6 +157,10 @@ static struct smsc47b397_data *smsc47b397_update_device(struct device *dev)
 	return data;
 }
 
+/*
+ * TEMP: 0.001C/bit (-128C to +127C)
+ * REG: 1C/bit, two's complement
+ */
 static int temp_from_reg(u8 reg)
 {
 	return (s8)reg * 1000;
@@ -171,6 +179,10 @@ static SENSOR_DEVICE_ATTR(temp2_input, S_IRUGO, show_temp, NULL, 1);
 static SENSOR_DEVICE_ATTR(temp3_input, S_IRUGO, show_temp, NULL, 2);
 static SENSOR_DEVICE_ATTR(temp4_input, S_IRUGO, show_temp, NULL, 3);
 
+/*
+ * FAN: 1 RPM/bit
+ * REG: count of 90kHz pulses / revolution
+ */
 static int fan_from_reg(u16 reg)
 {
 	if (reg == 0 || reg == 0xffff)
@@ -383,7 +395,7 @@ static int __init smsc47b397_init(void)
 	if (ret)
 		goto exit;
 
-	
+	/* Sets global pdev as a side effect */
 	ret = smsc47b397_device_add(address);
 	if (ret)
 		goto exit_driver;

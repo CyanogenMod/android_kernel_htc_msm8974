@@ -37,6 +37,7 @@ static const char *wm8955_supply_names[WM8955_NUM_SUPPLIES] = {
 	"AVDD",
 };
 
+/* codec private data */
 struct wm8955_priv {
 	struct regmap *regmap;
 
@@ -49,34 +50,34 @@ struct wm8955_priv {
 };
 
 static const struct reg_default wm8955_reg_defaults[] = {
-	{ 2,  0x0079 },     
-	{ 3,  0x0079 },     
-	{ 5,  0x0008 },     
-	{ 7,  0x000A },     
-	{ 8,  0x0000 },     
-	{ 10, 0x00FF },     
-	{ 11, 0x00FF },     
-	{ 12, 0x000F },     
-	{ 13, 0x000F },     
-	{ 23, 0x00C1 },     
-	{ 24, 0x0000 },     
-	{ 25, 0x0000 },     
-	{ 26, 0x0000 },     
-	{ 27, 0x0000 },     
-	{ 34, 0x0050 },     
-	{ 35, 0x0050 },     
-	{ 36, 0x0050 },     
-	{ 37, 0x0050 },     
-	{ 38, 0x0050 },     
-	{ 39, 0x0050 },     
-	{ 40, 0x0079 },     
-	{ 41, 0x0079 },     
-	{ 42, 0x0079 },     
-	{ 43, 0x0000 },     
-	{ 44, 0x0103 },     
-	{ 45, 0x0024 },     
-	{ 46, 0x01BA },     
-	{ 59, 0x0000 },     
+	{ 2,  0x0079 },     /* R2  - LOUT1 volume */
+	{ 3,  0x0079 },     /* R3  - ROUT1 volume */
+	{ 5,  0x0008 },     /* R5  - DAC Control */
+	{ 7,  0x000A },     /* R7  - Audio Interface */
+	{ 8,  0x0000 },     /* R8  - Sample Rate */
+	{ 10, 0x00FF },     /* R10 - Left DAC volume */
+	{ 11, 0x00FF },     /* R11 - Right DAC volume */
+	{ 12, 0x000F },     /* R12 - Bass control */
+	{ 13, 0x000F },     /* R13 - Treble control */
+	{ 23, 0x00C1 },     /* R23 - Additional control (1) */
+	{ 24, 0x0000 },     /* R24 - Additional control (2) */
+	{ 25, 0x0000 },     /* R25 - Power Management (1) */
+	{ 26, 0x0000 },     /* R26 - Power Management (2) */
+	{ 27, 0x0000 },     /* R27 - Additional Control (3) */
+	{ 34, 0x0050 },     /* R34 - Left out Mix (1) */
+	{ 35, 0x0050 },     /* R35 - Left out Mix (2) */
+	{ 36, 0x0050 },     /* R36 - Right out Mix (1) */
+	{ 37, 0x0050 },     /* R37 - Right Out Mix (2) */
+	{ 38, 0x0050 },     /* R38 - Mono out Mix (1) */
+	{ 39, 0x0050 },     /* R39 - Mono out Mix (2) */
+	{ 40, 0x0079 },     /* R40 - LOUT2 volume */
+	{ 41, 0x0079 },     /* R41 - ROUT2 volume */
+	{ 42, 0x0079 },     /* R42 - MONOOUT volume */
+	{ 43, 0x0000 },     /* R43 - Clocking / PLL */
+	{ 44, 0x0103 },     /* R44 - PLL Control 1 */
+	{ 45, 0x0024 },     /* R45 - PLL Control 2 */
+	{ 46, 0x01BA },     /* R46 - PLL Control 3 */
+	{ 59, 0x0000 },     /* R59 - PLL Control 4 */
 };
 
 static bool wm8955_writeable(struct device *dev, unsigned int reg)
@@ -138,6 +139,8 @@ struct pll_factors {
 	int outdiv;
 };
 
+/* The size in bits of the FLL divide multiplied by 10
+ * to allow rounding later */
 #define FIXED_FLL_SIZE ((1 << 22) * 10)
 
 static int wm8995_pll_factors(struct device *dev,
@@ -148,6 +151,10 @@ static int wm8995_pll_factors(struct device *dev,
 
 	dev_dbg(dev, "Fref=%u Fout=%u\n", Fref, Fout);
 
+	/* The oscilator should run at should be 90-100MHz, and
+	 * there's a divide by 4 plus an optional divide by 2 in the
+	 * output path to generate the system clock.  The clock table
+	 * is sortd so we should always generate a suitable target. */
 	target = Fout * 4;
 	if (target < 90000000) {
 		pll->outdiv = 1;
@@ -160,14 +167,14 @@ static int wm8995_pll_factors(struct device *dev,
 
 	dev_dbg(dev, "Fvco=%dHz\n", target);
 
-	
+	/* Now, calculate N.K */
 	Ndiv = target / Fref;
 
 	pll->n = Ndiv;
 	Nmod = target % Fref;
 	dev_dbg(dev, "Nmod=%d\n", Nmod);
 
-	
+	/* Calculate fractional part - scale up so we can round. */
 	Kpart = FIXED_FLL_SIZE * (long long)Nmod;
 
 	do_div(Kpart, Fref);
@@ -177,7 +184,7 @@ static int wm8995_pll_factors(struct device *dev,
 	if ((K % 10) >= 5)
 		K += 5;
 
-	
+	/* Move down to proper range now rounding is done */
 	pll->k = K / 10;
 
 	dev_dbg(dev, "N=%x K=%x OUTDIV=%x\n", pll->n, pll->k, pll->outdiv);
@@ -185,6 +192,9 @@ static int wm8995_pll_factors(struct device *dev,
 	return 0;
 }
 
+/* Lookup table specifying SRATE (table 25 in datasheet); some of the
+ * output frequencies have been rounded to the standard frequencies
+ * they are intended to match where the error is slight. */
 static struct {
 	int mclk;
 	int fs;
@@ -241,11 +251,11 @@ static int wm8955_configure_clocking(struct snd_soc_codec *codec)
 	int sr = -1;
 	struct pll_factors pll;
 
-	
+	/* If we're not running a sample rate currently just pick one */
 	if (wm8955->fs == 0)
 		wm8955->fs = 8000;
 
-	
+	/* Can we generate an exact output? */
 	for (i = 0; i < ARRAY_SIZE(clock_cfgs); i++) {
 		if (wm8955->fs != clock_cfgs[i].fs)
 			continue;
@@ -255,7 +265,7 @@ static int wm8955_configure_clocking(struct snd_soc_codec *codec)
 			break;
 	}
 
-	
+	/* We should never get here with an unsupported sample rate */
 	if (sr == -1) {
 		dev_err(codec->dev, "Sample rate %dHz unsupported\n",
 			wm8955->fs);
@@ -264,8 +274,14 @@ static int wm8955_configure_clocking(struct snd_soc_codec *codec)
 	}
 
 	if (i == ARRAY_SIZE(clock_cfgs)) {
+		/* If we can't generate the right clock from MCLK then
+		 * we should configure the PLL to supply us with an
+		 * appropriate clock.
+		 */
 		clocking |= WM8955_MCLKSEL;
 
+		/* Use the last divider configuration we saw for the
+		 * sample rate. */
 		ret = wm8995_pll_factors(codec->dev, wm8955->mclk_rate,
 					 clock_cfgs[sr].mclk, &pll);
 		if (ret != 0) {
@@ -297,7 +313,7 @@ static int wm8955_configure_clocking(struct snd_soc_codec *codec)
 		else
 			val = WM8955_PLL_RB;
 
-		
+		/* Now start the PLL running */
 		snd_soc_update_bits(codec, WM8955_CLOCKING_PLL,
 				    WM8955_PLL_RB | WM8955_PLLOUTDIV2, val);
 		snd_soc_update_bits(codec, WM8955_CLOCKING_PLL,
@@ -320,6 +336,9 @@ static int wm8955_sysclk(struct snd_soc_dapm_widget *w,
 	struct snd_soc_codec *codec = w->codec;
 	int ret = 0;
 
+	/* Always disable the clocks - if we're doing reconfiguration this
+	 * avoids misclocking.
+	 */
 	snd_soc_update_bits(codec, WM8955_POWER_MANAGEMENT_1,
 			    WM8955_DIGENB, 0);
 	snd_soc_update_bits(codec, WM8955_CLOCKING_PLL,
@@ -346,6 +365,9 @@ static int wm8955_set_deemph(struct snd_soc_codec *codec)
 	struct wm8955_priv *wm8955 = snd_soc_codec_get_drvdata(codec);
 	int val, i, best;
 
+	/* If we're using deemphasis select the nearest available sample
+	 * rate.
+	 */
 	if (wm8955->deemph) {
 		best = 1;
 		for (i = 2; i < ARRAY_SIZE(deemph_settings); i++) {
@@ -443,6 +465,7 @@ SOC_SINGLE_TLV("Right Mono Volume", WM8955_RIGHT_OUT_MIX_1, 4, 7, 1,
 SOC_SINGLE_TLV("Right Bypass Volume", WM8955_RIGHT_OUT_MIX_2, 4, 7, 1,
 	       bypass_tlv),
 
+/* Not a stereo pair so they line up with the DAPM switches */
 SOC_SINGLE_TLV("Mono Left Bypass Volume", WM8955_MONO_OUT_MIX_1, 4, 7, 1,
 	       mono_tlv),
 SOC_SINGLE_TLV("Mono Right Bypass Volume", WM8955_MONO_OUT_MIX_2, 4, 7, 1,
@@ -505,6 +528,7 @@ SND_SOC_DAPM_PGA("ROUT2 PGA", WM8955_POWER_MANAGEMENT_2, 3, 0, NULL, 0),
 SND_SOC_DAPM_PGA("MOUT PGA", WM8955_POWER_MANAGEMENT_2, 2, 0, NULL, 0),
 SND_SOC_DAPM_PGA("OUT3 PGA", WM8955_POWER_MANAGEMENT_2, 1, 0, NULL, 0),
 
+/* The names are chosen to make the control names nice */
 SND_SOC_DAPM_MIXER("Left", SND_SOC_NOPM, 0, 0,
 		   lmixer, ARRAY_SIZE(lmixer)),
 SND_SOC_DAPM_MIXER("Right", SND_SOC_NOPM, 0, 0,
@@ -561,7 +585,7 @@ static const struct snd_soc_dapm_route wm8955_dapm_routes[] = {
 	{ "MOUT PGA", NULL, "Mono" },
 	{ "MONOOUT", NULL, "MOUT PGA" },
 
-	
+	/* OUT3 not currently implemented */
 	{ "OUT3", NULL, "OUT3 PGA" },
 };
 
@@ -596,6 +620,9 @@ static int wm8955_hw_params(struct snd_pcm_substream *substream,
 	wm8955->fs = params_rate(params);
 	wm8955_set_deemph(codec);
 
+	/* If the chip is clocked then disable the clocks and force a
+	 * reconfiguration, otherwise DAPM will power up the
+	 * clocks for us later. */
 	ret = snd_soc_read(codec, WM8955_POWER_MANAGEMENT_1);
 	if (ret < 0)
 		return ret;
@@ -678,7 +705,7 @@ static int wm8955_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 	case SND_SOC_DAIFMT_DSP_B:
-		
+		/* frame inversion not valid for DSP modes */
 		switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 		case SND_SOC_DAIFMT_NB_NF:
 			break;
@@ -747,12 +774,12 @@ static int wm8955_set_bias_level(struct snd_soc_codec *codec,
 		break;
 
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* VMID resistance 2*50k */
 		snd_soc_update_bits(codec, WM8955_POWER_MANAGEMENT_1,
 				    WM8955_VMIDSEL_MASK,
 				    0x1 << WM8955_VMIDSEL_SHIFT);
 
-		
+		/* Default bias current */
 		snd_soc_update_bits(codec, WM8955_ADDITIONAL_CONTROL_1,
 				    WM8955_VSEL_MASK,
 				    0x2 << WM8955_VSEL_SHIFT);
@@ -771,39 +798,39 @@ static int wm8955_set_bias_level(struct snd_soc_codec *codec,
 
 			regcache_sync(wm8955->regmap);
 
-			
+			/* Enable VREF and VMID */
 			snd_soc_update_bits(codec, WM8955_POWER_MANAGEMENT_1,
 					    WM8955_VREF |
 					    WM8955_VMIDSEL_MASK,
 					    WM8955_VREF |
 					    0x3 << WM8955_VREF_SHIFT);
 
-			
+			/* Let VMID ramp */
 			msleep(500);
 
-			
+			/* High resistance VROI to maintain outputs */
 			snd_soc_update_bits(codec,
 					    WM8955_ADDITIONAL_CONTROL_3,
 					    WM8955_VROI, WM8955_VROI);
 		}
 
-		
+		/* Maintain VMID with 2*250k */
 		snd_soc_update_bits(codec, WM8955_POWER_MANAGEMENT_1,
 				    WM8955_VMIDSEL_MASK,
 				    0x2 << WM8955_VMIDSEL_SHIFT);
 
-		
+		/* Minimum bias current */
 		snd_soc_update_bits(codec, WM8955_ADDITIONAL_CONTROL_1,
 				    WM8955_VSEL_MASK, 0);
 		break;
 
 	case SND_SOC_BIAS_OFF:
-		
+		/* Low resistance VROI to help discharge */
 		snd_soc_update_bits(codec,
 				    WM8955_ADDITIONAL_CONTROL_3,
 				    WM8955_VROI, 0);
 
-		
+		/* Turn off VMID and VREF */
 		snd_soc_update_bits(codec, WM8955_POWER_MANAGEMENT_1,
 				    WM8955_VREF |
 				    WM8955_VMIDSEL_MASK, 0);
@@ -900,7 +927,7 @@ static int wm8955_probe(struct snd_soc_codec *codec)
 		goto err_enable;
 	}
 
-	
+	/* Change some default settings - latch VU and enable ZC */
 	snd_soc_update_bits(codec, WM8955_LEFT_DAC_VOLUME,
 			    WM8955_LDVU, WM8955_LDVU);
 	snd_soc_update_bits(codec, WM8955_RIGHT_DAC_VOLUME,
@@ -920,10 +947,10 @@ static int wm8955_probe(struct snd_soc_codec *codec)
 	snd_soc_update_bits(codec, WM8955_MONOOUT_VOLUME,
 			    WM8955_MOZC, WM8955_MOZC);
 
-	
+	/* Also enable adaptive bass boost by default */
 	snd_soc_update_bits(codec, WM8955_BASS_CONTROL, WM8955_BB, WM8955_BB);
 
-	
+	/* Set platform data values */
 	if (pdata) {
 		if (pdata->out2_speaker)
 			snd_soc_update_bits(codec, WM8955_ADDITIONAL_CONTROL_2,
@@ -936,7 +963,7 @@ static int wm8955_probe(struct snd_soc_codec *codec)
 
 	wm8955_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* Bias level configuration will have done an extra enable */
 	regulator_bulk_disable(ARRAY_SIZE(wm8955->supplies), wm8955->supplies);
 
 	return 0;

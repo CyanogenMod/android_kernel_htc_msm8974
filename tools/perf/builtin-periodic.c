@@ -11,6 +11,28 @@
  * GNU General Public License for more details.
  */
 
+/*
+ *	A very simple perf program to periodically print the performance
+ *	counter reqested on the command line to standard out at the rate
+ *	specified.
+ *
+ *	This is valuable for showing the output in a simple plot or
+ *	exporting the counter data for post processing.  No attempt
+ *	to process the data is made.
+ *
+ *	Scaling is not supported, use only as many counters as are
+ *	provided by the hardware.
+ *
+ *	Math functions are support to combine counter results by using
+ *	the -m flag.
+ *
+ *	The -r -w flags supports user signalling for input. This assumes
+ *	that a pipe/fifo is needed so the -rw cmd line arg is a string
+ *	that is the name of the named pipe to open for read/write.  User
+ *	sends data on the read pipe to the process to collect a sample.
+ *	Commands are also supported on the pipe.
+ *
+ */
 
 #include "perf.h"
 #include "builtin.h"
@@ -29,6 +51,7 @@
 
 #define PERF_PERIODIC_ERROR -1
 
+/* number of pieces of data on each read. */
 #define DATA_SIZE 2
 
 #define DEFAULT_FIFO_NAME "xxbadFiFo"
@@ -36,12 +59,16 @@
 
 struct perf_evlist *evsel_list;
 
-static pid_t target_pid = -1; 
+/*
+ * command line variables and settings
+ * Default to current process, no_inherit, process
+ */
+static pid_t target_pid = -1; /* all */
 static bool system_wide;
-static int cpumask = -1;  
+static int cpumask = -1;  /* all */
 static int ncounts;
-static int ms_sleep = 1000;  
-static char const *operations = "nnnnnnnnnnnnnnnn";  
+static int ms_sleep = 1000;  /* 1 second */
+static char const *operations = "nnnnnnnnnnnnnnnn";  /* nop */
 static bool math_enabled;
 static bool calc_delta;
 static double old_accum, accum;
@@ -54,11 +81,23 @@ static FILE *fd_in, *fd_out;
 
 static FILE *tReadFifo, *tWriteFifo;
 
+/*
+ * Raw results from perf, we track the current value and
+ * the old value.
+ */
 struct perf_raw_results_s {
 	u64 values;
 	u64 old_value;
 };
 
+/*
+ * Everything we need to support a perf counter across multiple
+ * CPUs.  We need to support multiple file descriptors (perf_fd)
+ * because perf requires a fd per counter, so 1 per core enabled.
+ *
+ * Raw results values are calculated across all the cores as they
+ * are read.
+ */
 struct perf_setup_s {
 	int event_index;
 	struct perf_event_attr *attr;
@@ -90,6 +129,9 @@ static void do_cleanup(void)
 	}
 }
 
+/*
+ * Unexpected signal for error indication, cleanup
+ */
 static int sig_dummy;
 static void sig_do_cleanup(int sig)
 {
@@ -99,6 +141,9 @@ static void sig_do_cleanup(int sig)
 }
 
 #define PERIODIC_MAX_STRLEN 100
+/*
+ * Delay for either a timed period or the wait on the read_fifo
+ */
 static void delay(unsigned long milli)
 {
 	char tmp_stg[PERIODIC_MAX_STRLEN];
@@ -111,6 +156,10 @@ static void delay(unsigned long milli)
 			ret = fscanf(tReadFifo, "%s", tmp_stg);
 			if (ret == 0)
 				return;
+			/*
+			 * Look for a command request, and if we get a command
+			 * Need to process and then wait again w/o sending data.
+			 */
 			if (strncmp(tmp_stg, "PID", strnlen(tmp_stg,
 				PERIODIC_MAX_STRLEN)) == 0) {
 				fprintf(fd_out, " %u\n", getpid());
@@ -128,6 +177,14 @@ static void delay(unsigned long milli)
 		usleep(milli*1000);
 }
 
+/*
+ * Create a perf counter event.
+ * Some interesting behaviour that is not documented anywhere else:
+ * the CPU will not work if out of range.
+ * The CPU will only work for a single CPU, so to collect the counts
+ * on the system in SMP based systems a counter needs to be created
+ * for each CPU.
+ */
 static int create_perf_counter(struct perf_setup_s *p)
 {
 	struct cpu_map *cpus;
@@ -147,6 +204,9 @@ static int create_perf_counter(struct perf_setup_s *p)
 	return 0;
 }
 
+/*
+ * Perf init setup
+ */
 static int perf_setup_init(struct perf_setup_s *p)
 {
 	if (p == NULL)
@@ -166,6 +226,11 @@ static int perf_setup_init(struct perf_setup_s *p)
 	return 0;
 }
 
+/*
+ * Read in ALL the performance counters configured for the CPU,
+ * one performance monitor per core that was configured during
+ * "all" mode
+ */
 static int perf_setup_read(struct perf_setup_s *p)
 {
 	u64 data[DATA_SIZE];
@@ -181,6 +246,11 @@ static int perf_setup_read(struct perf_setup_s *p)
 		p->totals.values += data[0];
 	}
 
+	/*
+	 * Normally we show totals, we want to support
+	 * showing deltas from the previous value so external apps do not have
+	 * to do this...
+	 */
 	if (calc_delta) {
 		p->output.values = p->data.values - p->data.old_value;
 		p->data.old_value = p->data.values;
@@ -230,6 +300,9 @@ static const struct option options[] = {
 	OPT_END()
 };
 
+/*
+ * After every period we reset any math that was performed.
+ */
 static void reset_math(void)
 {
 	math_op_index = 0;
@@ -253,10 +326,10 @@ static void do_math_op(struct perf_setup_s *p)
 	case 'z':
 		accum =  0; break;
 	case 't':
-		accum =  (double)p->output.values; break; 
+		accum =  (double)p->output.values; break; /*transfer*/
 	case 'T':
-		accum +=  old_accum; break; 
-	case 'i':	
+		accum +=  old_accum; break; /*total*/
+	case 'i':	/* ignore */
 	default:
 		break;
 	}
@@ -281,6 +354,10 @@ int cmd_periodic(int argc, const char **argv, const char *prefix __used)
 	if (system_wide)
 		cpumask = -1;
 
+	/*
+	 * The r & w option redirects stdout to a newly created pipe and
+	 * waits for input on the read pipe before continuing
+	 */
 	fd_in = stdin;
 	fd_out = stdout;
 	if (strncmp(rfifo_name, DEFAULT_FIFO_NAME,
@@ -326,6 +403,10 @@ int cmd_periodic(int argc, const char **argv, const char *prefix __used)
 
 	math_enabled = (operations[0] != 'n');
 
+	/*
+	 * If we don't ignore SIG_PIPE then when the other side
+	 * of a pipe closes we shutdown too...
+	 */
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGINT, sig_do_cleanup);
 	signal(SIGQUIT, sig_do_cleanup);
@@ -355,13 +436,25 @@ int cmd_periodic(int argc, const char **argv, const char *prefix __used)
 	i = 0;
 	while (1) {
 
+		/*
+		 * Wait first otherwise single sample will print w/o signal
+		 * when using the -u (user signal) flag
+		 */
 		delay(ms_sleep);
 
+		/*
+		 * Do the collection, read and then perform any math operations
+		 */
 		for (c = 0; c < nr_counters; c++) {
 			status = perf_setup_read(p[c]);
 			do_math_op(p[c]);
 		}
 
+		/*
+		 * After all collection and math, we perform one last math
+		 * to allow totaling, if enabled etc, then either printout
+		 * a single float value when the math is enabled or ...
+		 */
 		if (math_enabled) {
 			do_math_op(p[c]);
 			if (is_ratio)
@@ -369,15 +462,21 @@ int cmd_periodic(int argc, const char **argv, const char *prefix __used)
 			else
 				fprintf(fd_out, "%#f\n", accum);
 		} else {
+			/*
+			 * ... print out one integer value for each counter
+			 */
 			for (c = 0; c < nr_counters; c++)
 				status = perf_setup_show(p[c]);
 			fprintf(fd_out, "\n");
 		}
 
+		/*
+		 * Did the user give us an iteration count?
+		 */
 		if ((ncounts != 0) && (++i >= ncounts))
 			break;
 		reset_math();
-		fflush(fd_out); 
+		fflush(fd_out); /* make sure data is flushed out the pipe*/
 	}
 
 	do_cleanup();

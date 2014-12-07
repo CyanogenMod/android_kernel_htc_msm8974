@@ -57,6 +57,10 @@ enum {
 	OMAP_MCBSP_WORD_32,
 };
 
+/*
+ * Stream DMA parameters. DMA request line and port address are set runtime
+ * since they are different between OMAP1 and later OMAPs
+ */
 static void omap_mcbsp_set_threshold(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
@@ -67,8 +71,13 @@ static void omap_mcbsp_set_threshold(struct snd_pcm_substream *substream)
 
 	dma_data = snd_soc_dai_get_dma_data(rtd->cpu_dai, substream);
 
-	
+	/* TODO: Currently, MODE_ELEMENT == MODE_FRAME */
 	if (mcbsp->dma_op_mode == MCBSP_DMA_MODE_THRESHOLD)
+		/*
+		 * Configure McBSP threshold based on either:
+		 * packet_size, when the sDMA is in packet mode, or
+		 * based on the period size.
+		 */
 		if (dma_data->packet_size)
 			words = dma_data->packet_size;
 		else
@@ -77,7 +86,7 @@ static void omap_mcbsp_set_threshold(struct snd_pcm_substream *substream)
 	else
 		words = 1;
 
-	
+	/* Configure McBSP internal buffer usage */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		omap_mcbsp_set_tx_threshold(mcbsp, words);
 	else
@@ -112,14 +121,33 @@ static int omap_mcbsp_dai_startup(struct snd_pcm_substream *substream,
 	if (!cpu_dai->active)
 		err = omap_mcbsp_request(mcbsp);
 
+	/*
+	 * OMAP3 McBSP FIFO is word structured.
+	 * McBSP2 has 1024 + 256 = 1280 word long buffer,
+	 * McBSP1,3,4,5 has 128 word long buffer
+	 * This means that the size of the FIFO depends on the sample format.
+	 * For example on McBSP3:
+	 * 16bit samples: size is 128 * 2 = 256 bytes
+	 * 32bit samples: size is 128 * 4 = 512 bytes
+	 * It is simpler to place constraint for buffer and period based on
+	 * channels.
+	 * McBSP3 as example again (16 or 32 bit samples):
+	 * 1 channel (mono): size is 128 frames (128 words)
+	 * 2 channels (stereo): size is 128 / 2 = 64 frames (2 * 64 words)
+	 * 4 channels: size is 128 / 4 = 32 frames (4 * 32 words)
+	 */
 	if (mcbsp->pdata->buffer_size) {
+		/*
+		* Rule for the buffer size. We should not allow
+		* smaller buffer than the FIFO size to avoid underruns
+		*/
 		snd_pcm_hw_rule_add(substream->runtime, 0,
 				    SNDRV_PCM_HW_PARAM_BUFFER_SIZE,
 				    omap_mcbsp_hwrule_min_buffersize,
 				    mcbsp,
 				    SNDRV_PCM_HW_PARAM_CHANNELS, -1);
 
-		
+		/* Make sure, that the period size is always even */
 		snd_pcm_hw_constraint_step(substream->runtime, 0,
 					   SNDRV_PCM_HW_PARAM_PERIOD_SIZE, 2);
 	}
@@ -180,6 +208,11 @@ static snd_pcm_sframes_t omap_mcbsp_dai_delay(
 	else
 		fifo_use = omap_mcbsp_get_rx_delay(mcbsp);
 
+	/*
+	 * Divide the used locations with the channel count to get the
+	 * FIFO usage in samples (don't care about partial samples in the
+	 * buffer).
+	 */
 	delay = fifo_use / substream->runtime->channels;
 
 	return delay;
@@ -212,7 +245,7 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 	}
 	if (mcbsp->pdata->buffer_size) {
 		dma_data->set_threshold = omap_mcbsp_set_threshold;
-		
+		/* TODO: Currently, MODE_ELEMENT == MODE_FRAME */
 		if (mcbsp->dma_op_mode == MCBSP_DMA_MODE_THRESHOLD) {
 			int period_words, max_thrsh;
 
@@ -221,9 +254,21 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 				max_thrsh = mcbsp->max_tx_thres;
 			else
 				max_thrsh = mcbsp->max_rx_thres;
+			/*
+			 * If the period contains less or equal number of words,
+			 * we are using the original threshold mode setup:
+			 * McBSP threshold = sDMA frame size = period_size
+			 * Otherwise we switch to sDMA packet mode:
+			 * McBSP threshold = sDMA packet size
+			 * sDMA frame size = period size
+			 */
 			if (period_words > max_thrsh) {
 				int divider = 0;
 
+				/*
+				 * Look for the biggest threshold value, which
+				 * divides the period size evenly.
+				 */
 				divider = period_words / max_thrsh;
 				if (period_words % max_thrsh)
 					divider++;
@@ -247,7 +292,7 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 	snd_soc_dai_set_dma_data(cpu_dai, substream, dma_data);
 
 	if (mcbsp->configured) {
-		
+		/* McBSP already configured by another stream */
 		return 0;
 	}
 
@@ -259,10 +304,10 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 	wpf = channels = params_channels(params);
 	if (channels == 2 && (format == SND_SOC_DAIFMT_I2S ||
 			      format == SND_SOC_DAIFMT_LEFT_J)) {
-		
+		/* Use dual-phase frames */
 		regs->rcr2	|= RPHASE;
 		regs->xcr2	|= XPHASE;
-		
+		/* Set 1 word per (McBSP) frame for phase1 and phase2 */
 		wpf--;
 		regs->rcr2	|= RFRLEN2(wpf - 1);
 		regs->xcr2	|= XFRLEN2(wpf - 1);
@@ -273,24 +318,26 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
-		
+		/* Set word lengths */
 		regs->rcr2	|= RWDLEN2(OMAP_MCBSP_WORD_16);
 		regs->rcr1	|= RWDLEN1(OMAP_MCBSP_WORD_16);
 		regs->xcr2	|= XWDLEN2(OMAP_MCBSP_WORD_16);
 		regs->xcr1	|= XWDLEN1(OMAP_MCBSP_WORD_16);
 		break;
 	case SNDRV_PCM_FORMAT_S32_LE:
-		
+		/* Set word lengths */
 		regs->rcr2	|= RWDLEN2(OMAP_MCBSP_WORD_32);
 		regs->rcr1	|= RWDLEN1(OMAP_MCBSP_WORD_32);
 		regs->xcr2	|= XWDLEN2(OMAP_MCBSP_WORD_32);
 		regs->xcr1	|= XWDLEN1(OMAP_MCBSP_WORD_32);
 		break;
 	default:
-		
+		/* Unsupported PCM format */
 		return -EINVAL;
 	}
 
+	/* In McBSP master modes, FRAME (i.e. sample rate) is generated
+	 * by _counting_ BCLKs. Calculate frame size in BCLKs */
 	master = mcbsp->fmt & SND_SOC_DAIFMT_MASTER_MASK;
 	if (master ==	SND_SOC_DAIFMT_CBS_CFS) {
 		div = mcbsp->clk_div ? mcbsp->clk_div : 1;
@@ -304,7 +351,7 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 	} else
 		framesize = wlen * channels;
 
-	
+	/* Set FS period and length in terms of bit clock periods */
 	regs->srgr2	&= ~FPER(0xfff);
 	regs->srgr1	&= ~FWID(0xff);
 	switch (format) {
@@ -327,6 +374,10 @@ static int omap_mcbsp_dai_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * This must be called before _set_clkdiv and _set_sysclk since McBSP register
+ * cache is initialized here
+ */
 static int omap_mcbsp_dai_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 				      unsigned int fmt)
 {
@@ -339,10 +390,10 @@ static int omap_mcbsp_dai_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 
 	mcbsp->fmt = fmt;
 	memset(regs, 0, sizeof(*regs));
-	
+	/* Generic McBSP register settings */
 	regs->spcr2	|= XINTM(3) | FREE;
 	regs->spcr1	|= RINTM(3);
-	
+	/* RFIG and XFIG are not defined in 34xx */
 	if (!cpu_is_omap34xx() && !cpu_is_omap44xx()) {
 		regs->rcr2	|= RFIG;
 		regs->xcr2	|= XFIG;
@@ -354,56 +405,61 @@ static int omap_mcbsp_dai_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
-		
+		/* 1-bit data delay */
 		regs->rcr2	|= RDATDLY(1);
 		regs->xcr2	|= XDATDLY(1);
 		break;
 	case SND_SOC_DAIFMT_LEFT_J:
-		
+		/* 0-bit data delay */
 		regs->rcr2	|= RDATDLY(0);
 		regs->xcr2	|= XDATDLY(0);
 		regs->spcr1	|= RJUST(2);
-		
+		/* Invert FS polarity configuration */
 		inv_fs = true;
 		break;
 	case SND_SOC_DAIFMT_DSP_A:
-		
+		/* 1-bit data delay */
 		regs->rcr2      |= RDATDLY(1);
 		regs->xcr2      |= XDATDLY(1);
-		
+		/* Invert FS polarity configuration */
 		inv_fs = true;
 		break;
 	case SND_SOC_DAIFMT_DSP_B:
-		
+		/* 0-bit data delay */
 		regs->rcr2      |= RDATDLY(0);
 		regs->xcr2      |= XDATDLY(0);
-		
+		/* Invert FS polarity configuration */
 		inv_fs = true;
 		break;
 	default:
-		
+		/* Unsupported data format */
 		return -EINVAL;
 	}
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
-		
+		/* McBSP master. Set FS and bit clocks as outputs */
 		regs->pcr0	|= FSXM | FSRM |
 				   CLKXM | CLKRM;
-		
+		/* Sample rate generator drives the FS */
 		regs->srgr2	|= FSGM;
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
-		
+		/* McBSP slave */
 		break;
 	default:
-		
+		/* Unsupported master/slave configuration */
 		return -EINVAL;
 	}
 
-	
+	/* Set bit clock (CLKX/CLKR) and FS polarities */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
+		/*
+		 * Normal BCLK + FS.
+		 * FS active low. TX data driven on falling edge of bit clock
+		 * and RX data sampled on rising edge of bit clock.
+		 */
 		regs->pcr0	|= FSXP | FSRP |
 				   CLKXP | CLKRP;
 		break;
@@ -464,6 +520,10 @@ static int omap_mcbsp_dai_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 		regs->srgr2	&= ~CLKSM;
 		regs->pcr0	&= ~SCLKME;
 	} else if (cpu_class_is_omap1()) {
+		/*
+		 * McBSP CLKR/FSR signal muxing functions are only available on
+		 * OMAP2 or newer versions
+		 */
 		return -EINVAL;
 	}
 
@@ -592,7 +652,7 @@ omap_mcbsp_set_st_ch##channel##_volume(struct snd_kcontrol *kc,	\
 	if (val < min || val > max)					\
 		return -EINVAL;						\
 									\
-			\
+	/* OMAP McBSP implementation uses index values 0..4 */		\
 	return omap_st_set_chgain(mcbsp, channel, val);			\
 }
 
@@ -680,11 +740,11 @@ int omap_mcbsp_st_add_controls(struct snd_soc_pcm_runtime *rtd)
 		return -ENODEV;
 
 	switch (cpu_dai->id) {
-	case 2: 
+	case 2: /* McBSP 2 */
 		return snd_soc_add_dai_controls(cpu_dai,
 					omap_mcbsp2_st_controls,
 					ARRAY_SIZE(omap_mcbsp2_st_controls));
-	case 3: 
+	case 3: /* McBSP 3 */
 		return snd_soc_add_dai_controls(cpu_dai,
 					omap_mcbsp3_st_controls,
 					ARRAY_SIZE(omap_mcbsp3_st_controls));

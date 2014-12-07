@@ -31,14 +31,14 @@
 #define ES1688_HW_1688		0x0002
 
 struct snd_es1688 {
-	unsigned long port;		
+	unsigned long port;		/* port of ESS chip */
 	struct resource *res_port;
-	unsigned long mpu_port;		
-	int irq;			
-	int mpu_irq;			
-	int dma8;			
-	unsigned short version;		
-	unsigned short hardware;	
+	unsigned long mpu_port;		/* MPU-401 port of ESS chip */
+	int irq;			/* IRQ number of ESS chip */
+	int mpu_irq;			/* MPU IRQ */
+	int dma8;			/* 8-bit DMA */
+	unsigned short version;		/* version of ESS chip */
+	unsigned short hardware;	/* see to ES1688_HW_XXXX */
 
 	unsigned short trigger_value;
 	unsigned char pad;
@@ -52,6 +52,7 @@ struct snd_es1688 {
 	spinlock_t mixer_lock;
 };
 
+/* I/O ports */
 
 #define ES1688P(codec, x) ((codec)->port + e_s_s_ESS1688##x)
 
@@ -99,6 +100,9 @@ struct snd_es1688 {
 #define ES1688_MIXS_MASTER	0x07
 #define ES1688_MIXS_MUTE	0x10
 
+/*
+
+ */
 
 void snd_es1688_mixer_write(struct snd_es1688 *chip, unsigned char reg, unsigned char data);
 
@@ -115,4 +119,4 @@ int snd_es1688_pcm(struct snd_card *card, struct snd_es1688 *chip, int device,
 int snd_es1688_mixer(struct snd_card *card, struct snd_es1688 *chip);
 int snd_es1688_reset(struct snd_es1688 *chip);
 
-#endif 
+#endif /* __SOUND_ES1688_H */

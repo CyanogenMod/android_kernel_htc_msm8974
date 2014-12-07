@@ -22,36 +22,73 @@
  *	    Can't add timeout - driver doesn't allow changing value
  */
 
+/*
+ *	Theory of Operation:
+ *		The Watch-Dog Timer is provided to ensure that standalone
+ *		Systems can always recover from catastrophic conditions that
+ *		caused the CPU to crash. This condition may have occurred by
+ *		external EMI or a software bug. When the CPU stops working
+ *		correctly, hardware on the board will either perform a hardware
+ *		reset (cold boot) or a non-maskable interrupt (NMI) to bring the
+ *		system back to a known state.
+ *
+ *		The Watch-Dog Timer is controlled by two I/O Ports.
+ *		  443 hex	- Read	- Enable or refresh the Watch-Dog Timer
+ *		  043 hex	- Read	- Disable the Watch-Dog Timer
+ *
+ *		To enable the Watch-Dog Timer, a read from I/O port 443h must
+ *		be performed. This will enable and activate the countdown timer
+ *		which will eventually time out and either reset the CPU or cause
+ *		an NMI depending on the setting of a jumper. To ensure that this
+ *		reset condition does not occur, the Watch-Dog Timer must be
+ *		periodically refreshed by reading the same I/O port 443h.
+ *		The Watch-Dog Timer is disabled by reading I/O port 043h.
+ *
+ *		The Watch-Dog Timer Time-Out Period is set via jumpers.
+ *		It can be 1, 2, 10, 20, 110 or 220 seconds.
+ */
 
+/*
+ *	Includes, defines, variables, module parameters, ...
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/module.h>		
-#include <linux/moduleparam.h>		
-#include <linux/types.h>		
-#include <linux/errno.h>		
-#include <linux/kernel.h>		
-#include <linux/miscdevice.h>		
-#include <linux/watchdog.h>		
-#include <linux/fs.h>			
-#include <linux/ioport.h>		
-#include <linux/platform_device.h>	
-#include <linux/init.h>			
-#include <linux/uaccess.h>		
-#include <linux/io.h>			
+/* Includes */
+#include <linux/module.h>		/* For module specific items */
+#include <linux/moduleparam.h>		/* For new moduleparam's */
+#include <linux/types.h>		/* For standard types (like size_t) */
+#include <linux/errno.h>		/* For the -ENODEV/... values */
+#include <linux/kernel.h>		/* For printk/panic/... */
+#include <linux/miscdevice.h>		/* For MODULE_ALIAS_MISCDEV
+							(WATCHDOG_MINOR) */
+#include <linux/watchdog.h>		/* For the watchdog specific items */
+#include <linux/fs.h>			/* For file operations */
+#include <linux/ioport.h>		/* For io-port access */
+#include <linux/platform_device.h>	/* For platform_driver framework */
+#include <linux/init.h>			/* For __init/__exit/... */
+#include <linux/uaccess.h>		/* For copy_to_user/put_user/... */
+#include <linux/io.h>			/* For inb/outb/... */
 
+/* Module information */
 #define DRV_NAME "acquirewdt"
 #define WATCHDOG_NAME "Acquire WDT"
+/* There is no way to see what the correct time-out period is */
 #define WATCHDOG_HEARTBEAT 0
 
+/* internal variables */
+/* the watchdog platform device */
 static struct platform_device *acq_platform_device;
 static unsigned long acq_is_open;
 static char expect_close;
 
+/* module parameters */
+/* You must set this - there is no sane way to probe for this board. */
 static int wdt_stop = 0x43;
 module_param(wdt_stop, int, 0);
 MODULE_PARM_DESC(wdt_stop, "Acquire WDT 'stop' io port (default 0x43)");
 
+/* You must set this - there is no sane way to probe for this board. */
 static int wdt_start = 0x443;
 module_param(wdt_start, int, 0);
 MODULE_PARM_DESC(wdt_start, "Acquire WDT 'start' io port (default 0x443)");
@@ -62,28 +99,38 @@ MODULE_PARM_DESC(nowayout,
 	"Watchdog cannot be stopped once started (default="
 	__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+/*
+ *	Watchdog Operations
+ */
 
 static void acq_keepalive(void)
 {
-	
+	/* Write a watchdog value */
 	inb_p(wdt_start);
 }
 
 static void acq_stop(void)
 {
-	
+	/* Turn the card off */
 	inb_p(wdt_stop);
 }
 
+/*
+ *	/dev/watchdog handling
+ */
 
 static ssize_t acq_write(struct file *file, const char __user *buf,
 						size_t count, loff_t *ppos)
 {
-	
+	/* See if we got the magic character 'V' and reload the timer */
 	if (count) {
 		if (!nowayout) {
 			size_t i;
+			/* note: just in case someone wrote the magic character
+			   five months ago... */
 			expect_close = 0;
+			/* scan to see whether or not we got the
+			   magic character */
 			for (i = 0; i != count; i++) {
 				char c;
 				if (get_user(c, buf + i))
@@ -92,6 +139,8 @@ static ssize_t acq_write(struct file *file, const char __user *buf,
 					expect_close = 42;
 			}
 		}
+		/* Well, anyhow someone wrote to us, we should
+				return that favour */
 		acq_keepalive();
 	}
 	return count;
@@ -150,7 +199,7 @@ static int acq_open(struct inode *inode, struct file *file)
 	if (nowayout)
 		__module_get(THIS_MODULE);
 
-	
+	/* Activate */
 	acq_keepalive();
 	return nonseekable_open(inode, file);
 }
@@ -168,6 +217,9 @@ static int acq_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *	Kernel Interfaces
+ */
 
 static const struct file_operations acq_fops = {
 	.owner		= THIS_MODULE,
@@ -184,6 +236,9 @@ static struct miscdevice acq_miscdev = {
 	.fops	= &acq_fops,
 };
 
+/*
+ *	Init & exit routines
+ */
 
 static int __devinit acq_probe(struct platform_device *dev)
 {
@@ -232,7 +287,7 @@ static int __devexit acq_remove(struct platform_device *dev)
 
 static void acq_shutdown(struct platform_device *dev)
 {
-	
+	/* Turn the WDT off if we have a soft shutdown */
 	acq_stop();
 }
 

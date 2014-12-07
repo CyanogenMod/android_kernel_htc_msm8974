@@ -34,6 +34,13 @@
 
 #define C4IW_UVERBS_ABI_VERSION	1
 
+/*
+ * Make sure that all structs defined in this file remain laid out so
+ * that they pack the same way on 32-bit and 64-bit architectures (to
+ * avoid incompatibility between 32-bit userspace and 64-bit kernels).
+ * In particular do not use pointer types -- pass pointers in __u64
+ * instead.
+ */
 struct c4iw_create_cq_resp {
 	__u64 key;
 	__u64 gts_key;

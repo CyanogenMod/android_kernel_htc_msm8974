@@ -32,6 +32,6 @@ static inline struct dvb_frontend * mt2266_attach(struct dvb_frontend *fe, struc
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_MEDIA_TUNER_MT2266
 
 #endif

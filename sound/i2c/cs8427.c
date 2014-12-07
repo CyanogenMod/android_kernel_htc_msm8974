@@ -38,19 +38,19 @@ MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("IEC958 (S/PDIF) receiver & transmitter by Cirrus Logic");
 MODULE_LICENSE("GPL");
 
-#define CS8427_ADDR			(0x20>>1) 
+#define CS8427_ADDR			(0x20>>1) /* fixed address */
 
 struct cs8427_stream {
 	struct snd_pcm_substream *substream;
-	char hw_status[24];		
-	char def_status[24];		
-	char pcm_status[24];		
+	char hw_status[24];		/* hardware status */
+	char def_status[24];		/* default status */
+	char pcm_status[24];		/* PCM private status */
 	char hw_udata[32];
 	struct snd_kcontrol *pcm_ctl;
 };
 
 struct cs8427 {
-	unsigned char regmap[0x14];	
+	unsigned char regmap[0x14];	/* map of first 1 + 13 registers */
 	unsigned int rate;
 	unsigned int reset_timeout;
 	struct cs8427_stream playback;
@@ -157,17 +157,33 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 {
 	static unsigned char initvals1[] = {
 	  CS8427_REG_CONTROL1 | CS8427_REG_AUTOINC,
+	  /* CS8427_REG_CONTROL1: RMCK to OMCK, valid PCM audio, disable mutes,
+	     TCBL=output */
 	  CS8427_SWCLK | CS8427_TCBLDIR,
+	  /* CS8427_REG_CONTROL2: hold last valid audio sample, RMCK=256*Fs,
+	     normal stereo operation */
 	  0x00,
+	  /* CS8427_REG_DATAFLOW: output drivers normal operation, Tx<=serial,
+	     Rx=>serial */
 	  CS8427_TXDSERIAL | CS8427_SPDAES3RECEIVER,
+	  /* CS8427_REG_CLOCKSOURCE: Run off, CMCK=256*Fs,
+	     output time base = OMCK, input time base = recovered input clock,
+	     recovered input clock source is ILRCK changed to AES3INPUT
+	     (workaround, see snd_cs8427_reset) */
 	  CS8427_RXDILRCK,
+	  /* CS8427_REG_SERIALINPUT: Serial audio input port data format = I2S,
+	     24-bit, 64*Fsi */
 	  CS8427_SIDEL | CS8427_SILRPOL,
+	  /* CS8427_REG_SERIALOUTPUT: Serial audio output port data format
+	     = I2S, 24-bit, 64*Fsi */
 	  CS8427_SODEL | CS8427_SOLRPOL,
 	};
 	static unsigned char initvals2[] = {
 	  CS8427_REG_RECVERRMASK | CS8427_REG_AUTOINC,
-	  
-	  0xff, 
+	  /* CS8427_REG_RECVERRMASK: unmask the input PLL clock, V, confidence,
+	     biphase, parity status bits */
+	  /* CS8427_UNLOCK | CS8427_V | CS8427_CONF | CS8427_BIP | CS8427_PAR,*/
+	  0xff, /* set everything */
 	  /* CS8427_REG_CSDATABUF:
 	     Registers 32-55 window to CS buffer
 	     Inhibit D->E transfers from overwriting first 5 bytes of CS data.
@@ -176,6 +192,12 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 	     One byte mode; both A/B channels get same written CB data.
 	     A channel info is output to chip's EMPH* pin. */
 	  CS8427_CBMR | CS8427_DETCI,
+	  /* CS8427_REG_UDATABUF:
+	     Use internal buffer to transmit User (U) data.
+	     Chip's U pin is an output.
+	     Transmit all O's for user data.
+	     Inhibit D->E transfers.
+	     Inhibit E->F transfers. */
 	  CS8427_UD | CS8427_EFTUI | CS8427_DETUI,
 	};
 	int err;
@@ -197,7 +219,7 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 	snd_i2c_lock(bus);
 	err = snd_cs8427_reg_read(device, CS8427_REG_ID_AND_VER);
 	if (err != CS8427_VER8427A) {
-		
+		/* give second chance */
 		snd_printk(KERN_WARNING "invalid CS8427 signature 0x%x: "
 			   "let me try again...\n", err);
 		err = snd_cs8427_reg_read(device, CS8427_REG_ID_AND_VER);
@@ -210,29 +232,29 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 		snd_printk(KERN_ERR "   initialization is not completed\n");
 		return -EFAULT;
 	}
-	
+	/* turn off run bit while making changes to configuration */
 	err = snd_cs8427_reg_write(device, CS8427_REG_CLOCKSOURCE, 0x00);
 	if (err < 0)
 		goto __fail;
-	
+	/* send initial values */
 	memcpy(chip->regmap + (initvals1[0] & 0x7f), initvals1 + 1, 6);
 	if ((err = snd_i2c_sendbytes(device, initvals1, 7)) != 7) {
 		err = err < 0 ? err : -EIO;
 		goto __fail;
 	}
-	
+	/* Turn off CS8427 interrupt stuff that is not used in hardware */
 	memset(buf, 0, 7);
-	
-	buf[0] = 9;	
+	/* from address 9 to 15 */
+	buf[0] = 9;	/* register */
 	if ((err = snd_i2c_sendbytes(device, buf, 7)) != 7)
 		goto __fail;
-	
+	/* send transfer initialization sequence */
 	memcpy(chip->regmap + (initvals2[0] & 0x7f), initvals2 + 1, 3);
 	if ((err = snd_i2c_sendbytes(device, initvals2, 4)) != 4) {
 		err = err < 0 ? err : -EIO;
 		goto __fail;
 	}
-	
+	/* write default channel status bytes */
 	put_unaligned_le32(SNDRV_PCM_DEFAULT_CON_SPDIF, buf);
 	memset(buf + 4, 0, 24 - 4);
 	if (snd_cs8427_send_corudata(device, 0, buf, 24) < 0)
@@ -241,13 +263,13 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 	memcpy(chip->playback.pcm_status, buf, 24);
 	snd_i2c_unlock(bus);
 
-	
+	/* turn on run bit and rock'n'roll */
 	if (reset_timeout < 1)
 		reset_timeout = 1;
 	chip->reset_timeout = reset_timeout;
 	snd_cs8427_reset(device);
 
-#if 0	
+#if 0	// it's nice for read tests
 	{
 	char buf[128];
 	int xx;
@@ -271,6 +293,11 @@ int snd_cs8427_create(struct snd_i2c_bus *bus,
 
 EXPORT_SYMBOL(snd_cs8427_create);
 
+/*
+ * Reset the chip using run bit, also lock PLL using ILRCK and
+ * put back AES3INPUT. This workaround is described in latest
+ * CS8427 datasheet, otherwise TXDSERIAL will not work.
+ */
 static void snd_cs8427_reset(struct snd_i2c_device *cs8427)
 {
 	struct cs8427 *chip;
@@ -282,7 +309,7 @@ static void snd_cs8427_reset(struct snd_i2c_device *cs8427)
 	chip = cs8427->private_data;
 	snd_i2c_lock(cs8427->bus);
 	if ((chip->regmap[CS8427_REG_CLOCKSOURCE] & CS8427_RXDAES3INPUT) ==
-	    CS8427_RXDAES3INPUT)  
+	    CS8427_RXDAES3INPUT)  /* AES3 bit is set */
 		aes3input = 1;
 	chip->regmap[CS8427_REG_CLOCKSOURCE] &= ~(CS8427_RUN | CS8427_RXDMASK);
 	snd_cs8427_reg_write(cs8427, CS8427_REG_CLOCKSOURCE,

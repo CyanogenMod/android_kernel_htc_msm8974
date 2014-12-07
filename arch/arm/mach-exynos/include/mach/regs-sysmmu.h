@@ -25,4 +25,4 @@
 #define S5P_AR_FAULT_ADDR		0x02C
 #define S5P_DEFAULT_SLAVE_ADDR		0x030
 
-#endif 
+#endif /* __ASM_ARCH_REGS_SYSMMU_H */

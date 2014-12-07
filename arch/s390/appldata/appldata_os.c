@@ -28,40 +28,56 @@
 #define LOAD_INT(x) ((x) >> FSHIFT)
 #define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 
+/*
+ * OS data
+ *
+ * This is accessed as binary data by z/VM. If changes to it can't be avoided,
+ * the structure version (product ID, see appldata_base.c) needs to be changed
+ * as well and all documentation and z/VM applications using it must be
+ * updated.
+ *
+ * The record layout is documented in the Linux for zSeries Device Drivers
+ * book:
+ * http://oss.software.ibm.com/developerworks/opensource/linux390/index.shtml
+ */
 struct appldata_os_per_cpu {
-	u32 per_cpu_user;	
-	u32 per_cpu_nice;	
-	u32 per_cpu_system;	
-	u32 per_cpu_idle;	
+	u32 per_cpu_user;	/* timer ticks spent in user mode   */
+	u32 per_cpu_nice;	/* ... spent with modified priority */
+	u32 per_cpu_system;	/* ... spent in kernel mode         */
+	u32 per_cpu_idle;	/* ... spent in idle mode           */
 
-	
-	u32 per_cpu_irq;	
-	u32 per_cpu_softirq;	
-	u32 per_cpu_iowait;	
+	/* New in 2.6 */
+	u32 per_cpu_irq;	/* ... spent in interrupts          */
+	u32 per_cpu_softirq;	/* ... spent in softirqs            */
+	u32 per_cpu_iowait;	/* ... spent while waiting for I/O  */
 
-	
-	u32 per_cpu_steal;	
-	u32 cpu_id;		
+	/* New in modification level 01 */
+	u32 per_cpu_steal;	/* ... stolen by hypervisor	    */
+	u32 cpu_id;		/* number of this CPU		    */
 } __attribute__((packed));
 
 struct appldata_os_data {
 	u64 timestamp;
-	u32 sync_count_1;	
-	u32 sync_count_2;	
+	u32 sync_count_1;	/* after VM collected the record data, */
+	u32 sync_count_2;	/* sync_count_1 and sync_count_2 should be the
+				   same. If not, the record has been updated on
+				   the Linux side while VM was collecting the
+				   (possibly corrupt) data */
 
-	u32 nr_cpus;		
-	u32 per_cpu_size;	
-	u32 cpu_offset;		
+	u32 nr_cpus;		/* number of (virtual) CPUs        */
+	u32 per_cpu_size;	/* size of the per-cpu data struct */
+	u32 cpu_offset;		/* offset of the first per-cpu data struct */
 
-	u32 nr_running;		
-	u32 nr_threads;		
-	u32 avenrun[3];		
-				
+	u32 nr_running;		/* number of runnable threads      */
+	u32 nr_threads;		/* number of threads               */
+	u32 avenrun[3];		/* average nr. of running processes during */
+				/* the last 1, 5 and 15 minutes */
 
-	
-	u32 nr_iowait;		
+	/* New in 2.6 */
+	u32 nr_iowait;		/* number of blocked threads
+				   (waiting for I/O)               */
 
-	
+	/* per cpu data */
 	struct appldata_os_per_cpu os_cpu[0];
 } __attribute__((packed));
 
@@ -71,10 +87,15 @@ static struct appldata_ops ops = {
 	.name	   = "os",
 	.record_nr = APPLDATA_RECORD_OS_ID,
 	.owner	   = THIS_MODULE,
-	.mod_lvl   = {0xF0, 0xF1},		
+	.mod_lvl   = {0xF0, 0xF1},		/* EBCDIC "01" */
 };
 
 
+/*
+ * appldata_get_os_data()
+ *
+ * gather OS data
+ */
 static void appldata_get_os_data(void *data)
 {
 	int i, j, rc;
@@ -142,6 +163,11 @@ static void appldata_get_os_data(void *data)
 }
 
 
+/*
+ * appldata_os_init()
+ *
+ * init data, register ops
+ */
 static int __init appldata_os_init(void)
 {
 	int rc, max_size;
@@ -174,6 +200,11 @@ out:
 	return rc;
 }
 
+/*
+ * appldata_os_exit()
+ *
+ * unregister ops
+ */
 static void __exit appldata_os_exit(void)
 {
 	appldata_unregister_ops(&ops);

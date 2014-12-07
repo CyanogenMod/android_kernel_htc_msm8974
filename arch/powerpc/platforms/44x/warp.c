@@ -49,7 +49,7 @@ static int __init warp_probe(void)
 	if (!of_flat_dt_is_compatible(root, "pika,warp"))
 		return 0;
 
-	
+	/* For __dma_alloc_coherent */
 	ISA_DMA_THRESHOLD = ~0L;
 
 	return 1;
@@ -72,7 +72,7 @@ static int __init warp_post_info(void)
 	void __iomem *fpga;
 	u32 post1, post2;
 
-	
+	/* Sighhhh... POST information is in the sd area. */
 	np = of_find_compatible_node(NULL, NULL, "pika,fpga-sd");
 	if (np == NULL)
 		return -ENOENT;
@@ -149,7 +149,7 @@ static irqreturn_t temp_isr(int irq, void *context)
 
 	gpio_set_value(green_led, 0);
 
-	
+	/* Run through the shutdown list. */
 	list_for_each_entry(shutdown, &dtm_shutdown_list, list)
 		shutdown->func(shutdown->arg);
 
@@ -166,7 +166,7 @@ static irqreturn_t temp_isr(int irq, void *context)
 		mdelay(500);
 	}
 
-	
+	/* Not reached */
 	return IRQ_HANDLED;
 }
 
@@ -196,11 +196,14 @@ static void pika_setup_critical_temp(struct device_node *np,
 {
 	int irq, rc;
 
+	/* Do this before enabling critical temp interrupt since we
+	 * may immediately interrupt.
+	 */
 	pika_setup_leds();
 
-	
-	i2c_smbus_write_byte_data(client, 2, 65); 
-	i2c_smbus_write_byte_data(client, 3,  0); 
+	/* These registers are in 1 degree increments. */
+	i2c_smbus_write_byte_data(client, 2, 65); /* Thigh */
+	i2c_smbus_write_byte_data(client, 3,  0); /* Tlow */
 
 	irq = irq_of_parse_and_map(np, 0);
 	if (irq  == NO_IRQ) {
@@ -284,7 +287,7 @@ static int __init pika_dtm_start(void)
 	if (dtm_fpga == NULL)
 		return -ENOENT;
 
-	
+	/* Must get post info before thread starts. */
 	warp_post_info();
 
 	dtm_thread = kthread_run(pika_dtm_thread, dtm_fpga, "pika-dtm");
@@ -297,7 +300,7 @@ static int __init pika_dtm_start(void)
 }
 machine_late_initcall(warp, pika_dtm_start);
 
-#else 
+#else /* !CONFIG_SENSORS_AD7414 */
 
 int pika_dtm_register_shutdown(void (*func)(void *arg), void *arg)
 {

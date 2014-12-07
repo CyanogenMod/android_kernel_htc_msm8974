@@ -53,7 +53,7 @@ static int detach_port(char *port)
 			return -1;
 		}
 
-	
+	/* check max port */
 
 	portnum = atoi(port);
 

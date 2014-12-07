@@ -33,6 +33,17 @@
 #include <sound/core.h>
 #include <sound/emu10k1.h>
 
+/* Previously the voice allocator started at 0 every time.  The new voice 
+ * allocator uses a round robin scheme.  The next free voice is tracked in 
+ * the card record and each allocation begins where the last left off.  The 
+ * hardware requires stereo interleaved voices be aligned to an even/odd 
+ * boundary.  For multichannel voice allocation we ensure than the block of 
+ * voices does not cross the 32 voice boundary.  This simplifies the 
+ * multichannel support and ensures we can use a single write to the 
+ * (set|clear)_loop_stop registers.  Otherwise (for example) the voices would 
+ * get out of sync when pausing/resuming a stream.
+ *							--rlrevell
+ */
 
 static int voice_alloc(struct snd_emu10k1 *emu, int type, int number,
 		       struct snd_emu10k1_voice **rvoice)
@@ -43,9 +54,13 @@ static int voice_alloc(struct snd_emu10k1 *emu, int type, int number,
 	*rvoice = NULL;
 	first_voice = last_voice = 0;
 	for (i = emu->next_free_voice, j = 0; j < NUM_G ; i += number, j += number) {
+		/*
+		printk(KERN_DEBUG "i %d j %d next free %d!\n",
+		       i, j, emu->next_free_voice);
+		*/
 		i %= NUM_G;
 
-		
+		/* stereo voices must be even/odd */
 		if ((number == 2) && (i % 2)) {
 			i++;
 			continue;
@@ -60,7 +75,7 @@ static int voice_alloc(struct snd_emu10k1 *emu, int type, int number,
 			}
 		}
 		if (!skip) {
-			
+			/* printk(KERN_DEBUG "allocated voice %d\n", i); */
 			first_voice = i;
 			last_voice = (i + number) % NUM_G;
 			emu->next_free_voice = last_voice;
@@ -73,6 +88,10 @@ static int voice_alloc(struct snd_emu10k1 *emu, int type, int number,
 	
 	for (i = 0; i < number; i++) {
 		voice = &emu->voices[(first_voice + i) % NUM_G];
+		/*
+		printk(kERN_DEBUG "voice alloc - %i, %i of %i\n",
+		       voice->number, idx-first_voice+1, number);
+		*/
 		voice->use = 1;
 		switch (type) {
 		case EMU10K1_PCM:
@@ -110,7 +129,7 @@ int snd_emu10k1_voice_alloc(struct snd_emu10k1 *emu, int type, int number,
 		if (result == 0 || type == EMU10K1_SYNTH || type == EMU10K1_MIDI)
 			break;
 
-		
+		/* free a voice from synth */
 		if (emu->get_synth_voice) {
 			result = emu->get_synth_voice(emu);
 			if (result >= 0) {

@@ -52,14 +52,51 @@ static unsigned long ibwdt_is_open;
 static DEFINE_SPINLOCK(ibwdt_lock);
 static char expect_close;
 
+/* Module information */
 #define DRV_NAME "ib700wdt"
 
+/*
+ *
+ * Watchdog Timer Configuration
+ *
+ * The function of the watchdog timer is to reset the system
+ * automatically and is defined at I/O port 0443H.  To enable the
+ * watchdog timer and allow the system to reset, write I/O port 0443H.
+ * To disable the timer, write I/O port 0441H for the system to stop the
+ * watchdog function.  The timer has a tolerance of 20% for its
+ * intervals.
+ *
+ * The following describes how the timer should be programmed.
+ *
+ * Enabling Watchdog:
+ * MOV AX,000FH (Choose the values from 0 to F)
+ * MOV DX,0443H
+ * OUT DX,AX
+ *
+ * Disabling Watchdog:
+ * MOV AX,000FH (Any value is fine.)
+ * MOV DX,0441H
+ * OUT DX,AX
+ *
+ * Watchdog timer control table:
+ * Level   Value  Time/sec | Level Value Time/sec
+ *   1       F       0     |   9     7      16
+ *   2       E       2     |   10    6      18
+ *   3       D       4     |   11    5      20
+ *   4       C       6     |   12    4      22
+ *   5       B       8     |   13    3      24
+ *   6       A       10    |   14    2      26
+ *   7       9       12    |   15    1      28
+ *   8       8       14    |   16    0      30
+ *
+ */
 
 #define WDT_STOP 0x441
 #define WDT_START 0x443
 
-#define WATCHDOG_TIMEOUT 30		
-static int timeout = WATCHDOG_TIMEOUT;	
+/* Default timeout */
+#define WATCHDOG_TIMEOUT 30		/* 30 seconds +/- 20% */
+static int timeout = WATCHDOG_TIMEOUT;	/* in seconds */
 module_param(timeout, int, 0);
 MODULE_PARM_DESC(timeout,
 	"Watchdog timeout in seconds. 0<= timeout <=30, default="
@@ -72,6 +109,9 @@ MODULE_PARM_DESC(nowayout,
 				__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
 
+/*
+ *	Watchdog Operations
+ */
 
 static void ibwdt_ping(void)
 {
@@ -79,7 +119,7 @@ static void ibwdt_ping(void)
 
 	spin_lock(&ibwdt_lock);
 
-	
+	/* Write a watchdog value */
 	outb_p(wd_margin, WDT_START);
 
 	spin_unlock(&ibwdt_lock);
@@ -101,6 +141,9 @@ static int ibwdt_set_heartbeat(int t)
 	return 0;
 }
 
+/*
+ *	/dev/watchdog handling
+ */
 
 static ssize_t ibwdt_write(struct file *file, const char __user *buf,
 						size_t count, loff_t *ppos)
@@ -109,7 +152,7 @@ static ssize_t ibwdt_write(struct file *file, const char __user *buf,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			expect_close = 0;
 
 			for (i = 0; i != count; i++) {
@@ -175,7 +218,7 @@ static long ibwdt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (ibwdt_set_heartbeat(new_margin))
 			return -EINVAL;
 		ibwdt_ping();
-		
+		/* Fall */
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout, p);
@@ -193,7 +236,7 @@ static int ibwdt_open(struct inode *inode, struct file *file)
 	if (nowayout)
 		__module_get(THIS_MODULE);
 
-	
+	/* Activate */
 	ibwdt_ping();
 	return nonseekable_open(inode, file);
 }
@@ -211,6 +254,9 @@ static int ibwdt_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *	Kernel Interfaces
+ */
 
 static const struct file_operations ibwdt_fops = {
 	.owner		= THIS_MODULE,
@@ -227,6 +273,9 @@ static struct miscdevice ibwdt_miscdev = {
 	.fops = &ibwdt_fops,
 };
 
+/*
+ *	Init & exit routines
+ */
 
 static int __devinit ibwdt_probe(struct platform_device *dev)
 {
@@ -246,6 +295,8 @@ static int __devinit ibwdt_probe(struct platform_device *dev)
 		goto out_nostartreg;
 	}
 
+	/* Check that the heartbeat value is within it's range ;
+	 * if not reset to the default */
 	if (ibwdt_set_heartbeat(timeout)) {
 		ibwdt_set_heartbeat(WATCHDOG_TIMEOUT);
 		pr_info("timeout value must be 0<=x<=30, using %d\n", timeout);
@@ -280,7 +331,7 @@ static int __devexit ibwdt_remove(struct platform_device *dev)
 
 static void ibwdt_shutdown(struct platform_device *dev)
 {
-	
+	/* Turn the WDT off if we have a soft shutdown */
 	ibwdt_disable();
 }
 
@@ -333,3 +384,4 @@ MODULE_DESCRIPTION("IB700 SBC watchdog driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
 
+/* end of ib700wdt.c */

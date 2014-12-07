@@ -48,6 +48,7 @@
 
 #define OFFSET(REG_ADDR)    ((REG_ADDR) << 2)
 
+/* Max frame size PM3393 can handle. Includes Ethernet header and CRC. */
 #define MAX_FRAME_SIZE  9600
 
 #define IPG 12
@@ -57,9 +58,10 @@
 #define RXXG_CONF1_VAL (SUNI1x10GEXP_BITMSK_RXXG_PUREP | 0x14 | \
 	SUNI1x10GEXP_BITMSK_RXXG_FLCHK | SUNI1x10GEXP_BITMSK_RXXG_CRC_STRIP)
 
+/* Update statistics every 15 minutes */
 #define STATS_TICK_SECS (15 * 60)
 
-enum {                     
+enum {                     /* RMON registers */
 	RxOctetsReceivedOK = SUNI1x10GEXP_REG_MSTAT_COUNTER_1_LOW,
 	RxUnicastFramesReceivedOK = SUNI1x10GEXP_REG_MSTAT_COUNTER_4_LOW,
 	RxMulticastFramesReceivedOK = SUNI1x10GEXP_REG_MSTAT_COUNTER_5_LOW,
@@ -105,21 +107,32 @@ static int pmwrite(struct cmac *cmac, u32 reg, u32 data32)
 	return 0;
 }
 
+/* Port reset. */
 static int pm3393_reset(struct cmac *cmac)
 {
 	return 0;
 }
 
+/*
+ * Enable interrupts for the PM3393
+ *
+ *	1. Enable PM3393 BLOCK interrupts.
+ *	2. Enable PM3393 Master Interrupt bit(INTE)
+ *	3. Enable ELMER's PM3393 bit.
+ *	4. Enable Terminator external interrupt.
+ */
 static int pm3393_interrupt_enable(struct cmac *cmac)
 {
 	u32 pl_intr;
 
+	/* PM3393 - Enabling all hardware block interrupts.
+	 */
 	pmwrite(cmac, SUNI1x10GEXP_REG_SERDES_3125_INTERRUPT_ENABLE, 0xffff);
 	pmwrite(cmac, SUNI1x10GEXP_REG_XRF_INTERRUPT_ENABLE, 0xffff);
 	pmwrite(cmac, SUNI1x10GEXP_REG_XRF_DIAG_INTERRUPT_ENABLE, 0xffff);
 	pmwrite(cmac, SUNI1x10GEXP_REG_RXOAM_INTERRUPT_ENABLE, 0xffff);
 
-	
+	/* Don't interrupt on statistics overflow, we are polling */
 	pmwrite(cmac, SUNI1x10GEXP_REG_MSTAT_INTERRUPT_MASK_0, 0);
 	pmwrite(cmac, SUNI1x10GEXP_REG_MSTAT_INTERRUPT_MASK_1, 0);
 	pmwrite(cmac, SUNI1x10GEXP_REG_MSTAT_INTERRUPT_MASK_2, 0);
@@ -135,11 +148,13 @@ static int pm3393_interrupt_enable(struct cmac *cmac)
 	pmwrite(cmac, SUNI1x10GEXP_REG_PL4IDU_INTERRUPT_MASK, 0xffff);
 	pmwrite(cmac, SUNI1x10GEXP_REG_EFLX_FIFO_OVERFLOW_ERROR_ENABLE, 0xffff);
 
-	
+	/* PM3393 - Global interrupt enable
+	 */
+	/* TBD XXX Disable for now until we figure out why error interrupts keep asserting. */
 	pmwrite(cmac, SUNI1x10GEXP_REG_GLOBAL_INTERRUPT_ENABLE,
-		0  );
+		0 /*SUNI1x10GEXP_BITMSK_TOP_INTE */ );
 
-	
+	/* TERMINATOR - PL_INTERUPTS_EXT */
 	pl_intr = readl(cmac->adapter->regs + A_PL_ENABLE);
 	pl_intr |= F_PL_INTR_EXT;
 	writel(pl_intr, cmac->adapter->regs + A_PL_ENABLE);
@@ -150,7 +165,7 @@ static int pm3393_interrupt_disable(struct cmac *cmac)
 {
 	u32 elmer;
 
-	
+	/* PM3393 - Enabling HW interrupt blocks. */
 	pmwrite(cmac, SUNI1x10GEXP_REG_SERDES_3125_INTERRUPT_ENABLE, 0);
 	pmwrite(cmac, SUNI1x10GEXP_REG_XRF_INTERRUPT_ENABLE, 0);
 	pmwrite(cmac, SUNI1x10GEXP_REG_XRF_DIAG_INTERRUPT_ENABLE, 0);
@@ -169,15 +184,18 @@ static int pm3393_interrupt_disable(struct cmac *cmac)
 	pmwrite(cmac, SUNI1x10GEXP_REG_PL4IDU_INTERRUPT_MASK, 0);
 	pmwrite(cmac, SUNI1x10GEXP_REG_EFLX_FIFO_OVERFLOW_ERROR_ENABLE, 0);
 
-	
+	/* PM3393 - Global interrupt enable */
 	pmwrite(cmac, SUNI1x10GEXP_REG_GLOBAL_INTERRUPT_ENABLE, 0);
 
-	
+	/* ELMER - External chip interrupts. */
 	t1_tpi_read(cmac->adapter, A_ELMER0_INT_ENABLE, &elmer);
 	elmer &= ~ELMER0_GP_BIT1;
 	t1_tpi_write(cmac->adapter, A_ELMER0_INT_ENABLE, elmer);
 
-	
+	/* TERMINATOR - PL_INTERUPTS_EXT */
+	/* DO NOT DISABLE TERMINATOR's EXTERNAL INTERRUPTS. ANOTHER CHIP
+	 * COULD WANT THEM ENABLED. We disable PM3393 at the ELMER level.
+	 */
 
 	return 0;
 }
@@ -188,6 +206,9 @@ static int pm3393_interrupt_clear(struct cmac *cmac)
 	u32 pl_intr;
 	u32 val32;
 
+	/* PM3393 - Clearing HW interrupt blocks. Note, this assumes
+	 *          bit WCIMODE=0 for a clear-on-read.
+	 */
 	pmread(cmac, SUNI1x10GEXP_REG_SERDES_3125_INTERRUPT_STATUS, &val32);
 	pmread(cmac, SUNI1x10GEXP_REG_XRF_INTERRUPT_STATUS, &val32);
 	pmread(cmac, SUNI1x10GEXP_REG_XRF_DIAG_INTERRUPT_STATUS, &val32);
@@ -204,12 +225,18 @@ static int pm3393_interrupt_clear(struct cmac *cmac)
 	pmread(cmac, SUNI1x10GEXP_REG_PL4IO_LOCK_DETECT_STATUS, &val32);
 	pmread(cmac, SUNI1x10GEXP_REG_PL4IO_LOCK_DETECT_CHANGE, &val32);
 
+	/* PM3393 - Global interrupt status
+	 */
 	pmread(cmac, SUNI1x10GEXP_REG_MASTER_INTERRUPT_STATUS, &val32);
 
+	/* ELMER - External chip interrupts.
+	 */
 	t1_tpi_read(cmac->adapter, A_ELMER0_INT_CAUSE, &elmer);
 	elmer |= ELMER0_GP_BIT1;
 	t1_tpi_write(cmac->adapter, A_ELMER0_INT_CAUSE, elmer);
 
+	/* TERMINATOR - PL_INTERUPTS_EXT
+	 */
 	pl_intr = readl(cmac->adapter->regs + A_PL_CAUSE);
 	pl_intr |= F_PL_INTR_EXT;
 	writel(pl_intr, cmac->adapter->regs + A_PL_CAUSE);
@@ -217,18 +244,19 @@ static int pm3393_interrupt_clear(struct cmac *cmac)
 	return 0;
 }
 
+/* Interrupt handler */
 static int pm3393_interrupt_handler(struct cmac *cmac)
 {
 	u32 master_intr_status;
 
-	
+	/* Read the master interrupt status register. */
 	pmread(cmac, SUNI1x10GEXP_REG_MASTER_INTERRUPT_STATUS,
 	       &master_intr_status);
 	if (netif_msg_intr(cmac->adapter))
 		dev_dbg(&cmac->adapter->pdev->dev, "PM3393 intr cause 0x%x\n",
 			master_intr_status);
 
-	
+	/* TBD XXX Lets just clear everything for now */
 	pm3393_interrupt_clear(cmac);
 
 	return 0;
@@ -256,7 +284,7 @@ static int pm3393_enable(struct cmac *cmac, int which)
 
 static int pm3393_enable_port(struct cmac *cmac, int which)
 {
-	
+	/* Clear port statistics */
 	pmwrite(cmac, SUNI1x10GEXP_REG_MSTAT_CONTROL,
 		SUNI1x10GEXP_BITMSK_MSTAT_CLEAR);
 	udelay(2);
@@ -264,6 +292,11 @@ static int pm3393_enable_port(struct cmac *cmac, int which)
 
 	pm3393_enable(cmac, which);
 
+	/*
+	 * XXX This should be done by the PHY and preferably not at all.
+	 * The PHY doesn't give us link status indication on its own so have
+	 * the link management code query it instead.
+	 */
 	t1_link_changed(cmac->adapter, 0);
 	return 0;
 }
@@ -275,6 +308,10 @@ static int pm3393_disable(struct cmac *cmac, int which)
 	if (which & MAC_DIRECTION_TX)
 		pmwrite(cmac, SUNI1x10GEXP_REG_TXXG_CONFIG_1, TXXG_CONF1_VAL);
 
+	/*
+	 * The disable is graceful. Give the PM3393 time.  Can't wait very
+	 * long here, we may be holding locks.
+	 */
 	udelay(20);
 
 	cmac->instance->enabled &= ~which;
@@ -295,12 +332,12 @@ static int pm3393_set_mtu(struct cmac *cmac, int mtu)
 {
 	int enabled = cmac->instance->enabled;
 
-	
+	/* MAX_FRAME_SIZE includes header + FCS, mtu doesn't */
 	mtu += 14 + 4;
 	if (mtu > MAX_FRAME_SIZE)
 		return -EINVAL;
 
-	
+	/* Disable Rx/Tx MAC before configuring it. */
 	if (enabled)
 		pm3393_disable(cmac, MAC_DIRECTION_RX | MAC_DIRECTION_TX);
 
@@ -317,7 +354,7 @@ static int pm3393_set_rx_mode(struct cmac *cmac, struct t1_rx_mode *rm)
 	int enabled = cmac->instance->enabled & MAC_DIRECTION_RX;
 	u32 rx_mode;
 
-	
+	/* Disable MAC RX before reconfiguring it */
 	if (enabled)
 		pm3393_disable(cmac, MAC_DIRECTION_RX);
 
@@ -328,24 +365,24 @@ static int pm3393_set_rx_mode(struct cmac *cmac, struct t1_rx_mode *rm)
 		(u16)rx_mode);
 
 	if (t1_rx_mode_promisc(rm)) {
-		
+		/* Promiscuous mode. */
 		rx_mode |= SUNI1x10GEXP_BITMSK_RXXG_PMODE;
 	}
 	if (t1_rx_mode_allmulti(rm)) {
-		
+		/* Accept all multicast. */
 		pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_MULTICAST_HASH_LOW, 0xffff);
 		pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_MULTICAST_HASH_MIDLOW, 0xffff);
 		pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_MULTICAST_HASH_MIDHIGH, 0xffff);
 		pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_MULTICAST_HASH_HIGH, 0xffff);
 		rx_mode |= SUNI1x10GEXP_BITMSK_RXXG_MHASH_EN;
 	} else if (t1_rx_mode_mc_cnt(rm)) {
-		
+		/* Accept one or more multicast(s). */
 		struct netdev_hw_addr *ha;
 		int bit;
 		u16 mc_filter[4] = { 0, };
 
 		netdev_for_each_mc_addr(ha, t1_get_netdev(rm)) {
-			
+			/* bit[23:28] */
 			bit = (ether_crc(ETH_ALEN, ha->addr) >> 23) & 0x3f;
 			mc_filter[bit >> 4] |= 1 << (bit & 0xf);
 		}
@@ -415,11 +452,11 @@ static const struct cmac_statistics *pm3393_update_statistics(struct cmac *mac,
 	u64	ro;
 	u32	val0, val1, val2, val3;
 
-	
+	/* Snap the counters */
 	pmwrite(mac, SUNI1x10GEXP_REG_MSTAT_CONTROL,
 		SUNI1x10GEXP_BITMSK_MSTAT_SNAP);
 
-	
+	/* Counter rollover, clear on read */
 	pmread(mac, SUNI1x10GEXP_REG_MSTAT_COUNTER_ROLLOVER_0, &val0);
 	pmread(mac, SUNI1x10GEXP_REG_MSTAT_COUNTER_ROLLOVER_1, &val1);
 	pmread(mac, SUNI1x10GEXP_REG_MSTAT_COUNTER_ROLLOVER_2, &val2);
@@ -427,7 +464,7 @@ static const struct cmac_statistics *pm3393_update_statistics(struct cmac *mac,
 	ro = ((u64)val0 & 0xffff) | (((u64)val1 & 0xffff) << 16) |
 		(((u64)val2 & 0xffff) << 32) | (((u64)val3 & 0xffff) << 48);
 
-	
+	/* Rx stats */
 	RMON_UPDATE(mac, RxOctetsReceivedOK, RxOctetsOK);
 	RMON_UPDATE(mac, RxUnicastFramesReceivedOK, RxUnicastFramesOK);
 	RMON_UPDATE(mac, RxMulticastFramesReceivedOK, RxMulticastFramesOK);
@@ -445,7 +482,7 @@ static const struct cmac_statistics *pm3393_update_statistics(struct cmac *mac,
 	RMON_UPDATE(mac, RxJumboFramesReceivedOK, RxJumboFramesOK);
 	RMON_UPDATE(mac, RxJumboOctetsReceivedOK, RxJumboOctetsOK);
 
-	
+	/* Tx stats */
 	RMON_UPDATE(mac, TxOctetsTransmittedOK, TxOctetsOK);
 	RMON_UPDATE(mac, TxFramesLostDueToInternalMACTransmissionError,
 				TxInternalMACXmitError);
@@ -470,28 +507,49 @@ static int pm3393_macaddress_set(struct cmac *cmac, u8 ma[6])
 {
 	u32 val, lo, mid, hi, enabled = cmac->instance->enabled;
 
+	/*
+	 * MAC addr: 00:07:43:00:13:09
+	 *
+	 * ma[5] = 0x09
+	 * ma[4] = 0x13
+	 * ma[3] = 0x00
+	 * ma[2] = 0x43
+	 * ma[1] = 0x07
+	 * ma[0] = 0x00
+	 *
+	 * The PM3393 requires byte swapping and reverse order entry
+	 * when programming MAC addresses:
+	 *
+	 * low_bits[15:0]    = ma[1]:ma[0]
+	 * mid_bits[31:16]   = ma[3]:ma[2]
+	 * high_bits[47:32]  = ma[5]:ma[4]
+	 */
 
-	
+	/* Store local copy */
 	memcpy(cmac->instance->mac_addr, ma, 6);
 
 	lo  = ((u32) ma[1] << 8) | (u32) ma[0];
 	mid = ((u32) ma[3] << 8) | (u32) ma[2];
 	hi  = ((u32) ma[5] << 8) | (u32) ma[4];
 
-	
+	/* Disable Rx/Tx MAC before configuring it. */
 	if (enabled)
 		pm3393_disable(cmac, MAC_DIRECTION_RX | MAC_DIRECTION_TX);
 
-	
+	/* Set RXXG Station Address */
 	pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_SA_15_0, lo);
 	pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_SA_31_16, mid);
 	pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_SA_47_32, hi);
 
-	
+	/* Set TXXG Station Address */
 	pmwrite(cmac, SUNI1x10GEXP_REG_TXXG_SA_15_0, lo);
 	pmwrite(cmac, SUNI1x10GEXP_REG_TXXG_SA_31_16, mid);
 	pmwrite(cmac, SUNI1x10GEXP_REG_TXXG_SA_47_32, hi);
 
+	/* Setup Exact Match Filter 1 with our MAC address
+	 *
+	 * Must disable exact match filter before configuring it.
+	 */
 	pmread(cmac, SUNI1x10GEXP_REG_RXXG_ADDRESS_FILTER_CONTROL_0, &val);
 	val &= 0xff0f;
 	pmwrite(cmac, SUNI1x10GEXP_REG_RXXG_ADDRESS_FILTER_CONTROL_0, val);
@@ -549,7 +607,7 @@ static struct cmac *pm3393_mac_create(adapter_t *adapter, int index)
 	t1_tpi_write(adapter, OFFSET(0x0001), 0x00008000);
 	t1_tpi_write(adapter, OFFSET(0x0001), 0x00000000);
 	t1_tpi_write(adapter, OFFSET(0x2308), 0x00009800);
-	t1_tpi_write(adapter, OFFSET(0x2305), 0x00001001);   
+	t1_tpi_write(adapter, OFFSET(0x2305), 0x00001001);   /* PL4IO Enable */
 	t1_tpi_write(adapter, OFFSET(0x2320), 0x00008800);
 	t1_tpi_write(adapter, OFFSET(0x2321), 0x00008800);
 	t1_tpi_write(adapter, OFFSET(0x2322), 0x00008800);
@@ -567,63 +625,65 @@ static struct cmac *pm3393_mac_create(adapter_t *adapter, int index)
 	t1_tpi_write(adapter, OFFSET(0x232e), 0x00008800);
 	t1_tpi_write(adapter, OFFSET(0x232f), 0x00008800);
 	t1_tpi_write(adapter, OFFSET(0x230d), 0x00009c00);
-	t1_tpi_write(adapter, OFFSET(0x2304), 0x00000202);	
+	t1_tpi_write(adapter, OFFSET(0x2304), 0x00000202);	/* PL4IO Calendar Repetitions */
 
-	t1_tpi_write(adapter, OFFSET(0x3200), 0x00008080);	
-	t1_tpi_write(adapter, OFFSET(0x3210), 0x00000000);	
-	t1_tpi_write(adapter, OFFSET(0x3203), 0x00000000);	
-	t1_tpi_write(adapter, OFFSET(0x3204), 0x00000040);	
-	t1_tpi_write(adapter, OFFSET(0x3205), 0x000002cc);	
-	t1_tpi_write(adapter, OFFSET(0x3206), 0x00000199);	
-	t1_tpi_write(adapter, OFFSET(0x3207), 0x00000240);	
-	t1_tpi_write(adapter, OFFSET(0x3202), 0x00000000);	
-	t1_tpi_write(adapter, OFFSET(0x3210), 0x00000001);	
-	t1_tpi_write(adapter, OFFSET(0x3208), 0x0000ffff);	
-	t1_tpi_write(adapter, OFFSET(0x320a), 0x0000ffff);	
-	t1_tpi_write(adapter, OFFSET(0x320c), 0x0000ffff);	
-	t1_tpi_write(adapter, OFFSET(0x320e), 0x0000ffff);	
+	t1_tpi_write(adapter, OFFSET(0x3200), 0x00008080);	/* EFLX Enable */
+	t1_tpi_write(adapter, OFFSET(0x3210), 0x00000000);	/* EFLX Channel Deprovision */
+	t1_tpi_write(adapter, OFFSET(0x3203), 0x00000000);	/* EFLX Low Limit */
+	t1_tpi_write(adapter, OFFSET(0x3204), 0x00000040);	/* EFLX High Limit */
+	t1_tpi_write(adapter, OFFSET(0x3205), 0x000002cc);	/* EFLX Almost Full */
+	t1_tpi_write(adapter, OFFSET(0x3206), 0x00000199);	/* EFLX Almost Empty */
+	t1_tpi_write(adapter, OFFSET(0x3207), 0x00000240);	/* EFLX Cut Through Threshold */
+	t1_tpi_write(adapter, OFFSET(0x3202), 0x00000000);	/* EFLX Indirect Register Update */
+	t1_tpi_write(adapter, OFFSET(0x3210), 0x00000001);	/* EFLX Channel Provision */
+	t1_tpi_write(adapter, OFFSET(0x3208), 0x0000ffff);	/* EFLX Undocumented */
+	t1_tpi_write(adapter, OFFSET(0x320a), 0x0000ffff);	/* EFLX Undocumented */
+	t1_tpi_write(adapter, OFFSET(0x320c), 0x0000ffff);	/* EFLX enable overflow interrupt The other bit are undocumented */
+	t1_tpi_write(adapter, OFFSET(0x320e), 0x0000ffff);	/* EFLX Undocumented */
 
-	t1_tpi_write(adapter, OFFSET(0x2200), 0x0000c000);	
-	t1_tpi_write(adapter, OFFSET(0x2201), 0x00000000);	
-	t1_tpi_write(adapter, OFFSET(0x220e), 0x00000000);	
-	t1_tpi_write(adapter, OFFSET(0x220f), 0x00000100);	
-	t1_tpi_write(adapter, OFFSET(0x2210), 0x00000c00);	
-	t1_tpi_write(adapter, OFFSET(0x2211), 0x00000599);	
-	t1_tpi_write(adapter, OFFSET(0x220d), 0x00000000);	
-	t1_tpi_write(adapter, OFFSET(0x2201), 0x00000001);	
-	t1_tpi_write(adapter, OFFSET(0x2203), 0x0000ffff);	
-	t1_tpi_write(adapter, OFFSET(0x2205), 0x0000ffff);	
-	t1_tpi_write(adapter, OFFSET(0x2209), 0x0000ffff);	
+	t1_tpi_write(adapter, OFFSET(0x2200), 0x0000c000);	/* IFLX Configuration - enable */
+	t1_tpi_write(adapter, OFFSET(0x2201), 0x00000000);	/* IFLX Channel Deprovision */
+	t1_tpi_write(adapter, OFFSET(0x220e), 0x00000000);	/* IFLX Low Limit */
+	t1_tpi_write(adapter, OFFSET(0x220f), 0x00000100);	/* IFLX High Limit */
+	t1_tpi_write(adapter, OFFSET(0x2210), 0x00000c00);	/* IFLX Almost Full Limit */
+	t1_tpi_write(adapter, OFFSET(0x2211), 0x00000599);	/* IFLX Almost Empty Limit */
+	t1_tpi_write(adapter, OFFSET(0x220d), 0x00000000);	/* IFLX Indirect Register Update */
+	t1_tpi_write(adapter, OFFSET(0x2201), 0x00000001);	/* IFLX Channel Provision */
+	t1_tpi_write(adapter, OFFSET(0x2203), 0x0000ffff);	/* IFLX Undocumented */
+	t1_tpi_write(adapter, OFFSET(0x2205), 0x0000ffff);	/* IFLX Undocumented */
+	t1_tpi_write(adapter, OFFSET(0x2209), 0x0000ffff);	/* IFLX Enable overflow interrupt.  The other bit are undocumented */
 
-	t1_tpi_write(adapter, OFFSET(0x2241), 0xfffffffe);	
-	t1_tpi_write(adapter, OFFSET(0x2242), 0x0000ffff);	
-	t1_tpi_write(adapter, OFFSET(0x2243), 0x00000008);	
-	t1_tpi_write(adapter, OFFSET(0x2244), 0x00000008);	
-	t1_tpi_write(adapter, OFFSET(0x2245), 0x00000008);	
-	t1_tpi_write(adapter, OFFSET(0x2240), 0x00000005);	
+	t1_tpi_write(adapter, OFFSET(0x2241), 0xfffffffe);	/* PL4MOS Undocumented */
+	t1_tpi_write(adapter, OFFSET(0x2242), 0x0000ffff);	/* PL4MOS Undocumented */
+	t1_tpi_write(adapter, OFFSET(0x2243), 0x00000008);	/* PL4MOS Starving Burst Size */
+	t1_tpi_write(adapter, OFFSET(0x2244), 0x00000008);	/* PL4MOS Hungry Burst Size */
+	t1_tpi_write(adapter, OFFSET(0x2245), 0x00000008);	/* PL4MOS Transfer Size */
+	t1_tpi_write(adapter, OFFSET(0x2240), 0x00000005);	/* PL4MOS Disable */
 
-	t1_tpi_write(adapter, OFFSET(0x2280), 0x00002103);	
-	t1_tpi_write(adapter, OFFSET(0x2284), 0x00000000);	
+	t1_tpi_write(adapter, OFFSET(0x2280), 0x00002103);	/* PL4ODP Training Repeat and SOP rule */
+	t1_tpi_write(adapter, OFFSET(0x2284), 0x00000000);	/* PL4ODP MAX_T setting */
 
-	t1_tpi_write(adapter, OFFSET(0x3280), 0x00000087);	
-	t1_tpi_write(adapter, OFFSET(0x3282), 0x0000001f);	
+	t1_tpi_write(adapter, OFFSET(0x3280), 0x00000087);	/* PL4IDU Enable data forward, port state machine. Set ALLOW_NON_ZERO_OLB */
+	t1_tpi_write(adapter, OFFSET(0x3282), 0x0000001f);	/* PL4IDU Enable Dip4 check error interrupts */
 
-	t1_tpi_write(adapter, OFFSET(0x3040), 0x0c32);	
-	
+	t1_tpi_write(adapter, OFFSET(0x3040), 0x0c32);	/* # TXXG Config */
+	/* For T1 use timer based Mac flow control. */
 	t1_tpi_write(adapter, OFFSET(0x304d), 0x8000);
-	t1_tpi_write(adapter, OFFSET(0x2040), 0x059c);	
-	t1_tpi_write(adapter, OFFSET(0x2049), 0x0001);	
-	t1_tpi_write(adapter, OFFSET(0x2070), 0x0000);	
+	t1_tpi_write(adapter, OFFSET(0x2040), 0x059c);	/* # RXXG Config */
+	t1_tpi_write(adapter, OFFSET(0x2049), 0x0001);	/* # RXXG Cut Through */
+	t1_tpi_write(adapter, OFFSET(0x2070), 0x0000);	/* # Disable promiscuous mode */
 
-	t1_tpi_write(adapter, OFFSET(0x206e), 0x0000);	
-	t1_tpi_write(adapter, OFFSET(0x204a), 0xffff);	
-	t1_tpi_write(adapter, OFFSET(0x204b), 0xffff);	
-	t1_tpi_write(adapter, OFFSET(0x204c), 0xffff);	
-	t1_tpi_write(adapter, OFFSET(0x206e), 0x0009);	
+	/* Setup Exact Match Filter 0 to allow broadcast packets.
+	 */
+	t1_tpi_write(adapter, OFFSET(0x206e), 0x0000);	/* # Disable Match Enable bit */
+	t1_tpi_write(adapter, OFFSET(0x204a), 0xffff);	/* # low addr */
+	t1_tpi_write(adapter, OFFSET(0x204b), 0xffff);	/* # mid addr */
+	t1_tpi_write(adapter, OFFSET(0x204c), 0xffff);	/* # high addr */
+	t1_tpi_write(adapter, OFFSET(0x206e), 0x0009);	/* # Enable Match Enable bit */
 
-	t1_tpi_write(adapter, OFFSET(0x0003), 0x0000);	
-	t1_tpi_write(adapter, OFFSET(0x0100), 0x0ff0);	
-	t1_tpi_write(adapter, OFFSET(0x0101), 0x0f0f);	
+	t1_tpi_write(adapter, OFFSET(0x0003), 0x0000);	/* # NO SOP/ PAD_EN setup */
+	t1_tpi_write(adapter, OFFSET(0x0100), 0x0ff0);	/* # RXEQB disabled */
+	t1_tpi_write(adapter, OFFSET(0x0101), 0x0f0f);	/* # No Preemphasis */
 
 	return cmac;
 }
@@ -638,49 +698,81 @@ static int pm3393_mac_reset(adapter_t * adapter)
 	u32 successful_reset;
 	int i;
 
+	/* The following steps are required to properly reset
+	 * the PM3393. This information is provided in the
+	 * PM3393 datasheet (Issue 2: November 2002)
+	 * section 13.1 -- Device Reset.
+	 *
+	 * The PM3393 has three types of components that are
+	 * individually reset:
+	 *
+	 * DRESETB      - Digital circuitry
+	 * PL4_ARESETB  - PL4 analog circuitry
+	 * XAUI_ARESETB - XAUI bus analog circuitry
+	 *
+	 * Steps to reset PM3393 using RSTB pin:
+	 *
+	 * 1. Assert RSTB pin low ( write 0 )
+	 * 2. Wait at least 1ms to initiate a complete initialization of device.
+	 * 3. Wait until all external clocks and REFSEL are stable.
+	 * 4. Wait minimum of 1ms. (after external clocks and REFEL are stable)
+	 * 5. De-assert RSTB ( write 1 )
+	 * 6. Wait until internal timers to expires after ~14ms.
+	 *    - Allows analog clock synthesizer(PL4CSU) to stabilize to
+	 *      selected reference frequency before allowing the digital
+	 *      portion of the device to operate.
+	 * 7. Wait at least 200us for XAUI interface to stabilize.
+	 * 8. Verify the PM3393 came out of reset successfully.
+	 *    Set successful reset flag if everything worked else try again
+	 *    a few more times.
+	 */
 
 	successful_reset = 0;
 	for (i = 0; i < 3 && !successful_reset; i++) {
-		
+		/* 1 */
 		t1_tpi_read(adapter, A_ELMER0_GPO, &val);
 		val &= ~1;
 		t1_tpi_write(adapter, A_ELMER0_GPO, val);
 
-		
+		/* 2 */
 		msleep(1);
 
-		
+		/* 3 */
 		msleep(1);
 
-		
-		msleep(2  );
+		/* 4 */
+		msleep(2 /*1 extra ms for safety */ );
 
-		
+		/* 5 */
 		val |= 1;
 		t1_tpi_write(adapter, A_ELMER0_GPO, val);
 
-		
-		msleep(15  );
+		/* 6 */
+		msleep(15 /*1 extra ms for safety */ );
 
-		
+		/* 7 */
 		msleep(1);
 
-		
+		/* 8 */
 
-		
+		/* Has PL4 analog block come out of reset correctly? */
 		t1_tpi_read(adapter, OFFSET(SUNI1x10GEXP_REG_DEVICE_STATUS), &val);
 		is_pl4_reset_finished = (val & SUNI1x10GEXP_BITMSK_TOP_EXPIRED);
 
+		/* TBD XXX SUNI1x10GEXP_BITMSK_TOP_PL4_IS_DOOL gets locked later in the init sequence
+		 *         figure out why? */
 
-		
+		/* Have all PL4 block clocks locked? */
 		x = (SUNI1x10GEXP_BITMSK_TOP_PL4_ID_DOOL
-		       |
+		     /*| SUNI1x10GEXP_BITMSK_TOP_PL4_IS_DOOL */  |
 		     SUNI1x10GEXP_BITMSK_TOP_PL4_ID_ROOL |
 		     SUNI1x10GEXP_BITMSK_TOP_PL4_IS_ROOL |
 		     SUNI1x10GEXP_BITMSK_TOP_PL4_OUT_ROOL);
 		is_pl4_outof_lock = (val & x);
 
-		
+		/* ??? If this fails, might be able to software reset the XAUI part
+		 *     and try to recover... thus saving us from doing another HW reset */
+		/* Has the XAUI MABC PLL circuitry stablized? */
 		is_xaui_mabc_pll_locked =
 		    (val & SUNI1x10GEXP_BITMSK_TOP_SXRA_EXPIRED);
 

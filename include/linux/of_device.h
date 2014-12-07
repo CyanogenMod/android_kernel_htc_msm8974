@@ -2,7 +2,7 @@
 #define _LINUX_OF_DEVICE_H
 
 #include <linux/platform_device.h>
-#include <linux/of_platform.h> 
+#include <linux/of_platform.h> /* temporary until merge */
 
 #ifdef CONFIG_OF_DEVICE
 #include <linux/of.h>
@@ -14,6 +14,11 @@ extern const struct of_device_id *of_match_device(
 	const struct of_device_id *matches, const struct device *dev);
 extern void of_device_make_bus_id(struct device *dev);
 
+/**
+ * of_driver_match_device - Tell if a driver's of_match_table matches a device.
+ * @drv: the device_driver structure to test
+ * @dev: the device structure to match against
+ */
 static inline int of_driver_match_device(struct device *dev,
 					 const struct device_driver *drv)
 {
@@ -38,7 +43,7 @@ static inline void of_device_node_put(struct device *dev)
 	of_node_put(dev->of_node);
 }
 
-#else 
+#else /* CONFIG_OF_DEVICE */
 
 static inline int of_driver_match_device(struct device *dev,
 					 struct device_driver *drv)
@@ -62,6 +67,6 @@ static inline const struct of_device_id *of_match_device(
 {
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_OF_DEVICE */
 
-#endif 
+#endif /* _LINUX_OF_DEVICE_H */

@@ -3,4 +3,4 @@
 
 #include <asm-generic/mman.h>
 
-#endif 
+#endif /* _ASM_SCORE_MMAN_H */

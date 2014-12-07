@@ -33,7 +33,7 @@
 
 struct nxt6000_state {
 	struct i2c_adapter* i2c;
-	
+	/* configuration settings */
 	const struct nxt6000_config* config;
 	struct dvb_frontend frontend;
 };
@@ -177,12 +177,12 @@ static void nxt6000_setup(struct dvb_frontend* fe)
 	struct nxt6000_state* state = fe->demodulator_priv;
 
 	nxt6000_writereg(state, RS_COR_SYNC_PARAM, SYNC_PARAM);
-	nxt6000_writereg(state, BER_CTRL,  (0x01 << 1) | 0x01);
-	nxt6000_writereg(state, VIT_BERTIME_2, 0x00);  
-	nxt6000_writereg(state, VIT_BERTIME_1, 0x02);  
-	nxt6000_writereg(state, VIT_BERTIME_0, 0x00);  
-	nxt6000_writereg(state, VIT_COR_INTEN, 0x98); 
-	nxt6000_writereg(state, VIT_COR_CTL, 0x82);   
+	nxt6000_writereg(state, BER_CTRL, /*(1 << 2) | */ (0x01 << 1) | 0x01);
+	nxt6000_writereg(state, VIT_BERTIME_2, 0x00);  // BER Timer = 0x000200 * 256 = 131072 bits
+	nxt6000_writereg(state, VIT_BERTIME_1, 0x02);  //
+	nxt6000_writereg(state, VIT_BERTIME_0, 0x00);  //
+	nxt6000_writereg(state, VIT_COR_INTEN, 0x98); // Enable BER interrupts
+	nxt6000_writereg(state, VIT_COR_CTL, 0x82);   // Enable BER measurement
 	nxt6000_writereg(state, VIT_COR_CTL, VIT_COR_RESYNC | 0x02 );
 	nxt6000_writereg(state, OFDM_COR_CTL, (0x01 << 5) | (nxt6000_readreg(state, OFDM_COR_CTL) & 0x0F));
 	nxt6000_writereg(state, OFDM_COR_MODEGUARD, FORCEMODE8K | 0x02);
@@ -190,7 +190,7 @@ static void nxt6000_setup(struct dvb_frontend* fe)
 	nxt6000_writereg(state, OFDM_ITB_FREQ_1, 0x06);
 	nxt6000_writereg(state, OFDM_ITB_FREQ_2, 0x31);
 	nxt6000_writereg(state, OFDM_CAS_CTL, (0x01 << 7) | (0x02 << 3) | 0x04);
-	nxt6000_writereg(state, CAS_FREQ, 0xBB);	
+	nxt6000_writereg(state, CAS_FREQ, 0xBB);	/* CHECKME */
 	nxt6000_writereg(state, OFDM_SYR_CTL, 1 << 2);
 	nxt6000_writereg(state, OFDM_PPM_CTL_1, PPM256);
 	nxt6000_writereg(state, OFDM_TRL_NOMINALRATE_1, 0x49);
@@ -211,6 +211,18 @@ static void nxt6000_dump_status(struct nxt6000_state *state)
 {
 	u8 val;
 
+/*
+	printk("RS_COR_STAT: 0x%02X\n", nxt6000_readreg(fe, RS_COR_STAT));
+	printk("VIT_SYNC_STATUS: 0x%02X\n", nxt6000_readreg(fe, VIT_SYNC_STATUS));
+	printk("OFDM_COR_STAT: 0x%02X\n", nxt6000_readreg(fe, OFDM_COR_STAT));
+	printk("OFDM_SYR_STAT: 0x%02X\n", nxt6000_readreg(fe, OFDM_SYR_STAT));
+	printk("OFDM_TPS_RCVD_1: 0x%02X\n", nxt6000_readreg(fe, OFDM_TPS_RCVD_1));
+	printk("OFDM_TPS_RCVD_2: 0x%02X\n", nxt6000_readreg(fe, OFDM_TPS_RCVD_2));
+	printk("OFDM_TPS_RCVD_3: 0x%02X\n", nxt6000_readreg(fe, OFDM_TPS_RCVD_3));
+	printk("OFDM_TPS_RCVD_4: 0x%02X\n", nxt6000_readreg(fe, OFDM_TPS_RCVD_4));
+	printk("OFDM_TPS_RESERVED_1: 0x%02X\n", nxt6000_readreg(fe, OFDM_TPS_RESERVED_1));
+	printk("OFDM_TPS_RESERVED_2: 0x%02X\n", nxt6000_readreg(fe, OFDM_TPS_RESERVED_2));
+*/
 	printk("NXT6000 status:");
 
 	val = nxt6000_readreg(state, RS_COR_STAT);
@@ -395,7 +407,7 @@ static void nxt6000_dump_status(struct nxt6000_state *state)
 
 	}
 
-	
+	/* Strange magic required to gain access to RF_AGC_STATUS */
 	nxt6000_readreg(state, RF_AGC_VAL_1);
 	val = nxt6000_readreg(state, RF_AGC_STATUS);
 	val = nxt6000_readreg(state, RF_AGC_STATUS);
@@ -499,7 +511,7 @@ static int nxt6000_read_ber(struct dvb_frontend* fe, u32* ber)
 	*ber = (nxt6000_readreg( state, VIT_BER_1 ) << 8 ) |
 		nxt6000_readreg( state, VIT_BER_0 );
 
-	nxt6000_writereg( state, VIT_COR_INTSTAT, 0x18); 
+	nxt6000_writereg( state, VIT_COR_INTSTAT, 0x18); // Clear BER Done interrupts
 
 	return 0;
 }
@@ -539,18 +551,18 @@ struct dvb_frontend* nxt6000_attach(const struct nxt6000_config* config,
 {
 	struct nxt6000_state* state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct nxt6000_state), GFP_KERNEL);
 	if (state == NULL) goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 
-	
+	/* check if the demod is there */
 	if (nxt6000_readreg(state, OFDM_MSC_REV) != NXT6000ASICDEVICE) goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &nxt6000_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 	return &state->frontend;
@@ -567,9 +579,9 @@ static struct dvb_frontend_ops nxt6000_ops = {
 		.frequency_min = 0,
 		.frequency_max = 863250000,
 		.frequency_stepsize = 62500,
-		
-		.symbol_rate_min = 0,	
-		.symbol_rate_max = 9360000,	
+		/*.frequency_tolerance = *//* FIXME: 12% of SR */
+		.symbol_rate_min = 0,	/* FIXME */
+		.symbol_rate_max = 9360000,	/* FIXME */
 		.symbol_rate_tolerance = 4000,
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 			FE_CAN_FEC_4_5 | FE_CAN_FEC_5_6 | FE_CAN_FEC_6_7 |

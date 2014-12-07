@@ -24,7 +24,7 @@ static int cp6_trap(struct pt_regs *regs, unsigned int instr)
 {
 	u32 temp;
 
-        
+        /* enable cp6 access */
         asm volatile (
 		"mrc	p15, 0, %0, c15, c1, 0\n\t"
 		"orr	%0, %0, #(1 << 6)\n\t"
@@ -34,6 +34,9 @@ static int cp6_trap(struct pt_regs *regs, unsigned int instr)
 	return 0;
 }
 
+/* permit kernel space cp6 access
+ * deny user space cp6 access
+ */
 static struct undef_hook cp6_hook = {
 	.instr_mask     = 0x0f000ff0,
 	.instr_val      = 0x0e000610,

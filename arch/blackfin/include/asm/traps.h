@@ -36,12 +36,15 @@
 #define VEC_CPLB_M	(38)
 #define VEC_CPLB_MHIT	(39)
 #define VEC_WATCH	(40)
-#define VEC_ISTRU_VL	(41)	
+#define VEC_ISTRU_VL	(41)	/*ADSP-BF535 only (MH) */
 #define VEC_MISALI_I	(42)
 #define VEC_CPLB_I_VL	(43)
 #define VEC_CPLB_I_M	(44)
 #define VEC_CPLB_I_MHIT	(45)
-#define VEC_ILL_RES	(46)	
+#define VEC_ILL_RES	(46)	/* including unvalid supervisor mode insn */
+/* The hardware reserves (63) for future use - we use it to tell our
+ * normal exception handling code we have a hardware error
+ */
 #define VEC_HWERR	(63)
 
 #ifndef __ASSEMBLY__
@@ -122,5 +125,5 @@
 	level "   for Supervisor use: Supervisor only registers, all MMRs, and Supervisor\n" \
 	level "   only instructions.\n"
 
-#endif				
-#endif				
+#endif				/* __ASSEMBLY__ */
+#endif				/* _BFIN_TRAPS_H */

@@ -33,8 +33,13 @@
 #define O2NM_MAX_NODES		255
 #define O2NM_INVALID_NODE_NUM	255
 
-#define O2NM_MAX_NAME_LEN        64    
+/* host name, group name, cluster name all 64 bytes */
+#define O2NM_MAX_NAME_LEN        64    // __NEW_UTS_LEN
 
+/*
+ * Maximum number of global heartbeat regions allowed.
+ * **CAUTION**  Changing this number will break dlm compatibility.
+ */
 #define O2NM_MAX_REGIONS	32
 
-#endif 
+#endif /* _OCFS2_NODEMANAGER_H */

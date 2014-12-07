@@ -13,9 +13,12 @@
 
 
 
-#define LMC_EVENTLOGSIZE 1024	
-#define LMC_EVENTLOGARGS 4		
+/* Debug --- Event log definitions --- */
+/* EVENTLOGSIZE*EVENTLOGARGS needs to be a power of 2 */
+#define LMC_EVENTLOGSIZE 1024	/* number of events in eventlog */
+#define LMC_EVENTLOGARGS 4		/* number of args for each event */
 
+/* event indicators */
 #define LMC_EVENT_XMT           1
 #define LMC_EVENT_XMTEND        2
 #define LMC_EVENT_XMTINT        3
@@ -40,7 +43,7 @@ extern u32 lmcEventLogBuf[LMC_EVENTLOGSIZE * LMC_EVENTLOGARGS];
 #define LMC_EVENT_LOG(x, y, z) lmcEventLog((x), (y), (z))
 #else
 #define LMC_EVENT_LOG(x,y,z)
-#endif 
+#endif /* end ifdef _DBG_EVENTLOG */
 
 void lmcConsoleLog(char *type, unsigned char *ucData, int iLen);
 void lmcEventLog(u32 EventNum, u32 arg2, u32 arg3);

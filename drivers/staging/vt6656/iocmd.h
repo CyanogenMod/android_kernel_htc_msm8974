@@ -31,7 +31,9 @@
 
 #include "ttype.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+// ioctl Command code
 #define MAGIC_CODE	                 0x3142
 #define IOCTL_CMD_TEST	            (SIOCDEVPRIVATE + 0)
 #define IOCTL_CMD_SET			    (SIOCDEVPRIVATE + 1)
@@ -90,6 +92,9 @@ typedef enum tagWZONETYPE {
 #define WEP_104BIT_LEN         13
 #define WEP_232BIT_LEN         16
 
+// Ioctl interface structure
+// Command structure
+//
 #pragma pack(1)
 typedef struct tagSCmdRequest {
 	u8 name[16];
@@ -98,6 +103,9 @@ typedef struct tagSCmdRequest {
 	u16     wCmdCode;
 } SCmdRequest, *PSCmdRequest;
 
+//
+// Scan
+//
 
 typedef struct tagSCmdScan {
 
@@ -105,6 +113,9 @@ typedef struct tagSCmdScan {
 
 } SCmdScan, *PSCmdScan;
 
+//
+// BSS Join
+//
 
 typedef struct tagSCmdBSSJoin {
 
@@ -117,6 +128,9 @@ typedef struct tagSCmdBSSJoin {
 
 } SCmdBSSJoin, *PSCmdBSSJoin;
 
+//
+// Zonetype Setting
+//
 
 typedef struct tagSCmdZoneTypeSet {
 
@@ -177,7 +191,7 @@ typedef struct tagSBSSIDList {
 
 
 typedef struct tagSNodeItem {
-    
+    // STA info
     u16            wAID;
     u8             abyMACAddr[6];
     u16            wTxDataRate;
@@ -188,7 +202,7 @@ typedef struct tagSNodeItem {
     u8             byKeyIndex;
     u16            wWepKeyLength;
     u8            abyWepKey[WEP_KEYMAXLEN];
-    
+    // Auto rate fallback vars
     BOOL           bIsInFallback;
     u32            uTxFailures;
     u32            uTxAttempts;
@@ -217,6 +231,9 @@ typedef struct tagSCmdLinkStatus {
 
 } SCmdLinkStatus, *PSCmdLinkStatus;
 
+//
+// 802.11 counter
+//
 typedef struct tagSDot11MIBCount {
     u32 TransmittedFragmentCount;
     u32 MulticastTransmittedFrameCount;
@@ -234,10 +251,13 @@ typedef struct tagSDot11MIBCount {
 
 
 
+//
+// statistic counter
+//
 typedef struct tagSStatMIBCount {
-    
-    
-    
+    //
+    // ISR status count
+    //
     u32   dwIsrTx0OK;
     u32   dwIsrTx1OK;
     u32   dwIsrBeaconTxOK;
@@ -247,12 +267,12 @@ typedef struct tagSStatMIBCount {
     u32   dwIsrUnrecoverableError;
     u32   dwIsrSoftInterrupt;
     u32   dwIsrRxNoBuf;
-    
+    /////////////////////////////////////
 
-	u32 dwIsrUnknown; 
+	u32 dwIsrUnknown; /* unknown interrupt count */
 
-    
-    
+    // RSR status count
+    //
     u32   dwRsrFrmAlgnErr;
     u32   dwRsrErr;
     u32   dwRsrCRCErr;
@@ -273,10 +293,10 @@ typedef struct tagSStatMIBCount {
     u32   dwRsrBroadcast;
     u32   dwRsrMulticast;
     u32   dwRsrDirected;
-    
+    // 64-bit OID
     u32   ullRsrOK;
 
-    
+    // for some optional OIDs (64 bits) and DMI support
     u32   ullRxBroadcastBytes;
     u32   ullRxMulticastBytes;
     u32   ullRxDirectedBytes;
@@ -292,12 +312,14 @@ typedef struct tagSStatMIBCount {
     u32   dwRsrRxFrmLen512_1023;
     u32   dwRsrRxFrmLen1024_1518;
 
-    
-    
-	u32 dwTsrTotalRetry[2];        
-	u32 dwTsrOnceRetry[2];         
-	u32 dwTsrMoreThanOnceRetry[2]; 
-	u32 dwTsrRetry[2];             
+    // TSR0,1 status count
+    //
+	u32 dwTsrTotalRetry[2];        /* total collision retry count */
+	u32 dwTsrOnceRetry[2];         /* this packet had one collision */
+	u32 dwTsrMoreThanOnceRetry[2]; /* this packet had many collisions */
+	u32 dwTsrRetry[2];             /* this packet has ever occur collision,
+					* that is (dwTsrOnceCollision0 plus
+					* dwTsrMoreThanOnceCollision0) */
     u32   dwTsrACKData[2];
     u32   dwTsrErr[2];
     u32   dwAllTsrOK[2];
@@ -310,23 +332,23 @@ typedef struct tagSStatMIBCount {
     u32   dwTsrMulticast[2];
     u32   dwTsrDirected[2];
 
-    
+    // RD/TD count
     u32   dwCntRxFrmLength;
     u32   dwCntTxBufLength;
 
     u8    abyCntRxPattern[16];
     u8    abyCntTxPattern[16];
 
-	
-	u32 dwCntRxDataErr;  
-	u32 dwCntDecryptErr; 
-	u32 dwCntRxICVErr;   
-	u32 idxRxErrorDesc;  
+	/* Software check.... */
+	u32 dwCntRxDataErr;  /* rx buffer data CRC err count */
+	u32 dwCntDecryptErr; /* rx buffer data CRC err count */
+	u32 dwCntRxICVErr;   /* rx buffer data CRC err count */
+	u32 idxRxErrorDesc;  /* index for rx data error RD */
 
-	
+	/* 64-bit OID */
 	u32   ullTsrOK[2];
 
-    
+    // for some optional OIDs (64 bits) and DMI support
     u32   ullTxBroadcastFrames[2];
     u32   ullTxMulticastFrames[2];
     u32   ullTxDirectedFrames[2];
@@ -341,7 +363,11 @@ typedef struct tagSCmdValue {
 
 } SCmdValue,  *PSCmdValue;
 
+//
+// hostapd & viawget ioctl related
+//
 
+// VIAGWET_IOCTL_HOSTAPD ioctl() cmd:
 enum {
 	VIAWGET_HOSTAPD_FLUSH = 1,
 	VIAWGET_HOSTAPD_ADD_STA = 2,
@@ -360,6 +386,7 @@ enum {
 #define VIAWGET_HOSTAPD_GENERIC_ELEMENT_HDR_LEN \
 ((int) (&((struct viawget_hostapd_param *) 0)->u.generic_elem.data))
 
+// Maximum length for algorithm names (-1 for nul termination) used in ioctl()
 
 struct viawget_hostapd_param {
 	u32 cmd;
@@ -406,8 +433,12 @@ struct viawget_hostapd_param {
 	} u;
 };
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Types  ------------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
-#endif 
+#endif /* __IOCMD_H__ */

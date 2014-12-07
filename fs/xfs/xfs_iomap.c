@@ -62,6 +62,14 @@ xfs_iomap_eof_align_last_fsb(
 	int		eof, error;
 
 	if (!XFS_IS_REALTIME_INODE(ip)) {
+		/*
+		 * Round up the allocation request to a stripe unit
+		 * (m_dalign) boundary if the file size is >= stripe unit
+		 * size, and we are allocating past the allocation eof.
+		 *
+		 * If mounted with the "-o swalloc" option the alignment is
+		 * increased from the strip unit size to the stripe width.
+		 */
 		if (mp->m_swidth && (mp->m_flags & XFS_MOUNT_SWALLOC))
 			align = mp->m_swidth;
 		else if (mp->m_dalign)
@@ -71,6 +79,10 @@ xfs_iomap_eof_align_last_fsb(
 			new_last_fsb = roundup_64(*last_fsb, align);
 	}
 
+	/*
+	 * Always round up the allocation request to an extent boundary
+	 * (when file on a real-time subvolume or has di_extsize hint).
+	 */
 	if (extsize) {
 		if (new_last_fsb)
 			align = roundup_64(new_last_fsb, extsize);
@@ -130,6 +142,10 @@ xfs_iomap_write_direct(
 	int		committed;
 	int		error;
 
+	/*
+	 * Make sure that the dquots are there. This doesn't hold
+	 * the ilock across a disk read.
+	 */
 	error = xfs_qm_dqattach_locked(ip, 0);
 	if (error)
 		return XFS_ERROR(error);
@@ -171,12 +187,18 @@ xfs_iomap_write_direct(
 		quota_flag = XFS_QMOPT_RES_REGBLKS;
 	}
 
+	/*
+	 * Allocate and setup the transaction
+	 */
 	xfs_iunlock(ip, XFS_ILOCK_EXCL);
 	tp = xfs_trans_alloc(mp, XFS_TRANS_DIOSTRAT);
 	error = xfs_trans_reserve(tp, resblks,
 			XFS_WRITE_LOG_RES(mp), resrtextents,
 			XFS_TRANS_PERM_LOG_RES,
 			XFS_WRITE_LOG_COUNT);
+	/*
+	 * Check for running out of space, note: need lock to return
+	 */
 	if (error)
 		xfs_trans_cancel(tp, 0);
 	xfs_ilock(ip, XFS_ILOCK_EXCL);
@@ -193,6 +215,10 @@ xfs_iomap_write_direct(
 	if (offset < XFS_ISIZE(ip) || extsz)
 		bmapi_flag |= XFS_BMAPI_PREALLOC;
 
+	/*
+	 * From this point onwards we overwrite the imap pointer that the
+	 * caller gave to us.
+	 */
 	xfs_bmap_init(&free_list, &firstfsb);
 	nimaps = 1;
 	error = xfs_bmapi_write(tp, ip, offset_fsb, count_fsb, bmapi_flag,
@@ -200,6 +226,9 @@ xfs_iomap_write_direct(
 	if (error)
 		goto error0;
 
+	/*
+	 * Complete the transaction
+	 */
 	error = xfs_bmap_finish(&tp, &free_list, &committed);
 	if (error)
 		goto error0;
@@ -207,6 +236,9 @@ xfs_iomap_write_direct(
 	if (error)
 		goto error_out;
 
+	/*
+	 * Copy any maps to caller's array and return any error.
+	 */
 	if (nimaps == 0) {
 		error = ENOSPC;
 		goto error_out;
@@ -219,17 +251,25 @@ xfs_iomap_write_direct(
 
 	return 0;
 
-error0:	
+error0:	/* Cancel bmap, unlock inode, unreserve quota blocks, cancel trans */
 	xfs_bmap_cancel(&free_list);
 	xfs_trans_unreserve_quota_nblks(tp, ip, qblocks, 0, quota_flag);
 
-error1:	
+error1:	/* Just cancel transaction */
 	xfs_trans_cancel(tp, XFS_TRANS_RELEASE_LOG_RES | XFS_TRANS_ABORT);
 
 error_out:
 	return XFS_ERROR(error);
 }
 
+/*
+ * If the caller is doing a write at the end of the file, then extend the
+ * allocation out to the file system's write iosize.  We clean up any extra
+ * space left over when the file is closed in xfs_inactive().
+ *
+ * If we find we already have delalloc preallocation beyond EOF, don't do more
+ * preallocation as it it not needed.
+ */
 STATIC int
 xfs_iomap_eof_want_preallocate(
 	xfs_mount_t	*mp,
@@ -250,6 +290,10 @@ xfs_iomap_eof_want_preallocate(
 	if (offset + count <= XFS_ISIZE(ip))
 		return 0;
 
+	/*
+	 * If there are any real blocks past eof, then don't
+	 * do any speculative allocation.
+	 */
 	start_fsb = XFS_B_TO_FSBT(mp, ((xfs_ufsize_t)(offset + count - 1)));
 	count_fsb = XFS_B_TO_FSB(mp, (xfs_ufsize_t)XFS_MAXIOFFSET(mp));
 	while (count_fsb > 0) {
@@ -275,6 +319,12 @@ xfs_iomap_eof_want_preallocate(
 	return 0;
 }
 
+/*
+ * If we don't have a user specified preallocation size, dynamically increase
+ * the preallocation size as the size of the file grows. Cap the maximum size
+ * at a single extent or less if the filesystem is near full. The closer the
+ * filesystem is to full, the smaller the maximum prealocation.
+ */
 STATIC xfs_fsblock_t
 xfs_iomap_prealloc_size(
 	struct xfs_mount	*mp,
@@ -286,6 +336,11 @@ xfs_iomap_prealloc_size(
 		int shift = 0;
 		int64_t freesp;
 
+		/*
+		 * rounddown_pow_of_two() returns an undefined result
+		 * if we pass in alloc_blocks = 0. Hence the "+ 1" to
+		 * ensure we always pass in a non-zero value.
+		 */
 		alloc_blocks = XFS_B_TO_FSB(mp, XFS_ISIZE(ip)) + 1;
 		alloc_blocks = XFS_FILEOFF_MIN(MAXEXTLEN,
 					rounddown_pow_of_two(alloc_blocks));
@@ -333,6 +388,10 @@ xfs_iomap_write_delay(
 
 	ASSERT(xfs_isilocked(ip, XFS_ILOCK_EXCL));
 
+	/*
+	 * Make sure that the dquots are there. This doesn't hold
+	 * the ilock across a disk read.
+	 */
 	error = xfs_qm_dqattach_locked(ip, 0);
 	if (error)
 		return XFS_ERROR(error);
@@ -375,6 +434,12 @@ retry:
 		return XFS_ERROR(error);
 	}
 
+	/*
+	 * If bmapi returned us nothing, we got either ENOSPC or EDQUOT.  For
+	 * ENOSPC, * flush all other inodes with delalloc blocks to free up
+	 * some of the excess reserved metadata space. For both cases, retry
+	 * without EOF preallocation.
+	 */
 	if (nimaps == 0) {
 		trace_xfs_delalloc_enospc(ip, offset, count);
 		if (flushed)
@@ -399,6 +464,16 @@ retry:
 	return 0;
 }
 
+/*
+ * Pass in a delayed allocate extent, convert it to real extents;
+ * return to the caller the extent we create which maps on top of
+ * the originating callers request.
+ *
+ * Called without a lock on the inode.
+ *
+ * We no longer bother to look at the incoming map - all we have to
+ * guarantee is that whatever we allocate fills the required range.
+ */
 int
 xfs_iomap_write_allocate(
 	xfs_inode_t	*ip,
@@ -417,6 +492,9 @@ xfs_iomap_write_allocate(
 	int		error = 0;
 	int		nres;
 
+	/*
+	 * Make sure that the dquots are there.
+	 */
 	error = xfs_qm_dqattach(ip, 0);
 	if (error)
 		return XFS_ERROR(error);
@@ -428,6 +506,14 @@ xfs_iomap_write_allocate(
 	XFS_STATS_ADD(xs_xstrat_bytes, XFS_FSB_TO_B(mp, count_fsb));
 
 	while (count_fsb != 0) {
+		/*
+		 * Set up a transaction with which to allocate the
+		 * backing store for the file.  Do allocations in a
+		 * loop until we get some space in the range we are
+		 * interested in.  The other space that might be allocated
+		 * is in the delayed allocation extent on which we sit
+		 * but before our buffer starts.
+		 */
 
 		nimaps = 0;
 		while (nimaps == 0) {
@@ -447,6 +533,37 @@ xfs_iomap_write_allocate(
 
 			xfs_bmap_init(&free_list, &first_block);
 
+			/*
+			 * it is possible that the extents have changed since
+			 * we did the read call as we dropped the ilock for a
+			 * while. We have to be careful about truncates or hole
+			 * punchs here - we are not allowed to allocate
+			 * non-delalloc blocks here.
+			 *
+			 * The only protection against truncation is the pages
+			 * for the range we are being asked to convert are
+			 * locked and hence a truncate will block on them
+			 * first.
+			 *
+			 * As a result, if we go beyond the range we really
+			 * need and hit an delalloc extent boundary followed by
+			 * a hole while we have excess blocks in the map, we
+			 * will fill the hole incorrectly and overrun the
+			 * transaction reservation.
+			 *
+			 * Using a single map prevents this as we are forced to
+			 * check each map we look for overlap with the desired
+			 * range and abort as soon as we find it. Also, given
+			 * that we only return a single map, having one beyond
+			 * what we can return is probably a bit silly.
+			 *
+			 * We also need to check that we don't go beyond EOF;
+			 * this is a truncate optimisation as a truncate sets
+			 * the new file size before block on the pages we
+			 * currently have locked under writeback. Because they
+			 * are about to be tossed, we don't need to write them
+			 * back....
+			 */
 			nimaps = 1;
 			end_fsb = XFS_B_TO_FSB(mp, XFS_ISIZE(ip));
 			error = xfs_bmap_last_offset(NULL, ip, &last_block,
@@ -463,6 +580,10 @@ xfs_iomap_write_allocate(
 				}
 			}
 
+			/*
+			 * From this point onwards we overwrite the imap
+			 * pointer that the caller gave to us.
+			 */
 			error = xfs_bmapi_write(tp, ip, map_start_fsb,
 						count_fsb, 0, &first_block, 1,
 						imap, &nimaps, &free_list);
@@ -480,6 +601,10 @@ xfs_iomap_write_allocate(
 			xfs_iunlock(ip, XFS_ILOCK_EXCL);
 		}
 
+		/*
+		 * See if we were able to allocate an extent that
+		 * covers at least part of the callers request
+		 */
 		if (!(imap->br_startblock || XFS_IS_REALTIME_INODE(ip)))
 			return xfs_alert_fsblock_zero(ip, imap);
 
@@ -490,6 +615,10 @@ xfs_iomap_write_allocate(
 			return 0;
 		}
 
+		/*
+		 * So far we have not mapped the requested part of the
+		 * file, just surrounding data, try again.
+		 */
 		count_fsb -= imap->br_blockcount;
 		map_start_fsb = imap->br_startoff + imap->br_blockcount;
 	}
@@ -578,6 +707,11 @@ xfs_iomap_write_unwritten(
 		if (error)
 			goto error_on_bmapi_transaction;
 
+		/*
+		 * Log the updated inode size as we go.  We have to be careful
+		 * to only log it up to the actual write offset if it is
+		 * halfway into a block.
+		 */
 		i_size = XFS_FSB_TO_B(mp, offset_fsb + count_fsb);
 		if (i_size > offset + count)
 			i_size = offset + count;
@@ -601,6 +735,10 @@ xfs_iomap_write_unwritten(
 			return xfs_alert_fsblock_zero(ip, &imap);
 
 		if ((numblks_fsb = imap.br_blockcount) == 0) {
+			/*
+			 * The numblks_fsb value should always get
+			 * smaller, otherwise the loop is stuck.
+			 */
 			ASSERT(imap.br_blockcount);
 			break;
 		}

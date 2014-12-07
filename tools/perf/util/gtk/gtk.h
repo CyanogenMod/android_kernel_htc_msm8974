@@ -5,4 +5,4 @@
 #include <gtk/gtk.h>
 #pragma GCC diagnostic error "-Wstrict-prototypes"
 
-#endif 
+#endif /* _PERF_GTK_H_ */

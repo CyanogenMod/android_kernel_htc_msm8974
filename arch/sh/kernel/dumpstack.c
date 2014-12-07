@@ -75,6 +75,9 @@ static int print_trace_stack(void *data, char *name)
 	return 0;
 }
 
+/*
+ * Print one address/symbol entries per line.
+ */
 static void print_trace_address(void *data, unsigned long addr, int reliable)
 {
 	printk(data);

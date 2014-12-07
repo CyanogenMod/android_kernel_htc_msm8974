@@ -43,14 +43,18 @@
 
 #define DRVNAME	"coretemp"
 
+/*
+ * force_tjmax only matters when TjMax can't be read from the CPU itself.
+ * When set, it replaces the driver's suboptimal heuristic.
+ */
 static int force_tjmax;
 module_param_named(tjmax, force_tjmax, int, 0444);
 MODULE_PARM_DESC(tjmax, "TjMax value in degrees Celsius");
 
-#define BASE_SYSFS_ATTR_NO	2	
-#define NUM_REAL_CORES		32	
-#define CORETEMP_NAME_LENGTH	17	
-#define MAX_CORE_ATTRS		4	
+#define BASE_SYSFS_ATTR_NO	2	/* Sysfs Base attr no for coretemp */
+#define NUM_REAL_CORES		32	/* Number of Real cores per cpu */
+#define CORETEMP_NAME_LENGTH	17	/* String Length of attrs */
+#define MAX_CORE_ATTRS		4	/* Maximum no of basic attrs */
 #define TOTAL_ATTRS		(MAX_CORE_ATTRS + 1)
 #define MAX_CORE_DATA		(NUM_REAL_CORES + BASE_SYSFS_ATTR_NO)
 
@@ -64,6 +68,19 @@ MODULE_PARM_DESC(tjmax, "TjMax value in degrees Celsius");
 #define for_each_sibling(i, cpu)	for (i = 0; false; )
 #endif
 
+/*
+ * Per-Core Temperature Data
+ * @last_updated: The time when the current temperature value was updated
+ *		earlier (in jiffies).
+ * @cpu_core_id: The CPU Core from which temperature values should be read
+ *		This value is passed as "id" field to rdmsr/wrmsr functions.
+ * @status_reg: One of IA32_THERM_STATUS or IA32_PACKAGE_THERM_STATUS,
+ *		from where the temperature values should be read.
+ * @attr_size:  Total number of pre-core attrs displayed in the sysfs.
+ * @is_pkg_data: If this is 1, the temp_data holds pkgtemp data.
+ *		Otherwise, temp_data holds coretemp data.
+ * @valid: If this is 1, the current temperature is valid.
+ */
 struct temp_data {
 	int temp;
 	int ttarget;
@@ -80,6 +97,7 @@ struct temp_data {
 	struct mutex update_lock;
 };
 
+/* Platform Data per Physical CPU */
 struct platform_data {
 	struct device *hwmon_dev;
 	u16 phys_proc_id;
@@ -156,11 +174,11 @@ static ssize_t show_temp(struct device *dev,
 
 	mutex_lock(&tdata->update_lock);
 
-	
+	/* Check whether the time interval has elapsed */
 	if (!tdata->valid || time_after(jiffies, tdata->last_updated + HZ)) {
 		rdmsr_on_cpu(tdata->cpu, tdata->status_reg, &eax, &edx);
 		tdata->valid = 0;
-		
+		/* Check whether the data is valid */
 		if (eax & 0x80000000) {
 			tdata->temp = tdata->tjmax -
 					((eax >> 16) & 0x7f) * 1000;
@@ -176,7 +194,7 @@ static ssize_t show_temp(struct device *dev,
 static int __cpuinit adjust_tjmax(struct cpuinfo_x86 *c, u32 id,
 				  struct device *dev)
 {
-	
+	/* The 100C is default for both mobile and non mobile CPUs */
 
 	int tjmax = 100000;
 	int tjmax_ee = 85000;
@@ -185,12 +203,12 @@ static int __cpuinit adjust_tjmax(struct cpuinfo_x86 *c, u32 id,
 	u32 eax, edx;
 	struct pci_dev *host_bridge;
 
-	
+	/* Early chips have no MSR for TjMax */
 
 	if (c->x86_model == 0xf && c->x86_mask < 4)
 		usemsr_ee = 0;
 
-	
+	/* Atom CPUs */
 
 	if (c->x86_model == 0x1c) {
 		usemsr_ee = 0;
@@ -198,8 +216,8 @@ static int __cpuinit adjust_tjmax(struct cpuinfo_x86 *c, u32 id,
 		host_bridge = pci_get_bus_and_slot(0, PCI_DEVFN(0, 0));
 
 		if (host_bridge && host_bridge->vendor == PCI_VENDOR_ID_INTEL
-		    && (host_bridge->device == 0xa000	
-		    || host_bridge->device == 0xa010))	
+		    && (host_bridge->device == 0xa000	/* NM10 based nettop */
+		    || host_bridge->device == 0xa010))	/* NM10 based netbook */
 			tjmax = 100000;
 		else
 			tjmax = 90000;
@@ -210,6 +228,11 @@ static int __cpuinit adjust_tjmax(struct cpuinfo_x86 *c, u32 id,
 	if (c->x86_model > 0xe && usemsr_ee) {
 		u8 platform_id;
 
+		/*
+		 * Now we can detect the mobile CPU using Intel provided table
+		 * http://softwarecommunity.intel.com/Wiki/Mobility/720.htm
+		 * For Core2 cores, check MSR 0x17, bit 28 1 = Mobile CPU
+		 */
 		err = rdmsr_safe_on_cpu(id, 0x17, &eax, &edx);
 		if (err) {
 			dev_warn(dev,
@@ -217,13 +240,26 @@ static int __cpuinit adjust_tjmax(struct cpuinfo_x86 *c, u32 id,
 				 " CPU\n");
 			usemsr_ee = 0;
 		} else if (c->x86_model < 0x17 && !(eax & 0x10000000)) {
+			/*
+			 * Trust bit 28 up to Penryn, I could not find any
+			 * documentation on that; if you happen to know
+			 * someone at Intel please ask
+			 */
 			usemsr_ee = 0;
 		} else {
-			
+			/* Platform ID bits 52:50 (EDX starts at bit 32) */
 			platform_id = (edx >> 18) & 0x7;
 
+			/*
+			 * Mobile Penryn CPU seems to be platform ID 7 or 5
+			 * (guesswork)
+			 */
 			if (c->x86_model == 0x17 &&
 			    (platform_id == 5 || platform_id == 7)) {
+				/*
+				 * If MSR EE bit is set, set it to 90 degrees C,
+				 * otherwise 105 degrees C
+				 */
 				tjmax_ee = 90000;
 				tjmax = 105000;
 			}
@@ -240,6 +276,10 @@ static int __cpuinit adjust_tjmax(struct cpuinfo_x86 *c, u32 id,
 			tjmax = tjmax_ee;
 		}
 	} else if (tjmax == 100000) {
+		/*
+		 * If we don't use msr EE it means we are desktop CPU
+		 * (with exeception of Atom)
+		 */
 		dev_warn(dev, "Using relative temperature scale!\n");
 	}
 
@@ -253,12 +293,20 @@ static int __cpuinit get_tjmax(struct cpuinfo_x86 *c, u32 id,
 	u32 eax, edx;
 	u32 val;
 
+	/*
+	 * A new feature of current Intel(R) processors, the
+	 * IA32_TEMPERATURE_TARGET contains the TjMax value
+	 */
 	err = rdmsr_safe_on_cpu(id, MSR_IA32_TEMPERATURE_TARGET, &eax, &edx);
 	if (err) {
 		if (c->x86_model > 0xe && c->x86_model != 0x1c)
 			dev_warn(dev, "Unable to read TjMax from CPU %u\n", id);
 	} else {
 		val = (eax >> 16) & 0xff;
+		/*
+		 * If the TjMax is not plausible, an assumption
+		 * will be used
+		 */
 		if (val) {
 			dev_dbg(dev, "TjMax is %d degrees C\n", val);
 			return val * 1000;
@@ -271,6 +319,10 @@ static int __cpuinit get_tjmax(struct cpuinfo_x86 *c, u32 id,
 		return force_tjmax * 1000;
 	}
 
+	/*
+	 * An assumption is made for early CPUs and unreadable MSR.
+	 * NOTE: the calculated value may not be correct.
+	 */
 	return adjust_tjmax(c, id, dev);
 }
 
@@ -322,6 +374,11 @@ static int __cpuinit chk_ucode_version(unsigned int cpu)
 {
 	struct cpuinfo_x86 *c = &cpu_data(cpu);
 
+	/*
+	 * Check if we have problem with errata AE18 of Core processors:
+	 * Readings might stop update when processor visited too deep sleep,
+	 * fixed for stepping D0 (6EC).
+	 */
 	if (c->x86_model == 0xe && c->x86_mask < 0xc && c->microcode < 0x39) {
 		pr_err("Errata AE18 not fixed, update BIOS or "
 		       "microcode of the CPU!\n");
@@ -375,11 +432,24 @@ static int __cpuinit create_core_data(struct platform_device *pdev,
 	u32 eax, edx;
 	int err, attr_no;
 
+	/*
+	 * Find attr number for sysfs:
+	 * We map the attr number to core id of the CPU
+	 * The attr number is always core id + 2
+	 * The Pkgtemp will always show up as temp1_*, if available
+	 */
 	attr_no = pkg_flag ? 1 : TO_ATTR_NO(cpu);
 
 	if (attr_no > MAX_CORE_DATA - 1)
 		return -ERANGE;
 
+	/*
+	 * Provide a single set of attributes for all HT siblings of a core
+	 * to avoid duplicate sensors (the processor ID and core ID of all
+	 * HT siblings of a core are the same).
+	 * Skip if a HT sibling of this core is already registered.
+	 * This is not an error.
+	 */
 	if (pdata->core_data[attr_no] != NULL)
 		return 0;
 
@@ -387,14 +457,19 @@ static int __cpuinit create_core_data(struct platform_device *pdev,
 	if (!tdata)
 		return -ENOMEM;
 
-	
+	/* Test if we can access the status register */
 	err = rdmsr_safe_on_cpu(cpu, tdata->status_reg, &eax, &edx);
 	if (err)
 		goto exit_free;
 
-	
+	/* We can access status register. Get Critical Temperature */
 	tdata->tjmax = get_tjmax(c, cpu, &pdev->dev);
 
+	/*
+	 * Read the still undocumented bits 8:15 of IA32_TEMPERATURE_TARGET.
+	 * The target temperature is available on older CPUs but not in this
+	 * register. Atoms don't have the register at all.
+	 */
 	if (c->x86_model > 0xe && c->x86_model != 0x1c) {
 		err = rdmsr_safe_on_cpu(cpu, MSR_IA32_TEMPERATURE_TARGET,
 					&eax, &edx);
@@ -407,7 +482,7 @@ static int __cpuinit create_core_data(struct platform_device *pdev,
 
 	pdata->core_data[attr_no] = tdata;
 
-	
+	/* Create sysfs interfaces */
 	err = create_core_attrs(tdata, &pdev->dev, attr_no);
 	if (err)
 		goto exit_free;
@@ -438,7 +513,7 @@ static void coretemp_remove_core(struct platform_data *pdata,
 	int i;
 	struct temp_data *tdata = pdata->core_data[indx];
 
-	
+	/* Remove the sysfs attributes */
 	for (i = 0; i < tdata->attr_size; i++)
 		device_remove_file(dev, &tdata->sd_attrs[i].dev_attr);
 
@@ -451,7 +526,7 @@ static int __devinit coretemp_probe(struct platform_device *pdev)
 	struct platform_data *pdata;
 	int err;
 
-	
+	/* Initialize the per-package data structures */
 	pdata = kzalloc(sizeof(struct platform_data), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
@@ -568,7 +643,7 @@ static bool __cpuinit is_any_core_online(struct platform_data *pdata)
 {
 	int i;
 
-	
+	/* Find online cores, except pkgtemp data */
 	for (i = MAX_CORE_DATA - 1; i >= 0; --i) {
 		if (pdata->core_data[i] &&
 			!pdata->core_data[i]->is_pkg_data) {
@@ -584,20 +659,39 @@ static void __cpuinit get_core_online(unsigned int cpu)
 	struct platform_device *pdev = coretemp_get_pdev(cpu);
 	int err;
 
+	/*
+	 * CPUID.06H.EAX[0] indicates whether the CPU has thermal
+	 * sensors. We check this bit only, all the early CPUs
+	 * without thermal sensors will be filtered out.
+	 */
 	if (!cpu_has(c, X86_FEATURE_DTS))
 		return;
 
 	if (!pdev) {
-		
+		/* Check the microcode version of the CPU */
 		if (chk_ucode_version(cpu))
 			return;
 
+		/*
+		 * Alright, we have DTS support.
+		 * We are bringing the _first_ core in this pkg
+		 * online. So, initialize per-pkg data structures and
+		 * then bring this core online.
+		 */
 		err = coretemp_device_add(cpu);
 		if (err)
 			return;
+		/*
+		 * Check whether pkgtemp support is available.
+		 * If so, add interfaces for pkgtemp.
+		 */
 		if (cpu_has(c, X86_FEATURE_PTS))
 			coretemp_add_core(cpu, 1);
 	}
+	/*
+	 * Physical CPU device already exists.
+	 * So, just add interfaces for this core.
+	 */
 	coretemp_add_core(cpu, 0);
 }
 
@@ -607,7 +701,7 @@ static void __cpuinit put_core_offline(unsigned int cpu)
 	struct platform_data *pdata;
 	struct platform_device *pdev = coretemp_get_pdev(cpu);
 
-	
+	/* If the physical CPU device does not exist, just return */
 	if (!pdev)
 		return;
 
@@ -615,19 +709,36 @@ static void __cpuinit put_core_offline(unsigned int cpu)
 
 	indx = TO_ATTR_NO(cpu);
 
-	
+	/* The core id is too big, just return */
 	if (indx > MAX_CORE_DATA - 1)
 		return;
 
 	if (pdata->core_data[indx] && pdata->core_data[indx]->cpu == cpu)
 		coretemp_remove_core(pdata, &pdev->dev, indx);
 
+	/*
+	 * If a HT sibling of a core is taken offline, but another HT sibling
+	 * of the same core is still online, register the alternate sibling.
+	 * This ensures that exactly one set of attributes is provided as long
+	 * as at least one HT sibling of a core is online.
+	 */
 	for_each_sibling(i, cpu) {
 		if (i != cpu) {
 			get_core_online(i);
+			/*
+			 * Display temperature sensor data for one HT sibling
+			 * per core only, so abort the loop after one such
+			 * sibling has been found.
+			 */
 			break;
 		}
 	}
+	/*
+	 * If all cores in this pkg are offline, remove the device.
+	 * coretemp_device_remove calls unregister_platform_device,
+	 * which in turn calls coretemp_remove. This removes the
+	 * pkgtemp entry and does other clean ups.
+	 */
 	if (!is_any_core_online(pdata))
 		coretemp_device_remove(cpu);
 }
@@ -663,6 +774,11 @@ static int __init coretemp_init(void)
 {
 	int i, err = -ENODEV;
 
+	/*
+	 * CPUID.06H.EAX[0] indicates whether the CPU has thermal
+	 * sensors. We check this bit only, all the early CPUs
+	 * without thermal sensors will be filtered out.
+	 */
 	if (!x86_match_cpu(coretemp_ids))
 		return -ENODEV;
 

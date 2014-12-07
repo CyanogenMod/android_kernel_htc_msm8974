@@ -64,6 +64,7 @@ out:
 EXPORT_SYMBOL(omap_type);
 
 
+/*----------------------------------------------------------------------------*/
 
 #define OMAP_TAP_IDCODE		0x0204
 #define OMAP_TAP_DIE_ID_0	0x0218
@@ -79,11 +80,12 @@ EXPORT_SYMBOL(omap_type);
 #define read_tap_reg(reg)	__raw_readl(tap_base  + (reg))
 
 struct omap_id {
-	u16	hawkeye;	
-	u8	dev;		
-	u32	type;		
+	u16	hawkeye;	/* Silicon type (Hawkeye id) */
+	u8	dev;		/* Device type from production_id reg */
+	u32	type;		/* Combined type id copied to omap_revision */
 };
 
+/* Register values to detect the OMAP version */
 static struct omap_id omap_ids[] __initdata = {
 	{ .hawkeye = 0xb5d9, .dev = 0x0, .type = 0x24200024 },
 	{ .hawkeye = 0xb5d9, .dev = 0x1, .type = 0x24201024 },
@@ -137,7 +139,7 @@ void __init omap2xxx_check_revision(void)
 	pr_debug("OMAP_TAP_PROD_ID_0: 0x%08x DEV_TYPE: %i\n",
 		 prod_id, dev_type);
 
-	
+	/* Check hawkeye ids */
 	for (i = 0; i < ARRAY_SIZE(omap_ids); i++) {
 		if (hawkeye == omap_ids[i].hawkeye)
 			break;
@@ -174,10 +176,17 @@ static void __init omap3_cpuinfo(void)
 {
 	const char *cpu_name;
 
+	/*
+	 * OMAP3430 and OMAP3530 are assumed to be same.
+	 *
+	 * OMAP3525, OMAP3515 and OMAP3503 can be detected only based
+	 * on available features. Upon detection, update the CPU id
+	 * and CPU class bits.
+	 */
 	if (cpu_is_omap3630()) {
 		cpu_name = "OMAP3630";
 	} else if (cpu_is_omap3517()) {
-		
+		/* AM35xx devices */
 		cpu_name = (omap3_has_sgx()) ? "AM3517" : "AM3505";
 	} else if (cpu_is_ti816x()) {
 		cpu_name = "TI816X";
@@ -186,7 +195,7 @@ static void __init omap3_cpuinfo(void)
 	} else if (cpu_is_ti814x()) {
 		cpu_name = "TI814X";
 	} else if (omap3_has_iva() && omap3_has_sgx()) {
-		
+		/* OMAP3430, OMAP3525, OMAP3515, OMAP3503 devices */
 		cpu_name = "OMAP3430/3530";
 	} else if (omap3_has_iva()) {
 		cpu_name = "OMAP3525";
@@ -196,7 +205,7 @@ static void __init omap3_cpuinfo(void)
 		cpu_name = "OMAP3503";
 	}
 
-	
+	/* Print verbose information */
 	pr_info("%s ES%s (", cpu_name, cpu_rev);
 
 	OMAP3_SHOW_FEATURE(l2cache);
@@ -238,6 +247,10 @@ void __init omap3xxx_check_features(void)
 
 	omap_features |= OMAP3_HAS_SDRC;
 
+	/*
+	 * TODO: Get additional info (where applicable)
+	 *       e.g. Size of L2 cache.
+	 */
 
 	omap3_cpuinfo();
 }
@@ -255,12 +268,12 @@ void __init omap4xxx_check_features(void)
 			read_tap_reg(OMAP4_CTRL_MODULE_CORE_STD_FUSE_PROD_ID_1);
 		switch ((si_type & (3 << 16)) >> 16) {
 		case 2:
-			
+			/* High performance device */
 			omap_features |= OMAP4_HAS_MPU_1_5GHZ;
 			break;
 		case 1:
 		default:
-			
+			/* Standard device */
 			omap_features |= OMAP4_HAS_MPU_1_2GHZ;
 			break;
 		}
@@ -279,6 +292,11 @@ void __init omap3xxx_check_revision(void)
 	u16 hawkeye;
 	u8 rev;
 
+	/*
+	 * We cannot access revision registers on ES1.0.
+	 * If the processor type is Cortex-A8 and the revision is 0x0
+	 * it means its Cortex r0p0 which is 3430 ES1.0.
+	 */
 	cpuid = read_cpuid(CPUID_ID);
 	if ((((cpuid >> 4) & 0xfff) == 0xc08) && ((cpuid & 0xf) == 0x0)) {
 		omap_revision = OMAP3430_REV_ES1_0;
@@ -286,15 +304,21 @@ void __init omap3xxx_check_revision(void)
 		return;
 	}
 
+	/*
+	 * Detection for 34xx ES2.0 and above can be done with just
+	 * hawkeye and rev. See TRM 1.5.2 Device Identification.
+	 * Note that rev does not map directly to our defined processor
+	 * revision numbers as ES1.0 uses value 0.
+	 */
 	idcode = read_tap_reg(OMAP_TAP_IDCODE);
 	hawkeye = (idcode >> 12) & 0xffff;
 	rev = (idcode >> 28) & 0xff;
 
 	switch (hawkeye) {
 	case 0xb7ae:
-		
+		/* Handle 34xx/35xx devices */
 		switch (rev) {
-		case 0: 
+		case 0: /* Take care of early samples */
 		case 1:
 			omap_revision = OMAP3430_REV_ES2_0;
 			cpu_rev = "2.0";
@@ -312,31 +336,37 @@ void __init omap3xxx_check_revision(void)
 			cpu_rev = "3.1";
 			break;
 		case 7:
-		
+		/* FALLTHROUGH */
 		default:
-			
+			/* Use the latest known revision as default */
 			omap_revision = OMAP3430_REV_ES3_1_2;
 			cpu_rev = "3.1.2";
 		}
 		break;
 	case 0xb868:
+		/*
+		 * Handle OMAP/AM 3505/3517 devices
+		 *
+		 * Set the device to be OMAP3517 here. Actual device
+		 * is identified later based on the features.
+		 */
 		switch (rev) {
 		case 0:
 			omap_revision = OMAP3517_REV_ES1_0;
 			cpu_rev = "1.0";
 			break;
 		case 1:
-		
+		/* FALLTHROUGH */
 		default:
 			omap_revision = OMAP3517_REV_ES1_1;
 			cpu_rev = "1.1";
 		}
 		break;
 	case 0xb891:
-		
+		/* Handle 36xx devices */
 
 		switch(rev) {
-		case 0: 
+		case 0: /* Take care of early samples */
 			omap_revision = OMAP3630_REV_ES1_0;
 			cpu_rev = "1.0";
 			break;
@@ -345,7 +375,7 @@ void __init omap3xxx_check_revision(void)
 			cpu_rev = "1.1";
 			break;
 		case 2:
-		
+		/* FALLTHROUGH */
 		default:
 			omap_revision = OMAP3630_REV_ES1_2;
 			cpu_rev = "1.2";
@@ -358,7 +388,7 @@ void __init omap3xxx_check_revision(void)
 			cpu_rev = "1.0";
 			break;
 		case 1:
-		
+		/* FALLTHROUGH */
 		default:
 			omap_revision = TI8168_REV_ES1_1;
 			cpu_rev = "1.1";
@@ -372,7 +402,7 @@ void __init omap3xxx_check_revision(void)
 	case 0xb8f2:
 		switch (rev) {
 		case 0:
-		
+		/* FALLTHROUGH */
 		case 1:
 			omap_revision = TI8148_REV_ES1_0;
 			cpu_rev = "1.0";
@@ -382,7 +412,7 @@ void __init omap3xxx_check_revision(void)
 			cpu_rev = "2.0";
 			break;
 		case 3:
-		
+		/* FALLTHROUGH */
 		default:
 			omap_revision = TI8148_REV_ES2_1;
 			cpu_rev = "2.1";
@@ -390,7 +420,7 @@ void __init omap3xxx_check_revision(void)
 		}
 		break;
 	default:
-		
+		/* Unknown default to latest silicon rev as default */
 		omap_revision = OMAP3630_REV_ES1_2;
 		cpu_rev = "1.2";
 		pr_warn("Warning: unknown chip type; assuming OMAP3630ES1.2\n");
@@ -403,10 +433,19 @@ void __init omap4xxx_check_revision(void)
 	u16 hawkeye;
 	u8 rev;
 
+	/*
+	 * The IC rev detection is done with hawkeye and rev.
+	 * Note that rev does not map directly to defined processor
+	 * revision numbers as ES1.0 uses value 0.
+	 */
 	idcode = read_tap_reg(OMAP_TAP_IDCODE);
 	hawkeye = (idcode >> 12) & 0xffff;
 	rev = (idcode >> 28) & 0xf;
 
+	/*
+	 * Few initial 4430 ES2.0 samples IDCODE is same as ES1.0
+	 * Use ARM register to detect the correct ES version
+	 */
 	if (!rev && (hawkeye != 0xb94e) && (hawkeye != 0xb975)) {
 		idcode = read_cpuid(CPUID_ID);
 		rev = (idcode & 0xf) - 1;
@@ -453,7 +492,7 @@ void __init omap4xxx_check_revision(void)
 		}
 		break;
 	default:
-		
+		/* Unknown default to latest silicon rev as default */
 		omap_revision = OMAP4430_REV_ES2_3;
 	}
 
@@ -461,6 +500,13 @@ void __init omap4xxx_check_revision(void)
 		((omap_rev() >> 12) & 0xf), ((omap_rev() >> 8) & 0xf));
 }
 
+/*
+ * Set up things for map_io and processor detection later on. Gets called
+ * pretty much first thing from board init. For multi-omap, this gets
+ * cpu_is_omapxxxx() working accurately enough for map_io. Then we'll try to
+ * detect the exact revision later on in omap2_detect_revision() once map_io
+ * is done.
+ */
 void __init omap2_set_globals_tap(struct omap_globals *omap2_globals)
 {
 	omap_revision = omap2_globals->class;

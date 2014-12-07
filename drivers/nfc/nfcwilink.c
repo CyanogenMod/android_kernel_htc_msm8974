@@ -41,8 +41,8 @@
 #define NFCWILINK_HDR_LEN		4
 #define NFCWILINK_OFFSET_LEN_IN_HDR	1
 #define NFCWILINK_LEN_SIZE		2
-#define NFCWILINK_REGISTER_TIMEOUT	8000	
-#define NFCWILINK_CMD_TIMEOUT		5000	
+#define NFCWILINK_REGISTER_TIMEOUT	8000	/* 8 sec */
+#define NFCWILINK_CMD_TIMEOUT		5000	/* 5 sec */
 
 #define BTS_FILE_NAME_MAX_SIZE		40
 #define BTS_FILE_HDR_MAGIC		0x42535442
@@ -103,6 +103,7 @@ struct nfcwilink {
 	struct nci_vs_nfcc_info_rsp	nfcc_info;
 };
 
+/* NFCWILINK driver flags */
 enum {
 	NFCWILINK_RUNNING,
 	NFCWILINK_FW_DOWNLOAD,
@@ -126,7 +127,7 @@ static void nfcwilink_fw_download_receive(struct nfcwilink *drv,
 {
 	struct nci_vs_nfcc_info_rsp *rsp = (void *)skb->data;
 
-	
+	/* Detect NCI_VS_NFCC_INFO_RSP and store the result */
 	if ((skb->len > 3) && (rsp->gid == NCI_VS_NFCC_INFO_RSP_GID) &&
 		(rsp->oid == NCI_VS_NFCC_INFO_RSP_OID)) {
 		memcpy(&drv->nfcc_info, rsp,
@@ -210,7 +211,7 @@ static int nfcwilink_send_bts_cmd(struct nfcwilink *drv, __u8 *data, int len)
 
 	nfc_dev_dbg(&drv->pdev->dev, "send_bts_cmd entry");
 
-	
+	/* verify valid cmd for the NFC channel */
 	if ((len <= sizeof(struct nfcwilink_hdr)) ||
 		(len > BTS_FILE_CMD_MAX_LEN) ||
 		(hdr->chnl != NFCWILINK_CHNL) ||
@@ -221,7 +222,7 @@ static int nfcwilink_send_bts_cmd(struct nfcwilink *drv, __u8 *data, int len)
 		return 0;
 	}
 
-	
+	/* remove the ST header */
 	len -= sizeof(struct nfcwilink_hdr);
 	data += sizeof(struct nfcwilink_hdr);
 
@@ -272,7 +273,7 @@ static int nfcwilink_download_fw(struct nfcwilink *drv)
 	if (rc) {
 		nfc_dev_err(&drv->pdev->dev, "request_firmware failed %d", rc);
 
-		
+		/* if the file is not found, don't exit with failure */
 		if (rc == -ENOENT)
 			rc = 0;
 
@@ -295,7 +296,7 @@ static int nfcwilink_download_fw(struct nfcwilink *drv)
 		goto release_fw;
 	}
 
-	
+	/* remove the BTS header */
 	len -= sizeof(struct bts_file_hdr);
 	ptr += sizeof(struct bts_file_hdr);
 
@@ -318,7 +319,7 @@ static int nfcwilink_download_fw(struct nfcwilink *drv)
 			break;
 		}
 
-		
+		/* advance to the next action */
 		len -= (sizeof(struct bts_file_action) + action_len);
 		ptr += (sizeof(struct bts_file_action) + action_len);
 	}
@@ -331,19 +332,21 @@ exit:
 	return rc;
 }
 
+/* Called by ST when registration is complete */
 static void nfcwilink_register_complete(void *priv_data, char data)
 {
 	struct nfcwilink *drv = priv_data;
 
 	nfc_dev_dbg(&drv->pdev->dev, "register_complete entry");
 
-	
+	/* store ST registration status */
 	drv->st_register_cb_status = data;
 
-	
+	/* complete the wait in nfc_st_open() */
 	complete(&drv->completed);
 }
 
+/* Called by ST when receive data is available */
 static long nfcwilink_receive(void *priv_data, struct sk_buff *skb)
 {
 	struct nfcwilink *drv = priv_data;
@@ -359,6 +362,8 @@ static long nfcwilink_receive(void *priv_data, struct sk_buff *skb)
 		return -EFAULT;
 	}
 
+	/* strip the ST header
+	(apart for the chnl byte, which is not received in the hdr) */
 	skb_pull(skb, (NFCWILINK_HDR_LEN-1));
 
 	if (test_bit(NFCWILINK_FW_DOWNLOAD, &drv->flags)) {
@@ -368,7 +373,7 @@ static long nfcwilink_receive(void *priv_data, struct sk_buff *skb)
 
 	skb->dev = (void *) drv->ndev;
 
-	
+	/* Forward skb to NCI core layer */
 	rc = nci_recv_frame(skb);
 	if (rc < 0) {
 		nfc_dev_err(&drv->pdev->dev, "nci_recv_frame failed %d", rc);
@@ -378,10 +383,11 @@ static long nfcwilink_receive(void *priv_data, struct sk_buff *skb)
 	return 0;
 }
 
+/* protocol structure registered with ST */
 static struct st_proto_s nfcwilink_proto = {
 	.chnl_id = NFCWILINK_CHNL,
 	.max_frame_size = NFCWILINK_MAX_FRAME_SIZE,
-	.hdr_len = (NFCWILINK_HDR_LEN-1),	
+	.hdr_len = (NFCWILINK_HDR_LEN-1),	/* not including chnl byte */
 	.offset_len_in_hdr = NFCWILINK_OFFSET_LEN_IN_HDR,
 	.len_size = NFCWILINK_LEN_SIZE,
 	.reserve = 0,
@@ -420,7 +426,7 @@ static int nfcwilink_open(struct nci_dev *ndev)
 			comp_ret);
 
 			if (comp_ret == 0) {
-				
+				/* timeout */
 				rc = -ETIMEDOUT;
 				goto clear_exit;
 			} else if (drv->st_register_cb_status != 0) {
@@ -436,14 +442,14 @@ static int nfcwilink_open(struct nci_dev *ndev)
 		}
 	}
 
-	
+	/* st_register MUST fill the write callback */
 	BUG_ON(nfcwilink_proto.write == NULL);
 	drv->st_write = nfcwilink_proto.write;
 
 	if (nfcwilink_download_fw(drv)) {
 		nfc_dev_err(&drv->pdev->dev, "nfcwilink_download_fw failed %d",
 				rc);
-		
+		/* open should succeed, even if the FW download failed */
 	}
 
 	goto exit;
@@ -488,10 +494,14 @@ static int nfcwilink_send(struct sk_buff *skb)
 		return -EINVAL;
 	}
 
-	
+	/* add the ST hdr to the start of the buffer */
 	hdr.len = cpu_to_le16(skb->len);
 	memcpy(skb_push(skb, NFCWILINK_HDR_LEN), &hdr, NFCWILINK_HDR_LEN);
 
+	/* Insert skb to shared transport layer's transmit queue.
+	 * Freeing skb memory is taken care in shared transport layer,
+	 * so don't free skb memory here.
+	 */
 	len = drv->st_write(skb);
 	if (len < 0) {
 		kfree_skb(skb);
@@ -593,6 +603,7 @@ static struct platform_driver nfcwilink_driver = {
 	},
 };
 
+/* ------- Module Init/Exit interfaces ------ */
 static int __init nfcwilink_init(void)
 {
 	printk(KERN_INFO "NFC Driver for TI WiLink");
@@ -608,6 +619,7 @@ static void __exit nfcwilink_exit(void)
 module_init(nfcwilink_init);
 module_exit(nfcwilink_exit);
 
+/* ------ Module Info ------ */
 
 MODULE_AUTHOR("Ilan Elias <ilane@ti.com>");
 MODULE_DESCRIPTION("NFC Driver for TI Shared Transport");

@@ -140,6 +140,11 @@ static inline int c2_poll_one(struct c2_dev *c2dev,
 		return -EAGAIN;
 	}
 
+	/*
+	 * if the qp returned is null then this qp has already
+	 * been freed and we are unable process the completion.
+	 * try pulling the next message
+	 */
 	while ((qp =
 		(struct c2_qp *) (unsigned long) ce->qp_user_context) == NULL) {
 		c2_mq_free(&cq->mq);
@@ -180,14 +185,14 @@ static inline int c2_poll_one(struct c2_dev *c2dev,
 		break;
 	}
 
-	
+	/* consume the WQEs */
 	if (is_recv)
 		c2_mq_lconsume(&qp->rq_mq, 1);
 	else
 		c2_mq_lconsume(&qp->sq_mq,
 			       be32_to_cpu(c2_wr_get_wqe_count(ce)) + 1);
 
-	
+	/* free the message */
 	c2_mq_free(&cq->mq);
 
 	return 0;
@@ -233,6 +238,11 @@ int c2_arm_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags notify_flags)
 
 	writeb(CQ_WAIT_FOR_DMA | CQ_ARMED, &shared->armed);
 
+	/*
+	 * Now read back shared->armed to make the PCI
+	 * write synchronous.  This is necessary for
+	 * correct cq notification semantics.
+	 */
 	readb(&shared->armed);
 
 	if (notify_flags & IB_CQ_REPORT_MISSED_EVENTS) {
@@ -261,11 +271,11 @@ static int c2_alloc_cq_buf(struct c2_dev *c2dev, struct c2_mq *mq, int q_size,
 		return -ENOMEM;
 
 	c2_mq_rep_init(mq,
-		       0,		
+		       0,		/* index (currently unknown) */
 		       q_size,
 		       msg_size,
 		       pool_start,
-		       NULL,	
+		       NULL,	/* peer (currently unknown) */
 		       C2_MQ_HOST_TARGET);
 
 	dma_unmap_addr_set(mq, mapping, mq->host_dma);
@@ -287,13 +297,13 @@ int c2_init_cq(struct c2_dev *c2dev, int entries,
 	cq->ibcq.cqe = entries - 1;
 	cq->is_kernel = !ctx;
 
-	
+	/* Allocate a shared pointer */
 	cq->mq.shared = c2_alloc_mqsp(c2dev, c2dev->kern_mqsp_pool,
 				      &cq->mq.shared_dma, GFP_KERNEL);
 	if (!cq->mq.shared)
 		return -ENOMEM;
 
-	
+	/* Allocate pages for the message pool */
 	err = c2_alloc_cq_buf(c2dev, &cq->mq, entries + 1, C2_CQ_MSG_SIZE);
 	if (err)
 		goto bail0;
@@ -352,6 +362,10 @@ int c2_init_cq(struct c2_dev *c2dev, int entries,
 	atomic_set(&cq->refcount, 1);
 	init_waitqueue_head(&cq->wait);
 
+	/*
+	 * Use the MQ index allocated by the adapter to
+	 * store the CQ in the qptr_array
+	 */
 	cq->cqn = cq->mq.index;
 	c2dev->qptr_array[cq->cqn] = cq;
 
@@ -378,7 +392,7 @@ void c2_free_cq(struct c2_dev *c2dev, struct c2_cq *cq)
 
 	might_sleep();
 
-	
+	/* Clear CQ from the qptr array */
 	spin_lock_irq(&c2dev->lock);
 	c2dev->qptr_array[cq->mq.index] = NULL;
 	atomic_dec(&cq->refcount);

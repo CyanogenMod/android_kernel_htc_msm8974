@@ -43,7 +43,13 @@ struct vmw_stream {
 	struct drm_vmw_control_stream_arg saved;
 };
 
+/**
+ * Overlay control
+ */
 struct vmw_overlay {
+	/*
+	 * Each stream is a single overlay. In Xv these are called ports.
+	 */
 	struct mutex mutex;
 	struct vmw_stream stream[VMW_MAX_NUM_STREAMS];
 };
@@ -80,6 +86,12 @@ static inline void fill_flush(struct vmw_escape_video_flush *cmd,
 	cmd->flush.streamId = stream_id;
 }
 
+/**
+ * Send put command to hw.
+ *
+ * Returns
+ * -ERESTARTSYS if interrupted by a signal.
+ */
 static int vmw_overlay_send_put(struct vmw_private *dev_priv,
 				struct vmw_dma_buffer *buf,
 				struct drm_vmw_control_stream_arg *arg,
@@ -103,7 +115,7 @@ static int vmw_overlay_send_put(struct vmw_private *dev_priv,
 		uint32_t value;
 	} *items;
 
-	
+	/* defines are a index needs + 1 */
 	if (have_so)
 		num_items = SVGA_VIDEO_DST_SCREEN_ID + 1;
 	else
@@ -112,20 +124,20 @@ static int vmw_overlay_send_put(struct vmw_private *dev_priv,
 	fifo_size = sizeof(*cmds) + sizeof(*flush) + sizeof(*items) * num_items;
 
 	cmds = vmw_fifo_reserve(dev_priv, fifo_size);
-	
+	/* hardware has hung, can't do anything here */
 	if (!cmds)
 		return -ENOMEM;
 
 	items = (typeof(items))&cmds[1];
 	flush = (struct vmw_escape_video_flush *)&items[num_items];
 
-	
+	/* the size is header + number of items */
 	fill_escape(&cmds->escape, sizeof(*items) * (num_items + 1));
 
 	cmds->header.cmdType = SVGA_ESCAPE_VMWARE_VIDEO_SET_REGS;
 	cmds->header.streamId = arg->stream_id;
 
-	
+	/* the IDs are neatly numbered */
 	for (i = 0; i < num_items; i++)
 		items[i].registerId = i;
 
@@ -163,6 +175,12 @@ static int vmw_overlay_send_put(struct vmw_private *dev_priv,
 	return 0;
 }
 
+/**
+ * Send stop command to hw.
+ *
+ * Returns
+ * -ERESTARTSYS if interrupted by a signal.
+ */
 static int vmw_overlay_send_stop(struct vmw_private *dev_priv,
 				 uint32_t stream_id,
 				 bool interruptible)
@@ -199,6 +217,12 @@ static int vmw_overlay_send_stop(struct vmw_private *dev_priv,
 	return 0;
 }
 
+/**
+ * Move a buffer to vram or gmr if @pin is set, else unpin the buffer.
+ *
+ * With the introduction of screen objects buffers could now be
+ * used with GMRs instead of being locked to vram.
+ */
 static int vmw_overlay_move_buffer(struct vmw_private *dev_priv,
 				   struct vmw_dma_buffer *buf,
 				   bool pin, bool inter)
@@ -212,6 +236,18 @@ static int vmw_overlay_move_buffer(struct vmw_private *dev_priv,
 	return vmw_dmabuf_to_vram_or_gmr(dev_priv, buf, true, inter);
 }
 
+/**
+ * Stop or pause a stream.
+ *
+ * If the stream is paused the no evict flag is removed from the buffer
+ * but left in vram. This allows for instance mode_set to evict it
+ * should it need to.
+ *
+ * The caller must hold the overlay lock.
+ *
+ * @stream_id which stream to stop/pause.
+ * @pause true to pause, false to stop completely.
+ */
 static int vmw_overlay_stop(struct vmw_private *dev_priv,
 			    uint32_t stream_id, bool pause,
 			    bool interruptible)
@@ -220,18 +256,18 @@ static int vmw_overlay_stop(struct vmw_private *dev_priv,
 	struct vmw_stream *stream = &overlay->stream[stream_id];
 	int ret;
 
-	
+	/* no buffer attached the stream is completely stopped */
 	if (!stream->buf)
 		return 0;
 
-	
+	/* If the stream is paused this is already done */
 	if (!stream->paused) {
 		ret = vmw_overlay_send_stop(dev_priv, stream_id,
 					    interruptible);
 		if (ret)
 			return ret;
 
-		
+		/* We just remove the NO_EVICT flag so no -ENOMEM */
 		ret = vmw_overlay_move_buffer(dev_priv, stream->buf, false,
 					      interruptible);
 		if (interruptible && ret == -ERESTARTSYS)
@@ -250,6 +286,15 @@ static int vmw_overlay_stop(struct vmw_private *dev_priv,
 	return 0;
 }
 
+/**
+ * Update a stream and send any put or stop fifo commands needed.
+ *
+ * The caller must hold the overlay lock.
+ *
+ * Returns
+ * -ENOMEM if buffer doesn't fit in vram.
+ * -ERESTARTSYS if interrupted.
+ */
 static int vmw_overlay_update_stream(struct vmw_private *dev_priv,
 				     struct vmw_dma_buffer *buf,
 				     struct drm_vmw_control_stream_arg *arg,
@@ -271,6 +316,9 @@ static int vmw_overlay_update_stream(struct vmw_private *dev_priv,
 		if (ret)
 			return ret;
 	} else if (!stream->paused) {
+		/* If the buffers match and not paused then just send
+		 * the put command, no need to do anything else.
+		 */
 		ret = vmw_overlay_send_put(dev_priv, buf, arg, interruptible);
 		if (ret == 0)
 			stream->saved = *arg;
@@ -280,12 +328,18 @@ static int vmw_overlay_update_stream(struct vmw_private *dev_priv,
 		return ret;
 	}
 
+	/* We don't start the old stream if we are interrupted.
+	 * Might return -ENOMEM if it can't fit the buffer in vram.
+	 */
 	ret = vmw_overlay_move_buffer(dev_priv, buf, true, interruptible);
 	if (ret)
 		return ret;
 
 	ret = vmw_overlay_send_put(dev_priv, buf, arg, interruptible);
 	if (ret) {
+		/* This one needs to happen no matter what. We only remove
+		 * the NO_EVICT flag so this is safe from -ENOMEM.
+		 */
 		BUG_ON(vmw_overlay_move_buffer(dev_priv, buf, false, false)
 		       != 0);
 		return ret;
@@ -294,12 +348,19 @@ static int vmw_overlay_update_stream(struct vmw_private *dev_priv,
 	if (stream->buf != buf)
 		stream->buf = vmw_dmabuf_reference(buf);
 	stream->saved = *arg;
-	
+	/* stream is no longer stopped/paused */
 	stream->paused = false;
 
 	return 0;
 }
 
+/**
+ * Stop all streams.
+ *
+ * Used by the fb code when starting.
+ *
+ * Takes the overlay lock.
+ */
 int vmw_overlay_stop_all(struct vmw_private *dev_priv)
 {
 	struct vmw_overlay *overlay = dev_priv->overlay_priv;
@@ -324,6 +385,13 @@ int vmw_overlay_stop_all(struct vmw_private *dev_priv)
 	return 0;
 }
 
+/**
+ * Try to resume all paused streams.
+ *
+ * Used by the kms code after moving a new scanout buffer to vram.
+ *
+ * Takes the overlay lock.
+ */
 int vmw_overlay_resume_all(struct vmw_private *dev_priv)
 {
 	struct vmw_overlay *overlay = dev_priv->overlay_priv;
@@ -351,6 +419,13 @@ int vmw_overlay_resume_all(struct vmw_private *dev_priv)
 	return 0;
 }
 
+/**
+ * Pauses all active streams.
+ *
+ * Used by the kms code when moving a new scanout buffer to vram.
+ *
+ * Takes the overlay lock.
+ */
 int vmw_overlay_pause_all(struct vmw_private *dev_priv)
 {
 	struct vmw_overlay *overlay = dev_priv->overlay_priv;

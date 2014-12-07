@@ -46,20 +46,22 @@
 #include <linux/uaccess.h>
 
 
+/* ports */
 #define ZF_IOBASE	0x218
 #define INDEX		0x218
 #define DATA_B		0x219
 #define DATA_W		0x21A
 #define DATA_D		0x21A
 
-			
-#define ZFL_VERSION	0x02	
-#define CONTROL		0x10	
-#define STATUS		0x12	
-#define COUNTER_1	0x0C	
-#define COUNTER_2	0x0E	
-#define PULSE_LEN	0x0F	
+/* indexes */			/* size */
+#define ZFL_VERSION	0x02	/* 16   */
+#define CONTROL		0x10	/* 16   */
+#define STATUS		0x12	/* 8    */
+#define COUNTER_1	0x0C	/* 16   */
+#define COUNTER_2	0x0E	/* 8    */
+#define PULSE_LEN	0x0F	/* 8    */
 
+/* controls */
 #define ENABLE_WD1	0x0001
 #define ENABLE_WD2	0x0002
 #define RESET_WD1	0x0010
@@ -70,6 +72,7 @@
 #define GEN_RESET	0x0800
 
 
+/* utilities */
 
 #define WD1	0
 #define WD2	1
@@ -106,6 +109,14 @@ static const struct watchdog_info zf_info = {
 };
 
 
+/*
+ * action refers to action taken when watchdog resets
+ * 0 = GEN_RESET
+ * 1 = GEN_SMI
+ * 2 = GEN_NMI
+ * 3 = GEN_SCI
+ * defaults to GEN_RESET (0)
+ */
 static int action;
 module_param(action, int, 0);
 MODULE_PARM_DESC(action, "after watchdog resets, generate: "
@@ -121,10 +132,13 @@ static DEFINE_TIMER(zf_timer, zf_ping, 0, 0);
 static unsigned long next_heartbeat;
 
 
+/* timeout for user land heart beat (10 seconds) */
 #define ZF_USER_TIMEO (HZ*10)
 
+/* timeout for hardware watchdog (~500ms) */
 #define ZF_HW_TIMEO (HZ/2)
 
+/* number of ticks on WD#1 (driven by a 32KHz clock, 2s) */
 #define ZF_CTIMEOUT 0xffff
 
 #ifndef ZF_DEBUG
@@ -141,6 +155,7 @@ static inline void zf_set_status(unsigned char new)
 }
 
 
+/* CONTROL register functions */
 
 static inline unsigned short zf_get_control(void)
 {
@@ -153,6 +168,10 @@ static inline void zf_set_control(unsigned short new)
 }
 
 
+/* WD#? counter functions */
+/*
+ *	Just set counter value
+ */
 
 static inline void zf_set_timer(unsigned short new, unsigned char n)
 {
@@ -166,18 +185,21 @@ static inline void zf_set_timer(unsigned short new, unsigned char n)
 	}
 }
 
+/*
+ * stop hardware timer
+ */
 static void zf_timer_off(void)
 {
 	unsigned int ctrl_reg = 0;
 	unsigned long flags;
 
-	
+	/* stop internal ping */
 	del_timer_sync(&zf_timer);
 
 	spin_lock_irqsave(&zf_port_lock, flags);
-	
+	/* stop watchdog timer */
 	ctrl_reg = zf_get_control();
-	ctrl_reg |= (ENABLE_WD1|ENABLE_WD2);	
+	ctrl_reg |= (ENABLE_WD1|ENABLE_WD2);	/* disable wd1 and wd2 */
 	ctrl_reg &= ~(ENABLE_WD1|ENABLE_WD2);
 	zf_set_control(ctrl_reg);
 	spin_unlock_irqrestore(&zf_port_lock, flags);
@@ -186,6 +208,9 @@ static void zf_timer_off(void)
 }
 
 
+/*
+ * start hardware timer
+ */
 static void zf_timer_on(void)
 {
 	unsigned int ctrl_reg = 0;
@@ -197,13 +222,13 @@ static void zf_timer_on(void)
 
 	zf_set_timer(ZF_CTIMEOUT, WD1);
 
-	
+	/* user land ping */
 	next_heartbeat = jiffies + ZF_USER_TIMEO;
 
-	
+	/* start the timer for internal ping */
 	mod_timer(&zf_timer, jiffies + ZF_HW_TIMEO);
 
-	
+	/* start watchdog timer */
 	ctrl_reg = zf_get_control();
 	ctrl_reg |= (ENABLE_WD1|zf_action);
 	zf_set_control(ctrl_reg);
@@ -222,13 +247,17 @@ static void zf_ping(unsigned long data)
 
 	if (time_before(jiffies, next_heartbeat)) {
 		dprintk("time_before: %ld\n", next_heartbeat - jiffies);
+		/*
+		 * reset event is activated by transition from 0 to 1 on
+		 * RESET_WD1 bit and we assume that it is already zero...
+		 */
 
 		spin_lock_irqsave(&zf_port_lock, flags);
 		ctrl_reg = zf_get_control();
 		ctrl_reg |= RESET_WD1;
 		zf_set_control(ctrl_reg);
 
-		
+		/* ...and nothing changes until here */
 		ctrl_reg &= ~(RESET_WD1);
 		zf_set_control(ctrl_reg);
 		spin_unlock_irqrestore(&zf_port_lock, flags);
@@ -241,13 +270,21 @@ static void zf_ping(unsigned long data)
 static ssize_t zf_write(struct file *file, const char __user *buf, size_t count,
 								loff_t *ppos)
 {
-	
+	/* See if we got the magic character */
 	if (count) {
+		/*
+		 * no need to check for close confirmation
+		 * no way to disable watchdog ;)
+		 */
 		if (!nowayout) {
 			size_t ofs;
+			/*
+			 * note: just in case someone wrote the magic character
+			 * five months ago...
+			 */
 			zf_expect_close = 0;
 
-			
+			/* now scan */
 			for (ofs = 0; ofs != count; ofs++) {
 				char c;
 				if (get_user(c, buf + ofs))
@@ -259,6 +296,10 @@ static ssize_t zf_write(struct file *file, const char __user *buf, size_t count,
 			}
 		}
 
+		/*
+		 * Well, anyhow someone wrote to us,
+		 * we should return that favour
+		 */
 		next_heartbeat = jiffies + ZF_USER_TIMEO;
 		dprintk("user ping at %ld\n", jiffies);
 	}
@@ -309,6 +350,9 @@ static int zf_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * Notifier for system down
+ */
 
 static int zf_notify_sys(struct notifier_block *this, unsigned long code,
 								void *unused)
@@ -334,6 +378,10 @@ static struct miscdevice zf_miscdev = {
 };
 
 
+/*
+ * The device needs to learn about soft shutdowns in order to
+ * turn the timebomb registers off.
+ */
 static struct notifier_block zf_notifier = {
 	.notifier_call = zf_notify_sys,
 };

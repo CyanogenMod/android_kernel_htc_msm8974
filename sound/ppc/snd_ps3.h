@@ -46,13 +46,17 @@ enum snd_ps3_ch {
 };
 
 struct snd_ps3_avsetting_info {
-	uint32_t avs_audio_ch;     
+	uint32_t avs_audio_ch;     /* fixed */
 	uint32_t avs_audio_rate;
 	uint32_t avs_audio_width;
-	uint32_t avs_audio_format; 
-	uint32_t avs_audio_source; 
+	uint32_t avs_audio_format; /* fixed */
+	uint32_t avs_audio_source; /* fixed */
 	unsigned char avs_cs_info[8];
 };
+/*
+ * PS3 audio 'card' instance
+ * there should be only ONE hardware.
+ */
 struct snd_ps3_card_info {
 	struct ps3_system_bus_device *ps3_dev;
 	struct snd_card *card;
@@ -60,49 +64,54 @@ struct snd_ps3_card_info {
 	struct snd_pcm *pcm;
 	struct snd_pcm_substream *substream;
 
-	
+	/* hvc info */
 	u64 audio_lpar_addr;
 	u64 audio_lpar_size;
 
-	
+	/* registers */
 	void __iomem *mapped_mmio_vaddr;
 
-	
+	/* irq */
 	u64 audio_irq_outlet;
 	unsigned int irq_no;
 
-	
+	/* remember avsetting */
 	struct snd_ps3_avsetting_info avs;
 
-	
+	/* dma buffer management */
 	spinlock_t dma_lock;
-		
-		void * dma_start_vaddr[2]; 
+		/* dma_lock start */
+		void * dma_start_vaddr[2]; /* 0 for L, 1 for R */
 		dma_addr_t dma_start_bus_addr[2];
 		size_t dma_buffer_size;
 		void * dma_last_transfer_vaddr[2];
 		void * dma_next_transfer_vaddr[2];
 		int    silent;
-		
+		/* dma_lock end */
 
 	int running;
 
-	
+	/* null buffer */
 	void *null_buffer_start_vaddr;
 	dma_addr_t null_buffer_start_dma_addr;
 
-	
+	/* start delay */
 	unsigned int start_delay;
 
 };
 
 
+/* PS3 audio DMAC block size in bytes */
 #define PS3_AUDIO_DMAC_BLOCK_SIZE (128)
+/* one stage (stereo)  of audio FIFO in bytes */
 #define PS3_AUDIO_FIFO_STAGE_SIZE (256)
+/* how many stages the fifo have */
 #define PS3_AUDIO_FIFO_STAGE_COUNT (8)
+/* fifo size 128 bytes * 8 stages * stereo (2ch) */
 #define PS3_AUDIO_FIFO_SIZE \
 	(PS3_AUDIO_FIFO_STAGE_SIZE * PS3_AUDIO_FIFO_STAGE_COUNT)
 
+/* PS3 audio DMAC max block count in one dma shot = 128 (0x80) blocks*/
 #define PS3_AUDIO_DMAC_MAX_BLOCKS  (PS3_AUDIO_DMASIZE_BLOCKS_MASK + 1)
 
 #define PS3_AUDIO_NORMAL_DMA_START_CH (0)
@@ -124,4 +133,4 @@ struct snd_ps3_card_info {
 
 #define PS3_AUDIO_IOID       (1UL)
 
-#endif 
+#endif /* _SND_PS3_H_ */

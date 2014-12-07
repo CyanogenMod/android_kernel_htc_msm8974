@@ -31,6 +31,9 @@
 
 #include <asm/uaccess.h>
 
+/*
+ * retrieve the contents of SCORE userspace general registers
+ */
 static int genregs_get(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -39,11 +42,11 @@ static int genregs_get(struct task_struct *target,
 	const struct pt_regs *regs = task_pt_regs(target);
 	int ret;
 
-	
+	/* skip 9 * sizeof(unsigned long) not use for pt_regs */
 	ret = user_regset_copyout_zero(&pos, &count, &kbuf, &ubuf,
 					0, offsetof(struct pt_regs, regs));
 
-	
+	/* r0 - r31, cel, ceh, sr0, sr1, sr2, epc, ema, psr, ecr, condition */
 	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
 				  regs->regs,
 				  offsetof(struct pt_regs, regs),
@@ -56,6 +59,9 @@ static int genregs_get(struct task_struct *target,
 	return ret;
 }
 
+/*
+ * update the contents of the SCORE userspace general registers
+ */
 static int genregs_set(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -64,11 +70,11 @@ static int genregs_set(struct task_struct *target,
 	struct pt_regs *regs = task_pt_regs(target);
 	int ret;
 
-	
+	/* skip 9 * sizeof(unsigned long) */
 	ret = user_regset_copyin_ignore(&pos, &count, &kbuf, &ubuf,
 					0, offsetof(struct pt_regs, regs));
 
-	
+	/* r0 - r31, cel, ceh, sr0, sr1, sr2, epc, ema, psr, ecr, condition */
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				  regs->regs,
 				  offsetof(struct pt_regs, regs),
@@ -81,6 +87,9 @@ static int genregs_set(struct task_struct *target,
 	return ret;
 }
 
+/*
+ * Define the register sets available on the score7 under Linux
+ */
 enum score7_regset {
 	REGSET_GENERAL,
 };
@@ -162,10 +171,10 @@ write_tsk_long(struct task_struct *child,
 
 void user_enable_single_step(struct task_struct *child)
 {
-	
+	/* far_epc is the target of branch */
 	unsigned int epc, far_epc = 0;
 	unsigned long epc_insn, far_epc_insn;
-	int ninsn_type;			
+	int ninsn_type;			/* next insn type 0=16b, 1=32b */
 	unsigned int tmp, tmp2;
 	struct pt_regs *regs = task_pt_regs(child);
 	child->thread.single_step = 1;
@@ -200,9 +209,9 @@ void user_enable_single_step(struct task_struct *child)
 			epc = (epc & 0xFFC00000) | tmp;
 		} else if ((epc_insn & B32M) == B32) {
 			child->thread.ss_nextcnt = 2;
-			tmp = epc_insn & 0x03FFFFFE;	
+			tmp = epc_insn & 0x03FFFFFE;	/* discard LK bit */
 			tmp2 = tmp & 0x3FF;
-			tmp = (((tmp >> 16) & 0x3FF) << 10) | tmp2; 
+			tmp = (((tmp >> 16) & 0x3FF) << 10) | tmp2; /* 20bit */
 			tmp = tmp << 12;
 			tmp = (unsigned int)((int) tmp >> 12);
 			far_epc = epc + tmp;
@@ -227,10 +236,10 @@ void user_enable_single_step(struct task_struct *child)
 			ninsn_type = 1;
 		}
 
-		if (ninsn_type == 0) {  
+		if (ninsn_type == 0) {  /* 16bits */
 			child->thread.insn1_type = 0;
 			child->thread.addr1 = epc;
-			 
+			 /* the insn may have 32bit data */
 			child->thread.insn1 = (short)epc_insn;
 		} else {
 			child->thread.insn1_type = 1;
@@ -238,7 +247,7 @@ void user_enable_single_step(struct task_struct *child)
 			child->thread.insn1 = epc_insn;
 		}
 	} else {
-		
+		/* branch! have two target child->thread.ss_nextcnt=2 */
 		read_tsk_long(child, epc, &epc_insn);
 		read_tsk_long(child, far_epc, &far_epc_insn);
 		if (is_16bitinsn(epc_insn)) {
@@ -249,10 +258,10 @@ void user_enable_single_step(struct task_struct *child)
 			ninsn_type = 1;
 		}
 
-		if (ninsn_type == 0) {  
+		if (ninsn_type == 0) {  /* 16bits */
 			child->thread.insn1_type = 0;
 			child->thread.addr1 = epc;
-			 
+			 /* the insn may have 32bit data */
 			child->thread.insn1 = (short)epc_insn;
 		} else {
 			child->thread.insn1_type = 1;
@@ -268,10 +277,10 @@ void user_enable_single_step(struct task_struct *child)
 			ninsn_type = 1;
 		}
 
-		if (ninsn_type == 0) {  
+		if (ninsn_type == 0) {  /* 16bits */
 			child->thread.insn2_type = 0;
 			child->thread.addr2 = far_epc;
-			 
+			 /* the insn may have 32bit data */
 			child->thread.insn2 = (short)far_epc_insn;
 		} else {
 			child->thread.insn2_type = 1;
@@ -291,7 +300,7 @@ void user_disable_single_step(struct task_struct *child)
 		write_tsk_long(child, child->thread.addr1,
 				child->thread.insn1);
 
-	if (child->thread.ss_nextcnt == 2) {	
+	if (child->thread.ss_nextcnt == 2) {	/* branch */
 		if (child->thread.insn1_type == 0)
 			write_tsk_short(child, child->thread.addr1,
 					child->thread.insn1);
@@ -345,6 +354,10 @@ arch_ptrace(struct task_struct *child, long request,
 	return ret;
 }
 
+/*
+ * Notification of system call entry/exit
+ * - triggered by current->work.syscall_trace
+ */
 asmlinkage void do_syscall_trace(struct pt_regs *regs, int entryexit)
 {
 	if (!(current->ptrace & PT_PTRACED))
@@ -353,9 +366,16 @@ asmlinkage void do_syscall_trace(struct pt_regs *regs, int entryexit)
 	if (!test_thread_flag(TIF_SYSCALL_TRACE))
 		return;
 
+	/* The 0x80 provides a way for the tracing parent to distinguish
+	   between a syscall stop and SIGTRAP delivery. */
 	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD) ?
 			0x80 : 0));
 
+	/*
+	 * this isn't the same as continuing with a signal, but it will do
+	 * for normal use.  strace only continues with a signal if the
+	 * stopping signal is not SIGTRAP.  -brl
+	 */
 	if (current->exit_code) {
 		send_sig(current->exit_code, current, 1);
 		current->exit_code = 0;

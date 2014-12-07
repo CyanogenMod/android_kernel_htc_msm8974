@@ -1,3 +1,4 @@
+/* lance.c: An AMD LANCE/PCnet ethernet driver for Linux. */
 /*
 	Written/copyright 1993-1998 by Donald Becker.
 
@@ -71,15 +72,15 @@ static struct card {
 	char id_offset14;
 	char id_offset15;
 } cards[] = {
-	{	
+	{	//"normal"
 		.id_offset14 = 0x57,
 		.id_offset15 = 0x57,
 	},
-	{	
+	{	//NI6510EB
 		.id_offset14 = 0x52,
 		.id_offset15 = 0x44,
 	},
-	{	
+	{	//Racal InterLan EtherBlaster
 		.id_offset14 = 0x52,
 		.id_offset15 = 0x49,
 	},
@@ -92,7 +93,98 @@ static int lance_debug = LANCE_DEBUG;
 static int lance_debug = 1;
 #endif
 
+/*
+				Theory of Operation
 
+I. Board Compatibility
+
+This device driver is designed for the AMD 79C960, the "PCnet-ISA
+single-chip ethernet controller for ISA".  This chip is used in a wide
+variety of boards from vendors such as Allied Telesis, HP, Kingston,
+and Boca.  This driver is also intended to work with older AMD 7990
+designs, such as the NE1500 and NE2100, and newer 79C961.  For convenience,
+I use the name LANCE to refer to all of the AMD chips, even though it properly
+refers only to the original 7990.
+
+II. Board-specific settings
+
+The driver is designed to work the boards that use the faster
+bus-master mode, rather than in shared memory mode.	 (Only older designs
+have on-board buffer memory needed to support the slower shared memory mode.)
+
+Most ISA boards have jumpered settings for the I/O base, IRQ line, and DMA
+channel.  This driver probes the likely base addresses:
+{0x300, 0x320, 0x340, 0x360}.
+After the board is found it generates a DMA-timeout interrupt and uses
+autoIRQ to find the IRQ line.  The DMA channel can be set with the low bits
+of the otherwise-unused dev->mem_start value (aka PARAM1).  If unset it is
+probed for by enabling each free DMA channel in turn and checking if
+initialization succeeds.
+
+The HP-J2405A board is an exception: with this board it is easy to read the
+EEPROM-set values for the base, IRQ, and DMA.  (Of course you must already
+_know_ the base address -- that field is for writing the EEPROM.)
+
+III. Driver operation
+
+IIIa. Ring buffers
+The LANCE uses ring buffers of Tx and Rx descriptors.  Each entry describes
+the base and length of the data buffer, along with status bits.	 The length
+of these buffers is set by LANCE_LOG_{RX,TX}_BUFFERS, which is log_2() of
+the buffer length (rather than being directly the buffer length) for
+implementation ease.  The current values are 2 (Tx) and 4 (Rx), which leads to
+ring sizes of 4 (Tx) and 16 (Rx).  Increasing the number of ring entries
+needlessly uses extra space and reduces the chance that an upper layer will
+be able to reorder queued Tx packets based on priority.	 Decreasing the number
+of entries makes it more difficult to achieve back-to-back packet transmission
+and increases the chance that Rx ring will overflow.  (Consider the worst case
+of receiving back-to-back minimum-sized packets.)
+
+The LANCE has the capability to "chain" both Rx and Tx buffers, but this driver
+statically allocates full-sized (slightly oversized -- PKT_BUF_SZ) buffers to
+avoid the administrative overhead. For the Rx side this avoids dynamically
+allocating full-sized buffers "just in case", at the expense of a
+memory-to-memory data copy for each packet received.  For most systems this
+is a good tradeoff: the Rx buffer will always be in low memory, the copy
+is inexpensive, and it primes the cache for later packet processing.  For Tx
+the buffers are only used when needed as low-memory bounce buffers.
+
+IIIB. 16M memory limitations.
+For the ISA bus master mode all structures used directly by the LANCE,
+the initialization block, Rx and Tx rings, and data buffers, must be
+accessible from the ISA bus, i.e. in the lower 16M of real memory.
+This is a problem for current Linux kernels on >16M machines. The network
+devices are initialized after memory initialization, and the kernel doles out
+memory from the top of memory downward.	 The current solution is to have a
+special network initialization routine that's called before memory
+initialization; this will eventually be generalized for all network devices.
+As mentioned before, low-memory "bounce-buffers" are used when needed.
+
+IIIC. Synchronization
+The driver runs as two independent, single-threaded flows of control.  One
+is the send-packet routine, which enforces single-threaded use by the
+dev->tbusy flag.  The other thread is the interrupt handler, which is single
+threaded by the hardware and other software.
+
+The send packet thread has partial control over the Tx ring and 'dev->tbusy'
+flag.  It sets the tbusy flag whenever it's queuing a Tx packet. If the next
+queue slot is empty, it clears the tbusy flag when finished otherwise it sets
+the 'lp->tx_full' flag.
+
+The interrupt handler has exclusive control over the Rx ring and records stats
+from the Tx ring. (The Tx-done interrupt can't be selectively turned off, so
+we can't avoid the interrupt overhead by having the Tx routine reap the Tx
+stats.)	 After reaping the stats, it marks the queue entry as empty by setting
+the 'base' to zero. Iff the 'lp->tx_full' flag is set, it clears both the
+tx_full and tbusy flags.
+
+*/
+
+/* Set the number of Tx and Rx buffers, using Log_2(# buffers).
+   Reasonable default values are 16 Tx buffers, and 16 Rx buffers.
+   That translates to 4 and 4 (16 == 2^^4).
+   This is a compile-time option for efficiency.
+   */
 #ifndef LANCE_LOG_TX_BUFFERS
 #define LANCE_LOG_TX_BUFFERS 4
 #define LANCE_LOG_RX_BUFFERS 4
@@ -108,6 +200,7 @@ static int lance_debug = 1;
 
 #define PKT_BUF_SZ		1544
 
+/* Offsets from base I/O address. */
 #define LANCE_DATA 0x10
 #define LANCE_ADDR 0x12
 #define LANCE_RESET 0x14
@@ -116,44 +209,46 @@ static int lance_debug = 1;
 
 #define TX_TIMEOUT	(HZ/5)
 
+/* The LANCE Rx and Tx ring descriptors. */
 struct lance_rx_head {
 	s32 base;
-	s16 buf_length;			
-	s16 msg_length;			
+	s16 buf_length;			/* This length is 2s complement (negative)! */
+	s16 msg_length;			/* This length is "normal". */
 };
 
 struct lance_tx_head {
 	s32 base;
-	s16 length;				
+	s16 length;				/* Length is 2s complement (negative)! */
 	s16 misc;
 };
 
+/* The LANCE initialization block, described in databook. */
 struct lance_init_block {
-	u16 mode;		
-	u8  phys_addr[6]; 
-	u32 filter[2];			
-	
-	u32  rx_ring;			
+	u16 mode;		/* Pre-set mode (reg. 15) */
+	u8  phys_addr[6]; /* Physical ethernet address */
+	u32 filter[2];			/* Multicast filter (unused). */
+	/* Receive and transmit ring base, along with extra bits. */
+	u32  rx_ring;			/* Tx and Rx ring base pointers */
 	u32  tx_ring;
 };
 
 struct lance_private {
-	
+	/* The Tx and Rx ring entries must be aligned on 8-byte boundaries. */
 	struct lance_rx_head rx_ring[RX_RING_SIZE];
 	struct lance_tx_head tx_ring[TX_RING_SIZE];
 	struct lance_init_block	init_block;
 	const char *name;
-	
+	/* The saved address of a sent-in-place packet/buffer, for skfree(). */
 	struct sk_buff* tx_skbuff[TX_RING_SIZE];
-	
+	/* The addresses of receive-in-place skbuffs. */
 	struct sk_buff* rx_skbuff[RX_RING_SIZE];
-	unsigned long rx_buffs;		
-	
+	unsigned long rx_buffs;		/* Address of Rx and Tx buffers. */
+	/* Tx low-memory "bounce buffer" address. */
 	char (*tx_bounce_buffs)[PKT_BUF_SZ];
-	int cur_rx, cur_tx;			
-	int dirty_rx, dirty_tx;		
+	int cur_rx, cur_tx;			/* The next free ring entry */
+	int dirty_rx, dirty_tx;		/* The ring entries to be free()ed. */
 	int dma;
-	unsigned char chip_version;	
+	unsigned char chip_version;	/* See lance_chip_type. */
 	spinlock_t devlock;
 };
 
@@ -163,26 +258,31 @@ struct lance_private {
 #define LANCE_MUST_UNRESET      0x00000008
 #define LANCE_HAS_MISSED_FRAME  0x00000010
 
+/* A mapping from the chip ID number to the part number and features.
+   These are from the datasheets -- in real life the '970 version
+   reportedly has the same ID as the '965. */
 static struct lance_chip_type {
 	int id_number;
 	const char *name;
 	int flags;
 } chip_table[] = {
-	{0x0000, "LANCE 7990",				
+	{0x0000, "LANCE 7990",				/* Ancient lance chip.  */
 		LANCE_MUST_PAD + LANCE_MUST_UNRESET},
-	{0x0003, "PCnet/ISA 79C960",		
+	{0x0003, "PCnet/ISA 79C960",		/* 79C960 PCnet/ISA.  */
 		LANCE_ENABLE_AUTOSELECT + LANCE_MUST_REINIT_RING +
 			LANCE_HAS_MISSED_FRAME},
-	{0x2260, "PCnet/ISA+ 79C961",		
+	{0x2260, "PCnet/ISA+ 79C961",		/* 79C961 PCnet/ISA+, Plug-n-Play.  */
 		LANCE_ENABLE_AUTOSELECT + LANCE_MUST_REINIT_RING +
 			LANCE_HAS_MISSED_FRAME},
-	{0x2420, "PCnet/PCI 79C970",		
+	{0x2420, "PCnet/PCI 79C970",		/* 79C970 or 79C974 PCnet-SCSI, PCI. */
 		LANCE_ENABLE_AUTOSELECT + LANCE_MUST_REINIT_RING +
 			LANCE_HAS_MISSED_FRAME},
-	{0x2430, "PCnet32",					
+	/* Bug: the PCnet/PCI actually uses the PCnet/VLB ID number, so just call
+		it the PCnet32. */
+	{0x2430, "PCnet32",					/* 79C965 PCnet for VL bus. */
 		LANCE_ENABLE_AUTOSELECT + LANCE_MUST_REINIT_RING +
 			LANCE_HAS_MISSED_FRAME},
-        {0x2621, "PCnet/PCI-II 79C970A",        
+        {0x2621, "PCnet/PCI-II 79C970A",        /* 79C970A PCInetPCI II. */
                 LANCE_ENABLE_AUTOSELECT + LANCE_MUST_REINIT_RING +
                         LANCE_HAS_MISSED_FRAME},
 	{0x0, 	 "PCnet (unknown)",
@@ -193,6 +293,8 @@ static struct lance_chip_type {
 enum {OLD_LANCE = 0, PCNET_ISA=1, PCNET_ISAP=2, PCNET_PCI=3, PCNET_VLB=4, PCNET_PCI_II=5, LANCE_UNKNOWN=6};
 
 
+/* Non-zero if lance_probe1() needs to allocate low-memory bounce buffers.
+   Assume yes until we know the memory size. */
 static unsigned char lance_need_isa_bounce_buffers = 1;
 
 static int lance_open(struct net_device *dev);
@@ -209,7 +311,7 @@ static void lance_tx_timeout (struct net_device *dev);
 
 
 #ifdef MODULE
-#define MAX_CARDS		8	
+#define MAX_CARDS		8	/* Max number of interfaces (cards) per module */
 
 static struct net_device *dev_lance[MAX_CARDS];
 static int io[MAX_CARDS];
@@ -232,7 +334,7 @@ int __init init_module(void)
 
 	for (this_dev = 0; this_dev < MAX_CARDS; this_dev++) {
 		if (io[this_dev] == 0)  {
-			if (this_dev != 0) 
+			if (this_dev != 0) /* only complain once */
 				break;
 			printk(KERN_NOTICE "lance.c: Module autoprobing not allowed. Append \"io=0xNNN\" value(s).\n");
 			return -EPERM;
@@ -279,10 +381,14 @@ void __exit cleanup_module(void)
 		}
 	}
 }
-#endif 
+#endif /* MODULE */
 MODULE_LICENSE("GPL");
 
 
+/* Starting in v2.1.*, the LANCE/PCnet probe is now similar to the other
+   board probes now that kmalloc() can allocate ISA DMA-able regions.
+   This also allows the LANCE driver to be used as a module.
+   */
 static int __init do_lance_probe(struct net_device *dev)
 {
 	unsigned int *port;
@@ -297,20 +403,20 @@ static int __init do_lance_probe(struct net_device *dev)
 							"lance-probe");
 
 		if (r) {
-			
+			/* Detect the card with minimal I/O reads */
 			char offset14 = inb(ioaddr + 14);
 			int card;
 			for (card = 0; card < NUM_CARDS; ++card)
 				if (cards[card].id_offset14 == offset14)
 					break;
-			if (card < NUM_CARDS) {
+			if (card < NUM_CARDS) {/*yes, the first byte matches*/
 				char offset15 = inb(ioaddr + 15);
 				for (card = 0; card < NUM_CARDS; ++card)
 					if ((cards[card].id_offset14 == offset14) &&
 						(cards[card].id_offset15 == offset15))
 						break;
 			}
-			if (card < NUM_CARDS) { 
+			if (card < NUM_CARDS) { /*Signature OK*/
 				result = lance_probe1(dev, ioaddr, 0, 0);
 				if (!result) {
 					struct lance_private *lp = dev->ml_priv;
@@ -363,48 +469,55 @@ static const struct net_device_ops lance_netdev_ops = {
 static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int options)
 {
 	struct lance_private *lp;
-	unsigned long dma_channels;	
+	unsigned long dma_channels;	/* Mark spuriously-busy DMA channels */
 	int i, reset_val, lance_version;
 	const char *chipname;
-	
-	unsigned char hpJ2405A = 0;	
-	int hp_builtin = 0;		
-	static int did_version;		
+	/* Flags for specific chips or boards. */
+	unsigned char hpJ2405A = 0;	/* HP ISA adaptor */
+	int hp_builtin = 0;		/* HP on-board ethernet. */
+	static int did_version;		/* Already printed version info. */
 	unsigned long flags;
 	int err = -ENOMEM;
 	void __iomem *bios;
 
+	/* First we look for special cases.
+	   Check for HP's on-board ethernet by looking for 'HP' in the BIOS.
+	   There are two HP versions, check the BIOS for the configuration port.
+	   This method provided by L. Julliard, Laurent_Julliard@grenoble.hp.com.
+	   */
 	bios = ioremap(0xf00f0, 0x14);
 	if (!bios)
 		return -ENOMEM;
 	if (readw(bios + 0x12) == 0x5048)  {
 		static const short ioaddr_table[] = { 0x300, 0x320, 0x340, 0x360};
 		int hp_port = (readl(bios + 1) & 1)  ? 0x499 : 0x99;
-		
+		/* We can have boards other than the built-in!  Verify this is on-board. */
 		if ((inb(hp_port) & 0xc0) == 0x80 &&
 		    ioaddr_table[inb(hp_port) & 3] == ioaddr)
 			hp_builtin = hp_port;
 	}
 	iounmap(bios);
-	
+	/* We also recognize the HP Vectra on-board here, but check below. */
 	hpJ2405A = (inb(ioaddr) == 0x08 && inb(ioaddr+1) == 0x00 &&
 		    inb(ioaddr+2) == 0x09);
 
-	
-	reset_val = inw(ioaddr+LANCE_RESET); 
+	/* Reset the LANCE.	 */
+	reset_val = inw(ioaddr+LANCE_RESET); /* Reset the LANCE */
 
+	/* The Un-Reset needed is only needed for the real NE2100, and will
+	   confuse the HP board. */
 	if (!hpJ2405A)
 		outw(reset_val, ioaddr+LANCE_RESET);
 
-	outw(0x0000, ioaddr+LANCE_ADDR); 
+	outw(0x0000, ioaddr+LANCE_ADDR); /* Switch to window 0 */
 	if (inw(ioaddr+LANCE_DATA) != 0x0004)
 		return -ENODEV;
 
-	
+	/* Get the version of the chip. */
 	outw(88, ioaddr+LANCE_ADDR);
 	if (inw(ioaddr+LANCE_ADDR) != 88) {
 		lance_version = 0;
-	} else {			
+	} else {			/* Good, it's a newer chip. */
 		int chip_version = inw(ioaddr+LANCE_DATA);
 		outw(89, ioaddr+LANCE_ADDR);
 		chip_version |= inw(ioaddr+LANCE_DATA) << 16;
@@ -419,15 +532,19 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 		}
 	}
 
+	/* We can't allocate private data from alloc_etherdev() because it must
+	   a ISA DMA-able region. */
 	chipname = chip_table[lance_version].name;
 	printk("%s: %s at %#3x, ", dev->name, chipname, ioaddr);
 
+	/* There is a 16 byte station address PROM at the base address.
+	   The first six bytes are the station address. */
 	for (i = 0; i < 6; i++)
 		dev->dev_addr[i] = inb(ioaddr + i);
 	printk("%pM", dev->dev_addr);
 
 	dev->base_addr = ioaddr;
-	
+	/* Make certain the data structures used by the LANCE are aligned and DMAble. */
 
 	lp = kzalloc(sizeof(*lp), GFP_DMA | GFP_KERNEL);
 	if(lp==NULL)
@@ -450,7 +567,7 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 	lp->chip_version = lance_version;
 	spin_lock_init(&lp->devlock);
 
-	lp->init_block.mode = 0x0003;		
+	lp->init_block.mode = 0x0003;		/* Disable Rx and Tx. */
 	for (i = 0; i < 6; i++)
 		lp->init_block.phys_addr[i] = dev->dev_addr[i];
 	lp->init_block.filter[0] = 0x00000000;
@@ -467,8 +584,8 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 	outw(0x0000, ioaddr+LANCE_ADDR);
 	inw(ioaddr+LANCE_ADDR);
 
-	if (irq) {					
-		dev->dma = 4;			
+	if (irq) {					/* Set iff PCI card. */
+		dev->dma = 4;			/* Native bus-master, no DMA channel needed. */
 		dev->irq = irq;
 	} else if (hp_builtin) {
 		static const char dma_tbl[4] = {3, 5, 6, 0};
@@ -484,31 +601,36 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 		dev->dma = dma_tbl[(reset_val >> 2) & 3];
 		dev->irq = irq_tbl[(reset_val >> 4) & 7];
 		printk(" HP J2405A IRQ %d DMA %d.\n", dev->irq, dev->dma);
-	} else if (lance_version == PCNET_ISAP) {		
+	} else if (lance_version == PCNET_ISAP) {		/* The plug-n-play version. */
 		short bus_info;
 		outw(8, ioaddr+LANCE_ADDR);
 		bus_info = inw(ioaddr+LANCE_BUS_IF);
 		dev->dma = bus_info & 0x07;
 		dev->irq = (bus_info >> 4) & 0x0F;
 	} else {
-		
+		/* The DMA channel may be passed in PARAM1. */
 		if (dev->mem_start & 0x07)
 			dev->dma = dev->mem_start & 0x07;
 	}
 
 	if (dev->dma == 0) {
+		/* Read the DMA channel status register, so that we can avoid
+		   stuck DMA channels in the DMA detection below. */
 		dma_channels = ((inb(DMA1_STAT_REG) >> 4) & 0x0f) |
 			(inb(DMA2_STAT_REG) & 0xf0);
 	}
 	err = -ENODEV;
 	if (dev->irq >= 2)
 		printk(" assigned IRQ %d", dev->irq);
-	else if (lance_version != 0)  {	
+	else if (lance_version != 0)  {	/* 7990 boards need DMA detection first. */
 		unsigned long irq_mask;
 
+		/* To auto-IRQ we enable the initialization-done and DMA error
+		   interrupts. For ISA boards we get a DMA error, but VLB and PCI
+		   boards will work. */
 		irq_mask = probe_irq_on();
 
-		
+		/* Trigger an initialization just for the interrupt. */
 		outw(0x0041, ioaddr+LANCE_DATA);
 
 		mdelay(20);
@@ -520,6 +642,8 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 			goto out_tx;
 		}
 
+		/* Check for the initialization done bit, 0x0100, which means
+		   that we don't need a DMA channel. */
 		if (inw(ioaddr+LANCE_DATA) & 0x0100)
 			dev->dma = 4;
 	}
@@ -532,15 +656,17 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 			goto out_tx;
 		} else
 			printk(", assigned DMA %d.\n", dev->dma);
-	} else {			
+	} else {			/* OK, we have to auto-DMA. */
 		for (i = 0; i < 4; i++) {
 			static const char dmas[] = { 5, 6, 7, 3 };
 			int dma = dmas[i];
 			int boguscnt;
 
+			/* Don't enable a permanently busy DMA channel, or the machine
+			   will hang. */
 			if (test_bit(dma, &dma_channels))
 				continue;
-			outw(0x7f04, ioaddr+LANCE_DATA); 
+			outw(0x7f04, ioaddr+LANCE_DATA); /* Clear the memory error bits. */
 			if (request_dma(dma, chipname))
 				continue;
 
@@ -549,7 +675,7 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 			enable_dma(dma);
 			release_dma_lock(flags);
 
-			
+			/* Trigger an initialization. */
 			outw(0x0001, ioaddr+LANCE_DATA);
 			for (boguscnt = 100; boguscnt > 0; --boguscnt)
 				if (inw(ioaddr+LANCE_DATA) & 0x0900)
@@ -565,15 +691,15 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 				free_dma(dma);
 			}
 		}
-		if (i == 4) {			
+		if (i == 4) {			/* Failure: bail. */
 			printk("DMA detection failed.\n");
 			goto out_tx;
 		}
 	}
 
 	if (lance_version == 0 && dev->irq == 0) {
-		
-		
+		/* We may auto-IRQ now that we have a DMA channel. */
+		/* Trigger an initialization just for the interrupt. */
 		unsigned long irq_mask;
 
 		irq_mask = probe_irq_on();
@@ -589,15 +715,17 @@ static int __init lance_probe1(struct net_device *dev, int ioaddr, int irq, int 
 	}
 
 	if (chip_table[lp->chip_version].flags & LANCE_ENABLE_AUTOSELECT) {
+		/* Turn on auto-select of media (10baseT or BNC) so that the user
+		   can watch the LEDs even if the board isn't opened. */
 		outw(0x0002, ioaddr+LANCE_ADDR);
-		
+		/* Don't touch 10base2 power bit. */
 		outw(inw(ioaddr+LANCE_BUS_IF) | 0x0002, ioaddr+LANCE_BUS_IF);
 	}
 
 	if (lance_debug > 0  &&  did_version++ == 0)
 		printk(version);
 
-	
+	/* The LANCE-specific entries in the device structure. */
 	dev->netdev_ops = &lance_netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
 
@@ -630,11 +758,13 @@ lance_open(struct net_device *dev)
 		return -EAGAIN;
 	}
 
+	/* We used to allocate DMA here, but that was silly.
+	   DMA lines can't be shared!  We now permanently allocate them. */
 
-	
+	/* Reset the LANCE */
 	inw(ioaddr+LANCE_RESET);
 
-	
+	/* The DMA controller is used as a no-operation slave, "cascade mode". */
 	if (dev->dma != 4) {
 		unsigned long flags=claim_dma_lock();
 		enable_dma(dev->dma);
@@ -642,14 +772,14 @@ lance_open(struct net_device *dev)
 		release_dma_lock(flags);
 	}
 
-	
+	/* Un-Reset the LANCE, needed only for the NE2100. */
 	if (chip_table[lp->chip_version].flags & LANCE_MUST_UNRESET)
 		outw(0, ioaddr+LANCE_RESET);
 
 	if (chip_table[lp->chip_version].flags & LANCE_ENABLE_AUTOSELECT) {
-		
+		/* This is 79C960-specific: Turn on auto-select of media (AUI, BNC). */
 		outw(0x0002, ioaddr+LANCE_ADDR);
-		
+		/* Only touch autoselect bit. */
 		outw(inw(ioaddr+LANCE_BUS_IF) | 0x0002, ioaddr+LANCE_BUS_IF);
  	}
 
@@ -661,7 +791,7 @@ lance_open(struct net_device *dev)
 			   (u32) isa_virt_to_bus(&lp->init_block));
 
 	lance_init_ring(dev, GFP_KERNEL);
-	
+	/* Re-initialize the LANCE, and start it when done. */
 	outw(0x0001, ioaddr+LANCE_ADDR);
 	outw((short) (u32) isa_virt_to_bus(&lp->init_block), ioaddr+LANCE_DATA);
 	outw(0x0002, ioaddr+LANCE_ADDR);
@@ -679,15 +809,30 @@ lance_open(struct net_device *dev)
 	while (i++ < 100)
 		if (inw(ioaddr+LANCE_DATA) & 0x0100)
 			break;
+	/*
+	 * We used to clear the InitDone bit, 0x0100, here but Mark Stockton
+	 * reports that doing so triggers a bug in the '974.
+	 */
  	outw(0x0042, ioaddr+LANCE_DATA);
 
 	if (lance_debug > 2)
 		printk("%s: LANCE open after %d ticks, init block %#x csr0 %4.4x.\n",
 			   dev->name, i, (u32) isa_virt_to_bus(&lp->init_block), inw(ioaddr+LANCE_DATA));
 
-	return 0;					
+	return 0;					/* Always succeed */
 }
 
+/* The LANCE has been halted for one reason or another (busmaster memory
+   arbitration error, Tx FIFO underflow, driver stopped it to reconfigure,
+   etc.).  Modern LANCE variants always reload their ring-buffer
+   configuration when restarted, so we must reinitialize our ring
+   context before restarting.  As part of this reinitialization,
+   find all packets still on the Tx ring and pretend that they had been
+   sent (in effect, drop the packets on the floor) - the higher-level
+   protocols will time out and retransmit.  It'd be better to shuffle
+   these skbs to a temp list and then actually re-Tx them after
+   restarting the chip, but I'm too lazy to do so right now.  dplatt@3do.com
+*/
 
 static void
 lance_purge_ring(struct net_device *dev)
@@ -695,11 +840,11 @@ lance_purge_ring(struct net_device *dev)
 	struct lance_private *lp = dev->ml_priv;
 	int i;
 
-	
+	/* Free all the skbuffs in the Rx and Tx queues. */
 	for (i = 0; i < RX_RING_SIZE; i++) {
 		struct sk_buff *skb = lp->rx_skbuff[i];
 		lp->rx_skbuff[i] = NULL;
-		lp->rx_ring[i].base = 0;		
+		lp->rx_ring[i].base = 0;		/* Not owned by LANCE chip. */
 		if (skb)
 			dev_kfree_skb_any(skb);
 	}
@@ -712,6 +857,7 @@ lance_purge_ring(struct net_device *dev)
 }
 
 
+/* Initialize the LANCE Rx and Tx rings. */
 static void
 lance_init_ring(struct net_device *dev, gfp_t gfp)
 {
@@ -738,6 +884,8 @@ lance_init_ring(struct net_device *dev, gfp_t gfp)
 			lp->rx_ring[i].base = (u32)isa_virt_to_bus(rx_buff) | 0x80000000;
 		lp->rx_ring[i].buf_length = -PKT_BUF_SZ;
 	}
+	/* The Tx buffer address is filled in as needed, but we do need to clear
+	   the upper ownership bit. */
 	for (i = 0; i < TX_RING_SIZE; i++) {
 		lp->tx_skbuff[i] = NULL;
 		lp->tx_ring[i].base = 0;
@@ -796,7 +944,7 @@ static void lance_tx_timeout (struct net_device *dev)
 #endif
 	lance_restart (dev, 0x0043, 1);
 
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue (dev);
 }
 
@@ -818,13 +966,15 @@ static netdev_tx_t lance_start_xmit(struct sk_buff *skb,
 		outw(0x0000, ioaddr+LANCE_DATA);
 	}
 
-	
+	/* Fill in a Tx ring entry */
 
-	
+	/* Mask to ring buffer boundary. */
 	entry = lp->cur_tx & TX_RING_MOD_MASK;
 
+	/* Caution: the write order is important here, set the base address
+	   with the "ownership" bits last. */
 
-	
+	/* The old LANCE chips doesn't automatically pad buffers to min. size. */
 	if (chip_table[lp->chip_version].flags & LANCE_MUST_PAD) {
 		if (skb->len < ETH_ZLEN) {
 			if (skb_padto(skb, ETH_ZLEN))
@@ -840,6 +990,8 @@ static netdev_tx_t lance_start_xmit(struct sk_buff *skb,
 
 	dev->stats.tx_bytes += skb->len;
 
+	/* If any part of this buffer is >16M we must copy it to a low-memory
+	   buffer. */
 	if ((u32)isa_virt_to_bus(skb->data) + skb->len > 0x01000000) {
 		if (lance_debug > 5)
 			printk("%s: bouncing a high-memory packet (%#x).\n",
@@ -854,7 +1006,7 @@ static netdev_tx_t lance_start_xmit(struct sk_buff *skb,
 	}
 	lp->cur_tx++;
 
-	
+	/* Trigger an immediate send poll. */
 	outw(0x0000, ioaddr+LANCE_ADDR);
 	outw(0x0048, ioaddr+LANCE_DATA);
 
@@ -866,6 +1018,7 @@ out:
 	return NETDEV_TX_OK;
 }
 
+/* The LANCE interrupt handler. */
 static irqreturn_t lance_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
@@ -881,7 +1034,7 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 	outw(0x00, dev->base_addr + LANCE_ADDR);
 	while ((csr0 = inw(dev->base_addr + LANCE_DATA)) & 0x8600 &&
 	       --boguscnt >= 0) {
-		
+		/* Acknowledge all of the current interrupt sources ASAP. */
 		outw(csr0 & ~0x004f, dev->base_addr + LANCE_DATA);
 
 		must_restart = 0;
@@ -890,10 +1043,10 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 			printk("%s: interrupt  csr0=%#2.2x new csr=%#2.2x.\n",
 				   dev->name, csr0, inw(dev->base_addr + LANCE_DATA));
 
-		if (csr0 & 0x0400)			
+		if (csr0 & 0x0400)			/* Rx interrupt */
 			lance_rx(dev);
 
-		if (csr0 & 0x0200) {		
+		if (csr0 & 0x0200) {		/* Tx-done interrupt */
 			int dirty_tx = lp->dirty_tx;
 
 			while (dirty_tx < lp->cur_tx) {
@@ -901,12 +1054,12 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 				int status = lp->tx_ring[entry].base;
 
 				if (status < 0)
-					break;			
+					break;			/* It still hasn't been Txed */
 
 				lp->tx_ring[entry].base = 0;
 
 				if (status & 0x40000000) {
-					
+					/* There was an major error, log it. */
 					int err_status = lp->tx_ring[entry].misc;
 					dev->stats.tx_errors++;
 					if (err_status & 0x0400)
@@ -916,12 +1069,12 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 					if (err_status & 0x1000)
 						dev->stats.tx_window_errors++;
 					if (err_status & 0x4000) {
-						
+						/* Ackk!  On FIFO errors the Tx unit is turned off! */
 						dev->stats.tx_fifo_errors++;
-						
+						/* Remove this verbosity later! */
 						printk("%s: Tx FIFO error! Status %4.4x.\n",
 							   dev->name, csr0);
-						
+						/* Restart the chip. */
 						must_restart = 1;
 					}
 				} else {
@@ -930,6 +1083,8 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 					dev->stats.tx_packets++;
 				}
 
+				/* We must free the original skb if it's not a data-only copy
+				   in the bounce buffer. */
 				if (lp->tx_skbuff[entry]) {
 					dev_kfree_skb_irq(lp->tx_skbuff[entry]);
 					lp->tx_skbuff[entry] = NULL;
@@ -946,7 +1101,7 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 			}
 #endif
 
-			
+			/* if the ring is no longer full, accept more packets */
 			if (netif_queue_stopped(dev) &&
 			    dirty_tx > lp->cur_tx - TX_RING_SIZE + 2)
 				netif_wake_queue (dev);
@@ -954,27 +1109,27 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 			lp->dirty_tx = dirty_tx;
 		}
 
-		
+		/* Log misc errors. */
 		if (csr0 & 0x4000)
-			dev->stats.tx_errors++; 
+			dev->stats.tx_errors++; /* Tx babble. */
 		if (csr0 & 0x1000)
-			dev->stats.rx_errors++; 
+			dev->stats.rx_errors++; /* Missed a Rx frame. */
 		if (csr0 & 0x0800) {
 			printk("%s: Bus master arbitration failure, status %4.4x.\n",
 				   dev->name, csr0);
-			
+			/* Restart the chip. */
 			must_restart = 1;
 		}
 
 		if (must_restart) {
-			
+			/* stop the chip to clear the error condition, then restart */
 			outw(0x0000, dev->base_addr + LANCE_ADDR);
 			outw(0x0004, dev->base_addr + LANCE_DATA);
 			lance_restart(dev, 0x0002, 0);
 		}
 	}
 
-	
+	/* Clear any other interrupt, and set interrupt enable. */
 	outw(0x0000, dev->base_addr + LANCE_ADDR);
 	outw(0x7940, dev->base_addr + LANCE_DATA);
 
@@ -994,13 +1149,17 @@ lance_rx(struct net_device *dev)
 	int entry = lp->cur_rx & RX_RING_MOD_MASK;
 	int i;
 
-	
+	/* If we own the next entry, it's a new packet. Send it up. */
 	while (lp->rx_ring[entry].base >= 0) {
 		int status = lp->rx_ring[entry].base >> 24;
 
-		if (status != 0x03) {			
-			if (status & 0x01)	
-				dev->stats.rx_errors++; 
+		if (status != 0x03) {			/* There was an error. */
+			/* There is a tricky error noted by John Murphy,
+			   <murf@perftech.com> to Russ Nelson: Even with full-sized
+			   buffers it's possible for a jabber packet to use two
+			   buffers, with only the last correctly noting the error. */
+			if (status & 0x01)	/* Only count a general error at the */
+				dev->stats.rx_errors++; /* end of a packet.*/
 			if (status & 0x20)
 				dev->stats.rx_frame_errors++;
 			if (status & 0x10)
@@ -1013,7 +1172,7 @@ lance_rx(struct net_device *dev)
 		}
 		else
 		{
-			
+			/* Malloc up new buffer, compatible with net3. */
 			short pkt_len = (lp->rx_ring[entry].msg_length & 0xfff)-4;
 			struct sk_buff *skb;
 
@@ -1040,8 +1199,8 @@ lance_rx(struct net_device *dev)
 					}
 					break;
 				}
-				skb_reserve(skb,2);	
-				skb_put(skb,pkt_len);	
+				skb_reserve(skb,2);	/* 16 byte align */
+				skb_put(skb,pkt_len);	/* Make room */
 				skb_copy_to_linear_data(skb,
 					(unsigned char *)isa_bus_to_virt((lp->rx_ring[entry].base & 0x00ffffff)),
 					pkt_len);
@@ -1051,11 +1210,15 @@ lance_rx(struct net_device *dev)
 				dev->stats.rx_bytes += pkt_len;
 			}
 		}
+		/* The docs say that the buffer length isn't touched, but Andrew Boyd
+		   of QNX reports that some revs of the 79C965 clear it. */
 		lp->rx_ring[entry].buf_length = -PKT_BUF_SZ;
 		lp->rx_ring[entry].base |= 0x80000000;
 		entry = (++lp->cur_rx) & RX_RING_MOD_MASK;
 	}
 
+	/* We should check that at least two ring entries are free.	 If not,
+	   we should free one and mark stats->rx_dropped++. */
 
 	return 0;
 }
@@ -1078,6 +1241,8 @@ lance_close(struct net_device *dev)
 		printk("%s: Shutting down ethercard, status was %2.2x.\n",
 			   dev->name, inw(ioaddr+LANCE_DATA));
 
+	/* We stop the LANCE here -- it occasionally polls
+	   memory if we don't. */
 	outw(0x0004, ioaddr+LANCE_DATA);
 
 	if (dev->dma != 4)
@@ -1113,34 +1278,36 @@ static struct net_device_stats *lance_get_stats(struct net_device *dev)
 	return &dev->stats;
 }
 
+/* Set or clear the multicast filter for this adaptor.
+ */
 
 static void set_multicast_list(struct net_device *dev)
 {
 	short ioaddr = dev->base_addr;
 
 	outw(0, ioaddr+LANCE_ADDR);
-	outw(0x0004, ioaddr+LANCE_DATA); 
+	outw(0x0004, ioaddr+LANCE_DATA); /* Temporarily stop the lance.	 */
 
 	if (dev->flags&IFF_PROMISC) {
 		outw(15, ioaddr+LANCE_ADDR);
-		outw(0x8000, ioaddr+LANCE_DATA); 
+		outw(0x8000, ioaddr+LANCE_DATA); /* Set promiscuous mode */
 	} else {
 		short multicast_table[4];
 		int i;
 		int num_addrs=netdev_mc_count(dev);
 		if(dev->flags&IFF_ALLMULTI)
 			num_addrs=1;
-		
+		/* FIXIT: We don't use the multicast table, but rely on upper-layer filtering. */
 		memset(multicast_table, (num_addrs == 0) ? 0 : -1, sizeof(multicast_table));
 		for (i = 0; i < 4; i++) {
 			outw(8 + i, ioaddr+LANCE_ADDR);
 			outw(multicast_table[i], ioaddr+LANCE_DATA);
 		}
 		outw(15, ioaddr+LANCE_ADDR);
-		outw(0x0000, ioaddr+LANCE_DATA); 
+		outw(0x0000, ioaddr+LANCE_DATA); /* Unset promiscuous mode */
 	}
 
-	lance_restart(dev, 0x0142, 0); 
+	lance_restart(dev, 0x0142, 0); /*  Resume normal operation */
 
 }
 

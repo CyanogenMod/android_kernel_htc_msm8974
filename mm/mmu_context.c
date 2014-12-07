@@ -10,6 +10,16 @@
 
 #include <asm/mmu_context.h>
 
+/*
+ * use_mm
+ *	Makes the calling kernel thread take on the specified
+ *	mm context.
+ *	Called by the retry thread execute retries within the
+ *	iocb issuer's mm context, so that copy_from/to_user
+ *	operations work seamlessly for aio.
+ *	(Note: this routine is intended to be called only
+ *	from a kernel thread context)
+ */
 void use_mm(struct mm_struct *mm)
 {
 	struct mm_struct *active_mm;
@@ -30,6 +40,14 @@ void use_mm(struct mm_struct *mm)
 }
 EXPORT_SYMBOL_GPL(use_mm);
 
+/*
+ * unuse_mm
+ *	Reverses the effect of use_mm, i.e. releases the
+ *	specified mm context which was earlier taken on
+ *	by the calling kernel thread
+ *	(Note: this routine is intended to be called only
+ *	from a kernel thread context)
+ */
 void unuse_mm(struct mm_struct *mm)
 {
 	struct task_struct *tsk = current;
@@ -37,7 +55,7 @@ void unuse_mm(struct mm_struct *mm)
 	task_lock(tsk);
 	sync_mm_rss(mm);
 	tsk->mm = NULL;
-	
+	/* active_mm is still 'mm' */
 	enter_lazy_tlb(mm, tsk);
 	task_unlock(tsk);
 }

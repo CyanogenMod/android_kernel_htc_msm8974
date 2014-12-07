@@ -53,4 +53,4 @@
 #define ADDR_VGC_BUSYCNT				 0x530
 #define ADDR_VGC_FIFOFREE				 0x7c0
 
-#endif 
+#endif /* __Z180_REG_H */

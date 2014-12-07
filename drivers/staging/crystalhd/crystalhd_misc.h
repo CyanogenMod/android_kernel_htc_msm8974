@@ -39,12 +39,20 @@
 #include <linux/sched.h>
 #include "bc_dts_glob_lnx.h"
 
+/* Global log level variable defined in crystal_misc.c file */
 extern uint32_t g_linklog_level;
 
+/* Global element pool for all Queue management.
+ * TX: Active = BC_TX_LIST_CNT, Free = BC_TX_LIST_CNT.
+ * RX: Free = BC_RX_LIST_CNT, Active = 2
+ * FW-CMD: 4
+ */
 #define	BC_LINK_ELEM_POOL_SZ	((BC_TX_LIST_CNT * 2) + BC_RX_LIST_CNT + 2 + 4)
 
+/* Driver's IODATA pool count */
 #define	CHD_IODATA_POOL_SZ    (BC_IOCTL_DATA_POOL_SIZE * BC_LINK_MAX_OPENS)
 
+/* Scatter Gather memory pool size for Tx and Rx */
 #define BC_LINK_SG_POOL_SZ    (BC_TX_LIST_CNT + BC_RX_LIST_CNT)
 
 enum crystalhd_dio_sig {
@@ -110,18 +118,23 @@ struct crystalhd_dioq {
 typedef void (*hw_comp_callback)(struct crystalhd_dio_req *,
 				 wait_queue_head_t *event, enum BC_STATUS sts);
 
+/*========= Decoder (7412) register access routines.================= */
 uint32_t bc_dec_reg_rd(struct crystalhd_adp *, uint32_t);
 void bc_dec_reg_wr(struct crystalhd_adp *, uint32_t, uint32_t);
 
+/*========= Link (70012) register access routines.. =================*/
 uint32_t crystalhd_reg_rd(struct crystalhd_adp *, uint32_t);
 void crystalhd_reg_wr(struct crystalhd_adp *, uint32_t, uint32_t);
 
+/*========= Decoder (7412) memory access routines..=================*/
 enum BC_STATUS crystalhd_mem_rd(struct crystalhd_adp *, uint32_t, uint32_t, uint32_t *);
 enum BC_STATUS crystalhd_mem_wr(struct crystalhd_adp *, uint32_t, uint32_t, uint32_t *);
 
+/*==========Link (70012) PCIe Config access routines.================*/
 enum BC_STATUS crystalhd_pci_cfg_rd(struct crystalhd_adp *, uint32_t, uint32_t, uint32_t *);
 enum BC_STATUS crystalhd_pci_cfg_wr(struct crystalhd_adp *, uint32_t, uint32_t, uint32_t);
 
+/*========= Linux Kernel Interface routines. ======================= */
 void *bc_kern_dma_alloc(struct crystalhd_adp *, uint32_t, dma_addr_t *);
 void bc_kern_dma_free(struct crystalhd_adp *, uint32_t,
 		      void *, dma_addr_t);
@@ -152,6 +165,7 @@ do {									\
 	remove_wait_queue(ev, &entry);					\
 } while (0)
 
+/*================ Direct IO mapping routines ==================*/
 extern int crystalhd_create_dio_pool(struct crystalhd_adp *, uint32_t);
 extern void crystalhd_destroy_dio_pool(struct crystalhd_adp *);
 extern enum BC_STATUS crystalhd_map_dio(struct crystalhd_adp *, void *, uint32_t,
@@ -161,6 +175,7 @@ extern enum BC_STATUS crystalhd_unmap_dio(struct crystalhd_adp *, struct crystal
 #define crystalhd_get_sgle_paddr(_dio, _ix) (cpu_to_le64(sg_dma_address(&_dio->sg[_ix])))
 #define crystalhd_get_sgle_len(_dio, _ix) (cpu_to_le32(sg_dma_len(&_dio->sg[_ix])))
 
+/*================ General Purpose Queues ==================*/
 extern enum BC_STATUS crystalhd_create_dioq(struct crystalhd_adp *, struct crystalhd_dioq **, crystalhd_data_free_cb , void *);
 extern void crystalhd_delete_dioq(struct crystalhd_adp *, struct crystalhd_dioq *);
 extern enum BC_STATUS crystalhd_dioq_add(struct crystalhd_dioq *ioq, void *data, bool wake, uint32_t tag);
@@ -174,17 +189,18 @@ extern int crystalhd_create_elem_pool(struct crystalhd_adp *, uint32_t);
 extern void crystalhd_delete_elem_pool(struct crystalhd_adp *);
 
 
+/*================ Debug routines/macros .. ================================*/
 extern void crystalhd_show_buffer(uint32_t off, uint8_t *buff, uint32_t dwcount);
 
 enum _chd_log_levels {
-	BCMLOG_ERROR		= 0x80000000,	
-	BCMLOG_DATA		= 0x40000000,	
-	BCMLOG_SPINLOCK		= 0x20000000,	
+	BCMLOG_ERROR		= 0x80000000,	/* Don't disable this option */
+	BCMLOG_DATA		= 0x40000000,	/* Data, enable by default */
+	BCMLOG_SPINLOCK		= 0x20000000,	/* Spcial case for Spin locks*/
 
-	
-	BCMLOG_INFO		= 0x00000001,	
-	BCMLOG_DBG		= 0x00000002,	
-	BCMLOG_SSTEP		= 0x00000004,	
+	/* Following are allowed only in debug mode */
+	BCMLOG_INFO		= 0x00000001,	/* Generic informational */
+	BCMLOG_DBG		= 0x00000002,	/* First level Debug info */
+	BCMLOG_SSTEP		= 0x00000004,	/* Stepping information */
 };
 
 

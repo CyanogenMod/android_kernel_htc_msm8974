@@ -1,3 +1,6 @@
+/*
+ *  include/linux/amba/mmci.h
+ */
 #ifndef AMBA_MMCI_H
 #define AMBA_MMCI_H
 
@@ -13,6 +16,11 @@ struct embedded_sdio_data {
 };
 
 
+/*
+ * These defines is places here due to access is needed from machine
+ * configuration files. The ST Micro version does not have ROD and
+ * reuse the voltage registers for direction settings.
+ */
 #define MCI_ST_DATA2DIREN	(1 << 2)
 #define MCI_ST_CMDDIREN		(1 << 3)
 #define MCI_ST_DATA0DIREN	(1 << 4)
@@ -20,6 +28,7 @@ struct embedded_sdio_data {
 #define MCI_ST_FBCLKEN		(1 << 7)
 #define MCI_ST_DATA74DIREN	(1 << 8)
 
+/* Just some dummy forwarding */
 struct dma_chan;
 
 /**

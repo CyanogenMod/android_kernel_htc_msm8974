@@ -18,7 +18,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	PINT0, PINT1, PINT2, PINT3, PINT4, PINT5, PINT6, PINT7,
 	ADC_ADI0, ADC_ADI1,
@@ -37,7 +37,7 @@ enum {
 
 	SCIF0, SCIF1, SCIF2, SCIF3,
 
-	
+	/* interrupt groups */
 	PINT,
 };
 
@@ -106,26 +106,26 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfffe0818, 0, 16, 4,  { IRQ0, IRQ1, IRQ2, IRQ3 } },
-	{ 0xfffe081a, 0, 16, 4,  { IRQ4, IRQ5, IRQ6, IRQ7 } },
-	{ 0xfffe0820, 0, 16, 4,  { PINT, 0, ADC_ADI0, ADC_ADI1 } },
-	{ 0xfffe0c00, 0, 16, 4,  { DMAC0, DMAC1, DMAC2, DMAC3 } },
-	{ 0xfffe0c02, 0, 16, 4,  { DMAC4, DMAC5, DMAC6, DMAC7 } },
-	{ 0xfffe0c04, 0, 16, 4,  { CMT0, CMT1, BSC, WDT } },
-	{ 0xfffe0c06, 0, 16, 4,  { MTU0_ABCD, MTU0_VEF,
+	{ 0xfffe0818, 0, 16, 4, /* IPR01 */ { IRQ0, IRQ1, IRQ2, IRQ3 } },
+	{ 0xfffe081a, 0, 16, 4, /* IPR02 */ { IRQ4, IRQ5, IRQ6, IRQ7 } },
+	{ 0xfffe0820, 0, 16, 4, /* IPR05 */ { PINT, 0, ADC_ADI0, ADC_ADI1 } },
+	{ 0xfffe0c00, 0, 16, 4, /* IPR06 */ { DMAC0, DMAC1, DMAC2, DMAC3 } },
+	{ 0xfffe0c02, 0, 16, 4, /* IPR07 */ { DMAC4, DMAC5, DMAC6, DMAC7 } },
+	{ 0xfffe0c04, 0, 16, 4, /* IPR08 */ { CMT0, CMT1, BSC, WDT } },
+	{ 0xfffe0c06, 0, 16, 4, /* IPR09 */ { MTU0_ABCD, MTU0_VEF,
 					      MTU1_AB, MTU1_VU } },
-	{ 0xfffe0c08, 0, 16, 4,  { MTU2_AB, MTU2_VU,
+	{ 0xfffe0c08, 0, 16, 4, /* IPR10 */ { MTU2_AB, MTU2_VU,
 					      MTU3_ABCD, MTU2_TCI3V } },
-	{ 0xfffe0c0a, 0, 16, 4,  { MTU4_ABCD, MTU2_TCI4V,
+	{ 0xfffe0c0a, 0, 16, 4, /* IPR11 */ { MTU4_ABCD, MTU2_TCI4V,
 					      MTU5, POE2_12 } },
-	{ 0xfffe0c0c, 0, 16, 4,  { MTU3S_ABCD, MTU2S_TCI3V,
+	{ 0xfffe0c0c, 0, 16, 4, /* IPR12 */ { MTU3S_ABCD, MTU2S_TCI3V,
 					      MTU4S_ABCD, MTU2S_TCI4V } },
-	{ 0xfffe0c0e, 0, 16, 4,  { MTU5S, POE2_OEI3, IIC3, 0 } },
-	{ 0xfffe0c10, 0, 16, 4,  { SCIF0, SCIF1, SCIF2, SCIF3 } },
+	{ 0xfffe0c0e, 0, 16, 4, /* IPR13 */ { MTU5S, POE2_OEI3, IIC3, 0 } },
+	{ 0xfffe0c10, 0, 16, 4, /* IPR14 */ { SCIF0, SCIF1, SCIF2, SCIF3 } },
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xfffe0808, 0, 16, 
+	{ 0xfffe0808, 0, 16, /* PINTER */
 	  { 0, 0, 0, 0, 0, 0, 0, 0,
 	    PINT7, PINT6, PINT5, PINT4, PINT3, PINT2, PINT1, PINT0 } },
 };
@@ -205,7 +205,7 @@ static struct sh_timer_config cmt0_platform_data = {
 	.channel_offset = 0x02,
 	.timer_bit = 0,
 	.clockevent_rating = 125,
-	.clocksource_rating = 0, 
+	.clocksource_rating = 0, /* disabled due to code generation issues */
 };
 
 static struct resource cmt0_resources[] = {
@@ -234,7 +234,7 @@ static struct sh_timer_config cmt1_platform_data = {
 	.channel_offset = 0x08,
 	.timer_bit = 1,
 	.clockevent_rating = 125,
-	.clocksource_rating = 0, 
+	.clocksource_rating = 0, /* disabled due to code generation issues */
 };
 
 static struct resource cmt1_resources[] = {
@@ -384,10 +384,10 @@ static struct platform_device *sh7206_early_devices[] __initdata = {
 
 void __init plat_early_device_setup(void)
 {
-	
+	/* enable CMT clock */
 	__raw_writeb(__raw_readb(STBCR4) & ~0x04, STBCR4);
 
-	
+	/* enable MTU2 clock */
 	__raw_writeb(__raw_readb(STBCR3) & ~0x20, STBCR3);
 
 	early_platform_add_devices(sh7206_early_devices,

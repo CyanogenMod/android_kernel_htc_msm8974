@@ -57,6 +57,9 @@ struct omap_dmic {
 	struct mutex mutex;
 };
 
+/*
+ * Stream DMA parameters
+ */
 static struct omap_pcm_dma_data omap_dmic_dai_dma_params = {
 	.name		= "DMIC capture",
 	.data_type	= OMAP_DMA_DATA_TYPE_S32,
@@ -77,7 +80,7 @@ static inline void omap_dmic_start(struct omap_dmic *dmic)
 {
 	u32 ctrl = omap_dmic_read(dmic, OMAP_DMIC_CTRL_REG);
 
-	
+	/* Configure DMA controller */
 	omap_dmic_write(dmic, OMAP_DMIC_DMAENABLE_SET_REG,
 			OMAP_DMIC_DMA_ENABLE);
 
@@ -90,7 +93,7 @@ static inline void omap_dmic_stop(struct omap_dmic *dmic)
 	omap_dmic_write(dmic, OMAP_DMIC_CTRL_REG,
 			ctrl & ~OMAP_DMIC_UP_ENABLE_MASK);
 
-	
+	/* Disable DMA request generation */
 	omap_dmic_write(dmic, OMAP_DMIC_DMAENABLE_CLR_REG,
 			OMAP_DMIC_DMA_ENABLE);
 
@@ -137,9 +140,13 @@ static int omap_dmic_select_divider(struct omap_dmic *dmic, int sample_rate)
 {
 	int divider = -EINVAL;
 
+	/*
+	 * 192KHz rate is only supported with 19.2MHz/3.84MHz clock
+	 * configuration.
+	 */
 	if (sample_rate == 192000) {
 		if (dmic->fclk_freq == 19200000 && dmic->out_freq == 3840000)
-			divider = 0x6; 
+			divider = 0x6; /* Divider: 5 (192KHz sampling rate) */
 		else
 			dev_err(dmic->dev,
 				"invalid clock configuration for 192KHz\n");
@@ -151,18 +158,18 @@ static int omap_dmic_select_divider(struct omap_dmic *dmic, int sample_rate)
 	case 1536000:
 		if (dmic->fclk_freq != 24576000)
 			goto div_err;
-		divider = 0x4; 
+		divider = 0x4; /* Divider: 16 */
 		break;
 	case 2400000:
 		switch (dmic->fclk_freq) {
 		case 12000000:
-			divider = 0x5; 
+			divider = 0x5; /* Divider: 5 */
 			break;
 		case 19200000:
-			divider = 0x0; 
+			divider = 0x0; /* Divider: 8 */
 			break;
 		case 24000000:
-			divider = 0x2; 
+			divider = 0x2; /* Divider: 10 */
 			break;
 		default:
 			goto div_err;
@@ -171,12 +178,12 @@ static int omap_dmic_select_divider(struct omap_dmic *dmic, int sample_rate)
 	case 3072000:
 		if (dmic->fclk_freq != 24576000)
 			goto div_err;
-		divider = 0x3; 
+		divider = 0x3; /* Divider: 8 */
 		break;
 	case 3840000:
 		if (dmic->fclk_freq != 19200000)
 			goto div_err;
-		divider = 0x1; 
+		divider = 0x1; /* Divider: 5 (96KHz sampling rate) */
 		break;
 	default:
 		dev_err(dmic->dev, "invalid out frequency: %dHz\n",
@@ -221,7 +228,7 @@ static int omap_dmic_dai_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* packet size is threshold * channels */
 	omap_dmic_dai_dma_params.packet_size = dmic->threshold * channels;
 	snd_soc_dai_set_dma_data(dai, substream, &omap_dmic_dai_dma_params);
 
@@ -234,17 +241,17 @@ static int omap_dmic_dai_prepare(struct snd_pcm_substream *substream,
 	struct omap_dmic *dmic = snd_soc_dai_get_drvdata(dai);
 	u32 ctrl;
 
-	
+	/* Configure uplink threshold */
 	omap_dmic_write(dmic, OMAP_DMIC_FIFO_CTRL_REG, dmic->threshold);
 
 	ctrl = omap_dmic_read(dmic, OMAP_DMIC_CTRL_REG);
 
-	
+	/* Set dmic out format */
 	ctrl &= ~(OMAP_DMIC_FORMAT | OMAP_DMIC_POLAR_MASK);
 	ctrl |= (OMAP_DMICOUTFORMAT_LJUST | OMAP_DMIC_POLAR1 |
 		 OMAP_DMIC_POLAR2 | OMAP_DMIC_POLAR3);
 
-	
+	/* Configure dmic clock divider */
 	ctrl &= ~OMAP_DMIC_CLK_DIV_MASK;
 	ctrl |= OMAP_DMIC_CLK_DIV(dmic->clk_div);
 
@@ -300,7 +307,7 @@ static int omap_dmic_select_fclk(struct omap_dmic *dmic, int clk_id,
 		return 0;
 	}
 
-	
+	/* re-parent not allowed if a stream is ongoing */
 	if (dmic->active && dmic_is_enabled(dmic)) {
 		dev_err(dmic->dev, "can't re-parent when DMIC active\n");
 		return -EBUSY;
@@ -329,7 +336,7 @@ static int omap_dmic_select_fclk(struct omap_dmic *dmic, int clk_id,
 
 	mutex_lock(&dmic->mutex);
 	if (dmic->active) {
-		
+		/* disable clock while reparenting */
 		pm_runtime_put_sync(dmic->dev);
 		ret = clk_set_parent(dmic->fclk, parent_clk);
 		pm_runtime_get_sync(dmic->dev);
@@ -408,12 +415,12 @@ static int omap_dmic_probe(struct snd_soc_dai *dai)
 
 	pm_runtime_enable(dmic->dev);
 
-	
+	/* Disable lines while request is ongoing */
 	pm_runtime_get_sync(dmic->dev);
 	omap_dmic_write(dmic, OMAP_DMIC_CTRL_REG, 0x00);
 	pm_runtime_put_sync(dmic->dev);
 
-	
+	/* Configure DMIC threshold value */
 	dmic->threshold = OMAP_DMIC_THRES_MAX - 3;
 	return 0;
 }

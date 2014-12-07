@@ -123,7 +123,7 @@ static void ioapic_write_indirect(struct kvm_ioapic *ioapic, u32 val)
 
 	switch (ioapic->ioregsel) {
 	case IOAPIC_REG_VERSION:
-		
+		/* Writes are ignored. */
 		break;
 
 	case IOAPIC_REG_APIC_ID:
@@ -180,9 +180,9 @@ static int ioapic_deliver(struct kvm_ioapic *ioapic, int irq)
 	irqe.shorthand = 0;
 
 #ifdef CONFIG_X86
-	
+	/* Always delivery PIT interrupt to vcpu 0 */
 	if (irq == 0) {
-		irqe.dest_mode = 0; 
+		irqe.dest_mode = 0; /* Physical mode. */
 		/* need to read apic_id from apic regiest since
 		 * it can be rewritten */
 		irqe.dest_id = ioapic->kvm->bsp_vcpu_id;
@@ -212,7 +212,7 @@ int kvm_ioapic_set_irq(struct kvm_ioapic *ioapic, int irq, int level)
 			    (!edge && !entry.fields.remote_irr))
 				ret = ioapic_service(ioapic, irq);
 			else
-				ret = 0; 
+				ret = 0; /* report coalesced interrupt */
 		}
 		trace_kvm_ioapic_set_irq(entry.bits, irq, ret == 0);
 	}
@@ -232,6 +232,14 @@ static void __kvm_ioapic_update_eoi(struct kvm_ioapic *ioapic, int vector,
 		if (ent->fields.vector != vector)
 			continue;
 
+		/*
+		 * We are dropping lock while calling ack notifiers because ack
+		 * notifier callbacks for assigned devices call into IOAPIC
+		 * recursively. Since remote_irr is cleared only after call
+		 * to notifiers if the same vector will be delivered while lock
+		 * is dropped it will be put into irr and will be delivered
+		 * after ack notifier returns.
+		 */
 		spin_unlock(&ioapic->lock);
 		kvm_notify_acked_irq(ioapic->kvm, KVM_IRQCHIP_IOAPIC, i);
 		spin_lock(&ioapic->lock);
@@ -278,7 +286,7 @@ static int ioapic_mmio_read(struct kvm_io_device *this, gpa_t addr, int len,
 		return -EOPNOTSUPP;
 
 	ioapic_debug("addr %lx\n", (unsigned long)addr);
-	ASSERT(!(addr & 0xf));	
+	ASSERT(!(addr & 0xf));	/* check alignment */
 
 	addr &= 0xff;
 	spin_lock(&ioapic->lock);
@@ -322,7 +330,7 @@ static int ioapic_mmio_write(struct kvm_io_device *this, gpa_t addr, int len,
 
 	ioapic_debug("ioapic_mmio_write addr=%p len=%d val=%p\n",
 		     (void*)addr, len, val);
-	ASSERT(!(addr & 0xf));	
+	ASSERT(!(addr & 0xf));	/* check alignment */
 
 	switch (len) {
 	case 8:
@@ -344,7 +352,7 @@ static int ioapic_mmio_write(struct kvm_io_device *this, gpa_t addr, int len,
 	spin_lock(&ioapic->lock);
 	switch (addr) {
 	case IOAPIC_REG_SELECT:
-		ioapic->ioregsel = data & 0xFF; 
+		ioapic->ioregsel = data & 0xFF; /* 8-bit register */
 		break;
 
 	case IOAPIC_REG_WINDOW:

@@ -29,4 +29,4 @@ void mips_probe_watch_registers(struct cpuinfo_mips *c);
 #define __restore_watch() do {} while (0)
 #endif
 
-#endif 
+#endif /* _ASM_WATCH_H */

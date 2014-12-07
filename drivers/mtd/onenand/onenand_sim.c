@@ -44,6 +44,7 @@
 #define CONFIG_ONENAND_SIM_TECHNOLOGY_ID CONFIG_FLEXONENAND
 #endif
 
+/* Initial boundary values for Flex-OneNAND Simulator */
 #ifndef CONFIG_FLEXONENAND_SIM_DIE0_BOUNDARY
 #define CONFIG_FLEXONENAND_SIM_DIE0_BOUNDARY	0x01
 #endif
@@ -82,6 +83,7 @@ struct onenand_flash {
 #define ONENAND_SET_WP_STATUS(v, this)					\
 	(writew(v, this->base + ONENAND_REG_WP_STATUS))
 
+/* It has all 0xff chars */
 #define MAX_ONENAND_PAGESIZE		(4096 + 128)
 static unsigned char *ffchars;
 
@@ -99,6 +101,9 @@ static struct mtd_partition os_partitions[] = {
 	},
 };
 
+/*
+ * OneNAND simulator mtd
+ */
 struct onenand_info {
 	struct mtd_info		mtd;
 	struct mtd_partition	*parts;
@@ -114,6 +119,14 @@ do {									\
 			   __LINE__, ##args);				\
 } while (0)
 
+/**
+ * onenand_lock_handle - Handle Lock scheme
+ * @this:		OneNAND device structure
+ * @cmd:		The command to be sent
+ *
+ * Send lock command to OneNAND device.
+ * The lock scheme depends on chip type.
+ */
 static void onenand_lock_handle(struct onenand_chip *this, int cmd)
 {
 	int block_lock_scheme;
@@ -150,6 +163,13 @@ static void onenand_lock_handle(struct onenand_chip *this, int cmd)
 	}
 }
 
+/**
+ * onenand_bootram_handle - Handle BootRAM area
+ * @this:		OneNAND device structure
+ * @cmd:		The command to be sent
+ *
+ * Emulate BootRAM area. It is possible to do basic operation using BootRAM.
+ */
 static void onenand_bootram_handle(struct onenand_chip *this, int cmd)
 {
 	switch (cmd) {
@@ -160,11 +180,18 @@ static void onenand_bootram_handle(struct onenand_chip *this, int cmd)
 		break;
 
 	default:
-		
+		/* REVIST: Handle other commands */
 		break;
 	}
 }
 
+/**
+ * onenand_update_interrupt - Set interrupt register
+ * @this:         OneNAND device structure
+ * @cmd:          The command to be sent
+ *
+ * Update interrupt register. The status depends on command.
+ */
 static void onenand_update_interrupt(struct onenand_chip *this, int cmd)
 {
 	int interrupt = ONENAND_INT_MASTER;
@@ -195,6 +222,16 @@ static void onenand_update_interrupt(struct onenand_chip *this, int cmd)
 	writew(interrupt, this->base + ONENAND_REG_INTERRUPT);
 }
 
+/**
+ * onenand_check_overwrite - Check if over-write happened
+ * @dest:		The destination pointer
+ * @src:		The source pointer
+ * @count:		The length to be check
+ *
+ * Returns:		0 on same, otherwise 1
+ *
+ * Compare the source with destination
+ */
 static int onenand_check_overwrite(void *dest, void *src, size_t count)
 {
 	unsigned int *s = (unsigned int *) src;
@@ -209,6 +246,17 @@ static int onenand_check_overwrite(void *dest, void *src, size_t count)
 	return 0;
 }
 
+/**
+ * onenand_data_handle - Handle OneNAND Core and DataRAM
+ * @this:		OneNAND device structure
+ * @cmd:		The command to be sent
+ * @dataram:		Which dataram used
+ * @offset:		The offset to OneNAND Core
+ *
+ * Copy data from OneNAND Core to DataRAM (read)
+ * Copy data from DataRAM to OneNAND Core (write)
+ * Erase the OneNAND Core (erase)
+ */
 static void onenand_data_handle(struct onenand_chip *this, int cmd,
 				int dataram, unsigned int offset)
 {
@@ -251,7 +299,7 @@ static void onenand_data_handle(struct onenand_chip *this, int cmd,
 			break;
 		}
 		memcpy(dest, src, mtd->writesize);
-		
+		/* Fall through */
 
 	case ONENAND_CMD_READOOB:
 		src = ONENAND_CORE_SPARE(flash, this, offset);
@@ -266,7 +314,7 @@ static void onenand_data_handle(struct onenand_chip *this, int cmd,
 			boundary[die] = readw(this->base + ONENAND_DATARAM);
 			break;
 		}
-		
+		/* To handle partial write */
 		for (i = 0; i < (1 << mtd->subpage_sft); i++) {
 			int off = i * this->subpagesize;
 			if (!memcmp(src + off, ffchars, this->subpagesize))
@@ -276,11 +324,11 @@ static void onenand_data_handle(struct onenand_chip *this, int cmd,
 				printk(KERN_ERR "over-write happened at 0x%08x\n", offset);
 			memcpy(dest + off, src + off, this->subpagesize);
 		}
-		
+		/* Fall through */
 
 	case ONENAND_CMD_PROGOOB:
 		src = ONENAND_SPARE_AREA(this, spare_offset);
-		
+		/* Check all data is 0xff chars */
 		if (!memcmp(src, ffchars, mtd->oobsize))
 			break;
 
@@ -312,6 +360,13 @@ static void onenand_data_handle(struct onenand_chip *this, int cmd,
 	}
 }
 
+/**
+ * onenand_command_handle - Handle command
+ * @this:		OneNAND device structure
+ * @cmd:		The command to be sent
+ *
+ * Emulate OneNAND command.
+ */
 static void onenand_command_handle(struct onenand_chip *this, int cmd)
 {
 	unsigned long offset = 0;
@@ -327,14 +382,14 @@ static void onenand_command_handle(struct onenand_chip *this, int cmd)
 		break;
 
 	case ONENAND_CMD_BUFFERRAM:
-		
+		/* Do nothing */
 		return;
 
 	default:
 		block = (int) readw(this->base + ONENAND_REG_START_ADDRESS1);
 		if (block & (1 << ONENAND_DDP_SHIFT)) {
 			block &= ~(1 << ONENAND_DDP_SHIFT);
-			
+			/* The half of chip block */
 			block += this->chipsize >> (this->erase_shift + 1);
 		}
 		if (cmd == ONENAND_CMD_ERASE)
@@ -360,22 +415,35 @@ static void onenand_command_handle(struct onenand_chip *this, int cmd)
 	onenand_update_interrupt(this, cmd);
 }
 
+/**
+ * onenand_writew - [OneNAND Interface] Emulate write operation
+ * @value:		value to write
+ * @addr:		address to write
+ *
+ * Write OneNAND register with value
+ */
 static void onenand_writew(unsigned short value, void __iomem * addr)
 {
 	struct onenand_chip *this = info->mtd.priv;
 
-	
+	/* BootRAM handling */
 	if (addr < this->base + ONENAND_DATARAM) {
 		onenand_bootram_handle(this, value);
 		return;
 	}
-	
+	/* Command handling */
 	if (addr == this->base + ONENAND_REG_COMMAND)
 		onenand_command_handle(this, value);
 
 	writew(value, addr);
 }
 
+/**
+ * flash_init - Initialize OneNAND simulator
+ * @flash:		OneNAND simulator data strucutres
+ *
+ * Initialize OneNAND simulator.
+ */
 static int __init flash_init(struct onenand_flash *flash)
 {
 	int density, size;
@@ -400,21 +468,27 @@ static int __init flash_init(struct onenand_flash *flash)
 
 	memset(ONENAND_CORE(flash), 0xff, size + (size >> 5));
 
-	
+	/* Setup registers */
 	writew(manuf_id, flash->base + ONENAND_REG_MANUFACTURER_ID);
 	writew(device_id, flash->base + ONENAND_REG_DEVICE_ID);
 	writew(version_id, flash->base + ONENAND_REG_VERSION_ID);
 	writew(technology_id, flash->base + ONENAND_REG_TECHNOLOGY);
 
 	if (density < 2 && (!CONFIG_FLEXONENAND))
-		buffer_size = 0x0400;	
+		buffer_size = 0x0400;	/* 1KiB page */
 	else
-		buffer_size = 0x0800;	
+		buffer_size = 0x0800;	/* 2KiB page */
 	writew(buffer_size, flash->base + ONENAND_REG_DATA_BUFFER_SIZE);
 
 	return 0;
 }
 
+/**
+ * flash_exit - Clean up OneNAND simulator
+ * @flash:		OneNAND simulator data structures
+ *
+ * Clean up OneNAND simulator.
+ */
 static void flash_exit(struct onenand_flash *flash)
 {
 	vfree(ONENAND_CORE(flash));
@@ -423,7 +497,7 @@ static void flash_exit(struct onenand_flash *flash)
 
 static int __init onenand_sim_init(void)
 {
-	
+	/* Allocate all 0xff chars pointer */
 	ffchars = kmalloc(MAX_ONENAND_PAGESIZE, GFP_KERNEL);
 	if (!ffchars) {
 		printk(KERN_ERR "Unable to allocate ff chars.\n");
@@ -431,7 +505,7 @@ static int __init onenand_sim_init(void)
 	}
 	memset(ffchars, 0xff, MAX_ONENAND_PAGESIZE);
 
-	
+	/* Allocate OneNAND simulator mtd pointer */
 	info = kzalloc(sizeof(struct onenand_info), GFP_KERNEL);
 	if (!info) {
 		printk(KERN_ERR "Unable to allocate core structures.\n");
@@ -439,7 +513,7 @@ static int __init onenand_sim_init(void)
 		return -ENOMEM;
 	}
 
-	
+	/* Override write_word function */
 	info->onenand.write_word = onenand_writew;
 
 	if (flash_init(&info->flash)) {

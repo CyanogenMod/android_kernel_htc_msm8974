@@ -26,11 +26,13 @@
 #include <linux/device.h>
 #include <linux/list.h>
 
+/* A few generic types ... taken from ses-2 */
 enum enclosure_component_type {
 	ENCLOSURE_COMPONENT_DEVICE = 0x01,
 	ENCLOSURE_COMPONENT_ARRAY_DEVICE = 0x17,
 };
 
+/* ses-2 common element status */
 enum enclosure_status {
 	ENCLOSURE_STATUS_UNSUPPORTED = 0,
 	ENCLOSURE_STATUS_OK,
@@ -40,10 +42,11 @@ enum enclosure_status {
 	ENCLOSURE_STATUS_NOT_INSTALLED,
 	ENCLOSURE_STATUS_UNKNOWN,
 	ENCLOSURE_STATUS_UNAVAILABLE,
-	
+	/* last element for counting purposes */
 	ENCLOSURE_STATUS_MAX
 };
 
+/* SFF-8485 activity light settings */
 enum enclosure_component_setting {
 	ENCLOSURE_SETTING_DISABLED = 0,
 	ENCLOSURE_SETTING_ENABLED = 1,
@@ -127,4 +130,4 @@ struct enclosure_device *enclosure_find(struct device *dev,
 int enclosure_for_each_device(int (*fn)(struct enclosure_device *, void *),
 			      void *data);
 
-#endif 
+#endif /* _LINUX_ENCLOSURE_H_ */

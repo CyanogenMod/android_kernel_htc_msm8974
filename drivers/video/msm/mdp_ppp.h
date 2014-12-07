@@ -79,4 +79,4 @@ static inline int mdp_ppp_cfg_edge_cond(struct mdp_blit_req *req,
 }
 #endif
 
-#endif 
+#endif /* _VIDEO_MSM_MDP_PPP_H_ */

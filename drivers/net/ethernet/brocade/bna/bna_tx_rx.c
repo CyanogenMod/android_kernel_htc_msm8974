@@ -18,6 +18,9 @@
 #include "bna.h"
 #include "bfi.h"
 
+/**
+ * IB
+ */
 static void
 bna_ib_coalescing_timeo_set(struct bna_ib *ib, u8 coalescing_timeo)
 {
@@ -26,6 +29,9 @@ bna_ib_coalescing_timeo_set(struct bna_ib *ib, u8 coalescing_timeo)
 				(u32)ib->coalescing_timeo, 0);
 }
 
+/**
+ * RXF
+ */
 
 #define bna_rxf_vlan_cfg_soft_reset(rxf)				\
 do {									\
@@ -91,7 +97,7 @@ bna_rxf_sm_stopped(struct bna_rxf *rxf, enum bna_rxf_event event)
 		break;
 
 	case RXF_E_FAIL:
-		
+		/* No-op */
 		break;
 
 	case RXF_E_CONFIG:
@@ -146,7 +152,7 @@ static void
 bna_rxf_sm_cfg_wait_entry(struct bna_rxf *rxf)
 {
 	if (!bna_rxf_cfg_apply(rxf)) {
-		
+		/* No more pending config updates */
 		bfa_fsm_set_state(rxf, bna_rxf_sm_started);
 	}
 }
@@ -168,7 +174,7 @@ bna_rxf_sm_cfg_wait(struct bna_rxf *rxf, enum bna_rxf_event event)
 		break;
 
 	case RXF_E_CONFIG:
-		
+		/* No-op */
 		break;
 
 	case RXF_E_PAUSE:
@@ -179,7 +185,7 @@ bna_rxf_sm_cfg_wait(struct bna_rxf *rxf, enum bna_rxf_event event)
 
 	case RXF_E_FW_RESP:
 		if (!bna_rxf_cfg_apply(rxf)) {
-			
+			/* No more pending config updates */
 			bfa_fsm_set_state(rxf, bna_rxf_sm_started);
 		}
 		break;
@@ -241,7 +247,7 @@ bna_rxf_sm_fltr_clr_wait(struct bna_rxf *rxf, enum bna_rxf_event event)
 
 	case RXF_E_FW_RESP:
 		if (!bna_rxf_fltr_clear(rxf)) {
-			
+			/* No more pending CAM entries to clear */
 			bfa_fsm_set_state(rxf, bna_rxf_sm_paused);
 		}
 		break;
@@ -439,6 +445,7 @@ bna_bfi_rss_enable(struct bna_rxf *rxf)
 	bfa_msgq_cmd_post(&rxf->rx->bna->msgq, &rxf->msgq_cmd);
 }
 
+/* This function gets the multicast MAC that has already been added to CAM */
 static struct bna_mac *
 bna_rxf_mcmac_get(struct bna_rxf *rxf, u8 *mac_addr)
 {
@@ -526,7 +533,7 @@ bna_rxf_mcast_cfg_apply(struct bna_rxf *rxf)
 	struct list_head *qe;
 	int ret;
 
-	
+	/* Delete multicast entries previousely added */
 	while (!list_empty(&rxf->mcast_pending_del_q)) {
 		bfa_q_deq(&rxf->mcast_pending_del_q, &qe);
 		bfa_q_qe_init(qe);
@@ -537,7 +544,7 @@ bna_rxf_mcast_cfg_apply(struct bna_rxf *rxf)
 			return ret;
 	}
 
-	
+	/* Add multicast entries */
 	if (!list_empty(&rxf->mcast_pending_add_q)) {
 		bfa_q_deq(&rxf->mcast_pending_add_q, &qe);
 		bfa_q_qe_init(qe);
@@ -577,7 +584,7 @@ bna_rxf_mcast_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 	struct bna_mac *mac;
 	int ret;
 
-	
+	/* Throw away delete pending mcast entries */
 	while (!list_empty(&rxf->mcast_pending_del_q)) {
 		bfa_q_deq(&rxf->mcast_pending_del_q, &qe);
 		bfa_q_qe_init(qe);
@@ -588,7 +595,7 @@ bna_rxf_mcast_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 			return ret;
 	}
 
-	
+	/* Move active mcast entries to pending_add_q */
 	while (!list_empty(&rxf->mcast_active_q)) {
 		bfa_q_deq(&rxf->mcast_active_q, &qe);
 		bfa_q_qe_init(qe);
@@ -654,6 +661,7 @@ bna_rxf_cfg_apply(struct bna_rxf *rxf)
 	return 0;
 }
 
+/* Only software reset */
 static int
 bna_rxf_fltr_clear(struct bna_rxf *rxf)
 {
@@ -758,7 +766,7 @@ bna_rxf_init(struct bna_rxf *rxf,
 	rxf->vlan_filter_status = BNA_STATUS_T_DISABLED;
 	memset(rxf->vlan_filter_table, 0,
 			(sizeof(u32) * (BFI_ENET_VLAN_ID_MAX / 32)));
-	rxf->vlan_filter_table[0] |= 1; 
+	rxf->vlan_filter_table[0] |= 1; /* for pure priority tagged frames */
 	rxf->vlan_pending_bitmask = (u8)BFI_VLAN_BMASK_ALL;
 
 	rxf->vlan_strip_status = q_config->vlan_strip_status;
@@ -873,7 +881,7 @@ bna_rx_mcast_add(struct bna_rx *rx, u8 *addr,
 	struct bna_rxf *rxf = &rx->rxf;
 	struct bna_mac *mac;
 
-	
+	/* Check if already added or pending addition */
 	if (bna_mac_find(&rxf->mcast_active_q, addr) ||
 		bna_mac_find(&rxf->mcast_pending_add_q, addr)) {
 		if (cbfn)
@@ -907,7 +915,7 @@ bna_rx_mcast_listset(struct bna_rx *rx, int count, u8 *mclist,
 	struct bna_mac *mac;
 	int i;
 
-	
+	/* Allocate nodes */
 	INIT_LIST_HEAD(&list_head);
 	for (i = 0, mcaddr = mclist; i < count; i++) {
 		mac = bna_mcam_mod_mac_get(&rxf->rx->bna->mcam_mod);
@@ -920,7 +928,7 @@ bna_rx_mcast_listset(struct bna_rx *rx, int count, u8 *mclist,
 		mcaddr += ETH_ALEN;
 	}
 
-	
+	/* Purge the pending_add_q */
 	while (!list_empty(&rxf->mcast_pending_add_q)) {
 		bfa_q_deq(&rxf->mcast_pending_add_q, &qe);
 		bfa_q_qe_init(qe);
@@ -928,7 +936,7 @@ bna_rx_mcast_listset(struct bna_rx *rx, int count, u8 *mclist,
 		bna_mcam_mod_mac_put(&rxf->rx->bna->mcam_mod, mac);
 	}
 
-	
+	/* Schedule active_q entries for deletion */
 	while (!list_empty(&rxf->mcast_active_q)) {
 		bfa_q_deq(&rxf->mcast_active_q, &qe);
 		mac = (struct bna_mac *)qe;
@@ -936,7 +944,7 @@ bna_rx_mcast_listset(struct bna_rx *rx, int count, u8 *mclist,
 		list_add_tail(&mac->qe, &rxf->mcast_pending_del_q);
 	}
 
-	
+	/* Add the new entries */
 	while (!list_empty(&list_head)) {
 		bfa_q_deq(&list_head, &qe);
 		mac = (struct bna_mac *)qe;
@@ -997,7 +1005,7 @@ bna_rxf_ucast_cfg_apply(struct bna_rxf *rxf)
 	struct bna_mac *mac = NULL;
 	struct list_head *qe;
 
-	
+	/* Delete MAC addresses previousely added */
 	if (!list_empty(&rxf->ucast_pending_del_q)) {
 		bfa_q_deq(&rxf->ucast_pending_del_q, &qe);
 		bfa_q_qe_init(qe);
@@ -1007,7 +1015,7 @@ bna_rxf_ucast_cfg_apply(struct bna_rxf *rxf)
 		return 1;
 	}
 
-	
+	/* Set default unicast MAC */
 	if (rxf->ucast_pending_set) {
 		rxf->ucast_pending_set = 0;
 		memcpy(rxf->ucast_active_mac.addr,
@@ -1018,7 +1026,7 @@ bna_rxf_ucast_cfg_apply(struct bna_rxf *rxf)
 		return 1;
 	}
 
-	
+	/* Add additional MAC entries */
 	if (!list_empty(&rxf->ucast_pending_add_q)) {
 		bfa_q_deq(&rxf->ucast_pending_add_q, &qe);
 		bfa_q_qe_init(qe);
@@ -1037,7 +1045,7 @@ bna_rxf_ucast_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 	struct list_head *qe;
 	struct bna_mac *mac;
 
-	
+	/* Throw away delete pending ucast entries */
 	while (!list_empty(&rxf->ucast_pending_del_q)) {
 		bfa_q_deq(&rxf->ucast_pending_del_q, &qe);
 		bfa_q_qe_init(qe);
@@ -1052,7 +1060,7 @@ bna_rxf_ucast_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 		}
 	}
 
-	
+	/* Move active ucast entries to pending_add_q */
 	while (!list_empty(&rxf->ucast_active_q)) {
 		bfa_q_deq(&rxf->ucast_active_q, &qe);
 		bfa_q_qe_init(qe);
@@ -1083,10 +1091,10 @@ bna_rxf_promisc_cfg_apply(struct bna_rxf *rxf)
 {
 	struct bna *bna = rxf->rx->bna;
 
-	
+	/* Enable/disable promiscuous mode */
 	if (is_promisc_enable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask)) {
-		
+		/* move promisc configuration from pending -> active */
 		promisc_inactive(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		rxf->rxmode_active |= BNA_RXMODE_PROMISC;
@@ -1094,7 +1102,7 @@ bna_rxf_promisc_cfg_apply(struct bna_rxf *rxf)
 		return 1;
 	} else if (is_promisc_disable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask)) {
-		
+		/* move promisc configuration from pending -> active */
 		promisc_inactive(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		rxf->rxmode_active &= ~BNA_RXMODE_PROMISC;
@@ -1111,7 +1119,7 @@ bna_rxf_promisc_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 {
 	struct bna *bna = rxf->rx->bna;
 
-	
+	/* Clear pending promisc mode disable */
 	if (is_promisc_disable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask)) {
 		promisc_inactive(rxf->rxmode_pending,
@@ -1124,7 +1132,7 @@ bna_rxf_promisc_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 		}
 	}
 
-	
+	/* Move promisc mode config from active -> pending */
 	if (rxf->rxmode_active & BNA_RXMODE_PROMISC) {
 		promisc_enable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
@@ -1141,10 +1149,10 @@ bna_rxf_promisc_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 static int
 bna_rxf_allmulti_cfg_apply(struct bna_rxf *rxf)
 {
-	
+	/* Enable/disable allmulti mode */
 	if (is_allmulti_enable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask)) {
-		
+		/* move allmulti configuration from pending -> active */
 		allmulti_inactive(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		rxf->rxmode_active |= BNA_RXMODE_ALLMULTI;
@@ -1152,7 +1160,7 @@ bna_rxf_allmulti_cfg_apply(struct bna_rxf *rxf)
 		return 1;
 	} else if (is_allmulti_disable(rxf->rxmode_pending,
 					rxf->rxmode_pending_bitmask)) {
-		
+		/* move allmulti configuration from pending -> active */
 		allmulti_inactive(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		rxf->rxmode_active &= ~BNA_RXMODE_ALLMULTI;
@@ -1166,7 +1174,7 @@ bna_rxf_allmulti_cfg_apply(struct bna_rxf *rxf)
 static int
 bna_rxf_allmulti_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 {
-	
+	/* Clear pending allmulti mode disable */
 	if (is_allmulti_disable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask)) {
 		allmulti_inactive(rxf->rxmode_pending,
@@ -1178,7 +1186,7 @@ bna_rxf_allmulti_cfg_reset(struct bna_rxf *rxf, enum bna_cleanup_type cleanup)
 		}
 	}
 
-	
+	/* Move allmulti mode config from active -> pending */
 	if (rxf->rxmode_active & BNA_RXMODE_ALLMULTI) {
 		allmulti_enable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
@@ -1201,14 +1209,14 @@ bna_rxf_promisc_enable(struct bna_rxf *rxf)
 	if (is_promisc_enable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask) ||
 		(rxf->rxmode_active & BNA_RXMODE_PROMISC)) {
-		
+		/* Do nothing if pending enable or already enabled */
 	} else if (is_promisc_disable(rxf->rxmode_pending,
 					rxf->rxmode_pending_bitmask)) {
-		
+		/* Turn off pending disable command */
 		promisc_inactive(rxf->rxmode_pending,
 			rxf->rxmode_pending_bitmask);
 	} else {
-		
+		/* Schedule enable */
 		promisc_enable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		bna->promisc_rid = rxf->rx->rid;
@@ -1227,15 +1235,15 @@ bna_rxf_promisc_disable(struct bna_rxf *rxf)
 	if (is_promisc_disable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask) ||
 		(!(rxf->rxmode_active & BNA_RXMODE_PROMISC))) {
-		
+		/* Do nothing if pending disable or already disabled */
 	} else if (is_promisc_enable(rxf->rxmode_pending,
 					rxf->rxmode_pending_bitmask)) {
-		
+		/* Turn off pending enable command */
 		promisc_inactive(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		bna->promisc_rid = BFI_INVALID_RID;
 	} else if (rxf->rxmode_active & BNA_RXMODE_PROMISC) {
-		
+		/* Schedule disable */
 		promisc_disable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		ret = 1;
@@ -1252,14 +1260,14 @@ bna_rxf_allmulti_enable(struct bna_rxf *rxf)
 	if (is_allmulti_enable(rxf->rxmode_pending,
 			rxf->rxmode_pending_bitmask) ||
 			(rxf->rxmode_active & BNA_RXMODE_ALLMULTI)) {
-		
+		/* Do nothing if pending enable or already enabled */
 	} else if (is_allmulti_disable(rxf->rxmode_pending,
 					rxf->rxmode_pending_bitmask)) {
-		
+		/* Turn off pending disable command */
 		allmulti_inactive(rxf->rxmode_pending,
 			rxf->rxmode_pending_bitmask);
 	} else {
-		
+		/* Schedule enable */
 		allmulti_enable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		ret = 1;
@@ -1276,14 +1284,14 @@ bna_rxf_allmulti_disable(struct bna_rxf *rxf)
 	if (is_allmulti_disable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask) ||
 		(!(rxf->rxmode_active & BNA_RXMODE_ALLMULTI))) {
-		
+		/* Do nothing if pending disable or already disabled */
 	} else if (is_allmulti_enable(rxf->rxmode_pending,
 					rxf->rxmode_pending_bitmask)) {
-		
+		/* Turn off pending enable command */
 		allmulti_inactive(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 	} else if (rxf->rxmode_active & BNA_RXMODE_ALLMULTI) {
-		
+		/* Schedule disable */
 		allmulti_disable(rxf->rxmode_pending,
 				rxf->rxmode_pending_bitmask);
 		ret = 1;
@@ -1304,6 +1312,9 @@ bna_rxf_vlan_strip_cfg_apply(struct bna_rxf *rxf)
 	return 0;
 }
 
+/**
+ * RX
+ */
 
 #define	BNA_GET_RXQS(qcfg)	(((qcfg)->rxp_type == BNA_RXP_SINGLE) ?	\
 	(qcfg)->num_paths : ((qcfg)->num_paths * 2))
@@ -1383,7 +1394,7 @@ static void bna_rx_sm_stopped(struct bna_rx *rx,
 		break;
 
 	case RX_E_FAIL:
-		
+		/* no-op */
 		break;
 
 	default:
@@ -1490,7 +1501,7 @@ bna_rx_sm_started_entry(struct bna_rx *rx)
 	struct list_head *qe_rxp;
 	int is_regular = (rx->type == BNA_RX_T_REGULAR);
 
-	
+	/* Start IB */
 	list_for_each(qe_rxp, &rx->rxp_q) {
 		rxp = (struct bna_rxp *)qe_rxp;
 		bna_ib_start(rx->bna, &rxp->cq.ib, is_regular);
@@ -1559,7 +1570,7 @@ bna_rx_sm_cleanup_wait(struct bna_rx *rx, enum bna_rx_event event)
 	switch (event) {
 	case RX_E_FAIL:
 	case RX_E_RXF_STOPPED:
-		
+		/* No-op */
 		break;
 
 	case RX_E_CLEANUP_DONE:
@@ -1592,7 +1603,7 @@ bna_rx_sm_failed(struct bna_rx *rx, enum bna_rx_event event)
 	case RX_E_FAIL:
 	case RX_E_RXF_STARTED:
 	case RX_E_RXF_STOPPED:
-		
+		/* No-op */
 		break;
 
 	case RX_E_CLEANUP_DONE:
@@ -1655,15 +1666,15 @@ bna_bfi_rx_enet_start(struct bna_rx *rx)
 		switch (rxp->type) {
 		case BNA_RXP_SLR:
 		case BNA_RXP_HDS:
-			
+			/* Small RxQ */
 			bfi_enet_datapath_q_init(&cfg_req->q_cfg[i].qs.q,
 						&q1->qpt);
 			cfg_req->q_cfg[i].qs.rx_buffer_size =
 				htons((u16)q1->buffer_size);
-			
+			/* Fall through */
 
 		case BNA_RXP_SINGLE:
-			
+			/* Large/Single RxQ */
 			bfi_enet_datapath_q_init(&cfg_req->q_cfg[i].ql.q,
 						&q0->qpt);
 			q0->buffer_size =
@@ -1746,7 +1757,7 @@ bna_rx_enet_stop(struct bna_rx *rx)
 	struct bna_rxp *rxp;
 	struct list_head		 *qe_rxp;
 
-	
+	/* Stop IB */
 	list_for_each(qe_rxp, &rx->rxp_q) {
 		rxp = (struct bna_rxp *)qe_rxp;
 		bna_ib_stop(rx->bna, &rxp->cq.ib);
@@ -1856,13 +1867,13 @@ bna_rx_put(struct bna_rx_mod *rx_mod, struct bna_rx *rx)
 	}
 
 	if (prev_qe == NULL) {
-		
+		/* This is the first entry */
 		bfa_q_enq_head(&rx_mod->rx_free_q, &rx->qe);
 	} else if (bfa_q_next(prev_qe) == &rx_mod->rx_free_q) {
-		
+		/* This is the last entry */
 		list_add_tail(&rx->qe, &rx_mod->rx_free_q);
 	} else {
-		
+		/* Somewhere in the middle */
 		bfa_q_next(&rx->qe) = bfa_q_next(prev_qe);
 		bfa_q_prev(&rx->qe) = prev_qe;
 		bfa_q_next(prev_qe) = &rx->qe;
@@ -1992,7 +2003,7 @@ bna_rx_stop(struct bna_rx *rx)
 static void
 bna_rx_fail(struct bna_rx *rx)
 {
-	
+	/* Indicate Enet is not enabled, and failed */
 	rx->rx_flags &= ~BNA_RX_F_ENET_STARTED;
 	bfa_fsm_send_event(rx, RX_E_FAIL);
 }
@@ -2071,7 +2082,7 @@ void bna_rx_mod_init(struct bna_rx_mod *rx_mod, struct bna *bna,
 	rx_mod->rxq = (struct bna_rxq *)
 		res_info[BNA_MOD_RES_MEM_T_RXQ_ARRAY].res_u.mem_info.mdl[0].kva;
 
-	
+	/* Initialize the queues */
 	INIT_LIST_HEAD(&rx_mod->rx_free_q);
 	rx_mod->rx_free_count = 0;
 	INIT_LIST_HEAD(&rx_mod->rxq_free_q);
@@ -2080,7 +2091,7 @@ void bna_rx_mod_init(struct bna_rx_mod *rx_mod, struct bna *bna,
 	rx_mod->rxp_free_count = 0;
 	INIT_LIST_HEAD(&rx_mod->rx_active_q);
 
-	
+	/* Build RX queues */
 	for (index = 0; index < bna->ioceth.attr.num_rxp; index++) {
 		rx_ptr = &rx_mod->rx[index];
 
@@ -2095,7 +2106,7 @@ void bna_rx_mod_init(struct bna_rx_mod *rx_mod, struct bna *bna,
 		rx_mod->rx_free_count++;
 	}
 
-	
+	/* build RX-path queue */
 	for (index = 0; index < bna->ioceth.attr.num_rxp; index++) {
 		rxp_ptr = &rx_mod->rxp[index];
 		bfa_q_qe_init(&rxp_ptr->qe);
@@ -2103,7 +2114,7 @@ void bna_rx_mod_init(struct bna_rx_mod *rx_mod, struct bna *bna,
 		rx_mod->rxp_free_count++;
 	}
 
-	
+	/* build RXQ queue */
 	for (index = 0; index < (bna->ioceth.attr.num_rxp * 2); index++) {
 		rxq_ptr = &rx_mod->rxq[index];
 		bfa_q_qe_init(&rxq_ptr->qe);
@@ -2153,7 +2164,7 @@ bna_bfi_rx_enet_start_rsp(struct bna_rx *rx, struct bfi_msgq_mhdr *msghdr)
 		rxp = (struct bna_rxp *)rxp_qe;
 		GET_RXQS(rxp, q0, q1);
 
-		
+		/* Setup doorbells */
 		rxp->cq.ccb->i_dbell->doorbell_addr =
 			rx->bna->pcidev.pci_bar_kva
 			+ ntohl(cfg_rsp->q_handles[i].i_dbell);
@@ -2169,7 +2180,7 @@ bna_bfi_rx_enet_start_rsp(struct bna_rx *rx, struct bfi_msgq_mhdr *msghdr)
 			q1->hw_id = cfg_rsp->q_handles[i].hw_sqid;
 		}
 
-		
+		/* Initialize producer/consumer indexes */
 		(*rxp->cq.ccb->hw_producer_index) = 0;
 		rxp->cq.ccb->producer_index = 0;
 		q0->rcb->producer_index = q0->rcb->consumer_index = 0;
@@ -2369,7 +2380,7 @@ bna_rx_create(struct bna *bna, struct bnad *bnad,
 	rx->ccb_setup_cbfn = rx_cbfn->ccb_setup_cbfn;
 	rx->ccb_destroy_cbfn = rx_cbfn->ccb_destroy_cbfn;
 	rx->rx_stall_cbfn = rx_cbfn->rx_stall_cbfn;
-	
+	/* Following callbacks are mandatory */
 	rx->rx_cleanup_cbfn = rx_cbfn->rx_cleanup_cbfn;
 	rx->rx_post_cbfn = rx_cbfn->rx_post_cbfn;
 
@@ -2406,7 +2417,7 @@ bna_rx_create(struct bna *bna, struct bnad *bnad,
 		else
 			rxp->vector = intr_info->idl[i].vector;
 
-		
+		/* Setup IB */
 
 		rxp->cq.ib.ib_seg_host_addr.lsb =
 		res_info[BNA_RX_RES_MEM_T_IBIDX].res_u.mem_info.mdl[i].dma.lsb;
@@ -2425,7 +2436,7 @@ bna_rx_create(struct bna *bna, struct bnad *bnad,
 
 		bna_rxp_add_rxqs(rxp, q0, q1);
 
-		
+		/* Setup large Q */
 
 		q0->rx = rx;
 		q0->rxp = rxp;
@@ -2449,7 +2460,7 @@ bna_rx_create(struct bna *bna, struct bnad *bnad,
 		if (rx->rcb_setup_cbfn)
 			rx->rcb_setup_cbfn(bnad, q0->rcb);
 
-		
+		/* Setup small Q */
 
 		if (q1) {
 			q1->rx = rx;
@@ -2479,7 +2490,7 @@ bna_rx_create(struct bna *bna, struct bnad *bnad,
 				rx->rcb_setup_cbfn(bnad, q1->rcb);
 		}
 
-		
+		/* Setup CQ */
 
 		rxp->cq.ccb = (struct bna_ccb *) ccb_mem[i].kva;
 		rxp->cq.ccb->q_depth =	rx_cfg->q_depth +
@@ -2595,7 +2606,7 @@ bna_rx_disable(struct bna_rx *rx, enum bna_cleanup_type type,
 		void (*cbfn)(void *, struct bna_rx *))
 {
 	if (type == BNA_SOFT_CLEANUP) {
-		
+		/* h/w should not be accessed. Treat we're stopped */
 		(*cbfn)(rx->bna->bnad, rx);
 	} else {
 		rx->stop_cbfn = cbfn;
@@ -2621,36 +2632,36 @@ bna_rx_mode_set(struct bna_rx *rx, enum bna_rxmode new_mode,
 	struct bna_rxf *rxf = &rx->rxf;
 	int need_hw_config = 0;
 
-	
+	/* Error checks */
 
 	if (is_promisc_enable(new_mode, bitmask)) {
-		
+		/* If promisc mode is already enabled elsewhere in the system */
 		if ((rx->bna->promisc_rid != BFI_INVALID_RID) &&
 			(rx->bna->promisc_rid != rxf->rx->rid))
 			goto err_return;
 
-		
+		/* If default mode is already enabled in the system */
 		if (rx->bna->default_mode_rid != BFI_INVALID_RID)
 			goto err_return;
 
-		
+		/* Trying to enable promiscuous and default mode together */
 		if (is_default_enable(new_mode, bitmask))
 			goto err_return;
 	}
 
 	if (is_default_enable(new_mode, bitmask)) {
-		
+		/* If default mode is already enabled elsewhere in the system */
 		if ((rx->bna->default_mode_rid != BFI_INVALID_RID) &&
 			(rx->bna->default_mode_rid != rxf->rx->rid)) {
 				goto err_return;
 		}
 
-		
+		/* If promiscuous mode is already enabled in the system */
 		if (rx->bna->promisc_rid != BFI_INVALID_RID)
 			goto err_return;
 	}
 
-	
+	/* Process the commands */
 
 	if (is_promisc_enable(new_mode, bitmask)) {
 		if (bna_rxf_promisc_enable(rxf))
@@ -2668,7 +2679,7 @@ bna_rx_mode_set(struct bna_rx *rx, enum bna_rxmode new_mode,
 			need_hw_config = 1;
 	}
 
-	
+	/* Trigger h/w if needed */
 
 	if (need_hw_config) {
 		rxf->cam_fltr_cbfn = cbfn;
@@ -2730,7 +2741,7 @@ bna_rx_dim_update(struct bna_ccb *ccb)
 		(ccb->pkt_rate.large_pkt_cnt == 0))
 		return;
 
-	
+	/* Arrive at preconfigured coalescing timeo value based on pkt rate */
 
 	small_rt = ccb->pkt_rate.small_pkt_cnt;
 	large_rt = ccb->pkt_rate.large_pkt_cnt;
@@ -2765,7 +2776,7 @@ bna_rx_dim_update(struct bna_ccb *ccb)
 	coalescing_timeo = bna->rx_mod.dim_vector[load][bias];
 	ccb->rx_coalescing_timeo = coalescing_timeo;
 
-	
+	/* Set it to IB */
 	bna_ib_coalescing_timeo_set(&ccb->cq->ib, coalescing_timeo);
 }
 
@@ -2780,6 +2791,9 @@ const u32 bna_napi_dim_vector[BNA_LOAD_T_MAX][BNA_BIAS_T_MAX] = {
 	{1, 2},
 };
 
+/**
+ * TX
+ */
 #define call_tx_stop_cbfn(tx)						\
 do {									\
 	if ((tx)->stop_cbfn) {						\
@@ -2851,7 +2865,7 @@ bna_tx_sm_stopped(struct bna_tx *tx, enum bna_tx_event event)
 		break;
 
 	case TX_E_FAIL:
-		
+		/* No-op */
 		break;
 
 	case TX_E_PRIO_CHANGE:
@@ -2859,7 +2873,7 @@ bna_tx_sm_stopped(struct bna_tx *tx, enum bna_tx_event event)
 		break;
 
 	case TX_E_BW_UPDATE:
-		
+		/* No-op */
 		break;
 
 	default:
@@ -2919,7 +2933,7 @@ bna_tx_sm_started_entry(struct bna_tx *tx)
 	list_for_each(qe, &tx->txq_q) {
 		txq = (struct bna_txq *)qe;
 		txq->tcb->priority = txq->priority;
-		
+		/* Start IB */
 		bna_ib_start(tx->bna, &txq->ib, is_regular);
 	}
 	tx->tx_resume_cbfn(tx->bna->bnad, tx);
@@ -2967,12 +2981,16 @@ bna_tx_sm_stop_wait(struct bna_tx *tx, enum bna_tx_event event)
 		break;
 
 	case TX_E_STARTED:
+		/**
+		 * We are here due to start_wait -> stop_wait transition on
+		 * TX_E_STOP event
+		 */
 		bna_tx_enet_stop(tx);
 		break;
 
 	case TX_E_PRIO_CHANGE:
 	case TX_E_BW_UPDATE:
-		
+		/* No-op */
 		break;
 
 	default:
@@ -2992,7 +3010,7 @@ bna_tx_sm_cleanup_wait(struct bna_tx *tx, enum bna_tx_event event)
 	case TX_E_FAIL:
 	case TX_E_PRIO_CHANGE:
 	case TX_E_BW_UPDATE:
-		
+		/* No-op */
 		break;
 
 	case TX_E_CLEANUP_DONE:
@@ -3031,7 +3049,7 @@ bna_tx_sm_prio_stop_wait(struct bna_tx *tx, enum bna_tx_event event)
 
 	case TX_E_PRIO_CHANGE:
 	case TX_E_BW_UPDATE:
-		
+		/* No-op */
 		break;
 
 	default:
@@ -3060,7 +3078,7 @@ bna_tx_sm_prio_cleanup_wait(struct bna_tx *tx, enum bna_tx_event event)
 
 	case TX_E_PRIO_CHANGE:
 	case TX_E_BW_UPDATE:
-		
+		/* No-op */
 		break;
 
 	case TX_E_CLEANUP_DONE:
@@ -3090,7 +3108,7 @@ bna_tx_sm_failed(struct bna_tx *tx, enum bna_tx_event event)
 		break;
 
 	case TX_E_FAIL:
-		
+		/* No-op */
 		break;
 
 	case TX_E_CLEANUP_DONE:
@@ -3124,7 +3142,7 @@ bna_tx_sm_quiesce_wait(struct bna_tx *tx, enum bna_tx_event event)
 		break;
 
 	case TX_E_BW_UPDATE:
-		
+		/* No-op */
 		break;
 
 	default:
@@ -3204,7 +3222,7 @@ bna_tx_enet_stop(struct bna_tx *tx)
 	struct bna_txq *txq;
 	struct list_head		 *qe;
 
-	
+	/* Stop IB */
 	list_for_each(qe, &tx->txq_q) {
 		txq = (struct bna_txq *)qe;
 		bna_ib_stop(tx->bna, &txq->ib);
@@ -3296,13 +3314,13 @@ bna_tx_free(struct bna_tx *tx)
 	}
 
 	if (prev_qe == NULL) {
-		
+		/* This is the first entry */
 		bfa_q_enq_head(&tx_mod->tx_free_q, &tx->qe);
 	} else if (bfa_q_next(prev_qe) == &tx_mod->tx_free_q) {
-		
+		/* This is the last entry */
 		list_add_tail(&tx->qe, &tx_mod->tx_free_q);
 	} else {
-		
+		/* Somewhere in the middle */
 		bfa_q_next(&tx->qe) = bfa_q_next(prev_qe);
 		bfa_q_prev(&tx->qe) = prev_qe;
 		bfa_q_next(prev_qe) = &tx->qe;
@@ -3352,7 +3370,7 @@ bna_bfi_tx_enet_start_rsp(struct bna_tx *tx, struct bfi_msgq_mhdr *msghdr)
 		i < tx->num_txq; i++, qe = bfa_q_next(qe)) {
 		txq = (struct bna_txq *)qe;
 
-		
+		/* Setup doorbells */
 		txq->tcb->i_dbell->doorbell_addr =
 			tx->bna->pcidev.pci_bar_kva
 			+ ntohl(cfg_rsp->q_handles[i].i_dbell);
@@ -3361,7 +3379,7 @@ bna_bfi_tx_enet_start_rsp(struct bna_tx *tx, struct bfi_msgq_mhdr *msghdr)
 			+ ntohl(cfg_rsp->q_handles[i].q_dbell);
 		txq->hw_id = cfg_rsp->q_handles[i].hw_qid;
 
-		
+		/* Initialize producer/consumer indexes */
 		(*txq->tcb->hw_consumer_index) = 0;
 		txq->tcb->producer_index = txq->tcb->consumer_index = 0;
 	}
@@ -3455,11 +3473,14 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 			tx_cfg->num_txq;
 	page_size = res_info[BNA_TX_RES_MEM_T_PAGE].res_u.mem_info.len;
 
+	/**
+	 * Get resources
+	 */
 
 	if ((intr_info->num != 1) && (intr_info->num != tx_cfg->num_txq))
 		return NULL;
 
-	
+	/* Tx */
 
 	tx = bna_tx_get(tx_mod, tx_cfg->tx_type);
 	if (!tx)
@@ -3467,7 +3488,7 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 	tx->bna = bna;
 	tx->priv = priv;
 
-	
+	/* TxQs */
 
 	INIT_LIST_HEAD(&tx->txq_q);
 	for (i = 0; i < tx_cfg->num_txq; i++) {
@@ -3480,12 +3501,15 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 		txq->tx = tx;
 	}
 
+	/*
+	 * Initialize
+	 */
 
-	
+	/* Tx */
 
 	tx->tcb_setup_cbfn = tx_cbfn->tcb_setup_cbfn;
 	tx->tcb_destroy_cbfn = tx_cbfn->tcb_destroy_cbfn;
-	
+	/* Following callbacks are mandatory */
 	tx->tx_stall_cbfn = tx_cbfn->tx_stall_cbfn;
 	tx->tx_resume_cbfn = tx_cbfn->tx_resume_cbfn;
 	tx->tx_cleanup_cbfn = tx_cbfn->tx_cleanup_cbfn;
@@ -3509,7 +3533,7 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 		}
 	}
 
-	
+	/* TxQ */
 
 	i = 0;
 	page_idx = 0;
@@ -3520,7 +3544,7 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 		txq->tx_packets = 0;
 		txq->tx_bytes = 0;
 
-		
+		/* IB */
 		txq->ib.ib_seg_host_addr.lsb =
 		res_info[BNA_TX_RES_MEM_T_IBIDX].res_u.mem_info.mdl[i].dma.lsb;
 		txq->ib.ib_seg_host_addr.msb =
@@ -3534,10 +3558,10 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 		if (intr_info->intr_type == BNA_INTR_T_INTX)
 			txq->ib.intr_vector = (1 <<  txq->ib.intr_vector);
 		txq->ib.coalescing_timeo = tx_cfg->coalescing_timeo;
-		txq->ib.interpkt_timeo = 0; 
+		txq->ib.interpkt_timeo = 0; /* Not used */
 		txq->ib.interpkt_count = BFI_TX_INTERPKT_COUNT;
 
-		
+		/* TCB */
 
 		txq->tcb->q_depth = tx_cfg->txq_depth;
 		txq->tcb->unmap_q = (void *)
@@ -3551,7 +3575,7 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 		txq->tcb->bnad = bnad;
 		txq->tcb->id = i;
 
-		
+		/* QPT, SWQPT, Pages */
 		bna_txq_qpt_setup(txq, page_count, page_size,
 			&res_info[BNA_TX_RES_MEM_T_QPT].res_u.mem_info.mdl[i],
 			&res_info[BNA_TX_RES_MEM_T_SWQPT].res_u.mem_info.mdl[i],
@@ -3561,7 +3585,7 @@ bna_tx_create(struct bna *bna, struct bnad *bnad,
 		txq->tcb->page_count = page_count;
 		page_idx += page_count;
 
-		
+		/* Callback to bnad for setting up TCB */
 		if (tx->tcb_setup_cbfn)
 			(tx->tcb_setup_cbfn)(bna->bnad, txq->tcb);
 

@@ -54,7 +54,7 @@ static DEVICE_ATTR(range, S_IRWXU | S_IRWXG | S_IRWXO, lg4ff_range_show, lg4ff_r
 static bool list_inited;
 
 struct lg4ff_device_entry {
-	char  *device_id;	
+	char  *device_id;	/* Use name in respective kobject structure's address as the ID */
 	__u16 range;
 	__u16 min_range;
 	__u16 max_range;
@@ -91,7 +91,7 @@ static const struct lg4ff_wheel lg4ff_devices[] = {
 };
 
 struct lg4ff_native_cmd {
-	const __u8 cmd_num;	
+	const __u8 cmd_num;	/* Number of commands to send */
 	const __u8 cmd[];
 };
 
@@ -108,8 +108,8 @@ static const struct lg4ff_native_cmd native_dfp = {
 
 static const struct lg4ff_native_cmd native_dfgt = {
 	2,
-	{0xf8, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,	
-	 0xf8, 0x09, 0x03, 0x01, 0x00, 0x00, 0x00}	
+	{0xf8, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,	/* 1st command */
+	 0xf8, 0x09, 0x03, 0x01, 0x00, 0x00, 0x00}	/* 2nd command */
 };
 
 static const struct lg4ff_native_cmd native_g25 = {
@@ -119,15 +119,15 @@ static const struct lg4ff_native_cmd native_g25 = {
 
 static const struct lg4ff_native_cmd native_g27 = {
 	2,
-	{0xf8, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,	
-	 0xf8, 0x09, 0x04, 0x01, 0x00, 0x00, 0x00}	
+	{0xf8, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00,	/* 1st command */
+	 0xf8, 0x09, 0x04, 0x01, 0x00, 0x00, 0x00}	/* 2nd command */
 };
 
 static const struct lg4ff_usb_revision lg4ff_revs[] = {
-	{DFGT_REV_MAJ, DFGT_REV_MIN, &native_dfgt},	
-	{DFP_REV_MAJ,  DFP_REV_MIN,  &native_dfp},	
-	{G25_REV_MAJ,  G25_REV_MIN,  &native_g25},	
-	{G27_REV_MAJ,  G27_REV_MIN,  &native_g27},	
+	{DFGT_REV_MAJ, DFGT_REV_MIN, &native_dfgt},	/* Driving Force GT */
+	{DFP_REV_MAJ,  DFP_REV_MIN,  &native_dfp},	/* Driving Force Pro */
+	{G25_REV_MAJ,  G25_REV_MIN,  &native_g25},	/* G25 */
+	{G27_REV_MAJ,  G27_REV_MIN,  &native_g27},	/* G27 */
 };
 
 static int hid_lg4ff_play(struct input_dev *dev, void *data, struct ff_effect *effect)
@@ -141,9 +141,9 @@ static int hid_lg4ff_play(struct input_dev *dev, void *data, struct ff_effect *e
 
 	switch (effect->type) {
 	case FF_CONSTANT:
-		x = effect->u.ramp.start_level + 0x80;	
+		x = effect->u.ramp.start_level + 0x80;	/* 0x80 is no force */
 		CLAMP(x);
-		report->field[0]->value[0] = 0x11;	
+		report->field[0]->value[0] = 0x11;	/* Slot 1 */
 		report->field[0]->value[1] = 0x08;
 		report->field[0]->value[2] = x;
 		report->field[0]->value[3] = 0x80;
@@ -157,6 +157,8 @@ static int hid_lg4ff_play(struct input_dev *dev, void *data, struct ff_effect *e
 	return 0;
 }
 
+/* Sends default autocentering command compatible with
+ * all wheels except Formula Force EX */
 static void hid_lg4ff_set_autocenter_default(struct input_dev *dev, u16 magnitude)
 {
 	struct hid_device *hid = input_get_drvdata(dev);
@@ -174,6 +176,7 @@ static void hid_lg4ff_set_autocenter_default(struct input_dev *dev, u16 magnitud
 	usbhid_submit_report(hid, report, USB_DIR_OUT);
 }
 
+/* Sends autocentering command compatible with Formula Force EX */
 static void hid_lg4ff_set_autocenter_ffex(struct input_dev *dev, u16 magnitude)
 {
 	struct hid_device *hid = input_get_drvdata(dev);
@@ -193,6 +196,7 @@ static void hid_lg4ff_set_autocenter_ffex(struct input_dev *dev, u16 magnitude)
 	usbhid_submit_report(hid, report, USB_DIR_OUT);
 }
 
+/* Sends command to set range compatible with G25/G27/Driving Force GT */
 static void hid_lg4ff_set_range_g25(struct hid_device *hid, u16 range)
 {
 	struct list_head *report_list = &hid->report_enum[HID_OUTPUT_REPORT].report_list;
@@ -210,6 +214,7 @@ static void hid_lg4ff_set_range_g25(struct hid_device *hid, u16 range)
 	usbhid_submit_report(hid, report, USB_DIR_OUT);
 }
 
+/* Sends commands to set range compatible with Driving Force Pro wheel */
 static void hid_lg4ff_set_range_dfp(struct hid_device *hid, __u16 range)
 {
 	struct list_head *report_list = &hid->report_enum[HID_OUTPUT_REPORT].report_list;
@@ -217,9 +222,9 @@ static void hid_lg4ff_set_range_dfp(struct hid_device *hid, __u16 range)
 	int start_left, start_right, full_range;
 	dbg_hid("Driving Force Pro: setting range to %u\n", range);
 
-	
+	/* Prepare "coarse" limit command */
 	report->field[0]->value[0] = 0xf8;
-	report->field[0]->value[1] = 0x00; 	
+	report->field[0]->value[1] = 0x00; 	/* Set later */
 	report->field[0]->value[2] = 0x00;
 	report->field[0]->value[3] = 0x00;
 	report->field[0]->value[4] = 0x00;
@@ -235,7 +240,7 @@ static void hid_lg4ff_set_range_dfp(struct hid_device *hid, __u16 range)
 	}
 	usbhid_submit_report(hid, report, USB_DIR_OUT);
 
-	
+	/* Prepare "fine" limit command */
 	report->field[0]->value[0] = 0x81;
 	report->field[0]->value[1] = 0x0b;
 	report->field[0]->value[2] = 0x00;
@@ -244,12 +249,12 @@ static void hid_lg4ff_set_range_dfp(struct hid_device *hid, __u16 range)
 	report->field[0]->value[5] = 0x00;
 	report->field[0]->value[6] = 0x00;
 
-	if (range == 200 || range == 900) {	
+	if (range == 200 || range == 900) {	/* Do not apply any fine limit */
 		usbhid_submit_report(hid, report, USB_DIR_OUT);
 		return;
 	}
 
-	
+	/* Construct fine limit command */
 	start_left = (((full_range - range + 1) * 2047) / full_range);
 	start_right = 0xfff - start_left;
 
@@ -277,6 +282,7 @@ static void hid_lg4ff_switch_native(struct hid_device *hid, const struct lg4ff_n
 	}
 }
 
+/* Read current range and display it in terminal */
 static ssize_t lg4ff_range_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct lg4ff_device_entry *uninitialized_var(entry);
@@ -298,6 +304,8 @@ static ssize_t lg4ff_range_show(struct device *dev, struct device_attribute *att
 	return count;
 }
 
+/* Set range to user specified value, call appropriate function
+ * according to the type of the wheel */
 static ssize_t lg4ff_range_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct lg4ff_device_entry *uninitialized_var(entry);
@@ -318,6 +326,8 @@ static ssize_t lg4ff_range_store(struct device *dev, struct device_attribute *at
 	if (range == 0)
 		range = entry->max_range;
 
+	/* Check if the wheel supports range setting
+	 * and that the range is within limits for the wheel */
 	if (entry->set_range != NULL && range >= entry->min_range && range <= entry->max_range) {
 		entry->set_range(hid, range);
 		entry->range = range;
@@ -338,13 +348,13 @@ int lg4ff_init(struct hid_device *hid)
 	int error, i, j;
 	__u16 bcdDevice, rev_maj, rev_min;
 
-	
+	/* Find the report to use */
 	if (list_empty(report_list)) {
 		hid_err(hid, "No output report found\n");
 		return -1;
 	}
 
-	
+	/* Check that the report looks ok */
 	report = list_entry(report_list->next, struct hid_report, list);
 	if (!report) {
 		hid_err(hid, "NULL output report\n");
@@ -357,7 +367,7 @@ int lg4ff_init(struct hid_device *hid)
 		return -1;
 	}
 
-	
+	/* Check what wheel has been connected */
 	for (i = 0; i < ARRAY_SIZE(lg4ff_devices); i++) {
 		if (hid->product == lg4ff_devices[i].product_id) {
 			dbg_hid("Found compatible device, product ID %04X\n", lg4ff_devices[i].product_id);
@@ -371,7 +381,7 @@ int lg4ff_init(struct hid_device *hid)
 		return -1;
 	}
 
-	
+	/* Attempt to switch wheel to native mode when applicable */
 	udesc = &(hid_to_usb_dev(hid)->descriptor);
 	if (!udesc) {
 		hid_err(hid, "NULL USB device descriptor\n");
@@ -393,7 +403,7 @@ int lg4ff_init(struct hid_device *hid)
 		}
 	}
 
-	
+	/* Set supported force feedback capabilities */
 	for (j = 0; lg4ff_devices[i].ff_effects[j] >= 0; j++)
 		set_bit(lg4ff_devices[i].ff_effects[j], dev->ffbit);
 
@@ -402,8 +412,10 @@ int lg4ff_init(struct hid_device *hid)
 	if (error)
 		return error;
 
+	/* Check if autocentering is available and
+	 * set the centering force to zero by default */
 	if (test_bit(FF_AUTOCENTER, dev->ffbit)) {
-		if(rev_maj == FFEX_REV_MAJ && rev_min == FFEX_REV_MIN)	
+		if(rev_maj == FFEX_REV_MAJ && rev_min == FFEX_REV_MIN)	/* Formula Force EX expects different autocentering command */
 			dev->ff->set_autocenter = hid_lg4ff_set_autocenter_ffex;
 		else
 			dev->ff->set_autocenter = hid_lg4ff_set_autocenter_default;
@@ -411,13 +423,13 @@ int lg4ff_init(struct hid_device *hid)
 		dev->ff->set_autocenter(dev, 0);
 	}
 
-		
+		/* Initialize device_list if this is the first device to handle by lg4ff */
 	if (!list_inited) {
 		INIT_LIST_HEAD(&device_list.list);
 		list_inited = 1;
 	}
 
-	
+	/* Add the device to device_list */
 	entry = kzalloc(sizeof(struct lg4ff_device_entry), GFP_KERNEL);
 	if (!entry) {
 		hid_err(hid, "Cannot add device, insufficient memory.\n");
@@ -434,13 +446,13 @@ int lg4ff_init(struct hid_device *hid)
 	entry->set_range = lg4ff_devices[i].set_range;
 	list_add(&entry->list, &device_list.list);
 
-	
+	/* Create sysfs interface */
 	error = device_create_file(&hid->dev, &dev_attr_range);
 	if (error)
 		return error;
 	dbg_hid("sysfs interface created\n");
 
-	
+	/* Set the maximum range to start with */
 	entry->range = entry->max_range;
 	if (entry->set_range != NULL)
 		entry->set_range(hid, entry->range);

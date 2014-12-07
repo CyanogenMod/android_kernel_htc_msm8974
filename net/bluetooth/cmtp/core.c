@@ -412,10 +412,10 @@ int cmtp_del_connection(struct cmtp_conndel_req *req)
 
 	session = __cmtp_get_session(&req->bdaddr);
 	if (session) {
-		
+		/* Flush the transmit queue */
 		skb_queue_purge(&session->transmit);
 
-		
+		/* Stop session thread */
 		kthread_stop(session->task);
 	} else
 		err = -ENOENT;

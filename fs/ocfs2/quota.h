@@ -1,3 +1,10 @@
+/*
+ * quota.h for OCFS2
+ *
+ * On disk quota structures for local and global quota file, in-memory
+ * structures.
+ *
+ */
 
 #ifndef _OCFS2_QUOTA_H
 #define _OCFS2_QUOTA_H
@@ -10,42 +17,50 @@
 
 #include "ocfs2.h"
 
+/*
+ * In-memory structures
+ */
 struct ocfs2_dquot {
-	struct dquot dq_dquot;	
-	loff_t dq_local_off;	
-	u64 dq_local_phys_blk;	
-	struct ocfs2_quota_chunk *dq_chunk;	
-	unsigned int dq_use_count;	
-	s64 dq_origspace;	
-	s64 dq_originodes;	
+	struct dquot dq_dquot;	/* Generic VFS dquot */
+	loff_t dq_local_off;	/* Offset in the local quota file */
+	u64 dq_local_phys_blk;	/* Physical block carrying quota structure */
+	struct ocfs2_quota_chunk *dq_chunk;	/* Chunk dquot is in */
+	unsigned int dq_use_count;	/* Number of nodes having reference to this entry in global quota file */
+	s64 dq_origspace;	/* Last globally synced space usage */
+	s64 dq_originodes;	/* Last globally synced inode usage */
 };
 
+/* Description of one chunk to recover in memory */
 struct ocfs2_recovery_chunk {
-	struct list_head rc_list;	
-	int rc_chunk;			
-	unsigned long *rc_bitmap;	
+	struct list_head rc_list;	/* List of chunks */
+	int rc_chunk;			/* Chunk number */
+	unsigned long *rc_bitmap;	/* Bitmap of entries to recover */
 };
 
 struct ocfs2_quota_recovery {
-	struct list_head r_list[MAXQUOTAS];	
+	struct list_head r_list[MAXQUOTAS];	/* List of chunks to recover */
 };
 
+/* In-memory structure with quota header information */
 struct ocfs2_mem_dqinfo {
-	unsigned int dqi_type;		
-	unsigned int dqi_chunks;	
-	unsigned int dqi_blocks;	
-	unsigned int dqi_syncms;	
-	struct list_head dqi_chunk;	
-	struct inode *dqi_gqinode;	
-	struct ocfs2_lock_res dqi_gqlock;	
-	struct buffer_head *dqi_gqi_bh;	
-	int dqi_gqi_count;		
-	u64 dqi_giblk;			
-	struct buffer_head *dqi_lqi_bh;	
-	struct buffer_head *dqi_libh;	
-	struct qtree_mem_dqinfo dqi_gi;	
-	struct delayed_work dqi_sync_work;	
-	struct ocfs2_quota_recovery *dqi_rec;	
+	unsigned int dqi_type;		/* Quota type this structure describes */
+	unsigned int dqi_chunks;	/* Number of chunks in local quota file */
+	unsigned int dqi_blocks;	/* Number of blocks allocated for local quota file */
+	unsigned int dqi_syncms;	/* How often should we sync with other nodes */
+	struct list_head dqi_chunk;	/* List of chunks */
+	struct inode *dqi_gqinode;	/* Global quota file inode */
+	struct ocfs2_lock_res dqi_gqlock;	/* Lock protecting quota information structure */
+	struct buffer_head *dqi_gqi_bh;	/* Buffer head with global quota file inode - set only if inode lock is obtained */
+	int dqi_gqi_count;		/* Number of holders of dqi_gqi_bh */
+	u64 dqi_giblk;			/* Number of block with global information header */
+	struct buffer_head *dqi_lqi_bh;	/* Buffer head with local quota file inode */
+	struct buffer_head *dqi_libh;	/* Buffer with local information header */
+	struct qtree_mem_dqinfo dqi_gi;	/* Info about global file */
+	struct delayed_work dqi_sync_work;	/* Work for syncing dquots */
+	struct ocfs2_quota_recovery *dqi_rec;	/* Pointer to recovery
+						 * information, in case we
+						 * enable quotas on file
+						 * needing it */
 };
 
 static inline struct ocfs2_dquot *OCFS2_DQUOT(struct dquot *dquot)
@@ -54,9 +69,9 @@ static inline struct ocfs2_dquot *OCFS2_DQUOT(struct dquot *dquot)
 }
 
 struct ocfs2_quota_chunk {
-	struct list_head qc_chunk;	
-	int qc_num;			
-	struct buffer_head *qc_headerbh;	
+	struct list_head qc_chunk;	/* List of quotafile chunks */
+	int qc_num;			/* Number of quota chunk */
+	struct buffer_head *qc_headerbh;	/* Buffer head with chunk header */
 };
 
 extern struct kmem_cache *ocfs2_dquot_cachep;
@@ -99,4 +114,4 @@ int ocfs2_local_write_dquot(struct dquot *dquot);
 extern const struct dquot_operations ocfs2_quota_operations;
 extern struct quota_format_type ocfs2_quota_format;
 
-#endif 
+#endif /* _OCFS2_QUOTA_H */

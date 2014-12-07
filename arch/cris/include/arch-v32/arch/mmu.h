@@ -1,11 +1,13 @@
 #ifndef _ASM_CRIS_ARCH_MMU_H
 #define _ASM_CRIS_ARCH_MMU_H
 
+/* MMU context type. */
 typedef struct
 {
   unsigned int page_id;
 } mm_context_t;
 
+/* Kernel memory segments. */
 #define KSEG_F 0xf0000000UL
 #define KSEG_E 0xe0000000UL
 #define KSEG_D 0xd0000000UL
@@ -23,24 +25,41 @@ typedef struct
 #define KSEG_1 0x10000000UL
 #define KSEG_0 0x00000000UL
 
+/*
+ * CRISv32 PTE bits:
+ *
+ *  Bit:   31     30-13  12-5     4        3       2        1        0
+ *       +-------+-----+------+--------+-------+--------+-------+---------+
+ *       | cache | pfn | zero | global | valid | kernel | write | execute |
+ *       +-------+-----+------+--------+-------+--------+-------+---------+
+ */
 
-#define _PAGE_EXECUTE       (1 << 0)	
-#define _PAGE_WE            (1 << 1)	
-#define _PAGE_SILENT_WRITE  (1 << 1)	
-#define _PAGE_KERNEL        (1 << 2)	
-#define _PAGE_VALID         (1 << 3)	
-#define _PAGE_SILENT_READ   (1 << 3)	
-#define _PAGE_GLOBAL        (1 << 4)	
-#define _PAGE_NO_CACHE	    (1 << 31)	
+/*
+ * Defines for accessing the bits. Also define some synonyms for use with
+ * the software-based defined bits below.
+ */
+#define _PAGE_EXECUTE       (1 << 0)	/* Execution bit. */
+#define _PAGE_WE            (1 << 1)	/* Write bit. */
+#define _PAGE_SILENT_WRITE  (1 << 1)	/* Same as above. */
+#define _PAGE_KERNEL        (1 << 2)	/* Kernel mode page. */
+#define _PAGE_VALID         (1 << 3)	/* Page is valid. */
+#define _PAGE_SILENT_READ   (1 << 3)	/* Same as above. */
+#define _PAGE_GLOBAL        (1 << 4)	/* Global page. */
+#define _PAGE_NO_CACHE	    (1 << 31)	/* part of the uncached memory map */
 
 
-#define _PAGE_PRESENT   (1 << 5)   
-#define _PAGE_FILE      (1 << 6)   
-#define _PAGE_ACCESSED  (1 << 6)   
-#define _PAGE_MODIFIED  (1 << 7)   
-#define _PAGE_READ      (1 << 8)   
-#define _PAGE_WRITE     (1 << 9)   
+/*
+ * The hardware doesn't care about these bits, but the kernel uses them in
+ * software.
+ */
+#define _PAGE_PRESENT   (1 << 5)   /* Page is present in memory. */
+#define _PAGE_FILE      (1 << 6)   /* 1=pagecache, 0=swap (when !present) */
+#define _PAGE_ACCESSED  (1 << 6)   /* Simulated in software using valid bit. */
+#define _PAGE_MODIFIED  (1 << 7)   /* Simulated in software using we bit. */
+#define _PAGE_READ      (1 << 8)   /* Read enabled. */
+#define _PAGE_WRITE     (1 << 9)   /* Write enabled. */
 
+/* Define some higher level generic page attributes. */
 #define __READABLE      (_PAGE_READ | _PAGE_SILENT_READ | _PAGE_ACCESSED)
 #define __WRITEABLE     (_PAGE_WRITE | _PAGE_SILENT_WRITE | _PAGE_MODIFIED)
 
@@ -67,6 +86,10 @@ typedef struct
 
 #define _KERNPG_TABLE   (_PAGE_TABLE | _PAGE_KERNEL)
 
+/* CRISv32 can do page protection for execute.
+ * Write permissions imply read permissions.
+ * Note that the numbers are in Execute-Write-Read order!
+ */
 #define __P000  PAGE_NONE
 #define __P001  PAGE_READONLY
 #define __P010  PAGE_COPY
@@ -87,4 +110,4 @@ typedef struct
 
 #define PTE_FILE_MAX_BITS	25
 
-#endif 
+#endif /* _ASM_CRIS_ARCH_MMU_H */

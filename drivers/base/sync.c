@@ -94,6 +94,9 @@ void sync_timeline_destroy(struct sync_timeline *obj)
 	obj->destroyed = true;
 	smp_wmb();
 
+	/*
+	 * signal any children that their parent is going away.
+	 */
 	sync_timeline_signal(obj);
 
 	kref_put(&obj->kref, sync_timeline_free);
@@ -194,6 +197,7 @@ void sync_pt_free(struct sync_pt *pt)
 }
 EXPORT_SYMBOL(sync_pt_free);
 
+/* call with pt->parent->active_list_lock held */
 static int _sync_pt_has_signaled(struct sync_pt *pt)
 {
 	int old_status = pt->status;
@@ -215,6 +219,7 @@ static struct sync_pt *sync_pt_dup(struct sync_pt *pt)
 	return pt->parent->ops->dup(pt);
 }
 
+/* Adds a sync pt to the active queue.  Called when added to a fence */
 static void sync_pt_activate(struct sync_pt *pt)
 {
 	struct sync_timeline *obj = pt->parent;
@@ -279,6 +284,7 @@ err:
 	return NULL;
 }
 
+/* TODO: implement a create which takes more that one sync_pt */
 struct sync_fence *sync_fence_create(const char *name, struct sync_pt *pt)
 {
 	struct sync_fence *fence;
@@ -294,6 +300,10 @@ struct sync_fence *sync_fence_create(const char *name, struct sync_pt *pt)
 	list_add(&pt->pt_list, &fence->pt_list_head);
 	sync_pt_activate(pt);
 
+	/*
+	 * signal the fence in case pt was activated before
+	 * sync_pt_activate(pt) was called
+	 */
 	sync_fence_signal_pt(pt);
 
 	return fence;
@@ -331,6 +341,10 @@ static int sync_fence_merge_pts(struct sync_fence *dst, struct sync_fence *src)
 		list_for_each_safe(dst_pos, n, &dst->pt_list_head) {
 			struct sync_pt *dst_pt =
 				container_of(dst_pos, struct sync_pt, pt_list);
+			/* collapse two sync_pts on the same timeline
+			 * to a single sync_pt that will signal at
+			 * the later of the two
+			 */
 			if (dst_pt->parent == src_pt->parent) {
 				if (dst_pt->parent->ops->compare(dst_pt, src_pt) == -1) {
 					struct sync_pt *new_pt =
@@ -457,6 +471,10 @@ struct sync_fence *sync_fence_merge(const char *name,
 		sync_pt_activate(pt);
 	}
 
+	/*
+	 * signal the fence in case one of it's pts were activated before
+	 * they were activated
+	 */
 	sync_fence_signal_pt(list_first_entry(&fence->pt_list_head,
 					      struct sync_pt,
 					      pt_list));
@@ -481,6 +499,10 @@ static void sync_fence_signal_pt(struct sync_pt *pt)
 	status = sync_fence_get_status(fence);
 
 	spin_lock_irqsave(&fence->waiter_list_lock, flags);
+	/*
+	 * this should protect against two threads racing on the signaled
+	 * false -> true transition
+	 */
 	if (status && !fence->status) {
 		list_for_each_safe(pos, n, &fence->waiter_list_head)
 			list_move(pos, &signaled_waiters);
@@ -534,6 +556,11 @@ int sync_fence_cancel_async(struct sync_fence *fence,
 	int ret = -ENOENT;
 
 	spin_lock_irqsave(&fence->waiter_list_lock, flags);
+	/*
+	 * Make sure waiter is still in waiter_list because it is possible for
+	 * the waiter to be removed from the list while the callback is still
+	 * pending.
+	 */
 	list_for_each_safe(pos, n, &fence->waiter_list_head) {
 		struct sync_fence_waiter *list_waiter =
 			container_of(pos, struct sync_fence_waiter,
@@ -551,6 +578,10 @@ EXPORT_SYMBOL(sync_fence_cancel_async);
 
 static bool sync_fence_check(struct sync_fence *fence)
 {
+	/*
+	 * Make sure that reads to fence->status are ordered with the
+	 * wait queue event triggering
+	 */
 	smp_rmb();
 	return fence->status != 0;
 }
@@ -611,10 +642,20 @@ static int sync_fence_release(struct inode *inode, struct file *file)
 	struct sync_fence *fence = file->private_data;
 	unsigned long flags;
 
+	/*
+	 * We need to remove all ways to access this fence before droping
+	 * our ref.
+	 *
+	 * start with its membership in the global fence list
+	 */
 	spin_lock_irqsave(&sync_fence_list_lock, flags);
 	list_del(&fence->sync_fence_list);
 	spin_unlock_irqrestore(&sync_fence_list_lock, flags);
 
+	/*
+	 * remove its pts from their parents so that sync_timeline_signal()
+	 * can't reference the fence.
+	 */
 	sync_fence_detach_pts(fence);
 
 	kref_put(&fence->kref, sync_fence_free);
@@ -628,6 +669,10 @@ static unsigned int sync_fence_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &fence->wq, wait);
 
+	/*
+	 * Make sure that reads to fence->status are ordered with the
+	 * wait queue event triggering
+	 */
 	smp_rmb();
 
 	if (fence->status == 1)

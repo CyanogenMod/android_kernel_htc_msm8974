@@ -37,10 +37,10 @@ static void wl1271_boot_set_ecpu_ctrl(struct wl1271 *wl, u32 flag)
 {
 	u32 cpu_ctrl;
 
-	
+	/* 10.5.0 run the firmware (I) */
 	cpu_ctrl = wl1271_read32(wl, ACX_REG_ECPU_CONTROL);
 
-	
+	/* 10.5.1 run the firmware (II) */
 	cpu_ctrl |= flag;
 	wl1271_write32(wl, ACX_REG_ECPU_CONTROL, cpu_ctrl);
 }
@@ -50,12 +50,12 @@ static unsigned int wl12xx_get_fw_ver_quirks(struct wl1271 *wl)
 	unsigned int quirks = 0;
 	unsigned int *fw_ver = wl->chip.fw_ver;
 
-	
+	/* Only new station firmwares support routing fw logs to the host */
 	if ((fw_ver[FW_VER_IF_TYPE] == FW_VER_IF_TYPE_STA) &&
 	    (fw_ver[FW_VER_MINOR] < FW_VER_MINOR_FWLOG_STA_MIN))
 		quirks |= WL12XX_QUIRK_FWLOG_NOT_IMPLEMENTED;
 
-	
+	/* This feature is not yet supported for AP mode */
 	if (fw_ver[FW_VER_IF_TYPE] == FW_VER_IF_TYPE_AP)
 		quirks |= WL12XX_QUIRK_FWLOG_NOT_IMPLEMENTED;
 
@@ -77,7 +77,7 @@ static void wl1271_parse_fw_ver(struct wl1271 *wl)
 		return;
 	}
 
-	
+	/* Check if any quirks are needed with older fw versions */
 	wl->quirks |= wl12xx_get_fw_ver_quirks(wl);
 }
 
@@ -91,7 +91,7 @@ static void wl1271_boot_fw_version(struct wl1271 *wl)
 	strncpy(wl->chip.fw_ver_str, static_data.fw_version,
 		sizeof(wl->chip.fw_ver_str));
 
-	
+	/* make sure the string is NULL-terminated */
 	wl->chip.fw_ver_str[sizeof(wl->chip.fw_ver_str) - 1] = '\0';
 
 	wl1271_parse_fw_ver(wl);
@@ -104,7 +104,7 @@ static int wl1271_boot_upload_firmware_chunk(struct wl1271 *wl, void *buf,
 	int addr, chunk_num, partition_limit;
 	u8 *p, *chunk;
 
-	
+	/* whal_FwCtrl_LoadFwImageSm() */
 
 	wl1271_debug(DEBUG_BOOT, "starting firmware upload");
 
@@ -126,12 +126,12 @@ static int wl1271_boot_upload_firmware_chunk(struct wl1271 *wl, void *buf,
 	partition.mem.start = dest;
 	wl1271_set_partition(wl, &partition);
 
-	
+	/* 10.1 set partition limit and chunk num */
 	chunk_num = 0;
 	partition_limit = wl12xx_part_table[PART_DOWN].mem.size;
 
 	while (chunk_num < fw_data_len / CHUNK_SIZE) {
-		
+		/* 10.2 update partition, if needed */
 		addr = dest + (chunk_num + 2) * CHUNK_SIZE;
 		if (addr > partition_limit) {
 			addr = dest + chunk_num * CHUNK_SIZE;
@@ -141,7 +141,7 @@ static int wl1271_boot_upload_firmware_chunk(struct wl1271 *wl, void *buf,
 			wl1271_set_partition(wl, &partition);
 		}
 
-		
+		/* 10.3 upload the chunk */
 		addr = dest + chunk_num * CHUNK_SIZE;
 		p = buf + chunk_num * CHUNK_SIZE;
 		memcpy(chunk, p, CHUNK_SIZE);
@@ -152,7 +152,7 @@ static int wl1271_boot_upload_firmware_chunk(struct wl1271 *wl, void *buf,
 		chunk_num++;
 	}
 
-	
+	/* 10.4 upload the last chunk */
 	addr = dest + chunk_num * CHUNK_SIZE;
 	p = buf + chunk_num * CHUNK_SIZE;
 	memcpy(chunk, p, fw_data_len % CHUNK_SIZE);
@@ -223,13 +223,18 @@ static int wl1271_boot_upload_nvs(struct wl1271 *wl)
 			return -EILSEQ;
 		}
 
-		
+		/* only the first part of the NVS needs to be uploaded */
 		nvs_len = sizeof(nvs->nvs);
 		nvs_ptr = (u8 *)nvs->nvs;
 
 	} else {
 		struct wl1271_nvs_file *nvs =
 			(struct wl1271_nvs_file *)wl->nvs;
+		/*
+		 * FIXME: the LEGACY NVS image support (NVS's missing the 5GHz
+		 * band configurations) can be removed when those NVS files stop
+		 * floating around.
+		 */
 		if (wl->nvs_len == sizeof(struct wl1271_nvs_file) ||
 		    wl->nvs_len == WL1271_INI_LEGACY_NVS_FILE_SIZE) {
 			if (nvs->general_params.dual_mode_select)
@@ -247,12 +252,12 @@ static int wl1271_boot_upload_nvs(struct wl1271 *wl)
 			return -EILSEQ;
 		}
 
-		
+		/* only the first part of the NVS needs to be uploaded */
 		nvs_len = sizeof(nvs->nvs);
 		nvs_ptr = (u8 *) nvs->nvs;
 	}
 
-	
+	/* update current MAC address to NVS */
 	nvs_ptr[11] = wl->addresses[0].addr[0];
 	nvs_ptr[10] = wl->addresses[0].addr[1];
 	nvs_ptr[6] = wl->addresses[0].addr[2];
@@ -260,15 +265,27 @@ static int wl1271_boot_upload_nvs(struct wl1271 *wl)
 	nvs_ptr[4] = wl->addresses[0].addr[4];
 	nvs_ptr[3] = wl->addresses[0].addr[5];
 
+	/*
+	 * Layout before the actual NVS tables:
+	 * 1 byte : burst length.
+	 * 2 bytes: destination address.
+	 * n bytes: data to burst copy.
+	 *
+	 * This is ended by a 0 length, then the NVS tables.
+	 */
 
-	
+	/* FIXME: Do we need to check here whether the LSB is 1? */
 	while (nvs_ptr[0]) {
 		burst_len = nvs_ptr[0];
 		dest_addr = (nvs_ptr[1] & 0xfe) | ((u32)(nvs_ptr[2] << 8));
 
+		/*
+		 * Due to our new wl1271_translate_reg_addr function,
+		 * we need to add the REGISTER_BASE to the destination
+		 */
 		dest_addr += REGISTERS_BASE;
 
-		
+		/* We move our pointer to the data */
 		nvs_ptr += 3;
 
 		for (i = 0; i < burst_len; i++) {
@@ -291,6 +308,13 @@ static int wl1271_boot_upload_nvs(struct wl1271 *wl)
 			goto out_badnvs;
 	}
 
+	/*
+	 * We've reached the first zero length, the first NVS table
+	 * is located at an aligned offset which is at least 7 bytes further.
+	 * NOTE: The wl->nvs->nvs element must be first, in order to
+	 * simplify the casting, we assume it is at the beginning of
+	 * the wl->nvs structure.
+	 */
 	nvs_ptr = (u8 *)wl->nvs +
 			ALIGN(nvs_ptr - (u8 *)wl->nvs + 7, 4);
 
@@ -299,15 +323,15 @@ static int wl1271_boot_upload_nvs(struct wl1271 *wl)
 
 	nvs_len -= nvs_ptr - (u8 *)wl->nvs;
 
-	
+	/* Now we must set the partition correctly */
 	wl1271_set_partition(wl, &wl12xx_part_table[PART_WORK]);
 
-	
+	/* Copy the NVS tables to a new block to ensure alignment */
 	nvs_aligned = kmemdup(nvs_ptr, nvs_len, GFP_KERNEL);
 	if (!nvs_aligned)
 		return -ENOMEM;
 
-	
+	/* And finally we upload the NVS tables */
 	wl1271_write(wl, CMD_MBOX_ADDRESS, nvs_aligned, nvs_len, false);
 
 	kfree(nvs_aligned);
@@ -331,10 +355,10 @@ static int wl1271_boot_soft_reset(struct wl1271 *wl)
 	unsigned long timeout;
 	u32 boot_data;
 
-	
+	/* perform soft reset */
 	wl1271_write32(wl, ACX_REG_SLV_SOFT_RESET, ACX_SLV_SOFT_RESET_BIT);
 
-	
+	/* SOFT_RESET is self clearing */
 	timeout = jiffies + usecs_to_jiffies(SOFT_RESET_MAX_TIME);
 	while (1) {
 		boot_data = wl1271_read32(wl, ACX_REG_SLV_SOFT_RESET);
@@ -343,6 +367,8 @@ static int wl1271_boot_soft_reset(struct wl1271 *wl)
 			break;
 
 		if (time_after(jiffies, timeout)) {
+			/* 1.2 check pWhalBus->uSelfClearTime if the
+			 * timeout was reached */
 			wl1271_error("soft reset timeout");
 			return -1;
 		}
@@ -350,10 +376,10 @@ static int wl1271_boot_soft_reset(struct wl1271 *wl)
 		udelay(SOFT_RESET_STALL_TIME);
 	}
 
-	
+	/* disable Rx/Tx */
 	wl1271_write32(wl, ENABLE, 0x0);
 
-	
+	/* disable auto calibration on start*/
 	wl1271_write32(wl, SPARE_A2, 0xffff);
 
 	return 0;
@@ -375,7 +401,7 @@ static int wl1271_boot_run_firmware(struct wl1271 *wl)
 		return -EIO;
 	}
 
-	
+	/* wait for init to complete */
 	loop = 0;
 	while (loop++ < INIT_LOOP) {
 		udelay(INIT_LOOP_DELAY);
@@ -386,7 +412,7 @@ static int wl1271_boot_run_firmware(struct wl1271 *wl)
 				     "init indication");
 			return -EIO;
 		}
-		
+		/* check that ACX_INTR_INIT_COMPLETE is enabled */
 		else if (intr & WL1271_ACX_INTR_INIT_COMPLETE) {
 			wl1271_write32(wl, ACX_REG_INTERRUPT_ACK,
 				       WL1271_ACX_INTR_INIT_COMPLETE);
@@ -400,13 +426,13 @@ static int wl1271_boot_run_firmware(struct wl1271 *wl)
 		return -EIO;
 	}
 
-	
+	/* get hardware config command mail box */
 	wl->cmd_box_addr = wl1271_read32(wl, REG_COMMAND_MAILBOX_PTR);
 
-	
+	/* get hardware config event mail box */
 	wl->event_box_addr = wl1271_read32(wl, REG_EVENT_MAILBOX_PTR);
 
-	
+	/* set the working partition to its "running" mode offset */
 	wl1271_set_partition(wl, &wl12xx_part_table[PART_WORK]);
 
 	wl1271_debug(DEBUG_MAILBOX, "cmd_box_addr 0x%x event_box_addr 0x%x",
@@ -414,8 +440,12 @@ static int wl1271_boot_run_firmware(struct wl1271 *wl)
 
 	wl1271_boot_fw_version(wl);
 
+	/*
+	 * in case of full asynchronous mode the firmware event must be
+	 * ready to receive event from the command mailbox
+	 */
 
-	
+	/* unmask required mbox events  */
 	wl->event_mask = BSS_LOSE_EVENT_ID |
 		SCAN_COMPLETE_EVENT_ID |
 		ROLE_STOP_COMPLETE_EVENT_ID |
@@ -440,7 +470,7 @@ static int wl1271_boot_run_firmware(struct wl1271 *wl)
 
 	wl1271_event_mbox_config(wl);
 
-	
+	/* firmware startup completed */
 	return 0;
 }
 
@@ -450,7 +480,7 @@ static int wl1271_boot_write_irq_polarity(struct wl1271 *wl)
 
 	polarity = wl1271_top_reg_read(wl, OCP_REG_POLARITY);
 
-	
+	/* We use HIGH polarity, so unset the LOW bit */
 	polarity &= ~POLARITY_LOW;
 	wl1271_top_reg_write(wl, OCP_REG_POLARITY, polarity);
 
@@ -461,18 +491,18 @@ static int wl128x_switch_tcxo_to_fref(struct wl1271 *wl)
 {
 	u16 spare_reg;
 
-	
+	/* Mask bits [2] & [8:4] in the sys_clk_cfg register */
 	spare_reg = wl1271_top_reg_read(wl, WL_SPARE_REG);
 	if (spare_reg == 0xFFFF)
 		return -EFAULT;
 	spare_reg |= (BIT(3) | BIT(5) | BIT(6));
 	wl1271_top_reg_write(wl, WL_SPARE_REG, spare_reg);
 
-	
+	/* Enable FREF_CLK_REQ & mux MCS and coex PLLs to FREF */
 	wl1271_top_reg_write(wl, SYS_CLK_CFG_REG,
 			     WL_CLK_REQ_TYPE_PG2 | MCS_PLL_CLK_SEL_FREF);
 
-	
+	/* Delay execution for 15msec, to let the HW settle */
 	mdelay(15);
 
 	return 0;
@@ -515,19 +545,19 @@ static int wl128x_configure_mcs_pll(struct wl1271 *wl, int clk)
 	u16 pll_config;
 	u8 input_freq;
 
-	
+	/* Mask bits [3:1] in the sys_clk_cfg register */
 	spare_reg = wl1271_top_reg_read(wl, WL_SPARE_REG);
 	if (spare_reg == 0xFFFF)
 		return -EFAULT;
 	spare_reg |= BIT(2);
 	wl1271_top_reg_write(wl, WL_SPARE_REG, spare_reg);
 
-	
+	/* Handle special cases of the TCXO clock */
 	if (wl->tcxo_clock == WL12XX_TCXOCLOCK_16_8 ||
 	    wl->tcxo_clock == WL12XX_TCXOCLOCK_33_6)
 		return wl128x_manually_configure_mcs_pll(wl);
 
-	
+	/* Set the input frequency according to the selected clock source */
 	input_freq = (clk & 1) + 1;
 
 	pll_config = wl1271_top_reg_read(wl, MCS_PLL_CONFIG_REG);
@@ -540,11 +570,18 @@ static int wl128x_configure_mcs_pll(struct wl1271 *wl, int clk)
 	return 0;
 }
 
+/*
+ * WL128x has two clocks input - TCXO and FREF.
+ * TCXO is the main clock of the device, while FREF is used to sync
+ * between the GPS and the cellular modem.
+ * In cases where TCXO is 32.736MHz or 16.368MHz, the FREF will be used
+ * as the WLAN/BT main clock.
+ */
 static int wl128x_boot_clk(struct wl1271 *wl, int *selected_clock)
 {
 	u16 sys_clk_cfg;
 
-	
+	/* For XTAL-only modes, FREF will be used after switching from TCXO */
 	if (wl->ref_clock == WL12XX_REFCLOCK_26_XTAL ||
 	    wl->ref_clock == WL12XX_REFCLOCK_38_XTAL) {
 		if (!wl128x_switch_tcxo_to_fref(wl))
@@ -552,14 +589,14 @@ static int wl128x_boot_clk(struct wl1271 *wl, int *selected_clock)
 		goto fref_clk;
 	}
 
-	
+	/* Query the HW, to determine which clock source we should use */
 	sys_clk_cfg = wl1271_top_reg_read(wl, SYS_CLK_CFG_REG);
 	if (sys_clk_cfg == 0xFFFF)
 		return -EINVAL;
 	if (sys_clk_cfg & PRCM_CM_EN_MUX_WLAN_FREF)
 		goto fref_clk;
 
-	
+	/* If TCXO is either 32.736MHz or 16.368MHz, switch to FREF */
 	if (wl->tcxo_clock == WL12XX_TCXOCLOCK_16_368 ||
 	    wl->tcxo_clock == WL12XX_TCXOCLOCK_32_736) {
 		if (!wl128x_switch_tcxo_to_fref(wl))
@@ -567,14 +604,14 @@ static int wl128x_boot_clk(struct wl1271 *wl, int *selected_clock)
 		goto fref_clk;
 	}
 
-	
+	/* TCXO clock is selected */
 	if (!wl128x_is_tcxo_valid(wl))
 		return -EINVAL;
 	*selected_clock = wl->tcxo_clock;
 	goto config_mcs_pll;
 
 fref_clk:
-	
+	/* FREF clock is selected */
 	if (!wl128x_is_fref_valid(wl))
 		return -EINVAL;
 	*selected_clock = wl->ref_clock;
@@ -594,29 +631,29 @@ static int wl127x_boot_clk(struct wl1271 *wl)
 	if (wl->ref_clock == CONF_REF_CLK_19_2_E ||
 	    wl->ref_clock == CONF_REF_CLK_38_4_E ||
 	    wl->ref_clock == CONF_REF_CLK_38_4_M_XTAL)
-		
+		/* ref clk: 19.2/38.4/38.4-XTAL */
 		clk = 0x3;
 	else if (wl->ref_clock == CONF_REF_CLK_26_E ||
 		 wl->ref_clock == CONF_REF_CLK_52_E)
-		
+		/* ref clk: 26/52 */
 		clk = 0x5;
 	else
 		return -EINVAL;
 
 	if (wl->ref_clock != CONF_REF_CLK_19_2_E) {
 		u16 val;
-		
+		/* Set clock type (open drain) */
 		val = wl1271_top_reg_read(wl, OCP_REG_CLK_TYPE);
 		val &= FREF_CLK_TYPE_BITS;
 		wl1271_top_reg_write(wl, OCP_REG_CLK_TYPE, val);
 
-		
+		/* Set clock pull mode (no pull) */
 		val = wl1271_top_reg_read(wl, OCP_REG_CLK_PULL);
 		val |= NO_PULL;
 		wl1271_top_reg_write(wl, OCP_REG_CLK_PULL, val);
 	} else {
 		u16 val;
-		
+		/* Set clock polarity */
 		val = wl1271_top_reg_read(wl, OCP_REG_CLK_POLARITY);
 		val &= FREF_CLK_POLARITY_BITS;
 		val |= CLK_REQ_OUTN_SEL;
@@ -636,6 +673,7 @@ static int wl127x_boot_clk(struct wl1271 *wl)
 	return 0;
 }
 
+/* uploads NVS and firmware */
 int wl1271_load_firmware(struct wl1271 *wl)
 {
 	int ret = 0;
@@ -652,12 +690,15 @@ int wl1271_load_firmware(struct wl1271 *wl)
 			goto out;
 	}
 
-	
+	/* Continue the ELP wake up sequence */
 	wl1271_write32(wl, WELP_ARM_COMMAND, WELP_ARM_COMMAND_VAL);
 	udelay(500);
 
 	wl1271_set_partition(wl, &wl12xx_part_table[PART_DRPW]);
 
+	/* Read-modify-write DRPW_SCRATCH_START register (see next state)
+	   to be used by DRPw FW. The RTRIM value will be added by the FW
+	   before taking DRPw out of reset */
 
 	wl1271_debug(DEBUG_BOOT, "DRPW_SCRATCH_START %08x", DRPW_SCRATCH_START);
 	clk = wl1271_read32(wl, DRPW_SCRATCH_START);
@@ -674,18 +715,20 @@ int wl1271_load_firmware(struct wl1271 *wl)
 
 	wl1271_set_partition(wl, &wl12xx_part_table[PART_WORK]);
 
-	
+	/* Disable interrupts */
 	wl1271_write32(wl, ACX_REG_INTERRUPT_MASK, WL1271_ACX_INTR_ALL);
 
 	ret = wl1271_boot_soft_reset(wl);
 	if (ret < 0)
 		goto out;
 
-	
+	/* 2. start processing NVS file */
 	ret = wl1271_boot_upload_nvs(wl);
 	if (ret < 0)
 		goto out;
 
+	/* write firmware's last address (ie. it's length) to
+	 * ACX_EEPROMLESS_IND_REG */
 	wl1271_debug(DEBUG_BOOT, "ACX_EEPROMLESS_IND_REG");
 
 	wl1271_write32(wl, ACX_EEPROMLESS_IND_REG, ACX_EEPROMLESS_IND_REG);
@@ -694,9 +737,11 @@ int wl1271_load_firmware(struct wl1271 *wl)
 
 	wl1271_debug(DEBUG_BOOT, "chip id 0x%x", tmp);
 
-	
+	/* 6. read the EEPROM parameters */
 	tmp = wl1271_read32(wl, SCR_PAD2);
 
+	/* WL1271: The reference driver skips steps 7 to 10 (jumps directly
+	 * to upload_fw) */
 
 	if (wl->chip.id == CHIP_ID_1283_PG20)
 		wl1271_top_reg_write(wl, SDIO_IO_DS, wl->conf.hci_io_ds);
@@ -714,12 +759,12 @@ int wl1271_boot(struct wl1271 *wl)
 {
 	int ret;
 
-	
+	/* upload NVS and firmware */
 	ret = wl1271_load_firmware(wl);
 	if (ret)
 		return ret;
 
-	
+	/* 10.5 start firmware */
 	ret = wl1271_boot_run_firmware(wl);
 	if (ret < 0)
 		goto out;
@@ -731,7 +776,7 @@ int wl1271_boot(struct wl1271 *wl)
 	wl1271_write32(wl, ACX_REG_INTERRUPT_MASK,
 		       WL1271_ACX_ALL_EVENTS_VECTOR);
 
-	
+	/* Enable firmware interrupts now */
 	wl1271_boot_enable_interrupts(wl);
 
 	wl1271_event_mbox_config(wl);

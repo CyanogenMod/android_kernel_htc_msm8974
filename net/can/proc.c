@@ -48,6 +48,9 @@
 
 #include "af_can.h"
 
+/*
+ * proc filenames for the PF_CAN core
+ */
 
 #define CAN_PROC_VERSION     "version"
 #define CAN_PROC_STATS       "stats"
@@ -80,11 +83,20 @@ static const char rx_list_name[][8] = {
 	[RX_EFF] = "rx_eff",
 };
 
+/* receive filters subscribed for 'all' CAN devices */
 extern struct dev_rcv_lists can_rx_alldev_list;
 
+/*
+ * af_can statistics stuff
+ */
 
 static void can_init_stats(void)
 {
+	/*
+	 * This memset function is called from a timer context (when
+	 * can_stattimer is active which is the default) OR in a process
+	 * context (reading the proc_fs when can_stattimer is disabled).
+	 */
 	memset(&can_stats, 0, sizeof(can_stats));
 	can_stats.jiffies_init = jiffies;
 
@@ -104,7 +116,7 @@ static unsigned long calc_rate(unsigned long oldjif, unsigned long newjif,
 	if (oldjif == newjif)
 		return 0;
 
-	
+	/* see can_stat_update() - this should NEVER happen! */
 	if (count > (ULONG_MAX / HZ)) {
 		printk(KERN_ERR "can: calc_rate: count exceeded! %ld\n",
 		       count);
@@ -118,29 +130,29 @@ static unsigned long calc_rate(unsigned long oldjif, unsigned long newjif,
 
 void can_stat_update(unsigned long data)
 {
-	unsigned long j = jiffies; 
+	unsigned long j = jiffies; /* snapshot */
 
-	
+	/* restart counting in timer context on user request */
 	if (user_reset)
 		can_init_stats();
 
-	
+	/* restart counting on jiffies overflow */
 	if (j < can_stats.jiffies_init)
 		can_init_stats();
 
-	
+	/* prevent overflow in calc_rate() */
 	if (can_stats.rx_frames > (ULONG_MAX / HZ))
 		can_init_stats();
 
-	
+	/* prevent overflow in calc_rate() */
 	if (can_stats.tx_frames > (ULONG_MAX / HZ))
 		can_init_stats();
 
-	
+	/* matches overflow - very improbable */
 	if (can_stats.matches > (ULONG_MAX / 100))
 		can_init_stats();
 
-	
+	/* calc total values */
 	if (can_stats.rx_frames)
 		can_stats.total_rx_match_ratio = (can_stats.matches * 100) /
 			can_stats.rx_frames;
@@ -150,7 +162,7 @@ void can_stat_update(unsigned long data)
 	can_stats.total_rx_rate = calc_rate(can_stats.jiffies_init, j,
 					    can_stats.rx_frames);
 
-	
+	/* calc current values */
 	if (can_stats.rx_frames_delta)
 		can_stats.current_rx_match_ratio =
 			(can_stats.matches_delta * 100) /
@@ -159,7 +171,7 @@ void can_stat_update(unsigned long data)
 	can_stats.current_tx_rate = calc_rate(0, HZ, can_stats.tx_frames_delta);
 	can_stats.current_rx_rate = calc_rate(0, HZ, can_stats.rx_frames_delta);
 
-	
+	/* check / update maximum values */
 	if (can_stats.max_tx_rate < can_stats.current_tx_rate)
 		can_stats.max_tx_rate = can_stats.current_tx_rate;
 
@@ -169,15 +181,18 @@ void can_stat_update(unsigned long data)
 	if (can_stats.max_rx_match_ratio < can_stats.current_rx_match_ratio)
 		can_stats.max_rx_match_ratio = can_stats.current_rx_match_ratio;
 
-	
+	/* clear values for 'current rate' calculation */
 	can_stats.tx_frames_delta = 0;
 	can_stats.rx_frames_delta = 0;
 	can_stats.matches_delta   = 0;
 
-	
+	/* restart timer (one second) */
 	mod_timer(&can_stattimer, round_jiffies(jiffies + HZ));
 }
 
+/*
+ * proc read functions
+ */
 
 static void can_print_rcvlist(struct seq_file *m, struct hlist_head *rx_list,
 			      struct net_device *dev)
@@ -197,6 +212,10 @@ static void can_print_rcvlist(struct seq_file *m, struct hlist_head *rx_list,
 
 static void can_print_recv_banner(struct seq_file *m)
 {
+	/*
+	 *                  can1.  00000000  00000000  00000000
+	 *                 .......          0  tp20
+	 */
 	seq_puts(m, "  device   can_id   can_mask  function"
 			"  userdata   matches  ident\n");
 }
@@ -336,7 +355,7 @@ static inline void can_rcvlist_proc_show_one(struct seq_file *m, int idx,
 
 static int can_rcvlist_proc_show(struct seq_file *m, void *v)
 {
-	
+	/* double cast to prevent GCC warning */
 	int idx = (int)(long)m->private;
 	struct net_device *dev;
 	struct dev_rcv_lists *d;
@@ -345,11 +364,11 @@ static int can_rcvlist_proc_show(struct seq_file *m, void *v)
 
 	rcu_read_lock();
 
-	
+	/* receive list for 'all' CAN devices (dev == NULL) */
 	d = &can_rx_alldev_list;
 	can_rcvlist_proc_show_one(m, idx, NULL, d);
 
-	
+	/* receive list for registered CAN devices */
 	for_each_netdev_rcu(&init_net, dev) {
 		if (dev->type == ARPHRD_CAN && dev->ml_priv)
 			can_rcvlist_proc_show_one(m, idx, dev, dev->ml_priv);
@@ -381,7 +400,7 @@ static inline void can_rcvlist_sff_proc_show_one(struct seq_file *m,
 	int i;
 	int all_empty = 1;
 
-	
+	/* check wether at least one list is non-empty */
 	for (i = 0; i < 0x800; i++)
 		if (!hlist_empty(&d->rx_sff[i])) {
 			all_empty = 0;
@@ -403,16 +422,16 @@ static int can_rcvlist_sff_proc_show(struct seq_file *m, void *v)
 	struct net_device *dev;
 	struct dev_rcv_lists *d;
 
-	
+	/* RX_SFF */
 	seq_puts(m, "\nreceive list 'rx_sff':\n");
 
 	rcu_read_lock();
 
-	
+	/* sff receive list for 'all' CAN devices (dev == NULL) */
 	d = &can_rx_alldev_list;
 	can_rcvlist_sff_proc_show_one(m, NULL, d);
 
-	
+	/* sff receive list for registered CAN devices */
 	for_each_netdev_rcu(&init_net, dev) {
 		if (dev->type == ARPHRD_CAN && dev->ml_priv)
 			can_rcvlist_sff_proc_show_one(m, dev, dev->ml_priv);
@@ -437,6 +456,9 @@ static const struct file_operations can_rcvlist_sff_proc_fops = {
 	.release	= single_release,
 };
 
+/*
+ * proc utility functions
+ */
 
 static void can_remove_proc_readentry(const char *name)
 {
@@ -444,9 +466,12 @@ static void can_remove_proc_readentry(const char *name)
 		remove_proc_entry(name, can_dir);
 }
 
+/*
+ * can_init_proc - create main CAN proc directory and procfs entries
+ */
 void can_init_proc(void)
 {
-	
+	/* create /proc/net/can directory */
 	can_dir = proc_mkdir("can", init_net.proc_net);
 
 	if (!can_dir) {
@@ -455,7 +480,7 @@ void can_init_proc(void)
 		return;
 	}
 
-	
+	/* own procfs entries from the AF_CAN core */
 	pde_version     = proc_create(CAN_PROC_VERSION, 0644, can_dir,
 				      &can_version_proc_fops);
 	pde_stats       = proc_create(CAN_PROC_STATS, 0644, can_dir,
@@ -476,6 +501,9 @@ void can_init_proc(void)
 				      &can_rcvlist_sff_proc_fops);
 }
 
+/*
+ * can_remove_proc - remove procfs entries and main CAN proc directory
+ */
 void can_remove_proc(void)
 {
 	if (pde_version)

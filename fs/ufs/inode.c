@@ -75,6 +75,10 @@ static int ufs_block_to_path(struct inode *inode, sector_t i_block, sector_t off
 	return n;
 }
 
+/*
+ * Returns the location of the fragment from
+ * the beginning of the filesystem.
+ */
 
 static u64 ufs_frag_map(struct inode *inode, sector_t frag, bool needs_lock)
 {
@@ -152,6 +156,19 @@ out:
 	return ret;
 }
 
+/**
+ * ufs_inode_getfrag() - allocate new fragment(s)
+ * @inode - pointer to inode
+ * @fragment - number of `fragment' which hold pointer
+ *   to new allocated fragment(s)
+ * @new_fragment - number of new allocated fragment(s)
+ * @required - how many fragment(s) we require
+ * @err - we set it if something wrong
+ * @phys - pointer to where we save physical number of new allocated fragments,
+ *   NULL if we allocate not data(indirect blocks for example).
+ * @new - we set it if we allocate new block
+ * @locked_page - for ufs_new_fragments()
+ */
 static struct buffer_head *
 ufs_inode_getfrag(struct inode *inode, u64 fragment,
 		  sector_t new_fragment, unsigned int required, int *err,
@@ -169,6 +186,10 @@ ufs_inode_getfrag(struct inode *inode, u64 fragment,
 	     "metadata %d\n", inode->i_ino, (unsigned long long)fragment,
 	     (unsigned long long)new_fragment, required, !phys);
 
+        /* TODO : to be done for write support
+        if ( (flags & UFS_TYPE_MASK) == UFS_TYPE_UFS2)
+             goto ufs2;
+         */
 
 	block = ufs_fragstoblks (fragment);
 	blockoff = ufs_fragnum (fragment);
@@ -198,7 +219,13 @@ repeat:
 
 	lastblock = ufs_fragstoblks (lastfrag);
 	lastblockoff = ufs_fragnum (lastfrag);
+	/*
+	 * We will extend file into new block beyond last allocated block
+	 */
 	if (lastblock < block) {
+		/*
+		 * We must reallocate last allocated block
+		 */
 		if (lastblockoff) {
 			p2 = ufs_get_direct_data_ptr(uspi, ufsi, lastblock);
 			tmp = ufs_new_fragments(inode, p2, lastfrag,
@@ -224,12 +251,18 @@ repeat:
 					 err,
 					 phys != NULL ? locked_page : NULL);
 	} else if (lastblock == block) {
+	/*
+	 * We will extend last allocated block
+	 */
 		tmp = ufs_new_fragments(inode, p, fragment -
 					(blockoff - lastblockoff),
 					ufs_data_ptr_to_cpu(sb, p),
 					required +  (blockoff - lastblockoff),
 					err, phys != NULL ? locked_page : NULL);
-	} else  {
+	} else /* (lastblock > block) */ {
+	/*
+	 * We will allocate new block before last allocated block
+	 */
 		if (block) {
 			tmp = ufs_data_ptr_to_cpu(sb,
 						 ufs_get_direct_data_ptr(uspi, ufsi, block - 1));
@@ -264,8 +297,35 @@ repeat:
 	UFSD("EXIT, result %llu\n", (unsigned long long)tmp + blockoff);
 	return result;
 
+     /* This part : To be implemented ....
+        Required only for writing, not required for READ-ONLY.
+ufs2:
+
+	u2_block = ufs_fragstoblks(fragment);
+	u2_blockoff = ufs_fragnum(fragment);
+	p = ufsi->i_u1.u2_i_data + block;
+	goal = 0;
+
+repeat2:
+	tmp = fs32_to_cpu(sb, *p);
+	lastfrag = ufsi->i_lastfrag;
+
+     */
 }
 
+/**
+ * ufs_inode_getblock() - allocate new block
+ * @inode - pointer to inode
+ * @bh - pointer to block which hold "pointer" to new allocated block
+ * @fragment - number of `fragment' which hold pointer
+ *   to new allocated block
+ * @new_fragment - number of new allocated fragment
+ *  (block will hold this fragment and also uspi->s_fpb-1)
+ * @err - see ufs_inode_getfrag()
+ * @phys - see ufs_inode_getfrag()
+ * @new - see ufs_inode_getfrag()
+ * @locked_page - see ufs_inode_getfrag()
+ */
 static struct buffer_head *
 ufs_inode_getblock(struct inode *inode, struct buffer_head *bh,
 		  u64 fragment, sector_t new_fragment, int *err,
@@ -347,6 +407,10 @@ out:
 	return result;
 }
 
+/**
+ * ufs_getfrag_block() - `get_block_t' function, interface between UFS and
+ * readpage, writepage and so on
+ */
 
 int ufs_getfrag_block(struct inode *inode, sector_t fragment, struct buffer_head *bh_result, int create)
 {
@@ -367,7 +431,7 @@ int ufs_getfrag_block(struct inode *inode, sector_t fragment, struct buffer_head
 		return 0;
 	}
 
-        
+        /* This code entered only while writing ....? */
 
 	err = -EIO;
 	new = 0;
@@ -386,6 +450,10 @@ int ufs_getfrag_block(struct inode *inode, sector_t fragment, struct buffer_head
 	err = 0;
 	ptr = fragment;
 	  
+	/*
+	 * ok, these macros clean the logic up a bit and make
+	 * it much more readable:
+	 */
 #define GET_INODE_DATABLOCK(x) \
 	ufs_inode_getfrag(inode, x, fragment, 1, &err, &phys, &new,\
 			  bh_result->b_page)
@@ -516,6 +584,9 @@ static int ufs1_read_inode(struct inode *inode, struct ufs_inode *ufs_inode)
 	struct super_block *sb = inode->i_sb;
 	umode_t mode;
 
+	/*
+	 * Copy data to the in-core inode.
+	 */
 	inode->i_mode = mode = fs16_to_cpu(sb, ufs_inode->ui_mode);
 	set_nlink(inode, fs16_to_cpu(sb, ufs_inode->ui_nlink));
 	if (inode->i_nlink == 0) {
@@ -523,6 +594,9 @@ static int ufs1_read_inode(struct inode *inode, struct ufs_inode *ufs_inode)
 		return -1;
 	}
 	
+	/*
+	 * Linux now has 32-bit uid and gid, so we can support EFT.
+	 */
 	inode->i_uid = ufs_get_inode_uid(sb, ufs_inode);
 	inode->i_gid = ufs_get_inode_gid(sb, ufs_inode);
 
@@ -558,6 +632,9 @@ static int ufs2_read_inode(struct inode *inode, struct ufs2_inode *ufs2_inode)
 	umode_t mode;
 
 	UFSD("Reading ufs2 inode, ino %lu\n", inode->i_ino);
+	/*
+	 * Copy data to the in-core inode.
+	 */
 	inode->i_mode = mode = fs16_to_cpu(sb, ufs2_inode->ui_mode);
 	set_nlink(inode, fs16_to_cpu(sb, ufs2_inode->ui_nlink));
 	if (inode->i_nlink == 0) {
@@ -565,6 +642,9 @@ static int ufs2_read_inode(struct inode *inode, struct ufs2_inode *ufs2_inode)
 		return -1;
 	}
 
+        /*
+         * Linux now has 32-bit uid and gid, so we can support EFT.
+         */
 	inode->i_uid = fs32_to_cpu(sb, ufs2_inode->ui_uid);
 	inode->i_gid = fs32_to_cpu(sb, ufs2_inode->ui_gid);
 
@@ -578,6 +658,10 @@ static int ufs2_read_inode(struct inode *inode, struct ufs2_inode *ufs2_inode)
 	inode->i_blocks = fs64_to_cpu(sb, ufs2_inode->ui_blocks);
 	inode->i_generation = fs32_to_cpu(sb, ufs2_inode->ui_gen);
 	ufsi->i_flags = fs32_to_cpu(sb, ufs2_inode->ui_flags);
+	/*
+	ufsi->i_shadow = fs32_to_cpu(sb, ufs_inode->ui_u3.ui_sun.ui_shadow);
+	ufsi->i_oeftflag = fs32_to_cpu(sb, ufs_inode->ui_u3.ui_sun.ui_oeftflag);
+	*/
 
 	if (S_ISCHR(mode) || S_ISBLK(mode) || inode->i_blocks) {
 		memcpy(ufsi->i_u1.u2_i_data, &ufs2_inode->ui_u2.ui_addr,
@@ -681,7 +765,7 @@ static void ufs1_update_inode(struct inode *inode, struct ufs_inode *ufs_inode)
 	}
 
 	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode)) {
-		
+		/* ufs_inode->ui_u2.ui_addr.ui_db[0] = cpu_to_fs32(sb, inode->i_rdev); */
 		ufs_inode->ui_u2.ui_addr.ui_db[0] = ufsi->i_u1.i_data[0];
 	} else if (inode->i_blocks) {
 		memcpy(&ufs_inode->ui_u2.ui_addr, ufsi->i_u1.i_data,
@@ -721,7 +805,7 @@ static void ufs2_update_inode(struct inode *inode, struct ufs2_inode *ufs_inode)
 	ufs_inode->ui_gen = cpu_to_fs32(sb, inode->i_generation);
 
 	if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode)) {
-		
+		/* ufs_inode->ui_u2.ui_addr.ui_db[0] = cpu_to_fs32(sb, inode->i_rdev); */
 		ufs_inode->ui_u2.ui_addr.ui_db[0] = ufsi->i_u1.u2_i_data[0];
 	} else if (inode->i_blocks) {
 		memcpy(&ufs_inode->ui_u2.ui_addr, ufsi->i_u1.u2_i_data,
@@ -799,7 +883,7 @@ void ufs_evict_inode(struct inode * inode)
 	truncate_inode_pages(&inode->i_data, 0);
 	if (want_delete) {
 		loff_t old_i_size;
-		
+		/*UFS_I(inode)->i_dtime = CURRENT_TIME;*/
 		lock_ufs(inode->i_sb);
 		mark_inode_dirty(inode);
 		ufs_update_inode(inode, IS_SYNC(inode));

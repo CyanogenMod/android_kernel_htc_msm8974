@@ -44,11 +44,12 @@
 #define GRP_910(a, m, p)		\
 	{ .name = a, .mux = PXA910_MUX_##m, .pins = p, .npins = ARRAY_SIZE(p), }
 
+/* 170 pins */
 enum pxa910_pin_list {
-	
+	/* 0~127: GPIO0~GPIO127 */
 	ND_IO15 = 128,
 	ND_IO14,
-	ND_IO13, 
+	ND_IO13, /* 130 */
 	ND_IO12,
 	ND_IO11,
 	ND_IO10,
@@ -58,7 +59,7 @@ enum pxa910_pin_list {
 	ND_IO6,
 	ND_IO5,
 	ND_IO4,
-	ND_IO3, 
+	ND_IO3, /* 140 */
 	ND_IO2,
 	ND_IO1,
 	ND_IO0,
@@ -68,7 +69,7 @@ enum pxa910_pin_list {
 	SM_NCS1,
 	ND_NWE,
 	ND_NRE,
-	ND_CLE, 
+	ND_CLE, /* 150 */
 	ND_ALE,
 	SM_SCLK,
 	ND_RDY0,
@@ -78,7 +79,7 @@ enum pxa910_pin_list {
 	SM_RDY,
 	MMC1_DAT7,
 	MMC1_DAT6,
-	MMC1_DAT5, 
+	MMC1_DAT5, /* 160 */
 	MMC1_DAT4,
 	MMC1_DAT3,
 	MMC1_DAT2,
@@ -91,7 +92,7 @@ enum pxa910_pin_list {
 };
 
 enum pxa910_mux {
-	
+	/* PXA3xx_MUX_GPIO = 0 (predefined in pinctrl-pxa3xx.h) */
 	PXA910_MUX_GPIO = 0,
 	PXA910_MUX_NAND,
 	PXA910_MUX_USIM2,
@@ -104,7 +105,7 @@ enum pxa910_mux {
 	PXA910_MUX_PRI_JTAG,
 	PXA910_MUX_SEC1_JTAG,
 	PXA910_MUX_SEC2_JTAG,
-	PXA910_MUX_RESET,	
+	PXA910_MUX_RESET,	/* SLAVE RESET OUT */
 	PXA910_MUX_CLK_REQ,
 	PXA910_MUX_VCXO_REQ,
 	PXA910_MUX_VCXO_OUT,
@@ -139,8 +140,8 @@ enum pxa910_mux {
 	PXA910_MUX_TCU_GPOB,
 	PXA910_MUX_ROT,
 	PXA910_MUX_TDS,
-	PXA910_MUX_32K_CLK, 
-	PXA910_MUX_MN_CLK, 
+	PXA910_MUX_32K_CLK, /* 32KHz CLK OUT */
+	PXA910_MUX_MN_CLK, /* MN CLK OUT */
 	PXA910_MUX_SMC,
 	PXA910_MUX_SM_ADDR18,
 	PXA910_MUX_SM_ADDR19,
@@ -322,7 +323,7 @@ static struct pinctrl_pin_desc pxa910_pads[] = {
 };
 
 struct pxa3xx_mfp_pin pxa910_mfp[] = {
-	
+	/*       pin        offs   f0        f1      f2         f3         f4         f5        f6        f7  */
 	MFPR_910(GPIO0,     0x0DC, GPIO,     KP_MK,  NONE,      NONE,      NONE,      NONE,     NONE,     NONE),
 	MFPR_910(GPIO1,     0x0E0, GPIO,     KP_MK,  NONE,      NONE,      NONE,      NONE,     NONE,     NONE),
 	MFPR_910(GPIO2,     0x0E4, GPIO,     KP_MK,  NONE,      NONE,      NONE,      NONE,     NONE,     NONE),

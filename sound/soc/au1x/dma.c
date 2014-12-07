@@ -31,7 +31,7 @@
 
 struct pcm_period {
 	u32 start;
-	u32 relative_end;	
+	u32 relative_end;	/* relative to start of buffer */
 	struct pcm_period *next;
 };
 
@@ -44,7 +44,7 @@ struct audio_stream {
 };
 
 struct alchemy_pcm_ctx {
-	struct audio_stream stream[2];	
+	struct audio_stream stream[2];	/* playback & capture */
 };
 
 static void au1000_release_dma_link(struct audio_stream *stream)
@@ -79,7 +79,7 @@ static int au1000_setup_dma_link(struct audio_stream *stream,
 
 	if (stream->period_size == period_bytes &&
 	    stream->periods == periods)
-		return 0; 
+		return 0; /* not changed */
 
 	au1000_release_dma_link(stream);
 
@@ -206,9 +206,9 @@ static int alchemy_pcm_open(struct snd_pcm_substream *substream)
 
 	dmaids = snd_soc_dai_get_dma_data(rtd->cpu_dai, substream);
 	if (!dmaids)
-		return -ENODEV;	
+		return -ENODEV;	/* whoa, has ordering changed? */
 
-	
+	/* DMA setup */
 	name = (s == SNDRV_PCM_STREAM_PLAYBACK) ? "audio-tx" : "audio-rx";
 	ctx->stream[s].dma = request_au1000_dma(dmaids[s], name,
 					au1000_dma_interrupt, 0,

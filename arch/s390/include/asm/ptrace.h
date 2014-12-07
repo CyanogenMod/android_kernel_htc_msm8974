@@ -9,6 +9,10 @@
 #ifndef _S390_PTRACE_H
 #define _S390_PTRACE_H
 
+/*
+ * Offsets in the user_regs_struct. They are used for the ptrace
+ * system call and in entry.S
+ */
 #ifndef __s390x__
 
 #define PT_PSWMASK  0x00
@@ -47,6 +51,10 @@
 #define PT_ACR15    0x84
 #define PT_ORIGGPR2 0x88
 #define PT_FPC	    0x90
+/*
+ * A nasty fact of life that the ptrace api
+ * only supports passing of longs.
+ */
 #define PT_FPR0_HI  0x98
 #define PT_FPR0_LO  0x9C
 #define PT_FPR1_HI  0xA0
@@ -89,9 +97,9 @@
 #define GPR_SIZE	4
 #define CR_SIZE		4
 
-#define STACK_FRAME_OVERHEAD	96	
+#define STACK_FRAME_OVERHEAD	96	/* size of minimum stack frame */
 
-#else 
+#else /* __s390x__ */
 
 #define PT_PSWMASK  0x00
 #define PT_PSWADDR  0x08
@@ -155,9 +163,9 @@
 #define GPR_SIZE	8
 #define CR_SIZE		8
 
-#define STACK_FRAME_OVERHEAD    160      
+#define STACK_FRAME_OVERHEAD    160      /* size of minimum stack frame */
 
-#endif 
+#endif /* __s390x__ */
 
 #define NUM_GPRS	16
 #define NUM_FPRS	16
@@ -168,7 +176,7 @@
 
 #define FPR_SIZE	8
 #define FPC_SIZE	4
-#define FPC_PAD_SIZE	4 
+#define FPC_PAD_SIZE	4 /* gcc insists on aligning the fpregs */
 #define ACR_SIZE	4
 
 
@@ -202,6 +210,7 @@ typedef struct
 #define FPC_RM_MASK             0x00000003
 #define FPC_VALID_MASK          0xF8F8FF03
 
+/* this typedef defines how a Program Status Word looks like */
 typedef struct 
 {
         unsigned long mask;
@@ -221,7 +230,7 @@ typedef struct
 #define PSW_MASK_IO		0x02000000UL
 #define PSW_MASK_EXT		0x01000000UL
 #define PSW_MASK_KEY		0x00F00000UL
-#define PSW_MASK_BASE		0x00080000UL	
+#define PSW_MASK_BASE		0x00080000UL	/* always one */
 #define PSW_MASK_MCHECK		0x00040000UL
 #define PSW_MASK_WAIT		0x00020000UL
 #define PSW_MASK_PSTATE		0x00010000UL
@@ -243,7 +252,7 @@ typedef struct
 #define PSW_ASC_SECONDARY	0x00008000UL
 #define PSW_ASC_HOME		0x0000C000UL
 
-#else 
+#else /* __s390x__ */
 
 #define PSW_MASK_PER		0x4000000000000000UL
 #define PSW_MASK_DAT		0x0400000000000000UL
@@ -272,13 +281,16 @@ typedef struct
 #define PSW_ASC_SECONDARY	0x0000800000000000UL
 #define PSW_ASC_HOME		0x0000C00000000000UL
 
-#endif 
+#endif /* __s390x__ */
 
 #ifdef __KERNEL__
 extern long psw_kernel_bits;
 extern long psw_user_bits;
 #endif
 
+/*
+ * The s390_regs structure is used to define the elf_gregset_t.
+ */
 typedef struct
 {
 	psw_t psw;
@@ -302,6 +314,10 @@ typedef struct
 
 #ifdef __KERNEL__
 
+/*
+ * The pt_regs struct defines the way the registers are stored on
+ * the stack during a system call.
+ */
 struct pt_regs 
 {
 	unsigned long args[1];
@@ -312,28 +328,37 @@ struct pt_regs
 	unsigned long int_parm_long;
 };
 
+/*
+ * Program event recording (PER) register set.
+ */
 struct per_regs {
-	unsigned long control;		
-	unsigned long start;		
-	unsigned long end;		
+	unsigned long control;		/* PER control bits */
+	unsigned long start;		/* PER starting address */
+	unsigned long end;		/* PER ending address */
 };
 
+/*
+ * PER event contains information about the cause of the last PER exception.
+ */
 struct per_event {
-	unsigned short cause;		
-	unsigned long address;		
-	unsigned char paid;		
+	unsigned short cause;		/* PER code, ATMID and AI */
+	unsigned long address;		/* PER address */
+	unsigned char paid;		/* PER access identification */
 };
 
+/*
+ * Simplified per_info structure used to decode the ptrace user space ABI.
+ */
 struct per_struct_kernel {
-	unsigned long cr9;		
-	unsigned long cr10;		
-	unsigned long cr11;		
-	unsigned long bits;		
-	unsigned long starting_addr;	
-	unsigned long ending_addr;	
-	unsigned short perc_atmid;	
-	unsigned long address;		
-	unsigned char access_id;	
+	unsigned long cr9;		/* PER control bits */
+	unsigned long cr10;		/* PER starting address */
+	unsigned long cr11;		/* PER ending address */
+	unsigned long bits;		/* Obsolete software bits */
+	unsigned long starting_addr;	/* User specified start address */
+	unsigned long ending_addr;	/* User specified end address */
+	unsigned short perc_atmid;	/* PER trap ATMID */
+	unsigned long address;		/* PER trap instruction address */
+	unsigned char access_id;	/* PER trap access identification */
 };
 
 #define PER_EVENT_MASK			0xE9000000UL
@@ -351,6 +376,12 @@ struct per_struct_kernel {
 
 #endif
 
+/*
+ * Now for the user space program event recording (trace) definitions.
+ * The following structures are used only for the ptrace interface, don't
+ * touch or even look at it if you don't want to modify the user-space
+ * ptrace interface. In particular stay away from it for in-kernel PER.
+ */
 typedef struct
 {
 	unsigned long cr[NUM_CR_WORDS];
@@ -362,9 +393,13 @@ typedef	struct
 {
 #ifdef __s390x__
 	unsigned                       : 32;
-#endif 
+#endif /* __s390x__ */
 	unsigned em_branching          : 1;
 	unsigned em_instruction_fetch  : 1;
+	/*
+	 * Switching on storage alteration automatically fixes
+	 * the storage alteration event bit in the users std.
+	 */
 	unsigned em_storage_alteration : 1;
 	unsigned em_gpr_alt_unused     : 1;
 	unsigned em_store_real_address : 1;
@@ -410,9 +445,18 @@ typedef struct
 		per_cr_words   words;
 		per_cr_bits    bits;
 	} control_regs;
+	/*
+	 * Use these flags instead of setting em_instruction_fetch
+	 * directly they are used so that single stepping can be
+	 * switched on & off while not affecting other tracing
+	 */
 	unsigned  single_step       : 1;
 	unsigned  instruction_fetch : 1;
 	unsigned                    : 30;
+	/*
+	 * These addresses are copied into cr10 & cr11 if single
+	 * stepping is switched off
+	 */
 	unsigned long starting_addr;
 	unsigned long ending_addr;
 	union {
@@ -428,6 +472,10 @@ typedef struct
 	unsigned long process_addr;
 } ptrace_area;
 
+/*
+ * S/390 specific non posix ptrace requests. I chose unusual values so
+ * they are unlikely to clash with future ptrace definitions.
+ */
 #define PTRACE_PEEKUSR_AREA           0x5000
 #define PTRACE_POKEUSR_AREA           0x5001
 #define PTRACE_PEEKTEXT_AREA	      0x5002
@@ -438,6 +486,10 @@ typedef struct
 #define PTRACE_PEEK_SYSTEM_CALL       0x5007
 #define PTRACE_POKE_SYSTEM_CALL	      0x5008
 
+/*
+ * PT_PROT definition is loosely based on hppa bsd definition in
+ * gdb/hppab-nat.c
+ */
 #define PTRACE_PROT                       21
 
 typedef enum
@@ -454,11 +506,16 @@ typedef struct
 	ptprot_flags prot;
 } ptprot_area;                     
 
+/* Sequence of bytes for breakpoint illegal instruction.  */
 #define S390_BREAKPOINT     {0x0,0x1}
 #define S390_BREAKPOINT_U16 ((__u16)0x0001)
 #define S390_SYSCALL_OPCODE ((__u16)0x0a00)
 #define S390_SYSCALL_SIZE   2
 
+/*
+ * The user_regs_struct defines the way the user registers are
+ * store on the stack for signal handling.
+ */
 struct user_regs_struct
 {
 	psw_t psw;
@@ -466,11 +523,19 @@ struct user_regs_struct
 	unsigned int  acrs[NUM_ACRS];
 	unsigned long orig_gpr2;
 	s390_fp_regs fp_regs;
+	/*
+	 * These per registers are in here so that gdb can modify them
+	 * itself as there is no "official" ptrace interface for hardware
+	 * watchpoints. This is the way intel does it.
+	 */
 	per_struct per_info;
-	unsigned long ieee_instruction_pointer;	
+	unsigned long ieee_instruction_pointer;	/* obsolete, always 0 */
 };
 
 #ifdef __KERNEL__
+/*
+ * These are defined as per linux/ptrace.h, which see.
+ */
 #define arch_has_single_step()	(1)
 
 #define user_mode(regs) (((regs)->psw.mask & PSW_MASK_PSTATE) != 0)
@@ -493,7 +558,7 @@ static inline unsigned long kernel_stack_pointer(struct pt_regs *regs)
 	return regs->gprs[15] & PSW_ADDR_INSN;
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _S390_PTRACE_H */

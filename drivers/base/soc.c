@@ -62,7 +62,7 @@ static mode_t soc_attribute_mode(struct kobject *kobj,
 	    && (soc_dev->attr->soc_id != NULL))
 	        return attr->mode;
 
-	
+	/* Unknown or unfilled attribute. */
 	return 0;
 }
 
@@ -121,7 +121,7 @@ struct soc_device *soc_device_register(struct soc_device_attribute *soc_dev_attr
 		goto out1;
 	}
 
-	
+	/* Fetch a unique (reclaimable) SOC ID. */
 	do {
 		if (!ida_pre_get(&soc_ida, GFP_KERNEL)) {
 			ret = -ENOMEM;
@@ -158,6 +158,7 @@ out1:
 	return ERR_PTR(ret);
 }
 
+/* Ensure soc_dev->attr is freed prior to calling soc_device_unregister. */
 void soc_device_unregister(struct soc_device *soc_dev)
 {
 	ida_remove(&soc_ida, soc_dev->soc_dev_num);

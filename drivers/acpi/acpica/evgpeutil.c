@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: evgpeutil - GPE utilities
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -43,7 +48,19 @@
 #define _COMPONENT          ACPI_EVENTS
 ACPI_MODULE_NAME("evgpeutil")
 
-#if (!ACPI_REDUCED_HARDWARE)	
+#if (!ACPI_REDUCED_HARDWARE)	/* Entire module */
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ev_walk_gpe_list
+ *
+ * PARAMETERS:  gpe_walk_callback   - Routine called for each GPE block
+ *              Context             - Value passed to callback
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Walk the GPE lists.
+ *
+ ******************************************************************************/
 acpi_status
 acpi_ev_walk_gpe_list(acpi_gpe_callback gpe_walk_callback, void *context)
 {
@@ -56,23 +73,23 @@ acpi_ev_walk_gpe_list(acpi_gpe_callback gpe_walk_callback, void *context)
 
 	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
 
-	
+	/* Walk the interrupt level descriptor list */
 
 	gpe_xrupt_info = acpi_gbl_gpe_xrupt_list_head;
 	while (gpe_xrupt_info) {
 
-		
+		/* Walk all Gpe Blocks attached to this interrupt level */
 
 		gpe_block = gpe_xrupt_info->gpe_block_list_head;
 		while (gpe_block) {
 
-			
+			/* One callback per GPE block */
 
 			status =
 			    gpe_walk_callback(gpe_xrupt_info, gpe_block,
 					      context);
 			if (ACPI_FAILURE(status)) {
-				if (status == AE_CTRL_END) {	
+				if (status == AE_CTRL_END) {	/* Callback abort */
 					status = AE_OK;
 				}
 				goto unlock_and_exit;
@@ -89,6 +106,19 @@ acpi_ev_walk_gpe_list(acpi_gpe_callback gpe_walk_callback, void *context)
 	return_ACPI_STATUS(status);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ev_valid_gpe_event
+ *
+ * PARAMETERS:  gpe_event_info              - Info for this GPE
+ *
+ * RETURN:      TRUE if the gpe_event is valid
+ *
+ * DESCRIPTION: Validate a GPE event. DO NOT CALL FROM INTERRUPT LEVEL.
+ *              Should be called only when the GPE lists are semaphore locked
+ *              and not subject to change.
+ *
+ ******************************************************************************/
 
 u8 acpi_ev_valid_gpe_event(struct acpi_gpe_event_info *gpe_event_info)
 {
@@ -97,15 +127,15 @@ u8 acpi_ev_valid_gpe_event(struct acpi_gpe_event_info *gpe_event_info)
 
 	ACPI_FUNCTION_ENTRY();
 
-	
+	/* No need for spin lock since we are not changing any list elements */
 
-	
+	/* Walk the GPE interrupt levels */
 
 	gpe_xrupt_block = acpi_gbl_gpe_xrupt_list_head;
 	while (gpe_xrupt_block) {
 		gpe_block = gpe_xrupt_block->gpe_block_list_head;
 
-		
+		/* Walk the GPE blocks on this interrupt level */
 
 		while (gpe_block) {
 			if ((&gpe_block->event_info[0] <= gpe_event_info) &&
@@ -123,6 +153,18 @@ u8 acpi_ev_valid_gpe_event(struct acpi_gpe_event_info *gpe_event_info)
 	return (FALSE);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ev_get_gpe_device
+ *
+ * PARAMETERS:  GPE_WALK_CALLBACK
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Matches the input GPE index (0-current_gpe_count) with a GPE
+ *              block device. NULL if the GPE is one of the FADT-defined GPEs.
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ev_get_gpe_device(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
@@ -130,11 +172,15 @@ acpi_ev_get_gpe_device(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
 {
 	struct acpi_gpe_device_info *info = context;
 
-	
+	/* Increment Index by the number of GPEs in this block */
 
 	info->next_block_base_index += gpe_block->gpe_count;
 
 	if (info->index < info->next_block_base_index) {
+		/*
+		 * The GPE index is within this block, get the node. Leave the node
+		 * NULL for the FADT-defined GPEs
+		 */
 		if ((gpe_block->node)->type == ACPI_TYPE_DEVICE) {
 			info->gpe_device = gpe_block->node;
 		}
@@ -146,6 +192,20 @@ acpi_ev_get_gpe_device(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ev_get_gpe_xrupt_block
+ *
+ * PARAMETERS:  interrupt_number     - Interrupt for a GPE block
+ *
+ * RETURN:      A GPE interrupt block
+ *
+ * DESCRIPTION: Get or Create a GPE interrupt block. There is one interrupt
+ *              block per unique interrupt level used for GPEs. Should be
+ *              called only when the GPE lists are semaphore locked and not
+ *              subject to change.
+ *
+ ******************************************************************************/
 
 struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 {
@@ -156,7 +216,7 @@ struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 
 	ACPI_FUNCTION_TRACE(ev_get_gpe_xrupt_block);
 
-	
+	/* No need for lock since we are not changing any list elements here */
 
 	next_gpe_xrupt = acpi_gbl_gpe_xrupt_list_head;
 	while (next_gpe_xrupt) {
@@ -167,7 +227,7 @@ struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 		next_gpe_xrupt = next_gpe_xrupt->next;
 	}
 
-	
+	/* Not found, must allocate a new xrupt descriptor */
 
 	gpe_xrupt = ACPI_ALLOCATE_ZEROED(sizeof(struct acpi_gpe_xrupt_info));
 	if (!gpe_xrupt) {
@@ -176,7 +236,7 @@ struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 
 	gpe_xrupt->interrupt_number = interrupt_number;
 
-	
+	/* Install new interrupt descriptor with spin lock */
 
 	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
 	if (acpi_gbl_gpe_xrupt_list_head) {
@@ -192,7 +252,7 @@ struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 	}
 	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
 
-	
+	/* Install new interrupt handler if not SCI_INT */
 
 	if (interrupt_number != acpi_gbl_FADT.sci_interrupt) {
 		status = acpi_os_install_interrupt_handler(interrupt_number,
@@ -209,6 +269,18 @@ struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 	return_PTR(gpe_xrupt);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ev_delete_gpe_xrupt
+ *
+ * PARAMETERS:  gpe_xrupt       - A GPE interrupt info block
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Remove and free a gpe_xrupt block. Remove an associated
+ *              interrupt handler if not the SCI interrupt.
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ev_delete_gpe_xrupt(struct acpi_gpe_xrupt_info *gpe_xrupt)
 {
@@ -217,14 +289,14 @@ acpi_status acpi_ev_delete_gpe_xrupt(struct acpi_gpe_xrupt_info *gpe_xrupt)
 
 	ACPI_FUNCTION_TRACE(ev_delete_gpe_xrupt);
 
-	
+	/* We never want to remove the SCI interrupt handler */
 
 	if (gpe_xrupt->interrupt_number == acpi_gbl_FADT.sci_interrupt) {
 		gpe_xrupt->gpe_block_list_head = NULL;
 		return_ACPI_STATUS(AE_OK);
 	}
 
-	
+	/* Disable this interrupt */
 
 	status =
 	    acpi_os_remove_interrupt_handler(gpe_xrupt->interrupt_number,
@@ -233,13 +305,13 @@ acpi_status acpi_ev_delete_gpe_xrupt(struct acpi_gpe_xrupt_info *gpe_xrupt)
 		return_ACPI_STATUS(status);
 	}
 
-	
+	/* Unlink the interrupt block with lock */
 
 	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
 	if (gpe_xrupt->previous) {
 		gpe_xrupt->previous->next = gpe_xrupt->next;
 	} else {
-		
+		/* No previous, update list head */
 
 		acpi_gbl_gpe_xrupt_list_head = gpe_xrupt->next;
 	}
@@ -249,12 +321,25 @@ acpi_status acpi_ev_delete_gpe_xrupt(struct acpi_gpe_xrupt_info *gpe_xrupt)
 	}
 	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
 
-	
+	/* Free the block */
 
 	ACPI_FREE(gpe_xrupt);
 	return_ACPI_STATUS(AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ev_delete_gpe_handlers
+ *
+ * PARAMETERS:  gpe_xrupt_info      - GPE Interrupt info
+ *              gpe_block           - Gpe Block info
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Delete all Handler objects found in the GPE data structs.
+ *              Used only prior to termination.
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ev_delete_gpe_handlers(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
@@ -267,11 +352,11 @@ acpi_ev_delete_gpe_handlers(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
 
 	ACPI_FUNCTION_TRACE(ev_delete_gpe_handlers);
 
-	
+	/* Examine each GPE Register within the block */
 
 	for (i = 0; i < gpe_block->register_count; i++) {
 
-		
+		/* Now look at the individual GPEs in this byte register */
 
 		for (j = 0; j < ACPI_GPE_REGISTER_WIDTH; j++) {
 			gpe_event_info = &gpe_block->event_info[((acpi_size) i *
@@ -291,4 +376,4 @@ acpi_ev_delete_gpe_handlers(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
 	return_ACPI_STATUS(AE_OK);
 }
 
-#endif				
+#endif				/* !ACPI_REDUCED_HARDWARE */

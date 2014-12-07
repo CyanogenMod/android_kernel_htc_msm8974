@@ -127,6 +127,7 @@ void ch7006_state_load(struct i2c_client *client,
 void ch7006_state_save(struct i2c_client *client,
 		       struct ch7006_state *state);
 
+/* Some helper macros */
 
 #define ch7006_dbg(client, format, ...) do {				\
 		if (ch7006_debug)					\
@@ -167,11 +168,13 @@ static inline int32_t round_fixed(fixed x)
 #define ch7006_load_reg(client, state, reg) ch7006_write(client, reg, state->regs[reg])
 #define ch7006_save_reg(client, state, reg) state->regs[reg] = ch7006_read(client, reg)
 
+/* Fixed hardware specs */
 
 #define CH7006_FREQ0				14318
 #define CH7006_MAXN				650
 #define CH7006_MAXM				315
 
+/* Register definitions */
 
 #define CH7006_DISPMODE				0x00
 #define CH7006_DISPMODE_INPUT_RES		0, 7:5

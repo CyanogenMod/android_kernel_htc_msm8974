@@ -21,7 +21,7 @@
 #define GxICR_NUM_IRQS		163
 #ifdef CONFIG_SMP
 #define GxICR_NUM_EXT_IRQS	197
-#endif  
+#endif  /* CONFIG_SMP */
 
 #define GxICR_NUM_XIRQS		16
 
@@ -44,6 +44,6 @@
 
 #define XIRQ2IRQ(num)	(XIRQ0 + num)
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _PROC_IRQ_H */

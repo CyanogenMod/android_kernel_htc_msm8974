@@ -47,11 +47,11 @@
 #define EMULEX_VENDOR_ID	0x10df
 #define BE_DEVICE_ID1		0x211
 #define BE_DEVICE_ID2		0x221
-#define OC_DEVICE_ID1		0x700	
-#define OC_DEVICE_ID2		0x710	
-#define OC_DEVICE_ID3		0xe220	
-#define OC_DEVICE_ID4           0xe228   
-#define OC_DEVICE_ID5		0x720	
+#define OC_DEVICE_ID1		0x700	/* Device Id for BE2 cards */
+#define OC_DEVICE_ID2		0x710	/* Device Id for BE3 cards */
+#define OC_DEVICE_ID3		0xe220	/* Device id for Lancer cards */
+#define OC_DEVICE_ID4           0xe228   /* Device id for VF in Lancer */
+#define OC_DEVICE_ID5		0x720	/* Device Id for Skyhawk cards */
 #define OC_SUBSYS_DEVICE_ID1	0xE602
 #define OC_SUBSYS_DEVICE_ID2	0xE642
 #define OC_SUBSYS_DEVICE_ID3	0xE612
@@ -76,7 +76,9 @@ static inline char *nic_name(struct pci_dev *pdev)
 	}
 }
 
+/* Number of bytes of an RX frame that are copied to skb->data */
 #define BE_HDR_LEN		((u16) 64)
+/* allocate extra space to allow tunneling decapsulation without head reallocation */
 #define BE_RX_SKB_ALLOC_SIZE (BE_HDR_LEN + 64)
 
 #define BE_MAX_JUMBO_FRAME_SIZE	9018
@@ -89,21 +91,21 @@ static inline char *nic_name(struct pci_dev *pdev)
 #define EVNT_Q_LEN		1024
 #define TX_Q_LEN		2048
 #define TX_CQ_LEN		1024
-#define RX_Q_LEN		1024	
+#define RX_Q_LEN		1024	/* Does not support any other value */
 #define RX_CQ_LEN		1024
-#define MCC_Q_LEN		128	
+#define MCC_Q_LEN		128	/* total size not to exceed 8 pages */
 #define MCC_CQ_LEN		256
 
 #define BE3_MAX_RSS_QS		8
 #define BE2_MAX_RSS_QS		4
 #define MAX_RSS_QS		BE3_MAX_RSS_QS
-#define MAX_RX_QS		(MAX_RSS_QS + 1) 
+#define MAX_RX_QS		(MAX_RSS_QS + 1) /* RSS qs + 1 def Rx */
 
 #define MAX_TX_QS		8
 #define MAX_MSIX_VECTORS	MAX_RSS_QS
 #define BE_TX_BUDGET		256
 #define BE_NAPI_WEIGHT		64
-#define MAX_RX_POST		BE_NAPI_WEIGHT 
+#define MAX_RX_POST		BE_NAPI_WEIGHT /* Frags posted at a time */
 #define RX_FRAGS_REFILL_WM	(RX_Q_LEN - MAX_RX_POST)
 
 #define FW_VER_LEN		32
@@ -117,11 +119,11 @@ struct be_dma_mem {
 struct be_queue_info {
 	struct be_dma_mem dma_mem;
 	u16 len;
-	u16 entry_size;	
+	u16 entry_size;	/* Size of an element in the queue */
 	u16 id;
 	u16 tail, head;
 	bool created;
-	atomic_t used;	
+	atomic_t used;	/* Number of valid elements in the queue */
 };
 
 static inline u32 MODULO(u16 val, u16 limit)
@@ -169,14 +171,14 @@ struct be_eq_obj {
 	struct be_queue_info q;
 	char desc[32];
 
-	
+	/* Adaptive interrupt coalescing (AIC) info */
 	bool enable_aic;
-	u32 min_eqd;		
-	u32 max_eqd;		
-	u32 eqd;		
-	u32 cur_eqd;		
+	u32 min_eqd;		/* in usecs */
+	u32 max_eqd;		/* in usecs */
+	u32 eqd;		/* configured val when aic is off */
+	u32 cur_eqd;		/* in usecs */
 
-	u8 idx;			
+	u8 idx;			/* array index */
 	u16 tx_budget;
 	struct napi_struct napi;
 	struct be_adapter *adapter;
@@ -203,11 +205,12 @@ struct be_tx_stats {
 struct be_tx_obj {
 	struct be_queue_info q;
 	struct be_queue_info cq;
-	
+	/* Remember the skbs that were transmitted */
 	struct sk_buff *sent_skb_list[TX_Q_LEN];
 	struct be_tx_stats stats;
 } ____cacheline_aligned_in_smp;
 
+/* Struct to remember the pages posted for rx frags */
 struct be_rx_page_info {
 	struct page *page;
 	DEFINE_DMA_UNMAP_ADDR(bus);
@@ -220,13 +223,13 @@ struct be_rx_stats {
 	u64 rx_pkts;
 	u64 rx_pkts_prev;
 	ulong rx_jiffies;
-	u32 rx_drops_no_skbs;	
-	u32 rx_drops_no_frags;	
-	u32 rx_post_fail;	
+	u32 rx_drops_no_skbs;	/* skb allocation errors */
+	u32 rx_drops_no_frags;	/* HW has no fetched frags */
+	u32 rx_post_fail;	/* page post alloc failures */
 	u32 rx_compl;
 	u32 rx_mcast_pkts;
-	u32 rx_compl_err;	
-	u32 rx_pps;		
+	u32 rx_compl_err;	/* completions with err set */
+	u32 rx_pps;		/* pkts per second */
 	struct u64_stats_sync sync;
 };
 
@@ -257,7 +260,7 @@ struct be_rx_obj {
 	struct be_rx_page_info page_info_tbl[RX_Q_LEN];
 	struct be_rx_stats stats;
 	u8 rss_id;
-	bool rx_post_starved;	
+	bool rx_post_starved;	/* Zero rx frags have been posted to BE */
 } ____cacheline_aligned_in_smp;
 
 struct be_drv_stats {
@@ -315,14 +318,16 @@ struct be_adapter {
 	struct net_device *netdev;
 
 	u8 __iomem *csr;
-	u8 __iomem *db;		
+	u8 __iomem *db;		/* Door Bell */
 
-	struct mutex mbox_lock; 
+	struct mutex mbox_lock; /* For serializing mbox cmds to BE card */
 	struct be_dma_mem mbox_mem;
+	/* Mbox mem is adjusted to align to 16 bytes. The allocated addr
+	 * is stored for freeing purpose */
 	struct be_dma_mem mbox_mem_alloced;
 
 	struct be_mcc_obj mcc_obj;
-	spinlock_t mcc_lock;	
+	spinlock_t mcc_lock;	/* For serializing mcc cmds to BE card */
 	spinlock_t mcc_cq_lock;
 
 	u32 num_msix_vec;
@@ -331,36 +336,36 @@ struct be_adapter {
 	struct msix_entry msix_entries[MAX_MSIX_VECTORS];
 	bool isr_registered;
 
-	
+	/* TX Rings */
 	u32 num_tx_qs;
 	struct be_tx_obj tx_obj[MAX_TX_QS];
 
-	
+	/* Rx rings */
 	u32 num_rx_qs;
 	struct be_rx_obj rx_obj[MAX_RX_QS];
-	u32 big_page_size;	
+	u32 big_page_size;	/* Compounded page size shared by rx wrbs */
 
 	u8 eq_next_idx;
 	struct be_drv_stats drv_stats;
 
 	u16 vlans_added;
-	u16 max_vlans;	
+	u16 max_vlans;	/* Number of vlans supported */
 	u8 vlan_tag[VLAN_N_VID];
-	u8 vlan_prio_bmap;	
-	u16 recommended_prio;	
-	struct be_dma_mem rx_filter; 
+	u8 vlan_prio_bmap;	/* Available Priority BitMap */
+	u16 recommended_prio;	/* Recommended Priority */
+	struct be_dma_mem rx_filter; /* Cmd DMA mem for rx-filter */
 
 	struct be_dma_mem stats_cmd;
-	
+	/* Work queue used to perform periodic tasks like getting statistics */
 	struct delayed_work work;
 	u16 work_counter;
 
 	u32 flags;
-	
+	/* Ethtool knobs and info */
 	char fw_ver[FW_VER_LEN];
-	int if_handle;		
-	u32 *pmac_id;		
-	u32 beacon_state;	
+	int if_handle;		/* Used to configure filtering */
+	u32 *pmac_id;		/* MAC addr handle used by BE card */
+	u32 beacon_state;	/* for set_phys_id */
 
 	bool eeh_err;
 	bool ue_detected;
@@ -369,14 +374,14 @@ struct be_adapter {
 	bool promiscuous;
 	u32 function_mode;
 	u32 function_caps;
-	u32 rx_fc;		
-	u32 tx_fc;		
+	u32 rx_fc;		/* Rx flow control */
+	u32 tx_fc;		/* Tx flow control */
 	bool stats_cmd_sent;
 	int link_speed;
 	u8 port_type;
 	u8 transceiver;
 	u8 autoneg;
-	u8 generation;		
+	u8 generation;		/* BladeEngine ASIC generation */
 	u32 flash_status;
 	struct completion flash_compl;
 
@@ -389,8 +394,8 @@ struct be_adapter {
 	u16 pvid;
 	u8 wol_cap;
 	bool wol;
-	u32 max_pmac_cnt;	
-	u32 uc_macs;		
+	u32 max_pmac_cnt;	/* Max secondary UC MACs programmable */
+	u32 uc_macs;		/* Count of secondary UC MAC programmed */
 };
 
 #define be_physfn(adapter) (!adapter->is_virtfn)
@@ -399,6 +404,7 @@ struct be_adapter {
 	for (i = 0, vf_cfg = &adapter->vf_cfg[i]; i < adapter->num_vfs;	\
 		i++, vf_cfg++)
 
+/* BladeEngine Generation numbers */
 #define BE_GEN2 2
 #define BE_GEN3 3
 
@@ -415,12 +421,14 @@ extern const struct ethtool_ops be_ethtool_ops;
 #define tx_stats(txo)			(&(txo)->stats)
 #define rx_stats(rxo)			(&(rxo)->stats)
 
+/* The default RXQ is the last RXQ */
 #define default_rxo(adpt)		(&adpt->rx_obj[adpt->num_rx_qs - 1])
 
 #define for_all_rx_queues(adapter, rxo, i)				\
 	for (i = 0, rxo = &adapter->rx_obj[i]; i < adapter->num_rx_qs;	\
 		i++, rxo++)
 
+/* Skip the default non-rss queue (last one)*/
 #define for_all_rss_queues(adapter, rxo, i)				\
 	for (i = 0, rxo = &adapter->rx_obj[i]; i < (adapter->num_rx_qs - 1);\
 		i++, rxo++)
@@ -439,13 +447,16 @@ extern const struct ethtool_ops be_ethtool_ops;
 #define PAGE_SHIFT_4K		12
 #define PAGE_SIZE_4K		(1 << PAGE_SHIFT_4K)
 
+/* Returns number of pages spanned by the data starting at the given addr */
 #define PAGES_4K_SPANNED(_address, size) 				\
 		((u32)((((size_t)(_address) & (PAGE_SIZE_4K - 1)) + 	\
 			(size) + (PAGE_SIZE_4K - 1)) >> PAGE_SHIFT_4K))
 
+/* Returns bit offset within a DWORD of a bitfield */
 #define AMAP_BIT_OFFSET(_struct, field)  				\
 		(((size_t)&(((_struct *)0)->field))%32)
 
+/* Returns the bit mask of the field that is NOT shifted into location. */
 static inline u32 amap_mask(u32 bitsize)
 {
 	return (bitsize == 32 ? 0xFFFFFFFF : (1 << bitsize) - 1);
@@ -490,7 +501,7 @@ static inline void swap_dws(void *wrb, int len)
 		dw++;
 		len -= 4;
 	} while (len);
-#endif				
+#endif				/* __BIG_ENDIAN */
 }
 
 static inline u8 is_tcp_pkt(struct sk_buff *skb)
@@ -534,7 +545,7 @@ static inline void be_vf_eth_addr_generate(struct be_adapter *adapter, u8 *mac)
 	mac[5] = (u8)(addr & 0xFF);
 	mac[4] = (u8)((addr >> 8) & 0xFF);
 	mac[3] = (u8)((addr >> 16) & 0xFF);
-	
+	/* Use the OUI from the current MAC address */
 	memcpy(mac, adapter->netdev->dev_addr, 3);
 }
 
@@ -572,4 +583,4 @@ extern void be_link_status_update(struct be_adapter *adapter, u8 link_status);
 extern void be_parse_stats(struct be_adapter *adapter);
 extern int be_load_fw(struct be_adapter *adapter, u8 *func);
 extern bool be_is_wol_supported(struct be_adapter *adapter);
-#endif				
+#endif				/* BE_H */

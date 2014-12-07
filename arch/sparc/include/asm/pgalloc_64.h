@@ -11,6 +11,7 @@
 #include <asm/cacheflush.h>
 #include <asm/page.h>
 
+/* Page table allocation/freeing. */
 
 extern struct kmem_cache *pgtable_cache;
 
@@ -105,12 +106,12 @@ static inline void __tlb_remove_table(void *_table)
 		is_page = true;
 	pgtable_free(table, is_page);
 }
-#else 
+#else /* CONFIG_SMP */
 static inline void pgtable_free_tlb(struct mmu_gather *tlb, void *table, bool is_page)
 {
 	pgtable_free(table, is_page);
 }
-#endif 
+#endif /* !CONFIG_SMP */
 
 static inline void __pte_free_tlb(struct mmu_gather *tlb, struct page *ptepage,
 				  unsigned long address)
@@ -122,4 +123,4 @@ static inline void __pte_free_tlb(struct mmu_gather *tlb, struct page *ptepage,
 #define __pmd_free_tlb(tlb, pmd, addr)		      \
 	pgtable_free_tlb(tlb, pmd, false)
 
-#endif 
+#endif /* _SPARC64_PGALLOC_H */

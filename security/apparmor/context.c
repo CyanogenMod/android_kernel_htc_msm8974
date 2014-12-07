@@ -29,11 +29,21 @@
 #include "include/context.h"
 #include "include/policy.h"
 
+/**
+ * aa_alloc_task_context - allocate a new task_cxt
+ * @flags: gfp flags for allocation
+ *
+ * Returns: allocated buffer or NULL on failure
+ */
 struct aa_task_cxt *aa_alloc_task_context(gfp_t flags)
 {
 	return kzalloc(sizeof(struct aa_task_cxt), flags);
 }
 
+/**
+ * aa_free_task_context - free a task_cxt
+ * @cxt: task_cxt to free (MAYBE NULL)
+ */
 void aa_free_task_context(struct aa_task_cxt *cxt)
 {
 	if (cxt) {
@@ -45,6 +55,11 @@ void aa_free_task_context(struct aa_task_cxt *cxt)
 	}
 }
 
+/**
+ * aa_dup_task_context - duplicate a task context, incrementing reference counts
+ * @new: a blank task context      (NOT NULL)
+ * @old: the task context to copy  (NOT NULL)
+ */
 void aa_dup_task_context(struct aa_task_cxt *new, const struct aa_task_cxt *old)
 {
 	*new = *old;
@@ -53,6 +68,12 @@ void aa_dup_task_context(struct aa_task_cxt *new, const struct aa_task_cxt *old)
 	aa_get_profile(new->onexec);
 }
 
+/**
+ * aa_replace_current_profile - replace the current tasks profiles
+ * @profile: new profile  (NOT NULL)
+ *
+ * Returns: 0 or error on failure
+ */
 int aa_replace_current_profile(struct aa_profile *profile)
 {
 	struct aa_task_cxt *cxt = current_cred()->security;
@@ -68,12 +89,19 @@ int aa_replace_current_profile(struct aa_profile *profile)
 
 	cxt = new->security;
 	if (unconfined(profile) || (cxt->profile->ns != profile->ns)) {
+		/* if switching to unconfined or a different profile namespace
+		 * clear out context state
+		 */
 		aa_put_profile(cxt->previous);
 		aa_put_profile(cxt->onexec);
 		cxt->previous = NULL;
 		cxt->onexec = NULL;
 		cxt->token = 0;
 	}
+	/* be careful switching cxt->profile, when racing replacement it
+	 * is possible that cxt->profile->replacedby is the reference keeping
+	 * @profile valid, so make sure to get its reference before dropping
+	 * the reference on cxt->profile */
 	aa_get_profile(profile);
 	aa_put_profile(cxt->profile);
 	cxt->profile = profile;
@@ -82,6 +110,12 @@ int aa_replace_current_profile(struct aa_profile *profile)
 	return 0;
 }
 
+/**
+ * aa_set_current_onexec - set the tasks change_profile to happen onexec
+ * @profile: system profile to set at exec  (MAYBE NULL to clear value)
+ *
+ * Returns: 0 or error on failure
+ */
 int aa_set_current_onexec(struct aa_profile *profile)
 {
 	struct aa_task_cxt *cxt;
@@ -98,6 +132,16 @@ int aa_set_current_onexec(struct aa_profile *profile)
 	return 0;
 }
 
+/**
+ * aa_set_current_hat - set the current tasks hat
+ * @profile: profile to set as the current hat  (NOT NULL)
+ * @token: token value that must be specified to change from the hat
+ *
+ * Do switch of tasks hat.  If the task is currently in a hat
+ * validate the token to match.
+ *
+ * Returns: 0 or error on failure
+ */
 int aa_set_current_hat(struct aa_profile *profile, u64 token)
 {
 	struct aa_task_cxt *cxt;
@@ -108,18 +152,18 @@ int aa_set_current_hat(struct aa_profile *profile, u64 token)
 
 	cxt = new->security;
 	if (!cxt->previous) {
-		
+		/* transfer refcount */
 		cxt->previous = cxt->profile;
 		cxt->token = token;
 	} else if (cxt->token == token) {
 		aa_put_profile(cxt->profile);
 	} else {
-		
+		/* previous_profile && cxt->token != token */
 		abort_creds(new);
 		return -EACCES;
 	}
 	cxt->profile = aa_get_profile(aa_newest_version(profile));
-	
+	/* clear exec on switching context */
 	aa_put_profile(cxt->onexec);
 	cxt->onexec = NULL;
 
@@ -127,6 +171,15 @@ int aa_set_current_hat(struct aa_profile *profile, u64 token)
 	return 0;
 }
 
+/**
+ * aa_restore_previous_profile - exit from hat context restoring the profile
+ * @token: the token that must be matched to exit hat context
+ *
+ * Attempt to return out of a hat to the previous profile.  The token
+ * must match the stored token value.
+ *
+ * Returns: 0 or error of failure
+ */
 int aa_restore_previous_profile(u64 token)
 {
 	struct aa_task_cxt *cxt;
@@ -139,7 +192,7 @@ int aa_restore_previous_profile(u64 token)
 		abort_creds(new);
 		return -EACCES;
 	}
-	
+	/* ignore restores when there is no saved profile */
 	if (!cxt->previous) {
 		abort_creds(new);
 		return 0;
@@ -152,7 +205,7 @@ int aa_restore_previous_profile(u64 token)
 		aa_get_profile(cxt->profile);
 		aa_put_profile(cxt->previous);
 	}
-	
+	/* clear exec && prev information when restoring to previous context */
 	cxt->previous = NULL;
 	cxt->token = 0;
 	aa_put_profile(cxt->onexec);

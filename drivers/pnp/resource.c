@@ -22,11 +22,14 @@
 #include <linux/pnp.h>
 #include "base.h"
 
-static int pnp_reserve_irq[16] = {[0 ... 15] = -1 };	
-static int pnp_reserve_dma[8] = {[0 ... 7] = -1 };	
-static int pnp_reserve_io[16] = {[0 ... 15] = -1 };	
-static int pnp_reserve_mem[16] = {[0 ... 15] = -1 };	
+static int pnp_reserve_irq[16] = {[0 ... 15] = -1 };	/* reserve (don't use) some IRQ */
+static int pnp_reserve_dma[8] = {[0 ... 7] = -1 };	/* reserve (don't use) some DMA */
+static int pnp_reserve_io[16] = {[0 ... 15] = -1 };	/* reserve (don't use) some I/O region */
+static int pnp_reserve_mem[16] = {[0 ... 15] = -1 };	/* reserve (don't use) some memory region */
 
+/*
+ * option registration
+ */
 
 struct pnp_option *pnp_build_option(struct pnp_dev *dev, unsigned long type,
 				    unsigned int option_flags)
@@ -146,9 +149,13 @@ void pnp_free_options(struct pnp_dev *dev)
 	}
 }
 
+/*
+ * resource validity checking
+ */
 
 #define length(start, end) (*(end) - *(start) + 1)
 
+/* Two ranges conflict if one doesn't end before the other starts */
 #define ranged_conflict(starta, enda, startb, endb) \
 	!((*(enda) < *(startb)) || (*(endb) < *(starta)))
 
@@ -165,16 +172,18 @@ int pnp_check_port(struct pnp_dev *dev, struct resource *res)
 	port = &res->start;
 	end = &res->end;
 
-	
+	/* if the resource doesn't exist, don't complain about it */
 	if (cannot_compare(res->flags))
 		return 1;
 
+	/* check if the resource is already in use, skip if the
+	 * device is active because it itself may be in use */
 	if (!dev->active) {
 		if (__check_region(&ioport_resource, *port, length(port, end)))
 			return 0;
 	}
 
-	
+	/* check if the resource is reserved */
 	for (i = 0; i < 8; i++) {
 		int rport = pnp_reserve_io[i << 1];
 		int rend = pnp_reserve_io[(i << 1) + 1] + rport - 1;
@@ -182,7 +191,7 @@ int pnp_check_port(struct pnp_dev *dev, struct resource *res)
 			return 0;
 	}
 
-	
+	/* check for internal conflicts */
 	for (i = 0; (tres = pnp_get_resource(dev, IORESOURCE_IO, i)); i++) {
 		if (tres != res && tres->flags & IORESOURCE_IO) {
 			tport = &tres->start;
@@ -192,7 +201,7 @@ int pnp_check_port(struct pnp_dev *dev, struct resource *res)
 		}
 	}
 
-	
+	/* check for conflicts with other pnp devices */
 	pnp_for_each_dev(tdev) {
 		if (tdev == dev)
 			continue;
@@ -225,16 +234,18 @@ int pnp_check_mem(struct pnp_dev *dev, struct resource *res)
 	addr = &res->start;
 	end = &res->end;
 
-	
+	/* if the resource doesn't exist, don't complain about it */
 	if (cannot_compare(res->flags))
 		return 1;
 
+	/* check if the resource is already in use, skip if the
+	 * device is active because it itself may be in use */
 	if (!dev->active) {
 		if (check_mem_region(*addr, length(addr, end)))
 			return 0;
 	}
 
-	
+	/* check if the resource is reserved */
 	for (i = 0; i < 8; i++) {
 		int raddr = pnp_reserve_mem[i << 1];
 		int rend = pnp_reserve_mem[(i << 1) + 1] + raddr - 1;
@@ -242,7 +253,7 @@ int pnp_check_mem(struct pnp_dev *dev, struct resource *res)
 			return 0;
 	}
 
-	
+	/* check for internal conflicts */
 	for (i = 0; (tres = pnp_get_resource(dev, IORESOURCE_MEM, i)); i++) {
 		if (tres != res && tres->flags & IORESOURCE_MEM) {
 			taddr = &tres->start;
@@ -252,7 +263,7 @@ int pnp_check_mem(struct pnp_dev *dev, struct resource *res)
 		}
 	}
 
-	
+	/* check for conflicts with other pnp devices */
 	pnp_for_each_dev(tdev) {
 		if (tdev == dev)
 			continue;
@@ -293,12 +304,20 @@ static int pci_dev_uses_irq(struct pnp_dev *pnp, struct pci_dev *pci,
 		return 1;
 	}
 
+	/*
+	 * See pci_setup_device() and ata_pci_sff_activate_host() for
+	 * similar IDE legacy detection.
+	 */
 	pci_read_config_dword(pci, PCI_CLASS_REVISION, &class);
-	class >>= 8;		
+	class >>= 8;		/* discard revision ID */
 	progif = class & 0xff;
 	class >>= 8;
 
 	if (class == PCI_CLASS_STORAGE_IDE) {
+		/*
+		 * Unless both channels are native-PCI mode only,
+		 * treat the compatibility IRQs as busy.
+		 */
 		if ((progif & 0x5) != 0x5)
 			if (pci_get_legacy_ide_irq(pci, 0) == irq ||
 			    pci_get_legacy_ide_irq(pci, 1) == irq) {
@@ -336,21 +355,21 @@ int pnp_check_irq(struct pnp_dev *dev, struct resource *res)
 
 	irq = &res->start;
 
-	
+	/* if the resource doesn't exist, don't complain about it */
 	if (cannot_compare(res->flags))
 		return 1;
 
-	
+	/* check if the resource is valid */
 	if (*irq < 0 || *irq > 15)
 		return 0;
 
-	
+	/* check if the resource is reserved */
 	for (i = 0; i < 16; i++) {
 		if (pnp_reserve_irq[i] == *irq)
 			return 0;
 	}
 
-	
+	/* check for internal conflicts */
 	for (i = 0; (tres = pnp_get_resource(dev, IORESOURCE_IRQ, i)); i++) {
 		if (tres != res && tres->flags & IORESOURCE_IRQ) {
 			if (tres->start == *irq)
@@ -358,10 +377,12 @@ int pnp_check_irq(struct pnp_dev *dev, struct resource *res)
 		}
 	}
 
-	
+	/* check if the resource is being used by a pci device */
 	if (pci_uses_irq(dev, *irq))
 		return 0;
 
+	/* check if the resource is already in use, skip if the
+	 * device is active because it itself may be in use */
 	if (!dev->active) {
 		if (request_irq(*irq, pnp_test_handler,
 				IRQF_DISABLED | IRQF_PROBE_SHARED, "pnp", NULL))
@@ -369,7 +390,7 @@ int pnp_check_irq(struct pnp_dev *dev, struct resource *res)
 		free_irq(*irq, NULL);
 	}
 
-	
+	/* check for conflicts with other pnp devices */
 	pnp_for_each_dev(tdev) {
 		if (tdev == dev)
 			continue;
@@ -398,21 +419,21 @@ int pnp_check_dma(struct pnp_dev *dev, struct resource *res)
 
 	dma = &res->start;
 
-	
+	/* if the resource doesn't exist, don't complain about it */
 	if (cannot_compare(res->flags))
 		return 1;
 
-	
+	/* check if the resource is valid */
 	if (*dma < 0 || *dma == 4 || *dma > 7)
 		return 0;
 
-	
+	/* check if the resource is reserved */
 	for (i = 0; i < 8; i++) {
 		if (pnp_reserve_dma[i] == *dma)
 			return 0;
 	}
 
-	
+	/* check for internal conflicts */
 	for (i = 0; (tres = pnp_get_resource(dev, IORESOURCE_DMA, i)); i++) {
 		if (tres != res && tres->flags & IORESOURCE_DMA) {
 			if (tres->start == *dma)
@@ -420,13 +441,15 @@ int pnp_check_dma(struct pnp_dev *dev, struct resource *res)
 		}
 	}
 
+	/* check if the resource is already in use, skip if the
+	 * device is active because it itself may be in use */
 	if (!dev->active) {
 		if (request_dma(*dma, "pnp"))
 			return 0;
 		free_dma(*dma);
 	}
 
-	
+	/* check for conflicts with other pnp devices */
 	pnp_for_each_dev(tdev) {
 		if (tdev == dev)
 			continue;
@@ -444,7 +467,7 @@ int pnp_check_dma(struct pnp_dev *dev, struct resource *res)
 
 	return 1;
 }
-#endif 
+#endif /* CONFIG_ISA_DMA_API */
 
 unsigned long pnp_resource_type(struct resource *res)
 {
@@ -594,6 +617,10 @@ struct pnp_resource *pnp_add_bus_resource(struct pnp_dev *dev,
 	return pnp_res;
 }
 
+/*
+ * Determine whether the specified resource is a possible configuration
+ * for this device.
+ */
 int pnp_possible_config(struct pnp_dev *dev, int type, resource_size_t start,
 			resource_size_t size)
 {
@@ -654,6 +681,7 @@ int pnp_range_reserved(resource_size_t start, resource_size_t end)
 }
 EXPORT_SYMBOL(pnp_range_reserved);
 
+/* format is: pnp_reserve_irq=irq1[,irq2] .... */
 static int __init pnp_setup_reserve_irq(char *str)
 {
 	int i;
@@ -666,6 +694,7 @@ static int __init pnp_setup_reserve_irq(char *str)
 
 __setup("pnp_reserve_irq=", pnp_setup_reserve_irq);
 
+/* format is: pnp_reserve_dma=dma1[,dma2] .... */
 static int __init pnp_setup_reserve_dma(char *str)
 {
 	int i;
@@ -678,6 +707,7 @@ static int __init pnp_setup_reserve_dma(char *str)
 
 __setup("pnp_reserve_dma=", pnp_setup_reserve_dma);
 
+/* format is: pnp_reserve_io=io1,size1[,io2,size2] .... */
 static int __init pnp_setup_reserve_io(char *str)
 {
 	int i;
@@ -690,6 +720,7 @@ static int __init pnp_setup_reserve_io(char *str)
 
 __setup("pnp_reserve_io=", pnp_setup_reserve_io);
 
+/* format is: pnp_reserve_mem=mem1,size1[,mem2,size2] .... */
 static int __init pnp_setup_reserve_mem(char *str)
 {
 	int i;

@@ -16,6 +16,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * copied and adjusted from board-stamp9g20.c
+ * by Peter Gsellmann <pgsellmann@portner-elektronik.at>
+ */
 
 #include <linux/mm.h>
 #include <linux/platform_device.h>
@@ -37,15 +41,15 @@ static void __init pcontrol_g20_init_early(void)
 {
 	stamp9g20_init_early();
 
-	
+	/* USART0 on ttyS1. (Rx, Tx, CTS, RTS) piggyback  A2 */
 	at91_register_uart(AT91SAM9260_ID_US0, 1, ATMEL_UART_CTS
 						| ATMEL_UART_RTS);
 
-	
+	/* USART1 on ttyS2. (Rx, Tx, CTS, RTS) isolated RS485  X5 */
 	at91_register_uart(AT91SAM9260_ID_US1, 2, ATMEL_UART_CTS
 						| ATMEL_UART_RTS);
 
-	
+	/* USART2 on ttyS3. (Rx, Tx)  9bit-Bus  Multidrop-mode  X4 */
 	at91_register_uart(AT91SAM9260_ID_US4, 3, 0);
 }
 
@@ -91,13 +95,16 @@ static struct sam9_smc_config __initdata pcontrol_smc_config[2] = { {
 
 static void __init add_device_pcontrol(void)
 {
-	
+	/* configure chip-select 4 (IO compatible to 8051  X4 ) */
 	sam9_smc_configure(0, 4, &pcontrol_smc_config[0]);
-	
+	/* configure chip-select 7 (FerroRAM 256KiBx16bit MR2A16A  D4 ) */
 	sam9_smc_configure(0, 7, &pcontrol_smc_config[1]);
 }
 
 
+/*
+ * USB Host port
+ */
 static struct at91_usbh_data __initdata usbh_data = {
 	.ports		= 2,
 	.vbus_pin	= {-EINVAL, -EINVAL},
@@ -105,69 +112,84 @@ static struct at91_usbh_data __initdata usbh_data = {
 };
 
 
+/*
+ * USB Device port
+ */
 static struct at91_udc_data __initdata pcontrol_g20_udc_data = {
-	.vbus_pin	= AT91_PIN_PA22,	
-	.pullup_pin	= AT91_PIN_PA4,		
+	.vbus_pin	= AT91_PIN_PA22,	/* Detect +5V bus voltage */
+	.pullup_pin	= AT91_PIN_PA4,		/* K-state, active low */
 };
 
 
+/*
+ * MACB Ethernet device
+ */
 static struct macb_platform_data __initdata macb_data = {
 	.phy_irq_pin	= AT91_PIN_PA28,
 	.is_rmii	= 1,
 };
 
 
+/*
+ * I2C devices: eeprom and phy/switch
+ */
 static struct i2c_board_info __initdata pcontrol_g20_i2c_devices[] = {
-{		
+{		/* D7  address width=2, 8KiB */
 	I2C_BOARD_INFO("24c64", 0x50)
-}, {		
+}, {		/* D8  address width=1, 1 byte has 32 bits! */
 	I2C_BOARD_INFO("lan9303", 0x0a)
 }, };
 
 
+/*
+ * LEDs
+ */
 static struct gpio_led pcontrol_g20_leds[] = {
 	{
-		.name			= "LED1",	
+		.name			= "LED1",	/* red  H5 */
 		.gpio			= AT91_PIN_PB18,
 		.active_low		= 1,
-		.default_trigger	= "none",	
+		.default_trigger	= "none",	/* supervisor */
 	}, {
-		.name			= "LED2",	
+		.name			= "LED2",	/* yellow  H7 */
 		.gpio			= AT91_PIN_PB19,
 		.active_low		= 1,
-		.default_trigger	= "mmc0",	
+		.default_trigger	= "mmc0",	/* SD-card activity */
 	}, {
-		.name			= "LED3",	
+		.name			= "LED3",	/* green  H2 */
 		.gpio			= AT91_PIN_PB20,
 		.active_low		= 1,
-		.default_trigger	= "heartbeat",	
+		.default_trigger	= "heartbeat",	/* blinky */
 	}, {
-		.name			= "LED4",	
+		.name			= "LED4",	/* red  H3 */
 		.gpio			= AT91_PIN_PC6,
 		.active_low		= 1,
-		.default_trigger	= "none",	
+		.default_trigger	= "none",	/* connection lost */
 	}, {
-		.name			= "LED5",	
+		.name			= "LED5",	/* yellow  H6 */
 		.gpio			= AT91_PIN_PC7,
 		.active_low		= 1,
-		.default_trigger	= "none",	
+		.default_trigger	= "none",	/* unsent data */
 	}, {
-		.name			= "LED6",	
+		.name			= "LED6",	/* green  H1 */
 		.gpio			= AT91_PIN_PC9,
 		.active_low		= 1,
-		.default_trigger	= "none",	
+		.default_trigger	= "none",	/* snafu */
 	}
 };
 
 
+/*
+ * SPI devices
+ */
 static struct spi_board_info pcontrol_g20_spi_devices[] = {
 	{
-		.modalias	= "spidev",	
+		.modalias	= "spidev",	/* HMI port  X4 */
 		.chip_select	= 1,
 		.max_speed_hz	= 50 * 1000 * 1000,
 		.bus_num	= 0,
 	}, {
-		.modalias	= "spidev",	
+		.modalias	= "spidev",	/* piggyback  A2 */
 		.chip_select	= 0,
 		.max_speed_hz	= 50 * 1000 * 1000,
 		.bus_num	= 1,
@@ -188,13 +210,13 @@ static void __init pcontrol_g20_board_init(void)
 	at91_add_device_udc(&pcontrol_g20_udc_data);
 	at91_gpio_leds(pcontrol_g20_leds,
 		ARRAY_SIZE(pcontrol_g20_leds));
-	
+	/* piggyback  A2 */
 	at91_set_gpio_output(AT91_PIN_PB31, 1);
 }
 
 
 MACHINE_START(PCONTROL_G20, "PControl G20")
-	
+	/* Maintainer: pgsellmann@portner-elektronik.at */
 	.timer		= &at91sam926x_timer,
 	.map_io		= at91_map_io,
 	.init_early	= pcontrol_g20_init_early,

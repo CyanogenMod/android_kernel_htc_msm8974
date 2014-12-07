@@ -1,3 +1,6 @@
+/*
+ * Defines for zoom boards
+ */
 #include <video/omapdss.h>
 
 #define ZOOM_NAND_CS    0

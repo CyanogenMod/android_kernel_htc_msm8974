@@ -15,10 +15,19 @@
 
 #define ARCH_APICTIMER_STOPS_ON_C3	1
 
+/*
+ * Debugging macros
+ */
 #define APIC_QUIET   0
 #define APIC_VERBOSE 1
 #define APIC_DEBUG   2
 
+/*
+ * Define the default level of output to be very little
+ * This can be turned up by using apic=verbose for more
+ * information and apic=debug for _lots_ of information.
+ * apic_verbosity is defined in apic.c
+ */
 #define apic_printk(v, s, a...) do {       \
 		if ((v) <= apic_verbosity) \
 			printk(s, ##a);    \
@@ -43,11 +52,11 @@ extern unsigned int lapic_timer_frequency;
 
 #ifdef CONFIG_SMP
 extern void __inquire_remote_apic(int apicid);
-#else 
+#else /* CONFIG_SMP */
 static inline void __inquire_remote_apic(int apicid)
 {
 }
-#endif 
+#endif /* CONFIG_SMP */
 
 static inline void default_inquire_remote_apic(int apicid)
 {
@@ -55,11 +64,22 @@ static inline void default_inquire_remote_apic(int apicid)
 		__inquire_remote_apic(apicid);
 }
 
+/*
+ * With 82489DX we can't rely on apic feature bit
+ * retrieved via cpuid but still have to deal with
+ * such an apic chip so we assume that SMP configuration
+ * is found from MP table (64bit case uses ACPI mostly
+ * which set smp presence flag as well so we are safe
+ * to use this helper too).
+ */
 static inline bool apic_from_smp_config(void)
 {
 	return smp_found_config && !disable_apic;
 }
 
+/*
+ * Basic functions accessing APICs.
+ */
 #ifdef CONFIG_PARAVIRT
 #include <asm/paravirt.h>
 #endif
@@ -99,6 +119,11 @@ extern u64 native_apic_icr_read(void);
 extern int x2apic_mode;
 
 #ifdef CONFIG_X86_X2APIC
+/*
+ * Make previous memory operations globally visible before
+ * sending the IPI through x2apic wrmsr. We need a serializing instruction or
+ * mfence for this.
+ */
 static inline void x2apic_wrmsr_fence(void)
 {
 	asm volatile("mfence" : : : "memory");
@@ -126,13 +151,13 @@ static inline u32 native_apic_msr_read(u32 reg)
 
 static inline void native_x2apic_wait_icr_idle(void)
 {
-	
+	/* no need to wait for icr idle in x2apic */
 	return;
 }
 
 static inline u32 native_safe_x2apic_wait_icr_idle(void)
 {
-	
+	/* no need to wait for icr idle in x2apic */
 	return 0;
 }
 
@@ -218,6 +243,9 @@ extern void setup_secondary_APIC_clock(void);
 extern int APIC_init_uniprocessor(void);
 extern int apic_force_enable(unsigned long addr);
 
+/*
+ * On 32bit this is mach-xxx local
+ */
 #ifdef CONFIG_X86_64
 extern int apic_is_clustered_box(void);
 #else
@@ -229,14 +257,14 @@ static inline int apic_is_clustered_box(void)
 
 extern int setup_APIC_eilvt(u8 lvt_off, u8 vector, u8 msg_type, u8 mask);
 
-#else 
+#else /* !CONFIG_X86_LOCAL_APIC */
 static inline void lapic_shutdown(void) { }
 #define local_apic_timer_c2_ok		1
 static inline void init_apic_mappings(void) { }
 static inline void disable_local_APIC(void) { }
 # define setup_boot_APIC_clock x86_init_noop
 # define setup_secondary_APIC_clock x86_init_noop
-#endif 
+#endif /* !CONFIG_X86_LOCAL_APIC */
 
 #ifdef CONFIG_X86_64
 #define	SET_APIC_ID(x)		(apic->set_apic_id(x))
@@ -287,6 +315,11 @@ struct apic {
 	void (*enable_apic_mode)(void);
 	int (*phys_pkg_id)(int cpuid_apic, int index_msb);
 
+	/*
+	 * When one of the next two hooks returns 1 the apic
+	 * is switched to this. Essentially they are additional
+	 * probe functions:
+	 */
 	int (*mps_oem_check)(struct mpc_table *mpc, char *oem, char *productid);
 
 	unsigned int (*get_apic_id)(unsigned long x);
@@ -297,7 +330,7 @@ struct apic {
 	unsigned int (*cpu_mask_to_apicid_and)(const struct cpumask *cpumask,
 					       const struct cpumask *andmask);
 
-	
+	/* ipi */
 	void (*send_IPI_mask)(const struct cpumask *mask, int vector);
 	void (*send_IPI_mask_allbutself)(const struct cpumask *mask,
 					 int vector);
@@ -305,7 +338,7 @@ struct apic {
 	void (*send_IPI_all)(int vector);
 	void (*send_IPI_self)(int vector);
 
-	
+	/* wakeup_secondary_cpu */
 	int (*wakeup_secondary_cpu)(int apicid, unsigned long start_eip);
 
 	int trampoline_phys_low;
@@ -315,7 +348,7 @@ struct apic {
 	void (*smp_callin_clear_local_apic)(void);
 	void (*inquire_remote_apic)(int apicid);
 
-	
+	/* apic ops */
 	u32 (*read)(u32 reg);
 	void (*write)(u32 reg, u32 v);
 	u64 (*icr_read)(void);
@@ -324,14 +357,43 @@ struct apic {
 	u32 (*safe_wait_icr_idle)(void);
 
 #ifdef CONFIG_X86_32
+	/*
+	 * Called very early during boot from get_smp_config().  It should
+	 * return the logical apicid.  x86_[bios]_cpu_to_apicid is
+	 * initialized before this function is called.
+	 *
+	 * If logical apicid can't be determined that early, the function
+	 * may return BAD_APICID.  Logical apicid will be configured after
+	 * init_apic_ldr() while bringing up CPUs.  Note that NUMA affinity
+	 * won't be applied properly during early boot in this case.
+	 */
 	int (*x86_32_early_logical_apicid)(int cpu);
 
+	/*
+	 * Optional method called from setup_local_APIC() after logical
+	 * apicid is guaranteed to be known to initialize apicid -> node
+	 * mapping if NUMA initialization hasn't done so already.  Don't
+	 * add new users.
+	 */
 	int (*x86_32_numa_cpu_node)(int cpu);
 #endif
 };
 
+/*
+ * Pointer to the local APIC driver in use on this system (there's
+ * always just one such driver in use - the kernel decides via an
+ * early probing process which one it picks - and then sticks to it):
+ */
 extern struct apic *apic;
 
+/*
+ * APIC drivers are probed based on how they are listed in the .apicdrivers
+ * section. So the order is important and enforced by the ordering
+ * of different apic driver files in the Makefile.
+ *
+ * For the files having two apic drivers, we use apic_drivers()
+ * to enforce the order with in them.
+ */
 #define apic_driver(sym)					\
 	static struct apic *__apicdrivers_##sym __used		\
 	__aligned(sizeof(struct apic *))			\
@@ -344,6 +406,9 @@ extern struct apic *apic;
 
 extern struct apic *__apicdrivers[], *__apicdrivers_end[];
 
+/*
+ * APIC functionality to boot other CPUs - only used on SMP:
+ */
 #ifdef CONFIG_SMP
 extern atomic_t init_deasserted;
 extern int wakeup_secondary_cpu_via_nmi(int apicid, unsigned long start_eip);
@@ -381,7 +446,7 @@ static inline u32 safe_apic_wait_icr_idle(void)
 	return apic->safe_wait_icr_idle();
 }
 
-#else 
+#else /* CONFIG_X86_LOCAL_APIC */
 
 static inline u32 apic_read(u32 reg) { return 0; }
 static inline void apic_write(u32 reg, u32 val) { }
@@ -390,12 +455,16 @@ static inline void apic_icr_write(u32 low, u32 high) { }
 static inline void apic_wait_icr_idle(void) { }
 static inline u32 safe_apic_wait_icr_idle(void) { return 0; }
 
-#endif 
+#endif /* CONFIG_X86_LOCAL_APIC */
 
 static inline void ack_APIC_irq(void)
 {
+	/*
+	 * ack_APIC_irq() actually gets compiled as a single instruction
+	 * ... yummie.
+	 */
 
-	
+	/* Docs say use 0 for future compatibility */
 	apic_write(APIC_EOI, 0);
 }
 
@@ -409,6 +478,9 @@ static inline unsigned default_get_apic_id(unsigned long x)
 		return (x >> 24) & 0x0F;
 }
 
+/*
+ * Warm reset vector default position:
+ */
 #define DEFAULT_TRAMPOLINE_PHYS_LOW		0x467
 #define DEFAULT_TRAMPOLINE_PHYS_HIGH		0x469
 
@@ -476,6 +548,13 @@ static inline int noop_x86_32_early_logical_apicid(int cpu)
 	return BAD_APICID;
 }
 
+/*
+ * Set up the logical destination ID.
+ *
+ * Intel recommends to set DFR, LDR and TPR before enabling
+ * an APIC.  See e.g. "AP-388 82489DX User's Manual" (Intel
+ * document number 292116).  So here it goes...
+ */
 extern void default_init_apic_ldr(void);
 
 static inline int default_apic_id_registered(void)
@@ -552,6 +631,6 @@ extern int default_cpu_present_to_apicid(int mps_cpu);
 extern int default_check_phys_apicid_present(int phys_apicid);
 #endif
 
-#endif 
+#endif /* CONFIG_X86_LOCAL_APIC */
 
-#endif 
+#endif /* _ASM_X86_APIC_H */

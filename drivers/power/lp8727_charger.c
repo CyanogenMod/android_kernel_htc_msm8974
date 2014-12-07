@@ -19,6 +19,7 @@
 
 #define DEBOUNCE_MSEC	270
 
+/* Registers */
 #define CTRL1		0x1
 #define CTRL2		0x2
 #define	SWCTRL		0x3
@@ -28,13 +29,16 @@
 #define STATUS2		0x7
 #define CHGCTRL2	0x9
 
+/* CTRL1 register */
 #define CP_EN		(1 << 0)
 #define ADC_EN		(1 << 1)
 #define ID200_EN	(1 << 4)
 
+/* CTRL2 register */
 #define CHGDET_EN	(1 << 1)
 #define INT_EN		(1 << 6)
 
+/* SWCTRL register */
 #define SW_DM1_DM	(0x0 << 0)
 #define SW_DM1_U1	(0x1 << 0)
 #define SW_DM1_HiZ	(0x7 << 0)
@@ -42,13 +46,16 @@
 #define SW_DP2_U2	(0x1 << 3)
 #define SW_DP2_HiZ	(0x7 << 3)
 
+/* INT1 register */
 #define IDNO		(0xF << 0)
 #define VBUS		(1 << 4)
 
+/* STATUS1 register */
 #define CHGSTAT		(3 << 4)
 #define CHPORT		(1 << 6)
 #define DCPORT		(1 << 7)
 
+/* STATUS2 register */
 #define TEMP_STAT	(3 << 5)
 
 enum lp8727_dev_id {

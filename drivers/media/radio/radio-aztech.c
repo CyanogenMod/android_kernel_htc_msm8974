@@ -1,10 +1,26 @@
+/*
+ * radio-aztech.c - Aztech radio card driver
+ *
+ * Converted to the radio-isa framework by Hans Verkuil <hans.verkuil@xs4all.nl>
+ * Converted to V4L2 API by Mauro Carvalho Chehab <mchehab@infradead.org>
+ * Adapted to support the Video for Linux API by
+ * Russell Kroll <rkroll@exploits.org>.  Based on original tuner code by:
+ *
+ * Quay Ly
+ * Donald Song
+ * Jason Lewis      (jlewis@twilight.vtc.vsc.edu)
+ * Scott McGrath    (smcgrath@twilight.vtc.vsc.edu)
+ * William McGrath  (wmcgrath@twilight.vtc.vsc.edu)
+ *
+ * Fully tested with the Keene USB FM Transmitter and the v4l2-compliance tool.
+*/
 
-#include <linux/module.h>	
-#include <linux/init.h>		
-#include <linux/ioport.h>	
-#include <linux/delay.h>	
-#include <linux/videodev2.h>	
-#include <linux/io.h>		
+#include <linux/module.h>	/* Modules 			*/
+#include <linux/init.h>		/* Initdata			*/
+#include <linux/ioport.h>	/* request_region		*/
+#include <linux/delay.h>	/* udelay			*/
+#include <linux/videodev2.h>	/* kernel radio structs		*/
+#include <linux/io.h>		/* outb, outb_p			*/
 #include <linux/slab.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -16,6 +32,7 @@ MODULE_DESCRIPTION("A driver for the Aztech radio card.");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0.0");
 
+/* acceptable ports: 0x350 (JP3 shorted), 0x358 (JP3 open) */
 #ifndef CONFIG_RADIO_AZTECH_PORT
 #define CONFIG_RADIO_AZTECH_PORT -1
 #endif
@@ -63,33 +80,33 @@ static int aztech_s_frequency(struct radio_isa_card *isa, u32 freq)
 	struct aztech *az = container_of(isa, struct aztech, isa);
 	int  i;
 
-	freq += 171200;			
-	freq /= 800;			
+	freq += 171200;			/* Add 10.7 MHz IF		*/
+	freq /= 800;			/* Convert to 50 kHz units	*/
 
-	send_0_byte(az);		
+	send_0_byte(az);		/*  0: LSB of frequency       */
 
-	for (i = 0; i < 13; i++)	
+	for (i = 0; i < 13; i++)	/*   : frequency bits (1-13)  */
 		if (freq & (1 << i))
 			send_1_byte(az);
 		else
 			send_0_byte(az);
 
-	send_0_byte(az);		
-	send_0_byte(az);		
-	send_0_byte(az);		
-	if (isa->stereo)		
+	send_0_byte(az);		/* 14: test bit - always 0    */
+	send_0_byte(az);		/* 15: test bit - always 0    */
+	send_0_byte(az);		/* 16: band data 0 - always 0 */
+	if (isa->stereo)		/* 17: stereo (1 to enable)   */
 		send_1_byte(az);
 	else
 		send_0_byte(az);
 
-	send_1_byte(az);		
-	send_0_byte(az);		
-	send_0_byte(az);		
-	send_1_byte(az);		
-	send_0_byte(az);		
-	send_1_byte(az);		
+	send_1_byte(az);		/* 18: band data 1 - unknown  */
+	send_0_byte(az);		/* 19: time base - always 0   */
+	send_0_byte(az);		/* 20: spacing (0 = 25 kHz)   */
+	send_1_byte(az);		/* 21: spacing (1 = 25 kHz)   */
+	send_0_byte(az);		/* 22: spacing (0 = 25 kHz)   */
+	send_1_byte(az);		/* 23: AM/FM (FM = 1, always) */
 
-	
+	/* latch frequency */
 
 	udelay(radio_wait_time);
 	outb_p(128 + 64 + az->curvol, az->isa.io);
@@ -97,6 +114,11 @@ static int aztech_s_frequency(struct radio_isa_card *isa, u32 freq)
 	return 0;
 }
 
+/* thanks to Michael Dwyer for giving me a dose of clues in
+ * the signal strength department..
+ *
+ * This card has a stereo bit - bit 0 set = mono, not set = stereo
+ */
 static u32 aztech_g_rxsubchans(struct radio_isa_card *isa)
 {
 	if (inb(isa->io) & 1)

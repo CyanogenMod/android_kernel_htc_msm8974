@@ -61,6 +61,13 @@ static int iwmmxt_do(struct notifier_block *self, unsigned long cmd, void *t)
 
 	switch (cmd) {
 	case THREAD_NOTIFY_FLUSH:
+		/*
+		 * flush_thread() zeroes thread->fpstate, so no need
+		 * to do anything here.
+		 *
+		 * FALLTHROUGH: Ensure we don't try to overwrite our newly
+		 * initialised state information on the first fault.
+		 */
 
 	case THREAD_NOTIFY_EXIT:
 		iwmmxt_task_release(thread);
@@ -103,11 +110,26 @@ static void __init xscale_cp_access_write(u32 value)
 		: "=r" (temp) : "r" (value));
 }
 
+/*
+ * Detect whether we have a MAC coprocessor (40 bit register) or an
+ * iWMMXt coprocessor (64 bit registers) by loading 00000100:00000000
+ * into a coprocessor register and reading it back, and checking
+ * whether the upper word survived intact.
+ */
 static int __init cpu_has_iwmmxt(void)
 {
 	u32 lo;
 	u32 hi;
 
+	/*
+	 * This sequence is interpreted by the DSP coprocessor as:
+	 *	mar	acc0, %2, %3
+	 *	mra	%0, %1, acc0
+	 *
+	 * And by the iWMMXt coprocessor as:
+	 *	tmcrr	wR0, %2, %3
+	 *	tmrrc	%0, %1, wR0
+	 */
 	__asm__ __volatile__ (
 		"mcrr	p0, 0, %2, %3, c0\n"
 		"mrrc	p0, 0, %0, %1, c0\n"
@@ -118,6 +140,14 @@ static int __init cpu_has_iwmmxt(void)
 }
 
 
+/*
+ * If we detect that the CPU has iWMMXt (and CONFIG_IWMMXT=y), we
+ * disable CP0/CP1 on boot, and let call_fpe() and the iWMMXt lazy
+ * switch code handle iWMMXt context switching.  If on the other
+ * hand the CPU has a DSP coprocessor, we keep access to CP0 enabled
+ * all the time, and save/restore acc0 on context switch in non-lazy
+ * fashion.
+ */
 static int __init xscale_cp0_init(void)
 {
 	u32 cp_access;

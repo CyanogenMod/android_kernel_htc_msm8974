@@ -20,11 +20,12 @@
 
 #include <asm/io.h>
 
+/* SPI/eSPI Controller driver's private data. */
 struct mpc8xxx_spi {
 	struct device *dev;
 	void *reg_base;
 
-	
+	/* rx & tx bufs from the spi_transfer */
 	const void *tx;
 	void *rx;
 #ifdef CONFIG_SPI_FSL_ESPI
@@ -38,7 +39,7 @@ struct mpc8xxx_spi {
 
 	struct spi_transfer *xfer_in_progress;
 
-	
+	/* dma addresses for CPM transfers */
 	dma_addr_t tx_dma;
 	dma_addr_t rx_dma;
 	bool map_tx_dma;
@@ -47,22 +48,22 @@ struct mpc8xxx_spi {
 	dma_addr_t dma_dummy_tx;
 	dma_addr_t dma_dummy_rx;
 
-	
+	/* functions to deal with different sized buffers */
 	void (*get_rx) (u32 rx_data, struct mpc8xxx_spi *);
 	u32(*get_tx) (struct mpc8xxx_spi *);
 
-	
+	/* hooks for different controller driver */
 	void (*spi_do_one_msg) (struct spi_message *m);
 	void (*spi_remove) (struct mpc8xxx_spi *mspi);
 
 	unsigned int count;
 	unsigned int irq;
 
-	unsigned nsecs;		
+	unsigned nsecs;		/* (clock cycle time)/2 */
 
-	u32 spibrg;		
-	u32 rx_shift;		
-	u32 tx_shift;		
+	u32 spibrg;		/* SPIBRG input clock */
+	u32 rx_shift;		/* RX data reg shift when in qe mode */
+	u32 tx_shift;		/* TX data reg shift when in qe mode */
 
 	unsigned int flags;
 
@@ -76,12 +77,12 @@ struct mpc8xxx_spi {
 };
 
 struct spi_mpc8xxx_cs {
-	
+	/* functions to deal with different sized buffers */
 	void (*get_rx) (u32 rx_data, struct mpc8xxx_spi *);
 	u32 (*get_tx) (struct mpc8xxx_spi *);
-	u32 rx_shift;		
-	u32 tx_shift;		
-	u32 hw_mode;		
+	u32 rx_shift;		/* RX data reg shift when in qe mode */
+	u32 tx_shift;		/* TX data reg shift when in qe mode */
+	u32 hw_mode;		/* Holds HW mode register settings */
 };
 
 static inline void mpc8xxx_spi_write_reg(__be32 __iomem *reg, u32 val)
@@ -119,4 +120,4 @@ extern int mpc8xxx_spi_probe(struct device *dev, struct resource *mem,
 extern int mpc8xxx_spi_remove(struct device *dev);
 extern int of_mpc8xxx_spi_probe(struct platform_device *ofdev);
 
-#endif 
+#endif /* __SPI_FSL_LIB_H__ */

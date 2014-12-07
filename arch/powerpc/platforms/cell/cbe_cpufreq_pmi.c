@@ -42,6 +42,9 @@ static u8 pmi_slow_mode_limit[MAX_CBE];
 bool cbe_cpufreq_has_pmi = false;
 EXPORT_SYMBOL_GPL(cbe_cpufreq_has_pmi);
 
+/*
+ * hardware specific functions
+ */
 
 int cbe_cpufreq_set_pmode_pmi(int cpu, unsigned int pmode)
 {
@@ -94,6 +97,9 @@ static int pmi_notifier(struct notifier_block *nb,
 	struct cpufreq_frequency_table *cbe_freqs;
 	u8 node;
 
+	/* Should this really be called for CPUFREQ_ADJUST, CPUFREQ_INCOMPATIBLE
+	 * and CPUFREQ_NOTIFY policy events?)
+	 */
 	if (event == CPUFREQ_START)
 		return 0;
 

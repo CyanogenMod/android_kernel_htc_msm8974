@@ -13,9 +13,10 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Michal Majchrowicz <mmajchrowicz@gmail.com> */
 
 static struct rc_map_table proteus_2309[] = {
-	
+	/* numeric */
 	{ 0x00, KEY_0 },
 	{ 0x01, KEY_1 },
 	{ 0x02, KEY_2 },
@@ -27,19 +28,19 @@ static struct rc_map_table proteus_2309[] = {
 	{ 0x08, KEY_8 },
 	{ 0x09, KEY_9 },
 
-	{ 0x5c, KEY_POWER },		
-	{ 0x20, KEY_ZOOM },		
-	{ 0x0f, KEY_BACKSPACE },	
-	{ 0x1b, KEY_ENTER },		
-	{ 0x41, KEY_RECORD },		
-	{ 0x43, KEY_STOP },		
+	{ 0x5c, KEY_POWER },		/* power       */
+	{ 0x20, KEY_ZOOM },		/* full screen */
+	{ 0x0f, KEY_BACKSPACE },	/* recall      */
+	{ 0x1b, KEY_ENTER },		/* mute        */
+	{ 0x41, KEY_RECORD },		/* record      */
+	{ 0x43, KEY_STOP },		/* stop        */
 	{ 0x16, KEY_S },
-	{ 0x1a, KEY_POWER2 },		
+	{ 0x1a, KEY_POWER2 },		/* off         */
 	{ 0x2e, KEY_RED },
-	{ 0x1f, KEY_CHANNELDOWN },	
-	{ 0x1c, KEY_CHANNELUP },	
-	{ 0x10, KEY_VOLUMEDOWN },	
-	{ 0x1e, KEY_VOLUMEUP },		
+	{ 0x1f, KEY_CHANNELDOWN },	/* channel -   */
+	{ 0x1c, KEY_CHANNELUP },	/* channel +   */
+	{ 0x10, KEY_VOLUMEDOWN },	/* volume -    */
+	{ 0x1e, KEY_VOLUMEUP },		/* volume +    */
 	{ 0x14, KEY_F1 },
 };
 
@@ -47,7 +48,7 @@ static struct rc_map_list proteus_2309_map = {
 	.map = {
 		.scan    = proteus_2309,
 		.size    = ARRAY_SIZE(proteus_2309),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_PROTEUS_2309,
 	}
 };

@@ -20,6 +20,12 @@
 #include <linux/cache.h>
 #include <linux/io.h>
 
+/*
+ * Note that on x86 and powerpc, there is a "struct dma_mapping_ops"
+ * that is used for all the DMA operations.  For now, we don't have an
+ * equivalent on tile, because we only have a single way of doing DMA.
+ * (Tilera bug 7994 to use dma_mapping_ops.)
+ */
 
 #define dma_alloc_noncoherent(d, s, h, f) dma_alloc_coherent(d, s, h, f)
 #define dma_free_noncoherent(d, s, v, h) dma_free_coherent(d, s, v, h)
@@ -85,4 +91,4 @@ dma_set_mask(struct device *dev, u64 mask)
 	return 0;
 }
 
-#endif 
+#endif /* _ASM_TILE_DMA_MAPPING_H */

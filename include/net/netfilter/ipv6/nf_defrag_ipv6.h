@@ -13,4 +13,4 @@ extern void nf_ct_frag6_output(unsigned int hooknum, struct sk_buff *skb,
 
 struct inet_frags_ctl;
 
-#endif 
+#endif /* _NF_DEFRAG_IPV6_H */

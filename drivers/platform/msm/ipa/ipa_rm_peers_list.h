@@ -15,6 +15,14 @@
 
 #include "ipa_rm_resource.h"
 
+/**
+ * struct ipa_rm_peers_list - IPA RM resource peers list
+ * @peers: the list of references to resources dependent on this resource
+ *          in case of producer or list of dependencies in case of consumer
+ * @max_peers: maximum number of peers for this resource
+ * @peers_count: actual number of peers for this resource
+ * @peers_lock: RW lock for peers container
+ */
 struct ipa_rm_peers_list {
 	struct ipa_rm_resource		**peers;
 	int				max_peers;
@@ -44,4 +52,4 @@ bool ipa_rm_peers_list_has_last_peer(
 		struct ipa_rm_peers_list *peers_list);
 
 
-#endif 
+#endif /* _IPA_RM_PEERS_LIST_H_ */

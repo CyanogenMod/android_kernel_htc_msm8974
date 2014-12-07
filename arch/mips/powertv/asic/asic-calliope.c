@@ -38,7 +38,7 @@ const struct register_map calliope_register_map __initdata = {
 	.chipver1 = {.phys = CALLIOPE_ADDR(0xA00808)},
 	.chipver0 = {.phys = CALLIOPE_ADDR(0xA0080c)},
 
-	
+	/* The registers of IRBlaster */
 	.uart1_intstat = {.phys = CALLIOPE_ADDR(0xA01800)},
 	.uart1_inten = {.phys = CALLIOPE_ADDR(0xA01804)},
 	.uart1_config1 = {.phys = CALLIOPE_ADDR(0xA01808)},
@@ -90,12 +90,12 @@ const struct register_map calliope_register_map __initdata = {
 	.usb2_stbus_mess_size = {.phys = CALLIOPE_ADDR(0x9BFF04)},
 	.usb2_stbus_chunk_size = {.phys = CALLIOPE_ADDR(0x9BFF08)},
 
-	.pcie_regs = {.phys = 0x000000},      	
+	.pcie_regs = {.phys = 0x000000},      	/* -doesn't exist- */
 	.tim_ch = {.phys = CALLIOPE_ADDR(0xA02C10)},
 	.tim_cl = {.phys = CALLIOPE_ADDR(0xA02C14)},
 	.gpio_dout = {.phys = CALLIOPE_ADDR(0xA02c20)},
 	.gpio_din = {.phys = CALLIOPE_ADDR(0xA02c24)},
 	.gpio_dir = {.phys = CALLIOPE_ADDR(0xA02c2C)},
 	.watchdog = {.phys = CALLIOPE_ADDR(0xA02c30)},
-	.front_panel = {.phys = 0x000000},    	
+	.front_panel = {.phys = 0x000000},    	/* -not used- */
 };

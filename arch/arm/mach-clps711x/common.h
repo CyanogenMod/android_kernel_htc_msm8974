@@ -1,3 +1,8 @@
+/*
+ * linux/arch/arm/mach-clps711x/common.h
+ *
+ * Common bits.
+ */
 
 struct sys_timer;
 

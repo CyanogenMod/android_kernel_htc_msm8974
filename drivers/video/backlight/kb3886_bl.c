@@ -67,6 +67,9 @@ static struct platform_device *devices[] __initdata = {
 	&kb3886bl_device,
 };
 
+/*
+ * Back to driver
+ */
 
 static int kb3886bl_intensity;
 static struct backlight_device *kb3886_backlight_device;

@@ -109,5 +109,5 @@ static inline void lops_after_scan(struct gfs2_jdesc *jd, int error,
 			gfs2_log_ops[x]->lo_after_scan(jd, error, pass);
 }
 
-#endif 
+#endif /* __LOPS_DOT_H__ */
 

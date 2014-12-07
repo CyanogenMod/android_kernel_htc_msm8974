@@ -1,3 +1,6 @@
+/* linux/arch/arm/mach-msm/board-trout.h
+** Author: Brian Swetland <swetland@google.com>
+*/
 #ifndef __ARCH_ARM_MACH_MSM_BOARD_TROUT_H
 #define __ARCH_ARM_MACH_MSM_BOARD_TROUT_H
 
@@ -156,4 +159,4 @@
 #define TROUT_BANK_TO_STAT_REG(bank) \
 	(bank ? TROUT_GPIO_INT_STAT1_REG : TROUT_GPIO_INT_STAT0_REG)
 
-#endif 
+#endif /* GUARD */

@@ -37,6 +37,9 @@
 #include "mpp.h"
 #include "lacie_v2-common.h"
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 
 static struct mv643xx_eth_platform_data netxbig_v2_ge00_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(8),
@@ -46,11 +49,17 @@ static struct mv643xx_eth_platform_data netxbig_v2_ge01_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(0),
 };
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 
 static struct mv_sata_platform_data netxbig_v2_sata_data = {
 	.n_ports	= 2,
 };
 
+/*****************************************************************************
+ * GPIO keys
+ ****************************************************************************/
 
 #define NETXBIG_V2_GPIO_SWITCH_POWER_ON		13
 #define NETXBIG_V2_GPIO_SWITCH_POWER_OFF	15
@@ -95,7 +104,18 @@ static struct platform_device netxbig_v2_gpio_buttons = {
 	},
 };
 
+/*****************************************************************************
+ * GPIO extension LEDs
+ ****************************************************************************/
 
+/*
+ * The LEDs are controlled by a CPLD and can be configured through a GPIO
+ * extension bus:
+ *
+ * - address register : bit [0-2] -> GPIO [47-49]
+ * - data register    : bit [0-2] -> GPIO [44-46]
+ * - enable register  : GPIO 29
+ */
 
 static int netxbig_v2_gpio_ext_addr[] = { 47, 48, 49 };
 static int netxbig_v2_gpio_ext_data[] = { 44, 45, 46 };
@@ -108,6 +128,50 @@ static struct netxbig_gpio_ext netxbig_v2_gpio_ext = {
 	.enable		= 29,
 };
 
+/*
+ * Address register selection:
+ *
+ * addr | register
+ * ----------------------------
+ *   0  | front LED
+ *   1  | front LED brightness
+ *   2  | SATA LED brightness
+ *   3  | SATA0 LED
+ *   4  | SATA1 LED
+ *   5  | SATA2 LED
+ *   6  | SATA3 LED
+ *   7  | SATA4 LED
+ *
+ * Data register configuration:
+ *
+ * data | LED brightness
+ * -------------------------------------------------
+ *   0  | min (off)
+ *   -  | -
+ *   7  | max
+ *
+ * data | front LED mode
+ * -------------------------------------------------
+ *   0  | fix off
+ *   1  | fix blue on
+ *   2  | fix red on
+ *   3  | blink blue on=1 sec and blue off=1 sec
+ *   4  | blink red on=1 sec and red off=1 sec
+ *   5  | blink blue on=2.5 sec and red on=0.5 sec
+ *   6  | blink blue on=1 sec and red on=1 sec
+ *   7  | blink blue on=0.5 sec and blue off=2.5 sec
+ *
+ * data | SATA LED mode
+ * -------------------------------------------------
+ *   0  | fix off
+ *   1  | SATA activity blink
+ *   2  | fix red on
+ *   3  | blink blue on=1 sec and blue off=1 sec
+ *   4  | blink red on=1 sec and red off=1 sec
+ *   5  | blink blue on=2.5 sec and red on=0.5 sec
+ *   6  | blink blue on=1 sec and red on=1 sec
+ *   7  | fix blue on
+ */
 
 static int netxbig_v2_red_mled[NETXBIG_LED_MODE_NUM] = {
 	[NETXBIG_LED_OFF]	= 0,
@@ -200,6 +264,9 @@ static struct platform_device netxbig_v2_leds = {
 	},
 };
 
+/*****************************************************************************
+ * General Setup
+ ****************************************************************************/
 
 static unsigned int net2big_v2_mpp_config[] __initdata = {
 	MPP0_SPI_SCn,
@@ -207,33 +274,33 @@ static unsigned int net2big_v2_mpp_config[] __initdata = {
 	MPP2_SPI_SCK,
 	MPP3_SPI_MISO,
 	MPP6_SYSRST_OUTn,
-	MPP7_GPO,		
+	MPP7_GPO,		/* Request power-off */
 	MPP8_TW0_SDA,
 	MPP9_TW0_SCK,
 	MPP10_UART0_TXD,
 	MPP11_UART0_RXD,
-	MPP13_GPIO,		
-	MPP14_GPIO,		
-	MPP15_GPIO,		
-	MPP16_GPIO,		
-	MPP17_GPIO,		
+	MPP13_GPIO,		/* Rear power switch (on|auto) */
+	MPP14_GPIO,		/* USB fuse alarm */
+	MPP15_GPIO,		/* Rear power switch (auto|off) */
+	MPP16_GPIO,		/* SATA HDD1 power */
+	MPP17_GPIO,		/* SATA HDD2 power */
 	MPP20_SATA1_ACTn,
 	MPP21_SATA0_ACTn,
-	MPP24_GPIO,		
-	MPP26_GPIO,		
-	MPP28_GPIO,		
-	MPP29_GPIO,		
-	MPP34_GPIO,		
-	MPP35_GPIO,		
-	MPP36_GPIO,		
-	MPP37_GPIO,		
-	MPP40_GPIO,		
-	MPP44_GPIO,		
-	MPP45_GPIO,		
-	MPP46_GPIO,		
-	MPP47_GPIO,		
-	MPP48_GPIO,		
-	MPP49_GPIO,		
+	MPP24_GPIO,		/* USB mode select */
+	MPP26_GPIO,		/* USB device vbus */
+	MPP28_GPIO,		/* USB enable host vbus */
+	MPP29_GPIO,		/* GPIO extension ALE */
+	MPP34_GPIO,		/* Rear Push button */
+	MPP35_GPIO,		/* Inhibit switch power-off */
+	MPP36_GPIO,		/* SATA HDD1 presence */
+	MPP37_GPIO,		/* SATA HDD2 presence */
+	MPP40_GPIO,		/* eSATA presence */
+	MPP44_GPIO,		/* GPIO extension (data 0) */
+	MPP45_GPIO,		/* GPIO extension (data 1) */
+	MPP46_GPIO,		/* GPIO extension (data 2) */
+	MPP47_GPIO,		/* GPIO extension (addr 0) */
+	MPP48_GPIO,		/* GPIO extension (addr 1) */
+	MPP49_GPIO,		/* GPIO extension (addr 2) */
 	0
 };
 
@@ -243,16 +310,16 @@ static unsigned int net5big_v2_mpp_config[] __initdata = {
 	MPP2_SPI_SCK,
 	MPP3_SPI_MISO,
 	MPP6_SYSRST_OUTn,
-	MPP7_GPO,		
+	MPP7_GPO,		/* Request power-off */
 	MPP8_TW0_SDA,
 	MPP9_TW0_SCK,
 	MPP10_UART0_TXD,
 	MPP11_UART0_RXD,
-	MPP13_GPIO,		
-	MPP14_GPIO,		
-	MPP15_GPIO,		
-	MPP16_GPIO,		
-	MPP17_GPIO,		
+	MPP13_GPIO,		/* Rear power switch (on|auto) */
+	MPP14_GPIO,		/* USB fuse alarm */
+	MPP15_GPIO,		/* Rear power switch (auto|off) */
+	MPP16_GPIO,		/* SATA HDD1 power */
+	MPP17_GPIO,		/* SATA HDD2 power */
 	MPP20_GE1_TXD0,
 	MPP21_GE1_TXD1,
 	MPP22_GE1_TXD2,
@@ -261,28 +328,28 @@ static unsigned int net5big_v2_mpp_config[] __initdata = {
 	MPP25_GE1_RXD1,
 	MPP26_GE1_RXD2,
 	MPP27_GE1_RXD3,
-	MPP28_GPIO,		
-	MPP29_GPIO,		
+	MPP28_GPIO,		/* USB enable host vbus */
+	MPP29_GPIO,		/* GPIO extension ALE */
 	MPP30_GE1_RXCTL,
 	MPP31_GE1_RXCLK,
 	MPP32_GE1_TCLKOUT,
 	MPP33_GE1_TXCTL,
-	MPP34_GPIO,		
-	MPP35_GPIO,		
-	MPP36_GPIO,		
-	MPP37_GPIO,		
-	MPP38_GPIO,		
-	MPP39_GPIO,		
-	MPP40_GPIO,		
-	MPP41_GPIO,		
-	MPP42_GPIO,		
-	MPP43_GPIO,		
-	MPP44_GPIO,		
-	MPP45_GPIO,		
-	MPP46_GPIO,		
-	MPP47_GPIO,		
-	MPP48_GPIO,		
-	MPP49_GPIO,		
+	MPP34_GPIO,		/* Rear Push button */
+	MPP35_GPIO,		/* Inhibit switch power-off */
+	MPP36_GPIO,		/* SATA HDD1 presence */
+	MPP37_GPIO,		/* SATA HDD2 presence */
+	MPP38_GPIO,		/* SATA HDD3 presence */
+	MPP39_GPIO,		/* SATA HDD4 presence */
+	MPP40_GPIO,		/* SATA HDD5 presence */
+	MPP41_GPIO,		/* SATA HDD3 power */
+	MPP42_GPIO,		/* SATA HDD4 power */
+	MPP43_GPIO,		/* SATA HDD5 power */
+	MPP44_GPIO,		/* GPIO extension (data 0) */
+	MPP45_GPIO,		/* GPIO extension (data 1) */
+	MPP46_GPIO,		/* GPIO extension (data 2) */
+	MPP47_GPIO,		/* GPIO extension (addr 0) */
+	MPP48_GPIO,		/* GPIO extension (addr 1) */
+	MPP49_GPIO,		/* GPIO extension (addr 2) */
 	0
 };
 
@@ -295,6 +362,9 @@ static void netxbig_v2_power_off(void)
 
 static void __init netxbig_v2_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	if (machine_is_net2big_v2())
 		kirkwood_mpp_conf(net2big_v2_mpp_config);

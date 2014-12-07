@@ -42,6 +42,7 @@ struct uart_sc26xx_port {
 	u8     imr;
 };
 
+/* register common to both ports */
 #define RD_ISR      0x14
 #define RD_IPR      0x34
 
@@ -51,9 +52,11 @@ struct uart_sc26xx_port {
 #define WR_OPR_SET  0x38
 #define WR_OPR_CLR  0x3C
 
+/* access common register */
 #define READ_SC(p, r)        readb((p)->membase + RD_##r)
 #define WRITE_SC(p, r, v)    writeb((v), (p)->membase + WR_##r)
 
+/* register per port */
 #define RD_PORT_MRx 0x00
 #define RD_PORT_SR  0x04
 #define RD_PORT_RHR 0x0c
@@ -63,6 +66,7 @@ struct uart_sc26xx_port {
 #define WR_PORT_CR  0x08
 #define WR_PORT_THR 0x0c
 
+/* SR bits */
 #define SR_BREAK    (1 << 7)
 #define SR_FRAME    (1 << 6)
 #define SR_PARITY   (1 << 5)
@@ -80,14 +84,17 @@ struct uart_sc26xx_port {
 #define CR_DIS_RX   (1 << 1)
 #define CR_ENA_RX   (1 << 0)
 
+/* ISR bits */
 #define ISR_RXRDYB  (1 << 5)
 #define ISR_TXRDYB  (1 << 4)
 #define ISR_RXRDYA  (1 << 1)
 #define ISR_TXRDYA  (1 << 0)
 
+/* IMR bits */
 #define IMR_RXRDY   (1 << 1)
 #define IMR_TXRDY   (1 << 0)
 
+/* access port register */
 static inline u8 read_sc_port(struct uart_port *p, u8 reg)
 {
 	return readb(p->membase + p->line * 0x20 + reg);
@@ -133,7 +140,7 @@ static struct tty_struct *receive_chars(struct uart_port *port)
 	char flag;
 	u8 status;
 
-	if (port->state != NULL)		
+	if (port->state != NULL)		/* Unopened serial console */
 		tty = port->state->port.tty;
 
 	while (limit-- > 0) {
@@ -240,11 +247,13 @@ static irqreturn_t sc26xx_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* port->lock is not held.  */
 static unsigned int sc26xx_tx_empty(struct uart_port *port)
 {
 	return (READ_SC_PORT(port, SR) & SR_TXRDY) ? TIOCSER_TEMT : 0;
 }
 
+/* port->lock held by caller.  */
 static void sc26xx_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 	struct uart_sc26xx_port *up;
@@ -267,6 +276,7 @@ static void sc26xx_set_mctrl(struct uart_port *port, unsigned int mctrl)
 	}
 }
 
+/* port->lock is held by caller and interrupts are disabled.  */
 static unsigned int sc26xx_get_mctrl(struct uart_port *port)
 {
 	struct uart_sc26xx_port *up;
@@ -297,11 +307,13 @@ static unsigned int sc26xx_get_mctrl(struct uart_port *port)
 	return mctrl;
 }
 
+/* port->lock held by caller.  */
 static void sc26xx_stop_tx(struct uart_port *port)
 {
 	return;
 }
 
+/* port->lock held by caller.  */
 static void sc26xx_start_tx(struct uart_port *port)
 {
 	struct circ_buf *xmit = &port->state->xmit;
@@ -317,14 +329,17 @@ static void sc26xx_start_tx(struct uart_port *port)
 	}
 }
 
+/* port->lock held by caller.  */
 static void sc26xx_stop_rx(struct uart_port *port)
 {
 }
 
+/* port->lock held by caller.  */
 static void sc26xx_enable_ms(struct uart_port *port)
 {
 }
 
+/* port->lock is not held.  */
 static void sc26xx_break_ctl(struct uart_port *port, int break_state)
 {
 	if (break_state == -1)
@@ -333,32 +348,35 @@ static void sc26xx_break_ctl(struct uart_port *port, int break_state)
 		WRITE_SC_PORT(port, CR, CR_STOP_BRK);
 }
 
+/* port->lock is not held.  */
 static int sc26xx_startup(struct uart_port *port)
 {
 	sc26xx_disable_irq(port, IMR_TXRDY | IMR_RXRDY);
 	WRITE_SC(port, OPCR, 0);
 
-	
+	/* reset tx and rx */
 	WRITE_SC_PORT(port, CR, CR_RES_RX);
 	WRITE_SC_PORT(port, CR, CR_RES_TX);
 
-	
+	/* start rx/tx */
 	WRITE_SC_PORT(port, CR, CR_ENA_TX | CR_ENA_RX);
 
-	
+	/* enable irqs */
 	sc26xx_enable_irq(port, IMR_RXRDY);
 	return 0;
 }
 
+/* port->lock is not held.  */
 static void sc26xx_shutdown(struct uart_port *port)
 {
-	
+	/* disable interrupst */
 	sc26xx_disable_irq(port, IMR_TXRDY | IMR_RXRDY);
 
-	
+	/* stop tx/rx */
 	WRITE_SC_PORT(port, CR, CR_DIS_TX | CR_DIS_RX);
 }
 
+/* port->lock is not held.  */
 static void sc26xx_set_termios(struct uart_port *port, struct ktermios *termios,
 			      struct ktermios *old)
 {
@@ -459,7 +477,7 @@ static void sc26xx_set_termios(struct uart_port *port, struct ktermios *termios,
 	WRITE_SC(port, ACR, 0x80);
 	WRITE_SC_PORT(port, CSR, csr);
 
-	
+	/* reset tx and rx */
 	WRITE_SC_PORT(port, CR, CR_RES_RX);
 	WRITE_SC_PORT(port, CR, CR_RES_TX);
 
@@ -467,7 +485,7 @@ static void sc26xx_set_termios(struct uart_port *port, struct ktermios *termios,
 	while ((READ_SC_PORT(port, SR) & ((1 << 3) | (1 << 2))) != 0xc)
 		udelay(2);
 
-	
+	/* XXX */
 	uart_update_timeout(port, cflag,
 			    (port->uartclk / (16 * quot)));
 
@@ -628,7 +646,7 @@ static int __devinit sc26xx_probe(struct platform_device *dev)
 	up->port[0].line = 0;
 	up->port[0].ops = &sc26xx_ops;
 	up->port[0].type = PORT_SC26XX;
-	up->port[0].uartclk = (29491200 / 16); 
+	up->port[0].uartclk = (29491200 / 16); /* arbitrary */
 
 	up->port[0].mapbase = res->start;
 	up->port[0].membase = ioremap_nocache(up->port[0].mapbase, 0x40);
@@ -644,7 +662,7 @@ static int __devinit sc26xx_probe(struct platform_device *dev)
 	up->port[1].line = 1;
 	up->port[1].ops = &sc26xx_ops;
 	up->port[1].type = PORT_SC26XX;
-	up->port[1].uartclk = (29491200 / 16); 
+	up->port[1].uartclk = (29491200 / 16); /* arbitrary */
 
 	up->port[1].mapbase = up->port[0].mapbase;
 	up->port[1].membase = up->port[0].membase;

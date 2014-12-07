@@ -222,7 +222,7 @@ static void ath9k_wmi_ctrl_rx(void *priv, struct sk_buff *skb,
 		return;
 	}
 
-	
+	/* Check if there has been a timeout. */
 	spin_lock(&wmi->wmi_lock);
 	if (cmd_id != wmi->last_cmd_id) {
 		spin_unlock(&wmi->wmi_lock);
@@ -230,7 +230,7 @@ static void ath9k_wmi_ctrl_rx(void *priv, struct sk_buff *skb,
 	}
 	spin_unlock(&wmi->wmi_lock);
 
-	
+	/* WMI command response */
 	ath9k_wmi_rsp_callback(wmi, skb);
 
 free_skb:
@@ -310,13 +310,13 @@ int ath9k_wmi_cmd(struct wmi *wmi, enum wmi_cmd_id cmd_id,
 
 	mutex_lock(&wmi->op_mutex);
 
-	
+	/* check if wmi stopped flag is set */
 	if (unlikely(wmi->stopped)) {
 		ret = -EPROTO;
 		goto out;
 	}
 
-	
+	/* record the rsp buffer and length */
 	wmi->cmd_rsp_buf = rsp_buf;
 	wmi->cmd_rsp_len = rsp_len;
 

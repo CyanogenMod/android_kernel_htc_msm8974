@@ -28,6 +28,7 @@ int mgt_init(islpci_private *);
 
 void mgt_clean(islpci_private *);
 
+/* I don't know where to put these 2 */
 extern const int frequency_list_a[];
 int channel_of_freq(int);
 
@@ -54,4 +55,5 @@ enum oid_num_t mgt_oidtonum(u32 oid);
 
 int mgt_response_to_str(enum oid_num_t, union oid_res_t *, char *);
 
-#endif				
+#endif				/* !defined(_OID_MGT_H) */
+/* EOF */

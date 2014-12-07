@@ -29,7 +29,7 @@ static int exynos_dp_init_dp(struct exynos_dp_device *dp)
 {
 	exynos_dp_reset(dp);
 
-	
+	/* SW defined function Normal operation */
 	exynos_dp_enable_sw_function(dp);
 
 	exynos_dp_config_interrupt(dp);
@@ -80,8 +80,13 @@ static int exynos_dp_read_edid(struct exynos_dp_device *dp)
 	unsigned char test_vector;
 	int retval;
 
+	/*
+	 * EDID device address is 0x50.
+	 * However, if necessary, you must have set upper address
+	 * into E-EDID in I2C device, 0x30.
+	 */
 
-	
+	/* Read Extension Flag, Number of 128-byte EDID extension blocks */
 	exynos_dp_read_byte_from_i2c(dp, I2C_EDID_DEVICE_ADDR,
 				EDID_EXTENSION_FLAG,
 				&extend_block);
@@ -89,7 +94,7 @@ static int exynos_dp_read_edid(struct exynos_dp_device *dp)
 	if (extend_block > 0) {
 		dev_dbg(dp->dev, "EDID data includes a single extension!\n");
 
-		
+		/* Read EDID data */
 		retval = exynos_dp_read_bytes_from_i2c(dp, I2C_EDID_DEVICE_ADDR,
 						EDID_HEADER_PATTERN,
 						EDID_BLOCK_LENGTH,
@@ -104,7 +109,7 @@ static int exynos_dp_read_edid(struct exynos_dp_device *dp)
 			return -EIO;
 		}
 
-		
+		/* Read additional EDID data */
 		retval = exynos_dp_read_bytes_from_i2c(dp,
 				I2C_EDID_DEVICE_ADDR,
 				EDID_BLOCK_LENGTH,
@@ -133,7 +138,7 @@ static int exynos_dp_read_edid(struct exynos_dp_device *dp)
 	} else {
 		dev_info(dp->dev, "EDID data does not include any extensions.\n");
 
-		
+		/* Read EDID data */
 		retval = exynos_dp_read_bytes_from_i2c(dp,
 				I2C_EDID_DEVICE_ADDR,
 				EDID_HEADER_PATTERN,
@@ -172,12 +177,12 @@ static int exynos_dp_handle_edid(struct exynos_dp_device *dp)
 	int i;
 	int retval;
 
-	
+	/* Read DPCD DPCD_ADDR_DPCD_REV~RECEIVE_PORT1_CAP_1 */
 	exynos_dp_read_bytes_from_dpcd(dp,
 		DPCD_ADDR_DPCD_REV,
 		12, buf);
 
-	
+	/* Read EDID */
 	for (i = 0; i < 3; i++) {
 		retval = exynos_dp_read_edid(dp);
 		if (retval == 0)
@@ -267,29 +272,29 @@ static void exynos_dp_link_start(struct exynos_dp_device *dp)
 	for (lane = 0; lane < lane_count; lane++)
 		dp->link_train.cr_loop[lane] = 0;
 
-	
+	/* Set sink to D0 (Sink Not Ready) mode. */
 	exynos_dp_write_byte_to_dpcd(dp, DPCD_ADDR_SINK_POWER_STATE,
 				DPCD_SET_POWER_STATE_D0);
 
-	
+	/* Set link rate and count as you want to establish*/
 	exynos_dp_set_link_bandwidth(dp, dp->link_train.link_rate);
 	exynos_dp_set_lane_count(dp, dp->link_train.lane_count);
 
-	
+	/* Setup RX configuration */
 	buf[0] = dp->link_train.link_rate;
 	buf[1] = dp->link_train.lane_count;
 	exynos_dp_write_bytes_to_dpcd(dp, DPCD_ADDR_LINK_BW_SET,
 				2, buf);
 
-	
+	/* Set TX pre-emphasis to minimum */
 	for (lane = 0; lane < lane_count; lane++)
 		exynos_dp_set_lane_lane_pre_emphasis(dp,
 			PRE_EMPHASIS_LEVEL_0, lane);
 
-	
+	/* Set training pattern 1 */
 	exynos_dp_set_training_pattern(dp, TRAINING_PTN1);
 
-	
+	/* Set RX training pattern */
 	buf[0] = DPCD_SCRAMBLING_DISABLED |
 		 DPCD_TRAINING_PATTERN_1;
 	exynos_dp_write_byte_to_dpcd(dp,
@@ -410,14 +415,14 @@ static unsigned int exynos_dp_get_lane_link_training(
 static void exynos_dp_reduce_link_rate(struct exynos_dp_device *dp)
 {
 	if (dp->link_train.link_rate == LINK_RATE_2_70GBPS) {
-		
+		/* set to reduced bit rate */
 		dp->link_train.link_rate = LINK_RATE_1_62GBPS;
 		dev_err(dp->dev, "set to bandwidth %.2x\n",
 			dp->link_train.link_rate);
 		dp->link_train.lt_state = START;
 	} else {
 		exynos_dp_training_pattern_dis(dp);
-		
+		/* set enhanced mode if available */
 		exynos_dp_set_enhanced_mode(dp);
 		dp->link_train.lt_state = FAILED;
 	}
@@ -485,7 +490,7 @@ static int exynos_dp_process_clock_recovery(struct exynos_dp_device *dp)
 	lane_count = dp->link_train.lane_count;
 
 	if (exynos_dp_clock_recovery_ok(link_status, lane_count) == 0) {
-		
+		/* set training pattern 2 for EQ */
 		exynos_dp_set_training_pattern(dp, TRAINING_PTN2);
 
 		adjust_request = link_status + (DPCD_ADDR_ADJUST_REQUEST_LANE0_1
@@ -574,7 +579,7 @@ static int exynos_dp_process_equalizer_training(struct exynos_dp_device *dp)
 						- DPCD_ADDR_LANE0_1_STATUS);
 
 		if (exynos_dp_channel_eq_ok(link_status, lane_count) == 0) {
-			
+			/* traing pattern Set to Normal */
 			exynos_dp_training_pattern_dis(dp);
 
 			dev_info(dp->dev, "Link Training success!\n");
@@ -588,12 +593,12 @@ static int exynos_dp_process_equalizer_training(struct exynos_dp_device *dp)
 			dp->link_train.lane_count = reg;
 			dev_dbg(dp->dev, "final lane count = %.2x\n",
 				dp->link_train.lane_count);
-			
+			/* set enhanced mode if available */
 			exynos_dp_set_enhanced_mode(dp);
 
 			dp->link_train.lt_state = FINISHED;
 		} else {
-			
+			/* not all locked */
 			dp->link_train.eq_loop++;
 
 			if (dp->link_train.eq_loop > MAX_EQ_LOOP) {
@@ -624,6 +629,10 @@ static void exynos_dp_get_max_rx_bandwidth(struct exynos_dp_device *dp,
 {
 	u8 data;
 
+	/*
+	 * For DP rev.1.1, Maximum link rate of Main Link lanes
+	 * 0x06 = 1.62 Gbps, 0x0a = 2.7 Gbps
+	 */
 	exynos_dp_read_byte_from_dpcd(dp, DPCD_ADDR_MAX_LINK_RATE, &data);
 	*bandwidth = data;
 }
@@ -633,6 +642,10 @@ static void exynos_dp_get_max_rx_lane_count(struct exynos_dp_device *dp,
 {
 	u8 data;
 
+	/*
+	 * For DP rev.1.1, Maximum number of Main Link lanes
+	 * 0x01 = 1 lane, 0x02 = 2 lanes, 0x04 = 4 lanes
+	 */
 	exynos_dp_read_byte_from_dpcd(dp, DPCD_ADDR_MAX_LANE_COUNT, &data);
 	*lane_count = DPCD_MAX_LANE_COUNT(data);
 }
@@ -641,9 +654,13 @@ static void exynos_dp_init_training(struct exynos_dp_device *dp,
 			enum link_lane_count_type max_lane,
 			enum link_rate_type max_rate)
 {
+	/*
+	 * MACRO_RST must be applied after the PLL_LOCK to avoid
+	 * the DP inter pair skew issue for at least 10 us
+	 */
 	exynos_dp_reset_macro(dp);
 
-	
+	/* Initialize by reading RX's DPCD */
 	exynos_dp_get_max_rx_bandwidth(dp, &dp->link_train.link_rate);
 	exynos_dp_get_max_rx_lane_count(dp, &dp->link_train.lane_count);
 
@@ -660,13 +677,13 @@ static void exynos_dp_init_training(struct exynos_dp_device *dp,
 		dp->link_train.lane_count = (u8)LANE_COUNT1;
 	}
 
-	
+	/* Setup TX lane count & rate */
 	if (dp->link_train.lane_count > max_lane)
 		dp->link_train.lane_count = max_lane;
 	if (dp->link_train.link_rate > max_rate)
 		dp->link_train.link_rate = max_rate;
 
-	
+	/* All DP analog module power up */
 	exynos_dp_set_analog_power_down(dp, POWER_ALL, 0);
 }
 
@@ -675,7 +692,7 @@ static int exynos_dp_sw_link_training(struct exynos_dp_device *dp)
 	int retval = 0;
 	int training_finished;
 
-	
+	/* Turn off unnecessary lane */
 	if (dp->link_train.lane_count == 1)
 		exynos_dp_set_analog_power_down(dp, CH1_BLOCK, 1);
 
@@ -683,7 +700,7 @@ static int exynos_dp_sw_link_training(struct exynos_dp_device *dp)
 
 	dp->link_train.lt_state = START;
 
-	
+	/* Process here */
 	while (!training_finished) {
 		switch (dp->link_train.lt_state) {
 		case START:
@@ -756,19 +773,19 @@ static int exynos_dp_config_video(struct exynos_dp_device *dp,
 		mdelay(100);
 	}
 
-	
+	/* Set to use the register calculated M/N video */
 	exynos_dp_set_video_cr_mn(dp, CALCULATED_M, 0, 0);
 
-	
+	/* For video bist, Video timing must be generated by register */
 	exynos_dp_set_video_timing_mode(dp, VIDEO_TIMING_FROM_CAPTURE);
 
-	
+	/* Disable video mute */
 	exynos_dp_enable_video_mute(dp, 0);
 
-	
+	/* Configure video slave mode */
 	exynos_dp_enable_video_master(dp, 0);
 
-	
+	/* Enable video */
 	exynos_dp_start_video(dp);
 
 	timeout_loop = 0;

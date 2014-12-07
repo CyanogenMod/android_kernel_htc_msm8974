@@ -31,15 +31,17 @@
 #define _LINUX_RICOH_H
 
 
-#define RF5C_MODE_CTL		0x1f	
-#define RF5C_PWR_CTL		0x2f	
-#define RF5C_CHIP_ID		0x3a	
-#define RF5C_MODE_CTL_3		0x3b	
+#define RF5C_MODE_CTL		0x1f	/* Mode control */
+#define RF5C_PWR_CTL		0x2f	/* Mixed voltage control */
+#define RF5C_CHIP_ID		0x3a	/* Chip identification */
+#define RF5C_MODE_CTL_3		0x3b	/* Mode control 3 */
 
+/* I/O window address offset */
 #define RF5C_IO_OFF(w)		(0x36+((w)<<1))
 
-#define RF5C_MODE_ATA		0x01	
-#define RF5C_MODE_LED_ENA	0x02	
+/* Flags for RF5C_MODE_CTL */
+#define RF5C_MODE_ATA		0x01	/* ATA mode */
+#define RF5C_MODE_LED_ENA	0x02	/* IRQ 12 is LED */
 #define RF5C_MODE_CA21		0x04
 #define RF5C_MODE_CA22		0x08
 #define RF5C_MODE_CA23		0x10
@@ -47,33 +49,40 @@
 #define RF5C_MODE_CA25		0x40
 #define RF5C_MODE_3STATE_BIT7	0x80
 
+/* Flags for RF5C_PWR_CTL */
 #define RF5C_PWR_VCC_3V		0x01
 #define RF5C_PWR_IREQ_HIGH	0x02
 #define RF5C_PWR_INPACK_ENA	0x04
 #define RF5C_PWR_5V_DET		0x08
-#define RF5C_PWR_TC_SEL		0x10	
+#define RF5C_PWR_TC_SEL		0x10	/* Terminal Count: irq 11 or 15 */
 #define RF5C_PWR_DREQ_LOW	0x20
-#define RF5C_PWR_DREQ_OFF	0x00	
+#define RF5C_PWR_DREQ_OFF	0x00	/* DREQ steering control */
 #define RF5C_PWR_DREQ_INPACK	0x40
 #define RF5C_PWR_DREQ_SPKR	0x80
 #define RF5C_PWR_DREQ_IOIS16	0xc0
 
+/* Values for RF5C_CHIP_ID */
 #define RF5C_CHIP_RF5C296	0x32
 #define RF5C_CHIP_RF5C396	0xb2
 
-#define RF5C_MCTL3_DISABLE	0x01	
+/* Flags for RF5C_MODE_CTL_3 */
+#define RF5C_MCTL3_DISABLE	0x01	/* Disable PCMCIA interface */
 #define RF5C_MCTL3_DMA_ENA	0x02
 
+/* Register definitions for Ricoh PCI-to-CardBus bridges */
 
+/* Extra bits in CB_BRIDGE_CONTROL */
 #define RL5C46X_BCR_3E0_ENA		0x0800
 #define RL5C46X_BCR_3E2_ENA		0x1000
 
-#define RL5C4XX_CONFIG			0x80	
+/* Bridge Configuration Register */
+#define RL5C4XX_CONFIG			0x80	/* 16 bit */
 #define  RL5C4XX_CONFIG_IO_1_MODE	0x0200
 #define  RL5C4XX_CONFIG_IO_0_MODE	0x0100
 #define  RL5C4XX_CONFIG_PREFETCH	0x0001
 
-#define RL5C4XX_MISC			0x0082	
+/* Misc Control Register */
+#define RL5C4XX_MISC			0x0082	/* 16 bit */
 #define  RL5C4XX_MISC_HW_SUSPEND_ENA	0x0002
 #define  RL5C4XX_MISC_VCCEN_POL		0x0100
 #define  RL5C4XX_MISC_VPPEN_POL		0x0200
@@ -91,21 +100,23 @@
 #define  RL5C47X_MISC_5V_DISABLE	0x0400
 #define  RL5C47X_MISC_LED_POL		0x0800
 
-#define RL5C4XX_16BIT_CTL		0x0084	
+/* 16-bit Interface Control Register */
+#define RL5C4XX_16BIT_CTL		0x0084	/* 16 bit */
 #define  RL5C4XX_16CTL_IO_TIMING	0x0100
 #define  RL5C4XX_16CTL_MEM_TIMING	0x0200
 #define  RL5C46X_16CTL_LEVEL_1		0x0010
 #define  RL5C46X_16CTL_LEVEL_2		0x0020
 
-#define RL5C4XX_16BIT_IO_0		0x0088	
-#define RL5C4XX_16BIT_MEM_0		0x008a	
+/* 16-bit IO and memory timing registers */
+#define RL5C4XX_16BIT_IO_0		0x0088	/* 16 bit */
+#define RL5C4XX_16BIT_MEM_0		0x008a	/* 16 bit */
 #define  RL5C4XX_SETUP_MASK		0x0007
 #define  RL5C4XX_SETUP_SHIFT		0
 #define  RL5C4XX_CMD_MASK		0x01f0
 #define  RL5C4XX_CMD_SHIFT		4
 #define  RL5C4XX_HOLD_MASK		0x1c00
 #define  RL5C4XX_HOLD_SHIFT		10
-#define  RL5C4XX_MISC_CONTROL           0x2F 
+#define  RL5C4XX_MISC_CONTROL           0x2F /* 8 bit */
 #define  RL5C4XX_ZV_ENABLE              0x08
 
 #ifdef __YENTA_H
@@ -123,7 +134,7 @@ static void ricoh_zoom_video(struct pcmcia_socket *sock, int onoff)
 
         reg = config_readb(socket, RL5C4XX_MISC_CONTROL);
         if (onoff)
-                
+                /* Zoom zoom, we will all go together, zoom zoom, zoom zoom */
                 reg |=  RL5C4XX_ZV_ENABLE;
         else
                 reg &= ~RL5C4XX_ZV_ENABLE;
@@ -137,7 +148,7 @@ static void ricoh_set_zv(struct yenta_socket *socket)
         {
                 switch(socket->dev->device)
                 {
-                        
+                        /* There may be more .. */
 		case  PCI_DEVICE_ID_RICOH_RL5C478:
 			socket->socket.zoom_video = ricoh_zoom_video;
 			break;  
@@ -164,13 +175,16 @@ static void ricoh_restore_state(struct yenta_socket *socket)
 }
 
 
+/*
+ * Magic Ricoh initialization code..
+ */
 static int ricoh_override(struct yenta_socket *socket)
 {
 	u16 config, ctl;
 
 	config = config_readw(socket, RL5C4XX_CONFIG);
 
-	
+	/* Set the default timings, don't trust the original values */
 	ctl = RL5C4XX_16CTL_IO_TIMING | RL5C4XX_16CTL_MEM_TIMING;
 
 	if(socket->dev->device < PCI_DEVICE_ID_RICOH_RL5C475) {
@@ -187,6 +201,6 @@ static int ricoh_override(struct yenta_socket *socket)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_CARDBUS */
 
-#endif 
+#endif /* _LINUX_RICOH_H */

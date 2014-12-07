@@ -35,4 +35,4 @@ static inline unsigned long __arch_hweight64(__u64 w)
 #include <asm-generic/bitops/arch_hweight.h>
 #endif
 
-#endif 
+#endif /* _ASM_ARCH_HWEIGHT_H */

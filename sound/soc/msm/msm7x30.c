@@ -49,12 +49,13 @@ static struct snd_kcontrol_new snd_msm_controls[];
 
 char snddev_name[AUDIO_DEV_CTL_MAX_DEV][44];
 #define MSM_MAX_VOLUME 0x2000
-#define MSM_VOLUME_STEP ((MSM_MAX_VOLUME+17)/100) 
+#define MSM_VOLUME_STEP ((MSM_MAX_VOLUME+17)/100) /* 17 added to avoid
+						      more deviation */
 #define LOOPBACK_ENABLE         0x1
 #define LOOPBACK_DISABLE        0x0
 
-static int device_index; 
-static int simple_control; 
+static int device_index; /* Count of Device controls */
+static int simple_control; /* Count of simple controls*/
 static int src_dev;
 static int dst_dev;
 static int loopback_status;
@@ -134,7 +135,7 @@ static int msm_v_volume_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 2; 
+	uinfo->count = 2; /* Volume */
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = 100;
 	return 0;
@@ -160,10 +161,10 @@ static int msm_volume_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 3; 
+	uinfo->count = 3; /* Volume and 10-base multiply factor*/
 	uinfo->value.integer.min = 0;
 
-	
+	/* limit the muliply factor to 4 decimal digit */
 	uinfo->value.integer.max = 1000000;
 	return 0;
 }
@@ -192,13 +193,16 @@ static int msm_volume_put(struct snd_kcontrol *kcontrol,
 
 	volume = (MSM_VOLUME_STEP * volume);
 
+	/* Convert back to original decimal point by removing the 10-base factor
+	* and discard the fractional portion
+	*/
 
 	volume = volume/factor;
 
 	if (volume > MSM_MAX_VOLUME)
 		volume = MSM_MAX_VOLUME;
 
-	
+	/* Only Decoder volume control supported */
 	session_mask = (0x1 << (session_id) << (8 * ((int)AUDDEV_CLNT_DEC-1)));
 	msm_vol_ctl.volume = volume;
 	MM_DBG("session_id %d, volume %d", session_id, volume);
@@ -212,7 +216,7 @@ static int msm_voice_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 3; 
+	uinfo->count = 3; /* Device */
 
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = msm_snddev_devcount();
@@ -232,7 +236,7 @@ static int msm_voice_put(struct snd_kcontrol *kcontrol,
 
 	if (!set)
 		return -EPERM;
-	
+	/* Rx Device Routing */
 	rx_dev_id = ucontrol->value.integer.value[0];
 	rx_dev_info = audio_dev_ctrl_find_dev(rx_dev_id);
 
@@ -258,7 +262,7 @@ static int msm_voice_put(struct snd_kcontrol *kcontrol,
 	broadcast_event(AUDDEV_EVT_DEV_CHG_VOICE, rx_dev_id, session_mask);
 
 
-	
+	/* Tx Device Routing */
 	tx_dev_id = ucontrol->value.integer.value[1];
 	tx_dev_info = audio_dev_ctrl_find_dev(tx_dev_id);
 
@@ -294,7 +298,7 @@ static int msm_voice_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	ucontrol->value.integer.value[0] = 0;
-	
+	/* TODO: query Device list */
 	return 0;
 }
 
@@ -302,7 +306,7 @@ static int msm_device_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1; 
+	uinfo->count = 1; /* Device */
 
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = msm_snddev_devcount();
@@ -362,7 +366,7 @@ static int msm_device_put(struct snd_kcontrol *kcontrol,
 			dev_info->opened = 1;
 			broadcast_event(AUDDEV_EVT_DEV_RDY, route_cfg.dev_id,
 							SESSION_IGNORE);
-			
+			/* Event to notify client for device info */
 			broadcast_event(AUDDEV_EVT_DEVICE_INFO,
 					route_cfg.dev_id, SESSION_IGNORE);
 			if ((route_cfg.dev_id == src_dev) ||
@@ -468,7 +472,7 @@ static int msm_route_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 3; 
+	uinfo->count = 3; /* Device */
 
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = msm_snddev_devcount();
@@ -479,7 +483,7 @@ static int msm_route_get(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	ucontrol->value.integer.value[0] = 0;
-	
+	/* TODO: query Device list */
 	return 0;
 }
 
@@ -531,7 +535,7 @@ static int msm_route_put(struct snd_kcontrol *kcontrol,
 				broadcast_event(AUDDEV_EVT_DEV_RDY,
 							route_cfg.dev_id,
 							session_mask);
-				
+				/* Event to notify client for device info */
 				broadcast_event(AUDDEV_EVT_DEVICE_INFO,
 							route_cfg.dev_id,
 							session_mask);
@@ -573,7 +577,7 @@ static int msm_route_put(struct snd_kcontrol *kcontrol,
 				broadcast_event(AUDDEV_EVT_DEV_RDY,
 							route_cfg.dev_id,
 							session_mask);
-				
+				/* Event to notify client for device info */
 				broadcast_event(AUDDEV_EVT_DEVICE_INFO,
 							route_cfg.dev_id,
 							session_mask);
@@ -677,7 +681,7 @@ static int msm_dual_mic_info(struct snd_kcontrol *kcontrol,
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->count = 2;
 	uinfo->value.integer.min = 0;
-	
+	/*Max value is decided based on MAX ENC sessions*/
 	uinfo->value.integer.max = MAX_AUDREC_SESSIONS - 1;
 	return 0;
 }
@@ -772,8 +776,8 @@ static int msm_loopback_put(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	int rc = 0;
-	struct msm_snddev_info *src_dev_info = NULL; 
-	struct msm_snddev_info *dst_dev_info = NULL; 
+	struct msm_snddev_info *src_dev_info = NULL; /* TX device */
+	struct msm_snddev_info *dst_dev_info = NULL; /* RX device */
 	int dst_dev_id = ucontrol->value.integer.value[0];
 	int src_dev_id = ucontrol->value.integer.value[1];
 	int set = ucontrol->value.integer.value[2];

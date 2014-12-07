@@ -47,17 +47,25 @@
 #define SC1200_REV_C1	0x03
 #define SC1200_REV_D1	0x04
 
+/**
+ *	sc1200_clock	-	PCI clock
+ *
+ *	Return the PCI bus clocking for the SC1200 chipset configuration
+ *	in use. We return 0 for 33MHz 1 for 48MHz and 2 for 66Mhz
+ */
 
 static int sc1200_clock(void)
 {
-	
+	/* Magic registers that give us the chipset data */
 	u8 chip_id = inb(0x903C);
 	u8 silicon_rev = inb(0x903D);
 	u16 pci_clock;
 
 	if (chip_id == 0x04 && silicon_rev < SC1200_REV_B1)
-		return 0;	
+		return 0;	/* 33 MHz mode */
 
+	/* Clock generator configuration 0x901E its 8/9 are the PCI clocking
+	   0/3 is 33Mhz 1 is 48 2 is 66 */
 
 	pci_clock = inw(0x901E);
 	pci_clock >>= 8;
@@ -67,17 +75,24 @@ static int sc1200_clock(void)
 	return pci_clock;
 }
 
+/**
+ *	sc1200_set_piomode		-	PIO setup
+ *	@ap: ATA interface
+ *	@adev: device on the interface
+ *
+ *	Set our PIO requirements. This is fairly simple on the SC1200
+ */
 
 static void sc1200_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
 	static const u32 pio_timings[4][5] = {
-		
+		/* format0, 33Mhz */
 		{ 0x00009172, 0x00012171, 0x00020080, 0x00032010, 0x00040010 },
-		
+		/* format1, 33Mhz */
 		{ 0xd1329172, 0x71212171, 0x30200080, 0x20102010, 0x00100010 },
-		
+		/* format1, 48Mhz */
 		{ 0xfaa3f4f3, 0xc23232b2, 0x513101c1, 0x31213121, 0x10211021 },
-		
+		/* format1, 66Mhz */
 		{ 0xfff4fff4, 0xf35353d3, 0x814102f1, 0x42314231, 0x11311131 }
 	};
 
@@ -93,6 +108,14 @@ static void sc1200_set_piomode(struct ata_port *ap, struct ata_device *adev)
 				pio_timings[format][mode]);
 }
 
+/**
+ *	sc1200_set_dmamode		-	DMA timing setup
+ *	@ap: ATA interface
+ *	@adev: Device being configured
+ *
+ *	We cannot mix MWDMA and UDMA without reloading timings each switch
+ *	master to slave.
+ */
 
 static void sc1200_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -130,6 +153,15 @@ static void sc1200_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 		pci_write_config_dword(pdev, reg + 12, format);
 }
 
+/**
+ *	sc1200_qc_issue		-	command issue
+ *	@qc: command pending
+ *
+ *	Called when the libata layer is about to issue a command. We wrap
+ *	this interface so that we can load the correct ATA timings if
+ *	necessary.  Specifically we have a problem that there is only
+ *	one MWDMA/UDMA bit.
+ */
 
 static unsigned int sc1200_qc_issue(struct ata_queued_cmd *qc)
 {
@@ -137,18 +169,24 @@ static unsigned int sc1200_qc_issue(struct ata_queued_cmd *qc)
 	struct ata_device *adev = qc->dev;
 	struct ata_device *prev = ap->private_data;
 
-	
+	/* See if the DMA settings could be wrong */
 	if (ata_dma_enabled(adev) && adev != prev && prev != NULL) {
-		
+		/* Maybe, but do the channels match MWDMA/UDMA ? */
 		if ((ata_using_udma(adev) && !ata_using_udma(prev)) ||
 		    (ata_using_udma(prev) && !ata_using_udma(adev)))
-		    	
+		    	/* Switch the mode bits */
 		    	sc1200_set_dmamode(ap, adev);
 	}
 
 	return ata_bmdma_qc_issue(qc);
 }
 
+/**
+ *	sc1200_qc_defer	-	implement serialization
+ *	@qc: command
+ *
+ *	Serialize command issue on this controller.
+ */
 
 static int sc1200_qc_defer(struct ata_queued_cmd *qc)
 {
@@ -156,11 +194,13 @@ static int sc1200_qc_defer(struct ata_queued_cmd *qc)
 	struct ata_port *alt = host->ports[1 ^ qc->ap->port_no];
 	int rc;
 
-	
+	/* First apply the usual rules */
 	rc = ata_std_qc_defer(qc);
 	if (rc != 0)
 		return rc;
 
+	/* Now apply serialization rules. Only allow a command if the
+	   other channel state machine is idle */
 	if (alt && alt->qc_active)
 		return	ATA_DEFER_PORT;
 	return 0;
@@ -181,6 +221,14 @@ static struct ata_port_operations sc1200_port_ops = {
 	.set_dmamode	= sc1200_set_dmamode,
 };
 
+/**
+ *	sc1200_init_one		-	Initialise an SC1200
+ *	@dev: PCI device
+ *	@id: Entry in match table
+ *
+ *	Just throw the needed data at the libata helper and it does all
+ *	our work.
+ */
 
 static int sc1200_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

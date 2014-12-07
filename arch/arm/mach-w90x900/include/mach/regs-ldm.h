@@ -21,6 +21,7 @@
 
 #include <mach/map.h>
 
+/* Display Controller Control/Status Register */
 #define REG_LCM_DCCS			(0x00)
 
 #define LCM_DCCS_ENG_RST		(1 << 0)
@@ -43,6 +44,7 @@ enum LCM_DCCS_VA_SRC {
 };
 
 
+/* Display Device Control Register */
 #define REG_LCM_DEV_CTRL		(0x04)
 
 enum LCM_DEV_CTRL_SWAP_YCbCr {
@@ -129,8 +131,10 @@ enum LCM_DEV_CTRL_DE_POL {
 #define LCM_DEV_CTRL_CM16t18		(30)
 #define LCM_DEV_CTRL_CMD_LOW		(31)
 
+/* MPU-Interface LCD Write Command */
 #define REG_LCM_MPU_CMD			(0x08)
 
+/* Interrupt Control/Status Register */
 #define REG_LCM_INT_CS			(0x0c)
 #define LCM_INT_CS_DISP_F_EN		(1 << 0)
 #define LCM_INT_CS_UNDERRUN_EN   	(1 << 1)
@@ -139,81 +143,111 @@ enum LCM_DEV_CTRL_DE_POL {
 #define LCM_INT_CS_DISP_F_STATUS 	(1 << 30)
 #define LCM_INT_CS_DISP_F_INT		(1 << 31)
 
+/* CRTC Display Size Control Register */
 #define REG_LCM_CRTC_SIZE		(0x10)
 #define LCM_CRTC_SIZE_VTTVAL(x)		((x) << 16)
 #define LCM_CRTC_SIZE_HTTVAL(x)		((x) << 0)
 
+/* CRTC Display Enable End */
 #define REG_LCM_CRTC_DEND		(0x14)
 #define LCM_CRTC_DEND_VDENDVAL(x)	((x) << 16)
 #define LCM_CRTC_DEND_HDENDVAL(x)	((x) << 0)
 
+/* CRTC Internal Horizontal Retrace Control Register */
 #define REG_LCM_CRTC_HR			(0x18)
 #define LCM_CRTC_HR_EVAL(x)		((x) << 16)
 #define LCM_CRTC_HR_SVAL(x)		((x) << 0)
 
+/* CRTC Horizontal Sync Control Register */
 #define REG_LCM_CRTC_HSYNC		(0x1C)
 #define LCM_CRTC_HSYNC_SHIFTVAL(x)	((x) << 30)
 #define LCM_CRTC_HSYNC_EVAL(x)		((x) << 16)
 #define LCM_CRTC_HSYNC_SVAL(x)		((x) << 0)
 
+/* CRTC Internal Vertical Retrace Control Register */
 #define REG_LCM_CRTC_VR			(0x20)
 #define LCM_CRTC_VR_EVAL(x)		((x) << 16)
 #define LCM_CRTC_VR_SVAL(x)		((x) << 0)
 
+/* Video Stream Frame Buffer-0 Starting Address */
 #define REG_LCM_VA_BADDR0		(0x24)
 
+/* Video Stream Frame Buffer-1 Starting Address */
 #define REG_LCM_VA_BADDR1		(0x28)
 
+/* Video Stream Frame Buffer Control Register */
 #define REG_LCM_VA_FBCTRL		(0x2C)
 #define LCM_VA_FBCTRL_IO_REGION_HALF	(1 << 28)
 #define LCM_VA_FBCTRL_FIELD_DUAL  	(1 << 29)
 #define LCM_VA_FBCTRL_START_BUF 	(1 << 30)
 #define LCM_VA_FBCTRL_DB_EN		(1 << 31)
 
+/* Video Stream Scaling Control Register */
 #define REG_LCM_VA_SCALE		(0x30)
 #define LCM_VA_SCALE_XCOPY_INTERPOLATION (0 << 15)
 #define LCM_VA_SCALE_XCOPY_DUPLICATION	 (1 << 15)
 
+/* Image Stream Active Window Coordinates */
 #define REG_LCM_VA_WIN			(0x38)
 
+/* Image Stream Stuff Pixel */
 #define REG_LCM_VA_STUFF		(0x3C)
 
+/* OSD Window Starting Coordinates */
 #define REG_LCM_OSD_WINS		(0x40)
 
+/* OSD Window Ending Coordinates */
 #define REG_LCM_OSD_WINE		(0x44)
 
+/* OSD Stream Frame Buffer Starting Address */
 #define REG_LCM_OSD_BADDR		(0x48)
 
+/* OSD Stream Frame Buffer Control Register */
 #define REG_LCM_OSD_FBCTRL		(0x4c)
 
+/* OSD Overlay Control Register */
 #define REG_LCM_OSD_OVERLAY		(0x50)
 
+/* OSD Overlay Color-Key Pattern Register */
 #define REG_LCM_OSD_CKEY		(0x54)
 
+/* OSD Overlay Color-Key Mask Register */
 #define REG_LCM_OSD_CMASK		(0x58)
 
+/* OSD Window Skip1 Register */
 #define REG_LCM_OSD_SKIP1		(0x5C)
 
+/* OSD Window Skip2 Register */
 #define REG_LCM_OSD_SKIP2		(0x60)
 
+/* OSD horizontal up scaling control register */
 #define REG_LCM_OSD_SCALE		(0x64)
 
+/* MPU Vsync control register */
 #define REG_LCM_MPU_VSYNC		(0x68)
 
+/* Hardware cursor control Register */
 #define REG_LCM_HC_CTRL			(0x6C)
 
+/* Hardware cursot tip point potison on va picture */
 #define REG_LCM_HC_POS			(0x70)
 
+/* Hardware Cursor Window Buffer Control Register */
 #define REG_LCM_HC_WBCTRL		(0x74)
 
+/* Hardware cursor memory base address register */
 #define REG_LCM_HC_BADDR		(0x78)
 
+/* Hardware cursor color ram register mapped to bpp = 0 */
 #define REG_LCM_HC_COLOR0		(0x7C)
 
+/* Hardware cursor color ram register mapped to bpp = 1 */
 #define REG_LCM_HC_COLOR1		(0x80)
 
+/* Hardware cursor color ram register mapped to bpp = 2 */
 #define REG_LCM_HC_COLOR2		(0x84)
 
+/* Hardware cursor color ram register mapped to bpp = 3 */
 #define REG_LCM_HC_COLOR3		(0x88)
 
-#endif 
+#endif /* __ASM_ARM_W90X900_REGS_LDM_H */

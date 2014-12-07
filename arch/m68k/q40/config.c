@@ -47,7 +47,7 @@ static int q40_set_clock_mmss(unsigned long);
 static int q40_get_rtc_pll(struct rtc_pll_info *pll);
 static int q40_set_rtc_pll(struct rtc_pll_info *pll);
 
-extern void q40_mksound(unsigned int , unsigned int );
+extern void q40_mksound(unsigned int /*freq*/, unsigned int /*ticks*/);
 
 static void q40_mem_console_write(struct console *co, const char *b,
 				  unsigned int count);
@@ -62,7 +62,8 @@ static struct console q40_console_driver = {
 };
 
 
-extern char *q40_mem_cptr; 
+/* early debugging function:*/
+extern char *q40_mem_cptr; /*=(char *)0xff020000;*/
 static int _cpleft;
 
 static void q40_mem_console_write(struct console *co, const char *s,
@@ -81,9 +82,9 @@ static void q40_mem_console_write(struct console *co, const char *s,
 
 static int __init q40_debug_setup(char *arg)
 {
-	
+	/* useful for early debugging stages - writes kernel messages into SRAM */
 	if (MACH_IS_Q40 && !strncmp(arg, "mem", 3)) {
-		
+		/*printk("using NVRAM debug, q40_mem_cptr=%p\n",q40_mem_cptr);*/
 		_cpleft = 2000 - ((long)q40_mem_cptr-0xff020000) / 4;
 		register_console(&q40_console_driver);
 	}
@@ -187,9 +188,12 @@ void __init config_q40(void)
 #endif
 	mach_halt = q40_halt;
 
-	
+	/* disable a few things that SMSQ might have left enabled */
 	q40_disable_irqs();
 
+	/* no DMA at all, but ide-scsi requires it.. make sure
+	 * all physical RAM fits into the boundary - otherwise
+	 * allocator may play costly and useless tricks */
 	mach_max_dma_address = 1024*1024*1024;
 }
 
@@ -206,11 +210,25 @@ static unsigned long q40_gettimeoffset(void)
 }
 
 
+/*
+ * Looks like op is non-zero for setting the clock, and zero for
+ * reading the clock.
+ *
+ *  struct hwclk_time {
+ *         unsigned        sec;       0..59
+ *         unsigned        min;       0..59
+ *         unsigned        hour;      0..23
+ *         unsigned        day;       1..31
+ *         unsigned        mon;       0..11
+ *         unsigned        year;      00...
+ *         int             wday;      0..6, 0 is Sunday, -1 means unknown/don't set
+ * };
+ */
 
 static int q40_hwclk(int op, struct rtc_time *t)
 {
 	if (op) {
-		
+		/* Write.... */
 		Q40_RTC_CTRL |= Q40_RTC_WRITE;
 
 		Q40_RTC_SECS = bin2bcd(t->tm_sec);
@@ -224,7 +242,7 @@ static int q40_hwclk(int op, struct rtc_time *t)
 
 		Q40_RTC_CTRL &= ~(Q40_RTC_WRITE);
 	} else {
-		
+		/* Read....  */
 		Q40_RTC_CTRL |= Q40_RTC_READ;
 
 		t->tm_year = bcd2bin (Q40_RTC_YEAR);
@@ -249,6 +267,10 @@ static unsigned int q40_get_ss(void)
 	return bcd2bin(Q40_RTC_SECS);
 }
 
+/*
+ * Set the minutes and seconds from seconds value 'nowtime'.  Fail if
+ * clock is out by > 30 minutes.  Logic lifted from atari code.
+ */
 
 static int q40_set_clock_mmss(unsigned long nowtime)
 {
@@ -273,6 +295,7 @@ static int q40_set_clock_mmss(unsigned long nowtime)
 }
 
 
+/* get and set PLL calibration of RTC clock */
 #define Q40_RTC_PLL_MASK ((1<<5)-1)
 #define Q40_RTC_PLL_SIGN (1<<5)
 
@@ -295,8 +318,8 @@ static int q40_get_rtc_pll(struct rtc_pll_info *pll)
 static int q40_set_rtc_pll(struct rtc_pll_info *pll)
 {
 	if (!pll->pll_ctrl) {
-		
-		
+		/* the docs are a bit unclear so I am doublesetting */
+		/* RTC_WRITE here ... */
 		int tmp = (pll->pll_value & 31) | (pll->pll_value<0 ? 32 : 0) |
 			  Q40_RTC_WRITE;
 		Q40_RTC_CTRL |= Q40_RTC_WRITE;

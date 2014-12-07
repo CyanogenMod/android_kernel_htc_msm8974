@@ -32,16 +32,18 @@
 #include <linux/uaccess.h>
 #include <linux/watchdog.h>
 
+/* default timeout in seconds */
 #define DEFAULT_TIMEOUT		60
 
 #define MODULE_NAME		"sp805-wdt"
 
+/* watchdog register offsets and masks */
 #define WDTLOAD			0x000
 	#define LOAD_MIN	0x00000001
 	#define LOAD_MAX	0xFFFFFFFF
 #define WDTVALUE		0x004
 #define WDTCONTROL		0x008
-	
+	/* control register masks */
 	#define	INT_ENABLE	(1 << 0)
 	#define	RESET_ENABLE	(1 << 1)
 #define WDTINTCLR		0x00C
@@ -52,6 +54,16 @@
 	#define	UNLOCK		0x1ACCE551
 	#define	LOCK		0x00000001
 
+/**
+ * struct sp805_wdt: sp805 wdt device structure
+ * @lock: spin lock protecting dev structure and io access
+ * @base: base address of wdt
+ * @clk: clock structure of wdt
+ * @adev: amba device structure of wdt
+ * @status: current status of wdt
+ * @load_val: load value to be set for current timeout
+ * @timeout: current programmed timeout
+ */
 struct sp805_wdt {
 	spinlock_t			lock;
 	void __iomem			*base;
@@ -64,15 +76,23 @@ struct sp805_wdt {
 	unsigned int			timeout;
 };
 
+/* local variables */
 static struct sp805_wdt *wdt;
 static bool nowayout = WATCHDOG_NOWAYOUT;
 
+/* This routine finds load value that will reset system in required timout */
 static void wdt_setload(unsigned int timeout)
 {
 	u64 load, rate;
 
 	rate = clk_get_rate(wdt->clk);
 
+	/*
+	 * sp805 runs counter with given value twice, after the end of first
+	 * counter it gives an interrupt and then starts counter again. If
+	 * interrupt already occurred then it resets the system. This is why
+	 * load is half of what should be required.
+	 */
 	load = div_u64(rate, 2) * timeout - 1;
 
 	load = (load > LOAD_MAX) ? LOAD_MAX : load;
@@ -80,11 +100,12 @@ static void wdt_setload(unsigned int timeout)
 
 	spin_lock(&wdt->lock);
 	wdt->load_val = load;
-	
+	/* roundup timeout to closest positive integer value */
 	wdt->timeout = div_u64((load + 1) * 2 + (rate / 2), rate);
 	spin_unlock(&wdt->lock);
 }
 
+/* returns number of seconds left for reset to occur */
 static u32 wdt_timeleft(void)
 {
 	u64 load, rate;
@@ -94,7 +115,7 @@ static u32 wdt_timeleft(void)
 	spin_lock(&wdt->lock);
 	load = readl_relaxed(wdt->base + WDTVALUE);
 
-	
+	/*If the interrupt is inactive then time left is WDTValue + WDTLoad. */
 	if (!(readl_relaxed(wdt->base + WDTRIS) & INT_MASK))
 		load += wdt->load_val + 1;
 	spin_unlock(&wdt->lock);
@@ -102,6 +123,7 @@ static u32 wdt_timeleft(void)
 	return div_u64(load, rate);
 }
 
+/* enables watchdog timers reset */
 static void wdt_enable(void)
 {
 	spin_lock(&wdt->lock);
@@ -112,11 +134,12 @@ static void wdt_enable(void)
 	writel_relaxed(INT_ENABLE | RESET_ENABLE, wdt->base + WDTCONTROL);
 	writel_relaxed(LOCK, wdt->base + WDTLOCK);
 
-	
+	/* Flush posted writes. */
 	readl_relaxed(wdt->base + WDTLOCK);
 	spin_unlock(&wdt->lock);
 }
 
+/* disables watchdog timers reset */
 static void wdt_disable(void)
 {
 	spin_lock(&wdt->lock);
@@ -125,7 +148,7 @@ static void wdt_disable(void)
 	writel_relaxed(0, wdt->base + WDTCONTROL);
 	writel_relaxed(LOCK, wdt->base + WDTLOCK);
 
-	
+	/* Flush posted writes. */
 	readl_relaxed(wdt->base + WDTLOCK);
 	spin_unlock(&wdt->lock);
 }
@@ -144,7 +167,7 @@ static ssize_t sp805_wdt_write(struct file *file, const char *data,
 
 				if (get_user(c, data + i))
 					return -EFAULT;
-				
+				/* Check for Magic Close character */
 				if (c == 'V') {
 					set_bit(WDT_CAN_BE_CLOSED,
 							&wdt->status);
@@ -191,7 +214,7 @@ static long sp805_wdt_ioctl(struct file *file, unsigned int cmd,
 		wdt_setload(timeout);
 
 		wdt_enable();
-		
+		/* Fall through */
 
 	case WDIOC_GETTIMEOUT:
 		ret = put_user(wdt->timeout, (unsigned int *)arg);
@@ -218,7 +241,7 @@ static int sp805_wdt_open(struct inode *inode, struct file *file)
 
 	wdt_enable();
 
-	
+	/* can not be closed, once enabled */
 	clear_bit(WDT_CAN_BE_CLOSED, &wdt->status);
 	return nonseekable_open(inode, file);
 
@@ -345,7 +368,7 @@ static int sp805_wdt_resume(struct device *dev)
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static SIMPLE_DEV_PM_OPS(sp805_wdt_dev_pm_ops, sp805_wdt_suspend,
 		sp805_wdt_resume);

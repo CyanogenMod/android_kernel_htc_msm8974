@@ -126,7 +126,7 @@ int __devinit mantis_pci_init(struct mantis_pci *mantis)
 	pci_set_drvdata(pdev, mantis);
 	return ret;
 
-	
+	/* Error conditions */
 fail3:
 	dprintk(MANTIS_ERROR, 1, "ERROR: <%d> I/O unmap", ret);
 	if (mantis->mmio)

@@ -22,6 +22,9 @@
 #include <linux/string.h>
 #include <linux/namei.h>
 
+/* Symlink caching in the page cache is even more simplistic
+ * and straight-forward than readdir caching.
+ */
 
 static int nfs_symlink_filler(struct inode *inode, struct page *page)
 {
@@ -63,6 +66,9 @@ read_failed:
 	return NULL;
 }
 
+/*
+ * symlinks can't do much...
+ */
 const struct inode_operations nfs_symlink_inode_operations = {
 	.readlink	= generic_readlink,
 	.follow_link	= nfs_follow_link,

@@ -78,6 +78,9 @@ static int perf_session__list_build_ids(void)
 	if (session == NULL)
 		return -1;
 
+	/*
+	 * See if this is an ELF file first:
+	 */
 	if (filename__fprintf_build_id(session->filename, stdout))
 		goto out;
 

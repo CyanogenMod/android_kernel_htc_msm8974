@@ -39,10 +39,14 @@
 
 static bool debug;
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v1.3"
 #define DRIVER_AUTHOR "William Greathouse <wgreathouse@smva.com>"
 #define DRIVER_DESC "USB Belkin Serial converter driver"
 
+/* function prototypes for a Belkin USB Serial Adapter F5U103 */
 static int  belkin_sa_startup(struct usb_serial *serial);
 static void belkin_sa_release(struct usb_serial *serial);
 static int  belkin_sa_open(struct tty_struct *tty,
@@ -65,7 +69,7 @@ static const struct usb_device_id id_table_combined[] = {
 	{ USB_DEVICE(GOHUBS_VID, GOHUBS_PID) },
 	{ USB_DEVICE(GOHUBS_VID, HANDYLINK_PID) },
 	{ USB_DEVICE(BELKIN_DOCKSTATION_VID, BELKIN_DOCKSTATION_PID) },
-	{ }	
+	{ }	/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, id_table_combined);
 
@@ -76,6 +80,7 @@ static struct usb_driver belkin_driver = {
 	.id_table =	id_table_combined,
 };
 
+/* All of the device info needed for the serial converters */
 static struct usb_serial_driver belkin_device = {
 	.driver = {
 		.owner =	THIS_MODULE,
@@ -109,28 +114,35 @@ struct belkin_sa_private {
 };
 
 
+/*
+ * ***************************************************************************
+ * Belkin USB Serial Adapter F5U103 specific driver functions
+ * ***************************************************************************
+ */
 
-#define WDR_TIMEOUT 5000 
+#define WDR_TIMEOUT 5000 /* default urb timeout */
 
+/* assumes that struct usb_serial *serial is available */
 #define BSA_USB_CMD(c, v) usb_control_msg(serial->dev, usb_sndctrlpipe(serial->dev, 0), \
 					    (c), BELKIN_SA_SET_REQUEST_TYPE, \
 					    (v), 0, NULL, 0, WDR_TIMEOUT)
 
+/* do some startup allocations not currently performed by usb_serial_probe() */
 static int belkin_sa_startup(struct usb_serial *serial)
 {
 	struct usb_device *dev = serial->dev;
 	struct belkin_sa_private *priv;
 
-	
+	/* allocate the private data structure */
 	priv = kmalloc(sizeof(struct belkin_sa_private), GFP_KERNEL);
 	if (!priv)
-		return -1; 
-	
+		return -1; /* error */
+	/* set initial values for control structures */
 	spin_lock_init(&priv->lock);
 	priv->control_state = 0;
 	priv->last_lsr = 0;
 	priv->last_msr = 0;
-	
+	/* see comments at top of file */
 	priv->bad_flow_control =
 		(le16_to_cpu(dev->descriptor.bcdDevice) <= 0x0206) ? 1 : 0;
 	dev_info(&dev->dev, "bcdDevice: %04x, bfc: %d\n",
@@ -192,12 +204,12 @@ static void belkin_sa_read_int_callback(struct urb *urb)
 
 	switch (status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d",
 		    __func__, status);
 		return;
@@ -210,14 +222,14 @@ static void belkin_sa_read_int_callback(struct urb *urb)
 	usb_serial_debug_data(debug, &port->dev, __func__,
 					urb->actual_length, data);
 
-	
-	
+	/* Handle known interrupt data */
+	/* ignore data[0] and data[1] */
 
 	priv = usb_get_serial_port_data(port);
 	spin_lock_irqsave(&priv->lock, flags);
 	priv->last_msr = data[BELKIN_SA_MSR_INDEX];
 
-	
+	/* Record Control Line states */
 	if (priv->last_msr & BELKIN_SA_MSR_DSR)
 		priv->control_state |= TIOCM_DSR;
 	else
@@ -257,7 +269,7 @@ static void belkin_sa_process_read_urb(struct urb *urb)
 	unsigned char status;
 	char tty_flag;
 
-	
+	/* Update line status */
 	tty_flag = TTY_NORMAL;
 
 	spin_lock_irqsave(&priv->lock, flags);
@@ -273,6 +285,8 @@ static void belkin_sa_process_read_urb(struct urb *urb)
 		return;
 
 	if (status & BELKIN_SA_LSR_ERR) {
+		/* Break takes precedence over parity, which takes precedence
+		 * over framing errors. */
 		if (status & BELKIN_SA_LSR_BI)
 			tty_flag = TTY_BREAK;
 		else if (status & BELKIN_SA_LSR_PE)
@@ -281,7 +295,7 @@ static void belkin_sa_process_read_urb(struct urb *urb)
 			tty_flag = TTY_FRAME;
 		dev_dbg(&port->dev, "tty_flag = %d\n", tty_flag);
 
-		
+		/* Overrun is special, not associated with a char. */
 		if (status & BELKIN_SA_LSR_OE)
 			tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 	}
@@ -301,7 +315,7 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 	unsigned int cflag;
 	unsigned int old_iflag = 0;
 	unsigned int old_cflag = 0;
-	__u16 urb_value = 0; 
+	__u16 urb_value = 0; /* Will hold the new flags */
 	unsigned long flags;
 	unsigned long control_state;
 	int bad_flow_control;
@@ -313,7 +327,7 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 
 	termios->c_cflag &= ~CMSPAR;
 
-	
+	/* get a local copy of the current port settings */
 	spin_lock_irqsave(&priv->lock, flags);
 	control_state = priv->control_state;
 	bad_flow_control = priv->bad_flow_control;
@@ -322,14 +336,14 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 	old_iflag = old_termios->c_iflag;
 	old_cflag = old_termios->c_cflag;
 
-	
+	/* Set the baud rate */
 	if ((cflag & CBAUD) != (old_cflag & CBAUD)) {
-		
+		/* reassert DTR and (maybe) RTS on transition from B0 */
 		if ((old_cflag & CBAUD) == B0) {
 			control_state |= (TIOCM_DTR|TIOCM_RTS);
 			if (BSA_USB_CMD(BELKIN_SA_SET_DTR_REQUEST, 1) < 0)
 				dev_err(&port->dev, "Set DTR error\n");
-			
+			/* don't set RTS if using hardware flow control */
 			if (!(old_cflag & CRTSCTS))
 				if (BSA_USB_CMD(BELKIN_SA_SET_RTS_REQUEST
 								, 1) < 0)
@@ -340,22 +354,22 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 	baud = tty_get_baud_rate(tty);
 	if (baud) {
 		urb_value = BELKIN_SA_BAUD(baud);
-		
+		/* Clip to maximum speed */
 		if (urb_value == 0)
 			urb_value = 1;
-		
+		/* Turn it back into a resulting real baud rate */
 		baud = BELKIN_SA_BAUD(urb_value);
 
-		
+		/* Report the actual baud rate back to the caller */
 		tty_encode_baud_rate(tty, baud, baud);
 		if (BSA_USB_CMD(BELKIN_SA_SET_BAUDRATE_REQUEST, urb_value) < 0)
 			dev_err(&port->dev, "Set baudrate error\n");
 	} else {
-		
+		/* Disable flow control */
 		if (BSA_USB_CMD(BELKIN_SA_SET_FLOW_CTRL_REQUEST,
 						BELKIN_SA_FLOW_NONE) < 0)
 			dev_err(&port->dev, "Disable flowcontrol error\n");
-		
+		/* Drop RTS and DTR */
 		control_state &= ~(TIOCM_DTR | TIOCM_RTS);
 		if (BSA_USB_CMD(BELKIN_SA_SET_DTR_REQUEST, 0) < 0)
 			dev_err(&port->dev, "DTR LOW error\n");
@@ -363,7 +377,7 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 			dev_err(&port->dev, "RTS LOW error\n");
 	}
 
-	
+	/* set the parity */
 	if ((cflag ^ old_cflag) & (PARENB | PARODD)) {
 		if (cflag & PARENB)
 			urb_value = (cflag & PARODD) ?  BELKIN_SA_PARITY_ODD
@@ -374,7 +388,7 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 			dev_err(&port->dev, "Set parity error\n");
 	}
 
-	
+	/* set the number of data bits */
 	if ((cflag & CSIZE) != (old_cflag & CSIZE)) {
 		switch (cflag & CSIZE) {
 		case CS5:
@@ -397,7 +411,7 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 			dev_err(&port->dev, "Set data bits error\n");
 	}
 
-	
+	/* set the number of stop bits */
 	if ((cflag & CSTOPB) != (old_cflag & CSTOPB)) {
 		urb_value = (cflag & CSTOPB) ? BELKIN_SA_STOP_BITS(2)
 						: BELKIN_SA_STOP_BITS(1);
@@ -406,7 +420,7 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 			dev_err(&port->dev, "Set stop bits error\n");
 	}
 
-	
+	/* Set flow control */
 	if (((iflag ^ old_iflag) & (IXOFF | IXON)) ||
 		((cflag ^ old_cflag) & CRTSCTS)) {
 		urb_value = 0;
@@ -427,7 +441,7 @@ static void belkin_sa_set_termios(struct tty_struct *tty,
 			dev_err(&port->dev, "Set flow control error\n");
 	}
 
-	
+	/* save off the modified port settings */
 	spin_lock_irqsave(&priv->lock, flags);
 	priv->control_state = control_state;
 	spin_unlock_irqrestore(&priv->lock, flags);

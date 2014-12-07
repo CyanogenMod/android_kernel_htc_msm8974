@@ -4,6 +4,10 @@
 
 #include <linux/notifier.h>
 
+/*
+ * Use this API if your code needs to know about OF device nodes being
+ * added or removed on pSeries systems.
+ */
 
 #define PSERIES_RECONFIG_ADD		0x0001
 #define PSERIES_RECONFIG_REMOVE		0x0002
@@ -14,16 +18,18 @@
 extern int pSeries_reconfig_notifier_register(struct notifier_block *);
 extern void pSeries_reconfig_notifier_unregister(struct notifier_block *);
 extern int pSeries_reconfig_notify(unsigned long action, void *p);
+/* Not the best place to put this, will be fixed when we move some
+ * of the rtas suspend-me stuff to pseries */
 extern void pSeries_coalesce_init(void);
-#else 
+#else /* !CONFIG_PPC_PSERIES */
 static inline int pSeries_reconfig_notifier_register(struct notifier_block *nb)
 {
 	return 0;
 }
 static inline void pSeries_reconfig_notifier_unregister(struct notifier_block *nb) { }
 static inline void pSeries_coalesce_init(void) { }
-#endif 
+#endif /* CONFIG_PPC_PSERIES */
 
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _PPC64_PSERIES_RECONFIG_H */

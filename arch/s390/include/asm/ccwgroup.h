@@ -4,19 +4,45 @@
 struct ccw_device;
 struct ccw_driver;
 
+/**
+ * struct ccwgroup_device - ccw group device
+ * @creator_id: unique number of the driver
+ * @state: online/offline state
+ * @count: number of attached slave devices
+ * @dev: embedded device structure
+ * @cdev: variable number of slave devices, allocated as needed
+ */
 struct ccwgroup_device {
 	unsigned long creator_id;
 	enum {
 		CCWGROUP_OFFLINE,
 		CCWGROUP_ONLINE,
 	} state;
+/* private: */
 	atomic_t onoff;
 	struct mutex reg_mutex;
+/* public: */
 	unsigned int count;
 	struct device	dev;
 	struct ccw_device *cdev[0];
 };
 
+/**
+ * struct ccwgroup_driver - driver for ccw group devices
+ * @max_slaves: maximum number of slave devices
+ * @driver_id: unique id
+ * @probe: function called on probe
+ * @remove: function called on remove
+ * @set_online: function called when device is set online
+ * @set_offline: function called when device is set offline
+ * @shutdown: function called when device is shut down
+ * @prepare: prepare for pm state transition
+ * @complete: undo work done in @prepare
+ * @freeze: callback for freezing during hibernation snapshotting
+ * @thaw: undo work done in @freeze
+ * @restore: callback for restoring after hibernation
+ * @driver: embedded driver structure
+ */
 struct ccwgroup_driver {
 	int max_slaves;
 	unsigned long driver_id;

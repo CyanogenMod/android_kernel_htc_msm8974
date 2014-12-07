@@ -23,6 +23,8 @@
  *  off in a hurry once you queue things up - Paul G. 02/2001
  */
 
+/* Uncomment the following if you want verbose error reports. */
+/* #define VERBOSE_ERRORS */
 
 #include <linux/blkdev.h>
 #include <linux/errno.h>
@@ -53,25 +55,27 @@
 #define HD_IRQ IRQ_HARDDISK
 #endif
 
+/* Hd controller regster ports */
 
-#define HD_DATA		0x1f0		
-#define HD_ERROR	0x1f1		
-#define HD_NSECTOR	0x1f2		
-#define HD_SECTOR	0x1f3		
-#define HD_LCYL		0x1f4		
-#define HD_HCYL		0x1f5		
-#define HD_CURRENT	0x1f6		
-#define HD_STATUS	0x1f7		
-#define HD_FEATURE	HD_ERROR	
-#define HD_PRECOMP	HD_FEATURE	
-#define HD_COMMAND	HD_STATUS	
+#define HD_DATA		0x1f0		/* _CTL when writing */
+#define HD_ERROR	0x1f1		/* see err-bits */
+#define HD_NSECTOR	0x1f2		/* nr of sectors to read/write */
+#define HD_SECTOR	0x1f3		/* starting sector */
+#define HD_LCYL		0x1f4		/* starting cylinder */
+#define HD_HCYL		0x1f5		/* high byte of starting cyl */
+#define HD_CURRENT	0x1f6		/* 101dhhhh , d=drive, hhhh=head */
+#define HD_STATUS	0x1f7		/* see status-bits */
+#define HD_FEATURE	HD_ERROR	/* same io address, read=error, write=feature */
+#define HD_PRECOMP	HD_FEATURE	/* obsolete use of this port - predates IDE */
+#define HD_COMMAND	HD_STATUS	/* same io address, read=status, write=cmd */
 
-#define HD_CMD		0x3f6		
-#define HD_ALTSTATUS	0x3f6		
+#define HD_CMD		0x3f6		/* used for resets */
+#define HD_ALTSTATUS	0x3f6		/* same as HD_STATUS but doesn't clear irq */
 
+/* Bits of HD_STATUS */
 #define ERR_STAT		0x01
 #define INDEX_STAT		0x02
-#define ECC_STAT		0x04	
+#define ECC_STAT		0x04	/* Corrected error */
 #define DRQ_STAT		0x08
 #define SEEK_STAT		0x10
 #define SERVICE_STAT		SEEK_STAT
@@ -79,15 +83,16 @@
 #define READY_STAT		0x40
 #define BUSY_STAT		0x80
 
-#define MARK_ERR		0x01	
-#define TRK0_ERR		0x02	
-#define ABRT_ERR		0x04	
-#define MCR_ERR			0x08	
-#define ID_ERR			0x10	
-#define MC_ERR			0x20	
-#define ECC_ERR			0x40	
-#define BBD_ERR			0x80	
-#define ICRC_ERR		0x80	
+/* Bits for HD_ERROR */
+#define MARK_ERR		0x01	/* Bad address mark */
+#define TRK0_ERR		0x02	/* couldn't find track 0 */
+#define ABRT_ERR		0x04	/* Command aborted */
+#define MCR_ERR			0x08	/* media change request */
+#define ID_ERR			0x10	/* ID field not found */
+#define MC_ERR			0x20	/* media changed */
+#define ECC_ERR			0x40	/* Uncorrectable ECC error */
+#define BBD_ERR			0x80	/* pre-EIDE meaning:  block marked bad */
+#define ICRC_ERR		0x80	/* new meaning:  CRC error during transfer */
 
 static DEFINE_SPINLOCK(hd_lock);
 static struct request_queue *hd_queue;
@@ -96,9 +101,9 @@ static struct request *hd_req;
 #define TIMEOUT_VALUE	(6*HZ)
 #define	HD_DELAY	0
 
-#define MAX_ERRORS     16	
-#define RESET_FREQ      8	
-#define RECAL_FREQ      4	
+#define MAX_ERRORS     16	/* Max read/write errors/sector */
+#define RESET_FREQ      8	/* Reset controller every 8th retry */
+#define RECAL_FREQ      4	/* Recalibrate every 4th retry */
 #define MAX_HD		2
 
 #define STAT_OK		(READY_STAT|SEEK_STAT)
@@ -110,6 +115,9 @@ static void bad_rw_intr(void);
 static int reset;
 static int hd_error;
 
+/*
+ *  This struct defines the HD's and their types.
+ */
 struct hd_i_struct {
 	unsigned int head, sect, cyl, wpcom, lzone, ctl;
 	int unit;
@@ -269,7 +277,7 @@ static int status_ok(void)
 	unsigned char status = inb_p(HD_STATUS);
 
 	if (status & BUSY_STAT)
-		return 1;	
+		return 1;	/* Ancient, but does it make sense??? */
 	if (status & WRERR_STAT)
 		return 0;
 	if (!(status & READY_STAT))
@@ -305,7 +313,7 @@ static void hd_out(struct hd_i_struct *disk,
 
 #if (HD_DELAY > 0)
 	while (read_timer() - last_req < HD_DELAY)
-		;
+		/* nothing */;
 #endif
 	if (reset)
 		return;
@@ -380,6 +388,15 @@ repeat:
 		hd_request();
 }
 
+/*
+ * Ok, don't know what to do with the unexpected interrupts: on some machines
+ * doing a reset and a retry seems to result in an eternal loop. Right now I
+ * ignore it, and just set the timeout.
+ *
+ * On laptops (and "green" PCs), an unexpected interrupt occurs whenever the
+ * drive enters "idle", "standby", or "sleep" mode, so if the status looks
+ * "good", we just ignore the interrupt completely.
+ */
 static void unexpected_hd_interrupt(void)
 {
 	unsigned int stat = inb_p(HD_STATUS);
@@ -390,6 +407,11 @@ static void unexpected_hd_interrupt(void)
 	}
 }
 
+/*
+ * bad_rw_intr() now tries to be a bit smarter and does things
+ * according to the error returned by the controller.
+ * -Mika Liljeberg (liljeber@cs.Helsinki.FI)
+ */
 static void bad_rw_intr(void)
 {
 	struct request *req = hd_req;
@@ -403,7 +425,7 @@ static void bad_rw_intr(void)
 			reset = 1;
 		else if ((hd_error & TRK0_ERR) || req->errors % RECAL_FREQ == 0)
 			disk->special_op = disk->recalibrate = 1;
-		
+		/* Otherwise just retry */
 	}
 }
 
@@ -502,6 +524,10 @@ static void recal_intr(void)
 	hd_request();
 }
 
+/*
+ * This is another of the error-routines I don't know what to do with. The
+ * best idea seems to just set reset, and start all over again.
+ */
 static void hd_times_out(unsigned long dummy)
 {
 	char *name;
@@ -540,6 +566,16 @@ static int do_special_op(struct hd_i_struct *disk, struct request *req)
 	return 1;
 }
 
+/*
+ * The driver enables interrupts as much as possible.  In order to do this,
+ * (a) the device-interrupt is disabled before entering hd_request(),
+ * and (b) the timeout-interrupt is disabled before the sti().
+ *
+ * Interrupts are still masked (by default) whenever we are exchanging
+ * data/cmds with a drive, because some drives seem to have very poor
+ * tolerance for latency during I/O. The IDE driver has support to unmask
+ * interrupts for non-broken hardware, so use that driver if required.
+ */
 static void hd_request(void)
 {
 	unsigned int block, nsect, sec, track, head, cyl;
@@ -632,6 +668,10 @@ static int hd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 	return 0;
 }
 
+/*
+ * Releasing a block device means we sync() it, so that it can safely
+ * be forgotten about...
+ */
 
 static irqreturn_t hd_interrupt(int irq, void *dev_id)
 {
@@ -654,6 +694,15 @@ static const struct block_device_operations hd_fops = {
 	.getgeo =	hd_getgeo,
 };
 
+/*
+ * This is the hard disk IRQ description. The IRQF_DISABLED in sa_flags
+ * means we run the IRQ-handler with interrupts disabled:  this is bad for
+ * interrupt latency, but anything else has led to problems on some
+ * machines.
+ *
+ * We enable interrupts in some of the routines after making sure it's
+ * safe.
+ */
 
 static int __init hd_init(void)
 {
@@ -674,6 +723,20 @@ static int __init hd_init(void)
 	blk_queue_logical_block_size(hd_queue, 512);
 
 	if (!NR_HD) {
+		/*
+		 * We don't know anything about the drive.  This means
+		 * that you *MUST* specify the drive parameters to the
+		 * kernel yourself.
+		 *
+		 * If we were on an i386, we used to read this info from
+		 * the BIOS or CMOS.  This doesn't work all that well,
+		 * since this assumes that this is a primary or secondary
+		 * drive, and if we're using this legacy driver, it's
+		 * probably an auxiliary controller added to recover
+		 * legacy data off an ST-506 drive.  Either way, it's
+		 * definitely safest to have the user explicitly specify
+		 * the information.
+		 */
 		printk("hd: no drives specified - use hd=cyl,head,sectors"
 			" on kernel command line\n");
 		goto out;
@@ -712,7 +775,7 @@ static int __init hd_init(void)
 		goto out3;
 	}
 
-	
+	/* Let them fly */
 	for (drive = 0; drive < NR_HD; drive++)
 		add_disk(hd_gendisk[drive]);
 

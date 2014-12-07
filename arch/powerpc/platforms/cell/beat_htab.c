@@ -126,6 +126,11 @@ static long beat_lpar_hpte_insert(unsigned long hpte_group,
 		hpte_v, hpte_r, &slot);
 	raw_spin_unlock(&beat_htab_lock);
 
+	/*
+	 * Since we try and ioremap PHBs we don't own, the pte insert
+	 * will fail. However we must catch the failure in hash_page
+	 * or we will loop forever, so return -2 in this case.
+	 */
 	if (unlikely(lpar_rc != 0)) {
 		if (!(vflags & HPTE_V_BOLTED))
 			DBG_LOW(" lpar err %lx\n", lpar_rc);
@@ -134,7 +139,7 @@ static long beat_lpar_hpte_insert(unsigned long hpte_group,
 	if (!(vflags & HPTE_V_BOLTED))
 		DBG_LOW(" -> slot: %lx\n", slot);
 
-	
+	/* We have to pass down the secondary bucket bit here as well */
 	return (slot ^ hpte_group) & 15;
 }
 
@@ -166,11 +171,17 @@ static void beat_lpar_hptab_clear(void)
 	int i;
 	u64 dummy0, dummy1;
 
-	
+	/* TODO: Use bulk call */
 	for (i = 0; i < hpte_count; i++)
 		beat_write_htab_entry(0, i, 0, 0, -1UL, -1UL, &dummy0, &dummy1);
 }
 
+/*
+ * NOTE: for updatepp ops we are fortunate that the linux "newpp" bits and
+ * the low 3 bits of flags happen to line up.  So no transform is needed.
+ * We can probably optimize here and assume the high bits of newpp are
+ * already zero.  For now I am paranoid.
+ */
 static long beat_lpar_hpte_updatepp(unsigned long slot,
 				    unsigned long newpp,
 				    unsigned long va,
@@ -227,7 +238,7 @@ static long beat_lpar_hpte_find(unsigned long va, int psize)
 			if (HPTE_V_COMPARE(hpte_v, want_v)
 			    && (hpte_v & HPTE_V_VALID)
 			    && (!!(hpte_v & HPTE_V_SECONDARY) == j)) {
-				
+				/* HPTE matches */
 				if (j)
 					slot = -slot;
 				return slot;
@@ -325,9 +336,14 @@ static long beat_lpar_hpte_insert_v3(unsigned long hpte_group,
 	if (rflags & _PAGE_NO_CACHE)
 		hpte_r &= ~_PAGE_COHERENT;
 
-	
+	/* insert into not-volted entry */
 	lpar_rc = beat_insert_htab_entry3(0, hpte_group, hpte_v, hpte_r,
 		HPTE_V_BOLTED, 0, &slot);
+	/*
+	 * Since we try and ioremap PHBs we don't own, the pte insert
+	 * will fail. However we must catch the failure in hash_page
+	 * or we will loop forever, so return -2 in this case.
+	 */
 	if (unlikely(lpar_rc != 0)) {
 		if (!(vflags & HPTE_V_BOLTED))
 			DBG_LOW(" lpar err %lx\n", lpar_rc);
@@ -336,10 +352,16 @@ static long beat_lpar_hpte_insert_v3(unsigned long hpte_group,
 	if (!(vflags & HPTE_V_BOLTED))
 		DBG_LOW(" -> slot: %lx\n", slot);
 
-	
+	/* We have to pass down the secondary bucket bit here as well */
 	return (slot ^ hpte_group) & 15;
 }
 
+/*
+ * NOTE: for updatepp ops we are fortunate that the linux "newpp" bits and
+ * the low 3 bits of flags happen to line up.  So no transform is needed.
+ * We can probably optimize here and assume the high bits of newpp are
+ * already zero.  For now I am paranoid.
+ */
 static long beat_lpar_hpte_updatepp_v3(unsigned long slot,
 				    unsigned long newpp,
 				    unsigned long va,
@@ -384,7 +406,7 @@ static void beat_lpar_hpte_invalidate_v3(unsigned long slot, unsigned long va,
 
 	lpar_rc = beat_invalidate_htab_entry3(0, slot, want_v, pss);
 
-	
+	/* E_busy can be valid output: page may be already replaced */
 	BUG_ON(lpar_rc != 0 && lpar_rc != 0xfffffff7);
 }
 

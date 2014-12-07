@@ -1,7 +1,16 @@
+/*
+ *  linux/fs/affs/bitmap.c
+ *
+ *  (c) 1996 Hans-Joachim Widmaier
+ *
+ *  bitmap.c contains the code that handles all bitmap related stuff -
+ *  block allocation, deallocation, calculation of free space.
+ */
 
 #include <linux/slab.h>
 #include "affs.h"
 
+/* This is, of course, shamelessly stolen from fs/minix */
 
 static const int nibblemap[] = { 0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4 };
 
@@ -83,13 +92,13 @@ affs_free_block(struct super_block *sb, u32 block)
 	mask = 1 << (bit & 31);
 	data = (__be32 *)bh->b_data + bit / 32 + 1;
 
-	
+	/* mark block free */
 	tmp = be32_to_cpu(*data);
 	if (tmp & mask)
 		goto err_free;
 	*data = cpu_to_be32(tmp | mask);
 
-	
+	/* fix checksum */
 	tmp = be32_to_cpu(*(__be32 *)bh->b_data);
 	*(__be32 *)bh->b_data = cpu_to_be32(tmp - mask);
 
@@ -117,6 +126,14 @@ err_range:
 	return;
 }
 
+/*
+ * Allocate a block in the given allocation zone.
+ * Since we have to byte-swap the bitmap on little-endian
+ * machines, this is rather expensive. Therefore we will
+ * preallocate up to 16 blocks from the same word, if
+ * possible. We are not doing preallocations in the
+ * header zone, though.
+ */
 
 u32
 affs_alloc_block(struct inode *inode, u32 goal)
@@ -143,8 +160,8 @@ affs_alloc_block(struct inode *inode, u32 goal)
 	if (!goal || goal > sbi->s_partition_size) {
 		if (goal)
 			affs_warning(sb, "affs_balloc", "invalid goal %d", goal);
-		
-		
+		//if (!AFFS_I(inode)->i_last_block)
+		//	affs_warning(sb, "affs_balloc", "no last alloc block");
 		goal = sbi->s_reserved;
 	}
 
@@ -158,7 +175,7 @@ affs_alloc_block(struct inode *inode, u32 goal)
 		goto find_bmap_bit;
 
 find_bmap:
-	
+	/* search for the next bmap buffer with free bits */
 	i = sbi->s_bmap_count;
 	do {
 		if (--i < 0)
@@ -167,7 +184,7 @@ find_bmap:
 		bm++;
 		if (bmap < sbi->s_bmap_count)
 			continue;
-		
+		/* restart search at zero */
 		bmap = 0;
 		bm = sbi->s_bitmap;
 	} while (!bm->bm_free);
@@ -185,7 +202,7 @@ find_bmap_bit:
 		sbi->s_last_bmap = bmap;
 	}
 
-	
+	/* find an unused block in this bitmap block */
 	bit = blk % sbi->s_bmap_bits;
 	data = (__be32 *)bh->b_data + bit / 32 + 1;
 	enddata = (__be32 *)((u8 *)bh->b_data + sb->s_blocksize);
@@ -196,23 +213,26 @@ find_bmap_bit:
 	if (tmp & mask)
 		goto find_bit;
 
-	
+	/* scan the rest of the buffer */
 	do {
 		blk += 32;
 		if (++data >= enddata)
+			/* didn't find something, can only happen
+			 * if scan didn't start at 0, try next bmap
+			 */
 			goto find_bmap;
 	} while (!*data);
 	tmp = be32_to_cpu(*data);
 	mask = ~0;
 
 find_bit:
-	
+	/* finally look for a free bit in the word */
 	bit = ffs(tmp & mask) - 1;
 	blk += bit + sbi->s_reserved;
 	mask2 = mask = 1 << (bit & 31);
 	AFFS_I(inode)->i_lastalloc = blk;
 
-	
+	/* prealloc as much as possible within this word */
 	while ((mask2 <<= 1)) {
 		if (!(tmp & mask2))
 			break;
@@ -223,7 +243,7 @@ find_bit:
 
 	*data = cpu_to_be32(tmp & ~mask);
 
-	
+	/* fix checksum */
 	tmp = be32_to_cpu(*(__be32 *)bh->b_data);
 	*(__be32 *)bh->b_data = cpu_to_be32(tmp + mask);
 
@@ -299,6 +319,9 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
 		pr_debug("AFFS: read bitmap block %d: %d\n", blk, bm->bm_key);
 		bm->bm_free = affs_count_free_bits(sb->s_blocksize - 4, bh->b_data + 4);
 
+		/* Don't try read the extension if this is the last block,
+		 * but we also need the right bm pointer below
+		 */
 		if (++blk < end || i == 1)
 			continue;
 		if (bmap_bh)
@@ -322,19 +345,19 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
 	if (mask) {
 		u32 old, new;
 
-		
+		/* Mark unused bits in the last word as allocated */
 		old = be32_to_cpu(((__be32 *)bh->b_data)[offset]);
 		new = old & mask;
-		
+		//if (old != new) {
 			((__be32 *)bh->b_data)[offset] = cpu_to_be32(new);
-			
-			
-			
-			
-			
-		
-		
-		
+			/* fix checksum */
+			//new -= old;
+			//old = be32_to_cpu(*(__be32 *)bh->b_data);
+			//*(__be32 *)bh->b_data = cpu_to_be32(old - new);
+			//mark_buffer_dirty(bh);
+		//}
+		/* correct offset for the bitmap count below */
+		//offset++;
 	}
 	while (++offset < sb->s_blocksize / 4)
 		((__be32 *)bh->b_data)[offset] = 0;
@@ -342,7 +365,7 @@ int affs_init_bitmap(struct super_block *sb, int *flags)
 	((__be32 *)bh->b_data)[0] = cpu_to_be32(-affs_checksum_block(sb, bh));
 	mark_buffer_dirty(bh);
 
-	
+	/* recalculate bitmap count for last block */
 	bm--;
 	bm->bm_free = affs_count_free_bits(sb->s_blocksize - 4, bh->b_data + 4);
 

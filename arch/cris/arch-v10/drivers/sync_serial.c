@@ -30,9 +30,35 @@
 #include <asm/sync_serial.h>
 #include <arch/io_interface_mux.h>
 
+/* The receiver is a bit tricky because of the continuous stream of data.*/
+/*                                                                       */
+/* Three DMA descriptors are linked together. Each DMA descriptor is     */
+/* responsible for port->bufchunk of a common buffer.                    */
+/*                                                                       */
+/* +---------------------------------------------+                       */
+/* |   +----------+   +----------+   +----------+ |                      */
+/* +-> | Descr[0] |-->| Descr[1] |-->| Descr[2] |-+                      */
+/*     +----------+   +----------+   +----------+                        */
+/*         |            |              |                                 */
+/*         v            v              v                                 */
+/*   +-------------------------------------+                             */
+/*   |        BUFFER                       |                             */
+/*   +-------------------------------------+                             */
+/*      |<- data_avail ->|                                               */
+/*    readp          writep                                              */
+/*                                                                       */
+/* If the application keeps up the pace readp will be right after writep.*/
+/* If the application can't keep the pace we have to throw away data.    */
+/* The idea is that readp should be ready with the data pointed out by	 */
+/* Descr[i] when the DMA has filled in Descr[i+1].                       */
+/* Otherwise we will discard	                                         */
+/* the rest of the data pointed out by Descr1 and set readp to the start */
+/* of Descr2                                                             */
 
 #define SYNC_SERIAL_MAJOR 125
 
+/* IN_BUFFER_SIZE should be a multiple of 6 to make sure that 24 bit */
+/* words can be handled */
 #define IN_BUFFER_SIZE 12288
 #define IN_DESCR_SIZE 256
 #define NUM_IN_DESCR (IN_BUFFER_SIZE/IN_DESCR_SIZE)
@@ -41,6 +67,9 @@
 #define DEFAULT_FRAME_RATE 0
 #define DEFAULT_WORD_RATE 7
 
+/* NOTE: Enabling some debug will likely cause overrun or underrun,
+ * especially if manual mode is use.
+ */
 #define DEBUG(x)
 #define DEBUGREAD(x)
 #define DEBUGWRITE(x)
@@ -48,6 +77,7 @@
 #define DEBUGRXINT(x)
 #define DEBUGTXINT(x)
 
+/* Define some macros to access ETRAX 100 registers */
 #define SETF(var, reg, field, val) \
 	do { \
 		var = (var & ~IO_MASK_(reg##_, field##_)) | \
@@ -61,7 +91,7 @@
 	} while (0)
 
 struct sync_port {
-	
+	/* Etrax registers and bits*/
 	const volatile unsigned *const status;
 	volatile unsigned *const ctrl_data;
 	volatile unsigned *const output_dma_first;
@@ -70,34 +100,34 @@ struct sync_port {
 	volatile unsigned *const input_dma_first;
 	volatile unsigned char *const input_dma_cmd;
 	volatile unsigned *const input_dma_descr;
-	
+	/* 8*4 */
 	volatile unsigned char *const input_dma_clr_irq;
 	volatile unsigned *const data_out;
 	const volatile unsigned *const data_in;
-	char data_avail_bit; 
-	char transmitter_ready_bit; 
-	char input_dma_descr_bit; 
+	char data_avail_bit; /* In R_IRQ_MASK1_RD/SET/CLR */
+	char transmitter_ready_bit; /* In R_IRQ_MASK1_RD/SET/CLR */
+	char input_dma_descr_bit; /* In R_IRQ_MASK2_RD */
 
-	char output_dma_bit; 
-	
-	char started; 
-	char port_nbr; 
-	char busy; 
+	char output_dma_bit; /* In R_IRQ_MASK2_RD */
+	/* End of fields initialised in array */
+	char started; /* 1 if port has been started */
+	char port_nbr; /* Port 0 or 1 */
+	char busy; /* 1 if port is busy */
 
-	char enabled;  
-	char use_dma;  
+	char enabled;  /* 1 if port is enabled */
+	char use_dma;  /* 1 if port uses dma */
 	char tr_running;
 
 	char init_irqs;
 
-	
+	/* Register shadow */
 	unsigned int ctrl_data_shadow;
-	
+	/* Remaining bytes for current transfer */
 	volatile unsigned int out_count;
-	
+	/* Current position in out_buffer */
 	unsigned char *outp;
-	
-	
+	/* 16*4 */
+	/* Next byte to be read by application */
 	volatile unsigned char *volatile readp;
 	/* Next byte to be written by etrax */
 	volatile unsigned char *volatile writep;
@@ -158,6 +188,7 @@ static irqreturn_t rx_interrupt(int irq, void *dev_id);
 static irqreturn_t manual_interrupt(int irq, void *dev_id);
 #endif
 
+/* The ports */
 static struct sync_port ports[] = {
 	{
 		.status                = R_SYNC_SERIAL1_STATUS,
@@ -207,6 +238,7 @@ static struct sync_port ports[] = {
 	}
 };
 
+/* Register shadows */
 static unsigned sync_serial_prescale_shadow;
 
 #define NUMBER_OF_PORTS 2
@@ -257,12 +289,12 @@ static int __init etrax_sync_serial_init(void)
 		return -EBUSY;
 	}
 
-	
+	/* Deselect synchronous serial ports while configuring. */
 	SETS(gen_config_ii_shadow, R_GEN_CONFIG_II, sermode1, async);
 	SETS(gen_config_ii_shadow, R_GEN_CONFIG_II, sermode3, async);
 	*R_GEN_CONFIG_II = gen_config_ii_shadow;
 
-	
+	/* Initialize Ports */
 #if defined(CONFIG_ETRAX_SYNCHRONOUS_SERIAL_PORT0)
 	ports[0].enabled = 1;
 	SETS(port_pb_i2c_shadow, R_PORT_PB_I2C, syncser1, ss1extra);
@@ -287,9 +319,9 @@ static int __init etrax_sync_serial_init(void)
 	initialize_port(1);
 #endif
 
-	*R_PORT_PB_I2C = port_pb_i2c_shadow; 
+	*R_PORT_PB_I2C = port_pb_i2c_shadow; /* Use PB4/PB7 */
 
-	
+	/* Set up timing */
 	*R_SYNC_SERIAL_PRESCALE = sync_serial_prescale_shadow = (
 		IO_STATE(R_SYNC_SERIAL_PRESCALE, clk_sel_u1, codec) |
 		IO_STATE(R_SYNC_SERIAL_PRESCALE, word_stb_sel_u1, external) |
@@ -301,7 +333,7 @@ static int __init etrax_sync_serial_init(void)
 		IO_FIELD(R_SYNC_SERIAL_PRESCALE, word_rate, DEFAULT_WORD_RATE) |
 		IO_STATE(R_SYNC_SERIAL_PRESCALE, warp_mode, normal));
 
-	
+	/* Select synchronous ports */
 	*R_GEN_CONFIG_II = gen_config_ii_shadow;
 
 	printk(KERN_INFO "ETRAX 100LX synchronous serial port driver\n");
@@ -373,8 +405,12 @@ static inline int sync_data_avail(struct sync_port *port)
 	unsigned char *start;
 	unsigned char *end;
 
-	start = (unsigned char *)port->readp; 
-	end = (unsigned char *)port->writep;  
+	start = (unsigned char *)port->readp; /* cast away volatile */
+	end = (unsigned char *)port->writep;  /* cast away volatile */
+	/* 0123456789  0123456789
+	 *  -----      -    -----
+	 *  ^rp  ^wp    ^wp ^rp
+	 */
 	if (end >= start)
 		avail = end - start;
 	else
@@ -388,8 +424,12 @@ static inline int sync_data_avail_to_end(struct sync_port *port)
 	unsigned char *start;
 	unsigned char *end;
 
-	start = (unsigned char *)port->readp; 
-	end = (unsigned char *)port->writep;  
+	start = (unsigned char *)port->readp; /* cast away volatile */
+	end = (unsigned char *)port->writep;  /* cast away volatile */
+	/* 0123456789  0123456789
+	 *  -----           -----
+	 *  ^rp  ^wp    ^wp ^rp
+	 */
 
 	if (end >= start)
 		avail = end - start;
@@ -415,7 +455,7 @@ static int sync_serial_open(struct inode *inode, struct file *file)
 		goto out;
 	}
 	port = &ports[dev];
-	
+	/* Allow open this device twice (assuming one reader and one writer) */
 	if (port->busy == 2) {
 		DEBUG(printk(KERN_DEBUG "Device is busy.. \n"));
 		goto out;
@@ -535,7 +575,7 @@ static int sync_serial_open(struct inode *inode, struct file *file)
 			}
 			start_dma_in(port);
 			port->init_irqs = 0;
-		} else { 
+		} else { /* !port->use_dma */
 #ifdef SYNC_SER_MANUAL
 			if (port == &ports[0]) {
 				if (request_irq(8,
@@ -561,12 +601,12 @@ static int sync_serial_open(struct inode *inode, struct file *file)
 			port->init_irqs = 0;
 #else
 			panic("sync_serial: Manual mode not supported.\n");
-#endif 
+#endif /* SYNC_SER_MANUAL */
 		}
-	} 
+	} /* port->init_irqs */
 
 	port->busy++;
-	
+	/* Start port if we use it as input */
 	mode = IO_EXTRACT(R_SYNC_SERIAL1_CTRL, mode, port->ctrl_data_shadow);
 	if (mode == IO_STATE_VALUE(R_SYNC_SERIAL1_CTRL, mode, master_input) ||
 	    mode == IO_STATE_VALUE(R_SYNC_SERIAL1_CTRL, mode, slave_input) ||
@@ -622,10 +662,10 @@ static unsigned int sync_serial_poll(struct file *file, poll_table *wait)
 	port = &ports[dev];
 	poll_wait(file, &port->out_wait_q, wait);
 	poll_wait(file, &port->in_wait_q, wait);
-	
+	/* Some room to write */
 	if (port->out_count < OUT_BUFFER_SIZE)
 		mask |=  POLLOUT | POLLWRNORM;
-	
+	/* At least an inbufchunk of data */
 	if (sync_data_avail(port) >= port->inbufchunk)
 		mask |= POLLIN | POLLRDNORM;
 
@@ -655,7 +695,7 @@ static int sync_serial_ioctl_unlocked(struct file *file,
 	port = &ports[dev];
 
 	local_irq_save(flags);
-	
+	/* Disable port while changing config */
 	if (dev) {
 		if (port->use_dma) {
 			RESET_DMA(4); WAIT_DMA(4);
@@ -789,7 +829,7 @@ static int sync_serial_ioctl_unlocked(struct file *file,
 
 		break;
 	case SSP_IPOLARITY:
-		
+		/* NOTE!! negedge is considered NORMAL */
 		if (arg & CLOCK_NORMAL)
 			SETS(port->ctrl_data_shadow, R_SYNC_SERIAL1_CTRL,
 				clk_polarity, neg);
@@ -866,7 +906,7 @@ static int sync_serial_ioctl_unlocked(struct file *file,
 		if (arg > port->in_buffer_size/NUM_IN_DESCR)
 			return -EINVAL;
 		port->inbufchunk = arg;
-		
+		/* Make sure in_buffer_size is a multiple of inbufchunk */
 		port->in_buffer_size =
 			(port->in_buffer_size/port->inbufchunk) *
 			port->inbufchunk;
@@ -887,9 +927,9 @@ static int sync_serial_ioctl_unlocked(struct file *file,
 	default:
 		return_val = -1;
 	}
-	
+	/* Make sure we write the config without interruption */
 	local_irq_save(flags);
-	
+	/* Set config and enable port */
 	*port->ctrl_data = port->ctrl_data_shadow;
 	nop(); nop(); nop(); nop();
 	*R_SYNC_SERIAL_PRESCALE = sync_serial_prescale_shadow;
@@ -900,6 +940,9 @@ static int sync_serial_ioctl_unlocked(struct file *file,
 		SETS(gen_config_ii_shadow, R_GEN_CONFIG_II, sermode1, sync);
 
 	*R_GEN_CONFIG_II = gen_config_ii_shadow;
+	/* Reset DMA. At readout from serial port the data could be shifted
+	 * one byte if not resetting DMA.
+	 */
 	if (port->use_dma) {
 		if (port->port_nbr == 0) {
 			RESET_DMA(9);
@@ -947,9 +990,18 @@ static ssize_t sync_serial_write(struct file *file, const char *buf,
 
 	DEBUGWRITE(printk(KERN_DEBUG "W d%d c %lu (%d/%d)\n",
 		port->port_nbr, count, port->out_count, OUT_BUFFER_SIZE));
-	
+	/* Space to end of buffer */
+	/*
+	 * out_buffer <c1>012345<-   c    ->OUT_BUFFER_SIZE
+	 *            outp^    +out_count
+	 *                      ^free_outp
+	 * out_buffer 45<-     c      ->0123OUT_BUFFER_SIZE
+	 *             +out_count   outp^
+	 *              free_outp
+	 *
+	 */
 
-	
+	/* Read variables that may be updated by interrupts */
 	local_irq_save(flags);
 	if (count > OUT_BUFFER_SIZE - port->out_count)
 		count = OUT_BUFFER_SIZE - port->out_count;
@@ -959,7 +1011,7 @@ static ssize_t sync_serial_write(struct file *file, const char *buf,
 	local_irq_restore(flags);
 	out_buffer = (unsigned long)port->out_buffer;
 
-	
+	/* Find out where and how much to write */
 	if (free_outp >= out_buffer + OUT_BUFFER_SIZE)
 		free_outp -= OUT_BUFFER_SIZE;
 	if (free_outp >= outp)
@@ -986,7 +1038,7 @@ static ssize_t sync_serial_write(struct file *file, const char *buf,
 	port->out_count += count;
 	local_irq_restore(flags);
 
-	
+	/* Make sure transmitter/receiver is running */
 	if (!port->started) {
 		SETS(port->ctrl_data_shadow, R_SYNC_SERIAL1_CTRL, clk_halt,
 			running);
@@ -1003,9 +1055,9 @@ static ssize_t sync_serial_write(struct file *file, const char *buf,
 		local_irq_save(flags);
 		if (!port->tr_running) {
 			if (!port->use_dma) {
-				
+				/* Start sender by writing data */
 				send_word(port);
-				
+				/* and enable transmitter ready IRQ */
 				*R_IRQ_MASK1_SET = 1 <<
 					port->transmitter_ready_bit;
 			} else
@@ -1018,15 +1070,15 @@ static ssize_t sync_serial_write(struct file *file, const char *buf,
 		return count;
 	}
 
-	
+	/* Sleep until all sent */
 	add_wait_queue(&port->out_wait_q, &wait);
 	set_current_state(TASK_INTERRUPTIBLE);
 	local_irq_save(flags);
 	if (!port->tr_running) {
 		if (!port->use_dma) {
-			
+			/* Start sender by writing data */
 			send_word(port);
-			
+			/* and enable transmitter ready IRQ */
 			*R_IRQ_MASK1_SET = 1 << port->transmitter_ready_bit;
 		} else
 			start_dma(port, port->outp, c);
@@ -1073,14 +1125,14 @@ static ssize_t sync_serial_read(struct file *file, char *buf,
 	}
 	*port->ctrl_data = port->ctrl_data_shadow;
 
-	
-	
+	/* Calculate number of available bytes */
+	/* Save pointers to avoid that they are modified by interrupt */
 	local_irq_save(flags);
-	start = (unsigned char *)port->readp; 
-	end = (unsigned char *)port->writep;  
+	start = (unsigned char *)port->readp; /* cast away volatile */
+	end = (unsigned char *)port->writep;  /* cast away volatile */
 	local_irq_restore(flags);
 	while (start == end && !port->full) {
-		
+		/* No data */
 		if (file->f_flags & O_NONBLOCK)
 			return -EAGAIN;
 
@@ -1089,12 +1141,12 @@ static ssize_t sync_serial_read(struct file *file, char *buf,
 			return -EINTR;
 
 		local_irq_save(flags);
-		start = (unsigned char *)port->readp; 
-		end = (unsigned char *)port->writep;  
+		start = (unsigned char *)port->readp; /* cast away volatile */
+		end = (unsigned char *)port->writep;  /* cast away volatile */
 		local_irq_restore(flags);
 	}
 
-	
+	/* Lazy read, never return wrapped data. */
 	if (port->full)
 		avail = port->in_buffer_size;
 	else if (end > start)
@@ -1105,10 +1157,10 @@ static ssize_t sync_serial_read(struct file *file, char *buf,
 	count = count > avail ? avail : count;
 	if (copy_to_user(buf, start, count))
 		return -EFAULT;
-	
+	/* Disable interrupts while updating readp */
 	local_irq_save(flags);
 	port->readp += count;
-	if (port->readp >= port->flip + port->in_buffer_size) 
+	if (port->readp >= port->flip + port->in_buffer_size) /* Wrap? */
 		port->readp = port->flip;
 	port->full = 0;
 	local_irq_restore(flags);
@@ -1166,7 +1218,7 @@ static void start_dma(struct sync_port *port, const char *data, int count)
 	port->tr_running = 1;
 	port->out_descr.hw_len = 0;
 	port->out_descr.next = 0;
-	port->out_descr.ctrl = d_eol | d_eop; 
+	port->out_descr.ctrl = d_eol | d_eop; /* No d_wait to avoid glitches */
 	port->out_descr.sw_len = count;
 	port->out_descr.buf = virt_to_phys(data);
 	port->out_descr.status = 0;
@@ -1199,7 +1251,7 @@ static void start_dma_in(struct sync_port *port)
 		buf += port->inbufchunk;
 		prepare_rx_descriptor(&port->in_descr[i]);
 	}
-	
+	/* Link the last descriptor to the first */
 	port->in_descr[i-1].next = virt_to_phys(&port->in_descr[0]);
 	port->in_descr[i-1].ctrl |= d_eol;
 	port->next_rx_desc = &port->in_descr[0];
@@ -1222,13 +1274,13 @@ static irqreturn_t tr_interrupt(int irq, void *dev_id)
 		if (!port->enabled  || !port->use_dma)
 			continue;
 
-		
+		/* IRQ active for the port? */
 		if (!(ireg & (1 << port->output_dma_bit)))
 			continue;
 
 		handled = 1;
 
-		
+		/* Clear IRQ */
 		*port->output_dma_clr_irq =
 			IO_STATE(R_DMA_CH0_CLR_INTR, clr_eop, do) |
 			IO_STATE(R_DMA_CH0_CLR_INTR, clr_descr, do);
@@ -1237,7 +1289,7 @@ static irqreturn_t tr_interrupt(int irq, void *dev_id)
 		if (!(descr->status & d_stop))
 			sentl = descr->sw_len;
 		else
-			
+			/* Otherwise find amount of data sent here */
 			sentl = descr->hw_len;
 
 		port->out_count -= sentl;
@@ -1256,11 +1308,11 @@ static irqreturn_t tr_interrupt(int irq, void *dev_id)
 				"tx_int DMA stop %i\n", sentl));
 			port->tr_running = 0;
 		}
-		
+		/* wake up the waiting process */
 		wake_up_interruptible(&port->out_wait_q);
 	}
 	return IRQ_RETVAL(handled);
-} 
+} /* tr_interrupt */
 
 static irqreturn_t rx_interrupt(int irq, void *dev_id)
 {
@@ -1277,7 +1329,7 @@ static irqreturn_t rx_interrupt(int irq, void *dev_id)
 		if (!(ireg & (1 << port->input_dma_descr_bit)))
 			continue;
 
-		
+		/* Descriptor interrupt */
 		handled = 1;
 		while (*port->input_dma_descr !=
 				virt_to_phys(port->next_rx_desc)) {
@@ -1312,18 +1364,18 @@ static irqreturn_t rx_interrupt(int irq, void *dev_id)
 				port->next_rx_desc);
 			port->next_rx_desc = phys_to_virt((unsigned)
 				port->next_rx_desc->next);
-			
+			/* Wake up the waiting process */
 			wake_up_interruptible(&port->in_wait_q);
 			*port->input_dma_cmd = IO_STATE(R_DMA_CH1_CMD,
 				cmd, restart);
-			
+			/* DMA has reached end of descriptor */
 			*port->input_dma_clr_irq = IO_STATE(R_DMA_CH0_CLR_INTR,
 				clr_descr, do);
 		}
 	}
 	return IRQ_RETVAL(handled);
-} 
-#endif 
+} /* rx_interrupt */
+#endif /* SYNC_SER_DMA */
 
 #ifdef SYNC_SER_MANUAL
 static irqreturn_t manual_interrupt(int irq, void *dev_id)
@@ -1337,10 +1389,10 @@ static irqreturn_t manual_interrupt(int irq, void *dev_id)
 		if (!port->enabled || port->use_dma)
 			continue;
 
-		
+		/* Data received? */
 		if (*R_IRQ_MASK1_RD & (1 << port->data_avail_bit)) {
 			handled = 1;
-			
+			/* Read data */
 			switch (port->ctrl_data_shadow &
 				IO_MASK(R_SYNC_SERIAL1_CTRL, wordsize)) {
 			case IO_STATE(R_SYNC_SERIAL1_CTRL, wordsize, size8bit):
@@ -1370,34 +1422,34 @@ static irqreturn_t manual_interrupt(int irq, void *dev_id)
 				break;
 			}
 
-			
+			/* Wrap? */
 			if (port->writep >= port->flip + port->in_buffer_size)
 				port->writep = port->flip;
 			if (port->writep == port->readp) {
-				
+				/* Receive buffer overrun, discard oldest */
 				port->readp++;
-				
+				/* Wrap? */
 				if (port->readp >= port->flip +
 						port->in_buffer_size)
 					port->readp = port->flip;
 			}
 			if (sync_data_avail(port) >= port->inbufchunk) {
-				
+				/* Wake up application */
 				wake_up_interruptible(&port->in_wait_q);
 			}
 		}
 
-		
+		/* Transmitter ready? */
 		if (*R_IRQ_MASK1_RD & (1 << port->transmitter_ready_bit)) {
 			if (port->out_count > 0) {
-				
+				/* More data to send */
 				send_word(port);
 			} else {
-				
-				
+				/* Transmission finished */
+				/* Turn off IRQ */
 				*R_IRQ_MASK1_CLR = 1 <<
 					port->transmitter_ready_bit;
-				
+				/* Wake up application */
 				wake_up_interruptible(&port->out_wait_q);
 			}
 		}

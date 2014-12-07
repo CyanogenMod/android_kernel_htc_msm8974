@@ -30,6 +30,7 @@
  * its own).
  */
 
+/* use u64 to align sanely on all archs */
 struct ceph_ioctl_layout {
 	__u64 stripe_unit, stripe_count, object_size;
 	__u64 data_pool;
@@ -43,23 +44,55 @@ struct ceph_ioctl_layout {
 #define CEPH_IOC_SET_LAYOUT_POLICY _IOW(CEPH_IOCTL_MAGIC, 5,	\
 				   struct ceph_ioctl_layout)
 
+/*
+ * CEPH_IOC_GET_DATALOC - get location of file data in the cluster
+ *
+ * Extract identity, address of the OSD and object storing a given
+ * file offset.
+ */
 struct ceph_ioctl_dataloc {
-	__u64 file_offset;           
-	__u64 object_offset;         
-	__u64 object_no;             
-	__u64 object_size;           
-	char object_name[64];        
-	__u64 block_offset;          
-	__u64 block_size;            
-	__s64 osd;                   
-	struct sockaddr_storage osd_addr; 
+	__u64 file_offset;           /* in+out: file offset */
+	__u64 object_offset;         /* out: offset in object */
+	__u64 object_no;             /* out: object # */
+	__u64 object_size;           /* out: object size */
+	char object_name[64];        /* out: object name */
+	__u64 block_offset;          /* out: offset in block */
+	__u64 block_size;            /* out: block length */
+	__s64 osd;                   /* out: osd # */
+	struct sockaddr_storage osd_addr; /* out: osd address */
 };
 
 #define CEPH_IOC_GET_DATALOC _IOWR(CEPH_IOCTL_MAGIC, 3,	\
 				   struct ceph_ioctl_dataloc)
 
+/*
+ * CEPH_IOC_LAZYIO - relax consistency
+ *
+ * Normally Ceph switches to synchronous IO when multiple clients have
+ * the file open (and or more for write).  Reads and writes bypass the
+ * page cache and go directly to the OSD.  Setting this flag on a file
+ * descriptor will allow buffered IO for this file in cases where the
+ * application knows it won't interfere with other nodes (or doesn't
+ * care).
+ */
 #define CEPH_IOC_LAZYIO _IO(CEPH_IOCTL_MAGIC, 4)
 
+/*
+ * CEPH_IOC_SYNCIO - force synchronous IO
+ *
+ * This ioctl sets a file flag that forces the synchronous IO that
+ * bypasses the page cache, even if it is not necessary.  This is
+ * essentially the opposite behavior of IOC_LAZYIO.  This forces the
+ * same read/write path as a file opened by multiple clients when one
+ * or more of those clients is opened for write.
+ *
+ * Note that this type of sync IO takes a different path than a file
+ * opened with O_SYNC/D_SYNC (writes hit the page cache and are
+ * immediately flushed on page boundaries).  It is very similar to
+ * O_DIRECT (writes bypass the page cache) excep that O_DIRECT writes
+ * are not copied (user page must remain stable) and O_DIRECT writes
+ * have alignment restrictions (on the buffer and file offset).
+ */
 #define CEPH_IOC_SYNCIO _IO(CEPH_IOCTL_MAGIC, 5)
 
 #endif

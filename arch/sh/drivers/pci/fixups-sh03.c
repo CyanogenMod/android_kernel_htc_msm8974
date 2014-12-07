@@ -9,9 +9,9 @@ int __init pcibios_map_platform_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 
 	if (dev->bus->number == 0) {
 		switch (slot) {
-		case 4: return 5;	
-		case 8: return 5;	
-		case 6: return 2;	
+		case 4: return 5;	/* eth0       */
+		case 8: return 5;	/* eth1       */
+		case 6: return 2;	/* PCI bridge */
 		default:
 			printk(KERN_ERR "PCI: Bad IRQ mapping request "
 					"for slot %d\n", slot);

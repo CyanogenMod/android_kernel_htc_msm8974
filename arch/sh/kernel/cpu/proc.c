@@ -35,6 +35,7 @@ const char *get_cpu_subtype(struct sh_cpuinfo *c)
 EXPORT_SYMBOL(get_cpu_subtype);
 
 #ifdef CONFIG_PROC_FS
+/* Symbolic CPU flags, keep in sync with asm/cpu-features.h */
 static const char *cpu_flags[] = {
 	"none", "fpu", "p2flush", "mmuassoc", "dsp", "perfctr",
 	"ptea", "llsc", "l2", "op32", "pteaex", NULL
@@ -69,6 +70,9 @@ static void show_cacheinfo(struct seq_file *m, const char *type,
 		   type, cache_size >> 10, info.ways);
 }
 
+/*
+ *	Get CPU information for use by the procfs.
+ */
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	struct sh_cpuinfo *c = v;
@@ -96,6 +100,11 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 	seq_printf(m, "cache type\t: ");
 
+	/*
+	 * Check for what type of cache we have, we support both the
+	 * unified cache on the SH-2 and SH-3, as well as the harvard
+	 * style cache on the SH-4.
+	 */
 	if (c->icache.flags & SH_CACHE_COMBINED) {
 		seq_printf(m, "unified\n");
 		show_cacheinfo(m, "cache", c->icache);
@@ -105,7 +114,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		show_cacheinfo(m, "dcache", c->dcache);
 	}
 
-	
+	/* Optional secondary cache */
 	if (c->flags & CPU_HAS_L2_CACHE)
 		show_cacheinfo(m, "scache", c->scache);
 
@@ -136,4 +145,4 @@ const struct seq_operations cpuinfo_op = {
 	.stop	= c_stop,
 	.show	= show_cpuinfo,
 };
-#endif 
+#endif /* CONFIG_PROC_FS */

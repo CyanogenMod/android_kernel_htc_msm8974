@@ -27,44 +27,75 @@
 
 #define CAPINFO_MASK    (~(BIT(15) | BIT(14) | BIT(12) | BIT(11) | BIT(9)))
 
+/*
+ * Append a generic IE as a pass through TLV to a TLV buffer.
+ *
+ * This function is called from the network join command preparation routine.
+ *
+ * If the IE buffer has been setup by the application, this routine appends
+ * the buffer as a pass through TLV type to the request.
+ */
 static int
 mwifiex_cmd_append_generic_ie(struct mwifiex_private *priv, u8 **buffer)
 {
 	int ret_len = 0;
 	struct mwifiex_ie_types_header ie_header;
 
-	
+	/* Null Checks */
 	if (!buffer)
 		return 0;
 	if (!(*buffer))
 		return 0;
 
+	/*
+	 * If there is a generic ie buffer setup, append it to the return
+	 *   parameter buffer pointer.
+	 */
 	if (priv->gen_ie_buf_len) {
 		dev_dbg(priv->adapter->dev,
 			"info: %s: append generic ie len %d to %p\n",
 			__func__, priv->gen_ie_buf_len, *buffer);
 
-		
+		/* Wrap the generic IE buffer with a pass through TLV type */
 		ie_header.type = cpu_to_le16(TLV_TYPE_PASSTHROUGH);
 		ie_header.len = cpu_to_le16(priv->gen_ie_buf_len);
 		memcpy(*buffer, &ie_header, sizeof(ie_header));
 
+		/* Increment the return size and the return buffer pointer
+		   param */
 		*buffer += sizeof(ie_header);
 		ret_len += sizeof(ie_header);
 
+		/* Copy the generic IE buffer to the output buffer, advance
+		   pointer */
 		memcpy(*buffer, priv->gen_ie_buf, priv->gen_ie_buf_len);
 
+		/* Increment the return size and the return buffer pointer
+		   param */
 		*buffer += priv->gen_ie_buf_len;
 		ret_len += priv->gen_ie_buf_len;
 
-		
+		/* Reset the generic IE buffer */
 		priv->gen_ie_buf_len = 0;
 	}
 
-	
+	/* return the length appended to the buffer */
 	return ret_len;
 }
 
+/*
+ * Append TSF tracking info from the scan table for the target AP.
+ *
+ * This function is called from the network join command preparation routine.
+ *
+ * The TSF table TSF sent to the firmware contains two TSF values:
+ *      - The TSF of the target AP from its previous beacon/probe response
+ *      - The TSF timestamp of our local MAC at the time we observed the
+ *        beacon/probe response.
+ *
+ * The firmware uses the timestamp values to set an initial TSF value
+ * in the MAC for the new association after a reassociation attempt.
+ */
 static int
 mwifiex_cmd_append_tsf_tlv(struct mwifiex_private *priv, u8 **buffer,
 			   struct mwifiex_bssdescriptor *bss_desc)
@@ -72,7 +103,7 @@ mwifiex_cmd_append_tsf_tlv(struct mwifiex_private *priv, u8 **buffer,
 	struct mwifiex_ie_types_tsf_timestamp tsf_tlv;
 	__le64 tsf_val;
 
-	
+	/* Null Checks */
 	if (buffer == NULL)
 		return 0;
 	if (*buffer == NULL)
@@ -86,7 +117,7 @@ mwifiex_cmd_append_tsf_tlv(struct mwifiex_private *priv, u8 **buffer,
 	memcpy(*buffer, &tsf_tlv, sizeof(tsf_tlv.header));
 	*buffer += sizeof(tsf_tlv.header);
 
-	
+	/* TSF at the time when beacon/probe_response was received */
 	tsf_val = cpu_to_le64(bss_desc->network_tsf);
 	memcpy(*buffer, &tsf_val, sizeof(tsf_val));
 	*buffer += sizeof(tsf_val);
@@ -103,6 +134,14 @@ mwifiex_cmd_append_tsf_tlv(struct mwifiex_private *priv, u8 **buffer,
 	return sizeof(tsf_tlv.header) + (2 * sizeof(tsf_val));
 }
 
+/*
+ * This function finds out the common rates between rate1 and rate2.
+ *
+ * It will fill common rates in rate1 as output if found.
+ *
+ * NOTE: Setting the MSB of the basic rates needs to be taken
+ * care of, either before or after calling this function.
+ */
 static int mwifiex_get_common_rates(struct mwifiex_private *priv, u8 *rate1,
 				    u32 rate1_size, u8 *rate2, u32 rate2_size)
 {
@@ -120,6 +159,8 @@ static int mwifiex_get_common_rates(struct mwifiex_private *priv, u8 *rate1,
 
 	for (i = 0; rate2[i] && i < rate2_size; i++) {
 		for (j = 0; tmp[j] && j < rate1_size; j++) {
+			/* Check common rate, excluding the bit for
+			   basic rate */
 			if ((rate2[i] & 0x7F) == (tmp[j] & 0x7F)) {
 				*rate1++ = tmp[j];
 				break;
@@ -152,6 +193,10 @@ done:
 	return ret;
 }
 
+/*
+ * This function creates the intersection of the rates supported by a
+ * target BSS and our adapter settings for use in an assoc/join command.
+ */
 static int
 mwifiex_setup_rates_from_bssdesc(struct mwifiex_private *priv,
 				 struct mwifiex_bssdescriptor *bss_desc,
@@ -160,11 +205,11 @@ mwifiex_setup_rates_from_bssdesc(struct mwifiex_private *priv,
 	u8 card_rates[MWIFIEX_SUPPORTED_RATES];
 	u32 card_rates_size;
 
-	
+	/* Copy AP supported rates */
 	memcpy(out_rates, bss_desc->supported_rates, MWIFIEX_SUPPORTED_RATES);
-	
+	/* Get the STA supported rates */
 	card_rates_size = mwifiex_get_active_data_rates(priv, card_rates);
-	
+	/* Get the common rates between AP and STA supported rates */
 	if (mwifiex_get_common_rates(priv, out_rates, MWIFIEX_SUPPORTED_RATES,
 				     card_rates, card_rates_size)) {
 		*out_rates_size = 0;
@@ -179,40 +224,62 @@ mwifiex_setup_rates_from_bssdesc(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * This function appends a WAPI IE.
+ *
+ * This function is called from the network join command preparation routine.
+ *
+ * If the IE buffer has been setup by the application, this routine appends
+ * the buffer as a WAPI TLV type to the request.
+ */
 static int
 mwifiex_cmd_append_wapi_ie(struct mwifiex_private *priv, u8 **buffer)
 {
 	int retLen = 0;
 	struct mwifiex_ie_types_header ie_header;
 
-	
+	/* Null Checks */
 	if (buffer == NULL)
 		return 0;
 	if (*buffer == NULL)
 		return 0;
 
+	/*
+	 * If there is a wapi ie buffer setup, append it to the return
+	 *   parameter buffer pointer.
+	 */
 	if (priv->wapi_ie_len) {
 		dev_dbg(priv->adapter->dev, "cmd: append wapi ie %d to %p\n",
 			priv->wapi_ie_len, *buffer);
 
-		
+		/* Wrap the generic IE buffer with a pass through TLV type */
 		ie_header.type = cpu_to_le16(TLV_TYPE_WAPI_IE);
 		ie_header.len = cpu_to_le16(priv->wapi_ie_len);
 		memcpy(*buffer, &ie_header, sizeof(ie_header));
 
+		/* Increment the return size and the return buffer pointer
+		   param */
 		*buffer += sizeof(ie_header);
 		retLen += sizeof(ie_header);
 
+		/* Copy the wapi IE buffer to the output buffer, advance
+		   pointer */
 		memcpy(*buffer, priv->wapi_ie, priv->wapi_ie_len);
 
+		/* Increment the return size and the return buffer pointer
+		   param */
 		*buffer += priv->wapi_ie_len;
 		retLen += priv->wapi_ie_len;
 
 	}
-	
+	/* return the length appended to the buffer */
 	return retLen;
 }
 
+/*
+ * This function appends rsn ie tlv for wpa/wpa2 security modes.
+ * It is called from the network join command preparation routine.
+ */
 static int mwifiex_append_rsn_ie_wpa_wpa2(struct mwifiex_private *priv,
 					  u8 **buffer)
 {
@@ -242,6 +309,34 @@ static int mwifiex_append_rsn_ie_wpa_wpa2(struct mwifiex_private *priv,
 	return rsn_ie_len;
 }
 
+/*
+ * This function prepares command for association.
+ *
+ * This sets the following parameters -
+ *      - Peer MAC address
+ *      - Listen interval
+ *      - Beacon interval
+ *      - Capability information
+ *
+ * ...and the following TLVs, as required -
+ *      - SSID TLV
+ *      - PHY TLV
+ *      - SS TLV
+ *      - Rates TLV
+ *      - Authentication TLV
+ *      - Channel TLV
+ *      - WPA/WPA2 IE
+ *      - 11n TLV
+ *      - Vendor specific TLV
+ *      - WMM TLV
+ *      - WAPI IE
+ *      - Generic IE
+ *      - TSF TLV
+ *
+ * Preparation also includes -
+ *      - Setting command ID and proper size
+ *      - Ensuring correct endian-ness
+ */
 int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 				 struct host_cmd_ds_command *cmd,
 				 struct mwifiex_bssdescriptor *bss_desc)
@@ -265,16 +360,16 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 
 	cmd->command = cpu_to_le16(HostCmd_CMD_802_11_ASSOCIATE);
 
-	
+	/* Save so we know which BSS Desc to use in the response handler */
 	priv->attempted_bss_desc = bss_desc;
 
 	memcpy(assoc->peer_sta_addr,
 	       bss_desc->mac_address, sizeof(assoc->peer_sta_addr));
 	pos += sizeof(assoc->peer_sta_addr);
 
-	
+	/* Set the listen interval */
 	assoc->listen_interval = cpu_to_le16(priv->listen_interval);
-	
+	/* Set the beacon period */
 	assoc->beacon_period = cpu_to_le16(bss_desc->beacon_period);
 
 	pos += sizeof(assoc->cap_info_bitmap);
@@ -302,16 +397,16 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 	ss_tlv->header.len = cpu_to_le16(sizeof(ss_tlv->cf_ibss.cf_param_set));
 	pos += sizeof(ss_tlv->header) + le16_to_cpu(ss_tlv->header.len);
 
-	
+	/* Get the common rates supported between the driver and the BSS Desc */
 	if (mwifiex_setup_rates_from_bssdesc
 	    (priv, bss_desc, rates, &rates_size))
 		return -1;
 
-	
+	/* Save the data rates into Current BSS state structure */
 	priv->curr_bss_params.num_of_rates = rates_size;
 	memcpy(&priv->curr_bss_params.data_rates, rates, rates_size);
 
-	
+	/* Setup the Rates TLV in the association command */
 	rates_tlv = (struct mwifiex_ie_types_rates_param_set *) pos;
 	rates_tlv->header.type = cpu_to_le16(WLAN_EID_SUPP_RATES);
 	rates_tlv->header.len = cpu_to_le16((u16) rates_size);
@@ -320,7 +415,7 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 	dev_dbg(priv->adapter->dev, "info: ASSOC_CMD: rates size = %d\n",
 		rates_size);
 
-	
+	/* Add the Authentication type to be used for Auth frames */
 	auth_tlv = (struct mwifiex_ie_types_auth_type *) pos;
 	auth_tlv->header.type = cpu_to_le16(TLV_TYPE_AUTH_TYPE);
 	auth_tlv->header.len = cpu_to_le16(sizeof(auth_tlv->auth_type));
@@ -340,6 +435,8 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 	    (bss_desc->bcn_ht_cap)
 	    )
 		) {
+		/* Append a channel TLV for the channel the attempted AP was
+		   found on */
 		chan_tlv = (struct mwifiex_ie_types_chan_list_param_set *) pos;
 		chan_tlv->header.type = cpu_to_le16(TLV_TYPE_CHANLIST);
 		chan_tlv->header.len =
@@ -375,7 +472,7 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 	     priv->adapter->config_bands & BAND_AN))
 		mwifiex_cmd_append_11n_tlv(priv, bss_desc, &pos);
 
-	
+	/* Append vendor specific IE TLV */
 	mwifiex_cmd_append_vsie_tlv(priv, MWIFIEX_VSIE_MASK_ASSOC, &pos);
 
 	mwifiex_wmm_process_association_req(priv, &pos, &bss_desc->wmm_ie,
@@ -390,7 +487,7 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 
 	cmd->size = cpu_to_le16((u16) (pos - (u8 *) assoc) + S_DS_GEN);
 
-	
+	/* Set the Capability info at last */
 	tmp_cap = bss_desc->cap_info_bitmap;
 
 	if (priv->adapter->config_bands == BAND_B)
@@ -404,6 +501,68 @@ int mwifiex_cmd_802_11_associate(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * Association firmware command response handler
+ *
+ * The response buffer for the association command has the following
+ * memory layout.
+ *
+ * For cases where an association response was not received (indicated
+ * by the CapInfo and AId field):
+ *
+ *     .------------------------------------------------------------.
+ *     |  Header(4 * sizeof(t_u16)):  Standard command response hdr |
+ *     .------------------------------------------------------------.
+ *     |  cap_info/Error Return(t_u16):                             |
+ *     |           0xFFFF(-1): Internal error                       |
+ *     |           0xFFFE(-2): Authentication unhandled message     |
+ *     |           0xFFFD(-3): Authentication refused               |
+ *     |           0xFFFC(-4): Timeout waiting for AP response      |
+ *     .------------------------------------------------------------.
+ *     |  status_code(t_u16):                                       |
+ *     |        If cap_info is -1:                                  |
+ *     |           An internal firmware failure prevented the       |
+ *     |           command from being processed.  The status_code   |
+ *     |           will be set to 1.                                |
+ *     |                                                            |
+ *     |        If cap_info is -2:                                  |
+ *     |           An authentication frame was received but was     |
+ *     |           not handled by the firmware.  IEEE Status        |
+ *     |           code for the failure is returned.                |
+ *     |                                                            |
+ *     |        If cap_info is -3:                                  |
+ *     |           An authentication frame was received and the     |
+ *     |           status_code is the IEEE Status reported in the   |
+ *     |           response.                                        |
+ *     |                                                            |
+ *     |        If cap_info is -4:                                  |
+ *     |           (1) Association response timeout                 |
+ *     |           (2) Authentication response timeout              |
+ *     .------------------------------------------------------------.
+ *     |  a_id(t_u16): 0xFFFF                                       |
+ *     .------------------------------------------------------------.
+ *
+ *
+ * For cases where an association response was received, the IEEE
+ * standard association response frame is returned:
+ *
+ *     .------------------------------------------------------------.
+ *     |  Header(4 * sizeof(t_u16)):  Standard command response hdr |
+ *     .------------------------------------------------------------.
+ *     |  cap_info(t_u16): IEEE Capability                          |
+ *     .------------------------------------------------------------.
+ *     |  status_code(t_u16): IEEE Status Code                      |
+ *     .------------------------------------------------------------.
+ *     |  a_id(t_u16): IEEE Association ID                          |
+ *     .------------------------------------------------------------.
+ *     |  IEEE IEs(variable): Any received IEs comprising the       |
+ *     |                      remaining portion of a received       |
+ *     |                      association response frame.           |
+ *     .------------------------------------------------------------.
+ *
+ * For simplistic handling, the status_code field can be used to determine
+ * an association success (0) or failure (non-zero).
+ */
 int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 			     struct host_cmd_ds_command *resp)
 {
@@ -432,24 +591,24 @@ int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 		goto done;
 	}
 
-	
+	/* Send a Media Connected event, according to the Spec */
 	priv->media_connected = true;
 
 	priv->adapter->ps_state = PS_STATE_AWAKE;
 	priv->adapter->pps_uapsd_mode = false;
 	priv->adapter->tx_lock_flag = false;
 
-	
+	/* Set the attempted BSSID Index to current */
 	bss_desc = priv->attempted_bss_desc;
 
 	dev_dbg(priv->adapter->dev, "info: ASSOC_RESP: %s\n",
 		bss_desc->ssid.ssid);
 
-	
+	/* Make a copy of current BSSID descriptor */
 	memcpy(&priv->curr_bss_params.bss_descriptor,
 	       bss_desc, sizeof(struct mwifiex_bssdescriptor));
 
-	
+	/* Update curr_bss_params */
 	priv->curr_bss_params.bss_descriptor.channel
 		= bss_desc->phy_param_set.ds_param_set.current_chan;
 
@@ -479,8 +638,12 @@ int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 		priv->wpa_is_gtk_set = false;
 
 	if (priv->wmm_enabled) {
+		/* Don't re-enable carrier until we get the WMM_GET_STATUS
+		   event */
 		enable_data = false;
 	} else {
+		/* Since WMM is not enabled, setup the queues with the
+		   defaults */
 		mwifiex_wmm_setup_queue_priorities(priv, NULL);
 		mwifiex_wmm_setup_ac_downgrade(priv);
 	}
@@ -489,7 +652,7 @@ int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 		dev_dbg(priv->adapter->dev,
 			"info: post association, re-enabling data flow\n");
 
-	
+	/* Reset SNR/NF/RSSI values */
 	priv->data_rssi_last = 0;
 	priv->data_nf_last = 0;
 	priv->data_rssi_avg = 0;
@@ -507,6 +670,8 @@ int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 
 	dev_dbg(priv->adapter->dev, "info: ASSOC_RESP: associated\n");
 
+	/* Add the ra_list here for infra mode as there will be only 1 ra
+	   always */
 	mwifiex_ralist_add(priv,
 			   priv->curr_bss_params.bss_descriptor.mac_address);
 
@@ -519,7 +684,7 @@ int mwifiex_ret_802_11_associate(struct mwifiex_private *priv,
 		priv->scan_block = true;
 
 done:
-	
+	/* Need to indicate IOCTL complete */
 	if (adapter->curr_cmd->wait_q_enabled) {
 		if (ret)
 			adapter->cmd_wait_q.status = -1;
@@ -530,6 +695,24 @@ done:
 	return ret;
 }
 
+/*
+ * This function prepares command for ad-hoc start.
+ *
+ * Driver will fill up SSID, BSS mode, IBSS parameters, physical
+ * parameters, probe delay, and capability information. Firmware
+ * will fill up beacon period, basic rates and operational rates.
+ *
+ * In addition, the following TLVs are added -
+ *      - Channel TLV
+ *      - Vendor specific IE
+ *      - WPA/WPA2 IE
+ *      - HT Capabilities IE
+ *      - HT Information IE
+ *
+ * Preparation also includes -
+ *      - Setting command ID and proper size
+ *      - Ensuring correct endian-ness
+ */
 int
 mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 				struct host_cmd_ds_command *cmd,
@@ -559,6 +742,15 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	bss_desc = &priv->curr_bss_params.bss_descriptor;
 	priv->attempted_bss_desc = bss_desc;
 
+	/*
+	 * Fill in the parameters for 2 data structures:
+	 *   1. struct host_cmd_ds_802_11_ad_hoc_start command
+	 *   2. bss_desc
+	 * Driver will fill up SSID, bss_mode,IBSS param, Physical Param,
+	 * probe delay, and Cap info.
+	 * Firmware will fill up beacon period, Basic rates
+	 * and operational rates.
+	 */
 
 	memset(adhoc_start->ssid, 0, IEEE80211_MAX_SSID_LEN);
 
@@ -572,14 +764,16 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 
 	bss_desc->ssid.ssid_len = req_ssid->ssid_len;
 
-	
+	/* Set the BSS mode */
 	adhoc_start->bss_mode = HostCmd_BSS_MODE_IBSS;
 	bss_desc->bss_mode = NL80211_IFTYPE_ADHOC;
 	adhoc_start->beacon_period = cpu_to_le16(priv->beacon_period);
 	bss_desc->beacon_period = priv->beacon_period;
 
-	
+	/* Set Physical param set */
+/* Parameter IE Id */
 #define DS_PARA_IE_ID   3
+/* Parameter IE length */
 #define DS_PARA_IE_LEN  1
 
 	adhoc_start->phy_param_set.ds_param_set.element_id = DS_PARA_IE_ID;
@@ -612,8 +806,10 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	memcpy(&bss_desc->phy_param_set, &adhoc_start->phy_param_set,
 	       sizeof(union ieee_types_phy_param_set));
 
-	
+	/* Set IBSS param set */
+/* IBSS parameter IE Id */
 #define IBSS_PARA_IE_ID   6
+/* IBSS parameter IE length */
 #define IBSS_PARA_IE_LEN  2
 
 	adhoc_start->ss_param_set.ibss_param_set.element_id = IBSS_PARA_IE_ID;
@@ -623,15 +819,15 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	memcpy(&bss_desc->ss_param_set, &adhoc_start->ss_param_set,
 	       sizeof(union ieee_types_ss_param_set));
 
-	
+	/* Set Capability info */
 	bss_desc->cap_info_bitmap |= WLAN_CAPABILITY_IBSS;
 	tmp_cap = le16_to_cpu(adhoc_start->cap_info_bitmap);
 	tmp_cap &= ~WLAN_CAPABILITY_ESS;
 	tmp_cap |= WLAN_CAPABILITY_IBSS;
 
-	
+	/* Set up privacy in bss_desc */
 	if (priv->sec_info.encryption_mode) {
-		
+		/* Ad-Hoc capability privacy on */
 		dev_dbg(adapter->dev,
 			"info: ADHOC_S_CMD: wep_status set privacy to WEP\n");
 		bss_desc->privacy = MWIFIEX_802_11_PRIV_FILTER_8021X_WEP;
@@ -654,14 +850,14 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 			return -1;
 		}
 	}
-	
+	/* Find the last non zero */
 	for (i = 0; i < sizeof(adhoc_start->data_rate); i++)
 		if (!adhoc_start->data_rate[i])
 			break;
 
 	priv->curr_bss_params.num_of_rates = i;
 
-	
+	/* Copy the ad-hoc creating rates into Current BSS rate structure */
 	memcpy(&priv->curr_bss_params.data_rates,
 	       &adhoc_start->data_rate, priv->curr_bss_params.num_of_rates);
 
@@ -672,7 +868,7 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	dev_dbg(adapter->dev, "info: ADHOC_S_CMD: AD-HOC Start command is ready\n");
 
 	if (IS_SUPPORT_MULTI_BANDS(adapter)) {
-		
+		/* Append a channel TLV */
 		chan_tlv = (struct mwifiex_ie_types_chan_list_param_set *) pos;
 		chan_tlv->header.type = cpu_to_le16(TLV_TYPE_CHANLIST);
 		chan_tlv->header.len =
@@ -708,7 +904,7 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 			sizeof(struct mwifiex_chan_scan_param_set);
 	}
 
-	
+	/* Append vendor specific IE TLV */
 	cmd_append_size += mwifiex_cmd_append_vsie_tlv(priv,
 				MWIFIEX_VSIE_MASK_ADHOC, &pos);
 
@@ -720,7 +916,7 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	}
 
 	if (adapter->adhoc_11n_enabled) {
-		
+		/* Fill HT CAPABILITY */
 		ht_cap = (struct mwifiex_ie_types_htcap *) pos;
 		memset(ht_cap, 0, sizeof(struct mwifiex_ie_types_htcap));
 		ht_cap->header.type = cpu_to_le16(WLAN_EID_HT_CAPABILITY);
@@ -733,7 +929,7 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 		pos += sizeof(struct mwifiex_ie_types_htcap);
 		cmd_append_size += sizeof(struct mwifiex_ie_types_htcap);
 
-		
+		/* Fill HT INFORMATION */
 		ht_info = (struct mwifiex_ie_types_htinfo *) pos;
 		memset(ht_info, 0, sizeof(struct mwifiex_ie_types_htinfo));
 		ht_info->header.type = cpu_to_le16(WLAN_EID_HT_INFORMATION);
@@ -769,6 +965,22 @@ mwifiex_cmd_802_11_ad_hoc_start(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * This function prepares command for ad-hoc join.
+ *
+ * Most of the parameters are set up by copying from the target BSS descriptor
+ * from the scan response.
+ *
+ * In addition, the following TLVs are added -
+ *      - Channel TLV
+ *      - Vendor specific IE
+ *      - WPA/WPA2 IE
+ *      - 11n IE
+ *
+ * Preparation also includes -
+ *      - Setting command ID and proper size
+ *      - Ensuring correct endian-ness
+ */
 int
 mwifiex_cmd_802_11_ad_hoc_join(struct mwifiex_private *priv,
 			       struct host_cmd_ds_command *cmd,
@@ -786,6 +998,7 @@ mwifiex_cmd_802_11_ad_hoc_join(struct mwifiex_private *priv,
 		(u8 *) adhoc_join +
 		sizeof(struct host_cmd_ds_802_11_ad_hoc_join);
 
+/* Use G protection */
 #define USE_G_PROTECTION        0x02
 	if (bss_desc->erp_flags & USE_G_PROTECTION) {
 		curr_pkt_filter =
@@ -831,7 +1044,7 @@ mwifiex_cmd_802_11_ad_hoc_join(struct mwifiex_private *priv,
 		"info: ADHOC_J_CMD: tmp_cap=%4X CAPINFO_MASK=%4lX\n",
 		tmp_cap, CAPINFO_MASK);
 
-	
+	/* Information on BSSID descriptor passed to FW */
 	dev_dbg(priv->adapter->dev, "info: ADHOC_J_CMD: BSSID=%pM, SSID='%s'\n",
 		adhoc_join->bss_descriptor.bssid,
 		adhoc_join->bss_descriptor.ssid);
@@ -842,18 +1055,18 @@ mwifiex_cmd_802_11_ad_hoc_join(struct mwifiex_private *priv,
 			;
 	rates_size = i;
 
-	
+	/* Copy Data Rates from the Rates recorded in scan response */
 	memset(adhoc_join->bss_descriptor.data_rates, 0,
 	       sizeof(adhoc_join->bss_descriptor.data_rates));
 	memcpy(adhoc_join->bss_descriptor.data_rates,
 	       bss_desc->supported_rates, rates_size);
 
-	
+	/* Copy the adhoc join rates into Current BSS state structure */
 	priv->curr_bss_params.num_of_rates = rates_size;
 	memcpy(&priv->curr_bss_params.data_rates, bss_desc->supported_rates,
 	       rates_size);
 
-	
+	/* Copy the channel information */
 	priv->curr_bss_params.bss_descriptor.channel = bss_desc->channel;
 	priv->curr_bss_params.band = (u8) bss_desc->bss_band;
 
@@ -861,7 +1074,7 @@ mwifiex_cmd_802_11_ad_hoc_join(struct mwifiex_private *priv,
 		tmp_cap |= WLAN_CAPABILITY_PRIVACY;
 
 	if (IS_SUPPORT_MULTI_BANDS(priv->adapter)) {
-		
+		/* Append a channel TLV */
 		chan_tlv = (struct mwifiex_ie_types_chan_list_param_set *) pos;
 		chan_tlv->header.type = cpu_to_le16(TLV_TYPE_CHANLIST);
 		chan_tlv->header.len =
@@ -895,7 +1108,7 @@ mwifiex_cmd_802_11_ad_hoc_join(struct mwifiex_private *priv,
 		cmd_append_size += mwifiex_cmd_append_11n_tlv(priv,
 			bss_desc, &pos);
 
-	
+	/* Append vendor specific IE TLV */
 	cmd_append_size += mwifiex_cmd_append_vsie_tlv(priv,
 			MWIFIEX_VSIE_MASK_ADHOC, &pos);
 
@@ -908,6 +1121,14 @@ mwifiex_cmd_802_11_ad_hoc_join(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * This function handles the command response of ad-hoc start and
+ * ad-hoc join.
+ *
+ * The function generates a device-connected event to notify
+ * the applications, in case of successful ad-hoc start/join, and
+ * saves the beacon buffer.
+ */
 int mwifiex_ret_802_11_ad_hoc(struct mwifiex_private *priv,
 			      struct host_cmd_ds_command *resp)
 {
@@ -920,7 +1141,7 @@ int mwifiex_ret_802_11_ad_hoc(struct mwifiex_private *priv,
 
 	bss_desc = priv->attempted_bss_desc;
 
-	
+	/* Join result code 0 --> SUCCESS */
 	if (le16_to_cpu(resp->result)) {
 		dev_err(priv->adapter->dev, "ADHOC_RESP: failed\n");
 		if (priv->media_connected)
@@ -933,22 +1154,31 @@ int mwifiex_ret_802_11_ad_hoc(struct mwifiex_private *priv,
 		goto done;
 	}
 
-	
+	/* Send a Media Connected event, according to the Spec */
 	priv->media_connected = true;
 
 	if (le16_to_cpu(resp->command) == HostCmd_CMD_802_11_AD_HOC_START) {
 		dev_dbg(priv->adapter->dev, "info: ADHOC_S_RESP %s\n",
 			bss_desc->ssid.ssid);
 
-		
+		/* Update the created network descriptor with the new BSSID */
 		memcpy(bss_desc->mac_address,
 		       adhoc_result->bssid, ETH_ALEN);
 
 		priv->adhoc_state = ADHOC_STARTED;
 	} else {
+		/*
+		 * Now the join cmd should be successful.
+		 * If BSSID has changed use SSID to compare instead of BSSID
+		 */
 		dev_dbg(priv->adapter->dev, "info: ADHOC_J_RESP %s\n",
 			bss_desc->ssid.ssid);
 
+		/*
+		 * Make a copy of current BSSID descriptor, only needed for
+		 * join since the current descriptor is already being used
+		 * for adhoc start
+		 */
 		memcpy(&priv->curr_bss_params.bss_descriptor,
 		       bss_desc, sizeof(struct mwifiex_bssdescriptor));
 
@@ -968,7 +1198,7 @@ int mwifiex_ret_802_11_ad_hoc(struct mwifiex_private *priv,
 	mwifiex_save_curr_bcn(priv);
 
 done:
-	
+	/* Need to indicate IOCTL complete */
 	if (adapter->curr_cmd->wait_q_enabled) {
 		if (ret)
 			adapter->cmd_wait_q.status = -1;
@@ -980,12 +1210,19 @@ done:
 	return ret;
 }
 
+/*
+ * This function associates to a specific BSS discovered in a scan.
+ *
+ * It clears any past association response stored for application
+ * retrieval and calls the command preparation routine to send the
+ * command to firmware.
+ */
 int mwifiex_associate(struct mwifiex_private *priv,
 		      struct mwifiex_bssdescriptor *bss_desc)
 {
 	u8 current_bssid[ETH_ALEN];
 
-	
+	/* Return error if the adapter or table entry is not marked as infra */
 	if ((priv->bss_mode != NL80211_IFTYPE_STATION) ||
 	    (bss_desc->bss_mode != NL80211_IFTYPE_STATION))
 		return -1;
@@ -994,12 +1231,19 @@ int mwifiex_associate(struct mwifiex_private *priv,
 	       &priv->curr_bss_params.bss_descriptor.mac_address,
 	       sizeof(current_bssid));
 
+	/* Clear any past association response stored for application
+	   retrieval */
 	priv->assoc_rsp_size = 0;
 
 	return mwifiex_send_cmd_sync(priv, HostCmd_CMD_802_11_ASSOCIATE,
 				    HostCmd_ACT_GEN_SET, 0, bss_desc);
 }
 
+/*
+ * This function starts an ad-hoc network.
+ *
+ * It calls the command preparation routine to send the command to firmware.
+ */
 int
 mwifiex_adhoc_start(struct mwifiex_private *priv,
 		    struct cfg80211_ssid *adhoc_ssid)
@@ -1015,6 +1259,12 @@ mwifiex_adhoc_start(struct mwifiex_private *priv,
 				    HostCmd_ACT_GEN_SET, 0, adhoc_ssid);
 }
 
+/*
+ * This function joins an ad-hoc network found in a previous scan.
+ *
+ * It calls the command preparation routine to send the command to firmware,
+ * if already not connected to the requested SSID.
+ */
 int mwifiex_adhoc_join(struct mwifiex_private *priv,
 		       struct mwifiex_bssdescriptor *bss_desc)
 {
@@ -1027,7 +1277,7 @@ int mwifiex_adhoc_join(struct mwifiex_private *priv,
 	dev_dbg(priv->adapter->dev, "info: adhoc join: ssid_len =%u\n",
 		bss_desc->ssid.ssid_len);
 
-	
+	/* Check if the requested SSID is already joined */
 	if (priv->curr_bss_params.bss_descriptor.ssid.ssid_len &&
 	    !mwifiex_ssid_cmp(&bss_desc->ssid,
 			      &priv->curr_bss_params.bss_descriptor.ssid) &&
@@ -1047,6 +1297,10 @@ int mwifiex_adhoc_join(struct mwifiex_private *priv,
 				    HostCmd_ACT_GEN_SET, 0, bss_desc);
 }
 
+/*
+ * This function deauthenticates/disconnects from infra network by sending
+ * deauthentication request.
+ */
 static int mwifiex_deauthenticate_infra(struct mwifiex_private *priv, u8 *mac)
 {
 	u8 mac_address[ETH_ALEN];
@@ -1071,6 +1325,12 @@ static int mwifiex_deauthenticate_infra(struct mwifiex_private *priv, u8 *mac)
 	return ret;
 }
 
+/*
+ * This function deauthenticates/disconnects from a BSS.
+ *
+ * In case of infra made, it sends deauthentication request, and
+ * in case of ad-hoc mode, a stop network request is sent to the firmware.
+ */
 int mwifiex_deauthenticate(struct mwifiex_private *priv, u8 *mac)
 {
 	int ret = 0;
@@ -1089,6 +1349,9 @@ int mwifiex_deauthenticate(struct mwifiex_private *priv, u8 *mac)
 }
 EXPORT_SYMBOL_GPL(mwifiex_deauthenticate);
 
+/*
+ * This function converts band to radio type used in channel TLV.
+ */
 u8
 mwifiex_band_to_radio_type(u8 band)
 {

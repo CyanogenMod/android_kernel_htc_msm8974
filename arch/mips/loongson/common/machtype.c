@@ -15,6 +15,7 @@
 #include <loongson.h>
 #include <machine.h>
 
+/* please ensure the length of the machtype string is less than 50 */
 #define MACHTYPE_LEN 50
 
 static const char *system_types[] = {

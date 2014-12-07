@@ -42,6 +42,10 @@ struct ia64_pdesc {
 	void *gp;
 };
 
+/*
+ * N.B.  The layout of this structure is defined in the HP SPPA FW EAS, and
+ *	 the member offsets are embedded in AML methods.
+ */
 struct ia64_nfw_context {
 	u64 arg[8];
 	struct ia64_sal_retval ret;
@@ -178,6 +182,12 @@ static int aml_nfw_remove_global_handler(void)
 
 static int aml_nfw_add(struct acpi_device *device)
 {
+	/*
+	 * We would normally allocate a new context structure and install
+	 * the address space handler for the specific device we found.
+	 * But the HP-UX implementation shares a single global context
+	 * and always puts the handler at the root, so we'll do the same.
+	 */
 	return aml_nfw_add_global_handler();
 }
 

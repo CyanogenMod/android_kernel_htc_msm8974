@@ -11,6 +11,9 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 
+/*
+ * The basic unit of access when reading/writing control registers.
+ */
 
 enum {
 	QLCNIC_HW_H0_CH_HUB_ADR = 0x05,
@@ -22,11 +25,13 @@ enum {
 	QLCNIC_HW_H6_CH_HUB_ADR = 0x08
 };
 
+/*  Hub 0 */
 enum {
 	QLCNIC_HW_MN_CRB_AGT_ADR = 0x15,
 	QLCNIC_HW_MS_CRB_AGT_ADR = 0x25
 };
 
+/*  Hub 1 */
 enum {
 	QLCNIC_HW_PS_CRB_AGT_ADR = 0x73,
 	QLCNIC_HW_SS_CRB_AGT_ADR = 0x20,
@@ -46,6 +51,7 @@ enum {
 	QLCNIC_HW_SMB_CRB_AGT_ADR = 0x18
 };
 
+/*  Hub 2 */
 enum {
 	QLCNIC_HW_NIU_CRB_AGT_ADR = 0x31,
 	QLCNIC_HW_I2C0_CRB_AGT_ADR = 0x19,
@@ -66,6 +72,7 @@ enum {
 	QLCNIC_HW_RPMX8_CRB_AGT_ADR = 0x11
 };
 
+/*  Hub 3 */
 enum {
 	QLCNIC_HW_PH_CRB_AGT_ADR = 0x1A,
 	QLCNIC_HW_SRE_CRB_AGT_ADR = 0x50,
@@ -73,6 +80,7 @@ enum {
 	QLCNIC_HW_RPMX0_CRB_AGT_ADR = 0x08
 };
 
+/*  Hub 4 */
 enum {
 	QLCNIC_HW_PEGN0_CRB_AGT_ADR = 0x40,
 	QLCNIC_HW_PEGN1_CRB_AGT_ADR,
@@ -88,6 +96,7 @@ enum {
 	QLCNIC_HW_PEGN4_CRB_AGT_ADR
 };
 
+/*  Hub 5 */
 enum {
 	QLCNIC_HW_PEGS0_CRB_AGT_ADR = 0x40,
 	QLCNIC_HW_PEGS1_CRB_AGT_ADR,
@@ -98,6 +107,7 @@ enum {
 	QLCNIC_HW_PEGSC_CRB_AGT_ADR
 };
 
+/*  Hub 6 */
 enum {
 	QLCNIC_HW_CAS0_CRB_AGT_ADR = 0x46,
 	QLCNIC_HW_CAS1_CRB_AGT_ADR = 0x47,
@@ -110,8 +120,10 @@ enum {
 	QLCNIC_HW_OCM1_CRB_AGT_ADR = 0x07
 };
 
+/*  Floaters - non existent modules */
 #define QLCNIC_HW_EFC_RPMX0_CRB_AGT_ADR	0x67
 
+/*  This field defines PCI/X adr [25:20] of agents on the CRB */
 enum {
 	QLCNIC_HW_PX_MAP_CRB_PH = 0,
 	QLCNIC_HW_PX_MAP_CRB_PS,
@@ -212,6 +224,7 @@ enum {
 #define	BIT_30	0x40000000
 #define	BIT_31	0x80000000
 
+/*  This field defines CRB adr [31:20] of the agents */
 
 #define QLCNIC_HW_CRB_HUB_AGT_ADR_MN	\
 	((QLCNIC_HW_H0_CH_HUB_ADR << 7) | QLCNIC_HW_MN_CRB_AGT_ADR)
@@ -374,9 +387,17 @@ enum {
 #define QLCNIC_ROMUSB_ROM_DUMMY_BYTE_CNT (ROMUSB_ROM + 0x0014)
 #define QLCNIC_ROMUSB_ROM_RDATA		(ROMUSB_ROM + 0x0018)
 
+/* Lock IDs for ROM lock */
 #define ROM_LOCK_DRIVER	0x0d417340
 
+/******************************************************************************
+*
+*    Definitions specific to M25P flash
+*
+*******************************************************************************
+*/
 
+/* all are 1MB windows */
 
 #define QLCNIC_PCI_CRB_WINDOWSIZE	0x00100000
 #define QLCNIC_PCI_CRB_WINDOW(A)	\
@@ -448,10 +469,15 @@ enum {
 #define QLCNIC_ADDR_QDR_NET	(0x0000000300000000ULL)
 #define QLCNIC_ADDR_QDR_NET_MAX (0x0000000307ffffffULL)
 
+/*
+ *   Register offsets for MN
+ */
 #define QLCNIC_MIU_CONTROL	(0x000)
 #define QLCNIC_MIU_MN_CONTROL	(QLCNIC_CRB_DDR_NET+QLCNIC_MIU_CONTROL)
 
+/* 200ms delay in each loop */
 #define QLCNIC_NIU_PHY_WAITLEN		200000
+/* 10 seconds before we give up */
 #define QLCNIC_NIU_PHY_WAITMAX		50
 #define QLCNIC_NIU_MAX_GBE_PORTS	4
 #define QLCNIC_NIU_MAX_XG_PORTS		2
@@ -473,6 +499,9 @@ enum {
 #define TA_CTL_WRITE	BIT_2
 #define TA_CTL_BUSY	BIT_3
 
+/*
+ *   Register offsets for MN
+ */
 #define MIU_TEST_AGT_BASE		(0x90)
 
 #define MIU_TEST_AGT_ADDR_LO		(0x04)
@@ -491,6 +520,9 @@ enum {
 #define MIU_TEST_AGT_ADDR_MASK		0xfffffff8
 #define MIU_TEST_AGT_UPPER_ADDR(off)	(0)
 
+/*
+ *   Register offsets for MS
+ */
 #define SIU_TEST_AGT_BASE		(0x60)
 
 #define SIU_TEST_AGT_ADDR_LO		(0x04)
@@ -505,6 +537,7 @@ enum {
 #define SIU_TEST_AGT_ADDR_MASK		0x3ffff8
 #define SIU_TEST_AGT_UPPER_ADDR(off)	((off)>>22)
 
+/* XG Link status */
 #define XG_LINK_UP	0x10
 #define XG_LINK_DOWN	0x20
 
@@ -557,21 +590,34 @@ enum {
 #define CRB_FW_CAPABILITIES_1		(QLCNIC_CAM_RAM(0x128))
 #define CRB_MAC_BLOCK_START		(QLCNIC_CAM_RAM(0x1c0))
 
+/*
+ * CrbPortPhanCntrHi/Lo is used to pass the address of HostPhantomIndex address
+ * which can be read by the Phantom host to get producer/consumer indexes from
+ * Phantom/Casper. If it is not HOST_SHARED_MEMORY, then the following
+ * registers will be used for the addresses of the ring's shared memory
+ * on the Phantom.
+ */
 
 #define qlcnic_get_temp_val(x)		((x) >> 16)
 #define qlcnic_get_temp_state(x)	((x) & 0xffff)
 #define qlcnic_encode_temp(val, state)	(((val) << 16) | (state))
 
+/*
+ * Temperature control.
+ */
 enum {
-	QLCNIC_TEMP_NORMAL = 0x1,	
-	QLCNIC_TEMP_WARN,	
-	QLCNIC_TEMP_PANIC	
+	QLCNIC_TEMP_NORMAL = 0x1,	/* Normal operating range */
+	QLCNIC_TEMP_WARN,	/* Sound alert, temperature getting high */
+	QLCNIC_TEMP_PANIC	/* Fatal error, hardware has shut down. */
 };
 
 
+/* Lock IDs for PHY lock */
 #define PHY_LOCK_DRIVER		0x44524956
 
+/* Used for PS PCI Memory access */
 #define PCIX_PS_OP_ADDR_LO	(0x10000)
+/*   via CRB  (PS side only)     */
 #define PCIX_PS_OP_ADDR_HI	(0x10004)
 
 #define PCIX_INT_VECTOR 	(0x10100)
@@ -649,6 +695,7 @@ enum {
 #define QLCNIC_ROM_DEV_INIT_TIMEOUT	(0x3e885c)
 #define QLCNIC_ROM_DRV_RESET_TIMEOUT	(0x3e8860)
 
+/* Device State */
 #define QLCNIC_DEV_COLD			0x1
 #define QLCNIC_DEV_INITIALIZING		0x2
 #define QLCNIC_DEV_READY		0x3
@@ -657,9 +704,9 @@ enum {
 #define QLCNIC_DEV_FAILED		0x6
 #define QLCNIC_DEV_QUISCENT		0x7
 
-#define QLCNIC_DEV_NPAR_NON_OPER	0 
-#define QLCNIC_DEV_NPAR_OPER		1 
-#define QLCNIC_DEV_NPAR_OPER_TIMEO	30 
+#define QLCNIC_DEV_NPAR_NON_OPER	0 /* NON Operational */
+#define QLCNIC_DEV_NPAR_OPER		1 /* NPAR Operational */
+#define QLCNIC_DEV_NPAR_OPER_TIMEO	30 /* Operational time out */
 
 #define QLC_DEV_CHECK_ACTIVE(VAL, FN)		((VAL) & (1 << (FN * 4)))
 #define QLC_DEV_SET_REF_CNT(VAL, FN)		((VAL) |= (1 << (FN * 4)))
@@ -697,6 +744,9 @@ enum {
 #define	ISR_MSI_INT_TRIGGER(FUNC) (QLCNIC_PCIX_PS_REG(PCIX_MSI_F(FUNC)))
 #define ISR_LEGACY_INT_TRIGGERED(VAL)	(((VAL) & 0x300) == 0x200)
 
+/*
+ * PCI Interrupt Vector Values.
+ */
 #define	PCIX_INT_VECTOR_BIT_F0	0x0080
 #define	PCIX_INT_VECTOR_BIT_F1	0x0100
 #define	PCIX_INT_VECTOR_BIT_F2	0x0200
@@ -719,6 +769,7 @@ struct qlcnic_legacy_intr_set {
 #define QLCNIC_MAX_PCI_FUNC	8
 #define QLCNIC_MAX_VLAN_FILTERS	64
 
+/* FW dump defines */
 #define MIU_TEST_CTR		0x41000090
 #define MIU_TEST_ADDR_LO	0x41000094
 #define MIU_TEST_ADDR_HI	0x41000098
@@ -750,6 +801,7 @@ static const u32 MIU_TEST_READ_DATA[] = {
 	readl((void *) (bar0 + QLCNIC_FW_DUMP_REG2 + LSW(addr)));	\
 } while (0)
 
+/* PCI function operational mode */
 enum {
 	QLCNIC_MGMT_FUNC	= 0,
 	QLCNIC_PRIV_FUNC	= 1,
@@ -824,9 +876,26 @@ enum {
 		.pci_int_reg	=	ISR_MSI_INT_TRIGGER(7) },	\
 }
 
+/* NIU REGS */
 
 #define _qlcnic_crb_get_bit(var, bit)  ((var >> bit) & 0x1)
 
+/*
+ * NIU GB MAC Config Register 0 (applies to GB0, GB1, GB2, GB3)
+ *
+ *	Bit 0 : enable_tx => 1:enable frame xmit, 0:disable
+ *	Bit 1 : tx_synced => R/O: xmit enable synched to xmit stream
+ *	Bit 2 : enable_rx => 1:enable frame recv, 0:disable
+ *	Bit 3 : rx_synced => R/O: recv enable synched to recv stream
+ *	Bit 4 : tx_flowctl => 1:enable pause frame generation, 0:disable
+ *	Bit 5 : rx_flowctl => 1:act on recv'd pause frames, 0:ignore
+ *	Bit 8 : loopback => 1:loop MAC xmits to MAC recvs, 0:normal
+ *	Bit 16: tx_reset_pb => 1:reset frame xmit protocol blk, 0:no-op
+ *	Bit 17: rx_reset_pb => 1:reset frame recv protocol blk, 0:no-op
+ *	Bit 18: tx_reset_mac => 1:reset data/ctl multiplexer blk, 0:no-op
+ *	Bit 19: rx_reset_mac => 1:reset ctl frames & timers blk, 0:no-op
+ *	Bit 31: soft_reset => 1:reset the MAC and the SERDES, 0:no-op
+ */
 #define qlcnic_gb_rx_flowctl(config_word)	\
 	((config_word) |= 1 << 5)
 #define qlcnic_gb_get_rx_flowctl(config_word)	\
@@ -834,6 +903,9 @@ enum {
 #define qlcnic_gb_unset_rx_flowctl(config_word)	\
 	((config_word) &= ~(1 << 5))
 
+/*
+ * NIU GB Pause Ctl Register
+ */
 
 #define qlcnic_gb_set_gb0_mask(config_word)    \
 	((config_word) |= 1 << 0)
@@ -862,6 +934,16 @@ enum {
 #define qlcnic_gb_unset_gb3_mask(config_word)  \
 	((config_word) &= ~(1 << 6))
 
+/*
+ * NIU XG Pause Ctl Register
+ *
+ *      Bit 0       : xg0_mask => 1:disable tx pause frames
+ *      Bit 1       : xg0_request => 1:request single pause frame
+ *      Bit 2       : xg0_on_off => 1:request is pause on, 0:off
+ *      Bit 3       : xg1_mask => 1:disable tx pause frames
+ *      Bit 4       : xg1_request => 1:request single pause frame
+ *      Bit 5       : xg1_on_off => 1:request is pause on, 0:off
+ */
 
 #define qlcnic_xg_set_xg0_mask(config_word)    \
 	((config_word) |= 1 << 0)
@@ -878,10 +960,41 @@ enum {
 #define qlcnic_xg_unset_xg1_mask(config_word)  \
 	((config_word) &= ~(1 << 3))
 
+/*
+ * NIU XG Pause Ctl Register
+ *
+ *      Bit 0       : xg0_mask => 1:disable tx pause frames
+ *      Bit 1       : xg0_request => 1:request single pause frame
+ *      Bit 2       : xg0_on_off => 1:request is pause on, 0:off
+ *      Bit 3       : xg1_mask => 1:disable tx pause frames
+ *      Bit 4       : xg1_request => 1:request single pause frame
+ *      Bit 5       : xg1_on_off => 1:request is pause on, 0:off
+ */
 
+/*
+ * PHY-Specific MII control/status registers.
+ */
 #define QLCNIC_NIU_GB_MII_MGMT_ADDR_AUTONEG		4
 #define QLCNIC_NIU_GB_MII_MGMT_ADDR_PHY_STATUS		17
 
+/*
+ * PHY-Specific Status Register (reg 17).
+ *
+ * Bit 0      : jabber => 1:jabber detected, 0:not
+ * Bit 1      : polarity => 1:polarity reversed, 0:normal
+ * Bit 2      : recvpause => 1:receive pause enabled, 0:disabled
+ * Bit 3      : xmitpause => 1:transmit pause enabled, 0:disabled
+ * Bit 4      : energydetect => 1:sleep, 0:active
+ * Bit 5      : downshift => 1:downshift, 0:no downshift
+ * Bit 6      : crossover => 1:MDIX (crossover), 0:MDI (no crossover)
+ * Bits 7-9   : cablelen => not valid in 10Mb/s mode
+ *			0:<50m, 1:50-80m, 2:80-110m, 3:110-140m, 4:>140m
+ * Bit 10     : link => 1:link up, 0:link down
+ * Bit 11     : resolved => 1:speed and duplex resolved, 0:not yet
+ * Bit 12     : pagercvd => 1:page received, 0:page not received
+ * Bit 13     : duplex => 1:full duplex, 0:half duplex
+ * Bits 14-15 : speed => 0:10Mb/s, 1:100Mb/s, 2:1000Mb/s, 3:rsvd
+ */
 
 #define qlcnic_get_phy_speed(config_word) (((config_word) >> 14) & 0x03)
 
@@ -911,4 +1024,4 @@ struct crb_128M_2M_sub_block_map {
 struct crb_128M_2M_block_map{
 	struct crb_128M_2M_sub_block_map sub_block[16];
 };
-#endif				
+#endif				/* __QLCNIC_HDR_H_ */

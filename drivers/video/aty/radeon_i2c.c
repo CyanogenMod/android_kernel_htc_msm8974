@@ -83,7 +83,7 @@ static int radeon_setup_i2c_bus(struct radeon_i2c_chan *chan, const char *name)
 	
 	i2c_set_adapdata(&chan->adapter, chan);
 	
-	
+	/* Raise SCL and SDA */
 	radeon_gpio_setsda(chan, 1);
 	radeon_gpio_setscl(chan, 1);
 	udelay(20);
@@ -151,8 +151,8 @@ int radeon_probe_i2c_connector(struct radeonfb_info *rinfo, int conn,
 		return MT_NONE;
 	}
 	if (edid[0x14] & 0x80) {
-		
-		if (rinfo->is_mobility  &&
+		/* Fix detection using BIOS tables */
+		if (rinfo->is_mobility /*&& conn == ddc_dvi*/ &&
 		    (INREG(LVDS_GEN_CNTL) & LVDS_ON)) {
 			pr_debug("radeonfb: I2C (port %d) ... found LVDS panel\n", conn);
 			return MT_LCD;

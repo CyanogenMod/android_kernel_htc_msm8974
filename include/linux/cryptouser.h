@@ -18,6 +18,7 @@
  * 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+/* Netlink configuration messages.  */
 enum {
 	CRYPTO_MSG_BASE = 0x10,
 	CRYPTO_MSG_NEWALG = 0x10,
@@ -31,16 +32,17 @@ enum {
 
 #define CRYPTO_MAX_NAME CRYPTO_MAX_ALG_NAME
 
+/* Netlink message attributes.  */
 enum crypto_attr_type_t {
 	CRYPTOCFGA_UNSPEC,
-	CRYPTOCFGA_PRIORITY_VAL,	
-	CRYPTOCFGA_REPORT_LARVAL,	
-	CRYPTOCFGA_REPORT_HASH,		
-	CRYPTOCFGA_REPORT_BLKCIPHER,	
-	CRYPTOCFGA_REPORT_AEAD,		
-	CRYPTOCFGA_REPORT_COMPRESS,	
-	CRYPTOCFGA_REPORT_RNG,		
-	CRYPTOCFGA_REPORT_CIPHER,	
+	CRYPTOCFGA_PRIORITY_VAL,	/* __u32 */
+	CRYPTOCFGA_REPORT_LARVAL,	/* struct crypto_report_larval */
+	CRYPTOCFGA_REPORT_HASH,		/* struct crypto_report_hash */
+	CRYPTOCFGA_REPORT_BLKCIPHER,	/* struct crypto_report_blkcipher */
+	CRYPTOCFGA_REPORT_AEAD,		/* struct crypto_report_aead */
+	CRYPTOCFGA_REPORT_COMPRESS,	/* struct crypto_report_comp */
+	CRYPTOCFGA_REPORT_RNG,		/* struct crypto_report_rng */
+	CRYPTOCFGA_REPORT_CIPHER,	/* struct crypto_report_cipher */
 	__CRYPTOCFGA_MAX
 
 #define CRYPTOCFGA_MAX (__CRYPTOCFGA_MAX - 1)

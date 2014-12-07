@@ -99,18 +99,47 @@ kdump_wait_cpu_freeze(void)
 void
 machine_crash_shutdown(struct pt_regs *pt)
 {
+	/* This function is only called after the system
+	 * has paniced or is otherwise in a critical state.
+	 * The minimum amount of code to allow a kexec'd kernel
+	 * to run successfully needs to happen here.
+	 *
+	 * In practice this means shooting down the other cpus in
+	 * an SMP system.
+	 */
 	kexec_disable_iosapic();
 #ifdef CONFIG_SMP
+	/*
+	 * If kdump_on_init is set and an INIT is asserted here, kdump will
+	 * be started again via INIT monarch.
+	 */
 	local_irq_disable();
-	ia64_set_psr_mc();	
+	ia64_set_psr_mc();	/* mask MCA/INIT */
 	if (atomic_inc_return(&kdump_in_progress) != 1)
 		unw_init_running(kdump_cpu_freeze, NULL);
 
+	/*
+	 * Now this cpu is ready for kdump.
+	 * Stop all others by IPI or INIT.  They could receive INIT from
+	 * outside and might be INIT monarch, but only thing they have to
+	 * do is falling into kdump_cpu_freeze().
+	 *
+	 * If an INIT is asserted here:
+	 * - All receivers might be slaves, since some of cpus could already
+	 *   be frozen and INIT might be masked on monarch.  In this case,
+	 *   all slaves will be frozen soon since kdump_in_progress will let
+	 *   them into DIE_INIT_SLAVE_LEAVE.
+	 * - One might be a monarch, but INIT rendezvous will fail since
+	 *   at least this cpu already have INIT masked so it never join
+	 *   to the rendezvous.  In this case, all slaves and monarch will
+	 *   be frozen soon with no wait since the INIT rendezvous is skipped
+	 *   by kdump_in_progress.
+	 */
 	kdump_smp_send_stop();
-	
+	/* not all cpu response to IPI, send INIT to freeze them */
 	if (kdump_wait_cpu_freeze()) {
 		kdump_smp_send_init();
-		
+		/* wait again, don't go ahead if possible */
 		kdump_wait_cpu_freeze();
 	}
 #endif
@@ -135,7 +164,7 @@ kdump_cpu_freeze(struct unw_frame_info *info, void *arg)
 	crash_save_this_cpu();
 	current->thread.ksp = (__u64)info->sw - 16;
 
-	ia64_set_psr_mc();	
+	ia64_set_psr_mc();	/* mask MCA/INIT and stop reentrance */
 
 	atomic_inc(&kdump_cpu_frozen);
 	kdump_status[cpuid] = 1;
@@ -155,7 +184,7 @@ kdump_init_notifier(struct notifier_block *self, unsigned long val, void *data)
 		case DIE_INIT_MONARCH_LEAVE:
 			if (!kdump_freeze_monarch)
 				break;
-			
+			/* fall through */
 		case DIE_INIT_SLAVE_LEAVE:
 		case DIE_INIT_MONARCH_ENTER:
 		case DIE_MCA_RENDZVOUS_LEAVE:
@@ -184,23 +213,23 @@ kdump_init_notifier(struct notifier_block *self, unsigned long val, void *data)
 
 	switch (val) {
 	case DIE_INIT_MONARCH_PROCESS:
-		
+		/* Reason code 1 means machine check rendezvous*/
 		if (kdump_on_init && (nd->sos->rv_rc != 1)) {
 			if (atomic_inc_return(&kdump_in_progress) != 1)
 				kdump_freeze_monarch = 1;
 		}
 		break;
 	case DIE_INIT_MONARCH_LEAVE:
-		
+		/* Reason code 1 means machine check rendezvous*/
 		if (kdump_on_init && (nd->sos->rv_rc != 1))
 			machine_kdump_on_init();
 		break;
 	case DIE_MCA_MONARCH_LEAVE:
-		
+		/* *(nd->data) indicate if MCA is recoverable */
 		if (kdump_on_fatal_mca && !(*(nd->data))) {
 			if (atomic_inc_return(&kdump_in_progress) == 1)
 				machine_kdump_on_init();
-			
+			/* We got fatal MCA while kdump!? No way!! */
 		}
 		break;
 	}
@@ -239,7 +268,7 @@ static ctl_table sys_table[] = {
 static int
 machine_crash_setup(void)
 {
-	
+	/* be notified before default_monarch_init_process */
 	static struct notifier_block kdump_init_notifier_nb = {
 		.notifier_call = kdump_init_notifier,
 		.priority = 1,

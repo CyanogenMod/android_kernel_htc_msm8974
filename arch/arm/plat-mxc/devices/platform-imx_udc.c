@@ -28,7 +28,7 @@
 #ifdef CONFIG_SOC_IMX1
 const struct imx_imx_udc_data imx1_imx_udc_data __initconst =
 	imx_imx_udc_data_entry_single(MX1, SZ_4K);
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX1 */
 
 struct platform_device *__init imx_add_imx_udc(
 		const struct imx_imx_udc_data *data,

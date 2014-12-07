@@ -1,3 +1,9 @@
+/*
+ * Architecture-specific kernel symbols
+ *
+ * Don't put any exports here unless it's defined in an assembler file.
+ * All other exports should be put directly after the definition.
+ */
 
 #include <linux/module.h>
 
@@ -10,7 +16,7 @@ EXPORT_SYMBOL(strlen);
 EXPORT_SYMBOL_GPL(empty_zero_page);
 
 #include <asm/checksum.h>
-EXPORT_SYMBOL(ip_fast_csum);		
+EXPORT_SYMBOL(ip_fast_csum);		/* hand-coded assembly */
 EXPORT_SYMBOL(csum_ipv6_magic);
 
 #include <asm/page.h>
@@ -19,8 +25,8 @@ EXPORT_SYMBOL(copy_page);
 
 #ifdef CONFIG_VIRTUAL_MEM_MAP
 #include <linux/bootmem.h>
-EXPORT_SYMBOL(min_low_pfn);	
-EXPORT_SYMBOL(max_low_pfn);	
+EXPORT_SYMBOL(min_low_pfn);	/* defined by bootmem.c, but not exported by generic code */
+EXPORT_SYMBOL(max_low_pfn);	/* defined by bootmem.c, but not exported by generic code */
 #endif
 
 #include <asm/processor.h>
@@ -36,6 +42,7 @@ EXPORT_SYMBOL(__strlen_user);
 EXPORT_SYMBOL(__strncpy_from_user);
 EXPORT_SYMBOL(__strnlen_user);
 
+/* from arch/ia64/lib */
 extern void __divsi3(void);
 extern void __udivsi3(void);
 extern void __modsi3(void);
@@ -86,5 +93,6 @@ EXPORT_SYMBOL(ia64_ivt);
 
 #include <asm/ftrace.h>
 #ifdef CONFIG_FUNCTION_TRACER
+/* mcount is defined in assembly */
 EXPORT_SYMBOL(_mcount);
 #endif

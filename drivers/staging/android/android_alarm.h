@@ -20,7 +20,7 @@
 #include <linux/time.h>
 
 enum android_alarm_type {
-	
+	/* return code bit numbers or set alarm arg */
 	ANDROID_ALARM_RTC_WAKEUP,
 	ANDROID_ALARM_RTC,
 	ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP,
@@ -29,8 +29,8 @@ enum android_alarm_type {
 
 	ANDROID_ALARM_TYPE_COUNT,
 
-	
-	
+	/* return code bit numbers */
+	/* ANDROID_ALARM_TIME_CHANGE = 16 */
 };
 
 enum android_alarm_return_flags {
@@ -44,11 +44,14 @@ enum android_alarm_return_flags {
 	ANDROID_ALARM_TIME_CHANGE_MASK = 1U << 16
 };
 
+/* Disable alarm */
 #define ANDROID_ALARM_CLEAR(type)           _IO('a', 0 | ((type) << 4))
 
+/* Ack last alarm and wait for next */
 #define ANDROID_ALARM_WAIT                  _IO('a', 1)
 
 #define ALARM_IOW(c, type, size)            _IOW('a', (c) | ((type) << 4), size)
+/* Set alarm */
 #define ANDROID_ALARM_SET(type)             ALARM_IOW(2, type, struct timespec)
 #define ANDROID_ALARM_SET_AND_WAIT(type)    ALARM_IOW(3, type, struct timespec)
 #define ANDROID_ALARM_GET_TIME(type)        ALARM_IOW(4, type, struct timespec)

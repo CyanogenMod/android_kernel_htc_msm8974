@@ -26,15 +26,21 @@
 #include <linux/seq_file.h>
 #include <mach/clk.h>
 
+/*
+ * Bit manipulation macros
+ */
 #define BM(msb, lsb)	(((((uint32_t)-1) << (31-msb)) >> (31-msb+lsb)) << lsb)
 #define BVAL(msb, lsb, val)	(((val) << lsb) & BM(msb, lsb))
 
-#define HALT		0	
-#define NOCHECK		1	
-#define HALT_VOTED	2	
-#define ENABLE		3	
-#define ENABLE_VOTED	4	
-#define DELAY		5	
+/*
+ * Halt/Status Checking Mode Macros
+ */
+#define HALT		0	/* Bit pol: 1 = halted */
+#define NOCHECK		1	/* No bit to check, do nothing */
+#define HALT_VOTED	2	/* Bit pol: 1 = halted; delay on disable */
+#define ENABLE		3	/* Bit pol: 1 = running */
+#define ENABLE_VOTED	4	/* Bit pol: 1 = running; delay on disable */
+#define DELAY		5	/* No bit to check, just delay */
 
 struct clk_register_data {
 	char *name;
@@ -51,6 +57,22 @@ static inline void clk_debug_print_hw(struct clk *clk, struct seq_file *f) {}
 	WARN(cond, "%s: " fmt, (clk)->dbg_name, ##__VA_ARGS__);		\
 } while (0)
 
+/**
+ * struct clk_vdd_class - Voltage scaling class
+ * @class_name: name of the class
+ * @regulator: array of regulators.
+ * @num_regulators: size of regulator array. Standard regulator APIs will be
+			used if this field > 0.
+ * @set_vdd: function to call when applying a new voltage setting.
+ * @vdd_uv: sorted 2D array of legal voltage settings. Indexed by level, then
+		regulator.
+ * @vdd_ua: sorted 2D array of legal cureent settings. Indexed by level, then
+		regulator. Optional parameter.
+ * @level_votes: array of votes for each level.
+ * @num_levels: specifies the size of level_votes array.
+ * @cur_level: the currently set voltage level
+ * @lock: lock to protect this struct
+ */
 struct clk_vdd_class {
 	const char *class_name;
 	struct regulator **regulator;
@@ -127,6 +149,17 @@ struct clk_ops {
 				struct clk_register_data **regs, u32 *size);
 };
 
+/**
+ * struct clk
+ * @prepare_count: prepare refcount
+ * @prepare_lock: protects clk_prepare()/clk_unprepare() path and @prepare_count
+ * @count: enable refcount
+ * @lock: protects clk_enable()/clk_disable() path and @count
+ * @depends: non-direct parent of clock to enable when this clock is enabled
+ * @vdd_class: voltage scaling requirement class
+ * @fmax: maximum frequency in Hz supported at each voltage level
+ * @parent: the current source of this clock
+ */
 struct clk {
 	uint32_t flags;
 	struct clk_ops *ops;
@@ -158,6 +191,7 @@ int unvote_vdd_level(struct clk_vdd_class *vdd_class, int level);
 int __clk_pre_reparent(struct clk *c, struct clk *new, unsigned long *flags);
 void __clk_post_reparent(struct clk *c, struct clk *old, unsigned long *flags);
 
+/* Register clocks with the MSM clock driver */
 int msm_clock_register(struct clk_lookup *table, size_t size);
 
 extern struct clk dummy_clk;

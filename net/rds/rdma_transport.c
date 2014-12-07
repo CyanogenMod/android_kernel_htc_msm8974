@@ -68,7 +68,7 @@ static char *rds_cm_event_str(enum rdma_cm_event_type type)
 int rds_rdma_cm_event_handler(struct rdma_cm_id *cm_id,
 			      struct rdma_cm_event *event)
 {
-	
+	/* this can be null in the listening path */
 	struct rds_connection *conn = cm_id->context;
 	struct rds_transport *trans;
 	int ret = 0;
@@ -81,10 +81,17 @@ int rds_rdma_cm_event_handler(struct rdma_cm_id *cm_id,
 	else
 		trans = &rds_ib_transport;
 
+	/* Prevent shutdown from tearing down the connection
+	 * while we're executing. */
 	if (conn) {
 		mutex_lock(&conn->c_cm_lock);
 
+		/* If the connection is being shut down, bail out
+		 * right away. We return 0 so cm_id doesn't get
+		 * destroyed prematurely */
 		if (rds_conn_state(conn) == RDS_CONN_DISCONNECTING) {
+			/* Reject incoming connections while we're tearing
+			 * down an existing one. */
 			if (event->event == RDMA_CM_EVENT_CONNECT_REQUEST)
 				ret = 1;
 			goto out;
@@ -97,13 +104,13 @@ int rds_rdma_cm_event_handler(struct rdma_cm_id *cm_id,
 		break;
 
 	case RDMA_CM_EVENT_ADDR_RESOLVED:
-		
+		/* XXX do we need to clean up if this fails? */
 		ret = rdma_resolve_route(cm_id,
 					 RDS_RDMA_RESOLVE_TIMEOUT_MS);
 		break;
 
 	case RDMA_CM_EVENT_ROUTE_RESOLVED:
-		
+		/* XXX worry about racing with listen acceptance */
 		ret = trans->cm_initiate_connect(cm_id);
 		break;
 
@@ -130,7 +137,7 @@ int rds_rdma_cm_event_handler(struct rdma_cm_id *cm_id,
 		break;
 
 	default:
-		
+		/* things like device disconnect? */
 		printk(KERN_ERR "RDS: unknown event %u (%s)!\n",
 		       event->event, rds_cm_event_str(event->event));
 		break;
@@ -165,6 +172,10 @@ static int rds_rdma_listen_init(void)
 	sin.sin_addr.s_addr = (__force u32)htonl(INADDR_ANY);
 	sin.sin_port = (__force u16)htons(RDS_PORT);
 
+	/*
+	 * XXX I bet this binds the cm_id to a device.  If we want to support
+	 * fail-over we'll have to take this into consideration.
+	 */
 	ret = rdma_bind_addr(cm_id, (struct sockaddr *)&sin);
 	if (ret) {
 		printk(KERN_ERR "RDS/RDMA: failed to setup listener, "
@@ -227,7 +238,7 @@ module_init(rds_rdma_init);
 
 static void rds_rdma_exit(void)
 {
-	
+	/* stop listening first to ensure no new connections are attempted */
 	rds_rdma_listen_stop();
 	rds_ib_exit();
 	rds_iw_exit();

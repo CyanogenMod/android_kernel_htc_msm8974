@@ -19,11 +19,22 @@
 #                             Imaging Division
 ################################################################################
 ********************************************************************************/
+/*!
+ * \file ilp0100_customer_platform_types.h
+ * \brief definition of types required by api but which are platform dependant
+ * \author sheena jain
+ */
 
 #ifndef ILP0100_CUSTOMER_PLATFORM_TYPES_H_
 #define ILP0100_CUSTOMER_PLATFORM_TYPES_H_
 
+/* API requires that bool_t, uint8_t, int8_t, uint16_t, uint32_t are defined*/
 
+/*  By example for linux kernel */
+/* #include <linux/types.h> */
+//! Define LINUX_TEST if to be tested on UNIX
+//#define LINUX_TEST
+/* for other platforms or platform which do not define them*/
 #ifdef ST_SPECIFIC
 typedef unsigned char bool_t;
 typedef unsigned char uint8_t;
@@ -33,14 +44,14 @@ typedef unsigned int uint32_t;
 typedef short	int16_t;
 typedef int	int32_t;
 typedef float float_t;
-#else
+#else/*hTC*/
 typedef unsigned char bool_t;
 typedef float float_t;
-#endif 
+#endif /*ST_SPECIFIC*/
 
 
 
 
 
 
-#endif 
+#endif /* ILP0100_CUSTOMER_PLATFORM_TYPES_H_ */

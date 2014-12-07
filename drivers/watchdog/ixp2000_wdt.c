@@ -32,7 +32,7 @@
 #include <mach/hardware.h>
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
-static unsigned int heartbeat = 60;	
+static unsigned int heartbeat = 60;	/* (secs) Default is 1 minute */
 static unsigned long wdt_status;
 static DEFINE_SPINLOCK(wdt_lock);
 
@@ -145,7 +145,7 @@ static long ixp2000_wdt_ioctl(struct file *file, unsigned int cmd,
 
 		heartbeat = time;
 		wdt_keepalive();
-		
+		/* Fall through */
 
 	case WDIOC_GETTIMEOUT:
 		ret = put_user(heartbeat, (int *)arg);

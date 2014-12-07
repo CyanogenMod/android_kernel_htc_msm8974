@@ -49,22 +49,25 @@ static int wf_lm75_get(struct wf_sensor *sr, s32 *value)
 	if (lm->i2c == NULL)
 		return -ENODEV;
 
-	
+	/* Init chip if necessary */
 	if (!lm->inited) {
 		u8 cfg_new, cfg = (u8)i2c_smbus_read_byte_data(lm->i2c, 1);
 
 		DBG("wf_lm75: Initializing %s, cfg was: %02x\n",
 		    sr->name, cfg);
 
+		/* clear shutdown bit, keep other settings as left by
+		 * the firmware for now
+		 */
 		cfg_new = cfg & ~0x01;
 		i2c_smbus_write_byte_data(lm->i2c, 1, cfg_new);
 		lm->inited = 1;
 
-		
+		/* If we just powered it up, let's wait 200 ms */
 		msleep(200);
 	}
 
-	
+	/* Read temperature register */
 	data = (s32)le16_to_cpu(i2c_smbus_read_word_data(lm->i2c, 0));
 	data <<= 8;
 	*value = data;
@@ -122,6 +125,10 @@ static struct i2c_client *wf_lm75_create(struct i2c_adapter *adapter,
 	DBG("wf_lm75: creating  %s device at address 0x%02x\n",
 	    ds1775 ? "ds1775" : "lm75", addr);
 
+	/* Usual rant about sensor names not beeing very consistent in
+	 * the device-tree, oh well ...
+	 * Add more entries below as you deal with more setups
+	 */
 	if (!strcmp(loc, "Hard drive") || !strcmp(loc, "DRIVE BAY"))
 		name = "hd-temp";
 	else if (!strcmp(loc, "Incoming Air Temp"))
@@ -145,6 +152,10 @@ static struct i2c_client *wf_lm75_create(struct i2c_adapter *adapter,
 		goto fail;
 	}
 
+	/*
+	 * Let i2c-core delete that device on driver removal.
+	 * This is safe because i2c-core holds the core_lock mutex for us.
+	 */
 	list_add_tail(&client->detected, &wf_lm75_driver.clients);
 	return client;
  fail:
@@ -165,22 +176,25 @@ static int wf_lm75_attach(struct i2c_adapter *adapter)
 
 	DBG("wf_lm75: bus found, looking for device...\n");
 
-	
+	/* Now look for lm75(s) in there */
 	for (dev = NULL;
 	     (dev = of_get_next_child(busnode, dev)) != NULL;) {
 		const char *loc =
 			of_get_property(dev, "hwsensor-location", NULL);
 		u8 addr;
 
+		/* We must re-match the adapter in order to properly check
+		 * the channel on multibus setups
+		 */
 		if (!pmac_i2c_match_adapter(dev, adapter))
 			continue;
 		addr = pmac_i2c_get_dev_addr(dev);
 		if (loc == NULL || addr == 0)
 			continue;
-		
+		/* real lm75 */
 		if (of_device_is_compatible(dev, "lm75"))
 			wf_lm75_create(adapter, addr, 0, loc);
-		
+		/* ds1775 (compatible, better resolution */
 		else if (of_device_is_compatible(dev, "ds1775"))
 			wf_lm75_create(adapter, addr, 1, loc);
 	}
@@ -193,10 +207,10 @@ static int wf_lm75_remove(struct i2c_client *client)
 
 	DBG("wf_lm75: i2c detatch called for %s\n", lm->sens.name);
 
-	
+	/* Mark client detached */
 	lm->i2c = NULL;
 
-	
+	/* release sensor */
 	wf_unregister_sensor(&lm->sens);
 
 	return 0;
@@ -220,7 +234,7 @@ static struct i2c_driver wf_lm75_driver = {
 
 static int __init wf_lm75_sensor_init(void)
 {
-	
+	/* Don't register on old machines that use therm_pm72 for now */
 	if (of_machine_is_compatible("PowerMac7,2") ||
 	    of_machine_is_compatible("PowerMac7,3") ||
 	    of_machine_is_compatible("RackMac3,1"))

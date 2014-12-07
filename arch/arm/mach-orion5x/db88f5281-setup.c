@@ -28,31 +28,52 @@
 #include "common.h"
 #include "mpp.h"
 
+/*****************************************************************************
+ * DB-88F5281 on board devices
+ ****************************************************************************/
 
+/*
+ * 512K NOR flash Device bus boot chip select
+ */
 
 #define DB88F5281_NOR_BOOT_BASE		0xf4000000
 #define DB88F5281_NOR_BOOT_SIZE		SZ_512K
 
+/*
+ * 7-Segment on Device bus chip select 0
+ */
 
 #define DB88F5281_7SEG_BASE		0xfa000000
 #define DB88F5281_7SEG_SIZE		SZ_1K
 
+/*
+ * 32M NOR flash on Device bus chip select 1
+ */
 
 #define DB88F5281_NOR_BASE		0xfc000000
 #define DB88F5281_NOR_SIZE		SZ_32M
 
+/*
+ * 32M NAND flash on Device bus chip select 2
+ */
 
 #define DB88F5281_NAND_BASE		0xfa800000
 #define DB88F5281_NAND_SIZE		SZ_1K
 
+/*
+ * PCI
+ */
 
 #define DB88F5281_PCI_SLOT0_OFFS		7
 #define DB88F5281_PCI_SLOT0_IRQ_PIN		12
 #define DB88F5281_PCI_SLOT1_SLOT2_IRQ_PIN	13
 
+/*****************************************************************************
+ * 512M NOR Flash on Device bus Boot CS
+ ****************************************************************************/
 
 static struct physmap_flash_data db88f5281_boot_flash_data = {
-	.width		= 1,	
+	.width		= 1,	/* 8 bit bus width */
 };
 
 static struct resource db88f5281_boot_flash_resource = {
@@ -71,9 +92,12 @@ static struct platform_device db88f5281_boot_flash = {
 	.resource	= &db88f5281_boot_flash_resource,
 };
 
+/*****************************************************************************
+ * 32M NOR Flash on Device bus CS1
+ ****************************************************************************/
 
 static struct physmap_flash_data db88f5281_nor_flash_data = {
-	.width		= 4,	
+	.width		= 4,	/* 32 bit bus width */
 };
 
 static struct resource db88f5281_nor_flash_resource = {
@@ -92,6 +116,9 @@ static struct platform_device db88f5281_nor_flash = {
 	.resource	= &db88f5281_nor_flash_resource,
 };
 
+/*****************************************************************************
+ * 32M NAND Flash on Device bus CS2
+ ****************************************************************************/
 
 static struct mtd_partition db88f5281_nand_parts[] = {
 	{
@@ -137,6 +164,10 @@ static struct platform_device db88f5281_nand_flash = {
 	.num_resources	= 1,
 };
 
+/*****************************************************************************
+ * 7-Segment on Device bus CS0
+ * Dummy counter every 2 sec
+ ****************************************************************************/
 
 static void __iomem *db88f5281_7seg;
 static struct timer_list db88f5281_timer;
@@ -167,11 +198,17 @@ static int __init db88f5281_7seg_init(void)
 
 __initcall(db88f5281_7seg_init);
 
+/*****************************************************************************
+ * PCI
+ ****************************************************************************/
 
 void __init db88f5281_pci_preinit(void)
 {
 	int pin;
 
+	/*
+	 * Configure PCI GPIO IRQ pins
+	 */
 	pin = DB88F5281_PCI_SLOT0_IRQ_PIN;
 	if (gpio_request(pin, "PCI Int1") == 0) {
 		if (gpio_direction_input(pin) == 0) {
@@ -204,10 +241,16 @@ static int __init db88f5281_pci_map_irq(const struct pci_dev *dev, u8 slot,
 {
 	int irq;
 
+	/*
+	 * Check for devices with hard-wired IRQs.
+	 */
 	irq = orion5x_pci_map_irq(dev, slot, pin);
 	if (irq != -1)
 		return irq;
 
+	/*
+	 * PCI IRQs are connected via GPIOs.
+	 */
 	switch (slot - DB88F5281_PCI_SLOT0_OFFS) {
 	case 0:
 		return gpio_to_irq(DB88F5281_PCI_SLOT0_IRQ_PIN);
@@ -238,45 +281,60 @@ static int __init db88f5281_pci_init(void)
 
 subsys_initcall(db88f5281_pci_init);
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 static struct mv643xx_eth_platform_data db88f5281_eth_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(8),
 };
 
+/*****************************************************************************
+ * RTC DS1339 on I2C bus
+ ****************************************************************************/
 static struct i2c_board_info __initdata db88f5281_i2c_rtc = {
 	I2C_BOARD_INFO("ds1339", 0x68),
 };
 
+/*****************************************************************************
+ * General Setup
+ ****************************************************************************/
 static unsigned int db88f5281_mpp_modes[] __initdata = {
-	MPP0_GPIO,		
-	MPP1_GPIO,		
-	MPP2_PCI_ARB,		
-	MPP3_PCI_ARB,		
-	MPP4_PCI_ARB,		
-	MPP5_PCI_ARB,		
-	MPP6_GPIO,		
-	MPP7_GPIO,		
-	MPP8_GPIO,		
-	MPP9_GPIO,		
-	MPP10_GPIO,		
-	MPP11_GPIO,		
-	MPP12_GPIO,		
-	MPP13_GPIO,		
-	MPP14_NAND,		
-	MPP15_NAND,		
-	MPP16_UART,		
-	MPP17_UART,		
-	MPP18_UART,		
-	MPP19_UART,		
+	MPP0_GPIO,		/* USB Over Current */
+	MPP1_GPIO,		/* USB Vbat input */
+	MPP2_PCI_ARB,		/* PCI_REQn[2] */
+	MPP3_PCI_ARB,		/* PCI_GNTn[2] */
+	MPP4_PCI_ARB,		/* PCI_REQn[3] */
+	MPP5_PCI_ARB,		/* PCI_GNTn[3] */
+	MPP6_GPIO,		/* JP0, CON17.2 */
+	MPP7_GPIO,		/* JP1, CON17.1 */
+	MPP8_GPIO,		/* JP2, CON11.2 */
+	MPP9_GPIO,		/* JP3, CON11.3 */
+	MPP10_GPIO,		/* RTC int */
+	MPP11_GPIO,		/* Baud Rate Generator */
+	MPP12_GPIO,		/* PCI int 1 */
+	MPP13_GPIO,		/* PCI int 2 */
+	MPP14_NAND,		/* NAND_REn[2] */
+	MPP15_NAND,		/* NAND_WEn[2] */
+	MPP16_UART,		/* UART1_RX */
+	MPP17_UART,		/* UART1_TX */
+	MPP18_UART,		/* UART1_CTSn */
+	MPP19_UART,		/* UART1_RTSn */
 	0,
 };
 
 static void __init db88f5281_init(void)
 {
+	/*
+	 * Basic Orion setup. Need to be called early.
+	 */
 	orion5x_init();
 
 	orion5x_mpp_conf(db88f5281_mpp_modes);
-	writel(0, MPP_DEV_CTRL);		
+	writel(0, MPP_DEV_CTRL);		/* DEV_D[31:16] */
 
+	/*
+	 * Configure peripherals.
+	 */
 	orion5x_ehci0_init();
 	orion5x_eth_init(&db88f5281_eth_data);
 	orion5x_i2c_init();
@@ -299,7 +357,7 @@ static void __init db88f5281_init(void)
 }
 
 MACHINE_START(DB88F5281, "Marvell Orion-2 Development Board")
-	
+	/* Maintainer: Tzachi Perelstein <tzachi@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= db88f5281_init,
 	.map_io		= orion5x_map_io,

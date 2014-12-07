@@ -3,6 +3,8 @@
 #include <media/saa7146_vv.h>
 #include <linux/module.h>
 
+/****************************************************************************/
+/* resource management functions, shamelessly stolen from saa7134 driver */
 
 int saa7146_res_get(struct saa7146_fh *fh, unsigned int bit)
 {
@@ -12,18 +14,18 @@ int saa7146_res_get(struct saa7146_fh *fh, unsigned int bit)
 	if (fh->resources & bit) {
 		DEB_D("already allocated! want: 0x%02x, cur:0x%02x\n",
 		      bit, vv->resources);
-		
+		/* have it already allocated */
 		return 1;
 	}
 
-	
+	/* is it free? */
 	if (vv->resources & bit) {
 		DEB_D("locked! vv->resources:0x%02x, we want:0x%02x\n",
 		      vv->resources, bit);
-		
+		/* no, someone else uses it */
 		return 0;
 	}
-	
+	/* it's free, grab it */
 	fh->resources |= bit;
 	vv->resources |= bit;
 	DEB_D("res: get 0x%02x, cur:0x%02x\n", bit, vv->resources);
@@ -43,6 +45,8 @@ void saa7146_res_free(struct saa7146_fh *fh, unsigned int bits)
 }
 
 
+/********************************************************************************/
+/* common dma functions */
 
 void saa7146_dma_free(struct saa7146_dev *dev,struct videobuf_queue *q,
 						struct saa7146_buf *buf)
@@ -59,6 +63,8 @@ void saa7146_dma_free(struct saa7146_dev *dev,struct videobuf_queue *q,
 }
 
 
+/********************************************************************************/
+/* common buffer functions */
 
 int saa7146_buffer_queue(struct saa7146_dev *dev,
 			 struct saa7146_dmaqueue *q,
@@ -92,7 +98,7 @@ void saa7146_buffer_finish(struct saa7146_dev *dev,
 
 	BUG_ON(!q->curr);
 
-	
+	/* finish current buffer */
 	if (NULL == q->curr) {
 		DEB_D("aiii. no current buffer\n");
 		return;
@@ -116,7 +122,7 @@ void saa7146_buffer_next(struct saa7146_dev *dev,
 
 	assert_spin_locked(&dev->slock);
 	if (!list_empty(&q->queue)) {
-		
+		/* activate next one from queue */
 		buf = list_entry(q->queue.next,struct saa7146_buf,vb.queue);
 		list_del(&buf->vb.queue);
 		if (!list_empty(&q->queue))
@@ -128,20 +134,30 @@ void saa7146_buffer_next(struct saa7146_dev *dev,
 	} else {
 		DEB_INT("no next buffer. stopping.\n");
 		if( 0 != vbi ) {
-			
+			/* turn off video-dma3 */
 			saa7146_write(dev,MC1, MASK_20);
 		} else {
+			/* nothing to do -- just prevent next video-dma1 transfer
+			   by lowering the protection address */
 
-			
+			// fixme: fix this for vflip != 0
 
 			saa7146_write(dev, PROT_ADDR1, 0);
 			saa7146_write(dev, MC2, (MASK_02|MASK_18));
 
-			
+			/* write the address of the rps-program */
 			saa7146_write(dev, RPS_ADDR0, dev->d_rps0.dma_handle);
-			
+			/* turn on rps */
 			saa7146_write(dev, MC1, (MASK_12 | MASK_28));
 
+/*
+			printk("vdma%d.base_even:     0x%08x\n", 1,saa7146_read(dev,BASE_EVEN1));
+			printk("vdma%d.base_odd:      0x%08x\n", 1,saa7146_read(dev,BASE_ODD1));
+			printk("vdma%d.prot_addr:     0x%08x\n", 1,saa7146_read(dev,PROT_ADDR1));
+			printk("vdma%d.base_page:     0x%08x\n", 1,saa7146_read(dev,BASE_PAGE1));
+			printk("vdma%d.pitch:         0x%08x\n", 1,saa7146_read(dev,PITCH1));
+			printk("vdma%d.num_line_byte: 0x%08x\n", 1,saa7146_read(dev,NUM_LINE_BYTE1));
+*/
 		}
 		del_timer(&q->timeout);
 	}
@@ -161,9 +177,20 @@ void saa7146_buffer_timeout(unsigned long data)
 		saa7146_buffer_finish(dev,q,VIDEOBUF_ERROR);
 	}
 
+	/* we don't restart the transfer here like other drivers do. when
+	   a streaming capture is disabled, the timeout function will be
+	   called for the current buffer. if we activate the next buffer now,
+	   we mess up our capture logic. if a timeout occurs on another buffer,
+	   then something is seriously broken before, so no need to buffer the
+	   next capture IMHO... */
+/*
+	saa7146_buffer_next(dev,q);
+*/
 	spin_unlock_irqrestore(&dev->slock,flags);
 }
 
+/********************************************************************************/
+/* file operations */
 
 static int fops_open(struct file *file)
 {
@@ -185,14 +212,14 @@ static int fops_open(struct file *file)
 	     ? V4L2_BUF_TYPE_VIDEO_CAPTURE
 	     : V4L2_BUF_TYPE_VBI_CAPTURE;
 
-	
+	/* check if an extension is registered */
 	if( NULL == dev->ext ) {
 		DEB_S("no extension registered for this device\n");
 		result = -ENODEV;
 		goto out;
 	}
 
-	
+	/* allocate per open data */
 	fh = kzalloc(sizeof(*fh),GFP_KERNEL);
 	if (NULL == fh) {
 		DEB_S("cannot allocate memory for per open data\n");
@@ -329,8 +356,16 @@ static ssize_t fops_read(struct file *file, char __user *data, size_t count, lof
 
 	switch (fh->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
+/*
+		DEB_EE("V4L2_BUF_TYPE_VIDEO_CAPTURE: file:%p, data:%p, count:%lun",
+		       file, data, (unsigned long)count);
+*/
 		return saa7146_video_uops.read(file,data,count,ppos);
 	case V4L2_BUF_TYPE_VBI_CAPTURE:
+/*
+		DEB_EE("V4L2_BUF_TYPE_VBI_CAPTURE: file:%p, data:%p, count:%lu\n",
+		       file, data, (unsigned long)count);
+*/
 		if (fh->dev->ext_vv_data->capabilities & V4L2_CAP_VBI_CAPTURE)
 			return saa7146_vbi_uops.read(file,data,count,ppos);
 		return -EINVAL;
@@ -413,12 +448,15 @@ int saa7146_vv_init(struct saa7146_dev* dev, struct saa7146_ext_vv *ext_vv)
 
 	DEB_EE("dev:%p\n", dev);
 
-	
+	/* set default values for video parts of the saa7146 */
 	saa7146_write(dev, BCS_CTRL, 0x80400040);
 
-	
+	/* enable video-port pins */
 	saa7146_write(dev, MC1, (MASK_10 | MASK_26));
 
+	/* save per-device extension data (one extension can
+	   handle different devices that might need different
+	   configuration data) */
 	dev->ext_vv_data = ext_vv;
 
 	vv->d_clipping.cpu_addr = pci_alloc_consistent(dev->pci, SAA7146_CLIPPING_MEM, &vv->d_clipping.dma_handle);
@@ -465,7 +503,7 @@ int saa7146_register_device(struct video_device **vid, struct saa7146_dev* dev,
 
 	DEB_EE("dev:%p, name:'%s', type:%d\n", dev, name, type);
 
-	
+	// released by vfd->release
 	vfd = video_device_alloc();
 	if (vfd == NULL)
 		return -ENOMEM;

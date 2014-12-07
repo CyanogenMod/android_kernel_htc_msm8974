@@ -27,12 +27,27 @@
 int ipa_rm_prod_index(enum ipa_rm_resource_name resource_name);
 int ipa_rm_cons_index(enum ipa_rm_resource_name resource_name);
 
+/**
+ * enum ipa_rm_wq_cmd - workqueue commands
+ */
 enum ipa_rm_wq_cmd {
 	IPA_RM_WQ_NOTIFY_PROD,
 	IPA_RM_WQ_NOTIFY_CONS,
 	IPA_RM_WQ_RESOURCE_CB
 };
 
+/**
+ * struct ipa_rm_wq_work_type - IPA RM worqueue specific
+ *				work type
+ * @work: work struct
+ * @wq_cmd: command that should be processed in workqueue context
+ * @resource_name: name of the resource on which this work
+ *			should be done
+ * @dep_graph: data structure to search for resource if exists
+ * @event: event to notify
+ * @notify_registered_only: notify only clients registered by
+ *	ipa_rm_register()
+ */
 struct ipa_rm_wq_work_type {
 	struct work_struct		work;
 	enum ipa_rm_wq_cmd		wq_cmd;
@@ -52,4 +67,4 @@ int ipa_rm_stat(char *buf, int size);
 
 void ipa_rm_exit(void);
 
-#endif 
+#endif /* _IPA_RM_I_H_ */

@@ -30,6 +30,7 @@
 #include <sound/pcm_params.h>
 #endif
 
+/* HDMI Wrapper */
 
 #define HDMI_WP_REVISION			0x0
 #define HDMI_WP_SYSCONFIG			0x10
@@ -47,6 +48,7 @@
 #define HDMI_WP_AUDIO_CTRL			0x88
 #define HDMI_WP_AUDIO_DATA			0x8C
 
+/* HDMI IP Core System */
 
 #define HDMI_CORE_SYS_VND_IDL			0x0
 #define HDMI_CORE_SYS_DEV_IDL			0x8
@@ -76,6 +78,7 @@
 #define HDMI_CORE_CTRL1_BSEL_24BITBUS		0x1
 #define HDMI_CORE_CTRL1_EDGE_RISINGEDGE	0x1
 
+/* HDMI DDC E-DID */
 #define HDMI_CORE_DDC_CMD			0x3CC
 #define HDMI_CORE_DDC_STATUS			0x3C8
 #define HDMI_CORE_DDC_ADDR			0x3B4
@@ -85,6 +88,7 @@
 #define HDMI_CORE_DDC_DATA			0x3D0
 #define HDMI_CORE_DDC_SEGM			0x3B8
 
+/* HDMI IP Core Audio Video */
 
 #define HDMI_CORE_AV_HDMI_CTRL			0xBC
 #define HDMI_CORE_AV_DPD			0xF4
@@ -163,6 +167,7 @@
 #define HDMI_CORE_AV_MPEG_DBYTE_ELSIZE		0x4
 #define HDMI_CORE_AV_GEN_DBYTE_ELSIZE		0x4
 
+/* PLL */
 
 #define PLLCTRL_PLL_CONTROL			0x0
 #define PLLCTRL_PLL_STATUS			0x4
@@ -172,6 +177,7 @@
 #define PLLCTRL_CFG3				0x14
 #define PLLCTRL_CFG4				0x20
 
+/* HDMI PHY */
 
 #define HDMI_TXPHY_TX_CTRL			0x0
 #define HDMI_TXPHY_DIGITAL_CTRL			0x4
@@ -232,6 +238,7 @@ enum hdmi_core_packet_ctrl {
 	HDMI_PACKETREPEATOFF = 0
 };
 
+/* INFOFRAME_AVI_ and INFOFRAME_AUDIO_ definitions */
 enum hdmi_core_infoframe {
 	HDMI_INFOFRAME_AVI_DB1Y_RGB = 0,
 	HDMI_INFOFRAME_AVI_DB1Y_YUV422 = 1,
@@ -439,6 +446,10 @@ struct hdmi_core_video_config {
 	enum hdmi_core_tclkselclkmult	tclk_sel_clkmult;
 };
 
+/*
+ * Refer to section 8.2 in HDMI 1.3 specification for
+ * details about infoframe databytes
+ */
 struct hdmi_core_infoframe_audio {
 	u8 db1_coding_type;
 	u8 db1_channel_count;
@@ -446,7 +457,7 @@ struct hdmi_core_infoframe_audio {
 	u8 db2_sample_size;
 	u8 db4_channel_alloc;
 	bool db5_downmix_inh;
-	u8 db5_lsv;	
+	u8 db5_lsv;	/* Level shift values for downmix */
 };
 
 struct hdmi_core_packet_enable_repeat {
@@ -462,8 +473,8 @@ struct hdmi_core_packet_enable_repeat {
 
 struct hdmi_video_format {
 	enum hdmi_packing_mode	packing_mode;
-	u32			y_res;	
-	u32			x_res;	
+	u32			y_res;	/* Line per panel */
+	u32			x_res;	/* pixel per line */
 };
 
 struct hdmi_audio_format {

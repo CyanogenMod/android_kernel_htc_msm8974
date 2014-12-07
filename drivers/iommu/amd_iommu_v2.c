@@ -43,16 +43,16 @@ struct pri_queue {
 };
 
 struct pasid_state {
-	struct list_head list;			
-	atomic_t count;				
-	struct task_struct *task;		
-	struct mm_struct *mm;			
-	struct mmu_notifier mn;                 
-	struct pri_queue pri[PRI_QUEUE_SIZE];	
-	struct device_state *device_state;	
-	int pasid;				
-	spinlock_t lock;			
-	wait_queue_head_t wq;			
+	struct list_head list;			/* For global state-list */
+	atomic_t count;				/* Reference count */
+	struct task_struct *task;		/* Task bound to this PASID */
+	struct mm_struct *mm;			/* mm_struct for the faults */
+	struct mmu_notifier mn;                 /* mmu_otifier handle */
+	struct pri_queue pri[PRI_QUEUE_SIZE];	/* PRI tag states */
+	struct device_state *device_state;	/* Link to our device_state */
+	int pasid;				/* PASID index */
+	spinlock_t lock;			/* Protect pri_queues */
+	wait_queue_head_t wq;			/* To wait for count == 0 */
 };
 
 struct device_state {
@@ -84,11 +84,17 @@ struct fault {
 struct device_state **state_table;
 static spinlock_t state_lock;
 
+/* List and lock for all pasid_states */
 static LIST_HEAD(pasid_state_list);
 static DEFINE_SPINLOCK(ps_lock);
 
 static struct workqueue_struct *iommu_wq;
 
+/*
+ * Empty page table - Used between
+ * mmu_notifier_invalidate_range_start and
+ * mmu_notifier_invalidate_range_end
+ */
 static u64 *empty_page_table;
 
 static void free_pasid_states(struct device_state *dev_state);
@@ -121,12 +127,16 @@ static struct device_state *get_device_state(u16 devid)
 
 static void free_device_state(struct device_state *dev_state)
 {
+	/*
+	 * First detach device from domain - No more PRI requests will arrive
+	 * from that device after it is unbound from the IOMMUv2 domain.
+	 */
 	iommu_detach_device(dev_state->domain, &dev_state->pdev->dev);
 
-	
+	/* Everything is down now, free the IOMMUv2 domain */
 	iommu_domain_free(dev_state->domain);
 
-	
+	/* Finally get rid of the device-state */
 	kfree(dev_state);
 }
 
@@ -171,6 +181,7 @@ static void unlink_pasid_state(struct pasid_state *pasid_state)
 	spin_unlock(&ps_lock);
 }
 
+/* Must be called under dev_state->lock */
 static struct pasid_state **__get_pasid_state_ptr(struct device_state *dev_state,
 						  int pasid, bool alloc)
 {
@@ -310,12 +321,12 @@ static void __unbind_pasid(struct pasid_state *pasid_state)
 	amd_iommu_domain_clear_gcr3(domain, pasid_state->pasid);
 	clear_pasid_state(pasid_state->device_state, pasid_state->pasid);
 
-	
+	/* Make sure no more pending faults are in the queue */
 	flush_workqueue(iommu_wq);
 
 	mmu_notifier_unregister(&pasid_state->mn, pasid_state->mm);
 
-	put_pasid_state(pasid_state); 
+	put_pasid_state(pasid_state); /* Reference taken in bind() function */
 }
 
 static void unbind_pasid(struct device_state *dev_state, int pasid)
@@ -328,7 +339,7 @@ static void unbind_pasid(struct device_state *dev_state, int pasid)
 
 	unlink_pasid_state(pasid_state);
 	__unbind_pasid(pasid_state);
-	put_pasid_state_wait(pasid_state); 
+	put_pasid_state_wait(pasid_state); /* Reference taken in this function */
 }
 
 static void free_pasid_states_level1(struct pasid_state **tbl)
@@ -551,7 +562,7 @@ static int ppr_notifier(struct notifier_block *nb, unsigned long e, void *data)
 
 	pasid_state = get_pasid_state(dev_state, iommu_fault->pasid);
 	if (pasid_state == NULL) {
-		
+		/* We know the device but not the PASID -> send INVALID */
 		amd_iommu_complete_ppr(dev_state->pdev, iommu_fault->pasid,
 				       PPR_INVALID, tag);
 		goto out_drop_state;
@@ -565,7 +576,7 @@ static int ppr_notifier(struct notifier_block *nb, unsigned long e, void *data)
 
 	fault = kzalloc(sizeof(*fault), GFP_ATOMIC);
 	if (fault == NULL) {
-		
+		/* We are OOM - send success and let the device re-fault */
 		finish_pri_tag(dev_state, pasid_state, tag);
 		goto out_drop_state;
 	}
@@ -600,6 +611,18 @@ static int task_exit(struct notifier_block *nb, unsigned long e, void *data)
 
 	task = data;
 
+	/*
+	 * Using this notifier is a hack - but there is no other choice
+	 * at the moment. What I really want is a sleeping notifier that
+	 * is called when an MM goes down. But such a notifier doesn't
+	 * exist yet. The notifier needs to sleep because it has to make
+	 * sure that the device does not use the PASID and the address
+	 * space anymore before it is destroyed. This includes waiting
+	 * for pending PRI requests to pass the workqueue. The
+	 * MMU-Notifiers would be a good fit, but they use RCU and so
+	 * they are not allowed to sleep. Lets see how we can solve this
+	 * in a more intelligent way in the future.
+	 */
 again:
 	spin_lock(&ps_lock);
 	list_for_each_entry(pasid_state, &pasid_state_list, list) {
@@ -609,7 +632,7 @@ again:
 		if (pasid_state->task != task)
 			continue;
 
-		
+		/* Drop Lock and unbind */
 		spin_unlock(&ps_lock);
 
 		dev_state = pasid_state->device_state;
@@ -620,7 +643,7 @@ again:
 
 		unbind_pasid(dev_state, pasid);
 
-		
+		/* Task may be in the list multiple times */
 		goto again;
 	}
 	spin_unlock(&ps_lock);
@@ -824,7 +847,7 @@ void amd_iommu_free_device(struct pci_dev *pdev)
 
 	spin_unlock_irqrestore(&state_lock, flags);
 
-	
+	/* Get rid of any remaining pasid states */
 	free_pasid_states(dev_state);
 
 	put_device_state_wait(dev_state);
@@ -902,6 +925,10 @@ static int __init amd_iommu_v2_init(void)
 
 	if (!amd_iommu_v2_supported()) {
 		pr_info("AMD IOMMUv2 functionality not available on this sytem\n");
+		/*
+		 * Load anyway to provide the symbols to other modules
+		 * which may use AMD IOMMUv2 optionally.
+		 */
 		return 0;
 	}
 
@@ -951,6 +978,10 @@ static void __exit amd_iommu_v2_exit(void)
 
 	flush_workqueue(iommu_wq);
 
+	/*
+	 * The loop below might call flush_workqueue(), so call
+	 * destroy_workqueue() after it
+	 */
 	for (i = 0; i < MAX_DEVICES; ++i) {
 		dev_state = get_device_state(i);
 

@@ -15,6 +15,7 @@
 
 #include "rpm-regulator-private.h"
 
+/* RPM regulator request formats */
 static struct rpm_vreg_parts ldo_parts = {
 	.request_len	= 2,
 	.uV		= REQUEST_MEMBER(0, 0x007FFFFF,  0),
@@ -54,6 +55,7 @@ static struct rpm_vreg_parts corner_parts = {
 	.uV		= REQUEST_MEMBER(0, 0x00000003,  0),
 };
 
+/* Physically available PMIC regulator voltage setpoint ranges */
 static struct vreg_range pldo_ranges[] = {
 	VOLTAGE_RANGE( 750000, 1487500, 12500),
 	VOLTAGE_RANGE(1500000, 3075000, 25000),

@@ -51,23 +51,23 @@ static int wm8505fb_init_hw(struct fb_info *info)
 
 	int i;
 
-	
+	/* I know the purpose only of few registers, so clear unknown */
 	for (i = 0; i < 0x200; i += 4)
 		writel(0, fbi->regbase + i);
 
-	
+	/* Set frame buffer address */
 	writel(fbi->fb.fix.smem_start, fbi->regbase + WMT_GOVR_FBADDR);
 	writel(fbi->fb.fix.smem_start, fbi->regbase + WMT_GOVR_FBADDR1);
 
-	
+	/* Set in-memory picture format to RGB 32bpp */
 	writel(0x1c,		       fbi->regbase + WMT_GOVR_COLORSPACE);
 	writel(1,		       fbi->regbase + WMT_GOVR_COLORSPACE1);
 
-	
+	/* Virtual buffer size */
 	writel(info->var.xres,	       fbi->regbase + WMT_GOVR_XRES);
 	writel(info->var.xres_virtual, fbi->regbase + WMT_GOVR_XRES_VIRTUAL);
 
-	
+	/* black magic ;) */
 	writel(0xf,		       fbi->regbase + WMT_GOVR_FHI);
 	writel(4,		       fbi->regbase + WMT_GOVR_DVO_SET);
 	writel(1,		       fbi->regbase + WMT_GOVR_MIF_ENABLE);

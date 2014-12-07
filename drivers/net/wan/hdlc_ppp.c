@@ -22,7 +22,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
-#define DEBUG_CP		0 
+#define DEBUG_CP		0 /* also bytes# to dump */
 #define DEBUG_STATE		0
 #define DEBUG_HARD_HEADER	0
 
@@ -66,9 +66,9 @@ struct proto {
 	struct net_device *dev;
 	struct timer_list timer;
 	unsigned long timeout;
-	u16 pid;		
+	u16 pid;		/* protocol ID */
 	u8 state;
-	u8 cr_id;		
+	u8 cr_id;		/* ID of last Configuration-Request */
 	u8 restart_counter;
 };
 
@@ -78,8 +78,8 @@ struct ppp {
 	unsigned long last_pong;
 	unsigned int req_timeout, cr_retries, term_retries;
 	unsigned int keepalive_interval, keepalive_timeout;
-	u8 seq;			
-	u8 echo_id;		
+	u8 seq;			/* local sequence number for requests */
+	u8 echo_id;		/* ID of last Echo-Request (LCP) */
 };
 
 enum {CLOSED = 0, STOPPED, STOPPING, REQ_SENT, ACK_RECV, ACK_SENT, OPENED,
@@ -100,7 +100,7 @@ static const char *const event_names[EVENTS] = {
 };
 #endif
 
-static struct sk_buff_head tx_queue; 
+static struct sk_buff_head tx_queue; /* used when holding the spin lock */
 
 static int ppp_ioctl(struct net_device *dev, struct ifreq *ifr);
 
@@ -190,7 +190,7 @@ static int ppp_hard_header(struct sk_buff *skb, struct net_device *dev,
 	case PID_IPV6CP:
 		data->protocol = htons(type);
 		break;
-	default:		
+	default:		/* unknown protocol */
 		data->protocol = 0;
 	}
 	return sizeof(struct hdlc_header);
@@ -259,23 +259,48 @@ static void ppp_tx_cp(struct net_device *dev, u16 pid, u8 code,
 }
 
 
+/* State transition table (compare STD-51)
+   Events                                   Actions
+   TO+  = Timeout with counter > 0          irc = Initialize-Restart-Count
+   TO-  = Timeout with counter expired      zrc = Zero-Restart-Count
+
+   RCR+ = Receive-Configure-Request (Good)  scr = Send-Configure-Request
+   RCR- = Receive-Configure-Request (Bad)
+   RCA  = Receive-Configure-Ack             sca = Send-Configure-Ack
+   RCN  = Receive-Configure-Nak/Rej         scn = Send-Configure-Nak/Rej
+
+   RTR  = Receive-Terminate-Request         str = Send-Terminate-Request
+   RTA  = Receive-Terminate-Ack             sta = Send-Terminate-Ack
+
+   RUC  = Receive-Unknown-Code              scj = Send-Code-Reject
+   RXJ+ = Receive-Code-Reject (permitted)
+       or Receive-Protocol-Reject
+   RXJ- = Receive-Code-Reject (catastrophic)
+       or Receive-Protocol-Reject
+*/
 static int cp_table[EVENTS][STATES] = {
-	{IRC|SCR|3,     INV     , INV ,   INV   , INV ,  INV    ,   INV   }, 
-	{   INV   ,      0      ,  0  ,    0    ,  0  ,   0     ,    0    }, 
-	{   INV   ,     INV     ,STR|2,  SCR|3  ,SCR|3,  SCR|5  ,   INV   }, 
-	{   INV   ,     INV     ,  1  ,    1    ,  1  ,    1    ,   INV   }, 
-	{  STA|0  ,IRC|SCR|SCA|5,  2  ,  SCA|5  ,SCA|6,  SCA|5  ,SCR|SCA|5}, 
-	{  STA|0  ,IRC|SCR|SCN|3,  2  ,  SCN|3  ,SCN|4,  SCN|3  ,SCR|SCN|3}, 
-	{  STA|0  ,    STA|1    ,  2  ,  IRC|4  ,SCR|3,    6    , SCR|3   }, 
-	{  STA|0  ,    STA|1    ,  2  ,IRC|SCR|3,SCR|3,IRC|SCR|5, SCR|3   }, 
-	{  STA|0  ,    STA|1    ,STA|2,  STA|3  ,STA|3,  STA|3  ,ZRC|STA|2}, 
-	{    0    ,      1      ,  1  ,    3    ,  3  ,    5    ,  SCR|3  }, 
-	{  SCJ|0  ,    SCJ|1    ,SCJ|2,  SCJ|3  ,SCJ|4,  SCJ|5  ,  SCJ|6  }, 
-	{    0    ,      1      ,  2  ,    3    ,  3  ,    5    ,    6    }, 
-	{    0    ,      1      ,  1  ,    1    ,  1  ,    1    ,IRC|STR|2}, 
+	/* CLOSED     STOPPED STOPPING REQ_SENT ACK_RECV ACK_SENT OPENED
+	     0           1         2       3       4      5          6    */
+	{IRC|SCR|3,     INV     , INV ,   INV   , INV ,  INV    ,   INV   }, /* START */
+	{   INV   ,      0      ,  0  ,    0    ,  0  ,   0     ,    0    }, /* STOP */
+	{   INV   ,     INV     ,STR|2,  SCR|3  ,SCR|3,  SCR|5  ,   INV   }, /* TO+ */
+	{   INV   ,     INV     ,  1  ,    1    ,  1  ,    1    ,   INV   }, /* TO- */
+	{  STA|0  ,IRC|SCR|SCA|5,  2  ,  SCA|5  ,SCA|6,  SCA|5  ,SCR|SCA|5}, /* RCR+ */
+	{  STA|0  ,IRC|SCR|SCN|3,  2  ,  SCN|3  ,SCN|4,  SCN|3  ,SCR|SCN|3}, /* RCR- */
+	{  STA|0  ,    STA|1    ,  2  ,  IRC|4  ,SCR|3,    6    , SCR|3   }, /* RCA */
+	{  STA|0  ,    STA|1    ,  2  ,IRC|SCR|3,SCR|3,IRC|SCR|5, SCR|3   }, /* RCN */
+	{  STA|0  ,    STA|1    ,STA|2,  STA|3  ,STA|3,  STA|3  ,ZRC|STA|2}, /* RTR */
+	{    0    ,      1      ,  1  ,    3    ,  3  ,    5    ,  SCR|3  }, /* RTA */
+	{  SCJ|0  ,    SCJ|1    ,SCJ|2,  SCJ|3  ,SCJ|4,  SCJ|5  ,  SCJ|6  }, /* RUC */
+	{    0    ,      1      ,  2  ,    3    ,  3  ,    5    ,    6    }, /* RXJ+ */
+	{    0    ,      1      ,  1  ,    1    ,  1  ,    1    ,IRC|STR|2}, /* RXJ- */
 };
 
 
+/* SCA: RCR+ must supply id, len and data
+   SCN: RCR- must supply code, id, len and data
+   STA: RTR must supply id
+   SCJ: RUC must supply CP packet len and data */
 static void ppp_cp_event(struct net_device *dev, u16 pid, u16 event, u8 code,
 			 u8 id, unsigned int len, const void *data)
 {
@@ -295,7 +320,7 @@ static void ppp_cp_event(struct net_device *dev, u16 pid, u16 event, u8 code,
 	action = cp_table[event][old_state];
 
 	proto->state = action & STATE_MASK;
-	if (action & (SCR | STR)) 
+	if (action & (SCR | STR)) /* set Configure-Req/Terminate-Req timer */
 		mod_timer(&proto->timer, proto->timeout =
 			  jiffies + ppp->req_timeout * HZ);
 	if (action & ZRC)
@@ -304,18 +329,18 @@ static void ppp_cp_event(struct net_device *dev, u16 pid, u16 event, u8 code,
 		proto->restart_counter = (proto->state == STOPPING) ?
 			ppp->term_retries : ppp->cr_retries;
 
-	if (action & SCR)	
+	if (action & SCR)	/* send Configure-Request */
 		ppp_tx_cp(dev, pid, CP_CONF_REQ, proto->cr_id = ++ppp->seq,
 			  0, NULL);
-	if (action & SCA)	
+	if (action & SCA)	/* send Configure-Ack */
 		ppp_tx_cp(dev, pid, CP_CONF_ACK, id, len, data);
-	if (action & SCN)	
+	if (action & SCN)	/* send Configure-Nak/Reject */
 		ppp_tx_cp(dev, pid, code, id, len, data);
-	if (action & STR)	
+	if (action & STR)	/* send Terminate-Request */
 		ppp_tx_cp(dev, pid, CP_TERM_REQ, ++ppp->seq, 0, NULL);
-	if (action & STA)	
+	if (action & STA)	/* send Terminate-Ack */
 		ppp_tx_cp(dev, pid, CP_TERM_ACK, id, 0, NULL);
-	if (action & SCJ)	
+	if (action & SCJ)	/* send Code-Reject */
 		ppp_tx_cp(dev, pid, CP_CODE_REJ, ++ppp->seq, len, data);
 
 	if (old_state != OPENED && proto->state == OPENED) {
@@ -357,26 +382,26 @@ static void ppp_cp_parse_cr(struct net_device *dev, u16 pid, u8 id,
 
 	if (!(out = kmalloc(len, GFP_ATOMIC))) {
 		dev->stats.rx_dropped++;
-		return;	
+		return;	/* out of memory, ignore CR packet */
 	}
 
 	for (opt = data; len; len -= opt[1], opt += opt[1]) {
 		if (len < 2 || len < opt[1]) {
 			dev->stats.rx_errors++;
 			kfree(out);
-			return; 
+			return; /* bad packet, drop silently */
 		}
 
 		if (pid == PID_LCP)
 			switch (opt[0]) {
 			case LCP_OPTION_MRU:
-				continue; 
+				continue; /* MRU always OK and > 1500 bytes? */
 
-			case LCP_OPTION_ACCM: 
+			case LCP_OPTION_ACCM: /* async control character map */
 				if (!memcmp(opt, valid_accm,
 					    sizeof(valid_accm)))
 					continue;
-				if (!rej_len) { 
+				if (!rej_len) { /* NAK it */
 					memcpy(out + nak_len, valid_accm,
 					       sizeof(valid_accm));
 					nak_len += sizeof(valid_accm);
@@ -386,10 +411,10 @@ static void ppp_cp_parse_cr(struct net_device *dev, u16 pid, u8 id,
 			case LCP_OPTION_MAGIC:
 				if (opt[1] != 6 || (!opt[2] && !opt[3] &&
 						    !opt[4] && !opt[5]))
-					break; 
+					break; /* reject invalid magic number */
 				continue;
 			}
-		
+		/* reject this option */
 		memcpy(out + rej_len, opt, opt[1]);
 		rej_len += opt[1];
 	}
@@ -420,7 +445,7 @@ static int ppp_rx(struct sk_buff *skb)
 #endif
 
 	spin_lock_irqsave(&ppp->lock, flags);
-	
+	/* Check HDLC header */
 	if (skb->len < sizeof(struct hdlc_header))
 		goto rx_error;
 	cp = (struct cp_header*)skb_pull(skb, sizeof(struct hdlc_header));
@@ -438,13 +463,13 @@ static int ppp_rx(struct sk_buff *skb)
 	}
 
 	len = ntohs(cp->len);
-	if (len < sizeof(struct cp_header)  ||
-	    skb->len < len )
+	if (len < sizeof(struct cp_header) /* no complete CP header? */ ||
+	    skb->len < len /* truncated packet? */)
 		goto rx_error;
 	skb_pull(skb, sizeof(struct cp_header));
 	len -= sizeof(struct cp_header);
 
-	
+	/* HDLC and CP headers stripped from skb */
 #if DEBUG_CP
 	if (cp->code < CP_CODES)
 		sprintf(debug_buffer, "[%s id 0x%X]", code_names[cp->code],
@@ -460,7 +485,7 @@ static int ppp_rx(struct sk_buff *skb)
 	       debug_buffer);
 #endif
 
-	
+	/* LCP only */
 	if (pid == PID_LCP)
 		switch (cp->code) {
 		case LCP_PROTO_REJ:
@@ -471,7 +496,7 @@ static int ppp_rx(struct sk_buff *skb)
 					     0, NULL);
 			goto out;
 
-		case LCP_ECHO_REQ: 
+		case LCP_ECHO_REQ: /* send Echo-Reply */
 			if (len >= 4 && proto->state == OPENED)
 				ppp_tx_cp(dev, PID_LCP, LCP_ECHO_REPLY,
 					  cp->id, len - 4, skb->data + 4);
@@ -482,11 +507,11 @@ static int ppp_rx(struct sk_buff *skb)
 				ppp->last_pong = jiffies;
 			goto out;
 
-		case LCP_DISC_REQ: 
+		case LCP_DISC_REQ: /* discard */
 			goto out;
 		}
 
-	
+	/* LCP, IPCP and IPV6CP */
 	switch (cp->code) {
 	case CP_CONF_REQ:
 		ppp_cp_parse_cr(dev, pid, cp->id, len, skb->data);
@@ -562,7 +587,7 @@ static void ppp_timer(unsigned long arg)
 			netdev_info(proto->dev, "Link down\n");
 			ppp_cp_event(proto->dev, PID_LCP, STOP, 0, 0, 0, NULL);
 			ppp_cp_event(proto->dev, PID_LCP, START, 0, 0, 0, NULL);
-		} else {	
+		} else {	/* send keep-alive packet */
 			ppp->echo_id = ++ppp->seq;
 			ppp_tx_cp(proto->dev, PID_LCP, LCP_ECHO_REQ,
 				  ppp->echo_id, 0, NULL);
@@ -632,7 +657,7 @@ static int ppp_ioctl(struct net_device *dev, struct ifreq *ifr)
 		if (dev_to_hdlc(dev)->proto != &proto)
 			return -EINVAL;
 		ifr->ifr_settings.type = IF_PROTO_PPP;
-		return 0; 
+		return 0; /* return protocol only, no settable parameters */
 
 	case IF_PROTO_PPP:
 		if (!capable(CAP_NET_ADMIN))
@@ -641,7 +666,7 @@ static int ppp_ioctl(struct net_device *dev, struct ifreq *ifr)
 		if (dev->flags & IFF_UP)
 			return -EBUSY;
 
-		
+		/* no settable parameters */
 
 		result = hdlc->attach(dev, ENCODING_NRZ,PARITY_CRC16_PR1_CCITT);
 		if (result)

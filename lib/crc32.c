@@ -24,6 +24,7 @@
  * Version 2.  See the file COPYING for more details.
  */
 
+/* see: Documentation/crc32.txt for a description of algorithms */
 
 #include <linux/crc32.h>
 #include <linux/module.h>
@@ -50,6 +51,7 @@ MODULE_LICENSE("GPL");
 
 #if CRC_LE_BITS > 8 || CRC_BE_BITS > 8
 
+/* implements slicing-by-4 or slicing-by-8 algorithm */
 static inline u32
 crc32_body(u32 crc, unsigned char const *buf, size_t len, const u32 (*tab)[256])
 {
@@ -75,7 +77,7 @@ crc32_body(u32 crc, unsigned char const *buf, size_t len, const u32 (*tab)[256])
 	const u32 *t4 = tab[4], *t5 = tab[5], *t6 = tab[6], *t7 = tab[7];
 	u32 q;
 
-	
+	/* Align it */
 	if (unlikely((long)buf & 3 && len)) {
 		do {
 			DO_CRC(*buf++);
@@ -97,7 +99,7 @@ crc32_body(u32 crc, unsigned char const *buf, size_t len, const u32 (*tab)[256])
 # else
 	for (--b; len; --len) {
 # endif
-		q = crc ^ *++b; 
+		q = crc ^ *++b; /* use pre increment for speed */
 # if CRC_LE_BITS == 32
 		crc = DO_CRC4;
 # else
@@ -107,15 +109,15 @@ crc32_body(u32 crc, unsigned char const *buf, size_t len, const u32 (*tab)[256])
 # endif
 	}
 	len = rem_len;
-	
+	/* And the last few bytes */
 	if (len) {
 		u8 *p = (u8 *)(b + 1) - 1;
 # ifdef CONFIG_X86
 		for (i = 0; i < len; i++)
-			DO_CRC(*++p); 
+			DO_CRC(*++p); /* use pre increment for speed */
 # else
 		do {
-			DO_CRC(*++p); 
+			DO_CRC(*++p); /* use pre increment for speed */
 		} while (--len);
 # endif
 	}
@@ -126,6 +128,13 @@ crc32_body(u32 crc, unsigned char const *buf, size_t len, const u32 (*tab)[256])
 }
 #endif
 
+/**
+ * crc32_le() - Calculate bitwise little-endian Ethernet AUTODIN II CRC32
+ * @crc: seed value for computation.  ~0 for Ethernet, sometimes 0 for
+ *	other uses, or the previous crc32 value if computing incrementally.
+ * @p: pointer to buffer over which CRC is run
+ * @len: length of buffer @p
+ */
 static inline u32 __pure crc32_le_generic(u32 crc, unsigned char const *p,
 					  size_t len, const u32 (*tab)[256],
 					  u32 polynomial)
@@ -152,7 +161,7 @@ static inline u32 __pure crc32_le_generic(u32 crc, unsigned char const *p,
 		crc = (crc >> 4) ^ tab[0][crc & 15];
 	}
 # elif CRC_LE_BITS == 8
-	
+	/* aka Sarwate algorithm */
 	while (len--) {
 		crc ^= *p++;
 		crc = (crc >> 8) ^ tab[0][crc & 255];
@@ -187,6 +196,13 @@ u32 __pure __crc32c_le(u32 crc, unsigned char const *p, size_t len)
 EXPORT_SYMBOL(crc32_le);
 EXPORT_SYMBOL(__crc32c_le);
 
+/**
+ * crc32_be() - Calculate bitwise big-endian Ethernet AUTODIN II CRC32
+ * @crc: seed value for computation.  ~0 for Ethernet, sometimes 0 for
+ *	other uses, or the previous crc32 value if computing incrementally.
+ * @p: pointer to buffer over which CRC is run
+ * @len: length of buffer @p
+ */
 static inline u32 __pure crc32_be_generic(u32 crc, unsigned char const *p,
 					  size_t len, const u32 (*tab)[256],
 					  u32 polynomial)
@@ -242,6 +258,7 @@ EXPORT_SYMBOL(crc32_be);
 
 #ifdef CONFIG_CRC32_SELFTEST
 
+/* 4096 random bytes */
 static u8 __attribute__((__aligned__(8))) test_buf[] =
 {
 	0x5b, 0x85, 0x21, 0xcb, 0x09, 0x68, 0x7d, 0x30,
@@ -758,13 +775,14 @@ static u8 __attribute__((__aligned__(8))) test_buf[] =
 	0xb9, 0x04, 0xf4, 0x8d, 0xe8, 0x2f, 0x15, 0x9d,
 };
 
+/* 100 test cases */
 static struct crc_test {
-	u32 crc;	
-	u32 start;	
-	u32 length;	
-	u32 crc_le;	
-	u32 crc_be;	
-	u32 crc32c_le;	
+	u32 crc;	/* random starting crc */
+	u32 start;	/* random 6 bit offset in buf */
+	u32 length;	/* random 11 bit length of test */
+	u32 crc_le;	/* expected crc32_le result */
+	u32 crc_be;	/* expected crc32_be result */
+	u32 crc32c_le;	/* expected crc32c_le result */
 } test[] =
 {
 	{0x674bf11d, 0x00000038, 0x00000542, 0x0af6d466, 0xd8b6e4c1,
@@ -980,9 +998,11 @@ static int __init crc32c_test(void)
 	u64 nsec;
 	unsigned long flags;
 
+	/* keep static to prevent cache warming code from
+	 * getting eliminated by the compiler */
 	static u32 crc;
 
-	
+	/* pre-warm the cache */
 	for (i = 0; i < 100; i++) {
 		bytes += 2*test[i].length;
 
@@ -990,7 +1010,7 @@ static int __init crc32c_test(void)
 		    test[i].start, test[i].length);
 	}
 
-	
+	/* reduce OS noise */
 	local_irq_save(flags);
 	local_irq_disable();
 
@@ -1029,9 +1049,11 @@ static int __init crc32_test(void)
 	u64 nsec;
 	unsigned long flags;
 
+	/* keep static to prevent cache warming code from
+	 * getting eliminated by the compiler */
 	static u32 crc;
 
-	
+	/* pre-warm the cache */
 	for (i = 0; i < 100; i++) {
 		bytes += 2*test[i].length;
 
@@ -1042,7 +1064,7 @@ static int __init crc32_test(void)
 		    test[i].start, test[i].length);
 	}
 
-	
+	/* reduce OS noise */
 	local_irq_save(flags);
 	local_irq_disable();
 
@@ -1090,4 +1112,4 @@ static void __exit crc32_exit(void)
 
 module_init(crc32test_init);
 module_exit(crc32_exit);
-#endif 
+#endif /* CONFIG_CRC32_SELFTEST */

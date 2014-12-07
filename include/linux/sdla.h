@@ -23,6 +23,7 @@
 #ifndef SDLA_H
 #define SDLA_H
 
+/* adapter type */
 #define SDLA_TYPES
 #define SDLA_S502A			5020
 #define SDLA_S502E			5021
@@ -32,9 +33,11 @@
 #define SDLA_S509			5090
 #define SDLA_UNKNOWN			-1
 
+/* port selection flags for the S508 */
 #define SDLA_S508_PORT_V35		0x00
 #define SDLA_S508_PORT_RS232		0x02
 
+/* Z80 CPU speeds */
 #define SDLA_CPU_3M			0x00
 #define SDLA_CPU_5M			0x01
 #define SDLA_CPU_7M			0x02
@@ -43,6 +46,7 @@
 #define SDLA_CPU_16M			0x05
 #define SDLA_CPU_12M			0x06
 
+/* some private IOCTLs */
 #define SDLA_IDENTIFY			(FRAD_LAST_IOCTL + 1)
 #define SDLA_CPUSPEED			(FRAD_LAST_IOCTL + 2)
 #define SDLA_PROTOCOL			(FRAD_LAST_IOCTL + 3)
@@ -60,6 +64,7 @@ struct sdla_mem {
 #define SDLA_START			(FRAD_LAST_IOCTL + 7)
 #define SDLA_STOP			(FRAD_LAST_IOCTL + 8)
 
+/* some offsets in the Z80's memory space */
 #define SDLA_NMIADDR			0x0000
 #define SDLA_CONF_ADDR			0x0010
 #define SDLA_S502A_NMIADDR		0x0066
@@ -67,10 +72,12 @@ struct sdla_mem {
 #define SDLA_WINDOW_SIZE		0x2000
 #define SDLA_ADDR_MASK			0x1FFF
 
+/* largest handleable block of data */
 #define SDLA_MAX_DATA			4080
-#define SDLA_MAX_MTU			4072	
+#define SDLA_MAX_MTU			4072	/* MAX_DATA - sizeof(fradhdr) */
 #define SDLA_MAX_DLCI			24
 
+/* this should be the same as frad_conf */
 struct sdla_conf {
    short station;
    short config;
@@ -90,6 +97,7 @@ struct sdla_conf {
    short Be_bwd;
 };
 
+/* this should be the same as dlci_conf */
 struct sdla_dlci_conf {
    short config;
    short CIR_fwd;
@@ -106,6 +114,7 @@ struct sdla_dlci_conf {
 
 #ifdef __KERNEL__
 
+/* important Z80 window addresses */
 #define SDLA_CONTROL_WND		0xE000
 
 #define SDLA_502_CMD_BUF		0xEF60
@@ -127,11 +136,13 @@ struct sdla_dlci_conf {
 #define SDLA_508_IRQ_PERMISSION		0xF011
 #define SDLA_508_TSE_OFFSET		0xF012
 
+/* Event flags */
 #define SDLA_EVENT_STATUS		0x01
 #define SDLA_EVENT_DLCI_STATUS		0x02
 #define SDLA_EVENT_BAD_DLCI		0x04
 #define SDLA_EVENT_LINK_DOWN		0x40
 
+/* IRQ Trigger flags */
 #define SDLA_INTR_RX			0x01
 #define SDLA_INTR_TX			0x02
 #define SDLA_INTR_MODEM			0x04
@@ -139,12 +150,14 @@ struct sdla_dlci_conf {
 #define SDLA_INTR_STATUS		0x10
 #define SDLA_INTR_TIMER			0x20
 
+/* DLCI status bits */
 #define SDLA_DLCI_DELETED		0x01
 #define SDLA_DLCI_ACTIVE		0x02
 #define SDLA_DLCI_WAITING		0x04
 #define SDLA_DLCI_NEW			0x08
 #define SDLA_DLCI_INCLUDED		0x40
 
+/* valid command codes */
 #define	SDLA_INFORMATION_WRITE		0x01
 #define	SDLA_INFORMATION_READ		0x02
 #define SDLA_ISSUE_IN_CHANNEL_SIGNAL	0x03
@@ -169,17 +182,21 @@ struct sdla_dlci_conf {
 #define SDLA_SET_IRQ_TRIGGER		0x50
 #define SDLA_GET_IRQ_TRIGGER		0x51
 
+/* In channel signal types */
 #define SDLA_ICS_LINK_VERIFY		0x02
 #define SDLA_ICS_STATUS_ENQ		0x03
 
+/* modem status flags */
 #define SDLA_MODEM_DTR_HIGH		0x01
 #define SDLA_MODEM_RTS_HIGH		0x02
 #define SDLA_MODEM_DCD_HIGH		0x08
 #define SDLA_MODEM_CTS_HIGH		0x20
 
+/* used for RET_MODEM interpretation */
 #define SDLA_MODEM_DCD_LOW		0x01
 #define SDLA_MODEM_CTS_LOW		0x02
 
+/* return codes */
 #define SDLA_RET_OK			0x00
 #define SDLA_RET_COMMUNICATIONS		0x01
 #define SDLA_RET_CHANNEL_INACTIVE	0x02
@@ -198,6 +215,7 @@ struct sdla_dlci_conf {
 #define SDLA_RET_DLCI_UNKNOWN       	0x14
 #define SDLA_RET_COMMAND_INVALID    	0x1F
 
+/* Configuration flags */
 #define SDLA_DIRECT_RECV		0x0080
 #define SDLA_TX_NO_EXCEPT		0x0020
 #define SDLA_NO_ICF_MSGS		0x1000
@@ -205,6 +223,7 @@ struct sdla_dlci_conf {
 #define SDLA_TX70_RX30			0x2000
 #define SDLA_TX30_RX70			0x4000
 
+/* IRQ selection flags */
 #define SDLA_IRQ_RECEIVE		0x01
 #define SDLA_IRQ_TRANSMIT		0x02
 #define SDLA_IRQ_MODEM_STAT		0x04
@@ -212,6 +231,7 @@ struct sdla_dlci_conf {
 #define SDLA_IRQ_CHANNEL		0x10
 #define SDLA_IRQ_TIMER			0x20
 
+/* definitions for PC memory mapping */
 #define SDLA_8K_WINDOW			0x01
 #define SDLA_S502_SEG_A			0x10
 #define SDLA_S502_SEG_C			0x20
@@ -226,23 +246,25 @@ struct sdla_dlci_conf {
 #define SDLA_S508_SEG_D			0x08
 #define SDLA_S508_SEG_E			0x18
 
+/* SDLA adapter port constants */
 #define SDLA_IO_EXTENTS			0x04
 	
 #define SDLA_REG_CONTROL		0x00
-#define SDLA_REG_PC_WINDOW		0x01	
-#define SDLA_REG_Z80_WINDOW 		0x02	
-#define SDLA_REG_Z80_CONTROL		0x03	
+#define SDLA_REG_PC_WINDOW		0x01	/* offset for PC window select latch */
+#define SDLA_REG_Z80_WINDOW 		0x02	/* offset for Z80 window select latch */
+#define SDLA_REG_Z80_CONTROL		0x03	/* offset for Z80 control latch */
 	
-#define SDLA_S502_STS			0x00	
-#define SDLA_S508_GNRL			0x00	
-#define SDLA_S508_STS			0x01	
-#define SDLA_S508_IDR			0x02	
+#define SDLA_S502_STS			0x00	/* status reg for 502, 502E, 507 */
+#define SDLA_S508_GNRL			0x00	/* general purp. reg for 508 */
+#define SDLA_S508_STS			0x01	/* status reg for 508 */
+#define SDLA_S508_IDR			0x02	/* ID reg for 508 */
 	
-#define SDLA_S502A_START		0x00	
+/* control register flags */
+#define SDLA_S502A_START		0x00	/* start the CPU */
 #define SDLA_S502A_INTREQ		0x02
 #define SDLA_S502A_INTEN		0x04
-#define SDLA_S502A_HALT			0x08		
-#define SDLA_S502A_NMI			0x10	
+#define SDLA_S502A_HALT			0x08	/* halt the CPU */	
+#define SDLA_S502A_NMI			0x10	/* issue an NMI to the CPU */
 
 #define SDLA_S502E_CPUEN		0x01
 #define SDLA_S502E_ENABLE		0x02
@@ -276,7 +298,7 @@ struct sdla_cmd {
    short rxlost_int;
    long  rxlost_app;
    char  reserve[2];
-   char  data[SDLA_MAX_DATA];	
+   char  data[SDLA_MAX_DATA];	/* transfer data buffer */
 } __attribute__((packed));
 
 struct intr_info {
@@ -287,6 +309,7 @@ struct intr_info {
    short timeout;
 } __attribute__((packed));
 
+/* found in the 508's control window at RXBUF_INFO */
 struct buf_info {
    unsigned short rse_num;
    unsigned long  rse_base;
@@ -296,6 +319,7 @@ struct buf_info {
    unsigned long  buf_top;
 } __attribute__((packed));
 
+/* structure pointed to by rse_base in RXBUF_INFO struct */
 struct buf_entry {
    char  opp_flag;
    short length;

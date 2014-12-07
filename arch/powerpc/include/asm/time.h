@@ -19,6 +19,7 @@
 
 #include <asm/processor.h>
 
+/* time.c */
 extern unsigned long tb_ticks_per_jiffy;
 extern unsigned long tb_ticks_per_usec;
 extern unsigned long tb_ticks_per_sec;
@@ -31,6 +32,7 @@ extern void generic_calibrate_decr(void);
 
 extern void set_dec_cpu6(unsigned int val);
 
+/* Some sane defaults: 125 MHz timebase, 1GHz processor */
 extern unsigned long ppc_proc_freq;
 #define DEFAULT_PROC_FREQ	(DEFAULT_TB_FREQ * 8)
 extern unsigned long ppc_tb_freq;
@@ -41,6 +43,8 @@ struct div_result {
 	u64 result_low;
 };
 
+/* Accessor functions for the timebase (RTC on 601) registers. */
+/* If one day CONFIG_POWER is added just define __USE_RTC as 1 */
 #ifdef CONFIG_6xx
 #define __USE_RTC()	(!cpu_has_feature(CPU_FTR_USE_TB))
 #else
@@ -49,6 +53,7 @@ struct div_result {
 
 #ifdef CONFIG_PPC64
 
+/* For compatibility, get_tbl() is defined as get_tb() on ppc64 */
 #define get_tbl		get_tb
 
 #else
@@ -74,7 +79,7 @@ static inline unsigned int get_tbu(void)
 	return mftbu();
 #endif
 }
-#endif 
+#endif /* !CONFIG_PPC64 */
 
 static inline unsigned int get_rtcl(void)
 {
@@ -100,7 +105,7 @@ static inline u64 get_tb(void)
 {
 	return mftb();
 }
-#else 
+#else /* CONFIG_PPC64 */
 static inline u64 get_tb(void)
 {
 	unsigned int tbhi, tblo, tbhi2;
@@ -113,7 +118,7 @@ static inline u64 get_tb(void)
 
 	return ((u64)tbhi << 32) | tblo;
 }
-#endif 
+#endif /* !CONFIG_PPC64 */
 
 static inline u64 get_tb_or_rtc(void)
 {
@@ -127,6 +132,12 @@ static inline void set_tb(unsigned int upper, unsigned int lower)
 	mtspr(SPRN_TBWL, lower);
 }
 
+/* Accessor functions for the decrementer register.
+ * The 4xx doesn't even have a decrementer.  I tried to use the
+ * generic timer interrupt code, which seems OK, with the 4xx PIT
+ * in auto-reload mode.  The problem is PIT stops counting when it
+ * hits zero.  If it would wrap, we could use it just like a decrementer.
+ */
 static inline unsigned int get_dec(void)
 {
 #if defined(CONFIG_40x)
@@ -136,6 +147,11 @@ static inline unsigned int get_dec(void)
 #endif
 }
 
+/*
+ * Note: Book E and 4xx processors differ from other PowerPC processors
+ * in when the decrementer generates its interrupt: on the 1 to 0
+ * transition for Book E/4xx, but on the 0 to -1 transition for others.
+ */
 static inline void set_dec(int val)
 {
 #if defined(CONFIG_40x)
@@ -147,7 +163,7 @@ static inline void set_dec(int val)
 	--val;
 #endif
 	mtspr(SPRN_DEC, val);
-#endif 
+#endif /* not 40x or 8xx_CPU6 */
 }
 
 static inline unsigned long tb_ticks_since(unsigned long tstamp)
@@ -172,9 +188,10 @@ extern u64 mulhdu(u64, u64);
 extern void div128_by_32(u64 dividend_high, u64 dividend_low,
 			 unsigned divisor, struct div_result *dr);
 
+/* Used to store Processor Utilization register (purr) values */
 
 struct cpu_usage {
-        u64 current_tb;  
+        u64 current_tb;  /* Holds the current purr register values */
 };
 
 DECLARE_PER_CPU(struct cpu_usage, cpu_usage_array);
@@ -189,5 +206,5 @@ extern void secondary_cpu_time_init(void);
 
 DECLARE_PER_CPU(u64, decrementers_next_tb);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __POWERPC_TIME_H */

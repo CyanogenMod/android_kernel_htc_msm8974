@@ -19,4 +19,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
-#define CLOCK_TICK_RATE		100000 
+/*
+ * Specifies the number of ticks per second
+ */
+#define CLOCK_TICK_RATE		100000 /* REG_SMT_TICKS_PER_SEC */

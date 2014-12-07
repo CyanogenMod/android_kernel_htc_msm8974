@@ -17,12 +17,13 @@
 
 #define SOL_CAN_RAW (SOL_CAN_BASE + CAN_RAW)
 
+/* for socket options affecting the socket (not the global system) */
 
 enum {
-	CAN_RAW_FILTER = 1,	
-	CAN_RAW_ERR_FILTER,	
-	CAN_RAW_LOOPBACK,	
-	CAN_RAW_RECV_OWN_MSGS	
+	CAN_RAW_FILTER = 1,	/* set 0 .. n can_filter(s)          */
+	CAN_RAW_ERR_FILTER,	/* set filter for error frames       */
+	CAN_RAW_LOOPBACK,	/* local loopback (default:on)       */
+	CAN_RAW_RECV_OWN_MSGS	/* receive my own msgs (default:off) */
 };
 
 #endif

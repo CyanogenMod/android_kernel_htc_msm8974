@@ -27,6 +27,7 @@ MODULE_AUTHOR("Tomasz Stanislawski, <t.stanislaws@samsung.com>");
 MODULE_DESCRIPTION("Samsung MIXER");
 MODULE_LICENSE("GPL");
 
+/* --------- DRIVER PARAMETERS ---------- */
 
 static struct mxr_output_conf mxr_output_conf[] = {
 	{
@@ -83,7 +84,7 @@ void mxr_streamer_get(struct mxr_device *mdev)
 	}
 	mutex_unlock(&mdev->mutex);
 	mxr_reg_dump(mdev);
-	
+	/* FIXME: what to do when streaming fails? */
 }
 
 void mxr_streamer_put(struct mxr_device *mdev)
@@ -96,7 +97,7 @@ void mxr_streamer_put(struct mxr_device *mdev)
 		struct v4l2_subdev *sd = to_outsd(mdev);
 
 		mxr_reg_streamoff(mdev);
-		
+		/* vsync applies Mixer setup */
 		ret = mxr_reg_wait4vsync(mdev);
 		WARN(ret, "failed to get vsync (%d) from output\n", ret);
 		ret = v4l2_subdev_call(sd, video, s_stream, 0);
@@ -113,7 +114,7 @@ void mxr_output_get(struct mxr_device *mdev)
 	mutex_lock(&mdev->mutex);
 	++mdev->n_output;
 	mxr_dbg(mdev, "%s(%d)\n", __func__, mdev->n_output);
-	
+	/* turn on auxiliary driver */
 	if (mdev->n_output == 1)
 		v4l2_subdev_call(to_outsd(mdev), core, s_power, 1);
 	mutex_unlock(&mdev->mutex);
@@ -124,7 +125,7 @@ void mxr_output_put(struct mxr_device *mdev)
 	mutex_lock(&mdev->mutex);
 	--mdev->n_output;
 	mxr_dbg(mdev, "%s(%d)\n", __func__, mdev->n_output);
-	
+	/* turn on auxiliary driver */
 	if (mdev->n_output == 0)
 		v4l2_subdev_call(to_outsd(mdev), core, s_power, 0);
 	WARN(mdev->n_output < 0, "negative number of output users (%d)\n",
@@ -136,6 +137,8 @@ int mxr_power_get(struct mxr_device *mdev)
 {
 	int ret = pm_runtime_get_sync(mdev->dev);
 
+	/* returning 1 means that power is already enabled,
+	 * so zero success be returned */
 	if (IS_ERR_VALUE(ret))
 		return ret;
 	return 0;
@@ -146,6 +149,7 @@ void mxr_power_put(struct mxr_device *mdev)
 	pm_runtime_put_sync(mdev->dev);
 }
 
+/* --------- RESOURCE MANAGEMENT -------------*/
 
 static int __devinit mxr_acquire_plat_resources(struct mxr_device *mdev,
 	struct platform_device *pdev)
@@ -325,6 +329,7 @@ fail:
 	return -ENODEV;
 }
 
+/* ---------- POWER MANAGEMENT ----------- */
 
 static int mxr_runtime_resume(struct device *dev)
 {
@@ -333,11 +338,11 @@ static int mxr_runtime_resume(struct device *dev)
 
 	mxr_dbg(mdev, "resume - start\n");
 	mutex_lock(&mdev->mutex);
-	
+	/* turn clocks on */
 	clk_enable(res->mixer);
 	clk_enable(res->vp);
 	clk_enable(res->sclk_mixer);
-	
+	/* apply default configuration */
 	mxr_reg_reset(mdev);
 	mxr_dbg(mdev, "resume - finished\n");
 
@@ -351,7 +356,7 @@ static int mxr_runtime_suspend(struct device *dev)
 	struct mxr_resources *res = &mdev->res;
 	mxr_dbg(mdev, "suspend - start\n");
 	mutex_lock(&mdev->mutex);
-	
+	/* turn clocks off */
 	clk_disable(res->sclk_mixer);
 	clk_disable(res->vp);
 	clk_disable(res->mixer);
@@ -365,6 +370,7 @@ static const struct dev_pm_ops mxr_pm_ops = {
 	.runtime_resume	 = mxr_runtime_resume,
 };
 
+/* --------- DRIVER INITIALIZATION ---------- */
 
 static int __devinit mxr_probe(struct platform_device *pdev)
 {
@@ -373,7 +379,7 @@ static int __devinit mxr_probe(struct platform_device *pdev)
 	struct mxr_device *mdev;
 	int ret;
 
-	
+	/* mdev does not exist yet so no mxr_dbg is used */
 	dev_info(dev, "probe start\n");
 
 	mdev = kzalloc(sizeof *mdev, GFP_KERNEL);
@@ -383,25 +389,25 @@ static int __devinit mxr_probe(struct platform_device *pdev)
 		goto fail;
 	}
 
-	
+	/* setup pointer to master device */
 	mdev->dev = dev;
 
 	mutex_init(&mdev->mutex);
 	spin_lock_init(&mdev->reg_slock);
 	init_waitqueue_head(&mdev->event_queue);
 
-	
+	/* acquire resources: regs, irqs, clocks, regulators */
 	ret = mxr_acquire_resources(mdev, pdev);
 	if (ret)
 		goto fail_mem;
 
-	
+	/* configure resources for video output */
 	ret = mxr_acquire_video(mdev, mxr_output_conf,
 		ARRAY_SIZE(mxr_output_conf));
 	if (ret)
 		goto fail_resources;
 
-	
+	/* configure layers */
 	ret = mxr_acquire_layers(mdev, pdata);
 	if (ret)
 		goto fail_video;
@@ -460,7 +466,7 @@ static int __init mxr_init(void)
 		"(c) 2010-2011 Samsung Electronics Co., Ltd.\n";
 	printk(banner);
 
-	
+	/* Loading auxiliary modules */
 	for (i = 0; i < ARRAY_SIZE(mxr_output_conf); ++i)
 		request_module(mxr_output_conf[i].module_name);
 

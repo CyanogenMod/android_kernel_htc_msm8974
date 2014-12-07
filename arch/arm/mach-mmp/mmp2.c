@@ -121,6 +121,7 @@ struct clkops sdhc_clk_ops = {
 	.disable	= sdhc_clk_disable,
 };
 
+/* APB peripheral clocks */
 static APBC_CLK(uart1, MMP2_UART1, 1, 26000000);
 static APBC_CLK(uart2, MMP2_UART2, 1, 26000000);
 static APBC_CLK(uart3, MMP2_UART3, 1, 26000000);
@@ -180,6 +181,10 @@ static void __init mmp2_timer_init(void)
 
 	__raw_writel(APBC_APBCLK | APBC_RST, APBC_MMP2_TIMERS);
 
+	/*
+	 * enable bus/functional clock, enable 6.5MHz (divider 4),
+	 * release reset
+	 */
 	clk_rst = APBC_APBCLK | APBC_FNCLK | APBC_FNCLKSEL(1);
 	__raw_writel(clk_rst, APBC_MMP2_TIMERS);
 
@@ -190,6 +195,7 @@ struct sys_timer mmp2_timer = {
 	.init	= mmp2_timer_init,
 };
 
+/* on-chip devices */
 MMP2_DEVICE(uart1, "pxa2xx-uart", 0, UART1, 0xd4030000, 0x30, 4, 5);
 MMP2_DEVICE(uart2, "pxa2xx-uart", 1, UART2, 0xd4017000, 0x30, 20, 21);
 MMP2_DEVICE(uart3, "pxa2xx-uart", 2, UART3, 0xd4018000, 0x30, 22, 23);
@@ -206,6 +212,7 @@ MMP2_DEVICE(sdh1, "sdhci-pxav3", 1, MMC2, 0xd4280800, 0x120);
 MMP2_DEVICE(sdh2, "sdhci-pxav3", 2, MMC3, 0xd4281000, 0x120);
 MMP2_DEVICE(sdh3, "sdhci-pxav3", 3, MMC4, 0xd4281800, 0x120);
 MMP2_DEVICE(asram, "asram", -1, NONE, 0xe0000000, 0x4000);
+/* 0xd1000000 ~ 0xd101ffff is reserved for secure processor */
 MMP2_DEVICE(isram, "isram", -1, NONE, 0xd1020000, 0x18000);
 
 struct resource mmp2_resource_gpio[] = {

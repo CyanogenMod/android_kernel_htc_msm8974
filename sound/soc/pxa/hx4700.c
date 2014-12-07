@@ -31,6 +31,7 @@
 
 static struct snd_soc_jack hs_jack;
 
+/* Headphones jack detection DAPM pin */
 static struct snd_soc_jack_pin hs_jack_pin[] = {
 	{
 		.pin	= "Headphone Jack",
@@ -38,12 +39,13 @@ static struct snd_soc_jack_pin hs_jack_pin[] = {
 	},
 	{
 		.pin	= "Speaker",
-		
+		/* disable speaker when hp jack is inserted */
 		.mask   = SND_JACK_HEADPHONE,
 		.invert	= 1,
 	},
 };
 
+/* Headphones jack detection GPIO */
 static struct snd_soc_jack_gpio hs_jack_gpio = {
 	.gpio		= GPIO75_HX4700_EARPHONE_nDET,
 	.invert		= true,
@@ -52,6 +54,9 @@ static struct snd_soc_jack_gpio hs_jack_gpio = {
 	.debounce_time	= 200,
 };
 
+/*
+ * iPAQ hx4700 uses I2S for capture and playback.
+ */
 static int hx4700_hw_params(struct snd_pcm_substream *substream,
 			    struct snd_pcm_hw_params *params)
 {
@@ -60,12 +65,14 @@ static int hx4700_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret = 0;
 
-	
+	/* set the I2S system clock as output */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, PXA2XX_I2S_SYSCLK, 0,
 			SND_SOC_CLOCK_OUT);
 	if (ret < 0)
 		return ret;
 
+	/* inform codec driver about clock freq *
+	 * (PXA I2S always uses divider 256)    */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, 256 * params_rate(params),
 			SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -92,39 +99,44 @@ static int hx4700_hp_power(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* hx4700 machine dapm widgets */
 static const struct snd_soc_dapm_widget hx4700_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone Jack", hx4700_hp_power),
 	SND_SOC_DAPM_SPK("Speaker", hx4700_spk_power),
 	SND_SOC_DAPM_MIC("Built-in Microphone", NULL),
 };
 
+/* hx4700 machine audio_map */
 static const struct snd_soc_dapm_route hx4700_audio_map[] = {
 
-	
+	/* Headphone connected to LOUT, ROUT */
 	{"Headphone Jack", NULL, "LOUT"},
 	{"Headphone Jack", NULL, "ROUT"},
 
-	
+	/* Speaker connected to MOUT2 */
 	{"Speaker", NULL, "MOUT2"},
 
-	
+	/* Microphone connected to MICIN */
 	{"MICIN", NULL, "Built-in Microphone"},
 	{"AIN", NULL, "MICOUT"},
 };
 
+/*
+ * Logic for a ak4641 as connected on a HP iPAQ hx4700
+ */
 static int hx4700_ak4641_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int err;
 
-	
-	
+	/* NC codec pins */
+	/* FIXME: is anything connected here? */
 	snd_soc_dapm_nc_pin(dapm, "MOUT1");
 	snd_soc_dapm_nc_pin(dapm, "MICEXT");
 	snd_soc_dapm_nc_pin(dapm, "AUX");
 
-	
+	/* Jack detection API stuff */
 	err = snd_soc_jack_new(codec, "Headphone Jack",
 				SND_JACK_HEADPHONE, &hs_jack);
 	if (err)
@@ -140,6 +152,7 @@ static int hx4700_ak4641_init(struct snd_soc_pcm_runtime *rtd)
 	return err;
 }
 
+/* hx4700 digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link hx4700_dai = {
 	.name = "ak4641",
 	.stream_name = "AK4641",
@@ -153,6 +166,7 @@ static struct snd_soc_dai_link hx4700_dai = {
 	.ops = &hx4700_ops,
 };
 
+/* hx4700 audio machine driver */
 static struct snd_soc_card snd_soc_card_hx4700 = {
 	.name			= "iPAQ hx4700",
 	.owner			= THIS_MODULE,

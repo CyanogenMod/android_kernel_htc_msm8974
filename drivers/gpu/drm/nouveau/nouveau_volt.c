@@ -151,7 +151,7 @@ nouveau_volt_init(struct drm_device *dev)
 		headerlen = volt[1];
 		recordlen = volt[3];
 		entries   = volt[2];
-		vidshift  = 0; 
+		vidshift  = 0; /* could be vidshift like 0x30? */
 		vidmask   = volt[5];
 		break;
 	case 0x30:
@@ -159,13 +159,21 @@ nouveau_volt_init(struct drm_device *dev)
 		recordlen = volt[2];
 		entries   = volt[3];
 		vidmask   = volt[4];
+		/* no longer certain what volt[5] is, if it's related to
+		 * the vid shift then it's definitely not a function of
+		 * how many bits are set.
+		 *
+		 * after looking at a number of nva3+ vbios images, they
+		 * all seem likely to have a static shift of 2.. lets
+		 * go with that for now until proven otherwise.
+		 */
 		vidshift  = 2;
 		break;
 	case 0x40:
 		headerlen = volt[1];
 		recordlen = volt[2];
-		entries   = volt[3]; 
-		vidmask   = volt[11]; 
+		entries   = volt[3]; /* not a clue what the entries are for.. */
+		vidmask   = volt[11]; /* guess.. */
 		vidshift  = 0;
 		break;
 	default:
@@ -173,7 +181,7 @@ nouveau_volt_init(struct drm_device *dev)
 		return;
 	}
 
-	
+	/* validate vid mask */
 	voltage->vid_mask = vidmask;
 	if (!voltage->vid_mask)
 		return;
@@ -194,7 +202,7 @@ nouveau_volt_init(struct drm_device *dev)
 		i++;
 	}
 
-	
+	/* parse vbios entries into common format */
 	voltage->version = volt[0];
 	if (voltage->version < 0x40) {
 		voltage->nr_level = entries;

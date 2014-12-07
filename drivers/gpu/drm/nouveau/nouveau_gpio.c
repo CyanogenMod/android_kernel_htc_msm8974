@@ -113,7 +113,7 @@ nouveau_gpio_find(struct drm_device *dev, int idx, u8 func, u8 line,
 			return 0;
 	}
 
-	
+	/* DCB 2.2, fixed TVDAC GPIO data */
 	if ((table = dcb_table(dev)) && table[0] >= 0x22) {
 		if (func == DCB_GPIO_TVDAC0) {
 			*gpio = (struct gpio_func) {
@@ -126,7 +126,7 @@ nouveau_gpio_find(struct drm_device *dev, int idx, u8 func, u8 line,
 		}
 	}
 
-	
+	/* Apple iMac G4 NV18 */
 	if (nv_match_device(dev, 0x0189, 0x10de, 0x0010)) {
 		if (func == DCB_GPIO_TVDAC0) {
 			*gpio = (struct gpio_func) {

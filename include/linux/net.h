@@ -23,42 +23,42 @@
 
 #define NPROTO		AF_MAX
 
-#define SYS_SOCKET	1		
-#define SYS_BIND	2		
-#define SYS_CONNECT	3		
-#define SYS_LISTEN	4		
-#define SYS_ACCEPT	5		
-#define SYS_GETSOCKNAME	6		
-#define SYS_GETPEERNAME	7		
-#define SYS_SOCKETPAIR	8		
-#define SYS_SEND	9		
-#define SYS_RECV	10		
-#define SYS_SENDTO	11		
-#define SYS_RECVFROM	12		
-#define SYS_SHUTDOWN	13		
-#define SYS_SETSOCKOPT	14		
-#define SYS_GETSOCKOPT	15		
-#define SYS_SENDMSG	16		
-#define SYS_RECVMSG	17		
-#define SYS_ACCEPT4	18		
-#define SYS_RECVMMSG	19		
-#define SYS_SENDMMSG	20		
+#define SYS_SOCKET	1		/* sys_socket(2)		*/
+#define SYS_BIND	2		/* sys_bind(2)			*/
+#define SYS_CONNECT	3		/* sys_connect(2)		*/
+#define SYS_LISTEN	4		/* sys_listen(2)		*/
+#define SYS_ACCEPT	5		/* sys_accept(2)		*/
+#define SYS_GETSOCKNAME	6		/* sys_getsockname(2)		*/
+#define SYS_GETPEERNAME	7		/* sys_getpeername(2)		*/
+#define SYS_SOCKETPAIR	8		/* sys_socketpair(2)		*/
+#define SYS_SEND	9		/* sys_send(2)			*/
+#define SYS_RECV	10		/* sys_recv(2)			*/
+#define SYS_SENDTO	11		/* sys_sendto(2)		*/
+#define SYS_RECVFROM	12		/* sys_recvfrom(2)		*/
+#define SYS_SHUTDOWN	13		/* sys_shutdown(2)		*/
+#define SYS_SETSOCKOPT	14		/* sys_setsockopt(2)		*/
+#define SYS_GETSOCKOPT	15		/* sys_getsockopt(2)		*/
+#define SYS_SENDMSG	16		/* sys_sendmsg(2)		*/
+#define SYS_RECVMSG	17		/* sys_recvmsg(2)		*/
+#define SYS_ACCEPT4	18		/* sys_accept4(2)		*/
+#define SYS_RECVMMSG	19		/* sys_recvmmsg(2)		*/
+#define SYS_SENDMMSG	20		/* sys_sendmmsg(2)		*/
 
 typedef enum {
-	SS_FREE = 0,			
-	SS_UNCONNECTED,			
-	SS_CONNECTING,			
-	SS_CONNECTED,			
-	SS_DISCONNECTING		
+	SS_FREE = 0,			/* not allocated		*/
+	SS_UNCONNECTED,			/* unconnected to any socket	*/
+	SS_CONNECTING,			/* in process of connecting	*/
+	SS_CONNECTED,			/* connected to socket		*/
+	SS_DISCONNECTING		/* in process of disconnecting	*/
 } socket_state;
 
-#define __SO_ACCEPTCON	(1 << 16)	
+#define __SO_ACCEPTCON	(1 << 16)	/* performed a listen		*/
 
 #ifdef __KERNEL__
 #include <linux/stringify.h>
 #include <linux/random.h>
 #include <linux/wait.h>
-#include <linux/fcntl.h>	
+#include <linux/fcntl.h>	/* For O_CLOEXEC and O_NONBLOCK */
 #include <linux/kmemcheck.h>
 #include <linux/rcupdate.h>
 
@@ -74,6 +74,21 @@ struct net;
 #define SOCK_PASSSEC		4
 
 #ifndef ARCH_HAS_SOCKET_TYPES
+/**
+ * enum sock_type - Socket types
+ * @SOCK_STREAM: stream (connection) socket
+ * @SOCK_DGRAM: datagram (conn.less) socket
+ * @SOCK_RAW: raw socket
+ * @SOCK_RDM: reliably-delivered message
+ * @SOCK_SEQPACKET: sequential packet socket
+ * @SOCK_DCCP: Datagram Congestion Control Protocol socket
+ * @SOCK_PACKET: linux specific way of getting packets at the dev level.
+ *		  For writing rarp and other similar things on the user level.
+ *
+ * When adding some new socket type please
+ * grep ARCH_HAS_SOCKET_TYPE include/asm-* /socket.h, at least MIPS
+ * overrides this enum for binary compat reasons.
+ */
 enum sock_type {
 	SOCK_STREAM	= 1,
 	SOCK_DGRAM	= 2,
@@ -85,14 +100,17 @@ enum sock_type {
 };
 
 #define SOCK_MAX (SOCK_PACKET + 1)
+/* Mask which covers at least up to SOCK_MASK-1.  The
+ * remaining bits are used as flags. */
 #define SOCK_TYPE_MASK 0xf
 
+/* Flags for socket, socketpair, accept4 */
 #define SOCK_CLOEXEC	O_CLOEXEC
 #ifndef SOCK_NONBLOCK
 #define SOCK_NONBLOCK	O_NONBLOCK
 #endif
 
-#endif 
+#endif /* ARCH_HAS_SOCKET_TYPES */
 
 enum sock_shutdown_cmd {
 	SHUT_RD		= 0,
@@ -101,12 +119,22 @@ enum sock_shutdown_cmd {
 };
 
 struct socket_wq {
-	
+	/* Note: wait MUST be first field of socket_wq */
 	wait_queue_head_t	wait;
 	struct fasync_struct	*fasync_list;
 	struct rcu_head		rcu;
 } ____cacheline_aligned_in_smp;
 
+/**
+ *  struct socket - general BSD socket
+ *  @state: socket state (%SS_CONNECTED, etc)
+ *  @type: socket type (%SOCK_STREAM, etc)
+ *  @flags: socket flags (%SOCK_ASYNC_NOSPACE, etc)
+ *  @ops: protocol specific socket operations
+ *  @file: File back pointer for gc
+ *  @sk: internal networking protocol agnostic socket representation
+ *  @wq: wait queue for several uses
+ */
 struct socket {
 	socket_state		state;
 
@@ -262,5 +290,5 @@ extern int kernel_sock_shutdown(struct socket *sock,
 	MODULE_ALIAS("net-pf-" __stringify(pf) "-proto-" __stringify(proto) \
 		     "-type-" __stringify(type))
 
-#endif 
-#endif	
+#endif /* __KERNEL__ */
+#endif	/* _LINUX_NET_H */

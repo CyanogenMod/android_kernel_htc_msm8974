@@ -56,4 +56,4 @@ ssize_t nilfs_dat_get_vinfo(struct inode *, void *, unsigned, size_t);
 int nilfs_dat_read(struct super_block *sb, size_t entry_size,
 		   struct nilfs_inode *raw_inode, struct inode **inodep);
 
-#endif	
+#endif	/* _NILFS_DAT_H */

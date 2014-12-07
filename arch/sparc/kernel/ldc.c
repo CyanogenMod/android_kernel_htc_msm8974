@@ -31,6 +31,10 @@ static char version[] __devinitdata =
 	DRV_MODULE_NAME ".c:v" DRV_MODULE_VERSION " (" DRV_MODULE_RELDATE ")\n";
 #define LDC_PACKET_SIZE		64
 
+/* Packet header layout for unreliable and reliable mode frames.
+ * When in RAW mode, packets are simply straight 64-byte payloads
+ * with no headers.
+ */
 struct ldc_packet {
 	u8			type;
 #define LDC_CTRL		0x01
@@ -43,10 +47,10 @@ struct ldc_packet {
 #define LDC_NACK		0x04
 
 	u8			ctrl;
-#define LDC_VERS		0x01 
-#define LDC_RTS			0x02 
-#define LDC_RTR			0x03 
-#define LDC_RDX			0x04 
+#define LDC_VERS		0x01 /* Link Version		*/
+#define LDC_RTS			0x02 /* Request To Send		*/
+#define LDC_RTR			0x03 /* Ready To Receive	*/
+#define LDC_RDX			0x04 /* Ready for Data eXchange	*/
 #define LDC_CTRL_MSK		0x0f
 
 	u8			env;
@@ -72,6 +76,7 @@ struct ldc_version {
 	u16 minor;
 };
 
+/* Ordered from largest major to lowest.  */
 static struct ldc_version ver_arr[] = {
 	{ .major = 1, .minor = 0 },
 };
@@ -93,14 +98,14 @@ static const struct ldc_mode_ops stream_ops;
 int ldom_domaining_enabled;
 
 struct ldc_iommu {
-	
+	/* Protects arena alloc/free.  */
 	spinlock_t			lock;
 	struct iommu_arena		arena;
 	struct ldc_mtable_entry		*page_table;
 };
 
 struct ldc_channel {
-	
+	/* Protects all operations that depend upon channel state.  */
 	spinlock_t			lock;
 
 	unsigned long			id;
@@ -230,6 +235,13 @@ static struct ldc_packet *handshake_get_tx_packet(struct ldc_channel *lp,
 	return p + (lp->tx_tail / LDC_PACKET_SIZE);
 }
 
+/* When we are in reliable or stream mode, have to track the next packet
+ * we haven't gotten an ACK for in the TX queue using tx_acked.  We have
+ * to be careful not to stomp over the queue past that point.  During
+ * the handshake, we don't have TX data packets pending in the queue
+ * and that's why handshake_get_tx_packet() need not be mindful of
+ * lp->tx_acked.
+ */
 static unsigned long head_for_data(struct ldc_channel *lp)
 {
 	if (lp->cfg.mode == LDC_MODE_STREAM)
@@ -303,6 +315,10 @@ static int set_tx_tail(struct ldc_channel *lp, unsigned long tail)
 	return -EBUSY;
 }
 
+/* This just updates the head value in the hypervisor using
+ * a polling loop with a timeout.  The caller takes care of
+ * upating software state representing the head change, if any.
+ */
 static int __set_rx_head(struct ldc_channel *lp, unsigned long head)
 {
 	int limit = 1000;
@@ -501,6 +517,9 @@ static int ldc_abort(struct ldc_channel *lp)
 
 	ldcdbg(STATE, "ABORT\n");
 
+	/* We report but do not act upon the hypervisor errors because
+	 * there really isn't much we can do if they fail at this point.
+	 */
 	hv_err = sun4v_ldc_tx_qconf(lp->id, lp->tx_ra, lp->tx_num_entries);
 	if (hv_err)
 		printk(KERN_ERR PFX "ldc_abort: "
@@ -522,6 +541,9 @@ static int ldc_abort(struct ldc_channel *lp)
 		       "sun4v_ldc_rx_qconf(%lx,%lx,%lx) failed, err=%lu\n",
 		       lp->id, lp->rx_ra, lp->rx_num_entries, hv_err);
 
+	/* Refetch the RX queue state as well, because we could be invoked
+	 * here in the queue processing context.
+	 */
 	hv_err = sun4v_ldc_rx_get_state(lp->id,
 					&lp->rx_head,
 					&lp->rx_tail,
@@ -775,6 +797,9 @@ static irqreturn_t ldc_rx(int irq, void *dev_id)
 
 	orig_state = lp->chan_state;
 
+	/* We should probably check for hypervisor errors here and
+	 * reset the LDC channel if we get one.
+	 */
 	sun4v_ldc_rx_get_state(lp->id,
 			       &lp->rx_head,
 			       &lp->rx_tail,
@@ -795,11 +820,18 @@ static irqreturn_t ldc_rx(int irq, void *dev_id)
 		orig_state = lp->chan_state;
 	}
 
+	/* If we are in reset state, flush the RX queue and ignore
+	 * everything.
+	 */
 	if (lp->flags & LDC_FLAG_RESET) {
 		(void) __set_rx_head(lp, lp->rx_tail);
 		goto out;
 	}
 
+	/* Once we finish the handshake, we let the ldc_read()
+	 * paths do all of the control frame and state management.
+	 * Just trigger the callback.
+	 */
 	if (lp->hs_state == LDC_HS_COMPLETE) {
 handshake_complete:
 		if (lp->chan_state != orig_state) {
@@ -883,6 +915,9 @@ static irqreturn_t ldc_tx(int irq, void *dev_id)
 
 	orig_state = lp->chan_state;
 
+	/* We should probably check for hypervisor errors here and
+	 * reset the LDC channel if we get one.
+	 */
 	sun4v_ldc_tx_get_state(lp->id,
 			       &lp->tx_head,
 			       &lp->tx_tail,
@@ -906,6 +941,13 @@ static irqreturn_t ldc_tx(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* XXX ldc_alloc() and ldc_free() needs to run under a mutex so
+ * XXX that addition and removal from the ldc_channel_list has
+ * XXX atomicity, otherwise the __ldc_channel_exists() check is
+ * XXX totally pointless as another thread can slip into ldc_alloc()
+ * XXX and add a channel with the same ID.  There also needs to be
+ * XXX a spinlock for ldc_channel_list.
+ */
 static HLIST_HEAD(ldc_channel_list);
 
 static int __ldc_channel_exists(unsigned long id)
@@ -957,6 +999,7 @@ static void free_queue(unsigned long num_entries, struct ldc_packet *q)
 	free_pages((unsigned long)q, order);
 }
 
+/* XXX Make this configurable... XXX */
 #define LDC_IOTABLE_SIZE	(8 * 1024)
 
 static int ldc_iommu_init(struct ldc_channel *lp)
@@ -1117,6 +1160,9 @@ struct ldc_channel *ldc_alloc(unsigned long id,
 
 	lp->event_arg = event_arg;
 
+	/* XXX allow setting via ldc_channel_config to override defaults
+	 * XXX or use some formula based upon mtu
+	 */
 	lp->tx_num_entries = LDC_DEFAULT_NUM_ENTRIES;
 	lp->rx_num_entries = LDC_DEFAULT_NUM_ENTRIES;
 
@@ -1187,6 +1233,11 @@ void ldc_free(struct ldc_channel *lp)
 }
 EXPORT_SYMBOL(ldc_free);
 
+/* Bind the channel.  This registers the LDC queues with
+ * the hypervisor and puts the channel into a pseudo-listening
+ * state.  This does not initiate a handshake, ldc_connect() does
+ * that.
+ */
 int ldc_bind(struct ldc_channel *lp, const char *name)
 {
 	unsigned long hv_err, flags;
@@ -1663,6 +1714,19 @@ static int read_nonraw(struct ldc_channel *lp, void *buf, unsigned int size)
 
 		pkt_len = p->env & LDC_LEN;
 
+		/* Every initial packet starts with the START bit set.
+		 *
+		 * Singleton packets will have both START+STOP set.
+		 *
+		 * Fragments will have START set in the first frame, STOP
+		 * set in the last frame, and neither bit set in middle
+		 * frames of the packet.
+		 *
+		 * Therefore if we are at the beginning of a packet and
+		 * we don't see START, or we are in the middle of a fragmented
+		 * packet and do see START, we are unsynchronized and should
+		 * flush the RX queue.
+		 */
 		if ((first_frag == NULL && !(p->env & LDC_START)) ||
 		    (first_frag != NULL &&  (p->env & LDC_START))) {
 			if (!first_frag)
@@ -1679,11 +1743,23 @@ static int read_nonraw(struct ldc_channel *lp, void *buf, unsigned int size)
 			first_frag = p;
 
 		if (pkt_len > size - copied) {
+			/* User didn't give us a big enough buffer,
+			 * what to do?  This is a pretty serious error.
+			 *
+			 * Since we haven't updated the RX ring head to
+			 * consume any of the packets, signal the error
+			 * to the user and just leave the RX ring alone.
+			 *
+			 * This seems the best behavior because this allows
+			 * a user of the LDC layer to start with a small
+			 * RX buffer for ldc_read() calls and use -EMSGSIZE
+			 * as a cue to enlarge it's read buffer.
+			 */
 			err = -EMSGSIZE;
 			break;
 		}
 
-		
+		/* Ok, we are gonna eat this one.  */
 		new = rx_advance(lp, new);
 
 		memcpy(buf,
@@ -1825,7 +1901,7 @@ again:
 			pass++;
 			goto again;
 		} else {
-			
+			/* Scanned the whole thing, give up. */
 			return -1;
 		}
 	}
@@ -2214,6 +2290,10 @@ int ldc_copy(struct ldc_channel *lp, int copy_dir,
 			break;
 	}
 
+	/* It is caller policy what to do about short copies.
+	 * For example, a networking driver can declare the
+	 * packet a runt and drop it.
+	 */
 
 	return orig_len - len;
 }

@@ -20,6 +20,13 @@ static crw_handler_t crw_handlers[NR_RSCS];
 static atomic_t crw_nr_req = ATOMIC_INIT(0);
 static DECLARE_WAIT_QUEUE_HEAD(crw_handler_wait_q);
 
+/**
+ * crw_register_handler() - register a channel report word handler
+ * @rsc: reporting source code to handle
+ * @handler: handler to be registered
+ *
+ * Returns %0 on success and a negative error value otherwise.
+ */
 int crw_register_handler(int rsc, crw_handler_t handler)
 {
 	int rc = 0;
@@ -35,6 +42,10 @@ int crw_register_handler(int rsc, crw_handler_t handler)
 	return rc;
 }
 
+/**
+ * crw_unregister_handler() - unregister a channel report word handler
+ * @rsc: reporting source code to handle
+ */
 void crw_unregister_handler(int rsc)
 {
 	if ((rsc < 0) || (rsc >= NR_RSCS))
@@ -44,6 +55,9 @@ void crw_unregister_handler(int rsc)
 	mutex_unlock(&crw_handler_mutex);
 }
 
+/*
+ * Retrieve CRWs and call function to handle event.
+ */
 static int crw_collect_info(void *unused)
 {
 	struct crw crw[2];
@@ -86,7 +100,7 @@ repeat:
 		       crw[chain].slct, crw[chain].oflw, crw[chain].chn,
 		       crw[chain].rsc, crw[chain].anc, crw[chain].erc,
 		       crw[chain].rsid);
-		
+		/* Check for overflows. */
 		if (crw[chain].oflw) {
 			int i;
 
@@ -109,7 +123,7 @@ repeat:
 		if (handler)
 			handler(&crw[0], chain ? &crw[1] : NULL, 0);
 		mutex_unlock(&crw_handler_mutex);
-		
+		/* chain is always 0 or 1 here. */
 		chain = crw[chain].chn ? chain + 1 : 0;
 	}
 	if (atomic_dec_and_test(&crw_nr_req))
@@ -130,6 +144,10 @@ void crw_wait_for_channel_report(void)
 	wait_event(crw_handler_wait_q, atomic_read(&crw_nr_req) == 0);
 }
 
+/*
+ * Machine checks for the channel subsystem must be enabled
+ * after the channel subsystem is initialized
+ */
 static int __init crw_machine_check_init(void)
 {
 	struct task_struct *task;
@@ -137,7 +155,7 @@ static int __init crw_machine_check_init(void)
 	task = kthread_run(crw_collect_info, NULL, "kmcheck");
 	if (IS_ERR(task))
 		return PTR_ERR(task);
-	ctl_set_bit(14, 28);	
+	ctl_set_bit(14, 28);	/* enable channel report MCH */
 	return 0;
 }
 device_initcall(crw_machine_check_init);

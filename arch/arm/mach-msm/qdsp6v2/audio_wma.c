@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2009-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2009-2014, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -38,7 +38,7 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		pr_debug("%s[%p]: AUDIO_START session_id[%d]\n", __func__,
 						audio, audio->ac->session);
 		if (audio->feedback == NON_TUNNEL_MODE) {
-			
+			/* Configure PCM output block */
 			rc = q6asm_enc_cfg_blk_pcm(audio->ac,
 					audio->pcm_cfg.sample_rate,
 					audio->pcm_cfg.channel_count);
@@ -57,7 +57,7 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				wma_config->validbitspersample;
 		wma_cfg.ch_mask =  wma_config->channelmask;
 		wma_cfg.encode_opt = wma_config->encodeopt;
-		
+		/* Configure Media format block */
 		rc = q6asm_media_format_block_wma(audio->ac, &wma_cfg);
 		if (rc < 0) {
 			pr_err("cmd media format block failed\n");
@@ -109,7 +109,7 @@ static int audio_open(struct inode *inode, struct file *file)
 	int rc = 0;
 
 #ifdef CONFIG_DEBUG_FS
-	
+	/* 4 bytes represents decoder number, 1 byte for terminate string */
 	char name[sizeof "msm_wma_" + 5];
 #endif
 	audio = kzalloc(sizeof(struct q6audio_aio), GFP_KERNEL);
@@ -138,7 +138,13 @@ static int audio_open(struct inode *inode, struct file *file)
 		kfree(audio);
 		return -ENOMEM;
 	}
-	
+	rc = audio_aio_open(audio, file);
+	if (rc < 0) {
+		pr_err("%s: audio_aio_open rc=%d\n",
+			__func__, rc);
+		goto fail;
+	}
+	/* open in T/NT mode */
 	if ((file->f_mode & FMODE_WRITE) && (file->f_mode & FMODE_READ)) {
 		rc = q6asm_open_read_write(audio->ac, FORMAT_LINEAR_PCM,
 					   FORMAT_WMA_V9);
@@ -148,7 +154,7 @@ static int audio_open(struct inode *inode, struct file *file)
 			goto fail;
 		}
 		audio->feedback = NON_TUNNEL_MODE;
-		
+		/* open WMA decoder, expected frames is always 1*/
 		audio->buf_cfg.frames_per_buf = 0x01;
 		audio->buf_cfg.meta_info_enable = 0x01;
 	} else if ((file->f_mode & FMODE_WRITE) &&
@@ -164,11 +170,6 @@ static int audio_open(struct inode *inode, struct file *file)
 	} else {
 		pr_err("Not supported mode\n");
 		rc = -EACCES;
-		goto fail;
-	}
-	rc = audio_aio_open(audio, file);
-	if (rc < 0) {
-		pr_err("audio_aio_open rc=%d\n", rc);
 		goto fail;
 	}
 

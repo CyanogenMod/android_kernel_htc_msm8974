@@ -142,6 +142,7 @@ static struct snd_pcm_hardware msm_pcm_capture_hardware = {
 	.fifo_size =		0,
 };
 
+/* Conventional and unconventional sample rate supported */
 static unsigned int supported_sample_rates[] = {
 	8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000
 };
@@ -200,7 +201,7 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	prtd->pcm_irq_pos = 0;
 	prtd->pcm_buf_pos = 0;
 
-	
+	/* rate and channels are sent to audio driver */
 	prtd->out_sample_rate = runtime->rate;
 	prtd->out_channel_mode = runtime->channels;
 
@@ -239,7 +240,7 @@ static int msm_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	prtd->pcm_irq_pos = 0;
 	prtd->pcm_buf_pos = 0;
 
-	
+	/* rate and channels are sent to audio driver */
 	prtd->samp_rate = convert_samp_rate(runtime->rate);
 	prtd->samp_rate_index = convert_dsp_samp_index(runtime->rate);
 	prtd->channel_mode = (runtime->channels - 1);
@@ -429,7 +430,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 						&constraints_sample_rates);
 	if (ret < 0)
 		goto out;
-	
+	/* Ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(runtime,
 					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
@@ -437,7 +438,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 
 	prtd->ops = &snd_msm_audio_ops;
 	prtd->out[0].used = BUF_INVALID_LEN;
-	prtd->out_head = 1; 
+	prtd->out_head = 1; /* point to second buffer on startup */
 	runtime->private_data = prtd;
 
 	ret = alsa_adsp_configure(prtd);
@@ -480,6 +481,10 @@ static int msm_pcm_playback_close(struct snd_pcm_substream *substream)
 
 	pr_debug("%s()\n", __func__);
 
+	/* pcm dmamiss message is sent continously
+	 * when decoder is starved so no race
+	 * condition concern
+	 */
 	if (prtd->enabled)
 		rc = wait_event_interruptible(the_locks.eos_wait,
 					prtd->eos_ack);
@@ -556,7 +561,7 @@ int msm_pcm_mmap(struct snd_pcm_substream *substream,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct msm_audio *prtd = runtime->private_data;
 
-	prtd->out_head = 0; 
+	prtd->out_head = 0; /* point to First buffer on startup */
 	prtd->mmap_flag = 1;
 	runtime->dma_bytes = snd_pcm_lib_period_bytes(substream)*2;
 	dma_mmap_coherent(substream->pcm->card->dev, vma,

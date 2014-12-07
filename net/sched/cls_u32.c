@@ -177,7 +177,7 @@ check_terminal:
 			goto next_knode;
 		}
 
-		
+		/* PUSH */
 		if (sdepth >= TC_U32_MAXDEPTH)
 			goto deadloop;
 		stack[sdepth].knode = n;
@@ -223,7 +223,7 @@ check_terminal:
 			goto next_ht;
 	}
 
-	
+	/* POP */
 	if (sdepth--) {
 		n = stack[sdepth].knode;
 		ht = n->ht_up;

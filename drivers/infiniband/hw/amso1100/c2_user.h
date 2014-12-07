@@ -38,6 +38,13 @@
 
 #include <linux/types.h>
 
+/*
+ * Make sure that all structs defined in this file remain laid out so
+ * that they pack the same way on 32-bit and 64-bit architectures (to
+ * avoid incompatibility between 32-bit userspace and 64-bit kernels).
+ * In particular do not use pointer types -- pass pointers in __u64
+ * instead.
+ */
 
 struct c2_alloc_ucontext_resp {
 	__u32 qp_tab_size;
@@ -72,4 +79,4 @@ struct c2_create_qp {
 	__u32 rq_db_index;
 };
 
-#endif				
+#endif				/* C2_USER_H */

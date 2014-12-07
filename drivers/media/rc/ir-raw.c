@@ -20,15 +20,19 @@
 #include <linux/freezer.h>
 #include "rc-core-priv.h"
 
+/* Define the max number of pulse/space transitions to buffer */
 #define MAX_IR_EVENT_SIZE      512
 
+/* Used to keep track of IR raw clients, protected by ir_raw_handler_lock */
 static LIST_HEAD(ir_raw_client_list);
 
+/* Used to handle IR raw handler extensions */
 static DEFINE_MUTEX(ir_raw_handler_lock);
 static LIST_HEAD(ir_raw_handler_list);
 static u64 available_protocols;
 
 #ifdef MODULE
+/* Used to load the decoders */
 static struct work_struct wq_load;
 #endif
 
@@ -70,6 +74,16 @@ static int ir_raw_event_thread(void *data)
 	return 0;
 }
 
+/**
+ * ir_raw_event_store() - pass a pulse/space duration to the raw ir decoders
+ * @dev:	the struct rc_dev device descriptor
+ * @ev:		the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This routine (which may be called from an interrupt context) stores a
+ * pulse/space duration for the raw ir decoding state machines. Pulses are
+ * signalled as positive values and spaces as negative values. A zero value
+ * will reset the decoding state machines.
+ */
 int ir_raw_event_store(struct rc_dev *dev, struct ir_raw_event *ev)
 {
 	if (!dev->raw)
@@ -85,10 +99,21 @@ int ir_raw_event_store(struct rc_dev *dev, struct ir_raw_event *ev)
 }
 EXPORT_SYMBOL_GPL(ir_raw_event_store);
 
+/**
+ * ir_raw_event_store_edge() - notify raw ir decoders of the start of a pulse/space
+ * @dev:	the struct rc_dev device descriptor
+ * @type:	the type of the event that has occurred
+ *
+ * This routine (which may be called from an interrupt context) is used to
+ * store the beginning of an ir pulse or space (or the start/end of ir
+ * reception) for the raw ir decoding state machines. This is used by
+ * hardware which does not provide durations directly but only interrupts
+ * (or similar events) on state change.
+ */
 int ir_raw_event_store_edge(struct rc_dev *dev, enum raw_event_type type)
 {
 	ktime_t			now;
-	s64			delta; 
+	s64			delta; /* ns */
 	DEFINE_IR_RAW_EVENT(ev);
 	int			rc = 0;
 	int			delay;
@@ -100,6 +125,10 @@ int ir_raw_event_store_edge(struct rc_dev *dev, enum raw_event_type type)
 	delta = ktime_to_ns(ktime_sub(now, dev->raw->last_event));
 	delay = MS_TO_NS(dev->input_dev->rep[REP_DELAY]);
 
+	/* Check for a long duration since last event or if we're
+	 * being called for the first time, note that delta can't
+	 * possibly be negative.
+	 */
 	if (delta > delay || !dev->raw->last_type)
 		type |= IR_START_EVENT;
 	else
@@ -122,12 +151,22 @@ int ir_raw_event_store_edge(struct rc_dev *dev, enum raw_event_type type)
 }
 EXPORT_SYMBOL_GPL(ir_raw_event_store_edge);
 
+/**
+ * ir_raw_event_store_with_filter() - pass next pulse/space to decoders with some processing
+ * @dev:	the struct rc_dev device descriptor
+ * @type:	the type of the event that has occurred
+ *
+ * This routine (which may be called from an interrupt context) works
+ * in similar manner to ir_raw_event_store_edge.
+ * This routine is intended for devices with limited internal buffer
+ * It automerges samples of same type, and handles timeouts
+ */
 int ir_raw_event_store_with_filter(struct rc_dev *dev, struct ir_raw_event *ev)
 {
 	if (!dev->raw)
 		return -EINVAL;
 
-	
+	/* Ignore spaces in idle mode */
 	if (dev->idle && !ev->pulse)
 		return 0;
 	else if (dev->idle)
@@ -142,7 +181,7 @@ int ir_raw_event_store_with_filter(struct rc_dev *dev, struct ir_raw_event *ev)
 		dev->raw->this_ev = *ev;
 	}
 
-	
+	/* Enter idle mode if nessesary */
 	if (!ev->pulse && dev->timeout &&
 	    dev->raw->this_ev.duration >= dev->timeout)
 		ir_raw_event_set_idle(dev, true);
@@ -151,6 +190,11 @@ int ir_raw_event_store_with_filter(struct rc_dev *dev, struct ir_raw_event *ev)
 }
 EXPORT_SYMBOL_GPL(ir_raw_event_store_with_filter);
 
+/**
+ * ir_raw_event_set_idle() - provide hint to rc-core when the device is idle or not
+ * @dev:	the struct rc_dev device descriptor
+ * @idle:	whether the device is idle or not
+ */
 void ir_raw_event_set_idle(struct rc_dev *dev, bool idle)
 {
 	if (!dev->raw)
@@ -171,6 +215,12 @@ void ir_raw_event_set_idle(struct rc_dev *dev, bool idle)
 }
 EXPORT_SYMBOL_GPL(ir_raw_event_set_idle);
 
+/**
+ * ir_raw_event_handle() - schedules the decoding of stored ir data
+ * @dev:	the struct rc_dev device descriptor
+ *
+ * This routine will tell rc-core to start decoding stored ir data.
+ */
 void ir_raw_event_handle(struct rc_dev *dev)
 {
 	unsigned long flags;
@@ -184,6 +234,7 @@ void ir_raw_event_handle(struct rc_dev *dev)
 }
 EXPORT_SYMBOL_GPL(ir_raw_event_handle);
 
+/* used internally by the sysfs interface */
 u64
 ir_raw_get_allowed_protocols(void)
 {
@@ -194,6 +245,9 @@ ir_raw_get_allowed_protocols(void)
 	return protocols;
 }
 
+/*
+ * Used to (un)register raw event clients
+ */
 int ir_raw_event_register(struct rc_dev *dev)
 {
 	int rc;
@@ -259,6 +313,9 @@ void ir_raw_event_unregister(struct rc_dev *dev)
 	dev->raw = NULL;
 }
 
+/*
+ * Extension interface - used to register the IR decoders
+ */
 
 int ir_raw_handler_register(struct ir_raw_handler *ir_raw_handler)
 {
@@ -293,7 +350,7 @@ EXPORT_SYMBOL(ir_raw_handler_unregister);
 #ifdef MODULE
 static void init_decoders(struct work_struct *work)
 {
-	
+	/* Load the decoder modules */
 
 	load_nec_decode();
 	load_rc5_decode();
@@ -304,6 +361,9 @@ static void init_decoders(struct work_struct *work)
 	load_mce_kbd_decode();
 	load_lirc_codec();
 
+	/* If needed, we may later add some init code. In this case,
+	   it is needed to change the CONFIG_MODULE test at rc-core.h
+	 */
 }
 #endif
 

@@ -70,6 +70,7 @@ do {\
 #define SIZE(tag)  max_t(unsigned int, INSIZE(tag), OUTSIZE(tag))
 
 
+/* the upcalls */
 int venus_rootfid(struct super_block *sb, struct CodaFid *fidp)
 {
         union inputArgs *inp;
@@ -141,7 +142,7 @@ int venus_lookup(struct super_block *sb, struct CodaFid *fid,
         inp->coda_lookup.VFid = *fid;
 	inp->coda_lookup.name = offset;
 	inp->coda_lookup.flags = CLU_CASE_SENSITIVE;
-        
+        /* send Venus a null terminated string */
         memcpy((char *)(inp) + offset, name, length);
         *((char *)inp + offset + length) = '\0';
 
@@ -212,7 +213,7 @@ int venus_mkdir(struct super_block *sb, struct CodaFid *dirfid,
         inp->coda_mkdir.VFid = *dirfid;
         inp->coda_mkdir.attr = *attrs;
 	inp->coda_mkdir.name = offset;
-        
+        /* Venus must get null terminated string */
         memcpy((char *)(inp) + offset, name, length);
         *((char *)inp + offset + length) = '\0';
 
@@ -246,15 +247,15 @@ int venus_rename(struct super_block *sb, struct CodaFid *old_fid,
         inp->coda_rename.destFid =  *new_fid;
         inp->coda_rename.srcname = offset;
 
-        
-        s = ( old_length & ~0x3) +4; 
+        /* Venus must receive an null terminated string */
+        s = ( old_length & ~0x3) +4; /* round up to word boundary */
         memcpy((char *)(inp) + offset, old_name, old_length);
         *((char *)inp + offset + old_length) = '\0';
 
-        
+        /* another null terminated string for Venus */
         offset += s;
         inp->coda_rename.destname = offset;
-        s = ( new_length & ~0x3) +4; 
+        s = ( new_length & ~0x3) +4; /* round up to word boundary */
         memcpy((char *)(inp) + offset, new_name, new_length);
         *((char *)inp + offset + new_length) = '\0';
 
@@ -283,7 +284,7 @@ int venus_create(struct super_block *sb, struct CodaFid *dirfid,
         inp->coda_create.mode = mode;
         inp->coda_create.name = offset;
 
-        
+        /* Venus must get null terminated string */
         memcpy((char *)(inp) + offset, name, length);
         *((char *)inp + offset + length) = '\0';
 
@@ -390,7 +391,7 @@ int venus_link(struct super_block *sb, struct CodaFid *fid,
         inp->coda_link.destFid = *dirfid;
         inp->coda_link.tname = offset;
 
-        
+        /* make sure strings are null terminated */
         memcpy((char *)(inp) + offset, name, len);
         *((char *)inp + offset + len) = '\0';
 
@@ -413,16 +414,16 @@ int venus_symlink(struct super_block *sb, struct CodaFid *fid,
 	insize = max_t(unsigned int, offset + len + symlen + 8, OUTSIZE(symlink));
 	UPARG(CODA_SYMLINK);
         
-         
+        /*        inp->coda_symlink.attr = *tva; XXXXXX */ 
         inp->coda_symlink.VFid = *fid;
 
-	
+	/* Round up to word boundary and null terminate */
         inp->coda_symlink.srcname = offset;
         s = ( symlen  & ~0x3 ) + 4; 
         memcpy((char *)(inp) + offset, symname, symlen);
         *((char *)inp + offset + symlen) = '\0';
         
-	
+	/* Round up to word boundary and null terminate */
         offset += s;
         inp->coda_symlink.tname = offset;
         s = (len & ~0x3) + 4;
@@ -482,7 +483,7 @@ int venus_pioctl(struct super_block *sb, struct CodaFid *fid,
 	insize = VC_MAXMSGSIZE;
 	UPARG(CODA_IOCTL);
 
-        
+        /* build packet for Venus */
         if (data->vi.in_size > VC_MAXDATASIZE) {
 		error = -EINVAL;
 		goto exit;
@@ -495,15 +496,18 @@ int venus_pioctl(struct super_block *sb, struct CodaFid *fid,
 
         inp->coda_ioctl.VFid = *fid;
     
+        /* the cmd field was mutated by increasing its size field to
+         * reflect the path and follow args. We need to subtract that
+         * out before sending the command to Venus.  */
         inp->coda_ioctl.cmd = (cmd & ~(PIOCPARM_MASK << 16));	
         iocsize = ((cmd >> 16) & PIOCPARM_MASK) - sizeof(char *) - sizeof(int);
         inp->coda_ioctl.cmd |= (iocsize & PIOCPARM_MASK) <<	16;	
     
-        
+        /* in->coda_ioctl.rwflag = flag; */
         inp->coda_ioctl.len = data->vi.in_size;
         inp->coda_ioctl.data = (char *)(INSIZE(ioctl));
      
-        
+        /* get the data out of user space */
         if ( copy_from_user((char*)inp + (long)inp->coda_ioctl.data,
 			    data->vi.in, data->vi.in_size) ) {
 		error = -EINVAL;
@@ -524,13 +528,13 @@ int venus_pioctl(struct super_block *sb, struct CodaFid *fid,
 		goto exit;
 	}
         
-	
+	/* Copy out the OUT buffer. */
         if (outp->coda_ioctl.len > data->vi.out_size) {
 		error = -EINVAL;
 		goto exit;
         }
 
-	
+	/* Copy out the OUT buffer. */
 	if (copy_to_user(data->vi.out,
 			 (char *)outp + (long)outp->coda_ioctl.data,
 			 outp->coda_ioctl.len)) {
@@ -565,6 +569,9 @@ int venus_statfs(struct dentry *dentry, struct kstatfs *sfs)
         return error;
 }
 
+/*
+ * coda_upcall and coda_downcall routines.
+ */
 static void coda_block_signals(sigset_t *old)
 {
 	spin_lock_irq(&current->sighand->siglock);
@@ -587,6 +594,11 @@ static void coda_unblock_signals(sigset_t *old)
 	spin_unlock_irq(&current->sighand->siglock);
 }
 
+/* Don't allow signals to interrupt the following upcalls before venus
+ * has seen them,
+ * - CODA_CLOSE or CODA_RELEASE upcall  (to avoid reference count problems)
+ * - CODA_STORE				(to avoid data loss)
+ */
 #define CODA_INTERRUPTIBLE(r) (!coda_hard && \
 			       (((r)->uc_opcode != CODA_CLOSE && \
 				 (r)->uc_opcode != CODA_STORE && \
@@ -611,7 +623,7 @@ static inline void coda_waitfor_upcall(struct venus_comm *vcp,
 		else
 			set_current_state(TASK_UNINTERRUPTIBLE);
 
-		
+		/* got a reply */
 		if (req->uc_flags & (CODA_REQ_WRITE | CODA_REQ_ABORT))
 			break;
 
@@ -642,6 +654,15 @@ static inline void coda_waitfor_upcall(struct venus_comm *vcp,
 }
 
 
+/*
+ * coda_upcall will return an error in the case of
+ * failed communication with Venus _or_ will peek at Venus
+ * reply and return Venus' error.
+ *
+ * As venus has 2 types of errors, normal errors (positive) and internal
+ * errors (negative), normal errors are negated, while internal errors
+ * are all mapped to -EINTR, while showing a nice warning message. (jh)
+ */
 static int coda_upcall(struct venus_comm *vcp,
 		       int inSize, int *outSize,
 		       union inputArgs *buffer)
@@ -659,7 +680,7 @@ static int coda_upcall(struct venus_comm *vcp,
 		goto exit;
 	}
 
-	
+	/* Format the request message. */
 	req = kmalloc(sizeof(struct upc_req), GFP_KERNEL);
 	if (!req) {
 		error = -ENOMEM;
@@ -674,21 +695,29 @@ static int coda_upcall(struct venus_comm *vcp,
 	req->uc_unique = ++vcp->vc_seq;
 	init_waitqueue_head(&req->uc_sleep);
 
-	
+	/* Fill in the common input args. */
 	((union inputArgs *)buffer)->ih.unique = req->uc_unique;
 
-	
+	/* Append msg to pending queue and poke Venus. */
 	list_add_tail(&req->uc_chain, &vcp->vc_pending);
 
 	wake_up_interruptible(&vcp->vc_waitq);
+	/* We can be interrupted while we wait for Venus to process
+	 * our request.  If the interrupt occurs before Venus has read
+	 * the request, we dequeue and return. If it occurs after the
+	 * read but before the reply, we dequeue, send a signal
+	 * message, and return. If it occurs after the reply we ignore
+	 * it. In no case do we want to restart the syscall.  If it
+	 * was interrupted by a venus shutdown (psdev_close), return
+	 * ENODEV.  */
 
-	
+	/* Go to sleep.  Wake up on signals only after the timeout. */
 	coda_waitfor_upcall(vcp, req);
 
-	
+	/* Op went through, interrupt or not... */
 	if (req->uc_flags & CODA_REQ_WRITE) {
 		out = (union outputArgs *)req->uc_data;
-		
+		/* here we map positive Venus errors to kernel errors */
 		error = -out->oh.result;
 		*outSize = req->uc_outSize;
 		goto exit;
@@ -700,11 +729,11 @@ static int coda_upcall(struct venus_comm *vcp,
 		goto exit;
 	}
 
-	
+	/* Interrupted before venus read it. */
 	if (!(req->uc_flags & CODA_REQ_READ))
 		goto exit;
 
-	
+	/* Venus saw the upcall, make sure we can send interrupt signal */
 	if (!vcp->vc_inuse) {
 		printk(KERN_INFO "coda: Venus dead, not sending signal.\n");
 		goto exit;
@@ -731,7 +760,7 @@ static int coda_upcall(struct venus_comm *vcp,
 	sig_req->uc_inSize = sizeof(struct coda_in_hdr);
 	sig_req->uc_outSize = sizeof(struct coda_in_hdr);
 
-	
+	/* insert at head of queue! */
 	list_add(&(sig_req->uc_chain), &vcp->vc_pending);
 	wake_up_interruptible(&vcp->vc_waitq);
 
@@ -741,8 +770,39 @@ exit:
 	return error;
 }
 
+/*  
+    The statements below are part of the Coda opportunistic
+    programming -- taken from the Mach/BSD kernel code for Coda. 
+    You don't get correct semantics by stating what needs to be
+    done without guaranteeing the invariants needed for it to happen.
+    When will be have time to find out what exactly is going on?  (pjb)
+*/
 
 
+/* 
+ * There are 7 cases where cache invalidations occur.  The semantics
+ *  of each is listed here:
+ *
+ * CODA_FLUSH     -- flush all entries from the name cache and the cnode cache.
+ * CODA_PURGEUSER -- flush all entries from the name cache for a specific user
+ *                  This call is a result of token expiration.
+ *
+ * The next arise as the result of callbacks on a file or directory.
+ * CODA_ZAPFILE   -- flush the cached attributes for a file.
+
+ * CODA_ZAPDIR    -- flush the attributes for the dir and
+ *                  force a new lookup for all the children
+                    of this dir.
+
+ *
+ * The next is a result of Venus detecting an inconsistent file.
+ * CODA_PURGEFID  -- flush the attribute for the file
+ *                  purge it and its children from the dcache
+ *
+ * The last  allows Venus to replace local fids with global ones
+ * during reintegration.
+ *
+ * CODA_REPLACE -- replace one CodaFid with another throughout the name cache */
 
 int coda_downcall(struct venus_comm *vcp, int opcode, union outputArgs *out)
 {
@@ -750,7 +810,7 @@ int coda_downcall(struct venus_comm *vcp, int opcode, union outputArgs *out)
 	struct CodaFid *fid = NULL, *newfid;
 	struct super_block *sb;
 
-	
+	/* Handle invalidation requests. */
 	mutex_lock(&vcp->vc_mutex);
 	sb = vcp->vc_sb;
 	if (!sb || !sb->s_root)
@@ -806,7 +866,7 @@ unlock_out:
 	case CODA_PURGEFID:
 		coda_flag_inode_children(inode, C_PURGE);
 
-		
+		/* catch the dentries later if some are still busy */
 		coda_flag_inode(inode, C_PURGE);
 		d_prune_aliases(inode);
 		break;

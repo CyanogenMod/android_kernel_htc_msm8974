@@ -46,78 +46,88 @@
 
 #define VERSION_STRING        "Version 1.0.0-ac"
 
-#define TC_LOW       0x00     
-#define TC_MID       0x01     
-#define SCSI_FIFO    0x02     
-#define COMMAND_REG  0x03     
-#define STATUS_REG   0x04     
-#define DEST_BUS_ID  0x04     
-#define INT_REG      0x05     
-#define TOM          0x05     
-#define STP          0x06     
-#define SYNC_OFFSET  0x07     
-#define CONF_REG_1   0x08     
-#define CONF_REG_2   0x0B     
-#define CONF_REG_3   0x0C     
-#define CONF_REG_4   0x0D     
-#define TC_HIGH      0x0E     
-#define PIO_FIFO_1   0x10     
-#define PIO_FIFO_2   0x11     
-#define PIO_FIFO_3   0x12     
-#define PIO_FIFO_4   0x13     
-#define PIO_FIFO_CNT 0x14     
-#define PIO_INT_REG  0x15     
-#define CONF_REG_5   0x16     
-#define FEATURE_EN   0x1D     
+#define TC_LOW       0x00     /* Transfer counter low        */
+#define TC_MID       0x01     /* Transfer counter mid        */
+#define SCSI_FIFO    0x02     /* SCSI FIFO register          */
+#define COMMAND_REG  0x03     /* Command Register            */
+#define STATUS_REG   0x04     /* Status Register (READ)      */
+#define DEST_BUS_ID  0x04     /* Destination Bus ID (WRITE)  */
+#define INT_REG      0x05     /* Interrupt Register (READ)   */
+#define TOM          0x05     /* Time out multiplier (WRITE) */
+#define STP          0x06     /* Synchronous Transfer period */
+#define SYNC_OFFSET  0x07     /* Synchronous Offset          */
+#define CONF_REG_1   0x08     /* Configuration register 1    */
+#define CONF_REG_2   0x0B     /* Configuration register 2    */
+#define CONF_REG_3   0x0C     /* Configuration register 3    */
+#define CONF_REG_4   0x0D     /* Configuration register 4    */
+#define TC_HIGH      0x0E     /* Transfer counter high       */
+#define PIO_FIFO_1   0x10     /* PIO FIFO register 1         */
+#define PIO_FIFO_2   0x11     /* PIO FIFO register 2         */
+#define PIO_FIFO_3   0x12     /* PIO FIFO register 3         */
+#define PIO_FIFO_4   0x13     /* PIO FIFO register 4         */
+#define PIO_FIFO_CNT 0x14     /* PIO FIFO count              */
+#define PIO_INT_REG  0x15     /* PIO interrupt register      */
+#define CONF_REG_5   0x16     /* Configuration register 5    */
+#define FEATURE_EN   0x1D     /* Feature Enable register     */
 
-#define SCM    0x80                     
-#define SRID   0x40                     
-#define PTM    0x20                     
-#define EPC    0x10                     
-#define CTME   0x08                     
+/* Configuration register 1 entries: */
+/* Bits 2-0: SCSI ID of host adapter */
+#define SCM    0x80                     /* Slow Cable Mode              */
+#define SRID   0x40                     /* SCSI Reset Interrupt Disable */
+#define PTM    0x20                     /* Parity Test Mode             */
+#define EPC    0x10                     /* Enable Parity Checking       */
+#define CTME   0x08                     /* Special Test Mode            */
 
-#define FE     0x40                     
-#define SCSI2  0x08                     
-#define TBPA   0x04                     
+/* Configuration register 2 entries: */
+#define FE     0x40                     /* Features Enable              */
+#define SCSI2  0x08                     /* SCSI 2 Enable                */
+#define TBPA   0x04                     /* Target Bad Parity Abort      */
 
-#define IDMRC  0x80                     
-#define QTE    0x40                     
-#define CDB10  0x20                     
-#define FSCSI  0x10                     
-#define FCLK   0x08                     
+/* Configuration register 3 entries: */
+#define IDMRC  0x80                     /* ID Message Reserved Check    */
+#define QTE    0x40                     /* Queue Tag Enable             */
+#define CDB10  0x20                     /* Command Descriptor Block 10  */
+#define FSCSI  0x10                     /* FastSCSI                     */
+#define FCLK   0x08                     /* FastClock                    */
 
-#define RBS    0x08                     
-#define EAN    0x04                     
+/* Configuration register 4 entries: */
+#define RBS    0x08                     /* Register bank select         */
+#define EAN    0x04                     /* Enable Active Negotiation    */
 
-#define LPSR   0x80                     
-#define IE     0x20                     
-#define LPM    0x02                     
-#define WSE0   0x01                     
+/* Configuration register 5 entries: */
+#define LPSR   0x80                     /* Lower Power SCSI Reset       */
+#define IE     0x20                     /* Interrupt Enable             */
+#define LPM    0x02                     /* Low Power Mode               */
+#define WSE0   0x01                     /* 0WS Enable                   */
 
-#define SRST   0x80                     
-#define ILCMD  0x40                     
-#define DIS    0x20                     
-#define BS     0x10                     
-#define FC     0x08                     
-#define RESEL  0x04                     
-#define SI     0x03                     
+/* Interrupt register entries: */
+#define SRST   0x80                     /* SCSI Reset                   */
+#define ILCMD  0x40                     /* Illegal Command              */
+#define DIS    0x20                     /* Disconnect                   */
+#define BS     0x10                     /* Bus Service                  */
+#define FC     0x08                     /* Function Complete            */
+#define RESEL  0x04                     /* Reselected                   */
+#define SI     0x03                     /* Selection Interrupt          */
 
-#define SCI    0x80                     
-#define GE     0x40                     
-#define PE     0x20                     
-#define TC     0x10                     
-#define VGC    0x08                     
-#define PHBITS 0x07                     
+/* Status Register Entries: */
+#define SCI    0x80                     /* SCSI Core Int                */
+#define GE     0x40                     /* Gross Error                  */
+#define PE     0x20                     /* Parity Error                 */
+#define TC     0x10                     /* Terminal Count               */
+#define VGC    0x08                     /* Valid Group Code             */
+#define PHBITS 0x07                     /* Phase bits                   */
 
-#define SCI    0x80                     
-#define PFI    0x40                     
-#define FULL   0x20                     
-#define EMPTY  0x10                     
-#define CE     0x08                     
-#define OUE    0x04                     
-#define FIE    0x02                     
-#define EIE    0x01                     
+/* PIO Interrupt Register Entries: */
+#define SCI    0x80                     /* SCSI Core Int                */
+#define PFI    0x40                     /* PIO FIFO Interrupt           */
+#define FULL   0x20                     /* PIO FIFO Full                */
+#define EMPTY  0x10                     /* PIO FIFO Empty               */
+#define CE     0x08                     /* Collision Error              */
+#define OUE    0x04                     /* Overflow / Underflow error   */
+#define FIE    0x02                     /* Full Interrupt Enable        */
+#define EIE    0x01                     /* Empty Interrupt Enable       */
 
+/* SYM53C416 SCSI phases (lower 3 bits of SYM53C416_STATUS_REG) */
 #define PHASE_DATA_OUT    0x00
 #define PHASE_DATA_IN     0x01
 #define PHASE_COMMAND     0x02
@@ -127,6 +137,7 @@
 #define PHASE_MESSAGE_OUT 0x06
 #define PHASE_MESSAGE_IN  0x07
 
+/* SYM53C416 core commands */
 #define NOOP                      0x00
 #define FLUSH_FIFO                0x01
 #define RESET_CHIP                0x02
@@ -161,9 +172,9 @@
 
 #define PIO_MODE                  0x80
 
-#define IO_RANGE 0x20         
-#define ID       "sym53c416"	
-#define PIO_SIZE 128          
+#define IO_RANGE 0x20         /* 0x00 - 0x1F                   */
+#define ID       "sym53c416"	/* Attention: copied to the sym53c416.h */
+#define PIO_SIZE 128          /* Size of PIO fifo is 128 bytes */
 
 #define READ_TIMEOUT              150
 #define WRITE_TIMEOUT             150
@@ -220,7 +231,7 @@ static int probeaddrs[] = {0x200, 0x220, 0x240, 0};
 
 static void sym53c416_set_transfer_counter(int base, unsigned int len)
 {
-	
+	/* Program Transfer Counter */
 	outb(len & 0x0000FF, base + TC_LOW);
 	outb((len & 0x00FF00) >> 8, base + TC_MID);
 	outb((len & 0xFF0000) >> 16, base + TC_HIGH);
@@ -228,6 +239,7 @@ static void sym53c416_set_transfer_counter(int base, unsigned int len)
 
 static DEFINE_SPINLOCK(sym53c416_lock);
 
+/* Returns the number of bytes read */
 static __inline__ unsigned int sym53c416_read(int base, unsigned char *buffer, unsigned int len)
 {
 	unsigned int orig_len = len;
@@ -236,11 +248,11 @@ static __inline__ unsigned int sym53c416_read(int base, unsigned char *buffer, u
 	unsigned long i;
 	int timeout = READ_TIMEOUT;
 
-	
+	/* Do transfer */
 	spin_lock_irqsave(&sym53c416_lock, flags);
 	while(len && timeout)
 	{
-		bytes_left = inb(base + PIO_FIFO_CNT); 
+		bytes_left = inb(base + PIO_FIFO_CNT); /* Number of bytes in the PIO FIFO */
 		if(fastpio && bytes_left > 3)
 		{
 			insl(base + PIO_FIFO_1, buffer, bytes_left >> 2);
@@ -278,7 +290,7 @@ static __inline__ unsigned int sym53c416_write(int base, unsigned char *buffer, 
 	unsigned long i;
 	unsigned int timeout = WRITE_TIMEOUT;
 
-	
+	/* Do transfer */
 	spin_lock_irqsave(&sym53c416_lock, flags);
 	while(len && timeout)
 	{
@@ -328,8 +340,8 @@ static irqreturn_t sym53c416_intr_handle(int irq, void *dev_id)
 	int_reg = inb(base + INT_REG);
 	spin_unlock_irqrestore(dev->host_lock, flags);
 
-	
-	if(int_reg & SCI)         
+	/* First, we handle error conditions */
+	if(int_reg & SCI)         /* SCSI Reset */
 	{
 		printk(KERN_DEBUG "sym53c416: Reset received\n");
 		current_command->SCp.phase = idle;
@@ -339,7 +351,7 @@ static irqreturn_t sym53c416_intr_handle(int irq, void *dev_id)
 		spin_unlock_irqrestore(dev->host_lock, flags);
 		goto out;
 	}
-	if(int_reg & ILCMD)       
+	if(int_reg & ILCMD)       /* Illegal Command */
 	{
 		printk(KERN_WARNING "sym53c416: Illegal Command: 0x%02x.\n", inb(base + COMMAND_REG));
 		current_command->SCp.phase = idle;
@@ -349,7 +361,7 @@ static irqreturn_t sym53c416_intr_handle(int irq, void *dev_id)
 		spin_unlock_irqrestore(dev->host_lock, flags);
 		goto out;
 	}
-	if(status_reg & GE)         
+	if(status_reg & GE)         /* Gross Error */
 	{
 		printk(KERN_WARNING "sym53c416: Controller reports gross error.\n");
 		current_command->SCp.phase = idle;
@@ -359,7 +371,7 @@ static irqreturn_t sym53c416_intr_handle(int irq, void *dev_id)
 		spin_unlock_irqrestore(dev->host_lock, flags);
 		goto out;
 	}
-	if(status_reg & PE)         
+	if(status_reg & PE)         /* Parity Error */
 	{
 		printk(KERN_WARNING "sym53c416:SCSI parity error.\n");
 		current_command->SCp.phase = idle;
@@ -379,7 +391,7 @@ static irqreturn_t sym53c416_intr_handle(int irq, void *dev_id)
 		spin_unlock_irqrestore(dev->host_lock, flags);
 		goto out;
 	}
-	if(int_reg & DIS)           
+	if(int_reg & DIS)           /* Disconnect */
 	{
 		if(current_command->SCp.phase != message_in)
 			current_command->result = DID_NO_CONNECT << 16;
@@ -391,9 +403,9 @@ static irqreturn_t sym53c416_intr_handle(int irq, void *dev_id)
 		spin_unlock_irqrestore(dev->host_lock, flags);
 		goto out;
 	}
-	
+	/* Now we handle SCSI phases         */
 
-	switch(status_reg & PHBITS)       
+	switch(status_reg & PHBITS)       /* Filter SCSI phase out of status reg */
 	{
 		case PHASE_DATA_OUT:
 		{
@@ -489,7 +501,7 @@ static void sym53c416_init(int base, int scsi_id)
 {
 	outb(RESET_CHIP, base + COMMAND_REG);
 	outb(NOOP, base + COMMAND_REG);
-	outb(0x99, base + TOM); 
+	outb(0x99, base + TOM); /* Time out of 250 ms */
 	outb(0x05, base + STP);
 	outb(0x00, base + SYNC_OFFSET);
 	outb(EPC | scsi_id, base + CONF_REG_1);
@@ -505,29 +517,30 @@ static int sym53c416_probeirq(int base, int scsi_id)
 	int irq, irqs;
 	unsigned long i;
 
-	
+	/* Clear interrupt register */
 	inb(base + INT_REG);
-	
+	/* Start probing for irq's */
 	irqs = probe_irq_on();
-	
+	/* Reinit chip */
 	sym53c416_init(base, scsi_id);
-	
+	/* Cause interrupt */
 	outb(NOOP, base + COMMAND_REG);
 	outb(ILLEGAL, base + COMMAND_REG);
 	outb(0x07, base + DEST_BUS_ID);
 	outb(0x00, base + DEST_BUS_ID);
-	
+	/* Wait for interrupt to occur */
 	i = jiffies + 20;
 	while(time_before(jiffies, i) && !(inb(base + STATUS_REG) & SCI))
 		barrier();
-	if(time_before_eq(i, jiffies))	
+	if(time_before_eq(i, jiffies))	/* timed out */
 		return 0;
-	
+	/* Get occurred irq */
 	irq = probe_irq_off(irqs);
 	sym53c416_init(base, scsi_id);
 	return irq;
 }
 
+/* Setup: sym53c416=base,irq */
 void sym53c416_setup(char *str, int *ints)
 {
 	int i;
@@ -664,7 +677,7 @@ int __init sym53c416_detect(struct scsi_host_template *tpnt)
 	}
 	sym53c416_probe();
 
-	
+	/* Now we register and set up each host adapter found... */
 	for(count = 0, i = 0; i < host_index; i++) {
 		if (!request_region(hosts[i].base, IO_RANGE, ID))
 			continue;
@@ -673,7 +686,7 @@ int __init sym53c416_detect(struct scsi_host_template *tpnt)
 			goto fail_release_region;
 		}
 
-		
+		/* We don't have an irq yet, so we should probe for one */
 		if (!hosts[i].irq)
 			hosts[i].irq = sym53c416_probeirq(hosts[i].base, hosts[i].scsi_id);
 		if (!hosts[i].irq)
@@ -682,7 +695,7 @@ int __init sym53c416_detect(struct scsi_host_template *tpnt)
 		shpnt = scsi_register(tpnt, 0);
 		if (!shpnt)
 			goto fail_release_region;
-		
+		/* Request for specified IRQ */
 		if (request_irq(hosts[i].irq, sym53c416_intr_handle, 0, ID, shpnt))
 			goto fail_free_host;
 
@@ -726,23 +739,23 @@ static int sym53c416_queuecommand_lck(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *
 	unsigned long flags = 0;
 	int i;
 
-	
+	/* Store base register as we can have more than one controller in the system */
 	base = SCpnt->device->host->io_port;
-	current_command = SCpnt;                  
-	current_command->scsi_done = done;        
-	current_command->SCp.phase = command_ph;  
+	current_command = SCpnt;                  /* set current command                */
+	current_command->scsi_done = done;        /* set ptr to done function           */
+	current_command->SCp.phase = command_ph;  /* currect phase is the command phase */
 	current_command->SCp.Status = 0;
 	current_command->SCp.Message = 0;
 
 	spin_lock_irqsave(&sym53c416_lock, flags);
-	outb(scmd_id(SCpnt), base + DEST_BUS_ID); 
-	outb(FLUSH_FIFO, base + COMMAND_REG);    
-	
+	outb(scmd_id(SCpnt), base + DEST_BUS_ID); /* Set scsi id target        */
+	outb(FLUSH_FIFO, base + COMMAND_REG);    /* Flush SCSI and PIO FIFO's */
+	/* Write SCSI command into the SCSI fifo */
 	for(i = 0; i < SCpnt->cmd_len; i++)
 		outb(SCpnt->cmnd[i], base + SCSI_FIFO);
-	
+	/* Start selection sequence */
 	outb(SEL_WITHOUT_ATN_SEQ, base + COMMAND_REG);
-	
+	/* Now an interrupt will be generated which we will catch in out interrupt routine */
 	spin_unlock_irqrestore(&sym53c416_lock, flags);
 	return 0;
 }
@@ -758,9 +771,9 @@ static int sym53c416_host_reset(Scsi_Cmnd *SCpnt)
 
 	spin_lock_irqsave(&sym53c416_lock, flags);
 
-	
+	/* printk("sym53c416_reset\n"); */
 	base = SCpnt->device->host->io_port;
-	
+	/* search scsi_id - fixme, we shouldn't need to iterate for this! */
 	for(i = 0; i < host_index && scsi_id == -1; i++)
 		if(hosts[i].base == base)
 			scsi_id = hosts[i].scsi_id;
@@ -789,17 +802,18 @@ static int sym53c416_bios_param(struct scsi_device *sdev,
 	int size;
 
 	size = capacity;
-	ip[0] = 64;				
-	ip[1] = 32;				
-	if((ip[2] = size >> 11) > 1024)		
+	ip[0] = 64;				/* heads                        */
+	ip[1] = 32;				/* sectors                      */
+	if((ip[2] = size >> 11) > 1024)		/* cylinders, test for big disk */
 	{
-		ip[0] = 255;			
-		ip[1] = 63;			
-		ip[2] = size / (255 * 63);	
+		ip[0] = 255;			/* heads                        */
+		ip[1] = 63;			/* sectors                      */
+		ip[2] = size / (255 * 63);	/* cylinders                    */
 	}
 	return 0;
 }
 
+/* Loadable module support */
 #ifdef MODULE
 
 MODULE_AUTHOR("Lieven Willems");

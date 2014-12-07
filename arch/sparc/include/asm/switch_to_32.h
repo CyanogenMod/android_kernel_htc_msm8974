@@ -5,6 +5,13 @@
 
 extern struct thread_info *current_set[NR_CPUS];
 
+/*
+ * Flush windows so that the VM switch which follows
+ * would not pull the stack from under us.
+ *
+ * SWITCH_ENTER and SWITH_DO_LAZY_FPU do not work yet (e.g. SMP does not work)
+ * XXX WTF is the above comment? Found in late teen 2.4.x.
+ */
 #ifdef CONFIG_SMP
 #define SWITCH_ENTER(prv) \
 	do {			\
@@ -17,9 +24,9 @@ extern struct thread_info *current_set[NR_CPUS];
 	} \
 	} while(0)
 
-#define SWITCH_DO_LAZY_FPU(next)	
+#define SWITCH_DO_LAZY_FPU(next)	/* */
 #else
-#define SWITCH_ENTER(prv)		
+#define SWITCH_ENTER(prv)		/* */
 #define SWITCH_DO_LAZY_FPU(nxt)	\
 	do {			\
 	if (last_task_used_math != (nxt))		\
@@ -36,6 +43,17 @@ extern struct thread_info *current_set[NR_CPUS];
 	"restore; restore; restore; restore; restore; restore; restore"); \
 } while(0)
 
+	/* Much care has gone into this code, do not touch it.
+	 *
+	 * We need to loadup regs l0/l1 for the newly forked child
+	 * case because the trap return path relies on those registers
+	 * holding certain values, gcc is told that they are clobbered.
+	 * Gcc needs registers for 3 values in and 1 value out, so we
+	 * clobber every non-fixed-usage register besides l2/l3/o4/o5.  -DaveM
+	 *
+	 * Hey Dave, that do not touch sign is too much of an incentive
+	 * - Anton & Pete
+	 */
 #define switch_to(prev, next, last) do {						\
 	SWITCH_ENTER(prev);								\
 	SWITCH_DO_LAZY_FPU(next);							\
@@ -58,7 +76,7 @@ extern struct thread_info *current_set[NR_CPUS];
 	"wr	%%g4, 0x20, %%psr\n\t"							\
 	"nop\n\t"									\
 	"nop\n\t"									\
-	"nop\n\t"			\
+	"nop\n\t"	/* LEON needs all 3 nops: load to %sp depends on CWP. */		\
 	"ldd	[%%g6 + %4], %%sp\n\t"							\
 	"wr	%%g5, 0x0, %%wim\n\t"							\
 	"ldd	[%%sp + 0x00], %%l0\n\t"						\
@@ -85,4 +103,4 @@ extern void fpsave(unsigned long *fpregs, unsigned long *fsr,
 		   void *fpqueue, unsigned long *fpqdepth);
 extern void synchronize_user_stack(void);
 
-#endif 
+#endif /* __SPARC_SWITCH_TO_H */

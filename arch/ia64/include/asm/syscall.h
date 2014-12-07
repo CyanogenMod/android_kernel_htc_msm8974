@@ -19,7 +19,7 @@
 static inline long syscall_get_nr(struct task_struct *task,
 				  struct pt_regs *regs)
 {
-	if ((long)regs->cr_ifs < 0) 
+	if ((long)regs->cr_ifs < 0) /* Not a syscall */
 		return -1;
 
 	return regs->r15;
@@ -28,7 +28,7 @@ static inline long syscall_get_nr(struct task_struct *task,
 static inline void syscall_rollback(struct task_struct *task,
 				    struct pt_regs *regs)
 {
-	
+	/* do nothing */
 }
 
 static inline long syscall_get_error(struct task_struct *task,
@@ -48,7 +48,7 @@ static inline void syscall_set_return_value(struct task_struct *task,
 					    int error, long val)
 {
 	if (error) {
-		
+		/* error < 0, but ia64 uses > 0 return value */
 		regs->r8 = -error;
 		regs->r10 = -1;
 	} else {
@@ -79,4 +79,4 @@ static inline void syscall_set_arguments(struct task_struct *task,
 
 	ia64_syscall_get_set_arguments(task, regs, i, n, args, 1);
 }
-#endif	
+#endif	/* _ASM_SYSCALL_H */

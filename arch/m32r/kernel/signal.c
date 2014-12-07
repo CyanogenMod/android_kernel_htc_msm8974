@@ -39,6 +39,9 @@ sys_sigaltstack(const stack_t __user *uss, stack_t __user *uoss,
 }
 
 
+/*
+ * Do a signal return; undo the signal stack.
+ */
 
 struct rt_sigframe
 {
@@ -47,6 +50,7 @@ struct rt_sigframe
 	void __user *puc;
 	struct siginfo info;
 	struct ucontext uc;
+//	struct _fpstate fpstate;
 };
 
 static int
@@ -55,7 +59,7 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc,
 {
 	unsigned int err = 0;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 #define COPY(x)		err |= __get_user(regs->x, &sc->sc_##x)
@@ -63,7 +67,7 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc,
 	COPY(r5);
 	COPY(r6);
 	COPY(pt_regs);
-	
+	/* COPY(r0); Skip r0 */
 	COPY(r1);
 	COPY(r2);
 	COPY(r3);
@@ -75,8 +79,8 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc,
 	COPY(r12);
 	COPY(acc0h);
 	COPY(acc0l);
-	COPY(acc1h);		
-	COPY(acc1l);		
+	COPY(acc1h);		/* ISA_DSP_LEVEL2 only */
+	COPY(acc1l);		/* ISA_DSP_LEVEL2 only */
 	COPY(psw);
 	COPY(bpc);
 	COPY(bbpsw);
@@ -87,7 +91,7 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc,
 	COPY(spi);
 #undef COPY
 
-	regs->syscall_nr = -1;	
+	regs->syscall_nr = -1;	/* disable syscall checks */
 	err |= __get_user(*r0_p, &sc->sc_r0);
 
 	return err;
@@ -126,6 +130,9 @@ badframe:
 	return 0;
 }
 
+/*
+ * Set up a signal frame.
+ */
 
 static int
 setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs,
@@ -150,8 +157,8 @@ setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs,
 	COPY(r12);
 	COPY(acc0h);
 	COPY(acc0l);
-	COPY(acc1h);		
-	COPY(acc1l);		
+	COPY(acc1h);		/* ISA_DSP_LEVEL2 only */
+	COPY(acc1l);		/* ISA_DSP_LEVEL2 only */
 	COPY(psw);
 	COPY(bpc);
 	COPY(bbpsw);
@@ -167,10 +174,13 @@ setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs,
 	return err;
 }
 
+/*
+ * Determine which stack to use..
+ */
 static inline void __user *
 get_sigframe(struct k_sigaction *ka, unsigned long sp, size_t frame_size)
 {
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (sas_ss_flags(sp) == 0)
 			sp = current->sas_ss_sp + current->sas_ss_size;
@@ -207,7 +217,7 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(0, &frame->uc.uc_link);
 	err |= __put_user(current->sas_ss_sp, &frame->uc.uc_stack.ss_sp);
@@ -219,12 +229,12 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Set up to return from userspace.  */
 	regs->lr = (unsigned long)ka->sa.sa_restorer;
 
-	
+	/* Set up registers for signal handler */
 	regs->spu = (unsigned long)frame;
-	regs->r0 = signal;	
+	regs->r0 = signal;	/* Arg for signal handler */
 	regs->r1 = (unsigned long)&frame->info;
 	regs->r2 = (unsigned long)&frame->uc;
 	regs->bpc = (unsigned long)ka->sa.sa_handler;
@@ -248,7 +258,7 @@ static int prev_insn(struct pt_regs *regs)
 	u16 inst;
 	if (get_user(inst, (u16 __user *)(regs->bpc - 2)))
 		return -EFAULT;
-	if ((inst & 0xfff0) == 0x10f0)	
+	if ((inst & 0xfff0) == 0x10f0)	/* trap ? */
 		regs->bpc -= 2;
 	else
 		regs->bpc -= 4;
@@ -256,14 +266,17 @@ static int prev_insn(struct pt_regs *regs)
 	return 0;
 }
 
+/*
+ * OK, we're invoking a handler
+ */
 
 static int
 handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 	      sigset_t *oldset, struct pt_regs *regs)
 {
-	
+	/* Are we from a system call? */
 	if (regs->syscall_nr >= 0) {
-		
+		/* If so, check system call restarting.. */
 		switch (regs->r0) {
 		        case -ERESTART_RESTARTBLOCK:
 			case -ERESTARTNOHAND:
@@ -275,7 +288,7 @@ handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 					regs->r0 = -EINTR;
 					break;
 				}
-			
+			/* fallthrough */
 			case -ERESTARTNOINTR:
 				regs->r0 = regs->orig_r0;
 				if (prev_insn(regs) < 0)
@@ -283,7 +296,7 @@ handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 		}
 	}
 
-	
+	/* Set up the stack frame */
 	if (setup_rt_frame(sig, ka, info, oldset, regs))
 		return -EFAULT;
 
@@ -296,6 +309,11 @@ handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 	return 0;
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ */
 static void do_signal(struct pt_regs *regs)
 {
 	siginfo_t info;
@@ -303,6 +321,12 @@ static void do_signal(struct pt_regs *regs)
 	struct k_sigaction ka;
 	sigset_t *oldset;
 
+	/*
+	 * We want the common case to go fast, which
+	 * is why we may in certain cases get here from
+	 * kernel mode. Just return without doing anything
+	 * if so.
+	 */
 	if (!user_mode(regs))
 		return;
 
@@ -316,8 +340,13 @@ static void do_signal(struct pt_regs *regs)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
+		/* Re-enable any watchpoints before delivering the
+		 * signal to user space. The processor register will
+		 * have been cleared if the watchpoint triggered
+		 * inside the kernel.
+		 */
 
-		
+		/* Whee!  Actually deliver the signal.  */
 		if (handle_signal(signr, &ka, &info, oldset, regs) == 0)
 			clear_thread_flag(TIF_RESTORE_SIGMASK);
 
@@ -325,9 +354,9 @@ static void do_signal(struct pt_regs *regs)
 	}
 
  no_signal:
-	
+	/* Did we come from a system call? */
 	if (regs->syscall_nr >= 0) {
-		
+		/* Restart the system call - no handlers present */
 		if (regs->r0 == -ERESTARTNOHAND ||
 		    regs->r0 == -ERESTARTSYS ||
 		    regs->r0 == -ERESTARTNOINTR) {
@@ -345,13 +374,17 @@ static void do_signal(struct pt_regs *regs)
 	}
 }
 
+/*
+ * notification of userspace execution resumption
+ * - triggered by current->work.notify_resume
+ */
 void do_notify_resume(struct pt_regs *regs, __u32 thread_info_flags)
 {
-	
+	/* Pending single-step? */
 	if (thread_info_flags & _TIF_SINGLESTEP)
 		clear_thread_flag(TIF_SINGLESTEP);
 
-	
+	/* deal with pending signal delivery */
 	if (thread_info_flags & _TIF_SIGPENDING)
 		do_signal(regs);
 

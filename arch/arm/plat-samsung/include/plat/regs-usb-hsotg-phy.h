@@ -12,10 +12,15 @@
  * published by the Free Software Foundation.
 */
 
+/* Note, this is a separate header file as some of the clock framework
+ * needs to touch this if the clk_48m is used as the USB OHCI or other
+ * peripheral source.
+*/
 
 #ifndef __PLAT_S3C64XX_REGS_USB_HSOTG_PHY_H
 #define __PLAT_S3C64XX_REGS_USB_HSOTG_PHY_H __FILE__
 
+/* S3C64XX_PA_USB_HSPHY */
 
 #define S3C_HSOTG_PHYREG(x)	((x) + S3C_VA_USB_HSPHY)
 
@@ -43,4 +48,4 @@
 
 #define S3C_PHYTUNE				S3C_HSOTG_PHYREG(0x20)
 
-#endif 
+#endif /* __PLAT_S3C64XX_REGS_USB_HSOTG_PHY_H */

@@ -42,6 +42,9 @@ static int sysfs_do_create_link(struct kobject *kobj, struct kobject *target,
 	if (!parent_sd)
 		goto out_put;
 
+	/* target->sd can go away beneath us but is protected with
+	 * sysfs_assoc_lock.  Fetch target_sd from it.
+	 */
 	spin_lock(&sysfs_assoc_lock);
 	if (target->sd)
 		target_sd = sysfs_get(target->sd);
@@ -60,10 +63,10 @@ static int sysfs_do_create_link(struct kobject *kobj, struct kobject *target,
 	if (ns_type)
 		sd->s_ns = target->ktype->namespace(target);
 	sd->s_symlink.target_sd = target_sd;
-	target_sd = NULL;	
+	target_sd = NULL;	/* reference is now owned by the symlink */
 
 	sysfs_addrm_start(&acxt, parent_sd);
-	
+	/* Symlinks must be between directories with the same ns_type */
 	if (!ns_type ||
 	    (ns_type == sysfs_ns_type(sd->s_symlink.target_sd->s_parent))) {
 		if (warn)
@@ -92,18 +95,42 @@ static int sysfs_do_create_link(struct kobject *kobj, struct kobject *target,
 	return error;
 }
 
+/**
+ *	sysfs_create_link - create symlink between two objects.
+ *	@kobj:	object whose directory we're creating the link in.
+ *	@target:	object we're pointing to.
+ *	@name:		name of the symlink.
+ */
 int sysfs_create_link(struct kobject *kobj, struct kobject *target,
 		      const char *name)
 {
 	return sysfs_do_create_link(kobj, target, name, 1);
 }
 
+/**
+ *	sysfs_create_link_nowarn - create symlink between two objects.
+ *	@kobj:	object whose directory we're creating the link in.
+ *	@target:	object we're pointing to.
+ *	@name:		name of the symlink.
+ *
+ *	This function does the same as sysf_create_link(), but it
+ *	doesn't warn if the link already exists.
+ */
 int sysfs_create_link_nowarn(struct kobject *kobj, struct kobject *target,
 			     const char *name)
 {
 	return sysfs_do_create_link(kobj, target, name, 0);
 }
 
+/**
+ *	sysfs_delete_link - remove symlink in object's directory.
+ *	@kobj:	object we're acting for.
+ *	@targ:	object we're pointing to.
+ *	@name:	name of the symlink to remove.
+ *
+ *	Unlike sysfs_remove_link sysfs_delete_link has enough information
+ *	to successfully delete symlinks in tagged directories.
+ */
 void sysfs_delete_link(struct kobject *kobj, struct kobject *targ,
 			const char *name)
 {
@@ -115,6 +142,11 @@ void sysfs_delete_link(struct kobject *kobj, struct kobject *targ,
 	sysfs_hash_and_remove(kobj->sd, ns, name);
 }
 
+/**
+ *	sysfs_remove_link - remove symlink in object's directory.
+ *	@kobj:	object we're acting for.
+ *	@name:	name of the symlink to remove.
+ */
 
 void sysfs_remove_link(struct kobject * kobj, const char * name)
 {
@@ -128,6 +160,15 @@ void sysfs_remove_link(struct kobject * kobj, const char * name)
 	sysfs_hash_and_remove(parent_sd, NULL, name);
 }
 
+/**
+ *	sysfs_rename_link - rename symlink in object's directory.
+ *	@kobj:	object we're acting for.
+ *	@targ:	object we're pointing to.
+ *	@old:	previous name of the symlink.
+ *	@new:	new name of the symlink.
+ *
+ *	A helper function for the common rename symlink idiom.
+ */
 int sysfs_rename_link(struct kobject *kobj, struct kobject *targ,
 			const char *old, const char *new)
 {
@@ -171,7 +212,7 @@ static int sysfs_get_target_path(struct sysfs_dirent *parent_sd,
 	char *s = path;
 	int len = 0;
 
-	
+	/* go up to the root, stop at the base */
 	base = parent_sd;
 	while (base->s_parent) {
 		sd = target_sd->s_parent;
@@ -186,21 +227,21 @@ static int sysfs_get_target_path(struct sysfs_dirent *parent_sd,
 		base = base->s_parent;
 	}
 
-	
+	/* determine end of target string for reverse fillup */
 	sd = target_sd;
 	while (sd->s_parent && sd != base) {
 		len += strlen(sd->s_name) + 1;
 		sd = sd->s_parent;
 	}
 
-	
+	/* check limits */
 	if (len < 2)
 		return -EINVAL;
 	len--;
 	if ((s - path) + len > PATH_MAX)
 		return -ENAMETOOLONG;
 
-	
+	/* reverse fillup of target string from target to base */
 	sd = target_sd;
 	while (sd->s_parent && sd != base) {
 		int slen = strlen(sd->s_name);

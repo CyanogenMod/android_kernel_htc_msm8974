@@ -14,6 +14,11 @@
 #include <asm/io.h>
 #include <asm-generic/mm_hooks.h>
 
+/*
+ * The MMU "context" consists of two things:
+ *    (a) TLB cache version (or round, cycle whatever expression you like)
+ *    (b) ASID (Address Space IDentifier)
+ */
 #ifdef CONFIG_CPU_HAS_PTEAEX
 #define MMU_CONTEXT_ASID_MASK		0x0000ffff
 #else
@@ -23,6 +28,7 @@
 #define MMU_CONTEXT_VERSION_MASK	(~0UL & ~MMU_CONTEXT_ASID_MASK)
 #define MMU_CONTEXT_FIRST_VERSION	(MMU_CONTEXT_ASID_MASK + 1)
 
+/* Impossible ASID value, to differentiate from NO_CONTEXT. */
 #define MMU_NO_ASID			MMU_CONTEXT_FIRST_VERSION
 #define NO_CONTEXT			0UL
 
@@ -34,6 +40,9 @@
 #define cpu_asid(cpu, mm)	\
 	(cpu_context((cpu), (mm)) & MMU_CONTEXT_ASID_MASK)
 
+/*
+ * Virtual Page Number mask
+ */
 #define MMU_VPN_MASK	0xfffff000
 
 #if defined(CONFIG_SUPERH32)
@@ -42,23 +51,38 @@
 #include "mmu_context_64.h"
 #endif
 
+/*
+ * Get MMU context if needed.
+ */
 static inline void get_mmu_context(struct mm_struct *mm, unsigned int cpu)
 {
 	unsigned long asid = asid_cache(cpu);
 
-	
+	/* Check if we have old version of context. */
 	if (((cpu_context(cpu, mm) ^ asid) & MMU_CONTEXT_VERSION_MASK) == 0)
-		
+		/* It's up to date, do nothing */
 		return;
 
-	
+	/* It's old, we need to get new context with new version. */
 	if (!(++asid & MMU_CONTEXT_ASID_MASK)) {
+		/*
+		 * We exhaust ASID of this version.
+		 * Flush all TLB and start new cycle.
+		 */
 		local_flush_tlb_all();
 
 #ifdef CONFIG_SUPERH64
+		/*
+		 * The SH-5 cache uses the ASIDs, requiring both the I and D
+		 * cache to be flushed when the ASID is exhausted. Weak.
+		 */
 		flush_cache_all();
 #endif
 
+		/*
+		 * Fix version; Note that we avoid version #0
+		 * to distingush NO_CONTEXT.
+		 */
 		if (!asid)
 			asid = MMU_CONTEXT_FIRST_VERSION;
 	}
@@ -66,6 +90,10 @@ static inline void get_mmu_context(struct mm_struct *mm, unsigned int cpu)
 	cpu_context(cpu, mm) = asid_cache(cpu) = asid;
 }
 
+/*
+ * Initialize the context related info for a new mm_struct
+ * instance.
+ */
 static inline int init_new_context(struct task_struct *tsk,
 				   struct mm_struct *mm)
 {
@@ -77,6 +105,10 @@ static inline int init_new_context(struct task_struct *tsk,
 	return 0;
 }
 
+/*
+ * After we have set current->mm to a new value, this activates
+ * the context for the new mm so we see the new mappings.
+ */
 static inline void activate_context(struct mm_struct *mm, unsigned int cpu)
 {
 	get_mmu_context(mm, cpu);
@@ -113,14 +145,19 @@ static inline void switch_mm(struct mm_struct *prev,
 
 #include <asm-generic/mmu_context.h>
 
-#endif 
+#endif /* CONFIG_MMU */
 
 #if defined(CONFIG_CPU_SH3) || defined(CONFIG_CPU_SH4)
+/*
+ * If this processor has an MMU, we need methods to turn it off/on ..
+ * paging_init() will also have to be updated for the processor in
+ * question.
+ */
 static inline void enable_mmu(void)
 {
 	unsigned int cpu = smp_processor_id();
 
-	
+	/* Enable MMU */
 	__raw_writel(MMU_CONTROL_INIT, MMUCR);
 	ctrl_barrier();
 
@@ -141,9 +178,13 @@ static inline void disable_mmu(void)
 	ctrl_barrier();
 }
 #else
+/*
+ * MMU control handlers for processors lacking memory
+ * management hardware.
+ */
 #define enable_mmu()	do { } while (0)
 #define disable_mmu()	do { } while (0)
 #endif
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_MMU_CONTEXT_H */

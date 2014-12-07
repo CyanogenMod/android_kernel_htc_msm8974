@@ -66,7 +66,7 @@ static int __init detect_board(void)
 {
 	int bid;
 
-	
+	/* try the DB1200 first */
 	bcsr_init(DB1200_BCSR_PHYS_ADDR,
 		  DB1200_BCSR_PHYS_ADDR + DB1200_BCSR_HEXLED_OFS);
 	if (BCSR_WHOAMI_DB1200 == BCSR_WHOAMI_BOARD(bcsr_read(BCSR_WHOAMI))) {
@@ -78,7 +78,7 @@ static int __init detect_board(void)
 		}
 	}
 
-	
+	/* okay, try the PB1200 then */
 	bcsr_init(PB1200_BCSR_PHYS_ADDR,
 		  PB1200_BCSR_PHYS_ADDR + PB1200_BCSR_HEXLED_OFS);
 	bid = BCSR_WHOAMI_BOARD(bcsr_read(BCSR_WHOAMI));
@@ -92,7 +92,7 @@ static int __init detect_board(void)
 		}
 	}
 
-	return 1;	
+	return 1;	/* it's neither */
 }
 
 void __init board_setup(void)
@@ -110,14 +110,17 @@ void __init board_setup(void)
 		"  Board-ID %d  Daughtercard ID %d\n", board_type_str(),
 		(whoami >> 4) & 0xf, (whoami >> 8) & 0xf, whoami & 0xf);
 
-	
+	/* SMBus/SPI on PSC0, Audio on PSC1 */
 	pfc = __raw_readl((void __iomem *)SYS_PINFUNC);
 	pfc &= ~(SYS_PINFUNC_P0A | SYS_PINFUNC_P0B);
 	pfc &= ~(SYS_PINFUNC_P1A | SYS_PINFUNC_P1B | SYS_PINFUNC_FS3);
-	pfc |= SYS_PINFUNC_P1C;	
+	pfc |= SYS_PINFUNC_P1C;	/* SPI is configured later */
 	__raw_writel(pfc, (void __iomem *)SYS_PINFUNC);
 	wmb();
 
+	/* Clock configurations: PSC0: ~50MHz via Clkgen0, derived from
+	 * CPU clock; all other clock generators off/unused.
+	 */
 	div = (get_au1x00_speed() + 25000000) / 50000000;
 	if (div & 1)
 		div++;
@@ -126,16 +129,17 @@ void __init board_setup(void)
 	freq0 = div << SYS_FC_FRDIV0_BIT;
 	__raw_writel(freq0, (void __iomem *)SYS_FREQCTRL0);
 	wmb();
-	freq0 |= SYS_FC_FE0;	
+	freq0 |= SYS_FC_FE0;	/* enable F0 */
 	__raw_writel(freq0, (void __iomem *)SYS_FREQCTRL0);
 	wmb();
 
-	
+	/* psc0_intclk comes 1:1 from F0 */
 	clksrc = SYS_CS_MUX_FQ0 << SYS_CS_ME0_BIT;
 	__raw_writel(clksrc, (void __iomem *)SYS_CLKSRC);
 	wmb();
 }
 
+/******************************************************************************/
 
 static struct mtd_partition db1200_spiflash_parts[] = {
 	{
@@ -154,7 +158,7 @@ static struct flash_platform_data db1200_spiflash_data = {
 
 static struct spi_board_info db1200_spi_devs[] __initdata = {
 	{
-		
+		/* TI TMP121AIDBVR temp sensor */
 		.modalias	= "tmp121",
 		.max_speed_hz	= 2000000,
 		.bus_num	= 0,
@@ -162,7 +166,7 @@ static struct spi_board_info db1200_spi_devs[] __initdata = {
 		.mode		= 0,
 	},
 	{
-		
+		/* Spansion S25FL001D0FMA SPI flash */
 		.modalias	= "m25p80",
 		.max_speed_hz	= 50000000,
 		.bus_num	= 0,
@@ -173,11 +177,12 @@ static struct spi_board_info db1200_spi_devs[] __initdata = {
 };
 
 static struct i2c_board_info db1200_i2c_devs[] __initdata = {
-	{ I2C_BOARD_INFO("24c04", 0x52),  }, 
-	{ I2C_BOARD_INFO("ne1619", 0x2d), }, 
-	{ I2C_BOARD_INFO("wm8731", 0x1b), }, 
+	{ I2C_BOARD_INFO("24c04", 0x52),  }, /* AT24C04-10 I2C eeprom */
+	{ I2C_BOARD_INFO("ne1619", 0x2d), }, /* adm1025-compat hwmon */
+	{ I2C_BOARD_INFO("wm8731", 0x1b), }, /* I2S audio codec WM8731 */
 };
 
+/**********************************************************************/
 
 static void au1200_nand_cmd_ctrl(struct mtd_info *mtd, int cmd,
 				 unsigned int ctrl)
@@ -192,7 +197,7 @@ static void au1200_nand_cmd_ctrl(struct mtd_info *mtd, int cmd,
 	} else if (ctrl & NAND_ALE) {
 		ioaddr += MEM_STNAND_ADDR;
 	} else {
-		
+		/* assume we want to r/w real data  by default */
 		ioaddr += MEM_STNAND_DATA;
 	}
 	this->IO_ADDR_R = this->IO_ADDR_W = (void __iomem *)ioaddr;
@@ -255,6 +260,7 @@ static struct platform_device db1200_nand_dev = {
 	}
 };
 
+/**********************************************************************/
 
 static struct smc91x_platdata db1200_eth_data = {
 	.flags	= SMC91X_NOWAIT | SMC91X_USE_16BIT,
@@ -285,6 +291,7 @@ static struct platform_device db1200_eth_dev = {
 	.resource	= db1200_eth_res,
 };
 
+/**********************************************************************/
 
 static struct resource db1200_ide_res[] = {
 	[0] = {
@@ -317,7 +324,13 @@ static struct platform_device db1200_ide_dev = {
 	.resource	= db1200_ide_res,
 };
 
+/**********************************************************************/
 
+/* SD carddetects:  they're supposed to be edge-triggered, but ack
+ * doesn't seem to work (CPLD Rev 2).  Instead, the screaming one
+ * is disabled and its counterpart enabled.  The 500ms timeout is
+ * because the carddetect isn't debounced in hardware.
+ */
 static irqreturn_t db1200_mmc_cd(int irq, void *ptr)
 {
 	void(*mmc_cd)(struct mmc_host *, unsigned long);
@@ -330,7 +343,7 @@ static irqreturn_t db1200_mmc_cd(int irq, void *ptr)
 		enable_irq(DB1200_SD0_INSERT_INT);
 	}
 
-	
+	/* link against CONFIG_MMC=m */
 	mmc_cd = symbol_get(mmc_detect_change);
 	if (mmc_cd) {
 		mmc_cd(ptr, msecs_to_jiffies(500));
@@ -375,7 +388,7 @@ static void db1200_mmc_set_power(void *mmc_host, int state)
 {
 	if (state) {
 		bcsr_mod(BCSR_BOARD, 0, BCSR_BOARD_SD0PWR);
-		msleep(400);	
+		msleep(400);	/* stabilization time */
 	} else
 		bcsr_mod(BCSR_BOARD, BCSR_BOARD_SD0PWR, 0);
 }
@@ -403,6 +416,7 @@ static struct led_classdev db1200_mmc_led = {
 	.brightness_set	= db1200_mmcled_set,
 };
 
+/* -- */
 
 static irqreturn_t pb1200_mmc1_cd(int irq, void *ptr)
 {
@@ -416,7 +430,7 @@ static irqreturn_t pb1200_mmc1_cd(int irq, void *ptr)
 		enable_irq(PB1200_SD1_INSERT_INT);
 	}
 
-	
+	/* link against CONFIG_MMC=m */
 	mmc_cd = symbol_get(mmc_detect_change);
 	if (mmc_cd) {
 		mmc_cd(ptr, msecs_to_jiffies(500));
@@ -474,7 +488,7 @@ static void pb1200_mmc1_set_power(void *mmc_host, int state)
 {
 	if (state) {
 		bcsr_mod(BCSR_BOARD, 0, BCSR_BOARD_SD1PWR);
-		msleep(400);	
+		msleep(400);	/* stabilization time */
 	} else
 		bcsr_mod(BCSR_BOARD, BCSR_BOARD_SD1PWR, 0);
 }
@@ -579,6 +593,7 @@ static struct platform_device pb1200_mmc1_dev = {
 	.resource	= au1200_mmc1_res,
 };
 
+/**********************************************************************/
 
 static int db1200fb_panel_index(void)
 {
@@ -587,7 +602,7 @@ static int db1200fb_panel_index(void)
 
 static int db1200fb_panel_init(void)
 {
-	
+	/* Apply power */
 	bcsr_mod(BCSR_BOARD, 0, BCSR_BOARD_LCDVEE | BCSR_BOARD_LCDVDD |
 				BCSR_BOARD_LCDBL);
 	return 0;
@@ -595,7 +610,7 @@ static int db1200fb_panel_init(void)
 
 static int db1200fb_panel_shutdown(void)
 {
-	
+	/* Remove power */
 	bcsr_mod(BCSR_BOARD, BCSR_BOARD_LCDVEE | BCSR_BOARD_LCDVDD |
 			     BCSR_BOARD_LCDBL, 0);
 	return 0;
@@ -634,6 +649,7 @@ static struct platform_device au1200_lcd_dev = {
 	.resource	= au1200_lcd_res,
 };
 
+/**********************************************************************/
 
 static struct resource au1200_psc0_res[] = {
 	[0] = {
@@ -660,7 +676,7 @@ static struct resource au1200_psc0_res[] = {
 
 static struct platform_device db1200_i2c_dev = {
 	.name		= "au1xpsc_smbus",
-	.id		= 0,	
+	.id		= 0,	/* bus number */
 	.num_resources	= ARRAY_SIZE(au1200_psc0_res),
 	.resource	= au1200_psc0_res,
 };
@@ -674,7 +690,7 @@ static void db1200_spi_cs_en(struct au1550_spi_info *spi, int cs, int pol)
 }
 
 static struct au1550_spi_info db1200_spi_platdata = {
-	.mainclk_hz	= 50000000,	
+	.mainclk_hz	= 50000000,	/* PSC0 clock */
 	.num_chipselect = 2,
 	.activate_cs	= db1200_spi_cs_en,
 };
@@ -688,7 +704,7 @@ static struct platform_device db1200_spi_dev = {
 		.platform_data		= &db1200_spi_platdata,
 	},
 	.name		= "au1550-spi",
-	.id		= 0,	
+	.id		= 0,	/* bus number */
 	.num_resources	= ARRAY_SIZE(au1200_psc0_res),
 	.resource	= au1200_psc0_res,
 };
@@ -716,30 +732,32 @@ static struct resource au1200_psc1_res[] = {
 	},
 };
 
+/* AC97 or I2S device */
 static struct platform_device db1200_audio_dev = {
-	
-	.id		= 1,	
+	/* name assigned later based on switch setting */
+	.id		= 1,	/* PSC ID */
 	.num_resources	= ARRAY_SIZE(au1200_psc1_res),
 	.resource	= au1200_psc1_res,
 };
 
+/* DB1200 ASoC card device */
 static struct platform_device db1200_sound_dev = {
-	
-	.id		= 1,	
+	/* name assigned later based on switch setting */
+	.id		= 1,	/* PSC ID */
 };
 
 static struct platform_device db1200_stac_dev = {
 	.name		= "ac97-codec",
-	.id		= 1,	
+	.id		= 1,	/* on PSC1 */
 };
 
 static struct platform_device db1200_audiodma_dev = {
 	.name		= "au1xpsc-pcm",
-	.id		= 1,	
+	.id		= 1,	/* PSC ID */
 };
 
 static struct platform_device *db1200_devs[] __initdata = {
-	NULL,		
+	NULL,		/* PSC0, selected by S6.8 */
 	&db1200_ide_dev,
 	&db1200_mmc0_dev,
 	&au1200_lcd_dev,
@@ -755,9 +773,10 @@ static struct platform_device *pb1200_devs[] __initdata = {
 	&pb1200_mmc1_dev,
 };
 
+/* Some peripheral base addresses differ on the PB1200 */
 static int __init pb1200_res_fixup(void)
 {
-	
+	/* CPLD Revs earlier than 4 cause problems */
 	if (BCSR_WHOAMI_CPLD(bcsr_read(BCSR_WHOAMI)) <= 3) {
 		printk(KERN_ERR "WARNING!!!\n");
 		printk(KERN_ERR "WARNING!!!\n");
@@ -792,10 +811,14 @@ static int __init db1200_dev_init(void)
 			return -ENODEV;
 	}
 
-	
+	/* GPIO7 is low-level triggered CPLD cascade */
 	irq_set_irq_type(AU1200_GPIO7_INT, IRQ_TYPE_LEVEL_LOW);
 	bcsr_init_irq(DB1200_INT_BEGIN, DB1200_INT_END, AU1200_GPIO7_INT);
 
+	/* insert/eject pairs: one of both is always screaming.  To avoid
+	 * issues they must not be automatically enabled when initially
+	 * requested.
+	 */
 	irq_set_status_flags(DB1200_SD0_INSERT_INT, IRQ_NOAUTOEN);
 	irq_set_status_flags(DB1200_SD0_EJECT_INT, IRQ_NOAUTOEN);
 	irq_set_status_flags(DB1200_PC0_INSERT_INT, IRQ_NOAUTOEN);
@@ -808,10 +831,20 @@ static int __init db1200_dev_init(void)
 	spi_register_board_info(db1200_spi_devs,
 				ARRAY_SIZE(db1200_i2c_devs));
 
+	/* SWITCHES:	S6.8 I2C/SPI selector  (OFF=I2C  ON=SPI)
+	 *		S6.7 AC97/I2S selector (OFF=AC97 ON=I2S)
+	 *		or S12 on the PB1200.
+	 */
 
+	/* NOTE: GPIO215 controls OTG VBUS supply.  In SPI mode however
+	 * this pin is claimed by PSC0 (unused though, but pinmux doesn't
+	 * allow to free it without crippling the SPI interface).
+	 * As a result, in SPI mode, OTG simply won't work (PSC0 uses
+	 * it as an input pin which is pulled high on the boards).
+	 */
 	pfc = __raw_readl((void __iomem *)SYS_PINFUNC) & ~SYS_PINFUNC_P0A;
 
-	
+	/* switch off OTG VBUS supply */
 	gpio_request(215, "otg-vbus");
 	gpio_direction_output(215, 1);
 
@@ -822,7 +855,7 @@ static int __init db1200_dev_init(void)
 		db1200_devs[0] = &db1200_i2c_dev;
 		bcsr_mod(BCSR_RESETS, BCSR_RESETS_PSC0MUX, 0);
 
-		pfc |= (2 << 17);	
+		pfc |= (2 << 17);	/* GPIO2 block owns GPIO215 */
 
 		printk(KERN_INFO " S6.8 OFF: PSC0 mode I2C\n");
 		printk(KERN_INFO "   OTG port VBUS supply available!\n");
@@ -830,7 +863,7 @@ static int __init db1200_dev_init(void)
 		db1200_devs[0] = &db1200_spi_dev;
 		bcsr_mod(BCSR_RESETS, 0, BCSR_RESETS_PSC0MUX);
 
-		pfc |= (1 << 17);	
+		pfc |= (1 << 17);	/* PSC0 owns GPIO215 */
 
 		printk(KERN_INFO " S6.8 ON : PSC0 mode SPI\n");
 		printk(KERN_INFO "   OTG port VBUS supply disabled\n");
@@ -838,6 +871,9 @@ static int __init db1200_dev_init(void)
 	__raw_writel(pfc, (void __iomem *)SYS_PINFUNC);
 	wmb();
 
+	/* Audio: DIP7 selects I2S(0)/AC97(1), but need I2C for I2S!
+	 * so: DIP7=1 || DIP8=0 => AC97, DIP7=0 && DIP8=1 => I2S
+	 */
 	sw &= BCSR_SWITCHES_DIP_8 | BCSR_SWITCHES_DIP_7;
 	if (sw == BCSR_SWITCHES_DIP_8) {
 		bcsr_mod(BCSR_RESETS, 0, BCSR_RESETS_PSC1MUX);
@@ -851,7 +887,7 @@ static int __init db1200_dev_init(void)
 		printk(KERN_INFO " S6.7 OFF: PSC1 mode AC97\n");
 	}
 
-	
+	/* Audio PSC clock is supplied externally. (FIXME: platdata!!) */
 	__raw_writel(PSC_SEL_CLK_SERCLK,
 	    (void __iomem *)KSEG1ADDR(AU1550_PSC1_PHYS_ADDR) + PSC_SEL_OFFSET);
 	wmb();
@@ -864,7 +900,7 @@ static int __init db1200_dev_init(void)
 		AU1000_PCMCIA_IO_PHYS_ADDR,
 		AU1000_PCMCIA_IO_PHYS_ADDR   + 0x000010000 - 1,
 		DB1200_PC0_INT, DB1200_PC0_INSERT_INT,
-		0, DB1200_PC0_EJECT_INT, 0);
+		/*DB1200_PC0_STSCHG_INT*/0, DB1200_PC0_EJECT_INT, 0);
 
 	db1x_register_pcmcia_socket(
 		AU1000_PCMCIA_ATTR_PHYS_ADDR + 0x004000000,
@@ -874,14 +910,14 @@ static int __init db1200_dev_init(void)
 		AU1000_PCMCIA_IO_PHYS_ADDR   + 0x004000000,
 		AU1000_PCMCIA_IO_PHYS_ADDR   + 0x004010000 - 1,
 		DB1200_PC1_INT, DB1200_PC1_INSERT_INT,
-		0, DB1200_PC1_EJECT_INT, 1);
+		/*DB1200_PC1_STSCHG_INT*/0, DB1200_PC1_EJECT_INT, 1);
 
 	swapped = bcsr_read(BCSR_STATUS) & BCSR_STATUS_DB1200_SWAPBOOT;
 	db1x_register_norflash(64 << 20, 2, swapped);
 
 	platform_add_devices(db1200_devs, ARRAY_SIZE(db1200_devs));
 
-	
+	/* PB1200 is a DB1200 with a 2nd MMC and Camera connector */
 	if ((bid == BCSR_WHOAMI_PB1200_DDR1) ||
 	    (bid == BCSR_WHOAMI_PB1200_DDR2))
 		platform_add_devices(pb1200_devs, ARRAY_SIZE(pb1200_devs));

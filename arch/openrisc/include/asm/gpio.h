@@ -24,6 +24,14 @@
 
 #ifdef CONFIG_GPIOLIB
 
+/*
+ * OpenRISC (or1k) does not have on-chip GPIO's so there is not really
+ * any standardized implementation that makes sense here.  If passing
+ * through gpiolib becomes a bottleneck then it may make sense, on a
+ * case-by-case basis, to implement these inlined/rapid versions.
+ *
+ * Just call gpiolib.
+ */
 static inline int gpio_get_value(unsigned int gpio)
 {
 	return __gpio_get_value(gpio);
@@ -39,6 +47,9 @@ static inline int gpio_cansleep(unsigned int gpio)
 	return __gpio_cansleep(gpio);
 }
 
+/*
+ * Not implemented, yet.
+ */
 static inline int gpio_to_irq(unsigned int gpio)
 {
 	return -ENOSYS;
@@ -49,6 +60,6 @@ static inline int irq_to_gpio(unsigned int irq)
 	return -EINVAL;
 }
 
-#endif 
+#endif /* CONFIG_GPIOLIB */
 
-#endif 
+#endif /* __ASM_OPENRISC_GPIO_H */

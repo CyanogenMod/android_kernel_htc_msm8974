@@ -166,3 +166,17 @@ config HTC_POWER_HACK
        bool "HTC POWER HACK"
        help
          Say Y here if HTC POWER HACK
+
+config HTC_DEBUG_RIL_PCN0005_HTC_DUMP_SMSM_LOG
+	tristate "HTC_DEBUG_RIL_PCN0005_HTC_DUMP_SMSM_LOG"
+	default n
+	depends on MSM_SMD
+	---help---
+	  Dump SMSM log message
+
+config HTC_DEBUG_RIL_PCN0006_HTC_DUMP_BAM_DMUX_LOG
+	tristate "HTC_DEBUG_RIL_PCN0006_HTC_DUMP_BAM_DMUX_LOG"
+	default n
+	depends on MSM_BAM_DMUX
+	---help---
+	  Dump BAM DMUX log message

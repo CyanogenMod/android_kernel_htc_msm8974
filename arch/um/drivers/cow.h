@@ -24,3 +24,9 @@ extern void cow_sizes(int version, __u64 size, int sectorsize, int align,
 
 #endif
 
+/*
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-file-style: "linux"
+ * End:
+ */

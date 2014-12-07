@@ -30,4 +30,4 @@ static inline struct samsung_gpio_chip *samsung_gpiolib_getchip(unsigned int pin
 	return ((pin - chip->chip.base) < chip->chip.ngpio) ? chip : NULL;
 }
 
-#endif 
+#endif /* __ASM_ARCH_GPIO_CORE_H */

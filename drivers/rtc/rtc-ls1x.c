@@ -23,6 +23,7 @@
 #define LS1X_RTC_REGS(x) \
 		((void __iomem *)KSEG1ADDR(LS1X_RTC_REG_OFFSET + (x)))
 
+/*RTC programmable counters 0 and 1*/
 #define SYS_COUNTER_CNTRL		(LS1X_RTC_REGS(0x20))
 #define SYS_CNTRL_ERS			(1 << 23)
 #define SYS_CNTRL_RTS			(1 << 20)
@@ -44,6 +45,7 @@
 #define SYS_CNTRL_TM0			(1 << 1)
 #define SYS_CNTRL_TS			(1 << 0)
 
+/* Programmable Counter 0 Registers */
 #define SYS_TOYTRIM		(LS1X_RTC_REGS(0))
 #define SYS_TOYWRITE0		(LS1X_RTC_REGS(4))
 #define SYS_TOYWRITE1		(LS1X_RTC_REGS(8))
@@ -53,6 +55,7 @@
 #define SYS_TOYMATCH1		(LS1X_RTC_REGS(0x18))
 #define SYS_TOYMATCH2		(LS1X_RTC_REGS(0x1C))
 
+/* Programmable Counter 1 Registers */
 #define SYS_RTCTRIM		(LS1X_RTC_REGS(0x40))
 #define SYS_RTCWRITE0		(LS1X_RTC_REGS(0x44))
 #define SYS_RTCREAD0		(LS1X_RTC_REGS(0x48))
@@ -111,7 +114,7 @@ static int ls1x_rtc_set_time(struct device *dev, struct  rtc_time *rtm)
 
 	writel(v, SYS_TOYWRITE0);
 	c = 0x10000;
-	
+	/* add timeout check counter, for more safe */
 	while ((readl(SYS_COUNTER_CNTRL) & SYS_CNTRL_TS) && --c)
 		usleep_range(1000, 3000);
 
@@ -153,7 +156,7 @@ static int __devinit ls1x_rtc_probe(struct platform_device *pdev)
 		goto err;
 	}
 	ret = -ETIMEDOUT;
-	
+	/* set to 1 HZ if needed */
 	if (readl(SYS_TOYTRIM) != 32767) {
 		v = 0x100000;
 		while ((readl(SYS_COUNTER_CNTRL) & SYS_CNTRL_TTS) && --v)
@@ -165,7 +168,7 @@ static int __devinit ls1x_rtc_probe(struct platform_device *pdev)
 		}
 		writel(32767, SYS_TOYTRIM);
 	}
-	
+	/* this loop coundn't be endless */
 	while (readl(SYS_COUNTER_CNTRL) & SYS_CNTRL_TTS)
 		usleep_range(1000, 3000);
 

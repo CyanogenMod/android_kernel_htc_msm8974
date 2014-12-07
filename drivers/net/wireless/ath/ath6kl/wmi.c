@@ -25,7 +25,7 @@
 static int ath6kl_wmi_sync_point(struct wmi *wmi, u8 if_idx);
 
 static const s32 wmi_rate_tbl[][2] = {
-	
+	/* {W/O SGI, with SGI} */
 	{1000, 1000},
 	{2000, 2000},
 	{5500, 5500},
@@ -57,6 +57,7 @@ static const s32 wmi_rate_tbl[][2] = {
 	{0, 0}
 };
 
+/* 802.1d to AC mapping. Refer pg 57 of WMM-test-plan-v1.2 */
 static const u8 up_to_ac[] = {
 	WMM_AC_BE,
 	WMM_AC_BK,
@@ -88,7 +89,7 @@ struct ath6kl_vif *ath6kl_get_vif_by_index(struct ath6kl *ar, u8 if_idx)
 	if (WARN_ON(if_idx > (ar->vif_max - 1)))
 		return NULL;
 
-	
+	/* FIXME: Locking */
 	spin_lock_bh(&ar->list_lock);
 	list_for_each_entry(vif, &ar->vif_list, list) {
 		if (vif->fw_vif_idx == if_idx) {
@@ -101,6 +102,10 @@ struct ath6kl_vif *ath6kl_get_vif_by_index(struct ath6kl *ar, u8 if_idx)
 	return found;
 }
 
+/*  Performs DIX to 802.3 encapsulation for transmit packets.
+ *  Assumes the entire DIX header is contigous and that there is
+ *  enough room in the buffer for a 802.3 mac header and LLC+SNAP headers.
+ */
 int ath6kl_wmi_dix_2_dot3(struct wmi *wmi, struct sk_buff *skb)
 {
 	struct ath6kl_llc_snap_hdr *llc_hdr;
@@ -217,6 +222,14 @@ u8 ath6kl_wmi_determine_user_priority(u8 *pkt, u32 layer2_pri)
 	struct iphdr *ip_hdr = (struct iphdr *) pkt;
 	u8 ip_pri;
 
+	/*
+	 * Determine IPTOS priority
+	 *
+	 * IP-TOS - 8bits
+	 *          : DSCP(6-bits) ECN(2-bits)
+	 *          : DSCP - P2 P1 P0 X X X
+	 * where (P2 P1 P0) form 802.1D
+	 */
 	ip_pri = ip_hdr->tos >> 5;
 	ip_pri &= 0x7;
 
@@ -255,7 +268,7 @@ int ath6kl_wmi_implicit_create_pstream(struct wmi *wmi, u8 if_idx,
 		     WMI_DATA_HDR_META_MASK) ? WMI_MAX_TX_META_SZ : 0;
 
 	if (!wmm_enabled) {
-		
+		/* If WMM is disabled all traffic goes as BE traffic */
 		usr_pri = 0;
 	} else {
 		hdr_size = sizeof(struct ethhdr);
@@ -266,6 +279,10 @@ int ath6kl_wmi_implicit_create_pstream(struct wmi *wmi, u8 if_idx,
 							 meta_size + hdr_size);
 
 		if (llc_hdr->eth_type == htons(ip_type)) {
+			/*
+			 * Extract the endpoint info from the TOS field
+			 * in the IP header.
+			 */
 			usr_pri =
 			   ath6kl_wmi_determine_user_priority(((u8 *) llc_hdr) +
 					sizeof(struct ath6kl_llc_snap_hdr),
@@ -274,11 +291,17 @@ int ath6kl_wmi_implicit_create_pstream(struct wmi *wmi, u8 if_idx,
 			usr_pri = layer2_priority & 0x7;
 	}
 
+	/*
+	 * workaround for WMM S5
+	 *
+	 * FIXME: wmi->traffic_class is always 100 so this test doesn't
+	 * make sense
+	 */
 	if ((wmi->traffic_class == WMM_AC_VI) &&
 	    ((usr_pri == 5) || (usr_pri == 4)))
 		usr_pri = 1;
 
-	
+	/* Convert user priority to traffic class */
 	traffic_class = up_to_ac[usr_pri & 0x7];
 
 	wmi_data_hdr_set_up(data_hdr, usr_pri);
@@ -293,7 +316,7 @@ int ath6kl_wmi_implicit_create_pstream(struct wmi *wmi, u8 if_idx,
 		cmd.user_pri = usr_pri;
 		cmd.inactivity_int =
 			cpu_to_le32(WMI_IMPLICIT_PSTREAM_INACTIVITY_INT);
-		
+		/* Implicit streams are created with TSID 0xFF */
 		cmd.tsid = WMI_IMPLICIT_PSTREAM;
 		ath6kl_wmi_create_pstream_cmd(wmi, if_idx, &cmd);
 	}
@@ -322,7 +345,7 @@ int ath6kl_wmi_dot11_hdr_remove(struct wmi *wmi, struct sk_buff *skb)
 
 	memcpy((u8 *) &wh, datap, sizeof(struct ieee80211_hdr_3addr));
 
-	
+	/* Strip off the 802.11 header */
 	if (sub_type == cpu_to_le16(IEEE80211_STYPE_QOS_DATA)) {
 		hdr_size = roundup(sizeof(struct ieee80211_qos_hdr),
 				   sizeof(u32));
@@ -364,6 +387,10 @@ int ath6kl_wmi_dot11_hdr_remove(struct wmi *wmi, struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * Performs 802.3 to DIX encapsulation for received packets.
+ * Assumes the entire 802.3 header is contigous.
+ */
 int ath6kl_wmi_dot3_2_dix(struct sk_buff *skb)
 {
 	struct ath6kl_llc_snap_hdr *llc_hdr;
@@ -471,9 +498,9 @@ static int ath6kl_wmi_cancel_remain_on_chnl_event_rx(struct wmi *wmi,
 	}
 	if (vif->last_cancel_roc_id &&
 	    vif->last_cancel_roc_id + 1 == vif->last_roc_id)
-		id = vif->last_cancel_roc_id; 
+		id = vif->last_cancel_roc_id; /* event for cancel command */
 	else
-		id = vif->last_roc_id; 
+		id = vif->last_roc_id; /* timeout on uncanceled r-o-c */
 	vif->last_cancel_roc_id = 0;
 	cfg80211_remain_on_channel_expired(vif->ndev, id, chan,
 					   NL80211_CHAN_NO_HT, GFP_ATOMIC);
@@ -635,6 +662,7 @@ static inline struct sk_buff *ath6kl_wmi_get_new_buf(u32 size)
 	return skb;
 }
 
+/* Send a "simple" wmi command -- one with no arguments */
 static int ath6kl_wmi_simple_cmd(struct wmi *wmi, u8 if_idx,
 				 enum wmi_cmd_id cmd_id)
 {
@@ -664,6 +692,12 @@ static int ath6kl_wmi_ready_event_rx(struct wmi *wmi, u8 *datap, int len)
 	return 0;
 }
 
+/*
+ * Mechanism to modify the roaming behavior in the firmware. The lower rssi
+ * at which the station has to roam can be passed with
+ * WMI_SET_LRSSI_SCAN_PARAMS. Subtract 96 from RSSI to get the signal level
+ * in dBm.
+ */
 int ath6kl_wmi_set_roam_lrssi_cmd(struct wmi *wmi, u8 lrssi)
 {
 	struct sk_buff *skb;
@@ -740,7 +774,7 @@ static int ath6kl_wmi_connect_event_rx(struct wmi *wmi, u8 *datap, int len,
 	ev = (struct wmi_connect_event *) datap;
 
 	if (vif->nw_type == AP_NETWORK) {
-		
+		/* AP mode start/STA connected event */
 		struct net_device *dev = vif->ndev;
 		if (memcmp(dev->dev_addr, ev->u.ap_bss.bssid, ETH_ALEN) == 0) {
 			ath6kl_dbg(ATH6KL_DBG_WMI, "%s: freq %d bssid %pM "
@@ -771,7 +805,7 @@ static int ath6kl_wmi_connect_event_rx(struct wmi *wmi, u8 *datap, int len,
 		return 0;
 	}
 
-	
+	/* STA/IBSS mode connection event */
 
 	ath6kl_dbg(ATH6KL_DBG_WMI,
 		   "wmi event connect freq %d bssid %pM listen_intvl %d beacon_intvl %d type %d\n",
@@ -780,11 +814,11 @@ static int ath6kl_wmi_connect_event_rx(struct wmi *wmi, u8 *datap, int len,
 		   le16_to_cpu(ev->u.sta.beacon_intvl),
 		   le32_to_cpu(ev->u.sta.nw_type));
 
-	
+	/* Start of assoc rsp IEs */
 	pie = ev->assoc_info + ev->beacon_ie_len +
-	      ev->assoc_req_len + (sizeof(u16) * 3); 
+	      ev->assoc_req_len + (sizeof(u16) * 3); /* capinfo, status, aid */
 
-	
+	/* End of assoc rsp IEs */
 	peie = ev->assoc_info + ev->beacon_ie_len + ev->assoc_req_len +
 	    ev->assoc_resp_len;
 
@@ -793,7 +827,7 @@ static int ath6kl_wmi_connect_event_rx(struct wmi *wmi, u8 *datap, int len,
 		case WLAN_EID_VENDOR_SPECIFIC:
 			if (pie[1] > 3 && pie[2] == 0x00 && pie[3] == 0x50 &&
 			    pie[4] == 0xf2 && pie[5] == WMM_OUI_TYPE) {
-				
+				/* WMM OUT (00:50:F2) */
 				if (pie[1] > 5 &&
 				    pie[6] == WMM_PARAM_OUI_SUBTYPE)
 					wmi->is_wmm_enabled = true;
@@ -984,7 +1018,7 @@ static int ath6kl_wmi_bssinfo_event_rx(struct wmi *wmi, u8 *datap, int len,
 
 	if (bih->frame_type != BEACON_FTYPE &&
 	    bih->frame_type != PROBERESP_FTYPE)
-		return 0; 
+		return 0; /* Only update BSS table for now */
 
 	if (bih->frame_type == BEACON_FTYPE &&
 	    test_bit(CLEAR_BSSFILTER_ON_BEACON, &vif->flags)) {
@@ -1012,6 +1046,13 @@ static int ath6kl_wmi_bssinfo_event_rx(struct wmi *wmi, u8 *datap, int len,
 		}
 	}
 
+	/*
+	 * In theory, use of cfg80211_inform_bss() would be more natural here
+	 * since we do not have the full frame. However, at least for now,
+	 * cfg80211 can only distinguish Beacon and Probe Response frames from
+	 * each other when using cfg80211_inform_bss_frame(), so let's build a
+	 * fake IEEE 802.11 header to be able to take benefit of this.
+	 */
 	mgmt = kmalloc(24 + len, GFP_ATOMIC);
 	if (mgmt == NULL)
 		return -EINVAL;
@@ -1042,6 +1083,15 @@ static int ath6kl_wmi_bssinfo_event_rx(struct wmi *wmi, u8 *datap, int len,
 		return -ENOMEM;
 	cfg80211_put_bss(bss);
 
+	/*
+	 * Firmware doesn't return any event when scheduled scan has
+	 * finished, so we need to use a timer to find out when there are
+	 * no more results.
+	 *
+	 * The timer is started from the first bss info received, otherwise
+	 * the timer would not ever fire if the scan interval is short
+	 * enough.
+	 */
 	if (ar->state == ATH6KL_STATE_SCHED_SCAN &&
 	    !timer_pending(&vif->sched_scan_timer)) {
 		mod_timer(&vif->sched_scan_timer, jiffies +
@@ -1051,6 +1101,7 @@ static int ath6kl_wmi_bssinfo_event_rx(struct wmi *wmi, u8 *datap, int len,
 	return 0;
 }
 
+/* Inactivity timeout of a fatpipe(pstream) at the target */
 static int ath6kl_wmi_pstream_timeout_event_rx(struct wmi *wmi, u8 *datap,
 					       int len)
 {
@@ -1061,12 +1112,18 @@ static int ath6kl_wmi_pstream_timeout_event_rx(struct wmi *wmi, u8 *datap,
 
 	ev = (struct wmi_pstream_timeout_event *) datap;
 
+	/*
+	 * When the pstream (fat pipe == AC) timesout, it means there were
+	 * no thinStreams within this pstream & it got implicitly created
+	 * due to data flow on this AC. We start the inactivity timer only
+	 * for implicitly created pstream. Just reset the host state.
+	 */
 	spin_lock_bh(&wmi->lock);
 	wmi->stream_exist_for_ac[ev->traffic_class] = 0;
 	wmi->fat_pipe_exist &= ~(1 << ev->traffic_class);
 	spin_unlock_bh(&wmi->lock);
 
-	
+	/* Indicate inactivity to driver layer for this fatpipe (pstream) */
 	ath6kl_indicate_tx_activity(wmi->parent_dev, ev->traffic_class, false);
 
 	return 0;
@@ -1190,6 +1247,13 @@ static int ath6kl_wmi_neighbor_report_event_rx(struct wmi *wmi, u8 *datap,
 	return 0;
 }
 
+/*
+ * Target is reporting a programming error.  This is for
+ * developer aid only.  Target only checks a few common violations
+ * and it is responsibility of host to do all error checking.
+ * Behavior of target after wmi error event is undefined.
+ * A reset is recommended.
+ */
 static int ath6kl_wmi_error_event_rx(struct wmi *wmi, u8 *datap, int len)
 {
 	const char *type = "unknown error";
@@ -1229,7 +1293,7 @@ static u8 ath6kl_wmi_get_upper_threshold(s16 rssi,
 	u32 index;
 	u8 threshold = (u8) sq_thresh->upper_threshold[size - 1];
 
-	
+	/* The list is already in sorted order. Get the next lower value */
 	for (index = 0; index < size; index++) {
 		if (rssi < sq_thresh->upper_threshold[index]) {
 			threshold = (u8) sq_thresh->upper_threshold[index];
@@ -1247,7 +1311,7 @@ static u8 ath6kl_wmi_get_lower_threshold(s16 rssi,
 	u32 index;
 	u8 threshold = (u8) sq_thresh->lower_threshold[size - 1];
 
-	
+	/* The list is already in sorted order. Get the next lower value */
 	for (index = 0; index < size; index++) {
 		if (rssi > sq_thresh->lower_threshold[index]) {
 			threshold = (u8) sq_thresh->lower_threshold[index];
@@ -1295,8 +1359,13 @@ static int ath6kl_wmi_rssi_threshold_event_rx(struct wmi *wmi, u8 *datap,
 
 	sq_thresh = &wmi->sq_threshld[SIGNAL_QUALITY_METRICS_RSSI];
 
+	/*
+	 * Identify the threshold breached and communicate that to the app.
+	 * After that install a new set of thresholds based on the signal
+	 * quality reported by the target
+	 */
 	if (new_threshold) {
-		
+		/* Upper threshold breached */
 		if (rssi < sq_thresh->upper_threshold[0]) {
 			ath6kl_dbg(ATH6KL_DBG_WMI,
 				   "spurious upper rssi threshold event: %d\n",
@@ -1320,7 +1389,7 @@ static int ath6kl_wmi_rssi_threshold_event_rx(struct wmi *wmi, u8 *datap,
 			new_threshold = WMI_RSSI_THRESHOLD6_ABOVE;
 		}
 	} else {
-		
+		/* Lower threshold breached */
 		if (rssi > sq_thresh->lower_threshold[0]) {
 			ath6kl_dbg(ATH6KL_DBG_WMI,
 				   "spurious lower rssi threshold event: %d %d\n",
@@ -1345,13 +1414,13 @@ static int ath6kl_wmi_rssi_threshold_event_rx(struct wmi *wmi, u8 *datap,
 		}
 	}
 
-	
+	/* Calculate and install the next set of thresholds */
 	lower_rssi_threshold = ath6kl_wmi_get_lower_threshold(rssi, sq_thresh,
 				       sq_thresh->lower_threshold_valid_count);
 	upper_rssi_threshold = ath6kl_wmi_get_upper_threshold(rssi, sq_thresh,
 				       sq_thresh->upper_threshold_valid_count);
 
-	
+	/* Issue a wmi command to install the thresholds */
 	cmd.thresh_above1_val = a_cpu_to_sle16(upper_rssi_threshold);
 	cmd.thresh_below1_val = a_cpu_to_sle16(lower_rssi_threshold);
 	cmd.weight = sq_thresh->weight;
@@ -1391,6 +1460,10 @@ static int ath6kl_wmi_cac_event_rx(struct wmi *wmi, u8 *datap, int len,
 		ath6kl_wmi_delete_pstream_cmd(wmi, vif->fw_vif_idx,
 					      reply->ac, tsid);
 	} else if (reply->cac_indication == CAC_INDICATION_NO_RESP) {
+		/*
+		 * Following assumes that there is only one outstanding
+		 * ADDTS request when this event is received
+		 */
 		spin_lock_bh(&wmi->lock);
 		active_tsids = wmi->stream_exist_for_ac[reply->ac];
 		spin_unlock_bh(&wmi->lock);
@@ -1404,6 +1477,10 @@ static int ath6kl_wmi_cac_event_rx(struct wmi *wmi, u8 *datap, int len,
 						      reply->ac, index);
 	}
 
+	/*
+	 * Clear active tsids and Add missing handling
+	 * for delete qos stream from AP
+	 */
 	else if (reply->cac_indication == CAC_INDICATION_DELETE) {
 
 		ts = (struct ieee80211_tspec_ie *) &(reply->tspec_suggestion);
@@ -1416,6 +1493,9 @@ static int ath6kl_wmi_cac_event_rx(struct wmi *wmi, u8 *datap, int len,
 		active_tsids = wmi->stream_exist_for_ac[reply->ac];
 		spin_unlock_bh(&wmi->lock);
 
+		/* Indicate stream inactivity to driver layer only if all tsids
+		 * within this AC are deleted.
+		 */
 		if (!active_tsids) {
 			ath6kl_indicate_tx_activity(wmi->parent_dev, reply->ac,
 						    false);
@@ -1464,8 +1544,13 @@ static int ath6kl_wmi_snr_threshold_event_rx(struct wmi *wmi, u8 *datap,
 
 	sq_thresh = &wmi->sq_threshld[SIGNAL_QUALITY_METRICS_SNR];
 
+	/*
+	 * Identify the threshold breached and communicate that to the app.
+	 * After that install a new set of thresholds based on the signal
+	 * quality reported by the target.
+	 */
 	if (new_threshold) {
-		
+		/* Upper threshold breached */
 		if (snr < sq_thresh->upper_threshold[0]) {
 			ath6kl_dbg(ATH6KL_DBG_WMI,
 				   "spurious upper snr threshold event: %d\n",
@@ -1483,7 +1568,7 @@ static int ath6kl_wmi_snr_threshold_event_rx(struct wmi *wmi, u8 *datap,
 			new_threshold = WMI_SNR_THRESHOLD4_ABOVE;
 		}
 	} else {
-		
+		/* Lower threshold breached */
 		if (snr > sq_thresh->lower_threshold[0]) {
 			ath6kl_dbg(ATH6KL_DBG_WMI,
 				   "spurious lower snr threshold event: %d\n",
@@ -1502,13 +1587,13 @@ static int ath6kl_wmi_snr_threshold_event_rx(struct wmi *wmi, u8 *datap,
 		}
 	}
 
-	
+	/* Calculate and install the next set of thresholds */
 	lower_snr_threshold = ath6kl_wmi_get_lower_threshold(snr, sq_thresh,
 				       sq_thresh->lower_threshold_valid_count);
 	upper_snr_threshold = ath6kl_wmi_get_upper_threshold(snr, sq_thresh,
 				       sq_thresh->upper_threshold_valid_count);
 
-	
+	/* Issue a wmi command to install the thresholds */
 	cmd.thresh_above1_val = upper_snr_threshold;
 	cmd.thresh_below1_val = lower_snr_threshold;
 	cmd.weight = sq_thresh->weight;
@@ -1549,7 +1634,7 @@ static int ath6kl_wmi_aplist_event_rx(struct wmi *wmi, u8 *datap, int len)
 			 (ev->num_ap - 1) * ap_info_entry_size))
 		return -EINVAL;
 
-	
+	/* AP list version 1 contents */
 	for (index = 0; index < ev->num_ap; index++) {
 		ath6kl_dbg(ATH6KL_DBG_WMI, "AP#%d BSSID %pM Channel %d\n",
 			   index, ap_info_v1->bssid, ap_info_v1->channel);
@@ -1582,6 +1667,10 @@ int ath6kl_wmi_cmd_send(struct wmi *wmi, u8 if_idx, struct sk_buff *skb,
 
 	if ((sync_flag == SYNC_BEFORE_WMIFLAG) ||
 	    (sync_flag == SYNC_BOTH_WMIFLAG)) {
+		/*
+		 * Make sure all data currently queued is transmitted before
+		 * the cmd execution.  Establish a new sync point.
+		 */
 		ath6kl_wmi_sync_point(wmi, if_idx);
 	}
 
@@ -1592,7 +1681,7 @@ int ath6kl_wmi_cmd_send(struct wmi *wmi, u8 if_idx, struct sk_buff *skb,
 	info1 = if_idx & WMI_CMD_HDR_IF_ID_MASK;
 	cmd_hdr->info1 = cpu_to_le16(info1);
 
-	
+	/* Only for OPT_TX_CMD, use BE endpoint. */
 	if (cmd_id == WMI_OPT_TX_FRAME_CMDID) {
 		ret = ath6kl_wmi_data_hdr_add(wmi, skb, OPT_MSGTYPE,
 					      false, false, 0, NULL, if_idx);
@@ -1607,6 +1696,10 @@ int ath6kl_wmi_cmd_send(struct wmi *wmi, u8 if_idx, struct sk_buff *skb,
 
 	if ((sync_flag == SYNC_AFTER_WMIFLAG) ||
 	    (sync_flag == SYNC_BOTH_WMIFLAG)) {
+		/*
+		 * Make sure all new data queued waits for the command to
+		 * execute. Establish a new sync point.
+		 */
 		ath6kl_wmi_sync_point(wmi, if_idx);
 	}
 
@@ -1709,7 +1802,7 @@ int ath6kl_wmi_disconnect_cmd(struct wmi *wmi, u8 if_idx)
 
 	wmi->traffic_class = 100;
 
-	
+	/* Disconnect command does not need to do a SYNC before. */
 	ret = ath6kl_wmi_simple_cmd(wmi, if_idx, WMI_DISCONNECT_CMDID);
 
 	return ret;
@@ -1761,7 +1854,7 @@ int ath6kl_wmi_beginscan_cmd(struct wmi *wmi, u8 if_idx,
 
 		for (i = 0; i < sband->n_bitrates; i++) {
 			if ((BIT(i) & ratemask) == 0)
-				continue; 
+				continue; /* skip rate */
 			supp_rates[num_rates++] =
 			    (u8) (sband->bitrates[i].bitrate / 5);
 		}
@@ -1777,6 +1870,10 @@ int ath6kl_wmi_beginscan_cmd(struct wmi *wmi, u8 if_idx,
 	return ret;
 }
 
+/* ath6kl_wmi_start_scan_cmd is to be deprecated. Use
+ * ath6kl_wmi_begin_scan_cmd instead. The new function supports P2P
+ * mgmt operations using station interface.
+ */
 int ath6kl_wmi_startscan_cmd(struct wmi *wmi, u8 if_idx,
 			     enum wmi_scan_type scan_type,
 			     u32 force_fgscan, u32 is_legacy,
@@ -2193,6 +2290,10 @@ static int ath6kl_wmi_sync_point(struct wmi *wmi, u8 if_idx)
 
 	cmd = (struct wmi_sync_cmd *) skb->data;
 
+	/*
+	 * In the SYNC cmd sent on the control Ep, send a bitmap
+	 * of the data eps on which the Data Sync will be sent
+	 */
 	cmd->data_sync_map = wmi->fat_pipe_exist;
 
 	for (index = 0; index < num_pri_streams; index++) {
@@ -2203,16 +2304,24 @@ static int ath6kl_wmi_sync_point(struct wmi *wmi, u8 if_idx)
 		}
 	}
 
+	/*
+	 * If buffer allocation for any of the dataSync fails,
+	 * then do not send the Synchronize cmd on the control ep
+	 */
 	if (ret)
 		goto free_skb;
 
+	/*
+	 * Send sync cmd followed by sync data messages on all
+	 * endpoints being used
+	 */
 	ret = ath6kl_wmi_cmd_send(wmi, if_idx, skb, WMI_SYNCHRONIZE_CMDID,
 				  NO_SYNC_WMIFLAG);
 
 	if (ret)
 		goto free_skb;
 
-	
+	/* cmd buffer sent, we no longer own it */
 	skb = NULL;
 
 	for (index = 0; index < num_pri_streams; index++) {
@@ -2234,7 +2343,7 @@ static int ath6kl_wmi_sync_point(struct wmi *wmi, u8 if_idx)
 	}
 
 free_skb:
-	
+	/* free up any resources left over (possibly due to an error) */
 	if (skb)
 		dev_kfree_skb(skb);
 
@@ -2274,13 +2383,17 @@ int ath6kl_wmi_create_pstream_cmd(struct wmi *wmi, u8 if_idx,
 		return -EINVAL;
 	}
 
+	/*
+	 * Check nominal PHY rate is >= minimalPHY,
+	 * so that DUT can allow TSRS IE
+	 */
 
-	
+	/* Get the physical rate (units of bps) */
 	min_phy = ((le32_to_cpu(params->min_phy_rate) / 1000) / 1000);
 
-	
+	/* Check minimal phy < nominal phy rate */
 	if (params->nominal_phy >= min_phy) {
-		
+		/* unit of 500 kbps */
 		nominal_phy = (params->nominal_phy * 1000) / 500;
 		ath6kl_dbg(ATH6KL_DBG_WMI,
 			   "TSRS IE enabled::MinPhy %x->NominalPhy ===> %x\n",
@@ -2302,7 +2415,7 @@ int ath6kl_wmi_create_pstream_cmd(struct wmi *wmi, u8 if_idx,
 	cmd = (struct wmi_create_pstream_cmd *) skb->data;
 	memcpy(cmd, params, sizeof(*cmd));
 
-	
+	/* This is an implicitly created Fat pipe */
 	if ((u32) params->tsid == (u32) WMI_IMPLICIT_PSTREAM) {
 		spin_lock_bh(&wmi->lock);
 		fatpipe_exist_for_ac = (wmi->fat_pipe_exist &
@@ -2310,16 +2423,25 @@ int ath6kl_wmi_create_pstream_cmd(struct wmi *wmi, u8 if_idx,
 		wmi->fat_pipe_exist |= (1 << params->traffic_class);
 		spin_unlock_bh(&wmi->lock);
 	} else {
-		
+		/* explicitly created thin stream within a fat pipe */
 		spin_lock_bh(&wmi->lock);
 		fatpipe_exist_for_ac = (wmi->fat_pipe_exist &
 					(1 << params->traffic_class));
 		wmi->stream_exist_for_ac[params->traffic_class] |=
 		    (1 << params->tsid);
+		/*
+		 * If a thinstream becomes active, the fat pipe automatically
+		 * becomes active
+		 */
 		wmi->fat_pipe_exist |= (1 << params->traffic_class);
 		spin_unlock_bh(&wmi->lock);
 	}
 
+	/*
+	 * Indicate activty change to driver layer only if this is the
+	 * first TSID to get created in this AC explicitly or an implicit
+	 * fat pipe is getting created.
+	 */
 	if (!fatpipe_exist_for_ac)
 		ath6kl_indicate_tx_activity(wmi->parent_dev,
 					    params->traffic_class, true);
@@ -2374,6 +2496,10 @@ int ath6kl_wmi_delete_pstream_cmd(struct wmi *wmi, u8 if_idx, u8 traffic_class,
 	active_tsids = wmi->stream_exist_for_ac[traffic_class];
 	spin_unlock_bh(&wmi->lock);
 
+	/*
+	 * Indicate stream inactivity to driver layer only if all tsids
+	 * within this AC are deleted.
+	 */
 	if (!active_tsids) {
 		ath6kl_indicate_tx_activity(wmi->parent_dev,
 					    traffic_class, false);
@@ -2390,7 +2516,7 @@ int ath6kl_wmi_set_ip_cmd(struct wmi *wmi, u8 if_idx,
 	struct wmi_set_ip_cmd *cmd;
 	int ret;
 
-	
+	/* Multicast address are not valid */
 	if (ipv4_is_multicast(ips0) ||
 	    ipv4_is_multicast(ips1))
 		return -EINVAL;
@@ -2414,6 +2540,12 @@ static void ath6kl_wmi_relinquish_implicit_pstream_credits(struct wmi *wmi)
 	u8 stream_exist;
 	int i;
 
+	/*
+	 * Relinquish credits from all implicitly created pstreams
+	 * since when we go to sleep. If user created explicit
+	 * thinstreams exists with in a fatpipe leave them intact
+	 * for the user to delete.
+	 */
 	spin_lock_bh(&wmi->lock);
 	stream_exist = wmi->fat_pipe_exist;
 	spin_unlock_bh(&wmi->lock);
@@ -2421,19 +2553,31 @@ static void ath6kl_wmi_relinquish_implicit_pstream_credits(struct wmi *wmi)
 	for (i = 0; i < WMM_NUM_AC; i++) {
 		if (stream_exist & (1 << i)) {
 
+			/*
+			 * FIXME: Is this lock & unlock inside
+			 * for loop correct? may need rework.
+			 */
 			spin_lock_bh(&wmi->lock);
 			active_tsids = wmi->stream_exist_for_ac[i];
 			spin_unlock_bh(&wmi->lock);
 
+			/*
+			 * If there are no user created thin streams
+			 * delete the fatpipe
+			 */
 			if (!active_tsids) {
 				stream_exist &= ~(1 << i);
+				/*
+				 * Indicate inactivity to driver layer for
+				 * this fatpipe (pstream)
+				 */
 				ath6kl_indicate_tx_activity(wmi->parent_dev,
 							    i, false);
 			}
 		}
 	}
 
-	
+	/* FIXME: Can we do this assignment without locking ? */
 	spin_lock_bh(&wmi->lock);
 	wmi->fat_pipe_exist = stream_exist;
 	spin_unlock_bh(&wmi->lock);
@@ -2470,6 +2614,7 @@ int ath6kl_wmi_set_host_sleep_mode_cmd(struct wmi *wmi, u8 if_idx,
 	return ret;
 }
 
+/* This command has zero length payload */
 static int ath6kl_wmi_host_sleep_mode_cmd_prcd_evt_rx(struct wmi *wmi,
 						      struct ath6kl_vif *vif)
 {
@@ -2520,6 +2665,10 @@ int ath6kl_wmi_add_wow_pattern_cmd(struct wmi *wmi, u8 if_idx,
 	u8 *filter_mask;
 	int ret;
 
+	/*
+	 * Allocate additional memory in the buffer to hold
+	 * filter and mask value, which is twice of filter_size.
+	 */
 	size = sizeof(*cmd) + (2 * filter_size);
 
 	skb = ath6kl_wmi_get_new_buf(size);
@@ -2843,6 +2992,7 @@ static int ath6kl_wmi_delba_req_event_rx(struct wmi *wmi, u8 *datap, int len,
 	return 0;
 }
 
+/*  AP mode functions */
 
 int ath6kl_wmi_ap_profile_commit(struct wmi *wmip, u8 if_idx,
 				 struct wmi_connect_cmd *p)
@@ -2902,6 +3052,7 @@ int ath6kl_wmi_ap_hidden_ssid(struct wmi *wmi, u8 if_idx, bool enable)
 				   NO_SYNC_WMIFLAG);
 }
 
+/* This command will be used to enable/disable AP uAPSD feature */
 int ath6kl_wmi_ap_set_apsd(struct wmi *wmi, u8 if_idx, u8 enable)
 {
 	struct wmi_ap_set_apsd_cmd *cmd;
@@ -3000,7 +3151,7 @@ int ath6kl_wmi_set_rx_frame_format_cmd(struct wmi *wmi, u8 if_idx,
 	cmd->defrag_on_host = defrag_on_host ? 1 : 0;
 	cmd->meta_ver = rx_meta_ver;
 
-	
+	/* Delete the local aggr state, on host */
 	ret = ath6kl_wmi_cmd_send(wmi, if_idx, skb, WMI_RX_FRAME_FORMAT_CMDID,
 				  NO_SYNC_WMIFLAG);
 
@@ -3066,6 +3217,10 @@ int ath6kl_wmi_remain_on_chnl_cmd(struct wmi *wmi, u8 if_idx, u32 freq, u32 dur)
 				   NO_SYNC_WMIFLAG);
 }
 
+/* ath6kl_wmi_send_action_cmd is to be deprecated. Use
+ * ath6kl_wmi_send_mgmt_cmd instead. The new function supports P2P
+ * mgmt operations using station interface.
+ */
 static int ath6kl_wmi_send_action_cmd(struct wmi *wmi, u8 if_idx, u32 id,
 				      u32 freq, u32 wait, const u8 *data,
 				      u16 data_len)
@@ -3075,7 +3230,7 @@ static int ath6kl_wmi_send_action_cmd(struct wmi *wmi, u8 if_idx, u32 id,
 	u8 *buf;
 
 	if (wait)
-		return -EINVAL; 
+		return -EINVAL; /* Offload for wait not supported */
 
 	buf = kmalloc(data_len, GFP_KERNEL);
 	if (!buf)
@@ -3113,7 +3268,7 @@ static int __ath6kl_wmi_send_mgmt_cmd(struct wmi *wmi, u8 if_idx, u32 id,
 	u8 *buf;
 
 	if (wait)
-		return -EINVAL; 
+		return -EINVAL; /* Offload for wait not supported */
 
 	buf = kmalloc(data_len, GFP_KERNEL);
 	if (!buf)
@@ -3152,6 +3307,12 @@ int ath6kl_wmi_send_mgmt_cmd(struct wmi *wmi, u8 if_idx, u32 id, u32 freq,
 
 	if (test_bit(ATH6KL_FW_CAPABILITY_STA_P2PDEV_DUPLEX,
 		     ar->fw_capabilities)) {
+		/*
+		 * If capable of doing P2P mgmt operations using
+		 * station interface, send additional information like
+		 * supported rates to advertise and xmit rates for
+		 * probe requests
+		 */
 		status = __ath6kl_wmi_send_mgmt_cmd(ar->wmi, if_idx, id, freq,
 						    wait, data, data_len,
 						    no_cck);
@@ -3172,7 +3333,7 @@ int ath6kl_wmi_send_probe_response_cmd(struct wmi *wmi, u8 if_idx, u32 freq,
 	size_t cmd_len = sizeof(*p) + data_len;
 
 	if (data_len == 0)
-		cmd_len++; 
+		cmd_len++; /* work around target minimum length requirement */
 
 	skb = ath6kl_wmi_get_new_buf(cmd_len);
 	if (!skb)
@@ -3274,6 +3435,7 @@ static int ath6kl_wmi_roam_tbl_event_rx(struct wmi *wmi, u8 *datap, int len)
 	return ath6kl_debug_roam_tbl_event(wmi->parent_dev, datap, len);
 }
 
+/* Process interface specific wmi events, caller would free the datap */
 static int ath6kl_wmi_proc_events_vif(struct wmi *wmi, u16 if_idx, u16 cmd_id,
 					u8 *datap, u32 len)
 {
@@ -3417,7 +3579,7 @@ static int ath6kl_wmi_proc_events(struct wmi *wmi, struct sk_buff *skb)
 		break;
 	case WMI_OPT_RX_FRAME_EVENTID:
 		ath6kl_dbg(ATH6KL_DBG_WMI, "WMI_OPT_RX_FRAME_EVENTID\n");
-		
+		/* this event has been deprecated */
 		break;
 	case WMI_REPORT_ROAM_TBL_EVENTID:
 		ath6kl_dbg(ATH6KL_DBG_WMI, "WMI_REPORT_ROAM_TBL_EVENTID\n");
@@ -3493,7 +3655,7 @@ static int ath6kl_wmi_proc_events(struct wmi *wmi, struct sk_buff *skb)
 		ret = ath6kl_wmi_p2p_info_event_rx(datap, len);
 		break;
 	default:
-		
+		/* may be the event is interface specific */
 		ret = ath6kl_wmi_proc_events_vif(wmi, if_idx, id, datap, len);
 		break;
 	}
@@ -3502,6 +3664,7 @@ static int ath6kl_wmi_proc_events(struct wmi *wmi, struct sk_buff *skb)
 	return ret;
 }
 
+/* Control Path */
 int ath6kl_wmi_control_rx(struct wmi *wmi, struct sk_buff *skb)
 {
 	if (WARN_ON(skb == NULL))

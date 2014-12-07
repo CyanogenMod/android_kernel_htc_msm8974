@@ -11,4 +11,4 @@ extern void av7110_ca_unregister(struct av7110 *av7110);
 extern int av7110_ca_init(struct av7110* av7110);
 extern void av7110_ca_exit(struct av7110* av7110);
 
-#endif 
+#endif /* _AV7110_CA_H_ */

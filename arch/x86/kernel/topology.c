@@ -37,6 +37,15 @@ static DEFINE_PER_CPU(struct x86_cpu, cpu_devices);
 #ifdef CONFIG_HOTPLUG_CPU
 int __ref arch_register_cpu(int num)
 {
+	/*
+	 * CPU0 cannot be offlined due to several
+	 * restrictions and assumptions in kernel. This basically
+	 * doesn't add a control file, one cannot attempt to offline
+	 * BSP.
+	 *
+	 * Also certain PCI quirks require not to enable hotplug control
+	 * for all CPU's.
+	 */
 	if (num)
 		per_cpu(cpu_devices, num).cpu.hotpluggable = 1;
 
@@ -49,13 +58,13 @@ void arch_unregister_cpu(int num)
 	unregister_cpu(&per_cpu(cpu_devices, num).cpu);
 }
 EXPORT_SYMBOL(arch_unregister_cpu);
-#else 
+#else /* CONFIG_HOTPLUG_CPU */
 
 static int __init arch_register_cpu(int num)
 {
 	return register_cpu(&per_cpu(cpu_devices, num).cpu, num);
 }
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
 static int __init topology_init(void)
 {

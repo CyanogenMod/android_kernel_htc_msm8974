@@ -29,7 +29,7 @@
 
 typedef void (*syscall_t)(void);
 
-syscall_t sys_call_table[__NR_syscall_count] = {
+syscall_t sys_call_table[__NR_syscall_count] /* FIXME __cacheline_aligned */= {
 	[0 ... __NR_syscall_count - 1] = (syscall_t)&sys_ni_syscall,
 
 #undef __SYSCALL

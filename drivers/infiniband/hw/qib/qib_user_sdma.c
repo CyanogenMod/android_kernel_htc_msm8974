@@ -45,46 +45,54 @@
 #include "qib.h"
 #include "qib_user_sdma.h"
 
+/* minimum size of header */
 #define QIB_USER_SDMA_MIN_HEADER_LENGTH 64
+/* expected size of headers (for dma_pool) */
 #define QIB_USER_SDMA_EXP_HEADER_LENGTH 64
+/* attempt to drain the queue for 5secs */
 #define QIB_USER_SDMA_DRAIN_TIMEOUT 500
 
 struct qib_user_sdma_pkt {
-	u8 naddr;               
-	u32 counter;            
-	u64 added;              
+	u8 naddr;               /* dimension of addr (1..3) ... */
+	u32 counter;            /* sdma pkts queued counter for this entry */
+	u64 added;              /* global descq number of entries */
 
 	struct {
-		u32 offset;                     
-		u32 length;                     
-		u8  put_page;                   
-		u8  dma_mapped;                 
-		struct page *page;              
-		void *kvaddr;                   
+		u32 offset;                     /* offset for kvaddr, addr */
+		u32 length;                     /* length in page */
+		u8  put_page;                   /* should we put_page? */
+		u8  dma_mapped;                 /* is page dma_mapped? */
+		struct page *page;              /* may be NULL (coherent mem) */
+		void *kvaddr;                   /* FIXME: only for pio hack */
 		dma_addr_t addr;
-	} addr[4];   
-	struct list_head list;  
+	} addr[4];   /* max pages, any more and we coalesce */
+	struct list_head list;  /* list element */
 };
 
 struct qib_user_sdma_queue {
+	/*
+	 * pkts sent to dma engine are queued on this
+	 * list head.  the type of the elements of this
+	 * list are struct qib_user_sdma_pkt...
+	 */
 	struct list_head sent;
 
-	
+	/* headers with expected length are allocated from here... */
 	char header_cache_name[64];
 	struct dma_pool *header_cache;
 
-	
+	/* packets are allocated from the slab cache... */
 	char pkt_slab_name[64];
 	struct kmem_cache *pkt_slab;
 
-	
+	/* as packets go on the queued queue, they are counted... */
 	u32 counter;
 	u32 sent_counter;
 
-	
+	/* dma page table */
 	struct rb_root dma_pages_root;
 
-	
+	/* protect everything above... */
 	struct mutex lock;
 };
 
@@ -162,6 +170,7 @@ static void qib_user_sdma_init_header(struct qib_user_sdma_pkt *pkt,
 				kvaddr, dma_addr);
 }
 
+/* we've too many pages in the iovec, coalesce to a single page */
 static int qib_user_sdma_coalesce(const struct qib_devdata *dd,
 				  struct qib_user_sdma_pkt *pkt,
 				  const struct iovec *iov,
@@ -216,6 +225,9 @@ done:
 	return ret;
 }
 
+/*
+ * How many pages in this iovec element?
+ */
 static int qib_user_sdma_num_pages(const struct iovec *iov)
 {
 	const unsigned long addr  = (unsigned long) iov->iov_base;
@@ -226,6 +238,9 @@ static int qib_user_sdma_num_pages(const struct iovec *iov)
 	return 1 + ((epage - spage) >> PAGE_SHIFT);
 }
 
+/*
+ * Truncate length to page boundary.
+ */
 static int qib_user_sdma_page_length(unsigned long addr, unsigned long len)
 {
 	const unsigned long offset = addr & ~PAGE_MASK;
@@ -255,11 +270,12 @@ static void qib_user_sdma_free_pkt_frag(struct device *dev,
 		else
 			__free_page(pkt->addr[i].page);
 	} else if (pkt->addr[i].kvaddr)
-		
+		/* free coherent mem from cache... */
 		dma_pool_free(pq->header_cache,
 			      pkt->addr[i].kvaddr, pkt->addr[i].addr);
 }
 
+/* return number of pages pinned... */
 static int qib_user_sdma_pin_pages(const struct qib_devdata *dd,
 				   struct qib_user_sdma_pkt *pkt,
 				   unsigned long addr, int tlen, int npages)
@@ -282,7 +298,7 @@ static int qib_user_sdma_pin_pages(const struct qib_devdata *dd,
 	}
 
 	for (j = 0; j < npages; j++) {
-		
+		/* map the pages... */
 		const int flen = qib_user_sdma_page_length(addr, tlen);
 		dma_addr_t dma_addr =
 			dma_map_page(&dd->pcidev->dev,
@@ -351,6 +367,7 @@ static int qib_user_sdma_init_payload(const struct qib_devdata *dd,
 	return ret;
 }
 
+/* free a packet list -- return counter value of last packet */
 static void qib_user_sdma_free_pkt_list(struct device *dev,
 					struct qib_user_sdma_queue *pq,
 					struct list_head *list)
@@ -368,6 +385,13 @@ static void qib_user_sdma_free_pkt_list(struct device *dev,
 	INIT_LIST_HEAD(list);
 }
 
+/*
+ * copy headers, coalesce etc -- pq->lock must be held
+ *
+ * we queue all the packets to list, returning the
+ * number of bytes total.  list must be empty initially,
+ * as, if there is an error we clean it...
+ */
 static int qib_user_sdma_queue_pkts(const struct qib_devdata *dd,
 				    struct qib_user_sdma_queue *pq,
 				    struct list_head *list,
@@ -434,8 +458,22 @@ static int qib_user_sdma_queue_pkts(const struct qib_devdata *dd,
 			goto free_pbc;
 		}
 
+		/*
+		 * This assignment is a bit strange.  it's because the
+		 * the pbc counts the number of 32 bit words in the full
+		 * packet _except_ the first word of the pbc itself...
+		 */
 		pktnwc = nw - 1;
 
+		/*
+		 * pktnw computation yields the number of 32 bit words
+		 * that the caller has indicated in the PBC.  note that
+		 * this is one less than the total number of words that
+		 * goes to the send DMA engine as the first 32 bit word
+		 * of the PBC itself is not counted.  Armed with this count,
+		 * we can verify that the packet is consistent with the
+		 * iovec lengths.
+		 */
 		pktnw = le32_to_cpu(*pbc) & QIB_PBC_LENGTH_MASK;
 		if (pktnw < pktnwc || pktnw > pktnwc + (PAGE_SIZE >> 2)) {
 			ret = -EINVAL;
@@ -523,6 +561,7 @@ static void qib_user_sdma_set_complete_counter(struct qib_user_sdma_queue *pq,
 	pq->sent_counter = c;
 }
 
+/* try to clean out queue -- needs pq->lock */
 static int qib_user_sdma_queue_clean(struct qib_pportdata *ppd,
 				     struct qib_user_sdma_queue *pq)
 {
@@ -542,7 +581,7 @@ static int qib_user_sdma_queue_clean(struct qib_pportdata *ppd,
 
 		list_move_tail(&pkt->list, &free_list);
 
-		
+		/* one more packet cleaned */
 		ret++;
 	}
 
@@ -570,6 +609,7 @@ void qib_user_sdma_queue_destroy(struct qib_user_sdma_queue *pq)
 	kfree(pq);
 }
 
+/* clean descriptor queue, returns > 0 if some elements cleaned */
 static int qib_user_sdma_hwqueue_clean(struct qib_pportdata *ppd)
 {
 	int ret;
@@ -582,6 +622,7 @@ static int qib_user_sdma_hwqueue_clean(struct qib_pportdata *ppd)
 	return ret;
 }
 
+/* we're in close, drain packets so that we can cleanup successfully... */
 void qib_user_sdma_queue_drain(struct qib_pportdata *ppd,
 			       struct qib_user_sdma_queue *pq)
 {
@@ -622,13 +663,13 @@ static inline __le64 qib_sdma_make_desc0(struct qib_pportdata *ppd,
 
 	tmpgen = ppd->sdma_generation;
 
-	return cpu_to_le64(
+	return cpu_to_le64(/* SDmaPhyAddr[31:0] */
 			   ((addr & 0xfffffffcULL) << 32) |
-			   
+			   /* SDmaGeneration[1:0] */
 			   ((tmpgen & 3ULL) << 30) |
-			   
+			   /* SDmaDwordCount[10:0] */
 			   ((dwlen & 0x7ffULL) << 16) |
-			   
+			   /* SDmaBufOffset[12:2] */
 			   (dwoffset & 0x7ffULL));
 }
 
@@ -639,13 +680,13 @@ static inline __le64 qib_sdma_make_first_desc0(__le64 descq)
 
 static inline __le64 qib_sdma_make_last_desc0(__le64 descq)
 {
-					        
+					      /* last */  /* dma head */
 	return descq | cpu_to_le64(1ULL << 11 | 1ULL << 13);
 }
 
 static inline __le64 qib_sdma_make_desc1(u64 addr)
 {
-	
+	/* SDmaPhyAddr[47:32] */
 	return cpu_to_le64(addr >> 32);
 }
 
@@ -671,6 +712,7 @@ static void qib_user_sdma_send_frag(struct qib_pportdata *ppd,
 	descqp[1] = qib_sdma_make_desc1(addr);
 }
 
+/* pq->lock must be held, get packets on the wire... */
 static int qib_user_sdma_push_pkts(struct qib_pportdata *ppd,
 				   struct qib_user_sdma_queue *pq,
 				   struct list_head *pktlist)
@@ -690,7 +732,7 @@ static int qib_user_sdma_push_pkts(struct qib_pportdata *ppd,
 
 	spin_lock_irqsave(&ppd->sdma_lock, flags);
 
-	
+	/* keep a copy for restoring purposes in case of problems */
 	generation = ppd->sdma_generation;
 	descq_added = ppd->sdma_descq_added;
 
@@ -726,6 +768,11 @@ static int qib_user_sdma_push_pkts(struct qib_pportdata *ppd,
 			goto unlock;
 		}
 
+		/*
+		 * If the packet is >= 2KB mtu equivalent, we have to use
+		 * the large buffers, and have to mark each descriptor as
+		 * part of a large buffer packet.
+		 */
 		if (ofs > dd->piosize2kmax_dwords) {
 			for (i = 0; i < pkt->naddr; i++) {
 				ppd->sdma_descq[dtail].qw[0] |=
@@ -742,7 +789,7 @@ static int qib_user_sdma_push_pkts(struct qib_pportdata *ppd,
 	}
 
 unlock_check_tail:
-	
+	/* advance the tail on the chip if necessary */
 	if (ppd->sdma_descq_tail != tail)
 		dd->f_sdma_update_tail(ppd, tail);
 
@@ -771,7 +818,7 @@ int qib_user_sdma_writev(struct qib_ctxtdata *rcd,
 
 	mutex_lock(&pq->lock);
 
-	
+	/* why not -ECOMM like qib_user_sdma_push_pkts() below? */
 	if (!qib_sdma_running(ppd))
 		goto done_unlock;
 
@@ -794,8 +841,13 @@ int qib_user_sdma_writev(struct qib_ctxtdata *rcd,
 			iov += ret;
 		}
 
-		
+		/* force packets onto the sdma hw queue... */
 		if (!list_empty(&list)) {
+			/*
+			 * Lazily clean hw queue.  the 4 is a guess of about
+			 * how many sdma descriptors a packet will take (it
+			 * doesn't have to be perfect).
+			 */
 			if (qib_sdma_descq_freecnt(ppd) < ret * 4) {
 				qib_user_sdma_hwqueue_clean(ppd);
 				qib_user_sdma_queue_clean(ppd, pq);

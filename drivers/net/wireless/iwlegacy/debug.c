@@ -38,6 +38,10 @@ il_clear_traffic_stats(struct il_priv *il)
 	memset(&il->rx_stats, 0, sizeof(struct traffic_stats));
 }
 
+/*
+ * il_update_stats function record all the MGMT, CTRL and DATA pkt for
+ * both TX and Rx . Use debugfs to display the rx/rx_stats
+ */
 void
 il_update_stats(struct il_priv *il, bool is_tx, __le16 fc, u16 len)
 {
@@ -115,13 +119,14 @@ il_update_stats(struct il_priv *il, bool is_tx, __le16 fc, u16 len)
 			break;
 		}
 	} else {
-		
+		/* data */
 		stats->data_cnt++;
 		stats->data_bytes += len;
 	}
 }
 EXPORT_SYMBOL(il_update_stats);
 
+/* create and remove of files */
 #define DEBUGFS_ADD_FILE(name, parent, mode) do {			\
 	if (!debugfs_create_file(#name, mode, parent, il,		\
 			 &il_dbgfs_##name##_ops))		\
@@ -144,6 +149,7 @@ EXPORT_SYMBOL(il_update_stats);
 		goto err;						\
 } while (0)
 
+/* file operation */
 #define DEBUGFS_READ_FUNC(name)                                         \
 static ssize_t il_dbgfs_##name##_read(struct file *file,               \
 					char __user *user_buf,          \
@@ -338,7 +344,7 @@ il_dbgfs_sram_read(struct file *file, char __user *user_buf, size_t count,
 	struct il_priv *il = file->private_data;
 	size_t bufsz;
 
-	
+	/* default is to dump the entire data segment */
 	if (!il->dbgfs_sram_offset && !il->dbgfs_sram_len) {
 		il->dbgfs_sram_offset = 0x800000;
 		if (il->ucode_type == UCODE_INIT)
@@ -420,7 +426,7 @@ il_dbgfs_stations_read(struct file *file, char __user *user_buf, size_t count,
 	char *buf;
 	int i, j, pos = 0;
 	ssize_t ret;
-	
+	/* Add 30 for initial string */
 	const size_t bufsz = 30 + sizeof(char) * 500 * (il->num_stations);
 
 	buf = kmalloc(bufsz, GFP_KERNEL);
@@ -498,7 +504,7 @@ il_dbgfs_nvm_read(struct file *file, char __user *user_buf, size_t count,
 		return -ENOMEM;
 	}
 
-	
+	/* 4 characters for byte 0xYY */
 	buf = kzalloc(buf_size, GFP_KERNEL);
 	if (!buf) {
 		IL_ERR("Can not allocate Buffer\n");
@@ -671,7 +677,7 @@ il_dbgfs_interrupt_read(struct file *file, char __user *user_buf, size_t count,
 	int pos = 0;
 	int cnt = 0;
 	char *buf;
-	int bufsz = 24 * 64;	
+	int bufsz = 24 * 64;	/* 24 items * 64 char per item */
 	ssize_t ret;
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
@@ -873,7 +879,7 @@ il_dbgfs_tx_queue_read(struct file *file, char __user *user_buf, size_t count,
 			      (txq->swq_id >> 2) & 0x1f);
 		if (cnt >= 4)
 			continue;
-		
+		/* for the ACs, display the stop count too */
 		pos +=
 		    scnprintf(buf + pos, bufsz - pos,
 			      "        stop-count: %d\n",
@@ -1151,7 +1157,7 @@ il_dbgfs_clear_ucode_stats_write(struct file *file,
 	if (sscanf(buf, "%d", &clear) != 1)
 		return -EFAULT;
 
-	
+	/* make request to uCode to retrieve stats information */
 	mutex_lock(&il->mutex);
 	il_send_stats_request(il, CMD_SYNC, true);
 	mutex_unlock(&il->mutex);
@@ -1337,6 +1343,10 @@ DEBUGFS_READ_FILE_OPS(rxon_flags);
 DEBUGFS_READ_FILE_OPS(rxon_filter_flags);
 DEBUGFS_WRITE_FILE_OPS(wd_timeout);
 
+/*
+ * Create the debugfs files and directories
+ *
+ */
 int
 il_dbgfs_register(struct il_priv *il, const char *name)
 {
@@ -1404,6 +1414,10 @@ err:
 }
 EXPORT_SYMBOL(il_dbgfs_register);
 
+/**
+ * Remove the debugfs files and directories
+ *
+ */
 void
 il_dbgfs_unregister(struct il_priv *il)
 {

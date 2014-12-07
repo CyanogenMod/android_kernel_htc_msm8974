@@ -6,11 +6,12 @@
 #include <asm/ptrace.h>
 #include <asm/irq.h>
 
+/* SP must be STACK_BIAS adjusted already.  */
 static inline bool kstack_valid(struct thread_info *tp, unsigned long sp)
 {
 	unsigned long base = (unsigned long) tp;
 
-	
+	/* Stack pointer must be 16-byte aligned.  */
 	if (sp & (16UL - 1))
 		return false;
 
@@ -31,6 +32,7 @@ static inline bool kstack_valid(struct thread_info *tp, unsigned long sp)
 	return false;
 }
 
+/* Does "regs" point to a valid pt_regs trap frame?  */
 static inline bool kstack_is_trap_frame(struct thread_info *tp, struct pt_regs *regs)
 {
 	unsigned long base = (unsigned long) tp;
@@ -78,4 +80,4 @@ static inline __attribute__((always_inline)) void restore_hardirq_stack(void *or
 	__asm__ __volatile__("mov %0, %%sp" : : "r" (orig_sp));
 }
 
-#endif 
+#endif /* _KSTACK_H */

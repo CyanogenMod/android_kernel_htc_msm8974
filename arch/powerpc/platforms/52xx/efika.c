@@ -22,9 +22,15 @@
 #define EFIKA_PLATFORM_NAME "Efika"
 
 
+/* ------------------------------------------------------------------------ */
+/* PCI accesses thru RTAS                                                   */
+/* ------------------------------------------------------------------------ */
 
 #ifdef CONFIG_PCI
 
+/*
+ * Access functions for PCI config space using RTAS calls.
+ */
 static int rtas_read_config(struct pci_bus *bus, unsigned int devfn, int offset,
 			    int len, u32 * val)
 {
@@ -130,6 +136,9 @@ static void __init efika_pcisetup(void)
 
 
 
+/* ------------------------------------------------------------------------ */
+/* Platform setup                                                           */
+/* ------------------------------------------------------------------------ */
 
 static void efika_show_cpuinfo(struct seq_file *m)
 {
@@ -163,9 +172,9 @@ static void efika_show_cpuinfo(struct seq_file *m)
 #ifdef CONFIG_PM
 static void efika_suspend_prepare(void __iomem *mbar)
 {
-	u8 pin = 4;	
-	u8 level = 1;	
-	
+	u8 pin = 4;	/* GPIO_WKUP_4 (GPIO_PSC6_0 - IRDA_RX) */
+	u8 level = 1;	/* wakeup on high level */
+	/* IOW. to wake it up, short pins 1 and 3 on IRDA connector */
 	mpc52xx_set_wakeup_gpio(pin, level);
 }
 #endif
@@ -174,7 +183,7 @@ static void __init efika_setup_arch(void)
 {
 	rtas_initialize();
 
-	
+	/* Map important registers from the internal memory map */
 	mpc52xx_map_common_devices();
 
 	efika_pcisetup();

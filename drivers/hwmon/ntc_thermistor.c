@@ -37,6 +37,12 @@ struct ntc_compensation {
 	unsigned int	ohm;
 };
 
+/*
+ * A compensation table should be sorted by the values of .ohm
+ * in descending order.
+ * The following compensation tables are from the specification of Murata NTC
+ * Thermistors Datasheet
+ */
 const struct ntc_compensation ncpXXwb473[] = {
 	{ .temp_C	= -40, .ohm	= 1747920 },
 	{ .temp_C	= -35, .ohm	= 1245428 },
@@ -165,7 +171,7 @@ static int lookup_comp(struct ntc_data *data,
 {
 	int start, end, mid = -1;
 
-	
+	/* Do a binary search on compensation table */
 	start = 0;
 	end = data->n_comp;
 
@@ -220,7 +226,7 @@ static int get_temp_mC(struct ntc_data *data, unsigned int ohm, int *temp)
 
 	ret = lookup_comp(data, ohm, &low, &high);
 	if (ret) {
-		
+		/* Unable to use linear approximation */
 		if (low != -1)
 			*temp = data->comp[low].temp_C * 1000;
 		else if (high != -1)
@@ -318,7 +324,7 @@ static int __devinit ntc_thermistor_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	
+	/* Either one of the two is required. */
 	if (!pdata->read_uV && !pdata->read_ohm) {
 		dev_err(&pdev->dev, "Both read_uV and read_ohm missing."
 				"Need either one of the two.\n");

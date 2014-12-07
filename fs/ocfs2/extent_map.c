@@ -42,6 +42,14 @@
 
 #include "buffer_head_io.h"
 
+/*
+ * The extent caching implementation is intentionally trivial.
+ *
+ * We only cache a small number of extents stored directly on the
+ * inode, so linear order operations are acceptable. If we ever want
+ * to increase the size of the extent map, then these algorithms must
+ * get smarter.
+ */
 
 void ocfs2_extent_map_init(struct inode *inode)
 {
@@ -100,6 +108,9 @@ static int ocfs2_extent_map_lookup(struct inode *inode, unsigned int cpos,
 	return 0;
 }
 
+/*
+ * Forget about all clusters equal to or greater than cpos.
+ */
 void ocfs2_extent_map_trunc(struct inode *inode, unsigned int cpos)
 {
 	struct ocfs2_extent_map_item *emi, *n;
@@ -111,7 +122,7 @@ void ocfs2_extent_map_trunc(struct inode *inode, unsigned int cpos)
 	spin_lock(&oi->ip_lock);
 	list_for_each_entry_safe(emi, n, &em->em_list, ei_list) {
 		if (emi->ei_cpos >= cpos) {
-			
+			/* Full truncate of this record. */
 			list_move(&emi->ei_list, &tmp_list);
 			BUG_ON(em->em_num_items == 0);
 			em->em_num_items--;
@@ -120,7 +131,7 @@ void ocfs2_extent_map_trunc(struct inode *inode, unsigned int cpos)
 
 		range = emi->ei_cpos + emi->ei_clusters;
 		if (range > cpos) {
-			
+			/* Partial truncate */
 			emi->ei_clusters = cpos - emi->ei_cpos;
 		}
 	}
@@ -132,15 +143,24 @@ void ocfs2_extent_map_trunc(struct inode *inode, unsigned int cpos)
 	}
 }
 
+/*
+ * Is any part of emi2 contained within emi1
+ */
 static int ocfs2_ei_is_contained(struct ocfs2_extent_map_item *emi1,
 				 struct ocfs2_extent_map_item *emi2)
 {
 	unsigned int range1, range2;
 
+	/*
+	 * Check if logical start of emi2 is inside emi1
+	 */
 	range1 = emi1->ei_cpos + emi1->ei_clusters;
 	if (emi2->ei_cpos >= emi1->ei_cpos && emi2->ei_cpos < range1)
 		return 1;
 
+	/*
+	 * Check if logical end of emi2 is inside emi1
+	 */
 	range2 = emi2->ei_cpos + emi2->ei_clusters;
 	if (range2 > emi1->ei_cpos && range2 <= range1)
 		return 1;
@@ -157,9 +177,16 @@ static void ocfs2_copy_emi_fields(struct ocfs2_extent_map_item *dest,
 	dest->ei_flags = src->ei_flags;
 }
 
+/*
+ * Try to merge emi with ins. Returns 1 if merge succeeds, zero
+ * otherwise.
+ */
 static int ocfs2_try_to_merge_extent_map(struct ocfs2_extent_map_item *emi,
 					 struct ocfs2_extent_map_item *ins)
 {
+	/*
+	 * Handle contiguousness
+	 */
 	if (ins->ei_phys == (emi->ei_phys + emi->ei_clusters) &&
 	    ins->ei_cpos == (emi->ei_cpos + emi->ei_clusters) &&
 	    ins->ei_flags == emi->ei_flags) {
@@ -174,16 +201,29 @@ static int ocfs2_try_to_merge_extent_map(struct ocfs2_extent_map_item *emi,
 		return 1;
 	}
 
+	/*
+	 * Overlapping extents - this shouldn't happen unless we've
+	 * split an extent to change it's flags. That is exceedingly
+	 * rare, so there's no sense in trying to optimize it yet.
+	 */
 	if (ocfs2_ei_is_contained(emi, ins) ||
 	    ocfs2_ei_is_contained(ins, emi)) {
 		ocfs2_copy_emi_fields(emi, ins);
 		return 1;
 	}
 
-	
+	/* No merge was possible. */
 	return 0;
 }
 
+/*
+ * In order to reduce complexity on the caller, this insert function
+ * is intentionally liberal in what it will accept.
+ *
+ * The only rule is that the truncate call *must* be used whenever
+ * records have been deleted. This avoids inserting overlapping
+ * records with different physical mappings.
+ */
 void ocfs2_extent_map_insert_rec(struct inode *inode,
 				 struct ocfs2_extent_rec *rec)
 {
@@ -209,6 +249,12 @@ search:
 		}
 	}
 
+	/*
+	 * No item could be merged.
+	 *
+	 * Either allocate and add a new item, or overwrite the last recently
+	 * inserted.
+	 */
 
 	if (em->em_num_items < OCFS2_MAX_EXTENT_MAP_ITEMS) {
 		if (new_emi == NULL) {
@@ -278,6 +324,10 @@ out:
 	return ret;
 }
 
+/*
+ * Return the 1st index within el which contains an extent start
+ * larger than v_cluster.
+ */
 static int ocfs2_search_for_hole_index(struct ocfs2_extent_list *el,
 				       u32 v_cluster)
 {
@@ -294,6 +344,17 @@ static int ocfs2_search_for_hole_index(struct ocfs2_extent_list *el,
 	return i;
 }
 
+/*
+ * Figure out the size of a hole which starts at v_cluster within the given
+ * extent list.
+ *
+ * If there is no more allocation past v_cluster, we return the maximum
+ * cluster size minus v_cluster.
+ *
+ * If we have in-inode extents, then el points to the dinode list and
+ * eb_bh is NULL. Otherwise, eb_bh should point to the extent block
+ * containing el.
+ */
 int ocfs2_figure_hole_clusters(struct ocfs2_caching_info *ci,
 			       struct ocfs2_extent_list *el,
 			       struct buffer_head *eb_bh,
@@ -309,6 +370,9 @@ int ocfs2_figure_hole_clusters(struct ocfs2_caching_info *ci,
 	if (i == le16_to_cpu(el->l_next_free_rec) && eb_bh) {
 		eb = (struct ocfs2_extent_block *)eb_bh->b_data;
 
+		/*
+		 * Check the next leaf for any extents.
+		 */
 
 		if (le64_to_cpu(eb->h_next_leaf_blk) == 0ULL)
 			goto no_more_extents;
@@ -328,6 +392,11 @@ int ocfs2_figure_hole_clusters(struct ocfs2_caching_info *ci,
 
 no_more_extents:
 	if (i == le16_to_cpu(el->l_next_free_rec)) {
+		/*
+		 * We're at the end of our existing allocation. Just
+		 * return the maximum number of clusters we could
+		 * possibly allocate.
+		 */
 		*num_clusters = UINT_MAX - v_cluster;
 	} else {
 		*num_clusters = le32_to_cpu(el->l_recs[i].e_cpos) - v_cluster;
@@ -383,6 +452,11 @@ static int ocfs2_get_clusters_nocache(struct inode *inode,
 
 	i = ocfs2_search_extent_list(el, v_cluster);
 	if (i == -1) {
+		/*
+		 * Holes can be larger than the maximum size of an
+		 * extent, so we return their lengths in a separate
+		 * field.
+		 */
 		if (hole_len) {
 			ret = ocfs2_figure_hole_clusters(INODE_CACHE(inode),
 							 el, eb_bh,
@@ -412,6 +486,21 @@ static int ocfs2_get_clusters_nocache(struct inode *inode,
 
 	*ret_rec = *rec;
 
+	/*
+	 * Checking for last extent is potentially expensive - we
+	 * might have to look at the next leaf over to see if it's
+	 * empty.
+	 *
+	 * The first two checks are to see whether the caller even
+	 * cares for this information, and if the extent is at least
+	 * the last in it's list.
+	 *
+	 * If those hold true, then the extent is last if any of the
+	 * additional conditions hold true:
+	 *  - Extent list is in-inode
+	 *  - Extent list is right-most
+	 *  - Extent list is 2nd to rightmost, with empty right-most
+	 */
 	if (is_last) {
 		if (i == (le16_to_cpu(el->l_next_free_rec) - 1)) {
 			if (tree_height == 0)
@@ -551,6 +640,11 @@ int ocfs2_get_clusters(struct inode *inode, u32 v_cluster,
 	}
 
 	if (rec.e_blkno == 0ULL) {
+		/*
+		 * A hole was found. Return some canned values that
+		 * callers can key on. If asked for, num_clusters will
+		 * be populated with the size of the hole.
+		 */
 		*p_cluster = 0;
 		if (num_clusters) {
 			*num_clusters = hole_len;
@@ -571,6 +665,10 @@ out:
 	return ret;
 }
 
+/*
+ * This expects alloc_sem to be held. The allocation cannot change at
+ * all while the map is in the process of being updated.
+ */
 int ocfs2_extent_map_get_blocks(struct inode *inode, u64 v_blkno, u64 *p_blkno,
 				u64 *ret_count, unsigned int *extent_flags)
 {
@@ -588,6 +686,9 @@ int ocfs2_extent_map_get_blocks(struct inode *inode, u64 v_blkno, u64 *p_blkno,
 		goto out;
 	}
 
+	/*
+	 * p_cluster == 0 indicates a hole.
+	 */
 	if (p_cluster) {
 		boff = ocfs2_clusters_to_blocks(inode->i_sb, p_cluster);
 		boff += (v_blkno & (u64)(bpc - 1));
@@ -604,6 +705,12 @@ out:
 	return ret;
 }
 
+/*
+ * The ocfs2_fiemap_inline() may be a little bit misleading, since
+ * it not only handles the fiemap for inlined files, but also deals
+ * with the fast symlink, cause they have no difference for extent
+ * mapping per se.
+ */
 static int ocfs2_fiemap_inline(struct inode *inode, struct buffer_head *di_bh,
 			       struct fiemap_extent_info *fieinfo,
 			       u64 map_start)
@@ -663,6 +770,9 @@ int ocfs2_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
 	down_read(&OCFS2_I(inode)->ip_alloc_sem);
 
+	/*
+	 * Handle inline-data and fast symlink separately.
+	 */
 	if ((OCFS2_I(inode)->ip_dyn_features & OCFS2_INLINE_DATA_FL) ||
 	    ocfs2_inode_is_fast_symlink(inode)) {
 		ret = ocfs2_fiemap_inline(inode, di_bh, fieinfo, map_start);
@@ -861,6 +971,11 @@ int ocfs2_read_virt_blocks(struct inode *inode, u64 v_block, int nr,
 		if (p_count < count)
 			count = p_count;
 
+		/*
+		 * If the caller passed us bhs, they should have come
+		 * from a previous readahead call to this function.  Thus,
+		 * they should have the right b_blocknr.
+		 */
 		for (i = 0; i < count; i++) {
 			if (!bhs[done + i])
 				continue;

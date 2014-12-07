@@ -51,13 +51,15 @@
 #define TRY_GET_FIFO_TIMEOUT	(5000 * 2)
 #define TRY_FIFO_CLEAR		(10)
 
+/* MIPI-DSIM status types. */
 enum {
-	DSIM_STATE_INIT,	
-	DSIM_STATE_STOP,	
-	DSIM_STATE_HSCLKEN,	
+	DSIM_STATE_INIT,	/* should be initialized. */
+	DSIM_STATE_STOP,	/* CPU and LCDC are LP mode. */
+	DSIM_STATE_HSCLKEN,	/* HS clock was enabled. */
 	DSIM_STATE_ULPS
 };
 
+/* define DSI lane types. */
 enum {
 	DSIM_LANE_CLOCK = (1 << 0),
 	DSIM_LANE_DATA0 = (1 << 1),
@@ -108,13 +110,23 @@ irqreturn_t exynos_mipi_dsi_interrupt_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * write long packet to mipi dsi slave
+ * @dsim: mipi dsim device structure.
+ * @data0: packet data to send.
+ * @data1: size of packet data
+ */
 static void exynos_mipi_dsi_long_data_wr(struct mipi_dsim_device *dsim,
 		const unsigned char *data0, unsigned int data_size)
 {
 	unsigned int data_cnt = 0, payload = 0;
 
-	
+	/* in case that data count is more then 4 */
 	for (data_cnt = 0; data_cnt < data_size; data_cnt += 4) {
+		/*
+		 * after sending 4bytes per one time,
+		 * send remainder data less then 4.
+		 */
 		if ((data_size - data_cnt) < 4) {
 			if ((data_size - data_cnt) == 3) {
 				payload = data0[data_cnt] |
@@ -136,7 +148,7 @@ static void exynos_mipi_dsi_long_data_wr(struct mipi_dsim_device *dsim,
 			}
 
 			exynos_mipi_dsi_wr_tx_data(dsim, payload);
-		
+		/* send 4bytes per one time. */
 		} else {
 			payload = data0[data_cnt] |
 				data0[data_cnt + 1] << 8 |
@@ -166,13 +178,13 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		return -EINVAL;
 	}
 
-	
+	/* FIXME!!! why does it need this delay? */
 	msleep(20);
 
 	mutex_lock(&dsim->lock);
 
 	switch (data_id) {
-	
+	/* short packet types of packet types for command. */
 	case MIPI_DSI_GENERIC_SHORT_WRITE_0_PARAM:
 	case MIPI_DSI_GENERIC_SHORT_WRITE_1_PARAM:
 	case MIPI_DSI_GENERIC_SHORT_WRITE_2_PARAM:
@@ -181,7 +193,7 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 	case MIPI_DSI_SET_MAXIMUM_RETURN_PACKET_SIZE:
 		exynos_mipi_dsi_wr_tx_header(dsim, data_id, data0[0], data0[1]);
 		if (check_rx_ack) {
-			
+			/* process response func should be implemented */
 			mutex_unlock(&dsim->lock);
 			return 0;
 		} else {
@@ -189,14 +201,14 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 			return -EINVAL;
 		}
 
-	
+	/* general command */
 	case MIPI_DSI_COLOR_MODE_OFF:
 	case MIPI_DSI_COLOR_MODE_ON:
 	case MIPI_DSI_SHUTDOWN_PERIPHERAL:
 	case MIPI_DSI_TURN_ON_PERIPHERAL:
 		exynos_mipi_dsi_wr_tx_header(dsim, data_id, data0[0], data0[1]);
 		if (check_rx_ack) {
-			
+			/* process response func should be implemented. */
 			mutex_unlock(&dsim->lock);
 			return 0;
 		} else {
@@ -204,7 +216,7 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 			return -EINVAL;
 		}
 
-	
+	/* packet types for video data */
 	case MIPI_DSI_V_SYNC_START:
 	case MIPI_DSI_V_SYNC_END:
 	case MIPI_DSI_H_SYNC_START:
@@ -213,7 +225,7 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		mutex_unlock(&dsim->lock);
 		return 0;
 
-	
+	/* long packet type and null packet */
 	case MIPI_DSI_NULL_PACKET:
 	case MIPI_DSI_BLANKING_PACKET:
 		mutex_unlock(&dsim->lock);
@@ -226,7 +238,7 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 
 		size = data_size * 4;
 
-		
+		/* if data count is less then 4, then send 3bytes data.  */
 		if (data_size < 4) {
 			payload = data0[0] |
 				data0[1] << 8 |
@@ -238,11 +250,11 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 				data_size, payload, data0[0],
 				data0[1], data0[2]);
 
-		
+		/* in case that data count is more then 4 */
 		} else
 			exynos_mipi_dsi_long_data_wr(dsim, data0, data_size);
 
-		
+		/* put data into header fifo */
 		exynos_mipi_dsi_wr_tx_header(dsim, data_id, data_size & 0xff,
 			(data_size & 0xff00) >> 8);
 
@@ -254,7 +266,7 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		}
 
 		if (check_rx_ack) {
-			
+			/* process response func should be implemented. */
 			mutex_unlock(&dsim->lock);
 			return 0;
 		} else {
@@ -263,13 +275,13 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		}
 	}
 
-	
+	/* packet typo for video data */
 	case MIPI_DSI_PACKED_PIXEL_STREAM_16:
 	case MIPI_DSI_PACKED_PIXEL_STREAM_18:
 	case MIPI_DSI_PIXEL_STREAM_3BYTE_18:
 	case MIPI_DSI_PACKED_PIXEL_STREAM_24:
 		if (check_rx_ack) {
-			
+			/* process response func should be implemented. */
 			mutex_unlock(&dsim->lock);
 			return 0;
 		} else {
@@ -295,7 +307,7 @@ static unsigned int exynos_mipi_dsi_long_data_rd(struct mipi_dsim_device *dsim,
 	unsigned int rcv_pkt, i, j;
 	u16 rxsize;
 
-	
+	/* for long packet */
 	rxsize = (u16)((rx_data & 0x00ffff00) >> 8);
 	dev_dbg(dsim->dev, "mipi dsi rx size : %d\n", rxsize);
 	if (rxsize != req_size) {
@@ -357,7 +369,7 @@ int exynos_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		return -EINVAL;
 	}
 
-	
+	/* FIXME!!! */
 	msleep(20);
 
 	mutex_lock(&dsim->lock);
@@ -374,7 +386,7 @@ int exynos_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 	case MIPI_DSI_DCS_READ:
 		exynos_mipi_dsi_rd_tx_header(dsim,
 			data_id, data0);
-		
+		/* process response func should be implemented. */
 		break;
 	default:
 		dev_warn(dsim->dev,
@@ -403,12 +415,12 @@ int exynos_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 	}
 
 	if (req_size <= 2) {
-		
+		/* for short packet */
 		for (i = 0; i < req_size; i++)
 			rx_buf[i] = (rx_data >> (8 + (i * 8))) & 0xff;
 		rxsize = req_size;
 	} else {
-		
+		/* for long packet */
 		rxsize = exynos_mipi_dsi_long_data_rd(dsim, req_size, rx_data,
 							rx_buf);
 		if (rxsize != req_size)
@@ -479,6 +491,26 @@ static unsigned long exynos_mipi_dsi_change_pll(struct mipi_dsim_device *dsim,
 
 	dfin_pll = (FIN_HZ / pre_divider);
 
+	/******************************************************
+	 *	Serial Clock(=ByteClk X 8)	FreqBand[3:0] *
+	 ******************************************************
+	 *	~ 99.99 MHz			0000
+	 *	100 ~ 119.99 MHz		0001
+	 *	120 ~ 159.99 MHz		0010
+	 *	160 ~ 199.99 MHz		0011
+	 *	200 ~ 239.99 MHz		0100
+	 *	140 ~ 319.99 MHz		0101
+	 *	320 ~ 389.99 MHz		0110
+	 *	390 ~ 449.99 MHz		0111
+	 *	450 ~ 509.99 MHz		1000
+	 *	510 ~ 559.99 MHz		1001
+	 *	560 ~ 639.99 MHz		1010
+	 *	640 ~ 689.99 MHz		1011
+	 *	690 ~ 769.99 MHz		1100
+	 *	770 ~ 869.99 MHz		1101
+	 *	870 ~ 949.99 MHz		1110
+	 *	950 ~ 1000 MHz			1111
+	 ******************************************************/
 	if (dfin_pll < DFIN_PLL_MIN_HZ || dfin_pll > DFIN_PLL_MAX_HZ) {
 		dev_warn(dsim->dev, "fin_pll range should be 6MHz ~ 12MHz\n");
 		exynos_mipi_dsi_enable_afc(dsim, 0, 0);
@@ -521,13 +553,13 @@ static unsigned long exynos_mipi_dsi_change_pll(struct mipi_dsim_device *dsim,
 	exynos_mipi_dsi_hs_zero_ctrl(dsim, 0);
 	exynos_mipi_dsi_prep_ctrl(dsim, 0);
 
-	
+	/* Freq Band */
 	exynos_mipi_dsi_pll_freq_band(dsim, freq_band);
 
-	
+	/* Stable time */
 	exynos_mipi_dsi_pll_stable_time(dsim, dsim->dsim_config->pll_stable_time);
 
-	
+	/* Enable PLL */
 	dev_dbg(dsim->dev, "FOUT of mipi dphy pll is %luMHz\n",
 		(dpll_out / MHZ));
 
@@ -544,10 +576,10 @@ static int exynos_mipi_dsi_set_clock(struct mipi_dsim_device *dsim,
 	if (enable) {
 		dsim->e_clk_src = byte_clk_sel;
 
-		
+		/* Escape mode clock and byte clock source */
 		exynos_mipi_dsi_set_byte_clock_src(dsim, byte_clk_sel);
 
-		
+		/* DPHY, DSIM Link : D-PHY clock out */
 		if (byte_clk_sel == DSIM_PLL_OUT_DIV8) {
 			hs_clk = exynos_mipi_dsi_change_pll(dsim,
 				dsim->dsim_config->p, dsim->dsim_config->m,
@@ -561,7 +593,7 @@ static int exynos_mipi_dsi_set_clock(struct mipi_dsim_device *dsim,
 			byte_clk = hs_clk / 8;
 			exynos_mipi_dsi_enable_pll_bypass(dsim, 0);
 			exynos_mipi_dsi_pll_on(dsim, 1);
-		
+		/* DPHY : D-PHY clock out, DSIM link : external clock out */
 		} else if (byte_clk_sel == DSIM_EXT_CLK_DIV8) {
 			dev_warn(dsim->dev, "this project is not support\n");
 			dev_warn(dsim->dev,
@@ -572,7 +604,7 @@ static int exynos_mipi_dsi_set_clock(struct mipi_dsim_device *dsim,
 				"external clock source for MIPI DSIM\n");
 		}
 
-		
+		/* escape clock divider */
 		esc_div = byte_clk / (dsim->dsim_config->esc_clk);
 		dev_dbg(dsim->dev,
 			"esc_div = %d, byte_clk = %lu, esc_clk = %lu\n",
@@ -587,12 +619,12 @@ static int exynos_mipi_dsi_set_clock(struct mipi_dsim_device *dsim,
 			"escape_clk = %lu, byte_clk = %lu, esc_div = %d\n",
 			escape_clk, byte_clk, esc_div);
 
-		
+		/* enable escape clock. */
 		exynos_mipi_dsi_enable_byte_clock(dsim, 1);
 
-		
+		/* enable byte clk and escape clock */
 		exynos_mipi_dsi_set_esc_clk_prs(dsim, 1, esc_div);
-		
+		/* escape clock on lane */
 		exynos_mipi_dsi_enable_esc_clk_on_lane(dsim,
 			(DSIM_LANE_CLOCK | dsim->data_lane), 1);
 
@@ -620,7 +652,7 @@ static int exynos_mipi_dsi_set_clock(struct mipi_dsim_device *dsim,
 			(DSIM_LANE_CLOCK | dsim->data_lane), 0);
 		exynos_mipi_dsi_set_esc_clk_prs(dsim, 0, 0);
 
-		
+		/* disable escape clock. */
 		exynos_mipi_dsi_enable_byte_clock(dsim, 0);
 
 		if (byte_clk_sel == DSIM_PLL_OUT_DIV8)
@@ -677,7 +709,7 @@ void exynos_mipi_dsi_init_interrupt(struct mipi_dsim_device *dsim)
 int exynos_mipi_dsi_enable_frame_done_int(struct mipi_dsim_device *dsim,
 	unsigned int enable)
 {
-	
+	/* enable only frame done interrupt */
 	exynos_mipi_dsi_set_interrupt_mask(dsim, INTMSK_FRAME_DONE, enable);
 
 	return 0;
@@ -687,7 +719,7 @@ void exynos_mipi_dsi_stand_by(struct mipi_dsim_device *dsim,
 		unsigned int enable)
 {
 
-	
+	/* consider Main display and Sub display. */
 
 	exynos_mipi_dsi_set_main_stand_by(dsim, enable);
 }
@@ -701,7 +733,7 @@ int exynos_mipi_dsi_set_display_mode(struct mipi_dsim_device *dsim,
 	dsim_pd = (struct mipi_dsim_platform_data *)dsim->pd;
 	timing = (struct fb_videomode *)dsim_pd->lcd_panel_info;
 
-	
+	/* in case of VIDEO MODE (RGB INTERFACE), it sets polarities. */
 	if (dsim_config->e_interface == (u32) DSIM_VIDEO) {
 		if (dsim_config->auto_vertical_cnt == 0) {
 			exynos_mipi_dsi_set_main_disp_vporch(dsim,
@@ -736,15 +768,15 @@ int exynos_mipi_dsi_init_link(struct mipi_dsim_device *dsim)
 	case DSIM_STATE_INIT:
 		exynos_mipi_dsi_init_fifo_pointer(dsim, 0x1f);
 
-		
+		/* dsi configuration */
 		exynos_mipi_dsi_init_config(dsim);
 		exynos_mipi_dsi_enable_lane(dsim, DSIM_LANE_CLOCK, 1);
 		exynos_mipi_dsi_enable_lane(dsim, dsim->data_lane, 1);
 
-		
+		/* set clock configuration */
 		exynos_mipi_dsi_set_clock(dsim, dsim->dsim_config->e_byte_clk, 1);
 
-		
+		/* check clock and data lane state are stop state */
 		while (!(exynos_mipi_dsi_is_lane_state(dsim))) {
 			time_out--;
 			if (time_out == 0) {
@@ -764,7 +796,7 @@ int exynos_mipi_dsi_init_link(struct mipi_dsim_device *dsim)
 
 		dsim->state = DSIM_STATE_STOP;
 
-		
+		/* BTA sequence counters */
 		exynos_mipi_dsi_set_stop_state_counter(dsim,
 			dsim->dsim_config->stop_holding_cnt);
 		exynos_mipi_dsi_set_bta_timeout(dsim,
@@ -795,7 +827,7 @@ int exynos_mipi_dsi_set_hs_enable(struct mipi_dsim_device *dsim)
 
 	dsim->state = DSIM_STATE_HSCLKEN;
 
-	 
+	 /* set LCDC and CPU transfer mode to HS. */
 	exynos_mipi_dsi_set_lcdc_transfer_mode(dsim, 0);
 	exynos_mipi_dsi_set_cpu_transfer_mode(dsim, 0);
 	exynos_mipi_dsi_enable_hs_clock(dsim, 1);

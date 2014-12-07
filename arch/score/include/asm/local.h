@@ -3,4 +3,4 @@
 
 #include <asm-generic/local.h>
 
-#endif 
+#endif /* _ASM_SCORE_LOCAL_H */

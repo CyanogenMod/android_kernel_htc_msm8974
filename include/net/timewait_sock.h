@@ -48,4 +48,4 @@ static inline void *twsk_getpeer(struct sock *sk)
 	return NULL;
 }
 
-#endif 
+#endif /* _TIMEWAIT_SOCK_H */

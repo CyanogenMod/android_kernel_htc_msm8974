@@ -32,6 +32,10 @@ struct mpc8xxx_gpio_chip {
 	struct of_mm_gpio_chip mm_gc;
 	spinlock_t lock;
 
+	/*
+	 * shadowed data register to be able to clear/set output pins in
+	 * open drain mode safely
+	 */
 	u32 data;
 	struct irq_domain *irq;
 	void *of_dev_id_data;
@@ -55,6 +59,11 @@ static void mpc8xxx_gpio_save_regs(struct of_mm_gpio_chip *mm)
 	mpc8xxx_gc->data = in_be32(mm->regs + GPIO_DAT);
 }
 
+/* Workaround GPIO 1 errata on MPC8572/MPC8536. The status of GPIOs
+ * defined as output cannot be determined by reading GPDAT register,
+ * so we use shadow data register instead. The status of input pins
+ * is determined by reading GPDAT register.
+ */
 static int mpc8572_gpio_get(struct gpio_chip *gc, unsigned int gpio)
 {
 	u32 val;
@@ -125,7 +134,7 @@ static int mpc8xxx_gpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val
 
 static int mpc5121_gpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 {
-	
+	/* GPIO 28..31 are input only on MPC5121 */
 	if (gpio >= 28)
 		return -EINVAL;
 
@@ -349,7 +358,7 @@ static void __init mpc8xxx_add_controller(struct device_node *np)
 	if (id)
 		mpc8xxx_gc->of_dev_id_data = id->data;
 
-	
+	/* ack and mask all irqs */
 	out_be32(mm_gc->regs + GPIO_IER, 0xffffffff);
 	out_be32(mm_gc->regs + GPIO_IMR, 0);
 

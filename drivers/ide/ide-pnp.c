@@ -21,8 +21,9 @@
 
 #define DRV_NAME "ide-pnp"
 
+/* Add your devices here :)) */
 static struct pnp_device_id idepnp_devices[] = {
-	
+	/* Generic ESDI/IDE/ATA compatible hard disk controller */
 	{.id = "PNP0600", .driver_data = 0},
 	{.id = ""}
 };

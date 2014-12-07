@@ -22,6 +22,7 @@ enum s5m_device_type {
 	S5M8767X,
 };
 
+/* S5M8767 registers */
 enum s5m8767_reg {
 	S5M8767_REG_ID,
 	S5M8767_REG_INT1,
@@ -146,6 +147,7 @@ enum s5m8767_reg {
 	S5M8767_REG_LDO28CTRL,
 };
 
+/* S5M8763 registers */
 enum s5m8763_reg {
 	S5M8763_REG_IRQ1,
 	S5M8763_REG_IRQ2,
@@ -289,6 +291,20 @@ enum s5m8763_irq {
 
 #define S5M8763_ENRAMP                  (1 << 4)
 
+/**
+ * struct s5m87xx_dev - s5m87xx master device for sub-drivers
+ * @dev: master device of the chip (can be used to access platform data)
+ * @i2c: i2c client private data for regulator
+ * @rtc: i2c client private data for rtc
+ * @iolock: mutex for serializing io access
+ * @irqlock: mutex for buslock
+ * @irq_base: base IRQ number for s5m87xx, required for IRQs
+ * @irq: generic IRQ number for s5m87xx
+ * @ono: power onoff IRQ number for s5m87xx
+ * @irq_masks_cur: currently active value
+ * @irq_masks_cache: cached hardware value
+ * @type: indicate which s5m87xx "variant" is used
+ */
 struct s5m87xx_dev {
 	struct device *dev;
 	struct regmap *regmap;
@@ -354,4 +370,4 @@ struct s5m_platform_data {
 	bool                            buck4_ramp_enable;
 };
 
-#endif 
+#endif /*  __LINUX_MFD_S5M_CORE_H */

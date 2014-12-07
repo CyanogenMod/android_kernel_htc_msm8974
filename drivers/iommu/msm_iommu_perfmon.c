@@ -260,12 +260,12 @@ static void iommu_pm_on(struct iommu_pmon *pmon)
 	iommu->ops->iommu_bus_vote(iommu_drvdata, 1);
 	iommu->ops->iommu_clk_on(iommu_drvdata);
 
-	
+	/* Reset counters in HW */
 	iommu->ops->iommu_lock_acquire(1);
 	iommu->hw_ops->reset_counters(&pmon->iommu);
 	iommu->ops->iommu_lock_release(1);
 
-	
+	/* Reset SW counters */
 	iommu_pm_reset_counts(pmon);
 
 	pmon->enabled = 1;
@@ -274,11 +274,11 @@ static void iommu_pm_on(struct iommu_pmon *pmon)
 
 	iommu->ops->iommu_lock_acquire(1);
 
-	
+	/* enable all counter group */
 	for (i = 0; i < pmon->num_groups; ++i)
 		iommu->hw_ops->grp_enable(iommu, i);
 
-	
+	/* enable global counters */
 	iommu->hw_ops->enable_pm(iommu);
 	iommu->ops->iommu_lock_release(1);
 
@@ -297,17 +297,17 @@ static void iommu_pm_off(struct iommu_pmon *pmon)
 
 	iommu->ops->iommu_lock_acquire(1);
 
-	
+	/* disable global counters */
 	iommu->hw_ops->disable_pm(iommu);
 
-	
+	/* Check if we overflowed just before turning off pmon */
 	iommu->hw_ops->check_for_overflow(pmon);
 
-	
+	/* disable all counter group */
 	for (i = 0; i < pmon->num_groups; ++i)
 		iommu->hw_ops->grp_disable(iommu, i);
 
-	
+	/* Update cached copy of counters before turning off power */
 	iommu_pm_read_all_counters(pmon);
 
 	iommu->ops->iommu_lock_release(1);
@@ -509,6 +509,11 @@ static ssize_t iommu_pm_enable_counters_write(struct file *fp,
 				    pmon->iommu_attach_count > 0)
 					iommu_pm_off(pmon);
 			} else if (pmon->enabled == 0 && cmd == 1) {
+				/* We can only turn on perf. monitoring if
+				 * iommu is attached (if not always on).
+				 * Delay turning on perf. monitoring until
+				 * we are attached.
+				 */
 				if (pmon->iommu.always_on ||
 				    pmon->iommu_attach_count > 0)
 					iommu_pm_on(pmon);
@@ -802,6 +807,9 @@ void msm_iommu_attached(struct device *dev)
 		mutex_lock(&pmon->lock);
 		++pmon->iommu_attach_count;
 		if (pmon->iommu_attach_count == 1) {
+			/* If perf. mon was enabled before we attached we do
+			 * the actual enabling after we attach.
+			 */
 			if (pmon->enabled && !pmon->iommu.always_on)
 				iommu_pm_on(pmon);
 		}
@@ -816,6 +824,9 @@ void msm_iommu_detached(struct device *dev)
 	if (pmon) {
 		mutex_lock(&pmon->lock);
 		if (pmon->iommu_attach_count == 1) {
+			/* If perf. mon is still enabled we have to disable
+			 * before we do the detach if iommu is not always on.
+			 */
 			if (pmon->enabled && !pmon->iommu.always_on)
 				iommu_pm_off(pmon);
 		}

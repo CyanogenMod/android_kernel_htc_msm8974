@@ -26,14 +26,19 @@
 #define LED_PWM_CTRL1	0xF4
 #define LED_PWM_CTRL2	0xF5
 
+/* Max value for CTRL1 register */
 #define PWM_CTRL1_MAX	255
 
+/* Pull down disable */
 #define PWM_CTRL2_DIS_PD	(1 << 6)
 
+/* Current control 2.5 milli Amps */
 #define PWM_CTRL2_CURR_02	(2 << 4)
 
+/* LED supply source */
 #define PWM_CTRL2_SRC_VAC	(1 << 2)
 
+/* LED modes */
 #define PWM_CTRL2_MODE_HW	(0 << 0)
 #define PWM_CTRL2_MODE_SW	(1 << 0)
 #define PWM_CTRL2_MODE_DIS	(2 << 0)
@@ -77,7 +82,7 @@ int pwm_enable(struct pwm_device *pwm)
 		return ret;
 	}
 
-	
+	/* Change mode to software control */
 	val &= ~PWM_CTRL2_MODE_MASK;
 	val |= PWM_CTRL2_MODE_SW;
 
@@ -132,7 +137,7 @@ struct pwm_device *pwm_request(int pwm_id, const char *label)
 	pwm->label = label;
 	pwm->pwm_id = pwm_id;
 
-	
+	/* Configure PWM */
 	val = PWM_CTRL2_DIS_PD | PWM_CTRL2_CURR_02 | PWM_CTRL2_SRC_VAC |
 		PWM_CTRL2_MODE_HW;
 

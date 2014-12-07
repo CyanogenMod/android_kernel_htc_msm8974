@@ -35,6 +35,15 @@ static int reset_gpio;
 
 extern void pxa27x_assert_ac97reset(int reset_gpio, int on);
 
+/*
+ * Beware PXA27x bugs:
+ *
+ *   o Slot 12 read from modem space will hang controller.
+ *   o CDONE, SDONE interrupt fails after any slot 12 IO.
+ *
+ * We therefore have an hybrid approach for waiting on SDONE (interrupt or
+ * 1 jiffy timeout if interrupt never comes).
+ */
 
 unsigned short pxa2xx_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 {
@@ -43,14 +52,14 @@ unsigned short pxa2xx_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 
 	mutex_lock(&car_mutex);
 
-	
+	/* set up primary or secondary codec space */
 	if (cpu_is_pxa25x() && reg == AC97_GPIO_STATUS)
 		reg_addr = ac97->num ? &SMC_REG_BASE : &PMC_REG_BASE;
 	else
 		reg_addr = ac97->num ? &SAC_REG_BASE : &PAC_REG_BASE;
 	reg_addr += (reg >> 1);
 
-	
+	/* start read access across the ac97 link */
 	GSR = GSR_CDONE | GSR_SDONE;
 	gsr_bits = 0;
 	val = *reg_addr;
@@ -64,11 +73,11 @@ unsigned short pxa2xx_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 		goto out;
 	}
 
-	
+	/* valid data now */
 	GSR = GSR_CDONE | GSR_SDONE;
 	gsr_bits = 0;
 	val = *reg_addr;
-	
+	/* but we've just started another cycle... */
 	wait_event_timeout(gsr_wq, (GSR | gsr_bits) & GSR_SDONE, 1);
 
 out:	mutex_unlock(&car_mutex);
@@ -83,7 +92,7 @@ void pxa2xx_ac97_write(struct snd_ac97 *ac97, unsigned short reg,
 
 	mutex_lock(&car_mutex);
 
-	
+	/* set up primary or secondary codec space */
 	if (cpu_is_pxa25x() && reg == AC97_GPIO_STATUS)
 		reg_addr = ac97->num ? &SMC_REG_BASE : &PMC_REG_BASE;
 	else
@@ -113,8 +122,8 @@ static inline void pxa_ac97_warm_pxa25x(void)
 
 static inline void pxa_ac97_cold_pxa25x(void)
 {
-	GCR &=  GCR_COLD_RST;  
-	GCR &= ~GCR_COLD_RST;  
+	GCR &=  GCR_COLD_RST;  /* clear everything but nCRST */
+	GCR &= ~GCR_COLD_RST;  /* then assert nCRST */
 
 	gsr_bits = 0;
 
@@ -129,7 +138,7 @@ static inline void pxa_ac97_warm_pxa27x(void)
 {
 	gsr_bits = 0;
 
-	
+	/* warm reset broken on Bulverde, so manually keep AC97 reset high */
 	pxa27x_assert_ac97reset(reset_gpio, 1);
 	udelay(10);
 	GCR |= GCR_WARM_RST;
@@ -139,12 +148,12 @@ static inline void pxa_ac97_warm_pxa27x(void)
 
 static inline void pxa_ac97_cold_pxa27x(void)
 {
-	GCR &=  GCR_COLD_RST;  
-	GCR &= ~GCR_COLD_RST;  
+	GCR &=  GCR_COLD_RST;  /* clear everything but nCRST */
+	GCR &= ~GCR_COLD_RST;  /* then assert nCRST */
 
 	gsr_bits = 0;
 
-	
+	/* PXA27x Developers Manual section 13.5.2.2.1 */
 	clk_enable(ac97conf_clk);
 	udelay(5);
 	clk_disable(ac97conf_clk);
@@ -160,7 +169,7 @@ static inline void pxa_ac97_warm_pxa3xx(void)
 
 	gsr_bits = 0;
 
-	
+	/* Can't use interrupts */
 	GCR |= GCR_WARM_RST;
 	while (!((GSR | gsr_bits) & (GSR_PCR | GSR_SCR)) && timeout--)
 		mdelay(1);
@@ -170,18 +179,18 @@ static inline void pxa_ac97_cold_pxa3xx(void)
 {
 	int timeout = 1000;
 
-	
+	/* Hold CLKBPB for 100us */
 	GCR = 0;
 	GCR = GCR_CLKBPB;
 	udelay(100);
 	GCR = 0;
 
-	GCR &=  GCR_COLD_RST;  
-	GCR &= ~GCR_COLD_RST;  
+	GCR &=  GCR_COLD_RST;  /* clear everything but nCRST */
+	GCR &= ~GCR_COLD_RST;  /* then assert nCRST */
 
 	gsr_bits = 0;
 
-	
+	/* Can't use interrupts on PXA3xx */
 	GCR &= ~(GCR_PRIRDY_IEN|GCR_SECRDY_IEN);
 
 	GCR = GCR_WARM_RST | GCR_COLD_RST;
@@ -273,6 +282,9 @@ static irqreturn_t pxa2xx_ac97_irq(int irq, void *dev_id)
 		gsr_bits |= status;
 		wake_up(&gsr_wq);
 
+		/* Although we don't use those we still need to clear them
+		   since they tend to spuriously trigger when MMC is used
+		   (hardware bug? go figure)... */
 		if (cpu_is_pxa27x()) {
 			MISR = MISR_EOC;
 			PISR = PISR_EOC;
@@ -328,7 +340,7 @@ int __devinit pxa2xx_ac97_hw_probe(struct platform_device *dev)
 	}
 
 	if (cpu_is_pxa27x()) {
-		
+		/* Use GPIO 113 as AC97 Reset on Bulverde */
 		pxa27x_assert_ac97reset(reset_gpio, 0);
 		ac97conf_clk = clk_get(&dev->dev, "AC97CONFCLK");
 		if (IS_ERR(ac97conf_clk)) {

@@ -1,3 +1,15 @@
+/*
+ * comedi/drivers/pcl725.c
+ * Driver for PCL725 and clones
+ * David A. Schleef
+ */
+/*
+Driver: pcl725
+Description: Advantech PCL-725 (& compatibles)
+Author: ds
+Status: unknown
+Devices: [Advantech] PCL-725 (pcl725)
+*/
 
 #include "../comedidev.h"
 
@@ -78,7 +90,7 @@ static int pcl725_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		return -ENOMEM;
 
 	s = dev->subdevices + 0;
-	
+	/* do */
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->maxdata = 1;
@@ -87,7 +99,7 @@ static int pcl725_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->range_table = &range_digital;
 
 	s = dev->subdevices + 1;
-	
+	/* di */
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
 	s->maxdata = 1;

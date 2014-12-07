@@ -35,6 +35,18 @@ static void *jffs2_follow_link(struct dentry *dentry, struct nameidata *nd)
 	struct jffs2_inode_info *f = JFFS2_INODE_INFO(dentry->d_inode);
 	char *p = (char *)f->target;
 
+	/*
+	 * We don't acquire the f->sem mutex here since the only data we
+	 * use is f->target.
+	 *
+	 * 1. If we are here the inode has already built and f->target has
+	 * to point to the target path.
+	 * 2. Nobody uses f->target (if the inode is symlink's inode). The
+	 * exception is inode freeing function which frees f->target. But
+	 * it can't be called while we are here and before VFS has
+	 * stopped using our f->target string which we provide by means of
+	 * nd_set_link() call.
+	 */
 
 	if (!p) {
 		pr_err("%s(): can't find symlink target\n", __func__);
@@ -45,6 +57,11 @@ static void *jffs2_follow_link(struct dentry *dentry, struct nameidata *nd)
 
 	nd_set_link(nd, p);
 
+	/*
+	 * We will unlock the f->sem mutex but VFS will use the f->target string. This is safe
+	 * since the only way that may cause f->target to be changed is iput() operation.
+	 * But VFS will not use f->target after iput() has been called.
+	 */
 	return NULL;
 }
 

@@ -22,5 +22,5 @@ struct dlm_ls *dlm_find_lockspace_device(int minor);
 void dlm_put_lockspace(struct dlm_ls *ls);
 void dlm_stop_lockspaces(void);
 
-#endif				
+#endif				/* __LOCKSPACE_DOT_H__ */
 

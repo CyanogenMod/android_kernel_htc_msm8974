@@ -17,8 +17,9 @@
 
 #include <asm-generic/dma.h>
 
+/* Needed by drivers/pci/quirks.c */
 #ifdef CONFIG_PCI
 extern int isa_dma_bridge_buggy;
 #endif
 
-#endif 
+#endif /* _ASM_TILE_DMA_H */

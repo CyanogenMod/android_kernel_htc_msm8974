@@ -150,19 +150,19 @@ void kprobe_arm_test_cases(void)
 	DATA_PROCESSING_DNM("bic",0xf00f00ff)
 	DATA_PROCESSING_DM("mvn",VAL2)
 
-	TEST("mov	ip, sp") 
+	TEST("mov	ip, sp") /* This has special case emulation code */
 
 	TEST_SUPPORTED("mov	pc, #0x1000");
 	TEST_SUPPORTED("mov	sp, #0x1000");
 	TEST_SUPPORTED("cmp	pc, #0x1000");
 	TEST_SUPPORTED("cmp	sp, #0x1000");
 
-	
+	/* Data-processing with PC as shift*/
 	TEST_UNSUPPORTED(".word 0xe15c0f1e	@ cmp	r12, r14, asl pc")
 	TEST_UNSUPPORTED(".word 0xe1a0cf1e	@ mov	r12, r14, asl pc")
 	TEST_UNSUPPORTED(".word 0xe08caf1e	@ add	r10, r12, r14, asl pc")
 
-	
+	/* Data-processing with PC as shift*/
 	TEST_UNSUPPORTED("movs	pc, r1")
 	TEST_UNSUPPORTED("movs	pc, r1, lsl r2")
 	TEST_UNSUPPORTED("movs	pc, #0x10000")
@@ -170,7 +170,7 @@ void kprobe_arm_test_cases(void)
 	TEST_UNSUPPORTED("adds	pc, lr, r1, lsl r2")
 	TEST_UNSUPPORTED("adds	pc, lr, #4")
 
-	
+	/* Data-processing with SP as target */
 	TEST("add	sp, sp, #16")
 	TEST("sub	sp, sp, #8")
 	TEST("bic	sp, sp, #0x20")
@@ -180,7 +180,7 @@ void kprobe_arm_test_cases(void)
 	TEST_P(  "mov	sp, r",10,0,"")
 	TEST_PR( "mov	sp, r",10,0,", asl r",12,0,"")
 
-	
+	/* Data-processing with PC as target */
 	TEST_BF(   "add	pc, pc, #2f-1b-8")
 	TEST_BF_R ("add	pc, pc, r",14,2f-1f-8,"")
 	TEST_BF_R ("add	pc, r",14,2f-1f-8,", pc")
@@ -188,7 +188,7 @@ void kprobe_arm_test_cases(void)
 	TEST_BF_RR("mov	pc, r",0,2f,", asl r",1,0,"")
 	TEST_BB(   "sub	pc, pc, #1b-2b+8")
 #if __LINUX_ARM_ARCH__ >= 6
-	TEST_BB(   "sub	pc, pc, #1b-2b+8-2") 
+	TEST_BB(   "sub	pc, pc, #1b-2b+8-2") /* UNPREDICTABLE before ARMv6 */
 #endif
 	TEST_BB_R( "sub	pc, pc, r",14, 1f-2f+8,"")
 	TEST_BB_R( "rsb	pc, r",14,1f-2f+8,", pc")
@@ -448,12 +448,12 @@ void kprobe_arm_test_cases(void)
 #endif
 	TEST_UNSUPPORTED(".word 0xe142f091 @ swpb pc, r1, [r2]")
 
-	TEST_UNSUPPORTED(".word	0xe1100090") 
-	TEST_UNSUPPORTED(".word	0xe1200090") 
-	TEST_UNSUPPORTED(".word	0xe1300090") 
-	TEST_UNSUPPORTED(".word	0xe1500090") 
-	TEST_UNSUPPORTED(".word	0xe1600090") 
-	TEST_UNSUPPORTED(".word	0xe1700090") 
+	TEST_UNSUPPORTED(".word	0xe1100090") /* Unallocated space */
+	TEST_UNSUPPORTED(".word	0xe1200090") /* Unallocated space */
+	TEST_UNSUPPORTED(".word	0xe1300090") /* Unallocated space */
+	TEST_UNSUPPORTED(".word	0xe1500090") /* Unallocated space */
+	TEST_UNSUPPORTED(".word	0xe1600090") /* Unallocated space */
+	TEST_UNSUPPORTED(".word	0xe1700090") /* Unallocated space */
 #if __LINUX_ARM_ARCH__ >= 6
 	TEST_UNSUPPORTED("ldrex	r2, [sp]")
 	TEST_UNSUPPORTED("strexd	r0, r2, r3, [sp]")
@@ -695,8 +695,8 @@ void kprobe_arm_test_cases(void)
 #if __LINUX_ARM_ARCH__ >= 7
 	TEST_GROUP("Parallel addition and subtraction, signed")
 
-	TEST_UNSUPPORTED(".word 0xe6000010") 
-	TEST_UNSUPPORTED(".word 0xe60fffff") 
+	TEST_UNSUPPORTED(".word 0xe6000010") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe60fffff") /* Unallocated space */
 
 	TEST_RR(    "sadd16	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "sadd16	r14, r",12,HH2,", r",10,HH1,"")
@@ -713,10 +713,10 @@ void kprobe_arm_test_cases(void)
 	TEST_RR(    "sadd8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "sadd8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe61cff9a	@ sadd8	pc, r12, r10")
-	TEST_UNSUPPORTED(".word 0xe61000b0") 
-	TEST_UNSUPPORTED(".word 0xe61fffbf") 
-	TEST_UNSUPPORTED(".word 0xe61000d0") 
-	TEST_UNSUPPORTED(".word 0xe61fffdf") 
+	TEST_UNSUPPORTED(".word 0xe61000b0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe61fffbf") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe61000d0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe61fffdf") /* Unallocated space */
 	TEST_RR(    "ssub8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "ssub8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe61cfffa	@ ssub8	pc, r12, r10")
@@ -736,10 +736,10 @@ void kprobe_arm_test_cases(void)
 	TEST_RR(    "qadd8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "qadd8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe62cff9a	@ qadd8	pc, r12, r10")
-	TEST_UNSUPPORTED(".word 0xe62000b0") 
-	TEST_UNSUPPORTED(".word 0xe62fffbf") 
-	TEST_UNSUPPORTED(".word 0xe62000d0") 
-	TEST_UNSUPPORTED(".word 0xe62fffdf") 
+	TEST_UNSUPPORTED(".word 0xe62000b0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe62fffbf") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe62000d0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe62fffdf") /* Unallocated space */
 	TEST_RR(    "qsub8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "qsub8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe62cfffa	@ qsub8	pc, r12, r10")
@@ -759,18 +759,18 @@ void kprobe_arm_test_cases(void)
 	TEST_RR(    "shadd8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "shadd8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe63cff9a	@ shadd8	pc, r12, r10")
-	TEST_UNSUPPORTED(".word 0xe63000b0") 
-	TEST_UNSUPPORTED(".word 0xe63fffbf") 
-	TEST_UNSUPPORTED(".word 0xe63000d0") 
-	TEST_UNSUPPORTED(".word 0xe63fffdf") 
+	TEST_UNSUPPORTED(".word 0xe63000b0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe63fffbf") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe63000d0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe63fffdf") /* Unallocated space */
 	TEST_RR(    "shsub8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "shsub8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe63cfffa	@ shsub8	pc, r12, r10")
 
 	TEST_GROUP("Parallel addition and subtraction, unsigned")
 
-	TEST_UNSUPPORTED(".word 0xe6400010") 
-	TEST_UNSUPPORTED(".word 0xe64fffff") 
+	TEST_UNSUPPORTED(".word 0xe6400010") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe64fffff") /* Unallocated space */
 
 	TEST_RR(    "uadd16	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "uadd16	r14, r",12,HH2,", r",10,HH1,"")
@@ -787,10 +787,10 @@ void kprobe_arm_test_cases(void)
 	TEST_RR(    "uadd8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "uadd8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe65cff9a	@ uadd8	pc, r12, r10")
-	TEST_UNSUPPORTED(".word 0xe65000b0") 
-	TEST_UNSUPPORTED(".word 0xe65fffbf") 
-	TEST_UNSUPPORTED(".word 0xe65000d0") 
-	TEST_UNSUPPORTED(".word 0xe65fffdf") 
+	TEST_UNSUPPORTED(".word 0xe65000b0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe65fffbf") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe65000d0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe65fffdf") /* Unallocated space */
 	TEST_RR(    "usub8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "usub8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe65cfffa	@ usub8	pc, r12, r10")
@@ -810,10 +810,10 @@ void kprobe_arm_test_cases(void)
 	TEST_RR(    "uqadd8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "uqadd8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe66cff9a	@ uqadd8	pc, r12, r10")
-	TEST_UNSUPPORTED(".word 0xe66000b0") 
-	TEST_UNSUPPORTED(".word 0xe66fffbf") 
-	TEST_UNSUPPORTED(".word 0xe66000d0") 
-	TEST_UNSUPPORTED(".word 0xe66fffdf") 
+	TEST_UNSUPPORTED(".word 0xe66000b0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe66fffbf") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe66000d0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe66fffdf") /* Unallocated space */
 	TEST_RR(    "uqsub8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "uqsub8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe66cfffa	@ uqsub8	pc, r12, r10")
@@ -833,16 +833,16 @@ void kprobe_arm_test_cases(void)
 	TEST_RR(    "uhadd8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "uhadd8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe67cff9a	@ uhadd8	pc, r12, r10")
-	TEST_UNSUPPORTED(".word 0xe67000b0") 
-	TEST_UNSUPPORTED(".word 0xe67fffbf") 
-	TEST_UNSUPPORTED(".word 0xe67000d0") 
-	TEST_UNSUPPORTED(".word 0xe67fffdf") 
+	TEST_UNSUPPORTED(".word 0xe67000b0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe67fffbf") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe67000d0") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe67fffdf") /* Unallocated space */
 	TEST_RR(    "uhsub8	r0, r",0,  HH1,", r",1, HH2,"")
 	TEST_RR(    "uhsub8	r14, r",12,HH2,", r",10,HH1,"")
 	TEST_UNSUPPORTED(".word 0xe67cfffa	@ uhsub8	pc, r12, r10")
 	TEST_UNSUPPORTED(".word 0xe67feffa	@ uhsub8	r14, pc, r10")
 	TEST_UNSUPPORTED(".word 0xe67cefff	@ uhsub8	r14, r12, pc")
-#endif 
+#endif /* __LINUX_ARM_ARCH__ >= 7 */
 
 #if __LINUX_ARM_ARCH__ >= 6
 	TEST_GROUP("Packing, unpacking, saturation, and reversal")
@@ -855,8 +855,8 @@ void kprobe_arm_test_cases(void)
 	TEST_UNSUPPORTED(".word 0xe68cf15a	@ pkhtb	pc, r12, r10, asr #2")
 	TEST_UNSUPPORTED(".word 0xe68fe15a	@ pkhtb	r14, pc, r10, asr #2")
 	TEST_UNSUPPORTED(".word 0xe68ce15f	@ pkhtb	r14, r12, pc, asr #2")
-	TEST_UNSUPPORTED(".word 0xe6900010") 
-	TEST_UNSUPPORTED(".word 0xe69fffdf") 
+	TEST_UNSUPPORTED(".word 0xe6900010") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe69fffdf") /* Unallocated space */
 
 	TEST_R(     "ssat	r0, #24, r",0,   VAL1,"")
 	TEST_R(     "ssat	r14, #24, r",12, VAL2,"")
@@ -937,12 +937,12 @@ void kprobe_arm_test_cases(void)
 	TEST_UNSUPPORTED(".word 0xe6ffff3c	@ revsh	pc, r12")
 	TEST_UNSUPPORTED(".word 0xe6ffef3f	@ revsh	r14, pc")
 
-	TEST_UNSUPPORTED(".word 0xe6900070") 
-	TEST_UNSUPPORTED(".word 0xe69fff7f") 
+	TEST_UNSUPPORTED(".word 0xe6900070") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe69fff7f") /* Unallocated space */
 
-	TEST_UNSUPPORTED(".word 0xe6d00070") 
-	TEST_UNSUPPORTED(".word 0xe6dfff7f") 
-#endif 
+	TEST_UNSUPPORTED(".word 0xe6d00070") /* Unallocated space */
+	TEST_UNSUPPORTED(".word 0xe6dfff7f") /* Unallocated space */
+#endif /* __LINUX_ARM_ARCH__ >= 6 */
 
 #if __LINUX_ARM_ARCH__ >= 6
 	TEST_GROUP("Signed multiplies")
@@ -1022,7 +1022,7 @@ void kprobe_arm_test_cases(void)
 	TEST_UNSUPPORTED(".word 0xe78f8a1c	@ usada8	pc, r12, r10, r8")
 	TEST_UNSUPPORTED(".word 0xe78e8a1f	@ usada8	r14, pc, r10, r8")
 	TEST_UNSUPPORTED(".word 0xe78e8f1c	@ usada8	r14, r12, pc, r8")
-#endif 
+#endif /* __LINUX_ARM_ARCH__ >= 6 */
 
 #if __LINUX_ARM_ARCH__ >= 7
 	TEST_GROUP("Bit Field")
@@ -1048,9 +1048,9 @@ void kprobe_arm_test_cases(void)
 	TEST_RR(    "bfipl	r",12,VAL1,", r",14 , VAL2,", #4, #20")
 	TEST_UNSUPPORTED(".word 0xe7d7f21e	@ bfi	pc, r14, #4, #20")
 
-	TEST_UNSUPPORTED(".word 0x07f000f0")  
-	TEST_UNSUPPORTED(".word 0x07ffffff")  
-#endif 
+	TEST_UNSUPPORTED(".word 0x07f000f0")  /* Permanently UNDEFINED */
+	TEST_UNSUPPORTED(".word 0x07ffffff")  /* Permanently UNDEFINED */
+#endif /* __LINUX_ARM_ARCH__ >= 6 */
 
 	TEST_GROUP("Branch, branch with link, and block data transfer")
 
@@ -1137,6 +1137,11 @@ void kprobe_arm_test_cases(void)
 
 	TEST_GROUP("Supervisor Call, and coprocessor instructions")
 
+	/*
+	 * We can't really test these by executing them, so all
+	 * we can do is check that probes are, or are not allowed.
+	 * At the moment none are allowed...
+	 */
 #define TEST_COPROCESSOR(code) TEST_UNSUPPORTED(code)
 
 #define COPROCESSOR_INSTRUCTIONS_ST_LD(two,cc)					\
@@ -1250,7 +1255,7 @@ void kprobe_arm_test_cases(void)
 	TEST_UNSUPPORTED(".word 0xf93d0a00	@ rfedb	pc!")
 	TEST_UNSUPPORTED(".word 0xf8bd0a00	@ rfeia	pc!")
 	TEST_UNSUPPORTED(".word 0xf9bd0a00	@ rfeib	pc!")
-#endif 
+#endif /* __LINUX_ARM_ARCH__ >= 6 */
 
 #if __LINUX_ARM_ARCH__ >= 6
 	TEST_X(	"blx	__dummy_thumb_subroutine_even",
@@ -1274,7 +1279,7 @@ void kprobe_arm_test_cases(void)
 		".arm				\n\t"
 	)
 	TEST(	"blx	__dummy_thumb_subroutine_odd")
-#endif 
+#endif /* __LINUX_ARM_ARCH__ >= 6 */
 
 	COPROCESSOR_INSTRUCTIONS_ST_LD("2","f")
 #if __LINUX_ARM_ARCH__ >= 6

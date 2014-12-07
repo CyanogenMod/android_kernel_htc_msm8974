@@ -52,6 +52,11 @@ static void regmap_irq_sync_unlock(struct irq_data *data)
 	struct regmap_irq_chip_data *d = irq_data_get_irq_chip_data(data);
 	int i, ret;
 
+	/*
+	 * If there's been a change in the mask write it back to the
+	 * hardware.  We rely on the use of the regmap core cache to
+	 * suppress pointless writes.
+	 */
 	for (i = 0; i < d->chip->num_regs; i++) {
 		ret = regmap_update_bits(d->map, d->chip->mask_base + i,
 					 d->mask_buf_def[i], d->mask_buf[i]);
@@ -105,6 +110,13 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 		return IRQ_NONE;
 	}
 
+	/*
+	 * Ignore masked IRQs and ack if we need to; we ack early so
+	 * there is no race between handling and acknowleding the
+	 * interrupt.  We assume that typically few of the interrupts
+	 * will fire simultaneously so don't worry about overhead from
+	 * doing a write per register.
+	 */
 	for (i = 0; i < data->chip->num_regs; i++) {
 		switch (map->format.val_bytes) {
 		case 1:
@@ -146,6 +158,21 @@ static irqreturn_t regmap_irq_thread(int irq, void *d)
 		return IRQ_NONE;
 }
 
+/**
+ * regmap_add_irq_chip(): Use standard regmap IRQ controller handling
+ *
+ * map:       The regmap for the device.
+ * irq:       The IRQ the device uses to signal interrupts
+ * irq_flags: The IRQF_ flags to use for the primary interrupt.
+ * chip:      Configuration for the interrupt controller.
+ * data:      Runtime data structure for the controller, allocated on success
+ *
+ * Returns 0 on success or an errno on failure.
+ *
+ * In order for this to be efficient the chip really should use a
+ * register cache.  The chip driver is responsible for restoring the
+ * register values used by the IRQ controller over suspend and resume.
+ */
 int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
 			int irq_base, struct regmap_irq_chip *chip,
 			struct regmap_irq_chip_data **data)
@@ -194,7 +221,7 @@ int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
 		d->mask_buf_def[chip->irqs[i].reg_offset]
 			|= chip->irqs[i].mask;
 
-	
+	/* Mask all the interrupts by default */
 	for (i = 0; i < chip->num_regs; i++) {
 		d->mask_buf[i] = d->mask_buf_def[i];
 		ret = regmap_write(map, chip->mask_base + i, d->mask_buf[i]);
@@ -205,7 +232,7 @@ int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
 		}
 	}
 
-	
+	/* Register them with genirq */
 	for (cur_irq = irq_base;
 	     cur_irq < chip->num_irqs + irq_base;
 	     cur_irq++) {
@@ -214,6 +241,8 @@ int regmap_add_irq_chip(struct regmap *map, int irq, int irq_flags,
 					 handle_edge_irq);
 		irq_set_nested_thread(cur_irq, 1);
 
+		/* ARM needs us to explicitly flag the IRQ as valid
+		 * and will set them noprobe when we do so. */
 #ifdef CONFIG_ARM
 		set_irq_flags(cur_irq, IRQF_VALID);
 #else
@@ -240,6 +269,12 @@ err_alloc:
 }
 EXPORT_SYMBOL_GPL(regmap_add_irq_chip);
 
+/**
+ * regmap_del_irq_chip(): Stop interrupt handling for a regmap IRQ chip
+ *
+ * @irq: Primary IRQ for the device
+ * @d:   regmap_irq_chip_data allocated by regmap_add_irq_chip()
+ */
 void regmap_del_irq_chip(int irq, struct regmap_irq_chip_data *d)
 {
 	if (!d)
@@ -254,6 +289,13 @@ void regmap_del_irq_chip(int irq, struct regmap_irq_chip_data *d)
 }
 EXPORT_SYMBOL_GPL(regmap_del_irq_chip);
 
+/**
+ * regmap_irq_chip_get_base(): Retrieve interrupt base for a regmap IRQ chip
+ *
+ * Useful for drivers to request their own IRQs.
+ *
+ * @data: regmap_irq controller to operate on.
+ */
 int regmap_irq_chip_get_base(struct regmap_irq_chip_data *data)
 {
 	return data->irq_base;

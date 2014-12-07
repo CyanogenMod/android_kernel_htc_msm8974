@@ -18,6 +18,7 @@
 #define SOFIA_MAX_LIGHT_VAL	0x2B
 
 #define SOFIA_I2C_ADDR		0x32
+/* Sofia reg 3 bits masks */
 #define SOFIA_POWER1_REG	0x03
 
 #define	SOFIA_USB_POWER		0x01
@@ -31,6 +32,7 @@
 #define SOFIA_DIMMING_REG	0x09
 
 
+/* Function Prototypes for SX1 devices control on I2C bus */
 
 int sx1_setbacklight(u8 backlight);
 int sx1_getbacklight(u8 *backlight);
@@ -42,8 +44,9 @@ int sx1_setusbpower(u8 onoff);
 int sx1_i2c_read_byte(u8 devaddr, u8 regoffset, u8 *value);
 int sx1_i2c_write_byte(u8 devaddr, u8 regoffset, u8 value);
 
+/* MMC prototypes */
 
 extern void sx1_mmc_init(void);
 extern void sx1_mmc_slot_cover_handler(void *arg, int state);
 
-#endif 
+#endif /* __ASM_ARCH_SX1_I2C_CHIPS_H */

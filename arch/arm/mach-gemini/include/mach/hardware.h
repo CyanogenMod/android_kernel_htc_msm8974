@@ -12,6 +12,9 @@
 #ifndef __MACH_HARDWARE_H
 #define __MACH_HARDWARE_H
 
+/*
+ * Memory Map definitions
+ */
 #ifdef CONFIG_GEMINI_MEM_SWAP
 # define GEMINI_DRAM_BASE	0x00000000
 # define GEMINI_SRAM_BASE	0x70000000
@@ -30,6 +33,10 @@
 #define GEMINI_LPC_HOST_BASE	0x47000000
 #define GEMINI_LPC_IO_BASE	0x47800000
 #define GEMINI_INTERRUPT_BASE	0x48000000
+/* TODO: Different interrupt controllers when SMP
+ * #define GEMINI_INTERRUPT0_BASE	0x48000000
+ * #define GEMINI_INTERRUPT1_BASE	0x49000000
+ */
 #define GEMINI_SSP_CTRL_BASE	0x4A000000
 #define GEMINI_POWER_CTRL_BASE	0x4B000000
 #define GEMINI_CIR_BASE		0x4C000000
@@ -54,8 +61,14 @@
 #define GEMINI_TIMER2_BASE	(GEMINI_TIMER_BASE + 0x10)
 #define GEMINI_TIMER3_BASE	(GEMINI_TIMER_BASE + 0x20)
 
+/*
+ * UART Clock when System clk is 150MHz
+ */
 #define UART_CLK	48000000
 
+/*
+ * macro to get at IO space when running virtually
+ */
 #define IO_ADDRESS(x)	((((x) & 0xFFF00000) >> 4) | ((x) & 0x000FFFFF) | 0xF0000000)
 
 #endif

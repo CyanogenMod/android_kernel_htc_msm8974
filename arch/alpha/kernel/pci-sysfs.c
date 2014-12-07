@@ -52,6 +52,15 @@ static int __pci_mmap_fits(struct pci_dev *pdev, int num,
 	return 0;
 }
 
+/**
+ * pci_mmap_resource - map a PCI resource into user memory space
+ * @kobj: kobject for mapping
+ * @attr: struct bin_attribute for the file being mapped
+ * @vma: struct vm_area_struct passed into the mmap
+ * @sparse: address space type
+ *
+ * Use the bus mapping routines to map a PCI resource into userspace.
+ */
 static int pci_mmap_resource(struct kobject *kobj,
 			     struct bin_attribute *attr,
 			     struct vm_area_struct *vma, int sparse)
@@ -96,6 +105,13 @@ static int pci_mmap_resource_dense(struct file *filp, struct kobject *kobj,
 	return pci_mmap_resource(kobj, attr, vma, 0);
 }
 
+/**
+ * pci_remove_resource_files - cleanup resource files
+ * @dev: dev to cleanup
+ *
+ * If we created resource files for @dev, remove them from sysfs and
+ * free their resources.
+ */
 void pci_remove_resource_files(struct pci_dev *pdev)
 {
 	int i;
@@ -126,6 +142,10 @@ static int sparse_mem_mmap_fits(struct pci_dev *pdev, int num)
 
 	pcibios_resource_to_bus(pdev, &bar, &pdev->resource[num]);
 
+	/* All core logic chips have 4G sparse address space, except
+	   CIA which has 16G (see xxx_SPARSE_MEM and xxx_DENSE_MEM
+	   definitions in asm/core_xxx.h files). This corresponds
+	   to 128M or 512M of the bus space. */
 	dense_offset = (long)(hose->dense_mem_base - hose->sparse_mem_base);
 	sparse_size = dense_offset >= 0x400000000UL ? 0x20000000 : 0x8000000;
 
@@ -150,14 +170,14 @@ static int pci_create_one_attr(struct pci_dev *pdev, int num, char *name,
 
 static int pci_create_attr(struct pci_dev *pdev, int num)
 {
-	
+	/* allocate attribute structure, piggyback attribute name */
 	int retval, nlen1, nlen2 = 0, res_count = 1;
 	unsigned long sparse_base, dense_base;
 	struct bin_attribute *attr;
 	struct pci_controller *hose = pdev->sysdata;
 	char *suffix, *attr_name;
 
-	suffix = "";	
+	suffix = "";	/* Assume bwx machine, normal resourceN files. */
 	nlen1 = 10;
 
 	if (pdev->resource[num].flags & IORESOURCE_MEM) {
@@ -166,7 +186,7 @@ static int pci_create_attr(struct pci_dev *pdev, int num)
 		if (sparse_base && !sparse_mem_mmap_fits(pdev, num)) {
 			sparse_base = 0;
 			suffix = "_dense";
-			nlen1 = 16;	
+			nlen1 = 16;	/* resourceN_dense */
 		}
 	} else {
 		sparse_base = hose->sparse_io_base;
@@ -177,7 +197,7 @@ static int pci_create_attr(struct pci_dev *pdev, int num)
 		suffix = "_sparse";
 		nlen1 = 17;
 		if (dense_base) {
-			nlen2 = 16;	
+			nlen2 = 16;	/* resourceN_dense */
 			res_count = 2;
 		}
 	}
@@ -186,7 +206,7 @@ static int pci_create_attr(struct pci_dev *pdev, int num)
 	if (!attr)
 		return -ENOMEM;
 
-	
+	/* Create bwx, sparse or single dense file */
 	attr_name = (char *)(attr + res_count);
 	pdev->res_attr[num] = attr;
 	retval = pci_create_one_attr(pdev, num, attr_name, suffix, attr,
@@ -194,22 +214,28 @@ static int pci_create_attr(struct pci_dev *pdev, int num)
 	if (retval || res_count == 1)
 		return retval;
 
-	
+	/* Create dense file */
 	attr_name += nlen1;
 	attr++;
 	pdev->res_attr_wc[num] = attr;
 	return pci_create_one_attr(pdev, num, attr_name, "_dense", attr, 0);
 }
 
+/**
+ * pci_create_resource_files - create resource files in sysfs for @dev
+ * @dev: dev in question
+ *
+ * Walk the resources in @dev creating files for each resource available.
+ */
 int pci_create_resource_files(struct pci_dev *pdev)
 {
 	int i;
 	int retval;
 
-	
+	/* Expose the PCI resources from this device as files */
 	for (i = 0; i < PCI_ROM_RESOURCE; i++) {
 
-		
+		/* skip empty resources */
 		if (!pci_resource_len(pdev, i))
 			continue;
 
@@ -222,6 +248,7 @@ int pci_create_resource_files(struct pci_dev *pdev)
 	return 0;
 }
 
+/* Legacy I/O bus mapping stuff. */
 
 static int __legacy_mmap_fits(struct pci_controller *hose,
 			      struct vm_area_struct *vma,
@@ -268,6 +295,13 @@ int pci_mmap_legacy_page_range(struct pci_bus *bus, struct vm_area_struct *vma,
 	return hose_mmap_page_range(hose, vma, mmap_type, sparse);
 }
 
+/**
+ * pci_adjust_legacy_attr - adjustment of legacy file attributes
+ * @b: bus to create files under
+ * @mmap_type: I/O port or memory
+ *
+ * Adjust file name and size for sparse mappings.
+ */
 void pci_adjust_legacy_attr(struct pci_bus *bus, enum pci_mmap_state mmap_type)
 {
 	struct pci_controller *hose = bus->sysdata;
@@ -285,6 +319,7 @@ void pci_adjust_legacy_attr(struct pci_bus *bus, enum pci_mmap_state mmap_type)
 	return;
 }
 
+/* Legacy I/O bus read/write functions */
 int pci_legacy_read(struct pci_bus *bus, loff_t port, u32 *val, size_t size)
 {
 	struct pci_controller *hose = bus->sysdata;

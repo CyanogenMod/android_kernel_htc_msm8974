@@ -64,13 +64,15 @@ static enum hrtimer_restart snd_hrtimer_callback(struct hrtimer *hrt)
 	else
 		iprtd->offset = regs.ARM_r9 & 0xffff;
 
-	
+	/* How much data have we transferred since the last period report? */
 	if (iprtd->offset >= iprtd->last_offset)
 		delta = iprtd->offset - iprtd->last_offset;
 	else
 		delta = runtime->buffer_size + iprtd->offset
 			- iprtd->last_offset;
 
+	/* If we've transferred at least a period then report it and
+	 * reset our poll time */
 	if (delta >= iprtd->period) {
 		snd_pcm_period_elapsed(substream);
 		iprtd->last_offset = iprtd->offset;

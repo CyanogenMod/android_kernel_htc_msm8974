@@ -110,6 +110,6 @@ static inline struct dvb_frontend *stb6100_attach(struct dvb_frontend *fe,
 	return NULL;
 }
 
-#endif 
+#endif //CONFIG_DVB_STB6100
 
 #endif

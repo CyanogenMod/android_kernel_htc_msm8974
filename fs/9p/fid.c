@@ -34,6 +34,12 @@
 #include "v9fs_vfs.h"
 #include "fid.h"
 
+/**
+ * v9fs_fid_add - add a fid to a dentry
+ * @dentry: dentry that the fid is being added to
+ * @fid: fid to add
+ *
+ */
 
 int v9fs_fid_add(struct dentry *dentry, struct p9_fid *fid)
 {
@@ -60,6 +66,13 @@ int v9fs_fid_add(struct dentry *dentry, struct p9_fid *fid)
 	return 0;
 }
 
+/**
+ * v9fs_fid_find - retrieve a fid that belongs to the specified uid
+ * @dentry: dentry to look for fid in
+ * @uid: return fid that belongs to the specified user
+ * @any: if non-zero, return any fid associated with the dentry
+ *
+ */
 
 static struct p9_fid *v9fs_fid_find(struct dentry *dentry, u32 uid, int any)
 {
@@ -84,6 +97,11 @@ static struct p9_fid *v9fs_fid_find(struct dentry *dentry, u32 uid, int any)
 	return ret;
 }
 
+/*
+ * We need to hold v9ses->rename_sem as long as we hold references
+ * to returned path array. Array element contain pointers to
+ * dentry names.
+ */
 static int build_path_from_dentry(struct v9fs_session_info *v9ses,
 				  struct dentry *dentry, char ***names)
 {
@@ -121,20 +139,25 @@ static struct p9_fid *v9fs_fid_lookup_with_uid(struct dentry *dentry,
 	fid = v9fs_fid_find(dentry, uid, any);
 	if (fid)
 		return fid;
+	/*
+	 * we don't have a matching fid. To do a TWALK we need
+	 * parent fid. We need to prevent rename when we want to
+	 * look at the parent.
+	 */
 	down_read(&v9ses->rename_sem);
 	ds = dentry->d_parent;
 	fid = v9fs_fid_find(ds, uid, any);
 	if (fid) {
-		
+		/* Found the parent fid do a lookup with that */
 		fid = p9_client_walk(fid, 1, (char **)&dentry->d_name.name, 1);
 		goto fid_out;
 	}
 	up_read(&v9ses->rename_sem);
 
-	
+	/* start from the root and try to do a lookup */
 	fid = v9fs_fid_find(dentry->d_sb->s_root, uid, any);
 	if (!fid) {
-		
+		/* the user is not attached to the fs yet */
 		if (access == V9FS_ACCESS_SINGLE)
 			return ERR_PTR(-EPERM);
 
@@ -150,9 +173,14 @@ static struct p9_fid *v9fs_fid_lookup_with_uid(struct dentry *dentry,
 
 		v9fs_fid_add(dentry->d_sb->s_root, fid);
 	}
-	
+	/* If we are root ourself just return that */
 	if (dentry->d_sb->s_root == dentry)
 		return fid;
+	/*
+	 * Do a multipath walk with attached root.
+	 * When walking parent we need to make sure we
+	 * don't have a parallel rename happening
+	 */
 	down_read(&v9ses->rename_sem);
 	n  = build_path_from_dentry(v9ses, dentry, &wnames);
 	if (n < 0) {
@@ -163,9 +191,18 @@ static struct p9_fid *v9fs_fid_lookup_with_uid(struct dentry *dentry,
 	i = 0;
 	while (i < n) {
 		l = min(n - i, P9_MAXWELEM);
+		/*
+		 * We need to hold rename lock when doing a multipath
+		 * walk to ensure none of the patch component change
+		 */
 		fid = p9_client_walk(fid, l, &wnames[i], clone);
 		if (IS_ERR(fid)) {
 			if (old_fid) {
+				/*
+				 * If we fail, clunk fid which are mapping
+				 * to path component and not the last component
+				 * of the path.
+				 */
 				p9_client_clunk(old_fid);
 			}
 			kfree(wnames);
@@ -184,6 +221,15 @@ err_out:
 	return fid;
 }
 
+/**
+ * v9fs_fid_lookup - lookup for a fid, try to walk if not found
+ * @dentry: dentry to look for fid in
+ *
+ * Look for a fid in the specified dentry for the current user.
+ * If no fid is found, try to create one walking from a fid from the parent
+ * dentry (if it has one), or the root dentry. If the user haven't accessed
+ * the fs yet, attach now and walk from the root.
+ */
 
 struct p9_fid *v9fs_fid_lookup(struct dentry *dentry)
 {
@@ -246,6 +292,12 @@ struct p9_fid *v9fs_writeback_fid(struct dentry *dentry)
 	fid = v9fs_fid_clone_with_uid(dentry, 0);
 	if (IS_ERR(fid))
 		goto error_out;
+	/*
+	 * writeback fid will only be used to write back the
+	 * dirty pages. We always request for the open fid in read-write
+	 * mode so that a partial page write which result in page
+	 * read can work.
+	 */
 	err = p9_client_open(fid, O_RDWR);
 	if (err < 0) {
 		p9_client_clunk(fid);

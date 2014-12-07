@@ -22,7 +22,7 @@
 #include "solo6x10.h"
 #include "osd-font.h"
 
-#define CAPTURE_MAX_BANDWIDTH		32	
+#define CAPTURE_MAX_BANDWIDTH		32	/* D1 4channel (D1 == 4) */
 #define OSG_BUFFER_SIZE			1024
 
 #define VI_PROG_HSIZE			(1280 - 16)
@@ -43,7 +43,7 @@ static void solo_capture_config(struct solo_dev *solo_dev)
 		       (1 << 17) | SOLO_CAP_PROG_BANDWIDTH(2) |
 		       SOLO_CAP_MAX_BANDWIDTH(CAPTURE_MAX_BANDWIDTH));
 
-	
+	/* Set scale 1, 9 dimension */
 	width = solo_dev->video_hsize;
 	height = solo_dev->video_vsize;
 	solo_reg_write(solo_dev, SOLO_DIM_SCALE1,
@@ -51,7 +51,7 @@ static void solo_capture_config(struct solo_dev *solo_dev)
 		       SOLO_DIM_V_MB_NUM_FRAME(height / 8) |
 		       SOLO_DIM_V_MB_NUM_FIELD(height / 16));
 
-	
+	/* Set scale 2, 10 dimension */
 	width = solo_dev->video_hsize / 2;
 	height = solo_dev->video_vsize;
 	solo_reg_write(solo_dev, SOLO_DIM_SCALE2,
@@ -59,7 +59,7 @@ static void solo_capture_config(struct solo_dev *solo_dev)
 		       SOLO_DIM_V_MB_NUM_FRAME(height / 8) |
 		       SOLO_DIM_V_MB_NUM_FIELD(height / 16));
 
-	
+	/* Set scale 3, 11 dimension */
 	width = solo_dev->video_hsize / 2;
 	height = solo_dev->video_vsize / 2;
 	solo_reg_write(solo_dev, SOLO_DIM_SCALE3,
@@ -67,7 +67,7 @@ static void solo_capture_config(struct solo_dev *solo_dev)
 		       SOLO_DIM_V_MB_NUM_FRAME(height / 8) |
 		       SOLO_DIM_V_MB_NUM_FIELD(height / 16));
 
-	
+	/* Set scale 4, 12 dimension */
 	width = solo_dev->video_hsize / 3;
 	height = solo_dev->video_vsize / 3;
 	solo_reg_write(solo_dev, SOLO_DIM_SCALE4,
@@ -75,7 +75,7 @@ static void solo_capture_config(struct solo_dev *solo_dev)
 		       SOLO_DIM_V_MB_NUM_FRAME(height / 8) |
 		       SOLO_DIM_V_MB_NUM_FIELD(height / 16));
 
-	
+	/* Set scale 5, 13 dimension */
 	width = solo_dev->video_hsize / 4;
 	height = solo_dev->video_vsize / 2;
 	solo_reg_write(solo_dev, SOLO_DIM_SCALE5,
@@ -83,7 +83,7 @@ static void solo_capture_config(struct solo_dev *solo_dev)
 		       SOLO_DIM_V_MB_NUM_FRAME(height / 8) |
 		       SOLO_DIM_V_MB_NUM_FIELD(height / 16));
 
-	
+	/* Progressive */
 	width = VI_PROG_HSIZE;
 	height = VI_PROG_VSIZE;
 	solo_reg_write(solo_dev, SOLO_DIM_PROG,
@@ -91,14 +91,14 @@ static void solo_capture_config(struct solo_dev *solo_dev)
 		       SOLO_DIM_V_MB_NUM_FRAME(height / 16) |
 		       SOLO_DIM_V_MB_NUM_FIELD(height / 16));
 
-	
+	/* Clear OSD */
 	solo_reg_write(solo_dev, SOLO_VE_OSD_CH, 0);
 	solo_reg_write(solo_dev, SOLO_VE_OSD_BASE, SOLO_EOSD_EXT_ADDR >> 16);
 	solo_reg_write(solo_dev, SOLO_VE_OSD_CLR,
 		       0xF0 << 16 | 0x80 << 8 | 0x80);
 	solo_reg_write(solo_dev, SOLO_VE_OSD_OPT, 0);
 
-	
+	/* Clear OSG buffer */
 	buf = kzalloc(OSG_BUFFER_SIZE, GFP_KERNEL);
 	if (!buf)
 		return;
@@ -166,7 +166,7 @@ static void solo_jpeg_config(struct solo_dev *solo_dev)
 		(SOLO_JPEG_EXT_SIZE(solo_dev) & 0xffff0000) |
 		((SOLO_JPEG_EXT_ADDR(solo_dev) >> 16) & 0x0000ffff));
 	solo_reg_write(solo_dev, SOLO_VE_JPEG_CTRL, 0xffffffff);
-	
+	/* que limit, samp limit, pos limit */
 	solo_reg_write(solo_dev, 0x0688, (0 << 16) | (30 << 8) | 60);
 }
 
@@ -175,7 +175,7 @@ static void solo_mp4e_config(struct solo_dev *solo_dev)
 	int i;
 	u32 reg;
 
-	
+	/* We can only use VE_INTR_CTRL(0) if we want to support mjpeg */
 	solo_reg_write(solo_dev, SOLO_VE_CFG0,
 		       SOLO_VE_INTR_CTRL(0) |
 		       SOLO_VE_BLOCK_SIZE(SOLO_MP4E_EXT_SIZE(solo_dev) >> 16) |
@@ -204,7 +204,7 @@ static void solo_mp4e_config(struct solo_dev *solo_dev)
 			       (i * SOLO_EREF_EXT_SIZE)) >> 16);
 
 	if (solo_dev->flags & FLAGS_6110)
-		solo_reg_write(solo_dev, 0x0634, 0x00040008); 
+		solo_reg_write(solo_dev, 0x0634, 0x00040008); /* ? */
 }
 
 int solo_enc_init(struct solo_dev *solo_dev)

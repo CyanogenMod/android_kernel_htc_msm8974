@@ -26,10 +26,14 @@
 #include <asm/rtc.h>
 #include "internal.h"
 
-static unsigned long mn10300_last_tsc;	
+static unsigned long mn10300_last_tsc;	/* time-stamp counter at last time
+					 * interrupt occurred */
 
 static unsigned long sched_clock_multiplier;
 
+/*
+ * scheduler clock - returns current time in nanosec units.
+ */
 unsigned long long sched_clock(void)
 {
 	union {
@@ -37,19 +41,26 @@ unsigned long long sched_clock(void)
 		unsigned l[2];
 	} tsc64, result;
 	unsigned long tmp;
-	unsigned product[3]; 
+	unsigned product[3]; /* 96-bit intermediate value */
 
-	
+	/* cnt32_to_63() is not safe with preemption */
 	preempt_disable();
 
+	/* expand the tsc to 64-bits.
+	 * - sched_clock() must be called once a minute or better or the
+	 *   following will go horribly wrong - see cnt32_to_63()
+	 */
 	tsc64.ll = cnt32_to_63(get_cycles()) & 0x7fffffffffffffffULL;
 
 	preempt_enable();
 
-	asm("mulu	%2,%0,%3,%0	\n"	
-	    "mulu	%2,%1,%2,%1	\n"	
+	/* scale the 64-bit TSC value to a nanosecond value via a 96-bit
+	 * intermediate
+	 */
+	asm("mulu	%2,%0,%3,%0	\n"	/* LSW * mult ->  0:%3:%0 */
+	    "mulu	%2,%1,%2,%1	\n"	/* MSW * mult -> %2:%1:0 */
 	    "add	%3,%1		\n"
-	    "addc	0,%2		\n"	
+	    "addc	0,%2		\n"	/* result in %2:%1:%0 */
 	    : "=r"(product[0]), "=r"(product[1]), "=r"(product[2]), "=r"(tmp)
 	    :  "0"(tsc64.l[0]),  "1"(tsc64.l[1]),  "2"(sched_clock_multiplier)
 	    : "cc");
@@ -60,12 +71,21 @@ unsigned long long sched_clock(void)
 	return result.ll;
 }
 
+/*
+ * initialise the scheduler clock
+ */
 static void __init mn10300_sched_clock_init(void)
 {
 	sched_clock_multiplier =
 		__muldiv64u(NSEC_PER_SEC, 1 << 16, MN10300_TSCCLK);
 }
 
+/**
+ * local_timer_interrupt - Local timer interrupt handler
+ *
+ * Handle local timer interrupts for this CPU.  They may have been propagated
+ * to this CPU from the CPU that actually gets them by way of an IPI.
+ */
 irqreturn_t local_timer_interrupt(void)
 {
 	profile_tick(CPU_PROFILING);
@@ -73,8 +93,15 @@ irqreturn_t local_timer_interrupt(void)
 	return IRQ_HANDLED;
 }
 
+/*
+ * initialise the various timers used by the main part of the kernel
+ */
 void __init time_init(void)
 {
+	/* we need the prescalar running to be able to use IOCLK/8
+	 * - IOCLK runs at 1/4 (ST5 open) or 1/8 (ST5 closed) internal CPU clock
+	 * - IOCLK runs at Fosc rate (crystal speed)
+	 */
 	TMPSCNT |= TMPSCNT_ENABLE;
 
 	init_clocksource();
@@ -89,7 +116,7 @@ void __init time_init(void)
 	init_clockevents();
 
 #ifdef CONFIG_MN10300_WD_TIMER
-	
+	/* start the watchdog timer */
 	watchdog_go();
 #endif
 

@@ -35,8 +35,9 @@
 #include <mach/init.h>
 #include <mach/portmux.h>
 
+/* Define board-specifoic GPIO assignments */
 #define PIN_LCD_BL	GPIO_PIN_PA(28)
-#define PWM_CH_BL	0	
+#define PWM_CH_BL	0	/* Must match with GPIO pin definition */
 #define PIN_LCD_DISP	GPIO_PIN_PA(31)
 #define	PIN_AC97_RST_N	GPIO_PIN_PA(30)
 #define PB_EXTINT_BASE	25
@@ -53,6 +54,7 @@
 #define PIN_LED_B	GPIO_PIN_PE(19)
 
 #ifdef CONFIG_BOARD_MRMT_LCD_LQ043T3DX0X
+/* Sharp LQ043T3DX0x (or compatible) panel */
 static struct fb_videomode __initdata lcd_fb_modes[] = {
 	{
 		.name		= "480x272 @ 59.94Hz",
@@ -95,6 +97,7 @@ static struct atmel_lcdfb_info __initdata rmt_lcdc_data = {
 #endif
 
 #ifdef CONFIG_BOARD_MRMT_LCD_KWH043GM08
+/* Sharp KWH043GM08-Fxx (or compatible) panel */
 static struct fb_videomode __initdata lcd_fb_modes[] = {
 	{
 		.name		= "480x272 @ 59.94Hz",
@@ -143,6 +146,7 @@ static struct ac97c_platform_data __initdata ac97c0_data = {
 #endif
 
 #ifdef CONFIG_BOARD_MRMT_UCB1400_TS
+/* NOTE: IRQ assignment relies on kernel module parameter */
 static struct platform_device rmt_ts_device = {
 	.name	= "ucb1400_ts",
 	.id	= -1,
@@ -151,8 +155,9 @@ static struct platform_device rmt_ts_device = {
 #endif
 
 #ifdef CONFIG_BOARD_MRMT_BL_PWM
+/* PWM LEDs: LCD Backlight, etc */
 static struct gpio_led rmt_pwm_led[] = {
-	
+	/* here the "gpio" is actually a PWM channel */
 	{ .name = "backlight",	.gpio = PWM_CH_BL, },
 };
 
@@ -173,14 +178,14 @@ static struct platform_device rmt_pwm_led_dev = {
 #ifdef CONFIG_BOARD_MRMT_ADS7846_TS
 static int ads7846_pendown_state(void)
 {
-	return !gpio_get_value( PIN_TS_EXTINT );	
+	return !gpio_get_value( PIN_TS_EXTINT );	/* PENIRQ.*/
 }
 
 static struct ads7846_platform_data ads_info = {
 	.model				= 7846,
-	.keep_vref_on			= 0,	
+	.keep_vref_on			= 0,	/* Use external VREF pin */
 	.vref_delay_usecs		= 0,
-	.vref_mv			= 3300,	
+	.vref_mv			= 3300,	/* VREF = 3.3V */
 	.settle_delay_usecs		= 800,
 	.penirq_recheck_delay_usecs	= 800,
 	.x_plate_ohms			= 750,
@@ -206,6 +211,7 @@ static struct spi_board_info spi01_board_info[] __initdata = {
 };
 #endif
 
+/* GPIO Keys: left, right, power, etc */
 static const struct gpio_keys_button rmt_gpio_keys_buttons[] = {
 	[0] = {
 		.type		= EV_KEY,
@@ -252,24 +258,24 @@ static struct i2c_board_info __initdata mrmt1_i2c_rtc = {
 
 static void mrmt_power_off(void)
 {
-	
+	/* PWR_ON=0 will force power off */
 	gpio_set_value( PIN_PWR_ON, 0 );
 }
 
 static int __init mrmt1_init(void)
 {
-	gpio_set_value( PIN_PWR_ON, 1 );	
+	gpio_set_value( PIN_PWR_ON, 1 );	/* Ensure PWR_ON is enabled */
 
 	pm_power_off = mrmt_power_off;
 
-	
-	at32_map_usart(2, 1, 0);	
+	/* Setup USARTS (other than console) */
+	at32_map_usart(2, 1, 0);	/* USART 2: /dev/ttyS1, RMT1:DB9M */
 	at32_map_usart(3, 2, ATMEL_USART_RTS | ATMEL_USART_CTS);
-			
+			/* USART 3: /dev/ttyS2, RMT1:Wireless, w/ RTS/CTS */
 	at32_add_device_usart(1);
 	at32_add_device_usart(2);
 
-	
+	/* Select GPIO Key pins */
 	at32_select_gpio( PIN_PWR_SW_N, AT32_GPIOF_DEGLITCH);
 	at32_select_gpio( PIN_PB_LEFT, AT32_GPIOF_DEGLITCH);
 	at32_select_gpio( PIN_PB_RIGHT, AT32_GPIOF_DEGLITCH);
@@ -280,8 +286,8 @@ static int __init mrmt1_init(void)
 #endif
 
 #ifndef CONFIG_BOARD_MRMT_LCD_DISABLE
-	
-	
+	/* User "alternate" LCDC inferface on Port E & D */
+	/* NB: exclude LCDC_CC pin, as NGW100 reserves it for other use */
 	at32_add_device_lcdc(0, &rmt_lcdc_data,
 		fbmem_start, fbmem_size,
 		(ATMEL_LCDC_ALT_24BIT | ATMEL_LCDC_PE_DVAL ) );
@@ -292,7 +298,7 @@ static int __init mrmt1_init(void)
 #endif
 
 #ifdef CONFIG_BOARD_MRMT_ADS7846_TS
-	
+	/* Select the Touchscreen interrupt pin mode */
 	at32_select_periph( GPIO_PIOB_BASE, 1 << (PB_EXTINT_BASE+TS_IRQ),
 			GPIO_PERIPH_A, AT32_GPIOF_DEGLITCH);
 	irq_set_irq_type(AT32_EXTINT(TS_IRQ), IRQ_TYPE_EDGE_FALLING);
@@ -301,7 +307,7 @@ static int __init mrmt1_init(void)
 #endif
 
 #ifdef CONFIG_BOARD_MRMT_UCB1400_TS
-	
+	/* Select the Touchscreen interrupt pin mode */
 	at32_select_periph( GPIO_PIOB_BASE, 1 << (PB_EXTINT_BASE+TS_IRQ),
 			GPIO_PERIPH_A, AT32_GPIOF_DEGLITCH);
 	platform_device_register(&rmt_ts_device);
@@ -309,20 +315,20 @@ static int __init mrmt1_init(void)
 
 	at32_select_gpio( PIN_LCD_DISP, AT32_GPIOF_OUTPUT );
 	gpio_request( PIN_LCD_DISP, "LCD_DISP" );
-	gpio_direction_output( PIN_LCD_DISP, 0 );	
+	gpio_direction_output( PIN_LCD_DISP, 0 );	/* LCD DISP */
 #ifdef CONFIG_BOARD_MRMT_LCD_DISABLE
-	
+	/* Keep Backlight and DISP off */
 	at32_select_gpio( PIN_LCD_BL, AT32_GPIOF_OUTPUT );
 	gpio_request( PIN_LCD_BL, "LCD_BL" );
-	gpio_direction_output( PIN_LCD_BL, 0 );		
+	gpio_direction_output( PIN_LCD_BL, 0 );		/* Backlight */
 #else
-	gpio_set_value( PIN_LCD_DISP, 1 );	
+	gpio_set_value( PIN_LCD_DISP, 1 );	/* DISP asserted first */
 #ifdef CONFIG_BOARD_MRMT_BL_PWM
-	
+	/* Use PWM for Backlight controls */
 	at32_add_device_pwm(1 << PWM_CH_BL);
 	platform_device_register(&rmt_pwm_led_dev);
 #else
-	
+	/* Backlight always on */
 	udelay( 1 );
 	at32_select_gpio( PIN_LCD_BL, AT32_GPIOF_OUTPUT );
 	gpio_request( PIN_LCD_BL, "LCD_BL" );
@@ -330,25 +336,25 @@ static int __init mrmt1_init(void)
 #endif
 #endif
 
-	
+	/* Make sure BT and Zigbee modules in reset */
 	at32_select_gpio( PIN_BT_RST, AT32_GPIOF_OUTPUT );
 	gpio_request( PIN_BT_RST, "BT_RST" );
 	gpio_direction_output( PIN_BT_RST, 1 );
-	
+	/* BT Module in Reset */
 
 	at32_select_gpio( PIN_ZB_RST_N, AT32_GPIOF_OUTPUT );
 	gpio_request( PIN_ZB_RST_N, "ZB_RST_N" );
 	gpio_direction_output( PIN_ZB_RST_N, 0 );
-	
+	/* XBee Module in Reset */
 
 #ifdef CONFIG_BOARD_MRMT_WIRELESS_ZB
 	udelay( 1000 );
-	
+	/* Unreset the XBee Module */
 	gpio_set_value( PIN_ZB_RST_N, 1 );
 #endif
 #ifdef CONFIG_BOARD_MRMT_WIRELESS_BT
 	udelay( 1000 );
-	
+	/* Unreset the BT Module */
 	gpio_set_value( PIN_BT_RST, 0 );
 #endif
 
@@ -358,7 +364,7 @@ arch_initcall(mrmt1_init);
 
 static int __init mrmt1_early_init(void)
 {
-	
+	/* To maintain power-on signal in case boot loader did not already */
 	at32_select_gpio( PIN_PWR_ON, AT32_GPIOF_OUTPUT );
 	gpio_request( PIN_PWR_ON, "PIN_PWR_ON" );
 	gpio_direction_output( PIN_PWR_ON, 1 );

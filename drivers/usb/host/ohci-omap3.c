@@ -33,6 +33,7 @@
 #include <plat/usb.h>
 #include <linux/pm_runtime.h>
 
+/*-------------------------------------------------------------------------*/
 
 static int ohci_omap3_init(struct usb_hcd *hcd)
 {
@@ -41,12 +42,17 @@ static int ohci_omap3_init(struct usb_hcd *hcd)
 	return ohci_init(hcd_to_ohci(hcd));
 }
 
+/*-------------------------------------------------------------------------*/
 
 static int ohci_omap3_start(struct usb_hcd *hcd)
 {
 	struct ohci_hcd *ohci = hcd_to_ohci(hcd);
 	int ret;
 
+	/*
+	 * RemoteWakeupConnected has to be set explicitly before
+	 * calling ohci_run. The reset value of RWC is 0.
+	 */
 	ohci->hc_control = OHCI_CTRL_RWC;
 	writel(OHCI_CTRL_RWC, &ohci->regs->control);
 
@@ -60,26 +66,42 @@ static int ohci_omap3_start(struct usb_hcd *hcd)
 	return ret;
 }
 
+/*-------------------------------------------------------------------------*/
 
 static const struct hc_driver ohci_omap3_hc_driver = {
 	.description =		hcd_name,
 	.product_desc =		"OMAP3 OHCI Host Controller",
 	.hcd_priv_size =	sizeof(struct ohci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset =		ohci_omap3_init,
 	.start =		ohci_omap3_start,
 	.stop =			ohci_stop,
 	.shutdown =		ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		ohci_urb_enqueue,
 	.urb_dequeue =		ohci_urb_dequeue,
 	.endpoint_disable =	ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
 #ifdef	CONFIG_PM
@@ -89,8 +111,20 @@ static const struct hc_driver ohci_omap3_hc_driver = {
 	.start_port_reset =	ohci_start_port_reset,
 };
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * configure so an HC device and id are always provided
+ * always called with process context; sleeping is OK
+ */
 
+/**
+ * ohci_hcd_omap3_probe - initialize OMAP-based HCDs
+ *
+ * Allocates basic resources for this USB host controller, and
+ * then invokes the start() method for the HCD associated with it
+ * through the hotplug entry's driver_data.
+ */
 static int __devinit ohci_hcd_omap3_probe(struct platform_device *pdev)
 {
 	struct device		*dev = &pdev->dev;
@@ -162,7 +196,19 @@ err_io:
 	return ret;
 }
 
+/*
+ * may be called without controller electrically present
+ * may be called with controller, bus, and devices active
+ */
 
+/**
+ * ohci_hcd_omap3_remove - shutdown processing for OHCI HCDs
+ * @pdev: USB Host Controller being removed
+ *
+ * Reverses the effect of ohci_hcd_omap3_probe(), first invoking
+ * the HCD's stop() method.  It is always called from a thread
+ * context, normally "rmmod", "apmd", or something similar.
+ */
 static int __devexit ohci_hcd_omap3_remove(struct platform_device *pdev)
 {
 	struct device *dev	= &pdev->dev;

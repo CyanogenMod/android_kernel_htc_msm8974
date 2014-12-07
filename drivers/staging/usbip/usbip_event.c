@@ -26,27 +26,34 @@ static int event_handler(struct usbip_device *ud)
 {
 	usbip_dbg_eh("enter\n");
 
+	/*
+	 * Events are handled by only this thread.
+	 */
 	while (usbip_event_happened(ud)) {
 		usbip_dbg_eh("pending event %lx\n", ud->event);
 
+		/*
+		 * NOTE: shutdown must come first.
+		 * Shutdown the device.
+		 */
 		if (ud->event & USBIP_EH_SHUTDOWN) {
 			ud->eh_ops.shutdown(ud);
 			ud->event &= ~USBIP_EH_SHUTDOWN;
 		}
 
-		
+		/* Reset the device. */
 		if (ud->event & USBIP_EH_RESET) {
 			ud->eh_ops.reset(ud);
 			ud->event &= ~USBIP_EH_RESET;
 		}
 
-		
+		/* Mark the device as unusable. */
 		if (ud->event & USBIP_EH_UNUSABLE) {
 			ud->eh_ops.unusable(ud);
 			ud->event &= ~USBIP_EH_UNUSABLE;
 		}
 
-		
+		/* Stop the error handler. */
 		if (ud->event & USBIP_EH_BYE)
 			return -1;
 	}
@@ -89,7 +96,7 @@ EXPORT_SYMBOL_GPL(usbip_start_eh);
 void usbip_stop_eh(struct usbip_device *ud)
 {
 	if (ud->eh == current)
-		return; 
+		return; /* do not wait for myself */
 
 	kthread_stop(ud->eh);
 	usbip_dbg_eh("usbip_eh has finished\n");

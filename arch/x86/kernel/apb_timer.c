@@ -53,6 +53,9 @@ static phys_addr_t apbt_address;
 static int apb_timer_block_enabled;
 static void __iomem *apbt_virt_address;
 
+/*
+ * Common DW APB timer info
+ */
 static unsigned long apbt_freq;
 
 struct apbt_dev {
@@ -105,12 +108,12 @@ static inline void apbt_set_mapping(void)
 	apbt_freq = mtmr->freq_hz;
 	sfi_free_mtmr(mtmr);
 
-	
+	/* Now figure out the physical timer id for clocksource device */
 	mtmr = sfi_get_mtmr(APBT_CLOCKSOURCE_NUM);
 	if (mtmr == NULL)
 		goto panic_noapbt;
 
-	
+	/* Now figure out the physical timer id */
 	pr_debug("Use timer %d for clocksource\n",
 		 (int)(mtmr->phys_addr & 0xff) / APBTMRS_REG_SIZE);
 	phy_cs_timer_id = (unsigned int)(mtmr->phys_addr & 0xff) /
@@ -132,6 +135,9 @@ static inline void apbt_clear_mapping(void)
 	apbt_virt_address = NULL;
 }
 
+/*
+ * APBT timer interrupt enable / disable
+ */
 static inline int is_apbt_capable(void)
 {
 	return apbt_virt_address ? 1 : 0;
@@ -154,7 +160,7 @@ static int __init apbt_clockevent_register(void)
 		mrst_timer_options == MRST_TIMER_LAPIC_APBT ?
 		APBT_CLOCKEVENT_RATING - 100 : APBT_CLOCKEVENT_RATING,
 		adev_virt_addr(adev), 0, apbt_freq);
-	
+	/* Firmware does EOI handling for us. */
 	adev->timer->eoi = NULL;
 
 	if (mrst_timer_options == MRST_TIMER_LAPIC_APBT) {
@@ -173,22 +179,23 @@ static int __init apbt_clockevent_register(void)
 
 static void apbt_setup_irq(struct apbt_dev *adev)
 {
-	
+	/* timer0 irq has been setup early */
 	if (adev->irq == 0)
 		return;
 
 	irq_modify_status(adev->irq, 0, IRQ_MOVE_PCNTXT);
 	irq_set_affinity(adev->irq, cpumask_of(adev->cpu));
-	
+	/* APB timer irqs are set up as mp_irqs, timer is edge type */
 	__irq_set_handler(adev->irq, handle_edge_irq, 0, "edge");
 }
 
+/* Should be called with per cpu */
 void apbt_setup_secondary_clock(void)
 {
 	struct apbt_dev *adev;
 	int cpu;
 
-	
+	/* Don't register boot CPU clockevent */
 	cpu = smp_processor_id();
 	if (!cpu)
 		return;
@@ -212,6 +219,16 @@ void apbt_setup_secondary_clock(void)
 	return;
 }
 
+/*
+ * this notify handler process CPU hotplug events. in case of S0i3, nonboot
+ * cpus are disabled/enabled frequently, for performance reasons, we keep the
+ * per cpu timer irq registered so that we do need to do free_irq/request_irq.
+ *
+ * TODO: it might be more reliable to directly disable percpu clockevent device
+ * without the notifier chain. currently, cpu 0 may get interrupts from other
+ * cpu timers during the offline process due to the ordering of notification.
+ * the extra interrupt is harmless.
+ */
 static int apbt_cpuhp_notify(struct notifier_block *n,
 			     unsigned long action, void *hcpu)
 {
@@ -239,7 +256,7 @@ static __init int apbt_late_init(void)
 	if (mrst_timer_options == MRST_TIMER_LAPIC_APBT ||
 		!apb_timer_block_enabled)
 		return 0;
-	
+	/* This notifier should be called after workqueue is ready */
 	hotcpu_notifier(apbt_cpuhp_notify, -20);
 	return 0;
 }
@@ -248,26 +265,32 @@ fs_initcall(apbt_late_init);
 
 void apbt_setup_secondary_clock(void) {}
 
-#endif 
+#endif /* CONFIG_SMP */
 
 static int apbt_clocksource_register(void)
 {
 	u64 start, now;
 	cycle_t t1;
 
-	
+	/* Start the counter, use timer 2 as source, timer 0/1 for event */
 	dw_apb_clocksource_start(clocksource_apbt);
 
-	
+	/* Verify whether apbt counter works */
 	t1 = dw_apb_clocksource_read(clocksource_apbt);
 	rdtscll(start);
 
+	/*
+	 * We don't know the TSC frequency yet, but waiting for
+	 * 200000 TSC cycles is safe:
+	 * 4 GHz == 50us
+	 * 1 GHz == 200us
+	 */
 	do {
 		rep_nop();
 		rdtscll(now);
 	} while ((now - start) < 200000UL);
 
-	
+	/* APBT is the only always on clocksource, it has to work! */
 	if (t1 == dw_apb_clocksource_read(clocksource_apbt))
 		panic("APBT counter not counting. APBT disabled\n");
 
@@ -276,6 +299,13 @@ static int apbt_clocksource_register(void)
 	return 0;
 }
 
+/*
+ * Early setup the APBT timer, only use timer 0 for booting then switch to
+ * per CPU timer if possible.
+ * returns 1 if per cpu apbt is setup
+ * returns 0 if no per cpu apbt is chosen
+ * panic if set up failed, this is the only platform timer on Moorestown.
+ */
 void __init apbt_time_init(void)
 {
 #ifdef CONFIG_SMP
@@ -290,6 +320,10 @@ void __init apbt_time_init(void)
 	apbt_set_mapping();
 	if (!apbt_virt_address)
 		goto out_noapbt;
+	/*
+	 * Read the frequency and check for a sane value, for ESL model
+	 * we extend the possible clock range to allow time scaling.
+	 */
 
 	if (apbt_freq < APBT_MIN_FREQ || apbt_freq > APBT_MAX_FREQ) {
 		pr_debug("APBT has invalid freq 0x%lx\n", apbt_freq);
@@ -306,7 +340,7 @@ void __init apbt_time_init(void)
 		goto out_noapbt;
 	}
 #ifdef CONFIG_SMP
-	
+	/* kernel cmdline disable apb timer, so we will use lapic timers */
 	if (mrst_timer_options == MRST_TIMER_LAPIC_APBT) {
 		printk(KERN_INFO "apbt: disabled per cpu timer\n");
 		return;
@@ -321,7 +355,7 @@ void __init apbt_time_init(void)
 	}
 	pr_debug("%s: %d APB timers used\n", __func__, apbt_num_timers_used);
 
-	
+	/* here we set up per CPU timer data structure */
 	for (i = 0; i < apbt_num_timers_used; i++) {
 		adev = &per_cpu(cpu_apbt_dev, i);
 		adev->num = i;
@@ -343,6 +377,7 @@ out_noapbt:
 	panic("failed to enable APB timer\n");
 }
 
+/* called before apb_timer_enable, use early map */
 unsigned long apbt_quick_calibrate(void)
 {
 	int i, scale;
@@ -354,7 +389,7 @@ unsigned long apbt_quick_calibrate(void)
 	apbt_set_mapping();
 	dw_apb_clocksource_start(clocksource_apbt);
 
-	
+	/* check if the timer can count down, otherwise return */
 	old = dw_apb_clocksource_read(clocksource_apbt);
 	i = 10000;
 	while (--i) {
@@ -364,10 +399,10 @@ unsigned long apbt_quick_calibrate(void)
 	if (!i)
 		goto failed;
 
-	
+	/* count 16 ms */
 	loop = (apbt_freq / 1000) << 4;
 
-	
+	/* restart the timer to ensure it won't get to 0 in the calibration */
 	dw_apb_clocksource_start(clocksource_apbt);
 
 	old = dw_apb_clocksource_read(clocksource_apbt);

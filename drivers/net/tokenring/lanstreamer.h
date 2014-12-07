@@ -60,6 +60,10 @@
  *
  */
 
+/* MAX_INTR - the maximum number of times we can loop
+ * inside the interrupt function before returning
+ * control to the OS (maximum value is 256)
+ */
 #define MAX_INTR 5
 
 #define CLS 0x0C
@@ -162,8 +166,9 @@
 
 #define SRB_COMMAND_SIZE 50
 
-#define STREAMER_MAX_ADAPTERS 8	
+#define STREAMER_MAX_ADAPTERS 8	/* 0x08 __MODULE_STRING can't hand 0xnn */
 
+/* Defines for LAN STATUS CHANGE reports */
 #define LSC_SIG_LOSS 0x8000
 #define LSC_HARD_ERR 0x4000
 #define LSC_SOFT_ERR 0x2000
@@ -178,6 +183,7 @@
 #define LSC_SR_CO    0x0010
 #define LSC_FDX_MODE 0x0004
 
+/* Defines for OPEN ADAPTER command */
 
 #define OPEN_ADAPTER_EXT_WRAP (1<<15)
 #define OPEN_ADAPTER_DIS_HARDEE (1<<14)
@@ -193,6 +199,7 @@
 #define OPEN_ADAPTER_INTERNAL_WRAP (1<<3)
 
 
+/* Defines for SRB Commands */
 #define SRB_CLOSE_ADAPTER 0x04
 #define SRB_CONFIGURE_BRIDGE 0x0c
 #define SRB_CONFIGURE_HP_CHANNEL 0x13
@@ -211,20 +218,31 @@
 #define SRB_SET_GROUP_ADDRESS 0x06
 #define SRB_SET_TARGET_SEGMENT 0x05
 
+/* Clear return code */
 #define STREAMER_CLEAR_RET_CODE 0xfe
 
+/* ARB Commands */
 #define ARB_RECEIVE_DATA 0x81
 #define ARB_LAN_CHANGE_STATUS 0x84
 
+/* ASB Response commands */
 #define ASB_RECEIVE_DATA 0x81
 
 
+/* Streamer defaults for buffers */
 
-#define STREAMER_RX_RING_SIZE 16	
-#define STREAMER_TX_RING_SIZE 1	
+#define STREAMER_RX_RING_SIZE 16	/* should be a power of 2 */
+/* Setting the number of TX descriptors to 1 is a workaround for an
+ * undocumented hardware problem with the lanstreamer board. Setting
+ * this to something higher may slightly increase the throughput you
+ * can get from the card, but at the risk of locking up the box. - 
+ * <yoder1@us.ibm.com>
+ */
+#define STREAMER_TX_RING_SIZE 1	/* should be a power of 2 */
 
-#define PKT_BUF_SZ 4096		
+#define PKT_BUF_SZ 4096		/* Default packet size */
 
+/* Streamer data structures */
 
 struct streamer_tx_desc {
 	__u32 forward;
@@ -266,12 +284,12 @@ struct streamer_private {
  
         spinlock_t streamer_lock;
 
-	volatile int srb_queued;	
+	volatile int srb_queued;	/* True if an SRB is still posted */
 	wait_queue_head_t srb_wait;
 
-	volatile int asb_queued;	
+	volatile int asb_queued;	/* True if an ASB is posted */
 
-	volatile int trb_queued;	
+	volatile int trb_queued;	/* True if a TRB is posted */
 	wait_queue_head_t trb_wait;
 
 	struct streamer_rx_desc *streamer_rx_ring;

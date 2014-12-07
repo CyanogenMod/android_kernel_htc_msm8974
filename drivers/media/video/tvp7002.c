@@ -40,26 +40,34 @@ MODULE_DESCRIPTION("TI TVP7002 Video and Graphics Digitizer driver");
 MODULE_AUTHOR("Santiago Nunez-Corrales <santiago.nunez@ridgerun.com>");
 MODULE_LICENSE("GPL");
 
+/* Module Name */
 #define TVP7002_MODULE_NAME	"tvp7002"
 
+/* I2C retry attempts */
 #define I2C_RETRY_COUNT		(5)
 
+/* End of registers */
 #define TVP7002_EOR		0x5c
 
+/* Read write definition for registers */
 #define TVP7002_READ		0
 #define TVP7002_WRITE		1
 #define TVP7002_RESERVED	2
 
+/* Interlaced vs progressive mask and shift */
 #define TVP7002_IP_SHIFT	5
 #define TVP7002_INPR_MASK	(0x01 << TVP7002_IP_SHIFT)
 
+/* Shift for CPL and LPF registers */
 #define TVP7002_CL_SHIFT	8
 #define TVP7002_CL_MASK		0x0f
 
+/* Debug functions */
 static bool debug;
 module_param(debug, bool, 0644);
 MODULE_PARM_DESC(debug, "Debug level (0-2)");
 
+/* Structure for register values */
 struct i2c_reg_value {
 	u8 reg;
 	u8 value;
@@ -116,7 +124,7 @@ static const struct i2c_reg_value tvp7002_init_default[] = {
 	{ TVP7002_AUTO_LVL_CTL_FILTER, 0x53, TVP7002_WRITE },
 	{ 0x29, 0x08, TVP7002_RESERVED },
 	{ TVP7002_FINE_CLAMP_CTL, 0x07, TVP7002_WRITE },
-	
+	/* PWR_CTL is controlled only by the probe and reset functions */
 	{ TVP7002_PWR_CTL, 0x00, TVP7002_RESERVED },
 	{ TVP7002_ADC_SETUP, 0x50, TVP7002_WRITE },
 	{ TVP7002_COARSE_CLAMP_CTL, 0x00, TVP7002_WRITE },
@@ -166,10 +174,11 @@ static const struct i2c_reg_value tvp7002_init_default[] = {
 	{ TVP7002_YUV_V_B_COEF_MSBS, 0xfe, TVP7002_WRITE },
 	{ TVP7002_YUV_V_R_COEF_LSBS, 0x00, TVP7002_WRITE },
 	{ TVP7002_YUV_V_R_COEF_MSBS, 0x10, TVP7002_WRITE },
-	
+	/* This signals end of register values */
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Register parameters for 480P */
 static const struct i2c_reg_value tvp7002_parms_480P[] = {
 	{ TVP7002_HPLL_FDBK_DIV_MSBS, 0x35, TVP7002_WRITE },
 	{ TVP7002_HPLL_FDBK_DIV_LSBS, 0xa0, TVP7002_WRITE },
@@ -190,6 +199,7 @@ static const struct i2c_reg_value tvp7002_parms_480P[] = {
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Register parameters for 576P */
 static const struct i2c_reg_value tvp7002_parms_576P[] = {
 	{ TVP7002_HPLL_FDBK_DIV_MSBS, 0x36, TVP7002_WRITE },
 	{ TVP7002_HPLL_FDBK_DIV_LSBS, 0x00, TVP7002_WRITE },
@@ -210,6 +220,7 @@ static const struct i2c_reg_value tvp7002_parms_576P[] = {
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Register parameters for 1080I60 */
 static const struct i2c_reg_value tvp7002_parms_1080I60[] = {
 	{ TVP7002_HPLL_FDBK_DIV_MSBS, 0x89, TVP7002_WRITE },
 	{ TVP7002_HPLL_FDBK_DIV_LSBS, 0x80, TVP7002_WRITE },
@@ -230,6 +241,7 @@ static const struct i2c_reg_value tvp7002_parms_1080I60[] = {
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Register parameters for 1080P60 */
 static const struct i2c_reg_value tvp7002_parms_1080P60[] = {
 	{ TVP7002_HPLL_FDBK_DIV_MSBS, 0x89, TVP7002_WRITE },
 	{ TVP7002_HPLL_FDBK_DIV_LSBS, 0x80, TVP7002_WRITE },
@@ -250,6 +262,7 @@ static const struct i2c_reg_value tvp7002_parms_1080P60[] = {
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Register parameters for 1080I50 */
 static const struct i2c_reg_value tvp7002_parms_1080I50[] = {
 	{ TVP7002_HPLL_FDBK_DIV_MSBS, 0xa5, TVP7002_WRITE },
 	{ TVP7002_HPLL_FDBK_DIV_LSBS, 0x00, TVP7002_WRITE },
@@ -270,6 +283,7 @@ static const struct i2c_reg_value tvp7002_parms_1080I50[] = {
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Register parameters for 720P60 */
 static const struct i2c_reg_value tvp7002_parms_720P60[] = {
 	{ TVP7002_HPLL_FDBK_DIV_MSBS, 0x67, TVP7002_WRITE },
 	{ TVP7002_HPLL_FDBK_DIV_LSBS, 0x20, TVP7002_WRITE },
@@ -290,6 +304,7 @@ static const struct i2c_reg_value tvp7002_parms_720P60[] = {
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Register parameters for 720P50 */
 static const struct i2c_reg_value tvp7002_parms_720P50[] = {
 	{ TVP7002_HPLL_FDBK_DIV_MSBS, 0x7b, TVP7002_WRITE },
 	{ TVP7002_HPLL_FDBK_DIV_LSBS, 0xc0, TVP7002_WRITE },
@@ -310,6 +325,7 @@ static const struct i2c_reg_value tvp7002_parms_720P50[] = {
 	{ TVP7002_EOR, 0xff, TVP7002_RESERVED }
 };
 
+/* Preset definition for handling device operation */
 struct tvp7002_preset_definition {
 	u32 preset;
 	const struct i2c_reg_value *p_settings;
@@ -321,6 +337,7 @@ struct tvp7002_preset_definition {
 	u16 cpl_max;
 };
 
+/* Struct list for digital video presets */
 static const struct tvp7002_preset_definition tvp7002_presets[] = {
 	{
 		V4L2_DV_720P60,
@@ -396,6 +413,7 @@ static const struct tvp7002_preset_definition tvp7002_presets[] = {
 
 #define NUM_PRESETS	ARRAY_SIZE(tvp7002_presets)
 
+/* Device definition */
 struct tvp7002 {
 	struct v4l2_subdev sd;
 	struct v4l2_ctrl_handler hdl;
@@ -407,6 +425,12 @@ struct tvp7002 {
 	const struct tvp7002_preset_definition *current_preset;
 };
 
+/*
+ * to_tvp7002 - Obtain device handler TVP7002
+ * @sd: ptr to v4l2_subdev struct
+ *
+ * Returns device handler tvp7002.
+ */
 static inline struct tvp7002 *to_tvp7002(struct v4l2_subdev *sd)
 {
 	return container_of(sd, struct tvp7002, sd);
@@ -417,6 +441,14 @@ static inline struct v4l2_subdev *to_sd(struct v4l2_ctrl *ctrl)
 	return &container_of(ctrl->handler, struct tvp7002, hdl)->sd;
 }
 
+/*
+ * tvp7002_read - Read a value from a register in an TVP7002
+ * @sd: ptr to v4l2_subdev struct
+ * @addr: TVP7002 register address
+ * @dst: pointer to 8-bit destination
+ *
+ * Returns value read if successful, or non-zero (-1) otherwise.
+ */
 static int tvp7002_read(struct v4l2_subdev *sd, u8 addr, u8 *dst)
 {
 	struct i2c_client *c = v4l2_get_subdevdata(sd);
@@ -437,6 +469,16 @@ static int tvp7002_read(struct v4l2_subdev *sd, u8 addr, u8 *dst)
 	return error;
 }
 
+/*
+ * tvp7002_read_err() - Read a register value with error code
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @reg: destination register
+ * @val: value to be read
+ * @err: pointer to error value
+ *
+ * Read a value in a register and save error value in pointer.
+ * Also update the register table if successful
+ */
 static inline void tvp7002_read_err(struct v4l2_subdev *sd, u8 reg,
 							u8 *dst, int *err)
 {
@@ -491,6 +533,14 @@ static inline void tvp7002_write_err(struct v4l2_subdev *sd, u8 reg,
 		*err = tvp7002_write(sd, reg, val);
 }
 
+/*
+ * tvp7002_g_chip_ident() - Get chip identification number
+ * @sd: ptr to v4l2_subdev struct
+ * @chip: ptr to v4l2_dbg_chip_ident struct
+ *
+ * Obtains the chip's identification number.
+ * Returns zero or -EINVAL if read operation fails.
+ */
 static int tvp7002_g_chip_ident(struct v4l2_subdev *sd,
 					struct v4l2_dbg_chip_ident *chip)
 {
@@ -506,12 +556,20 @@ static int tvp7002_g_chip_ident(struct v4l2_subdev *sd,
 	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_TVP7002, rev);
 }
 
+/*
+ * tvp7002_write_inittab() - Write initialization values
+ * @sd: ptr to v4l2_subdev struct
+ * @regs: ptr to i2c_reg_value struct
+ *
+ * Write initialization values.
+ * Returns zero or -EINVAL if read operation fails.
+ */
 static int tvp7002_write_inittab(struct v4l2_subdev *sd,
 					const struct i2c_reg_value *regs)
 {
 	int error = 0;
 
-	
+	/* Initialize the first (defined) registers */
 	while (TVP7002_EOR != regs->reg) {
 		if (TVP7002_WRITE == regs->type)
 			tvp7002_write_err(sd, regs->reg, regs->value, &error);
@@ -521,6 +579,14 @@ static int tvp7002_write_inittab(struct v4l2_subdev *sd,
 	return error;
 }
 
+/*
+ * tvp7002_s_dv_preset() - Set digital video preset
+ * @sd: ptr to v4l2_subdev struct
+ * @dv_preset: ptr to v4l2_dv_preset struct
+ *
+ * Set the digital video preset for a TVP7002 decoder device.
+ * Returns zero when successful or -EINVAL if register access fails.
+ */
 static int tvp7002_s_dv_preset(struct v4l2_subdev *sd,
 					struct v4l2_dv_preset *dv_preset)
 {
@@ -539,6 +605,13 @@ static int tvp7002_s_dv_preset(struct v4l2_subdev *sd,
 	return -EINVAL;
 }
 
+/*
+ * tvp7002_s_ctrl() - Set a control
+ * @ctrl: ptr to v4l2_ctrl struct
+ *
+ * Set a control in TVP7002 decoder device.
+ * Returns zero when successful or -EINVAL if register access fails.
+ */
 static int tvp7002_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct v4l2_subdev *sd = to_sd(ctrl);
@@ -554,13 +627,22 @@ static int tvp7002_s_ctrl(struct v4l2_ctrl *ctrl)
 	return -EINVAL;
 }
 
+/*
+ * tvp7002_mbus_fmt() - V4L2 decoder interface handler for try/s/g_mbus_fmt
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @f: pointer to mediabus format structure
+ *
+ * Negotiate the image capture size and mediabus format.
+ * There is only one possible format, so this single function works for
+ * get, set and try.
+ */
 static int tvp7002_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *f)
 {
 	struct tvp7002 *device = to_tvp7002(sd);
 	struct v4l2_dv_enum_preset e_preset;
 	int error;
 
-	
+	/* Calculate height and width based on current standard */
 	error = v4l_fill_dv_preset_info(device->current_preset->preset, &e_preset);
 	if (error)
 		return error;
@@ -576,6 +658,14 @@ static int tvp7002_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *f
 	return 0;
 }
 
+/*
+ * tvp7002_query_dv_preset() - query DV preset
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @qpreset: standard V4L2 v4l2_dv_preset structure
+ *
+ * Returns the current DV preset by TVP7002. If no active input is
+ * detected, returns -EINVAL
+ */
 static int tvp7002_query_dv_preset(struct v4l2_subdev *sd,
 						struct v4l2_dv_preset *qpreset)
 {
@@ -591,12 +681,12 @@ static int tvp7002_query_dv_preset(struct v4l2_subdev *sd,
 	u8 cpl_msb;
 	int index;
 
-	
+	/* Return invalid preset if no active input is detected */
 	qpreset->preset = V4L2_DV_INVALID;
 
 	device = to_tvp7002(sd);
 
-	
+	/* Read standards from device registers */
 	tvp7002_read_err(sd, TVP7002_L_FRAME_STAT_LSBS, &lpf_lsb, &error);
 	tvp7002_read_err(sd, TVP7002_L_FRAME_STAT_MSBS, &lpf_msb, &error);
 
@@ -609,12 +699,12 @@ static int tvp7002_query_dv_preset(struct v4l2_subdev *sd,
 	if (error < 0)
 		return error;
 
-	
+	/* Get lines per frame, clocks per line and interlaced/progresive */
 	lpfr = lpf_lsb | ((TVP7002_CL_MASK & lpf_msb) << TVP7002_CL_SHIFT);
 	cpln = cpl_lsb | ((TVP7002_CL_MASK & cpl_msb) << TVP7002_CL_SHIFT);
 	progressive = (lpf_msb & TVP7002_INPR_MASK) >> TVP7002_IP_SHIFT;
 
-	
+	/* Do checking of video modes */
 	for (index = 0; index < NUM_PRESETS; index++, presets++)
 		if (lpfr  == presets->lines_per_frame &&
 			progressive == presets->progressive) {
@@ -630,15 +720,25 @@ static int tvp7002_query_dv_preset(struct v4l2_subdev *sd,
 		return 0;
 	}
 
-	
+	/* Set values in found preset */
 	qpreset->preset = presets->preset;
 
-	
+	/* Update lines per frame and clocks per line info */
 	v4l2_dbg(1, debug, sd, "detected preset: %d\n", presets->preset);
 	return 0;
 }
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
+/*
+ * tvp7002_g_register() - Get the value of a register
+ * @sd: ptr to v4l2_subdev struct
+ * @reg: ptr to v4l2_dbg_register struct
+ *
+ * Get the value of a TVP7002 decoder device register.
+ * Returns zero when successful, -EINVAL if register read fails or
+ * access to I2C client fails, -EPERM if the call is not allowed
+ * by disabled CAP_SYS_ADMIN.
+ */
 static int tvp7002_g_register(struct v4l2_subdev *sd,
 						struct v4l2_dbg_register *reg)
 {
@@ -656,6 +756,15 @@ static int tvp7002_g_register(struct v4l2_subdev *sd,
 	return ret;
 }
 
+/*
+ * tvp7002_s_register() - set a control
+ * @sd: ptr to v4l2_subdev struct
+ * @reg: ptr to v4l2_dbg_register struct
+ *
+ * Get the value of a TVP7002 decoder device register.
+ * Returns zero when successful, -EINVAL if register read fails or
+ * -EPERM if call not allowed.
+ */
 static int tvp7002_s_register(struct v4l2_subdev *sd,
 						struct v4l2_dbg_register *reg)
 {
@@ -670,17 +779,32 @@ static int tvp7002_s_register(struct v4l2_subdev *sd,
 }
 #endif
 
+/*
+ * tvp7002_enum_mbus_fmt() - Enum supported mediabus formats
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @index: format index
+ * @code: pointer to mediabus format
+ *
+ * Enumerate supported mediabus formats.
+ */
 
 static int tvp7002_enum_mbus_fmt(struct v4l2_subdev *sd, unsigned index,
 					enum v4l2_mbus_pixelcode *code)
 {
-	
+	/* Check requested format index is within range */
 	if (index)
 		return -EINVAL;
 	*code = V4L2_MBUS_FMT_YUYV10_1X20;
 	return 0;
 }
 
+/*
+ * tvp7002_s_stream() - V4L2 decoder i/f handler for s_stream
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @enable: streaming enable or disable
+ *
+ * Sets streaming to enable or disable, if possible.
+ */
 static int tvp7002_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct tvp7002 *device = to_tvp7002(sd);
@@ -690,11 +814,11 @@ static int tvp7002_s_stream(struct v4l2_subdev *sd, int enable)
 		return 0;
 
 	if (enable) {
-		
+		/* Set output state on (low impedance means stream on) */
 		error = tvp7002_write(sd, TVP7002_MISC_CTL_2, 0x00);
 		device->streaming = enable;
 	} else {
-		
+		/* Set output state off (high impedance means stream off) */
 		error = tvp7002_write(sd, TVP7002_MISC_CTL_2, 0x03);
 		if (error)
 			v4l2_dbg(1, debug, sd, "Unable to stop streaming\n");
@@ -705,6 +829,13 @@ static int tvp7002_s_stream(struct v4l2_subdev *sd, int enable)
 	return error;
 }
 
+/*
+ * tvp7002_log_status() - Print information about register settings
+ * @sd: ptr to v4l2_subdev struct
+ *
+ * Log register values of a TVP7002 decoder device.
+ * Returns zero or -EINVAL if read operation fails.
+ */
 static int tvp7002_log_status(struct v4l2_subdev *sd)
 {
 	const struct tvp7002_preset_definition *presets = tvp7002_presets;
@@ -714,10 +845,10 @@ static int tvp7002_log_status(struct v4l2_subdev *sd)
 	int i;
 
 	detected.preset = V4L2_DV_INVALID;
-	
+	/* Find my current standard*/
 	tvp7002_query_dv_preset(sd, &detected);
 
-	
+	/* Print standard related code values */
 	for (i = 0; i < NUM_PRESETS; i++, presets++)
 		if (presets->preset == detected.preset)
 			break;
@@ -740,16 +871,23 @@ static int tvp7002_log_status(struct v4l2_subdev *sd)
 	v4l2_info(sd, "Streaming enabled: %s\n",
 					device->streaming ? "yes" : "no");
 
-	
+	/* Print the current value of the gain control */
 	v4l2_ctrl_handler_log_status(&device->hdl, sd->name);
 
 	return 0;
 }
 
+/*
+ * tvp7002_enum_dv_presets() - Enum supported digital video formats
+ * @sd: pointer to standard V4L2 sub-device structure
+ * @preset: pointer to format struct
+ *
+ * Enumerate supported digital video formats.
+ */
 static int tvp7002_enum_dv_presets(struct v4l2_subdev *sd,
 		struct v4l2_dv_enum_preset *preset)
 {
-	
+	/* Check requested format index is within range */
 	if (preset->index >= NUM_PRESETS)
 		return -EINVAL;
 
@@ -760,6 +898,7 @@ static const struct v4l2_ctrl_ops tvp7002_ctrl_ops = {
 	.s_ctrl = tvp7002_s_ctrl,
 };
 
+/* V4L2 core operation handlers */
 static const struct v4l2_subdev_core_ops tvp7002_core_ops = {
 	.g_chip_ident = tvp7002_g_chip_ident,
 	.log_status = tvp7002_log_status,
@@ -776,6 +915,7 @@ static const struct v4l2_subdev_core_ops tvp7002_core_ops = {
 #endif
 };
 
+/* Specific video subsystem operation handlers */
 static const struct v4l2_subdev_video_ops tvp7002_video_ops = {
 	.enum_dv_presets = tvp7002_enum_dv_presets,
 	.s_dv_preset = tvp7002_s_dv_preset,
@@ -787,11 +927,21 @@ static const struct v4l2_subdev_video_ops tvp7002_video_ops = {
 	.enum_mbus_fmt = tvp7002_enum_mbus_fmt,
 };
 
+/* V4L2 top level operation handlers */
 static const struct v4l2_subdev_ops tvp7002_ops = {
 	.core = &tvp7002_core_ops,
 	.video = &tvp7002_video_ops,
 };
 
+/*
+ * tvp7002_probe - Probe a TVP7002 device
+ * @c: ptr to i2c_client struct
+ * @id: ptr to i2c_device_id struct
+ *
+ * Initialize the TVP7002 device
+ * Returns zero when successful, -EINVAL if register read fails or
+ * -EIO if i2c access is not available.
+ */
 static int tvp7002_probe(struct i2c_client *c, const struct i2c_device_id *id)
 {
 	struct v4l2_subdev *sd;
@@ -803,7 +953,7 @@ static int tvp7002_probe(struct i2c_client *c, const struct i2c_device_id *id)
 
 	int error;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(c->adapter,
 		I2C_FUNC_SMBUS_READ_BYTE | I2C_FUNC_SMBUS_WRITE_BYTE_DATA))
 		return -EIO;
@@ -822,7 +972,7 @@ static int tvp7002_probe(struct i2c_client *c, const struct i2c_device_id *id)
 	device->pdata = c->dev.platform_data;
 	device->current_preset = tvp7002_presets;
 
-	
+	/* Tell v4l2 the device is ready */
 	v4l2_i2c_subdev_init(sd, c, &tvp7002_ops);
 	v4l_info(c, "tvp7002 found @ 0x%02x (%s)\n",
 					c->addr, c->adapter->name);
@@ -831,18 +981,18 @@ static int tvp7002_probe(struct i2c_client *c, const struct i2c_device_id *id)
 	if (error < 0)
 		goto found_error;
 
-	
+	/* Get revision number */
 	v4l2_info(sd, "Rev. %02x detected.\n", revision);
 	if (revision != 0x02)
 		v4l2_info(sd, "Unknown revision detected.\n");
 
-	
+	/* Initializes TVP7002 to its default values */
 	error = tvp7002_write_inittab(sd, tvp7002_init_default);
 
 	if (error < 0)
 		goto found_error;
 
-	
+	/* Set polarity information after registers have been set */
 	polarity_a = 0x20 | device->pdata->hs_polarity << 5
 			| device->pdata->vs_polarity << 2;
 	error = tvp7002_write(sd, TVP7002_SYNC_CTL_1, polarity_a);
@@ -856,7 +1006,7 @@ static int tvp7002_probe(struct i2c_client *c, const struct i2c_device_id *id)
 	if (error < 0)
 		goto found_error;
 
-	
+	/* Set registers according to default video mode */
 	preset.preset = device->current_preset->preset;
 	error = tvp7002_s_dv_preset(sd, &preset);
 
@@ -880,6 +1030,13 @@ found_error:
 	return error;
 }
 
+/*
+ * tvp7002_remove - Remove TVP7002 device support
+ * @c: ptr to i2c_client struct
+ *
+ * Reset the TVP7002 device
+ * Returns zero.
+ */
 static int tvp7002_remove(struct i2c_client *c)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(c);
@@ -894,12 +1051,14 @@ static int tvp7002_remove(struct i2c_client *c)
 	return 0;
 }
 
+/* I2C Device ID table */
 static const struct i2c_device_id tvp7002_id[] = {
 	{ "tvp7002", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tvp7002_id);
 
+/* I2C driver data */
 static struct i2c_driver tvp7002_driver = {
 	.driver = {
 		.owner = THIS_MODULE,

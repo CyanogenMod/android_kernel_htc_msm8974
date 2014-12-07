@@ -20,7 +20,7 @@ enum {
 };
 
 struct isku_control {
-	uint8_t command; 
+	uint8_t command; /* ISKU_COMMAND_CONTROL */
 	uint8_t value;
 	uint8_t request;
 } __packed;
@@ -33,15 +33,15 @@ enum isku_control_values {
 };
 
 struct isku_actual_profile {
-	uint8_t command; 
-	uint8_t size; 
+	uint8_t command; /* ISKU_COMMAND_ACTUAL_PROFILE */
+	uint8_t size; /* always 3 */
 	uint8_t actual_profile;
 } __packed;
 
 struct isku_key_mask {
-	uint8_t command; 
-	uint8_t size; 
-	uint8_t profile_number; 
+	uint8_t command; /* ISKU_COMMAND_KEY_MASK */
+	uint8_t size; /* 6 */
+	uint8_t profile_number; /* 0-4 */
 	uint8_t mask;
 	uint16_t checksum;
 } __packed;
@@ -113,7 +113,7 @@ enum isku_commands {
 };
 
 struct isku_report_button {
-	uint8_t number; 
+	uint8_t number; /* ISKU_REPORT_NUMBER_BUTTON */
 	uint8_t zero;
 	uint8_t event;
 	uint8_t data1;

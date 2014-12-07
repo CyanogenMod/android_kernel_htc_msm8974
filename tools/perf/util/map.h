@@ -31,15 +31,15 @@ struct map {
 	};
 	u64			start;
 	u64			end;
-	u8 	type;
+	u8 /* enum map_type */	type;
 	bool			referenced;
 	bool			erange_warned;
 	u32			priv;
 	u64			pgoff;
 
-	
+	/* ip -> dso rip */
 	u64			(*map_ip)(struct map *, u64);
-	
+	/* dso rip -> ip */
 	u64			(*unmap_ip)(struct map *, u64);
 
 	struct dso		*dso;
@@ -57,6 +57,7 @@ struct map_groups {
 	struct machine	 *machine;
 };
 
+/* Native host kernel uses -1 as pid index in machine */
 #define	HOST_KERNEL_ID			(-1)
 #define	DEFAULT_GUEST_KERNEL_ID		(0)
 
@@ -101,6 +102,7 @@ static inline u64 identity__map_ip(struct map *map __used, u64 ip)
 }
 
 
+/* rip/ip <-> addr suitable for passing to `objdump --start-address=` */
 u64 map__rip_2objdump(struct map *map, u64 rip);
 u64 map__objdump_2ip(struct map *map, u64 addr);
 
@@ -161,6 +163,10 @@ int machine__resolve_callchain(struct machine *machine,
 int maps__set_kallsyms_ref_reloc_sym(struct map **maps, const char *symbol_name,
 				     u64 addr);
 
+/*
+ * Default guest kernel is defined by parameter --guestkallsyms
+ * and --guestmodules
+ */
 static inline bool machine__is_default_guest(struct machine *self)
 {
 	return self ? self->pid == DEFAULT_GUEST_KERNEL_ID : false;
@@ -249,4 +255,4 @@ struct map *machine__new_module(struct machine *self, u64 start, const char *fil
 
 void map_groups__flush(struct map_groups *mg);
 
-#endif 
+#endif /* __PERF_MAP_H */

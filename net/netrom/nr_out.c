@@ -28,6 +28,10 @@
 #include <linux/interrupt.h>
 #include <net/netrom.h>
 
+/*
+ *	This is where all NET/ROM frames pass, except for IP-over-NET/ROM which
+ *	cannot be fragmented in this manner.
+ */
 void nr_output(struct sock *sk, struct sk_buff *skb)
 {
 	struct sk_buff *skbn;
@@ -35,7 +39,7 @@ void nr_output(struct sock *sk, struct sk_buff *skb)
 	int err, frontlen, len;
 
 	if (skb->len - NR_TRANSPORT_LEN > NR_MAX_PACKET_SIZE) {
-		
+		/* Save a copy of the Transport Header */
 		skb_copy_from_linear_data(skb, transport, NR_TRANSPORT_LEN);
 		skb_pull(skb, NR_TRANSPORT_LEN);
 
@@ -49,28 +53,32 @@ void nr_output(struct sock *sk, struct sk_buff *skb)
 
 			len = (NR_MAX_PACKET_SIZE > skb->len) ? skb->len : NR_MAX_PACKET_SIZE;
 
-			
+			/* Copy the user data */
 			skb_copy_from_linear_data(skb, skb_put(skbn, len), len);
 			skb_pull(skb, len);
 
-			
+			/* Duplicate the Transport Header */
 			skb_push(skbn, NR_TRANSPORT_LEN);
 			skb_copy_to_linear_data(skbn, transport,
 						NR_TRANSPORT_LEN);
 			if (skb->len > 0)
 				skbn->data[4] |= NR_MORE_FLAG;
 
-			skb_queue_tail(&sk->sk_write_queue, skbn); 
+			skb_queue_tail(&sk->sk_write_queue, skbn); /* Throw it on the queue */
 		}
 
 		kfree_skb(skb);
 	} else {
-		skb_queue_tail(&sk->sk_write_queue, skb);		
+		skb_queue_tail(&sk->sk_write_queue, skb);		/* Throw it on the queue */
 	}
 
 	nr_kick(sk);
 }
 
+/*
+ *	This procedure is passed a buffer descriptor for an iframe. It builds
+ *	the rest of the control part of the frame and then writes it out.
+ */
 static void nr_send_iframe(struct sock *sk, struct sk_buff *skb)
 {
 	struct nr_sock *nr = nr_sk(sk);
@@ -137,7 +145,14 @@ void nr_kick(struct sock *sk)
 
 	nr->vs = start;
 
+	/*
+	 * Transmit data until either we're out of data to send or
+	 * the window is full.
+	 */
 
+	/*
+	 * Dequeue the frame and copy it.
+	 */
 	skb = skb_dequeue(&sk->sk_write_queue);
 
 	do {
@@ -148,10 +163,16 @@ void nr_kick(struct sock *sk)
 
 		skb_set_owner_w(skbn, sk);
 
+		/*
+		 * Transmit the frame copy.
+		 */
 		nr_send_iframe(sk, skbn);
 
 		nr->vs = (nr->vs + 1) % NR_MODULUS;
 
+		/*
+		 * Requeue the original data frame.
+		 */
 		skb_queue_tail(&nr->ack_queue, skb);
 
 	} while (nr->vs != end &&
@@ -169,6 +190,9 @@ void nr_transmit_buffer(struct sock *sk, struct sk_buff *skb)
 	struct nr_sock *nr = nr_sk(sk);
 	unsigned char *dptr;
 
+	/*
+	 *	Add the protocol byte and network header.
+	 */
 	dptr = skb_push(skb, NR_NETWORK_LEN);
 
 	memcpy(dptr, &nr->source_addr, AX25_ADDR_LEN);
@@ -191,6 +215,10 @@ void nr_transmit_buffer(struct sock *sk, struct sk_buff *skb)
 	}
 }
 
+/*
+ * The following routines are taken from page 170 of the 7th ARRL Computer
+ * Networking Conference paper, as is the whole state machine.
+ */
 
 void nr_establish_data_link(struct sock *sk)
 {
@@ -207,6 +235,9 @@ void nr_establish_data_link(struct sock *sk)
 	nr_start_t1timer(sk);
 }
 
+/*
+ * Never send a NAK when we are CHOKEd.
+ */
 void nr_enquiry_response(struct sock *sk)
 {
 	struct nr_sock *nr = nr_sk(sk);

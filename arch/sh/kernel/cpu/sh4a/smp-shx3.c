@@ -34,9 +34,9 @@ static irqreturn_t ipi_interrupt_handler(int irq, void *arg)
 	unsigned int offs = 4 * cpu;
 	unsigned int x;
 
-	x = __raw_readl(0xfe410070 + offs); 
+	x = __raw_readl(0xfe410070 + offs); /* C0INITICI..CnINTICI */
 	x &= (1 << (message << 2));
-	__raw_writel(x, 0xfe410080 + offs); 
+	__raw_writel(x, 0xfe410080 + offs); /* C0INTICICLR..CnINTICICLR */
 
 	smp_message_recv(message);
 
@@ -50,12 +50,16 @@ static void shx3_smp_setup(void)
 
 	init_cpu_possible(cpumask_of(cpu));
 
-	
+	/* Enable light sleep for the boot CPU */
 	__raw_writel(__raw_readl(STBCR_REG(cpu)) | STBCR_LTSLP, STBCR_REG(cpu));
 
 	__cpu_number_map[0] = 0;
 	__cpu_logical_map[0] = 0;
 
+	/*
+	 * Do this stupidly for now.. we don't have an easy way to probe
+	 * for the total number of cores.
+	 */
 	for (i = 1, num = 0; i < NR_CPUS; i++) {
 		set_cpu_possible(i, true);
 		__cpu_number_map[i] = ++num;
@@ -94,13 +98,13 @@ static void shx3_start_cpu(unsigned int cpu, unsigned long entry_point)
 	while (!(__raw_readl(STBCR_REG(cpu)) & STBCR_MSTP))
 		cpu_relax();
 
-	
+	/* Start up secondary processor by sending a reset */
 	__raw_writel(STBCR_RESET | STBCR_LTSLP, STBCR_REG(cpu));
 }
 
 static unsigned int shx3_smp_processor_id(void)
 {
-	return __raw_readl(0xff000048); 
+	return __raw_readl(0xff000048); /* CPIDR */
 }
 
 static void shx3_send_ipi(unsigned int cpu, unsigned int message)
@@ -109,7 +113,7 @@ static void shx3_send_ipi(unsigned int cpu, unsigned int message)
 
 	BUG_ON(cpu >= 4);
 
-	__raw_writel(1 << (message << 2), addr); 
+	__raw_writel(1 << (message << 2), addr); /* C0INTICI..CnINTICI */
 }
 
 static void shx3_update_boot_vector(unsigned int cpu)

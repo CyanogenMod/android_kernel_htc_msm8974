@@ -10,6 +10,9 @@
  *	CPU hotplug support - ashok.raj@intel.com
  */
 
+/*
+ * This file handles the architecture-dependent parts of process handling..
+ */
 
 #include <linux/cpu.h>
 #include <linux/errno.h>
@@ -51,6 +54,7 @@ asmlinkage extern void ret_from_fork(void);
 
 DEFINE_PER_CPU(unsigned long, old_rsp);
 
+/* Prints also some state that isn't saved in the pt_regs */
 void __show_regs(struct pt_regs *regs, int all)
 {
 	unsigned long cr0 = 0L, cr2 = 0L, cr3 = 0L, cr4 = 0L, fs, gs, shadowgs;
@@ -141,6 +145,10 @@ static inline u32 read_32bit_tls(struct task_struct *t, int tls)
 	return get_desc_base(&t->thread.tls_array[tls]);
 }
 
+/*
+ * This gets called before we allocate a new thread and copy
+ * the current task into it.
+ */
 void prepare_to_copy(struct task_struct *tsk)
 {
 	unlazy_fpu(tsk);
@@ -193,6 +201,9 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 		set_tsk_thread_flag(p, TIF_IO_BITMAP);
 	}
 
+	/*
+	 * Set a new TLS for the child thread?
+	 */
 	if (clone_flags & CLONE_SETTLS) {
 #ifdef CONFIG_IA32_EMULATION
 		if (test_thread_flag(TIF_IA32))
@@ -230,6 +241,9 @@ start_thread_common(struct pt_regs *regs, unsigned long new_ip,
 	regs->cs		= _cs;
 	regs->ss		= _ss;
 	regs->flags		= X86_EFLAGS_IF;
+	/*
+	 * Free the old FP and other extended state
+	 */
 	free_thread_xstate(current);
 }
 
@@ -250,6 +264,16 @@ void start_thread_ia32(struct pt_regs *regs, u32 new_ip, u32 new_sp)
 }
 #endif
 
+/*
+ *	switch_to(x,y) should switch tasks from x to y.
+ *
+ * This could still be optimized:
+ * - fold all the options into a flag word and test it with a single test.
+ * - could test fs/gs bitsliced
+ *
+ * Kprobes not supported here. Set the probe on schedule instead.
+ * Function graph tracer not supported too.
+ */
 __notrace_funcgraph struct task_struct *
 __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 {
@@ -262,8 +286,15 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 
 	fpu = switch_fpu_prepare(prev_p, next_p, cpu);
 
+	/*
+	 * Reload esp0, LDT and the page table pointer:
+	 */
 	load_sp0(tss, next);
 
+	/*
+	 * Switch DS and ES.
+	 * This won't pick up thread selector changes, but I guess that is ok.
+	 */
 	savesegment(es, prev->es);
 	if (unlikely(next->es | prev->es))
 		loadsegment(es, next->es);
@@ -273,19 +304,43 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 		loadsegment(ds, next->ds);
 
 
+	/* We must save %fs and %gs before load_TLS() because
+	 * %fs and %gs may be cleared by load_TLS().
+	 *
+	 * (e.g. xen_load_tls())
+	 */
 	savesegment(fs, fsindex);
 	savesegment(gs, gsindex);
 
 	load_TLS(next, cpu);
 
+	/*
+	 * Leave lazy mode, flushing any hypercalls made here.
+	 * This must be done before restoring TLS segments so
+	 * the GDT and LDT are properly updated, and must be
+	 * done before math_state_restore, so the TS bit is up
+	 * to date.
+	 */
 	arch_end_context_switch(next_p);
 
+	/*
+	 * Switch FS and GS.
+	 *
+	 * Segment register != 0 always requires a reload.  Also
+	 * reload when it has changed.  When prev process used 64bit
+	 * base always reload to avoid an information leak.
+	 */
 	if (unlikely(fsindex | next->fsindex | prev->fs)) {
 		loadsegment(fs, next->fsindex);
+		/*
+		 * Check if the user used a selector != 0; if yes
+		 *  clear 64bit base, since overloaded base is always
+		 *  mapped to the Null selector
+		 */
 		if (fsindex)
 			prev->fs = 0;
 	}
-	
+	/* when next process has a 64bit base use it */
 	if (next->fs)
 		wrmsrl(MSR_FS_BASE, next->fs);
 	prev->fsindex = fsindex;
@@ -301,6 +356,9 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 
 	switch_fpu_finish(next_p, fpu);
 
+	/*
+	 * Switch the PDA and FPU contexts.
+	 */
 	prev->usersp = percpu_read(old_rsp);
 	percpu_write(old_rsp, next->usersp);
 	percpu_write(current_task, next_p);
@@ -309,6 +367,9 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 		  (unsigned long)task_stack_page(next_p) +
 		  THREAD_SIZE - KERNEL_STACK_OFFSET);
 
+	/*
+	 * Now maybe reload the debug registers and handle I/O bitmaps
+	 */
 	if (unlikely(task_thread_info(next_p)->flags & _TIF_WORK_CTXSW_NEXT ||
 		     task_thread_info(prev_p)->flags & _TIF_WORK_CTXSW_PREV))
 		__switch_to_xtra(prev_p, next_p, tss);
@@ -318,28 +379,32 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 
 void set_personality_64bit(void)
 {
-	
+	/* inherit personality from parent */
 
-	
+	/* Make sure to be in 64bit mode */
 	clear_thread_flag(TIF_IA32);
 	clear_thread_flag(TIF_ADDR32);
 	clear_thread_flag(TIF_X32);
 
-	
+	/* Ensure the corresponding mm is not marked. */
 	if (current->mm)
 		current->mm->context.ia32_compat = 0;
 
+	/* TBD: overwrites user setup. Should have two bits.
+	   But 64bit processes have always behaved this way,
+	   so it's not too bad. The main problem is just that
+	   32bit childs are affected again. */
 	current->personality &= ~READ_IMPLIES_EXEC;
 }
 
 void set_personality_ia32(bool x32)
 {
-	
+	/* inherit personality from parent */
 
-	
+	/* Make sure to be in 32bit mode */
 	set_thread_flag(TIF_ADDR32);
 
-	
+	/* Mark the associated mm as containing 32-bit tasks. */
 	if (current->mm)
 		current->mm->context.ia32_compat = 1;
 
@@ -347,12 +412,14 @@ void set_personality_ia32(bool x32)
 		clear_thread_flag(TIF_IA32);
 		set_thread_flag(TIF_X32);
 		current->personality &= ~READ_IMPLIES_EXEC;
+		/* is_compat_task() uses the presence of the x32
+		   syscall bit flag to determine compat status */
 		current_thread_info()->status &= ~TS_COMPAT;
 	} else {
 		set_thread_flag(TIF_IA32);
 		clear_thread_flag(TIF_X32);
 		current->personality |= force_personality32;
-		
+		/* Prepare the first "return" to user space */
 		current_thread_info()->status |= TS_COMPAT;
 	}
 }
@@ -393,6 +460,8 @@ long do_arch_prctl(struct task_struct *task, int code, unsigned long addr)
 		if (addr >= TASK_SIZE_OF(task))
 			return -EPERM;
 		cpu = get_cpu();
+		/* handle small bases via the GDT because that's faster to
+		   switch. */
 		if (addr <= 0xffffffff) {
 			set_32bit_tls(task, GS_TLS, addr);
 			if (doit) {
@@ -412,9 +481,13 @@ long do_arch_prctl(struct task_struct *task, int code, unsigned long addr)
 		put_cpu();
 		break;
 	case ARCH_SET_FS:
+		/* Not strictly needed for fs, but do it for symmetry
+		   with gs */
 		if (addr >= TASK_SIZE_OF(task))
 			return -EPERM;
 		cpu = get_cpu();
+		/* handle small bases via the GDT because that's faster to
+		   switch. */
 		if (addr <= 0xffffffff) {
 			set_32bit_tls(task, FS_TLS, addr);
 			if (doit) {
@@ -427,6 +500,8 @@ long do_arch_prctl(struct task_struct *task, int code, unsigned long addr)
 			task->thread.fsindex = 0;
 			task->thread.fs = addr;
 			if (doit) {
+				/* set the selector to 0 to not confuse
+				   __switch_to */
 				loadsegment(fs, 0);
 				ret = checking_wrmsrl(MSR_FS_BASE, addr);
 			}

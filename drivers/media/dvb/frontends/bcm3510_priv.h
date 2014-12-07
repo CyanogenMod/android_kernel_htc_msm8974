@@ -163,7 +163,9 @@ typedef union {
 
 } bcm3510_register_value;
 
+/* HAB commands */
 
+/* version */
 #define CMD_GET_VERSION_INFO   0x3D
 #define MSGID_GET_VERSION_INFO 0x15
 struct bcm3510_hab_cmd_get_version_info {
@@ -178,6 +180,7 @@ struct bcm3510_hab_cmd_get_version_info {
 #define BCM3510_DEF_CONFIG_VERSION    0x01
 #define BCM3510_DEF_DEMOD_VERSION     0xB1
 
+/* acquire */
 #define CMD_ACQUIRE            0x38
 
 #define MSGID_EXT_TUNER_ACQUIRE 0x0A
@@ -188,20 +191,20 @@ struct bcm3510_hab_cmd_ext_acquire {
 		u8 FA        :1;
 		u8 NTSCSWEEP :1;
 		u8 OFFSET    :1;
-	} PACKED ACQUIRE0; 
+	} PACKED ACQUIRE0; /* control_byte */
 
 	struct {
 		u8 IF_FREQ  :3;
 		u8 zero0    :1;
 		u8 SYM_RATE :3;
 		u8 zero1    :1;
-	} PACKED ACQUIRE1; 
+	} PACKED ACQUIRE1; /* sym_if */
 
-	u8 IF_OFFSET0;   
+	u8 IF_OFFSET0;   /* IF_Offset_10hz */
 	u8 IF_OFFSET1;
-	u8 SYM_OFFSET0;  
+	u8 SYM_OFFSET0;  /* SymbolRateOffset */
 	u8 SYM_OFFSET1;
-	u8 NTSC_OFFSET0; 
+	u8 NTSC_OFFSET0; /* NTSC_Offset_10hz */
 	u8 NTSC_OFFSET1;
 } PACKED;
 
@@ -213,27 +216,28 @@ struct bcm3510_hab_cmd_int_acquire {
 		u8 FA        :1;
 		u8 NTSCSWEEP :1;
 		u8 OFFSET    :1;
-	} PACKED ACQUIRE0; 
+	} PACKED ACQUIRE0; /* control_byte */
 
 	struct {
 		u8 IF_FREQ  :3;
 		u8 zero0    :1;
 		u8 SYM_RATE :3;
 		u8 zero1    :1;
-	} PACKED ACQUIRE1; 
+	} PACKED ACQUIRE1; /* sym_if */
 
 	u8 TUNER_FREQ0;
 	u8 TUNER_FREQ1;
 	u8 TUNER_FREQ2;
 	u8 TUNER_FREQ3;
-	u8 IF_OFFSET0;   
+	u8 IF_OFFSET0;   /* IF_Offset_10hz */
 	u8 IF_OFFSET1;
-	u8 SYM_OFFSET0;  
+	u8 SYM_OFFSET0;  /* SymbolRateOffset */
 	u8 SYM_OFFSET1;
-	u8 NTSC_OFFSET0; 
+	u8 NTSC_OFFSET0; /* NTSC_Offset_10hz */
 	u8 NTSC_OFFSET1;
 } PACKED;
 
+/* modes */
 #define BCM3510_QAM16           =   0x01
 #define BCM3510_QAM32           =   0x02
 #define BCM3510_QAM64           =   0x03
@@ -242,16 +246,19 @@ struct bcm3510_hab_cmd_int_acquire {
 #define BCM3510_8VSB            =   0x0B
 #define BCM3510_16VSB           =   0x0D
 
+/* IF_FREQS */
 #define BCM3510_IF_TERRESTRIAL 0x0
 #define BCM3510_IF_CABLE       0x1
 #define BCM3510_IF_USE_CMD     0x7
 
-#define BCM3510_SR_8VSB        0x0 
-#define BCM3510_SR_256QAM      0x1 
-#define BCM3510_SR_16QAM       0x2 
-#define BCM3510_SR_MISC        0x3 
+/* SYM_RATE */
+#define BCM3510_SR_8VSB        0x0 /* 5381119 s/sec */
+#define BCM3510_SR_256QAM      0x1 /* 5360537 s/sec */
+#define BCM3510_SR_16QAM       0x2 /* 5056971 s/sec */
+#define BCM3510_SR_MISC        0x3 /* 5000000 s/sec */
 #define BCM3510_SR_USE_CMD     0x7
 
+/* special symbol rate */
 #define CMD_SET_VALUE_NOT_LISTED  0x2d
 #define MSGID_SET_SYMBOL_RATE_NOT_LISTED 0x0c
 struct bcm3510_hab_cmd_set_sr_not_listed {
@@ -261,6 +268,7 @@ struct bcm3510_hab_cmd_set_sr_not_listed {
 	u8 HOST_SYM_RATE3;
 } PACKED;
 
+/* special IF */
 #define MSGID_SET_IF_FREQ_NOT_LISTED 0x0d
 struct bcm3510_hab_cmd_set_if_freq_not_listed {
 	u8 HOST_IF_FREQ0;
@@ -269,10 +277,11 @@ struct bcm3510_hab_cmd_set_if_freq_not_listed {
 	u8 HOST_IF_FREQ3;
 } PACKED;
 
+/* auto reacquire */
 #define CMD_AUTO_PARAM       0x2a
 #define MSGID_AUTO_REACQUIRE 0x0e
 struct bcm3510_hab_cmd_auto_reacquire {
-	u8 ACQ    :1; 
+	u8 ACQ    :1; /* on/off*/
 	u8 unused :7;
 } PACKED;
 
@@ -290,6 +299,7 @@ struct bcm3510_hab_cmd_auto_inversion {
 } PACKED;
 
 
+/* bert control */
 #define CMD_STATE_CONTROL  0x12
 #define MSGID_BERT_CONTROL 0x0e
 #define MSGID_BERT_SET     0xfa
@@ -300,14 +310,15 @@ struct bcm3510_hab_cmd_bert_control {
 
 #define MSGID_TRI_STATE 0x2e
 struct bcm3510_hab_cmd_tri_state {
-	u8 RE :1; 
-	u8 PE :1; 
-	u8 AC :1; 
-	u8 BE :1; 
+	u8 RE :1; /* a/d ram port pins */
+	u8 PE :1; /* baud clock pin */
+	u8 AC :1; /* a/d clock pin */
+	u8 BE :1; /* baud clock pin */
 	u8 unused :4;
 } PACKED;
 
 
+/* tune */
 #define CMD_TUNE   0x38
 #define MSGID_TUNE 0x16
 struct bcm3510_hab_cmd_tune_ctrl_data_pair {
@@ -346,8 +357,8 @@ struct bcm3510_hab_cmd_status1 {
 	struct {
 		u8 EQ_MODE       :4;
 		u8 reserved      :2;
-		u8 QRE           :1; 
-		u8 QSE           :1; 
+		u8 QRE           :1; /* if QSE and the spectrum is inversed */
+		u8 QSE           :1; /* automatic spectral inversion */
 	} PACKED STATUS0;
 
 	struct {
@@ -360,11 +371,11 @@ struct bcm3510_hab_cmd_status1 {
 	struct {
 		u8 reserved      :2;
 		u8 BW            :1;
-		u8 NTE           :1; 
-		u8 AQI           :1; 
-		u8 FA            :1; 
-		u8 ARI           :1; 
-		u8 TI            :1; 
+		u8 NTE           :1; /* NTSC filter sweep enabled */
+		u8 AQI           :1; /* currently acquiring */
+		u8 FA            :1; /* fast acquisition */
+		u8 ARI           :1; /* auto reacquire */
+		u8 TI            :1; /* programming the tuner */
 	} PACKED STATUS2;
 	u8 STATUS3;
 	u8 SNR_EST0;
@@ -434,7 +445,7 @@ struct bcm3510_hab_cmd_status2 {
 	u8 LDBER2;
 	u8 LDBER3;
 	struct {
-		u8 MODE_TYPE :4; 
+		u8 MODE_TYPE :4; /* acquire mode 0 */
 		u8 reservd   :4;
 	} MODE_TYPE;
 	u8 SNR_EST0;
@@ -444,5 +455,6 @@ struct bcm3510_hab_cmd_status2 {
 
 #define CMD_SET_RF_BW_NOT_LISTED   0x3f
 #define MSGID_SET_RF_BW_NOT_LISTED 0x11
+/* TODO */
 
 #endif

@@ -19,6 +19,7 @@ unsigned long of_bus_default_get_flags(const u32 *addr, unsigned long flags);
 int of_bus_sbus_match(struct device_node *np);
 void of_bus_sbus_count_cells(struct device_node *child, int *addrc, int *sizec);
 
+/* Max address size we deal with */
 #define OF_MAX_ADDR_CELLS	4
 
 struct of_bus {
@@ -32,4 +33,4 @@ struct of_bus {
 	unsigned long	(*get_flags)(const u32 *addr, unsigned long);
 };
 
-#endif 
+#endif /* _OF_DEVICE_COMMON_H */

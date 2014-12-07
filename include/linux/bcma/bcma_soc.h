@@ -13,4 +13,4 @@ int __init bcma_host_soc_register(struct bcma_soc *soc);
 
 int bcma_bus_register(struct bcma_bus *bus);
 
-#endif 
+#endif /* LINUX_BCMA_SOC_H_ */

@@ -19,6 +19,12 @@
 
 #define __ALIGN .align 8
 
+/*
+ * The STD_ENTRY and STD_ENDPROC macros put the function in a
+ * self-named .text.foo section, and if linker feedback collection
+ * is enabled, add a suitable call to the feedback collection code.
+ * STD_ENTRY_SECTION lets you specify a non-standard section name.
+ */
 
 #define STD_ENTRY(name) \
   .pushsection .text.##name, "ax"; \
@@ -35,10 +41,11 @@
   .Lend_##name:; \
   .popsection
 
+/* Create a file-static function entry set up for feedback gathering. */
 #define STD_ENTRY_LOCAL(name) \
   .pushsection .text.##name, "ax"; \
   ALIGN; \
   name:; \
   FEEDBACK_ENTER(name)
 
-#endif 
+#endif /* _ASM_TILE_LINKAGE_H */

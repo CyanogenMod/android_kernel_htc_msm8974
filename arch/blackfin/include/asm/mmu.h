@@ -18,6 +18,8 @@ typedef struct {
 	unsigned long end_brk;
 	unsigned long stack_start;
 
+	/* Points to the location in SDRAM where the L1 stack is normally
+	   saved, or NULL if the stack is always in SDRAM.  */
 	void *l1_stack_save;
 
 	struct sram_list_struct *sram_list;

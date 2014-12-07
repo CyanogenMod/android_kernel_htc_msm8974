@@ -49,6 +49,9 @@ static struct spi_board_info __initdata rd88F6192_spi_slave_info[] = {
 
 static void __init rd88f6192_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 
 	orion_gpio_set_valid(RD88F6192_GPIO_USB_VBUS, 1);
@@ -75,7 +78,7 @@ static int __init rd88f6192_pci_init(void)
 subsys_initcall(rd88f6192_pci_init);
 
 MACHINE_START(RD88F6192_NAS, "Marvell RD-88F6192-NAS Development Board")
-	
+	/* Maintainer: Saeed Bishara <saeed@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= rd88f6192_init,
 	.map_io		= kirkwood_map_io,

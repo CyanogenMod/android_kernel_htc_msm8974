@@ -46,4 +46,4 @@ int msm_dsi_phy_init(unsigned char *ctrl_base,
 void msm_dsi_phy_sw_reset(unsigned char *ctrl_base);
 
 void msm_dsi_phy_off(unsigned char *ctrl_base);
-#endif 
+#endif /* DSI_IO_V2_H */

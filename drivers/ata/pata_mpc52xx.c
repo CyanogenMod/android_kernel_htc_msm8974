@@ -32,6 +32,7 @@
 
 #define DRV_NAME	"mpc52xx_ata"
 
+/* Private structures used by the driver */
 struct mpc52xx_ata_timings {
 	u32	pio1;
 	u32	pio2;
@@ -53,7 +54,7 @@ struct mpc52xx_ata_priv {
 	struct mpc52xx_ata_timings	timings[2];
 	int				csel;
 
-	
+	/* DMA */
 	struct bcom_task		*dmatsk;
 	const struct udmaspec		*udmaspec;
 	const struct mdmaspec		*mdmaspec;
@@ -62,6 +63,7 @@ struct mpc52xx_ata_priv {
 };
 
 
+/* ATAPI-4 PIO specs (in ns) */
 static const u16 ataspec_t0[5]		= {600, 383, 240, 180, 120};
 static const u16 ataspec_t1[5]		= { 70,  50,  30,  30,  25};
 static const u16 ataspec_t2_8[5]	= {290, 290, 290,  80,  70};
@@ -72,7 +74,9 @@ static const u16 ataspec_ta[5]		= { 35,  35,  35,  35,  35};
 
 #define CALC_CLKCYC(c,v) ((((v)+(c)-1)/(c)))
 
+/* ======================================================================== */
 
+/* ATAPI-4 MDMA specs (in clocks) */
 struct mdmaspec {
 	u8 t0M;
 	u8 td;
@@ -95,6 +99,7 @@ static const struct mdmaspec mdmaspec132[3] = {
 	{ .t0M = 16, .td = 10, .th = 2, .tj = 1, .tkw = 4,  .tm = 4, .tn = 1 },
 };
 
+/* ATAPI-4 UDMA specs (in clocks) */
 struct udmaspec {
 	u8 tcyc;
 	u8 t2cyc;
@@ -169,90 +174,97 @@ static const struct udmaspec udmaspec132[6] = {
 	},
 };
 
+/* ======================================================================== */
 
-#define MPC52xx_ATA_HOSTCONF_SMR	0x80000000UL 
-#define MPC52xx_ATA_HOSTCONF_FR		0x40000000UL 
-#define MPC52xx_ATA_HOSTCONF_IE		0x02000000UL 
-#define MPC52xx_ATA_HOSTCONF_IORDY	0x01000000UL 
+/* Bit definitions inside the registers */
+#define MPC52xx_ATA_HOSTCONF_SMR	0x80000000UL /* State machine reset */
+#define MPC52xx_ATA_HOSTCONF_FR		0x40000000UL /* FIFO Reset */
+#define MPC52xx_ATA_HOSTCONF_IE		0x02000000UL /* Enable interrupt in PIO */
+#define MPC52xx_ATA_HOSTCONF_IORDY	0x01000000UL /* Drive supports IORDY protocol */
 
-#define MPC52xx_ATA_HOSTSTAT_TIP	0x80000000UL 
-#define MPC52xx_ATA_HOSTSTAT_UREP	0x40000000UL 
-#define MPC52xx_ATA_HOSTSTAT_RERR	0x02000000UL 
-#define MPC52xx_ATA_HOSTSTAT_WERR	0x01000000UL 
+#define MPC52xx_ATA_HOSTSTAT_TIP	0x80000000UL /* Transaction in progress */
+#define MPC52xx_ATA_HOSTSTAT_UREP	0x40000000UL /* UDMA Read Extended Pause */
+#define MPC52xx_ATA_HOSTSTAT_RERR	0x02000000UL /* Read Error */
+#define MPC52xx_ATA_HOSTSTAT_WERR	0x01000000UL /* Write Error */
 
-#define MPC52xx_ATA_FIFOSTAT_EMPTY	0x01 
-#define MPC52xx_ATA_FIFOSTAT_ERROR	0x40 
+#define MPC52xx_ATA_FIFOSTAT_EMPTY	0x01 /* FIFO Empty */
+#define MPC52xx_ATA_FIFOSTAT_ERROR	0x40 /* FIFO Error */
 
-#define MPC52xx_ATA_DMAMODE_WRITE	0x01 
-#define MPC52xx_ATA_DMAMODE_READ	0x02 
-#define MPC52xx_ATA_DMAMODE_UDMA	0x04 
-#define MPC52xx_ATA_DMAMODE_IE		0x08 
-#define MPC52xx_ATA_DMAMODE_FE		0x10 
-#define MPC52xx_ATA_DMAMODE_FR		0x20 
-#define MPC52xx_ATA_DMAMODE_HUT		0x40 
+#define MPC52xx_ATA_DMAMODE_WRITE	0x01 /* Write DMA */
+#define MPC52xx_ATA_DMAMODE_READ	0x02 /* Read DMA */
+#define MPC52xx_ATA_DMAMODE_UDMA	0x04 /* UDMA enabled */
+#define MPC52xx_ATA_DMAMODE_IE		0x08 /* Enable drive interrupt to CPU in DMA mode */
+#define MPC52xx_ATA_DMAMODE_FE		0x10 /* FIFO Flush enable in Rx mode */
+#define MPC52xx_ATA_DMAMODE_FR		0x20 /* FIFO Reset */
+#define MPC52xx_ATA_DMAMODE_HUT		0x40 /* Host UDMA burst terminate */
 
 #define MAX_DMA_BUFFERS 128
 #define MAX_DMA_BUFFER_SIZE 0x20000u
 
+/* Structure of the hardware registers */
 struct mpc52xx_ata {
 
-	
-	u32 config;		
-	u32 host_status;	
-	u32 pio1;		
-	u32 pio2;		
-	u32 mdma1;		
-	u32 mdma2;		
-	u32 udma1;		
-	u32 udma2;		
-	u32 udma3;		
-	u32 udma4;		
-	u32 udma5;		
-	u32 share_cnt;		
+	/* Host interface registers */
+	u32 config;		/* ATA + 0x00 Host configuration */
+	u32 host_status;	/* ATA + 0x04 Host controller status */
+	u32 pio1;		/* ATA + 0x08 PIO Timing 1 */
+	u32 pio2;		/* ATA + 0x0c PIO Timing 2 */
+	u32 mdma1;		/* ATA + 0x10 MDMA Timing 1 */
+	u32 mdma2;		/* ATA + 0x14 MDMA Timing 2 */
+	u32 udma1;		/* ATA + 0x18 UDMA Timing 1 */
+	u32 udma2;		/* ATA + 0x1c UDMA Timing 2 */
+	u32 udma3;		/* ATA + 0x20 UDMA Timing 3 */
+	u32 udma4;		/* ATA + 0x24 UDMA Timing 4 */
+	u32 udma5;		/* ATA + 0x28 UDMA Timing 5 */
+	u32 share_cnt;		/* ATA + 0x2c ATA share counter */
 	u32 reserved0[3];
 
-	
-	u32 fifo_data;		
-	u8  fifo_status_frame;	
-	u8  fifo_status;	
+	/* FIFO registers */
+	u32 fifo_data;		/* ATA + 0x3c */
+	u8  fifo_status_frame;	/* ATA + 0x40 */
+	u8  fifo_status;	/* ATA + 0x41 */
 	u16 reserved7[1];
-	u8  fifo_control;	
+	u8  fifo_control;	/* ATA + 0x44 */
 	u8  reserved8[5];
-	u16 fifo_alarm;		
+	u16 fifo_alarm;		/* ATA + 0x4a */
 	u16 reserved9;
-	u16 fifo_rdp;		
+	u16 fifo_rdp;		/* ATA + 0x4e */
 	u16 reserved10;
-	u16 fifo_wrp;		
+	u16 fifo_wrp;		/* ATA + 0x52 */
 	u16 reserved11;
-	u16 fifo_lfrdp;		
+	u16 fifo_lfrdp;		/* ATA + 0x56 */
 	u16 reserved12;
-	u16 fifo_lfwrp;		
+	u16 fifo_lfwrp;		/* ATA + 0x5a */
 
-	
-	u8  tf_control;		
+	/* Drive TaskFile registers */
+	u8  tf_control;		/* ATA + 0x5c TASKFILE Control/Alt Status */
 	u8  reserved13[3];
-	u16 tf_data;		
+	u16 tf_data;		/* ATA + 0x60 TASKFILE Data */
 	u16 reserved14;
-	u8  tf_features;	
+	u8  tf_features;	/* ATA + 0x64 TASKFILE Features/Error */
 	u8  reserved15[3];
-	u8  tf_sec_count;	
+	u8  tf_sec_count;	/* ATA + 0x68 TASKFILE Sector Count */
 	u8  reserved16[3];
-	u8  tf_sec_num;		
+	u8  tf_sec_num;		/* ATA + 0x6c TASKFILE Sector Number */
 	u8  reserved17[3];
-	u8  tf_cyl_low;		
+	u8  tf_cyl_low;		/* ATA + 0x70 TASKFILE Cylinder Low */
 	u8  reserved18[3];
-	u8  tf_cyl_high;	
+	u8  tf_cyl_high;	/* ATA + 0x74 TASKFILE Cylinder High */
 	u8  reserved19[3];
-	u8  tf_dev_head;	
+	u8  tf_dev_head;	/* ATA + 0x78 TASKFILE Device/Head */
 	u8  reserved20[3];
-	u8  tf_command;		
-	u8  dma_mode;		
+	u8  tf_command;		/* ATA + 0x7c TASKFILE Command/Status */
+	u8  dma_mode;		/* ATA + 0x7d ATA Host DMA Mode configuration */
 	u8  reserved21[2];
 };
 
 
+/* ======================================================================== */
+/* Aux fns                                                                  */
+/* ======================================================================== */
 
 
+/* MPC52xx low level hw control */
 static int
 mpc52xx_ata_compute_pio_timings(struct mpc52xx_ata_priv *priv, int dev, int pio)
 {
@@ -338,10 +350,10 @@ mpc52xx_ata_hw_init(struct mpc52xx_ata_priv *priv)
 	struct mpc52xx_ata __iomem *regs = priv->ata_regs;
 	int tslot;
 
-	
+	/* Clear share_cnt (all sample code do this ...) */
 	out_be32(&regs->share_cnt, 0);
 
-	
+	/* Configure and reset host */
 	out_be32(&regs->config,
 			MPC52xx_ATA_HOSTCONF_IE |
 			MPC52xx_ATA_HOSTCONF_IORDY |
@@ -354,11 +366,11 @@ mpc52xx_ata_hw_init(struct mpc52xx_ata_priv *priv)
 			MPC52xx_ATA_HOSTCONF_IE |
 			MPC52xx_ATA_HOSTCONF_IORDY);
 
-	
+	/* Set the time slot to 1us */
 	tslot = CALC_CLKCYC(priv->ipb_period, 1000000);
 	out_be32(&regs->share_cnt, tslot << 16);
 
-	
+	/* Init timings to PIO0 */
 	memset(priv->timings, 0x00, 2*sizeof(struct mpc52xx_ata_timings));
 
 	mpc52xx_ata_compute_pio_timings(priv, 0, 0);
@@ -370,6 +382,9 @@ mpc52xx_ata_hw_init(struct mpc52xx_ata_priv *priv)
 }
 
 
+/* ======================================================================== */
+/* libata driver                                                            */
+/* ======================================================================== */
 
 static void
 mpc52xx_ata_set_piomode(struct ata_port *ap, struct ata_device *adev)
@@ -494,7 +509,7 @@ mpc52xx_bmdma_setup(struct ata_queued_cmd *qc)
 		dev_alert(ap->dev, "%s: %i, return 1?\n",
 			__func__, __LINE__);
 
-	
+	/* Check FIFO is OK... */
 	if (in_8(&priv->ata_regs->fifo_status) & MPC52xx_ATA_FIFOSTAT_ERROR)
 		dev_alert(ap->dev, "%s: FIFO error detected: 0x%02x!\n",
 			__func__, in_8(&priv->ata_regs->fifo_status));
@@ -503,25 +518,25 @@ mpc52xx_bmdma_setup(struct ata_queued_cmd *qc)
 		dma_mode = MPC52xx_ATA_DMAMODE_IE | MPC52xx_ATA_DMAMODE_READ |
 				MPC52xx_ATA_DMAMODE_FE;
 
-		
+		/* Setup FIFO if direction changed */
 		if (priv->mpc52xx_ata_dma_last_write != 0) {
 			priv->mpc52xx_ata_dma_last_write = 0;
 
-			
+			/* Configure FIFO with granularity to 7 */
 			out_8(&regs->fifo_control, 7);
 			out_be16(&regs->fifo_alarm, 128);
 
-			
+			/* Set FIFO Reset bit (FR) */
 			out_8(&regs->dma_mode, MPC52xx_ATA_DMAMODE_FR);
 		}
 	} else {
 		dma_mode = MPC52xx_ATA_DMAMODE_IE | MPC52xx_ATA_DMAMODE_WRITE;
 
-		
+		/* Setup FIFO if direction changed */
 		if (priv->mpc52xx_ata_dma_last_write != 1) {
 			priv->mpc52xx_ata_dma_last_write = 1;
 
-			
+			/* Configure FIFO with granularity to 4 */
 			out_8(&regs->fifo_control, 4);
 			out_be16(&regs->fifo_alarm, 128);
 		}
@@ -557,7 +572,7 @@ mpc52xx_bmdma_stop(struct ata_queued_cmd *qc)
 	bcom_ata_reset_bd(priv->dmatsk);
 	priv->waiting_for_dma = 0;
 
-	
+	/* Check FIFO is OK... */
 	if (in_8(&priv->ata_regs->fifo_status) & MPC52xx_ATA_FIFOSTAT_ERROR)
 		dev_alert(ap->dev, "%s: FIFO error detected: 0x%02x!\n",
 			__func__, in_8(&priv->ata_regs->fifo_status));
@@ -568,7 +583,7 @@ mpc52xx_bmdma_status(struct ata_port *ap)
 {
 	struct mpc52xx_ata_priv *priv = ap->host->private_data;
 
-	
+	/* Check FIFO is OK... */
 	if (in_8(&priv->ata_regs->fifo_status) & MPC52xx_ATA_FIFOSTAT_ERROR) {
 		dev_alert(ap->dev, "%s: FIFO error detected: 0x%02x!\n",
 			__func__, in_8(&priv->ata_regs->fifo_status));
@@ -627,7 +642,7 @@ mpc52xx_ata_init_one(struct device *dev, struct mpc52xx_ata_priv *priv,
 	host->private_data	= priv;
 
 	aio = &ap->ioaddr;
-	aio->cmd_addr		= NULL;	
+	aio->cmd_addr		= NULL;	/* Don't have a classic reg block */
 	aio->altstatus_addr	= &priv->ata_regs->tf_control;
 	aio->ctl_addr		= &priv->ata_regs->tf_control;
 	aio->data_addr		= &priv->ata_regs->tf_data;
@@ -643,7 +658,7 @@ mpc52xx_ata_init_one(struct device *dev, struct mpc52xx_ata_priv *priv,
 
 	ata_port_desc(ap, "ata_regs 0x%lx", raw_ata_regs);
 
-	
+	/* activate host */
 	return ata_host_activate(host, priv->ata_irq, ata_bmdma_interrupt, 0,
 				 &mpc52xx_ata_sht);
 }
@@ -660,6 +675,9 @@ mpc52xx_ata_remove_one(struct device *dev)
 }
 
 
+/* ======================================================================== */
+/* OF Platform driver                                                       */
+/* ======================================================================== */
 
 static int __devinit
 mpc52xx_ata_probe(struct platform_device *op)
@@ -675,13 +693,15 @@ mpc52xx_ata_probe(struct platform_device *op)
 	int proplen;
 	struct bcom_task *dmatsk;
 
-	
+	/* Get ipb frequency */
 	ipb_freq = mpc5xxx_get_bus_frequency(op->dev.of_node);
 	if (!ipb_freq) {
 		dev_err(&op->dev, "could not determine IPB bus frequency\n");
 		return -ENODEV;
 	}
 
+	/* Get device base address from device tree, request the region
+	 * and ioremap it. */
 	rv = of_address_to_resource(op->dev.of_node, 0, &res_mem);
 	if (rv) {
 		dev_err(&op->dev, "could not determine device base address\n");
@@ -700,6 +720,20 @@ mpc52xx_ata_probe(struct platform_device *op)
 		return -ENOMEM;
 	}
 
+	/*
+	 * By default, all DMA modes are disabled for the MPC5200.  Some
+	 * boards don't have the required signals routed to make DMA work.
+	 * Also, the MPC5200B has a silicon bug that causes data corruption
+	 * with UDMA if it is used at the same time as the LocalPlus bus.
+	 *
+	 * Instead of trying to guess what modes are usable, check the
+	 * ATA device tree node to find out what DMA modes work on the board.
+	 * UDMA/MWDMA modes can also be forced by adding "libata.force=<mode>"
+	 * to the kernel boot parameters.
+	 *
+	 * The MPC5200 ATA controller supports MWDMA modes 0, 1 and 2 and
+	 * UDMA modes 0, 1 and 2.
+	 */
 	prop = of_get_property(op->dev.of_node, "mwdma-mode", &proplen);
 	if ((prop) && (proplen >= 4))
 		mwdma_mask = ATA_MWDMA2 & ((1 << (*prop + 1)) - 1);
@@ -713,7 +747,7 @@ mpc52xx_ata_probe(struct platform_device *op)
 		return -EINVAL;
 	}
 
-	
+	/* Prepare our private structure */
 	priv = devm_kzalloc(&op->dev, sizeof(*priv), GFP_ATOMIC);
 	if (!priv) {
 		dev_err(&op->dev, "error allocating private structure\n");
@@ -736,7 +770,7 @@ mpc52xx_ata_probe(struct platform_device *op)
 		priv->udmaspec = udmaspec132;
 	}
 
-	
+	/* Allocate a BestComm task for DMA */
 	dmatsk = bcom_ata_init(MAX_DMA_BUFFERS, MAX_DMA_BUFFER_SIZE);
 	if (!dmatsk) {
 		dev_err(&op->dev, "bestcomm initialization failed\n");
@@ -753,14 +787,14 @@ mpc52xx_ata_probe(struct platform_device *op)
 	}
 	priv->dmatsk = dmatsk;
 
-	
+	/* Init the hw */
 	rv = mpc52xx_ata_hw_init(priv);
 	if (rv) {
 		dev_err(&op->dev, "error initializing hardware\n");
 		goto err2;
 	}
 
-	
+	/* Register ourselves to libata */
 	rv = mpc52xx_ata_init_one(&op->dev, priv, res_mem.start,
 				  mwdma_mask, udma_mask);
 	if (rv) {
@@ -784,10 +818,10 @@ mpc52xx_ata_remove(struct platform_device *op)
 	struct mpc52xx_ata_priv *priv;
 	int task_irq;
 
-	
+	/* Deregister the ATA interface */
 	priv = mpc52xx_ata_remove_one(&op->dev);
 
-	
+	/* Clean up DMA */
 	task_irq = bcom_get_task_irq(priv->dmatsk);
 	irq_dispose_mapping(task_irq);
 	bcom_ata_release(priv->dmatsk);

@@ -41,6 +41,10 @@ static int p54_sta_add_remove(struct ieee80211_hw *hw,
 {
 	struct p54_common *priv = hw->priv;
 
+	/*
+	 * Notify the firmware that we don't want or we don't
+	 * need to buffer frames for this station anymore.
+	 */
 
 	p54_sta_unlock(priv, sta->addr);
 
@@ -55,7 +59,7 @@ static void p54_sta_notify(struct ieee80211_hw *dev, struct ieee80211_vif *vif,
 
 	switch (notify_cmd) {
 	case STA_NOTIFY_AWAKE:
-		
+		/* update the firmware's filter table */
 		p54_sta_unlock(priv, sta->addr);
 		break;
 	default:
@@ -119,7 +123,7 @@ static int p54_beacon_format_ie_tim(struct sk_buff *skb)
 	memmove(tim, next, skb_tail_pointer(skb) - next);
 	tim = skb_tail_pointer(skb) - (dtim_len + 2);
 
-	
+	/* add the dummy at the end */
 	tim[0] = WLAN_EID_TIM;
 	tim[1] = 3;
 	tim[2] = 0;
@@ -145,6 +149,15 @@ static int p54_beacon_update(struct p54_common *priv,
 	if (ret)
 		return ret;
 
+	/*
+	 * During operation, the firmware takes care of beaconing.
+	 * The driver only needs to upload a new beacon template, once
+	 * the template was changed by the stack or userspace.
+	 *
+	 * LMAC API 3.2.2 also specifies that the driver does not need
+	 * to cancel the old beacon template by hand, instead the firmware
+	 * will release the previous one through the feedback mechanism.
+	 */
 	p54_tx_80211(priv->hw, beacon);
 	priv->tsf_high32 = 0;
 	priv->tsf_low32 = 0;
@@ -252,6 +265,10 @@ static void p54_remove_interface(struct ieee80211_hw *dev,
 	mutex_lock(&priv->conf_mutex);
 	priv->vif = NULL;
 
+	/*
+	 * LMAC API 3.2.2 states that any active beacon template must be
+	 * canceled by the driver before attempting a mode transition.
+	 */
 	if (le32_to_cpu(priv->beacon_req_id) != 0) {
 		p54_tx_cancel(priv, priv->beacon_req_id);
 		wait_for_completion_interruptible_timeout(&priv->beacon_comp, HZ);
@@ -287,7 +304,7 @@ static void p54_reset_stats(struct p54_common *priv)
 	if (chan) {
 		struct survey_info *info = &priv->survey[chan->hw_value];
 
-		
+		/* only reset channel statistics, don't touch .filled, etc. */
 		info->channel_time = 0;
 		info->channel_time_busy = 0;
 		info->channel_time_tx = 0;
@@ -318,6 +335,10 @@ static int p54_config(struct ieee80211_hw *dev, u32 changed)
 			priv->curchan = oldchan;
 			goto out;
 		}
+		/*
+		 * TODO: Use the LM_SCAN_TRAP to determine the current
+		 * operating channel.
+		 */
 		priv->curchan = priv->hw->conf.channel;
 		p54_reset_stats(priv);
 		WARN_ON(p54_fetch_statistics(priv));
@@ -351,6 +372,10 @@ static u64 p54_prepare_multicast(struct ieee80211_hw *dev,
 
 	BUILD_BUG_ON(ARRAY_SIZE(priv->mc_maclist) !=
 		ARRAY_SIZE(((struct p54_group_address_table *)NULL)->mac_list));
+	/*
+	 * The first entry is reserved for the global broadcast MAC.
+	 * Otherwise the firmware will drop it and ARP will no longer work.
+	 */
 	i = 1;
 	priv->mc_maclist_num = netdev_hw_addr_list_count(mc_list) + i;
 	netdev_hw_addr_list_for_each(ha, mc_list) {
@@ -360,7 +385,7 @@ static u64 p54_prepare_multicast(struct ieee80211_hw *dev,
 			break;
 	}
 
-	return 1; 
+	return 1; /* update */
 }
 
 static void p54_configure_filter(struct ieee80211_hw *dev,
@@ -409,6 +434,11 @@ static void p54_work(struct work_struct *work)
 	if (unlikely(priv->mode == NL80211_IFTYPE_UNSPECIFIED))
 		return ;
 
+	/*
+	 * TODO: walk through tx_queue and do the following tasks
+	 * 	1. initiate bursts.
+	 *      2. cancel stuck frames / reset the device if necessary.
+	 */
 
 	mutex_lock(&priv->conf_mutex);
 	WARN_ON_ONCE(p54_fetch_statistics(priv));
@@ -521,8 +551,16 @@ static int p54_set_key(struct ieee80211_hw *dev, enum set_key_cmd cmd,
 					       priv->rx_keycache_size, 0);
 
 		if (slot < 0) {
+			/*
+			 * The device supports the chosen algorithm, but the
+			 * firmware does not provide enough key slots to store
+			 * all of them.
+			 * But encryption offload for outgoing frames is always
+			 * possible, so we just pretend that the upload was
+			 * successful and do the decryption in software.
+			 */
 
-			
+			/* mark the key as invalid. */
 			key->hw_key_idx = 0xff;
 			goto out_unlock;
 		}
@@ -530,7 +568,7 @@ static int p54_set_key(struct ieee80211_hw *dev, enum set_key_cmd cmd,
 		slot = key->hw_key_idx;
 
 		if (slot == 0xff) {
-			
+			/* This key was not uploaded into the rx key cache. */
 
 			goto out_unlock;
 		}
@@ -584,10 +622,16 @@ static int p54_get_survey(struct ieee80211_hw *dev, int idx,
 		memcpy(survey, &priv->survey[idx], sizeof(*survey));
 
 		if (in_use) {
-			
+			/* test if the reported statistics are valid. */
 			if  (survey->channel_time != 0) {
 				survey->filled |= SURVEY_INFO_IN_USE;
 			} else {
+				/*
+				 * hw/fw has not accumulated enough sample sets.
+				 * Wait for 100ms, this ought to be enough to
+				 * to get at least one non-null set of channel
+				 * usage statistics.
+				 */
 				msleep(100);
 				continue;
 			}
@@ -604,6 +648,11 @@ static unsigned int p54_flush_count(struct p54_common *priv)
 
 	BUILD_BUG_ON(P54_QUEUE_NUM > ARRAY_SIZE(priv->tx_stats));
 
+	/*
+	 * Because the firmware has the sole control over any frames
+	 * in the P54_QUEUE_BEACON or P54_QUEUE_SCAN queues, they
+	 * don't really count as pending or active.
+	 */
 	for (i = P54_QUEUE_MGMT; i < P54_QUEUE_NUM; i++)
 		total += priv->tx_stats[i].len;
 	return total;
@@ -614,10 +663,21 @@ static void p54_flush(struct ieee80211_hw *dev, bool drop)
 	struct p54_common *priv = dev->priv;
 	unsigned int total, i;
 
+	/*
+	 * Currently, it wouldn't really matter if we wait for one second
+	 * or 15 minutes. But once someone gets around and completes the
+	 * TODOs [ancel stuck frames / reset device] in p54_work, it will
+	 * suddenly make sense to wait that long.
+	 */
 	i = P54_STATISTICS_UPDATE * 2 / 20;
 
+	/*
+	 * In this case no locking is required because as we speak the
+	 * queues have already been stopped and no new frames can sneak
+	 * up from behind.
+	 */
 	while ((total = p54_flush_count(priv) && i--)) {
-		
+		/* waste time */
 		msleep(20);
 	}
 
@@ -629,7 +689,7 @@ static void p54_set_coverage_class(struct ieee80211_hw *dev, u8 coverage_class)
 	struct p54_common *priv = dev->priv;
 
 	mutex_lock(&priv->conf_mutex);
-	
+	/* support all coverage class values as in 802.11-2007 Table 7-27 */
 	priv->coverage_class = clamp_t(u8, coverage_class, 0, 31);
 	p54_set_edcf(priv);
 	mutex_unlock(&priv->conf_mutex);
@@ -684,7 +744,7 @@ struct ieee80211_hw *p54_init_common(size_t priv_data_len)
 				      BIT(NL80211_IFTYPE_AP) |
 				      BIT(NL80211_IFTYPE_MESH_POINT);
 
-	dev->channel_change_time = 1000;	
+	dev->channel_change_time = 1000;	/* TODO: find actual value */
 	priv->beacon_req_id = cpu_to_le32(0);
 	priv->tx_stats[P54_QUEUE_BEACON].limit = 1;
 	priv->tx_stats[P54_QUEUE_FWSCAN].limit = 1;
@@ -693,11 +753,23 @@ struct ieee80211_hw *p54_init_common(size_t priv_data_len)
 	priv->tx_stats[P54_QUEUE_DATA].limit = 5;
 	dev->queues = 1;
 	priv->noise = -94;
+	/*
+	 * We support at most 8 tries no matter which rate they're at,
+	 * we cannot support max_rates * max_rate_tries as we set it
+	 * here, but setting it correctly to 4/2 or so would limit us
+	 * artificially if the RC algorithm wants just two rates, so
+	 * let's say 4/7, we'll redistribute it at TX time, see the
+	 * comments there.
+	 */
 	dev->max_rates = 4;
 	dev->max_rate_tries = 7;
 	dev->extra_tx_headroom = sizeof(struct p54_hdr) + 4 +
 				 sizeof(struct p54_tx_data);
 
+	/*
+	 * For now, disable PS by default because it affects
+	 * link stability significantly.
+	 */
 	dev->wiphy->flags &= ~WIPHY_FLAG_PS_ON_BY_DEFAULT;
 
 	mutex_init(&priv->conf_mutex);
@@ -729,7 +801,7 @@ int p54_register_common(struct ieee80211_hw *dev, struct device *pdev)
 	err = p54_init_leds(priv);
 	if (err)
 		return err;
-#endif 
+#endif /* CONFIG_P54_LEDS */
 
 	dev_info(pdev, "is registered as '%s'\n", wiphy_name(dev->wiphy));
 	return 0;
@@ -766,7 +838,7 @@ void p54_unregister_common(struct ieee80211_hw *dev)
 
 #ifdef CONFIG_P54_LEDS
 	p54_unregister_leds(priv);
-#endif 
+#endif /* CONFIG_P54_LEDS */
 
 	ieee80211_unregister_hw(dev);
 	mutex_destroy(&priv->conf_mutex);

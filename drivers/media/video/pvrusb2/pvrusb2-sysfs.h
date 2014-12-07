@@ -33,5 +33,14 @@ void pvr2_sysfs_class_destroy(struct pvr2_sysfs_class *);
 struct pvr2_sysfs *pvr2_sysfs_create(struct pvr2_context *,
 				     struct pvr2_sysfs_class *);
 
-#endif 
+#endif /* __PVRUSB2_SYSFS_H */
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 75 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

@@ -29,9 +29,9 @@
 #include "hda_local.h"
 
 enum {
-	DIGBEEP_HZ_STEP = 46875,	
-	DIGBEEP_HZ_MIN = 93750,		
-	DIGBEEP_HZ_MAX = 12000000,	
+	DIGBEEP_HZ_STEP = 46875,	/* 46.875 Hz */
+	DIGBEEP_HZ_MIN = 93750,		/* 93.750 Hz */
+	DIGBEEP_HZ_MAX = 12000000,	/* 12 KHz */
 };
 
 static void snd_hda_generate_beep(struct work_struct *work)
@@ -43,22 +43,29 @@ static void snd_hda_generate_beep(struct work_struct *work)
 	if (!beep->enabled)
 		return;
 
-	
+	/* generate tone */
 	snd_hda_codec_write(codec, beep->nid, 0,
 			AC_VERB_SET_BEEP_CONTROL, beep->tone);
 }
 
+/* (non-standard) Linear beep tone calculation for IDT/STAC codecs 
+ *
+ * The tone frequency of beep generator on IDT/STAC codecs is
+ * defined from the 8bit tone parameter, in Hz,
+ *    freq = 48000 * (257 - tone) / 1024
+ * that is from 12kHz to 93.75Hz in steps of 46.875 Hz
+ */
 static int beep_linear_tone(struct hda_beep *beep, int hz)
 {
 	if (hz <= 0)
 		return 0;
-	hz *= 1000; 
+	hz *= 1000; /* fixed point */
 	hz = hz - DIGBEEP_HZ_MIN
-		+ DIGBEEP_HZ_STEP / 2; 
+		+ DIGBEEP_HZ_STEP / 2; /* round to nearest step */
 	if (hz < 0)
-		hz = 0; 
+		hz = 0; /* turn off PC beep*/
 	else if (hz >= (DIGBEEP_HZ_MAX - DIGBEEP_HZ_MIN))
-		hz = 1; 
+		hz = 1; /* max frequency */
 	else {
 		hz /= DIGBEEP_HZ_STEP;
 		hz = 255 - hz;
@@ -66,10 +73,16 @@ static int beep_linear_tone(struct hda_beep *beep, int hz)
 	return hz;
 }
 
+/* HD-audio standard beep tone parameter calculation
+ *
+ * The tone frequency in Hz is calculated as
+ *   freq = 48000 / (tone * 4)
+ * from 47Hz to 12kHz
+ */
 static int beep_standard_tone(struct hda_beep *beep, int hz)
 {
 	if (hz <= 0)
-		return 0; 
+		return 0; /* disabled */
 	hz = 12000 / hz;
 	if (hz > 0xff)
 		return 0xff;
@@ -97,7 +110,7 @@ static int snd_hda_beep_event(struct input_dev *dev, unsigned int type,
 		return -1;
 	}
 
-	
+	/* schedule beep event */
 	schedule_work(&beep->beep_work);
 	return 0;
 }
@@ -107,7 +120,7 @@ static void snd_hda_do_detach(struct hda_beep *beep)
 	input_unregister_device(beep->dev);
 	beep->dev = NULL;
 	cancel_work_sync(&beep->beep_work);
-	
+	/* turn off beep for sure */
 	snd_hda_codec_write(beep->codec, beep->nid, 0,
 				  AC_VERB_SET_BEEP_CONTROL, 0);
 }
@@ -124,7 +137,7 @@ static int snd_hda_do_attach(struct hda_beep *beep)
 		return -ENOMEM;
 	}
 
-	
+	/* setup digital beep device */
 	input_dev->name = "HDA Digital PCBeep";
 	input_dev->phys = beep->phys;
 	input_dev->id.bustype = BUS_PCI;
@@ -180,7 +193,7 @@ int snd_hda_enable_beep_device(struct hda_codec *codec, int enable)
 	if (beep->enabled != enable) {
 		beep->enabled = enable;
 		if (!enable) {
-			
+			/* turn off beep */
 			snd_hda_codec_write(beep->codec, beep->nid, 0,
 						  AC_VERB_SET_BEEP_CONTROL, 0);
 		}
@@ -204,16 +217,16 @@ int snd_hda_attach_beep_device(struct hda_codec *codec, int nid)
 	struct hda_beep *beep;
 
 	if (!snd_hda_get_bool_hint(codec, "beep"))
-		return 0; 
+		return 0; /* disabled explicitly by hints */
 	if (codec->beep_mode == HDA_BEEP_MODE_OFF)
-		return 0; 
+		return 0; /* disabled by module option */
 
 	beep = kzalloc(sizeof(*beep), GFP_KERNEL);
 	if (beep == NULL)
 		return -ENOMEM;
 	snprintf(beep->phys, sizeof(beep->phys),
 		"card%d/codec#%d/beep0", codec->bus->card->number, codec->addr);
-	
+	/* enable linear scale */
 	snd_hda_codec_write(codec, nid, 0,
 		AC_VERB_SET_DIGI_CONVERT_2, 0x01);
 

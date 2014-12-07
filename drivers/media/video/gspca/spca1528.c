@@ -29,8 +29,9 @@ MODULE_AUTHOR("Jean-Francois Moine <http://moinejf.free.fr>");
 MODULE_DESCRIPTION("SPCA1528 USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	u8 brightness;
 	u8 contrast;
@@ -43,6 +44,7 @@ struct sd {
 	u8 jpeg_hdr[JPEG_HDR_SZ];
 };
 
+/* V4L2 controls supported by the driver */
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val);
 static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val);
 static int sd_setcontrast(struct gspca_dev *gspca_dev, __s32 val);
@@ -128,6 +130,13 @@ static const struct ctrl sd_ctrls[] = {
 };
 
 static const struct v4l2_pix_format vga_mode[] = {
+/*		(does not work correctly)
+	{176, 144, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
+		.bytesperline = 176,
+		.sizeimage = 176 * 144 * 5 / 8 + 590,
+		.colorspace = V4L2_COLORSPACE_JPEG,
+		.priv = 3},
+*/
 	{320, 240, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
 		.bytesperline = 320,
 		.sizeimage = 320 * 240 * 4 / 8 + 590,
@@ -140,6 +149,7 @@ static const struct v4l2_pix_format vga_mode[] = {
 		.priv = 1},
 };
 
+/* read <len> bytes to gspca usb_buf */
 static void reg_r(struct gspca_dev *gspca_dev,
 			u8 req,
 			u16 index,
@@ -156,7 +166,7 @@ static void reg_r(struct gspca_dev *gspca_dev,
 	ret = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 			req,
 			USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			0x0000,			
+			0x0000,			/* value */
 			index,
 			gspca_dev->usb_buf, len,
 			500);
@@ -284,6 +294,7 @@ static void setsharpness(struct gspca_dev *gspca_dev)
 	reg_wb(gspca_dev, 0xc4, 0x0000, 0x00c4, sd->sharpness);
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -291,8 +302,8 @@ static int sd_config(struct gspca_dev *gspca_dev,
 
 	gspca_dev->cam.cam_mode = vga_mode;
 	gspca_dev->cam.nmodes = ARRAY_SIZE(vga_mode);
-	gspca_dev->cam.npkt = 128; 
-			
+	gspca_dev->cam.npkt = 128; /* number of packets per ISOC message */
+			/*fixme: 256 in ms-win traces*/
 
 	sd->brightness = BRIGHTNESS_DEF;
 	sd->contrast = CONTRAST_DEF;
@@ -303,6 +314,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	reg_w(gspca_dev, 0x00, 0x0001, 0x2067);
@@ -323,6 +335,7 @@ static int sd_init(struct gspca_dev *gspca_dev)
 	return gspca_dev->usb_err;
 }
 
+/* function called at start time before URB creation */
 static int sd_isoc_init(struct gspca_dev *gspca_dev)
 {
 	u8 mode;
@@ -336,25 +349,28 @@ static int sd_isoc_init(struct gspca_dev *gspca_dev)
 	mode = gspca_dev->cam.cam_mode[gspca_dev->curr_mode].priv;
 	reg_wb(gspca_dev, 0x25, 0x0000, 0x0004, mode);
 	reg_r(gspca_dev, 0x25, 0x0004, 1);
-	reg_wb(gspca_dev, 0x27, 0x0000, 0x0000, 0x06);	
+	reg_wb(gspca_dev, 0x27, 0x0000, 0x0000, 0x06);	/* 420 */
 	reg_r(gspca_dev, 0x27, 0x0000, 1);
 
+/* not useful..
+	gspca_dev->alt = 4;		* use alternate setting 3 */
 
 	return gspca_dev->usb_err;
 }
 
+/* -- start the camera -- */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	
+	/* initialize the JPEG header */
 	jpeg_define(sd->jpeg_hdr, gspca_dev->height, gspca_dev->width,
-			0x22);		
+			0x22);		/* JPEG 411 */
 
-	
+	/* the JPEG quality shall be 85% */
 	jpeg_set_qual(sd->jpeg_hdr, 85);
 
-	
+	/* set the controls */
 	setbrightness(gspca_dev);
 	setcontrast(gspca_dev);
 	sethue(gspca_dev);
@@ -365,9 +381,9 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	reg_r(gspca_dev, 0x00, 0x2520, 1);
 	msleep(8);
 
-	
+	/* start the capture */
 	wait_status_0(gspca_dev);
-	reg_w(gspca_dev, 0x31, 0x0000, 0x0004);	
+	reg_w(gspca_dev, 0x31, 0x0000, 0x0004);	/* start request */
 	wait_status_1(gspca_dev);
 	wait_status_0(gspca_dev);
 	msleep(200);
@@ -378,13 +394,14 @@ static int sd_start(struct gspca_dev *gspca_dev)
 
 static void sd_stopN(struct gspca_dev *gspca_dev)
 {
-	
+	/* stop the capture */
 	wait_status_0(gspca_dev);
-	reg_w(gspca_dev, 0x31, 0x0000, 0x0000);	
+	reg_w(gspca_dev, 0x31, 0x0000, 0x0000);	/* stop request */
 	wait_status_1(gspca_dev);
 	wait_status_0(gspca_dev);
 }
 
+/* move a packet adding 0x00 after 0xff */
 static void add_packet(struct gspca_dev *gspca_dev,
 			u8 *data,
 			int len)
@@ -406,14 +423,20 @@ static void add_packet(struct gspca_dev *gspca_dev,
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	static const u8 ffd9[] = {0xff, 0xd9};
 
+	/* image packets start with:
+	 *	02 8n
+	 * with <n> bit:
+	 *	0x01: even (0) / odd (1) image
+	 *	0x02: end of image when set
+	 */
 	if (len < 3)
-		return;				
+		return;				/* empty packet */
 	if (*data == 0x02) {
 		if (data[1] & 0x02) {
 			sd->pkt_seq = !(data[1] & 1);
@@ -524,6 +547,7 @@ static int sd_getsharpness(struct gspca_dev *gspca_dev, __s32 *val)
 	return 0;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -536,16 +560,18 @@ static const struct sd_desc sd_desc = {
 	.pkt_scan = sd_pkt_scan,
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x04fc, 0x1528)},
 	{}
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {
-	
+	/* the video interface for isochronous transfer is 1 */
 	if (intf->cur_altsetting->desc.bInterfaceNumber != 1)
 		return -ENODEV;
 

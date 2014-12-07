@@ -46,71 +46,77 @@ eg., if the value 10011010b is written into the least significant byte of a comm
 
 */
 
+/*  Offset for Memory Mapped Registers. */
+/* 32 bit registers */
 
-#define  ASF_STAT		0x00	
-#define CHIPID			0x04	
-#define	MIB_DATA		0x10	
-#define MIB_ADDR		0x14	
-#define STAT0			0x30	
-#define INT0			0x38	
-#define INTEN0			0x40	
-#define CMD0			0x48	
-#define CMD2			0x50	
-#define CMD3			0x54	
-#define CMD7			0x64	
+#define  ASF_STAT		0x00	/* ASF status register */
+#define CHIPID			0x04	/* Chip ID regsiter */
+#define	MIB_DATA		0x10	/* MIB data register */
+#define MIB_ADDR		0x14	/* MIB address register */
+#define STAT0			0x30	/* Status0 register */
+#define INT0			0x38	/* Interrupt0 register */
+#define INTEN0			0x40	/* Interrupt0  enable register*/
+#define CMD0			0x48	/* Command0 register */
+#define CMD2			0x50	/* Command2 register */
+#define CMD3			0x54	/* Command3 resiter */
+#define CMD7			0x64	/* Command7 register */
 
-#define CTRL1 			0x6C	
-#define CTRL2 			0x70	
+#define CTRL1 			0x6C	/* Control1 register */
+#define CTRL2 			0x70	/* Control2 register */
 
-#define XMT_RING_LIMIT		0x7C	
+#define XMT_RING_LIMIT		0x7C	/* Transmit ring limit register */
 
-#define AUTOPOLL0		0x88	
-#define AUTOPOLL1		0x8A	
-#define AUTOPOLL2		0x8C	
-#define AUTOPOLL3		0x8E	
-#define AUTOPOLL4		0x90	
-#define	AUTOPOLL5		0x92	
+#define AUTOPOLL0		0x88	/* Auto-poll0 register */
+#define AUTOPOLL1		0x8A	/* Auto-poll1 register */
+#define AUTOPOLL2		0x8C	/* Auto-poll2 register */
+#define AUTOPOLL3		0x8E	/* Auto-poll3 register */
+#define AUTOPOLL4		0x90	/* Auto-poll4 register */
+#define	AUTOPOLL5		0x92	/* Auto-poll5 register */
 
-#define AP_VALUE		0x98	
-#define DLY_INT_A		0xA8	
-#define DLY_INT_B		0xAC	
+#define AP_VALUE		0x98	/* Auto-poll value register */
+#define DLY_INT_A		0xA8	/* Group A delayed interrupt register */
+#define DLY_INT_B		0xAC	/* Group B delayed interrupt register */
 
-#define FLOW_CONTROL		0xC8	
-#define PHY_ACCESS		0xD0	
+#define FLOW_CONTROL		0xC8	/* Flow control register */
+#define PHY_ACCESS		0xD0	/* PHY access register */
 
-#define STVAL			0xD8	
+#define STVAL			0xD8	/* Software timer value register */
 
-#define XMT_RING_BASE_ADDR0	0x100	
-#define XMT_RING_BASE_ADDR1	0x108	
-#define XMT_RING_BASE_ADDR2	0x110	
-#define XMT_RING_BASE_ADDR3	0x118	
+#define XMT_RING_BASE_ADDR0	0x100	/* Transmit ring0 base addr register */
+#define XMT_RING_BASE_ADDR1	0x108	/* Transmit ring1 base addr register */
+#define XMT_RING_BASE_ADDR2	0x110	/* Transmit ring2 base addr register */
+#define XMT_RING_BASE_ADDR3	0x118	/* Transmit ring2 base addr register */
 
-#define RCV_RING_BASE_ADDR0	0x120	
+#define RCV_RING_BASE_ADDR0	0x120	/* Transmit ring0 base addr register */
 
-#define PMAT0			0x190	
-#define PMAT1			0x194	
+#define PMAT0			0x190	/* OnNow pattern register0 */
+#define PMAT1			0x194	/* OnNow pattern register1 */
+
+/* 16bit registers */
+
+#define XMT_RING_LEN0		0x140	/* Transmit Ring0 length register */
+#define XMT_RING_LEN1		0x144	/* Transmit Ring1 length register */
+#define XMT_RING_LEN2		0x148 	/* Transmit Ring2 length register */
+#define XMT_RING_LEN3		0x14C	/* Transmit Ring3 length register */
+
+#define RCV_RING_LEN0		0x150	/* Receive Ring0 length register */
+
+#define SRAM_SIZE		0x178	/* SRAM size register */
+#define SRAM_BOUNDARY		0x17A	/* SRAM boundary register */
+
+/* 48bit register */
+
+#define PADR			0x160	/* Physical address register */
+
+#define IFS1			0x18C	/* Inter-frame spacing Part1 register */
+#define IFS			0x18D	/* Inter-frame spacing register */
+#define IPG			0x18E	/* Inter-frame gap register */
+/* 64bit register */
+
+#define LADRF			0x168	/* Logical address filter register */
 
 
-#define XMT_RING_LEN0		0x140	
-#define XMT_RING_LEN1		0x144	
-#define XMT_RING_LEN2		0x148 	
-#define XMT_RING_LEN3		0x14C	
-
-#define RCV_RING_LEN0		0x150	
-
-#define SRAM_SIZE		0x178	
-#define SRAM_BOUNDARY		0x17A	
-
-
-#define PADR			0x160	
-
-#define IFS1			0x18C	
-#define IFS			0x18D	
-#define IPG			0x18E	
-
-#define LADRF			0x168	
-
-
+/* Register Bit Definitions */
 typedef enum {
 
 	ASF_INIT_DONE		= (1 << 1),
@@ -147,6 +153,7 @@ typedef enum {
 #define PHY_SPEED_10		0x2
 #define PHY_SPEED_100		0x3
 
+/* INT0				0x38, 32bit register */
 typedef enum {
 
 	INTR			= (1 << 31),
@@ -178,21 +185,21 @@ typedef enum {
 
 typedef enum {
 
-	VAL3			= (1 << 31),   
-	VAL2			= (1 << 23),   
-	VAL1			= (1 << 15),   
-	VAL0			= (1 << 7),    
+	VAL3			= (1 << 31),   /* VAL bit for byte 3 */
+	VAL2			= (1 << 23),   /* VAL bit for byte 2 */
+	VAL1			= (1 << 15),   /* VAL bit for byte 1 */
+	VAL0			= (1 << 7),    /* VAL bit for byte 0 */
 
 }VAL_BITS;
 
 typedef enum {
 
-	
+	/* VAL3 */
 	LCINTEN			= (1 << 27),
 	APINT5EN		= (1 << 26),
 	APINT4EN		= (1 << 25),
 	APINT3EN		= (1 << 24),
-	
+	/* VAL2 */
 	APINT2EN		= (1 << 22),
 	APINT1EN		= (1 << 21),
 	APINT0EN		= (1 << 20),
@@ -200,7 +207,7 @@ typedef enum {
 	MCCIINTEN		= (1 << 18),
 	MCCINTEN		= (1 << 17),
 	MREINTEN		= (1 << 16),
-	
+	/* VAL1 */
 	SPNDINTEN		= (1 << 14),
 	MPINTEN			= (1 << 13),
 	TINTEN3			= (1 << 11),
@@ -208,23 +215,23 @@ typedef enum {
 	TINTEN2			= (1 << 10),
 	TINTEN1			= (1 << 9),
 	TINTEN0			= (1 << 8),
-	
+	/* VAL0 */
 	STINTEN			= (1 << 4),
 	RINTEN0			= (1 << 0),
 
-	INTEN0_CLEAR 		= 0x1F7F7F1F, 
+	INTEN0_CLEAR 		= 0x1F7F7F1F, /* Command style register */
 
 }INTEN0_BITS;
 
 typedef enum {
-	
+	/* VAL2 */
 	RDMD0			= (1 << 16),
-	
+	/* VAL1 */
 	TDMD3			= (1 << 11),
 	TDMD2			= (1 << 10),
 	TDMD1			= (1 << 9),
 	TDMD0			= (1 << 8),
-	
+	/* VAL0 */
 	UINTCMD			= (1 << 6),
 	RX_FAST_SPND		= (1 << 5),
 	TX_FAST_SPND		= (1 << 4),
@@ -233,27 +240,27 @@ typedef enum {
 	INTREN			= (1 << 1),
 	RUN			= (1 << 0),
 
-	CMD0_CLEAR 		= 0x000F0F7F,   
+	CMD0_CLEAR 		= 0x000F0F7F,   /* Command style register */
 
 }CMD0_BITS;
 
 typedef enum {
 
-	
+	/* VAL3 */
 	CONDUIT_MODE		= (1 << 29),
-	
+	/* VAL2 */
 	RPA			= (1 << 19),
 	DRCVPA			= (1 << 18),
 	DRCVBC			= (1 << 17),
 	PROM			= (1 << 16),
-	
+	/* VAL1 */
 	ASTRP_RCV		= (1 << 13),
 	RCV_DROP0	  	= (1 << 12),
 	EMBA			= (1 << 11),
 	DXMT2PD			= (1 << 10),
 	LTINTEN			= (1 << 9),
 	DXMTFCS			= (1 << 8),
-	
+	/* VAL0 */
 	APAD_XMT		= (1 << 6),
 	DRTY			= (1 << 5),
 	INLOOP			= (1 << 4),
@@ -262,27 +269,27 @@ typedef enum {
 	REX_UFLO		= (1 << 1),
 	REX_LCOL		= (1 << 0),
 
-	CMD2_CLEAR 		= 0x3F7F3F7F,   
+	CMD2_CLEAR 		= 0x3F7F3F7F,   /* Command style register */
 
 }CMD2_BITS;
 
 typedef enum {
 
-	
+	/* VAL3 */
 	ASF_INIT_DONE_ALIAS	= (1 << 29),
-	
+	/* VAL2 */
 	JUMBO			= (1 << 21),
 	VSIZE			= (1 << 20),
 	VLONLY			= (1 << 19),
 	VL_TAG_DEL		= (1 << 18),
-	
+	/* VAL1 */
 	EN_PMGR			= (1 << 14),
 	INTLEVEL		= (1 << 13),
 	FORCE_FULL_DUPLEX	= (1 << 12),
 	FORCE_LINK_STATUS	= (1 << 11),
 	APEP			= (1 << 10),
 	MPPLBA			= (1 << 9),
-	
+	/* VAL0 */
 	RESET_PHY_PULSE		= (1 << 2),
 	RESET_PHY		= (1 << 1),
 	PHY_RST_POL		= (1 << 0),
@@ -292,22 +299,22 @@ typedef enum {
 
 typedef enum {
 
-	
+	/* VAL0 */
 	PMAT_SAVE_MATCH		= (1 << 4),
 	PMAT_MODE		= (1 << 3),
 	MPEN_SW			= (1 << 1),
 	LCMODE_SW		= (1 << 0),
 
-	CMD7_CLEAR  		= 0x0000001B	
+	CMD7_CLEAR  		= 0x0000001B	/* Command style register */
 
 }CMD7_BITS;
 
 
 typedef enum {
 
-	RESET_PHY_WIDTH		= (0xF << 16) | (0xF<< 20), 
-	XMTSP_MASK		= (1 << 9) | (1 << 8),	
-	XMTSP_128		= (1 << 9),	
+	RESET_PHY_WIDTH		= (0xF << 16) | (0xF<< 20), /* 0x00FF0000 */
+	XMTSP_MASK		= (1 << 9) | (1 << 8),	/* 9:8 */
+	XMTSP_128		= (1 << 9),	/* 9 */
 	XMTSP_64		= (1 << 8),
 	CACHE_ALIGN		= (1 << 4),
 	BURST_LIMIT_MASK	= (0xF << 0 ),
@@ -317,38 +324,40 @@ typedef enum {
 
 typedef enum {
 
-	FMDC_MASK		= (1 << 9)|(1 << 8),	
+	FMDC_MASK		= (1 << 9)|(1 << 8),	/* 9:8 */
 	XPHYRST			= (1 << 7),
 	XPHYANE			= (1 << 6),
 	XPHYFD			= (1 << 5),
-	XPHYSP			= (1 << 4) | (1 << 3),	
-	APDW_MASK		= (1 <<	2) | (1 << 1) | (1 << 0), 
+	XPHYSP			= (1 << 4) | (1 << 3),	/* 4:3 */
+	APDW_MASK		= (1 <<	2) | (1 << 1) | (1 << 0), /* 2:0 */
 
 }CTRL2_BITS;
 
+/* XMT_RING_LIMIT		0x7C, 32bit register */
 typedef enum {
 
-	XMT_RING2_LIMIT		= (0xFF << 16),	
-	XMT_RING1_LIMIT		= (0xFF << 8),	
-	XMT_RING0_LIMIT		= (0xFF << 0), 	
+	XMT_RING2_LIMIT		= (0xFF << 16),	/* 23:16 */
+	XMT_RING1_LIMIT		= (0xFF << 8),	/* 15:8 */
+	XMT_RING0_LIMIT		= (0xFF << 0), 	/* 7:0 */
 
 }XMT_RING_LIMIT_BITS;
 
 typedef enum {
 
 	AP_REG0_EN		= (1 << 15),
-	AP_REG0_ADDR_MASK	= (0xF << 8) |(1 << 12),
-	AP_PHY0_ADDR_MASK	= (0xF << 0) |(1 << 4),
+	AP_REG0_ADDR_MASK	= (0xF << 8) |(1 << 12),/* 12:8 */
+	AP_PHY0_ADDR_MASK	= (0xF << 0) |(1 << 4),/* 4:0 */
 
 }AUTOPOLL0_BITS;
 
+/* AUTOPOLL1			0x8A, 16bit register */
 typedef enum {
 
 	AP_REG1_EN		= (1 << 15),
-	AP_REG1_ADDR_MASK	= (0xF << 8) |(1 << 12),
+	AP_REG1_ADDR_MASK	= (0xF << 8) |(1 << 12),/* 12:8 */
 	AP_PRE_SUP1		= (1 << 6),
 	AP_PHY1_DFLT		= (1 << 5),
-	AP_PHY1_ADDR_MASK	= (0xF << 0) |(1 << 4),
+	AP_PHY1_ADDR_MASK	= (0xF << 0) |(1 << 4),/* 4:0 */
 
 }AUTOPOLL1_BITS;
 
@@ -356,20 +365,20 @@ typedef enum {
 typedef enum {
 
 	AP_REG2_EN		= (1 << 15),
-	AP_REG2_ADDR_MASK	= (0xF << 8) |(1 << 12),
+	AP_REG2_ADDR_MASK	= (0xF << 8) |(1 << 12),/* 12:8 */
 	AP_PRE_SUP2		= (1 << 6),
 	AP_PHY2_DFLT		= (1 << 5),
-	AP_PHY2_ADDR_MASK	= (0xF << 0) |(1 << 4),
+	AP_PHY2_ADDR_MASK	= (0xF << 0) |(1 << 4),/* 4:0 */
 
 }AUTOPOLL2_BITS;
 
 typedef enum {
 
 	AP_REG3_EN		= (1 << 15),
-	AP_REG3_ADDR_MASK	= (0xF << 8) |(1 << 12),
+	AP_REG3_ADDR_MASK	= (0xF << 8) |(1 << 12),/* 12:8 */
 	AP_PRE_SUP3		= (1 << 6),
 	AP_PHY3_DFLT		= (1 << 5),
-	AP_PHY3_ADDR_MASK	= (0xF << 0) |(1 << 4),
+	AP_PHY3_ADDR_MASK	= (0xF << 0) |(1 << 4),/* 4:0 */
 
 }AUTOPOLL3_BITS;
 
@@ -377,10 +386,10 @@ typedef enum {
 typedef enum {
 
 	AP_REG4_EN		= (1 << 15),
-	AP_REG4_ADDR_MASK	= (0xF << 8) |(1 << 12),
+	AP_REG4_ADDR_MASK	= (0xF << 8) |(1 << 12),/* 12:8 */
 	AP_PRE_SUP4		= (1 << 6),
 	AP_PHY4_DFLT		= (1 << 5),
-	AP_PHY4_ADDR_MASK	= (0xF << 0) |(1 << 4),
+	AP_PHY4_ADDR_MASK	= (0xF << 0) |(1 << 4),/* 4:0 */
 
 }AUTOPOLL4_BITS;
 
@@ -388,23 +397,24 @@ typedef enum {
 typedef enum {
 
 	AP_REG5_EN		= (1 << 15),
-	AP_REG5_ADDR_MASK	= (0xF << 8) |(1 << 12),
+	AP_REG5_ADDR_MASK	= (0xF << 8) |(1 << 12),/* 12:8 */
 	AP_PRE_SUP5		= (1 << 6),
 	AP_PHY5_DFLT		= (1 << 5),
-	AP_PHY5_ADDR_MASK	= (0xF << 0) |(1 << 4),
+	AP_PHY5_ADDR_MASK	= (0xF << 0) |(1 << 4),/* 4:0 */
 
 }AUTOPOLL5_BITS;
 
 
 
 
+/* AP_VALUE 			0x98, 32bit ragister */
 typedef enum {
 
 	AP_VAL_ACTIVE		= (1 << 31),
 	AP_VAL_RD_CMD		= ( 1 << 29),
-	AP_ADDR			= (1 << 18)|(1 << 17)|(1 << 16), 
+	AP_ADDR			= (1 << 18)|(1 << 17)|(1 << 16), /* 18:16 */
 	AP_VAL			= (0xF << 0) | (0xF << 4) |( 0xF << 8) |
-				  (0xF << 12),	
+				  (0xF << 12),	/* 15:0 */
 
 }AP_VALUE_BITS;
 
@@ -418,9 +428,9 @@ typedef enum {
 	DLY_INT_A_T2		= (1 << 26),
 	DLY_INT_A_T1		= (1 << 25),
 	DLY_INT_A_T0		= ( 1 << 24),
-	EVENT_COUNT_A		= (0xF << 16) | (0x1 << 20),
+	EVENT_COUNT_A		= (0xF << 16) | (0x1 << 20),/* 20:16 */
 	MAX_DELAY_TIME_A	= (0xF << 0) | (0xF << 4) | (1 << 8)|
-				  (1 << 9) | (1 << 10),	
+				  (1 << 9) | (1 << 10),	/* 10:0 */
 
 }DLY_INT_A_BITS;
 
@@ -434,12 +444,13 @@ typedef enum {
 	DLY_INT_B_T2		= (1 << 26),
 	DLY_INT_B_T1		= (1 << 25),
 	DLY_INT_B_T0		= ( 1 << 24),
-	EVENT_COUNT_B		= (0xF << 16) | (0x1 << 20),
+	EVENT_COUNT_B		= (0xF << 16) | (0x1 << 20),/* 20:16 */
 	MAX_DELAY_TIME_B	= (0xF << 0) | (0xF << 4) | (1 << 8)|
-				  (1 << 9) | (1 << 10),	
+				  (1 << 9) | (1 << 10),	/* 10:0 */
 }DLY_INT_B_BITS;
 
 
+/* FLOW_CONTROL 		0xC8, 32bit register */
 typedef enum {
 
 	PAUSE_LEN_CHG		= (1 << 30),
@@ -449,10 +460,11 @@ typedef enum {
 	NPA			= (1 << 19),
 	FIXP			= ( 1 << 18),
 	FCCMD			= ( 1 << 16),
-	PAUSE_LEN		= (0xF << 0) | (0xF << 4) |( 0xF << 8) |	 				  (0xF << 12),	
+	PAUSE_LEN		= (0xF << 0) | (0xF << 4) |( 0xF << 8) |	 				  (0xF << 12),	/* 15:0 */
 
 }FLOW_CONTROL_BITS;
 
+/* PHY_ ACCESS			0xD0, 32bit register */
 typedef enum {
 
 	PHY_CMD_ACTIVE		= (1 << 31),
@@ -461,32 +473,39 @@ typedef enum {
 	PHY_RD_ERR		= (1 << 28),
 	PHY_PRE_SUP		= (1 << 27),
 	PHY_ADDR		= (1 << 21) | (1 << 22) | (1 << 23)|
-				  	(1 << 24) |(1 << 25),
-	PHY_REG_ADDR		= (1 << 16) | (1 << 17) | (1 << 18)|	 			  	   	  	(1 << 19) | (1 << 20),
+				  	(1 << 24) |(1 << 25),/* 25:21 */
+	PHY_REG_ADDR		= (1 << 16) | (1 << 17) | (1 << 18)|	 			  	   	  	(1 << 19) | (1 << 20),/* 20:16 */
 	PHY_DATA		= (0xF << 0)|(0xF << 4) |(0xF << 8)|
-					(0xF << 12),
+					(0xF << 12),/* 15:0 */
 
 }PHY_ACCESS_BITS;
 
 
+/* PMAT0			0x190,	 32bit register */
 typedef enum {
 	PMR_ACTIVE		= (1 << 31),
 	PMR_WR_CMD		= (1 << 30),
 	PMR_RD_CMD		= (1 << 29),
 	PMR_BANK		= (1 <<28),
 	PMR_ADDR		= (0xF << 16)|(1 << 20)|(1 << 21)|
-				  	(1 << 22),
-	PMR_B4			= (0xF << 0) | (0xF << 4),
+				  	(1 << 22),/* 22:16 */
+	PMR_B4			= (0xF << 0) | (0xF << 4),/* 15:0 */
 }PMAT0_BITS;
 
 
+/* PMAT1			0x194,	 32bit register */
 typedef enum {
-	PMR_B3			= (0xF << 24) | (0xF <<28),
-	PMR_B2			= (0xF << 16) |(0xF << 20),
-	PMR_B1			= (0xF << 8) | (0xF <<12), 
-	PMR_B0			= (0xF << 0)|(0xF << 4),
+	PMR_B3			= (0xF << 24) | (0xF <<28),/* 31:24 */
+	PMR_B2			= (0xF << 16) |(0xF << 20),/* 23:16 */
+	PMR_B1			= (0xF << 8) | (0xF <<12), /* 15:8 */
+	PMR_B0			= (0xF << 0)|(0xF << 4),/* 7:0 */
 }PMAT1_BITS;
 
+/************************************************************************/
+/*                                                                      */
+/*                      MIB counter definitions                         */
+/*                                                                      */
+/************************************************************************/
 
 #define rcv_miss_pkts				0x00
 #define rcv_octets				0x01
@@ -542,34 +561,36 @@ typedef enum {
 #define xmt_jumbo_pkts				0x37
 
 
+/* Driver definitions */
 
 #define	 PCI_VENDOR_ID_AMD		0x1022
 #define  PCI_DEVICE_ID_AMD8111E_7462	0x7462
 
-#define MAX_UNITS			8 
+#define MAX_UNITS			8 /* Maximum number of devices possible */
 
-#define NUM_TX_BUFFERS			32 
-#define NUM_RX_BUFFERS			32 
+#define NUM_TX_BUFFERS			32 /* Number of transmit buffers */
+#define NUM_RX_BUFFERS			32 /* Number of receive buffers */
 
-#define TX_BUFF_MOD_MASK         	31 
-#define RX_BUFF_MOD_MASK         	31 
+#define TX_BUFF_MOD_MASK         	31 /* (NUM_TX_BUFFERS -1) */
+#define RX_BUFF_MOD_MASK         	31 /* (NUM_RX_BUFFERS -1) */
 
 #define NUM_TX_RING_DR			32
 #define NUM_RX_RING_DR			32
 
-#define TX_RING_DR_MOD_MASK         	31 
-#define RX_RING_DR_MOD_MASK         	31 
+#define TX_RING_DR_MOD_MASK         	31 /* (NUM_TX_RING_DR -1) */
+#define RX_RING_DR_MOD_MASK         	31 /* (NUM_RX_RING_DR -1) */
 
-#define MAX_FILTER_SIZE			64 
+#define MAX_FILTER_SIZE			64 /* Maximum multicast address */
 #define AMD8111E_MIN_MTU	 	60
 #define AMD8111E_MAX_MTU		9000
 
 #define PKT_BUFF_SZ			1536
 #define MIN_PKT_LEN			60
 
-#define  AMD8111E_TX_TIMEOUT		(3 * HZ)
-#define SOFT_TIMER_FREQ 		0xBEBC  
-#define DELAY_TIMER_CONV		50    
+#define  AMD8111E_TX_TIMEOUT		(3 * HZ)/* 3 sec */
+#define SOFT_TIMER_FREQ 		0xBEBC  /* 0.5 sec */
+#define DELAY_TIMER_CONV		50    /* msec to 10 usec conversion.
+						 Only 500 usec resolution */
 #define OPTION_VLAN_ENABLE		0x0001
 #define OPTION_JUMBO_ENABLE		0x0002
 #define OPTION_MULTICAST_ENABLE		0x0004
@@ -581,6 +602,7 @@ typedef enum {
 
 #define PHY_REG_ADDR_MASK		0x1f
 
+/* ipg parameters */
 #define DEFAULT_IPG			0x60
 #define IFS1_DELTA			36
 #define	IPG_CONVERGE_JIFFIES (HZ/2)
@@ -591,8 +613,10 @@ typedef enum {
 #define CSTATE  1
 #define SSTATE  2
 
+/* Assume contoller gets data 10 times the maximum processing time */
 #define  REPEAT_CNT			10
 
+/* amd8111e decriptor flag definitions */
 typedef enum {
 
 	OWN_BIT		=	(1 << 15),
@@ -614,8 +638,8 @@ typedef enum {
 	PAM_BIT		=	(1 << 6),
 	LAFM_BIT	= 	(1 << 5),
 	BAM_BIT		=	(1 << 4),
-	TT_VLAN_TAGGED	= 	(1 << 3) |(1 << 2),
-	TT_PRTY_TAGGED	=	(1 << 3),
+	TT_VLAN_TAGGED	= 	(1 << 3) |(1 << 2),/* 0x000 */
+	TT_PRTY_TAGGED	=	(1 << 3),/* 0x0008 */
 
 }RX_FLAG_BITS;
 
@@ -623,12 +647,14 @@ typedef enum {
 #define TT_MASK			0x000c
 #define TCC_MASK		0x0003
 
+/* driver ioctl parameters */
 #define AMD8111E_REG_DUMP_LEN	 13*sizeof(u32)
 
+/* amd8111e desriptor format */
 
 struct amd8111e_tx_dr{
 
-	__le16 buff_count; 
+	__le16 buff_count; /* Size of the buffer pointed by this descriptor */
 
 	__le16 tx_flags;
 
@@ -645,11 +671,11 @@ struct amd8111e_rx_dr{
 
 	__le32 reserved;
 
-	__le16 msg_count; 
+	__le16 msg_count; /* Received message len */
 
 	__le16 tag_ctrl_info;
 
-	__le16 buff_count;  
+	__le16 buff_count;  /* Len of the buffer pointed by descriptor. */
 
 	__le16 rx_flags;
 
@@ -666,7 +692,7 @@ struct amd8111e_link_config{
 	u16				speed;
 	u8				duplex;
 	u8				autoneg;
-	u8				reserved;  
+	u8				reserved;  /* 32bit alignment */
 };
 
 enum coal_type{
@@ -722,29 +748,29 @@ struct amd8111e_priv{
 
 	struct amd8111e_tx_dr*  tx_ring;
 	struct amd8111e_rx_dr* rx_ring;
-	dma_addr_t tx_ring_dma_addr;	
-	dma_addr_t rx_ring_dma_addr;	
+	dma_addr_t tx_ring_dma_addr;	/* tx descriptor ring base address */
+	dma_addr_t rx_ring_dma_addr;	/* rx descriptor ring base address */
 	const char *name;
-	struct pci_dev *pci_dev;	
-	struct net_device* amd8111e_net_dev; 	
-	
+	struct pci_dev *pci_dev;	/* Ptr to the associated pci_dev */
+	struct net_device* amd8111e_net_dev; 	/* ptr to associated net_device */
+	/* Transmit and recive skbs */
 	struct sk_buff *tx_skbuff[NUM_TX_BUFFERS];
 	struct sk_buff *rx_skbuff[NUM_RX_BUFFERS];
-	
+	/* Transmit and receive dma mapped addr */
 	dma_addr_t tx_dma_addr[NUM_TX_BUFFERS];
 	dma_addr_t rx_dma_addr[NUM_RX_BUFFERS];
-	
+	/* Reg memory mapped address */
 	void __iomem *mmio;
 
 	struct napi_struct napi;
 
-	spinlock_t lock;	
-	unsigned long rx_idx, tx_idx;	
+	spinlock_t lock;	/* Guard lock */
+	unsigned long rx_idx, tx_idx;	/* The next free ring entry */
 	unsigned long tx_complete_idx;
 	unsigned long tx_ring_complete_idx;
 	unsigned long tx_ring_idx;
-	unsigned int rx_buff_len;	
-	int options;		
+	unsigned int rx_buff_len;	/* Buffer length of rx buffers */
+	int options;		/* Options enabled/disabled for the device */
 
 	unsigned long ext_phy_option;
 	int ext_phy_addr;
@@ -764,10 +790,13 @@ struct amd8111e_priv{
 
 };
 
+/* kernel provided writeq does not write 64 bits into the amd8111e device register instead writes only higher 32bits data into lower 32bits of the register.
+BUG? */
 #define  amd8111e_writeq(_UlData,_memMap)   \
 		writel(*(u32*)(&_UlData), _memMap);	\
 		writel(*(u32*)((u8*)(&_UlData)+4), _memMap+4)
 
+/* maps the external speed options to internal value */
 typedef enum {
 	SPEED_AUTONEG,
 	SPEED10_HALF,
@@ -782,5 +811,5 @@ static bool coalesce[MAX_UNITS] = { [ 0 ... MAX_UNITS-1] = true };
 static bool dynamic_ipg[MAX_UNITS] = { [ 0 ... MAX_UNITS-1] = false };
 static unsigned int chip_version;
 
-#endif 
+#endif /* _AMD8111E_H */
 

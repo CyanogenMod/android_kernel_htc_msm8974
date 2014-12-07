@@ -35,12 +35,12 @@ static void led_blink(unsigned long timeout)
 {
 	led_toggle();
 
-	
-	if (!timeout) { 
+	/* reschedule */
+	if (!timeout) { /* blink according to load */
 		led_blink_timer.expires = jiffies +
 			((1 + (avenrun[0] >> FSHIFT)) * HZ);
 		led_blink_timer.data = 0;
-	} else { 
+	} else { /* blink at user specified interval */
 		led_blink_timer.expires = jiffies + (timeout * HZ);
 		led_blink_timer.data = timeout;
 	}
@@ -80,10 +80,13 @@ static ssize_t led_proc_write(struct file *file, const char __user *buffer,
 
 	buf[count] = '\0';
 
-	
+	/* work around \n when echo'ing into proc */
 	if (buf[count - 1] == '\n')
 		buf[count - 1] = '\0';
 
+	/* before we change anything we want to stop any running timers,
+	 * otherwise calls such as on will have no persistent effect
+	 */
 	del_timer_sync(&led_blink_timer);
 
 	if (!strcmp(buf, "on")) {

@@ -47,6 +47,7 @@
 
 #include "cpm_uart.h"
 
+/**************************************************************/
 
 void cpm_line_cr_cmd(struct uart_cpm_port *port, int cmd)
 {
@@ -61,6 +62,9 @@ void __iomem *cpm_uart_map_pram(struct uart_cpm_port *port,
 	struct resource res;
 	resource_size_t len;
 
+	/* Don't remap parameter RAM if it has already been initialized
+	 * during console setup.
+	 */
 	if (IS_SMC(port) && port->smcup)
 		return port->smcup;
 	else if (!IS_SMC(port) && port->sccup)
@@ -98,6 +102,12 @@ void cpm_uart_unmap_pram(struct uart_cpm_port *port, void __iomem *pram)
 		iounmap(pram);
 }
 
+/*
+ * Allocate DP-Ram and memory buffers. We need to allocate a transmit and
+ * receive buffer descriptors from dual port ram, and a character
+ * buffer area from host mem. If we are allocating for the console we need
+ * to do it from bootmem
+ */
 int cpm_uart_allocbuf(struct uart_cpm_port *pinfo, unsigned int is_con)
 {
 	int dpmemsz, memsz;

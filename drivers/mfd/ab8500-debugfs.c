@@ -18,12 +18,24 @@
 static u32 debug_bank;
 static u32 debug_address;
 
+/**
+ * struct ab8500_reg_range
+ * @first: the first address of the range
+ * @last: the last address of the range
+ * @perm: access permissions for the range
+ */
 struct ab8500_reg_range {
 	u8 first;
 	u8 last;
 	u8 perm;
 };
 
+/**
+ * struct ab8500_i2c_ranges
+ * @num_ranges: the number of ranges in the list
+ * @bankid: bank identifier
+ * @range: the list of register ranges
+ */
 struct ab8500_i2c_ranges {
 	u8 num_ranges;
 	u8 bankid;
@@ -118,6 +130,8 @@ static struct ab8500_i2c_ranges debug_ranges[AB8500_NUM_BANKS] = {
 				.first = 0x40,
 				.last = 0x44,
 			},
+			/* 0x80-0x8B is SIM registers and should
+			 * not be accessed from here */
 		},
 	},
 	[AB8500_USB] = {
@@ -369,6 +383,8 @@ static int ab8500_registers_print(struct seq_file *s, void *p)
 				reg, value);
 			if (err < 0) {
 				dev_err(dev, "seq_printf overflow\n");
+				/* Error is not returned here since
+				 * the output is wanted in any case */
 				return 0;
 			}
 		}
@@ -407,7 +423,7 @@ static ssize_t ab8500_bank_write(struct file *file,
 	unsigned long user_bank;
 	int err;
 
-	
+	/* Get userspace string and assure termination */
 	err = kstrtoul_from_user(user_buf, count, 0, &user_bank);
 	if (err)
 		return err;
@@ -440,7 +456,7 @@ static ssize_t ab8500_address_write(struct file *file,
 	unsigned long user_address;
 	int err;
 
-	
+	/* Get userspace string and assure termination */
 	err = kstrtoul_from_user(user_buf, count, 0, &user_address);
 	if (err)
 		return err;
@@ -484,7 +500,7 @@ static ssize_t ab8500_val_write(struct file *file,
 	unsigned long user_val;
 	int err;
 
-	
+	/* Get userspace string and assure termination */
 	err = kstrtoul_from_user(user_buf, count, 0, &user_val);
 	if (err)
 		return err;

@@ -36,4 +36,4 @@
 #undef warn
 #define warn(f, arg...) printk(KERN_WARNING LOG_PREFIX": " f "\n" , ## arg)
 
-#endif 
+#endif /* EC100_PRIV */

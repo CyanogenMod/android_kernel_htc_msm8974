@@ -31,36 +31,43 @@
 #include "generic.h"
 #include "devices.h"
 
+/*
+ * n/a: 2, 5, 6, 7, 8, 23, 24, 25, 26, 27, 87, 88, 89,
+ * nu: 58 -- 77, 90, 91, 93, 102, 105-108, 114-116,
+ * XXX: 21,
+ * XXX: 79 CS_3 for LAN9215 or PSKTSEL on R2, R3
+ * XXX: 33 CS_5 for LAN9215 on R1
+ */
 
 static unsigned long csb726_pin_config[] = {
-	GPIO78_nCS_2, 
-	GPIO79_nCS_3, 
-	GPIO80_nCS_4, 
+	GPIO78_nCS_2, /* EXP_CS */
+	GPIO79_nCS_3, /* SMSC9215 */
+	GPIO80_nCS_4, /* SM501 */
 
-	GPIO52_GPIO, 
-	GPIO53_GPIO, 
+	GPIO52_GPIO, /* #SMSC9251 int */
+	GPIO53_GPIO, /* SM501 int */
 
-	GPIO1_GPIO, 
-	GPIO11_GPIO, 
-	GPIO9_GPIO, 
-	GPIO10_GPIO, 
-	GPIO16_PWM0_OUT, 
-	GPIO17_PWM1_OUT, 
-	GPIO94_GPIO, 
-	GPIO95_GPIO, 
-	GPIO96_GPIO, 
-	GPIO97_GPIO, 
-	GPIO15_GPIO, 
-	GPIO18_RDY, 
+	GPIO1_GPIO, /* GPIO0 */
+	GPIO11_GPIO, /* GPIO1 */
+	GPIO9_GPIO, /* GPIO2 */
+	GPIO10_GPIO, /* GPIO3 */
+	GPIO16_PWM0_OUT, /* or GPIO4 */
+	GPIO17_PWM1_OUT, /* or GPIO5 */
+	GPIO94_GPIO, /* GPIO6 */
+	GPIO95_GPIO, /* GPIO7 */
+	GPIO96_GPIO, /* GPIO8 */
+	GPIO97_GPIO, /* GPIO9 */
+	GPIO15_GPIO, /* EXP_IRQ */
+	GPIO18_RDY, /* EXP_WAIT */
 
-	GPIO0_GPIO, 
-	GPIO104_GPIO, 
+	GPIO0_GPIO, /* PWR_INT */
+	GPIO104_GPIO, /* PWR_OFF */
 
-	GPIO12_GPIO, 
+	GPIO12_GPIO, /* touch irq */
 
 	GPIO13_SSP2_TXD,
 	GPIO14_SSP2_SFRM,
-	MFP_CFG_OUT(GPIO19, AF1, DRIVE_LOW),
+	MFP_CFG_OUT(GPIO19, AF1, DRIVE_LOW),/* SSP2_SYSCLK */
 	GPIO22_SSP2_SCLK,
 
 	GPIO81_SSP3_TXD,
@@ -68,15 +75,15 @@ static unsigned long csb726_pin_config[] = {
 	GPIO83_SSP3_SFRM,
 	GPIO84_SSP3_SCLK,
 
-	GPIO20_GPIO, 
+	GPIO20_GPIO, /* SDIO int */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 	GPIO112_MMC_CMD,
-	GPIO100_GPIO, 
-	GPIO101_GPIO, 
+	GPIO100_GPIO, /* SD CD */
+	GPIO101_GPIO, /* SD WP */
 
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
@@ -108,11 +115,11 @@ static unsigned long csb726_pin_config[] = {
 	GPIO54_nPCE_2,
 	GPIO55_nPREG,
 	GPIO56_nPWAIT,
-	GPIO57_nIOIS16, 
+	GPIO57_nIOIS16, /* maybe unused */
 	GPIO85_nPCE_1,
-	GPIO98_GPIO, 
-	GPIO99_GPIO, 
-	GPIO103_GPIO, 
+	GPIO98_GPIO, /* CF IRQ */
+	GPIO99_GPIO, /* CF CD */
+	GPIO103_GPIO, /* Reset */
 
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
@@ -121,7 +128,7 @@ static unsigned long csb726_pin_config[] = {
 static struct pxamci_platform_data csb726_mci = {
 	.detect_delay_ms	= 500,
 	.ocr_mask		= MMC_VDD_32_33|MMC_VDD_33_34,
-	
+	/* FIXME setpower */
 	.gpio_card_detect	= CSB726_GPIO_MMC_DETECT,
 	.gpio_card_ro		= CSB726_GPIO_MMC_RO,
 	.gpio_power		= -1,
@@ -137,7 +144,7 @@ static struct mtd_partition csb726_flash_partitions[] = {
 		.name		= "Bootloader",
 		.offset		= 0,
 		.size		= CSB726_FLASH_uMON,
-		.mask_flags	= MTD_WRITEABLE  
+		.mask_flags	= MTD_WRITEABLE  /* force read-only */
 	},
 	{
 		.name		= "root",
@@ -190,6 +197,7 @@ static struct resource csb726_sm501_resources[] = {
 };
 
 static struct sm501_initdata csb726_sm501_initdata = {
+/*	.devices	= SM501_USE_USB_HOST, */
 	.devices	= SM501_USE_USB_HOST | SM501_USE_UART0 | SM501_USE_UART1,
 };
 
@@ -247,7 +255,9 @@ static struct platform_device *devices[] __initdata = {
 static void __init csb726_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(csb726_pin_config));
-	__raw_writel((__raw_readl(MSC2) & ~0xffff) | 0x7ff4, MSC2); 
+/*	__raw_writel(0x7ffc3ffc, MSC1); *//* LAN9215/EXP_CS */
+/*	__raw_writel(0x06697ff4, MSC2); *//* none/SM501 */
+	__raw_writel((__raw_readl(MSC2) & ~0xffff) | 0x7ff4, MSC2); /* SM501 */
 
 	pxa_set_ffuart_info(NULL);
 	pxa_set_btuart_info(NULL);

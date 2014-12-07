@@ -44,7 +44,7 @@ module_param_named(i2c_debug, i2cdebug, int, 0644);
 		if (stvdebug) \
 			printk(KERN_DEBUG args); \
 	} while (0)
-	
+	/* DVB-C */
 
 struct stv0367cab_state {
 	enum stv0367_cab_signal_type	state;
@@ -52,30 +52,30 @@ struct stv0367cab_state {
 	u32	adc_clk;
 	s32	search_range;
 	s32	derot_offset;
-	
-	int locked;			
-	u32 freq_khz;			
-	u32 symbol_rate;		
-	enum stv0367cab_mod modulation;	
-	fe_spectral_inversion_t	spect_inv; 
+	/* results */
+	int locked;			/* channel found		*/
+	u32 freq_khz;			/* found frequency (in kHz)	*/
+	u32 symbol_rate;		/* found symbol rate (in Bds)	*/
+	enum stv0367cab_mod modulation;	/* modulation			*/
+	fe_spectral_inversion_t	spect_inv; /* Spectrum Inversion	*/
 };
 
 struct stv0367ter_state {
-	
+	/* DVB-T */
 	enum stv0367_ter_signal_type state;
 	enum stv0367_ter_if_iq_mode if_iq_mode;
-	enum stv0367_ter_mode mode;
+	enum stv0367_ter_mode mode;/* mode 2K or 8K */
 	fe_guard_interval_t guard;
 	enum stv0367_ter_hierarchy hierarchy;
 	u32 frequency;
-	fe_spectral_inversion_t  sense; 
-	u8  force; 
-	u8  bw; 
-	u8  pBW; 
+	fe_spectral_inversion_t  sense; /*  current search spectrum */
+	u8  force; /* force mode/guard */
+	u8  bw; /* channel width 6, 7 or 8 in MHz */
+	u8  pBW; /* channel width used during previous lock */
 	u32 pBER;
 	u32 pPER;
 	u32 ucblocks;
-	s8  echo_pos; 
+	s8  echo_pos; /* echo position */
 	u8  first_lock;
 	u8  unlock_counter;
 	u32 agc_val;
@@ -84,12 +84,12 @@ struct stv0367ter_state {
 struct stv0367_state {
 	struct dvb_frontend fe;
 	struct i2c_adapter *i2c;
-	
+	/* config settings */
 	const struct stv0367_config *config;
 	u8 chip_id;
-	
+	/* DVB-C */
 	struct stv0367cab_state *cab_state;
-	
+	/* DVB-T */
 	struct stv0367ter_state *ter_state;
 };
 
@@ -98,11 +98,12 @@ struct st_register {
 	u8	value;
 };
 
+/* values for STV4100 XTAL=30M int clk=53.125M*/
 static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_ID,		0x60},
 	{R367TER_I2CRPT,	0xa0},
-	
-	{R367TER_TOPCTRL,	0x00},
+	/* {R367TER_I2CRPT,	0x22},*/
+	{R367TER_TOPCTRL,	0x00},/* for xc5000; was 0x02 */
 	{R367TER_IOCFG0,	0x40},
 	{R367TER_DAC0R,		0x00},
 	{R367TER_IOCFG1,	0x00},
@@ -132,8 +133,8 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_AGC2PGA,	0x00},
 	{R367TER_OVF_RATE1,	0x00},
 	{R367TER_OVF_RATE2,	0x00},
-	{R367TER_GAIN_SRC1,	0xaa},
-	{R367TER_GAIN_SRC2,	0xd6},
+	{R367TER_GAIN_SRC1,	0xaa},/* for xc5000; was 0x2b */
+	{R367TER_GAIN_SRC2,	0xd6},/* for xc5000; was 0x04 */
 	{R367TER_INC_DEROT1,	0x55},
 	{R367TER_INC_DEROT2,	0x55},
 	{R367TER_PPM_CPAMP_DIR,	0x2c},
@@ -228,9 +229,9 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_FFT_CTL,	0x00},
 	{R367TER_SCR_CTL,	0x70},
 	{R367TER_PPM_CTL1,	0xf8},
-	{R367TER_TRL_CTL,	0x14},
-	{R367TER_TRL_NOMRATE1,	0xae},
-	{R367TER_TRL_NOMRATE2,	0x56},
+	{R367TER_TRL_CTL,	0x14},/* for xc5000; was 0xac */
+	{R367TER_TRL_NOMRATE1,	0xae},/* for xc5000; was 0x1e */
+	{R367TER_TRL_NOMRATE2,	0x56},/* for xc5000; was 0x58 */
 	{R367TER_TRL_TIME1,	0x1d},
 	{R367TER_TRL_TIME2,	0xfc},
 	{R367TER_CRL_CTL,	0x24},
@@ -267,7 +268,7 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_TSM_AP6,	0x00},
 	{R367TER_TSM_AP7,	0x00},
 	{R367TER_TSTRES,	0x00},
-	{R367TER_ANACTRL,	0x0D},
+	{R367TER_ANACTRL,	0x0D},/* PLL stoped, restart at init!!! */
 	{R367TER_TSTBUS,	0x00},
 	{R367TER_TSTRATE,	0x00},
 	{R367TER_CONSTMODE,	0x01},
@@ -282,10 +283,10 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_RF_AGC1,	0xff},
 	{R367TER_RF_AGC2,	0x83},
 	{R367TER_ANADIGCTRL,	0x19},
-	{R367TER_PLLMDIV,	0x01},
-	{R367TER_PLLNDIV,	0x06},
+	{R367TER_PLLMDIV,	0x01},/* for xc5000; was 0x0c */
+	{R367TER_PLLNDIV,	0x06},/* for xc5000; was 0x55 */
 	{R367TER_PLLSETUP,	0x18},
-	{R367TER_DUAL_AD12,	0x0C},
+	{R367TER_DUAL_AD12,	0x0C},/* for xc5000 AGC voltage 1.6V */
 	{R367TER_TSTBIST,	0x00},
 	{R367TER_PAD_COMP_CTRL,	0x00},
 	{R367TER_PAD_COMP_WR,	0x00},
@@ -430,7 +431,7 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_TSSTATEM,	0xb0},
 	{R367TER_TSSTATEL,	0x40},
 	{R367TER_TSCFGH,	0xC0},
-	{R367TER_TSCFGM,	0xc0},
+	{R367TER_TSCFGM,	0xc0},/* for xc5000; was 0x00 */
 	{R367TER_TSCFGL,	0x20},
 	{R367TER_TSSYNC,	0x00},
 	{R367TER_TSINSDELH,	0x00},
@@ -443,7 +444,7 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 	{R367TER_TSDIVQL,	0x00},
 	{R367TER_TSDILSTKM,	0x00},
 	{R367TER_TSDILSTKL,	0x00},
-	{R367TER_TSSPEED,	0x40},
+	{R367TER_TSSPEED,	0x40},/* for xc5000; was 0x6f */
 	{R367TER_TSSTATUS,	0x81},
 	{R367TER_TSSTATUS2,	0x6a},
 	{R367TER_TSBITRATEM,	0x0f},
@@ -549,22 +550,24 @@ static struct st_register def0367ter[STV0367TER_NBREGS] = {
 
 #define RF_LOOKUP_TABLE_SIZE  31
 #define RF_LOOKUP_TABLE2_SIZE 16
+/* RF Level (for RF AGC->AGC1) Lookup Table, depends on the board and tuner.*/
 s32 stv0367cab_RF_LookUp1[RF_LOOKUP_TABLE_SIZE][RF_LOOKUP_TABLE_SIZE] = {
-	{
+	{/*AGC1*/
 		48, 50, 51, 53, 54, 56, 57, 58, 60, 61, 62, 63,
 		64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
 		76, 77, 78, 80, 83, 85, 88,
-	}, {
+	}, {/*RF(dbm)*/
 		22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
 		34, 35, 36, 37, 38, 39, 41, 42, 43, 44, 46, 47,
 		49, 50, 52, 53, 54, 55, 56,
 	}
 };
+/* RF Level (for IF AGC->AGC2) Lookup Table, depends on the board and tuner.*/
 s32 stv0367cab_RF_LookUp2[RF_LOOKUP_TABLE2_SIZE][RF_LOOKUP_TABLE2_SIZE] = {
-	{
+	{/*AGC2*/
 		28, 29, 31, 32, 34, 35, 36, 37,
 		38, 39, 40, 41, 42, 43, 44, 45,
-	}, {
+	}, {/*RF(dbm)*/
 		57, 58, 59, 60, 61, 62, 63, 64,
 		65, 66, 67, 68, 69, 70, 71, 72,
 	}
@@ -573,7 +576,7 @@ s32 stv0367cab_RF_LookUp2[RF_LOOKUP_TABLE2_SIZE][RF_LOOKUP_TABLE2_SIZE] = {
 static struct st_register def0367cab[STV0367CAB_NBREGS] = {
 	{R367CAB_ID,		0x60},
 	{R367CAB_I2CRPT,	0xa0},
-	
+	/*{R367CAB_I2CRPT,	0x22},*/
 	{R367CAB_TOPCTRL,	0x10},
 	{R367CAB_IOCFG0,	0x80},
 	{R367CAB_DAC0R,		0x00},
@@ -588,7 +591,7 @@ static struct st_register def0367cab[STV0367CAB_NBREGS] = {
 	{R367CAB_GPIO_CFG,	0x55},
 	{R367CAB_GPIO_CMD,	0x01},
 	{R367CAB_TSTRES,	0x00},
-	{R367CAB_ANACTRL,	0x0d},
+	{R367CAB_ANACTRL,	0x0d},/* was 0x00 need to check - I.M.L.*/
 	{R367CAB_TSTBUS,	0x00},
 	{R367CAB_RF_AGC1,	0xea},
 	{R367CAB_RF_AGC2,	0x82},
@@ -596,7 +599,7 @@ static struct st_register def0367cab[STV0367CAB_NBREGS] = {
 	{R367CAB_PLLMDIV,	0x01},
 	{R367CAB_PLLNDIV,	0x08},
 	{R367CAB_PLLSETUP,	0x18},
-	{R367CAB_DUAL_AD12,	0x0C}, 
+	{R367CAB_DUAL_AD12,	0x0C}, /* for xc5000 AGC voltage 1.6V */
 	{R367CAB_TSTBIST,	0x00},
 	{R367CAB_CTRL_1,	0x00},
 	{R367CAB_CTRL_2,	0x03},
@@ -674,7 +677,7 @@ static struct st_register def0367cab[STV0367CAB_NBREGS] = {
 	{R367CAB_FSM_STS,	0x0c},
 	{R367CAB_FSM_SNR0_HTH,	0x00},
 	{R367CAB_FSM_SNR1_HTH,	0x00},
-	{R367CAB_FSM_SNR2_HTH,	0x23},
+	{R367CAB_FSM_SNR2_HTH,	0x23},/* 0x00 */
 	{R367CAB_FSM_SNR0_LTH,	0x00},
 	{R367CAB_FSM_SNR1_LTH,	0x00},
 	{R367CAB_FSM_EQA1_HTH,	0x00},
@@ -936,21 +939,21 @@ static u32 stv0367_get_tuner_freq(struct dvb_frontend *fe)
 
 static u16 CellsCoeffs_8MHz_367cofdm[3][6][5] = {
 	{
-		{0x10EF, 0xE205, 0x10EF, 0xCE49, 0x6DA7}, 
-		{0x2151, 0xc557, 0x2151, 0xc705, 0x6f93}, 
-		{0x2503, 0xc000, 0x2503, 0xc375, 0x7194}, 
-		{0x20E9, 0xca94, 0x20e9, 0xc153, 0x7194}, 
-		{0x06EF, 0xF852, 0x06EF, 0xC057, 0x7207}, 
-		{0x0000, 0x0ECC, 0x0ECC, 0x0000, 0x3647} 
+		{0x10EF, 0xE205, 0x10EF, 0xCE49, 0x6DA7}, /* CELL 1 COEFFS 27M*/
+		{0x2151, 0xc557, 0x2151, 0xc705, 0x6f93}, /* CELL 2 COEFFS */
+		{0x2503, 0xc000, 0x2503, 0xc375, 0x7194}, /* CELL 3 COEFFS */
+		{0x20E9, 0xca94, 0x20e9, 0xc153, 0x7194}, /* CELL 4 COEFFS */
+		{0x06EF, 0xF852, 0x06EF, 0xC057, 0x7207}, /* CELL 5 COEFFS */
+		{0x0000, 0x0ECC, 0x0ECC, 0x0000, 0x3647} /* CELL 6 COEFFS */
 	}, {
-		{0x10A0, 0xE2AF, 0x10A1, 0xCE76, 0x6D6D}, 
+		{0x10A0, 0xE2AF, 0x10A1, 0xCE76, 0x6D6D}, /* CELL 1 COEFFS 25M*/
 		{0x20DC, 0xC676, 0x20D9, 0xC80A, 0x6F29},
 		{0x2532, 0xC000, 0x251D, 0xC391, 0x706F},
 		{0x1F7A, 0xCD2B, 0x2032, 0xC15E, 0x711F},
 		{0x0698, 0xFA5E, 0x0568, 0xC059, 0x7193},
-		{0x0000, 0x0918, 0x149C, 0x0000, 0x3642} 
+		{0x0000, 0x0918, 0x149C, 0x0000, 0x3642} /* CELL 6 COEFFS */
 	}, {
-		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, 
+		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, /* 30M */
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
@@ -961,21 +964,21 @@ static u16 CellsCoeffs_8MHz_367cofdm[3][6][5] = {
 
 static u16 CellsCoeffs_7MHz_367cofdm[3][6][5] = {
 	{
-		{0x12CA, 0xDDAF, 0x12CA, 0xCCEB, 0x6FB1}, 
-		{0x2329, 0xC000, 0x2329, 0xC6B0, 0x725F}, 
-		{0x2394, 0xC000, 0x2394, 0xC2C7, 0x7410}, 
-		{0x251C, 0xC000, 0x251C, 0xC103, 0x74D9}, 
-		{0x0804, 0xF546, 0x0804, 0xC040, 0x7544}, 
-		{0x0000, 0x0CD9, 0x0CD9, 0x0000, 0x370A} 
+		{0x12CA, 0xDDAF, 0x12CA, 0xCCEB, 0x6FB1}, /* CELL 1 COEFFS 27M*/
+		{0x2329, 0xC000, 0x2329, 0xC6B0, 0x725F}, /* CELL 2 COEFFS */
+		{0x2394, 0xC000, 0x2394, 0xC2C7, 0x7410}, /* CELL 3 COEFFS */
+		{0x251C, 0xC000, 0x251C, 0xC103, 0x74D9}, /* CELL 4 COEFFS */
+		{0x0804, 0xF546, 0x0804, 0xC040, 0x7544}, /* CELL 5 COEFFS */
+		{0x0000, 0x0CD9, 0x0CD9, 0x0000, 0x370A} /* CELL 6 COEFFS */
 	}, {
-		{0x1285, 0xDE47, 0x1285, 0xCD17, 0x6F76}, 
+		{0x1285, 0xDE47, 0x1285, 0xCD17, 0x6F76}, /*25M*/
 		{0x234C, 0xC000, 0x2348, 0xC6DA, 0x7206},
 		{0x23B4, 0xC000, 0x23AC, 0xC2DB, 0x73B3},
 		{0x253D, 0xC000, 0x25B6, 0xC10B, 0x747F},
 		{0x0721, 0xF79C, 0x065F, 0xC041, 0x74EB},
 		{0x0000, 0x08FA, 0x1162, 0x0000, 0x36FF}
 	}, {
-		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, 
+		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, /* 30M */
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
@@ -986,14 +989,14 @@ static u16 CellsCoeffs_7MHz_367cofdm[3][6][5] = {
 
 static u16 CellsCoeffs_6MHz_367cofdm[3][6][5] = {
 	{
-		{0x1699, 0xD5B8, 0x1699, 0xCBC3, 0x713B}, 
-		{0x2245, 0xC000, 0x2245, 0xC568, 0x74D5}, 
-		{0x227F, 0xC000, 0x227F, 0xC1FC, 0x76C6}, 
-		{0x235E, 0xC000, 0x235E, 0xC0A7, 0x778A}, 
-		{0x0ECB, 0xEA0B, 0x0ECB, 0xC027, 0x77DD}, 
-		{0x0000, 0x0B68, 0x0B68, 0x0000, 0xC89A}, 
+		{0x1699, 0xD5B8, 0x1699, 0xCBC3, 0x713B}, /* CELL 1 COEFFS 27M*/
+		{0x2245, 0xC000, 0x2245, 0xC568, 0x74D5}, /* CELL 2 COEFFS */
+		{0x227F, 0xC000, 0x227F, 0xC1FC, 0x76C6}, /* CELL 3 COEFFS */
+		{0x235E, 0xC000, 0x235E, 0xC0A7, 0x778A}, /* CELL 4 COEFFS */
+		{0x0ECB, 0xEA0B, 0x0ECB, 0xC027, 0x77DD}, /* CELL 5 COEFFS */
+		{0x0000, 0x0B68, 0x0B68, 0x0000, 0xC89A}, /* CELL 6 COEFFS */
 	}, {
-		{0x1655, 0xD64E, 0x1658, 0xCBEF, 0x70FE}, 
+		{0x1655, 0xD64E, 0x1658, 0xCBEF, 0x70FE}, /*25M*/
 		{0x225E, 0xC000, 0x2256, 0xC589, 0x7489},
 		{0x2293, 0xC000, 0x2295, 0xC209, 0x767E},
 		{0x2377, 0xC000, 0x23AA, 0xC0AB, 0x7746},
@@ -1001,7 +1004,7 @@ static u16 CellsCoeffs_6MHz_367cofdm[3][6][5] = {
 		{0x0000, 0x0888, 0x0E9C, 0x0000, 0x3757}
 
 	}, {
-		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, 
+		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000}, /* 30M */
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
 		{0x0000, 0x0000, 0x0000, 0x0000, 0x0000},
@@ -1012,7 +1015,7 @@ static u16 CellsCoeffs_6MHz_367cofdm[3][6][5] = {
 
 static u32 stv0367ter_get_mclk(struct stv0367_state *state, u32 ExtClk_Hz)
 {
-	u32 mclk_Hz = 0; 
+	u32 mclk_Hz = 0; /* master clock frequency (Hz) */
 	u32 m, n, p;
 
 	dprintk("%s:\n", __func__);
@@ -1052,11 +1055,11 @@ static int stv0367ter_filt_coeff_init(struct stv0367_state *state,
 	freq = stv0367ter_get_mclk(state, DemodXtal);
 
 	if (freq == 53125000)
-		k = 1; 
+		k = 1; /* equivalent to Xtal 25M on 362*/
 	else if (freq == 54000000)
-		k = 0; 
+		k = 0; /* equivalent to Xtal 27M on 362*/
 	else if (freq == 52500000)
-		k = 2; 
+		k = 2; /* equivalent to Xtal 30M on 362*/
 	else
 		return 0;
 
@@ -1083,22 +1086,22 @@ static void stv0367ter_agc_iir_lock_detect_set(struct stv0367_state *state)
 
 	stv0367_writebits(state, F367TER_LOCK_DETECT_LSB, 0x00);
 
-	
+	/* Lock detect 1 */
 	stv0367_writebits(state, F367TER_LOCK_DETECT_CHOICE, 0x00);
 	stv0367_writebits(state, F367TER_LOCK_DETECT_MSB, 0x06);
 	stv0367_writebits(state, F367TER_AUT_AGC_TARGET_LSB, 0x04);
 
-	
+	/* Lock detect 2 */
 	stv0367_writebits(state, F367TER_LOCK_DETECT_CHOICE, 0x01);
 	stv0367_writebits(state, F367TER_LOCK_DETECT_MSB, 0x06);
 	stv0367_writebits(state, F367TER_AUT_AGC_TARGET_LSB, 0x04);
 
-	
+	/* Lock detect 3 */
 	stv0367_writebits(state, F367TER_LOCK_DETECT_CHOICE, 0x02);
 	stv0367_writebits(state, F367TER_LOCK_DETECT_MSB, 0x01);
 	stv0367_writebits(state, F367TER_AUT_AGC_TARGET_LSB, 0x00);
 
-	
+	/* Lock detect 4 */
 	stv0367_writebits(state, F367TER_LOCK_DETECT_CHOICE, 0x03);
 	stv0367_writebits(state, F367TER_LOCK_DETECT_MSB, 0x01);
 	stv0367_writebits(state, F367TER_AUT_AGC_TARGET_LSB, 0x00);
@@ -1179,7 +1182,7 @@ static int stv0367ter_duration(s32 mode, int tempo1, int tempo2, int tempo3)
 	default:
 		break;
 	}
-	
+	/*	msleep(local_tempo);  */
 	return local_tempo;
 }
 
@@ -1222,20 +1225,20 @@ stv0367_ter_signal_type stv0367ter_check_cpamp(struct stv0367_state *state,
 	dprintk("%s:\n", __func__);
 
 	switch (FFTmode) {
-	case 0: 
+	case 0: /*2k mode*/
 		CPAMPMin = 20;
 		wd = 10;
 		break;
-	case 1: 
+	case 1: /*8k mode*/
 		CPAMPMin = 80;
 		wd = 55;
 		break;
-	case 2: 
+	case 2: /*4k mode*/
 		CPAMPMin = 40;
 		wd = 30;
 		break;
 	default:
-		CPAMPMin = 0xffff;  
+		CPAMPMin = 0xffff;  /*drives to NOCPAMP	*/
 		break;
 	}
 
@@ -1246,7 +1249,7 @@ stv0367_ter_signal_type stv0367ter_check_cpamp(struct stv0367_state *state,
 		usleep_range(1000, 2000);
 		wd -= 1;
 		CPAMPvalue = stv0367_readbits(state, F367TER_PPM_CPAMP_DIRECT);
-		
+		/*dprintk("CPAMPvalue= %d at wd=%d\n",CPAMPvalue,wd); */
 	}
 	dprintk("******last CPAMPvalue= %d at wd=%d\n", CPAMPvalue, wd);
 	if (CPAMPvalue < CPAMPMin) {
@@ -1282,7 +1285,7 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 		if (state->config->if_iq_mode != 0)
 			stv0367_writebits(state, F367TER_COM_N, 0x07);
 
-		stv0367_writebits(state, F367TER_GUARD, 3);
+		stv0367_writebits(state, F367TER_GUARD, 3);/* suggest 2k 1/4 */
 		stv0367_writebits(state, F367TER_MODE, 0);
 		stv0367_writebits(state, F367TER_SYR_TR_DIS, 0);
 		usleep_range(5000, 10000);
@@ -1292,7 +1295,9 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 
 		if (stv0367ter_check_syr(state) == FE_TER_NOSYMBOL)
 			return FE_TER_NOSYMBOL;
-		else { 
+		else { /*
+			if chip locked on wrong mode first try,
+			it must lock correctly second try */
 			mode = stv0367_readbits(state, F367TER_SYR_MODE);
 			if (stv0367ter_check_cpamp(state, mode) ==
 							FE_TER_NOCPAMP) {
@@ -1321,8 +1326,10 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 	if ((mode != 0) && (mode != 1) && (mode != 2))
 		return FE_TER_SWNOK;
 
-	
+	/*guard=stv0367_readbits(state,F367TER_SYR_GUARD); */
 
+	/*suppress EPQ auto for SYR_GARD 1/16 or 1/32
+	and set channel predictor in automatic */
 #if 0
 	switch (guard) {
 
@@ -1342,7 +1349,7 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 	}
 #endif
 
-	
+	/*reset fec an reedsolo FOR 367 only*/
 	stv0367_writebits(state, F367TER_RST_SFEC, 1);
 	stv0367_writebits(state, F367TER_RST_REEDSOLO, 1);
 	usleep_range(1000, 2000);
@@ -1352,19 +1359,19 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 	u_var1 = stv0367_readbits(state, F367TER_LK);
 	u_var2 = stv0367_readbits(state, F367TER_PRF);
 	u_var3 = stv0367_readbits(state, F367TER_TPS_LOCK);
-	
+	/*	u_var4=stv0367_readbits(state,F367TER_TSFIFO_LINEOK); */
 
 	wd = stv0367ter_duration(mode, 125, 500, 250);
 	tempo = stv0367ter_duration(mode, 4, 16, 8);
 
-	
+	/*while ( ((!u_var1)||(!u_var2)||(!u_var3)||(!u_var4))  && (wd>=0)) */
 	while (((!u_var1) || (!u_var2) || (!u_var3)) && (wd >= 0)) {
 		usleep_range(1000 * tempo, 1000 * (tempo + 1));
 		wd -= tempo;
 		u_var1 = stv0367_readbits(state, F367TER_LK);
 		u_var2 = stv0367_readbits(state, F367TER_PRF);
 		u_var3 = stv0367_readbits(state, F367TER_TPS_LOCK);
-		
+		/*u_var4=stv0367_readbits(state, F367TER_TSFIFO_LINEOK); */
 	}
 
 	if (!u_var1)
@@ -1383,13 +1390,13 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 	case 0:
 	case 1:
 		stv0367_writebits(state, F367TER_AUTO_LE_EN, 0);
-		
+		/*stv0367_writereg(state,R367TER_CHC_CTL, 0x1);*/
 		stv0367_writebits(state, F367TER_SYR_FILTER, 0);
 		break;
 	case 2:
 	case 3:
 		stv0367_writebits(state, F367TER_AUTO_LE_EN, 1);
-		
+		/*stv0367_writereg(state,R367TER_CHC_CTL, 0x11);*/
 		stv0367_writebits(state, F367TER_SYR_FILTER, 1);
 		break;
 
@@ -1397,7 +1404,7 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 		return FE_TER_SWNOK;
 	}
 
-	
+	/* apply Sfec workaround if 8K 64QAM CR!=1/2*/
 	if ((stv0367_readbits(state, F367TER_TPS_CONST) == 2) &&
 			(mode == 1) &&
 			(stv0367_readbits(state, F367TER_TPS_HPCODE) != 0)) {
@@ -1419,7 +1426,17 @@ stv0367_ter_signal_type stv0367ter_lock_algo(struct stv0367_state *state)
 	if (!u_var4)
 		return FE_TER_NOLOCK;
 
-	
+	/* for 367 leave COM_N at 0x7 for IQ_mode*/
+	/*if(ter_state->if_iq_mode!=FE_TER_NORMAL_IF_TUNER) {
+		tempo=0;
+		while ((stv0367_readbits(state,F367TER_COM_USEGAINTRK)!=1) &&
+		(stv0367_readbits(state,F367TER_COM_AGCLOCK)!=1)&&(tempo<100)) {
+			ChipWaitOrAbort(state,1);
+			tempo+=1;
+		}
+
+		stv0367_writebits(state,F367TER_COM_N,0x17);
+	} */
 
 	stv0367_writebits(state, F367TER_SYR_TR_DIS, 1);
 
@@ -1441,7 +1458,7 @@ static void stv0367ter_set_ts_mode(struct stv0367_state *state,
 	stv0367_writebits(state, F367TER_TS_DIS, 0);
 	switch (PathTS) {
 	default:
-		
+		/*for removing warning :default we can assume in parallel mode*/
 	case STV0367_PARALLEL_PUNCT_CLOCK:
 		stv0367_writebits(state, F367TER_TSFIFO_SERIAL, 0);
 		stv0367_writebits(state, F367TER_TSFIFO_DVBCI, 0);
@@ -1469,7 +1486,7 @@ static void stv0367ter_set_clk_pol(struct stv0367_state *state,
 	case STV0367_FALLINGEDGE_CLOCK:
 		stv0367_writebits(state, F367TER_TS_BYTE_CLK_INV, 0);
 		break;
-		
+		/*case FE_TER_CLOCK_POLARITY_DEFAULT:*/
 	default:
 		stv0367_writebits(state, F367TER_TS_BYTE_CLK_INV, 0);
 		break;
@@ -1526,7 +1543,7 @@ int stv0367ter_init(struct dvb_frontend *fe)
 					def0367ter[i].value);
 
 	switch (state->config->xtal) {
-		
+		/*set internal freq to 53.125MHz */
 	case 25000000:
 		stv0367_writereg(state, R367TER_PLLMDIV, 0xa);
 		stv0367_writereg(state, R367TER_PLLNDIV, 0x55);
@@ -1549,7 +1566,7 @@ int stv0367ter_init(struct dvb_frontend *fe)
 	stv0367_writereg(state, R367TER_I2CRPT, 0xa0);
 	stv0367_writereg(state, R367TER_ANACTRL, 0x00);
 
-	
+	/*Set TS1 and TS2 to serial or parallel mode */
 	stv0367ter_set_ts_mode(state, state->config->ts_mode);
 	stv0367ter_set_clk_pol(state, state->config->clk_pol);
 
@@ -1567,7 +1584,7 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 	struct stv0367ter_state *ter_state = state->ter_state;
 	int offset = 0, tempo = 0;
 	u8 u_var;
-	u8  counter, tps_rcvd[2];
+	u8 /*constell,*/ counter, tps_rcvd[2];
 	s8 step;
 	s32 timing_offset = 0;
 	u32 trl_nomrate = 0, InternalFreq = 0, temp = 0;
@@ -1579,19 +1596,19 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 			+ stv0367_readbits(state, F367TER_FORCE) * 2;
 	ter_state->if_iq_mode = state->config->if_iq_mode;
 	switch (state->config->if_iq_mode) {
-	case FE_TER_NORMAL_IF_TUNER:  
+	case FE_TER_NORMAL_IF_TUNER:  /* Normal IF mode */
 		dprintk("ALGO: FE_TER_NORMAL_IF_TUNER selected\n");
 		stv0367_writebits(state, F367TER_TUNER_BB, 0);
 		stv0367_writebits(state, F367TER_LONGPATH_IF, 0);
 		stv0367_writebits(state, F367TER_DEMUX_SWAP, 0);
 		break;
-	case FE_TER_LONGPATH_IF_TUNER:  
+	case FE_TER_LONGPATH_IF_TUNER:  /* Long IF mode */
 		dprintk("ALGO: FE_TER_LONGPATH_IF_TUNER selected\n");
 		stv0367_writebits(state, F367TER_TUNER_BB, 0);
 		stv0367_writebits(state, F367TER_LONGPATH_IF, 1);
 		stv0367_writebits(state, F367TER_DEMUX_SWAP, 1);
 		break;
-	case FE_TER_IQ_TUNER:  
+	case FE_TER_IQ_TUNER:  /* IQ mode */
 		dprintk("ALGO: FE_TER_IQ_TUNER selected\n");
 		stv0367_writebits(state, F367TER_TUNER_BB, 1);
 		stv0367_writebits(state, F367TER_PPM_INVSEL, 0);
@@ -1631,21 +1648,21 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 				(ter_state->pBW != ter_state->bw)) {
 		stv0367ter_agc_iir_lock_detect_set(state);
 
-		
-		
+		/*set fine agc target to 180 for LPIF or IQ mode*/
+		/* set Q_AGCTarget */
 		stv0367_writebits(state, F367TER_SEL_IQNTAR, 1);
 		stv0367_writebits(state, F367TER_AUT_AGC_TARGET_MSB, 0xB);
-		
+		/*stv0367_writebits(state,AUT_AGC_TARGET_LSB,0x04); */
 
-		
+		/* set Q_AGCTarget */
 		stv0367_writebits(state, F367TER_SEL_IQNTAR, 0);
 		stv0367_writebits(state, F367TER_AUT_AGC_TARGET_MSB, 0xB);
-		
+		/*stv0367_writebits(state,AUT_AGC_TARGET_LSB,0x04); */
 
 		if (!stv0367_iir_filt_init(state, ter_state->bw,
 						state->config->xtal))
 			return -EINVAL;
-		
+		/*set IIR filter once for 6,7 or 8MHz BW*/
 		ter_state->pBW = ter_state->bw;
 
 		stv0367ter_agc_iir_rst(state);
@@ -1684,22 +1701,22 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 	stv0367_writebits(state, F367TER_INC_DEROT_LO, temp % 256);
 
 	ter_state->echo_pos = 0;
-	ter_state->ucblocks = 0; 
-	ter_state->pBER = 0; 
+	ter_state->ucblocks = 0; /* liplianin */
+	ter_state->pBER = 0; /* liplianin */
 	stv0367_writebits(state, F367TER_LONG_ECHO, ter_state->echo_pos);
 
 	if (stv0367ter_lock_algo(state) != FE_TER_LOCKOK)
 		return 0;
 
 	ter_state->state = FE_TER_LOCKOK;
-	
+	/* update results */
 	tps_rcvd[0] = stv0367_readreg(state, R367TER_TPS_RCVD2);
 	tps_rcvd[1] = stv0367_readreg(state, R367TER_TPS_RCVD3);
 
 	ter_state->mode = stv0367_readbits(state, F367TER_SYR_MODE);
 	ter_state->guard = stv0367_readbits(state, F367TER_SYR_GUARD);
 
-	ter_state->first_lock = 1; 
+	ter_state->first_lock = 1; /* we know sense now :) */
 
 	ter_state->agc_val =
 			(stv0367_readbits(state, F367TER_AGC1_VAL_LO) << 16) +
@@ -1707,7 +1724,7 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 			stv0367_readbits(state, F367TER_AGC2_VAL_LO) +
 			(stv0367_readbits(state, F367TER_AGC2_VAL_HI) << 8);
 
-	
+	/* Carrier offset calculation */
 	stv0367_writebits(state, F367TER_FREEZE, 1);
 	offset = (stv0367_readbits(state, F367TER_CRL_FOFFSET_VHI) << 16) ;
 	offset += (stv0367_readbits(state, F367TER_CRL_FOFFSET_HI) << 8);
@@ -1719,11 +1736,11 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 	offset = offset * 2 / 16384;
 
 	if (ter_state->mode == FE_TER_MODE_2K)
-		offset = (offset * 4464) / 1000;
+		offset = (offset * 4464) / 1000;/*** 1 FFT BIN=4.464khz***/
 	else if (ter_state->mode == FE_TER_MODE_4K)
-		offset = (offset * 223) / 100;
+		offset = (offset * 223) / 100;/*** 1 FFT BIN=2.23khz***/
 	else  if (ter_state->mode == FE_TER_MODE_8K)
-		offset = (offset * 111) / 100;
+		offset = (offset * 111) / 100;/*** 1 FFT BIN=1.1khz***/
 
 	if (stv0367_readbits(state, F367TER_PPM_INVSEL) == 1) {
 		if ((stv0367_readbits(state, F367TER_INV_SPECTR) ==
@@ -1739,10 +1756,10 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 
 	ter_state->frequency += offset;
 
-	tempo = 10;  
+	tempo = 10;  /* exit even if timing_offset stays null */
 	while ((timing_offset == 0) && (tempo > 0)) {
-		usleep_range(10000, 20000);	
-		
+		usleep_range(10000, 20000);	/*was 20ms  */
+		/* fine tuning of timing offset if required */
 		timing_offset = stv0367_readbits(state, F367TER_TRL_TOFFSET_LO)
 				+ 256 * stv0367_readbits(state,
 							F367TER_TRL_TOFFSET_HI);
@@ -1776,6 +1793,8 @@ static int stv0367ter_algo(struct dvb_frontend *fe)
 	}
 
 	usleep_range(5000, 6000);
+	/* unlocks could happen in case of trl centring big step,
+	then a core off/on restarts demod */
 	u_var = stv0367_readbits(state, F367TER_LK);
 
 	if (!u_var) {
@@ -1793,7 +1812,7 @@ static int stv0367ter_set_frontend(struct dvb_frontend *fe)
 	struct stv0367_state *state = fe->demodulator_priv;
 	struct stv0367ter_state *ter_state = state->ter_state;
 
-	
+	/*u8 trials[2]; */
 	s8 num_trials, index;
 	u8 SenseTrials[] = { INVERSION_ON, INVERSION_OFF };
 
@@ -1813,6 +1832,9 @@ static int stv0367ter_set_frontend(struct dvb_frontend *fe)
 	case TRANSMISSION_MODE_2K:
 		ter_state->mode = FE_TER_MODE_2K;
 		break;
+/*	case TRANSMISSION_MODE_4K:
+		pLook.mode = FE_TER_MODE_4K;
+		break;*/
 	case TRANSMISSION_MODE_8K:
 		ter_state->mode = FE_TER_MODE_8K;
 		break;
@@ -1871,7 +1893,7 @@ static int stv0367ter_set_frontend(struct dvb_frontend *fe)
 		if ((ter_state->state == FE_TER_LOCKOK) &&
 				(p->inversion == INVERSION_AUTO) &&
 								(index == 1)) {
-			
+			/* invert spectrum sense */
 			SenseTrials[index] = SenseTrials[0];
 			SenseTrials[(index + 1) % 2] = (SenseTrials[1] + 1) % 2;
 		}
@@ -1888,7 +1910,7 @@ static int stv0367ter_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 	struct stv0367ter_state *ter_state = state->ter_state;
 	u32 errs = 0;
 
-	
+	/*wait for counting completion*/
 	if (stv0367_readbits(state, F367TER_SFERRC_OLDVALUE) == 0) {
 		errs =
 			((u32)stv0367_readbits(state, F367TER_ERR_CNT1)
@@ -1912,7 +1934,7 @@ static int stv0367ter_get_frontend(struct dvb_frontend *fe)
 
 	int error = 0;
 	enum stv0367_ter_mode mode;
-	int constell = 0, Data = 0;
+	int constell = 0,/* snr = 0,*/ Data = 0;
 
 	p->frequency = stv0367_get_tuner_freq(fe);
 	if ((int)p->frequency < 0)
@@ -1928,7 +1950,7 @@ static int stv0367ter_get_frontend(struct dvb_frontend *fe)
 
 	p->inversion = stv0367_readbits(state, F367TER_INV_SPECTR);
 
-	
+	/* Get the Hierarchical mode */
 	Data = stv0367_readbits(state, F367TER_TPS_HIERMODE);
 
 	switch (Data) {
@@ -1946,10 +1968,10 @@ static int stv0367ter_get_frontend(struct dvb_frontend *fe)
 		break;
 	default:
 		p->hierarchy = HIERARCHY_AUTO;
-		break; 
+		break; /* error */
 	}
 
-	
+	/* Get the FEC Rate */
 	if (ter_state->hierarchy == FE_TER_HIER_LOW_PRIO)
 		Data = stv0367_readbits(state, F367TER_TPS_LPCODE);
 	else
@@ -1973,7 +1995,7 @@ static int stv0367ter_get_frontend(struct dvb_frontend *fe)
 		break;
 	default:
 		p->code_rate_HP = FEC_AUTO;
-		break; 
+		break; /* error */
 	}
 
 	mode = stv0367_readbits(state, F367TER_SYR_MODE);
@@ -1982,6 +2004,9 @@ static int stv0367ter_get_frontend(struct dvb_frontend *fe)
 	case FE_TER_MODE_2K:
 		p->transmission_mode = TRANSMISSION_MODE_2K;
 		break;
+/*	case FE_TER_MODE_4K:
+		p->transmission_mode = TRANSMISSION_MODE_4K;
+		break;*/
 	case FE_TER_MODE_8K:
 		p->transmission_mode = TRANSMISSION_MODE_8K;
 		break;
@@ -2003,15 +2028,15 @@ static int stv0367ter_read_snr(struct dvb_frontend *fe, u16 *snr)
 
 	while (cpt < 10) {
 		usleep_range(2000, 3000);
-		if (cut == 0x50) 
+		if (cut == 0x50) /*cut 1.0 cut 1.1*/
 			snru32 += stv0367_readbits(state, F367TER_CHCSNR) / 4;
-		else 
+		else /*cu2.0*/
 			snru32 += 125 * stv0367_readbits(state, F367TER_CHCSNR);
 
 		cpt++;
 	}
 
-	snru32 /= 10;
+	snru32 /= 10;/*average on 10 values*/
 
 	*snr = snru32 / 1000;
 
@@ -2072,7 +2097,7 @@ static int stv0367ter_read_ber(struct dvb_frontend *fe, u32 *ber)
 	int abc = 0, def = 0;
 
 
-	
+	/*wait for counting completion*/
 	if (stv0367_readbits(state, F367TER_SFERRC_OLDVALUE) == 0)
 		Errors = ((u32)stv0367_readbits(state, F367TER_SFEC_ERR_CNT)
 			* (1 << 16))
@@ -2080,7 +2105,7 @@ static int stv0367ter_read_ber(struct dvb_frontend *fe, u32 *ber)
 			* (1 << 8))
 			+ ((u32)stv0367_readbits(state,
 						F367TER_SFEC_ERR_CNT_LO));
-	
+	/*measurement not completed, load previous value*/
 	else {
 		tber = ter_state->pBER;
 		return 0;
@@ -2110,29 +2135,29 @@ static int stv0367ter_read_ber(struct dvb_frontend *fe, u32 *ber)
 		} else if (Errors <= 429496) {
 			temporary = (Errors * 10000) / (8 * (1 << 14));
 			temporary = temporary * 100000;
-		} else { 
+		} else { /*if (Errors<4294967) 2^22 max error*/
 			temporary = (Errors * 1000) / (8 * (1 << 14));
-			temporary = temporary * 100000;	
+			temporary = temporary * 100000;	/* still to *10 */
 		}
 
-		
+		/* Byte error*/
 		if (def == 2)
-			
+			/*tber=Errors/(8*(1 <<14));*/
 			tber = temporary;
 		else if (def == 3)
-			
+			/*tber=Errors/(8*(1 <<16));*/
 			tber = temporary / 4;
 		else if (def == 4)
-			
+			/*tber=Errors/(8*(1 <<18));*/
 			tber = temporary / 16;
 		else if (def == 5)
-			
+			/*tber=Errors/(8*(1 <<20));*/
 			tber = temporary / 64;
 		else if (def == 6)
-			
+			/*tber=Errors/(8*(1 <<22));*/
 			tber = temporary / 256;
 		else
-			
+			/* should not pass here*/
 			tber = 0;
 
 		if ((Errors < 4294967) && (Errors > 429496))
@@ -2140,7 +2165,7 @@ static int stv0367ter_read_ber(struct dvb_frontend *fe, u32 *ber)
 
 	}
 
-	
+	/* save actual value */
 	ter_state->pBER = tber;
 
 	(*ber) = tber;
@@ -2185,32 +2210,32 @@ static u32 stv0367ter_get_per(struct stv0367_state *state)
 		} else if (Errors <= 42949) {
 			temporary = (Errors * 100000) / (8 * (1 << 8));
 			temporary = temporary * 10000;
-		} else { 
+		} else { /*if(Errors<=429496)  2^16 errors max*/
 			temporary = (Errors * 10000) / (8 * (1 << 8));
 			temporary = temporary * 100000;
 		}
 
-		
+		/* pkt error*/
 		if (def == 2)
-			
+			/*Per=Errors/(1 << 8);*/
 			Per = temporary;
 		else if (def == 3)
-			
+			/*Per=Errors/(1 << 10);*/
 			Per = temporary / 4;
 		else if (def == 4)
-			
+			/*Per=Errors/(1 << 12);*/
 			Per = temporary / 16;
 		else if (def == 5)
-			
+			/*Per=Errors/(1 << 14);*/
 			Per = temporary / 64;
 		else if (def == 6)
-			
+			/*Per=Errors/(1 << 16);*/
 			Per = temporary / 256;
 		else
 			Per = 0;
 
 	}
-	
+	/* save actual value */
 	ter_state->pPER = Per;
 
 	return Per;
@@ -2261,7 +2286,8 @@ static struct dvb_frontend_ops stv0367ter_ops = {
 	.get_frontend = stv0367ter_get_frontend,
 	.get_tune_settings = stv0367_get_tune_settings,
 	.read_status = stv0367ter_read_status,
-	.read_ber = stv0367ter_read_ber,
+	.read_ber = stv0367ter_read_ber,/* too slow */
+/*	.read_signal_strength = stv0367_read_signal_strength,*/
 	.read_snr = stv0367ter_read_snr,
 	.read_ucblocks = stv0367ter_read_ucblocks,
 };
@@ -2272,7 +2298,7 @@ struct dvb_frontend *stv0367ter_attach(const struct stv0367_config *config,
 	struct stv0367_state *state = NULL;
 	struct stv0367ter_state *ter_state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct stv0367_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
@@ -2280,7 +2306,7 @@ struct dvb_frontend *stv0367ter_attach(const struct stv0367_config *config,
 	if (ter_state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->i2c = i2c;
 	state->config = config;
 	state->ter_state = ter_state;
@@ -2290,7 +2316,7 @@ struct dvb_frontend *stv0367ter_attach(const struct stv0367_config *config,
 
 	dprintk("%s: chip_id = 0x%x\n", __func__, state->chip_id);
 
-	
+	/* check if the demod is there */
 	if ((state->chip_id != 0x50) && (state->chip_id != 0x60))
 		goto error;
 
@@ -2317,7 +2343,7 @@ static int stv0367cab_gate_ctrl(struct dvb_frontend *fe, int enable)
 static u32 stv0367cab_get_mclk(struct dvb_frontend *fe, u32 ExtClk_Hz)
 {
 	struct stv0367_state *state = fe->demodulator_priv;
-	u32 mclk_Hz = 0;
+	u32 mclk_Hz = 0;/* master clock frequency (Hz) */
 	u32 M, N, P;
 
 
@@ -2359,10 +2385,10 @@ enum stv0367cab_mod stv0367cab_SetQamSize(struct stv0367_state *state,
 					u32 SymbolRate,
 					enum stv0367cab_mod QAMSize)
 {
-	
+	/* Set QAM size */
 	stv0367_writebits(state, F367CAB_QAM_MODE, QAMSize);
 
-	
+	/* Set Registers settings specific to the QAM size */
 	switch (QAMSize) {
 	case FE_CAB_MOD_QAM4:
 		stv0367_writereg(state, R367CAB_IQDEM_ADJ_AGC_REF, 0x00);
@@ -2464,7 +2490,7 @@ static u32 stv0367cab_set_derot_freq(struct stv0367_state *state,
 
 	if (adc_khz != 0) {
 		if (derot_hz < 1000000)
-			derot_hz = adc_hz / 4; 
+			derot_hz = adc_hz / 4; /* ZIF operation */
 		if (derot_hz > adc_hz)
 			derot_hz = derot_hz - adc_hz;
 		sampled_if = (u32)derot_hz / 1000;
@@ -2511,7 +2537,7 @@ static u32 stv0367cab_set_srate(struct stv0367_state *state, u32 adc_hz,
 
 	dprintk("%s:\n", __func__);
 
-	
+	/* Set Correction factor of SRC gain */
 	switch (QAMSize) {
 	case FE_CAB_MOD_QAM4:
 		QamSizeCorr = 1110;
@@ -2541,79 +2567,79 @@ static u32 stv0367cab_set_srate(struct stv0367_state *state, u32 adc_hz,
 		break;
 	}
 
-	
+	/* Transfer ratio calculation */
 	if (adc_hz != 0) {
 		u32_tmp = 256 * SymbolRate;
 		u32_tmp = u32_tmp / adc_hz;
 	}
 	stv0367_writereg(state, R367CAB_EQU_CRL_TFR, (u8)u32_tmp);
 
-	
-	adp_khz = (mclk_hz >> 1) / 1000;
+	/* Symbol rate and SRC gain calculation */
+	adp_khz = (mclk_hz >> 1) / 1000;/* TRL works at half the system clock */
 	if (adp_khz != 0) {
 		u32_tmp = SymbolRate;
 		u32_tmp1 = SymbolRate;
 
-		if (u32_tmp < 2097152) { 
-			
-			u32_tmp *= 2048; 
+		if (u32_tmp < 2097152) { /* 2097152 = 2^21 */
+			/* Symbol rate calculation */
+			u32_tmp *= 2048; /* 2048 = 2^11 */
 			u32_tmp = u32_tmp / adp_khz;
-			u32_tmp = u32_tmp * 16384; 
-			u32_tmp /= 125 ; 
-			u32_tmp = u32_tmp * 8; 
+			u32_tmp = u32_tmp * 16384; /* 16384 = 2^14 */
+			u32_tmp /= 125 ; /* 125 = 1000/2^3 */
+			u32_tmp = u32_tmp * 8; /* 8 = 2^3 */
 
-			
-			u32_tmp1 *= 2048; 
-			u32_tmp1 /= 439; 
-			u32_tmp1 *= 256; 
-			u32_tmp1 = u32_tmp1 / adp_khz; 
-			u32_tmp1 *= QamSizeCorr * 9; 
+			/* SRC Gain Calculation */
+			u32_tmp1 *= 2048; /* *2*2^10 */
+			u32_tmp1 /= 439; /* *2/878 */
+			u32_tmp1 *= 256; /* *2^8 */
+			u32_tmp1 = u32_tmp1 / adp_khz; /* /(AdpClk in kHz) */
+			u32_tmp1 *= QamSizeCorr * 9; /* *1000*corr factor */
 			u32_tmp1 = u32_tmp1 / 10000000;
 
-		} else if (u32_tmp < 4194304) { 
-			
-			u32_tmp *= 1024 ; 
+		} else if (u32_tmp < 4194304) { /* 4194304 = 2**22 */
+			/* Symbol rate calculation */
+			u32_tmp *= 1024 ; /* 1024 = 2**10 */
 			u32_tmp = u32_tmp / adp_khz;
-			u32_tmp = u32_tmp * 16384; 
-			u32_tmp /= 125 ; 
-			u32_tmp = u32_tmp * 16; 
+			u32_tmp = u32_tmp * 16384; /* 16384 = 2**14 */
+			u32_tmp /= 125 ; /* 125 = 1000/2**3 */
+			u32_tmp = u32_tmp * 16; /* 16 = 2**4 */
 
-			
-			u32_tmp1 *= 1024; 
-			u32_tmp1 /= 439; 
-			u32_tmp1 *= 256; 
-			u32_tmp1 = u32_tmp1 / adp_khz; 
-			u32_tmp1 *= QamSizeCorr * 9; 
+			/* SRC Gain Calculation */
+			u32_tmp1 *= 1024; /* *2*2^9 */
+			u32_tmp1 /= 439; /* *2/878 */
+			u32_tmp1 *= 256; /* *2^8 */
+			u32_tmp1 = u32_tmp1 / adp_khz; /* /(AdpClk in kHz)*/
+			u32_tmp1 *= QamSizeCorr * 9; /* *1000*corr factor */
 			u32_tmp1 = u32_tmp1 / 5000000;
-		} else if (u32_tmp < 8388607) { 
-			
-			u32_tmp *= 512 ; 
+		} else if (u32_tmp < 8388607) { /* 8388607 = 2**23 */
+			/* Symbol rate calculation */
+			u32_tmp *= 512 ; /* 512 = 2**9 */
 			u32_tmp = u32_tmp / adp_khz;
-			u32_tmp = u32_tmp * 16384; 
-			u32_tmp /= 125 ; 
-			u32_tmp = u32_tmp * 32; 
+			u32_tmp = u32_tmp * 16384; /* 16384 = 2**14 */
+			u32_tmp /= 125 ; /* 125 = 1000/2**3 */
+			u32_tmp = u32_tmp * 32; /* 32 = 2**5 */
 
-			
-			u32_tmp1 *= 512; 
-			u32_tmp1 /= 439; 
-			u32_tmp1 *= 256; 
-			u32_tmp1 = u32_tmp1 / adp_khz; 
-			u32_tmp1 *= QamSizeCorr * 9; 
+			/* SRC Gain Calculation */
+			u32_tmp1 *= 512; /* *2*2^8 */
+			u32_tmp1 /= 439; /* *2/878 */
+			u32_tmp1 *= 256; /* *2^8 */
+			u32_tmp1 = u32_tmp1 / adp_khz; /* /(AdpClk in kHz) */
+			u32_tmp1 *= QamSizeCorr * 9; /* *1000*corr factor */
 			u32_tmp1 = u32_tmp1 / 2500000;
 		} else {
-			
-			u32_tmp *= 256 ; 
+			/* Symbol rate calculation */
+			u32_tmp *= 256 ; /* 256 = 2**8 */
 			u32_tmp = u32_tmp / adp_khz;
-			u32_tmp = u32_tmp * 16384; 
-			u32_tmp /= 125 ; 
-			u32_tmp = u32_tmp * 64; 
+			u32_tmp = u32_tmp * 16384; /* 16384 = 2**13 */
+			u32_tmp /= 125 ; /* 125 = 1000/2**3 */
+			u32_tmp = u32_tmp * 64; /* 64 = 2**6 */
 
-			
-			u32_tmp1 *= 256; 
-			u32_tmp1 /= 439; 
-			u32_tmp1 *= 256; 
-			u32_tmp1 = u32_tmp1 / adp_khz; 
-			u32_tmp1 *= QamSizeCorr * 9; 
+			/* SRC Gain Calculation */
+			u32_tmp1 *= 256; /* 2*2^7 */
+			u32_tmp1 /= 439; /* *2/878 */
+			u32_tmp1 *= 256; /* *2^8 */
+			u32_tmp1 = u32_tmp1 / adp_khz; /* /(AdpClk in kHz) */
+			u32_tmp1 *= QamSizeCorr * 9; /* *1000*corr factor */
 			u32_tmp1 = u32_tmp1 / 1250000;
 		}
 	}
@@ -2623,9 +2649,13 @@ static u32 stv0367cab_set_srate(struct stv0367_state *state, u32 adc_hz,
 	if (stv0367_readbits(state, F367CAB_ADJ_EN)) {
 		stv0367cab_SetIirAdjacentcoefficient(state, mclk_hz,
 								SymbolRate);
+		/* AllPass filter must be enabled
+		when the adjacents filter is used */
 		stv0367_writebits(state, F367CAB_ALLPASSFILT_EN, 1);
 		stv0367cab_SetAllPasscoefficient(state, mclk_hz, SymbolRate);
 	} else
+		/* AllPass filter must be disabled
+		when the adjacents filter is not used */
 #endif
 	stv0367_writebits(state, F367CAB_ALLPASSFILT_EN, 0);
 
@@ -2650,36 +2680,36 @@ static u32 stv0367cab_GetSymbolRate(struct stv0367_state *state, u32 mclk_hz)
 		(stv0367_readreg(state, R367CAB_SRC_NCO_HL) << 16) +
 		(stv0367_readreg(state, R367CAB_SRC_NCO_HH) << 24);
 
-	adp_khz = (mclk_hz >> 1) / 1000;
+	adp_khz = (mclk_hz >> 1) / 1000;/* TRL works at half the system clock */
 
-	if (regsym < 134217728) {		
-		regsym = regsym * 32;		
-		regsym = regsym / 32768;	
-		regsym = adp_khz * regsym;	
-		regsym = regsym / 128;		
-		regsym *= 125 ;			
-		regsym /= 2048 ;		
-	} else if (regsym < 268435456) {	
-		regsym = regsym * 16;		
-		regsym = regsym / 32768;	
-		regsym = adp_khz * regsym;	
-		regsym = regsym / 128;		
-		regsym *= 125 ;			
-		regsym /= 1024 ;		
-	} else if (regsym < 536870912) {	
-		regsym = regsym * 8;		
-		regsym = regsym / 32768;	
-		regsym = adp_khz * regsym;	
-		regsym = regsym / 128;		
-		regsym *= 125 ;			
-		regsym /= 512 ;			
+	if (regsym < 134217728) {		/* 134217728L = 2**27*/
+		regsym = regsym * 32;		/* 32 = 2**5 */
+		regsym = regsym / 32768;	/* 32768L = 2**15 */
+		regsym = adp_khz * regsym;	/* AdpClk in kHz */
+		regsym = regsym / 128;		/* 128 = 2**7 */
+		regsym *= 125 ;			/* 125 = 1000/2**3 */
+		regsym /= 2048 ;		/* 2048 = 2**11	*/
+	} else if (regsym < 268435456) {	/* 268435456L = 2**28 */
+		regsym = regsym * 16;		/* 16 = 2**4 */
+		regsym = regsym / 32768;	/* 32768L = 2**15 */
+		regsym = adp_khz * regsym;	/* AdpClk in kHz */
+		regsym = regsym / 128;		/* 128 = 2**7 */
+		regsym *= 125 ;			/* 125 = 1000/2**3*/
+		regsym /= 1024 ;		/* 256 = 2**10*/
+	} else if (regsym < 536870912) {	/* 536870912L = 2**29*/
+		regsym = regsym * 8;		/* 8 = 2**3 */
+		regsym = regsym / 32768;	/* 32768L = 2**15 */
+		regsym = adp_khz * regsym;	/* AdpClk in kHz */
+		regsym = regsym / 128;		/* 128 = 2**7 */
+		regsym *= 125 ;			/* 125 = 1000/2**3 */
+		regsym /= 512 ;			/* 128 = 2**9 */
 	} else {
-		regsym = regsym * 4;		
-		regsym = regsym / 32768;	
-		regsym = adp_khz * regsym;	
-		regsym = regsym / 128;		
-		regsym *= 125 ;			
-		regsym /= 256 ;			
+		regsym = regsym * 4;		/* 4 = 2**2 */
+		regsym = regsym / 32768;	/* 32768L = 2**15 */
+		regsym = adp_khz * regsym;	/* AdpClk in kHz */
+		regsym = regsym / 128;		/* 128 = 2**7 */
+		regsym *= 125 ;			/* 125 = 1000/2**3 */
+		regsym /= 256 ;			/* 64 = 2**8 */
 	}
 
 	return regsym;
@@ -2780,7 +2810,7 @@ int stv0367cab_init(struct dvb_frontend *fe)
 
 	stv0367_writebits(state, F367CAB_FIFO_BYPASS, 0x00);
 
-	stv0367_writereg(state, R367CAB_ANACTRL, 0x00);
+	stv0367_writereg(state, R367CAB_ANACTRL, 0x00);/*PLL enabled and used */
 
 	cab_state->mclk = stv0367cab_get_mclk(fe, state->config->xtal);
 	cab_state->adc_clk = stv0367cab_get_adc_freq(fe, state->config->xtal);
@@ -2801,11 +2831,20 @@ enum stv0367_cab_signal_type stv0367cab_algo(struct stv0367_state *state,
 
 	dprintk("%s:\n", __func__);
 
-	
-	
+	/* Timeouts calculation */
+	/* A max lock time of 25 ms is allowed for delayed AGC */
 	AGCTimeOut = 25;
-	
+	/* 100000 symbols needed by the TRL as a maximum value */
 	TRLTimeOut = 100000000 / p->symbol_rate;
+	/* CRLSymbols is the needed number of symbols to achieve a lock
+	   within [-4%, +4%] of the symbol rate.
+	   CRL timeout is calculated
+	   for a lock within [-search_range, +search_range].
+	   EQL timeout can be changed depending on
+	   the micro-reflections we want to handle.
+	   A characterization must be performed
+	   with these echoes to get new timeout values.
+	*/
 	switch (p->modulation) {
 	case QAM_16:
 		CRLSymbols = 150000;
@@ -2843,47 +2882,65 @@ enum stv0367_cab_signal_type stv0367cab_algo(struct stv0367_state *state,
 					(p->symbol_rate / 1000);
 
 	CRLTimeOut = (1000 * CRLTimeOut) / p->symbol_rate;
-	
+	/* Timeouts below 50ms are coerced */
 	if (CRLTimeOut < 50)
 		CRLTimeOut = 50;
+	/* A maximum of 100 TS packets is needed to get FEC lock even in case
+	the spectrum inversion needs to be changed.
+	   This is equal to 20 ms in case of the lowest symbol rate of 0.87Msps
+	*/
 	FECTimeOut = 20;
 	DemodTimeOut = AGCTimeOut + TRLTimeOut + CRLTimeOut + EQLTimeOut;
 
 	dprintk("%s: DemodTimeOut=%d\n", __func__, DemodTimeOut);
 
+	/* Reset the TRL to ensure nothing starts until the
+	   AGC is stable which ensures a better lock time
+	*/
 	stv0367_writereg(state, R367CAB_CTRL_1, 0x04);
+	/* Set AGC accumulation time to minimum and lock threshold to maximum
+	in order to speed up the AGC lock */
 	TrackAGCAccum = stv0367_readbits(state, F367CAB_AGC_ACCUMRSTSEL);
 	stv0367_writebits(state, F367CAB_AGC_ACCUMRSTSEL, 0x0);
-	
+	/* Modulus Mapper is disabled */
 	stv0367_writebits(state, F367CAB_MODULUSMAP_EN, 0);
-	
+	/* Disable the sweep function */
 	stv0367_writebits(state, F367CAB_SWEEP_EN, 0);
-	
-	
+	/* The sweep function is never used, Sweep rate must be set to 0 */
+	/* Set the derotator frequency in Hz */
 	stv0367cab_set_derot_freq(state, cab_state->adc_clk,
 		(1000 * (s32)state->config->if_khz + cab_state->derot_offset));
-	
+	/* Disable the Allpass Filter when the symbol rate is out of range */
 	if ((p->symbol_rate > 10800000) | (p->symbol_rate < 1800000)) {
 		stv0367_writebits(state, F367CAB_ADJ_EN, 0);
 		stv0367_writebits(state, F367CAB_ALLPASSFILT_EN, 0);
 	}
 #if 0
-	
+	/* Check if the tuner is locked */
 	tuner_lock = stv0367cab_tuner_get_status(fe);
 	if (tuner_lock == 0)
 		return FE_367CAB_NOTUNER;
 #endif
-	
-	
+	/* Relase the TRL to start demodulator acquisition */
+	/* Wait for QAM lock */
 	LockTime = 0;
 	stv0367_writereg(state, R367CAB_CTRL_1, 0x00);
 	do {
 		QAM_Lock = stv0367_readbits(state, F367CAB_FSM_STATUS);
 		if ((LockTime >= (DemodTimeOut - EQLTimeOut)) &&
 							(QAM_Lock == 0x04))
+			/*
+			 * We don't wait longer, the frequency/phase offset
+			 * must be too big
+			 */
 			LockTime = DemodTimeOut;
 		else if ((LockTime >= (AGCTimeOut + TRLTimeOut)) &&
 							(QAM_Lock == 0x02))
+			/*
+			 * We don't wait longer, either there is no signal or
+			 * it is not the right symbol rate or it is an analog
+			 * carrier
+			 */
 		{
 			LockTime = DemodTimeOut;
 			u32_tmp = stv0367_readbits(state,
@@ -2925,7 +2982,7 @@ enum stv0367_cab_signal_type stv0367cab_algo(struct stv0367_state *state,
 	dprintk("stv0367cab_get_derot_freq=0x%x\n", tmp);
 
 	if ((QAM_Lock == 0x0c) || (QAM_Lock == 0x0b)) {
-		
+		/* Wait for FEC lock */
 		LockTime = 0;
 		do {
 			usleep_range(5000, 7000);
@@ -2942,6 +2999,7 @@ enum stv0367_cab_signal_type stv0367cab_algo(struct stv0367_state *state,
 		cab_state->spect_inv = stv0367_readbits(state,
 							F367CAB_QUAD_INV);
 #if 0
+/* not clear for me */
 		if (state->config->if_khz != 0) {
 			if (state->config->if_khz > cab_state->adc_clk / 1000) {
 				cab_state->freq_khz =
@@ -2966,7 +3024,7 @@ enum stv0367_cab_signal_type stv0367cab_algo(struct stv0367_state *state,
 							cab_state->mclk);
 		cab_state->locked = 1;
 
-		
+		/* stv0367_setbits(state, F367CAB_AGC_ACCUMRSTSEL,7);*/
 	} else {
 		switch (QAM_Lock) {
 		case 1:
@@ -3014,7 +3072,7 @@ enum stv0367_cab_signal_type stv0367cab_algo(struct stv0367_state *state,
 
 	}
 
-	
+	/* Set the AGC control values to tracking values */
 	stv0367_writebits(state, F367CAB_AGC_ACCUMRSTSEL, TrackAGCAccum);
 	return signalType;
 }
@@ -3053,7 +3111,7 @@ static int stv0367cab_set_frontend(struct dvb_frontend *fe)
 
 	stv0367cab_init(fe);
 
-	
+	/* Tuner Frequency Setting */
 	if (fe->ops.tuner_ops.set_params) {
 		if (fe->ops.i2c_gate_ctrl)
 			fe->ops.i2c_gate_ctrl(fe, 1);
@@ -3072,7 +3130,7 @@ static int stv0367cab_set_frontend(struct dvb_frontend *fe)
 			cab_state->mclk,
 			p->symbol_rate,
 			QAMSize);
-	
+	/* Search algorithm launch, [-1.1*RangeOffset, +1.1*RangeOffset] scan */
 	cab_state->state = stv0367cab_algo(state, p);
 	return 0;
 }
@@ -3172,7 +3230,7 @@ static s32 stv0367cab_get_rf_lvl(struct stv0367_state *state)
 
 	IfAgcPwm = 100 * IfAgcPwm / 4095;
 
-	
+	/* For DTT75467 on NIM */
 	if (RfAgcPwm < 90  && IfAgcPwm < 28) {
 		for (i = 0; i < RF_LOOKUP_TABLE_SIZE; i++) {
 			if (RfAgcPwm <= stv0367cab_RF_LookUp1[0][i]) {
@@ -3182,7 +3240,7 @@ static s32 stv0367cab_get_rf_lvl(struct stv0367_state *state)
 		}
 		if (i == RF_LOOKUP_TABLE_SIZE)
 			rfLevel = -56;
-	} else { 
+	} else { /*if IF AGC>10*/
 		for (i = 0; i < RF_LOOKUP_TABLE2_SIZE; i++) {
 			if (IfAgcPwm <= stv0367cab_RF_LookUp2[0][i]) {
 				rfLevel = (-1) * stv0367cab_RF_LookUp2[1][i];
@@ -3257,14 +3315,14 @@ static int stv0367cab_read_snr(struct dvb_frontend *fe, u16 *snr)
 			+ 256 * stv0367_readbits(state, F367CAB_SNR_HI));
 	}
 
-	regval /= 10; 
+	regval /= 10; /*for average over 10 times in for loop above*/
 	if (regval != 0) {
 		temp = power
 			* (1 << (3 + stv0367_readbits(state, F367CAB_SNR_PER)));
 		temp /= regval;
 	}
 
-	
+	/* table values, not needed to calculate logarithms */
 	if (temp >= 5012)
 		noisepercentage = 100;
 	else if (temp >= 3981)
@@ -3330,7 +3388,7 @@ static struct dvb_frontend_ops stv0367cab_ops = {
 		.frequency_stepsize = 62500,
 		.symbol_rate_min = 870000,
 		.symbol_rate_max = 11700000,
-		.caps = 0x400 |
+		.caps = 0x400 |/* FE_CAN_QAM_4 */
 			FE_CAN_QAM_16 | FE_CAN_QAM_32  |
 			FE_CAN_QAM_64 | FE_CAN_QAM_128 |
 			FE_CAN_QAM_256 | FE_CAN_FEC_AUTO
@@ -3342,6 +3400,7 @@ static struct dvb_frontend_ops stv0367cab_ops = {
 	.set_frontend				= stv0367cab_set_frontend,
 	.get_frontend				= stv0367cab_get_frontend,
 	.read_status				= stv0367cab_read_status,
+/*	.read_ber				= stv0367cab_read_ber, */
 	.read_signal_strength			= stv0367cab_read_strength,
 	.read_snr				= stv0367cab_read_snr,
 	.read_ucblocks				= stv0367cab_read_ucblcks,
@@ -3354,7 +3413,7 @@ struct dvb_frontend *stv0367cab_attach(const struct stv0367_config *config,
 	struct stv0367_state *state = NULL;
 	struct stv0367cab_state *cab_state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct stv0367_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
@@ -3362,7 +3421,7 @@ struct dvb_frontend *stv0367cab_attach(const struct stv0367_config *config,
 	if (cab_state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->i2c = i2c;
 	state->config = config;
 	cab_state->search_range = 280000;
@@ -3373,7 +3432,7 @@ struct dvb_frontend *stv0367cab_attach(const struct stv0367_config *config,
 
 	dprintk("%s: chip_id = 0x%x\n", __func__, state->chip_id);
 
-	
+	/* check if the demod is there */
 	if ((state->chip_id != 0x50) && (state->chip_id != 0x60))
 		goto error;
 

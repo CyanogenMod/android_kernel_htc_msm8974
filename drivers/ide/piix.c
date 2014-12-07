@@ -57,6 +57,13 @@
 
 static int no_piix_dma;
 
+/**
+ *	piix_set_pio_mode	-	set host controller for PIO mode
+ *	@port: port
+ *	@drive: drive
+ *
+ *	Set the interface PIO mode based upon the settings done by AMI BIOS.
+ */
 
 static void piix_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -71,7 +78,7 @@ static void piix_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	int control = 0;
 	const u8 pio = drive->pio_mode - XFER_PIO_0;
 
-				     
+				     /* ISP  RTC */
 	static const u8 timings[][2]= {
 					{ 0, 0 },
 					{ 0, 0 },
@@ -79,20 +86,25 @@ static void piix_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 					{ 2, 1 },
 					{ 2, 3 }, };
 
+	/*
+	 * Master vs slave is synchronized above us but the slave register is
+	 * shared by the two hwifs so the corner case of two slave timeouts in
+	 * parallel must be locked.
+	 */
 	spin_lock_irqsave(&tune_lock, flags);
 	pci_read_config_word(dev, master_port, &master_data);
 
 	if (pio > 1)
-		control |= 1;	
+		control |= 1;	/* Programmable timing on */
 	if (drive->media == ide_disk)
-		control |= 4;	
+		control |= 4;	/* Prefetch, post write */
 	if (ide_pio_need_iordy(drive, pio))
-		control |= 2;	
+		control |= 2;	/* IORDY */
 	if (is_slave) {
 		master_data |=  0x4000;
 		master_data &= ~0x0070;
 		if (pio > 1) {
-			
+			/* Set PPE, IE and TIME */
 			master_data |= control << 4;
 		}
 		pci_read_config_byte(dev, slave_port, &slave_data);
@@ -102,7 +114,7 @@ static void piix_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	} else {
 		master_data &= ~0x3307;
 		if (pio > 1) {
-			
+			/* enable PPE, IE and TIME */
 			master_data |= control;
 		}
 		master_data |= (timings[pio][0] << 12) | (timings[pio][1] << 8);
@@ -113,6 +125,14 @@ static void piix_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	spin_unlock_irqrestore(&tune_lock, flags);
 }
 
+/**
+ *	piix_set_dma_mode	-	set host controller for DMA mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Set a PIIX host controller to the desired DMA mode.  This involves
+ *	programming the right timing data into the PCI configuration space.
+ */
 
 static void piix_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -170,12 +190,19 @@ static void piix_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 			drive->pio_mode =
 				mwdma_to_pio[speed - XFER_MW_DMA_0] + XFER_PIO_0;
 		else
-			drive->pio_mode = XFER_PIO_2; 
+			drive->pio_mode = XFER_PIO_2; /* for SWDMA2 */
 
 		piix_set_pio_mode(hwif, drive);
 	}
 }
 
+/**
+ *	init_chipset_ich	-	set up the ICH chipset
+ *	@dev: PCI device to set up
+ *
+ *	Initialize the PCI device as required.  For the ICH this turns
+ *	out to be nice and simple.
+ */
 
 static int init_chipset_ich(struct pci_dev *dev)
 {
@@ -187,17 +214,30 @@ static int init_chipset_ich(struct pci_dev *dev)
 	return 0;
 }
 
+/**
+ *	ich_clear_irq	-	clear BMDMA status
+ *	@drive: IDE drive
+ *
+ *	ICHx contollers set DMA INTR no matter DMA or PIO.
+ *	BMDMA status might need to be cleared even for
+ *	PIO interrupts to prevent spurious/lost IRQ.
+ */
 static void ich_clear_irq(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
 	u8 dma_stat;
 
+	/*
+	 * ide_dma_end() needs BMDMA status for error checking.
+	 * So, skip clearing BMDMA status here and leave it
+	 * to ide_dma_end() if this is DMA interrupt.
+	 */
 	if (drive->waiting_for_dma || hwif->dma_base == 0)
 		return;
 
-	
+	/* clear the INTR & ERROR bits */
 	dma_stat = inb(hwif->dma_base + ATA_DMA_STATUS);
-	
+	/* Should we force the bit as well ? */
 	outb(dma_stat, hwif->dma_base + ATA_DMA_STATUS);
 }
 
@@ -207,21 +247,24 @@ struct ich_laptop {
 	u16 subdevice;
 };
 
+/*
+ *	List of laptops that use short cables rather than 80 wire
+ */
 
 static const struct ich_laptop ich_laptop[] = {
-	
-	{ 0x27DF, 0x1025, 0x0102 },	
-	{ 0x27DF, 0x0005, 0x0280 },	
-	{ 0x27DF, 0x1025, 0x0110 },	
-	{ 0x27DF, 0x1043, 0x1267 },	
-	{ 0x27DF, 0x103C, 0x30A1 },	
-	{ 0x27DF, 0x1071, 0xD221 },	
-	{ 0x24CA, 0x1025, 0x0061 },	
-	{ 0x24CA, 0x1025, 0x003d },	
-	{ 0x266F, 0x1025, 0x0066 },	
-	{ 0x2653, 0x1043, 0x82D8 },	
-	{ 0x27df, 0x104d, 0x900e },	
-	
+	/* devid, subvendor, subdev */
+	{ 0x27DF, 0x1025, 0x0102 },	/* ICH7 on Acer 5602aWLMi */
+	{ 0x27DF, 0x0005, 0x0280 },	/* ICH7 on Acer 5602WLMi */
+	{ 0x27DF, 0x1025, 0x0110 },	/* ICH7 on Acer 3682WLMi */
+	{ 0x27DF, 0x1043, 0x1267 },	/* ICH7 on Asus W5F */
+	{ 0x27DF, 0x103C, 0x30A1 },	/* ICH7 on HP Compaq nc2400 */
+	{ 0x27DF, 0x1071, 0xD221 },	/* ICH7 on Hercules EC-900 */
+	{ 0x24CA, 0x1025, 0x0061 },	/* ICH4 on Acer Aspire 2023WLMi */
+	{ 0x24CA, 0x1025, 0x003d },	/* ICH4 on ACER TM290 */
+	{ 0x266F, 0x1025, 0x0066 },	/* ICH6 on ACER Aspire 1694WLMi */
+	{ 0x2653, 0x1043, 0x82D8 },	/* ICH6M on Asus Eee 701 */
+	{ 0x27df, 0x104d, 0x900e },	/* ICH7 on Sony TZ-90 */
+	/* end marker */
 	{ 0, }
 };
 
@@ -231,7 +274,7 @@ static u8 piix_cable_detect(ide_hwif_t *hwif)
 	const struct ich_laptop *lap = &ich_laptop[0];
 	u8 reg54h = 0, mask = hwif->channel ? 0xc0 : 0x30;
 
-	
+	/* check for specials */
 	while (lap->device) {
 		if (lap->device == pdev->device &&
 		    lap->subvendor == pdev->subsystem_vendor &&
@@ -246,6 +289,13 @@ static u8 piix_cable_detect(ide_hwif_t *hwif)
 	return (reg54h & mask) ? ATA_CBL_PATA80 : ATA_CBL_PATA40;
 }
 
+/**
+ *	init_hwif_piix		-	fill in the hwif for the PIIX
+ *	@hwif: IDE interface
+ *
+ *	Set up the ide_hwif_t for the PIIX interface according to the
+ *	capabilities of the hardware.
+ */
 
 static void __devinit init_hwif_piix(ide_hwif_t *hwif)
 {
@@ -295,36 +345,54 @@ static const struct ide_port_ops ich_port_ops = {
 	}
 
 static const struct ide_port_info piix_pci_info[] __devinitdata = {
-	
-	{	
+	/* 0: MPIIX */
+	{	/*
+		 * MPIIX actually has only a single IDE channel mapped to
+		 * the primary or secondary ports depending on the value
+		 * of the bit 14 of the IDETIM register at offset 0x6c
+		 */
 		.name		= DRV_NAME,
 		.enablebits	= {{0x6d,0xc0,0x80}, {0x6d,0xc0,0xc0}},
 		.host_flags	= IDE_HFLAG_ISA_PORTS | IDE_HFLAG_NO_DMA,
 		.pio_mask	= ATA_PIO4,
-		
+		/* This is a painful system best to let it self tune for now */
 	},
-	
-	DECLARE_PIIX_DEV(0x00), 
-	
+	/* 1: PIIXa/PIIXb/PIIX3 */
+	DECLARE_PIIX_DEV(0x00), /* no udma */
+	/* 2: PIIX4 */
 	DECLARE_PIIX_DEV(ATA_UDMA2),
-	
+	/* 3: ICH0 */
 	DECLARE_ICH_DEV(ATA_MWDMA12_ONLY, ATA_UDMA2),
-	
+	/* 4: ICH */
 	DECLARE_ICH_DEV(ATA_MWDMA12_ONLY, ATA_UDMA4),
-	
+	/* 5: PIIX4 */
 	DECLARE_PIIX_DEV(ATA_UDMA4),
-	
+	/* 6: ICH[2-6]/ICH[2-3]M/C-ICH/ICH5-SATA/ESB2/ICH8M */
 	DECLARE_ICH_DEV(ATA_MWDMA12_ONLY, ATA_UDMA5),
-	
+	/* 7: ICH7/7-R, no MWDMA1 */
 	DECLARE_ICH_DEV(ATA_MWDMA2_ONLY, ATA_UDMA5),
 };
 
+/**
+ *	piix_init_one	-	called when a PIIX is found
+ *	@dev: the piix device
+ *	@id: the matching pci id
+ *
+ *	Called when the PCI registration layer (or the IDE initialization)
+ *	finds a device matching our IDE device tables.
+ */
  
 static int __devinit piix_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	return ide_pci_init_one(dev, &piix_pci_info[id->driver_data], NULL);
 }
 
+/**
+ *	piix_check_450nx	-	Check for problem 450NX setup
+ *	
+ *	Check for the present of 450NX errata #19 and errata #25. If
+ *	they are found, disable use of DMA IDE
+ */
 
 static void __devinit piix_check_450nx(void)
 {
@@ -332,11 +400,13 @@ static void __devinit piix_check_450nx(void)
 	u16 cfg;
 	while((pdev=pci_get_device(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82454NX, pdev))!=NULL)
 	{
+		/* Look for 450NX PXB. Check for problem configurations
+		   A PCI quirk checks bit 6 already */
 		pci_read_config_word(pdev, 0x41, &cfg);
-		
+		/* Only on the original revision: IDE DMA can hang */
 		if (pdev->revision == 0x00)
 			no_piix_dma = 1;
-		
+		/* On all revisions below 5 PXB bus lock must be disabled for IDE */
 		else if (cfg & (1<<14) && pdev->revision < 5)
 			no_piix_dma = 2;
 	}

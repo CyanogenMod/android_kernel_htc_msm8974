@@ -29,12 +29,12 @@
 #include <asm/break.h>
 
 #define __ARCH_WANT_KPROBES_INSN_SLOT
-#define MAX_INSN_SIZE   2	
+#define MAX_INSN_SIZE   2	/* last half is for kprobe-booster */
 #define BREAK_INST	(long)(__IA64_BREAK_KPROBE << 6)
 #define NOP_M_INST	(long)(1<<27)
-#define BRL_INST(i1, i2) ((long)((0xcL << 37) |	 \
-				(0x1L << 12) |	 \
-				(((i1) & 1) << 36) | ((i2) << 13))) 
+#define BRL_INST(i1, i2) ((long)((0xcL << 37) |	/* brl */ \
+				(0x1L << 12) |	/* many */ \
+				(((i1) & 1) << 36) | ((i2) << 13))) /* imm */
 
 typedef union cmp_inst {
 	struct {
@@ -73,6 +73,7 @@ struct prev_kprobe {
 };
 
 #define	MAX_PARAM_RSE_SIZE	(0x60+0x60/0x3f)
+/* per-cpu kprobe control block */
 #define ARCH_PREV_KPROBE_SZ 2
 struct kprobe_ctlblk {
 	unsigned long kprobe_status;
@@ -102,8 +103,9 @@ typedef struct kprobe_opcode {
 	bundle_t bundle;
 } kprobe_opcode_t;
 
+/* Architecture specific copy of original instruction*/
 struct arch_specific_insn {
-	
+	/* copy of the instruction to be emulated */
 	kprobe_opcode_t *insn;
  #define INST_FLAG_FIX_RELATIVE_IP_ADDR		1
  #define INST_FLAG_FIX_BRANCH_REG		2
@@ -122,4 +124,4 @@ extern void invalidate_stacked_regs(void);
 extern void flush_register_stack(void);
 extern void arch_remove_kprobe(struct kprobe *p);
 
-#endif				
+#endif				/* _ASM_KPROBES_H */

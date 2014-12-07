@@ -123,6 +123,7 @@ TRACE_EVENT(9p_client_res,
 		      __entry->tag, __entry->err)
 );
 
+/* dump 32 bytes of protocol data */
 #define P9_PROTO_DUMP_SZ 32
 TRACE_EVENT(9p_protocol_dump,
 	    TP_PROTO(struct p9_client *clnt, struct p9_fcall *pdu),
@@ -169,6 +170,7 @@ TRACE_EVENT(9p_protocol_dump,
 		      __entry->line[30], __entry->line[31])
  );
 
-#endif 
+#endif /* _TRACE_9P_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

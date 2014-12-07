@@ -831,6 +831,7 @@ struct dying_pid {
 	unsigned long jiffy;
 };
 static DEFINE_SPINLOCK(dying_pid_lock);
+static int sigkill_pending(struct task_struct *tsk);
 static struct dying_pid dying_pid_buf[MAX_DYING_PROC_COUNT];
 static unsigned int dying_pid_buf_idx;
 
@@ -876,7 +877,7 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 #endif
 
 #if defined(CONFIG_HTC_DEBUG_DYING_PROCS)
-	if (sig == SIGKILL) {
+	if (sig == SIGKILL && !sigkill_pending(t)) {
 		unsigned long flags;
 		spin_lock_irqsave(&dying_pid_lock, flags);
 		dying_pid_buf_idx = ((dying_pid_buf_idx + 1) % MAX_DYING_PROC_COUNT);

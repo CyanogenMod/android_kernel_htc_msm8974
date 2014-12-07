@@ -56,7 +56,7 @@
 
 DEFINE_PER_CPU(struct pda_s, pda_percpu);
 
-#define MAX_PHYS_MEMORY		(1UL << IA64_MAX_PHYS_BITS)	
+#define MAX_PHYS_MEMORY		(1UL << IA64_MAX_PHYS_BITS)	/* Max physical address supported */
 
 extern void bte_init_node(nodepda_t *, cnodeid_t);
 
@@ -91,7 +91,7 @@ u8 sn_coherency_id;
 EXPORT_SYMBOL(sn_coherency_id);
 u8 sn_region_size;
 EXPORT_SYMBOL(sn_region_size);
-int sn_prom_type;	
+int sn_prom_type;	/* 0=hardware, 1=medusa/realprom, 2=medusa/fakeprom */
 
 short physical_node_map[MAX_NUMALINK_NODES];
 static unsigned long sn_prom_features[MAX_PROM_FEATURE_SETS];
@@ -105,6 +105,11 @@ static void build_cnode_tables(void);
 
 static nodepda_t *nodepdaindr[MAX_COMPACT_NODES];
 
+/*
+ * The format of "screen_info" is strange, and due to early i386-setup
+ * code. This is just enough to make the console code think we're on a
+ * VGA color display.
+ */
 struct screen_info sn_screen_info = {
 	.orig_x = 0,
 	.orig_y = 0,
@@ -116,6 +121,14 @@ struct screen_info sn_screen_info = {
 	.orig_video_points = 16
 };
 
+/*
+ * This routine can only be used during init, since
+ * smp_boot_data is an init data structure.
+ * We have to use smp_boot_data.cpu_phys_id to find
+ * the physical id of the processor because the normal
+ * cpu_physical_id() relies on data structures that
+ * may not be initialized yet.
+ */
 
 static int __init pxm_to_nasid(int pxm)
 {
@@ -131,6 +144,12 @@ static int __init pxm_to_nasid(int pxm)
 	return -1;
 }
 
+/**
+ * early_sn_setup - early setup routine for SN platforms
+ *
+ * Sets up an initial console to aid debugging.  Intended primarily
+ * for bringup.  See start_kernel() in init/main.c.
+ */
 
 void __init early_sn_setup(void)
 {
@@ -141,6 +160,13 @@ void __init early_sn_setup(void)
 	char *p;
 	int i, j;
 
+	/*
+	 * Parse enough of the SAL tables to locate the SAL entry point. Since, console
+	 * IO on SN2 is done via SAL calls, early_printk won't work without this.
+	 *
+	 * This code duplicates some of the ACPI table parsing that is in efi.c & sal.c.
+	 * Any changes to those file may have to be made here as well.
+	 */
 	efi_systab = (efi_system_table_t *) __va(ia64_boot_param->efi_systab);
 	config_tables = __va(efi_systab->tables);
 	for (i = 0; i < efi_systab->nr_tables; i++) {
@@ -161,13 +187,18 @@ void __init early_sn_setup(void)
 			}
 		}
 	}
-	
+	/* Uh-oh, SAL not available?? */
 	printk(KERN_ERR "failed to find SAL entry point\n");
 }
 
 extern int platform_intr_list[];
 static int __cpuinitdata shub_1_1_found;
 
+/*
+ * sn_check_for_wars
+ *
+ * Set flag for enabling shub specific wars
+ */
 
 static inline int __cpuinit is_shub_1_1(int nasid)
 {
@@ -186,7 +217,7 @@ static void __cpuinit sn_check_for_wars(void)
 	int cnode;
 
 	if (is_shub2()) {
-		
+		/* none yet */
 	} else {
 		for_each_online_node(cnode) {
 			if (is_shub_1_1(cnodeid_to_nasid(cnode)))
@@ -195,15 +226,32 @@ static void __cpuinit sn_check_for_wars(void)
 	}
 }
 
+/*
+ * Scan the EFI PCDP table (if it exists) for an acceptable VGA console
+ * output device.  If one exists, pick it and set sn_legacy_{io,mem} to
+ * reflect the bus offsets needed to address it.
+ *
+ * Since pcdp support in SN is not supported in the 2.4 kernel (or at least
+ * the one lbs is based on) just declare the needed structs here.
+ *
+ * Reference spec http://www.dig64.org/specifications/DIG64_PCDPv20.pdf
+ *
+ * Returns 0 if no acceptable vga is found, !0 otherwise.
+ *
+ * Note:  This stuff is duped here because Altix requires the PCDP to
+ * locate a usable VGA device due to lack of proper ACPI support.  Structures
+ * could be used from drivers/firmware/pcdp.h, but it was decided that moving
+ * this file to a more public location just for Altix use was undesirable.
+ */
 
 struct hcdp_uart_desc {
 	u8	pad[45];
 };
 
 struct pcdp {
-	u8	signature[4];	
+	u8	signature[4];	/* should be 'HCDP' */
 	u32	length;
-	u8	rev;		
+	u8	rev;		/* should be >=3 for pcdp, <3 for hcdp */
 	u8	sum;
 	u8	oem_id[6];
 	u64	oem_tableid;
@@ -211,8 +259,8 @@ struct pcdp {
 	u32	creator_id;
 	u32	creator_rev;
 	u32	num_type0;
-	struct hcdp_uart_desc uart[0];	
-	
+	struct hcdp_uart_desc uart[0];	/* num_type0 of these */
+	/* pcdp descriptors follow */
 }  __attribute__((packed));
 
 struct pcdp_device_desc {
@@ -220,12 +268,12 @@ struct pcdp_device_desc {
 	u8	primary;
 	u16	length;
 	u16	index;
-	
-	
+	/* interconnect specific structure follows */
+	/* device specific structure follows that */
 }  __attribute__((packed));
 
 struct pcdp_interface_pci {
-	u8	type;		
+	u8	type;		/* 1 == pci */
 	u8	reserved;
 	u16	length;
 	u8	segment;
@@ -243,11 +291,13 @@ struct pcdp_interface_pci {
 
 struct pcdp_vga_device {
 	u8	num_eas_desc;
-	
+	/* ACPI Extended Address Space Desc follows */
 }  __attribute__((packed));
 
+/* from pcdp_device_desc.primary */
 #define PCDP_PRIMARY_CONSOLE	0x01
 
+/* from pcdp_device_desc.type */
 #define PCDP_CONSOLE_INOUT	0x0
 #define PCDP_CONSOLE_DEBUG	0x1
 #define PCDP_CONSOLE_OUT	0x2
@@ -256,8 +306,10 @@ struct pcdp_vga_device {
 
 #define PCDP_CONSOLE_VGA	(PCDP_CONSOLE_TYPE_VGA | PCDP_CONSOLE_OUT)
 
+/* from pcdp_interface_pci.type */
 #define PCDP_IF_PCI		1
 
+/* from pcdp_interface_pci.translation */
 #define PCDP_PCI_TRANS_IOPORT	0x02
 #define PCDP_PCI_TRANS_MMIO	0x01
 
@@ -272,26 +324,26 @@ sn_scan_pcdp(void)
 	extern struct efi efi;
 
 	if (efi.hcdp == EFI_INVALID_TABLE_ADDR)
-		return;		
+		return;		/* no hcdp/pcdp table */
 
 	pcdp = __va(efi.hcdp);
 
 	if (pcdp->rev < 3)
-		return;		
+		return;		/* only support PCDP (rev >= 3) */
 
 	for (bp = (u8 *)&pcdp->uart[pcdp->num_type0];
 	     bp < (u8 *)pcdp + pcdp->length;
 	     bp += device.length) {
 		memcpy(&device, bp, sizeof(device));
 		if (! (device.primary & PCDP_PRIMARY_CONSOLE))
-			continue;	
+			continue;	/* not primary console */
 
 		if (device.type != PCDP_CONSOLE_VGA)
-			continue;	
+			continue;	/* not VGA descriptor */
 
 		memcpy(&if_pci, bp+sizeof(device), sizeof(if_pci));
 		if (if_pci.type != PCDP_IF_PCI)
-			continue;	
+			continue;	/* not PCI interconnect */
 
 		if (if_pci.translation & PCDP_PCI_TRANS_IOPORT)
 			vga_console_iobase = if_pci.ioport_tra;
@@ -300,13 +352,21 @@ sn_scan_pcdp(void)
 			vga_console_membase =
 				if_pci.mmio_tra | __IA64_UNCACHED_OFFSET;
 
-		break; 
+		break; /* once we find the primary, we're done */
 	}
 }
 #endif
 
 static unsigned long sn2_rtc_initial;
 
+/**
+ * sn_setup - SN platform setup routine
+ * @cmdline_p: kernel command line
+ *
+ * Handles platform setup for SN machines.  This includes determining
+ * the RTC frequency (via a SAL call), initializing secondary CPUs, and
+ * setting up per-node data areas.  The console is also initialized here.
+ */
 void __init sn_setup(char **cmdline_p)
 {
 	long status, ticks_per_sec, drift;
@@ -314,20 +374,49 @@ void __init sn_setup(char **cmdline_p)
 	extern void sn_cpu_init(void);
 
 	sn2_rtc_initial = rtc_time();
-	ia64_sn_plat_set_error_handling_features();	
+	ia64_sn_plat_set_error_handling_features();	// obsolete
 	ia64_sn_set_os_feature(OSF_MCA_SLV_TO_OS_INIT_SLV);
 	ia64_sn_set_os_feature(OSF_FEAT_LOG_SBES);
+	/*
+	 * Note: The calls to notify the PROM of ACPI and PCI Segment
+	 *	 support must be done prior to acpi_load_tables(), as
+	 *	 an ACPI capable PROM will rebuild the DSDT as result
+	 *	 of the call.
+	 */
 	ia64_sn_set_os_feature(OSF_PCISEGMENT_ENABLE);
 	ia64_sn_set_os_feature(OSF_ACPI_ENABLE);
 
-	
+	/* Load the new DSDT and SSDT tables into the global table list. */
 	acpi_table_init();
 
 #if defined(CONFIG_VT) && defined(CONFIG_VGA_CONSOLE)
+	/*
+	 * Handle SN vga console.
+	 *
+	 * SN systems do not have enough ACPI table information
+	 * being passed from prom to identify VGA adapters and the legacy
+	 * addresses to access them.  Until that is done, SN systems rely
+	 * on the PCDP table to identify the primary VGA console if one
+	 * exists.
+	 *
+	 * However, kernel PCDP support is optional, and even if it is built
+	 * into the kernel, it will not be used if the boot cmdline contains
+	 * console= directives.
+	 *
+	 * So, to work around this mess, we duplicate some of the PCDP code
+	 * here so that the primary VGA console (as defined by PCDP) will
+	 * work on SN systems even if a different console (e.g. serial) is
+	 * selected on the boot line (or CONFIG_EFI_PCDP is off).
+	 */
 
 	if (! vga_console_membase)
 		sn_scan_pcdp();
 
+	/*
+	 *	Setup legacy IO space.
+	 *	vga_console_iobase maps to PCI IO Space address 0 on the
+	 * 	bus containing the VGA console.
+	 */
 	if (vga_console_iobase) {
 		io_space[0].mmio_base =
 			(unsigned long) ioremap(vga_console_iobase, 0);
@@ -335,7 +424,7 @@ void __init sn_setup(char **cmdline_p)
 	}
 
 	if (vga_console_membase) {
-		
+		/* usable vga ... make tty0 the preferred default console */
 		if (!strstr(*cmdline_p, "console="))
 			add_preferred_console("tty", 0, NULL);
 	} else {
@@ -346,12 +435,15 @@ void __init sn_setup(char **cmdline_p)
 		conswitchp = &dummy_con;
 #else
 		conswitchp = NULL;
-#endif				
+#endif				/* CONFIG_DUMMY_CONSOLE */
 	}
-#endif				
+#endif				/* def(CONFIG_VT) && def(CONFIG_VGA_CONSOLE) */
 
 	MAX_DMA_ADDRESS = PAGE_OFFSET + MAX_PHYS_MEMORY;
 
+	/*
+	 * Build the tables for managing cnodes.
+	 */
 	build_cnode_tables();
 
 	status =
@@ -360,7 +452,7 @@ void __init sn_setup(char **cmdline_p)
 	if (status != 0 || ticks_per_sec < 100000) {
 		printk(KERN_WARNING
 		       "unable to determine platform RTC clock frequency, guessing.\n");
-		
+		/* PROM gives wrong value for clock freq. so guess */
 		sn_rtc_cycles_per_second = 1000000000000UL / 30000UL;
 	} else
 		sn_rtc_cycles_per_second = ticks_per_sec;
@@ -369,12 +461,23 @@ void __init sn_setup(char **cmdline_p)
 
 	printk("SGI SAL version %x.%02x\n", version >> 8, version & 0x00FF);
 
+	/*
+	 * we set the default root device to /dev/hda
+	 * to make simulation easy
+	 */
 	ROOT_DEV = Root_HDA1;
 
+	/*
+	 * Create the PDAs and NODEPDAs for all the cpus.
+	 */
 	sn_init_pdas(cmdline_p);
 
 	ia64_mark_idle = &snidle;
 
+	/*
+	 * For the bootcpu, we do this here. All other cpus will make the
+	 * call as part of cpu_init in slave cpu initialization.
+	 */
 	sn_cpu_init();
 
 #ifdef CONFIG_SMP
@@ -384,14 +487,28 @@ void __init sn_setup(char **cmdline_p)
 
 	sn_timer_init();
 
+	/*
+	 * set pm_power_off to a SAL call to allow
+	 * sn machines to power off. The SAL call can be replaced
+	 * by an ACPI interface call when ACPI is fully implemented
+	 * for sn.
+	 */
 	pm_power_off = ia64_sn_power_down;
 	current->thread.flags |= IA64_THREAD_MIGRATION;
 }
 
+/**
+ * sn_init_pdas - setup node data areas
+ *
+ * One time setup for Node Data Area.  Called by sn_setup().
+ */
 static void __init sn_init_pdas(char **cmdline_p)
 {
 	cnodeid_t cnode;
 
+	/*
+	 * Allocate & initialize the nodepda for each node.
+	 */
 	for_each_online_node(cnode) {
 		nodepdaindr[cnode] =
 		    alloc_bootmem_node(NODE_DATA(cnode), sizeof(nodepda_t));
@@ -400,23 +517,47 @@ static void __init sn_init_pdas(char **cmdline_p)
 		spin_lock_init(&nodepdaindr[cnode]->ptc_lock);
 	}
 
+	/*
+	 * Allocate & initialize nodepda for TIOs.  For now, put them on node 0.
+	 */
 	for (cnode = num_online_nodes(); cnode < num_cnodes; cnode++)
 		nodepdaindr[cnode] =
 		    alloc_bootmem_node(NODE_DATA(0), sizeof(nodepda_t));
 
+	/*
+	 * Now copy the array of nodepda pointers to each nodepda.
+	 */
 	for (cnode = 0; cnode < num_cnodes; cnode++)
 		memcpy(nodepdaindr[cnode]->pernode_pdaindr, nodepdaindr,
 		       sizeof(nodepdaindr));
 
+	/*
+	 * Set up IO related platform-dependent nodepda fields.
+	 * The following routine actually sets up the hubinfo struct
+	 * in nodepda.
+	 */
 	for_each_online_node(cnode) {
 		bte_init_node(nodepdaindr[cnode], cnode);
 	}
 
+	/*
+	 * Initialize the per node hubdev.  This includes IO Nodes and
+	 * headless/memless nodes.
+	 */
 	for (cnode = 0; cnode < num_cnodes; cnode++) {
 		hubdev_init_node(nodepdaindr[cnode], cnode);
 	}
 }
 
+/**
+ * sn_cpu_init - initialize per-cpu data areas
+ * @cpuid: cpuid of the caller
+ *
+ * Called during cpu initialization on each cpu as it starts.
+ * Currently, initializes the per-cpu data area for SNIA.
+ * Also sets up a few fields in the nodepda.  Also known as
+ * platform_cpu_init() by the ia64 machvec code.
+ */
 void __cpuinit sn_cpu_init(void)
 {
 	int cpuid;
@@ -448,6 +589,12 @@ void __cpuinit sn_cpu_init(void)
 		BUG();
 	sn_hub_info->as_shift = sn_hub_info->nasid_shift - 2;
 
+	/*
+	 * Don't check status. The SAL call is not supported on all PROMs
+	 * but a failure is harmless.
+	 * Architecturally, cpu_init is always called twice on cpu 0. We
+	 * should set cpu_number on cpu 0 once.
+	 */
 	if (cpuid == 0) {
 		if (!set_cpu0_number) {
 			(void) ia64_sn_set_cpu_number(cpuid);
@@ -456,6 +603,10 @@ void __cpuinit sn_cpu_init(void)
 	} else
 		(void) ia64_sn_set_cpu_number(cpuid);
 
+	/*
+	 * The boot cpu makes this call again after platform initialization is
+	 * complete.
+	 */
 	if (nodepdaindr[0] == NULL)
 		return;
 
@@ -488,18 +639,29 @@ void __cpuinit sn_cpu_init(void)
 	pda->idle_flag = 0;
 
 	if (cpuid != 0) {
-		
+		/* copy cpu 0's sn_cnodeid_to_nasid table to this cpu's */
 		memcpy(sn_cnodeid_to_nasid,
 		       (&per_cpu(__sn_cnodeid_to_nasid, 0)),
 		       sizeof(__ia64_per_cpu_var(__sn_cnodeid_to_nasid)));
 	}
 
+	/*
+	 * Check for WARs.
+	 * Only needs to be done once, on BSP.
+	 * Has to be done after loop above, because it uses this cpu's
+	 * sn_cnodeid_to_nasid table which was just initialized if this
+	 * isn't cpu 0.
+	 * Has to be done before assignment below.
+	 */
 	if (!wars_have_been_checked) {
 		sn_check_for_wars();
 		wars_have_been_checked = 1;
 	}
 	sn_hub_info->shub_1_1_found = shub_1_1_found;
 
+	/*
+	 * Set up addresses of PIO/MEM write status registers.
+	 */
 	{
 		u64 pio1[] = {SH1_PIO_WRITE_STATUS_0, 0, SH1_PIO_WRITE_STATUS_1, 0};
 		u64 pio2[] = {SH2_PIO_WRITE_STATUS_0, SH2_PIO_WRITE_STATUS_2,
@@ -511,6 +673,9 @@ void __cpuinit sn_cpu_init(void)
 		pda->pio_write_status_val = is_shub1() ? SH_PIO_WRITE_STATUS_PENDING_WRITE_COUNT_MASK : 0;
 	}
 
+	/*
+	 * WAR addresses for SHUB 1.x.
+	 */
 	if (local_node_data->active_cpu_count++ == 0 && is_shub1()) {
 		int buddy_nasid;
 		buddy_nasid =
@@ -522,6 +687,9 @@ void __cpuinit sn_cpu_init(void)
 	}
 }
 
+/*
+ * Build tables for converting between NASIDs and cnodes.
+ */
 static inline int __init board_needs_cnode(int type)
 {
 	return (type == KLTYPE_SNIA || type == KLTYPE_TIO);
@@ -537,19 +705,29 @@ void __init build_cnode_tables(void)
 	memset(sn_cnodeid_to_nasid, -1,
 			sizeof(__ia64_per_cpu_var(__sn_cnodeid_to_nasid)));
 
+	/*
+	 * First populate the tables with C/M bricks. This ensures that
+	 * cnode == node for all C & M bricks.
+	 */
 	for_each_online_node(node) {
 		nasid = pxm_to_nasid(node_to_pxm(node));
 		sn_cnodeid_to_nasid[node] = nasid;
 		physical_node_map[nasid] = node;
 	}
 
+	/*
+	 * num_cnodes is total number of C/M/TIO bricks. Because of the 256 node
+	 * limit on the number of nodes, we can't use the generic node numbers 
+	 * for this. Note that num_cnodes is incremented below as TIOs or
+	 * headless/memoryless nodes are discovered.
+	 */
 	num_cnodes = num_online_nodes();
 
-	
+	/* fakeprom does not support klgraph */
 	if (IS_RUNNING_ON_FAKE_PROM())
 		return;
 
-	
+	/* Find TIOs & headless/memoryless nodes and add them to the tables */
 	for_each_online_node(node) {
 		kl_config_hdr_t *klgraph_header;
 		nasid = cnodeid_to_nasid(node);
@@ -589,7 +767,7 @@ int sn_prom_feature_available(int id)
 void
 sn_kernel_launch_event(void)
 {
-	
+	/* ignore status until we understand possible failure, if any*/
 	if (ia64_sn_kernel_launch_event())
 		printk(KERN_ERR "KEXEC is not supported in this PROM, Please update the PROM.\n");
 }

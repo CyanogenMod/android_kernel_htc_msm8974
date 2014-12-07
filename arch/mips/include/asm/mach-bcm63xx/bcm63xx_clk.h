@@ -8,4 +8,4 @@ struct clk {
 	int		id;
 };
 
-#endif 
+#endif /* ! BCM63XX_CLK_H_ */

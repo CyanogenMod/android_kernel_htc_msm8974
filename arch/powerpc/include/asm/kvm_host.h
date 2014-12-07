@@ -37,6 +37,7 @@
 #define KVM_MAX_VCPUS		NR_CPUS
 #define KVM_MAX_VCORES		NR_CPUS
 #define KVM_MEMORY_SLOTS 32
+/* memory slots that does not exposed to userspace */
 #define KVM_PRIVATE_MEM_SLOTS 4
 #define KVM_MEM_SLOTS_NUM (KVM_MEMORY_SLOTS + KVM_PRIVATE_MEM_SLOTS)
 
@@ -57,6 +58,7 @@ extern void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte);
 
 #endif
 
+/* We don't currently support large pages. */
 #define KVM_HPAGE_GFN_SHIFT(x)	0
 #define KVM_NR_PAGE_SIZES	1
 #define KVM_PAGES_PER_HPAGE(x)	(1UL<<31)
@@ -71,6 +73,7 @@ extern void kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte);
 #define HPTEG_HASH_NUM_VPTE		(1 << HPTEG_HASH_BITS_VPTE)
 #define HPTEG_HASH_NUM_VPTE_LONG	(1 << HPTEG_HASH_BITS_VPTE_LONG)
 
+/* Physical Address Mask - allowed range of real mode RAM access */
 #define KVM_PAM			0x0fffffffffffffffULL
 
 struct kvm;
@@ -91,7 +94,7 @@ struct kvm_vcpu_stat {
 	u32 dcr_exits;
 	u32 signal_exits;
 	u32 light_exits;
-	
+	/* Account for special types of light exits: */
 	u32 itlb_real_miss_exits;
 	u32 itlb_virt_miss_exits;
 	u32 dtlb_real_miss_exits;
@@ -147,6 +150,7 @@ enum kvm_exit_types {
 	__NUMBER_OF_KVM_EXIT_TYPES
 };
 
+/* allow access to big endian 32bit upper/lower parts and 64bit var */
 struct kvmppc_exit_timing {
 	union {
 		u64 tv64;
@@ -178,11 +182,24 @@ struct kvmppc_linear_info {
 	int		 type;
 };
 
+/*
+ * The reverse mapping array has one entry for each HPTE,
+ * which stores the guest's view of the second word of the HPTE
+ * (including the guest physical address of the mapping),
+ * plus forward and backward pointers in a doubly-linked ring
+ * of HPTEs that map the same host page.  The pointers in this
+ * ring are 32-bit HPTE indexes, to save space.
+ */
 struct revmap_entry {
 	unsigned long guest_rpte;
 	unsigned int forw, back;
 };
 
+/*
+ * We use the top bit of each memslot->rmap entry as a lock bit,
+ * and bit 32 as a present flag.  The bottom 32 bits are the
+ * index in the guest HPT of a HPTE that points to the page.
+ */
 #define KVMPPC_RMAP_LOCK_BIT	63
 #define KVMPPC_RMAP_RC_SHIFT	32
 #define KVMPPC_RMAP_REFERENCED	(HPTE_R_R << KVMPPC_RMAP_RC_SHIFT)
@@ -190,9 +207,10 @@ struct revmap_entry {
 #define KVMPPC_RMAP_PRESENT	0x100000000ul
 #define KVMPPC_RMAP_INDEX	0xfffffffful
 
+/* Low-order bits in kvm->arch.slot_phys[][] */
 #define KVMPPC_PAGE_ORDER_MASK	0x1f
-#define KVMPPC_PAGE_NO_CACHE	HPTE_R_I	
-#define KVMPPC_PAGE_WRITETHRU	HPTE_R_W	
+#define KVMPPC_PAGE_NO_CACHE	HPTE_R_I	/* 0x20 */
+#define KVMPPC_PAGE_WRITETHRU	HPTE_R_W	/* 0x40 */
 #define KVMPPC_GOT_PAGE		0x80
 
 struct kvm_arch_memory_slot {
@@ -221,9 +239,16 @@ struct kvm_arch {
 	unsigned short last_vcpu[NR_CPUS];
 	struct kvmppc_vcore *vcores[KVM_MAX_VCORES];
 	struct kvmppc_linear_info *hpt_li;
-#endif 
+#endif /* CONFIG_KVM_BOOK3S_64_HV */
 };
 
+/*
+ * Struct for a virtual core.
+ * Note: entry_exit_count combines an entry count in the bottom 8 bits
+ * and an exit count in the next 8 bits.  This is so that we can
+ * atomically increment the entry count iff the exit count is 0
+ * without taking the lock.
+ */
 struct kvmppc_vcore {
 	int n_runnable;
 	int n_busy;
@@ -243,6 +268,7 @@ struct kvmppc_vcore {
 #define VCORE_ENTRY_COUNT(vc)	((vc)->entry_exit_count & 0xff)
 #define VCORE_EXIT_COUNT(vc)	((vc)->entry_exit_count >> 8)
 
+/* Values for vcore_state */
 #define VCORE_INACTIVE	0
 #define VCORE_RUNNING	1
 #define VCORE_EXITING	2
@@ -258,13 +284,13 @@ struct kvmppc_pte {
 };
 
 struct kvmppc_mmu {
-	
+	/* book3s_64 only */
 	void (*slbmte)(struct kvm_vcpu *vcpu, u64 rb, u64 rs);
 	u64  (*slbmfee)(struct kvm_vcpu *vcpu, u64 slb_nr);
 	u64  (*slbmfev)(struct kvm_vcpu *vcpu, u64 slb_nr);
 	void (*slbie)(struct kvm_vcpu *vcpu, u64 slb_nr);
 	void (*slbia)(struct kvm_vcpu *vcpu);
-	
+	/* book3s */
 	void (*mtsrin)(struct kvm_vcpu *vcpu, u32 srnum, ulong value);
 	u32  (*mfsrin)(struct kvm_vcpu *vcpu, u32 srnum);
 	int  (*xlate)(struct kvm_vcpu *vcpu, gva_t eaddr, struct kvmppc_pte *pte, bool data);
@@ -284,8 +310,8 @@ struct kvmppc_slb {
 	bool Ks		: 1;
 	bool Kp		: 1;
 	bool nx		: 1;
-	bool large	: 1;	
-	bool tb		: 1;	
+	bool large	: 1;	/* PTEs are 16MB */
+	bool tb		: 1;	/* 1TB segment */
 	bool class	: 1;
 };
 
@@ -294,8 +320,8 @@ struct kvm_vcpu_arch {
 	u32 host_pid;
 #ifdef CONFIG_PPC_BOOK3S
 	struct kvmppc_slb slb[64];
-	int slb_max;		
-	int slb_nr;		
+	int slb_max;		/* 1 + index of last valid entry in slb[] */
+	int slb_nr;		/* total number of entries in SLB */
 	struct kvmppc_mmu mmu;
 #endif
 
@@ -320,7 +346,7 @@ struct kvm_vcpu_arch {
 #endif
 
 #ifdef CONFIG_PPC_BOOK3S
-	
+	/* For Gekko paired singles */
 	u32 qpr[32];
 #endif
 
@@ -342,7 +368,7 @@ struct kvm_vcpu_arch {
 	u32 ctrl;
 	ulong dabr;
 #endif
-	u32 vrsave; 
+	u32 vrsave; /* also USPRG0 */
 	u32 mmucr;
 	ulong shadow_msr;
 	ulong csrr0;
@@ -357,7 +383,7 @@ struct kvm_vcpu_arch {
 	u32 tbl;
 	u32 tbu;
 	u32 tcr;
-	ulong tsr; 
+	ulong tsr; /* we need to perform set/clr_bits() which requires ulong */
 	u32 ivor[64];
 	ulong ivpr;
 	u32 pvr;
@@ -403,7 +429,7 @@ struct kvm_vcpu_arch {
 #endif
 	gpa_t paddr_accessed;
 
-	u8 io_gpr; 
+	u8 io_gpr; /* GPR used as IO source/target */
 	u8 mmio_is_bigendian;
 	u8 mmio_sign_extend;
 	u8 dcr_needed;
@@ -415,7 +441,7 @@ struct kvm_vcpu_arch {
 	u8 cpu_type;
 	u8 hcall_needed;
 
-	u32 cpr0_cfgaddr; 
+	u32 cpr0_cfgaddr; /* holds the last set cpr0_cfgaddr */
 
 	struct hrtimer dec_timer;
 	struct tasklet_struct tasklet;
@@ -442,8 +468,8 @@ struct kvm_vcpu_arch {
 	wait_queue_head_t cpu_run;
 
 	struct kvm_vcpu_arch_shared *shared;
-	unsigned long magic_page_pa; 
-	unsigned long magic_page_ea; 
+	unsigned long magic_page_pa; /* phys addr to map the magic page to */
+	unsigned long magic_page_ea; /* effect. addr to map the magic page to */
 
 #ifdef CONFIG_KVM_BOOK3S_64_HV
 	struct kvm_vcpu_arch_shared shregs;
@@ -459,10 +485,12 @@ struct kvm_vcpu_arch {
 #endif
 };
 
+/* Values for vcpu->arch.state */
 #define KVMPPC_VCPU_STOPPED		0
 #define KVMPPC_VCPU_BUSY_IN_HOST	1
 #define KVMPPC_VCPU_RUNNABLE		2
 
+/* Values for vcpu->arch.io_gpr */
 #define KVM_MMIO_REG_MASK	0x001f
 #define KVM_MMIO_REG_EXT_MASK	0xffe0
 #define KVM_MMIO_REG_GPR	0x0000
@@ -470,4 +498,4 @@ struct kvm_vcpu_arch {
 #define KVM_MMIO_REG_QPR	0x0040
 #define KVM_MMIO_REG_FQPR	0x0060
 
-#endif 
+#endif /* __POWERPC_KVM_HOST_H__ */

@@ -28,14 +28,14 @@
 
 #define DRV_NAME "ide_pci_generic"
 
-static bool ide_generic_all;		
+static bool ide_generic_all;		/* Set to claim all devices */
 
 module_param_named(all_generic_ide, ide_generic_all, bool, 0444);
 MODULE_PARM_DESC(all_generic_ide, "IDE generic will claim all unknown PCI IDE storage controllers.");
 
 static void netcell_quirkproc(ide_drive_t *drive)
 {
-	
+	/* mark words 85-87 as valid */
 	drive->id[ATA_ID_CSF_DEFAULT] |= 0x4000;
 }
 
@@ -54,10 +54,10 @@ static const struct ide_port_ops netcell_port_ops = {
 	}
 
 static const struct ide_port_info generic_chipsets[] __devinitdata = {
-	
+	/*  0: Unknown */
 	DECLARE_GENERIC_PCI_DEV(0),
 
-	{	
+	{	/* 1: NS87410 */
 		.name		= DRV_NAME,
 		.enablebits	= { {0x43, 0x08, 0x08}, {0x47, 0x08, 0x08} },
 		.host_flags	= IDE_HFLAG_TRUST_BIOS_FOR_DMA,
@@ -66,14 +66,14 @@ static const struct ide_port_info generic_chipsets[] __devinitdata = {
 		.udma_mask	= ATA_UDMA6,
 	},
 
-	
+	/*  2: SAMURAI / HT6565 / HINT_IDE */
 	DECLARE_GENERIC_PCI_DEV(0),
-	
+	/*  3: UM8673F / UM8886A / UM8886BF */
 	DECLARE_GENERIC_PCI_DEV(IDE_HFLAG_NO_DMA),
-	
+	/*  4: VIA_IDE / OPTI621V / Piccolo010{2,3,5} */
 	DECLARE_GENERIC_PCI_DEV(IDE_HFLAG_NO_AUTODMA),
 
-	{	
+	{	/* 5: VIA8237SATA */
 		.name		= DRV_NAME,
 		.host_flags	= IDE_HFLAG_TRUST_BIOS_FOR_DMA |
 				  IDE_HFLAG_OFF_BOARD,
@@ -82,7 +82,7 @@ static const struct ide_port_info generic_chipsets[] __devinitdata = {
 		.udma_mask	= ATA_UDMA6,
 	},
 
-	{	
+	{	/* 6: Revolution */
 		.name		= DRV_NAME,
 		.port_ops	= &netcell_port_ops,
 		.host_flags	= IDE_HFLAG_CLEAR_SIMPLEX |
@@ -94,13 +94,21 @@ static const struct ide_port_info generic_chipsets[] __devinitdata = {
 	}
 };
 
+/**
+ *	generic_init_one	-	called when a PIIX is found
+ *	@dev: the generic device
+ *	@id: the matching pci id
+ *
+ *	Called when the PCI registration layer (or the IDE initialization)
+ *	finds a device matching our IDE device tables.
+ */
 
 static int __devinit generic_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	const struct ide_port_info *d = &generic_chipsets[id->driver_data];
 	int ret = -ENODEV;
 
-	
+	/* Don't use the generic entry unless instructed to do so */
 	if (id->driver_data == 0 && ide_generic_all == 0)
 			goto out;
 
@@ -108,7 +116,7 @@ static int __devinit generic_init_one(struct pci_dev *dev, const struct pci_devi
 	case PCI_VENDOR_ID_UMC:
 		if (dev->device == PCI_DEVICE_ID_UMC_UM8886A &&
 				!(PCI_FUNC(dev->devfn) & 1))
-			goto out; 
+			goto out; /* UM8886A/BF pair */
 		break;
 	case PCI_VENDOR_ID_OPTI:
 		if (dev->device == PCI_DEVICE_ID_OPTI_82C558 &&
@@ -159,6 +167,10 @@ static const struct pci_device_id generic_pci_tbl[] = {
 	{ PCI_VDEVICE(TOSHIBA,	PCI_DEVICE_ID_TOSHIBA_PICCOLO_3),	 4 },
 	{ PCI_VDEVICE(TOSHIBA,	PCI_DEVICE_ID_TOSHIBA_PICCOLO_5),	 4 },
 	{ PCI_VDEVICE(NETCELL,	PCI_DEVICE_ID_REVOLUTION),		 6 },
+	/*
+	 * Must come last.  If you add entries adjust
+	 * this table and generic_chipsets[] appropriately.
+	 */
 	{ PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_STORAGE_IDE << 8, 0xFFFFFF00UL, 0 },
 	{ 0, },
 };

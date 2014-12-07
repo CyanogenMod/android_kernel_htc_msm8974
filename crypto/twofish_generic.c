@@ -47,6 +47,9 @@
 #include <linux/crypto.h>
 #include <linux/bitops.h>
 
+/* Macros to compute the g() function in the encryption and decryption
+ * rounds.  G1 is the straight g() function; G2 includes the 8-bit
+ * rotation for the high 32-bit word. */
 
 #define G1(a) \
      (ctx->s[0][(a) & 0xFF]) ^ (ctx->s[1][((a) >> 8) & 0xFF]) \
@@ -56,6 +59,10 @@
      (ctx->s[1][(b) & 0xFF]) ^ (ctx->s[2][((b) >> 8) & 0xFF]) \
    ^ (ctx->s[3][((b) >> 16) & 0xFF]) ^ (ctx->s[0][(b) >> 24])
 
+/* Encryption and decryption Feistel rounds.  Each one calls the two g()
+ * macros, does the PHT, and performs the XOR and the appropriate bit
+ * rotations.  The parameters are the round number (used to select subkeys),
+ * and the four 32-bit chunks of the text. */
 
 #define ENCROUND(n, a, b, c, d) \
    x = G1 (a); y = G2 (b); \
@@ -72,6 +79,8 @@
    (c) = rol32((c), 1); \
    (c) ^= (x + ctx->k[2 * (n)])
 
+/* Encryption and decryption cycles; each one is simply two Feistel rounds
+ * with the 32-bit chunks re-ordered to simulate the "swap" */
 
 #define ENCCYCLE(n) \
    ENCROUND (2 * (n), a, b, c, d); \
@@ -81,6 +90,11 @@
    DECROUND (2 * (n) + 1, c, d, a, b); \
    DECROUND (2 * (n), a, b, c, d)
 
+/* Macros to convert the input and output bytes into 32-bit words,
+ * and simultaneously perform the whitening step.  INPACK packs word
+ * number n into the variable named by x, using whitening subkey number m.
+ * OUTUNPACK unpacks word number n from the variable named by x, using
+ * whitening subkey number m. */
 
 #define INPACK(n, x, m) \
    x = le32_to_cpu(src[n]) ^ ctx->w[m]
@@ -91,25 +105,26 @@
 
 
 
+/* Encrypt one block.  in and out may be the same. */
 static void twofish_encrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
 {
 	struct twofish_ctx *ctx = crypto_tfm_ctx(tfm);
 	const __le32 *src = (const __le32 *)in;
 	__le32 *dst = (__le32 *)out;
 
-	
+	/* The four 32-bit chunks of the text. */
 	u32 a, b, c, d;
 	
-	
+	/* Temporaries used by the round function. */
 	u32 x, y;
 
-	
+	/* Input whitening and packing. */
 	INPACK (0, a, 0);
 	INPACK (1, b, 1);
 	INPACK (2, c, 2);
 	INPACK (3, d, 3);
 	
-	
+	/* Encryption Feistel cycles. */
 	ENCCYCLE (0);
 	ENCCYCLE (1);
 	ENCCYCLE (2);
@@ -119,7 +134,7 @@ static void twofish_encrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
 	ENCCYCLE (6);
 	ENCCYCLE (7);
 	
-	
+	/* Output whitening and unpacking. */
 	OUTUNPACK (0, c, 4);
 	OUTUNPACK (1, d, 5);
 	OUTUNPACK (2, a, 6);
@@ -127,25 +142,26 @@ static void twofish_encrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
 	
 }
 
+/* Decrypt one block.  in and out may be the same. */
 static void twofish_decrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
 {
 	struct twofish_ctx *ctx = crypto_tfm_ctx(tfm);
 	const __le32 *src = (const __le32 *)in;
 	__le32 *dst = (__le32 *)out;
   
-	
+	/* The four 32-bit chunks of the text. */
 	u32 a, b, c, d;
 	
-	
+	/* Temporaries used by the round function. */
 	u32 x, y;
 	
-	
+	/* Input whitening and packing. */
 	INPACK (0, c, 4);
 	INPACK (1, d, 5);
 	INPACK (2, a, 6);
 	INPACK (3, b, 7);
 	
-	
+	/* Encryption Feistel cycles. */
 	DECCYCLE (7);
 	DECCYCLE (6);
 	DECCYCLE (5);
@@ -155,7 +171,7 @@ static void twofish_decrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
 	DECCYCLE (1);
 	DECCYCLE (0);
 
-	
+	/* Output whitening and unpacking. */
 	OUTUNPACK (0, a, 0);
 	OUTUNPACK (1, b, 1);
 	OUTUNPACK (2, c, 2);

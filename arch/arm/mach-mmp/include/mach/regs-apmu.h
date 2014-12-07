@@ -16,6 +16,7 @@
 #define APMU_VIRT_BASE	(AXI_VIRT_BASE + 0x82800)
 #define APMU_REG(x)	(APMU_VIRT_BASE + (x))
 
+/* Clock Reset Control */
 #define APMU_IRE	APMU_REG(0x048)
 #define APMU_LCD	APMU_REG(0x04c)
 #define APMU_CCIC	APMU_REG(0x050)
@@ -35,6 +36,7 @@
 #define APMU_FNRST_DIS	(1 << 1)
 #define APMU_AXIRST_DIS	(1 << 0)
 
+/* Wake Clear Register */
 #define APMU_WAKE_CLR	APMU_REG(0x07c)
 
 #define APMU_PXA168_KP_WAKE_CLR		(1 << 7)
@@ -46,4 +48,4 @@
 #define APMU_PXA168_SD2_WAKE_CLR	(1 << 1)
 #define APMU_PXA168_SD1_WAKE_CLR	(1 << 0)
 
-#endif 
+#endif /* __ASM_MACH_REGS_APMU_H */

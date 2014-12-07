@@ -285,6 +285,7 @@ enum {
 	NONGRACEFUL,
 };
 
+/* Caller must hold the list lock */
 static struct msm_dmov_cmd *start_ready_cmd(unsigned ch, int adm)
 {
 	struct msm_dmov_cmd *cmd;
@@ -336,6 +337,10 @@ static void msm_dmov_enqueue_cmd_ext_work(struct work_struct *work)
 		PRINT_IO("msm_dmov_enqueue_cmd(%d), start command, status %x\n",
 			id, status);
 		cmd = start_ready_cmd(ch, adm);
+		/*
+		 * We added something to the ready list, and still hold the
+		 * list lock. Thus, no need to check for cmd == NULL
+		 */
 		if (cmd->toflush) {
 			int flush = (cmd->toflush == GRACEFUL) ? 1 << 31 : 0;
 			writel_relaxed(flush, DMOV_REG(DMOV_FLUSH0(ch), adm));
@@ -381,7 +386,7 @@ EXPORT_SYMBOL(msm_dmov_enqueue_cmd_ext);
 
 void msm_dmov_enqueue_cmd(unsigned id, struct msm_dmov_cmd *cmd)
 {
-	
+	/* Disable callback function (for backwards compatibility) */
 	cmd->exec_func = NULL;
 	INIT_WORK(&cmd->work, msm_dmov_enqueue_cmd_ext_work);
 	__msm_dmov_enqueue_cmd_ext(id, cmd);
@@ -397,14 +402,14 @@ void msm_dmov_flush(unsigned int id, int graceful)
 	struct msm_dmov_cmd *cmd;
 
 	spin_lock_irqsave(&dmov_conf[adm].list_lock, irq_flags);
-	
+	/* XXX not checking if flush cmd sent already */
 	if (!list_empty(&dmov_conf[adm].active_commands[ch])) {
 		PRINT_IO("msm_dmov_flush(%d), send flush cmd\n", id);
 		writel_relaxed(flush, DMOV_REG(DMOV_FLUSH0(ch), adm));
 	}
 	list_for_each_entry(cmd, &dmov_conf[adm].staged_commands[ch], list)
 		cmd->toflush = graceful ? GRACEFUL : NONGRACEFUL;
-	
+	/* spin_unlock_irqrestore has the necessary barrier */
 	spin_unlock_irqrestore(&dmov_conf[adm].list_lock, irq_flags);
 }
 EXPORT_SYMBOL(msm_dmov_flush);
@@ -482,7 +487,7 @@ static irqreturn_t msm_dmov_isr(int irq, void *dev_id)
 	int adm = DMOV_IRQ_TO_ADM(irq);
 
 	mutex_lock(&dmov_conf[adm].lock);
-	
+	/* read and clear isr */
 	int_status = readl_relaxed(DMOV_REG(DMOV_ISR, adm));
 	PRINT_FLOW("msm_datamover_irq_handler: DMOV_ISR %x\n", int_status);
 
@@ -545,8 +550,8 @@ static irqreturn_t msm_dmov_isr(int irq, void *dev_id)
 					list_del(&cmd->list);
 					cmd->complete_func(cmd, ch_result, &errdata);
 				}
-				
-				
+				/* this does not seem to work, once we get an error */
+				/* the datamover will no longer accept commands */
 				writel_relaxed(0, DMOV_REG(DMOV_FLUSH0(ch),
 					       adm));
 			}
@@ -628,13 +633,13 @@ static int msm_dmov_init_clocks(struct platform_device *pdev)
 	dmov_conf[adm].pclk = clk_get(&pdev->dev, "iface_clk");
 	if (IS_ERR(dmov_conf[adm].pclk)) {
 		dmov_conf[adm].pclk = NULL;
-		
+		/* pclk not present on all SoCs, don't bail on failure */
 	}
 
 	dmov_conf[adm].ebiclk = clk_get(&pdev->dev, "mem_clk");
 	if (IS_ERR(dmov_conf[adm].ebiclk)) {
 		dmov_conf[adm].ebiclk = NULL;
-		
+		/* ebiclk not present on all SoCs, don't bail on failure */
 	} else {
 		ret = clk_set_rate(dmov_conf[adm].ebiclk, 27000000);
 		if (ret)
@@ -652,7 +657,7 @@ static void config_datamover(int adm)
 		struct msm_dmov_chan_conf *chan_conf =
 			dmov_conf[adm].chan_conf;
 		unsigned conf;
-		
+		/* Only configure scorpion channels */
 		if (chan_conf[i].sd <= 1) {
 			conf = readl_relaxed(DMOV_REG(DMOV_CONF(i), adm));
 			conf &= ~DMOV_CONF_SD(7);
@@ -756,6 +761,7 @@ static struct platform_driver msm_dmov_driver = {
 	},
 };
 
+/* static int __init */
 static int __init msm_init_datamover(void)
 {
 	int ret;

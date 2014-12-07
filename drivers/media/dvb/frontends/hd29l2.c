@@ -26,6 +26,7 @@ int hd29l2_debug;
 module_param_named(debug, hd29l2_debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off frontend debugging (default:off).");
 
+/* write multiple registers */
 static int hd29l2_wr_regs(struct hd29l2_priv *priv, u8 reg, u8 *val, int len)
 {
 	int ret;
@@ -54,6 +55,7 @@ static int hd29l2_wr_regs(struct hd29l2_priv *priv, u8 reg, u8 *val, int len)
 	return ret;
 }
 
+/* read multiple registers */
 static int hd29l2_rd_regs(struct hd29l2_priv *priv, u8 reg, u8 *val, int len)
 {
 	int ret;
@@ -83,16 +85,19 @@ static int hd29l2_rd_regs(struct hd29l2_priv *priv, u8 reg, u8 *val, int len)
 	return ret;
 }
 
+/* write single register */
 static int hd29l2_wr_reg(struct hd29l2_priv *priv, u8 reg, u8 val)
 {
 	return hd29l2_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register */
 static int hd29l2_rd_reg(struct hd29l2_priv *priv, u8 reg, u8 *val)
 {
 	return hd29l2_rd_regs(priv, reg, val, 1);
 }
 
+/* write single register with mask */
 static int hd29l2_wr_reg_mask(struct hd29l2_priv *priv, u8 reg, u8 val, u8 mask)
 {
 	int ret;
@@ -112,6 +117,7 @@ static int hd29l2_wr_reg_mask(struct hd29l2_priv *priv, u8 reg, u8 val, u8 mask)
 	return hd29l2_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register with mask */
 int hd29l2_rd_reg_mask(struct hd29l2_priv *priv, u8 reg, u8 *val, u8 mask)
 {
 	int ret, i;
@@ -123,7 +129,7 @@ int hd29l2_rd_reg_mask(struct hd29l2_priv *priv, u8 reg, u8 *val, u8 mask)
 
 	tmp &= mask;
 
-	
+	/* find position of the first bit */
 	for (i = 0; i < 8; i++) {
 		if ((mask >> i) & 0x01)
 			break;
@@ -166,9 +172,9 @@ static int hd29l2_i2c_gate_ctrl(struct dvb_frontend *fe, int enable)
 
 	dbg("%s: enable=%d", __func__, enable);
 
-	
+	/* set tuner address for demod */
 	if (!priv->tuner_i2c_addr_programmed && enable) {
-		
+		/* no need to set tuner address every time, once is enough */
 		ret = hd29l2_wr_reg(priv, 0x9d, priv->cfg.tuner_i2c_addr << 1);
 		if (ret)
 			goto err;
@@ -176,12 +182,12 @@ static int hd29l2_i2c_gate_ctrl(struct dvb_frontend *fe, int enable)
 		priv->tuner_i2c_addr_programmed = true;
 	}
 
-	
+	/* open / close gate */
 	ret = hd29l2_wr_reg(priv, 0x9f, enable);
 	if (ret)
 		goto err;
 
-	
+	/* wait demod ready */
 	for (i = 10; i; i--) {
 		ret = hd29l2_rd_reg(priv, 0x9e, &tmp);
 		if (ret)
@@ -214,7 +220,7 @@ static int hd29l2_read_status(struct dvb_frontend *fe, fe_status_t *status)
 		goto err;
 
 	if (buf[0] & 0x01) {
-		
+		/* full lock */
 		*status |= FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_VITERBI |
 			FE_HAS_SYNC | FE_HAS_LOCK;
 	} else {
@@ -223,7 +229,7 @@ static int hd29l2_read_status(struct dvb_frontend *fe, fe_status_t *status)
 			goto err;
 
 		if ((buf[1] & 0xfe) == 0x78)
-			
+			/* partial lock */
 			*status |= FE_HAS_SIGNAL | FE_HAS_CARRIER |
 				FE_HAS_VITERBI | FE_HAS_SYNC;
 	}
@@ -255,8 +261,8 @@ static int hd29l2_read_snr(struct dvb_frontend *fe, u16 *snr)
 
 	tmp = (buf[0] << 8) | buf[1];
 
-	
-	#define LOG10_20736_24 72422627 
+	/* report SNR in dB * 10 */
+	#define LOG10_20736_24 72422627 /* log10(20736) << 24 */
 	if (tmp)
 		*snr = (LOG10_20736_24 - intlog10(tmp)) / ((1 << 24) / 100);
 	else
@@ -284,7 +290,7 @@ static int hd29l2_read_signal_strength(struct dvb_frontend *fe, u16 *strength)
 	tmp = buf[0] << 8 | buf[1];
 	tmp = ~tmp & 0x0fff;
 
-	
+	/* scale value to 0x0000-0xffff from 0x0000-0x0fff */
 	*strength = tmp * 0xffff / 0x0fff;
 
 	return 0;
@@ -311,7 +317,7 @@ static int hd29l2_read_ber(struct dvb_frontend *fe, u32 *ber)
 		goto err;
 	}
 
-	
+	/* LDPC BER */
 	*ber = ((buf[0] & 0x0f) << 8) | buf[1];
 
 	return 0;
@@ -322,7 +328,7 @@ err:
 
 static int hd29l2_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 {
-	
+	/* no way to read? */
 	*ucblocks = 0;
 	return 0;
 }
@@ -344,46 +350,46 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 		c->delivery_system, c->frequency, c->bandwidth_hz,
 		c->modulation, c->inversion, c->fec_inner, c->guard_interval);
 
-	
+	/* as for now we detect always params automatically */
 	auto_mode = true;
 
-	
+	/* program tuner */
 	if (fe->ops.tuner_ops.set_params)
 		fe->ops.tuner_ops.set_params(fe);
 
-	
+	/* get and program IF */
 	if (fe->ops.tuner_ops.get_if_frequency)
 		fe->ops.tuner_ops.get_if_frequency(fe, &if_freq);
 	else
 		if_freq = 0;
 
 	if (if_freq) {
-		
+		/* normal IF */
 
-		
+		/* calc IF control value */
 		num64 = if_freq;
 		num64 *= 0x800000;
 		num64 = div_u64(num64, HD29L2_XTAL);
 		num64 -= 0x800000;
 		if_ctl = num64;
 
-		tmp = 0xfc; 
+		tmp = 0xfc; /* tuner type normal */
 	} else {
-		
+		/* zero IF */
 		if_ctl = 0;
-		tmp = 0xfe; 
+		tmp = 0xfe; /* tuner type Zero-IF */
 	}
 
 	buf[0] = ((if_ctl >>  0) & 0xff);
 	buf[1] = ((if_ctl >>  8) & 0xff);
 	buf[2] = ((if_ctl >> 16) & 0xff);
 
-	
+	/* program IF control */
 	ret = hd29l2_wr_regs(priv, 0x14, buf, 3);
 	if (ret)
 		goto err;
 
-	
+	/* program tuner type */
 	ret = hd29l2_wr_reg(priv, 0xab, tmp);
 	if (ret)
 		goto err;
@@ -391,8 +397,11 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 	dbg("%s: if_freq=%d if_ctl=%x", __func__, if_freq, if_ctl);
 
 	if (auto_mode) {
+		/*
+		 * use auto mode
+		 */
 
-		
+		/* disable quick mode */
 		ret = hd29l2_wr_reg_mask(priv, 0xac, 0 << 7, 0x80);
 		if (ret)
 			goto err;
@@ -401,7 +410,7 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 		if (ret)
 			goto err;
 
-		
+		/* enable auto mode */
 		ret = hd29l2_wr_reg_mask(priv, 0x7d, 1 << 6, 0x40);
 		if (ret)
 			goto err;
@@ -410,12 +419,12 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 		if (ret)
 			goto err;
 
-		
+		/* soft reset */
 		ret = hd29l2_soft_reset(priv);
 		if (ret)
 			goto err;
 
-		
+		/* detect modulation */
 		for (i = 30; i; i--) {
 			msleep(100);
 
@@ -431,14 +440,17 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 		dbg("%s: loop=%d", __func__, i);
 
 		if (i == 0)
-			
+			/* detection failed */
 			return DVBFE_ALGO_SEARCH_FAILED;
 
-		
+		/* read modulation */
 		ret = hd29l2_rd_reg_mask(priv, 0x7d, &modulation, 0x07);
 		if (ret)
 			goto err;
 	} else {
+		/*
+		 * use manual mode
+		 */
 
 		modulation = HD29L2_QAM64;
 		carrier = HD29L2_CARRIER_MULTI;
@@ -462,14 +474,14 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 			goto err;
 	}
 
-	
-	
+	/* ensure modulation validy */
+	/* 0=QAM4_NR, 1=QAM4, 2=QAM16, 3=QAM32, 4=QAM64 */
 	if (modulation > (ARRAY_SIZE(reg_mod_vals_tab[0].val) - 1)) {
 		dbg("%s: modulation=%d not valid", __func__, modulation);
 		goto err;
 	}
 
-	
+	/* program registers according to modulation */
 	for (i = 0; i < ARRAY_SIZE(reg_mod_vals_tab); i++) {
 		ret = hd29l2_wr_reg(priv, reg_mod_vals_tab[i].reg,
 			reg_mod_vals_tab[i].val[modulation]);
@@ -477,12 +489,12 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 			goto err;
 	}
 
-	
+	/* read guard interval */
 	ret = hd29l2_rd_reg_mask(priv, 0x81, &guard_interval, 0x03);
 	if (ret)
 		goto err;
 
-	
+	/* read carrier mode */
 	ret = hd29l2_rd_reg_mask(priv, 0x81, &carrier, 0x04);
 	if (ret)
 		goto err;
@@ -505,16 +517,16 @@ static enum dvbfe_search hd29l2_search(struct dvb_frontend *fe)
 
 	usleep_range(10000, 20000);
 
-	
+	/* soft reset */
 	ret = hd29l2_soft_reset(priv);
 	if (ret)
 		goto err;
 
-	
+	/* wait demod lock */
 	for (i = 30; i; i--) {
 		msleep(100);
 
-		
+		/* read lock bit */
 		ret = hd29l2_rd_reg_mask(priv, 0x05, &tmp, 0x01);
 		if (ret)
 			goto err;
@@ -558,15 +570,15 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 	if (ret)
 		goto err;
 
-	
+	/* constellation, 0x7d[2:0] */
 	switch ((buf[0] >> 0) & 0x07) {
-	case 0: 
+	case 0: /* QAM4NR */
 		str_constellation = "QAM4NR";
-		c->modulation = QAM_AUTO; 
+		c->modulation = QAM_AUTO; /* FIXME */
 		break;
-	case 1: 
+	case 1: /* QAM4 */
 		str_constellation = "QAM4";
-		c->modulation = QPSK; 
+		c->modulation = QPSK; /* FIXME */
 		break;
 	case 2:
 		str_constellation = "QAM16";
@@ -584,17 +596,17 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 		str_constellation = "?";
 	}
 
-	
+	/* LDPC code rate, 0x7d[4:3] */
 	switch ((buf[0] >> 3) & 0x03) {
-	case 0: 
+	case 0: /* 0.4 */
 		str_code_rate = "0.4";
-		c->fec_inner = FEC_AUTO; 
+		c->fec_inner = FEC_AUTO; /* FIXME */
 		break;
-	case 1: 
+	case 1: /* 0.6 */
 		str_code_rate = "0.6";
 		c->fec_inner = FEC_3_5;
 		break;
-	case 2: 
+	case 2: /* 0.8 */
 		str_code_rate = "0.8";
 		c->fec_inner = FEC_4_5;
 		break;
@@ -602,7 +614,7 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 		str_code_rate = "?";
 	}
 
-	
+	/* constellation & code rate set, 0x7d[6] */
 	switch ((buf[0] >> 6) & 0x01) {
 	case 0:
 		str_constellation_code_rate = "manual";
@@ -614,25 +626,25 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 		str_constellation_code_rate = "?";
 	}
 
-	
+	/* frame header, 0x81[1:0] */
 	switch ((buf[1] >> 0) & 0x03) {
-	case 0: 
+	case 0: /* PN945 */
 		str_guard_interval = "PN945";
-		c->guard_interval = GUARD_INTERVAL_AUTO; 
+		c->guard_interval = GUARD_INTERVAL_AUTO; /* FIXME */
 		break;
-	case 1: 
+	case 1: /* PN595 */
 		str_guard_interval = "PN595";
-		c->guard_interval = GUARD_INTERVAL_AUTO; 
+		c->guard_interval = GUARD_INTERVAL_AUTO; /* FIXME */
 		break;
-	case 2: 
+	case 2: /* PN420 */
 		str_guard_interval = "PN420";
-		c->guard_interval = GUARD_INTERVAL_AUTO; 
+		c->guard_interval = GUARD_INTERVAL_AUTO; /* FIXME */
 		break;
 	default:
 		str_guard_interval = "?";
 	}
 
-	
+	/* carrier, 0x81[2] */
 	switch ((buf[1] >> 2) & 0x01) {
 	case 0:
 		str_carrier = "C=1";
@@ -644,7 +656,7 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 		str_carrier = "?";
 	}
 
-	
+	/* frame header & carrier set, 0x81[3] */
 	switch ((buf[1] >> 3) & 0x01) {
 	case 0:
 		str_guard_interval_carrier = "manual";
@@ -656,7 +668,7 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 		str_guard_interval_carrier = "?";
 	}
 
-	
+	/* interleave, 0x82[0] */
 	switch ((buf[2] >> 0) & 0x01) {
 	case 0:
 		str_interleave = "M=720";
@@ -668,7 +680,7 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 		str_interleave = "?";
 	}
 
-	
+	/* interleave set, 0x82[1] */
 	switch ((buf[2] >> 1) & 0x01) {
 	case 0:
 		str_interleave_ = "manual";
@@ -680,6 +692,12 @@ static int hd29l2_get_frontend(struct dvb_frontend *fe)
 		str_interleave_ = "?";
 	}
 
+	/*
+	 * We can read out current detected NCO and use that value next
+	 * time instead of calculating new value from targed IF.
+	 * I think it will not effect receiver sensitivity but gaining lock
+	 * after tune could be easier...
+	 */
 	ret = hd29l2_rd_regs(priv, 0xb1, &buf[0], 3);
 	if (ret)
 		goto err;
@@ -714,25 +732,25 @@ static int hd29l2_init(struct dvb_frontend *fe)
 
 	dbg("%s:", __func__);
 
-	
-	
+	/* reset demod */
+	/* it is recommended to HW reset chip using RST_N pin */
 	if (fe->callback) {
 		ret = fe->callback(fe, DVB_FRONTEND_COMPONENT_DEMOD, 0, 0);
 		if (ret)
 			goto err;
 
-		
+		/* reprogramming needed because HW reset clears registers */
 		priv->tuner_i2c_addr_programmed = false;
 	}
 
-	
+	/* init */
 	for (i = 0; i < ARRAY_SIZE(tab); i++) {
 		ret = hd29l2_wr_reg(priv, tab[i].reg, tab[i].val);
 		if (ret)
 			goto err;
 	}
 
-	
+	/* TS params */
 	ret = hd29l2_rd_reg(priv, 0x36, &tmp);
 	if (ret)
 		goto err;
@@ -747,7 +765,7 @@ static int hd29l2_init(struct dvb_frontend *fe)
 	tmp &= 0xef;
 
 	if (!(priv->cfg.ts_mode >> 7))
-		
+		/* set b4 for serial TS */
 		tmp |= 0x10;
 
 	ret = hd29l2_wr_reg(priv, 0x31, tmp);
@@ -775,22 +793,22 @@ struct dvb_frontend *hd29l2_attach(const struct hd29l2_config *config,
 	struct hd29l2_priv *priv = NULL;
 	u8 tmp;
 
-	
+	/* allocate memory for the internal state */
 	priv = kzalloc(sizeof(struct hd29l2_priv), GFP_KERNEL);
 	if (priv == NULL)
 		goto err;
 
-	
+	/* setup the state */
 	priv->i2c = i2c;
 	memcpy(&priv->cfg, config, sizeof(struct hd29l2_config));
 
 
-	
+	/* check if the demod is there */
 	ret = hd29l2_rd_reg(priv, 0x00, &tmp);
 	if (ret)
 		goto err;
 
-	
+	/* create dvb_frontend */
 	memcpy(&priv->fe.ops, &hd29l2_ops, sizeof(struct dvb_frontend_ops));
 	priv->fe.demodulator_priv = priv;
 

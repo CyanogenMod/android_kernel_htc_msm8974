@@ -26,6 +26,23 @@
 #include "11n.h"
 #include "11n_aggr.h"
 
+/*
+ * Creates an AMSDU subframe for aggregation into one AMSDU packet.
+ *
+ * The resultant AMSDU subframe format is -
+ *
+ * +---- ~ -----+---- ~ ------+---- ~ -----+----- ~ -----+---- ~ -----+
+ * |     DA     |     SA      |   Length   | SNAP header |   MSDU     |
+ * | data[0..5] | data[6..11] |            |             | data[14..] |
+ * +---- ~ -----+---- ~ ------+---- ~ -----+----- ~ -----+---- ~ -----+
+ * <--6-bytes--> <--6-bytes--> <--2-bytes--><--8-bytes--> <--n-bytes-->
+ *
+ * This function also computes the amount of padding required to make the
+ * buffer length multiple of 4 bytes.
+ *
+ * Data => |DA|SA|SNAP-TYPE|........    .|
+ * MSDU => |DA|SA|Length|SNAP|......   ..|
+ */
 static int
 mwifiex_11n_form_amsdu_pkt(struct sk_buff *skb_aggr,
 			   struct sk_buff *skb_src, int *pad)
@@ -33,11 +50,11 @@ mwifiex_11n_form_amsdu_pkt(struct sk_buff *skb_aggr,
 {
 	int dt_offset;
 	struct rfc_1042_hdr snap = {
-		0xaa,		
-		0xaa,		
-		0x03,		
-		{0x00, 0x00, 0x00},	
-		0x0000		
+		0xaa,		/* LLC DSAP */
+		0xaa,		/* LLC SSAP */
+		0x03,		/* LLC CTRL */
+		{0x00, 0x00, 0x00},	/* SNAP OUI */
+		0x0000		/* SNAP type */
 			/*
 			 * This field will be overwritten
 			 * later with ethertype
@@ -49,11 +66,11 @@ mwifiex_11n_form_amsdu_pkt(struct sk_buff *skb_aggr,
 
 	tx_header = (struct tx_packet_hdr *) skb_aggr->data;
 
-	
+	/* Copy DA and SA */
 	dt_offset = 2 * ETH_ALEN;
 	memcpy(&tx_header->eth803_hdr, skb_src->data, dt_offset);
 
-	
+	/* Copy SNAP header */
 	snap.snap_type = *(u16 *) ((u8 *)skb_src->data + dt_offset);
 	dt_offset += sizeof(u16);
 
@@ -61,10 +78,10 @@ mwifiex_11n_form_amsdu_pkt(struct sk_buff *skb_aggr,
 
 	skb_pull(skb_src, dt_offset);
 
-	
+	/* Update Length field */
 	tx_header->eth803_hdr.h_proto = htons(skb_src->len + LLC_SNAP_LEN);
 
-	
+	/* Add payload */
 	skb_put(skb_aggr, skb_src->len);
 	memcpy(skb_aggr->data + sizeof(*tx_header), skb_src->data,
 	       skb_src->len);
@@ -75,6 +92,12 @@ mwifiex_11n_form_amsdu_pkt(struct sk_buff *skb_aggr,
 	return skb_aggr->len + *pad;
 }
 
+/*
+ * Adds TxPD to AMSDU header.
+ *
+ * Each AMSDU packet will contain one TxPD at the beginning,
+ * followed by multiple AMSDU subframes.
+ */
 static void
 mwifiex_11n_form_amsdu_txpd(struct mwifiex_private *priv,
 			    struct sk_buff *skb)
@@ -92,14 +115,14 @@ mwifiex_11n_form_amsdu_txpd(struct mwifiex_private *priv,
 		mwifiex_wmm_compute_drv_pkt_delay(priv, skb);
 	local_tx_pd->bss_num = priv->bss_num;
 	local_tx_pd->bss_type = priv->bss_type;
-	
+	/* Always zero as the data is followed by struct txpd */
 	local_tx_pd->tx_pkt_offset = cpu_to_le16(sizeof(struct txpd));
 	local_tx_pd->tx_pkt_type = cpu_to_le16(PKT_TYPE_AMSDU);
 	local_tx_pd->tx_pkt_length = cpu_to_le16(skb->len -
 						 sizeof(*local_tx_pd));
 
 	if (local_tx_pd->tx_control == 0)
-		
+		/* TxCtrl set by user or default */
 		local_tx_pd->tx_control = cpu_to_le32(priv->pkt_tx_ctrl);
 
 	if (GET_BSS_ROLE(priv) == MWIFIEX_BSS_ROLE_STA &&
@@ -112,6 +135,22 @@ mwifiex_11n_form_amsdu_txpd(struct mwifiex_private *priv,
 	}
 }
 
+/*
+ * Create aggregated packet.
+ *
+ * This function creates an aggregated MSDU packet, by combining buffers
+ * from the RA list. Each individual buffer is encapsulated as an AMSDU
+ * subframe and all such subframes are concatenated together to form the
+ * AMSDU packet.
+ *
+ * A TxPD is also added to the front of the resultant AMSDU packets for
+ * transmission. The resultant packets format is -
+ *
+ * +---- ~ ----+------ ~ ------+------ ~ ------+-..-+------ ~ ------+
+ * |    TxPD   |AMSDU sub-frame|AMSDU sub-frame| .. |AMSDU sub-frame|
+ * |           |       1       |       2       | .. |       n       |
+ * +---- ~ ----+------ ~ ------+------ ~ ------+ .. +------ ~ ------+
+ */
 int
 mwifiex_11n_aggregate_pkt(struct mwifiex_private *priv,
 			  struct mwifiex_ra_list_tbl *pra_list, int headroom,
@@ -148,7 +187,7 @@ mwifiex_11n_aggregate_pkt(struct mwifiex_private *priv,
 	skb_aggr->priority = skb_src->priority;
 
 	do {
-		
+		/* Check if AMSDU can accommodate this MSDU */
 		if (skb_tailroom(skb_aggr) < (skb_src->len + LLC_SNAP_LEN))
 			break;
 
@@ -184,16 +223,27 @@ mwifiex_11n_aggregate_pkt(struct mwifiex_private *priv,
 
 	spin_unlock_irqrestore(&priv->wmm.ra_list_spinlock, ra_list_flags);
 
-	
+	/* Last AMSDU packet does not need padding */
 	skb_trim(skb_aggr, skb_aggr->len - pad);
 
-	
+	/* Form AMSDU */
 	mwifiex_11n_form_amsdu_txpd(priv, skb_aggr);
 	if (GET_BSS_ROLE(priv) == MWIFIEX_BSS_ROLE_STA)
 		ptx_pd = (struct txpd *)skb_aggr->data;
 
 	skb_push(skb_aggr, headroom);
 
+	/*
+	 * Padding per MSDU will affect the length of next
+	 * packet and hence the exact length of next packet
+	 * is uncertain here.
+	 *
+	 * Also, aggregation of transmission buffer, while
+	 * downloading the data to the card, wont gain much
+	 * on the AMSDU packets as the AMSDU packets utilizes
+	 * the transmission buffer space to the maximum
+	 * (adapter->tx_buf_size).
+	 */
 	tx_param.next_pkt_len = 0;
 
 	ret = adapter->if_ops.host_to_card(adapter, MWIFIEX_TYPE_DATA,
@@ -247,7 +297,7 @@ mwifiex_11n_aggregate_pkt(struct mwifiex_private *priv,
 			priv->wmm.packets_out[ptrindex]++;
 			priv->wmm.tid_tbl_ptr[ptrindex].ra_list_curr = pra_list;
 		}
-		
+		/* Now bss_prio_cur pointer points to next node */
 		adapter->bss_prio_tbl[priv->bss_priority].bss_prio_cur =
 			list_first_entry(
 				&adapter->bss_prio_tbl[priv->bss_priority]

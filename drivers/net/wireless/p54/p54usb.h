@@ -14,15 +14,19 @@
  * published by the Free Software Foundation.
  */
 
+/* for isl3886 register definitions used on ver 1 devices */
 #include "p54pci.h"
 #include "net2280.h"
 
+/* pci */
 #define NET2280_BASE		0x10000000
 #define NET2280_BASE2		0x20000000
 
+/* gpio */
 #define P54U_BRG_POWER_UP	(1 << GPIO0_DATA)
 #define P54U_BRG_POWER_DOWN	(1 << GPIO1_DATA)
 
+/* devinit */
 #define NET2280_CLK_4Mhz	(15 << LOCAL_CLOCK_FREQUENCY)
 #define NET2280_CLK_30Mhz	(2 << LOCAL_CLOCK_FREQUENCY)
 #define NET2280_CLK_60Mhz	(1 << LOCAL_CLOCK_FREQUENCY)
@@ -30,13 +34,16 @@
 #define NET2280_PCI_ENABLE	(1 << PCI_ENABLE)
 #define NET2280_PCI_SOFT_RESET	(1 << PCI_SOFT_RESET)
 
+/* endpoints */
 #define NET2280_CLEAR_NAK_OUT_PACKETS_MODE	(1 << CLEAR_NAK_OUT_PACKETS_MODE)
 #define NET2280_FIFO_FLUSH			(1 << FIFO_FLUSH)
 
+/* irq */
 #define NET2280_USB_INTERRUPT_ENABLE		(1 << USB_INTERRUPT_ENABLE)
 #define NET2280_PCI_INTA_INTERRUPT		(1 << PCI_INTA_INTERRUPT)
 #define NET2280_PCI_INTA_INTERRUPT_ENABLE	(1 << PCI_INTA_INTERRUPT_ENABLE)
 
+/* registers */
 #define NET2280_DEVINIT		0x00
 #define NET2280_USBIRQENB1	0x24
 #define NET2280_IRQSTAT1	0x2c
@@ -61,7 +68,7 @@
 struct net2280_tx_hdr {
 	__le32 device_addr;
 	__le16 len;
-	__le16 follower;	
+	__le16 follower;	/* ? */
 	u8 padding[8];
 } __packed;
 
@@ -70,6 +77,8 @@ struct lm87_tx_hdr {
 	__le32 chksum;
 } __packed;
 
+/* Some flags for the isl hardware registers controlling DMA inside the
+ * chip */
 #define ISL38XX_DMA_STATUS_DONE			0x00000001
 #define ISL38XX_DMA_STATUS_READY		0x00000002
 #define NET2280_EPA_FIFO_PCI_ADDR		0x20000000
@@ -96,6 +105,7 @@ struct x2_header {
 	__le32 crc;
 } __packed;
 
+/* pipes 3 and 4 are not used by the driver */
 #define P54U_PIPE_NUMBER 9
 
 enum p54u_pipe_addr {
@@ -118,7 +128,7 @@ enum p54u_hw_type {
 	P54U_NET2280,
 	P54U_3887,
 
-	
+	/* keep last */
 	__NUM_P54U_HWTYPES,
 };
 
@@ -135,4 +145,4 @@ struct p54u_priv {
 	const struct firmware *fw;
 };
 
-#endif 
+#endif /* P54USB_H */

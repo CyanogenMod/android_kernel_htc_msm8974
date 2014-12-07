@@ -1,5 +1,6 @@
 #include "../sysfs.h"
 
+/* metering ic types of attribute */
 
 #define IIO_DEV_ATTR_CURRENT_A_OFFSET(_mode, _show, _store, _addr)	\
 	IIO_DEVICE_ATTR(current_a_offset, _mode, _show, _store, _addr)
@@ -346,36 +347,50 @@
 #define IIO_DEV_ATTR_CH_OFF(_num, _mode, _show, _store, _addr)			\
   IIO_DEVICE_ATTR(choff_##_num, _mode, _show, _store, _addr)
 
+/* active energy register, AENERGY, is more than half full */
 #define IIO_EVENT_ATTR_AENERGY_HALF_FULL(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(aenergy_half_full, _evlist, _show, _store, _mask)
 
+/* a SAG on the line voltage */
 #define IIO_EVENT_ATTR_LINE_VOLT_SAG(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(line_volt_sag, _evlist, _show, _store, _mask)
 
+/*
+ * Indicates the end of energy accumulation over an integer number
+ * of half line cycles
+ */
 #define IIO_EVENT_ATTR_CYCEND(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(cycend, _evlist, _show, _store, _mask)
 
+/* on the rising and falling edge of the voltage waveform */
 #define IIO_EVENT_ATTR_ZERO_CROSS(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(zero_cross, _evlist, _show, _store, _mask)
 
+/* the active energy register has overflowed */
 #define IIO_EVENT_ATTR_AENERGY_OVERFLOW(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(aenergy_overflow, _evlist, _show, _store, _mask)
 
+/* the apparent energy register has overflowed */
 #define IIO_EVENT_ATTR_VAENERGY_OVERFLOW(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(vaenergy_overflow, _evlist, _show, _store, _mask)
 
+/* the active energy register, VAENERGY, is more than half full */
 #define IIO_EVENT_ATTR_VAENERGY_HALF_FULL(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(vaenergy_half_full, _evlist, _show, _store, _mask)
 
+/* the power has gone from negative to positive */
 #define IIO_EVENT_ATTR_PPOS(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(ppos, _evlist, _show, _store, _mask)
 
+/* the power has gone from positive to negative */
 #define IIO_EVENT_ATTR_PNEG(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(pneg, _evlist, _show, _store, _mask)
 
+/* waveform sample from Channel 1 has exceeded the IPKLVL value */
 #define IIO_EVENT_ATTR_IPKLVL_EXC(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(ipklvl_exc, _evlist, _show, _store, _mask)
 
+/* waveform sample from Channel 2 has exceeded the VPKLVL value */
 #define IIO_EVENT_ATTR_VPKLVL_EXC(_evlist, _show, _store, _mask) \
 	IIO_EVENT_ATTR_SH(vpklvl_exc, _evlist, _show, _store, _mask)
 

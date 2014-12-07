@@ -19,6 +19,79 @@
     along with this program; if not, write to the Free Software
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
+/*
+Driver: ni_atmio
+Description: National Instruments AT-MIO-E series
+Author: ds
+Devices: [National Instruments] AT-MIO-16E-1 (ni_atmio),
+  AT-MIO-16E-2, AT-MIO-16E-10, AT-MIO-16DE-10, AT-MIO-64E-3,
+  AT-MIO-16XE-50, AT-MIO-16XE-10, AT-AI-16XE-10
+Status: works
+Updated: Thu May  1 20:03:02 CDT 2003
+
+The driver has 2.6 kernel isapnp support, and
+will automatically probe for a supported board if the
+I/O base is left unspecified with comedi_config.
+However, many of
+the isapnp id numbers are unknown.  If your board is not
+recognized, please send the output of 'cat /proc/isapnp'
+(you may need to modprobe the isa-pnp module for
+/proc/isapnp to exist) so the
+id numbers for your board can be added to the driver.
+
+Otherwise, you can use the isapnptools package to configure
+your board.  Use isapnp to
+configure the I/O base and IRQ for the board, and then pass
+the same values as
+parameters in comedi_config.  A sample isapnp.conf file is included
+in the etc/ directory of Comedilib.
+
+Comedilib includes a utility to autocalibrate these boards.  The
+boards seem to boot into a state where the all calibration DACs
+are at one extreme of their range, thus the default calibration
+is terrible.  Calibration at boot is strongly encouraged.
+
+To use the extended digital I/O on some of the boards, enable the
+8255 driver when configuring the Comedi source tree.
+
+External triggering is supported for some events.  The channel index
+(scan_begin_arg, etc.) maps to PFI0 - PFI9.
+
+Some of the more esoteric triggering possibilities of these boards
+are not supported.
+*/
+/*
+	The real guts of the driver is in ni_mio_common.c, which is included
+	both here and in ni_pcimio.c
+
+	Interrupt support added by Truxton Fulton <trux@truxton.com>
+
+	References for specifications:
+
+	   340747b.pdf  Register Level Programmer Manual (obsolete)
+	   340747c.pdf  Register Level Programmer Manual (new)
+	   DAQ-STC reference manual
+
+	Other possibly relevant info:
+
+	   320517c.pdf  User manual (obsolete)
+	   320517f.pdf  User manual (new)
+	   320889a.pdf  delete
+	   320906c.pdf  maximum signal ratings
+	   321066a.pdf  about 16x
+	   321791a.pdf  discontinuation of at-mio-16e-10 rev. c
+	   321808a.pdf  about at-mio-16e-10 rev P
+	   321837a.pdf  discontinuation of at-mio-16de-10 rev d
+	   321838a.pdf  about at-mio-16de-10 rev N
+
+	ISSUES:
+
+	need to deal with external reference for DAC, and other DAC
+	properties in board properties
+
+	deal with at-mio-16de-10 revision D to N changes, etc.
+
+*/
 
 #include <linux/interrupt.h>
 #include "../comedidev.h"
@@ -34,6 +107,9 @@
 #define ATMIO 1
 #undef PCIMIO
 
+/*
+ *  AT specific setup
+ */
 
 #define NI_SIZE 0x20
 
@@ -41,7 +117,7 @@
 
 static const struct ni_board_struct ni_boards[] = {
 	{.device_id = 44,
-	 .isapnp_id = 0x0000,	
+	 .isapnp_id = 0x0000,	/* XXX unknown */
 	 .name = "at-mio-16e-1",
 	 .n_adchan = 16,
 	 .adbits = 12,
@@ -155,7 +231,7 @@ static const struct ni_board_struct ni_boards[] = {
 	 .has_8255 = 0,
 	 },
 	{.device_id = 50,
-	 .isapnp_id = 0x0000,	
+	 .isapnp_id = 0x0000,	/* XXX unknown */
 	 .name = "at-mio-16xe-10",
 	 .n_adchan = 16,
 	 .adbits = 16,
@@ -174,12 +250,12 @@ static const struct ni_board_struct ni_boards[] = {
 	 .has_8255 = 0,
 	 },
 	{.device_id = 51,
-	 .isapnp_id = 0x0000,	
+	 .isapnp_id = 0x0000,	/* XXX unknown */
 	 .name = "at-ai-16xe-10",
 	 .n_adchan = 16,
 	 .adbits = 16,
 	 .ai_fifo_depth = 512,
-	 .alwaysdither = 1,	
+	 .alwaysdither = 1,	/* unknown */
 	 .gainlkup = ai_gain_14,
 	 .ai_speed = 10000,
 	 .n_aochan = 0,
@@ -210,6 +286,7 @@ struct ni_private {
 
 #define devpriv ((struct ni_private *)dev->private)
 
+/* How we access registers */
 
 #define ni_writel(a, b)		(outl((a), (b)+dev->iobase))
 #define ni_readl(a)		(inl((a)+dev->iobase))
@@ -218,6 +295,7 @@ struct ni_private {
 #define ni_writeb(a, b)		(outb((a), (b)+dev->iobase))
 #define ni_readb(a)		(inb((a)+dev->iobase))
 
+/* How we access windowed registers */
 
 /* We automatically take advantage of STC registers that can be
  * read/written directly in the I/O space of the board.  The
@@ -292,6 +370,7 @@ module_exit(driver_atmio_cleanup_module);
 
 static int ni_getboardtype(struct comedi_device *dev);
 
+/* clean up allocated resources */
 static int ni_atmio_detach(struct comedi_device *dev)
 {
 	mio_common_detach(dev);
@@ -354,7 +433,7 @@ static int ni_atmio_attach(struct comedi_device *dev,
 	int board;
 	unsigned int irq;
 
-	
+	/* allocate private area */
 	ret = ni_alloc_private(dev);
 	if (ret < 0)
 		return ret;
@@ -377,7 +456,7 @@ static int ni_atmio_attach(struct comedi_device *dev,
 		devpriv->isapnp_dev = isapnp_dev;
 	}
 
-	
+	/* reserve our I/O region */
 
 	printk("comedi%d: ni_atmio: 0x%04lx", dev->minor, iobase);
 	if (!request_region(iobase, NI_SIZE, "ni_atmio")) {
@@ -388,7 +467,7 @@ static int ni_atmio_attach(struct comedi_device *dev,
 	dev->iobase = iobase;
 
 #ifdef DEBUG
-	
+	/* board existence sanity check */
 	{
 		int i;
 
@@ -400,7 +479,7 @@ static int ni_atmio_attach(struct comedi_device *dev,
 	}
 #endif
 
-	
+	/* get board type */
 
 	board = ni_getboardtype(dev);
 	if (board < 0)
@@ -411,7 +490,7 @@ static int ni_atmio_attach(struct comedi_device *dev,
 	printk(" %s", boardtype.name);
 	dev->board_name = boardtype.name;
 
-	
+	/* irq stuff */
 
 	if (irq != 0) {
 		if (irq > 15 || ni_irqpin[irq] == -1) {
@@ -429,7 +508,7 @@ static int ni_atmio_attach(struct comedi_device *dev,
 		dev->irq = irq;
 	}
 
-	
+	/* generic E series stuff in ni_mio_common.c */
 
 	ret = ni_E_init(dev, it);
 	if (ret < 0)

@@ -39,6 +39,11 @@
 #define DO 0
 #define UNDO 1
 
+/**
+ * gfs2_tune_init - Fill a gfs2_tune structure with default values
+ * @gt: tune
+ *
+ */
 
 static void gfs2_tune_init(struct gfs2_tune *gt)
 {
@@ -116,6 +121,16 @@ static struct gfs2_sbd *init_sbd(struct super_block *sb)
 }
 
 
+/**
+ * gfs2_check_sb - Check superblock
+ * @sdp: the filesystem
+ * @sb: The superblock
+ * @silent: Don't print a message if the check fails
+ *
+ * Checks the version code of the FS is one that we understand how to
+ * read and that the sizes of the various on-disk structures have not
+ * changed.
+ */
 
 static int gfs2_check_sb(struct gfs2_sbd *sdp, int silent)
 {
@@ -128,7 +143,7 @@ static int gfs2_check_sb(struct gfs2_sbd *sdp, int silent)
 		return -EINVAL;
 	}
 
-	
+	/*  If format numbers match exactly, we're done.  */
 
 	if (sb->sb_fs_format == GFS2_FORMAT_FS &&
 	    sb->sb_multihost_format == GFS2_FORMAT_MULTI)
@@ -228,6 +243,12 @@ static int gfs2_read_super(struct gfs2_sbd *sdp, sector_t sector, int silent)
 	return gfs2_check_sb(sdp, silent);
 }
 
+/**
+ * gfs2_read_sb - Read super block
+ * @sdp: The GFS2 superblock
+ * @silent: Don't print message if mount fails
+ *
+ */
 
 static int gfs2_read_sb(struct gfs2_sbd *sdp, int silent)
 {
@@ -258,7 +279,7 @@ static int gfs2_read_sb(struct gfs2_sbd *sdp, int silent)
 				sizeof(struct gfs2_meta_header)) /
 			        sizeof(struct gfs2_quota_change);
 
-	
+	/* Compute maximum reservation required to add a entry to a directory */
 
 	hash_blocks = DIV_ROUND_UP(sizeof(u64) * (1 << GFS2_DIR_MAX_DEPTH),
 			     sdp->sd_jbsize);
@@ -322,7 +343,7 @@ static int init_names(struct gfs2_sbd *sdp, int silent)
 	proto = sdp->sd_args.ar_lockproto;
 	table = sdp->sd_args.ar_locktable;
 
-	
+	/*  Try to autodetect  */
 
 	if (!proto[0] || !table[0]) {
 		error = gfs2_read_super(sdp, GFS2_SB_ADDR >> sdp->sd_fsb2bb_shift, silent);
@@ -444,7 +465,7 @@ static int init_sb(struct gfs2_sbd *sdp, int silent)
 		goto out;
 	}
 
-	
+	/* Set up the buffer cache and SB for real */
 	if (sdp->sd_sb.sb_bsize < bdev_logical_block_size(sb->s_bdev)) {
 		ret = -EINVAL;
 		fs_err(sdp, "FS block size (%u) is too small for device "
@@ -461,13 +482,13 @@ static int init_sb(struct gfs2_sbd *sdp, int silent)
 	}
 	sb_set_blocksize(sb, sdp->sd_sb.sb_bsize);
 
-	
+	/* Get the root inode */
 	no_addr = sdp->sd_sb.sb_root_dir.no_addr;
 	ret = gfs2_lookup_root(sb, &sdp->sd_root_dir, no_addr, "root");
 	if (ret)
 		goto out;
 
-	
+	/* Get the master inode */
 	no_addr = sdp->sd_sb.sb_master_dir.no_addr;
 	ret = gfs2_lookup_root(sb, &sdp->sd_master_dir, no_addr, "master");
 	if (ret) {
@@ -480,11 +501,28 @@ out:
 	return ret;
 }
 
+/**
+ * map_journal_extents - create a reusable "extent" mapping from all logical
+ * blocks to all physical blocks for the given journal.  This will save
+ * us time when writing journal blocks.  Most journals will have only one
+ * extent that maps all their logical blocks.  That's because gfs2.mkfs
+ * arranges the journal blocks sequentially to maximize performance.
+ * So the extent would map the first block for the entire file length.
+ * However, gfs2_jadd can happen while file activity is happening, so
+ * those journals may not be sequential.  Less likely is the case where
+ * the users created their own journals by mounting the metafs and
+ * laying it out.  But it's still possible.  These journals might have
+ * several extents.
+ *
+ * TODO: This should be done in bigger chunks rather than one block at a time,
+ *       but since it's only done at mount time, I'm not worried about the
+ *       time it takes.
+ */
 static int map_journal_extents(struct gfs2_sbd *sdp)
 {
 	struct gfs2_jdesc *jd = sdp->sd_jdesc;
 	unsigned int lb;
-	u64 db, prev_db; 
+	u64 db, prev_db; /* logical block, disk block, prev disk block */
 	struct gfs2_inode *ip = GFS2_I(jd->jd_inode);
 	struct gfs2_journal_extent *jext = NULL;
 	struct buffer_head bh;
@@ -537,6 +575,13 @@ static void gfs2_others_may_mount(struct gfs2_sbd *sdp)
 	kobject_uevent_env(&sdp->sd_kobj, KOBJ_CHANGE, envp);
 }
 
+/**
+ * gfs2_jindex_hold - Grab a lock on the jindex
+ * @sdp: The GFS2 superblock
+ * @ji_gh: the holder for the jindex glock
+ *
+ * Returns: errno
+ */
 
 static int gfs2_jindex_hold(struct gfs2_sbd *sdp, struct gfs2_holder *ji_gh)
 {
@@ -616,7 +661,7 @@ static int init_journal(struct gfs2_sbd *sdp, int undo)
 		return PTR_ERR(sdp->sd_jindex);
 	}
 
-	
+	/* Load in the journal index special file */
 
 	error = gfs2_jindex_hold(sdp, &ji_gh);
 	if (error) {
@@ -675,7 +720,7 @@ static int init_journal(struct gfs2_sbd *sdp, int undo)
 		atomic_set(&sdp->sd_log_thresh1, 2*sdp->sd_jdesc->jd_blocks/5);
 		atomic_set(&sdp->sd_log_thresh2, 4*sdp->sd_jdesc->jd_blocks/5);
 
-		
+		/* Map the extents for this journal's blocks */
 		map_journal_extents(sdp);
 	}
 	trace_gfs2_log_blocks(sdp, atomic_read(&sdp->sd_log_blks_free));
@@ -735,7 +780,7 @@ static int init_inodes(struct gfs2_sbd *sdp, int undo)
 	if (error)
 		goto fail;
 
-	
+	/* Read in the master statfs inode */
 	sdp->sd_statfs_inode = gfs2_lookup_simple(master, "statfs");
 	if (IS_ERR(sdp->sd_statfs_inode)) {
 		error = PTR_ERR(sdp->sd_statfs_inode);
@@ -743,7 +788,7 @@ static int init_inodes(struct gfs2_sbd *sdp, int undo)
 		goto fail_journal;
 	}
 
-	
+	/* Read in the resource index inode */
 	sdp->sd_rindex = gfs2_lookup_simple(master, "rindex");
 	if (IS_ERR(sdp->sd_rindex)) {
 		error = PTR_ERR(sdp->sd_rindex);
@@ -752,7 +797,7 @@ static int init_inodes(struct gfs2_sbd *sdp, int undo)
 	}
 	sdp->sd_rindex_uptodate = 0;
 
-	
+	/* Read in the quota inode */
 	sdp->sd_quota_inode = gfs2_lookup_simple(master, "quota");
 	if (IS_ERR(sdp->sd_quota_inode)) {
 		error = PTR_ERR(sdp->sd_quota_inode);
@@ -896,6 +941,14 @@ static const struct lm_lockops nolock_ops = {
 	.lm_tokens = &nolock_tokens,
 };
 
+/**
+ * gfs2_lm_mount - mount a locking protocol
+ * @sdp: the filesystem
+ * @args: mount arguments
+ * @silent: if 1, don't complain if the FS isn't a GFS2 fs
+ *
+ * Returns: errno
+ */
 
 static int gfs2_lm_mount(struct gfs2_sbd *sdp, int silent)
 {
@@ -941,7 +994,7 @@ static int gfs2_lm_mount(struct gfs2_sbd *sdp, int silent)
 				ls->ls_jid = option;
 			break;
 		case Opt_id:
-			
+			/* Obsolete, but left for backward compat purposes */
 			break;
 		case Opt_first:
 			ret = match_int(&tmp[0], &option);
@@ -1010,6 +1063,14 @@ void gfs2_online_uevent(struct gfs2_sbd *sdp)
 	kobject_uevent_env(&sdp->sd_kobj, KOBJ_ONLINE, envp);
 }
 
+/**
+ * fill_super - Read in superblock
+ * @sb: The VFS superblock
+ * @data: Mount options
+ * @silent: Don't complain if it's not a GFS2 filesystem
+ *
+ * Returns: errno
+ */
 
 static int fill_super(struct super_block *sb, struct gfs2_args *args, int silent)
 {
@@ -1044,6 +1105,8 @@ static int fill_super(struct super_block *sb, struct gfs2_args *args, int silent
 	sb->s_time_gran = 1;
 	sb->s_maxbytes = MAX_LFS_FILESIZE;
 
+	/* Set up the buffer cache and fill in some fake block size values
+	   to allow us to read-in the on-disk superblock. */
 	sdp->sd_sb.sb_bsize = sb_min_blocksize(sb, GFS2_BASIC_BLOCK);
 	sdp->sd_sb.sb_bsize_shift = sb->s_blocksize_bits;
 	sdp->sd_fsb2bb_shift = sdp->sd_sb.sb_bsize_shift -
@@ -1088,6 +1151,14 @@ static int fill_super(struct super_block *sb, struct gfs2_args *args, int silent
 	if (error)
 		goto fail_sb;
 
+	/*
+	 * If user space has failed to join the cluster or some similar
+	 * failure has occurred, then the journal id will contain a
+	 * negative (error) number. This will then be returned to the
+	 * caller (of the mount syscall). We do this even for spectator
+	 * mounts (which just write a jid of 0 to indicate "ok" even though
+	 * the jid is unused in the spectator case)
+	 */
 	if (sdp->sd_lockstruct.ls_jid < 0) {
 		error = sdp->sd_lockstruct.ls_jid;
 		sdp->sd_lockstruct.ls_jid = 0;
@@ -1165,6 +1236,10 @@ static int set_gfs2_super(struct super_block *s, void *data)
 	s->s_bdev = data;
 	s->s_dev = s->s_bdev->bd_dev;
 
+	/*
+	 * We set the bdi here to the queue backing, file systems can
+	 * overwrite this in ->fill_super()
+	 */
 	s->s_bdi = &bdev_get_queue(s->s_bdev)->backing_dev_info;
 	return 0;
 }
@@ -1175,6 +1250,19 @@ static int test_gfs2_super(struct super_block *s, void *ptr)
 	return (bdev == s->s_bdev);
 }
 
+/**
+ * gfs2_mount - Get the GFS2 superblock
+ * @fs_type: The GFS2 filesystem type
+ * @flags: Mount flags
+ * @dev_name: The name of the device
+ * @data: The mount arguments
+ *
+ * Q. Why not use get_sb_bdev() ?
+ * A. We need to select one of two root directories to mount, independent
+ *    of whether this is the initial, or subsequent, mount of this sb
+ *
+ * Returns: 0 or -ve on error
+ */
 
 static struct dentry *gfs2_mount(struct file_system_type *fs_type, int flags,
 		       const char *dev_name, void *data)
@@ -1193,6 +1281,11 @@ static struct dentry *gfs2_mount(struct file_system_type *fs_type, int flags,
 	if (IS_ERR(bdev))
 		return ERR_CAST(bdev);
 
+	/*
+	 * once the super is inserted into the list by sget, s_umount
+	 * will protect the lockfs code from trying to start a snapshot
+	 * while we are mounting
+	 */
 	mutex_lock(&bdev->bd_fsfreeze_mutex);
 	if (bdev->bd_fsfreeze_count > 0) {
 		mutex_unlock(&bdev->bd_fsfreeze_mutex);

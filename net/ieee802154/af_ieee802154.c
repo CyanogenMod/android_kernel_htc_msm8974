@@ -26,7 +26,7 @@
 #include <linux/module.h>
 #include <linux/if_arp.h>
 #include <linux/if.h>
-#include <linux/termios.h>	
+#include <linux/termios.h>	/* For TIOCOUTQ/INQ */
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <net/datalink.h>
@@ -40,6 +40,9 @@
 
 #include "af802154.h"
 
+/*
+ * Utility function for families
+ */
 struct net_device *ieee802154_get_dev(struct net *net,
 		struct ieee802154_addr *addr)
 {
@@ -233,6 +236,10 @@ static const struct proto_ops ieee802154_dgram_ops = {
 };
 
 
+/*
+ * Create a socket. Initialise the socket, blank the addresses
+ * set the state.
+ */
 static int ieee802154_create(struct net *net, struct socket *sock,
 			     int protocol, int kern)
 {
@@ -267,10 +274,10 @@ static int ieee802154_create(struct net *net, struct socket *sock,
 	sock->ops = ops;
 
 	sock_init_data(sock, sk);
-	
+	/* FIXME: sk->sk_destruct */
 	sk->sk_family = PF_IEEE802154;
 
-	
+	/* Checksums on by default */
 	sock_set_flag(sk, SOCK_ZAPPED);
 
 	if (sk->sk_prot->hash)
@@ -335,7 +342,7 @@ static int __init af_ieee802154_init(void)
 	if (rc)
 		goto err_dgram;
 
-	
+	/* Tell SOCKET that we are alive */
 	rc = sock_register(&ieee802154_family_ops);
 	if (rc)
 		goto err_sock;

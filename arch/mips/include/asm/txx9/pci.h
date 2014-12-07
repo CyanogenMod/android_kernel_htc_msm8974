@@ -36,4 +36,4 @@ extern enum txx9_pci_err_action txx9_pci_err_action;
 extern char * (*txx9_board_pcibios_setup)(char *str);
 char *txx9_pcibios_setup(char *str);
 
-#endif 
+#endif /* __ASM_TXX9_PCI_H */

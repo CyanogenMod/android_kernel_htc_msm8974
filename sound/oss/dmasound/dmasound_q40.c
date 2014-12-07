@@ -29,10 +29,11 @@
 #define DMASOUND_Q40_REVISION 0
 #define DMASOUND_Q40_EDITION 3
 
-static int expand_bal;	
-static int expand_data;	
+static int expand_bal;	/* Balance factor for expanding (not volume!) */
+static int expand_data;	/* Data for expanding */
 
 
+/*** Low level stuff *********************************************************/
 
 
 static void *Q40Alloc(unsigned int size, gfp_t flags);
@@ -52,9 +53,11 @@ static irqreturn_t Q40MonoInterrupt(int irq, void *dummy);
 static void Q40Interrupt(void);
 
 
+/*** Mid level stuff *********************************************************/
 
 
 
+/* userCount, frameUsed, frameLeft == byte counts */
 static ssize_t q40_ct_law(const u_char __user *userPtr, size_t userCount,
 			   u_char frame[], ssize_t *frameUsed,
 			   ssize_t frameLeft)
@@ -110,6 +113,7 @@ static ssize_t q40_ct_u8(const u_char __user *userPtr, size_t userCount,
 }
 
 
+/* a bit too complicated to optimise right now ..*/
 static ssize_t q40_ctx_law(const u_char __user *userPtr, size_t userCount,
 			    u_char frame[], ssize_t *frameUsed,
 			    ssize_t frameLeft)
@@ -219,6 +223,7 @@ static ssize_t q40_ctx_u8(const u_char __user *userPtr, size_t userCount,
 	return utotal;
 }
 
+/* compressing versions */
 static ssize_t q40_ctc_law(const u_char __user *userPtr, size_t userCount,
 			    u_char frame[], ssize_t *frameUsed,
 			    ssize_t frameLeft)
@@ -351,10 +356,11 @@ static TRANS transQ40Compressing = {
 };
 
 
+/*** Low level stuff *********************************************************/
 
 static void *Q40Alloc(unsigned int size, gfp_t flags)
 {
-         return kmalloc(size, flags); 
+         return kmalloc(size, flags); /* change to vmalloc */
 }
 
 static void Q40Free(void *ptr, unsigned int size)
@@ -364,7 +370,7 @@ static void Q40Free(void *ptr, unsigned int size)
 
 static int __init Q40IrqInit(void)
 {
-	
+	/* Register interrupt handler. */
 	if (request_irq(Q40_IRQ_SAMPLE, Q40StereoInterrupt, 0,
 		    "DMA sound", Q40Interrupt))
 		return 0;
@@ -379,7 +385,7 @@ static void Q40IrqCleanUp(void)
         master_outb(0,SAMPLE_ENABLE_REG);
 	free_irq(Q40_IRQ_SAMPLE, Q40Interrupt);
 }
-#endif 
+#endif /* MODULE */
 
 
 static void Q40Silence(void)
@@ -398,6 +404,9 @@ static void Q40PlayNextFrame(int index)
 	u_char speed;
 	int error;
 
+	/* used by Q40Play() if all doubts whether there really is something
+	 * to be played are already wiped out.
+	 */
 	start = write_sq.buffers[write_sq.front];
 	size = (write_sq.count == index ? write_sq.rear_size : write_sq.block_size);
 
@@ -430,12 +439,15 @@ static void Q40Play(void)
         unsigned long flags;
 
 	if (write_sq.active || write_sq.count<=0 ) {
-		
+		/* There's already a frame loaded */
 		return;
 	}
 
-	
+	/* nothing in the queue */
 	if (write_sq.count <= 1 && write_sq.rear_size < write_sq.block_size && !write_sq.syncing) {
+	         /* hmmm, the only existing frame is not
+		  * yet filled and we're not syncing?
+		  */
 	         return;
 	}
 	spin_lock_irqsave(&dmasound.lock, flags);
@@ -470,15 +482,18 @@ static irqreturn_t Q40MonoInterrupt(int irq, void *dummy)
 static void Q40Interrupt(void)
 {
 	if (!write_sq.active) {
+	          /* playing was interrupted and sq_reset() has already cleared
+		   * the sq variables, so better don't do anything here.
+		   */
 	           WAKE_UP(write_sq.sync_queue);
-		   master_outb(0,SAMPLE_ENABLE_REG); 
+		   master_outb(0,SAMPLE_ENABLE_REG); /* better safe */
 		   goto exit;
 	} else write_sq.active=0;
 	write_sq.count--;
 	Q40Play();
 
 	if (q40_sc<2)
-	      { 
+	      { /* there was nothing to play, disable irq */
 		master_outb(0,SAMPLE_ENABLE_REG);
 		*DAC_LEFT=*DAC_RIGHT=127;
 	      }
@@ -494,7 +509,7 @@ static void Q40Init(void)
 	int i, idx;
 	const int freq[] = {10000, 20000};
 
-	
+	/* search a frequency that fits into the allowed error range */
 
 	idx = -1;
 	for (i = 0; i < 2; i++)
@@ -502,7 +517,7 @@ static void Q40Init(void)
 			idx = i;
 
 	dmasound.hard = dmasound.soft;
-	 
+	/*sound.hard.stereo=1;*/ /* no longer true */
 	dmasound.hard.size=8;
 
 	if (idx > -1) {
@@ -514,7 +529,7 @@ static void Q40Init(void)
 	Q40Silence();
 
 	if (dmasound.hard.speed > 20200) {
-		
+		/* squeeze the sound, we do that */
 		dmasound.hard.speed = 20000;
 		dmasound.trans_write = &transQ40Compressing;
 	} else if (dmasound.hard.speed > 10000) {
@@ -528,7 +543,7 @@ static void Q40Init(void)
 
 static int Q40SetFormat(int format)
 {
-	
+	/* Q40 sound supports only 8bit modes */
 
 	switch (format) {
 	case AFMT_QUERY:
@@ -559,6 +574,7 @@ static int Q40SetVolume(int volume)
 }
 
 
+/*** Machine definitions *****************************************************/
 
 static SETTINGS def_hard = {
 	.format	= AFMT_U8,
@@ -583,7 +599,7 @@ static MACHINE machQ40 = {
 	.irqinit	= Q40IrqInit,
 #ifdef MODULE
 	.irqcleanup	= Q40IrqCleanUp,
-#endif 
+#endif /* MODULE */
 	.init		= Q40Init,
 	.silence	= Q40Silence,
 	.setFormat	= Q40SetFormat,
@@ -591,11 +607,12 @@ static MACHINE machQ40 = {
 	.play		= Q40Play,
  	.min_dsp_speed	= 10000,
 	.version	= ((DMASOUND_Q40_REVISION<<8) | DMASOUND_Q40_EDITION),
-	.hardware_afmts	= AFMT_U8, 
-	.capabilities	= DSP_CAP_BATCH  
+	.hardware_afmts	= AFMT_U8, /* h'ware-supported formats *only* here */
+	.capabilities	= DSP_CAP_BATCH  /* As per SNDCTL_DSP_GETCAPS */
 };
 
 
+/*** Config & Setup **********************************************************/
 
 
 static int __init dmasound_q40_init(void)

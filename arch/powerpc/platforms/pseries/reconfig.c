@@ -25,7 +25,13 @@
 
 
 
+/*
+ * Routines for "runtime" addition and removal of device tree nodes.
+ */
 #ifdef CONFIG_PROC_DEVICETREE
+/*
+ * Add a node to /proc/device-tree.
+ */
 static void add_node_proc_entries(struct device_node *np)
 {
 	struct proc_dir_entry *ent;
@@ -47,7 +53,7 @@ static void remove_node_proc_entries(struct device_node *np)
 	if (np->pde)
 		remove_proc_entry(np->pde->name, parent->pde);
 }
-#else 
+#else /* !CONFIG_PROC_DEVICETREE */
 static void add_node_proc_entries(struct device_node *np)
 {
 	return;
@@ -57,15 +63,23 @@ static void remove_node_proc_entries(struct device_node *np)
 {
 	return;
 }
-#endif 
+#endif /* CONFIG_PROC_DEVICETREE */
 
+/**
+ *	derive_parent - basically like dirname(1)
+ *	@path:  the full_name of a node to be added to the tree
+ *
+ *	Returns the node which should be the parent of the node
+ *	described by path.  E.g., for path = "/foo/bar", returns
+ *	the node with full_name = "/foo".
+ */
 static struct device_node *derive_parent(const char *path)
 {
 	struct device_node *parent = NULL;
 	char *parent_path = "/";
 	size_t parent_path_len = strrchr(path, '/') - path + 1;
 
-	
+	/* reject if path is "/" */
 	if (!strcmp(path, "/"))
 		return ERR_PTR(-EINVAL);
 
@@ -169,10 +183,15 @@ static int pSeries_reconfig_remove_node(struct device_node *np)
 	of_detach_node(np);
 
 	of_node_put(parent);
-	of_node_put(np); 
+	of_node_put(np); /* Must decrement the refcount */
 	return 0;
 }
 
+/*
+ * /proc/powerpc/ofdt - yucky binary interface for adding and removing
+ * OF device nodes.  Should be deprecated as soon as we get an
+ * in-kernel wrapper for the RTAS ibm,configure-connector call.
+ */
 
 static void release_prop_list(const struct property *prop)
 {
@@ -186,6 +205,18 @@ static void release_prop_list(const struct property *prop)
 
 }
 
+/**
+ * parse_next_property - process the next property from raw input buffer
+ * @buf: input buffer, must be nul-terminated
+ * @end: end of the input buffer + 1, for validation
+ * @name: return value; set to property name in buf
+ * @length: return value; set to length of value
+ * @value: return value; set to the property value in buf
+ *
+ * Note that the caller must make copies of the name and value returned,
+ * this function does no allocation or copying of the data.  Return value
+ * is set to the next name in buf, or NULL on error.
+ */
 static char * parse_next_property(char *buf, char *end, char **name, int *length,
 				  unsigned char **value)
 {
@@ -207,7 +238,7 @@ static char * parse_next_property(char *buf, char *end, char **name, int *length
 		return NULL;
 	}
 
-	
+	/* now we're on the length */
 	*length = -1;
 	*length = simple_strtoul(tmp, &tmp, 10);
 	if (*length == -1) {
@@ -221,7 +252,7 @@ static char * parse_next_property(char *buf, char *end, char **name, int *length
 		return NULL;
 	}
 
-	
+	/* now we're on the value */
 	*value = tmp;
 	tmp += *length;
 	if (tmp > end) {
@@ -236,7 +267,7 @@ static char * parse_next_property(char *buf, char *end, char **name, int *length
 	}
 	tmp++;
 
-	
+	/* and now we should be on the next name, or the end */
 	return tmp;
 }
 
@@ -288,7 +319,7 @@ static int do_add_node(char *buf, size_t bufsize)
 		return -EINVAL;
 	}
 
-	
+	/* rv = build_prop_list(tmp, bufsize - (tmp - buf), &proplist); */
 	while (buf < end &&
 	       (buf = parse_next_property(buf, end, &name, &length, &value))) {
 		struct property *last = prop;
@@ -427,6 +458,12 @@ static int do_update_property(char *buf, size_t bufsize)
 	if (rc)
 		return rc;
 
+	/* For memory under the ibm,dynamic-reconfiguration-memory node
+	 * of the device tree, adding and removing memory is just an update
+	 * to the ibm,dynamic-memory property instead of adding/removing a
+	 * memory node in the device tree.  For these cases we still need to
+	 * involve the notifier chain.
+	 */
 	if (!strcmp(name, "ibm,dynamic-memory")) {
 		int action;
 
@@ -450,6 +487,18 @@ static int do_update_property(char *buf, size_t bufsize)
 	return 0;
 }
 
+/**
+ * ofdt_write - perform operations on the Open Firmware device tree
+ *
+ * @file: not used
+ * @buf: command and arguments
+ * @count: size of the command buffer
+ * @off: not used
+ *
+ * Operations supported at this time are addition and removal of
+ * whole nodes along with their properties.  Operations on individual
+ * properties are not implemented (yet).
+ */
 static ssize_t ofdt_write(struct file *file, const char __user *buf, size_t count,
 			  loff_t *off)
 {
@@ -498,6 +547,7 @@ static const struct file_operations ofdt_fops = {
 	.llseek = noop_llseek,
 };
 
+/* create /proc/powerpc/ofdt write-only by root */
 static int proc_ppc64_create_ofdt(void)
 {
 	struct proc_dir_entry *ent;

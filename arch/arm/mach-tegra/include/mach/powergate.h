@@ -46,6 +46,7 @@ int tegra_powergate_power_on(int id);
 int tegra_powergate_power_off(int id);
 int tegra_powergate_remove_clamping(int id);
 
+/* Must be called with clk disabled, and returns with clk enabled */
 int tegra_powergate_sequence_power_up(int id, struct clk *clk);
 
-#endif 
+#endif /* _MACH_TEGRA_POWERGATE_H_ */

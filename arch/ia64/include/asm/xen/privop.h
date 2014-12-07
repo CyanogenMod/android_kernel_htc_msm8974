@@ -15,12 +15,15 @@
  */
 
 #ifndef __ASSEMBLY__
-#include <linux/types.h>		
+#include <linux/types.h>		/* arch-ia64.h requires uint64_t */
 #endif
 #include <asm/xen/interface.h>
 
+/* At 1 MB, before per-cpu space but still addressable using addl instead
+   of movl. */
 #define XSI_BASE			0xfffffffffff00000
 
+/* Address of mapped regs.  */
 #define XMAPPEDREGS_BASE		(XSI_BASE + XSI_SIZE)
 
 #ifdef __ASSEMBLY__
@@ -58,20 +61,42 @@
 
 #ifndef __ASSEMBLY__
 
+/************************************************/
+/* Instructions paravirtualized for correctness */
+/************************************************/
 
+/* "fc" and "thash" are privilege-sensitive instructions, meaning they
+ *  may have different semantics depending on whether they are executed
+ *  at PL0 vs PL!=0.  When paravirtualized, these instructions mustn't
+ *  be allowed to execute directly, lest incorrect semantics result. */
 extern void xen_fc(void *addr);
 extern unsigned long xen_thash(unsigned long addr);
 
+/* Note that "ttag" and "cover" are also privilege-sensitive; "ttag"
+ * is not currently used (though it may be in a long-format VHPT system!)
+ * and the semantics of cover only change if psr.ic is off which is very
+ * rare (and currently non-existent outside of assembly code */
 
+/* There are also privilege-sensitive registers.  These registers are
+ * readable at any privilege level but only writable at PL0. */
 extern unsigned long xen_get_cpuid(int index);
 extern unsigned long xen_get_pmd(int index);
 
 #ifndef ASM_SUPPORTED
-extern unsigned long xen_get_eflag(void);	
-extern void xen_set_eflag(unsigned long);	
+extern unsigned long xen_get_eflag(void);	/* see xen_ia64_getreg */
+extern void xen_set_eflag(unsigned long);	/* see xen_ia64_setreg */
 #endif
 
+/************************************************/
+/* Instructions paravirtualized for performance */
+/************************************************/
 
+/* Xen uses memory-mapped virtual privileged registers for access to many
+ * performance-sensitive privileged registers.  Some, like the processor
+ * status register (psr), are broken up into multiple memory locations.
+ * Others, like "pend", are abstractions based on privileged registers.
+ * "Pend" is guaranteed to be set if reading cr.ivr would return a
+ * (non-spurious) interrupt. */
 #define XEN_MAPPEDREGS ((struct mapped_regs *)XMAPPEDREGS_BASE)
 
 #define XSI_PSR_I			\
@@ -86,6 +111,9 @@ extern void xen_set_eflag(unsigned long);
 	(*(((uint8_t *)XEN_MAPPEDREGS->interrupt_mask_addr) - 1))
 
 #ifndef ASM_SUPPORTED
+/* Although all privileged operations can be left to trap and will
+ * be properly handled by Xen, some are frequent enough that we use
+ * hyperprivops for performance. */
 extern unsigned long xen_get_psr(void);
 extern unsigned long xen_get_ivr(void);
 extern unsigned long xen_get_tpr(void);
@@ -100,8 +128,8 @@ extern void xen_set_rr0_to_rr4(unsigned long val0, unsigned long val1,
 			       unsigned long val4);
 extern void xen_set_kr(unsigned long index, unsigned long val);
 extern void xen_ptcga(unsigned long addr, unsigned long size);
-#endif 
+#endif /* !ASM_SUPPORTED */
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_IA64_XEN_PRIVOP_H */

@@ -32,6 +32,7 @@
 
 #define AR7_REGS_MAC0	(AR7_REGS_BASE + 0x0000)
 #define AR7_REGS_GPIO	(AR7_REGS_BASE + 0x0900)
+/* 0x08610A00 - 0x08610BFF (512 bytes, 128 bytes / clock) */
 #define AR7_REGS_POWER	(AR7_REGS_BASE + 0x0a00)
 #define AR7_REGS_CLOCKS (AR7_REGS_POWER + 0x80)
 #define UR8_REGS_CLOCKS (AR7_REGS_POWER + 0x20)
@@ -50,6 +51,7 @@
 #define UR8_REGS_WDT	(AR7_REGS_BASE + 0x0b00)
 #define UR8_REGS_UART1	(AR7_REGS_BASE + 0x0f00)
 
+/* Titan registers */
 #define TITAN_REGS_ESWITCH_BASE	(0x08640000)
 #define TITAN_REGS_MAC0		(TITAN_REGS_ESWITCH_BASE)
 #define TITAN_REGS_MAC1		(TITAN_REGS_ESWITCH_BASE + 0x0800)
@@ -68,6 +70,7 @@
 
 #define TITAN_RESET_BIT_EPHY1	28
 
+/* GPIO control registers */
 #define AR7_GPIO_INPUT	0x0
 #define AR7_GPIO_OUTPUT	0x4
 #define AR7_GPIO_DIR	0x8
@@ -90,13 +93,16 @@
 #define TITAN_CHIP_1056	0x0d
 #define TITAN_CHIP_1060	0x07
 
+/* Interrupts */
 #define AR7_IRQ_UART0	15
 #define AR7_IRQ_UART1	16
 
+/* Clocks */
 #define AR7_AFE_CLOCK	35328000
 #define AR7_REF_CLOCK	25000000
 #define AR7_XTAL_CLOCK	24000000
 
+/* DCL */
 #define AR7_WDT_HW_ENA	0x10
 
 struct plat_cpmac_data {
@@ -197,4 +203,4 @@ static inline void ar7_device_off(u32 bit)
 int __init ar7_gpio_init(void);
 void __init ar7_init_clocks(void);
 
-#endif 
+#endif /* __AR7_H__ */

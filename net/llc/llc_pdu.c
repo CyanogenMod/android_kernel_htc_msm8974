@@ -23,6 +23,15 @@ void llc_pdu_set_cmd_rsp(struct sk_buff *skb, u8 pdu_type)
 	llc_pdu_un_hdr(skb)->ssap |= pdu_type;
 }
 
+/**
+ *	pdu_set_pf_bit - sets poll/final bit in LLC header
+ *	@pdu_frame: input frame that p/f bit must be set into it.
+ *	@bit_value: poll/final bit (0 or 1).
+ *
+ *	This function sets poll/final bit in LLC header (based on type of PDU).
+ *	in I or S pdus, p/f bit is right bit of fourth byte in header. in U
+ *	pdus p/f bit is fifth bit of third byte.
+ */
 void llc_pdu_set_pf_bit(struct sk_buff *skb, u8 bit_value)
 {
 	u8 pdu_type;
@@ -42,6 +51,15 @@ void llc_pdu_set_pf_bit(struct sk_buff *skb, u8 bit_value)
 	}
 }
 
+/**
+ *	llc_pdu_decode_pf_bit - extracs poll/final bit from LLC header
+ *	@skb: input skb that p/f bit must be extracted from it
+ *	@pf_bit: poll/final bit (0 or 1)
+ *
+ *	This function extracts poll/final bit from LLC header (based on type of
+ *	PDU). In I or S pdus, p/f bit is right bit of fourth byte in header. In
+ *	U pdus p/f bit is fifth bit of third byte.
+ */
 void llc_pdu_decode_pf_bit(struct sk_buff *skb, u8 *pf_bit)
 {
 	u8 pdu_type;
@@ -61,6 +79,13 @@ void llc_pdu_decode_pf_bit(struct sk_buff *skb, u8 *pf_bit)
 	}
 }
 
+/**
+ *	llc_pdu_init_as_disc_cmd - Builds DISC PDU
+ *	@skb: Address of the skb to build
+ *	@p_bit: The P bit to set in the PDU
+ *
+ *	Builds a pdu frame as a DISC command.
+ */
 void llc_pdu_init_as_disc_cmd(struct sk_buff *skb, u8 p_bit)
 {
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
@@ -70,17 +95,34 @@ void llc_pdu_init_as_disc_cmd(struct sk_buff *skb, u8 p_bit)
 	pdu->ctrl_1 |= ((p_bit & 1) << 4) & LLC_U_PF_BIT_MASK;
 }
 
+/**
+ *	llc_pdu_init_as_i_cmd - builds I pdu
+ *	@skb: Address of the skb to build
+ *	@p_bit: The P bit to set in the PDU
+ *	@ns: The sequence number of the data PDU
+ *	@nr: The seq. number of the expected I PDU from the remote
+ *
+ *	Builds a pdu frame as an I command.
+ */
 void llc_pdu_init_as_i_cmd(struct sk_buff *skb, u8 p_bit, u8 ns, u8 nr)
 {
 	struct llc_pdu_sn *pdu = llc_pdu_sn_hdr(skb);
 
 	pdu->ctrl_1  = LLC_PDU_TYPE_I;
 	pdu->ctrl_2  = 0;
-	pdu->ctrl_2 |= (p_bit & LLC_I_PF_BIT_MASK); 
-	pdu->ctrl_1 |= (ns << 1) & 0xFE;   
-	pdu->ctrl_2 |= (nr << 1) & 0xFE;   
+	pdu->ctrl_2 |= (p_bit & LLC_I_PF_BIT_MASK); /* p/f bit */
+	pdu->ctrl_1 |= (ns << 1) & 0xFE;   /* set N(S) in bits 2..8 */
+	pdu->ctrl_2 |= (nr << 1) & 0xFE;   /* set N(R) in bits 10..16 */
 }
 
+/**
+ *	llc_pdu_init_as_rej_cmd - builds REJ PDU
+ *	@skb: Address of the skb to build
+ *	@p_bit: The P bit to set in the PDU
+ *	@nr: The seq. number of the expected I PDU from the remote
+ *
+ *	Builds a pdu frame as a REJ command.
+ */
 void llc_pdu_init_as_rej_cmd(struct sk_buff *skb, u8 p_bit, u8 nr)
 {
 	struct llc_pdu_sn *pdu = llc_pdu_sn_hdr(skb);
@@ -89,10 +131,18 @@ void llc_pdu_init_as_rej_cmd(struct sk_buff *skb, u8 p_bit, u8 nr)
 	pdu->ctrl_1 |= LLC_2_PDU_CMD_REJ;
 	pdu->ctrl_2  = 0;
 	pdu->ctrl_2 |= p_bit & LLC_S_PF_BIT_MASK;
-	pdu->ctrl_1 &= 0x0F;    
-	pdu->ctrl_2 |= (nr << 1) & 0xFE; 
+	pdu->ctrl_1 &= 0x0F;    /* setting bits 5..8 to zero(reserved) */
+	pdu->ctrl_2 |= (nr << 1) & 0xFE; /* set N(R) in bits 10..16 */
 }
 
+/**
+ *	llc_pdu_init_as_rnr_cmd - builds RNR pdu
+ *	@skb: Address of the skb to build
+ *	@p_bit: The P bit to set in the PDU
+ *	@nr: The seq. number of the expected I PDU from the remote
+ *
+ *	Builds a pdu frame as an RNR command.
+ */
 void llc_pdu_init_as_rnr_cmd(struct sk_buff *skb, u8 p_bit, u8 nr)
 {
 	struct llc_pdu_sn *pdu = llc_pdu_sn_hdr(skb);
@@ -101,10 +151,18 @@ void llc_pdu_init_as_rnr_cmd(struct sk_buff *skb, u8 p_bit, u8 nr)
 	pdu->ctrl_1 |= LLC_2_PDU_CMD_RNR;
 	pdu->ctrl_2  = 0;
 	pdu->ctrl_2 |= p_bit & LLC_S_PF_BIT_MASK;
-	pdu->ctrl_1 &= 0x0F;    
-	pdu->ctrl_2 |= (nr << 1) & 0xFE; 
+	pdu->ctrl_1 &= 0x0F;    /* setting bits 5..8 to zero(reserved) */
+	pdu->ctrl_2 |= (nr << 1) & 0xFE; /* set N(R) in bits 10..16 */
 }
 
+/**
+ *	llc_pdu_init_as_rr_cmd - Builds RR pdu
+ *	@skb: Address of the skb to build
+ *	@p_bit: The P bit to set in the PDU
+ *	@nr: The seq. number of the expected I PDU from the remote
+ *
+ *	Builds a pdu frame as an RR command.
+ */
 void llc_pdu_init_as_rr_cmd(struct sk_buff *skb, u8 p_bit, u8 nr)
 {
 	struct llc_pdu_sn *pdu = llc_pdu_sn_hdr(skb);
@@ -112,10 +170,17 @@ void llc_pdu_init_as_rr_cmd(struct sk_buff *skb, u8 p_bit, u8 nr)
 	pdu->ctrl_1  = LLC_PDU_TYPE_S;
 	pdu->ctrl_1 |= LLC_2_PDU_CMD_RR;
 	pdu->ctrl_2  = p_bit & LLC_S_PF_BIT_MASK;
-	pdu->ctrl_1 &= 0x0F;    
-	pdu->ctrl_2 |= (nr << 1) & 0xFE; 
+	pdu->ctrl_1 &= 0x0F;    /* setting bits 5..8 to zero(reserved) */
+	pdu->ctrl_2 |= (nr << 1) & 0xFE; /* set N(R) in bits 10..16 */
 }
 
+/**
+ *	llc_pdu_init_as_sabme_cmd - builds SABME pdu
+ *	@skb: Address of the skb to build
+ *	@p_bit: The P bit to set in the PDU
+ *
+ *	Builds a pdu frame as an SABME command.
+ */
 void llc_pdu_init_as_sabme_cmd(struct sk_buff *skb, u8 p_bit)
 {
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
@@ -125,6 +190,13 @@ void llc_pdu_init_as_sabme_cmd(struct sk_buff *skb, u8 p_bit)
 	pdu->ctrl_1 |= ((p_bit & 1) << 4) & LLC_U_PF_BIT_MASK;
 }
 
+/**
+ *	llc_pdu_init_as_dm_rsp - builds DM response pdu
+ *	@skb: Address of the skb to build
+ *	@f_bit: The F bit to set in the PDU
+ *
+ *	Builds a pdu frame as a DM response.
+ */
 void llc_pdu_init_as_dm_rsp(struct sk_buff *skb, u8 f_bit)
 {
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
@@ -134,6 +206,17 @@ void llc_pdu_init_as_dm_rsp(struct sk_buff *skb, u8 f_bit)
 	pdu->ctrl_1 |= ((f_bit & 1) << 4) & LLC_U_PF_BIT_MASK;
 }
 
+/**
+ *	llc_pdu_init_as_frmr_rsp - builds FRMR response PDU
+ *	@skb: Address of the frame to build
+ *	@prev_pdu: The rejected PDU frame
+ *	@f_bit: The F bit to set in the PDU
+ *	@vs: tx state vari value for the data link conn at the rejecting LLC
+ *	@vr: rx state var value for the data link conn at the rejecting LLC
+ *	@vzyxw: completely described in the IEEE Std 802.2 document (Pg 55)
+ *
+ *	Builds a pdu frame as a FRMR response.
+ */
 void llc_pdu_init_as_frmr_rsp(struct sk_buff *skb, struct llc_pdu_sn *prev_pdu,
 			      u8 f_bit, u8 vs, u8 vr, u8 vzyxw)
 {
@@ -161,6 +244,14 @@ void llc_pdu_init_as_frmr_rsp(struct sk_buff *skb, struct llc_pdu_sn *prev_pdu,
 	skb_put(skb, sizeof(struct llc_frmr_info));
 }
 
+/**
+ *	llc_pdu_init_as_rr_rsp - builds RR response pdu
+ *	@skb: Address of the skb to build
+ *	@f_bit: The F bit to set in the PDU
+ *	@nr: The seq. number of the expected data PDU from the remote
+ *
+ *	Builds a pdu frame as an RR response.
+ */
 void llc_pdu_init_as_rr_rsp(struct sk_buff *skb, u8 f_bit, u8 nr)
 {
 	struct llc_pdu_sn *pdu = llc_pdu_sn_hdr(skb);
@@ -169,10 +260,18 @@ void llc_pdu_init_as_rr_rsp(struct sk_buff *skb, u8 f_bit, u8 nr)
 	pdu->ctrl_1 |= LLC_2_PDU_RSP_RR;
 	pdu->ctrl_2  = 0;
 	pdu->ctrl_2 |= f_bit & LLC_S_PF_BIT_MASK;
-	pdu->ctrl_1 &= 0x0F;    
-	pdu->ctrl_2 |= (nr << 1) & 0xFE;  
+	pdu->ctrl_1 &= 0x0F;    /* setting bits 5..8 to zero(reserved) */
+	pdu->ctrl_2 |= (nr << 1) & 0xFE;  /* set N(R) in bits 10..16 */
 }
 
+/**
+ *	llc_pdu_init_as_rej_rsp - builds REJ response pdu
+ *	@skb: Address of the skb to build
+ *	@f_bit: The F bit to set in the PDU
+ *	@nr: The seq. number of the expected data PDU from the remote
+ *
+ *	Builds a pdu frame as a REJ response.
+ */
 void llc_pdu_init_as_rej_rsp(struct sk_buff *skb, u8 f_bit, u8 nr)
 {
 	struct llc_pdu_sn *pdu = llc_pdu_sn_hdr(skb);
@@ -181,10 +280,18 @@ void llc_pdu_init_as_rej_rsp(struct sk_buff *skb, u8 f_bit, u8 nr)
 	pdu->ctrl_1 |= LLC_2_PDU_RSP_REJ;
 	pdu->ctrl_2  = 0;
 	pdu->ctrl_2 |= f_bit & LLC_S_PF_BIT_MASK;
-	pdu->ctrl_1 &= 0x0F;    
-	pdu->ctrl_2 |= (nr << 1) & 0xFE;  
+	pdu->ctrl_1 &= 0x0F;    /* setting bits 5..8 to zero(reserved) */
+	pdu->ctrl_2 |= (nr << 1) & 0xFE;  /* set N(R) in bits 10..16 */
 }
 
+/**
+ *	llc_pdu_init_as_rnr_rsp - builds RNR response pdu
+ *	@skb: Address of the frame to build
+ *	@f_bit: The F bit to set in the PDU
+ *	@nr: The seq. number of the expected data PDU from the remote
+ *
+ *	Builds a pdu frame as an RNR response.
+ */
 void llc_pdu_init_as_rnr_rsp(struct sk_buff *skb, u8 f_bit, u8 nr)
 {
 	struct llc_pdu_sn *pdu = llc_pdu_sn_hdr(skb);
@@ -193,10 +300,17 @@ void llc_pdu_init_as_rnr_rsp(struct sk_buff *skb, u8 f_bit, u8 nr)
 	pdu->ctrl_1 |= LLC_2_PDU_RSP_RNR;
 	pdu->ctrl_2  = 0;
 	pdu->ctrl_2 |= f_bit & LLC_S_PF_BIT_MASK;
-	pdu->ctrl_1 &= 0x0F;    
-	pdu->ctrl_2 |= (nr << 1) & 0xFE;  
+	pdu->ctrl_1 &= 0x0F;    /* setting bits 5..8 to zero(reserved) */
+	pdu->ctrl_2 |= (nr << 1) & 0xFE;  /* set N(R) in bits 10..16 */
 }
 
+/**
+ *	llc_pdu_init_as_ua_rsp - builds UA response pdu
+ *	@skb: Address of the frame to build
+ *	@f_bit: The F bit to set in the PDU
+ *
+ *	Builds a pdu frame as a UA response.
+ */
 void llc_pdu_init_as_ua_rsp(struct sk_buff *skb, u8 f_bit)
 {
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
@@ -206,6 +320,13 @@ void llc_pdu_init_as_ua_rsp(struct sk_buff *skb, u8 f_bit)
 	pdu->ctrl_1 |= ((f_bit & 1) << 4) & LLC_U_PF_BIT_MASK;
 }
 
+/**
+ *	llc_pdu_decode_pdu_type - designates PDU type
+ *	@skb: input skb that type of it must be designated.
+ *	@type: type of PDU (output argument).
+ *
+ *	This function designates type of PDU (I, S or U).
+ */
 static void llc_pdu_decode_pdu_type(struct sk_buff *skb, u8 *type)
 {
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
@@ -219,6 +340,13 @@ static void llc_pdu_decode_pdu_type(struct sk_buff *skb, u8 *type)
 		*type = LLC_PDU_TYPE_I;
 }
 
+/**
+ *	llc_pdu_get_pf_bit - extracts p/f bit of input PDU
+ *	@pdu: pointer to LLC header.
+ *
+ *	This function extracts p/f bit of input PDU. at first examines type of
+ *	PDU and then extracts p/f bit. Returns the p/f bit.
+ */
 static u8 llc_pdu_get_pf_bit(struct llc_pdu_sn *pdu)
 {
 	u8 pdu_type;

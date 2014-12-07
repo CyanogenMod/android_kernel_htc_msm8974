@@ -1,3 +1,6 @@
+/*
+ * altera_jtaguart.h -- Altera JTAG UART driver defines.
+ */
 
 #ifndef	__ALTJUART_H
 #define	__ALTJUART_H
@@ -6,8 +9,8 @@
 #define ALTERA_JTAGUART_MINOR	186
 
 struct altera_jtaguart_platform_uart {
-	unsigned long mapbase;	
-	unsigned int irq;	
+	unsigned long mapbase;	/* Physical address base */
+	unsigned int irq;	/* Interrupt vector */
 };
 
-#endif 
+#endif /* __ALTJUART_H */

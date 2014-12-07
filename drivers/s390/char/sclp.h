@@ -13,6 +13,7 @@
 #include <asm/sclp.h>
 #include <asm/ebcdic.h>
 
+/* maximum number of pages concerning our own memory management */
 #define MAX_KMEM_PAGES (sizeof(unsigned long) << 3)
 #define MAX_CONSOLE_PAGES	6
 
@@ -78,7 +79,7 @@ enum sclp_pm_event {
 #define SCLP_PANIC_PRIO		1
 #define SCLP_PANIC_PRIO_CLIENT	0
 
-typedef u32 sccb_mask_t;	
+typedef u32 sccb_mask_t;	/* ATTENTION: assumes 32bit mask !!! */
 
 struct sccb_header {
 	u16	length;
@@ -112,42 +113,45 @@ struct evbuf_header {
 } __attribute__((packed));
 
 struct sclp_req {
-	struct list_head list;		
-	sclp_cmdw_t command;		
-	void	*sccb;			
-	char	status;			
-	int     start_count;		
-	
+	struct list_head list;		/* list_head for request queueing. */
+	sclp_cmdw_t command;		/* sclp command to execute */
+	void	*sccb;			/* pointer to the sccb to execute */
+	char	status;			/* status of this request */
+	int     start_count;		/* number of SVCs done for this req */
+	/* Callback that is called after reaching final status. */
 	void (*callback)(struct sclp_req *, void *data);
 	void *callback_data;
 };
 
-#define SCLP_REQ_FILLED	  0x00	
-#define SCLP_REQ_QUEUED	  0x01	
-#define SCLP_REQ_RUNNING  0x02	
-#define SCLP_REQ_DONE	  0x03	
-#define SCLP_REQ_FAILED	  0x05	
+#define SCLP_REQ_FILLED	  0x00	/* request is ready to be processed */
+#define SCLP_REQ_QUEUED	  0x01	/* request is queued to be processed */
+#define SCLP_REQ_RUNNING  0x02	/* request is currently running */
+#define SCLP_REQ_DONE	  0x03	/* request is completed successfully */
+#define SCLP_REQ_FAILED	  0x05	/* request is finally failed */
 
+/* function pointers that a high level driver has to use for registration */
+/* of some routines it wants to be called from the low level driver */
 struct sclp_register {
 	struct list_head list;
-	
+	/* User wants to receive: */
 	sccb_mask_t receive_mask;
-	
+	/* User wants to send: */
 	sccb_mask_t send_mask;
-	
+	/* H/W can receive: */
 	sccb_mask_t sclp_receive_mask;
-	
+	/* H/W can send: */
 	sccb_mask_t sclp_send_mask;
-	
+	/* called if event type availability changes */
 	void (*state_change_fn)(struct sclp_register *);
-	
+	/* called for events in cp_receive_mask/sclp_receive_mask */
 	void (*receiver_fn)(struct evbuf_header *);
-	
+	/* called for power management events */
 	void (*pm_event_fn)(struct sclp_register *, enum sclp_pm_event);
-	
+	/* pm event posted flag */
 	int pm_event_posted;
 };
 
+/* externals from sclp.c */
 int sclp_add_request(struct sclp_req *req);
 void sclp_sync_wait(void);
 int sclp_register(struct sclp_register *reg);
@@ -160,19 +164,24 @@ int sclp_service_call(sclp_cmdw_t command, void *sccb);
 int sclp_sdias_init(void);
 void sclp_sdias_exit(void);
 
+/* useful inlines */
 
+/* VM uses EBCDIC 037, LPAR+native(SE+HMC) use EBCDIC 500 */
+/* translate single character from ASCII to EBCDIC */
 static inline unsigned char
 sclp_ascebc(unsigned char ch)
 {
 	return (MACHINE_IS_VM) ? _ascebc[ch] : _ascebc_500[ch];
 }
 
+/* translate string from EBCDIC to ASCII */
 static inline void
 sclp_ebcasc_str(unsigned char *str, int nr)
 {
 	(MACHINE_IS_VM) ? EBCASC(str, nr) : EBCASC_500(str, nr);
 }
 
+/* translate string from ASCII to EBCDIC */
 static inline void
 sclp_ascebc_str(unsigned char *str, int nr)
 {
@@ -201,4 +210,4 @@ sclp_find_gds_subvector(void *start, void *end, u8 key)
 	return NULL;
 }
 
-#endif	 
+#endif	 /* __SCLP_H__ */

@@ -36,7 +36,7 @@ static int toshiba_spi_write(char data1, char data2, int rs)
 {
 	uint32 bitdata = 0, bnum = 24, bmask = 0x800000;
 
-	gpio_set_value_cansleep(spi_cs0_N, 0);	
+	gpio_set_value_cansleep(spi_cs0_N, 0);	/* cs* low */
 	udelay(1);
 
 	if (rs)
@@ -47,7 +47,7 @@ static int toshiba_spi_write(char data1, char data2, int rs)
 	bitdata |= ((data1 << 8) | data2);
 
 	while (bnum) {
-		gpio_set_value_cansleep(spi_sclk, 0); 
+		gpio_set_value_cansleep(spi_sclk, 0); /* clk low */
 		udelay(1);
 
 		if (bitdata & bmask)
@@ -56,20 +56,20 @@ static int toshiba_spi_write(char data1, char data2, int rs)
 			gpio_set_value_cansleep(spi_mosi, 0);
 
 		udelay(1);
-		gpio_set_value_cansleep(spi_sclk, 1); 
+		gpio_set_value_cansleep(spi_sclk, 1); /* clk high */
 		udelay(1);
 		bmask >>= 1;
 		bnum--;
 	}
 
-	gpio_set_value_cansleep(spi_cs0_N, 1);	
+	gpio_set_value_cansleep(spi_cs0_N, 1);	/* cs* high */
 	udelay(1);
 	return 0;
 }
 
 static void spi_pin_assign(void)
 {
-	
+	/* Setting the Default GPIO's */
 	spi_mosi  = *(lcdc_toshiba_pdata->gpio_num);
 	spi_miso  = *(lcdc_toshiba_pdata->gpio_num + 1);
 	spi_sclk  = *(lcdc_toshiba_pdata->gpio_num + 2);
@@ -79,8 +79,8 @@ static void spi_pin_assign(void)
 static void toshiba_disp_powerup(void)
 {
 	if (!toshiba_state.disp_powered_up && !toshiba_state.display_on) {
-		
-		
+		/* Reset the hardware first */
+		/* Include DAC power up implementation here */
 	      toshiba_state.disp_powered_up = TRUE;
 	}
 }
@@ -326,7 +326,7 @@ static void toshiba_disp_on(void)
 static int lcdc_toshiba_panel_on(struct platform_device *pdev)
 {
 	if (!toshiba_state.disp_initialized) {
-		
+		/* Configure reset GPIO that drives DAC */
 		if (lcdc_toshiba_pdata->panel_config_gpio)
 			lcdc_toshiba_pdata->panel_config_gpio(1);
 		toshiba_disp_powerup();
@@ -431,7 +431,7 @@ static int __init lcdc_toshiba_panel_init(void)
 	pinfo->wait_cycle = 0;
 	pinfo->bpp = 18;
 	pinfo->fb_num = 2;
-	
+	/* 30Mhz mdp_lcdc_pclk and mdp_lcdc_pad_pcl */
 	pinfo->clk_rate = 30720000;
 	pinfo->bl_max = 100;
 	pinfo->bl_min = 1;
@@ -444,8 +444,8 @@ static int __init lcdc_toshiba_panel_init(void)
 		pinfo->lcdc.v_back_porch = 8;
 		pinfo->lcdc.v_front_porch = 540;
 		pinfo->lcdc.v_pulse_width = 42;
-		pinfo->lcdc.border_clr = 0;     
-		pinfo->lcdc.underflow_clr = 0xff;       
+		pinfo->lcdc.border_clr = 0;     /* blk */
+		pinfo->lcdc.underflow_clr = 0xff;       /* blue */
 		pinfo->lcdc.hsync_skew = 0;
 	} else {
 		pinfo->lcdc.h_back_porch = 8;
@@ -454,8 +454,8 @@ static int __init lcdc_toshiba_panel_init(void)
 		pinfo->lcdc.v_back_porch = 2;
 		pinfo->lcdc.v_front_porch = 2;
 		pinfo->lcdc.v_pulse_width = 2;
-		pinfo->lcdc.border_clr = 0;     
-		pinfo->lcdc.underflow_clr = 0xff;       
+		pinfo->lcdc.border_clr = 0;     /* blk */
+		pinfo->lcdc.underflow_clr = 0xff;       /* blue */
 		pinfo->lcdc.hsync_skew = 0;
 	}
 

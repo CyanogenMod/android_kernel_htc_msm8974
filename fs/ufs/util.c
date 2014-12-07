@@ -229,6 +229,17 @@ ufs_set_inode_dev(struct super_block *sb, struct ufs_inode_info *ufsi, dev_t dev
 		ufsi->i_u1.i_data[0] = cpu_to_fs32(sb, fs32);
 }
 
+/**
+ * ufs_get_locked_page() - locate, pin and lock a pagecache page, if not exist
+ * read it from disk.
+ * @mapping: the address_space to search
+ * @index: the page index
+ *
+ * Locates the desired pagecache page, if not exist we'll read it,
+ * locks it, increments its reference
+ * count and returns its address.
+ *
+ */
 
 struct page *ufs_get_locked_page(struct address_space *mapping,
 				 pgoff_t index)
@@ -249,7 +260,7 @@ struct page *ufs_get_locked_page(struct address_space *mapping,
 		lock_page(page);
 
 		if (unlikely(page->mapping == NULL)) {
-			
+			/* Truncate got there first */
 			unlock_page(page);
 			page_cache_release(page);
 			page = NULL;

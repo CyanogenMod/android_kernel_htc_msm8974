@@ -26,6 +26,7 @@
 struct firmware;
 struct pcxhr_mgr;
 
+/* init and firmware download commands */
 void pcxhr_reset_xilinx_com(struct pcxhr_mgr *mgr);
 void pcxhr_reset_dsp(struct pcxhr_mgr *mgr);
 void pcxhr_enable_dsp(struct pcxhr_mgr *mgr);
@@ -34,6 +35,7 @@ int pcxhr_load_eeprom_binary(struct pcxhr_mgr *mgr, const struct firmware *eepro
 int pcxhr_load_boot_binary(struct pcxhr_mgr *mgr, const struct firmware *boot);
 int pcxhr_load_dsp_binary(struct pcxhr_mgr *mgr, const struct firmware *dsp);
 
+/* DSP time available on MailBox4 register : 24 bit time samples() */
 #define PCXHR_DSP_TIME_MASK		0x00ffffff
 #define PCXHR_DSP_TIME_INVALID		0x10000000
 
@@ -43,40 +45,40 @@ int pcxhr_load_dsp_binary(struct pcxhr_mgr *mgr, const struct firmware *dsp);
 #define PCXHR_SIZE_MAX_LONG_STATUS	256
 
 struct pcxhr_rmh {
-	u16	cmd_len;		
-	u16	stat_len;		
-	u16	dsp_stat;		
-	u16	cmd_idx;		
+	u16	cmd_len;		/* length of the command to send (WORDs) */
+	u16	stat_len;		/* length of the status received (WORDs) */
+	u16	dsp_stat;		/* status type, RMP_SSIZE_XXX */
+	u16	cmd_idx;		/* index of the command */
 	u32	cmd[PCXHR_SIZE_MAX_CMD];
 	u32	stat[PCXHR_SIZE_MAX_STATUS];
 };
 
 enum {
-	CMD_VERSION,			
-	CMD_SUPPORTED,			
-	CMD_TEST_IT,			
-	CMD_SEND_IRQA,			
-	CMD_ACCESS_IO_WRITE,		
-	CMD_ACCESS_IO_READ,		
-	CMD_ASYNC,			
-	CMD_MODIFY_CLOCK,		
-	CMD_RESYNC_AUDIO_INPUTS,	
-	CMD_GET_DSP_RESOURCES,		
-	CMD_SET_TIMER_INTERRUPT,	
-	CMD_RES_PIPE,			
-	CMD_FREE_PIPE,			
-	CMD_CONF_PIPE,			
-	CMD_STOP_PIPE,			
-	CMD_PIPE_SAMPLE_COUNT,		
-	CMD_CAN_START_PIPE,		
-	CMD_START_STREAM,		
-	CMD_STREAM_OUT_LEVEL_ADJUST,	
-	CMD_STOP_STREAM,		
-	CMD_UPDATE_R_BUFFERS,		
-	CMD_FORMAT_STREAM_OUT,		
-	CMD_FORMAT_STREAM_IN,		
-	CMD_STREAM_SAMPLE_COUNT,	
-	CMD_AUDIO_LEVEL_ADJUST,		
+	CMD_VERSION,			/* cmd_len = 2	stat_len = 1 */
+	CMD_SUPPORTED,			/* cmd_len = 1	stat_len = 4 */
+	CMD_TEST_IT,			/* cmd_len = 1	stat_len = 1 */
+	CMD_SEND_IRQA,			/* cmd_len = 1	stat_len = 0 */
+	CMD_ACCESS_IO_WRITE,		/* cmd_len >= 1	stat_len >= 1 */
+	CMD_ACCESS_IO_READ,		/* cmd_len >= 1	stat_len >= 1 */
+	CMD_ASYNC,			/* cmd_len = 1	stat_len = 1 */
+	CMD_MODIFY_CLOCK,		/* cmd_len = 3	stat_len = 0 */
+	CMD_RESYNC_AUDIO_INPUTS,	/* cmd_len = 1	stat_len = 0 */
+	CMD_GET_DSP_RESOURCES,		/* cmd_len = 1	stat_len = 4 */
+	CMD_SET_TIMER_INTERRUPT,	/* cmd_len = 1	stat_len = 0 */
+	CMD_RES_PIPE,			/* cmd_len >=2	stat_len = 0 */
+	CMD_FREE_PIPE,			/* cmd_len = 1	stat_len = 0 */
+	CMD_CONF_PIPE,			/* cmd_len = 2	stat_len = 0 */
+	CMD_STOP_PIPE,			/* cmd_len = 1	stat_len = 0 */
+	CMD_PIPE_SAMPLE_COUNT,		/* cmd_len = 2	stat_len = 2 */
+	CMD_CAN_START_PIPE,		/* cmd_len >= 1	stat_len = 1 */
+	CMD_START_STREAM,		/* cmd_len = 2	stat_len = 0 */
+	CMD_STREAM_OUT_LEVEL_ADJUST,	/* cmd_len >= 1	stat_len = 0 */
+	CMD_STOP_STREAM,		/* cmd_len = 2	stat_len = 0 */
+	CMD_UPDATE_R_BUFFERS,		/* cmd_len = 4	stat_len = 0 */
+	CMD_FORMAT_STREAM_OUT,		/* cmd_len >= 2	stat_len = 0 */
+	CMD_FORMAT_STREAM_IN,		/* cmd_len >= 4	stat_len = 0 */
+	CMD_STREAM_SAMPLE_COUNT,	/* cmd_len = 2	stat_len = (2 * nb_stream) */
+	CMD_AUDIO_LEVEL_ADJUST,		/* cmd_len = 3	stat_len = 0 */
 	CMD_LAST_INDEX
 };
 
@@ -86,6 +88,9 @@ enum {
 #define MASK_FIRST_FIELD	0x0000001f
 #define FIELD_SIZE		5
 
+/*
+ init the rmh struct; by default cmd_len is set to 1
+ */
 void pcxhr_init_rmh(struct pcxhr_rmh *rmh, int cmd);
 
 void pcxhr_set_pipe_cmd_params(struct pcxhr_rmh* rmh, int capture, unsigned int param1,
@@ -93,9 +98,13 @@ void pcxhr_set_pipe_cmd_params(struct pcxhr_rmh* rmh, int capture, unsigned int 
 
 #define DSP_EXT_CMD_SET(x) (x->dsp_version > 0x012800)
 
+/*
+ send the rmh
+ */
 int pcxhr_send_msg(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh);
 
 
+/* values used for CMD_ACCESS_IO_WRITE and CMD_ACCESS_IO_READ */
 #define IO_NUM_REG_CONT			0
 #define IO_NUM_REG_GENCLK		1
 #define IO_NUM_REG_MUTE_OUT		2
@@ -110,6 +119,7 @@ int pcxhr_send_msg(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh);
 
 #define REG_CONT_UNMUTE_INPUTS		0x020000
 
+/* parameters used with register IO_NUM_REG_STATUS */
 #define REG_STATUS_OPTIONS		0
 #define REG_STATUS_AES_SYNC		8
 #define REG_STATUS_AES_1		9
@@ -119,6 +129,7 @@ int pcxhr_send_msg(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh);
 #define REG_STATUS_WORD_CLOCK		13
 #define REG_STATUS_INTER_SYNC		14
 #define REG_STATUS_CURRENT		0x80
+/* results */
 #define REG_STATUS_OPT_NO_VIDEO_SIGNAL	0x01
 #define REG_STATUS_OPT_DAUGHTER_MASK	0x1c
 #define REG_STATUS_OPT_ANALOG_BOARD	0x00
@@ -140,6 +151,7 @@ int pcxhr_set_pipe_state(struct pcxhr_mgr *mgr, int playback_mask, int capture_m
 int pcxhr_write_io_num_reg_cont(struct pcxhr_mgr *mgr, unsigned int mask,
 				unsigned int value, int *changed);
 
+/* codec parameters */
 #define CS8416_RUN		0x200401
 #define CS8416_FORMAT_DETECT	0x200b00
 #define CS8416_CSB0		0x201900
@@ -170,6 +182,7 @@ int pcxhr_write_io_num_reg_cont(struct pcxhr_mgr *mgr, unsigned int mask,
 
 #define CHIP_SIG_AND_MAP_SPI	0xff7f00
 
+/* codec selection */
 #define CS4271_01_CS		0x160018
 #define CS4271_23_CS		0x160019
 #define CS4271_45_CS		0x16001a
@@ -183,7 +196,8 @@ int pcxhr_write_io_num_reg_cont(struct pcxhr_mgr *mgr, unsigned int mask,
 #define CS8416_01_CS		0x080098
 
 
+/* interrupt handling */
 irqreturn_t pcxhr_interrupt(int irq, void *dev_id);
 void pcxhr_msg_tasklet(unsigned long arg);
 
-#endif 
+#endif /* __SOUND_PCXHR_CORE_H */

@@ -27,6 +27,9 @@ struct stat {
 
 #define STAT64_HAS_BROKEN_ST_INO	1
 
+/* This matches struct stat64 in glibc2.1, hence the absolutely
+ * insane amounts of padding around dev_t's.
+ */
 struct stat64 {
 	unsigned long long	st_dev;
 	unsigned char	__pad0[4];
@@ -45,7 +48,7 @@ struct stat64 {
 	long long	st_size;
 	unsigned long	st_blksize;
 
-	
+	/* Number 512-byte blocks allocated. */
 	unsigned long long	st_blocks;
 
 	unsigned long	st_atime;
@@ -60,7 +63,7 @@ struct stat64 {
 	unsigned long long	st_ino;
 };
 
-#else 
+#else /* __i386__ */
 
 struct stat {
 	unsigned long	st_dev;
@@ -74,7 +77,7 @@ struct stat {
 	unsigned long	st_rdev;
 	long		st_size;
 	long		st_blksize;
-	long		st_blocks;	
+	long		st_blocks;	/* Number 512-byte blocks allocated. */
 
 	unsigned long	st_atime;
 	unsigned long	st_atime_nsec;
@@ -86,6 +89,7 @@ struct stat {
 };
 #endif
 
+/* for 32bit emulation and 32 bit kernels */
 struct __old_kernel_stat {
 	unsigned short st_dev;
 	unsigned short st_ino;
@@ -107,4 +111,4 @@ struct __old_kernel_stat {
 #endif
 };
 
-#endif 
+#endif /* _ASM_X86_STAT_H */

@@ -32,6 +32,8 @@
 #include <linux/udp.h>
 #include <linux/if_vlan.h>
 
+/* This is the offset of the options field in a dhcp packet starting at
+ * the beginning of the dhcp header */
 #define DHCP_OPTIONS_OFFSET 240
 #define DHCP_REQUEST 3
 
@@ -128,7 +130,7 @@ static struct gw_node *gw_get_best_gw_node(struct bat_priv *bat_priv)
 			goto next;
 
 		switch (atomic_read(&bat_priv->gw_sel_class)) {
-		case 1: 
+		case 1: /* fast connection */
 			gw_bandwidth_to_kbit(gw_node->orig_node->gw_flags,
 					     &down, &up);
 
@@ -147,7 +149,14 @@ static struct gw_node *gw_get_best_gw_node(struct bat_priv *bat_priv)
 			}
 			break;
 
-		default: 
+		default: /**
+			  * 2:  stable connection (use best statistic)
+			  * 3:  fast-switch (use best statistic but change as
+			  *     soon as a better gateway appears)
+			  * XX: late-switch (use best statistic but change as
+			  *     soon as a better gateway appears which has
+			  *     $routing_class more tq points)
+			  **/
 			if (router->tq_avg > max_tq) {
 				if (curr_gw)
 					gw_node_free_ref(curr_gw);
@@ -179,6 +188,12 @@ void gw_election(struct bat_priv *bat_priv)
 	struct neigh_node *router = NULL;
 	char gw_addr[18] = { '\0' };
 
+	/**
+	 * The batman daemon checks here if we already passed a full originator
+	 * cycle in order to make sure we don't choose the first gateway we
+	 * hear about. This check is based on the daemon's uptime which we
+	 * don't have.
+	 **/
 	if (atomic_read(&bat_priv->gw_mode) != GW_MODE_CLIENT)
 		goto out;
 
@@ -245,7 +260,7 @@ void gw_check_election(struct bat_priv *bat_priv, struct orig_node *orig_node)
 	if (!router_gw)
 		goto deselect;
 
-	
+	/* this node already is the gateway */
 	if (curr_gw_orig == orig_node)
 		goto out;
 
@@ -256,10 +271,14 @@ void gw_check_election(struct bat_priv *bat_priv, struct orig_node *orig_node)
 	gw_tq_avg = router_gw->tq_avg;
 	orig_tq_avg = router_orig->tq_avg;
 
-	
+	/* the TQ value has to be better */
 	if (orig_tq_avg < gw_tq_avg)
 		goto out;
 
+	/**
+	 * if the routing class is greater than 3 the value tells us how much
+	 * greater the TQ value of the new gateway must be
+	 **/
 	if ((atomic_read(&bat_priv->gw_sel_class) > 3) &&
 	    (orig_tq_avg - gw_tq_avg < atomic_read(&bat_priv->gw_sel_class)))
 		goto out;
@@ -315,6 +334,12 @@ void gw_node_update(struct bat_priv *bat_priv,
 	struct hlist_node *node;
 	struct gw_node *gw_node, *curr_gw;
 
+	/**
+	 * Note: We don't need a NULL check here, since curr_gw never gets
+	 * dereferenced. If curr_gw is NULL we also should not exit as we may
+	 * have this gateway in our list (duplication check!) even though we
+	 * have no currently selected gateway.
+	 */
 	curr_gw = gw_get_selected_gw_node(bat_priv);
 
 	rcu_read_lock();
@@ -389,7 +414,7 @@ void gw_node_purge(struct bat_priv *bat_priv)
 
 	spin_unlock_bh(&bat_priv->gw_list_lock);
 
-	
+	/* gw_deselect() needs to acquire the gw_list_lock */
 	if (do_deselect)
 		gw_deselect(bat_priv);
 
@@ -397,6 +422,9 @@ void gw_node_purge(struct bat_priv *bat_priv)
 		gw_node_free_ref(curr_gw);
 }
 
+/**
+ * fails if orig_node has no router
+ */
 static int _write_buffer_text(struct bat_priv *bat_priv, struct seq_file *seq,
 			      const struct gw_node *gw_node)
 {
@@ -465,7 +493,7 @@ int gw_client_seq_print_text(struct seq_file *seq, void *offset)
 		if (gw_node->deleted)
 			continue;
 
-		
+		/* fails if orig_node has no router */
 		if (_write_buffer_text(bat_priv, seq, gw_node) < 0)
 			continue;
 
@@ -499,31 +527,37 @@ static bool is_type_dhcprequest(struct sk_buff *skb, int header_len)
 	p = skb->data + header_len + DHCP_OPTIONS_OFFSET;
 	pkt_len -= header_len + DHCP_OPTIONS_OFFSET + 1;
 
+	/* Access the dhcp option lists. Each entry is made up by:
+	 * - octet 1: option type
+	 * - octet 2: option data len (only if type != 255 and 0)
+	 * - octet 3: option data */
 	while (*p != 255 && !ret) {
-		
+		/* p now points to the first octet: option type */
 		if (*p == 53) {
+			/* type 53 is the message type option.
+			 * Jump the len octet and go to the data octet */
 			if (pkt_len < 2)
 				goto out;
 			p += 2;
 
-			
+			/* check if the message type is what we need */
 			if (*p == DHCP_REQUEST)
 				ret = true;
 			break;
 		} else if (*p == 0) {
-			
+			/* option type 0 (padding), just go forward */
 			if (pkt_len < 1)
 				goto out;
 			pkt_len--;
 			p++;
 		} else {
-			
+			/* This is any other option. So we get the length... */
 			if (pkt_len < 1)
 				goto out;
 			pkt_len--;
 			p++;
 
-			
+			/* ...and then we jump over the data */
 			if (pkt_len < *p)
 				goto out;
 			pkt_len -= *p;
@@ -541,13 +575,13 @@ bool gw_is_dhcp_target(struct sk_buff *skb, unsigned int *header_len)
 	struct ipv6hdr *ipv6hdr;
 	struct udphdr *udphdr;
 
-	
+	/* check for ethernet header */
 	if (!pskb_may_pull(skb, *header_len + ETH_HLEN))
 		return false;
 	ethhdr = (struct ethhdr *)skb->data;
 	*header_len += ETH_HLEN;
 
-	
+	/* check for initial vlan header */
 	if (ntohs(ethhdr->h_proto) == ETH_P_8021Q) {
 		if (!pskb_may_pull(skb, *header_len + VLAN_HLEN))
 			return false;
@@ -555,7 +589,7 @@ bool gw_is_dhcp_target(struct sk_buff *skb, unsigned int *header_len)
 		*header_len += VLAN_HLEN;
 	}
 
-	
+	/* check for ip header */
 	switch (ntohs(ethhdr->h_proto)) {
 	case ETH_P_IP:
 		if (!pskb_may_pull(skb, *header_len + sizeof(*iphdr)))
@@ -563,7 +597,7 @@ bool gw_is_dhcp_target(struct sk_buff *skb, unsigned int *header_len)
 		iphdr = (struct iphdr *)(skb->data + *header_len);
 		*header_len += iphdr->ihl * 4;
 
-		
+		/* check for udp header */
 		if (iphdr->protocol != IPPROTO_UDP)
 			return false;
 
@@ -574,7 +608,7 @@ bool gw_is_dhcp_target(struct sk_buff *skb, unsigned int *header_len)
 		ipv6hdr = (struct ipv6hdr *)(skb->data + *header_len);
 		*header_len += sizeof(*ipv6hdr);
 
-		
+		/* check for udp header */
 		if (ipv6hdr->nexthdr != IPPROTO_UDP)
 			return false;
 
@@ -588,7 +622,7 @@ bool gw_is_dhcp_target(struct sk_buff *skb, unsigned int *header_len)
 	udphdr = (struct udphdr *)(skb->data + *header_len);
 	*header_len += sizeof(*udphdr);
 
-	
+	/* check for bootp port */
 	if ((ntohs(ethhdr->h_proto) == ETH_P_IP) &&
 	    (ntohs(udphdr->dest) != 67))
 		return false;
@@ -628,6 +662,8 @@ bool gw_out_of_range(struct bat_priv *bat_priv,
 
 	switch (atomic_read(&bat_priv->gw_mode)) {
 	case GW_MODE_SERVER:
+		/* If we are a GW then we are our best GW. We can artificially
+		 * set the tq towards ourself as the maximum value */
 		curr_tq_avg = TQ_MAX_VALUE;
 		break;
 	case GW_MODE_CLIENT:
@@ -635,10 +671,13 @@ bool gw_out_of_range(struct bat_priv *bat_priv,
 		if (!curr_gw)
 			goto out;
 
-		
+		/* packet is going to our gateway */
 		if (curr_gw->orig_node == orig_dst_node)
 			goto out;
 
+		/* If the dhcp packet has been sent to a different gw,
+		 * we have to evaluate whether the old gw is still
+		 * reliable enough */
 		neigh_curr = find_router(bat_priv, curr_gw->orig_node, NULL);
 		if (!neigh_curr)
 			goto out;

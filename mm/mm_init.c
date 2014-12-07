@@ -18,6 +18,7 @@ int mminit_loglevel;
 #define SECTIONS_SHIFT	0
 #endif
 
+/* The zonelists are simply reported, validation is manual. */
 void mminit_verify_zonelist(void)
 {
 	int nid;
@@ -35,7 +36,7 @@ void mminit_verify_zonelist(void)
 		BUG_ON(MAX_ZONELISTS > 2);
 		for (i = 0; i < MAX_ZONELISTS * MAX_NR_ZONES; i++) {
 
-			
+			/* Identify the zone and nodelist */
 			zoneid = i % MAX_NR_ZONES;
 			listid = i / MAX_NR_ZONES;
 			zonelist = &pgdat->node_zonelists[listid];
@@ -43,19 +44,19 @@ void mminit_verify_zonelist(void)
 			if (!populated_zone(zone))
 				continue;
 
-			
+			/* Print information about the zonelist */
 			printk(KERN_DEBUG "mminit::zonelist %s %d:%s = ",
 				listid > 0 ? "thisnode" : "general", nid,
 				zone->name);
 
-			
+			/* Iterate the zonelist */
 			for_each_zone_zonelist(zone, z, zonelist, zoneid) {
 #ifdef CONFIG_NUMA
 				printk(KERN_CONT "%d:%s ",
 					zone->node, zone->name);
 #else
 				printk(KERN_CONT "0:%s ", zone->name);
-#endif 
+#endif /* CONFIG_NUMA */
 			}
 			printk(KERN_CONT "\n");
 		}
@@ -110,7 +111,7 @@ void __init mminit_verify_pageflags_layout(void)
 		BUG_ON(shift != ZONES_PGSHIFT);
 	}
 
-	
+	/* Check for bitmask overlaps */
 	or_mask = (ZONES_MASK << ZONES_PGSHIFT) |
 			(NODES_MASK << NODES_PGSHIFT) |
 			(SECTIONS_MASK << SECTIONS_PGSHIFT);
@@ -134,7 +135,7 @@ static __init int set_mminit_loglevel(char *str)
 	return 0;
 }
 early_param("mminit_loglevel", set_mminit_loglevel);
-#endif 
+#endif /* CONFIG_DEBUG_MEMORY_INIT */
 
 struct kobject *mm_kobj;
 EXPORT_SYMBOL_GPL(mm_kobj);

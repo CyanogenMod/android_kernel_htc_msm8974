@@ -1,3 +1,46 @@
+/*
+ * 1. load vmlinuz
+ *
+ * CONFIG_MEMORY_START  	+-----------------------+
+ *				|        vmlinuz	|
+ *				+-----------------------+
+ * 2. decompressed
+ *
+ * CONFIG_MEMORY_START  	+-----------------------+
+ *				|        vmlinuz	|
+ *				+-----------------------+
+ *				|			|
+ * BOOT_RELOC_ADDR		+-----------------------+
+ *				|		 	|
+ * KERNEL_DECOMPRESS_ADDR 	+-----------------------+
+ *				|  	vmlinux		|
+ *				+-----------------------+
+ *
+ * 3. relocate copy & jump code
+ *
+ * CONFIG_MEMORY_START  	+-----------------------+
+ *				|        vmlinuz	|
+ *				+-----------------------+
+ *				|			|
+ * BOOT_RELOC_ADDR		+-----------------------+
+ *				|    boot(copy&jump)	|
+ * KERNEL_DECOMPRESS_ADDR 	+-----------------------+
+ *				|  	vmlinux		|
+ *				+-----------------------+
+ *
+ * 4. relocate decompressed kernel
+ *
+ * CONFIG_MEMORY_START  	+-----------------------+
+ *				|        vmlinux	|
+ *				+-----------------------+
+ *				|			|
+ * BOOT_RELOC_ADDR		+-----------------------+
+ *				|     boot(copy&jump) 	|
+ * KERNEL_DECOMPRESS_ADDR 	+-----------------------+
+ *				|  			|
+ *				+-----------------------+
+ *
+ */
 #ifdef __ASSEMBLY__
 #define __val(x)	x
 #else

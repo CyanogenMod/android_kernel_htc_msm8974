@@ -10,6 +10,13 @@
  * GNU General Public License for more details.
  */
 
+/* struct ks8851_pdata - platform data definition for a KS8851 device
+ * @irq_gpio - GPIO pin number for the KS8851 IRQ line
+ * @rst_gpio - GPIO pin number for the KS8851 Reset line
+ *
+ * Platform data may be omitted (or individual GPIO numbers set to -1) to
+ * avoid doing any GPIO configuration in the driver.
+ */
 struct ks8851_pdata {
 	int irq_gpio;
 	int rst_gpio;

@@ -38,4 +38,4 @@ iomap_create_wc(resource_size_t base, unsigned long size, pgprot_t *prot);
 void
 iomap_free(resource_size_t base, unsigned long size);
 
-#endif 
+#endif /* _ASM_X86_IOMAP_H */

@@ -55,6 +55,7 @@
 
 struct static_key {
 	atomic_t enabled;
+/* Set lsb bit to 1 if branch is default true, 0 ot */
 	struct jump_entry *entries;
 #ifdef CONFIG_MODULES
 	struct static_key_mod *next;
@@ -69,7 +70,7 @@ struct static_key_deferred {
 
 # include <asm/jump_label.h>
 # define HAVE_JUMP_LABEL
-#endif	
+#endif	/* CC_HAVE_ASM_GOTO && CONFIG_JUMP_LABEL */
 
 enum jump_label_type {
 	JUMP_LABEL_DISABLE = 0,
@@ -106,6 +107,7 @@ static __always_inline bool static_key_true(struct static_key *key)
 	return !static_key_false(key);
 }
 
+/* Deprecated. Please use 'static_key_false() instead. */
 static __always_inline bool static_branch(struct static_key *key)
 {
 	return arch_static_branch(key);
@@ -134,7 +136,7 @@ jump_label_rate_limit(struct static_key_deferred *key, unsigned long rl);
 #define STATIC_KEY_INIT_FALSE ((struct static_key) \
 	{ .enabled = ATOMIC_INIT(0), .entries = (void *)0 })
 
-#else  
+#else  /* !HAVE_JUMP_LABEL */
 
 #include <linux/atomic.h>
 
@@ -164,6 +166,7 @@ static __always_inline bool static_key_true(struct static_key *key)
 	return false;
 }
 
+/* Deprecated. Please use 'static_key_false() instead. */
 static __always_inline bool static_branch(struct static_key *key)
 {
 	if (unlikely(atomic_read(&key->enabled)) > 0)
@@ -210,7 +213,7 @@ jump_label_rate_limit(struct static_key_deferred *key,
 #define STATIC_KEY_INIT_FALSE ((struct static_key) \
 		{ .enabled = ATOMIC_INIT(0) })
 
-#endif	
+#endif	/* HAVE_JUMP_LABEL */
 
 #define STATIC_KEY_INIT STATIC_KEY_INIT_FALSE
 #define jump_label_enabled static_key_enabled
@@ -220,4 +223,4 @@ static inline bool static_key_enabled(struct static_key *key)
 	return (atomic_read(&key->enabled) > 0);
 }
 
-#endif	
+#endif	/* _LINUX_JUMP_LABEL_H */

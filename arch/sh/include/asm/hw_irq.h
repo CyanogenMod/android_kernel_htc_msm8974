@@ -9,9 +9,9 @@ extern atomic_t irq_err_count;
 
 struct ipr_data {
 	unsigned char irq;
-	unsigned char ipr_idx;		
-	unsigned char shift;		
-	unsigned char priority;		
+	unsigned char ipr_idx;		/* Index for the IPR registered */
+	unsigned char shift;		/* Number of bits to shift the data */
+	unsigned char priority;		/* The priority */
 };
 
 struct ipr_desc {
@@ -32,4 +32,4 @@ enum { IRQ_MODE_IRQ, IRQ_MODE_IRQ7654, IRQ_MODE_IRQ3210,
        IRQ_MODE_IRL7654_MASK, IRQ_MODE_IRL3210_MASK,
        IRQ_MODE_IRL7654, IRQ_MODE_IRL3210 };
 
-#endif 
+#endif /* __ASM_SH_HW_IRQ_H */

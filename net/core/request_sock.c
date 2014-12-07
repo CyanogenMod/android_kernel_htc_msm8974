@@ -19,6 +19,20 @@
 
 #include <net/request_sock.h>
 
+/*
+ * Maximum number of SYN_RECV sockets in queue per LISTEN socket.
+ * One SYN_RECV socket costs about 80bytes on a 32bit machine.
+ * It would be better to replace it with a global counter for all sockets
+ * but then some measure against one socket starving all other sockets
+ * would be needed.
+ *
+ * The minimum value of it is 128. Experiments with real servers show that
+ * it is absolutely not enough even at 100conn/sec. 256 cures most
+ * of problems.
+ * This value is adjusted to 128 for low memory machines,
+ * and it will increase in proportion to the memory of machine.
+ * Note : Dont forget somaxconn that may limit backlog too.
+ */
 int sysctl_max_syn_backlog = 256;
 EXPORT_SYMBOL(sysctl_max_syn_backlog);
 
@@ -60,6 +74,10 @@ void __reqsk_queue_destroy(struct request_sock_queue *queue)
 	struct listen_sock *lopt;
 	size_t lopt_size;
 
+	/*
+	 * this is an error recovery path only
+	 * no locking needed and the lopt is not NULL
+	 */
 
 	lopt = queue->listen_opt;
 	lopt_size = sizeof(struct listen_sock) +
@@ -86,7 +104,7 @@ static inline struct listen_sock *reqsk_queue_yank_listen_sk(
 
 void reqsk_queue_destroy(struct request_sock_queue *queue)
 {
-	
+	/* make all the listen_opt local to us */
 	struct listen_sock *lopt = reqsk_queue_yank_listen_sk(queue);
 	size_t lopt_size = sizeof(struct listen_sock) +
 		lopt->nr_table_entries * sizeof(struct request_sock *);

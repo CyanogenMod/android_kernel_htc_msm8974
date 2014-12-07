@@ -30,8 +30,9 @@
 #include <plat/omap34xx.h>
 
 
-#define CM_CAM_MCLK_HZ			172800000	
+#define CM_CAM_MCLK_HZ			172800000	/* Hz */
 
+/* ISP Submodules offset */
 
 #define OMAP3ISP_REG_BASE		OMAP3430_ISP_BASE
 #define OMAP3ISP_REG(offset)		(OMAP3ISP_REG_BASE + (offset))
@@ -105,6 +106,7 @@
 #define OMAP3ISP_CSI2C_REGS2_REG(offset)				\
 				(OMAP3ISP_CSI2C_REGS2_REG_BASE + (offset))
 
+/* ISP module register offset */
 
 #define ISP_REVISION			(0x000)
 #define ISP_SYSCONFIG			(0x004)
@@ -129,6 +131,7 @@
 #define ISP_PING_PONG_MEM_RANGE		(0x074)
 #define ISP_PING_PONG_BUF_SIZE		(0x078)
 
+/* CCP2 receiver registers */
 
 #define ISPCCP2_REVISION		(0x000)
 #define ISPCCP2_SYSCONFIG		(0x004)
@@ -179,9 +182,9 @@
 #define ISPCCP2_CTRL_VP_ONLY_EN		(1 << 11)
 #define ISPCCP2_CTRL_VP_CLK_POL		(1 << 12)
 #define ISPCCP2_CTRL_VPCLK_DIV_SHIFT	15
-#define ISPCCP2_CTRL_VPCLK_DIV_MASK	0x1ffff 
-#define ISPCCP2_CTRL_VP_OUT_CTRL_SHIFT	8 
-#define ISPCCP2_CTRL_VP_OUT_CTRL_MASK	0x3 
+#define ISPCCP2_CTRL_VPCLK_DIV_MASK	0x1ffff /* [31:15] */
+#define ISPCCP2_CTRL_VP_OUT_CTRL_SHIFT	8 /* 3430 bits */
+#define ISPCCP2_CTRL_VP_OUT_CTRL_MASK	0x3 /* 3430 bits */
 #define ISPCCP2_DBG			(0x044)
 #define ISPCCP2_GNQ			(0x048)
 #define ISPCCP2_LCx_CTRL(x)			((0x050)+0x30*(x))
@@ -236,6 +239,7 @@
 #define ISPCCP2_LCM_DST_ADDR		(0x1E8)
 #define ISPCCP2_LCM_DST_OFST		(0x1EC)
 
+/* CCDC module register offset */
 
 #define ISPCCDC_PID			(0x000)
 #define ISPCCDC_PCR			(0x004)
@@ -281,6 +285,7 @@
 #define ISPCCDC_LSC_TABLE_BASE		(0x0A0)
 #define ISPCCDC_LSC_TABLE_OFFSET	(0x0A4)
 
+/* SBL */
 #define ISPSBL_PCR			0x4
 #define ISPSBL_PCR_H3A_AEAWB_WBL_OVF	(1 << 16)
 #define ISPSBL_PCR_H3A_AF_WBL_OVF	(1 << 17)
@@ -307,6 +312,7 @@
 #define ISPSBL_SDR_REQ_PRV_EXP_SHIFT	20
 #define ISPSBL_SDR_REQ_PRV_EXP_MASK	(0x3FF << ISPSBL_SDR_REQ_PRV_EXP_SHIFT)
 
+/* Histogram registers */
 #define ISPHIST_PID			(0x000)
 #define ISPHIST_PCR			(0x004)
 #define ISPHIST_CNT			(0x008)
@@ -325,6 +331,7 @@
 #define ISPHIST_RADD_OFF		(0x03C)
 #define ISPHIST_H_V_INFO		(0x040)
 
+/* H3A module registers */
 #define ISPH3A_PID			(0x000)
 #define ISPH3A_PCR			(0x004)
 #define ISPH3A_AEWWIN1			(0x04C)
@@ -398,6 +405,7 @@
 #define ISPRSZ_MIN_OUTPUT		64
 #define ISPRSZ_MAX_OUTPUT		3312
 
+/* Resizer module register offset */
 #define ISPRSZ_PID			(0x000)
 #define ISPRSZ_PCR			(0x004)
 #define ISPRSZ_CNT			(0x008)
@@ -592,6 +600,7 @@
 #define ISPPRV_YC_MAX			0xFF
 #define ISPPRV_YC_MIN			0x0
 
+/* Define bit fields within selected registers */
 #define ISP_REVISION_SHIFT			0
 
 #define ISP_SYSCONFIG_AUTOIDLE			(1 << 0)
@@ -1262,6 +1271,9 @@
 #define ISPCCDC_LSC_INITIAL_Y_MASK		0x3F0000
 #define ISPCCDC_LSC_INITIAL_Y_SHIFT		16
 
+/* -----------------------------------------------------------------------------
+ * CSI2 receiver registers (ES2.0)
+ */
 
 #define ISPCSI2_REVISION			(0x000)
 #define ISPCSI2_SYSCONFIG			(0x010)
@@ -1503,6 +1515,7 @@
 #define ISPCSI2_CTX_CTRL3_ALPHA_MASK		\
 	(0x3fff << ISPCSI2_CTX_CTRL3_ALPHA_SHIFT)
 
+/* This instance is for OMAP3630 only */
 #define ISPCSI2_CTX_TRANSCODEH(n)		(0x000 + 0x8 * (n))
 #define ISPCSI2_CTX_TRANSCODEH_HCOUNT_SHIFT	16
 #define ISPCSI2_CTX_TRANSCODEH_HCOUNT_MASK	\
@@ -1518,6 +1531,9 @@
 #define ISPCSI2_CTX_TRANSCODEV_VSKIP_MASK	\
 	(0x1fff << ISPCSI2_CTX_TRANSCODEV_VCOUNT_SHIFT)
 
+/* -----------------------------------------------------------------------------
+ * CSI PHY registers
+ */
 
 #define ISPCSIPHY_REG0				(0x000)
 #define ISPCSIPHY_REG0_THS_TERM_SHIFT		8
@@ -1529,6 +1545,7 @@
 
 #define ISPCSIPHY_REG1					(0x004)
 #define ISPCSIPHY_REG1_RESET_DONE_CTRLCLK		(1 << 29)
+/* This field is for OMAP3630 only */
 #define ISPCSIPHY_REG1_CLOCK_MISS_DETECTOR_STATUS	(1 << 25)
 #define ISPCSIPHY_REG1_TCLK_TERM_SHIFT			18
 #define ISPCSIPHY_REG1_TCLK_TERM_MASK			\
@@ -1536,9 +1553,11 @@
 #define ISPCSIPHY_REG1_DPHY_HS_SYNC_PATTERN_SHIFT	10
 #define ISPCSIPHY_REG1_DPHY_HS_SYNC_PATTERN_MASK	\
 	(0xff << ISPCSIPHY_REG1_DPHY_HS_SYNC_PATTERN)
+/* This field is for OMAP3430 only */
 #define ISPCSIPHY_REG1_TCLK_MISS_SHIFT			8
 #define ISPCSIPHY_REG1_TCLK_MISS_MASK			\
 	(0x3 << ISPCSIPHY_REG1_TCLK_MISS_SHIFT)
+/* This field is for OMAP3630 only */
 #define ISPCSIPHY_REG1_CTRLCLK_DIV_FACTOR_SHIFT		8
 #define ISPCSIPHY_REG1_CTRLCLK_DIV_FACTOR_MASK		\
 	(0x3 << ISPCSIPHY_REG1_CTRLCLK_DIV_FACTOR_SHIFT)
@@ -1546,6 +1565,7 @@
 #define ISPCSIPHY_REG1_TCLK_SETTLE_MASK			\
 	(0xff << ISPCSIPHY_REG1_TCLK_SETTLE_SHIFT)
 
+/* This register is for OMAP3630 only */
 #define ISPCSIPHY_REG2					(0x008)
 #define ISPCSIPHY_REG2_TRIGGER_CMD_RXTRIGESC0_SHIFT	30
 #define ISPCSIPHY_REG2_TRIGGER_CMD_RXTRIGESC0_MASK	\
@@ -1563,4 +1583,4 @@
 #define ISPCSIPHY_REG2_CCP2_SYNC_PATTERN_MASK		\
 	(0x7fffff << ISPCSIPHY_REG2_CCP2_SYNC_PATTERN_SHIFT)
 
-#endif	
+#endif	/* OMAP3_ISP_REG_H */

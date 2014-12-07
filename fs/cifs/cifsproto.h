@@ -25,13 +25,18 @@
 struct statfs;
 struct smb_vol;
 
+/*
+ *****************************************************************
+ * All Prototypes
+ *****************************************************************
+ */
 
 extern struct smb_hdr *cifs_buf_get(void);
 extern void cifs_buf_release(void *);
 extern struct smb_hdr *cifs_small_buf_get(void);
 extern void cifs_small_buf_release(void *);
 extern int smb_send(struct TCP_Server_Info *, struct smb_hdr *,
-			unsigned int );
+			unsigned int /* length */);
 extern unsigned int _GetXid(void);
 extern void _FreeXid(unsigned int);
 #define GetXid()						\
@@ -59,6 +64,7 @@ extern char *build_wildcard_path_from_dentry(struct dentry *direntry);
 extern char *cifs_compose_mount_options(const char *sb_mountdata,
 		const char *fullpath, const struct dfs_info3_param *ref,
 		char **devname);
+/* extern void renew_parental_timestamps(struct dentry *direntry);*/
 extern struct mid_q_entry *AllocMidQEntry(const struct smb_hdr *smb_buffer,
 					struct TCP_Server_Info *server);
 extern void DeleteMidQEntry(struct mid_q_entry *midEntry);
@@ -66,17 +72,17 @@ extern int cifs_call_async(struct TCP_Server_Info *server, struct kvec *iov,
 			   unsigned int nvec, mid_receive_t *receive,
 			   mid_callback_t *callback, void *cbdata,
 			   bool ignore_pend);
-extern int SendReceive(const unsigned int  , struct cifs_ses *,
-			struct smb_hdr *  ,
-			struct smb_hdr *  ,
-			int *  , const int long_op);
+extern int SendReceive(const unsigned int /* xid */ , struct cifs_ses *,
+			struct smb_hdr * /* input */ ,
+			struct smb_hdr * /* out */ ,
+			int * /* bytes returned */ , const int long_op);
 extern int SendReceiveNoRsp(const unsigned int xid, struct cifs_ses *ses,
 			    char *in_buf, int flags);
 extern int cifs_check_receive(struct mid_q_entry *mid,
 			struct TCP_Server_Info *server, bool log_error);
-extern int SendReceive2(const unsigned int  , struct cifs_ses *,
-			struct kvec *, int ,
-			int *  , const int flags);
+extern int SendReceive2(const unsigned int /* xid */ , struct cifs_ses *,
+			struct kvec *, int /* nvec to send */,
+			int * /* type of buf returned */ , const int flags);
 extern int SendReceiveBlockingLock(const unsigned int xid,
 			struct cifs_tcon *ptcon,
 			struct smb_hdr *in_buf ,
@@ -101,9 +107,9 @@ extern int cifs_set_port(struct sockaddr *addr, const unsigned short int port);
 extern int cifs_fill_sockaddr(struct sockaddr *dst, const char *src, int len,
 				const unsigned short int port);
 extern int map_smb_to_linux_error(char *buf, bool logErr);
-extern void header_assemble(struct smb_hdr *, char  ,
-			    const struct cifs_tcon *, int 
-);
+extern void header_assemble(struct smb_hdr *, char /* command */ ,
+			    const struct cifs_tcon *, int /* length of
+			    fixed section (word count) in two byte units */);
 extern int small_smb_init_no_tc(const int smb_cmd, const int wct,
 				struct cifs_ses *ses,
 				void **request_buf);
@@ -167,9 +173,9 @@ extern void cifs_umount(struct cifs_sb_info *);
 
 #if IS_ENABLED(CONFIG_CIFS_DFS_UPCALL)
 extern void cifs_dfs_release_automount_timer(void);
-#else 
+#else /* ! IS_ENABLED(CONFIG_CIFS_DFS_UPCALL) */
 #define cifs_dfs_release_automount_timer()	do { } while (0)
-#endif 
+#endif /* ! IS_ENABLED(CONFIG_CIFS_DFS_UPCALL) */
 
 void cifs_proc_init(void);
 void cifs_proc_clean(void);
@@ -200,7 +206,7 @@ extern int CIFSSMBQFileInfo(const int xid, struct cifs_tcon *tcon,
 extern int CIFSSMBQPathInfo(const int xid, struct cifs_tcon *tcon,
 			const unsigned char *searchName,
 			FILE_ALL_INFO *findData,
-			int legacy ,
+			int legacy /* whether to use old info level */,
 			const struct nls_table *nls_codepage, int remap);
 extern int SMBQueryInformation(const int xid, struct cifs_tcon *tcon,
 			const unsigned char *searchName,
@@ -257,7 +263,7 @@ extern int CIFSSMBSetFileDisposition(const int xid, struct cifs_tcon *tcon,
 extern int CIFSSMBSetAttrLegacy(int xid, struct cifs_tcon *tcon,
 			char *fileName, __u16 dos_attributes,
 			const struct nls_table *nls_codepage);
-#endif 
+#endif /* possibly unneeded function */
 extern int CIFSSMBSetEOF(const int xid, struct cifs_tcon *tcon,
 			const char *fileName, __u64 size,
 			bool setAllocationSizeFlag,
@@ -334,7 +340,7 @@ extern int CIFSSMBQueryReparseLinkInfo(const int xid,
 			const unsigned char *searchName,
 			char *symlinkinfo, const int buflen, __u16 fid,
 			const struct nls_table *nls_codepage);
-#endif 
+#endif /* temporarily unused until cifs_symlink fixed */
 extern int CIFSSMBOpen(const int xid, struct cifs_tcon *tcon,
 			const char *fileName, const int disposition,
 			const int access_flags, const int omode,
@@ -408,13 +414,13 @@ extern int calc_seckey(struct cifs_ses *);
 #ifdef CONFIG_CIFS_WEAK_PW_HASH
 extern int calc_lanman_hash(const char *password, const char *cryptkey,
 				bool encrypt, char *lnm_session_key);
-#endif 
-#ifdef CONFIG_CIFS_DNOTIFY_EXPERIMENTAL 
+#endif /* CIFS_WEAK_PW_HASH */
+#ifdef CONFIG_CIFS_DNOTIFY_EXPERIMENTAL /* unused temporarily */
 extern int CIFSSMBNotify(const int xid, struct cifs_tcon *tcon,
 			const int notify_subdirs, const __u16 netfid,
 			__u32 filter, struct file *file, int multishot,
 			const struct nls_table *nls_codepage);
-#endif 
+#endif /* was needed for dnotify, and will be needed for inotify when VFS fix */
 extern int CIFSSMBCopy(int xid,
 			struct cifs_tcon *source_tcon,
 			const char *fromName,
@@ -456,6 +462,7 @@ extern int E_md4hash(const unsigned char *passwd, unsigned char *p16,
 extern int SMBencrypt(unsigned char *passwd, const unsigned char *c8,
 			unsigned char *p24);
 
+/* asynchronous read support */
 struct cifs_readdata {
 	struct cifsFileInfo		*cfile;
 	struct address_space		*mapping;
@@ -473,6 +480,7 @@ struct cifs_readdata *cifs_readdata_alloc(unsigned int nr_pages);
 void cifs_readdata_free(struct cifs_readdata *rdata);
 int cifs_async_readv(struct cifs_readdata *rdata);
 
+/* asynchronous write support */
 struct cifs_writedata {
 	struct kref			refcount;
 	struct list_head		list;
@@ -496,4 +504,4 @@ struct cifs_writedata *cifs_writedata_alloc(unsigned int nr_pages,
 						work_func_t complete);
 void cifs_writedata_release(struct kref *refcount);
 
-#endif			
+#endif			/* _CIFSPROTO_H */

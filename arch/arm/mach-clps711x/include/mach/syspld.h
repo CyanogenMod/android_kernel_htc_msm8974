@@ -35,15 +35,15 @@
 #define PLD_INT		SYSPLD_REG(u32, 0x000000)
 #define PLD_INT_PENIRQ		(1 << 5)
 #define PLD_INT_UCB_IRQ		(1 << 1)
-#define PLD_INT_KBD_ATN		(1 << 0)	
+#define PLD_INT_KBD_ATN		(1 << 0)	/* EINT1 */
 
 #define PLD_PWR		SYSPLD_REG(u32, 0x000004)
 #define PLD_PWR_EXT		(1 << 5)
-#define PLD_PWR_MODE		(1 << 4)	
-#define PLD_S4_ON		(1 << 3)	
-#define PLD_S3_ON		(1 << 2)	
-#define PLD_S2_ON		(1 << 1)	
-#define PLD_S1_ON		(1 << 0)	
+#define PLD_PWR_MODE		(1 << 4)	/* 1 = PWM, 0 = PFM */
+#define PLD_S4_ON		(1 << 3)	/* LCD bias voltage enable */
+#define PLD_S3_ON		(1 << 2)	/* LCD backlight enable */
+#define PLD_S2_ON		(1 << 1)	/* LCD 3V3 supply enable */
+#define PLD_S1_ON		(1 << 0)	/* LCD 3V supply enable */
 
 #define PLD_KBD		SYSPLD_REG(u32, 0x000008)
 #define PLD_KBD_WAKE		(1 << 1)
@@ -53,8 +53,8 @@
 #define PLD_SPI_EN		(1 << 0)
 
 #define PLD_IO		SYSPLD_REG(u32, 0x000010)
-#define PLD_IO_BOOTSEL		(1 << 6)	
-#define PLD_IO_USER		(1 << 5)	
+#define PLD_IO_BOOTSEL		(1 << 6)	/* boot sel switch */
+#define PLD_IO_USER		(1 << 5)	/* user defined switch */
 #define PLD_IO_LED3		(1 << 4)
 #define PLD_IO_LED2		(1 << 3)
 #define PLD_IO_LED1		(1 << 2)

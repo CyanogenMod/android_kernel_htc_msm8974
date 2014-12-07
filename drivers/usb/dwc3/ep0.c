@@ -133,6 +133,15 @@ static int __dwc3_gadget_ep0_queue(struct dwc3_ep *dep,
 
 	list_add_tail(&req->list, &dep->request_list);
 
+	/*
+	 * Gadget driver might not be quick enough to queue a request
+	 * before we get a Transfer Not Ready event on this endpoint.
+	 *
+	 * In that case, we will set DWC3_EP_PENDING_REQUEST. When that
+	 * flag is set, it's telling us that as soon as Gadget queues the
+	 * required request, we should kick the transfer here because the
+	 * IRQ we were waiting for is long gone.
+	 */
 	if (dep->flags & DWC3_EP_PENDING_REQUEST) {
 		unsigned	direction;
 
@@ -151,6 +160,10 @@ static int __dwc3_gadget_ep0_queue(struct dwc3_ep *dep,
 		return 0;
 	}
 
+	/*
+	 * In case gadget driver asked us to delay the STATUS phase,
+	 * handle it here.
+	 */
 	if (dwc->delayed_status) {
 		unsigned	direction;
 
@@ -165,6 +178,38 @@ static int __dwc3_gadget_ep0_queue(struct dwc3_ep *dep,
 		return 0;
 	}
 
+	/*
+	 * Unfortunately we have uncovered a limitation wrt the Data Phase.
+	 *
+	 * Section 9.4 says we can wait for the XferNotReady(DATA) event to
+	 * come before issueing Start Transfer command, but if we do, we will
+	 * miss situations where the host starts another SETUP phase instead of
+	 * the DATA phase.  Such cases happen at least on TD.7.6 of the Link
+	 * Layer Compliance Suite.
+	 *
+	 * The problem surfaces due to the fact that in case of back-to-back
+	 * SETUP packets there will be no XferNotReady(DATA) generated and we
+	 * will be stuck waiting for XferNotReady(DATA) forever.
+	 *
+	 * By looking at tables 9-13 and 9-14 of the Databook, we can see that
+	 * it tells us to start Data Phase right away. It also mentions that if
+	 * we receive a SETUP phase instead of the DATA phase, core will issue
+	 * XferComplete for the DATA phase, before actually initiating it in
+	 * the wire, with the TRB's status set to "SETUP_PENDING". Such status
+	 * can only be used to print some debugging logs, as the core expects
+	 * us to go through to the STATUS phase and start a CONTROL_STATUS TRB,
+	 * just so it completes right away, without transferring anything and,
+	 * only then, we can go back to the SETUP phase.
+	 *
+	 * Because of this scenario, SNPS decided to change the programming
+	 * model of control transfers and support on-demand transfers only for
+	 * the STATUS phase. To fix the issue we have now, we will always wait
+	 * for gadget driver to queue the DATA phase's struct usb_request, then
+	 * start it right away.
+	 *
+	 * If we're actually in a 2-stage transfer, we will wait for
+	 * XferNotReady(STATUS).
+	 */
 	if (dwc->three_stage_setup) {
 		unsigned        direction;
 
@@ -198,7 +243,7 @@ int dwc3_gadget_ep0_queue(struct usb_ep *ep, struct usb_request *request,
 		goto out;
 	}
 
-	
+	/* we share one TRB for ep0/1 */
 	if (!list_empty(&dep->request_list)) {
 		ret = -EBUSY;
 		goto out;
@@ -220,11 +265,11 @@ static void dwc3_ep0_stall_and_restart(struct dwc3 *dwc)
 {
 	struct dwc3_ep		*dep;
 
-	
+	/* reinitialize physical ep1 */
 	dep = dwc->eps[1];
 	dep->flags = DWC3_EP_ENABLED;
 
-	
+	/* stall is always issued on EP0 */
 	dep = dwc->eps[0];
 	__dwc3_gadget_ep_set_halt(dep, 1);
 	dep->flags = DWC3_EP_ENABLED;
@@ -246,6 +291,7 @@ int dwc3_gadget_ep0_set_halt(struct usb_ep *ep, int value)
 	struct dwc3_ep			*dep = to_dwc3_ep(ep);
 	struct dwc3			*dwc = dep->dwc;
 
+	dbg_event(dep->number, "EP0STAL", value);
 	dwc3_ep0_stall_and_restart(dwc);
 
 	return 0;
@@ -280,6 +326,9 @@ static struct dwc3_ep *dwc3_wIndex_to_dep(struct dwc3 *dwc, __le16 wIndex_le)
 static void dwc3_ep0_status_cmpl(struct usb_ep *ep, struct usb_request *req)
 {
 }
+/*
+ * ch 9.4.5
+ */
 static int dwc3_ep0_handle_status(struct dwc3 *dwc,
 		struct usb_ctrlrequest *ctrl)
 {
@@ -292,6 +341,9 @@ static int dwc3_ep0_handle_status(struct dwc3 *dwc,
 	recip = ctrl->bRequestType & USB_RECIP_MASK;
 	switch (recip) {
 	case USB_RECIP_DEVICE:
+		/*
+		 * LTM will be set once we know how to set this in HW.
+		 */
 		usb_status |= dwc->is_selfpowered << USB_DEVICE_SELF_POWERED;
 
 		if (dwc->speed == DWC3_DSTS_SUPERSPEED) {
@@ -305,6 +357,10 @@ static int dwc3_ep0_handle_status(struct dwc3 *dwc,
 		break;
 
 	case USB_RECIP_INTERFACE:
+		/*
+		 * Function Remote Wake Capable	D0
+		 * Function Remote Wakeup	D1
+		 */
 		break;
 
 	case USB_RECIP_ENDPOINT:
@@ -350,6 +406,10 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
 		switch (wValue) {
 		case USB_DEVICE_REMOTE_WAKEUP:
 			break;
+		/*
+		 * 9.4.1 says only only for SS, in AddressState only for
+		 * default control pipe
+		 */
 		case USB_DEVICE_U1_ENABLE:
 			if (dwc->dev_state != DWC3_CONFIGURED_STATE)
 				return -EINVAL;
@@ -400,10 +460,10 @@ static int dwc3_ep0_handle_feature(struct dwc3 *dwc,
 		switch (wValue) {
 		case USB_INTRF_FUNC_SUSPEND:
 			if (wIndex & USB_INTRF_FUNC_SUSPEND_LP)
-				
+				/* XXX enable Low power suspend */
 				;
 			if (wIndex & USB_INTRF_FUNC_SUSPEND_RW)
-				
+				/* XXX enable remote wakeup */
 				;
 			break;
 		default:
@@ -492,9 +552,13 @@ static int dwc3_ep0_set_config(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 
 	case DWC3_ADDRESS_STATE:
 		ret = dwc3_ep0_delegate_req(dwc, ctrl);
-		
+		/* if the cfg matches and the cfg is non zero */
 		if (cfg && (!ret || (ret == USB_GADGET_DELAYED_STATUS))) {
 			dwc->dev_state = DWC3_CONFIGURED_STATE;
+			/*
+			 * Enable transition to U1/U2 state when
+			 * nothing is pending from application.
+			 */
 			reg = dwc3_readl(dwc->regs, DWC3_DCTL);
 			reg |= (DWC3_DCTL_ACCEPTU1ENA | DWC3_DCTL_ACCEPTU2ENA);
 			dwc3_writel(dwc->regs, DWC3_DCTL, reg);
@@ -545,10 +609,15 @@ static void dwc3_ep0_set_sel_cmpl(struct usb_ep *ep, struct usb_request *req)
 	if (reg & DWC3_DCTL_INITU1ENA)
 		param = dwc->u1pel;
 
+	/*
+	 * According to Synopsys Databook, if parameter is
+	 * greater than 125, a value of zero should be
+	 * programmed in the register.
+	 */
 	if (param > 125)
 		param = 0;
 
-	
+	/* now that we have the time, issue DGCMD Set Sel */
 	ret = dwc3_send_gadget_generic_command(dwc,
 			DWC3_DGCMD_SET_PERIODIC_PAR, param);
 	WARN_ON(ret < 0);
@@ -572,6 +641,14 @@ static int dwc3_ep0_set_sel(struct dwc3 *dwc, struct usb_ctrlrequest *ctrl)
 		return -EINVAL;
 	}
 
+	/*
+	 * To handle Set SEL we need to receive 6 bytes from Host. So let's
+	 * queue a usb_request for 6 bytes.
+	 *
+	 * Remember, though, this controller can't handle non-wMaxPacketSize
+	 * aligned transfers on the OUT direction, so we queue a request for
+	 * wMaxPacketSize instead.
+	 */
 	dep = dwc->eps[0];
 	dwc->ep0_usb_req.dep = dep;
 	dwc->ep0_usb_req.request.length = dep->endpoint.maxpacket;
@@ -594,6 +671,10 @@ static int dwc3_ep0_set_isoch_delay(struct dwc3 *dwc, struct usb_ctrlrequest *ct
 	if (wIndex || wLength)
 		return -EINVAL;
 
+	/*
+	 * REVISIT It's unclear from Databook what to do with this
+	 * value. For now, just cache it.
+	 */
 	dwc->isoch_delay = wValue;
 
 	return 0;
@@ -672,8 +753,10 @@ static void dwc3_ep0_inspect_setup(struct dwc3 *dwc,
 		dwc->delayed_status = true;
 
 out:
-	if (ret < 0)
+	if (ret < 0) {
+		dbg_event(0x0, "ERRSTAL", ret);
 		dwc3_ep0_stall_and_restart(dwc);
+	}
 }
 
 bool zlp_required;
@@ -738,10 +821,14 @@ static void dwc3_ep0_complete_data(struct dwc3 *dwc,
 	ur->actual += transferred;
 
 	if ((epnum & 1) && ur->actual < ur->length) {
-		
-
+		/* for some reason we did not get everything out */
+		dbg_event(epnum, "INDATSTAL", 0);
 		dwc3_ep0_stall_and_restart(dwc);
 	} else {
+		/*
+		 * handle the case where we have to send a zero packet. This
+		 * seems to be case when req.length > maxpacket. Could it be?
+		 */
 		if (r)
 			dwc3_gadget_giveback(ep0, r, 0);
 	}
@@ -771,6 +858,7 @@ static void dwc3_ep0_complete_status(struct dwc3 *dwc,
 		if (ret < 0) {
 			dev_dbg(dwc->dev, "Invalid Test #%d\n",
 					dwc->test_mode_nr);
+			dbg_event(0x00, "INVALTEST", ret);
 			dwc3_ep0_stall_and_restart(dwc);
 			return;
 		}
@@ -843,6 +931,11 @@ static void __dwc3_ep0_do_control_data(struct dwc3 *dwc,
 
 		dwc->ep0_bounced = true;
 
+		/*
+		 * REVISIT in case request length is bigger than
+		 * DWC3_EP0_BOUNCE_SIZE we will need two chained
+		 * TRBs to handle the transfer.
+		 */
 		ret = dwc3_ep0_start_trans(dwc, dep->number,
 				dwc->ep0_bounce_addr, transfer_size,
 				DWC3_TRBCTL_CONTROL_DATA);
@@ -931,11 +1024,21 @@ static void dwc3_ep0_xfernotready(struct dwc3 *dwc,
 	case DEPEVT_STATUS_CONTROL_DATA:
 		dev_vdbg(dwc->dev, "Control Data\n");
 
+		/*
+		 * We already have a DATA transfer in the controller's cache,
+		 * if we receive a XferNotReady(DATA) we will ignore it, unless
+		 * it's for the wrong direction.
+		 *
+		 * In that case, we must issue END_TRANSFER command to the Data
+		 * Phase we already have started and issue SetStall on the
+		 * control endpoint.
+		 */
 		if (dwc->ep0_expect_in != event->endpoint_number) {
 			struct dwc3_ep	*dep = dwc->eps[dwc->ep0_expect_in];
 
 			dev_vdbg(dwc->dev, "Wrong direction for Data phase\n");
 			dwc3_ep0_end_control_data(dwc, dep);
+			dbg_event(epnum, "WRONGDR", 0);
 			dwc3_ep0_stall_and_restart(dwc);
 			return;
 		}

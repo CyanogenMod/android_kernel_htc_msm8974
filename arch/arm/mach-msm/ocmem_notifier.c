@@ -15,6 +15,7 @@
 
 static unsigned notifier_threshold;
 
+/* Protect the notifier structure below */
 DEFINE_MUTEX(nc_lock);
 
 struct ocmem_notifier {
@@ -39,7 +40,7 @@ int check_notifier(int id)
 int ocmem_notifier_init(void)
 {
 	int id;
-	
+	/* Maximum notifiers for each subsystem */
 	notifier_threshold = 1;
 	mutex_lock(&nc_lock);
 	for (id = 0; id < OCMEM_CLIENT_MAX; id++) {
@@ -51,6 +52,7 @@ int ocmem_notifier_init(void)
 	return 0;
 }
 
+/* Broadcast a notification to listeners */
 int dispatch_notification(int id, enum ocmem_notif_type notif,
 				struct ocmem_buf *buf)
 {
@@ -59,7 +61,7 @@ int dispatch_notification(int id, enum ocmem_notif_type notif,
 	mutex_lock(&nc_lock);
 	nc_hndl = &notifiers[id];
 	if (nc_hndl->listeners == 0) {
-		
+		/* Send an error so that the scheduler can clean up */
 		mutex_unlock(&nc_lock);
 		return -EINVAL;
 	}

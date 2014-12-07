@@ -1,6 +1,14 @@
 #ifndef __ASM_GENERIC_UNALIGNED_H
 #define __ASM_GENERIC_UNALIGNED_H
 
+/*
+ * This is the most generic implementation of unaligned accesses
+ * and should work almost anywhere.
+ *
+ * If an architecture can handle unaligned accesses in hardware,
+ * it may want to use the linux/unaligned/access_ok.h implementation
+ * instead.
+ */
 #include <asm/byteorder.h>
 
 #if defined(__LITTLE_ENDIAN)
@@ -19,4 +27,4 @@
 # error need to define endianess
 #endif
 
-#endif 
+#endif /* __ASM_GENERIC_UNALIGNED_H */

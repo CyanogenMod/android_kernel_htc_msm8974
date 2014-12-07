@@ -59,16 +59,17 @@ struct fb_cvt_data {
 };
 
 static const unsigned char fb_cvt_vbi_tab[] = {
-	4,        
-	5,        
-	6,        
-	7,        
-	7,        
-	8,        
-	9,        
-	10        
+	4,        /* 4:3      */
+	5,        /* 16:9     */
+	6,        /* 16:10    */
+	7,        /* 5:4      */
+	7,        /* 15:9     */
+	8,        /* reserved */
+	9,        /* reserved */
+	10        /* custom   */
 };
 
+/* returns hperiod * 1000 */
 static u32 fb_cvt_hperiod(struct fb_cvt_data *cvt)
 {
 	u32 num = 1000000000/cvt->f_refresh;
@@ -86,6 +87,7 @@ static u32 fb_cvt_hperiod(struct fb_cvt_data *cvt)
 	return 2 * (num/den);
 }
 
+/* returns ideal duty cycle * 1000 */
 static u32 fb_cvt_ideal_duty_cycle(struct fb_cvt_data *cvt)
 {
 	u32 c_prime = (FB_CVT_GTF_C - FB_CVT_GTF_J) *
@@ -285,6 +287,21 @@ static void fb_cvt_convert_to_mode(struct fb_cvt_data *cvt,
 		mode->sync |= FB_SYNC_VERT_HIGH_ACT;
 }
 
+/*
+ * fb_find_mode_cvt - calculate mode using VESA(TM) CVT
+ * @mode: pointer to fb_videomode; xres, yres, refresh and vmode must be
+ *        pre-filled with the desired values
+ * @margins: add margin to calculation (1.8% of xres and yres)
+ * @rb: compute with reduced blanking (for flatpanels)
+ *
+ * RETURNS:
+ * 0 for success
+ * @mode is filled with computed values.  If interlaced, the refresh field
+ * will be filled with the field rate (2x the frame rate)
+ *
+ * DESCRIPTION:
+ * Computes video timings using VESA(TM) Coordinated Video Timings
+ */
 int fb_find_mode_cvt(struct fb_videomode *mode, int margins, int rb)
 {
 	struct fb_cvt_data cvt;

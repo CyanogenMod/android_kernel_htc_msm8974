@@ -24,7 +24,7 @@ static const char *usrgpir_gpio_names[NR_FPGA_GPIOS] = {
 
 static int usrgpir_gpio_direction_input(struct gpio_chip *chip, unsigned gpio)
 {
-	
+	/* always in */
 	return 0;
 }
 
@@ -38,7 +38,7 @@ static struct gpio_chip usrgpir_gpio_chip = {
 	.names			= usrgpir_gpio_names,
 	.direction_input	= usrgpir_gpio_direction_input,
 	.get			= usrgpir_gpio_get,
-	.base			= -1, 
+	.base			= -1, /* don't care */
 	.ngpio			= NR_FPGA_GPIOS,
 };
 

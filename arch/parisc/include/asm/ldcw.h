@@ -2,6 +2,13 @@
 #define __PARISC_LDCW_H
 
 #ifndef CONFIG_PA20
+/* Because kmalloc only guarantees 8-byte alignment for kmalloc'd data,
+   and GCC only guarantees 8-byte alignment for stack locals, we can't
+   be assured of 16-byte alignment for atomic lock data even if we
+   specify "__attribute ((aligned(16)))" in the type declaration.  So,
+   we use a struct containing an array of four ints for the atomic lock
+   type and dynamically select the 16-byte aligned int from the array
+   for the semaphore.  */
 
 #define __PA_LDCW_ALIGNMENT	16
 #define __ldcw_align(a) ({					\
@@ -12,14 +19,21 @@
 })
 #define __LDCW	"ldcw"
 
-#else 
+#else /*CONFIG_PA20*/
+/* From: "Jim Hull" <jim.hull of hp.com>
+   I've attached a summary of the change, but basically, for PA 2.0, as
+   long as the ",CO" (coherent operation) completer is specified, then the
+   16-byte alignment requirement for ldcw and ldcd is relaxed, and instead
+   they only require "natural" alignment (4-byte for ldcw, 8-byte for
+   ldcd). */
 
 #define __PA_LDCW_ALIGNMENT	4
 #define __ldcw_align(a) (&(a)->slock)
 #define __LDCW	"ldcw,co"
 
-#endif 
+#endif /*!CONFIG_PA20*/
 
+/* LDCW, the only atomic read-write operation PA-RISC has. *sigh*.  */
 #define __ldcw(a) ({						\
 	unsigned __ret;						\
 	__asm__ __volatile__(__LDCW " 0(%2),%0"			\
@@ -31,4 +45,4 @@
 # define __lock_aligned __attribute__((__section__(".data..lock_aligned")))
 #endif
 
-#endif 
+#endif /* __PARISC_LDCW_H */

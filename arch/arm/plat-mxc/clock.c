@@ -22,6 +22,7 @@
  * MA  02110-1301, USA.
  */
 
+/* #define DEBUG */
 
 #include <linux/clk.h>
 #include <linux/err.h>
@@ -43,6 +44,9 @@
 static LIST_HEAD(clocks);
 static DEFINE_MUTEX(clocks_mutex);
 
+/*-------------------------------------------------------------------------
+ * Standard clock functions defined in include/linux/clk.h
+ *-------------------------------------------------------------------------*/
 
 static void __clk_disable(struct clk *clk)
 {
@@ -73,6 +77,9 @@ static int __clk_enable(struct clk *clk)
 	return 0;
 }
 
+/* This function increments the reference count on the clock and enables the
+ * clock if not already enabled. The parent clock tree is recursively enabled
+ */
 int clk_enable(struct clk *clk)
 {
 	int ret = 0;
@@ -88,6 +95,10 @@ int clk_enable(struct clk *clk)
 }
 EXPORT_SYMBOL(clk_enable);
 
+/* This function decrements the reference count on the clock and disables
+ * the clock when reference count is 0. The parent clock tree is
+ * recursively disabled
+ */
 void clk_disable(struct clk *clk)
 {
 	if (clk == NULL || IS_ERR(clk))
@@ -99,6 +110,11 @@ void clk_disable(struct clk *clk)
 }
 EXPORT_SYMBOL(clk_disable);
 
+/* Retrieve the *current* clock rate. If the clock itself
+ * does not provide a special calculation routine, ask
+ * its parent and so on, until one is able to return
+ * a valid clock rate
+ */
 unsigned long clk_get_rate(struct clk *clk)
 {
 	if (clk == NULL || IS_ERR(clk))
@@ -111,6 +127,10 @@ unsigned long clk_get_rate(struct clk *clk)
 }
 EXPORT_SYMBOL(clk_get_rate);
 
+/* Round the requested clock rate to the nearest supported
+ * rate that is less than or equal to the requested rate.
+ * This is dependent on the clock's current parent.
+ */
 long clk_round_rate(struct clk *clk, unsigned long rate)
 {
 	if (clk == NULL || IS_ERR(clk) || !clk->round_rate)
@@ -120,6 +140,9 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 }
 EXPORT_SYMBOL(clk_round_rate);
 
+/* Set the clock to the requested clock rate. The rate must
+ * match a supported rate exactly based on what clk_round_rate returns
+ */
 int clk_set_rate(struct clk *clk, unsigned long rate)
 {
 	int ret = -EINVAL;
@@ -135,6 +158,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 }
 EXPORT_SYMBOL(clk_set_rate);
 
+/* Set the clock's parent to another clock source */
 int clk_set_parent(struct clk *clk, struct clk *parent)
 {
 	int ret = -EINVAL;
@@ -164,6 +188,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 }
 EXPORT_SYMBOL(clk_set_parent);
 
+/* Retrieve the clock's parent clock source */
 struct clk *clk_get_parent(struct clk *clk)
 {
 	struct clk *ret = NULL;
@@ -175,6 +200,15 @@ struct clk *clk_get_parent(struct clk *clk)
 }
 EXPORT_SYMBOL(clk_get_parent);
 
+/*
+ * Get the resulting clock rate from a PLL register value and the input
+ * frequency. PLLs with this register layout can at least be found on
+ * MX1, MX21, MX27 and MX31
+ *
+ *                  mfi + mfn / (mfd + 1)
+ *  f = 2 * f_ref * --------------------
+ *                        pd + 1
+ */
 unsigned long mxc_decode_pll(unsigned int reg_val, u32 freq)
 {
 	long long ll;
@@ -190,6 +224,9 @@ unsigned long mxc_decode_pll(unsigned int reg_val, u32 freq)
 
 	mfn_abs = mfn;
 
+	/* On all i.MXs except i.MX1 and i.MX21 mfn is a 10bit
+	 * 2's complements number
+	 */
 	if (!cpu_is_mx1() && !cpu_is_mx21() && mfn >= 0x200)
 		mfn_abs = 0x400 - mfn;
 

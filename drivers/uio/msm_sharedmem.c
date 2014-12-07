@@ -25,7 +25,7 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 	struct uio_info *info = NULL;
 	struct resource *clnt_res = NULL;
 
-	
+	/* Get the addresses from platform-data */
 	if (!pdev->dev.of_node) {
 		pr_err("Node not found\n");
 		ret = -ENODEV;
@@ -47,7 +47,7 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 	info->mem[0].size = resource_size(clnt_res);
 	info->mem[0].memtype = UIO_MEM_PHYS;
 
-	
+	/* Setup device */
 	ret = uio_register_device(&pdev->dev, info);
 	if (ret)
 		goto out;

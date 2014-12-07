@@ -135,6 +135,83 @@ static const struct lseq_cio_regs {
 	{"LmDONETCTL",    0xF2, 16, MODE_COMMON },
 	{NULL, 0, 0, 0 }
 };
+/*
+static struct lseq_cio_regs LSEQmOOBREGS[] = {
+   {"OOB_BFLTR"        ,0x100, 8, MD(5)},
+   {"OOB_INIT_MIN"     ,0x102,16, MD(5)},
+   {"OOB_INIT_MAX"     ,0x104,16, MD(5)},
+   {"OOB_INIT_NEG"     ,0x106,16, MD(5)},
+   {"OOB_SAS_MIN"      ,0x108,16, MD(5)},
+   {"OOB_SAS_MAX"      ,0x10A,16, MD(5)},
+   {"OOB_SAS_NEG"      ,0x10C,16, MD(5)},
+   {"OOB_WAKE_MIN"     ,0x10E,16, MD(5)},
+   {"OOB_WAKE_MAX"     ,0x110,16, MD(5)},
+   {"OOB_WAKE_NEG"     ,0x112,16, MD(5)},
+   {"OOB_IDLE_MAX"     ,0x114,16, MD(5)},
+   {"OOB_BURST_MAX"    ,0x116,16, MD(5)},
+   {"OOB_XMIT_BURST"   ,0x118, 8, MD(5)},
+   {"OOB_SEND_PAIRS"   ,0x119, 8, MD(5)},
+   {"OOB_INIT_IDLE"    ,0x11A, 8, MD(5)},
+   {"OOB_INIT_NEGO"    ,0x11C, 8, MD(5)},
+   {"OOB_SAS_IDLE"     ,0x11E, 8, MD(5)},
+   {"OOB_SAS_NEGO"     ,0x120, 8, MD(5)},
+   {"OOB_WAKE_IDLE"    ,0x122, 8, MD(5)},
+   {"OOB_WAKE_NEGO"    ,0x124, 8, MD(5)},
+   {"OOB_DATA_KBITS"   ,0x126, 8, MD(5)},
+   {"OOB_BURST_DATA"   ,0x128,32, MD(5)},
+   {"OOB_ALIGN_0_DATA" ,0x12C,32, MD(5)},
+   {"OOB_ALIGN_1_DATA" ,0x130,32, MD(5)},
+   {"OOB_SYNC_DATA"    ,0x134,32, MD(5)},
+   {"OOB_D10_2_DATA"   ,0x138,32, MD(5)},
+   {"OOB_PHY_RST_CNT"  ,0x13C,32, MD(5)},
+   {"OOB_SIG_GEN"      ,0x140, 8, MD(5)},
+   {"OOB_XMIT"         ,0x141, 8, MD(5)},
+   {"FUNCTION_MAKS"    ,0x142, 8, MD(5)},
+   {"OOB_MODE"         ,0x143, 8, MD(5)},
+   {"CURRENT_STATUS"   ,0x144, 8, MD(5)},
+   {"SPEED_MASK"       ,0x145, 8, MD(5)},
+   {"PRIM_COUNT"       ,0x146, 8, MD(5)},
+   {"OOB_SIGNALS"      ,0x148, 8, MD(5)},
+   {"OOB_DATA_DET"     ,0x149, 8, MD(5)},
+   {"OOB_TIME_OUT"     ,0x14C, 8, MD(5)},
+   {"OOB_TIMER_ENABLE" ,0x14D, 8, MD(5)},
+   {"OOB_STATUS"       ,0x14E, 8, MD(5)},
+   {"HOT_PLUG_DELAY"   ,0x150, 8, MD(5)},
+   {"RCD_DELAY"        ,0x151, 8, MD(5)},
+   {"COMSAS_TIMER"     ,0x152, 8, MD(5)},
+   {"SNTT_DELAY"       ,0x153, 8, MD(5)},
+   {"SPD_CHNG_DELAY"   ,0x154, 8, MD(5)},
+   {"SNLT_DELAY"       ,0x155, 8, MD(5)},
+   {"SNWT_DELAY"       ,0x156, 8, MD(5)},
+   {"ALIGN_DELAY"      ,0x157, 8, MD(5)},
+   {"INT_ENABLE_0"     ,0x158, 8, MD(5)},
+   {"INT_ENABLE_1"     ,0x159, 8, MD(5)},
+   {"INT_ENABLE_2"     ,0x15A, 8, MD(5)},
+   {"INT_ENABLE_3"     ,0x15B, 8, MD(5)},
+   {"OOB_TEST_REG"     ,0x15C, 8, MD(5)},
+   {"PHY_CONTROL_0"    ,0x160, 8, MD(5)},
+   {"PHY_CONTROL_1"    ,0x161, 8, MD(5)},
+   {"PHY_CONTROL_2"    ,0x162, 8, MD(5)},
+   {"PHY_CONTROL_3"    ,0x163, 8, MD(5)},
+   {"PHY_OOB_CAL_TX"   ,0x164, 8, MD(5)},
+   {"PHY_OOB_CAL_RX"   ,0x165, 8, MD(5)},
+   {"OOB_PHY_CAL_TX"   ,0x166, 8, MD(5)},
+   {"OOB_PHY_CAL_RX"   ,0x167, 8, MD(5)},
+   {"PHY_CONTROL_4"    ,0x168, 8, MD(5)},
+   {"PHY_TEST"         ,0x169, 8, MD(5)},
+   {"PHY_PWR_CTL"      ,0x16A, 8, MD(5)},
+   {"PHY_PWR_DELAY"    ,0x16B, 8, MD(5)},
+   {"OOB_SM_CON"       ,0x16C, 8, MD(5)},
+   {"ADDR_TRAP_1"      ,0x16D, 8, MD(5)},
+   {"ADDR_NEXT_1"      ,0x16E, 8, MD(5)},
+   {"NEXT_ST_1"        ,0x16F, 8, MD(5)},
+   {"OOB_SM_STATE"     ,0x170, 8, MD(5)},
+   {"ADDR_TRAP_2"      ,0x171, 8, MD(5)},
+   {"ADDR_NEXT_2"      ,0x172, 8, MD(5)},
+   {"NEXT_ST_2"        ,0x173, 8, MD(5)},
+   {NULL, 0, 0, 0 }
+};
+*/
 #define STR_8BIT   "   %30s[0x%04x]:0x%02x\n"
 #define STR_16BIT  "   %30s[0x%04x]:0x%04x\n"
 #define STR_32BIT  "   %30s[0x%04x]:0x%08x\n"
@@ -165,6 +242,7 @@ static const struct lseq_cio_regs {
 #define PRINT_MREG_32bit(_ha, _m, _n, _r) asd_printk(MSTR_32BIT, _m, #_n, _n, \
 					      asd_read_reg_dword(_ha, _r))
 
+/* can also be used for MD when the register is mode aware already */
 #define PRINT_MIS_byte(_ha, _n) asd_printk(STR_8BIT, #_n,CSEQ_##_n-CMAPPEDSCR,\
                                            asd_read_reg_byte(_ha, CSEQ_##_n))
 #define PRINT_MIS_word(_ha, _n) asd_printk(STR_16BIT,#_n,CSEQ_##_n-CMAPPEDSCR,\
@@ -662,6 +740,11 @@ static void asd_dump_lseq_state(struct asd_ha_struct *asd_ha, int lseq)
 
 #if 0
 
+/**
+ * asd_dump_ddb_site -- dump a CSEQ DDB site
+ * @asd_ha: pointer to host adapter structure
+ * @site_no: site number of interest
+ */
 void asd_dump_target_ddb(struct asd_ha_struct *asd_ha, u16 site_no)
 {
 	if (site_no >= asd_ha->hw_prof.max_ddbs)
@@ -772,6 +855,10 @@ static void asd_dump_scb_site(struct asd_ha_struct *asd_ha, u16 site_no)
 	asd_printk("Retry Count: 0x%02x.\n", SCB_FIELDB(retry_count));
 }
 
+/**
+ * asd_dump_scb_sites -- dump currently used CSEQ SCB sites
+ * @asd_ha: pointer to host adapter struct
+ */
 void asd_dump_scb_sites(struct asd_ha_struct *asd_ha)
 {
 	u16	site_no;
@@ -782,6 +869,8 @@ void asd_dump_scb_sites(struct asd_ha_struct *asd_ha)
 		if (!SCB_SITE_VALID(site_no))
 			continue;
 
+		/* We are only interested in SCB sites currently used.
+		 */
 		opcode = asd_scbsite_read_byte(asd_ha, site_no,
 					       offsetof(struct scb_header,
 							opcode));
@@ -793,8 +882,13 @@ void asd_dump_scb_sites(struct asd_ha_struct *asd_ha)
 	}
 }
 
-#endif  
+#endif  /*  0  */
 
+/**
+ * ads_dump_seq_state -- dump CSEQ and LSEQ states
+ * @asd_ha: pointer to host adapter structure
+ * @lseq_mask: mask of LSEQs of interest
+ */
 void asd_dump_seq_state(struct asd_ha_struct *asd_ha, u8 lseq_mask)
 {
 	int lseq;
@@ -868,6 +962,6 @@ void asd_dump_scb_list(struct asd_ascb *ascb, int num)
 	}
 }
 
-#endif  
+#endif  /*  0  */
 
-#endif 
+#endif /* ASD_DEBUG */

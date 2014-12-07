@@ -39,7 +39,7 @@ MODULE_DESCRIPTION("NatSemi SCx200 Watchdog Driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
 
-static int margin = 60;		
+static int margin = 60;		/* in seconds */
 module_param(margin, int, 0);
 MODULE_PARM_DESC(margin, "Watchdog margin in seconds");
 
@@ -52,9 +52,11 @@ static char expect_close;
 static unsigned long open_lock;
 static DEFINE_SPINLOCK(scx_lock);
 
-#define W_ENABLE 0x00fa		
-#define W_DISABLE 0x0000	
+/* Bits of the WDCNFG register */
+#define W_ENABLE 0x00fa		/* Enable watchdog */
+#define W_DISABLE 0x0000	/* Disable watchdog */
 
+/* The scaling factor for the timer, this depends on the value of W_ENABLE */
 #define W_SCALE (32768/1024)
 
 static void scx200_wdt_ping(void)
@@ -96,7 +98,7 @@ static void scx200_wdt_disable(void)
 
 static int scx200_wdt_open(struct inode *inode, struct file *file)
 {
-	
+	/* only allow one at a time */
 	if (test_and_set_bit(0, &open_lock))
 		return -EBUSY;
 	scx200_wdt_enable();
@@ -133,7 +135,7 @@ static struct notifier_block scx200_wdt_notifier = {
 static ssize_t scx200_wdt_write(struct file *file, const char __user *data,
 				     size_t len, loff_t *ppos)
 {
-	
+	/* check for a magic close character */
 	if (len) {
 		size_t i;
 
@@ -218,7 +220,7 @@ static int __init scx200_wdt_init(void)
 
 	pr_debug("NatSemi SCx200 Watchdog Driver\n");
 
-	
+	/* check that we have found the configuration block */
 	if (!scx200_cb_present())
 		return -ENODEV;
 
@@ -262,3 +264,9 @@ static void __exit scx200_wdt_cleanup(void)
 module_init(scx200_wdt_init);
 module_exit(scx200_wdt_cleanup);
 
+/*
+    Local variables:
+	compile-command: "make -k -C ../.. SUBDIRS=drivers/char modules"
+	c-basic-offset: 8
+    End:
+*/

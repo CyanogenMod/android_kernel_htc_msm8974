@@ -34,7 +34,7 @@ struct ore_comp {
 };
 
 struct ore_layout {
-	
+	/* Our way of looking at the data_map */
 	enum pnfs_osd_raid_algorithm4
 		 raid_algorithm;
 	unsigned stripe_unit;
@@ -45,7 +45,12 @@ struct ore_layout {
 	u64	 group_depth;
 	unsigned group_count;
 
-	unsigned long max_io_length;	
+	/* Cached often needed calculations filled in by
+	 * ore_verify_layout
+	 */
+	unsigned long max_io_length;	/* Max length that should be passed to
+					 * ore_get_rw_state
+					 */
 };
 
 struct ore_dev {
@@ -53,16 +58,25 @@ struct ore_dev {
 };
 
 struct ore_components {
-	unsigned	first_dev;		
-	unsigned	numdevs;		
+	unsigned	first_dev;		/* First logical device no    */
+	unsigned	numdevs;		/* Num of devices in array    */
+	/* If @single_comp == EC_SINGLE_COMP, @comps points to a single
+	 * component. else there are @numdevs components
+	 */
 	enum EC_COMP_USAGE {
 		EC_SINGLE_COMP = 0, EC_MULTPLE_COMPS = 0xffffffff
 	}		single_comp;
 	struct ore_comp	*comps;
 
+	/* Array of pointers to ore_dev-* . User will usually have these pointed
+	 * too a bigger struct which contain an "ore_dev ored" member and use
+	 * container_of(oc->ods[i], struct foo_dev, ored) to access the bigger
+	 * structure.
+	 */
 	struct ore_dev	**ods;
 };
 
+/* ore_comp_dev Recievies a logical device index */
 static inline struct osd_dev *ore_comp_dev(
 	const struct ore_components *oc, unsigned i)
 {
@@ -80,8 +94,8 @@ struct ore_striping_info {
 	u64 offset;
 	u64 obj_offset;
 	u64 length;
-	u64 first_stripe_start; 
-	u64 M; 
+	u64 first_stripe_start; /* only used in raid writes */
+	u64 M; /* for truncate */
 	unsigned bytes_in_stripe;
 	unsigned dev;
 	unsigned par_dev;
@@ -93,7 +107,7 @@ struct ore_striping_info {
 struct ore_io_state;
 typedef void (*ore_io_done_fn)(struct ore_io_state *ios, void *private);
 struct _ore_r4w_op {
-	
+	/* @Priv given here is passed ios->private */
 	struct page * (*get_page)(void *priv, u64 page_index, bool *uptodate);
 	void (*put_page)(void *priv, struct page *page);
 };
@@ -108,7 +122,7 @@ struct ore_io_state {
 	struct ore_layout	*layout;
 	struct ore_components	*oc;
 
-	
+	/* Global read/write IO*/
 	loff_t			offset;
 	unsigned long		length;
 	void			*kern_buff;
@@ -118,7 +132,7 @@ struct ore_io_state {
 	unsigned		pgbase;
 	unsigned		pages_consumed;
 
-	
+	/* Attributes */
 	unsigned		in_attr_len;
 	struct osd_attr		*in_attr;
 	unsigned		out_attr_len;
@@ -126,7 +140,7 @@ struct ore_io_state {
 
 	bool			reading;
 
-	
+	/* House keeping of Parity pages */
 	bool			extra_part_alloc;
 	struct page		**parity_pages;
 	unsigned		max_par_pages;
@@ -136,7 +150,7 @@ struct ore_io_state {
 	struct ore_io_state	 *ios_read_4_write;
 	const struct _ore_r4w_op *r4w;
 
-	
+	/* Variable array of size numdevs */
 	unsigned numdevs;
 	struct ore_per_dev_state {
 		struct osd_request *or;
@@ -156,6 +170,7 @@ static inline unsigned ore_io_state_size(unsigned numdevs)
 		sizeof(struct ore_per_dev_state) * numdevs;
 }
 
+/* ore.c */
 int ore_verify_layout(unsigned total_comps, struct ore_layout *layout);
 void ore_calc_stripe_info(struct ore_layout *layout, u64 file_offset,
 			  u64 length, struct ore_striping_info *si);

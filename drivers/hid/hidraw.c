@@ -70,7 +70,7 @@ static ssize_t hidraw_read(struct file *file, char __user *buffer, size_t count,
 					break;
 				}
 
-				
+				/* allow O_NONBLOCK to work well from other threads */
 				mutex_unlock(&list->read_mutex);
 				schedule();
 				mutex_lock(&list->read_mutex);
@@ -101,6 +101,8 @@ out:
 	return ret;
 }
 
+/* The first byte is expected to be a report number.
+ * This function is to be called with the minors_lock mutex held */
 static ssize_t hidraw_send_report(struct file *file, const char __user *buffer, size_t count, unsigned char report_type)
 {
 	unsigned int minor = iminor(file->f_path.dentry->d_inode);
@@ -152,6 +154,7 @@ out:
 	return ret;
 }
 
+/* the first byte is expected to be a report number */
 static ssize_t hidraw_write(struct file *file, const char __user *buffer, size_t count, loff_t *ppos)
 {
 	ssize_t ret;
@@ -162,6 +165,12 @@ static ssize_t hidraw_write(struct file *file, const char __user *buffer, size_t
 }
 
 
+/* This function performs a Get_Report transfer over the control endpoint
+ * per section 7.2.1 of the HID specification, version 1.1.  The first byte
+ * of buffer is the report number to request, or 0x0 if the defice does not
+ * use numbered reports. The report_type parameter can be HID_FEATURE_REPORT
+ * or HID_INPUT_REPORT.  This function is to be called with the minors_lock
+ *  mutex held. */
 static ssize_t hidraw_get_report(struct file *file, char __user *buffer, size_t count, unsigned char report_type)
 {
 	unsigned int minor = iminor(file->f_path.dentry->d_inode);
@@ -197,6 +206,8 @@ static ssize_t hidraw_get_report(struct file *file, char __user *buffer, size_t 
 		goto out;
 	}
 
+	/* Read the first byte from the user. This is the report number,
+	 * which is passed to dev->hid_get_raw_report(). */
 	if (copy_from_user(&report_number, buffer, 1)) {
 		ret = -EFAULT;
 		goto out_free;
@@ -380,7 +391,7 @@ static long hidraw_ioctl(struct file *file, unsigned int cmd,
 					break;
 				}
 
-				
+				/* Begin Read-only ioctls. */
 				if (_IOC_DIR(cmd) != _IOC_READ) {
 					ret = -EINVAL;
 					break;
@@ -447,7 +458,7 @@ int hidraw_connect(struct hid_device *hid)
 	int minor, result;
 	struct hidraw *dev;
 
-	
+	/* we accept any HID device, no matter the applications */
 
 	dev = kzalloc(sizeof(struct hidraw), GFP_KERNEL);
 	if (!dev)

@@ -30,9 +30,19 @@
 #include <linux/mutex.h>
 #include <linux/device.h>
 
+/* I2C command bytes */
 #define SHT21_TRIG_T_MEASUREMENT_HM  0xe3
 #define SHT21_TRIG_RH_MEASUREMENT_HM 0xe5
 
+/**
+ * struct sht21 - SHT21 device specific data
+ * @hwmon_dev: device registered with hwmon
+ * @lock: mutex to protect measurement values
+ * @valid: only 0 before first measurement is taken
+ * @last_update: time of last update (jiffies)
+ * @temperature: cached temperature measurement value
+ * @humidity: cached humidity measurement value
+ */
 struct sht21 {
 	struct device *hwmon_dev;
 	struct mutex lock;
@@ -42,24 +52,53 @@ struct sht21 {
 	int humidity;
 };
 
+/**
+ * sht21_temp_ticks_to_millicelsius() - convert raw temperature ticks to
+ * milli celsius
+ * @ticks: temperature ticks value received from sensor
+ */
 static inline int sht21_temp_ticks_to_millicelsius(int ticks)
 {
-	ticks &= ~0x0003; 
+	ticks &= ~0x0003; /* clear status bits */
+	/*
+	 * Formula T = -46.85 + 175.72 * ST / 2^16 from data sheet 6.2,
+	 * optimized for integer fixed point (3 digits) arithmetic
+	 */
 	return ((21965 * ticks) >> 13) - 46850;
 }
 
+/**
+ * sht21_rh_ticks_to_per_cent_mille() - convert raw humidity ticks to
+ * one-thousandths of a percent relative humidity
+ * @ticks: humidity ticks value received from sensor
+ */
 static inline int sht21_rh_ticks_to_per_cent_mille(int ticks)
 {
-	ticks &= ~0x0003; 
+	ticks &= ~0x0003; /* clear status bits */
+	/*
+	 * Formula RH = -6 + 125 * SRH / 2^16 from data sheet 6.1,
+	 * optimized for integer fixed point (3 digits) arithmetic
+	 */
 	return ((15625 * ticks) >> 13) - 6000;
 }
 
+/**
+ * sht21_update_measurements() - get updated measurements from device
+ * @client: I2C client device
+ *
+ * Returns 0 on success, else negative errno.
+ */
 static int sht21_update_measurements(struct i2c_client *client)
 {
 	int ret = 0;
 	struct sht21 *sht21 = i2c_get_clientdata(client);
 
 	mutex_lock(&sht21->lock);
+	/*
+	 * Data sheet 2.4:
+	 * SHT2x should not be active for more than 10% of the time - e.g.
+	 * maximum two measurements per second at 12bit accuracy shall be made.
+	 */
 	if (time_after(jiffies, sht21->last_update + HZ / 2) || !sht21->valid) {
 		ret = i2c_smbus_read_word_swapped(client,
 						  SHT21_TRIG_T_MEASUREMENT_HM);
@@ -122,6 +161,7 @@ static ssize_t sht21_show_humidity(struct device *dev,
 	return sprintf(buf, "%d\n", sht21->humidity);
 }
 
+/* sysfs attributes */
 static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, sht21_show_temperature,
 	NULL, 0);
 static SENSOR_DEVICE_ATTR(humidity1_input, S_IRUGO, sht21_show_humidity,
@@ -137,6 +177,15 @@ static const struct attribute_group sht21_attr_group = {
 	.attrs = sht21_attributes,
 };
 
+/**
+ * sht21_probe() - probe device
+ * @client: I2C client device
+ * @id: device ID
+ *
+ * Called by the I2C core when an entry in the ID table matches a
+ * device's name.
+ * Returns 0 on success.
+ */
 static int __devinit sht21_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
@@ -183,6 +232,10 @@ fail_free:
 	return err;
 }
 
+/**
+ * sht21_remove() - remove device
+ * @client: I2C client device
+ */
 static int __devexit sht21_remove(struct i2c_client *client)
 {
 	struct sht21 *sht21 = i2c_get_clientdata(client);
@@ -194,6 +247,7 @@ static int __devexit sht21_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* Device ID table */
 static const struct i2c_device_id sht21_id[] = {
 	{ "sht21", 0 },
 	{ }

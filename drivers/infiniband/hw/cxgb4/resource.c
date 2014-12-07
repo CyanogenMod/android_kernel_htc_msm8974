@@ -29,6 +29,7 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+/* Crude resource management */
 #include <linux/kernel.h>
 #include <linux/random.h>
 #include <linux/slab.h>
@@ -122,6 +123,7 @@ static int c4iw_init_qid_fifo(struct c4iw_rdev *rdev)
 	return 0;
 }
 
+/* nr_* must be power of 2 */
 int c4iw_init_resource(struct c4iw_rdev *rdev, u32 nr_tpt, u32 nr_pdid)
 {
 	int err = 0;
@@ -147,6 +149,9 @@ tpt_err:
 	return -ENOMEM;
 }
 
+/*
+ * returns 0 if no resource available
+ */
 u32 c4iw_get_resource(struct kfifo *fifo, spinlock_t *lock)
 {
 	u32 entry;
@@ -188,6 +193,10 @@ u32 c4iw_get_cqid(struct c4iw_rdev *rdev, struct c4iw_dev_ucontext *uctx)
 			list_add_tail(&entry->entry, &uctx->cqids);
 		}
 
+		/*
+		 * now put the same ids on the qp list since they all
+		 * map to the same db/gts page.
+		 */
 		entry = kmalloc(sizeof *entry, GFP_KERNEL);
 		if (!entry)
 			goto out;
@@ -248,6 +257,10 @@ u32 c4iw_get_qpid(struct c4iw_rdev *rdev, struct c4iw_dev_ucontext *uctx)
 			list_add_tail(&entry->entry, &uctx->qpids);
 		}
 
+		/*
+		 * now put the same ids on the cq list since they all
+		 * map to the same db/gts page.
+		 */
 		entry = kmalloc(sizeof *entry, GFP_KERNEL);
 		if (!entry)
 			goto out;
@@ -289,8 +302,11 @@ void c4iw_destroy_resource(struct c4iw_resource *rscp)
 	kfifo_free(&rscp->pdid_fifo);
 }
 
+/*
+ * PBL Memory Manager.  Uses Linux generic allocator.
+ */
 
-#define MIN_PBL_SHIFT 8			
+#define MIN_PBL_SHIFT 8			/* 256B == min PBL size (32 entries) */
 
 u32 c4iw_pblpool_alloc(struct c4iw_rdev *rdev, int size)
 {
@@ -348,8 +364,11 @@ void c4iw_pblpool_destroy(struct c4iw_rdev *rdev)
 	gen_pool_destroy(rdev->pbl_pool);
 }
 
+/*
+ * RQT Memory Manager.  Uses Linux generic allocator.
+ */
 
-#define MIN_RQT_SHIFT 10	
+#define MIN_RQT_SHIFT 10	/* 1KB == min RQT size (16 entries) */
 
 u32 c4iw_rqtpool_alloc(struct c4iw_rdev *rdev, int size)
 {
@@ -405,7 +424,10 @@ void c4iw_rqtpool_destroy(struct c4iw_rdev *rdev)
 	gen_pool_destroy(rdev->rqt_pool);
 }
 
-#define MIN_OCQP_SHIFT 12	
+/*
+ * On-Chip QP Memory.
+ */
+#define MIN_OCQP_SHIFT 12	/* 4KB == min ocqp size */
 
 u32 c4iw_ocqp_pool_alloc(struct c4iw_rdev *rdev, int size)
 {

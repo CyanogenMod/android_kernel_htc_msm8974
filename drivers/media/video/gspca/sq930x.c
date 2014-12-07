@@ -32,8 +32,9 @@ MODULE_AUTHOR("Jean-Francois Moine <http://moinejf.free.fr>\n"
 MODULE_DESCRIPTION("GSPCA/SQ930x USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* Structure to hold all of our device specific stuff */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	u16 expo;
 	u8 gain;
@@ -49,7 +50,7 @@ enum sensors {
 	SENSOR_ICX098BQ,
 	SENSOR_LZ24BP,
 	SENSOR_MI0360,
-	SENSOR_MT9V111,		
+	SENSOR_MT9V111,		/* = MI360SOC */
 	SENSOR_OV7660,
 	SENSOR_OV9630,
 };
@@ -103,6 +104,7 @@ static struct v4l2_pix_format vga_mode[] = {
 		.priv = 1},
 };
 
+/* sq930x registers */
 #define SQ930_CTRL_UCBUS_IO	0x0001
 #define SQ930_CTRL_I2C_IO	0x0002
 #define SQ930_CTRL_GPIO		0x0005
@@ -112,11 +114,13 @@ static struct v4l2_pix_format vga_mode[] = {
 #define SQ930_CTRL_RESET	0x001e
 #define SQ930_CTRL_GET_DEV_INFO 0x001f
 
+/* gpio 1 (8..15) */
 #define SQ930_GPIO_DFL_I2C_SDA	0x0001
 #define SQ930_GPIO_DFL_I2C_SCL	0x0002
 #define SQ930_GPIO_RSTBAR	0x0004
 #define SQ930_GPIO_EXTRA1	0x0040
 #define SQ930_GPIO_EXTRA2	0x0080
+/* gpio 3 (24..31) */
 #define SQ930_GPIO_POWER	0x0200
 #define SQ930_GPIO_DFL_LED	0x1000
 
@@ -239,21 +243,21 @@ static const struct ucbus_write_cmd mi0360_start_0[] = {
 	{0xf334, 0xcc}, {0xf335, 0xcc}, {0xf33f, 0x00}
 };
 static const struct i2c_write_cmd mi0360_init_23[] = {
-	{0x30, 0x0040},		
-	{0x31, 0x0000},		
-	{0x34, 0x0100},		
-	{0x3d, 0x068f},		
+	{0x30, 0x0040},		/* reserved - def 0x0005 */
+	{0x31, 0x0000},		/* reserved - def 0x002a */
+	{0x34, 0x0100},		/* reserved - def 0x0100 */
+	{0x3d, 0x068f},		/* reserved - def 0x068f */
 };
 static const struct i2c_write_cmd mi0360_init_24[] = {
-	{0x03, 0x01e5},		
-	{0x04, 0x0285},		
+	{0x03, 0x01e5},		/* window height */
+	{0x04, 0x0285},		/* window width */
 };
 static const struct i2c_write_cmd mi0360_init_25[] = {
-	{0x35, 0x0020},		
-	{0x2b, 0x0020},		
-	{0x2c, 0x002a},		
-	{0x2d, 0x0028},		
-	{0x2e, 0x0020},		
+	{0x35, 0x0020},		/* global gain */
+	{0x2b, 0x0020},		/* green1 gain */
+	{0x2c, 0x002a},		/* blue gain */
+	{0x2d, 0x0028},		/* red gain */
+	{0x2e, 0x0020},		/* green2 gain */
 };
 static const struct ucbus_write_cmd mi0360_start_1[] = {
 	{0xf5f0, 0x11}, {0xf5f1, 0x99}, {0xf5f2, 0x80}, {0xf5f3, 0x80},
@@ -264,34 +268,34 @@ static const struct ucbus_write_cmd mi0360_start_1[] = {
 	{0xf5f9, 0x00}
 };
 static const struct i2c_write_cmd mi0360_start_2[] = {
-	{0x62, 0x041d},		
+	{0x62, 0x041d},		/* reserved - def 0x0418 */
 };
 static const struct i2c_write_cmd mi0360_start_3[] = {
-	{0x05, 0x007b},		
+	{0x05, 0x007b},		/* horiz blanking */
 };
 static const struct i2c_write_cmd mi0360_start_4[] = {
-	{0x05, 0x03f5},		
+	{0x05, 0x03f5},		/* horiz blanking */
 };
 
 static const struct i2c_write_cmd mt9v111_init_0[] = {
-	{0x01, 0x0001},		
-	{0x06, 0x300c},		
-	{0x08, 0xcc00},		
-	{0x01, 0x0004},		
+	{0x01, 0x0001},		/* select IFP/SOC registers */
+	{0x06, 0x300c},		/* operating mode control */
+	{0x08, 0xcc00},		/* output format control (RGB) */
+	{0x01, 0x0004},		/* select sensor core registers */
 };
 static const struct i2c_write_cmd mt9v111_init_1[] = {
-	{0x03, 0x01e5},		
-	{0x04, 0x0285},		
+	{0x03, 0x01e5},		/* window height */
+	{0x04, 0x0285},		/* window width */
 };
 static const struct i2c_write_cmd mt9v111_init_2[] = {
 	{0x30, 0x7800},
 	{0x31, 0x0000},
-	{0x07, 0x3002},		
-	{0x35, 0x0020},		
-	{0x2b, 0x0020},		
-	{0x2c, 0x0020},		
-	{0x2d, 0x0020},		
-	{0x2e, 0x0020},		
+	{0x07, 0x3002},		/* output control */
+	{0x35, 0x0020},		/* global gain */
+	{0x2b, 0x0020},		/* green1 gain */
+	{0x2c, 0x0020},		/* blue gain */
+	{0x2d, 0x0020},		/* red gain */
+	{0x2e, 0x0020},		/* green2 gain */
 };
 static const struct ucbus_write_cmd mt9v111_start_1[] = {
 	{0xf5f0, 0x11}, {0xf5f1, 0x96}, {0xf5f2, 0x80}, {0xf5f3, 0x80},
@@ -305,7 +309,8 @@ static const struct i2c_write_cmd mt9v111_init_3[] = {
 	{0x62, 0x0405},
 };
 static const struct i2c_write_cmd mt9v111_init_4[] = {
-	{0x05, 0x005d},		
+/*	{0x05, 0x00ce}, */
+	{0x05, 0x005d},		/* horizontal blanking */
 };
 
 static const struct ucbus_write_cmd ov7660_start_0[] = {
@@ -318,53 +323,54 @@ static const struct ucbus_write_cmd ov9630_start_0[] = {
 	{0xf334, 0x3e}, {0xf335, 0xf8}, {0xf33f, 0x03}
 };
 
+/* start parameters indexed by [sensor][mode] */
 static const struct cap_s {
 	u8	cc_sizeid;
 	u8	cc_bytes[32];
 } capconfig[4][2] = {
 	[SENSOR_ICX098BQ] = {
-		{2,				
+		{2,				/* Bayer 320x240 */
 		  {0x05, 0x1f, 0x20, 0x0e, 0x00, 0x9f, 0x02, 0xee,
 		   0x01, 0x01, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} },
-		{4,				
+		{4,				/* Bayer 640x480 */
 		  {0x01, 0x1f, 0x20, 0x0e, 0x00, 0x9f, 0x02, 0xee,
 		   0x01, 0x02, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} },
 	},
 	[SENSOR_LZ24BP] = {
-		{2,				
+		{2,				/* Bayer 320x240 */
 		  {0x05, 0x22, 0x20, 0x0e, 0x00, 0xa2, 0x02, 0xee,
 		   0x01, 0x01, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} },
-		{4,				
+		{4,				/* Bayer 640x480 */
 		  {0x01, 0x22, 0x20, 0x0e, 0x00, 0xa2, 0x02, 0xee,
 		   0x01, 0x02, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} },
 	},
 	[SENSOR_MI0360] = {
-		{2,				
+		{2,				/* Bayer 320x240 */
 		  {0x05, 0x02, 0x20, 0x01, 0x20, 0x82, 0x02, 0xe1,
 		   0x01, 0x01, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} },
-		{4,				
+		{4,				/* Bayer 640x480 */
 		  {0x01, 0x02, 0x20, 0x01, 0x20, 0x82, 0x02, 0xe1,
 		   0x01, 0x02, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} },
 	},
 	[SENSOR_MT9V111] = {
-		{2,				
+		{2,				/* Bayer 320x240 */
 		  {0x05, 0x02, 0x20, 0x01, 0x20, 0x82, 0x02, 0xe1,
 		   0x01, 0x01, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00} },
-		{4,				
+		{4,				/* Bayer 640x480 */
 		  {0x01, 0x02, 0x20, 0x01, 0x20, 0x82, 0x02, 0xe1,
 		   0x01, 0x02, 0x00, 0x08, 0x18, 0x12, 0x78, 0xc8,
 		   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -478,7 +484,7 @@ static void reg_w(struct gspca_dev *gspca_dev, u16 value, u16 index)
 	PDEBUG(D_USBO, "reg_w v: %04x i: %04x", value, index);
 	ret = usb_control_msg(gspca_dev->dev,
 			usb_sndctrlpipe(gspca_dev->dev, 0),
-			0x0c,			
+			0x0c,			/* request */
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			value, index, NULL, 0,
 			500);
@@ -501,7 +507,7 @@ static void reg_wb(struct gspca_dev *gspca_dev, u16 value, u16 index,
 	memcpy(gspca_dev->usb_buf, data, len);
 	ret = usb_control_msg(gspca_dev->dev,
 			usb_sndctrlpipe(gspca_dev->dev, 0),
-			0x0c,			
+			0x0c,			/* request */
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			value, index, gspca_dev->usb_buf, len,
 			1000);
@@ -546,7 +552,7 @@ static void i2c_write(struct sd *sd,
 			val, idx, gspca_dev->usb_buf[0], buf[-1]);
 	ret = usb_control_msg(gspca_dev->dev,
 			usb_sndctrlpipe(gspca_dev->dev, 0),
-			0x0c,			
+			0x0c,			/* request */
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			val, idx,
 			gspca_dev->usb_buf, buf - gspca_dev->usb_buf,
@@ -602,7 +608,7 @@ static void ucbus_write(struct gspca_dev *gspca_dev,
 					val, idx);
 		ret = usb_control_msg(gspca_dev->dev,
 				usb_sndctrlpipe(gspca_dev->dev, 0),
-				0x0c,			
+				0x0c,			/* request */
 			   USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 				val, idx,
 				gspca_dev->usb_buf, buf - gspca_dev->usb_buf,
@@ -652,7 +658,7 @@ static void gpio_init(struct sd *sd,
 static void bridge_init(struct sd *sd)
 {
 	static const struct ucbus_write_cmd clkfreq_cmd = {
-				0xf031, 0	
+				0xf031, 0	/* SQ930_CLKFREQ_60MHZ */
 	};
 
 	ucbus_write(&sd->gspca_dev, &clkfreq_cmd, 1, 1);
@@ -666,6 +672,7 @@ static void cmos_probe(struct gspca_dev *gspca_dev)
 	int i;
 	const struct sensor_s *sensor;
 	static const u8 probe_order[] = {
+/*		SENSOR_LZ24BP,		(tested as ccd) */
 		SENSOR_OV9630,
 		SENSOR_MI0360,
 		SENSOR_OV7660,
@@ -765,6 +772,7 @@ static void global_init(struct sd *sd, int first_time)
 		gpio_set(sd, SQ930_GPIO_EXTRA2, SQ930_GPIO_EXTRA2);
 		break;
 	default:
+/*	case SENSOR_MT9V111: */
 		if (first_time)
 			mt9v111_init(&sd->gspca_dev);
 		else
@@ -796,7 +804,7 @@ static void setexposure(struct gspca_dev *gspca_dev)
 	cmd = SQ930_CTRL_SET_EXPOSURE;
 
 	switch (sd->sensor) {
-	case SENSOR_ICX098BQ:			
+	case SENSOR_ICX098BQ:			/* ccd */
 	case SENSOR_LZ24BP:
 		min_frclk = sd->sensor == SENSOR_ICX098BQ ? 0x210 : 0x26f;
 		if (integclks >= min_frclk) {
@@ -812,19 +820,21 @@ static void setexposure(struct gspca_dev *gspca_dev)
 		buf[i++] = frameclks;
 		buf[i++] = sd->gain;
 		break;
-	default:				
+	default:				/* cmos */
+/*	case SENSOR_MI0360: */
+/*	case SENSOR_MT9V111: */
 		cmd |= 0x0100;
 		sensor = &sensor_tb[sd->sensor];
-		buf[i++] = sensor->i2c_addr;	
-		buf[i++] = 0x08;	
-		buf[i++] = 0x09;	
-		buf[i++] = integclks >> 8; 
+		buf[i++] = sensor->i2c_addr;	/* i2c_slave_addr */
+		buf[i++] = 0x08;	/* 2 * ni2c */
+		buf[i++] = 0x09;	/* reg = shutter width */
+		buf[i++] = integclks >> 8; /* val H */
 		buf[i++] = sensor->i2c_dum;
-		buf[i++] = integclks;	
-		buf[i++] = 0x35;	
-		buf[i++] = 0x00;	
+		buf[i++] = integclks;	/* val L */
+		buf[i++] = 0x35;	/* reg = global gain */
+		buf[i++] = 0x00;	/* val H */
 		buf[i++] = sensor->i2c_dum;
-		buf[i++] = 0x80 + sd->gain / 2; 
+		buf[i++] = 0x80 + sd->gain / 2; /* val L */
 		buf[i++] = 0x00;
 		buf[i++] = 0x00;
 		buf[i++] = 0x00;
@@ -835,6 +845,7 @@ static void setexposure(struct gspca_dev *gspca_dev)
 	reg_wb(gspca_dev, cmd, 0, buf, i);
 }
 
+/* This function is called at probe time just before sd_init */
 static int sd_config(struct gspca_dev *gspca_dev,
 		const struct usb_device_id *id)
 {
@@ -855,17 +866,40 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	sd->gpio[0] = sd->gpio[1] = 0xff;	
+	sd->gpio[0] = sd->gpio[1] = 0xff;	/* force gpio rewrite */
 
+/*fixme: is this needed for icx098bp and mi0360?
+	if (sd->sensor != SENSOR_LZ24BP)
+		reg_w(gspca_dev, SQ930_CTRL_RESET, 0x0000);
+ */
 
 	reg_r(gspca_dev, SQ930_CTRL_GET_DEV_INFO, 8);
 	if (gspca_dev->usb_err < 0)
 		return gspca_dev->usb_err;
 
+/* it returns:
+ * 03 00 12 93 0b f6 c9 00	live! ultra
+ * 03 00 07 93 0b f6 ca 00	live! ultra for notebook
+ * 03 00 12 93 0b fe c8 00	Trust WB-3500T
+ * 02 00 06 93 0b fe c8 00	Joy-IT 318S
+ * 03 00 12 93 0b f6 cf 00	icam tracer - sensor icx098bq
+ * 02 00 12 93 0b fe cf 00	ProQ Motion Webcam
+ *
+ * byte
+ * 0: 02 = usb 1.0 (12Mbit) / 03 = usb2.0 (480Mbit)
+ * 1: 00
+ * 2: 06 / 07 / 12 = mode webcam? firmware??
+ * 3: 93 chip = 930b (930b or 930c)
+ * 4: 0b
+ * 5: f6 = cdd (icx098bq, lz24bp) / fe or de = cmos (i2c) (other sensors)
+ * 6: c8 / c9 / ca / cf = mode webcam?, sensor? webcam?
+ * 7: 00
+ */
 	PDEBUG(D_PROBE, "info: %02x %02x %02x %02x %02x %02x %02x %02x",
 			gspca_dev->usb_buf[0],
 			gspca_dev->usb_buf[1],
@@ -880,8 +914,8 @@ static int sd_init(struct gspca_dev *gspca_dev)
 
 	if (sd->sensor == SENSOR_MI0360) {
 
-		
-		if (gspca_dev->usb_buf[5] == 0xf6)	
+		/* no sensor probe for icam tracer */
+		if (gspca_dev->usb_buf[5] == 0xf6)	/* if ccd */
 			sd->sensor = SENSOR_ICX098BQ;
 		else
 			cmos_probe(gspca_dev);
@@ -893,6 +927,7 @@ static int sd_init(struct gspca_dev *gspca_dev)
 	return gspca_dev->usb_err;
 }
 
+/* send the start/stop commands to the webcam */
 static void send_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -911,16 +946,18 @@ static void send_stop(struct gspca_dev *gspca_dev)
 	reg_w(gspca_dev, SQ930_CTRL_CAP_STOP, 0);
 }
 
+/* function called at start time before URB creation */
 static int sd_isoc_init(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	gspca_dev->cam.bulk_nurbs = 1;	
+	gspca_dev->cam.bulk_nurbs = 1;	/* there must be one URB only */
 	sd->do_ctrl = 0;
 	gspca_dev->cam.bulk_size = gspca_dev->width * gspca_dev->height + 8;
 	return 0;
 }
 
+/* start the capture */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -943,14 +980,14 @@ static int sd_start(struct gspca_dev *gspca_dev)
 				6);
 		msleep(50);
 
-		
+		/* 1st start */
 		send_start(gspca_dev);
 		gpio_set(sd, SQ930_GPIO_EXTRA2 | SQ930_GPIO_RSTBAR, 0x00ff);
 		msleep(70);
 		reg_w(gspca_dev, SQ930_CTRL_CAP_STOP, 0x0000);
 		gpio_set(sd, 0x7f, 0x00ff);
 
-		
+		/* 2nd start */
 		send_start(gspca_dev);
 		gpio_set(sd, SQ930_GPIO_EXTRA2 | SQ930_GPIO_RSTBAR, 0x00ff);
 		goto out;
@@ -991,7 +1028,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		i2c_write(sd, mi0360_start_3,
 				ARRAY_SIZE(mi0360_start_3));
 
-		
+		/* 1st start */
 		send_start(gspca_dev);
 		msleep(60);
 		send_stop(gspca_dev);
@@ -1000,6 +1037,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 			mi0360_start_4, ARRAY_SIZE(mi0360_start_4));
 		break;
 	default:
+/*	case SENSOR_MT9V111: */
 		ucbus_write(gspca_dev, mi0360_start_0,
 				ARRAY_SIZE(mi0360_start_0),
 				8);
@@ -1026,7 +1064,7 @@ out:
 	if (sd->sensor == SENSOR_MT9V111)
 		gpio_set(sd, SQ930_GPIO_DFL_LED, SQ930_GPIO_DFL_LED);
 
-	sd->do_ctrl = 1;	
+	sd->do_ctrl = 1;	/* set the exposure */
 
 	return gspca_dev->usb_err;
 }
@@ -1040,6 +1078,8 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 	send_stop(gspca_dev);
 }
 
+/* function called when the application gets a new frame */
+/* It sets the exposure if required and restart the bulk transfer. */
 static void sd_dq_callback(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -1056,13 +1096,13 @@ static void sd_dq_callback(struct gspca_dev *gspca_dev)
 	if (ret < 0)
 		pr_err("sd_dq_callback() err %d\n", ret);
 
-	
+	/* wait a little time, otherwise the webcam crashes */
 	msleep(100);
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,		
-			int len)		
+			u8 *data,		/* isoc packet */
+			int len)		/* iso packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
@@ -1108,6 +1148,7 @@ static int sd_getexpo(struct gspca_dev *gspca_dev, __s32 *val)
 	return 0;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name   = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -1121,6 +1162,7 @@ static const struct sd_desc sd_desc = {
 	.dq_callback = sd_dq_callback,
 };
 
+/* Table of supported USB devices */
 #define ST(sensor, type) \
 	.driver_info = (SENSOR_ ## sensor << 8) \
 			| (type)
@@ -1136,6 +1178,7 @@ static const struct usb_device_id device_table[] = {
 MODULE_DEVICE_TABLE(usb, device_table);
 
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 		const struct usb_device_id *id)
 {

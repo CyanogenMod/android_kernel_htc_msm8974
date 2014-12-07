@@ -29,6 +29,10 @@ static int adp5520_gpio_get_value(struct gpio_chip *chip, unsigned off)
 
 	dev = container_of(chip, struct adp5520_gpio, gpio_chip);
 
+	/*
+	 * There are dedicated registers for GPIO IN/OUT.
+	 * Make sure we return the right value, even when configured as output
+	 */
 
 	if (test_bit(off, &dev->output))
 		adp5520_read(dev->master, ADP5520_GPIO_OUT, &reg_val);

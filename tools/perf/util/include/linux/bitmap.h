@@ -43,4 +43,4 @@ static inline void bitmap_or(unsigned long *dst, const unsigned long *src1,
 		__bitmap_or(dst, src1, src2, nbits);
 }
 
-#endif 
+#endif /* _PERF_BITOPS_H */

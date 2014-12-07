@@ -22,12 +22,12 @@
 #include "base.h"
 
 struct pnp_info_buffer {
-	char *buffer;		
-	char *curr;		
-	unsigned long size;	
-	unsigned long len;	
-	int stop;		
-	int error;		
+	char *buffer;		/* pointer to begin of buffer */
+	char *curr;		/* current position in buffer */
+	unsigned long size;	/* current size */
+	unsigned long len;	/* total length of buffer */
+	int stop;		/* stop flag */
+	int error;		/* error code */
 };
 
 typedef struct pnp_info_buffer pnp_info_buffer_t;

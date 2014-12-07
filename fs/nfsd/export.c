@@ -26,6 +26,14 @@
 typedef struct auth_domain	svc_client;
 typedef struct svc_export	svc_export;
 
+/*
+ * We have two caches.
+ * One maps client+vfsmnt+dentry to export options - the export map
+ * The other maps client+filehandle-fragment to export options. - the expkey map
+ *
+ * The export options are actually stored in the first map, and the
+ * second map contains a reference to the entry in the first map.
+ */
 
 #define	EXPKEY_HASHBITS		8
 #define	EXPKEY_HASHMAX		(1 << EXPKEY_HASHBITS)
@@ -47,7 +55,7 @@ static void expkey_request(struct cache_detail *cd,
 			   struct cache_head *h,
 			   char **bpp, int *blen)
 {
-	
+	/* client fsidtype \xfsid */
 	struct svc_expkey *ek = container_of(h, struct svc_expkey, h);
 	char type[5];
 
@@ -69,7 +77,7 @@ static struct cache_detail svc_expkey_cache;
 
 static int expkey_parse(struct cache_detail *cd, char *mesg, int mlen)
 {
-	
+	/* client fsidtype fsid [path] */
 	char *buf;
 	int len;
 	struct auth_domain *dom = NULL;
@@ -105,7 +113,7 @@ static int expkey_parse(struct cache_detail *cd, char *mesg, int mlen)
 	if (*ep)
 		goto out;
 	dprintk("found fsidtype %d\n", fsidtype);
-	if (key_len(fsidtype)==0) 
+	if (key_len(fsidtype)==0) /* invalid type */
 		goto out;
 	if ((len=qword_get(&mesg, buf, PAGE_SIZE)) <= 0)
 		goto out;
@@ -113,7 +121,7 @@ static int expkey_parse(struct cache_detail *cd, char *mesg, int mlen)
 	if (len != key_len(fsidtype))
 		goto out;
 
-	
+	/* OK, we seem to have a valid key */
 	key.h.flags = 0;
 	key.h.expiry_time = get_expiry(&mesg);
 	if (key.h.expiry_time == 0)
@@ -128,7 +136,7 @@ static int expkey_parse(struct cache_detail *cd, char *mesg, int mlen)
 	if (!ek)
 		goto out;
 
-	
+	/* now we want a pathname, or empty meaning NEGATIVE  */
 	err = -EINVAL;
 	len = qword_get(&mesg, buf, PAGE_SIZE);
 	if (len < 0)
@@ -317,14 +325,14 @@ static void svc_export_request(struct cache_detail *cd,
 			       struct cache_head *h,
 			       char **bpp, int *blen)
 {
-	
+	/*  client path */
 	struct svc_export *exp = container_of(h, struct svc_export, h);
 	char *pth;
 
 	qword_add(bpp, blen, exp->ex_client->name);
 	pth = d_path(&exp->ex_path, *bpp, *blen);
 	if (IS_ERR(pth)) {
-		
+		/* is this correct? */
 		(*bpp)[0] = '\n';
 		return;
 	}
@@ -344,14 +352,29 @@ static struct svc_export *svc_export_lookup(struct svc_export *);
 static int check_export(struct inode *inode, int *flags, unsigned char *uuid)
 {
 
+	/*
+	 * We currently export only dirs, regular files, and (for v4
+	 * pseudoroot) symlinks.
+	 */
 	if (!S_ISDIR(inode->i_mode) &&
 	    !S_ISLNK(inode->i_mode) &&
 	    !S_ISREG(inode->i_mode))
 		return -ENOTDIR;
 
+	/*
+	 * Mountd should never pass down a writeable V4ROOT export, but,
+	 * just to make sure:
+	 */
 	if (*flags & NFSEXP_V4ROOT)
 		*flags |= NFSEXP_READONLY;
 
+	/* There are two requirements on a filesystem to be exportable.
+	 * 1:  We must be able to identify the filesystem from a number.
+	 *       either a device number (so FS_REQUIRES_DEV needed)
+	 *       or an FSID number (so NFSEXP_FSID or ->uuid is needed).
+	 * 2:  We must be able to find an inode from a filehandle.
+	 *       This means that s_export_op must be set.
+	 */
 	if (!(inode->i_sb->s_type->fs_flags & FS_REQUIRES_DEV) &&
 	    !(*flags & NFSEXP_FSID) &&
 	    uuid == NULL) {
@@ -377,7 +400,7 @@ fsloc_parse(char **mesg, char *buf, struct nfsd4_fs_locations *fsloc)
 	int len;
 	int migrated, i, err;
 
-	
+	/* listsize */
 	err = get_int(mesg, &fsloc->locations_count);
 	if (err)
 		return err;
@@ -391,7 +414,7 @@ fsloc_parse(char **mesg, char *buf, struct nfsd4_fs_locations *fsloc)
 	if (!fsloc->locations)
 		return -ENOMEM;
 	for (i=0; i < fsloc->locations_count; i++) {
-		
+		/* colon separated host list */
 		err = -EINVAL;
 		len = qword_get(mesg, buf, PAGE_SIZE);
 		if (len <= 0)
@@ -401,7 +424,7 @@ fsloc_parse(char **mesg, char *buf, struct nfsd4_fs_locations *fsloc)
 		if (!fsloc->locations[i].hosts)
 			goto out_free_all;
 		err = -EINVAL;
-		
+		/* slash separated path component list */
 		len = qword_get(mesg, buf, PAGE_SIZE);
 		if (len <= 0)
 			goto out_free_all;
@@ -410,7 +433,7 @@ fsloc_parse(char **mesg, char *buf, struct nfsd4_fs_locations *fsloc)
 		if (!fsloc->locations[i].path)
 			goto out_free_all;
 	}
-	
+	/* migrated */
 	err = get_int(mesg, &migrated);
 	if (err)
 		goto out_free_all;
@@ -439,10 +462,16 @@ static int secinfo_parse(char **mesg, char *buf, struct svc_export *exp)
 		err = get_int(mesg, &f->pseudoflavor);
 		if (err)
 			return err;
+		/*
+		 * XXX: It would be nice to also check whether this
+		 * pseudoflavor is supported, so we can discover the
+		 * problem at export time instead of when a client fails
+		 * to authenticate.
+		 */
 		err = get_int(mesg, &f->flags);
 		if (err)
 			return err;
-		
+		/* Only some flags are allowed to differ between flavors: */
 		if (~NFSEXP_SECINFO_FLAGS & (f->flags ^ exp->ex_flags))
 			return -EINVAL;
 	}
@@ -450,7 +479,7 @@ static int secinfo_parse(char **mesg, char *buf, struct svc_export *exp)
 	return 0;
 }
 
-#else 
+#else /* CONFIG_NFSD_V4 */
 static inline int
 fsloc_parse(char **mesg, char *buf, struct nfsd4_fs_locations *fsloc){return 0;}
 static inline int
@@ -459,7 +488,7 @@ secinfo_parse(char **mesg, char *buf, struct svc_export *exp) { return 0; }
 
 static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 {
-	
+	/* client path expiry [flags anonuid anongid fsid] */
 	char *buf;
 	int len;
 	int err;
@@ -475,7 +504,7 @@ static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 	if (!buf)
 		return -ENOMEM;
 
-	
+	/* client */
 	err = -EINVAL;
 	len = qword_get(&mesg, buf, PAGE_SIZE);
 	if (len <= 0)
@@ -486,7 +515,7 @@ static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 	if (!dom)
 		goto out;
 
-	
+	/* path */
 	err = -EINVAL;
 	if ((len = qword_get(&mesg, buf, PAGE_SIZE)) <= 0)
 		goto out1;
@@ -497,13 +526,13 @@ static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 
 	exp.ex_client = dom;
 
-	
+	/* expiry */
 	err = -EINVAL;
 	exp.h.expiry_time = get_expiry(&mesg);
 	if (exp.h.expiry_time == 0)
 		goto out3;
 
-	
+	/* flags */
 	err = get_int(&mesg, &an_int);
 	if (err == -ENOENT) {
 		err = 0;
@@ -513,19 +542,19 @@ static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 			goto out3;
 		exp.ex_flags= an_int;
 	
-		
+		/* anon uid */
 		err = get_int(&mesg, &an_int);
 		if (err)
 			goto out3;
 		exp.ex_anon_uid= an_int;
 
-		
+		/* anon gid */
 		err = get_int(&mesg, &an_int);
 		if (err)
 			goto out3;
 		exp.ex_anon_gid= an_int;
 
-		
+		/* fsid */
 		err = get_int(&mesg, &an_int);
 		if (err)
 			goto out3;
@@ -535,7 +564,7 @@ static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 			if (strcmp(buf, "fsloc") == 0)
 				err = fsloc_parse(&mesg, buf, &exp.ex_fslocs);
 			else if (strcmp(buf, "uuid") == 0) {
-				
+				/* expect a 16 byte uuid encoded as \xXXXX... */
 				len = qword_get(&mesg, buf, PAGE_SIZE);
 				if (len != 16)
 					err  = -EINVAL;
@@ -548,6 +577,10 @@ static int svc_export_parse(struct cache_detail *cd, char *mesg, int mlen)
 			} else if (strcmp(buf, "secinfo") == 0)
 				err = secinfo_parse(&mesg, buf, &exp);
 			else
+				/* quietly ignore unknown words and anything
+				 * following. Newer user-space can try to set
+				 * new values, then see what the result was.
+				 */
 				break;
 			if (err)
 				goto out4;
@@ -774,6 +807,9 @@ static svc_export *exp_get_by_name(svc_client *clp, const struct path *path,
 	return exp;
 }
 
+/*
+ * Find the export entry for a given dentry.
+ */
 static struct svc_export *exp_parent(svc_client *clp, struct path *path)
 {
 	struct dentry *saved = dget(path->dentry);
@@ -792,6 +828,11 @@ static struct svc_export *exp_parent(svc_client *clp, struct path *path)
 
 
 
+/*
+ * Obtain the root fh on behalf of a client.
+ * This could be done in user space, but I feel that it adds some safety
+ * since its harder to fool a kernel module than a user space program.
+ */
 int
 exp_rootfh(svc_client *clp, char *name, struct knfsd_fh *f, int maxsize)
 {
@@ -802,7 +843,7 @@ exp_rootfh(svc_client *clp, char *name, struct knfsd_fh *f, int maxsize)
 	int			err;
 
 	err = -EPERM;
-	
+	/* NB: we probably ought to check that it's NUL-terminated */
 	if (kern_path(name, 0, &path)) {
 		printk("nfsd: exp_rootfh path not found %s", name);
 		return err;
@@ -818,6 +859,9 @@ exp_rootfh(svc_client *clp, char *name, struct knfsd_fh *f, int maxsize)
 		goto out;
 	}
 
+	/*
+	 * fh must be initialized before calling fh_compose
+	 */
 	fh_init(&fh, maxsize);
 	if (fh_compose(&fh, exp, path.dentry, NULL))
 		err = -EINVAL;
@@ -852,15 +896,15 @@ __be32 check_nfsd_access(struct svc_export *exp, struct svc_rqst *rqstp)
 	struct exp_flavor_info *f;
 	struct exp_flavor_info *end = exp->ex_flavors + exp->ex_nflavors;
 
-	
+	/* legacy gss-only clients are always OK: */
 	if (exp->ex_client == rqstp->rq_gssclient)
 		return 0;
-	
+	/* ip-address based client; check sec= export option: */
 	for (f = exp->ex_flavors; f < end; f++) {
 		if (f->pseudoflavor == rqstp->rq_flavor)
 			return 0;
 	}
-	
+	/* defaults in absence of sec= options: */
 	if (exp->ex_nflavors == 0) {
 		if (rqstp->rq_flavor == RPC_AUTH_NULL ||
 		    rqstp->rq_flavor == RPC_AUTH_UNIX)
@@ -869,6 +913,15 @@ __be32 check_nfsd_access(struct svc_export *exp, struct svc_rqst *rqstp)
 	return nfserr_wrongsec;
 }
 
+/*
+ * Uses rq_client and rq_gssclient to find an export; uses rq_client (an
+ * auth_unix client) if it's available and has secinfo information;
+ * otherwise, will try to use rq_gssclient.
+ *
+ * Called from functions that handle requests; functions that do work on
+ * behalf of mountd are passed a single client name to use, and should
+ * use exp_get_by_name() or exp_find().
+ */
 struct svc_export *
 rqst_exp_get_by_name(struct svc_rqst *rqstp, struct path *path)
 {
@@ -877,17 +930,17 @@ rqst_exp_get_by_name(struct svc_rqst *rqstp, struct path *path)
 	if (rqstp->rq_client == NULL)
 		goto gss;
 
-	
+	/* First try the auth_unix client: */
 	exp = exp_get_by_name(rqstp->rq_client, path, &rqstp->rq_chandle);
 	if (PTR_ERR(exp) == -ENOENT)
 		goto gss;
 	if (IS_ERR(exp))
 		return exp;
-	
+	/* If it has secinfo, assume there are no gss/... clients */
 	if (exp->ex_nflavors > 0)
 		return exp;
 gss:
-	
+	/* Otherwise, try falling back on gss client */
 	if (rqstp->rq_gssclient == NULL)
 		return exp;
 	gssexp = exp_get_by_name(rqstp->rq_gssclient, path, &rqstp->rq_chandle);
@@ -906,17 +959,17 @@ rqst_exp_find(struct svc_rqst *rqstp, int fsid_type, u32 *fsidv)
 	if (rqstp->rq_client == NULL)
 		goto gss;
 
-	
+	/* First try the auth_unix client: */
 	exp = exp_find(rqstp->rq_client, fsid_type, fsidv, &rqstp->rq_chandle);
 	if (PTR_ERR(exp) == -ENOENT)
 		goto gss;
 	if (IS_ERR(exp))
 		return exp;
-	
+	/* If it has secinfo, assume there are no gss/... clients */
 	if (exp->ex_nflavors > 0)
 		return exp;
 gss:
-	
+	/* Otherwise, try falling back on gss client */
 	if (rqstp->rq_gssclient == NULL)
 		return exp;
 	gssexp = exp_find(rqstp->rq_gssclient, fsid_type, fsidv,
@@ -954,6 +1007,11 @@ struct svc_export *rqst_find_fsidzero_export(struct svc_rqst *rqstp)
 	return rqst_exp_find(rqstp, FSID_NUM, fsidv);
 }
 
+/*
+ * Called when we need the filehandle for the root of the pseudofs,
+ * for a given NFSv4 client.   The root is defined to be the
+ * export point with fsid==0
+ */
 __be32
 exp_pseudoroot(struct svc_rqst *rqstp, struct svc_fh *fhp)
 {
@@ -968,6 +1026,7 @@ exp_pseudoroot(struct svc_rqst *rqstp, struct svc_fh *fhp)
 	return rv;
 }
 
+/* Iterator */
 
 static void *e_start(struct seq_file *m, loff_t *pos)
 	__acquires(svc_export_cache.hash_lock)
@@ -1158,6 +1217,9 @@ const struct seq_operations nfs_exports_op = {
 };
 
 
+/*
+ * Initialize the exports module.
+ */
 int
 nfsd_export_init(void)
 {
@@ -1174,6 +1236,9 @@ nfsd_export_init(void)
 
 }
 
+/*
+ * Flush exports table - called when last nfsd thread is killed
+ */
 void
 nfsd_export_flush(void)
 {
@@ -1181,6 +1246,9 @@ nfsd_export_flush(void)
 	cache_purge(&svc_export_cache);
 }
 
+/*
+ * Shutdown the exports module.
+ */
 void
 nfsd_export_shutdown(void)
 {

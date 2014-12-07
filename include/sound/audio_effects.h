@@ -14,14 +14,40 @@
 #ifndef _AUDIO_EFFECTS_H
 #define _AUDIO_EFFECTS_H
 
+/** AUDIO EFFECTS **/
 
 
+/* CONFIG GET/SET */
 #define CONFIG_CACHE			0
 #define CONFIG_SET			1
 #define CONFIG_GET			2
 
+/* CONFIG HEADER */
+/*
+
+	MODULE_ID,
+	DEVICE,
+	NUM_COMMANDS,
+	COMMAND_ID_1,
+	CONFIG_CACHE/SET/GET,
+	OFFSET_1,
+	LENGTH_1,
+	VALUES_1,
+	...,
+	...,
+	COMMAND_ID_2,
+	CONFIG_CACHE/SET/GET,
+	OFFSET_2,
+	LENGTH_2,
+	VALUES_2,
+	...,
+	...,
+	COMMAND_ID_3,
+	...
+*/
 
 
+/* CONFIG PARAM IDs */
 #define VIRTUALIZER_MODULE		0x00001000
 #define VIRTUALIZER_ENABLE		0x00001001
 #define VIRTUALIZER_STRENGTH		0x00001002
@@ -254,4 +280,4 @@ struct eq_params {
 	uint32_t freq_millihertz;
 };
 
-#endif 
+#endif /*_MSM_AUDIO_EFFECTS_H*/

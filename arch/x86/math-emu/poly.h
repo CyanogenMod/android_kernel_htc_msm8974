@@ -15,6 +15,11 @@
 #ifndef _POLY_H
 #define _POLY_H
 
+/* This 12-byte structure is used to improve the accuracy of computation
+   of transcendental functions.
+   Intended to be used to get results better than 8-byte computation
+   allows. 9-byte would probably be sufficient.
+   */
 typedef struct {
 	unsigned long lsw;
 	unsigned long midw;
@@ -35,13 +40,25 @@ asmlinkage int round_Xsig(Xsig *);
 asmlinkage int norm_Xsig(Xsig *);
 asmlinkage void div_Xsig(Xsig *x1, const Xsig *x2, const Xsig *dest);
 
+/* Macro to extract the most significant 32 bits from a long long */
 #define LL_MSW(x)     (((unsigned long *)&x)[1])
 
+/* Macro to initialize an Xsig struct */
 #define MK_XSIG(a,b,c)     { c, b, a }
 
+/* Macro to access the 8 ms bytes of an Xsig as a long long */
 #define XSIG_LL(x)         (*(unsigned long long *)&x.midw)
 
+/*
+   Need to run gcc with optimizations on to get these to
+   actually be in-line.
+   */
 
+/* Multiply two fixed-point 32 bit numbers, producing a 32 bit result.
+   The answer is the ms word of the product. */
+/* Some versions of gcc make it difficult to stop eax from being clobbered.
+   Merely specifying that it is used doesn't work...
+ */
 static inline unsigned long mul_32_32(const unsigned long arg1,
 				      const unsigned long arg2)
 {
@@ -52,6 +69,7 @@ static inline unsigned long mul_32_32(const unsigned long arg1,
 	return retval;
 }
 
+/* Add the 12 byte Xsig x2 to Xsig dest, with no checks for overflow. */
 static inline void add_Xsig_Xsig(Xsig *dest, const Xsig *x2)
 {
 	asm volatile ("movl %1,%%edi; movl %2,%%esi;\n"
@@ -62,6 +80,10 @@ static inline void add_Xsig_Xsig(Xsig *dest, const Xsig *x2)
 		      :"ax", "si", "di");
 }
 
+/* Add the 12 byte Xsig x2 to Xsig dest, adjust exp if overflow occurs. */
+/* Note: the constraints in the asm statement didn't always work properly
+   with gcc 2.5.8.  Changing from using edi to using ecx got around the
+   problem, but keep fingers crossed! */
 static inline void add_two_Xsig(Xsig *dest, const Xsig *x2, long int *exp)
 {
 	asm volatile ("movl %2,%%ecx; movl %3,%%esi;\n"
@@ -77,6 +99,8 @@ static inline void add_two_Xsig(Xsig *dest, const Xsig *x2, long int *exp)
 		      :"cx", "si", "ax");
 }
 
+/* Negate (subtract from 1.0) the 12 byte Xsig */
+/* This is faster in a loop on my 386 than using the "neg" instruction. */
 static inline void negate_Xsig(Xsig *x)
 {
 	asm volatile ("movl %1,%%esi;\n"
@@ -87,4 +111,4 @@ static inline void negate_Xsig(Xsig *x)
 		      (*x):"g"(x):"si", "ax", "cx");
 }
 
-#endif 
+#endif /* _POLY_H */

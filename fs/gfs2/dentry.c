@@ -22,6 +22,16 @@
 #include "util.h"
 #include "inode.h"
 
+/**
+ * gfs2_drevalidate - Check directory lookup consistency
+ * @dentry: the mapping to check
+ * @nd:
+ *
+ * Check to make sure the lookup necessary to arrive at this inode from its
+ * parent is still good.
+ *
+ * Returns: 1 if the dentry is ok, 0 if it isn't
+ */
 
 static int gfs2_drevalidate(struct dentry *dentry, struct nameidata *nd)
 {

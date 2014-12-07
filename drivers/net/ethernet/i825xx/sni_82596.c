@@ -1,3 +1,7 @@
+/*
+ * sni_82596.c -- driver for intel 82596 ethernet controller, as
+ *  		  used in older SNI RM machines
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -28,6 +32,7 @@ static const char sni_82596_string[] = "snirm_82596";
 
 #define SYSBUS      0x00004400
 
+/* big endian CPU, 82596 little endian */
 #define SWAP32(x)   cpu_to_le32((u32)(x))
 #define SWAP16(x)   cpu_to_le16((u16)(x))
 
@@ -58,12 +63,12 @@ static void mpu_port(struct net_device *dev, int c, dma_addr_t x)
 
 	if (lp->options & OPT_MPU_16BIT) {
 		writew(v & 0xffff, lp->mpu_port);
-		wmb();  
+		wmb();  /* order writes to MPU port */
 		udelay(1);
 		writew(v >> 16, lp->mpu_port);
 	} else {
 		writel(v, lp->mpu_port);
-		wmb();  
+		wmb();  /* order writes to MPU port */
 		udelay(1);
 		writel(v, lp->mpu_port);
 	}
@@ -109,7 +114,7 @@ static int __devinit sni_82596_probe(struct platform_device *dev)
 	if (!eth_addr)
 		goto probe_failed;
 
-	
+	/* someone seems to like messed up stuff */
 	netdevice->dev_addr[0] = readb(eth_addr + 0x0b);
 	netdevice->dev_addr[1] = readb(eth_addr + 0x0a);
 	netdevice->dev_addr[2] = readb(eth_addr + 0x09);

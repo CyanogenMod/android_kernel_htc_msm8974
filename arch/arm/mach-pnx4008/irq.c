@@ -37,45 +37,45 @@ static u8 pnx4008_irq_type[NR_IRQS] = PNX4008_IRQ_TYPES;
 
 static void pnx4008_mask_irq(struct irq_data *d)
 {
-	__raw_writel(__raw_readl(INTC_ER(d->irq)) & ~INTC_BIT(d->irq), INTC_ER(d->irq));	
+	__raw_writel(__raw_readl(INTC_ER(d->irq)) & ~INTC_BIT(d->irq), INTC_ER(d->irq));	/* mask interrupt */
 }
 
 static void pnx4008_unmask_irq(struct irq_data *d)
 {
-	__raw_writel(__raw_readl(INTC_ER(d->irq)) | INTC_BIT(d->irq), INTC_ER(d->irq));	
+	__raw_writel(__raw_readl(INTC_ER(d->irq)) | INTC_BIT(d->irq), INTC_ER(d->irq));	/* unmask interrupt */
 }
 
 static void pnx4008_mask_ack_irq(struct irq_data *d)
 {
-	__raw_writel(__raw_readl(INTC_ER(d->irq)) & ~INTC_BIT(d->irq), INTC_ER(d->irq));	
-	__raw_writel(INTC_BIT(d->irq), INTC_SR(d->irq));	
+	__raw_writel(__raw_readl(INTC_ER(d->irq)) & ~INTC_BIT(d->irq), INTC_ER(d->irq));	/* mask interrupt */
+	__raw_writel(INTC_BIT(d->irq), INTC_SR(d->irq));	/* clear interrupt status */
 }
 
 static int pnx4008_set_irq_type(struct irq_data *d, unsigned int type)
 {
 	switch (type) {
 	case IRQ_TYPE_EDGE_RISING:
-		__raw_writel(__raw_readl(INTC_ATR(d->irq)) | INTC_BIT(d->irq), INTC_ATR(d->irq));	
-		__raw_writel(__raw_readl(INTC_APR(d->irq)) | INTC_BIT(d->irq), INTC_APR(d->irq));	
+		__raw_writel(__raw_readl(INTC_ATR(d->irq)) | INTC_BIT(d->irq), INTC_ATR(d->irq));	/*edge sensitive */
+		__raw_writel(__raw_readl(INTC_APR(d->irq)) | INTC_BIT(d->irq), INTC_APR(d->irq));	/*rising edge */
 		irq_set_handler(d->irq, handle_edge_irq);
 		break;
 	case IRQ_TYPE_EDGE_FALLING:
-		__raw_writel(__raw_readl(INTC_ATR(d->irq)) | INTC_BIT(d->irq), INTC_ATR(d->irq));	
-		__raw_writel(__raw_readl(INTC_APR(d->irq)) & ~INTC_BIT(d->irq), INTC_APR(d->irq));	
+		__raw_writel(__raw_readl(INTC_ATR(d->irq)) | INTC_BIT(d->irq), INTC_ATR(d->irq));	/*edge sensitive */
+		__raw_writel(__raw_readl(INTC_APR(d->irq)) & ~INTC_BIT(d->irq), INTC_APR(d->irq));	/*falling edge */
 		irq_set_handler(d->irq, handle_edge_irq);
 		break;
 	case IRQ_TYPE_LEVEL_LOW:
-		__raw_writel(__raw_readl(INTC_ATR(d->irq)) & ~INTC_BIT(d->irq), INTC_ATR(d->irq));	
-		__raw_writel(__raw_readl(INTC_APR(d->irq)) & ~INTC_BIT(d->irq), INTC_APR(d->irq));	
+		__raw_writel(__raw_readl(INTC_ATR(d->irq)) & ~INTC_BIT(d->irq), INTC_ATR(d->irq));	/*level sensitive */
+		__raw_writel(__raw_readl(INTC_APR(d->irq)) & ~INTC_BIT(d->irq), INTC_APR(d->irq));	/*low level */
 		irq_set_handler(d->irq, handle_level_irq);
 		break;
 	case IRQ_TYPE_LEVEL_HIGH:
-		__raw_writel(__raw_readl(INTC_ATR(d->irq)) & ~INTC_BIT(d->irq), INTC_ATR(d->irq));	
-		__raw_writel(__raw_readl(INTC_APR(d->irq)) | INTC_BIT(d->irq), INTC_APR(d->irq));	
+		__raw_writel(__raw_readl(INTC_ATR(d->irq)) & ~INTC_BIT(d->irq), INTC_ATR(d->irq));	/*level sensitive */
+		__raw_writel(__raw_readl(INTC_APR(d->irq)) | INTC_BIT(d->irq), INTC_APR(d->irq));	/* high level */
 		irq_set_handler(d->irq, handle_level_irq);
 		break;
 
-	
+	/* IRQ_TYPE_EDGE_BOTH is not supported */
 	default:
 		printk(KERN_ERR "PNX4008 IRQ: Unsupported irq type %d\n", type);
 		return -1;
@@ -94,14 +94,14 @@ void __init pnx4008_init_irq(void)
 {
 	unsigned int i;
 
-	
+	/* configure IRQ's */
 	for (i = 0; i < NR_IRQS; i++) {
 		set_irq_flags(i, IRQF_VALID);
 		irq_set_chip(i, &pnx4008_irq_chip);
 		pnx4008_set_irq_type(irq_get_irq_data(i), pnx4008_irq_type[i]);
 	}
 
-	
+	/* configure and enable IRQ 0,1,30,31 (cascade interrupts) */
 	pnx4008_set_irq_type(irq_get_irq_data(SUB1_IRQ_N),
 			     pnx4008_irq_type[SUB1_IRQ_N]);
 	pnx4008_set_irq_type(irq_get_irq_data(SUB2_IRQ_N),
@@ -111,7 +111,7 @@ void __init pnx4008_init_irq(void)
 	pnx4008_set_irq_type(irq_get_irq_data(SUB2_FIQ_N),
 			     pnx4008_irq_type[SUB2_FIQ_N]);
 
-	
+	/* mask all others */
 	__raw_writel((1 << SUB2_FIQ_N) | (1 << SUB1_FIQ_N) |
 			(1 << SUB2_IRQ_N) | (1 << SUB1_IRQ_N),
 		INTC_ER(MAIN_BASE_INT));

@@ -61,7 +61,7 @@ static int exofs_file_fsync(struct file *filp, loff_t start, loff_t end,
 static int exofs_flush(struct file *file, fl_owner_t id)
 {
 	int ret = vfs_fsync(file, 0);
-	
+	/* TODO: Flush the OSD target */
 	return ret;
 }
 

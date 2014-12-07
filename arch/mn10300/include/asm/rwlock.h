@@ -121,5 +121,5 @@ typedef struct { unsigned long a[100]; } __dummy_lock_t;
 			__build_write_lock_ptr(rw, helper);		\
 	} while (0)
 
-#endif 
-#endif 
+#endif /* CONFIG_SMP */
+#endif /* _ASM_RWLOCK_H */

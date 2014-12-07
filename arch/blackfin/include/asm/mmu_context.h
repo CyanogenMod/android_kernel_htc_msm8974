@@ -15,6 +15,9 @@
 #include <asm/cplbinit.h>
 #include <asm/sections.h>
 
+/* Note: L1 stacks are CPU-private things, so we bluntly disable this
+   feature in SMP mode, and use the per-CPU scratch SRAM bank only to
+   store the PDA instead. */
 
 extern void *current_l1_stack_save;
 extern int nr_l1stack_tasks;
@@ -83,7 +86,7 @@ static inline void __switch_mm(struct mm_struct *prev_mm, struct mm_struct *next
 #endif
 
 #ifdef CONFIG_APP_STACK_L1
-	
+	/* L1 stack switching.  */
 	if (!next_mm->context.l1_stack_save)
 		return;
 	if (next_mm->context.l1_stack_save == current_l1_stack_save)
@@ -102,7 +105,7 @@ static inline void __switch_mm(struct mm_struct *prev_mm, struct mm_struct *next
 #else
 #define lock_mm_switch(flags)	do { (void)(flags); } while (0)
 #define unlock_mm_switch(flags)	do { (void)(flags); } while (0)
-#endif 
+#endif /* CONFIG_IPIPE */
 
 #ifdef CONFIG_MPU
 static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
@@ -153,7 +156,7 @@ static inline void update_protections(struct mm_struct *mm)
 		set_mask_dcplbs(mm->context.page_rwx_mask, cpu);
 	}
 }
-#else 
+#else /* !CONFIG_MPU */
 static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 			     struct task_struct *tsk)
 {
@@ -165,6 +168,7 @@ static inline void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
 }
 
+/* Called when creating a new context during fork() or execve().  */
 static inline int
 init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 {

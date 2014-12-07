@@ -34,6 +34,13 @@ config MMC_MUST_PREVENT_WP_VIOLATION
 	help
 	  This is an option to enable workaround for eMMC WP violation error.
 
+config MMC_NEED_BKOPS_IN_SUSPEND
+	bool "do bkops during suspend time if necessary"
+	depends on MMC != n
+	default n
+	help
+	  This is an option to enable bkops during device suspend time.
+
 if MMC
 
 source "drivers/mmc/core/Kconfig"

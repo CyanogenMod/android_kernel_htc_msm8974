@@ -33,6 +33,10 @@ struct vmw_private;
 
 struct vmw_fence_manager;
 
+/**
+ *
+ *
+ */
 enum vmw_action_type {
 	VMW_ACTION_EVENT = 0,
 	VMW_ACTION_MAX
@@ -113,4 +117,4 @@ extern int vmw_event_fence_action_queue(struct drm_file *filee_priv,
 					uint32_t *tv_sec,
 					uint32_t *tv_usec,
 					bool interruptible);
-#endif 
+#endif /* _VMWGFX_FENCE_H_ */

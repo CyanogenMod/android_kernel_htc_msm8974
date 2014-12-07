@@ -47,6 +47,11 @@ static int acpi_video;
 
 MODULE_ALIAS("wmi:"DELL_EVENT_GUID);
 
+/*
+ * Certain keys are flagged as KE_IGNORE. All of these are either
+ * notifications (rather than requests for change) or are also sent
+ * via the keyboard controller so should not be sent again.
+ */
 
 static const struct key_entry dell_wmi_legacy_keymap[] __initconst = {
 	{ KE_IGNORE, 0x003a, { KEY_CAPSLOCK } },
@@ -54,31 +59,36 @@ static const struct key_entry dell_wmi_legacy_keymap[] __initconst = {
 	{ KE_KEY, 0xe045, { KEY_PROG1 } },
 	{ KE_KEY, 0xe009, { KEY_EJECTCD } },
 
-	
+	/* These also contain the brightness level at offset 6 */
 	{ KE_KEY, 0xe006, { KEY_BRIGHTNESSUP } },
 	{ KE_KEY, 0xe005, { KEY_BRIGHTNESSDOWN } },
 
-	
+	/* Battery health status button */
 	{ KE_KEY, 0xe007, { KEY_BATTERY } },
 
+	/* This is actually for all radios. Although physically a
+	 * switch, the notification does not provide an indication of
+	 * state and so it should be reported as a key */
 	{ KE_KEY, 0xe008, { KEY_WLAN } },
 
+	/* The next device is at offset 6, the active devices are at
+	   offset 8 and the attached devices at offset 10 */
 	{ KE_KEY, 0xe00b, { KEY_SWITCHVIDEOMODE } },
 
 	{ KE_IGNORE, 0xe00c, { KEY_KBDILLUMTOGGLE } },
 
-	
+	/* BIOS error detected */
 	{ KE_IGNORE, 0xe00d, { KEY_RESERVED } },
 
-	
+	/* Wifi Catcher */
 	{ KE_KEY, 0xe011, {KEY_PROG2 } },
 
-	
+	/* Ambient light sensor toggle */
 	{ KE_IGNORE, 0xe013, { KEY_RESERVED } },
 
 	{ KE_IGNORE, 0xe020, { KEY_MUTE } },
 
-	
+	/* Shortcut and audio panel keys */
 	{ KE_IGNORE, 0xe025, { KEY_RESERVED } },
 	{ KE_IGNORE, 0xe026, { KEY_RESERVED } },
 
@@ -172,6 +182,8 @@ static void dell_wmi_notify(u32 value, void *context)
 			pr_info("Unknown key %x pressed\n", reported_key);
 		} else if ((key->keycode == KEY_BRIGHTNESSUP ||
 			    key->keycode == KEY_BRIGHTNESSDOWN) && acpi_video) {
+			/* Don't report brightness notifications that will also
+			 * come via ACPI */
 			;
 		} else {
 			sparse_keymap_report_entry(dell_wmi_input_dev, key,
@@ -228,6 +240,10 @@ static int __init dell_wmi_input_setup(void)
 
 		err = sparse_keymap_setup(dell_wmi_input_dev, keymap, NULL);
 
+		/*
+		 * Sparse keymap library makes a copy of keymap so we
+		 * don't need the original one that was allocated.
+		 */
 		kfree(keymap);
 	} else {
 		err = sparse_keymap_setup(dell_wmi_input_dev,

@@ -103,7 +103,7 @@ struct da9030_charger {
 	unsigned int charge_milliamp;
 	unsigned int charge_millivolt;
 
-	
+	/* charger status */
 	bool chdet;
 	uint8_t fault;
 	int mA;
@@ -112,7 +112,7 @@ struct da9030_charger {
 
 	struct notifier_block nb;
 
-	
+	/* platform callbacks for battery low and critical events */
 	void (*battery_low)(void);
 	void (*battery_critical)(void);
 
@@ -251,7 +251,7 @@ static void da9030_charger_check_state(struct da9030_charger *charger)
 {
 	da9030_charger_update_state(charger);
 
-	
+	/* we wake or boot with external power on */
 	if (!charger->is_on) {
 		if ((charger->chdet) &&
 		    (charger->adc.vbat_res <
@@ -259,7 +259,7 @@ static void da9030_charger_check_state(struct da9030_charger *charger)
 			da9030_set_charge(charger, 1);
 		}
 	} else {
-		
+		/* Charger has been pulled out */
 		if (!charger->chdet) {
 			da9030_set_charge(charger, 0);
 			return;
@@ -272,15 +272,18 @@ static void da9030_charger_check_state(struct da9030_charger *charger)
 				       charger->thresholds.vbat_charge_restart);
 		} else if (charger->adc.vbat_res >
 			   charger->thresholds.vbat_low) {
+			/* we are charging and passed LOW_THRESH,
+			   so upate DA9030 VBAT threshold
+			 */
 			da903x_write(charger->master, DA9030_VBATMON,
 				     charger->thresholds.vbat_low);
 		}
 		if (charger->adc.vchmax_res > charger->thresholds.vcharge_max ||
 		    charger->adc.vchmin_res < charger->thresholds.vcharge_min ||
-		    
+		    /* Tempreture readings are negative */
 		    charger->adc.tbat_res < charger->thresholds.tbat_high ||
 		    charger->adc.tbat_res > charger->thresholds.tbat_low) {
-			
+			/* disable charger */
 			da9030_set_charge(charger, 0);
 		}
 	}
@@ -294,7 +297,7 @@ static void da9030_charging_monitor(struct work_struct *work)
 
 	da9030_charger_check_state(charger);
 
-	
+	/* reschedule for the next time */
 	schedule_delayed_work(&charger->work, charger->interval);
 }
 
@@ -381,14 +384,14 @@ static void da9030_battery_vbat_event(struct da9030_charger *charger)
 		return;
 
 	if (charger->adc.vbat_res < charger->thresholds.vbat_low) {
-		
+		/* set VBAT threshold for critical */
 		da903x_write(charger->master, DA9030_VBATMON,
 			     charger->thresholds.vbat_crit);
 		if (charger->battery_low)
 			charger->battery_low();
 	} else if (charger->adc.vbat_res <
 		   charger->thresholds.vbat_crit) {
-		
+		/* notify the system of battery critical */
 		if (charger->battery_critical)
 			charger->battery_critical();
 	}
@@ -469,13 +472,17 @@ static int da9030_battery_charger_init(struct da9030_charger *charger)
 	if (ret)
 		return ret;
 
+	/*
+	 * Enable reference voltage supply for ADC from the LDO_INTERNAL
+	 * regulator. Must be set before ADC measurements can be made.
+	 */
 	ret = da903x_write(charger->master, DA9030_ADC_MAN_CONTROL,
 			   DA9030_ADC_LDO_INT_ENABLE |
 			   DA9030_ADC_TBATREF_ENABLE);
 	if (ret)
 		return ret;
 
-	
+	/* enable auto ADC measuremnts */
 	return da903x_write(charger->master, DA9030_ADC_AUTO_CONTROL,
 			    DA9030_ADC_TBAT_ENABLE | DA9030_ADC_VBAT_IN_TXON |
 			    DA9030_ADC_VCH_ENABLE | DA9030_ADC_ICH_ENABLE |
@@ -503,6 +510,8 @@ static int da9030_battery_probe(struct platform_device *pdev)
 
 	charger->master = pdev->dev.parent;
 
+	/* 10 seconds between monitor runs unless platform defines other
+	   interval */
 	charger->interval = msecs_to_jiffies(
 		(pdata->batmon_interval ? : 10) * 1000);
 

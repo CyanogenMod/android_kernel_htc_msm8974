@@ -78,7 +78,7 @@ static int snd_msm_volume_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1; 
+	uinfo->count = 1; /* Volume Param, in dB */
 	uinfo->value.integer.min = MIN_DB;
 	uinfo->value.integer.max = MAX_DB;
 	return 0;
@@ -115,8 +115,11 @@ static int snd_msm_device_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 4; 
+	uinfo->count = 4; /* Device */
 
+	/*
+	 * The number of devices supported is 26 (0 to 25)
+	 */
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = 36;
 	return 0;
@@ -138,6 +141,10 @@ int msm_snd_init_rpc_ids(void)
 {
 	snd_rpc_ids.prog	= 0x30000002;
 	snd_rpc_ids.vers	= 0x00030003;
+	/*
+	 * The magic number 2 corresponds to the rpc call
+	 * index for snd_set_device
+	 */
 	snd_rpc_ids.rpc_set_snd_device = 40;
 	snd_rpc_ids.rpc_set_device_vol = 39;
 	return 0;
@@ -150,7 +157,7 @@ int msm_snd_rpc_connect(void)
 		return 0;
 	}
 
-	
+	/* Initialize rpc ids */
 	if (msm_snd_init_rpc_ids()) {
 		pr_err("%s: snd rpc ids initialization failed\n"
 			, __func__);
@@ -245,8 +252,11 @@ static int snd_msm_device_vol_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 1; 
+	uinfo->count = 1; /* Device/Volume */
 
+	/*
+	 * The volume ranges from (0 to 6)
+	 */
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = 6;
 	return 0;
@@ -289,6 +299,7 @@ static int snd_msm_device_vol_put(struct snd_kcontrol *kcontrol,
 	return rc;
 }
 
+/* Supported range -50dB to 18dB */
 static const DECLARE_TLV_DB_LINEAR(db_scale_linear, -5000, 1800);
 
 #define MSM_EXT(xname, xindex, fp_info, fp_get, fp_put, addr) \

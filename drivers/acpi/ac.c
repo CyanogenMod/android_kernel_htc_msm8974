@@ -101,6 +101,9 @@ static const struct file_operations acpi_ac_fops = {
 };
 #endif
 
+/* --------------------------------------------------------------------------
+                               AC Adapter Management
+   -------------------------------------------------------------------------- */
 
 static int acpi_ac_get_state(struct acpi_ac *ac)
 {
@@ -120,6 +123,9 @@ static int acpi_ac_get_state(struct acpi_ac *ac)
 	return 0;
 }
 
+/* --------------------------------------------------------------------------
+                            sysfs I/F
+   -------------------------------------------------------------------------- */
 static int get_ac_property(struct power_supply *psy,
 			   enum power_supply_property psp,
 			   union power_supply_propval *val)
@@ -147,6 +153,9 @@ static enum power_supply_property ac_props[] = {
 };
 
 #ifdef CONFIG_ACPI_PROCFS_POWER
+/* --------------------------------------------------------------------------
+                              FS Interface (/proc)
+   -------------------------------------------------------------------------- */
 
 static struct proc_dir_entry *acpi_ac_dir;
 
@@ -197,7 +206,7 @@ static int acpi_ac_add_fs(struct acpi_device *device)
 			return -ENODEV;
 	}
 
-	
+	/* 'state' [R] */
 	entry = proc_create_data(ACPI_AC_FILE_STATE,
 				 S_IRUGO, acpi_device_dir(device),
 				 &acpi_ac_fops, acpi_driver_data(device));
@@ -220,6 +229,9 @@ static int acpi_ac_remove_fs(struct acpi_device *device)
 }
 #endif
 
+/* --------------------------------------------------------------------------
+                                   Driver Model
+   -------------------------------------------------------------------------- */
 
 static void acpi_ac_notify(struct acpi_device *device, u32 event)
 {

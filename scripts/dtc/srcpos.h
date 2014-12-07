@@ -30,14 +30,40 @@ struct srcfile_state {
 	struct srcfile_state *prev;
 };
 
-extern FILE *depfile; 
-extern struct srcfile_state *current_srcfile; 
+extern FILE *depfile; /* = NULL */
+extern struct srcfile_state *current_srcfile; /* = NULL */
 
+/**
+ * Open a source file.
+ *
+ * If the source file is a relative pathname, then it is searched for in the
+ * current directory (the directory of the last source file read) and after
+ * that in the search path.
+ *
+ * We work through the search path in order from the first path specified to
+ * the last.
+ *
+ * If the file is not found, then this function does not return, but calls
+ * die().
+ *
+ * @param fname		Filename to search
+ * @param fullnamep	If non-NULL, it is set to the allocated filename of the
+ *			file that was opened. The caller is then responsible
+ *			for freeing the pointer.
+ * @return pointer to opened FILE
+ */
 FILE *srcfile_relative_open(const char *fname, char **fullnamep);
 
 void srcfile_push(const char *fname);
 int srcfile_pop(void);
 
+/**
+ * Add a new directory to the search path for input files
+ *
+ * The new path is added at the end of the list.
+ *
+ * @param dirname	Directory to add
+ */
 void srcfile_add_search_path(const char *dirname);
 
 struct srcpos {
@@ -68,6 +94,11 @@ struct srcpos {
 	} while (0)
 
 
+/*
+ * Fictional source position used for IR nodes that are
+ * created without otherwise knowing a true source position.
+ * For example,constant definitions from the command line.
+ */
 extern struct srcpos srcpos_empty;
 
 extern void srcpos_update(struct srcpos *pos, const char *text, int len);
@@ -84,4 +115,4 @@ extern void srcpos_warn(struct srcpos *pos, char const *, ...)
 
 extern void srcpos_set_line(char *f, int l);
 
-#endif 
+#endif /* _SRCPOS_H_ */

@@ -25,11 +25,13 @@ extern struct list_head hose_list;
 
 extern void find_and_init_phbs(void);
 
-extern struct pci_dev *isa_bridge_pcidev;	
+extern struct pci_dev *isa_bridge_pcidev;	/* may be NULL if no ISA bus */
 
+/** Bus Unit ID macros; get low and hi 32-bits of the 64-bit BUID */
 #define BUID_HI(buid) upper_32_bits(buid)
 #define BUID_LO(buid) lower_32_bits(buid)
 
+/* PCI device_node operations */
 struct device_node;
 typedef void *(*traverse_func)(struct device_node *me, void *data);
 void *traverse_pci_devices(struct device_node *start, traverse_func pre,
@@ -38,6 +40,7 @@ void *traverse_pci_devices(struct device_node *start, traverse_func pre,
 extern void pci_devs_phb_init(void);
 extern void pci_devs_phb_init_dynamic(struct pci_controller *phb);
 
+/* From rtas_pci.h */
 extern void init_pci_config_tokens (void);
 extern unsigned long get_phb_buid (struct device_node *);
 extern int rtas_setup_phb(struct pci_controller *phb);
@@ -71,12 +74,12 @@ static inline const char *eeh_driver_name(struct pci_dev *pdev)
 	return (pdev && pdev->driver) ? pdev->driver->name : "<null>";
 }
 
-#endif 
+#endif /* CONFIG_EEH */
 
-#else 
+#else /* CONFIG_PCI */
 static inline void find_and_init_phbs(void) { }
 static inline void init_pci_config_tokens(void) { }
-#endif 
+#endif /* !CONFIG_PCI */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_PPC_PCI_H */

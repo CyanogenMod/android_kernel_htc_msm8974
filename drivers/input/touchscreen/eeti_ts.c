@@ -83,7 +83,7 @@ static void eeti_ts_read(struct work_struct *work)
 		goto out;
 	}
 
-	
+	/* drop non-report packets */
 	if (!(buf[0] & 0x80))
 		goto out;
 
@@ -92,7 +92,7 @@ static void eeti_ts_read(struct work_struct *work)
 	x = buf[2] | (buf[1] << 8);
 	y = buf[4] | (buf[3] << 8);
 
-	
+	/* fix the range to 11 bits */
 	x >>= res - EETI_TS_BITDEPTH;
 	y >>= res - EETI_TS_BITDEPTH;
 
@@ -118,7 +118,7 @@ static irqreturn_t eeti_ts_isr(int irq, void *dev_id)
 {
 	struct eeti_ts_priv *priv = dev_id;
 
-	 
+	 /* postpone I2C transactions as we are atomic */
 	schedule_work(&priv->work);
 
 	return IRQ_HANDLED;
@@ -128,7 +128,7 @@ static void eeti_ts_start(struct eeti_ts_priv *priv)
 {
 	enable_irq(priv->irq);
 
-	
+	/* Read the events once to arm the IRQ */
 	eeti_ts_read(&priv->work);
 }
 
@@ -163,6 +163,12 @@ static int __devinit eeti_ts_probe(struct i2c_client *client,
 	unsigned int irq_flags;
 	int err = -ENOMEM;
 
+	/*
+	 * In contrast to what's described in the datasheet, there seems
+	 * to be no way of probing the presence of that device using I2C
+	 * commands. So we need to blindly believe it is there, and wait
+	 * for interrupts to occur.
+	 */
 
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (!priv) {
@@ -218,6 +224,10 @@ static int __devinit eeti_ts_probe(struct i2c_client *client,
 		goto err2;
 	}
 
+	/*
+	 * Disable the device for now. It will be enabled once the
+	 * input device is opened.
+	 */
 	eeti_ts_stop(priv);
 
 	device_init_wakeup(&client->dev, 0);
@@ -225,7 +235,7 @@ static int __devinit eeti_ts_probe(struct i2c_client *client,
 
 err2:
 	input_unregister_device(input);
-	input = NULL; 
+	input = NULL; /* so we dont try to free it below */
 err1:
 	input_free_device(input);
 	kfree(priv);
@@ -238,6 +248,10 @@ static int __devexit eeti_ts_remove(struct i2c_client *client)
 	struct eeti_ts_priv *priv = i2c_get_clientdata(client);
 
 	free_irq(priv->irq, priv);
+	/*
+	 * eeti_ts_stop() leaves IRQ disabled. We need to re-enable it
+	 * so that device still works if we reload the driver.
+	 */
 	enable_irq(priv->irq);
 
 	input_unregister_device(priv->input);

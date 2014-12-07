@@ -34,9 +34,9 @@ struct regmap_format {
 struct regmap {
 	struct mutex lock;
 
-	struct device *dev; 
-	void *work_buf;     
-	struct regmap_format format;  
+	struct device *dev; /* Device we do I/O on */
+	void *work_buf;     /* Scratch buffer used to format I/O */
+	struct regmap_format format;  /* Buffer format */
 	const struct regmap_bus *bus;
 
 #ifdef CONFIG_DEBUG_FS
@@ -52,24 +52,24 @@ struct regmap {
 	u8 read_flag_mask;
 	u8 write_flag_mask;
 
-	
+	/* regcache specific members */
 	const struct regcache_ops *cache_ops;
 	enum regcache_type cache_type;
 
-	
+	/* number of bytes in reg_defaults_raw */
 	unsigned int cache_size_raw;
-	
+	/* number of bytes per word in reg_defaults_raw */
 	unsigned int cache_word_size;
-	
+	/* number of entries in reg_defaults */
 	unsigned int num_reg_defaults;
-	
+	/* number of entries in reg_defaults_raw */
 	unsigned int num_reg_defaults_raw;
 
-	
+	/* if set, only the cache is modified not the HW */
 	u32 cache_only;
-	
+	/* if set, only the HW is modified not the cache */
 	u32 cache_bypass;
-	
+	/* if set, remember to free reg_defaults_raw */
 	bool cache_free;
 
 	struct reg_default *reg_defaults;
@@ -109,6 +109,7 @@ static inline void regmap_debugfs_init(struct regmap *map) { }
 static inline void regmap_debugfs_exit(struct regmap *map) { }
 #endif
 
+/* regcache core declarations */
 int regcache_init(struct regmap *map, const struct regmap_config *config);
 void regcache_exit(struct regmap *map);
 int regcache_read(struct regmap *map,

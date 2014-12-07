@@ -10,14 +10,14 @@
 #ifndef __ASM_CPU_SH4_MMU_CONTEXT_H
 #define __ASM_CPU_SH4_MMU_CONTEXT_H
 
-#define MMU_PTEH	0xFF000000	
-#define MMU_PTEL	0xFF000004	
-#define MMU_TTB		0xFF000008	
-#define MMU_TEA		0xFF00000C	
-#define MMU_PTEA	0xFF000034	
-#define MMU_PTEAEX	0xFF00007C	
+#define MMU_PTEH	0xFF000000	/* Page table entry register HIGH */
+#define MMU_PTEL	0xFF000004	/* Page table entry register LOW */
+#define MMU_TTB		0xFF000008	/* Translation table base register */
+#define MMU_TEA		0xFF00000C	/* TLB Exception Address */
+#define MMU_PTEA	0xFF000034	/* PTE assistance register */
+#define MMU_PTEAEX	0xFF00007C	/* PTE ASID extension register */
 
-#define MMUCR		0xFF000010	
+#define MMUCR		0xFF000010	/* MMU Control Register */
 
 #define MMU_TLB_ENTRY_SHIFT	8
 
@@ -78,5 +78,5 @@
 #define EXPEVT	0xff000024
 #define INTEVT	0xff000028
 
-#endif 
+#endif /* __ASM_CPU_SH4_MMU_CONTEXT_H */
 

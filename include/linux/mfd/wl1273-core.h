@@ -81,6 +81,7 @@
 #define WL1273_FM_POWER_MODE		254
 #define WL1273_FM_INTERRUPT		255
 
+/* Transmitter API */
 
 #define WL1273_CHANL_SET			55
 #define WL1273_SCAN_SPACING_SET			56
@@ -150,11 +151,14 @@
 #define WL1273_MAX_VOLUME	0xffff
 #define WL1273_DEFAULT_VOLUME	0x78b8
 
+/* I2S protocol, left channel first, data width 16 bits */
 #define WL1273_PCM_DEF_MODE		0x00
 
+/* Rx */
 #define WL1273_AUDIO_ENABLE_I2S		BIT(0)
 #define WL1273_AUDIO_ENABLE_ANALOG	BIT(1)
 
+/* Tx */
 #define WL1273_AUDIO_IO_SET_ANALOG	0
 #define WL1273_AUDIO_IO_SET_I2S		1
 
@@ -162,6 +166,7 @@
 #define WL1273_PUPD_SET_ON		0x01
 #define WL1273_PUPD_SET_RETENTION	0x10
 
+/* I2S mode */
 #define WL1273_IS2_WIDTH_32	0x0
 #define WL1273_IS2_WIDTH_40	0x1
 #define WL1273_IS2_WIDTH_22_23	0x2
@@ -271,7 +276,7 @@ struct wl1273_core {
 	unsigned int volume;
 	unsigned int audio_mode;
 	unsigned int channel_number;
-	struct mutex lock; 
+	struct mutex lock; /* for serializing fm radio operations */
 
 	struct i2c_client *client;
 
@@ -282,4 +287,4 @@ struct wl1273_core {
 	int (*set_volume)(struct wl1273_core *core, unsigned int);
 };
 
-#endif	
+#endif	/* ifndef WL1273_CORE_H */

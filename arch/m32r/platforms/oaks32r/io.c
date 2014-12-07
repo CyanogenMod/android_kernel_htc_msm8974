@@ -28,6 +28,9 @@ static inline void delay(void)
 	__asm__ __volatile__ ("push r0; \n\t pop r0;" : : :"memory");
 }
 
+/*
+ * NIC I/O function
+ */
 
 #define PORT2ADDR_NE(port)  _port2addr_ne(port)
 

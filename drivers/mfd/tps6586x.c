@@ -27,20 +27,24 @@
 #include <linux/mfd/core.h>
 #include <linux/mfd/tps6586x.h>
 
+/* GPIO control registers */
 #define TPS6586X_GPIOSET1	0x5d
 #define TPS6586X_GPIOSET2	0x5e
 
+/* interrupt control registers */
 #define TPS6586X_INT_ACK1	0xb5
 #define TPS6586X_INT_ACK2	0xb6
 #define TPS6586X_INT_ACK3	0xb7
 #define TPS6586X_INT_ACK4	0xb8
 
+/* interrupt mask registers */
 #define TPS6586X_INT_MASK1	0xb0
 #define TPS6586X_INT_MASK2	0xb1
 #define TPS6586X_INT_MASK3	0xb2
 #define TPS6586X_INT_MASK4	0xb3
 #define TPS6586X_INT_MASK5	0xb4
 
+/* device id */
 #define TPS6586X_VERSIONCRC	0xcd
 
 struct tps6586x_irq_data {
@@ -296,7 +300,7 @@ static int tps6586x_gpio_init(struct tps6586x *tps6586x, int gpio_base)
 	tps6586x->gpio.ngpio		= 4;
 	tps6586x->gpio.can_sleep	= 1;
 
-	
+	/* FIXME: add handling of GPIOs as dedicated inputs */
 	tps6586x->gpio.direction_output	= tps6586x_gpio_output;
 	tps6586x->gpio.set		= tps6586x_gpio_set;
 	tps6586x->gpio.get		= tps6586x_gpio_get;

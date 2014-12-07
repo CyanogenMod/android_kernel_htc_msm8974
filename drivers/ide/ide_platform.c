@@ -60,7 +60,7 @@ static int __devinit plat_ide_probe(struct platform_device *pdev)
 
 	pdata = pdev->dev.platform_data;
 
-	
+	/* get a pointer to the register memory */
 	res_base = platform_get_resource(pdev, IORESOURCE_IO, 0);
 	res_alt = platform_get_resource(pdev, IORESOURCE_IO, 1);
 

@@ -40,6 +40,7 @@ enum tpa_model {
 
 static struct i2c_client *tpa6130a2_client;
 
+/* This struct is used to save the context */
 struct tpa6130a2_data {
 	struct mutex mutex;
 	unsigned char regs[TPA6130A2_CACHEREGNUM];
@@ -57,7 +58,7 @@ static int tpa6130a2_i2c_read(int reg)
 	BUG_ON(tpa6130a2_client == NULL);
 	data = i2c_get_clientdata(tpa6130a2_client);
 
-	
+	/* If powered off, return the cached value */
 	if (data->power_state) {
 		val = i2c_smbus_read_byte_data(tpa6130a2_client, reg);
 		if (val < 0)
@@ -87,7 +88,7 @@ static int tpa6130a2_i2c_write(int reg, u8 value)
 		}
 	}
 
-	
+	/* Either powered on or off, we save the context */
 	data->regs[reg] = value;
 
 	return val;
@@ -140,7 +141,7 @@ static int tpa6130a2_power(u8 power)
 				"Failed to enable supply: %d\n", ret);
 			goto exit;
 		}
-		
+		/* Power on */
 		if (data->power_gpio >= 0)
 			gpio_set_value(data->power_gpio, 1);
 
@@ -156,12 +157,12 @@ static int tpa6130a2_power(u8 power)
 			goto exit;
 		}
 	} else {
-		
+		/* set SWS */
 		val = tpa6130a2_read(TPA6130A2_REG_CONTROL);
 		val |= TPA6130A2_SWS;
 		tpa6130a2_i2c_write(TPA6130A2_REG_CONTROL, val);
 
-		
+		/* Power off */
 		if (data->power_gpio >= 0)
 			gpio_set_value(data->power_gpio, 0);
 
@@ -245,6 +246,10 @@ static int tpa6130a2_put_volsw(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
+/*
+ * TPA6130 volume. From -59.5 to 4 dB with increasing step size when going
+ * down in gain.
+ */
 static const unsigned int tpa6130_tlv[] = {
 	TLV_DB_RANGE_HEAD(10),
 	0, 1, TLV_DB_SCALE_ITEM(-5950, 600, 0),
@@ -280,30 +285,37 @@ static const struct snd_kcontrol_new tpa6140a2_controls[] = {
 		       tpa6140_tlv),
 };
 
+/*
+ * Enable or disable channel (left or right)
+ * The bit number for mute and amplifier are the same per channel:
+ * bit 6: Right channel
+ * bit 7: Left channel
+ * in both registers.
+ */
 static void tpa6130a2_channel_enable(u8 channel, int enable)
 {
 	u8	val;
 
 	if (enable) {
-		
-		
+		/* Enable channel */
+		/* Enable amplifier */
 		val = tpa6130a2_read(TPA6130A2_REG_CONTROL);
 		val |= channel;
 		val &= ~TPA6130A2_SWS;
 		tpa6130a2_i2c_write(TPA6130A2_REG_CONTROL, val);
 
-		
+		/* Unmute channel */
 		val = tpa6130a2_read(TPA6130A2_REG_VOL_MUTE);
 		val &= ~channel;
 		tpa6130a2_i2c_write(TPA6130A2_REG_VOL_MUTE, val);
 	} else {
-		
-		
+		/* Disable channel */
+		/* Mute channel */
 		val = tpa6130a2_read(TPA6130A2_REG_VOL_MUTE);
 		val |= channel;
 		tpa6130a2_i2c_write(TPA6130A2_REG_VOL_MUTE, val);
 
-		
+		/* Disable amplifier */
 		val = tpa6130a2_read(TPA6130A2_REG_CONTROL);
 		val &= ~channel;
 		tpa6130a2_i2c_write(TPA6130A2_REG_CONTROL, val);
@@ -380,7 +392,7 @@ static int __devinit tpa6130a2_probe(struct i2c_client *client,
 
 	mutex_init(&data->mutex);
 
-	
+	/* Set default register values */
 	data->regs[TPA6130A2_REG_CONTROL] =	TPA6130A2_SWS;
 	data->regs[TPA6130A2_REG_VOL_MUTE] =	TPA6130A2_MUTE_R |
 						TPA6130A2_MUTE_L;
@@ -419,13 +431,13 @@ static int __devinit tpa6130a2_probe(struct i2c_client *client,
 		goto err_power;
 
 
-	
+	/* Read version */
 	ret = tpa6130a2_i2c_read(TPA6130A2_REG_VERSION) &
 				 TPA6130A2_VERSION_MASK;
 	if ((ret != 1) && (ret != 2))
 		dev_warn(dev, "UNTESTED version detected (%d)\n", ret);
 
-	
+	/* Disable the chip */
 	ret = tpa6130a2_power(0);
 	if (ret != 0)
 		goto err_power;

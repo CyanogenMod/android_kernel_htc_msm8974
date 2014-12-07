@@ -25,6 +25,16 @@
 
 #include <asm/io.h>
 
+/*
+ * No chip documentation has yet been found,
+ * so these configuration values were pulled from
+ * a running Win98 system using "debug".
+ * This gives around 3MByte/second read performance,
+ * which is about 2/3 of what the chip is capable of.
+ *
+ * There is also a 4KByte mmio region on the card,
+ * but its purpose has yet to be reverse-engineered.
+ */
 static const u8 setup[] = {
 	0x00, 0x05, 0xbe, 0x01, 0x20, 0x8f, 0x00, 0x00,
 	0xa4, 0x1f, 0xb3, 0x1b, 0x00, 0x00, 0x00, 0x80,
@@ -41,8 +51,8 @@ static int delkin_cb_init_chipset(struct pci_dev *dev)
 	unsigned long base = pci_resource_start(dev, 0);
 	int i;
 
-	outb(0x02, base + 0x1e);	
-	inb(base + 0x17);		
+	outb(0x02, base + 0x1e);	/* set nIEN to block interrupts */
+	inb(base + 0x17);		/* read status to clear interrupts */
 
 	for (i = 0; i < sizeof(setup); ++i) {
 		if (setup[i])

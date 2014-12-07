@@ -55,9 +55,24 @@
 			 S3C2410_ADCTSC_AUTO_PST | \
 			 S3C2410_ADCTSC_XY_PST(0))
 
-#define FEAT_PEN_IRQ	(1 << 0)	
+#define FEAT_PEN_IRQ	(1 << 0)	/* HAS ADCCLRINTPNDNUP */
 
+/* Per-touchscreen data. */
 
+/**
+ * struct s3c2410ts - driver touchscreen state.
+ * @client: The ADC client we registered with the core driver.
+ * @dev: The device we are bound to.
+ * @input: The input device we registered with the input subsystem.
+ * @clock: The clock for the adc.
+ * @io: Pointer to the IO base.
+ * @xp: The accumulated X position data.
+ * @yp: The accumulated Y position data.
+ * @irq_tc: The interrupt number for pen up/down interrupt
+ * @count: The number of samples collected.
+ * @shift: The log2 of the maximum count to read in one go.
+ * @features: The features supported by the TSADC MOdule.
+ */
 struct s3c2410ts {
 	struct s3c_adc_client *client;
 	struct device *dev;
@@ -74,9 +89,16 @@ struct s3c2410ts {
 
 static struct s3c2410ts ts;
 
+/**
+ * get_down - return the down state of the pen
+ * @data0: The data read from ADCDAT0 register.
+ * @data1: The data read from ADCDAT1 register.
+ *
+ * Return non-zero if both readings show that the pen is down.
+ */
 static inline bool get_down(unsigned long data0, unsigned long data1)
 {
-	
+	/* returns true if both data values show stylus down */
 	return (!(data0 & S3C2410_ADCDAT0_UPDOWN) &&
 		!(data1 & S3C2410_ADCDAT0_UPDOWN));
 }
@@ -126,6 +148,13 @@ static void touch_timer_fire(unsigned long data)
 
 static DEFINE_TIMER(touch_timer, touch_timer_fire, 0, 0);
 
+/**
+ * stylus_irq - touchscreen stylus event interrupt
+ * @irq: The interrupt number
+ * @dev_id: The device ID.
+ *
+ * Called when the IRQ_TC is fired for a pen up or down event.
+ */
 static irqreturn_t stylus_irq(int irq, void *dev_id)
 {
 	unsigned long data0;
@@ -137,6 +166,9 @@ static irqreturn_t stylus_irq(int irq, void *dev_id)
 
 	down = get_down(data0, data1);
 
+	/* TODO we should never get an interrupt with down set while
+	 * the timer is running, but maybe we ought to verify that the
+	 * timer isn't running anyways. */
 
 	if (down)
 		s3c_adc_start(ts.client, 0, 1 << ts.shift);
@@ -144,13 +176,22 @@ static irqreturn_t stylus_irq(int irq, void *dev_id)
 		dev_dbg(ts.dev, "%s: count=%d\n", __func__, ts.count);
 
 	if (ts.features & FEAT_PEN_IRQ) {
-		
+		/* Clear pen down/up interrupt */
 		writel(0x0, ts.io + S3C64XX_ADCCLRINTPNDNUP);
 	}
 
 	return IRQ_HANDLED;
 }
 
+/**
+ * s3c24xx_ts_conversion - ADC conversion callback
+ * @client: The client that was registered with the ADC core.
+ * @data0: The reading from ADCDAT0.
+ * @data1: The reading from ADCDAT1.
+ * @left: The number of samples left.
+ *
+ * Called when a conversion has finished.
+ */
 static void s3c24xx_ts_conversion(struct s3c_adc_client *client,
 				  unsigned data0, unsigned data1,
 				  unsigned *left)
@@ -162,8 +203,23 @@ static void s3c24xx_ts_conversion(struct s3c_adc_client *client,
 
 	ts.count++;
 
+	/* From tests, it seems that it is unlikely to get a pen-up
+	 * event during the conversion process which means we can
+	 * ignore any pen-up events with less than the requisite
+	 * count done.
+	 *
+	 * In several thousand conversions, no pen-ups where detected
+	 * before count completed.
+	 */
 }
 
+/**
+ * s3c24xx_ts_select - ADC selection callback.
+ * @client: The client that was registered with the ADC core.
+ * @select: The reason for select.
+ *
+ * Called when the ADC core selects (or deslects) us as a client.
+ */
 static void s3c24xx_ts_select(struct s3c_adc_client *client, unsigned select)
 {
 	if (select) {
@@ -175,6 +231,13 @@ static void s3c24xx_ts_select(struct s3c_adc_client *client, unsigned select)
 	}
 }
 
+/**
+ * s3c2410ts_probe - device core probe entry point
+ * @pdev: The device we are being bound to.
+ *
+ * Initialise, find and allocate any resources we need to run and then
+ * register with the ADC and input systems.
+ */
 static int __devinit s3c2410ts_probe(struct platform_device *pdev)
 {
 	struct s3c2410_ts_mach_info *info;
@@ -183,7 +246,7 @@ static int __devinit s3c2410ts_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret = -EINVAL;
 
-	
+	/* Initialise input stuff */
 	memset(&ts, 0, sizeof(struct s3c2410ts));
 
 	ts.dev = dev;
@@ -225,7 +288,7 @@ static int __devinit s3c2410ts_probe(struct platform_device *pdev)
 		goto err_clk;
 	}
 
-	
+	/* inititalise the gpio */
 	if (info->cfg_gpio)
 		info->cfg_gpio(to_platform_device(ts.dev));
 
@@ -237,7 +300,7 @@ static int __devinit s3c2410ts_probe(struct platform_device *pdev)
 		goto err_iomap;
 	}
 
-	
+	/* Initialise registers */
 	if ((info->delay & 0xffff) > 0)
 		writel(info->delay & 0xffff, ts.io + S3C2410_ADCDLY);
 
@@ -274,7 +337,7 @@ static int __devinit s3c2410ts_probe(struct platform_device *pdev)
 
 	dev_info(dev, "driver attached, registering input device\n");
 
-	
+	/* All went ok, so register to the input system */
 	ret = input_register_device(ts.input);
 	if (ret < 0) {
 		dev_err(dev, "failed to register input device\n");
@@ -296,6 +359,12 @@ static int __devinit s3c2410ts_probe(struct platform_device *pdev)
 	return ret;
 }
 
+/**
+ * s3c2410ts_remove - device core removal entry point
+ * @pdev: The device we are being removed from.
+ *
+ * Free up our state ready to be removed.
+ */
 static int __devexit s3c2410ts_remove(struct platform_device *pdev)
 {
 	free_irq(ts.irq_tc, ts.input);
@@ -328,7 +397,7 @@ static int s3c2410ts_resume(struct device *dev)
 	clk_enable(ts.clock);
 	enable_irq(ts.irq_tc);
 
-	
+	/* Initialise registers */
 	if ((info->delay & 0xffff) > 0)
 		writel(info->delay & 0xffff, ts.io + S3C2410_ADCDLY);
 

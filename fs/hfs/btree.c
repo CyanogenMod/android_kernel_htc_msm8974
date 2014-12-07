@@ -14,6 +14,7 @@
 
 #include "btree.h"
 
+/* Get a reference to a B*Tree and do some initial checks */
 struct hfs_btree *hfs_btree_open(struct super_block *sb, u32 id, btree_keycmp keycmp)
 {
 	struct hfs_btree *tree;
@@ -28,7 +29,7 @@ struct hfs_btree *hfs_btree_open(struct super_block *sb, u32 id, btree_keycmp ke
 
 	mutex_init(&tree->tree_lock);
 	spin_lock_init(&tree->hash_lock);
-	
+	/* Set the correct compare function */
 	tree->sb = sb;
 	tree->cnid = id;
 	tree->keycmp = keycmp;
@@ -78,7 +79,7 @@ struct hfs_btree *hfs_btree_open(struct super_block *sb, u32 id, btree_keycmp ke
 	if (IS_ERR(page))
 		goto free_inode;
 
-	
+	/* Load the header */
 	head = (struct hfs_btree_header_rec *)(kmap(page) + sizeof(struct hfs_bnode_desc));
 	tree->root = be32_to_cpu(head->root);
 	tree->leaf_count = be32_to_cpu(head->leaf_count);
@@ -132,6 +133,7 @@ free_tree:
 	return NULL;
 }
 
+/* Release resources used by a btree */
 void hfs_btree_close(struct hfs_btree *tree)
 {
 	struct hfs_bnode *node;
@@ -162,9 +164,9 @@ void hfs_btree_write(struct hfs_btree *tree)
 
 	node = hfs_bnode_find(tree, 0);
 	if (IS_ERR(node))
-		
+		/* panic? */
 		return;
-	
+	/* Load the header */
 	page = node->page[0];
 	head = (struct hfs_btree_header_rec *)(kmap(page) + sizeof(struct hfs_bnode_desc));
 
@@ -328,7 +330,7 @@ void hfs_bmap_free(struct hfs_bnode *node)
 		i = node->next;
 		hfs_bnode_put(node);
 		if (!i) {
-			;
+			/* panic */;
 			printk(KERN_CRIT "hfs: unable to free bnode %u. bmap not found!\n", node->this);
 			return;
 		}
@@ -336,7 +338,7 @@ void hfs_bmap_free(struct hfs_bnode *node)
 		if (IS_ERR(node))
 			return;
 		if (node->type != HFS_NODE_MAP) {
-			;
+			/* panic */;
 			printk(KERN_CRIT "hfs: invalid bmap found! (%u,%d)\n", node->this, node->type);
 			hfs_bnode_put(node);
 			return;

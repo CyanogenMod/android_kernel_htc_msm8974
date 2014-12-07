@@ -38,13 +38,37 @@
 #include "wmgr.h"
 #include "datarate.h"
 
+//#define	PLICE_DEBUG
 
+/*---------------------  Static Definitions -------------------------*/
+//static int          msglevel                =MSG_LEVEL_DEBUG;
+//static int          msglevel                =MSG_LEVEL_INFO;
 
+/*---------------------  Static Classes  ----------------------------*/
 
+/*---------------------  Static Variables  --------------------------*/
 
+/*---------------------  Static Functions  --------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
+/*+
+ *
+ * Description:
+ *    Set Operation Mode
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle - pointer to management object
+ *      eOPMode     - Opreation Mode
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 void
 VNTWIFIvSetOPMode (
     void *pMgmtHandle,
@@ -57,6 +81,23 @@ VNTWIFIvSetOPMode (
 }
 
 
+/*+
+ *
+ * Description:
+ *    Set Operation Mode
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle - pointer to management object
+ *      wBeaconPeriod - Beacon Period
+ *      wATIMWindow - ATIM window
+ *      uChannel - channel number
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 void
 VNTWIFIvSetIBSSParameter (
     void *pMgmtHandle,
@@ -72,6 +113,20 @@ VNTWIFIvSetIBSSParameter (
     pMgmt->uIBSSChannel = uChannel;
 }
 
+/*+
+ *
+ * Description:
+ *    Get current SSID
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle - pointer to management object
+ *  Out:
+ *      none
+ *
+ * Return Value: current SSID pointer.
+ *
+-*/
 PWLAN_IE_SSID
 VNTWIFIpGetCurrentSSID (
     void *pMgmtHandle
@@ -81,6 +136,20 @@ VNTWIFIpGetCurrentSSID (
     return((PWLAN_IE_SSID) pMgmt->abyCurrSSID);
 }
 
+/*+
+ *
+ * Description:
+ *    Get current link channel
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle - pointer to management object
+ *  Out:
+ *      none
+ *
+ * Return Value: current Channel.
+ *
+-*/
 unsigned int
 VNTWIFIpGetCurrentChannel (
     void *pMgmtHandle
@@ -93,6 +162,20 @@ VNTWIFIpGetCurrentChannel (
     return 0;
 }
 
+/*+
+ *
+ * Description:
+ *    Get current Assoc ID
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle - pointer to management object
+ *  Out:
+ *      none
+ *
+ * Return Value: current Assoc ID
+ *
+-*/
 unsigned short
 VNTWIFIwGetAssocID (
     void *pMgmtHandle
@@ -104,6 +187,21 @@ VNTWIFIwGetAssocID (
 
 
 
+/*+
+ *
+ * Description:
+ *    This routine return max support rate of IES
+ *
+ * Parameters:
+ *  In:
+ *      pSupportRateIEs
+ *      pExtSupportRateIEs
+ *
+ *  Out:
+ *
+ * Return Value: max support rate
+ *
+-*/
 unsigned char
 VNTWIFIbyGetMaxSupportRate (
     PWLAN_IE_SUPP_RATES pSupportRateIEs,
@@ -134,6 +232,22 @@ VNTWIFIbyGetMaxSupportRate (
     return byMaxSupportRate;
 }
 
+/*+
+ *
+ * Description:
+ *    This routine return data rate of ACK packtet
+ *
+ * Parameters:
+ *  In:
+ *      byRxDataRate
+ *      pSupportRateIEs
+ *      pExtSupportRateIEs
+ *
+ *  Out:
+ *
+ * Return Value: max support rate
+ *
+-*/
 unsigned char
 VNTWIFIbyGetACKTxRate (
     unsigned char byRxDataRate,
@@ -148,7 +262,7 @@ VNTWIFIbyGetACKTxRate (
     if (byRxDataRate <= RATE_11M) {
         byMaxAckRate = RATE_1M;
     } else  {
-        
+        // 24M is mandatory for 802.11a and 802.11g
         byMaxAckRate = RATE_24M;
     }
     if (pSupportRateIEs) {
@@ -177,6 +291,21 @@ VNTWIFIbyGetACKTxRate (
     return byMaxAckRate;
 }
 
+/*+
+ *
+ * Description:
+ *    Set Authentication Mode
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle - pointer to management object
+ *      eAuthMode   - Authentication mode
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 void
 VNTWIFIvSetAuthenticationMode (
     void *pMgmtHandle,
@@ -194,6 +323,21 @@ VNTWIFIvSetAuthenticationMode (
     }
 }
 
+/*+
+ *
+ * Description:
+ *    Set Encryption Mode
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle - pointer to management object
+ *      eAuthMode   - Authentication mode
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 void
 VNTWIFIvSetEncryptionMode (
     void *pMgmtHandle,
@@ -248,8 +392,37 @@ VNTWIFIbGetConfigPhyMode (
     }
 }
 
+/*+
+ *
+ * Description:
+ *      Clear BSS List Database except current assoc BSS
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle     - Management Object structure
+ *      bLinkPass       - Current Link status
+ *  Out:
+ *
+ * Return Value: None.
+ *
+-*/
 
 
+/*+
+ *
+ * Description:
+ *      Query BSS List in management database
+ *
+ * Parameters:
+ *  In:
+ *      pMgmtHandle     - Management Object structure
+ *  Out:
+ *      puBSSCount      - BSS count
+ *      pvFirstBSS      - pointer to first BSS
+ *
+ * Return Value: None.
+ *
+-*/
 
 void
 VNTWIFIvQueryBSSList(void *pMgmtHandle, unsigned int *puBSSCount, void **pvFirstBSS)
@@ -305,6 +478,18 @@ VNTWIFIvGetNextBSS (
 
 
 
+/*+
+ *
+ * Description:
+ *      Update Tx attemps, Tx failure counter in Node DB
+ *
+ *  In:
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 void
 VNTWIFIvUpdateNodeTxCounter(
     void *pMgmtHandle,
@@ -326,7 +511,7 @@ VNTWIFIvUpdateNodeTxCounter(
     }
     pMgmt->sNodeDBTable[uNodeIndex].uTxAttempts++;
     if (bTxOk == true) {
-        
+        // transmit success, TxAttempts at least plus one
         pMgmt->sNodeDBTable[uNodeIndex].uTxOk[MAX_RATE]++;
         pMgmt->sNodeDBTable[uNodeIndex].uTxOk[wRate]++;
     } else {
@@ -362,7 +547,7 @@ VNTWIFIvGetTxRate(
 
     if ((pMgmt->eCurrMode == WMAC_MODE_IBSS_STA) ||
         (pMgmt->eCurrMode == WMAC_MODE_ESS_AP)) {
-        
+        // Adhoc Tx rate decided from node DB
         if(BSSDBbIsSTAInNodeDB(pMgmt, pbyDestAddress, &uNodeIndex)) {
             wTxDataRate = (pMgmt->sNodeDBTable[uNodeIndex].wTxDataRate);
             pSupportRateIEs = (PWLAN_IE_SUPP_RATES) (pMgmt->sNodeDBTable[uNodeIndex].abyCurrSuppRates);
@@ -376,7 +561,7 @@ VNTWIFIvGetTxRate(
             pSupportRateIEs = (PWLAN_IE_SUPP_RATES) pMgmt->abyCurrSuppRates;
             pExtSupportRateIEs = (PWLAN_IE_SUPP_RATES) pMgmt->abyCurrExtSuppRates;
         }
-    } else { 
+    } else { // Infrastructure: rate decided from AP Node, index = 0
 
 		wTxDataRate = (pMgmt->sNodeDBTable[0].wTxDataRate);
 #ifdef	PLICE_DEBUG
@@ -426,6 +611,48 @@ VNTWIFIbyGetKeyCypher(
 }
 
 
+/*
+bool
+VNTWIFIbInit(
+    void *pAdapterHandler,
+    void **pMgmtHandler
+    )
+{
+
+    PSMgmtObject        pMgmt = NULL;
+    unsigned int ii;
+
+
+    pMgmt = (PSMgmtObject)kmalloc(sizeof(SMgmtObject), (int)GFP_ATOMIC);
+    if (pMgmt == NULL) {
+        *pMgmtHandler = NULL;
+        return false;
+    }
+
+    memset(pMgmt, 0, sizeof(SMgmtObject));
+    pMgmt->pAdapter = (void *) pAdapterHandler;
+
+    // should initial MAC address abyMACAddr
+    for(ii=0;ii<WLAN_BSSID_LEN;ii++) {
+        pMgmt->abyDesireBSSID[ii] = 0xFF;
+    }
+    pMgmt->pbyPSPacketPool = &pMgmt->byPSPacketPool[0];
+    pMgmt->pbyMgmtPacketPool = &pMgmt->byMgmtPacketPool[0];
+    pMgmt->byCSSPK = KEY_CTL_NONE;
+    pMgmt->byCSSGK = KEY_CTL_NONE;
+    pMgmt->wIBSSBeaconPeriod = DEFAULT_IBSS_BI;
+
+    pMgmt->cbFreeCmdQueue = CMD_Q_SIZE;
+    pMgmt->uCmdDequeueIdx = 0;
+    pMgmt->uCmdEnqueueIdx = 0;
+    pMgmt->eCommandState = WLAN_CMD_STATE_IDLE;
+    pMgmt->bCmdStop = false;
+    pMgmt->bCmdRunning = false;
+
+    *pMgmtHandler = pMgmt;
+    return true;
+}
+*/
 
 
 
@@ -494,7 +721,7 @@ VNTWIFIbMeasureReport(
     PSMgmtObject    pMgmt = (PSMgmtObject) pMgmtObject;
     unsigned char *pbyCurrentEID = (unsigned char *) (pMgmt->pCurrMeasureEIDRep);
 
-    
+    //spin_lock_irq(&pDevice->lock);
     if ((pvMeasureEID != NULL) &&
         (pMgmt->uLengthOfRepEIDs < (WLAN_A3FR_MAXLEN - sizeof(MEASEURE_REP) - sizeof(WLAN_80211HDR_A3) - 3))
         ) {
@@ -535,7 +762,7 @@ VNTWIFIbMeasureReport(
     if (bEndOfReport == true) {
         IEEE11hbMSRRepTx(pMgmt);
     }
-    
+    //spin_unlock_irq(&pDevice->lock);
     return (true);
 }
 
@@ -548,11 +775,33 @@ VNTWIFIbChannelSwitch(
 {
     PSMgmtObject    pMgmt = (PSMgmtObject) pMgmtObject;
 
-    
+    //spin_lock_irq(&pDevice->lock);
     pMgmt->uCurrChannel = byNewChannel;
     pMgmt->bSwitchChannel = false;
-    
+    //spin_unlock_irq(&pDevice->lock);
     return true;
 }
 
+/*
+bool
+VNTWIFIbRadarPresent(
+    void *pMgmtObject,
+    unsigned char byChannel
+    )
+{
+    PSMgmtObject    pMgmt = (PSMgmtObject) pMgmtObject;
+    if ((pMgmt->eCurrMode == WMAC_MODE_IBSS_STA) &&
+        (byChannel == (unsigned char) pMgmt->uCurrChannel) &&
+        (pMgmt->bSwitchChannel != true) &&
+        (pMgmt->b11hEnable == true)) {
+        if (!compare_ether_addr(pMgmt->abyIBSSDFSOwner, CARDpGetCurrentAddress(pMgmt->pAdapter))) {
+            pMgmt->byNewChannel = CARDbyAutoChannelSelect(pMgmt->pAdapter,(unsigned char) pMgmt->uCurrChannel);
+            pMgmt->bSwitchChannel = true;
+        }
+        BEACONbSendBeacon(pMgmt);
+        CARDbChannelSwitch(pMgmt->pAdapter, 0, pMgmt->byNewChannel, 10);
+    }
+    return true;
+}
+*/
 

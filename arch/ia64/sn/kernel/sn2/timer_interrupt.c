@@ -38,7 +38,7 @@ extern irqreturn_t timer_interrupt(int irq, void *dev_id, struct pt_regs *regs);
 
 void sn_timer_interrupt(int irq, void *dev_id)
 {
-	
+	/* LED blinking */
 	if (!pda->hb_count--) {
 		pda->hb_count = HZ / 2;
 		set_led_bits(pda->hb_state ^=
@@ -47,7 +47,7 @@ void sn_timer_interrupt(int irq, void *dev_id)
 
 	if (is_shub1()) {
 		if (enable_shub_wars_1_1()) {
-			
+			/* Bugfix code for SHUB 1.1 */
 			if (pda->pio_shub_war_cam_addr)
 				*pda->pio_shub_war_cam_addr = 0x8000000000000010UL;
 		}

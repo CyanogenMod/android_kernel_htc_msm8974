@@ -13,6 +13,9 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Kaiomy TVnPC U2
+   Mauro Carvalho Chehab <mchehab@infradead.org>
+ */
 
 static struct rc_map_table kaiomy[] = {
 	{ 0x43, KEY_POWER2},
@@ -63,7 +66,7 @@ static struct rc_map_list kaiomy_map = {
 	.map = {
 		.scan    = kaiomy,
 		.size    = ARRAY_SIZE(kaiomy),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_KAIOMY,
 	}
 };

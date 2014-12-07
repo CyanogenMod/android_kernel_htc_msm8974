@@ -71,6 +71,7 @@ static int umt_tuner_attach (struct dvb_usb_adapter *adap)
 	return 0;
 }
 
+/* USB Driver stuff */
 static struct dvb_usb_device_properties umt_properties;
 
 static int umt_probe(struct usb_interface *intf,
@@ -82,10 +83,11 @@ static int umt_probe(struct usb_interface *intf,
 	return -EINVAL;
 }
 
+/* do not change the order of the ID table */
 static struct usb_device_id umt_table [] = {
-	{ USB_DEVICE(USB_VID_HANFTEK, USB_PID_HANFTEK_UMT_010_COLD) },
-	{ USB_DEVICE(USB_VID_HANFTEK, USB_PID_HANFTEK_UMT_010_WARM) },
-			{ }		
+/* 00 */	{ USB_DEVICE(USB_VID_HANFTEK, USB_PID_HANFTEK_UMT_010_COLD) },
+/* 01 */	{ USB_DEVICE(USB_VID_HANFTEK, USB_PID_HANFTEK_UMT_010_WARM) },
+			{ }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE (usb, umt_table);
 
@@ -104,7 +106,7 @@ static struct dvb_usb_device_properties umt_properties = {
 			.frontend_attach  = umt_mt352_frontend_attach,
 			.tuner_attach     = umt_tuner_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = MAX_NO_URBS_FOR_DATA_STREAM,

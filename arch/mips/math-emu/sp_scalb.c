@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * single precision
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.

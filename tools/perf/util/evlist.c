@@ -121,7 +121,7 @@ int perf_evlist__add_default(struct perf_evlist *evlist)
 	if (evsel == NULL)
 		goto error;
 
-	
+	/* use strdup() because free(evsel) assumes name is allocated */
 	evsel->name = strdup("cycles");
 	if (!evsel->name)
 		goto error_free;
@@ -320,7 +320,7 @@ static int perf_evlist__id_add_fd(struct perf_evlist *evlist,
 				  int cpu, int thread, int fd)
 {
 	u64 read_data[4] = { 0, };
-	int id_idx = 1; 
+	int id_idx = 1; /* The first entry is the counter value */
 
 	if (!(evsel->attr.read_format & PERF_FORMAT_ID) ||
 	    read(fd, &read_data, sizeof(read_data)) == -1)
@@ -360,7 +360,7 @@ struct perf_evsel *perf_evlist__id2evsel(struct perf_evlist *evlist, u64 id)
 
 union perf_event *perf_evlist__mmap_read(struct perf_evlist *evlist, int idx)
 {
-	
+	/* XXX Move this to perf.c, making it generally available */
 	unsigned int page_size = sysconf(_SC_PAGE_SIZE);
 	struct perf_mmap *md = &evlist->mmap[idx];
 	unsigned int head = perf_mmap__read_head(md);
@@ -369,10 +369,21 @@ union perf_event *perf_evlist__mmap_read(struct perf_evlist *evlist, int idx)
 	union perf_event *event = NULL;
 
 	if (evlist->overwrite) {
+		/*
+		 * If we're further behind than half the buffer, there's a chance
+		 * the writer will bite our tail and mess up the samples under us.
+		 *
+		 * If we somehow ended up ahead of the head, we got messed up.
+		 *
+		 * In either case, truncate and restart at head.
+		 */
 		int diff = head - old;
 		if (diff > md->mask / 2 || diff < 0) {
 			fprintf(stderr, "WARNING: failed to keep up with mmap data.\n");
 
+			/*
+			 * head points to a known good entry, start there.
+			 */
 			old = head;
 		}
 	}
@@ -383,6 +394,10 @@ union perf_event *perf_evlist__mmap_read(struct perf_evlist *evlist, int idx)
 		event = (union perf_event *)&data[old & md->mask];
 		size = event->header.size;
 
+		/*
+		 * Event straddles the mmap boundary -- header should always
+		 * be inside due to u64 alignment of output.
+		 */
 		if ((old & md->mask) + size != ((old + size) & md->mask)) {
 			unsigned int offset = old;
 			unsigned int len = min(sizeof(*event), size), cpy;
@@ -530,6 +545,21 @@ out_unmap:
 	return -1;
 }
 
+/** perf_evlist__mmap - Create per cpu maps to receive events
+ *
+ * @evlist - list of events
+ * @pages - map length in pages
+ * @overwrite - overwrite older events?
+ *
+ * If overwrite is false the user needs to signal event consuption using:
+ *
+ *	struct perf_mmap *m = &evlist->mmap[cpu];
+ *	unsigned int head = perf_mmap__read_head(m);
+ *
+ *	perf_mmap__write_tail(m, head)
+ *
+ * Using perf_evlist__read_on_cpu does this automatically.
+ */
 int perf_evlist__mmap(struct perf_evlist *evlist, unsigned int pages,
 		      bool overwrite)
 {
@@ -539,7 +569,7 @@ int perf_evlist__mmap(struct perf_evlist *evlist, unsigned int pages,
 	const struct thread_map *threads = evlist->threads;
 	int prot = PROT_READ | (overwrite ? 0 : PROT_WRITE), mask;
 
-        
+        /* 512 kiB: default amount of unprivileged mlocked memory */
         if (pages == UINT_MAX)
                 pages = (512 * 1024) / page_size;
 	else if (!is_power_of_2(pages))
@@ -772,10 +802,21 @@ int perf_evlist__prepare_workload(struct perf_evlist *evlist,
 		close(go_pipe[1]);
 		fcntl(go_pipe[0], F_SETFD, FD_CLOEXEC);
 
+		/*
+		 * Do a dummy execvp to get the PLT entry resolved,
+		 * so we avoid the resolver overhead on the real
+		 * execvp call.
+		 */
 		execvp("", (char **)argv);
 
+		/*
+		 * Tell the parent we're ready to go
+		 */
 		close(child_ready_pipe[1]);
 
+		/*
+		 * Wait until the parent tells us to go.
+		 */
 		if (read(go_pipe[0], &bf, 1) == -1)
 			perror("unable to read pipe");
 
@@ -791,6 +832,9 @@ int perf_evlist__prepare_workload(struct perf_evlist *evlist,
 
 	close(child_ready_pipe[1]);
 	close(go_pipe[0]);
+	/*
+	 * wait for child to settle
+	 */
 	if (read(child_ready_pipe[0], &bf, 1) == -1) {
 		perror("unable to read pipe");
 		goto out_close_pipes;
@@ -812,6 +856,9 @@ out_close_ready_pipe:
 int perf_evlist__start_workload(struct perf_evlist *evlist)
 {
 	if (evlist->workload.cork_fd > 0) {
+		/*
+		 * Remove the cork, let it rip!
+		 */
 		return close(evlist->workload.cork_fd);
 	}
 

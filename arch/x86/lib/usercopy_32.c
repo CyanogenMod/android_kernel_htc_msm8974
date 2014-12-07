@@ -15,6 +15,9 @@
 #include <asm/mmx.h>
 
 #ifdef CONFIG_X86_INTEL_USERCOPY
+/*
+ * Alignment at which movsl is preferred for bulk memory copies.
+ */
 struct movsl_mask movsl_mask __read_mostly;
 #endif
 
@@ -29,6 +32,9 @@ static inline int __movsl_is_ok(unsigned long a1, unsigned long a2, unsigned lon
 #define movsl_is_ok(a1, a2, n) \
 	__movsl_is_ok((unsigned long)(a1), (unsigned long)(a2), (n))
 
+/*
+ * Zero Userspace
+ */
 
 #define __do_clear_user(addr,size)					\
 do {									\
@@ -49,6 +55,16 @@ do {									\
 		: "r"(size & 3), "0"(size / 4), "1"(addr), "a"(0));	\
 } while (0)
 
+/**
+ * clear_user: - Zero a block of memory in user space.
+ * @to:   Destination address, in user space.
+ * @n:    Number of bytes to zero.
+ *
+ * Zero a block of memory in user space.
+ *
+ * Returns number of bytes that could not be cleared.
+ * On success, this will be zero.
+ */
 unsigned long
 clear_user(void __user *to, unsigned long n)
 {
@@ -59,6 +75,17 @@ clear_user(void __user *to, unsigned long n)
 }
 EXPORT_SYMBOL(clear_user);
 
+/**
+ * __clear_user: - Zero a block of memory in user space, with less checking.
+ * @to:   Destination address, in user space.
+ * @n:    Number of bytes to zero.
+ *
+ * Zero a block of memory in user space.  Caller must check
+ * the specified block with access_ok() before calling this function.
+ *
+ * Returns number of bytes that could not be cleared.
+ * On success, this will be zero.
+ */
 unsigned long
 __clear_user(void __user *to, unsigned long n)
 {
@@ -67,6 +94,17 @@ __clear_user(void __user *to, unsigned long n)
 }
 EXPORT_SYMBOL(__clear_user);
 
+/**
+ * strnlen_user: - Get the size of a string in user space.
+ * @s: The string to measure.
+ * @n: The maximum valid length
+ *
+ * Get the size of a NUL-terminated string in user space.
+ *
+ * Returns the size of the string INCLUDING the terminating NUL.
+ * On exception, returns 0.
+ * If the string is too long, returns a value greater than @n.
+ */
 long strnlen_user(const char __user *s, long n)
 {
 	unsigned long mask = -__addr_ok(s);
@@ -303,6 +341,10 @@ __copy_user_zeroing_intel(void *to, const void __user *from, unsigned long size)
 	return size;
 }
 
+/*
+ * Non Temporal Hint version of __copy_user_zeroing_intel.  It is cache aware.
+ * hyoshiok@miraclelinux.com
+ */
 
 static unsigned long __copy_user_zeroing_intel_nocache(void *to,
 				const void __user *from, unsigned long size)
@@ -494,14 +536,19 @@ static unsigned long __copy_user_intel_nocache(void *to,
 
 #else
 
+/*
+ * Leave these declared but undefined.  They should not be any references to
+ * them
+ */
 unsigned long __copy_user_zeroing_intel(void *to, const void __user *from,
 					unsigned long size);
 unsigned long __copy_user_intel(void __user *to, const void *from,
 					unsigned long size);
 unsigned long __copy_user_zeroing_intel_nocache(void *to,
 				const void __user *from, unsigned long size);
-#endif 
+#endif /* CONFIG_X86_INTEL_USERCOPY */
 
+/* Generic arbitrary sized copy.  */
 #define __copy_user(to, from, size)					\
 do {									\
 	int __d0, __d1, __d2;						\
@@ -586,9 +633,20 @@ unsigned long __copy_to_user_ll(void __user *to, const void *from,
 #ifndef CONFIG_X86_WP_WORKS_OK
 	if (unlikely(boot_cpu_data.wp_works_ok == 0) &&
 			((unsigned long)to) < TASK_SIZE) {
+		/*
+		 * When we are in an atomic section (see
+		 * mm/filemap.c:file_read_actor), return the full
+		 * length to take the slow path.
+		 */
 		if (in_atomic())
 			return n;
 
+		/*
+		 * CPU does not honor the WP bit when writing
+		 * from supervisory mode, and due to preemption or SMP,
+		 * the page tables can change at any time.
+		 * Do it manually.	Manfred <manfred@colorfullife.com>
+		 */
 		while (n) {
 			unsigned long offset = ((unsigned long)to)%PAGE_SIZE;
 			unsigned long len = PAGE_SIZE - offset;
@@ -690,6 +748,19 @@ unsigned long __copy_from_user_ll_nocache_nozero(void *to, const void __user *fr
 }
 EXPORT_SYMBOL(__copy_from_user_ll_nocache_nozero);
 
+/**
+ * copy_to_user: - Copy a block of data into user space.
+ * @to:   Destination address, in user space.
+ * @from: Source address, in kernel space.
+ * @n:    Number of bytes to copy.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * Copy data from kernel space to user space.
+ *
+ * Returns number of bytes that could not be copied.
+ * On success, this will be zero.
+ */
 unsigned long
 copy_to_user(void __user *to, const void *from, unsigned long n)
 {
@@ -699,6 +770,22 @@ copy_to_user(void __user *to, const void *from, unsigned long n)
 }
 EXPORT_SYMBOL(copy_to_user);
 
+/**
+ * copy_from_user: - Copy a block of data from user space.
+ * @to:   Destination address, in kernel space.
+ * @from: Source address, in user space.
+ * @n:    Number of bytes to copy.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * Copy data from user space to kernel space.
+ *
+ * Returns number of bytes that could not be copied.
+ * On success, this will be zero.
+ *
+ * If some data could not be copied, this function will pad the copied
+ * data to the requested size using zero bytes.
+ */
 unsigned long
 _copy_from_user(void *to, const void __user *from, unsigned long n)
 {

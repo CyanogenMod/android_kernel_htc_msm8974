@@ -83,7 +83,7 @@ int pcf50633_gpio_power_supply_set(struct pcf50633 *pcf,
 {
 	u8 reg, val, mask;
 
-	
+	/* the *ENA register is always one after the *OUT register */
 	reg = pcf50633_regulator_registers[regulator] + 1;
 
 	val = !!on << (gpio - PCF50633_GPIO1);

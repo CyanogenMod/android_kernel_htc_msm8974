@@ -19,20 +19,20 @@
 #define TX28_FEC_PHY_RESET	MXS_GPIO_NR(4, 13)
 
 static const iomux_cfg_t tx28_fec_gpio_pads[] __initconst = {
-	
+	/* PHY POWER */
 	MX28_PAD_PWM4__GPIO_3_29 |
 		MXS_PAD_4MA | MXS_PAD_NOPULL | MXS_PAD_3V3,
-	
+	/* PHY RESET */
 	MX28_PAD_ENET0_RX_CLK__GPIO_4_13 |
 		MXS_PAD_4MA | MXS_PAD_NOPULL | MXS_PAD_3V3,
-	
+	/* Mode strap pins 0-2 */
 	MX28_PAD_ENET0_RXD0__GPIO_4_3 |
 		MXS_PAD_8MA | MXS_PAD_PULLUP | MXS_PAD_3V3,
 	MX28_PAD_ENET0_RXD1__GPIO_4_4 |
 		MXS_PAD_8MA | MXS_PAD_PULLUP | MXS_PAD_3V3,
 	MX28_PAD_ENET0_RX_EN__GPIO_4_2 |
 		MXS_PAD_8MA | MXS_PAD_PULLUP | MXS_PAD_3V3,
-	
+	/* nINT */
 	MX28_PAD_ENET0_TX_CLK__GPIO_4_5 |
 		MXS_PAD_4MA | MXS_PAD_NOPULL | MXS_PAD_3V3,
 
@@ -100,23 +100,23 @@ int __init tx28_add_fec0(void)
 		}
 	}
 
-	
+	/* Power up fec phy */
 	pr_debug("%s: Switching FEC PHY power on\n", __func__);
 	ret = gpio_direction_output(TX28_FEC_PHY_POWER, 1);
 	if (ret) {
 		pr_err("Failed to power on PHY: %d\n", ret);
 		goto free_gpios;
 	}
-	mdelay(26); 
+	mdelay(26); /* 25ms according to data sheet */
 
-	
+	/* nINT */
 	gpio_direction_input(MXS_GPIO_NR(4, 5));
-	
+	/* Mode strap pins */
 	gpio_direction_output(MXS_GPIO_NR(4, 2), 1);
 	gpio_direction_output(MXS_GPIO_NR(4, 3), 1);
 	gpio_direction_output(MXS_GPIO_NR(4, 4), 1);
 
-	udelay(100); 
+	udelay(100); /* minimum assertion time for nRST */
 
 	pr_debug("%s: Deasserting FEC PHY RESET\n", __func__);
 	gpio_set_value(TX28_FEC_PHY_RESET, 1);

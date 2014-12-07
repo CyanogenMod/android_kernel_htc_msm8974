@@ -73,4 +73,4 @@
 
 
 
-#endif	
+#endif	/* __RTL8712_FIFOCTRL_REGDEF_H__ */

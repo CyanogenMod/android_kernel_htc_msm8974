@@ -3,4 +3,4 @@
 
 #include <asm-generic/resource.h>
 
-#endif 
+#endif /* __ASM_AVR32_RESOURCE_H */

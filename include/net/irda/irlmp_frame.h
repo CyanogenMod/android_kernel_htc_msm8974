@@ -30,6 +30,7 @@
 
 #include <net/irda/discovery.h>
 
+/* IrLMP frame opcodes */
 #define CONNECT_CMD    0x01
 #define CONNECT_CNF    0x81
 #define DISCONNECT     0x02
@@ -46,7 +47,7 @@ void irlmp_link_data_indication(struct lap_cb *, struct sk_buff *,
 				int unreliable);
 #ifdef CONFIG_IRDA_ULTRA
 void irlmp_link_unitdata_indication(struct lap_cb *, struct sk_buff *);
-#endif 
+#endif /* CONFIG_IRDA_ULTRA */
 
 void irlmp_link_connect_indication(struct lap_cb *, __u32 saddr, __u32 daddr,
 				   struct qos_info *qos, struct sk_buff *skb);

@@ -176,7 +176,20 @@ PCOM_VREG_CONSUMERS(ldo17) = {
 	REGULATOR_SUPPLY("msme2",	NULL),
 };
 
+/**
+ * Minimum and Maximum range for the regulators is as per the
+ * device Datasheet. Actual value used by consumer is between
+ * the provided range.
+ */
 static struct proccomm_regulator_info msm7627_pcom_vreg_info[] = {
+	/* Standard regulators (SMPS and LDO)
+	 * R = rise time (us)
+	 * P = pulldown (1 = pull down, 0 = float, -1 = don't care)
+	 * A = always on
+	 * B = boot on
+	 * V = automatic voltage set (meaningful for single-voltage regs only)
+	 * S = supply voltage (uV)
+	 *             name  id  supp    min uV    max uV  R   P  A  B  V  S */
 	PCOM_VREG_SMP(smps0,  3, NULL,  750000,  3050000, 0, -1, 0, 0, 0, 0),
 	PCOM_VREG_SMP(smps1,  4, NULL,  750000,  3050000, 0, -1, 0, 0, 0, 0),
 	PCOM_VREG_SMP(smps2, 10, NULL,  750000,  3050000, 0, -1, 0, 0, 0, 0),

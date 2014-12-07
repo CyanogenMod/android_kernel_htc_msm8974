@@ -45,7 +45,7 @@ void t3e3_set_loopback(struct channel *sc, u32 mode)
 	if (rx == SBE_2T3E3_ON)
 		dc_receiver_onoff(sc, SBE_2T3E3_OFF);
 
-	
+	/* stop current loopback if any exists */
 	switch (sc->p.loopback) {
 	case SBE_2T3E3_LOOPBACK_NONE:
 		break;
@@ -297,8 +297,8 @@ void t3e3_if_config(struct channel *sc, u32 cmd, char *set,
 	t3e3_param_t *param = (t3e3_param_t *)set;
 	u32 *data = (u32 *)set;
 
-	
-	
+	/* turn off all interrupt */
+	/* cpld_stop_intr(sc); */
 
 	switch (cmd) {
 	case SBE_2T3E3_PORT_GET:
@@ -337,8 +337,8 @@ void t3e3_if_config(struct channel *sc, u32 cmd, char *set,
 		break;
 	}
 
-	
-	
+	/* turn on interrupt */
+	/* cpld_start_intr(sc); */
 }
 
 void t3e3_sc_init(struct channel *sc)

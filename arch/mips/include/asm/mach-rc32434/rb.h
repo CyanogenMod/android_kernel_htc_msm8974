@@ -40,6 +40,7 @@
 #define BTCS		0x010040
 #define BTCOMPARE	0x010044
 #define GPIOBASE	0x050000
+/* Offsets relative to GPIOBASE */
 #define GPIOFUNC	0x00
 #define GPIOCFG		0x04
 #define GPIOD		0x08
@@ -85,4 +86,4 @@ struct mpmc_device {
 extern void set_latch_u5(unsigned char or_mask, unsigned char nand_mask);
 extern unsigned char get_latch_u5(void);
 
-#endif  
+#endif  /* __ASM_RC32434_RB_H */

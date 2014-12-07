@@ -21,9 +21,11 @@
 #include <linux/delay.h>
 #include "../rio.h"
 
+/* Global (broadcast) route registers */
 #define SPBC_ROUTE_CFG_DESTID	0x10070
 #define SPBC_ROUTE_CFG_PORT	0x10074
 
+/* Per port route registers */
 #define SPP_ROUTE_CFG_DESTID(n)	(0x11070 + 0x100*n)
 #define SPP_ROUTE_CFG_PORT(n)	(0x11074 + 0x100*n)
 
@@ -68,6 +70,8 @@ tsi57x_route_get_entry(struct rio_mport *mport, u16 destid, u8 hopcount,
 	u32 result;
 
 	if (table == RIO_GLOBAL_TABLE) {
+		/* Use local RT of the ingress port to avoid possible
+		   race condition */
 		rio_mport_read_config_32(mport, destid, hopcount,
 			RIO_SWP_INFO_CAR, &result);
 		table = (result & RIO_SWP_INFO_PORT_NUM_MASK);
@@ -118,13 +122,16 @@ tsi57x_set_domain(struct rio_mport *mport, u16 destid, u8 hopcount,
 {
 	u32 regval;
 
+	/*
+	 * Switch domain configuration operates only at global level
+	 */
 
-	
+	/* Turn off flat (LUT_512) mode */
 	rio_mport_read_config_32(mport, destid, hopcount,
 				 TSI578_SP_MODE_GLBL, &regval);
 	rio_mport_write_config_32(mport, destid, hopcount, TSI578_SP_MODE_GLBL,
 				  regval & ~TSI578_SP_MODE_LUT_512);
-	
+	/* Set switch domain base */
 	rio_mport_write_config_32(mport, destid, hopcount,
 				  TSI578_GLBL_ROUTE_BASE,
 				  (u32)(sw_domain << 24));
@@ -137,6 +144,9 @@ tsi57x_get_domain(struct rio_mport *mport, u16 destid, u8 hopcount,
 {
 	u32 regval;
 
+	/*
+	 * Switch domain configuration operates only at global level
+	 */
 	rio_mport_read_config_32(mport, destid, hopcount,
 				TSI578_GLBL_ROUTE_BASE, &regval);
 
@@ -155,14 +165,14 @@ tsi57x_em_init(struct rio_dev *rdev)
 
 	for (portnum = 0;
 	     portnum < RIO_GET_TOTAL_PORTS(rdev->swpinfo); portnum++) {
-		
+		/* Make sure that Port-Writes are enabled (for all ports) */
 		rio_read_config_32(rdev,
 				TSI578_SP_MODE(portnum), &regval);
 		rio_write_config_32(rdev,
 				TSI578_SP_MODE(portnum),
 				regval & ~TSI578_SP_MODE_PW_DIS);
 
-		
+		/* Clear all pending interrupts */
 		rio_read_config_32(rdev,
 				rdev->phys_efptr +
 					RIO_PORT_N_ERR_STS_CSR(portnum),
@@ -178,14 +188,14 @@ tsi57x_em_init(struct rio_dev *rdev)
 				TSI578_SP_INT_STATUS(portnum),
 				regval & 0x000700bd);
 
-		
+		/* Enable all interrupts to allow ports to send a port-write */
 		rio_read_config_32(rdev,
 				TSI578_SP_CTL_INDEP(portnum), &regval);
 		rio_write_config_32(rdev,
 				TSI578_SP_CTL_INDEP(portnum),
 				regval | 0x000b0000);
 
-		
+		/* Skip next (odd) port if the current port is in x4 mode */
 		rio_read_config_32(rdev,
 				rdev->phys_efptr + RIO_PORT_N_CTL_CSR(portnum),
 				&regval);
@@ -193,7 +203,7 @@ tsi57x_em_init(struct rio_dev *rdev)
 			portnum++;
 	}
 
-	
+	/* set TVAL = ~50us */
 	rio_write_config_32(rdev,
 		rdev->phys_efptr + RIO_PORT_LINKTO_CTL_CSR, 0x9a << 8);
 
@@ -216,7 +226,7 @@ tsi57x_em_handler(struct rio_dev *rdev, u8 portnum)
 	if ((err_status & RIO_PORT_N_ERR_STS_PORT_OK) &&
 	    (err_status & (RIO_PORT_N_ERR_STS_PW_OUT_ES |
 			  RIO_PORT_N_ERR_STS_PW_INP_ES))) {
-		
+		/* Remove any queued packets by locking/unlocking port */
 		rio_read_config_32(rdev,
 			rdev->phys_efptr + RIO_PORT_N_CTL_CSR(portnum),
 			&regval);
@@ -230,10 +240,16 @@ tsi57x_em_handler(struct rio_dev *rdev, u8 portnum)
 				regval);
 		}
 
+		/* Read from link maintenance response register to clear
+		 * valid bit
+		 */
 		rio_read_config_32(rdev,
 			rdev->phys_efptr + RIO_PORT_N_MNT_RSP_CSR(portnum),
 			&regval);
 
+		/* Send a Packet-Not-Accepted/Link-Request-Input-Status control
+		 * symbol to recover from IES/OES
+		 */
 		sendcount = 3;
 		while (sendcount) {
 			rio_write_config_32(rdev,
@@ -254,7 +270,7 @@ tsi57x_em_handler(struct rio_dev *rdev, u8 portnum)
 	}
 
 exit_es:
-	
+	/* Clear implementation specific error status bits */
 	rio_read_config_32(rdev, TSI578_SP_INT_STATUS(portnum), &intstat);
 	pr_debug("TSI578[%x:%x] SP%d_INT_STATUS=0x%08x\n",
 		 rdev->destid, rdev->hopcount, portnum, intstat);
@@ -288,7 +304,7 @@ static int tsi57x_switch_init(struct rio_dev *rdev, int do_enum)
 	rdev->rswitch->em_handle = tsi57x_em_handler;
 
 	if (do_enum) {
-		
+		/* Ensure that default routing is disabled on startup */
 		rio_write_config_32(rdev, RIO_STD_RTE_DEFAULT_PORT,
 				    RIO_INVALID_ROUTE);
 	}

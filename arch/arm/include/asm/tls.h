@@ -60,4 +60,4 @@ static inline unsigned long get_tpuser(void)
 	return reg;
 }
 #endif
-#endif	
+#endif	/* __ASMARM_TLS_H */

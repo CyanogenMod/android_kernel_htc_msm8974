@@ -29,7 +29,7 @@
 #include <linux/fs.h>
 #include <asm/uaccess.h>
 #include <linux/kernel.h>
-#include <linux/string.h> 
+#include <linux/string.h> /* memset */
 #include <linux/capability.h>
 #include <linux/errno.h>
 #include <linux/pagemap.h>

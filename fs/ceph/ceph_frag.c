@@ -1,3 +1,6 @@
+/*
+ * Ceph 'frag' type
+ */
 #include <linux/module.h>
 #include <linux/ceph/types.h>
 

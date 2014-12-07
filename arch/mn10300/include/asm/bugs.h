@@ -17,4 +17,4 @@ static inline void __init check_bugs(void)
 {
 }
 
-#endif 
+#endif /* _ASM_BUGS_H */

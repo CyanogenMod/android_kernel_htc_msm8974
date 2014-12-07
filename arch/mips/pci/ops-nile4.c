@@ -23,10 +23,13 @@ static int nile4_pcibios_config_access(unsigned char access_type,
 	u32 adr, mask, err;
 
 	if ((busnum == 0) && (PCI_SLOT(devfn) > 8))
+		/* The addressing scheme chosen leaves room for just
+		 * 8 devices on the first busnum (besides the PCI
+		 * controller itself) */
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
 	if ((busnum == 0) && (devfn == PCI_DEVFN(0, 0))) {
-		
+		/* Access controller registers directly */
 		if (access_type == PCI_ACCESS_WRITE) {
 			vrc_pciregs[(0x200 + where) >> 2] = *val;
 		} else {
@@ -35,14 +38,16 @@ static int nile4_pcibios_config_access(unsigned char access_type,
 		return PCIBIOS_SUCCESSFUL;
 	}
 
-	
+	/* Temporarily map PCI Window 1 to config space */
 	mask = vrc_pciregs[LO(NILE4_PCIINIT1)];
 	vrc_pciregs[LO(NILE4_PCIINIT1)] = 0x0000001a | (busnum ? 0x200 : 0);
 
+	/* Clear PCI Error register. This also clears the Error Type
+	 * bits in the Control register */
 	vrc_pciregs[LO(NILE4_PCIERR)] = 0;
 	vrc_pciregs[HI(NILE4_PCIERR)] = 0;
 
-	
+	/* Setup address */
 	if (busnum == 0)
 		adr =
 		    KSEG1ADDR(PCI_WINDOW1) +
@@ -57,10 +62,10 @@ static int nile4_pcibios_config_access(unsigned char access_type,
 	else
 		*val = *(u32 *) adr;
 
-	
+	/* Check for master or target abort */
 	err = (vrc_pciregs[HI(NILE4_PCICTRL)] >> 5) & 0x7;
 
-	
+	/* Restore PCI Window 1 */
 	vrc_pciregs[LO(NILE4_PCIINIT1)] = mask;
 
 	if (err)

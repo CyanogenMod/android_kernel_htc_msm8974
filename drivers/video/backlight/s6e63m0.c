@@ -319,28 +319,28 @@ static const unsigned short SEQ_ETC_CONDITION_SET[] = {
 };
 
 static const unsigned short SEQ_ACL_ON[] = {
-	
+	/* ACL on */
 	0xc0, 0x01,
 
 	ENDDEF, 0x0000
 };
 
 static const unsigned short SEQ_ACL_OFF[] = {
-	
+	/* ACL off */
 	0xc0, 0x00,
 
 	ENDDEF, 0x0000
 };
 
 static const unsigned short SEQ_ELVSS_ON[] = {
-	
+	/* ELVSS on */
 	0xb1, 0x0b,
 
 	ENDDEF, 0x0000
 };
 
 static const unsigned short SEQ_ELVSS_OFF[] = {
-	
+	/* ELVSS off */
 	0xb1, 0x0a,
 
 	ENDDEF, 0x0000
@@ -419,7 +419,7 @@ static int _s6e63m0_gamma_ctl(struct s6e63m0 *lcd, const unsigned int *gamma)
 	unsigned int i = 0;
 	int ret = 0;
 
-	
+	/* disable gamma table updating. */
 	ret = s6e63m0_spi_write(lcd, 0xfa, 0x00);
 	if (ret) {
 		dev_err(lcd->dev, "failed to disable gamma table updating.\n");
@@ -434,7 +434,7 @@ static int _s6e63m0_gamma_ctl(struct s6e63m0 *lcd, const unsigned int *gamma)
 		}
 	}
 
-	
+	/* update gamma table. */
 	ret = s6e63m0_spi_write(lcd, 0xfa, 0x01);
 	if (ret)
 		dev_err(lcd->dev, "failed to update gamma table.\n");
@@ -546,7 +546,7 @@ static int s6e63m0_power_on(struct s6e63m0 *lcd)
 		return ret;
 	}
 
-	
+	/* set brightness to current value after power on or resume. */
 	ret = s6e63m0_gamma_ctl(lcd, bd->props.brightness);
 	if (ret) {
 		dev_err(lcd->dev, "lcd gamma setting failed.\n");
@@ -745,7 +745,7 @@ static int __devinit s6e63m0_probe(struct spi_device *spi)
 	if (!lcd)
 		return -ENOMEM;
 
-	
+	/* s6e63m0 lcd panel uses 3-wire 9bits SPI Mode. */
 	spi->bits_per_word = 9;
 
 	ret = spi_setup(spi);
@@ -785,6 +785,10 @@ static int __devinit s6e63m0_probe(struct spi_device *spi)
 	bd->props.brightness = MAX_BRIGHTNESS;
 	lcd->bd = bd;
 
+	/*
+	 * it gets gamma table count available so it gets user
+	 * know that.
+	 */
 	lcd->gamma_table_count =
 	    sizeof(gamma_table) / (MAX_GAMMA_LEVEL * sizeof(int));
 
@@ -796,7 +800,16 @@ static int __devinit s6e63m0_probe(struct spi_device *spi)
 	if (ret < 0)
 		dev_err(&(spi->dev), "failed to add sysfs entries\n");
 
+	/*
+	 * if lcd panel was on from bootloader like u-boot then
+	 * do not lcd on.
+	 */
 	if (!lcd->lcd_pd->lcd_enabled) {
+		/*
+		 * if lcd panel was off from bootloader then
+		 * current lcd status is powerdown and then
+		 * it enables lcd panel.
+		 */
 		lcd->power = FB_BLANK_POWERDOWN;
 
 		s6e63m0_power(lcd, FB_BLANK_UNBLANK);
@@ -842,6 +855,10 @@ static int s6e63m0_suspend(struct spi_device *spi, pm_message_t mesg)
 
 	before_power = lcd->power;
 
+	/*
+	 * when lcd panel is suspend, lcd panel becomes off
+	 * regardless of status.
+	 */
 	ret = s6e63m0_power(lcd, FB_BLANK_POWERDOWN);
 
 	return ret;
@@ -852,6 +869,11 @@ static int s6e63m0_resume(struct spi_device *spi)
 	int ret = 0;
 	struct s6e63m0 *lcd = dev_get_drvdata(&spi->dev);
 
+	/*
+	 * after suspended, if lcd panel status is FB_BLANK_UNBLANK
+	 * (at that time, before_power is FB_BLANK_UNBLANK) then
+	 * it changes that status to FB_BLANK_POWERDOWN to get lcd on.
+	 */
 	if (before_power == FB_BLANK_UNBLANK)
 		lcd->power = FB_BLANK_POWERDOWN;
 
@@ -866,6 +888,7 @@ static int s6e63m0_resume(struct spi_device *spi)
 #define s6e63m0_resume		NULL
 #endif
 
+/* Power down all displays on reboot, poweroff or halt. */
 static void s6e63m0_shutdown(struct spi_device *spi)
 {
 	struct s6e63m0 *lcd = dev_get_drvdata(&spi->dev);

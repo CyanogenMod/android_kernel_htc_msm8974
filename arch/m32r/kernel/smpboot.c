@@ -63,9 +63,14 @@
 
 extern cpumask_t cpu_initialized;
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Data structures and variables                                             */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/* Processor that is doing the boot up */
 static unsigned int bsp_phys_id = -1;
 
+/* Bitmask of physically existing CPUs */
 physid_mask_t phys_cpu_present_map;
 
 cpumask_t cpu_bootout_map;
@@ -74,6 +79,7 @@ static cpumask_t cpu_callin_map;
 cpumask_t cpu_callout_map;
 EXPORT_SYMBOL(cpu_callout_map);
 
+/* Per CPU bogomips and other parameters */
 struct cpuinfo_m32r cpu_data[NR_CPUS] __cacheline_aligned;
 
 static int cpucount;
@@ -84,9 +90,11 @@ extern struct {
 	unsigned short ss;
 } stack_start;
 
+/* which physical physical ID maps to which logical CPU number */
 static volatile int physid_2_cpu[NR_CPUS];
 #define physid_to_cpu(physid)	physid_2_cpu[physid]
 
+/* which logical CPU number maps to which physical ID */
 volatile int cpu_2_physid[NR_CPUS];
 
 DEFINE_PER_CPU(int, prof_multiplier) = 1;
@@ -97,6 +105,9 @@ spinlock_t ipi_lock[NR_IPIS];
 
 static unsigned int calibration_result;
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Function Prototypes                                                       */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
 void smp_prepare_boot_cpu(void);
 void smp_prepare_cpus(unsigned int);
@@ -117,19 +128,42 @@ static void init_cpu_to_physid(void);
 static void map_cpu_to_physid(int, int);
 static void unmap_cpu_to_physid(int, int);
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Boot up APs Routines : BSP                                                */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 void __devinit smp_prepare_boot_cpu(void)
 {
 	bsp_phys_id = hard_smp_processor_id();
 	physid_set(bsp_phys_id, phys_cpu_present_map);
-	set_cpu_online(0, true);	
+	set_cpu_online(0, true);	/* BSP's cpu_id == 0 */
 	cpumask_set_cpu(0, &cpu_callout_map);
 	cpumask_set_cpu(0, &cpu_callin_map);
 
+	/*
+	 * Initialize the logical to physical CPU number mapping
+	 */
 	init_cpu_to_physid();
 	map_cpu_to_physid(0, bsp_phys_id);
 	current_thread_info()->cpu = 0;
 }
 
+/*==========================================================================*
+ * Name:         smp_prepare_cpus (old smp_boot_cpus)
+ *
+ * Description:  This routine boot up APs.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ * 2003-06-24 hy  modify for linux-2.5.69
+ *
+ *==========================================================================*/
 void __init smp_prepare_cpus(unsigned int max_cpus)
 {
 	int phys_id;
@@ -151,16 +185,28 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 
 	init_ipi_lock();
 
-	smp_store_cpu_info(0); 
+	/*
+	 * Setup boot CPU information
+	 */
+	smp_store_cpu_info(0); /* Final full version of the data */
 
+	/*
+	 * If SMP should be disabled, then really disable it!
+	 */
 	if (!max_cpus) {
 		printk(KERN_INFO "SMP mode deactivated by commandline.\n");
 		goto smp_done;
 	}
 
+	/*
+	 * Now scan the CPU present map and fire up the other CPUs.
+	 */
 	Dprintk("CPU present map : %lx\n", physids_coerce(phys_cpu_present_map));
 
 	for (phys_id = 0 ; phys_id < NR_CPUS ; phys_id++) {
+		/*
+		 * Don't even attempt to start the boot CPU!
+		 */
 		if (phys_id == bsp_phys_id)
 			continue;
 
@@ -172,6 +218,9 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 
 		do_boot_cpu(phys_id);
 
+		/*
+		 * Make sure we unmap all failed CPUs
+		 */
 		if (physid_to_cpu(phys_id) == -1) {
 			physid_clear(phys_id, phys_cpu_present_map);
 			printk("phys CPU#%d not responding - " \
@@ -183,6 +232,9 @@ smp_done:
 	Dprintk("Boot done.\n");
 }
 
+/*
+ * init_ipi_lock : Initialize IPI locks.
+ */
 static void __init init_ipi_lock(void)
 {
 	int ipi;
@@ -191,6 +243,23 @@ static void __init init_ipi_lock(void)
 		spin_lock_init(&ipi_lock[ipi]);
 }
 
+/*==========================================================================*
+ * Name:         do_boot_cpu
+ *
+ * Description:  This routine boot up one AP.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    phys_id - Target CPU physical ID
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ * 2003-06-24 hy  modify for linux-2.5.69
+ *
+ *==========================================================================*/
 static void __init do_boot_cpu(int phys_id)
 {
 	struct task_struct *idle;
@@ -199,6 +268,10 @@ static void __init do_boot_cpu(int phys_id)
 
 	cpu_id = ++cpucount;
 
+	/*
+	 * We can't use kernel_thread since we must avoid to
+	 * reschedule the child.
+	 */
 	idle = fork_idle(cpu_id);
 	if (IS_ERR(idle))
 		panic("failed fork for CPU#%d.", cpu_id);
@@ -207,23 +280,29 @@ static void __init do_boot_cpu(int phys_id)
 
 	map_cpu_to_physid(cpu_id, phys_id);
 
-	
+	/* So we see what's up   */
 	printk("Booting processor %d/%d\n", phys_id, cpu_id);
 	stack_start.spi = (void *)idle->thread.sp;
 	task_thread_info(idle)->cpu = cpu_id;
 
+	/*
+	 * Send Startup IPI
+	 *   1.IPI received by CPU#(phys_id).
+	 *   2.CPU#(phys_id) enter startup_AP (arch/m32r/kernel/head.S)
+	 *   3.CPU#(phys_id) enter start_secondary()
+	 */
 	send_status = 0;
 	boot_status = 0;
 
 	cpumask_set_cpu(phys_id, &cpu_bootout_map);
 
-	
+	/* Send Startup IPI */
 	send_IPI_mask_phys(cpumask_of(phys_id), CPU_BOOT_IPI, 0);
 
 	Dprintk("Waiting for send to finish...\n");
 	timeout = 0;
 
-	
+	/* Wait 100[ms] */
 	do {
 		Dprintk("+");
 		udelay(1000);
@@ -233,18 +312,24 @@ static void __init do_boot_cpu(int phys_id)
 	Dprintk("After Startup.\n");
 
 	if (!send_status) {
+		/*
+		 * allow APs to start initializing.
+		 */
 		Dprintk("Before Callout %d.\n", cpu_id);
 		cpumask_set_cpu(cpu_id, &cpu_callout_map);
 		Dprintk("After Callout %d.\n", cpu_id);
 
+		/*
+		 * Wait 5s total for a response
+		 */
 		for (timeout = 0; timeout < 5000; timeout++) {
 			if (cpumask_test_cpu(cpu_id, &cpu_callin_map))
-				break;	
+				break;	/* It has booted */
 			udelay(1000);
 		}
 
 		if (cpumask_test_cpu(cpu_id, &cpu_callin_map)) {
-			
+			/* number CPUs logically, starting from 1 (BSP is 0) */
 			Dprintk("OK.\n");
 		} else {
 			boot_status = 1;
@@ -268,6 +353,9 @@ int __cpuinit __cpu_up(unsigned int cpu_id)
 
 	cpumask_set_cpu(cpu_id, &smp_commenced_mask);
 
+	/*
+	 * Wait 5s total for a response
+	 */
 	for (timeout = 0; timeout < 5000; timeout++) {
 		if (cpu_online(cpu_id))
 			break;
@@ -295,6 +383,9 @@ void __init smp_cpus_done(unsigned int max_cpus)
 	for (cpu_id = 0 ; cpu_id < num_online_cpus() ; cpu_id++)
 		show_cpu_info(cpu_id);
 
+	/*
+	 * Allow the user to impress friends.
+	 */
 	Dprintk("Before bogomips.\n");
 	if (cpucount) {
 		for_each_cpu(cpu_id,cpu_online_mask)
@@ -308,7 +399,27 @@ void __init smp_cpus_done(unsigned int max_cpus)
 	}
 }
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Activate a secondary processor Routines                                   */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 
+/*==========================================================================*
+ * Name:         start_secondary
+ *
+ * Description:  This routine activate a secondary processor.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    *unused - currently unused.
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ * 2003-06-24 hy  modify for linux-2.5.69
+ *
+ *==========================================================================*/
 int __init start_secondary(void *unused)
 {
 	cpu_init();
@@ -319,12 +430,33 @@ int __init start_secondary(void *unused)
 
 	smp_online();
 
+	/*
+	 * low-memory mappings have been cleared, flush them from
+	 * the local TLBs too.
+	 */
 	local_flush_tlb_all();
 
 	cpu_idle();
 	return 0;
 }
 
+/*==========================================================================*
+ * Name:         smp_callin
+ *
+ * Description:  This routine activate a secondary processor.
+ *
+ * Born on Date: 2002.02.05
+ *
+ * Arguments:    NONE
+ *
+ * Returns:      void (cannot fail)
+ *
+ * Modification log:
+ * Date       Who Description
+ * ---------- --- --------------------------------------------------------
+ * 2003-06-24 hy  modify for linux-2.5.69
+ *
+ *==========================================================================*/
 static void __init smp_callin(void)
 {
 	int phys_id = hard_smp_processor_id();
@@ -338,10 +470,10 @@ static void __init smp_callin(void)
 	}
 	Dprintk("CPU#%d (phys ID: %d) waiting for CALLOUT\n", cpu_id, phys_id);
 
-	
+	/* Waiting 2s total for startup (udelay is not yet working) */
 	timeout = jiffies + (2 * HZ);
 	while (time_before(jiffies, timeout)) {
-		
+		/* Has the boot CPU finished it's STARTUP sequence ? */
 		if (cpumask_test_cpu(cpu_id, &cpu_callout_map))
 			break;
 		cpu_relax();
@@ -353,7 +485,7 @@ static void __init smp_callin(void)
 		BUG();
 	}
 
-	
+	/* Allow the master to continue. */
 	cpumask_set_cpu(cpu_id, &cpu_callin_map);
 }
 
@@ -365,15 +497,18 @@ static void __init smp_online(void)
 
 	local_irq_enable();
 
-	
+	/* Get our bogomips. */
 	calibrate_delay();
 
-	
+	/* Save our processor parameters */
  	smp_store_cpu_info(cpu_id);
 
 	set_cpu_online(cpu_id, true);
 }
 
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
+/* Boot up CPUs common Routines                                              */
+/*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*/
 static void __init show_mp_info(int nr_cpu)
 {
 	int i;
@@ -408,6 +543,10 @@ static void __init show_mp_info(int nr_cpu)
 		cpu_model1, cpu_ver);
 }
 
+/*
+ * The bootstrap kernel entry code has set these up. Save them for
+ * a given CPU
+ */
 static void __init smp_store_cpu_info(int cpu_id)
 {
 	struct cpuinfo_m32r *ci = cpu_data + cpu_id;
@@ -431,19 +570,35 @@ static void __init show_cpu_info(int cpu_id)
 	printk(", loops_per_jiffy[%ld]\n", ci->loops_per_jiffy);
 }
 
+/*
+ * the frequency of the profiling timer can be changed
+ * by writing a multiplier value into /proc/profile.
+ */
 int setup_profiling_timer(unsigned int multiplier)
 {
 	int i;
 
+	/*
+	 * Sanity check. [at least 500 APIC cycles should be
+	 * between APIC interrupts as a rule of thumb, to avoid
+	 * irqs flooding us]
+	 */
 	if ( (!multiplier) || (calibration_result / multiplier < 500))
 		return -EINVAL;
 
+	/*
+	 * Set the new multiplier for each CPU. CPUs don't start using the
+	 * new values until the next timer interrupt in which they do process
+	 * accounting. At that time they also adjust their APIC timers
+	 * accordingly.
+	 */
 	for_each_possible_cpu(i)
 		per_cpu(prof_multiplier, i) = multiplier;
 
 	return 0;
 }
 
+/* Initialize all maps between cpu number and apicids */
 static void __init init_cpu_to_physid(void)
 {
 	int  i;
@@ -454,12 +609,20 @@ static void __init init_cpu_to_physid(void)
 	}
 }
 
+/*
+ * set up a mapping between cpu and apicid. Uses logical apicids for multiquad,
+ * else physical apic ids
+ */
 static void __init map_cpu_to_physid(int cpu_id, int phys_id)
 {
 	physid_2_cpu[phys_id] = cpu_id;
 	cpu_2_physid[cpu_id] = phys_id;
 }
 
+/*
+ * undo a mapping between cpu and apicid. Uses logical apicids for multiquad,
+ * else physical apic ids
+ */
 static void __init unmap_cpu_to_physid(int cpu_id, int phys_id)
 {
 	physid_2_cpu[phys_id] = -1;

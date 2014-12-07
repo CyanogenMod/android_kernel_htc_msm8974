@@ -9,6 +9,7 @@
 #define MAPLE_DMA_PAGES ((MAPLE_DMA_ORDER > PAGE_SHIFT) ? \
 			  MAPLE_DMA_ORDER - PAGE_SHIFT : 0)
 
+/* Maple Bus registers */
 #define MAPLE_BASE     0xa05f6c00
 #define MAPLE_DMAADDR  (MAPLE_BASE+0x04)
 #define MAPLE_TRIGTYPE (MAPLE_BASE+0x10)
@@ -21,6 +22,7 @@
 #define MAPLE_2MBPS    0
 #define MAPLE_TIMEOUT(n) ((n)<<15)
 
+/* Function codes */
 #define MAPLE_FUNC_CONTROLLER 0x001
 #define MAPLE_FUNC_MEMCARD    0x002
 #define MAPLE_FUNC_LCD        0x004
@@ -32,4 +34,4 @@
 #define MAPLE_FUNC_PURUPURU   0x100
 #define MAPLE_FUNC_MOUSE      0x200
 
-#endif 
+#endif /* __ASM_MAPLE_H */

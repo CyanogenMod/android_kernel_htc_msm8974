@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * DLKM to register a callback with a ftrace event
+ */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>

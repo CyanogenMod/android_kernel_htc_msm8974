@@ -3,4 +3,4 @@
 
 #include <asm-generic/sockios.h>
 
-#endif 
+#endif /* _ASM_SCORE_SOCKIOS_H */

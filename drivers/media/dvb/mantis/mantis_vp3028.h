@@ -30,4 +30,4 @@
 extern struct zl10353_config mantis_vp3028_config;
 extern struct mantis_hwconfig vp3028_mantis_config;
 
-#endif 
+#endif /* __MANTIS_VP3028_H */

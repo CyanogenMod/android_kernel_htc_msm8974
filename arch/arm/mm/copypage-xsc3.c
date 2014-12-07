@@ -13,7 +13,22 @@
 #include <linux/init.h>
 #include <linux/highmem.h>
 
+/*
+ * General note:
+ *  We don't really want write-allocate cache behaviour for these functions
+ *  since that will just eat through 8K of the cache.
+ */
 
+/*
+ * XSC3 optimised copy_user_highpage
+ *  r0 = destination
+ *  r1 = source
+ *
+ * The source page may have some clean entries in the cache already, but we
+ * can safely ignore them - break_cow() will flush them out of the cache
+ * if we eventually end up using our copied page.
+ *
+ */
 static void __naked
 xsc3_mc_copy_user_page(void *kto, const void *kfrom)
 {
@@ -68,6 +83,11 @@ void xsc3_mc_copy_user_highpage(struct page *to, struct page *from,
 	kunmap_atomic(kto);
 }
 
+/*
+ * XScale optimised clear_user_page
+ *  r0 = destination
+ *  r1 = virtual user address of ultimate destination page
+ */
 void xsc3_mc_clear_user_highpage(struct page *page, unsigned long vaddr)
 {
 	void *ptr, *kaddr = kmap_atomic(page);

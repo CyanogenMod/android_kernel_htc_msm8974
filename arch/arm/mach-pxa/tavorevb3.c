@@ -30,11 +30,11 @@
 #define TAVOREVB3_NR_IRQS	(IRQ_BOARD_START + 24)
 
 static mfp_cfg_t evb3_mfp_cfg[] __initdata = {
-	
+	/* UART */
 	GPIO53_UART1_TXD,
 	GPIO54_UART1_RXD,
 
-	
+	/* PMIC */
 	PMIC_INT_GPIO83,
 };
 
@@ -116,7 +116,7 @@ static inline void evb3_init_i2c(void) {}
 
 static void __init evb3_init(void)
 {
-	
+	/* initialize MFP configurations */
 	pxa3xx_mfp_config(ARRAY_AND_SIZE(evb3_mfp_cfg));
 
 	pxa_set_ffuart_info(NULL);

@@ -24,7 +24,7 @@
 #include <asm/heartbeat.h>
 
 static struct resource heartbeat_resource = {
-	.start	= 0xffec005c,	
+	.start	= 0xffec005c,	/* PUDR */
 	.end	= 0xffec005c,
 	.flags	= IORESOURCE_MEM | IORESOURCE_MEM_8BIT,
 };
@@ -47,6 +47,7 @@ static struct platform_device heartbeat_device = {
 	.resource	= &heartbeat_resource,
 };
 
+/* Fast Ethernet */
 #define GBECONT		0xffc10100
 #define GBECONT_RMII1	BIT(17)
 #define GBECONT_RMII0	BIT(16)
@@ -133,7 +134,7 @@ static struct resource sh_eth_giga0_resources[] = {
 		.end    = 0xfee007ff,
 		.flags  = IORESOURCE_MEM,
 	}, {
-		
+		/* TSU */
 		.start  = 0xfee01800,
 		.end    = 0xfee01fff,
 		.flags  = IORESOURCE_MEM,
@@ -168,7 +169,7 @@ static struct resource sh_eth_giga1_resources[] = {
 		.end    = 0xfee00fff,
 		.flags  = IORESOURCE_MEM,
 	}, {
-		
+		/* TSU */
 		.start  = 0xfee01800,
 		.end    = 0xfee01fff,
 		.flags  = IORESOURCE_MEM,
@@ -197,6 +198,7 @@ static struct platform_device sh7757_eth_giga1_device = {
 	},
 };
 
+/* SH_MMCIF */
 static struct resource sh_mmcif_resources[] = {
 	[0] = {
 		.start	= 0xffcb0000,
@@ -232,6 +234,7 @@ static struct platform_device sh_mmcif_device = {
 	.resource	= sh_mmcif_resources,
 };
 
+/* SDHI0 */
 static struct sh_mobile_sdhi_info sdhi_info = {
 	.dma_slave_tx	= SHDMA_SLAVE_SDHI_TX,
 	.dma_slave_rx	= SHDMA_SLAVE_SDHI_RX,
@@ -325,13 +328,13 @@ static struct spi_board_info spi_board_info[] = {
 
 static int __init sh7757lcr_devices_setup(void)
 {
-	
+	/* RGMII (PTA) */
 	gpio_request(GPIO_FN_ET0_MDC, NULL);
 	gpio_request(GPIO_FN_ET0_MDIO, NULL);
 	gpio_request(GPIO_FN_ET1_MDC, NULL);
 	gpio_request(GPIO_FN_ET1_MDIO, NULL);
 
-	
+	/* ONFI (PTB, PTZ) */
 	gpio_request(GPIO_FN_ON_NRE, NULL);
 	gpio_request(GPIO_FN_ON_NWE, NULL);
 	gpio_request(GPIO_FN_ON_NWP, NULL);
@@ -349,7 +352,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_ON_DQ1, NULL);
 	gpio_request(GPIO_FN_ON_DQ0, NULL);
 
-	
+	/* IRQ8 to 0 (PTB, PTC) */
 	gpio_request(GPIO_FN_IRQ8, NULL);
 	gpio_request(GPIO_FN_IRQ7, NULL);
 	gpio_request(GPIO_FN_IRQ6, NULL);
@@ -360,7 +363,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_IRQ1, NULL);
 	gpio_request(GPIO_FN_IRQ0, NULL);
 
-	
+	/* SPI0 (PTD) */
 	gpio_request(GPIO_FN_SP0_MOSI, NULL);
 	gpio_request(GPIO_FN_SP0_MISO, NULL);
 	gpio_request(GPIO_FN_SP0_SCK, NULL);
@@ -370,7 +373,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_SP0_SS2, NULL);
 	gpio_request(GPIO_FN_SP0_SS3, NULL);
 
-	
+	/* RMII 0/1 (PTE, PTF) */
 	gpio_request(GPIO_FN_RMII0_CRS_DV, NULL);
 	gpio_request(GPIO_FN_RMII0_TXD1, NULL);
 	gpio_request(GPIO_FN_RMII0_TXD0, NULL);
@@ -388,7 +391,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_RMII1_RXD0, NULL);
 	gpio_request(GPIO_FN_RMII1_RX_ER, NULL);
 
-	
+	/* eMMC (PTG) */
 	gpio_request(GPIO_FN_MMCCLK, NULL);
 	gpio_request(GPIO_FN_MMCCMD, NULL);
 	gpio_request(GPIO_FN_MMCDAT7, NULL);
@@ -400,7 +403,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_MMCDAT1, NULL);
 	gpio_request(GPIO_FN_MMCDAT0, NULL);
 
-	
+	/* LPC (PTG, PTH, PTQ, PTU) */
 	gpio_request(GPIO_FN_SERIRQ, NULL);
 	gpio_request(GPIO_FN_LPCPD, NULL);
 	gpio_request(GPIO_FN_LDRQ, NULL);
@@ -418,7 +421,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_LGPIO5, NULL);
 	gpio_request(GPIO_FN_LGPIO4, NULL);
 
-	
+	/* SPI1 (PTH) */
 	gpio_request(GPIO_FN_SP1_MOSI, NULL);
 	gpio_request(GPIO_FN_SP1_MISO, NULL);
 	gpio_request(GPIO_FN_SP1_SCK, NULL);
@@ -426,7 +429,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_SP1_SS0, NULL);
 	gpio_request(GPIO_FN_SP1_SS1, NULL);
 
-	
+	/* SDHI (PTI) */
 	gpio_request(GPIO_FN_SD_WP, NULL);
 	gpio_request(GPIO_FN_SD_CD, NULL);
 	gpio_request(GPIO_FN_SD_CLK, NULL);
@@ -436,7 +439,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_SD_D1, NULL);
 	gpio_request(GPIO_FN_SD_D0, NULL);
 
-	
+	/* SCIF3/4 (PTJ, PTW) */
 	gpio_request(GPIO_FN_RTS3, NULL);
 	gpio_request(GPIO_FN_CTS3, NULL);
 	gpio_request(GPIO_FN_TXD3, NULL);
@@ -446,7 +449,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_TXD4, NULL);
 	gpio_request(GPIO_FN_CTS4, NULL);
 
-	
+	/* SERMUX (PTK, PTL, PTO, PTV) */
 	gpio_request(GPIO_FN_COM2_TXD, NULL);
 	gpio_request(GPIO_FN_COM2_RXD, NULL);
 	gpio_request(GPIO_FN_COM2_RTS, NULL);
@@ -467,9 +470,9 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_COM1_RTS, NULL);
 	gpio_request(GPIO_FN_COM1_CTS, NULL);
 
-	writeb(0x10, 0xfe470000);	
+	writeb(0x10, 0xfe470000);	/* SMR0: SerMux mode 0 */
 
-	
+	/* IIC (PTM, PTR, PTS) */
 	gpio_request(GPIO_FN_SDA7, NULL);
 	gpio_request(GPIO_FN_SCL7, NULL);
 	gpio_request(GPIO_FN_SDA6, NULL);
@@ -487,11 +490,11 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_SDA0, NULL);
 	gpio_request(GPIO_FN_SCL0, NULL);
 
-	
+	/* USB (PTN) */
 	gpio_request(GPIO_FN_VBUS_EN, NULL);
 	gpio_request(GPIO_FN_VBUS_OC, NULL);
 
-	
+	/* SGPIO1/0 (PTN, PTO) */
 	gpio_request(GPIO_FN_SGPIO1_CLK, NULL);
 	gpio_request(GPIO_FN_SGPIO1_LOAD, NULL);
 	gpio_request(GPIO_FN_SGPIO1_DI, NULL);
@@ -501,25 +504,25 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_SGPIO0_DI, NULL);
 	gpio_request(GPIO_FN_SGPIO0_DO, NULL);
 
-	
+	/* WDT (PTN) */
 	gpio_request(GPIO_FN_SUB_CLKIN, NULL);
 
-	
+	/* System (PTT) */
 	gpio_request(GPIO_FN_STATUS1, NULL);
 	gpio_request(GPIO_FN_STATUS0, NULL);
 
-	
+	/* PWMX (PTT) */
 	gpio_request(GPIO_FN_PWMX1, NULL);
 	gpio_request(GPIO_FN_PWMX0, NULL);
 
-	
+	/* R-SPI (PTV) */
 	gpio_request(GPIO_FN_R_SPI_MOSI, NULL);
 	gpio_request(GPIO_FN_R_SPI_MISO, NULL);
 	gpio_request(GPIO_FN_R_SPI_RSPCK, NULL);
 	gpio_request(GPIO_FN_R_SPI_SSL0, NULL);
 	gpio_request(GPIO_FN_R_SPI_SSL1, NULL);
 
-	
+	/* EVC (PTV, PTW) */
 	gpio_request(GPIO_FN_EVENT7, NULL);
 	gpio_request(GPIO_FN_EVENT6, NULL);
 	gpio_request(GPIO_FN_EVENT5, NULL);
@@ -529,7 +532,7 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_FN_EVENT1, NULL);
 	gpio_request(GPIO_FN_EVENT0, NULL);
 
-	
+	/* LED for heartbeat */
 	gpio_request(GPIO_PTU3, NULL);
 	gpio_direction_output(GPIO_PTU3, 1);
 	gpio_request(GPIO_PTU2, NULL);
@@ -539,34 +542,36 @@ static int __init sh7757lcr_devices_setup(void)
 	gpio_request(GPIO_PTU0, NULL);
 	gpio_direction_output(GPIO_PTU0, 1);
 
-	
+	/* control for MDIO of Gigabit Ethernet */
 	gpio_request(GPIO_PTT4, NULL);
 	gpio_direction_output(GPIO_PTT4, 1);
 
-	
-	gpio_request(GPIO_PTT7, NULL);		
+	/* control for eMMC */
+	gpio_request(GPIO_PTT7, NULL);		/* eMMC_RST# */
 	gpio_direction_output(GPIO_PTT7, 0);
-	gpio_request(GPIO_PTT6, NULL);		
+	gpio_request(GPIO_PTT6, NULL);		/* eMMC_INDEX# */
 	gpio_direction_output(GPIO_PTT6, 0);
-	gpio_request(GPIO_PTT5, NULL);		
+	gpio_request(GPIO_PTT5, NULL);		/* eMMC_PRST# */
 	gpio_direction_output(GPIO_PTT5, 1);
 
-	
+	/* register SPI device information */
 	spi_register_board_info(spi_board_info,
 				ARRAY_SIZE(spi_board_info));
 
-	
+	/* General platform */
 	return platform_add_devices(sh7757lcr_devices,
 				    ARRAY_SIZE(sh7757lcr_devices));
 }
 arch_initcall(sh7757lcr_devices_setup);
 
+/* Initialize IRQ setting */
 void __init init_sh7757lcr_IRQ(void)
 {
 	plat_irq_setup_pins(IRQ_MODE_IRQ7654);
 	plat_irq_setup_pins(IRQ_MODE_IRQ3210);
 }
 
+/* Initialize the board */
 static void __init sh7757lcr_setup(char **cmdline_p)
 {
 	printk(KERN_INFO "Renesas R0P7757LC0012RL support.\n");
@@ -576,11 +581,16 @@ static int sh7757lcr_mode_pins(void)
 {
 	int value = 0;
 
-	value |= MODE_PIN0;	
+	/* These are the factory default settings of S3 (Low active).
+	 * If you change these dip switches then you will need to
+	 * adjust the values below as well.
+	 */
+	value |= MODE_PIN0;	/* Clock Mode: 1 */
 
 	return value;
 }
 
+/* The Machine Vector */
 static struct sh_machine_vector mv_sh7757lcr __initmv = {
 	.mv_name		= "SH7757LCR",
 	.mv_setup		= sh7757lcr_setup,

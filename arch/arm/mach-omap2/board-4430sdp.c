@@ -55,10 +55,10 @@
 #define ETH_KS8851_QUART		138
 #define OMAP4_SFH7741_SENSOR_OUTPUT_GPIO	184
 #define OMAP4_SFH7741_ENABLE_GPIO		188
-#define HDMI_GPIO_CT_CP_HPD 60 
-#define HDMI_GPIO_LS_OE 41 
-#define HDMI_GPIO_HPD  63 
-#define DISPLAY_SEL_GPIO	59	
+#define HDMI_GPIO_CT_CP_HPD 60 /* HPD mode enable/disable */
+#define HDMI_GPIO_LS_OE 41 /* Level shifter for HDMI */
+#define HDMI_GPIO_HPD  63 /* Hotplug detect */
+#define DISPLAY_SEL_GPIO	59	/* LCD2/PicoDLP switch */
 #define DLP_POWER_ON_GPIO	40
 
 #define GPIO_WIFI_PMENA		54
@@ -325,6 +325,10 @@ static struct spi_board_info sdp4430_spi_board_info[] __initdata = {
 		.bus_num                = 1,
 		.chip_select            = 0,
 		.max_speed_hz           = 24000000,
+		/*
+		 * .irq is set to gpio_to_irq(ETH_KS8851_IRQ)
+		 * in omap_4430sdp_init
+		 */
 	},
 };
 
@@ -338,7 +342,7 @@ static int __init omap_ethernet_init(void)
 {
 	int status;
 
-	
+	/* Request of GPIO lines */
 	status = gpio_request_array(sdp4430_eth_gpios,
 				    ARRAY_SIZE(sdp4430_eth_gpios));
 	if (status)
@@ -395,7 +399,7 @@ static struct omap_abe_twl6040_data sdp4430_abe_audio_data = {
 	.has_afm	= ABE_TWL6040_LEFT | ABE_TWL6040_RIGHT,
 
 	.jack_detection = 1,
-	
+	/* MCLK input is 38.4MHz */
 	.mclk_freq	= 38400000,
 };
 
@@ -447,7 +451,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.ocr_mask	= MMC_VDD_165_195,
 		.nonremovable	= true,
 	},
-	{}	
+	{}	/* Terminator */
 };
 
 static struct regulator_consumer_supply sdp4430_vaux_supply[] = {
@@ -469,9 +473,9 @@ static struct regulator_init_data sdp4430_vmmc5 = {
 
 static struct fixed_voltage_config sdp4430_vwlan = {
 	.supply_name		= "vwl1271",
-	.microvolts		= 1800000, 
+	.microvolts		= 1800000, /* 1.8V */
 	.gpio			= GPIO_WIFI_PMENA,
-	.startup_delay		= 70000, 
+	.startup_delay		= 70000, /* 70msec */
 	.enable_high		= 1,
 	.enabled_at_boot	= 0,
 	.init_data		= &sdp4430_vmmc5,
@@ -492,7 +496,7 @@ static int omap4_twl6030_hsmmc_late_init(struct device *dev)
 				struct platform_device, dev);
 	struct omap_mmc_platform_data *pdata = dev->platform_data;
 
-	
+	/* Setting MMC1 Card detect Irq */
 	if (pdev->id == 0) {
 		irq = twl6030_mmc_card_detect_config();
 		if (irq < 0) {
@@ -509,7 +513,7 @@ static __init void omap4_twl6030_hsmmc_set_late_init(struct device *dev)
 {
 	struct omap_mmc_platform_data *pdata;
 
-	
+	/* dev can be null if CONFIG_MMC_OMAP_HS is not set */
 	if (!dev) {
 		pr_err("Failed %s\n", __func__);
 		return;
@@ -558,7 +562,7 @@ static struct regulator_init_data sdp4430_vusim = {
 };
 
 static struct twl6040_codec_data twl6040_codec = {
-	
+	/* single-step ramp for headset and handsfree */
 	.hs_left_step	= 0x0f,
 	.hs_right_step	= 0x0f,
 	.hf_left_step	= 0x1d,
@@ -570,8 +574,8 @@ static struct twl6040_vibra_data twl6040_vibra = {
 	.vibrdrv_res = 3,
 	.viblmotor_res = 10,
 	.vibrmotor_res = 10,
-	.vddvibl_uV = 0,	
-	.vddvibr_uV = 0,	
+	.vddvibl_uV = 0,	/* fixed volt supply - VBAT */
+	.vddvibr_uV = 0,	/* fixed volt supply - VBAT */
 };
 
 static struct twl6040_platform_data twl6040_data = {
@@ -582,7 +586,7 @@ static struct twl6040_platform_data twl6040_data = {
 };
 
 static struct twl4030_platform_data sdp4430_twldata = {
-	
+	/* Regulators */
 	.vusim		= &sdp4430_vusim,
 	.vaux1		= &sdp4430_vaux1,
 };
@@ -683,9 +687,9 @@ static struct omap_dss_device sdp4430_lcd_device = {
 	.clocks = {
 		.dispc = {
 			.channel = {
-				
+				/* Logic Clock = 172.8 MHz */
 				.lck_div	= 1,
-				
+				/* Pixel Clock = 34.56 MHz */
 				.pck_div	= 5,
 				.lcd_clk_src	= OMAP_DSS_CLK_SRC_DSI_PLL_HSDIV_DISPC,
 			},
@@ -693,12 +697,12 @@ static struct omap_dss_device sdp4430_lcd_device = {
 		},
 
 		.dsi = {
-			.regn		= 16,	
-			.regm		= 180,	
-			.regm_dispc	= 5,	
-			.regm_dsi	= 5,	
+			.regn		= 16,	/* Fint = 2.4 MHz */
+			.regm		= 180,	/* DDR Clock = 216 MHz */
+			.regm_dispc	= 5,	/* PLL1_CLK1 = 172.8 MHz */
+			.regm_dsi	= 5,	/* PLL1_CLK2 = 172.8 MHz */
 
-			.lp_clk_div	= 10,	
+			.lp_clk_div	= 10,	/* LP Clock = 8.64 MHz */
 			.dsi_fclk_src	= OMAP_DSS_CLK_SRC_DSI_PLL_HSDIV_DSI,
 		},
 	},
@@ -732,9 +736,9 @@ static struct omap_dss_device sdp4430_lcd2_device = {
 	.clocks = {
 		.dispc = {
 			.channel = {
-				
+				/* Logic Clock = 172.8 MHz */
 				.lck_div	= 1,
-				
+				/* Pixel Clock = 34.56 MHz */
 				.pck_div	= 5,
 				.lcd_clk_src	= OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,
 			},
@@ -742,12 +746,12 @@ static struct omap_dss_device sdp4430_lcd2_device = {
 		},
 
 		.dsi = {
-			.regn		= 16,	
-			.regm		= 180,	
-			.regm_dispc	= 5,	
-			.regm_dsi	= 5,	
+			.regn		= 16,	/* Fint = 2.4 MHz */
+			.regm		= 180,	/* DDR Clock = 216 MHz */
+			.regm_dispc	= 5,	/* PLL1_CLK1 = 172.8 MHz */
+			.regm_dsi	= 5,	/* PLL1_CLK2 = 172.8 MHz */
 
-			.lp_clk_div	= 10,	
+			.lp_clk_div	= 10,	/* LP Clock = 8.64 MHz */
 			.dsi_fclk_src	= OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DSI,
 		},
 	},
@@ -848,7 +852,7 @@ static void __init omap_4430sdp_display_init(void)
 {
 	int r;
 
-	
+	/* Enable LCD2 by default (instead of Pico DLP) */
 	r = gpio_request_one(DISPLAY_SEL_GPIO, GPIOF_OUT_INIT_HIGH,
 			"display_sel");
 	if (r)
@@ -857,6 +861,10 @@ static void __init omap_4430sdp_display_init(void)
 	sdp4430_lcd_init();
 	sdp4430_picodlp_init();
 	omap_display_init(&sdp4430_dss_data);
+	/*
+	 * OMAP4460SDP/Blaze and OMAP4430 ES2.3 SDP/Blaze boards and
+	 * later have external pull up on the HDMI I2C lines
+	 */
 	if (cpu_is_omap446x() || omap_rev() > OMAP4430_REV_ES2_2)
 		omap_hdmi_init(OMAP_HDMI_SDA_SCL_EXTERNAL_PULLUP);
 	else
@@ -953,7 +961,7 @@ static void __init omap_4430sdp_init(void)
 }
 
 MACHINE_START(OMAP_4430SDP, "OMAP4430 4430SDP board")
-	
+	/* Maintainer: Santosh Shilimkar - Texas Instruments Inc */
 	.atag_offset	= 0x100,
 	.reserve	= omap_reserve,
 	.map_io		= omap4_map_io,

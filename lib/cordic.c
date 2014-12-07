@@ -46,6 +46,12 @@ static const s32 arctan_table[] = {
 	29
 };
 
+/*
+ * cordic_calc_iq() - calculates the i/q coordinate for given angle
+ *
+ * theta: angle in degrees for which i/q coordinate is to be calculated
+ * coord: function output parameter holding the i/q coordinate
+ */
 struct cordic_iq cordic_calc_iq(s32 theta)
 {
 	struct cordic_iq coord;

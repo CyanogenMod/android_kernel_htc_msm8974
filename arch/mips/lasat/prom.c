@@ -1,3 +1,6 @@
+/*
+ * PROM interface routines.
+ */
 #include <linux/types.h>
 #include <linux/init.h>
 #include <linux/string.h>
@@ -32,6 +35,7 @@ static void null_prom_putc(char c)
 {
 }
 
+/* these are functions provided by the bootloader */
 static void (*__prom_putc)(char c) = null_prom_putc;
 
 void prom_putchar(char c)
@@ -92,20 +96,20 @@ void __init prom_init(void)
 		at93c = &at93c_defs[0];
 	}
 
-	lasat_init_board_info();		
+	lasat_init_board_info();		/* Read info from EEPROM */
 
-	
+	/* Get the command line */
 	if (argc > 0) {
 		strncpy(arcs_cmdline, argv[0], COMMAND_LINE_SIZE-1);
 		arcs_cmdline[COMMAND_LINE_SIZE-1] = '\0';
 	}
 
-	
+	/* Set the I/O base address */
 	set_io_port_base(KSEG1);
 
-	
+	/* Set memory regions */
 	ioport_resource.start = 0;
-	ioport_resource.end = 0xffffffff;	
+	ioport_resource.end = 0xffffffff;	/* Wrong, fixme.  */
 
 	add_memory_region(0, lasat_board_info.li_memsize, BOOT_MEM_RAM);
 }

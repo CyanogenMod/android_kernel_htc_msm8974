@@ -29,6 +29,12 @@
 
 #include "platform.h"
 
+/**
+ * enum lpar_vas_id - id of LPAR virtual address space.
+ * @lpar_vas_id_current: Current selected virtual address space
+ *
+ * Identify the target LPAR address space.
+ */
 
 enum ps3_lpar_vas_id {
 	PS3_LPAR_VAS_ID_CURRENT = 0,
@@ -49,6 +55,10 @@ static long ps3_hpte_insert(unsigned long hpte_group, unsigned long va,
 	unsigned long flags;
 	long ret = -1;
 
+	/*
+	 * lv1_insert_htab_entry() will search for victim
+	 * entry in both primary and secondary pte group
+	 */
 	vflags &= ~HPTE_V_SECONDARY;
 
 	hpte_v = hpte_encode_v(va, psize, ssize) | vflags | HPTE_V_VALID;
@@ -56,7 +66,7 @@ static long ps3_hpte_insert(unsigned long hpte_group, unsigned long va,
 
 	spin_lock_irqsave(&ps3_htab_lock, flags);
 
-	
+	/* talk hvc to replace entries BOLTED == 0 */
 	result = lv1_insert_htab_entry(PS3_LPAR_VAS_ID_CURRENT, hpte_group,
 				       hpte_v, hpte_r,
 				       HPTE_V_BOLTED, 0,
@@ -64,12 +74,15 @@ static long ps3_hpte_insert(unsigned long hpte_group, unsigned long va,
 				       &evicted_v, &evicted_r);
 
 	if (result) {
-		
+		/* all entries bolted !*/
 		pr_info("%s:result=%d va=%lx pa=%lx ix=%lx v=%llx r=%llx\n",
 			__func__, result, va, pa, hpte_group, hpte_v, hpte_r);
 		BUG();
 	}
 
+	/*
+	 * see if the entry is inserted into secondary pteg
+	 */
 	result = lv1_read_htab_entries(PS3_LPAR_VAS_ID_CURRENT,
 				       inserted_index & ~0x3UL,
 				       &hpte_v_array[0], &hpte_v_array[1],
@@ -119,11 +132,18 @@ static long ps3_hpte_updatepp(unsigned long slot, unsigned long newpp,
 
 	hpte_v = hpte_v_array[slot % 4];
 
+	/*
+	 * As lv1_read_htab_entries() does not give us the RPN, we can
+	 * not synthesize the new hpte_r value here, and therefore can
+	 * not update the hpte with lv1_insert_htab_entry(), so we
+	 * instead invalidate it and ask the caller to update it via
+	 * ps3_hpte_insert() by returning a -1 value.
+	 */
 	if (!HPTE_V_COMPARE(hpte_v, want_v) || !(hpte_v & HPTE_V_VALID)) {
-		
+		/* not found */
 		ret = -1;
 	} else {
-		
+		/* entry found, just invalidate it */
 		result = lv1_write_htab_entry(PS3_LPAR_VAS_ID_CURRENT,
 					      slot, 0, 0);
 		ret = -1;

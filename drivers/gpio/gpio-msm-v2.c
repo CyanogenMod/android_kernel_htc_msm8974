@@ -22,19 +22,27 @@
 #include <mach/gpiomux.h>
 #include "gpio-msm-common.h"
 
+/* Bits of interest in the GPIO_IN_OUT register.
+ */
 enum {
 	GPIO_IN_BIT  = 0,
 	GPIO_OUT_BIT = 1
 };
 
+/* Bits of interest in the GPIO_INTR_STATUS register.
+ */
 enum {
 	INTR_STATUS_BIT = 0,
 };
 
+/* Bits of interest in the GPIO_CFG register.
+ */
 enum {
 	GPIO_OE_BIT = 9,
 };
 
+/* Bits of interest in the GPIO_INTR_CFG register.
+ */
 enum {
 	INTR_ENABLE_BIT        = 0,
 	INTR_POL_CTL_BIT       = 1,
@@ -42,16 +50,35 @@ enum {
 	INTR_RAW_STATUS_EN_BIT = 3,
 };
 
+/* Codes of interest in GPIO_INTR_CFG_SU.
+ */
 enum {
 	TARGET_PROC_SCORPION = 4,
 	TARGET_PROC_NONE     = 7,
 };
 
+/*
+ * There is no 'DC_POLARITY_LO' because the GIC is incapable
+ * of asserting on falling edge or level-low conditions.  Even though
+ * the registers allow for low-polarity inputs, the case can never arise.
+ */
 enum {
 	DC_POLARITY_HI	= BIT(11),
 	DC_IRQ_ENABLE	= BIT(3),
 };
 
+/*
+ * When a GPIO triggers, two separate decisions are made, controlled
+ * by two separate flags.
+ *
+ * - First, INTR_RAW_STATUS_EN controls whether or not the GPIO_INTR_STATUS
+ * register for that GPIO will be updated to reflect the triggering of that
+ * gpio.  If this bit is 0, this register will not be updated.
+ * - Second, INTR_ENABLE controls whether an interrupt is triggered.
+ *
+ * If INTR_ENABLE is set and INTR_RAW_STATUS_EN is NOT set, an interrupt
+ * can be triggered but the status register will not reflect it.
+ */
 #define INTR_RAW_STATUS_EN BIT(INTR_RAW_STATUS_EN_BIT)
 #define INTR_ENABLE        BIT(INTR_ENABLE_BIT)
 #define INTR_DECT_CTL_EDGE BIT(INTR_DECT_CTL_BIT)
@@ -137,6 +164,10 @@ void __msm_gpio_set_intr_cfg_type(unsigned gpio, unsigned type)
 {
 	unsigned cfg;
 
+	/* RAW_STATUS_EN is left on for all gpio irqs. Due to the
+	 * internal circuitry of TLMM, toggling the RAW_STATUS
+	 * could cause the INTR_STATUS to be set for EDGE interrupts.
+	 */
 	cfg  = __msm_gpio_get_intr_config(gpio);
 	cfg |= INTR_RAW_STATUS_EN;
 	__raw_writel(cfg, GPIO_INTR_CFG(gpio));
@@ -154,6 +185,11 @@ void __msm_gpio_set_intr_cfg_type(unsigned gpio, unsigned type)
 		cfg &= ~INTR_POL_CTL_HI;
 
 	__raw_writel(cfg, GPIO_INTR_CFG(gpio));
+	/* Sometimes it might take a little while to update
+	 * the interrupt status after the RAW_STATUS is enabled
+	 * We clear the interrupt status before enabling the
+	 * interrupt in the unmask call-back.
+	 */
 	udelay(5);
 }
 

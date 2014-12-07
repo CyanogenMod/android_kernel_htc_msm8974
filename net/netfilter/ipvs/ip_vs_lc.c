@@ -22,6 +22,9 @@
 
 #include <net/ip_vs.h>
 
+/*
+ *	Least Connection scheduling
+ */
 static struct ip_vs_dest *
 ip_vs_lc_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 {
@@ -30,6 +33,14 @@ ip_vs_lc_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 
 	IP_VS_DBG(6, "%s(): Scheduling...\n", __func__);
 
+	/*
+	 * Simply select the server with the least number of
+	 *        (activeconns<<5) + inactconns
+	 * Except whose weight is equal to zero.
+	 * If the weight is equal to zero, it means that the server is
+	 * quiesced, the existing connections to the server still get
+	 * served, but no new connection is assigned to the server.
+	 */
 
 	list_for_each_entry(dest, &svc->destinations, n_list) {
 		if ((dest->flags & IP_VS_DEST_F_OVERLOAD) ||

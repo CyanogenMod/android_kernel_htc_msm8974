@@ -72,6 +72,24 @@ struct iwl_notif_wait_data {
 	wait_queue_head_t notif_waitq;
 };
 
+/**
+ * struct iwl_notification_wait - notification wait entry
+ * @list: list head for global list
+ * @fn: function called with the notification
+ * @cmd: command ID
+ *
+ * This structure is not used directly, to wait for a
+ * notification declare it on the stack, and call
+ * iwlagn_init_notification_wait() with appropriate
+ * parameters. Then do whatever will cause the ucode
+ * to notify the driver, and to wait for that then
+ * call iwlagn_wait_notification().
+ *
+ * Each notification is one-shot. If at some point we
+ * need to support multi-shot notifications (which
+ * can't be allocated on the stack) we need to modify
+ * the code for them.
+ */
 struct iwl_notification_wait {
 	struct list_head list;
 
@@ -84,11 +102,13 @@ struct iwl_notification_wait {
 };
 
 
+/* caller functions */
 void iwl_notification_wait_init(struct iwl_notif_wait_data *notif_data);
 void iwl_notification_wait_notify(struct iwl_notif_wait_data *notif_data,
 				  struct iwl_rx_packet *pkt);
 void iwl_abort_notification_waits(struct iwl_notif_wait_data *notif_data);
 
+/* user functions */
 void __acquires(wait_entry)
 iwl_init_notification_wait(struct iwl_notif_wait_data *notif_data,
 			   struct iwl_notification_wait *wait_entry,
@@ -106,4 +126,4 @@ void __releases(wait_entry)
 iwl_remove_notification(struct iwl_notif_wait_data *notif_data,
 			struct iwl_notification_wait *wait_entry);
 
-#endif 
+#endif /* __iwl_notif_wait_h__ */

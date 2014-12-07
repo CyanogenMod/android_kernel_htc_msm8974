@@ -77,64 +77,64 @@ struct tx3927_pcic_reg {
 	endian_def_s2(pcistat, pcicmd);
 	endian_def_b4(cc, scc, rpli, rid);
 	endian_def_b4(unused0, ht, mlt, cls);
-	volatile unsigned long ioba;		
+	volatile unsigned long ioba;		/* +10 */
 	volatile unsigned long mba;
 	volatile unsigned long unused1[5];
 	endian_def_s2(svid, ssvid);
-	volatile unsigned long unused2;		
+	volatile unsigned long unused2;		/* +30 */
 	endian_def_sb2(unused3, unused4, capptr);
 	volatile unsigned long unused5;
 	endian_def_b4(ml, mg, ip, il);
-	volatile unsigned long unused6;		
+	volatile unsigned long unused6;		/* +40 */
 	volatile unsigned long istat;
 	volatile unsigned long iim;
 	volatile unsigned long rrt;
-	volatile unsigned long unused7[3];		
+	volatile unsigned long unused7[3];		/* +50 */
 	volatile unsigned long ipbmma;
-	volatile unsigned long ipbioma;		
+	volatile unsigned long ipbioma;		/* +60 */
 	volatile unsigned long ilbmma;
 	volatile unsigned long ilbioma;
 	volatile unsigned long unused8[9];
-	volatile unsigned long tc;		
+	volatile unsigned long tc;		/* +90 */
 	volatile unsigned long tstat;
 	volatile unsigned long tim;
 	volatile unsigned long tccmd;
-	volatile unsigned long pcirrt;		
+	volatile unsigned long pcirrt;		/* +a0 */
 	volatile unsigned long pcirrt_cmd;
 	volatile unsigned long pcirrdt;
 	volatile unsigned long unused9[3];
 	volatile unsigned long tlboap;
 	volatile unsigned long tlbiap;
-	volatile unsigned long tlbmma;		
+	volatile unsigned long tlbmma;		/* +c0 */
 	volatile unsigned long tlbioma;
 	volatile unsigned long sc_msg;
 	volatile unsigned long sc_be;
-	volatile unsigned long tbl;		
+	volatile unsigned long tbl;		/* +d0 */
 	volatile unsigned long unused10[3];
-	volatile unsigned long pwmng;		
+	volatile unsigned long pwmng;		/* +e0 */
 	volatile unsigned long pwmngs;
 	volatile unsigned long unused11[6];
-	volatile unsigned long req_trace;		
+	volatile unsigned long req_trace;		/* +100 */
 	volatile unsigned long pbapmc;
 	volatile unsigned long pbapms;
 	volatile unsigned long pbapmim;
-	volatile unsigned long bm;		
+	volatile unsigned long bm;		/* +110 */
 	volatile unsigned long cpcibrs;
 	volatile unsigned long cpcibgs;
 	volatile unsigned long pbacs;
-	volatile unsigned long iobas;		
+	volatile unsigned long iobas;		/* +120 */
 	volatile unsigned long mbas;
 	volatile unsigned long lbc;
 	volatile unsigned long lbstat;
-	volatile unsigned long lbim;		
+	volatile unsigned long lbim;		/* +130 */
 	volatile unsigned long pcistatim;
 	volatile unsigned long ica;
 	volatile unsigned long icd;
-	volatile unsigned long iiadp;		
+	volatile unsigned long iiadp;		/* +140 */
 	volatile unsigned long iscdp;
 	volatile unsigned long mmas;
 	volatile unsigned long iomas;
-	volatile unsigned long ipciaddr;		
+	volatile unsigned long ipciaddr;		/* +150 */
 	volatile unsigned long ipcidata;
 	volatile unsigned long ipcibe;
 };
@@ -147,8 +147,18 @@ struct tx3927_ccfg_reg {
 	volatile unsigned long pdcr;
 };
 
+/*
+ * SDRAMC
+ */
 
+/*
+ * ROMC
+ */
 
+/*
+ * DMA
+ */
+/* bits for MCR */
 #define TX3927_DMA_MCR_EIS(ch)	(0x10000000<<(ch))
 #define TX3927_DMA_MCR_DIS(ch)	(0x01000000<<(ch))
 #define TX3927_DMA_MCR_RSFIF	0x00000080
@@ -157,6 +167,7 @@ struct tx3927_ccfg_reg {
 #define TX3927_DMA_MCR_RPRT	0x00000002
 #define TX3927_DMA_MCR_MSTEN	0x00000001
 
+/* bits for CCRn */
 #define TX3927_DMA_CCR_DBINH	0x04000000
 #define TX3927_DMA_CCR_SBINH	0x02000000
 #define TX3927_DMA_CCR_CHRST	0x01000000
@@ -185,6 +196,7 @@ struct tx3927_ccfg_reg {
 #define TX3927_DMA_CCR_MEMIO	0x00000002
 #define TX3927_DMA_CCR_ONEAD	0x00000001
 
+/* bits for CSRn */
 #define TX3927_DMA_CSR_CHNACT	0x00000100
 #define TX3927_DMA_CSR_ABCHC	0x00000080
 #define TX3927_DMA_CSR_NCHNC	0x00000040
@@ -195,6 +207,9 @@ struct tx3927_ccfg_reg {
 #define TX3927_DMA_CSR_DESERR	0x00000002
 #define TX3927_DMA_CSR_SORERR	0x00000001
 
+/*
+ * IRC
+ */
 #define TX3927_IR_INT0	0
 #define TX3927_IR_INT1	1
 #define TX3927_IR_INT2	2
@@ -210,26 +225,42 @@ struct tx3927_ccfg_reg {
 #define TX3927_IR_TMR(ch)	(13 + (ch))
 #define TX3927_NUM_IR	16
 
+/*
+ * PCIC
+ */
+/* bits for PCICMD */
+/* see PCI_COMMAND_XXX in linux/pci.h */
 
+/* bits for PCISTAT */
+/* see PCI_STATUS_XXX in linux/pci.h */
 #define PCI_STATUS_NEW_CAP	0x0010
 
+/* bits for ISTAT/IIM */
 #define TX3927_PCIC_IIM_ALL	0x00001600
 
+/* bits for TC */
 #define TX3927_PCIC_TC_OF16E	0x00000020
 #define TX3927_PCIC_TC_IF8E	0x00000010
 #define TX3927_PCIC_TC_OF8E	0x00000008
 
+/* bits for TSTAT/TIM */
 #define TX3927_PCIC_TIM_ALL	0x0003ffff
 
+/* bits for IOBA/MBA */
+/* see PCI_BASE_ADDRESS_XXX in linux/pci.h */
 
+/* bits for PBAPMC */
 #define TX3927_PCIC_PBAPMC_RPBA	0x00000004
 #define TX3927_PCIC_PBAPMC_PBAEN	0x00000002
 #define TX3927_PCIC_PBAPMC_BMCEN	0x00000001
 
+/* bits for LBSTAT/LBIM */
 #define TX3927_PCIC_LBIM_ALL	0x0000003e
 
+/* bits for PCISTATIM (see also PCI_STATUS_XXX in linux/pci.h */
 #define TX3927_PCIC_PCISTATIM_ALL	0x0000f900
 
+/* bits for LBC */
 #define TX3927_PCIC_LBC_IBSE	0x00004000
 #define TX3927_PCIC_LBC_TIBSE	0x00002000
 #define TX3927_PCIC_LBC_TMFBSE	0x00001000
@@ -244,6 +275,10 @@ struct tx3927_ccfg_reg {
 #define TX3927_PCIC_IDSEL_AD_TO_SLOT(ad)	((ad) - 11)
 #define TX3927_PCIC_MAX_DEVNU	TX3927_PCIC_IDSEL_AD_TO_SLOT(32)
 
+/*
+ * CCFG
+ */
+/* CCFG : Chip Configuration */
 #define TX3927_CCFG_TLBOFF	0x00020000
 #define TX3927_CCFG_BEOW	0x00010000
 #define TX3927_CCFG_WR	0x00008000
@@ -257,6 +292,7 @@ struct tx3927_ccfg_reg {
 #define TX3927_CCFG_HALT	0x00000002
 #define TX3927_CCFG_ACEHOLD	0x00000001
 
+/* PCFG : Pin Configuration */
 #define TX3927_PCFG_SYSCLKEN	0x08000000
 #define TX3927_PCFG_SDRCLKEN_ALL	0x07c00000
 #define TX3927_PCFG_SDRCLKEN(ch)	(0x00400000<<(ch))
@@ -302,4 +338,4 @@ void tx3927_setup_pcierr_irq(void);
 void tx3927_irq_init(void);
 void tx3927_mtd_init(int ch);
 
-#endif 
+#endif /* __ASM_TXX9_TX3927_H */

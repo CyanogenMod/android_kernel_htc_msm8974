@@ -43,6 +43,12 @@ static const struct of_device_id matches[] __initconst = {
 
 void __init tegra_pmc_init(void)
 {
+	/*
+	 * For now, Harmony is the only board that uses the PMC, and it wants
+	 * the signal inverted. Seaboard would too if it used the PMC.
+	 * Hopefully by the time other boards want to use the PMC, everything
+	 * will be device-tree, or they also want it inverted.
+	 */
 	bool invert_interrupt = true;
 	u32 val;
 

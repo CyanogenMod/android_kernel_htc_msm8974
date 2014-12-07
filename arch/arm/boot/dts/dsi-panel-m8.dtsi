@@ -24,7 +24,7 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -78,9 +78,9 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <0>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
@@ -91,8 +91,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,display-on-cmds = [
 			39 01 00 00 78 00 02 11 00 /* Sleep Out */
@@ -138,7 +138,7 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -169,9 +169,9 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <0>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
@@ -182,8 +182,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,display-on-cmds = [39 01 00 00 00 00 02 29 00];
 		qcom,display-on-wait = <120>;
@@ -191,6 +191,7 @@
 		qcom,mdss-pan-physical-width-dimension = <61>;
 		qcom,mdss-pan-physical-height-dimension = <109>;
 		qcom,mdss-shrink-pwm = <6 79 255>;
+		qcom,mdss-pwm-ctl-type = <1>;
 		qcom,mdss-dsi-lp11-init;
 		htc,mdss-camera-blk = <177>;
 		htc,mdss-camera-dua-blk = <177>;
@@ -231,7 +232,7 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -259,9 +260,9 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
@@ -272,8 +273,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <4095>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_wled";
 
 		qcom,display-on-cmds = [39 01 00 00 00 00 02 29 00];
@@ -288,9 +289,11 @@
 		htc,dimming-on-cmds = [39 01 00 00 00 00 02 53 0C];
 		htc,panel-id=<4>;
 	};
+
 	qcom,mdss_dsi_m8_sharp_novatek_35695_1080p_cmd {
 		compatible = "qcom,mdss-dsi-panel";
 		status = "disable";
+		qcom,cont-splash-enabled;
 		qcom,mdss-dsi-panel-name = "m8 1080p sharp/NT35695 cmd mode dsi panel";
 		qcom,mdss-dsi-panel-controller = <&mdss_dsi0>;
 
@@ -319,17 +322,125 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
 			39 01 00 00 00 00 02 BB 10 /* MIPI CMD mode */
-			39 01 00 00 00 00 02 B0 03 /* CRC/ECC function OFF */
-			39 01 00 00 78 00 02 11 00 /* LCD Sleep out command */
 			39 01 00 00 01 00 02 FF 23 /* Enter CMD2 page3 */
-			39 01 00 00 00 00 02 08 04 /* PWMDIV[7:0] for PWM frequency */
-			39 01 00 00 00 00 02 46 36 /* PWM duty count for 20.98kHZ */
+			39 01 00 00 00 00 02 00 02 /* DMCT = 1, Select the enable / disable mechanism for CABC and Manual dimming functions. */
+			39 01 00 00 00 00 02 01 84 /* Enable CABC dimmin and Gamma Dimming */
+			39 01 00 00 00 00 02 05 24 /* Moving mode dimming 32step, still mode 32step */
+			39 01 00 00 00 00 02 08 02 /* PWMDIV[7:0] for PWM frequency */
+			39 01 00 00 00 00 02 46 30 /* PWM duty count for 42.96kHZ */
+			39 01 00 00 00 00 02 17 FF /* CABC still mode PWM - gray 240-255 */
+			39 01 00 00 00 00 02 18 FA /* CABC still mode PWM - gray 224-239 */
+			39 01 00 00 00 00 02 19 F8 /* CABC still mode PWM - gray 208-223 */
+			39 01 00 00 00 00 02 1A F5 /* CABC still mode PWM - gray 192-207 */
+			39 01 00 00 00 00 02 1B EE /* CABC still mode PWM - gray 160-191 */
+			39 01 00 00 00 00 02 1C E1 /* CABC still mode PWM - gray 128-159 */
+			39 01 00 00 00 00 02 1D D5 /* CABC still mode PWM - gray 112-127 */
+			39 01 00 00 00 00 02 1E CD /* CABC still mode PWM - gray 64-111 */
+			39 01 00 00 00 00 02 1F B9 /* CABC still mode PWM - gray 16-63 */
+			39 01 00 00 00 00 02 20 B4 /* CABC still mode PWM - gray 0-15 */
+			39 01 00 00 00 00 02 21 FF /* CABC movie mode PWM - gray 240-255 */
+			39 01 00 00 00 00 02 22 FA /* CABC movie mode PWM - gray 224-239 */
+			39 01 00 00 00 00 02 23 F5 /* CABC movie mode PWM - gray 208-223 */
+			39 01 00 00 00 00 02 24 EB /* CABC movie mode PWM -gray 192-207 */
+			39 01 00 00 00 00 02 25 E1 /* CABC movie mode PWM - gray 160-191 */
+			39 01 00 00 00 00 02 26 C8 /* CABC movie mode PWM - gray 128-159 */
+			39 01 00 00 00 00 02 27 AA /* CABC movie mode PWM - gray 112-127 */
+			39 01 00 00 00 00 02 28 96 /* CABC movie mode PWM- gray 64-111 */
+			39 01 00 00 00 00 02 29 73 /* CABC movie mode PWM - gray 16-63 */
+			39 01 00 00 00 00 02 2A 66 /* CABC movie mode PWM - gray 0-15 */
+			39 01 00 00 00 00 02 09 02 /* CABC still mode Gamma curve compensation - gray 240-255 */
+			39 01 00 00 00 00 02 0A 06 /* CABC still mode Gamma curve compensation - gray 224-239 */
+			39 01 00 00 00 00 02 0B 07 /* CABC still mode Gamma curve compensation - gray 208-223 */
+			39 01 00 00 00 00 02 0C 08 /* CABC still mode Gamma curve compensation - gray 192-207 */
+			39 01 00 00 00 00 02 0D 09 /* CABC still mode Gamma curve compensation - gray 160-191 */
+			39 01 00 00 00 00 02 0E 0B /* CABC still mode Gamma curve compensation - gray 128-159 */
+			39 01 00 00 00 00 02 0F 0D /* CABC still mode Gamma curve compensation - gray 112-127 */
+			39 01 00 00 00 00 02 10 0D /* CABC still mode Gamma curve compensation - gray 64-111 */
+			39 01 00 00 00 00 02 11 12 /* CABC still mode Gamma curve compensation - gray 16-63 */
+			39 01 00 00 00 00 02 12 20 /* CABC still mode Gamma curve compensation - gray 0-15 */
+			39 01 00 00 00 00 02 33 0C /* CABC Movie mode Gamma curve compensation */
+			39 01 00 00 00 00 02 FB 01 /* MTP do not reload CMD2 P3 */
+			39 01 00 00 01 00 02 FF 22 /* Enter CMD2 page2 */
+			39 01 00 00 00 00 02 00 00 /* parameter to adjust saturation > 0.98 */
+			39 01 00 00 00 00 02 01 04 /* parameter to adjustsaturation 0.95~0.98 */
+			39 01 00 00 00 00 02 02 08 /* parameter to adjustsaturation 0.91~0.95 */
+			39 01 00 00 00 00 02 03 0C /* parameter to adjustsaturation 0.88~0.91 */
+			39 01 00 00 00 00 02 04 10 /* parameter to adjustsaturation 0.85~0.88 */
+			39 01 00 00 00 00 02 05 14 /* parameter to adjustsaturation 0.82~0.85 */
+			39 01 00 00 00 00 02 06 18 /* parameter to adjustsaturation 0.79~0.82 */
+			39 01 00 00 00 00 02 07 20 /* parameter to adjustsaturation 0.76~0.79 */
+			39 01 00 00 00 00 02 08 24 /* parameter to adjustsaturation 0.73~0.76 */
+			39 01 00 00 00 00 02 09 28 /* parameter to adjustsaturation 0.7~0.73 */
+			39 01 00 00 00 00 02 0A 30 /* parameter to adjustsaturation 0.66~0.7 */
+			39 01 00 00 00 00 02 0B 38 /* parameter to adjustsaturation 0.6~0.66 */
+			39 01 00 00 00 00 02 0C 38 /* parameter to adjustsaturation 0.54~0.6 */
+			39 01 00 00 00 00 02 0D 30 /* parameter to adjustsaturation 0.48~0.54 */
+			39 01 00 00 00 00 02 0E 28 /* parameter to adjustsaturation 0.41~0.48 */
+			39 01 00 00 00 00 02 0F 20 /* parameter to adjustsaturation 0.35~0.41 */
+			39 01 00 00 00 00 02 10 10 /* parameter to adjustsaturation 0.26~0.35 */
+			39 01 00 00 00 00 02 11 00 /* parameter to adjustsaturation 0.16~0.26 */
+			39 01 00 00 00 00 02 12 00 /* parameter to adjustsaturation 0.07~0.16 */
+			39 01 00 00 00 00 02 13 00 /* parameter to adjustsaturation < 0.07 */
+			39 01 00 00 00 00 02 32 10 /* HUE 0~15 degree */
+			39 01 00 00 00 00 02 33 10 /* HUE 15~30 degree */
+			39 01 00 00 00 00 02 34 10 /* HUE 30~45 degree */
+			39 01 00 00 00 00 02 35 10 /* HUE 45~60 degree */
+			39 01 00 00 00 00 02 36 10 /* HUE 60~75 degree */
+			39 01 00 00 00 00 02 37 10 /* HUE 75~90 degree */
+			39 01 00 00 00 00 02 38 10 /* HUE 90~105 degree */
+			39 01 00 00 00 00 02 39 10 /* HUE 105~120 degree */
+			39 01 00 00 00 00 02 3A 10 /* HUE 120~135 degree */
+			39 01 00 00 00 00 02 3B 10 /* HUE 135~150 degree */
+			39 01 00 00 00 00 02 3F 10 /* HUE 150~165 degree */
+			39 01 00 00 00 00 02 40 10 /* HUE 165~180 degree */
+			39 01 00 00 00 00 02 41 10 /* HUE 180~195 degree */
+			39 01 00 00 00 00 02 42 10 /* HUE 195~210 degree */
+			39 01 00 00 00 00 02 43 10 /* HUE 210~225 degree */
+			39 01 00 00 00 00 02 44 10 /* HUE 225~240 degree */
+			39 01 00 00 00 00 02 45 10 /* HUE 240~255 degree */
+			39 01 00 00 00 00 02 46 10 /* HUE 255~270 degree */
+			39 01 00 00 00 00 02 47 10 /* HUE 270~285 degree */
+			39 01 00 00 00 00 02 48 10 /* HUE 285~300 degree */
+			39 01 00 00 00 00 02 49 10 /* HUE 300~315 degree */
+			39 01 00 00 00 00 02 4A 10 /* HUE 315~330 degree */
+			39 01 00 00 00 00 02 4B 10 /* HUE 330~345 degree */
+			39 01 00 00 00 00 02 4C 10 /* HUE 345~360 degree */
+			39 01 00 00 00 00 02 1A 00 /* Disable Vivid Color */
+			39 01 00 00 00 00 02 53 01 /* Enable Smart Color */
+			39 01 00 00 00 00 02 54 00 /* Disable SKIN_KEEP */
+			39 01 00 00 00 00 02 55 00 /* Disable Over-Saturation protection */
+			39 01 00 00 00 00 02 56 01 /* Enable Smart Contrast */
+			39 01 00 00 00 00 02 68 01 /* Enable Edge Enhancement */
+			39 01 00 00 00 00 02 4D 0E /* Smart Color global ratio */
+			39 01 00 00 00 00 02 58 0E /* Smart Contrast Dark part parameter 14 */
+			39 01 00 00 00 00 02 59 14 /* Smart Contrast Light part parameter 20 */
+			39 01 00 00 00 00 02 64 20 /* Turn off Smart Contrast local reference */
+			39 01 00 00 00 00 02 65 02 /* Edge level 2 */
+			39 01 00 00 00 00 02 69 02 /* Edge THD level 0 */
+			39 01 00 00 00 00 02 97 FF /* Edge THD maxima */
+			39 01 00 00 00 00 02 98 00 /* Disable Jaggy suppression function */
+			39 01 00 00 00 00 02 A2 20 /* Enable Dither function */
+			39 01 00 00 00 00 02 FB 01 /* MTP do not reload CMD2 P2 */
+			39 01 00 00 01 00 02 FF E0 /* Page switching to engineering mode */
+			39 01 00 00 00 00 02 B8 AD /* Pre-charge voltage level */
+			39 01 00 00 00 00 02 FB 01 /* Non-reload */
+			39 01 00 00 01 00 02 FF 20 /* Enter CMD2 page0 */
+			39 01 00 00 00 00 02 10 06 /* VDD boost + 200mV */
+			39 01 00 00 00 00 02 FB 01 /* Non-reload */
 			39 01 00 00 01 00 02 FF 10 /* Enter CMD1 */
+			39 01 00 00 00 00 02 55 82 /* Enable IE slight level and CABC still mode */
+			39 01 00 00 00 00 02 5E 22 /* Enable CMB function limit 13% */
+			39 01 00 00 78 00 02 11 00 /* LCD Sleep out command */
+			39 01 00 00 01 00 02 FF 24 /* Enter CMD24 */
+			39 01 00 00 00 00 02 C6 09 /* Output Hsync to HSOUT */
+			39 01 00 00 00 00 02 FB 01 /* No MTP reload at CMD2 P4 */
+			39 01 00 00 01 00 02 FF 10 /* Enter CMD1 */
+			39 01 00 00 00 00 02 44 03 /* Set TE line */
 			39 01 00 00 00 00 02 35 00 /* Turn on TE (TEE/ TE H/W pin) function */
 			39 01 00 00 00 00 02 29 00 /* LCD Display on */];
 		qcom,mdss-dsi-off-command = [
@@ -338,9 +449,9 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
@@ -351,8 +462,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,display-on-cmds = [39 01 00 00 00 00 02 53 24 /* Turn on BL */];
 		qcom,mdss-dsi-default-command-state = "dsi_hs_mode";
@@ -368,12 +479,28 @@
 		htc,dimming-on-cmds = [39 01 00 00 00 00 02 53 2C];
 		htc,mdss-pp-hue = <0xfef>;
 		qcom,mdss-shrink-pwm-power-hack = <6 56 255>;
-		htc,mdss-camera-blk-power-hack = <142>;
+		htc,mdss-camera-blk-power-hack = <130>;
+		htc,cabc-ui-cmds-power-hack = [
+					39 01 00 00 00 00 02 55 82
+					39 01 00 00 01 00 02 FF 24 /* Enter Page2 CMD4 */
+					39 01 00 00 01 00 02 90 94  /* fps 60 */
+					39 01 00 00 01 00 02 91 40  /* fps 60 */
+					39 01 00 00 01 00 02 92 95  /* fps 60 */
+					39 01 00 00 01 00 02 FF 01 /* Enter CMD1 */];
+		htc,cabc-video-cmds-power-hack = [
+					39 01 00 00 00 00 02 55 83
+					39 01 00 00 01 00 02 FF 24 /* Enter Page2 CMD4 */
+					39 01 00 00 01 00 02 90 2A /* fps 30 */
+					39 01 00 00 01 00 02 91 61  /* fps 30 */
+					39 01 00 00 01 00 02 92 2A /* fps 30 */
+					39 01 00 00 01 00 02 FF 01 /* Enter CMD1 */];
 		htc,panel-id=<3>;
 	};
+
 	qcom,mdss_dsi_m8_sharp_novatek_35595_1080p_cmd {
 		compatible = "qcom,mdss-dsi-panel";
 		status = "disable";
+		qcom,cont-splash-enabled;
 		qcom,mdss-dsi-panel-name = "m8 1080p sharp/NT35595 cmd mode dsi panel";
 		qcom,mdss-dsi-panel-controller = <&mdss_dsi0>;
 
@@ -402,7 +529,7 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -510,6 +637,13 @@
 			39 01 00 00 01 00 02 FF 24 /* Enter CMD24 */
 			39 01 00 00 00 00 02 C6 09 /* Output Hsync to HSOUT */
 			39 01 00 00 00 00 02 FB 01 /* No MTP reload at CMD2 P4 */
+			39 01 00 00 00 00 02 FF F0
+			39 01 00 00 00 00 02 B3 FF
+			39 01 00 00 00 00 02 B4 FF
+			39 01 00 00 00 00 02 B5 FF
+			39 01 00 00 00 00 02 B6 FF
+			39 01 00 00 00 00 02 B7 FF
+			39 01 00 00 00 00 02 B8 FF
 			39 01 00 00 01 00 02 FF 10 /* Enter CMD1 */
 			39 01 00 00 00 00 02 35 00 /* Turn on TE (TEE/ TE H/W pin) function */
 			39 01 00 00 00 00 02 29 00 /* LCD Display on */];
@@ -519,21 +653,21 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings =  [c3 40 33 00 57 51 35 42 52 03 04 00];
-		qcom,mdss-dsi-t-clk-post = <0x02>;
+		qcom,mdss-dsi-t-clk-post = <0x0a>;
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,display-on-cmds = [39 01 00 00 00 00 02 53 24 /* Turn on BL */];
 		qcom,mdss-dsi-default-command-state = "dsi_hs_mode";
@@ -541,6 +675,8 @@
 		qcom,mdss-pan-physical-height-dimension = <109>;
 		qcom,mdss-shrink-pwm = <6 79 255>;
 		qcom,mdss-dsi-lp11-init;
+		qcom,partial-update-enabled;
+		qcom,mdss-even-coordinate-update;
 		htc,mdss-camera-blk = <177>;
 		htc,mdss-camera-dua-blk = <177>;
 		htc,cabc-off-cmds = [39 01 00 00 00 00 02 55 00];
@@ -549,7 +685,7 @@
 		htc,dimming-on-cmds = [39 01 00 00 00 00 02 53 2C];
 		htc,mdss-pp-hue = <0xfef>;
 		qcom,mdss-shrink-pwm-power-hack = <6 56 255>;
-		htc,mdss-camera-blk-power-hack = <142>;
+		htc,mdss-camera-blk-power-hack = <130>;
 		htc,cabc-ui-cmds-power-hack = [
 					39 01 00 00 00 00 02 55 82
 					39 01 00 00 01 00 02 FF 24 /* Enter Page2 CMD4 */
@@ -562,6 +698,19 @@
 					39 01 00 00 01 00 02 90 E1 /* fps 30 */
 					39 01 00 00 01 00 02 92 E1 /* fps 30 */
 					39 01 00 00 01 00 02 FF 01 /* Enter CMD1 */];
+		htc,frame-suffix-cmds = [
+					15 00 00 00 00 00 02 FF F0 /* Enter CMD3 – Engineer Mode B */
+					15 00 00 00 00 00 02 BD 02 /* Set BIST CLK: 1T =200nS */
+					15 00 00 00 00 00 02 B9 A0 /* BIST Enable Mode set */
+					15 00 00 00 00 00 02 BD 0A /* Set BIST Revise Scan */
+					15 00 00 00 00 00 02 B9 A2 /* BIST ON */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					15 00 00 00 00 00 02 BD 02 /* Set BIST Forward Scan */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					15 00 00 00 00 00 02 B9 80 /* BIST OFF */
+					15 01 00 00 00 00 02 FF 10 /* Enter CMD1 */];
 		htc,panel-id=<1>;
 	};
 
@@ -590,7 +739,7 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -731,9 +880,9 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <0>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
@@ -744,8 +893,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,display-on-cmds = [39 01 00 00 00 00 02 29 00 /* LCD Display on */];
 		qcom,mdss-dsi-default-command-state = "dsi_hs_mode";
@@ -787,7 +936,7 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -1437,9 +1586,9 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <0>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
@@ -1450,8 +1599,8 @@
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,display-on-cmds = [39 01 00 00 00 00 02 29 00 /* LCD Display on */];
 		qcom,mdss-dsi-default-command-state = "dsi_hs_mode";
@@ -1471,6 +1620,7 @@
 	qcom,mdss_dsi_m8_lg_novatek_35595_1080p_cmd {
 		compatible = "qcom,mdss-dsi-panel";
 		status = "disable";
+		qcom,cont-splash-enabled;
 		qcom,mdss-dsi-panel-name = "m8 1080p LG/NT35595 cmd mode dsi panel";
 		qcom,mdss-dsi-panel-controller = <&mdss_dsi0>;
 
@@ -1499,7 +1649,7 @@
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
 		qcom,mdss-dsi-bpp = <24>;
-		qcom,mdss-dsi-color-order = <0>;
+		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
 		qcom,mdss-dsi-border-color = <0>;
 		qcom,mdss-dsi-on-command = [
@@ -2101,6 +2251,13 @@
 			39 01 00 00 00 00 02 B5 10
 			39 01 00 00 00 00 02 C6 09
 			39 01 00 00 00 00 02 FB 01 /* MTP do not reload CMD2 P4 */
+			39 01 00 00 00 00 02 FF F0
+			39 01 00 00 00 00 02 B3 FF
+			39 01 00 00 00 00 02 B4 FF
+			39 01 00 00 00 00 02 B5 FF
+			39 01 00 00 00 00 02 B6 FF
+			39 01 00 00 00 00 02 B7 FF
+			39 01 00 00 00 00 02 B8 FF
 			39 01 00 00 01 00 02 FF 10 /* Enter CMD1 */
 			39 01 00 00 00 00 02 55 82 /* Enable IE slight level and CABC still mode */
 			39 01 00 00 00 00 02 5E 22 /* Enable CMB function limit 13%*/
@@ -2113,21 +2270,21 @@
 		qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
 		qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 		qcom,mdss-dsi-h-sync-pulse = <1>;
-		qcom,mdss-dsi-traffic-mode = <1>;
+		qcom,mdss-dsi-traffic-mode = "non_burst_sync_event";
 		qcom,mdss-dsi-bllp-eof-power-mode;
-		qcom,mdss-dsi-lane-map = <0>;
+		qcom,mdss-dsi-lane-map = "lane_map_0123";
 		qcom,mdss-dsi-bllp-power-mode;
 		qcom,mdss-dsi-lane-0-state;
 		qcom,mdss-dsi-lane-1-state;
 		qcom,mdss-dsi-lane-2-state;
 		qcom,mdss-dsi-lane-3-state;
 		qcom,mdss-dsi-panel-timings =  [c3 40 33 00 57 51 35 42 52 03 04 00];
-		qcom,mdss-dsi-t-clk-post = <0x02>;
+		qcom,mdss-dsi-t-clk-post = <0x0a>;
 		qcom,mdss-dsi-t-clk-pre = <0x2a>;
 		qcom,mdss-dsi-bl-min-level = <1>;
 		qcom,mdss-dsi-bl-max-level = <255>;
-		qcom,mdss-dsi-dma-trigger = <0x04>;
-		qcom,mdss-dsi-mdp-trigger = <0x0>;
+		qcom,mdss-dsi-dma-trigger = "trigger_sw";
+		qcom,mdss-dsi-mdp-trigger = "none";
 		qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
 		qcom,display-on-cmds = [39 01 00 00 00 00 02 53 24 /* Turn on BL */];
 		qcom,mdss-dsi-default-command-state = "dsi_hs_mode";
@@ -2135,6 +2292,8 @@
 		qcom,mdss-pan-physical-height-dimension = <109>;
 		qcom,mdss-shrink-pwm = <6 79 255>;
 		qcom,mdss-dsi-lp11-init;
+		qcom,partial-update-enabled;
+		qcom,mdss-even-coordinate-update;
 		htc,mdss-camera-blk = <177>;
 		htc,mdss-camera-dua-blk = <177>;
 		htc,cabc-off-cmds = [39 01 00 00 00 00 02 55 00];
@@ -2143,7 +2302,7 @@
 		htc,dimming-on-cmds = [39 01 00 00 00 00 02 53 2C];
 		htc,mdss-pp-hue = <0xfef>;
 		qcom,mdss-shrink-pwm-power-hack = <6 56 255>;
-		htc,mdss-camera-blk-power-hack = <142>;
+		htc,mdss-camera-blk-power-hack = <130>;
 		htc,cabc-ui-cmds-power-hack = [
 					39 01 00 00 00 00 02 55 82
 					39 01 00 00 01 00 02 FF 24 /* Enter Page2 CMD4 */
@@ -2156,7 +2315,19 @@
 					39 01 00 00 01 00 02 90 E1 /* fps 30 */
 					39 01 00 00 01 00 02 92 E1 /* fps 30 */
 					39 01 00 00 01 00 02 FF 01 /* Enter CMD1 */];
-
+		htc,frame-suffix-cmds = [
+					15 00 00 00 00 00 02 FF F0 /* Enter CMD3 – Engineer Mode B */
+					15 00 00 00 00 00 02 BD 02 /* Set BIST CLK: 1T =200nS */
+					15 00 00 00 00 00 02 B9 A0 /* BIST Enable Mode set */
+					15 00 00 00 00 00 02 BD 0A /* Set BIST Revise Scan */
+					15 00 00 00 00 00 02 B9 A2 /* BIST ON */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					15 00 00 00 00 00 02 BD 02 /* Set BIST Forward Scan */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					05 00 00 00 00 00 02 D2 00 /* Dummy write for delay */
+					15 00 00 00 00 00 02 B9 80 /* BIST OFF */
+					15 01 00 00 00 00 02 FF 10 /* Enter CMD1 */];
 		htc,panel-id=<6>;
 	};
 };

@@ -19,4 +19,4 @@ int unregister_die_notifier(struct notifier_block *nb);
 int notify_die(enum die_val val, const char *str,
 	       struct pt_regs *regs, long err, int trap, int sig);
 
-#endif 
+#endif /* _LINUX_KDEBUG_H */

@@ -38,7 +38,9 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
+/********************** COMMON CODE *********************/
 
+/* definitions for audio properties bits 29-28 */
 #define CX2341X_AUDIO_ENCODING_METHOD_MPEG	0
 #define CX2341X_AUDIO_ENCODING_METHOD_AC3	1
 #define CX2341X_AUDIO_ENCODING_METHOD_LPCM	2
@@ -173,7 +175,9 @@ static void cx2341x_ctrl_fill(u32 id, const char **name, enum v4l2_ctrl_type *ty
 }
 
 
+/********************** OLD CODE *********************/
 
+/* Must be sorted from low to high control ID! */
 const u32 cx2341x_mpeg_ctrls[] = {
 	V4L2_CID_MPEG_CLASS,
 	V4L2_CID_MPEG_STREAM_TYPE,
@@ -215,19 +219,19 @@ const u32 cx2341x_mpeg_ctrls[] = {
 EXPORT_SYMBOL(cx2341x_mpeg_ctrls);
 
 static const struct cx2341x_mpeg_params default_params = {
-	
+	/* misc */
 	.capabilities = 0,
 	.port = CX2341X_PORT_MEMORY,
 	.width = 720,
 	.height = 480,
 	.is_50hz = 0,
 
-	
+	/* stream */
 	.stream_type = V4L2_MPEG_STREAM_TYPE_MPEG2_PS,
 	.stream_vbi_fmt = V4L2_MPEG_STREAM_VBI_FMT_NONE,
 	.stream_insert_nav_packets = 0,
 
-	
+	/* audio */
 	.audio_sampling_freq = V4L2_MPEG_AUDIO_SAMPLING_FREQ_48000,
 	.audio_encoding = V4L2_MPEG_AUDIO_ENCODING_LAYER_2,
 	.audio_l2_bitrate = V4L2_MPEG_AUDIO_L2_BITRATE_224K,
@@ -238,7 +242,7 @@ static const struct cx2341x_mpeg_params default_params = {
 	.audio_crc = V4L2_MPEG_AUDIO_CRC_NONE,
 	.audio_mute = 0,
 
-	
+	/* video */
 	.video_encoding = V4L2_MPEG_VIDEO_ENCODING_MPEG_2,
 	.video_aspect = V4L2_MPEG_VIDEO_ASPECT_4x3,
 	.video_b_frames = 2,
@@ -249,9 +253,9 @@ static const struct cx2341x_mpeg_params default_params = {
 	.video_bitrate_peak = 8000000,
 	.video_temporal_decimation = 0,
 	.video_mute = 0,
-	.video_mute_yuv = 0x008080,  
+	.video_mute_yuv = 0x008080,  /* YCbCr value for black */
 
-	
+	/* encoding filters */
 	.video_spatial_filter_mode =
 		V4L2_MPEG_CX2341X_VIDEO_SPATIAL_FILTER_MODE_MANUAL,
 	.video_spatial_filter = 0,
@@ -269,6 +273,8 @@ static const struct cx2341x_mpeg_params default_params = {
 	.video_chroma_median_filter_top = 255,
 	.video_chroma_median_filter_bottom = 0,
 };
+/* Map the control ID to the correct field in the cx2341x_mpeg_params
+   struct. Return -EINVAL if the ID is unknown, else return 0. */
 static int cx2341x_get_ctrl(const struct cx2341x_mpeg_params *params,
 		struct v4l2_ext_control *ctrl)
 {
@@ -381,6 +387,8 @@ static int cx2341x_get_ctrl(const struct cx2341x_mpeg_params *params,
 	return 0;
 }
 
+/* Map the control ID to the correct field in the cx2341x_mpeg_params
+   struct. Return -EINVAL if the ID is unknown, else return 0. */
 static int cx2341x_set_ctrl(struct cx2341x_mpeg_params *params, int busy,
 		struct v4l2_ext_control *ctrl)
 {
@@ -434,7 +442,7 @@ static int cx2341x_set_ctrl(struct cx2341x_mpeg_params *params, int busy,
 		int gop = params->video_gop_size;
 		params->video_b_frames = ctrl->value;
 		params->video_gop_size = b * ((gop + b - 1) / b);
-		
+		/* Max GOP size = 34 */
 		while (params->video_gop_size > 34)
 			params->video_gop_size -= b;
 		break;
@@ -443,7 +451,7 @@ static int cx2341x_set_ctrl(struct cx2341x_mpeg_params *params, int busy,
 		int b = params->video_b_frames + 1;
 		int gop = ctrl->value;
 		params->video_gop_size = b * ((gop + b - 1) / b);
-		
+		/* Max GOP size = 34 */
 		while (params->video_gop_size > 34)
 			params->video_gop_size -= b;
 		ctrl->value = params->video_gop_size;
@@ -455,7 +463,7 @@ static int cx2341x_set_ctrl(struct cx2341x_mpeg_params *params, int busy,
 	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
 		if (busy)
 			return -EBUSY;
-		
+		/* MPEG-1 only allows CBR */
 		if (params->video_encoding == V4L2_MPEG_VIDEO_ENCODING_MPEG_1 &&
 		    ctrl->value != V4L2_MPEG_VIDEO_BITRATE_MODE_CBR)
 			return -EINVAL;
@@ -490,7 +498,7 @@ static int cx2341x_set_ctrl(struct cx2341x_mpeg_params *params, int busy,
 			V4L2_MPEG_VIDEO_ENCODING_MPEG_1 :
 			V4L2_MPEG_VIDEO_ENCODING_MPEG_2;
 		if (params->video_encoding == V4L2_MPEG_VIDEO_ENCODING_MPEG_1)
-			
+			/* MPEG-1 implies CBR */
 			params->video_bitrate_mode =
 				V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
 		break;
@@ -545,7 +553,7 @@ static int cx2341x_ctrl_query_fill(struct v4l2_queryctrl *qctrl,
 	const char *name;
 
 	switch (qctrl->id) {
-	
+	/* MPEG controls */
 	case V4L2_CID_MPEG_CX2341X_VIDEO_SPATIAL_FILTER_MODE:
 	case V4L2_CID_MPEG_CX2341X_VIDEO_SPATIAL_FILTER:
 	case V4L2_CID_MPEG_CX2341X_VIDEO_LUMA_SPATIAL_FILTER_TYPE:
@@ -606,6 +614,12 @@ int cx2341x_ctrl_query(const struct cx2341x_mpeg_params *params,
 
 	case V4L2_CID_MPEG_AUDIO_ENCODING:
 		if (params->capabilities & CX2341X_CAP_HAS_AC3) {
+			/*
+			 * The state of L2 & AC3 bitrate controls can change
+			 * when this control changes, but v4l2_ctrl_query_fill()
+			 * already sets V4L2_CTRL_FLAG_UPDATE for
+			 * V4L2_CID_MPEG_AUDIO_ENCODING, so we don't here.
+			 */
 			return v4l2_ctrl_query_fill(qctrl,
 					V4L2_MPEG_AUDIO_ENCODING_LAYER_2,
 					V4L2_MPEG_AUDIO_ENCODING_AC3, 1,
@@ -676,6 +690,9 @@ int cx2341x_ctrl_query(const struct cx2341x_mpeg_params *params,
 		return 0;
 
 	case V4L2_CID_MPEG_VIDEO_ENCODING:
+		/* this setting is read-only for the cx2341x since the
+		   V4L2_CID_MPEG_STREAM_TYPE really determines the
+		   MPEG-1/2 setting */
 		err = v4l2_ctrl_query_fill(qctrl,
 					   V4L2_MPEG_VIDEO_ENCODING_MPEG_1,
 					   V4L2_MPEG_VIDEO_ENCODING_MPEG_2, 1,
@@ -727,10 +744,10 @@ int cx2341x_ctrl_query(const struct cx2341x_mpeg_params *params,
 	case V4L2_CID_MPEG_VIDEO_MUTE:
 		return v4l2_ctrl_query_fill(qctrl, 0, 1, 1, 0);
 
-	case V4L2_CID_MPEG_VIDEO_MUTE_YUV:  
+	case V4L2_CID_MPEG_VIDEO_MUTE_YUV:  /* Init YUV (really YCbCr) to black */
 		return v4l2_ctrl_query_fill(qctrl, 0, 0xffffff, 1, 0x008080);
 
-	
+	/* CX23415/6 specific */
 	case V4L2_CID_MPEG_CX2341X_VIDEO_SPATIAL_FILTER_MODE:
 		return cx2341x_ctrl_query_fill(qctrl,
 			V4L2_MPEG_CX2341X_VIDEO_SPATIAL_FILTER_MODE_MANUAL,
@@ -902,12 +919,12 @@ static void cx2341x_calc_audio_properties(struct cx2341x_mpeg_params *params)
 	if ((params->capabilities & CX2341X_CAP_HAS_AC3) &&
 	    params->audio_encoding == V4L2_MPEG_AUDIO_ENCODING_AC3) {
 		params->audio_properties |=
-			
+			/* Not sure if this MPEG Layer II setting is required */
 			((3 - V4L2_MPEG_AUDIO_ENCODING_LAYER_2) << 2) |
 			(params->audio_ac3_bitrate << 4) |
 			(CX2341X_AUDIO_ENCODING_METHOD_AC3 << 28);
 	} else {
-		
+		/* Assuming MPEG Layer II */
 		params->audio_properties |=
 			((3 - params->audio_encoding) << 2) |
 			((1 + params->audio_l2_bitrate) << 4);
@@ -993,12 +1010,12 @@ int cx2341x_update(void *priv, cx2341x_mbox_func func,
 		   const struct cx2341x_mpeg_params *new)
 {
 	static int mpeg_stream_type[] = {
-		0,	
-		1,	
-		2,	
-		14,	
-		11,	
-		12,	
+		0,	/* MPEG-2 PS */
+		1,	/* MPEG-2 TS */
+		2,	/* MPEG-1 SS */
+		14,	/* DVD */
+		11,	/* VCD */
+		12,	/* SVCD */
 	};
 
 	int err = 0;
@@ -1139,7 +1156,7 @@ void cx2341x_log_status(const struct cx2341x_mpeg_params *p, const char *prefix)
 {
 	int is_mpeg1 = p->video_encoding == V4L2_MPEG_VIDEO_ENCODING_MPEG_1;
 
-	
+	/* Stream */
 	printk(KERN_INFO "%s: Stream: %s",
 		prefix,
 		cx2341x_menu_item(p, V4L2_CID_MPEG_STREAM_TYPE));
@@ -1150,7 +1167,7 @@ void cx2341x_log_status(const struct cx2341x_mpeg_params *p, const char *prefix)
 		prefix,
 		cx2341x_menu_item(p, V4L2_CID_MPEG_STREAM_VBI_FMT));
 
-	
+	/* Video */
 	printk(KERN_INFO "%s: Video:  %dx%d, %d fps%s\n",
 		prefix,
 		p->width / (is_mpeg1 ? 2 : 1), p->height / (is_mpeg1 ? 2 : 1),
@@ -1174,7 +1191,7 @@ void cx2341x_log_status(const struct cx2341x_mpeg_params *p, const char *prefix)
 		printk(KERN_INFO "%s: Video: Temporal Decimation %d\n",
 			prefix, p->video_temporal_decimation);
 
-	
+	/* Audio */
 	printk(KERN_INFO "%s: Audio:  %s, %s, %s, %s%s",
 		prefix,
 		cx2341x_menu_item(p, V4L2_CID_MPEG_AUDIO_SAMPLING_FREQ),
@@ -1192,7 +1209,7 @@ void cx2341x_log_status(const struct cx2341x_mpeg_params *p, const char *prefix)
 		cx2341x_menu_item(p, V4L2_CID_MPEG_AUDIO_EMPHASIS),
 		cx2341x_menu_item(p, V4L2_CID_MPEG_AUDIO_CRC));
 
-	
+	/* Encoding filters */
 	printk(KERN_INFO "%s: Spatial Filter:  %s, Luma %s, Chroma %s, %d\n",
 		prefix,
 		cx2341x_menu_item(p,
@@ -1222,6 +1239,7 @@ EXPORT_SYMBOL(cx2341x_log_status);
 
 
 
+/********************** NEW CODE *********************/
 
 static inline struct cx2341x_handler *to_cxhdl(struct v4l2_ctrl *ctrl)
 {
@@ -1243,6 +1261,7 @@ static int cx2341x_hdl_api(struct cx2341x_handler *hdl,
 	return hdl->func(hdl->priv, cmd, args, 0, data);
 }
 
+/* ctrl->handler->lock is held, so it is safe to access cur.val */
 static inline int cx2341x_neq(struct v4l2_ctrl *ctrl)
 {
 	return ctrl && ctrl->val != ctrl->cur.val;
@@ -1255,13 +1274,13 @@ static int cx2341x_try_ctrl(struct v4l2_ctrl *ctrl)
 
 	switch (ctrl->id) {
 	case V4L2_CID_MPEG_VIDEO_B_FRAMES: {
-		
+		/* video gop cluster */
 		int b = val + 1;
 		int gop = hdl->video_gop_size->val;
 
 		gop = b * ((gop + b - 1) / b);
 
-		
+		/* Max GOP size = 34 */
 		while (gop > 34)
 			gop -= b;
 		hdl->video_gop_size->val = gop;
@@ -1269,17 +1288,17 @@ static int cx2341x_try_ctrl(struct v4l2_ctrl *ctrl)
 	}
 
 	case V4L2_CID_MPEG_STREAM_TYPE:
-		
+		/* stream type cluster */
 		hdl->video_encoding->val =
 		    (hdl->stream_type->val == V4L2_MPEG_STREAM_TYPE_MPEG1_SS ||
 		     hdl->stream_type->val == V4L2_MPEG_STREAM_TYPE_MPEG1_VCD) ?
 			V4L2_MPEG_VIDEO_ENCODING_MPEG_1 :
 			V4L2_MPEG_VIDEO_ENCODING_MPEG_2;
 		if (hdl->video_encoding->val == V4L2_MPEG_VIDEO_ENCODING_MPEG_1)
-			
+			/* MPEG-1 implies CBR */
 			hdl->video_bitrate_mode->val =
 				V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
-		
+		/* peak bitrate shall be >= normal bitrate */
 		if (hdl->video_bitrate_mode->val == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR &&
 		    hdl->video_bitrate_peak->val < hdl->video_bitrate->val)
 			hdl->video_bitrate_peak->val = hdl->video_bitrate->val;
@@ -1291,12 +1310,12 @@ static int cx2341x_try_ctrl(struct v4l2_ctrl *ctrl)
 static int cx2341x_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	static const int mpeg_stream_type[] = {
-		0,	
-		1,	
-		2,	
-		14,	
-		11,	
-		12,	
+		0,	/* MPEG-2 PS */
+		1,	/* MPEG-2 TS */
+		2,	/* MPEG-1 SS */
+		14,	/* DVD */
+		11,	/* VCD */
+		12,	/* SVCD */
 	};
 	struct cx2341x_handler *hdl = to_cxhdl(ctrl);
 	s32 val = ctrl->val;
@@ -1327,7 +1346,7 @@ static int cx2341x_s_ctrl(struct v4l2_ctrl *ctrl)
 		return cx2341x_hdl_api(hdl, CX2341X_ENC_MISC, 2, 7, val);
 
 	case V4L2_CID_MPEG_AUDIO_SAMPLING_FREQ:
-		
+		/* audio properties cluster */
 		props = (hdl->audio_sampling_freq->val << 0) |
 			(hdl->audio_mode->val << 8) |
 			(hdl->audio_mode_extension->val << 10) |
@@ -1340,13 +1359,13 @@ static int cx2341x_s_ctrl(struct v4l2_ctrl *ctrl)
 		if (hdl->audio_encoding->val == V4L2_MPEG_AUDIO_ENCODING_AC3) {
 			props |=
 #if 1
-				
+				/* Not sure if this MPEG Layer II setting is required */
 				((3 - V4L2_MPEG_AUDIO_ENCODING_LAYER_2) << 2) |
 #endif
 				(hdl->audio_ac3_bitrate->val << 4) |
 				(CX2341X_AUDIO_ENCODING_METHOD_AC3 << 28);
 		} else {
-			
+			/* Assuming MPEG Layer II */
 			props |=
 				((3 - hdl->audio_encoding->val) << 2) |
 				((1 + hdl->audio_l2_bitrate->val) << 4);
@@ -1375,13 +1394,13 @@ static int cx2341x_s_ctrl(struct v4l2_ctrl *ctrl)
 		return 0;
 
 	case V4L2_CID_MPEG_VIDEO_B_FRAMES:
-		
+		/* video gop cluster */
 		return cx2341x_hdl_api(hdl, CX2341X_ENC_SET_GOP_PROPERTIES, 2,
 				hdl->video_gop_size->val,
 				hdl->video_b_frames->val + 1);
 
 	case V4L2_CID_MPEG_STREAM_TYPE:
-		
+		/* stream type cluster */
 		err = cx2341x_hdl_api(hdl,
 			CX2341X_ENC_SET_STREAM_TYPE, 1, mpeg_stream_type[val]);
 		if (err)
@@ -1404,7 +1423,7 @@ static int cx2341x_s_ctrl(struct v4l2_ctrl *ctrl)
 		return 0;
 
 	case V4L2_CID_MPEG_VIDEO_MUTE:
-		
+		/* video mute cluster */
 		return cx2341x_hdl_api(hdl, CX2341X_ENC_MUTE_VIDEO, 1,
 				hdl->video_mute->val |
 					(hdl->video_mute_yuv->val << 8));
@@ -1412,7 +1431,7 @@ static int cx2341x_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_MPEG_CX2341X_VIDEO_SPATIAL_FILTER_MODE: {
 		int active_filter;
 
-		
+		/* video filter mode */
 		err = cx2341x_hdl_api(hdl, CX2341X_ENC_SET_DNR_FILTER_MODE, 2,
 				hdl->video_spatial_filter_mode->val |
 					(hdl->video_temporal_filter_mode->val << 1),
@@ -1438,20 +1457,20 @@ static int cx2341x_s_ctrl(struct v4l2_ctrl *ctrl)
 	}
 
 	case V4L2_CID_MPEG_CX2341X_VIDEO_LUMA_SPATIAL_FILTER_TYPE:
-		
+		/* video filter type cluster */
 		return cx2341x_hdl_api(hdl,
 				CX2341X_ENC_SET_SPATIAL_FILTER_TYPE, 2,
 				hdl->video_luma_spatial_filter_type->val,
 				hdl->video_chroma_spatial_filter_type->val);
 
 	case V4L2_CID_MPEG_CX2341X_VIDEO_SPATIAL_FILTER:
-		
+		/* video filter cluster */
 		return cx2341x_hdl_api(hdl, CX2341X_ENC_SET_DNR_FILTER_PROPS, 2,
 				hdl->video_spatial_filter->val,
 				hdl->video_temporal_filter->val);
 
 	case V4L2_CID_MPEG_CX2341X_VIDEO_LUMA_MEDIAN_FILTER_TOP:
-		
+		/* video median cluster */
 		return cx2341x_hdl_api(hdl, CX2341X_ENC_SET_CORING_LEVELS, 4,
 				hdl->video_luma_median_filter_bottom->val,
 				hdl->video_luma_median_filter_top->val,
@@ -1514,6 +1533,8 @@ int cx2341x_handler_init(struct cx2341x_handler *cxhdl,
 
 	v4l2_ctrl_handler_init(hdl, nr_of_controls_hint);
 
+	/* Add controls in ascending control ID order for fastest
+	   insertion time. */
 	cxhdl->stream_type = cx2341x_ctrl_new_menu(hdl,
 			V4L2_CID_MPEG_STREAM_TYPE,
 			V4L2_MPEG_STREAM_TYPE_MPEG2_SVCD, has_ts ? 0 : 2,
@@ -1588,7 +1609,7 @@ int cx2341x_handler_init(struct cx2341x_handler *cxhdl,
 	cxhdl->video_mute_yuv = cx2341x_ctrl_new_std(hdl,
 			V4L2_CID_MPEG_VIDEO_MUTE_YUV, 0, 0xffffff, 1, 0x008080);
 
-	
+	/* CX23415/6 specific */
 	cxhdl->video_spatial_filter_mode = cx2341x_ctrl_new_custom(hdl,
 			V4L2_CID_MPEG_CX2341X_VIDEO_SPATIAL_FILTER_MODE,
 			V4L2_MPEG_CX2341X_VIDEO_SPATIAL_FILTER_MODE_MANUAL,

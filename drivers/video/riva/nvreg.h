@@ -1,3 +1,4 @@
+/* $XConsortium: nvreg.h /main/2 1996/10/28 05:13:41 kaleb $ */
 /*
  * Copyright 1996-1997  David J. McKay
  *
@@ -20,13 +21,16 @@
  * SOFTWARE.
  */
 
+/* $XFree86: xc/programs/Xserver/hw/xfree86/vga256/drivers/nv/nvreg.h,v 3.2.2.1 1998/01/18 10:35:36 hohndel Exp $ */
 
 #ifndef __NVREG_H_
 #define __NVREG_H_
 
+/* Little macro to construct bitmask for contiguous ranges of bits */
 #define BITMASK(t,b) (((unsigned)(1U << (((t)-(b)+1)))-1)  << (b))
 #define MASKEXPAND(mask) BITMASK(1?mask,0?mask)
 
+/* Macro to set specific bitfields (mask has to be a macro x:y) ! */
 #define SetBF(mask,value) ((value) << (0?mask))
 #define GetBF(var,mask) (((unsigned)((var) & MASKEXPAND(mask))) >> (0?mask) )
 
@@ -36,6 +40,7 @@
 #define DEVICE_BASE(device) (0?NV##_##device)
 #define DEVICE_SIZE(device) ((1?NV##_##device) - DEVICE_BASE(device)+1)
 
+/* This is where we will have to have conditional compilation */
 #define DEVICE_ACCESS(device,reg) \
   nvCONTROL[(NV_##device##_##reg)/4]
 

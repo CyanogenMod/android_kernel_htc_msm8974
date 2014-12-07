@@ -25,6 +25,7 @@
 MODULE_DESCRIPTION("Xtables: IPv6 Mobility Header match");
 MODULE_LICENSE("GPL");
 
+/* Returns 1 if the type is matched by the range, 0 otherwise */
 static inline bool
 type_match(u_int8_t min, u_int8_t max, u_int8_t type, bool invert)
 {
@@ -37,12 +38,14 @@ static bool mh_mt6(const struct sk_buff *skb, struct xt_action_param *par)
 	const struct ip6_mh *mh;
 	const struct ip6t_mh *mhinfo = par->matchinfo;
 
-	
+	/* Must not be a fragment. */
 	if (par->fragoff != 0)
 		return false;
 
 	mh = skb_header_pointer(skb, par->thoff, sizeof(_mh), &_mh);
 	if (mh == NULL) {
+		/* We've been asked to examine this packet, and we
+		   can't.  Hence, no choice but to drop. */
 		pr_debug("Dropping evil MH tinygram.\n");
 		par->hotdrop = true;
 		return false;
@@ -63,7 +66,7 @@ static int mh_mt6_check(const struct xt_mtchk_param *par)
 {
 	const struct ip6t_mh *mhinfo = par->matchinfo;
 
-	
+	/* Must specify no unknown invflags */
 	return (mhinfo->invflags & ~IP6T_MH_INV_MASK) ? -EINVAL : 0;
 }
 

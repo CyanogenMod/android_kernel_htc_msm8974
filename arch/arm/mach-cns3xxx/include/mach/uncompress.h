@@ -15,6 +15,9 @@
 #define AMBA_UART_CR(base)	(*(volatile unsigned char *)((base) + 0x30))
 #define AMBA_UART_FR(base)	(*(volatile unsigned char *)((base) + 0x18))
 
+/*
+ * Return the UART base address
+ */
 static inline unsigned long get_uart_base(void)
 {
 	if (machine_is_cns3420vb())
@@ -23,6 +26,9 @@ static inline unsigned long get_uart_base(void)
 		return 0;
 }
 
+/*
+ * This does not append a newline
+ */
 static inline void putc(int c)
 {
 	unsigned long base = get_uart_base();
@@ -41,5 +47,8 @@ static inline void flush(void)
 		barrier();
 }
 
+/*
+ * nothing to do
+ */
 #define arch_decomp_setup()
 #define arch_decomp_wdog()

@@ -13,4 +13,4 @@
 
 #include <asm-generic/local.h>
 
-#endif 
+#endif /* _XTENSA_LOCAL_H */

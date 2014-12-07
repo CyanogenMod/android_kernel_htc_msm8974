@@ -43,30 +43,34 @@
 #define CX18_Z8F0811_IR_TX_I2C_ADDR	0x70
 #define CX18_Z8F0811_IR_RX_I2C_ADDR	0x71
 
+/* This array should match the CX18_HW_ defines */
 static const u8 hw_addrs[] = {
-	0,				
-	0,				
-	CX18_CS5345_I2C_ADDR,		
-	0,				
-	0,				
-	0,				
-	0,				
-	CX18_Z8F0811_IR_TX_I2C_ADDR,	
-	CX18_Z8F0811_IR_RX_I2C_ADDR,	
+	0,				/* CX18_HW_TUNER */
+	0,				/* CX18_HW_TVEEPROM */
+	CX18_CS5345_I2C_ADDR,		/* CX18_HW_CS5345 */
+	0,				/* CX18_HW_DVB */
+	0,				/* CX18_HW_418_AV */
+	0,				/* CX18_HW_GPIO_MUX */
+	0,				/* CX18_HW_GPIO_RESET_CTRL */
+	CX18_Z8F0811_IR_TX_I2C_ADDR,	/* CX18_HW_Z8F0811_IR_TX_HAUP */
+	CX18_Z8F0811_IR_RX_I2C_ADDR,	/* CX18_HW_Z8F0811_IR_RX_HAUP */
 };
 
+/* This array should match the CX18_HW_ defines */
+/* This might well become a card-specific array */
 static const u8 hw_bus[] = {
-	1,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
+	1,	/* CX18_HW_TUNER */
+	0,	/* CX18_HW_TVEEPROM */
+	0,	/* CX18_HW_CS5345 */
+	0,	/* CX18_HW_DVB */
+	0,	/* CX18_HW_418_AV */
+	0,	/* CX18_HW_GPIO_MUX */
+	0,	/* CX18_HW_GPIO_RESET_CTRL */
+	0,	/* CX18_HW_Z8F0811_IR_TX_HAUP */
+	0,	/* CX18_HW_Z8F0811_IR_RX_HAUP */
 };
 
+/* This array should match the CX18_HW_ defines */
 static const char * const hw_devicenames[] = {
 	"tuner",
 	"tveeprom",
@@ -89,7 +93,7 @@ static int cx18_i2c_new_ir(struct cx18 *cx, struct i2c_adapter *adap, u32 hw,
 	memset(&info, 0, sizeof(struct i2c_board_info));
 	strlcpy(info.type, type, I2C_NAME_SIZE);
 
-	
+	/* Our default information for ir-kbd-i2c.c to use */
 	switch (hw) {
 	case CX18_HW_Z8F0811_IR_RX_HAUP:
 		init_data->ir_codes = RC_MAP_HAUPPAUGE;
@@ -116,7 +120,7 @@ int cx18_i2c_register(struct cx18 *cx, unsigned idx)
 		return -1;
 
 	if (hw == CX18_HW_TUNER) {
-		
+		/* special tuner group handling */
 		sd = v4l2_i2c_new_subdev(&cx->v4l2_dev,
 				adap, type, 0, cx->card_i2c->radio);
 		if (sd != NULL)
@@ -135,11 +139,11 @@ int cx18_i2c_register(struct cx18 *cx, unsigned idx)
 	if (hw & CX18_HW_IR_ANY)
 		return cx18_i2c_new_ir(cx, adap, hw, type, hw_addrs[idx]);
 
-	
+	/* Is it not an I2C device or one we do not wish to register? */
 	if (!hw_addrs[idx])
 		return -1;
 
-	
+	/* It's an I2C device other than an analog tuner or IR chip */
 	sd = v4l2_i2c_new_subdev(&cx->v4l2_dev, adap, type, hw_addrs[idx],
 				 NULL);
 	if (sd != NULL)
@@ -147,6 +151,7 @@ int cx18_i2c_register(struct cx18 *cx, unsigned idx)
 	return sd != NULL ? 0 : -1;
 }
 
+/* Find the first member of the subdev group id in hw */
 struct v4l2_subdev *cx18_find_hw(struct cx18 *cx, u32 hw)
 {
 	struct v4l2_subdev *result = NULL;
@@ -207,39 +212,41 @@ static int cx18_getsda(void *data)
 	return cx18_read_reg(cx, addr) & GETSDL_BIT;
 }
 
+/* template for i2c-bit-algo */
 static struct i2c_adapter cx18_i2c_adap_template = {
 	.name = "cx18 i2c driver",
-	.algo = NULL,                   
-	.algo_data = NULL,              
+	.algo = NULL,                   /* set by i2c-algo-bit */
+	.algo_data = NULL,              /* filled from template */
 	.owner = THIS_MODULE,
 };
 
-#define CX18_SCL_PERIOD (10) 
-#define CX18_ALGO_BIT_TIMEOUT (2) 
+#define CX18_SCL_PERIOD (10) /* usecs. 10 usec is period for a 100 KHz clock */
+#define CX18_ALGO_BIT_TIMEOUT (2) /* seconds */
 
 static struct i2c_algo_bit_data cx18_i2c_algo_template = {
 	.setsda		= cx18_setsda,
 	.setscl		= cx18_setscl,
 	.getsda		= cx18_getsda,
 	.getscl		= cx18_getscl,
-	.udelay		= CX18_SCL_PERIOD/2,       
-	.timeout	= CX18_ALGO_BIT_TIMEOUT*HZ 
+	.udelay		= CX18_SCL_PERIOD/2,       /* 1/2 clock period in usec*/
+	.timeout	= CX18_ALGO_BIT_TIMEOUT*HZ /* jiffies */
 };
 
+/* init + register i2c adapter */
 int init_cx18_i2c(struct cx18 *cx)
 {
 	int i, err;
 	CX18_DEBUG_I2C("i2c init\n");
 
 	for (i = 0; i < 2; i++) {
-		
+		/* Setup algorithm for adapter */
 		memcpy(&cx->i2c_algo[i], &cx18_i2c_algo_template,
 			sizeof(struct i2c_algo_bit_data));
 		cx->i2c_algo_cb_data[i].cx = cx;
 		cx->i2c_algo_cb_data[i].bus_index = i;
 		cx->i2c_algo[i].data = &cx->i2c_algo_cb_data[i];
 
-		
+		/* Setup adapter */
 		memcpy(&cx->i2c_adap[i], &cx18_i2c_adap_template,
 			sizeof(struct i2c_adapter));
 		cx->i2c_adap[i].algo_data = &cx->i2c_algo[i];
@@ -250,15 +257,15 @@ int init_cx18_i2c(struct cx18 *cx)
 	}
 
 	if (cx18_read_reg(cx, CX18_REG_I2C_2_WR) != 0x0003c02f) {
-		
-		
+		/* Reset/Unreset I2C hardware block */
+		/* Clock select 220MHz */
 		cx18_write_reg_expect(cx, 0x10000000, 0xc71004,
 					  0x00000000, 0x10001000);
-		
+		/* Clock Enable */
 		cx18_write_reg_expect(cx, 0x10001000, 0xc71024,
 					  0x00001000, 0x10001000);
 	}
-	
+	/* courtesy of Steven Toth <stoth@hauppauge.com> */
 	cx18_write_reg_expect(cx, 0x00c00000, 0xc7001c, 0x00000000, 0x00c000c0);
 	mdelay(10);
 	cx18_write_reg_expect(cx, 0x00c000c0, 0xc7001c, 0x000000c0, 0x00c000c0);
@@ -266,18 +273,18 @@ int init_cx18_i2c(struct cx18 *cx)
 	cx18_write_reg_expect(cx, 0x00c00000, 0xc7001c, 0x00000000, 0x00c000c0);
 	mdelay(10);
 
-	
+	/* Set to edge-triggered intrs. */
 	cx18_write_reg(cx, 0x00c00000, 0xc730c8);
-	
+	/* Clear any stale intrs */
 	cx18_write_reg_expect(cx, HW2_I2C1_INT|HW2_I2C2_INT, HW2_INT_CLR_STATUS,
 		       ~(HW2_I2C1_INT|HW2_I2C2_INT), HW2_I2C1_INT|HW2_I2C2_INT);
 
-	
+	/* Hw I2C1 Clock Freq ~100kHz */
 	cx18_write_reg(cx, 0x00021c0f & ~4, CX18_REG_I2C_1_WR);
 	cx18_setscl(&cx->i2c_algo_cb_data[0], 1);
 	cx18_setsda(&cx->i2c_algo_cb_data[0], 1);
 
-	
+	/* Hw I2C2 Clock Freq ~100kHz */
 	cx18_write_reg(cx, 0x00021c0f & ~4, CX18_REG_I2C_2_WR);
 	cx18_setscl(&cx->i2c_algo_cb_data[1], 1);
 	cx18_setsda(&cx->i2c_algo_cb_data[1], 1);
@@ -313,3 +320,11 @@ void exit_cx18_i2c(struct cx18 *cx)
 	}
 }
 
+/*
+   Hauppauge HVR1600 should have:
+   32 cx24227
+   98 unknown
+   a0 eeprom
+   c2 tuner
+   e? zilog ir
+   */

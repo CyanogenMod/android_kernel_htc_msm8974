@@ -20,14 +20,19 @@ static bool ceph_is_valid_xattr(const char *name)
 	       !strncmp(name, XATTR_USER_PREFIX, XATTR_USER_PREFIX_LEN);
 }
 
+/*
+ * These define virtual xattrs exposing the recursive directory
+ * statistics and layout metadata.
+ */
 struct ceph_vxattr {
 	char *name;
-	size_t name_size;	
+	size_t name_size;	/* strlen(name) + 1 (for '\0') */
 	size_t (*getxattr_cb)(struct ceph_inode_info *ci, char *val,
 			      size_t size);
 	bool readonly;
 };
 
+/* directories */
 
 static size_t ceph_vxattrcb_dir_entries(struct ceph_inode_info *ci, char *val,
 					size_t size)
@@ -97,10 +102,11 @@ static struct ceph_vxattr ceph_dir_vxattrs[] = {
 	XATTR_NAME_CEPH(dir, rsubdirs),
 	XATTR_NAME_CEPH(dir, rbytes),
 	XATTR_NAME_CEPH(dir, rctime),
-	{ 0 }	
+	{ 0 }	/* Required table terminator */
 };
-static size_t ceph_dir_vxattrs_name_size;	
+static size_t ceph_dir_vxattrs_name_size;	/* total size of all names */
 
+/* files */
 
 static size_t ceph_vxattrcb_file_layout(struct ceph_inode_info *ci, char *val,
 				   size_t size)
@@ -126,16 +132,16 @@ static size_t ceph_vxattrcb_file_layout(struct ceph_inode_info *ci, char *val,
 
 static struct ceph_vxattr ceph_file_vxattrs[] = {
 	XATTR_NAME_CEPH(file, layout),
-	
+	/* The following extended attribute name is deprecated */
 	{
 		.name = XATTR_CEPH_PREFIX "layout",
 		.name_size = sizeof (XATTR_CEPH_PREFIX "layout"),
 		.getxattr_cb = ceph_vxattrcb_file_layout,
 		.readonly = true,
 	},
-	{ 0 }	
+	{ 0 }	/* Required table terminator */
 };
-static size_t ceph_file_vxattrs_name_size;	
+static size_t ceph_file_vxattrs_name_size;	/* total size of all names */
 
 static struct ceph_vxattr *ceph_inode_vxattrs(struct inode *inode)
 {
@@ -157,6 +163,10 @@ static size_t ceph_vxattrs_name_size(struct ceph_vxattr *vxattrs)
 	return 0;
 }
 
+/*
+ * Compute the aggregate size (including terminating '\0') of all
+ * virtual extended attribute names in the given vxattr table.
+ */
 static size_t __init vxattrs_name_size(struct ceph_vxattr *vxattrs)
 {
 	struct ceph_vxattr *vxattr;
@@ -168,6 +178,7 @@ static size_t __init vxattrs_name_size(struct ceph_vxattr *vxattrs)
 	return size;
 }
 
+/* Routines called at initialization and exit time */
 
 void __init ceph_xattr_init(void)
 {
@@ -423,12 +434,12 @@ static int __build_xattrs(struct inode *inode)
 	     ci->i_xattrs.blob ? (int)ci->i_xattrs.blob->vec.iov_len : 0);
 
 	if (ci->i_xattrs.index_version >= ci->i_xattrs.version)
-		return 0; 
+		return 0; /* already built */
 
 	__ceph_destroy_xattrs(ci);
 
 start:
-	
+	/* updated internal xattr rb tree */
 	if (ci->i_xattrs.blob && ci->i_xattrs.blob->vec.iov_len > 4) {
 		p = ci->i_xattrs.blob->vec.iov_base;
 		end = p + ci->i_xattrs.blob->vec.iov_len;
@@ -451,7 +462,7 @@ start:
 
 		spin_lock(&ci->i_ceph_lock);
 		if (ci->i_xattrs.version != xattr_version) {
-			
+			/* lost a race, retry */
 			for (i = 0; i < numattr; i++)
 				kfree(xattrs[i]);
 			kfree(xattrs);
@@ -494,6 +505,10 @@ bad:
 static int __get_required_blob_size(struct ceph_inode_info *ci, int name_size,
 				    int val_size)
 {
+	/*
+	 * 4 bytes for the length, and additional 4 bytes per each xattr name,
+	 * 4 bytes per each value
+	 */
 	int size = 4 + ci->i_xattrs.count*(4 + 4) +
 			     ci->i_xattrs.names_size +
 			     ci->i_xattrs.vals_size;
@@ -507,6 +522,10 @@ static int __get_required_blob_size(struct ceph_inode_info *ci, int name_size,
 	return size;
 }
 
+/*
+ * If there are dirty xattrs, reencode xattrs into the prealloc_blob
+ * and swap into place.
+ */
 void __ceph_build_xattrs_blob(struct ceph_inode_info *ci)
 {
 	struct rb_node *p;
@@ -536,7 +555,7 @@ void __ceph_build_xattrs_blob(struct ceph_inode_info *ci)
 			p = rb_next(p);
 		}
 
-		
+		/* adjust buffer len; it may be larger than we need */
 		ci->i_xattrs.prealloc_blob->vec.iov_len =
 			dest - ci->i_xattrs.prealloc_blob->vec.iov_base;
 
@@ -561,7 +580,7 @@ ssize_t ceph_getxattr(struct dentry *dentry, const char *name, void *value,
 	if (!ceph_is_valid_xattr(name))
 		return -ENODATA;
 
-	
+	/* let's see if a virtual xattr was requested */
 	vxattr = ceph_match_vxattr(inode, name);
 
 	spin_lock(&ci->i_ceph_lock);
@@ -573,7 +592,7 @@ ssize_t ceph_getxattr(struct dentry *dentry, const char *name, void *value,
 		goto get_xattr;
 	} else {
 		spin_unlock(&ci->i_ceph_lock);
-		
+		/* get xattrs from mds (if we don't already have them) */
 		err = ceph_do_getattr(inode, CEPH_STAT_CAP_XATTR);
 		if (err)
 			return err;
@@ -591,7 +610,7 @@ ssize_t ceph_getxattr(struct dentry *dentry, const char *name, void *value,
 		goto out;
 
 get_xattr:
-	err = -ENODATA;  
+	err = -ENODATA;  /* == ENOATTR */
 	xattr = __get_xattr(ci, name);
 	if (!xattr) {
 		if (vxattr)
@@ -646,9 +665,13 @@ ssize_t ceph_listxattr(struct dentry *dentry, char *names, size_t size)
 		goto out;
 
 list_xattr:
+	/*
+	 * Start with virtual dir xattr names (if any) (including
+	 * terminating '\0' characters for each).
+	 */
 	vir_namelen = ceph_vxattrs_name_size(vxattrs);
 
-	
+	/* adding 1 byte per each variable due to the null termination */
 	namelen = vir_namelen + ci->i_xattrs.names_size + ci->i_xattrs.count;
 	err = -ERANGE;
 	if (size && namelen > size)
@@ -660,7 +683,7 @@ list_xattr:
 
 	names = __copy_xattr_names(ci, names);
 
-	
+	/* virtual xattr names, too */
 	if (vxattrs)
 		for (i = 0; vxattrs[i].name; i++) {
 			len = sprintf(names, "%s", vxattrs[i].name);
@@ -686,7 +709,7 @@ static int ceph_sync_setxattr(struct dentry *dentry, const char *name,
 	struct page **pages = NULL;
 	void *kaddr;
 
-	
+	/* copy value into some pages */
 	nr_pages = calc_pages_for(0, size);
 	if (nr_pages) {
 		pages = kmalloc(sizeof(pages[0])*nr_pages, GFP_NOFS);
@@ -707,7 +730,7 @@ static int ceph_sync_setxattr(struct dentry *dentry, const char *name,
 
 	dout("setxattr value=%.*s\n", (int)size, value);
 
-	
+	/* do request */
 	req = ceph_mdsc_create_request(mdsc, CEPH_MDS_OP_SETXATTR,
 				       USE_AUTH_MDS);
 	if (IS_ERR(req)) {
@@ -767,7 +790,7 @@ int ceph_setxattr(struct dentry *dentry, const char *name,
 	if (vxattr && vxattr->readonly)
 		return -EOPNOTSUPP;
 
-	
+	/* preallocate memory for xattr name, value, index node */
 	err = -ENOMEM;
 	newname = kmemdup(name, name_len + 1, GFP_NOFS);
 	if (!newname)

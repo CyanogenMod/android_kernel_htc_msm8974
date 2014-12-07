@@ -40,6 +40,7 @@
 #include "i915_drv.h"
 #include <linux/acpi.h>
 
+/* Private structure for the integrated LVDS support */
 struct intel_lvds {
 	struct intel_encoder base;
 
@@ -64,6 +65,9 @@ static struct intel_lvds *intel_attached_lvds(struct drm_connector *connector)
 			    struct intel_lvds, base);
 }
 
+/**
+ * Sets the power state for the panel.
+ */
 static void intel_lvds_enable(struct intel_lvds *intel_lvds)
 {
 	struct drm_device *dev = intel_lvds->base.base.dev;
@@ -83,6 +87,12 @@ static void intel_lvds_enable(struct intel_lvds *intel_lvds)
 	I915_WRITE(lvds_reg, I915_READ(lvds_reg) | LVDS_PORT_EN);
 
 	if (intel_lvds->pfit_dirty) {
+		/*
+		 * Enable automatic panel scaling so that non-native modes
+		 * fill the screen.  The panel fitter should only be
+		 * adjusted whilst the pipe is disabled, according to
+		 * register description and PRM.
+		 */
 		DRM_DEBUG_KMS("applying panel-fitter: %x, %x\n",
 			      intel_lvds->pfit_control,
 			      intel_lvds->pfit_pgm_ratios);
@@ -140,7 +150,7 @@ static void intel_lvds_dpms(struct drm_encoder *encoder, int mode)
 	else
 		intel_lvds_disable(intel_lvds);
 
-	
+	/* XXX: We never power down the LVDS pairs. */
 }
 
 static int intel_lvds_mode_valid(struct drm_connector *connector,
@@ -163,13 +173,13 @@ centre_horizontally(struct drm_display_mode *mode,
 {
 	u32 border, sync_pos, blank_width, sync_width;
 
-	
+	/* keep the hsync and hblank widths constant */
 	sync_width = mode->crtc_hsync_end - mode->crtc_hsync_start;
 	blank_width = mode->crtc_hblank_end - mode->crtc_hblank_start;
 	sync_pos = (blank_width - sync_width + 1) / 2;
 
 	border = (mode->hdisplay - width + 1) / 2;
-	border += border & 1; 
+	border += border & 1; /* make the border even */
 
 	mode->crtc_hdisplay = width;
 	mode->crtc_hblank_start = width + border;
@@ -187,7 +197,7 @@ centre_vertically(struct drm_display_mode *mode,
 {
 	u32 border, sync_pos, blank_width, sync_width;
 
-	
+	/* keep the vsync and vblank widths constant */
 	sync_width = mode->crtc_vsync_end - mode->crtc_vsync_start;
 	blank_width = mode->crtc_vblank_end - mode->crtc_vblank_start;
 	sync_pos = (blank_width - sync_width + 1) / 2;
@@ -206,6 +216,11 @@ centre_vertically(struct drm_display_mode *mode,
 
 static inline u32 panel_fitter_scaling(u32 source, u32 target)
 {
+	/*
+	 * Floating point operation is not supported. So the FACTOR
+	 * is defined, which can avoid the floating point computation
+	 * when calculating the panel ratio.
+	 */
 #define ACCURACY 12
 #define FACTOR (1 << ACCURACY)
 	u32 ratio = source * FACTOR / target;
@@ -224,13 +239,13 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 	u32 pfit_control = 0, pfit_pgm_ratios = 0, border = 0;
 	int pipe;
 
-	
+	/* Should never happen!! */
 	if (INTEL_INFO(dev)->gen < 4 && intel_crtc->pipe == 0) {
 		DRM_ERROR("Can't support LVDS on pipe A\n");
 		return false;
 	}
 
-	
+	/* Should never happen!! */
 	list_for_each_entry(tmp_encoder, &dev->mode_config.encoder_list, head) {
 		if (tmp_encoder != encoder && tmp_encoder->crtc == encoder->crtc) {
 			DRM_ERROR("Can't enable LVDS and another "
@@ -239,6 +254,12 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 		}
 	}
 
+	/*
+	 * We have timings from the BIOS for the panel, put them in
+	 * to the adjusted mode.  The CRTC will be set up for this mode,
+	 * with the panel scaling set up to source from the H/VDisplay
+	 * of the original mode.
+	 */
 	intel_fixed_panel_mode(intel_lvds->fixed_mode, adjusted_mode);
 
 	if (HAS_PCH_SPLIT(dev)) {
@@ -247,16 +268,22 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 		return true;
 	}
 
-	
+	/* Native modes don't need fitting */
 	if (adjusted_mode->hdisplay == mode->hdisplay &&
 	    adjusted_mode->vdisplay == mode->vdisplay)
 		goto out;
 
-	
+	/* 965+ wants fuzzy fitting */
 	if (INTEL_INFO(dev)->gen >= 4)
 		pfit_control |= ((intel_crtc->pipe << PFIT_PIPE_SHIFT) |
 				 PFIT_FILTER_FUZZY);
 
+	/*
+	 * Enable automatic panel scaling for non-native modes so that they fill
+	 * the screen.  Should be enabled before the pipe is enabled, according
+	 * to register description and PRM.
+	 * Change the value here to see the borders for debugging
+	 */
 	for_each_pipe(pipe)
 		I915_WRITE(BCLRPAT(pipe), 0);
 
@@ -264,18 +291,22 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 
 	switch (intel_lvds->fitting_mode) {
 	case DRM_MODE_SCALE_CENTER:
+		/*
+		 * For centered modes, we have to calculate border widths &
+		 * heights and modify the values programmed into the CRTC.
+		 */
 		centre_horizontally(adjusted_mode, mode->hdisplay);
 		centre_vertically(adjusted_mode, mode->vdisplay);
 		border = LVDS_BORDER_ENABLE;
 		break;
 
 	case DRM_MODE_SCALE_ASPECT:
-		
+		/* Scale but preserve the aspect ratio */
 		if (INTEL_INFO(dev)->gen >= 4) {
 			u32 scaled_width = adjusted_mode->hdisplay * mode->vdisplay;
 			u32 scaled_height = mode->hdisplay * adjusted_mode->vdisplay;
 
-			
+			/* 965+ is easy, it does everything in hw */
 			if (scaled_width > scaled_height)
 				pfit_control |= PFIT_ENABLE | PFIT_SCALING_PILLAR;
 			else if (scaled_width < scaled_height)
@@ -285,7 +316,12 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 		} else {
 			u32 scaled_width = adjusted_mode->hdisplay * mode->vdisplay;
 			u32 scaled_height = mode->hdisplay * adjusted_mode->vdisplay;
-			if (scaled_width > scaled_height) { 
+			/*
+			 * For earlier chips we have to calculate the scaling
+			 * ratio by hand and program it into the
+			 * PFIT_PGM_RATIO register
+			 */
+			if (scaled_width > scaled_height) { /* pillar */
 				centre_horizontally(adjusted_mode, scaled_height / mode->vdisplay);
 
 				border = LVDS_BORDER_ENABLE;
@@ -297,7 +333,7 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 							 VERT_INTERP_BILINEAR |
 							 HORIZ_INTERP_BILINEAR);
 				}
-			} else if (scaled_width < scaled_height) { 
+			} else if (scaled_width < scaled_height) { /* letter */
 				centre_vertically(adjusted_mode, scaled_width / mode->hdisplay);
 
 				border = LVDS_BORDER_ENABLE;
@@ -310,7 +346,7 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 							 HORIZ_INTERP_BILINEAR);
 				}
 			} else
-				
+				/* Aspects match, Let hw scale both directions */
 				pfit_control |= (PFIT_ENABLE |
 						 VERT_AUTO_SCALE | HORIZ_AUTO_SCALE |
 						 VERT_INTERP_BILINEAR |
@@ -319,6 +355,10 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 		break;
 
 	case DRM_MODE_SCALE_FULLSCREEN:
+		/*
+		 * Full scaling, even if it changes the aspect ratio.
+		 * Fortunately this is all done for us in hw.
+		 */
 		if (mode->vdisplay != adjusted_mode->vdisplay ||
 		    mode->hdisplay != adjusted_mode->hdisplay) {
 			pfit_control |= PFIT_ENABLE;
@@ -337,13 +377,13 @@ static bool intel_lvds_mode_fixup(struct drm_encoder *encoder,
 	}
 
 out:
-	
+	/* If not enabling scaling, be consistent and always use 0. */
 	if ((pfit_control & PFIT_ENABLE) == 0) {
 		pfit_control = 0;
 		pfit_pgm_ratios = 0;
 	}
 
-	
+	/* Make sure pre-965 set dither correctly */
 	if (INTEL_INFO(dev)->gen < 4 && dev_priv->lvds_dither)
 		pfit_control |= PANEL_8TO6_DITHER_ENABLE;
 
@@ -355,6 +395,11 @@ out:
 	}
 	dev_priv->lvds_border_bits = border;
 
+	/*
+	 * XXX: It would be nice to support lower refresh rates on the
+	 * panels to reduce power consumption, and perhaps match the
+	 * user's requested refresh rate.
+	 */
 
 	return true;
 }
@@ -363,6 +408,11 @@ static void intel_lvds_prepare(struct drm_encoder *encoder)
 {
 	struct intel_lvds *intel_lvds = to_intel_lvds(encoder);
 
+	/*
+	 * Prior to Ironlake, we must disable the pipe if we want to adjust
+	 * the panel fitter. However at all other times we can just reset
+	 * the registers regardless.
+	 */
 	if (!HAS_PCH_SPLIT(encoder->dev) && intel_lvds->pfit_dirty)
 		intel_lvds_disable(intel_lvds);
 }
@@ -371,6 +421,9 @@ static void intel_lvds_commit(struct drm_encoder *encoder)
 {
 	struct intel_lvds *intel_lvds = to_intel_lvds(encoder);
 
+	/* Always do a full power on as we do not know what state
+	 * we were left in.
+	 */
 	intel_lvds_enable(intel_lvds);
 }
 
@@ -378,8 +431,20 @@ static void intel_lvds_mode_set(struct drm_encoder *encoder,
 				struct drm_display_mode *mode,
 				struct drm_display_mode *adjusted_mode)
 {
+	/*
+	 * The LVDS pin pair will already have been turned on in the
+	 * intel_crtc_mode_set since it has a large impact on the DPLL
+	 * settings.
+	 */
 }
 
+/**
+ * Detect the LVDS connection.
+ *
+ * Since LVDS doesn't have hotlug, we use the lid as a proxy.  Open means
+ * connected and closed means disconnected.  We also send hotplug events as
+ * needed, using lid status notification from the input layer.
+ */
 static enum drm_connector_status
 intel_lvds_detect(struct drm_connector *connector, bool force)
 {
@@ -393,6 +458,9 @@ intel_lvds_detect(struct drm_connector *connector, bool force)
 	return connector_status_connected;
 }
 
+/**
+ * Return the list of DDC modes if available, or the BIOS fixed mode otherwise.
+ */
 static int intel_lvds_get_modes(struct drm_connector *connector)
 {
 	struct intel_lvds *intel_lvds = intel_attached_lvds(connector);
@@ -416,6 +484,7 @@ static int intel_no_modeset_on_lid_dmi_callback(const struct dmi_system_id *id)
 	return 1;
 }
 
+/* The GPU hangs up on these systems if modeset is performed on LID open */
 static const struct dmi_system_id intel_no_modeset_on_lid[] = {
 	{
 		.callback = intel_no_modeset_on_lid_dmi_callback,
@@ -426,9 +495,18 @@ static const struct dmi_system_id intel_no_modeset_on_lid[] = {
 		},
 	},
 
-	{ }	
+	{ }	/* terminating entry */
 };
 
+/*
+ * Lid events. Note the use of 'modeset_on_lid':
+ *  - we set it on lid close, and reset it on open
+ *  - we use it as a "only once" bit (ie we ignore
+ *    duplicate events where it was already properly
+ *    set/reset)
+ *  - the suspend/resume paths will also set it to
+ *    zero, since they restore the mode ("lid open").
+ */
 static int intel_lid_notify(struct notifier_block *nb, unsigned long val,
 			    void *unused)
 {
@@ -440,11 +518,15 @@ static int intel_lid_notify(struct notifier_block *nb, unsigned long val,
 	if (dev->switch_power_state != DRM_SWITCH_POWER_ON)
 		return NOTIFY_OK;
 
+	/*
+	 * check and update the status of LVDS connector after receiving
+	 * the LID nofication event.
+	 */
 	if (connector)
 		connector->status = connector->funcs->detect(connector,
 							     false);
 
-	
+	/* Don't force modeset on machines where it causes a GPU lockup */
 	if (dmi_check_system(intel_no_modeset_on_lid))
 		return NOTIFY_OK;
 	if (!acpi_lid_open()) {
@@ -464,6 +546,13 @@ static int intel_lid_notify(struct notifier_block *nb, unsigned long val,
 	return NOTIFY_OK;
 }
 
+/**
+ * intel_lvds_destroy - unregister and free LVDS structures
+ * @connector: connector to free
+ *
+ * Unregister the DDC bus for this connector then free the driver private
+ * structure.
+ */
 static void intel_lvds_destroy(struct drm_connector *connector)
 {
 	struct drm_device *dev = connector->dev;
@@ -494,11 +583,15 @@ static int intel_lvds_set_property(struct drm_connector *connector,
 		}
 
 		if (intel_lvds->fitting_mode == value) {
-			
+			/* the LVDS scaling property is not changed */
 			return 0;
 		}
 		intel_lvds->fitting_mode = value;
 		if (crtc && crtc->enabled) {
+			/*
+			 * If the CRTC is enabled, the display will be changed
+			 * according to the new panel fitting mode.
+			 */
 			drm_crtc_helper_set_mode(crtc, &crtc->mode,
 				crtc->x, crtc->y, crtc->fb);
 		}
@@ -539,6 +632,7 @@ static int __init intel_no_lvds_dmi_callback(const struct dmi_system_id *id)
 	return 1;
 }
 
+/* These systems claim to have LVDS, but really don't */
 static const struct dmi_system_id intel_no_lvds[] = {
 	{
 		.callback = intel_no_lvds_dmi_callback,
@@ -676,9 +770,16 @@ static const struct dmi_system_id intel_no_lvds[] = {
 		},
 	},
 
-	{ }	
+	{ }	/* terminating entry */
 };
 
+/**
+ * intel_find_lvds_downclock - find the reduced downclock for LVDS in EDID
+ * @dev: drm device
+ * @connector: LVDS connector
+ *
+ * Find the reduced downclock for LVDS in EDID.
+ */
 static void intel_find_lvds_downclock(struct drm_device *dev,
 				      struct drm_display_mode *fixed_mode,
 				      struct drm_connector *connector)
@@ -689,6 +790,13 @@ static void intel_find_lvds_downclock(struct drm_device *dev,
 
 	temp_downclock = fixed_mode->clock;
 	list_for_each_entry(scan, &connector->probed_modes, head) {
+		/*
+		 * If one mode has the same resolution with the fixed_panel
+		 * mode while they have the different refresh rate, it means
+		 * that the reduced downclock is found for the LVDS. In such
+		 * case we can set the different FPx0/1 to dynamically select
+		 * between low and high frequency.
+		 */
 		if (scan->hdisplay == fixed_mode->hdisplay &&
 		    scan->hsync_start == fixed_mode->hsync_start &&
 		    scan->hsync_end == fixed_mode->hsync_end &&
@@ -698,12 +806,16 @@ static void intel_find_lvds_downclock(struct drm_device *dev,
 		    scan->vsync_end == fixed_mode->vsync_end &&
 		    scan->vtotal == fixed_mode->vtotal) {
 			if (scan->clock < temp_downclock) {
+				/*
+				 * The downclock is already found. But we
+				 * expect to find the lower downclock.
+				 */
 				temp_downclock = scan->clock;
 			}
 		}
 	}
 	if (temp_downclock < fixed_mode->clock && i915_lvds_downclock) {
-		
+		/* We found the downclock for LVDS. */
 		dev_priv->lvds_downclock_avail = 1;
 		dev_priv->lvds_downclock = temp_downclock;
 		DRM_DEBUG_KMS("LVDS downclock is found in EDID. "
@@ -712,6 +824,13 @@ static void intel_find_lvds_downclock(struct drm_device *dev,
 	}
 }
 
+/*
+ * Enumerate the child dev array parsed from VBT to check whether
+ * the LVDS is present.
+ * If it is present, return 1.
+ * If it is not present, return false.
+ * If no child dev is parsed from VBT, it assumes that the LVDS is present.
+ */
 static bool lvds_is_present_in_vbt(struct drm_device *dev,
 				   u8 *i2c_pin)
 {
@@ -724,6 +843,10 @@ static bool lvds_is_present_in_vbt(struct drm_device *dev,
 	for (i = 0; i < dev_priv->child_dev_num; i++) {
 		struct child_device_config *child = dev_priv->child_dev + i;
 
+		/* If the device type is not LFP, continue.
+		 * We have to check both the new identifiers as well as the
+		 * old for compatibility with some BIOSes.
+		 */
 		if (child->device_type != DEVICE_TYPE_INT_LFP &&
 		    child->device_type != DEVICE_TYPE_LFP)
 			continue;
@@ -731,6 +854,11 @@ static bool lvds_is_present_in_vbt(struct drm_device *dev,
 		if (child->i2c_pin)
 		    *i2c_pin = child->i2c_pin;
 
+		/* However, we cannot trust the BIOS writers to populate
+		 * the VBT correctly.  Since LVDS requires additional
+		 * information from AIM blocks, a non-zero addin offset is
+		 * a good indicator that the LVDS is actually present.
+		 */
 		if (child->addin_offset)
 			return true;
 
@@ -748,12 +876,23 @@ static bool lvds_is_present_in_vbt(struct drm_device *dev,
 
 static bool intel_lvds_supported(struct drm_device *dev)
 {
+	/* With the introduction of the PCH we gained a dedicated
+	 * LVDS presence pin, use it. */
 	if (HAS_PCH_SPLIT(dev))
 		return true;
 
+	/* Otherwise LVDS was only attached to mobile products,
+	 * except for the inglorious 830gm */
 	return IS_MOBILE(dev) && !IS_I830(dev);
 }
 
+/**
+ * intel_lvds_init - setup LVDS connectors on this device
+ * @dev: drm device
+ *
+ * Create the connector, register the LVDS DDC bus, and try to figure out what
+ * modes we can display on the LVDS panel (if present).
+ */
 bool intel_lvds_init(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
@@ -762,7 +901,7 @@ bool intel_lvds_init(struct drm_device *dev)
 	struct intel_connector *intel_connector;
 	struct drm_connector *connector;
 	struct drm_encoder *encoder;
-	struct drm_display_mode *scan; 
+	struct drm_display_mode *scan; /* *modes, *bios_mode; */
 	struct drm_crtc *crtc;
 	u32 lvds;
 	int pipe;
@@ -771,7 +910,7 @@ bool intel_lvds_init(struct drm_device *dev)
 	if (!intel_lvds_supported(dev))
 		return false;
 
-	
+	/* Skip init on machines we know falsely report LVDS */
 	if (dmi_check_system(intel_no_lvds))
 		return false;
 
@@ -829,14 +968,30 @@ bool intel_lvds_init(struct drm_device *dev)
 	connector->interlace_allowed = false;
 	connector->doublescan_allowed = false;
 
-	
+	/* create the scaling mode property */
 	drm_mode_create_scaling_mode_property(dev);
+	/*
+	 * the initial panel fitting mode will be FULL_SCREEN.
+	 */
 
 	drm_connector_attach_property(&intel_connector->base,
 				      dev->mode_config.scaling_mode_property,
 				      DRM_MODE_SCALE_ASPECT);
 	intel_lvds->fitting_mode = DRM_MODE_SCALE_ASPECT;
+	/*
+	 * LVDS discovery:
+	 * 1) check for EDID on DDC
+	 * 2) check for VBT data
+	 * 3) check to see if LVDS is already on
+	 *    if none of the above, no panel
+	 * 4) make sure lid is open
+	 *    if closed, act like it's not there for now
+	 */
 
+	/*
+	 * Attempt to get the fixed panel mode from DDC.  Assume that the
+	 * preferred mode is the right one.
+	 */
 	intel_lvds->edid = drm_get_edid(connector,
 					&dev_priv->gmbus[pin].adapter);
 	if (intel_lvds->edid) {
@@ -850,6 +1005,10 @@ bool intel_lvds_init(struct drm_device *dev)
 		}
 	}
 	if (!intel_lvds->edid) {
+		/* Didn't get an EDID, so
+		 * Set wide sync ranges so we get all modes
+		 * handed to valid_mode for checking
+		 */
 		connector->display_info.min_vfreq = 0;
 		connector->display_info.max_vfreq = 200;
 		connector->display_info.min_hfreq = 0;
@@ -867,7 +1026,7 @@ bool intel_lvds_init(struct drm_device *dev)
 		}
 	}
 
-	
+	/* Failed to get EDID, what about VBT? */
 	if (dev_priv->lfp_lvds_vbt_mode) {
 		intel_lvds->fixed_mode =
 			drm_mode_duplicate(dev, dev_priv->lfp_lvds_vbt_mode);
@@ -878,8 +1037,13 @@ bool intel_lvds_init(struct drm_device *dev)
 		}
 	}
 
+	/*
+	 * If we didn't get EDID, try checking if the panel is already turned
+	 * on.  If so, assume that whatever is currently programmed is the
+	 * correct mode.
+	 */
 
-	
+	/* Ironlake: FIXME if still fail, not try pipe mode now */
 	if (HAS_PCH_SPLIT(dev))
 		goto failed;
 
@@ -896,7 +1060,7 @@ bool intel_lvds_init(struct drm_device *dev)
 		}
 	}
 
-	
+	/* If we still don't have a mode after all that, give up. */
 	if (!intel_lvds->fixed_mode)
 		goto failed;
 
@@ -906,7 +1070,7 @@ out:
 
 		pipe = (I915_READ(PCH_LVDS) & LVDS_PIPEB_SELECT) ? 1 : 0;
 
-		
+		/* make sure PWM is enabled and locked to the LVDS pipe */
 		pwm = I915_READ(BLC_PWM_CPU_CTL2);
 		if (pipe == 0 && (pwm & PWM_PIPE_B))
 			I915_WRITE(BLC_PWM_CPU_CTL2, pwm & ~PWM_ENABLE);
@@ -919,9 +1083,17 @@ out:
 		pwm = I915_READ(BLC_PWM_PCH_CTL1);
 		pwm |= PWM_PCH_ENABLE;
 		I915_WRITE(BLC_PWM_PCH_CTL1, pwm);
+		/*
+		 * Unlock registers and just
+		 * leave them unlocked
+		 */
 		I915_WRITE(PCH_PP_CONTROL,
 			   I915_READ(PCH_PP_CONTROL) | PANEL_UNLOCK_REGS);
 	} else {
+		/*
+		 * Unlock registers and just
+		 * leave them unlocked
+		 */
 		I915_WRITE(PP_CONTROL,
 			   I915_READ(PP_CONTROL) | PANEL_UNLOCK_REGS);
 	}
@@ -930,7 +1102,7 @@ out:
 		DRM_DEBUG_KMS("lid notifier registration failed\n");
 		dev_priv->lid_notifier.notifier_call = NULL;
 	}
-	
+	/* keep the LVDS connector */
 	dev_priv->int_lvds_connector = connector;
 	drm_sysfs_connector_add(connector);
 

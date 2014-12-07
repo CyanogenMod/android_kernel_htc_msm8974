@@ -34,7 +34,7 @@ extern void register_smp_ops(struct plat_smp_ops *ops);
 
 static inline void plat_smp_setup(void)
 {
-	
+	/* UP, nothing to do ... */
 }
 
 static inline void register_smp_ops(struct plat_smp_ops *ops)
@@ -46,6 +46,6 @@ static inline void play_dead(void)
 	BUG();
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
-#endif 
+#endif /* __ASM_SH_SMP_OPS_H */

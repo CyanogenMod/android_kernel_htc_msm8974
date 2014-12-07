@@ -68,26 +68,31 @@ static const char boardname[] = "NI5010";
 static char version[] __initdata =
 	"ni5010.c: v1.02 20060611 Jan-Pascal van Best and Andreas Mohr\n";
 
+/* bufsize_rcv == 0 means autoprobing */
 static unsigned int bufsize_rcv;
 
-#define JUMPERED_INTERRUPTS	
-#undef JUMPERED_DMA		
-#undef FULL_IODETECT		
+#define JUMPERED_INTERRUPTS	/* IRQ line jumpered on board */
+#undef JUMPERED_DMA		/* No DMA used */
+#undef FULL_IODETECT		/* Only detect in portlist */
 
 #ifndef FULL_IODETECT
+/* A zero-terminated list of I/O addresses to be probed. */
 static unsigned int ports[] __initdata =
 	{ 0x300, 0x320, 0x340, 0x360, 0x380, 0x3a0, 0 };
 #endif
 
+/* Use 0 for production, 1 for verification, >2 for debug */
 #ifndef NI5010_DEBUG
 #define NI5010_DEBUG 0
 #endif
 
+/* Information that needs to be kept for each board. */
 struct ni5010_local {
 	int o_pkt_size;
 	spinlock_t lock;
 };
 
+/* Index to functions, as function prototypes. */
 
 static int	ni5010_probe1(struct net_device *dev, int ioaddr);
 static int	ni5010_open(struct net_device *dev);
@@ -127,9 +132,9 @@ struct net_device * __init ni5010_probe(int unit)
 
 	PRINTK2((KERN_DEBUG "%s: Entering ni5010_probe\n", dev->name));
 
-	if (io > 0x1ff)	{	
+	if (io > 0x1ff)	{	/* Check a single specified location. */
 		err = ni5010_probe1(dev, io);
-	} else if (io != 0) {	
+	} else if (io != 0) {	/* Don't probe at all. */
 		err = -ENXIO;
 	} else {
 #ifdef FULL_IODETECT
@@ -143,7 +148,7 @@ struct net_device * __init ni5010_probe(int unit)
 			;
 		if (!*port)
 			err = -ENODEV;
-#endif	
+#endif	/* FULL_IODETECT */
 	}
 	if (err)
 		goto out;
@@ -166,17 +171,21 @@ static inline int rd_port(int ioaddr)
 
 static void __init trigger_irq(int ioaddr)
 {
-		outb(0x00, EDLC_RESET);	
-		outb(0x00, IE_RESET);	
-		outb(0x00, EDLC_XMASK);	
-		outb(0x00, EDLC_RMASK); 
-		outb(0xff, EDLC_XCLR);	
-		outb(0xff, EDLC_RCLR);	
+		outb(0x00, EDLC_RESET);	/* Clear EDLC hold RESET state */
+		outb(0x00, IE_RESET);	/* Board reset */
+		outb(0x00, EDLC_XMASK);	/* Disable all Xmt interrupts */
+		outb(0x00, EDLC_RMASK); /* Disable all Rcv interrupt */
+		outb(0xff, EDLC_XCLR);	/* Clear all pending Xmt interrupts */
+		outb(0xff, EDLC_RCLR);	/* Clear all pending Rcv interrupts */
+		/*
+		 * Transmit packet mode: Ignore parity, Power xcvr,
+		 * 	Enable loopback
+		 */
 		outb(XMD_IG_PAR | XMD_T_MODE | XMD_LBC, EDLC_XMODE);
-		outb(RMD_BROADCAST, EDLC_RMODE); 
-		outb(XM_ALL, EDLC_XMASK);	
-		udelay(50);			
-		outb(MM_EN_XMT|MM_MUX, IE_MMODE); 
+		outb(RMD_BROADCAST, EDLC_RMODE); /* Receive normal&broadcast */
+		outb(XM_ALL, EDLC_XMASK);	/* Enable all Xmt interrupts */
+		udelay(50);			/* FIXME: Necessary? */
+		outb(MM_EN_XMT|MM_MUX, IE_MMODE); /* Start transmission */
 }
 
 static const struct net_device_ops ni5010_netdev_ops = {
@@ -190,6 +199,11 @@ static const struct net_device_ops ni5010_netdev_ops = {
 	.ndo_change_mtu		= eth_change_mtu,
 };
 
+/*
+ *      This is the real probe routine.  Linux has a history of friendly device
+ *      probes on the ISA bus.  A good device probes avoids doing writes, and
+ *      verifies that the correct device exists and functions.
+ */
 
 static int __init ni5010_probe1(struct net_device *dev, int ioaddr)
 {
@@ -206,6 +220,19 @@ static int __init ni5010_probe1(struct net_device *dev, int ioaddr)
 	if (!request_region(ioaddr, NI5010_IO_EXTENT, boardname))
 		return -EBUSY;
 
+	/*
+	 * This is no "official" probe method, I've rather tested which
+	 * probe works best with my seven NI5010 cards
+	 * (they have very different serial numbers)
+	 * Suggestions or failure reports are very, very welcome !
+	 * But I think it is a relatively good probe method
+	 * since it doesn't use any "outb"
+	 * It should be nearly 100% reliable !
+	 * well-known WARNING: this probe method (like many others)
+	 * will hang the system if a NE2000 card region is probed !
+	 *
+	 *   - Andreas
+	 */
 
  	PRINTK2((KERN_DEBUG "%s: entering ni5010_probe1(%#3x)\n",
  		dev->name, ioaddr));
@@ -281,10 +308,10 @@ static int __init ni5010_probe1(struct net_device *dev, int ioaddr)
 	} else if (dev->irq == 2) {
 		dev->irq = 9;
 	}
-#endif	
+#endif	/* JUMPERED_INTERRUPTS */
 	PRINTK2((KERN_DEBUG "%s: I/O #9 passed!\n", dev->name));
 
-	
+	/* DMA is not supported (yet?), so no use detecting it */
 	lp = netdev_priv(dev);
 
 	spin_lock_init(&lp->lock);
@@ -296,32 +323,32 @@ static int __init ni5010_probe1(struct net_device *dev, int ioaddr)
  * i.e. data for offs. 0x801 is written to 0x1 with a 2K onboard buffer
  */
 	if (!bufsize_rcv) {
-        	outb(1, IE_MMODE);      
-        	outw(0, IE_GP);		
-        	outb(0, IE_RBUF);	
+        	outb(1, IE_MMODE);      /* Put Rcv buffer on system bus */
+        	outw(0, IE_GP);		/* Point GP at start of packet */
+        	outb(0, IE_RBUF);	/* set buffer byte 0 to 0 */
         	for (i = 1; i < 0xff; i++) {
-                	outw(i << 8, IE_GP); 
+                	outw(i << 8, IE_GP); /* Point GP at packet size to be tested */
                 	outb(i, IE_RBUF);
-                	outw(0x0, IE_GP); 
+                	outw(0x0, IE_GP); /* Point GP at start of packet */
                 	data = inb(IE_RBUF);
                 	if (data == i) break;
         	}
 		bufsize_rcv = i << 8;
-        	outw(0, IE_GP);		
-        	outb(0, IE_RBUF);	
+        	outw(0, IE_GP);		/* Point GP at start of packet */
+        	outb(0, IE_RBUF);	/* set buffer byte 0 to 0 again */
 	}
         printk("-> bufsize rcv/xmt=%d/%d\n", bufsize_rcv, NI5010_BUFSIZE);
 
 	dev->netdev_ops		= &ni5010_netdev_ops;
 	dev->watchdog_timeo	= HZ/20;
 
-	dev->flags &= ~IFF_MULTICAST;	
+	dev->flags &= ~IFF_MULTICAST;	/* Multicast doesn't work */
 
-	
-	outb(0, EDLC_RMASK);	
-	outb(0, EDLC_XMASK);	
-	outb(0xff, EDLC_RCLR);	
-	outb(0xff, EDLC_XCLR); 	
+	/* Shut up the ni5010 */
+	outb(0, EDLC_RMASK);	/* Mask all receive interrupts */
+	outb(0, EDLC_XMASK);	/* Mask all xmit interrupts */
+	outb(0xff, EDLC_RCLR);	/* Kill all pending rcv interrupts */
+	outb(0xff, EDLC_XCLR); 	/* Kill all pending xmt interrupts */
 
 	printk(KERN_INFO "%s: NI5010 found at 0x%x, using IRQ %d", dev->name, ioaddr, dev->irq);
 	if (dev->dma)
@@ -333,6 +360,14 @@ out:
 	return err;
 }
 
+/*
+ * Open/initialize the board.  This is called (in the current kernel)
+ * sometime after booting when the 'ifconfig' program is run.
+ *
+ * This routine should set everything up anew at each open, even
+ * registers that "should" only need to be set once at boot, so that
+ * there is a non-reboot way to recover if something goes wrong.
+ */
 
 static int ni5010_open(struct net_device *dev)
 {
@@ -346,37 +381,41 @@ static int ni5010_open(struct net_device *dev)
 		return -EAGAIN;
 	}
 	PRINTK3((KERN_DEBUG "%s: passed open() #1\n", dev->name));
+        /*
+         * Always allocate the DMA channel after the IRQ,
+         * and clean up on failure.
+         */
 #ifdef JUMPERED_DMA
         if (request_dma(dev->dma, cardname)) {
 		printk(KERN_WARNING "%s: Cannot get dma %#2x\n", dev->name, dev->dma);
                 free_irq(dev->irq, NULL);
                 return -EAGAIN;
         }
-#endif	
+#endif	/* JUMPERED_DMA */
 
 	PRINTK3((KERN_DEBUG "%s: passed open() #2\n", dev->name));
-	
+	/* Reset the hardware here.  Don't forget to set the station address. */
 
-	outb(RS_RESET, EDLC_RESET);	
-	outb(0, IE_RESET);		
-	outb(XMD_LBC, EDLC_XMODE);	
+	outb(RS_RESET, EDLC_RESET);	/* Hold up EDLC_RESET while configing board */
+	outb(0, IE_RESET);		/* Hardware reset of ni5010 board */
+	outb(XMD_LBC, EDLC_XMODE);	/* Only loopback xmits */
 
 	PRINTK3((KERN_DEBUG "%s: passed open() #3\n", dev->name));
-	
+	/* Set the station address */
 	for(i = 0;i < 6; i++) {
 		outb(dev->dev_addr[i], EDLC_ADDR + i);
 	}
 
 	PRINTK3((KERN_DEBUG "%s: Initialising ni5010\n", dev->name));
-	outb(0, EDLC_XMASK);	
+	outb(0, EDLC_XMASK);	/* No xmit interrupts for now */
 	outb(XMD_IG_PAR | XMD_T_MODE | XMD_LBC, EDLC_XMODE);
-				
-	outb(0xff, EDLC_XCLR);	
+				/* Normal packet xmit mode */
+	outb(0xff, EDLC_XCLR);	/* Clear all pending xmit interrupts */
 	outb(RMD_BROADCAST, EDLC_RMODE);
-				
-	reset_receiver(dev);	
+				/* Receive broadcast and normal packets */
+	reset_receiver(dev);	/* Ready ni5010 for receiving packets */
 
-	outb(0, EDLC_RESET);	
+	outb(0, EDLC_RESET);	/* Un-reset the ni5010 */
 
 	netif_start_queue(dev);
 
@@ -391,21 +430,21 @@ static void reset_receiver(struct net_device *dev)
 	int ioaddr = dev->base_addr;
 
 	PRINTK3((KERN_DEBUG "%s: resetting receiver\n", dev->name));
-	outw(0, IE_GP);		
-	outb(0xff, EDLC_RCLR);	
-	outb(0, IE_MMODE);	
-	outb(MM_EN_RCV, IE_MMODE); 
-	outb(0xff, EDLC_RMASK);	
+	outw(0, IE_GP);		/* Receive packet at start of buffer */
+	outb(0xff, EDLC_RCLR);	/* Clear all pending rcv interrupts */
+	outb(0, IE_MMODE);	/* Put EDLC to rcv buffer */
+	outb(MM_EN_RCV, IE_MMODE); /* Enable rcv */
+	outb(0xff, EDLC_RMASK);	/* Enable all rcv interrupts */
 }
 
 static void ni5010_timeout(struct net_device *dev)
 {
 	printk(KERN_WARNING "%s: transmit timed out, %s?\n", dev->name,
 		   tx_done(dev) ? "IRQ conflict" : "network cable problem");
-	
-	
+	/* Try to restart the adaptor. */
+	/* FIXME: Give it a real kick here */
 	chipset_init(dev, 1);
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue(dev);
 }
 
@@ -415,6 +454,9 @@ static int ni5010_send_packet(struct sk_buff *skb, struct net_device *dev)
 
 	PRINTK2((KERN_DEBUG "%s: entering ni5010_send_packet\n", dev->name));
 
+	/*
+         * Block sending
+	 */
 
 	netif_stop_queue(dev);
 	hardware_send_packet(dev, (unsigned char *)skb->data, skb->len, length-skb->len);
@@ -422,6 +464,10 @@ static int ni5010_send_packet(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 }
 
+/*
+ * The typical workload of the driver:
+ * Handle the network interface interrupts.
+ */
 static irqreturn_t ni5010_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
@@ -446,7 +492,7 @@ static irqreturn_t ni5010_interrupt(int irq, void *dev_id)
 
         if ((status & IS_DMA_INT) == 0) {
                 PRINTK((KERN_DEBUG "%s: DMA complete (?)\n", dev->name));
-                outb(0, IE_DMA_RST); 
+                outb(0, IE_DMA_RST); /* Reset DMA int */
         }
 
 	if (!xmit_was_error)
@@ -470,6 +516,7 @@ static void dump_packet(void *buf, int len)
 	printk("\n");
 }
 
+/* We have a good packet, get it out of the buffer. */
 static void ni5010_rx(struct net_device *dev)
 {
 	int ioaddr = dev->base_addr;
@@ -489,11 +536,11 @@ static void ni5010_rx(struct net_device *dev)
 		if (rcv_stat & RS_ALIGN) dev->stats.rx_frame_errors++;
 		if (rcv_stat & RS_CRC_ERR) dev->stats.rx_crc_errors++;
 		if (rcv_stat & RS_OFLW) dev->stats.rx_fifo_errors++;
-        	outb(0xff, EDLC_RCLR); 
+        	outb(0xff, EDLC_RCLR); /* Clear the interrupt */
 		return;
 	}
 
-        outb(0xff, EDLC_RCLR);  
+        outb(0xff, EDLC_RCLR);  /* Clear the interrupt */
 
 	i_pkt_size = inw(IE_RCNT);
 	if (i_pkt_size > ETH_FRAME_LEN || i_pkt_size < 10 ) {
@@ -504,7 +551,7 @@ static void ni5010_rx(struct net_device *dev)
 		return;
 	}
 
-	
+	/* Malloc up new buffer. */
 	skb = netdev_alloc_skb(dev, i_pkt_size + 3);
 	if (skb == NULL) {
 		printk(KERN_WARNING "%s: Memory squeeze, dropping packet.\n", dev->name);
@@ -514,9 +561,9 @@ static void ni5010_rx(struct net_device *dev)
 
 	skb_reserve(skb, 2);
 
-	
-        outb(MM_MUX, IE_MMODE); 
-	outw(0, IE_GP);	
+	/* Read packet into buffer */
+        outb(MM_MUX, IE_MMODE); /* Rcv buffer to system bus */
+	outw(0, IE_GP);	/* Seek to beginning of packet */
 	insb(IE_RBUF, skb_put(skb, i_pkt_size), i_pkt_size);
 
 	if (NI5010_DEBUG >= 4)
@@ -542,21 +589,21 @@ static int process_xmt_interrupt(struct net_device *dev)
 	xmit_stat = inb(EDLC_XSTAT);
 	PRINTK3((KERN_DEBUG "%s: EDLC_XSTAT = %2.2x\n", dev->name, xmit_stat));
 
-	outb(0, EDLC_XMASK);	
-	outb(0xff, EDLC_XCLR);	
+	outb(0, EDLC_XMASK);	/* Disable xmit IRQ's */
+	outb(0xff, EDLC_XCLR);	/* Clear all pending xmit IRQ's */
 
 	if (xmit_stat & XS_COLL){
 		PRINTK((KERN_DEBUG "%s: collision detected, retransmitting\n",
 			dev->name));
 		outw(NI5010_BUFSIZE - lp->o_pkt_size, IE_GP);
-		 
+		/* outb(0, IE_MMODE); */ /* xmt buf on sysbus FIXME: needed ? */
 		outb(MM_EN_XMT | MM_MUX, IE_MMODE);
-		outb(XM_ALL, EDLC_XMASK); 
+		outb(XM_ALL, EDLC_XMASK); /* Enable xmt IRQ's */
 		dev->stats.collisions++;
 		return 1;
 	}
 
-	
+	/* FIXME: handle other xmt error conditions */
 
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += lp->o_pkt_size;
@@ -568,6 +615,7 @@ static int process_xmt_interrupt(struct net_device *dev)
 	return 0;
 }
 
+/* The inverse routine to ni5010_open(). */
 static int ni5010_close(struct net_device *dev)
 {
 	int ioaddr = dev->base_addr;
@@ -576,7 +624,7 @@ static int ni5010_close(struct net_device *dev)
 #ifdef JUMPERED_INTERRUPTS
 	free_irq(dev->irq, NULL);
 #endif
-	
+	/* Put card in held-RESET state */
 	outb(0, IE_MMODE);
 	outb(RS_RESET, EDLC_RESET);
 
@@ -587,6 +635,12 @@ static int ni5010_close(struct net_device *dev)
 
 }
 
+/* Set or clear the multicast filter for this adaptor.
+   num_addrs == -1      Promiscuous mode, receive all packets
+   num_addrs == 0       Normal mode, clear multicast list
+   num_addrs > 0        Multicast mode, receive normal and MC packets, and do
+                        best-effort filtering.
+*/
 static void ni5010_set_multicast_list(struct net_device *dev)
 {
 	short ioaddr = dev->base_addr;
@@ -595,11 +649,11 @@ static void ni5010_set_multicast_list(struct net_device *dev)
 
 	if (dev->flags & IFF_PROMISC || dev->flags & IFF_ALLMULTI ||
 	    !netdev_mc_empty(dev)) {
-		outb(RMD_PROMISC, EDLC_RMODE); 
+		outb(RMD_PROMISC, EDLC_RMODE); /* Enable promiscuous mode */
 		PRINTK((KERN_DEBUG "%s: Entering promiscuous mode\n", dev->name));
 	} else {
 		PRINTK((KERN_DEBUG "%s: Entering broadcast mode\n", dev->name));
-		outb(RMD_BROADCAST, EDLC_RMODE);  
+		outb(RMD_BROADCAST, EDLC_RMODE);  /* Disable promiscuous mode, use normal mode */
 	}
 }
 
@@ -633,21 +687,21 @@ static void hardware_send_packet(struct net_device *dev, char *buf, int length, 
 	spin_lock_irqsave(&lp->lock, flags);
 	lp->o_pkt_size = length + pad;
 
-	outb(0, EDLC_RMASK);	
-	outb(0, IE_MMODE);	
-	outb(0xff, EDLC_RCLR);	
+	outb(0, EDLC_RMASK);	/* Mask all receive interrupts */
+	outb(0, IE_MMODE);	/* Put Xmit buffer on system bus */
+	outb(0xff, EDLC_RCLR);	/* Clear out pending rcv interrupts */
 
-	outw(buf_offs, IE_GP); 
-	outsb(IE_XBUF, buf, length); 
+	outw(buf_offs, IE_GP); /* Point GP at start of packet */
+	outsb(IE_XBUF, buf, length); /* Put data in buffer */
 	while(pad--)
 		outb(0, IE_XBUF);
 
-	outw(buf_offs, IE_GP); 
+	outw(buf_offs, IE_GP); /* Rewrite where packet starts */
 
-	
-	 
-	outb(MM_EN_XMT | MM_MUX, IE_MMODE); 
-	outb(XM_ALL, EDLC_XMASK); 
+	/* should work without that outb() (Crynwr used it) */
+	/*outb(MM_MUX, IE_MMODE);*/ /* Xmt buffer to EDLC bus */
+	outb(MM_EN_XMT | MM_MUX, IE_MMODE); /* Begin transmission */
+	outb(XM_ALL, EDLC_XMASK); /* Cause interrupt after completion or fail */
 
 	spin_unlock_irqrestore(&lp->lock, flags);
 
@@ -658,7 +712,7 @@ static void hardware_send_packet(struct net_device *dev, char *buf, int length, 
 
 static void chipset_init(struct net_device *dev, int startp)
 {
-	
+	/* FIXME: Move some stuff here */
 	PRINTK3((KERN_DEBUG "%s: doing NOTHING in chipset_init\n", dev->name));
 }
 
@@ -686,6 +740,13 @@ MODULE_PARM_DESC(irq, "ni5010 IRQ number");
 static int __init ni5010_init_module(void)
 {
 	PRINTK2((KERN_DEBUG "%s: entering init_module\n", boardname));
+	/*
+	if(io <= 0 || irq == 0){
+	   	printk(KERN_WARNING "%s: Autoprobing not allowed for modules.\n", boardname);
+		printk(KERN_WARNING "%s: Set symbols 'io' and 'irq'\n", boardname);
+	   	return -EINVAL;
+	}
+	*/
 	if (io <= 0){
 		printk(KERN_WARNING "%s: Autoprobing for modules is hazardous, trying anyway..\n", boardname);
 	}
@@ -706,5 +767,5 @@ static void __exit ni5010_cleanup_module(void)
 }
 module_init(ni5010_init_module);
 module_exit(ni5010_cleanup_module);
-#endif 
+#endif /* MODULE */
 MODULE_LICENSE("GPL");

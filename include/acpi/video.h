@@ -1,7 +1,7 @@
 #ifndef __ACPI_VIDEO_H
 #define __ACPI_VIDEO_H
 
-#include <linux/errno.h> 
+#include <linux/errno.h> /* for ENODEV */
 
 struct acpi_device;
 

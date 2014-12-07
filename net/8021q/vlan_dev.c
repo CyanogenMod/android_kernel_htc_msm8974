@@ -35,6 +35,16 @@
 #include <linux/if_vlan.h>
 #include <linux/netpoll.h>
 
+/*
+ *	Rebuild the Ethernet MAC header. This is called after an ARP
+ *	(or in future other address resolution) has completed on this
+ *	sk_buff. We now let ARP fill in the other fields.
+ *
+ *	This routine CANNOT use cached dst->neigh!
+ *	Really, it is used only when dst->neigh is wrong.
+ *
+ * TODO:  This needs a checkup, I'm ignorant here. --BLG
+ */
 static int vlan_dev_rebuild_header(struct sk_buff *skb)
 {
 	struct net_device *dev = skb->dev;
@@ -44,7 +54,7 @@ static int vlan_dev_rebuild_header(struct sk_buff *skb)
 #ifdef CONFIG_INET
 	case htons(ETH_P_IP):
 
-		
+		/* TODO:  Confirm this will work with VLAN headers... */
 		return arp_find(veth->h_dest, skb);
 #endif
 	default:
@@ -66,13 +76,24 @@ vlan_dev_get_egress_qos_mask(struct net_device *dev, struct sk_buff *skb)
 	mp = vlan_dev_priv(dev)->egress_priority_map[(skb->priority & 0xF)];
 	while (mp) {
 		if (mp->priority == skb->priority) {
-			return mp->vlan_qos; 
+			return mp->vlan_qos; /* This should already be shifted
+					      * to mask correctly with the
+					      * VLAN's TCI */
 		}
 		mp = mp->next;
 	}
 	return 0;
 }
 
+/*
+ *	Create the VLAN header for an arbitrary protocol layer
+ *
+ *	saddr=NULL	means use device source address
+ *	daddr=NULL	means leave destination address (eg unresolved arp)
+ *
+ *  This is called when the SKB is moving down the stack towards the
+ *  physical devices.
+ */
 static int vlan_dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 				unsigned short type,
 				const void *daddr, const void *saddr,
@@ -90,6 +111,10 @@ static int vlan_dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 		vlan_tci |= vlan_dev_get_egress_qos_mask(dev, skb);
 		vhdr->h_vlan_TCI = htons(vlan_tci);
 
+		/*
+		 *  Set the protocol type. For a packet of type ETH_P_802_3/2 we
+		 *  put the length in here instead.
+		 */
 		if (type != ETH_P_802_3 && type != ETH_P_802_2)
 			vhdr->h_vlan_encapsulated_proto = htons(type);
 		else
@@ -100,11 +125,11 @@ static int vlan_dev_hard_header(struct sk_buff *skb, struct net_device *dev,
 		vhdrlen = VLAN_HLEN;
 	}
 
-	
+	/* Before delegating work to the lower layer, enter our MAC-address */
 	if (saddr == NULL)
 		saddr = dev->dev_addr;
 
-	
+	/* Now make the underlying real hard header */
 	dev = vlan_dev_priv(dev)->real_dev;
 	rc = dev_hard_header(skb, dev, type, daddr, saddr, len + vhdrlen);
 	if (rc > 0)
@@ -119,6 +144,11 @@ static netdev_tx_t vlan_dev_hard_start_xmit(struct sk_buff *skb,
 	unsigned int len;
 	int ret;
 
+	/* Handle non-VLAN frames if they are sent to us, for example by DHCP.
+	 *
+	 * NOTE: THIS ASSUMES DIX ETHERNET, SPECIFICALLY NOT SUPPORTING
+	 * OTHER THINGS LIKE FDDI/TokenRing/802.3 SNAPs...
+	 */
 	if (veth->h_vlan_proto != htons(ETH_P_8021Q) ||
 	    vlan_dev_priv(dev)->flags & VLAN_FLAG_REORDER_HDR) {
 		u16 vlan_tci;
@@ -150,6 +180,9 @@ static netdev_tx_t vlan_dev_hard_start_xmit(struct sk_buff *skb,
 
 static int vlan_dev_change_mtu(struct net_device *dev, int new_mtu)
 {
+	/* TODO: gotta make sure the underlying layer can handle it,
+	 * maybe an IFF_VLAN_CAPABLE flag for devices?
+	 */
 	if (vlan_dev_priv(dev)->real_dev->mtu < new_mtu)
 		return -ERANGE;
 
@@ -179,7 +212,7 @@ int vlan_dev_set_egress_priority(const struct net_device *dev,
 	struct vlan_priority_tci_mapping *np;
 	u32 vlan_qos = (vlan_prio << VLAN_PRIO_SHIFT) & VLAN_PRIO_MASK;
 
-	
+	/* See if a priority mapping exists.. */
 	mp = vlan->egress_priority_map[skb_prio & 0xF];
 	while (mp) {
 		if (mp->priority == skb_prio) {
@@ -193,7 +226,7 @@ int vlan_dev_set_egress_priority(const struct net_device *dev,
 		mp = mp->next;
 	}
 
-	
+	/* Create a new mapping then. */
 	mp = vlan->egress_priority_map[skb_prio & 0xF];
 	np = kmalloc(sizeof(struct vlan_priority_tci_mapping), GFP_KERNEL);
 	if (!np)
@@ -208,6 +241,7 @@ int vlan_dev_set_egress_priority(const struct net_device *dev,
 	return 0;
 }
 
+/* Flags are defined in the vlan_flags enum in include/linux/if_vlan.h file. */
 int vlan_dev_change_flags(const struct net_device *dev, u32 flags, u32 mask)
 {
 	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
@@ -453,6 +487,11 @@ static void vlan_dev_set_rx_mode(struct net_device *vlan_dev)
 	dev_uc_sync(vlan_dev_priv(vlan_dev)->real_dev, vlan_dev);
 }
 
+/*
+ * vlan network devices have devices nesting below it, and are a special
+ * "super class" of normal network devices; split their locks off into a
+ * separate class since they always nest.
+ */
 static struct lock_class_key vlan_netdev_xmit_lock_key;
 static struct lock_class_key vlan_netdev_addr_lock_key;
 
@@ -488,7 +527,7 @@ static int vlan_dev_init(struct net_device *dev)
 
 	netif_carrier_off(dev);
 
-	
+	/* IFF_BROADCAST|IFF_MULTICAST; ??? */
 	dev->flags  = real_dev->flags & ~(IFF_UP | IFF_PROMISC | IFF_ALLMULTI |
 					  IFF_MASTER | IFF_SLAVE);
 	dev->iflink = real_dev->ifindex;
@@ -504,7 +543,7 @@ static int vlan_dev_init(struct net_device *dev)
 	dev->features |= real_dev->vlan_features | NETIF_F_LLTX;
 	dev->gso_max_size = real_dev->gso_max_size;
 
-	
+	/* ipv6 shared card related stuff */
 	dev->dev_id = real_dev->dev_id;
 
 	if (is_zero_ether_addr(dev->dev_addr))
@@ -614,7 +653,7 @@ static struct rtnl_link_stats64 *vlan_dev_get_stats64(struct net_device *dev, st
 			stats->multicast	+= rxmulticast;
 			stats->tx_packets	+= txpackets;
 			stats->tx_bytes		+= txbytes;
-			
+			/* rx_errors & tx_dropped are u32 */
 			rx_errors	+= p->rx_errors;
 			tx_dropped	+= p->tx_dropped;
 		}
@@ -667,13 +706,13 @@ static void vlan_dev_netpoll_cleanup(struct net_device *dev)
 
 	info->netpoll = NULL;
 
-        
+        /* Wait for transmitting packets to finish before freeing. */
         synchronize_rcu_bh();
 
         __netpoll_cleanup(netpoll);
         kfree(netpoll);
 }
-#endif 
+#endif /* CONFIG_NET_POLL_CONTROLLER */
 
 static const struct ethtool_ops vlan_ethtool_ops = {
 	.get_settings	        = vlan_ethtool_get_settings,

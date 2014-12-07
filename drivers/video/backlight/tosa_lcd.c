@@ -62,21 +62,21 @@ static int tosa_tg_send(struct spi_device *spi, int adrs, uint8_t data)
 
 int tosa_bl_enable(struct spi_device *spi, int enable)
 {
-	
+	/* bl_enable GP04=1 otherwise GP04=0*/
 	return tosa_tg_send(spi, TG_GPODR2, enable? 0x01 : 0x00);
 }
 EXPORT_SYMBOL(tosa_bl_enable);
 
 static void tosa_lcd_tg_init(struct tosa_lcd_data *data)
 {
-	
+	/* TG on */
 	gpio_set_value(TOSA_GPIO_TG_ON, 0);
 
 	mdelay(60);
 
-	
+	/* delayed 0clk TCTL signal for VGA */
 	tosa_tg_send(data->spi, TG_TPOSCTL, 0x00);
-	
+	/* GPOS0=powercontrol, GPOS1=GPIO, GPOS2=TCTL */
 	tosa_tg_send(data->spi, TG_GPOSR, 0x02);
 }
 
@@ -90,16 +90,16 @@ static void tosa_lcd_tg_on(struct tosa_lcd_data *data)
 
 	tosa_tg_send(spi, TG_PNLCTL, value);
 
-	
+	/* TG LCD pannel power up */
 	tosa_tg_send(spi, TG_PINICTL,0x4);
 	mdelay(50);
 
-	
+	/* TG LCD GVSS */
 	tosa_tg_send(spi, TG_PINICTL,0x0);
 
 	if (!data->i2c) {
-		
-		
+		/* after the pannel is powered up the first time, we can access the i2c bus */
+		/* so probe for the DAC */
 		struct i2c_adapter *adap = i2c_get_adapter(0);
 		struct i2c_board_info info = {
 			.type	= "tosa-bl",
@@ -114,15 +114,15 @@ static void tosa_lcd_tg_off(struct tosa_lcd_data *data)
 {
 	struct spi_device *spi = data->spi;
 
-	
+	/* TG LCD VHSA off */
 	tosa_tg_send(spi, TG_PINICTL,0x4);
 	mdelay(50);
 
-	
+	/* TG LCD signal off */
 	tosa_tg_send(spi, TG_PINICTL,0x6);
 	mdelay(50);
 
-	
+	/* TG Off */
 	gpio_set_value(TOSA_GPIO_TG_ON, 1);
 	mdelay(100);
 }
@@ -178,8 +178,11 @@ static int __devinit tosa_lcd_probe(struct spi_device *spi)
 	if (!data)
 		return -ENOMEM;
 
-	data->is_vga = true; 
+	data->is_vga = true; /* default to VGA mode */
 
+	/*
+	 * bits_per_word cannot be configured in platform data
+	 */
 	spi->bits_per_word = 8;
 
 	ret = spi_setup(spi);

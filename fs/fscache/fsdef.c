@@ -24,6 +24,30 @@ enum fscache_checkaux fscache_fsdef_netfs_check_aux(void *cookie_netfs_data,
 						    const void *data,
 						    uint16_t datalen);
 
+/*
+ * The root index is owned by FS-Cache itself.
+ *
+ * When a netfs requests caching facilities, FS-Cache will, if one doesn't
+ * already exist, create an entry in the root index with the key being the name
+ * of the netfs ("AFS" for example), and the auxiliary data holding the index
+ * structure version supplied by the netfs:
+ *
+ *				     FSDEF
+ *				       |
+ *				 +-----------+
+ *				 |           |
+ *				NFS         AFS
+ *			       [v=1]       [v=1]
+ *
+ * If an entry with the appropriate name does already exist, the version is
+ * compared.  If the version is different, the entire subtree from that entry
+ * will be discarded and a new entry created.
+ *
+ * The new entry will be an index, and a cookie referring to it will be passed
+ * to the netfs.  This is then the root handle by which the netfs accesses the
+ * cache.  It can create whatever objects it likes in that index, including
+ * further indices.
+ */
 static struct fscache_cookie_def fscache_fsdef_index_def = {
 	.name		= ".FS-Cache",
 	.type		= FSCACHE_COOKIE_TYPE_INDEX,
@@ -37,6 +61,11 @@ struct fscache_cookie fscache_fsdef_index = {
 };
 EXPORT_SYMBOL(fscache_fsdef_index);
 
+/*
+ * Definition of an entry in the root index.  Each entry is an index, keyed to
+ * a specific netfs and only applicable to a particular version of the index
+ * structure used by that netfs.
+ */
 struct fscache_cookie_def fscache_fsdef_netfs_def = {
 	.name		= "FSDEF.netfs",
 	.type		= FSCACHE_COOKIE_TYPE_INDEX,
@@ -45,6 +74,10 @@ struct fscache_cookie_def fscache_fsdef_netfs_def = {
 	.check_aux	= fscache_fsdef_netfs_check_aux,
 };
 
+/*
+ * get the key data for an FSDEF index record - this is the name of the netfs
+ * for which this entry is created
+ */
 static uint16_t fscache_fsdef_netfs_get_key(const void *cookie_netfs_data,
 					    void *buffer, uint16_t bufmax)
 {
@@ -61,6 +94,10 @@ static uint16_t fscache_fsdef_netfs_get_key(const void *cookie_netfs_data,
 	return klen;
 }
 
+/*
+ * get the auxiliary data for an FSDEF index record - this is the index
+ * structure version number of the netfs for which this version is created
+ */
 static uint16_t fscache_fsdef_netfs_get_aux(const void *cookie_netfs_data,
 					    void *buffer, uint16_t bufmax)
 {
@@ -77,6 +114,10 @@ static uint16_t fscache_fsdef_netfs_get_aux(const void *cookie_netfs_data,
 	return dlen;
 }
 
+/*
+ * check that the index structure version number stored in the auxiliary data
+ * matches the one the netfs gave us
+ */
 static enum fscache_checkaux fscache_fsdef_netfs_check_aux(
 	void *cookie_netfs_data,
 	const void *data,

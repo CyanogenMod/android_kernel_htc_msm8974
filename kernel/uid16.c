@@ -1,3 +1,7 @@
+/*
+ *	Wrapper functions for 16bit uid back compatibility. All nicely tied
+ *	together in the faint hope we can take the out in five years time.
+ */
 
 #include <linux/mm.h>
 #include <linux/mman.h>
@@ -15,7 +19,7 @@
 SYSCALL_DEFINE3(chown16, const char __user *, filename, old_uid_t, user, old_gid_t, group)
 {
 	long ret = sys_chown(filename, low2highuid(user), low2highgid(group));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(3, ret, filename, user, group);
 	return ret;
 }
@@ -23,7 +27,7 @@ SYSCALL_DEFINE3(chown16, const char __user *, filename, old_uid_t, user, old_gid
 SYSCALL_DEFINE3(lchown16, const char __user *, filename, old_uid_t, user, old_gid_t, group)
 {
 	long ret = sys_lchown(filename, low2highuid(user), low2highgid(group));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(3, ret, filename, user, group);
 	return ret;
 }
@@ -31,7 +35,7 @@ SYSCALL_DEFINE3(lchown16, const char __user *, filename, old_uid_t, user, old_gi
 SYSCALL_DEFINE3(fchown16, unsigned int, fd, old_uid_t, user, old_gid_t, group)
 {
 	long ret = sys_fchown(fd, low2highuid(user), low2highgid(group));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(3, ret, fd, user, group);
 	return ret;
 }
@@ -39,7 +43,7 @@ SYSCALL_DEFINE3(fchown16, unsigned int, fd, old_uid_t, user, old_gid_t, group)
 SYSCALL_DEFINE2(setregid16, old_gid_t, rgid, old_gid_t, egid)
 {
 	long ret = sys_setregid(low2highgid(rgid), low2highgid(egid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(2, ret, rgid, egid);
 	return ret;
 }
@@ -47,7 +51,7 @@ SYSCALL_DEFINE2(setregid16, old_gid_t, rgid, old_gid_t, egid)
 SYSCALL_DEFINE1(setgid16, old_gid_t, gid)
 {
 	long ret = sys_setgid(low2highgid(gid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(1, ret, gid);
 	return ret;
 }
@@ -55,7 +59,7 @@ SYSCALL_DEFINE1(setgid16, old_gid_t, gid)
 SYSCALL_DEFINE2(setreuid16, old_uid_t, ruid, old_uid_t, euid)
 {
 	long ret = sys_setreuid(low2highuid(ruid), low2highuid(euid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(2, ret, ruid, euid);
 	return ret;
 }
@@ -63,7 +67,7 @@ SYSCALL_DEFINE2(setreuid16, old_uid_t, ruid, old_uid_t, euid)
 SYSCALL_DEFINE1(setuid16, old_uid_t, uid)
 {
 	long ret = sys_setuid(low2highuid(uid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(1, ret, uid);
 	return ret;
 }
@@ -72,7 +76,7 @@ SYSCALL_DEFINE3(setresuid16, old_uid_t, ruid, old_uid_t, euid, old_uid_t, suid)
 {
 	long ret = sys_setresuid(low2highuid(ruid), low2highuid(euid),
 				 low2highuid(suid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(3, ret, ruid, euid, suid);
 	return ret;
 }
@@ -93,7 +97,7 @@ SYSCALL_DEFINE3(setresgid16, old_gid_t, rgid, old_gid_t, egid, old_gid_t, sgid)
 {
 	long ret = sys_setresgid(low2highgid(rgid), low2highgid(egid),
 				 low2highgid(sgid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(3, ret, rgid, egid, sgid);
 	return ret;
 }
@@ -114,7 +118,7 @@ SYSCALL_DEFINE3(getresgid16, old_gid_t __user *, rgid, old_gid_t __user *, egid,
 SYSCALL_DEFINE1(setfsuid16, old_uid_t, uid)
 {
 	long ret = sys_setfsuid(low2highuid(uid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(1, ret, uid);
 	return ret;
 }
@@ -122,7 +126,7 @@ SYSCALL_DEFINE1(setfsuid16, old_uid_t, uid)
 SYSCALL_DEFINE1(setfsgid16, old_gid_t, gid)
 {
 	long ret = sys_setfsgid(low2highgid(gid));
-	
+	/* avoid REGPARM breakage on x86: */
 	asmlinkage_protect(1, ret, gid);
 	return ret;
 }

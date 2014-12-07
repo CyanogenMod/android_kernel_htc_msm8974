@@ -31,7 +31,15 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 
+/*
+ * The DaVinci RTC is a simple RTC with the following
+ * Sec: 0 - 59 : BCD count
+ * Min: 0 - 59 : BCD count
+ * Hour: 0 - 23 : BCD count
+ * Day: 0 - 0x7FFF(32767) : Binary count ( Over 89 years )
+ */
 
+/* PRTC interface registers */
 #define DAVINCI_PRTCIF_PID		0x00
 #define PRTCIF_CTLR			0x04
 #define PRTCIF_LDATA			0x08
@@ -39,6 +47,7 @@
 #define PRTCIF_INTEN			0x10
 #define PRTCIF_INTFLG			0x14
 
+/* PRTCIF_CTLR bit fields */
 #define PRTCIF_CTLR_BUSY		BIT(31)
 #define PRTCIF_CTLR_SIZE		BIT(25)
 #define PRTCIF_CTLR_DIR			BIT(24)
@@ -53,16 +62,19 @@
 #define PRTCIF_CTLR_BENL_LSB		BIT(16)
 #define PRTCIF_CTLR_BENL_MASK		(0x000F0000)
 
+/* PRTCIF_INTEN bit fields */
 #define PRTCIF_INTEN_RTCSS		BIT(1)
 #define PRTCIF_INTEN_RTCIF		BIT(0)
 #define PRTCIF_INTEN_MASK		(PRTCIF_INTEN_RTCSS \
 					| PRTCIF_INTEN_RTCIF)
 
+/* PRTCIF_INTFLG bit fields */
 #define PRTCIF_INTFLG_RTCSS		BIT(1)
 #define PRTCIF_INTFLG_RTCIF		BIT(0)
 #define PRTCIF_INTFLG_MASK		(PRTCIF_INTFLG_RTCSS \
 					| PRTCIF_INTFLG_RTCIF)
 
+/* PRTC subsystem registers */
 #define PRTCSS_RTC_INTC_EXTENA1		(0x0C)
 #define PRTCSS_RTC_CTRL			(0x10)
 #define PRTCSS_RTC_WDT			(0x11)
@@ -80,8 +92,10 @@
 #define PRTCSS_RTC_ADAY1		(0x1D)
 #define PRTCSS_RTC_CLKC_CNT		(0x20)
 
+/* PRTCSS_RTC_INTC_EXTENA1 */
 #define PRTCSS_RTC_INTC_EXTENA1_MASK	(0x07)
 
+/* PRTCSS_RTC_CTRL bit fields */
 #define PRTCSS_RTC_CTRL_WDTBUS		BIT(7)
 #define PRTCSS_RTC_CTRL_WEN		BIT(6)
 #define PRTCSS_RTC_CTRL_WDRT		BIT(5)
@@ -91,6 +105,7 @@
 #define PRTCSS_RTC_CTRL_TMRFLG		BIT(1)
 #define PRTCSS_RTC_CTRL_TMMD		BIT(0)
 
+/* PRTCSS_RTC_CCTRL bit fields */
 #define PRTCSS_RTC_CCTRL_CALBUSY	BIT(7)
 #define PRTCSS_RTC_CCTRL_DAEN		BIT(5)
 #define PRTCSS_RTC_CCTRL_HAEN		BIT(4)
@@ -258,7 +273,7 @@ static int convert2days(u16 *days, struct rtc_time *tm)
 	int i;
 	*days = 0;
 
-	
+	/* epoch == 1900 */
 	if (tm->tm_year < 100 || tm->tm_year > 199)
 		return -EINVAL;
 
@@ -533,7 +548,7 @@ static int __init davinci_rtc_probe(struct platform_device *pdev)
 		goto fail4;
 	}
 
-	
+	/* Enable interrupts */
 	rtcif_write(davinci_rtc, PRTCIF_INTEN_RTCSS, PRTCIF_INTEN);
 	rtcss_write(davinci_rtc, PRTCSS_RTC_INTC_EXTENA1_MASK,
 			    PRTCSS_RTC_INTC_EXTENA1);

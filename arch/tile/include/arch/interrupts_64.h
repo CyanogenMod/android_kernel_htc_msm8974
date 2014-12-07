@@ -15,20 +15,26 @@
 #ifndef __ARCH_INTERRUPTS_H__
 #define __ARCH_INTERRUPTS_H__
 
+/** Mask for an interrupt. */
 #ifdef __ASSEMBLER__
+/* Note: must handle breaking interrupts into high and low words manually. */
 #define INT_MASK(intno) (1 << (intno))
 #else
 #define INT_MASK(intno) (1ULL << (intno))
 #endif
 
 
+/** Where a given interrupt executes */
 #define INTERRUPT_VECTOR(i, pl) (0xFC000000 + ((pl) << 24) + ((i) << 8))
 
+/** Where to store a vector for a given interrupt. */
 #define USER_INTERRUPT_VECTOR(i) INTERRUPT_VECTOR(i, 0)
 
+/** The base address of user-level interrupts. */
 #define USER_INTERRUPT_VECTOR_BASE INTERRUPT_VECTOR(0, 0)
 
 
+/** Additional synthetic interrupt. */
 #define INT_BREAKPOINT (63)
 
 #define INT_MEM_ERROR    0
@@ -266,5 +272,5 @@
     INT_MASK(INT_D_ASID) | \
     INT_MASK(INT_DOUBLE_FAULT) | \
     0)
-#endif 
-#endif 
+#endif /* !__ASSEMBLER__ */
+#endif /* !__ARCH_INTERRUPTS_H__ */

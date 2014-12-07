@@ -30,7 +30,7 @@ static void set_idt(void *newidt, __u16 limit)
 {
 	struct desc_ptr curidt;
 
-	
+	/* ia32 supports unaliged loads & stores */
 	curidt.size    = limit;
 	curidt.address = (unsigned long)newidt;
 
@@ -42,7 +42,7 @@ static void set_gdt(void *newgdt, __u16 limit)
 {
 	struct desc_ptr curgdt;
 
-	
+	/* ia32 supports unaligned loads & stores */
 	curgdt.size    = limit;
 	curgdt.address = (unsigned long)newgdt;
 
@@ -138,6 +138,21 @@ static void machine_kexec_prepare_page_tables(struct kimage *image)
 		__pa(control_page), __pa(control_page));
 }
 
+/*
+ * A architecture hook called to validate the
+ * proposed image and prepare the control pages
+ * as needed.  The pages for KEXEC_CONTROL_PAGE_SIZE
+ * have been allocated, but the segments have yet
+ * been copied into the kernel.
+ *
+ * Do what every setup is needed on image and the
+ * reboot code buffer to allow us to avoid allocations
+ * later.
+ *
+ * - Make control page executable.
+ * - Allocate page tables
+ * - Setup page tables
+ */
 int machine_kexec_prepare(struct kimage *image)
 {
 	int error;
@@ -150,12 +165,20 @@ int machine_kexec_prepare(struct kimage *image)
 	return 0;
 }
 
+/*
+ * Undo anything leftover by machine_kexec_prepare
+ * when an image is freed.
+ */
 void machine_kexec_cleanup(struct kimage *image)
 {
 	set_pages_nx(image->control_code_page, 1);
 	machine_kexec_free_page_tables(image);
 }
 
+/*
+ * Do not allocate memory (or fail in any way) in machine_kexec().
+ * We are past the point of no return, committed to rebooting now.
+ */
 void machine_kexec(struct kimage *image)
 {
 	unsigned long page_list[PAGES_NR];
@@ -175,12 +198,19 @@ void machine_kexec(struct kimage *image)
 
 	save_ftrace_enabled = __ftrace_enabled_save();
 
-	
+	/* Interrupts aren't acceptable while we reboot */
 	local_irq_disable();
 	hw_breakpoint_disable();
 
 	if (image->preserve_context) {
 #ifdef CONFIG_X86_IO_APIC
+		/*
+		 * We need to put APICs in legacy mode so that we can
+		 * get timer interrupts in second kernel. kexec/kdump
+		 * paths already have calls to disable_IO_APIC() in
+		 * one form or other. kexec jump path also need
+		 * one.
+		 */
 		disable_IO_APIC();
 #endif
 	}
@@ -197,11 +227,25 @@ void machine_kexec(struct kimage *image)
 		page_list[PA_SWAP_PAGE] = (page_to_pfn(image->swap_page)
 						<< PAGE_SHIFT);
 
+	/*
+	 * The segment registers are funny things, they have both a
+	 * visible and an invisible part.  Whenever the visible part is
+	 * set to a specific selector, the invisible part is loaded
+	 * with from a table in memory.  At no other time is the
+	 * descriptor table in memory accessed.
+	 *
+	 * I take advantage of this here by force loading the
+	 * segments, before I zap the gdt with an invalid value.
+	 */
 	load_segments();
+	/*
+	 * The gdt & idt are now invalid.
+	 * If you want to load them you must set up your own idt & gdt.
+	 */
 	set_gdt(phys_to_virt(0), 0);
 	set_idt(phys_to_virt(0), 0);
 
-	
+	/* now call it */
 	image->start = relocate_kernel_ptr((unsigned long)image->head,
 					   (unsigned long)page_list,
 					   image->start, cpu_has_pae,

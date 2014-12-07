@@ -34,6 +34,11 @@
 static dma_addr_t msm_cache_dump_addr;
 static void *msm_cache_dump_vaddr;
 
+/*
+ * These should not actually be dereferenced. There's no
+ * need for a virtual mapping, but the physical address is
+ * necessary.
+ */
 static struct l1_cache_dump *l1_dump;
 static struct l2_cache_dump *l2_dump;
 static int use_imem_dump_offset;
@@ -56,6 +61,10 @@ static int msm_cache_dump_panic(struct notifier_block *this,
 
 static struct notifier_block msm_cache_dump_blk = {
 	.notifier_call  = msm_cache_dump_panic,
+	/*
+	 * higher priority to ensure this runs before another panic handler
+	 * flushes the caches.
+	 */
 	.priority = 1,
 };
 
@@ -88,7 +97,7 @@ static int msm_cache_dump_probe(struct platform_device *pdev)
 		l1_size = d->l1_size;
 		l2_size = d->l2_size;
 
-		
+		/* Non-DT targets assume the IMEM dump offset shall be used */
 		use_imem_dump_offset = 1;
 	};
 
@@ -104,7 +113,7 @@ static int msm_cache_dump_probe(struct platform_device *pdev)
 	}
 
 	memset(msm_cache_dump_vaddr, 0xFF, total_size);
-	
+	/* Clean caches before sending buffer to TZ */
 	clean_caches((unsigned long) msm_cache_dump_vaddr, total_size,
 			msm_cache_dump_addr);
 

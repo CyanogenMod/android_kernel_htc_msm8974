@@ -1,24 +1,27 @@
 #ifndef _ASM_X86_MSR_INDEX_H
 #define _ASM_X86_MSR_INDEX_H
 
+/* CPU model specific register (MSR) numbers */
 
-#define MSR_EFER		0xc0000080 
-#define MSR_STAR		0xc0000081 
-#define MSR_LSTAR		0xc0000082 
-#define MSR_CSTAR		0xc0000083 
-#define MSR_SYSCALL_MASK	0xc0000084 
-#define MSR_FS_BASE		0xc0000100 
-#define MSR_GS_BASE		0xc0000101 
-#define MSR_KERNEL_GS_BASE	0xc0000102 
-#define MSR_TSC_AUX		0xc0000103 
+/* x86-64 specific MSRs */
+#define MSR_EFER		0xc0000080 /* extended feature register */
+#define MSR_STAR		0xc0000081 /* legacy mode SYSCALL target */
+#define MSR_LSTAR		0xc0000082 /* long mode SYSCALL target */
+#define MSR_CSTAR		0xc0000083 /* compat mode SYSCALL target */
+#define MSR_SYSCALL_MASK	0xc0000084 /* EFLAGS mask for syscall */
+#define MSR_FS_BASE		0xc0000100 /* 64bit FS base */
+#define MSR_GS_BASE		0xc0000101 /* 64bit GS base */
+#define MSR_KERNEL_GS_BASE	0xc0000102 /* SwapGS GS shadow */
+#define MSR_TSC_AUX		0xc0000103 /* Auxiliary TSC */
 
-#define _EFER_SCE		0  
-#define _EFER_LME		8  
-#define _EFER_LMA		10 
-#define _EFER_NX		11 
-#define _EFER_SVME		12 
-#define _EFER_LMSLE		13 
-#define _EFER_FFXSR		14 
+/* EFER bits: */
+#define _EFER_SCE		0  /* SYSCALL/SYSRET */
+#define _EFER_LME		8  /* Long mode enable */
+#define _EFER_LMA		10 /* Long mode active (read-only) */
+#define _EFER_NX		11 /* No execute enable */
+#define _EFER_SVME		12 /* Enable virtualization */
+#define _EFER_LMSLE		13 /* Long Mode Segment Limit Enable */
+#define _EFER_FFXSR		14 /* Enable Fast FXSAVE/FXRSTOR */
 
 #define EFER_SCE		(1<<_EFER_SCE)
 #define EFER_LME		(1<<_EFER_LME)
@@ -28,6 +31,7 @@
 #define EFER_LMSLE		(1<<_EFER_LMSLE)
 #define EFER_FFXSR		(1<<_EFER_FFXSR)
 
+/* Intel MSRs. Some also available on other CPUs */
 #define MSR_IA32_PERFCTR0		0x000000c1
 #define MSR_IA32_PERFCTR1		0x000000c2
 #define MSR_FSB_FREQ			0x000000cd
@@ -84,8 +88,9 @@
 #define MSR_IA32_LASTINTFROMIP		0x000001dd
 #define MSR_IA32_LASTINTTOIP		0x000001de
 
-#define DEBUGCTLMSR_LBR			(1UL <<  0) 
-#define DEBUGCTLMSR_BTF			(1UL <<  1) 
+/* DEBUGCTLMSR bits (others vary by model): */
+#define DEBUGCTLMSR_LBR			(1UL <<  0) /* last branch recording */
+#define DEBUGCTLMSR_BTF			(1UL <<  1) /* single-step on branches */
 #define DEBUGCTLMSR_TR			(1UL <<  6)
 #define DEBUGCTLMSR_BTS			(1UL <<  7)
 #define DEBUGCTLMSR_BTINT		(1UL <<  8)
@@ -107,6 +112,7 @@
 
 #define MSR_AMD64_MCx_MASK(x)		(MSR_AMD64_MC0_MASK + (x))
 
+/* These are consecutive and not in the normal 4er MCE bank block */
 #define MSR_IA32_MC0_CTL2		0x00000280
 #define MSR_IA32_MCx_CTL2(x)		(MSR_IA32_MC0_CTL2 + (x))
 
@@ -115,6 +121,8 @@
 #define MSR_P6_EVNTSEL0			0x00000186
 #define MSR_P6_EVNTSEL1			0x00000187
 
+/* AMD64 MSRs. Not complete. See the architecture manual for a more
+   complete list. */
 
 #define MSR_AMD64_PATCH_LEVEL		0x0000008b
 #define MSR_AMD64_TSC_RATIO		0xc0000104
@@ -136,9 +144,11 @@
 #define MSR_AMD64_IBSCTL		0xc001103a
 #define MSR_AMD64_IBSBRTARGET		0xc001103b
 
+/* Fam 15h MSRs */
 #define MSR_F15H_PERF_CTL		0xc0010200
 #define MSR_F15H_PERF_CTR		0xc0010201
 
+/* Fam 10h MSRs */
 #define MSR_FAM10H_MMIO_CONF_BASE	0xc0010058
 #define FAM10H_MMIO_CONF_ENABLE		(1<<0)
 #define FAM10H_MMIO_CONF_BUSRANGE_MASK	0xf
@@ -147,16 +157,19 @@
 #define FAM10H_MMIO_CONF_BASE_SHIFT	20
 #define MSR_FAM10H_NODE_ID		0xc001100c
 
+/* K8 MSRs */
 #define MSR_K8_TOP_MEM1			0xc001001a
 #define MSR_K8_TOP_MEM2			0xc001001d
 #define MSR_K8_SYSCFG			0xc0010010
 #define MSR_K8_INT_PENDING_MSG		0xc0010055
+/* C1E active bits in int pending message */
 #define K8_INTP_C1E_ACTIVE_MASK		0x18000000
 #define MSR_K8_TSEG_ADDR		0xc0010112
-#define K8_MTRRFIXRANGE_DRAM_ENABLE	0x00040000 
-#define K8_MTRRFIXRANGE_DRAM_MODIFY	0x00080000 
-#define K8_MTRR_RDMEM_WRMEM_MASK	0x18181818 
+#define K8_MTRRFIXRANGE_DRAM_ENABLE	0x00040000 /* MtrrFixDramEn bit    */
+#define K8_MTRRFIXRANGE_DRAM_MODIFY	0x00080000 /* MtrrFixDramModEn bit */
+#define K8_MTRR_RDMEM_WRMEM_MASK	0x18181818 /* Mask: RdMem|WrMem    */
 
+/* K7 MSRs */
 #define MSR_K7_EVNTSEL0			0xc0010000
 #define MSR_K7_PERFCTR0			0xc0010004
 #define MSR_K7_EVNTSEL1			0xc0010001
@@ -170,12 +183,14 @@
 #define MSR_K7_FID_VID_CTL		0xc0010041
 #define MSR_K7_FID_VID_STATUS		0xc0010042
 
+/* K6 MSRs */
 #define MSR_K6_WHCR			0xc0000082
 #define MSR_K6_UWCCR			0xc0000085
 #define MSR_K6_EPMR			0xc0000086
 #define MSR_K6_PSOR			0xc0000087
 #define MSR_K6_PFIR			0xc0000088
 
+/* Centaur-Hauls/IDT defined MSRs. */
 #define MSR_IDT_FCR1			0x00000107
 #define MSR_IDT_FCR2			0x00000108
 #define MSR_IDT_FCR3			0x00000109
@@ -191,16 +206,19 @@
 #define MSR_IDT_MCR7			0x00000117
 #define MSR_IDT_MCR_CTRL		0x00000120
 
+/* VIA Cyrix defined MSRs*/
 #define MSR_VIA_FCR			0x00001107
 #define MSR_VIA_LONGHAUL		0x0000110a
 #define MSR_VIA_RNG			0x0000110b
 #define MSR_VIA_BCR2			0x00001147
 
+/* Transmeta defined MSRs */
 #define MSR_TMTA_LONGRUN_CTRL		0x80868010
 #define MSR_TMTA_LONGRUN_FLAGS		0x80868011
 #define MSR_TMTA_LRTI_READOUT		0x80868018
 #define MSR_TMTA_LRTI_VOLT_MHZ		0x8086801a
 
+/* Intel defined MSRs. */
 #define MSR_IA32_P5_MC_ADDR		0x00000000
 #define MSR_IA32_P5_MC_TYPE		0x00000001
 #define MSR_IA32_TSC			0x00000010
@@ -265,6 +283,7 @@
 #define PACKAGE_THERM_INT_LOW_ENABLE		(1 << 1)
 #define PACKAGE_THERM_INT_PLN_ENABLE		(1 << 24)
 
+/* Thermal Thresholds Support */
 #define THERM_INT_THRESHOLD0_ENABLE    (1 << 15)
 #define THERM_SHIFT_THRESHOLD0        8
 #define THERM_MASK_THRESHOLD0          (0x7f << THERM_SHIFT_THRESHOLD0)
@@ -276,6 +295,7 @@
 #define THERM_STATUS_THRESHOLD1        (1 << 8)
 #define THERM_LOG_THRESHOLD1           (1 << 9)
 
+/* MISC_ENABLE bits: architectural */
 #define MSR_IA32_MISC_ENABLE_FAST_STRING	(1ULL << 0)
 #define MSR_IA32_MISC_ENABLE_TCC		(1ULL << 1)
 #define MSR_IA32_MISC_ENABLE_EMON		(1ULL << 7)
@@ -287,6 +307,7 @@
 #define MSR_IA32_MISC_ENABLE_XTPR_DISABLE	(1ULL << 23)
 #define MSR_IA32_MISC_ENABLE_XD_DISABLE		(1ULL << 34)
 
+/* MISC_ENABLE bits: model-specific, meaning may vary from core to core */
 #define MSR_IA32_MISC_ENABLE_X87_COMPAT		(1ULL << 2)
 #define MSR_IA32_MISC_ENABLE_TM1		(1ULL << 3)
 #define MSR_IA32_MISC_ENABLE_SPLIT_LOCK_DISABLE	(1ULL << 4)
@@ -303,6 +324,7 @@
 #define MSR_IA32_MISC_ENABLE_TURBO_DISABLE	(1ULL << 38)
 #define MSR_IA32_MISC_ENABLE_IP_PREF_DISABLE	(1ULL << 39)
 
+/* P4/Xeon+ specific */
 #define MSR_IA32_MCG_EAX		0x00000180
 #define MSR_IA32_MCG_EBX		0x00000181
 #define MSR_IA32_MCG_ECX		0x00000182
@@ -315,6 +337,7 @@
 #define MSR_IA32_MCG_EIP		0x00000189
 #define MSR_IA32_MCG_RESERVED		0x0000018a
 
+/* Pentium IV performance counter MSRs */
 #define MSR_P4_BPU_PERFCTR0		0x00000300
 #define MSR_P4_BPU_PERFCTR1		0x00000301
 #define MSR_P4_BPU_PERFCTR2		0x00000302
@@ -390,7 +413,7 @@
 #define MSR_P4_SAAT_ESCR0		0x000003ae
 #define MSR_P4_SAAT_ESCR1		0x000003af
 #define MSR_P4_SSU_ESCR0		0x000003be
-#define MSR_P4_SSU_ESCR1		0x000003bf 
+#define MSR_P4_SSU_ESCR1		0x000003bf /* guess: not in manual */
 
 #define MSR_P4_TBPU_ESCR0		0x000003c2
 #define MSR_P4_TBPU_ESCR1		0x000003c3
@@ -401,6 +424,7 @@
 
 #define MSR_P4_PEBS_MATRIX_VERT		0x000003f2
 
+/* Intel Core-based CPU performance counters */
 #define MSR_CORE_PERF_FIXED_CTR0	0x00000309
 #define MSR_CORE_PERF_FIXED_CTR1	0x0000030a
 #define MSR_CORE_PERF_FIXED_CTR2	0x0000030b
@@ -409,8 +433,10 @@
 #define MSR_CORE_PERF_GLOBAL_CTRL	0x0000038f
 #define MSR_CORE_PERF_GLOBAL_OVF_CTRL	0x00000390
 
+/* Geode defined MSRs */
 #define MSR_GEODE_BUSCONT_CONF0		0x00001900
 
+/* Intel VT MSRs */
 #define MSR_IA32_VMX_BASIC              0x00000480
 #define MSR_IA32_VMX_PINBASED_CTLS      0x00000481
 #define MSR_IA32_VMX_PROCBASED_CTLS     0x00000482
@@ -429,6 +455,7 @@
 #define MSR_IA32_VMX_TRUE_EXIT_CTLS      0x0000048f
 #define MSR_IA32_VMX_TRUE_ENTRY_CTLS     0x00000490
 
+/* VMX_BASIC bits and bitmasks */
 #define VMX_BASIC_VMCS_SIZE_SHIFT	32
 #define VMX_BASIC_64		0x0001000000000000LLU
 #define VMX_BASIC_MEM_TYPE_SHIFT	50
@@ -436,9 +463,10 @@
 #define VMX_BASIC_MEM_TYPE_WB	6LLU
 #define VMX_BASIC_INOUT		0x0040000000000000LLU
 
+/* AMD-V MSRs */
 
 #define MSR_VM_CR                       0xc0010114
 #define MSR_VM_IGNNE                    0xc0010115
 #define MSR_VM_HSAVE_PA                 0xc0010117
 
-#endif 
+#endif /* _ASM_X86_MSR_INDEX_H */

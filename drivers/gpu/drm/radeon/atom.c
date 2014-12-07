@@ -72,7 +72,7 @@ static uint32_t atom_arg_mask[8] =
 static int atom_arg_shift[8] = { 0, 0, 8, 16, 0, 8, 16, 24 };
 
 static int atom_dst_to_src[8][4] = {
-	
+	/* translate destination alignment field to the source alignment encoding */
 	{0, 0, 0, 0},
 	{1, 2, 3, 0},
 	{1, 2, 3, 0},
@@ -220,6 +220,8 @@ static uint32_t atom_get_src_int(atom_exec_context *ctx, uint8_t attr,
 	case ATOM_ARG_PS:
 		idx = U8(*ptr);
 		(*ptr)++;
+		/* get_unaligned_le32 avoids unaligned accesses from atombios
+		 * tables, noticed on a DEC Alpha. */
 		val = get_unaligned_le32((u32 *)&ctx->ps[idx]);
 		if (print)
 			DEBUG("PS[0x%02X,0x%04X]", idx, val);
@@ -688,7 +690,7 @@ static void atom_op_div(atom_exec_context *ctx, int *ptr, int arg)
 
 static void atom_op_eot(atom_exec_context *ctx, int *ptr, int arg)
 {
-	
+	/* functionally, a nop */
 }
 
 static void atom_op_jump(atom_exec_context *ctx, int *ptr, int arg)
@@ -733,7 +735,7 @@ static void atom_op_jump(atom_exec_context *ctx, int *ptr, int arg)
 					ctx->abort = true;
 				}
 			} else {
-				
+				/* jiffies wrap around we will just wait a little longer */
 				ctx->last_jump_jiffies = jiffies;
 			}
 		} else {
@@ -791,7 +793,7 @@ static void atom_op_mul(atom_exec_context *ctx, int *ptr, int arg)
 
 static void atom_op_nop(atom_exec_context *ctx, int *ptr, int arg)
 {
-	
+	/* nothing */
 }
 
 static void atom_op_or(atom_exec_context *ctx, int *ptr, int arg)
@@ -924,7 +926,7 @@ static void atom_op_shl(atom_exec_context *ctx, int *ptr, int arg)
 	uint32_t dst_align = atom_dst_to_src[(attr >> 3) & 7][(attr >> 6) & 3];
 	SDEBUG("   dst: ");
 	dst = atom_get_dst(ctx, arg, attr, ptr, &saved, 1);
-	
+	/* op needs to full dst value */
 	dst = saved;
 	shift = atom_get_src(ctx, attr, ptr);
 	SDEBUG("   shift: %d\n", shift);
@@ -943,7 +945,7 @@ static void atom_op_shr(atom_exec_context *ctx, int *ptr, int arg)
 	uint32_t dst_align = atom_dst_to_src[(attr >> 3) & 7][(attr >> 6) & 3];
 	SDEBUG("   dst: ");
 	dst = atom_get_dst(ctx, arg, attr, ptr, &saved, 1);
-	
+	/* op needs to full dst value */
 	dst = saved;
 	shift = atom_get_src(ctx, attr, ptr);
 	SDEBUG("   shift: %d\n", shift);
@@ -1220,11 +1222,11 @@ int atom_execute_table(struct atom_context *ctx, int index, uint32_t * params)
 	int r;
 
 	mutex_lock(&ctx->mutex);
-	
+	/* reset reg block */
 	ctx->reg_block = 0;
-	
+	/* reset fb window */
 	ctx->fb_base = 0;
-	
+	/* reset io mode */
 	ctx->io_mode = ATOM_IO_MM;
 	r = atom_execute_table_locked(ctx, index, params);
 	mutex_unlock(&ctx->mutex);
@@ -1289,7 +1291,7 @@ struct atom_context *atom_parse(struct card_info *card, void *bios)
 	str = CSTR(CU16(base + ATOM_ROM_MSG_PTR));
 	while (*str && ((*str == '\n') || (*str == '\r')))
 		str++;
-	
+	/* name string isn't always 0 terminated */
 	for (i = 0; i < 511; i++) {
 		name[i] = str[i];
 		if (name[i] < '.' || name[i] > 'z') {
@@ -1395,7 +1397,7 @@ int atom_allocate_fb_scratch(struct atom_context *ctx)
 	ctx->scratch_size_bytes = 0;
 	if (usage_bytes == 0)
 		usage_bytes = 20 * 1024;
-	
+	/* allocate some scratch memory */
 	ctx->scratch = kzalloc(usage_bytes, GFP_KERNEL);
 	if (!ctx->scratch)
 		return -ENOMEM;

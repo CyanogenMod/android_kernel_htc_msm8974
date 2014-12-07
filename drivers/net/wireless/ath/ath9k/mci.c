@@ -100,6 +100,12 @@ static void ath_mci_adjust_aggr_limit(struct ath_btcoex *btcoex)
 	u32 wlan_airtime = btcoex->btcoex_period *
 				(100 - btcoex->duty_cycle) / 100;
 
+	/*
+	 * Scale: wlan_airtime is in ms, aggr_limit is in 0.25 ms.
+	 * When wlan_airtime is less than 4ms, aggregation limit has to be
+	 * adjusted half of wlan_airtime to ensure that the aggregation can fit
+	 * without collision with BT traffic.
+	 */
 	if ((wlan_airtime <= 4) &&
 	    (!mci->aggr_limit || (mci->aggr_limit > (2 * wlan_airtime))))
 		mci->aggr_limit = 2 * wlan_airtime;
@@ -237,7 +243,7 @@ static void ath_mci_process_status(struct ath_softc *sc,
 	struct ath_mci_profile_info info;
 	int i = 0, old_num_mgmt = mci->num_mgmt;
 
-	
+	/* Link status type are not handled */
 	if (status->is_link)
 		return;
 
@@ -400,6 +406,11 @@ void ath_mci_intr(struct ath_softc *sc)
 		u32 payload[4] = { 0xffffffff, 0xffffffff,
 				   0xffffffff, 0xffffff00};
 
+		/*
+		 * The following REMOTE_RESET and SYS_WAKING used to sent
+		 * only when BT wake up. Now they are always sent, as a
+		 * recovery method to reset BT MCI's RX alignment.
+		 */
 		ar9003_mci_send_message(ah, MCI_REMOTE_RESET, 0,
 					payload, 16, true, false);
 		ar9003_mci_send_message(ah, MCI_SYS_WAKING, 0,
@@ -408,6 +419,9 @@ void ath_mci_intr(struct ath_softc *sc)
 		mci_int_rxmsg &= ~AR_MCI_INTERRUPT_RX_MSG_REQ_WAKE;
 		ar9003_mci_state(ah, MCI_STATE_RESET_REQ_WAKE, NULL);
 
+		/*
+		 * always do this for recovery and 2G/5G toggling and LNA_TRANS
+		 */
 		ar9003_mci_state(ah, MCI_STATE_SET_BT_AWAKE, NULL);
 	}
 
@@ -459,6 +473,10 @@ void ath_mci_intr(struct ath_softc *sc)
 
 			pgpm += (offset >> 2);
 
+			/*
+			 * The first dword is timer.
+			 * The real data starts from 2nd dword.
+			 */
 			subtype = MCI_GPM_TYPE(pgpm);
 			opcode = MCI_GPM_OPCODE(pgpm);
 

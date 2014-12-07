@@ -34,6 +34,7 @@
 #include <linux/mtd/partitions.h>
 
 #ifdef CONFIG_I2C_PNX0105
+/* Until i2c driver available in kernel.*/
 #include <linux/i2c-pnx0105.h>
 #endif
 
@@ -163,16 +164,16 @@ static struct resource pnx833x_i2c1_resources[] = {
 static struct i2c_pnx0105_dev pnx833x_i2c_dev[] = {
 	{
 		.base = PNX833X_I2C0_PORTS_START,
-		.irq = -1, 
-		.clock = 6,	
-		.bus_addr = 0,	
+		.irq = -1, /* should be PNX833X_PIC_I2C0_INT but polling is faster */
+		.clock = 6,	/* 0 == 400 kHz, 4 == 100 kHz(Maximum HDMI), 6 = 50kHz(Preferred HDCP) */
+		.bus_addr = 0,	/* no slave support */
 	},
 	{
 		.base = PNX833X_I2C1_PORTS_START,
-		.irq = -1,	
-		
-		.clock = 4,	
-		.bus_addr = 0,	
+		.irq = -1,	/* on high freq, polling is faster */
+		/*.irq = PNX833X_PIC_I2C1_INT,*/
+		.clock = 4,	/* 0 == 400 kHz, 4 == 100 kHz. 100 kHz seems a safe default for now */
+		.bus_addr = 0,	/* no slave support */
 	},
 };
 
@@ -274,6 +275,10 @@ static struct platform_nand_data pnx833x_flash_nand_data = {
 	}
 };
 
+/*
+ * Set start to be the correct address (PNX8335_NAND_BASE with no 0xb!!),
+ * 12 bytes more seems to be the standard that allows for NAND access.
+ */
 static struct resource pnx833x_flash_nand_resource = {
 	.start 	= PNX8335_NAND_BASE,
 	.end 	= PNX8335_NAND_BASE + 12,

@@ -14,15 +14,25 @@
 
 #include <asm/bitext.h>
 
+/**
+ * bit_map_string_get - find and set a bit string in bit map.
+ * @t: the bit map.
+ * @len: requested string length
+ * @align: requested alignment
+ *
+ * Returns offset in the map or -1 if out of space.
+ *
+ * Not safe to call from an interrupt (uses spin_lock).
+ */
 int bit_map_string_get(struct bit_map *t, int len, int align)
 {
-	int offset, count;	
+	int offset, count;	/* siamese twins */
 	int off_new;
 	int align1;
 	int i, color;
 
 	if (t->num_colors) {
-		
+		/* align is overloaded to be the page color */
 		color = align;
 		align = t->num_colors;
 	} else {
@@ -54,7 +64,7 @@ int bit_map_string_get(struct bit_map *t, int len, int align)
 			offset = 0;
 		if (count + len > t->size) {
 			spin_unlock(&t->lock);
- printk(KERN_ERR
+/* P3 */ printk(KERN_ERR
   "bitmap out: size %d used %d off %d len %d align %d count %d\n",
   t->size, t->used, offset, len, align, count);
 			return -1;
@@ -94,7 +104,7 @@ void bit_map_clear(struct bit_map *t, int offset, int len)
 	int i;
 
 	if (t->used < len)
-		BUG();		
+		BUG();		/* Much too late to do any good, but alas... */
 	spin_lock(&t->lock);
 	for (i = 0; i < len; i++) {
 		if (test_bit(offset + i, t->map) == 0)

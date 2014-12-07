@@ -32,6 +32,7 @@
 
 #include <asm/cacheflush.h>
 
+/* bitmap of the page sizes currently supported */
 #define GART_IOMMU_PGSIZES	(SZ_4K)
 
 #define GART_CONFIG		0x24
@@ -52,19 +53,24 @@ struct gart_client {
 struct gart_device {
 	void __iomem		*regs;
 	u32			*savedata;
-	u32			page_count;	
-	dma_addr_t		iovmm_base;	
-	spinlock_t		pte_lock;	
+	u32			page_count;	/* total remappable size */
+	dma_addr_t		iovmm_base;	/* offset to vmm_area */
+	spinlock_t		pte_lock;	/* for pagetable */
 	struct list_head	client;
-	spinlock_t		client_lock;	
+	spinlock_t		client_lock;	/* for client list */
 	struct device		*dev;
 };
 
-static struct gart_device *gart_handle; 
+static struct gart_device *gart_handle; /* unique for a system */
 
 #define GART_PTE(_pfn)						\
 	(GART_ENTRY_PHYS_ADDR_VALID | ((_pfn) << PAGE_SHIFT))
 
+/*
+ * Any interaction between any block on PPSB and a block on APB or AHB
+ * must have these read-back to ensure the APB/AHB bus transaction is
+ * complete before initiating activity on the PPSB block.
+ */
 #define FLUSH_GART_REGS(gart)	((void)readl((gart)->regs + GART_CONFIG))
 
 #define for_each_gart_pte(gart, iova)					\
@@ -345,7 +351,7 @@ static int tegra_gart_probe(struct platform_device *pdev)
 
 	BUILD_BUG_ON(PAGE_SHIFT != GART_PAGE_SHIFT);
 
-	
+	/* the GART memory aperture is required */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	res_remap = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (!res || !res_remap) {

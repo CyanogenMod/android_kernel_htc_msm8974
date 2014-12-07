@@ -36,6 +36,10 @@
 
 #define K(x) ((x) << (PAGE_SHIFT-10))
 
+/*
+ * The normal show_free_areas() is too verbose on Tile, with dozens
+ * of processors and often four NUMA zones each with high and lowmem.
+ */
 void show_mem(unsigned int filter)
 {
 	struct zone *zone;
@@ -79,6 +83,10 @@ void show_mem(unsigned int filter)
 	}
 }
 
+/*
+ * Associate a virtual page frame with a given physical page frame
+ * and protection flags for that frame.
+ */
 static void set_pte_pfn(unsigned long vaddr, unsigned long pfn, pgprot_t flags)
 {
 	pgd_t *pgd;
@@ -102,9 +110,14 @@ static void set_pte_pfn(unsigned long vaddr, unsigned long pfn, pgprot_t flags)
 		return;
 	}
 	pte = pte_offset_kernel(pmd, vaddr);
-	
+	/* <pfn,flags> stored as-is, to permit clearing entries */
 	set_pte(pte, pfn_pte(pfn, flags));
 
+	/*
+	 * It's enough to flush this one mapping.
+	 * This appears conservative since it is only called
+	 * from __set_fixmap.
+	 */
 	local_flush_tlb_page(NULL, vaddr, PAGE_SIZE);
 }
 
@@ -128,20 +141,34 @@ pte_t *_pte_offset_map(pmd_t *dir, unsigned long address)
 }
 #endif
 
+/**
+ * shatter_huge_page() - ensure a given address is mapped by a small page.
+ *
+ * This function converts a huge PTE mapping kernel LOWMEM into a bunch
+ * of small PTEs with the same caching.  No cache flush required, but we
+ * must do a global TLB flush.
+ *
+ * Any caller that wishes to modify a kernel mapping that might
+ * have been made with a huge page should call this function,
+ * since doing so properly avoids race conditions with installing the
+ * newly-shattered page and then flushing all the TLB entries.
+ *
+ * @addr: Address at which to shatter any existing huge page.
+ */
 void shatter_huge_page(unsigned long addr)
 {
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
-	unsigned long flags = 0;  
+	unsigned long flags = 0;  /* happy compiler */
 #ifdef __PAGETABLE_PMD_FOLDED
 	struct list_head *pos;
 #endif
 
-	
+	/* Get a pointer to the pmd entry that we need to change. */
 	addr &= HPAGE_MASK;
 	BUG_ON(pgd_addr_invalid(addr));
-	BUG_ON(addr < PAGE_OFFSET);  
+	BUG_ON(addr < PAGE_OFFSET);  /* only for kernel LOWMEM */
 	pgd = swapper_pg_dir + pgd_index(addr);
 	pud = pud_offset(pgd, addr);
 	BUG_ON(!pud_present(*pud));
@@ -152,17 +179,17 @@ void shatter_huge_page(unsigned long addr)
 
 	spin_lock_irqsave(&init_mm.page_table_lock, flags);
 	if (!pmd_huge_page(*pmd)) {
-		
+		/* Lost the race to convert the huge page. */
 		spin_unlock_irqrestore(&init_mm.page_table_lock, flags);
 		return;
 	}
 
-	
+	/* Shatter the huge page into the preallocated L2 page table. */
 	pmd_populate_kernel(&init_mm, pmd,
 			    get_prealloc_pte(pte_pfn(*(pte_t *)pmd)));
 
 #ifdef __PAGETABLE_PMD_FOLDED
-	
+	/* Walk every pgd on the system and update the pmd there. */
 	spin_lock(&pgd_lock);
 	list_for_each(pos, &pgd_list) {
 		pmd_t *copy_pmd;
@@ -174,14 +201,28 @@ void shatter_huge_page(unsigned long addr)
 	spin_unlock(&pgd_lock);
 #endif
 
-	
+	/* Tell every cpu to notice the change. */
 	flush_remote(0, 0, NULL, addr, HPAGE_SIZE, HPAGE_SIZE,
 		     cpu_possible_mask, NULL, 0);
 
-	
+	/* Hold the lock until the TLB flush is finished to avoid races. */
 	spin_unlock_irqrestore(&init_mm.page_table_lock, flags);
 }
 
+/*
+ * List of all pgd's needed so it can invalidate entries in both cached
+ * and uncached pgd's. This is essentially codepath-based locking
+ * against pageattr.c; it is the unique case in which a valid change
+ * of kernel pagetables can't be lazily synchronized by vmalloc faults.
+ * vmalloc faults work because attached pagetables are never freed.
+ *
+ * The lock is always taken with interrupts disabled, unlike on x86
+ * and other platforms, because we need to take the lock in
+ * shatter_huge_page(), which may be called from an interrupt context.
+ * We are not at risk from the tlbflush IPI deadlock that was seen on
+ * x86, since we use the flush_remote() API to have the hypervisor do
+ * the TLB flushes regardless of irq disabling.
+ */
 DEFINE_SPINLOCK(pgd_lock);
 LIST_HEAD(pgd_list);
 
@@ -206,6 +247,11 @@ static void pgd_ctor(pgd_t *pgd)
 	spin_lock_irqsave(&pgd_lock, flags);
 
 #ifndef __tilegx__
+	/*
+	 * Check that the user interrupt vector has no L2.
+	 * It never should for the swapper, and new page tables
+	 * should always start with an empty user interrupt vector.
+	 */
 	BUG_ON(((u64 *)swapper_pg_dir)[pgd_index(MEM_USER_INTRPT)] != 0);
 #endif
 
@@ -219,7 +265,7 @@ static void pgd_ctor(pgd_t *pgd)
 
 static void pgd_dtor(pgd_t *pgd)
 {
-	unsigned long flags; 
+	unsigned long flags; /* can be called from interrupt context */
 
 	spin_lock_irqsave(&pgd_lock, flags);
 	pgd_list_del(pgd);
@@ -260,6 +306,11 @@ struct page *pte_alloc_one(struct mm_struct *mm, unsigned long address)
 		return NULL;
 
 #if L2_USER_PGTABLE_ORDER > 0
+	/*
+	 * Make every page have a page_count() of one, not just the first.
+	 * We don't use __GFP_COMP since it doesn't look like it works
+	 * correctly with tlb_remove_page().
+	 */
 	for (i = 1; i < L2_USER_PGTABLE_PAGES; ++i) {
 		init_page_count(p+i);
 		inc_zone_page_state(p+i, NR_PAGETABLE);
@@ -270,6 +321,11 @@ struct page *pte_alloc_one(struct mm_struct *mm, unsigned long address)
 	return p;
 }
 
+/*
+ * Free page immediately (used in __pte_alloc if we raced with another
+ * process).  We have to correct whatever pte_alloc_one() did before
+ * returning the pages to the allocator.
+ */
 void pte_free(struct mm_struct *mm, struct page *p)
 {
 	int i;
@@ -299,6 +355,10 @@ void __pte_free_tlb(struct mmu_gather *tlb, struct page *pte,
 
 #ifndef __tilegx__
 
+/*
+ * FIXME: needs to be atomic vs hypervisor writes.  For now we make the
+ * window of vulnerability a bit smaller by doing an unlocked 8-bit update.
+ */
 int ptep_test_and_clear_young(struct vm_area_struct *vma,
 			      unsigned long addr, pte_t *ptep)
 {
@@ -313,6 +373,11 @@ int ptep_test_and_clear_young(struct vm_area_struct *vma,
 	return 1;
 }
 
+/*
+ * This implementation is atomic vs hypervisor writes, since the hypervisor
+ * always writes the low word (where "accessed" and "dirty" are) and this
+ * routine only writes the high word.
+ */
 void ptep_set_wrprotect(struct mm_struct *mm,
 			unsigned long addr, pte_t *ptep)
 {
@@ -367,6 +432,9 @@ int get_remote_cache_cpu(pgprot_t prot)
 	return x + y * smp_width;
 }
 
+/*
+ * Convert a kernel VA to a PA and homing information.
+ */
 int va_to_cpa_and_pte(void *va, unsigned long long *cpa, pte_t *pte)
 {
 	struct page *page = virt_to_page(va);
@@ -374,10 +442,10 @@ int va_to_cpa_and_pte(void *va, unsigned long long *cpa, pte_t *pte)
 
 	*cpa = __pa(va);
 
-	
+	/* Note that this is not writing a page table, just returning a pte. */
 	*pte = pte_set_home(null_pte, page_home(page));
 
-	return 0; 
+	return 0; /* return non-zero if not hfh? */
 }
 EXPORT_SYMBOL(va_to_cpa_and_pte);
 
@@ -398,20 +466,20 @@ void __set_pte(pte_t *ptep, pte_t pte)
 		barrier();
 		((u32 *)ptep)[1] = (u32)(pte_val(pte) >> 32);
 	}
-#endif 
+#endif /* __tilegx__ */
 }
 
 void set_pte(pte_t *ptep, pte_t pte)
 {
 	if (pte_present(pte) &&
 	    (!CHIP_HAS_MMIO() || hv_pte_get_mode(pte) != HV_PTE_MODE_MMIO)) {
-		
+		/* The PTE actually references physical memory. */
 		unsigned long pfn = pte_pfn(pte);
 		if (pfn_valid(pfn)) {
-			
+			/* Update the home of the PTE from the struct page. */
 			pte = pte_set_home(pte, page_home(pfn_to_page(pfn)));
 		} else if (hv_pte_get_mode(pte) == 0) {
-			
+			/* remap_pfn_range(), etc, must supply PTE mode. */
 			panic("set_pte(): out-of-range PFN and mode 0\n");
 		}
 	}
@@ -419,11 +487,16 @@ void set_pte(pte_t *ptep, pte_t pte)
 	__set_pte(ptep, pte);
 }
 
+/* Can this mm load a PTE with cached_priority set? */
 static inline int mm_is_priority_cached(struct mm_struct *mm)
 {
 	return mm->context.priority_cached;
 }
 
+/*
+ * Add a priority mapping to an mm_context and
+ * notify the hypervisor if this is the first one.
+ */
 void start_mm_caching(struct mm_struct *mm)
 {
 	if (!mm_is_priority_cached(mm)) {
@@ -432,6 +505,17 @@ void start_mm_caching(struct mm_struct *mm)
 	}
 }
 
+/*
+ * Validate and return the priority_cached flag.  We know if it's zero
+ * that we don't need to scan, since we immediately set it non-zero
+ * when we first consider a MAP_CACHE_PRIORITY mapping.
+ *
+ * We only _try_ to acquire the mmap_sem semaphore; if we can't acquire it,
+ * since we're in an interrupt context (servicing switch_mm) we don't
+ * worry about it and don't unset the "priority_cached" field.
+ * Presumably we'll come back later and have more luck and clear
+ * the value then; for now we'll just keep the cache marked for priority.
+ */
 static unsigned int update_priority_cached(struct mm_struct *mm)
 {
 	if (mm->context.priority_cached && down_write_trylock(&mm->mmap_sem)) {
@@ -447,9 +531,14 @@ static unsigned int update_priority_cached(struct mm_struct *mm)
 	return mm->context.priority_cached;
 }
 
+/* Set caching correctly for an mm that we are switching to. */
 void check_mm_caching(struct mm_struct *prev, struct mm_struct *next)
 {
 	if (!mm_is_priority_cached(next)) {
+		/*
+		 * If the new mm doesn't use priority caching, just see if we
+		 * need the hv_set_caching(), or can assume it's already zero.
+		 */
 		if (mm_is_priority_cached(prev))
 			hv_set_caching(0);
 	} else {
@@ -459,6 +548,7 @@ void check_mm_caching(struct mm_struct *prev, struct mm_struct *next)
 
 #if CHIP_HAS_MMIO()
 
+/* Map an arbitrary MMIO address, homed according to pgprot, into VA space. */
 void __iomem *ioremap_prot(resource_size_t phys_addr, unsigned long size,
 			   pgprot_t home)
 {
@@ -467,21 +557,27 @@ void __iomem *ioremap_prot(resource_size_t phys_addr, unsigned long size,
 	unsigned long offset, last_addr;
 	pgprot_t pgprot;
 
-	
+	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
-	
+	/* Create a read/write, MMIO VA mapping homed at the requested shim. */
 	pgprot = PAGE_KERNEL;
 	pgprot = hv_pte_set_mode(pgprot, HV_PTE_MODE_MMIO);
 	pgprot = hv_pte_set_lotar(pgprot, hv_pte_get_lotar(home));
 
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr+1) - phys_addr;
 
-	area = get_vm_area(size, VM_IOREMAP );
+	/*
+	 * Ok, go for it..
+	 */
+	area = get_vm_area(size, VM_IOREMAP /* | other flags? */);
 	if (!area)
 		return NULL;
 	area->phys_addr = phys_addr;
@@ -495,12 +591,14 @@ void __iomem *ioremap_prot(resource_size_t phys_addr, unsigned long size,
 }
 EXPORT_SYMBOL(ioremap_prot);
 
+/* Map a PCI MMIO bus address into VA space. */
 void __iomem *ioremap(resource_size_t phys_addr, unsigned long size)
 {
 	panic("ioremap for PCI MMIO is not supported");
 }
 EXPORT_SYMBOL(ioremap);
 
+/* Unmap an MMIO VA mapping. */
 void iounmap(volatile void __iomem *addr_in)
 {
 	volatile void __iomem *addr = (volatile void __iomem *)
@@ -508,8 +606,15 @@ void iounmap(volatile void __iomem *addr_in)
 #if 1
 	vunmap((void * __force)addr);
 #else
+	/* x86 uses this complicated flow instead of vunmap().  Is
+	 * there any particular reason we should do the same? */
 	struct vm_struct *p, *o;
 
+	/* Use the vm area unlocked, assuming the caller
+	   ensures there isn't another iounmap for the same address
+	   in parallel. Reuse of the virtual address is prevented by
+	   leaving it in the global lists until we're done with it.
+	   cpa takes care of the direct mappings. */
 	read_lock(&vmlist_lock);
 	for (p = vmlist; p; p = p->next) {
 		if (p->addr == addr)
@@ -523,7 +628,7 @@ void iounmap(volatile void __iomem *addr_in)
 		return;
 	}
 
-	
+	/* Finally remove it */
 	o = remove_vm_area((void *)addr);
 	BUG_ON(p != o || o == NULL);
 	kfree(p);
@@ -531,4 +636,4 @@ void iounmap(volatile void __iomem *addr_in)
 }
 EXPORT_SYMBOL(iounmap);
 
-#endif 
+#endif /* CHIP_HAS_MMIO() */

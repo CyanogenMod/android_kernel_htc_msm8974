@@ -5,6 +5,16 @@
  * See LICENSE.qla2xxx for copyright and licensing details.
  */
 
+/*
+ * qla2x00_debounce_register
+ *      Debounce register.
+ *
+ * Input:
+ *      port = register address.
+ *
+ * Returns:
+ *      register value.
+ */
 static __inline__ uint16_t
 qla2x00_debounce_register(volatile uint16_t __iomem *addr)
 {
@@ -66,7 +76,7 @@ qla2x00_clean_dsd_pool(struct qla_hw_data *ha, srb_t *sp)
 
 	ctx = (struct crc_context *)GET_CMD_CTX_SP(sp);
 
-	
+	/* clean up allocated prev pool */
 	list_for_each_entry_safe(dsd_ptr, tdsd_ptr,
 	    &ctx->dsd_list, list) {
 		dma_pool_free(ha->dl_dma_pool, dsd_ptr->dsd_addr,
@@ -85,7 +95,7 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 	old_state = atomic_read(&fcport->state);
 	atomic_set(&fcport->state, state);
 
-	
+	/* Don't print state transitions during initial allocation of fcport */
 	if (old_state && old_state != state) {
 		ql_dbg(ql_dbg_disc, fcport->vha, 0x207d,
 		    "FCPort state transitioned from %s to %s - "
@@ -99,6 +109,13 @@ qla2x00_set_fcport_state(fc_port_t *fcport, int state)
 static inline int
 qla2x00_hba_err_chk_enabled(srb_t *sp)
 {
+	/*
+	 * Uncomment when corresponding SCSI changes are done.
+	 *
+	if (!sp->cmd->prot_chk)
+		return 0;
+	 *
+	 */
 	switch (scsi_get_prot_op(GET_CMD_SP(sp))) {
 	case SCSI_PROT_READ_STRIP:
 	case SCSI_PROT_WRITE_INSERT:
@@ -122,7 +139,7 @@ qla2x00_reset_active(scsi_qla_host_t *vha)
 {
 	scsi_qla_host_t *base_vha = pci_get_drvdata(vha->hw->pdev);
 
-	
+	/* Test appropriate base-vha and vha flags. */
 	return test_bit(ISP_ABORT_NEEDED, &base_vha->dpc_flags) ||
 	    test_bit(ABORT_ISP_ACTIVE, &base_vha->dpc_flags) ||
 	    test_bit(ISP_ABORT_RETRY, &base_vha->dpc_flags) ||

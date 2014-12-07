@@ -32,4 +32,4 @@ int msi_bitmap_alloc(struct msi_bitmap *bmp, unsigned int irq_count,
 		     struct device_node *of_node);
 void msi_bitmap_free(struct msi_bitmap *bmp);
 
-#endif 
+#endif /* _POWERPC_SYSDEV_MSI_BITMAP_H */

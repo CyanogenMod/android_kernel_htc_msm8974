@@ -13,6 +13,9 @@
 #include <asm/checksum.h>
 #include <linux/io.h>
 
+/*
+ * libgcc functions - used internally by the compiler...
+ */
 extern int __c6xabi_divi(int dividend, int divisor);
 EXPORT_SYMBOL(__c6xabi_divi);
 
@@ -59,4 +62,5 @@ EXPORT_SYMBOL(__c6xabi_pop_rts);
 extern void __c6xabi_strasgi_64plus(int *dst, const int *src, unsigned cnt);
 EXPORT_SYMBOL(__c6xabi_strasgi_64plus);
 
+/* lib functions */
 EXPORT_SYMBOL(memcpy);

@@ -45,7 +45,7 @@ module_param_array(subsystem, int, NULL, 0444);
 MODULE_PARM_DESC(subsystem, "Override subsystem ID for Creative X-Fi driver");
 
 static DEFINE_PCI_DEVICE_TABLE(ct_pci_dev_ids) = {
-	
+	/* only X-Fi is supported, so... */
 	{ PCI_DEVICE(PCI_VENDOR_ID_CREATIVE, PCI_DEVICE_ID_CREATIVE_20K1),
 	  .driver_data = ATC20K1,
 	},
@@ -95,7 +95,7 @@ ct_card_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 
 	card->private_data = atc;
 
-	
+	/* Create alsa devices supported by this card */
 	err = ct_atc_create_alsa_devs(atc);
 	if (err < 0)
 		goto error;

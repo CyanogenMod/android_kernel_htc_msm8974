@@ -40,7 +40,7 @@ static void __init pq2fads_pic_init(void)
 	cpm2_pic_init(np);
 	of_node_put(np);
 
-	
+	/* Initialize stuff for the 82xx CPLD IC and install demux  */
 	pq2ads_pci_init_irq();
 }
 
@@ -49,15 +49,15 @@ struct cpm_pin {
 };
 
 static struct cpm_pin pq2fads_pins[] = {
-	
+	/* SCC1 */
 	{3, 30, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{3, 31, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* SCC2 */
 	{3, 27, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{3, 28, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC2 */
 	{1, 18, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 19, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 20, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -75,7 +75,7 @@ static struct cpm_pin pq2fads_pins[] = {
 	{2, 18, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 19, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC3 */
 	{1, 4, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{1, 5, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{1, 6, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
@@ -136,7 +136,7 @@ static void __init pq2fads_setup_arch(void)
 		return;
 	}
 
-	
+	/* Enable the serial and ethernet ports */
 
 	clrbits32(&bcsr[1], BCSR1_RS232_EN1 | BCSR1_RS232_EN2 | BCSR1_FETHIEN);
 	setbits32(&bcsr[1], BCSR1_FETH_RST);
@@ -148,7 +148,7 @@ static void __init pq2fads_setup_arch(void)
 
 	init_ioports();
 
-	
+	/* Enable external IRQs */
 	clrbits32(&cpm2_immr->im_siu_conf.siu_82xx.sc_siumcr, 0x0c000000);
 
 	pq2_init_pci();
@@ -157,6 +157,9 @@ static void __init pq2fads_setup_arch(void)
 		ppc_md.progress("pq2fads_setup_arch(), finish", 0);
 }
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init pq2fads_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -172,7 +175,7 @@ static struct of_device_id __initdata of_bus_ids[] = {
 
 static int __init declare_of_platform_devices(void)
 {
-	
+	/* Publish the QE devices */
 	of_platform_bus_probe(NULL, of_bus_ids, NULL);
 	return 0;
 }

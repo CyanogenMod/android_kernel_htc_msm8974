@@ -232,6 +232,11 @@ out:
 	return err ? GSS_S_FAILURE : 0;
 }
 
+/*
+ * checksum the plaintext data and hdrlen bytes of the token header
+ * The checksum is performed over the first 8 bytes of the
+ * gss token header and then over the data body
+ */
 u32
 make_checksum(struct krb5_ctx *kctx, char *header, int hdrlen,
 	      struct xdr_buf *body, int body_offset, u8 *cksumkey,
@@ -306,6 +311,13 @@ out:
 	return err ? GSS_S_FAILURE : 0;
 }
 
+/*
+ * checksum the plaintext data and hdrlen bytes of the token header
+ * Per rfc4121, sec. 4.2.4, the checksum is performed over the data
+ * body then over the first 16 octets of the MIC token
+ * Inclusion of the header data in the calculation of the
+ * checksum is optional.
+ */
 u32
 make_checksum_v2(struct krb5_ctx *kctx, char *header, int hdrlen,
 		 struct xdr_buf *body, int body_offset, u8 *cksumkey,
@@ -361,7 +373,7 @@ make_checksum_v2(struct krb5_ctx *kctx, char *header, int hdrlen,
 	switch (kctx->gk5e->ctype) {
 	case CKSUMTYPE_HMAC_SHA1_96_AES128:
 	case CKSUMTYPE_HMAC_SHA1_96_AES256:
-		
+		/* note that this truncates the hash */
 		memcpy(cksumout->data, checksumdata, kctx->gk5e->cksumlength);
 		break;
 	default:
@@ -395,11 +407,13 @@ encryptor(struct scatterlist *sg, void *data)
 	int fraglen, ret;
 	int page_pos;
 
+	/* Worst case is 4 fragments: head, end of page 1, start
+	 * of page 2, tail.  Anything more is a bug. */
 	BUG_ON(desc->fragno > 3);
 
 	page_pos = desc->pos - outbuf->head[0].iov_len;
 	if (page_pos >= 0 && page_pos < outbuf->page_len) {
-		
+		/* pages are not in place: */
 		int i = (page_pos + outbuf->page_base) >> PAGE_CACHE_SHIFT;
 		in_page = desc->pages[i];
 	} else {
@@ -485,6 +499,8 @@ decryptor(struct scatterlist *sg, void *data)
 	int thislen = desc->fraglen + sg->length;
 	int fraglen, ret;
 
+	/* Worst case is 4 fragments: head, end of page 1, start
+	 * of page 2, tail.  Anything more is a bug. */
 	BUG_ON(desc->fragno > 3);
 	sg_set_page(&desc->frags[desc->fragno], sg_page(sg), sg->length,
 		    sg->offset);
@@ -524,7 +540,7 @@ gss_decrypt_xdr_buf(struct crypto_blkcipher *tfm, struct xdr_buf *buf,
 {
 	struct decryptor_desc desc;
 
-	
+	/* XXXJBF: */
 	BUG_ON((buf->len - offset) % crypto_blkcipher_blocksize(tfm) != 0);
 
 	memset(desc.iv, 0, sizeof(desc.iv));
@@ -539,6 +555,22 @@ gss_decrypt_xdr_buf(struct crypto_blkcipher *tfm, struct xdr_buf *buf,
 	return xdr_process_buf(buf, offset, buf->len - offset, decryptor, &desc);
 }
 
+/*
+ * This function makes the assumption that it was ultimately called
+ * from gss_wrap().
+ *
+ * The client auth_gss code moves any existing tail data into a
+ * separate page before calling gss_wrap.
+ * The server svcauth_gss code ensures that both the head and the
+ * tail have slack space of RPC_MAX_AUTH_SIZE before calling gss_wrap.
+ *
+ * Even with that guarantee, this function may be called more than
+ * once in the processing of gss_wrap().  The best we can do is
+ * verify at compile-time (see GSS_KRB5_SLACK_CHECK) that the
+ * largest expected shift will fit within RPC_MAX_AUTH_SIZE.
+ * At run-time we can verify that a single invocation of this
+ * function doesn't attempt to use more the RPC_MAX_AUTH_SIZE.
+ */
 
 int
 xdr_extend_head(struct xdr_buf *buf, unsigned int base, unsigned int shiftlen)
@@ -577,6 +609,11 @@ gss_krb5_cts_crypt(struct crypto_blkcipher *cipher, struct xdr_buf *buf,
 		return -ENOMEM;
 	}
 
+	/*
+	 * For encryption, we want to read from the cleartext
+	 * page cache pages, and write the encrypted data to
+	 * the supplied xdr_buf pages.
+	 */
 	save_pages = buf->pages;
 	if (encrypt)
 		buf->pages = pages;
@@ -631,7 +668,7 @@ gss_krb5_aes_encrypt(struct krb5_ctx *kctx, u32 offset,
 	}
 	blocksize = crypto_blkcipher_blocksize(cipher);
 
-	
+	/* hide the gss token header and insert the confounder */
 	offset += GSS_KRB5_TOK_HDR_LEN;
 	if (xdr_extend_head(buf, offset, kctx->gk5e->conflen))
 		return GSS_S_FAILURE;
@@ -651,16 +688,23 @@ gss_krb5_aes_encrypt(struct krb5_ctx *kctx, u32 offset,
 	buf->tail[0].iov_len += ec;
 	buf->len += ec;
 
-	
+	/* copy plaintext gss token header after filler (if any) */
 	memcpy(ecptr + ec, buf->head[0].iov_base + offset,
 						GSS_KRB5_TOK_HDR_LEN);
 	buf->tail[0].iov_len += GSS_KRB5_TOK_HDR_LEN;
 	buf->len += GSS_KRB5_TOK_HDR_LEN;
 
-	
+	/* Do the HMAC */
 	hmac.len = GSS_KRB5_MAX_CKSUM_LEN;
 	hmac.data = buf->tail[0].iov_base + buf->tail[0].iov_len;
 
+	/*
+	 * When we are called, pages points to the real page cache
+	 * data -- which we can't go and encrypt!  buf->pages points
+	 * to scratch pages which we are going to send off to the
+	 * client/server.  Swap in the plaintext pages to calculate
+	 * the hmac.
+	 */
 	save_pages = buf->pages;
 	buf->pages = pages;
 
@@ -698,7 +742,7 @@ gss_krb5_aes_encrypt(struct krb5_ctx *kctx, u32 offset,
 			goto out_err;
 	}
 
-	
+	/* Make sure IV carries forward from any CBC results. */
 	err = gss_krb5_cts_crypt(cipher, buf,
 				 offset + GSS_KRB5_TOK_HDR_LEN + cbcbytes,
 				 desc.iv, pages, 1);
@@ -707,7 +751,7 @@ gss_krb5_aes_encrypt(struct krb5_ctx *kctx, u32 offset,
 		goto out_err;
 	}
 
-	
+	/* Now update buf to account for HMAC */
 	buf->tail[0].iov_len += kctx->gk5e->cksumlength;
 	buf->len += kctx->gk5e->cksumlength;
 
@@ -746,7 +790,7 @@ gss_krb5_aes_decrypt(struct krb5_ctx *kctx, u32 offset, struct xdr_buf *buf,
 	blocksize = crypto_blkcipher_blocksize(cipher);
 
 
-	
+	/* create a segment skipping the header and leaving out the checksum */
 	xdr_buf_subsegment(buf, &subbuf, offset + GSS_KRB5_TOK_HDR_LEN,
 				    (buf->len - offset - GSS_KRB5_TOK_HDR_LEN -
 				     kctx->gk5e->cksumlength));
@@ -773,13 +817,13 @@ gss_krb5_aes_decrypt(struct krb5_ctx *kctx, u32 offset, struct xdr_buf *buf,
 			goto out_err;
 	}
 
-	
+	/* Make sure IV carries forward from any CBC results. */
 	ret = gss_krb5_cts_crypt(cipher, &subbuf, cbcbytes, desc.iv, NULL, 0);
 	if (ret)
 		goto out_err;
 
 
-	
+	/* Calculate our hmac over the plaintext data */
 	our_hmac_obj.len = sizeof(our_hmac);
 	our_hmac_obj.data = our_hmac;
 
@@ -788,7 +832,7 @@ gss_krb5_aes_decrypt(struct krb5_ctx *kctx, u32 offset, struct xdr_buf *buf,
 	if (ret)
 		goto out_err;
 
-	
+	/* Get the packet's hmac value */
 	ret = read_bytes_from_xdr_buf(buf, buf->len - kctx->gk5e->cksumlength,
 				      pkt_hmac, kctx->gk5e->cksumlength);
 	if (ret)
@@ -806,6 +850,10 @@ out_err:
 	return ret;
 }
 
+/*
+ * Compute Kseq given the initial session key and the checksum.
+ * Set the key of the given cipher.
+ */
 int
 krb5_rc4_setup_seq_key(struct krb5_ctx *kctx, struct crypto_blkcipher *cipher,
 		       unsigned char *cksum)
@@ -833,7 +881,7 @@ krb5_rc4_setup_seq_key(struct krb5_ctx *kctx, struct crypto_blkcipher *cipher,
 	if (err)
 		goto out_err;
 
-	
+	/* Compute intermediate Kseq from session key */
 	err = crypto_hash_setkey(hmac, kctx->Ksess, kctx->gk5e->keylength);
 	if (err)
 		goto out_err;
@@ -845,7 +893,7 @@ krb5_rc4_setup_seq_key(struct krb5_ctx *kctx, struct crypto_blkcipher *cipher,
 	if (err)
 		goto out_err;
 
-	
+	/* Compute final Kseq from the checksum and intermediate Kseq */
 	err = crypto_hash_setkey(hmac, Kseq, kctx->gk5e->keylength);
 	if (err)
 		goto out_err;
@@ -868,6 +916,10 @@ out_err:
 	return err;
 }
 
+/*
+ * Compute Kcrypt given the initial session key and the plaintext seqnum.
+ * Set the key of cipher kctx->enc.
+ */
 int
 krb5_rc4_setup_enc_key(struct krb5_ctx *kctx, struct crypto_blkcipher *cipher,
 		       s32 seqnum)
@@ -896,7 +948,7 @@ krb5_rc4_setup_enc_key(struct krb5_ctx *kctx, struct crypto_blkcipher *cipher,
 	if (err)
 		goto out_err;
 
-	
+	/* Compute intermediate Kcrypt from session key */
 	for (i = 0; i < kctx->gk5e->keylength; i++)
 		Kcrypt[i] = kctx->Ksess[i] ^ 0xf0;
 
@@ -911,7 +963,7 @@ krb5_rc4_setup_enc_key(struct krb5_ctx *kctx, struct crypto_blkcipher *cipher,
 	if (err)
 		goto out_err;
 
-	
+	/* Compute final Kcrypt from the seqnum and intermediate Kcrypt */
 	err = crypto_hash_setkey(hmac, Kcrypt, kctx->gk5e->keylength);
 	if (err)
 		goto out_err;

@@ -11,6 +11,9 @@
 
 #ifdef CONFIG_DWARF_UNWINDER
 
+/*
+ * DWARF expression operations
+ */
 #define DW_OP_addr	0x03
 #define DW_OP_deref	0x06
 #define DW_OP_const1u	0x08
@@ -166,6 +169,10 @@
 #define DW_OP_lo_user	0xe0
 #define DW_OP_hi_user	0xff
 
+/*
+ * Addresses used in FDE entries in the .eh_frame section may be encoded
+ * using one of the following encodings.
+ */
 #define DW_EH_PE_absptr	0x00
 #define DW_EH_PE_omit	0xff
 #define DW_EH_PE_uleb128	0x01
@@ -180,6 +187,10 @@
 
 #define DW_EH_PE_pcrel	0x10
 
+/*
+ * The architecture-specific register number that contains the return
+ * address in the .debug_frame table.
+ */
 #define DWARF_ARCH_RA_REG	17
 
 #ifndef __ASSEMBLY__
@@ -189,6 +200,10 @@
 #include <linux/list.h>
 #include <linux/module.h>
 
+/*
+ * Read either the frame pointer (r14) or the stack pointer (r15).
+ * NOTE: this MUST be inlined.
+ */
 static __always_inline unsigned long dwarf_read_arch_reg(unsigned int reg)
 {
 	unsigned long value = 0;
@@ -207,6 +222,9 @@ static __always_inline unsigned long dwarf_read_arch_reg(unsigned int reg)
 	return value;
 }
 
+/**
+ *	dwarf_cie - Common Information Entry
+ */
 struct dwarf_cie {
 	unsigned long length;
 	unsigned long cie_id;
@@ -215,7 +233,7 @@ struct dwarf_cie {
 	unsigned int code_alignment_factor;
 	int data_alignment_factor;
 
-	
+	/* Which column in the rule table represents return addr of func. */
 	unsigned int return_address_reg;
 
 	unsigned char *initial_instructions;
@@ -228,12 +246,15 @@ struct dwarf_cie {
 	unsigned long flags;
 #define DWARF_CIE_Z_AUGMENTATION	(1 << 0)
 
-	
+	/* linked-list entry if this CIE is from a module */
 	struct list_head link;
 
 	struct rb_node node;
 };
 
+/**
+ *	dwarf_fde - Frame Description Entry
+ */
 struct dwarf_fde {
 	unsigned long length;
 	unsigned long cie_pointer;
@@ -243,12 +264,15 @@ struct dwarf_fde {
 	unsigned char *instructions;
 	unsigned char *end;
 
-	
+	/* linked-list entry if this FDE is from a module */
 	struct list_head link;
 
 	struct rb_node node;
 };
 
+/**
+ *	dwarf_frame - DWARF information for a frame in the call stack
+ */
 struct dwarf_frame {
 	struct dwarf_frame *prev, *next;
 
@@ -258,11 +282,11 @@ struct dwarf_frame {
 
 	unsigned long cfa;
 
-	
+	/* Valid when DW_FRAME_CFA_REG_OFFSET is set in flags */
 	unsigned int cfa_register;
 	unsigned int cfa_offset;
 
-	
+	/* Valid when DW_FRAME_CFA_REG_EXP is set in flags */
 	unsigned char *cfa_expr;
 	unsigned int cfa_expr_len;
 
@@ -273,6 +297,10 @@ struct dwarf_frame {
 	unsigned long return_addr;
 };
 
+/**
+ *	dwarf_reg - DWARF register
+ *	@flags: Describes how to calculate the value of this register
+ */
 struct dwarf_reg {
 	struct list_head link;
 
@@ -285,6 +313,9 @@ struct dwarf_reg {
 #define DWARF_UNDEFINED		(1 << 2)
 };
 
+/*
+ * Call Frame instruction opcodes.
+ */
 #define DW_CFA_advance_loc	0x40
 #define DW_CFA_offset		0x80
 #define DW_CFA_restore		0xc0
@@ -314,9 +345,15 @@ struct dwarf_reg {
 #define DW_CFA_lo_user		0x1c
 #define DW_CFA_hi_user		0x3f
 
+/* GNU extension opcodes  */
 #define DW_CFA_GNU_args_size	0x2e
 #define DW_CFA_GNU_negative_offset_extended 0x2f
 
+/*
+ * Some call frame instructions encode their operands in the opcode. We
+ * need some helper functions to extract both the opcode and operands
+ * from an instruction.
+ */
 static inline unsigned int DW_CFA_opcode(unsigned long insn)
 {
 	return (insn & 0xc0);
@@ -327,10 +364,13 @@ static inline unsigned int DW_CFA_operand(unsigned long insn)
 	return (insn & 0x3f);
 }
 
-#define DW_EH_FRAME_CIE	0		
+#define DW_EH_FRAME_CIE	0		/* .eh_frame CIE IDs are 0 */
 #define DW_CIE_ID	0xffffffff
 #define DW64_CIE_ID	0xffffffffffffffffULL
 
+/*
+ * DWARF FDE/CIE length field values.
+ */
 #define DW_EXT_LO	0xfffffff0
 #define DW_EXT_HI	0xffffffff
 #define DW_EXT_DWARF64	DW_EXT_HI
@@ -343,7 +383,7 @@ extern int module_dwarf_finalize(const Elf_Ehdr *, const Elf_Shdr *,
 				 struct module *);
 extern void module_dwarf_cleanup(struct module *);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define CFI_STARTPROC	.cfi_startproc
 #define CFI_ENDPROC	.cfi_endproc
@@ -354,6 +394,9 @@ extern void module_dwarf_cleanup(struct module *);
 
 #else
 
+/*
+ * Use the asm comment character to ignore the rest of the line.
+ */
 #define CFI_IGNORE	!
 
 #define CFI_STARTPROC	CFI_IGNORE
@@ -373,6 +416,6 @@ static inline void dwarf_unwinder_init(void)
 
 #endif
 
-#endif 
+#endif /* CONFIG_DWARF_UNWINDER */
 
-#endif 
+#endif /* __ASM_SH_DWARF_H */

@@ -32,6 +32,25 @@
 
 #include <linux/reboot.h>
 
+/*
+ * Read/write a 16 bit word from flash address 'addr'.
+ *
+ * When the cpu is in little-endian mode it swizzles the address lines
+ * ('address coherency') so we need to undo the swizzling to ensure commands
+ * and the like end up on the correct flash address.
+ *
+ * To further complicate matters, due to the way the expansion bus controller
+ * handles 32 bit reads, the byte stream ABCD is stored on the flash as:
+ *     D15    D0
+ *     +---+---+
+ *     | A | B | 0
+ *     +---+---+
+ *     | C | D | 2
+ *     +---+---+
+ * This means that on LE systems each 16 bit word must be swapped. Note that
+ * this requires CONFIG_MTD_CFI_BE_BYTE_SWAP to be enabled to 'unswap' the CFI
+ * data and other flash commands which are always in D7-D0.
+ */
 #ifndef __ARMEB__
 #ifndef CONFIG_MTD_CFI_BE_BYTE_SWAP
 #  error CONFIG_MTD_CFI_BE_BYTE_SWAP required
@@ -73,6 +92,11 @@ static map_word ixp4xx_read16(struct map_info *map, unsigned long ofs)
 	return val;
 }
 
+/*
+ * The IXP4xx expansion bus only allows 16-bit wide acceses
+ * when attached to a 16-bit wide device (such as the 28F128J3A),
+ * so we can't just memcpy_fromio().
+ */
 static void ixp4xx_copy_from(struct map_info *map, void *to,
 			     unsigned long from, ssize_t len)
 {
@@ -100,12 +124,19 @@ static void ixp4xx_copy_from(struct map_info *map, void *to,
 		*dest++ = BYTE0(flash_read16(src));
 }
 
+/*
+ * Unaligned writes are ignored, causing the 8-bit
+ * probe to fail and proceed to the 16-bit probe (which succeeds).
+ */
 static void ixp4xx_probe_write16(struct map_info *map, map_word d, unsigned long adr)
 {
 	if (!(adr & 1))
 		flash_write16(d.x[0], map->virt + adr);
 }
 
+/*
+ * Fast write16 function without the probing check above
+ */
 static void ixp4xx_write16(struct map_info *map, map_word d, unsigned long adr)
 {
 	flash_write16(d.x[0], map->virt + adr);
@@ -173,9 +204,18 @@ static int ixp4xx_flash_probe(struct platform_device *dev)
 
 	platform_set_drvdata(dev, info);
 
+	/*
+	 * Tell the MTD layer we're not 1:1 mapped so that it does
+	 * not attempt to do a direct access on us.
+	 */
 	info->map.phys = NO_XIP;
 	info->map.size = resource_size(dev->resource);
 
+	/*
+	 * We only support 16-bit accesses for now. If and when
+	 * any board use 8-bit access, we'll fixup the driver to
+	 * handle that.
+	 */
 	info->map.bankwidth = 2;
 	info->map.name = dev_name(&dev->dev);
 	info->map.read = ixp4xx_read16;
@@ -207,7 +247,7 @@ static int ixp4xx_flash_probe(struct platform_device *dev)
 	}
 	info->mtd->owner = THIS_MODULE;
 
-	
+	/* Use the fast version */
 	info->map.write = ixp4xx_write16;
 
 	err = mtd_device_parse_register(info->mtd, probes, &ppdata,

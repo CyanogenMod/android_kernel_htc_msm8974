@@ -20,8 +20,13 @@
 #include <trace/events/sched.h>
 
 #ifdef CONFIG_SMP
+/* Serializes the updates to cpu_online_mask, cpu_present_mask */
 static DEFINE_MUTEX(cpu_add_remove_lock);
 
+/*
+ * The following two API's must be used when attempting
+ * to serialize the updates to cpu_online_mask, cpu_present_mask.
+ */
 void cpu_maps_update_begin(void)
 {
 	mutex_lock(&cpu_add_remove_lock);
@@ -34,13 +39,20 @@ void cpu_maps_update_done(void)
 
 static RAW_NOTIFIER_HEAD(cpu_chain);
 
+/* If set, cpu_up and cpu_down will return -EBUSY and do nothing.
+ * Should always be manipulated under cpu_add_remove_lock
+ */
 static int cpu_hotplug_disabled;
 
 #ifdef CONFIG_HOTPLUG_CPU
 
 static struct {
 	struct task_struct *active_writer;
-	struct mutex lock; 
+	struct mutex lock; /* Synchronizes accesses to refcount, */
+	/*
+	 * Also blocks the new readers during
+	 * an ongoing cpu hotplug operation.
+	 */
 	int refcount;
 } cpu_hotplug = {
 	.active_writer = NULL,
@@ -67,7 +79,7 @@ void put_online_cpus(void)
 	mutex_lock(&cpu_hotplug.lock);
 
 	if (WARN_ON(!cpu_hotplug.refcount))
-		cpu_hotplug.refcount++; 
+		cpu_hotplug.refcount++; /* try to fix things up */
 
 	if (!--cpu_hotplug.refcount && unlikely(cpu_hotplug.active_writer))
 		wake_up_process(cpu_hotplug.active_writer);
@@ -76,6 +88,28 @@ void put_online_cpus(void)
 }
 EXPORT_SYMBOL_GPL(put_online_cpus);
 
+/*
+ * This ensures that the hotplug operation can begin only when the
+ * refcount goes to zero.
+ *
+ * Note that during a cpu-hotplug operation, the new readers, if any,
+ * will be blocked by the cpu_hotplug.lock
+ *
+ * Since cpu_hotplug_begin() is always called after invoking
+ * cpu_maps_update_begin(), we can be sure that only one writer is active.
+ *
+ * Note that theoretically, there is a possibility of a livelock:
+ * - Refcount goes to zero, last reader wakes up the sleeping
+ *   writer.
+ * - Last reader unlocks the cpu_hotplug.lock.
+ * - A new reader arrives at this moment, bumps up the refcount.
+ * - The writer acquires the cpu_hotplug.lock finds the refcount
+ *   non zero and goes to sleep again.
+ *
+ * However, this is very difficult to achieve in practice since
+ * get_online_cpus() not an api which is called all that often.
+ *
+ */
 static void cpu_hotplug_begin(void)
 {
 	cpu_hotplug.active_writer = current;
@@ -96,11 +130,12 @@ static void cpu_hotplug_done(void)
 	mutex_unlock(&cpu_hotplug.lock);
 }
 
-#else 
+#else /* #if CONFIG_HOTPLUG_CPU */
 static void cpu_hotplug_begin(void) {}
 static void cpu_hotplug_done(void) {}
-#endif	
+#endif	/* #else #if CONFIG_HOTPLUG_CPU */
 
+/* Need to know about CPUs going up/down? */
 int __ref register_cpu_notifier(struct notifier_block *nb)
 {
 	int ret;
@@ -163,12 +198,13 @@ struct take_cpu_down_param {
 	void *hcpu;
 };
 
+/* Take this CPU down. */
 static int __ref take_cpu_down(void *_param)
 {
 	struct take_cpu_down_param *param = _param;
 	int err;
 
-	
+	/* Ensure this CPU doesn't handle any more interrupts. */
 	err = __cpu_disable();
 	if (err < 0)
 		return err;
@@ -177,6 +213,7 @@ static int __ref take_cpu_down(void *_param)
 	return 0;
 }
 
+/* Requires cpu_add_remove_lock to be held */
 static int __ref _cpu_down(unsigned int cpu, int tasks_frozen)
 {
 	int err, nr_calls = 0;
@@ -206,20 +243,27 @@ static int __ref _cpu_down(unsigned int cpu, int tasks_frozen)
 
 	err = __stop_machine(take_cpu_down, &tcd_param, cpumask_of(cpu));
 	if (err) {
-		
+		/* CPU didn't die: tell everyone.  Can't complain. */
 		cpu_notify_nofail(CPU_DOWN_FAILED | mod, hcpu);
 
 		goto out_release;
 	}
 	BUG_ON(cpu_online(cpu));
 
+	/*
+	 * The migration_call() CPU_DYING callback will have removed all
+	 * runnable tasks from the cpu, there's only the idle task left now
+	 * that the migration thread is done doing the stop_machine thing.
+	 *
+	 * Wait for the stop thread to go away.
+	 */
 	while (!idle_cpu(cpu))
 		cpu_relax();
 
-	
+	/* This actually kills the CPU. */
 	__cpu_die(cpu);
 
-	
+	/* CPU is completely dead: tell everyone.  Too late to complain. */
 	cpu_notify_nofail(CPU_DEAD | mod, hcpu);
 
 	check_for_tasks(cpu);
@@ -250,8 +294,9 @@ out:
 	return err;
 }
 EXPORT_SYMBOL(cpu_down);
-#endif 
+#endif /*CONFIG_HOTPLUG_CPU*/
 
+/* Requires cpu_add_remove_lock to be held */
 static int __cpuinit _cpu_up(unsigned int cpu, int tasks_frozen)
 {
 	int ret, nr_calls = 0;
@@ -270,13 +315,13 @@ static int __cpuinit _cpu_up(unsigned int cpu, int tasks_frozen)
 		goto out_notify;
 	}
 
-	
+	/* Arch-specific enabling code. */
 	ret = __cpu_up(cpu);
 	if (ret != 0)
 		goto out_notify;
 	BUG_ON(!cpu_online(cpu));
 
-	
+	/* Now call notifier in preparation. */
 	cpu_notify(CPU_ONLINE | mod, hcpu);
 
 out_notify:
@@ -361,6 +406,10 @@ int disable_nonboot_cpus(void)
 
 	cpu_maps_update_begin();
 	first_cpu = cpumask_first(cpu_online_mask);
+	/*
+	 * We take down all of the non-boot CPUs in one shot to avoid races
+	 * with the userspace trying to use the CPU hotplug at the same time
+	 */
 	cpumask_clear(frozen_cpus);
 	arch_disable_nonboot_cpus_begin();
 
@@ -382,7 +431,7 @@ int disable_nonboot_cpus(void)
 
 	if (!error) {
 		BUG_ON(num_online_cpus() > 1);
-		
+		/* Make sure the CPUs won't be enabled by someone else */
 		cpu_hotplug_disabled = 1;
 	} else {
 		printk(KERN_ERR "Non-boot CPUs are not disabled\n");
@@ -403,7 +452,7 @@ void __ref enable_nonboot_cpus(void)
 {
 	int cpu, error;
 
-	
+	/* Allow everyone to use the CPU hotplug again */
 	cpu_maps_update_begin();
 	cpu_hotplug_disabled = 0;
 	if (cpumask_empty(frozen_cpus))
@@ -437,6 +486,17 @@ static int __init alloc_frozen_cpus(void)
 }
 core_initcall(alloc_frozen_cpus);
 
+/*
+ * Prevent regular CPU hotplug from racing with the freezer, by disabling CPU
+ * hotplug when tasks are about to be frozen. Also, don't allow the freezer
+ * to continue until any currently running CPU hotplug operation gets
+ * completed.
+ * To modify the 'cpu_hotplug_disabled' flag, we need to acquire the
+ * 'cpu_add_remove_lock'. And this same lock is also taken by the regular
+ * CPU hotplug path and released only after it is complete. Thus, we
+ * (and hence the freezer) will block here until any currently running CPU
+ * hotplug operation gets completed.
+ */
 void cpu_hotplug_disable_before_freeze(void)
 {
 	cpu_maps_update_begin();
@@ -445,6 +505,10 @@ void cpu_hotplug_disable_before_freeze(void)
 }
 
 
+/*
+ * When tasks have been thawed, re-enable regular CPU hotplug (which had been
+ * disabled while beginning to freeze tasks).
+ */
 void cpu_hotplug_enable_after_thaw(void)
 {
 	cpu_maps_update_begin();
@@ -452,6 +516,17 @@ void cpu_hotplug_enable_after_thaw(void)
 	cpu_maps_update_done();
 }
 
+/*
+ * When callbacks for CPU hotplug notifications are being executed, we must
+ * ensure that the state of the system with respect to the tasks being frozen
+ * or not, as reported by the notification, remains unchanged *throughout the
+ * duration* of the execution of the callbacks.
+ * Hence we need to prevent the freezer from racing with regular CPU hotplug.
+ *
+ * This synchronization is implemented by mutually excluding regular CPU
+ * hotplug and Suspend/Hibernate call paths by hooking onto the Suspend/
+ * Hibernate notifications.
+ */
 static int
 cpu_hotplug_pm_callback(struct notifier_block *nb,
 			unsigned long action, void *ptr)
@@ -483,8 +558,16 @@ static int __init cpu_hotplug_pm_sync_init(void)
 }
 core_initcall(cpu_hotplug_pm_sync_init);
 
-#endif 
+#endif /* CONFIG_PM_SLEEP_SMP */
 
+/**
+ * notify_cpu_starting(cpu) - call the CPU_STARTING notifiers
+ * @cpu: cpu that just started
+ *
+ * This function calls the cpu_chain notifiers with CPU_STARTING.
+ * It must be called by the arch code on the new cpu, before the new cpu
+ * enables interrupts and before the "boot" cpu returns from __cpu_up().
+ */
 void __cpuinit notify_cpu_starting(unsigned int cpu)
 {
 	unsigned long val = CPU_STARTING;
@@ -492,13 +575,21 @@ void __cpuinit notify_cpu_starting(unsigned int cpu)
 #ifdef CONFIG_PM_SLEEP_SMP
 	if (frozen_cpus != NULL && cpumask_test_cpu(cpu, frozen_cpus))
 		val = CPU_STARTING_FROZEN;
-#endif 
+#endif /* CONFIG_PM_SLEEP_SMP */
 	cpu_notify(val, (void *)(long)cpu);
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
+/*
+ * cpu_bit_bitmap[] is a special, "compressed" data structure that
+ * represents all NR_CPUS bits binary values of 1<<nr.
+ *
+ * It is used by cpumask_of() to get a constant address to a CPU
+ * mask value that has a single bit set only.
+ */
 
+/* cpu_bit_bitmap[0] is empty - so we can back into it */
 #define MASK_DECLARE_1(x)	[x+1][0] = (1UL << (x))
 #define MASK_DECLARE_2(x)	MASK_DECLARE_1(x), MASK_DECLARE_1(x+1)
 #define MASK_DECLARE_4(x)	MASK_DECLARE_2(x), MASK_DECLARE_2(x+2)
@@ -557,10 +648,12 @@ void set_cpu_present(unsigned int cpu, bool present)
 
 void set_cpu_online(unsigned int cpu, bool online)
 {
-	if (online)
+	if (online) {
 		cpumask_set_cpu(cpu, to_cpumask(cpu_online_bits));
-	else
+		cpumask_set_cpu(cpu, to_cpumask(cpu_active_bits));
+	} else {
 		cpumask_clear_cpu(cpu, to_cpumask(cpu_online_bits));
+	}
 }
 
 void set_cpu_active(unsigned int cpu, bool active)

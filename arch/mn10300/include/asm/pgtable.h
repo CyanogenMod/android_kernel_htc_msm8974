@@ -34,6 +34,10 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 #define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
 extern unsigned long empty_zero_page[1024];
 extern spinlock_t pgd_lock;
@@ -43,12 +47,16 @@ extern void pmd_ctor(void *, struct kmem_cache *, unsigned long);
 extern void pgtable_cache_init(void);
 extern void paging_init(void);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * The Linux mn10300 paging architecture only implements both the traditional
+ * 2-level page tables
+ */
 #define PGDIR_SHIFT	22
 #define PTRS_PER_PGD	1024
-#define PTRS_PER_PUD	1	
-#define PTRS_PER_PMD	1	
+#define PTRS_PER_PUD	1	/* we don't really have any PUD physically */
+#define PTRS_PER_PMD	1	/* we don't really have any PMD physically */
 #define PTRS_PER_PTE	1024
 
 #define PGD_SIZE	PAGE_SIZE
@@ -70,6 +78,18 @@ extern void paging_init(void);
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 #endif
 
+/*
+ * Unfortunately, due to the way the MMU works on the MN10300, the vmalloc VM
+ * area has to be in the lower half of the virtual address range (the upper
+ * half is not translated through the TLB).
+ *
+ * So in this case, the vmalloc area goes at the bottom of the address map
+ * (leaving a hole at the very bottom to catch addressing errors), and
+ * userspace starts immediately above.
+ *
+ * The vmalloc() routines also leaves a hole of 4kB between each vmalloced
+ * area to catch addressing errors.
+ */
 #ifndef __ASSEMBLY__
 #define VMALLOC_OFFSET	(8UL * 1024 * 1024)
 #define VMALLOC_START	(0x70000000UL)
@@ -84,12 +104,13 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 extern pte_t kernel_vmalloc_ptes[(VMALLOC_END - VMALLOC_START) / PAGE_SIZE];
 #endif
 
+/* IPTEL2/DPTEL2 bit assignments */
 #define _PAGE_BIT_VALID		xPTEL2_V_BIT
 #define _PAGE_BIT_CACHE		xPTEL2_C_BIT
 #define _PAGE_BIT_PRESENT	xPTEL2_PV_BIT
 #define _PAGE_BIT_DIRTY		xPTEL2_D_BIT
 #define _PAGE_BIT_GLOBAL	xPTEL2_G_BIT
-#define _PAGE_BIT_ACCESSED	xPTEL2_UNUSED1_BIT	
+#define _PAGE_BIT_ACCESSED	xPTEL2_UNUSED1_BIT	/* mustn't be loaded into IPTEL2/DPTEL2 */
 
 #define _PAGE_VALID		xPTEL2_V
 #define _PAGE_CACHE		xPTEL2_C
@@ -107,13 +128,14 @@ extern pte_t kernel_vmalloc_ptes[(VMALLOC_END - VMALLOC_START) / PAGE_SIZE];
 #define _PAGE_PS_128Kb		xPTEL2_PS_128Kb
 #define _PAGE_PS_1Kb		xPTEL2_PS_1Kb
 #define _PAGE_PS_4Mb		xPTEL2_PS_4Mb
-#define _PAGE_PSE		xPTEL2_PS_4Mb		
+#define _PAGE_PSE		xPTEL2_PS_4Mb		/* 4MB page */
 #define _PAGE_CACHE_WT		xPTEL2_CWT
 #define _PAGE_ACCESSED		xPTEL2_UNUSED1
-#define _PAGE_NX		0			
+#define _PAGE_NX		0			/* no-execute bit */
 
-#define _PAGE_FILE		xPTEL2_C	
-#define _PAGE_PROTNONE		0x000		
+/* If _PAGE_VALID is clear, we use these: */
+#define _PAGE_FILE		xPTEL2_C	/* set:pagecache unset:swap */
+#define _PAGE_PROTNONE		0x000		/* If not present */
 
 #define __PAGE_PROT_UWAUX	0x010
 #define __PAGE_PROT_USER	0x020
@@ -163,6 +185,11 @@ extern pte_t kernel_vmalloc_ptes[(VMALLOC_END - VMALLOC_START) / PAGE_SIZE];
 #define __PAGE_USERIO		(__PAGE_KERNEL_BASE | _PAGE_PROT_WKWU | _PAGE_NX)
 #define PAGE_USERIO		__pgprot(__PAGE_USERIO)
 
+/*
+ * Whilst the MN10300 can do page protection for execute (given separate data
+ * and insn TLBs), we are not supporting it at the moment. Write permission,
+ * however, always implies read permission (but not execute permission).
+ */
 #define __P000	PAGE_NONE
 #define __P001	PAGE_READONLY_NOEXEC
 #define __P010	PAGE_COPY_NOEXEC
@@ -181,6 +208,10 @@ extern pte_t kernel_vmalloc_ptes[(VMALLOC_END - VMALLOC_START) / PAGE_SIZE];
 #define __S110	PAGE_SHARED_EXEC
 #define __S111	PAGE_SHARED_EXEC
 
+/*
+ * Define this to warn about kernel memory accesses that are
+ * done without a 'verify_area(VERIFY_WRITE,..)'
+ */
 #undef TEST_VERIFY_AREA
 
 #define pte_present(x)	(pte_val(x) & _PAGE_VALID)
@@ -199,6 +230,10 @@ do {							\
 
 #ifndef __ASSEMBLY__
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 static inline int pte_user(pte_t pte)	{ return pte_val(pte) & __PAGE_PROT_USER; }
 static inline int pte_read(pte_t pte)	{ return pte_val(pte) & __PAGE_PROT_USER; }
 static inline int pte_dirty(pte_t pte)	{ return pte_val(pte) & _PAGE_DIRTY; }
@@ -206,6 +241,9 @@ static inline int pte_young(pte_t pte)	{ return pte_val(pte) & _PAGE_ACCESSED; }
 static inline int pte_write(pte_t pte)	{ return pte_val(pte) & __PAGE_PROT_WRITE; }
 static inline int pte_special(pte_t pte){ return 0; }
 
+/*
+ * The following only works if pte_present() is not true.
+ */
 static inline int pte_file(pte_t pte)	{ return pte_val(pte) & _PAGE_FILE; }
 
 static inline pte_t pte_rdprotect(pte_t pte)
@@ -252,12 +290,26 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 	printk(KERN_ERR "%s:%d: bad pgd %08lx.\n", \
 	       __FILE__, __LINE__, pgd_val(e))
 
+/*
+ * The "pgd_xxx()" functions here are trivial for a folded two-level
+ * setup: the pgd is never bad, and a pmd always exists (as it's folded
+ * into the pgd entry)
+ */
 #define pgd_clear(xp)				do { } while (0)
 
+/*
+ * Certain architectures need to do special things when PTEs
+ * within a page table are directly modified.  Thus, the following
+ * hook is made available.
+ */
 #define set_pte(pteptr, pteval)			(*(pteptr) = pteval)
 #define set_pte_at(mm, addr, ptep, pteval)	set_pte((ptep), (pteval))
 #define set_pte_atomic(pteptr, pteval)		set_pte((pteptr), (pteval))
 
+/*
+ * (pmds are folded into pgds so this doesn't get actually called,
+ * but the define is needed for a generic inline function.)
+ */
 #define set_pmd(pmdptr, pmdval) (*(pmdptr) = pmdval)
 
 #define ptep_get_and_clear(mm, addr, ptep) \
@@ -270,11 +322,17 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 #define pfn_pte(pfn, prot)	__pte(__pfn_addr(pfn) | pgprot_val(prot))
 #define pfn_pmd(pfn, prot)	__pmd(__pfn_addr(pfn) | pgprot_val(prot))
 
+/*
+ * All present user pages are user-executable:
+ */
 static inline int pte_exec(pte_t pte)
 {
 	return pte_user(pte);
 }
 
+/*
+ * All present pages are kernel-executable:
+ */
 static inline int pte_exec_kernel(pte_t pte)
 {
 	return 1;
@@ -285,6 +343,7 @@ static inline int pte_exec_kernel(pte_t pte)
 #define pte_to_pgoff(pte)	(pte_val(pte) >> 2)
 #define pgoff_to_pte(off)	__pte((off) << 2 | _PAGE_FILE)
 
+/* Encode and de-code a swap entry */
 #define __swp_type(x)			(((x).val >> 2) & 0x3f)
 #define __swp_offset(x)			((x).val >> 8)
 #define __swp_entry(type, offset) \
@@ -321,10 +380,22 @@ static inline void ptep_mkdirty(pte_t *ptep)
 	set_bit(_PAGE_BIT_DIRTY, &ptep->pte);
 }
 
+/*
+ * Macro to mark a page protection value as "uncacheable".  On processors which
+ * do not support it, this is a no-op.
+ */
 #define pgprot_noncached(prot)	__pgprot(pgprot_val(prot) & ~_PAGE_CACHE)
 
+/*
+ * Macro to mark a page protection value as "Write-Through".
+ * On processors which do not support it, this is a no-op.
+ */
 #define pgprot_through(prot)	__pgprot(pgprot_val(prot) | _PAGE_CACHE_WT)
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 
 #define mk_pte(page, pgprot)	pfn_pte(page_to_pfn(page), (pgprot))
 #define mk_pte_huge(entry) \
@@ -348,21 +419,53 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 	((pmd_val(pmd) & (_PAGE_PSE | _PAGE_PRESENT)) == \
 	 (_PAGE_PSE | _PAGE_PRESENT))
 
+/*
+ * the pgd page can be thought of an array like this: pgd_t[PTRS_PER_PGD]
+ *
+ * this macro returns the index of the entry in the pgd page which would
+ * control the given virtual address
+ */
 #define pgd_index(address) (((address) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
 
+/*
+ * pgd_offset() returns a (pgd_t *)
+ * pgd_index() is used get the offset into the pgd page's array of pgd_t's;
+ */
 #define pgd_offset(mm, address)	((mm)->pgd + pgd_index(address))
 
+/*
+ * a shortcut which implies the use of the kernel's pgd, instead
+ * of a process's
+ */
 #define pgd_offset_k(address)	pgd_offset(&init_mm, address)
 
+/*
+ * the pmd page can be thought of an array like this: pmd_t[PTRS_PER_PMD]
+ *
+ * this macro returns the index of the entry in the pmd page which would
+ * control the given virtual address
+ */
 #define pmd_index(address) \
 	(((address) >> PMD_SHIFT) & (PTRS_PER_PMD - 1))
 
+/*
+ * the pte page can be thought of an array like this: pte_t[PTRS_PER_PTE]
+ *
+ * this macro returns the index of the entry in the pte page which would
+ * control the given virtual address
+ */
 #define pte_index(address) \
 	(((address) >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
 
 #define pte_offset_kernel(dir, address) \
 	((pte_t *) pmd_page_kernel(*(dir)) +  pte_index(address))
 
+/*
+ * Make a given kernel text page executable/non-executable.
+ * Returns the previous executability setting of that page (which
+ * is used to restore the previous state). Used by the SMP bootup code.
+ * NOTE: this is an __init function for security reasons.
+ */
 static inline int set_kernel_exec(unsigned long vaddr, int enable)
 {
 	return 0;
@@ -372,10 +475,14 @@ static inline int set_kernel_exec(unsigned long vaddr, int enable)
 	((pte_t *) page_address(pmd_page(*(dir))) + pte_index(address))
 #define pte_unmap(pte)		do {} while (0)
 
+/*
+ * The MN10300 has external MMU info in the form of a TLB: this is adapted from
+ * the kernel page tables containing the necessary information by tlb-mn10300.S
+ */
 extern void update_mmu_cache(struct vm_area_struct *vma,
 			     unsigned long address, pte_t *ptep);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define kern_addr_valid(addr)	(1)
 
@@ -394,6 +501,6 @@ extern void update_mmu_cache(struct vm_area_struct *vma,
 #define __HAVE_ARCH_PTE_SAME
 #include <asm-generic/pgtable.h>
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_PGTABLE_H */

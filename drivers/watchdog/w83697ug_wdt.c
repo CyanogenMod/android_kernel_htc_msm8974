@@ -48,7 +48,7 @@
 
 
 #define WATCHDOG_NAME "w83697ug/uf WDT"
-#define WATCHDOG_TIMEOUT 60		
+#define WATCHDOG_TIMEOUT 60		/* 60 sec default timeout */
 
 static unsigned long wdt_is_open;
 static char expect_close;
@@ -58,7 +58,7 @@ static int wdt_io = 0x2e;
 module_param(wdt_io, int, 0);
 MODULE_PARM_DESC(wdt_io, "w83697ug/uf WDT io port (default 0x2e)");
 
-static int timeout = WATCHDOG_TIMEOUT;	
+static int timeout = WATCHDOG_TIMEOUT;	/* in seconds */
 module_param(timeout, int, 0);
 MODULE_PARM_DESC(timeout,
 	"Watchdog timeout in seconds. 1<= timeout <=255 (default="
@@ -70,49 +70,53 @@ MODULE_PARM_DESC(nowayout,
 	"Watchdog cannot be stopped once started (default="
 				__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+/*
+ *	Kernel methods.
+ */
 
-#define WDT_EFER (wdt_io+0)   
-#define WDT_EFIR (wdt_io+0)   
-#define WDT_EFDR (WDT_EFIR+1) 
+#define WDT_EFER (wdt_io+0)   /* Extended Function Enable Registers */
+#define WDT_EFIR (wdt_io+0)   /* Extended Function Index Register
+							(same as EFER) */
+#define WDT_EFDR (WDT_EFIR+1) /* Extended Function Data Register */
 
 static int w83697ug_select_wd_register(void)
 {
 	unsigned char c;
 	unsigned char version;
 
-	outb_p(0x87, WDT_EFER); 
-	outb_p(0x87, WDT_EFER); 
+	outb_p(0x87, WDT_EFER); /* Enter extended function mode */
+	outb_p(0x87, WDT_EFER); /* Again according to manual */
 
-	outb(0x20, WDT_EFER);	
+	outb(0x20, WDT_EFER);	/* check chip version	*/
 	version = inb(WDT_EFDR);
 
-	if (version == 0x68) {	
+	if (version == 0x68) {	/* W83697UG		*/
 		pr_info("Watchdog chip version 0x%02x = W83697UG/UF found at 0x%04x\n",
 			version, wdt_io);
 
 		outb_p(0x2b, WDT_EFER);
-		c = inb_p(WDT_EFDR);    
+		c = inb_p(WDT_EFDR);    /* select WDT0 */
 		c &= ~0x04;
 		outb_p(0x2b, WDT_EFER);
-		outb_p(c, WDT_EFDR);	
+		outb_p(c, WDT_EFDR);	/* set pin118 to WDT0 */
 
 	} else {
 		pr_err("No W83697UG/UF could be found\n");
 		return -ENODEV;
 	}
 
-	outb_p(0x07, WDT_EFER); 
-	outb_p(0x08, WDT_EFDR); 
-	outb_p(0x30, WDT_EFER); 
+	outb_p(0x07, WDT_EFER); /* point to logical device number reg */
+	outb_p(0x08, WDT_EFDR); /* select logical device 8 (GPIO2) */
+	outb_p(0x30, WDT_EFER); /* select CR30 */
 	c = inb_p(WDT_EFDR);
-	outb_p(c | 0x01, WDT_EFDR); 
+	outb_p(c | 0x01, WDT_EFDR); /* set bit 0 to activate GPIO2 */
 
 	return 0;
 }
 
 static void w83697ug_unselect_wd_register(void)
 {
-	outb_p(0xAA, WDT_EFER); 
+	outb_p(0xAA, WDT_EFER); /* Leave extended function mode */
 }
 
 static int w83697ug_init(void)
@@ -124,17 +128,18 @@ static int w83697ug_init(void)
 	if (ret != 0)
 		return ret;
 
-	outb_p(0xF6, WDT_EFER); 
-	t = inb_p(WDT_EFDR);    
+	outb_p(0xF6, WDT_EFER); /* Select CRF6 */
+	t = inb_p(WDT_EFDR);    /* read CRF6 */
 	if (t != 0) {
 		pr_info("Watchdog already running. Resetting timeout to %d sec\n",
 			timeout);
-		outb_p(timeout, WDT_EFDR);    
+		outb_p(timeout, WDT_EFDR);    /* Write back to CRF6 */
 	}
-	outb_p(0xF5, WDT_EFER); 
-	t = inb_p(WDT_EFDR);    
-	t &= ~0x0C;             
-	outb_p(t, WDT_EFDR);    
+	outb_p(0xF5, WDT_EFER); /* Select CRF5 */
+	t = inb_p(WDT_EFDR);    /* read CRF5 */
+	t &= ~0x0C;             /* set second mode &
+					disable keyboard turning off watchdog */
+	outb_p(t, WDT_EFDR);    /* Write back to CRF5 */
 
 	w83697ug_unselect_wd_register();
 	return 0;
@@ -149,8 +154,8 @@ static void wdt_ctrl(int timeout)
 		return;
 	}
 
-	outb_p(0xF4, WDT_EFER);    
-	outb_p(timeout, WDT_EFDR); 
+	outb_p(0xF4, WDT_EFER);    /* Select CRF4 */
+	outb_p(timeout, WDT_EFDR); /* Write Timeout counter to CRF4 */
 
 	w83697ug_unselect_wd_register();
 
@@ -253,7 +258,7 @@ static long wdt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (wdt_set_heartbeat(new_timeout))
 			return -EINVAL;
 		wdt_ping();
-		
+		/* Fall */
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout, p);
@@ -268,6 +273,9 @@ static int wdt_open(struct inode *inode, struct file *file)
 {
 	if (test_and_set_bit(0, &wdt_is_open))
 		return -EBUSY;
+	/*
+	 *	Activate
+	 */
 
 	wdt_ping();
 	return nonseekable_open(inode, file);
@@ -286,16 +294,22 @@ static int wdt_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *	Notifier for system down
+ */
 
 static int wdt_notify_sys(struct notifier_block *this, unsigned long code,
 	void *unused)
 {
 	if (code == SYS_DOWN || code == SYS_HALT)
-		wdt_disable();	
+		wdt_disable();	/* Turn the WDT off */
 
 	return NOTIFY_DONE;
 }
 
+/*
+ *	Kernel Interfaces
+ */
 
 static const struct file_operations wdt_fops = {
 	.owner		= THIS_MODULE,
@@ -312,6 +326,10 @@ static struct miscdevice wdt_miscdev = {
 	.fops = &wdt_fops,
 };
 
+/*
+ *	The WDT needs to learn about soft shutdowns in order to
+ *	turn the timebomb registers off.
+ */
 
 static struct notifier_block wdt_notifier = {
 	.notifier_call = wdt_notify_sys,

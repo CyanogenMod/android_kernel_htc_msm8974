@@ -9,4 +9,4 @@
 #include <asm/types.h>
 #include <asm-generic/scatterlist.h>
 
-#endif 
+#endif /* _ASMARM_SCATTERLIST_H */

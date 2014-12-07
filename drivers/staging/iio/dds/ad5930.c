@@ -24,6 +24,7 @@
 #define value_mask (u16)0xf000
 #define addr_shift 12
 
+/* Register format: 4 bits addr + 12 bits value */
 struct ad5903_config {
 	u16 control;
 	u16 incnum;

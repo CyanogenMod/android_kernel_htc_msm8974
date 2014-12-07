@@ -44,17 +44,54 @@ extern void __iomem *it8152_base_address;
 
 #define IT8152_GPIO_GPDR		__REG_IT8152(0x3f00500)
 
+/*
+  Interrupt controller per register summary:
+  ---------------------------------------
+  LCDNIRR:
+  IT8152_LD_IRQ(8) PCICLK stop
+  IT8152_LD_IRQ(7) MCLK ready
+  IT8152_LD_IRQ(6) s/w
+  IT8152_LD_IRQ(5) UART
+  IT8152_LD_IRQ(4) GPIO
+  IT8152_LD_IRQ(3) TIMER 4
+  IT8152_LD_IRQ(2) TIMER 3
+  IT8152_LD_IRQ(1) TIMER 2
+  IT8152_LD_IRQ(0) TIMER 1
+
+  LPCNIRR:
+  IT8152_LP_IRQ(x) serial IRQ x
+
+  PCIDNIRR:
+  IT8152_PD_IRQ(14) PCISERR
+  IT8152_PD_IRQ(13) CPU/PCI bridge target abort (h2pTADR)
+  IT8152_PD_IRQ(12) CPU/PCI bridge master abort (h2pMADR)
+  IT8152_PD_IRQ(11) PCI INTD
+  IT8152_PD_IRQ(10) PCI INTC
+  IT8152_PD_IRQ(9)  PCI INTB
+  IT8152_PD_IRQ(8)  PCI INTA
+  IT8152_PD_IRQ(7)  serial INTD
+  IT8152_PD_IRQ(6)  serial INTC
+  IT8152_PD_IRQ(5)  serial INTB
+  IT8152_PD_IRQ(4)  serial INTA
+  IT8152_PD_IRQ(3)  serial IRQ IOCHK (IOCHKR)
+  IT8152_PD_IRQ(2)  chaining DMA (CDMAR)
+  IT8152_PD_IRQ(1)  USB (USBR)
+  IT8152_PD_IRQ(0)  Audio controller (ACR)
+ */
 #define IT8152_IRQ(x)   (IRQ_BOARD_START + (x))
 #define IT8152_LAST_IRQ	(IRQ_BOARD_START + 40)
 
+/* IRQ-sources in 3 groups - local devices, LPC (serial), and external PCI */
 #define IT8152_LD_IRQ_COUNT     9
 #define IT8152_LP_IRQ_COUNT     16
 #define IT8152_PD_IRQ_COUNT     15
 
+/* Priorities: */
 #define IT8152_PD_IRQ(i)        IT8152_IRQ(i)
 #define IT8152_LP_IRQ(i)        (IT8152_IRQ(i) + IT8152_PD_IRQ_COUNT)
 #define IT8152_LD_IRQ(i)        (IT8152_IRQ(i) + IT8152_PD_IRQ_COUNT + IT8152_LP_IRQ_COUNT)
 
+/* frequently used interrupts */
 #define IT8152_PCISERR		IT8152_PD_IRQ(14)
 #define IT8152_H2PTADR		IT8152_PD_IRQ(13)
 #define IT8152_H2PMAR		IT8152_PD_IRQ(12)
@@ -75,4 +112,4 @@ extern int it8152_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 extern int it8152_pci_setup(int nr, struct pci_sys_data *sys);
 extern struct pci_bus *it8152_pci_scan_bus(int nr, struct pci_sys_data *sys);
 
-#endif 
+#endif /* __ASM_HARDWARE_IT8152_H */

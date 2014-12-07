@@ -20,6 +20,7 @@
 #ifndef __OMAP2_DISPLAY_PANEL_PICODLP_H
 #define __OMAP2_DISPLAY_PANEL_PICODLP_H
 
+/* Commands used for configuring picodlp panel */
 
 #define MAIN_STATUS			0x03
 #define PBC_CONTROL			0x08
@@ -63,12 +64,14 @@
 
 #define MISC_REG			0x30
 
+/* AGC registers */
 #define AGC_CTRL			0x50
 #define AGC_CLIPPED_PIXS		0x55
 #define AGC_BRIGHT_PIXS			0x56
 #define AGC_BG_PIXS			0x57
 #define AGC_SAFETY_MARGIN		0x17
 
+/* Color Coordinate Adjustment registers */
 #define CCA_ENABLE		0x5E
 #define CCA_C1A			0x5F
 #define CCA_C1B			0x60
@@ -83,6 +86,10 @@
 #define CCA_C7B			0x72
 #define CCA_C7C			0x73
 
+/**
+ * DLP Pico Processor 2600 comes with flash
+ * We can do DMA operations from flash for accessing Look Up Tables
+ */
 #define DMA_STATUS			0x100
 #define FLASH_ADDR_BYTES		0x74
 #define FLASH_DUMMY_BYTES		0x75
@@ -97,6 +104,7 @@
 #define SEQ_CONTROL			0x82
 #define SEQ_VECTOR			0x83
 
+/* DMD is Digital Micromirror Device */
 #define DMD_BLOCK_COUNT			0x84
 #define DMD_VCC_CONTROL			0x86
 #define DMD_PARK_PULSE_COUNT		0x87
@@ -121,6 +129,7 @@
 #define ACTGEN_HORIZ_BP			0xB0
 #define ACTGEN_VERT_BP			0xB1
 
+/* Look Up Table access */
 #define CMT_SPLASH_LUT_START_ADDR	0xFA
 #define CMT_SPLASH_LUT_DEST_SELECT	0xFB
 #define CMT_SPLASH_LUT_DATA		0xFC
@@ -128,20 +137,24 @@
 #define SEQ_RESET_LUT_DEST_SELECT	0xFE
 #define SEQ_RESET_LUT_DATA		0xFF
 
+/* Input source definitions */
 #define PARALLEL_RGB		0
 #define INT_TEST_PATTERN	1
 #define SPLASH_SCREEN		2
 #define CPU_INTF		3
 #define BT656			4
 
-#define QWVGA_LANDSCAPE		3	
-#define WVGA_864_LANDSCAPE	21	
-#define WVGA_DMD_OPTICAL_TEST	35	
+/* Standard input resolution definitions */
+#define QWVGA_LANDSCAPE		3	/* (427h*240v) */
+#define WVGA_864_LANDSCAPE	21	/* (864h*480v) */
+#define WVGA_DMD_OPTICAL_TEST	35	/* (608h*684v) */
 
+/* Standard data format definitions */
 #define RGB565			0
 #define RGB666			1
 #define RGB888			2
 
+/* Test Pattern definitions */
 #define TPG_CHECKERBOARD	0
 #define TPG_BLACK		1
 #define TPG_WHITE		2
@@ -157,9 +170,11 @@
 #define TPG_GREYRAMP_HORIZ	12
 #define TPG_ANSI_CHECKERBOARD	13
 
+/* sequence mode definitions */
 #define SEQ_FREE_RUN		0
 #define SEQ_LOCK		1
 
+/* curtain color definitions */
 #define CURTAIN_BLACK		0
 #define CURTAIN_RED		1
 #define CURTAIN_GREEN		2
@@ -169,6 +184,7 @@
 #define CURTAIN_CYAN		6
 #define CURTAIN_WHITE		7
 
+/* LUT definitions */
 #define CMT_LUT_NONE		0
 #define CMT_LUT_GREEN		1
 #define CMT_LUT_RED		2

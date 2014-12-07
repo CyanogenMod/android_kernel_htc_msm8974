@@ -135,6 +135,8 @@ static int __must_check smsc75xx_write_reg(struct usbnet *dev, u32 index,
 	return ret;
 }
 
+/* Loop until the read is completed with timeout
+ * called with phy_mutex held */
 static int smsc75xx_phy_wait_not_busy(struct usbnet *dev)
 {
 	unsigned long start_time = jiffies;
@@ -160,11 +162,11 @@ static int smsc75xx_mdio_read(struct net_device *netdev, int phy_id, int idx)
 
 	mutex_lock(&dev->phy_mutex);
 
-	
+	/* confirm MII not busy */
 	ret = smsc75xx_phy_wait_not_busy(dev);
 	check_warn_goto_done(ret, "MII is busy in smsc75xx_mdio_read");
 
-	
+	/* set the address, index & direction (read from PHY) */
 	phy_id &= dev->mii.phy_id_mask;
 	idx &= dev->mii.reg_num_mask;
 	addr = ((phy_id << MII_ACCESS_PHY_ADDR_SHIFT) & MII_ACCESS_PHY_ADDR)
@@ -195,7 +197,7 @@ static void smsc75xx_mdio_write(struct net_device *netdev, int phy_id, int idx,
 
 	mutex_lock(&dev->phy_mutex);
 
-	
+	/* confirm MII not busy */
 	ret = smsc75xx_phy_wait_not_busy(dev);
 	check_warn_goto_done(ret, "MII is busy in smsc75xx_mdio_write");
 
@@ -203,7 +205,7 @@ static void smsc75xx_mdio_write(struct net_device *netdev, int phy_id, int idx,
 	ret = smsc75xx_write_reg(dev, MII_DATA, val);
 	check_warn_goto_done(ret, "Error writing MII_DATA");
 
-	
+	/* set the address, index & direction (write to PHY) */
 	phy_id &= dev->mii.phy_id_mask;
 	idx &= dev->mii.reg_num_mask;
 	addr = ((phy_id << MII_ACCESS_PHY_ADDR_SHIFT) & MII_ACCESS_PHY_ADDR)
@@ -307,7 +309,7 @@ static int smsc75xx_write_eeprom(struct usbnet *dev, u32 offset, u32 length,
 	if (ret)
 		return ret;
 
-	
+	/* Issue write/erase enable command */
 	val = E2P_CMD_BUSY | E2P_CMD_EWEN;
 	ret = smsc75xx_write_reg(dev, E2P_CMD, val);
 	check_warn_return(ret, "Error writing E2P_CMD");
@@ -318,12 +320,12 @@ static int smsc75xx_write_eeprom(struct usbnet *dev, u32 offset, u32 length,
 
 	for (i = 0; i < length; i++) {
 
-		
+		/* Fill data register */
 		val = data[i];
 		ret = smsc75xx_write_reg(dev, E2P_DATA, val);
 		check_warn_return(ret, "Error writing E2P_DATA");
 
-		
+		/* Send "write" command */
 		val = E2P_CMD_BUSY | E2P_CMD_WRITE | (offset & E2P_CMD_ADDR);
 		ret = smsc75xx_write_reg(dev, E2P_CMD, val);
 		check_warn_return(ret, "Error writing E2P_CMD");
@@ -397,6 +399,7 @@ done:
 	return ret;
 }
 
+/* returns hash bit number for given MAC address */
 static u32 smsc75xx_hash(char addr[ETH_ALEN])
 {
 	return (ether_crc(ETH_ALEN, addr) >> 23) & 0x1ff;
@@ -460,7 +463,7 @@ static void smsc75xx_set_multicast(struct net_device *netdev)
 
 	spin_unlock_irqrestore(&pdata->rfe_ctl_lock, flags);
 
-	
+	/* defer register writes to a sleepable context */
 	schedule_work(&pdata->set_multicast);
 }
 
@@ -475,7 +478,7 @@ static int smsc75xx_update_flowcontrol(struct usbnet *dev, u8 duplex,
 
 		if (cap & FLOW_CTRL_TX) {
 			flow = (FLOW_TX_FCEN | 0xFFFF);
-			
+			/* set fct_flow thresholds to 20% and 80% */
 			fct_flow = (8 << 8) | 32;
 		}
 
@@ -505,7 +508,7 @@ static int smsc75xx_link_reset(struct usbnet *dev)
 	u16 lcladv, rmtadv;
 	int ret;
 
-	
+	/* read and write to clear phy interrupt status */
 	ret = smsc75xx_mdio_read(dev->net, mii->phy_id, PHY_INT_SRC);
 	check_warn_return(ret, "Error reading PHY_INT_SRC");
 	smsc75xx_mdio_write(dev->net, mii->phy_id, PHY_INT_SRC, 0xffff);
@@ -601,18 +604,18 @@ static int smsc75xx_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 
 static void smsc75xx_init_mac_address(struct usbnet *dev)
 {
-	
+	/* try reading mac address from EEPROM */
 	if (smsc75xx_read_eeprom(dev, EEPROM_MAC_OFFSET, ETH_ALEN,
 			dev->net->dev_addr) == 0) {
 		if (is_valid_ether_addr(dev->net->dev_addr)) {
-			
+			/* eeprom values are valid so use them */
 			netif_dbg(dev, ifup, dev->net,
 				"MAC address read from EEPROM");
 			return;
 		}
 	}
 
-	
+	/* no eeprom, or eeprom values are invalid. generate random MAC */
 	eth_hw_addr_random(dev->net);
 	netif_dbg(dev, ifup, dev->net, "MAC address set to random_ether_addr");
 }
@@ -643,7 +646,7 @@ static int smsc75xx_phy_initialize(struct usbnet *dev)
 {
 	int bmcr, ret, timeout = 0;
 
-	
+	/* Initialize MII structure */
 	dev->mii.dev = dev->net;
 	dev->mii.mdio_read = smsc75xx_mdio_read;
 	dev->mii.mdio_write = smsc75xx_mdio_write;
@@ -652,7 +655,7 @@ static int smsc75xx_phy_initialize(struct usbnet *dev)
 	dev->mii.supports_gmii = 1;
 	dev->mii.phy_id = SMSC75XX_INTERNAL_PHY_ID;
 
-	
+	/* reset phy and wait for reset to complete */
 	smsc75xx_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
 
 	do {
@@ -673,7 +676,7 @@ static int smsc75xx_phy_initialize(struct usbnet *dev)
 	smsc75xx_mdio_write(dev->net, dev->mii.phy_id, MII_CTRL1000,
 		ADVERTISE_1000FULL);
 
-	
+	/* read and write to clear phy interrupt status */
 	ret = smsc75xx_mdio_read(dev->net, dev->mii.phy_id, PHY_INT_SRC);
 	check_warn_return(ret, "Error reading PHY_INT_SRC");
 	smsc75xx_mdio_write(dev->net, dev->mii.phy_id, PHY_INT_SRC, 0xffff);
@@ -703,7 +706,7 @@ static int smsc75xx_set_rx_max_frame_length(struct usbnet *dev, int size)
 		check_warn_return(ret, "Failed to write MAC_RX: %d", ret);
 	}
 
-	
+	/* add 4 to size for FCS */
 	buf &= ~MAC_RX_MAX_SIZE;
 	buf |= (((size + 4) << MAC_RX_MAX_SIZE_SHIFT) & MAC_RX_MAX_SIZE);
 
@@ -729,6 +732,7 @@ static int smsc75xx_change_mtu(struct net_device *netdev, int new_mtu)
 	return usbnet_change_mtu(netdev, new_mtu);
 }
 
+/* Enable or disable Rx checksum offload engine */
 static int smsc75xx_set_features(struct net_device *netdev,
 	netdev_features_t features)
 {
@@ -745,7 +749,7 @@ static int smsc75xx_set_features(struct net_device *netdev,
 		pdata->rfe_ctl &= ~(RFE_CTL_TCPUDP_CKM | RFE_CTL_IP_CKM);
 
 	spin_unlock_irqrestore(&pdata->rfe_ctl_lock, flags);
-	
+	/* it's racing here! */
 
 	ret = smsc75xx_write_reg(dev, RFE_CTL, pdata->rfe_ctl);
 	check_warn_return(ret, "Error writing RFE_CTL");
@@ -879,7 +883,7 @@ static int smsc75xx_reset(struct usbnet *dev)
 		netif_dbg(dev, ifup, dev->net, "HW_CFG: 0x%08x", buf);
 	}
 
-	
+	/* set FIFO sizes */
 	buf = (MAX_RX_FIFO_SIZE - 512) / 512;
 	ret = smsc75xx_write_reg(dev, FCT_RX_FIFO_END, buf);
 	check_warn_return(ret, "Failed to write FCT_RX_FIFO_END: %d", ret);
@@ -900,7 +904,7 @@ static int smsc75xx_reset(struct usbnet *dev)
 
 	netif_dbg(dev, ifup, dev->net, "ID_REV = 0x%08x", buf);
 
-	
+	/* Configure GPIO pins as LED outputs */
 	ret = smsc75xx_read_reg(dev, LED_GPIO_CFG, &buf);
 	check_warn_return(ret, "Failed to read LED_GPIO_CFG: %d", ret);
 
@@ -916,7 +920,7 @@ static int smsc75xx_reset(struct usbnet *dev)
 	ret = smsc75xx_write_reg(dev, FCT_FLOW, 0);
 	check_warn_return(ret, "Failed to write FCT_FLOW: %d", ret);
 
-	
+	/* Don't need rfe_ctl_lock during initialisation */
 	ret = smsc75xx_read_reg(dev, RFE_CTL, &pdata->rfe_ctl);
 	check_warn_return(ret, "Failed to read RFE_CTL: %d", ret);
 
@@ -930,7 +934,7 @@ static int smsc75xx_reset(struct usbnet *dev)
 
 	netif_dbg(dev, ifup, dev->net, "RFE_CTL set to 0x%08x", pdata->rfe_ctl);
 
-	
+	/* Enable or disable checksum offload engines */
 	smsc75xx_set_features(dev->net, dev->net->features);
 
 	smsc75xx_set_multicast(dev->net);
@@ -941,13 +945,13 @@ static int smsc75xx_reset(struct usbnet *dev)
 	ret = smsc75xx_read_reg(dev, INT_EP_CTL, &buf);
 	check_warn_return(ret, "Failed to read INT_EP_CTL: %d", ret);
 
-	
+	/* enable PHY interrupts */
 	buf |= INT_ENP_PHY_INT;
 
 	ret = smsc75xx_write_reg(dev, INT_EP_CTL, buf);
 	check_warn_return(ret, "Failed to write INT_EP_CTL: %d", ret);
 
-	
+	/* allow mac to detect speed and duplex from phy */
 	ret = smsc75xx_read_reg(dev, MAC_CR, &buf);
 	check_warn_return(ret, "Failed to read MAC_CR: %d", ret);
 
@@ -1053,7 +1057,7 @@ static int smsc75xx_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->net->hw_features = NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 		NETIF_F_SG | NETIF_F_TSO | NETIF_F_TSO6 | NETIF_F_RXCSUM;
 
-	
+	/* Init all registers */
 	ret = smsc75xx_reset(dev);
 
 	dev->net->netdev_ops = &smsc75xx_netdev_ops;
@@ -1104,7 +1108,7 @@ static int smsc75xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 		packet = skb->data;
 
-		
+		/* get the packet length */
 		size = (rx_cmd_a & RX_CMD_A_LEN) - RXW_PADDING;
 		align_count = (4 - ((size + RXW_PADDING) % 4)) % 4;
 
@@ -1119,19 +1123,19 @@ static int smsc75xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 			else if (rx_cmd_a & (RX_CMD_A_LONG | RX_CMD_A_RUNT))
 				dev->net->stats.rx_frame_errors++;
 		} else {
-			
+			/* ETH_FRAME_LEN + 4(CRC) + 2(COE) + 4(Vlan) */
 			if (unlikely(size > (ETH_FRAME_LEN + 12))) {
 				netif_dbg(dev, rx_err, dev->net,
 					"size err rx_cmd_a=0x%08x", rx_cmd_a);
 				return 0;
 			}
 
-			
+			/* last frame in this batch */
 			if (skb->len == size) {
 				smsc75xx_rx_csum_offload(dev, skb, rx_cmd_a,
 					rx_cmd_b);
 
-				skb_trim(skb, skb->len - 4); 
+				skb_trim(skb, skb->len - 4); /* remove fcs */
 				skb->truesize = size + sizeof(struct sk_buff);
 
 				return 1;
@@ -1150,7 +1154,7 @@ static int smsc75xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 			smsc75xx_rx_csum_offload(dev, ax_skb, rx_cmd_a,
 				rx_cmd_b);
 
-			skb_trim(ax_skb, ax_skb->len - 4); 
+			skb_trim(ax_skb, ax_skb->len - 4); /* remove fcs */
 			ax_skb->truesize = size + sizeof(struct sk_buff);
 
 			usbnet_skb_return(dev, ax_skb);
@@ -1158,7 +1162,7 @@ static int smsc75xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 		skb_pull(skb, size);
 
-		
+		/* padding bytes before the next frame starts */
 		if (skb->len)
 			skb_pull(skb, align_count);
 	}
@@ -1226,16 +1230,16 @@ static const struct driver_info smsc75xx_info = {
 
 static const struct usb_device_id products[] = {
 	{
-		
+		/* SMSC7500 USB Gigabit Ethernet Device */
 		USB_DEVICE(USB_VENDOR_ID_SMSC, USB_PRODUCT_ID_LAN7500),
 		.driver_info = (unsigned long) &smsc75xx_info,
 	},
 	{
-		
+		/* SMSC7500 USB Gigabit Ethernet Device */
 		USB_DEVICE(USB_VENDOR_ID_SMSC, USB_PRODUCT_ID_LAN7505),
 		.driver_info = (unsigned long) &smsc75xx_info,
 	},
-	{ },		
+	{ },		/* END */
 };
 MODULE_DEVICE_TABLE(usb, products);
 

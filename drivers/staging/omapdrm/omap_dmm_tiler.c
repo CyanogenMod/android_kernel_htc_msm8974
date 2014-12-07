@@ -17,7 +17,7 @@
  */
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/platform_device.h> 
+#include <linux/platform_device.h> /* platform_device() */
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
@@ -36,9 +36,11 @@
 
 #define DMM_DRIVER_NAME "dmm"
 
+/* mappings for associating views to luts */
 static struct tcm *containers[TILFMT_NFORMATS];
 static struct dmm *omap_dmm;
 
+/* Geometry table */
 #define GEOM(xshift, yshift, bytes_per_pixel) { \
 		.x_shft = (xshift), \
 		.y_shft = (yshift), \
@@ -48,11 +50,11 @@ static struct dmm *omap_dmm;
 	}
 
 static const struct {
-	uint32_t x_shft;	
-	uint32_t y_shft;	
-	uint32_t cpp;		
-	uint32_t slot_w;	
-	uint32_t slot_h;	
+	uint32_t x_shft;	/* unused X-bits (as part of bpp) */
+	uint32_t y_shft;	/* unused Y-bits (as part of bpp) */
+	uint32_t cpp;		/* bytes/chars per pixel */
+	uint32_t slot_w;	/* width of each slot (in pixels) */
+	uint32_t slot_h;	/* height of each slot (in pixels) */
 } geom[TILFMT_NFORMATS] = {
 		[TILFMT_8BIT]  = GEOM(0, 0, 1),
 		[TILFMT_16BIT] = GEOM(0, 1, 2),
@@ -61,6 +63,7 @@ static const struct {
 };
 
 
+/* lookup table for registers w/ per-engine instances */
 static const uint32_t reg[][4] = {
 		[PAT_STATUS] = {DMM_PAT_STATUS__0, DMM_PAT_STATUS__1,
 				DMM_PAT_STATUS__2, DMM_PAT_STATUS__3},
@@ -68,12 +71,13 @@ static const uint32_t reg[][4] = {
 				DMM_PAT_DESCR__2, DMM_PAT_DESCR__3},
 };
 
+/* simple allocator to grab next 16 byte aligned memory from txn */
 static void *alloc_dma(struct dmm_txn *txn, size_t sz, dma_addr_t *pa)
 {
 	void *ptr;
 	struct refill_engine *engine = txn->engine_handle;
 
-	
+	/* dmm programming requires 16 byte aligned addresses */
 	txn->current_pa = round_up(txn->current_pa, 16);
 	txn->current_va = (void *)round_up((long)txn->current_va, 16);
 
@@ -88,6 +92,7 @@ static void *alloc_dma(struct dmm_txn *txn, size_t sz, dma_addr_t *pa)
 	return ptr;
 }
 
+/* check status and spin until wait_mask comes true */
 static int wait_status(struct refill_engine *engine, uint32_t wait_mask)
 {
 	struct dmm *dmm = engine->dmm;
@@ -118,7 +123,7 @@ irqreturn_t omap_dmm_irq_handler(int irq, void *arg)
 	uint32_t status = readl(dmm->base + DMM_PAT_IRQSTATUS);
 	int i;
 
-	
+	/* ack IRQ */
 	writel(status, dmm->base + DMM_PAT_IRQSTATUS);
 
 	for (i = 0; i < dmm->num_engines; i++) {
@@ -131,6 +136,9 @@ irqreturn_t omap_dmm_irq_handler(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+/**
+ * Get a handle for a DMM transaction
+ */
 static struct dmm_txn *dmm_txn_init(struct dmm *dmm, struct tcm *tcm)
 {
 	struct dmm_txn *txn = NULL;
@@ -138,7 +146,7 @@ static struct dmm_txn *dmm_txn_init(struct dmm *dmm, struct tcm *tcm)
 
 	down(&dmm->engine_sem);
 
-	
+	/* grab an idle engine */
 	spin_lock(&dmm->list_lock);
 	if (!list_empty(&dmm->idle_head)) {
 		engine = list_entry(dmm->idle_head.next, struct refill_engine,
@@ -159,6 +167,10 @@ static struct dmm_txn *dmm_txn_init(struct dmm *dmm, struct tcm *tcm)
 	return txn;
 }
 
+/**
+ * Add region to DMM transaction.  If pages or pages[i] is NULL, then the
+ * corresponding slot is cleared (ie. dummy_pa is programmed)
+ */
 static int dmm_txn_append(struct dmm_txn *txn, struct pat_area *area,
 		struct page **pages, uint32_t npages, uint32_t roll)
 {
@@ -194,7 +206,7 @@ static int dmm_txn_append(struct dmm_txn *txn, struct pat_area *area,
 			page_to_phys(pages[n]) : engine->dmm->dummy_pa;
 	}
 
-	
+	/* fill in lut with new addresses */
 	for (i = 0; i < rows; i++, lut += omap_dmm->lut_width)
 		memcpy(lut, &data[i*columns], columns * sizeof(u32));
 
@@ -203,6 +215,9 @@ static int dmm_txn_append(struct dmm_txn *txn, struct pat_area *area,
 	return 0;
 }
 
+/**
+ * Commit the DMM transaction.
+ */
 static int dmm_txn_commit(struct dmm_txn *txn, bool wait)
 {
 	int ret = 0;
@@ -217,17 +232,17 @@ static int dmm_txn_commit(struct dmm_txn *txn, bool wait)
 
 	txn->last_pat->next_pa = 0;
 
-	
+	/* write to PAT_DESCR to clear out any pending transaction */
 	writel(0x0, dmm->base + reg[PAT_DESCR][engine->id]);
 
-	
+	/* wait for engine ready: */
 	ret = wait_status(engine, DMM_PATSTATUS_READY);
 	if (ret) {
 		ret = -EFAULT;
 		goto cleanup;
 	}
 
-	
+	/* kick reload */
 	writel(engine->refill_pa,
 		dmm->base + reg[PAT_DESCR][engine->id]);
 
@@ -249,6 +264,9 @@ cleanup:
 	return ret;
 }
 
+/*
+ * DMM programming
+ */
 static int fill(struct tcm_area *area, struct page **pages,
 		uint32_t npages, uint32_t roll, bool wait)
 {
@@ -279,7 +297,12 @@ fail:
 	return ret;
 }
 
+/*
+ * Pin/unpin
+ */
 
+/* note: slots for which pages[i] == NULL are filled w/ dummy page
+ */
 int tiler_pin(struct tiler_block *block, struct page **pages,
 		uint32_t npages, uint32_t roll, bool wait)
 {
@@ -298,6 +321,9 @@ int tiler_unpin(struct tiler_block *block)
 	return fill(&block->area, NULL, 0, 0, false);
 }
 
+/*
+ * Reserve/release
+ */
 struct tiler_block *tiler_reserve_2d(enum tiler_fmt fmt, uint16_t w,
 		uint16_t h, uint16_t align)
 {
@@ -307,11 +333,11 @@ struct tiler_block *tiler_reserve_2d(enum tiler_fmt fmt, uint16_t w,
 
 	BUG_ON(!validfmt(fmt));
 
-	
+	/* convert width/height to slots */
 	w = DIV_ROUND_UP(w, geom[fmt].slot_w);
 	h = DIV_ROUND_UP(h, geom[fmt].slot_h);
 
-	
+	/* convert alignment to slots */
 	min_align = max(min_align, (geom[fmt].slot_w * geom[fmt].cpp));
 	align = ALIGN(align, min_align);
 	align /= geom[fmt].slot_w * geom[fmt].cpp;
@@ -324,7 +350,7 @@ struct tiler_block *tiler_reserve_2d(enum tiler_fmt fmt, uint16_t w,
 		return 0;
 	}
 
-	
+	/* add to allocation list */
 	spin_lock(&omap_dmm->list_lock);
 	list_add(&block->alloc_node, &omap_dmm->alloc_head);
 	spin_unlock(&omap_dmm->list_lock);
@@ -355,6 +381,7 @@ struct tiler_block *tiler_reserve_1d(size_t size)
 	return block;
 }
 
+/* note: if you have pin'd pages, you should have already unpin'd first! */
 int tiler_release(struct tiler_block *block)
 {
 	int ret = tcm_free(&block->area);
@@ -370,7 +397,11 @@ int tiler_release(struct tiler_block *block)
 	return ret;
 }
 
+/*
+ * Utils
+ */
 
+/* calculate the tiler space address of a pixel in a view orientation */
 static u32 tiler_get_address(u32 orient, enum tiler_fmt fmt, u32 x, u32 y)
 {
 	u32 x_bits, y_bits, tmp, x_mask, y_mask, alignment;
@@ -379,20 +410,20 @@ static u32 tiler_get_address(u32 orient, enum tiler_fmt fmt, u32 x, u32 y)
 	y_bits = CONT_HEIGHT_BITS - geom[fmt].y_shft;
 	alignment = geom[fmt].x_shft + geom[fmt].y_shft;
 
-	
+	/* validate coordinate */
 	x_mask = MASK(x_bits);
 	y_mask = MASK(y_bits);
 
 	if (x < 0 || x > x_mask || y < 0 || y > y_mask)
 		return 0;
 
-	
+	/* account for mirroring */
 	if (orient & MASK_X_INVERT)
 		x ^= x_mask;
 	if (orient & MASK_Y_INVERT)
 		y ^= y_mask;
 
-	
+	/* get coordinate address */
 	if (orient & MASK_XY_FLIP)
 		tmp = ((x << y_bits) + y);
 	else
@@ -447,7 +478,7 @@ static int omap_dmm_remove(struct platform_device *dev)
 	int i;
 
 	if (omap_dmm) {
-		
+		/* free all area regions */
 		spin_lock(&omap_dmm->list_lock);
 		list_for_each_entry_safe(block, _block, &omap_dmm->alloc_head,
 					alloc_node) {
@@ -496,7 +527,7 @@ static int omap_dmm_probe(struct platform_device *dev)
 		goto fail;
 	}
 
-	
+	/* lookup hwmod data - base address and irq */
 	mem = platform_get_resource(dev, IORESOURCE_MEM, 0);
 	if (!mem) {
 		dev_err(&dev->dev, "failed to get base address resource\n");
@@ -524,12 +555,12 @@ static int omap_dmm_probe(struct platform_device *dev)
 	omap_dmm->container_width = 256;
 	omap_dmm->container_height = 128;
 
-	
+	/* read out actual LUT width and height */
 	pat_geom = readl(omap_dmm->base + DMM_PAT_GEOMETRY);
 	omap_dmm->lut_width = ((pat_geom >> 16) & 0xF) << 5;
 	omap_dmm->lut_height = ((pat_geom >> 24) & 0xF) << 5;
 
-	
+	/* initialize DMM registers */
 	writel(0x88888888, omap_dmm->base + DMM_PAT_VIEW__0);
 	writel(0x88888888, omap_dmm->base + DMM_PAT_VIEW__1);
 	writel(0x80808080, omap_dmm->base + DMM_PAT_VIEW_MAP__0);
@@ -547,6 +578,12 @@ static int omap_dmm_probe(struct platform_device *dev)
 		goto fail;
 	}
 
+	/* Enable all interrupts for each refill engine except
+	 * ERR_LUT_MISS<n> (which is just advisory, and we don't care
+	 * about because we want to be able to refill live scanout
+	 * buffers for accelerated pan/scroll) and FILL_DSC<n> which
+	 * we just generally don't care about.
+	 */
 	writel(0x7e7e7e7e, omap_dmm->base + DMM_PAT_IRQENABLE_SET);
 
 	lut_table_size = omap_dmm->lut_width * omap_dmm->lut_height *
@@ -566,13 +603,13 @@ static int omap_dmm_probe(struct platform_device *dev)
 		goto fail;
 	}
 
-	
-	
+	/* set dma mask for device */
+	/* NOTE: this is a workaround for the hwmod not initializing properly */
 	dev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 
 	omap_dmm->dummy_pa = page_to_phys(omap_dmm->dummy_page);
 
-	
+	/* alloc refill memory */
 	omap_dmm->refill_va = dma_alloc_coherent(&dev->dev,
 				REFILL_BUFFER_SIZE * omap_dmm->num_engines,
 				&omap_dmm->refill_pa, GFP_KERNEL);
@@ -581,7 +618,7 @@ static int omap_dmm_probe(struct platform_device *dev)
 		goto fail;
 	}
 
-	
+	/* alloc engines */
 	omap_dmm->engines = kzalloc(
 			omap_dmm->num_engines * sizeof(struct refill_engine),
 			GFP_KERNEL);
@@ -613,7 +650,7 @@ static int omap_dmm_probe(struct platform_device *dev)
 		goto fail;
 	}
 
-	
+	/* init containers */
 	for (i = 0; i < omap_dmm->num_lut; i++) {
 		omap_dmm->tcm[i] = sita_init(omap_dmm->container_width,
 						omap_dmm->container_height,
@@ -628,8 +665,8 @@ static int omap_dmm_probe(struct platform_device *dev)
 		omap_dmm->tcm[i]->lut_id = i;
 	}
 
-	
-	
+	/* assign access mode containers to applicable tcm container */
+	/* OMAP 4 has 1 container for all 4 views */
 	containers[TILFMT_8BIT] = omap_dmm->tcm[0];
 	containers[TILFMT_16BIT] = omap_dmm->tcm[0];
 	containers[TILFMT_32BIT] = omap_dmm->tcm[0];
@@ -648,7 +685,7 @@ static int omap_dmm_probe(struct platform_device *dev)
 	for (i = 0; i < lut_table_size; i++)
 		omap_dmm->lut[i] = omap_dmm->dummy_pa;
 
-	
+	/* initialize all LUTs to dummy page entries */
 	for (i = 0; i < omap_dmm->num_lut; i++) {
 		area.tcm = omap_dmm->tcm[i];
 		if (fill(&area, NULL, 0, 0, true))
@@ -664,6 +701,9 @@ fail:
 	return ret;
 }
 
+/*
+ * debugfs support
+ */
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -752,7 +792,7 @@ int tiler_map_show(struct seq_file *s, void *arg)
 	unsigned long flags;
 
 	if (!omap_dmm) {
-		
+		/* early return if dmm/tiler device is not initialized */
 		return 0;
 	}
 

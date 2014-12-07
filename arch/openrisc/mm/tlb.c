@@ -40,14 +40,22 @@
 			    SPR_IMMUCFGR_NTS_OFF))
 #define DTLB_OFFSET(addr) (((addr) >> PAGE_SHIFT) & (NUM_DTLB_SETS-1))
 #define ITLB_OFFSET(addr) (((addr) >> PAGE_SHIFT) & (NUM_ITLB_SETS-1))
+/*
+ * Invalidate all TLB entries.
+ *
+ * This comes down to setting the 'valid' bit for all xTLBMR registers to 0.
+ * Easiest way to accomplish this is to just zero out the xTLBMR register
+ * completely.
+ *
+ */
 
 void flush_tlb_all(void)
 {
 	int i;
 	unsigned long num_tlb_sets;
 
-	
-	
+	/* Determine number of sets for IMMU. */
+	/* FIXME: Assumption is I & D nsets equal. */
 	num_tlb_sets = NUM_ITLB_SETS;
 
 	for (i = 0; i < num_tlb_sets; i++) {
@@ -59,6 +67,16 @@ void flush_tlb_all(void)
 #define have_dtlbeir (mfspr(SPR_DMMUCFGR) & SPR_DMMUCFGR_TEIRI)
 #define have_itlbeir (mfspr(SPR_IMMUCFGR) & SPR_IMMUCFGR_TEIRI)
 
+/*
+ * Invalidate a single page.  This is what the xTLBEIR register is for.
+ *
+ * There's no point in checking the vma for PAGE_EXEC to determine whether it's
+ * the data or instruction TLB that should be flushed... that would take more
+ * than the few instructions that the following compiles down to!
+ *
+ * The case where we don't have the xTLBEIR register really only works for
+ * MMU's with a single way and is hard-coded that way.
+ */
 
 #define flush_dtlb_page_eir(addr) mtspr(SPR_DTLBEIR, addr)
 #define flush_dtlb_page_no_eir(addr) \
@@ -104,26 +122,48 @@ void flush_tlb_range(struct vm_area_struct *vma,
 	}
 }
 
+/*
+ * Invalidate the selected mm context only.
+ *
+ * FIXME: Due to some bug here, we're flushing everything for now.
+ * This should be changed to loop over over mm and call flush_tlb_range.
+ */
 
 void flush_tlb_mm(struct mm_struct *mm)
 {
 
-	
+	/* Was seeing bugs with the mm struct passed to us. Scrapped most of
+	   this function. */
+	/* Several architctures do this */
 	flush_tlb_all();
 }
 
+/* called in schedule() just before actually doing the switch_to */
 
 void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	       struct task_struct *next_tsk)
 {
+	/* remember the pgd for the fault handlers
+	 * this is similar to the pgd register in some other CPU's.
+	 * we need our own copy of it because current and active_mm
+	 * might be invalid at points where we still need to derefer
+	 * the pgd.
+	 */
 	current_pgd = next->pgd;
 
+	/* We don't have context support implemented, so flush all
+	 * entries belonging to previous map
+	 */
 
 	if (prev != next)
 		flush_tlb_mm(prev);
 
 }
 
+/*
+ * Initialize the context related info for a new mm_struct
+ * instance.
+ */
 
 int init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 {
@@ -131,6 +171,10 @@ int init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 	return 0;
 }
 
+/* called by __exit_mm to destroy the used MMU context if any before
+ * destroying the mm itself. this is only called when the last user of the mm
+ * drops it.
+ */
 
 void destroy_context(struct mm_struct *mm)
 {
@@ -138,10 +182,11 @@ void destroy_context(struct mm_struct *mm)
 
 }
 
+/* called once during VM initialization, from init.c */
 
 void __init tlb_init(void)
 {
-	
-	
-	
+	/* Do nothing... */
+	/* invalidate the entire TLB */
+	/* flush_tlb_all(); */
 }

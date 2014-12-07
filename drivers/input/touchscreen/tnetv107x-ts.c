@@ -29,13 +29,19 @@
 #include <mach/tnetv107x.h>
 
 #define TSC_PENUP_POLL		(HZ / 5)
-#define IDLE_TIMEOUT		100 
+#define IDLE_TIMEOUT		100 /* msec */
 
+/*
+ * The first and last samples of a touch interval are usually garbage and need
+ * to be filtered out with these devices.  The following definitions control
+ * the number of samples skipped.
+ */
 #define TSC_HEAD_SKIP		1
 #define TSC_TAIL_SKIP		1
 #define TSC_SKIP		(TSC_HEAD_SKIP + TSC_TAIL_SKIP + 1)
 #define TSC_SAMPLES		(TSC_SKIP + 1)
 
+/* Register Offsets */
 struct tsc_regs {
 	u32	rev;
 	u32	tscm;
@@ -46,6 +52,7 @@ struct tsc_regs {
 	u32	chval[4];
 };
 
+/* TSC Mode Configuration Register (tscm) bits */
 #define WMODE		BIT(0)
 #define TSKIND		BIT(1)
 #define ZMEASURE_EN	BIT(2)
@@ -61,8 +68,10 @@ struct tsc_regs {
 #define PONBG		BIT(15)
 #define AFERST		BIT(16)
 
+/* ADC DATA Capture Register bits */
 #define DATA_VALID	BIT(16)
 
+/* Register Access Macros */
 #define tsc_read(ts, reg)		__raw_readl(&(ts)->regs->reg)
 #define tsc_write(ts, reg, val)		__raw_writel(val, &(ts)->regs->reg);
 #define tsc_set_bits(ts, reg, val)	\
@@ -129,6 +138,10 @@ static void tsc_poll(unsigned long data)
 		input_report_key(ts->input_dev, BTN_TOUCH, 0);
 		input_sync(ts->input_dev);
 	} else if (ts->sample_count > 0) {
+		/*
+		 * A touch event lasted less than our skip count.  Salvage and
+		 * report anyway.
+		 */
 		for (i = 0, val = 0; i < ts->sample_count; i++)
 			val += ts->samples[i].x;
 		x = val / ts->sample_count;
@@ -191,7 +204,7 @@ static int tsc_start(struct input_dev *dev)
 
 	clk_enable(ts->clk);
 
-	
+	/* Go to idle mode, before any initialization */
 	while (time_after(timeout, jiffies)) {
 		if (tsc_read(ts, tscm) & IDLE)
 			break;
@@ -203,18 +216,18 @@ static int tsc_start(struct input_dev *dev)
 		return -EIO;
 	}
 
-	
+	/* Configure TSC Control register*/
 	val = (PONBG | PON | PVSTC(4) | ONE_SHOT | ZMEASURE_EN);
 	tsc_write(ts, tscm, val);
 
-	
+	/* Bring TSC out of reset: Clear AFE reset bit */
 	val &= ~(AFERST);
 	tsc_write(ts, tscm, val);
 
-	
+	/* Configure all pins for hardware control*/
 	tsc_write(ts, bwcm, 0);
 
-	
+	/* Finally enable the TSC */
 	tsc_set_bits(ts, tscm, TSC_EN);
 
 	return 0;

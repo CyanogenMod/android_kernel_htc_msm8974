@@ -63,11 +63,13 @@
 
 #define GHES_ESTATUS_POOL_MIN_ALLOC_ORDER 3
 
+/* This is just an estimation for memory pool allocation */
 #define GHES_ESTATUS_CACHE_AVG_SIZE	512
 
 #define GHES_ESTATUS_CACHES_SIZE	4
 
 #define GHES_ESTATUS_IN_CACHE_MAX_NSEC	10000000000ULL
+/* Prevent too many caches are allocated because of RCU */
 #define GHES_ESTATUS_CACHE_ALLOCED_MAX	(GHES_ESTATUS_CACHES_SIZE * 3 / 2)
 
 #define GHES_ESTATUS_CACHE_LEN(estatus_len)			\
@@ -82,6 +84,14 @@
 	((struct acpi_hest_generic_status *)				\
 	 ((struct ghes_estatus_node *)(estatus_node) + 1))
 
+/*
+ * One struct ghes is created for each generic hardware error source.
+ * It provides the context for APEI hardware error timer/IRQ/SCI/NMI
+ * handler.
+ *
+ * estatus: memory buffer for error status block, allocated during
+ * HEST parsing.
+ */
 #define GHES_TO_CLEAR		0x0001
 #define GHES_EXITING		0x0002
 
@@ -115,21 +125,56 @@ module_param_named(disable, ghes_disable, bool, 0);
 
 static int ghes_panic_timeout	__read_mostly = 30;
 
+/*
+ * All error sources notified with SCI shares one notifier function,
+ * so they need to be linked and checked one by one.  This is applied
+ * to NMI too.
+ *
+ * RCU is used for these lists, so ghes_list_mutex is only used for
+ * list changing, not for traversing.
+ */
 static LIST_HEAD(ghes_sci);
 static LIST_HEAD(ghes_nmi);
 static DEFINE_MUTEX(ghes_list_mutex);
 
+/*
+ * NMI may be triggered on any CPU, so ghes_nmi_lock is used for
+ * mutual exclusion.
+ */
 static DEFINE_RAW_SPINLOCK(ghes_nmi_lock);
 
+/*
+ * Because the memory area used to transfer hardware error information
+ * from BIOS to Linux can be determined only in NMI, IRQ or timer
+ * handler, but general ioremap can not be used in atomic context, so
+ * a special version of atomic ioremap is implemented for that.
+ */
 
+/*
+ * Two virtual pages are used, one for NMI context, the other for
+ * IRQ/PROCESS context
+ */
 #define GHES_IOREMAP_PAGES		2
 #define GHES_IOREMAP_NMI_PAGE(base)	(base)
 #define GHES_IOREMAP_IRQ_PAGE(base)	((base) + PAGE_SIZE)
 
+/* virtual memory area for atomic ioremap */
 static struct vm_struct *ghes_ioremap_area;
+/*
+ * These 2 spinlock is used to prevent atomic ioremap virtual memory
+ * area from being mapped simultaneously.
+ */
 static DEFINE_RAW_SPINLOCK(ghes_ioremap_lock_nmi);
 static DEFINE_SPINLOCK(ghes_ioremap_lock_irq);
 
+/*
+ * printk is not safe in NMI context.  So in NMI handler, we allocate
+ * required memory from lock-less memory allocator
+ * (ghes_estatus_pool), save estatus into it, put them into lock-less
+ * list (ghes_estatus_llist), then delay printk into IRQ context via
+ * irq_work (ghes_proc_irq_work).  ghes_estatus_size_request record
+ * required pool size by all NMI error source.
+ */
 static struct gen_pool *ghes_estatus_pool;
 static unsigned long ghes_estatus_pool_size_request;
 static struct llist_head ghes_estatus_llist;
@@ -307,7 +352,7 @@ static inline int ghes_severity(int severity)
 	case CPER_SEV_FATAL:
 		return GHES_SEV_PANIC;
 	default:
-		
+		/* Unknown, go panic */
 		return GHES_SEV_PANIC;
 	}
 }
@@ -483,7 +528,7 @@ static int ghes_print_estatus(const char *pfx,
 			      const struct acpi_hest_generic *generic,
 			      const struct acpi_hest_generic_status *estatus)
 {
-	
+	/* Not more than 2 messages every 5 seconds */
 	static DEFINE_RATELIMIT_STATE(ratelimit_corrected, 5*HZ, 2);
 	static DEFINE_RATELIMIT_STATE(ratelimit_uncorrected, 5*HZ, 2);
 	struct ratelimit_state *ratelimit;
@@ -499,6 +544,10 @@ static int ghes_print_estatus(const char *pfx,
 	return 0;
 }
 
+/*
+ * GHES error status reporting throttle, to report more kinds of
+ * errors, instead of just most frequently occurred errors.
+ */
 static int ghes_estatus_cached(struct acpi_hest_generic_status *estatus)
 {
 	u32 len;
@@ -714,6 +763,10 @@ static void ghes_proc_in_irq(struct irq_work *irq_work)
 	u32 len, node_len;
 
 	llnode = llist_del_all(&ghes_estatus_llist);
+	/*
+	 * Because the time order of estatus in list is reversed,
+	 * revert it back to proper order.
+	 */
 	llnode = llist_nodes_reverse(llnode);
 	while (llnode) {
 		next = llnode->next;
@@ -743,6 +796,10 @@ static void ghes_print_queued_estatus(void)
 	u32 len, node_len;
 
 	llnode = llist_del_all(&ghes_estatus_llist);
+	/*
+	 * Because the time order of estatus in list is reversed,
+	 * revert it back to proper order.
+	 */
 	llnode = llist_nodes_reverse(llnode);
 	while (llnode) {
 		estatus_node = llist_entry(llnode, struct ghes_estatus_node,
@@ -784,7 +841,7 @@ static int ghes_notify_nmi(unsigned int cmd, struct pt_regs *regs)
 		ghes_print_queued_estatus();
 		__ghes_print_estatus(KERN_EMERG, ghes_global->generic,
 				     ghes_global->estatus);
-		
+		/* reboot to log the error! */
 		if (panic_timeout == 0)
 			panic_timeout = ghes_panic_timeout;
 		panic("Fatal hardware error!");
@@ -801,7 +858,7 @@ static int ghes_notify_nmi(unsigned int cmd, struct pt_regs *regs)
 #ifdef CONFIG_ARCH_HAVE_NMI_SAFE_CMPXCHG
 		if (ghes_estatus_cached(ghes->estatus))
 			goto next;
-		
+		/* Save estatus for further processing in IRQ context */
 		len = apei_estatus_len(ghes->estatus);
 		node_len = GHES_ESTATUS_NODE_LEN(len);
 		estatus_node = (void *)gen_pool_alloc(ghes_estatus_pool,
@@ -893,7 +950,7 @@ static int __devinit ghes_probe(struct platform_device *ghes_dev)
 		ghes_add_timer(ghes);
 		break;
 	case ACPI_HEST_NOTIFY_EXTERNAL:
-		
+		/* External interrupt vector is GSI */
 		if (acpi_gsi_to_irq(generic->notify.vector, &ghes->irq)) {
 			pr_err(GHES_PFX "Failed to map GSI to IRQ for generic hardware error source: %d\n",
 			       generic->header.source_id);
@@ -967,6 +1024,10 @@ static int __devexit ghes_remove(struct platform_device *ghes_dev)
 		if (list_empty(&ghes_nmi))
 			unregister_nmi_handler(NMI_LOCAL, "ghes");
 		mutex_unlock(&ghes_list_mutex);
+		/*
+		 * To synchronize with NMI handler, ghes can only be
+		 * freed after NMI handler finishes.
+		 */
 		synchronize_rcu();
 		len = ghes_esource_prealloc_size(generic);
 		ghes_estatus_pool_shrink(len);

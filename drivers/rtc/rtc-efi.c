@@ -21,14 +21,25 @@
 #include <linux/efi.h>
 
 #define EFI_ISDST (EFI_TIME_ADJUST_DAYLIGHT|EFI_TIME_IN_DAYLIGHT)
+/*
+ * EFI Epoch is 1/1/1998
+ */
 #define EFI_RTC_EPOCH		1998
 
+/*
+ * returns day of the year [0-365]
+ */
 static inline int
 compute_yday(efi_time_t *eft)
 {
-	
+	/* efi_time_t.month is in the [1-12] so, we need -1 */
 	return rtc_year_days(eft->day - 1, eft->month - 1, eft->year);
 }
+/*
+ * returns day of the week [0-6] 0=Sunday
+ *
+ * Don't try to provide a year that's before 1998, please !
+ */
 static int
 compute_wday(efi_time_t *eft)
 {
@@ -45,6 +56,9 @@ compute_wday(efi_time_t *eft)
 
 	ndays += compute_yday(eft);
 
+	/*
+	 * 4=1/1/1998 was a Thursday
+	 */
 	return (ndays + 4) % 7;
 }
 
@@ -73,10 +87,10 @@ convert_from_efi_time(efi_time_t *eft, struct rtc_time *wtime)
 	wtime->tm_mon  = eft->month - 1;
 	wtime->tm_year = eft->year - 1900;
 
-	
+	/* day of the week [0-6], Sunday=0 */
 	wtime->tm_wday = compute_wday(eft);
 
-	
+	/* day in the year [1-365]*/
 	wtime->tm_yday = compute_yday(eft);
 
 
@@ -97,6 +111,9 @@ static int efi_read_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
 	efi_time_t eft;
 	efi_status_t status;
 
+	/*
+	 * As of EFI v1.10, this call always returns an unsupported status
+	 */
 	status = efi.get_wakeup_time((efi_bool_t *)&wkalrm->enabled,
 				     (efi_bool_t *)&wkalrm->pending, &eft);
 
@@ -115,6 +132,14 @@ static int efi_set_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
 
 	convert_to_efi_time(&wkalrm->time, &eft);
 
+	/*
+	 * XXX Fixme:
+	 * As of EFI 0.92 with the firmware I have on my
+	 * machine this call does not seem to work quite
+	 * right
+	 *
+	 * As of v1.10, this call always returns an unsupported status
+	 */
 	status = efi.set_wakeup_time((efi_bool_t)wkalrm->enabled, &eft);
 
 	printk(KERN_WARNING "write status is %d\n", (int)status);
@@ -131,7 +156,7 @@ static int efi_read_time(struct device *dev, struct rtc_time *tm)
 	status = efi.get_time(&eft, &cap);
 
 	if (status != EFI_SUCCESS) {
-		
+		/* should never happen */
 		printk(KERN_ERR "efitime: can't read time\n");
 		return -EINVAL;
 	}

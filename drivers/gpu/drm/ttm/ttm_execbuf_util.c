@@ -114,6 +114,17 @@ void ttm_eu_backoff_reservation(struct list_head *list)
 }
 EXPORT_SYMBOL(ttm_eu_backoff_reservation);
 
+/*
+ * Reserve buffers for validation.
+ *
+ * If a buffer in the list is marked for CPU access, we back off and
+ * wait for that buffer to become free for GPU access.
+ *
+ * If a buffer is reserved for another validation, the validator with
+ * the highest validation sequence backs off and waits for that buffer
+ * to become unreserved. This prevents deadlocks when validating multiple
+ * buffers in different orders.
+ */
 
 int ttm_eu_reserve_buffers(struct list_head *list)
 {

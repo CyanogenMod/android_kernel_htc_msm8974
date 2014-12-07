@@ -11,6 +11,7 @@
  */
 #include <asm/hwdef-copro.h>
 
+/* the upper-most page table pointer */
 extern pmd_t *top_pmd;
 extern int sysctl_overcommit_memory;
 

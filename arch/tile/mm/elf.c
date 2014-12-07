@@ -23,6 +23,7 @@
 #include <asm/sections.h>
 #include <arch/sim_def.h>
 
+/* Notify a running simulator, if any, that an exec just occurred. */
 static void sim_notify_exec(const char *binary_name)
 {
 	unsigned char c;
@@ -37,7 +38,7 @@ static void sim_notify_exec(const char *binary_name)
 
 static int notify_exec(void)
 {
-	int retval = 0;  
+	int retval = 0;  /* failure */
 	struct vm_area_struct *vma = current->mm->mmap;
 	while (vma) {
 		if ((vma->vm_flags & VM_EXECUTABLE) && vma->vm_file)
@@ -59,6 +60,7 @@ static int notify_exec(void)
 	return retval;
 }
 
+/* Notify a running simulator, if any, that we loaded an interpreter. */
 static void sim_notify_interp(unsigned long load_addr)
 {
 	size_t i;
@@ -71,8 +73,10 @@ static void sim_notify_interp(unsigned long load_addr)
 }
 
 
+/* Kernel address of page used to map read-only kernel data into userspace. */
 static void *vdso_page;
 
+/* One-entry array used for install_special_mapping. */
 static struct page *vdso_pages[1];
 
 static int __init vdso_setup(void)
@@ -102,11 +106,19 @@ int arch_setup_additional_pages(struct linux_binprm *bprm,
 	unsigned long vdso_base;
 	int retval = 0;
 
+	/*
+	 * Notify the simulator that an exec just occurred.
+	 * If we can't find the filename of the mapping, just use
+	 * whatever was passed as the linux_binprm filename.
+	 */
 	if (!notify_exec())
 		sim_notify_exec(bprm->filename);
 
 	down_write(&mm->mmap_sem);
 
+	/*
+	 * MAYWRITE to allow gdb to COW and set breakpoints
+	 */
 	vdso_base = VDSO_BASE;
 	retval = install_special_mapping(mm, vdso_base, PAGE_SIZE,
 					 VM_READ|VM_EXEC|
@@ -114,6 +126,12 @@ int arch_setup_additional_pages(struct linux_binprm *bprm,
 					 vdso_pages);
 
 #ifndef __tilegx__
+	/*
+	 * Set up a user-interrupt mapping here; the user can't
+	 * create one themselves since it is above TASK_SIZE.
+	 * We make it unwritable by default, so the model for adding
+	 * interrupt vectors always involves an mprotect.
+	 */
 	if (!retval) {
 		unsigned long addr = MEM_USER_INTRPT;
 		addr = mmap_region(NULL, addr, INTRPT_SIZE,
@@ -133,9 +151,9 @@ int arch_setup_additional_pages(struct linux_binprm *bprm,
 
 void elf_plat_init(struct pt_regs *regs, unsigned long load_addr)
 {
-	
+	/* Zero all registers. */
 	memset(regs, 0, sizeof(*regs));
 
-	
+	/* Report the interpreter's load address. */
 	sim_notify_interp(load_addr);
 }

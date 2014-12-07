@@ -334,7 +334,7 @@ static int __devinit ad5446_probe(struct spi_device *spi)
 	st->reg = reg;
 	st->spi = spi;
 
-	
+	/* Establish that the iio_dev is a child of the spi device */
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
 	if (st->chip_info->store_pwr_down)
@@ -345,7 +345,7 @@ static int __devinit ad5446_probe(struct spi_device *spi)
 	indio_dev->channels = &st->chip_info->channel;
 	indio_dev->num_channels = 1;
 
-	
+	/* Setup default message */
 
 	st->xfer.tx_buf = &st->data;
 	st->xfer.len = st->chip_info->channel.scan_type.storagebits / 8;
@@ -414,8 +414,8 @@ static const struct spi_device_id ad5446_id[] = {
 	{"ad5601", ID_AD5601},
 	{"ad5611", ID_AD5611},
 	{"ad5621", ID_AD5621},
-	{"ad5620-2500", ID_AD5620_2500}, 
-	{"ad5620-1250", ID_AD5620_1250}, 
+	{"ad5620-2500", ID_AD5620_2500}, /* AD5620/40/60: */
+	{"ad5620-1250", ID_AD5620_1250}, /* part numbers may look differently */
 	{"ad5640-2500", ID_AD5640_2500},
 	{"ad5640-1250", ID_AD5640_1250},
 	{"ad5660-2500", ID_AD5660_2500},

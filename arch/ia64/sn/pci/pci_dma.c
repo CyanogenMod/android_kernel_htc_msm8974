@@ -21,6 +21,17 @@
 #define SG_ENT_VIRT_ADDRESS(sg)	(sg_virt((sg)))
 #define SG_ENT_PHYS_ADDRESS(SG)	virt_to_phys(SG_ENT_VIRT_ADDRESS(SG))
 
+/**
+ * sn_dma_supported - test a DMA mask
+ * @dev: device to test
+ * @mask: DMA mask to test
+ *
+ * Return whether the given PCI device DMA address mask can be supported
+ * properly.  For example, if your device can only drive the low 24-bits
+ * during PCI bus mastering, then you would pass 0x00ffffff as the mask to
+ * this function.  Of course, SN only supports devices that have 32 or more
+ * address bits when using the PMU.
+ */
 static int sn_dma_supported(struct device *dev, u64 mask)
 {
 	BUG_ON(dev->bus != &pci_bus_type);
@@ -30,6 +41,13 @@ static int sn_dma_supported(struct device *dev, u64 mask)
 	return 1;
 }
 
+/**
+ * sn_dma_set_mask - set the DMA mask
+ * @dev: device to set
+ * @dma_mask: new mask
+ *
+ * Set @dev's DMA mask if the hw supports it.
+ */
 int sn_dma_set_mask(struct device *dev, u64 dma_mask)
 {
 	BUG_ON(dev->bus != &pci_bus_type);
@@ -42,6 +60,21 @@ int sn_dma_set_mask(struct device *dev, u64 dma_mask)
 }
 EXPORT_SYMBOL(sn_dma_set_mask);
 
+/**
+ * sn_dma_alloc_coherent - allocate memory for coherent DMA
+ * @dev: device to allocate for
+ * @size: size of the region
+ * @dma_handle: DMA (bus) address
+ * @flags: memory allocation flags
+ *
+ * dma_alloc_coherent() returns a pointer to a memory region suitable for
+ * coherent DMA traffic to/from a PCI device.  On SN platforms, this means
+ * that @dma_handle will have the %PCIIO_DMA_CMD flag set.
+ *
+ * This interface is usually used for "command" streams (e.g. the command
+ * queue for a SCSI controller).  See Documentation/DMA-API.txt for
+ * more information.
+ */
 static void *sn_dma_alloc_coherent(struct device *dev, size_t size,
 				   dma_addr_t * dma_handle, gfp_t flags,
 				   struct dma_attrs *attrs)
@@ -54,6 +87,9 @@ static void *sn_dma_alloc_coherent(struct device *dev, size_t size,
 
 	BUG_ON(dev->bus != &pci_bus_type);
 
+	/*
+	 * Allocate the memory.
+	 */
 	node = pcibus_to_node(pdev->bus);
 	if (likely(node >=0)) {
 		struct page *p = alloc_pages_exact_node(node,
@@ -71,9 +107,14 @@ static void *sn_dma_alloc_coherent(struct device *dev, size_t size,
 
 	memset(cpuaddr, 0x0, size);
 
-	
+	/* physical addr. of the memory we just got */
 	phys_addr = __pa(cpuaddr);
 
+	/*
+	 * 64 bit address translations should never fail.
+	 * 32 bit translations can fail if there are insufficient mapping
+	 * resources.
+	 */
 
 	*dma_handle = provider->dma_map_consistent(pdev, phys_addr, size,
 						   SN_DMA_ADDR_PHYS);
@@ -86,6 +127,16 @@ static void *sn_dma_alloc_coherent(struct device *dev, size_t size,
 	return cpuaddr;
 }
 
+/**
+ * sn_pci_free_coherent - free memory associated with coherent DMAable region
+ * @dev: device to free for
+ * @size: size to free
+ * @cpu_addr: kernel virtual address to free
+ * @dma_handle: DMA address associated with this region
+ *
+ * Frees the memory allocated by dma_alloc_coherent(), potentially unmapping
+ * any associated IOMMU mappings.
+ */
 static void sn_dma_free_coherent(struct device *dev, size_t size, void *cpu_addr,
 				 dma_addr_t dma_handle, struct dma_attrs *attrs)
 {
@@ -98,6 +149,30 @@ static void sn_dma_free_coherent(struct device *dev, size_t size, void *cpu_addr
 	free_pages((unsigned long)cpu_addr, get_order(size));
 }
 
+/**
+ * sn_dma_map_single_attrs - map a single page for DMA
+ * @dev: device to map for
+ * @cpu_addr: kernel virtual address of the region to map
+ * @size: size of the region
+ * @direction: DMA direction
+ * @attrs: optional dma attributes
+ *
+ * Map the region pointed to by @cpu_addr for DMA and return the
+ * DMA address.
+ *
+ * We map this to the one step pcibr_dmamap_trans interface rather than
+ * the two step pcibr_dmamap_alloc/pcibr_dmamap_addr because we have
+ * no way of saving the dmamap handle from the alloc to later free
+ * (which is pretty much unacceptable).
+ *
+ * mappings with the DMA_ATTR_WRITE_BARRIER get mapped with
+ * dma_map_consistent() so that writes force a flush of pending DMA.
+ * (See "SGI Altix Architecture Considerations for Linux Device Drivers",
+ * Document Number: 007-4763-001)
+ *
+ * TODO: simplify our interface;
+ *       figure out how to save dmamap handle so can use two step.
+ */
 static dma_addr_t sn_dma_map_page(struct device *dev, struct page *page,
 				  unsigned long offset, size_t size,
 				  enum dma_data_direction dir,
@@ -129,6 +204,18 @@ static dma_addr_t sn_dma_map_page(struct device *dev, struct page *page,
 	return dma_addr;
 }
 
+/**
+ * sn_dma_unmap_single_attrs - unamp a DMA mapped page
+ * @dev: device to sync
+ * @dma_addr: DMA address to sync
+ * @size: size of region
+ * @direction: DMA direction
+ * @attrs: optional dma attributes
+ *
+ * This routine is supposed to sync the DMA region specified
+ * by @dma_handle into the coherence domain.  On SN, we're always cache
+ * coherent, so we just need to free any ATEs associated with this mapping.
+ */
 static void sn_dma_unmap_page(struct device *dev, dma_addr_t dma_addr,
 			      size_t size, enum dma_data_direction dir,
 			      struct dma_attrs *attrs)
@@ -141,6 +228,16 @@ static void sn_dma_unmap_page(struct device *dev, dma_addr_t dma_addr,
 	provider->dma_unmap(pdev, dma_addr, dir);
 }
 
+/**
+ * sn_dma_unmap_sg - unmap a DMA scatterlist
+ * @dev: device to unmap
+ * @sg: scatterlist to unmap
+ * @nhwentries: number of scatterlist entries
+ * @direction: DMA direction
+ * @attrs: optional dma attributes
+ *
+ * Unmap a set of streaming mode DMA translations.
+ */
 static void sn_dma_unmap_sg(struct device *dev, struct scatterlist *sgl,
 			    int nhwentries, enum dma_data_direction dir,
 			    struct dma_attrs *attrs)
@@ -159,6 +256,21 @@ static void sn_dma_unmap_sg(struct device *dev, struct scatterlist *sgl,
 	}
 }
 
+/**
+ * sn_dma_map_sg - map a scatterlist for DMA
+ * @dev: device to map for
+ * @sg: scatterlist to map
+ * @nhwentries: number of entries
+ * @direction: direction of the DMA transaction
+ * @attrs: optional dma attributes
+ *
+ * mappings with the DMA_ATTR_WRITE_BARRIER get mapped with
+ * dma_map_consistent() so that writes force a flush of pending DMA.
+ * (See "SGI Altix Architecture Considerations for Linux Device Drivers",
+ * Document Number: 007-4763-001)
+ *
+ * Maps each entry of @sg for DMA.
+ */
 static int sn_dma_map_sg(struct device *dev, struct scatterlist *sgl,
 			 int nhwentries, enum dma_data_direction dir,
 			 struct dma_attrs *attrs)
@@ -174,6 +286,9 @@ static int sn_dma_map_sg(struct device *dev, struct scatterlist *sgl,
 
 	BUG_ON(dev->bus != &pci_bus_type);
 
+	/*
+	 * Setup a DMA address for each entry in the scatterlist.
+	 */
 	for_each_sg(sgl, sg, nhwentries, i) {
 		dma_addr_t dma_addr;
 		phys_addr = SG_ENT_PHYS_ADDRESS(sg);
@@ -191,6 +306,9 @@ static int sn_dma_map_sg(struct device *dev, struct scatterlist *sgl,
 		if (!sg->dma_address) {
 			printk(KERN_ERR "%s: out of ATEs\n", __func__);
 
+			/*
+			 * Free any successfully allocated entries.
+			 */
 			if (i > 0)
 				sn_dma_unmap_sg(dev, saved_sg, i, dir, attrs);
 			return 0;
@@ -252,16 +370,27 @@ int sn_pci_legacy_read(struct pci_bus *bus, u16 port, u32 *val, u8 size)
 	int ret;
 	struct ia64_sal_retval isrv;
 
+	/*
+	 * First, try the SN_SAL_IOIF_PCI_SAFE SAL call which can work
+	 * around hw issues at the pci bus level.  SGI proms older than
+	 * 4.10 don't implement this.
+	 */
 
 	SAL_CALL(isrv, SN_SAL_IOIF_PCI_SAFE,
 		 pci_domain_nr(bus), bus->number,
-		 0, 
-		 0, 
+		 0, /* io */
+		 0, /* read */
 		 port, size, __pa(val));
 
 	if (isrv.status == 0)
 		return size;
 
+	/*
+	 * If the above failed, retry using the SAL_PROBE call which should
+	 * be present in all proms (but which cannot work round PCI chipset
+	 * bugs).  This code is retained for compatibility with old
+	 * pre-4.10 proms, and should be removed at some point in the future.
+	 */
 
 	if (!SN_PCIBUS_BUSSOFT(bus))
 		return -ENODEV;
@@ -287,23 +416,34 @@ int sn_pci_legacy_write(struct pci_bus *bus, u16 port, u32 val, u8 size)
 	unsigned long *addr;
 	struct ia64_sal_retval isrv;
 
+	/*
+	 * First, try the SN_SAL_IOIF_PCI_SAFE SAL call which can work
+	 * around hw issues at the pci bus level.  SGI proms older than
+	 * 4.10 don't implement this.
+	 */
 
 	SAL_CALL(isrv, SN_SAL_IOIF_PCI_SAFE,
 		 pci_domain_nr(bus), bus->number,
-		 0, 
-		 1, 
+		 0, /* io */
+		 1, /* write */
 		 port, size, __pa(&val));
 
 	if (isrv.status == 0)
 		return size;
 
+	/*
+	 * If the above failed, retry using the SAL_PROBE call which should
+	 * be present in all proms (but which cannot work round PCI chipset
+	 * bugs).  This code is retained for compatibility with old
+	 * pre-4.10 proms, and should be removed at some point in the future.
+	 */
 
 	if (!SN_PCIBUS_BUSSOFT(bus)) {
 		ret = -ENODEV;
 		goto out;
 	}
 
-	
+	/* Put the phys addr in uncached space */
 	paddr = SN_PCIBUS_BUSSOFT(bus)->bs_legacy_io | __IA64_UNCACHED_OFFSET;
 	paddr += port;
 	addr = (unsigned long *)paddr;

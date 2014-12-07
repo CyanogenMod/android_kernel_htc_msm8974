@@ -96,13 +96,15 @@ static int amanda_help(struct sk_buff *skb,
 	int ret = NF_ACCEPT;
 	typeof(nf_nat_amanda_hook) nf_nat_amanda;
 
-	
+	/* Only look at packets from the Amanda server */
 	if (CTINFO2DIR(ctinfo) == IP_CT_DIR_ORIGINAL)
 		return NF_ACCEPT;
 
+	/* increase the UDP timeout of the master connection as replies from
+	 * Amanda clients to the server can be quite delayed */
 	nf_ct_refresh(ct, skb, master_timeout * HZ);
 
-	
+	/* No data? */
 	dataoff = protoff + sizeof(struct udphdr);
 	if (dataoff >= skb->len) {
 		if (net_ratelimit())

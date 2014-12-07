@@ -61,6 +61,7 @@ static const struct file_operations sockstat6_seq_fops = {
 };
 
 static const struct snmp_mib snmp6_ipstats_list[] = {
+/* ipv6 mib according to RFC 2465 */
 	SNMP_MIB_ITEM("Ip6InReceives", IPSTATS_MIB_INPKTS),
 	SNMP_MIB_ITEM("Ip6InHdrErrors", IPSTATS_MIB_INHDRERRORS),
 	SNMP_MIB_ITEM("Ip6InTooBigErrors", IPSTATS_MIB_INTOOBIGERRORS),
@@ -93,6 +94,7 @@ static const struct snmp_mib snmp6_ipstats_list[] = {
 };
 
 static const struct snmp_mib snmp6_icmp6_list[] = {
+/* icmpv6 mib according to RFC 2466 */
 	SNMP_MIB_ITEM("Icmp6InMsgs", ICMP6_MIB_INMSGS),
 	SNMP_MIB_ITEM("Icmp6InErrors", ICMP6_MIB_INERRORS),
 	SNMP_MIB_ITEM("Icmp6OutMsgs", ICMP6_MIB_OUTMSGS),
@@ -100,6 +102,7 @@ static const struct snmp_mib snmp6_icmp6_list[] = {
 	SNMP_MIB_SENTINEL
 };
 
+/* RFC 4293 v6 ICMPMsgStatsTable; named items for RFC 2466 compatibility */
 static const char *const icmp6type2name[256] = {
 	[ICMPV6_DEST_UNREACH] = "DestUnreachs",
 	[ICMPV6_PKT_TOOBIG] = "PktTooBigs",
@@ -144,14 +147,14 @@ static void snmp6_seq_show_icmpv6msg(struct seq_file *seq, atomic_long_t *smib)
 	char name[32];
 	int i;
 
-	
+	/* print by name -- deprecated items */
 	for (i = 0; i < ICMP6MSG_MIB_MAX; i++) {
 		int icmptype;
 		const char *p;
 
 		icmptype = i & 0xff;
 		p = icmp6type2name[icmptype];
-		if (!p)	
+		if (!p)	/* don't print un-named types here */
 			continue;
 		snprintf(name, sizeof(name), "Icmp6%s%s",
 			i & 0x100 ? "Out" : "In", p);
@@ -159,7 +162,7 @@ static void snmp6_seq_show_icmpv6msg(struct seq_file *seq, atomic_long_t *smib)
 			   atomic_long_read(smib + i));
 	}
 
-	
+	/* print by number (nonzero only) - ICMPMsgStat format */
 	for (i = 0; i < ICMP6MSG_MIB_MAX; i++) {
 		unsigned long val;
 
@@ -172,6 +175,9 @@ static void snmp6_seq_show_icmpv6msg(struct seq_file *seq, atomic_long_t *smib)
 	}
 }
 
+/* can be called either with percpu mib (pcpumib != NULL),
+ * or shared one (smib != NULL)
+ */
 static void snmp6_seq_show_item(struct seq_file *seq, void __percpu **pcpumib,
 				atomic_long_t *smib,
 				const struct snmp_mib *itemlist)

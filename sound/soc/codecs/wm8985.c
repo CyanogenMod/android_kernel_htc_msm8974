@@ -41,60 +41,60 @@ static const char *wm8985_supply_names[WM8985_NUM_SUPPLIES] = {
 };
 
 static const struct reg_default wm8985_reg_defaults[] = {
-	{ 1,  0x0000 },     
-	{ 2,  0x0000 },     
-	{ 3,  0x0000 },     
-	{ 4,  0x0050 },     
-	{ 5,  0x0000 },     
-	{ 6,  0x0140 },     
-	{ 7,  0x0000 },     
-	{ 8,  0x0000 },     
-	{ 9,  0x0000 },     
-	{ 10, 0x0000 },     
-	{ 11, 0x00FF },     
-	{ 12, 0x00FF },     
-	{ 13, 0x0000 },     
-	{ 14, 0x0100 },     
-	{ 15, 0x00FF },     
-	{ 16, 0x00FF },     
-	{ 18, 0x012C },     
-	{ 19, 0x002C },     
-	{ 20, 0x002C },     
-	{ 21, 0x002C },     
-	{ 22, 0x002C },     
-	{ 24, 0x0032 },     
-	{ 25, 0x0000 },     
-	{ 27, 0x0000 },     
-	{ 28, 0x0000 },     
-	{ 29, 0x0000 },     
-	{ 30, 0x0000 },     
-	{ 32, 0x0038 },     
-	{ 33, 0x000B },     
-	{ 34, 0x0032 },     
-	{ 35, 0x0000 },     
-	{ 36, 0x0008 },     
-	{ 37, 0x000C },     
-	{ 38, 0x0093 },     
-	{ 39, 0x00E9 },     
-	{ 41, 0x0000 },     
-	{ 42, 0x0000 },     
-	{ 43, 0x0000 },     
-	{ 44, 0x0033 },     
-	{ 45, 0x0010 },     
-	{ 46, 0x0010 },     
-	{ 47, 0x0100 },     
-	{ 48, 0x0100 },     
-	{ 49, 0x0002 },     
-	{ 50, 0x0001 },     
-	{ 51, 0x0001 },     
-	{ 52, 0x0039 },     
-	{ 53, 0x0039 },     
-	{ 54, 0x0039 },     
-	{ 55, 0x0039 },     
-	{ 56, 0x0001 },     
-	{ 57, 0x0001 },     
-	{ 60, 0x0004 },     
-	{ 61, 0x0000 },     
+	{ 1,  0x0000 },     /* R1  - Power management 1 */
+	{ 2,  0x0000 },     /* R2  - Power management 2 */
+	{ 3,  0x0000 },     /* R3  - Power management 3 */
+	{ 4,  0x0050 },     /* R4  - Audio Interface */
+	{ 5,  0x0000 },     /* R5  - Companding control */
+	{ 6,  0x0140 },     /* R6  - Clock Gen control */
+	{ 7,  0x0000 },     /* R7  - Additional control */
+	{ 8,  0x0000 },     /* R8  - GPIO Control */
+	{ 9,  0x0000 },     /* R9  - Jack Detect Control 1 */
+	{ 10, 0x0000 },     /* R10 - DAC Control */
+	{ 11, 0x00FF },     /* R11 - Left DAC digital Vol */
+	{ 12, 0x00FF },     /* R12 - Right DAC digital vol */
+	{ 13, 0x0000 },     /* R13 - Jack Detect Control 2 */
+	{ 14, 0x0100 },     /* R14 - ADC Control */
+	{ 15, 0x00FF },     /* R15 - Left ADC Digital Vol */
+	{ 16, 0x00FF },     /* R16 - Right ADC Digital Vol */
+	{ 18, 0x012C },     /* R18 - EQ1 - low shelf */
+	{ 19, 0x002C },     /* R19 - EQ2 - peak 1 */
+	{ 20, 0x002C },     /* R20 - EQ3 - peak 2 */
+	{ 21, 0x002C },     /* R21 - EQ4 - peak 3 */
+	{ 22, 0x002C },     /* R22 - EQ5 - high shelf */
+	{ 24, 0x0032 },     /* R24 - DAC Limiter 1 */
+	{ 25, 0x0000 },     /* R25 - DAC Limiter 2 */
+	{ 27, 0x0000 },     /* R27 - Notch Filter 1 */
+	{ 28, 0x0000 },     /* R28 - Notch Filter 2 */
+	{ 29, 0x0000 },     /* R29 - Notch Filter 3 */
+	{ 30, 0x0000 },     /* R30 - Notch Filter 4 */
+	{ 32, 0x0038 },     /* R32 - ALC control 1 */
+	{ 33, 0x000B },     /* R33 - ALC control 2 */
+	{ 34, 0x0032 },     /* R34 - ALC control 3 */
+	{ 35, 0x0000 },     /* R35 - Noise Gate */
+	{ 36, 0x0008 },     /* R36 - PLL N */
+	{ 37, 0x000C },     /* R37 - PLL K 1 */
+	{ 38, 0x0093 },     /* R38 - PLL K 2 */
+	{ 39, 0x00E9 },     /* R39 - PLL K 3 */
+	{ 41, 0x0000 },     /* R41 - 3D control */
+	{ 42, 0x0000 },     /* R42 - OUT4 to ADC */
+	{ 43, 0x0000 },     /* R43 - Beep control */
+	{ 44, 0x0033 },     /* R44 - Input ctrl */
+	{ 45, 0x0010 },     /* R45 - Left INP PGA gain ctrl */
+	{ 46, 0x0010 },     /* R46 - Right INP PGA gain ctrl */
+	{ 47, 0x0100 },     /* R47 - Left ADC BOOST ctrl */
+	{ 48, 0x0100 },     /* R48 - Right ADC BOOST ctrl */
+	{ 49, 0x0002 },     /* R49 - Output ctrl */
+	{ 50, 0x0001 },     /* R50 - Left mixer ctrl */
+	{ 51, 0x0001 },     /* R51 - Right mixer ctrl */
+	{ 52, 0x0039 },     /* R52 - LOUT1 (HP) volume ctrl */
+	{ 53, 0x0039 },     /* R53 - ROUT1 (HP) volume ctrl */
+	{ 54, 0x0039 },     /* R54 - LOUT2 (SPK) volume ctrl */
+	{ 55, 0x0039 },     /* R55 - ROUT2 (SPK) volume ctrl */
+	{ 56, 0x0001 },     /* R56 - OUT3 mixer ctrl */
+	{ 57, 0x0001 },     /* R57 - OUT4 (MONO) mix ctrl */
+	{ 60, 0x0004 },     /* R60 - OUTPUT ctrl */
+	{ 61, 0x0000 },     /* R61 - BIAS CTRL */
 };
 
 static bool wm8985_writeable(struct device *dev, unsigned int reg)
@@ -161,6 +161,10 @@ static bool wm8985_writeable(struct device *dev, unsigned int reg)
 	}
 }
 
+/*
+ * latch bit 8 of these registers to ensure instant
+ * volume updates
+ */
 static const int volume_update_regs[] = {
 	WM8985_LEFT_DAC_DIGITAL_VOL,
 	WM8985_RIGHT_DAC_DIGITAL_VOL,
@@ -564,19 +568,19 @@ static int eqmode_put(struct snd_kcontrol *kcontrol,
 
 	regpwr2 = snd_soc_read(codec, WM8985_POWER_MANAGEMENT_2);
 	regpwr3 = snd_soc_read(codec, WM8985_POWER_MANAGEMENT_3);
-	
+	/* disable the DACs and ADCs */
 	snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_2,
 			    WM8985_ADCENR_MASK | WM8985_ADCENL_MASK, 0);
 	snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_3,
 			    WM8985_DACENR_MASK | WM8985_DACENL_MASK, 0);
 	snd_soc_update_bits(codec, WM8985_ADDITIONAL_CONTROL,
 			    WM8985_M128ENB_MASK, WM8985_M128ENB);
-	
+	/* set the desired eqmode */
 	snd_soc_update_bits(codec, WM8985_EQ1_LOW_SHELF,
 			    WM8985_EQ3DMODE_MASK,
 			    ucontrol->value.integer.value[0]
 			    << WM8985_EQ3DMODE_SHIFT);
-	
+	/* restore DAC/ADC configuration */
 	snd_soc_write(codec, WM8985_POWER_MANAGEMENT_2, regpwr2);
 	snd_soc_write(codec, WM8985_POWER_MANAGEMENT_3, regpwr3);
 	return 0;
@@ -640,7 +644,7 @@ static int wm8985_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	snd_soc_update_bits(codec, WM8985_CLOCK_GEN_CONTROL,
 			    WM8985_MS_MASK, master << WM8985_MS_SHIFT);
 
-	
+	/* frame inversion is not valid for dsp modes */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 	case SND_SOC_DAIFMT_DSP_B:
@@ -721,6 +725,10 @@ static int wm8985_hw_params(struct snd_pcm_substream *substream,
 	snd_soc_update_bits(codec, WM8985_AUDIO_INTERFACE,
 			    WM8985_WL_MASK, blen << WM8985_WL_SHIFT);
 
+	/*
+	 * match to the nearest possible sample rate and rely
+	 * on the array index to configure the SR register
+	 */
 	srate_idx = 0;
 	srate_best = abs(srates[0] - params_rate(params));
 	for (i = 1; i < ARRAY_SIZE(srates); ++i) {
@@ -753,7 +761,7 @@ static int wm8985_hw_params(struct snd_pcm_substream *substream,
 	snd_soc_update_bits(codec, WM8985_CLOCK_GEN_CONTROL,
 			    WM8985_MCLKDIV_MASK, i << WM8985_MCLKDIV_SHIFT);
 
-	
+	/* select the appropriate bclk divider */
 	tmp = (wm8985->sysclk / fs_ratios[i].div) * 10;
 	for (i = 0; i < ARRAY_SIZE(bclk_divs); ++i) {
 		if (wm8985->bclk == tmp / bclk_divs[i])
@@ -828,25 +836,25 @@ static int wm8985_set_pll(struct snd_soc_dai *dai, int pll_id,
 			return ret;
 	}
 
-	
+	/* disable the PLL before reprogramming it */
 	snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_1,
 			    WM8985_PLLEN_MASK, 0);
 	
 	if (!freq_in || !freq_out)
 		return 0;
 
-	
+	/* set PLLN and PRESCALE */
 	snd_soc_write(codec, WM8985_PLL_N,
 		      (pll_div.div2 << WM8985_PLL_PRESCALE_SHIFT)
 		      | pll_div.n);
-	
+	/* set PLLK */
 	snd_soc_write(codec, WM8985_PLL_K_3, pll_div.k & 0x1ff);
 	snd_soc_write(codec, WM8985_PLL_K_2, (pll_div.k >> 9) & 0x1ff);
 	snd_soc_write(codec, WM8985_PLL_K_1, (pll_div.k >> 18));
-	
+	/* set the source of the clock to be the PLL */
 	snd_soc_update_bits(codec, WM8985_CLOCK_GEN_CONTROL,
 			    WM8985_CLKSEL_MASK, WM8985_CLKSEL);
-	
+	/* enable the PLL */
 	snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_1,
 			    WM8985_PLLEN_MASK, WM8985_PLLEN);
 	return 0;
@@ -891,7 +899,7 @@ static int wm8985_set_bias_level(struct snd_soc_codec *codec,
 	switch (level) {
 	case SND_SOC_BIAS_ON:
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* VMID at 75k */
 		snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_1,
 				    WM8985_VMIDSEL_MASK,
 				    1 << WM8985_VMIDSEL_SHIFT);
@@ -909,40 +917,40 @@ static int wm8985_set_bias_level(struct snd_soc_codec *codec,
 
 			regcache_sync(wm8985->regmap);
 
-			
+			/* enable anti-pop features */
 			snd_soc_update_bits(codec, WM8985_OUT4_TO_ADC,
 					    WM8985_POBCTRL_MASK,
 					    WM8985_POBCTRL);
-			
+			/* enable thermal shutdown */
 			snd_soc_update_bits(codec, WM8985_OUTPUT_CTRL0,
 					    WM8985_TSDEN_MASK, WM8985_TSDEN);
 			snd_soc_update_bits(codec, WM8985_OUTPUT_CTRL0,
 					    WM8985_TSOPCTRL_MASK,
 					    WM8985_TSOPCTRL);
-			
+			/* enable BIASEN */
 			snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_1,
 					    WM8985_BIASEN_MASK, WM8985_BIASEN);
-			
+			/* VMID at 75k */
 			snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_1,
 					    WM8985_VMIDSEL_MASK,
 					    1 << WM8985_VMIDSEL_SHIFT);
 			msleep(500);
-			
+			/* disable anti-pop features */
 			snd_soc_update_bits(codec, WM8985_OUT4_TO_ADC,
 					    WM8985_POBCTRL_MASK, 0);
 		}
-		
+		/* VMID at 300k */
 		snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_1,
 				    WM8985_VMIDSEL_MASK,
 				    2 << WM8985_VMIDSEL_SHIFT);
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* disable thermal shutdown */
 		snd_soc_update_bits(codec, WM8985_OUTPUT_CTRL0,
 				    WM8985_TSOPCTRL_MASK, 0);
 		snd_soc_update_bits(codec, WM8985_OUTPUT_CTRL0,
 				    WM8985_TSDEN_MASK, 0);
-		
+		/* disable VMIDSEL and BIASEN */
 		snd_soc_update_bits(codec, WM8985_POWER_MANAGEMENT_1,
 				    WM8985_VMIDSEL_MASK | WM8985_BIASEN_MASK,
 				    0);
@@ -1026,11 +1034,11 @@ static int wm8985_probe(struct snd_soc_codec *codec)
 		goto err_reg_enable;
 	}
 
-	
+	/* latch volume update bits */
 	for (i = 0; i < ARRAY_SIZE(volume_update_regs); ++i)
 		snd_soc_update_bits(codec, volume_update_regs[i],
 				    0x100, 0x100);
-	
+	/* enable BIASCUT */
 	snd_soc_update_bits(codec, WM8985_BIAS_CTRL, WM8985_BIASCUT,
 			    WM8985_BIASCUT);
 

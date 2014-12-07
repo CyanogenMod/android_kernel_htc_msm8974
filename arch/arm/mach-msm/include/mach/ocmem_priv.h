@@ -13,6 +13,9 @@
 #ifndef _ARCH_ARM_MACH_MSM_OCMEM_PRIV_H
 #define _ARCH_ARM_MACH_MSM_OCMEM_PRIV_H
 
+/** All interfaces in this header should only be used by OCMEM driver
+ *  Client drivers should use wrappers available in ocmem.h
+ **/
 #include <linux/platform_device.h>
 #include <linux/clk.h>
 #include <asm/io.h>
@@ -43,6 +46,8 @@ struct ocmem_zone_ops {
 	int (*free) (struct ocmem_zone *, unsigned long, unsigned long);
 };
 
+/* OCMEM Zone specific counters */
+/* Must be in sync with zstat_names */
 enum ocmem_zstat_item {
 	NR_REQUESTS = 0x0,
 	NR_SYNC_ALLOCATIONS,
@@ -101,6 +106,7 @@ enum op_code {
 	SCHED_DUMP,
 };
 
+/* Operational modes of each region */
 enum region_mode {
 	MODE_NOT_SET = 0x0,
 	WIDE_MODE,
@@ -143,11 +149,11 @@ struct ocmem_eviction_data {
 
 struct ocmem_req {
 	struct rw_semaphore rw_sem;
-	
+	/* Chain in sched queue */
 	struct list_head sched_list;
-	
+	/* Chain in zone list */
 	struct list_head zone_list;
-	
+	/* Chain in eviction list */
 	struct list_head eviction_list;
 	int owner;
 	int prio;
@@ -155,20 +161,20 @@ struct ocmem_req {
 	unsigned long req_min;
 	unsigned long req_max;
 	unsigned long req_step;
-	
+	/* reverse pointers */
 	struct ocmem_zone *zone;
 	struct ocmem_buf *buffer;
 	struct ocmem_map_list *mlist;
 	enum op_code op;
 	unsigned long state;
-	
+	/* Request assignments */
 	unsigned long req_start;
 	unsigned long req_end;
 	unsigned long req_sz;
-	
+	/* Request Power State */
 	unsigned power_state;
 	struct ocmem_eviction_data *edata;
-	
+	/* Eviction data of the request being evicted */
 	struct ocmem_eviction_data *eviction_info;
 };
 
@@ -200,7 +206,7 @@ int ocmem_notifier_init(void);
 int check_notifier(int);
 const char *get_name(int);
 int get_tz_id(int);
-int ocmem_enable_sec_program(int);
+int ocmem_restore_sec_program(int);
 int ocmem_enable_dump(enum ocmem_client, unsigned long, unsigned long);
 int ocmem_disable_dump(enum ocmem_client, unsigned long, unsigned long);
 int check_id(int);

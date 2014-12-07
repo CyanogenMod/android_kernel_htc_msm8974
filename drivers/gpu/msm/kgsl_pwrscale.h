@@ -17,6 +17,7 @@
 #include <linux/devfreq.h>
 #include <linux/msm_adreno_devfreq.h>
 
+/* devfreq governor call window in msec */
 #define KGSL_GOVERNOR_CALL_INTERVAL 5
 
 struct kgsl_power_stats {

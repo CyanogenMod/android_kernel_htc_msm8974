@@ -61,6 +61,7 @@ static inline u16 freq_r3A_value(u16 frequency)
 }
 
 #if 0
+/* This function converts a TSSI value to dBm in Q5.2 */
 static s8 b43_aphy_estimate_power_out(struct b43_wldev *dev, s8 tssi)
 {
 	struct b43_phy *phy = &dev->phy;
@@ -72,7 +73,7 @@ static s8 b43_aphy_estimate_power_out(struct b43_wldev *dev, s8 tssi)
 	tmp += 0x80;
 	tmp = clamp_val(tmp, 0x00, 0xFF);
 	dbm = aphy->tssi2dbm[tmp];
-	
+	//TODO: There's a FIXME on the specs
 
 	return dbm;
 }
@@ -106,14 +107,18 @@ static void aphy_channel_switch(struct b43_wldev *dev, unsigned int channel)
 	b43_write16(dev, 0x03F0, freq);
 	b43_radio_write16(dev, 0x0008, r8);
 
-	
+	//TODO: write max channel TX power? to Radio 0x2D
 	tmp = b43_radio_read16(dev, 0x002E);
 	tmp &= 0x0080;
-	
+	//TODO: OR tmp with the Power out estimation for this channel?
 	b43_radio_write16(dev, 0x002E, tmp);
 
 	if (freq >= 4920 && freq <= 5500) {
-		r8 = 3 * freq / 116;	
+		/*
+		 * r8 = (((freq * 15 * 0xE1FC780F) >> 32) / 29) & 0x0F;
+		 *    = (freq * 0.025862069
+		 */
+		r8 = 3 * freq / 116;	/* is equal to r8 = freq * 0.025862 */
 	}
 	b43_radio_write16(dev, 0x0007, (r8 << 4) | r8);
 	b43_radio_write16(dev, 0x0020, (r8 << 4) | r8);
@@ -131,7 +136,8 @@ static void aphy_channel_switch(struct b43_wldev *dev, unsigned int channel)
 	b43_radio_mask(dev, 0x0035, 0xFFEF);
 	b43_radio_maskset(dev, 0x0035, 0xFFEF, 0x0010);
 	b43_radio_set_tx_iq(dev);
-	
+	//TODO: TSSI2dbm workaround
+//FIXME	b43_phy_xmitpower(dev);
 }
 
 static void b43_radio_init2060(struct b43_wldev *dev)
@@ -151,10 +157,10 @@ static void b43_radio_init2060(struct b43_wldev *dev)
 	b43_radio_mask(dev, 0x0081, ~0x0010);
 	b43_radio_mask(dev, 0x0081, ~0x0020);
 	b43_radio_mask(dev, 0x0081, ~0x0020);
-	msleep(1);		
+	msleep(1);		/* delay 400usec */
 
 	b43_radio_maskset(dev, 0x0081, ~0x0020, 0x0010);
-	msleep(1);		
+	msleep(1);		/* delay 400usec */
 
 	b43_radio_maskset(dev, 0x0005, ~0x0008, 0x0008);
 	b43_radio_mask(dev, 0x0085, ~0x0010);
@@ -254,13 +260,16 @@ static void b43_phy_ww(struct b43_wldev *dev)
 
 static void hardware_pctl_init_aphy(struct b43_wldev *dev)
 {
-	
+	//TODO
 }
 
 void b43_phy_inita(struct b43_wldev *dev)
 {
 	struct b43_phy *phy = &dev->phy;
 
+	/* This lowlevel A-PHY init is also called from G-PHY init.
+	 * So we must not access phy->a, if called from G-PHY code.
+	 */
 	B43_WARN_ON((phy->type != B43_PHYTYPE_A) &&
 		    (phy->type != B43_PHYTYPE_G));
 
@@ -289,7 +298,7 @@ void b43_phy_inita(struct b43_wldev *dev)
 		if ((dev->dev->board_vendor == SSB_BOARDVENDOR_BCM) &&
 		    ((dev->dev->board_type == SSB_BOARD_BU4306) ||
 		     (dev->dev->board_type == SSB_BOARD_BU4309))) {
-			; 
+			; //TODO: A PHY LO
 		}
 
 		if (phy->rev >= 3)
@@ -297,7 +306,7 @@ void b43_phy_inita(struct b43_wldev *dev)
 
 		hardware_pctl_init_aphy(dev);
 
-		
+		//TODO: radar detection
 	}
 
 	if ((phy->type == B43_PHYTYPE_G) &&
@@ -306,6 +315,7 @@ void b43_phy_inita(struct b43_wldev *dev)
 	}
 }
 
+/* Initialise the TSSI->dBm lookup table */
 static int b43_aphy_init_tssi2dbm_table(struct b43_wldev *dev)
 {
 	struct b43_phy *phy = &dev->phy;
@@ -318,7 +328,7 @@ static int b43_aphy_init_tssi2dbm_table(struct b43_wldev *dev)
 
 	if (pab0 != 0 && pab1 != 0 && pab2 != 0 &&
 	    pab0 != -1 && pab1 != -1 && pab2 != -1) {
-		
+		/* The pabX values are set in SPROM. Use them. */
 		if ((s8) dev->dev->bus_sprom->itssi_a != 0 &&
 		    (s8) dev->dev->bus_sprom->itssi_a != -1)
 			aphy->tgt_idle_tssi =
@@ -330,6 +340,8 @@ static int b43_aphy_init_tssi2dbm_table(struct b43_wldev *dev)
 		if (!aphy->tssi2dbm)
 			return -ENOMEM;
 	} else {
+		/* pabX values not set in SPROM,
+		 * but APHY needs a generated table. */
 		aphy->tssi2dbm = NULL;
 		b43err(dev->wl, "Could not generate tssi2dBm "
 		       "table (wrong SPROM info)!\n");
@@ -369,16 +381,18 @@ static void b43_aphy_op_prepare_structs(struct b43_wldev *dev)
 	const void *tssi2dbm;
 	int tgt_idle_tssi;
 
+	/* tssi2dbm table is constant, so it is initialized at alloc time.
+	 * Save a copy of the pointer. */
 	tssi2dbm = aphy->tssi2dbm;
 	tgt_idle_tssi = aphy->tgt_idle_tssi;
 
-	
+	/* Zero out the whole PHY structure. */
 	memset(aphy, 0, sizeof(*aphy));
 
 	aphy->tssi2dbm = tssi2dbm;
 	aphy->tgt_idle_tssi = tgt_idle_tssi;
 
-	
+	//TODO init struct b43_phy_a
 
 }
 
@@ -403,7 +417,7 @@ static int b43_aphy_op_init(struct b43_wldev *dev)
 
 static inline u16 adjust_phyreg(struct b43_wldev *dev, u16 offset)
 {
-	
+	/* OFDM registers are base-registers for the A-PHY. */
 	if ((offset & B43_PHYROUTE) == B43_PHYROUTE_OFDM_GPHY) {
 		offset &= ~B43_PHYROUTE;
 		offset |= B43_PHYROUTE_BASE;
@@ -411,18 +425,18 @@ static inline u16 adjust_phyreg(struct b43_wldev *dev, u16 offset)
 
 #if B43_DEBUG
 	if ((offset & B43_PHYROUTE) == B43_PHYROUTE_EXT_GPHY) {
-		
+		/* Ext-G registers are only available on G-PHYs */
 		b43err(dev->wl, "Invalid EXT-G PHY access at "
 		       "0x%04X on A-PHY\n", offset);
 		dump_stack();
 	}
 	if ((offset & B43_PHYROUTE) == B43_PHYROUTE_N_BMODE) {
-		
+		/* N-BMODE registers are only available on N-PHYs */
 		b43err(dev->wl, "Invalid N-BMODE PHY access at "
 		       "0x%04X on A-PHY\n", offset);
 		dump_stack();
 	}
-#endif 
+#endif /* B43_DEBUG */
 
 	return offset;
 }
@@ -443,9 +457,9 @@ static void b43_aphy_op_write(struct b43_wldev *dev, u16 reg, u16 value)
 
 static u16 b43_aphy_op_radio_read(struct b43_wldev *dev, u16 reg)
 {
-	
+	/* Register 1 is a 32-bit register. */
 	B43_WARN_ON(reg == 1);
-	
+	/* A-PHY needs 0x40 for read access */
 	reg |= 0x40;
 
 	b43_write16(dev, B43_MMIO_RADIO_CONTROL, reg);
@@ -454,7 +468,7 @@ static u16 b43_aphy_op_radio_read(struct b43_wldev *dev, u16 reg)
 
 static void b43_aphy_op_radio_write(struct b43_wldev *dev, u16 reg, u16 value)
 {
-	
+	/* Register 1 is a 32-bit register. */
 	B43_WARN_ON(reg == 1);
 
 	b43_write16(dev, B43_MMIO_RADIO_CONTROL, reg);
@@ -499,11 +513,11 @@ static int b43_aphy_op_switch_channel(struct b43_wldev *dev,
 
 static unsigned int b43_aphy_op_get_default_chan(struct b43_wldev *dev)
 {
-	return 36; 
+	return 36; /* Default to channel 36 */
 }
 
 static void b43_aphy_op_set_rx_antenna(struct b43_wldev *dev, int antenna)
-{
+{//TODO
 	struct b43_phy *phy = &dev->phy;
 	u16 tmp;
 	int autodiv = 0;
@@ -542,21 +556,21 @@ static void b43_aphy_op_set_rx_antenna(struct b43_wldev *dev, int antenna)
 }
 
 static void b43_aphy_op_adjust_txpower(struct b43_wldev *dev)
-{
+{//TODO
 }
 
 static enum b43_txpwr_result b43_aphy_op_recalc_txpower(struct b43_wldev *dev,
 							bool ignore_tssi)
-{
+{//TODO
 	return B43_TXPWR_RES_DONE;
 }
 
 static void b43_aphy_op_pwork_15sec(struct b43_wldev *dev)
-{
+{//TODO
 }
 
 static void b43_aphy_op_pwork_60sec(struct b43_wldev *dev)
-{
+{//TODO
 }
 
 const struct b43_phy_operations b43_phyops_a = {

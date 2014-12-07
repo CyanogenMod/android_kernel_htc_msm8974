@@ -18,4 +18,4 @@ static inline struct pt_regs *get_irq_regs(void)
 	return current_thread_info()->regs;
 }
 
-#endif 
+#endif /* __ASM_IRQ_REGS_H */

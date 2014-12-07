@@ -1,3 +1,6 @@
+/*
+ * This file is in the public domain.
+ */
 #ifndef	_SCSI_SCSI_IU_H
 #define _SCSI_SCSI_IU_H 1
 
@@ -33,4 +36,4 @@ struct scsi_status_iu_header
 #define	SIU_TASKMGMT_LUN_RESET		0x08
 #define	SIU_TASKMGMT_TARGET_RESET	0x20
 #define	SIU_TASKMGMT_CLEAR_ACA		0x40
-#endif 
+#endif /*_SCSI_SCSI_IU_H*/

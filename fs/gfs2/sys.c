@@ -282,6 +282,9 @@ static struct kobj_type gfs2_ktype = {
 };
 
 
+/*
+ * lock_module. Originally from lock_dlm
+ */
 
 static ssize_t proto_name_show(struct gfs2_sbd *sdp, char *buf)
 {
@@ -471,6 +474,9 @@ static struct attribute *lock_module_attrs[] = {
 	NULL,
 };
 
+/*
+ * get and set struct gfs2_tune fields
+ */
 
 static ssize_t quota_scale_show(struct gfs2_sbd *sdp, char *buf)
 {

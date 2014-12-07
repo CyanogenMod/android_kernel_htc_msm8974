@@ -14,4 +14,4 @@
 #define __NR_seccomp_exit_32 __NR_ia32_exit
 #define __NR_seccomp_sigreturn_32 __NR_ia32_sigreturn
 
-#endif 
+#endif /* _ASM_X86_SECCOMP_64_H */

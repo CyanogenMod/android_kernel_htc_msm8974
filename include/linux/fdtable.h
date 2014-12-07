@@ -17,6 +17,7 @@
 struct fdt_user {
 	pid_t remover;
 	pid_t installer;
+	struct timespec open_time;
 };
 
 struct fdtable {

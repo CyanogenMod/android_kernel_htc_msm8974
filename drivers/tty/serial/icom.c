@@ -58,6 +58,7 @@
 
 #include "icom.h"
 
+/*#define ICOM_TRACE		 enable port trace capabilities */
 
 #define ICOM_DRIVER_NAME "icom"
 #define ICOM_VERSION_STR "1.3.1"
@@ -131,6 +132,7 @@ MODULE_DEVICE_TABLE(pci, icom_pci_table);
 
 static LIST_HEAD(icom_adapter_head);
 
+/* spinlock for adapter initialization and changing adapter operations */
 static spinlock_t icom_lock;
 
 #ifdef ICOM_TRACE
@@ -222,6 +224,9 @@ static int __devinit get_port_memory(struct icom_port *icom_port)
 
 	memset(icom_port->statStg, 0, 4096);
 
+	/* FODs: Frame Out Descriptor Queue, this is a FIFO queue that
+           indicates that frames are to be transmitted
+	*/
 
 	stgAddr = (unsigned long) icom_port->statStg;
 	for (index = 0; index < NUM_XBUFFS; index++) {
@@ -248,10 +253,10 @@ static int __devinit get_port_memory(struct icom_port *icom_port)
 			memset(&icom_port->statStg->xmit[index], 0, sizeof(struct xmit_status_area));
 		}
 	}
-	
+	/* FIDs */
 	startStgAddr = stgAddr;
 
-	
+	/* fill in every entry, even if no buffer */
 	for (index = 0; index <  NUM_RBUFFS; index++) {
 		trace(icom_port, "FID_ADDR", stgAddr);
 		stgAddr = stgAddr + sizeof(icom_port->statStg->rcv[0]);
@@ -304,7 +309,7 @@ static void stop_processor(struct icom_port *icom_port)
 			(temp & ~start_proc[port].processor_id) | stop_proc[port].processor_id;
 		writel(temp, stop_proc[port].global_control_reg);
 
-		
+		/* write flush */
 		readl(stop_proc[port].global_control_reg);
 	} else {
 		dev_err(&icom_port->adapter->pci_dev->dev,
@@ -333,7 +338,7 @@ static void start_processor(struct icom_port *icom_port)
 			(temp & ~stop_proc[port].processor_id) | start_proc[port].processor_id;
 		writel(temp, start_proc[port].global_control_reg);
 
-		
+		/* write flush */
 		readl(start_proc[port].global_control_reg);
 	} else {
 		dev_err(&icom_port->adapter->pci_dev->dev,
@@ -355,18 +360,18 @@ static void load_code(struct icom_port *icom_port)
 	unsigned char cable_id = NO_CABLE;
 	struct pci_dev *dev = icom_port->adapter->pci_dev;
 
-	
+	/* Clear out any pending interrupts */
 	writew(0x3FFF, icom_port->int_reg);
 
 	trace(icom_port, "CLEAR_INTERRUPTS", 0);
 
-	
+	/* Stop processor */
 	stop_processor(icom_port);
 
-	
+	/* Zero out DRAM */
 	memset_io(dram_ptr, 0, 512);
 
-	
+	/* Load Call Setup into Adapter */
 	if (request_firmware(&fw, "icom_call_setup.bin", &dev->dev) < 0) {
 		dev_err(&dev->dev,"Unable to load icom_call_setup.bin firmware image\n");
 		status = -1;
@@ -386,7 +391,7 @@ static void load_code(struct icom_port *icom_port)
 
 	release_firmware(fw);
 
-	
+	/* Load Resident DCE portion of Adapter */
 	if (request_firmware(&fw, "icom_res_dce.bin", &dev->dev) < 0) {
 		dev_err(&dev->dev,"Unable to load icom_res_dce.bin firmware image\n");
 		status = -1;
@@ -406,21 +411,24 @@ static void load_code(struct icom_port *icom_port)
 
 	release_firmware(fw);
 
-	
+	/* Set Hardware level */
 	if (icom_port->adapter->version == ADAPTER_V2)
 		writeb(V2_HARDWARE, &(icom_port->dram->misc_flags));
 
-	
+	/* Start the processor in Adapter */
 	start_processor(icom_port);
 
 	writeb((HDLC_PPP_PURE_ASYNC | HDLC_FF_FILL),
 	       &(icom_port->dram->HDLCConfigReg));
-	writeb(0x04, &(icom_port->dram->FlagFillIdleTimer));	
+	writeb(0x04, &(icom_port->dram->FlagFillIdleTimer));	/* 0.5 seconds */
 	writeb(0x00, &(icom_port->dram->CmdReg));
 	writeb(0x10, &(icom_port->dram->async_config3));
 	writeb((ICOM_ACFG_DRIVE1 | ICOM_ACFG_NO_PARITY | ICOM_ACFG_8BPC |
 		ICOM_ACFG_1STOP_BIT), &(icom_port->dram->async_config2));
 
+	/*Set up data in icom DRAM to indicate where personality
+	 *code is located and its length.
+	 */
 	new_page = pci_alloc_consistent(dev, 4096, &temp_pci);
 
 	if (!new_page) {
@@ -450,9 +458,18 @@ static void load_code(struct icom_port *icom_port)
 	writeb((char) ((fw->size + 16)/16), &icom_port->dram->mac_length);
 	writel(temp_pci, &icom_port->dram->mac_load_addr);
 
+	/*Setting the syncReg to 0x80 causes adapter to start downloading
+	   the personality code into adapter instruction RAM.
+	   Once code is loaded, it will begin executing and, based on
+	   information provided above, will start DMAing data from
+	   shared memory to adapter DRAM.
+	 */
+	/* the wait loop below verifies this write operation has been done
+	   and processed
+	*/
 	writeb(START_DOWNLOAD, &icom_port->dram->sync);
 
-	
+	/* Wait max 1 Sec for data download and processor to start */
 	for (index = 0; index < 10; index++) {
 		msleep(100);
 		if (readb(&icom_port->dram->misc_flags) & ICOM_HDW_ACTIVE)
@@ -462,10 +479,13 @@ static void load_code(struct icom_port *icom_port)
 	if (index == 10)
 		status = -1;
 
+	/*
+	 * check Cable ID
+	 */
 	cable_id = readb(&icom_port->dram->cable_id);
 
 	if (cable_id & ICOM_CABLE_ID_VALID) {
-		
+		/* Get cable ID into the lower 4 bits (standard form) */
 		cable_id = (cable_id & ICOM_CABLE_ID_MASK) >> 4;
 		icom_port->cable_id = cable_id;
 	} else {
@@ -476,13 +496,13 @@ static void load_code(struct icom_port *icom_port)
       load_code_exit:
 
 	if (status != 0) {
-		
+		/* Clear out any pending interrupts */
 		writew(0x3FFF, icom_port->int_reg);
 
-		
+		/* Turn off port */
 		writeb(ICOM_DISABLE, &(icom_port->dram->disable));
 
-		
+		/* Stop processor */
 		stop_processor(icom_port);
 
 		dev_err(&icom_port->adapter->pci_dev->dev,"Port not opertional\n");
@@ -502,26 +522,29 @@ static int startup(struct icom_port *icom_port)
 	trace(icom_port, "STARTUP", 0);
 
 	if (!icom_port->dram) {
-		
+		/* should NEVER be NULL */
 		dev_err(&icom_port->adapter->pci_dev->dev,
 			"Unusable Port, port configuration missing\n");
 		return -ENODEV;
 	}
 
+	/*
+	 * check Cable ID
+	 */
 	raw_cable_id = readb(&icom_port->dram->cable_id);
 	trace(icom_port, "CABLE_ID", raw_cable_id);
 
-	
+	/* Get cable ID into the lower 4 bits (standard form) */
 	cable_id = (raw_cable_id & ICOM_CABLE_ID_MASK) >> 4;
 
-	
+	/* Check for valid Cable ID */
 	if (!(raw_cable_id & ICOM_CABLE_ID_VALID) ||
 	    (cable_id != icom_port->cable_id)) {
 
-		
+		/* reload adapter code, pick up any potential changes in cable id */
 		load_code(icom_port);
 
-		
+		/* still no sign of cable, error out */
 		raw_cable_id = readb(&icom_port->dram->cable_id);
 		cable_id = (raw_cable_id & ICOM_CABLE_ID_MASK) >> 4;
 		if (!(raw_cable_id & ICOM_CABLE_ID_VALID) ||
@@ -529,6 +552,9 @@ static int startup(struct icom_port *icom_port)
 			return -EIO;
 	}
 
+	/*
+	 * Finally, clear and  enable interrupts
+	 */
 	spin_lock_irqsave(&icom_lock, flags);
 	port = icom_port->port;
 	if (port == 0 || port == 1)
@@ -544,7 +570,7 @@ static int startup(struct icom_port *icom_port)
 		temp = readl(int_mask_tbl[port].global_int_mask);
 		writel(temp & ~int_mask_tbl[port].processor_id, int_mask_tbl[port].global_int_mask);
 
-		
+		/* write flush */
 		readl(int_mask_tbl[port].global_int_mask);
 	} else {
 		dev_err(&icom_port->adapter->pci_dev->dev,
@@ -565,6 +591,9 @@ static void shutdown(struct icom_port *icom_port)
 	spin_lock_irqsave(&icom_lock, flags);
 	trace(icom_port, "SHUTDOWN", 0);
 
+	/*
+	 * disable all interrupts
+	 */
 	port = icom_port->port;
 	if (port == 0 || port == 1)
 		int_mask_tbl[port].global_int_mask = &icom_port->global_reg->int_mask;
@@ -575,7 +604,7 @@ static void shutdown(struct icom_port *icom_port)
 		temp = readl(int_mask_tbl[port].global_int_mask);
 		writel(temp | int_mask_tbl[port].processor_id, int_mask_tbl[port].global_int_mask);
 
-		
+		/* write flush */
 		readl(int_mask_tbl[port].global_int_mask);
 	} else {
 		dev_err(&icom_port->adapter->pci_dev->dev,
@@ -583,6 +612,9 @@ static void shutdown(struct icom_port *icom_port)
 	}
 	spin_unlock_irqrestore(&icom_lock, flags);
 
+	/*
+	 * disable break condition
+	 */
 	cmdReg = readb(&icom_port->dram->CmdReg);
 	if (cmdReg & CMD_SND_BREAK) {
 		writeb(cmdReg & ~CMD_SND_BREAK, &icom_port->dram->CmdReg);
@@ -630,7 +662,7 @@ static int icom_write(struct uart_port *port)
 		       &ICOM_PORT->dram->CmdReg);
 		writeb(START_XMIT, &ICOM_PORT->dram->StartXmitCmd);
 		trace(ICOM_PORT, "WRITE_START", data_count);
-		
+		/* write flush */
 		readb(&ICOM_PORT->dram->StartXmitCmd);
 	}
 
@@ -645,7 +677,7 @@ static inline void check_modem_status(struct icom_port *icom_port)
 
 	spin_lock(&icom_port->uart_port.lock);
 
-	
+	/*modem input register */
 	status = readb(&icom_port->dram->isr);
 	trace(icom_port, "CHECK_MODEM", status);
 	delta_status = status ^ old_status;
@@ -676,7 +708,7 @@ static void xmit_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 	if (port_int_reg & (INT_XMIT_COMPLETED)) {
 		trace(icom_port, "XMIT_COMPLETE", 0);
 
-		
+		/* clear buffer in use bit */
 		icom_port->statStg->xmit[0].flags &=
 			cpu_to_le16(~SA_FLAGS_READY_TO_XMIT);
 
@@ -693,7 +725,7 @@ static void xmit_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 		}
 
 		if (!icom_write(&icom_port->uart_port))
-			
+			/* activate write queue */
 			uart_write_wakeup(&icom_port->uart_port);
 	} else
 		trace(icom_port, "XMIT_DISABLED", 0);
@@ -726,7 +758,7 @@ static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 			cpu_to_le32(icom_port->statStg->rcv[rcv_buff].leBuffer) -
 			icom_port->recv_buf_pci;
 
-		
+		/* Block copy all but the last byte as this may have status */
 		if (count > 0) {
 			first = icom_port->recv_buf[offset];
 			tty_insert_flip_string(tty, icom_port->recv_buf + offset, count - 1);
@@ -735,7 +767,7 @@ static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 		icount = &icom_port->uart_port.icount;
 		icount->rx += count;
 
-		
+		/* Break detect logic */
 		if ((status & SA_FLAGS_FRAME_ERROR)
 		    && first == 0) {
 			status &= ~SA_FLAGS_FRAME_ERROR;
@@ -758,6 +790,11 @@ static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 			if (status & SA_FLAGS_OVERRUN)
 				icount->overrun++;
 
+			/*
+			 * Now check to see if character should be
+			 * ignored, and mask off conditions which
+			 * should be ignored.
+			 */
 			if (status & icom_port->ignore_status_mask) {
 				trace(icom_port, "IGNORE_CHAR", 0);
 				goto ignore_char;
@@ -778,6 +815,11 @@ static void recv_interrupt(u16 port_int_reg, struct icom_port *icom_port)
 		tty_insert_flip_char(tty, *(icom_port->recv_buf + offset + count - 1), flag);
 
 		if (status & SA_FLAGS_OVERRUN)
+			/*
+			 * Overrun is special, since it's
+			 * reported immediately, and doesn't
+			 * affect the current character
+			 */
 			tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 ignore_char:
 		icom_port->statStg->rcv[rcv_buff].flags = 0;
@@ -819,7 +861,7 @@ static irqreturn_t icom_interrupt(int irq, void *dev_id)
 	struct icom_adapter *icom_adapter;
 	struct icom_port *icom_port;
 
-	
+	/* find icom_port for this interrupt */
 	icom_adapter = (struct icom_adapter *) dev_id;
 
 	if (icom_adapter->version == ADAPTER_V2) {
@@ -828,14 +870,14 @@ static irqreturn_t icom_interrupt(int irq, void *dev_id)
 		adapter_interrupts = readl(int_reg);
 
 		if (adapter_interrupts & 0x00003FFF) {
-			
+			/* port 2 interrupt,  NOTE:  for all ADAPTER_V2, port 2 will be active */
 			icom_port = &icom_adapter->port_info[2];
 			port_int_reg = (u16) adapter_interrupts;
 			process_interrupt(port_int_reg, icom_port);
 			check_modem_status(icom_port);
 		}
 		if (adapter_interrupts & 0x3FFF0000) {
-			
+			/* port 3 interrupt */
 			icom_port = &icom_adapter->port_info[3];
 			if (icom_port->status == ICOM_PORT_ACTIVE) {
 				port_int_reg =
@@ -845,7 +887,7 @@ static irqreturn_t icom_interrupt(int irq, void *dev_id)
 			}
 		}
 
-		
+		/* Clear out any pending interrupts */
 		writel(adapter_interrupts, int_reg);
 
 		int_reg = icom_adapter->base_addr + 0x8004;
@@ -856,14 +898,14 @@ static irqreturn_t icom_interrupt(int irq, void *dev_id)
 	adapter_interrupts = readl(int_reg);
 
 	if (adapter_interrupts & 0x00003FFF) {
-		
+		/* port 0 interrupt, NOTE:  for all adapters, port 0 will be active */
 		icom_port = &icom_adapter->port_info[0];
 		port_int_reg = (u16) adapter_interrupts;
 		process_interrupt(port_int_reg, icom_port);
 		check_modem_status(icom_port);
 	}
 	if (adapter_interrupts & 0x3FFF0000) {
-		
+		/* port 1 interrupt */
 		icom_port = &icom_adapter->port_info[1];
 		if (icom_port->status == ICOM_PORT_ACTIVE) {
 			port_int_reg = (u16) (adapter_interrupts >> 16);
@@ -872,15 +914,20 @@ static irqreturn_t icom_interrupt(int irq, void *dev_id)
 		}
 	}
 
-	
+	/* Clear out any pending interrupts */
 	writel(adapter_interrupts, int_reg);
 
-	
+	/* flush the write */
 	adapter_interrupts = readl(int_reg);
 
 	return IRQ_HANDLED;
 }
 
+/*
+ * ------------------------------------------------------------------
+ * Begin serial-core API
+ * ------------------------------------------------------------------
+ */
 static unsigned int icom_tx_empty(struct uart_port *port)
 {
 	int ret;
@@ -969,7 +1016,7 @@ static void icom_send_xchar(struct uart_port *port, char ch)
 
 	trace(ICOM_PORT, "SEND_XCHAR", ch);
 
-	
+	/* wait .1 sec to send char */
 	for (index = 0; index < 10; index++) {
 		spin_lock_irqsave(&port->lock, flags);
 		xdata = readb(&ICOM_PORT->dram->xchar);
@@ -977,7 +1024,7 @@ static void icom_send_xchar(struct uart_port *port, char ch)
 			trace(ICOM_PORT, "QUICK_WRITE", 0);
 			writeb(ch, &ICOM_PORT->dram->xchar);
 
-			
+			/* flush write operation */
 			xdata = readb(&ICOM_PORT->dram->xchar);
 			spin_unlock_irqrestore(&port->lock, flags);
 			break;
@@ -997,7 +1044,7 @@ static void icom_stop_rx(struct uart_port *port)
 
 static void icom_enable_ms(struct uart_port *port)
 {
-	
+	/* no-op */
 }
 
 static void icom_break(struct uart_port *port, int break_state)
@@ -1038,7 +1085,7 @@ static void icom_close(struct uart_port *port)
 
 	trace(ICOM_PORT, "CLOSE", 0);
 
-	
+	/* stop receiver */
 	cmdReg = readb(&ICOM_PORT->dram->CmdReg);
 	writeb(cmdReg & (unsigned char) ~CMD_RCV_ENABLE,
 	       &ICOM_PORT->dram->CmdReg);
@@ -1070,44 +1117,44 @@ static void icom_set_termios(struct uart_port *port,
 
 	new_config2 = ICOM_ACFG_DRIVE1;
 
-	
+	/* byte size and parity */
 	switch (cflag & CSIZE) {
-	case CS5:		
+	case CS5:		/* 5 bits/char */
 		new_config2 |= ICOM_ACFG_5BPC;
 		break;
-	case CS6:		
+	case CS6:		/* 6 bits/char */
 		new_config2 |= ICOM_ACFG_6BPC;
 		break;
-	case CS7:		
+	case CS7:		/* 7 bits/char */
 		new_config2 |= ICOM_ACFG_7BPC;
 		break;
-	case CS8:		
+	case CS8:		/* 8 bits/char */
 		new_config2 |= ICOM_ACFG_8BPC;
 		break;
 	default:
 		break;
 	}
 	if (cflag & CSTOPB) {
-		
+		/* 2 stop bits */
 		new_config2 |= ICOM_ACFG_2STOP_BIT;
 	}
 	if (cflag & PARENB) {
-		
+		/* parity bit enabled */
 		new_config2 |= ICOM_ACFG_PARITY_ENAB;
 		trace(ICOM_PORT, "PARENB", 0);
 	}
 	if (cflag & PARODD) {
-		
+		/* odd parity */
 		new_config2 |= ICOM_ACFG_PARITY_ODD;
 		trace(ICOM_PORT, "PARODD", 0);
 	}
 
-	
+	/* Determine divisor based on baud rate */
 	baud = uart_get_baud_rate(port, termios, old_termios,
 				  icom_acfg_baud[0],
 				  icom_acfg_baud[BAUD_TABLE_LIMIT]);
 	if (!baud)
-		baud = 9600;	
+		baud = 9600;	/* B0 transition handled in rs_set_termios */
 
 	for (index = 0; index < BAUD_TABLE_LIMIT; index++) {
 		if (icom_acfg_baud[index] == baud) {
@@ -1118,7 +1165,7 @@ static void icom_set_termios(struct uart_port *port,
 
 	uart_update_timeout(port, cflag, baud);
 
-	
+	/* CTS flow control flag and modem status interrupts */
 	tmp_byte = readb(&(ICOM_PORT->dram->HDLCConfigReg));
 	if (cflag & CRTSCTS)
 		tmp_byte |= HDLC_HDW_FLOW;
@@ -1126,6 +1173,9 @@ static void icom_set_termios(struct uart_port *port,
 		tmp_byte &= ~HDLC_HDW_FLOW;
 	writeb(tmp_byte, &(ICOM_PORT->dram->HDLCConfigReg));
 
+	/*
+	 * Set up parity check flag
+	 */
 	ICOM_PORT->read_status_mask = SA_FLAGS_OVERRUN | SA_FL_RCV_DONE;
 	if (iflag & INPCK)
 		ICOM_PORT->read_status_mask |=
@@ -1134,20 +1184,30 @@ static void icom_set_termios(struct uart_port *port,
 	if ((iflag & BRKINT) || (iflag & PARMRK))
 		ICOM_PORT->read_status_mask |= SA_FLAGS_BREAK_DET;
 
+	/*
+	 * Characters to ignore
+	 */
 	ICOM_PORT->ignore_status_mask = 0;
 	if (iflag & IGNPAR)
 		ICOM_PORT->ignore_status_mask |=
 		    SA_FLAGS_PARITY_ERROR | SA_FLAGS_FRAME_ERROR;
 	if (iflag & IGNBRK) {
 		ICOM_PORT->ignore_status_mask |= SA_FLAGS_BREAK_DET;
+		/*
+		 * If we're ignore parity and break indicators, ignore
+		 * overruns too.  (For real raw support).
+		 */
 		if (iflag & IGNPAR)
 			ICOM_PORT->ignore_status_mask |= SA_FLAGS_OVERRUN;
 	}
 
+	/*
+	 * !!! ignore all characters if CREAD is not set
+	 */
 	if ((cflag & CREAD) == 0)
 		ICOM_PORT->ignore_status_mask |= SA_FL_RCV_DONE;
 
-	
+	/* Turn off Receiver to prepare for reset */
 	writeb(CMD_RCV_DISABLE, &ICOM_PORT->dram->CmdReg);
 
 	for (index = 0; index < 10; index++) {
@@ -1156,7 +1216,7 @@ static void icom_set_termios(struct uart_port *port,
 		}
 	}
 
-	
+	/* clear all current buffers of data */
 	for (rcv_buff = 0; rcv_buff < NUM_RBUFFS; rcv_buff++) {
 		ICOM_PORT->statStg->rcv[rcv_buff].flags = 0;
 		ICOM_PORT->statStg->rcv[rcv_buff].leLength = 0;
@@ -1168,17 +1228,17 @@ static void icom_set_termios(struct uart_port *port,
 		ICOM_PORT->statStg->xmit[xmit_buff].flags = 0;
 	}
 
-	
-	
+	/* activate changes and start xmit and receiver here */
+	/* Enable the receiver */
 	writeb(new_config3, &(ICOM_PORT->dram->async_config3));
 	writeb(new_config2, &(ICOM_PORT->dram->async_config2));
 	tmp_byte = readb(&(ICOM_PORT->dram->HDLCConfigReg));
 	tmp_byte |= HDLC_PPP_PURE_ASYNC | HDLC_FF_FILL;
 	writeb(tmp_byte, &(ICOM_PORT->dram->HDLCConfigReg));
-	writeb(0x04, &(ICOM_PORT->dram->FlagFillIdleTimer));	
-	writeb(0xFF, &(ICOM_PORT->dram->ier));	
+	writeb(0x04, &(ICOM_PORT->dram->FlagFillIdleTimer));	/* 0.5 seconds */
+	writeb(0xFF, &(ICOM_PORT->dram->ier));	/* enable modem signal interrupts */
 
-	
+	/* reset processor */
 	writeb(CMD_RESTART, &ICOM_PORT->dram->CmdReg);
 
 	for (index = 0; index < 10; index++) {
@@ -1187,7 +1247,7 @@ static void icom_set_termios(struct uart_port *port,
 		}
 	}
 
-	
+	/* Enable Transmitter and Receiver */
 	offset =
 	    (unsigned long) &ICOM_PORT->statStg->rcv[0] -
 	    (unsigned long) ICOM_PORT->statStg;
@@ -1337,7 +1397,7 @@ static int __devinit icom_load_ports(struct icom_adapter *icom_adapter)
 
 			icom_port->adapter = icom_adapter;
 
-			
+			/* get port memory */
 			if (get_port_memory(icom_port) != 0) {
 				dev_err(&icom_port->adapter->pci_dev->dev,
 					"Memory allocation for port FAILED\n");
@@ -1400,13 +1460,13 @@ static void icom_remove_adapter(struct icom_adapter *icom_adapter)
 			uart_remove_one_port(&icom_uart_driver,
 					     &icom_port->uart_port);
 
-			
+			/* be sure that DTR and RTS are dropped */
 			writeb(0x00, &icom_port->dram->osr);
 
-			
+			/* Wait 0.1 Sec for simple Init to complete */
 			msleep(100);
 
-			
+			/* Stop proccessor */
 			stop_processor(icom_port);
 
 			free_port_memory(icom_port);
@@ -1491,7 +1551,7 @@ static int __devinit icom_probe(struct pci_dev *dev,
 	if (!icom_adapter->base_addr)
 		goto probe_exit1;
 
-	 
+	 /* save off irq and request irq line */
 	 if ( (retval = request_irq(dev->irq, icom_interrupt,
 				   IRQF_SHARED, ICOM_DRIVER_NAME,
 				   (void *) icom_adapter))) {

@@ -25,12 +25,21 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/*
+ *
+ * Interface to the SMI/MDIO hardware, including support for both IEEE 802.3
+ * clause 22 and clause 45 operations.
+ *
+ */
 
 #ifndef __CVMX_MIO_H__
 #define __CVMX_MIO_H__
 
 #include "cvmx-smix-defs.h"
 
+/**
+ * PHY register 0 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_CONTROL 0
 typedef union {
 	uint16_t u16;
@@ -50,6 +59,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_control_t;
 
+/**
+ * PHY register 1 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_STATUS 1
 typedef union {
 	uint16_t u16;
@@ -74,6 +86,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_status_t;
 
+/**
+ * PHY register 2 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_ID1 2
 typedef union {
 	uint16_t u16;
@@ -82,6 +97,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_id1_t;
 
+/**
+ * PHY register 3 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_ID2 3
 typedef union {
 	uint16_t u16;
@@ -92,6 +110,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_id2_t;
 
+/**
+ * PHY register 4 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_AUTONEG_ADVER 4
 typedef union {
 	uint16_t u16;
@@ -111,6 +132,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_autoneg_adver_t;
 
+/**
+ * PHY register 5 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_LINK_PARTNER_ABILITY 5
 typedef union {
 	uint16_t u16;
@@ -130,6 +154,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_link_partner_ability_t;
 
+/**
+ * PHY register 6 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_AUTONEG_EXPANSION 6
 typedef union {
 	uint16_t u16;
@@ -144,6 +171,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_autoneg_expansion_t;
 
+/**
+ * PHY register 9 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_CONTROL_1000 9
 typedef union {
 	uint16_t u16;
@@ -158,6 +188,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_control_1000_t;
 
+/**
+ * PHY register 10 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_STATUS_1000 10
 typedef union {
 	uint16_t u16;
@@ -173,6 +206,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_status_1000_t;
 
+/**
+ * PHY register 15 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_EXTENDED_STATUS 15
 typedef union {
 	uint16_t u16;
@@ -185,6 +221,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_extended_status_t;
 
+/**
+ * PHY register 13 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_MMD_CONTROL 13
 typedef union {
 	uint16_t u16;
@@ -195,6 +234,9 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_mmd_control_t;
 
+/**
+ * PHY register 14 from the 802.3 spec
+ */
 #define CVMX_MDIO_PHY_REG_MMD_ADDRESS_DATA 14
 typedef union {
 	uint16_t u16;
@@ -203,6 +245,7 @@ typedef union {
 	} s;
 } cvmx_mdio_phy_reg_mmd_address_data_t;
 
+/* Operating request encodings. */
 #define MDIO_CLAUSE_22_WRITE    0
 #define MDIO_CLAUSE_22_READ     1
 
@@ -211,6 +254,7 @@ typedef union {
 #define MDIO_CLAUSE_45_READ_INC 2
 #define MDIO_CLAUSE_45_READ     3
 
+/* MMD identifiers, mostly for accessing devices within XENPAK modules. */
 #define CVMX_MMD_DEVICE_PMA_PMD      1
 #define CVMX_MMD_DEVICE_WIS          2
 #define CVMX_MMD_DEVICE_PCS          3
@@ -221,25 +265,38 @@ typedef union {
 #define CVMX_MMD_DEVICE_VENDOR_1     30
 #define CVMX_MMD_DEVICE_VENDOR_2     31
 
+/* Helper function to put MDIO interface into clause 45 mode */
 static inline void __cvmx_mdio_set_clause45_mode(int bus_id)
 {
 	union cvmx_smix_clk smi_clk;
-	
+	/* Put bus into clause 45 mode */
 	smi_clk.u64 = cvmx_read_csr(CVMX_SMIX_CLK(bus_id));
 	smi_clk.s.mode = 1;
 	smi_clk.s.preamble = 1;
 	cvmx_write_csr(CVMX_SMIX_CLK(bus_id), smi_clk.u64);
 }
 
+/* Helper function to put MDIO interface into clause 22 mode */
 static inline void __cvmx_mdio_set_clause22_mode(int bus_id)
 {
 	union cvmx_smix_clk smi_clk;
-	
+	/* Put bus into clause 22 mode */
 	smi_clk.u64 = cvmx_read_csr(CVMX_SMIX_CLK(bus_id));
 	smi_clk.s.mode = 0;
 	cvmx_write_csr(CVMX_SMIX_CLK(bus_id), smi_clk.u64);
 }
 
+/**
+ * Perform an MII read. This function is used to read PHY
+ * registers controlling auto negotiation.
+ *
+ * @bus_id:   MDIO bus number. Zero on most chips, but some chips (ex CN56XX)
+ *                 support multiple busses.
+ * @phy_id:   The MII phy id
+ * @location: Register location to read
+ *
+ * Returns Result from the read or -1 on failure
+ */
 static inline int cvmx_mdio_read(int bus_id, int phy_id, int location)
 {
 	union cvmx_smix_cmd smi_cmd;
@@ -266,6 +323,19 @@ static inline int cvmx_mdio_read(int bus_id, int phy_id, int location)
 		return -1;
 }
 
+/**
+ * Perform an MII write. This function is used to write PHY
+ * registers controlling auto negotiation.
+ *
+ * @bus_id:   MDIO bus number. Zero on most chips, but some chips (ex CN56XX)
+ *                 support multiple busses.
+ * @phy_id:   The MII phy id
+ * @location: Register location to write
+ * @val:      Value to write
+ *
+ * Returns -1 on error
+ *         0 on success
+ */
 static inline int cvmx_mdio_write(int bus_id, int phy_id, int location, int val)
 {
 	union cvmx_smix_cmd smi_cmd;
@@ -295,6 +365,18 @@ static inline int cvmx_mdio_write(int bus_id, int phy_id, int location, int val)
 	return 0;
 }
 
+/**
+ * Perform an IEEE 802.3 clause 45 MII read. This function is used to
+ * read PHY registers controlling auto negotiation.
+ *
+ * @bus_id:   MDIO bus number. Zero on most chips, but some chips (ex CN56XX)
+ *                 support multiple busses.
+ * @phy_id:   The MII phy id
+ * @device:   MDIO Managable Device (MMD) id
+ * @location: Register location to read
+ *
+ * Returns Result from the read or -1 on failure
+ */
 
 static inline int cvmx_mdio_45_read(int bus_id, int phy_id, int device,
 				    int location)
@@ -358,6 +440,20 @@ static inline int cvmx_mdio_45_read(int bus_id, int phy_id, int device,
 	}
 }
 
+/**
+ * Perform an IEEE 802.3 clause 45 MII write. This function is used to
+ * write PHY registers controlling auto negotiation.
+ *
+ * @bus_id:   MDIO bus number. Zero on most chips, but some chips (ex CN56XX)
+ *                 support multiple busses.
+ * @phy_id:   The MII phy id
+ * @device:   MDIO Managable Device (MMD) id
+ * @location: Register location to write
+ * @val:      Value to write
+ *
+ * Returns -1 on error
+ *         0 on success
+ */
 static inline int cvmx_mdio_45_write(int bus_id, int phy_id, int device,
 				     int location, int val)
 {

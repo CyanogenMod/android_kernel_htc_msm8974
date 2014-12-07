@@ -37,6 +37,9 @@
 
 #include <rdma/ib_mad.h>
 
+/*
+ * PMA class portinfo capability mask bits
+ */
 #define IB_PMA_CLASS_CAP_ALLPORTSELECT  cpu_to_be16(1 << 8)
 #define IB_PMA_CLASS_CAP_EXT_WIDTH      cpu_to_be16(1 << 9)
 #define IB_PMA_CLASS_CAP_XMIT_WAIT      cpu_to_be16(1 << 12)
@@ -58,11 +61,11 @@ struct ib_pma_portsamplescontrol {
 	u8 opcode;
 	u8 port_select;
 	u8 tick;
-	u8 counter_width;		
-	__be32 counter_mask0_9;		
-	__be16 counter_mask10_14;	
+	u8 counter_width;		/* resv: 7:3, counter width: 2:0 */
+	__be32 counter_mask0_9;		/* 2, 10 3-bit fields */
+	__be16 counter_mask10_14;	/* 1, 5 3-bit fields */
 	u8 sample_mechanisms;
-	u8 sample_status;		
+	u8 sample_status;		/* only lower 2 bits */
 	__be64 option_mask;
 	__be64 vendor_mask;
 	__be32 sample_start;
@@ -76,14 +79,14 @@ struct ib_pma_portsamplescontrol {
 
 struct ib_pma_portsamplesresult {
 	__be16 tag;
-	__be16 sample_status;   
+	__be16 sample_status;   /* only lower 2 bits */
 	__be32 counter[15];
 };
 
 struct ib_pma_portsamplesresult_ext {
 	__be16 tag;
-	__be16 sample_status;   
-	__be32 extended_width;  
+	__be16 sample_status;   /* only lower 2 bits */
+	__be32 extended_width;  /* only upper 2 bits */
 	__be64 counter[15];
 };
 
@@ -101,7 +104,7 @@ struct ib_pma_portcounters {
 	u8 port_xmit_constraint_errors;
 	u8 port_rcv_constraint_errors;
 	u8 reserved1;
-	u8 link_overrun_errors; 
+	u8 link_overrun_errors; /* LocalLink: 7:4, BufferOverrun: 3:0 */
 	__be16 reserved2;
 	__be16 vl15_dropped;
 	__be32 port_xmit_data;
@@ -150,4 +153,4 @@ struct ib_pma_portcounters_ext {
 #define IB_PMA_SELX_PORT_MULTI_XMIT_PACKETS     cpu_to_be16(0x0040)
 #define IB_PMA_SELX_PORT_MULTI_RCV_PACKETS      cpu_to_be16(0x0080)
 
-#endif 
+#endif /* IB_PMA_H */

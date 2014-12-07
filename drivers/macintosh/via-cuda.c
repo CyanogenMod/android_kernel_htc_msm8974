@@ -31,35 +31,39 @@
 static volatile unsigned char __iomem *via;
 static DEFINE_SPINLOCK(cuda_lock);
 
-#define RS		0x200		
-#define B		0		
-#define A		RS		
-#define DIRB		(2*RS)		
-#define DIRA		(3*RS)		
-#define T1CL		(4*RS)		
-#define T1CH		(5*RS)		
-#define T1LL		(6*RS)		
-#define T1LH		(7*RS)		
-#define T2CL		(8*RS)		
-#define T2CH		(9*RS)		
-#define SR		(10*RS)		
-#define ACR		(11*RS)		
-#define PCR		(12*RS)		
-#define IFR		(13*RS)		
-#define IER		(14*RS)		
-#define ANH		(15*RS)		
+/* VIA registers - spaced 0x200 bytes apart */
+#define RS		0x200		/* skip between registers */
+#define B		0		/* B-side data */
+#define A		RS		/* A-side data */
+#define DIRB		(2*RS)		/* B-side direction (1=output) */
+#define DIRA		(3*RS)		/* A-side direction (1=output) */
+#define T1CL		(4*RS)		/* Timer 1 ctr/latch (low 8 bits) */
+#define T1CH		(5*RS)		/* Timer 1 counter (high 8 bits) */
+#define T1LL		(6*RS)		/* Timer 1 latch (low 8 bits) */
+#define T1LH		(7*RS)		/* Timer 1 latch (high 8 bits) */
+#define T2CL		(8*RS)		/* Timer 2 ctr/latch (low 8 bits) */
+#define T2CH		(9*RS)		/* Timer 2 counter (high 8 bits) */
+#define SR		(10*RS)		/* Shift register */
+#define ACR		(11*RS)		/* Auxiliary control register */
+#define PCR		(12*RS)		/* Peripheral control register */
+#define IFR		(13*RS)		/* Interrupt flag register */
+#define IER		(14*RS)		/* Interrupt enable register */
+#define ANH		(15*RS)		/* A-side data, no handshake */
 
-#define TREQ		0x08		
-#define TACK		0x10		
-#define TIP		0x20		
+/* Bits in B data register: all active low */
+#define TREQ		0x08		/* Transfer request (input) */
+#define TACK		0x10		/* Transfer acknowledge (output) */
+#define TIP		0x20		/* Transfer in progress (output) */
 
-#define SR_CTRL		0x1c		
-#define SR_EXT		0x0c		
-#define SR_OUT		0x10		
+/* Bits in ACR */
+#define SR_CTRL		0x1c		/* Shift register control bits */
+#define SR_EXT		0x0c		/* Shift on external clock */
+#define SR_OUT		0x10		/* Shift out if 1 */
 
-#define IER_SET		0x80		
-#define IER_CLR		0		
-#define SR_INT		0x04		
+/* Bits in IFR and IER */
+#define IER_SET		0x80		/* set bits in IER */
+#define IER_CLR		0		/* clear bits in IER */
+#define SR_INT		0x04		/* Shift register full/empty */
 
 static enum cuda_state {
     idle,
@@ -87,7 +91,7 @@ static int cuda_probe(void);
 static int cuda_send_request(struct adb_request *req, int sync);
 static int cuda_adb_autopoll(int devs);
 static int cuda_reset_adb_bus(void);
-#endif 
+#endif /* CONFIG_ADB */
 
 static int cuda_init_via(void);
 static void cuda_start(void);
@@ -108,7 +112,7 @@ struct adb_driver via_cuda_driver = {
 	.poll         = cuda_poll,
 	.reset_bus    = cuda_reset_adb_bus,
 };
-#endif 
+#endif /* CONFIG_ADB */
 
 #ifdef CONFIG_MAC
 int __init find_via_cuda(void)
@@ -129,7 +133,7 @@ int __init find_via_cuda(void)
 	return 0;
     }
 
-    
+    /* enable autopoll */
     cuda_request(&req, NULL, 3, CUDA_PACKET, CUDA_AUTOPOLL, 1);
     while (!req.complete)
 	cuda_poll();
@@ -176,13 +180,13 @@ int __init find_via_cuda(void)
 	return 0;
     }
 
-    
-    
+    /* Clear and enable interrupts, but only on PPC. On 68K it's done  */
+    /* for us by the main VIA driver in arch/m68k/mac/via.c        */
 
-    out_8(&via[IFR], 0x7f);	
-    out_8(&via[IER], IER_SET|SR_INT); 
+    out_8(&via[IFR], 0x7f);	/* clear interrupts by writing 1s */
+    out_8(&via[IER], IER_SET|SR_INT); /* enable interrupt from SR */
 
-    
+    /* enable autopoll */
     cuda_request(&req, NULL, 3, CUDA_PACKET, CUDA_AUTOPOLL, 1);
     while (!req.complete)
 	cuda_poll();
@@ -194,7 +198,7 @@ int __init find_via_cuda(void)
     vias = NULL;
     return 0;
 }
-#endif 
+#endif /* !defined CONFIG_MAC */
 
 static int __init via_cuda_start(void)
 {
@@ -240,7 +244,7 @@ cuda_probe(void)
 	return -ENODEV;
     return 0;
 }
-#endif 
+#endif /* CONFIG_ADB */
 
 #define WAIT_FOR(cond, what)					\
     do {                                                        \
@@ -257,47 +261,48 @@ cuda_probe(void)
 static int
 cuda_init_via(void)
 {
-    out_8(&via[DIRB], (in_8(&via[DIRB]) | TACK | TIP) & ~TREQ);	
-    out_8(&via[B], in_8(&via[B]) | TACK | TIP);			
-    out_8(&via[ACR] ,(in_8(&via[ACR]) & ~SR_CTRL) | SR_EXT);	
-    (void)in_8(&via[SR]);						
+    out_8(&via[DIRB], (in_8(&via[DIRB]) | TACK | TIP) & ~TREQ);	/* TACK & TIP out */
+    out_8(&via[B], in_8(&via[B]) | TACK | TIP);			/* negate them */
+    out_8(&via[ACR] ,(in_8(&via[ACR]) & ~SR_CTRL) | SR_EXT);	/* SR data in */
+    (void)in_8(&via[SR]);						/* clear any left-over data */
 #ifdef CONFIG_PPC
-    out_8(&via[IER], 0x7f);					
+    out_8(&via[IER], 0x7f);					/* disable interrupts from VIA */
     (void)in_8(&via[IER]);
 #else
-    out_8(&via[IER], SR_INT);					
+    out_8(&via[IER], SR_INT);					/* disable SR interrupt from VIA */
 #endif
 
-    
+    /* delay 4ms and then clear any pending interrupt */
     mdelay(4);
     (void)in_8(&via[SR]);
     out_8(&via[IFR], SR_INT);
 
-    
+    /* sync with the CUDA - assert TACK without TIP */
     out_8(&via[B], in_8(&via[B]) & ~TACK);
 
-    
+    /* wait for the CUDA to assert TREQ in response */
     WAIT_FOR((in_8(&via[B]) & TREQ) == 0, "CUDA response to sync");
 
-    
+    /* wait for the interrupt and then clear it */
     WAIT_FOR(in_8(&via[IFR]) & SR_INT, "CUDA response to sync (2)");
     (void)in_8(&via[SR]);
     out_8(&via[IFR], SR_INT);
 
-    
+    /* finish the sync by negating TACK */
     out_8(&via[B], in_8(&via[B]) | TACK);
 
-    
+    /* wait for the CUDA to negate TREQ and the corresponding interrupt */
     WAIT_FOR(in_8(&via[B]) & TREQ, "CUDA response to sync (3)");
     WAIT_FOR(in_8(&via[IFR]) & SR_INT, "CUDA response to sync (4)");
     (void)in_8(&via[SR]);
     out_8(&via[IFR], SR_INT);
-    out_8(&via[B], in_8(&via[B]) | TIP);	
+    out_8(&via[B], in_8(&via[B]) | TIP);	/* should be unnecessary */
 
     return 0;
 }
 
 #ifdef CONFIG_ADB
+/* Send an ADB command */
 static int
 cuda_send_request(struct adb_request *req, int sync)
 {
@@ -322,6 +327,7 @@ cuda_send_request(struct adb_request *req, int sync)
 }
 
 
+/* Enable/disable autopolling */
 static int
 cuda_adb_autopoll(int devs)
 {
@@ -336,6 +342,7 @@ cuda_adb_autopoll(int devs)
     return 0;
 }
 
+/* Reset adb bus - how do we do this?? */
 static int
 cuda_reset_adb_bus(void)
 {
@@ -344,12 +351,13 @@ cuda_reset_adb_bus(void)
     if ((via == NULL) || !cuda_fully_inited)
 	return -ENXIO;
 
-    cuda_request(&req, NULL, 2, ADB_PACKET, 0);		
+    cuda_request(&req, NULL, 2, ADB_PACKET, 0);		/* maybe? */
     while (!req.complete)
 	cuda_poll();
     return 0;
 }
-#endif 
+#endif /* CONFIG_ADB */
+/* Construct and send a cuda request */
 int
 cuda_request(struct adb_request *req, void (*done)(struct adb_request *),
 	     int nbytes, ...)
@@ -406,15 +414,15 @@ cuda_start(void)
 {
     struct adb_request *req;
 
-    
-    
+    /* assert cuda_state == idle */
+    /* get the packet to send */
     req = current_req;
     if (req == 0)
 	return;
     if ((in_8(&via[B]) & TREQ) == 0)
-	return;			
+	return;			/* a byte is coming in from the CUDA */
 
-    
+    /* set the shift register to shift out and send a byte */
     out_8(&via[ACR], in_8(&via[ACR]) | SR_OUT);
     out_8(&via[SR], req->data[0]);
     out_8(&via[B], in_8(&via[B]) & ~TIP);
@@ -424,6 +432,9 @@ cuda_start(void)
 void
 cuda_poll(void)
 {
+    /* cuda_interrupt only takes a normal lock, we disable
+     * interrupts here to avoid re-entering and thus deadlocking.
+     */
     if (cuda_irq)
 	disable_irq(cuda_irq);
     cuda_interrupt(0, NULL);
@@ -442,6 +453,11 @@ cuda_interrupt(int irq, void *arg)
     
     spin_lock(&cuda_lock);
 
+    /* On powermacs, this handler is registered for the VIA IRQ. But they use
+     * just the shift register IRQ -- other VIA interrupt sources are disabled.
+     * On m68k macs, the VIA IRQ sources are dispatched individually. Unless
+     * we are polling, the shift register IRQ flag has already been cleared.
+     */
 
 #ifdef CONFIG_MAC
     if (!arg)
@@ -456,10 +472,10 @@ cuda_interrupt(int irq, void *arg)
     }
     
     status = (~in_8(&via[B]) & (TIP|TREQ)) | (in_8(&via[ACR]) & SR_OUT);
-    
+    /* printk("cuda_interrupt: state=%d status=%x\n", cuda_state, status); */
     switch (cuda_state) {
     case idle:
-	
+	/* CUDA has sent us the first byte of data - unsolicited */
 	if (status != TREQ)
 	    printk("cuda: state=idle, status=%x\n", status);
 	(void)in_8(&via[SR]);
@@ -470,7 +486,7 @@ cuda_interrupt(int irq, void *arg)
 	break;
 
     case awaiting_reply:
-	
+	/* CUDA has sent us the first byte of data of a reply */
 	if (status != TREQ)
 	    printk("cuda: state=awaiting_reply, status=%x\n", status);
 	(void)in_8(&via[SR]);
@@ -482,13 +498,13 @@ cuda_interrupt(int irq, void *arg)
 
     case sent_first_byte:
 	if (status == TREQ + TIP + SR_OUT) {
-	    
+	    /* collision */
 	    out_8(&via[ACR], in_8(&via[ACR]) & ~SR_OUT);
 	    (void)in_8(&via[SR]);
 	    out_8(&via[B], in_8(&via[B]) | TIP | TACK);
 	    cuda_state = idle;
 	} else {
-	    
+	    /* assert status == TIP + SR_OUT */
 	    if (status != TIP + SR_OUT)
 		printk("cuda: state=sent_first_byte status=%x\n", status);
 	    out_8(&via[SR], current_req->data[1]);
@@ -510,7 +526,7 @@ cuda_interrupt(int irq, void *arg)
 	    } else {
 		current_req = req->next;
 		complete = 1;
-		
+		/* not sure about this */
 		cuda_state = idle;
 		cuda_start();
 	    }
@@ -523,11 +539,11 @@ cuda_interrupt(int irq, void *arg)
     case reading:
 	*reply_ptr++ = in_8(&via[SR]);
 	if (status == TIP) {
-	    
+	    /* that's all folks */
 	    out_8(&via[B], in_8(&via[B]) | TACK | TIP);
 	    cuda_state = read_done;
 	} else {
-	    
+	    /* assert status == TIP | TREQ */
 	    if (status != TIP + TREQ)
 		printk("cuda: state=reading status=%x\n", status);
 	    out_8(&via[B], in_8(&via[B]) ^ TACK);
@@ -540,12 +556,12 @@ cuda_interrupt(int irq, void *arg)
 	    req = current_req;
 	    req->reply_len = reply_ptr - req->reply;
 	    if (req->data[0] == ADB_PACKET) {
-		
+		/* Have to adjust the reply from ADB commands */
 		if (req->reply_len <= 2 || (req->reply[1] & 2) != 0) {
-		    
+		    /* the 0x2 bit indicates no response */
 		    req->reply_len = 0;
 		} else {
-		    
+		    /* leave just the command and result bytes in the reply */
 		    req->reply_len -= 2;
 		    memmove(req->reply, req->reply + 2, req->reply_len);
 		}
@@ -553,6 +569,13 @@ cuda_interrupt(int irq, void *arg)
 	    current_req = req->next;
 	    complete = 1;
 	} else {
+	    /* This is tricky. We must break the spinlock to call
+	     * cuda_input. However, doing so means we might get
+	     * re-entered from another CPU getting an interrupt
+	     * or calling cuda_poll(). I ended up using the stack
+	     * (it's only for 16 bytes) and moving the actual
+	     * call to cuda_input to outside of the lock.
+	     */
 	    ibuf_len = reply_ptr - cuda_rbuf;
 	    memcpy(ibuf, cuda_rbuf, ibuf_len);
 	}
@@ -575,6 +598,9 @@ cuda_interrupt(int irq, void *arg)
     	void (*done)(struct adb_request *) = req->done;
     	mb();
     	req->complete = 1;
+    	/* Here, we assume that if the request has a done member, the
+    	 * struct request will survive to setting req->complete to 1
+    	 */
     	if (done)
 		(*done)(req);
     }
@@ -598,10 +624,10 @@ cuda_input(unsigned char *buf, int nb)
 		return;
 	    }
 	}
-#endif 
+#endif /* CONFIG_XMON */
 #ifdef CONFIG_ADB
 	adb_input(buf+2, nb-2, buf[1] & 0x40);
-#endif 
+#endif /* CONFIG_ADB */
 	break;
 
     default:

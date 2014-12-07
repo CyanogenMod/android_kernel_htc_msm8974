@@ -50,6 +50,11 @@ static int __init early_initrd(char *p)
 }
 early_param("initrd", early_initrd);
 
+/*
+ * This keeps memory configuration data used by a couple memory
+ * initialization functions, as well as show_mem() for the skipping
+ * of holes in the memory map.  It is populated by uc32_add_memory().
+ */
 struct meminfo meminfo;
 
 void show_mem(unsigned int filter)
@@ -131,15 +136,23 @@ static void __init uc32_bootmem_init(unsigned long start_pfn,
 	phys_addr_t bitmap;
 	pg_data_t *pgdat;
 
+	/*
+	 * Allocate the bootmem bitmap page.  This must be in a region
+	 * of memory which has already been mapped.
+	 */
 	boot_pages = bootmem_bootmap_pages(end_pfn - start_pfn);
 	bitmap = memblock_alloc_base(boot_pages << PAGE_SHIFT, L1_CACHE_BYTES,
 				__pfn_to_phys(end_pfn));
 
+	/*
+	 * Initialise the bootmem allocator, handing the
+	 * memory banks over to bootmem.
+	 */
 	node_set_online(0);
 	pgdat = NODE_DATA(0);
 	init_bootmem_node(pgdat, __phys_to_pfn(bitmap), start_pfn, end_pfn);
 
-	
+	/* Free the lowmem regions from memblock into bootmem. */
 	for_each_memblock(memory, reg) {
 		unsigned long start = memblock_region_memory_base_pfn(reg);
 		unsigned long end = memblock_region_memory_end_pfn(reg);
@@ -152,7 +165,7 @@ static void __init uc32_bootmem_init(unsigned long start_pfn,
 		free_bootmem(__pfn_to_phys(start), (end - start) << PAGE_SHIFT);
 	}
 
-	
+	/* Reserve the lowmem memblock reserved regions in bootmem. */
 	for_each_memblock(reserved, reg) {
 		unsigned long start = memblock_region_reserved_base_pfn(reg);
 		unsigned long end = memblock_region_reserved_end_pfn(reg);
@@ -173,10 +186,22 @@ static void __init uc32_bootmem_free(unsigned long min, unsigned long max_low,
 	unsigned long zone_size[MAX_NR_ZONES], zhole_size[MAX_NR_ZONES];
 	struct memblock_region *reg;
 
+	/*
+	 * initialise the zones.
+	 */
 	memset(zone_size, 0, sizeof(zone_size));
 
+	/*
+	 * The memory size has already been determined.  If we need
+	 * to do anything fancy with the allocation of this memory
+	 * to the zones, now is the time to do it.
+	 */
 	zone_size[0] = max_low - min;
 
+	/*
+	 * Calculate the size of the holes.
+	 *  holes = node_size - sum(bank_sizes)
+	 */
 	memcpy(zhole_size, zone_size, sizeof(zhole_size));
 	for_each_memblock(memory, reg) {
 		unsigned long start = memblock_region_memory_base_pfn(reg);
@@ -188,6 +213,10 @@ static void __init uc32_bootmem_free(unsigned long min, unsigned long max_low,
 		}
 	}
 
+	/*
+	 * Adjust the sizes according to any special requirements for
+	 * this machine type.
+	 */
 	arch_adjust_zones(zone_size, zhole_size);
 
 	free_area_init_node(0, zone_size, min, zhole_size);
@@ -220,14 +249,14 @@ void __init uc32_memblock_init(struct meminfo *mi)
 	for (i = 0; i < mi->nr_banks; i++)
 		memblock_add(mi->bank[i].start, mi->bank[i].size);
 
-	
+	/* Register the kernel text, kernel data and initrd with memblock. */
 	memblock_reserve(__pa(_text), _end - _text);
 
 #ifdef CONFIG_BLK_DEV_INITRD
 	if (phys_initrd_size) {
 		memblock_reserve(phys_initrd_start, phys_initrd_size);
 
-		
+		/* Now convert initrd to virtual addresses */
 		initrd_start = __phys_to_virt(phys_initrd_start);
 		initrd_end = initrd_start + phys_initrd_size;
 	}
@@ -252,14 +281,34 @@ void __init bootmem_init(void)
 #ifdef CONFIG_SWIOTLB
 	swiotlb_init(1);
 #endif
+	/*
+	 * Sparsemem tries to allocate bootmem in memory_present(),
+	 * so must be done after the fixed reservations
+	 */
 	uc32_memory_present();
 
+	/*
+	 * sparse_init() needs the bootmem allocator up and running.
+	 */
 	sparse_init();
 
+	/*
+	 * Now free the memory - free_area_init_node needs
+	 * the sparse mem_map arrays initialized by sparse_init()
+	 * for memmap_init_zone(), otherwise all PFNs are invalid.
+	 */
 	uc32_bootmem_free(min, max_low, max_high);
 
 	high_memory = __va((max_low << PAGE_SHIFT) - 1) + 1;
 
+	/*
+	 * This doesn't seem to be used by the Linux memory manager any
+	 * more, but is used by ll_rw_block.  If we can get rid of it, we
+	 * also get rid of some of the stuff above as well.
+	 *
+	 * Note: max_low_pfn and max_pfn reflect the number of _pages_ in
+	 * the system, not the maximum PFN.
+	 */
 	max_low_pfn = max_low - PHYS_PFN_OFFSET;
 	max_pfn = max_high - PHYS_PFN_OFFSET;
 }
@@ -288,33 +337,65 @@ free_memmap(unsigned long start_pfn, unsigned long end_pfn)
 	struct page *start_pg, *end_pg;
 	unsigned long pg, pgend;
 
+	/*
+	 * Convert start_pfn/end_pfn to a struct page pointer.
+	 */
 	start_pg = pfn_to_page(start_pfn - 1) + 1;
 	end_pg = pfn_to_page(end_pfn);
 
+	/*
+	 * Convert to physical addresses, and
+	 * round start upwards and end downwards.
+	 */
 	pg = PAGE_ALIGN(__pa(start_pg));
 	pgend = __pa(end_pg) & PAGE_MASK;
 
+	/*
+	 * If there are free pages between these,
+	 * free the section of the memmap array.
+	 */
 	if (pg < pgend)
 		free_bootmem(pg, pgend - pg);
 }
 
+/*
+ * The mem_map array can get very big.  Free the unused area of the memory map.
+ */
 static void __init free_unused_memmap(struct meminfo *mi)
 {
 	unsigned long bank_start, prev_bank_end = 0;
 	unsigned int i;
 
+	/*
+	 * This relies on each bank being in address order.
+	 * The banks are sorted previously in bootmem_init().
+	 */
 	for_each_bank(i, mi) {
 		struct membank *bank = &mi->bank[i];
 
 		bank_start = bank_pfn_start(bank);
 
+		/*
+		 * If we had a previous bank, and there is a space
+		 * between the current bank and the previous, free it.
+		 */
 		if (prev_bank_end && prev_bank_end < bank_start)
 			free_memmap(prev_bank_end, bank_start);
 
+		/*
+		 * Align up here since the VM subsystem insists that the
+		 * memmap entries are valid from the bank end aligned to
+		 * MAX_ORDER_NR_PAGES.
+		 */
 		prev_bank_end = ALIGN(bank_pfn_end(bank), MAX_ORDER_NR_PAGES);
 	}
 }
 
+/*
+ * mem_init() marks the free areas in the mem_map and tells us how much
+ * memory is free.  This is done after various parts of the system have
+ * claimed their memory after the kernel image.
+ */
 void __init mem_init(void)
 {
 	unsigned long reserved_pages, free_pages;
@@ -323,7 +404,7 @@ void __init mem_init(void)
 
 	max_mapnr   = pfn_to_page(max_pfn + PHYS_PFN_OFFSET) - mem_map;
 
-	
+	/* this will put all unused low memory onto the freelists */
 	free_unused_memmap(&meminfo);
 
 	totalram_pages += free_all_bootmem();
@@ -350,6 +431,10 @@ void __init mem_init(void)
 		} while (page < end);
 	}
 
+	/*
+	 * Since our memory may not be contiguous, calculate the
+	 * real number of pages we have in this system
+	 */
 	printk(KERN_INFO "Memory:");
 	num_physpages = 0;
 	for_each_memblock(memory, reg) {
@@ -395,6 +480,11 @@ void __init mem_init(void)
 	BUG_ON(TASK_SIZE				> MODULES_VADDR);
 
 	if (PAGE_SIZE >= 16384 && num_physpages <= 128) {
+		/*
+		 * On a machine this small we won't get
+		 * anywhere without overcommit, so turn
+		 * it on by default.
+		 */
 		sysctl_overcommit_memory = OVERCOMMIT_ALWAYS;
 	}
 }

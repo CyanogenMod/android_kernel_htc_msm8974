@@ -55,6 +55,10 @@ void oprofile_create_stats_files(struct super_block *sb, struct dentry *root)
 		snprintf(buf, 10, "cpu%d", i);
 		cpudir = oprofilefs_mkdir(sb, dir, buf);
 
+		/* Strictly speaking access to these ulongs is racy,
+		 * but we can't simply lock them, and they are
+		 * informational only.
+		 */
 		oprofilefs_create_ro_ulong(sb, cpudir, "sample_received",
 			&cpu_buf->sample_received);
 		oprofilefs_create_ro_ulong(sb, cpudir, "sample_lost_overflow",

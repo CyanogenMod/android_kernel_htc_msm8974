@@ -2,6 +2,11 @@
 #include <linux/types.h>
 #include <linux/crush/hash.h>
 
+/*
+ * Robert Jenkins' function for mixing 32-bit values
+ * http://burtleburtle.net/bob/hash/evahash.html
+ * a, b = random bits, c = input and output
+ */
 #define crush_hashmix(a, b, c) do {			\
 		a = a-b;  a = a-c;  a = a^(c>>13);	\
 		b = b-c;  b = b-a;  b = b^(a<<8);	\

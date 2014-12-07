@@ -67,7 +67,7 @@ struct apr_svc *apr_register(char *dest, char *svc_name, apr_fn svc_fn,
 		goto done;
 	}
 
-	
+	/* APRv2 doen't load ADSP image automatically */
 
 	client = apr_get_client(dest_id, client_id);
 	mutex_lock(&client->m_lock);

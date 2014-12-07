@@ -26,6 +26,9 @@
 
 #include "devices-imx1.h"
 
+/*
+ * This scb9328 has a 32MiB flash
+ */
 static struct resource flash_resource = {
 	.start	= MX1_CS0_PHYS,
 	.end	= MX1_CS0_PHYS + (32 * 1024 * 1024) - 1,
@@ -46,22 +49,34 @@ static struct platform_device scb_flash_device = {
 	.num_resources = 1,
 };
 
+/*
+ * scb9328 has a DM9000 network controller
+ * connected to CS5, with 16 bit data path
+ * and interrupt connected to GPIO 3
+ */
 
+/*
+ * internal datapath is fixed 16 bit
+ */
 static struct dm9000_plat_data dm9000_platdata = {
 	.flags	= DM9000_PLATF_16BITONLY,
 };
 
+/*
+ * the DM9000 drivers wants two defined address spaces
+ * to gain access to address latch registers and the data path.
+ */
 static struct resource dm9000x_resources[] = {
 	{
 		.name	= "address area",
 		.start	= MX1_CS5_PHYS,
 		.end	= MX1_CS5_PHYS + 1,
-		.flags	= IORESOURCE_MEM,	
+		.flags	= IORESOURCE_MEM,	/* address access */
 	}, {
 		.name	= "data area",
 		.start	= MX1_CS5_PHYS + 4,
 		.end	= MX1_CS5_PHYS + 5,
-		.flags	= IORESOURCE_MEM,	
+		.flags	= IORESOURCE_MEM,	/* data access */
 	}, {
 		.start	= IRQ_GPIOC(3),
 		.end	= IRQ_GPIOC(3),
@@ -95,6 +110,9 @@ static struct platform_device *devices[] __initdata = {
 	&dm9000x_device,
 };
 
+/*
+ * scb9328_init - Init the CPU card itself
+ */
 static void __init scb9328_init(void)
 {
 	imx1_soc_init();
@@ -118,7 +136,7 @@ static struct sys_timer scb9328_timer = {
 };
 
 MACHINE_START(SCB9328, "Synertronixx scb9328")
-	
+	/* Sascha Hauer */
 	.atag_offset = 100,
 	.map_io = mx1_map_io,
 	.init_early = imx1_init_early,

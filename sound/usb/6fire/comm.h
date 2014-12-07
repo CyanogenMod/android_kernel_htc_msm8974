@@ -15,7 +15,7 @@
 
 #include "common.h"
 
-enum 
+enum /* settings for comm */
 {
 	COMM_RECEIVER_BUFSIZE = 64,
 };
@@ -26,11 +26,11 @@ struct comm_runtime {
 	struct urb receiver;
 	u8 receiver_buffer[COMM_RECEIVER_BUFSIZE];
 
-	u8 serial; 
+	u8 serial; /* urb serial */
 
 	void (*init_urb)(struct comm_runtime *rt, struct urb *urb, u8 *buffer,
 			void *context, void(*handler)(struct urb *urb));
-	
+	/* writes control data to the device */
 	int (*write8)(struct comm_runtime *rt, u8 request, u8 reg, u8 value);
 	int (*write16)(struct comm_runtime *rt, u8 request, u8 reg,
 			u8 vh, u8 vl);
@@ -39,5 +39,5 @@ struct comm_runtime {
 int __devinit usb6fire_comm_init(struct sfire_chip *chip);
 void usb6fire_comm_abort(struct sfire_chip *chip);
 void usb6fire_comm_destroy(struct sfire_chip *chip);
-#endif 
+#endif /* USB6FIRE_COMM_H */
 

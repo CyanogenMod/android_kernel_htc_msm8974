@@ -24,6 +24,9 @@ static int ncp_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	return filemap_write_and_wait_range(file->f_mapping, start, end);
 }
 
+/*
+ * Open a file with the specified read/write mode.
+ */
 int ncp_make_open(struct inode *inode, int right)
 {
 	int error;
@@ -45,14 +48,14 @@ int ncp_make_open(struct inode *inode, int right)
 		struct ncp_entry_info finfo;
 		int result;
 
-		
+		/* tries max. rights */
 		finfo.access = O_RDWR;
 		result = ncp_open_create_file_or_subdir(NCP_SERVER(inode),
 					inode, NULL, OC_MODE_OPEN,
 					0, AR_READ | AR_WRITE, &finfo);
 		if (!result)
 			goto update;
-		
+		/* RDWR did not succeeded, try readonly or writeonly as requested */
 		switch (right) {
 			case O_RDONLY:
 				finfo.access = O_RDONLY;
@@ -71,6 +74,9 @@ int ncp_make_open(struct inode *inode, int right)
 			PPRINTK("ncp_make_open: failed, result=%d\n", result);
 			goto out_unlock;
 		}
+		/*
+		 * Update the inode information.
+		 */
 	update:
 		ncp_update_inode(inode, &finfo);
 		atomic_set(&NCP_FINFO(inode)->opened, 1);
@@ -131,7 +137,7 @@ ncp_file_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 	if (!freepage)
 		goto outrel;
 	error = 0;
-	
+	/* First read in as much as possible for each bufsize. */
 	while (already_read < count) {
 		int read_this_time;
 		size_t to_read = min_t(unsigned int,
@@ -143,7 +149,7 @@ ncp_file_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 				pos, to_read, buf, &read_this_time, 
 				freepage, freelen);
 		if (error) {
-			error = -EIO;	
+			error = -EIO;	/* NW errno -> Linux errno */
 			break;
 		}
 		pos += read_this_time;
@@ -217,7 +223,7 @@ ncp_file_write(struct file *file, const char __user *buf, size_t count, loff_t *
 
 	bouncebuffer = vmalloc(bufsize);
 	if (!bouncebuffer) {
-		errno = -EIO;	
+		errno = -EIO;	/* -ENOMEM */
 		goto outrel;
 	}
 	while (already_written < count) {

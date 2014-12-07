@@ -13,9 +13,12 @@
 #ifndef SII9234_H
 #define SII9234_H
 
+/**
+ * @gpio_n_reset: GPIO driving nRESET pin
+ */
 
 struct sii9234_platform_data {
 	int gpio_n_reset;
 };
 
-#endif 
+#endif /* SII9234_H */

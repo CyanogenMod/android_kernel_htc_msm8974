@@ -11,6 +11,9 @@
  * published by the Free Software Foundation.
 */
 
+/* some boards require extra gpio capacity to support external
+ * devices that need GPIO.
+ */
 
 #ifdef CONFIG_CPU_S3C244X
 #define ARCH_NR_GPIOS	(32 * 9 + CONFIG_S3C24XX_GPIO_EXTRA)

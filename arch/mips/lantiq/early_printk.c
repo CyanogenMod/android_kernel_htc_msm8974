@@ -12,6 +12,7 @@
 #include <lantiq.h>
 #include <lantiq_soc.h>
 
+/* no ioremap possible at this early stage, lets use KSEG1 instead  */
 #define LTQ_ASC_BASE	KSEG1ADDR(LTQ_ASC1_BASE_ADDR)
 #define ASC_BUF		1024
 #define LTQ_ASC_FSTAT	((u32 *)(LTQ_ASC_BASE + 0x0048))

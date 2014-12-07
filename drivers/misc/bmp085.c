@@ -54,7 +54,7 @@
 #define BMP085_CHIP_ID			0x55
 
 #define BMP085_CALIBRATION_DATA_START	0xAA
-#define BMP085_CALIBRATION_DATA_LENGTH	11	
+#define BMP085_CALIBRATION_DATA_LENGTH	11	/* 16 bit values */
 #define BMP085_CHIP_ID_REG		0xD0
 #define BMP085_VERSION_REG		0xD1
 #define BMP085_CTRL_REG			0xF4
@@ -79,6 +79,7 @@ struct bmp085_calibration_data {
 };
 
 
+/* Each client has this additional data */
 struct bmp085_data {
 	struct i2c_client *client;
 	struct mutex lock;
@@ -87,7 +88,7 @@ struct bmp085_data {
 	u32 raw_pressure;
 	unsigned char oversampling_setting;
 	unsigned long last_temp_measurement;
-	s32 b6; 
+	s32 b6; /* calculated temperature correction coefficient */
 };
 
 
@@ -148,7 +149,7 @@ static s32 bmp085_update_raw_temperature(struct bmp085_data *data)
 	}
 	data->raw_temperature = be16_to_cpu(tmp);
 	data->last_temp_measurement = jiffies;
-	status = 0;	
+	status = 0;	/* everything ok, return 0 */
 
 exit:
 	mutex_unlock(&data->lock);
@@ -169,10 +170,10 @@ static s32 bmp085_update_raw_pressure(struct bmp085_data *data)
 		goto exit;
 	}
 
-	
+	/* wait for the end of conversion */
 	msleep(2+(3 << data->oversampling_setting));
 
-	
+	/* copy data into a u32 (4 bytes), but skip the first byte. */
 	status = i2c_smbus_read_i2c_block_data(data->client,
 			BMP085_CONVERSION_REGISTER_MSB, 3, ((u8 *)&tmp)+1);
 	if (status < 0)
@@ -185,7 +186,7 @@ static s32 bmp085_update_raw_pressure(struct bmp085_data *data)
 	}
 	data->raw_pressure = be32_to_cpu((tmp));
 	data->raw_pressure >>= (8-data->oversampling_setting);
-	status = 0;	
+	status = 0;	/* everything ok, return 0 */
 
 exit:
 	mutex_unlock(&data->lock);
@@ -193,6 +194,10 @@ exit:
 }
 
 
+/*
+ * This function starts the temperature measurement and returns the value
+ * in tenth of a degree celsius.
+ */
 static s32 bmp085_get_temperature(struct bmp085_data *data, int *temperature)
 {
 	struct bmp085_calibration_data *cali = &data->calibration;
@@ -206,7 +211,7 @@ static s32 bmp085_get_temperature(struct bmp085_data *data, int *temperature)
 	x1 = ((data->raw_temperature - cali->AC6) * cali->AC5) >> 15;
 	x2 = (cali->MC << 11) / (x1 + cali->MD);
 	data->b6 = x1 + x2 - 4000;
-	
+	/* if NULL just update b6. Used for pressure only measurements */
 	if (temperature != NULL)
 		*temperature = (x1+x2+8) >> 4;
 
@@ -214,6 +219,12 @@ exit:
 	return status;
 }
 
+/*
+ * This function starts the pressure measurement and returns the value
+ * in millibar. Since the pressure depends on the ambient temperature,
+ * a temperature measurement is executed if the last known value is older
+ * than one second.
+ */
 static s32 bmp085_get_pressure(struct bmp085_data *data, int *pressure)
 {
 	struct bmp085_calibration_data *cali = &data->calibration;
@@ -222,7 +233,7 @@ static s32 bmp085_get_pressure(struct bmp085_data *data, int *pressure)
 	s32 p;
 	int status;
 
-	
+	/* alt least every second force an update of the ambient temperature */
 	if (data->last_temp_measurement == 0 ||
 			time_is_before_jiffies(data->last_temp_measurement + 1*HZ)) {
 		status = bmp085_get_temperature(data, NULL);
@@ -267,6 +278,13 @@ exit:
 	return status;
 }
 
+/*
+ * This function sets the chip-internal oversampling. Valid values are 0..3.
+ * The chip will use 2^oversampling samples for internal averaging.
+ * This influences the measurement time and the accuracy; larger values
+ * increase both. The datasheet gives on overview on how measurement time,
+ * accuracy and noise correlate.
+ */
 static void bmp085_set_oversampling(struct bmp085_data *data,
 						unsigned char oversampling)
 {
@@ -275,11 +293,15 @@ static void bmp085_set_oversampling(struct bmp085_data *data,
 	data->oversampling_setting = oversampling;
 }
 
+/*
+ * Returns the currently selected oversampling. Range: 0..3
+ */
 static unsigned char bmp085_get_oversampling(struct bmp085_data *data)
 {
 	return data->oversampling_setting;
 }
 
+/* sysfs callbacks */
 static ssize_t set_oversampling(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
@@ -393,17 +415,17 @@ static int __devinit bmp085_probe(struct i2c_client *client,
 		goto exit;
 	}
 
-	
+	/* default settings after POR */
 	data->oversampling_setting = 0x00;
 
 	i2c_set_clientdata(client, data);
 
-	
+	/* Initialize the BMP085 chip */
 	err = bmp085_init_client(client);
 	if (err != 0)
 		goto exit_free;
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &bmp085_attr_group);
 	if (err)
 		goto exit_free;

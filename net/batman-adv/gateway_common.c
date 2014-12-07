@@ -23,6 +23,7 @@
 #include "gateway_common.h"
 #include "gateway_client.h"
 
+/* calculates the gateway class from kbit */
 static void kbit_to_gw_bandwidth(int down, int up, long *gw_srv_class)
 {
 	int mdown = 0, tdown, tup, difference;
@@ -31,7 +32,7 @@ static void kbit_to_gw_bandwidth(int down, int up, long *gw_srv_class)
 	*gw_srv_class = 0;
 	difference = 0x0FFFFFFF;
 
-	
+	/* test all downspeeds */
 	for (sbit = 0; sbit < 2; sbit++) {
 		for (part = 0; part < 16; part++) {
 			tdown = 32 * (sbit + 2) * (1 << part);
@@ -44,7 +45,7 @@ static void kbit_to_gw_bandwidth(int down, int up, long *gw_srv_class)
 		}
 	}
 
-	
+	/* test all upspeeds */
 	difference = 0x0FFFFFFF;
 
 	for (part = 0; part < 8; part++) {
@@ -57,6 +58,7 @@ static void kbit_to_gw_bandwidth(int down, int up, long *gw_srv_class)
 	}
 }
 
+/* returns the up and downspeeds in kbit, calculated from the class */
 void gw_bandwidth_to_kbit(uint8_t gw_srv_class, int *down, int *up)
 {
 	int sbit = (gw_srv_class & 0x80) >> 7;
@@ -105,7 +107,7 @@ static bool parse_gw_bandwidth(struct net_device *net_dev, char *buff,
 
 	*down = ldown * multi;
 
-	
+	/* we also got some upload info */
 	if (slash_ptr) {
 		multi = 1;
 
@@ -153,6 +155,11 @@ ssize_t gw_bandwidth_set(struct net_device *net_dev, char *buff, size_t count)
 
 	kbit_to_gw_bandwidth(down, up, &gw_bandwidth_tmp);
 
+	/**
+	 * the gw bandwidth we guessed above might not match the given
+	 * speeds, hence we need to calculate it back to show the number
+	 * that is going to be propagated
+	 **/
 	gw_bandwidth_to_kbit((uint8_t)gw_bandwidth_tmp, &down, &up);
 
 	gw_deselect(bat_priv);

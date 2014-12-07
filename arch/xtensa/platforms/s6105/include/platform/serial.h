@@ -5,4 +5,4 @@
 
 #define BASE_BAUD (S6_SCLK / 16)
 
-#endif 
+#endif /* __ASM_XTENSA_S6105_SERIAL_H */

@@ -59,6 +59,7 @@ static struct regulator_consumer_supply omap3logic_vmmc1_supply[] = {
 	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.0"),
 };
 
+/* VMMC1 for MMC1 pins CMD, CLK, DAT0..DAT3 (20 mA, plus card == max 220 mA) */
 static struct regulator_init_data omap3logic_vmmc1 = {
 	.constraints = {
 		.name			= "VMMC1",
@@ -88,7 +89,7 @@ static struct twl4030_platform_data omap3logic_twldata = {
 	.irq_base	= TWL4030_IRQ_BASE,
 	.irq_end	= TWL4030_IRQ_END,
 
-	
+	/* platform_data for children goes here */
 	.gpio		= &omap3logic_gpio_data,
 	.vmmc1		= &omap3logic_vmmc1,
 };
@@ -107,23 +108,23 @@ static struct omap2_hsmmc_info __initdata board_mmc_info[] = {
 		.gpio_cd	= -EINVAL,
 		.gpio_wp	= -EINVAL,
 	},
-	{}      
+	{}      /* Terminator */
 };
 
 static void __init board_mmc_init(void)
 {
 	if (machine_is_omap3530_lv_som()) {
-		
+		/* OMAP3530 LV SOM board */
 		board_mmc_info[0].gpio_cd = OMAP3530_LV_SOM_MMC_GPIO_CD;
 		board_mmc_info[0].gpio_wp = OMAP3530_LV_SOM_MMC_GPIO_WP;
 		omap_mux_init_signal("gpio_110", OMAP_PIN_OUTPUT);
 		omap_mux_init_signal("gpio_126", OMAP_PIN_OUTPUT);
 	} else if (machine_is_omap3_torpedo()) {
-		
+		/* OMAP3 Torpedo board */
 		board_mmc_info[0].gpio_cd = OMAP3_TORPEDO_MMC_GPIO_CD;
 		omap_mux_init_signal("gpio_127", OMAP_PIN_OUTPUT);
 	} else {
-		
+		/* unsupported board */
 		printk(KERN_ERR "%s(): unknown machine type\n", __func__);
 		return;
 	}
@@ -137,6 +138,9 @@ static struct omap_smsc911x_platform_data __initdata board_smsc911x_data = {
 	.gpio_reset     = -EINVAL,
 };
 
+/* TODO/FIXME (comment by Peter Barada, LogicPD):
+ * Fix the PBIAS voltage for Torpedo MMC1 pins that
+ * are used for other needs (IRQs, etc).            */
 static void omap3torpedo_fix_pbias_voltage(void)
 {
 	u16 control_pbias_offset = OMAP343X_CONTROL_PBIAS_LITE;
@@ -144,13 +148,13 @@ static void omap3torpedo_fix_pbias_voltage(void)
 
 	if (machine_is_omap3_torpedo())
 	{
-		
+		/* Set the bias for the pin */
 		reg = omap_ctrl_readl(control_pbias_offset);
 
 		reg &= ~OMAP343X_PBIASLITEPWRDNZ1;
 		omap_ctrl_writel(reg, control_pbias_offset);
 
-		
+		/* 100ms delay required for PBIAS configuration */
 		msleep(100);
 
 		reg |= OMAP343X_PBIASLITEVMODE1;
@@ -162,16 +166,16 @@ static void omap3torpedo_fix_pbias_voltage(void)
 static inline void __init board_smsc911x_init(void)
 {
 	if (machine_is_omap3530_lv_som()) {
-		
+		/* OMAP3530 LV SOM board */
 		board_smsc911x_data.gpio_irq =
 					OMAP3530_LV_SOM_SMSC911X_GPIO_IRQ;
 		omap_mux_init_signal("gpio_152", OMAP_PIN_INPUT);
 	} else if (machine_is_omap3_torpedo()) {
-		
+		/* OMAP3 Torpedo board */
 		board_smsc911x_data.gpio_irq = OMAP3_TORPEDO_SMSC911X_GPIO_IRQ;
 		omap_mux_init_signal("gpio_129", OMAP_PIN_INPUT);
 	} else {
-		
+		/* unsupported board */
 		printk(KERN_ERR "%s(): unknown machine type\n", __func__);
 		return;
 	}
@@ -201,7 +205,7 @@ static void __init omap3logic_init(void)
 	board_mmc_init();
 	board_smsc911x_init();
 
-	
+	/* Ensure SDRC pins are mux'd for self-refresh */
 	omap_mux_init_signal("sdrc_cke0", OMAP_PIN_OUTPUT);
 	omap_mux_init_signal("sdrc_cke1", OMAP_PIN_OUTPUT);
 }

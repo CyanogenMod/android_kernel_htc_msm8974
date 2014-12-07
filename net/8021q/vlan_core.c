@@ -14,6 +14,9 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 
 	vlan_dev = vlan_find_dev(skb->dev, vlan_id);
 	if (!vlan_dev) {
+		/* Only the last call to vlan_do_receive() should change
+		 * pkt_type to PACKET_OTHERHOST
+		 */
 		if (vlan_id && last_handler)
 			skb->pkt_type = PACKET_OTHERHOST;
 		return false;
@@ -25,6 +28,9 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 
 	skb->dev = vlan_dev;
 	if (skb->pkt_type == PACKET_OTHERHOST) {
+		/* Our lower layer thinks this is not local, let's make sure.
+		 * This allows the VLAN to have a different MAC than the
+		 * underlying device, and still route correctly. */
 		if (!compare_ether_addr(eth_hdr(skb)->h_dest,
 					vlan_dev->dev_addr))
 			skb->pkt_type = PACKET_HOST;
@@ -33,6 +39,11 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 	if (!(vlan_dev_priv(vlan_dev)->flags & VLAN_FLAG_REORDER_HDR)) {
 		unsigned int offset = skb->data - skb_mac_header(skb);
 
+		/*
+		 * vlan_insert_tag expect skb->data pointing to mac header.
+		 * So change skb->data before calling it and change back to
+		 * original position later
+		 */
 		skb_push(skb, offset);
 		skb = *skbp = vlan_insert_tag(skb, skb->vlan_tci);
 		if (!skb)
@@ -56,6 +67,7 @@ bool vlan_do_receive(struct sk_buff **skbp, bool last_handler)
 	return true;
 }
 
+/* Must be invoked with rcu_read_lock or with RTNL. */
 struct net_device *__vlan_find_dev_deep(struct net_device *real_dev,
 					u16 vlan_id)
 {
@@ -64,6 +76,10 @@ struct net_device *__vlan_find_dev_deep(struct net_device *real_dev,
 	if (vlan_info) {
 		return vlan_group_get_device(&vlan_info->grp, vlan_id);
 	} else {
+		/*
+		 * Bonding slaves do not have grp assigned to themselves.
+		 * Grp is assigned to bonding master instead.
+		 */
 		if (netif_is_bond_slave(real_dev))
 			return __vlan_find_dev_deep(real_dev->master, vlan_id);
 	}
@@ -100,7 +116,7 @@ struct sk_buff *vlan_untag(struct sk_buff *skb)
 	u16 vlan_tci;
 
 	if (unlikely(vlan_tx_tag_present(skb))) {
-		
+		/* vlan_tci is already set-up so leave this for another time */
 		return skb;
 	}
 
@@ -132,6 +148,9 @@ err_free:
 }
 
 
+/*
+ * vlan info and vid list
+ */
 
 static void vlan_group_free(struct vlan_group *grp)
 {

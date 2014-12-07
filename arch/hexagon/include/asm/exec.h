@@ -21,7 +21,8 @@
 #ifndef _ASM_EXEC_H
 #define _ASM_EXEC_H
 
+/*  Should probably shoot for an 8-byte aligned stack pointer  */
 #define STACK_MASK (~7)
 #define arch_align_stack(x) (x & STACK_MASK)
 
-#endif 
+#endif /* _ASM_EXEC_H */

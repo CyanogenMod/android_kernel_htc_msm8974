@@ -78,7 +78,7 @@ static int compat_agpioc_reserve_wrap(struct agp_file_private *priv, void __user
 	client = agp_find_client_by_pid(kreserve.pid);
 
 	if (kreserve.seg_count == 0) {
-		
+		/* remove a client */
 		client_priv = agp_find_private(kreserve.pid);
 
 		if (client_priv != NULL) {
@@ -86,7 +86,7 @@ static int compat_agpioc_reserve_wrap(struct agp_file_private *priv, void __user
 			set_bit(AGP_FF_IS_VALID, &client_priv->access_flags);
 		}
 		if (client == NULL) {
-			
+			/* client is already removed */
 			return 0;
 		}
 		return agp_remove_client(kreserve.pid);
@@ -125,7 +125,7 @@ static int compat_agpioc_reserve_wrap(struct agp_file_private *priv, void __user
 		kreserve.seg_list = ksegment;
 
 		if (client == NULL) {
-			
+			/* Create the client and add the segment */
 			client = agp_create_client(kreserve.pid);
 
 			if (client == NULL) {
@@ -141,7 +141,7 @@ static int compat_agpioc_reserve_wrap(struct agp_file_private *priv, void __user
 		}
 		return agp_create_segment(client, &kreserve);
 	}
-	
+	/* Will never really happen */
 	return -EINVAL;
 }
 
@@ -225,6 +225,8 @@ long compat_agp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			ret_val = -EPERM;
 			goto ioctl_out;
 		}
+		/* Use the original pid of the controller,
+		 * in case it's threaded */
 
 		if (agp_fe.current_controller->pid != curr_priv->my_pid) {
 			ret_val = -EBUSY;

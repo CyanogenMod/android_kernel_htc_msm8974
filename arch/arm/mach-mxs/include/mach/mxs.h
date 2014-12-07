@@ -26,6 +26,9 @@
 #include <mach/digctl.h>
 #include <mach/hardware.h>
 
+/*
+ * IO addresses common to MXS-based
+ */
 #define MXS_IO_BASE_ADDR		0x80000000
 #define MXS_IO_SIZE			SZ_1M
 
@@ -54,6 +57,12 @@
 #define MXS_AUART2_BASE_ADDR		(MXS_IO_BASE_ADDR + 0x06e000)
 #define MXS_DRAM_BASE_ADDR		(MXS_IO_BASE_ADDR + 0x0e0000)
 
+/*
+ * It maps the whole address space to [0xf4000000, 0xf50fffff].
+ *
+ *	OCRAM	0x00000000+0x020000	->	0xf4000000+0x020000
+ *	IO	0x80000000+0x100000	->	0xf5000000+0x100000
+ */
 #define MXS_IO_P2V(x)	(0xf4000000 +					\
 			(((x) & 0x80000000) >> 7) +			\
 			(((x) & 0x000fffff)))
@@ -89,6 +98,9 @@ static inline void __mxs_togl(u32 mask, void __iomem *reg)
 	__raw_writel(mask, reg + MXS_TOG_ADDR);
 }
 
+/*
+ * MXS CPU types
+ */
 #define MXS_CHIPID (MXS_IO_ADDRESS(MXS_DIGCTL_BASE_ADDR) + HW_DIGCTL_CHIPID)
 
 static inline int cpu_is_mx23(void)
@@ -102,4 +114,4 @@ static inline int cpu_is_mx28(void)
 }
 #endif
 
-#endif 
+#endif /* __MACH_MXS_H__ */

@@ -57,6 +57,6 @@ struct clk;
 #define CLK_RATE_48MHZ 48000
 #define CLK_RATE_32KHZ 32
 
-#define PNX4008_UART_CLK CLK_RATE_13MHZ * 1000 
+#define PNX4008_UART_CLK CLK_RATE_13MHZ * 1000 /* in MHz */
 
 #endif

@@ -34,4 +34,4 @@
 #include <crypto/scatterwalk.h>
 #include <crypto/internal/skcipher.h>
 
-#endif 
+#endif /* !defined(CAAM_COMPAT_H) */

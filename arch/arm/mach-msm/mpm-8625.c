@@ -28,6 +28,7 @@
 #include "mpm-8625.h"
 
 #define NUM_REGS_ENABLE		2
+/* (NR_MSM_IRQS/32) 96 max irqs supported */
 #define NUM_REGS_DISABLE	3
 #define GIC_IRQ_MASK(irq)	BIT(irq % 32)
 #define GIC_IRQ_INDEX(irq)	(irq / 32)
@@ -47,9 +48,14 @@ module_param_named(debug_mask, msm_gic_irq_debug_mask, int,
 static uint32_t msm_gic_irq_smsm_wake_enable[NUM_REGS_ENABLE];
 static uint32_t msm_gic_irq_idle_disable[NUM_REGS_DISABLE];
 
+ /*
+  * Some of the interrupts which will not be considered as wake capable
+  * should be marked as FAKE.
+  * Interrupts: GPIO, Timers etc..
+  */
 #define SMSM_FAKE_IRQ	(0xff)
 
- 
+ /* msm_gic_irq_to_smsm:  IRQ's those will be monitored by Modem */
 static uint8_t msm_gic_irq_to_smsm[NR_IRQS] = {
 	[MSM8625_INT_USB_OTG]		= 4,
 	[MSM8625_INT_PWB_I2C]		= 5,
@@ -81,7 +87,7 @@ static uint8_t msm_gic_irq_to_smsm[NR_IRQS] = {
 	[MSM8625_INT_SDC3_1]		= 31,
 	[MSM8625_INT_SDC3_0]		= 32,
 
-	
+	/* fake wakeup interrupts */
 	[MSM8625_INT_GPIO_GROUP1]	= SMSM_FAKE_IRQ,
 	[MSM8625_INT_GPIO_GROUP2]	= SMSM_FAKE_IRQ,
 	[MSM8625_INT_A9_M2A_0]		= SMSM_FAKE_IRQ,
@@ -98,6 +104,7 @@ static uint16_t msm_bypassed_apps_irqs[] = {
 	MSM8625_INT_SC_SICL2PERFMONIRPTREQ,
 };
 
+/* Check IRQ falls into bypassed list are not */
 static bool msm_mpm_bypass_apps_irq(unsigned int irq)
 {
 	int i;
@@ -117,7 +124,7 @@ static void msm_gic_mask_irq(struct irq_data *d)
 
 	mask = GIC_IRQ_MASK(d->irq);
 
-	
+	/* check whether irq to be bypassed are not */
 	if (msm_mpm_bypass_apps_irq(d->irq))
 		return;
 
@@ -137,7 +144,7 @@ static void msm_gic_unmask_irq(struct irq_data *d)
 
 	mask = GIC_IRQ_MASK(d->irq);
 
-	
+	/* check whether irq to be bypassed are not */
 	if (msm_mpm_bypass_apps_irq(d->irq))
 		return;
 
@@ -159,7 +166,7 @@ static int msm_gic_set_irq_wake(struct irq_data *d, unsigned int on)
 		return  -EINVAL;
 	}
 
-	
+	/* check whether irq to be bypassed are not */
 	if (msm_mpm_bypass_apps_irq(d->irq))
 		return 0;
 
@@ -183,7 +190,11 @@ void __init msm_gic_irq_extn_init(void)
 	gic_arch_extn.irq_set_wake = msm_gic_set_irq_wake;
 }
 
+/* Power APIs */
 
+ /*
+  * Iterate over the disable list
+  */
 
 int msm_gic_irq_idle_sleep_allowed(void)
 {
@@ -195,6 +206,11 @@ int msm_gic_irq_idle_sleep_allowed(void)
 	return !disable;
 }
 
+ /*
+  * Prepare interrupt subsystem for entering sleep -- phase 1
+  * If modem_wake is true, return currently enabled interrupt
+  * mask in  *irq_mask
+  */
 void msm_gic_irq_enter_sleep1(bool modem_wake, int from_idle, uint32_t
 		*irq_mask)
 {
@@ -205,18 +221,26 @@ void msm_gic_irq_enter_sleep1(bool modem_wake, int from_idle, uint32_t
 	}
 }
 
+ /*
+  * Prepare interrupt susbsytem for entering sleep -- phase 2
+  * Detect any pending interrupts and configure interrupt hardware.
+  * Return value:
+  * -EAGAIN: there are pending interrupt(s); interrupt configuration is not
+  *		changed
+  *	  0: Success
+  */
 int msm_gic_irq_enter_sleep2(bool modem_wake, int from_idle)
 {
 	if (from_idle && !modem_wake)
 		return 0;
 
-	
+	/* edge triggered interrupt may get lost if this mode is used */
 	WARN_ON_ONCE(!modem_wake && !from_idle);
 
 	if (msm_gic_irq_debug_mask & IRQ_DEBUG_SLEEP)
 		pr_info("%s interrupts pending\n", __func__);
 
-	
+	/* check the pending interrupts */
 	if (msm_gic_spi_ppi_pending()) {
 		if (msm_gic_irq_debug_mask & IRQ_DEBUG_SLEEP_ABORT)
 			pr_info("%s aborted....\n", __func__);
@@ -224,6 +248,9 @@ int msm_gic_irq_enter_sleep2(bool modem_wake, int from_idle)
 	}
 
 	if (modem_wake) {
+		/* save the contents of GIC CPU interface and Distributor
+		 * Disable all the Interrupts, if we enter from idle pc
+		 */
 		msm_gic_save();
 		irq_set_irq_type(MSM8625_INT_A9_M2A_6, IRQF_TRIGGER_RISING);
 		enable_irq(MSM8625_INT_A9_M2A_6);
@@ -233,13 +260,17 @@ int msm_gic_irq_enter_sleep2(bool modem_wake, int from_idle)
 	return 0;
 }
 
+ /*
+  * Restore interrupt subsystem from sleep -- phase 1
+  * Configure the interrupt hardware.
+  */
 void msm_gic_irq_exit_sleep1(uint32_t irq_mask, uint32_t wakeup_reason,
 		uint32_t pending_irqs)
 {
-	
+	/* Restore GIC contents, which were saved */
 	msm_gic_restore();
 
-	
+	/* Disable A9_M2A_6 */
 	disable_irq(MSM8625_INT_A9_M2A_6);
 
 	if (msm_gic_irq_debug_mask & IRQ_DEBUG_SLEEP)
@@ -247,6 +278,10 @@ void msm_gic_irq_exit_sleep1(uint32_t irq_mask, uint32_t wakeup_reason,
 				pending_irqs, wakeup_reason);
 }
 
+ /*
+  * Restore interrupt subsystem from sleep -- phase 2
+  * Poke the specified pending interrupts into interrupt hardware.
+  */
 void msm_gic_irq_exit_sleep2(uint32_t irq_mask, uint32_t wakeup_reason,
 			uint32_t pending)
 {
@@ -272,18 +307,22 @@ void msm_gic_irq_exit_sleep2(uint32_t irq_mask, uint32_t wakeup_reason,
 		if (msm_gic_irq_debug_mask & IRQ_DEBUG_SLEEP_INT)
 			pr_info("%s, irq %d, still pending %x now\n",
 					__func__, i, pending);
-		
+		/* Peding IRQ */
 		desc = i ? irq_to_desc(i) : NULL;
 
-		
+		/* Check if the pending */
 		if (desc && !irqd_is_level_type(&desc->irq_data)) {
-			
+			/* Mark the IRQ as pending, if not Level */
 			irq_set_pending(i);
 			check_irq_resend(desc, i);
 		}
 	}
 }
 
+ /*
+  * Restore interrupt subsystem from sleep -- phase 3
+  * Print debug information
+  */
 void msm_gic_irq_exit_sleep3(uint32_t irq_mask, uint32_t wakeup_reason,
 		uint32_t pending_irqs)
 {

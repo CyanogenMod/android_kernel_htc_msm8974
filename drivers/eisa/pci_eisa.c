@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 
+/* There is only *one* pci_eisa device per machine, right ? */
 static struct eisa_root_device pci_eisa_root;
 
 static int __init pci_eisa_init(struct pci_dev *pdev,

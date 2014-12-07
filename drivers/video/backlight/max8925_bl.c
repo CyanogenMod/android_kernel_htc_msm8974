@@ -47,10 +47,10 @@ static int max8925_backlight_set(struct backlight_device *bl, int brightness)
 		goto out;
 
 	if (!data->current_brightness && brightness)
-		
+		/* enable WLED output */
 		ret = max8925_set_bits(chip->i2c, MAX8925_WLED_MODE_CNTL, 1, 1);
 	else if (!brightness)
-		
+		/* disable WLED output */
 		ret = max8925_set_bits(chip->i2c, MAX8925_WLED_MODE_CNTL, 1, 0);
 	if (ret < 0)
 		goto out;

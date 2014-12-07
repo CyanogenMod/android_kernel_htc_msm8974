@@ -16,6 +16,12 @@
 void
 show_registers(struct pt_regs *regs)
 {
+	/*
+	 * It's possible to use either the USP register or current->thread.usp.
+	 * USP might not correspond to the current process for all cases this
+	 * function is called, and current->thread.usp isn't up to date for the
+	 * current process. Experience shows that using USP is the way to go.
+	 */
 	unsigned long usp = rdusp();
 
 	printk("IRP: %08lx SRP: %08lx DCCR: %08lx USP: %08lx MOF: %08lx\n",
@@ -38,11 +44,19 @@ show_registers(struct pt_regs *regs)
 	printk("Process %s (pid: %d, stackpage=%08lx)\n",
 	       current->comm, current->pid, (unsigned long)current);
 
+	/*
+	 * When in-kernel, we also print out the stack and code at the
+	 * time of the fault..
+	 */
 	if (!user_mode(regs)) {
 		int i;
 
 		show_stack(NULL, (unsigned long *)usp);
 
+		/*
+		 * If the previous stack-dump wasn't a kernel one, dump the
+		 * kernel stack now.
+		 */
 		if (usp != 0)
 			show_stack(NULL, NULL);
 
@@ -51,6 +65,15 @@ show_registers(struct pt_regs *regs)
 		if (regs->irp < PAGE_OFFSET)
 			goto bad_value;
 
+		/*
+		 * Quite often the value at regs->irp doesn't point to the
+		 * interesting instruction, which often is the previous
+		 * instruction. So dump at an offset large enough that the
+		 * instruction decoding should be in sync at the interesting
+		 * point, but small enough to fit on a row. The regs->irp
+		 * location is pointed out in a ksymoops-friendly way by
+		 * wrapping the byte for that address in parenthesises.
+		 */
 		for (i = -12; i < 12; i++) {
 			unsigned char c;
 
@@ -81,6 +104,9 @@ void handle_nmi(struct pt_regs *regs)
 	if (nmi_handler)
 		nmi_handler(regs);
 
+	/* Wait until nmi is no longer active. (We enable NMI immediately after
+	   returning from this function, and we don't want it happening while
+	   exiting from the NMI interrupt handler.) */
 	while (*R_IRQ_MASK0_RD & IO_STATE(R_IRQ_MASK0_RD, nmi_pin, active))
 		;
 }

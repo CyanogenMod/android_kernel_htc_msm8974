@@ -138,12 +138,18 @@
 
 #include "microtek.h"
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v0.4.3"
 #define DRIVER_AUTHOR "John Fremlin <vii@penguinpowered.com>, Oliver Neukum <Oliver.Neukum@lrz.uni-muenchen.de>"
 #define DRIVER_DESC "Microtek Scanmaker X6 USB scanner driver"
 
+/* Should we do debugging? */
 
+//#define MTS_DO_DEBUG
 
+/* USB layer driver interface */
 
 static int mts_usb_probe(struct usb_interface *intf,
 			 const struct usb_device_id *id);
@@ -159,6 +165,7 @@ static struct usb_driver mts_usb_driver = {
 };
 
 
+/* Internal driver stuff */
 
 #define MTS_VERSION	"0.4.3"
 #define MTS_NAME	"microtek usb (rev " MTS_VERSION "): "
@@ -368,7 +375,9 @@ void mts_int_submit_urb (struct urb* transfer,
 			void* data,
 			unsigned length,
 			usb_complete_t callback )
+/* Interrupt context! */
 
+/* Holding transfer->context->lock! */
 {
 	int res;
 
@@ -393,6 +402,7 @@ void mts_int_submit_urb (struct urb* transfer,
 
 
 static void mts_transfer_cleanup( struct urb *transfer )
+/* Interrupt context! */
 {
 	MTS_INT_INIT();
 
@@ -412,6 +422,7 @@ static void mts_transfer_done( struct urb *transfer )
 
 
 static void mts_get_status( struct urb *transfer )
+/* Interrupt context! */
 {
 	MTS_INT_INIT();
 
@@ -424,6 +435,7 @@ static void mts_get_status( struct urb *transfer )
 }
 
 static void mts_data_done( struct urb* transfer )
+/* Interrupt context! */
 {
 	int status = transfer->status;
 	MTS_INT_INIT();
@@ -440,17 +452,18 @@ static void mts_data_done( struct urb* transfer )
 
 
 static void mts_command_done( struct urb *transfer )
+/* Interrupt context! */
 {
 	int status = transfer->status;
 	MTS_INT_INIT();
 
 	if ( unlikely(status) ) {
 	        if (status == -ENOENT) {
-		        
+		        /* We are being killed */
 			MTS_DEBUG_GOT_HERE();
 			context->srb->result = DID_ABORT<<16;
                 } else {
-		        
+		        /* A genuine error has occurred */
 			MTS_DEBUG_GOT_HERE();
 
 		        context->srb->result = DID_ERROR<<16;
@@ -538,9 +551,9 @@ mts_build_transfer_context(struct scsi_cmnd *srb, struct mts_desc* desc)
 	}
 
 
-	
+	/* can't rely on srb->sc_data_direction */
 
-	
+	/* Brutally ripped from usb-storage */
 
 	if ( !memcmp( srb->cmnd, mts_read_image_sig, mts_read_image_sig_len )
 ) { 		pipe = usb_rcvbulkpipe(desc->usb_dev,desc->ep_image);
@@ -598,7 +611,7 @@ mts_scsi_queuecommand_lck(struct scsi_cmnd *srb, mts_scsi_cmnd_callback callback
 	mts_build_transfer_context( srb, desc );
 	desc->context.final_callback = callback;
 	
-	
+	/* here we need ATOMIC as we are called with the iolock */
 	res=usb_submit_urb(desc->urb, GFP_ATOMIC);
 
 	if(unlikely(res)){
@@ -630,9 +643,11 @@ static struct scsi_host_template mts_scsi_host_template = {
 	.emulated =		1,
 	.slave_alloc =		mts_slave_alloc,
 	.slave_configure =	mts_slave_configure,
-	.max_sectors=		256, 
+	.max_sectors=		256, /* 128 K */
 };
 
+/* The entries of microtek_table must correspond, line-by-line to
+   the entries of mts_supported_products[]. */
 
 static const struct usb_device_id mts_usb_ids[] =
 {
@@ -645,7 +660,7 @@ static const struct usb_device_id mts_usb_ids[] =
 	{ USB_DEVICE(0x5da, 0x80a3) },
 	{ USB_DEVICE(0x5da, 0x80ac) },
 	{ USB_DEVICE(0x5da, 0x00b6) },
-	{ }						
+	{ }						/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE (usb, mts_usb_ids);
@@ -656,14 +671,15 @@ static int mts_usb_probe(struct usb_interface *intf,
 {
 	int i;
 	int ep_out = -1;
-	int ep_in_set[3]; 
+	int ep_in_set[3]; /* this will break if we have more than three endpoints
+			   which is why we check */
 	int *ep_in_current = ep_in_set;
 	int err_retval = -ENOMEM;
 
 	struct mts_desc * new_desc;
 	struct usb_device *dev = interface_to_usbdev (intf);
 
-	
+	/* the current altsetting on the interface we're probing */
 	struct usb_host_interface *altsetting;
 
 	MTS_DEBUG_GOT_HERE();
@@ -675,11 +691,11 @@ static int mts_usb_probe(struct usb_interface *intf,
 
 	MTS_DEBUG_GOT_HERE();
 
-	
+	/* the current altsetting on the interface we're probing */
 	altsetting = intf->cur_altsetting;
 
 
-	
+	/* Check if the config is sane */
 
 	if ( altsetting->desc.bNumEndpoints != MTS_EP_TOTAL ) {
 		MTS_WARNING( "expecting %d got %d endpoints! Bailing out.\n",
@@ -734,7 +750,7 @@ static int mts_usb_probe(struct usb_interface *intf,
 	new_desc->usb_dev = dev;
 	new_desc->usb_intf = intf;
 
-	
+	/* endpoints */
 	new_desc->ep_out = ep_out;
 	new_desc->ep_response = ep_in_set[0];
 	new_desc->ep_image = ep_in_set[1];

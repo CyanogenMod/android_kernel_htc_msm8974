@@ -15,7 +15,7 @@
 
 #ifndef __powerpc64__
 #define __SWAB_64_THRU_32__
-#endif 
+#endif /* __powerpc64__ */
 
 #ifdef __KERNEL__
 
@@ -83,8 +83,8 @@ static inline __attribute_const__ __u32 __arch_swab32(__u32 value)
 }
 #define __arch_swab32 __arch_swab32
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __GNUC__ */
 
-#endif 
+#endif /* _ASM_POWERPC_SWAB_H */

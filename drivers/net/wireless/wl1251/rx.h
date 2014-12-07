@@ -27,6 +27,21 @@
 
 #include "wl1251.h"
 
+/*
+ * RX PATH
+ *
+ * The Rx path uses a double buffer and an rx_contro structure, each located
+ * at a fixed address in the device memory. The host keeps track of which
+ * buffer is available and alternates between them on a per packet basis.
+ * The size of each of the two buffers is large enough to hold the longest
+ * 802.3 packet.
+ * The RX path goes like that:
+ * 1) The target generates an interrupt each time a new packet is received.
+ *   There are 2 RX interrupts, one for each buffer.
+ * 2) The host reads the received packet from one of the double buffers.
+ * 3) The host triggers a target interrupt.
+ * 4) The target prepares the next RX packet.
+ */
 
 #define WL1251_RX_MAX_RSSI -30
 #define WL1251_RX_MIN_RSSI -95
@@ -58,22 +73,48 @@
 #define	RX_DESC_DECRYPT_FAIL	  0x4000
 
 struct wl1251_rx_descriptor {
-	u32 timestamp; 
-	u16 length; 
+	u32 timestamp; /* In microseconds */
+	u16 length; /* Paylod length, including headers */
 	u16 flags;
 
+	/*
+	 * 0 - 802.11
+	 * 1 - 802.3
+	 * 2 - IP
+	 * 3 - Raw Codec
+	 */
 	u8 type;
 
+	/*
+	 * Received Rate:
+	 * 0x0A - 1MBPS
+	 * 0x14 - 2MBPS
+	 * 0x37 - 5_5MBPS
+	 * 0x0B - 6MBPS
+	 * 0x0F - 9MBPS
+	 * 0x6E - 11MBPS
+	 * 0x0A - 12MBPS
+	 * 0x0E - 18MBPS
+	 * 0xDC - 22MBPS
+	 * 0x09 - 24MBPS
+	 * 0x0D - 36MBPS
+	 * 0x08 - 48MBPS
+	 * 0x0C - 54MBPS
+	 */
 	u8 rate;
 
-	u8 mod_pre; 
+	u8 mod_pre; /* Modulation and preamble */
 	u8 channel;
 
+	/*
+	 * 0 - 2.4 Ghz
+	 * 1 - 5 Ghz
+	 */
 	u8 band;
 
-	s8 rssi; 
-	u8 rcpi; 
-	u8 snr; 
+	s8 rssi; /* in dB */
+	u8 rcpi; /* in dB */
+	u8 snr; /* in dB */
 } __packed;
 
 void wl1251_rx(struct wl1251 *wl);

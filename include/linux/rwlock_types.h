@@ -45,4 +45,4 @@ typedef struct {
 
 #define DEFINE_RWLOCK(x)	rwlock_t x = __RW_LOCK_UNLOCKED(x)
 
-#endif 
+#endif /* __LINUX_RWLOCK_TYPES_H */

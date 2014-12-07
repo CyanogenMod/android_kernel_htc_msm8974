@@ -1,4 +1,5 @@
 
+/*   vim:tw=110:ts=4: */
 #ifndef DHF_H
 #define DHF_H
 
@@ -81,7 +82,7 @@
 #include <windef.h>
 #endif
 
-#include "hcf.h"   		 	
+#include "hcf.h"   		 	/* includes HCFCFG.H too */
 
 #ifdef DHF_UIL
 #define GET_INFO(pp)  uil_get_info((LTVP)pp)
@@ -92,11 +93,15 @@
 #endif
 
 
-#define CODEMASK				0x0000FFFFL    	
+/*---- Defines --------------------------------------------------------------*/
+#define CODEMASK				0x0000FFFFL    	/* Codemask for plug records */
 
+/*---- Error numbers --------------------------------------------------------*/
 
-#define DHF_ERR_INCOMP_FW		0x40	
+#define DHF_ERR_INCOMP_FW		0x40	/* Image not compatible with NIC */
 
+/*---- Type definitions -----------------------------------------------------*/
+/* needed by dhf_wrap.c */
 
 typedef struct {
 	LTVP 	ltvp;
@@ -104,13 +109,30 @@ typedef struct {
 } LTV_INFO_STRUCT , *LTV_INFO_STRUCT_PTR;
 
 
+/*
+ * Type: 	plugrecord
+ *
+ * Abstract: This structure represents a Plug Data Record.
+ *
+ * Description:
+ * This structure is used to overlay the plug records in the firmware memory image.
+ */
 
 typedef struct {
-	hcf_32	code;      	
-	hcf_32	addr;      	
-	hcf_32	len;       	
+	hcf_32	code;      	/* Code to plug */
+	hcf_32	addr;      	/* Address within the memory image to plug it in */
+	hcf_32	len;       	/* The # of bytes which are available to store it */
 } plugrecord;
 
+/*
+ * Type: 	stringrecord
+ *
+ * Abstract: This structure represents a Firmware debug/assert string
+ *
+ * Description:
+ * This structure is used to get assert and debug outputs in the driver and/or utility to be
+ * able to get more visability of the FW.
+ */
 
 #define MAX_DEBUGSTRINGS 		1024
 #define MAX_DEBUGSTRING_LEN 	  82
@@ -120,6 +142,14 @@ typedef struct {
 	char 	str[MAX_DEBUGSTRING_LEN];
 } stringrecord;
 
+/*
+ * Type: 	exportrecord
+ *
+ * Abstract: This structure represents a Firmware export of a variable
+ *
+ * Description:
+ * This structure is used to get the address and name of a FW variable.
+ */
 
 #define MAX_DEBUGEXPORTS 		2048
 #define MAX_DEBUGEXPORT_LEN 	  12
@@ -129,29 +159,68 @@ typedef struct {
 	char 	str[MAX_DEBUGEXPORT_LEN];
 } exportrecord;
 
+/* Offsets in memimage array p[] */
 #define FWSTRINGS_FUNCTION		0
 #define FWEXPORTS_FUNCTION		1
 
+/*
+ * Type: memimage
+ *
+ * Abstract: The "root" description of a complete memory image
+ *
+ * Description:
+ * This type represents an entire memory image. The image is built up of several
+ * segments. These segments need not be contiguous areas in memory, in other words
+ * the image may contain 'holes'.
+ *
+ * The 'codep' field points to an array of segment_descriptor structures.
+ * The end of the array is indicated by a segment_descriptor of which all fields are zero.
+ * The 'execution' field is a 32-bit address representing the execution address
+ *	of the firmware within the memory image. This address is zero in case of non-volatile
+ *	memory download.
+ * The 'compat' field points to an array of TODO
+ * 	The end of the array is indicated by a plug record of which all fields are zero.
+ * The 'identity' field points to an array of TODO
+ * 	The end of the array is indicated by a plug record of which all fields are zero.
+ * The Hermes-I specific 'pdaplug' field points to an array of Production Data Plug record structures.
+ * 	The end of the array is indicated by a plug record of which all fields are zero.
+ * The Hermes-I specific 'priplug' field points to an array of Primary Information Plug record structures.
+ * 	The end of the array is indicated by a plug record of which all fields are zero.
+ */
 typedef struct {
-	char					signature[14+1+1];	
-	CFG_PROG_STRCT FAR *codep;				
-	hcf_32           	 	execution;    		
+	char					signature[14+1+1];	/* signature (see DHF.C) + C/LE-Bin/BE-Bin-flag + format version */
+	CFG_PROG_STRCT FAR *codep;				/* */
+	hcf_32           	 	execution;    		/* Execution address of the firmware */
 	void FAR *place_holder_1;
 	void FAR  		     	*place_holder_2;
-	CFG_RANGE20_STRCT FAR  	*compat;      		
-	CFG_IDENTITY_STRCT FAR 	*identity;    		
-	void FAR				*p[2];				
+	CFG_RANGE20_STRCT FAR  	*compat;      		/* Pointer to the compatibility info records */
+	CFG_IDENTITY_STRCT FAR 	*identity;    		/* Pointer to the identity info records */
+	void FAR				*p[2];				/* (Up to 9) pointers for (future) expansion
+												 * currently in use:
+												 *  - F/W printf information
+												 */
 } memimage;
 
 
 
+/*-----------------------------------------------------------------------------
+ *
+ * DHF function prototypes
+ *
+ *---------------------------------------------------------------------------*/
 
-EXTERN_C int dhf_download_fw(void *ifbp, memimage *fw);	
+EXTERN_C int dhf_download_fw(void *ifbp, memimage *fw);	/* ifbp, ignored when using the UIL */
 EXTERN_C int dhf_download_binary(memimage *fw);
 
 
+/*-----------------------------------------------------------------------------
+ *
+ * Functions to be provided by the user of the DHF module.
+ *
+ *---------------------------------------------------------------------------*/
 
+/* defined in DHF.C; see there for comments */
 EXTERN_C hcf_16 *find_record_in_pda(hcf_16 *pdap, hcf_16 code);
 
-#endif  
+#endif  /* DHF_H */
 

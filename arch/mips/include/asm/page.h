@@ -12,6 +12,9 @@
 #include <spaces.h>
 #include <linux/const.h>
 
+/*
+ * PAGE_SHIFT determines the page size
+ */
 #ifdef CONFIG_PAGE_SIZE_4KB
 #define PAGE_SHIFT	12
 #endif
@@ -35,12 +38,12 @@
 #define HPAGE_SIZE	(_AC(1,UL) << HPAGE_SHIFT)
 #define HPAGE_MASK	(~(HPAGE_SIZE - 1))
 #define HUGETLB_PAGE_ORDER	(HPAGE_SHIFT - PAGE_SHIFT)
-#else 
+#else /* !CONFIG_HUGETLB_PAGE */
 #define HPAGE_SHIFT	({BUILD_BUG(); 0; })
 #define HPAGE_SIZE	({BUILD_BUG(); 0; })
 #define HPAGE_MASK	({BUILD_BUG(); 0; })
 #define HUGETLB_PAGE_ORDER	({BUILD_BUG(); 0; })
-#endif 
+#endif /* CONFIG_HUGETLB_PAGE */
 
 #ifndef __ASSEMBLY__
 
@@ -50,6 +53,11 @@
 extern void build_clear_page(void);
 extern void build_copy_page(void);
 
+/*
+ * It's normally defined only for FLATMEM config but it's
+ * used in our early mem init code for all memory models.
+ * So always define it.
+ */
 #define ARCH_PFN_OFFSET		PFN_UP(PHYS_OFFSET)
 
 extern void clear_page(void * page);
@@ -83,6 +91,9 @@ extern void copy_user_highpage(struct page *to, struct page *from,
 
 #define __HAVE_ARCH_COPY_USER_HIGHPAGE
 
+/*
+ * These are used to make use of C type-checking..
+ */
 #ifdef CONFIG_64BIT_PHYS_ADDR
   #ifdef CONFIG_CPU_MIPS32
     typedef struct { unsigned long pte_low, pte_high; } pte_t;
@@ -100,19 +111,39 @@ typedef struct { unsigned long pte; } pte_t;
 #endif
 typedef struct page *pgtable_t;
 
+/*
+ * Right now we don't support 4-level pagetables, so all pud-related
+ * definitions come from <asm-generic/pgtable-nopud.h>.
+ */
 
+/*
+ * Finall the top of the hierarchy, the pgd
+ */
 typedef struct { unsigned long pgd; } pgd_t;
 #define pgd_val(x)	((x).pgd)
 #define __pgd(x)	((pgd_t) { (x) } )
 
+/*
+ * Manipulate page protection bits
+ */
 typedef struct { unsigned long pgprot; } pgprot_t;
 #define pgprot_val(x)	((x).pgprot)
 #define __pgprot(x)	((pgprot_t) { (x) } )
 
+/*
+ * On R4000-style MMUs where a TLB entry is mapping a adjacent even / odd
+ * pair of pages we only have a single global bit per pair of pages.  When
+ * writing to the TLB make sure we always have the bit set for both pages
+ * or none.  This macro is used to access the `buddy' of the pte we're just
+ * working on.
+ */
 #define ptep_buddy(x)	((pte_t *)((unsigned long)(x) ^ sizeof(pte_t)))
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * __pa()/__va() should be used only during mem init.
+ */
 #ifdef CONFIG_64BIT
 #define __pa(x)								\
 ({									\
@@ -125,6 +156,18 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 #endif
 #define __va(x)		((void *)((unsigned long)(x) + PAGE_OFFSET - PHYS_OFFSET))
 
+/*
+ * RELOC_HIDE was originally added by 6007b903dfe5f1d13e0c711ac2894bdd4a61b1ad
+ * (lmo) rsp. 8431fd094d625b94d364fe393076ccef88e6ce18 (kernel.org).  The
+ * discussion can be found in lkml posting
+ * <a2ebde260608230500o3407b108hc03debb9da6e62c@mail.gmail.com> which is
+ * archived at http://lists.linuxcoding.com/kernel/2006-q3/msg17360.html
+ *
+ * It is unclear if the misscompilations mentioned in
+ * http://lkml.org/lkml/2010/8/8/138 also affect MIPS so we keep this one
+ * until GCC 3.x has been retired before we can apply
+ * https://patchwork.linux-mips.org/patch/1541/
+ */
 
 #define __pa_symbol(x)	__pa(RELOC_HIDE((unsigned long)(x), 0))
 
@@ -135,7 +178,7 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 #define pfn_valid(pfn)							\
 ({									\
 	unsigned long __pfn = (pfn);					\
-				\
+	/* avoid <linux/bootmem.h> include hell */			\
 	extern unsigned long min_low_pfn;				\
 									\
 	__pfn >= min_low_pfn && __pfn < max_mapnr;			\
@@ -143,6 +186,7 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 
 #elif defined(CONFIG_SPARSEMEM)
 
+/* pfn_valid is defined in linux/mmzone.h */
 
 #elif defined(CONFIG_NEED_MULTIPLE_NODES)
 
@@ -171,4 +215,4 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
-#endif 
+#endif /* _ASM_PAGE_H */

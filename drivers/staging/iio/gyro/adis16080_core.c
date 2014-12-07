@@ -17,14 +17,24 @@
 #include "../iio.h"
 #include "../sysfs.h"
 
-#define ADIS16080_DIN_GYRO   (0 << 10) 
-#define ADIS16080_DIN_TEMP   (1 << 10) 
+#define ADIS16080_DIN_GYRO   (0 << 10) /* Gyroscope output */
+#define ADIS16080_DIN_TEMP   (1 << 10) /* Temperature output */
 #define ADIS16080_DIN_AIN1   (2 << 10)
 #define ADIS16080_DIN_AIN2   (3 << 10)
 
+/*
+ * 1: Write contents on DIN to control register.
+ * 0: No changes to control register.
+ */
 
 #define ADIS16080_DIN_WRITE  (1 << 15)
 
+/**
+ * struct adis16080_state - device instance specific data
+ * @us:			actual spi_device to write data
+ * @buf:		transmit or receive buffer
+ * @buf_lock:		mutex to protect tx and rx
+ **/
 struct adis16080_state {
 	struct spi_device		*us;
 	struct mutex			buf_lock;
@@ -73,7 +83,7 @@ static int adis16080_read_raw(struct iio_dev *indio_dev,
 {
 	int ret = -EINVAL;
 	u16 ut;
-	
+	/* Take the iio_dev status lock */
 
 	mutex_lock(&indio_dev->mlock);
 	switch (mask) {
@@ -130,17 +140,17 @@ static int __devinit adis16080_probe(struct spi_device *spi)
 	struct adis16080_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 
-	
+	/* Allocate the comms buffers */
 	st->us = spi;
 	mutex_init(&st->buf_lock);
 
@@ -162,6 +172,7 @@ error_ret:
 	return ret;
 }
 
+/* fixme, confirm ordering in this function */
 static int adis16080_remove(struct spi_device *spi)
 {
 	iio_device_unregister(spi_get_drvdata(spi));

@@ -7,6 +7,7 @@
 #ifndef __QLA_BSG_H
 #define __QLA_BSG_H
 
+/* BSG Vendor specific commands */
 #define QL_VND_LOOPBACK		0x01
 #define QL_VND_A84_RESET	0x02
 #define QL_VND_A84_UPDATE_FW	0x03
@@ -19,21 +20,25 @@
 #define QL_VND_READ_FRU_STATUS	0x0C
 #define QL_VND_WRITE_FRU_STATUS	0x0D
 
+/* BSG Vendor specific subcode returns */
 #define EXT_STATUS_OK			0
 #define EXT_STATUS_ERR			1
 #define EXT_STATUS_INVALID_PARAM	6
 #define EXT_STATUS_MAILBOX		11
 #define EXT_STATUS_NO_MEMORY		17
 
+/* BSG definations for interpreting CommandSent field */
 #define INT_DEF_LB_LOOPBACK_CMD         0
 #define INT_DEF_LB_ECHO_CMD             1
 
+/* Loopback related definations */
 #define EXTERNAL_LOOPBACK		0xF2
 #define ENABLE_INTERNAL_LOOPBACK	0x02
 #define INTERNAL_LOOPBACK_MASK		0x000E
 #define MAX_ELS_FRAME_PAYLOAD		252
 #define ELS_OPCODE_BYTE			0x10
 
+/* BSG Vendor specific definations */
 #define A84_ISSUE_WRITE_TYPE_CMD        0
 #define A84_ISSUE_READ_TYPE_CMD         1
 #define A84_CLEANUP_CMD                 2
@@ -46,7 +51,7 @@ struct qla84_mgmt_param {
 	union {
 		struct {
 			uint32_t start_addr;
-		} mem; 
+		} mem; /* for QLA84_MGMT_READ/WRITE_MEM */
 		struct {
 			uint32_t id;
 #define QLA84_MGMT_CONFIG_ID_UIF        1
@@ -56,19 +61,22 @@ struct qla84_mgmt_param {
 
 		uint32_t param0;
 		uint32_t param1;
-	} config; 
+	} config; /* for QLA84_MGMT_CHNG_CONFIG */
 
 	struct {
 		uint32_t type;
-#define QLA84_MGMT_INFO_CONFIG_LOG_DATA         1 
-#define QLA84_MGMT_INFO_LOG_DATA                2 
-#define QLA84_MGMT_INFO_PORT_STAT               3 
-#define QLA84_MGMT_INFO_LIF_STAT                4 
-#define QLA84_MGMT_INFO_ASIC_STAT               5 
-#define QLA84_MGMT_INFO_CONFIG_PARAMS           6 
-#define QLA84_MGMT_INFO_PANIC_LOG               7 
+#define QLA84_MGMT_INFO_CONFIG_LOG_DATA         1 /* Get Config Log Data */
+#define QLA84_MGMT_INFO_LOG_DATA                2 /* Get Log Data */
+#define QLA84_MGMT_INFO_PORT_STAT               3 /* Get Port Statistics */
+#define QLA84_MGMT_INFO_LIF_STAT                4 /* Get LIF Statistics  */
+#define QLA84_MGMT_INFO_ASIC_STAT               5 /* Get ASIC Statistics */
+#define QLA84_MGMT_INFO_CONFIG_PARAMS           6 /* Get Config Parameters */
+#define QLA84_MGMT_INFO_PANIC_LOG               7 /* Get Panic Log */
 
 		uint32_t context;
+/*
+* context definitions for QLA84_MGMT_INFO_CONFIG_LOG_DATA
+*/
 #define IC_LOG_DATA_LOG_ID_DEBUG_LOG                    0
 #define IC_LOG_DATA_LOG_ID_LEARN_LOG                    1
 #define IC_LOG_DATA_LOG_ID_FC_ACL_INGRESS_LOG           2
@@ -80,6 +88,9 @@ struct qla84_mgmt_param {
 #define IC_LOG_DATA_LOG_ID_LINK_EVENT_LOG               8
 #define IC_LOG_DATA_LOG_ID_DCX_LOG                      9
 
+/*
+* context definitions for QLA84_MGMT_INFO_PORT_STAT
+*/
 #define IC_PORT_STATISTICS_PORT_NUMBER_ETHERNET_PORT0   0
 #define IC_PORT_STATISTICS_PORT_NUMBER_ETHERNET_PORT1   1
 #define IC_PORT_STATISTICS_PORT_NUMBER_NSL_PORT0        2
@@ -88,13 +99,16 @@ struct qla84_mgmt_param {
 #define IC_PORT_STATISTICS_PORT_NUMBER_FC_PORT1         5
 
 
+/*
+* context definitions for QLA84_MGMT_INFO_LIF_STAT
+*/
 #define IC_LIF_STATISTICS_LIF_NUMBER_ETHERNET_PORT0     0
 #define IC_LIF_STATISTICS_LIF_NUMBER_ETHERNET_PORT1     1
 #define IC_LIF_STATISTICS_LIF_NUMBER_FC_PORT0           2
 #define IC_LIF_STATISTICS_LIF_NUMBER_FC_PORT1           3
 #define IC_LIF_STATISTICS_LIF_NUMBER_CPU                6
 
-		} info; 
+		} info; /* for QLA84_MGMT_GET_INFO */
 	} u;
 };
 
@@ -105,9 +119,9 @@ struct qla84_msg_mgmt {
 #define QLA84_MGMT_CHNG_CONFIG  0x02
 #define QLA84_MGMT_GET_INFO     0x03
 	uint16_t rsrvd;
-	struct qla84_mgmt_param mgmtp;
-	uint32_t len; 
-	uint8_t payload[0]; 
+	struct qla84_mgmt_param mgmtp;/* parameters for cmd */
+	uint32_t len; /* bytes in payload following this struct */
+	uint8_t payload[0]; /* payload for cmd */
 };
 
 struct qla_bsg_a84_mgmt {
@@ -139,6 +153,7 @@ struct qla_port_param {
 } __attribute__ ((packed));
 
 
+/* FRU VPD */
 
 #define MAX_FRU_SIZE	36
 

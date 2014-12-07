@@ -1,3 +1,14 @@
+/*
+ * Virtual DMA allocation
+ *
+ * (C) 1999 Thomas Bogendoerfer (tsbogend@alpha.franken.de)
+ *
+ * 11/26/2000 -- disabled the existing code because it didn't work for
+ * me in 2.4.  Replaced with a significantly more primitive version
+ * similar to the sun3 code.  the old functionality was probably more
+ * desirable, but....   -- Sam Creasey (sammy@oh.verio.com)
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -13,6 +24,7 @@
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
 
+/* IOMMU support */
 
 #define IOMMU_ADDR_MASK            0x03ffe000
 #define IOMMU_CACHE_INHIBIT        0x00000040
@@ -49,6 +61,7 @@ static volatile unsigned long *iommu_pte = (unsigned long *)SUN3X_IOMMU;
 #undef DEBUG
 
 #ifdef DEBUG
+/* code to print out a dvma mapping for debugging purposes */
 void dvma_print (unsigned long dvma_addr)
 {
 
@@ -64,6 +77,8 @@ void dvma_print (unsigned long dvma_addr)
 #endif
 
 
+/* create a virtual mapping for a page assigned within the IOMMU
+   so that the cpu can reach it easily */
 inline int dvma_map_cpu(unsigned long kaddr,
 			       unsigned long vaddr, int len)
 {
@@ -145,10 +160,14 @@ inline int dvma_map_iommu(unsigned long kaddr, unsigned long baddr,
 		end++;
 
 	for(; index < end ; index++) {
+//		if(dvma_entry_use(index))
+//			BUG();
+//		printk("mapping pa %lx to ba %lx\n", __pa(kaddr), index << DVMA_PAGE_SHIFT);
 
 		dvma_entry_set(index, __pa(kaddr));
 
 		iommu_pte[index] |= IOMMU_FULL_BLOCK;
+//		dvma_entry_inc(index);
 
 		kaddr += DVMA_PAGE_SIZE;
 	}

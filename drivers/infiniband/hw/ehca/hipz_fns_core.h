@@ -60,14 +60,14 @@
 
 static inline void hipz_update_sqa(struct ehca_qp *qp, u16 nr_wqes)
 {
-	
+	/*  ringing doorbell :-) */
 	hipz_galpa_store_qp(qp->galpas.kernel, qpx_sqa,
 			    EHCA_BMASK_SET(QPX_SQADDER, nr_wqes));
 }
 
 static inline void hipz_update_rqa(struct ehca_qp *qp, u16 nr_wqes)
 {
-	
+	/*  ringing doorbell :-) */
 	hipz_galpa_store_qp(qp->galpas.kernel, qpx_rqa,
 			    EHCA_BMASK_SET(QPX_RQADDER, nr_wqes));
 }
@@ -97,4 +97,4 @@ static inline void hipz_set_cqx_n1(struct ehca_cq *cq, u32 value)
 	cqx_n1_reg = hipz_galpa_load_cq(cq->galpas.kernel, cqx_n1);
 }
 
-#endif 
+#endif /* __HIPZ_FNC_CORE_H__ */

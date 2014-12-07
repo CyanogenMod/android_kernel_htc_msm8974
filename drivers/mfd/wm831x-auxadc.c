@@ -50,7 +50,7 @@ static int wm831x_auxadc_read_irq(struct wm831x *wm831x,
 
 	mutex_lock(&wm831x->auxadc_lock);
 
-	
+	/* Enqueue the request */
 	list_add(&req->list, &wm831x->auxadc_pending);
 
 	ena = !wm831x->auxadc_active;
@@ -65,7 +65,7 @@ static int wm831x_auxadc_read_irq(struct wm831x *wm831x,
 		}
 	}
 
-	
+	/* Enable the conversion if not already running */
 	if (!(wm831x->auxadc_active & (1 << input))) {
 		ret = wm831x_set_bits(wm831x, WM831X_AUXADC_SOURCE,
 				      1 << input, 1 << input);
@@ -78,7 +78,7 @@ static int wm831x_auxadc_read_irq(struct wm831x *wm831x,
 		wm831x->auxadc_active |= 1 << input;
 	}
 
-	
+	/* We convert at the fastest rate possible */
 	if (ena) {
 		ret = wm831x_set_bits(wm831x, WM831X_AUXADC_CONTROL,
 				      WM831X_AUX_CVT_ENA |
@@ -94,7 +94,7 @@ static int wm831x_auxadc_read_irq(struct wm831x *wm831x,
 
 	mutex_unlock(&wm831x->auxadc_lock);
 
-	
+	/* Wait for an interrupt */
 	wait_for_completion_timeout(&req->done, msecs_to_jiffies(500));
 
 	mutex_lock(&wm831x->auxadc_lock);
@@ -133,16 +133,16 @@ static irqreturn_t wm831x_auxadc_irq(int irq, void *irq_data)
 
 	mutex_lock(&wm831x->auxadc_lock);
 
-	
+	/* Disable this conversion, we're about to complete all users */
 	wm831x_set_bits(wm831x, WM831X_AUXADC_SOURCE,
 			1 << input, 0);
 	wm831x->auxadc_active &= ~(1 << input);
 
-	
+	/* Turn off the entire convertor if idle */
 	if (!wm831x->auxadc_active)
 		wm831x_reg_write(wm831x, WM831X_AUXADC_CONTROL, 0);
 
-	
+	/* Wake up any threads waiting for this request */
 	list_for_each_entry(req, &wm831x->auxadc_pending, list) {
 		if (req->input == input) {
 			req->val = val;
@@ -169,7 +169,7 @@ static int wm831x_auxadc_read_polled(struct wm831x *wm831x,
 		goto out;
 	}
 
-	
+	/* We force a single source at present */
 	src = input;
 	ret = wm831x_reg_write(wm831x, WM831X_AUXADC_SOURCE,
 			       1 << src);
@@ -185,6 +185,8 @@ static int wm831x_auxadc_read_polled(struct wm831x *wm831x,
 		goto disable;
 	}
 
+	/* If we're not using interrupts then poll the
+	 * interrupt status register */
 	timeout = 5;
 	while (timeout) {
 		msleep(1);
@@ -197,7 +199,7 @@ static int wm831x_auxadc_read_polled(struct wm831x *wm831x,
 			goto disable;
 		}
 
-		
+		/* Did it complete? */
 		if (ret & WM831X_AUXADC_DATA_EINT) {
 			wm831x_reg_write(wm831x,
 					 WM831X_INTERRUPT_STATUS_1,
@@ -239,12 +241,24 @@ out:
 	return ret;
 }
 
+/**
+ * wm831x_auxadc_read: Read a value from the WM831x AUXADC
+ *
+ * @wm831x: Device to read from.
+ * @input: AUXADC input to read.
+ */
 int wm831x_auxadc_read(struct wm831x *wm831x, enum wm831x_auxadc input)
 {
 	return wm831x->auxadc_read(wm831x, input);
 }
 EXPORT_SYMBOL_GPL(wm831x_auxadc_read);
 
+/**
+ * wm831x_auxadc_read_uv: Read a voltage from the WM831x AUXADC
+ *
+ * @wm831x: Device to read from.
+ * @input: AUXADC input to read.
+ */
 int wm831x_auxadc_read_uv(struct wm831x *wm831x, enum wm831x_auxadc input)
 {
 	int ret;

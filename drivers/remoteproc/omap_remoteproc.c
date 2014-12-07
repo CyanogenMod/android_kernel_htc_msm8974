@@ -34,12 +34,33 @@
 #include "omap_remoteproc.h"
 #include "remoteproc_internal.h"
 
+/**
+ * struct omap_rproc - omap remote processor state
+ * @mbox: omap mailbox handle
+ * @nb: notifier block that will be invoked on inbound mailbox messages
+ * @rproc: rproc handle
+ */
 struct omap_rproc {
 	struct omap_mbox *mbox;
 	struct notifier_block nb;
 	struct rproc *rproc;
 };
 
+/**
+ * omap_rproc_mbox_callback() - inbound mailbox message handler
+ * @this: notifier block
+ * @index: unused
+ * @data: mailbox payload
+ *
+ * This handler is invoked by omap's mailbox driver whenever a mailbox
+ * message is received. Usually, the mailbox payload simply contains
+ * the index of the virtqueue that is kicked by the remote processor,
+ * and we let remoteproc core handle it.
+ *
+ * In addition to virtqueue indices, we also have some out-of-band values
+ * that indicates different events. Those values are deliberately very
+ * big so they don't coincide with virtqueue indices.
+ */
 static int omap_rproc_mbox_callback(struct notifier_block *this,
 					unsigned long index, void *data)
 {
@@ -52,14 +73,14 @@ static int omap_rproc_mbox_callback(struct notifier_block *this,
 
 	switch (msg) {
 	case RP_MBOX_CRASH:
-		
+		/* just log this for now. later, we'll also do recovery */
 		dev_err(dev, "omap rproc %s crashed\n", name);
 		break;
 	case RP_MBOX_ECHO_REPLY:
 		dev_info(dev, "received echo reply from %s\n", name);
 		break;
 	default:
-		
+		/* msg contains the index of the triggered vring */
 		if (rproc_vq_interrupt(oproc->rproc, msg) == IRQ_NONE)
 			dev_dbg(dev, "no message was found in vqid %d\n", msg);
 	}
@@ -67,17 +88,25 @@ static int omap_rproc_mbox_callback(struct notifier_block *this,
 	return NOTIFY_DONE;
 }
 
+/* kick a virtqueue */
 static void omap_rproc_kick(struct rproc *rproc, int vqid)
 {
 	struct omap_rproc *oproc = rproc->priv;
 	int ret;
 
-	
+	/* send the index of the triggered virtqueue in the mailbox payload */
 	ret = omap_mbox_msg_send(oproc->mbox, vqid);
 	if (ret)
 		dev_err(rproc->dev, "omap_mbox_msg_send failed: %d\n", ret);
 }
 
+/*
+ * Power up the remote processor.
+ *
+ * This function will be invoked only after the firmware for this rproc
+ * was loaded, parsed successfully, and all of its resource requirements
+ * were met.
+ */
 static int omap_rproc_start(struct rproc *rproc)
 {
 	struct omap_rproc *oproc = rproc->priv;
@@ -87,7 +116,7 @@ static int omap_rproc_start(struct rproc *rproc)
 
 	oproc->nb.notifier_call = omap_rproc_mbox_callback;
 
-	
+	/* every omap rproc is assigned a mailbox instance for messaging */
 	oproc->mbox = omap_mbox_get(pdata->mbox_name, &oproc->nb);
 	if (IS_ERR(oproc->mbox)) {
 		ret = PTR_ERR(oproc->mbox);
@@ -95,6 +124,13 @@ static int omap_rproc_start(struct rproc *rproc)
 		return ret;
 	}
 
+	/*
+	 * Ping the remote processor. this is only for sanity-sake;
+	 * there is no functional effect whatsoever.
+	 *
+	 * Note that the reply will _not_ arrive immediately: this message
+	 * will wait in the mailbox fifo until the remote processor is booted.
+	 */
 	ret = omap_mbox_msg_send(oproc->mbox, RP_MBOX_ECHO_REQUEST);
 	if (ret) {
 		dev_err(rproc->dev, "omap_mbox_get failed: %d\n", ret);
@@ -114,6 +150,7 @@ put_mbox:
 	return ret;
 }
 
+/* power off the remote processor */
 static int omap_rproc_stop(struct rproc *rproc)
 {
 	struct platform_device *pdev = to_platform_device(rproc->dev);

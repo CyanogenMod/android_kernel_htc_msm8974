@@ -14,6 +14,13 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * This is "two-way" interface, acting as the SHIM layer between driver
+ * and PHY layer. The driver can optionally call this translation layer
+ * to do some preprocessing, then reach PHY. On the PHY->driver direction,
+ * all calls go through this layer since PHY doesn't have access to the
+ * driver's brcms_hardware pointer.
+ */
 #include <linux/slab.h>
 #include <net/mac80211.h>
 
@@ -21,10 +28,11 @@
 #include "mac80211_if.h"
 #include "phy_shim.h"
 
+/* PHY SHIM module specific state */
 struct phy_shim_info {
-	struct brcms_hardware *wlc_hw;	
-	struct brcms_c_info *wlc;	
-	struct brcms_info *wl; 
+	struct brcms_hardware *wlc_hw;	/* pointer to main wlc_hw structure */
+	struct brcms_c_info *wlc;	/* pointer to main wlc structure */
+	struct brcms_info *wl; /* pointer to os-specific private state */
 };
 
 struct phy_shim_info *wlc_phy_shim_attach(struct brcms_hardware *wlc_hw,

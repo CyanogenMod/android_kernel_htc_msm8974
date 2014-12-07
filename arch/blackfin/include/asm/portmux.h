@@ -1102,6 +1102,7 @@ void peripheral_free_list(const unsigned short per[]);
 #define P_AMC_BGH P_UNDEF
 #endif
 
+/* EMAC */
 
 #ifndef P_MII0_ETxD0
 #define P_MII0_ETxD0 P_UNDEF
@@ -1187,4 +1188,4 @@ void peripheral_free_list(const unsigned short per[]);
 #define P_MDIO P_UNDEF
 #endif
 
-#endif				
+#endif				/* _PORTMUX_H_ */

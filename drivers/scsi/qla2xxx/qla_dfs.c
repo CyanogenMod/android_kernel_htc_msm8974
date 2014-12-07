@@ -61,7 +61,7 @@ qla2x00_dfs_fce_open(struct inode *inode, struct file *file)
 
 	mutex_lock(&ha->fce_mutex);
 
-	
+	/* Pause tracing to flush FCE buffers. */
 	rval = qla2x00_disable_fce_trace(vha, &ha->fce_wr, &ha->fce_rd);
 	if (rval)
 		ql_dbg(ql_dbg_user, vha, 0x705c,
@@ -86,7 +86,7 @@ qla2x00_dfs_fce_release(struct inode *inode, struct file *file)
 
 	mutex_lock(&ha->fce_mutex);
 
-	
+	/* Re-enable FCE tracing. */
 	ha->flags.fce_enabled = 1;
 	memset(ha->fce, 0, fce_calc_size(ha->fce_bufs));
 	rval = qla2x00_enable_fce_trace(vha, ha->fce_dma, ha->fce_bufs,

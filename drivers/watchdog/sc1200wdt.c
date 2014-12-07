@@ -51,30 +51,33 @@
 #define SC1200_MODULE_VER	"build 20020303"
 #define SC1200_MODULE_NAME	"sc1200wdt"
 
-#define	MAX_TIMEOUT	255	
-#define PMIR		(io)	
-#define PMDR		(io+1)	
+#define	MAX_TIMEOUT	255	/* 255 minutes */
+#define PMIR		(io)	/* Power Management Index Register */
+#define PMDR		(io+1)	/* Power Management Data Register */
 
-#define FER1		0x00	
-#define FER2		0x01	
-#define PMC1		0x02	
-#define PMC2		0x03	
-#define PMC3		0x04	
-#define WDTO		0x05	
-#define	WDCF		0x06	
-#define WDST		0x07	
+/* Data Register indexes */
+#define FER1		0x00	/* Function enable register 1 */
+#define FER2		0x01	/* Function enable register 2 */
+#define PMC1		0x02	/* Power Management Ctrl 1 */
+#define PMC2		0x03	/* Power Management Ctrl 2 */
+#define PMC3		0x04	/* Power Management Ctrl 3 */
+#define WDTO		0x05	/* Watchdog timeout register */
+#define	WDCF		0x06	/* Watchdog config register */
+#define WDST		0x07	/* Watchdog status register */
 
-#define KBC_IRQ		0x01	
-#define MSE_IRQ		0x02	
-#define UART1_IRQ	0x03	
-#define UART2_IRQ	0x04	
+/* WDCF bitfields - which devices assert WDO */
+#define KBC_IRQ		0x01	/* Keyboard Controller */
+#define MSE_IRQ		0x02	/* Mouse */
+#define UART1_IRQ	0x03	/* Serial0 */
+#define UART2_IRQ	0x04	/* Serial1 */
+/* 5 -7 are reserved */
 
 static int timeout = 1;
 static int io = -1;
-static int io_len = 2;		
+static int io_len = 2;		/* for non plug and play */
 static unsigned long open_flag;
 static char expect_close;
-static DEFINE_SPINLOCK(sc1200wdt_lock);	
+static DEFINE_SPINLOCK(sc1200wdt_lock);	/* io port access serialisation */
 
 #if defined CONFIG_PNP
 static int isapnp = 1;
@@ -98,6 +101,7 @@ MODULE_PARM_DESC(nowayout,
 
 
 
+/* Read from Data Register */
 static inline void __sc1200wdt_read_data(unsigned char index,
 						unsigned char *data)
 {
@@ -112,6 +116,7 @@ static void sc1200wdt_read_data(unsigned char index, unsigned char *data)
 	spin_unlock(&sc1200wdt_lock);
 }
 
+/* Write to Data Register */
 static inline void __sc1200wdt_write_data(unsigned char index,
 						unsigned char data)
 {
@@ -134,10 +139,10 @@ static void sc1200wdt_start(void)
 	spin_lock(&sc1200wdt_lock);
 
 	__sc1200wdt_read_data(WDCF, &reg);
-	
+	/* assert WDO when any of the following interrupts are triggered too */
 	reg |= (KBC_IRQ | MSE_IRQ | UART1_IRQ | UART2_IRQ);
 	__sc1200wdt_write_data(WDCF, reg);
-	
+	/* set the timeout and get the ball rolling */
 	__sc1200wdt_write_data(WDTO, timeout);
 
 	spin_unlock(&sc1200wdt_lock);
@@ -148,17 +153,22 @@ static void sc1200wdt_stop(void)
 	sc1200wdt_write_data(WDTO, 0);
 }
 
+/* This returns the status of the WDO signal, inactive high. */
 static inline int sc1200wdt_status(void)
 {
 	unsigned char ret;
 
 	sc1200wdt_read_data(WDST, &ret);
+	/* If the bit is inactive, the watchdog is enabled, so return
+	 * KEEPALIVEPING which is a bit of a kludge because there's nothing
+	 * else for enabled/disabled status
+	 */
 	return (ret & 0x01) ? 0 : WDIOF_KEEPALIVEPING;
 }
 
 static int sc1200wdt_open(struct inode *inode, struct file *file)
 {
-	
+	/* allow one at a time */
 	if (test_and_set_bit(0, &open_flag))
 		return -EBUSY;
 
@@ -223,13 +233,13 @@ static long sc1200wdt_ioctl(struct file *file, unsigned int cmd,
 	case WDIOC_SETTIMEOUT:
 		if (get_user(new_timeout, p))
 			return -EFAULT;
-		
+		/* the API states this is given in secs */
 		new_timeout /= 60;
 		if (new_timeout < 0 || new_timeout > MAX_TIMEOUT)
 			return -EINVAL;
 		timeout = new_timeout;
 		sc1200wdt_write_data(WDTO, timeout);
-		
+		/* fall through and return the new timeout */
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout * 60, p);
@@ -315,11 +325,17 @@ static struct miscdevice sc1200wdt_miscdev = {
 
 static int __init sc1200wdt_probe(void)
 {
+	/* The probe works by reading the PMC3 register's default value of 0x0e
+	 * there is one caveat, if the device disables the parallel port or any
+	 * of the UARTs we won't be able to detect it.
+	 * NB. This could be done with accuracy by reading the SID registers,
+	 * but we don't have access to those io regions.
+	 */
 
 	unsigned char reg;
 
 	sc1200wdt_read_data(PMC3, &reg);
-	reg &= 0x0f;		
+	reg &= 0x0f;		/* we don't want the UART busy bits */
 	return (reg == 0x0e) ? 0 : -ENODEV;
 }
 
@@ -327,7 +343,7 @@ static int __init sc1200wdt_probe(void)
 #if defined CONFIG_PNP
 
 static struct pnp_device_id scl200wdt_pnp_devices[] = {
-	
+	/* National Semiconductor PC87307/PC97307 watchdog component */
 	{.id = "NSC0800", .driver_data = 0},
 	{.id = ""},
 };
@@ -335,7 +351,7 @@ static struct pnp_device_id scl200wdt_pnp_devices[] = {
 static int scl200wdt_pnp_probe(struct pnp_dev *dev,
 					const struct pnp_device_id *dev_id)
 {
-	
+	/* this driver only supports one card at a time */
 	if (wdt_dev || !isapnp)
 		return -EBUSY;
 
@@ -367,7 +383,7 @@ static struct pnp_driver scl200wdt_pnp_driver = {
 	.remove		= scl200wdt_pnp_remove,
 };
 
-#endif 
+#endif /* CONFIG_PNP */
 
 
 static int __init sc1200wdt_init(void)
@@ -391,6 +407,8 @@ static int __init sc1200wdt_init(void)
 	}
 
 #if defined CONFIG_PNP
+	/* now that the user has specified an IO port and we haven't detected
+	 * any devices, disable pnp support */
 	isapnp = 0;
 	pnp_unregister_driver(&scl200wdt_pnp_driver);
 #endif
@@ -418,7 +436,7 @@ static int __init sc1200wdt_init(void)
 		goto out_rbt;
 	}
 
-	
+	/* ret = 0 */
 
 out_clean:
 	return ret;

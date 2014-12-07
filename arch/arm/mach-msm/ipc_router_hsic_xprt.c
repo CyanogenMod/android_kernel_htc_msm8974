@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * IPC ROUTER HSIC XPRT module.
+ */
 #define DEBUG
 
 #include <linux/module.h>
@@ -37,6 +40,19 @@ if (msm_ipc_router_hsic_xprt_debug_mask) \
 #define NUM_HSIC_XPRTS 1
 #define XPRT_NAME_LEN 32
 
+/**
+ * msm_ipc_router_hsic_xprt - IPC Router's HSIC XPRT strucutre
+ * @xprt: IPC Router XPRT structure to contain HSIC XPRT specific info.
+ * @pdev: Platform device registered by IPC Bridge function driver.
+ * @hsic_xprt_wq: Workqueue to queue read & other XPRT related works.
+ * @read_work: Read Work to perform read operation from HSIC's ipc_bridge.
+ * @in_pkt: Pointer to any partially read packet.
+ * @ss_reset_lock: Lock to protect access to the ss_reset flag.
+ * @sft_close_complete: Variable to indicate completion of SSR handling
+ *                      by IPC Router.
+ * @xprt_version: IPC Router header version supported by this XPRT.
+ * @xprt_option: XPRT specific options to be handled by IPC Router.
+ */
 struct msm_ipc_router_hsic_xprt {
 	struct msm_ipc_router_xprt xprt;
 	struct platform_device *pdev;
@@ -57,6 +73,14 @@ struct msm_ipc_router_hsic_xprt_work {
 
 static void hsic_xprt_read_data(struct work_struct *work);
 
+/**
+ * msm_ipc_router_hsic_xprt_config - Config. Info. of each HSIC XPRT
+ * @ch_name: Name of the HSIC endpoint exported by ipc_bridge driver.
+ * @xprt_name: Name of the XPRT to be registered with IPC Router.
+ * @hsic_pdev_id: ID to differentiate among multiple ipc_bridge endpoints.
+ * @link_id: Network Cluster ID to which this XPRT belongs to.
+ * @xprt_version: IPC Router header version supported by this XPRT.
+ */
 struct msm_ipc_router_hsic_xprt_config {
 	char ch_name[XPRT_NAME_LEN];
 	char xprt_name[XPRT_NAME_LEN];
@@ -71,12 +95,22 @@ struct msm_ipc_router_hsic_xprt_config hsic_xprt_cfg[] = {
 
 static struct msm_ipc_router_hsic_xprt hsic_remote_xprt[NUM_HSIC_XPRTS];
 
+/**
+ * find_hsic_xprt_cfg() - Find the config info specific to an HSIC endpoint
+ * @pdev: Platform device registered by HSIC's ipc_bridge driver
+ *
+ * @return: Index to the entry in the hsic_remote_xprt table if matching
+ *          endpoint is found, < 0 on error.
+ *
+ * This function is used to find the configuration information specific to
+ * an HSIC endpoint from the hsic_remote_xprt table.
+ */
 static int find_hsic_xprt_cfg(struct platform_device *pdev)
 {
 	int i;
 
 	for (i = 0; i < NUM_HSIC_XPRTS; i++) {
-		
+		/* TODO: Update the condition for multiple hsic links */
 		if (!strncmp(pdev->name, hsic_xprt_cfg[i].ch_name, 32))
 			return i;
 	}
@@ -84,6 +118,13 @@ static int find_hsic_xprt_cfg(struct platform_device *pdev)
 	return -ENODEV;
 }
 
+/**
+ * msm_ipc_router_hsic_get_xprt_version() - Get IPC Router header version
+ *                                          supported by the XPRT
+ * @xprt: XPRT for which the version information is required.
+ *
+ * @return: IPC Router header version supported by the XPRT.
+ */
 static int msm_ipc_router_hsic_get_xprt_version(
 	struct msm_ipc_router_xprt *xprt)
 {
@@ -95,6 +136,12 @@ static int msm_ipc_router_hsic_get_xprt_version(
 	return (int)hsic_xprtp->xprt_version;
 }
 
+/**
+ * msm_ipc_router_hsic_get_xprt_option() - Get XPRT options
+ * @xprt: XPRT for which the option information is required.
+ *
+ * @return: Options supported by the XPRT.
+ */
 static int msm_ipc_router_hsic_get_xprt_option(
 	struct msm_ipc_router_xprt *xprt)
 {
@@ -106,6 +153,12 @@ static int msm_ipc_router_hsic_get_xprt_option(
 	return (int)hsic_xprtp->xprt_option;
 }
 
+/**
+ * msm_ipc_router_hsic_remote_write_avail() - Get available write space
+ * @xprt: XPRT for which the available write space info. is required.
+ *
+ * @return: Write space in bytes on success, 0 on SSR.
+ */
 static int msm_ipc_router_hsic_remote_write_avail(
 	struct msm_ipc_router_xprt *xprt)
 {
@@ -183,6 +236,12 @@ static int msm_ipc_router_hsic_remote_write(void *data,
 	return ret;
 }
 
+/**
+ * msm_ipc_router_hsic_remote_close() - Close the XPRT
+ * @xprt: XPRT which needs to be closed.
+ *
+ * @return: 0 on success, standard Linux error codes on failure.
+ */
 static int msm_ipc_router_hsic_remote_close(
 	struct msm_ipc_router_xprt *xprt)
 {
@@ -205,6 +264,15 @@ static int msm_ipc_router_hsic_remote_close(
 	return 0;
 }
 
+/**
+ * hsic_xprt_read_data() - Read work to read from the XPRT
+ * @work: Read work to be executed.
+ *
+ * This function is a read work item queued on a XPRT specific workqueue.
+ * The work parameter contains information regarding the XPRT on which this
+ * read work has to be performed. The work item keeps reading from the HSIC
+ * endpoint, until the endpoint returns an error.
+ */
 static void hsic_xprt_read_data(struct work_struct *work)
 {
 	int pkt_size;
@@ -273,6 +341,13 @@ static void hsic_xprt_read_data(struct work_struct *work)
 	}
 }
 
+/**
+ * hsic_xprt_sft_close_done() - Completion of XPRT reset
+ * @xprt: XPRT on which the reset operation is complete.
+ *
+ * This function is used by IPC Router to signal this HSIC XPRT Abstraction
+ * Layer(XAL) that the reset of XPRT is completely handled by IPC Router.
+ */
 static void hsic_xprt_sft_close_done(struct msm_ipc_router_xprt *xprt)
 {
 	struct msm_ipc_router_hsic_xprt *hsic_xprtp =
@@ -281,6 +356,15 @@ static void hsic_xprt_sft_close_done(struct msm_ipc_router_xprt *xprt)
 	complete_all(&hsic_xprtp->sft_close_complete);
 }
 
+/**
+ * msm_ipc_router_hsic_remote_remove() - Remove an HSIC endpoint
+ * @pdev: Platform device corresponding to HSIC endpoint.
+ *
+ * @return: 0 on success, standard Linux error codes on error.
+ *
+ * This function is called when the underlying ipc_bridge driver unregisters
+ * a platform device, mapped to an HSIC endpoint, during SSR.
+ */
 static int msm_ipc_router_hsic_remote_remove(struct platform_device *pdev)
 {
 	int id;
@@ -311,10 +395,19 @@ static int msm_ipc_router_hsic_remote_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/**
+ * msm_ipc_router_hsic_remote_probe() - Probe an HSIC endpoint
+ * @pdev: Platform device corresponding to HSIC endpoint.
+ *
+ * @return: 0 on success, standard Linux error codes on error.
+ *
+ * This function is called when the underlying ipc_bridge driver registers
+ * a platform device, mapped to an HSIC endpoint.
+ */
 static int msm_ipc_router_hsic_remote_probe(struct platform_device *pdev)
 {
 	int rc;
-	int id;		
+	int id;		/*Index into the hsic_xprt_cfg table*/
 	struct ipc_bridge_platform_data *pdata;
 
 	pdata = pdev->dev.platform_data;

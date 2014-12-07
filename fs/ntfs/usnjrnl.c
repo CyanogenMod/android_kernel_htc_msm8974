@@ -34,6 +34,16 @@
 #include "usnjrnl.h"
 #include "volume.h"
 
+/**
+ * ntfs_stamp_usnjrnl - stamp the transaction log ($UsnJrnl) on an ntfs volume
+ * @vol:	ntfs volume on which to stamp the transaction log
+ *
+ * Stamp the transaction log ($UsnJrnl) on the ntfs volume @vol and return
+ * 'true' on success and 'false' on error.
+ *
+ * This function assumes that the transaction log has already been loaded and
+ * consistency checked by a call to fs/ntfs/super.c::load_and_init_usnjrnl().
+ */
 bool ntfs_stamp_usnjrnl(ntfs_volume *vol)
 {
 	ntfs_debug("Entering.");
@@ -64,11 +74,11 @@ bool ntfs_stamp_usnjrnl(ntfs_volume *vol)
 		flush_dcache_page(page);
 		set_page_dirty(page);
 		ntfs_unmap_page(page);
-		
+		/* Set the flag so we do not have to do it again on remount. */
 		NVolSetUsnJrnlStamped(vol);
 	}
 	ntfs_debug("Done.");
 	return true;
 }
 
-#endif 
+#endif /* NTFS_RW */

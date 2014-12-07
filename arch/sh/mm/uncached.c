@@ -4,6 +4,16 @@
 #include <asm/page.h>
 #include <asm/addrspace.h>
 
+/*
+ * This is the offset of the uncached section from its cached alias.
+ *
+ * Legacy platforms handle trivial transitions between cached and
+ * uncached segments by making use of the 1:1 mapping relationship in
+ * 512MB lowmem, others via a special uncached mapping.
+ *
+ * Default value only valid in 29 bit mode, in 32bit mode this will be
+ * updated by the early PMB initialization code.
+ */
 unsigned long cached_to_uncached = SZ_512M;
 unsigned long uncached_size = SZ_512M;
 unsigned long uncached_start, uncached_end;

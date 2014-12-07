@@ -65,8 +65,13 @@ static bool is_volatile_reg(struct device *dev, unsigned int reg)
 {
 	struct tps65910 *tps65910 = dev_get_drvdata(dev);
 
+	/*
+	 * Caching all regulator registers.
+	 * All regualator register address range is same for
+	 * TPS65910 and TPS65911
+	 */
 	if ((reg >= TPS65910_VIO) && (reg <= TPS65910_VDAC)) {
-		
+		/* Check for non-existing register */
 		if (tps65910_chip_id(tps65910) == TPS65910)
 			if ((reg == TPS65911_VDDCTRL_OP) ||
 				(reg == TPS65911_VDDCTRL_SR))
@@ -180,6 +185,7 @@ static int __init tps65910_i2c_init(void)
 {
 	return i2c_add_driver(&tps65910_i2c_driver);
 }
+/* init early so consumer devices can complete system boot */
 subsys_initcall(tps65910_i2c_init);
 
 static void __exit tps65910_i2c_exit(void)

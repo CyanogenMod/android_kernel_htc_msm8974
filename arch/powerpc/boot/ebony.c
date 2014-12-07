@@ -61,7 +61,7 @@ static void ebony_flashsel_fixup(void)
 		fatal("%s has reg property of unexpected size\n\r",
 		      EBONY_SMALL_FLASH_PATH);
 
-	
+	/* Invert address bit 14 (IBM-endian) if FLASH_SEL fpga bit is set */
 	if (fpga_reg0 & EBONY_FPGA_FLASH_SEL)
 		reg[1] ^= 0x80000;
 
@@ -70,7 +70,7 @@ static void ebony_flashsel_fixup(void)
 
 static void ebony_fixups(void)
 {
-	
+	// FIXME: sysclk should be derived by reading the FPGA registers
 	unsigned long sysclk = 33000000;
 
 	ibm440gp_fixup_clocks(sysclk, 6 * 1843200);

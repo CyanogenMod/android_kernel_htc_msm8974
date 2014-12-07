@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: utalloc - local memory allocation routines
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -43,11 +48,22 @@
 #define _COMPONENT          ACPI_UTILITIES
 ACPI_MODULE_NAME("utalloc")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_create_caches
+ *
+ * PARAMETERS:  None
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Create all local caches
+ *
+ ******************************************************************************/
 acpi_status acpi_ut_create_caches(void)
 {
 	acpi_status status;
 
-	
+	/* Object Caches, for frequently used objects */
 
 	status =
 	    acpi_os_create_cache("Acpi-Namespace",
@@ -94,7 +110,7 @@ acpi_status acpi_ut_create_caches(void)
 	}
 #ifdef ACPI_DBG_TRACK_ALLOCATIONS
 
-	
+	/* Memory allocation lists */
 
 	status = acpi_ut_create_list("Acpi-Global", 0, &acpi_gbl_global_list);
 	if (ACPI_FAILURE(status)) {
@@ -113,6 +129,17 @@ acpi_status acpi_ut_create_caches(void)
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_delete_caches
+ *
+ * PARAMETERS:  None
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Purge and delete all local caches
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_delete_caches(void)
 {
@@ -142,11 +169,11 @@ acpi_status acpi_ut_delete_caches(void)
 
 #ifdef ACPI_DBG_TRACK_ALLOCATIONS
 
-	
+	/* Debug only - display leftover memory allocation, if any */
 
 	acpi_ut_dump_allocations(ACPI_UINT32_MAX, NULL);
 
-	
+	/* Free memory lists */
 
 	ACPI_FREE(acpi_gbl_global_list);
 	acpi_gbl_global_list = NULL;
@@ -158,17 +185,28 @@ acpi_status acpi_ut_delete_caches(void)
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_validate_buffer
+ *
+ * PARAMETERS:  Buffer              - Buffer descriptor to be validated
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Perform parameter validation checks on an struct acpi_buffer
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_validate_buffer(struct acpi_buffer * buffer)
 {
 
-	
+	/* Obviously, the structure pointer must be valid */
 
 	if (!buffer) {
 		return (AE_BAD_PARAMETER);
 	}
 
-	
+	/* Special semantics for the length */
 
 	if ((buffer->length == ACPI_NO_BUFFER) ||
 	    (buffer->length == ACPI_ALLOCATE_BUFFER) ||
@@ -176,7 +214,7 @@ acpi_status acpi_ut_validate_buffer(struct acpi_buffer * buffer)
 		return (AE_OK);
 	}
 
-	
+	/* Length is valid, the buffer pointer must be also */
 
 	if (!buffer->pointer) {
 		return (AE_BAD_PARAMETER);
@@ -185,6 +223,19 @@ acpi_status acpi_ut_validate_buffer(struct acpi_buffer * buffer)
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_initialize_buffer
+ *
+ * PARAMETERS:  Buffer              - Buffer to be validated
+ *              required_length     - Length needed
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Validate that the buffer is of the required length or
+ *              allocate a new buffer. Returned buffer is always zeroed.
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ut_initialize_buffer(struct acpi_buffer * buffer,
@@ -192,39 +243,47 @@ acpi_ut_initialize_buffer(struct acpi_buffer * buffer,
 {
 	acpi_size input_buffer_length;
 
-	
+	/* Parameter validation */
 
 	if (!buffer || !required_length) {
 		return (AE_BAD_PARAMETER);
 	}
 
+	/*
+	 * Buffer->Length is used as both an input and output parameter. Get the
+	 * input actual length and set the output required buffer length.
+	 */
 	input_buffer_length = buffer->length;
 	buffer->length = required_length;
 
+	/*
+	 * The input buffer length contains the actual buffer length, or the type
+	 * of buffer to be allocated by this routine.
+	 */
 	switch (input_buffer_length) {
 	case ACPI_NO_BUFFER:
 
-		
+		/* Return the exception (and the required buffer length) */
 
 		return (AE_BUFFER_OVERFLOW);
 
 	case ACPI_ALLOCATE_BUFFER:
 
-		
+		/* Allocate a new buffer */
 
 		buffer->pointer = acpi_os_allocate(required_length);
 		break;
 
 	case ACPI_ALLOCATE_LOCAL_BUFFER:
 
-		
+		/* Allocate a new buffer with local interface to allow tracking */
 
 		buffer->pointer = ACPI_ALLOCATE(required_length);
 		break;
 
 	default:
 
-		
+		/* Existing buffer: Validate the size of the buffer */
 
 		if (input_buffer_length < required_length) {
 			return (AE_BUFFER_OVERFLOW);
@@ -232,19 +291,33 @@ acpi_ut_initialize_buffer(struct acpi_buffer * buffer,
 		break;
 	}
 
-	
+	/* Validate allocation from above or input buffer pointer */
 
 	if (!buffer->pointer) {
 		return (AE_NO_MEMORY);
 	}
 
-	
+	/* Have a valid buffer, clear it */
 
 	ACPI_MEMSET(buffer->pointer, 0, required_length);
 	return (AE_OK);
 }
 
 #ifdef NOT_USED_BY_LINUX
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_allocate
+ *
+ * PARAMETERS:  Size                - Size of the allocation
+ *              Component           - Component type of caller
+ *              Module              - Source file name of caller
+ *              Line                - Line number of caller
+ *
+ * RETURN:      Address of the allocated memory on success, NULL on failure.
+ *
+ * DESCRIPTION: Subsystem equivalent of malloc.
+ *
+ ******************************************************************************/
 
 void *acpi_ut_allocate(acpi_size size,
 		       u32 component, const char *module, u32 line)
@@ -253,7 +326,7 @@ void *acpi_ut_allocate(acpi_size size,
 
 	ACPI_FUNCTION_TRACE_U32(ut_allocate, size);
 
-	
+	/* Check for an inadvertent size of zero bytes */
 
 	if (!size) {
 		ACPI_WARNING((module, line,
@@ -264,7 +337,7 @@ void *acpi_ut_allocate(acpi_size size,
 	allocation = acpi_os_allocate(size);
 	if (!allocation) {
 
-		
+		/* Report allocation error */
 
 		ACPI_WARNING((module, line,
 			      "Could not allocate size %u", (u32) size));
@@ -275,6 +348,20 @@ void *acpi_ut_allocate(acpi_size size,
 	return_PTR(allocation);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_allocate_zeroed
+ *
+ * PARAMETERS:  Size                - Size of the allocation
+ *              Component           - Component type of caller
+ *              Module              - Source file name of caller
+ *              Line                - Line number of caller
+ *
+ * RETURN:      Address of the allocated memory on success, NULL on failure.
+ *
+ * DESCRIPTION: Subsystem equivalent of calloc. Allocate and zero memory.
+ *
+ ******************************************************************************/
 
 void *acpi_ut_allocate_zeroed(acpi_size size,
 			      u32 component, const char *module, u32 line)
@@ -286,7 +373,7 @@ void *acpi_ut_allocate_zeroed(acpi_size size,
 	allocation = acpi_ut_allocate(size, component, module, line);
 	if (allocation) {
 
-		
+		/* Clear the memory block */
 
 		ACPI_MEMSET(allocation, 0, size);
 	}

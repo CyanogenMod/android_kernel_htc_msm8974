@@ -42,6 +42,7 @@
 #define S3C2410_CLKCON_IIS	     (1<<17)
 #define S3C2410_CLKCON_SPI	     (1<<18)
 
+/* DCLKCON register addresses in gpio.h */
 
 #define S3C2410_DCLKCON_DCLK0EN	     (1<<0)
 #define S3C2410_DCLKCON_DCLK0_PCLK   (0<<1)
@@ -70,6 +71,7 @@
 
 #if defined(CONFIG_CPU_S3C2440) || defined(CONFIG_CPU_S3C2442)
 
+/* extra registers */
 #define S3C2440_CAMDIVN	    S3C2410_CLKREG(0x18)
 
 #define S3C2440_CLKCON_CAMERA        (1<<19)
@@ -91,7 +93,7 @@
 
 #define S3C2442_CAMDIVN_CAMCLK_DIV3  (1<<5)
 
-#endif 
+#endif /* CONFIG_CPU_S3C2440 or CONFIG_CPU_S3C2442 */
 
 #if defined(CONFIG_CPU_S3C2412) || defined(CONFIG_CPU_S3C2413)
 
@@ -128,11 +130,13 @@
 #define S3C2412_CLKCON_USBD		(1<<16)
 #define S3C2412_CLKCON_CAMCLK		(1<<15)
 #define S3C2412_CLKCON_UARTCLK		(1<<14)
+/* missing 13 */
 #define S3C2412_CLKCON_USB_HOST48	(1<<12)
 #define S3C2412_CLKCON_USB_DEV48	(1<<11)
 #define S3C2412_CLKCON_HCLKdiv2		(1<<10)
 #define S3C2412_CLKCON_HCLKx2		(1<<9)
 #define S3C2412_CLKCON_SDRAM		(1<<8)
+/* missing 7 */
 #define S3C2412_CLKCON_USBH		S3C2410_CLKCON_USBH
 #define S3C2412_CLKCON_LCDC		S3C2410_CLKCON_LCDC
 #define S3C2412_CLKCON_NAND		S3C2410_CLKCON_NAND
@@ -141,6 +145,7 @@
 #define S3C2412_CLKCON_DMA1		(1<<1)
 #define S3C2412_CLKCON_DMA0		(1<<0)
 
+/* clock sourec controls */
 
 #define S3C2412_CLKSRC_EXTCLKDIV_MASK		(7 << 0)
 #define S3C2412_CLKSRC_EXTCLKDIV_SHIFT		(0)
@@ -154,8 +159,8 @@
 #define S3C2412_CLKSRC_UREFCLK_EXTCLK	(1<<12)
 #define S3C2412_CLKSRC_EREFCLK_EXTCLK	(1<<14)
 
-#endif 
+#endif /* CONFIG_CPU_S3C2412 | CONFIG_CPU_S3C2413 */
 
 #define S3C2416_CLKDIV2		S3C2410_CLKREG(0x28)
 
-#endif 
+#endif /* __ASM_ARM_REGS_CLOCK */

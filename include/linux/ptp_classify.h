@@ -33,25 +33,25 @@
 #include <netinet/in.h>
 #endif
 
-#define PTP_CLASS_NONE  0x00 
-#define PTP_CLASS_V1    0x01 
-#define PTP_CLASS_V2    0x02 
-#define PTP_CLASS_VMASK 0x0f 
-#define PTP_CLASS_IPV4  0x10 
-#define PTP_CLASS_IPV6  0x20 
-#define PTP_CLASS_L2    0x30 
-#define PTP_CLASS_VLAN  0x40 
-#define PTP_CLASS_PMASK 0xf0 
+#define PTP_CLASS_NONE  0x00 /* not a PTP event message */
+#define PTP_CLASS_V1    0x01 /* protocol version 1 */
+#define PTP_CLASS_V2    0x02 /* protocol version 2 */
+#define PTP_CLASS_VMASK 0x0f /* max protocol version is 15 */
+#define PTP_CLASS_IPV4  0x10 /* event in an IPV4 UDP packet */
+#define PTP_CLASS_IPV6  0x20 /* event in an IPV6 UDP packet */
+#define PTP_CLASS_L2    0x30 /* event in a L2 packet */
+#define PTP_CLASS_VLAN  0x40 /* event in a VLAN tagged L2 packet */
+#define PTP_CLASS_PMASK 0xf0 /* mask for the packet type field */
 
 #define PTP_CLASS_V1_IPV4 (PTP_CLASS_V1 | PTP_CLASS_IPV4)
-#define PTP_CLASS_V1_IPV6 (PTP_CLASS_V1 | PTP_CLASS_IPV6) 
+#define PTP_CLASS_V1_IPV6 (PTP_CLASS_V1 | PTP_CLASS_IPV6) /*probably DNE*/
 #define PTP_CLASS_V2_IPV4 (PTP_CLASS_V2 | PTP_CLASS_IPV4)
 #define PTP_CLASS_V2_IPV6 (PTP_CLASS_V2 | PTP_CLASS_IPV6)
 #define PTP_CLASS_V2_L2   (PTP_CLASS_V2 | PTP_CLASS_L2)
 #define PTP_CLASS_V2_VLAN (PTP_CLASS_V2 | PTP_CLASS_VLAN)
 
 #define PTP_EV_PORT 319
-#define PTP_GEN_BIT 0x08 
+#define PTP_GEN_BIT 0x08 /* indicates general message, if set in message type */
 
 #define OFF_ETYPE	12
 #define OFF_IHL		14
@@ -60,9 +60,9 @@
 #define OFF_NEXT	6
 #define OFF_UDP_DST	2
 
-#define OFF_PTP_SOURCE_UUID	22 
+#define OFF_PTP_SOURCE_UUID	22 /* PTPv1 only */
 #define OFF_PTP_SEQUENCE_ID	30
-#define OFF_PTP_CONTROL		32 
+#define OFF_PTP_CONTROL		32 /* PTPv1 only */
 
 #define IPV4_HLEN(data) (((struct iphdr *)(data + OFF_IHL))->ihl << 2)
 
@@ -93,48 +93,48 @@ static inline int ptp_filter_init(struct sock_filter *f, int len)
 }
 
 #define PTP_FILTER \
-	{OP_LDH,	0,   0, OFF_ETYPE		},  \
-	{OP_JEQ,	0,  12, ETH_P_IP		},  \
-	{OP_LDB,	0,   0, OFF_PROTO4		},  \
-	{OP_JEQ,	0,   9, IPPROTO_UDP		},  \
-	{OP_LDH,	0,   0, OFF_FRAG		},  \
-	{OP_JSET,	7,   0, 0x1fff			},  \
-	{OP_LDX,	0,   0, OFF_IHL			},  \
-	{OP_LDHI,	0,   0, RELOFF_DST4		},  \
-	{OP_JEQ,	0,   4, PTP_EV_PORT		},  \
-	{OP_LDHI,	0,   0, ETH_HLEN + UDP_HLEN	},  \
-	{OP_AND,	0,   0, PTP_CLASS_VMASK		},  \
-	{OP_OR,		0,   0, PTP_CLASS_IPV4		},  \
-	{OP_RETA,	0,   0, 0			},  \
-	{OP_RETK,	0,   0, PTP_CLASS_NONE		},  \
-	{OP_JEQ,	0,   9, ETH_P_IPV6		},  \
-	{OP_LDB,	0,   0, ETH_HLEN + OFF_NEXT	},  \
-	{OP_JEQ,	0,   6, IPPROTO_UDP		},  \
-	{OP_LDH,	0,   0, OFF_DST6		},  \
-	{OP_JEQ,	0,   4, PTP_EV_PORT		},  \
-	{OP_LDH,	0,   0, OFF_PTP6		},  \
-	{OP_AND,	0,   0, PTP_CLASS_VMASK		},  \
-	{OP_OR,		0,   0, PTP_CLASS_IPV6		},  \
-	{OP_RETA,	0,   0, 0			},  \
-	{OP_RETK,	0,   0, PTP_CLASS_NONE		},  \
-	{OP_JEQ,	0,   9, ETH_P_8021Q		},  \
-	{OP_LDH,	0,   0, OFF_ETYPE + 4		},  \
-	{OP_JEQ,	0,  15, ETH_P_1588		},  \
-	{OP_LDB,	0,   0, ETH_HLEN + VLAN_HLEN	},  \
-	{OP_AND,	0,   0, PTP_GEN_BIT		},  \
-	{OP_JEQ,	0,  12, 0			},  \
-	{OP_LDH,	0,   0, ETH_HLEN + VLAN_HLEN	},  \
-	{OP_AND,	0,   0, PTP_CLASS_VMASK		},  \
-	{OP_OR,		0,   0, PTP_CLASS_VLAN		},  \
-	{OP_RETA,	0,   0, 0			},  \
-	{OP_JEQ,	0,   7, ETH_P_1588		},  \
-	{OP_LDB,	0,   0, ETH_HLEN		},  \
-	{OP_AND,	0,   0, PTP_GEN_BIT		},  \
-	{OP_JEQ,	0,   4, 0			},  \
-	{OP_LDH,	0,   0, ETH_HLEN		},  \
-	{OP_AND,	0,   0, PTP_CLASS_VMASK		},  \
-	{OP_OR,		0,   0, PTP_CLASS_L2		},  \
-	{OP_RETA,	0,   0, 0			},  \
-	{OP_RETK,	0,   0, PTP_CLASS_NONE		},
+	{OP_LDH,	0,   0, OFF_ETYPE		}, /*              */ \
+	{OP_JEQ,	0,  12, ETH_P_IP		}, /* f goto L20   */ \
+	{OP_LDB,	0,   0, OFF_PROTO4		}, /*              */ \
+	{OP_JEQ,	0,   9, IPPROTO_UDP		}, /* f goto L10   */ \
+	{OP_LDH,	0,   0, OFF_FRAG		}, /*              */ \
+	{OP_JSET,	7,   0, 0x1fff			}, /* t goto L11   */ \
+	{OP_LDX,	0,   0, OFF_IHL			}, /*              */ \
+	{OP_LDHI,	0,   0, RELOFF_DST4		}, /*              */ \
+	{OP_JEQ,	0,   4, PTP_EV_PORT		}, /* f goto L12   */ \
+	{OP_LDHI,	0,   0, ETH_HLEN + UDP_HLEN	}, /*              */ \
+	{OP_AND,	0,   0, PTP_CLASS_VMASK		}, /*              */ \
+	{OP_OR,		0,   0, PTP_CLASS_IPV4		}, /*              */ \
+	{OP_RETA,	0,   0, 0			}, /*              */ \
+/*L1x*/	{OP_RETK,	0,   0, PTP_CLASS_NONE		}, /*              */ \
+/*L20*/	{OP_JEQ,	0,   9, ETH_P_IPV6		}, /* f goto L40   */ \
+	{OP_LDB,	0,   0, ETH_HLEN + OFF_NEXT	}, /*              */ \
+	{OP_JEQ,	0,   6, IPPROTO_UDP		}, /* f goto L30   */ \
+	{OP_LDH,	0,   0, OFF_DST6		}, /*              */ \
+	{OP_JEQ,	0,   4, PTP_EV_PORT		}, /* f goto L31   */ \
+	{OP_LDH,	0,   0, OFF_PTP6		}, /*              */ \
+	{OP_AND,	0,   0, PTP_CLASS_VMASK		}, /*              */ \
+	{OP_OR,		0,   0, PTP_CLASS_IPV6		}, /*              */ \
+	{OP_RETA,	0,   0, 0			}, /*              */ \
+/*L3x*/	{OP_RETK,	0,   0, PTP_CLASS_NONE		}, /*              */ \
+/*L40*/	{OP_JEQ,	0,   9, ETH_P_8021Q		}, /* f goto L50   */ \
+	{OP_LDH,	0,   0, OFF_ETYPE + 4		}, /*              */ \
+	{OP_JEQ,	0,  15, ETH_P_1588		}, /* f goto L60   */ \
+	{OP_LDB,	0,   0, ETH_HLEN + VLAN_HLEN	}, /*              */ \
+	{OP_AND,	0,   0, PTP_GEN_BIT		}, /*              */ \
+	{OP_JEQ,	0,  12, 0			}, /* f goto L6x   */ \
+	{OP_LDH,	0,   0, ETH_HLEN + VLAN_HLEN	}, /*              */ \
+	{OP_AND,	0,   0, PTP_CLASS_VMASK		}, /*              */ \
+	{OP_OR,		0,   0, PTP_CLASS_VLAN		}, /*              */ \
+	{OP_RETA,	0,   0, 0			}, /*              */ \
+/*L50*/	{OP_JEQ,	0,   7, ETH_P_1588		}, /* f goto L61   */ \
+	{OP_LDB,	0,   0, ETH_HLEN		}, /*              */ \
+	{OP_AND,	0,   0, PTP_GEN_BIT		}, /*              */ \
+	{OP_JEQ,	0,   4, 0			}, /* f goto L6x   */ \
+	{OP_LDH,	0,   0, ETH_HLEN		}, /*              */ \
+	{OP_AND,	0,   0, PTP_CLASS_VMASK		}, /*              */ \
+	{OP_OR,		0,   0, PTP_CLASS_L2		}, /*              */ \
+	{OP_RETA,	0,   0, 0			}, /*              */ \
+/*L6x*/	{OP_RETK,	0,   0, PTP_CLASS_NONE		},
 
 #endif

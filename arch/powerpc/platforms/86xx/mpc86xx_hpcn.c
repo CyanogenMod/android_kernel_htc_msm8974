@@ -63,7 +63,7 @@ static int mpc86xx_exclude_device(struct pci_controller *hose,
 
 	return PCIBIOS_SUCCESSFUL;
 }
-#endif 
+#endif /* CONFIG_PCI */
 
 
 static void __init
@@ -122,14 +122,17 @@ mpc86xx_hpcn_show_cpuinfo(struct seq_file *m)
 }
 
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init mpc86xx_hpcn_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
 
 	if (of_flat_dt_is_compatible(root, "fsl,mpc8641hpcn"))
-		return 1;	
+		return 1;	/* Looks good */
 
-	
+	/* Be nice and don't give silent boot death.  Delete this in 2.6.27 */
 	if (of_flat_dt_is_compatible(root, "mpc86xx")) {
 		pr_warning("WARNING: your dts/dtb is old. You must update before the next kernel release\n");
 		return 1;
@@ -143,7 +146,7 @@ mpc86xx_time_init(void)
 {
 	unsigned int temp;
 
-	
+	/* Set the time base to zero */
 	mtspr(SPRN_TBWL, 0);
 	mtspr(SPRN_TBWU, 0);
 

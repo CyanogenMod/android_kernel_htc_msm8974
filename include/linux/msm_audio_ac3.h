@@ -38,4 +38,4 @@ struct msm_audio_ac3_config {
 	unsigned short		channel_routing_mode[6];
 };
 
-#endif 
+#endif /* __MSM_AUDIO_AC3_H */

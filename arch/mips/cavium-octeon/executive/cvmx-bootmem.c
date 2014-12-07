@@ -25,6 +25,10 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/*
+ * Simple allocate only memory allocator.  Used to allocate memory at
+ * application start time.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -33,11 +37,19 @@
 #include <asm/octeon/cvmx-spinlock.h>
 #include <asm/octeon/cvmx-bootmem.h>
 
+/*#define DEBUG */
 
 
 static struct cvmx_bootmem_desc *cvmx_bootmem_desc;
 
+/* See header file for descriptions of functions */
 
+/*
+ * Wrapper functions are provided for reading/writing the size and
+ * next block values as these may not be directly addressible (in 32
+ * bit applications, for instance.)  Offsets of data elements in
+ * bootmem list, must match cvmx_bootmem_block_header_t.
+ */
 #define NEXT_OFFSET 0
 #define SIZE_OFFSET 8
 
@@ -136,9 +148,23 @@ void cvmx_bootmem_unlock(void)
 
 int cvmx_bootmem_init(void *mem_desc_ptr)
 {
+	/* Here we set the global pointer to the bootmem descriptor
+	 * block.  This pointer will be used directly, so we will set
+	 * it up to be directly usable by the application.  It is set
+	 * up as follows for the various runtime/ABI combinations:
+	 *
+	 * Linux 64 bit: Set XKPHYS bit
+	 * Linux 32 bit: use mmap to create mapping, use virtual address
+	 * CVMX 64 bit:  use physical address directly
+	 * CVMX 32 bit:  use physical address directly
+	 *
+	 * Note that the CVMX environment assumes the use of 1-1 TLB
+	 * mappings so that the physical addresses can be used
+	 * directly
+	 */
 	if (!cvmx_bootmem_desc) {
 #if   defined(CVMX_ABI_64)
-		
+		/* Set XKPHYS bit */
 		cvmx_bootmem_desc = cvmx_phys_to_ptr(CAST64(mem_desc_ptr));
 #else
 		cvmx_bootmem_desc = (struct cvmx_bootmem_desc *) mem_desc_ptr;
@@ -148,6 +174,13 @@ int cvmx_bootmem_init(void *mem_desc_ptr)
 	return 0;
 }
 
+/*
+ * The cvmx_bootmem_phy* functions below return 64 bit physical
+ * addresses, and expose more features that the cvmx_bootmem_functions
+ * above.  These are required for full memory space access in 32 bit
+ * applications, as well as for using some advance features.  Most
+ * applications should not need to use these.
+ */
 
 int64_t cvmx_bootmem_phy_alloc(uint64_t req_size, uint64_t address_min,
 			       uint64_t address_max, uint64_t alignment,
@@ -156,7 +189,7 @@ int64_t cvmx_bootmem_phy_alloc(uint64_t req_size, uint64_t address_min,
 
 	uint64_t head_addr;
 	uint64_t ent_addr;
-	
+	/* points to previous list entry, NULL current entry is head of list */
 	uint64_t prev_addr = 0;
 	uint64_t new_ent_addr = 0;
 	uint64_t desired_min_addr;
@@ -179,31 +212,58 @@ int64_t cvmx_bootmem_phy_alloc(uint64_t req_size, uint64_t address_min,
 		goto error_out;
 	}
 
+	/*
+	 * Do a variety of checks to validate the arguments.  The
+	 * allocator code will later assume that these checks have
+	 * been made.  We validate that the requested constraints are
+	 * not self-contradictory before we look through the list of
+	 * available memory.
+	 */
 
-	
+	/* 0 is not a valid req_size for this allocator */
 	if (!req_size)
 		goto error_out;
 
-	
+	/* Round req_size up to mult of minimum alignment bytes */
 	req_size = (req_size + (CVMX_BOOTMEM_ALIGNMENT_SIZE - 1)) &
 		~(CVMX_BOOTMEM_ALIGNMENT_SIZE - 1);
 
+	/*
+	 * Convert !0 address_min and 0 address_max to special case of
+	 * range that specifies an exact memory block to allocate.  Do
+	 * this before other checks and adjustments so that this
+	 * tranformation will be validated.
+	 */
 	if (address_min && !address_max)
 		address_max = address_min + req_size;
 	else if (!address_min && !address_max)
-		address_max = ~0ull;  
+		address_max = ~0ull;  /* If no limits given, use max limits */
 
 
+	/*
+	 * Enforce minimum alignment (this also keeps the minimum free block
+	 * req_size the same as the alignment req_size.
+	 */
 	if (alignment < CVMX_BOOTMEM_ALIGNMENT_SIZE)
 		alignment = CVMX_BOOTMEM_ALIGNMENT_SIZE;
 
+	/*
+	 * Adjust address minimum based on requested alignment (round
+	 * up to meet alignment).  Do this here so we can reject
+	 * impossible requests up front. (NOP for address_min == 0)
+	 */
 	if (alignment)
 		address_min = ALIGN(address_min, alignment);
 
+	/*
+	 * Reject inconsistent args.  We have adjusted these, so this
+	 * may fail due to our internal changes even if this check
+	 * would pass for the values the user supplied.
+	 */
 	if (req_size > address_max - address_min)
 		goto error_out;
 
-	
+	/* Walk through the list entries - first fit found is returned */
 
 	if (!(flags & CVMX_BOOTMEM_FLAG_NO_LOCKING))
 		cvmx_bootmem_lock();
@@ -225,23 +285,50 @@ int64_t cvmx_bootmem_phy_alloc(uint64_t req_size, uint64_t address_min,
 			goto error_out;
 		}
 
+		/*
+		 * Determine if this is an entry that can satisify the
+		 * request Check to make sure entry is large enough to
+		 * satisfy request.
+		 */
 		usable_base =
 		    ALIGN(max(address_min, ent_addr), alignment);
 		usable_max = min(address_max, ent_addr + ent_size);
+		/*
+		 * We should be able to allocate block at address
+		 * usable_base.
+		 */
 
 		desired_min_addr = usable_base;
+		/*
+		 * Determine if request can be satisfied from the
+		 * current entry.
+		 */
 		if (!((ent_addr + ent_size) > usable_base
 				&& ent_addr < address_max
 				&& req_size <= usable_max - usable_base))
 			continue;
+		/*
+		 * We have found an entry that has room to satisfy the
+		 * request, so allocate it from this entry.  If end
+		 * CVMX_BOOTMEM_FLAG_END_ALLOC set, then allocate from
+		 * the end of this block rather than the beginning.
+		 */
 		if (flags & CVMX_BOOTMEM_FLAG_END_ALLOC) {
 			desired_min_addr = usable_max - req_size;
+			/*
+			 * Align desired address down to required
+			 * alignment.
+			 */
 			desired_min_addr &= ~(alignment - 1);
 		}
 
-		
+		/* Match at start of entry */
 		if (desired_min_addr == ent_addr) {
 			if (req_size < ent_size) {
+				/*
+				 * big enough to create a new block
+				 * from top portion of block.
+				 */
 				new_ent_addr = ent_addr + req_size;
 				cvmx_bootmem_phy_set_next(new_ent_addr,
 					cvmx_bootmem_phy_get_next(ent_addr));
@@ -249,14 +336,26 @@ int64_t cvmx_bootmem_phy_alloc(uint64_t req_size, uint64_t address_min,
 							ent_size -
 							req_size);
 
+				/*
+				 * Adjust next pointer as following
+				 * code uses this.
+				 */
 				cvmx_bootmem_phy_set_next(ent_addr,
 							new_ent_addr);
 			}
 
+			/*
+			 * adjust prev ptr or head to remove this
+			 * entry from list.
+			 */
 			if (prev_addr)
 				cvmx_bootmem_phy_set_next(prev_addr,
 					cvmx_bootmem_phy_get_next(ent_addr));
 			else
+				/*
+				 * head of list being returned, so
+				 * update head ptr.
+				 */
 				cvmx_bootmem_desc->head_addr =
 					cvmx_bootmem_phy_get_next(ent_addr);
 
@@ -264,6 +363,17 @@ int64_t cvmx_bootmem_phy_alloc(uint64_t req_size, uint64_t address_min,
 				cvmx_bootmem_unlock();
 			return desired_min_addr;
 		}
+		/*
+		 * block returned doesn't start at beginning of entry,
+		 * so we know that we will be splitting a block off
+		 * the front of this one.  Create a new block from the
+		 * beginning, add to list, and go to top of loop
+		 * again.
+		 *
+		 * create new block from high portion of
+		 * block, so that top block starts at desired
+		 * addr.
+		 */
 		new_ent_addr = desired_min_addr;
 		cvmx_bootmem_phy_set_next(new_ent_addr,
 					cvmx_bootmem_phy_get_next
@@ -276,10 +386,10 @@ int64_t cvmx_bootmem_phy_alloc(uint64_t req_size, uint64_t address_min,
 		cvmx_bootmem_phy_set_size(ent_addr,
 					desired_min_addr - ent_addr);
 		cvmx_bootmem_phy_set_next(ent_addr, new_ent_addr);
-		
+		/* Loop again to handle actual alloc from new block */
 	}
 error_out:
-	
+	/* We didn't find anything, so return error */
 	if (!(flags & CVMX_BOOTMEM_FLAG_NO_LOCKING))
 		cvmx_bootmem_unlock();
 	return -1;
@@ -288,7 +398,7 @@ error_out:
 int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 {
 	uint64_t cur_addr;
-	uint64_t prev_addr = 0;	
+	uint64_t prev_addr = 0;	/* zero is invalid */
 	int retval = 0;
 
 #ifdef DEBUG
@@ -304,7 +414,7 @@ int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 		return 0;
 	}
 
-	
+	/* 0 is not a valid size for this allocator */
 	if (!size)
 		return 0;
 
@@ -312,11 +422,11 @@ int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 		cvmx_bootmem_lock();
 	cur_addr = cvmx_bootmem_desc->head_addr;
 	if (cur_addr == 0 || phy_addr < cur_addr) {
-		
+		/* add at front of list - special case with changing head ptr */
 		if (cur_addr && phy_addr + size > cur_addr)
-			goto bootmem_free_done;	
+			goto bootmem_free_done;	/* error, overlapping section */
 		else if (phy_addr + size == cur_addr) {
-			
+			/* Add to front of existing first block */
 			cvmx_bootmem_phy_set_next(phy_addr,
 						  cvmx_bootmem_phy_get_next
 						  (cur_addr));
@@ -326,7 +436,7 @@ int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 			cvmx_bootmem_desc->head_addr = phy_addr;
 
 		} else {
-			
+			/* New block before first block.  OK if cur_addr is 0 */
 			cvmx_bootmem_phy_set_next(phy_addr, cur_addr);
 			cvmx_bootmem_phy_set_size(phy_addr, size);
 			cvmx_bootmem_desc->head_addr = phy_addr;
@@ -335,13 +445,18 @@ int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 		goto bootmem_free_done;
 	}
 
-	
+	/* Find place in list to add block */
 	while (cur_addr && phy_addr > cur_addr) {
 		prev_addr = cur_addr;
 		cur_addr = cvmx_bootmem_phy_get_next(cur_addr);
 	}
 
 	if (!cur_addr) {
+		/*
+		 * We have reached the end of the list, add on to end,
+		 * checking to see if we need to combine with last
+		 * block
+		 */
 		if (prev_addr + cvmx_bootmem_phy_get_size(prev_addr) ==
 		    phy_addr) {
 			cvmx_bootmem_phy_set_size(prev_addr,
@@ -355,14 +470,18 @@ int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 		retval = 1;
 		goto bootmem_free_done;
 	} else {
+		/*
+		 * insert between prev and cur nodes, checking for
+		 * merge with either/both.
+		 */
 		if (prev_addr + cvmx_bootmem_phy_get_size(prev_addr) ==
 		    phy_addr) {
-			
+			/* Merge with previous */
 			cvmx_bootmem_phy_set_size(prev_addr,
 						  cvmx_bootmem_phy_get_size
 						  (prev_addr) + size);
 			if (phy_addr + size == cur_addr) {
-				
+				/* Also merge with current */
 				cvmx_bootmem_phy_set_size(prev_addr,
 					cvmx_bootmem_phy_get_size(cur_addr) +
 					cvmx_bootmem_phy_get_size(prev_addr));
@@ -372,7 +491,7 @@ int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 			retval = 1;
 			goto bootmem_free_done;
 		} else if (phy_addr + size == cur_addr) {
-			
+			/* Merge with current */
 			cvmx_bootmem_phy_set_size(phy_addr,
 						  cvmx_bootmem_phy_get_size
 						  (cur_addr) + size);
@@ -384,7 +503,7 @@ int __cvmx_bootmem_phy_free(uint64_t phy_addr, uint64_t size, uint32_t flags)
 			goto bootmem_free_done;
 		}
 
-		
+		/* It is a standalone block, add in between prev and cur */
 		cvmx_bootmem_phy_set_size(phy_addr, size);
 		cvmx_bootmem_phy_set_next(phy_addr, cur_addr);
 		cvmx_bootmem_phy_set_next(prev_addr, phy_addr);
@@ -408,10 +527,14 @@ struct cvmx_bootmem_named_block_desc *
 #ifdef DEBUG
 	cvmx_dprintf("cvmx_bootmem_phy_named_block_find: %s\n", name);
 #endif
+	/*
+	 * Lock the structure to make sure that it is not being
+	 * changed while we are examining it.
+	 */
 	if (!(flags & CVMX_BOOTMEM_FLAG_NO_LOCKING))
 		cvmx_bootmem_lock();
 
-	
+	/* Use XKPHYS for 64 bit linux */
 	named_block_array_ptr = (struct cvmx_bootmem_named_block_desc *)
 	    cvmx_phys_to_ptr(cvmx_bootmem_desc->named_block_array_addr);
 
@@ -463,6 +586,10 @@ int cvmx_bootmem_phy_named_block_free(char *name, uint32_t flags)
 	cvmx_dprintf("cvmx_bootmem_phy_named_block_free: %s\n", name);
 #endif
 
+	/*
+	 * Take lock here, as name lookup/block free/name free need to
+	 * be atomic.
+	 */
 	cvmx_bootmem_lock();
 
 	named_block_ptr =
@@ -480,11 +607,11 @@ int cvmx_bootmem_phy_named_block_free(char *name, uint32_t flags)
 					named_block_ptr->size,
 					CVMX_BOOTMEM_FLAG_NO_LOCKING);
 		named_block_ptr->size = 0;
-		
+		/* Set size to zero to indicate block not used. */
 	}
 
 	cvmx_bootmem_unlock();
-	return named_block_ptr != NULL;	
+	return named_block_ptr != NULL;	/* 0 on failure, 1 on success */
 }
 
 int64_t cvmx_bootmem_phy_named_block_alloc(uint64_t size, uint64_t min_addr,
@@ -514,14 +641,22 @@ int64_t cvmx_bootmem_phy_named_block_alloc(uint64_t size, uint64_t min_addr,
 		return -1;
 	}
 
+	/*
+	 * Take lock here, as name lookup/block alloc/name add need to
+	 * be atomic.
+	 */
 	if (!(flags & CVMX_BOOTMEM_FLAG_NO_LOCKING))
 		cvmx_spinlock_lock((cvmx_spinlock_t *)&(cvmx_bootmem_desc->lock));
 
-	
+	/* Get pointer to first available named block descriptor */
 	named_block_desc_ptr =
 		cvmx_bootmem_phy_named_block_find(NULL,
 						  flags | CVMX_BOOTMEM_FLAG_NO_LOCKING);
 
+	/*
+	 * Check to see if name already in use, return error if name
+	 * not available or no more room for blocks.
+	 */
 	if (cvmx_bootmem_phy_named_block_find(name,
 					      flags | CVMX_BOOTMEM_FLAG_NO_LOCKING) || !named_block_desc_ptr) {
 		if (!(flags & CVMX_BOOTMEM_FLAG_NO_LOCKING))
@@ -530,6 +665,12 @@ int64_t cvmx_bootmem_phy_named_block_alloc(uint64_t size, uint64_t min_addr,
 	}
 
 
+	/*
+	 * Round size up to mult of minimum alignment bytes We need
+	 * the actual size allocated to allow for blocks to be
+	 * coallesced when they are freed.  The alloc routine does the
+	 * same rounding up on all allocations.
+	 */
 	size = ALIGN(size, CVMX_BOOTMEM_ALIGNMENT_SIZE);
 
 	addr_allocated = cvmx_bootmem_phy_alloc(size, min_addr, max_addr,

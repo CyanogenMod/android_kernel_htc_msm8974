@@ -35,6 +35,7 @@ MODULE_DESCRIPTION("driver for cx2388x VP3054 design");
 MODULE_AUTHOR("Chris Pascoe <c.pascoe@itee.uq.edu.au>");
 MODULE_LICENSE("GPL");
 
+/* ----------------------------------------------------------------------- */
 
 static void vp3054_bit_setscl(void *data, int state)
 {
@@ -43,11 +44,11 @@ static void vp3054_bit_setscl(void *data, int state)
 	struct vp3054_i2c_state *vp3054_i2c = dev->vp3054;
 
 	if (state) {
-		vp3054_i2c->state |=  0x0001;	
-		vp3054_i2c->state &= ~0x0100;	
+		vp3054_i2c->state |=  0x0001;	/* SCL high */
+		vp3054_i2c->state &= ~0x0100;	/* external pullup */
 	} else {
-		vp3054_i2c->state &= ~0x0001;	
-		vp3054_i2c->state |=  0x0100;	
+		vp3054_i2c->state &= ~0x0001;	/* SCL low */
+		vp3054_i2c->state |=  0x0100;	/* drive pin */
 	}
 	cx_write(MO_GP0_IO, 0x010000 | vp3054_i2c->state);
 	cx_read(MO_GP0_IO);
@@ -60,11 +61,11 @@ static void vp3054_bit_setsda(void *data, int state)
 	struct vp3054_i2c_state *vp3054_i2c = dev->vp3054;
 
 	if (state) {
-		vp3054_i2c->state |=  0x0002;	
-		vp3054_i2c->state &= ~0x0200;	
+		vp3054_i2c->state |=  0x0002;	/* SDA high */
+		vp3054_i2c->state &= ~0x0200;	/* tristate pin */
 	} else {
-		vp3054_i2c->state &= ~0x0002;	
-		vp3054_i2c->state |=  0x0200;	
+		vp3054_i2c->state &= ~0x0002;	/* SDA low */
+		vp3054_i2c->state |=  0x0200;	/* drive pin */
 	}
 	cx_write(MO_GP0_IO, 0x020000 | vp3054_i2c->state);
 	cx_read(MO_GP0_IO);
@@ -90,6 +91,7 @@ static int vp3054_bit_getsda(void *data)
 	return (state & 0x02) ? 1 : 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_algo_bit_data vp3054_i2c_algo_template = {
 	.setsda  = vp3054_bit_setsda,
@@ -100,6 +102,7 @@ static const struct i2c_algo_bit_data vp3054_i2c_algo_template = {
 	.timeout = 200,
 };
 
+/* ----------------------------------------------------------------------- */
 
 int vp3054_i2c_probe(struct cx8802_dev *dev)
 {

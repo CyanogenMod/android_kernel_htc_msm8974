@@ -16,6 +16,8 @@
 #include "drm_crtc_helper.h"
 #include "udl_drv.h"
 
+/* dummy connector to just get EDID,
+   all UDL appear to have a DVI-D */
 
 static u8 *udl_get_edid(struct udl_device *udl)
 {

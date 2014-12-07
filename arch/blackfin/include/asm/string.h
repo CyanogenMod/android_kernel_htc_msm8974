@@ -9,7 +9,7 @@
 
 #include <linux/types.h>
 
-#ifdef __KERNEL__		
+#ifdef __KERNEL__		/* only set these up for kernel code */
 
 #define __HAVE_ARCH_STRCPY
 extern char *strcpy(char *dest, const char *src);
@@ -34,5 +34,5 @@ extern void *memchr(const void *s, int c, size_t n);
 #define	__HAVE_ARCH_MEMMOVE
 extern void *memmove(void *dest, const void *src, size_t count);
 
-#endif 
-#endif				
+#endif /*__KERNEL__*/
+#endif				/* _BLACKFIN_STRING_H_ */

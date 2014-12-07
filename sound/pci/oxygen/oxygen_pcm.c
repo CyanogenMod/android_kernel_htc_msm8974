@@ -24,7 +24,9 @@
 #include <sound/pcm_params.h>
 #include "oxygen.h"
 
+/* most DMA channels have a 16-bit counter for 32-bit words */
 #define BUFFER_BYTES_MAX		((1 << 16) * 4)
+/* the multichannel DMA channel has a 24-bit counter */
 #define BUFFER_BYTES_MAX_MULTICH	((1 << 24) * 4)
 
 #define PERIOD_BYTES_MIN		64
@@ -251,7 +253,7 @@ static unsigned int oxygen_rate(struct snd_pcm_hw_params *hw_params)
 		return OXYGEN_RATE_32000;
 	case 44100:
 		return OXYGEN_RATE_44100;
-	default: 
+	default: /* 48000 */
 		return OXYGEN_RATE_48000;
 	case 64000:
 		return OXYGEN_RATE_64000;
@@ -277,7 +279,7 @@ static unsigned int oxygen_i2s_bits(struct snd_pcm_hw_params *hw_params)
 static unsigned int oxygen_play_channels(struct snd_pcm_hw_params *hw_params)
 {
 	switch (params_channels(hw_params)) {
-	default: 
+	default: /* 2 */
 		return OXYGEN_PLAY_CHANNELS_2;
 	case 4:
 		return OXYGEN_PLAY_CHANNELS_4;
@@ -593,7 +595,7 @@ static snd_pcm_uframes_t oxygen_pointer(struct snd_pcm_substream *substream)
 	unsigned int channel = oxygen_substream_channel(substream);
 	u32 curr_addr;
 
-	
+	/* no spinlock, this read should be atomic */
 	curr_addr = oxygen_read32(chip, channel_base_registers[channel]);
 	return bytes_to_frames(runtime, curr_addr - (u32)runtime->dma_addr);
 }

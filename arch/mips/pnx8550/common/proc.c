@@ -75,14 +75,14 @@ static struct proc_dir_entry* pnx8550_registers;
 static int pnx8550_proc_init( void )
 {
 
-	
+	// Create /proc/pnx8550
         pnx8550_dir = proc_mkdir("pnx8550", NULL);
         if (!pnx8550_dir) {
                 printk(KERN_ERR "Can't create pnx8550 proc dir\n");
                 return -1;
         }
 
-	
+	// Create /proc/pnx8550/timers
         pnx8550_timers = create_proc_read_entry(
 		"timers",
 		0,
@@ -93,7 +93,7 @@ static int pnx8550_proc_init( void )
         if (!pnx8550_timers)
                 printk(KERN_ERR "Can't create pnx8550 timers proc file\n");
 
-	
+	// Create /proc/pnx8550/registers
         pnx8550_registers = create_proc_read_entry(
 		"registers",
 		0,

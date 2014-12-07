@@ -24,7 +24,22 @@
 #include "recover.h"
 
 
+/*
+ * Recovery waiting routines: these functions wait for a particular reply from
+ * a remote node, or for the remote node to report a certain status.  They need
+ * to abort if the lockspace is stopped indicating a node has failed (perhaps
+ * the one being waited for).
+ */
 
+/*
+ * Wait until given function returns non-zero or lockspace is stopped
+ * (LS_RECOVERY_STOP set due to failure of a node in ls_nodes).  When another
+ * function thinks it could have completed the waited-on task, they should wake
+ * up ls_wait_general to get an immediate response rather than waiting for the
+ * timer to detect the result.  A timer wakes us up periodically while waiting
+ * to see if we should abort due to a node failure.  This should only be called
+ * by the dlm_recoverd thread.
+ */
 
 static void dlm_wait_timer_fn(unsigned long data)
 {
@@ -53,6 +68,13 @@ int dlm_wait_function(struct dlm_ls *ls, int (*testfn) (struct dlm_ls *ls))
 	return error;
 }
 
+/*
+ * An efficient way for all nodes to wait for all others to have a certain
+ * status.  The node with the lowest nodeid polls all the others for their
+ * status (wait_status_all) and all the others poll the node with the low id
+ * for its accumulated result (wait_status_low).  When all nodes have set
+ * status flag X, then status flag X_ALL will be set on the low nodeid.
+ */
 
 uint32_t dlm_recover_status(struct dlm_ls *ls)
 {
@@ -167,7 +189,7 @@ int dlm_recover_members_wait(struct dlm_ls *ls)
 		if (error)
 			goto out;
 
-		
+		/* slots array is sparse, slots_size may be > num_slots */
 
 		rv = dlm_slots_assign(ls, &num_slots, &slots_size, &slots, &gen);
 		if (!rv) {
@@ -207,6 +229,17 @@ int dlm_recover_done_wait(struct dlm_ls *ls)
 	return wait_status(ls, DLM_RS_DONE);
 }
 
+/*
+ * The recover_list contains all the rsb's for which we've requested the new
+ * master nodeid.  As replies are returned from the resource directories the
+ * rsb's are removed from the list.  When the list is empty we're done.
+ *
+ * The recover_list is later similarly used for all rsb's for which we've sent
+ * new lkb's and need to receive new corresponding lkid's.
+ *
+ * We use the address of the rsb struct as a simple local identifier for the
+ * rsb so we can match an rcom reply with the rsb it was sent for.
+ */
 
 static int recover_list_empty(struct dlm_ls *ls)
 {
@@ -281,7 +314,26 @@ static void recover_list_clear(struct dlm_ls *ls)
 }
 
 
+/* Master recovery: find new master node for rsb's that were
+   mastered on nodes that have been removed.
 
+   dlm_recover_masters
+   recover_master
+   dlm_send_rcom_lookup            ->  receive_rcom_lookup
+                                       dlm_dir_lookup
+   receive_rcom_lookup_reply       <-
+   dlm_recover_master_reply
+   set_new_master
+   set_master_lkbs
+   set_lock_master
+*/
+
+/*
+ * Set the lock master for all LKBs in a lock queue
+ * If we are the new master of the rsb, we may have received new
+ * MSTCPY locks from other nodes already which we need to ignore
+ * when setting the new nodeid.
+ */
 
 static void set_lock_master(struct list_head *queue, int nodeid)
 {
@@ -299,6 +351,12 @@ static void set_master_lkbs(struct dlm_rsb *r)
 	set_lock_master(&r->res_waitqueue, r->res_nodeid);
 }
 
+/*
+ * Propagate the new master nodeid to locks
+ * The NEW_MASTER flag tells dlm_recover_locks() which rsb's to consider.
+ * The NEW_MASTER2 flag tells recover_lvb() and set_locks_purged() which
+ * rsb's to consider.
+ */
 
 static void set_new_master(struct dlm_rsb *r, int nodeid)
 {
@@ -310,6 +368,10 @@ static void set_new_master(struct dlm_rsb *r, int nodeid)
 	unlock_rsb(r);
 }
 
+/*
+ * We do async lookups on rsb's that need new masters.  The rsb's
+ * waiting for a lookup reply are kept on the recover_list.
+ */
 
 static int recover_master(struct dlm_rsb *r)
 {
@@ -335,6 +397,10 @@ static int recover_master(struct dlm_rsb *r)
 	return error;
 }
 
+/*
+ * When not using a directory, most resource names will hash to a new static
+ * master nodeid and the resource will need to be remastered.
+ */
 
 static int recover_master_static(struct dlm_rsb *r)
 {
@@ -352,6 +418,15 @@ static int recover_master_static(struct dlm_rsb *r)
 	return 0;
 }
 
+/*
+ * Go through local root resources and for each rsb which has a master which
+ * has departed, get the new master nodeid from the directory.  The dir will
+ * assign mastery to the first node to look up the new master.  That means
+ * we'll discover in this lookup if we're the new master of any rsb's.
+ *
+ * We fire off all the dir lookup requests individually and asynchronously to
+ * the correct dir node.
+ */
 
 int dlm_recover_masters(struct dlm_ls *ls)
 {
@@ -416,8 +491,23 @@ int dlm_recover_master_reply(struct dlm_ls *ls, struct dlm_rcom *rc)
 }
 
 
+/* Lock recovery: rebuild the process-copy locks we hold on a
+   remastered rsb on the new rsb master.
+
+   dlm_recover_locks
+   recover_locks
+   recover_locks_queue
+   dlm_send_rcom_lock              ->  receive_rcom_lock
+                                       dlm_recover_master_copy
+   receive_rcom_lock_reply         <-
+   dlm_recover_process_copy
+*/
 
 
+/*
+ * keep a count of the number of lkb's we send to the new master; when we get
+ * an equal number of replies then recovery for the rsb is done
+ */
 
 static int recover_locks_queue(struct dlm_rsb *r, struct list_head *head)
 {
@@ -517,6 +607,19 @@ void dlm_recovered_lock(struct dlm_rsb *r)
 		wake_up(&r->res_ls->ls_wait_general);
 }
 
+/*
+ * The lvb needs to be recovered on all master rsb's.  This includes setting
+ * the VALNOTVALID flag if necessary, and determining the correct lvb contents
+ * based on the lvb's of the locks held on the rsb.
+ *
+ * RSB_VALNOTVALID is set if there are only NL/CR locks on the rsb.  If it
+ * was already set prior to recovery, it's not cleared, regardless of locks.
+ *
+ * The LVB contents are only considered for changing when this is a new master
+ * of the rsb (NEW_MASTER2).  Then, the rsb's lvb is taken from any lkb with
+ * mode > CR.  If no lkb's exist with mode above CR, the lvb contents are taken
+ * from the lkb with the largest lvb sequence number.
+ */
 
 static void recover_lvb(struct dlm_rsb *r)
 {
@@ -567,7 +670,7 @@ static void recover_lvb(struct dlm_rsb *r)
 	if (!big_lock_exists)
 		rsb_set_flag(r, RSB_VALNOTVALID);
 
-	
+	/* don't mess with the lvb unless we're the new master */
 	if (!rsb_flag(r, RSB_NEW_MASTER2))
 		goto out;
 
@@ -591,6 +694,8 @@ static void recover_lvb(struct dlm_rsb *r)
 	return;
 }
 
+/* All master rsb's flagged RECOVER_CONVERT need to be looked at.  The locks
+   converting PR->CW or CW->PR need to have their lkb_grmode set. */
 
 static void recover_conversion(struct dlm_rsb *r)
 {
@@ -615,6 +720,9 @@ static void recover_conversion(struct dlm_rsb *r)
 	}
 }
 
+/* We've become the new master for this rsb and waiting/converting locks may
+   need to be granted in dlm_grant_after_purge() due to locks that may have
+   existed from a removed node. */
 
 static void set_locks_purged(struct dlm_rsb *r)
 {
@@ -649,6 +757,7 @@ void dlm_recover_rsbs(struct dlm_ls *ls)
 	log_debug(ls, "dlm_recover_rsbs %d rsbs", count);
 }
 
+/* Create a single list of all root rsb's to be used during recovery */
 
 int dlm_create_root_list(struct dlm_ls *ls)
 {
@@ -671,6 +780,9 @@ int dlm_create_root_list(struct dlm_ls *ls)
 			dlm_hold_rsb(r);
 		}
 
+		/* If we're using a directory, add tossed rsbs to the root
+		   list; they'll have entries created in the new directory,
+		   but no other recovery steps should do anything with them. */
 
 		if (dlm_no_directory(ls)) {
 			spin_unlock(&ls->ls_rsbtbl[i].lock);
@@ -701,6 +813,10 @@ void dlm_release_root_list(struct dlm_ls *ls)
 	up_write(&ls->ls_root_sem);
 }
 
+/* If not using a directory, clear the entire toss list, there's no benefit to
+   caching the master value since it's fixed.  If we are using a dir, keep the
+   rsb's we're the master of.  Recovery will add them to the root list and from
+   there they'll be entered in the rebuilt directory. */
 
 void dlm_clear_toss_list(struct dlm_ls *ls)
 {

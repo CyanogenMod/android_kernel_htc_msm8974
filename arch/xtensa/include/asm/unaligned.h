@@ -26,4 +26,4 @@
 # define put_unaligned	__put_unaligned_be
 #endif
 
-#endif	
+#endif	/* _ASM_XTENSA_UNALIGNED_H */

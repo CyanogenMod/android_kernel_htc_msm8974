@@ -109,18 +109,18 @@ static irqreturn_t sh_keysc_isr(int irq, void *dev_id)
 		for (i = 0; i < keyout_nr; i++) {
 			n = keyin_nr * i;
 
-			
+			/* drive one KEYOUT pin low, read KEYIN pins */
 			sh_keysc_write(priv, KYOUTDR, 0xffff ^ (3 << (i * 2)));
 			udelay(pdata->delay);
 			tmp = sh_keysc_read(priv, KYINDR);
 
-			
+			/* set bit if key press has been detected */
 			for (k = 0; k < keyin_nr; k++) {
 				if (tmp & (1 << k))
 					__set_bit(n + k, keys);
 			}
 
-			
+			/* keep track of which KEYIN bits that have been set */
 			keyin_set |= tmp ^ ((1 << keyin_nr) - 1);
 		}
 

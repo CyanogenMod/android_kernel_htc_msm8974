@@ -183,8 +183,13 @@ static int omap4_pwrdm_wait_transition(struct powerdomain *pwrdm)
 {
 	u32 c = 0;
 
+	/*
+	 * REVISIT: pwrdm_wait_transition() may be better implemented
+	 * via a callback and a periodic timer check -- how long do we expect
+	 * powerdomain transitions to take?
+	 */
 
-	
+	/* XXX Is this udelay() value meaningful? */
 	while ((omap4_prminst_read_inst_reg(pwrdm->prcm_partition,
 					    pwrdm->prcm_offs,
 					    OMAP4_PM_PWSTST) &

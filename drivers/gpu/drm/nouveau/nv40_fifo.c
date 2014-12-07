@@ -63,10 +63,10 @@ nv40_fifo_create_context(struct nouveau_channel *chan)
 #ifdef __BIG_ENDIAN
 			      NV_PFIFO_CACHE1_BIG_ENDIAN |
 #endif
-			      0x30000000 );
+			      0x30000000 /* no idea.. */);
 	nv_wi32(dev, fc + 60, 0x0001FFFF);
 
-	
+	/* enable the fifo dma operation */
 	nv_wr32(dev, NV04_PFIFO_MODE,
 		nv_rd32(dev, NV04_PFIFO_MODE) | (1 << chan->id));
 
@@ -87,7 +87,7 @@ nv40_fifo_do_load_context(struct drm_device *dev, int chid)
 	nv_wr32(dev, NV04_PFIFO_CACHE1_DMA_DCOUNT, nv_ri32(dev, fc + 16));
 	nv_wr32(dev, NV04_PFIFO_CACHE1_DMA_STATE, nv_ri32(dev, fc + 20));
 
-	
+	/* No idea what 0x2058 is.. */
 	tmp   = nv_ri32(dev, fc + 24);
 	tmp2  = nv_rd32(dev, 0x2058) & 0xFFF;
 	tmp2 |= (tmp & 0x30000000);
@@ -105,13 +105,13 @@ nv40_fifo_do_load_context(struct drm_device *dev, int chid)
 	nv_wr32(dev, NV10_PFIFO_CACHE1_DMA_SUBROUTINE, nv_ri32(dev, fc + 52));
 	nv_wr32(dev, NV40_PFIFO_GRCTX_INSTANCE, nv_ri32(dev, fc + 56));
 
-	
+	/* Don't clobber the TIMEOUT_ENABLED flag when restoring from RAMFC */
 	tmp  = nv_rd32(dev, NV04_PFIFO_DMA_TIMESLICE) & ~0x1FFFF;
 	tmp |= nv_ri32(dev, fc + 60) & 0x1FFFF;
 	nv_wr32(dev, NV04_PFIFO_DMA_TIMESLICE, tmp);
 
 	nv_wr32(dev, 0x32e4, nv_ri32(dev, fc + 64));
-	
+	/* NVIDIA does this next line twice... */
 	nv_wr32(dev, 0x32e8, nv_ri32(dev, fc + 68));
 	nv_wr32(dev, 0x2088, nv_ri32(dev, fc + 76));
 	nv_wr32(dev, 0x3300, nv_ri32(dev, fc + 80));
@@ -129,12 +129,12 @@ nv40_fifo_load_context(struct nouveau_channel *chan)
 
 	nv40_fifo_do_load_context(dev, chan->id);
 
-	
+	/* Set channel active, and in DMA mode */
 	nv_wr32(dev, NV03_PFIFO_CACHE1_PUSH1,
 		     NV40_PFIFO_CACHE1_PUSH1_DMA | chan->id);
 	nv_wr32(dev, NV04_PFIFO_CACHE1_DMA_PUSH, 1);
 
-	
+	/* Reset DMA_CTL_AT_INFO to INVALID */
 	tmp = nv_rd32(dev, NV04_PFIFO_CACHE1_DMA_CTL) & ~(1 << 31);
 	nv_wr32(dev, NV04_PFIFO_CACHE1_DMA_CTL, tmp);
 
@@ -170,16 +170,19 @@ nv40_fifo_unload_context(struct drm_device *dev)
 	nv_wi32(dev, fc + 40, tmp);
 	nv_wi32(dev, fc + 44, nv_rd32(dev, NV10_PFIFO_CACHE1_ACQUIRE_TIMEOUT));
 	nv_wi32(dev, fc + 48, nv_rd32(dev, NV10_PFIFO_CACHE1_SEMAPHORE));
+	/* NVIDIA read 0x3228 first, then write DMA_GET here.. maybe something
+	 * more involved depending on the value of 0x3228?
+	 */
 	nv_wi32(dev, fc + 52, nv_rd32(dev, NV04_PFIFO_CACHE1_DMA_GET));
 	nv_wi32(dev, fc + 56, nv_rd32(dev, NV40_PFIFO_GRCTX_INSTANCE));
 	nv_wi32(dev, fc + 60, nv_rd32(dev, NV04_PFIFO_DMA_TIMESLICE) & 0x1ffff);
-	
+	/* No idea what the below is for exactly, ripped from a mmio-trace */
 	nv_wi32(dev, fc + 64, nv_rd32(dev, NV40_PFIFO_UNK32E4));
-	
+	/* NVIDIA do this next line twice.. bug? */
 	nv_wi32(dev, fc + 68, nv_rd32(dev, 0x32e8));
 	nv_wi32(dev, fc + 76, nv_rd32(dev, 0x2088));
 	nv_wi32(dev, fc + 80, nv_rd32(dev, 0x3300));
-#if 0 
+#if 0 /* no real idea which is PUT/GET in UNK_48.. */
 	tmp  = nv_rd32(dev, NV04_PFIFO_CACHE1_GET);
 	tmp |= (nv_rd32(dev, NV04_PFIFO_CACHE1_PUT) << 16);
 	nv_wi32(dev, fc + 72, tmp);
@@ -219,7 +222,7 @@ nv40_fifo_init_reset(struct drm_device *dev)
 	nv_wr32(dev, 0x002420, 0x00000000);
 	nv_wr32(dev, 0x002058, 0x00000001);
 	nv_wr32(dev, 0x00221c, 0x00000000);
-	
+	/* something with 0x2084, read/modify/write, no change */
 	nv_wr32(dev, 0x002040, 0x000000ff);
 	nv_wr32(dev, 0x002500, 0x00000000);
 	nv_wr32(dev, 0x003200, 0x00000000);
@@ -232,7 +235,7 @@ nv40_fifo_init_ramxx(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
-	nv_wr32(dev, NV03_PFIFO_RAMHT, (0x03 << 24)  |
+	nv_wr32(dev, NV03_PFIFO_RAMHT, (0x03 << 24) /* search 128 */ |
 				       ((dev_priv->ramht->bits - 9) << 16) |
 				       (dev_priv->ramht->gpuobj->pinst >> 8));
 	nv_wr32(dev, NV03_PFIFO_RAMRO, dev_priv->ramro->pinst >> 8);

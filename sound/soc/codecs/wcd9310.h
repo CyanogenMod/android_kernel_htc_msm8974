@@ -138,8 +138,8 @@ struct tabla_mbhc_btn_detect_cfg {
 	s16 v_btn_press_delta_sta;
 	s16 v_btn_press_delta_cic;
 	u16 t_btn0_timeout;
-	s16 _v_btn_low[0]; 
-	s16 _v_btn_high[0]; 
+	s16 _v_btn_low[0]; /* v_btn_low[num_btn] */
+	s16 _v_btn_high[0]; /* v_btn_high[num_btn] */
 	u8 _n_ready[TABLA_NUM_CLK_FREQS];
 	u8 _n_cic[TABLA_NUM_CLK_FREQS];
 	u8 _gain[TABLA_NUM_CLK_FREQS];
@@ -153,8 +153,8 @@ struct tabla_mbhc_imped_detect_cfg {
 	u16 _t_dac_ramp_time;
 	u16 _rhph_high;
 	u16 _rhph_low;
-	u16 _rload[0]; 
-	u16 _alpha[0]; 
+	u16 _rload[0]; /* rload[n_rload] */
+	u16 _alpha[0]; /* alpha[n_rload] */
 	u16 _beta[3];
 } __packed;
 
@@ -162,6 +162,14 @@ struct tabla_mbhc_config {
 	struct snd_soc_jack *headset_jack;
 	struct snd_soc_jack *button_jack;
 	bool read_fw_bin;
+	/* void* calibration contains:
+	 *  struct tabla_mbhc_general_cfg generic;
+	 *  struct tabla_mbhc_plug_detect_cfg plug_det;
+	 *  struct tabla_mbhc_plug_type_cfg plug_type;
+	 *  struct tabla_mbhc_btn_detect_cfg btn_det;
+	 *  struct tabla_mbhc_imped_detect_cfg imped_det;
+	 * Note: various size depends on btn_det->num_btn
+	 */
 	void *calibration;
 	enum tabla_micbias_num micbias;
 	int (*mclk_cb_fn) (struct snd_soc_codec*, int, bool);
@@ -170,7 +178,7 @@ struct tabla_mbhc_config {
 	unsigned int gpio_irq;
 	int gpio_level_insert;
 	bool detect_extn_cable;
-	
+	/* swap_gnd_mic returns true if extern GND/MIC swap switch toggled */
 	bool (*swap_gnd_mic) (struct snd_soc_codec *);
 	bool micbias_always_on;
 };
@@ -220,6 +228,9 @@ extern void *tabla_mbhc_cal_btn_det_mp(const struct tabla_mbhc_btn_detect_cfg
 	       sizeof(TABLA_MBHC_CAL_BTN_DET_PTR(cali)->_v_btn_high[0])))) \
 	)
 
+/* minimum size of calibration data assuming there is only one button and
+ * one rload.
+ */
 #define TABLA_MBHC_CAL_MIN_SIZE ( \
 	sizeof(struct tabla_mbhc_general_cfg) + \
 	sizeof(struct tabla_mbhc_plug_detect_cfg) + \
@@ -243,6 +254,7 @@ extern void *tabla_mbhc_cal_btn_det_mp(const struct tabla_mbhc_btn_detect_cfg
 				 sizeof(cfg_ptr->_alpha[0]))))
 
 
+/* Number of input and output Slimbus port */
 enum {
 	TABLA_RX1 = 0,
 	TABLA_RX2,

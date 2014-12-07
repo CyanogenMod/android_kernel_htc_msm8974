@@ -5,7 +5,7 @@
 
 static inline void __delay(unsigned long loops)
 {
-	
+	/* 3 cycles per loop. */
 	__asm__ __volatile__ (
 		"1:\tsubi\t%0, 3\n\t"
 		"cmpz.c\t%0\n\t"
@@ -25,4 +25,4 @@ static inline void __udelay(unsigned long usecs)
 
 #define udelay(usecs) __udelay(usecs)
 
-#endif 
+#endif /* _ASM_SCORE_DELAY_H */

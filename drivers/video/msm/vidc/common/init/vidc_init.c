@@ -576,7 +576,7 @@ u32 vidc_insert_addr_table(struct video_client_ctx *client_ctx,
 		num_of_buffers = &client_ctx->num_of_output_buffers;
 		DBG("%s(): buffer = OUTPUT #Buf = %d\n",
 			__func__, *num_of_buffers);
-		length = length * 2; 
+		length = length * 2; /* workaround for iommu video h/w bug */
 	}
 
 	if (*num_of_buffers == max_num_buffers) {
@@ -692,6 +692,10 @@ bail_out_add:
 }
 EXPORT_SYMBOL(vidc_insert_addr_table);
 
+/*
+ * Similar to vidc_insert_addr_table except intended for in-kernel
+ * use where buffers have already been alloced and mapped properly
+ */
 u32 vidc_insert_addr_table_kernel(struct video_client_ctx *client_ctx,
 	enum buffer_dir buffer, unsigned long user_vaddr,
 	unsigned long kernel_vaddr, unsigned long phys_addr,

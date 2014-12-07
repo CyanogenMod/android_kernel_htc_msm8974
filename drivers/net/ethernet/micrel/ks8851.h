@@ -15,6 +15,7 @@
 #define CCR_SPI					(1 << 8)
 #define CCR_32PIN				(1 << 0)
 
+/* MAC address registers */
 #define KS_MAR(_m)				(0x15 - (_m))
 #define KS_MARL					0x10
 #define KS_MARM					0x12
@@ -247,6 +248,7 @@
 #define PMECR_PM_SOFTDOWN			(0x2 << 0)
 #define PMECR_PM_POWERSAVE			(0x3 << 0)
 
+/* Standard MII PHY data */
 #define KS_P1MBCR				0xE4
 #define KS_P1MBSR				0xE6
 #define KS_PHY1ILR				0xE8
@@ -283,11 +285,13 @@
 #define P1CR_PNTR_10BT_FDX			(1 << 1)
 #define P1CR_PNTR_10BT_HDX			(1 << 0)
 
+/* TX Frame control */
 
 #define TXFR_TXIC				(1 << 15)
 #define TXFR_TXFID_MASK				(0x3f << 0)
 #define TXFR_TXFID_SHIFT			(0)
 
+/* SPI frame opcodes */
 #define KS_SPIOP_RD				(0x00)
 #define KS_SPIOP_WR				(0x40)
 #define KS_SPIOP_RXFIFO				(0x80)

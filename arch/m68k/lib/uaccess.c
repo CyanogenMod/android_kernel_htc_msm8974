@@ -103,6 +103,9 @@ unsigned long __generic_copy_to_user(void __user *to, const void *from,
 }
 EXPORT_SYMBOL(__generic_copy_to_user);
 
+/*
+ * Copy a null terminated string from userspace.
+ */
 long strncpy_from_user(char *dst, const char __user *src, long count)
 {
 	long res;
@@ -136,6 +139,11 @@ long strncpy_from_user(char *dst, const char __user *src, long count)
 }
 EXPORT_SYMBOL(strncpy_from_user);
 
+/*
+ * Return the size of a string (including the ending 0)
+ *
+ * Return 0 on exception, a value greater than N if too long
+ */
 long strnlen_user(const char __user *src, long n)
 {
 	char c;
@@ -169,6 +177,9 @@ long strnlen_user(const char __user *src, long n)
 }
 EXPORT_SYMBOL(strnlen_user);
 
+/*
+ * Zero Userspace
+ */
 
 unsigned long __clear_user(void __user *to, unsigned long n)
 {

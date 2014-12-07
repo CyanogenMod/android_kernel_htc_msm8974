@@ -39,7 +39,7 @@ static int omap3evm_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	int ret;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, 26000000,
 				     SND_SOC_CLOCK_IN);
 	if (ret < 0) {
@@ -54,6 +54,7 @@ static struct snd_soc_ops omap3evm_ops = {
 	.hw_params = omap3evm_hw_params,
 };
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link omap3evm_dai = {
 	.name 		= "TWL4030",
 	.stream_name 	= "TWL4030",
@@ -66,6 +67,7 @@ static struct snd_soc_dai_link omap3evm_dai = {
 	.ops 		= &omap3evm_ops,
 };
 
+/* Audio machine driver */
 static struct snd_soc_card snd_soc_omap3evm = {
 	.name = "omap3evm",
 	.owner = THIS_MODULE,

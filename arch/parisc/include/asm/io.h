@@ -19,6 +19,14 @@ static inline unsigned long isa_virt_to_bus(void *addr) {
 	return 0;
 }
 
+/*
+ * Memory mapped I/O
+ *
+ * readX()/writeX() do byteswapping and take an ioremapped address
+ * __raw_readX()/__raw_writeX() don't byteswap and take an ioremapped address.
+ * gsc_*() don't byteswap and operate on physical addresses;
+ *   eg dev->hpa or 0xfee00000.
+ */
 
 static inline unsigned char gsc_readb(unsigned long addr)
 {
@@ -68,7 +76,7 @@ static inline unsigned long long gsc_readq(unsigned long addr)
 	"	ldda	0(%1),%0\n"
 	:  "=r" (ret) : "r" (addr) );
 #else
-	
+	/* two reads may have side effects.. */
 	ret = ((u64) gsc_readl(addr)) << 32;
 	ret |= gsc_readl(addr+4);
 #endif
@@ -109,15 +117,21 @@ static inline void gsc_writeq(unsigned long long val, unsigned long addr)
 	"	stda	%0,0(%1)\n"
 	: :  "r" (val), "r" (addr) );
 #else
-	
+	/* two writes may have side effects.. */
 	gsc_writel(val >> 32, addr);
 	gsc_writel(val, addr+4);
 #endif
 }
 
+/*
+ * The standard PCI ioremap interfaces
+ */
 
 extern void __iomem * __ioremap(unsigned long offset, unsigned long size, unsigned long flags);
 
+/* Most machines react poorly to I/O-space being cacheable... Instead let's
+ * define ioremap() in terms of ioremap_nocache().
+ */
 static inline void __iomem * ioremap(unsigned long offset, unsigned long size)
 {
 	return __ioremap(offset, size, _PAGE_NO_CACHE);
@@ -214,6 +228,7 @@ void memset_io(volatile void __iomem *addr, unsigned char val, int count);
 void memcpy_fromio(void *dst, const volatile void __iomem *src, int count);
 void memcpy_toio(volatile void __iomem *dst, const void *src, int count);
 
+/* Port-space IO */
 
 #define inb_p inb
 #define inw_p inw
@@ -268,6 +283,9 @@ static inline int inl(unsigned long addr)
 #define outl(x, y)	BUG()
 #endif
 
+/*
+ * String versions of in/out ops:
+ */
 extern void insb (unsigned long port, void *dst, unsigned long count);
 extern void insw (unsigned long port, void *dst, unsigned long count);
 extern void insl (unsigned long port, void *dst, unsigned long count);
@@ -276,14 +294,27 @@ extern void outsw (unsigned long port, const void *src, unsigned long count);
 extern void outsl (unsigned long port, const void *src, unsigned long count);
 
 
+/* IO Port space is :      BBiiii   where BB is HBA number. */
 #define IO_SPACE_LIMIT 0x00ffffff
 
+/* PA machines have an MM I/O space from 0xf0000000-0xffffffff in 32
+ * bit mode and from 0xfffffffff0000000-0xfffffffffffffff in 64 bit
+ * mode (essentially just sign extending.  This macro takes in a 32
+ * bit I/O address (still with the leading f) and outputs the correct
+ * value for either 32 or 64 bit mode */
 #define F_EXTEND(x) ((unsigned long)((x) | (0xffffffff00000000ULL)))
 
 #include <asm-generic/iomap.h>
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
 #endif

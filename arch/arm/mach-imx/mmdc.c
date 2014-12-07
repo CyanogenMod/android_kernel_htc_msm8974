@@ -33,12 +33,12 @@ static int __devinit imx_mmdc_probe(struct platform_device *pdev)
 
 	reg = mmdc_base + MMDC_MAPSR;
 
-	
+	/* Enable automatic power saving */
 	val = readl_relaxed(reg);
 	val &= ~(1 << BP_MMDC_MAPSR_PSD);
 	writel_relaxed(val, reg);
 
-	
+	/* Ensure it's successfully enabled */
 	while (!(readl_relaxed(reg) & 1 << BP_MMDC_MAPSR_PSS) && --timeout)
 		cpu_relax();
 
@@ -53,7 +53,7 @@ static int __devinit imx_mmdc_probe(struct platform_device *pdev)
 
 static struct of_device_id imx_mmdc_dt_ids[] = {
 	{ .compatible = "fsl,imx6q-mmdc", },
-	{  }
+	{ /* sentinel */ }
 };
 
 static struct platform_driver imx_mmdc_driver = {

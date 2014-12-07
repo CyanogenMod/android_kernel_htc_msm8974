@@ -21,6 +21,7 @@
 
 #define EXTINT_OFF (IRQ_EINT4 - 4)
 
+/* these are exported for arch/arm/mach-* usage */
 extern struct irq_chip s3c_irq_level_chip;
 extern struct irq_chip s3c_irq_chip;
 
@@ -36,12 +37,12 @@ static inline void s3c_irqsub_mask(unsigned int irqno,
 
 	submask |= (1UL << (irqno - IRQ_S3CUART_RX0));
 
-	
+	/* check to see if we need to mask the parent IRQ */
 
 	if ((submask  & subcheck) == subcheck)
 		__raw_writel(mask | parentbit, S3C2410_INTMSK);
 
-	
+	/* write back masks */
 	__raw_writel(submask, S3C2410_INTSUBMSK);
 
 }
@@ -58,7 +59,7 @@ static inline void s3c_irqsub_unmask(unsigned int irqno,
 	submask &= ~(1UL << (irqno - IRQ_S3CUART_RX0));
 	mask &= ~parentbit;
 
-	
+	/* write back masks */
 	__raw_writel(submask, S3C2410_INTSUBMSK);
 	__raw_writel(mask, S3C2410_INTMSK);
 }
@@ -74,6 +75,10 @@ static inline void s3c_irqsub_maskack(unsigned int irqno,
 
 	__raw_writel(bit, S3C2410_SUBSRCPND);
 
+	/* only ack parent if we've got all the irqs (seems we must
+	 * ack, all and hope that the irq system retriggers ok when
+	 * the interrupt goes off again)
+	 */
 
 	if (1) {
 		__raw_writel(parentmask, S3C2410_SRCPND);
@@ -89,6 +94,10 @@ static inline void s3c_irqsub_ack(unsigned int irqno,
 
 	__raw_writel(bit, S3C2410_SUBSRCPND);
 
+	/* only ack parent if we've got all the irqs (seems we must
+	 * ack, all and hope that the irq system retriggers ok when
+	 * the interrupt goes off again)
+	 */
 
 	if (1) {
 		__raw_writel(parentmask, S3C2410_SRCPND);
@@ -96,6 +105,7 @@ static inline void s3c_irqsub_ack(unsigned int irqno,
 	}
 }
 
+/* exported for use in arch/arm/mach-s3c2410 */
 
 #ifdef CONFIG_PM
 extern int s3c_irq_wake(struct irq_data *data, unsigned int state);

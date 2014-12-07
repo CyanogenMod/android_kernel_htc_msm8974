@@ -34,7 +34,7 @@ static inline void dma_free_noncoherent(struct device *dev, size_t size,
 static inline void dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 				  enum dma_data_direction dir)
 {
-	
+	/* we use coherent allocation, so not much to do here. */
 }
 
 extern dma_addr_t dma_map_single(struct device *, void *, size_t,
@@ -68,7 +68,7 @@ static inline void dma_sync_single_range_for_device(struct device *dev,
 		dma_addr_t dma_handle, unsigned long offset, size_t size,
 		enum dma_data_direction direction)
 {
-	
+	/* just sync everything for now */
 	dma_sync_single_for_device(dev, dma_handle, offset + size, direction);
 }
 
@@ -86,7 +86,7 @@ static inline void dma_sync_single_range_for_cpu(struct device *dev,
 		dma_addr_t dma_handle, unsigned long offset, size_t size,
 		enum dma_data_direction direction)
 {
-	
+	/* just sync everything for now */
 	dma_sync_single_for_cpu(dev, dma_handle, offset + size, direction);
 }
 
@@ -99,4 +99,4 @@ static inline int dma_mapping_error(struct device *dev, dma_addr_t handle)
 #include <asm-generic/dma-mapping-broken.h>
 #endif
 
-#endif  
+#endif  /* _M68K_DMA_MAPPING_H */

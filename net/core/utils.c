@@ -36,12 +36,20 @@ int net_msg_warn __read_mostly = 1;
 EXPORT_SYMBOL(net_msg_warn);
 
 DEFINE_RATELIMIT_STATE(net_ratelimit_state, 5 * HZ, 10);
+/*
+ * All net warning printk()s should be guarded by this function.
+ */
 int net_ratelimit(void)
 {
 	return __ratelimit(&net_ratelimit_state);
 }
 EXPORT_SYMBOL(net_ratelimit);
 
+/*
+ * Convert an ASCII string to binary IP.
+ * This is outside of net/ipv4/ because various code that uses IP addresses
+ * is otherwise not dependent on the TCP/IP stack.
+ */
 
 __be32 in_aton(const char *str)
 {
@@ -74,12 +82,12 @@ EXPORT_SYMBOL(in_aton);
 #define IN6PTON_XDIGIT		0x00010000
 #define IN6PTON_DIGIT		0x00020000
 #define IN6PTON_COLON_MASK	0x00700000
-#define IN6PTON_COLON_1		0x00100000	
-#define IN6PTON_COLON_2		0x00200000	
-#define IN6PTON_COLON_1_2	0x00400000	
-#define IN6PTON_DOT		0x00800000	
+#define IN6PTON_COLON_1		0x00100000	/* single : requested */
+#define IN6PTON_COLON_2		0x00200000	/* second : requested */
+#define IN6PTON_COLON_1_2	0x00400000	/* :: requested */
+#define IN6PTON_DOT		0x00800000	/* . */
 #define IN6PTON_DELIM		0x10000000
-#define IN6PTON_NULL		0x20000000	
+#define IN6PTON_NULL		0x20000000	/* first/tail */
 #define IN6PTON_UNKNOWN		0x40000000
 
 static inline int xdigit2bin(char c, int delim)
@@ -182,16 +190,21 @@ int in6_pton(const char *src, int srclen,
 		if (!(c & state))
 			goto out;
 		if (c & (IN6PTON_DELIM | IN6PTON_COLON_MASK)) {
-			
+			/* process one 16-bit word */
 			if (!(state & IN6PTON_NULL)) {
 				*d++ = (w >> 8) & 0xff;
 				*d++ = w & 0xff;
 			}
 			w = 0;
 			if (c & IN6PTON_DELIM) {
-				
+				/* We've processed last word */
 				break;
 			}
+			/*
+			 * COLON_1 => XDIGIT
+			 * COLON_2 => XDIGIT|DELIM
+			 * COLON_1_2 => COLON_2
+			 */
 			switch (state & IN6PTON_COLON_MASK) {
 			case IN6PTON_COLON_2:
 				dc = d;
@@ -288,11 +301,11 @@ int mac_pton(const char *s, u8 *mac)
 {
 	int i;
 
-	
+	/* XX:XX:XX:XX:XX:XX */
 	if (strlen(s) < 3 * ETH_ALEN - 1)
 		return 0;
 
-	
+	/* Don't dirty result unless string is valid MAC. */
 	for (i = 0; i < ETH_ALEN; i++) {
 		if (!strchr("0123456789abcdefABCDEF", s[i * 3]))
 			return 0;

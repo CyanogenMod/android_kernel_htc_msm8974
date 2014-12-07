@@ -25,7 +25,7 @@
 #define DEVICE_NAME		"ps3vram"
 
 
-#define XDR_BUF_SIZE (2 * 1024 * 1024) 
+#define XDR_BUF_SIZE (2 * 1024 * 1024) /* XDR buffer (must be 1MiB aligned) */
 #define XDR_IOIF 0x0c000000
 
 #define FIFO_BASE XDR_IOIF
@@ -82,7 +82,7 @@ struct ps3vram_priv {
 
 	struct ps3vram_cache cache;
 
-	spinlock_t lock;	
+	spinlock_t lock;	/* protecting list of bios */
 	struct bio_list list;
 };
 
@@ -95,10 +95,10 @@ static const struct block_device_operations ps3vram_fops = {
 };
 
 
-#define DMA_NOTIFIER_HANDLE_BASE 0x66604200 
-#define DMA_NOTIFIER_OFFSET_BASE 0x1000     
+#define DMA_NOTIFIER_HANDLE_BASE 0x66604200 /* first DMA notifier handle */
+#define DMA_NOTIFIER_OFFSET_BASE 0x1000     /* first DMA notifier offset */
 #define DMA_NOTIFIER_SIZE        0x40
-#define NOTIFIER 7	
+#define NOTIFIER 7	/* notifier used for completion report */
 
 static char *size = "256M";
 module_param(size, charp, 0);
@@ -191,7 +191,7 @@ static void ps3vram_rewind_ring(struct ps3_system_bus_device *dev)
 
 	priv->ctrl[CTRL_PUT] = FIFO_BASE + FIFO_OFFSET;
 
-	
+	/* asking the HV for a blit will kick the FIFO */
 	status = lv1_gpu_fb_blit(priv->context_handle, 0, 0, 0, 0);
 	if (status)
 		dev_err(&dev->core, "%s: lv1_gpu_fb_blit failed %d\n",
@@ -210,7 +210,7 @@ static void ps3vram_fire_ring(struct ps3_system_bus_device *dev)
 	priv->ctrl[CTRL_PUT] = FIFO_BASE + FIFO_OFFSET +
 			       (priv->fifo_ptr - priv->fifo_base) * sizeof(u32);
 
-	
+	/* asking the HV for a blit will kick the FIFO */
 	status = lv1_gpu_fb_blit(priv->context_handle, 0, 0, 0, 0);
 	if (status)
 		dev_err(&dev->core, "%s: lv1_gpu_fb_blit failed %d\n",
@@ -234,15 +234,15 @@ static void ps3vram_bind(struct ps3_system_bus_device *dev)
 	ps3vram_out_ring(priv, 0x31337303);
 	ps3vram_begin_ring(priv, UPLOAD_SUBCH, 0x180, 3);
 	ps3vram_out_ring(priv, DMA_NOTIFIER_HANDLE_BASE + NOTIFIER);
-	ps3vram_out_ring(priv, 0xfeed0001);	
-	ps3vram_out_ring(priv, 0xfeed0000);     
+	ps3vram_out_ring(priv, 0xfeed0001);	/* DMA system RAM instance */
+	ps3vram_out_ring(priv, 0xfeed0000);     /* DMA video RAM instance */
 
 	ps3vram_begin_ring(priv, DOWNLOAD_SUBCH, 0, 1);
 	ps3vram_out_ring(priv, 0x3137c0de);
 	ps3vram_begin_ring(priv, DOWNLOAD_SUBCH, 0x180, 3);
 	ps3vram_out_ring(priv, DMA_NOTIFIER_HANDLE_BASE + NOTIFIER);
-	ps3vram_out_ring(priv, 0xfeed0000);	
-	ps3vram_out_ring(priv, 0xfeed0001);	
+	ps3vram_out_ring(priv, 0xfeed0000);	/* DMA video RAM instance */
+	ps3vram_out_ring(priv, 0xfeed0001);	/* DMA system RAM instance */
 
 	ps3vram_fire_ring(dev);
 }
@@ -379,7 +379,7 @@ static unsigned int ps3vram_cache_match(struct ps3_system_bus_device *dev,
 	offset = (unsigned int) (address & (cache->page_size - 1));
 	base = (unsigned int) (address - offset);
 
-	
+	/* fully associative check */
 	for (i = 0; i < cache->page_count; i++) {
 		if ((cache->tags[i].flags & CACHE_PAGE_PRESENT) &&
 		    cache->tags[i].address == base) {
@@ -390,7 +390,7 @@ static unsigned int ps3vram_cache_match(struct ps3_system_bus_device *dev,
 		}
 	}
 
-	
+	/* choose a random entry */
 	i = (jiffies + (counter++)) % cache->page_count;
 	dev_dbg(&dev->core, "Using entry %d\n", i);
 
@@ -443,7 +443,7 @@ static int ps3vram_read(struct ps3_system_bus_device *dev, loff_t from,
 	if (len > priv->size - from)
 		len = priv->size - from;
 
-	
+	/* Copy from vram to buf */
 	count = len;
 	while (count) {
 		unsigned int offset, avail;
@@ -484,7 +484,7 @@ static int ps3vram_write(struct ps3_system_bus_device *dev, loff_t to,
 	if (len > priv->size - to)
 		len = priv->size - to;
 
-	
+	/* Copy from buf to vram */
 	count = len;
 	while (count) {
 		unsigned int offset, avail;
@@ -560,7 +560,7 @@ static struct bio *ps3vram_do_bio(struct ps3_system_bus_device *dev,
 	struct bio *next;
 
 	bio_for_each_segment(bvec, bio, i) {
-		
+		/* PS3 is ppc64, so we don't handle highmem */
 		char *ptr = page_address(bvec->bv_page) + bvec->bv_offset;
 		size_t len = bvec->bv_len, retlen;
 
@@ -638,7 +638,7 @@ static int __devinit ps3vram_probe(struct ps3_system_bus_device *dev)
 	bio_list_init(&priv->list);
 	ps3_system_bus_set_drvdata(dev, priv);
 
-	
+	/* Allocate XDR buffer (1MiB aligned) */
 	priv->xdr_buf = (void *)__get_free_pages(GFP_KERNEL,
 		get_order(XDR_BUF_SIZE));
 	if (priv->xdr_buf == NULL) {
@@ -647,18 +647,18 @@ static int __devinit ps3vram_probe(struct ps3_system_bus_device *dev)
 		goto fail_free_priv;
 	}
 
-	
+	/* Put FIFO at begginning of XDR buffer */
 	priv->fifo_base = (u32 *) (priv->xdr_buf + FIFO_OFFSET);
 	priv->fifo_ptr = priv->fifo_base;
 
-	
+	/* XXX: Need to open GPU, in case ps3fb or snd_ps3 aren't loaded */
 	if (ps3_open_hv_device(dev)) {
 		dev_err(&dev->core, "ps3_open_hv_device failed\n");
 		error = -EAGAIN;
 		goto out_free_xdr_buf;
 	}
 
-	
+	/* Request memory */
 	status = -1;
 	ddr_size = ALIGN(memparse(size, &rest), 1024*1024);
 	if (!ddr_size) {
@@ -682,7 +682,7 @@ static int __devinit ps3vram_probe(struct ps3_system_bus_device *dev)
 		goto out_close_gpu;
 	}
 
-	
+	/* Request context */
 	status = lv1_gpu_context_allocate(priv->memory_handle, 0,
 					  &priv->context_handle, &ctrl_lpar,
 					  &info_lpar, &reports_lpar,
@@ -694,7 +694,7 @@ static int __devinit ps3vram_probe(struct ps3_system_bus_device *dev)
 		goto out_free_memory;
 	}
 
-	
+	/* Map XDR buffer to RSX */
 	xdr_lpar = ps3_mm_phys_to_lpar(__pa(priv->xdr_buf));
 	status = lv1_gpu_context_iomap(priv->context_handle, XDR_IOIF,
 				       xdr_lpar, XDR_BUF_SIZE,

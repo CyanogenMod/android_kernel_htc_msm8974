@@ -38,6 +38,10 @@
 static int load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs);
 static int load_som_library(struct file *);
 
+/*
+ * If we don't support core dumping, then supply a NULL so we
+ * don't even try.
+ */
 #if 0
 static int som_core_dump(struct coredump_params *cprm);
 #else
@@ -56,6 +60,11 @@ static struct linux_binfmt som_format = {
 	.min_coredump	= SOM_PAGESIZE
 };
 
+/*
+ * create_som_tables() parses the env- and arg-strings in new user
+ * memory and creates the pointer tables from them, and puts their
+ * addresses on the "stack", returning the new stack pointer value.
+ */
 static void create_som_tables(struct linux_binprm *bprm)
 {
 	char **argv, **envp;
@@ -64,7 +73,7 @@ static void create_som_tables(struct linux_binprm *bprm)
 	unsigned long p;
 	unsigned long *sp;
 
-	
+	/* Word-align the stack pointer */
 	sp = (unsigned long *)((bprm->p + 3) & ~3);
 
 	envp = (char **) sp;
@@ -165,6 +174,10 @@ out:
 }
 
 
+/*
+ * These are the functions used to load SOM executables and shared
+ * libraries.  There is no binary dependent code anywhere else.
+ */
 
 static int
 load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
@@ -175,14 +188,14 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	struct som_hdr *som_ex;
 	struct som_exec_auxhdr *hpuxhdr;
 
-	
+	/* Get the exec-header */
 	som_ex = (struct som_hdr *) bprm->buf;
 
 	retval = check_som_header(som_ex);
 	if (retval != 0)
 		goto out;
 
-	
+	/* Now read in the auxiliary header information */
 
 	retval = -ENOMEM;
 	size = som_ex->aux_header_size;
@@ -200,19 +213,24 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 		goto out_free;
 	}
 
-	
+	/* Flush all traces of the currently running executable */
 	retval = flush_old_exec(bprm);
 	if (retval)
 		goto out_free;
 
-	
+	/* OK, This is the point of no return */
 	current->personality = PER_HPUX;
 	setup_new_exec(bprm);
 
+	/* Set the task size for HP-UX processes such that
+	 * the gateway page is outside the address space.
+	 * This can be fixed later, but for now, this is much
+	 * easier.
+	 */
 
 	current->thread.task_size = 0xc0000000;
 
-	
+	/* Set map base to allow enough room for hp-ux heap growth */
 
 	current->thread.map_base = 0x80000000;
 
@@ -245,7 +263,7 @@ load_som_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	start_thread_som(regs, som_entry, bprm->p);
 	return 0;
 
-	
+	/* error cleanup */
 out_free:
 	kfree(hpuxhdr);
 out:
@@ -254,8 +272,13 @@ out:
 
 static int load_som_library(struct file *f)
 {
+/* No lib support in SOM yet.  gizza chance.. */
 	return -ENOEXEC;
 }
+	/* Install the SOM loader.
+	 * N.B. We *rely* on the table being the right size with the
+	 * right number of free slots...
+	 */
 
 static int __init init_som_binfmt(void)
 {
@@ -265,7 +288,7 @@ static int __init init_som_binfmt(void)
 
 static void __exit exit_som_binfmt(void)
 {
-	
+	/* Remove the SOM loader. */
 	unregister_binfmt(&som_format);
 }
 

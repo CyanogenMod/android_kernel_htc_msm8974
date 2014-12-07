@@ -6,6 +6,9 @@
 #include <asm/fixmap.h>
 
 #ifndef __ASSEMBLY__
+/*
+ * we simulate an x86-style page table for the linux mm code
+ */
 
 #include <linux/bitops.h>
 #include <linux/spinlock.h>
@@ -14,15 +17,32 @@
 
 struct vm_area_struct;
 
+/*
+ * kern_addr_valid(ADDR) tests if ADDR is pointing to valid kernel
+ * memory.  For the return value to be meaningful, ADDR must be >=
+ * PAGE_OFFSET.  This operation can be relatively expensive (e.g.,
+ * require a hash-, or multi-level tree-lookup or something of that
+ * sort) but it guarantees to return TRUE only if accessing the page
+ * at that address does not cause an error.  Note that there may be
+ * addresses for which kern_addr_valid() returns FALSE even though an
+ * access would not cause an error (e.g., this is typically true for
+ * memory mapped I/O regions.
+ *
+ * XXX Need to implement this for parisc.
+ */
 #define kern_addr_valid(addr)	(1)
 
+/* Certain architectures need to do special things when PTEs
+ * within a page table are directly modified.  Thus, the following
+ * hook is made available.
+ */
 #define set_pte(pteptr, pteval)                                 \
         do{                                                     \
                 *(pteptr) = (pteval);                           \
         } while(0)
 #define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #include <asm/page.h>
 
@@ -33,25 +53,30 @@ struct vm_area_struct;
 #define pgd_ERROR(e) \
 	printk("%s:%d: bad pgd %08lx.\n", __FILE__, __LINE__, (unsigned long)pgd_val(e))
 
-#define KERNEL_INITIAL_ORDER	24	
+/* This is the size of the initially mapped kernel memory */
+#define KERNEL_INITIAL_ORDER	24	/* 0 to 1<<24 = 16MB */
 #define KERNEL_INITIAL_SIZE	(1 << KERNEL_INITIAL_ORDER)
 
 #if defined(CONFIG_64BIT) && defined(CONFIG_PARISC_PAGE_SIZE_4KB)
 #define PT_NLEVELS	3
-#define PGD_ORDER	1 
-#define PMD_ORDER	1 
-#define PGD_ALLOC_ORDER	2 
+#define PGD_ORDER	1 /* Number of pages per pgd */
+#define PMD_ORDER	1 /* Number of pages per pmd */
+#define PGD_ALLOC_ORDER	2 /* first pgd contains pmd */
 #else
 #define PT_NLEVELS	2
-#define PGD_ORDER	1 
+#define PGD_ORDER	1 /* Number of pages per pgd */
 #define PGD_ALLOC_ORDER	PGD_ORDER
 #endif
 
+/* Definitions for 3rd level (we use PLD here for Page Lower directory
+ * because PTE_SHIFT is used lower down to mean shift that has to be
+ * done to get usable bits out of the PTE) */
 #define PLD_SHIFT	PAGE_SHIFT
 #define PLD_SIZE	PAGE_SIZE
 #define BITS_PER_PTE	(PAGE_SHIFT - BITS_PER_PTE_ENTRY)
 #define PTRS_PER_PTE    (1UL << BITS_PER_PTE)
 
+/* Definitions for 2nd level */
 #define pgtable_cache_init()	do { } while (0)
 
 #define PMD_SHIFT       (PLD_SHIFT + BITS_PER_PTE)
@@ -64,6 +89,7 @@ struct vm_area_struct;
 #endif
 #define PTRS_PER_PMD    (1UL << BITS_PER_PMD)
 
+/* Definitions for 1st level */
 #define PGDIR_SHIFT	(PMD_SHIFT + BITS_PER_PMD)
 #if (PGDIR_SHIFT + PAGE_SHIFT + PGD_ORDER - BITS_PER_PGD_ENTRY) > BITS_PER_LONG
 #define BITS_PER_PGD	(BITS_PER_LONG - PGDIR_SHIFT)
@@ -85,37 +111,53 @@ struct vm_area_struct;
 #define SPACEID_SHIFT	0
 #endif
 
+/* This calculates the number of initial pages we need for the initial
+ * page tables */
 #if (KERNEL_INITIAL_ORDER) >= (PMD_SHIFT)
 # define PT_INITIAL	(1 << (KERNEL_INITIAL_ORDER - PMD_SHIFT))
 #else
-# define PT_INITIAL	(1)  
+# define PT_INITIAL	(1)  /* all initial PTEs fit into one page */
 #endif
 
+/*
+ * pgd entries used up by user/kernel:
+ */
 
 #define FIRST_USER_ADDRESS	0
 
+/* NB: The tlb miss handlers make certain assumptions about the order */
+/*     of the following bits, so be careful (One example, bits 25-31  */
+/*     are moved together in one instruction).                        */
 
-#define _PAGE_READ_BIT     31   
-#define _PAGE_WRITE_BIT    30   
-#define _PAGE_EXEC_BIT     29   
-#define _PAGE_GATEWAY_BIT  28   
-#define _PAGE_DMB_BIT      27   
-#define _PAGE_DIRTY_BIT    26   
-#define _PAGE_FILE_BIT	_PAGE_DIRTY_BIT	
-#define _PAGE_REFTRAP_BIT  25   
-#define _PAGE_NO_CACHE_BIT 24   
-#define _PAGE_ACCESSED_BIT 23   
-#define _PAGE_PRESENT_BIT  22   
-#define _PAGE_USER_BIT     20   
+#define _PAGE_READ_BIT     31   /* (0x001) read access allowed */
+#define _PAGE_WRITE_BIT    30   /* (0x002) write access allowed */
+#define _PAGE_EXEC_BIT     29   /* (0x004) execute access allowed */
+#define _PAGE_GATEWAY_BIT  28   /* (0x008) privilege promotion allowed */
+#define _PAGE_DMB_BIT      27   /* (0x010) Data Memory Break enable (B bit) */
+#define _PAGE_DIRTY_BIT    26   /* (0x020) Page Dirty (D bit) */
+#define _PAGE_FILE_BIT	_PAGE_DIRTY_BIT	/* overload this bit */
+#define _PAGE_REFTRAP_BIT  25   /* (0x040) Page Ref. Trap enable (T bit) */
+#define _PAGE_NO_CACHE_BIT 24   /* (0x080) Uncached Page (U bit) */
+#define _PAGE_ACCESSED_BIT 23   /* (0x100) Software: Page Accessed */
+#define _PAGE_PRESENT_BIT  22   /* (0x200) Software: translation valid */
+/* bit 21 was formerly the FLUSH bit but is now unused */
+#define _PAGE_USER_BIT     20   /* (0x800) Software: User accessible page */
 
+/* N.B. The bits are defined in terms of a 32 bit word above, so the */
+/*      following macro is ok for both 32 and 64 bit.                */
 
 #define xlate_pabit(x) (31 - x)
 
+/* this defines the shift to the usable bits in the PTE it is set so
+ * that the valid bits _PAGE_PRESENT_BIT and _PAGE_USER_BIT are set
+ * to zero */
 #define PTE_SHIFT	   	xlate_pabit(_PAGE_USER_BIT)
 
+/* PFN_PTE_SHIFT defines the shift of a PTE value to access the PFN field */
 #define PFN_PTE_SHIFT		12
 
 
+/* this is how many bits may be used by the file functions */
 #define PTE_FILE_MAX_BITS	(BITS_PER_LONG - PTE_SHIFT)
 
 #define pte_to_pgoff(pte) (pte_val(pte) >> PTE_SHIFT)
@@ -142,6 +184,11 @@ struct vm_area_struct;
 #define _PAGE_KERNEL_RWX	(_PAGE_KERNEL_EXEC | _PAGE_WRITE)
 #define _PAGE_KERNEL		(_PAGE_KERNEL_RO | _PAGE_WRITE)
 
+/* The pgd/pmd contains a ptr (in phys addr space); since all pgds/pmds
+ * are page-aligned, we don't care about the PAGE_OFFSET bits, except
+ * for a few meta-information bits, so we shift the address to be
+ * able to effectively address 40/42/44-bits of physical address space
+ * depending on 4k/16k/64k PAGE_SIZE */
 #define _PxD_PRESENT_BIT   31
 #define _PxD_ATTACHED_BIT  30
 #define _PxD_VALID_BIT     29
@@ -151,12 +198,15 @@ struct vm_area_struct;
 #define PxD_FLAG_VALID    (1 << xlate_pabit(_PxD_VALID_BIT))
 #define PxD_FLAG_MASK     (0xf)
 #define PxD_FLAG_SHIFT    (4)
-#define PxD_VALUE_SHIFT   (8) 
+#define PxD_VALUE_SHIFT   (8) /* (PAGE_SHIFT-PxD_FLAG_SHIFT) */
 
 #ifndef __ASSEMBLY__
 
 #define PAGE_NONE	__pgprot(_PAGE_PRESENT | _PAGE_USER | _PAGE_ACCESSED)
 #define PAGE_SHARED	__pgprot(_PAGE_PRESENT | _PAGE_USER | _PAGE_READ | _PAGE_WRITE | _PAGE_ACCESSED)
+/* Others seem to make this executable, I don't know if that's correct
+   or not.  The stack is mapped this way though so this is necessary
+   in the short term - dhd@linuxcare.com, 2000-08-08 */
 #define PAGE_READONLY	__pgprot(_PAGE_PRESENT | _PAGE_USER | _PAGE_READ | _PAGE_ACCESSED)
 #define PAGE_WRITEONLY  __pgprot(_PAGE_PRESENT | _PAGE_USER | _PAGE_WRITE | _PAGE_ACCESSED)
 #define PAGE_EXECREAD   __pgprot(_PAGE_PRESENT | _PAGE_USER | _PAGE_READ | _PAGE_EXEC |_PAGE_ACCESSED)
@@ -170,16 +220,23 @@ struct vm_area_struct;
 #define PAGE_GATEWAY    __pgprot(_PAGE_PRESENT | _PAGE_USER | _PAGE_ACCESSED | _PAGE_GATEWAY| _PAGE_READ)
 
 
+/*
+ * We could have an execute only page using "gateway - promote to priv
+ * level 3", but that is kind of silly. So, the way things are defined
+ * now, we must always have read permission for pages with execute
+ * permission. For the fun of it we'll go ahead and support write only
+ * pages.
+ */
 
-	 
+	 /*xwr*/
 #define __P000  PAGE_NONE
 #define __P001  PAGE_READONLY
-#define __P010  __P000 
-#define __P011  __P001 
+#define __P010  __P000 /* copy on write */
+#define __P011  __P001 /* copy on write */
 #define __P100  PAGE_EXECREAD
 #define __P101  PAGE_EXECREAD
-#define __P110  __P100 
-#define __P111  __P101 
+#define __P110  __P100 /* copy on write */
+#define __P111  __P101 /* copy on write */
 
 #define __S000  PAGE_NONE
 #define __S001  PAGE_READONLY
@@ -191,14 +248,20 @@ struct vm_area_struct;
 #define __S111  PAGE_RWX
 
 
-extern pgd_t swapper_pg_dir[]; 
+extern pgd_t swapper_pg_dir[]; /* declared in init_task.c */
 
+/* initial page tables for 0-8MB for kernel */
 
 extern pte_t pg0[];
 
+/* zero page used for uninitialized stuff */
 
 extern unsigned long *empty_zero_page;
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 
 #define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
 
@@ -212,6 +275,8 @@ extern unsigned long *empty_zero_page;
 #define pgd_address(x)	((unsigned long)(pgd_val(x) &~ PxD_FLAG_MASK) << PxD_VALUE_SHIFT)
 
 #if PT_NLEVELS == 3
+/* The first entry of the permanent pmd is not there if it contains
+ * the gateway marker */
 #define pmd_none(x)	(!pmd_val(x) || pmd_flag(x) == PxD_FLAG_ATTACHED)
 #else
 #define pmd_none(x)	(!pmd_val(x))
@@ -221,6 +286,8 @@ extern unsigned long *empty_zero_page;
 static inline void pmd_clear(pmd_t *pmd) {
 #if PT_NLEVELS == 3
 	if (pmd_flag(*pmd) & PxD_FLAG_ATTACHED)
+		/* This is the entry pointing to the permanent pmd
+		 * attached to the pgd; cannot clear it */
 		__pmd_val_set(*pmd, PxD_FLAG_ATTACHED);
 	else
 #endif
@@ -233,6 +300,7 @@ static inline void pmd_clear(pmd_t *pmd) {
 #define pgd_page_vaddr(pgd) ((unsigned long) __va(pgd_address(pgd)))
 #define pgd_page(pgd)	virt_to_page((void *)pgd_page_vaddr(pgd))
 
+/* For 64 bit we have three level tables */
 
 #define pgd_none(x)     (!pgd_val(x))
 #define pgd_bad(x)      (!(pgd_flag(x) & PxD_FLAG_VALID))
@@ -240,17 +308,28 @@ static inline void pmd_clear(pmd_t *pmd) {
 static inline void pgd_clear(pgd_t *pgd) {
 #if PT_NLEVELS == 3
 	if(pgd_flag(*pgd) & PxD_FLAG_ATTACHED)
+		/* This is the permanent pmd attached to the pgd; cannot
+		 * free it */
 		return;
 #endif
 	__pgd_val_set(*pgd, 0);
 }
 #else
+/*
+ * The "pgd_xxx()" functions here are trivial for a folded two-level
+ * setup: the pgd is never bad, and a pmd always exists (as it's folded
+ * into the pgd entry)
+ */
 static inline int pgd_none(pgd_t pgd)		{ return 0; }
 static inline int pgd_bad(pgd_t pgd)		{ return 0; }
 static inline int pgd_present(pgd_t pgd)	{ return 1; }
 static inline void pgd_clear(pgd_t * pgdp)	{ }
 #endif
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 static inline int pte_dirty(pte_t pte)		{ return pte_val(pte) & _PAGE_DIRTY; }
 static inline int pte_young(pte_t pte)		{ return pte_val(pte) & _PAGE_ACCESSED; }
 static inline int pte_write(pte_t pte)		{ return pte_val(pte) & _PAGE_WRITE; }
@@ -265,6 +344,10 @@ static inline pte_t pte_mkyoung(pte_t pte)	{ pte_val(pte) |= _PAGE_ACCESSED; ret
 static inline pte_t pte_mkwrite(pte_t pte)	{ pte_val(pte) |= _PAGE_WRITE; return pte; }
 static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 #define __mk_pte(addr,pgprot) \
 ({									\
 	pte_t __pte;							\
@@ -286,6 +369,7 @@ static inline pte_t pfn_pte(unsigned long pfn, pgprot_t pgprot)
 static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 { pte_val(pte) = (pte_val(pte) & _PAGE_CHG_MASK) | pgprot_val(newprot); return pte; }
 
+/* Permanent address of a page.  On parisc we don't have highmem. */
 
 #define pte_pfn(x)		(pte_val(x) >> PFN_PTE_SHIFT)
 
@@ -298,11 +382,14 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 
 #define pgd_index(address) ((address) >> PGDIR_SHIFT)
 
+/* to find an entry in a page-table-directory */
 #define pgd_offset(mm, address) \
 ((mm)->pgd + ((address) >> PGDIR_SHIFT))
 
+/* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
 
+/* Find an entry in the second-level page table.. */
 
 #if PT_NLEVELS == 3
 #define pmd_offset(dir,address) \
@@ -311,7 +398,7 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 #define pmd_offset(dir,addr) ((pmd_t *) dir)
 #endif
 
- 
+/* Find an entry in the third-level page table.. */ 
 #define pte_index(address) (((address) >> PAGE_SHIFT) & (PTRS_PER_PTE-1))
 #define pte_offset_kernel(pmd, address) \
 	((pte_t *) pmd_page_vaddr(*(pmd)) + pte_index(address))
@@ -323,11 +410,13 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 
 extern void paging_init (void);
 
+/* Used for deferring calls to flush_dcache_page() */
 
 #define PG_dcache_dirty         PG_arch_1
 
 extern void update_mmu_cache(struct vm_area_struct *, unsigned long, pte_t *);
 
+/* Encode and de-code a swap entry */
 
 #define __swp_type(x)                     ((x).val & 0x1f)
 #define __swp_offset(x)                   ( (((x).val >> 6) &  0x7) | \
@@ -385,9 +474,10 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, 
 
 #define pte_same(A,B)	(pte_val(A) == pte_val(B))
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 
+/* TLB page size encoding - see table 3-1 in parisc20.pdf */
 #define _PAGE_SIZE_ENCODING_4K		0
 #define _PAGE_SIZE_ENCODING_16K		1
 #define _PAGE_SIZE_ENCODING_64K		2
@@ -411,6 +501,7 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, 
 
 #define pgprot_noncached(prot) __pgprot(pgprot_val(prot) | _PAGE_NO_CACHE)
 
+/* We provide our own get_unmapped_area to provide cache coherency */
 
 #define HAVE_ARCH_UNMAPPED_AREA
 
@@ -420,4 +511,4 @@ static inline void ptep_set_wrprotect(struct mm_struct *mm, unsigned long addr, 
 #define __HAVE_ARCH_PTE_SAME
 #include <asm-generic/pgtable.h>
 
-#endif 
+#endif /* _PARISC_PGTABLE_H */

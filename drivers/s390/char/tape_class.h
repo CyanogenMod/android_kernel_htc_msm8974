@@ -28,6 +28,25 @@ struct tape_class_device {
 	char			mode_name[TAPECLASS_NAME_LEN];
 };
 
+/*
+ * Register a tape device and return a pointer to the tape class device
+ * created by the call.
+ *
+ * device
+ *	The pointer to the struct device of the physical (base) device.
+ * dev
+ *	The intended major/minor number. The major number may be 0 to
+ *	get a dynamic major number.
+ * fops
+ *	The pointer to the drivers file operations for the tape device.
+ * device_name
+ *	Pointer to the logical device name (will also be used as kobject name
+ *	of the cdev). This can also be called the name of the tape class
+ *	device.
+ * mode_name
+ *	Points to the name of the tape mode. This creates a link with that
+ *	name from the physical device to the logical device (class).
+ */
 struct tape_class_device *register_tape_dev(
 	struct device *		device,
 	dev_t			dev,
@@ -37,4 +56,4 @@ struct tape_class_device *register_tape_dev(
 );
 void unregister_tape_dev(struct device *device, struct tape_class_device *tcd);
 
-#endif 
+#endif /* __TAPE_CLASS_H__ */

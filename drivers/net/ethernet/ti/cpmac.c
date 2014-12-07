@@ -50,6 +50,7 @@ MODULE_ALIAS("platform:cpmac");
 static int debug_level = 8;
 static int dumb_switch;
 
+/* Next 2 are only used in cpmac_probe, so it's pointless to change them */
 module_param(debug_level, int, 0444);
 module_param(dumb_switch, int, 0444);
 
@@ -57,9 +58,11 @@ MODULE_PARM_DESC(debug_level, "Number of NETIF_MSG bits to enable");
 MODULE_PARM_DESC(dumb_switch, "Assume switch is not connected to MDIO bus");
 
 #define CPMAC_VERSION "0.5.2"
+/* frame size + 802.1q tag + FCS size */
 #define CPMAC_SKB_SIZE		(ETH_FRAME_LEN + ETH_FCS_LEN + VLAN_HLEN)
 #define CPMAC_QUEUES	8
 
+/* Ethernet registers */
 #define CPMAC_TX_CONTROL		0x0004
 #define CPMAC_TX_TEARDOWN		0x0008
 #define CPMAC_RX_CONTROL		0x0014
@@ -116,6 +119,10 @@ MODULE_PARM_DESC(dumb_switch, "Assume switch is not connected to MDIO bus");
 #define CPMAC_TX_ACK(channel)		(0x0640 + (channel) * 4)
 #define CPMAC_RX_ACK(channel)		(0x0660 + (channel) * 4)
 #define CPMAC_REG_END			0x0680
+/*
+ * Rx/Tx statistics
+ * TODO: use some of them to fill stats in cpmac_stats()
+ */
 #define CPMAC_STATS_RX_GOOD		0x0200
 #define CPMAC_STATS_RX_BCAST		0x0204
 #define CPMAC_STATS_RX_MCAST		0x0208
@@ -148,6 +155,7 @@ MODULE_PARM_DESC(dumb_switch, "Assume switch is not connected to MDIO bus");
 #define cpmac_write(base, reg, val)	(writel(val, (void __iomem *)(base) + \
 						(reg)))
 
+/* MDIO bus */
 #define CPMAC_MDIO_VERSION		0x0000
 #define CPMAC_MDIO_CONTROL		0x0004
 # define MDIOC_IDLE			0x80000000
@@ -311,11 +319,11 @@ static int cpmac_config(struct net_device *dev, struct ifmap *map)
 	if (dev->flags & IFF_UP)
 		return -EBUSY;
 
-	
+	/* Don't allow changing the I/O address */
 	if (map->base_addr != dev->base_addr)
 		return -EOPNOTSUPP;
 
-	
+	/* ignore other fields */
 	return 0;
 }
 
@@ -333,10 +341,14 @@ static void cpmac_set_multicast_list(struct net_device *dev)
 	} else {
 		cpmac_write(priv->regs, CPMAC_MBP, mbp & ~MBP_RXPROMISC);
 		if (dev->flags & IFF_ALLMULTI) {
-			
+			/* enable all multicast mode */
 			cpmac_write(priv->regs, CPMAC_MAC_HASH_LO, 0xffffffff);
 			cpmac_write(priv->regs, CPMAC_MAC_HASH_HI, 0xffffffff);
 		} else {
+			/*
+			 * cpmac uses some strange mac address hashing
+			 * (not crc32)
+			 */
 			netdev_for_each_mc_addr(ha, dev) {
 				bit = 0;
 				tmp = ha->addr[0];
@@ -433,6 +445,11 @@ static int cpmac_poll(struct napi_struct *napi, int budget)
 		processed++;
 
 		if ((desc->dataflags & CPMAC_EOQ) != 0) {
+			/* The last update to eoq->hw_next didn't happen
+			* soon enough, and the receiver stopped here.
+			*Remember this descriptor so we can restart
+			* the receiver after freeing some space.
+			*/
 			if (unlikely(restart)) {
 				if (netif_msg_rx_err(priv))
 					printk(KERN_ERR "%s: poll found a"
@@ -453,15 +470,26 @@ static int cpmac_poll(struct napi_struct *napi, int budget)
 	}
 
 	if (desc != priv->rx_head) {
+		/* We freed some buffers, but not the whole ring,
+		 * add what we did free to the rx list */
 		desc->prev->hw_next = (u32)0;
 		priv->rx_head->prev->hw_next = priv->rx_head->mapping;
 	}
 
+	/* Optimization: If we did not actually process an EOQ (perhaps because
+	 * of quota limits), check to see if the tail of the queue has EOQ set.
+	* We should immediately restart in that case so that the receiver can
+	* restart and run in parallel with more packet processing.
+	* This lets us handle slightly larger bursts before running
+	* out of ring space (assuming dev->weight < ring_size) */
 
 	if (!restart &&
 	     (priv->rx_head->prev->dataflags & (CPMAC_OWN|CPMAC_EOQ))
 		    == CPMAC_EOQ &&
 	     (priv->rx_head->dataflags & CPMAC_OWN) != 0) {
+		/* reset EOQ so the poll loop (above) doesn't try to
+		* restart this when it eventually gets to this descriptor.
+		*/
 		priv->rx_head->prev->dataflags &= ~CPMAC_EOQ;
 		restart = priv->rx_head;
 	}
@@ -491,6 +519,8 @@ static int cpmac_poll(struct napi_struct *napi, int budget)
 		printk(KERN_DEBUG "%s: poll processed %d packets\n",
 		       priv->dev->name, received);
 	if (processed == 0) {
+		/* we ran out of packets to read,
+		 * revert to interrupt-driven mode */
 		napi_complete(napi);
 		cpmac_write(priv->regs, CPMAC_RX_INT_ENABLE, 1);
 		return 0;
@@ -499,6 +529,8 @@ static int cpmac_poll(struct napi_struct *napi, int budget)
 	return 1;
 
 fatal_error:
+	/* Something went horribly wrong.
+	 * Reset hardware to try to recover rather than wedging. */
 
 	if (netif_msg_drv(priv)) {
 		printk(KERN_ERR "%s: cpmac_poll is confused. "
@@ -732,6 +764,9 @@ static void cpmac_check_status(struct net_device *dev)
 
 	if (rx_code || tx_code) {
 		if (netif_msg_drv(priv) && net_ratelimit()) {
+			/* Can't find any documentation on what these
+			 *error codes actually are. So just log them and hope..
+			 */
 			if (rx_code)
 				printk(KERN_WARNING "%s: host error %d on rx "
 				     "channel %d (macstatus %08x), resetting\n",
@@ -1087,7 +1122,7 @@ static int __devinit cpmac_probe(struct platform_device *pdev)
 	pdata = pdev->dev.platform_data;
 
 	if (external_switch || dumb_switch) {
-		strncpy(mdio_bus_id, "fixed-0", MII_BUS_ID_SIZE); 
+		strncpy(mdio_bus_id, "fixed-0", MII_BUS_ID_SIZE); /* fixed phys bus */
 		phy_id = pdev->id;
 	} else {
 		for (phy_id = 0; phy_id < PHY_MAX_ADDR; phy_id++) {
@@ -1103,7 +1138,7 @@ static int __devinit cpmac_probe(struct platform_device *pdev)
 	if (phy_id == PHY_MAX_ADDR) {
 		dev_err(&pdev->dev, "no PHY present, falling back "
 					"to switch on MDIO bus 0\n");
-		strncpy(mdio_bus_id, "fixed-0", MII_BUS_ID_SIZE); 
+		strncpy(mdio_bus_id, "fixed-0", MII_BUS_ID_SIZE); /* fixed phys bus */
 		phy_id = pdev->id;
 	}
 

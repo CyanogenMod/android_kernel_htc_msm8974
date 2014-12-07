@@ -3,4 +3,4 @@
 
 #include <asm-generic/unaligned.h>
 
-#endif 
+#endif /* _ASM_SCORE_UNALIGNED_H */

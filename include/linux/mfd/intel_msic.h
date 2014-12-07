@@ -12,9 +12,11 @@
 #ifndef __LINUX_MFD_INTEL_MSIC_H__
 #define __LINUX_MFD_INTEL_MSIC_H__
 
-#define INTEL_MSIC_ID0			0x000	
-#define INTEL_MSIC_ID1			0x001	
+/* ID */
+#define INTEL_MSIC_ID0			0x000	/* RO */
+#define INTEL_MSIC_ID1			0x001	/* RO */
 
+/* IRQ */
 #define INTEL_MSIC_IRQLVL1		0x002
 #define INTEL_MSIC_ADC1INT		0x003
 #define INTEL_MSIC_CCINT		0x004
@@ -48,8 +50,9 @@
 #define INTEL_MSIC_RESETIRQ2MASK	0x020
 #define INTEL_MSIC_IRQLVL1MSK		0x021
 #define INTEL_MSIC_PBCONFIG		0x03e
-#define INTEL_MSIC_PBSTATUS		0x03f	
+#define INTEL_MSIC_PBSTATUS		0x03f	/* RO */
 
+/* GPIO */
 #define INTEL_MSIC_GPIO0LV7CTLO		0x040
 #define INTEL_MSIC_GPIO0LV6CTLO		0x041
 #define INTEL_MSIC_GPIO0LV5CTLO		0x042
@@ -108,28 +111,30 @@
 #define INTEL_MSIC_GPIO1HV1CTLI		0x07b
 #define INTEL_MSIC_GPIO1HV0CTLI		0x07c
 
+/* SVID */
 #define INTEL_MSIC_SVIDCTRL0		0x080
 #define INTEL_MSIC_SVIDCTRL1		0x081
 #define INTEL_MSIC_SVIDCTRL2		0x082
-#define INTEL_MSIC_SVIDTXLASTPKT3	0x083	
-#define INTEL_MSIC_SVIDTXLASTPKT2	0x084	
-#define INTEL_MSIC_SVIDTXLASTPKT1	0x085	
-#define INTEL_MSIC_SVIDTXLASTPKT0	0x086	
+#define INTEL_MSIC_SVIDTXLASTPKT3	0x083	/* RO */
+#define INTEL_MSIC_SVIDTXLASTPKT2	0x084	/* RO */
+#define INTEL_MSIC_SVIDTXLASTPKT1	0x085	/* RO */
+#define INTEL_MSIC_SVIDTXLASTPKT0	0x086	/* RO */
 #define INTEL_MSIC_SVIDPKTOUTBYTE3	0x087
 #define INTEL_MSIC_SVIDPKTOUTBYTE2	0x088
 #define INTEL_MSIC_SVIDPKTOUTBYTE1	0x089
 #define INTEL_MSIC_SVIDPKTOUTBYTE0	0x08a
 #define INTEL_MSIC_SVIDRXVPDEBUG1	0x08b
 #define INTEL_MSIC_SVIDRXVPDEBUG0	0x08c
-#define INTEL_MSIC_SVIDRXLASTPKT3	0x08d	
-#define INTEL_MSIC_SVIDRXLASTPKT2	0x08e	
-#define INTEL_MSIC_SVIDRXLASTPKT1	0x08f	
-#define INTEL_MSIC_SVIDRXLASTPKT0	0x090	
-#define INTEL_MSIC_SVIDRXCHKSTATUS3	0x091	
-#define INTEL_MSIC_SVIDRXCHKSTATUS2	0x092	
-#define INTEL_MSIC_SVIDRXCHKSTATUS1	0x093	
-#define INTEL_MSIC_SVIDRXCHKSTATUS0	0x094	
+#define INTEL_MSIC_SVIDRXLASTPKT3	0x08d	/* RO */
+#define INTEL_MSIC_SVIDRXLASTPKT2	0x08e	/* RO */
+#define INTEL_MSIC_SVIDRXLASTPKT1	0x08f	/* RO */
+#define INTEL_MSIC_SVIDRXLASTPKT0	0x090	/* RO */
+#define INTEL_MSIC_SVIDRXCHKSTATUS3	0x091	/* RO */
+#define INTEL_MSIC_SVIDRXCHKSTATUS2	0x092	/* RO */
+#define INTEL_MSIC_SVIDRXCHKSTATUS1	0x093	/* RO */
+#define INTEL_MSIC_SVIDRXCHKSTATUS0	0x094	/* RO */
 
+/* VREG */
 #define INTEL_MSIC_VCCLATCH		0x0c0
 #define INTEL_MSIC_VNNLATCH		0x0c1
 #define INTEL_MSIC_VCCCNT		0x0c2
@@ -165,9 +170,11 @@
 #define INTEL_MSIC_V1P35CNT		0x0e0
 #define INTEL_MSIC_V330AONCNT		0x0e1
 
-#define INTEL_MSIC_CHIPCNTRL		0x100	
+/* RESET */
+#define INTEL_MSIC_CHIPCNTRL		0x100	/* WO */
 #define INTEL_MSIC_ERCONFIG		0x101
 
+/* BURST */
 #define INTEL_MSIC_BATCURRENTLIMIT12	0x102
 #define INTEL_MSIC_BATTIMELIMIT12	0x103
 #define INTEL_MSIC_BATTIMELIMIT3	0x104
@@ -176,10 +183,11 @@
 #define INTEL_MSIC_BRSTCONFIGACTIONS	0x107
 #define INTEL_MSIC_BURSTCONTROLSTATUS	0x108
 
-#define INTEL_MSIC_RTCB1		0x140	
-#define INTEL_MSIC_RTCB2		0x141	
-#define INTEL_MSIC_RTCB3		0x142	
-#define INTEL_MSIC_RTCB4		0x143	
+/* RTC */
+#define INTEL_MSIC_RTCB1		0x140	/* RO */
+#define INTEL_MSIC_RTCB2		0x141	/* RO */
+#define INTEL_MSIC_RTCB3		0x142	/* RO */
+#define INTEL_MSIC_RTCB4		0x143	/* RO */
 #define INTEL_MSIC_RTCOB1		0x144
 #define INTEL_MSIC_RTCOB2		0x145
 #define INTEL_MSIC_RTCOB3		0x146
@@ -196,10 +204,11 @@
 #define INTEL_MSIC_RTCSC2		0x151
 #define INTEL_MSIC_RTCSC3		0x152
 #define INTEL_MSIC_RTCSC4		0x153
-#define INTEL_MSIC_RTCSTATUS		0x154	
+#define INTEL_MSIC_RTCSTATUS		0x154	/* RO */
 #define INTEL_MSIC_RTCCONFIG1		0x155
 #define INTEL_MSIC_RTCCONFIG2		0x156
 
+/* CHARGER */
 #define INTEL_MSIC_BDTIMER		0x180
 #define INTEL_MSIC_BATTRMV		0x181
 #define INTEL_MSIC_VBUSDET		0x182
@@ -216,18 +225,19 @@
 #define INTEL_MSIC_CHRCTRL1		0x18d
 #define INTEL_MSIC_PWRSRCLMT		0x18e
 #define INTEL_MSIC_CHRSTWDT		0x18f
-#define INTEL_MSIC_WDTWRITE		0x190	
+#define INTEL_MSIC_WDTWRITE		0x190	/* WO */
 #define INTEL_MSIC_CHRSAFELMT		0x191
-#define INTEL_MSIC_SPWRSRCINT		0x192	
-#define INTEL_MSIC_SPWRSRCINT1		0x193	
+#define INTEL_MSIC_SPWRSRCINT		0x192	/* RO */
+#define INTEL_MSIC_SPWRSRCINT1		0x193	/* RO */
 #define INTEL_MSIC_CHRLEDPWM		0x194
 #define INTEL_MSIC_CHRLEDCTRL		0x195
 
+/* ADC */
 #define INTEL_MSIC_ADC1CNTL1		0x1c0
 #define INTEL_MSIC_ADC1CNTL2		0x1c1
 #define INTEL_MSIC_ADC1CNTL3		0x1c2
-#define INTEL_MSIC_ADC1OFFSETH		0x1c3	
-#define INTEL_MSIC_ADC1OFFSETL		0x1c4	
+#define INTEL_MSIC_ADC1OFFSETH		0x1c3	/* RO */
+#define INTEL_MSIC_ADC1OFFSETL		0x1c4	/* RO */
 #define INTEL_MSIC_ADC1ADDR0		0x1c5
 #define INTEL_MSIC_ADC1ADDR1		0x1c6
 #define INTEL_MSIC_ADC1ADDR2		0x1c7
@@ -243,58 +253,59 @@
 #define INTEL_MSIC_ADC1ADDR12		0x1d1
 #define INTEL_MSIC_ADC1ADDR13		0x1d2
 #define INTEL_MSIC_ADC1ADDR14		0x1d3
-#define INTEL_MSIC_ADC1SNS0H		0x1d4	
-#define INTEL_MSIC_ADC1SNS0L		0x1d5	
-#define INTEL_MSIC_ADC1SNS1H		0x1d6	
-#define INTEL_MSIC_ADC1SNS1L		0x1d7	
-#define INTEL_MSIC_ADC1SNS2H		0x1d8	
-#define INTEL_MSIC_ADC1SNS2L		0x1d9	
-#define INTEL_MSIC_ADC1SNS3H		0x1da	
-#define INTEL_MSIC_ADC1SNS3L		0x1db	
-#define INTEL_MSIC_ADC1SNS4H		0x1dc	
-#define INTEL_MSIC_ADC1SNS4L		0x1dd	
-#define INTEL_MSIC_ADC1SNS5H		0x1de	
-#define INTEL_MSIC_ADC1SNS5L		0x1df	
-#define INTEL_MSIC_ADC1SNS6H		0x1e0	
-#define INTEL_MSIC_ADC1SNS6L		0x1e1	
-#define INTEL_MSIC_ADC1SNS7H		0x1e2	
-#define INTEL_MSIC_ADC1SNS7L		0x1e3	
-#define INTEL_MSIC_ADC1SNS8H		0x1e4	
-#define INTEL_MSIC_ADC1SNS8L		0x1e5	
-#define INTEL_MSIC_ADC1SNS9H		0x1e6	
-#define INTEL_MSIC_ADC1SNS9L		0x1e7	
-#define INTEL_MSIC_ADC1SNS10H		0x1e8	
-#define INTEL_MSIC_ADC1SNS10L		0x1e9	
-#define INTEL_MSIC_ADC1SNS11H		0x1ea	
-#define INTEL_MSIC_ADC1SNS11L		0x1eb	
-#define INTEL_MSIC_ADC1SNS12H		0x1ec	
-#define INTEL_MSIC_ADC1SNS12L		0x1ed	
-#define INTEL_MSIC_ADC1SNS13H		0x1ee	
-#define INTEL_MSIC_ADC1SNS13L		0x1ef	
-#define INTEL_MSIC_ADC1SNS14H		0x1f0	
-#define INTEL_MSIC_ADC1SNS14L		0x1f1	
-#define INTEL_MSIC_ADC1BV0H		0x1f2	
-#define INTEL_MSIC_ADC1BV0L		0x1f3	
-#define INTEL_MSIC_ADC1BV1H		0x1f4	
-#define INTEL_MSIC_ADC1BV1L		0x1f5	
-#define INTEL_MSIC_ADC1BV2H		0x1f6	
-#define INTEL_MSIC_ADC1BV2L		0x1f7	
-#define INTEL_MSIC_ADC1BV3H		0x1f8	
-#define INTEL_MSIC_ADC1BV3L		0x1f9	
-#define INTEL_MSIC_ADC1BI0H		0x1fa	
-#define INTEL_MSIC_ADC1BI0L		0x1fb	
-#define INTEL_MSIC_ADC1BI1H		0x1fc	
-#define INTEL_MSIC_ADC1BI1L		0x1fd	
-#define INTEL_MSIC_ADC1BI2H		0x1fe	
-#define INTEL_MSIC_ADC1BI2L		0x1ff	
-#define INTEL_MSIC_ADC1BI3H		0x200	
-#define INTEL_MSIC_ADC1BI3L		0x201	
+#define INTEL_MSIC_ADC1SNS0H		0x1d4	/* RO */
+#define INTEL_MSIC_ADC1SNS0L		0x1d5	/* RO */
+#define INTEL_MSIC_ADC1SNS1H		0x1d6	/* RO */
+#define INTEL_MSIC_ADC1SNS1L		0x1d7	/* RO */
+#define INTEL_MSIC_ADC1SNS2H		0x1d8	/* RO */
+#define INTEL_MSIC_ADC1SNS2L		0x1d9	/* RO */
+#define INTEL_MSIC_ADC1SNS3H		0x1da	/* RO */
+#define INTEL_MSIC_ADC1SNS3L		0x1db	/* RO */
+#define INTEL_MSIC_ADC1SNS4H		0x1dc	/* RO */
+#define INTEL_MSIC_ADC1SNS4L		0x1dd	/* RO */
+#define INTEL_MSIC_ADC1SNS5H		0x1de	/* RO */
+#define INTEL_MSIC_ADC1SNS5L		0x1df	/* RO */
+#define INTEL_MSIC_ADC1SNS6H		0x1e0	/* RO */
+#define INTEL_MSIC_ADC1SNS6L		0x1e1	/* RO */
+#define INTEL_MSIC_ADC1SNS7H		0x1e2	/* RO */
+#define INTEL_MSIC_ADC1SNS7L		0x1e3	/* RO */
+#define INTEL_MSIC_ADC1SNS8H		0x1e4	/* RO */
+#define INTEL_MSIC_ADC1SNS8L		0x1e5	/* RO */
+#define INTEL_MSIC_ADC1SNS9H		0x1e6	/* RO */
+#define INTEL_MSIC_ADC1SNS9L		0x1e7	/* RO */
+#define INTEL_MSIC_ADC1SNS10H		0x1e8	/* RO */
+#define INTEL_MSIC_ADC1SNS10L		0x1e9	/* RO */
+#define INTEL_MSIC_ADC1SNS11H		0x1ea	/* RO */
+#define INTEL_MSIC_ADC1SNS11L		0x1eb	/* RO */
+#define INTEL_MSIC_ADC1SNS12H		0x1ec	/* RO */
+#define INTEL_MSIC_ADC1SNS12L		0x1ed	/* RO */
+#define INTEL_MSIC_ADC1SNS13H		0x1ee	/* RO */
+#define INTEL_MSIC_ADC1SNS13L		0x1ef	/* RO */
+#define INTEL_MSIC_ADC1SNS14H		0x1f0	/* RO */
+#define INTEL_MSIC_ADC1SNS14L		0x1f1	/* RO */
+#define INTEL_MSIC_ADC1BV0H		0x1f2	/* RO */
+#define INTEL_MSIC_ADC1BV0L		0x1f3	/* RO */
+#define INTEL_MSIC_ADC1BV1H		0x1f4	/* RO */
+#define INTEL_MSIC_ADC1BV1L		0x1f5	/* RO */
+#define INTEL_MSIC_ADC1BV2H		0x1f6	/* RO */
+#define INTEL_MSIC_ADC1BV2L		0x1f7	/* RO */
+#define INTEL_MSIC_ADC1BV3H		0x1f8	/* RO */
+#define INTEL_MSIC_ADC1BV3L		0x1f9	/* RO */
+#define INTEL_MSIC_ADC1BI0H		0x1fa	/* RO */
+#define INTEL_MSIC_ADC1BI0L		0x1fb	/* RO */
+#define INTEL_MSIC_ADC1BI1H		0x1fc	/* RO */
+#define INTEL_MSIC_ADC1BI1L		0x1fd	/* RO */
+#define INTEL_MSIC_ADC1BI2H		0x1fe	/* RO */
+#define INTEL_MSIC_ADC1BI2L		0x1ff	/* RO */
+#define INTEL_MSIC_ADC1BI3H		0x200	/* RO */
+#define INTEL_MSIC_ADC1BI3L		0x201	/* RO */
 #define INTEL_MSIC_CCCNTL		0x202
-#define INTEL_MSIC_CCOFFSETH		0x203	
-#define INTEL_MSIC_CCOFFSETL		0x204	
-#define INTEL_MSIC_CCADCHA		0x205	
-#define INTEL_MSIC_CCADCLA		0x206	
+#define INTEL_MSIC_CCOFFSETH		0x203	/* RO */
+#define INTEL_MSIC_CCOFFSETL		0x204	/* RO */
+#define INTEL_MSIC_CCADCHA		0x205	/* RO */
+#define INTEL_MSIC_CCADCLA		0x206	/* RO */
 
+/* AUDIO */
 #define INTEL_MSIC_AUDPLLCTRL		0x240
 #define INTEL_MSIC_DMICBUF0123		0x241
 #define INTEL_MSIC_DMICBUF45		0x242
@@ -356,19 +367,33 @@
 #define INTEL_MSIC_PCM2CTRL1		0x27b
 #define INTEL_MSIC_PCM2CTRL2		0x27c
 
+/* HDMI */
 #define INTEL_MSIC_HDMIPUEN		0x280
-#define INTEL_MSIC_HDMISTATUS		0x281	
+#define INTEL_MSIC_HDMISTATUS		0x281	/* RO */
 
+/* Physical address of the start of the MSIC interrupt tree in SRAM */
 #define INTEL_MSIC_IRQ_PHYS_BASE	0xffff7fc0
 
+/**
+ * struct intel_msic_gpio_pdata - platform data for the MSIC GPIO driver
+ * @gpio_base: base number for the GPIOs
+ */
 struct intel_msic_gpio_pdata {
 	unsigned	gpio_base;
 };
 
+/**
+ * struct intel_msic_ocd_pdata - platform data for the MSIC OCD driver
+ * @gpio: GPIO number used for OCD interrupts
+ *
+ * The MSIC MFD driver converts @gpio into an IRQ number and passes it to
+ * the OCD driver as %IORESOURCE_IRQ.
+ */
 struct intel_msic_ocd_pdata {
 	unsigned	gpio;
 };
 
+/* MSIC embedded blocks (subdevices) */
 enum intel_msic_block {
 	INTEL_MSIC_BLOCK_TOUCH,
 	INTEL_MSIC_BLOCK_ADC,
@@ -383,6 +408,23 @@ enum intel_msic_block {
 	INTEL_MSIC_BLOCK_LAST,
 };
 
+/**
+ * struct intel_msic_platform_data - platform data for the MSIC driver
+ * @irq: array of interrupt numbers, one per device. If @irq is set to %0
+ *	 for a given block, the corresponding platform device is not
+ *	 created. For devices which don't have an interrupt, use %0xff
+ *	 (this is same as in SFI spec).
+ * @gpio: platform data for the MSIC GPIO driver
+ * @ocd: platform data for the MSIC OCD driver
+ *
+ * Once the MSIC driver is initialized, the register interface is ready to
+ * use. All the platform devices for subdevices are created after the
+ * register interface is ready so that we can guarantee its availability to
+ * the subdevice drivers.
+ *
+ * Interrupt numbers are passed to the subdevices via %IORESOURCE_IRQ
+ * resources of the created platform device.
+ */
 struct intel_msic_platform_data {
 	int				irq[INTEL_MSIC_BLOCK_LAST];
 	struct intel_msic_gpio_pdata	*gpio;
@@ -397,9 +439,18 @@ extern int intel_msic_reg_update(unsigned short reg, u8 val, u8 mask);
 extern int intel_msic_bulk_read(unsigned short *reg, u8 *buf, size_t count);
 extern int intel_msic_bulk_write(unsigned short *reg, u8 *buf, size_t count);
 
+/*
+ * pdev_to_intel_msic - gets an MSIC instance from the platform device
+ * @pdev: platform device pointer
+ *
+ * The client drivers need to have pointer to the MSIC instance if they
+ * want to call intel_msic_irq_read(). This macro can be used for
+ * convenience to get the MSIC pointer from @pdev where needed. This is
+ * _only_ valid for devices which are managed by the MSIC.
+ */
 #define pdev_to_intel_msic(pdev)	(dev_get_drvdata(pdev->dev.parent))
 
 extern int intel_msic_irq_read(struct intel_msic *msic, unsigned short reg,
 			       u8 *val);
 
-#endif 
+#endif /* __LINUX_MFD_INTEL_MSIC_H__ */

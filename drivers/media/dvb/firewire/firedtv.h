@@ -109,6 +109,7 @@ struct firedtv {
 	u8			avc_data[512];
 };
 
+/* firedtv-avc.c */
 int avc_recv(struct firedtv *fdtv, void *data, size_t length);
 int avc_tuner_status(struct firedtv *fdtv, struct firedtv_tuner_status *stat);
 struct dtv_frontend_properties;
@@ -132,22 +133,27 @@ int avc_ca_get_mmi(struct firedtv *fdtv, char *mmi_object, unsigned int *len);
 int cmp_establish_pp_connection(struct firedtv *fdtv, int plug, int channel);
 void cmp_break_pp_connection(struct firedtv *fdtv, int plug, int channel);
 
+/* firedtv-ci.c */
 int fdtv_ca_register(struct firedtv *fdtv);
 void fdtv_ca_release(struct firedtv *fdtv);
 
+/* firedtv-dvb.c */
 int fdtv_start_feed(struct dvb_demux_feed *dvbdmxfeed);
 int fdtv_stop_feed(struct dvb_demux_feed *dvbdmxfeed);
 int fdtv_dvb_register(struct firedtv *fdtv, const char *name);
 void fdtv_dvb_unregister(struct firedtv *fdtv);
 
+/* firedtv-fe.c */
 void fdtv_frontend_init(struct firedtv *fdtv, const char *name);
 
+/* firedtv-fw.c */
 int fdtv_lock(struct firedtv *fdtv, u64 addr, void *data);
 int fdtv_read(struct firedtv *fdtv, u64 addr, void *data);
 int fdtv_write(struct firedtv *fdtv, u64 addr, void *data, size_t len);
 int fdtv_start_iso(struct firedtv *fdtv);
 void fdtv_stop_iso(struct firedtv *fdtv);
 
+/* firedtv-rc.c */
 #ifdef CONFIG_DVB_FIREDTV_INPUT
 int fdtv_register_rc(struct firedtv *fdtv, struct device *dev);
 void fdtv_unregister_rc(struct firedtv *fdtv);
@@ -159,4 +165,4 @@ static inline void fdtv_unregister_rc(struct firedtv *fdtv) {}
 static inline void fdtv_handle_rc(struct firedtv *fdtv, unsigned int code) {}
 #endif
 
-#endif 
+#endif /* _FIREDTV_H */

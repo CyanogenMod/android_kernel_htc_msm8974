@@ -29,12 +29,37 @@ static inline void stmpe_dump_bytes(const char *str, const void *buf,
 }
 #endif
 
+/**
+ * struct stmpe_variant_block - information about block
+ * @cell:	base mfd cell
+ * @irq:	interrupt number to be added to each IORESOURCE_IRQ
+ *		in the cell
+ * @block:	block id; used for identification with platform data and for
+ *		enable and altfunc callbacks
+ */
 struct stmpe_variant_block {
 	struct mfd_cell		*cell;
 	int			irq;
 	enum stmpe_block	block;
 };
 
+/**
+ * struct stmpe_variant_info - variant-specific information
+ * @name:	part name
+ * @id_val:	content of CHIPID register
+ * @id_mask:	bits valid in CHIPID register for comparison with id_val
+ * @num_gpios:	number of GPIOS
+ * @af_bits:	number of bits used to specify the alternate function
+ * @regs: variant specific registers.
+ * @blocks:	list of blocks present on this device
+ * @num_blocks:	number of blocks present on this device
+ * @num_irqs:	number of internal IRQs available on this device
+ * @enable:	callback to enable the specified blocks.
+ *		Called with the I/O lock held.
+ * @get_altfunc: callback to get the alternate function number for the
+ *		 specific block
+ * @enable_autosleep: callback to configure autosleep with specified timeout
+ */
 struct stmpe_variant_info {
 	const char *name;
 	u16 id_val;
@@ -50,6 +75,15 @@ struct stmpe_variant_info {
 	int (*enable_autosleep)(struct stmpe *stmpe, int autosleep_timeout);
 };
 
+/**
+ * struct stmpe_client_info - i2c or spi specific routines/info
+ * @data: client specific data
+ * @read_byte: read single byte
+ * @write_byte: write single byte
+ * @read_block: read block or multiple bytes
+ * @write_block: write block or multiple bytes
+ * @init: client init routine, called during probe
+ */
 struct stmpe_client_info {
 	void *data;
 	int irq;
@@ -70,6 +104,9 @@ int stmpe_remove(struct stmpe *stmpe);
 #define STMPE_ICR_LSB_EDGE	(1 << 1)
 #define STMPE_ICR_LSB_GIM	(1 << 0)
 
+/*
+ * STMPE801
+ */
 #define STMPE801_ID			0x0108
 #define STMPE801_NR_INTERNAL_IRQS	1
 
@@ -86,6 +123,9 @@ int stmpe_remove(struct stmpe *stmpe);
 #define STMPE801_REG_SYS_CTRL_INT_EN	(1 << 2)
 #define STMPE801_REG_SYS_CTRL_INT_HI	(1 << 0)
 
+/*
+ * STMPE811
+ */
 
 #define STMPE811_IRQ_TOUCH_DET		0
 #define STMPE811_IRQ_FIFO_TH		1
@@ -119,6 +159,9 @@ int stmpe_remove(struct stmpe *stmpe);
 #define STMPE811_SYS_CTRL2_GPIO_OFF	(1 << 2)
 #define STMPE811_SYS_CTRL2_TS_OFF	(1 << 3)
 
+/*
+ * STMPE1601
+ */
 
 #define STMPE1601_IRQ_GPIOC		8
 #define STMPE1601_IRQ_PWM3		7
@@ -151,9 +194,13 @@ int stmpe_remove(struct stmpe *stmpe);
 #define STMPE1601_SYS_CTRL_ENABLE_KPC		(1 << 1)
 #define STMPE1601_SYSCON_ENABLE_SPWM		(1 << 0)
 
+/* The 1601/2403 share the same masks */
 #define STMPE1601_AUTOSLEEP_TIMEOUT_MASK	(0x7)
 #define STPME1601_AUTOSLEEP_ENABLE		(1 << 3)
 
+/*
+ * STMPE24xx
+ */
 
 #define STMPE24XX_IRQ_GPIOC		8
 #define STMPE24XX_IRQ_PWM2		7

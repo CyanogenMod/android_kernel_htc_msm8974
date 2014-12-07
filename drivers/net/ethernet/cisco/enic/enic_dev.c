@@ -211,6 +211,7 @@ int enic_dev_deinit_done(struct enic *enic, int *status)
 	return err;
 }
 
+/* rtnl lock is held */
 int enic_vlan_rx_add_vid(struct net_device *netdev, u16 vid)
 {
 	struct enic *enic = netdev_priv(netdev);
@@ -223,6 +224,7 @@ int enic_vlan_rx_add_vid(struct net_device *netdev, u16 vid)
 	return err;
 }
 
+/* rtnl lock is held */
 int enic_vlan_rx_kill_vid(struct net_device *netdev, u16 vid)
 {
 	struct enic *enic = netdev_priv(netdev);

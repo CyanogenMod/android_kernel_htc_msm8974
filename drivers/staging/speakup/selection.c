@@ -1,4 +1,4 @@
-#include <linux/slab.h> 
+#include <linux/slab.h> /* for kmalloc */
 #include <linux/consolemap.h>
 #include <linux/interrupt.h>
 #include <linux/sched.h>
@@ -6,11 +6,16 @@
 
 #include "speakup.h"
 
+/* ------ cut and paste ----- */
+/* Don't take this from <ctype.h>: 011-015 on the screen aren't spaces */
 #define ishardspace(c)      ((c) == ' ')
 
-unsigned short xs, ys, xe, ye; 
+unsigned short xs, ys, xe, ye; /* our region points */
 
+/* Variables for selection control. */
+/* must not be disallocated */
 struct vc_data *spk_sel_cons;
+/* cleared by clear_selection */
 static int sel_start = -1;
 static int sel_end;
 static int sel_buffer_lth;
@@ -27,11 +32,13 @@ void speakup_clear_selection(void)
 	sel_start = -1;
 }
 
+/* does screen address p correspond to character at LH/RH edge of screen? */
 static int atedge(const int p, int size_row)
 {
 	return !(p % size_row) || !((p + 2) % size_row);
 }
 
+/* constrain v such that v <= u */
 static unsigned short limit(const unsigned short v, const unsigned short u)
 {
 	return (v > u) ? u : v;
@@ -52,7 +59,7 @@ int speakup_set_selection(struct tty_struct *tty)
 	pe = ye * vc->vc_size_row + (xe << 1);
 
 	if (ps > pe) {
-		
+		/* make sel_start <= sel_end */
 		int tmp = ps;
 		ps = pe;
 		pe = tmp;
@@ -69,7 +76,7 @@ int speakup_set_selection(struct tty_struct *tty)
 	new_sel_start = ps;
 	new_sel_end = pe;
 
-	
+	/* select to end of line if on trailing space */
 	if (new_sel_end > new_sel_start &&
 	    !atedge(new_sel_end, vc->vc_size_row) &&
 	    ishardspace(sel_pos(new_sel_end))) {
@@ -81,11 +88,11 @@ int speakup_set_selection(struct tty_struct *tty)
 			new_sel_end = pe;
 	}
 	if ((new_sel_start == sel_start) && (new_sel_end == sel_end))
-		return 0; 
+		return 0; /* no action required */
 
 	sel_start = new_sel_start;
 	sel_end = new_sel_end;
-	
+	/* Allocate a new buffer before freeing the old one ... */
 	bp = kmalloc((sel_end-sel_start)/2+1, GFP_ATOMIC);
 	if (!bp) {
 		printk(KERN_WARNING "selection: kmalloc() failed\n");
@@ -101,6 +108,8 @@ int speakup_set_selection(struct tty_struct *tty)
 		if (!ishardspace(*bp++))
 			obp = bp;
 		if (!((i + 2) % vc->vc_size_row)) {
+			/* strip trailing blanks from line and add newline,
+			   unless non-space at end of line. */
 			if (obp != bp) {
 				bp = obp;
 				*bp++ = '\r';
@@ -112,6 +121,8 @@ int speakup_set_selection(struct tty_struct *tty)
 	return 0;
 }
 
+/* TODO: move to some helper thread, probably.  That'd fix having to check for
+ * in_atomic().  */
 int speakup_paste_selection(struct tty_struct *tty)
 {
 	struct vc_data *vc = (struct vc_data *) tty->driver_data;
@@ -122,7 +133,7 @@ int speakup_paste_selection(struct tty_struct *tty)
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (test_bit(TTY_THROTTLED, &tty->flags)) {
 			if (in_atomic())
-				
+				/* if we are in an interrupt handler, abort */
 				break;
 			schedule();
 			continue;

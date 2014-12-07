@@ -34,11 +34,14 @@ extern long elf_aux_hwcap;
 
 #define ELF_ET_DYN_BASE (0x08000000)
 
-#define ELF_NGREG	48	
-#define ELF_NFPREG	33	
+/* the following stolen from asm-ppc/elf.h */
+#define ELF_NGREG	48	/* includes nip, msr, lr, etc. */
+#define ELF_NFPREG	33	/* includes fpscr */
+/* General registers */
 typedef unsigned long elf_greg_t;
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 
+/* Floating point registers */
 typedef double elf_fpreg_t;
 typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 

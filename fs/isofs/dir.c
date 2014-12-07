@@ -1,3 +1,15 @@
+/*
+ *  linux/fs/isofs/dir.c
+ *
+ *  (C) 1992, 1993, 1994  Eric Youngdale Modified for ISO 9660 filesystem.
+ *
+ *  (C) 1991  Linus Torvalds - minix filesystem
+ *
+ *  Steve Beynon		       : Missing last directory entries fixed
+ *  (stephen@askone.demon.co.uk)      : 21st June 1996
+ *
+ *  isofs directory handling functions
+ */
 #include <linux/gfp.h>
 #include "isofs.h"
 
@@ -13,18 +25,18 @@ int isofs_name_translate(struct iso_directory_record *de, char *new, struct inod
 			break;
 
 		if (c >= 'A' && c <= 'Z')
-			c |= 0x20;	
+			c |= 0x20;	/* lower case */
 
-		
+		/* Drop trailing '.;1' (ISO 9660:1988 7.5.1 requires period) */
 		if (c == '.' && i == len - 3 && old[i + 1] == ';' && old[i + 2] == '1')
 			break;
 
-		
+		/* Drop trailing ';1' */
 		if (c == ';' && i == len - 2 && old[i + 1] == '1')
 			break;
 
-		
-		
+		/* Convert remaining ';' to '.' */
+		/* Also '/' to '.' (broken Acorn-generated ISO9660 images) */
 		if (c == ';' || c == '/')
 			c = '.';
 
@@ -63,6 +75,9 @@ int get_acorn_filename(struct iso_directory_record *de,
 	return retnamlen;
 }
 
+/*
+ * This should _really_ be cleaned up some day..
+ */
 static int do_isofs_readdir(struct inode *inode, struct file *filp,
 		void *dirent, filldir_t filldir,
 		char *tmpname, struct iso_directory_record *tmpde)
@@ -70,12 +85,12 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 	unsigned long bufsize = ISOFS_BUFFER_SIZE(inode);
 	unsigned char bufbits = ISOFS_BUFFER_BITS(inode);
 	unsigned long block, offset, block_saved, offset_saved;
-	unsigned long inode_number = 0;	
+	unsigned long inode_number = 0;	/* Quiet GCC */
 	struct buffer_head *bh = NULL;
 	int len;
 	int map;
 	int first_de = 1;
-	char *p = NULL;		
+	char *p = NULL;		/* Quiet GCC */
 	struct iso_directory_record *de;
 	struct isofs_sb_info *sbi = ISOFS_SB(inode->i_sb);
 
@@ -95,6 +110,11 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 
 		de_len = *(unsigned char *) de;
 
+		/*
+		 * If the length byte is zero, we should move on to the next
+		 * CDROM sector.  If we are at the end of the directory, we
+		 * kick out of the while loop.
+		 */
 
 		if (de_len == 0) {
 			brelse(bh);
@@ -109,7 +129,7 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 		offset_saved = offset;
 		offset += de_len;
 
-		
+		/* Make sure we have a full directory entry */
 		if (offset >= bufsize) {
 			int slop = bufsize - offset + de_len;
 			memcpy(tmpde, de, slop);
@@ -125,7 +145,7 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 			}
 			de = tmpde;
 		}
-		
+		/* Basic sanity check, whether name doesn't exceed dir entry */
 		if (de_len < de->name_len[0] +
 					sizeof(struct iso_directory_record)) {
 			printk(KERN_NOTICE "iso9660: Corrupted directory entry"
@@ -149,7 +169,7 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 		}
 		first_de = 1;
 
-		
+		/* Handle the case of the '.' directory */
 		if (de->name_len[0] == 1 && de->name[0] == 0) {
 			if (filldir(dirent, ".", 1, filp->f_pos, inode->i_ino, DT_DIR) < 0)
 				break;
@@ -159,7 +179,7 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 
 		len = 0;
 
-		
+		/* Handle the case of the '..' directory */
 		if (de->name_len[0] == 1 && de->name[0] == 1) {
 			inode_number = parent_ino(filp->f_path.dentry);
 			if (filldir(dirent, "..", 2, filp->f_pos, inode_number, DT_DIR) < 0)
@@ -168,7 +188,13 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 			continue;
 		}
 
+		/* Handle everything else.  Do name translation if there
+		   is no Rock Ridge NM field. */
 
+		/*
+		 * Do not report hidden files if so instructed, or associated
+		 * files unless instructed to do so
+		 */
 		if ((sbi->s_hide && (de->flags[-sbi->s_high_sierra] & 1)) ||
 		    (!sbi->s_showassoc &&
 				(de->flags[-sbi->s_high_sierra] & 4))) {
@@ -179,7 +205,7 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 		map = 1;
 		if (sbi->s_rock) {
 			len = get_rock_ridge_filename(de, tmpname, inode);
-			if (len != 0) {		
+			if (len != 0) {		/* may be -1 */
 				p = tmpname;
 				map = 0;
 			}
@@ -216,6 +242,11 @@ static int do_isofs_readdir(struct inode *inode, struct file *filp,
 	return 0;
 }
 
+/*
+ * Handle allocation of temporary space for name translation and
+ * handling split directory entries.. The real work is done by
+ * "do_isofs_readdir()".
+ */
 static int isofs_readdir(struct file *filp,
 		void *dirent, filldir_t filldir)
 {
@@ -243,6 +274,9 @@ const struct file_operations isofs_dir_operations =
 	.readdir = isofs_readdir,
 };
 
+/*
+ * directories can handle most operations...
+ */
 const struct inode_operations isofs_dir_inode_operations =
 {
 	.lookup = isofs_lookup,

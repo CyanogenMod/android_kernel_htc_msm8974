@@ -61,6 +61,9 @@ static inline void blkcipher_unmap_dst(struct blkcipher_walk *walk)
 	scatterwalk_unmap(walk->dst.virt.addr);
 }
 
+/* Get a spot of the specified length that does not straddle a page.
+ * The caller needs to ensure that there is enough space for this operation.
+ */
 static inline u8 *blkcipher_get_spot(u8 *start, unsigned int len)
 {
 	u8 *end_page = (u8 *)(((unsigned long)(start + len - 1)) & PAGE_MASK);
@@ -604,7 +607,7 @@ struct crypto_instance *skcipher_geniv_alloc(struct crypto_template *tmpl,
 
 	spawn = crypto_instance_ctx(inst);
 
-	
+	/* Ignore async algorithms if necessary. */
 	mask |= crypto_requires_sync(algt->type, algt->mask);
 
 	crypto_set_skcipher_spawn(spawn, inst);
@@ -641,6 +644,11 @@ struct crypto_instance *skcipher_geniv_alloc(struct crypto_template *tmpl,
 	if (!balg.ivsize)
 		goto err_drop_alg;
 
+	/*
+	 * This is only true if we're constructing an algorithm with its
+	 * default IV generator.  For the default generator we elide the
+	 * template name and double-check the IV generator.
+	 */
 	if (algt->mask & CRYPTO_ALG_GENIV) {
 		if (!balg.geniv)
 			balg.geniv = crypto_default_geniv(alg);

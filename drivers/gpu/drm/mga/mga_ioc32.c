@@ -196,6 +196,15 @@ drm_ioctl_compat_t *mga_compat_ioctls[] = {
 	[DRM_MGA_DMA_BOOTSTRAP] = compat_mga_dma_bootstrap,
 };
 
+/**
+ * Called whenever a 32-bit process running under a 64-bit kernel
+ * performs an ioctl on /dev/dri/card<n>.
+ *
+ * \param filp file pointer.
+ * \param cmd command.
+ * \param arg user argument.
+ * \return zero on success or negative number on failure.
+ */
 long mga_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	unsigned int nr = DRM_IOCTL_NR(cmd);

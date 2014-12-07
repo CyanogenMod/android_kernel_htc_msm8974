@@ -19,6 +19,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 
+/* Microamps */
 static const int isink_cur[] = {
 	4,
 	5,
@@ -152,6 +153,11 @@ static void led_work(struct work_struct *work)
 		goto out;
 	}
 
+	/* This scales linearly into the index of valid current
+	 * settings which results in a linear scaling of perceived
+	 * brightness due to the non-linear current settings provided
+	 * by the hardware.
+	 */
 	uA = (led->max_uA_index * led->value) / LED_FULL;
 	spin_unlock_irqrestore(&led->value_lock, flags);
 	BUG_ON(uA >= ARRAY_SIZE(isink_cur));

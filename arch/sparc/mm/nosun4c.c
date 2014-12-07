@@ -12,6 +12,7 @@
 
 static char shouldnothappen[] __initdata = "32bit SMP kernel only supports sun4m and sun4d\n";
 
+/* Dummies */
 struct sun4c_mmu_ring {
 	unsigned long xxx1[3];
 	unsigned char xxx2[2];

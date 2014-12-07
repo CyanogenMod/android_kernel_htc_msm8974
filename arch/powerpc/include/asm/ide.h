@@ -14,4 +14,4 @@
 #define __ide_mm_outsw(p, a, c)	writesw((void __iomem *)(p), (a), (c))
 #define __ide_mm_outsl(p, a, c)	writesl((void __iomem *)(p), (a), (c))
 
-#endif 
+#endif /* _ASM_POWERPC_IDE_H */

@@ -1,3 +1,8 @@
+/*
+ * Machine specific setup for xen
+ *
+ * Jeremy Fitzhardinge <jeremy@xensource.com>, XenSource Inc, 2007
+ */
 
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -25,16 +30,29 @@
 #include "xen-ops.h"
 #include "vdso.h"
 
+/* These are code, but not functions.  Defined in entry.S */
 extern const char xen_hypervisor_callback[];
 extern const char xen_failsafe_callback[];
 extern void xen_sysenter_target(void);
 extern void xen_syscall_target(void);
 extern void xen_syscall32_target(void);
 
+/* Amount of extra memory space we add to the e820 ranges */
 struct xen_memory_region xen_extra_mem[XEN_EXTRA_MEM_MAX_REGIONS] __initdata;
 
+/* Number of pages released from the initial allocation. */
 unsigned long xen_released_pages;
 
+/* 
+ * The maximum amount of extra memory compared to the base size.  The
+ * main scaling factor is the size of struct page.  At extreme ratios
+ * of base:extra, all the base memory can be filled with page
+ * structures for the extra memory, leaving no space for anything
+ * else.
+ * 
+ * 10x seems like a reasonable balance between scaling flexibility and
+ * leaving a practically usable system.
+ */
 #define EXTRA_MEM_RATIO		(10)
 
 static void __init xen_add_extra_mem(u64 start, u64 size)
@@ -43,13 +61,13 @@ static void __init xen_add_extra_mem(u64 start, u64 size)
 	int i;
 
 	for (i = 0; i < XEN_EXTRA_MEM_MAX_REGIONS; i++) {
-		
+		/* Add new region. */
 		if (xen_extra_mem[i].size == 0) {
 			xen_extra_mem[i].start = start;
 			xen_extra_mem[i].size  = size;
 			break;
 		}
-		
+		/* Append to existing region. */
 		if (xen_extra_mem[i].start + xen_extra_mem[i].size == start) {
 			xen_extra_mem[i].size += size;
 			break;
@@ -81,7 +99,7 @@ static unsigned long __init xen_release_chunk(unsigned long start,
 	for(pfn = start; pfn < end; pfn++) {
 		unsigned long mfn = pfn_to_mfn(pfn);
 
-		
+		/* Make sure pfn exists to start with */
 		if (mfn == INVALID_P2M_ENTRY || mfn_to_pfn(mfn) != pfn)
 			continue;
 
@@ -111,6 +129,17 @@ static unsigned long __init xen_set_identity_and_release(
 	const struct e820entry *entry;
 	int i;
 
+	/*
+	 * Combine non-RAM regions and gaps until a RAM region (or the
+	 * end of the map) is reached, then set the 1:1 map and
+	 * release the pages (if available) in those non-RAM regions.
+	 *
+	 * The combined non-RAM regions are rounded to a whole number
+	 * of pages so any partial pages are accessible via the 1:1
+	 * mapping.  This is needed for some BIOSes that put (for
+	 * example) the DMI tables in a reserved region that begins on
+	 * a non-page boundary.
+	 */
 	for (i = 0, entry = list; i < map_size; i++, entry++) {
 		phys_addr_t end = entry->addr + entry->size;
 
@@ -145,6 +174,15 @@ static unsigned long __init xen_get_max_pages(void)
 	domid_t domid = DOMID_SELF;
 	int ret;
 
+	/*
+	 * For the initial domain we use the maximum reservation as
+	 * the maximum page.
+	 *
+	 * For guest domains the current maximum reservation reflects
+	 * the current maximum rather than the static maximum. In this
+	 * case the e820 map provided to us will cover the static
+	 * maximum region.
+	 */
 	if (xen_initial_domain()) {
 		ret = HYPERVISOR_memory_op(XENMEM_maximum_reservation, &domid);
 		if (ret > 0)
@@ -158,7 +196,7 @@ static void xen_align_and_add_e820_region(u64 start, u64 size, int type)
 {
 	u64 end = start + size;
 
-	
+	/* Align RAM regions to page boundaries. */
 	if (type == E820_RAM) {
 		start = PAGE_ALIGN(start);
 		end &= ~((u64)PAGE_SIZE - 1);
@@ -167,6 +205,9 @@ static void xen_align_and_add_e820_region(u64 start, u64 size, int type)
 	e820_add_region(start, end - start, type);
 }
 
+/**
+ * machine_specific_memory_setup - Hook for machine specific memory setup.
+ **/
 char * __init xen_memory_setup(void)
 {
 	static struct e820entry map[E820MAX] __initdata;
@@ -195,24 +236,40 @@ char * __init xen_memory_setup(void)
 		memmap.nr_entries = 1;
 		map[0].addr = 0ULL;
 		map[0].size = mem_end;
-		
+		/* 8MB slack (to balance backend allocations). */
 		map[0].size += 8ULL << 20;
 		map[0].type = E820_RAM;
 		rc = 0;
 	}
 	BUG_ON(rc);
 
-	
+	/* Make sure the Xen-supplied memory map is well-ordered. */
 	sanitize_e820_map(map, memmap.nr_entries, &memmap.nr_entries);
 
 	max_pages = xen_get_max_pages();
 	if (max_pages > max_pfn)
 		extra_pages += max_pages - max_pfn;
 
+	/*
+	 * Set P2M for all non-RAM pages and E820 gaps to be identity
+	 * type PFNs.  Any RAM pages that would be made inaccesible by
+	 * this are first released.
+	 */
 	xen_released_pages = xen_set_identity_and_release(
 		map, memmap.nr_entries, max_pfn);
 	extra_pages += xen_released_pages;
 
+	/*
+	 * Clamp the amount of extra memory to a EXTRA_MEM_RATIO
+	 * factor the base size.  On non-highmem systems, the base
+	 * size is the full initial memory allocation; on highmem it
+	 * is limited to the max size of lowmem, so that it doesn't
+	 * get completely filled.
+	 *
+	 * In principle there could be a problem in lowmem systems if
+	 * the initial memory is also very large with respect to
+	 * lowmem, but we won't try to deal with that here.
+	 */
 	extra_pages = min(EXTRA_MEM_RATIO * min(max_pfn, PFN_DOWN(MAXMEM)),
 			  extra_pages);
 
@@ -241,9 +298,20 @@ char * __init xen_memory_setup(void)
 			i++;
 	}
 
+	/*
+	 * In domU, the ISA region is normal, usable memory, but we
+	 * reserve ISA memory anyway because too many things poke
+	 * about in there.
+	 */
 	e820_add_region(ISA_START_ADDRESS, ISA_END_ADDRESS - ISA_START_ADDRESS,
 			E820_RESERVED);
 
+	/*
+	 * Reserve Xen bits:
+	 *  - mfn_list
+	 *  - xen_start_info
+	 * See comment above "struct start_info" in <xen/interface/xen.h>
+	 */
 	memblock_reserve(__pa(xen_start_info->mfn_list),
 			 xen_start_info->pt_base - xen_start_info->mfn_list);
 
@@ -252,6 +320,11 @@ char * __init xen_memory_setup(void)
 	return "Xen";
 }
 
+/*
+ * Set the bit indicating "nosegneg" library variants should be used.
+ * We only need to bother in pure 32-bit mode; compat 32-bit processes
+ * can have un-truncated segments, so wrapping around is allowed.
+ */
 static void __init fiddle_vdso(void)
 {
 #ifdef CONFIG_X86_32
@@ -301,6 +374,8 @@ void __cpuinit xen_enable_syscall(void)
 	ret = register_callback(CALLBACKTYPE_syscall, xen_syscall_target);
 	if (ret != 0) {
 		printk(KERN_ERR "Failed to set syscall callback: %d\n", ret);
+		/* Pretty fatal; 64-bit userspace has no other
+		   mechanism for syscalls. */
 	}
 
 	if (boot_cpu_has(X86_FEATURE_SYSCALL32)) {
@@ -309,7 +384,7 @@ void __cpuinit xen_enable_syscall(void)
 		if (ret != 0)
 			setup_clear_cpu_cap(X86_FEATURE_SYSCALL32);
 	}
-#endif 
+#endif /* CONFIG_X86_64 */
 }
 
 void __init xen_arch_setup(void)
@@ -341,7 +416,7 @@ void __init xen_arch_setup(void)
 	       MAX_GUEST_CMDLINE > COMMAND_LINE_SIZE ?
 	       COMMAND_LINE_SIZE : MAX_GUEST_CMDLINE);
 
-	
+	/* Set up idle, making sure it calls safe_halt() pvop */
 #ifdef CONFIG_X86_32
 	boot_cpu_data.hlt_works_ok = 1;
 #endif

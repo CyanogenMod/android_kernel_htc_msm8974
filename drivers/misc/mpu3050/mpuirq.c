@@ -45,6 +45,7 @@
 
 #define MPUIRQ_NAME "mpuirq"
 
+/* function which gets accel data and sends it to MPU */
 
 DECLARE_WAIT_QUEUE_HEAD(mpuirq_wait);
 
@@ -71,18 +72,20 @@ static int mpuirq_open(struct inode *inode, struct file *file)
 		"%s current->pid %d\n", __func__, current->pid);
 	mpuirq_dev_data.pid = current->pid;
 	file->private_data = &mpuirq_dev_data;
-	
-	
-	
+	/* we could do some checking on the flags supplied by "open" */
+	/* i.e. O_NONBLOCK */
+	/* -> set some flag to disable interruptible_sleep_on in mpuirq_read */
 	return 0;
 }
 
+/* close function - called when the "file" /dev/mpuirq is closed in userspace */
 static int mpuirq_release(struct inode *inode, struct file *file)
 {
 	dev_dbg(mpuirq_dev_data.dev->this_device, "mpuirq_release\n");
 	return 0;
 }
 
+/* read function called when from /dev/mpuirq is read */
 static ssize_t mpuirq_read(struct file *file,
 			   char *buf, size_t count, loff_t *ppos)
 {
@@ -123,6 +126,7 @@ unsigned int mpuirq_poll(struct file *file, struct poll_table_struct *poll)
 	return mask;
 }
 
+/* ioctl - I/O control */
 static long mpuirq_ioctl(struct file *file,
 			 unsigned int cmd, unsigned long arg)
 {
@@ -179,7 +183,7 @@ static void mpu_accel_data_work_fcn(struct work_struct *work)
 			      &mldl_cfg->pdata->accel, rbuff);
 
 
-	
+	/* @todo add other data formats here as well */
 	if (EXT_SLAVE_BIG_ENDIAN == mldl_cfg->accel->endian) {
 		for (ii = 0; ii < 3; ii++) {
 			wbuff[2 * ii + 1] = rbuff[2 * ii + 1];
@@ -190,7 +194,7 @@ static void mpu_accel_data_work_fcn(struct work_struct *work)
 	}
 
 	wbuff[7] = 0;
-	wbuff[8] = 1;		
+	wbuff[8] = 1;		/*set semaphore */
 
 	mpu_memory_write(mpuirq_dev_data->mpu_client->adapter,
 			 mldl_cfg->addr, 0x0108, 8, wbuff);
@@ -204,8 +208,8 @@ static irqreturn_t mpuirq_handler(int irq, void *dev_id)
 
 	mpuirq_data.interruptcount++;
 
-	
-	
+	/* wake up (unblock) for reading data from userspace */
+	/* and ignore first interrupt generated in module init */
 	mpuirq_dev_data.data_ready = 1;
 
 	do_gettimeofday(&irqtime);
@@ -224,6 +228,7 @@ static irqreturn_t mpuirq_handler(int irq, void *dev_id)
 
 }
 
+/* define which file operations are supported */
 const struct file_operations mpuirq_fops = {
 	.owner = THIS_MODULE,
 	.read = mpuirq_read,
@@ -252,7 +257,7 @@ int mpuirq_init(struct i2c_client *mpu_client)
 	struct mldl_cfg *mldl_cfg =
 	    (struct mldl_cfg *) i2c_get_clientdata(mpu_client);
 
-	
+	/* work_struct initialization */
 	INIT_WORK((struct work_struct *) &mpuirq_dev_data,
 		  mpu_accel_data_work_fcn);
 	mpuirq_dev_data.mpu_client = mpu_client;
@@ -302,7 +307,7 @@ int mpuirq_init(struct i2c_client *mpu_client)
 
 void mpuirq_exit(void)
 {
-	
+	/* Free the IRQ first before flushing the work */
 	if (mpuirq_dev_data.irq > 0)
 		free_irq(mpuirq_dev_data.irq, &mpuirq_dev_data.irq);
 

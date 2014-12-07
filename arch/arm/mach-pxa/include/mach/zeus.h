@@ -17,6 +17,7 @@
 
 #define ZEUS_NR_IRQS		(IRQ_BOARD_START + 48)
 
+/* Physical addresses */
 #define ZEUS_FLASH_PHYS		PXA_CS0_PHYS
 #define ZEUS_ETH0_PHYS		PXA_CS1_PHYS
 #define ZEUS_ETH1_PHYS		PXA_CS2_PHYS
@@ -29,6 +30,7 @@
 #define ZEUS_CPLD_CONTROL_PHYS	(ZEUS_CPLD_PHYS + 0x01000000)
 #define ZEUS_CPLD_EXTWDOG_PHYS	(ZEUS_CPLD_PHYS + 0x01800000)
 
+/* GPIOs */
 #define ZEUS_AC97_GPIO		0
 #define ZEUS_WAKEUP_GPIO	1
 #define ZEUS_UARTA_GPIO		9
@@ -60,12 +62,18 @@
 
 #define	ZEUS_CAN_SHDN_GPIO	ZEUS_EXT1_GPIO(2)
 
+/*
+ * CPLD registers:
+ * Only 4 registers, but spread over a 32MB address space.
+ * Be gentle, and remap that over 32kB...
+ */
 
 #define ZEUS_CPLD		IOMEM(0xf0000000)
 #define ZEUS_CPLD_VERSION	(ZEUS_CPLD + 0x0000)
 #define ZEUS_CPLD_ISA_IRQ	(ZEUS_CPLD + 0x1000)
 #define ZEUS_CPLD_CONTROL	(ZEUS_CPLD + 0x2000)
 
+/* CPLD register bits */
 #define ZEUS_CPLD_CONTROL_CF_RST        0x01
 
 #define ZEUS_PC104IO		IOMEM(0xf1000000)

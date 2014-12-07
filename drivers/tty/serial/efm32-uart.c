@@ -52,6 +52,11 @@
 #define UARTn_RXDATAX_RXDATA__MASK	0x01ff
 #define UARTn_RXDATAX_PERR		0x4000
 #define UARTn_RXDATAX_FERR		0x8000
+/*
+ * This is a software only flag used for ignore_status_mask and
+ * read_status_mask! It's used for breaks that the hardware doesn't report
+ * explicitly.
+ */
 #define SW_UARTn_RXDATAX_BERR		0x2000
 
 #define UARTn_TXDATA		0x34
@@ -106,12 +111,12 @@ static unsigned int efm32_uart_tx_empty(struct uart_port *port)
 
 static void efm32_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
-	
+	/* sorry, neither handshaking lines nor loop functionallity */
 }
 
 static unsigned int efm32_uart_get_mctrl(struct uart_port *port)
 {
-	
+	/* sorry, no handshaking lines available */
 	return TIOCM_CAR | TIOCM_CTS | TIOCM_DSR;
 }
 
@@ -181,12 +186,12 @@ static void efm32_uart_stop_rx(struct uart_port *port)
 
 static void efm32_uart_enable_ms(struct uart_port *port)
 {
-	
+	/* no handshake lines, no modem status interrupts */
 }
 
 static void efm32_uart_break_ctl(struct uart_port *port, int ctl)
 {
-	
+	/* not possible without fiddling with gpios */
 }
 
 static void efm32_uart_rx_chars(struct efm32_uart_port *efm_port,
@@ -199,6 +204,12 @@ static void efm32_uart_rx_chars(struct efm32_uart_port *efm_port,
 		u32 rxdata = efm32_uart_read32(efm_port, UARTn_RXDATAX);
 		int flag = 0;
 
+		/*
+		 * This is a reserved bit and I only saw it read as 0. But to be
+		 * sure not to be confused too much by new devices adhere to the
+		 * warning in the reference manual that reserverd bits might
+		 * read as 1 in the future.
+		 */
 		rxdata &= ~SW_UARTn_RXDATAX_BERR;
 
 		port->icount.rx++;
@@ -275,7 +286,7 @@ static irqreturn_t efm32_uart_txirq(int irq, void *data)
 	struct efm32_uart_port *efm_port = data;
 	u32 irqflag = efm32_uart_read32(efm_port, UARTn_IF);
 
-	
+	/* TXBL doesn't need to be cleared */
 	if (irqflag & UARTn_IF_TXC)
 		efm32_uart_write32(efm_port, UARTn_IF_TXC, UARTn_IFC);
 
@@ -303,7 +314,7 @@ static int efm32_uart_startup(struct uart_port *port)
 	}
 	port->uartclk = clk_get_rate(efm_port->clk);
 
-	
+	/* Enable pins at configured location */
 	efm32_uart_write32(efm_port, location | UARTn_ROUTE_RXPEN | UARTn_ROUTE_TXPEN,
 			UARTn_ROUTE);
 
@@ -314,7 +325,7 @@ static int efm32_uart_startup(struct uart_port *port)
 		goto err_request_irq_rx;
 	}
 
-	
+	/* disable all irqs */
 	efm32_uart_write32(efm_port, 0, UARTn_IEN);
 
 	ret = request_irq(efm_port->txirq, efm32_uart_txirq, 0,
@@ -354,7 +365,7 @@ static void efm32_uart_set_termios(struct uart_port *port,
 	u32 clkdiv;
 	u32 frame = 0;
 
-	
+	/* no modem control lines */
 	new->c_cflag &= ~(CRTSCTS | CMSPAR);
 
 	baud = uart_get_baud_rate(port, new, old,
@@ -377,7 +388,7 @@ static void efm32_uart_set_termios(struct uart_port *port,
 	}
 
 	if (new->c_cflag & CSTOPB)
-		
+		/* the receiver only verifies the first stop bit */
 		frame |= UARTn_FRAME_STOPBITS_TWO;
 	else
 		frame |= UARTn_FRAME_STOPBITS_ONE;
@@ -390,6 +401,10 @@ static void efm32_uart_set_termios(struct uart_port *port,
 	} else
 		frame |= UARTn_FRAME_PARITY_NONE;
 
+	/*
+	 * the 6 lowest bits of CLKDIV are dc, bit 6 has value 0.25.
+	 * port->uartclk <= 14e6, so 4 * port->uartclk doesn't overflow.
+	 */
 	clkdiv = (DIV_ROUND_CLOSEST(4 * port->uartclk, 16 * baud) - 4) << 6;
 
 	spin_lock_irqsave(&port->lock, flags);
@@ -538,7 +553,7 @@ static void efm32_uart_console_write(struct console *co, const char *s,
 	uart_console_write(&efm_port->port, s, count,
 			efm32_uart_console_putchar);
 
-	
+	/* Wait for the transmitter to become empty */
 	while (1) {
 		u32 status = efm32_uart_read32(efm_port, UARTn_STATUS);
 		if (status & UARTn_STATUS_TXC)
@@ -558,12 +573,12 @@ static void efm32_uart_console_get_options(struct efm32_uart_port *efm_port,
 	u32 route, clkdiv, frame;
 
 	if (ctrl & UARTn_CTRL_SYNC)
-		
+		/* not operating in async mode */
 		return;
 
 	route = efm32_uart_read32(efm_port, UARTn_ROUTE);
 	if (!(route & UARTn_ROUTE_TXPEN))
-		
+		/* tx pin not routed */
 		return;
 
 	clkdiv = efm32_uart_read32(efm_port, UARTn_CLKDIV);
@@ -645,7 +660,7 @@ static struct console efm32_uart_console = {
 
 #else
 #define efm32_uart_console (*(struct console *)NULL)
-#endif 
+#endif /* ifdef CONFIG_SERIAL_EFM32_UART_CONSOLE / else */
 
 static struct uart_driver efm32_uart_reg = {
 	.owner = THIS_MODULE,
@@ -724,7 +739,7 @@ static int __devinit efm32_uart_probe(struct platform_device *pdev)
 
 	ret = efm32_uart_probe_dt(pdev, efm_port);
 	if (ret > 0)
-		
+		/* not created by device tree */
 		efm_port->port.line = pdev->id;
 
 	if (efm_port->port.line >= 0 &&
@@ -769,7 +784,7 @@ static struct of_device_id efm32_uart_dt_ids[] = {
 	{
 		.compatible = "efm32,uart",
 	}, {
-		
+		/* sentinel */
 	}
 };
 MODULE_DEVICE_TABLE(of, efm32_uart_dt_ids);

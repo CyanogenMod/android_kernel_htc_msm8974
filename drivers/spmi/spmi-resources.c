@@ -18,13 +18,28 @@
 #include <linux/spmi.h>
 #include <linux/string.h>
 
+/**
+ * spmi_get_resource - get a resource for a device
+ * @dev: spmi device
+ * @node: device node resource
+ * @type: resource type
+ * @res_num: resource index
+ *
+ * If 'node' is specified as NULL, then the API treats this as a special
+ * case to assume the first devnode. For configurations that do not use
+ * spmi-dev-container, there is only one node to begin with, so NULL should
+ * be passed in this case.
+ *
+ * Returns
+ *  NULL on failure.
+ */
 struct resource *spmi_get_resource(struct spmi_device *dev,
 				   struct spmi_resource *node,
 				   unsigned int type, unsigned int res_num)
 {
 	int i;
 
-	
+	/* if a node is not specified, default to the first node */
 	if (!node)
 		node = &dev->res;
 
@@ -40,6 +55,13 @@ EXPORT_SYMBOL_GPL(spmi_get_resource);
 
 #define SPMI_MAX_RES_NAME 256
 
+/**
+ * spmi_get_resource_byname - get a resource for a device given a name
+ * @dev: spmi device handle
+ * @node: device node resource
+ * @type: resource type
+ * @name: resource name to lookup
+ */
 struct resource *spmi_get_resource_byname(struct spmi_device *dev,
 					  struct spmi_resource *node,
 					  unsigned int type,
@@ -47,7 +69,7 @@ struct resource *spmi_get_resource_byname(struct spmi_device *dev,
 {
 	int i;
 
-	
+	/* if a node is not specified, default to the first node */
 	if (!node)
 		node = &dev->res;
 
@@ -62,6 +84,15 @@ struct resource *spmi_get_resource_byname(struct spmi_device *dev,
 }
 EXPORT_SYMBOL_GPL(spmi_get_resource_byname);
 
+/**
+ * spmi_get_irq - get an IRQ for a device
+ * @dev: spmi device
+ * @node: device node resource
+ * @res_num: IRQ number index
+ *
+ * Returns
+ *  -ENXIO on failure.
+ */
 int spmi_get_irq(struct spmi_device *dev, struct spmi_resource *node,
 					  unsigned int res_num)
 {
@@ -72,6 +103,14 @@ int spmi_get_irq(struct spmi_device *dev, struct spmi_resource *node,
 }
 EXPORT_SYMBOL_GPL(spmi_get_irq);
 
+/**
+ * spmi_get_irq_byname - get an IRQ for a device given a name
+ * @dev: spmi device handle
+ * @node: device node resource
+ * @name: resource name to lookup
+ *
+ * Returns -ENXIO on failure
+ */
 int spmi_get_irq_byname(struct spmi_device *dev,
 			struct spmi_resource *node, const char *name)
 {
@@ -81,6 +120,17 @@ int spmi_get_irq_byname(struct spmi_device *dev,
 }
 EXPORT_SYMBOL_GPL(spmi_get_irq_byname);
 
+/*
+ * spmi_get_container_dev_byname - get a device node resource
+ * @dev: spmi device handle
+ * @label: device name to lookup
+ *
+ * Only useable in spmi-dev-container configurations. Given a name,
+ * find the associated spmi_resource that matches the name.
+ *
+ * Return NULL if the spmi_device is not a dev-container,
+ * or if the lookup fails.
+ */
 struct spmi_resource *spmi_get_dev_container_byname(struct spmi_device *dev,
 						    const char *label)
 {

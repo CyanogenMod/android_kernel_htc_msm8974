@@ -33,18 +33,18 @@
 
 static void __init eco920_init_early(void)
 {
-	
+	/* Set cpu type: PQFP */
 	at91rm9200_set_type(ARCH_REVISON_9200_PQFP);
 
 	at91_initialize(18432000);
 
-	
+	/* Setup the LEDs */
 	at91_init_leds(AT91_PIN_PB0, AT91_PIN_PB1);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
@@ -93,7 +93,7 @@ static struct platform_device eco920_flash = {
 };
 
 static struct spi_board_info eco920_spi_devices[] = {
-	{	
+	{	/* CAN controller */
 		.modalias	= "tlv5638",
 		.chip_select	= 3,
 		.max_speed_hz	= 20 * 1000 * 1000,
@@ -122,18 +122,19 @@ static void __init eco920_board_init(void)
 	at91_set_gpio_input(AT91_PIN_PA23, 0);
 	at91_set_deglitch(AT91_PIN_PA23, 1);
 
+/* Initialization of the Static Memory Controller for Chip Select 3 */
 	at91_ramc_write(0, AT91_SMC_CSR(3),
-		AT91_SMC_DBW_16  |	
+		AT91_SMC_DBW_16  |	/* 16 bit */
 		AT91_SMC_WSEN    |
-		AT91_SMC_NWS_(5) |	
-		AT91_SMC_TDF_(1)	
+		AT91_SMC_NWS_(5) |	/* wait states */
+		AT91_SMC_TDF_(1)	/* float time */
 	);
 
 	at91_add_device_spi(eco920_spi_devices, ARRAY_SIZE(eco920_spi_devices));
 }
 
 MACHINE_START(ECO920, "eco920")
-	
+	/* Maintainer: Sascha Hauer */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= eco920_init_early,

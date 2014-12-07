@@ -26,6 +26,7 @@
 
 *******************************************************************************/
 
+/* ethtool support for ixgb */
 
 #include "ixgb.h"
 
@@ -61,6 +62,7 @@ static struct ixgb_stats ixgb_gstrings_stats[] = {
 	{"multicast", IXGB_NETDEV_STAT(stats.multicast)},
 	{"collisions", IXGB_NETDEV_STAT(stats.collisions)},
 
+/*	{ "rx_length_errors", IXGB_NETDEV_STAT(stats.rx_length_errors) },	*/
 	{"rx_over_errors", IXGB_NETDEV_STAT(stats.rx_over_errors)},
 	{"rx_crc_errors", IXGB_NETDEV_STAT(stats.rx_crc_errors)},
 	{"rx_frame_errors", IXGB_NETDEV_STAT(stats.rx_frame_errors)},
@@ -116,7 +118,7 @@ ixgb_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 void ixgb_set_speed_duplex(struct net_device *netdev)
 {
 	struct ixgb_adapter *adapter = netdev_priv(netdev);
-	
+	/* be optimistic about our link, since we were up before */
 	adapter->link_speed = 10000;
 	adapter->link_duplex = FULL_DUPLEX;
 	netif_carrier_on(netdev);
@@ -224,129 +226,132 @@ ixgb_get_regs(struct net_device *netdev,
 	u32 *reg_start = reg;
 	u8 i;
 
+	/* the 1 (one) below indicates an attempt at versioning, if the
+	 * interface in ethtool or the driver changes, this 1 should be
+	 * incremented */
 	regs->version = (1<<24) | hw->revision_id << 16 | hw->device_id;
 
-	
-	*reg++ = IXGB_READ_REG(hw, CTRL0);	
-	*reg++ = IXGB_READ_REG(hw, CTRL1);	
-	*reg++ = IXGB_READ_REG(hw, STATUS);	
-	*reg++ = IXGB_READ_REG(hw, EECD);	
-	*reg++ = IXGB_READ_REG(hw, MFS);	
+	/* General Registers */
+	*reg++ = IXGB_READ_REG(hw, CTRL0);	/*   0 */
+	*reg++ = IXGB_READ_REG(hw, CTRL1);	/*   1 */
+	*reg++ = IXGB_READ_REG(hw, STATUS);	/*   2 */
+	*reg++ = IXGB_READ_REG(hw, EECD);	/*   3 */
+	*reg++ = IXGB_READ_REG(hw, MFS);	/*   4 */
 
-	
-	*reg++ = IXGB_READ_REG(hw, ICR);	
-	*reg++ = IXGB_READ_REG(hw, ICS);	
-	*reg++ = IXGB_READ_REG(hw, IMS);	
-	*reg++ = IXGB_READ_REG(hw, IMC);	
+	/* Interrupt */
+	*reg++ = IXGB_READ_REG(hw, ICR);	/*   5 */
+	*reg++ = IXGB_READ_REG(hw, ICS);	/*   6 */
+	*reg++ = IXGB_READ_REG(hw, IMS);	/*   7 */
+	*reg++ = IXGB_READ_REG(hw, IMC);	/*   8 */
 
-	
-	*reg++ = IXGB_READ_REG(hw, RCTL);	
-	*reg++ = IXGB_READ_REG(hw, FCRTL);	
-	*reg++ = IXGB_READ_REG(hw, FCRTH);	
-	*reg++ = IXGB_READ_REG(hw, RDBAL);	
-	*reg++ = IXGB_READ_REG(hw, RDBAH);	
-	*reg++ = IXGB_READ_REG(hw, RDLEN);	
-	*reg++ = IXGB_READ_REG(hw, RDH);	
-	*reg++ = IXGB_READ_REG(hw, RDT);	
-	*reg++ = IXGB_READ_REG(hw, RDTR);	
-	*reg++ = IXGB_READ_REG(hw, RXDCTL);	
-	*reg++ = IXGB_READ_REG(hw, RAIDC);	
-	*reg++ = IXGB_READ_REG(hw, RXCSUM);	
+	/* Receive */
+	*reg++ = IXGB_READ_REG(hw, RCTL);	/*   9 */
+	*reg++ = IXGB_READ_REG(hw, FCRTL);	/*  10 */
+	*reg++ = IXGB_READ_REG(hw, FCRTH);	/*  11 */
+	*reg++ = IXGB_READ_REG(hw, RDBAL);	/*  12 */
+	*reg++ = IXGB_READ_REG(hw, RDBAH);	/*  13 */
+	*reg++ = IXGB_READ_REG(hw, RDLEN);	/*  14 */
+	*reg++ = IXGB_READ_REG(hw, RDH);	/*  15 */
+	*reg++ = IXGB_READ_REG(hw, RDT);	/*  16 */
+	*reg++ = IXGB_READ_REG(hw, RDTR);	/*  17 */
+	*reg++ = IXGB_READ_REG(hw, RXDCTL);	/*  18 */
+	*reg++ = IXGB_READ_REG(hw, RAIDC);	/*  19 */
+	*reg++ = IXGB_READ_REG(hw, RXCSUM);	/*  20 */
 
-	
+	/* there are 16 RAR entries in hardware, we only use 3 */
 	for (i = 0; i < IXGB_ALL_RAR_ENTRIES; i++) {
-		*reg++ = IXGB_READ_REG_ARRAY(hw, RAL, (i << 1)); 
-		*reg++ = IXGB_READ_REG_ARRAY(hw, RAH, (i << 1)); 
+		*reg++ = IXGB_READ_REG_ARRAY(hw, RAL, (i << 1)); /*21,...,51 */
+		*reg++ = IXGB_READ_REG_ARRAY(hw, RAH, (i << 1)); /*22,...,52 */
 	}
 
-	
-	*reg++ = IXGB_READ_REG(hw, TCTL);	
-	*reg++ = IXGB_READ_REG(hw, TDBAL);	
-	*reg++ = IXGB_READ_REG(hw, TDBAH);	
-	*reg++ = IXGB_READ_REG(hw, TDLEN);	
-	*reg++ = IXGB_READ_REG(hw, TDH);	
-	*reg++ = IXGB_READ_REG(hw, TDT);	
-	*reg++ = IXGB_READ_REG(hw, TIDV);	
-	*reg++ = IXGB_READ_REG(hw, TXDCTL);	
-	*reg++ = IXGB_READ_REG(hw, TSPMT);	
-	*reg++ = IXGB_READ_REG(hw, PAP);	
+	/* Transmit */
+	*reg++ = IXGB_READ_REG(hw, TCTL);	/*  53 */
+	*reg++ = IXGB_READ_REG(hw, TDBAL);	/*  54 */
+	*reg++ = IXGB_READ_REG(hw, TDBAH);	/*  55 */
+	*reg++ = IXGB_READ_REG(hw, TDLEN);	/*  56 */
+	*reg++ = IXGB_READ_REG(hw, TDH);	/*  57 */
+	*reg++ = IXGB_READ_REG(hw, TDT);	/*  58 */
+	*reg++ = IXGB_READ_REG(hw, TIDV);	/*  59 */
+	*reg++ = IXGB_READ_REG(hw, TXDCTL);	/*  60 */
+	*reg++ = IXGB_READ_REG(hw, TSPMT);	/*  61 */
+	*reg++ = IXGB_READ_REG(hw, PAP);	/*  62 */
 
-	
-	*reg++ = IXGB_READ_REG(hw, PCSC1);	
-	*reg++ = IXGB_READ_REG(hw, PCSC2);	
-	*reg++ = IXGB_READ_REG(hw, PCSS1);	
-	*reg++ = IXGB_READ_REG(hw, PCSS2);	
-	*reg++ = IXGB_READ_REG(hw, XPCSS);	
-	*reg++ = IXGB_READ_REG(hw, UCCR);	
-	*reg++ = IXGB_READ_REG(hw, XPCSTC);	
-	*reg++ = IXGB_READ_REG(hw, MACA);	
-	*reg++ = IXGB_READ_REG(hw, APAE);	
-	*reg++ = IXGB_READ_REG(hw, ARD);	
-	*reg++ = IXGB_READ_REG(hw, AIS);	
-	*reg++ = IXGB_READ_REG(hw, MSCA);	
-	*reg++ = IXGB_READ_REG(hw, MSRWD);	
+	/* Physical */
+	*reg++ = IXGB_READ_REG(hw, PCSC1);	/*  63 */
+	*reg++ = IXGB_READ_REG(hw, PCSC2);	/*  64 */
+	*reg++ = IXGB_READ_REG(hw, PCSS1);	/*  65 */
+	*reg++ = IXGB_READ_REG(hw, PCSS2);	/*  66 */
+	*reg++ = IXGB_READ_REG(hw, XPCSS);	/*  67 */
+	*reg++ = IXGB_READ_REG(hw, UCCR);	/*  68 */
+	*reg++ = IXGB_READ_REG(hw, XPCSTC);	/*  69 */
+	*reg++ = IXGB_READ_REG(hw, MACA);	/*  70 */
+	*reg++ = IXGB_READ_REG(hw, APAE);	/*  71 */
+	*reg++ = IXGB_READ_REG(hw, ARD);	/*  72 */
+	*reg++ = IXGB_READ_REG(hw, AIS);	/*  73 */
+	*reg++ = IXGB_READ_REG(hw, MSCA);	/*  74 */
+	*reg++ = IXGB_READ_REG(hw, MSRWD);	/*  75 */
 
-	
-	*reg++ = IXGB_GET_STAT(adapter, tprl);	
-	*reg++ = IXGB_GET_STAT(adapter, tprh);	
-	*reg++ = IXGB_GET_STAT(adapter, gprcl);	
-	*reg++ = IXGB_GET_STAT(adapter, gprch);	
-	*reg++ = IXGB_GET_STAT(adapter, bprcl);	
-	*reg++ = IXGB_GET_STAT(adapter, bprch);	
-	*reg++ = IXGB_GET_STAT(adapter, mprcl);	
-	*reg++ = IXGB_GET_STAT(adapter, mprch);	
-	*reg++ = IXGB_GET_STAT(adapter, uprcl);	
-	*reg++ = IXGB_GET_STAT(adapter, uprch);	
-	*reg++ = IXGB_GET_STAT(adapter, vprcl);	
-	*reg++ = IXGB_GET_STAT(adapter, vprch);	
-	*reg++ = IXGB_GET_STAT(adapter, jprcl);	
-	*reg++ = IXGB_GET_STAT(adapter, jprch);	
-	*reg++ = IXGB_GET_STAT(adapter, gorcl);	
-	*reg++ = IXGB_GET_STAT(adapter, gorch);	
-	*reg++ = IXGB_GET_STAT(adapter, torl);	
-	*reg++ = IXGB_GET_STAT(adapter, torh);	
-	*reg++ = IXGB_GET_STAT(adapter, rnbc);	
-	*reg++ = IXGB_GET_STAT(adapter, ruc);	
-	*reg++ = IXGB_GET_STAT(adapter, roc);	
-	*reg++ = IXGB_GET_STAT(adapter, rlec);	
-	*reg++ = IXGB_GET_STAT(adapter, crcerrs);	
-	*reg++ = IXGB_GET_STAT(adapter, icbc);	
-	*reg++ = IXGB_GET_STAT(adapter, ecbc);	
-	*reg++ = IXGB_GET_STAT(adapter, mpc);	
-	*reg++ = IXGB_GET_STAT(adapter, tptl);	
-	*reg++ = IXGB_GET_STAT(adapter, tpth);	
-	*reg++ = IXGB_GET_STAT(adapter, gptcl);	
-	*reg++ = IXGB_GET_STAT(adapter, gptch);	
-	*reg++ = IXGB_GET_STAT(adapter, bptcl);	
-	*reg++ = IXGB_GET_STAT(adapter, bptch);	
-	*reg++ = IXGB_GET_STAT(adapter, mptcl);	
-	*reg++ = IXGB_GET_STAT(adapter, mptch);	
-	*reg++ = IXGB_GET_STAT(adapter, uptcl);	
-	*reg++ = IXGB_GET_STAT(adapter, uptch);	
-	*reg++ = IXGB_GET_STAT(adapter, vptcl);	
-	*reg++ = IXGB_GET_STAT(adapter, vptch);	
-	*reg++ = IXGB_GET_STAT(adapter, jptcl);	
-	*reg++ = IXGB_GET_STAT(adapter, jptch);	
-	*reg++ = IXGB_GET_STAT(adapter, gotcl);	
-	*reg++ = IXGB_GET_STAT(adapter, gotch);	
-	*reg++ = IXGB_GET_STAT(adapter, totl);	
-	*reg++ = IXGB_GET_STAT(adapter, toth);	
-	*reg++ = IXGB_GET_STAT(adapter, dc);	
-	*reg++ = IXGB_GET_STAT(adapter, plt64c);	
-	*reg++ = IXGB_GET_STAT(adapter, tsctc);	
-	*reg++ = IXGB_GET_STAT(adapter, tsctfc);	
-	*reg++ = IXGB_GET_STAT(adapter, ibic);	
-	*reg++ = IXGB_GET_STAT(adapter, rfc);	
-	*reg++ = IXGB_GET_STAT(adapter, lfc);	
-	*reg++ = IXGB_GET_STAT(adapter, pfrc);	
-	*reg++ = IXGB_GET_STAT(adapter, pftc);	
-	*reg++ = IXGB_GET_STAT(adapter, mcfrc);	
-	*reg++ = IXGB_GET_STAT(adapter, mcftc);	
-	*reg++ = IXGB_GET_STAT(adapter, xonrxc);	
-	*reg++ = IXGB_GET_STAT(adapter, xontxc);	
-	*reg++ = IXGB_GET_STAT(adapter, xoffrxc);	
-	*reg++ = IXGB_GET_STAT(adapter, xofftxc);	
-	*reg++ = IXGB_GET_STAT(adapter, rjc);	
+	/* Statistics */
+	*reg++ = IXGB_GET_STAT(adapter, tprl);	/*  76 */
+	*reg++ = IXGB_GET_STAT(adapter, tprh);	/*  77 */
+	*reg++ = IXGB_GET_STAT(adapter, gprcl);	/*  78 */
+	*reg++ = IXGB_GET_STAT(adapter, gprch);	/*  79 */
+	*reg++ = IXGB_GET_STAT(adapter, bprcl);	/*  80 */
+	*reg++ = IXGB_GET_STAT(adapter, bprch);	/*  81 */
+	*reg++ = IXGB_GET_STAT(adapter, mprcl);	/*  82 */
+	*reg++ = IXGB_GET_STAT(adapter, mprch);	/*  83 */
+	*reg++ = IXGB_GET_STAT(adapter, uprcl);	/*  84 */
+	*reg++ = IXGB_GET_STAT(adapter, uprch);	/*  85 */
+	*reg++ = IXGB_GET_STAT(adapter, vprcl);	/*  86 */
+	*reg++ = IXGB_GET_STAT(adapter, vprch);	/*  87 */
+	*reg++ = IXGB_GET_STAT(adapter, jprcl);	/*  88 */
+	*reg++ = IXGB_GET_STAT(adapter, jprch);	/*  89 */
+	*reg++ = IXGB_GET_STAT(adapter, gorcl);	/*  90 */
+	*reg++ = IXGB_GET_STAT(adapter, gorch);	/*  91 */
+	*reg++ = IXGB_GET_STAT(adapter, torl);	/*  92 */
+	*reg++ = IXGB_GET_STAT(adapter, torh);	/*  93 */
+	*reg++ = IXGB_GET_STAT(adapter, rnbc);	/*  94 */
+	*reg++ = IXGB_GET_STAT(adapter, ruc);	/*  95 */
+	*reg++ = IXGB_GET_STAT(adapter, roc);	/*  96 */
+	*reg++ = IXGB_GET_STAT(adapter, rlec);	/*  97 */
+	*reg++ = IXGB_GET_STAT(adapter, crcerrs);	/*  98 */
+	*reg++ = IXGB_GET_STAT(adapter, icbc);	/*  99 */
+	*reg++ = IXGB_GET_STAT(adapter, ecbc);	/* 100 */
+	*reg++ = IXGB_GET_STAT(adapter, mpc);	/* 101 */
+	*reg++ = IXGB_GET_STAT(adapter, tptl);	/* 102 */
+	*reg++ = IXGB_GET_STAT(adapter, tpth);	/* 103 */
+	*reg++ = IXGB_GET_STAT(adapter, gptcl);	/* 104 */
+	*reg++ = IXGB_GET_STAT(adapter, gptch);	/* 105 */
+	*reg++ = IXGB_GET_STAT(adapter, bptcl);	/* 106 */
+	*reg++ = IXGB_GET_STAT(adapter, bptch);	/* 107 */
+	*reg++ = IXGB_GET_STAT(adapter, mptcl);	/* 108 */
+	*reg++ = IXGB_GET_STAT(adapter, mptch);	/* 109 */
+	*reg++ = IXGB_GET_STAT(adapter, uptcl);	/* 110 */
+	*reg++ = IXGB_GET_STAT(adapter, uptch);	/* 111 */
+	*reg++ = IXGB_GET_STAT(adapter, vptcl);	/* 112 */
+	*reg++ = IXGB_GET_STAT(adapter, vptch);	/* 113 */
+	*reg++ = IXGB_GET_STAT(adapter, jptcl);	/* 114 */
+	*reg++ = IXGB_GET_STAT(adapter, jptch);	/* 115 */
+	*reg++ = IXGB_GET_STAT(adapter, gotcl);	/* 116 */
+	*reg++ = IXGB_GET_STAT(adapter, gotch);	/* 117 */
+	*reg++ = IXGB_GET_STAT(adapter, totl);	/* 118 */
+	*reg++ = IXGB_GET_STAT(adapter, toth);	/* 119 */
+	*reg++ = IXGB_GET_STAT(adapter, dc);	/* 120 */
+	*reg++ = IXGB_GET_STAT(adapter, plt64c);	/* 121 */
+	*reg++ = IXGB_GET_STAT(adapter, tsctc);	/* 122 */
+	*reg++ = IXGB_GET_STAT(adapter, tsctfc);	/* 123 */
+	*reg++ = IXGB_GET_STAT(adapter, ibic);	/* 124 */
+	*reg++ = IXGB_GET_STAT(adapter, rfc);	/* 125 */
+	*reg++ = IXGB_GET_STAT(adapter, lfc);	/* 126 */
+	*reg++ = IXGB_GET_STAT(adapter, pfrc);	/* 127 */
+	*reg++ = IXGB_GET_STAT(adapter, pftc);	/* 128 */
+	*reg++ = IXGB_GET_STAT(adapter, mcfrc);	/* 129 */
+	*reg++ = IXGB_GET_STAT(adapter, mcftc);	/* 130 */
+	*reg++ = IXGB_GET_STAT(adapter, xonrxc);	/* 131 */
+	*reg++ = IXGB_GET_STAT(adapter, xontxc);	/* 132 */
+	*reg++ = IXGB_GET_STAT(adapter, xoffrxc);	/* 133 */
+	*reg++ = IXGB_GET_STAT(adapter, xofftxc);	/* 134 */
+	*reg++ = IXGB_GET_STAT(adapter, rjc);	/* 135 */
 
 	regs->len = (reg - reg_start) * sizeof(u32);
 }
@@ -354,7 +359,7 @@ ixgb_get_regs(struct net_device *netdev,
 static int
 ixgb_get_eeprom_len(struct net_device *netdev)
 {
-	
+	/* return size in bytes */
 	return IXGB_EEPROM_SIZE << 1;
 }
 
@@ -393,7 +398,7 @@ ixgb_get_eeprom(struct net_device *netdev,
 	if (!eeprom_buff)
 		return -ENOMEM;
 
-	
+	/* note the eeprom was good because the driver loaded */
 	for (i = 0; i <= (last_word - first_word); i++)
 		eeprom_buff[i] = ixgb_get_eeprom_word(hw, (first_word + i));
 
@@ -438,14 +443,14 @@ ixgb_set_eeprom(struct net_device *netdev,
 	ptr = (void *)eeprom_buff;
 
 	if (eeprom->offset & 1) {
-		
-		
+		/* need read/modify/write of first changed EEPROM word */
+		/* only the second byte of the word is being modified */
 		eeprom_buff[0] = ixgb_read_eeprom(hw, first_word);
 		ptr++;
 	}
 	if ((eeprom->offset + eeprom->len) & 1) {
-		
-		
+		/* need read/modify/write of last changed EEPROM word */
+		/* only the first byte of the word is being modified */
 		eeprom_buff[last_word - first_word]
 			= ixgb_read_eeprom(hw, last_word);
 	}
@@ -454,7 +459,7 @@ ixgb_set_eeprom(struct net_device *netdev,
 	for (i = 0; i <= (last_word - first_word); i++)
 		ixgb_write_eeprom(hw, first_word + i, eeprom_buff[i]);
 
-	
+	/* Update the checksum over the first part of the EEPROM if needed */
 	if (first_word <= EEPROM_CHECKSUM_REG)
 		ixgb_update_eeprom_checksum(hw);
 
@@ -521,12 +526,14 @@ ixgb_set_ringparam(struct net_device *netdev,
 	txdr->count = ALIGN(txdr->count, IXGB_REQ_TX_DESCRIPTOR_MULTIPLE);
 
 	if (netif_running(adapter->netdev)) {
-		
+		/* Try to get new resources before deleting old */
 		if ((err = ixgb_setup_rx_resources(adapter)))
 			goto err_setup_rx;
 		if ((err = ixgb_setup_tx_resources(adapter)))
 			goto err_setup_tx;
 
+		/* save the new, restore the old in order to free it,
+		 * then restore the new back again */
 
 		rx_new = adapter->rx_ring;
 		tx_new = adapter->tx_ring;

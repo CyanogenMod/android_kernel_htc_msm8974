@@ -5,6 +5,9 @@
  *	Andree Borrmann		Mats Sjövall
  */
 
+/*
+ * Atari, Amstrad, Commodore, Amiga, Sega, etc. joystick driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -130,47 +133,59 @@ static const struct db9_mode_data db9_modes[] = {
 	{ "Saturn dpp dual",			 db9_cd32_btn,	  9,  12, 7,  0,  0 },
 };
 
+/*
+ * Saturn controllers
+ */
 #define DB9_SATURN_DELAY 300
 static const int db9_saturn_byte[] = { 1, 1, 1, 2, 2, 2, 2, 2, 1 };
 static const unsigned char db9_saturn_mask[] = { 0x04, 0x01, 0x02, 0x40, 0x20, 0x10, 0x08, 0x80, 0x08 };
 
+/*
+ * db9_saturn_write_sub() writes 2 bit data.
+ */
 static void db9_saturn_write_sub(struct parport *port, int type, unsigned char data, int powered, int pwr_sub)
 {
 	unsigned char c;
 
 	switch (type) {
-	case 1: 
+	case 1: /* DPP1 */
 		c = 0x80 | 0x30 | (powered ? 0x08 : 0) | (pwr_sub ? 0x04 : 0) | data;
 		parport_write_data(port, c);
 		break;
-	case 2: 
+	case 2: /* DPP2 */
 		c = 0x40 | data << 4 | (powered ? 0x08 : 0) | (pwr_sub ? 0x04 : 0) | 0x03;
 		parport_write_data(port, c);
 		break;
-	case 0:	
+	case 0:	/* DB9 */
 		c = ((((data & 2) ? 2 : 0) | ((data & 1) ? 4 : 0)) ^ 0x02) | !powered;
 		parport_write_control(port, c);
 		break;
 	}
 }
 
+/*
+ * gc_saturn_read_sub() reads 4 bit data.
+ */
 static unsigned char db9_saturn_read_sub(struct parport *port, int type)
 {
 	unsigned char data;
 
 	if (type) {
-		
+		/* DPP */
 		data = parport_read_status(port) ^ 0x80;
 		return (data & 0x80 ? 1 : 0) | (data & 0x40 ? 2 : 0)
 		     | (data & 0x20 ? 4 : 0) | (data & 0x10 ? 8 : 0);
 	} else {
-		
+		/* DB9 */
 		data = parport_read_data(port) & 0x0f;
 		return (data & 0x8 ? 1 : 0) | (data & 0x4 ? 2 : 0)
 		     | (data & 0x2 ? 4 : 0) | (data & 0x1 ? 8 : 0);
 	}
 }
 
+/*
+ * db9_saturn_read_analog() sends clock and reads 8 bit data.
+ */
 static unsigned char db9_saturn_read_analog(struct parport *port, int type, int powered)
 {
 	unsigned char data;
@@ -184,6 +199,10 @@ static unsigned char db9_saturn_read_analog(struct parport *port, int type, int 
 	return data;
 }
 
+/*
+ * db9_saturn_read_packet() reads whole saturn packet at connector
+ * and returns device identifier code.
+ */
 static unsigned char db9_saturn_read_packet(struct parport *port, unsigned char *data, int type, int powered)
 {
 	int i, j;
@@ -193,10 +212,10 @@ static unsigned char db9_saturn_read_packet(struct parport *port, unsigned char 
 	data[0] = db9_saturn_read_sub(port, type);
 	switch (data[0] & 0x0f) {
 	case 0xf:
-		
+		/* 1111  no pad */
 		return data[0] = 0xff;
 	case 0x4: case 0x4 | 0x8:
-		
+		/* ?100 : digital controller */
 		db9_saturn_write_sub(port, type, 0, powered, 1);
 		data[2] = db9_saturn_read_sub(port, type) << 4;
 		db9_saturn_write_sub(port, type, 2, powered, 1);
@@ -204,28 +223,28 @@ static unsigned char db9_saturn_read_packet(struct parport *port, unsigned char 
 		db9_saturn_write_sub(port, type, 1, powered, 1);
 		data[1] |= db9_saturn_read_sub(port, type);
 		db9_saturn_write_sub(port, type, 3, powered, 1);
-		
+		/* data[2] |= db9_saturn_read_sub(port, type); */
 		data[2] |= data[0];
 		return data[0] = 0x02;
 	case 0x1:
-		
+		/* 0001 : analog controller or multitap */
 		db9_saturn_write_sub(port, type, 2, powered, 0);
 		udelay(DB9_SATURN_DELAY);
 		data[0] = db9_saturn_read_analog(port, type, powered);
 		if (data[0] != 0x41) {
-			
+			/* read analog controller */
 			for (i = 0; i < (data[0] & 0x0f); i++)
 				data[i + 1] = db9_saturn_read_analog(port, type, powered);
 			db9_saturn_write_sub(port, type, 3, powered, 0);
 			return data[0];
 		} else {
-			
+			/* read multitap */
 			if (db9_saturn_read_analog(port, type, powered) != 0x60)
 				return data[0] = 0xff;
 			for (i = 0; i < 60; i += 10) {
 				data[i] = db9_saturn_read_analog(port, type, powered);
 				if (data[i] != 0xff)
-					
+					/* read each pad */
 					for (j = 0; j < (data[i] & 0x0f); j++)
 						data[i + j + 1] = db9_saturn_read_analog(port, type, powered);
 			}
@@ -233,7 +252,7 @@ static unsigned char db9_saturn_read_packet(struct parport *port, unsigned char 
 			return 0x41;
 		}
 	case 0x0:
-		
+		/* 0000 : mouse */
 		db9_saturn_write_sub(port, type, 2, powered, 0);
 		udelay(DB9_SATURN_DELAY);
 		tmp = db9_saturn_read_analog(port, type, powered);
@@ -248,6 +267,9 @@ static unsigned char db9_saturn_read_packet(struct parport *port, unsigned char 
 	}
 }
 
+/*
+ * db9_saturn_report() analyzes packet and reports.
+ */
 static int db9_saturn_report(unsigned char id, unsigned char data[60], struct input_dev *devs[], int n, int max_pads)
 {
 	struct input_dev *dev;
@@ -257,21 +279,21 @@ static int db9_saturn_report(unsigned char id, unsigned char data[60], struct in
 	for (j = 0; j < tmp && n < max_pads; j += 10, n++) {
 		dev = devs[n];
 		switch (data[j]) {
-		case 0x16: 
+		case 0x16: /* multi controller (analog 4 axis) */
 			input_report_abs(dev, db9_abs[5], data[j + 6]);
-		case 0x15: 
+		case 0x15: /* mission stick (analog 3 axis) */
 			input_report_abs(dev, db9_abs[3], data[j + 4]);
 			input_report_abs(dev, db9_abs[4], data[j + 5]);
-		case 0x13: 
+		case 0x13: /* racing controller (analog 1 axis) */
 			input_report_abs(dev, db9_abs[2], data[j + 3]);
-		case 0x34: 
-		case 0x02: 
+		case 0x34: /* saturn keyboard (udlr ZXC ASD QE Esc) */
+		case 0x02: /* digital pad (digital 2 axis + buttons) */
 			input_report_abs(dev, db9_abs[0], !(data[j + 1] & 128) - !(data[j + 1] & 64));
 			input_report_abs(dev, db9_abs[1], !(data[j + 1] & 32) - !(data[j + 1] & 16));
 			for (i = 0; i < 9; i++)
 				input_report_key(dev, db9_cd32_btn[i], ~data[j + db9_saturn_byte[i]] & db9_saturn_mask[i]);
 			break;
-		case 0x19: 
+		case 0x19: /* mission stick x2 (analog 6 axis + buttons) */
 			input_report_abs(dev, db9_abs[0], !(data[j + 1] & 128) - !(data[j + 1] & 64));
 			input_report_abs(dev, db9_abs[1], !(data[j + 1] & 32) - !(data[j + 1] & 16));
 			for (i = 0; i < 9; i++)
@@ -279,24 +301,28 @@ static int db9_saturn_report(unsigned char id, unsigned char data[60], struct in
 			input_report_abs(dev, db9_abs[2], data[j + 3]);
 			input_report_abs(dev, db9_abs[3], data[j + 4]);
 			input_report_abs(dev, db9_abs[4], data[j + 5]);
+			/*
+			input_report_abs(dev, db9_abs[8], (data[j + 6] & 128 ? 0 : 1) - (data[j + 6] & 64 ? 0 : 1));
+			input_report_abs(dev, db9_abs[9], (data[j + 6] & 32 ? 0 : 1) - (data[j + 6] & 16 ? 0 : 1));
+			*/
 			input_report_abs(dev, db9_abs[6], data[j + 7]);
 			input_report_abs(dev, db9_abs[7], data[j + 8]);
 			input_report_abs(dev, db9_abs[5], data[j + 9]);
 			break;
-		case 0xd3: 
+		case 0xd3: /* sankyo ff (analog 1 axis + stop btn) */
 			input_report_key(dev, BTN_A, data[j + 3] & 0x80);
 			input_report_abs(dev, db9_abs[2], data[j + 3] & 0x7f);
 			break;
-		case 0xe3: 
+		case 0xe3: /* shuttle mouse (analog 2 axis + buttons. signed value) */
 			input_report_key(dev, BTN_START, data[j + 1] & 0x08);
 			input_report_key(dev, BTN_A, data[j + 1] & 0x04);
 			input_report_key(dev, BTN_C, data[j + 1] & 0x02);
 			input_report_key(dev, BTN_B, data[j + 1] & 0x01);
 			input_report_abs(dev, db9_abs[2], data[j + 2] ^ 0x80);
-			input_report_abs(dev, db9_abs[3], (0xff-(data[j + 3] ^ 0x80))+1); 
+			input_report_abs(dev, db9_abs[3], (0xff-(data[j + 3] ^ 0x80))+1); /* */
 			break;
 		case 0xff:
-		default: 
+		default: /* no pad */
 			input_report_abs(dev, db9_abs[0], 0);
 			input_report_abs(dev, db9_abs[1], 0);
 			for (i = 0; i < 9; i++)
@@ -420,7 +446,7 @@ static void db9_timer(unsigned long private)
 
 		case DB9_GENESIS6_PAD:
 
-			parport_write_control(port, DB9_NOSELECT); 
+			parport_write_control(port, DB9_NOSELECT); /* 1 */
 			udelay(DB9_GENESIS6_DELAY);
 			data = parport_read_data(port);
 
@@ -436,11 +462,11 @@ static void db9_timer(unsigned long private)
 			input_report_key(dev, BTN_A, ~data & DB9_FIRE1);
 			input_report_key(dev, BTN_START, ~data & DB9_FIRE2);
 
-			parport_write_control(port, DB9_NOSELECT); 
+			parport_write_control(port, DB9_NOSELECT); /* 2 */
 			udelay(DB9_GENESIS6_DELAY);
 			parport_write_control(port, DB9_NORMAL);
 			udelay(DB9_GENESIS6_DELAY);
-			parport_write_control(port, DB9_NOSELECT); 
+			parport_write_control(port, DB9_NOSELECT); /* 3 */
 			udelay(DB9_GENESIS6_DELAY);
 			data=parport_read_data(port);
 
@@ -451,7 +477,7 @@ static void db9_timer(unsigned long private)
 
 			parport_write_control(port, DB9_NORMAL);
 			udelay(DB9_GENESIS6_DELAY);
-			parport_write_control(port, DB9_NOSELECT); 
+			parport_write_control(port, DB9_NOSELECT); /* 4 */
 			udelay(DB9_GENESIS6_DELAY);
 			parport_write_control(port, DB9_NORMAL);
 			break;

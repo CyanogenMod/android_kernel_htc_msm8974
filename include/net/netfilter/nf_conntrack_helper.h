@@ -1,3 +1,11 @@
+/*
+ * connection tracking helpers.
+ *
+ * 16 Dec 2003: Yasuyuki Kozakai @USAGI <yasuyuki.kozakai@toshiba.co.jp>
+ *	- generalize L3 protocol dependent part.
+ *
+ * Derived from include/linux/netfiter_ipv4/ip_conntrack_helper.h
+ */
 
 #ifndef _NF_CONNTRACK_HELPER_H
 #define _NF_CONNTRACK_HELPER_H
@@ -9,15 +17,17 @@ struct module;
 #define NF_CT_HELPER_NAME_LEN	16
 
 struct nf_conntrack_helper {
-	struct hlist_node hnode;	
+	struct hlist_node hnode;	/* Internal use. */
 
-	const char *name;		
-	struct module *me;		
+	const char *name;		/* name of the module */
+	struct module *me;		/* pointer to self */
 	const struct nf_conntrack_expect_policy *expect_policy;
 
-	
+	/* Tuple of things we will help (compared against server response) */
 	struct nf_conntrack_tuple tuple;
 
+	/* Function to call when data passes; return verdict, or -1 to
+           invalidate. */
 	int (*help)(struct sk_buff *skb,
 		    unsigned int protoff,
 		    struct nf_conn *ct,
@@ -72,4 +82,4 @@ nf_ct_helper_expectfn_find_by_name(const char *name);
 struct nf_ct_helper_expectfn *
 nf_ct_helper_expectfn_find_by_symbol(const void *symbol);
 
-#endif 
+#endif /*_NF_CONNTRACK_HELPER_H*/

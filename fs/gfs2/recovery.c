@@ -133,6 +133,19 @@ static int gfs2_log_header_in(struct gfs2_log_header_host *lh, const void *buf)
 	return 0;
 }
 
+/**
+ * get_log_header - read the log header for a given segment
+ * @jd: the journal
+ * @blk: the block to look at
+ * @lh: the log header to return
+ *
+ * Read the log header for a given segement in a given journal.  Do a few
+ * sanity checks on it.
+ *
+ * Returns: 0 on success,
+ *          1 if the header was invalid or incomplete,
+ *          errno on error
+ */
 
 static int get_log_header(struct gfs2_jdesc *jd, unsigned int blk,
 			  struct gfs2_log_header_host *head)
@@ -162,6 +175,18 @@ static int get_log_header(struct gfs2_jdesc *jd, unsigned int blk,
 	return 0;
 }
 
+/**
+ * find_good_lh - find a good log header
+ * @jd: the journal
+ * @blk: the segment to start searching from
+ * @lh: the log header to fill in
+ * @forward: if true search forward in the log, else search backward
+ *
+ * Call get_log_header() to get a log header for a segment, but if the
+ * segment is bad, either scan forward or backward until we find a good one.
+ *
+ * Returns: errno
+ */
 
 static int find_good_lh(struct gfs2_jdesc *jd, unsigned int *blk,
 			struct gfs2_log_header_host *head)
@@ -184,6 +209,16 @@ static int find_good_lh(struct gfs2_jdesc *jd, unsigned int *blk,
 	}
 }
 
+/**
+ * jhead_scan - make sure we've found the head of the log
+ * @jd: the journal
+ * @head: this is filled in with the log descriptor of the head
+ *
+ * At this point, seg and lh should be either the head of the log or just
+ * before.  Scan forward until we find the head.
+ *
+ * Returns: errno
+ */
 
 static int jhead_scan(struct gfs2_jdesc *jd, struct gfs2_log_header_host *head)
 {
@@ -214,6 +249,16 @@ static int jhead_scan(struct gfs2_jdesc *jd, struct gfs2_log_header_host *head)
 	return 0;
 }
 
+/**
+ * gfs2_find_jhead - find the head of a log
+ * @jd: the journal
+ * @head: the log descriptor for the head of the log is returned here
+ *
+ * Do a binary search of a journal and find the valid log entry with the
+ * highest sequence number.  (i.e. the log head)
+ *
+ * Returns: errno
+ */
 
 int gfs2_find_jhead(struct gfs2_jdesc *jd, struct gfs2_log_header_host *head)
 {
@@ -253,6 +298,17 @@ int gfs2_find_jhead(struct gfs2_jdesc *jd, struct gfs2_log_header_host *head)
 	return error;
 }
 
+/**
+ * foreach_descriptor - go through the active part of the log
+ * @jd: the journal
+ * @start: the first log header in the active region
+ * @end: the last log header (don't process the contents of this entry))
+ *
+ * Call a given function once for every log descriptor in the active
+ * portion of the log.
+ *
+ * Returns: errno
+ */
 
 static int foreach_descriptor(struct gfs2_jdesc *jd, unsigned int start,
 			      unsigned int end, int pass)
@@ -312,6 +368,15 @@ static int foreach_descriptor(struct gfs2_jdesc *jd, unsigned int start,
 	return 0;
 }
 
+/**
+ * clean_journal - mark a dirty journal as being clean
+ * @sdp: the filesystem
+ * @jd: the journal
+ * @gl: the journal's glock
+ * @head: the head journal to start from
+ *
+ * Returns: errno
+ */
 
 static int clean_journal(struct gfs2_jdesc *jd, struct gfs2_log_header_host *head)
 {
@@ -401,7 +466,7 @@ void gfs2_recover_func(struct work_struct *work)
 		fs_info(sdp, "jid=%u: Trying to acquire journal lock...\n",
 			jd->jd_jid);
 		jlocked = 1;
-		
+		/* Acquire the journal lock so we can do recovery */
 
 		error = gfs2_glock_nq_num(sdp, jd->jd_jid, &gfs2_journal_glops,
 					  LM_ST_EXCLUSIVE,
@@ -443,7 +508,7 @@ void gfs2_recover_func(struct work_struct *work)
 
 		t = jiffies;
 
-		
+		/* Acquire a shared hold on the transaction lock */
 
 		error = gfs2_glock_nq_init(sdp->sd_trans_gl, LM_ST_SHARED,
 					   LM_FLAG_NOEXP | LM_FLAG_PRIORITY |
@@ -458,7 +523,7 @@ void gfs2_recover_func(struct work_struct *work)
 				ro = 1;
 		} else {
 			if (sdp->sd_vfs->s_flags & MS_RDONLY) {
-				
+				/* check if device itself is read-only */
 				ro = bdev_read_only(sdp->sd_vfs->s_bdev);
 				if (!ro) {
 					fs_info(sdp, "recovery required on "
@@ -539,7 +604,7 @@ int gfs2_recover_journal(struct gfs2_jdesc *jd, bool wait)
 	if (test_and_set_bit(JDF_RECOVERY, &jd->jd_flags))
 		return -EBUSY;
 
-	
+	/* we have JDF_RECOVERY, queue should always succeed */
 	rv = queue_work(gfs_recovery_wq, &jd->jd_work);
 	BUG_ON(!rv);
 

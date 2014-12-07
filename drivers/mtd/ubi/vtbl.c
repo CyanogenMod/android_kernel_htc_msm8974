@@ -68,6 +68,7 @@ static void paranoid_vtbl_check(const struct ubi_device *ubi);
 #define paranoid_vtbl_check(ubi)
 #endif
 
+/* Empty volume table record */
 static struct ubi_vtbl_record empty_vtbl_record;
 
 /**
@@ -114,6 +115,15 @@ int ubi_change_vtbl_record(struct ubi_device *ubi, int idx,
 	return 0;
 }
 
+/**
+ * ubi_vtbl_rename_volumes - rename UBI volumes in the volume table.
+ * @ubi: UBI device description object
+ * @rename_list: list of &struct ubi_rename_entry objects
+ *
+ * This function re-names multiple volumes specified in @req in the volume
+ * table. Returns zero in case of success and a negative error code in case of
+ * failure.
+ */
 int ubi_vtbl_rename_volumes(struct ubi_device *ubi,
 			    struct list_head *rename_list)
 {
@@ -156,6 +166,14 @@ int ubi_vtbl_rename_volumes(struct ubi_device *ubi,
 	return 0;
 }
 
+/**
+ * vtbl_check - check if volume table is not corrupted and sensible.
+ * @ubi: UBI device description object
+ * @vtbl: volume table
+ *
+ * This function returns zero if @vtbl is all right, %1 if CRC is incorrect,
+ * and %-EINVAL if it contains inconsistent data.
+ */
 static int vtbl_check(const struct ubi_device *ubi,
 		      const struct ubi_vtbl_record *vtbl)
 {
@@ -249,7 +267,7 @@ static int vtbl_check(const struct ubi_device *ubi,
 		}
 	}
 
-	
+	/* Checks that all names are unique */
 	for (i = 0; i < ubi->vtbl_slots - 1; i++) {
 		for (n = i + 1; n < ubi->vtbl_slots; n++) {
 			int len1 = be16_to_cpu(vtbl[i].name_len);
@@ -274,6 +292,16 @@ bad:
 	return -EINVAL;
 }
 
+/**
+ * create_vtbl - create a copy of volume table.
+ * @ubi: UBI device description object
+ * @si: scanning information
+ * @copy: number of the volume table copy
+ * @vtbl: contents of the volume table
+ *
+ * This function returns zero in case of success and a negative error code in
+ * case of failure.
+ */
 static int create_vtbl(struct ubi_device *ubi, struct ubi_scan_info *si,
 		       int copy, void *vtbl)
 {
@@ -302,16 +330,20 @@ retry:
 	vid_hdr->lnum = cpu_to_be32(copy);
 	vid_hdr->sqnum = cpu_to_be64(++si->max_sqnum);
 
-	
+	/* The EC header is already there, write the VID header */
 	err = ubi_io_write_vid_hdr(ubi, new_seb->pnum, vid_hdr);
 	if (err)
 		goto write_error;
 
-	
+	/* Write the layout volume contents */
 	err = ubi_io_write_data(ubi, vtbl, new_seb->pnum, 0, ubi->vtbl_size);
 	if (err)
 		goto write_error;
 
+	/*
+	 * And add it to the scanning information. Don't delete the old version
+	 * of this LEB as it will be deleted and freed in 'ubi_scan_add_used()'.
+	 */
 	err = ubi_scan_add_used(ubi, si, new_seb->pnum, new_seb->ec,
 				vid_hdr, 0);
 	kfree(new_seb);
@@ -320,6 +352,10 @@ retry:
 
 write_error:
 	if (err == -EIO && ++tries <= 5) {
+		/*
+		 * Probably this physical eraseblock went bad, try to pick
+		 * another one.
+		 */
 		list_add(&new_seb->u.list, &si->erase);
 		goto retry;
 	}
@@ -330,6 +366,16 @@ out_free:
 
 }
 
+/**
+ * process_lvol - process the layout volume.
+ * @ubi: UBI device description object
+ * @si: scanning information
+ * @sv: layout volume scanning information
+ *
+ * This function is responsible for reading the layout volume, ensuring it is
+ * not corrupted, and recovering from corruptions if needed. Returns volume
+ * table in case of success and a negative error code in case of failure.
+ */
 static struct ubi_vtbl_record *process_lvol(struct ubi_device *ubi,
 					    struct ubi_scan_info *si,
 					    struct ubi_scan_volume *sv)
@@ -340,10 +386,34 @@ static struct ubi_vtbl_record *process_lvol(struct ubi_device *ubi,
 	struct ubi_vtbl_record *leb[UBI_LAYOUT_VOLUME_EBS] = { NULL, NULL };
 	int leb_corrupted[UBI_LAYOUT_VOLUME_EBS] = {1, 1};
 
+	/*
+	 * UBI goes through the following steps when it changes the layout
+	 * volume:
+	 * a. erase LEB 0;
+	 * b. write new data to LEB 0;
+	 * c. erase LEB 1;
+	 * d. write new data to LEB 1.
+	 *
+	 * Before the change, both LEBs contain the same data.
+	 *
+	 * Due to unclean reboots, the contents of LEB 0 may be lost, but there
+	 * should LEB 1. So it is OK if LEB 0 is corrupted while LEB 1 is not.
+	 * Similarly, LEB 1 may be lost, but there should be LEB 0. And
+	 * finally, unclean reboots may result in a situation when neither LEB
+	 * 0 nor LEB 1 are corrupted, but they are different. In this case, LEB
+	 * 0 contains more recent information.
+	 *
+	 * So the plan is to first check LEB 0. Then
+	 * a. if LEB 0 is OK, it must be containing the most recent data; then
+	 *    we compare it with LEB 1, and if they are different, we copy LEB
+	 *    0 to LEB 1;
+	 * b. if LEB 0 is corrupted, but LEB 1 has to be OK, and we copy LEB 1
+	 *    to LEB 0.
+	 */
 
 	dbg_gen("check layout volume");
 
-	
+	/* Read both LEB 0 and LEB 1 into memory */
 	ubi_rb_for_each_entry(rb, seb, &sv->root, u.rb) {
 		leb[seb->lnum] = vzalloc(ubi->vtbl_size);
 		if (!leb[seb->lnum]) {
@@ -354,6 +424,16 @@ static struct ubi_vtbl_record *process_lvol(struct ubi_device *ubi,
 		err = ubi_io_read_data(ubi, leb[seb->lnum], seb->pnum, 0,
 				       ubi->vtbl_size);
 		if (err == UBI_IO_BITFLIPS || mtd_is_eccerr(err))
+			/*
+			 * Scrub the PEB later. Note, -EBADMSG indicates an
+			 * uncorrectable ECC error, but we have our own CRC and
+			 * the data will be checked later. If the data is OK,
+			 * the PEB will be scrubbed (because we set
+			 * seb->scrub). If the data is not OK, the contents of
+			 * the PEB will be recovered from the second copy, and
+			 * seb->scrub will be cleared in
+			 * 'ubi_scan_add_used()'.
+			 */
 			seb->scrub = 1;
 		else if (err)
 			goto out_free;
@@ -367,7 +447,7 @@ static struct ubi_vtbl_record *process_lvol(struct ubi_device *ubi,
 	}
 
 	if (!leb_corrupted[0]) {
-		
+		/* LEB 0 is OK */
 		if (leb[1])
 			leb_corrupted[1] = memcmp(leb[0], leb[1],
 						  ubi->vtbl_size);
@@ -379,18 +459,18 @@ static struct ubi_vtbl_record *process_lvol(struct ubi_device *ubi,
 			ubi_msg("volume table was restored");
 		}
 
-		
+		/* Both LEB 1 and LEB 2 are OK and consistent */
 		vfree(leb[1]);
 		return leb[0];
 	} else {
-		
+		/* LEB 0 is corrupted or does not exist */
 		if (leb[1]) {
 			leb_corrupted[1] = vtbl_check(ubi, leb[1]);
 			if (leb_corrupted[1] < 0)
 				goto out_free;
 		}
 		if (leb_corrupted[1]) {
-			
+			/* Both LEB 0 and LEB 1 are corrupted */
 			ubi_err("both volume tables are corrupted");
 			goto out_free;
 		}
@@ -411,6 +491,14 @@ out_free:
 	return ERR_PTR(err);
 }
 
+/**
+ * create_empty_lvol - create empty layout volume.
+ * @ubi: UBI device description object
+ * @si: scanning information
+ *
+ * This function returns volume table contents in case of success and a
+ * negative error code in case of failure.
+ */
 static struct ubi_vtbl_record *create_empty_lvol(struct ubi_device *ubi,
 						 struct ubi_scan_info *si)
 {
@@ -437,6 +525,16 @@ static struct ubi_vtbl_record *create_empty_lvol(struct ubi_device *ubi,
 	return vtbl;
 }
 
+/**
+ * init_volumes - initialize volume information for existing volumes.
+ * @ubi: UBI device description object
+ * @si: scanning information
+ * @vtbl: volume table
+ *
+ * This function allocates volume description objects for existing volumes.
+ * Returns zero in case of success and a negative error code in case of
+ * failure.
+ */
 static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 			const struct ubi_vtbl_record *vtbl)
 {
@@ -448,7 +546,7 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 		cond_resched();
 
 		if (be32_to_cpu(vtbl[i].reserved_pebs) == 0)
-			continue; 
+			continue; /* Empty record */
 
 		vol = kzalloc(sizeof(struct ubi_volume), GFP_KERNEL);
 		if (!vol)
@@ -467,7 +565,7 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 		vol->vol_id = i;
 
 		if (vtbl[i].flags & UBI_VTBL_AUTORESIZE_FLG) {
-			
+			/* Auto re-size flag may be set only for one volume */
 			if (ubi->autoresize_vol_id != -1) {
 				ubi_err("more than one auto-resize volume (%d "
 					"and %d)", ubi->autoresize_vol_id, i);
@@ -484,6 +582,10 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 		vol->ubi = ubi;
 		reserved_pebs += vol->reserved_pebs;
 
+		/*
+		 * In case of dynamic volume UBI knows nothing about how many
+		 * data is stored there. So assume the whole volume is used.
+		 */
 		if (vol->vol_type == UBI_DYNAMIC_VOLUME) {
 			vol->used_ebs = vol->reserved_pebs;
 			vol->last_eb_bytes = vol->usable_leb_size;
@@ -492,13 +594,25 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 			continue;
 		}
 
-		
+		/* Static volumes only */
 		sv = ubi_scan_find_sv(si, i);
 		if (!sv) {
+			/*
+			 * No eraseblocks belonging to this volume found. We
+			 * don't actually know whether this static volume is
+			 * completely corrupted or just contains no data. And
+			 * we cannot know this as long as data size is not
+			 * stored on flash. So we just assume the volume is
+			 * empty. FIXME: this should be handled.
+			 */
 			continue;
 		}
 
 		if (sv->leb_count != sv->used_ebs) {
+			/*
+			 * We found a static volume which misses several
+			 * eraseblocks. Treat it as corrupted.
+			 */
 			ubi_warn("static volume %d misses %d LEBs - corrupted",
 				 sv->vol_id, sv->used_ebs - sv->leb_count);
 			vol->corrupted = 1;
@@ -512,7 +626,7 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 		vol->last_eb_bytes = sv->last_data_size;
 	}
 
-	
+	/* And add the layout volume */
 	vol = kzalloc(sizeof(struct ubi_volume), GFP_KERNEL);
 	if (!vol)
 		return -ENOMEM;
@@ -549,6 +663,14 @@ static int init_volumes(struct ubi_device *ubi, const struct ubi_scan_info *si,
 	return 0;
 }
 
+/**
+ * check_sv - check volume scanning information.
+ * @vol: UBI volume description object
+ * @sv: volume scanning information
+ *
+ * This function returns zero if the volume scanning information is consistent
+ * to the data read from the volume tabla, and %-EINVAL if not.
+ */
 static int check_sv(const struct ubi_volume *vol,
 		    const struct ubi_scan_volume *sv)
 {
@@ -583,6 +705,16 @@ bad:
 	return -EINVAL;
 }
 
+/**
+ * check_scanning_info - check that scanning information.
+ * @ubi: UBI device description object
+ * @si: scanning information
+ *
+ * Even though we protect on-flash data by CRC checksums, we still don't trust
+ * the media. This function ensures that scanning information is consistent to
+ * the information read from the volume table. Returns zero if the scanning
+ * information is OK and %-EINVAL if it is not.
+ */
 static int check_scanning_info(const struct ubi_device *ubi,
 			       struct ubi_scan_info *si)
 {
@@ -620,6 +752,13 @@ static int check_scanning_info(const struct ubi_device *ubi,
 			if (!sv)
 				continue;
 
+			/*
+			 * During scanning we found a volume which does not
+			 * exist according to the information in the volume
+			 * table. This must have happened due to an unclean
+			 * reboot while the volume was being removed. Discard
+			 * these eraseblocks.
+			 */
 			ubi_msg("finish volume %d removal", sv->vol_id);
 			ubi_scan_rm_volume(si, sv);
 		} else if (sv) {
@@ -632,6 +771,15 @@ static int check_scanning_info(const struct ubi_device *ubi,
 	return 0;
 }
 
+/**
+ * ubi_read_volume_table - read the volume table.
+ * @ubi: UBI device description object
+ * @si: scanning information
+ *
+ * This function reads volume table, checks it, recover from errors if needed,
+ * or creates it if needed. Returns zero in case of success and a negative
+ * error code in case of failure.
+ */
 int ubi_read_volume_table(struct ubi_device *ubi, struct ubi_scan_info *si)
 {
 	int i, err;
@@ -639,6 +787,10 @@ int ubi_read_volume_table(struct ubi_device *ubi, struct ubi_scan_info *si)
 
 	empty_vtbl_record.crc = cpu_to_be32(0xf116c36b);
 
+	/*
+	 * The number of supported volumes is limited by the eraseblock size
+	 * and by the UBI_MAX_VOLUMES constant.
+	 */
 	ubi->vtbl_slots = ubi->leb_size / UBI_VTBL_RECORD_SIZE;
 	if (ubi->vtbl_slots > UBI_MAX_VOLUMES)
 		ubi->vtbl_slots = UBI_MAX_VOLUMES;
@@ -648,6 +800,14 @@ int ubi_read_volume_table(struct ubi_device *ubi, struct ubi_scan_info *si)
 
 	sv = ubi_scan_find_sv(si, UBI_LAYOUT_VOLUME_ID);
 	if (!sv) {
+		/*
+		 * No logical eraseblocks belonging to the layout volume were
+		 * found. This could mean that the flash is just empty. In
+		 * this case we create empty layout volume.
+		 *
+		 * But if flash is not empty this must be a corruption or the
+		 * MTD device just contains garbage.
+		 */
 		if (si->is_empty) {
 			ubi->vtbl = create_empty_lvol(ubi, si);
 			if (IS_ERR(ubi->vtbl))
@@ -658,7 +818,7 @@ int ubi_read_volume_table(struct ubi_device *ubi, struct ubi_scan_info *si)
 		}
 	} else {
 		if (sv->leb_count > UBI_LAYOUT_VOLUME_EBS) {
-			
+			/* This must not happen with proper UBI images */
 			dbg_err("too many LEBs (%d) in layout volume",
 				sv->leb_count);
 			return -EINVAL;
@@ -671,10 +831,18 @@ int ubi_read_volume_table(struct ubi_device *ubi, struct ubi_scan_info *si)
 
 	ubi->avail_pebs = ubi->good_peb_count - ubi->corr_peb_count;
 
+	/*
+	 * The layout volume is OK, initialize the corresponding in-RAM data
+	 * structures.
+	 */
 	err = init_volumes(ubi, si, ubi->vtbl);
 	if (err)
 		goto out_free;
 
+	/*
+	 * Make sure that the scanning information is consistent to the
+	 * information stored in the volume table.
+	 */
 	err = check_scanning_info(ubi, si);
 	if (err)
 		goto out_free;
@@ -692,6 +860,10 @@ out_free:
 
 #ifdef CONFIG_MTD_UBI_DEBUG
 
+/**
+ * paranoid_vtbl_check - check volume table.
+ * @ubi: UBI device description object
+ */
 static void paranoid_vtbl_check(const struct ubi_device *ubi)
 {
 	if (!ubi->dbg->chk_gen)
@@ -703,4 +875,4 @@ static void paranoid_vtbl_check(const struct ubi_device *ubi)
 	}
 }
 
-#endif 
+#endif /* CONFIG_MTD_UBI_DEBUG */

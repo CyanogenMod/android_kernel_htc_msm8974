@@ -21,6 +21,9 @@ atomic_t fscache_ops_histogram[HZ];
 atomic_t fscache_retrieval_delay_histogram[HZ];
 atomic_t fscache_retrieval_histogram[HZ];
 
+/*
+ * display the time-taken histogram
+ */
 static int fscache_histogram_show(struct seq_file *m, void *v)
 {
 	unsigned long index;
@@ -53,6 +56,9 @@ static int fscache_histogram_show(struct seq_file *m, void *v)
 	}
 }
 
+/*
+ * set up the iterator to start reading from the first line
+ */
 static void *fscache_histogram_start(struct seq_file *m, loff_t *_pos)
 {
 	if ((unsigned long long)*_pos >= HZ + 2)
@@ -62,6 +68,9 @@ static void *fscache_histogram_start(struct seq_file *m, loff_t *_pos)
 	return (void *)(unsigned long) *_pos;
 }
 
+/*
+ * move to the next line
+ */
 static void *fscache_histogram_next(struct seq_file *m, void *v, loff_t *pos)
 {
 	(*pos)++;
@@ -69,6 +78,9 @@ static void *fscache_histogram_next(struct seq_file *m, void *v, loff_t *pos)
 		NULL : (void *)(unsigned long) *pos;
 }
 
+/*
+ * clean up after reading
+ */
 static void fscache_histogram_stop(struct seq_file *m, void *v)
 {
 }
@@ -80,6 +92,9 @@ static const struct seq_operations fscache_histogram_ops = {
 	.show		= fscache_histogram_show,
 };
 
+/*
+ * open "/proc/fs/fscache/histogram" to provide latency data
+ */
 static int fscache_histogram_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &fscache_histogram_ops);

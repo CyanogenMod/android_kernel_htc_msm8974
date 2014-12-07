@@ -42,7 +42,7 @@
 
 #ifdef NDEBUG
 #define dprintk(flags, fmt...)
-#else 
+#else /* NDEBUG */
 #define dprintk(flags, fmt...) do { \
 	if (debugflags & (flags)) printk(KERN_DEBUG fmt); \
 } while (0)
@@ -53,12 +53,22 @@
 #define DBG_RX          0x0200
 #define DBG_TX          0x0400
 static unsigned int debugflags;
-#endif 
+#endif /* NDEBUG */
 
 static unsigned int nbds_max = 16;
 static struct nbd_device *nbd_dev;
 static int max_part;
 
+/*
+ * Use just one lock (or at most 1 per NIC). Two arguments for this:
+ * 1. Each NIC is essentially a synchronization point for all servers
+ *    accessed through that NIC so there's no need to have more locks
+ *    than NICs anyway.
+ * 2. More locks lead to more "Dirty cache line bouncing" which will slow
+ *    down each lock to the point where they're actually slower than just
+ *    a single lock.
+ * Thanks go to Jens Axboe and Al Viro for their LKML emails explaining this!
+ */
 static DEFINE_SPINLOCK(nbd_lock);
 
 #ifndef NDEBUG
@@ -89,7 +99,7 @@ static const char *nbdcmd_to_ascii(int cmd)
 	}
 	return "invalid";
 }
-#endif 
+#endif /* NDEBUG */
 
 static void nbd_end_request(struct request *req)
 {
@@ -107,6 +117,12 @@ static void nbd_end_request(struct request *req)
 
 static void sock_shutdown(struct nbd_device *nbd, int lock)
 {
+	/* Forcibly shutdown the socket causing all listeners
+	 * to error
+	 *
+	 * FIXME: This code is duplicated from sys_shutdown, but
+	 * there should be a more generic interface rather than
+	 * calling socket ops directly here */
 	if (lock)
 		mutex_lock(&nbd->tx_lock);
 	if (nbd->sock) {
@@ -127,6 +143,9 @@ static void nbd_xmit_timeout(unsigned long arg)
 	force_sig(SIGKILL, task);
 }
 
+/*
+ *  Send or receive packet.
+ */
 static int sock_xmit(struct nbd_device *nbd, int send, void *buf, int size,
 		int msg_flags)
 {
@@ -143,6 +162,8 @@ static int sock_xmit(struct nbd_device *nbd, int send, void *buf, int size,
 		return -EINVAL;
 	}
 
+	/* Allow interception of SIGKILL only
+	 * Don't allow other signals to interrupt the transmission */
 	siginitsetinv(&blocked, sigmask(SIGKILL));
 	sigprocmask(SIG_SETMASK, &blocked, &oldset);
 
@@ -185,7 +206,7 @@ static int sock_xmit(struct nbd_device *nbd, int send, void *buf, int size,
 
 		if (result <= 0) {
 			if (result == 0)
-				result = -EPIPE; 
+				result = -EPIPE; /* short read */
 			break;
 		}
 		size -= result;
@@ -208,6 +229,7 @@ static inline int sock_send_bvec(struct nbd_device *nbd, struct bio_vec *bvec,
 	return result;
 }
 
+/* always call with the tx_lock held */
 static int nbd_send_req(struct nbd_device *nbd, struct request *req)
 {
 	int result, flags;
@@ -236,6 +258,10 @@ static int nbd_send_req(struct nbd_device *nbd, struct request *req)
 	if (nbd_cmd(req) == NBD_CMD_WRITE) {
 		struct req_iterator iter;
 		struct bio_vec *bvec;
+		/*
+		 * we are really probing at internals to determine
+		 * whether to set MSG_MORE or not...
+		 */
 		rq_for_each_segment(bvec, req, iter) {
 			flags = 0;
 			if (!rq_iter_last(req, iter))
@@ -293,6 +319,7 @@ static inline int sock_recv_bvec(struct nbd_device *nbd, struct bio_vec *bvec)
 	return result;
 }
 
+/* NULL returned = something went wrong, inform userspace */
 static struct request *nbd_read_stat(struct nbd_device *nbd)
 {
 	int result;
@@ -400,6 +427,14 @@ static void nbd_clear_que(struct nbd_device *nbd)
 
 	BUG_ON(nbd->magic != NBD_MAGIC);
 
+	/*
+	 * Because we have set nbd->sock to NULL under the tx_lock, all
+	 * modifications to the list must have completed by now.  For
+	 * the same reason, the active_req must be NULL.
+	 *
+	 * As a consequence, we don't need to take the spin lock while
+	 * purging the list here.
+	 */
 	BUG_ON(nbd->sock);
 	BUG_ON(nbd->active_req);
 
@@ -468,12 +503,12 @@ static int nbd_thread(void *data)
 
 	set_user_nice(current, -20);
 	while (!kthread_should_stop() || !list_empty(&nbd->waiting_queue)) {
-		
+		/* wait for something to do */
 		wait_event_interruptible(nbd->waiting_wq,
 					 kthread_should_stop() ||
 					 !list_empty(&nbd->waiting_queue));
 
-		
+		/* extract request */
 		if (list_empty(&nbd->waiting_queue))
 			continue;
 
@@ -483,12 +518,18 @@ static int nbd_thread(void *data)
 		list_del_init(&req->queuelist);
 		spin_unlock_irq(&nbd->queue_lock);
 
-		
+		/* handle request */
 		nbd_handle_req(nbd, req);
 	}
 	return 0;
 }
 
+/*
+ * We always wait for result of write, for now. It would be nice to make it optional
+ * in future
+ * if ((rq_data_dir(req) == WRITE) && (nbd->flags & NBD_WRITE_NOCHK))
+ *   { printk( "Warning: Ignoring result!\n"); nbd_end_request( req ); }
+ */
 
 static void do_nbd_request(struct request_queue *q)
 {
@@ -525,6 +566,7 @@ static void do_nbd_request(struct request_queue *q)
 	}
 }
 
+/* Must be called with tx_lock held */
 
 static int __nbd_ioctl(struct block_device *bdev, struct nbd_device *nbd,
 		       unsigned int cmd, unsigned long arg)
@@ -643,6 +685,10 @@ static int __nbd_ioctl(struct block_device *bdev, struct nbd_device *nbd,
 	}
 
 	case NBD_CLEAR_QUE:
+		/*
+		 * This is for compatibility only.  The queue is always cleared
+		 * by NBD_DO_IT or NBD_CLEAR_SOCK.
+		 */
 		BUG_ON(!nbd->sock && !list_empty(&nbd->queue_head));
 		return 0;
 
@@ -667,7 +713,7 @@ static int nbd_ioctl(struct block_device *bdev, fmode_t mode,
 
 	BUG_ON(nbd->magic != NBD_MAGIC);
 
-	
+	/* Anyone capable of this syscall can do *real bad* things */
 	dprintk(DBG_IOCTL, "%s: nbd_ioctl cmd=%s(0x%x) arg=%lu\n",
 		nbd->disk->disk_name, ioctl_cmd_to_ascii(cmd), cmd, arg);
 
@@ -684,6 +730,10 @@ static const struct block_device_operations nbd_fops =
 	.ioctl =	nbd_ioctl,
 };
 
+/*
+ * And here should be modules and kernel interface 
+ *  (Just smiley confuses emacs :-)
+ */
 
 static int __init nbd_init(void)
 {
@@ -706,6 +756,14 @@ static int __init nbd_init(void)
 	if (max_part > 0) {
 		part_shift = fls(max_part);
 
+		/*
+		 * Adjust max_part according to part_shift as it is exported
+		 * to user space so that user can know the max number of
+		 * partition kernel should be able to manage.
+		 *
+		 * Note that -1 is required because partition 0 is reserved
+		 * for the whole disk.
+		 */
 		max_part = (1UL << part_shift) - 1;
 	}
 
@@ -720,11 +778,19 @@ static int __init nbd_init(void)
 		if (!disk)
 			goto out;
 		nbd_dev[i].disk = disk;
+		/*
+		 * The new linux 2.5 block layer implementation requires
+		 * every gendisk to have its very own request_queue struct.
+		 * These structs are big so we dynamically allocate them.
+		 */
 		disk->queue = blk_init_queue(do_nbd_request, &nbd_lock);
 		if (!disk->queue) {
 			put_disk(disk);
 			goto out;
 		}
+		/*
+		 * Tell the block layer that we are not a rotational device
+		 */
 		queue_flag_set_unlocked(QUEUE_FLAG_NONROT, disk->queue);
 	}
 

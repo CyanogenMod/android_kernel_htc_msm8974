@@ -25,6 +25,11 @@
 #include "xattr.h"
 #include "acl.h"
 
+/*
+ * Called when filp is released. This happens when all file descriptors
+ * for a single struct file are closed. Note that different open() calls
+ * for the same file yield different struct file structures.
+ */
 static int ext2_release_file (struct inode * inode, struct file * filp)
 {
 	if (filp->f_mode & FMODE_WRITE) {
@@ -43,7 +48,7 @@ int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 
 	ret = generic_file_fsync(file, start, end, datasync);
 	if (ret == -EIO || test_and_clear_bit(AS_EIO, &mapping->flags)) {
-		
+		/* We don't really know where the IO error happened... */
 		ext2_error(sb, __func__,
 			   "detected IO error when writing metadata buffers");
 		ret = -EIO;
@@ -51,6 +56,10 @@ int ext2_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	return ret;
 }
 
+/*
+ * We have mostly NULL's here: the current defaults are ok for
+ * the ext2 filesystem.
+ */
 const struct file_operations ext2_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= do_sync_read,

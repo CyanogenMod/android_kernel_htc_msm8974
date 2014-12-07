@@ -51,8 +51,12 @@ enum endpoints {
 };
 
 enum {
-	USB_MAX_TRANSFER_SIZE		= 4096, 
-	USB_MAX_RX_SIZE			= 4800, 
+	USB_MAX_TRANSFER_SIZE		= 4096, /* bytes */
+	/* FIXME: The original driver uses this value. We have to check,
+	 * whether the MAX_TRANSFER_SIZE is sufficient and this needs only be
+	 * used if one combined frame is split over two USB transactions.
+	 */
+	USB_MAX_RX_SIZE			= 4800, /* bytes */
 	USB_MAX_IOWRITE16_COUNT		= 15,
 	USB_MAX_IOWRITE32_COUNT		= USB_MAX_IOWRITE16_COUNT/2,
 	USB_MAX_IOREAD16_COUNT		= 15,
@@ -68,9 +72,9 @@ enum control_requests {
 	USB_REQ_READ_REGS		= 0x22,
 	USB_REQ_WRITE_RF		= 0x23,
 	USB_REQ_PROG_FLASH		= 0x24,
-	USB_REQ_EEPROM_START		= 0x0128, 
+	USB_REQ_EEPROM_START		= 0x0128, /* ? request is a byte */
 	USB_REQ_EEPROM_MID		= 0x28,
-	USB_REQ_EEPROM_END		= 0x0228, 
+	USB_REQ_EEPROM_END		= 0x0228, /* ? request is a byte */
 	USB_REQ_FIRMWARE_DOWNLOAD	= 0x30,
 	USB_REQ_FIRMWARE_CONFIRM	= 0x31,
 	USB_REQ_FIRMWARE_READ_DATA	= 0x32,
@@ -100,14 +104,15 @@ enum {
 struct usb_req_rfwrite {
 	__le16 id;
 	__le16 value;
-	
-	
+	/* 1: 3683a */
+	/* 2: other (default) */
 	__le16 bits;
-	
+	/* RF2595: 24 */
 	__le16 bit_values[0];
-	
+	/* (ZD_CR203 & ~(RF_IF_LE | RF_CLK | RF_DATA)) | (bit ? RF_DATA : 0) */
 } __packed;
 
+/* USB interrupt */
 
 enum usb_int_id {
 	USB_INT_TYPE			= 0x01,
@@ -120,7 +125,7 @@ enum usb_int_flags {
 };
 
 struct usb_int_header {
-	u8 type;	
+	u8 type;	/* must always be 1 */
 	u8 id;
 } __packed;
 
@@ -141,6 +146,9 @@ struct read_regs_int {
 	struct completion completion;
 	struct usb_req_read_regs *req;
 	unsigned int req_count;
+	/* Stores the USB int structure and contains the USB address of the
+	 * first requested register before request.
+	 */
 	u8 buffer[USB_MAX_EP_INT_BUFFER];
 	int length;
 	__le16 cr_int_addr;
@@ -186,6 +194,15 @@ struct zd_usb_rx {
 	int urbs_count;
 };
 
+/**
+ * struct zd_usb_tx - structure used for transmitting frames
+ * @enabled: atomic enabled flag, indicates whether tx is enabled
+ * @lock: lock for transmission
+ * @submitted: anchor for URBs sent to device
+ * @submitted_urbs: atomic integer that counts the URBs having sent to the
+ *	device, which haven't been completed
+ * @stopped: indicates whether higher level tx queues are stopped
+ */
 struct zd_usb_tx {
 	atomic_t enabled;
 	spinlock_t lock;
@@ -196,6 +213,9 @@ struct zd_usb_tx {
 	u8 stopped:1, watchdog_enabled:1;
 };
 
+/* Contains the usb parts. The structure doesn't require a lock because intf
+ * will not be changed after initialization.
+ */
 struct zd_usb {
 	struct zd_usb_interrupt intr;
 	struct zd_usb_rx rx;
@@ -204,7 +224,7 @@ struct zd_usb {
 	struct usb_anchor submitted_cmds;
 	struct urb *urb_async_waiting;
 	int cmd_error;
-	u8 req_buf[64]; 
+	u8 req_buf[64]; /* zd_usb_iowrite16v needs 62 bytes */
 	u8 is_zd1211b:1, initialized:1, was_running:1, in_async:1;
 };
 
@@ -270,4 +290,4 @@ int zd_usb_read_fw(struct zd_usb *usb, zd_addr_t addr, u8 *data, u16 len);
 
 extern struct workqueue_struct *zd_workqueue;
 
-#endif 
+#endif /* _ZD_USB_H */

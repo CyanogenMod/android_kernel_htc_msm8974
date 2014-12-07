@@ -16,6 +16,9 @@
  * for supporting the development of this driver
  */
 
+/* TODO:
+ * specifically handle level vs edge triggered?
+ */
 
 #include <linux/module.h>
 #include <linux/gfp.h>
@@ -23,6 +26,7 @@
 #include <linux/netdevice.h>
 #include "hisax_isac.h"
 
+// debugging cruft
 
 #define __debug_variable debug
 #include "hisax_debug.h"
@@ -52,9 +56,11 @@ MODULE_LICENSE("GPL");
 #define DBG_XFIFO     0x1000
 #define DBG_XPACKET   0x2000
 
+// we need to distinguish ISAC-S and ISAC-SX
 #define TYPE_ISAC        0x00
 #define TYPE_ISACSX      0x01
 
+// registers etc.
 #define ISAC_MASK        0x20
 #define ISAC_ISTA        0x20
 #define ISAC_ISTA_EXI    0x01
@@ -188,22 +194,22 @@ static char *strL1State[] =
 };
 
 enum {
-	EV_PH_DR,           
-	EV_PH_RES,          
-	EV_PH_TMA,          
-	EV_PH_SLD,          
-	EV_PH_RSY,          
-	EV_PH_DR6,          
-	EV_PH_EI,           
-	EV_PH_PU,           
-	EV_PH_AR,           
-	EV_PH_9,            
-	EV_PH_ARL,          
-	EV_PH_CVR,          
-	EV_PH_AI8,          
-	EV_PH_AI10,         
-	EV_PH_AIL,          
-	EV_PH_DC,           
+	EV_PH_DR,           // 0000
+	EV_PH_RES,          // 0001
+	EV_PH_TMA,          // 0010
+	EV_PH_SLD,          // 0011
+	EV_PH_RSY,          // 0100
+	EV_PH_DR6,          // 0101
+	EV_PH_EI,           // 0110
+	EV_PH_PU,           // 0111
+	EV_PH_AR,           // 1000
+	EV_PH_9,            // 1001
+	EV_PH_ARL,          // 1010
+	EV_PH_CVR,          // 1011
+	EV_PH_AI8,          // 1100
+	EV_PH_AI10,         // 1101
+	EV_PH_AIL,          // 1110
+	EV_PH_DC,           // 1111
 	EV_PH_ACTIVATE_REQ,
 	EV_PH_DEACTIVATE_REQ,
 	EV_TIMER3,
@@ -213,22 +219,22 @@ enum {
 
 static char *strL1Event[] =
 {
-	"EV_PH_DR",           
-	"EV_PH_RES",          
-	"EV_PH_TMA",          
-	"EV_PH_SLD",          
-	"EV_PH_RSY",          
-	"EV_PH_DR6",          
-	"EV_PH_EI",           
-	"EV_PH_PU",           
-	"EV_PH_AR",           
-	"EV_PH_9",            
-	"EV_PH_ARL",          
-	"EV_PH_CVR",          
-	"EV_PH_AI8",          
-	"EV_PH_AI10",         
-	"EV_PH_AIL",          
-	"EV_PH_DC",           
+	"EV_PH_DR",           // 0000
+	"EV_PH_RES",          // 0001
+	"EV_PH_TMA",          // 0010
+	"EV_PH_SLD",          // 0011
+	"EV_PH_RSY",          // 0100
+	"EV_PH_DR6",          // 0101
+	"EV_PH_EI",           // 0110
+	"EV_PH_PU",           // 0111
+	"EV_PH_AR",           // 1000
+	"EV_PH_9",            // 1001
+	"EV_PH_ARL",          // 1010
+	"EV_PH_CVR",          // 1011
+	"EV_PH_AI8",          // 1100
+	"EV_PH_AI10",         // 1101
+	"EV_PH_AIL",          // 1110
+	"EV_PH_DC",           // 1111
 	"EV_PH_ACTIVATE_REQ",
 	"EV_PH_DEACTIVATE_REQ",
 	"EV_TIMER3",
@@ -255,6 +261,7 @@ static void ph_command(struct isac *isac, unsigned int command)
 	}
 }
 
+// ----------------------------------------------------------------------
 
 static void l1_di(struct FsmInst *fi, int event, void *arg)
 {
@@ -357,6 +364,7 @@ static void l1_timer3(struct FsmInst *fi, int event, void *arg)
 	D_L1L2(isac, PH_DEACTIVATE | INDICATION, NULL);
 }
 
+// state machines according to data sheet PSB 2186 / 3186
 
 static struct FsmNode L1FnList[] __initdata =
 {
@@ -441,8 +449,8 @@ static void isac_version(struct isac *cs)
 
 static void isac_empty_fifo(struct isac *isac, int count)
 {
-	
-	
+	// this also works for isacsx, since
+	// CMDR(D) register works the same
 	u_char *ptr;
 
 	DBG(DBG_IRQ, "count %d", count);
@@ -462,8 +470,8 @@ static void isac_empty_fifo(struct isac *isac, int count)
 
 static void isac_fill_fifo(struct isac *isac)
 {
-	
-	
+	// this also works for isacsx, since
+	// CMDR(D) register works the same
 
 	int count;
 	unsigned char cmd;
@@ -586,7 +594,7 @@ static inline void isac_exi_interrupt(struct isac *isac)
 		DBG(DBG_WARN, "ISAC XDU");
 		isac_retransmit(isac);
 	}
-	if (val & ISAC_EXIR_MOS) {  
+	if (val & ISAC_EXIR_MOS) {  /* MOS */
 		DBG(DBG_WARN, "MOS");
 		val = isac->read_isac(isac, ISAC_MOSR);
 		DBG(2, "ISAC MOSR %#x", val);
@@ -630,6 +638,7 @@ void isac_irq(struct isac *isac)
 	isac->write_isac(isac, ISAC_MASK, 0x00);
 }
 
+// ======================================================================
 
 static inline void isacsx_cic_interrupt(struct isac *isac)
 {
@@ -666,7 +675,7 @@ static inline void isacsx_rme_interrupt(struct isac *isac)
 		count = 0x20;
 
 	isac_empty_fifo(isac, count);
-	
+	// strip trailing status byte
 	count = isac->rcvidx - 1;
 	if (count < 1) {
 		DBG(DBG_WARN, "count %d < 1", count);
@@ -772,14 +781,14 @@ void isac_setup(struct isac *isac)
 	isac->write_isac(isac, ISAC_MASK, 0xff);
 	isac->mocr = 0xaa;
 	if (test_bit(ISAC_IOM1, &isac->flags)) {
-		
+		/* IOM 1 Mode */
 		isac->write_isac(isac, ISAC_ADF2, 0x0);
 		isac->write_isac(isac, ISAC_SPCR, 0xa);
 		isac->write_isac(isac, ISAC_ADF1, 0x2);
 		isac->write_isac(isac, ISAC_STCR, 0x70);
 		isac->write_isac(isac, ISAC_MODE, 0xc9);
 	} else {
-		
+		/* IOM 2 Mode */
 		if (!isac->adf2)
 			isac->adf2 = 0x80;
 		isac->write_isac(isac, ISAC_ADF2, isac->adf2);
@@ -807,22 +816,22 @@ void isac_setup(struct isac *isac)
 	FsmEvent(&isac->l1m, (val >> 2) & 0xf, NULL);
 
 	isac->write_isac(isac, ISAC_MASK, 0x0);
-	
+	// RESET Receiver and Transmitter
 	isac->write_isac(isac, ISAC_CMDR, ISAC_CMDR_XRES | ISAC_CMDR_RRES);
 }
 
 void isacsx_setup(struct isac *isac)
 {
 	isac->type = TYPE_ISACSX;
-	
+	// clear LDD
 	isac->write_isac(isac, ISACSX_TR_CONF0, 0x00);
-	
+	// enable transmitter
 	isac->write_isac(isac, ISACSX_TR_CONF2, 0x00);
-	
+	// transparent mode 0, RAC, stop/go
 	isac->write_isac(isac, ISACSX_MODED,    0xc9);
-	
+	// all HDLC IRQ unmasked
 	isac->write_isac(isac, ISACSX_MASKD,    0x03);
-	
+	// unmask ICD, CID IRQs
 	isac->write_isac(isac, ISACSX_MASK,
 			 ~(ISACSX_ISTA_ICD | ISACSX_ISTA_CIC));
 }

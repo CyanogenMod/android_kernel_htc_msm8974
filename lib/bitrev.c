@@ -48,6 +48,10 @@ u16 bitrev16(u16 x)
 }
 EXPORT_SYMBOL(bitrev16);
 
+/**
+ * bitrev32 - reverse the order of bits in a u32 value
+ * @x: value to be bit-reversed
+ */
 u32 bitrev32(u32 x)
 {
 	return (bitrev16(x & 0xffff) << 16) | bitrev16(x >> 16);

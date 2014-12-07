@@ -34,7 +34,7 @@ static int pci_stub_probe(struct pci_dev *dev, const struct pci_device_id *id)
 
 static struct pci_driver stub_driver = {
 	.name		= "pci-stub",
-	.id_table	= NULL,	
+	.id_table	= NULL,	/* only dynamic id's */
 	.probe		= pci_stub_probe,
 };
 
@@ -47,11 +47,11 @@ static int __init pci_stub_init(void)
 	if (rc)
 		return rc;
 
-	
+	/* no ids passed actually */
 	if (ids[0] == '\0')
 		return 0;
 
-	
+	/* add ids specified in the module parameter */
 	p = ids;
 	while ((id = strsep(&p, ","))) {
 		unsigned int vendor, device, subvendor = PCI_ANY_ID,

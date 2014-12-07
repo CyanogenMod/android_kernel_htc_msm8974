@@ -44,9 +44,18 @@ EXPORT_SYMBOL_GPL(c6x_num_cores);
 unsigned int c6x_silicon_rev;
 EXPORT_SYMBOL_GPL(c6x_silicon_rev);
 
+/*
+ * Device status register. This holds information
+ * about device configuration needed by some drivers.
+ */
 unsigned int c6x_devstat;
 EXPORT_SYMBOL_GPL(c6x_devstat);
 
+/*
+ * Some SoCs have fuse registers holding a unique MAC
+ * address. This is parsed out of the device tree with
+ * the resulting MAC being held here.
+ */
 unsigned char c6x_fuse_mac[6];
 
 unsigned long memory_start;
@@ -55,6 +64,7 @@ unsigned long memory_end;
 unsigned long ram_start;
 unsigned long ram_end;
 
+/* Uncached memory for DMA consistent use (memdma=) */
 static unsigned long dma_start __initdata;
 static unsigned long dma_size __initdata;
 
@@ -200,15 +210,19 @@ static void __init get_cpuinfo(void)
 	       p->cpu_voltage, c6x_core_freq / 1000000);
 }
 
+/*
+ * Early parsing of the command line
+ */
 static u32 mem_size __initdata;
 
+/* "mem=" parsing. */
 static int __init early_mem(char *p)
 {
 	if (!p)
 		return -EINVAL;
 
 	mem_size = memparse(p, &p);
-	
+	/* don't remove all of memory when handling "mem={invalid}" */
 	if (mem_size == 0)
 		return -EINVAL;
 
@@ -216,6 +230,7 @@ static int __init early_mem(char *p)
 }
 early_param("mem", early_mem);
 
+/* "memdma=<size>[@<address>]" parsing. */
 static int __init early_memdma(char *p)
 {
 	if (!p)
@@ -233,7 +248,7 @@ int __init c6x_add_memory(phys_addr_t start, unsigned long size)
 {
 	static int ram_found __initdata;
 
-	
+	/* We only handle one bank (the one with PAGE_OFFSET) for now */
 	if (ram_found)
 		return -EINVAL;
 
@@ -247,25 +262,37 @@ int __init c6x_add_memory(phys_addr_t start, unsigned long size)
 	return 0;
 }
 
+/*
+ * Do early machine setup and device tree parsing. This is called very
+ * early on the boot process.
+ */
 notrace void __init machine_init(unsigned long dt_ptr)
 {
 	struct boot_param_header *dtb = __va(dt_ptr);
 	struct boot_param_header *fdt = (struct boot_param_header *)_fdt_start;
 
-	
+	/* interrupts must be masked */
 	set_creg(IER, 2);
 
+	/*
+	 * Set the Interrupt Service Table (IST) to the beginning of the
+	 * vector table.
+	 */
 	set_ist(_vectors_start);
 
 	lockdep_init();
 
+	/*
+	 * dtb is passed in from bootloader.
+	 * fdt is linked in blob.
+	 */
 	if (dtb && dtb != fdt)
 		fdt = dtb;
 
-	
+	/* Do some early initialization based on the flat device tree */
 	early_init_devtree(fdt);
 
-	
+	/* parse_early_param needs a boot_command_line */
 	strlcpy(boot_command_line, c6x_command_line, COMMAND_LINE_SIZE);
 	parse_early_param();
 }
@@ -277,7 +304,7 @@ void __init setup_arch(char **cmdline_p)
 
 	printk(KERN_INFO "Initializing kernel\n");
 
-	
+	/* Initialize command line */
 	*cmdline_p = c6x_command_line;
 
 	memory_end = ram_end;
@@ -286,24 +313,24 @@ void __init setup_arch(char **cmdline_p)
 	if (mem_size && (PAGE_OFFSET + PAGE_ALIGN(mem_size)) < memory_end)
 		memory_end = PAGE_OFFSET + PAGE_ALIGN(mem_size);
 
-	
+	/* add block that this kernel can use */
 	memblock_add(PAGE_OFFSET, memory_end - PAGE_OFFSET);
 
-	
+	/* reserve kernel text/data/bss */
 	memblock_reserve(PAGE_OFFSET,
 			 PAGE_ALIGN((unsigned long)&_end - PAGE_OFFSET));
 
 	if (dma_size) {
-		
+		/* align to cacheability granularity */
 		dma_size = CACHE_REGION_END(dma_size);
 
 		if (!dma_start)
 			dma_start = memory_end - dma_size;
 
-		
+		/* align to cacheability granularity */
 		dma_start = CACHE_REGION_START(dma_start);
 
-		
+		/* reserve DMA memory taken from kernel memory */
 		if (memblock_is_region_memory(dma_start, dma_size))
 			memblock_reserve(dma_start, dma_size);
 	}
@@ -314,6 +341,9 @@ void __init setup_arch(char **cmdline_p)
 	       memory_start, memory_end);
 
 #ifdef CONFIG_BLK_DEV_INITRD
+	/*
+	 * Reserve initrd memory if in kernel memory.
+	 */
 	if (initrd_start < initrd_end)
 		if (memblock_is_region_memory(initrd_start,
 					      initrd_end - initrd_start))
@@ -326,6 +356,10 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.end_data   = memory_start;
 	init_mm.brk        = memory_start;
 
+	/*
+	 * Give all the memory to the bootmap allocator,  tell it to put the
+	 * boot mem_map at the start of memory
+	 */
 	bootmap_size = init_bootmem_node(NODE_DATA(0),
 					 memory_start >> PAGE_SHIFT,
 					 PAGE_OFFSET >> PAGE_SHIFT,
@@ -336,15 +370,18 @@ void __init setup_arch(char **cmdline_p)
 
 	c6x_cache_init();
 
-	
+	/* Set the whole external memory as non-cacheable */
 	disable_caching(ram_start, ram_end - 1);
 
-	
+	/* Set caching of external RAM used by Linux */
 	for_each_memblock(memory, reg)
 		enable_caching(CACHE_REGION_START(reg->base),
 			       CACHE_REGION_START(reg->base + reg->size - 1));
 
 #ifdef CONFIG_BLK_DEV_INITRD
+	/*
+	 * Enable caching for initrd which falls outside kernel memory.
+	 */
 	if (initrd_start < initrd_end) {
 		if (!memblock_is_region_memory(initrd_start,
 					       initrd_end - initrd_start))
@@ -353,15 +390,24 @@ void __init setup_arch(char **cmdline_p)
 	}
 #endif
 
+	/*
+	 * Disable caching for dma coherent memory taken from kernel memory.
+	 */
 	if (dma_size && memblock_is_region_memory(dma_start, dma_size))
 		disable_caching(dma_start,
 				CACHE_REGION_START(dma_start + dma_size - 1));
 
-	
+	/* Initialize the coherent memory allocator */
 	coherent_mem_init(dma_start, dma_size);
 
+	/*
+	 * Free all memory as a starting point.
+	 */
 	free_bootmem(PAGE_OFFSET, memory_end - PAGE_OFFSET);
 
+	/*
+	 * Then reserve memory which is already being used.
+	 */
 	for_each_memblock(reserved, reg) {
 		pr_debug("reserved - 0x%08x-0x%08x\n",
 			 (u32) reg->base, (u32) reg->size);
@@ -372,15 +418,20 @@ void __init setup_arch(char **cmdline_p)
 	min_low_pfn = PFN_UP(memory_start);
 	max_mapnr = max_low_pfn - min_low_pfn;
 
-	
+	/* Get kmalloc into gear */
 	paging_init();
 
+	/*
+	 * Probe for Device State Configuration Registers.
+	 * We have to do this early in case timer needs to be enabled
+	 * through DSCR.
+	 */
 	dscr_probe();
 
-	
+	/* We do this early for timer and core clock frequency */
 	c64x_setup_clocks();
 
-	
+	/* Get CPU info */
 	get_cpuinfo();
 
 #if defined(CONFIG_VT) && defined(CONFIG_DUMMY_CONSOLE)

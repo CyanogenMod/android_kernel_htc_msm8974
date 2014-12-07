@@ -18,10 +18,10 @@ int __init l2cache_init(void)
 	ctrl.cbase = L2CACHE_SIZE / 4 + (L2CACHE_SIZE % 4 ? 1 : 0);
 	REG_WR(l2cache, regi_l2cache, rw_ctrl, ctrl);
 
-	
+	/* Flush the tag memory */
 	memset((void *)(MEM_INTMEM_START | MEM_NON_CACHEABLE), 0, 2*1024);
 
-	
+	/* Enable the cache */
 	REG_WR(l2cache, regi_l2cache, rw_cfg, cfg);
 
 	return 0;

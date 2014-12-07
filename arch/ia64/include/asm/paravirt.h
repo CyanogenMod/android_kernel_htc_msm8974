@@ -23,6 +23,9 @@
 #define __ASM_PARAVIRT_H
 
 #ifndef __ASSEMBLY__
+/******************************************************************************
+ * fsys related addresses
+ */
 struct pv_fsys_data {
 	unsigned long *fsyscall_table;
 	void *fsys_bubble_down;
@@ -33,6 +36,9 @@ extern struct pv_fsys_data pv_fsys_data;
 unsigned long *paravirt_get_fsyscall_table(void);
 char *paravirt_get_fsys_bubble_down(void);
 
+/******************************************************************************
+ * patchlist addresses for gate page
+ */
 enum pv_gate_patchlist {
 	PV_GATE_START_FSYSCALL,
 	PV_GATE_END_FSYSCALL,
@@ -76,6 +82,9 @@ void *paravirt_get_gate_section(void);
 #include <asm/hw_irq.h>
 #include <asm/meminit.h>
 
+/******************************************************************************
+ * general info
+ */
 struct pv_info {
 	unsigned int kernel_rpl;
 	int paravirt_enabled;
@@ -94,6 +103,9 @@ static inline unsigned int get_kernel_rpl(void)
 	return pv_info.kernel_rpl;
 }
 
+/******************************************************************************
+ * initialization hooks.
+ */
 struct rsvd_region;
 
 struct pv_init_ops {
@@ -156,6 +168,9 @@ static inline void paravirt_post_smp_prepare_boot_cpu(void)
 		pv_init_ops.post_smp_prepare_boot_cpu();
 }
 
+/******************************************************************************
+ * replacement of iosapic operations.
+ */
 
 struct pv_iosapic_ops {
 	void (*pcat_compat_init)(void);
@@ -193,6 +208,9 @@ __iosapic_write(char __iomem *iosapic, unsigned int reg, u32 val)
 	return pv_iosapic_ops.__write(iosapic, reg, val);
 }
 
+/******************************************************************************
+ * replacement of irq operations.
+ */
 
 struct pv_irq_ops {
 	void (*register_ipi)(void);
@@ -238,6 +256,9 @@ ia64_resend_irq(unsigned int vector)
 	pv_irq_ops.resend_irq(vector);
 }
 
+/******************************************************************************
+ * replacement of time operations.
+ */
 
 extern struct itc_jitter_data_t itc_jitter_data;
 extern volatile int time_keeper_id;
@@ -275,9 +296,10 @@ static inline unsigned long long paravirt_sched_clock(void)
 	return pv_time_ops.sched_clock();
 }
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #else
+/* fallback for native case */
 
 #ifndef __ASSEMBLY__
 
@@ -292,9 +314,9 @@ static inline unsigned long long paravirt_sched_clock(void)
 #define paravirt_init_missing_ticks_accounting(cpu)	do { } while (0)
 #define paravirt_do_steal_accounting(new_itm)		0
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 
-#endif 
+#endif /* CONFIG_PARAVIRT_GUEST */
 
-#endif 
+#endif /* __ASM_PARAVIRT_H */

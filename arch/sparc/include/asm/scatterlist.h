@@ -5,4 +5,4 @@
 
 #define ARCH_HAS_SG_CHAIN
 
-#endif 
+#endif /* !(_SPARC_SCATTERLIST_H) */

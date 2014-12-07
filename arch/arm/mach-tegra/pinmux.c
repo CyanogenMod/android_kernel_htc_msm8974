@@ -733,7 +733,7 @@ static int __devinit tegra_pinmux_probe(struct platform_device *pdev)
 			&drive_pingroups, &drive_max);
 #ifdef CONFIG_ARCH_TEGRA_2x_SOC
 	else
-		
+		/* no device tree available, so we must be on tegra20 */
 		tegra20_pinmux_init(&pingroups, &pingroup_max,
 					&drive_pingroups, &drive_max);
 #else

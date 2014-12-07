@@ -53,6 +53,7 @@
 #define	MCS_TXAGC				0x340
 #define	CCK_TXAGC				0x348
 
+/*---------------------0x400~0x4ff----------------------*/
 #define	MacBlkCtrl				0x403
 
 #define rFPGA0_RFMOD				0x800

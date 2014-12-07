@@ -24,10 +24,14 @@
 #include "../w1/w1.h"
 #include "../w1/slaves/w1_ds2780.h"
 
+/* Current unit measurement in uA for a 1 milli-ohm sense resistor */
 #define DS2780_CURRENT_UNITS	1563
+/* Charge unit measurement in uAh for a 1 milli-ohm sense resistor */
 #define DS2780_CHARGE_UNITS		6250
+/* Number of bytes in user EEPROM space */
 #define DS2780_USER_EEPROM_SIZE		(DS2780_EEPROM_BLOCK0_END - \
 					DS2780_EEPROM_BLOCK0_START + 1)
+/* Number of bytes in parameter EEPROM space */
 #define DS2780_PARAM_EEPROM_SIZE	(DS2780_EEPROM_BLOCK1_END - \
 					DS2780_EEPROM_BLOCK1_START + 1)
 
@@ -124,6 +128,7 @@ static int ds2780_save_eeprom(struct ds2780_device_info *dev_info, int reg)
 	return 0;
 }
 
+/* Set sense resistor value in mhos */
 static int ds2780_set_sense_register(struct ds2780_device_info *dev_info,
 	u8 conductance)
 {
@@ -137,12 +142,14 @@ static int ds2780_set_sense_register(struct ds2780_device_info *dev_info,
 	return ds2780_save_eeprom(dev_info, DS2780_RSNSP_REG);
 }
 
+/* Get RSGAIN value from 0 to 1.999 in steps of 0.001 */
 static int ds2780_get_rsgain_register(struct ds2780_device_info *dev_info,
 	u16 *rsgain)
 {
 	return ds2780_read16(dev_info, rsgain, DS2780_RSGAIN_MSB_REG);
 }
 
+/* Set RSGAIN value from 0 to 1.999 in steps of 0.001 */
 static int ds2780_set_rsgain_register(struct ds2780_device_info *dev_info,
 	u16 rsgain)
 {
@@ -163,11 +170,24 @@ static int ds2780_get_voltage(struct ds2780_device_info *dev_info,
 	int ret;
 	s16 voltage_raw;
 
+	/*
+	 * The voltage value is located in 10 bits across the voltage MSB
+	 * and LSB registers in two's compliment form
+	 * Sign bit of the voltage value is in bit 7 of the voltage MSB register
+	 * Bits 9 - 3 of the voltage value are in bits 6 - 0 of the
+	 * voltage MSB register
+	 * Bits 2 - 0 of the voltage value are in bits 7 - 5 of the
+	 * voltage LSB register
+	 */
 	ret = ds2780_read16(dev_info, &voltage_raw,
 				DS2780_VOLT_MSB_REG);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * DS2780 reports voltage in units of 4.88mV, but the battery class
+	 * reports in units of uV, so convert by multiplying by 4880.
+	 */
 	*voltage_uV = (voltage_raw / 32) * 4880;
 	return 0;
 }
@@ -178,11 +198,27 @@ static int ds2780_get_temperature(struct ds2780_device_info *dev_info,
 	int ret;
 	s16 temperature_raw;
 
+	/*
+	 * The temperature value is located in 10 bits across the temperature
+	 * MSB and LSB registers in two's compliment form
+	 * Sign bit of the temperature value is in bit 7 of the temperature
+	 * MSB register
+	 * Bits 9 - 3 of the temperature value are in bits 6 - 0 of the
+	 * temperature MSB register
+	 * Bits 2 - 0 of the temperature value are in bits 7 - 5 of the
+	 * temperature LSB register
+	 */
 	ret = ds2780_read16(dev_info, &temperature_raw,
 				DS2780_TEMP_MSB_REG);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Temperature is measured in units of 0.125 degrees celcius, the
+	 * power_supply class measures temperature in tenths of degrees
+	 * celsius. The temperature value is stored as a 10 bit number, plus
+	 * sign in the upper bits of a 16 bit register.
+	 */
 	*temperature = ((temperature_raw / 32) * 125) / 100;
 	return 0;
 }
@@ -194,6 +230,10 @@ static int ds2780_get_current(struct ds2780_device_info *dev_info,
 	s16 current_raw;
 	u8 sense_res_raw, reg_msb;
 
+	/*
+	 * The units of measurement for current are dependent on the value of
+	 * the sense resistor.
+	 */
 	ret = ds2780_read8(dev_info, &sense_res_raw, DS2780_RSNSP_REG);
 	if (ret < 0)
 		return ret;
@@ -211,6 +251,15 @@ static int ds2780_get_current(struct ds2780_device_info *dev_info,
 	else
 		return -EINVAL;
 
+	/*
+	 * The current value is located in 16 bits across the current MSB
+	 * and LSB registers in two's compliment form
+	 * Sign bit of the current value is in bit 7 of the current MSB register
+	 * Bits 14 - 8 of the current value are in bits 6 - 0 of the current
+	 * MSB register
+	 * Bits 7 - 0 of the current value are in bits 7 - 0 of the current
+	 * LSB register
+	 */
 	ret = ds2780_read16(dev_info, &current_raw, reg_msb);
 	if (ret < 0)
 		return ret;
@@ -226,6 +275,10 @@ static int ds2780_get_accumulated_current(struct ds2780_device_info *dev_info,
 	s16 current_raw;
 	u8 sense_res_raw;
 
+	/*
+	 * The units of measurement for accumulated current are dependent on
+	 * the value of the sense resistor.
+	 */
 	ret = ds2780_read8(dev_info, &sense_res_raw, DS2780_RSNSP_REG);
 	if (ret < 0)
 		return ret;
@@ -236,6 +289,14 @@ static int ds2780_get_accumulated_current(struct ds2780_device_info *dev_info,
 	}
 	sense_res = 1000 / sense_res_raw;
 
+	/*
+	 * The ACR value is located in 16 bits across the ACR MSB and
+	 * LSB registers
+	 * Bits 15 - 8 of the ACR value are in bits 7 - 0 of the ACR
+	 * MSB register
+	 * Bits 7 - 0 of the ACR value are in bits 7 - 0 of the ACR
+	 * LSB register
+	 */
 	ret = ds2780_read16(dev_info, &current_raw, DS2780_ACR_MSB_REG);
 	if (ret < 0)
 		return ret;
@@ -288,6 +349,14 @@ static int ds2780_get_charge_now(struct ds2780_device_info *dev_info,
 	int ret;
 	u16 charge_raw;
 
+	/*
+	 * The RAAC value is located in 16 bits across the RAAC MSB and
+	 * LSB registers
+	 * Bits 15 - 8 of the RAAC value are in bits 7 - 0 of the RAAC
+	 * MSB register
+	 * Bits 7 - 0 of the RAAC value are in bits 7 - 0 of the RAAC
+	 * LSB register
+	 */
 	ret = ds2780_read16(dev_info, &charge_raw, DS2780_RAAC_MSB_REG);
 	if (ret < 0)
 		return ret;
@@ -392,7 +461,7 @@ static ssize_t ds2780_get_pmod_enabled(struct device *dev,
 	struct power_supply *psy = to_power_supply(dev);
 	struct ds2780_device_info *dev_info = to_ds2780_device_info(psy);
 
-	
+	/* Get power mode */
 	ret = ds2780_get_control_register(dev_info, &control_reg);
 	if (ret < 0)
 		return ret;
@@ -411,7 +480,7 @@ static ssize_t ds2780_set_pmod_enabled(struct device *dev,
 	struct power_supply *psy = to_power_supply(dev);
 	struct ds2780_device_info *dev_info = to_ds2780_device_info(psy);
 
-	
+	/* Set power mode */
 	ret = ds2780_get_control_register(dev_info, &control_reg);
 	if (ret < 0)
 		return ret;
@@ -505,7 +574,7 @@ static ssize_t ds2780_set_rsgain_setting(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Gain can only be from 0 to 1.999 in steps of .001 */
 	if (new_setting > 1999) {
 		dev_err(dev_info->dev, "Invalid rsgain setting (0 - 1999)\n");
 		return -EINVAL;
@@ -763,7 +832,7 @@ static int __devexit ds2780_battery_remove(struct platform_device *pdev)
 
 	dev_info->mutex_holder = current;
 
-	
+	/* remove attributes */
 	sysfs_remove_group(&dev_info->bat.dev->kobj, &ds2780_attr_group);
 
 	power_supply_unregister(&dev_info->bat);

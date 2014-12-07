@@ -188,7 +188,7 @@ static int gpio_set_invert(struct wm8350 *wm8350, int gpio, int invert)
 int wm8350_gpio_config(struct wm8350 *wm8350, int gpio, int dir, int func,
 		       int pol, int pull, int invert, int debounce)
 {
-	
+	/* make sure we never pull up and down at the same time */
 	if (pull == WM8350_GPIO_PULL_NONE) {
 		if (gpio_set_pull_up(wm8350, gpio, 0))
 			goto err;

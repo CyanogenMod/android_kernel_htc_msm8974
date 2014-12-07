@@ -28,19 +28,30 @@
 #define DEFAULT_MAP_BASE	__IA64_UL_CONST(0x2000000000000000)
 #define DEFAULT_TASK_SIZE	__IA64_UL_CONST(0xa000000000000000)
 
+/*
+ * TASK_SIZE really is a mis-named.  It really is the maximum user
+ * space address (plus one).  On IA-64, there are five regions of 2TB
+ * each (assuming 8KB page size), for a total of 8TB of user virtual
+ * address space.
+ */
 #define TASK_SIZE_OF(tsk)	((tsk)->thread.task_size)
 #define TASK_SIZE       	TASK_SIZE_OF(current)
 
+/*
+ * This decides where the kernel will search for a free chunk of vm
+ * space during mmap's.
+ */
 #define TASK_UNMAPPED_BASE	(current->thread.map_base)
 
-#define IA64_THREAD_FPH_VALID	(__IA64_UL(1) << 0)	
-#define IA64_THREAD_DBG_VALID	(__IA64_UL(1) << 1)	
-#define IA64_THREAD_PM_VALID	(__IA64_UL(1) << 2)	
-#define IA64_THREAD_UAC_NOPRINT	(__IA64_UL(1) << 3)	
-#define IA64_THREAD_UAC_SIGBUS	(__IA64_UL(1) << 4)	
-#define IA64_THREAD_MIGRATION	(__IA64_UL(1) << 5)	
-#define IA64_THREAD_FPEMU_NOPRINT (__IA64_UL(1) << 6)	
-#define IA64_THREAD_FPEMU_SIGFPE  (__IA64_UL(1) << 7)	
+#define IA64_THREAD_FPH_VALID	(__IA64_UL(1) << 0)	/* floating-point high state valid? */
+#define IA64_THREAD_DBG_VALID	(__IA64_UL(1) << 1)	/* debug registers valid? */
+#define IA64_THREAD_PM_VALID	(__IA64_UL(1) << 2)	/* performance registers valid? */
+#define IA64_THREAD_UAC_NOPRINT	(__IA64_UL(1) << 3)	/* don't log unaligned accesses */
+#define IA64_THREAD_UAC_SIGBUS	(__IA64_UL(1) << 4)	/* generate SIGBUS on unaligned acc. */
+#define IA64_THREAD_MIGRATION	(__IA64_UL(1) << 5)	/* require migration
+							   sync at ctx sw */
+#define IA64_THREAD_FPEMU_NOPRINT (__IA64_UL(1) << 6)	/* don't log any fpswa faults */
+#define IA64_THREAD_FPEMU_SIGFPE  (__IA64_UL(1) << 7)	/* send a SIGFPE for fpswa faults */
 
 #define IA64_THREAD_UAC_SHIFT	3
 #define IA64_THREAD_UAC_MASK	(IA64_THREAD_UAC_NOPRINT | IA64_THREAD_UAC_SIGBUS)
@@ -48,6 +59,11 @@
 #define IA64_THREAD_FPEMU_MASK	(IA64_THREAD_FPEMU_NOPRINT | IA64_THREAD_FPEMU_SIGFPE)
 
 
+/*
+ * This shift should be large enough to be able to represent 1000000000/itc_freq with good
+ * accuracy while being small enough to fit 10*1000000000<<IA64_NSEC_PER_CYC_SHIFT in 64 bits
+ * (this will give enough slack to represent 10 seconds worth of time as a scaled number).
+ */
 #define IA64_NSEC_PER_CYC_SHIFT	30
 
 #ifndef __ASSEMBLY__
@@ -67,6 +83,7 @@
 #include <asm/nodedata.h>
 #endif
 
+/* like above but expressed as bitfields for more efficient access: */
 struct ia64_psr {
 	__u64 reserved0 : 1;
 	__u64 be : 1;
@@ -150,51 +167,56 @@ union ia64_tpr {
 union ia64_itir {
 	__u64 val;
 	struct {
-		__u64 rv3  :  2; 
-		__u64 ps   :  6; 
-		__u64 key  : 24; 
-		__u64 rv4  : 32; 
+		__u64 rv3  :  2; /* 0-1 */
+		__u64 ps   :  6; /* 2-7 */
+		__u64 key  : 24; /* 8-31 */
+		__u64 rv4  : 32; /* 32-63 */
 	};
 };
 
 union  ia64_rr {
 	__u64 val;
 	struct {
-		__u64  ve	:  1;  
-		__u64  reserved0:  1;  
-		__u64  ps	:  6;  
-		__u64  rid	: 24;  
-		__u64  reserved1: 32;  
+		__u64  ve	:  1;  /* enable hw walker */
+		__u64  reserved0:  1;  /* reserved */
+		__u64  ps	:  6;  /* log page size */
+		__u64  rid	: 24;  /* region id */
+		__u64  reserved1: 32;  /* reserved */
 	};
 };
 
+/*
+ * CPU type, hardware bug flags, and per-CPU state.  Frequently used
+ * state comes earlier:
+ */
 struct cpuinfo_ia64 {
 	unsigned int softirq_pending;
-	unsigned long itm_delta;	
-	unsigned long itm_next;		
-	unsigned long nsec_per_cyc;	
-	unsigned long unimpl_va_mask;	
-	unsigned long unimpl_pa_mask;	
-	unsigned long itc_freq;		
-	unsigned long proc_freq;	
-	unsigned long cyc_per_usec;	
+	unsigned long itm_delta;	/* # of clock cycles between clock ticks */
+	unsigned long itm_next;		/* interval timer mask value to use for next clock tick */
+	unsigned long nsec_per_cyc;	/* (1000000000<<IA64_NSEC_PER_CYC_SHIFT)/itc_freq */
+	unsigned long unimpl_va_mask;	/* mask of unimplemented virtual address bits (from PAL) */
+	unsigned long unimpl_pa_mask;	/* mask of unimplemented physical address bits (from PAL) */
+	unsigned long itc_freq;		/* frequency of ITC counter */
+	unsigned long proc_freq;	/* frequency of processor */
+	unsigned long cyc_per_usec;	/* itc_freq/1000000 */
 	unsigned long ptce_base;
 	unsigned int ptce_count[2];
 	unsigned int ptce_stride[2];
-	struct task_struct *ksoftirqd;	
+	struct task_struct *ksoftirqd;	/* kernel softirq daemon for this CPU */
 
 #ifdef CONFIG_SMP
 	unsigned long loops_per_jiffy;
 	int cpu;
-	unsigned int socket_id;	
-	unsigned short core_id;	
-	unsigned short thread_id; 
-	unsigned short num_log;	
-	unsigned char cores_per_socket;	
-	unsigned char threads_per_core;	
+	unsigned int socket_id;	/* physical processor socket id */
+	unsigned short core_id;	/* core id */
+	unsigned short thread_id; /* thread id */
+	unsigned short num_log;	/* Total number of logical processors on
+				 * this socket that were successfully booted */
+	unsigned char cores_per_socket;	/* Cores per processor socket */
+	unsigned char threads_per_core;	/* Threads per core */
 #endif
 
-	
+	/* CPUID-derived information: */
 	unsigned long ppn;
 	unsigned long features;
 	unsigned char number;
@@ -212,6 +234,12 @@ struct cpuinfo_ia64 {
 
 DECLARE_PER_CPU(struct cpuinfo_ia64, ia64_cpu_info);
 
+/*
+ * The "local" data variable.  It refers to the per-CPU data of the currently executing
+ * CPU, much like "current" points to the per-task data of the currently executing task.
+ * Do not use the address of local_cpu_data, since it will be different from
+ * cpu_data(smp_processor_id())!
+ */
 #define local_cpu_data		(&__ia64_per_cpu_var(ia64_cpu_info))
 #define cpu_data(cpu)		(&per_cpu(ia64_cpu_info, cpu))
 
@@ -246,19 +274,19 @@ typedef struct {
 })
 
 struct thread_struct {
-	__u32 flags;			
-	
-	__u8 on_ustack;			
+	__u32 flags;			/* various thread flags (see IA64_THREAD_*) */
+	/* writing on_ustack is performance-critical, so it's worth spending 8 bits on it... */
+	__u8 on_ustack;			/* executing on user-stacks? */
 	__u8 pad[3];
-	__u64 ksp;			
-	__u64 map_base;			
-	__u64 task_size;		
-	__u64 rbs_bot;			
-	int last_fph_cpu;		
+	__u64 ksp;			/* kernel stack pointer */
+	__u64 map_base;			/* base address for get_unmapped_area() */
+	__u64 task_size;		/* limit for task size */
+	__u64 rbs_bot;			/* the base address for the RBS */
+	int last_fph_cpu;		/* CPU that may hold the contents of f32-f127 */
 
 #ifdef CONFIG_PERFMON
-	void *pfm_context;		     
-	unsigned long pfm_needs_checking;    
+	void *pfm_context;		     /* pointer to detailed PMU context */
+	unsigned long pfm_needs_checking;    /* when >0, pending perfmon work on kernel exit */
 # define INIT_THREAD_PM		.pfm_context =		NULL,     \
 				.pfm_needs_checking =	0UL,
 #else
@@ -266,7 +294,7 @@ struct thread_struct {
 #endif
 	unsigned long dbr[IA64_NUM_DBG_REGS];
 	unsigned long ibr[IA64_NUM_DBG_REGS];
-	struct ia64_fpreg fph[96];	
+	struct ia64_fpreg fph[96];	/* saved/loaded on demand */
 };
 
 #define INIT_THREAD {						\
@@ -287,37 +315,64 @@ struct thread_struct {
 	regs->cr_ipsr = ((regs->cr_ipsr | (IA64_PSR_BITS_TO_SET | IA64_PSR_CPL))		\
 			 & ~(IA64_PSR_BITS_TO_CLEAR | IA64_PSR_RI | IA64_PSR_IS));		\
 	regs->cr_iip = new_ip;									\
-	regs->ar_rsc = 0xf;					\
+	regs->ar_rsc = 0xf;		/* eager mode, privilege level 3 */			\
 	regs->ar_rnat = 0;									\
 	regs->ar_bspstore = current->thread.rbs_bot;						\
 	regs->ar_fpsr = FPSR_DEFAULT;								\
 	regs->loadrs = 0;									\
-	regs->r8 = get_dumpable(current->mm);			\
-	regs->r12 = new_sp - 16;				\
+	regs->r8 = get_dumpable(current->mm);	/* set "don't zap registers" flag */		\
+	regs->r12 = new_sp - 16;	/* allocate 16 byte scratch area */			\
 	if (unlikely(!get_dumpable(current->mm))) {							\
-										\
+		/*										\
+		 * Zap scratch regs to avoid leaking bits between processes with different	\
+		 * uid/privileges.								\
+		 */										\
 		regs->ar_pfs = 0; regs->b0 = 0; regs->pr = 0;					\
 		regs->r1 = 0; regs->r9  = 0; regs->r11 = 0; regs->r13 = 0; regs->r15 = 0;	\
 	}											\
 } while (0)
 
+/* Forward declarations, a strange C thing... */
 struct mm_struct;
 struct task_struct;
 
+/*
+ * Free all resources held by a thread. This is called after the
+ * parent of DEAD_TASK has collected the exit status of the task via
+ * wait().
+ */
 #define release_thread(dead_task)
 
+/* Prepare to copy thread state - unlazy all lazy status */
 #define prepare_to_copy(tsk)	do { } while (0)
 
+/*
+ * This is the mechanism for creating a new kernel thread.
+ *
+ * NOTE 1: Only a kernel-only process (ie the swapper or direct
+ * descendants who haven't done an "execve()") should use this: it
+ * will work within a system call from a "real" process, but the
+ * process memory space will not be free'd until both the parent and
+ * the child have exited.
+ *
+ * NOTE 2: This MUST NOT be an inlined function.  Otherwise, we get
+ * into trouble in init/main.c when the child thread returns to
+ * do_basic_setup() and the timing is such that free_initmem() has
+ * been called already.
+ */
 extern pid_t kernel_thread (int (*fn)(void *), void *arg, unsigned long flags);
 
+/* Get wait channel for task P.  */
 extern unsigned long get_wchan (struct task_struct *p);
 
+/* Return instruction pointer of blocked task TSK.  */
 #define KSTK_EIP(tsk)					\
   ({							\
 	struct pt_regs *_regs = task_pt_regs(tsk);	\
 	_regs->cr_iip + ia64_psr(_regs)->ri;		\
   })
 
+/* Return stack pointer of blocked task TSK.  */
 #define KSTK_ESP(tsk)  ((tsk)->thread.ksp)
 
 extern void ia64_getreg_unknown_kr (void);
@@ -356,7 +411,15 @@ extern void ia64_setreg_unknown_kr (void);
 	}							\
 })
 
+/*
+ * The following three macros can't be inline functions because we don't have struct
+ * task_struct at this point.
+ */
 
+/*
+ * Return TRUE if task T owns the fph partition of the CPU we're running on.
+ * Must be called from code that has preemption disabled.
+ */
 #define ia64_is_local_fpu_owner(t)								\
 ({												\
 	struct task_struct *__ia64_islfo_task = (t);						\
@@ -364,12 +427,17 @@ extern void ia64_setreg_unknown_kr (void);
 	 && __ia64_islfo_task == (struct task_struct *) ia64_get_kr(IA64_KR_FPU_OWNER));	\
 })
 
+/*
+ * Mark task T as owning the fph partition of the CPU we're running on.
+ * Must be called from code that has preemption disabled.
+ */
 #define ia64_set_local_fpu_owner(t) do {						\
 	struct task_struct *__ia64_slfo_task = (t);					\
 	__ia64_slfo_task->thread.last_fph_cpu = smp_processor_id();			\
 	ia64_set_kr(IA64_KR_FPU_OWNER, (unsigned long) __ia64_slfo_task);		\
 } while (0)
 
+/* Mark the fph partition of task T as being invalid on all CPUs.  */
 #define ia64_drop_fpu(t)	((t)->thread.last_fph_cpu = -1)
 
 extern void __ia64_init_fpu (void);
@@ -381,6 +449,7 @@ extern void ia64_load_debug_regs (unsigned long *save_area);
 #define ia64_fph_enable()	do { ia64_rsm(IA64_PSR_DFH); ia64_srlz_d(); } while (0)
 #define ia64_fph_disable()	do { ia64_ssm(IA64_PSR_DFH); ia64_srlz_d(); } while (0)
 
+/* load fp 0.0 into fph */
 static inline void
 ia64_init_fpu (void) {
 	ia64_fph_enable();
@@ -388,6 +457,7 @@ ia64_init_fpu (void) {
 	ia64_fph_disable();
 }
 
+/* save f32-f127 at FPH */
 static inline void
 ia64_save_fpu (struct ia64_fpreg *fph) {
 	ia64_fph_enable();
@@ -395,6 +465,7 @@ ia64_save_fpu (struct ia64_fpreg *fph) {
 	ia64_fph_disable();
 }
 
+/* load f32-f127 from FPH */
 static inline void
 ia64_load_fpu (struct ia64_fpreg *fph) {
 	ia64_fph_enable();
@@ -413,6 +484,9 @@ ia64_clear_ic (void)
 	return psr;
 }
 
+/*
+ * Restore the psr.
+ */
 static inline void
 ia64_set_psr (__u64 psr)
 {
@@ -421,6 +495,10 @@ ia64_set_psr (__u64 psr)
 	ia64_srlz_i();
 }
 
+/*
+ * Insert a translation into an instruction and/or data translation
+ * register.
+ */
 static inline void
 ia64_itr (__u64 target_mask, __u64 tr_num,
 	  __u64 vmaddr, __u64 pte,
@@ -435,6 +513,10 @@ ia64_itr (__u64 target_mask, __u64 tr_num,
 		ia64_itrd(tr_num, pte);
 }
 
+/*
+ * Insert a translation into the instruction and/or data translation
+ * cache.
+ */
 static inline void
 ia64_itc (__u64 target_mask, __u64 vmaddr, __u64 pte,
 	  __u64 log_page_size)
@@ -442,13 +524,17 @@ ia64_itc (__u64 target_mask, __u64 vmaddr, __u64 pte,
 	ia64_setreg(_IA64_REG_CR_ITIR, (log_page_size << 2));
 	ia64_setreg(_IA64_REG_CR_IFA, vmaddr);
 	ia64_stop();
-	
+	/* as per EAS2.6, itc must be the last instruction in an instruction group */
 	if (target_mask & 0x1)
 		ia64_itci(pte);
 	if (target_mask & 0x2)
 		ia64_itcd(pte);
 }
 
+/*
+ * Purge a range of addresses from instruction and/or data translation
+ * register(s).
+ */
 static inline void
 ia64_ptr (__u64 target_mask, __u64 vmaddr, __u64 log_size)
 {
@@ -458,6 +544,7 @@ ia64_ptr (__u64 target_mask, __u64 vmaddr, __u64 log_size)
 		ia64_ptrd(vmaddr, (log_size << 2));
 }
 
+/* Set the interrupt vector address.  The address must be suitably aligned (32KB).  */
 static inline void
 ia64_set_iva (void *ivt_addr)
 {
@@ -465,10 +552,11 @@ ia64_set_iva (void *ivt_addr)
 	ia64_srlz_i();
 }
 
+/* Set the page table address and control bits.  */
 static inline void
 ia64_set_pta (__u64 pta)
 {
-	
+	/* Note: srlz.i implies srlz.d */
 	ia64_setreg(_IA64_REG_CR_PTA, pta);
 	ia64_srlz_i();
 }
@@ -514,12 +602,20 @@ ia64_set_lrr1 (unsigned long val)
 }
 
 
+/*
+ * Given the address to which a spill occurred, return the unat bit
+ * number that corresponds to this address.
+ */
 static inline __u64
 ia64_unat_pos (void *spill_addr)
 {
 	return ((__u64) spill_addr >> 3) & 0x3f;
 }
 
+/*
+ * Set the NaT bit of an integer register which was spilled at address
+ * SPILL_ADDR.  UNAT is the mask to be updated.
+ */
 static inline void
 ia64_set_unat (__u64 *unat, void *spill_addr, unsigned long nat)
 {
@@ -529,6 +625,10 @@ ia64_set_unat (__u64 *unat, void *spill_addr, unsigned long nat)
 	*unat = (*unat & ~mask) | (nat << bit);
 }
 
+/*
+ * Return saved PC of a blocked thread.
+ * Note that the only way T can block is through a call to schedule() -> switch_to().
+ */
 static inline unsigned long
 thread_saved_pc (struct task_struct *t)
 {
@@ -542,6 +642,9 @@ thread_saved_pc (struct task_struct *t)
 	return ip;
 }
 
+/*
+ * Get the current instruction/program counter value.
+ */
 #define current_text_addr() \
 	({ void *_pc; _pc = (void *)ia64_getreg(_IA64_REG_IP); _pc; })
 
@@ -584,6 +687,10 @@ ia64_rotr (__u64 w, __u64 n)
 
 #define ia64_rotl(w,n)	ia64_rotr((w), (64) - (n))
 
+/*
+ * Take a mapped kernel address and return the equivalent address
+ * in the region 7 identity mapped virtual area.
+ */
 static inline void *
 ia64_imva (void *addr)
 {
@@ -621,6 +728,6 @@ void default_idle(void);
 
 #define ia64_platform_is(x) (strcmp(x, platform_name) == 0)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_IA64_PROCESSOR_H */

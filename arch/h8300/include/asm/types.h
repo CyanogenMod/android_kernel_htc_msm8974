@@ -7,6 +7,6 @@
 
 #define BITS_PER_LONG 32
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _H8300_TYPES_H */

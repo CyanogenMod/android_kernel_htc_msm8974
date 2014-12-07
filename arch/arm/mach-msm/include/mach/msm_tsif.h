@@ -22,5 +22,5 @@ struct msm_tsif_platform_data {
 	void (*init)(struct msm_tsif_platform_data *);
 };
 
-#endif 
+#endif /* _MSM_TSIF_H_ */
 

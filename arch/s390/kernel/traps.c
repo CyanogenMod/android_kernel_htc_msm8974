@@ -10,6 +10,10 @@
  *    Copyright (C) 1991, 1992 Linus Torvalds
  */
 
+/*
+ * 'Traps.c' handles hardware traps and faults after we have saved some
+ * state in 'asm.s'.
+ */
 #include <linux/sched.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
@@ -49,12 +53,20 @@ int show_unhandled_signals = 1;
 #define LONG "%08lx "
 #define FOURLONG "%08lx %08lx %08lx %08lx\n"
 static int kstack_depth_to_print = 12;
-#else 
+#else /* CONFIG_64BIT */
 #define LONG "%016lx "
 #define FOURLONG "%016lx %016lx %016lx %016lx\n"
 static int kstack_depth_to_print = 20;
-#endif 
+#endif /* CONFIG_64BIT */
 
+/*
+ * For show_trace we have tree different stack to consider:
+ *   - the panic stack which is used if the kernel stack has overflown
+ *   - the asynchronous interrupt stack (cpu related)
+ *   - the synchronous kernel stack (process related)
+ * The stack trace can start at any of the three stack and can potentially
+ * touch all of them. The order is: panic stack, async stack, sync stack.
+ */
 static unsigned long
 __show_trace(unsigned long sp, unsigned long low, unsigned long high)
 {
@@ -68,7 +80,7 @@ __show_trace(unsigned long sp, unsigned long low, unsigned long high)
 		sf = (struct stack_frame *) sp;
 		printk("([<%016lx>] ", sf->gprs[8] & PSW_ADDR_INSN);
 		print_symbol("%s)\n", sf->gprs[8] & PSW_ADDR_INSN);
-		
+		/* Follow the backchain. */
 		while (1) {
 			low = sp;
 			sp = sf->back_chain & PSW_ADDR_INSN;
@@ -80,7 +92,7 @@ __show_trace(unsigned long sp, unsigned long low, unsigned long high)
 			printk(" [<%016lx>] ", sf->gprs[8] & PSW_ADDR_INSN);
 			print_symbol("%s\n", sf->gprs[8] & PSW_ADDR_INSN);
 		}
-		
+		/* Zero backchain detected, check for interrupt frame. */
 		sp = (unsigned long) (sf + 1);
 		if (sp <= low || sp > high - sizeof(*regs))
 			return sp;
@@ -149,6 +161,9 @@ static void show_last_breaking_event(struct pt_regs *regs)
 #endif
 }
 
+/*
+ * The architecture-independent dump_stack generator
+ */
 void dump_stack(void)
 {
 	printk("CPU: %d %s %s %.*s\n",
@@ -211,7 +226,7 @@ void show_regs(struct pt_regs *regs)
 	       current->comm, current->pid, current,
 	       (void *) current->thread.ksp);
 	show_registers(regs);
-	
+	/* Show stack backtrace if pt_regs is from kernel mode */
 	if (!(regs->psw.mask & PSW_MASK_PSTATE))
 		show_trace(NULL, (unsigned long *) regs->gprs[15]);
 	show_last_breaking_event(regs);
@@ -371,18 +386,18 @@ DO_ERROR_INFO(translation_exception, SIGILL, ILL_ILLOPN,
 static inline void do_fp_trap(struct pt_regs *regs, int fpc)
 {
 	int si_code = 0;
-	
+	/* FPC[2] is Data Exception Code */
 	if ((fpc & 0x00000300) == 0) {
-		
-		if (fpc & 0x8000) 
+		/* bits 6 and 7 of DXC are 0 iff IEEE exception */
+		if (fpc & 0x8000) /* invalid fp operation */
 			si_code = FPE_FLTINV;
-		else if (fpc & 0x4000) 
+		else if (fpc & 0x4000) /* div by 0 */
 			si_code = FPE_FLTDIV;
-		else if (fpc & 0x2000) 
+		else if (fpc & 0x2000) /* overflow */
 			si_code = FPE_FLTOVF;
-		else if (fpc & 0x1000) 
+		else if (fpc & 0x1000) /* underflow */
 			si_code = FPE_FLTUND;
-		else if (fpc & 0x0800) 
+		else if (fpc & 0x0800) /* inexact */
 			si_code = FPE_FLTRES;
 	}
 	do_trap(regs, SIGFPE, si_code, "floating point exception");
@@ -435,6 +450,10 @@ static void __kprobes illegal_op(struct pt_regs *regs)
 		} else
 			signal = SIGILL;
 	} else {
+		/*
+		 * If we get an illegal op in kernel mode, send it through the
+		 * kprobes notifier. If kprobes doesn't pick it up, SIGILL
+		 */
 		if (notify_die(DIE_BPT, "bpt", regs, 0,
 			       3, SIGTRAP) != NOTIFY_STOP)
 			signal = SIGILL;
@@ -464,25 +483,25 @@ void specification_exception(struct pt_regs *regs)
         if (regs->psw.mask & PSW_MASK_PSTATE) {
 		get_user(*((__u16 *) opcode), location);
 		switch (opcode[0]) {
-		case 0x28: 
+		case 0x28: /* LDR Rx,Ry   */
 			signal = math_emu_ldr(opcode);
 			break;
-		case 0x38: 
+		case 0x38: /* LER Rx,Ry   */
 			signal = math_emu_ler(opcode);
 			break;
-		case 0x60: 
+		case 0x60: /* STD R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_std(opcode, regs);
 			break;
-		case 0x68: 
+		case 0x68: /* LD R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_ld(opcode, regs);
 			break;
-		case 0x70: 
+		case 0x70: /* STE R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_ste(opcode, regs);
 			break;
-		case 0x78: 
+		case 0x78: /* LE R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_le(opcode, regs);
 			break;
@@ -518,25 +537,25 @@ static void data_exception(struct pt_regs *regs)
         	__u8 opcode[6];
 		get_user(*((__u16 *) opcode), location);
 		switch (opcode[0]) {
-		case 0x28: 
+		case 0x28: /* LDR Rx,Ry   */
 			signal = math_emu_ldr(opcode);
 			break;
-		case 0x38: 
+		case 0x38: /* LER Rx,Ry   */
 			signal = math_emu_ler(opcode);
 			break;
-		case 0x60: 
+		case 0x60: /* STD R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_std(opcode, regs);
 			break;
-		case 0x68: 
+		case 0x68: /* LD R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_ld(opcode, regs);
 			break;
-		case 0x70: 
+		case 0x70: /* STE R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_ste(opcode, regs);
 			break;
-		case 0x78: 
+		case 0x78: /* LE R,D(X,B) */
 			get_user(*((__u16 *) (opcode+2)), location+1);
 			signal = math_emu_le(opcode, regs);
 			break;
@@ -580,10 +599,10 @@ static void data_exception(struct pt_regs *regs)
 
 static void space_switch_exception(struct pt_regs *regs)
 {
-	
+	/* Set user psw back to home space mode. */
 	if (regs->psw.mask & PSW_MASK_PSTATE)
 		regs->psw.mask |= PSW_ASC_HOME;
-	
+	/* Send SIGILL. */
 	do_trap(regs, SIGILL, ILL_PRVOPC, "space switch event");
 }
 
@@ -596,6 +615,7 @@ void __kprobes kernel_stack_overflow(struct pt_regs * regs)
 	panic("Corrupt kernel stack, can't continue.");
 }
 
+/* init is done in lowcore.S and head.S */
 
 void __init trap_init(void)
 {
@@ -627,10 +647,10 @@ void __init trap_init(void)
 	pgm_check_table[0x39] = &do_dat_exception;
 	pgm_check_table[0x3A] = &do_dat_exception;
         pgm_check_table[0x3B] = &do_dat_exception;
-#endif 
+#endif /* CONFIG_64BIT */
         pgm_check_table[0x15] = &operand_exception;
         pgm_check_table[0x1C] = &space_switch_exception;
         pgm_check_table[0x1D] = &hfp_sqrt_exception;
-	
+	/* Enable machine checks early. */
 	local_mcck_enable();
 }

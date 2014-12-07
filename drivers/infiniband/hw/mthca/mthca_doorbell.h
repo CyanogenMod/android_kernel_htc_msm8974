@@ -41,6 +41,11 @@
 #define MTHCA_EQ_DOORBELL      0x28
 
 #if BITS_PER_LONG == 64
+/*
+ * Assume that we can just write a 64-bit doorbell atomically.  s390
+ * actually doesn't have writeq() but S/390 systems don't even have
+ * PCI so we won't worry about it.
+ */
 
 #define MTHCA_DECLARE_DOORBELL_LOCK(name)
 #define MTHCA_INIT_DOORBELL_LOCK(ptr)    do { } while (0)
@@ -64,6 +69,11 @@ static inline void mthca_write_db_rec(__be32 val[2], __be32 *db)
 
 #else
 
+/*
+ * Just fall back to a spinlock to protect the doorbell if
+ * BITS_PER_LONG is 32 -- there's no portable way to do atomic 64-bit
+ * MMIO writes.
+ */
 
 #define MTHCA_DECLARE_DOORBELL_LOCK(name) spinlock_t name;
 #define MTHCA_INIT_DOORBELL_LOCK(ptr)     spin_lock_init(ptr)

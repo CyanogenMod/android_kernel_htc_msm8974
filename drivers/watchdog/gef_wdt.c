@@ -14,6 +14,15 @@
  *   Author: James Chapman <jchapman@katalix.com>
  */
 
+/* TODO:
+ * This driver does not provide support for the hardwares capability of sending
+ * an interrupt at a programmable threshold.
+ *
+ * This driver currently can only support 1 watchdog - there are 2 in the
+ * hardware that this driver supports. Thus one could be configured as a
+ * process-based watchdog (via /dev/watchdog), the second (using the interrupt
+ * capabilities) a kernel-based watchdog.
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -31,6 +40,17 @@
 
 #include <sysdev/fsl_soc.h>
 
+/*
+ * The watchdog configuration register contains a pair of 2-bit fields,
+ *   1.  a reload field, bits 27-26, which triggers a reload of
+ *       the countdown register, and
+ *   2.  an enable field, bits 25-24, which toggles between
+ *       enabling and disabling the watchdog timer.
+ * Bit 31 is a read-only field which indicates whether the
+ * watchdog timer is currently enabled.
+ *
+ * The low 24 bits contain the timer reload value.
+ */
 #define GEF_WDC_ENABLE_SHIFT	24
 #define GEF_WDC_SERVICE_SHIFT	26
 #define GEF_WDC_ENABLED_SHIFT	31
@@ -38,6 +58,7 @@
 #define GEF_WDC_ENABLED_TRUE	1
 #define GEF_WDC_ENABLED_FALSE	0
 
+/* Flags bits */
 #define GEF_WDOG_FLAG_OPENED	0
 
 static unsigned long wdt_flags;
@@ -65,9 +86,9 @@ static int gef_wdt_toggle_wdc(int enabled_predicate, int field_shift)
 	data = ioread32be(gef_wdt_regs);
 	enabled = (data >> GEF_WDC_ENABLED_SHIFT) & 1;
 
-	
+	/* only toggle the requested field if enabled state matches predicate */
 	if ((enabled ^ enabled_predicate) == 0) {
-		
+		/* We write a 1, then a 2 -- to the appropriate field */
 		data = (1 << field_shift) | gef_wdt_count;
 		iowrite32be(data, gef_wdt_regs);
 
@@ -104,11 +125,11 @@ static void gef_wdt_handler_disable(void)
 
 static void gef_wdt_set_timeout(unsigned int timeout)
 {
-	
+	/* maximum bus cycle count is 0xFFFFFFFF */
 	if (timeout > 0xFFFFFFFF / bus_clk)
 		timeout = 0xFFFFFFFF / bus_clk;
 
-	
+	/* Register only holds upper 24 bits, bit shifted into lower 24 */
 	gef_wdt_count = (timeout * bus_clk) >> 8;
 	gef_wdt_timeout = timeout;
 }
@@ -183,7 +204,7 @@ static long gef_wdt_ioctl(struct file *file, unsigned int cmd,
 		if (get_user(timeout, (int __user *)argp))
 			return -EFAULT;
 		gef_wdt_set_timeout(timeout);
-		
+		/* Fall through */
 
 	case WDIOC_GETTIMEOUT:
 		if (put_user(gef_wdt_timeout, (int __user *)argp))
@@ -246,20 +267,20 @@ static int __devinit gef_wdt_probe(struct platform_device *dev)
 	int timeout = 10;
 	u32 freq;
 
-	bus_clk = 133; 
+	bus_clk = 133; /* in MHz */
 
 	freq = fsl_get_sys_freq();
 	if (freq != -1)
 		bus_clk = freq;
 
-	
+	/* Map devices registers into memory */
 	gef_wdt_regs = of_iomap(dev->dev.of_node, 0);
 	if (gef_wdt_regs == NULL)
 		return -ENOMEM;
 
 	gef_wdt_set_timeout(timeout);
 
-	gef_wdt_handler_disable();	
+	gef_wdt_handler_disable();	/* in case timer was already running */
 
 	return misc_register(&gef_wdt_miscdev);
 }

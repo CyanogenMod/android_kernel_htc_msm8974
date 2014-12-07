@@ -12,7 +12,19 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*  @file    dmacHw_extra.c
+*
+*  @brief   Extra Low level DMA controller driver routines
+*
+*  @note
+*
+*   These routines provide basic DMA functionality only.
+*/
+/****************************************************************************/
 
+/* ---- Include Files ---------------------------------------------------- */
 
 #include <csp/stdint.h>
 #include <stddef.h>
@@ -21,17 +33,43 @@
 #include <mach/csp/dmacHw_reg.h>
 #include <mach/csp/dmacHw_priv.h>
 
-extern dmacHw_CBLK_t dmacHw_gCblk[dmacHw_MAX_CHANNEL_COUNT];	
+extern dmacHw_CBLK_t dmacHw_gCblk[dmacHw_MAX_CHANNEL_COUNT];	/* Declared in dmacHw.c */
 
+/* ---- External Function Prototypes ------------------------------------- */
 
-void dmacHw_setDataLength(dmacHw_CONFIG_t *pConfig,	
-			  void *pDescriptor,	
-			  size_t dataLen	
+/* ---- Internal Use Function Prototypes --------------------------------- */
+/****************************************************************************/
+/**
+*  @brief   Overwrites data length in the descriptor
+*
+*  This function overwrites data length in the descriptor
+*
+*
+*  @return   void
+*
+*  @note
+*          This is only used for PCM channel
+*/
+/****************************************************************************/
+void dmacHw_setDataLength(dmacHw_CONFIG_t *pConfig,	/*   [ IN ] Configuration settings */
+			  void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+			  size_t dataLen	/*   [ IN ] Data length in bytes */
     );
 
-static void DisplayRegisterContents(int module,	
-				    int channel,	
-				    int (*fpPrint) (const char *, ...)	
+/****************************************************************************/
+/**
+*  @brief   Helper function to display DMA registers
+*
+*  @return  void
+*
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
+static void DisplayRegisterContents(int module,	/*   [ IN ] DMA Controller unit  (0-1) */
+				    int channel,	/*   [ IN ] DMA Channel          (0-7) / -1(all) */
+				    int (*fpPrint) (const char *, ...)	/*   [ IN ] Callback to the print function */
     ) {
 	int chan;
 
@@ -197,8 +235,19 @@ static void DisplayRegisterContents(int module,
 	}
 }
 
-static void DisplayDescRing(void *pDescriptor,	
-			    int (*fpPrint) (const char *, ...)	
+/****************************************************************************/
+/**
+*  @brief   Helper function to display descriptor ring
+*
+*  @return  void
+*
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
+static void DisplayDescRing(void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+			    int (*fpPrint) (const char *, ...)	/*   [ IN ] Callback to the print function */
     ) {
 	dmacHw_DESC_RING_t *pRing = dmacHw_GET_DESC_RING(pDescriptor);
 	dmacHw_DESC_t *pStart;
@@ -263,7 +312,18 @@ static void DisplayDescRing(void *pDescriptor,
 	(*fpPrint) ("devCtl 0x%0X\n", pStart->devCtl);
 }
 
-static inline int DmaIsFlowController(void *pDescriptor	
+/****************************************************************************/
+/**
+*  @brief   Check if DMA channel is the flow controller
+*
+*  @return  1 : If DMA is a flow controller
+*           0 : Peripheral is the flow controller
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
+static inline int DmaIsFlowController(void *pDescriptor	/*   [ IN ] Descriptor buffer */
     ) {
 	uint32_t ttfc =
 	    (dmacHw_GET_DESC_RING(pDescriptor))->pTail->ctl.
@@ -280,9 +340,22 @@ static inline int DmaIsFlowController(void *pDescriptor
 	return 0;
 }
 
-void dmacHw_setDataLength(dmacHw_CONFIG_t *pConfig,	
-			  void *pDescriptor,	
-			  size_t dataLen	
+/****************************************************************************/
+/**
+*  @brief   Overwrites data length in the descriptor
+*
+*  This function overwrites data length in the descriptor
+*
+*
+*  @return   void
+*
+*  @note
+*          This is only used for PCM channel
+*/
+/****************************************************************************/
+void dmacHw_setDataLength(dmacHw_CONFIG_t *pConfig,	/*   [ IN ] Configuration settings */
+			  void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+			  size_t dataLen	/*   [ IN ] Data length in bytes */
     ) {
 	dmacHw_DESC_t *pProg;
 	dmacHw_DESC_t *pHead;
@@ -300,7 +373,20 @@ void dmacHw_setDataLength(dmacHw_CONFIG_t *pConfig,
 	} while (pProg != pHead);
 }
 
-void dmacHw_clearInterrupt(dmacHw_HANDLE_t handle	
+/****************************************************************************/
+/**
+*  @brief   Clears the interrupt
+*
+*  This function clears the DMA channel specific interrupt
+*
+*
+*  @return   void
+*
+*  @note
+*     Must be called under the context of ISR
+*/
+/****************************************************************************/
+void dmacHw_clearInterrupt(dmacHw_HANDLE_t handle	/* [ IN ] DMA Channel handle */
     ) {
 	dmacHw_CBLK_t *pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 
@@ -309,7 +395,19 @@ void dmacHw_clearInterrupt(dmacHw_HANDLE_t handle
 	dmacHw_ERROR_INT_CLEAR(pCblk->module, pCblk->channel);
 }
 
-dmacHw_INTERRUPT_STATUS_e dmacHw_getInterruptStatus(dmacHw_HANDLE_t handle	
+/****************************************************************************/
+/**
+*  @brief   Returns the cause of channel specific DMA interrupt
+*
+*  This function returns the cause of interrupt
+*
+*  @return  Interrupt status, each bit representing a specific type of interrupt
+*
+*  @note
+*     Should be called under the context of ISR
+*/
+/****************************************************************************/
+dmacHw_INTERRUPT_STATUS_e dmacHw_getInterruptStatus(dmacHw_HANDLE_t handle	/* [ IN ] DMA Channel handle */
     ) {
 	dmacHw_CBLK_t *pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 	dmacHw_INTERRUPT_STATUS_e status = dmacHw_INTERRUPT_STATUS_NONE;
@@ -330,6 +428,18 @@ dmacHw_INTERRUPT_STATUS_e dmacHw_getInterruptStatus(dmacHw_HANDLE_t handle
 	return status;
 }
 
+/****************************************************************************/
+/**
+*  @brief   Indentifies a DMA channel causing interrupt
+*
+*  This functions returns a channel causing interrupt of type dmacHw_INTERRUPT_STATUS_e
+*
+*  @return  NULL   : No channel causing DMA interrupt
+*           ! NULL : Handle to a channel causing DMA interrupt
+*  @note
+*     dmacHw_clearInterrupt() must be called with a valid handle after calling this function
+*/
+/****************************************************************************/
 dmacHw_HANDLE_t dmacHw_getInterruptSource(void)
 {
 	uint32_t i;
@@ -348,10 +458,21 @@ dmacHw_HANDLE_t dmacHw_getInterruptSource(void)
 	return dmacHw_CBLK_TO_HANDLE(NULL);
 }
 
-int dmacHw_calculateDescriptorCount(dmacHw_CONFIG_t *pConfig,	
-				    void *pSrcAddr,	
-				    void *pDstAddr,	
-				    size_t dataLen	
+/****************************************************************************/
+/**
+*  @brief  Estimates number of descriptor needed to perform certain DMA transfer
+*
+*
+*  @return  On failure : -1
+*           On success : Number of descriptor count
+*
+*
+*/
+/****************************************************************************/
+int dmacHw_calculateDescriptorCount(dmacHw_CONFIG_t *pConfig,	/*   [ IN ] Configuration settings */
+				    void *pSrcAddr,	/*   [ IN ] Source (Peripheral/Memory) address */
+				    void *pDstAddr,	/*   [ IN ] Destination (Peripheral/Memory) address */
+				    size_t dataLen	/*   [ IN ] Data length in bytes */
     ) {
 	int srcTs = 0;
 	int oddSize = 0;
@@ -365,56 +486,62 @@ int dmacHw_calculateDescriptorCount(dmacHw_CONFIG_t *pConfig,
 	dstTrSize = dmacHw_GetTrWidthInBytes(pConfig->dstMaxTransactionWidth);
 	srcTrSize = dmacHw_GetTrWidthInBytes(pConfig->srcMaxTransactionWidth);
 
-	
+	/* Skip Tx if buffer is NULL  or length is unknown */
 	if ((pSrcAddr == NULL) || (pDstAddr == NULL) || (dataLen == 0)) {
-		
+		/* Do not initiate transfer */
 		return -1;
 	}
 
-	
+	/* Ensure scatter and gather are transaction aligned */
 	if (pConfig->srcGatherWidth % srcTrSize
 	    || pConfig->dstScatterWidth % dstTrSize) {
 		return -1;
 	}
 
+	/*
+	   Background 1: DMAC can not perform DMA if source and destination addresses are
+	   not properly aligned with the channel's transaction width. So, for successful
+	   DMA transfer, transaction width must be set according to the alignment of the
+	   source and destination address.
+	 */
 
-	
+	/* Adjust destination transaction width if destination address is not aligned properly */
 	dstTrWidth = pConfig->dstMaxTransactionWidth;
 	while (dmacHw_ADDRESS_MASK(dstTrSize) & (uint32_t) pDstAddr) {
 		dstTrWidth = dmacHw_GetNextTrWidth(dstTrWidth);
 		dstTrSize = dmacHw_GetTrWidthInBytes(dstTrWidth);
 	}
 
-	
+	/* Adjust source transaction width if source address is not aligned properly */
 	srcTrWidth = pConfig->srcMaxTransactionWidth;
 	while (dmacHw_ADDRESS_MASK(srcTrSize) & (uint32_t) pSrcAddr) {
 		srcTrWidth = dmacHw_GetNextTrWidth(srcTrWidth);
 		srcTrSize = dmacHw_GetTrWidthInBytes(srcTrWidth);
 	}
 
-	
+	/* Find the maximum transaction per descriptor */
 	if (pConfig->maxDataPerBlock
 	    && ((pConfig->maxDataPerBlock / srcTrSize) <
 		dmacHw_MAX_BLOCKSIZE)) {
 		maxBlockSize = pConfig->maxDataPerBlock / srcTrSize;
 	}
 
-	
+	/* Find number of source transactions needed to complete the DMA transfer */
 	srcTs = dataLen / srcTrSize;
-	
+	/* Find the odd number of bytes that need to be transferred as single byte transaction width */
 	if (srcTs && (dstTrSize > srcTrSize)) {
 		oddSize = dataLen % dstTrSize;
-		
+		/* Adjust source transaction count due to "oddSize" */
 		srcTs = srcTs - (oddSize / srcTrSize);
 	} else {
 		oddSize = dataLen % srcTrSize;
 	}
-	
+	/* Adjust "descCount" due to "oddSize" */
 	if (oddSize) {
 		descCount++;
 	}
 
-	
+	/* Find the number of descriptor needed for total "srcTs" */
 	if (srcTs) {
 		descCount += ((srcTs - 1) / maxBlockSize) + 1;
 	}
@@ -422,36 +549,87 @@ int dmacHw_calculateDescriptorCount(dmacHw_CONFIG_t *pConfig,
 	return descCount;
 }
 
-uint32_t dmacHw_descriptorPending(dmacHw_HANDLE_t handle,	
-				  void *pDescriptor	
+/****************************************************************************/
+/**
+*  @brief   Check the existence of pending descriptor
+*
+*  This function confirmes if there is any pending descriptor in the chain
+*  to program the channel
+*
+*  @return  1 : Channel need to be programmed with pending descriptor
+*           0 : No more pending descriptor to programe the channel
+*
+*  @note
+*     - This function should be called from ISR in case there are pending
+*       descriptor to program the channel.
+*
+*     Example:
+*
+*     dmac_isr ()
+*     {
+*         ...
+*         if (dmacHw_descriptorPending (handle))
+*         {
+*            dmacHw_initiateTransfer (handle);
+*         }
+*     }
+*
+*/
+/****************************************************************************/
+uint32_t dmacHw_descriptorPending(dmacHw_HANDLE_t handle,	/*   [ IN ] DMA Channel handle */
+				  void *pDescriptor	/*   [ IN ] Descriptor buffer */
     ) {
 	dmacHw_CBLK_t *pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 	dmacHw_DESC_RING_t *pRing = dmacHw_GET_DESC_RING(pDescriptor);
 
-	
+	/* Make sure channel is not busy */
 	if (!CHANNEL_BUSY(pCblk->module, pCblk->channel)) {
-		
+		/* Check if pEnd is not processed */
 		if (pRing->pEnd) {
-			
+			/* Something left for processing */
 			return 1;
 		}
 	}
 	return 0;
 }
 
-void dmacHw_stopTransfer(dmacHw_HANDLE_t handle	
+/****************************************************************************/
+/**
+*  @brief   Program channel register to stop transfer
+*
+*  Ensures the channel is not doing any transfer after calling this function
+*
+*  @return  void
+*
+*/
+/****************************************************************************/
+void dmacHw_stopTransfer(dmacHw_HANDLE_t handle	/*   [ IN ] DMA Channel handle */
     ) {
 	dmacHw_CBLK_t *pCblk;
 
 	pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 
-	
+	/* Stop the channel */
 	dmacHw_DMA_STOP(pCblk->module, pCblk->channel);
 }
 
-int dmacHw_freeMem(dmacHw_CONFIG_t *pConfig,	
-		   void *pDescriptor,	
-		   void (*fpFree) (void *)	
+/****************************************************************************/
+/**
+*  @brief   Deallocates source or destination memory, allocated
+*
+*  This function can be called to deallocate data memory that was DMAed successfully
+*
+*  @return  On failure : -1
+*           On success : Number of buffer freed
+*
+*  @note
+*     This function will be called ONLY, when source OR destination address is pointing
+*     to dynamic memory
+*/
+/****************************************************************************/
+int dmacHw_freeMem(dmacHw_CONFIG_t *pConfig,	/*   [ IN ] Configuration settings */
+		   void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+		   void (*fpFree) (void *)	/*   [ IN ] Function pointer to free data memory */
     ) {
 	dmacHw_DESC_RING_t *pRing = dmacHw_GET_DESC_RING(pDescriptor);
 	uint32_t count = 0;
@@ -463,14 +641,14 @@ int dmacHw_freeMem(dmacHw_CONFIG_t *pConfig,
 	while ((pRing->pFree != pRing->pTail)
 	       && (pRing->pFree->ctl.lo & dmacHw_DESC_FREE)) {
 		if (pRing->pFree->devCtl == dmacHw_FREE_USER_MEMORY) {
-			
+			/* Identify, which memory to free */
 			if (dmacHw_DST_IS_MEMORY(pConfig->transferType)) {
 				(*fpFree) ((void *)pRing->pFree->dar);
 			} else {
-				
+				/* Destination was a peripheral */
 				(*fpFree) ((void *)pRing->pFree->sar);
 			}
-			
+			/* Unmark user memory to indicate it is freed */
 			pRing->pFree->devCtl = ~dmacHw_FREE_USER_MEMORY;
 		}
 		dmacHw_NEXT_DESC(pRing, pFree);
@@ -481,13 +659,30 @@ int dmacHw_freeMem(dmacHw_CONFIG_t *pConfig,
 	return count;
 }
 
-int dmacHw_setVariableDataDescriptor(dmacHw_HANDLE_t handle,	
-				     dmacHw_CONFIG_t *pConfig,	
-				     void *pDescriptor,	
-				     uint32_t srcAddr,	
-				     void *(*fpAlloc) (int len),	
-				     int len,	
-				     int num	
+/****************************************************************************/
+/**
+*  @brief   Prepares descriptor ring, when source peripheral working as a flow controller
+*
+*  This function will update the discriptor ring by allocating buffers, when source peripheral
+*  has to work as a flow controller to transfer data from:
+*           - Peripheral to memory.
+*
+*  @return  On failure : -1
+*           On success : Number of descriptor updated
+*
+*
+*  @note
+*     Channel must be configured for peripheral to memory transfer
+*
+*/
+/****************************************************************************/
+int dmacHw_setVariableDataDescriptor(dmacHw_HANDLE_t handle,	/*   [ IN ] DMA Channel handle */
+				     dmacHw_CONFIG_t *pConfig,	/*   [ IN ] Configuration settings */
+				     void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+				     uint32_t srcAddr,	/*   [ IN ] Source peripheral address */
+				     void *(*fpAlloc) (int len),	/*   [ IN ] Function pointer  that provides destination memory */
+				     int len,	/*   [ IN ] Number of bytes "fpAlloc" will allocate for destination */
+				     int num	/*   [ IN ] Number of descriptor to set */
     ) {
 	dmacHw_CBLK_t *pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 	dmacHw_DESC_t *pProg = NULL;
@@ -504,8 +699,8 @@ int dmacHw_setVariableDataDescriptor(dmacHw_HANDLE_t handle,
 		return -1;
 	}
 
-	pLast = pRing->pEnd;	
-	pProg = pRing->pHead;	
+	pLast = pRing->pEnd;	/* Last descriptor updated */
+	pProg = pRing->pHead;	/* First descriptor in the new list */
 
 	controlParam = pConfig->srcUpdate |
 	    pConfig->dstUpdate |
@@ -520,67 +715,84 @@ int dmacHw_setVariableDataDescriptor(dmacHw_HANDLE_t handle,
 	    dmacHw_REG_CTL_LLP_SRC_EN | dmacHw_REG_CTL_INT_EN;
 
 	for (i = 0; i < num; i++) {
-		
+		/* Allocate Rx buffer only for idle descriptor */
 		if (((pRing->pHead->ctl.hi & dmacHw_DESC_FREE) == 0) ||
 		    ((dmacHw_DESC_t *) pRing->pHead->llp == pRing->pTail)
 		    ) {
-			
+			/* Rx descriptor is not idle */
 			break;
 		}
-		
+		/* Set source address */
 		pRing->pHead->sar = srcAddr;
 		if (fpAlloc) {
-			
+			/* Allocate memory for buffer in descriptor */
 			dstAddr = (uint32_t) (*fpAlloc) (len);
-			
+			/* Check the destination address */
 			if (dstAddr == 0) {
 				if (i == 0) {
-					
+					/* Not a single descriptor is available */
 					return -1;
 				}
 				break;
 			}
-			
+			/* Set destination address */
 			pRing->pHead->dar = dstAddr;
 		}
-		
+		/* Set control information */
 		pRing->pHead->ctl.lo = controlParam;
-		
+		/* Use "devCtl" to mark the memory that need to be freed later */
 		pRing->pHead->devCtl = dmacHw_FREE_USER_MEMORY;
-		
+		/* Descriptor is now owned by the channel */
 		pRing->pHead->ctl.hi = 0;
-		
+		/* Remember the descriptor last updated */
 		pRing->pEnd = pRing->pHead;
-		
+		/* Update next descriptor */
 		dmacHw_NEXT_DESC(pRing, pHead);
 	}
 
-	
+	/* Mark the end of the list */
 	pRing->pEnd->ctl.lo &=
 	    ~(dmacHw_REG_CTL_LLP_DST_EN | dmacHw_REG_CTL_LLP_SRC_EN);
-	
+	/* Connect the list */
 	if (pLast != pProg) {
 		pLast->ctl.lo |=
 		    dmacHw_REG_CTL_LLP_DST_EN | dmacHw_REG_CTL_LLP_SRC_EN;
 	}
-	
+	/* Mark the descriptors are updated */
 	pCblk->descUpdated = 1;
 	if (!pCblk->varDataStarted) {
-		
+		/* LLP must be pointing to the first descriptor */
 		dmacHw_SET_LLP(pCblk->module, pCblk->channel,
 			       (uint32_t) pProg - pRing->virt2PhyOffset);
-		
+		/* Channel, handling variable data started */
 		pCblk->varDataStarted = 1;
 	}
 
 	return i;
 }
 
-int dmacHw_readTransferredData(dmacHw_HANDLE_t handle,	
-			       dmacHw_CONFIG_t *pConfig,	
-			       void *pDescriptor,	
-			       void **ppBbuf,	
-			       size_t *pLlen	
+/****************************************************************************/
+/**
+*  @brief   Read data DMAed to memory
+*
+*  This function will read data that has been DMAed to memory while transferring from:
+*          - Memory to memory
+*          - Peripheral to memory
+*
+*  @param    handle     -
+*  @param    ppBbuf     -
+*  @param    pLen       -
+*
+*  @return  0 - No more data is available to read
+*           1 - More data might be available to read
+*
+*/
+/****************************************************************************/
+int dmacHw_readTransferredData(dmacHw_HANDLE_t handle,	/*  [ IN ] DMA Channel handle */
+			       dmacHw_CONFIG_t *pConfig,	/*   [ IN ]  Configuration settings */
+			       void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+			       void **ppBbuf,	/*   [ OUT ] Data received */
+			       size_t *pLlen	/*   [ OUT ] Length of the data received */
     ) {
 	dmacHw_DESC_RING_t *pRing = dmacHw_GET_DESC_RING(pDescriptor);
 
@@ -590,7 +802,7 @@ int dmacHw_readTransferredData(dmacHw_HANDLE_t handle,
 		if (((pRing->pTail->ctl.hi & dmacHw_DESC_FREE) == 0) ||
 		    (pRing->pTail == pRing->pHead)
 		    ) {
-			
+			/* No receive data available */
 			*ppBbuf = (char *)NULL;
 			*pLlen = 0;
 
@@ -598,10 +810,10 @@ int dmacHw_readTransferredData(dmacHw_HANDLE_t handle,
 		}
 	}
 
-	
+	/* Return read buffer and length */
 	*ppBbuf = (char *)pRing->pTail->dar;
 
-	
+	/* Extract length of the received data */
 	if (DmaIsFlowController(pDescriptor)) {
 		uint32_t srcTrSize = 0;
 
@@ -621,25 +833,40 @@ int dmacHw_readTransferredData(dmacHw_HANDLE_t handle,
 		default:
 			dmacHw_ASSERT(0);
 		}
-		
+		/* Calculate length from the block size */
 		*pLlen =
 		    (pRing->pTail->ctl.hi & dmacHw_REG_CTL_BLOCK_TS_MASK) *
 		    srcTrSize;
 	} else {
-		
+		/* Extract length from the source peripheral */
 		*pLlen = pRing->pTail->sstat;
 	}
 
-	
+	/* Advance tail to next descriptor */
 	dmacHw_NEXT_DESC(pRing, pTail);
 
 	return 1;
 }
 
-int dmacHw_setControlDescriptor(dmacHw_CONFIG_t *pConfig,	
-				void *pDescriptor,	
-				uint32_t ctlAddress,	
-				uint32_t control	
+/****************************************************************************/
+/**
+*  @brief   Set descriptor carrying control information
+*
+*  This function will be used to send specific control information to the device
+*  using the DMA channel
+*
+*
+*  @return  -1 - On failure
+*            0 - On success
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
+int dmacHw_setControlDescriptor(dmacHw_CONFIG_t *pConfig,	/*   [ IN ] Configuration settings */
+				void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+				uint32_t ctlAddress,	/*   [ IN ] Address of the device control register */
+				uint32_t control	/*   [ IN ] Device control information */
     ) {
 	dmacHw_DESC_RING_t *pRing = dmacHw_GET_DESC_RING(pDescriptor);
 
@@ -647,16 +874,16 @@ int dmacHw_setControlDescriptor(dmacHw_CONFIG_t *pConfig,
 		return -1;
 	}
 
-	
+	/* Check the availability of descriptors in the ring */
 	if ((pRing->pHead->ctl.hi & dmacHw_DESC_FREE) == 0) {
 		return -1;
 	}
-	
+	/* Set control information */
 	pRing->pHead->devCtl = control;
-	
+	/* Set source and destination address */
 	pRing->pHead->sar = (uint32_t) &pRing->pHead->devCtl;
 	pRing->pHead->dar = ctlAddress;
-	
+	/* Set control parameters */
 	if (pConfig->flowControler == dmacHw_FLOW_CONTROL_DMA) {
 		pRing->pHead->ctl.lo = pConfig->transferType |
 		    dmacHw_SRC_ADDRESS_UPDATE_MODE_INC |
@@ -691,41 +918,65 @@ int dmacHw_setControlDescriptor(dmacHw_CONFIG_t *pConfig,
 		    pConfig->flowControler | dmacHw_REG_CTL_INT_EN;
 	}
 
-	
+	/* Set block transaction size to one 32 bit transaction */
 	pRing->pHead->ctl.hi = dmacHw_REG_CTL_BLOCK_TS_MASK & 1;
 
-	
+	/* Remember the descriptor to initialize the registers */
 	if (pRing->pProg == dmacHw_DESC_INIT) {
 		pRing->pProg = pRing->pHead;
 	}
 	pRing->pEnd = pRing->pHead;
 
-	
+	/* Advance the descriptor */
 	dmacHw_NEXT_DESC(pRing, pHead);
 
-	
+	/* Update Tail pointer if destination is a peripheral */
 	if (!dmacHw_DST_IS_MEMORY(pConfig->transferType)) {
 		pRing->pTail = pRing->pHead;
 	}
 	return 0;
 }
 
-void dmacHw_setChannelUserData(dmacHw_HANDLE_t handle,	
-			       void *userData	
+/****************************************************************************/
+/**
+*  @brief   Sets channel specific user data
+*
+*  This function associates user data to a specific DMA channel
+*
+*/
+/****************************************************************************/
+void dmacHw_setChannelUserData(dmacHw_HANDLE_t handle,	/*  [ IN ] DMA Channel handle */
+			       void *userData	/*  [ IN ] User data */
     ) {
 	dmacHw_CBLK_t *pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 
 	pCblk->userData = userData;
 }
 
-void *dmacHw_getChannelUserData(dmacHw_HANDLE_t handle	
+/****************************************************************************/
+/**
+*  @brief   Gets channel specific user data
+*
+*  This function returns user data specific to a DMA channel
+*
+*  @return   user data
+*/
+/****************************************************************************/
+void *dmacHw_getChannelUserData(dmacHw_HANDLE_t handle	/*  [ IN ] DMA Channel handle */
     ) {
 	dmacHw_CBLK_t *pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 
 	return pCblk->userData;
 }
 
-void dmacHw_resetDescriptorControl(void *pDescriptor	
+/****************************************************************************/
+/**
+*  @brief   Resets descriptor control information
+*
+*  @return  void
+*/
+/****************************************************************************/
+void dmacHw_resetDescriptorControl(void *pDescriptor	/*   [ IN ] Descriptor buffer  */
     ) {
 	int i;
 	dmacHw_DESC_RING_t *pRing;
@@ -735,18 +986,29 @@ void dmacHw_resetDescriptorControl(void *pDescriptor
 	pDesc = pRing->pHead;
 
 	for (i = 0; i < pRing->num; i++) {
-		
+		/* Mark descriptor is ready to use */
 		pDesc->ctl.hi = dmacHw_DESC_FREE;
-		
+		/* Look into next link list item */
 		pDesc++;
 	}
 	pRing->pFree = pRing->pTail = pRing->pEnd = pRing->pHead;
 	pRing->pProg = dmacHw_DESC_INIT;
 }
 
-void dmacHw_printDebugInfo(dmacHw_HANDLE_t handle,	
-			   void *pDescriptor,	
-			   int (*fpPrint) (const char *, ...)	
+/****************************************************************************/
+/**
+*  @brief   Displays channel specific registers and other control parameters
+*
+*  @return  void
+*
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
+void dmacHw_printDebugInfo(dmacHw_HANDLE_t handle,	/*  [ IN ] DMA Channel handle */
+			   void *pDescriptor,	/*   [ IN ] Descriptor buffer */
+			   int (*fpPrint) (const char *, ...)	/*  [ IN ] Print callback function */
     ) {
 	dmacHw_CBLK_t *pCblk = dmacHw_HANDLE_TO_CBLK(handle);
 

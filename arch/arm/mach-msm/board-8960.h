@@ -23,6 +23,7 @@
 #include <mach/msm_rtb.h>
 #include <mach/msm_cache_dump.h>
 
+/* Macros assume PMIC GPIOs and MPPs start at 1 */
 #define PM8921_GPIO_BASE		NR_GPIO_IRQS
 #define PM8921_GPIO_PM_TO_SYS(pm_gpio)	(pm_gpio - 1 + PM8921_GPIO_BASE)
 #define PM8921_MPP_BASE			(PM8921_GPIO_BASE + PM8921_NR_GPIOS)
@@ -51,7 +52,7 @@ extern struct rpm_regulator_platform_data msm_rpm_regulator_pdata __devinitdata;
 enum {
 	GPIO_EXPANDER_IRQ_BASE = (PM8921_IRQ_BASE + PM8921_NR_IRQS),
 	GPIO_EXPANDER_GPIO_BASE = (PM8921_MPP_BASE + PM8921_NR_MPPS),
-	
+	/* CAM Expander */
 	GPIO_CAM_EXPANDER_BASE = GPIO_EXPANDER_GPIO_BASE,
 	GPIO_CAM_GP_STROBE_READY = GPIO_CAM_EXPANDER_BASE,
 	GPIO_CAM_GP_AFBUSY,

@@ -128,7 +128,13 @@ static struct pl022_ssp_controller ssp0_plat_data = {
 	.num_chipselect = 1,
 };
 
+/*
+ * RealView EB AMBA devices
+ */
 
+/*
+ * These devices are connected via the core APB bridge
+ */
 #define GPIO2_IRQ	{ IRQ_EB_GPIO2 }
 #define GPIO3_IRQ	{ IRQ_EB_GPIO3 }
 
@@ -137,17 +143,26 @@ static struct pl022_ssp_controller ssp0_plat_data = {
 #define KMI0_IRQ	{ IRQ_EB_KMI0 }
 #define KMI1_IRQ	{ IRQ_EB_KMI1 }
 
+/*
+ * These devices are connected directly to the multi-layer AHB switch
+ */
 #define EB_SMC_IRQ	{ }
 #define MPMC_IRQ	{ }
 #define EB_CLCD_IRQ	{ IRQ_EB_CLCD }
 #define DMAC_IRQ	{ IRQ_EB_DMA }
 
+/*
+ * These devices are connected via the core APB bridge
+ */
 #define SCTL_IRQ	{ }
 #define EB_WATCHDOG_IRQ	{ IRQ_EB_WDOG }
 #define EB_GPIO0_IRQ	{ IRQ_EB_GPIO0 }
 #define GPIO1_IRQ	{ IRQ_EB_GPIO1 }
 #define EB_RTC_IRQ	{ IRQ_EB_RTC }
 
+/*
+ * These devices are connected via the DMA APB bridge
+ */
 #define SCI_IRQ		{ IRQ_EB_SCI }
 #define EB_UART0_IRQ	{ IRQ_EB_UART0 }
 #define EB_UART1_IRQ	{ IRQ_EB_UART1 }
@@ -155,12 +170,14 @@ static struct pl022_ssp_controller ssp0_plat_data = {
 #define EB_UART3_IRQ	{ IRQ_EB_UART3 }
 #define EB_SSP_IRQ	{ IRQ_EB_SSP }
 
+/* FPGA Primecells */
 APB_DEVICE(aaci,  "fpga:aaci",  AACI,     NULL);
 APB_DEVICE(mmc0,  "fpga:mmc0",  MMCI0,    &realview_mmc0_plat_data);
 APB_DEVICE(kmi0,  "fpga:kmi0",  KMI0,     NULL);
 APB_DEVICE(kmi1,  "fpga:kmi1",  KMI1,     NULL);
 APB_DEVICE(uart3, "fpga:uart3", EB_UART3, NULL);
 
+/* DevChip Primecells */
 AHB_DEVICE(smc,   "dev:smc",   EB_SMC,   NULL);
 AHB_DEVICE(clcd,  "dev:clcd",  EB_CLCD,  &clcd_plat_data);
 AHB_DEVICE(dmac,  "dev:dmac",  DMAC,     NULL);
@@ -198,6 +215,9 @@ static struct amba_device *amba_devs[] __initdata = {
 	&kmi1_device,
 };
 
+/*
+ * RealView EB platform devices
+ */
 static struct resource realview_eb_flash_resource = {
 	.start			= REALVIEW_EB_FLASH_BASE,
 	.end			= REALVIEW_EB_FLASH_BASE + REALVIEW_EB_FLASH_SIZE - 1,
@@ -217,6 +237,10 @@ static struct resource realview_eb_eth_resources[] = {
 	},
 };
 
+/*
+ * Detect and register the correct Ethernet device. RealView/EB rev D
+ * platforms use the newer SMSC LAN9118 Ethernet chip
+ */
 static int eth_device_register(void)
 {
 	void __iomem *eth_addr = ioremap(REALVIEW_EB_ETH_BASE, SZ_4K);
@@ -228,7 +252,7 @@ static int eth_device_register(void)
 
 	idrev = readl(eth_addr + 0x50);
 	if ((idrev & 0xFFFF0000) != 0x01180000)
-		
+		/* SMSC LAN9118 not present, use LAN91C111 instead */
 		name = "smc91x";
 
 	iounmap(eth_addr);
@@ -303,33 +327,36 @@ static void __init gic_init_irq(void)
 	if (core_tile_eb11mp() || core_tile_a9mp()) {
 		unsigned int pldctrl;
 
-		
+		/* new irq mode */
 		writel(0x0000a05f, __io_address(REALVIEW_SYS_LOCK));
 		pldctrl = readl(__io_address(REALVIEW_SYS_BASE)	+ REALVIEW_EB11MP_SYS_PLD_CTRL1);
 		pldctrl |= 0x00800000;
 		writel(pldctrl, __io_address(REALVIEW_SYS_BASE) + REALVIEW_EB11MP_SYS_PLD_CTRL1);
 		writel(0x00000000, __io_address(REALVIEW_SYS_LOCK));
 
-		
+		/* core tile GIC, primary */
 		gic_init(0, 29, __io_address(REALVIEW_EB11MP_GIC_DIST_BASE),
 			 __io_address(REALVIEW_EB11MP_GIC_CPU_BASE));
 
 #ifndef CONFIG_REALVIEW_EB_ARM11MP_REVB
-		
+		/* board GIC, secondary */
 		gic_init(1, 96, __io_address(REALVIEW_EB_GIC_DIST_BASE),
 			 __io_address(REALVIEW_EB_GIC_CPU_BASE));
 		gic_cascade_irq(1, IRQ_EB11MP_EB_IRQ1);
 #endif
 	} else {
-		
+		/* board GIC, primary */
 		gic_init(0, 29, __io_address(REALVIEW_EB_GIC_DIST_BASE),
 			 __io_address(REALVIEW_EB_GIC_CPU_BASE));
 	}
 }
 
+/*
+ * Fix up the IRQ numbers for the RealView EB/ARM11MPCore tile
+ */
 static void realview_eb11mp_fixup(void)
 {
-	
+	/* AMBA devices */
 	dmac_device.irq[0]	= IRQ_EB11MP_DMA;
 	uart0_device.irq[0]	= IRQ_EB11MP_UART0;
 	uart1_device.irq[0]	= IRQ_EB11MP_UART1;
@@ -349,7 +376,7 @@ static void realview_eb11mp_fixup(void)
 	kmi0_device.irq[0]	= IRQ_EB11MP_KMI0;
 	kmi1_device.irq[0]	= IRQ_EB11MP_KMI1;
 
-	
+	/* platform devices */
 	realview_eb_eth_resources[1].start	= IRQ_EB11MP_ETH;
 	realview_eb_eth_resources[1].end	= IRQ_EB11MP_ETH;
 	realview_eb_isp1761_resources[1].start	= IRQ_EB11MP_USB;
@@ -400,6 +427,10 @@ static void realview_eb_restart(char mode, const char *cmd)
 	void __iomem *reset_ctrl = __io_address(REALVIEW_SYS_RESETCTL);
 	void __iomem *lock_ctrl = __io_address(REALVIEW_SYS_LOCK);
 
+	/*
+	 * To reset, we hit the on-board reset register
+	 * in the system FPGA
+	 */
 	__raw_writel(REALVIEW_SYS_LOCK_VAL, lock_ctrl);
 	if (core_tile_eb11mp())
 		__raw_writel(0x0008, reset_ctrl);
@@ -414,6 +445,8 @@ static void __init realview_eb_init(void)
 		realview_eb11mp_fixup();
 
 #ifdef CONFIG_CACHE_L2X0
+		/* 1MB (128KB/way), 8-way associativity, evmon/parity/share enabled
+		 * Bits:  .... ...0 0111 1001 0000 .... .... .... */
 		l2x0_init(__io_address(REALVIEW_EB11MP_L220_BASE), 0x00790000, 0xfe000fff);
 #endif
 		platform_device_register(&pmu_device);
@@ -436,7 +469,7 @@ static void __init realview_eb_init(void)
 }
 
 MACHINE_START(REALVIEW_EB, "ARM-RealView EB")
-	
+	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
 	.fixup		= realview_fixup,
 	.map_io		= realview_eb_map_io,

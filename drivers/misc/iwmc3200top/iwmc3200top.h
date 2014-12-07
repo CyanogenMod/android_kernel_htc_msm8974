@@ -64,6 +64,7 @@
 #define BARKER_DNLOAD_BARKER_MSK	(0xffffff << BARKER_DNLOAD_BARKER_POS)
 
 #define IWMC_BARKER_REBOOT 	(0xdeadbe << BARKER_DNLOAD_BARKER_POS)
+/* whole field barker */
 #define IWMC_BARKER_ACK 	0xfeedbabe
 
 #define IWMC_CMD_SIGNATURE 	0xcbbc
@@ -103,6 +104,10 @@ struct iwmct_fw_load_hdr {
 	u8 data[0];
 };
 
+/**
+ * struct iwmct_fw_hdr
+ * holds all sw components versions
+ */
 struct iwmct_fw_hdr {
 	u8 top_major;
 	u8 top_minor;
@@ -116,12 +121,27 @@ struct iwmct_fw_hdr {
 	u8 tic_name[31];
 };
 
+/**
+ * struct iwmct_fw_sec_hdr
+ * @type: function type
+ * @data_size: section's data size
+ * @target_addr: download address
+ */
 struct iwmct_fw_sec_hdr {
 	u8 type[4];
 	__le32 data_size;
 	__le32 target_addr;
 };
 
+/**
+ * struct iwmct_parser
+ * @file: fw image
+ * @file_size: fw size
+ * @cur_pos: position in file
+ * @buf: temp buf for download
+ * @buf_size: size of buf
+ * @entry_point: address to jump in fw kick-off
+ */
 struct iwmct_parser {
 	const u8 *file;
 	size_t file_size;
@@ -163,14 +183,14 @@ struct iwmct_priv {
 	u32 barker;
 	struct iwmct_dbg dbg;
 
-	
+	/* drivers work items */
 	struct work_struct bus_rescan_worker;
 	struct work_struct isr_worker;
 
-	
+	/* drivers wait queue */
 	wait_queue_head_t wait_q;
 
-	
+	/* rx request list */
 	struct list_head read_req_list;
 };
 
@@ -182,4 +202,4 @@ extern void iwmct_dbg_init_drv_attrs(struct device_driver *drv);
 extern void iwmct_dbg_remove_drv_attrs(struct device_driver *drv);
 extern int iwmct_send_hcmd(struct iwmct_priv *priv, u8 *cmd, u16 len);
 
-#endif  
+#endif  /*  __IWMC3200TOP_H__  */

@@ -22,10 +22,11 @@
 #ifndef _LINUX_USB_C67X00_H
 #define _LINUX_USB_C67X00_H
 
+/* SIE configuration */
 #define C67X00_SIE_UNUSED	0
 #define C67X00_SIE_HOST		1
-#define C67X00_SIE_PERIPHERAL_A	2	
-#define C67X00_SIE_PERIPHERAL_B	3	
+#define C67X00_SIE_PERIPHERAL_A	2	/* peripheral on A port */
+#define C67X00_SIE_PERIPHERAL_B	3	/* peripheral on B port */
 
 #define c67x00_sie_config(config, n)  (((config)>>(4*(n)))&0x3)
 
@@ -40,8 +41,8 @@
 #define C67X00_SIE2_PERIPHERAL_B	(C67X00_SIE_PERIPHERAL_B	<< 4)
 
 struct c67x00_platform_data {
-	int sie_config;			
-	unsigned long hpi_regstep;	
+	int sie_config;			/* SIEs config (C67X00_SIEx_*) */
+	unsigned long hpi_regstep;	/* Step between HPI registers  */
 };
 
-#endif 
+#endif /* _LINUX_USB_C67X00_H */

@@ -30,7 +30,9 @@
 
 #define MWIFIEX_MAX_BSS_NUM         (1)
 
-#define MWIFIEX_MIN_DATA_HEADER_LEN 36	
+#define MWIFIEX_MIN_DATA_HEADER_LEN 36	/* sizeof(mwifiex_txpd)
+					 *   + 4 byte alignment
+					 */
 
 #define MWIFIEX_MAX_TX_BASTREAM_SUPPORTED	2
 #define MWIFIEX_MAX_RX_BASTREAM_SUPPORTED	16
@@ -114,4 +116,4 @@ enum mwifiex_wmm_ac_e {
 	WMM_AC_VI,
 	WMM_AC_VO
 } __packed;
-#endif 
+#endif /* !_MWIFIEX_DECL_H_ */

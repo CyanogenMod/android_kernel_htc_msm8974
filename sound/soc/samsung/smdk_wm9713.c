@@ -16,7 +16,28 @@
 
 static struct snd_soc_card smdk;
 
+/*
+ * Default CFG switch settings to use this driver:
+ *
+ *   SMDK6410: Set CFG1 1-3 On, CFG2 1-4 Off
+ *   SMDKC100: Set CFG6 1-3 On, CFG7 1   On
+ *   SMDKC110: Set CFGB10 1-2 Off, CFGB12 1-3 On
+ *   SMDKV210: Set CFGB10 1-2 Off, CFGB12 1-3 On
+ *   SMDKV310: Set CFG2 1-2 Off, CFG4 All On, CFG7 All Off, CFG8 1-On
+ */
 
+/*
+ Playback (HeadPhone):-
+	$ amixer sset 'Headphone' unmute
+	$ amixer sset 'Right Headphone Out Mux' 'Headphone'
+	$ amixer sset 'Left Headphone Out Mux' 'Headphone'
+	$ amixer sset 'Right HP Mixer PCM' unmute
+	$ amixer sset 'Left HP Mixer PCM' unmute
+
+ Capture (LineIn):-
+	$ amixer sset 'Right Capture Source' 'Line'
+	$ amixer sset 'Left Capture Source' 'Line'
+*/
 
 static struct snd_soc_dai_link smdk_dai = {
 	.name = "AC97",
@@ -81,6 +102,7 @@ static void __exit smdk_exit(void)
 module_init(smdk_init);
 module_exit(smdk_exit);
 
+/* Module information */
 MODULE_AUTHOR("Jaswinder Singh Brar, jassisinghbrar@gmail.com");
 MODULE_DESCRIPTION("ALSA SoC SMDK+WM9713");
 MODULE_LICENSE("GPL");

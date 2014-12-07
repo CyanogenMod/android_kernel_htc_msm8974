@@ -41,7 +41,7 @@ int tegra_ion_probe(struct platform_device *pdev)
 		return PTR_ERR(idev);
 	}
 
-	
+	/* create the heaps as specified in the board file */
 	for (i = 0; i < num_heaps; i++) {
 		struct ion_platform_heap *heap_data = &pdata->heaps[i];
 

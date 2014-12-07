@@ -162,7 +162,7 @@ static unsigned int pcc_get_freq(unsigned int cpu)
 	output_buffer =
 		ioread32(pcch_virt_addr + pcc_cpu_data->output_offset);
 
-	
+	/* Clear the input buffer - we are done with the current command */
 	memset_io((pcch_virt_addr + pcc_cpu_data->input_offset), 0, BUF_SZ);
 
 	status = ioread16(&pcch_hdr->status);
@@ -226,7 +226,7 @@ static int pcc_cpufreq_target(struct cpufreq_policy *policy,
 
 	pcc_cmd();
 
-	
+	/* Clear the input buffer - we are done with the current command */
 	memset_io((pcch_virt_addr + pcc_cpu_data->input_offset), 0, BUF_SZ);
 
 	status = ioread16(&pcch_hdr->status);
@@ -411,7 +411,7 @@ static int __init pcc_cpufreq_probe(void)
 		ret = pcc_cpufreq_do_osc(&osc_handle);
 		if (ret)
 			pr_debug("probe: _OSC evaluation did not succeed\n");
-		
+		/* Firmware's use of _OSC is optional */
 		ret = 0;
 	}
 

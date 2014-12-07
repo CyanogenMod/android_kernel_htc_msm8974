@@ -1,3 +1,9 @@
+/**
+ * \file drm_scatter.c
+ * IOCTLs to manage scatter/gather memory
+ *
+ * \author Gareth Hughes <gareth@valinux.com>
+ */
 
 /*
  * Created: Mon Dec 18 23:20:54 2000 by gareth@valinux.com
@@ -106,6 +112,9 @@ int drm_sg_alloc(struct drm_device *dev, struct drm_scatter_gather * request)
 		return -ENOMEM;
 	}
 
+	/* This also forces the mapping of COW pages, so our page list
+	 * will be valid.  Please don't remove it...
+	 */
 	memset(entry->virtual, 0, pages << PAGE_SHIFT);
 
 	entry->handle = ScatterHandle((unsigned long)entry->virtual);
@@ -126,6 +135,9 @@ int drm_sg_alloc(struct drm_device *dev, struct drm_scatter_gather * request)
 	dev->sg = entry;
 
 #if DEBUG_SCATTER
+	/* Verify that each page points to its virtual address, and vice
+	 * versa.
+	 */
 	{
 		int error = 0;
 

@@ -34,10 +34,13 @@
 #ifndef	_I82593_H
 #define	_I82593_H
 
+/* Intel 82593 CSMA/CD Core LAN Controller */
 
+/* Port 0 Command Register definitions */
 
-#define OP0_NOP			0	
-#define OP0_SWIT_TO_PORT_1	0	
+/* Execution operations */
+#define OP0_NOP			0	/* CHNL = 0 */
+#define OP0_SWIT_TO_PORT_1	0	/* CHNL = 1 */
 #define OP0_IA_SETUP		1
 #define OP0_CONFIGURE		2
 #define OP0_MC_SETUP		3
@@ -48,22 +51,25 @@
 #define OP0_TRANSMIT_NO_CRC	9
 #define OP0_RETRANSMIT		12
 #define OP0_ABORT		13
+/* Reception operations */
 #define OP0_RCV_ENABLE		8
 #define OP0_RCV_DISABLE		10
 #define OP0_STOP_RCV		11
-#define OP0_FIX_PTR		15	
-#define OP0_RLS_PTR		15	
+/* Status pointer control operations */
+#define OP0_FIX_PTR		15	/* CHNL = 1 */
+#define OP0_RLS_PTR		15	/* CHNL = 0 */
 #define OP0_RESET		14
 
-#define CR0_CHNL		(1 << 4)	
+#define CR0_CHNL		(1 << 4)	/* 0=Channel 0, 1=Channel 1 */
 #define CR0_STATUS_0		0x00
 #define CR0_STATUS_1		0x20
 #define CR0_STATUS_2		0x40
 #define CR0_STATUS_3		0x60
-#define CR0_INT_ACK		(1 << 7)	
+#define CR0_INT_ACK		(1 << 7)	/* 0=No ack, 1=acknowledge */
 
+/* Port 0 Status Register definitions */
 
-#define SR0_NO_RESULT		0		
+#define SR0_NO_RESULT		0		/* dummy */
 #define SR0_EVENT_MASK		0x0f
 #define SR0_IA_SETUP_DONE	1
 #define SR0_CONFIGURE_DONE	2
@@ -101,6 +107,7 @@
 #define SR3_RCV_STOP_IN_PROG	0x60
 #define SR3_RCV_CHNL		(1 << 7)
 
+/* Port 1 Command Register definitions */
 
 #define OP1_NOP			0
 #define OP1_SWIT_TO_PORT_0	1
@@ -118,6 +125,7 @@
 #define CR1_STATUS_6		0x40
 #define CR1_STOP_REG_UPDATE	(1 << 7)
 
+/* Receive frame status bits */
 
 #define	RX_RCLD			(1 << 0)
 #define RX_IA_MATCH		(1 << 1)
@@ -131,6 +139,7 @@
 #define RX_RCV_OK		(1 << 13)
 #define RX_TYP_LEN		(1 << 15)
 
+/* Transmit status bits */
 
 #define TX_NCOL_MASK		0x0f
 #define TX_FRTL			(1 << 4)
@@ -187,16 +196,16 @@ struct i82593_conf_block {
 	 rxcrc_xf   : 1,
 	 artx	    : 1,
 	 sarec	    : 1,
-	 tx_jabber  : 1,	
+	 tx_jabber  : 1,	/* why is this called max_len in the manual? */
 	 hash_1	    : 1,
   	 lbpkpol    : 1;
   u_char	    : 6,
   	 fdx	    : 1,
   	  	    : 1;
-  u_char dummy_6    : 6,	
+  u_char dummy_6    : 6,	/* supposed to be ones */
   	 mult_ia    : 1,
   	 dis_bof    : 1;
-  u_char dummy_1    : 1,	
+  u_char dummy_1    : 1,	/* supposed to be one */
 	 tx_ifs_retrig : 2,
 	 mc_all     : 1,
 	 rcv_mon    : 2,
@@ -215,6 +224,6 @@ struct i82593_conf_block {
   	 	    : 2;
 };
 
-#define I82593_MAX_MULTICAST_ADDRESSES	128	
+#define I82593_MAX_MULTICAST_ADDRESSES	128	/* Hardware hashed filter */
 
-#endif 
+#endif /* _I82593_H */

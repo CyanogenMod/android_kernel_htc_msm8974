@@ -57,6 +57,14 @@ int my_skb_head_push(struct sk_buff *skb, unsigned int len)
 {
 	int result;
 
+	/**
+	 * TODO: We must check if we can release all references to non-payload
+	 * data using skb_header_release in our skbs to allow skb_cow_header to
+	 * work optimally. This means that those skbs are not allowed to read
+	 * or write any data which is before the current position of skb->data
+	 * after that call and thus allow other skbs with the same data buffer
+	 * to write freely in that area.
+	 */
 	result = skb_cow_head(skb, len);
 	if (result < 0)
 		return result;
@@ -123,7 +131,7 @@ static struct softif_neigh_vid *softif_neigh_vid_get(struct bat_priv *bat_priv,
 	softif_neigh_vid->vid = vid;
 	softif_neigh_vid->bat_priv = bat_priv;
 
-	
+	/* initialize with 2 - caller decrements counter by one */
 	atomic_set(&softif_neigh_vid->refcount, 2);
 	INIT_HLIST_HEAD(&softif_neigh_vid->softif_neigh_list);
 	INIT_HLIST_NODE(&softif_neigh_vid->list);
@@ -168,7 +176,7 @@ static struct softif_neigh *softif_neigh_get(struct bat_priv *bat_priv,
 
 	memcpy(softif_neigh->addr, addr, ETH_ALEN);
 	softif_neigh->last_seen = jiffies;
-	
+	/* initialize with 2 - caller decrements counter by one */
 	atomic_set(&softif_neigh->refcount, 2);
 
 	INIT_HLIST_NODE(&softif_neigh->list);
@@ -273,7 +281,7 @@ static void softif_neigh_vid_deselect(struct bat_priv *bat_priv,
 	if (!primary_if)
 		goto out;
 
-	
+	/* find new softif_neigh immediately to avoid temporary loops */
 	rcu_read_lock();
 	curr_neigh = rcu_dereference(softif_neigh_vid->softif_neigh);
 
@@ -283,7 +291,7 @@ static void softif_neigh_vid_deselect(struct bat_priv *bat_priv,
 		if (softif_neigh_tmp == curr_neigh)
 			continue;
 
-		
+		/* we got a neighbor but its mac is 'bigger' than ours  */
 		if (memcmp(primary_if->net_dev->dev_addr,
 			   softif_neigh_tmp->addr, ETH_ALEN) < 0)
 			continue;
@@ -406,6 +414,8 @@ void softif_neigh_purge(struct bat_priv *bat_priv)
 		}
 		spin_unlock_bh(&bat_priv->softif_neigh_lock);
 
+		/* soft_neigh_vid_deselect() needs to acquire the
+		 * softif_neigh_lock */
 		if (do_deselect)
 			softif_neigh_vid_deselect(bat_priv, softif_neigh_vid);
 
@@ -470,18 +480,18 @@ static void softif_batman_recv(struct sk_buff *skb, struct net_device *dev,
 	if (!primary_if)
 		goto out;
 
-	
+	/* we got a neighbor but its mac is 'bigger' than ours  */
 	if (memcmp(primary_if->net_dev->dev_addr,
 		   softif_neigh->addr, ETH_ALEN) < 0)
 		goto out;
 
-	
+	/* close own batX device and use softif_neigh as exit node */
 	if (!curr_softif_neigh) {
 		softif_neigh_vid_select(bat_priv, softif_neigh, vid);
 		goto out;
 	}
 
-	
+	/* switch to new 'smallest neighbor' */
 	if (memcmp(softif_neigh->addr, curr_softif_neigh->addr, ETH_ALEN) < 0)
 		softif_neigh_vid_select(bat_priv, softif_neigh, vid);
 
@@ -522,7 +532,7 @@ static int interface_set_mac_addr(struct net_device *dev, void *p)
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
 
-	
+	/* only modify transtable if it has been initialized before */
 	if (atomic_read(&bat_priv->mesh_state) == MESH_ACTIVE) {
 		tt_local_remove(bat_priv, dev->dev_addr,
 				"mac address changed", false);
@@ -536,7 +546,7 @@ static int interface_set_mac_addr(struct net_device *dev, void *p)
 
 static int interface_change_mtu(struct net_device *dev, int new_mtu)
 {
-	
+	/* check ranges */
 	if ((new_mtu < 68) || (new_mtu > hardif_min_mtu(dev)))
 		return -EINVAL;
 
@@ -571,17 +581,21 @@ static int interface_tx(struct sk_buff *skb, struct net_device *soft_iface)
 		if (ntohs(vhdr->h_vlan_encapsulated_proto) != ETH_P_BATMAN)
 			break;
 
-		
+		/* fall through */
 	case ETH_P_BATMAN:
 		softif_batman_recv(skb, soft_iface, vid);
 		goto end;
 	}
 
+	/**
+	 * if we have a another chosen mesh exit node in range
+	 * it will transport the packets to the mesh
+	 */
 	curr_softif_neigh = softif_neigh_vid_get_selected(bat_priv, vid);
 	if (curr_softif_neigh)
 		goto dropped;
 
-	
+	/* Register the client MAC in the transtable */
 	tt_local_add(soft_iface, ethhdr->h_source, skb->skb_iif);
 
 	if (is_multicast_ether_addr(ethhdr->h_dest)) {
@@ -589,11 +603,15 @@ static int interface_tx(struct sk_buff *skb, struct net_device *soft_iface)
 
 		switch (atomic_read(&bat_priv->gw_mode)) {
 		case GW_MODE_SERVER:
+			/* gateway servers should not send dhcp
+			 * requests into the mesh */
 			ret = gw_is_dhcp_target(skb, &header_len);
 			if (ret)
 				goto dropped;
 			break;
 		case GW_MODE_CLIENT:
+			/* gateway clients should send dhcp requests
+			 * via unicast to their gateway */
 			ret = gw_is_dhcp_target(skb, &header_len);
 			if (ret)
 				do_bcast = false;
@@ -604,7 +622,7 @@ static int interface_tx(struct sk_buff *skb, struct net_device *soft_iface)
 		}
 	}
 
-	
+	/* ethernet packet should be broadcasted */
 	if (do_bcast) {
 		primary_if = primary_if_get_selected(bat_priv);
 		if (!primary_if)
@@ -617,21 +635,25 @@ static int interface_tx(struct sk_buff *skb, struct net_device *soft_iface)
 		bcast_packet->header.version = COMPAT_VERSION;
 		bcast_packet->header.ttl = TTL;
 
-		
+		/* batman packet type: broadcast */
 		bcast_packet->header.packet_type = BAT_BCAST;
 
+		/* hw address of first interface is the orig mac because only
+		 * this mac is known throughout the mesh */
 		memcpy(bcast_packet->orig,
 		       primary_if->net_dev->dev_addr, ETH_ALEN);
 
-		
+		/* set broadcast sequence number */
 		bcast_packet->seqno =
 			htonl(atomic_inc_return(&bat_priv->bcast_seqno));
 
 		add_bcast_packet_to_list(bat_priv, skb, 1);
 
+		/* a copy is stored in the bcast list, therefore removing
+		 * the original skb. */
 		kfree_skb(skb);
 
-	
+	/* unicast packet */
 	} else {
 		if (atomic_read(&bat_priv->gw_mode) != GW_MODE_OFF) {
 			ret = gw_out_of_range(bat_priv, skb, ethhdr);
@@ -672,7 +694,7 @@ void interface_rx(struct net_device *soft_iface,
 	short vid = -1;
 	int ret;
 
-	
+	/* check if enough space is available for pulling, and pull */
 	if (!pskb_may_pull(skb, hdr_size))
 		goto dropped;
 
@@ -689,11 +711,15 @@ void interface_rx(struct net_device *soft_iface,
 		if (ntohs(vhdr->h_vlan_encapsulated_proto) != ETH_P_BATMAN)
 			break;
 
-		
+		/* fall through */
 	case ETH_P_BATMAN:
 		goto dropped;
 	}
 
+	/**
+	 * if we have a another chosen mesh exit node in range
+	 * it will transport the packets to the non-mesh network
+	 */
 	curr_softif_neigh = softif_neigh_vid_get_selected(bat_priv, vid);
 	if (curr_softif_neigh) {
 		skb_push(skb, hdr_size);
@@ -714,12 +740,16 @@ void interface_rx(struct net_device *soft_iface,
 		goto out;
 	}
 
-	
+	/* skb->dev & skb->pkt_type are set here */
 	if (unlikely(!pskb_may_pull(skb, ETH_HLEN)))
 		goto dropped;
 	skb->protocol = eth_type_trans(skb, soft_iface);
 
+	/* should not be necessary anymore as we use skb_pull_rcsum()
+	 * TODO: please verify this and remove this TODO
+	 * -- Dec 21st 2009, Simon Wunderlich */
 
+/*	skb->ip_summed = CHECKSUM_UNNECESSARY;*/
 
 	bat_priv->stats.rx_packets++;
 	bat_priv->stats.rx_bytes += skb->len + sizeof(struct ethhdr);
@@ -760,11 +790,15 @@ static void interface_setup(struct net_device *dev)
 	dev->destructor = free_netdev;
 	dev->tx_queue_len = 0;
 
+	/**
+	 * can't call min_mtu, because the needed variables
+	 * have not been initialized yet
+	 */
 	dev->mtu = ETH_DATA_LEN;
-	
+	/* reserve more space in the skbuff for our header */
 	dev->hard_header_len = BAT_HEADER_LEN;
 
-	
+	/* generate random address */
 	eth_hw_addr_random(dev);
 
 	SET_ETHTOOL_OPS(dev, &bat_ethtool_ops);
@@ -867,6 +901,7 @@ int softif_is_valid(const struct net_device *net_dev)
 	return 0;
 }
 
+/* ethtool */
 static int bat_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
 	cmd->supported = 0;

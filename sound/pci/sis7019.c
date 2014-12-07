@@ -38,8 +38,8 @@ MODULE_DESCRIPTION("SiS7019");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{SiS,SiS7019 Audio Accelerator}}");
 
-static int index = SNDRV_DEFAULT_IDX1;	
-static char *id = SNDRV_DEFAULT_STR1;	
+static int index = SNDRV_DEFAULT_IDX1;	/* Index 0-MAX */
+static char *id = SNDRV_DEFAULT_STR1;	/* ID for this card */
 static bool enable = 1;
 static int codecs = 1;
 
@@ -59,6 +59,25 @@ static DEFINE_PCI_DEVICE_TABLE(snd_sis7019_ids) = {
 
 MODULE_DEVICE_TABLE(pci, snd_sis7019_ids);
 
+/* There are three timing modes for the voices.
+ *
+ * For both playback and capture, when the buffer is one or two periods long,
+ * we use the hardware's built-in Mid-Loop Interrupt and End-Loop Interrupt
+ * to let us know when the periods have ended.
+ *
+ * When performing playback with more than two periods per buffer, we set
+ * the "Stop Sample Offset" and tell the hardware to interrupt us when we
+ * reach it. We then update the offset and continue on until we are
+ * interrupted for the next period.
+ *
+ * Capture channels do not have a SSO, so we allocate a playback channel to
+ * use as a timer for the capture periods. We use the SSO on the playback
+ * channel to clock out virtual periods, and adjust the virtual period length
+ * to maintain synchronization. This algorithm came from the Trident driver.
+ *
+ * FIXME: It'd be nice to make use of some of the synth features in the
+ * hardware, but a woeful lack of documentation is a significant roadblock.
+ */
 struct voice {
 	u16 flags;
 #define 	VOICE_IN_USE		1
@@ -80,6 +99,10 @@ struct voice {
 	int num;
 };
 
+/* We need four pages to store our wave parameters during a suspend. If
+ * we're not doing power management, we still need to allocate a page
+ * for the silence buffer.
+ */
 #ifdef CONFIG_PM
 #define SIS_SUSPEND_PAGES	4
 #else
@@ -97,23 +120,45 @@ struct sis7019 {
 	struct snd_card *card;
 	struct snd_ac97 *ac97[3];
 
+	/* Protect against more than one thread hitting the AC97
+	 * registers (in a more polite manner than pounding the hardware
+	 * semaphore)
+	 */
 	struct mutex ac97_mutex;
 
+	/* voice_lock protects allocation/freeing of the voice descriptions
+	 */
 	spinlock_t voice_lock;
 
 	struct voice voices[64];
 	struct voice capture_voice;
 
+	/* Allocate pages to store the internal wave state during
+	 * suspends. When we're operating, this can be used as a silence
+	 * buffer for a timing channel.
+	 */
 	void *suspend_state[SIS_SUSPEND_PAGES];
 
 	int silence_users;
 	dma_addr_t silence_dma_addr;
 };
 
+/* These values are also used by the module param 'codecs' to indicate
+ * which codecs should be present.
+ */
 #define SIS_PRIMARY_CODEC_PRESENT	0x0001
 #define SIS_SECONDARY_CODEC_PRESENT	0x0002
 #define SIS_TERTIARY_CODEC_PRESENT	0x0004
 
+/* The HW offset parameters (Loop End, Stop Sample, End Sample) have a
+ * documented range of 8-0xfff8 samples. Given that they are 0-based,
+ * that places our period/buffer range at 9-0xfff9 samples. That makes the
+ * max buffer size 0xfff9 samples * 2 channels * 2 bytes per sample, and
+ * max samples / min samples gives us the max periods in a buffer.
+ *
+ * We'll add a constraint upon open that limits the period and buffer sample
+ * size to values that are legal for the hardware.
+ */
 static struct snd_pcm_hardware sis_playback_hw_info = {
 	.info = (SNDRV_PCM_INFO_MMAP |
 		 SNDRV_PCM_INFO_MMAP_VALID |
@@ -164,11 +209,11 @@ static void sis_update_sso(struct voice *voice, u16 period)
 	if (voice->sso >= voice->buffer_size)
 		voice->sso -= voice->buffer_size;
 
-	
+	/* Enforce the documented hardware minimum offset */
 	if (voice->sso < 8)
 		voice->sso = 8;
 
-	
+	/* The SSO is in the upper 16 bits of the register. */
 	writew(voice->sso & 0xffff, base + SIS_PLAY_DMA_SSO_ESO + 2);
 }
 
@@ -179,6 +224,9 @@ static void sis_update_voice(struct voice *voice)
 	} else if (voice->flags & VOICE_SYNC_TIMING) {
 		int sync;
 
+		/* If we've not hit the end of the virtual period, update
+		 * our records and keep going.
+		 */
 		if (voice->vperiod > voice->period_size) {
 			voice->vperiod -= voice->period_size;
 			if (voice->vperiod < voice->period_size)
@@ -188,11 +236,21 @@ static void sis_update_voice(struct voice *voice)
 			return;
 		}
 
+		/* Calculate our relative offset between the target and
+		 * the actual CSO value. Since we're operating in a loop,
+		 * if the value is more than half way around, we can
+		 * consider ourselves wrapped.
+		 */
 		sync = voice->sync_cso;
 		sync -= readw(voice->sync_base + SIS_CAPTURE_DMA_FORMAT_CSO);
 		if (sync > (voice->sync_buffer_size / 2))
 			sync -= voice->sync_buffer_size;
 
+		/* If sync is positive, then we interrupted too early, and
+		 * we'll need to come back in a few samples and try again.
+		 * There's a minimum wait, as it takes some time for the DMA
+		 * engine to startup, etc...
+		 */
 		if (sync > 0) {
 			if (sync < 16)
 				sync = 16;
@@ -200,6 +258,21 @@ static void sis_update_voice(struct voice *voice)
 			return;
 		}
 
+		/* Ok, we interrupted right on time, or (hopefully) just
+		 * a bit late. We'll adjst our next waiting period based
+		 * on how close we got.
+		 *
+		 * We need to stay just behind the actual channel to ensure
+		 * it really is past a period when we get our interrupt --
+		 * otherwise we'll fall into the early code above and have
+		 * a minimum wait time, which makes us quite late here,
+		 * eating into the user's time to refresh the buffer, esp.
+		 * if using small periods.
+		 *
+		 * If we're less than 9 samples behind, we're on target.
+		 * Otherwise, shorten the next vperiod by the amount we've
+		 * been delayed.
+		 */
 		if (sync > -9)
 			voice->vperiod = voice->sync_period_size + 1;
 		else
@@ -240,6 +313,12 @@ static irqreturn_t sis_interrupt(int irq, void *dev)
 	struct voice *voice;
 	u32 intr, status;
 
+	/* We only use the DMA interrupts, and we don't enable any other
+	 * source of interrupts. But, it is possible to see an interrupt
+	 * status that didn't actually interrupt us, so eliminate anything
+	 * we're not expecting to avoid falsely claiming an IRQ, and an
+	 * ensuing endless loop.
+	 */
 	intr = inl(io + SIS_GISR);
 	intr &= SIS_GISR_AUDIO_PLAY_DMA_IRQ_STATUS |
 		SIS_GISR_AUDIO_RECORD_DMA_IRQ_STATUS;
@@ -281,6 +360,14 @@ static u32 sis_rate_to_delta(unsigned int rate)
 {
 	u32 delta;
 
+	/* This was copied from the trident driver, but it seems its gotten
+	 * around a bit... nevertheless, it works well.
+	 *
+	 * We special case 44100 and 8000 since rounding with the equation
+	 * does not give us an accurate enough value. For 11025 and 22050
+	 * the equation gives us the best answer. All other frequencies will
+	 * also use the equation. JDW
+	 */
 	if (rate == 44100)
 		delta = 0xeb3;
 	else if (rate == 8000)
@@ -294,7 +381,7 @@ static u32 sis_rate_to_delta(unsigned int rate)
 
 static void __sis_map_silence(struct sis7019 *sis)
 {
-	
+	/* Helper function: must hold sis->voice_lock on entry */
 	if (!sis->silence_users)
 		sis->silence_dma_addr = pci_map_single(sis->pci,
 						sis->suspend_state[0],
@@ -304,7 +391,7 @@ static void __sis_map_silence(struct sis7019 *sis)
 
 static void __sis_unmap_silence(struct sis7019 *sis)
 {
-	
+	/* Helper function: must hold sis->voice_lock on entry */
 	sis->silence_users--;
 	if (!sis->silence_users)
 		pci_unmap_single(sis->pci, sis->silence_dma_addr, 4096,
@@ -328,7 +415,7 @@ static void sis_free_voice(struct sis7019 *sis, struct voice *voice)
 
 static struct voice *__sis_alloc_playback_voice(struct sis7019 *sis)
 {
-	
+	/* Must hold the voice_lock on entry */
 	struct voice *voice;
 	int i;
 
@@ -367,6 +454,10 @@ static int sis_alloc_timing_voice(struct snd_pcm_substream *substream,
 	unsigned long flags;
 	int needed;
 
+	/* If there are one or two periods per buffer, we don't need a
+	 * timing voice, as we can use the capture channel's interrupts
+	 * to clock out the periods.
+	 */
 	period_size = params_period_size(hw_params);
 	buffer_size = params_buffer_size(hw_params);
 	needed = (period_size != buffer_size &&
@@ -441,6 +532,9 @@ static int sis_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	u32 format, dma_addr, control, sso_eso, delta, reg;
 	u16 leo;
 
+	/* We rely on the PCM core to ensure that the parameters for this
+	 * substream do not change on us while we're programming the HW.
+	 */
 	format = 0;
 	if (snd_pcm_format_width(runtime->format) == 8)
 		format |= SIS_PLAY_DMA_FORMAT_8BIT;
@@ -449,6 +543,9 @@ static int sis_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	if (runtime->channels == 1)
 		format |= SIS_PLAY_DMA_FORMAT_MONO;
 
+	/* The baseline setup is for a single period per buffer, and
+	 * we add bells and whistles as needed from there.
+	 */
 	dma_addr = runtime->dma_addr;
 	leo = runtime->buffer_size - 1;
 	control = leo | SIS_PLAY_DMA_LOOP | SIS_PLAY_DMA_INTR_AT_LEO;
@@ -469,6 +566,8 @@ static int sis_pcm_playback_prepare(struct snd_pcm_substream *substream)
 
 	delta = sis_rate_to_delta(runtime->rate);
 
+	/* Ok, we're ready to go, set up the channel.
+	 */
 	writel(format, ctrl_base + SIS_PLAY_DMA_FORMAT_CSO);
 	writel(dma_addr, ctrl_base + SIS_PLAY_DMA_BASE);
 	writel(control, ctrl_base + SIS_PLAY_DMA_CONTROL);
@@ -484,7 +583,7 @@ static int sis_pcm_playback_prepare(struct snd_pcm_substream *substream)
 			SIS_WAVE_CHANNEL_CONTROL_INTERPOLATE_ENABLE,
 			wave_base + SIS_WAVE_CHANNEL_CONTROL);
 
-	
+	/* Force PCI writes to post. */
 	readl(ctrl_base);
 
 	return 0;
@@ -501,6 +600,10 @@ static int sis_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	u32 record = 0;
 	u32 play[2] = { 0, 0 };
 
+	/* No locks needed, as the PCM core will hold the locks on the
+	 * substreams, and the HW will only start/stop the indicated voices
+	 * without changing the state of the others.
+	 */
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
@@ -517,7 +620,7 @@ static int sis_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	}
 
 	snd_pcm_group_for_each_entry(s, substream) {
-		
+		/* Make sure it is for us... */
 		chip = snd_pcm_substream_chip(s);
 		if (chip != sis)
 			continue;
@@ -528,6 +631,9 @@ static int sis_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 			voice = voice->timing;
 		}
 
+		/* voice could be NULL if this a recording stream, and it
+		 * doesn't have an external timing channel.
+		 */
 		if (voice)
 			play[voice->num / 32] |= 1 << (voice->num & 0x1f);
 
@@ -570,6 +676,9 @@ static int sis_capture_open(struct snd_pcm_substream *substream)
 	struct voice *voice = &sis->capture_voice;
 	unsigned long flags;
 
+	/* FIXME: The driver only supports recording from one channel
+	 * at the moment, but it could support more.
+	 */
 	spin_lock_irqsave(&sis->voice_lock, flags);
 	if (voice->flags & VOICE_IN_USE)
 		voice = NULL;
@@ -627,10 +736,25 @@ static void sis_prepare_timing_voice(struct voice *voice,
 	u32 format, control, sso_eso, delta;
 	u32 vperiod, sso, reg;
 
+	/* Set our initial buffer and period as large as we can given a
+	 * single page of silence.
+	 */
 	buffer_size = 4096 / runtime->channels;
 	buffer_size /= snd_pcm_format_size(runtime->format, 1);
 	period_size = buffer_size;
 
+	/* Initially, we want to interrupt just a bit behind the end of
+	 * the period we're clocking out. 12 samples seems to give a good
+	 * delay.
+	 *
+	 * We want to spread our interrupts throughout the virtual period,
+	 * so that we don't end up with two interrupts back to back at the
+	 * end -- this helps minimize the effects of any jitter. Adjust our
+	 * clocking period size so that the last period is at least a fourth
+	 * of a full period.
+	 *
+	 * This is all moot if we don't need to use virtual periods.
+	 */
 	vperiod = runtime->period_size + 12;
 	if (vperiod > period_size) {
 		u16 tail = vperiod % period_size;
@@ -647,11 +771,17 @@ static void sis_prepare_timing_voice(struct voice *voice,
 
 		sso = period_size - 1;
 	} else {
+		/* The initial period will fit inside the buffer, so we
+		 * don't need to use virtual periods -- disable them.
+		 */
 		period_size = runtime->period_size;
 		sso = vperiod - 1;
 		vperiod = 0;
 	}
 
+	/* The interrupt handler implements the timing synchronization, so
+	 * setup its state.
+	 */
 	timing->flags |= VOICE_SYNC_TIMING;
 	timing->sync_base = voice->ctrl_base;
 	timing->sync_cso = runtime->period_size;
@@ -662,6 +792,10 @@ static void sis_prepare_timing_voice(struct voice *voice,
 	timing->sso = sso;
 	timing->vperiod = vperiod;
 
+	/* Using unsigned samples with the all-zero silence buffer
+	 * forces the output to the lower rail, killing playback.
+	 * So ignore unsigned vs signed -- it doesn't change the timing.
+	 */
 	format = 0;
 	if (snd_pcm_format_width(runtime->format) == 8)
 		format = SIS_CAPTURE_DMA_FORMAT_8BIT;
@@ -675,6 +809,8 @@ static void sis_prepare_timing_voice(struct voice *voice,
 
 	delta = sis_rate_to_delta(runtime->rate);
 
+	/* We've done the math, now configure the channel.
+	 */
 	writel(format, play_base + SIS_PLAY_DMA_FORMAT_CSO);
 	writel(sis->silence_dma_addr, play_base + SIS_PLAY_DMA_BASE);
 	writel(control, play_base + SIS_PLAY_DMA_CONTROL);
@@ -699,6 +835,9 @@ static int sis_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	u32 format, dma_addr, control;
 	u16 leo;
 
+	/* We rely on the PCM core to ensure that the parameters for this
+	 * substream do not change on us while we're programming the HW.
+	 */
 	format = 0;
 	if (snd_pcm_format_width(runtime->format) == 8)
 		format = SIS_CAPTURE_DMA_FORMAT_8BIT;
@@ -711,6 +850,10 @@ static int sis_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	leo = runtime->buffer_size - 1;
 	control = leo | SIS_CAPTURE_DMA_LOOP;
 
+	/* If we've got more than two periods per buffer, then we have
+	 * use a timing voice to clock out the periods. Otherwise, we can
+	 * use the capture channel's interrupts.
+	 */
 	if (voice->timing) {
 		sis_prepare_timing_voice(voice, substream);
 	} else {
@@ -723,7 +866,7 @@ static int sis_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	writel(dma_addr, rec_base + SIS_CAPTURE_DMA_BASE);
 	writel(control, rec_base + SIS_CAPTURE_DMA_CONTROL);
 
-	
+	/* Force the writes to post. */
 	readl(rec_base);
 
 	return 0;
@@ -756,6 +899,9 @@ static int __devinit sis_pcm_create(struct sis7019 *sis)
 	struct snd_pcm *pcm;
 	int rc;
 
+	/* We have 64 voices, and the driver currently records from
+	 * only one channel, though that could change in the future.
+	 */
 	rc = snd_pcm_new(sis->card, "SiS7019", 0, 64, 1, &pcm);
 	if (rc)
 		return rc;
@@ -767,6 +913,9 @@ static int __devinit sis_pcm_create(struct sis7019 *sis)
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &sis_playback_ops);
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &sis_capture_ops);
 
+	/* Try to preallocate some memory, but it's not the end of the
+	 * world if this fails.
+	 */
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
 				snd_dma_pci_data(sis->pci), 64*1024, 128*1024);
 
@@ -789,6 +938,9 @@ static unsigned short sis_ac97_rw(struct sis7019 *sis, int codec, u32 cmd)
 	rdy = codec_ready[codec];
 
 
+	/* Get the AC97 semaphore -- software first, so we don't spin
+	 * pounding out IO reads on the hardware semaphore...
+	 */
 	mutex_lock(&sis->ac97_mutex);
 
 	count = 0xffff;
@@ -798,6 +950,8 @@ static unsigned short sis_ac97_rw(struct sis7019 *sis, int codec, u32 cmd)
 	if (!count)
 		goto timeout;
 
+	/* ... and wait for any outstanding commands to complete ...
+	 */
 	count = 0xffff;
 	do {
 		status = inw(io + SIS_AC97_STATUS);
@@ -810,6 +964,8 @@ static unsigned short sis_ac97_rw(struct sis7019 *sis, int codec, u32 cmd)
 	if (!count)
 		goto timeout_sema;
 
+	/* ... before sending our command and waiting for it to finish ...
+	 */
 	outl(cmd, io + SIS_AC97_CMD);
 	udelay(10);
 
@@ -817,6 +973,8 @@ static unsigned short sis_ac97_rw(struct sis7019 *sis, int codec, u32 cmd)
 	while ((inw(io + SIS_AC97_STATUS) & SIS_AC97_STATUS_BUSY) && --count)
 		udelay(1);
 
+	/* ... and reading the results (if any).
+	 */
 	val = inl(io + SIS_AC97_CMD) >> 16;
 
 timeout_sema:
@@ -878,6 +1036,9 @@ static int __devinit sis_mixer_create(struct sis7019 *sis)
 	if (!rc && (sis->codecs_present & SIS_TERTIARY_CODEC_PRESENT))
 		rc = snd_ac97_mixer(bus, &ac97, &sis->ac97[2]);
 
+	/* If we return an error here, then snd_card_free() should
+	 * free up any ac97 codecs that got created, as well as the bus.
+	 */
 	return rc;
 }
 
@@ -891,11 +1052,15 @@ static void sis_free_suspend(struct sis7019 *sis)
 
 static int sis_chip_free(struct sis7019 *sis)
 {
+	/* Reset the chip, and disable all interrputs.
+	 */
 	outl(SIS_GCR_SOFTWARE_RESET, sis->ioport + SIS_GCR);
 	udelay(25);
 	outl(0, sis->ioport + SIS_GCR);
 	outl(0, sis->ioport + SIS_GIER);
 
+	/* Now, free everything we allocated.
+	 */
 	if (sis->irq >= 0)
 		free_irq(sis->irq, sis);
 
@@ -924,10 +1089,14 @@ static int sis_chip_init(struct sis7019 *sis)
 	int count;
 	int i;
 
+	/* Reset the audio controller
+	 */
 	outl(SIS_GCR_SOFTWARE_RESET, io + SIS_GCR);
 	udelay(25);
 	outl(0, io + SIS_GCR);
 
+	/* Get the AC-link semaphore, and reset the codecs
+	 */
 	count = 0xffff;
 	while ((inw(io + SIS_AC97_SEMA) & SIS_AC97_SEMA_BUSY) && --count)
 		udelay(1);
@@ -942,10 +1111,17 @@ static int sis_chip_init(struct sis7019 *sis)
 	while ((inw(io + SIS_AC97_STATUS) & SIS_AC97_STATUS_BUSY) && --count)
 		udelay(1);
 
+	/* Command complete, we can let go of the semaphore now.
+	 */
 	outl(SIS_AC97_SEMA_RELEASE, io + SIS_AC97_SEMA);
 	if (!count)
 		return -EIO;
 
+	/* Now that we've finished the reset, find out what's attached.
+	 * There are some codec/board combinations that take an extremely
+	 * long time to come up. 350+ ms has been observed in the field,
+	 * so we'll give them up to 500ms.
+	 */
 	sis->codecs_present = 0;
 	timeout = msecs_to_jiffies(500) + jiffies;
 	while (time_before_eq(jiffies, timeout)) {
@@ -963,6 +1139,8 @@ static int sis_chip_init(struct sis7019 *sis)
 		msleep(1);
 	}
 
+	/* All done, check for errors.
+	 */
 	if (!sis->codecs_present) {
 		dev_err(&sis->pci->dev, "could not find any codecs\n");
 		return -EIO;
@@ -973,16 +1151,31 @@ static int sis_chip_init(struct sis7019 *sis)
 					 sis->codecs_present, codecs);
 	}
 
+	/* Let the hardware know that the audio driver is alive,
+	 * and enable PCM slots on the AC-link for L/R playback (3 & 4) and
+	 * record channels. We're going to want to use Variable Rate Audio
+	 * for recording, to avoid needlessly resampling from 48kHZ.
+	 */
 	outl(SIS_AC97_CONF_AUDIO_ALIVE, io + SIS_AC97_CONF);
 	outl(SIS_AC97_CONF_AUDIO_ALIVE | SIS_AC97_CONF_PCM_LR_ENABLE |
 		SIS_AC97_CONF_PCM_CAP_MIC_ENABLE |
 		SIS_AC97_CONF_PCM_CAP_LR_ENABLE |
 		SIS_AC97_CONF_CODEC_VRA_ENABLE, io + SIS_AC97_CONF);
 
+	/* All AC97 PCM slots should be sourced from sub-mixer 0.
+	 */
 	outl(0, io + SIS_AC97_PSR);
 
+	/* There is only one valid DMA setup for a PCI environment.
+	 */
 	outl(SIS_DMA_CSR_PCI_SETTINGS, io + SIS_DMA_CSR);
 
+	/* Reset the synchronization groups for all of the channels
+	 * to be asyncronous. If we start doing SPDIF or 5.1 sound, etc.
+	 * we'll need to change how we handle these. Until then, we just
+	 * assign sub-mixer 0 to all playback channels, and avoid any
+	 * attenuation on the audio.
+	 */
 	outl(0, io + SIS_PLAY_SYNC_GROUP_A);
 	outl(0, io + SIS_PLAY_SYNC_GROUP_B);
 	outl(0, io + SIS_PLAY_SYNC_GROUP_C);
@@ -995,10 +1188,20 @@ static int sis_chip_init(struct sis7019 *sis)
 				SIS_MIXER_DEST_0, SIS_MIXER_ADDR(ioaddr, i));
 	}
 
+	/* Don't attenuate any audio set for the wave amplifier.
+	 *
+	 * FIXME: Maximum attenuation is set for the music amp, which will
+	 * need to change if we start using the synth engine.
+	 */
 	outl(0xffff0000, io + SIS_WEVCR);
 
+	/* Ensure that the wave engine is in normal operating mode.
+	 */
 	outl(0, io + SIS_WECCR);
 
+	/* Go ahead and enable the DMA interrupts. They won't go live
+	 * until we start a channel.
+	 */
 	outl(SIS_GIER_AUDIO_PLAY_DMA_IRQ_ENABLE |
 		SIS_GIER_AUDIO_RECORD_DMA_IRQ_ENABLE, io + SIS_GIER);
 
@@ -1022,11 +1225,15 @@ static int sis_suspend(struct pci_dev *pci, pm_message_t state)
 	if (sis->codecs_present & SIS_TERTIARY_CODEC_PRESENT)
 		snd_ac97_suspend(sis->ac97[2]);
 
+	/* snd_pcm_suspend_all() stopped all channels, so we're quiescent.
+	 */
 	if (sis->irq >= 0) {
 		free_irq(sis->irq, sis);
 		sis->irq = -1;
 	}
 
+	/* Save the internal state away
+	 */
 	for (i = 0; i < 4; i++) {
 		memcpy_fromio(sis->suspend_state[i], ioaddr, 4096);
 		ioaddr += 4096;
@@ -1064,6 +1271,9 @@ static int sis_resume(struct pci_dev *pci)
 		goto error;
 	}
 
+	/* Restore saved state, then clear out the page we use for the
+	 * silence buffer.
+	 */
 	for (i = 0; i < 4; i++) {
 		memcpy_toio(ioaddr, sis->suspend_state[i], 4096);
 		ioaddr += 4096;
@@ -1088,12 +1298,17 @@ error:
 	snd_card_disconnect(card);
 	return -EIO;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static int sis_alloc_suspend(struct sis7019 *sis)
 {
 	int i;
 
+	/* We need 16K to store the internal wave engine state during a
+	 * suspend, but we don't need it to be contiguous, so play nice
+	 * with the memory system. We'll also use this area for a silence
+	 * buffer.
+	 */
 	for (i = 0; i < SIS_SUSPEND_PAGES; i++) {
 		sis->suspend_state[i] = kmalloc(4096, GFP_KERNEL);
 		if (!sis->suspend_state[i])
@@ -1205,6 +1420,12 @@ static int __devinit snd_sis7019_probe(struct pci_dev *pci,
 	if (!enable)
 		goto error_out;
 
+	/* The user can specify which codecs should be present so that we
+	 * can wait for them to show up if they are slow to recover from
+	 * the AC97 cold reset. We default to a single codec, the primary.
+	 *
+	 * We assume that SIS_PRIMARY_*_PRESENT matches bits 0-2.
+	 */
 	codecs &= SIS_PRIMARY_CODEC_PRESENT | SIS_SECONDARY_CODEC_PRESENT |
 		  SIS_TERTIARY_CODEC_PRESENT;
 	if (!codecs)

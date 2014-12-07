@@ -21,25 +21,30 @@ static struct rb_root fscache_object_list;
 static DEFINE_RWLOCK(fscache_object_list_lock);
 
 struct fscache_objlist_data {
-	unsigned long	config;		
-#define FSCACHE_OBJLIST_CONFIG_KEY	0x00000001	
-#define FSCACHE_OBJLIST_CONFIG_AUX	0x00000002	
-#define FSCACHE_OBJLIST_CONFIG_COOKIE	0x00000004	
-#define FSCACHE_OBJLIST_CONFIG_NOCOOKIE	0x00000008	
-#define FSCACHE_OBJLIST_CONFIG_BUSY	0x00000010	
-#define FSCACHE_OBJLIST_CONFIG_IDLE	0x00000020	
-#define FSCACHE_OBJLIST_CONFIG_PENDWR	0x00000040	
-#define FSCACHE_OBJLIST_CONFIG_NOPENDWR	0x00000080	
-#define FSCACHE_OBJLIST_CONFIG_READS	0x00000100	
-#define FSCACHE_OBJLIST_CONFIG_NOREADS	0x00000200	
-#define FSCACHE_OBJLIST_CONFIG_EVENTS	0x00000400	
-#define FSCACHE_OBJLIST_CONFIG_NOEVENTS	0x00000800	
-#define FSCACHE_OBJLIST_CONFIG_WORK	0x00001000	
-#define FSCACHE_OBJLIST_CONFIG_NOWORK	0x00002000	
+	unsigned long	config;		/* display configuration */
+#define FSCACHE_OBJLIST_CONFIG_KEY	0x00000001	/* show object keys */
+#define FSCACHE_OBJLIST_CONFIG_AUX	0x00000002	/* show object auxdata */
+#define FSCACHE_OBJLIST_CONFIG_COOKIE	0x00000004	/* show objects with cookies */
+#define FSCACHE_OBJLIST_CONFIG_NOCOOKIE	0x00000008	/* show objects without cookies */
+#define FSCACHE_OBJLIST_CONFIG_BUSY	0x00000010	/* show busy objects */
+#define FSCACHE_OBJLIST_CONFIG_IDLE	0x00000020	/* show idle objects */
+#define FSCACHE_OBJLIST_CONFIG_PENDWR	0x00000040	/* show objects with pending writes */
+#define FSCACHE_OBJLIST_CONFIG_NOPENDWR	0x00000080	/* show objects without pending writes */
+#define FSCACHE_OBJLIST_CONFIG_READS	0x00000100	/* show objects with active reads */
+#define FSCACHE_OBJLIST_CONFIG_NOREADS	0x00000200	/* show objects without active reads */
+#define FSCACHE_OBJLIST_CONFIG_EVENTS	0x00000400	/* show objects with events */
+#define FSCACHE_OBJLIST_CONFIG_NOEVENTS	0x00000800	/* show objects without no events */
+#define FSCACHE_OBJLIST_CONFIG_WORK	0x00001000	/* show objects with work */
+#define FSCACHE_OBJLIST_CONFIG_NOWORK	0x00002000	/* show objects without work */
 
-	u8		buf[512];	
+	u8		buf[512];	/* key and aux data buffer */
 };
 
+/*
+ * Add an object to the object list
+ * - we use the address of the fscache_object structure as the key into the
+ *   tree
+ */
 void fscache_objlist_add(struct fscache_object *obj)
 {
 	struct fscache_object *xobj;
@@ -65,6 +70,12 @@ void fscache_objlist_add(struct fscache_object *obj)
 	write_unlock(&fscache_object_list_lock);
 }
 
+/**
+ * fscache_object_destroy - Note that a cache object is about to be destroyed
+ * @object: The object to be destroyed
+ *
+ * Note the imminent destruction and deallocation of a cache object record.
+ */
 void fscache_object_destroy(struct fscache_object *obj)
 {
 	write_lock(&fscache_object_list_lock);
@@ -76,6 +87,9 @@ void fscache_object_destroy(struct fscache_object *obj)
 }
 EXPORT_SYMBOL(fscache_object_destroy);
 
+/*
+ * find the object in the tree on or after the specified index
+ */
 static struct fscache_object *fscache_objlist_lookup(loff_t *_pos)
 {
 	struct fscache_object *pobj, *obj = NULL, *minobj = NULL;
@@ -86,6 +100,8 @@ static struct fscache_object *fscache_objlist_lookup(loff_t *_pos)
 		return NULL;
 	pos = *_pos;
 
+	/* banners (can't represent line 0 by pos 0 as that would involve
+	 * returning a NULL pointer) */
 	if (pos == 0)
 		return (struct fscache_object *)(long)++(*_pos);
 	if (pos < 3)
@@ -115,6 +131,9 @@ static struct fscache_object *fscache_objlist_lookup(loff_t *_pos)
 	return minobj;
 }
 
+/*
+ * set up the iterator to start reading from the first line
+ */
 static void *fscache_objlist_start(struct seq_file *m, loff_t *_pos)
 	__acquires(&fscache_object_list_lock)
 {
@@ -122,18 +141,27 @@ static void *fscache_objlist_start(struct seq_file *m, loff_t *_pos)
 	return fscache_objlist_lookup(_pos);
 }
 
+/*
+ * move to the next line
+ */
 static void *fscache_objlist_next(struct seq_file *m, void *v, loff_t *_pos)
 {
 	(*_pos)++;
 	return fscache_objlist_lookup(_pos);
 }
 
+/*
+ * clean up after reading
+ */
 static void fscache_objlist_stop(struct seq_file *m, void *v)
 	__releases(&fscache_object_list_lock)
 {
 	read_unlock(&fscache_object_list_lock);
 }
 
+/*
+ * display an object
+ */
 static int fscache_objlist_show(struct seq_file *m, void *v)
 {
 	struct fscache_objlist_data *data = m->private;
@@ -174,7 +202,7 @@ static int fscache_objlist_show(struct seq_file *m, void *v)
 		return 0;
 	}
 
-	
+	/* filter out any unwanted objects */
 #define FILTER(criterion, _yes, _no)					\
 	do {								\
 		unsigned long yes = FSCACHE_OBJLIST_CONFIG_##_yes;	\
@@ -290,6 +318,9 @@ static const struct seq_operations fscache_objlist_ops = {
 	.show		= fscache_objlist_show,
 };
 
+/*
+ * get the configuration for filtering the list
+ */
 static void fscache_objlist_config(struct fscache_objlist_data *data)
 {
 #ifdef CONFIG_KEYS
@@ -350,6 +381,10 @@ no_config:
 	data->config = ULONG_MAX;
 }
 
+/*
+ * open "/proc/fs/fscache/objects" to provide a list of active objects
+ * - can be configured by a user-defined key added to the caller's keyrings
+ */
 static int fscache_objlist_open(struct inode *inode, struct file *file)
 {
 	struct fscache_objlist_data *data;
@@ -362,20 +397,23 @@ static int fscache_objlist_open(struct inode *inode, struct file *file)
 
 	m = file->private_data;
 
-	
+	/* buffer for key extraction */
 	data = kmalloc(sizeof(struct fscache_objlist_data), GFP_KERNEL);
 	if (!data) {
 		seq_release(inode, file);
 		return -ENOMEM;
 	}
 
-	
+	/* get the configuration key */
 	fscache_objlist_config(data);
 
 	m->private = data;
 	return 0;
 }
 
+/*
+ * clean up on close
+ */
 static int fscache_objlist_release(struct inode *inode, struct file *file)
 {
 	struct seq_file *m = file->private_data;

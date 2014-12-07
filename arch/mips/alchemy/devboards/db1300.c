@@ -1,9 +1,14 @@
+/*
+ * DBAu1300 init and platform device setup.
+ *
+ * (c) 2009 Manuel Lauss <manuel.lauss@googlemail.com>
+ */
 
 #include <linux/dma-mapping.h>
 #include <linux/gpio.h>
 #include <linux/gpio_keys.h>
 #include <linux/init.h>
-#include <linux/input.h>	
+#include <linux/input.h>	/* KEY_* codes */
 #include <linux/i2c.h>
 #include <linux/io.h>
 #include <linux/leds.h>
@@ -28,47 +33,49 @@
 #include "platform.h"
 
 static struct i2c_board_info db1300_i2c_devs[] __initdata = {
-	{ I2C_BOARD_INFO("wm8731", 0x1b), },	
-	{ I2C_BOARD_INFO("ne1619", 0x2d), },	
+	{ I2C_BOARD_INFO("wm8731", 0x1b), },	/* I2S audio codec */
+	{ I2C_BOARD_INFO("ne1619", 0x2d), },	/* adm1025-compat hwmon */
 };
 
+/* multifunction pins to assign to GPIO controller */
 static int db1300_gpio_pins[] __initdata = {
 	AU1300_PIN_LCDPWM0, AU1300_PIN_PSC2SYNC1, AU1300_PIN_WAKE1,
 	AU1300_PIN_WAKE2, AU1300_PIN_WAKE3, AU1300_PIN_FG3AUX,
 	AU1300_PIN_EXTCLK1,
-	-1,	
+	-1,	/* terminator */
 };
 
+/* multifunction pins to assign to device functions */
 static int db1300_dev_pins[] __initdata = {
-	
+	/* wake-from-str pins 0-3 */
 	AU1300_PIN_WAKE0,
-	
+	/* external clock sources for PSC0 */
 	AU1300_PIN_EXTCLK0,
-	
+	/* 8bit MMC interface on SD0: 6-9 */
 	AU1300_PIN_SD0DAT4, AU1300_PIN_SD0DAT5, AU1300_PIN_SD0DAT6,
 	AU1300_PIN_SD0DAT7,
-	
+	/* UART1 pins: 11-18 */
 	AU1300_PIN_U1RI, AU1300_PIN_U1DCD, AU1300_PIN_U1DSR,
 	AU1300_PIN_U1CTS, AU1300_PIN_U1RTS, AU1300_PIN_U1DTR,
 	AU1300_PIN_U1RX, AU1300_PIN_U1TX,
-	
+	/* UART0 pins: 19-24 */
 	AU1300_PIN_U0RI, AU1300_PIN_U0DCD, AU1300_PIN_U0DSR,
 	AU1300_PIN_U0CTS, AU1300_PIN_U0RTS, AU1300_PIN_U0DTR,
-	
+	/* UART2: 25-26 */
 	AU1300_PIN_U2RX, AU1300_PIN_U2TX,
-	
+	/* UART3: 27-28 */
 	AU1300_PIN_U3RX, AU1300_PIN_U3TX,
-	
+	/* LCD controller PWMs, ext pixclock: 30-31 */
 	AU1300_PIN_LCDPWM1, AU1300_PIN_LCDCLKIN,
-	
+	/* SD1 interface: 32-37 */
 	AU1300_PIN_SD1DAT0, AU1300_PIN_SD1DAT1, AU1300_PIN_SD1DAT2,
 	AU1300_PIN_SD1DAT3, AU1300_PIN_SD1CMD, AU1300_PIN_SD1CLK,
-	
+	/* SD2 interface: 38-43 */
 	AU1300_PIN_SD2DAT0, AU1300_PIN_SD2DAT1, AU1300_PIN_SD2DAT2,
 	AU1300_PIN_SD2DAT3, AU1300_PIN_SD2CMD, AU1300_PIN_SD2CLK,
-	
+	/* PSC0/1 clocks: 44-45 */
 	AU1300_PIN_PSC0CLK, AU1300_PIN_PSC1CLK,
-	
+	/* PSCs: 46-49/50-53/54-57/58-61 */
 	AU1300_PIN_PSC0SYNC0, AU1300_PIN_PSC0SYNC1, AU1300_PIN_PSC0D0,
 	AU1300_PIN_PSC0D1,
 	AU1300_PIN_PSC1SYNC0, AU1300_PIN_PSC1SYNC1, AU1300_PIN_PSC1D0,
@@ -77,15 +84,15 @@ static int db1300_dev_pins[] __initdata = {
 	AU1300_PIN_PSC2D1,
 	AU1300_PIN_PSC3SYNC0, AU1300_PIN_PSC3SYNC1, AU1300_PIN_PSC3D0,
 	AU1300_PIN_PSC3D1,
-	
+	/* PCMCIA interface: 62-70 */
 	AU1300_PIN_PCE2, AU1300_PIN_PCE1, AU1300_PIN_PIOS16,
 	AU1300_PIN_PIOR, AU1300_PIN_PWE, AU1300_PIN_PWAIT,
 	AU1300_PIN_PREG, AU1300_PIN_POE, AU1300_PIN_PIOW,
-	
+	/* camera interface H/V sync inputs: 71-72 */
 	AU1300_PIN_CIMLS, AU1300_PIN_CIMFS,
-	
+	/* PSC2/3 clocks: 73-74 */
 	AU1300_PIN_PSC2CLK, AU1300_PIN_PSC3CLK,
-	-1,	
+	-1,	/* terminator */
 };
 
 static void __init db1300_gpio_config(void)
@@ -98,7 +105,7 @@ static void __init db1300_gpio_config(void)
 
 	i = &db1300_gpio_pins[0];
 	while (*i != -1)
-		au1300_gpio_direction_input(*i++);
+		au1300_gpio_direction_input(*i++);/* implies pin_to_gpio */
 
 	au1300_set_dbdma_gpio(1, AU1300_PIN_FG3AUX);
 }
@@ -108,6 +115,7 @@ char *get_system_type(void)
 	return "DB1300";
 }
 
+/**********************************************************************/
 
 static void au1300_nand_cmd_ctrl(struct mtd_info *mtd, int cmd,
 				 unsigned int ctrl)
@@ -122,7 +130,7 @@ static void au1300_nand_cmd_ctrl(struct mtd_info *mtd, int cmd,
 	} else if (ctrl & NAND_ALE) {
 		ioaddr += MEM_STNAND_ADDR;
 	} else {
-		
+		/* assume we want to r/w real data  by default */
 		ioaddr += MEM_STNAND_DATA;
 	}
 	this->IO_ADDR_R = this->IO_ADDR_W = (void __iomem *)ioaddr;
@@ -185,6 +193,7 @@ static struct platform_device db1300_nand_dev = {
 	}
 };
 
+/**********************************************************************/
 
 static struct resource db1300_eth_res[] = {
 	[0] = {
@@ -216,6 +225,7 @@ static struct platform_device db1300_eth_dev = {
 	},
 };
 
+/**********************************************************************/
 
 static struct resource au1300_psc1_res[] = {
 	[0] = {
@@ -242,11 +252,12 @@ static struct resource au1300_psc1_res[] = {
 
 static struct platform_device db1300_ac97_dev = {
 	.name		= "au1xpsc_ac97",
-	.id		= 1,	
+	.id		= 1,	/* PSC ID. match with AC97 codec ID! */
 	.num_resources	= ARRAY_SIZE(au1300_psc1_res),
 	.resource	= au1300_psc1_res,
 };
 
+/**********************************************************************/
 
 static struct resource au1300_psc2_res[] = {
 	[0] = {
@@ -273,11 +284,12 @@ static struct resource au1300_psc2_res[] = {
 
 static struct platform_device db1300_i2s_dev = {
 	.name		= "au1xpsc_i2s",
-	.id		= 2,	
+	.id		= 2,	/* PSC ID */
 	.num_resources	= ARRAY_SIZE(au1300_psc2_res),
 	.resource	= au1300_psc2_res,
 };
 
+/**********************************************************************/
 
 static struct resource au1300_psc3_res[] = {
 	[0] = {
@@ -304,12 +316,17 @@ static struct resource au1300_psc3_res[] = {
 
 static struct platform_device db1300_i2c_dev = {
 	.name		= "au1xpsc_smbus",
-	.id		= 0,	
+	.id		= 0,	/* bus number */
 	.num_resources	= ARRAY_SIZE(au1300_psc3_res),
 	.resource	= au1300_psc3_res,
 };
 
+/**********************************************************************/
 
+/* proper key assignments when facing the LCD panel.  For key assignments
+ * according to the schematics swap up with down and left with right.
+ * I chose to use it to emulate the arrow keys of a keyboard.
+ */
 static struct gpio_keys_button db1300_5waysw_arrowkeys[] = {
 	{
 		.code			= KEY_DOWN,
@@ -367,6 +384,7 @@ static struct platform_device db1300_5waysw_dev = {
 	},
 };
 
+/**********************************************************************/
 
 static struct pata_platform_info db1300_ide_info = {
 	.ioport_shift	= DB1300_IDE_REG_SHIFT,
@@ -400,12 +418,13 @@ static struct platform_device db1300_ide_dev = {
 	.num_resources	= ARRAY_SIZE(db1300_ide_res),
 };
 
+/**********************************************************************/
 
 static irqreturn_t db1300_mmc_cd(int irq, void *ptr)
 {
 	void(*mmc_cd)(struct mmc_host *, unsigned long);
 
-	
+	/* disable the one currently screaming. No other way to shut it up */
 	if (irq == DB1300_SD1_INSERT_INT) {
 		disable_irq_nosync(DB1300_SD1_INSERT_INT);
 		enable_irq(DB1300_SD1_EJECT_INT);
@@ -414,6 +433,9 @@ static irqreturn_t db1300_mmc_cd(int irq, void *ptr)
 		enable_irq(DB1300_SD1_INSERT_INT);
 	}
 
+	/* link against CONFIG_MMC=m.  We can only be called once MMC core has
+	 * initialized the controller, so symbol_get() should always succeed.
+	 */
 	mmc_cd = symbol_get(mmc_detect_change);
 	mmc_cd(ptr, msecs_to_jiffies(500));
 	symbol_put(mmc_detect_change);
@@ -423,13 +445,13 @@ static irqreturn_t db1300_mmc_cd(int irq, void *ptr)
 
 static int db1300_mmc_card_readonly(void *mmc_host)
 {
-	
+	/* it uses SD1 interface, but the DB1200's SD0 bit in the CPLD */
 	return bcsr_read(BCSR_STATUS) & BCSR_STATUS_SD0WP;
 }
 
 static int db1300_mmc_card_inserted(void *mmc_host)
 {
-	return bcsr_read(BCSR_SIGSTAT) & (1 << 12); 
+	return bcsr_read(BCSR_SIGSTAT) & (1 << 12); /* insertion irq signal */
 }
 
 static int db1300_mmc_cd_setup(void *mmc_host, int en)
@@ -516,10 +538,11 @@ static struct platform_device db1300_sd1_dev = {
 	.num_resources	= ARRAY_SIZE(au1300_sd1_res),
 };
 
+/**********************************************************************/
 
 static int db1300_movinand_inserted(void *mmc_host)
 {
-	return 0; 
+	return 0; /* disable for now, it doesn't work yet */
 }
 
 static int db1300_movinand_readonly(void *mmc_host)
@@ -580,20 +603,21 @@ static struct platform_device db1300_sd0_dev = {
 	.num_resources	= ARRAY_SIZE(au1300_sd0_res),
 };
 
+/**********************************************************************/
 
 static struct platform_device db1300_wm9715_dev = {
 	.name		= "wm9712-codec",
-	.id		= 1,	
+	.id		= 1,	/* ID of PSC for AC97 audio, see asoc glue! */
 };
 
 static struct platform_device db1300_ac97dma_dev = {
 	.name		= "au1xpsc-pcm",
-	.id		= 1,	
+	.id		= 1,	/* PSC ID */
 };
 
 static struct platform_device db1300_i2sdma_dev = {
 	.name		= "au1xpsc-pcm",
-	.id		= 2,	
+	.id		= 2,	/* PSC ID */
 };
 
 static struct platform_device db1300_sndac97_dev = {
@@ -604,15 +628,16 @@ static struct platform_device db1300_sndi2s_dev = {
 	.name		= "db1300-i2s",
 };
 
+/**********************************************************************/
 
 static int db1300fb_panel_index(void)
 {
-	return 9;	
+	return 9;	/* DB1300_800x480 */
 }
 
 static int db1300fb_panel_init(void)
 {
-	
+	/* Apply power (Vee/Vdd logic is inverted on Panel DB1300_800x480) */
 	bcsr_mod(BCSR_BOARD, BCSR_BOARD_LCDVEE | BCSR_BOARD_LCDVDD,
 			     BCSR_BOARD_LCDBL);
 	return 0;
@@ -620,7 +645,7 @@ static int db1300fb_panel_init(void)
 
 static int db1300fb_panel_shutdown(void)
 {
-	
+	/* Remove power (Vee/Vdd logic is inverted on Panel DB1300_800x480) */
 	bcsr_mod(BCSR_BOARD, BCSR_BOARD_LCDBL,
 			     BCSR_BOARD_LCDVEE | BCSR_BOARD_LCDVDD);
 	return 0;
@@ -659,6 +684,7 @@ static struct platform_device db1300_lcd_dev = {
 	.resource	= au1300_lcd_res,
 };
 
+/**********************************************************************/
 
 static struct platform_device *db1300_dev[] __initdata = {
 	&db1300_eth_dev,
@@ -682,36 +708,45 @@ static int __init db1300_device_init(void)
 {
 	int swapped, cpldirq;
 
-	
+	/* setup CPLD IRQ muxer */
 	cpldirq = au1300_gpio_to_irq(AU1300_PIN_EXTCLK1);
 	irq_set_irq_type(cpldirq, IRQ_TYPE_LEVEL_HIGH);
 	bcsr_init_irq(DB1300_FIRST_INT, DB1300_LAST_INT, cpldirq);
 
+	/* insert/eject IRQs: one always triggers so don't enable them
+	 * when doing request_irq() on them.  DB1200 has this bug too.
+	 */
 	irq_set_status_flags(DB1300_SD1_INSERT_INT, IRQ_NOAUTOEN);
 	irq_set_status_flags(DB1300_SD1_EJECT_INT, IRQ_NOAUTOEN);
 	irq_set_status_flags(DB1300_CF_INSERT_INT, IRQ_NOAUTOEN);
 	irq_set_status_flags(DB1300_CF_EJECT_INT, IRQ_NOAUTOEN);
 
+	/*
+	 * setup board
+	 */
 	prom_get_ethernet_addr(&db1300_eth_config.mac[0]);
 
 	i2c_register_board_info(0, db1300_i2c_devs,
 				ARRAY_SIZE(db1300_i2c_devs));
 
-	
+	/* Audio PSC clock is supplied by codecs (PSC1, 2) */
 	__raw_writel(PSC_SEL_CLK_SERCLK,
 	    (void __iomem *)KSEG1ADDR(AU1300_PSC1_PHYS_ADDR) + PSC_SEL_OFFSET);
 	wmb();
 	__raw_writel(PSC_SEL_CLK_SERCLK,
 	    (void __iomem *)KSEG1ADDR(AU1300_PSC2_PHYS_ADDR) + PSC_SEL_OFFSET);
 	wmb();
-	
+	/* I2C uses internal 48MHz EXTCLK1 */
 	__raw_writel(PSC_SEL_CLK_INTCLK,
 	    (void __iomem *)KSEG1ADDR(AU1300_PSC3_PHYS_ADDR) + PSC_SEL_OFFSET);
 	wmb();
 
-	
+	/* enable power to USB ports */
 	bcsr_mod(BCSR_RESETS, 0, BCSR_RESETS_USBHPWR | BCSR_RESETS_OTGPWR);
 
+	/* although it is socket #0, it uses the CPLD bits which previous boards
+	 * have used for socket #1.
+	 */
 	db1x_register_pcmcia_socket(
 		AU1000_PCMCIA_ATTR_PHYS_ADDR,
 		AU1000_PCMCIA_ATTR_PHYS_ADDR + 0x00400000 - 1,
@@ -743,7 +778,7 @@ void __init board_setup(void)
 		BCSR_WHOAMI_BOARD(whoami), BCSR_WHOAMI_CPLD(whoami),
 		BCSR_WHOAMI_DCID(whoami));
 
-	
+	/* enable UARTs, YAMON only enables #2 */
 	alchemy_uart_enable(AU1300_UART0_PHYS_ADDR);
 	alchemy_uart_enable(AU1300_UART1_PHYS_ADDR);
 	alchemy_uart_enable(AU1300_UART3_PHYS_ADDR);

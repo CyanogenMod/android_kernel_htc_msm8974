@@ -14,9 +14,14 @@
 #include <net/netlink.h>
 #include <net/pkt_cls.h>
 
+/*
+ * Passing parameters to the root seems to be done more awkwardly than really
+ * necessary. At least, u32 doesn't seem to use such dirty hacks. To be
+ * verified. FIXME.
+ */
 
-#define PERFECT_HASH_THRESHOLD	64	
-#define DEFAULT_HASH_SIZE	64	
+#define PERFECT_HASH_THRESHOLD	64	/* use perfect hash if not bigger */
+#define DEFAULT_HASH_SIZE	64	/* optimized for diffserv */
 
 
 #define	PRIV(tp)	((struct tcindex_data *) (tp)->root)
@@ -35,13 +40,14 @@ struct tcindex_filter {
 
 
 struct tcindex_data {
-	struct tcindex_filter_result *perfect; 
-	struct tcindex_filter **h; 
-	u16 mask;		
-	int shift;		
-	int hash;		
-	int alloc_hash;		
-	int fall_through;	
+	struct tcindex_filter_result *perfect; /* perfect hash; NULL if none */
+	struct tcindex_filter **h; /* imperfect hash; only used if !perfect;
+				      NULL if unused */
+	u16 mask;		/* AND key with mask */
+	int shift;		/* shift ANDed key to the right */
+	int hash;		/* hash table size; 0 if undefined */
+	int alloc_hash;		/* allocated size */
+	int fall_through;	/* 0: only classify if explicit match */
 };
 
 static const struct tcf_ext_map tcindex_ext_map = {
@@ -199,7 +205,7 @@ tcindex_set_parms(struct tcf_proto *tp, unsigned long base, u32 handle,
 	struct tcindex_filter_result new_filter_result, *old_r = r;
 	struct tcindex_filter_result cr;
 	struct tcindex_data cp;
-	struct tcindex_filter *f = NULL; 
+	struct tcindex_filter *f = NULL; /* make gcc behave */
 	struct tcf_exts e;
 
 	err = tcf_exts_validate(tp, tb, est, &e, &tcindex_ext_map);
@@ -224,6 +230,9 @@ tcindex_set_parms(struct tcf_proto *tp, unsigned long base, u32 handle,
 		cp.shift = nla_get_u32(tb[TCA_TCINDEX_SHIFT]);
 
 	err = -EBUSY;
+	/* Hash already allocated, make sure that we still meet the
+	 * requirements for the allocated hash.
+	 */
 	if (cp.perfect) {
 		if (!valid_perfect_hash(&cp) ||
 		    cp.hash > cp.alloc_hash)
@@ -236,6 +245,9 @@ tcindex_set_parms(struct tcf_proto *tp, unsigned long base, u32 handle,
 		cp.fall_through = nla_get_u32(tb[TCA_TCINDEX_FALL_THROUGH]);
 
 	if (!cp.hash) {
+		/* Hash not specified, use perfect hash if the upper limit
+		 * of the hashing index is below the threshold.
+		 */
 		if ((cp.mask >> cp.shift) < PERFECT_HASH_THRESHOLD)
 			cp.hash = (cp.mask >> cp.shift) + 1;
 		else
@@ -245,6 +257,11 @@ tcindex_set_parms(struct tcf_proto *tp, unsigned long base, u32 handle,
 	if (!cp.perfect && !cp.h)
 		cp.alloc_hash = cp.hash;
 
+	/* Note: this could be as restrictive as if (handle & ~(mask >> shift))
+	 * but then, we'd fail handles that may become valid after some future
+	 * mask change. While this is extremely unlikely to ever matter,
+	 * the check below is safer (and also more backwards-compatible).
+	 */
 	if (cp.perfect || valid_perfect_hash(&cp))
 		if (handle >= cp.alloc_hash)
 			goto errout;
@@ -297,7 +314,7 @@ tcindex_set_parms(struct tcf_proto *tp, unsigned long base, u32 handle,
 		f->result = new_filter_result;
 		f->next = NULL;
 		for (fp = p->h+(handle % p->hash); *fp; fp = &(*fp)->next)
-			;
+			/* nothing */;
 		*fp = f;
 	}
 	tcf_tree_unlock(tp);
@@ -420,7 +437,7 @@ static int tcindex_dump(struct tcf_proto *tp, unsigned long fh,
 		goto nla_put_failure;
 
 	if (!fh) {
-		t->tcm_handle = ~0; 
+		t->tcm_handle = ~0; /* whatever ... */
 		NLA_PUT_U32(skb, TCA_TCINDEX_HASH, p->hash);
 		NLA_PUT_U16(skb, TCA_TCINDEX_MASK, p->mask);
 		NLA_PUT_U32(skb, TCA_TCINDEX_SHIFT, p->shift);

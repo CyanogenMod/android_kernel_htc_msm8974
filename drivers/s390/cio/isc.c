@@ -13,6 +13,16 @@ static unsigned int isc_refs[MAX_ISC + 1];
 static DEFINE_SPINLOCK(isc_ref_lock);
 
 
+/**
+ * isc_register - register an I/O interruption subclass.
+ * @isc: I/O interruption subclass to register
+ *
+ * The number of users for @isc is increased. If this is the first user to
+ * register @isc, the corresponding I/O interruption subclass mask is enabled.
+ *
+ * Context:
+ *   This function must not be called in interrupt context.
+ */
 void isc_register(unsigned int isc)
 {
 	if (isc > MAX_ISC) {
@@ -28,10 +38,23 @@ void isc_register(unsigned int isc)
 }
 EXPORT_SYMBOL_GPL(isc_register);
 
+/**
+ * isc_unregister - unregister an I/O interruption subclass.
+ * @isc: I/O interruption subclass to unregister
+ *
+ * The number of users for @isc is decreased. If this is the last user to
+ * unregister @isc, the corresponding I/O interruption subclass mask is
+ * disabled.
+ * Note: This function must not be called if isc_register() hasn't been called
+ * before by the driver for @isc.
+ *
+ * Context:
+ *   This function must not be called in interrupt context.
+ */
 void isc_unregister(unsigned int isc)
 {
 	spin_lock(&isc_ref_lock);
-	
+	/* check for misuse */
 	if (isc > MAX_ISC || isc_refs[isc] == 0) {
 		WARN_ON(1);
 		goto out_unlock;

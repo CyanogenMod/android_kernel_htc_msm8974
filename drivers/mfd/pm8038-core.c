@@ -26,8 +26,8 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/regulator.h>
 
-#define REG_HWREV		0x002  
-#define REG_HWREV_2		0x0E8  
+#define REG_HWREV		0x002  /* PMIC4 revision */
+#define REG_HWREV_2		0x0E8  /* PMIC4 revision 2 */
 
 #define REG_MPP_BASE		0x050
 #define REG_RTC_BASE		0x11D
@@ -379,7 +379,7 @@ static struct mfd_cell vibrator_cell __devinitdata = {
 };
 
 static struct pm8xxx_vreg regulator_data[] = {
-	
+	/*   name	     pc_name	    ctrl   test   hpm_min */
 	NLDO1200("8038_l1",		    0x0AE, 0x0AF, LDO_1200),
 	NLDO("8038_l2",      "8038_l2_pc",  0x0B0, 0x0B1, LDO_150),
 	PLDO("8038_l3",      "8038_l3_pc",  0x0B2, 0x0B3, LDO_50),
@@ -406,17 +406,17 @@ static struct pm8xxx_vreg regulator_data[] = {
 	NLDO("8038_l26",     "8038_l26_pc", 0x0E0, 0x0E1, LDO_150),
 	NLDO1200("8038_l27",		    0x0E2, 0x0E3, LDO_1200),
 
-	
+	/*   name	pc_name       ctrl   test2  clk    sleep  hpm_min */
 	SMPS("8038_s1", "8038_s1_pc", 0x1E0, 0x1E5, 0x009, 0x1E2, SMPS_1500),
 	SMPS("8038_s2", "8038_s2_pc", 0x1D8, 0x1DD, 0x00A, 0x1DA, SMPS_1500),
 	SMPS("8038_s3", "8038_s3_pc", 0x1D0, 0x1D5, 0x00B, 0x1D2, SMPS_1500),
 	SMPS("8038_s4", "8038_s4_pc", 0x1E8, 0x1ED, 0x00C, 0x1EA, SMPS_1500),
 
-	
+	/*     name	  ctrl fts_cnfg1 pfm  pwr_cnfg  hpm_min */
 	FTSMPS("8038_s5", 0x025, 0x02E, 0x026, 0x032, SMPS_2000),
 	FTSMPS("8038_s6", 0x036, 0x03F, 0x037, 0x043, SMPS_2000),
 
-	
+	/* name		       pc_name	       ctrl   test */
 	VS("8038_lvs1",        "8038_lvs1_pc", 0x060, 0x061),
 	VS("8038_lvs2",        "8038_lvs2_pc", 0x062, 0x063),
 };
@@ -462,7 +462,7 @@ pm8038_add_regulators(const struct pm8038_platform_data *pdata,
 	struct pm8xxx_regulator_core_platform_data *cdata;
 	int i;
 
-	
+	/* Add one device for each regulator used by the board. */
 	mfd_regulators = kzalloc(sizeof(struct mfd_cell)
 				 * (pdata->num_regulators), GFP_KERNEL);
 	if (!mfd_regulators) {
@@ -762,7 +762,7 @@ static int __devinit pm8038_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Read PMIC chip revision */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_HWREV, &val, sizeof(val));
 	if (rc) {
 		pr_err("Failed to read hw rev reg %d:rc=%d\n", REG_HWREV, rc);
@@ -771,7 +771,7 @@ static int __devinit pm8038_probe(struct platform_device *pdev)
 	pr_info("PMIC revision 1: PM8038 rev %02X\n", val);
 	pmic->rev_registers = val;
 
-	
+	/* Read PMIC chip revision 2 */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_HWREV_2, &val, sizeof(val));
 	if (rc) {
 		pr_err("Failed to read hw rev 2 reg %d:rc=%d\n",
@@ -785,7 +785,7 @@ static int __devinit pm8038_probe(struct platform_device *pdev)
 	pm8038_drvdata.pm_chip_data = pmic;
 	platform_set_drvdata(pdev, &pm8038_drvdata);
 
-	
+	/* Print out human readable version and revision names. */
 	version = pm8xxx_get_version(pmic->dev);
 	if (version == PM8XXX_VERSION_8038) {
 		revision = pm8xxx_get_revision(pmic->dev);
@@ -796,7 +796,7 @@ static int __devinit pm8038_probe(struct platform_device *pdev)
 		WARN_ON(version != PM8XXX_VERSION_8038);
 	}
 
-	
+	/* Log human readable restart reason */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_PM8038_PON_CNTRL_3, &val, 1);
 	if (rc) {
 		pr_err("Cannot read restart reason rc=%d\n", rc);

@@ -23,7 +23,7 @@
 
 static void ps3_ehci_setup_insnreg(struct ehci_hcd *ehci)
 {
-	
+	/* PS3 HC internal setup register offsets. */
 
 	enum ps3_ehci_hc_insnreg {
 		ps3_ehci_hc_insnreg01 = 0x084,
@@ -31,13 +31,19 @@ static void ps3_ehci_setup_insnreg(struct ehci_hcd *ehci)
 		ps3_ehci_hc_insnreg03 = 0x08c,
 	};
 
+	/* PS3 EHCI HC errata fix 316 - The PS3 EHCI HC will reset its
+	 * internal INSNREGXX setup regs back to the chip default values
+	 * on Host Controller Reset (CMD_RESET) or Light Host Controller
+	 * Reset (CMD_LRESET).  The work-around for this is for the HC
+	 * driver to re-initialise these regs when ever the HC is reset.
+	 */
 
-	
+	/* Set burst transfer counts to 256 out, 32 in. */
 
 	writel_be(0x01000020, (void __iomem *)ehci->regs +
 		ps3_ehci_hc_insnreg01);
 
-	
+	/* Enable burst transfer counts. */
 
 	writel_be(0x00000001, (void __iomem *)ehci->regs +
 		ps3_ehci_hc_insnreg03);
@@ -153,7 +159,7 @@ static int __devinit ps3_ehci_probe(struct ps3_system_bus_device *dev)
 		goto fail_irq;
 	}
 
-	dev->core.dma_mask = &dummy_mask; 
+	dev->core.dma_mask = &dummy_mask; /* FIXME: for improper usb code */
 
 	hcd = usb_create_hcd(&ps3_ehci_hc_driver, &dev->core, dev_name(&dev->core));
 

@@ -27,12 +27,19 @@
 #include <asm/mcfsim.h>
 #include <asm/traps.h>
 
-#define MCFSIM_ICR_LEVEL(l)	((l)<<3)	
-#define MCFSIM_ICR_PRI(p)	(p)		
+/*
+ * Bit definitions for the ICR family of registers.
+ */
+#define MCFSIM_ICR_LEVEL(l)	((l)<<3)	/* Level l intr */
+#define MCFSIM_ICR_PRI(p)	(p)		/* Priority p intr */
 
-#define	EINT0	64	
-#define	EINT1	65	
-#define	EINT7	71	
+/*
+ *	The EDGE Port interrupts are the fixed 7 external interrupts.
+ *	They need some special treatment, for example they need to be acked.
+ */
+#define	EINT0	64	/* Is not actually used, but spot reserved for it */
+#define	EINT1	65	/* EDGE Port interrupt 1 */
+#define	EINT7	71	/* EDGE Port interrupt 7 */
 
 #ifdef MCFICM_INTC1
 #define NR_VECS	128
@@ -72,7 +79,7 @@ static void intc_irq_unmask(struct irq_data *d)
 	imraddr += ((irq & 0x20) ? MCFINTC_IMRH : MCFINTC_IMRL);
 	imrbit = 0x1 << (irq & 0x1f);
 
-	
+	/* Don't set the "maskall" bit! */
 	if ((irq & 0x20) == 0)
 		imrbit |= 0x1;
 
@@ -80,6 +87,12 @@ static void intc_irq_unmask(struct irq_data *d)
 	__raw_writel(val & ~imrbit, imraddr);
 }
 
+/*
+ *	Only the external (or EDGE Port) interrupts need to be acknowledged
+ *	here, as part of the IRQ handler. They only really need to be ack'ed
+ *	if they are in edge triggered mode, but there is no harm in doing it
+ *	for all types.
+ */
 static void intc_irq_ack(struct irq_data *d)
 {
 	unsigned int irq = d->irq;
@@ -87,6 +100,13 @@ static void intc_irq_ack(struct irq_data *d)
 	__raw_writeb(0x1 << (irq - EINT0), MCFEPORT_EPFR);
 }
 
+/*
+ *	Each vector needs a unique priority and level associated with it.
+ *	We don't really care so much what they are, we don't rely on the
+ *	traditional priority interrupt scheme of the m68k/ColdFire. This
+ *	only needs to be set once for an interrupt, and we will never change
+ *	these values once we have set them.
+ */
 static u8 intc_intpri = MCFSIM_ICR_LEVEL(6) | MCFSIM_ICR_PRI(6);
 
 static unsigned int intc_irq_startup(struct irq_data *d)
@@ -109,11 +129,11 @@ static unsigned int intc_irq_startup(struct irq_data *d)
 
 		irq -= EINT0;
 
-		
+		/* Set EPORT line as input */
 		v = __raw_readb(MCFEPORT_EPDDR);
 		__raw_writeb(v & ~(0x1 << irq), MCFEPORT_EPDDR);
 
-		
+		/* Set EPORT line as interrupt source */
 		v = __raw_readb(MCFEPORT_EPIER);
 		__raw_writeb(v | (0x1 << irq), MCFEPORT_EPIER);
 	}
@@ -138,7 +158,7 @@ static int intc_irq_set_type(struct irq_data *d, unsigned int type)
 		tb = 0x3;
 		break;
 	default:
-		
+		/* Level triggered */
 		tb = 0;
 		break;
 	}
@@ -174,7 +194,7 @@ void __init init_IRQ(void)
 {
 	int irq;
 
-	
+	/* Mask all interrupt sources */
 	__raw_writel(0x1, MCFICM_INTC0 + MCFINTC_IMRL);
 #ifdef MCFICM_INTC1
 	__raw_writel(0x1, MCFICM_INTC1 + MCFINTC_IMRL);

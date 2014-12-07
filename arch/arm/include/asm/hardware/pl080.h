@@ -12,6 +12,14 @@
  * published by the Free Software Foundation.
 */
 
+/* Note, there are some Samsung updates to this controller block which
+ * make it not entierly compatible with the PL080 specification from
+ * ARM. When in doubt, check the Samsung documentation first.
+ *
+ * The Samsung defines are PL080S, and add an extra control register,
+ * the ability to move more than 2^11 counts of data and some extra
+ * OneNAND features.
+*/
 
 #ifndef ASM_PL080_H
 #define ASM_PL080_H
@@ -36,6 +44,7 @@
 
 #define PL080_SYNC				(0x34)
 
+/* Per channel configuration registers */
 
 #define PL080_Cx_STRIDE				(0x20)
 #define PL080_Cx_BASE(x)			((0x100 + (x * 0x20)))
@@ -94,7 +103,7 @@
 #define PL080_WIDTH_32BIT			(0x2)
 
 #define PL080_CONFIG_HALT			(1 << 18)
-#define PL080_CONFIG_ACTIVE			(1 << 17)  
+#define PL080_CONFIG_ACTIVE			(1 << 17)  /* RO */
 #define PL080_CONFIG_LOCK			(1 << 16)
 #define PL080_CONFIG_TC_IRQ_MASK		(1 << 15)
 #define PL080_CONFIG_ERR_IRQ_MASK		(1 << 14)
@@ -115,6 +124,7 @@
 #define PL080_FLOW_PER2MEM_PER			(0x6)
 #define PL080_FLOW_SRC2DST_SRC			(0x7)
 
+/* DMA linked list chain structure */
 
 struct pl080_lli {
 	u32	src_addr;
@@ -131,4 +141,4 @@ struct pl080s_lli {
 	u32	control1;
 };
 
-#endif 
+#endif /* ASM_PL080_H */

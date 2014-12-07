@@ -35,6 +35,7 @@ module_param(debug, int, 0644);
 
 #define DRIVER_NAME			"S5K6AA"
 
+/* The token to indicate array termination */
 #define S5K6AA_TERM			0xffff
 #define S5K6AA_OUT_WIDTH_DEF		640
 #define S5K6AA_OUT_HEIGHT_DEF		480
@@ -43,6 +44,9 @@ module_param(debug, int, 0644);
 #define S5K6AA_WIN_WIDTH_MIN		8
 #define S5K6AA_WIN_HEIGHT_MIN		8
 
+/*
+ * H/W register Interface (0xD0000000 - 0xD0000FFF)
+ */
 #define AHB_MSB_ADDR_PTR		0xfcfc
 #define GEN_REG_OFFSH			0xd000
 #define REG_CMDWR_ADDRH			0x0028
@@ -52,8 +56,15 @@ module_param(debug, int, 0644);
 #define REG_CMDBUF0_ADDR		0x0f12
 #define REG_CMDBUF1_ADDR		0x0f10
 
+/*
+ * Host S/W Register interface (0x70000000 - 0x70002000)
+ * The value of the two most significant address bytes is 0x7000,
+ * (HOST_SWIF_OFFS_H). The register addresses below specify 2 LSBs.
+ */
 #define HOST_SWIF_OFFSH			0x7000
 
+/* Initialization parameters */
+/* Master clock frequency in KHz */
 #define REG_I_INCLK_FREQ_L		0x01b8
 #define REG_I_INCLK_FREQ_H		0x01ba
 #define  MIN_MCLK_FREQ_KHZ		6000U
@@ -61,6 +72,7 @@ module_param(debug, int, 0644);
 #define REG_I_USE_NPVI_CLOCKS		0x01c6
 #define REG_I_USE_NMIPI_CLOCKS		0x01c8
 
+/* Clock configurations, n = 0..2. REG_I_* frequency unit is 4 kHz. */
 #define REG_I_OPCLK_4KHZ(n)		((n) * 6 + 0x01cc)
 #define REG_I_MIN_OUTRATE_4KHZ(n)	((n) * 6 + 0x01ce)
 #define REG_I_MAX_OUTRATE_4KHZ(n)	((n) * 6 + 0x01d0)
@@ -70,6 +82,7 @@ module_param(debug, int, 0644);
 #define REG_I_INIT_PARAMS_UPDATED	0x01e0
 #define REG_I_ERROR_INFO		0x01e2
 
+/* General purpose parameters */
 #define REG_USER_BRIGHTNESS		0x01e4
 #define REG_USER_CONTRAST		0x01e6
 #define REG_USER_SATURATION		0x01e8
@@ -89,6 +102,7 @@ module_param(debug, int, 0644);
 #define REG_G_PREV_OPEN_AFTER_CH	0x0220
 #define REG_G_PREV_CFG_ERROR		0x0222
 
+/* Preview control section. n = 0...4. */
 #define PREG(n, x)			((n) * 0x26 + x)
 #define REG_P_OUT_WIDTH(n)		PREG(n, 0x0242)
 #define REG_P_OUT_HEIGHT(n)		PREG(n, 0x0244)
@@ -102,17 +116,22 @@ module_param(debug, int, 0644);
 #define  FR_RATE_FIXED			1
 #define  FR_RATE_FIXED_ACCURATE		2
 #define REG_P_FR_RATE_Q_TYPE(n)		PREG(n, 0x0252)
-#define  FR_RATE_Q_BEST_FRRATE		1 
-#define  FR_RATE_Q_BEST_QUALITY		2 
+#define  FR_RATE_Q_BEST_FRRATE		1 /* Binning enabled */
+#define  FR_RATE_Q_BEST_QUALITY		2 /* Binning disabled */
+/* Frame period in 0.1 ms units */
 #define REG_P_MAX_FR_TIME(n)		PREG(n, 0x0254)
 #define REG_P_MIN_FR_TIME(n)		PREG(n, 0x0256)
+/* Conversion to REG_P_[MAX/MIN]_FR_TIME value; __t: time in us */
 #define  US_TO_FR_TIME(__t)		((__t) / 100)
-#define  S5K6AA_MIN_FR_TIME		33300  
-#define  S5K6AA_MAX_FR_TIME		650000 
-#define  S5K6AA_MAX_HIGHRES_FR_TIME	666    
+#define  S5K6AA_MIN_FR_TIME		33300  /* us */
+#define  S5K6AA_MAX_FR_TIME		650000 /* us */
+#define  S5K6AA_MAX_HIGHRES_FR_TIME	666    /* x100 us */
+/* The below 5 registers are for "device correction" values */
 #define REG_P_COLORTEMP(n)		PREG(n, 0x025e)
 #define REG_P_PREV_MIRROR(n)		PREG(n, 0x0262)
 
+/* Extended image property controls */
+/* Exposure time in 10 us units */
 #define REG_SF_USR_EXPOSURE_L		0x03c6
 #define REG_SF_USR_EXPOSURE_H		0x03c8
 #define REG_SF_USR_EXPOSURE_CHG		0x03ca
@@ -127,10 +146,12 @@ module_param(debug, int, 0644);
 #define REG_SF_FLICKER_QUANT		0x03dc
 #define REG_SF_FLICKER_QUANT_CHG	0x03de
 
+/* Output interface (parallel/MIPI) setup */
 #define REG_OIF_EN_MIPI_LANES		0x03fa
 #define REG_OIF_EN_PACKETS		0x03fc
 #define REG_OIF_CFG_CHG			0x03fe
 
+/* Auto-algorithms enable mask */
 #define REG_DBG_AUTOALG_EN		0x0400
 #define  AALG_ALL_EN_MASK		(1 << 0)
 #define  AALG_AE_EN_MASK		(1 << 1)
@@ -140,17 +161,21 @@ module_param(debug, int, 0644);
 #define  AALG_FIT_EN_MASK		(1 << 6)
 #define  AALG_WRHW_EN_MASK		(1 << 7)
 
+/* Firmware revision information */
 #define REG_FW_APIVER			0x012e
 #define  S5K6AAFX_FW_APIVER		0x0001
 #define REG_FW_REVISION			0x0130
 
+/* For now we use only one user configuration register set */
 #define S5K6AA_MAX_PRESETS		1
 
 static const char * const s5k6aa_supply_names[] = {
-	"vdd_core",	
-	"vdda",		
-	"vdd_reg",	
-	"vddio",	
+	"vdd_core",	/* Digital core supply 1.5V (1.4V to 1.6V) */
+	"vdda",		/* Analog power supply 2.8V (2.6V to 3.0V) */
+	"vdd_reg",	/* Regulator input power 1.8V (1.7V to 1.9V)
+			   or 2.8V (2.6V to 3.0) */
+	"vddio",	/* I/O supply 1.8V (1.65V to 1.95V)
+			   or 2.8V (2.5V to 3.1V) */
 };
 #define S5K6AA_NUM_SUPPLIES ARRAY_SIZE(s5k6aa_supply_names)
 
@@ -168,12 +193,12 @@ struct s5k6aa_regval {
 struct s5k6aa_pixfmt {
 	enum v4l2_mbus_pixelcode code;
 	u32 colorspace;
-	
+	/* REG_P_FMT(x) register value */
 	u16 reg_p_fmt;
 };
 
 struct s5k6aa_preset {
-	
+	/* output pixel format and resolution */
 	struct v4l2_mbus_framefmt mbus_fmt;
 	u8 clk_id;
 	u8 index;
@@ -181,15 +206,15 @@ struct s5k6aa_preset {
 
 struct s5k6aa_ctrls {
 	struct v4l2_ctrl_handler handler;
-	
+	/* Auto / manual white balance cluster */
 	struct v4l2_ctrl *awb;
 	struct v4l2_ctrl *gain_red;
 	struct v4l2_ctrl *gain_blue;
 	struct v4l2_ctrl *gain_green;
-	
+	/* Mirror cluster */
 	struct v4l2_ctrl *hflip;
 	struct v4l2_ctrl *vflip;
-	
+	/* Auto exposure / manual exposure and gain cluster */
 	struct v4l2_ctrl *auto_exp;
 	struct v4l2_ctrl *exposure;
 	struct v4l2_ctrl *gain;
@@ -198,7 +223,7 @@ struct s5k6aa_ctrls {
 struct s5k6aa_interval {
 	u16 reg_fr_time;
 	struct v4l2_fract interval;
-	
+	/* Maximum rectangle for the interval */
 	struct v4l2_frmsize_discrete size;
 };
 
@@ -213,21 +238,21 @@ struct s5k6aa {
 	struct regulator_bulk_data supplies[S5K6AA_NUM_SUPPLIES];
 	struct s5k6aa_gpio gpio[GPIO_NUM];
 
-	
+	/* external master clock frequency */
 	unsigned long mclk_frequency;
-	
+	/* ISP internal master clock frequency */
 	u16 clk_fop;
-	
+	/* output pixel clock frequency range */
 	u16 pclk_fmin;
 	u16 pclk_fmax;
 
 	unsigned int inv_hflip:1;
 	unsigned int inv_vflip:1;
 
-	
+	/* protects the struct members below */
 	struct mutex lock;
 
-	
+	/* sensor matrix scan window */
 	struct v4l2_rect ccd_rect;
 
 	struct s5k6aa_ctrls ctrls;
@@ -242,7 +267,7 @@ struct s5k6aa {
 };
 
 static struct s5k6aa_regval s5k6aa_analog_config[] = {
-	
+	/* Analog settings */
 	{ 0x112a, 0x0000 }, { 0x1132, 0x0000 },
 	{ 0x113e, 0x0000 }, { 0x115c, 0x0000 },
 	{ 0x1164, 0x0000 }, { 0x1174, 0x0000 },
@@ -258,22 +283,23 @@ static struct s5k6aa_regval s5k6aa_analog_config[] = {
 	{ 0x07c0, 0x0005 }, { S5K6AA_TERM, 0 },
 };
 
+/* TODO: Add RGB888 and Bayer format */
 static const struct s5k6aa_pixfmt s5k6aa_formats[] = {
 	{ V4L2_MBUS_FMT_YUYV8_2X8,	V4L2_COLORSPACE_JPEG,	5 },
-	
+	/* range 16-240 */
 	{ V4L2_MBUS_FMT_YUYV8_2X8,	V4L2_COLORSPACE_REC709,	6 },
 	{ V4L2_MBUS_FMT_RGB565_2X8_BE,	V4L2_COLORSPACE_JPEG,	0 },
 };
 
 static const struct s5k6aa_interval s5k6aa_intervals[] = {
-	{ 1000, {10000, 1000000}, {1280, 1024} }, 
-	{ 666,  {15000, 1000000}, {1280, 1024} }, 
-	{ 500,  {20000, 1000000}, {1280, 720} },  
-	{ 400,  {25000, 1000000}, {640, 480} },   
-	{ 333,  {33300, 1000000}, {640, 480} },   
+	{ 1000, {10000, 1000000}, {1280, 1024} }, /* 10 fps */
+	{ 666,  {15000, 1000000}, {1280, 1024} }, /* 15 fps */
+	{ 500,  {20000, 1000000}, {1280, 720} },  /* 20 fps */
+	{ 400,  {25000, 1000000}, {640, 480} },   /* 25 fps */
+	{ 333,  {33300, 1000000}, {640, 480} },   /* 30 fps */
 };
 
-#define S5K6AA_INTERVAL_DEF_INDEX 1 
+#define S5K6AA_INTERVAL_DEF_INDEX 1 /* 15 fps */
 
 static inline struct v4l2_subdev *ctrl_to_sd(struct v4l2_ctrl *ctrl)
 {
@@ -285,6 +311,7 @@ static inline struct s5k6aa *to_s5k6aa(struct v4l2_subdev *sd)
 	return container_of(sd, struct s5k6aa, sd);
 }
 
+/* Set initial values for all preview presets */
 static void s5k6aa_presets_data_init(struct s5k6aa *s5k6aa)
 {
 	struct s5k6aa_preset *preset = &s5k6aa->presets[0];
@@ -338,6 +365,7 @@ static int s5k6aa_i2c_write(struct i2c_client *client, u16 addr, u16 val)
 	return ret == 4 ? 0 : ret;
 }
 
+/* The command register write, assumes Command_Wr_addH = 0x7000. */
 static int s5k6aa_write(struct i2c_client *c, u16 addr, u16 val)
 {
 	int ret = s5k6aa_i2c_write(c, REG_CMDWR_ADDRL, addr);
@@ -346,6 +374,7 @@ static int s5k6aa_write(struct i2c_client *c, u16 addr, u16 val)
 	return s5k6aa_i2c_write(c, REG_CMDBUF0_ADDR, val);
 }
 
+/* The command register read, assumes Command_Rd_addH = 0x7000. */
 static int s5k6aa_read(struct i2c_client *client, u16 addr, u16 *val)
 {
 	int ret = s5k6aa_i2c_write(client, REG_CMDRD_ADDRL, addr);
@@ -370,7 +399,7 @@ static int s5k6aa_write_array(struct v4l2_subdev *sd,
 		ret = s5k6aa_i2c_write(client, REG_CMDBUF0_ADDR, msg->val);
 		if (ret)
 			break;
-		
+		/* Assume that msg->addr is always less than 0xfffc */
 		addr_incr = (msg + 1)->addr - msg->addr;
 		msg++;
 	}
@@ -378,6 +407,7 @@ static int s5k6aa_write_array(struct v4l2_subdev *sd,
 	return ret;
 }
 
+/* Configure the AHB high address bytes for GTG registers access */
 static int s5k6aa_set_ahb_address(struct i2c_client *client)
 {
 	int ret = s5k6aa_i2c_write(client, AHB_MSB_ADDR_PTR, GEN_REG_OFFSH);
@@ -389,6 +419,12 @@ static int s5k6aa_set_ahb_address(struct i2c_client *client)
 	return s5k6aa_i2c_write(client, REG_CMDWR_ADDRH, HOST_SWIF_OFFSH);
 }
 
+/**
+ * s5k6aa_configure_pixel_clock - apply ISP main clock/PLL configuration
+ *
+ * Configure the internal ISP PLL for the required output frequency.
+ * Locking: called with s5k6aa.lock mutex held.
+ */
 static int s5k6aa_configure_pixel_clocks(struct s5k6aa *s5k6aa)
 {
 	struct i2c_client *c = v4l2_get_subdevdata(&s5k6aa->sd);
@@ -404,13 +440,13 @@ static int s5k6aa_configure_pixel_clocks(struct s5k6aa *s5k6aa)
 	s5k6aa->pclk_fmax = PCLK_FREQ_MAX;
 	s5k6aa->clk_fop = SYS_PLL_OUT_FREQ;
 
-	
+	/* External input clock frequency in kHz */
 	ret = s5k6aa_write(c, REG_I_INCLK_FREQ_H, fmclk >> 16);
 	if (!ret)
 		ret = s5k6aa_write(c, REG_I_INCLK_FREQ_L, fmclk & 0xFFFF);
 	if (!ret)
 		ret = s5k6aa_write(c, REG_I_USE_NPVI_CLOCKS, 1);
-	
+	/* Internal PLL frequency */
 	if (!ret)
 		ret = s5k6aa_write(c, REG_I_OPCLK_4KHZ(0), s5k6aa->clk_fop);
 	if (!ret)
@@ -427,6 +463,7 @@ static int s5k6aa_configure_pixel_clocks(struct s5k6aa *s5k6aa)
 	return ret ? ret : (status ? -EINVAL : 0);
 }
 
+/* Set horizontal and vertical image flipping */
 static int s5k6aa_set_mirror(struct s5k6aa *s5k6aa, int horiz_flip)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&s5k6aa->sd);
@@ -438,6 +475,7 @@ static int s5k6aa_set_mirror(struct s5k6aa *s5k6aa, int horiz_flip)
 	return s5k6aa_write(client, REG_P_PREV_MIRROR(index), flip);
 }
 
+/* Configure auto/manual white balance and R/G/B gains */
 static int s5k6aa_set_awb(struct s5k6aa *s5k6aa, int awb)
 {
 	struct i2c_client *c = v4l2_get_subdevdata(&s5k6aa->sd);
@@ -471,6 +509,7 @@ static int s5k6aa_set_awb(struct s5k6aa *s5k6aa, int awb)
 	return ret;
 }
 
+/* Program FW with exposure time, 'exposure' in us units */
 static int s5k6aa_set_user_exposure(struct i2c_client *client, int exposure)
 {
 	unsigned int time = exposure / 10;
@@ -491,6 +530,7 @@ static int s5k6aa_set_user_gain(struct i2c_client *client, int gain)
 	return s5k6aa_write(client, REG_SF_USR_TOT_GAIN_CHG, 1);
 }
 
+/* Set auto/manual exposure and total gain */
 static int s5k6aa_set_auto_exposure(struct s5k6aa *s5k6aa, int value)
 {
 	struct i2c_client *c = v4l2_get_subdevdata(&s5k6aa->sd);
@@ -533,6 +573,8 @@ static int s5k6aa_set_anti_flicker(struct s5k6aa *s5k6aa, int value)
 		auto_alg |= AALG_FLICKER_EN_MASK;
 	} else {
 		auto_alg &= ~AALG_FLICKER_EN_MASK;
+		/* The V4L2_CID_LINE_FREQUENCY control values match
+		 * the register values */
 		ret = s5k6aa_write(client, REG_SF_FLICKER_QUANT, value);
 		if (ret)
 			return ret;
@@ -625,6 +667,13 @@ static int s5k6aa_set_input_params(struct s5k6aa *s5k6aa)
 	return ret;
 }
 
+/**
+ * s5k6aa_configure_video_bus - configure the video output interface
+ * @bus_type: video bus type: parallel or MIPI-CSI
+ * @nlanes: number of MIPI lanes to be used (MIPI-CSI only)
+ *
+ * Note: Only parallel bus operation has been tested.
+ */
 static int s5k6aa_configure_video_bus(struct s5k6aa *s5k6aa,
 				      enum v4l2_mbus_type bus_type, int nlanes)
 {
@@ -632,6 +681,11 @@ static int s5k6aa_configure_video_bus(struct s5k6aa *s5k6aa,
 	u16 cfg = 0;
 	int ret;
 
+	/*
+	 * TODO: The sensor is supposed to support BT.601 and BT.656
+	 * but there is nothing indicating how to switch between both
+	 * in the datasheet. For now default BT.601 interface is assumed.
+	 */
 	if (bus_type == V4L2_MBUS_CSI2)
 		cfg = nlanes;
 	else if (bus_type != V4L2_MBUS_PARALLEL)
@@ -643,6 +697,7 @@ static int s5k6aa_configure_video_bus(struct s5k6aa *s5k6aa,
 	return s5k6aa_write(client, REG_OIF_CFG_CHG, 1);
 }
 
+/* This function should be called when switching to new user configuration set*/
 static int s5k6aa_new_config_sync(struct i2c_client *client, int timeout,
 				  int cid)
 {
@@ -667,6 +722,12 @@ static int s5k6aa_new_config_sync(struct i2c_client *client, int timeout,
 	return ret ? ret : -ETIMEDOUT;
 }
 
+/**
+ * s5k6aa_set_prev_config - write user preview register set
+ *
+ * Configure output resolution and color fromat, pixel clock
+ * frequency range, device frame rate type and frame period range.
+ */
 static int s5k6aa_set_prev_config(struct s5k6aa *s5k6aa,
 				  struct s5k6aa_preset *preset)
 {
@@ -714,6 +775,14 @@ static int s5k6aa_set_prev_config(struct s5k6aa *s5k6aa,
 	return ret;
 }
 
+/**
+ * s5k6aa_initialize_isp - basic ISP MCU initialization
+ *
+ * Configure AHB addresses for registers read/write; configure PLLs for
+ * required output pixel clock. The ISP power supply needs to be already
+ * enabled, with an optional H/W reset.
+ * Locking: called with s5k6aa.lock mutex held.
+ */
 static int s5k6aa_initialize_isp(struct v4l2_subdev *sd)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -796,6 +865,9 @@ static int __s5k6aa_power_off(struct s5k6aa *s5k6aa)
 	return regulator_bulk_disable(S5K6AA_NUM_SUPPLIES, s5k6aa->supplies);
 }
 
+/*
+ * V4L2 subdev core and video operations
+ */
 static int s5k6aa_set_power(struct v4l2_subdev *sd, int on)
 {
 	struct s5k6aa *s5k6aa = to_s5k6aa(sd);
@@ -920,6 +992,9 @@ static int s5k6aa_s_frame_interval(struct v4l2_subdev *sd,
 	return ret;
 }
 
+/*
+ * V4L2 subdev pad level and video operations
+ */
 static int s5k6aa_enum_frame_interval(struct v4l2_subdev *sd,
 			      struct v4l2_subdev_fh *fh,
 			      struct v4l2_subdev_frame_interval_enum *fie)
@@ -1065,6 +1140,11 @@ static int s5k6aa_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 		};
 
 		*mf = fmt->format;
+		/*
+		 * Make sure the crop window is valid, i.e. its size is
+		 * greater than the output window, as the ISP supports
+		 * only down-scaling.
+		 */
 		crop->width = clamp_t(unsigned int, crop->width, mf->width,
 				      S5K6AA_WIN_WIDTH_MAX);
 		crop->height = clamp_t(unsigned int, crop->height, mf->height,
@@ -1074,7 +1154,7 @@ static int s5k6aa_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 		crop->top  = clamp_t(unsigned int, crop->top, 0,
 				     S5K6AA_WIN_HEIGHT_MAX - crop->height);
 
-		
+		/* Reset to minimum possible frame interval */
 		ret = __s5k6aa_set_frame_interval(s5k6aa, &fiv);
 	}
 	mutex_unlock(&s5k6aa->lock);
@@ -1157,6 +1237,9 @@ static const struct v4l2_subdev_video_ops s5k6aa_video_ops = {
 	.s_stream		= s5k6aa_s_stream,
 };
 
+/*
+ * V4L2 subdev controls
+ */
 
 static int s5k6aa_s_ctrl(struct v4l2_ctrl *ctrl)
 {
@@ -1168,6 +1251,11 @@ static int s5k6aa_s_ctrl(struct v4l2_ctrl *ctrl)
 	v4l2_dbg(1, debug, sd, "ctrl: 0x%x, value: %d\n", ctrl->id, ctrl->val);
 
 	mutex_lock(&s5k6aa->lock);
+	/*
+	 * If the device is not powered up by the host driver do
+	 * not apply any controls to H/W at this time. Instead
+	 * the controls will be restored right after power-up.
+	 */
 	if (s5k6aa->power == 0)
 		goto unlock;
 	idx = s5k6aa->preset->index;
@@ -1278,7 +1366,7 @@ static int s5k6aa_initialize_ctrls(struct s5k6aa *s5k6aa)
 	int ret = v4l2_ctrl_handler_init(hdl, 16);
 	if (ret)
 		return ret;
-	
+	/* Auto white balance cluster */
 	ctrls->awb = v4l2_ctrl_new_std(hdl, ops, V4L2_CID_AUTO_WHITE_BALANCE,
 				       0, 1, 1, 1);
 	ctrls->gain_red = v4l2_ctrl_new_custom(hdl, &s5k6aa_ctrls[0], NULL);
@@ -1293,10 +1381,10 @@ static int s5k6aa_initialize_ctrls(struct s5k6aa *s5k6aa)
 	ctrls->auto_exp = v4l2_ctrl_new_std_menu(hdl, ops,
 				V4L2_CID_EXPOSURE_AUTO,
 				V4L2_EXPOSURE_MANUAL, 0, V4L2_EXPOSURE_AUTO);
-	
+	/* Exposure time: x 1 us */
 	ctrls->exposure = v4l2_ctrl_new_std(hdl, ops, V4L2_CID_EXPOSURE,
 					    0, 6000000U, 1, 100000U);
-	
+	/* Total gain: 256 <=> 1x */
 	ctrls->gain = v4l2_ctrl_new_std(hdl, ops, V4L2_CID_GAIN,
 					0, 256, 1, 256);
 	v4l2_ctrl_auto_cluster(3, &ctrls->auto_exp, 0, false);
@@ -1326,6 +1414,9 @@ static int s5k6aa_initialize_ctrls(struct s5k6aa *s5k6aa)
 	return 0;
 }
 
+/*
+ * V4L2 subdev internal operations
+ */
 static int s5k6aa_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
 	struct v4l2_mbus_framefmt *format = v4l2_subdev_get_try_format(fh, 0);
@@ -1400,6 +1491,9 @@ static const struct v4l2_subdev_ops s5k6aa_subdev_ops = {
 	.video = &s5k6aa_video_ops,
 };
 
+/*
+ * GPIO setup
+ */
 static int s5k6aa_configure_gpio(int nr, int val, const char *name)
 {
 	unsigned long flags = val ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW;

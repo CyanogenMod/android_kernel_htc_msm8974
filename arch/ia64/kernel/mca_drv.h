@@ -5,7 +5,34 @@
  * Copyright (C) 2004 FUJITSU LIMITED
  * Copyright (C) 2004 Hidetoshi Seto <seto.hidetoshi@jp.fujitsu.com>
  */
+/*
+ * Processor error section:
+ *
+ *  +-sal_log_processor_info_t *info-------------+
+ *  | sal_log_section_hdr_t header;              |
+ *  | ...                                        |
+ *  | sal_log_mod_error_info_t info[0];          |
+ *  +-+----------------+-------------------------+
+ *    | CACHE_CHECK    |  ^ num_cache_check v
+ *    +----------------+
+ *    | TLB_CHECK      |  ^ num_tlb_check v
+ *    +----------------+
+ *    | BUS_CHECK      |  ^ num_bus_check v
+ *    +----------------+
+ *    | REG_FILE_CHECK |  ^ num_reg_file_check v
+ *    +----------------+
+ *    | MS_CHECK       |  ^ num_ms_check v
+ *  +-struct cpuid_info *id----------------------+
+ *  | regs[5];                                   |
+ *  | reserved;                                  |
+ *  +-sal_processor_static_info_t *regs----------+
+ *  | valid;                                     |
+ *  | ...                                        |
+ *  | fr[128];                                   |
+ *  +--------------------------------------------+
+ */
 
+/* peidx: index of processor error section */
 typedef struct peidx_table {
 	sal_log_processor_info_t        *info;
 	struct sal_cpuid_info           *id;
@@ -35,7 +62,7 @@ typedef struct peidx_table {
 #define peidx_mod_error_info(p, name, n) \
 ({	int __idx = peidx_##name##_idx(p, n); \
 	sal_log_mod_error_info_t *__ret = NULL; \
-	if (peidx_##name##_num(p) > n)  \
+	if (peidx_##name##_num(p) > n) /*BUG*/ \
 		__ret = &(peidx_head(p)->info[__idx]); \
 	__ret; })
 
@@ -52,6 +79,7 @@ typedef struct peidx_table {
 		? __info->check_info : 0; \
 	__temp; })
 
+/* slidx: index of SAL log error record */
 
 typedef struct slidx_list {
 	struct list_head list;
@@ -60,7 +88,7 @@ typedef struct slidx_list {
 
 typedef struct slidx_table {
 	sal_log_record_header_t *header;
-	int n_sections;			
+	int n_sections;			/* # of section headers */
 	struct list_head proc_err;
 	struct list_head mem_dev_err;
 	struct list_head sel_dev_err;
@@ -70,7 +98,7 @@ typedef struct slidx_table {
 	struct list_head plat_specific_err;
 	struct list_head host_ctlr_err;
 	struct list_head plat_bus_err;
-	struct list_head unsupported;	
+	struct list_head unsupported;	/* list of unsupported sections */
 } slidx_table_t;
 
 #define slidx_foreach_entry(pos, head) \
@@ -84,8 +112,8 @@ typedef struct slidx_table {
 	__count; })
 
 struct mca_table_entry {
-	int start_addr;	
-	int end_addr;	
+	int start_addr;	/* location-relative starting address of MCA recoverable range */
+	int end_addr;	/* location-relative ending address of MCA recoverable range */
 };
 
 extern const struct mca_table_entry *search_mca_tables (unsigned long addr);

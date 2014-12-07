@@ -27,33 +27,43 @@
 #include <asm/hardware/cp14.h>
 
 #define LOG_BUF_LEN			32768
+/* each slot is 4 bytes, 8kb total */
 #define ETB_RAM_SLOTS			2048
 
 #define DATALOG_SYNC			0xB5C7
 #define ETM_DUMP_MSG_ID			0x000A6960
 #define ETB_DUMP_MSG_ID			0x000A6961
 
+/* ETB Registers */
 #define ETB_REG_CONTROL			ETMIMPSPEC1
 #define ETB_REG_STATUS			ETMIMPSPEC2
 #define ETB_REG_COUNT			ETMIMPSPEC3
 #define ETB_REG_ADDRESS			ETMIMPSPEC4
 #define ETB_REG_DATA			ETMIMPSPEC5
 
+/* Having etb macro accessors allows macro expansion for ETB reg defines */
 #define etb_read(reg)			etm_read(reg)
 #define etb_write(val, reg)		etm_write(val, reg)
 
+/* Bitmasks for the ETM control register */
 #define ETM_CONTROL_POWERDOWN		0x00000001
 #define ETM_CONTROL_PROGRAM		0x00000400
 
+/* Bitmasks for the ETM status register */
 #define ETM_STATUS_PROGRAMMING		0x00000002
 
+/* ETB Status Register bit definitions */
 #define OV				0x00200000
 
+/* ETB Control Register bit definitions */
 #define AIR				0x00000008
 #define AIW				0x00000004
 #define CPTM				0x00000002
 #define CPTEN				0x00000001
 
+/* Bitmasks for the swconfig field of ETM_CONFIG
+ * ETM trigger propagated to ETM instances on all cores
+ */
 #define TRIGGER_ALL			0x00000002
 
 #define PROG_TIMEOUT_MS			500
@@ -77,6 +87,8 @@ static struct b buf[NR_CPUS];
 static struct b __percpu * *alloc_b;
 static atomic_t etm_dev_in_use;
 
+/* These default settings will be used to configure the ETM/ETB
+ * when the driver loads. */
 struct etm_config_struct {
 	uint32_t etm_00_control;
 	uint32_t etm_02_trigger_event;
@@ -90,13 +102,13 @@ struct etm_config_struct {
 	uint32_t etm_0d_vd_single_addr_comp;
 	uint32_t etm_0e_vd_mmd;
 	uint32_t etm_0f_vd_control;
-	uint32_t etm_addr_comp_value[8]; 
-	uint32_t etm_addr_access_type[8]; 
-	uint32_t etm_data_comp_value[2]; 
-	uint32_t etm_data_comp_mask[2]; 
-	uint32_t etm_counter_reload_value[2]; 
-	uint32_t etm_counter_enable[2]; 
-	uint32_t etm_counter_reload_event[2]; 
+	uint32_t etm_addr_comp_value[8]; /* 10 to 17 */
+	uint32_t etm_addr_access_type[8]; /* 20 to 27 */
+	uint32_t etm_data_comp_value[2]; /* 30 and 32 */
+	uint32_t etm_data_comp_mask[2]; /* 40 and 42 */
+	uint32_t etm_counter_reload_value[2]; /* 50 to 51 */
+	uint32_t etm_counter_enable[2]; /* 54 to 55 */
+	uint32_t etm_counter_reload_event[2]; /* 58 to 59 */
 	uint32_t etm_60_seq_event_1_to_2;
 	uint32_t etm_61_seq_event_2_to_1;
 	uint32_t etm_62_seq_event_2_to_3;
@@ -112,22 +124,24 @@ struct etm_config_struct {
 };
 
 static struct etm_config_struct etm_config = {
+	/* etm_00_control 0x0000D84E: 32-bit CID, cycle-accurate,
+	 * monitorCPRT */
 	.etm_00_control			= 0x0000D84E,
-	
+	/* etm_02_trigger_event 0x00000000: address comparator 0 matches */
 	.etm_02_trigger_event		= 0x00000000,
 	.etm_06_te_start_stop		= 0x00000000,
 	.etm_07_te_single_addr_comp	= 0x00000000,
-	
+	/* etm_08_te_event 0x0000006F: always true */
 	.etm_08_te_event		= 0x0000006F,
-	
+	/* etm_09_te_control 0x01000000: exclude none */
 	.etm_09_te_control		= 0x01000000,
 	.etm_0a_fifofull_region		= 0x00000000,
 	.etm_0b_fifofull_level		= 0x00000000,
-	
+	/* etm_0c_vd_event 0x0000006F: always true */
 	.etm_0c_vd_event                = 0x0000006F,
 	.etm_0d_vd_single_addr_comp     = 0x00000000,
 	.etm_0e_vd_mmd                  = 0x00000000,
-	
+	/* etm_0f_vd_control 0x00010000: exclude none */
 	.etm_0f_vd_control              = 0x00010000,
 	.etm_addr_comp_value[0]         = 0x00000000,
 	.etm_addr_comp_value[1]         = 0x00000000,
@@ -165,12 +179,27 @@ static struct etm_config_struct etm_config = {
 	.etm_6f_cid_comp_mask           = 0x00000000,
 	.etm_78_sync_freq               = 0x00000400,
 	.swconfig                       = 0x00000002,
-	
+	/* etb_trig_cnt 0x00000000: ignore trigger */
 	.etb_trig_cnt                   = 0x00000000,
-	
+	/* etb_init_ptr 0x00000010: 16 marker bytes */
 	.etb_init_ptr                   = 0x00000010,
 };
 
+/* ETM clock is derived from the processor clock and gets enabled on a
+ * logical OR of below items on Scorpion:
+ * 1.CPMR[ETMCLKEN] is set
+ * 2.ETM is not idle. Also means ETMCR[PD] is 0
+ * 3.Reset is asserted (core or debug)
+ * 4.MRC/MCR to ETM reg (CP14 access)
+ * 5.Debugger access to a ETM register in the core power domain
+ *
+ * 1. and 2. above are permanent enables whereas 3., 4. and 5. are
+ * temporary enables
+ *
+ * We rely on 4. to be able to access ETMCR and then use 2. above for ETM
+ * clock vote in the driver and the save-restore code uses 1. above
+ * for its vote.
+ */
 static inline void __cpu_set_etm_pwrdwn(void)
 {
 	uint32_t etm_control;
@@ -214,22 +243,29 @@ static void __cpu_enable_etb(void)
 	uint32_t etb_control;
 	uint32_t i;
 
-	
+	/* enable auto-increment on reads and writes */
 	etb_control = AIR | AIW;
 	etb_write(etb_control, ETB_REG_CONTROL);
 
+	/* write tags to the slots before the write pointer so we can
+	 * detect overflow */
 	etb_write(0x00000000, ETB_REG_ADDRESS);
 	for (i = 0; i < (etm_config.etb_init_ptr >> 2); i++)
 		etb_write(0xDEADBEEF, ETB_REG_DATA);
 
 	etb_write(0x00000000, ETB_REG_STATUS);
 
-	
+	/* initialize write pointer */
 	etb_write(etm_config.etb_init_ptr, ETB_REG_ADDRESS);
 
-	
+	/* multiple of 16 */
 	etb_write(etm_config.etb_trig_cnt & 0xFFFFFFF0, ETB_REG_COUNT);
 
+	/* Enable ETB and enable the trigger counter as appropriate. A
+	 * trigger count of 0 will be used to signify that the user wants to
+	 * ignore the trigger (just keep writing to the ETB and overwriting
+	 * the oldest data).  For "trace before trigger" captures the user
+	 * should set the trigger count to a small number. */
 
 	etb_control |= CPTEN;
 	if (etm_config.etb_trig_cnt)
@@ -290,7 +326,7 @@ static void __cpu_enable_trace(void *unused)
 	get_cpu();
 
 	__cpu_disable_etb();
-	
+	/* vote for ETM power/clock enable */
 	__cpu_clear_etm_pwrdwn();
 	__cpu_disable_etm();
 
@@ -299,13 +335,14 @@ static void __cpu_enable_trace(void *unused)
 	etm_write(etm_control, ETMCR);
 
 	etm_trigger = etm_config.etm_02_trigger_event;
-	etm_external_output = 0x406F; 
+	etm_external_output = 0x406F; /* always FALSE */
 
 	if (etm_config.swconfig & TRIGGER_ALL) {
-		uint32_t function = 0x5; 
-		uint32_t resource_b = 0x60; 
+		uint32_t function = 0x5; /*  A OR B */
+		uint32_t resource_b = 0x60; /* external input 1 */
 
-		etm_trigger &= 0x7F; 
+		etm_trigger &= 0x7F; /* keep resource A, clear function and
+				      * resource B */
 		etm_trigger |= (function << 14);
 		etm_trigger |= (resource_b << 7);
 		etm_external_output = etm_trigger;
@@ -359,6 +396,8 @@ static void __cpu_enable_trace(void *unused)
 	etm_write(etm_config.etm_6f_cid_comp_mask, ETMCIDCMR);
 	etm_write(etm_config.etm_78_sync_freq, ETMSYNCFR);
 
+	/* Note that we must enable the ETB before we enable the ETM if we
+	 * want to capture the "always true" trigger event. */
 
 	__cpu_enable_etb();
 	__cpu_enable_etm();
@@ -372,9 +411,9 @@ static void __cpu_disable_trace(void *unused)
 
 	__cpu_disable_etm();
 
-	
+	/* program trace enable to be low by using always false event */
 	etm_write(0x6F | BIT(14), ETMTEEVR);
-	
+	/* vote for ETM power/clock disable */
 	__cpu_set_etm_pwrdwn();
 
 	__cpu_disable_etb();
@@ -388,6 +427,9 @@ static void enable_trace(void)
 	pm_qos_update_request(&etm_qos_req, 0);
 
 	if (etm_config.swconfig & TRIGGER_ALL) {
+		/* This register is accessible from either core.
+		 * CPU1_extout[0] -> CPU0_extin[0]
+		 * CPU_extout[0] -> CPU1_extin[0] */
 		asm volatile("mcr p15, 3, %0, c15, c5, 2" : : "r" (0x1));
 		asm volatile("isb");
 	}
@@ -397,6 +439,13 @@ static void enable_trace(void)
 	smp_call_function(__cpu_enable_trace, NULL, 1);
 	put_cpu();
 
+	/* 1. causes all online cpus to come out of idle PC
+	 * 2. prevents idle PC until save restore flag is enabled atomically
+	 *
+	 * we rely on the user to prevent hotplug on/off racing with this
+	 * operation and to ensure cores where trace is expected to be turned
+	 * on are already hotplugged on
+	 */
 	trace_enabled = 1;
 
 	pm_qos_update_request(&etm_qos_req, PM_QOS_DEFAULT_VALUE);
@@ -413,6 +462,13 @@ static void disable_trace(void)
 	smp_call_function(__cpu_disable_trace, NULL, 1);
 	put_cpu();
 
+	/* 1. causes all online cpus to come out of idle PC
+	 * 2. prevents idle PC until save restore flag is disabled atomically
+	 *
+	 * we rely on the user to prevent hotplug on/off racing with this
+	 * operation and to ensure cores where trace is expected to be turned
+	 * off are already hotplugged on
+	 */
 	trace_enabled = 0;
 
 	cpu_to_dump = next_cpu_to_dump = 0;
@@ -456,6 +512,7 @@ static void generate_etb_dump(void)
 		emit_log_word(etb_read(ETB_REG_DATA));
 }
 
+/* This should match the number of ETM registers being dumped below */
 #define ETM_NUM_REGS_TO_DUMP	54
 static void generate_etm_dump(void)
 {
@@ -477,7 +534,7 @@ static void generate_etm_dump(void)
 	emit_log_word(etb_read(ETB_REG_STATUS));
 	emit_log_word(etb_read(ETB_REG_COUNT));
 	emit_log_word(etb_read(ETB_REG_ADDRESS));
-	emit_log_word(0); 
+	emit_log_word(0); /* don't read ETB_REG_DATA, changes ETB_REG_ADDRESS */
 	emit_log_word(etm_read(ETMTRIGGER));
 	emit_log_word(etm_read(ETMTSSCR));
 	emit_log_word(etm_read(ETMTECR2));
@@ -674,21 +731,21 @@ static void setup_access_type(uint32_t reg, uint32_t value)
 static void reset_filter(void)
 {
 	etm_config.etm_00_control			= 0x0000D84E;
-	
+	/* etm_02_trigger_event 0x00000000: address comparator 0 matches */
 	etm_config.etm_02_trigger_event		= 0x00000000;
 	etm_config.etm_06_te_start_stop		= 0x00000000;
 	etm_config.etm_07_te_single_addr_comp	= 0x00000000;
-	
+	/* etm_08_te_event 0x0000006F: always true */
 	etm_config.etm_08_te_event		= 0x0000006F;
-	
+	/* etm_09_te_control 0x01000000: exclude none */
 	etm_config.etm_09_te_control		= 0x01000000;
 	etm_config.etm_0a_fifofull_region		= 0x00000000;
 	etm_config.etm_0b_fifofull_level		= 0x00000000;
-	
+	/* etm_0c_vd_event 0x0000006F: always true */
 	etm_config.etm_0c_vd_event                = 0x0000006F;
 	etm_config.etm_0d_vd_single_addr_comp     = 0x00000000;
 	etm_config.etm_0e_vd_mmd                  = 0x00000000;
-	
+	/* etm_0f_vd_control 0x00010000: exclude none */
 	etm_config.etm_0f_vd_control              = 0x00010000;
 	etm_config.etm_addr_comp_value[0]         = 0x00000000;
 	etm_config.etm_addr_comp_value[1]         = 0x00000000;
@@ -726,9 +783,9 @@ static void reset_filter(void)
 	etm_config.etm_6f_cid_comp_mask           = 0x00000000;
 	etm_config.etm_78_sync_freq               = 0x00000400;
 	etm_config.swconfig                       = 0x00000002;
-	
+	/* etb_trig_cnt 0x00000020: ignore trigger */
 	etm_config.etb_trig_cnt                   = 0x00000000;
-	
+	/* etb_init_ptr 0x00000010: 16 marker bytes */
 	etm_config.etb_init_ptr                   = 0x00000010;
 }
 
@@ -748,7 +805,7 @@ static ssize_t etm_dev_write(struct file *file, const char __user *data,
 		pr_err("etm: error in strlen: %d", strlen);
 		return -EFAULT;
 	}
-	
+	/* includes the null character */
 	if (copy_from_user(command, data, strlen)) {
 		pr_err("etm: error in copy_from_user: %d", strlen);
 		return -EFAULT;
@@ -921,7 +978,7 @@ static struct miscdevice etm_dev = {
 
 static void __cpu_clear_sticky(void *unused)
 {
-	etm_read(ETMPDSR); 
+	etm_read(ETMPDSR); /* clear sticky bit in PDSR */
 	isb();
 }
 
@@ -944,6 +1001,9 @@ static int __init etm_init(void)
 	pm_qos_add_request(&etm_qos_req, PM_QOS_CPU_DMA_LATENCY,
 						PM_QOS_DEFAULT_VALUE);
 
+	/* No need to explicity turn on ETM clock since CP14 access go
+	 * through via the autoclock turn on/off
+	 */
 	__cpu_clear_sticky(NULL);
 	smp_call_function(__cpu_clear_sticky, NULL, 1);
 

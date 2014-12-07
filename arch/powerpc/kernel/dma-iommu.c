@@ -8,7 +8,14 @@
 #include <linux/export.h>
 #include <asm/iommu.h>
 
+/*
+ * Generic iommu implementation
+ */
 
+/* Allocates a contiguous real buffer and creates mappings over it.
+ * Returns the virtual address of the buffer and sets dma_handle
+ * to the dma address (mapping) of the first page.
+ */
 static void *dma_iommu_alloc_coherent(struct device *dev, size_t size,
 				      dma_addr_t *dma_handle, gfp_t flag,
 				      struct dma_attrs *attrs)
@@ -25,6 +32,11 @@ static void dma_iommu_free_coherent(struct device *dev, size_t size,
 	iommu_free_coherent(get_iommu_table_base(dev), size, vaddr, dma_handle);
 }
 
+/* Creates TCEs for a user provided buffer.  The user buffer must be
+ * contiguous real kernel storage (not vmalloc).  The address passed here
+ * comprises a page address and offset into that page. The dma_addr_t
+ * returned will point to the same byte within the page as was passed in.
+ */
 static dma_addr_t dma_iommu_map_page(struct device *dev, struct page *page,
 				     unsigned long offset, size_t size,
 				     enum dma_data_direction direction,
@@ -60,6 +72,7 @@ static void dma_iommu_unmap_sg(struct device *dev, struct scatterlist *sglist,
 		       attrs);
 }
 
+/* We support DMA to/from any memory page via the iommu */
 static int dma_iommu_dma_supported(struct device *dev, u64 mask)
 {
 	struct iommu_table *tbl = get_iommu_table_base(dev);

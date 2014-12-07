@@ -34,6 +34,9 @@
 #define UARTDRx	UARTDR1
 #endif
 
+/*
+ * This does not append a newline
+ */
 static inline void putc(int c)
 {
 	while (clps_readl(SYSFLGx) & SYSFLG_UTXFF)
@@ -47,6 +50,9 @@ static inline void flush(void)
 		barrier();
 }
 
+/*
+ * nothing to do
+ */
 #define arch_decomp_setup()
 
 #define arch_decomp_wdog()

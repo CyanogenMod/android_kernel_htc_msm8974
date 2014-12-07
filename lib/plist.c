@@ -66,6 +66,12 @@ static void plist_check_head(struct plist_head *head)
 # define plist_check_head(h)	do { } while (0)
 #endif
 
+/**
+ * plist_add - add @node to @head
+ *
+ * @node:	&struct plist_node pointer
+ * @head:	&struct plist_head pointer
+ */
 void plist_add(struct plist_node *node, struct plist_head *head)
 {
 	struct plist_node *first, *iter, *prev = NULL;
@@ -99,6 +105,12 @@ ins_node:
 	plist_check_head(head);
 }
 
+/**
+ * plist_del - Remove a @node from plist.
+ *
+ * @node:	&struct plist_node pointer - entry to be removed
+ * @head:	&struct plist_head pointer - list head
+ */
 void plist_del(struct plist_node *node, struct plist_head *head)
 {
 	plist_check_head(head);
@@ -110,7 +122,7 @@ void plist_del(struct plist_node *node, struct plist_head *head)
 			next = list_entry(node->node_list.next,
 					struct plist_node, node_list);
 
-			
+			/* add the next plist_node into prio_list */
 			if (list_empty(&next->prio_list))
 				list_add(&next->prio_list, &node->prio_list);
 		}

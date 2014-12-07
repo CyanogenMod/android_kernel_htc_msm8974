@@ -48,6 +48,7 @@ static const signed short ff_joystick[] = {
 #ifdef CONFIG_THRUSTMASTER_FF
 #include "usbhid/usbhid.h"
 
+/* Usages for thrustmaster devices I know about */
 #define THRUSTMASTER_USAGE_FF	(HID_UP_GENDESK | 0xbb)
 
 struct tmff_device {
@@ -55,6 +56,7 @@ struct tmff_device {
 	struct hid_field *ff_field;
 };
 
+/* Changes values from 0 to 0xffff into values from minimum to maximum */
 static inline int tmff_scale_u16(unsigned int in, int minimum, int maximum)
 {
 	int ret;
@@ -67,6 +69,7 @@ static inline int tmff_scale_u16(unsigned int in, int minimum, int maximum)
 	return ret;
 }
 
+/* Changes values from -0x80 to 0x7f into values from minimum to maximum */
 static inline int tmff_scale_s8(int in, int minimum, int maximum)
 {
 	int ret;
@@ -86,7 +89,7 @@ static int tmff_play(struct input_dev *dev, void *data,
 	struct tmff_device *tmff = data;
 	struct hid_field *ff_field = tmff->ff_field;
 	int x, y;
-	int left, right;	
+	int left, right;	/* Rumbling */
 
 	switch (effect->type) {
 	case FF_CONSTANT:
@@ -135,7 +138,7 @@ static int tmff_init(struct hid_device *hid, const signed short *ff_bits)
 	if (!tmff)
 		return -ENOMEM;
 
-	
+	/* Find the report to use */
 	report_list = &hid->report_enum[HID_OUTPUT_REPORT].report_list;
 	list_for_each_entry(report, report_list, list) {
 		int fieldnum;
@@ -235,19 +238,19 @@ err:
 static const struct hid_device_id tm_devices[] = {
 	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb300),
 		.driver_data = (unsigned long)ff_rumble },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb304),   
+	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb304),   /* FireStorm Dual Power 2 (and 3) */
 		.driver_data = (unsigned long)ff_rumble },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb323),   
+	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb323),   /* Dual Trigger 3-in-1 (PC Mode) */
 		.driver_data = (unsigned long)ff_rumble },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb324),   
+	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb324),   /* Dual Trigger 3-in-1 (PS3 Mode) */
 		.driver_data = (unsigned long)ff_rumble },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb651),	
+	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb651),	/* FGT Rumble Force Wheel */
 		.driver_data = (unsigned long)ff_rumble },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb653),	
+	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb653),	/* RGT Force Feedback CLUTCH Raging Wheel */
 		.driver_data = (unsigned long)ff_joystick },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb654),	
+	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb654),	/* FGT Force Feedback Wheel */
 		.driver_data = (unsigned long)ff_joystick },
-	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb65a),	
+	{ HID_USB_DEVICE(USB_VENDOR_ID_THRUSTMASTER, 0xb65a),	/* F430 Force Feedback Wheel */
 		.driver_data = (unsigned long)ff_joystick },
 	{ }
 };

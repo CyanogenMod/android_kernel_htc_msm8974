@@ -19,8 +19,12 @@
 #ifndef MEMDEFS_
 #define MEMDEFS_
 
+/*
+ *  MEM_VIRTUALSEGID is used by Node & Strm to access virtual address space in
+ *  the correct client process context.
+ */
 #define MEM_SETVIRTUALSEGID     0x10000000
 #define MEM_GETVIRTUALSEGID     0x20000000
 #define MEM_MASKVIRTUALSEGID    (MEM_SETVIRTUALSEGID | MEM_GETVIRTUALSEGID)
 
-#endif 
+#endif /* MEMDEFS_ */

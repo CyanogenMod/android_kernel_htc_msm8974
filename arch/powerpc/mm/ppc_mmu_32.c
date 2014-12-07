@@ -38,14 +38,17 @@ struct hash_pte *Hash, *Hash_end;
 unsigned long Hash_size, Hash_mask;
 unsigned long _SDR1;
 
-struct ppc_bat BATS[8][2];	
+struct ppc_bat BATS[8][2];	/* 8 pairs of IBAT, DBAT */
 
-struct batrange {		
+struct batrange {		/* stores address ranges mapped by BATs */
 	unsigned long start;
 	unsigned long limit;
 	phys_addr_t phys;
 } bat_addrs[8];
 
+/*
+ * Return PA for this VA if it is mapped by a BAT, or 0
+ */
 phys_addr_t v_mapped_by_bats(unsigned long va)
 {
 	int b;
@@ -55,6 +58,9 @@ phys_addr_t v_mapped_by_bats(unsigned long va)
 	return 0;
 }
 
+/*
+ * Return VA for a given PA or 0 if not mapped
+ */
 unsigned long p_mapped_by_bats(phys_addr_t pa)
 {
 	int b;
@@ -76,8 +82,10 @@ unsigned long __init mmu_mapin_ram(unsigned long top)
 		return 0;
 	}
 
-	
+	/* Set up BAT2 and if necessary BAT3 to cover RAM. */
 
+	/* Make sure we don't map a block larger than the
+	   smallest alignment of the physical address. */
 	tot = top;
 	for (bl = 128<<10; bl < max_size; bl <<= 1) {
 		if (bl * 2 > tot)
@@ -87,7 +95,7 @@ unsigned long __init mmu_mapin_ram(unsigned long top)
 	setbat(2, PAGE_OFFSET, 0, bl, PAGE_KERNEL_X);
 	done = (unsigned long)bat_addrs[2].limit - PAGE_OFFSET + 1;
 	if ((done < tot) && !bat_addrs[3].limit) {
-		
+		/* use BAT3 to cover a bit more */
 		tot -= done;
 		for (bl = 128<<10; bl < max_size; bl <<= 1)
 			if (bl * 2 > tot)
@@ -99,6 +107,11 @@ unsigned long __init mmu_mapin_ram(unsigned long top)
 	return done;
 }
 
+/*
+ * Set up one of the I/D BAT (block address translation) register pairs.
+ * The parameters are not checked; in particular size must be a power
+ * of 2 between 128k and 256M.
+ */
 void __init setbat(int index, unsigned long virt, phys_addr_t phys,
 		   unsigned int size, int flags)
 {
@@ -112,32 +125,32 @@ void __init setbat(int index, unsigned long virt, phys_addr_t phys,
 
 	bl = (size >> 17) - 1;
 	if (PVR_VER(mfspr(SPRN_PVR)) != 1) {
-		
-		
+		/* 603, 604, etc. */
+		/* Do DBAT first */
 		wimgxpp = flags & (_PAGE_WRITETHRU | _PAGE_NO_CACHE
 				   | _PAGE_COHERENT | _PAGE_GUARDED);
 		wimgxpp |= (flags & _PAGE_RW)? BPP_RW: BPP_RX;
-		bat[1].batu = virt | (bl << 2) | 2; 
+		bat[1].batu = virt | (bl << 2) | 2; /* Vs=1, Vp=0 */
 		bat[1].batl = BAT_PHYS_ADDR(phys) | wimgxpp;
 		if (flags & _PAGE_USER)
-			bat[1].batu |= 1; 	
+			bat[1].batu |= 1; 	/* Vp = 1 */
 		if (flags & _PAGE_GUARDED) {
-			
+			/* G bit must be zero in IBATs */
 			bat[0].batu = bat[0].batl = 0;
 		} else {
-			
+			/* make IBAT same as DBAT */
 			bat[0] = bat[1];
 		}
 	} else {
-		
+		/* 601 cpu */
 		if (bl > BL_8M)
 			bl = BL_8M;
 		wimgxpp = flags & (_PAGE_WRITETHRU | _PAGE_NO_CACHE
 				   | _PAGE_COHERENT);
 		wimgxpp |= (flags & _PAGE_RW)?
 			((flags & _PAGE_USER)? PP_RWRW: PP_RWXX): PP_RXRX;
-		bat->batu = virt | wimgxpp | 4;	
-		bat->batl = phys | bl | 0x40;	
+		bat->batu = virt | wimgxpp | 4;	/* Ks=0, Ku=1 */
+		bat->batl = phys | bl | 0x40;	/* V=1 */
 	}
 
 	bat_addrs[index].start = virt;
@@ -145,6 +158,9 @@ void __init setbat(int index, unsigned long virt, phys_addr_t phys,
 	bat_addrs[index].phys = phys;
 }
 
+/*
+ * Preload a translation in the hash table
+ */
 void hash_preload(struct mm_struct *mm, unsigned long ea,
 		  unsigned long access, unsigned long trap)
 {
@@ -157,6 +173,9 @@ void hash_preload(struct mm_struct *mm, unsigned long ea,
 		add_hash_page(mm->context.id, ea, pmd_val(*pmd));
 }
 
+/*
+ * Initialize the hash table and patch the instructions in hashtable.S.
+ */
 void __init MMU_init_hw(void)
 {
 	unsigned int hmask, mb, mb2;
@@ -168,6 +187,11 @@ void __init MMU_init_hw(void)
 	extern unsigned int flush_hash_patch_A[], flush_hash_patch_B[];
 
 	if (!mmu_has_feature(MMU_FTR_HPTE_TABLE)) {
+		/*
+		 * Put a blr (procedure return) instruction at the
+		 * start of hash_page, since we can still get DSI
+		 * exceptions on a 603.
+		 */
 		hash_page[0] = 0x4e800020;
 		flush_icache_range((unsigned long) &hash_page[0],
 				   (unsigned long) &hash_page[1]);
@@ -176,20 +200,28 @@ void __init MMU_init_hw(void)
 
 	if ( ppc_md.progress ) ppc_md.progress("hash:enter", 0x105);
 
-#define LG_HPTEG_SIZE	6		
+#define LG_HPTEG_SIZE	6		/* 64 bytes per HPTEG */
 #define SDR1_LOW_BITS	((n_hpteg - 1) >> 10)
-#define MIN_N_HPTEG	1024		
+#define MIN_N_HPTEG	1024		/* min 64kB hash table */
 
+	/*
+	 * Allow 1 HPTE (1/8 HPTEG) for each page of memory.
+	 * This is less than the recommended amount, but then
+	 * Linux ain't AIX.
+	 */
 	n_hpteg = total_memory / (PAGE_SIZE * 8);
 	if (n_hpteg < MIN_N_HPTEG)
 		n_hpteg = MIN_N_HPTEG;
 	lg_n_hpteg = __ilog2(n_hpteg);
 	if (n_hpteg & (n_hpteg - 1)) {
-		++lg_n_hpteg;		
+		++lg_n_hpteg;		/* round up if not power of 2 */
 		n_hpteg = 1 << lg_n_hpteg;
 	}
 	Hash_size = n_hpteg << LG_HPTEG_SIZE;
 
+	/*
+	 * Find some memory for the hash table.
+	 */
 	if ( ppc_md.progress ) ppc_md.progress("hash:find piece", 0x322);
 	Hash = __va(memblock_alloc(Hash_size, Hash_size));
 	cacheable_memzero(Hash, Hash_size);
@@ -201,6 +233,9 @@ void __init MMU_init_hw(void)
 	       (unsigned long long)(total_memory >> 20), Hash_size >> 10, Hash);
 
 
+	/*
+	 * Patch up the instructions in hashtable.S:create_hpte
+	 */
 	if ( ppc_md.progress ) ppc_md.progress("hash:patch", 0x345);
 	Hash_mask = n_hpteg - 1;
 	hmask = Hash_mask >> (16 - LG_HPTEG_SIZE);
@@ -223,6 +258,9 @@ void __init MMU_init_hw(void)
 	flush_icache_range((unsigned long) &hash_page_patch_A[0],
 			   (unsigned long) &hash_page_patch_C[1]);
 
+	/*
+	 * Patch up the instructions in hashtable.S:flush_hash_page
+	 */
 	flush_hash_patch_A[0] = (flush_hash_patch_A[0] & ~0xffff)
 		| ((unsigned int)(Hash) >> 16);
 	flush_hash_patch_A[1] = (flush_hash_patch_A[1] & ~0x7c0) | (mb << 6);
@@ -237,11 +275,14 @@ void __init MMU_init_hw(void)
 void setup_initial_memory_limit(phys_addr_t first_memblock_base,
 				phys_addr_t first_memblock_size)
 {
+	/* We don't currently support the first MEMBLOCK not mapping 0
+	 * physical on those processors
+	 */
 	BUG_ON(first_memblock_base != 0);
 
-	
+	/* 601 can only access 16MB at the moment */
 	if (PVR_VER(mfspr(SPRN_PVR)) == 1)
 		memblock_set_current_limit(min_t(u64, first_memblock_size, 0x01000000));
-	else 
+	else /* Anything else has 256M mapped */
 		memblock_set_current_limit(min_t(u64, first_memblock_size, 0x10000000));
 }

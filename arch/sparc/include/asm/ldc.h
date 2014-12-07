@@ -8,6 +8,16 @@ extern void ldom_set_var(const char *var, const char *value);
 extern void ldom_reboot(const char *boot_command);
 extern void ldom_power_off(void);
 
+/* The event handler will be evoked when link state changes
+ * or data becomes available on the receive side.
+ *
+ * For non-RAW links, if the LDC_EVENT_RESET event arrives the
+ * driver should reset all of it's internal state and reinvoke
+ * ldc_connect() to try and bring the link up again.
+ *
+ * For RAW links, ldc_connect() is not used.  Instead the driver
+ * just waits for the LDC_EVENT_UP event.
+ */
 struct ldc_channel_config {
 	void (*event)(void *arg, int event);
 
@@ -40,19 +50,28 @@ struct ldc_channel_config {
 
 struct ldc_channel;
 
+/* Allocate state for a channel.  */
 extern struct ldc_channel *ldc_alloc(unsigned long id,
 				     const struct ldc_channel_config *cfgp,
 				     void *event_arg);
 
+/* Shut down and free state for a channel.  */
 extern void ldc_free(struct ldc_channel *lp);
 
+/* Register TX and RX queues of the link with the hypervisor.  */
 extern int ldc_bind(struct ldc_channel *lp, const char *name);
 
+/* For non-RAW protocols we need to complete a handshake before
+ * communication can proceed.  ldc_connect() does that, if the
+ * handshake completes successfully, an LDC_EVENT_UP event will
+ * be sent up to the driver.
+ */
 extern int ldc_connect(struct ldc_channel *lp);
 extern int ldc_disconnect(struct ldc_channel *lp);
 
 extern int ldc_state(struct ldc_channel *lp);
 
+/* Read and write operations.  Only valid when the link is up.  */
 extern int ldc_write(struct ldc_channel *lp, const void *buf,
 		     unsigned int size);
 extern int ldc_read(struct ldc_channel *lp, void *buf, unsigned int size);
@@ -116,4 +135,4 @@ extern void ldc_free_exp_dring(struct ldc_channel *lp, void *buf,
 			       unsigned int len,
 			       struct ldc_trans_cookie *cookies, int ncookies);
 
-#endif 
+#endif /* _SPARC64_LDC_H */

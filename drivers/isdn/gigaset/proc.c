@@ -58,6 +58,7 @@ static ssize_t set_cidmode(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR(cidmode, S_IRUGO | S_IWUSR, show_cidmode, set_cidmode);
 
+/* free sysfs for device */
 void gigaset_free_dev_sysfs(struct cardstate *cs)
 {
 	if (!cs->tty_dev)
@@ -67,6 +68,7 @@ void gigaset_free_dev_sysfs(struct cardstate *cs)
 	device_remove_file(cs->tty_dev, &dev_attr_cidmode);
 }
 
+/* initialize sysfs for device */
 void gigaset_init_dev_sysfs(struct cardstate *cs)
 {
 	if (!cs->tty_dev)

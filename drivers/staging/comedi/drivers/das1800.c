@@ -22,6 +22,83 @@
 
 ************************************************************************
 */
+/*
+Driver: das1800
+Description: Keithley Metrabyte DAS1800 (& compatibles)
+Author: Frank Mori Hess <fmhess@users.sourceforge.net>
+Devices: [Keithley Metrabyte] DAS-1701ST (das-1701st),
+  DAS-1701ST-DA (das-1701st-da), DAS-1701/AO (das-1701ao),
+  DAS-1702ST (das-1702st), DAS-1702ST-DA (das-1702st-da),
+  DAS-1702HR (das-1702hr), DAS-1702HR-DA (das-1702hr-da),
+  DAS-1702/AO (das-1702ao), DAS-1801ST (das-1801st),
+  DAS-1801ST-DA (das-1801st-da), DAS-1801HC (das-1801hc),
+  DAS-1801AO (das-1801ao), DAS-1802ST (das-1802st),
+  DAS-1802ST-DA (das-1802st-da), DAS-1802HR (das-1802hr),
+  DAS-1802HR-DA (das-1802hr-da), DAS-1802HC (das-1802hc),
+  DAS-1802AO (das-1802ao)
+Status: works
+
+The waveform analog output on the 'ao' cards is not supported.
+If you need it, send me (Frank Hess) an email.
+
+Configuration options:
+  [0] - I/O port base address
+  [1] - IRQ (optional, required for timed or externally triggered conversions)
+  [2] - DMA0 (optional, requires irq)
+  [3] - DMA1 (optional, requires irq and dma0)
+*/
+/*
+
+This driver supports the following Keithley boards:
+
+das-1701st
+das-1701st-da
+das-1701ao
+das-1702st
+das-1702st-da
+das-1702hr
+das-1702hr-da
+das-1702ao
+das-1801st
+das-1801st-da
+das-1801hc
+das-1801ao
+das-1802st
+das-1802st-da
+das-1802hr
+das-1802hr-da
+das-1802hc
+das-1802ao
+
+Options:
+	[0] - base io address
+	[1] - irq (optional, required for timed or externally triggered conversions)
+	[2] - dma0 (optional, requires irq)
+	[3] - dma1 (optional, requires irq and dma0)
+
+irq can be omitted, although the cmd interface will not work without it.
+
+analog input cmd triggers supported:
+	start_src:      TRIG_NOW | TRIG_EXT
+	scan_begin_src: TRIG_FOLLOW | TRIG_TIMER | TRIG_EXT
+	scan_end_src:   TRIG_COUNT
+	convert_src:    TRIG_TIMER | TRIG_EXT (TRIG_EXT requires scan_begin_src == TRIG_FOLLOW)
+	stop_src:       TRIG_COUNT | TRIG_EXT | TRIG_NONE
+
+scan_begin_src triggers TRIG_TIMER and TRIG_EXT use the card's
+'burst mode' which limits the valid conversion time to 64 microseconds
+(convert_arg <= 64000).  This limitation does not apply if scan_begin_src
+is TRIG_FOLLOW.
+
+NOTES:
+Only the DAS-1801ST has been tested by me.
+Unipolar and bipolar ranges cannot be mixed in the channel/gain list.
+
+TODO:
+	Make it automatically allocate irq and dma channels if they are not specified
+	Add support for analog out on 'ao' cards
+	read insn for analog out
+*/
 
 #include <linux/interrupt.h>
 #include <linux/slab.h>
@@ -34,12 +111,14 @@
 #include "8253.h"
 #include "comedi_fc.h"
 
-#define DAS1800_SIZE           16	
-#define FIFO_SIZE              1024	
-#define TIMER_BASE             200	
-#define UNIPOLAR               0x4	
-#define DMA_BUF_SIZE           0x1ff00	
+/* misc. defines */
+#define DAS1800_SIZE           16	/* uses 16 io addresses */
+#define FIFO_SIZE              1024	/*  1024 sample fifo */
+#define TIMER_BASE             200	/*  5 Mhz master clock */
+#define UNIPOLAR               0x4	/*  bit that determines whether input range is uni/bipolar */
+#define DMA_BUF_SIZE           0x1ff00	/*  size in bytes of dma buffers */
 
+/* Registers for the das1800 */
 #define DAS1800_FIFO            0x0
 #define DAS1800_QRAM            0x0
 #define DAS1800_DAC             0x0
@@ -62,7 +141,7 @@
 #define   DMA_CH5_CH6             0x5
 #define   DMA_CH6_CH7             0x6
 #define   DMA_CH7_CH5             0x7
-#define   DMA_ENABLED             0x3	
+#define   DMA_ENABLED             0x3	/* mask used to determine if dma is enabled */
 #define   DMA_DUAL                0x4
 #define   IRQ3                    0x8
 #define   IRQ5                    0x10
@@ -80,6 +159,7 @@
 #define   SD                      0x40
 #define   UB                      0x80
 #define DAS1800_STATUS          0x7
+/* bits that prevent interrupt status bits (and CVEN) from being cleared on write */
 #define   CLEAR_INTR_MASK         (CVEN_MASK | 0x1f)
 #define   INT                     0x1
 #define   DMATC                   0x2
@@ -87,14 +167,14 @@
 #define   OVF                     0x10
 #define   FHF                     0x20
 #define   FNE                     0x40
-#define   CVEN_MASK               0x40	
+#define   CVEN_MASK               0x40	/*  masks CVEN on write */
 #define   CVEN                    0x80
 #define DAS1800_BURST_LENGTH    0x8
 #define DAS1800_BURST_RATE      0x9
 #define DAS1800_QRAM_ADDRESS    0xa
 #define DAS1800_COUNTER         0xc
 
-#define IOBASE2                   0x400	
+#define IOBASE2                   0x400	/* offset of additional ioports used on 'ao' cards */
 
 enum {
 	das1701st, das1701st_da, das1702st, das1702st_da, das1702hr,
@@ -146,6 +226,7 @@ static int das1800_set_frequency(struct comedi_device *dev);
 static unsigned int burst_convert_arg(unsigned int convert_arg, int round_mode);
 static unsigned int suggest_transfer_size(struct comedi_cmd *cmd);
 
+/* analog input ranges */
 static const struct comedi_lrange range_ai_das1801 = {
 	8,
 	{
@@ -176,16 +257,20 @@ static const struct comedi_lrange range_ai_das1802 = {
 
 struct das1800_board {
 	const char *name;
-	int ai_speed;		
-	int resolution;		
-	int qram_len;		
-	int common;		
-	int do_n_chan;		
-	int ao_ability;		
-	int ao_n_chan;		
-	const struct comedi_lrange *range_ai;	
+	int ai_speed;		/* max conversion period in nanoseconds */
+	int resolution;		/* bits of ai resolution */
+	int qram_len;		/* length of card's channel / gain queue */
+	int common;		/* supports AREF_COMMON flag */
+	int do_n_chan;		/* number of digital output channels */
+	int ao_ability;		/* 0 == no analog out, 1 == basic analog out, 2 == waveform analog out */
+	int ao_n_chan;		/* number of analog out channels */
+	const struct comedi_lrange *range_ai;	/* available input ranges */
 };
 
+/* Warning: the maximum conversion speeds listed below are
+ * not always achievable depending on board setup (see
+ * user manual.)
+ */
 static const struct das1800_board das1800_boards[] = {
 	{
 	 .name = "das-1701st",
@@ -387,28 +472,34 @@ static const struct das1800_board das1800_boards[] = {
 	 },
 };
 
+/*
+ * Useful for shorthand access to the particular board structure
+ */
 #define thisboard ((const struct das1800_board *)dev->board_ptr)
 
 struct das1800_private {
-	volatile unsigned int count;	
-	unsigned int divisor1;	
-	unsigned int divisor2;	
-	int do_bits;		
-	int irq_dma_bits;	
+	volatile unsigned int count;	/* number of data points left to be taken */
+	unsigned int divisor1;	/* value to load into board's counter 1 for timed conversions */
+	unsigned int divisor2;	/* value to load into board's counter 2 for timed conversions */
+	int do_bits;		/* digital output bits */
+	int irq_dma_bits;	/* bits for control register b */
+	/* dma bits for control register b, stored so that dma can be
+	 * turned on and off */
 	int dma_bits;
-	unsigned int dma0;	
+	unsigned int dma0;	/* dma channels used */
 	unsigned int dma1;
-	volatile unsigned int dma_current;	
-	uint16_t *ai_buf0;	
+	volatile unsigned int dma_current;	/* dma channel currently in use */
+	uint16_t *ai_buf0;	/* pointers to dma buffers */
 	uint16_t *ai_buf1;
-	uint16_t *dma_current_buf;	
-	unsigned int dma_transfer_size;	
-	unsigned long iobase2;	
-	short ao_update_bits;	
+	uint16_t *dma_current_buf;	/* pointer to dma buffer currently being used */
+	unsigned int dma_transfer_size;	/* size of transfer currently used, in bytes */
+	unsigned long iobase2;	/* secondary io address used for analog out on 'ao' boards */
+	short ao_update_bits;	/* remembers the last write to the 'update' dac */
 };
 
 #define devpriv ((struct das1800_private *)dev->private)
 
+/* analog out range for boards with basic analog out */
 static const struct comedi_lrange range_ao_1 = {
 	1,
 	{
@@ -416,6 +507,16 @@ static const struct comedi_lrange range_ao_1 = {
 	 }
 };
 
+/* analog out range for 'ao' boards */
+/*
+static const struct comedi_lrange range_ao_2 = {
+	2,
+	{
+		RANGE(-10, 10),
+		RANGE(-5, 5),
+	}
+};
+*/
 
 static struct comedi_driver driver_das1800 = {
 	.driver_name = "das1800",
@@ -427,6 +528,10 @@ static struct comedi_driver driver_das1800 = {
 	.offset = sizeof(struct das1800_board),
 };
 
+/*
+ * A convenient macro that defines init_module() and cleanup_module(),
+ * as necessary.
+ */
 static int __init driver_das1800_init_module(void)
 {
 	return comedi_driver_register(&driver_das1800);
@@ -445,26 +550,26 @@ static int das1800_init_dma(struct comedi_device *dev, unsigned int dma0,
 {
 	unsigned long flags;
 
-	
+	/*  need an irq to do dma */
 	if (dev->irq && dma0) {
-		
+		/* encode dma0 and dma1 into 2 digit hexadecimal for switch */
 		switch ((dma0 & 0x7) | (dma1 << 4)) {
-		case 0x5:	
+		case 0x5:	/*  dma0 == 5 */
 			devpriv->dma_bits |= DMA_CH5;
 			break;
-		case 0x6:	
+		case 0x6:	/*  dma0 == 6 */
 			devpriv->dma_bits |= DMA_CH6;
 			break;
-		case 0x7:	
+		case 0x7:	/*  dma0 == 7 */
 			devpriv->dma_bits |= DMA_CH7;
 			break;
-		case 0x65:	
+		case 0x65:	/*  dma0 == 5, dma1 == 6 */
 			devpriv->dma_bits |= DMA_CH5_CH6;
 			break;
-		case 0x76:	
+		case 0x76:	/*  dma0 == 6, dma1 == 7 */
 			devpriv->dma_bits |= DMA_CH6_CH7;
 			break;
-		case 0x57:	
+		case 0x57:	/*  dma0 == 7, dma1 == 5 */
 			devpriv->dma_bits |= DMA_CH7_CH5;
 			break;
 		default:
@@ -523,7 +628,7 @@ static int das1800_attach(struct comedi_device *dev,
 	int board;
 	int retval;
 
-	
+	/* allocate and initialize dev->private */
 	if (alloc_private(dev, sizeof(struct das1800_private)) < 0)
 		return -ENOMEM;
 
@@ -544,7 +649,7 @@ static int das1800_attach(struct comedi_device *dev,
 		return -EINVAL;
 	}
 
-	
+	/* check if io addresses are available */
 	if (!request_region(iobase, DAS1800_SIZE, driver_das1800.driver_name)) {
 		printk
 		    (" I/O port conflict: failed to allocate ports 0x%lx to 0x%lx\n",
@@ -562,7 +667,7 @@ static int das1800_attach(struct comedi_device *dev,
 	dev->board_ptr = das1800_boards + board;
 	dev->board_name = thisboard->name;
 
-	
+	/*  if it is an 'ao' board with fancy analog out then we need extra io ports */
 	if (thisboard->ao_ability == 2) {
 		iobase2 = iobase + IOBASE2;
 		if (!request_region(iobase2, DAS1800_SIZE,
@@ -575,7 +680,7 @@ static int das1800_attach(struct comedi_device *dev,
 		devpriv->iobase2 = iobase2;
 	}
 
-	
+	/* grab our IRQ */
 	if (irq) {
 		if (request_irq(irq, das1800_interrupt, 0,
 				driver_das1800.driver_name, dev)) {
@@ -586,7 +691,7 @@ static int das1800_attach(struct comedi_device *dev,
 	}
 	dev->irq = irq;
 
-	
+	/*  set bits that tell card which irq to use */
 	switch (irq) {
 	case 0:
 		break;
@@ -628,7 +733,7 @@ static int das1800_attach(struct comedi_device *dev,
 	if (alloc_subdevices(dev, 4) < 0)
 		return -ENOMEM;
 
-	
+	/* analog input subdevice */
 	s = dev->subdevices + 0;
 	dev->read_subdev = s;
 	s->type = COMEDI_SUBD_AI;
@@ -645,7 +750,7 @@ static int das1800_attach(struct comedi_device *dev,
 	s->poll = das1800_ai_poll;
 	s->cancel = das1800_cancel;
 
-	
+	/* analog out */
 	s = dev->subdevices + 1;
 	if (thisboard->ao_ability == 1) {
 		s->type = COMEDI_SUBD_AO;
@@ -658,7 +763,7 @@ static int das1800_attach(struct comedi_device *dev,
 		s->type = COMEDI_SUBD_UNUSED;
 	}
 
-	
+	/* di */
 	s = dev->subdevices + 2;
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
@@ -667,7 +772,7 @@ static int das1800_attach(struct comedi_device *dev,
 	s->range_table = &range_digital;
 	s->insn_bits = das1800_di_rbits;
 
-	
+	/* do */
 	s = dev->subdevices + 3;
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE | SDF_READABLE;
@@ -678,12 +783,12 @@ static int das1800_attach(struct comedi_device *dev,
 
 	das1800_cancel(dev, dev->read_subdev);
 
-	
+	/*  initialize digital out channels */
 	outb(devpriv->do_bits, dev->iobase + DAS1800_DIGITAL);
 
-	
+	/*  initialize analog out channels */
 	if (thisboard->ao_ability == 1) {
-		
+		/*  select 'update' dac channel for baseAddress + 0x0 */
 		outb(DAC(thisboard->ao_n_chan - 1),
 		     dev->iobase + DAS1800_SELECT);
 		outw(devpriv->ao_update_bits, dev->iobase + DAS1800_DAC);
@@ -694,7 +799,7 @@ static int das1800_attach(struct comedi_device *dev,
 
 static int das1800_detach(struct comedi_device *dev)
 {
-	
+	/* only free stuff if it has been allocated by _attach */
 	if (dev->iobase)
 		release_region(dev->iobase, DAS1800_SIZE);
 	if (dev->irq)
@@ -716,12 +821,14 @@ static int das1800_detach(struct comedi_device *dev)
 	return 0;
 };
 
+/* probes and checks das-1800 series board type
+ */
 static int das1800_probe(struct comedi_device *dev)
 {
 	int id;
 	int board;
 
-	id = (inb(dev->iobase + DAS1800_DIGITAL) >> 4) & 0xf;	
+	id = (inb(dev->iobase + DAS1800_DIGITAL) >> 4) & 0xf;	/* get id bits */
 	board = ((struct das1800_board *)dev->board_ptr) - das1800_boards;
 
 	switch (id) {
@@ -803,7 +910,7 @@ static int das1800_ai_poll(struct comedi_device *dev,
 {
 	unsigned long flags;
 
-	
+	/*  prevent race with interrupt handler */
 	spin_lock_irqsave(&dev->spinlock, flags);
 	das1800_ai_handler(dev);
 	spin_unlock_irqrestore(&dev->spinlock, flags);
@@ -821,47 +928,50 @@ static irqreturn_t das1800_interrupt(int irq, void *d)
 		return IRQ_HANDLED;
 	}
 
+	/* Prevent race with das1800_ai_poll() on multi processor systems.
+	 * Also protects indirect addressing in das1800_ai_handler */
 	spin_lock(&dev->spinlock);
 	status = inb(dev->iobase + DAS1800_STATUS);
 
-	
+	/* if interrupt was not caused by das-1800 */
 	if (!(status & INT)) {
 		spin_unlock(&dev->spinlock);
 		return IRQ_NONE;
 	}
-	
+	/* clear the interrupt status bit INT */
 	outb(CLEAR_INTR_MASK & ~INT, dev->iobase + DAS1800_STATUS);
-	
+	/*  handle interrupt */
 	das1800_ai_handler(dev);
 
 	spin_unlock(&dev->spinlock);
 	return IRQ_HANDLED;
 }
 
+/* the guts of the interrupt handler, that is shared with das1800_ai_poll */
 static void das1800_ai_handler(struct comedi_device *dev)
 {
-	struct comedi_subdevice *s = dev->subdevices + 0;	
+	struct comedi_subdevice *s = dev->subdevices + 0;	/* analog input subdevice */
 	struct comedi_async *async = s->async;
 	struct comedi_cmd *cmd = &async->cmd;
 	unsigned int status = inb(dev->iobase + DAS1800_STATUS);
 
 	async->events = 0;
-	
+	/*  select adc for base address + 0 */
 	outb(ADC, dev->iobase + DAS1800_SELECT);
-	
+	/*  dma buffer full */
 	if (devpriv->irq_dma_bits & DMA_ENABLED) {
-		
+		/*  look for data from dma transfer even if dma terminal count hasn't happened yet */
 		das1800_handle_dma(dev, s, status);
-	} else if (status & FHF) {	
+	} else if (status & FHF) {	/*  if fifo half full */
 		das1800_handle_fifo_half_full(dev, s);
-	} else if (status & FNE) {	
+	} else if (status & FNE) {	/*  if fifo not empty */
 		das1800_handle_fifo_not_empty(dev, s);
 	}
 
 	async->events |= COMEDI_CB_BLOCK;
-	
+	/* if the card's fifo has overflowed */
 	if (status & OVF) {
-		
+		/*  clear OVF interrupt bit */
 		outb(CLEAR_INTR_MASK & ~OVF, dev->iobase + DAS1800_STATUS);
 		comedi_error(dev, "DAS1800 FIFO overflow");
 		das1800_cancel(dev, s);
@@ -869,20 +979,20 @@ static void das1800_ai_handler(struct comedi_device *dev)
 		comedi_event(dev, s);
 		return;
 	}
-	
-	
+	/*  stop taking data if appropriate */
+	/* stop_src TRIG_EXT */
 	if (status & CT0TC) {
-		
+		/*  clear CT0TC interrupt bit */
 		outb(CLEAR_INTR_MASK & ~CT0TC, dev->iobase + DAS1800_STATUS);
-		
+		/*  make sure we get all remaining data from board before quitting */
 		if (devpriv->irq_dma_bits & DMA_ENABLED)
 			das1800_flush_dma(dev, s);
 		else
 			das1800_handle_fifo_not_empty(dev, s);
-		das1800_cancel(dev, s);	
+		das1800_cancel(dev, s);	/* disable hardware conversions */
 		async->events |= COMEDI_CB_EOA;
-	} else if (cmd->stop_src == TRIG_COUNT && devpriv->count == 0) {	
-		das1800_cancel(dev, s);	
+	} else if (cmd->stop_src == TRIG_COUNT && devpriv->count == 0) {	/*  stop_src TRIG_COUNT */
+		das1800_cancel(dev, s);	/* disable hardware conversions */
 		async->events |= COMEDI_CB_EOA;
 	}
 
@@ -900,7 +1010,7 @@ static void das1800_handle_dma(struct comedi_device *dev,
 	flags = claim_dma_lock();
 	das1800_flush_dma_channel(dev, s, devpriv->dma_current,
 				  devpriv->dma_current_buf);
-	
+	/*  re-enable  dma channel */
 	set_dma_addr(devpriv->dma_current,
 		     virt_to_bus(devpriv->dma_current_buf));
 	set_dma_count(devpriv->dma_current, devpriv->dma_transfer_size);
@@ -908,11 +1018,11 @@ static void das1800_handle_dma(struct comedi_device *dev,
 	release_dma_lock(flags);
 
 	if (status & DMATC) {
-		
+		/*  clear DMATC interrupt bit */
 		outb(CLEAR_INTR_MASK & ~DMATC, dev->iobase + DAS1800_STATUS);
-		
+		/*  switch dma channels for next time, if appropriate */
 		if (dual_dma) {
-			
+			/*  read data from the other channel next time */
 			if (devpriv->dma_current == devpriv->dma0) {
 				devpriv->dma_current = devpriv->dma1;
 				devpriv->dma_current_buf = devpriv->ai_buf1;
@@ -939,16 +1049,18 @@ static void munge_data(struct comedi_device *dev, uint16_t * array,
 	unsigned int i;
 	int unipolar;
 
-	
+	/* see if card is using a unipolar or bipolar range so we can munge data correctly */
 	unipolar = inb(dev->iobase + DAS1800_CONTROL_C) & UB;
 
-	
+	/* convert to unsigned type if we are in a bipolar mode */
 	if (!unipolar) {
 		for (i = 0; i < num_elements; i++)
 			array[i] = munge_bipolar_sample(dev, array[i]);
 	}
 }
 
+/* Utility function used by das1800_flush_dma() and das1800_handle_dma().
+ * Assumes dma lock is held */
 static void das1800_flush_dma_channel(struct comedi_device *dev,
 				      struct comedi_subdevice *s,
 				      unsigned int channel, uint16_t *buffer)
@@ -958,13 +1070,15 @@ static void das1800_flush_dma_channel(struct comedi_device *dev,
 
 	disable_dma(channel);
 
+	/* clear flip-flop to make sure 2-byte registers
+	 * get set correctly */
 	clear_dma_ff(channel);
 
-	
+	/*  figure out how many points to read */
 	num_bytes = devpriv->dma_transfer_size - get_dma_residue(channel);
 	num_samples = num_bytes / sizeof(short);
 
-	
+	/* if we only need some of the points */
 	if (cmd->stop_src == TRIG_COUNT && devpriv->count < num_samples)
 		num_samples = devpriv->count;
 
@@ -976,6 +1090,8 @@ static void das1800_flush_dma_channel(struct comedi_device *dev,
 	return;
 }
 
+/* flushes remaining data from board when external trigger has stopped acquisition
+ * and we are using dma transfers */
 static void das1800_flush_dma(struct comedi_device *dev,
 			      struct comedi_subdevice *s)
 {
@@ -987,7 +1103,7 @@ static void das1800_flush_dma(struct comedi_device *dev,
 				  devpriv->dma_current_buf);
 
 	if (dual_dma) {
-		
+		/*  switch to other channel and flush it */
 		if (devpriv->dma_current == devpriv->dma0) {
 			devpriv->dma_current = devpriv->dma1;
 			devpriv->dma_current_buf = devpriv->ai_buf1;
@@ -1001,7 +1117,7 @@ static void das1800_flush_dma(struct comedi_device *dev,
 
 	release_dma_lock(flags);
 
-	
+	/*  get any remaining samples in fifo */
 	das1800_handle_fifo_not_empty(dev, s);
 
 	return;
@@ -1010,11 +1126,11 @@ static void das1800_flush_dma(struct comedi_device *dev,
 static void das1800_handle_fifo_half_full(struct comedi_device *dev,
 					  struct comedi_subdevice *s)
 {
-	int numPoints = 0;	
+	int numPoints = 0;	/* number of points to read */
 	struct comedi_cmd *cmd = &s->async->cmd;
 
 	numPoints = FIFO_SIZE / 2;
-	
+	/* if we only need some of the points */
 	if (cmd->stop_src == TRIG_COUNT && devpriv->count < numPoints)
 		numPoints = devpriv->count;
 	insw(dev->iobase + DAS1800_FIFO, devpriv->ai_buf0, numPoints);
@@ -1039,7 +1155,7 @@ static void das1800_handle_fifo_not_empty(struct comedi_device *dev,
 		if (cmd->stop_src == TRIG_COUNT && devpriv->count == 0)
 			break;
 		dpnt = inw(dev->iobase + DAS1800_FIFO);
-		
+		/* convert to unsigned type if we are in a bipolar mode */
 		if (!unipolar)
 			;
 		dpnt = munge_bipolar_sample(dev, dpnt);
@@ -1053,9 +1169,9 @@ static void das1800_handle_fifo_not_empty(struct comedi_device *dev,
 
 static int das1800_cancel(struct comedi_device *dev, struct comedi_subdevice *s)
 {
-	outb(0x0, dev->iobase + DAS1800_STATUS);	
-	outb(0x0, dev->iobase + DAS1800_CONTROL_B);	
-	outb(0x0, dev->iobase + DAS1800_CONTROL_A);	
+	outb(0x0, dev->iobase + DAS1800_STATUS);	/* disable conversions */
+	outb(0x0, dev->iobase + DAS1800_CONTROL_B);	/* disable interrupts and dma */
+	outb(0x0, dev->iobase + DAS1800_CONTROL_A);	/* disable and clear fifo and stop triggering */
 	if (devpriv->dma0)
 		disable_dma(devpriv->dma0);
 	if (devpriv->dma1)
@@ -1063,6 +1179,7 @@ static int das1800_cancel(struct comedi_device *dev, struct comedi_subdevice *s)
 	return 0;
 }
 
+/* test analog input cmd */
 static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 				 struct comedi_subdevice *s,
 				 struct comedi_cmd *cmd)
@@ -1073,7 +1190,7 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 	int i;
 	int unipolar;
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW | TRIG_EXT;
@@ -1103,9 +1220,9 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
-	
+	/* step 2: make sure trigger sources are unique and mutually compatible */
 
-	
+	/*  uniqueness check */
 	if (cmd->start_src != TRIG_NOW && cmd->start_src != TRIG_EXT)
 		err++;
 	if (cmd->scan_begin_src != TRIG_FOLLOW &&
@@ -1117,7 +1234,7 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 	if (cmd->stop_src != TRIG_COUNT &&
 	    cmd->stop_src != TRIG_NONE && cmd->stop_src != TRIG_EXT)
 		err++;
-	
+	/* compatibility check */
 	if (cmd->scan_begin_src != TRIG_FOLLOW &&
 	    cmd->convert_src != TRIG_TIMER)
 		err++;
@@ -1125,7 +1242,7 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
@@ -1166,13 +1283,13 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	if (cmd->convert_src == TRIG_TIMER) {
-		
+		/*  if we are not in burst mode */
 		if (cmd->scan_begin_src == TRIG_FOLLOW) {
 			tmp_arg = cmd->convert_arg;
-			
+			/* calculate counter values that give desired timing */
 			i8253_cascade_ns_to_timer_2div(TIMER_BASE,
 						       &(devpriv->divisor1),
 						       &(devpriv->divisor2),
@@ -1182,9 +1299,9 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 			if (tmp_arg != cmd->convert_arg)
 				err++;
 		}
-		
+		/*  if we are in burst mode */
 		else {
-			
+			/*  check that convert_arg is compatible */
 			tmp_arg = cmd->convert_arg;
 			cmd->convert_arg =
 			    burst_convert_arg(cmd->convert_arg,
@@ -1193,7 +1310,7 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 				err++;
 
 			if (cmd->scan_begin_src == TRIG_TIMER) {
-				
+				/*  if scans are timed faster than conversion rate allows */
 				if (cmd->convert_arg * cmd->chanlist_len >
 				    cmd->scan_begin_arg) {
 					cmd->scan_begin_arg =
@@ -1202,7 +1319,7 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 					err++;
 				}
 				tmp_arg = cmd->scan_begin_arg;
-				
+				/* calculate counter values that give desired timing */
 				i8253_cascade_ns_to_timer_2div(TIMER_BASE,
 							       &(devpriv->
 								 divisor1),
@@ -1222,7 +1339,7 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 4;
 
-	
+	/*  make sure user is not trying to mix unipolar and bipolar ranges */
 	if (cmd->chanlist) {
 		unipolar = CR_RANGE(cmd->chanlist[0]) & UNIPOLAR;
 		for (i = 1; i < cmd->chanlist_len; i++) {
@@ -1241,13 +1358,16 @@ static int das1800_ai_do_cmdtest(struct comedi_device *dev,
 	return 0;
 }
 
+/* analog input cmd interface */
 
+/* first, some utility functions used in the main ai_do_cmd() */
 
+/* returns appropriate bits for control register a, depending on command */
 static int control_a_bits(struct comedi_cmd cmd)
 {
 	int control_a;
 
-	control_a = FFEN;	
+	control_a = FFEN;	/* enable fifo */
 	if (cmd.stop_src == TRIG_EXT)
 		control_a |= ATEN;
 	switch (cmd.start_src) {
@@ -1264,29 +1384,33 @@ static int control_a_bits(struct comedi_cmd cmd)
 	return control_a;
 }
 
+/* returns appropriate bits for control register c, depending on command */
 static int control_c_bits(struct comedi_cmd cmd)
 {
 	int control_c;
 	int aref;
 
+	/* set clock source to internal or external, select analog reference,
+	 * select unipolar / bipolar
+	 */
 	aref = CR_AREF(cmd.chanlist[0]);
-	control_c = UQEN;	
+	control_c = UQEN;	/* enable upper qram addresses */
 	if (aref != AREF_DIFF)
 		control_c |= SD;
 	if (aref == AREF_COMMON)
 		control_c |= CMEN;
-	
+	/* if a unipolar range was selected */
 	if (CR_RANGE(cmd.chanlist[0]) & UNIPOLAR)
 		control_c |= UB;
 	switch (cmd.scan_begin_src) {
-	case TRIG_FOLLOW:	
+	case TRIG_FOLLOW:	/*  not in burst mode */
 		switch (cmd.convert_src) {
 		case TRIG_TIMER:
-			
+			/* trig on cascaded counters */
 			control_c |= IPCLK;
 			break;
 		case TRIG_EXT:
-			
+			/* trig on falling edge of external trigger */
 			control_c |= XPCLK;
 			break;
 		default:
@@ -1294,11 +1418,11 @@ static int control_c_bits(struct comedi_cmd cmd)
 		}
 		break;
 	case TRIG_TIMER:
-		
+		/*  burst mode with internal pacer clock */
 		control_c |= BMDE | IPCLK;
 		break;
 	case TRIG_EXT:
-		
+		/*  burst mode with external trigger */
 		control_c |= BMDE | XPCLK;
 		break;
 	default:
@@ -1308,13 +1432,14 @@ static int control_c_bits(struct comedi_cmd cmd)
 	return control_c;
 }
 
+/* sets up counters */
 static int setup_counters(struct comedi_device *dev, struct comedi_cmd cmd)
 {
-	
+	/*  setup cascaded counters for conversion/scan frequency */
 	switch (cmd.scan_begin_src) {
-	case TRIG_FOLLOW:	
+	case TRIG_FOLLOW:	/*  not in burst mode */
 		if (cmd.convert_src == TRIG_TIMER) {
-			
+			/* set conversion frequency */
 			i8253_cascade_ns_to_timer_2div(TIMER_BASE,
 						       &(devpriv->divisor1),
 						       &(devpriv->divisor2),
@@ -1325,8 +1450,8 @@ static int setup_counters(struct comedi_device *dev, struct comedi_cmd cmd)
 				return -1;
 		}
 		break;
-	case TRIG_TIMER:	
-		
+	case TRIG_TIMER:	/*  in burst mode */
+		/* set scan frequency */
 		i8253_cascade_ns_to_timer_2div(TIMER_BASE, &(devpriv->divisor1),
 					       &(devpriv->divisor2),
 					       &(cmd.scan_begin_arg),
@@ -1338,15 +1463,16 @@ static int setup_counters(struct comedi_device *dev, struct comedi_cmd cmd)
 		break;
 	}
 
-	
+	/*  setup counter 0 for 'about triggering' */
 	if (cmd.stop_src == TRIG_EXT) {
-		
+		/*  load counter 0 in mode 0 */
 		i8254_load(dev->iobase + DAS1800_COUNTER, 0, 0, 1, 0);
 	}
 
 	return 0;
 }
 
+/* sets up dma */
 static void setup_dma(struct comedi_device *dev, struct comedi_cmd cmd)
 {
 	unsigned long lock_flags;
@@ -1355,23 +1481,27 @@ static void setup_dma(struct comedi_device *dev, struct comedi_cmd cmd)
 	if ((devpriv->irq_dma_bits & DMA_ENABLED) == 0)
 		return;
 
-	
+	/* determine a reasonable dma transfer size */
 	devpriv->dma_transfer_size = suggest_transfer_size(&cmd);
 	lock_flags = claim_dma_lock();
 	disable_dma(devpriv->dma0);
+	/* clear flip-flop to make sure 2-byte registers for
+	 * count and address get set correctly */
 	clear_dma_ff(devpriv->dma0);
 	set_dma_addr(devpriv->dma0, virt_to_bus(devpriv->ai_buf0));
-	
+	/*  set appropriate size of transfer */
 	set_dma_count(devpriv->dma0, devpriv->dma_transfer_size);
 	devpriv->dma_current = devpriv->dma0;
 	devpriv->dma_current_buf = devpriv->ai_buf0;
 	enable_dma(devpriv->dma0);
-	
+	/*  set up dual dma if appropriate */
 	if (dual_dma) {
 		disable_dma(devpriv->dma1);
+		/* clear flip-flop to make sure 2-byte registers for
+		 * count and address get set correctly */
 		clear_dma_ff(devpriv->dma1);
 		set_dma_addr(devpriv->dma1, virt_to_bus(devpriv->ai_buf1));
-		
+		/*  set appropriate size of transfer */
 		set_dma_count(devpriv->dma1, devpriv->dma_transfer_size);
 		enable_dma(devpriv->dma1);
 	}
@@ -1380,19 +1510,20 @@ static void setup_dma(struct comedi_device *dev, struct comedi_cmd cmd)
 	return;
 }
 
+/* programs channel/gain list into card */
 static void program_chanlist(struct comedi_device *dev, struct comedi_cmd cmd)
 {
 	int i, n, chan_range;
 	unsigned long irq_flags;
-	const int range_mask = 0x3;	
+	const int range_mask = 0x3;	/* masks unipolar/bipolar bit off range */
 	const int range_bitshift = 8;
 
 	n = cmd.chanlist_len;
-	
+	/*  spinlock protects indirect addressing */
 	spin_lock_irqsave(&dev->spinlock, irq_flags);
-	outb(QRAM, dev->iobase + DAS1800_SELECT);	
-	outb(n - 1, dev->iobase + DAS1800_QRAM_ADDRESS);	
-	
+	outb(QRAM, dev->iobase + DAS1800_SELECT);	/* select QRAM for baseAddress + 0x0 */
+	outb(n - 1, dev->iobase + DAS1800_QRAM_ADDRESS);	/*set QRAM address start */
+	/* make channel / gain list */
 	for (i = 0; i < n; i++) {
 		chan_range =
 		    CR_CHAN(cmd.
@@ -1400,12 +1531,13 @@ static void program_chanlist(struct comedi_device *dev, struct comedi_cmd cmd)
 					     range_mask) << range_bitshift);
 		outw(chan_range, dev->iobase + DAS1800_QRAM);
 	}
-	outb(n - 1, dev->iobase + DAS1800_QRAM_ADDRESS);	
+	outb(n - 1, dev->iobase + DAS1800_QRAM_ADDRESS);	/*finish write to QRAM */
 	spin_unlock_irqrestore(&dev->spinlock, irq_flags);
 
 	return;
 }
 
+/* analog input do_cmd */
 static int das1800_ai_do_cmd(struct comedi_device *dev,
 			     struct comedi_subdevice *s)
 {
@@ -1420,29 +1552,31 @@ static int das1800_ai_do_cmd(struct comedi_device *dev,
 		return -1;
 	}
 
+	/* disable dma on TRIG_WAKE_EOS, or TRIG_RT
+	 * (because dma in handler is unsafe at hard real-time priority) */
 	if (cmd.flags & (TRIG_WAKE_EOS | TRIG_RT))
 		devpriv->irq_dma_bits &= ~DMA_ENABLED;
 	else
 		devpriv->irq_dma_bits |= devpriv->dma_bits;
-	
+	/*  interrupt on end of conversion for TRIG_WAKE_EOS */
 	if (cmd.flags & TRIG_WAKE_EOS) {
-		
+		/*  interrupt fifo not empty */
 		devpriv->irq_dma_bits &= ~FIMD;
 	} else {
-		
+		/*  interrupt fifo half full */
 		devpriv->irq_dma_bits |= FIMD;
 	}
-	
+	/*  determine how many conversions we need */
 	if (cmd.stop_src == TRIG_COUNT)
 		devpriv->count = cmd.stop_arg * cmd.chanlist_len;
 
 	das1800_cancel(dev, s);
 
-	
+	/*  determine proper bits for control registers */
 	control_a = control_a_bits(cmd);
 	control_c = control_c_bits(cmd);
 
-	
+	/* setup card and start */
 	program_chanlist(dev, cmd);
 	ret = setup_counters(dev, cmd);
 	if (ret < 0) {
@@ -1451,20 +1585,21 @@ static int das1800_ai_do_cmd(struct comedi_device *dev,
 	}
 	setup_dma(dev, cmd);
 	outb(control_c, dev->iobase + DAS1800_CONTROL_C);
-	
+	/*  set conversion rate and length for burst mode */
 	if (control_c & BMDE) {
-		
+		/*  program conversion period with number of microseconds minus 1 */
 		outb(cmd.convert_arg / 1000 - 1,
 		     dev->iobase + DAS1800_BURST_RATE);
 		outb(cmd.chanlist_len - 1, dev->iobase + DAS1800_BURST_LENGTH);
 	}
-	outb(devpriv->irq_dma_bits, dev->iobase + DAS1800_CONTROL_B);	
-	outb(control_a, dev->iobase + DAS1800_CONTROL_A);	
-	outb(CVEN, dev->iobase + DAS1800_STATUS);	
+	outb(devpriv->irq_dma_bits, dev->iobase + DAS1800_CONTROL_B);	/*  enable irq/dma */
+	outb(control_a, dev->iobase + DAS1800_CONTROL_A);	/* enable fifo and triggering */
+	outb(CVEN, dev->iobase + DAS1800_STATUS);	/* enable conversions */
 
 	return 0;
 }
 
+/* read analog input */
 static int das1800_ai_rinsn(struct comedi_device *dev,
 			    struct comedi_subdevice *s,
 			    struct comedi_insn *insn, unsigned int *data)
@@ -1476,35 +1611,35 @@ static int das1800_ai_rinsn(struct comedi_device *dev,
 	int conv_flags = 0;
 	unsigned long irq_flags;
 
-	
+	/* set up analog reference and unipolar / bipolar mode */
 	aref = CR_AREF(insn->chanspec);
 	conv_flags |= UQEN;
 	if (aref != AREF_DIFF)
 		conv_flags |= SD;
 	if (aref == AREF_COMMON)
 		conv_flags |= CMEN;
-	
+	/* if a unipolar range was selected */
 	if (CR_RANGE(insn->chanspec) & UNIPOLAR)
 		conv_flags |= UB;
 
-	outb(conv_flags, dev->iobase + DAS1800_CONTROL_C);	
-	outb(CVEN, dev->iobase + DAS1800_STATUS);	
-	outb(0x0, dev->iobase + DAS1800_CONTROL_A);	
+	outb(conv_flags, dev->iobase + DAS1800_CONTROL_C);	/* software conversion enabled */
+	outb(CVEN, dev->iobase + DAS1800_STATUS);	/* enable conversions */
+	outb(0x0, dev->iobase + DAS1800_CONTROL_A);	/* reset fifo */
 	outb(FFEN, dev->iobase + DAS1800_CONTROL_A);
 
 	chan = CR_CHAN(insn->chanspec);
-	
+	/* mask of unipolar/bipolar bit from range */
 	range = CR_RANGE(insn->chanspec) & 0x3;
 	chan_range = chan | (range << 8);
 	spin_lock_irqsave(&dev->spinlock, irq_flags);
-	outb(QRAM, dev->iobase + DAS1800_SELECT);	
-	outb(0x0, dev->iobase + DAS1800_QRAM_ADDRESS);	
+	outb(QRAM, dev->iobase + DAS1800_SELECT);	/* select QRAM for baseAddress + 0x0 */
+	outb(0x0, dev->iobase + DAS1800_QRAM_ADDRESS);	/* set QRAM address start */
 	outw(chan_range, dev->iobase + DAS1800_QRAM);
-	outb(0x0, dev->iobase + DAS1800_QRAM_ADDRESS);	
-	outb(ADC, dev->iobase + DAS1800_SELECT);	
+	outb(0x0, dev->iobase + DAS1800_QRAM_ADDRESS);	/*finish write to QRAM */
+	outb(ADC, dev->iobase + DAS1800_SELECT);	/* select ADC for baseAddress + 0x0 */
 
 	for (n = 0; n < insn->n; n++) {
-		
+		/* trigger conversion */
 		outb(0, dev->iobase + DAS1800_FIFO);
 		for (i = 0; i < timeout; i++) {
 			if (inb(dev->iobase + DAS1800_STATUS) & FNE)
@@ -1516,7 +1651,7 @@ static int das1800_ai_rinsn(struct comedi_device *dev,
 			goto exit;
 		}
 		dpnt = inw(dev->iobase + DAS1800_FIFO);
-		
+		/* shift data to offset binary for bipolar ranges */
 		if ((conv_flags & UB) == 0)
 			dpnt += 1 << (thisboard->resolution - 1);
 		data[n] = dpnt;
@@ -1527,27 +1662,29 @@ exit:
 	return n;
 }
 
+/* writes to an analog output channel */
 static int das1800_ao_winsn(struct comedi_device *dev,
 			    struct comedi_subdevice *s,
 			    struct comedi_insn *insn, unsigned int *data)
 {
 	int chan = CR_CHAN(insn->chanspec);
+/* int range = CR_RANGE(insn->chanspec); */
 	int update_chan = thisboard->ao_n_chan - 1;
 	short output;
 	unsigned long irq_flags;
 
-	
+	/*   card expects two's complement data */
 	output = data[0] - (1 << (thisboard->resolution - 1));
-	
+	/*  if the write is to the 'update' channel, we need to remember its value */
 	if (chan == update_chan)
 		devpriv->ao_update_bits = output;
-	
+	/*  write to channel */
 	spin_lock_irqsave(&dev->spinlock, irq_flags);
-	outb(DAC(chan), dev->iobase + DAS1800_SELECT);	
+	outb(DAC(chan), dev->iobase + DAS1800_SELECT);	/* select dac channel for baseAddress + 0x0 */
 	outw(output, dev->iobase + DAS1800_DAC);
-	
+	/*  now we need to write to 'update' channel to update all dac channels */
 	if (chan != update_chan) {
-		outb(DAC(update_chan), dev->iobase + DAS1800_SELECT);	
+		outb(DAC(update_chan), dev->iobase + DAS1800_SELECT);	/* select 'update' channel for baseAddress + 0x0 */
 		outw(devpriv->ao_update_bits, dev->iobase + DAS1800_DAC);
 	}
 	spin_unlock_irqrestore(&dev->spinlock, irq_flags);
@@ -1555,6 +1692,7 @@ static int das1800_ao_winsn(struct comedi_device *dev,
 	return 1;
 }
 
+/* reads from digital input channels */
 static int das1800_di_rbits(struct comedi_device *dev,
 			    struct comedi_subdevice *s,
 			    struct comedi_insn *insn, unsigned int *data)
@@ -1566,13 +1704,14 @@ static int das1800_di_rbits(struct comedi_device *dev,
 	return 2;
 }
 
+/* writes to digital output channels */
 static int das1800_do_wbits(struct comedi_device *dev,
 			    struct comedi_subdevice *s,
 			    struct comedi_insn *insn, unsigned int *data)
 {
 	unsigned int wbits;
 
-	
+	/*  only set bits that have been masked */
 	data[0] &= (1 << s->n_chan) - 1;
 	wbits = devpriv->do_bits;
 	wbits &= ~data[0];
@@ -1586,15 +1725,16 @@ static int das1800_do_wbits(struct comedi_device *dev,
 	return 2;
 }
 
+/* loads counters with divisor1, divisor2 from private structure */
 static int das1800_set_frequency(struct comedi_device *dev)
 {
 	int err = 0;
 
-	
+	/*  counter 1, mode 2 */
 	if (i8254_load(dev->iobase + DAS1800_COUNTER, 0, 1, devpriv->divisor1,
 		       2))
 		err++;
-	
+	/*  counter 2, mode 2 */
 	if (i8254_load(dev->iobase + DAS1800_COUNTER, 0, 2, devpriv->divisor2,
 		       2))
 		err++;
@@ -1604,15 +1744,18 @@ static int das1800_set_frequency(struct comedi_device *dev)
 	return 0;
 }
 
+/* converts requested conversion timing to timing compatible with
+ * hardware, used only when card is in 'burst mode'
+ */
 static unsigned int burst_convert_arg(unsigned int convert_arg, int round_mode)
 {
 	unsigned int micro_sec;
 
-	
+	/*  in burst mode, the maximum conversion time is 64 microseconds */
 	if (convert_arg > 64000)
 		convert_arg = 64000;
 
-	
+	/*  the conversion time must be an integral number of microseconds */
 	switch (round_mode) {
 	case TRIG_ROUND_NEAREST:
 	default:
@@ -1626,20 +1769,21 @@ static unsigned int burst_convert_arg(unsigned int convert_arg, int round_mode)
 		break;
 	}
 
-	
+	/*  return number of nanoseconds */
 	return micro_sec * 1000;
 }
 
+/* utility function that suggests a dma transfer size based on the conversion period 'ns' */
 static unsigned int suggest_transfer_size(struct comedi_cmd *cmd)
 {
 	unsigned int size = DMA_BUF_SIZE;
-	static const int sample_size = 2;	
-	unsigned int fill_time = 300000000;	
-	unsigned int max_size;	
+	static const int sample_size = 2;	/*  size in bytes of one sample from board */
+	unsigned int fill_time = 300000000;	/*  target time in nanoseconds for filling dma buffer */
+	unsigned int max_size;	/*  maximum size we will allow for a transfer */
 
-	
+	/*  make dma buffer fill in 0.3 seconds for timed modes */
 	switch (cmd->scan_begin_src) {
-	case TRIG_FOLLOW:	
+	case TRIG_FOLLOW:	/*  not in burst mode */
 		if (cmd->convert_src == TRIG_TIMER)
 			size = (fill_time / cmd->convert_arg) * sample_size;
 		break;
@@ -1652,9 +1796,9 @@ static unsigned int suggest_transfer_size(struct comedi_cmd *cmd)
 		break;
 	}
 
-	
+	/*  set a minimum and maximum size allowed */
 	max_size = DMA_BUF_SIZE;
-	
+	/*  if we are taking limited number of conversions, limit transfer size to that */
 	if (cmd->stop_src == TRIG_COUNT &&
 	    cmd->stop_arg * cmd->chanlist_len * sample_size < max_size)
 		max_size = cmd->stop_arg * cmd->chanlist_len * sample_size;

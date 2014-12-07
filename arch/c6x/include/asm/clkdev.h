@@ -19,4 +19,4 @@ static inline struct clk_lookup_alloc *__clkdev_alloc(size_t size)
 	return kzalloc(size, GFP_KERNEL);
 }
 
-#endif 
+#endif /* _ASM_CLKDEV_H */

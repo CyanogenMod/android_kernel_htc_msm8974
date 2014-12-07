@@ -6,6 +6,9 @@
  * Copyright (C) 2004-2008 Silicon Graphics, Inc. All rights reserved.
  */
 
+/*
+ * External Cross Partition (XP) structures and defines.
+ */
 
 #ifndef _DRIVERS_MISC_SGIXP_XP_H
 #define _DRIVERS_MISC_SGIXP_XP_H
@@ -22,7 +25,7 @@
 #endif
 
 #if defined CONFIG_IA64
-#include <asm/sn/arch.h>	
+#include <asm/sn/arch.h>	/* defines is_shub1() and is_shub2() */
 #define is_shub()	ia64_platform_is("sn2")
 #endif
 
@@ -44,18 +47,49 @@
 #define DBUG_ON(condition)
 #endif
 
+/*
+ * Define the maximum number of partitions the system can possibly support.
+ * It is based on the maximum number of hardware partitionable regions. The
+ * term 'region' in this context refers to the minimum number of nodes that
+ * can comprise an access protection grouping. The access protection is in
+ * regards to memory, IPI and IOI.
+ *
+ * The maximum number of hardware partitionable regions is equal to the
+ * maximum number of nodes in the entire system divided by the minimum number
+ * of nodes that comprise an access protection grouping.
+ */
 #define XP_MAX_NPARTITIONS_SN2	64
 #define XP_MAX_NPARTITIONS_UV	256
 
-#define XPC_MEM_CHANNEL		0	
-#define	XPC_NET_CHANNEL		1	
+/*
+ * XPC establishes channel connections between the local partition and any
+ * other partition that is currently up. Over these channels, kernel-level
+ * `users' can communicate with their counterparts on the other partitions.
+ *
+ * If the need for additional channels arises, one can simply increase
+ * XPC_MAX_NCHANNELS accordingly. If the day should come where that number
+ * exceeds the absolute MAXIMUM number of channels possible (eight), then one
+ * will need to make changes to the XPC code to accommodate for this.
+ *
+ * The absolute maximum number of channels possible is limited to eight for
+ * performance reasons on sn2 hardware. The internal cross partition structures
+ * require sixteen bytes per channel, and eight allows all of this
+ * interface-shared info to fit in one 128-byte cacheline.
+ */
+#define XPC_MEM_CHANNEL		0	/* memory channel number */
+#define	XPC_NET_CHANNEL		1	/* network channel number */
 
-#define XPC_MAX_NCHANNELS	2	
+#define XPC_MAX_NCHANNELS	2	/* max #of channels allowed */
 
 #if XPC_MAX_NCHANNELS > 8
 #error	XPC_MAX_NCHANNELS exceeds absolute MAXIMUM possible.
 #endif
 
+/*
+ * Define macro, XPC_MSG_SIZE(), is provided for the user
+ * that wants to fit as many msg entries as possible in a given memory size
+ * (e.g. a memory page).
+ */
 #define XPC_MSG_MAX_SIZE	128
 #define XPC_MSG_HDR_MAX_SIZE	16
 #define XPC_MSG_PAYLOAD_MAX_SIZE (XPC_MSG_MAX_SIZE - XPC_MSG_HDR_MAX_SIZE)
@@ -65,117 +99,186 @@
 				      is_uv() ? 64 : 128)
 
 
+/*
+ * Define the return values and values passed to user's callout functions.
+ * (It is important to add new value codes at the end just preceding
+ * xpUnknownReason, which must have the highest numerical value.)
+ */
 enum xp_retval {
 	xpSuccess = 0,
 
-	xpNotConnected,		
-	xpConnected,		
-	xpRETIRED1,		
+	xpNotConnected,		/*  1: channel is not connected */
+	xpConnected,		/*  2: channel connected (opened) */
+	xpRETIRED1,		/*  3: (formerly xpDisconnected) */
 
-	xpMsgReceived,		
-	xpMsgDelivered,		
+	xpMsgReceived,		/*  4: message received */
+	xpMsgDelivered,		/*  5: message delivered and acknowledged */
 
-	xpRETIRED2,		
+	xpRETIRED2,		/*  6: (formerly xpTransferFailed) */
 
-	xpNoWait,		
-	xpRetry,		
-	xpTimeout,		
-	xpInterrupted,		
+	xpNoWait,		/*  7: operation would require wait */
+	xpRetry,		/*  8: retry operation */
+	xpTimeout,		/*  9: timeout in xpc_allocate_msg_wait() */
+	xpInterrupted,		/* 10: interrupted wait */
 
-	xpUnequalMsgSizes,	
-	xpInvalidAddress,	
+	xpUnequalMsgSizes,	/* 11: message size disparity between sides */
+	xpInvalidAddress,	/* 12: invalid address */
 
-	xpNoMemory,		
-	xpLackOfResources,	
-	xpUnregistered,		
-	xpAlreadyRegistered,	
+	xpNoMemory,		/* 13: no memory available for XPC structures */
+	xpLackOfResources,	/* 14: insufficient resources for operation */
+	xpUnregistered,		/* 15: channel is not registered */
+	xpAlreadyRegistered,	/* 16: channel is already registered */
 
-	xpPartitionDown,	
-	xpNotLoaded,		
-	xpUnloading,		
+	xpPartitionDown,	/* 17: remote partition is down */
+	xpNotLoaded,		/* 18: XPC module is not loaded */
+	xpUnloading,		/* 19: this side is unloading XPC module */
 
-	xpBadMagic,		
+	xpBadMagic,		/* 20: XPC MAGIC string not found */
 
-	xpReactivating,		
+	xpReactivating,		/* 21: remote partition was reactivated */
 
-	xpUnregistering,	
-	xpOtherUnregistering,	
+	xpUnregistering,	/* 22: this side is unregistering channel */
+	xpOtherUnregistering,	/* 23: other side is unregistering channel */
 
-	xpCloneKThread,		
-	xpCloneKThreadFailed,	
+	xpCloneKThread,		/* 24: cloning kernel thread */
+	xpCloneKThreadFailed,	/* 25: cloning kernel thread failed */
 
-	xpNoHeartbeat,		
+	xpNoHeartbeat,		/* 26: remote partition has no heartbeat */
 
-	xpPioReadError,		
-	xpPhysAddrRegFailed,	
+	xpPioReadError,		/* 27: PIO read error */
+	xpPhysAddrRegFailed,	/* 28: registration of phys addr range failed */
 
-	xpRETIRED3,		
-	xpRETIRED4,		
-	xpRETIRED5,		
-	xpRETIRED6,		
-	xpRETIRED7,		
-	xpRETIRED8,		
-	xpRETIRED9,		
-	xpRETIRED10,		
-	xpRETIRED11,		
-	xpRETIRED12,		
+	xpRETIRED3,		/* 29: (formerly xpBteDirectoryError) */
+	xpRETIRED4,		/* 30: (formerly xpBtePoisonError) */
+	xpRETIRED5,		/* 31: (formerly xpBteWriteError) */
+	xpRETIRED6,		/* 32: (formerly xpBteAccessError) */
+	xpRETIRED7,		/* 33: (formerly xpBtePWriteError) */
+	xpRETIRED8,		/* 34: (formerly xpBtePReadError) */
+	xpRETIRED9,		/* 35: (formerly xpBteTimeOutError) */
+	xpRETIRED10,		/* 36: (formerly xpBteXtalkError) */
+	xpRETIRED11,		/* 37: (formerly xpBteNotAvailable) */
+	xpRETIRED12,		/* 38: (formerly xpBteUnmappedError) */
 
-	xpBadVersion,		
-	xpVarsNotSet,		
-	xpNoRsvdPageAddr,	
-	xpInvalidPartid,	
-	xpLocalPartid,		
+	xpBadVersion,		/* 39: bad version number */
+	xpVarsNotSet,		/* 40: the XPC variables are not set up */
+	xpNoRsvdPageAddr,	/* 41: unable to get rsvd page's phys addr */
+	xpInvalidPartid,	/* 42: invalid partition ID */
+	xpLocalPartid,		/* 43: local partition ID */
 
-	xpOtherGoingDown,	
-	xpSystemGoingDown,	
-	xpSystemHalt,		
-	xpSystemReboot,		
-	xpSystemPoweroff,	
+	xpOtherGoingDown,	/* 44: other side going down, reason unknown */
+	xpSystemGoingDown,	/* 45: system is going down, reason unknown */
+	xpSystemHalt,		/* 46: system is being halted */
+	xpSystemReboot,		/* 47: system is being rebooted */
+	xpSystemPoweroff,	/* 48: system is being powered off */
 
-	xpDisconnecting,	
+	xpDisconnecting,	/* 49: channel disconnecting (closing) */
 
-	xpOpenCloseError,	
+	xpOpenCloseError,	/* 50: channel open/close protocol error */
 
-	xpDisconnected,		
+	xpDisconnected,		/* 51: channel disconnected (closed) */
 
-	xpBteCopyError,		
-	xpSalError,		
-	xpRsvdPageNotSet,	
-	xpPayloadTooBig,	
+	xpBteCopyError,		/* 52: bte_copy() returned error */
+	xpSalError,		/* 53: sn SAL error */
+	xpRsvdPageNotSet,	/* 54: the reserved page is not set up */
+	xpPayloadTooBig,	/* 55: payload too large for message slot */
 
-	xpUnsupported,		
-	xpNeedMoreInfo,		
+	xpUnsupported,		/* 56: unsupported functionality or resource */
+	xpNeedMoreInfo,		/* 57: more info is needed by SAL */
 
-	xpGruCopyError,		
-	xpGruSendMqError,	
+	xpGruCopyError,		/* 58: gru_copy_gru() returned error */
+	xpGruSendMqError,	/* 59: gru send message queue related error */
 
-	xpBadChannelNumber,	
-	xpBadMsgType,		
-	xpBiosError,		
+	xpBadChannelNumber,	/* 60: invalid channel number */
+	xpBadMsgType,		/* 61: invalid message type */
+	xpBiosError,		/* 62: BIOS error */
 
-	xpUnknownReason		
+	xpUnknownReason		/* 63: unknown reason - must be last in enum */
 };
 
+/*
+ * Define the callout function type used by XPC to update the user on
+ * connection activity and state changes via the user function registered
+ * by xpc_connect().
+ *
+ * Arguments:
+ *
+ *	reason - reason code.
+ *	partid - partition ID associated with condition.
+ *	ch_number - channel # associated with condition.
+ *	data - pointer to optional data.
+ *	key - pointer to optional user-defined value provided as the "key"
+ *	      argument to xpc_connect().
+ *
+ * A reason code of xpConnected indicates that a connection has been
+ * established to the specified partition on the specified channel. The data
+ * argument indicates the max number of entries allowed in the message queue.
+ *
+ * A reason code of xpMsgReceived indicates that a XPC message arrived from
+ * the specified partition on the specified channel. The data argument
+ * specifies the address of the message's payload. The user must call
+ * xpc_received() when finished with the payload.
+ *
+ * All other reason codes indicate failure. The data argmument is NULL.
+ * When a failure reason code is received, one can assume that the channel
+ * is not connected.
+ */
 typedef void (*xpc_channel_func) (enum xp_retval reason, short partid,
 				  int ch_number, void *data, void *key);
 
+/*
+ * Define the callout function type used by XPC to notify the user of
+ * messages received and delivered via the user function registered by
+ * xpc_send_notify().
+ *
+ * Arguments:
+ *
+ *	reason - reason code.
+ *	partid - partition ID associated with condition.
+ *	ch_number - channel # associated with condition.
+ *	key - pointer to optional user-defined value provided as the "key"
+ *	      argument to xpc_send_notify().
+ *
+ * A reason code of xpMsgDelivered indicates that the message was delivered
+ * to the intended recipient and that they have acknowledged its receipt by
+ * calling xpc_received().
+ *
+ * All other reason codes indicate failure.
+ *
+ * NOTE: The user defined function must be callable by an interrupt handler
+ *       and thus cannot block.
+ */
 typedef void (*xpc_notify_func) (enum xp_retval reason, short partid,
 				 int ch_number, void *key);
 
+/*
+ * The following is a registration entry. There is a global array of these,
+ * one per channel. It is used to record the connection registration made
+ * by the users of XPC. As long as a registration entry exists, for any
+ * partition that comes up, XPC will attempt to establish a connection on
+ * that channel. Notification that a connection has been made will occur via
+ * the xpc_channel_func function.
+ *
+ * The 'func' field points to the function to call when aynchronous
+ * notification is required for such events as: a connection established/lost,
+ * or an incoming message received, or an error condition encountered. A
+ * non-NULL 'func' field indicates that there is an active registration for
+ * the channel.
+ */
 struct xpc_registration {
 	struct mutex mutex;
-	xpc_channel_func func;	
-	void *key;		
-	u16 nentries;		
-	u16 entry_size;		
-	u32 assigned_limit;	
-	u32 idle_limit;		
+	xpc_channel_func func;	/* function to call */
+	void *key;		/* pointer to user's key */
+	u16 nentries;		/* #of msg entries in local msg queue */
+	u16 entry_size;		/* message queue's message entry size */
+	u32 assigned_limit;	/* limit on #of assigned kthreads */
+	u32 idle_limit;		/* limit on #of idle kthreads */
 } ____cacheline_aligned;
 
 #define XPC_CHANNEL_REGISTERED(_c)	(xpc_registrations[_c].func != NULL)
 
-#define XPC_WAIT	0	
-#define XPC_NOWAIT	1	
+/* the following are valid xpc_send() or xpc_send_notify() flags */
+#define XPC_WAIT	0	/* wait flag */
+#define XPC_NOWAIT	1	/* no wait flag */
 
 struct xpc_interface {
 	void (*connect) (int);
@@ -252,4 +355,4 @@ extern enum xp_retval xp_init_uv(void);
 extern void xp_exit_sn2(void);
 extern void xp_exit_uv(void);
 
-#endif 
+#endif /* _DRIVERS_MISC_SGIXP_XP_H */

@@ -56,6 +56,16 @@ struct ioh_regs {
 	u32 srst;
 };
 
+/**
+ * struct ioh_gpio_reg_data - The register store data.
+ * @ien_reg	To store contents of interrupt enable register.
+ * @imask_reg:	To store contents of interrupt mask regist
+ * @po_reg:	To store contents of PO register.
+ * @pm_reg:	To store contents of PM register.
+ * @im0_reg:	To store contents of interrupt mode regist0
+ * @im1_reg:	To store contents of interrupt mode regist1
+ * @use_sel_reg: To store contents of GPIO_USE_SEL0~3
+ */
 struct ioh_gpio_reg_data {
 	u32 ien_reg;
 	u32 imask_reg;
@@ -66,6 +76,20 @@ struct ioh_gpio_reg_data {
 	u32 use_sel_reg;
 };
 
+/**
+ * struct ioh_gpio - GPIO private data structure.
+ * @base:			PCI base address of Memory mapped I/O register.
+ * @reg:			Memory mapped IOH GPIO register list.
+ * @dev:			Pointer to device structure.
+ * @gpio:			Data for GPIO infrastructure.
+ * @ioh_gpio_reg:		Memory mapped Register data is saved here
+ *				when suspend.
+ * @gpio_use_sel:		Save GPIO_USE_SEL1~4 register for PM
+ * @ch:				Indicate GPIO channel
+ * @irq_base:		Save base of IRQ number for interrupt
+ * @spinlock:		Used for register access protection in
+ *				interrupt context ioh_irq_type and PM;
+ */
 struct ioh_gpio {
 	void __iomem *base;
 	struct ioh_regs __iomem *reg;
@@ -145,6 +169,9 @@ static int ioh_gpio_direction_input(struct gpio_chip *gpio, unsigned nr)
 }
 
 #ifdef CONFIG_PM
+/*
+ * Save register configuration and disable interrupts.
+ */
 static void ioh_gpio_save_reg_conf(struct ioh_gpio *chip)
 {
 	int i;
@@ -168,6 +195,9 @@ static void ioh_gpio_save_reg_conf(struct ioh_gpio *chip)
 	}
 }
 
+/*
+ * This function restores the register configuration of the GPIO device.
+ */
 static void ioh_gpio_restore_reg_conf(struct ioh_gpio *chip)
 {
 	int i;
@@ -265,17 +295,17 @@ static int ioh_irq_type(struct irq_data *d, unsigned int type)
 		goto end;
 	}
 
-	
+	/* Set interrupt mode */
 	im = ioread32(im_reg) & ~(IOH_IM_MASK << (im_pos * 4));
 	iowrite32(im | (val << (im_pos * 4)), im_reg);
 
-	
+	/* iclr */
 	iowrite32(BIT(ch), &chip->reg->regs[chip->ch].iclr);
 
-	
+	/* IMASKCLR */
 	iowrite32(BIT(ch), &chip->reg->regs[chip->ch].imaskclr);
 
-	
+	/* Enable interrupt */
 	ien = ioread32(&chip->reg->regs[chip->ch].ien);
 	iowrite32(ien | BIT(ch), &chip->reg->regs[chip->ch].ien);
 end:

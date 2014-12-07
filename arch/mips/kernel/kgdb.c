@@ -22,7 +22,7 @@
  *  kind, whether express or implied.
  */
 
-#include <linux/ptrace.h>		
+#include <linux/ptrace.h>		/* for linux pt_regs struct */
 #include <linux/kgdb.h>
 #include <linux/kdebug.h>
 #include <linux/sched.h>
@@ -34,20 +34,20 @@
 #include <asm/sigcontext.h>
 
 static struct hard_trap_info {
-	unsigned char tt;	
-	unsigned char signo;	
+	unsigned char tt;	/* Trap type code for MIPS R3xxx and R4xxx */
+	unsigned char signo;	/* Signal that we map this trap into */
 } hard_trap_info[] = {
-	{ 6, SIGBUS },		
-	{ 7, SIGBUS },		
-	{ 9, SIGTRAP },		
-	
-	{ 12, SIGFPE },		
-	{ 13, SIGTRAP },	
-	{ 14, SIGSEGV },	
-	{ 15, SIGFPE },		
-	{ 23, SIGSEGV },	
-	{ 31, SIGSEGV },	
-	{ 0, 0}			
+	{ 6, SIGBUS },		/* instruction bus error */
+	{ 7, SIGBUS },		/* data bus error */
+	{ 9, SIGTRAP },		/* break */
+/*	{ 11, SIGILL },	*/	/* CPU unusable */
+	{ 12, SIGFPE },		/* overflow */
+	{ 13, SIGTRAP },	/* trap */
+	{ 14, SIGSEGV },	/* virtual instruction cache coherency */
+	{ 15, SIGFPE },		/* floating point exception */
+	{ 23, SIGSEGV },	/* watch */
+	{ 31, SIGSEGV },	/* virtual data cache coherency */
+	{ 0, 0}			/* Must be last */
 };
 
 struct dbg_reg_def_t dbg_reg_def[DBG_MAX_REG_NUM] =
@@ -137,16 +137,16 @@ int dbg_set_reg(int regno, void *mem, struct pt_regs *regs)
 		memcpy((void *)regs + dbg_reg_def[regno].offset, mem,
 		       dbg_reg_def[regno].size);
 	} else if (current && dbg_reg_def[regno].offset != -1 && regno < 72) {
-		
+		/* FP registers 38 -> 69 */
 		if (!(regs->cp0_status & ST0_CU1))
 			return 0;
 		if (regno == 70) {
-			
+			/* Process the fcr31/fsr (register 70) */
 			memcpy((void *)&current->thread.fpu.fcr31, mem,
 			       dbg_reg_def[regno].size);
 			goto out_save;
 		} else if (regno == 71) {
-			
+			/* Ignore the fir (register 71) */
 			goto out_save;
 		}
 		fp_reg = dbg_reg_def[regno].offset;
@@ -167,21 +167,21 @@ char *dbg_get_reg(int regno, void *mem, struct pt_regs *regs)
 		return NULL;
 
 	if (dbg_reg_def[regno].offset != -1 && regno < 38) {
-		
+		/* First 38 registers */
 		memcpy(mem, (void *)regs + dbg_reg_def[regno].offset,
 		       dbg_reg_def[regno].size);
 	} else if (current && dbg_reg_def[regno].offset != -1 && regno < 72) {
-		
+		/* FP registers 38 -> 69 */
 		if (!(regs->cp0_status & ST0_CU1))
 			goto out;
 		save_fp(current);
 		if (regno == 70) {
-			
+			/* Process the fcr31/fsr (register 70) */
 			memcpy(mem, (void *)&current->thread.fpu.fcr31,
 			       dbg_reg_def[regno].size);
 			goto out;
 		} else if (regno == 71) {
-			
+			/* Ignore the fir (register 71) */
 			memset(mem, 0, dbg_reg_def[regno].size);
 			goto out;
 		}
@@ -226,9 +226,13 @@ static int compute_signal(int tt)
 		if (ht->tt == tt)
 			return ht->signo;
 
-	return SIGHUP;		
+	return SIGHUP;		/* default for things we don't know about */
 }
 
+/*
+ * Similar to regs_to_gdb_regs() except that process is sleeping and so
+ * we may not be able to get all the info.
+ */
 void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 {
 	int reg;
@@ -244,14 +248,14 @@ void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 	for (reg = 0; reg < 16; reg++)
 		*(ptr++) = regs->regs[reg];
 
-	
+	/* S0 - S7 */
 	for (reg = 16; reg < 24; reg++)
 		*(ptr++) = regs->regs[reg];
 
 	for (reg = 24; reg < 28; reg++)
 		*(ptr++) = 0;
 
-	
+	/* GP, SP, FP, RA */
 	for (reg = 28; reg < 32; reg++)
 		*(ptr++) = regs->regs[reg];
 
@@ -268,6 +272,10 @@ void kgdb_arch_set_pc(struct pt_regs *regs, unsigned long pc)
 	regs->cp0_epc = pc;
 }
 
+/*
+ * Calls linux_debug_hook before the kernel dies. If KGDB is enabled,
+ * then try to fall into the debugger
+ */
 static int kgdb_mips_notify(struct notifier_block *self, unsigned long cmd,
 			    void *ptr)
 {
@@ -275,7 +283,7 @@ static int kgdb_mips_notify(struct notifier_block *self, unsigned long cmd,
 	struct pt_regs *regs = args->regs;
 	int trap = (regs->cp0_cause & 0x7c) >> 2;
 
-	
+	/* Userspace events, ignore. */
 	if (user_mode(regs))
 		return NOTIFY_DONE;
 
@@ -289,7 +297,7 @@ static int kgdb_mips_notify(struct notifier_block *self, unsigned long cmd,
 		if ((trap == 9) && (regs->cp0_epc == (unsigned long)breakinst))
 			regs->cp0_epc += 4;
 
-	
+	/* In SMP mode, __flush_cache_all does IPI */
 	local_irq_enable();
 	__flush_cache_all();
 
@@ -314,12 +322,15 @@ int kgdb_ll_trap(int cmd, const char *str,
 
 	return kgdb_mips_notify(NULL, cmd, &args);
 }
-#endif 
+#endif /* CONFIG_KGDB_LOW_LEVEL_TRAP */
 
 static struct notifier_block kgdb_notifier = {
 	.notifier_call = kgdb_mips_notify,
 };
 
+/*
+ * Handle the 'c' command
+ */
 int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 			       char *remcom_in_buffer, char *remcom_out_buffer,
 			       struct pt_regs *regs)
@@ -329,7 +340,7 @@ int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 
 	switch (remcom_in_buffer[0]) {
 	case 'c':
-		
+		/* handle the optional parameter */
 		ptr = &remcom_in_buffer[1];
 		if (kgdb_hex2long(&ptr, &address))
 			regs->cp0_epc = address;
@@ -342,6 +353,10 @@ int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 
 struct kgdb_arch arch_kgdb_ops;
 
+/*
+ * We use kgdb_early_setup so that functions we need to call now don't
+ * cause trouble when called again later.
+ */
 int kgdb_arch_init(void)
 {
 	union mips_instruction insn = {
@@ -357,6 +372,12 @@ int kgdb_arch_init(void)
 	return 0;
 }
 
+/*
+ *	kgdb_arch_exit - Perform any architecture specific uninitalization.
+ *
+ *	This function will handle the uninitalization of any architecture
+ *	specific callbacks, for dynamic registration and unregistration.
+ */
 void kgdb_arch_exit(void)
 {
 	unregister_die_notifier(&kgdb_notifier);

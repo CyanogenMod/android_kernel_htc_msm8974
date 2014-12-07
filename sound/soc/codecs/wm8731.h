@@ -15,6 +15,7 @@
 #ifndef _WM8731_H
 #define _WM8731_H
 
+/* WM8731 register space */
 
 #define WM8731_LINVOL   0x00
 #define WM8731_RINVOL   0x01

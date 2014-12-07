@@ -77,11 +77,17 @@ int iscsit_load_discovery_tpg(void)
 		return -1;
 	}
 
-	tpg->sid = 1; 
+	tpg->sid = 1; /* First Assigned LIO Session ID */
 	iscsit_set_default_tpg_attribs(tpg);
 
 	if (iscsi_create_default_params(&tpg->param_list) < 0)
 		goto out;
+	/*
+	 * By default we disable authentication for discovery sessions,
+	 * this can be changed with:
+	 *
+	 * /sys/kernel/config/target/iscsi/discovery_auth/enforce_discovery_auth
+	 */
 	param = iscsi_find_param_from_key(AUTHMETHOD, tpg->param_list);
 	if (!param)
 		goto out;
@@ -305,6 +311,11 @@ int iscsit_tpg_enable_portal_group(struct iscsi_portal_group *tpg)
 		spin_unlock(&tpg->tpg_state_lock);
 		return -EINVAL;
 	}
+	/*
+	 * Make sure that AuthMethod does not contain None as an option
+	 * unless explictly disabled.  Set the default to CHAP if authentication
+	 * is enforced (as per default), and remove the NONE option.
+	 */
 	param = iscsi_find_param_from_key(AUTHMETHOD, tpg->param_list);
 	if (!param) {
 		spin_unlock(&tpg->tpg_state_lock);
@@ -472,6 +483,9 @@ static int iscsit_tpg_release_np(
 	tpg_np->tpg_np = NULL;
 	tpg_np->tpg = NULL;
 	kfree(tpg_np);
+	/*
+	 * iscsit_del_np() will shutdown struct iscsi_np when last TPG reference is released.
+	 */
 	return iscsit_del_np(np);
 }
 
@@ -491,6 +505,11 @@ int iscsit_tpg_del_network_portal(
 	}
 
 	if (!tpg_np->tpg_np_parent) {
+		/*
+		 * We are the parent tpg network portal.  Release all of the
+		 * child tpg_np's (eg: the non ISCSI_TCP ones) on our parent
+		 * list first.
+		 */
 		list_for_each_entry_safe(tpg_np_child, tpg_np_child_tmp,
 				&tpg_np->tpg_np_parent_list,
 				tpg_np_child_list) {
@@ -500,6 +519,10 @@ int iscsit_tpg_del_network_portal(
 					" failed: %d\n", ret);
 		}
 	} else {
+		/*
+		 * We are not the parent ISCSI_TCP tpg network portal.  Release
+		 * our own network portals from the child list.
+		 */
 		spin_lock(&tpg_np->tpg_np_parent->tpg_np_parent_lock);
 		list_del(&tpg_np->tpg_np_child_list);
 		spin_unlock(&tpg_np->tpg_np_parent->tpg_np_parent_lock);

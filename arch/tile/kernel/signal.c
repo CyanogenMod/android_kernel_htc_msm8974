@@ -46,6 +46,9 @@ SYSCALL_DEFINE3(sigaltstack, const stack_t __user *, uss,
 }
 
 
+/*
+ * Do a signal return; undo the signal stack.
+ */
 
 int restore_sigcontext(struct pt_regs *regs,
 		       struct sigcontext __user *sc)
@@ -53,16 +56,20 @@ int restore_sigcontext(struct pt_regs *regs,
 	int err = 0;
 	int i;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
+	/*
+	 * Enforce that sigcontext is like pt_regs, and doesn't mess
+	 * up our stack alignment rules.
+	 */
 	BUILD_BUG_ON(sizeof(struct sigcontext) != sizeof(struct pt_regs));
 	BUILD_BUG_ON(sizeof(struct sigcontext) % 8 != 0);
 
 	for (i = 0; i < sizeof(struct pt_regs)/sizeof(long); ++i)
 		err |= __get_user(regs->regs[i], &sc->gregs[i]);
 
-	
+	/* Ensure that the PL is always set to USER_PL. */
 	regs->ex1 = PL_ICS_EX1(USER_PL, EX1_ICS(regs->ex1));
 
 	regs->faultnum = INT_SWINT_1_SIGRETURN;
@@ -77,6 +84,7 @@ void signal_fault(const char *type, struct pt_regs *regs,
 	force_sigsegv(sig, current);
 }
 
+/* The assembly shim for this function arranges to ignore the return value. */
 SYSCALL_DEFINE1(rt_sigreturn, struct pt_regs *, regs)
 {
 	struct rt_sigframe __user *frame =
@@ -104,6 +112,9 @@ badframe:
 	return 0;
 }
 
+/*
+ * Set up a signal frame.
+ */
 
 int setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs)
 {
@@ -115,25 +126,37 @@ int setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs)
 	return err;
 }
 
+/*
+ * Determine which stack to use..
+ */
 static inline void __user *get_sigframe(struct k_sigaction *ka,
 					struct pt_regs *regs,
 					size_t frame_size)
 {
 	unsigned long sp;
 
-	
+	/* Default to using normal stack */
 	sp = regs->sp;
 
+	/*
+	 * If we are on the alternate signal stack and would overflow
+	 * it, don't.  Return an always-bogus address instead so we
+	 * will die with SIGSEGV.
+	 */
 	if (on_sig_stack(sp) && !likely(on_sig_stack(sp - frame_size)))
 		return (void __user __force *)-1UL;
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (sas_ss_flags(sp) == 0)
 			sp = current->sas_ss_sp + current->sas_ss_size;
 	}
 
 	sp -= frame_size;
+	/*
+	 * Align the stack pointer according to the TILE ABI,
+	 * i.e. so that on function entry (sp & 15) == 0.
+	 */
 	sp &= -16UL;
 	return (void __user *) sp;
 }
@@ -157,16 +180,16 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		? current_thread_info()->exec_domain->signal_invmap[sig]
 		: sig;
 
-	
+	/* Always write at least the signal number for the stack backtracer. */
 	if (ka->sa.sa_flags & SA_SIGINFO) {
-		
+		/* At sigreturn time, restore the callee-save registers too. */
 		err |= copy_siginfo_to_user(&frame->info, info);
 		regs->flags |= PT_FLAGS_RESTORE_REGS;
 	} else {
 		err |= __put_user(info->si_signo, &frame->info.si_signo);
 	}
 
-	
+	/* Create the ucontext.  */
 	err |= __clear_user(&frame->save_area, sizeof(frame->save_area));
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(NULL, &frame->uc.uc_link);
@@ -184,8 +207,15 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (ka->sa.sa_flags & SA_RESTORER)
 		restorer = (unsigned long) ka->sa.sa_restorer;
 
+	/*
+	 * Set up registers for signal handler.
+	 * Registers that we don't modify keep the value they had from
+	 * user-space at the time we took the signal.
+	 * We always pass siginfo and mcontext, regardless of SA_SIGINFO,
+	 * since some things rely on this (e.g. glibc's debug/segfault.c).
+	 */
 	regs->pc = (unsigned long) ka->sa.sa_handler;
-	regs->ex1 = PL_ICS_EX1(USER_PL, 1); 
+	regs->ex1 = PL_ICS_EX1(USER_PL, 1); /* set crit sec in handler */
 	regs->sp = (unsigned long) frame;
 	regs->lr = restorer;
 	regs->regs[0] = (unsigned long) usig;
@@ -193,6 +223,11 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	regs->regs[2] = (unsigned long) &frame->uc;
 	regs->flags |= PT_FLAGS_CALLER_SAVES;
 
+	/*
+	 * Notify any tracer that was single-stepping it.
+	 * The tracer may want to single-step inside the
+	 * handler too.
+	 */
 	if (test_thread_flag(TIF_SINGLESTEP))
 		ptrace_notify(SIGTRAP);
 
@@ -203,6 +238,9 @@ give_sigsegv:
 	return -EFAULT;
 }
 
+/*
+ * OK, we're invoking a handler
+ */
 
 static int handle_signal(unsigned long sig, siginfo_t *info,
 			 struct k_sigaction *ka, sigset_t *oldset,
@@ -210,9 +248,9 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 {
 	int ret;
 
-	
+	/* Are we from a system call? */
 	if (regs->faultnum == INT_SWINT_1) {
-		
+		/* If so, check system call restarting.. */
 		switch (regs->regs[0]) {
 		case -ERESTART_RESTARTBLOCK:
 		case -ERESTARTNOHAND:
@@ -224,16 +262,16 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 				regs->regs[0] = -EINTR;
 				break;
 			}
-			
+			/* fallthrough */
 		case -ERESTARTNOINTR:
-			
+			/* Reload caller-saves to restore r0..r5 and r10. */
 			regs->flags |= PT_FLAGS_CALLER_SAVES;
 			regs->regs[0] = regs->orig_r0;
 			regs->pc -= 8;
 		}
 	}
 
-	
+	/* Set up the stack frame */
 #ifdef CONFIG_COMPAT
 	if (is_compat_task())
 		ret = compat_setup_rt_frame(sig, ka, info, oldset, regs);
@@ -241,12 +279,21 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 #endif
 		ret = setup_rt_frame(sig, ka, info, oldset, regs);
 	if (ret == 0) {
+		/* This code is only called from system calls or from
+		 * the work_pending path in the return-to-user code, and
+		 * either way we can re-enable interrupts unconditionally.
+		 */
 		block_sigmask(ka, sig);
 	}
 
 	return ret;
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ */
 void do_signal(struct pt_regs *regs)
 {
 	siginfo_t info;
@@ -254,6 +301,12 @@ void do_signal(struct pt_regs *regs)
 	struct k_sigaction ka;
 	sigset_t *oldset;
 
+	/*
+	 * i386 will check if we're coming from kernel mode and bail out
+	 * here.  In my experience this just turns weird crashes into
+	 * weird spin-hangs.  But if we find a case where this seems
+	 * helpful, we can reinstate the check on "!user_mode(regs)".
+	 */
 
 	if (current_thread_info()->status & TS_RESTORE_SIGMASK)
 		oldset = &current->saved_sigmask;
@@ -262,17 +315,23 @@ void do_signal(struct pt_regs *regs)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		
+		/* Whee! Actually deliver the signal.  */
 		if (handle_signal(signr, &info, &ka, oldset, regs) == 0) {
+			/*
+			 * A signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TS_RESTORE_SIGMASK flag.
+			 */
 			current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
 		}
 
 		goto done;
 	}
 
-	
+	/* Did we come from a system call? */
 	if (regs->faultnum == INT_SWINT_1) {
-		
+		/* Restart the system call - no handlers present */
 		switch (regs->regs[0]) {
 		case -ERESTARTNOHAND:
 		case -ERESTARTSYS:
@@ -290,14 +349,14 @@ void do_signal(struct pt_regs *regs)
 		}
 	}
 
-	
+	/* If there's no signal to deliver, just put the saved sigmask back. */
 	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
 		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
 	}
 
 done:
-	
+	/* Avoid double syscall restart if there are nested signals. */
 	regs->faultnum = INT_SWINT_1_SIGRETURN;
 }
 
@@ -376,7 +435,7 @@ void trace_unhandled_signal(const char *type, struct pt_regs *regs,
 	if (show_unhandled_signals == 0)
 		return;
 
-	
+	/* If the signal is handled, don't show it here. */
 	if (!is_global_init(tsk)) {
 		void __user *handler =
 			tsk->sighand->action[sig-1].sa.sa_handler;
@@ -384,7 +443,7 @@ void trace_unhandled_signal(const char *type, struct pt_regs *regs,
 			return;
 	}
 
-	
+	/* Rate-limit the one-line output, not the detailed output. */
 	if (show_unhandled_signals <= 1 && !printk_ratelimit())
 		return;
 

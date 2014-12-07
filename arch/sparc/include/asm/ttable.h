@@ -10,6 +10,7 @@
 
 #define BOOT_KERNEL b sparc64_boot; nop; nop; nop; nop; nop; nop; nop;
 
+/* We need a "cleaned" instruction... */
 #define CLEAN_WINDOW							\
 	rdpr	%cleanwin, %l0;		add	%l0, 1, %l0;		\
 	wrpr	%l0, 0x0, %cleanwin;					\
@@ -211,7 +212,25 @@
 	nop;						\
 	nop;
 
+/* Before touching these macros, you owe it to yourself to go and
+ * see how arch/sparc64/kernel/winfixup.S works... -DaveM
+ *
+ * For the user cases we used to use the %asi register, but
+ * it turns out that the "wr xxx, %asi" costs ~5 cycles, so
+ * now we use immediate ASI loads and stores instead.  Kudos
+ * to Greg Onufer for pointing out this performance anomaly.
+ *
+ * Further note that we cannot use the g2, g4, g5, and g7 alternate
+ * globals in the spill routines, check out the save instruction in
+ * arch/sparc64/kernel/etrap.S to see what I mean about g2, and
+ * g4/g5 are the globals which are preserved by etrap processing
+ * for the caller of it.  The g7 register is the return pc for
+ * etrap.  Finally, g6 is the current thread register so we cannot
+ * us it in the spill handlers either.  Most of these rules do not
+ * apply to fill processing, only g6 is not usable.
+ */
 
+/* Normal kernel spill */
 #define SPILL_0_NORMAL					\
 	stx	%l0, [%sp + STACK_BIAS + 0x00];		\
 	stx	%l1, [%sp + STACK_BIAS + 0x08];		\
@@ -257,6 +276,7 @@ etrap_kernel_spill:					\
 	nop; nop; nop; nop; nop; nop; nop; nop;		\
 	nop; nop; nop; nop;
 
+/* Normal 64bit spill */
 #define SPILL_1_GENERIC(ASI)				\
 	add	%sp, STACK_BIAS + 0x00, %g1;		\
 	stxa	%l0, [%g1 + %g0] ASI;			\
@@ -350,6 +370,7 @@ etrap_spill_fixup_64bit:				\
 	 wrpr	%g1, %cwp;				\
 	nop; nop; nop
 
+/* Normal 32bit spill */
 #define SPILL_2_GENERIC(ASI)				\
 	srl	%sp, 0, %sp;				\
 	stwa	%l0, [%sp + %g0] ASI;			\
@@ -461,6 +482,7 @@ etrap_spill_fixup_32bit:				\
 #define SPILL_6_OTHER SPILL_6_NORMAL
 #define SPILL_7_OTHER SPILL_7_NORMAL
 
+/* Normal kernel fill */
 #define FILL_0_NORMAL					\
 	ldx	[%sp + STACK_BIAS + 0x00], %l0;		\
 	ldx	[%sp + STACK_BIAS + 0x08], %l1;		\
@@ -510,6 +532,7 @@ kern_rtt_fill:						\
 	nop; nop; nop; nop;
 
 
+/* Normal 64bit fill */
 #define FILL_1_GENERIC(ASI)				\
 	add	%sp, STACK_BIAS + 0x00, %g1;		\
 	ldxa	[%g1 + %g0] ASI, %l0;			\
@@ -567,6 +590,7 @@ user_rtt_fill_64bit:					\
 	ba,a,pt	%xcc, user_rtt_fill_fixup;
 
 
+/* Normal 32bit fill */
 #define FILL_2_GENERIC(ASI)				\
 	srl	%sp, 0, %sp;				\
 	lduwa	[%sp + %g0] ASI, %l0;			\
@@ -642,4 +666,4 @@ user_rtt_fill_32bit:					\
 #define FILL_6_OTHER FILL_6_NORMAL
 #define FILL_7_OTHER FILL_7_NORMAL
 
-#endif 
+#endif /* !(_SPARC64_TTABLE_H) */

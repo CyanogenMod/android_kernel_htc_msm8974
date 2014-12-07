@@ -79,6 +79,7 @@ static irqreturn_t sun3_int5(int irq, void *dev_id)
 
 static irqreturn_t sun3_vec255(int irq, void *dev_id)
 {
+//	intersil_clear();
 	return IRQ_HANDLED;
 }
 

@@ -76,6 +76,7 @@ struct ltq_pci_gpio_map {
 	char *name;
 };
 
+/* the pci core can make use of the following gpios */
 static struct ltq_pci_gpio_map ltq_pci_gpio_map[] = {
 	{ 0, 1, 0, 0, "pci-exin0" },
 	{ 1, 1, 0, 0, "pci-exin1" },
@@ -98,6 +99,8 @@ static __iomem void *ltq_pci_membase;
 
 int (*ltqpci_plat_dev_init)(struct pci_dev *dev) = NULL;
 
+/* Since the PCI REQ pins can be reused for other functionality, make it
+   possible to exclude those from interpretation by the PCI controller */
 static int ltq_pci_req_mask = 0xf;
 
 static int *ltq_pci_irq_map;
@@ -141,7 +144,7 @@ static u32 ltq_calc_bar11mask(void)
 {
 	u32 mem, bar11mask;
 
-	
+	/* BAR11MASK value depends on available memory on system. */
 	mem = num_physpages * PAGE_SIZE;
 	bar11mask = (0x0ffffff0 & ~((1 << (fls(mem) - 1)) - 1)) | 8;
 
@@ -168,7 +171,7 @@ static int __devinit ltq_pci_startup(struct ltq_pci_data *conf)
 {
 	u32 temp_buffer;
 
-	
+	/* set clock to 33Mhz */
 	if (ltq_is_ar9()) {
 		ltq_cgu_w32(ltq_cgu_r32(LTQ_CGU_IFCCR) & ~0x1f00000, LTQ_CGU_IFCCR);
 		ltq_cgu_w32(ltq_cgu_r32(LTQ_CGU_IFCCR) | 0xe00000, LTQ_CGU_IFCCR);
@@ -177,7 +180,7 @@ static int __devinit ltq_pci_startup(struct ltq_pci_data *conf)
 		ltq_cgu_w32(ltq_cgu_r32(LTQ_CGU_IFCCR) | 0x800000, LTQ_CGU_IFCCR);
 	}
 
-	
+	/* external or internal clock ? */
 	if (conf->clock) {
 		ltq_cgu_w32(ltq_cgu_r32(LTQ_CGU_IFCCR) & ~(1 << 16),
 			LTQ_CGU_IFCCR);
@@ -188,35 +191,35 @@ static int __devinit ltq_pci_startup(struct ltq_pci_data *conf)
 		ltq_cgu_w32((1 << 31) | (1 << 30), LTQ_CGU_PCICR);
 	}
 
-	
+	/* setup pci clock and gpis used by pci */
 	ltq_pci_setup_gpio(conf->gpio);
 
-	
+	/* enable auto-switching between PCI and EBU */
 	ltq_pci_w32(0xa, PCI_CR_CLK_CTRL);
 
-	
+	/* busy, i.e. configuration is not done, PCI access has to be retried */
 	ltq_pci_w32(ltq_pci_r32(PCI_CR_PCI_MOD) & ~(1 << 24), PCI_CR_PCI_MOD);
 	wmb();
-	
+	/* BUS Master/IO/MEM access */
 	ltq_pci_cfg_w32(ltq_pci_cfg_r32(PCI_CS_STS_CMD) | 7, PCI_CS_STS_CMD);
 
-	
+	/* enable external 2 PCI masters */
 	temp_buffer = ltq_pci_r32(PCI_CR_PC_ARB);
 	temp_buffer &= (~(ltq_pci_req_mask << 16));
-	
+	/* enable internal arbiter */
 	temp_buffer |= (1 << INTERNAL_ARB_ENABLE_BIT);
-	
+	/* enable internal PCI master reqest */
 	temp_buffer &= (~(3 << PCI_MASTER0_REQ_MASK_2BITS));
 
-	
+	/* enable EBU request */
 	temp_buffer &= (~(3 << PCI_MASTER1_REQ_MASK_2BITS));
 
-	
+	/* enable all external masters request */
 	temp_buffer &= (~(3 << PCI_MASTER2_REQ_MASK_2BITS));
 	ltq_pci_w32(temp_buffer, PCI_CR_PC_ARB);
 	wmb();
 
-	
+	/* setup BAR memory regions */
 	ltq_pci_w32(0x18000000, PCI_CR_FCI_ADDR_MAP0);
 	ltq_pci_w32(0x18400000, PCI_CR_FCI_ADDR_MAP1);
 	ltq_pci_w32(0x18800000, PCI_CR_FCI_ADDR_MAP2);
@@ -229,23 +232,23 @@ static int __devinit ltq_pci_startup(struct ltq_pci_data *conf)
 	ltq_pci_w32(ltq_calc_bar11mask(), PCI_CR_BAR11MASK);
 	ltq_pci_w32(0, PCI_CR_PCI_ADDR_MAP11);
 	ltq_pci_w32(0, PCI_CS_BASE_ADDR1);
-	
+	/* both TX and RX endian swap are enabled */
 	ltq_pci_w32(ltq_pci_r32(PCI_CR_PCI_EOI) | 3, PCI_CR_PCI_EOI);
 	wmb();
 	ltq_pci_w32(ltq_pci_r32(PCI_CR_BAR12MASK) | 0x80000000,
 		PCI_CR_BAR12MASK);
 	ltq_pci_w32(ltq_pci_r32(PCI_CR_BAR13MASK) | 0x80000000,
 		PCI_CR_BAR13MASK);
-	
+	/*use 8 dw burst length */
 	ltq_pci_w32(0x303, PCI_CR_FCI_BURST_LENGTH);
 	ltq_pci_w32(ltq_pci_r32(PCI_CR_PCI_MOD) | (1 << 24), PCI_CR_PCI_MOD);
 	wmb();
 
-	
+	/* setup irq line */
 	ltq_ebu_w32(ltq_ebu_r32(LTQ_EBU_PCC_CON) | 0xc, LTQ_EBU_PCC_CON);
 	ltq_ebu_w32(ltq_ebu_r32(LTQ_EBU_PCC_IEN) | 0x10, LTQ_EBU_PCC_IEN);
 
-	
+	/* toggle reset pin */
 	__gpio_set_value(21, 0);
 	wmb();
 	mdelay(1);

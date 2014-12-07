@@ -32,6 +32,11 @@
 
 #include "ttype.h"
 
+/*---------------------  Export Definitions -------------------------*/
+/************************************************************************
+ * The definition here should be complied with the INF country order
+ * Please check with VNWL.inf/VNWL64.inf/VNWL*.inf
+ ************************************************************************/
 typedef enum _COUNTRY_CODE {
     CCODE_FCC = 0,
     CCODE_TELEC,
@@ -154,4 +159,4 @@ typedef enum _COUNTRY_CODE {
     CCODE_MAX
 } COUNTRY_CODE;
 
-#endif  
+#endif  /* __COUNTRY_H__ */

@@ -24,6 +24,7 @@
 #include <linux/android_alarm.h>
 #include <linux/rtc-msm.h>
 
+/* time_remote_mtoa server definitions. */
 
 #define TIME_REMOTE_MTOA_PROG 0x3000005d
 #define TIME_REMOTE_MTOA_VERS_OLD 0
@@ -119,7 +120,7 @@ static int handle_rpc_call(struct msm_rpc_server *server,
 		msmrtc_updateatsuspend(&ts);
 		rtc_hctosys();
 		getnstimeofday(&tv);
-		
+		/* Update the alarm information with the new time info. */
 		alarm_update_timedelta(ts, tv);
 		return 0;
 	}
@@ -152,7 +153,7 @@ static struct msm_rpc_server rpc_server[] = {
 
 static int __init rpc_server_init(void)
 {
-	
+	/* Dual server registration to support backwards compatibility vers */
 	int ret;
 	ret = msm_rpc_create_server(&rpc_server[2]);
 	if (ret < 0)

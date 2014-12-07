@@ -22,4 +22,4 @@
 #define smp_read_barrier_depends()     do { } while(0)
 #endif
 
-#endif 
+#endif /* __ASM_CRIS_BARRIER_H */

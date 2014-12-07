@@ -28,6 +28,7 @@
 
 #define DRV_NAME "mpc5200-psc-ac97"
 
+/* ALSA only supports a single AC97 device so static is recommend here */
 static struct psc_dma *psc_dma;
 
 static unsigned short psc_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
@@ -37,7 +38,7 @@ static unsigned short psc_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 
 	mutex_lock(&psc_dma->mutex);
 
-	
+	/* Wait for command send status zero = ready */
 	status = spin_event_timeout(!(in_be16(&psc_dma->psc_regs->sr_csr.status) &
 				MPC52xx_PSC_SR_CMDSEND), 100, 0);
 	if (status == 0) {
@@ -46,13 +47,13 @@ static unsigned short psc_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 		return -ENODEV;
 	}
 
-	
+	/* Force clear the data valid bit */
 	in_be32(&psc_dma->psc_regs->ac97_data);
 
-	
+	/* Send the read */
 	out_be32(&psc_dma->psc_regs->ac97_cmd, (1<<31) | ((reg & 0x7f) << 24));
 
-	
+	/* Wait for the answer */
 	status = spin_event_timeout((in_be16(&psc_dma->psc_regs->sr_csr.status) &
 				MPC52xx_PSC_SR_DATA_VAL), 100, 0);
 	if (status == 0) {
@@ -61,7 +62,7 @@ static unsigned short psc_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 		mutex_unlock(&psc_dma->mutex);
 		return -ENODEV;
 	}
-	
+	/* Get the data */
 	val = in_be32(&psc_dma->psc_regs->ac97_data);
 	if (((val >> 24) & 0x7f) != reg) {
 		pr_err("reg echo error on ac97 read\n");
@@ -81,14 +82,14 @@ static void psc_ac97_write(struct snd_ac97 *ac97,
 
 	mutex_lock(&psc_dma->mutex);
 
-	
+	/* Wait for command status zero = ready */
 	status = spin_event_timeout(!(in_be16(&psc_dma->psc_regs->sr_csr.status) &
 				MPC52xx_PSC_SR_CMDSEND), 100, 0);
 	if (status == 0) {
 		pr_err("timeout on ac97 bus (write)\n");
 		goto out;
 	}
-	
+	/* Write data */
 	out_be32(&psc_dma->psc_regs->ac97_cmd,
 			((reg & 0x7f) << 24) | (val << 8));
 
@@ -118,10 +119,10 @@ static void psc_ac97_cold_reset(struct snd_ac97 *ac97)
 
 	mpc5200_psc_ac97_gpio_reset(psc_dma->id);
 
-	
+	/* Notify the PSC that a reset has occurred */
 	out_be32(&regs->sicr, psc_dma->sicr | MPC52xx_PSC_SICR_ACRB);
 
-	
+	/* Re-enable RX and TX */
 	out_8(&regs->command, MPC52xx_PSC_TX_ENABLE | MPC52xx_PSC_RX_ENABLE);
 
 	mutex_unlock(&psc_dma->mutex);
@@ -154,7 +155,7 @@ static int psc_ac97_hw_analog_params(struct snd_pcm_substream *substream,
 		params_channels(params), params_rate(params),
 		params_format(params));
 
-	
+	/* Determine the set of enable bits to turn on */
 	s->ac97_slot_bits = (params_channels(params) == 1) ? 0x100 : 0x300;
 	if (substream->pstr->stream != SNDRV_PCM_STREAM_CAPTURE)
 		s->ac97_slot_bits <<= 16;
@@ -188,7 +189,7 @@ static int psc_ac97_trigger(struct snd_pcm_substream *substream, int cmd,
 		dev_dbg(psc_dma->dev, "AC97 START: stream=%i\n",
 			substream->pstr->stream);
 
-		
+		/* Set the slot enable bits */
 		psc_dma->slots |= s->ac97_slot_bits;
 		out_be32(&psc_dma->psc_regs->ac97_slots, psc_dma->slots);
 		break;
@@ -197,7 +198,7 @@ static int psc_ac97_trigger(struct snd_pcm_substream *substream, int cmd,
 		dev_dbg(psc_dma->dev, "AC97 STOP: stream=%i\n",
 			substream->pstr->stream);
 
-		
+		/* Clear the slot enable bits */
 		psc_dma->slots &= ~(s->ac97_slot_bits);
 		out_be32(&psc_dma->psc_regs->ac97_slots, psc_dma->slots);
 		break;
@@ -210,12 +211,21 @@ static int psc_ac97_probe(struct snd_soc_dai *cpu_dai)
 	struct psc_dma *psc_dma = snd_soc_dai_get_drvdata(cpu_dai);
 	struct mpc52xx_psc __iomem *regs = psc_dma->psc_regs;
 
-	
+	/* Go */
 	out_8(&regs->command, MPC52xx_PSC_TX_ENABLE | MPC52xx_PSC_RX_ENABLE);
 	return 0;
 }
 
+/* ---------------------------------------------------------------------
+ * ALSA SoC Bindings
+ *
+ * - Digital Audio Interface (DAI) template
+ * - create/destroy dai hooks
+ */
 
+/**
+ * psc_ac97_dai_template: template CPU Digital Audio Interface
+ */
 static const struct snd_soc_dai_ops psc_ac97_analog_ops = {
 	.hw_params	= psc_ac97_hw_analog_params,
 	.trigger	= psc_ac97_trigger,
@@ -257,6 +267,11 @@ static struct snd_soc_dai_driver psc_ac97_dai[] = {
 
 
 
+/* ---------------------------------------------------------------------
+ * OF platform bus binding code:
+ * - Probe/remove operations
+ * - OF device match table
+ */
 static int __devinit psc_ac97_of_probe(struct platform_device *op)
 {
 	int rc;
@@ -276,11 +291,11 @@ static int __devinit psc_ac97_of_probe(struct platform_device *op)
 	psc_dma->imr = 0;
 	out_be16(&psc_dma->psc_regs->isr_imr.imr, psc_dma->imr);
 
-	
+	/* Configure the serial interface mode to AC97 */
 	psc_dma->sicr = MPC52xx_PSC_SICR_SIM_AC97 | MPC52xx_PSC_SICR_ENAC97;
 	out_be32(&regs->sicr, psc_dma->sicr);
 
-	
+	/* No slots active */
 	out_be32(&regs->ac97_slots, 0x00000000);
 
 	return 0;
@@ -292,6 +307,7 @@ static int __devexit psc_ac97_of_remove(struct platform_device *op)
 	return 0;
 }
 
+/* Match table for of_platform binding */
 static struct of_device_id psc_ac97_match[] __devinitdata = {
 	{ .compatible = "fsl,mpc5200-psc-ac97", },
 	{ .compatible = "fsl,mpc5200b-psc-ac97", },

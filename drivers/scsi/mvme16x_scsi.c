@@ -56,15 +56,15 @@ mvme16x_probe(struct platform_device *dev)
 		goto out;
 	}
 
-	
+	/* Fill in the required pieces of hostdata */
 	hostdata->base = (void __iomem *)0xfff47000UL;
-	hostdata->clock = 50;	
+	hostdata->clock = 50;	/* XXX - depends on the CPU clock! */
 	hostdata->chip710 = 1;
 	hostdata->dmode_extra = DMODE_FC2;
 	hostdata->dcntl_extra = EA_710;
 	hostdata->ctest7_extra = CTEST7_TT1;
 
-	
+	/* and register the chip */
 	host = NCR_700_detect(&mvme16x_scsi_driver_template, hostdata,
 			      &dev->dev);
 	if (!host) {
@@ -80,11 +80,11 @@ mvme16x_probe(struct platform_device *dev)
 		goto out_put_host;
 	}
 
-	
+	/* Enable scsi chip ints */
 	{
 		volatile unsigned long v;
 
-		
+		/* Enable scsi interrupts at level 4 in PCCchip2 */
 		v = in_be32(0xfff4202c);
 		v = (v & ~0xff) | 0x10 | 4;
 		out_be32(0xfff4202c, v);
@@ -109,7 +109,7 @@ mvme16x_device_remove(struct platform_device *dev)
 	struct Scsi_Host *host = platform_get_drvdata(dev);
 	struct NCR_700_Host_Parameters *hostdata = shost_priv(host);
 
-	
+	/* Disable scsi chip ints */
 	{
 		volatile unsigned long v;
 

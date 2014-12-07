@@ -37,82 +37,93 @@
 
 #include <net/irda/irda.h>
 
+/* A few forward declarations (to make compiler happy) */
 struct irlap_cb;
 struct discovery_t;
 
+/* Frame types and templates */
 #define INVALID   0xff
 
-#define SNRM_CMD  0x83 
-#define DISC_CMD  0x43 
-#define XID_CMD   0x2f 
-#define TEST_CMD  0xe3 
+/* Unnumbered (U) commands */
+#define SNRM_CMD  0x83 /* Set Normal Response Mode */
+#define DISC_CMD  0x43 /* Disconnect */
+#define XID_CMD   0x2f /* Exchange Station Identification */
+#define TEST_CMD  0xe3 /* Test */
 
-#define RNRM_RSP  0x83 
-#define UA_RSP    0x63 
-#define FRMR_RSP  0x87 
-#define DM_RSP    0x0f 
-#define RD_RSP    0x43 
-#define XID_RSP   0xaf 
-#define TEST_RSP  0xe3 
+/* Unnumbered responses */
+#define RNRM_RSP  0x83 /* Request Normal Response Mode */
+#define UA_RSP    0x63 /* Unnumbered Acknowledgement */
+#define FRMR_RSP  0x87 /* Frame Reject */
+#define DM_RSP    0x0f /* Disconnect Mode */
+#define RD_RSP    0x43 /* Request Disconnection */
+#define XID_RSP   0xaf /* Exchange Station Identification */
+#define TEST_RSP  0xe3 /* Test frame */
 
-#define RR        0x01 
-#define REJ       0x09 
-#define RNR       0x05 
-#define SREJ      0x0d 
+/* Supervisory (S) */
+#define RR        0x01 /* Receive Ready */
+#define REJ       0x09 /* Reject */
+#define RNR       0x05 /* Receive Not Ready */
+#define SREJ      0x0d /* Selective Reject */
 
-#define I_FRAME   0x00 
-#define UI_FRAME  0x03 
+/* Information (I) */
+#define I_FRAME   0x00 /* Information Format */
+#define UI_FRAME  0x03 /* Unnumbered Information */
 
 #define CMD_FRAME 0x01
 #define RSP_FRAME 0x00
 
-#define PF_BIT    0x10 
+#define PF_BIT    0x10 /* Poll/final bit */
 
+/* Some IrLAP field lengths */
+/*
+ * Only baud rate triplet is 4 bytes (PV can be 2 bytes).
+ * All others params (7) are 3 bytes, so that's 7*3 + 1*4 bytes.
+ */
 #define IRLAP_NEGOCIATION_PARAMS_LEN 25
 #define IRLAP_DISCOVERY_INFO_LEN     32
 
 struct disc_frame {
-	__u8 caddr;          
+	__u8 caddr;          /* Connection address */
 	__u8 control;
 } __packed;
 
 struct xid_frame {
-	__u8  caddr; 
+	__u8  caddr; /* Connection address */
 	__u8  control;
-	__u8  ident;  
-	__le32 saddr; 
-	__le32 daddr; 
-	__u8  flags; 
+	__u8  ident; /* Should always be XID_FORMAT */ 
+	__le32 saddr; /* Source device address */
+	__le32 daddr; /* Destination device address */
+	__u8  flags; /* Discovery flags */
 	__u8  slotnr;
 	__u8  version;
 } __packed;
 
 struct test_frame {
-	__u8 caddr;          
+	__u8 caddr;          /* Connection address */
 	__u8 control;
-	__le32 saddr;         
-	__le32 daddr;         
+	__le32 saddr;         /* Source device address */
+	__le32 daddr;         /* Destination device address */
 } __packed;
 
 struct ua_frame {
 	__u8 caddr;
 	__u8 control;
-	__le32 saddr; 
-	__le32 daddr; 
+	__le32 saddr; /* Source device address */
+	__le32 daddr; /* Dest device address */
 } __packed;
 
 struct dm_frame {
-	__u8 caddr;          
+	__u8 caddr;          /* Connection address */
 	__u8 control;
 } __packed;
 
 struct rd_frame {
-	__u8 caddr;          
+	__u8 caddr;          /* Connection address */
 	__u8 control;
 } __packed;
 
 struct rr_frame {
-	__u8 caddr;          
+	__u8 caddr;          /* Connection address */
 	__u8 control;
 } __packed;
 

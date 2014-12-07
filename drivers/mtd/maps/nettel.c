@@ -1,3 +1,4 @@
+/****************************************************************************/
 
 /*
  *      nettel.c -- mappings for NETtel/SecureEdge/SnapGear (x86) boards.
@@ -6,6 +7,7 @@
  *      (C) Copyright 2001-2002, SnapGear (www.snapgear.com)
  */
 
+/****************************************************************************/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -21,11 +23,15 @@
 #include <linux/root_dev.h>
 #include <asm/io.h>
 
+/****************************************************************************/
 
 #define INTEL_BUSWIDTH		1
 #define AMD_WINDOW_MAXSIZE	0x00200000
 #define AMD_BUSWIDTH	 	1
 
+/*
+ *	PAR masks and shifts, assuming 64K pages.
+ */
 #define SC520_PAR_ADDR_MASK	0x00003fff
 #define SC520_PAR_ADDR_SHIFT	16
 #define SC520_PAR_TO_ADDR(par) \
@@ -43,7 +49,7 @@
 
 #define SC520_PAR_BOOTCS	0x8a000000
 #define	SC520_PAR_ROMCS1	0xaa000000
-#define SC520_PAR_ROMCS2	0xca000000	
+#define SC520_PAR_ROMCS2	0xca000000	/* Cache disabled, 64K page */
 
 static void *nettel_mmcrp = NULL;
 
@@ -52,7 +58,9 @@ static struct mtd_info *intel_mtd;
 #endif
 static struct mtd_info *amd_mtd;
 
+/****************************************************************************/
 
+/****************************************************************************/
 
 #ifdef CONFIG_MTD_CFI_INTELEXT
 static struct map_info nettel_intel_map = {
@@ -123,15 +131,20 @@ static struct mtd_partition nettel_amd_partitions[] = {
 
 #define NUM_AMD_PARTITIONS ARRAY_SIZE(nettel_amd_partitions)
 
+/****************************************************************************/
 
 #ifdef CONFIG_MTD_CFI_INTELEXT
 
+/*
+ *	Set the Intel flash back to read mode since some old boot
+ *	loaders don't.
+ */
 static int nettel_reboot_notifier(struct notifier_block *nb, unsigned long val, void *v)
 {
 	struct cfi_private *cfi = nettel_intel_map.fldrv_priv;
 	unsigned long b;
 
-	
+	/* Make sure all FLASH chips are put back into read mode */
 	for (b = 0; (b < nettel_intel_partitions[3].size); b += 0x100000) {
 		cfi_send_gen_cmd(0xff, 0x55, b, &nettel_intel_map, cfi,
 			cfi->device_type, NULL);
@@ -145,6 +158,7 @@ static struct notifier_block nettel_notifier_block = {
 
 #endif
 
+/****************************************************************************/
 
 static int __init nettel_init(void)
 {
@@ -167,7 +181,7 @@ static int __init nettel_init(void)
 		return(-EIO);
 	}
 
-	
+	/* Set CPU clock to be 33.000MHz */
 	*((unsigned char *) (nettel_mmcrp + 0xc64)) = 0x01;
 
 	amdpar = (volatile unsigned long *) (nettel_mmcrp + 0xc4);
@@ -179,12 +193,22 @@ static int __init nettel_init(void)
 	intel1cs = SC520_PAR_ROMCS2;
 	intel1par = (volatile unsigned long *) (nettel_mmcrp + 0xbc);
 
+	/*
+	 *	Save the CS settings then ensure ROMCS1 and ROMCS2 are off,
+	 *	otherwise they might clash with where we try to map BOOTCS.
+	 */
 	orig_bootcspar = *amdpar;
 	orig_romcs1par = *intel0par;
 	*intel0par = 0;
 	*intel1par = 0;
 #endif
 
+	/*
+	 *	The first thing to do is determine if we have a separate
+	 *	boot FLASH device. Typically this is a small (1 to 2MB)
+	 *	AMD FLASH part. It seems that device size is about the
+	 *	only way to tell if this is the case...
+	 */
 	amdaddr = 0x20000000;
 	maxsize = AMD_WINDOW_MAXSIZE;
 
@@ -206,13 +230,17 @@ static int __init nettel_init(void)
 
 		amd_mtd->owner = THIS_MODULE;
 
-		
+		/* The high BIOS partition is only present for 2MB units */
 		num_amd_partitions = NUM_AMD_PARTITIONS;
 		if (amd_mtd->size < AMD_WINDOW_MAXSIZE)
 			num_amd_partitions--;
-		
+		/* Don't add the partition until after the primary INTEL's */
 
 #ifdef CONFIG_MTD_CFI_INTELEXT
+		/*
+		 *	Map the Intel flash into memory after the AMD
+		 *	It has to start on a multiple of maxsize.
+		 */
 		maxsize = SC520_PAR_TO_SIZE(orig_romcs1par);
 		if (maxsize < (32 * 1024 * 1024))
 			maxsize = (32 * 1024 * 1024);
@@ -220,7 +248,7 @@ static int __init nettel_init(void)
 #endif
 	} else {
 #ifdef CONFIG_MTD_CFI_INTELEXT
-		
+		/* INTEL boot FLASH */
 		intelboot++;
 
 		if (!orig_romcs1par) {
@@ -234,7 +262,7 @@ static int __init nettel_init(void)
 			intel0addr = SC520_PAR_TO_ADDR(orig_bootcspar);
 			maxsize = SC520_PAR_TO_SIZE(orig_bootcspar);
 		} else {
-			
+			/* Kernel base is on ROMCS1, not BOOTCS */
 			intel0cs = SC520_PAR_ROMCS1;
 			intel0par = (volatile unsigned long *)
 				(nettel_mmcrp + 0xc0);
@@ -246,28 +274,32 @@ static int __init nettel_init(void)
 			maxsize = SC520_PAR_TO_SIZE(orig_romcs1par);
 		}
 
-		
+		/* Destroy useless AMD MTD mapping */
 		amd_mtd = NULL;
 		iounmap(nettel_amd_map.virt);
 		nettel_amd_map.virt = NULL;
 #else
-		
+		/* Only AMD flash supported */
 		rc = -ENXIO;
 		goto out_unmap2;
 #endif
 	}
 
 #ifdef CONFIG_MTD_CFI_INTELEXT
+	/*
+	 *	We have determined the INTEL FLASH configuration, so lets
+	 *	go ahead and probe for them now.
+	 */
 
-	
+	/* Set PAR to the maximum size */
 	if (maxsize < (32 * 1024 * 1024))
 		maxsize = (32 * 1024 * 1024);
 	*intel0par = SC520_PAR(intel0cs, intel0addr, maxsize);
 
-	
+	/* Turn other PAR off so the first probe doesn't find it */
 	*intel1par = 0;
 
-	
+	/* Probe for the size of the first Intel flash */
 	nettel_intel_map.size = maxsize;
 	nettel_intel_map.phys = intel0addr;
 	nettel_intel_map.virt = ioremap_nocache(intel0addr, maxsize);
@@ -284,17 +316,21 @@ static int __init nettel_init(void)
 		goto out_unmap1;
 	}
 
-	
+	/* Set PAR to the detected size */
 	intel0size = intel_mtd->size;
 	*intel0par = SC520_PAR(intel0cs, intel0addr, intel0size);
 
+	/*
+	 *	Map second Intel FLASH right after first. Set its size to the
+	 *	same maxsize used for the first Intel FLASH.
+	 */
 	intel1addr = intel0addr + intel0size;
 	*intel1par = SC520_PAR(intel1cs, intel1addr, maxsize);
 	__asm__ ("wbinvd");
 
 	maxsize += intel0size;
 
-	
+	/* Delete the old map and probe again to do both chips */
 	map_destroy(intel_mtd);
 	intel_mtd = NULL;
 	iounmap(nettel_intel_map.virt);
@@ -329,6 +365,10 @@ static int __init nettel_init(void)
 	num_intel_partitions = ARRAY_SIZE(nettel_intel_partitions);
 
 	if (intelboot) {
+		/*
+		 *	Adjust offset and size of last boot partition.
+		 *	Must allow for BIOS region at end of FLASH.
+		 */
 		nettel_intel_partitions[1].size = (intel0size + intel1size) -
 			(1024*1024 + intel_mtd->erasesize);
 		nettel_intel_partitions[3].size = intel0size + intel1size;
@@ -340,7 +380,7 @@ static int __init nettel_init(void)
 		nettel_intel_partitions[5].size =
 			nettel_intel_partitions[4].size;
 	} else {
-		
+		/* No BIOS regions when AMD boot */
 		num_intel_partitions -= 2;
 	}
 	rc = mtd_device_register(intel_mtd, nettel_intel_partitions,
@@ -371,6 +411,7 @@ out_unmap2:
 
 }
 
+/****************************************************************************/
 
 static void __exit nettel_cleanup(void)
 {
@@ -401,6 +442,7 @@ static void __exit nettel_cleanup(void)
 #endif
 }
 
+/****************************************************************************/
 
 module_init(nettel_init);
 module_exit(nettel_cleanup);
@@ -409,3 +451,4 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Greg Ungerer <gerg@snapgear.com>");
 MODULE_DESCRIPTION("SnapGear/SecureEdge FLASH support");
 
+/****************************************************************************/

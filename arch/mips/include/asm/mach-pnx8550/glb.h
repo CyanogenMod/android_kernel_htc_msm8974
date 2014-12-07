@@ -26,18 +26,29 @@
 #define PNX8550_GLB2_BASE	0xBBE4d000
 #define PNX8550_RESET_BASE      0xBBE60000
 
+/* PCI Inta Output Enable Registers */
 #define PNX8550_GLB2_ENAB_INTA_O	*(volatile unsigned long *)(PNX8550_GLB2_BASE + 0x050)
 
+/* Bit 1:Enable DAC Powerdown
+     0:DACs are enabled and are working normally
+     1:DACs are powerdown
+*/
 #define PNX8550_GLB_DAC_PD      0x2
+/*   Bit 0:Enable of PCI inta output
+     0 = Disable PCI inta output
+     1 = Enable PCI inta output
+*/
 #define PNX8550_GLB_ENABLE_INTA_O 0x1
 
+/* PCI Direct Mappings */
 #define PNX8550_PCIMEM	        0x12000000
 #define PNX8550_PCIMEM_SIZE	0x08000000
 #define PNX8550_PCIIO	        0x1c000000
-#define PNX8550_PCIIO_SIZE	0x02000000	
+#define PNX8550_PCIIO_SIZE	0x02000000	/* 32M */
 
 #define PNX8550_PORT_BASE	KSEG1
 
+// GPIO def
 #define PNX8550_GPIO_BASE	0x1Be00000
 
 #define PNX8550_GPIO_DIRQ0	 (PNX8550_GPIO_BASE + 0x104500)
@@ -63,6 +74,7 @@
 #define PNX8550_GPIO_MODE_NO_OPENDR 0x2
 #define PNX8550_GPIO_MODE_OPENDR    0x3
 
+// RESET module
 #define PNX8550_RST_CTL             *(volatile unsigned long *)(PNX8550_RESET_BASE + 0x0)
 #define PNX8550_RST_CAUSE           *(volatile unsigned long *)(PNX8550_RESET_BASE + 0x4)
 #define PNX8550_RST_EN_WATCHDOG     *(volatile unsigned long *)(PNX8550_RESET_BASE + 0x8)

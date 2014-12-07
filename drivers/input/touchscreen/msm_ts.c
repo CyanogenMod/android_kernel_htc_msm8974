@@ -87,11 +87,11 @@ static void setup_next_sample(struct msm_ts *ts)
 {
 	uint32_t tmp;
 
-	
+	/* 1.2ms debounce time */
 	tmp = ((2 << 7) | TSSC_CTL_DEBOUNCE_EN | TSSC_CTL_EN_AVERAGE |
 	       TSSC_CTL_MODE_MASTER | TSSC_CTL_ENABLE);
 	tssc_writel(ts, tmp, TSSC_CTL);
-	
+	/* barrier: Make sure the write completes before the next sample */
 	mb();
 }
 
@@ -133,7 +133,7 @@ static irqreturn_t msm_ts_irq(int irq, void *dev_id)
 	z1 = tssc_avg34 & 0xffff;
 	z2 = tssc_avg34 >> 16;
 
-	
+	/* invert the inputs if necessary */
 	if (pdata->inv_x) x = pdata->inv_x - x;
 	if (pdata->inv_y) y = pdata->inv_y - y;
 	if (x < 0) x = 0;
@@ -143,7 +143,7 @@ static irqreturn_t msm_ts_irq(int irq, void *dev_id)
 	was_down = ts->ts_down;
 	ts->ts_down = down;
 
-	
+	/* no valid data */
 	if (down && !(tssc_ctl & TSSC_CTL_DATA_FLAG))
 		return IRQ_HANDLED;
 
@@ -211,24 +211,28 @@ static int msm_ts_hw_init(struct msm_ts *ts)
 {
 	uint32_t tmp;
 
-	
+	/* Enable the register clock to tssc so we can configure it. */
 	tssc_writel(ts, TSSC_CTL_ENABLE, TSSC_CTL);
-	
+	/* Enable software reset*/
 	tssc_writel(ts, TSSC_CTL_SW_RESET, TSSC_CTL);
 
-	
+	/* op1 - measure X, 1 sample, 12bit resolution */
 	tmp = (TSSC_OPN_4WIRE_X << 16) | (2 << 8) | (2 << 0);
-	
+	/* op2 - measure Y, 1 sample, 12bit resolution */
 	tmp |= (TSSC_OPN_4WIRE_Y << 20) | (2 << 10) | (2 << 2);
-	
+	/* op3 - measure Z1, 1 sample, 8bit resolution */
 	tmp |= (TSSC_OPN_4WIRE_Z1 << 24) | (2 << 12) | (0 << 4);
 
-	
+	/* XXX: we don't actually need to measure Z2 (thus 0 samples) when
+	 * doing voltage-driven measurement */
+	/* op4 - measure Z2, 0 samples, 8bit resolution */
 	tmp |= (TSSC_OPN_4WIRE_Z2 << 28) | (0 << 14) | (0 << 6);
 	tssc_writel(ts, tmp, TSSC_OPN);
 
-	
+	/* 16ms sampling interval */
 	tssc_writel(ts, 16, TSSC_SAMPLING_INT);
+	/* Enable gating logic to fix the timing delays caused because of
+	 * enabling debounce logic */
 	tssc_writel(ts, TSSC_TEST_1_EN_GATE_DEBOUNCE, TSSC_TEST_1);
 
 	setup_next_sample(ts);
@@ -443,7 +447,7 @@ err_request_irq2:
 	free_irq(ts->sample_irq, ts);
 
 err_request_irq1:
-	
+	/* disable the tssc */
 	tssc_writel(ts, TSSC_CTL_ENABLE, TSSC_CTL);
 
 err_input_dev_reg:

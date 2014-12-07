@@ -31,6 +31,9 @@ BFA_TRC_FILE(CNA, IOC_CT);
 #define bfa_ioc_ct_sync_reqd_pos(__ioc) \
 			(bfa_ioc_ct_sync_pos(__ioc) << BFA_IOC_SYNC_REQD_SH)
 
+/*
+ * forward declarations
+ */
 static bfa_boolean_t bfa_ioc_ct_firmware_lock(struct bfa_ioc_s *ioc);
 static void bfa_ioc_ct_firmware_unlock(struct bfa_ioc_s *ioc);
 static void bfa_ioc_ct_notify_fail(struct bfa_ioc_s *ioc);
@@ -44,6 +47,9 @@ static bfa_boolean_t bfa_ioc_ct_sync_complete(struct bfa_ioc_s *ioc);
 static struct bfa_ioc_hwif_s hwif_ct;
 static struct bfa_ioc_hwif_s hwif_ct2;
 
+/*
+ * Return true if firmware of current driver matches the running firmware.
+ */
 static bfa_boolean_t
 bfa_ioc_ct_firmware_lock(struct bfa_ioc_s *ioc)
 {
@@ -51,6 +57,9 @@ bfa_ioc_ct_firmware_lock(struct bfa_ioc_s *ioc)
 	u32 usecnt;
 	struct bfi_ioc_image_hdr_s fwhdr;
 
+	/*
+	 * If bios boot (flash based) -- do not increment usage count
+	 */
 	if (bfa_cb_image_get_size(bfa_ioc_asic_gen(ioc)) <
 						BFA_IOC_FWIMG_MINSZ)
 		return BFA_TRUE;
@@ -58,6 +67,9 @@ bfa_ioc_ct_firmware_lock(struct bfa_ioc_s *ioc)
 	bfa_ioc_sem_get(ioc->ioc_regs.ioc_usage_sem_reg);
 	usecnt = readl(ioc->ioc_regs.ioc_usage_reg);
 
+	/*
+	 * If usage count is 0, always return TRUE.
+	 */
 	if (usecnt == 0) {
 		writel(1, ioc->ioc_regs.ioc_usage_reg);
 		readl(ioc->ioc_regs.ioc_usage_sem_reg);
@@ -70,8 +82,14 @@ bfa_ioc_ct_firmware_lock(struct bfa_ioc_s *ioc)
 	ioc_fwstate = readl(ioc->ioc_regs.ioc_fwstate);
 	bfa_trc(ioc, ioc_fwstate);
 
+	/*
+	 * Use count cannot be non-zero and chip in uninitialized state.
+	 */
 	WARN_ON(ioc_fwstate == BFI_IOC_UNINIT);
 
+	/*
+	 * Check if another driver with a different firmware is active
+	 */
 	bfa_ioc_fwver_get(ioc, &fwhdr);
 	if (!bfa_ioc_fwver_cmp(ioc, &fwhdr)) {
 		readl(ioc->ioc_regs.ioc_usage_sem_reg);
@@ -80,6 +98,9 @@ bfa_ioc_ct_firmware_lock(struct bfa_ioc_s *ioc)
 		return BFA_FALSE;
 	}
 
+	/*
+	 * Same firmware version. Increment the reference count.
+	 */
 	usecnt++;
 	writel(usecnt, ioc->ioc_regs.ioc_usage_reg);
 	readl(ioc->ioc_regs.ioc_usage_sem_reg);
@@ -93,10 +114,16 @@ bfa_ioc_ct_firmware_unlock(struct bfa_ioc_s *ioc)
 {
 	u32 usecnt;
 
+	/*
+	 * If bios boot (flash based) -- do not decrement usage count
+	 */
 	if (bfa_cb_image_get_size(bfa_ioc_asic_gen(ioc)) <
 						BFA_IOC_FWIMG_MINSZ)
 		return;
 
+	/*
+	 * decrement usage count
+	 */
 	bfa_ioc_sem_get(ioc->ioc_regs.ioc_usage_sem_reg);
 	usecnt = readl(ioc->ioc_regs.ioc_usage_reg);
 	WARN_ON(usecnt <= 0);
@@ -109,13 +136,16 @@ bfa_ioc_ct_firmware_unlock(struct bfa_ioc_s *ioc)
 	writel(1, ioc->ioc_regs.ioc_usage_sem_reg);
 }
 
+/*
+ * Notify other functions on HB failure.
+ */
 static void
 bfa_ioc_ct_notify_fail(struct bfa_ioc_s *ioc)
 {
 	if (bfa_ioc_is_cna(ioc)) {
 		writel(__FW_INIT_HALT_P, ioc->ioc_regs.ll_halt);
 		writel(__FW_INIT_HALT_P, ioc->ioc_regs.alt_ll_halt);
-		
+		/* Wait for halt to take effect */
 		readl(ioc->ioc_regs.ll_halt);
 		readl(ioc->ioc_regs.alt_ll_halt);
 	} else {
@@ -124,6 +154,9 @@ bfa_ioc_ct_notify_fail(struct bfa_ioc_s *ioc)
 	}
 }
 
+/*
+ * Host to LPU mailbox message addresses
+ */
 static struct { u32 hfn_mbox, lpu_mbox, hfn_pgn; } ct_fnreg[] = {
 	{ HOSTFN0_LPU_MBOX0_0, LPU_HOSTFN0_MBOX0_0, HOST_PAGE_NUM_FN0 },
 	{ HOSTFN1_LPU_MBOX0_8, LPU_HOSTFN1_MBOX0_8, HOST_PAGE_NUM_FN1 },
@@ -131,6 +164,9 @@ static struct { u32 hfn_mbox, lpu_mbox, hfn_pgn; } ct_fnreg[] = {
 	{ HOSTFN3_LPU_MBOX0_8, LPU_HOSTFN3_MBOX0_8, HOST_PAGE_NUM_FN3 }
 };
 
+/*
+ * Host <-> LPU mailbox command/status registers - port 0
+ */
 static struct { u32 hfn, lpu; } ct_p0reg[] = {
 	{ HOSTFN0_LPU0_CMD_STAT, LPU0_HOSTFN0_CMD_STAT },
 	{ HOSTFN1_LPU0_CMD_STAT, LPU0_HOSTFN1_CMD_STAT },
@@ -138,6 +174,9 @@ static struct { u32 hfn, lpu; } ct_p0reg[] = {
 	{ HOSTFN3_LPU0_CMD_STAT, LPU0_HOSTFN3_CMD_STAT }
 };
 
+/*
+ * Host <-> LPU mailbox command/status registers - port 1
+ */
 static struct { u32 hfn, lpu; } ct_p1reg[] = {
 	{ HOSTFN0_LPU1_CMD_STAT, LPU1_HOSTFN0_CMD_STAT },
 	{ HOSTFN1_LPU1_CMD_STAT, LPU1_HOSTFN1_CMD_STAT },
@@ -185,20 +224,32 @@ bfa_ioc_ct_reg_init(struct bfa_ioc_s *ioc)
 		ioc->ioc_regs.alt_ll_halt = rb + FW_INIT_HALT_P0;
 	}
 
+	/*
+	 * PSS control registers
+	 */
 	ioc->ioc_regs.pss_ctl_reg = (rb + PSS_CTL_REG);
 	ioc->ioc_regs.pss_err_status_reg = (rb + PSS_ERR_STATUS_REG);
 	ioc->ioc_regs.app_pll_fast_ctl_reg = (rb + APP_PLL_LCLK_CTL_REG);
 	ioc->ioc_regs.app_pll_slow_ctl_reg = (rb + APP_PLL_SCLK_CTL_REG);
 
+	/*
+	 * IOC semaphore registers and serialization
+	 */
 	ioc->ioc_regs.ioc_sem_reg = (rb + HOST_SEM0_REG);
 	ioc->ioc_regs.ioc_usage_sem_reg = (rb + HOST_SEM1_REG);
 	ioc->ioc_regs.ioc_init_sem_reg = (rb + HOST_SEM2_REG);
 	ioc->ioc_regs.ioc_usage_reg = (rb + BFA_FW_USE_COUNT);
 	ioc->ioc_regs.ioc_fail_sync = (rb + BFA_IOC_FAIL_SYNC);
 
+	/*
+	 * sram memory access
+	 */
 	ioc->ioc_regs.smem_page_start = (rb + PSS_SMEM_PAGE_START);
 	ioc->ioc_regs.smem_pg0 = BFI_IOC_SMEM_PG0_CT;
 
+	/*
+	 * err set reg : for notification of hb failure in fcmode
+	 */
 	ioc->ioc_regs.err_set = (rb + ERR_SET_REG);
 }
 
@@ -231,23 +282,38 @@ bfa_ioc_ct2_reg_init(struct bfa_ioc_s *ioc)
 		ioc->ioc_regs.alt_ll_halt = rb + FW_INIT_HALT_P0;
 	}
 
+	/*
+	 * PSS control registers
+	 */
 	ioc->ioc_regs.pss_ctl_reg = (rb + PSS_CTL_REG);
 	ioc->ioc_regs.pss_err_status_reg = (rb + PSS_ERR_STATUS_REG);
 	ioc->ioc_regs.app_pll_fast_ctl_reg = (rb + CT2_APP_PLL_LCLK_CTL_REG);
 	ioc->ioc_regs.app_pll_slow_ctl_reg = (rb + CT2_APP_PLL_SCLK_CTL_REG);
 
+	/*
+	 * IOC semaphore registers and serialization
+	 */
 	ioc->ioc_regs.ioc_sem_reg = (rb + CT2_HOST_SEM0_REG);
 	ioc->ioc_regs.ioc_usage_sem_reg = (rb + CT2_HOST_SEM1_REG);
 	ioc->ioc_regs.ioc_init_sem_reg = (rb + CT2_HOST_SEM2_REG);
 	ioc->ioc_regs.ioc_usage_reg = (rb + CT2_BFA_FW_USE_COUNT);
 	ioc->ioc_regs.ioc_fail_sync = (rb + CT2_BFA_IOC_FAIL_SYNC);
 
+	/*
+	 * sram memory access
+	 */
 	ioc->ioc_regs.smem_page_start = (rb + PSS_SMEM_PAGE_START);
 	ioc->ioc_regs.smem_pg0 = BFI_IOC_SMEM_PG0_CT;
 
+	/*
+	 * err set reg : for notification of hb failure in fcmode
+	 */
 	ioc->ioc_regs.err_set = (rb + ERR_SET_REG);
 }
 
+/*
+ * Initialize IOC to port mapping.
+ */
 
 #define FNC_PERS_FN_SHIFT(__fn)	((__fn) * 8)
 static void
@@ -256,6 +322,9 @@ bfa_ioc_ct_map_port(struct bfa_ioc_s *ioc)
 	void __iomem *rb = ioc->pcidev.pci_bar_kva;
 	u32	r32;
 
+	/*
+	 * For catapult, base port id on personality register and IOC type
+	 */
 	r32 = readl(rb + FNC_PERS_REG);
 	r32 >>= FNC_PERS_FN_SHIFT(bfa_ioc_pcifn(ioc));
 	ioc->port_id = (r32 & __F0_PORT_MAP_MK) >> __F0_PORT_MAP_SH;
@@ -277,6 +346,9 @@ bfa_ioc_ct2_map_port(struct bfa_ioc_s *ioc)
 	bfa_trc(ioc, ioc->port_id);
 }
 
+/*
+ * Set interrupt mode for a function: INTX or MSIX
+ */
 static void
 bfa_ioc_ct_isr_mode_set(struct bfa_ioc_s *ioc, bfa_boolean_t msix)
 {
@@ -289,6 +361,9 @@ bfa_ioc_ct_isr_mode_set(struct bfa_ioc_s *ioc, bfa_boolean_t msix)
 	mode = (r32 >> FNC_PERS_FN_SHIFT(bfa_ioc_pcifn(ioc))) &
 		__F0_INTX_STATUS;
 
+	/*
+	 * If already in desired mode, do not change anything
+	 */
 	if ((!msix && mode) || (msix && !mode))
 		return;
 
@@ -318,6 +393,9 @@ bfa_ioc_ct2_lpu_read_stat(struct bfa_ioc_s *ioc)
 	return BFA_FALSE;
 }
 
+/*
+ * Cleanup hw semaphore and usecnt registers
+ */
 static void
 bfa_ioc_ct_ownership_reset(struct bfa_ioc_s *ioc)
 {
@@ -329,6 +407,11 @@ bfa_ioc_ct_ownership_reset(struct bfa_ioc_s *ioc)
 		writel(1, ioc->ioc_regs.ioc_usage_sem_reg);
 	}
 
+	/*
+	 * Read the hw sem reg to make sure that it is locked
+	 * before we clear it. If it is not locked, writing 1
+	 * will lock it instead of clearing it.
+	 */
 	readl(ioc->ioc_regs.ioc_sem_reg);
 	writel(1, ioc->ioc_regs.ioc_sem_reg);
 }
@@ -339,6 +422,12 @@ bfa_ioc_ct_sync_start(struct bfa_ioc_s *ioc)
 	uint32_t r32 = readl(ioc->ioc_regs.ioc_fail_sync);
 	uint32_t sync_reqd = bfa_ioc_ct_get_sync_reqd(r32);
 
+	/*
+	 * Driver load time.  If the sync required bit for this PCI fn
+	 * is set, it is due to an unclean exit by the driver for this
+	 * PCI fn in the previous incarnation. Whoever comes here first
+	 * should clean it up, no matter which PCI fn.
+	 */
 
 	if (sync_reqd & bfa_ioc_ct_sync_pos(ioc)) {
 		writel(0, ioc->ioc_regs.ioc_fail_sync);
@@ -351,6 +440,9 @@ bfa_ioc_ct_sync_start(struct bfa_ioc_s *ioc)
 	return bfa_ioc_ct_sync_complete(ioc);
 }
 
+/*
+ * Synchronized IOC failure processing routines
+ */
 static void
 bfa_ioc_ct_sync_join(struct bfa_ioc_s *ioc)
 {
@@ -390,6 +482,12 @@ bfa_ioc_ct_sync_complete(struct bfa_ioc_s *ioc)
 	if (sync_ackd == 0)
 		return BFA_TRUE;
 
+	/*
+	 * The check below is to see whether any other PCI fn
+	 * has reinitialized the ASIC (reset sync_ackd bits)
+	 * and failed again while this IOC was waiting for hw
+	 * semaphore (in bfa_iocpf_sm_semwait()).
+	 */
 	tmp_ackd = sync_ackd;
 	if ((sync_reqd &  bfa_ioc_ct_sync_pos(ioc)) &&
 		!(sync_ackd & bfa_ioc_ct_sync_pos(ioc)))
@@ -403,12 +501,20 @@ bfa_ioc_ct_sync_complete(struct bfa_ioc_s *ioc)
 		return BFA_TRUE;
 	}
 
+	/*
+	 * If another PCI fn reinitialized and failed again while
+	 * this IOC was waiting for hw sem, the sync_ackd bit for
+	 * this IOC need to be set again to allow reinitialization.
+	 */
 	if (tmp_ackd != sync_ackd)
 		writel((r32 | sync_ackd), ioc->ioc_regs.ioc_fail_sync);
 
 	return BFA_FALSE;
 }
 
+/**
+ * Called from bfa_ioc_attach() to map asic specific calls.
+ */
 static void
 bfa_ioc_set_ctx_hwif(struct bfa_ioc_s *ioc, struct bfa_ioc_hwif_s *hwif)
 {
@@ -423,6 +529,9 @@ bfa_ioc_set_ctx_hwif(struct bfa_ioc_s *ioc, struct bfa_ioc_hwif_s *hwif)
 	hwif->ioc_sync_complete = bfa_ioc_ct_sync_complete;
 }
 
+/**
+ * Called from bfa_ioc_attach() to map asic specific calls.
+ */
 void
 bfa_ioc_set_ct_hwif(struct bfa_ioc_s *ioc)
 {
@@ -435,6 +544,9 @@ bfa_ioc_set_ct_hwif(struct bfa_ioc_s *ioc)
 	ioc->ioc_hwif = &hwif_ct;
 }
 
+/**
+ * Called from bfa_ioc_attach() to map asic specific calls.
+ */
 void
 bfa_ioc_set_ct2_hwif(struct bfa_ioc_s *ioc)
 {
@@ -448,6 +560,9 @@ bfa_ioc_set_ct2_hwif(struct bfa_ioc_s *ioc)
 	ioc->ioc_hwif = &hwif_ct2;
 }
 
+/*
+ * Workaround for MSI-X resource allocation for catapult-2 with no asic block
+ */
 #define HOSTFN_MSIX_DEFAULT		64
 #define HOSTFN_MSIX_VT_INDEX_MBOX_ERR	0x30138
 #define HOSTFN_MSIX_VT_OFST_NUMVT	0x3013c
@@ -546,27 +661,43 @@ bfa_ioc_ct2_sclk_init(void __iomem *rb)
 {
 	u32 r32;
 
+	/*
+	 * put s_clk PLL and PLL FSM in reset
+	 */
 	r32 = readl((rb + CT2_APP_PLL_SCLK_CTL_REG));
 	r32 &= ~(__APP_PLL_SCLK_ENABLE | __APP_PLL_SCLK_LRESETN);
 	r32 |= (__APP_PLL_SCLK_ENARST | __APP_PLL_SCLK_BYPASS |
 		__APP_PLL_SCLK_LOGIC_SOFT_RESET);
 	writel(r32, (rb + CT2_APP_PLL_SCLK_CTL_REG));
 
+	/*
+	 * Ignore mode and program for the max clock (which is FC16)
+	 * Firmware/NFC will do the PLL init appropiately
+	 */
 	r32 = readl((rb + CT2_APP_PLL_SCLK_CTL_REG));
 	r32 &= ~(__APP_PLL_SCLK_REFCLK_SEL | __APP_PLL_SCLK_CLK_DIV2);
 	writel(r32, (rb + CT2_APP_PLL_SCLK_CTL_REG));
 
+	/*
+	 * while doing PLL init dont clock gate ethernet subsystem
+	 */
 	r32 = readl((rb + CT2_CHIP_MISC_PRG));
 	writel(r32 | __ETH_CLK_ENABLE_PORT0, (rb + CT2_CHIP_MISC_PRG));
 
 	r32 = readl((rb + CT2_PCIE_MISC_REG));
 	writel(r32 | __ETH_CLK_ENABLE_PORT1, (rb + CT2_PCIE_MISC_REG));
 
+	/*
+	 * set sclk value
+	 */
 	r32 = readl((rb + CT2_APP_PLL_SCLK_CTL_REG));
 	r32 &= (__P_SCLK_PLL_LOCK | __APP_PLL_SCLK_REFCLK_SEL |
 		__APP_PLL_SCLK_CLK_DIV2);
 	writel(r32 | 0x1061731b, (rb + CT2_APP_PLL_SCLK_CTL_REG));
 
+	/*
+	 * poll for s_clk lock or delay 1ms
+	 */
 	udelay(1000);
 }
 
@@ -575,23 +706,38 @@ bfa_ioc_ct2_lclk_init(void __iomem *rb)
 {
 	u32 r32;
 
+	/*
+	 * put l_clk PLL and PLL FSM in reset
+	 */
 	r32 = readl((rb + CT2_APP_PLL_LCLK_CTL_REG));
 	r32 &= ~(__APP_PLL_LCLK_ENABLE | __APP_PLL_LCLK_LRESETN);
 	r32 |= (__APP_PLL_LCLK_ENARST | __APP_PLL_LCLK_BYPASS |
 		__APP_PLL_LCLK_LOGIC_SOFT_RESET);
 	writel(r32, (rb + CT2_APP_PLL_LCLK_CTL_REG));
 
+	/*
+	 * set LPU speed (set for FC16 which will work for other modes)
+	 */
 	r32 = readl((rb + CT2_CHIP_MISC_PRG));
 	writel(r32, (rb + CT2_CHIP_MISC_PRG));
 
+	/*
+	 * set LPU half speed (set for FC16 which will work for other modes)
+	 */
 	r32 = readl((rb + CT2_APP_PLL_LCLK_CTL_REG));
 	writel(r32, (rb + CT2_APP_PLL_LCLK_CTL_REG));
 
+	/*
+	 * set lclk for mode (set for FC16)
+	 */
 	r32 = readl((rb + CT2_APP_PLL_LCLK_CTL_REG));
 	r32 &= (__P_LCLK_PLL_LOCK | __APP_LPUCLK_HALFSPEED);
 	r32 |= 0x20c1731b;
 	writel(r32, (rb + CT2_APP_PLL_LCLK_CTL_REG));
 
+	/*
+	 * poll for s_clk lock or delay 1ms
+	 */
 	udelay(1000);
 }
 
@@ -618,15 +764,21 @@ bfa_ioc_ct2_mac_reset(void __iomem *rb)
 	bfa_ioc_ct2_sclk_init(rb);
 	bfa_ioc_ct2_lclk_init(rb);
 
+	/*
+	 * release soft reset on s_clk & l_clk
+	 */
 	r32 = readl((rb + CT2_APP_PLL_SCLK_CTL_REG));
 	writel(r32 & ~__APP_PLL_SCLK_LOGIC_SOFT_RESET,
 		(rb + CT2_APP_PLL_SCLK_CTL_REG));
 
+	/*
+	 * release soft reset on s_clk & l_clk
+	 */
 	r32 = readl((rb + CT2_APP_PLL_LCLK_CTL_REG));
 	writel(r32 & ~__APP_PLL_LCLK_LOGIC_SOFT_RESET,
 		(rb + CT2_APP_PLL_LCLK_CTL_REG));
 
-	
+	/* put port0, port1 MAC & AHB in reset */
 	writel((__CSI_MAC_RESET | __CSI_MAC_AHB_RESET),
 		rb + CT2_CSI_MAC_CONTROL_REG(0));
 	writel((__CSI_MAC_RESET | __CSI_MAC_AHB_RESET),
@@ -713,15 +865,24 @@ bfa_ioc_ct2_pll_init(void __iomem *rb, enum bfi_asic_mode mode)
 		bfa_ioc_ct2_sclk_init(rb);
 		bfa_ioc_ct2_lclk_init(rb);
 
+		/*
+		 * release soft reset on s_clk & l_clk
+		 */
 		r32 = readl(rb + CT2_APP_PLL_SCLK_CTL_REG);
 		writel(r32 & ~__APP_PLL_SCLK_LOGIC_SOFT_RESET,
 		       (rb + CT2_APP_PLL_SCLK_CTL_REG));
 
+		/*
+		 * release soft reset on s_clk & l_clk
+		 */
 		r32 = readl(rb + CT2_APP_PLL_LCLK_CTL_REG);
 		writel(r32 & ~__APP_PLL_LCLK_LOGIC_SOFT_RESET,
 		      (rb + CT2_APP_PLL_LCLK_CTL_REG));
 	}
 
+	/*
+	 * Announce flash device presence, if flash was corrupted.
+	 */
 	if (wgn == (__WGN_READY | __GLBL_PF_VF_CFG_RDY)) {
 		r32 = readl(rb + PSS_GPIO_OUT_REG);
 		writel(r32 & ~1, (rb + PSS_GPIO_OUT_REG));
@@ -729,10 +890,14 @@ bfa_ioc_ct2_pll_init(void __iomem *rb, enum bfi_asic_mode mode)
 		writel(r32 | 1, (rb + PSS_GPIO_OE_REG));
 	}
 
+	/*
+	 * Mask the interrupts and clear any
+	 * pending interrupts.
+	 */
 	writel(1, (rb + CT2_LPU0_HOSTFN_MBOX0_MSK));
 	writel(1, (rb + CT2_LPU1_HOSTFN_MBOX0_MSK));
 
-	
+	/* For first time initialization, no need to clear interrupts */
 	r32 = readl(rb + HOST_SEM5_REG);
 	if (r32 & 0x1) {
 		r32 = readl(rb + CT2_LPU0_HOSTFN_CMD_STAT);

@@ -3,4 +3,4 @@
 
 #include <asm-generic/topology.h>
 
-#endif 
+#endif /* _ASM_CRIS_TOPOLOGY_H */

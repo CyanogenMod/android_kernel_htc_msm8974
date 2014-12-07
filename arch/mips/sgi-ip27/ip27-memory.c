@@ -116,7 +116,7 @@ static int __init compute_node_distance(nasid_t nasid_a, nasid_t nasid_b)
 	nasid_t nasid;
 	int port;
 
-	
+	/* Figure out which routers nodes in question are connected to */
 	for_each_online_node(cnode) {
 		nasid = COMPACT_TO_NASID_NODEID(cnode);
 
@@ -270,23 +270,23 @@ static pfn_t __init slot_psize_compute(cnodeid_t node, int slot)
 	unsigned long size;
 
 	nasid = COMPACT_TO_NASID_NODEID(node);
-	
+	/* Find the node board */
 	brd = find_lboard((lboard_t *)KL_CONFIG_INFO(nasid), KLTYPE_IP27);
 	if (!brd)
 		return 0;
 
-	
+	/* Get the memory bank structure */
 	banks = (klmembnk_t *) find_first_component(brd, KLSTRUCT_MEMBNK);
 	if (!banks)
 		return 0;
 
-	
+	/* Size in _Megabytes_ */
 	size = (unsigned long)banks->membnk_bnksz[slot/4];
 
-	
+	/* hack for 128 dimm banks */
 	if (size <= 128) {
 		if (slot % 4 == 0) {
-			size <<= 20;		
+			size <<= 20;		/* size in bytes */
 			return(size >> PAGE_SHIFT);
 		} else
 			return 0;
@@ -304,6 +304,10 @@ static void __init mlreset(void)
 	master_nasid = get_nasid();
 	fine_mode = is_fine_dirmode();
 
+	/*
+	 * Probe for all CPUs - this creates the cpumask and sets up the
+	 * mapping tables.  We need to do this as early as possible.
+	 */
 #ifdef CONFIG_SMP
 	cpu_node_probe();
 #endif
@@ -315,11 +319,19 @@ static void __init mlreset(void)
 
 	setup_replication_mask();
 
+	/*
+	 * Set all nodes' calias sizes to 8k
+	 */
 	for_each_online_node(i) {
 		nasid_t nasid;
 
 		nasid = COMPACT_TO_NASID_NODEID(i);
 
+		/*
+		 * Always have node 0 in the region mask, otherwise
+		 * CALIAS accesses get exceptions since the hub
+		 * thinks it is a node 0 address.
+		 */
 		REMOTE_HUB_S(nasid, PI_REGION_PRESENT, (region_mask | 1));
 #ifdef CONFIG_REPLICATE_EXHANDLERS
 		REMOTE_HUB_S(nasid, PI_CALIAS_SIZE, PI_CALIAS_SIZE_8K);
@@ -328,6 +340,10 @@ static void __init mlreset(void)
 #endif
 
 #ifdef LATER
+		/*
+		 * Set up all hubs to have a big window pointing at
+		 * widget 0. Memory mode, widget 0, offset 0
+		 */
 		REMOTE_HUB_S(nasid, IIO_ITTE(SWIN0_BIGWIN),
 			((HUB_PIO_MAP_TO_MEM << IIO_ITTE_IOSP_SHIFT) |
 			(0 << IIO_ITTE_WIDGET_SHIFT)));
@@ -337,7 +353,7 @@ static void __init mlreset(void)
 
 static void __init szmem(void)
 {
-	pfn_t slot_psize, slot0sz = 0, nodebytes;	
+	pfn_t slot_psize, slot0sz = 0, nodebytes;	/* Hack to detect problem configs */
 	int slot;
 	cnodeid_t node;
 
@@ -349,6 +365,10 @@ static void __init szmem(void)
 			slot_psize = slot_psize_compute(node, slot);
 			if (slot == 0)
 				slot0sz = slot_psize;
+			/*
+			 * We need to refine the hack when we have replicated
+			 * kernel text.
+			 */
 			nodebytes += (1LL << SLOT_SHIFT);
 
 			if (!slot_psize)
@@ -377,6 +397,9 @@ static void __init node_mem_init(cnodeid_t node)
 
 	get_pfn_range_for_nid(node, &start_pfn, &end_pfn);
 
+	/*
+	 * Allocate the node data structures on the node first.
+	 */
 	__node_data[node] = __va(slot_freepfn << PAGE_SHIFT);
 
 	NODE_DATA(node)->bdata = &bootmem_node_data[node];
@@ -397,12 +420,21 @@ static void __init node_mem_init(cnodeid_t node)
 	sparse_memory_present_with_active_regions(node);
 }
 
+/*
+ * A node with nothing.  We use it to avoid any special casing in
+ * cpumask_of_node
+ */
 static struct node_data null_node = {
 	.hub = {
 		.h_cpus = CPU_MASK_NONE
 	}
 };
 
+/*
+ * Currently, the intranode memory hole support assumes that each slot
+ * contains at least 32 MBytes of memory. We assume all bootmem data
+ * fits on the first slot.
+ */
 void __init prom_meminit(void)
 {
 	cnodeid_t node;
@@ -421,7 +453,7 @@ void __init prom_meminit(void)
 
 void __init prom_free_prom_memory(void)
 {
-	
+	/* We got nothing to free here ...  */
 }
 
 extern unsigned long setup_zero_pages(void);
@@ -453,10 +485,13 @@ void __init mem_init(void)
 	high_memory = (void *) __va(num_physpages << PAGE_SHIFT);
 
 	for_each_online_node(node) {
+		/*
+		 * This will free up the bootmem, ie, slot 0 memory.
+		 */
 		totalram_pages += free_all_bootmem_node(NODE_DATA(node));
 	}
 
-	totalram_pages -= setup_zero_pages();	
+	totalram_pages -= setup_zero_pages();	/* This comes from node 0 */
 
 	codesize =  (unsigned long) &_etext - (unsigned long) &_text;
 	datasize =  (unsigned long) &_edata - (unsigned long) &_etext;

@@ -37,18 +37,23 @@
 #define LLT_LAST_ENTRY_OF_TX_PKT_BUFFER		255
 
 #define RX_PAGE_SIZE_REG_VALUE			PBP_128
+/* Note: We will divide number of page equally for each queue
+ * other than public queue! */
 #define TX_TOTAL_PAGE_NUMBER			0xF8
 #define TX_PAGE_BOUNDARY			(TX_TOTAL_PAGE_NUMBER + 1)
 
 
 #define CHIP_B_PAGE_NUM_PUBQ			0xE7
 
+/* For Test Chip Setting
+ * (HPQ + LPQ + PUBQ) shall be TX_TOTAL_PAGE_NUMBER */
 #define CHIP_A_PAGE_NUM_PUBQ			0x7E
 
 
+/* For Chip A Setting */
 #define WMM_CHIP_A_TX_TOTAL_PAGE_NUMBER		0xF5
 #define WMM_CHIP_A_TX_PAGE_BOUNDARY		\
-	(WMM_CHIP_A_TX_TOTAL_PAGE_NUMBER + 1) 
+	(WMM_CHIP_A_TX_TOTAL_PAGE_NUMBER + 1) /* F6 */
 
 #define WMM_CHIP_A_PAGE_NUM_PUBQ		0xA3
 #define WMM_CHIP_A_PAGE_NUM_HPQ			0x29
@@ -56,9 +61,10 @@
 
 
 
+/* Note: For Chip B Setting ,modify later */
 #define WMM_CHIP_B_TX_TOTAL_PAGE_NUMBER		0xF5
 #define WMM_CHIP_B_TX_PAGE_BOUNDARY		\
-	(WMM_CHIP_B_TX_TOTAL_PAGE_NUMBER + 1) 
+	(WMM_CHIP_B_TX_TOTAL_PAGE_NUMBER + 1) /* F6 */
 
 #define WMM_CHIP_B_PAGE_NUM_PUBQ		0xB0
 #define WMM_CHIP_B_PAGE_NUM_HPQ			0x29
@@ -68,12 +74,13 @@
 #define BOARD_TYPE_NORMAL_MASK			0xE0
 #define BOARD_TYPE_TEST_MASK			0x0F
 
+/* should be renamed and moved to another file */
 enum _BOARD_TYPE_8192CUSB {
-	BOARD_USB_DONGLE		= 0,	
-	BOARD_USB_High_PA		= 1,	
-	BOARD_MINICARD			= 2,	
-	BOARD_USB_SOLO			= 3,	
-	BOARD_USB_COMBO			= 4,	
+	BOARD_USB_DONGLE		= 0,	/* USB dongle */
+	BOARD_USB_High_PA		= 1,	/* USB dongle - high power PA */
+	BOARD_MINICARD			= 2,	/* Minicard */
+	BOARD_USB_SOLO			= 3,	/* USB solo-Slim module */
+	BOARD_USB_COMBO			= 4,	/* USB Combo-Slim module */
 };
 
 #define IS_HIGHT_PA(boardtype)		\

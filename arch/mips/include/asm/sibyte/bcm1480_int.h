@@ -36,9 +36,29 @@
 
 #include "sb1250_defs.h"
 
+/*  *********************************************************************
+    *  Interrupt Mapper Constants
+    ********************************************************************* */
 
+/*
+ * The interrupt mapper deals with 128-bit logical registers that are
+ * implemented as pairs of 64-bit registers, with the "low" 64 bits in
+ * a register that has an address 0x1000 higher(!) than the
+ * corresponding "high" register.
+ *
+ * For appropriate registers, bit 0 of the "high" register is a
+ * cascade bit that summarizes (as a bit-OR) the 64 bits of the "low"
+ * register.
+ */
 
+/*
+ * This entire file uses _BCM1480_ in all the symbols because it is
+ * entirely BCM1480 specific.
+ */
 
+/*
+ * Interrupt sources (Table 22)
+ */
 
 #define K_BCM1480_INT_SOURCES               128
 
@@ -133,6 +153,9 @@
 #define K_BCM1480_INT_GPIO_14               _BCM1480_INT_LOW(62)
 #define K_BCM1480_INT_GPIO_15               _BCM1480_INT_LOW(63)
 
+/*
+ * Mask values for each interrupt
+ */
 
 #define _BCM1480_INT_MASK(w, n)              _SB_MAKEMASK(w, ((n) & 0x3F))
 #define _BCM1480_INT_MASK1(n)               _SB_MAKEMASK1(((n) & 0x3F))
@@ -228,16 +251,22 @@
 #define M_BCM1480_INT_GPIO_14               _BCM1480_INT_MASK1(K_BCM1480_INT_GPIO_14)
 #define M_BCM1480_INT_GPIO_15               _BCM1480_INT_MASK1(K_BCM1480_INT_GPIO_15)
 
+/*
+ * Interrupt mappings (Table 18)
+ */
 
-#define K_BCM1480_INT_MAP_I0    0		
+#define K_BCM1480_INT_MAP_I0    0		/* interrupt pins on processor */
 #define K_BCM1480_INT_MAP_I1    1
 #define K_BCM1480_INT_MAP_I2    2
 #define K_BCM1480_INT_MAP_I3    3
 #define K_BCM1480_INT_MAP_I4    4
 #define K_BCM1480_INT_MAP_I5    5
-#define K_BCM1480_INT_MAP_NMI   6		
-#define K_BCM1480_INT_MAP_DINT  7		
+#define K_BCM1480_INT_MAP_NMI   6		/* nonmaskable */
+#define K_BCM1480_INT_MAP_DINT  7		/* debug interrupt */
 
+/*
+ * Interrupt LDT Set Register (Table 19)
+ */
 
 #define S_BCM1480_INT_HT_INTMSG             0
 #define M_BCM1480_INT_HT_INTMSG             _SB_MAKEMASK(3, S_BCM1480_INT_HT_INTMSG)
@@ -271,10 +300,13 @@
 #define V_BCM1480_INT_HT_VECTOR(x)          _SB_MAKEVALUE(x, S_BCM1480_INT_HT_VECTOR)
 #define G_BCM1480_INT_HT_VECTOR(x)          _SB_GETVALUE(x, S_BCM1480_INT_HT_VECTOR, M_BCM1480_INT_HT_VECTOR)
 
+/*
+ * Vector prefix (Table 4-7)
+ */
 
 #define M_BCM1480_HTVECT_RAISE_INTLDT_HIGH  0x00
 #define M_BCM1480_HTVECT_RAISE_MBOX_0       0x40
 #define M_BCM1480_HTVECT_RAISE_INTLDT_LO    0x80
 #define M_BCM1480_HTVECT_RAISE_MBOX_1       0xC0
 
-#endif 
+#endif /* _BCM1480_INT_H */

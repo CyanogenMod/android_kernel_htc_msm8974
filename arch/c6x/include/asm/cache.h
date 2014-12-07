@@ -13,12 +13,22 @@
 
 #include <linux/irqflags.h>
 
+/*
+ * Cache line size
+ */
 #define L1D_CACHE_BYTES   64
 #define L1P_CACHE_BYTES   32
 #define L2_CACHE_BYTES	  128
 
+/*
+ * L2 used as cache
+ */
 #define L2MODE_SIZE	  L2MODE_256K_CACHE
 
+/*
+ * For practical reasons the L1_CACHE_BYTES defines should not be smaller than
+ * the L2 line size
+ */
 #define L1_CACHE_BYTES        L2_CACHE_BYTES
 
 #define L2_CACHE_ALIGN_LOW(x) \
@@ -31,8 +41,14 @@
 #define ARCH_DMA_MINALIGN	L1_CACHE_BYTES
 #define ARCH_SLAB_MINALIGN	L1_CACHE_BYTES
 
+/*
+ * This is the granularity of hardware cacheability control.
+ */
 #define CACHEABILITY_ALIGN	0x01000000
 
+/*
+ * Align a physical address to MAR regions
+ */
 #define CACHE_REGION_START(v) \
 	(((u32) (v)) & ~(CACHEABILITY_ALIGN - 1))
 #define CACHE_REGION_END(v) \
@@ -71,4 +87,4 @@ extern void L2_cache_block_writeback_nowait(unsigned int start,
 extern void L2_cache_block_writeback_invalidate_nowait(unsigned int start,
 						       unsigned int end);
 
-#endif 
+#endif /* _ASM_C6X_CACHE_H */

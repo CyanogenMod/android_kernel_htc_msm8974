@@ -58,20 +58,24 @@ static struct platform_device leds_gpio = {
 	},
 };
 
+/*
+ * cpuidle C-states definition override from the default values.
+ * The 'exit_latency' field is the sum of sleep and wake-up latencies.
+ */
 static struct cpuidle_params rx51_cpuidle_params[] = {
-	
+	/* C1 */
 	{110 + 162, 5 , 1},
-	
+	/* C2 */
 	{106 + 180, 309, 1},
-	
+	/* C3 */
 	{107 + 410, 46057, 0},
-	
+	/* C4 */
 	{121 + 3374, 46057, 0},
-	
+	/* C5 */
 	{855 + 1146, 46057, 1},
-	
+	/* C6 */
 	{7580 + 4134, 484329, 0},
-	
+	/* C7 */
 	{7505 + 15274, 484329, 1},
 };
 
@@ -103,7 +107,7 @@ static void __init rx51_init(void)
 	usb_musb_init(&musb_board_data);
 	rx51_peripherals_init();
 
-	
+	/* Ensure SDRC pins are mux'd for self-refresh */
 	omap_mux_init_signal("sdrc_cke0", OMAP_PIN_OUTPUT);
 	omap_mux_init_signal("sdrc_cke1", OMAP_PIN_OUTPUT);
 
@@ -117,7 +121,7 @@ static void __init rx51_reserve(void)
 }
 
 MACHINE_START(NOKIA_RX51, "Nokia RX-51 board")
-	
+	/* Maintainer: Lauri Leukkunen <lauri.leukkunen@nokia.com> */
 	.atag_offset	= 0x100,
 	.reserve	= rx51_reserve,
 	.map_io		= omap3_map_io,

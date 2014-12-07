@@ -9,6 +9,12 @@
 	
 */
 
+/* Changes:
+
+        1.01    GRG 1998.05.06 init_proto, release_proto
+        1.02    Joshua b. Jore CPP(renamed), epat_connect, epat_disconnect
+
+*/
 
 #define EPAT_VERSION      "1.02"
 
@@ -31,6 +37,10 @@ module_param(epatc8, int, 0);
 MODULE_PARM_DESC(epatc8, "support for the Shuttle EP1284 chip, "
 	"used in any recent Imation SuperDisk (LS-120) drive.");
 
+/* cont =  0   IDE register file
+   cont =  1   IDE control registers
+   cont =  2   internal EPAT registers
+*/
 
 static int cont_map[3] = { 0x18, 0x10, 0 };
 
@@ -81,7 +91,7 @@ static int epat_read_regr( PIA *pi, int cont, int regr )
 		return a;
 
 	}
-	return -1;	
+	return -1;	/* never gets here */
 }
 
 static void epat_read_block( PIA *pi, char * buf, int count )
@@ -185,14 +195,17 @@ static void epat_write_block( PIA *pi, char * buf, int count )
 	}
 }
 
+/* these macros access the EPAT registers in native addressing */
 
 #define	WR(r,v)		epat_write_regr(pi,2,r,v)
 #define	RR(r)		(epat_read_regr(pi,2,r))
 
+/* and these access the IDE task file */
 
 #define WRi(r,v)         epat_write_regr(pi,0,r,v)
 #define RRi(r)           (epat_read_regr(pi,0,r))
 
+/* FIXME:  the CPP stuff should be fixed to handle multiple EPATs on a chain */
 
 #define CPP(x) 	w2(4);w0(0x22);w0(0xaa);w0(0x55);w0(0);w0(0xff);\
                 w0(0x87);w0(0x78);w0(x);w2(4);w2(5);w2(4);w0(0xff);
@@ -202,7 +215,7 @@ static void epat_connect ( PIA *pi )
 {       pi->saved_r0 = r0();
         pi->saved_r2 = r2();
 
- 	
+ 	/* Initialize the chip */
 	CPP(0);
 
 	if (epatc8) {
@@ -210,17 +223,17 @@ static void epat_connect ( PIA *pi )
 		w0(0);w2(1);w2(4);
 		WR(0x8,0x12);WR(0xc,0x14);WR(0x12,0x10);
 		WR(0xe,0xf);WR(0xf,4);
-		
+		/* WR(0xe,0xa);WR(0xf,4); */
 		WR(0xe,0xd);WR(0xf,0);
-		
+		/* CPP(0x30); */
 	}
 
-        
+        /* Connect to the chip */
 	CPP(0xe0);
-        w0(0);w2(1);w2(4); 
+        w0(0);w2(1);w2(4); /* Idle into SPP */
         if (pi->mode >= 3) {
           w0(0);w2(1);w2(4);w2(0xc);
-          
+          /* Request EPP */
           w0(0x40);w2(6);w2(7);w2(4);w2(0xc);w2(4);
         }
 
@@ -281,7 +294,7 @@ static void epat_log_adapter( PIA *pi, char * scratch, int verbose )
 		   {"4-bit","5/3","8-bit","EPP-8","EPP-16","EPP-32"};
 
 	epat_connect(pi);
-	WR(0xa,0x38);		
+	WR(0xa,0x38);		/* read the version code */
         ver = RR(0xb);
         epat_disconnect(pi);
 

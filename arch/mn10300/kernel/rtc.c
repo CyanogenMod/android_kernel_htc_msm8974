@@ -20,6 +20,9 @@
 DEFINE_SPINLOCK(rtc_lock);
 EXPORT_SYMBOL(rtc_lock);
 
+/*
+ * Read the current RTC time
+ */
 void read_persistent_clock(struct timespec *ts)
 {
 	struct rtc_time tm;
@@ -30,7 +33,7 @@ void read_persistent_clock(struct timespec *ts)
 	ts->tv_sec = mktime(tm.tm_year, tm.tm_mon, tm.tm_mday,
 			    tm.tm_hour, tm.tm_min, tm.tm_sec);
 
-	
+	/* if rtc is way off in the past, set something reasonable */
 	if (ts->tv_sec < 0)
 		ts->tv_sec = mktime(2009, 1, 1, 12, 0, 0);
 }
@@ -51,22 +54,30 @@ static int set_rtc_mmss(unsigned long nowtime)
 	int retval = 0;
 	int real_seconds, real_minutes, cmos_minutes;
 
-	
+	/* gets recalled with irq locally disabled */
 	spin_lock(&rtc_lock);
-	save_control = CMOS_READ(RTC_CONTROL); 
+	save_control = CMOS_READ(RTC_CONTROL); /* tell the clock it's being
+						* set */
 	CMOS_WRITE(save_control | RTC_SET, RTC_CONTROL);
 
-	save_freq_select = CMOS_READ(RTC_FREQ_SELECT); 
+	save_freq_select = CMOS_READ(RTC_FREQ_SELECT); /* stop and reset
+							* prescaler */
 	CMOS_WRITE(save_freq_select | RTC_DIV_RESET2, RTC_FREQ_SELECT);
 
 	cmos_minutes = CMOS_READ(RTC_MINUTES);
 	if (!(save_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
 		cmos_minutes = bcd2bin(cmos_minutes);
 
+	/*
+	 * since we're only adjusting minutes and seconds,
+	 * don't interfere with hour overflow. This avoids
+	 * messing with unknown time zones but requires your
+	 * RTC not to be off by more than 15 minutes
+	 */
 	real_seconds = nowtime % 60;
 	real_minutes = nowtime / 60;
 	if (((abs(real_minutes - cmos_minutes) + 15) / 30) & 1)
-		
+		/* correct for half hour time zone */
 		real_minutes += 30;
 	real_minutes %= 60;
 
@@ -84,6 +95,13 @@ static int set_rtc_mmss(unsigned long nowtime)
 		retval = -1;
 	}
 
+	/* The following flags have to be released exactly in this order,
+	 * otherwise the DS12887 (popular MC146818A clone with integrated
+	 * battery and quartz) will not reset the oscillator and will not
+	 * update precisely 500 ms later. You won't find this mentioned in
+	 * the Dallas Semiconductor data sheets, but who believes data
+	 * sheets anyway ...                           -- Markus Kuhn
+	 */
 	CMOS_WRITE(save_control, RTC_CONTROL);
 	CMOS_WRITE(save_freq_select, RTC_FREQ_SELECT);
 	spin_unlock(&rtc_lock);
@@ -96,11 +114,14 @@ int update_persistent_clock(struct timespec now)
 	return set_rtc_mmss(now.tv_sec);
 }
 
+/*
+ * calibrate the TSC clock against the RTC
+ */
 void __init calibrate_clock(void)
 {
 	unsigned char status;
 
-	
+	/* make sure the RTC is running and is set to operate in 24hr mode */
 	status = RTSRC;
 	RTCRB |= RTCRB_SET;
 	RTCRB |= RTCRB_TM_24HR;

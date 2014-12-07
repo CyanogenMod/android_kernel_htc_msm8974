@@ -21,6 +21,9 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+/*
+ * RFCOMM sockets.
+ */
 
 #include <linux/module.h>
 
@@ -58,6 +61,10 @@ static struct bt_sock_list rfcomm_sk_list = {
 static void rfcomm_sock_close(struct sock *sk);
 static void rfcomm_sock_kill(struct sock *sk);
 
+/* ---- DLC callbacks ----
+ *
+ * called under rfcomm_dlc_lock()
+ */
 static void rfcomm_sk_data_ready(struct rfcomm_dlc *d, struct sk_buff *skb)
 {
 	struct sock *sk = d->owner;
@@ -107,12 +114,15 @@ static void rfcomm_sk_state_change(struct rfcomm_dlc *d, int err)
 	local_irq_restore(flags);
 
 	if (parent && sock_flag(sk, SOCK_ZAPPED)) {
+		/* We have to drop DLC lock here, otherwise
+		 * rfcomm_sock_destruct() will dead lock. */
 		rfcomm_dlc_unlock(d);
 		rfcomm_sock_kill(sk);
 		rfcomm_dlc_lock(d);
 	}
 }
 
+/* ---- Socket functions ---- */
 static struct sock *__rfcomm_get_sock_by_addr(u8 channel, bdaddr_t *src)
 {
 	struct sock *sk = NULL;
@@ -127,6 +137,9 @@ static struct sock *__rfcomm_get_sock_by_addr(u8 channel, bdaddr_t *src)
 	return node ? sk : NULL;
 }
 
+/* Find socket with channel and source bdaddr.
+ * Returns closest match.
+ */
 static struct sock *rfcomm_get_sock_by_channel(int state, u8 channel, bdaddr_t *src)
 {
 	struct sock *sk = NULL, *sk1 = NULL;
@@ -139,11 +152,11 @@ static struct sock *rfcomm_get_sock_by_channel(int state, u8 channel, bdaddr_t *
 			continue;
 
 		if (rfcomm_pi(sk)->channel == channel) {
-			
+			/* Exact match. */
 			if (!bacmp(&bt_sk(sk)->src, src))
 				break;
 
-			
+			/* Closest match */
 			if (!bacmp(&bt_sk(sk)->src, BDADDR_ANY))
 				sk1 = sk;
 		}
@@ -166,7 +179,7 @@ static void rfcomm_sock_destruct(struct sock *sk)
 	rfcomm_dlc_lock(d);
 	rfcomm_pi(sk)->dlc = NULL;
 
-	
+	/* Detach DLC if it's owned by this socket */
 	if (d->owner == sk)
 		d->owner = NULL;
 	rfcomm_dlc_unlock(d);
@@ -180,7 +193,7 @@ static void rfcomm_sock_cleanup_listen(struct sock *parent)
 
 	BT_DBG("parent %p", parent);
 
-	
+	/* Close not yet accepted dlcs */
 	while ((sk = bt_accept_dequeue(parent, NULL))) {
 		rfcomm_sock_close(sk);
 		rfcomm_sock_kill(sk);
@@ -190,6 +203,9 @@ static void rfcomm_sock_cleanup_listen(struct sock *parent)
 	sock_set_flag(parent, SOCK_ZAPPED);
 }
 
+/* Kill socket (only if zapped and orphan)
+ * Must be called on unlocked socket.
+ */
 static void rfcomm_sock_kill(struct sock *sk)
 {
 	if (!sock_flag(sk, SOCK_ZAPPED) || sk->sk_socket)
@@ -197,7 +213,7 @@ static void rfcomm_sock_kill(struct sock *sk)
 
 	BT_DBG("sk %p state %d refcnt %d", sk, sk->sk_state, atomic_read(&sk->sk_refcnt));
 
-	
+	/* Kill poor orphan */
 	bt_sock_unlink(&rfcomm_sk_list, sk);
 	sock_set_flag(sk, SOCK_DEAD);
 	sock_put(sk);
@@ -226,6 +242,9 @@ static void __rfcomm_sock_close(struct sock *sk)
 	}
 }
 
+/* Close socket.
+ * Must be called on unlocked socket.
+ */
 static void rfcomm_sock_close(struct sock *sk)
 {
 	lock_sock(sk);
@@ -353,7 +372,7 @@ static int rfcomm_sock_bind(struct socket *sock, struct sockaddr *addr, int addr
 	if (sa->rc_channel && __rfcomm_get_sock_by_addr(sa->rc_channel, &sa->rc_bdaddr)) {
 		err = -EADDRINUSE;
 	} else {
-		
+		/* Save source address */
 		bacpy(&bt_sk(sk)->src, &sa->rc_bdaddr);
 		rfcomm_pi(sk)->channel = sa->rc_channel;
 		sk->sk_state = BT_BOUND;
@@ -480,7 +499,7 @@ static int rfcomm_sock_accept(struct socket *sock, struct socket *newsock, int f
 
 	BT_DBG("sk %p timeo %ld", sk, timeo);
 
-	
+	/* Wait for an incoming connection. (wake-one). */
 	add_wait_queue_exclusive(sk_sleep(sk), &wait);
 	while (!(nsk = bt_accept_dequeue(sk, newsock))) {
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -903,6 +922,10 @@ static int rfcomm_sock_release(struct socket *sock)
 	return err;
 }
 
+/* ---- RFCOMM core layer callbacks ----
+ *
+ * called under rfcomm_lock()
+ */
 int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc **d)
 {
 	struct sock *sk, *parent;
@@ -913,14 +936,14 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 
 	rfcomm_session_getaddr(s, &src, &dst);
 
-	
+	/* Check if we have socket listening on channel */
 	parent = rfcomm_get_sock_by_channel(BT_LISTEN, channel, &src);
 	if (!parent)
 		return 0;
 
 	bh_lock_sock(parent);
 
-	
+	/* Check for backlog size */
 	if (sk_acceptq_is_full(parent)) {
 		BT_DBG("backlog full %d", parent->sk_ack_backlog);
 		goto done;
@@ -938,7 +961,7 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 	sk->sk_state = BT_CONFIG;
 	bt_accept_enqueue(parent, sk);
 
-	
+	/* Accept connection and return socket DLC */
 	*d = rfcomm_pi(sk)->dlc;
 	result = 1;
 

@@ -27,7 +27,7 @@ void pq2_restart(char *cmd)
 	local_irq_disable();
 	setbits32(&cpm2_immr->im_clkrst.car_rmr, RMR_CSRE);
 
-	
+	/* Clear the ME,EE,IR & DR bits in MSR to cause checkstop */
 	mtmsr(mfmsr() & ~(MSR_ME | MSR_EE | MSR_IR | MSR_DR));
 	in_8(&cpm2_immr->im_clkrst.res[0]);
 

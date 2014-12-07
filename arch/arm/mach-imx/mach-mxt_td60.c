@@ -34,22 +34,22 @@
 #include "devices-imx27.h"
 
 static const int mxt_td60_pins[] __initconst = {
-	
+	/* UART0 */
 	PE12_PF_UART1_TXD,
 	PE13_PF_UART1_RXD,
 	PE14_PF_UART1_CTS,
 	PE15_PF_UART1_RTS,
-	
+	/* UART1 */
 	PE3_PF_UART2_CTS,
 	PE4_PF_UART2_RTS,
 	PE6_PF_UART2_TXD,
 	PE7_PF_UART2_RXD,
-	
+	/* UART2 */
 	PE8_PF_UART3_TXD,
 	PE9_PF_UART3_RXD,
 	PE10_PF_UART3_CTS,
 	PE11_PF_UART3_RTS,
-	
+	/* FEC */
 	PD0_AIN_FEC_TXD0,
 	PD1_AIN_FEC_TXD1,
 	PD2_AIN_FEC_TXD2,
@@ -68,13 +68,13 @@ static const int mxt_td60_pins[] __initconst = {
 	PD15_AOUT_FEC_COL,
 	PD16_AIN_FEC_TX_ER,
 	PF23_AIN_FEC_TX_EN,
-	
+	/* I2C1 */
 	PD17_PF_I2C_DATA,
 	PD18_PF_I2C_CLK,
-	
+	/* I2C2 */
 	PC5_PF_I2C2_SDA,
 	PC6_PF_I2C2_SCL,
-	
+	/* FB */
 	PA5_PF_LSCLK,
 	PA6_PF_LD0,
 	PA7_PF_LD1,
@@ -100,9 +100,9 @@ static const int mxt_td60_pins[] __initconst = {
 	PA29_PF_VSYNC,
 	PA30_PF_CONTRAST,
 	PA31_PF_OE_ACD,
-	
+	/* OWIRE */
 	PE16_AF_OWIRE,
-	
+	/* SDHC1*/
 	PE18_PF_SD1_D0,
 	PE19_PF_SD1_D1,
 	PE20_PF_SD1_D2,
@@ -110,7 +110,7 @@ static const int mxt_td60_pins[] __initconst = {
 	PE22_PF_SD1_CMD,
 	PE23_PF_SD1_CLK,
 	PF8_AF_ATA_IORDY,
-	
+	/* SDHC2*/
 	PB4_PF_SD2_D0,
 	PB5_PF_SD2_D1,
 	PB6_PF_SD2_D2,
@@ -129,6 +129,7 @@ static const struct imxi2c_platform_data mxt_td60_i2c0_data __initconst = {
 	.bitrate = 100000,
 };
 
+/* PCA9557 */
 static int mxt_td60_pca9557_setup(struct i2c_client *client,
 				unsigned gpio_base, unsigned ngpio,
 				void *context)
@@ -152,8 +153,8 @@ static int mxt_td60_pca9557_setup(struct i2c_client *client,
 }
 
 static struct pca953x_platform_data mxt_td60_pca9557_pdata = {
-	.gpio_base	= 240, 
-	.invert		= 0, 
+	.gpio_base	= 240, /* place PCA9557 after all MX27 gpio pins */
+	.invert		= 0, /* Do not invert */
 	.setup		= mxt_td60_pca9557_setup,
 };
 
@@ -195,6 +196,15 @@ static const struct imx_fb_platform_data mxt_td60_fb_data __initconst = {
 	.mode = mxt_td60_modes,
 	.num_modes = ARRAY_SIZE(mxt_td60_modes),
 
+	/*
+	 * - HSYNC active high
+	 * - VSYNC active high
+	 * - clk notenabled while idle
+	 * - clock inverted
+	 * - data not inverted
+	 * - data enable low active
+	 * - enable sharp mode
+	 */
 	.pwmr		= 0x00A903FF,
 	.lscr1		= 0x00120300,
 	.dmacr		= 0x00020010,
@@ -256,7 +266,7 @@ static struct sys_timer mxt_td60_timer = {
 };
 
 MACHINE_START(MXT_TD60, "Maxtrack i-MXT TD60")
-	
+	/* maintainer: Maxtrack Industrial */
 	.atag_offset = 0x100,
 	.map_io = mx27_map_io,
 	.init_early = imx27_init_early,

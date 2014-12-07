@@ -27,6 +27,7 @@ static void __init sh_edosk7705_init_irq(void)
 	make_imask_irq(ETHERNET_IRQ);
 }
 
+/* eth initialization functions */
 static struct smc91x_platdata smc91x_info = {
 	.flags = SMC91X_USE_16BIT | SMC91X_IO_SHIFT_1 | IORESOURCE_IRQ_LOWLEVEL,
 };
@@ -55,6 +56,7 @@ static struct platform_device smc91x_dev = {
 	},
 };
 
+/* platform init code */
 static struct platform_device *edosk7705_devices[] __initdata = {
 	&smc91x_dev,
 };
@@ -66,6 +68,9 @@ static int __init init_edosk7705_devices(void)
 }
 device_initcall(init_edosk7705_devices);
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_edosk7705 __initmv = {
 	.mv_name		= "EDOSK7705",
 	.mv_nr_irqs		= 80,

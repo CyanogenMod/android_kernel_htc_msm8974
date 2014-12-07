@@ -66,7 +66,7 @@ struct comedi_subdevice {
 	int type;
 	int n_chan;
 	int subdev_flags;
-	int len_chanlist;	
+	int len_chanlist;	/* maximum length of channel/gain list */
 
 	void *private;
 
@@ -79,8 +79,8 @@ struct comedi_subdevice {
 
 	int io_bits;
 
-	unsigned int maxdata;	
-	const unsigned int *maxdata_list;	
+	unsigned int maxdata;	/* if maxdata==0, use list */
+	const unsigned int *maxdata_list;	/* list is channel specific */
 
 	unsigned int flags;
 	const unsigned int *flaglist;
@@ -90,7 +90,7 @@ struct comedi_subdevice {
 	const struct comedi_lrange *range_table;
 	const struct comedi_lrange *const *range_table_list;
 
-	unsigned int *chanlist;	
+	unsigned int *chanlist;	/* driver-owned chanlist (not used) */
 
 	int (*insn_read) (struct comedi_device *, struct comedi_subdevice *,
 			  struct comedi_insn *, unsigned int *);
@@ -106,9 +106,11 @@ struct comedi_subdevice {
 			   struct comedi_cmd *);
 	int (*poll) (struct comedi_device *, struct comedi_subdevice *);
 	int (*cancel) (struct comedi_device *, struct comedi_subdevice *);
-	
+	/* int (*do_lock)(struct comedi_device *, struct comedi_subdevice *); */
+	/* int (*do_unlock)(struct comedi_device *, \
+			struct comedi_subdevice *); */
 
-	
+	/* called when the buffer changes */
 	int (*buf_change) (struct comedi_device *dev,
 			   struct comedi_subdevice *s, unsigned long new_size);
 
@@ -131,45 +133,45 @@ struct comedi_buf_page {
 struct comedi_async {
 	struct comedi_subdevice *subdevice;
 
-	void *prealloc_buf;	
-	unsigned int prealloc_bufsz;	
-	
+	void *prealloc_buf;	/* pre-allocated buffer */
+	unsigned int prealloc_bufsz;	/* buffer size, in bytes */
+	/* virtual and dma address of each page */
 	struct comedi_buf_page *buf_page_list;
-	unsigned n_buf_pages;	
+	unsigned n_buf_pages;	/* num elements in buf_page_list */
 
 	unsigned int max_bufsize;	/* maximum buffer size, bytes */
-	
+	/* current number of mmaps of prealloc_buf */
 	unsigned int mmap_count;
 
-	
+	/* byte count for writer (write completed) */
 	unsigned int buf_write_count;
-	
+	/* byte count for writer (allocated for writing) */
 	unsigned int buf_write_alloc_count;
-	
+	/* byte count for reader (read completed) */
 	unsigned int buf_read_count;
-	
+	/* byte count for reader (allocated for reading) */
 	unsigned int buf_read_alloc_count;
 
-	unsigned int buf_write_ptr;	
-	unsigned int buf_read_ptr;	
+	unsigned int buf_write_ptr;	/* buffer marker for writer */
+	unsigned int buf_read_ptr;	/* buffer marker for reader */
 
-	unsigned int cur_chan;	
-	
+	unsigned int cur_chan;	/* useless channel marker for interrupt */
+	/* number of bytes that have been received for current scan */
 	unsigned int scan_progress;
-	
+	/* keeps track of where we are in chanlist as for munging */
 	unsigned int munge_chan;
-	
+	/* number of bytes that have been munged */
 	unsigned int munge_count;
-	
+	/* buffer marker for munging */
 	unsigned int munge_ptr;
 
-	unsigned int events;	
+	unsigned int events;	/* events that have occurred */
 
 	struct comedi_cmd cmd;
 
 	wait_queue_head_t wait_head;
 
-	
+	/* callback stuff */
 	unsigned int cb_mask;
 	int (*cb_func) (unsigned int flags, void *);
 	void *cb_arg;
@@ -186,10 +188,10 @@ struct comedi_driver {
 	int (*attach) (struct comedi_device *, struct comedi_devconfig *);
 	int (*detach) (struct comedi_device *);
 
-	
+	/* number of elements in board_name and board_id arrays */
 	unsigned int num_names;
 	const char *const *board_name;
-	
+	/* offset in bytes from one board name pointer to the next */
 	int offset;
 };
 
@@ -200,6 +202,9 @@ struct comedi_device {
 
 	struct device *class_dev;
 	int minor;
+	/* hw_dev is passed to dma_alloc_coherent when allocating async buffers
+	 * for subdevices that have async_dma_dir set to something other than
+	 * DMA_NONE */
 	struct device *hw_dev;
 
 	const char *board_name;
@@ -212,7 +217,7 @@ struct comedi_device {
 	int n_subdevices;
 	struct comedi_subdevice *subdevices;
 
-	
+	/* dumb */
 	unsigned long iobase;
 	unsigned int irq;
 
@@ -237,10 +242,16 @@ extern int comedi_debug;
 static const int comedi_debug;
 #endif
 
+/*
+ * function prototypes
+ */
 
 void comedi_event(struct comedi_device *dev, struct comedi_subdevice *s);
 void comedi_error(const struct comedi_device *dev, const char *s);
 
+/* we can expand the number of bits used to encode devices/subdevices into
+ the minor number soon, after more distros support > 8 bit minor numbers
+ (like after Debian Etch gets released) */
 enum comedi_minor_bits {
 	COMEDI_DEVICE_MINOR_MASK = 0xf,
 	COMEDI_SUBDEVICE_MINOR_MASK = 0xf0
@@ -294,9 +305,12 @@ static inline void comedi_proc_cleanup(void)
 }
 #endif
 
+/* subdevice runflags */
 enum subdevice_runflags {
 	SRF_USER = 0x00000001,
 	SRF_RT = 0x00000002,
+	/* indicates an COMEDI_CB_ERROR event has occurred since the last
+	 * command was started */
 	SRF_ERROR = 0x00000004,
 	SRF_RUNNING = 0x08000000
 };
@@ -306,6 +320,7 @@ int comedi_check_chanlist(struct comedi_subdevice *s,
 			  unsigned int *chanlist);
 unsigned comedi_get_subdevice_runflags(struct comedi_subdevice *s);
 
+/* range stuff */
 
 #define RANGE(a, b)		{(a)*1e6, (b)*1e6, 0}
 #define RANGE_ext(a, b)		{(a)*1e6, (b)*1e6, RF_EXTERNAL}
@@ -334,6 +349,7 @@ struct comedi_lrange {
 	struct comedi_krange range[GCC_ZERO_LENGTH_ARRAY];
 };
 
+/* some silly little inline functions */
 
 static inline int alloc_subdevices(struct comedi_device *dev,
 				   unsigned int num_subdevices)
@@ -371,6 +387,8 @@ static inline unsigned int bytes_per_sample(const struct comedi_subdevice *subd)
 		return sizeof(short);
 }
 
+/* must be used in attach to set dev->hw_dev if you wish to dma directly
+into comedi's buffer */
 static inline void comedi_set_hw_dev(struct comedi_device *dev,
 				     struct device *hw_dev)
 {
@@ -440,7 +458,7 @@ int comedi_alloc_subdevice_minor(struct comedi_device *dev,
 void comedi_free_subdevice_minor(struct comedi_subdevice *s);
 int comedi_pci_auto_config(struct pci_dev *pcidev, const char *board_name);
 void comedi_pci_auto_unconfig(struct pci_dev *pcidev);
-struct usb_device;		
+struct usb_device;		/* forward declaration */
 int comedi_usb_auto_config(struct usb_device *usbdev, const char *board_name);
 void comedi_usb_auto_unconfig(struct usb_device *usbdev);
 
@@ -457,4 +475,4 @@ void comedi_usb_auto_unconfig(struct usb_device *usbdev);
 #define CONFIG_COMEDI_PCMCIA
 #endif
 
-#endif 
+#endif /* _COMEDIDEV_H */

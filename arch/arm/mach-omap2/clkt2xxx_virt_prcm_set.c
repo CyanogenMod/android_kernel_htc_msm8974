@@ -47,11 +47,24 @@
 const struct prcm_config *curr_prcm_set;
 const struct prcm_config *rate_table;
 
+/**
+ * omap2_table_mpu_recalc - just return the MPU speed
+ * @clk: virt_prcm_set struct clk
+ *
+ * Set virt_prcm_set's rate to the mpu_speed field of the current PRCM set.
+ */
 unsigned long omap2_table_mpu_recalc(struct clk *clk)
 {
 	return curr_prcm_set->mpu_speed;
 }
 
+/*
+ * Look for a rate equal or less than the target rate given a configuration set.
+ *
+ * What's not entirely clear is "which" field represents the key field.
+ * Some might argue L3-DDR, others ARM, others IVA. This code is simple and
+ * just uses the ARM rates.
+ */
 long omap2_round_to_table_rate(struct clk *clk, unsigned long rate)
 {
 	const struct prcm_config *ptr;
@@ -67,13 +80,14 @@ long omap2_round_to_table_rate(struct clk *clk, unsigned long rate)
 
 		highest_rate = ptr->mpu_speed;
 
-		
+		/* Can check only after xtal frequency check */
 		if (ptr->mpu_speed <= rate)
 			break;
 	}
 	return highest_rate;
 }
 
+/* Sets basic clocks based on the specified rate */
 int omap2_select_table_rate(struct clk *clk, unsigned long rate)
 {
 	u32 cur_rate, done_rate, bypass = 0, tmp;
@@ -119,16 +133,16 @@ int omap2_select_table_rate(struct clk *clk, unsigned long rate)
 		else
 			done_rate = CORE_CLK_SRC_DPLL;
 
-		
+		/* MPU divider */
 		omap2_cm_write_mod_reg(prcm->cm_clksel_mpu, MPU_MOD, CM_CLKSEL);
 
-		
+		/* dsp + iva1 div(2420), iva2.1(2430) */
 		omap2_cm_write_mod_reg(prcm->cm_clksel_dsp,
 				 OMAP24XX_DSP_MOD, CM_CLKSEL);
 
 		omap2_cm_write_mod_reg(prcm->cm_clksel_gfx, GFX_MOD, CM_CLKSEL);
 
-		
+		/* Major subsystem dividers */
 		tmp = omap2_cm_read_mod_reg(CORE_MOD, CM_CLKSEL1) & OMAP24XX_CLKSEL_DSS2_MASK;
 		omap2_cm_write_mod_reg(prcm->cm_clksel1_core | tmp, CORE_MOD,
 				 CM_CLKSEL1);
@@ -137,7 +151,7 @@ int omap2_select_table_rate(struct clk *clk, unsigned long rate)
 			omap2_cm_write_mod_reg(prcm->cm_clksel_mdm,
 					 OMAP2430_MDM_MOD, CM_CLKSEL);
 
-		
+		/* x2 to enter omap2xxx_sdrc_init_params() */
 		omap2xxx_sdrc_reprogram(CORE_CLK_SRC_DPLL_X2, 1);
 
 		omap2_set_prcm(prcm->cm_clksel1_pll, prcm->base_sdrc_rfr,

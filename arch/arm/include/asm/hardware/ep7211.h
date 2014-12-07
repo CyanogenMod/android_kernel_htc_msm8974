@@ -25,8 +25,16 @@
 
 #include <asm/hardware/clps7111.h>
 
+/*
+ * define EP7211_BASE to be the base address of the region
+ * you want to access.
+ */
 
 #define EP7211_PHYS_BASE	(0x80000000)
 
+/*
+ * XXX miket@bluemug.com: need to introduce EP7211 registers (those not
+ * present in 7212) here.
+ */
 
-#endif 
+#endif /* __ASM_HARDWARE_EP7211_H */

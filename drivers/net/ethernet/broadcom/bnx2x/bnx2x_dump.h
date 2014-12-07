@@ -14,12 +14,17 @@
  */
 
 
+/* This struct holds a signature to ensure the dump returned from the driver
+ * match the meta data file inserted to grc_dump.tcl
+ * The signature is time stamp, diag version and grc_dump version
+ */
 
 #ifndef BNX2X_DUMP_H
 #define BNX2X_DUMP_H
 
 
 
+/*definitions */
 #define XSTORM_WAITP_ADDR	0x2b8a80
 #define TSTORM_WAITP_ADDR	0x1b8a80
 #define USTORM_WAITP_ADDR	0x338a80
@@ -116,7 +121,7 @@ struct dump_sign {
 };
 
 struct dump_hdr {
-	u32  hdr_size;	
+	u32  hdr_size;	/* in dwords, excluding this field */
 	struct dump_sign	dump_sign;
 	u32  xstorm_waitp;
 	u32  tstorm_waitp;
@@ -1148,4 +1153,4 @@ static const struct reg_addr page_read_regs_e3[] = {
 	{ 0x58000, 4608, RI_E3E3B0_ONLINE } };
 #define PAGE_READ_REGS_E3		ARRAY_SIZE(page_read_regs_e3)
 
-#endif 
+#endif /* BNX2X_DUMP_H */

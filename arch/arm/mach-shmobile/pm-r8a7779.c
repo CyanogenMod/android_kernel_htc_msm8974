@@ -24,6 +24,7 @@
 
 static void __iomem *r8a7779_sysc_base;
 
+/* SYSC */
 #define SYSCSR 0x00
 #define SYSCISR 0x04
 #define SYSCISCR 0x08
@@ -48,7 +49,7 @@ static void __iomem *r8a7779_sysc_base;
 
 #if defined(CONFIG_PM) || defined(CONFIG_SMP)
 
-static DEFINE_SPINLOCK(r8a7779_sysc_lock); 
+static DEFINE_SPINLOCK(r8a7779_sysc_lock); /* SMP CPUs + I/O devices */
 
 static int r8a7779_sysc_pwr_on_off(struct r8a7779_pm_ch *r8a7779_ch,
 				   int sr_bit, int reg_offs)
@@ -142,16 +143,16 @@ static void __init r8a7779_sysc_init(void)
 	if (!r8a7779_sysc_base)
 		panic("unable to ioremap r8a7779 SYSC hardware block\n");
 
-	
+	/* enable all interrupt sources, but do not use interrupt handler */
 	iowrite32(0x0131000e, r8a7779_sysc_base + SYSCIER);
 	iowrite32(0, r8a7779_sysc_base + SYSCIMR);
 }
 
-#else 
+#else /* CONFIG_PM || CONFIG_SMP */
 
 static inline void r8a7779_sysc_init(void) {}
 
-#endif 
+#endif /* CONFIG_PM || CONFIG_SMP */
 
 #ifdef CONFIG_PM
 
@@ -210,33 +211,33 @@ void r8a7779_add_device_to_domain(struct r8a7779_pm_domain *r8a7779_pd,
 
 struct r8a7779_pm_domain r8a7779_sh4a = {
 	.ch = {
-		.chan_offs = 0x80, 
-		.isr_bit = 16, 
+		.chan_offs = 0x80, /* PWRSR1 .. PWRER1 */
+		.isr_bit = 16, /* SH4A */
 	}
 };
 
 struct r8a7779_pm_domain r8a7779_sgx = {
 	.ch = {
-		.chan_offs = 0xc0, 
-		.isr_bit = 20, 
+		.chan_offs = 0xc0, /* PWRSR2 .. PWRER2 */
+		.isr_bit = 20, /* SGX */
 	}
 };
 
 struct r8a7779_pm_domain r8a7779_vdp1 = {
 	.ch = {
-		.chan_offs = 0x100, 
-		.isr_bit = 21, 
+		.chan_offs = 0x100, /* PWRSR3 .. PWRER3 */
+		.isr_bit = 21, /* VDP */
 	}
 };
 
 struct r8a7779_pm_domain r8a7779_impx3 = {
 	.ch = {
-		.chan_offs = 0x140, 
-		.isr_bit = 24, 
+		.chan_offs = 0x140, /* PWRSR4 .. PWRER4 */
+		.isr_bit = 24, /* IMP */
 	}
 };
 
-#endif 
+#endif /* CONFIG_PM */
 
 void __init r8a7779_pm_init(void)
 {

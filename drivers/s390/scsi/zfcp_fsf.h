@@ -15,6 +15,7 @@
 
 #define FSF_QTCB_CURRENT_VERSION		0x00000001
 
+/* FSF commands */
 #define	FSF_QTCB_FCP_CMND			0x00000001
 #define	FSF_QTCB_ABORT_FCP_CMND			0x00000002
 #define	FSF_QTCB_OPEN_PORT_WITH_DID		0x00000005
@@ -29,17 +30,20 @@
 #define FSF_QTCB_DOWNLOAD_CONTROL_FILE		0x00000012
 #define FSF_QTCB_UPLOAD_CONTROL_FILE		0x00000013
 
+/* FSF QTCB types */
 #define FSF_IO_COMMAND				0x00000001
 #define FSF_SUPPORT_COMMAND			0x00000002
 #define FSF_CONFIG_COMMAND			0x00000003
 #define FSF_PORT_COMMAND			0x00000004
 
+/* FSF control file upload/download operations' subtype and options */
 #define FSF_CFDC_OPERATION_SUBTYPE		0x00020001
 #define FSF_CFDC_OPTION_NORMAL_MODE		0x00000000
 #define FSF_CFDC_OPTION_FORCE			0x00000001
 #define FSF_CFDC_OPTION_FULL_ACCESS		0x00000002
 #define FSF_CFDC_OPTION_RESTRICTED_ACCESS	0x00000004
 
+/* FSF protocol states */
 #define FSF_PROT_GOOD				0x00000001
 #define FSF_PROT_QTCB_VERSION_ERROR		0x00000010
 #define FSF_PROT_SEQ_NUMB_ERROR			0x00000020
@@ -51,6 +55,7 @@
 #define FSF_PROT_REEST_QUEUE                    0x00000800
 #define FSF_PROT_ERROR_STATE			0x01000000
 
+/* FSF states */
 #define FSF_GOOD				0x00000000
 #define FSF_PORT_ALREADY_OPEN			0x00000001
 #define FSF_LUN_ALREADY_OPEN			0x00000002
@@ -88,6 +93,7 @@
 #define FSF_PROT_STATUS_QUAL_SIZE		16
 #define FSF_STATUS_QUALIFIER_SIZE		16
 
+/* FSF status qualifier, recommendations */
 #define FSF_SQ_NO_RECOM				0x00
 #define FSF_SQ_FCP_RSP_AVAILABLE		0x01
 #define FSF_SQ_RETRY_IF_POSSIBLE		0x02
@@ -96,6 +102,7 @@
 #define FSF_SQ_COMMAND_ABORTED			0x06
 #define FSF_SQ_NO_RETRY_POSSIBLE		0x07
 
+/* FSF status qualifier (most significant 4 bytes), local link down */
 #define FSF_PSQ_LINK_NO_LIGHT			0x00000004
 #define FSF_PSQ_LINK_WRAP_PLUG			0x00000008
 #define FSF_PSQ_LINK_NO_FCP			0x00000010
@@ -109,10 +116,13 @@
 #define FSF_PSQ_LINK_MODE_TABLE_CURRUPTED	0x00004000
 #define FSF_PSQ_LINK_NO_WWPN_ASSIGNMENT		0x00008000
 
+/* payload size in status read buffer */
 #define FSF_STATUS_READ_PAYLOAD_SIZE		4032
 
+/* number of status read buffers that should be sent by ULP */
 #define FSF_STATUS_READS_RECOM			16
 
+/* status types in status read buffer */
 #define FSF_STATUS_READ_PORT_CLOSED		0x00000001
 #define FSF_STATUS_READ_INCOMING_ELS		0x00000002
 #define FSF_STATUS_READ_SENSE_DATA_AVAIL        0x00000003
@@ -123,17 +133,21 @@
 #define FSF_STATUS_READ_CFDC_UPDATED		0x0000000A
 #define FSF_STATUS_READ_FEATURE_UPDATE_ALERT	0x0000000C
 
+/* status subtypes for link down */
 #define FSF_STATUS_READ_SUB_NO_PHYSICAL_LINK	0x00000000
 #define FSF_STATUS_READ_SUB_FDISC_FAILED	0x00000001
 #define FSF_STATUS_READ_SUB_FIRMWARE_UPDATE	0x00000002
 
+/* status subtypes for unsolicited status notification lost */
 #define FSF_STATUS_READ_SUB_INCOMING_ELS	0x00000001
 #define FSF_STATUS_READ_SUB_ACT_UPDATED		0x00000020
 
+/* topologie that is detected by the adapter */
 #define FSF_TOPO_P2P				0x00000001
 #define FSF_TOPO_FABRIC				0x00000002
 #define FSF_TOPO_AL				0x00000003
 
+/* data direction for FCP commands */
 #define FSF_DATADIR_WRITE			0x00000001
 #define FSF_DATADIR_READ			0x00000002
 #define FSF_DATADIR_CMND			0x00000004
@@ -142,12 +156,16 @@
 #define FSF_DATADIR_DIF_WRITE_CONVERT		0x0000000b
 #define FSF_DATADIR_DIF_READ_CONVERT		0X0000000c
 
+/* data protection control flags */
 #define FSF_APP_TAG_CHECK_ENABLE		0x10
 
+/* fc service class */
 #define FSF_CLASS_3				0x00000003
 
+/* logging space behind QTCB */
 #define FSF_QTCB_LOG_SIZE			1024
 
+/* channel features */
 #define FSF_FEATURE_CFDC			0x00000002
 #define FSF_FEATURE_LUN_SHARING			0x00000004
 #define FSF_FEATURE_NOTIFICATION_LOST		0x00000008
@@ -158,13 +176,17 @@
 #define FSF_FEATURE_DIF_PROT_TYPE1		0x00010000
 #define FSF_FEATURE_DIX_PROT_TCPIP		0x00020000
 
+/* host connection features */
 #define FSF_FEATURE_NPIV_MODE			0x00000001
 
+/* option */
 #define FSF_OPEN_LUN_SUPPRESS_BOXING		0x00000001
 
+/* open LUN access flags*/
 #define FSF_UNIT_ACCESS_EXCLUSIVE		0x02000000
 #define FSF_UNIT_ACCESS_OUTBOUND_TRANSFER	0x10000000
 
+/* FSF interface for CFDC */
 #define ZFCP_CFDC_MAX_SIZE		127 * 1024
 #define ZFCP_CFDC_PAGES 		PFN_UP(ZFCP_CFDC_MAX_SIZE)
 
@@ -375,20 +397,20 @@ struct fsf_qtcb_bottom_port {
 	u32 fc_port_id;
 	u32 port_type;
 	u32 port_state;
-	u32 class_of_service;	
-	u8 supported_fc4_types[32]; 
+	u32 class_of_service;	/* should be 0x00000006 for class 2 and 3 */
+	u8 supported_fc4_types[32]; /* should be 0x00000100 for scsi fcp */
 	u8 active_fc4_types[32];
-	u32 supported_speed;	
-	u32 maximum_frame_size;	
+	u32 supported_speed;	/* 0x0001 for 1 GBit/s or 0x0002 for 2 GBit/s */
+	u32 maximum_frame_size;	/* fixed value of 2112 */
 	u64 seconds_since_last_reset;
 	u64 tx_frames;
 	u64 tx_words;
 	u64 rx_frames;
 	u64 rx_words;
-	u64 lip;		
-	u64 nos;		
-	u64 error_frames;	
-	u64 dumped_frames;	
+	u64 lip;		/* 0 */
+	u64 nos;		/* currently 0 */
+	u64 error_frames;	/* currently 0 */
+	u64 dumped_frames;	/* currently 0 */
 	u64 link_failure;
 	u64 loss_of_sync;
 	u64 loss_of_signal;
@@ -398,8 +420,8 @@ struct fsf_qtcb_bottom_port {
 	u64 input_requests;
 	u64 output_requests;
 	u64 control_requests;
-	u64 input_mb;		
-	u64 output_mb;		
+	u64 input_mb;		/* where 1 MByte == 1.000.000 Bytes */
+	u64 output_mb;		/* where 1 MByte == 1.000.000 Bytes */
 	u8 cp_util;
 	u8 cb_util;
 	u8 a_util;
@@ -432,6 +454,15 @@ struct zfcp_blk_drv_data {
 	u64 fabric_lat;
 } __attribute__ ((packed));
 
+/**
+ * struct zfcp_fsf_ct_els - zfcp data for ct or els request
+ * @req: scatter-gather list for request
+ * @resp: scatter-gather list for response
+ * @handler: handler function (called for response to the request)
+ * @handler_data: data passed to handler function
+ * @port: Optional pointer to port for zfcp internal ELS (only test link ADISC)
+ * @status: used to pass error status to calling function
+ */
 struct zfcp_fsf_ct_els {
 	struct scatterlist *req;
 	struct scatterlist *resp;
@@ -441,4 +472,4 @@ struct zfcp_fsf_ct_els {
 	int status;
 };
 
-#endif				
+#endif				/* FSF_H */

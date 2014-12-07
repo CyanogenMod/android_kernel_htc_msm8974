@@ -1,3 +1,16 @@
+/*
+ * Driver for the NXP ISP1760 chip
+ *
+ * However, the code might contain some bugs. What doesn't work for sure is:
+ * - ISO
+ * - OTG
+ e The interrupt line is configured as active low, level.
+ *
+ * (c) 2007 Sebastian Siewior <bigeasy@linutronix.de>
+ *
+ * (c) 2011 Arvid Brodin <arvid.brodin@enea.com>
+ *
+ */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -36,7 +49,7 @@ struct isp1760_hcd {
 	struct memory_chunk memory_pool[BLOCKS];
 	struct list_head	qh_list[QH_END];
 
-	
+	/* periodic schedule support */
 #define	DEFAULT_I_TDPS		1024
 	unsigned		periodic_size;
 	unsigned		i_thresh;
@@ -52,29 +65,31 @@ static inline struct isp1760_hcd *hcd_to_priv(struct usb_hcd *hcd)
 	return (struct isp1760_hcd *) (hcd->hcd_priv);
 }
 
-#define HC_LENGTH(p)		(((p)>>00)&0x00ff)	
-#define HC_VERSION(p)		(((p)>>16)&0xffff)	
-#define HCS_INDICATOR(p)	((p)&(1 << 16))	
-#define HCS_PPC(p)		((p)&(1 << 4))	
-#define HCS_N_PORTS(p)		(((p)>>0)&0xf)	
-#define HCC_ISOC_CACHE(p)       ((p)&(1 << 7))  
-#define HCC_ISOC_THRES(p)       (((p)>>4)&0x7)  
+/* Section 2.2 Host Controller Capability Registers */
+#define HC_LENGTH(p)		(((p)>>00)&0x00ff)	/* bits 7:0 */
+#define HC_VERSION(p)		(((p)>>16)&0xffff)	/* bits 31:16 */
+#define HCS_INDICATOR(p)	((p)&(1 << 16))	/* true: has port indicators */
+#define HCS_PPC(p)		((p)&(1 << 4))	/* true: port power control */
+#define HCS_N_PORTS(p)		(((p)>>0)&0xf)	/* bits 3:0, ports on HC */
+#define HCC_ISOC_CACHE(p)       ((p)&(1 << 7))  /* true: can cache isoc frame */
+#define HCC_ISOC_THRES(p)       (((p)>>4)&0x7)  /* bits 6:4, uframes cached */
 
-#define CMD_LRESET	(1<<7)		
-#define CMD_RESET	(1<<1)		
-#define CMD_RUN		(1<<0)		
-#define STS_PCD		(1<<2)		
-#define FLAG_CF		(1<<0)		
+/* Section 2.3 Host Controller Operational Registers */
+#define CMD_LRESET	(1<<7)		/* partial reset (no ports, etc) */
+#define CMD_RESET	(1<<1)		/* reset HC not bus */
+#define CMD_RUN		(1<<0)		/* start/stop HC */
+#define STS_PCD		(1<<2)		/* port change detect */
+#define FLAG_CF		(1<<0)		/* true: we'll support "high speed" */
 
-#define PORT_OWNER	(1<<13)		
-#define PORT_POWER	(1<<12)		
-#define PORT_USB11(x) (((x) & (3 << 10)) == (1 << 10))	
-#define PORT_RESET	(1<<8)		
-#define PORT_SUSPEND	(1<<7)		
-#define PORT_RESUME	(1<<6)		
-#define PORT_PE		(1<<2)		
-#define PORT_CSC	(1<<1)		
-#define PORT_CONNECT	(1<<0)		
+#define PORT_OWNER	(1<<13)		/* true: companion hc owns this port */
+#define PORT_POWER	(1<<12)		/* true: has power (see PPC) */
+#define PORT_USB11(x) (((x) & (3 << 10)) == (1 << 10))	/* USB 1.1 device */
+#define PORT_RESET	(1<<8)		/* reset port */
+#define PORT_SUSPEND	(1<<7)		/* suspend port */
+#define PORT_RESUME	(1<<6)		/* resume it */
+#define PORT_PE		(1<<2)		/* port enable */
+#define PORT_CSC	(1<<1)		/* connect status change */
+#define PORT_CONNECT	(1<<0)		/* device connected */
 #define PORT_RWC_BITS   (PORT_CSC)
 
 struct isp1760_qtd {
@@ -82,18 +97,18 @@ struct isp1760_qtd {
 	void *data_buffer;
 	u32 payload_addr;
 
-	
+	/* the rest is HCD-private */
 	struct list_head qtd_list;
 	struct urb *urb;
 	size_t length;
 	size_t actual_length;
 
-	
-	
+	/* QTD_ENQUEUED:	waiting for transfer (inactive) */
+	/* QTD_PAYLOAD_ALLOC:	chip mem has been allocated for payload */
 	/* QTD_XFER_STARTED:	valid ptd has been written to isp176x - only
 				interrupt handler may touch this qtd! */
-	
-	
+	/* QTD_XFER_COMPLETE:	payload has been transferred successfully */
+	/* QTD_RETIRE:		transfer error/abort qtd */
 #define QTD_ENQUEUED		0
 #define QTD_PAYLOAD_ALLOC	1
 #define QTD_XFER_STARTED	2
@@ -102,13 +117,14 @@ struct isp1760_qtd {
 	u32 status;
 };
 
+/* Queue head, one for each active endpoint */
 struct isp1760_qh {
 	struct list_head qh_list;
 	struct list_head qtd_list;
 	u32 toggle;
 	u32 ping;
 	int slot;
-	int tt_buffer_dirty;	
+	int tt_buffer_dirty;	/* See USB2.0 spec section 11.17.5 */
 };
 
 struct urb_listitem {
@@ -116,6 +132,9 @@ struct urb_listitem {
 	struct urb *urb;
 };
 
+/*
+ * Access functions for isp176x registers (addresses 0..0x03FF).
+ */
 static u32 reg_read32(void __iomem *base, u32 reg)
 {
 	return readl(base + reg);
@@ -126,6 +145,19 @@ static void reg_write32(void __iomem *base, u32 reg, u32 val)
 	writel(val, base + reg);
 }
 
+/*
+ * Access functions for isp176x memory (offset >= 0x0400).
+ *
+ * bank_reads8() reads memory locations prefetched by an earlier write to
+ * HC_MEMORY_REG (see isp176x datasheet). Unless you want to do fancy multi-
+ * bank optimizations, you should use the more generic mem_reads8() below.
+ *
+ * For access to ptd memory, use the specialized ptd_read() and ptd_write()
+ * below.
+ *
+ * These functions copy via MMIO data to/from the device. memcpy_{to|from}io()
+ * doesn't quite work because some people have to enforce 32-bit access
+ */
 static void bank_reads8(void __iomem *src_base, u32 src_offset, u32 bank_addr,
 							__u32 *dst, u32 bytes)
 {
@@ -155,6 +187,9 @@ static void bank_reads8(void __iomem *src_base, u32 src_offset, u32 bank_addr,
 	if (!bytes)
 		return;
 
+	/* in case we have 3, 2 or 1 by left. The dst buffer may not be fully
+	 * allocated.
+	 */
 	if (src_offset < PAYLOAD_OFFSET)
 		val = le32_to_cpu(__raw_readl(src));
 	else
@@ -203,6 +238,9 @@ static void mem_writes8(void __iomem *dst_base, u32 dst_offset,
 
 	if (!bytes)
 		return;
+	/* in case we have 3, 2 or 1 bytes left. The buffer is allocated and the
+	 * extra bytes should not be read by the HW.
+	 */
 
 	if (dst_offset < PAYLOAD_OFFSET)
 		__raw_writel(cpu_to_le32(*src), dst);
@@ -210,6 +248,10 @@ static void mem_writes8(void __iomem *dst_base, u32 dst_offset,
 		__raw_writel(*src, dst);
 }
 
+/*
+ * Read and write ptds. 'ptd_offset' should be one of ISO_PTD_OFFSET,
+ * INT_PTD_OFFSET, and ATL_PTD_OFFSET. 'slot' should be less than 32.
+ */
 static void ptd_read(void __iomem *base, u32 ptd_offset, u32 slot,
 								struct ptd *ptd)
 {
@@ -233,6 +275,7 @@ static void ptd_write(void __iomem *base, u32 ptd_offset, u32 slot,
 }
 
 
+/* memory management of the 60kb on the chip from 0x1000 to 0xffff */
 static void init_memory(struct isp1760_hcd *priv)
 {
 	int i, curr;
@@ -326,6 +369,7 @@ static int handshake(struct usb_hcd *hcd, u32 reg,
 	return -ETIMEDOUT;
 }
 
+/* reset a non-running (STS_HALT == 1) controller */
 static int ehci_reset(struct usb_hcd *hcd)
 {
 	int retval;
@@ -364,6 +408,7 @@ static void qh_free(struct isp1760_qh *qh)
 	kmem_cache_free(qh_cachep, qh);
 }
 
+/* one-time init, only for memory state */
 static int priv_init(struct usb_hcd *hcd)
 {
 	struct isp1760_hcd		*priv = hcd_to_priv(hcd);
@@ -375,14 +420,18 @@ static int priv_init(struct usb_hcd *hcd)
 	for (i = 0; i < QH_END; i++)
 		INIT_LIST_HEAD(&priv->qh_list[i]);
 
+	/*
+	 * hw default: 1K periodic list heads, one per frame.
+	 * periodic_size can shrink by USBCMD update if hcc_params allows.
+	 */
 	priv->periodic_size = DEFAULT_I_TDPS;
 
-	
+	/* controllers may cache some of the periodic schedule ... */
 	hcc_params = reg_read32(hcd->regs, HC_HCCPARAMS);
-	
+	/* full frame cache */
 	if (HCC_ISOC_CACHE(hcc_params))
 		priv->i_thresh = 8;
-	else 
+	else /* N microframes cached */
 		priv->i_thresh = 2 + HCC_ISOC_THRES(hcc_params);
 
 	return 0;
@@ -394,7 +443,7 @@ static int isp1760_hc_setup(struct usb_hcd *hcd)
 	int result;
 	u32 scratch, hwmode;
 
-	
+	/* low-level chip reset */
 	if (gpio_is_valid(priv->rst_gpio)) {
 		unsigned int rst_lvl;
 
@@ -406,7 +455,7 @@ static int isp1760_hc_setup(struct usb_hcd *hcd)
 		gpio_set_value(priv->rst_gpio, !rst_lvl);
 	}
 
-	
+	/* Setup HW Mode Control: This assumes a level active-low interrupt */
 	hwmode = HW_DATA_BUS_32BIT;
 
 	if (priv->devflags & ISP1760_FLAG_BUS_WIDTH_16)
@@ -422,11 +471,16 @@ static int isp1760_hc_setup(struct usb_hcd *hcd)
 	if (priv->devflags & ISP1760_FLAG_INTR_EDGE_TRIG)
 		hwmode |= HW_INTR_EDGE_TRIG;
 
+	/*
+	 * We have to set this first in case we're in 16-bit mode.
+	 * Write it twice to ensure correct upper bits if switching
+	 * to 16-bit mode.
+	 */
 	reg_write32(hcd->regs, HC_HW_MODE_CTRL, hwmode);
 	reg_write32(hcd->regs, HC_HW_MODE_CTRL, hwmode);
 
 	reg_write32(hcd->regs, HC_SCRATCH_REG, 0xdeadbabe);
-	
+	/* Change bus pattern */
 	scratch = reg_read32(hcd->regs, HC_CHIP_ID_REG);
 	scratch = reg_read32(hcd->regs, HC_SCRATCH_REG);
 	if (scratch != 0xdeadbabe) {
@@ -434,13 +488,13 @@ static int isp1760_hc_setup(struct usb_hcd *hcd)
 		return -ENODEV;
 	}
 
-	
+	/* pre reset */
 	reg_write32(hcd->regs, HC_BUFFER_STATUS_REG, 0);
 	reg_write32(hcd->regs, HC_ATL_PTD_SKIPMAP_REG, NO_TRANSFER_ACTIVE);
 	reg_write32(hcd->regs, HC_INT_PTD_SKIPMAP_REG, NO_TRANSFER_ACTIVE);
 	reg_write32(hcd->regs, HC_ISO_PTD_SKIPMAP_REG, NO_TRANSFER_ACTIVE);
 
-	
+	/* reset */
 	reg_write32(hcd->regs, HC_RESET_REG, SW_RESET_RESET_ALL);
 	mdelay(100);
 
@@ -451,20 +505,26 @@ static int isp1760_hc_setup(struct usb_hcd *hcd)
 	if (result)
 		return result;
 
-	
+	/* Step 11 passed */
 
 	dev_info(hcd->self.controller, "bus width: %d, oc: %s\n",
 			   (priv->devflags & ISP1760_FLAG_BUS_WIDTH_16) ?
 			   16 : 32, (priv->devflags & ISP1760_FLAG_ANALOG_OC) ?
 			   "analog" : "digital");
 
-	
+	/* ATL reset */
 	reg_write32(hcd->regs, HC_HW_MODE_CTRL, hwmode | ALL_ATX_RESET);
 	mdelay(10);
 	reg_write32(hcd->regs, HC_HW_MODE_CTRL, hwmode);
 
 	reg_write32(hcd->regs, HC_INTERRUPT_ENABLE, INTERRUPT_ENABLE_MASK);
 
+	/*
+	 * PORT 1 Control register of the ISP1760 is the OTG control
+	 * register on ISP1761. Since there is no OTG or device controller
+	 * support in this driver, we use port 1 as a "normal" USB host port on
+	 * both chips.
+	 */
 	reg_write32(hcd->regs, HC_PORT1_CTRL, PORT1_POWER | PORT1_INIT2);
 	mdelay(10);
 
@@ -490,12 +550,13 @@ static int last_qtd_of_urb(struct isp1760_qtd *qtd, struct isp1760_qh *qh)
 	return (qtd->urb != urb);
 }
 
-#define	EHCI_TUNE_CERR		3	
-#define	EHCI_TUNE_RL_HS		4	
+/* magic numbers that can affect system performance */
+#define	EHCI_TUNE_CERR		3	/* 0-3 qtd retries; 0 == don't stop */
+#define	EHCI_TUNE_RL_HS		4	/* nak throttle; see 4.9 */
 #define	EHCI_TUNE_RL_TT		0
-#define	EHCI_TUNE_MULT_HS	1	
+#define	EHCI_TUNE_MULT_HS	1	/* 1-3 transactions/uframe; 4.10.3 */
 #define	EHCI_TUNE_MULT_TT	1
-#define	EHCI_TUNE_FLS		2	
+#define	EHCI_TUNE_FLS		2	/* (small) 256 frame schedule */
 
 static void create_ptd_atl(struct isp1760_qh *qh,
 			struct isp1760_qtd *qtd, struct ptd *ptd)
@@ -507,19 +568,19 @@ static void create_ptd_atl(struct isp1760_qh *qh,
 
 	memset(ptd, 0, sizeof(*ptd));
 
-	
+	/* according to 3.6.2, max packet len can not be > 0x400 */
 	maxpacket = usb_maxpacket(qtd->urb->dev, qtd->urb->pipe,
 						usb_pipeout(qtd->urb->pipe));
 	multi =  1 + ((maxpacket >> 11) & 0x3);
 	maxpacket &= 0x7ff;
 
-	
+	/* DW0 */
 	ptd->dw0 = DW0_VALID_BIT;
 	ptd->dw0 |= TO_DW0_LENGTH(qtd->length);
 	ptd->dw0 |= TO_DW0_MAXPACKET(maxpacket);
 	ptd->dw0 |= TO_DW0_ENDPOINT(usb_pipeendpoint(qtd->urb->pipe));
 
-	
+	/* DW1 */
 	ptd->dw1 = usb_pipeendpoint(qtd->urb->pipe) >> 1;
 	ptd->dw1 |= TO_DW1_DEVICE_ADDR(usb_pipedevice(qtd->urb->pipe));
 	ptd->dw1 |= TO_DW1_PID_TOKEN(qtd->packet_type);
@@ -530,7 +591,7 @@ static void create_ptd_atl(struct isp1760_qh *qh,
 		ptd->dw1 |= DW1_TRANS_INT;
 
 	if (qtd->urb->dev->speed != USB_SPEED_HIGH) {
-		
+		/* split transaction */
 
 		ptd->dw1 |= DW1_TRANS_SPLIT;
 		if (qtd->urb->dev->speed == USB_SPEED_LOW)
@@ -539,7 +600,7 @@ static void create_ptd_atl(struct isp1760_qh *qh,
 		ptd->dw1 |= TO_DW1_PORT_NUM(qtd->urb->dev->ttport);
 		ptd->dw1 |= TO_DW1_HUB_NUM(qtd->urb->dev->tt->hub->devnum);
 
-		
+		/* SE bit for Split INT transfers */
 		if (usb_pipeint(qtd->urb->pipe) &&
 				(qtd->urb->dev->speed == USB_SPEED_LOW))
 			ptd->dw1 |= 2 << 16;
@@ -552,12 +613,12 @@ static void create_ptd_atl(struct isp1760_qh *qh,
 						usb_pipebulk(qtd->urb->pipe))
 			ptd->dw3 |= TO_DW3_PING(qh->ping);
 	}
-	
+	/* DW2 */
 	ptd->dw2 = 0;
 	ptd->dw2 |= TO_DW2_DATA_START_ADDR(base_to_chip(qtd->payload_addr));
 	ptd->dw2 |= TO_DW2_RL(rl);
 
-	
+	/* DW3 */
 	ptd->dw3 |= TO_DW3_NAKCOUNT(nak);
 	ptd->dw3 |= TO_DW3_DATA_TOGGLE(qh->toggle);
 	if (usb_pipecontrol(qtd->urb->pipe)) {
@@ -568,7 +629,7 @@ static void create_ptd_atl(struct isp1760_qh *qh,
 	}
 
 	ptd->dw3 |= DW3_ACTIVE_BIT;
-	
+	/* Cerr */
 	ptd->dw3 |= TO_DW3_CERR(ERR_COUNTER);
 }
 
@@ -578,30 +639,47 @@ static void transform_add_int(struct isp1760_qh *qh,
 	u32 usof;
 	u32 period;
 
+	/*
+	 * Most of this is guessing. ISP1761 datasheet is quite unclear, and
+	 * the algorithm from the original Philips driver code, which was
+	 * pretty much used in this driver before as well, is quite horrendous
+	 * and, i believe, incorrect. The code below follows the datasheet and
+	 * USB2.0 spec as far as I can tell, and plug/unplug seems to be much
+	 * more reliable this way (fingers crossed...).
+	 */
 
 	if (qtd->urb->dev->speed == USB_SPEED_HIGH) {
-		
+		/* urb->interval is in units of microframes (1/8 ms) */
 		period = qtd->urb->interval >> 3;
 
 		if (qtd->urb->interval > 4)
-			usof = 0x01; 
+			usof = 0x01; /* One bit set =>
+						interval 1 ms * uFrame-match */
 		else if (qtd->urb->interval > 2)
-			usof = 0x22; 
+			usof = 0x22; /* Two bits set => interval 1/2 ms */
 		else if (qtd->urb->interval > 1)
-			usof = 0x55; 
+			usof = 0x55; /* Four bits set => interval 1/4 ms */
 		else
-			usof = 0xff; 
+			usof = 0xff; /* All bits set => interval 1/8 ms */
 	} else {
-		
+		/* urb->interval is in units of frames (1 ms) */
 		period = qtd->urb->interval;
-		usof = 0x0f;		
+		usof = 0x0f;		/* Execute Start Split on any of the
+					   four first uFrames */
 
-		
-		ptd->dw5 = 0xff; 
+		/*
+		 * First 8 bits in dw5 is uSCS and "specifies which uSOF the
+		 * complete split needs to be sent. Valid only for IN." Also,
+		 * "All bits can be set to one for every transfer." (p 82,
+		 * ISP1761 data sheet.) 0x1c is from Philips driver. Where did
+		 * that number come from? 0xff seems to work fine...
+		 */
+		/* ptd->dw5 = 0x1c; */
+		ptd->dw5 = 0xff; /* Execute Complete Split on any uFrame */
 	}
 
-	period = period >> 1;
-	period &= 0xf8; 
+	period = period >> 1;/* Ensure equal or shorter period than requested */
+	period &= 0xf8; /* Mask off too large values and lowest unused 3 bits */
 
 	ptd->dw2 |= period;
 	ptd->dw4 = usof;
@@ -633,7 +711,7 @@ __acquires(priv->lock)
 			flush_dcache_page(virt_to_page(ptr));
 	}
 
-	
+	/* complete() can reenter this HCD */
 	usb_hcd_unlink_urb_from_ep(hcd, urb);
 	spin_unlock(&priv->lock);
 	usb_hcd_giveback_urb(hcd, urb, urb->status);
@@ -677,7 +755,7 @@ static void start_bus_transfer(struct usb_hcd *hcd, u32 ptd_offset, int slot,
 	WARN_ON(slots[slot].qh);
 	WARN_ON(qtd->status != QTD_PAYLOAD_ALLOC);
 
-	
+	/* Make sure done map has not triggered from some unlinked transfer */
 	if (ptd_offset == ATL_PTD_OFFSET) {
 		priv->atl_done_map |= reg_read32(hcd->regs,
 						HC_ATL_PTD_DONEMAP_REG);
@@ -735,11 +813,11 @@ static void collect_qtds(struct usb_hcd *hcd, struct isp1760_qh *qh,
 					mem_reads8(hcd->regs, qtd->payload_addr,
 							qtd->data_buffer,
 							qtd->actual_length);
-					
+					/* Fall through (?) */
 				case OUT_PID:
 					qtd->urb->actual_length +=
 							qtd->actual_length;
-					
+					/* Fall through ... */
 				case SETUP_PID:
 					break;
 				}
@@ -760,11 +838,11 @@ static void collect_qtds(struct usb_hcd *hcd, struct isp1760_qh *qh,
 			if ((qtd->status == QTD_RETIRE) &&
 					(qtd->urb->status == -EINPROGRESS))
 				qtd->urb->status = -EPIPE;
-			
+			/* Defer calling of urb_done() since it releases lock */
 			urb_listitem = kmem_cache_zalloc(urb_listitem_cachep,
 								GFP_ATOMIC);
 			if (unlikely(!urb_listitem))
-				break; 
+				break; /* Try again on next call */
 			urb_listitem->urb = qtd->urb;
 			list_add_tail(&urb_listitem->urb_list, urb_list);
 		}
@@ -790,7 +868,7 @@ static void enqueue_qtds(struct usb_hcd *hcd, struct isp1760_qh *qh)
 		return;
 	}
 
-	
+	/* Make sure this endpoint's TT buffer is clean before queueing ptds */
 	if (qh->tt_buffer_dirty)
 		return;
 
@@ -830,7 +908,12 @@ static void enqueue_qtds(struct usb_hcd *hcd, struct isp1760_qh *qh)
 		}
 
 		if (qtd->status == QTD_PAYLOAD_ALLOC) {
-			
+/*
+			if ((curr_slot > 31) && (free_slot == -1))
+				dev_dbg(hcd->self.controller, "%s: No slot "
+					"available for transfer\n", __func__);
+*/
+			/* Start xfer for this endpoint if not already done */
 			if ((curr_slot > 31) && (free_slot > -1)) {
 				if (usb_pipeint(qtd->urb->pipe))
 					create_ptd_int(qh, qtd, &ptd);
@@ -865,6 +948,9 @@ void schedule_ptds(struct usb_hcd *hcd)
 
 	priv = hcd_to_priv(hcd);
 
+	/*
+	 * check finished/retired xfers, transfer payloads, call urb_done()
+	 */
 	for (i = 0; i < QH_END; i++) {
 		ep_queue = &priv->qh_list[i];
 		list_for_each_entry_safe(qh, qh_next, ep_queue, qh_list) {
@@ -880,6 +966,30 @@ void schedule_ptds(struct usb_hcd *hcd)
 		kmem_cache_free(urb_listitem_cachep, urb_listitem);
 	}
 
+	/*
+	 * Schedule packets for transfer.
+	 *
+	 * According to USB2.0 specification:
+	 *
+	 * 1st prio: interrupt xfers, up to 80 % of bandwidth
+	 * 2nd prio: control xfers
+	 * 3rd prio: bulk xfers
+	 *
+	 * ... but let's use a simpler scheme here (mostly because ISP1761 doc
+	 * is very unclear on how to prioritize traffic):
+	 *
+	 * 1) Enqueue any queued control transfers, as long as payload chip mem
+	 *    and PTD ATL slots are available.
+	 * 2) Enqueue any queued INT transfers, as long as payload chip mem
+	 *    and PTD INT slots are available.
+	 * 3) Enqueue any queued bulk transfers, as long as payload chip mem
+	 *    and PTD ATL slots are available.
+	 *
+	 * Use double buffering (ENQUEUE_DEPTH==2) as a compromise between
+	 * conservation of chip mem and performance.
+	 *
+	 * I'm sure this scheme could be improved upon!
+	 */
 	for (i = 0; i < QH_END; i++) {
 		ep_queue = &priv->qh_list[i];
 		list_for_each_entry_safe(qh, qh_next, ep_queue, qh_list)
@@ -900,10 +1010,12 @@ static int check_int_transfer(struct usb_hcd *hcd, struct ptd *ptd,
 	dw4 = ptd->dw4;
 	dw4 >>= 8;
 
+	/* FIXME: ISP1761 datasheet does not say what to do with these. Do we
+	   need to handle these errors? Is it done in hardware? */
 
 	if (ptd->dw3 & DW3_HALT_BIT) {
 
-		urb->status = -EPROTO; 
+		urb->status = -EPROTO; /* Default unknown error */
 
 		for (i = 0; i < 8; i++) {
 			switch (dw4 & 0x7) {
@@ -911,13 +1023,14 @@ static int check_int_transfer(struct usb_hcd *hcd, struct ptd *ptd,
 				dev_dbg(hcd->self.controller, "%s: underrun "
 						"during uFrame %d\n",
 						__func__, i);
-				urb->status = -ECOMM; 
+				urb->status = -ECOMM; /* Could not write data */
 				break;
 			case INT_EXACT:
 				dev_dbg(hcd->self.controller, "%s: transaction "
 						"error during uFrame %d\n",
 						__func__, i);
-				urb->status = -EPROTO; 
+				urb->status = -EPROTO; /* timeout, bad CRC, PID
+							  error etc. */
 				break;
 			case INT_BABBLE:
 				dev_dbg(hcd->self.controller, "%s: babble "
@@ -943,21 +1056,34 @@ static int check_atl_transfer(struct usb_hcd *hcd, struct ptd *ptd,
 		if (ptd->dw3 & DW3_BABBLE_BIT)
 			urb->status = -EOVERFLOW;
 		else if (FROM_DW3_CERR(ptd->dw3))
-			urb->status = -EPIPE;  
+			urb->status = -EPIPE;  /* Stall */
 		else if (ptd->dw3 & DW3_ERROR_BIT)
-			urb->status = -EPROTO; 
+			urb->status = -EPROTO; /* XactErr */
 		else
-			urb->status = -EPROTO; 
+			urb->status = -EPROTO; /* Unknown */
+/*
+		dev_dbg(hcd->self.controller, "%s: ptd error:\n"
+			"        dw0: %08x dw1: %08x dw2: %08x dw3: %08x\n"
+			"        dw4: %08x dw5: %08x dw6: %08x dw7: %08x\n",
+			__func__,
+			ptd->dw0, ptd->dw1, ptd->dw2, ptd->dw3,
+			ptd->dw4, ptd->dw5, ptd->dw6, ptd->dw7);
+*/
 		return PTD_STATE_URB_RETIRE;
 	}
 
 	if ((ptd->dw3 & DW3_ERROR_BIT) && (ptd->dw3 & DW3_ACTIVE_BIT)) {
-		
+		/* Transfer Error, *but* active and no HALT -> reload */
 		dev_dbg(hcd->self.controller, "PID error; reloading ptd\n");
 		return PTD_STATE_QTD_RELOAD;
 	}
 
 	if (!FROM_DW3_NAKCOUNT(ptd->dw3) && (ptd->dw3 & DW3_ACTIVE_BIT)) {
+		/*
+		 * NAKs are handled in HW by the chip. Usually if the
+		 * device is not able to send data fast enough.
+		 * This happens mostly on slower hardware.
+		 */
 		return PTD_STATE_QTD_RELOAD;
 	}
 
@@ -986,10 +1112,12 @@ static void handle_done_ptds(struct usb_hcd *hcd)
 
 	while (priv->int_done_map || priv->atl_done_map) {
 		if (priv->int_done_map) {
-			
+			/* INT ptd */
 			slot = __ffs(priv->int_done_map);
 			priv->int_done_map &= ~(1 << slot);
 			slots = priv->int_slots;
+			/* This should not trigger, and could be removed if
+			   noone have any problems with it triggering: */
 			if (!slots[slot].qh) {
 				WARN_ON(1);
 				continue;
@@ -999,10 +1127,12 @@ static void handle_done_ptds(struct usb_hcd *hcd)
 			state = check_int_transfer(hcd, &ptd,
 							slots[slot].qtd->urb);
 		} else {
-			
+			/* ATL ptd */
 			slot = __ffs(priv->atl_done_map);
 			priv->atl_done_map &= ~(1 << slot);
 			slots = priv->atl_slots;
+			/* This should not trigger, and could be removed if
+			   noone have any problems with it triggering: */
 			if (!slots[slot].qh) {
 				WARN_ON(1);
 				continue;
@@ -1043,10 +1173,10 @@ static void handle_done_ptds(struct usb_hcd *hcd)
 			qh->ping = FROM_DW3_PING(ptd.dw3);
 			break;
 
-		case PTD_STATE_QTD_RELOAD: 
+		case PTD_STATE_QTD_RELOAD: /* QTD_RETRY, for atls only */
 			qtd->status = QTD_PAYLOAD_ALLOC;
 			ptd.dw0 |= DW0_VALID_BIT;
-			
+			/* RL counter = ERR counter */
 			ptd.dw3 &= ~TO_DW3_NAKCOUNT(0xf);
 			ptd.dw3 |= TO_DW3_NAKCOUNT(FROM_DW2_RL(ptd.dw2));
 			ptd.dw3 &= ~TO_DW3_CERR(3);
@@ -1062,6 +1192,8 @@ static void handle_done_ptds(struct usb_hcd *hcd)
 					(qtd->urb->status != -EREMOTEIO)) {
 				qh->tt_buffer_dirty = 1;
 				if (usb_hub_clear_tt_buffer(qtd->urb))
+					/* Clear failed; let's hope things work
+					   anyway */
 					qh->tt_buffer_dirty = 0;
 			}
 			qtd = NULL;
@@ -1110,7 +1242,7 @@ static irqreturn_t isp1760_irq(struct usb_hcd *hcd)
 	imask = reg_read32(hcd->regs, HC_INTERRUPT_REG);
 	if (unlikely(!imask))
 		goto leave;
-	reg_write32(hcd->regs, HC_INTERRUPT_REG, imask); 
+	reg_write32(hcd->regs, HC_INTERRUPT_REG, imask); /* Clear */
 
 	priv->int_done_map |= reg_read32(hcd->regs, HC_INT_PTD_DONEMAP_REG);
 	priv->atl_done_map |= reg_read32(hcd->regs, HC_ATL_PTD_DONEMAP_REG);
@@ -1124,6 +1256,31 @@ leave:
 	return irqret;
 }
 
+/*
+ * Workaround for problem described in chip errata 2:
+ *
+ * Sometimes interrupts are not generated when ATL (not INT?) completion occurs.
+ * One solution suggested in the errata is to use SOF interrupts _instead_of_
+ * ATL done interrupts (the "instead of" might be important since it seems
+ * enabling ATL interrupts also causes the chip to sometimes - rarely - "forget"
+ * to set the PTD's done bit in addition to not generating an interrupt!).
+ *
+ * So if we use SOF + ATL interrupts, we sometimes get stale PTDs since their
+ * done bit is not being set. This is bad - it blocks the endpoint until reboot.
+ *
+ * If we use SOF interrupts only, we get latency between ptd completion and the
+ * actual handling. This is very noticeable in testusb runs which takes several
+ * minutes longer without ATL interrupts.
+ *
+ * A better solution is to run the code below every SLOT_CHECK_PERIOD ms. If it
+ * finds active ATL slots which are older than SLOT_TIMEOUT ms, it checks the
+ * slot's ACTIVE and VALID bits. If these are not set, the ptd is considered
+ * completed and its done map bit is set.
+ *
+ * The values of SLOT_TIMEOUT and SLOT_CHECK_PERIOD have been arbitrarily chosen
+ * not to cause too much lag when this HW bug occurs, while still hopefully
+ * ensuring that the check does not falsely trigger.
+ */
 #define SLOT_TIMEOUT 300
 #define SLOT_CHECK_PERIOD 200
 static struct timer_list errata2_timer;
@@ -1168,14 +1325,14 @@ static int isp1760_run(struct usb_hcd *hcd)
 
 	hcd->state = HC_STATE_RUNNING;
 
-	
+	/* Set PTD interrupt AND & OR maps */
 	reg_write32(hcd->regs, HC_ATL_IRQ_MASK_AND_REG, 0);
 	reg_write32(hcd->regs, HC_ATL_IRQ_MASK_OR_REG, 0xffffffff);
 	reg_write32(hcd->regs, HC_INT_IRQ_MASK_AND_REG, 0);
 	reg_write32(hcd->regs, HC_INT_IRQ_MASK_OR_REG, 0xffffffff);
 	reg_write32(hcd->regs, HC_ISO_IRQ_MASK_AND_REG, 0);
 	reg_write32(hcd->regs, HC_ISO_IRQ_MASK_OR_REG, 0xffffffff);
-	
+	/* step 23 passed */
 
 	temp = reg_read32(hcd->regs, HC_HW_MODE_CTRL);
 	reg_write32(hcd->regs, HC_HW_MODE_CTRL, temp | HW_GLOBAL_INTR_EN);
@@ -1189,6 +1346,11 @@ static int isp1760_run(struct usb_hcd *hcd)
 	if (retval)
 		return retval;
 
+	/*
+	 * XXX
+	 * Spec says to write FLAG_CF as last config action, priv code grabs
+	 * the semaphore while doing so.
+	 */
 	down_write(&ehci_cf_port_reset_rwsem);
 	reg_write32(hcd->regs, HC_CONFIGFLAG, FLAG_CF);
 
@@ -1207,9 +1369,9 @@ static int isp1760_run(struct usb_hcd *hcd)
 	dev_info(hcd->self.controller, "USB ISP %04x HW rev. %d started\n",
 					chipid & 0xffff, chipid >> 16);
 
-	
+	/* PTD Register Init Part 2, Step 28 */
 
-	
+	/* Setup registers controlling PTD checking */
 	reg_write32(hcd->regs, HC_ATL_PTD_LASTPTD_REG, 0x80000000);
 	reg_write32(hcd->regs, HC_INT_PTD_LASTPTD_REG, 0x80000000);
 	reg_write32(hcd->regs, HC_ISO_PTD_LASTPTD_REG, 0x00000001);
@@ -1219,6 +1381,10 @@ static int isp1760_run(struct usb_hcd *hcd)
 	reg_write32(hcd->regs, HC_BUFFER_STATUS_REG,
 						ATL_BUF_FILL | INT_BUF_FILL);
 
+	/* GRR this is run-once init(), being done every time the HC starts.
+	 * So long as they're part of class devices, we can't do it init()
+	 * since the class device isn't created that early.
+	 */
 	return 0;
 }
 
@@ -1243,6 +1409,10 @@ static void qtd_list_free(struct list_head *qtd_list)
 	}
 }
 
+/*
+ * Packetize urb->transfer_buffer into list of packets of size wMaxPacketSize.
+ * Also calculate the PID type (SETUP/IN/OUT) for each packet.
+ */
 #define max_packet(wMaxPacketSize) ((wMaxPacketSize) & 0x07ff)
 static void packetize_urb(struct usb_hcd *hcd,
 		struct urb *urb, struct list_head *head, gfp_t flags)
@@ -1252,9 +1422,12 @@ static void packetize_urb(struct usb_hcd *hcd,
 	int len, maxpacketsize;
 	u8 packet_type;
 
+	/*
+	 * URBs map to sequences of QTDs:  one logical transaction
+	 */
 
 	if (!urb->transfer_buffer && urb->transfer_buffer_length) {
-		
+		/* XXX This looks like usb storage / SCSI bug */
 		dev_err(hcd->self.controller,
 				"buf is null, dma is %08lx len is %d\n",
 				(long unsigned)urb->transfer_dma,
@@ -1274,7 +1447,7 @@ static void packetize_urb(struct usb_hcd *hcd,
 		qtd_fill(qtd, urb->setup_packet, sizeof(struct usb_ctrlrequest));
 		list_add_tail(&qtd->qtd_list, head);
 
-		
+		/* for zero length DATA stages, STATUS is always IN */
 		if (urb->transfer_buffer_length == 0)
 			packet_type = IN_PID;
 	}
@@ -1282,6 +1455,11 @@ static void packetize_urb(struct usb_hcd *hcd,
 	maxpacketsize = max_packet(usb_maxpacket(urb->dev, urb->pipe,
 						usb_pipeout(urb->pipe)));
 
+	/*
+	 * buffer gets wrapped in one or more qtds;
+	 * last one may be "short" (including zero len)
+	 * and may serve as a control status ack
+	 */
 	buf = urb->transfer_buffer;
 	len = urb->transfer_buffer_length;
 
@@ -1301,6 +1479,10 @@ static void packetize_urb(struct usb_hcd *hcd,
 			break;
 	}
 
+	/*
+	 * control requests may need a terminating data "status" ack;
+	 * bulk ones may need a terminating short packet (zero length).
+	 */
 	if (urb->transfer_buffer_length != 0) {
 		int one_more = 0;
 
@@ -1321,7 +1503,7 @@ static void packetize_urb(struct usb_hcd *hcd,
 			if (!qtd)
 				goto cleanup;
 
-			
+			/* never any data in such packets */
 			qtd_fill(qtd, NULL, 0);
 			list_add_tail(&qtd->qtd_list, head);
 		}
@@ -1354,7 +1536,7 @@ static int isp1760_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 	case PIPE_INTERRUPT:
 		if (urb->interval < 0)
 			return -EINVAL;
-		
+		/* FIXME: Check bandwidth  */
 		ep_queue = &priv->qh_list[QH_INTERRUPT];
 		break;
 	case PIPE_ISOCHRONOUS:
@@ -1424,6 +1606,8 @@ static void kill_transfer(struct usb_hcd *hcd, struct urb *urb,
 
 	WARN_ON(qh->slot == -1);
 
+	/* We need to forcefully reclaim the slot since some transfers never
+	   return, e.g. interrupt transfers and NAKed bulk transfers. */
 	if (usb_pipecontrol(urb->pipe) || usb_pipebulk(urb->pipe)) {
 		skip_map = reg_read32(hcd->regs, HC_ATL_PTD_SKIPMAP_REG);
 		skip_map |= (1 << qh->slot);
@@ -1441,6 +1625,10 @@ static void kill_transfer(struct usb_hcd *hcd, struct urb *urb,
 	qh->slot = -1;
 }
 
+/*
+ * Retire the qtds beginning at 'qtd' and belonging all to the same urb, killing
+ * any active transfer belonging to the urb in the process.
+ */
 static void dequeue_urb_from_qtd(struct usb_hcd *hcd, struct isp1760_qh *qh,
 						struct isp1760_qtd *qtd)
 {
@@ -1467,7 +1655,7 @@ static void dequeue_urb_from_qtd(struct usb_hcd *hcd, struct isp1760_qh *qh,
 	if ((urb->dev->speed != USB_SPEED_HIGH) && urb_was_running) {
 		qh->tt_buffer_dirty = 1;
 		if (usb_hub_clear_tt_buffer(urb))
-			
+			/* Clear failed; let's hope things work anyway */
 			qh->tt_buffer_dirty = 0;
 	}
 }
@@ -1546,11 +1734,11 @@ static int isp1760_hub_status_data(struct usb_hcd *hcd, char *buf)
 	int retval = 1;
 	unsigned long flags;
 
-	
+	/* if !USB_SUSPEND, root hub timers won't get shut down ... */
 	if (!HC_IS_RUNNING(hcd->state))
 		return 0;
 
-	
+	/* init status to no-changes */
 	buf[0] = 0;
 	mask = PORT_CSC;
 
@@ -1565,6 +1753,12 @@ static int isp1760_hub_status_data(struct usb_hcd *hcd, char *buf)
 		}
 	}
 
+	/*
+	 * Return status information even for ports with OWNER set.
+	 * Otherwise khubd wouldn't see the disconnect event when a
+	 * high-speed device is switched over to the companion
+	 * controller by the user.
+	 */
 
 	if ((temp & mask) != 0
 			|| ((temp & PORT_RESUME) != 0
@@ -1573,7 +1767,7 @@ static int isp1760_hub_status_data(struct usb_hcd *hcd, char *buf)
 		buf [0] |= 1 << (0 + 1);
 		status = STS_PCD;
 	}
-	
+	/* FIXME autosuspend idle root hubs */
 done:
 	spin_unlock_irqrestore(&priv->lock, flags);
 	return status ? retval : 0;
@@ -1586,7 +1780,7 @@ static void isp1760_hub_descriptor(struct isp1760_hcd *priv,
 	u16 temp;
 
 	desc->bDescriptorType = 0x29;
-	
+	/* priv 1.0, 2.3.9 says 20ms max */
 	desc->bPwrOn2PwrGood = 10;
 	desc->bHubContrCurrent = 0;
 
@@ -1594,17 +1788,17 @@ static void isp1760_hub_descriptor(struct isp1760_hcd *priv,
 	temp = 1 + (ports / 8);
 	desc->bDescLength = 7 + 2 * temp;
 
-	
+	/* ports removable, and usb 1.0 legacy PortPwrCtrlMask */
 	memset(&desc->u.hs.DeviceRemovable[0], 0, temp);
 	memset(&desc->u.hs.DeviceRemovable[temp], 0xff, temp);
 
-	
+	/* per-port overcurrent reporting */
 	temp = 0x0008;
 	if (HCS_PPC(priv->hcs_params))
-		
+		/* per-port power control */
 		temp |= 0x0001;
 	else
-		
+		/* no power switching */
 		temp |= 0x0002;
 	desc->wHubCharacteristics = cpu_to_le16(temp);
 }
@@ -1617,7 +1811,7 @@ static int check_reset_complete(struct usb_hcd *hcd, int index,
 	if (!(port_status & PORT_CONNECT))
 		return port_status;
 
-	
+	/* if reset finished and it's still not enabled -- handoff */
 	if (!(port_status & PORT_PE)) {
 
 		dev_info(hcd->self.controller,
@@ -1645,6 +1839,12 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 	int retval = 0;
 	unsigned selector;
 
+	/*
+	 * FIXME:  support SetPortFeatures USB_PORT_FEAT_INDICATOR.
+	 * HCS_INDICATOR may say we can change LEDs to off/amber/green.
+	 * (track current state ourselves) ... blink for diagnostics,
+	 * power, "this is the one", etc.  EHCI spec supports this.
+	 */
 
 	spin_lock_irqsave(&priv->lock, flags);
 	switch (typeReq) {
@@ -1652,7 +1852,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 		switch (wValue) {
 		case C_HUB_LOCAL_POWER:
 		case C_HUB_OVER_CURRENT:
-			
+			/* no hub-wide feature/status flags */
 			break;
 		default:
 			goto error;
@@ -1664,13 +1864,19 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 		wIndex--;
 		temp = reg_read32(hcd->regs, HC_PORTSC1);
 
+		/*
+		 * Even if OWNER is set, so the port is owned by the
+		 * companion controller, khubd needs to be able to clear
+		 * the port-change status bits (especially
+		 * USB_PORT_STAT_C_CONNECTION).
+		 */
 
 		switch (wValue) {
 		case USB_PORT_FEAT_ENABLE:
 			reg_write32(hcd->regs, HC_PORTSC1, temp & ~PORT_PE);
 			break;
 		case USB_PORT_FEAT_C_ENABLE:
-			
+			/* XXX error? */
 			break;
 		case USB_PORT_FEAT_SUSPEND:
 			if (temp & PORT_RESET)
@@ -1679,7 +1885,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 			if (temp & PORT_SUSPEND) {
 				if ((temp & PORT_PE) == 0)
 					goto error;
-				
+				/* resume signaling for 20 msec */
 				temp &= ~(PORT_RWC_BITS);
 				reg_write32(hcd->regs, HC_PORTSC1,
 							temp | PORT_RESUME);
@@ -1688,7 +1894,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 			}
 			break;
 		case USB_PORT_FEAT_C_SUSPEND:
-			
+			/* we auto-clear this feature */
 			break;
 		case USB_PORT_FEAT_POWER:
 			if (HCS_PPC(priv->hcs_params))
@@ -1699,10 +1905,10 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 			reg_write32(hcd->regs, HC_PORTSC1, temp | PORT_CSC);
 			break;
 		case USB_PORT_FEAT_C_OVER_CURRENT:
-			
+			/* XXX error ?*/
 			break;
 		case USB_PORT_FEAT_C_RESET:
-			
+			/* GetPortStatus clears reset */
 			break;
 		default:
 			goto error;
@@ -1714,7 +1920,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 			buf);
 		break;
 	case GetHubStatus:
-		
+		/* no hub-wide feature/status flags */
 		memset(buf, 0, 4);
 		break;
 	case GetPortStatus:
@@ -1724,36 +1930,36 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 		status = 0;
 		temp = reg_read32(hcd->regs, HC_PORTSC1);
 
-		
+		/* wPortChange bits */
 		if (temp & PORT_CSC)
 			status |= USB_PORT_STAT_C_CONNECTION << 16;
 
 
-		
+		/* whoever resumes must GetPortStatus to complete it!! */
 		if (temp & PORT_RESUME) {
 			dev_err(hcd->self.controller, "Port resume should be skipped.\n");
 
-			
+			/* Remote Wakeup received? */
 			if (!priv->reset_done) {
-				
+				/* resume signaling for 20 msec */
 				priv->reset_done = jiffies
 						+ msecs_to_jiffies(20);
-				
+				/* check the port again */
 				mod_timer(&hcd->rh_timer, priv->reset_done);
 			}
 
-			
+			/* resume completed? */
 			else if (time_after_eq(jiffies,
 					priv->reset_done)) {
 				status |= USB_PORT_STAT_C_SUSPEND << 16;
 				priv->reset_done = 0;
 
-				
+				/* stop resume signaling */
 				temp = reg_read32(hcd->regs, HC_PORTSC1);
 				reg_write32(hcd->regs, HC_PORTSC1,
 					temp & ~(PORT_RWC_BITS | PORT_RESUME));
 				retval = handshake(hcd, HC_PORTSC1,
-					   PORT_RESUME, 0, 2000 );
+					   PORT_RESUME, 0, 2000 /* 2msec */);
 				if (retval != 0) {
 					dev_err(hcd->self.controller,
 						"port %d resume error %d\n",
@@ -1764,15 +1970,18 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 			}
 		}
 
-		
+		/* whoever resets must GetPortStatus to complete it!! */
 		if ((temp & PORT_RESET)
 				&& time_after_eq(jiffies,
 					priv->reset_done)) {
 			status |= USB_PORT_STAT_C_RESET << 16;
 			priv->reset_done = 0;
 
-			
+			/* force reset to complete */
 			reg_write32(hcd->regs, HC_PORTSC1, temp & ~PORT_RESET);
+			/* REVISIT:  some hardware needs 550+ usec to clear
+			 * this bit; seems too long to spin routinely...
+			 */
 			retval = handshake(hcd, HC_PORTSC1,
 					PORT_RESET, 0, 750);
 			if (retval != 0) {
@@ -1781,17 +1990,22 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 				goto error;
 			}
 
-			
+			/* see what we found out */
 			temp = check_reset_complete(hcd, wIndex,
 					reg_read32(hcd->regs, HC_PORTSC1));
 		}
+		/*
+		 * Even if OWNER is set, there's no harm letting khubd
+		 * see the wPortStatus values (they should all be 0 except
+		 * for PORT_POWER anyway).
+		 */
 
 		if (temp & PORT_OWNER)
 			dev_err(hcd->self.controller, "PORT_OWNER is set\n");
 
 		if (temp & PORT_CONNECT) {
 			status |= USB_PORT_STAT_CONNECTION;
-			
+			/* status may be from integrated TT */
 			status |= USB_PORT_STAT_HIGH_SPEED;
 		}
 		if (temp & PORT_PE)
@@ -1809,7 +2023,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 		switch (wValue) {
 		case C_HUB_LOCAL_POWER:
 		case C_HUB_OVER_CURRENT:
-			
+			/* no hub-wide feature/status flags */
 			break;
 		default:
 			goto error;
@@ -1825,6 +2039,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 		if (temp & PORT_OWNER)
 			break;
 
+/*		temp &= ~PORT_RWC_BITS; */
 		switch (wValue) {
 		case USB_PORT_FEAT_ENABLE:
 			reg_write32(hcd->regs, HC_PORTSC1, temp | PORT_PE);
@@ -1845,6 +2060,10 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 		case USB_PORT_FEAT_RESET:
 			if (temp & PORT_RESUME)
 				goto error;
+			/* line status bits may report this as low speed,
+			 * which can be fine if this root hub has a
+			 * transaction translator built in.
+			 */
 			if ((temp & (PORT_PE|PORT_CONNECT)) == PORT_CONNECT
 					&& PORT_USB11(temp)) {
 				temp |= PORT_OWNER;
@@ -1852,6 +2071,10 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 				temp |= PORT_RESET;
 				temp &= ~PORT_PE;
 
+				/*
+				 * caller must wait, then call GetPortStatus
+				 * usb 2.0 spec says 50 ms resets on root
+				 */
 				priv->reset_done = jiffies +
 					msecs_to_jiffies(50);
 			}
@@ -1865,7 +2088,7 @@ static int isp1760_hub_control(struct usb_hcd *hcd, u16 typeReq,
 
 	default:
 error:
-		
+		/* "stall" on error */
 		retval = -EPIPE;
 	}
 	spin_unlock_irqrestore(&priv->lock, flags);
@@ -1894,7 +2117,7 @@ static void isp1760_stop(struct usb_hcd *hcd)
 
 	spin_lock_irq(&priv->lock);
 	ehci_reset(hcd);
-	
+	/* Disable IRQ */
 	temp = reg_read32(hcd->regs, HC_HW_MODE_CTRL);
 	reg_write32(hcd->regs, HC_HW_MODE_CTRL, temp &= ~HW_GLOBAL_INTR_EN);
 	spin_unlock_irq(&priv->lock);
@@ -1998,7 +2221,7 @@ struct usb_hcd *isp1760_register(phys_addr_t res_start, resource_size_t res_len,
 	if (usb_disabled())
 		return ERR_PTR(-ENODEV);
 
-	
+	/* prevent usb-core allocating DMA pages */
 	dev->dma_mask = NULL;
 
 	hcd = usb_create_hcd(&isp1760_hc_driver, dev, dev_name(dev));

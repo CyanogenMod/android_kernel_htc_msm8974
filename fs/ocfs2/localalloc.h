@@ -59,4 +59,4 @@ void ocfs2_local_alloc_seen_free_bits(struct ocfs2_super *osb,
 				      unsigned int num_clusters);
 void ocfs2_la_enable_worker(struct work_struct *work);
 
-#endif 
+#endif /* OCFS2_LOCALALLOC_H */

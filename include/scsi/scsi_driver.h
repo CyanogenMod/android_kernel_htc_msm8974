@@ -35,4 +35,4 @@ int scsi_prep_state_check(struct scsi_device *sdev, struct request *req);
 int scsi_prep_return(struct request_queue *q, struct request *req, int ret);
 int scsi_prep_fn(struct request_queue *, struct request *);
 
-#endif 
+#endif /* _SCSI_SCSI_DRIVER_H */

@@ -1,3 +1,6 @@
+/*
+ * local MTRR defines.
+ */
 
 #include <linux/types.h>
 #include <linux/stddef.h>
@@ -33,6 +36,7 @@ extern const struct mtrr_ops generic_mtrr_ops;
 
 extern int positive_have_wrcomb(void);
 
+/* library functions for processor-specific routines */
 struct set_mtrr_context {
 	unsigned long	flags;
 	unsigned long	cr4val;
@@ -65,6 +69,7 @@ void mtrr_state_warn(void);
 const char *mtrr_attrib_to_str(int x);
 void mtrr_wrmsr(unsigned, unsigned, unsigned);
 
+/* CPU specific mtrr init functions */
 int amd_init_mtrr(void);
 int cyrix_init_mtrr(void);
 int centaur_init_mtrr(void);

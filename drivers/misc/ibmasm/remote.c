@@ -22,6 +22,7 @@
  *
  */
 
+/* Remote mouse and keyboard event handling functions */
 
 #include <linux/pci.h>
 #include "ibmasm.h"
@@ -208,7 +209,7 @@ void ibmasm_handle_mouse_interrupt(struct service_processor *sp)
 
 int ibmasm_init_remote_input_dev(struct service_processor *sp)
 {
-	
+	/* set up the mouse input device */
 	struct input_dev *mouse_dev, *keybd_dev;
 	struct pci_dev *pdev = to_pci_dev(sp->dev);
 	int error = -ENOMEM;
@@ -264,7 +265,7 @@ int ibmasm_init_remote_input_dev(struct service_processor *sp)
 
  err_unregister_mouse_dev:
 	input_unregister_device(mouse_dev);
-	mouse_dev = NULL; 
+	mouse_dev = NULL; /* so we don't try to free it again below */
  err_free_devices:
 	input_free_device(mouse_dev);
 	input_free_device(keybd_dev);

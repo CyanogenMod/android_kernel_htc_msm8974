@@ -18,8 +18,8 @@
 
 #include "sir-dev.h"
 
-#define MIN_DELAY 25      
-#define MAX_DELAY 10000   
+#define MIN_DELAY 25      /* 15 us, but wait a little more to be sure */
+#define MAX_DELAY 10000   /* 1 ms */
 
 static int ep7211_open(struct sir_dev *dev);
 static int ep7211_close(struct sir_dev *dev);
@@ -50,7 +50,7 @@ static int ep7211_open(struct sir_dev *dev)
 {
 	unsigned int syscon;
 
-	
+	/* Turn on the SIR encoder. */
 	syscon = clps_readl(SYSCON1);
 	syscon |= SYSCON1_SIREN;
 	clps_writel(syscon, SYSCON1);
@@ -62,7 +62,7 @@ static int ep7211_close(struct sir_dev *dev)
 {
 	unsigned int syscon;
 
-	
+	/* Turn off the SIR encoder. */
 	syscon = clps_readl(SYSCON1);
 	syscon &= ~SYSCON1_SIREN;
 	clps_writel(syscon, SYSCON1);
@@ -83,7 +83,7 @@ static int ep7211_reset(struct sir_dev *dev)
 MODULE_AUTHOR("Samuel Ortiz <samuel@sortiz.org>");
 MODULE_DESCRIPTION("EP7211 IR dongle driver");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("irda-dongle-13"); 
+MODULE_ALIAS("irda-dongle-13"); /* IRDA_EP7211_DONGLE */
 
 module_init(ep7211_sir_init);
 module_exit(ep7211_sir_cleanup);

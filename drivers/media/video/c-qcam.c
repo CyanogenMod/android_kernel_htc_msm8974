@@ -55,12 +55,15 @@ struct qcam {
 	struct mutex lock;
 };
 
+/* cameras maximum */
 #define MAX_CAMS 4
 
+/* The three possible QuickCam modes */
 #define QC_MILLIONS	0x18
 #define QC_BILLIONS	0x10
-#define QC_THOUSANDS	0x08	
+#define QC_THOUSANDS	0x08	/* with VIDEC compression (not supported) */
 
+/* The three possible decimations */
 #define QC_DECIMATION_1		0
 #define QC_DECIMATION_2		2
 #define QC_DECIMATION_4		4
@@ -72,6 +75,7 @@ static int probe = 2;
 static bool force_rgb;
 static int video_nr = -1;
 
+/* FIXME: parport=auto would never have worked, surely? --RR */
 MODULE_PARM_DESC(parport, "parport=<auto|n[,n]...> for port detection method\n"
 			  "probe=<0|1|2> for camera detection method\n"
 			  "force_rgb=<0|1> for RGB data format (default BGR)");
@@ -85,6 +89,8 @@ static unsigned int num_cams;
 
 static inline void qcam_set_ack(struct qcam *qcam, unsigned int i)
 {
+	/* note: the QC specs refer to the PCAck pin by voltage, not
+	   software level.  PC ports have builtin inverters. */
 	parport_frob_control(qcam->pport, 8, i ? 8 : 0);
 }
 
@@ -109,13 +115,15 @@ static unsigned int qcam_await_ready1(struct qcam *qcam, int value)
 		if (qcam_ready1(qcam) == value)
 			return 0;
 
+	/* If the camera didn't respond within 1/25 second, poll slowly
+	   for a while. */
 	for (i = 0; i < 50; i++) {
 		if (qcam_ready1(qcam) == value)
 			return 0;
 		msleep_interruptible(100);
 	}
 
-	
+	/* Probably somebody pulled the plug out.  Not much we can do. */
 	v4l2_err(v4l2_dev, "ready1 timeout (%d) %x %x\n", value,
 	       parport_read_status(qcam->pport),
 	       parport_read_control(qcam->pport));
@@ -133,13 +141,15 @@ static unsigned int qcam_await_ready2(struct qcam *qcam, int value)
 		if (qcam_ready2(qcam) == value)
 			return 0;
 
+	/* If the camera didn't respond within 1/25 second, poll slowly
+	   for a while. */
 	for (i = 0; i < 50; i++) {
 		if (qcam_ready2(qcam) == value)
 			return 0;
 		msleep_interruptible(100);
 	}
 
-	
+	/* Probably somebody pulled the plug out.  Not much we can do. */
 	v4l2_err(v4l2_dev, "ready2 timeout (%d) %x %x %x\n", value,
 	       parport_read_status(qcam->pport),
 	       parport_read_control(qcam->pport),
@@ -197,6 +207,11 @@ static int qc_detect(struct qcam *qcam)
 {
 	unsigned int stat, ostat, i, count = 0;
 
+	/* The probe routine below is not very reliable.  The IEEE-1284
+	   probe takes precedence. */
+	/* XXX Currently parport provides no way to distinguish between
+	   "the IEEE probe was not done" and "the probe was done, but
+	   no device was found".  Fix this one day. */
 	if (qcam->pport->probe_info[0].class == PARPORT_CLASS_MEDIA
 	    && qcam->pport->probe_info[0].model
 	    && !strcmp(qcam->pdev->port->probe_info[0].model,
@@ -210,7 +225,7 @@ static int qc_detect(struct qcam *qcam)
 
 	parport_write_control(qcam->pport, 0xc);
 
-	
+	/* look for a heartbeat */
 	ostat = stat = parport_read_status(qcam->pport);
 	for (i = 0; i < 250; i++) {
 		mdelay(1);
@@ -222,7 +237,7 @@ static int qc_detect(struct qcam *qcam)
 		}
 	}
 
-	
+	/* Reset the camera and try again */
 	parport_write_control(qcam->pport, 0xc);
 	parport_write_control(qcam->pport, 0x8);
 	mdelay(1);
@@ -241,7 +256,7 @@ static int qc_detect(struct qcam *qcam)
 		}
 	}
 
-	
+	/* no (or flatline) camera, give up */
 	return 0;
 }
 
@@ -254,29 +269,36 @@ static void qc_reset(struct qcam *qcam)
 	mdelay(1);
 }
 
+/* Reset the QuickCam and program for brightness, contrast,
+ * white-balance, and resolution. */
 
 static void qc_setup(struct qcam *qcam)
 {
 	qc_reset(qcam);
 
-	
+	/* Set the brightness. */
 	qcam_set(qcam, 11, qcam->brightness);
 
+	/* Set the height and width.  These refer to the actual
+	   CCD area *before* applying the selected decimation.  */
 	qcam_set(qcam, 17, qcam->ccd_height);
 	qcam_set(qcam, 19, qcam->ccd_width / 2);
 
-	
+	/* Set top and left.  */
 	qcam_set(qcam, 0xd, qcam->top);
 	qcam_set(qcam, 0xf, qcam->left);
 
-	
+	/* Set contrast and white balance.  */
 	qcam_set(qcam, 0x19, qcam->contrast);
 	qcam_set(qcam, 0x1f, qcam->whitebal);
 
-	
+	/* Set the speed.  */
 	qcam_set(qcam, 45, 2);
 }
 
+/* Read some bytes from the camera and put them in the buffer.
+   nbytes should be a multiple of 3, because bidirectional mode gives
+   us three bytes at a time.  */
 
 static unsigned int qcam_read_bytes(struct qcam *qcam, unsigned char *buf, unsigned int nbytes)
 {
@@ -284,7 +306,7 @@ static unsigned int qcam_read_bytes(struct qcam *qcam, unsigned char *buf, unsig
 
 	qcam_set_ack(qcam, 0);
 	if (qcam->bidirectional) {
-		
+		/* It's a bidirectional port */
 		while (bytes < nbytes) {
 			unsigned int lo1, hi1, lo2, hi2;
 			unsigned char r, g, b;
@@ -313,7 +335,7 @@ static unsigned int qcam_read_bytes(struct qcam *qcam, unsigned char *buf, unsig
 			}
 		}
 	} else {
-		
+		/* It's a unidirectional port */
 		int i = 0, n = bytes;
 		unsigned char rgb[3];
 
@@ -328,7 +350,7 @@ static unsigned int qcam_read_bytes(struct qcam *qcam, unsigned char *buf, unsig
 				return bytes;
 			lo = (parport_read_status(qcam->pport) & 0xf0);
 			qcam_set_ack(qcam, 0);
-			
+			/* flip some bits */
 			rgb[(i = bytes++ % 3)] = (hi | (lo >> 4)) ^ 0x88;
 			if (i >= 2) {
 get_fragment:
@@ -364,7 +386,7 @@ static long qc_capture(struct qcam *qcam, char __user *buf, unsigned long len)
 	if (!access_ok(VERIFY_WRITE, buf, len))
 		return -EFAULT;
 
-	
+	/* Wait for camera to become ready */
 	for (;;) {
 		int i = qcam_get(qcam, 41);
 
@@ -385,7 +407,7 @@ static long qc_capture(struct qcam *qcam, char __user *buf, unsigned long len)
 	bitsperxfer = (is_bi_dir) ? 24 : 8;
 
 	if (is_bi_dir) {
-		
+		/* Turn the port around */
 		parport_data_reverse(qcam->pport);
 		mdelay(3);
 		qcam_set_ack(qcam, 0);
@@ -482,6 +504,9 @@ static long qc_capture(struct qcam *qcam, char __user *buf, unsigned long len)
 	return len;
 }
 
+/*
+ *	Video4linux interfacing
+ */
 
 static int qcam_querycap(struct file *file, void  *priv,
 					struct v4l2_capability *vcap)
@@ -597,7 +622,7 @@ static int qcam_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 	pix->field = V4L2_FIELD_NONE;
 	pix->bytesperline = 3 * qcam->width;
 	pix->sizeimage = 3 * qcam->width * qcam->height;
-	
+	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	return 0;
 }
@@ -620,7 +645,7 @@ static int qcam_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 	pix->field = V4L2_FIELD_NONE;
 	pix->bytesperline = 3 * pix->width;
 	pix->sizeimage = 3 * pix->width * pix->height;
-	
+	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	return 0;
 }
@@ -682,7 +707,7 @@ static ssize_t qcam_read(struct file *file, char __user *buf,
 
 	mutex_lock(&qcam->lock);
 	parport_claim_or_block(qcam->pdev);
-	
+	/* Probably should have a semaphore against multiple users */
 	len = qc_capture(qcam, buf, count);
 	parport_release(qcam->pdev);
 	mutex_unlock(&qcam->lock);
@@ -709,6 +734,7 @@ static const struct v4l2_ioctl_ops qcam_ioctl_ops = {
 	.vidioc_try_fmt_vid_cap  	    = qcam_try_fmt_vid_cap,
 };
 
+/* Initialize the QuickCam driver control structure. */
 
 static struct qcam *qcam_init(struct parport *port)
 {
@@ -765,7 +791,7 @@ static int init_cqcam(struct parport *port)
 	struct v4l2_device *v4l2_dev;
 
 	if (parport[0] != -1) {
-		
+		/* The user gave specific instructions */
 		int i, found = 0;
 
 		for (i = 0; i < MAX_CAMS && parport[i] != -1; i++) {
@@ -830,7 +856,7 @@ static void cq_attach(struct parport *port)
 
 static void cq_detach(struct parport *port)
 {
-	
+	/* Write this some day. */
 }
 
 static struct parport_driver cqcam_driver = {

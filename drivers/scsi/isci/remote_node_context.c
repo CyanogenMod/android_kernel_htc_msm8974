@@ -70,6 +70,14 @@ const char *rnc_state_name(enum scis_sds_remote_node_context_states state)
 }
 #undef C
 
+/**
+ *
+ * @sci_rnc: The state of the remote node context object to check.
+ *
+ * This method will return true if the remote node context is in a READY state
+ * otherwise it will return false bool true if the remote node context is in
+ * the ready state. false if the remote node context is not in the ready state.
+ */
 bool sci_remote_node_context_is_ready(
 	struct sci_remote_node_context *sci_rnc)
 {
@@ -110,7 +118,7 @@ static void sci_remote_node_context_construct_buffer(struct sci_remote_node_cont
 	rnc->ssp.remote_node_port_width = idev->device_port_width;
 	rnc->ssp.logical_port_index = idev->owning_port->physical_port_index;
 
-	
+	/* sas address is __be64, context ram format is __le64 */
 	sas_addr = cpu_to_le64(SAS_ADDR(dev->sas_addr));
 	rnc->ssp.remote_sas_address_hi = upper_32_bits(sas_addr);
 	rnc->ssp.remote_sas_address_lo = lower_32_bits(sas_addr);
@@ -137,13 +145,23 @@ static void sci_remote_node_context_construct_buffer(struct sci_remote_node_cont
 
 	rnc->ssp.initial_arbitration_wait_time = 0;
 
-	
+	/* Open Address Frame Parameters */
 	rnc->ssp.oaf_connection_rate = idev->connection_rate;
 	rnc->ssp.oaf_features = 0;
 	rnc->ssp.oaf_source_zone_group = 0;
 	rnc->ssp.oaf_more_compatibility_features = 0;
 }
 
+/**
+ *
+ * @sci_rnc:
+ * @callback:
+ * @callback_parameter:
+ *
+ * This method will setup the remote node context object so it will transition
+ * to its ready state.  If the remote node context is already setup to
+ * transition to its final state then this function does nothing. none
+ */
 static void sci_remote_node_context_setup_to_resume(
 	struct sci_remote_node_context *sci_rnc,
 	scics_sds_remote_node_context_callback callback,
@@ -166,6 +184,12 @@ static void sci_remote_node_context_setup_to_destory(
 	sci_rnc->user_cookie       = callback_parameter;
 }
 
+/**
+ *
+ *
+ * This method just calls the user callback function and then resets the
+ * callback.
+ */
 static void sci_remote_node_context_notify_user(
 	struct sci_remote_node_context *rnc)
 {
@@ -225,6 +249,9 @@ static void sci_remote_node_context_initial_state_enter(struct sci_base_state_ma
 {
 	struct sci_remote_node_context *rnc = container_of(sm, typeof(*rnc), sm);
 
+	/* Check to see if we have gotten back to the initial state because
+	 * someone requested to destroy the remote node context object.
+	 */
 	if (sm->previous_state_id == SCI_RNC_INVALIDATING) {
 		rnc->destination_state = SCIC_SDS_REMOTE_NODE_DESTINATION_STATE_UNSPECIFIED;
 		sci_remote_node_context_notify_user(rnc);
@@ -254,6 +281,12 @@ static void sci_remote_node_context_resuming_state_enter(struct sci_base_state_m
 	idev = rnc_to_dev(rnc);
 	dev = idev->domain_dev;
 
+	/*
+	 * For direct attached SATA devices we need to clear the TLCR
+	 * NCQ to TCi tag mapping on the phy and in cases where we
+	 * resume because of a target reset we also need to update
+	 * the STPTLDARNI register with the RNi of the device
+	 */
 	if ((dev->dev_type == SATA_DEV || (dev->tproto & SAS_PROTOCOL_STP)) &&
 	    idev->is_direct_attached)
 		sci_port_setup_transports(idev->owning_port,
@@ -349,6 +382,8 @@ enum sci_status sci_remote_node_context_event_handler(struct sci_remote_node_con
 			switch (scu_get_event_type(event_code)) {
 			case SCU_EVENT_TYPE_RNC_SUSPEND_TX:
 			case SCU_EVENT_TYPE_RNC_SUSPEND_TX_RX:
+				/* We really dont care if the hardware is going to suspend
+				 * the device since it's being invalidated anyway */
 				dev_dbg(scirdev_to_dev(rnc_to_dev(sci_rnc)),
 					"%s: SCIC Remote Node Context 0x%p was "
 					"suspeneded by hardware while being "
@@ -366,6 +401,8 @@ enum sci_status sci_remote_node_context_event_handler(struct sci_remote_node_con
 			switch (scu_get_event_type(event_code)) {
 			case SCU_EVENT_TYPE_RNC_SUSPEND_TX:
 			case SCU_EVENT_TYPE_RNC_SUSPEND_TX_RX:
+				/* We really dont care if the hardware is going to suspend
+				 * the device since it's being resumed anyway */
 				dev_dbg(scirdev_to_dev(rnc_to_dev(sci_rnc)),
 					"%s: SCIC Remote Node Context 0x%p was "
 					"suspeneded by hardware while being resumed.\n",
@@ -441,6 +478,10 @@ enum sci_status sci_remote_node_context_destruct(struct sci_remote_node_context 
 	case SCI_RNC_INITIAL:
 		dev_warn(scirdev_to_dev(rnc_to_dev(sci_rnc)),
 			 "%s: invalid state %d\n", __func__, state);
+		/* We have decided that the destruct request on the remote node context
+		 * can not fail since it is either in the initial/destroyed state or is
+		 * can be destroyed.
+		 */
 		return SCI_SUCCESS;
 	default:
 		dev_warn(scirdev_to_dev(rnc_to_dev(sci_rnc)),
@@ -507,12 +548,12 @@ enum sci_status sci_remote_node_context_resume(struct sci_remote_node_context *s
 
 		sci_remote_node_context_setup_to_resume(sci_rnc, cb_fn, cb_p);
 
-		
+		/* TODO: consider adding a resume action of NONE, INVALIDATE, WRITE_TLCR */
 		if (dev->dev_type == SAS_END_DEV || dev_is_expander(dev))
 			sci_change_state(&sci_rnc->sm, SCI_RNC_RESUMING);
 		else if (dev->dev_type == SATA_DEV || (dev->tproto & SAS_PROTOCOL_STP)) {
 			if (idev->is_direct_attached) {
-				
+				/* @todo Fix this since I am being silly in writing to the STPTLDARNI register. */
 				sci_change_state(&sci_rnc->sm, SCI_RNC_RESUMING);
 			} else {
 				sci_change_state(&sci_rnc->sm, SCI_RNC_INVALIDATING);

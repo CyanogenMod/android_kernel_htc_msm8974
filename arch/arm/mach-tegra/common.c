@@ -34,13 +34,20 @@
 #include "fuse.h"
 #include "pmc.h"
 
+/*
+ * Storage for debug-macro.S's state.
+ *
+ * This must be in .data not .bss so that it gets initialized each time the
+ * kernel is loaded. The data is declared here rather than debug-macro.S so
+ * that multiple inclusions of debug-macro.S point at the same data.
+ */
 #define TEGRA_DEBUG_UART_OFFSET (TEGRA_DEBUG_UART_BASE & 0xFFFF)
 u32 tegra_uart_config[3] = {
-	
+	/* Debug UART initialization required */
 	1,
-	
+	/* Debug UART physical address */
 	(u32)(IO_APB_PHYS + TEGRA_DEBUG_UART_OFFSET),
-	
+	/* Debug UART virtual address */
 	(u32)(IO_APB_VIRT + TEGRA_DEBUG_UART_OFFSET),
 };
 
@@ -69,7 +76,7 @@ void tegra_assert_system_reset(char mode, const char *cmd)
 
 #ifdef CONFIG_ARCH_TEGRA_2x_SOC
 static __initdata struct tegra_clk_init_table tegra20_clk_init_table[] = {
-	
+	/* name		parent		rate		enabled */
 	{ "clk_m",	NULL,		0,		true },
 	{ "pll_p",	"clk_m",	216000000,	true },
 	{ "pll_p_out1",	"pll_p",	28800000,	true },

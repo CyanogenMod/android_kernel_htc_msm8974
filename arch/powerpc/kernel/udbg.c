@@ -22,25 +22,29 @@ void (*udbg_flush)(void);
 int (*udbg_getc)(void);
 int (*udbg_getc_poll)(void);
 
+/*
+ * Early debugging facilities. You can enable _one_ of these via .config,
+ * if you do so your kernel _will not boot_ on anything else. Be careful.
+ */
 void __init udbg_early_init(void)
 {
 #if defined(CONFIG_PPC_EARLY_DEBUG_LPAR)
-	
+	/* For LPAR machines that have an HVC console on vterm 0 */
 	udbg_init_debug_lpar();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_LPAR_HVSI)
-	
+	/* For LPAR machines that have an HVSI console on vterm 0 */
 	udbg_init_debug_lpar_hvsi();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_G5)
-	
+	/* For use on Apple G5 machines */
 	udbg_init_pmac_realmode();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_RTAS_PANEL)
-	
+	/* RTAS panel debug */
 	udbg_init_rtas_panel();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_RTAS_CONSOLE)
-	
+	/* RTAS console debug */
 	udbg_init_rtas_console();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_MAPLE)
-	
+	/* Maple real mode debug */
 	udbg_init_maple_realmode();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_BEAT)
 	udbg_init_debug_beat();
@@ -49,10 +53,10 @@ void __init udbg_early_init(void)
 #elif defined(CONFIG_BOOTX_TEXT)
 	udbg_init_btext();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_44x)
-	
+	/* PPC44x debug */
 	udbg_init_44x_as1();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_40x)
-	
+	/* PPC40x debug */
 	udbg_init_40x_realmode();
 #elif defined(CONFIG_PPC_EARLY_DEBUG_CPM)
 	udbg_init_cpm();
@@ -77,6 +81,7 @@ void __init udbg_early_init(void)
 #endif
 }
 
+/* udbg library, used by xmon et al */
 void udbg_puts(const char *s)
 {
 	if (udbg_putc) {
@@ -158,6 +163,9 @@ void __init udbg_progress(char *s, unsigned short hex)
 	udbg_puts("\n");
 }
 
+/*
+ * Early boot console based on udbg
+ */
 static void udbg_console_write(struct console *con, const char *s,
 		unsigned int n)
 {
@@ -173,6 +181,10 @@ static struct console udbg_console = {
 
 static int early_console_initialized;
 
+/*
+ * Called by setup_system after ppc_md->probe and ppc_md->early_init.
+ * Call it again after setting udbg_putc in ppc_md->setup_arch.
+ */
 void __init register_early_udbg_console(void)
 {
 	if (early_console_initialized)
@@ -189,6 +201,6 @@ void __init register_early_udbg_console(void)
 	register_console(&udbg_console);
 }
 
-#if 0   
+#if 0   /* if you want to use this as a regular output console */
 console_initcall(register_udbg_console);
 #endif

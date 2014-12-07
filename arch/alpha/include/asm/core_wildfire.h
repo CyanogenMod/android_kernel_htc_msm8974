@@ -4,7 +4,7 @@
 #include <linux/types.h>
 #include <asm/compiler.h>
 
-#define WILDFIRE_MAX_QBB	8	
+#define WILDFIRE_MAX_QBB	8	/* more than 8 requires other mods */
 #define WILDFIRE_PCA_PER_QBB	4
 #define WILDFIRE_IRQ_PER_PCA	64
 
@@ -154,7 +154,7 @@ typedef struct {
 	wildfire_2k	__pad1;
 	wildfire_2k	gpa_init_id;
 	wildfire_2k	gpa_config_2;
-	
+	/* not complete */
 } wildfire_gp;
 
 typedef struct {
@@ -181,12 +181,12 @@ typedef struct {
 
 typedef struct {
 	wildfire_64	ne_what_am_i;
-	
+	/* not complete */
 } wildfire_ne;
 
 typedef struct {
 	wildfire_64	fe_what_am_i;
-	
+	/* not complete */
 } wildfire_fe;
 
 typedef struct {
@@ -221,7 +221,7 @@ typedef struct {
 
 #define WILDFIRE_BASE		(IDENT_ADDR | (1UL << 40))
 
-#define WILDFIRE_QBB_MASK	0x0fUL	
+#define WILDFIRE_QBB_MASK	0x0fUL	/* for now, only 4 bits/16 QBBs */
 
 #define WILDFIRE_QBB(q)		((~((long)(q)) & WILDFIRE_QBB_MASK) << 36)
 #define WILDFIRE_HOSE(h)	((long)(h) << 33)
@@ -261,8 +261,9 @@ typedef struct {
  ((wildfire_pci *)(WILDFIRE_QBB_IO(q)|WILDFIRE_PCA_ENTITY(((h)&6)>>1)|((((h)&1)|2)<<16)|(((1UL<<13)-1)<<23)))
 
 #define WILDFIRE_IO_BIAS        WILDFIRE_IO(0,0)
-#define WILDFIRE_MEM_BIAS       WILDFIRE_MEM(0,0) 
+#define WILDFIRE_MEM_BIAS       WILDFIRE_MEM(0,0) /* ??? */
 
+/* The IO address space is larger than 0xffff */
 #define WILDFIRE_IO_SPACE	(8UL*1024*1024)
 
 #ifdef __KERNEL__
@@ -272,6 +273,9 @@ typedef struct {
 #define __IO_EXTERN_INLINE
 #endif
 
+/*
+ * Memory functions.  all accesses are done through linear space.
+ */
 
 __EXTERN_INLINE void __iomem *wildfire_ioportmap(unsigned long addr)
 {
@@ -309,6 +313,6 @@ __EXTERN_INLINE int wildfire_is_mmio(const volatile void __iomem *xaddr)
 #undef __IO_EXTERN_INLINE
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_WILDFIRE__H__ */

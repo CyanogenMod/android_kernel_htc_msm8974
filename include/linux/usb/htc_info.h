@@ -45,6 +45,7 @@ extern ssize_t otg_show_usb_phy_setting(char *buf);
 extern ssize_t otg_store_usb_phy_setting(const char *buf, size_t count);
 
 extern int usb_get_connect_type(void);
+extern int msm_usb_get_connect_type(void);
 extern int android_switch_function(unsigned func);
 extern int android_show_function(char *buf);
 extern void android_set_serialno(char *serialno);

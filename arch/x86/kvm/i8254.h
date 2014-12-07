@@ -4,7 +4,7 @@
 #include "iodev.h"
 
 struct kvm_kpit_channel_state {
-	u32 count; 
+	u32 count; /* can be 65536 */
 	u16 latched_count;
 	u8 count_latched;
 	u8 status_latched;
@@ -14,8 +14,8 @@ struct kvm_kpit_channel_state {
 	u8 write_latch;
 	u8 rw_mode;
 	u8 mode;
-	u8 bcd; 
-	u8 gate; 
+	u8 bcd; /* not supported */
+	u8 gate; /* timer start */
 	ktime_t count_load_time;
 };
 

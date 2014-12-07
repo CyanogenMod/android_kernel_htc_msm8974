@@ -31,15 +31,15 @@
 
 static u8 llcp_tlv_length[LLCP_TLV_MAX] = {
 	0,
-	1, 
-	2, 
-	2, 
-	1, 
-	1, 
-	0, 
-	1, 
-	0, 
-	2, 
+	1, /* VERSION */
+	2, /* MIUX */
+	2, /* WKS */
+	1, /* LTO */
+	1, /* RW */
+	0, /* SN */
+	1, /* OPT */
+	0, /* SDREQ */
+	2, /* SDRES */
 
 };
 
@@ -191,7 +191,7 @@ static struct sk_buff *llcp_add_header(struct sk_buff *pdu,
 static struct sk_buff *llcp_add_tlv(struct sk_buff *pdu, u8 *tlv,
 				    u8 tlv_length)
 {
-	
+	/* XXX Add an skb length check */
 
 	if (tlv == NULL)
 		return NULL;
@@ -396,7 +396,7 @@ int nfc_llcp_send_dm(struct nfc_llcp_local *local, u8 ssap, u8 dsap, u8 reason)
 {
 	struct sk_buff *skb;
 	struct nfc_dev *dev;
-	u16 size = 1; 
+	u16 size = 1; /* Reason code */
 
 	pr_debug("Sending DM reason 0x%x\n", reason);
 

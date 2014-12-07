@@ -38,15 +38,15 @@ MODULE_DESCRIPTION("Gravis UltraSound MAX");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Gravis,UltraSound MAX}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	/* Enable this card */
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x220,0x230,0x240,0x250,0x260 */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 2,3,5,9,11,12,15 */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 1,3,5,6,7 */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 1,3,5,6,7 */
 static int joystick_dac[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 29};
-				
+				/* 0 to 31, (0.59V-4.52V or 0.389V-2.98V) */
 static int channels[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 24};
 static int pcm_channels[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 2};
 
@@ -86,13 +86,13 @@ static int __devinit snd_gusmax_detect(struct snd_gus_card * gus)
 {
 	unsigned char d;
 
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 0);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 0);	/* reset GF1 */
 	if (((d = snd_gf1_i_look8(gus, SNDRV_GF1_GB_RESET)) & 0x07) != 0) {
 		snd_printdd("[0x%lx] check 1 failed - 0x%x\n", gus->gf1.port, d);
 		return -ENODEV;
 	}
 	udelay(160);
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 1);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 1);	/* release reset */
 	udelay(160);
 	if (((d = snd_gf1_i_look8(gus, SNDRV_GF1_GB_RESET)) & 0x07) != 1) {
 		snd_printdd("[0x%lx] check 2 failed - 0x%x\n", gus->gf1.port, d);
@@ -115,7 +115,7 @@ static irqreturn_t snd_gusmax_interrupt(int irq, void *dev_id)
 			snd_gus_interrupt(irq, maxcard->gus);
 			loop++;
 		}
-		if (inb(maxcard->pcm_status_reg) & 0x01) { 
+		if (inb(maxcard->pcm_status_reg) & 0x01) { /* IRQ bit is set? */
 			handled = 1;
 			snd_wss_interrupt(irq, maxcard->wss);
 			loop++;
@@ -130,7 +130,7 @@ static void __devinit snd_gusmax_init(int dev, struct snd_card *card,
 	gus->equal_irq = 1;
 	gus->codec_flag = 1;
 	gus->joystick_dac = joystick_dac[dev];
-	
+	/* init control register */
 	gus->max_cntrl_val = (gus->gf1.port >> 4) & 0x0f;
 	if (gus->gf1.dma1 > 3)
 		gus->max_cntrl_val |= 0x10;
@@ -149,7 +149,7 @@ static int __devinit snd_gusmax_mixer(struct snd_wss *chip)
 	memset(&id1, 0, sizeof(id1));
 	memset(&id2, 0, sizeof(id2));
 	id1.iface = id2.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-	
+	/* reassign AUXA to SYNTHESIZER */
 	strcpy(id1.name, "Aux Playback Switch");
 	strcpy(id2.name, "Synth Playback Switch");
 	if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0)
@@ -158,7 +158,7 @@ static int __devinit snd_gusmax_mixer(struct snd_wss *chip)
 	strcpy(id2.name, "Synth Playback Volume");
 	if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0)
 		return err;
-	
+	/* reassign AUXB to CD */
 	strcpy(id1.name, "Aux Playback Switch"); id1.index = 1;
 	strcpy(id2.name, "CD Playback Switch");
 	if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0)
@@ -168,7 +168,7 @@ static int __devinit snd_gusmax_mixer(struct snd_wss *chip)
 	if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0)
 		return err;
 #if 0
-	
+	/* reassign Mono Input to MIC */
 	if (snd_mixer_group_rename(mixer,
 				SNDRV_MIXER_IN_MONO, 0,
 				SNDRV_MIXER_IN_MIC, 0) < 0)
@@ -367,7 +367,7 @@ static struct isa_driver snd_gusmax_driver = {
 	.match		= snd_gusmax_match,
 	.probe		= snd_gusmax_probe,
 	.remove		= __devexit_p(snd_gusmax_remove),
-	
+	/* FIXME: suspend/resume */
 	.driver		= {
 		.name	= DEV_NAME
 	},

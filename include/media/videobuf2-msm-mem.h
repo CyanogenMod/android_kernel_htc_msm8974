@@ -46,12 +46,12 @@ struct videobuf2_contig_pmem {
 	int phyaddr;
 	unsigned long size;
 	int is_userptr;
-	
+	/* Offset of the plane inside the buffer */
 	struct videobuf2_msm_offset offset;
 	enum videobuf2_buffer_type buffer_type;
 	int path;
 	struct file *file;
-	
+	/* Offset of the buffer */
 	uint32_t addr_offset;
 	int dirty;
 	unsigned int count;
@@ -79,4 +79,4 @@ void videobuf2_pmem_contig_user_put(struct videobuf2_contig_pmem *mem,
 unsigned long videobuf2_to_pmem_contig(struct vb2_buffer *buf,
 					unsigned int plane_no);
 
-#endif 
+#endif /* _VIDEOBUF2_PMEM_CONTIG_H */

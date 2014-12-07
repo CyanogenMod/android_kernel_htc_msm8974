@@ -24,23 +24,23 @@
  *
  */
 struct pr_ram {
-	word NextReq;         
-	word NextRc;          
-	word NextInd;         
-	byte ReqInput;        
-	byte ReqOutput;       
-	byte ReqReserved;     
-	byte Int;             
-	byte XLock;           
-	byte RcOutput;        
-	byte IndOutput;       
-	byte IMask;           
-	byte Reserved1[2];    
-	byte ReadyInt;        
-	byte Reserved2[12];   
-	byte InterfaceType;   
-	word Signature;       
-	byte B[1];            
+	word NextReq;         /* pointer to next Req Buffer               */
+	word NextRc;          /* pointer to next Rc Buffer                */
+	word NextInd;         /* pointer to next Ind Buffer               */
+	byte ReqInput;        /* number of Req Buffers sent               */
+	byte ReqOutput;       /* number of Req Buffers returned           */
+	byte ReqReserved;     /* number of Req Buffers reserved           */
+	byte Int;             /* ISDN-P interrupt                         */
+	byte XLock;           /* Lock field for arbitration               */
+	byte RcOutput;        /* number of Rc buffers received            */
+	byte IndOutput;       /* number of Ind buffers received           */
+	byte IMask;           /* Interrupt Mask Flag                      */
+	byte Reserved1[2];    /* reserved field, do not use               */
+	byte ReadyInt;        /* request field for ready interrupt        */
+	byte Reserved2[12];   /* reserved field, do not use               */
+	byte InterfaceType;   /* interface type 1=16K interface           */
+	word Signature;       /* ISDN-P initialized indication            */
+	byte B[1];            /* buffer space for Req,Ind and Rc          */
 };
 typedef struct {
 	word next;

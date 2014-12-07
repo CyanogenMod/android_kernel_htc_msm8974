@@ -42,12 +42,23 @@ unsigned long rds_ib_sysctl_max_send_wr = RDS_IB_DEFAULT_SEND_WR;
 unsigned long rds_ib_sysctl_max_recv_wr = RDS_IB_DEFAULT_RECV_WR;
 unsigned long rds_ib_sysctl_max_recv_allocation = (128 * 1024 * 1024) / RDS_FRAG_SIZE;
 static unsigned long rds_ib_sysctl_max_wr_min = 1;
+/* hardware will fail CQ creation long before this */
 static unsigned long rds_ib_sysctl_max_wr_max = (u32)~0;
 
 unsigned long rds_ib_sysctl_max_unsig_wrs = 16;
 static unsigned long rds_ib_sysctl_max_unsig_wr_min = 1;
 static unsigned long rds_ib_sysctl_max_unsig_wr_max = 64;
 
+/*
+ * This sysctl does nothing.
+ *
+ * Backwards compatibility with RDS 3.0 wire protocol
+ * disables initial FC credit exchange.
+ * If it's ever possible to drop 3.0 support,
+ * setting this to 1 and moving init/refill of send/recv
+ * rings from ib_cm_connect_complete() back into ib_setup_qp()
+ * will cause credits to be added before protocol negotiation.
+ */
 unsigned int rds_ib_sysctl_flow_control = 0;
 
 static ctl_table rds_ib_sysctl_table[] = {

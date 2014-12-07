@@ -34,6 +34,7 @@ struct clk {
 	void (*disable)(struct clk *);
 };
 
+/* Flags */
 #define RATE_PROPAGATES      (1<<0)
 #define NEEDS_INITIALIZATION (1<<1)
 #define PARENT_SET_RATE      (1<<2)

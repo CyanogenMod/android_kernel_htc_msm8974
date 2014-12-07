@@ -83,7 +83,7 @@ extern void debug_dma_sync_sg_for_device(struct device *dev,
 
 extern void debug_dma_dump_mappings(struct device *dev);
 
-#else 
+#else /* CONFIG_DMA_API_DEBUG */
 
 static inline void dma_debug_add_bus(struct bus_type *bus)
 {
@@ -176,6 +176,6 @@ static inline void debug_dma_dump_mappings(struct device *dev)
 {
 }
 
-#endif 
+#endif /* CONFIG_DMA_API_DEBUG */
 
-#endif 
+#endif /* __DMA_DEBUG_H */

@@ -90,6 +90,7 @@ static void __exit em_x270_exit(void)
 module_init(em_x270_init);
 module_exit(em_x270_exit);
 
+/* Module information */
 MODULE_AUTHOR("Mike Rapoport");
 MODULE_DESCRIPTION("ALSA SoC EM-X270, eXeda and CM-X300");
 MODULE_LICENSE("GPL");

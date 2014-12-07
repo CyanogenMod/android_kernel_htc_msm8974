@@ -17,10 +17,10 @@ struct bq27520_platform_data {
 	const char *name;
 	unsigned int soc_int;
 	unsigned int bi_tout;
-	unsigned int chip_en; 
-	const char *vreg_name; 
-	int vreg_value; 
-	int enable_dlog; 
+	unsigned int chip_en; /* CE */
+	const char *vreg_name; /* regulater used by bq27520 */
+	int vreg_value; /* its value */
+	int enable_dlog; /* if enable on-chip coulomb counter data logger */
 };
 
-#endif 
+#endif /* __LINUX_BQ27520_H */

@@ -9,6 +9,11 @@
  * enable HAC output pins!
  */
 
+/* BIG FAT FIXME: although the SH7760 has 2 independent AC97 units, only
+ * the FIRST can be used since ASoC does not pass any information to the
+ * ac97_read/write() functions regarding WHICH unit to use.  You'll have
+ * to edit the code a bit to use the other AC97 unit.		--mlau
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -22,6 +27,7 @@
 #include <sound/initval.h>
 #include <sound/soc.h>
 
+/* regs and bits */
 #define HACCR		0x08
 #define HACCSAR		0x20
 #define HACCSDR		0x24
@@ -33,13 +39,13 @@
 #define HACRSR		0x5C
 #define HACACR		0x60
 
-#define CR_CR		(1 << 15)	
-#define CR_CDRT		(1 << 11)	
-#define CR_WMRT		(1 << 10)	
-#define CR_B9		(1 << 9)	
-#define CR_ST		(1 << 5)	
+#define CR_CR		(1 << 15)	/* "codec-ready" indicator */
+#define CR_CDRT		(1 << 11)	/* cold reset */
+#define CR_WMRT		(1 << 10)	/* warm reset */
+#define CR_B9		(1 << 9)	/* the mysterious "bit 9" */
+#define CR_ST		(1 << 5)	/* AC97 link start bit */
 
-#define CSAR_RD		(1 << 19)	
+#define CSAR_RD		(1 << 19)	/* AC97 data read bit */
 #define CSAR_WR		(0)
 
 #define TSR_CMDAMT	(1 << 31)
@@ -62,13 +68,14 @@
 #define AC97_WRITE_RETRY	1
 #define AC97_READ_RETRY		5
 
-#define TMO_E1	500	
-#define TMO_E2	13	
-#define TMO_E3	21	
-#define TMO_E4	500	
+/* manual-suggested AC97 codec access timeouts (us) */
+#define TMO_E1	500	/* 21 < E1 < 1000 */
+#define TMO_E2	13	/* 13 < E2 */
+#define TMO_E3	21	/* 21 < E3 */
+#define TMO_E4	500	/* 21 < E4 < 1000 */
 
 struct hac_priv {
-	unsigned long mmio;	
+	unsigned long mmio;	/* HAC base address */
 } hac_cpu_data[] = {
 #if defined(CONFIG_CPU_SUBTYPE_SH7760)
 	{
@@ -88,6 +95,9 @@ struct hac_priv {
 
 #define HACREG(reg)	(*(unsigned long *)(hac->mmio + (reg)))
 
+/*
+ * AC97 read/write flow as outlined in the SH7760 manual (pages 903-906)
+ */
 static int hac_get_codec_data(struct hac_priv *hac, unsigned short r,
 			      unsigned short *v)
 {
@@ -96,7 +106,7 @@ static int hac_get_codec_data(struct hac_priv *hac, unsigned short r,
 
 	for (i = AC97_READ_RETRY; i; i--) {
 		*v = 0;
-		
+		/* wait for HAC to receive something from the codec */
 		for (to1 = TMO_E4;
 		     to1 && !(HACREG(HACRSR) & RSR_STARY);
 		     --to1)
@@ -107,7 +117,7 @@ static int hac_get_codec_data(struct hac_priv *hac, unsigned short r,
 			udelay(1);
 
 		if (!to1 && !to2)
-			return 0;	
+			return 0;	/* codec comm is down */
 
 		adr = ((HACREG(HACCSAR) & CSAR_MASK) >> CSAR_SHIFT);
 		*v  = ((HACREG(HACCSDR) & CSDR_MASK) >> CSDR_SHIFT);
@@ -117,7 +127,7 @@ static int hac_get_codec_data(struct hac_priv *hac, unsigned short r,
 		if (r == adr)
 			break;
 
-		
+		/* manual says: wait at least 21 usec before retrying */
 		udelay(21);
 	}
 	HACREG(HACRSR) &= ~(RSR_STDRY | RSR_STARY);
@@ -131,7 +141,7 @@ static unsigned short hac_read_codec_aux(struct hac_priv *hac,
 	unsigned int i, to;
 
 	for (i = AC97_READ_RETRY; i; i--) {
-		
+		/* send_read_request */
 		local_irq_disable();
 		HACREG(HACTSR) &= ~(TSR_CMDAMT);
 		HACREG(HACCSAR) = (reg << CSAR_SHIFT) | CSAR_RD;
@@ -154,19 +164,19 @@ static unsigned short hac_read_codec_aux(struct hac_priv *hac,
 static void hac_ac97_write(struct snd_ac97 *ac97, unsigned short reg,
 			   unsigned short val)
 {
-	int unit_id = 0 ;
+	int unit_id = 0 /* ac97->private_data */;
 	struct hac_priv *hac = &hac_cpu_data[unit_id];
 	unsigned int i, to;
-	
+	/* write_codec_aux */
 	for (i = AC97_WRITE_RETRY; i; i--) {
-		
+		/* send_write_request */
 		local_irq_disable();
 		HACREG(HACTSR) &= ~(TSR_CMDDMT | TSR_CMDAMT);
 		HACREG(HACCSDR) = (val << CSDR_SHIFT);
 		HACREG(HACCSAR) = (reg << CSAR_SHIFT) & (~CSAR_RD);
 		local_irq_enable();
 
-		
+		/* poll-wait for CMDAMT and CMDDMT */
 		for (to = TMO_E1;
 		     to && !(HACREG(HACTSR) & (TSR_CMDAMT|TSR_CMDDMT));
 		     --to)
@@ -175,21 +185,21 @@ static void hac_ac97_write(struct snd_ac97 *ac97, unsigned short reg,
 		HACREG(HACTSR) &= ~(TSR_CMDAMT | TSR_CMDDMT);
 		if (to)
 			break;
-		
+		/* timeout, try again */
 	}
 }
 
 static unsigned short hac_ac97_read(struct snd_ac97 *ac97,
 				    unsigned short reg)
 {
-	int unit_id = 0 ;
+	int unit_id = 0 /* ac97->private_data */;
 	struct hac_priv *hac = &hac_cpu_data[unit_id];
 	return hac_read_codec_aux(hac, reg);
 }
 
 static void hac_ac97_warmrst(struct snd_ac97 *ac97)
 {
-	int unit_id = 0 ;
+	int unit_id = 0 /* ac97->private_data */;
 	struct hac_priv *hac = &hac_cpu_data[unit_id];
 	unsigned int tmo;
 
@@ -201,13 +211,13 @@ static void hac_ac97_warmrst(struct snd_ac97 *ac97)
 
 	if (!tmo)
 		printk(KERN_INFO "hac: reset: AC97 link down!\n");
-	
+	/* settings this bit lets us have a conversation with codec */
 	HACREG(HACACR) |= ACR_TX12ATOM;
 }
 
 static void hac_ac97_coldrst(struct snd_ac97 *ac97)
 {
-	int unit_id = 0 ;
+	int unit_id = 0 /* ac97->private_data */;
 	struct hac_priv *hac;
 	hac = &hac_cpu_data[unit_id];
 

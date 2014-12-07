@@ -49,14 +49,20 @@ do {									\
 
 #else
 #define MIPS_FPU_EMU_INC_STATS(M) do { } while (0)
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 extern int mips_dsemul(struct pt_regs *regs, mips_instruction ir,
 	unsigned long cpc);
 extern int do_dsemulret(struct pt_regs *xcp);
 
-#define BD_COOKIE 0x0000bd36	
+/*
+ * Instruction inserted following the badinst to further tag the sequence
+ */
+#define BD_COOKIE 0x0000bd36	/* tne $0, $0 with baggage */
 
+/*
+ * Break instruction with special math emu break code set
+ */
 #define BREAK_MATH (0x0000000d | (BRK_MEMU << 16))
 
-#endif 
+#endif /* _ASM_FPU_EMULATOR_H */

@@ -49,7 +49,7 @@ static int fm93c56a_cmd(struct scsi_qla_host * ha, int cmd, int addr)
 	int dataBit;
 	int previousBit;
 
-	
+	/* Clock in a zero, then do the start bit. */
 	eeprom_cmd(ha->eeprom_cmd_data | AUBURN_EEPROM_DO_1, ha);
 
 	eeprom_cmd(ha->eeprom_cmd_data | AUBURN_EEPROM_DO_1 |
@@ -59,13 +59,17 @@ static int fm93c56a_cmd(struct scsi_qla_host * ha, int cmd, int addr)
 
 	mask = 1 << (FM93C56A_CMD_BITS - 1);
 
-	
+	/* Force the previous data bit to be different. */
 	previousBit = 0xffff;
 	for (i = 0; i < FM93C56A_CMD_BITS; i++) {
 		dataBit =
 			(cmd & mask) ? AUBURN_EEPROM_DO_1 : AUBURN_EEPROM_DO_0;
 		if (previousBit != dataBit) {
 
+			/*
+			 * If the bit changed, then change the DO state to
+			 * match.
+			 */
 			eeprom_cmd(ha->eeprom_cmd_data | dataBit, ha);
 			previousBit = dataBit;
 		}
@@ -78,12 +82,16 @@ static int fm93c56a_cmd(struct scsi_qla_host * ha, int cmd, int addr)
 	}
 	mask = 1 << (eeprom_no_addr_bits(ha) - 1);
 
-	
+	/* Force the previous data bit to be different. */
 	previousBit = 0xffff;
 	for (i = 0; i < eeprom_no_addr_bits(ha); i++) {
 		dataBit = addr & mask ? AUBURN_EEPROM_DO_1 :
 			AUBURN_EEPROM_DO_0;
 		if (previousBit != dataBit) {
+			/*
+			 * If the bit changed, then change the DO state to
+			 * match.
+			 */
 			eeprom_cmd(ha->eeprom_cmd_data | dataBit, ha);
 
 			previousBit = dataBit;
@@ -111,6 +119,8 @@ static int fm93c56a_datain(struct scsi_qla_host * ha, unsigned short *value)
 	int data = 0;
 	int dataBit;
 
+	/* Read the data bits
+	 * The first bit is a dummy.  Clock right over it. */
 	for (i = 0; i < eeprom_no_data_bits(ha); i++) {
 		eeprom_cmd(ha->eeprom_cmd_data |
 		       AUBURN_EEPROM_CLK_RISE, ha);
@@ -136,11 +146,12 @@ static int eeprom_readword(int eepromAddr, u16 * value,
 	return 1;
 }
 
+/* Hardware_lock must be set before calling */
 u16 rd_nvram_word(struct scsi_qla_host * ha, int offset)
 {
 	u16 val = 0;
 
-	
+	/* NOTE: NVRAM uses half-word addresses */
 	eeprom_readword(offset, &val, ha);
 	return val;
 }
@@ -184,6 +195,11 @@ int qla4xxx_is_nvram_configuration_valid(struct scsi_qla_host * ha)
 	return status;
 }
 
+/*************************************************************************
+ *
+ *			Hardware Semaphore routines
+ *
+ *************************************************************************/
 int ql4xxx_sem_spinlock(struct scsi_qla_host * ha, u32 sem_mask, u32 sem_bits)
 {
 	uint32_t value;

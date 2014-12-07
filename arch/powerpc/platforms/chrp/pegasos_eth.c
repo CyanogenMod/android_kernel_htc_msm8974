@@ -85,6 +85,8 @@ static struct platform_device *mv643xx_eth_pd_devs[] __initdata = {
 	&eth_port1_device,
 };
 
+/***********/
+/***********/
 #define MV_READ(offset,val) 	{ val = readl(mv643xx_reg_base + offset); }
 #define MV_WRITE(offset,data) writel(data, mv643xx_reg_base + offset)
 
@@ -136,6 +138,8 @@ static int Enable_SRAM(void)
 }
 
 
+/***********/
+/***********/
 static int __init mv643xx_eth_add_pds(void)
 {
 	int ret = 0;

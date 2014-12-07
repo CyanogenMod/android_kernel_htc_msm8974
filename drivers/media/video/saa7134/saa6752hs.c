@@ -50,26 +50,26 @@ MODULE_AUTHOR("Andrew de Quincey");
 MODULE_LICENSE("GPL");
 
 enum saa6752hs_videoformat {
-	SAA6752HS_VF_D1 = 0,    
-	SAA6752HS_VF_2_3_D1 = 1,
-	SAA6752HS_VF_1_2_D1 = 2,
-	SAA6752HS_VF_SIF = 3,   
+	SAA6752HS_VF_D1 = 0,    /* standard D1 video format: 720x576 */
+	SAA6752HS_VF_2_3_D1 = 1,/* 2/3D1 video format: 480x576 */
+	SAA6752HS_VF_1_2_D1 = 2,/* 1/2D1 video format: 352x576 */
+	SAA6752HS_VF_SIF = 3,   /* SIF video format: 352x288 */
 	SAA6752HS_VF_UNKNOWN,
 };
 
 struct saa6752hs_mpeg_params {
-	
+	/* transport streams */
 	__u16				ts_pid_pmt;
 	__u16				ts_pid_audio;
 	__u16				ts_pid_video;
 	__u16				ts_pid_pcr;
 
-	
+	/* audio */
 	enum v4l2_mpeg_audio_encoding    au_encoding;
 	enum v4l2_mpeg_audio_l2_bitrate  au_l2_bitrate;
 	enum v4l2_mpeg_audio_ac3_bitrate au_ac3_bitrate;
 
-	
+	/* video */
 	enum v4l2_mpeg_video_aspect	vi_aspect;
 	enum v4l2_mpeg_video_bitrate_mode vi_bitrate_mode;
 	__u32 				vi_bitrate;
@@ -117,93 +117,94 @@ static inline struct saa6752hs_state *to_state(struct v4l2_subdev *sd)
 	return container_of(sd, struct saa6752hs_state, sd);
 }
 
+/* ---------------------------------------------------------------------- */
 
 static u8 PAT[] = {
-	0xc2, 
-	0x00, 
+	0xc2, /* i2c register */
+	0x00, /* table number for encoder */
 
-	0x47, 
-	0x40, 0x00, 
-	0x10, 
+	0x47, /* sync */
+	0x40, 0x00, /* transport_error_indicator(0), payload_unit_start(1), transport_priority(0), pid(0) */
+	0x10, /* transport_scrambling_control(00), adaptation_field_control(01), continuity_counter(0) */
 
-	0x00, 
+	0x00, /* PSI pointer to start of table */
 
-	0x00, 
-	0xb0, 0x0d, 
+	0x00, /* tid(0) */
+	0xb0, 0x0d, /* section_syntax_indicator(1), section_length(13) */
 
-	0x00, 0x01, 
+	0x00, 0x01, /* transport_stream_id(1) */
 
-	0xc1, 
+	0xc1, /* version_number(0), current_next_indicator(1) */
 
-	0x00, 0x00, 
+	0x00, 0x00, /* section_number(0), last_section_number(0) */
 
-	0x00, 0x01, 
+	0x00, 0x01, /* program_number(1) */
 
-	0xe0, 0x00, 
+	0xe0, 0x00, /* PMT PID */
 
-	0x00, 0x00, 0x00, 0x00 
+	0x00, 0x00, 0x00, 0x00 /* CRC32 */
 };
 
 static u8 PMT[] = {
-	0xc2, 
-	0x01, 
+	0xc2, /* i2c register */
+	0x01, /* table number for encoder */
 
-	0x47, 
-	0x40, 0x00, 
-	0x10, 
+	0x47, /* sync */
+	0x40, 0x00, /* transport_error_indicator(0), payload_unit_start(1), transport_priority(0), pid */
+	0x10, /* transport_scrambling_control(00), adaptation_field_control(01), continuity_counter(0) */
 
-	0x00, 
+	0x00, /* PSI pointer to start of table */
 
-	0x02, 
-	0xb0, 0x17, 
+	0x02, /* tid(2) */
+	0xb0, 0x17, /* section_syntax_indicator(1), section_length(23) */
 
-	0x00, 0x01, 
+	0x00, 0x01, /* program_number(1) */
 
-	0xc1, 
+	0xc1, /* version_number(0), current_next_indicator(1) */
 
-	0x00, 0x00, 
+	0x00, 0x00, /* section_number(0), last_section_number(0) */
 
-	0xe0, 0x00, 
+	0xe0, 0x00, /* PCR_PID */
 
-	0xf0, 0x00, 
+	0xf0, 0x00, /* program_info_length(0) */
 
-	0x02, 0xe0, 0x00, 0xf0, 0x00, 
-	0x04, 0xe0, 0x00, 0xf0, 0x00, 
+	0x02, 0xe0, 0x00, 0xf0, 0x00, /* video stream type(2), pid */
+	0x04, 0xe0, 0x00, 0xf0, 0x00, /* audio stream type(4), pid */
 
-	0x00, 0x00, 0x00, 0x00 
+	0x00, 0x00, 0x00, 0x00 /* CRC32 */
 };
 
 static u8 PMT_AC3[] = {
-	0xc2, 
-	0x01, 
-	0x47, 
+	0xc2, /* i2c register */
+	0x01, /* table number for encoder(1) */
+	0x47, /* sync */
 
-	0x40, 
-	0x10, 
-	0x10, 
+	0x40, /* transport_error_indicator(0), payload_unit_start(1), transport_priority(0) */
+	0x10, /* PMT PID (0x0010) */
+	0x10, /* transport_scrambling_control(00), adaptation_field_control(01), continuity_counter(0) */
 
-	0x00, 
+	0x00, /* PSI pointer to start of table */
 
-	0x02, 
-	0xb0, 0x1a, 
+	0x02, /* TID (2) */
+	0xb0, 0x1a, /* section_syntax_indicator(1), section_length(26) */
 
-	0x00, 0x01, 
+	0x00, 0x01, /* program_number(1) */
 
-	0xc1, 
+	0xc1, /* version_number(0), current_next_indicator(1) */
 
-	0x00, 0x00, 
+	0x00, 0x00, /* section_number(0), last_section_number(0) */
 
-	0xe1, 0x04, 
+	0xe1, 0x04, /* PCR_PID (0x0104) */
 
-	0xf0, 0x00, 
+	0xf0, 0x00, /* program_info_length(0) */
 
-	0x02, 0xe1, 0x00, 0xf0, 0x00, 
-	0x06, 0xe1, 0x03, 0xf0, 0x03, 
-	0x6a, 
-	0x01, 
-	0x00, 
+	0x02, 0xe1, 0x00, 0xf0, 0x00, /* video stream type(2), pid */
+	0x06, 0xe1, 0x03, 0xf0, 0x03, /* audio stream type(6), pid */
+	0x6a, /* AC3 */
+	0x01, /* Descriptor_length(1) */
+	0x00, /* component_type_flag(0), bsid_flag(0), mainid_flag(0), asvc_flag(0), reserved flags(0) */
 
-	0xED, 0xDE, 0x2D, 0xF3 
+	0xED, 0xDE, 0x2D, 0xF3 /* CRC32 BE */
 };
 
 static struct saa6752hs_mpeg_params param_defaults =
@@ -223,6 +224,7 @@ static struct saa6752hs_mpeg_params param_defaults =
 	.au_ac3_bitrate  = V4L2_MPEG_AUDIO_AC3_BITRATE_256K,
 };
 
+/* ---------------------------------------------------------------------- */
 
 static int saa6752hs_chip_command(struct i2c_client *client,
 				  enum saa6752hs_command command)
@@ -231,7 +233,7 @@ static int saa6752hs_chip_command(struct i2c_client *client,
 	unsigned long timeout;
 	int status = 0;
 
-	
+	/* execute the command */
 	switch(command) {
 	case SAA6752HS_COMMAND_RESET:
 		buf[0] = 0x00;
@@ -265,11 +267,11 @@ static int saa6752hs_chip_command(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	
+	/* set it and wait for it to be so */
 	i2c_master_send(client, buf, 1);
 	timeout = jiffies + HZ * 3;
 	for (;;) {
-		
+		/* get the current status */
 		buf[0] = 0x10;
 		i2c_master_send(client, buf, 1);
 		i2c_master_recv(client, buf, 1);
@@ -284,7 +286,7 @@ static int saa6752hs_chip_command(struct i2c_client *client,
 		msleep(10);
 	}
 
-	
+	/* delay a bit to let encoder settle */
 	msleep(50);
 
 	return status;
@@ -317,29 +319,29 @@ static int saa6752hs_set_bitrate(struct i2c_client *client,
 	int tot_bitrate;
 	int is_384k;
 
-	
+	/* set the bitrate mode */
 	set_reg8(client, 0x71,
 		params->vi_bitrate_mode != V4L2_MPEG_VIDEO_BITRATE_MODE_VBR);
 
-	
+	/* set the video bitrate */
 	if (params->vi_bitrate_mode == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR) {
-		
+		/* set the target bitrate */
 		set_reg16(client, 0x80, params->vi_bitrate);
 
-		
+		/* set the max bitrate */
 		set_reg16(client, 0x81, params->vi_bitrate_peak);
 		tot_bitrate = params->vi_bitrate_peak;
 	} else {
-		
+		/* set the target bitrate (no max bitrate for CBR) */
 		set_reg16(client, 0x81, params->vi_bitrate);
 		tot_bitrate = params->vi_bitrate;
 	}
 
-	
+	/* set the audio encoding */
 	set_reg8(client, 0x93,
 			params->au_encoding == V4L2_MPEG_AUDIO_ENCODING_AC3);
 
-	
+	/* set the audio bitrate */
 	if (params->au_encoding == V4L2_MPEG_AUDIO_ENCODING_AC3)
 		is_384k = V4L2_MPEG_AUDIO_AC3_BITRATE_384K == params->au_ac3_bitrate;
 	else
@@ -347,11 +349,15 @@ static int saa6752hs_set_bitrate(struct i2c_client *client,
 	set_reg8(client, 0x94, is_384k);
 	tot_bitrate += is_384k ? 384 : 256;
 
+	/* Note: the total max bitrate is determined by adding the video and audio
+	   bitrates together and also adding an extra 768kbit/s to stay on the
+	   safe side. If more control should be required, then an extra MPEG control
+	   should be added. */
 	tot_bitrate += 768;
 	if (tot_bitrate > MPEG_TOTAL_TARGET_BITRATE_MAX)
 		tot_bitrate = MPEG_TOTAL_TARGET_BITRATE_MAX;
 
-	
+	/* set the total bitrate */
 	set_reg16(client, 0xb1, tot_bitrate);
 	return 0;
 }
@@ -676,34 +682,34 @@ static int saa6752hs_init(struct v4l2_subdev *sd, u32 leading_null_bytes)
 	unsigned char localPAT[256];
 	unsigned char localPMT[256];
 
-	
+	/* Set video format - must be done first as it resets other settings */
 	set_reg8(client, 0x41, h->video_format);
 
-	
+	/* Set number of lines in input signal */
 	set_reg8(client, 0x40, (h->standard & V4L2_STD_525_60) ? 1 : 0);
 
-	
+	/* set bitrate */
 	saa6752hs_set_bitrate(client, h);
 
-	
+	/* Set GOP structure {3, 13} */
 	set_reg16(client, 0x72, 0x030d);
 
-	
+	/* Set minimum Q-scale {4} */
 	set_reg8(client, 0x82, 0x04);
 
-	
+	/* Set maximum Q-scale {12} */
 	set_reg8(client, 0x83, 0x0c);
 
-	
+	/* Set Output Protocol */
 	set_reg8(client, 0xd0, 0x81);
 
-	
+	/* Set video output stream format {TS} */
 	set_reg8(client, 0xb0, 0x05);
 
-	
+	/* Set leading null byte for TS */
 	set_reg16(client, 0xf6, leading_null_bytes);
 
-	
+	/* compute PAT */
 	memcpy(localPAT, PAT, sizeof(PAT));
 	localPAT[17] = 0xe0 | ((h->params.ts_pid_pmt >> 8) & 0x0f);
 	localPAT[18] = h->params.ts_pid_pmt & 0xff;
@@ -713,7 +719,7 @@ static int saa6752hs_init(struct v4l2_subdev *sd, u32 leading_null_bytes)
 	localPAT[sizeof(PAT) - 2] = (crc >> 8) & 0xFF;
 	localPAT[sizeof(PAT) - 1] = crc & 0xFF;
 
-	
+	/* compute PMT */
 	if (h->params.au_encoding == V4L2_MPEG_AUDIO_ENCODING_AC3) {
 		size = sizeof(PMT_AC3);
 		memcpy(localPMT, PMT_AC3, size);
@@ -735,27 +741,27 @@ static int saa6752hs_init(struct v4l2_subdev *sd, u32 leading_null_bytes)
 	localPMT[size - 2] = (crc >> 8) & 0xFF;
 	localPMT[size - 1] = crc & 0xFF;
 
-	
+	/* Set Audio PID */
 	set_reg16(client, 0xc1, h->params.ts_pid_audio);
 
-	
+	/* Set Video PID */
 	set_reg16(client, 0xc0, h->params.ts_pid_video);
 
-	
+	/* Set PCR PID */
 	set_reg16(client, 0xc4, h->params.ts_pid_pcr);
 
-	
+	/* Send SI tables */
 	i2c_master_send(client, localPAT, sizeof(PAT));
 	i2c_master_send(client, localPMT, size);
 
-	
+	/* mute then unmute audio. This removes buzzing artefacts */
 	set_reg8(client, 0xa4, 1);
 	set_reg8(client, 0xa4, 0);
 
-	
+	/* start it going */
 	saa6752hs_chip_command(client, SAA6752HS_COMMAND_START);
 
-	
+	/* readout current state */
 	buf[0] = 0xE1;
 	buf[1] = 0xA7;
 	buf[2] = 0xFE;
@@ -764,7 +770,7 @@ static int saa6752hs_init(struct v4l2_subdev *sd, u32 leading_null_bytes)
 	i2c_master_send(client, buf, 5);
 	i2c_master_recv(client, buf2, 4);
 
-	
+	/* change aspect ratio */
 	buf[0] = 0xE0;
 	buf[1] = 0xA7;
 	buf[2] = 0xFE;
@@ -861,6 +867,17 @@ static int saa6752hs_s_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefm
 	if (f->code != V4L2_MBUS_FMT_FIXED)
 		return -EINVAL;
 
+	/*
+	  FIXME: translate and round width/height into EMPRESS
+	  subsample type:
+
+	  type   |   PAL   |  NTSC
+	  ---------------------------
+	  SIF    | 352x288 | 352x240
+	  1/2 D1 | 352x576 | 352x480
+	  2/3 D1 | 480x576 | 480x480
+	  D1     | 720x576 | 720x480
+	*/
 
 	dist_352 = abs(f->width - 352);
 	dist_480 = abs(f->width - 480);
@@ -906,6 +923,7 @@ static int saa6752hs_g_chip_ident(struct v4l2_subdev *sd, struct v4l2_dbg_chip_i
 			chip, h->chip, h->revision);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops saa6752hs_core_ops = {
 	.g_chip_ident = saa6752hs_g_chip_ident,
@@ -954,7 +972,7 @@ static int saa6752hs_probe(struct i2c_client *client,
 		v4l_info(client, "support AC-3\n");
 	}
 	h->params = param_defaults;
-	h->standard = 0; 
+	h->standard = 0; /* Assume 625 input lines */
 	return 0;
 }
 
@@ -985,3 +1003,10 @@ static struct i2c_driver saa6752hs_driver = {
 
 module_i2c_driver(saa6752hs_driver);
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

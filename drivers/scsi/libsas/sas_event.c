@@ -33,7 +33,7 @@ void sas_queue_work(struct sas_ha_struct *ha, struct sas_work *sw)
 		return;
 
 	if (test_bit(SAS_HA_DRAINING, &ha->state)) {
-		
+		/* add it to the defer list, if not already pending */
 		if (list_empty(&sw->drain_node))
 			list_add(&sw->drain_node, &ha->defer_q);
 	} else
@@ -60,7 +60,7 @@ void __sas_drain_work(struct sas_ha_struct *ha)
 	struct sas_work *sw, *_sw;
 
 	set_bit(SAS_HA_DRAINING, &ha->state);
-	
+	/* flush submitters */
 	spin_lock_irq(&ha->state_lock);
 	spin_unlock_irq(&ha->state_lock);
 

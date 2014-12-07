@@ -38,6 +38,10 @@
 #define cpu_has_dsp	0
 #endif
 
+/*
+ * Generic wrapper for command line arguments to disable on-chip
+ * peripherals (nofpu, nodsp, and so forth).
+ */
 #define onchip_setup(x)					\
 static int x##_disabled __cpuinitdata = !cpu_has_##x;	\
 							\
@@ -57,10 +61,10 @@ onchip_setup(dsp);
 
 static void __cpuinit speculative_execution_init(void)
 {
-	
+	/* Clear RABD */
 	__raw_writel(__raw_readl(CPUOPM) & ~CPUOPM_RABD, CPUOPM);
 
-	
+	/* Flush the update */
 	(void)__raw_readl(CPUOPM);
 	ctrl_barrier();
 }
@@ -78,6 +82,13 @@ static void __cpuinit expmask_init(void)
 {
 	unsigned long expmask = __raw_readl(EXPMASK);
 
+	/*
+	 * Future proofing.
+	 *
+	 * Disable support for slottable sleep instruction, non-nop
+	 * instructions in the rte delay slot, and associative writes to
+	 * the memory-mapped cache array.
+	 */
 	expmask &= ~(EXPMASK_RTEDS | EXPMASK_BRDSSLP | EXPMASK_MMCAW);
 
 	__raw_writel(expmask, EXPMASK);
@@ -87,10 +98,14 @@ static void __cpuinit expmask_init(void)
 #define expmask_init()	do { } while (0)
 #endif
 
+/* 2nd-level cache init */
 void __attribute__ ((weak)) l2_cache_init(void)
 {
 }
 
+/*
+ * Generic first-level cache init
+ */
 #ifdef CONFIG_SUPERH32
 static void cache_init(void)
 {
@@ -99,12 +114,27 @@ static void cache_init(void)
 	jump_to_uncached();
 	ccr = __raw_readl(CCR);
 
+	/*
+	 * At this point we don't know whether the cache is enabled or not - a
+	 * bootloader may have enabled it.  There are at least 2 things that
+	 * could be dirty in the cache at this point:
+	 * 1. kernel command line set up by boot loader
+	 * 2. spilled registers from the prolog of this function
+	 * => before re-initialising the cache, we must do a purge of the whole
+	 * cache out to memory for safety.  As long as nothing is spilled
+	 * during the loop to lines that have already been done, this is safe.
+	 * - RPC
+	 */
 	if (ccr & CCR_CACHE_ENABLE) {
 		unsigned long ways, waysize, addrstart;
 
 		waysize = current_cpu_data.dcache.sets;
 
 #ifdef CCR_CACHE_ORA
+		/*
+		 * If the OC is already in RAM mode, we only have
+		 * half of the entries to flush..
+		 */
 		if (ccr & CCR_CACHE_ORA)
 			waysize >>= 1;
 #endif
@@ -112,7 +142,7 @@ static void cache_init(void)
 		waysize <<= current_cpu_data.dcache.entry_shift;
 
 #ifdef CCR_CACHE_EMODE
-		
+		/* If EMODE is not set, we only have 1 way to flush. */
 		if (!(ccr & CCR_CACHE_EMODE))
 			ways = 1;
 		else
@@ -132,10 +162,14 @@ static void cache_init(void)
 		} while (--ways);
 	}
 
+	/*
+	 * Default CCR values .. enable the caches
+	 * and invalidate them immediately..
+	 */
 	flags = CCR_CACHE_ENABLE | CCR_CACHE_INVALIDATE;
 
 #ifdef CCR_CACHE_EMODE
-	
+	/* Force EMODE if possible */
 	if (current_cpu_data.dcache.ways > 1)
 		flags |= CCR_CACHE_EMODE;
 	else
@@ -143,13 +177,13 @@ static void cache_init(void)
 #endif
 
 #if defined(CONFIG_CACHE_WRITETHROUGH)
-	
+	/* Write-through */
 	flags |= CCR_CACHE_WT;
 #elif defined(CONFIG_CACHE_WRITEBACK)
-	
+	/* Write-back */
 	flags |= CCR_CACHE_CB;
 #else
-	
+	/* Off */
 	flags &= ~CCR_CACHE_ENABLE;
 #endif
 
@@ -180,12 +214,12 @@ static void detect_cache_shape(void)
 	if (current_cpu_data.flags & CPU_HAS_L2_CACHE)
 		l2_cache_shape = CACHE_DESC_SHAPE(current_cpu_data.scache);
 	else
-		l2_cache_shape = -1; 
+		l2_cache_shape = -1; /* No S-cache */
 }
 
 static void __cpuinit fpu_init(void)
 {
-	
+	/* Disable the FPU */
 	if (fpu_disabled && (current_cpu_data.flags & CPU_HAS_FPU)) {
 		printk("FPU Disabled\n");
 		current_cpu_data.flags &= ~CPU_HAS_FPU;
@@ -200,7 +234,7 @@ static void __cpuinit release_dsp(void)
 {
 	unsigned long sr;
 
-	
+	/* Clear SR.DSP bit */
 	__asm__ __volatile__ (
 		"stc\tsr, %0\n\t"
 		"and\t%1, %0\n\t"
@@ -214,6 +248,10 @@ static void __cpuinit dsp_init(void)
 {
 	unsigned long sr;
 
+	/*
+	 * Set the SR.DSP bit, wait for one instruction, and then read
+	 * back the SR value.
+	 */
 	__asm__ __volatile__ (
 		"stc\tsr, %0\n\t"
 		"or\t%1, %0\n\t"
@@ -224,48 +262,64 @@ static void __cpuinit dsp_init(void)
 		: "r" (SR_DSP)
 	);
 
-	
+	/* If the DSP bit is still set, this CPU has a DSP */
 	if (sr & SR_DSP)
 		current_cpu_data.flags |= CPU_HAS_DSP;
 
-	
+	/* Disable the DSP */
 	if (dsp_disabled && (current_cpu_data.flags & CPU_HAS_DSP)) {
 		printk("DSP Disabled\n");
 		current_cpu_data.flags &= ~CPU_HAS_DSP;
 	}
 
-	
+	/* Now that we've determined the DSP status, clear the DSP bit. */
 	release_dsp();
 }
 #else
 static inline void __cpuinit dsp_init(void) { }
-#endif 
+#endif /* CONFIG_SH_DSP */
 
+/**
+ * cpu_init
+ *
+ * This is our initial entry point for each CPU, and is invoked on the
+ * boot CPU prior to calling start_kernel(). For SMP, a combination of
+ * this and start_secondary() will bring up each processor to a ready
+ * state prior to hand forking the idle loop.
+ *
+ * We do all of the basic processor init here, including setting up
+ * the caches, FPU, DSP, etc. By the time start_kernel() is hit (and
+ * subsequently platform_setup()) things like determining the CPU
+ * subtype and initial configuration will all be done.
+ *
+ * Each processor family is still responsible for doing its own probing
+ * and cache configuration in cpu_probe().
+ */
 asmlinkage void __cpuinit cpu_init(void)
 {
 	current_thread_info()->cpu = hard_smp_processor_id();
 
-	
+	/* First, probe the CPU */
 	cpu_probe();
 
 	if (current_cpu_data.type == CPU_SH_NONE)
 		panic("Unknown CPU");
 
-	
+	/* First setup the rest of the I-cache info */
 	current_cpu_data.icache.entry_mask = current_cpu_data.icache.way_incr -
 				      current_cpu_data.icache.linesz;
 
 	current_cpu_data.icache.way_size = current_cpu_data.icache.sets *
 				    current_cpu_data.icache.linesz;
 
-	
+	/* And the D-cache too */
 	current_cpu_data.dcache.entry_mask = current_cpu_data.dcache.way_incr -
 				      current_cpu_data.dcache.linesz;
 
 	current_cpu_data.dcache.way_size = current_cpu_data.dcache.sets *
 				    current_cpu_data.dcache.linesz;
 
-	
+	/* Init the cache */
 	cache_init();
 
 	if (raw_smp_processor_id() == 0) {
@@ -273,13 +327,17 @@ asmlinkage void __cpuinit cpu_init(void)
 				       current_cpu_data.dcache.way_size - 1,
 				       PAGE_SIZE - 1);
 
-		
+		/* Boot CPU sets the cache shape */
 		detect_cache_shape();
 	}
 
 	fpu_init();
 	dsp_init();
 
+	/*
+	 * Initialize the per-CPU ASID cache very early, since the
+	 * TLB flushing routines depend on this being setup.
+	 */
 	current_cpu_data.asid_cache = NO_CONTEXT;
 
 	current_cpu_data.phys_bits = __in_29bit_mode() ? 29 : 32;
@@ -287,13 +345,21 @@ asmlinkage void __cpuinit cpu_init(void)
 	speculative_execution_init();
 	expmask_init();
 
-	
+	/* Do the rest of the boot processor setup */
 	if (raw_smp_processor_id() == 0) {
-		
+		/* Save off the BIOS VBR, if there is one */
 		sh_bios_vbr_init();
 
+		/*
+		 * Setup VBR for boot CPU. Secondary CPUs do this through
+		 * start_secondary().
+		 */
 		per_cpu_trap_init();
 
+		/*
+		 * Boot processor to setup the FP and extended state
+		 * context info.
+		 */
 		init_thread_xstate();
 	}
 }

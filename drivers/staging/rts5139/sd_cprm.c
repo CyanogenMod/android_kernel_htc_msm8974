@@ -46,27 +46,27 @@ static inline int get_rsp_type(u8 rsp_code, u8 *rsp_type, int *rsp_len)
 
 	switch (rsp_code) {
 	case 0x03:
-		*rsp_type = SD_RSP_TYPE_R0; 
+		*rsp_type = SD_RSP_TYPE_R0; /* no response */
 		*rsp_len = 0;
 		break;
 
 	case 0x04:
-		*rsp_type = SD_RSP_TYPE_R1; 
+		*rsp_type = SD_RSP_TYPE_R1; /* R1,R6(,R4,R5) */
 		*rsp_len = 6;
 		break;
 
 	case 0x05:
-		*rsp_type = SD_RSP_TYPE_R1b;	
+		*rsp_type = SD_RSP_TYPE_R1b;	/* R1b */
 		*rsp_len = 6;
 		break;
 
 	case 0x06:
-		*rsp_type = SD_RSP_TYPE_R2;	
+		*rsp_type = SD_RSP_TYPE_R2;	/* R2 */
 		*rsp_len = 17;
 		break;
 
 	case 0x07:
-		*rsp_type = SD_RSP_TYPE_R3;	
+		*rsp_type = SD_RSP_TYPE_R3;	/* R3 */
 		*rsp_len = 6;
 		break;
 
@@ -127,7 +127,7 @@ RTY_SEND_CMD:
 			}
 			len = 19;
 		} else if (rsp_type != SD_RSP_TYPE_R0) {
-			
+			/* Read data from SD_CMDx registers */
 			for (reg_addr = SD_CMD0; reg_addr <= SD_CMD4;
 			     reg_addr++) {
 				rts51x_add_cmd(chip, READ_REG_CMD, reg_addr, 0,
@@ -322,7 +322,7 @@ int ext_sd_execute_no_data(struct rts51x_chip *chip, unsigned int lun,
 		}
 	}
 #else
-	
+	/* Set H/W SD/MMC Bus Width */
 	rts51x_write_register(chip, SD_CFG1, 0x03, SD_BUS_WIDTH_4);
 #endif
 
@@ -351,7 +351,7 @@ int ext_sd_execute_no_data(struct rts51x_chip *chip, unsigned int lun,
 			TRACE_GOTO(chip, SD_Execute_Cmd_Failed);
 	}
 #ifdef SUPPORT_SD_LOCK
-	
+	/* Get SD lock status */
 	retval = sd_update_lock_status(chip);
 	if (retval != STATUS_SUCCESS)
 		TRACE_GOTO(chip, SD_Execute_Cmd_Failed);
@@ -816,7 +816,7 @@ int ext_sd_execute_write_data(struct rts51x_chip *chip, unsigned int lun,
 		retval = rts51x_send_cmd(chip, MODE_CR, 250);
 		if (retval != STATUS_SUCCESS)
 			TRACE_GOTO(chip, SD_Execute_Write_Cmd_Failed);
-		rts51x_get_rsp(chip, 1, 200); 
+		rts51x_get_rsp(chip, 1, 200); /* Don't care return value */
 
 		retval = sd_update_lock_status(chip);
 		if (retval != STATUS_SUCCESS) {
@@ -824,7 +824,7 @@ int ext_sd_execute_write_data(struct rts51x_chip *chip, unsigned int lun,
 			lock_cmd_fail = 1;
 		}
 	}
-#endif 
+#endif /* SUPPORT_SD_LOCK */
 
 	if (standby) {
 		retval = sd_select_card(chip, 1);
@@ -851,7 +851,7 @@ int ext_sd_execute_write_data(struct rts51x_chip *chip, unsigned int lun,
 	}
 
 	if (cmd12 || standby) {
-		
+		/* There is CMD7 or CMD12 sent before CMD13 */
 		cmd13_checkbit = 1;
 	}
 
@@ -909,7 +909,7 @@ int ext_sd_execute_write_data(struct rts51x_chip *chip, unsigned int lun,
 		set_sense_type(chip, lun, SENSE_TYPE_NO_SENSE);
 		TRACE_RET(chip, TRANSPORT_FAILED);
 	}
-#endif 
+#endif /* SUPPORT_SD_LOCK */
 
 	return TRANSPORT_GOOD;
 
@@ -936,18 +936,18 @@ int sd_pass_thru_mode(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 		0x00,
 		0x00,
 		0x0E,
-		0x00,		
-		0x00,		
-		0x00,		
-		0x00,		
-		0x53,		
-		0x44,		
-		0x20,		
-		0x43,		
-		0x61,		
-		0x72,		
-		0x64,		
-		0x00,		
+		0x00,		/* Version Number */
+		0x00,		/* WP | Media Type */
+		0x00,		/* RCA (Low byte) */
+		0x00,		/* RCA (High byte) */
+		0x53,		/* 'S' */
+		0x44,		/* 'D' */
+		0x20,		/* ' ' */
+		0x43,		/* 'C' */
+		0x61,		/* 'a' */
+		0x72,		/* 'r' */
+		0x64,		/* 'd' */
+		0x00,		/* Max LUN Number */
 		0x00,
 		0x00,
 	};
@@ -982,7 +982,7 @@ int sd_pass_thru_mode(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 		TRACE_RET(chip, TRANSPORT_FAILED);
 	}
 
-	
+	/* 0x01:SD Memory Card; 0x02:Other Media; 0x03:Illegal Media; */
 	buf[5] = (1 == CHK_SD(sd_card)) ? 0x01 : 0x02;
 	if (chip->card_wp & SD_CARD)
 		buf[5] |= 0x80;
@@ -1172,13 +1172,13 @@ int sd_hw_rst(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 
 	switch (srb->cmnd[1] & 0x0F) {
 	case 0:
-		
+		/* SD Card Power Off -> ON and Initialization */
 #ifdef SUPPORT_SD_LOCK
 		if (0x64 == srb->cmnd[9]) {
-			
+			/* Command Mode */
 			sd_card->sd_lock_status |= SD_SDR_RST;
 		}
-#endif 
+#endif /* SUPPORT_SD_LOCK */
 		retval = reset_sd_card(chip);
 		if (retval != STATUS_SUCCESS) {
 #ifdef SUPPORT_SD_LOCK
@@ -1194,6 +1194,8 @@ int sd_hw_rst(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 		break;
 
 	case 1:
+		/* reset CMD(CMD0) and Initialization
+		 * (without SD Card Power Off -> ON) */
 		retval = soft_reset_sd_card(chip);
 		if (retval != STATUS_SUCCESS) {
 			set_sense_type(chip, lun, SENSE_TYPE_MEDIA_NOT_PRESENT);

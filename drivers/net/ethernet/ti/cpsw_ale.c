@@ -30,6 +30,7 @@
 #define ALE_VERSION_MAJOR(rev)	((rev >> 8) & 0xff)
 #define ALE_VERSION_MINOR(rev)	(rev & 0xff)
 
+/* ALE Registers */
 #define ALE_IDVER		0x00
 #define ALE_CONTROL		0x08
 #define ALE_PRESCALE		0x10
@@ -56,7 +57,7 @@ static inline int cpsw_ale_get_field(u32 *ale_entry, u32 start, u32 bits)
 
 	idx    = start / 32;
 	start -= idx * 32;
-	idx    = 2 - idx; 
+	idx    = 2 - idx; /* flip */
 	return (ale_entry[idx] >> start) & BITMASK(bits);
 }
 
@@ -68,7 +69,7 @@ static inline void cpsw_ale_set_field(u32 *ale_entry, u32 start, u32 bits,
 	value &= BITMASK(bits);
 	idx    = start / 32;
 	start -= idx * 32;
-	idx    = 2 - idx; 
+	idx    = 2 - idx; /* flip */
 	ale_entry[idx] &= ~(BITMASK(bits) << start);
 	ale_entry[idx] |=  (value << start);
 }
@@ -98,6 +99,7 @@ DEFINE_ALE_FIELD(vlan_unreg_mcast,	8,	3)
 DEFINE_ALE_FIELD(vlan_member_list,	0,	3)
 DEFINE_ALE_FIELD(mcast,			40,	1)
 
+/* The MAC address field in the ALE entry cannot be macroized as above */
 static inline void cpsw_ale_get_addr(u32 *ale_entry, u8 *addr)
 {
 	int i;
@@ -205,10 +207,10 @@ static void cpsw_ale_flush_mcast(struct cpsw_ale *ale, u32 *ale_entry,
 
 	mask = cpsw_ale_get_port_mask(ale_entry);
 	if ((mask & port_mask) == 0)
-		return; 
+		return; /* ports dont intersect, not interested */
 	mask &= ~port_mask;
 
-	
+	/* free if only remaining port is host port */
 	if (mask == BIT(ale->params.ale_ports))
 		cpsw_ale_set_entry_type(ale_entry, ALE_TYPE_FREE);
 	else
@@ -222,7 +224,7 @@ static void cpsw_ale_flush_ucast(struct cpsw_ale *ale, u32 *ale_entry,
 
 	port = cpsw_ale_get_port_num(ale_entry);
 	if ((BIT(port) & port_mask) == 0)
-		return; 
+		return; /* ports dont intersect, not interested */
 	cpsw_ale_set_entry_type(ale_entry, ALE_TYPE_FREE);
 }
 
@@ -525,7 +527,7 @@ int cpsw_ale_control_set(struct cpsw_ale *ale, int port, int control,
 
 	info = &ale_controls[control];
 	if (info->port_offset == 0 && info->port_shift == 0)
-		port = 0; 
+		port = 0; /* global, port is a dont care */
 
 	if (port < 0 || port > ale->params.ale_ports)
 		return -EINVAL;
@@ -555,7 +557,7 @@ int cpsw_ale_control_get(struct cpsw_ale *ale, int port, int control)
 
 	info = &ale_controls[control];
 	if (info->port_offset == 0 && info->port_shift == 0)
-		port = 0; 
+		port = 0; /* global, port is a dont care */
 
 	if (port < 0 || port > ale->params.ale_ports)
 		return -EINVAL;

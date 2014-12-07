@@ -51,6 +51,22 @@
 
 #include "core.h"
 
+/*
+ * Lack of dma_unmap_???? calls is intentional.
+ *
+ * API-correct usage requires additional support state information to be
+ * maintained for every RX and TX buffer descriptor (BD). Unfortunately, due to
+ * EMAC design (e.g. TX buffer passed from network stack can be split into
+ * several BDs, dma_map_single/dma_map_page can be used to map particular BD),
+ * maintaining such information will add additional overhead.
+ * Current DMA API implementation for 4xx processors only ensures cache coherency
+ * and dma_unmap_???? routines are empty and are likely to stay this way.
+ * I decided to omit dma_unmap_??? calls because I don't want to add additional
+ * complexity just for the sake of following some abstract API, when it doesn't
+ * add any real benefit to the driver. I understand that this decision maybe
+ * controversial, but I really tried to make code API-correct and efficient
+ * at the same time and didn't come up with code I liked :(.                --ebs
+ */
 
 #define DRV_NAME        "emac"
 #define DRV_VERSION     "3.54"
@@ -61,25 +77,58 @@ MODULE_AUTHOR
     ("Eugene Surovegin <eugene.surovegin@zultys.com> or <ebs@ebshome.net>");
 MODULE_LICENSE("GPL");
 
+/*
+ * PPC64 doesn't (yet) have a cacheable_memcpy
+ */
 #ifdef CONFIG_PPC64
 #define cacheable_memcpy(d,s,n) memcpy((d),(s),(n))
 #endif
 
+/* minimum number of free TX descriptors required to wake up TX process */
 #define EMAC_TX_WAKEUP_THRESH		(NUM_TX_BUFF / 4)
 
+/* If packet size is less than this number, we allocate small skb and copy packet
+ * contents into it instead of just sending original big skb up
+ */
 #define EMAC_RX_COPY_THRESH		CONFIG_IBM_EMAC_RX_COPY_THRESHOLD
 
+/* Since multiple EMACs share MDIO lines in various ways, we need
+ * to avoid re-using the same PHY ID in cases where the arch didn't
+ * setup precise phy_map entries
+ *
+ * XXX This is something that needs to be reworked as we can have multiple
+ * EMAC "sets" (multiple ASICs containing several EMACs) though we can
+ * probably require in that case to have explicit PHY IDs in the device-tree
+ */
 static u32 busy_phy_map;
 static DEFINE_MUTEX(emac_phy_map_lock);
 
+/* This is the wait queue used to wait on any event related to probe, that
+ * is discovery of MALs, other EMACs, ZMII/RGMIIs, etc...
+ */
 static DECLARE_WAIT_QUEUE_HEAD(emac_probe_wait);
 
+/* Having stable interface names is a doomed idea. However, it would be nice
+ * if we didn't have completely random interface names at boot too :-) It's
+ * just a matter of making everybody's life easier. Since we are doing
+ * threaded probing, it's a bit harder though. The base idea here is that
+ * we make up a list of all emacs in the device-tree before we register the
+ * driver. Every emac will then wait for the previous one in the list to
+ * initialize before itself. We should also keep that list ordered by
+ * cell_index.
+ * That list is only 4 entries long, meaning that additional EMACs don't
+ * get ordering guarantees unless EMAC_BOOT_LIST_SIZE is increased.
+ */
 
 #define EMAC_BOOT_LIST_SIZE	4
 static struct device_node *emac_boot_list[EMAC_BOOT_LIST_SIZE];
 
+/* How long should I wait for dependent devices ? */
 #define EMAC_PROBE_DEP_TIMEOUT	(HZ * 5)
 
+/* I don't want to litter system log with timeout errors
+ * when we have brain-damaged PHY.
+ */
 static inline void emac_report_timeout_error(struct emac_instance *dev,
 					     const char *error)
 {
@@ -92,6 +141,10 @@ static inline void emac_report_timeout_error(struct emac_instance *dev,
 			error);
 }
 
+/* EMAC PHY clock workaround:
+ * 440EP/440GR has more sane SDR0_MFR register implementation than 440GX,
+ * which allows controlling each EMAC clock
+ */
 static inline void emac_rx_clk_tx(struct emac_instance *dev)
 {
 #ifdef CONFIG_PPC_DCR_NATIVE
@@ -110,9 +163,13 @@ static inline void emac_rx_clk_default(struct emac_instance *dev)
 #endif
 }
 
+/* PHY polling intervals */
 #define PHY_POLL_LINK_ON	HZ
 #define PHY_POLL_LINK_OFF	(HZ / 5)
 
+/* Graceful stop timeouts in us.
+ * We should allow up to 1 frame time (full-duplex, ignoring collisions)
+ */
 #define STOP_TIMEOUT_10		1230
 #define STOP_TIMEOUT_100	124
 #define STOP_TIMEOUT_1000	13
@@ -122,6 +179,7 @@ static unsigned char default_mcast_addr[] = {
 	0x01, 0x80, 0xC2, 0x00, 0x00, 0x01
 };
 
+/* Please, keep in sync with struct ibm_emac_stats/ibm_emac_error_stats */
 static const char emac_stats_keys[EMAC_ETHTOOL_STATS_COUNT][ETH_GSTRING_LEN] = {
 	"rx_packets", "rx_bytes", "tx_packets", "tx_bytes", "rx_packets_csum",
 	"tx_packets_csum", "tx_undo", "rx_dropped_stack", "rx_dropped_oom",
@@ -205,7 +263,7 @@ static void emac_rx_enable(struct emac_instance *dev)
 	r = in_be32(&p->mr0);
 	if (!(r & EMAC_MR0_RXE)) {
 		if (unlikely(!(r & EMAC_MR0_RXI))) {
-			
+			/* Wait if previous async disable is still in progress */
 			int n = dev->stop_timeout;
 			while (!(r = in_be32(&p->mr0) & EMAC_MR0_RXI) && n) {
 				udelay(1);
@@ -248,7 +306,7 @@ static inline void emac_netif_stop(struct emac_instance *dev)
 	dev->no_mcast = 1;
 	netif_addr_unlock(dev->ndev);
 	netif_tx_unlock_bh(dev->ndev);
-	dev->ndev->trans_start = jiffies;	
+	dev->ndev->trans_start = jiffies;	/* prevent tx timeout */
 	mal_poll_disable(dev->mal, &dev->commac);
 	netif_tx_disable(dev->ndev);
 }
@@ -265,6 +323,11 @@ static inline void emac_netif_start(struct emac_instance *dev)
 
 	netif_wake_queue(dev->ndev);
 
+	/* NOTE: unconditional netif_wake_queue is only appropriate
+	 * so long as all callers are assured to have free tx slots
+	 * (taken from tg3... though the case where that is wrong is
+	 *  not terribly harmful)
+	 */
 	mal_poll_enable(dev->mal, &dev->commac);
 }
 
@@ -288,12 +351,15 @@ static int emac_reset(struct emac_instance *dev)
 	DBG(dev, "reset" NL);
 
 	if (!dev->reset_failed) {
+		/* 40x erratum suggests stopping RX channel before reset,
+		 * we stop TX as well
+		 */
 		emac_rx_disable(dev);
 		emac_tx_disable(dev);
 	}
 
 #ifdef CONFIG_PPC_DCR_NATIVE
-	
+	/* Enable internal clock source */
 	if (emac_has_feature(dev, EMAC_FTR_460EX_PHY_CLK_FIX))
 		dcri_clrset(SDR0, SDR0_ETH_CFG,
 			    0, SDR0_ETH_CFG_ECS << dev->cell_index);
@@ -304,7 +370,7 @@ static int emac_reset(struct emac_instance *dev)
 		--n;
 
 #ifdef CONFIG_PPC_DCR_NATIVE
-	 
+	 /* Enable external clock source */
 	if (emac_has_feature(dev, EMAC_FTR_460EX_PHY_CLK_FIX))
 		dcri_clrset(SDR0, SDR0_ETH_CFG,
 			    SDR0_ETH_CFG_ECS << dev->cell_index, 0);
@@ -492,19 +558,19 @@ static int emac_configure(struct emac_instance *dev)
 	DBG(dev, " link = %d duplex = %d, pause = %d, asym_pause = %d\n",
 	    link, dev->phy.duplex, dev->phy.pause, dev->phy.asym_pause);
 
-	
+	/* Default fifo sizes */
 	tx_size = dev->tx_fifo_size;
 	rx_size = dev->rx_fifo_size;
 
-	
+	/* No link, force loopback */
 	if (!link)
 		mr1 = EMAC_MR1_FDE | EMAC_MR1_ILE;
 
-	
+	/* Check for full duplex */
 	else if (dev->phy.duplex == DUPLEX_FULL)
 		mr1 |= EMAC_MR1_FDE | EMAC_MR1_MWSW_001;
 
-	
+	/* Adjust fifo sizes, mr1 and timeouts based on link speed */
 	dev->stop_timeout = STOP_TIMEOUT_10;
 	switch (dev->phy.speed) {
 	case SPEED_1000:
@@ -513,11 +579,14 @@ static int emac_configure(struct emac_instance *dev)
 				(dev->phy.gpcs_address != 0xffffffff) ?
 				 dev->phy.gpcs_address : dev->phy.address);
 
+			/* Put some arbitrary OUI, Manuf & Rev IDs so we can
+			 * identify this GPCS PHY later.
+			 */
 			out_be32(&p->u1.emac4.ipcr, 0xdeadbeef);
 		} else
 			mr1 |= EMAC_MR1_MF_1000;
 
-		
+		/* Extended fifo sizes */
 		tx_size = dev->tx_fifo_size_gige;
 		rx_size = dev->rx_fifo_size_gige;
 
@@ -534,7 +603,7 @@ static int emac_configure(struct emac_instance *dev)
 		mr1 |= EMAC_MR1_MF_100;
 		dev->stop_timeout = STOP_TIMEOUT_100;
 		break;
-	default: 
+	default: /* make gcc happy */
 		break;
 	}
 
@@ -544,6 +613,9 @@ static int emac_configure(struct emac_instance *dev)
 	if (emac_has_feature(dev, EMAC_FTR_HAS_ZMII))
 		zmii_set_speed(dev->zmii_dev, dev->zmii_port, dev->phy.speed);
 
+	/* on 40x erratum forces us to NOT use integrated flow control,
+	 * let's hope it works on 44x ;)
+	 */
 	if (!emac_has_feature(dev, EMAC_FTR_NO_FLOW_CONTROL_40x) &&
 	    dev->phy.duplex == DUPLEX_FULL) {
 		if (dev->phy.pause)
@@ -552,26 +624,26 @@ static int emac_configure(struct emac_instance *dev)
 			mr1 |= EMAC_MR1_APP;
 	}
 
-	
+	/* Add base settings & fifo sizes & program MR1 */
 	mr1 |= emac_calc_base_mr1(dev, tx_size, rx_size);
 	out_be32(&p->mr1, mr1);
 
-	
+	/* Set individual MAC address */
 	out_be32(&p->iahr, (ndev->dev_addr[0] << 8) | ndev->dev_addr[1]);
 	out_be32(&p->ialr, (ndev->dev_addr[2] << 24) |
 		 (ndev->dev_addr[3] << 16) | (ndev->dev_addr[4] << 8) |
 		 ndev->dev_addr[5]);
 
-	
+	/* VLAN Tag Protocol ID */
 	out_be32(&p->vtpid, 0x8100);
 
-	
+	/* Receive mode register */
 	r = emac_iff2rmr(ndev);
 	if (r & EMAC_RMR_MAE)
 		emac_hash_mc(dev);
 	out_be32(&p->rmr, r);
 
-	
+	/* FIFOs thresholds */
 	if (emac_has_feature(dev, EMAC_FTR_EMAC4))
 		r = EMAC4_TMR1((dev->mal_burst_size / dev->fifo_entry_size) + 1,
 			       tx_size / 2 / dev->fifo_entry_size);
@@ -581,23 +653,42 @@ static int emac_configure(struct emac_instance *dev)
 	out_be32(&p->tmr1, r);
 	out_be32(&p->trtr, emac_calc_trtr(dev, tx_size / 2));
 
+	/* PAUSE frame is sent when RX FIFO reaches its high-water mark,
+	   there should be still enough space in FIFO to allow the our link
+	   partner time to process this frame and also time to send PAUSE
+	   frame itself.
+
+	   Here is the worst case scenario for the RX FIFO "headroom"
+	   (from "The Switch Book") (100Mbps, without preamble, inter-frame gap):
+
+	   1) One maximum-length frame on TX                    1522 bytes
+	   2) One PAUSE frame time                                64 bytes
+	   3) PAUSE frame decode time allowance                   64 bytes
+	   4) One maximum-length frame on RX                    1522 bytes
+	   5) Round-trip propagation delay of the link (100Mb)    15 bytes
+	   ----------
+	   3187 bytes
+
+	   I chose to set high-water mark to RX_FIFO_SIZE / 4 (1024 bytes)
+	   low-water mark  to RX_FIFO_SIZE / 8 (512 bytes)
+	 */
 	r = emac_calc_rwmr(dev, rx_size / 8 / dev->fifo_entry_size,
 			   rx_size / 4 / dev->fifo_entry_size);
 	out_be32(&p->rwmr, r);
 
-	
+	/* Set PAUSE timer to the maximum */
 	out_be32(&p->ptr, 0xffff);
 
-	
+	/* IRQ sources */
 	r = EMAC_ISR_OVR | EMAC_ISR_BP | EMAC_ISR_SE |
 		EMAC_ISR_ALE | EMAC_ISR_BFCS | EMAC_ISR_PTLE | EMAC_ISR_ORE |
 		EMAC_ISR_IRE | EMAC_ISR_TE;
 	if (emac_has_feature(dev, EMAC_FTR_EMAC4))
-	    r |= EMAC4_ISR_TXPE | EMAC4_ISR_RXPE 
-;
+	    r |= EMAC4_ISR_TXPE | EMAC4_ISR_RXPE /* | EMAC4_ISR_TXUE |
+						  EMAC4_ISR_RXOE | */;
 	out_be32(&p->iser,  r);
 
-	
+	/* We need to take GPCS PHY out of isolate mode after EMAC reset */
 	if (emac_phy_gpcs(dev->phy.mode)) {
 		if (dev->phy.gpcs_address != 0xffffffff)
 			emac_mii_reset_gpcs(&dev->phy);
@@ -681,13 +772,13 @@ static int __emac_mdio_read(struct emac_instance *dev, u8 id, u8 reg)
 
 	DBG2(dev, "mdio_read(%02x,%02x)" NL, id, reg);
 
-	
+	/* Enable proper MDIO port */
 	if (emac_has_feature(dev, EMAC_FTR_HAS_ZMII))
 		zmii_get_mdio(dev->zmii_dev, dev->zmii_port);
 	if (emac_has_feature(dev, EMAC_FTR_HAS_RGMII))
 		rgmii_get_mdio(dev->rgmii_dev, dev->rgmii_port);
 
-	
+	/* Wait for management interface to become idle */
 	n = 20;
 	while (!emac_phy_done(dev, in_be32(&p->stacr))) {
 		udelay(1);
@@ -697,7 +788,7 @@ static int __emac_mdio_read(struct emac_instance *dev, u8 id, u8 reg)
 		}
 	}
 
-	
+	/* Issue read command */
 	if (emac_has_feature(dev, EMAC_FTR_EMAC4))
 		r = EMAC4_STACR_BASE(dev->opb_bus_freq);
 	else
@@ -712,7 +803,7 @@ static int __emac_mdio_read(struct emac_instance *dev, u8 id, u8 reg)
 		| ((id & EMAC_STACR_PCDA_MASK) << EMAC_STACR_PCDA_SHIFT);
 	out_be32(&p->stacr, r);
 
-	
+	/* Wait for read to complete */
 	n = 200;
 	while (!emac_phy_done(dev, (r = in_be32(&p->stacr)))) {
 		udelay(1);
@@ -753,13 +844,13 @@ static void __emac_mdio_write(struct emac_instance *dev, u8 id, u8 reg,
 
 	DBG2(dev, "mdio_write(%02x,%02x,%04x)" NL, id, reg, val);
 
-	
+	/* Enable proper MDIO port */
 	if (emac_has_feature(dev, EMAC_FTR_HAS_ZMII))
 		zmii_get_mdio(dev->zmii_dev, dev->zmii_port);
 	if (emac_has_feature(dev, EMAC_FTR_HAS_RGMII))
 		rgmii_get_mdio(dev->rgmii_dev, dev->rgmii_port);
 
-	
+	/* Wait for management interface to be idle */
 	n = 20;
 	while (!emac_phy_done(dev, in_be32(&p->stacr))) {
 		udelay(1);
@@ -769,7 +860,7 @@ static void __emac_mdio_write(struct emac_instance *dev, u8 id, u8 reg,
 		}
 	}
 
-	
+	/* Issue write command */
 	if (emac_has_feature(dev, EMAC_FTR_EMAC4))
 		r = EMAC4_STACR_BASE(dev->opb_bus_freq);
 	else
@@ -785,7 +876,7 @@ static void __emac_mdio_write(struct emac_instance *dev, u8 id, u8 reg,
 		(val << EMAC_STACR_PHYD_SHIFT);
 	out_be32(&p->stacr, r);
 
-	
+	/* Wait for write to complete */
 	n = 200;
 	while (!emac_phy_done(dev, in_be32(&p->stacr))) {
 		udelay(1);
@@ -825,6 +916,7 @@ static void emac_mdio_write(struct net_device *ndev, int id, int reg, int val)
 			  (u8) id, (u8) reg, (u16) val);
 }
 
+/* Tx lock BH */
 static void __emac_set_multicast_list(struct emac_instance *dev)
 {
 	struct emac_regs __iomem *p = dev->emacp;
@@ -832,6 +924,23 @@ static void __emac_set_multicast_list(struct emac_instance *dev)
 
 	DBG(dev, "__multicast %08x" NL, rmr);
 
+	/* I decided to relax register access rules here to avoid
+	 * full EMAC reset.
+	 *
+	 * There is a real problem with EMAC4 core if we use MWSW_001 bit
+	 * in MR1 register and do a full EMAC reset.
+	 * One TX BD status update is delayed and, after EMAC reset, it
+	 * never happens, resulting in TX hung (it'll be recovered by TX
+	 * timeout handler eventually, but this is just gross).
+	 * So we either have to do full TX reset or try to cheat here :)
+	 *
+	 * The only required change is to RX mode register, so I *think* all
+	 * we need is just to stop RX channel. This seems to work on all
+	 * tested SoCs.                                                --ebs
+	 *
+	 * If we need the full reset, we might just trigger the workqueue
+	 * and do it async... a bit nasty but should work --BenH
+	 */
 	dev->mcast_pending = 0;
 	emac_rx_disable(dev);
 	if (rmr & EMAC_RMR_MAE)
@@ -840,6 +949,7 @@ static void __emac_set_multicast_list(struct emac_instance *dev)
 	emac_rx_enable(dev);
 }
 
+/* Tx lock BH */
 static void emac_set_multicast_list(struct net_device *ndev)
 {
 	struct emac_instance *dev = netdev_priv(ndev);
@@ -873,6 +983,10 @@ static int emac_resize_rx_ring(struct emac_instance *dev, int new_mtu)
 		dev->rx_sg_skb = NULL;
 	}
 
+	/* Make a first pass over RX ring and mark BDs ready, dropping
+	 * non-processed packets on the way. We need this as a separate pass
+	 * to simplify error recovery in the case of allocation failure later.
+	 */
 	for (i = 0; i < NUM_RX_BUFF; ++i) {
 		if (dev->rx_desc[i].ctrl & MAL_RX_CTRL_FIRST)
 			++dev->estats.rx_dropped_resize;
@@ -882,11 +996,11 @@ static int emac_resize_rx_ring(struct emac_instance *dev, int new_mtu)
 		    (i == (NUM_RX_BUFF - 1) ? MAL_RX_CTRL_WRAP : 0);
 	}
 
-	
+	/* Reallocate RX ring only if bigger skb buffers are required */
 	if (rx_skb_size <= dev->rx_skb_size)
 		goto skip;
 
-	
+	/* Second pass, allocate new skbs */
 	for (i = 0; i < NUM_RX_BUFF; ++i) {
 		struct sk_buff *skb = alloc_skb(rx_skb_size, GFP_ATOMIC);
 		if (!skb) {
@@ -904,7 +1018,7 @@ static int emac_resize_rx_ring(struct emac_instance *dev, int new_mtu)
 		dev->rx_skb[i] = skb;
 	}
  skip:
-	
+	/* Check if we need to change "Jumbo" bit in MR1 */
 	if (emac_has_feature(dev, EMAC_APM821XX_REQ_JUMBO_FRAME_SIZE)) {
 		mr1_jumbo_bit_change = (new_mtu > ETH_DATA_LEN) ||
 				(dev->ndev->mtu > ETH_DATA_LEN);
@@ -914,7 +1028,7 @@ static int emac_resize_rx_ring(struct emac_instance *dev, int new_mtu)
 	}
 
 	if (mr1_jumbo_bit_change) {
-		
+		/* This is to prevent starting RX channel in emac_rx_enable() */
 		set_bit(MAL_COMMAC_RX_STOPPED, &dev->commac.flags);
 
 		dev->ndev->mtu = new_mtu;
@@ -923,7 +1037,7 @@ static int emac_resize_rx_ring(struct emac_instance *dev, int new_mtu)
 
 	mal_set_rcbs(dev->mal, dev->mal_rx_chan, emac_rx_size(new_mtu));
  oom:
-	
+	/* Restart RX */
 	clear_bit(MAL_COMMAC_RX_STOPPED, &dev->commac.flags);
 	dev->rx_slot = 0;
 	mal_enable_rx_channel(dev->mal, dev->mal_rx_chan);
@@ -934,6 +1048,7 @@ static int emac_resize_rx_ring(struct emac_instance *dev, int new_mtu)
 	return ret;
 }
 
+/* Process ctx, rtnl_lock semaphore */
 static int emac_change_mtu(struct net_device *ndev, int new_mtu)
 {
 	struct emac_instance *dev = netdev_priv(ndev);
@@ -945,7 +1060,7 @@ static int emac_change_mtu(struct net_device *ndev, int new_mtu)
 	DBG(dev, "change_mtu(%d)" NL, new_mtu);
 
 	if (netif_running(ndev)) {
-		
+		/* Check if we really need to reinitialize RX ring */
 		if (emac_rx_skb_size(ndev->mtu) != emac_rx_skb_size(new_mtu))
 			ret = emac_resize_rx_ring(dev, new_mtu);
 	}
@@ -1026,6 +1141,7 @@ static void emac_print_link_status(struct emac_instance *dev)
 		printk(KERN_INFO "%s: link is down\n", dev->ndev->name);
 }
 
+/* Process ctx, rtnl_lock semaphore */
 static int emac_open(struct net_device *ndev)
 {
 	struct emac_instance *dev = netdev_priv(ndev);
@@ -1033,7 +1149,7 @@ static int emac_open(struct net_device *ndev)
 
 	DBG(dev, "open" NL);
 
-	
+	/* Setup error IRQ handler */
 	err = request_irq(dev->emac_irq, emac_irq, 0, "EMAC", dev);
 	if (err) {
 		printk(KERN_ERR "%s: failed to request IRQ %d\n",
@@ -1041,7 +1157,7 @@ static int emac_open(struct net_device *ndev)
 		return err;
 	}
 
-	
+	/* Allocate RX ring */
 	for (i = 0; i < NUM_RX_BUFF; ++i)
 		if (emac_alloc_rx_skb(dev, i, GFP_KERNEL)) {
 			printk(KERN_ERR "%s: failed to allocate RX ring\n",
@@ -1056,6 +1172,8 @@ static int emac_open(struct net_device *ndev)
 	mutex_lock(&dev->link_lock);
 	dev->opened = 1;
 
+	/* Start PHY polling now.
+	 */
 	if (dev->phy.address >= 0) {
 		int link_poll_interval;
 		if (dev->phy.def->ops->poll_link(&dev->phy)) {
@@ -1075,7 +1193,7 @@ static int emac_open(struct net_device *ndev)
 	} else
 		netif_carrier_on(dev->ndev);
 
-	
+	/* Required for Pause packet support in EMAC */
 	dev_mc_add_global(ndev, default_mcast_addr);
 
 	emac_configure(dev);
@@ -1097,6 +1215,7 @@ static int emac_open(struct net_device *ndev)
 	return -ENOMEM;
 }
 
+/* BHs disabled */
 #if 0
 static int emac_link_differs(struct emac_instance *dev)
 {
@@ -1145,7 +1264,7 @@ static void emac_link_timer(struct work_struct *work)
 	if (dev->phy.def->ops->poll_link(&dev->phy)) {
 		if (!netif_carrier_ok(dev->ndev)) {
 			emac_rx_clk_default(dev);
-			
+			/* Get new link parameters */
 			dev->phy.def->ops->read_link(&dev->phy);
 
 			netif_carrier_on(dev->ndev);
@@ -1181,6 +1300,7 @@ static void emac_force_link_update(struct emac_instance *dev)
 	}
 }
 
+/* Process ctx, rtnl_lock semaphore */
 static int emac_close(struct net_device *ndev)
 {
 	struct emac_instance *dev = netdev_priv(ndev);
@@ -1228,6 +1348,10 @@ static inline int emac_xmit_finish(struct emac_instance *dev, int len)
 	struct emac_regs __iomem *p = dev->emacp;
 	struct net_device *ndev = dev->ndev;
 
+	/* Send the packet out. If the if makes a significant perf
+	 * difference, then we can store the TMR0 value in "dev"
+	 * instead
+	 */
 	if (emac_has_feature(dev, EMAC_FTR_EMAC4))
 		out_be32(&p->tmr0, EMAC4_TMR0_XMIT);
 	else
@@ -1245,6 +1369,7 @@ static inline int emac_xmit_finish(struct emac_instance *dev, int len)
 	return NETDEV_TX_OK;
 }
 
+/* Tx lock BH */
 static int emac_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	struct emac_instance *dev = netdev_priv(ndev);
@@ -1302,6 +1427,7 @@ static inline int emac_xmit_split(struct emac_instance *dev, int slot,
 	return slot;
 }
 
+/* Tx lock BH disabled (SG version for TAH equipped EMACs) */
 static int emac_start_xmit_sg(struct sk_buff *skb, struct net_device *ndev)
 {
 	struct emac_instance *dev = netdev_priv(ndev);
@@ -1311,12 +1437,16 @@ static int emac_start_xmit_sg(struct sk_buff *skb, struct net_device *ndev)
 	u16 ctrl;
 	u32 pd;
 
-	
+	/* This is common "fast" path */
 	if (likely(!nr_frags && len <= MAL_MAX_TX_SIZE))
 		return emac_start_xmit(skb, ndev);
 
 	len -= skb->data_len;
 
+	/* Note, this is only an *estimation*, we can still run out of empty
+	 * slots because of the additional fragmentation into
+	 * MAL_MAX_TX_SIZE-sized chunks
+	 */
 	if (unlikely(dev->tx_cnt + nr_frags + mal_tx_chunks(len) > NUM_TX_BUFF))
 		goto stop_queue;
 
@@ -1324,7 +1454,7 @@ static int emac_start_xmit_sg(struct sk_buff *skb, struct net_device *ndev)
 	    emac_tx_csum(dev, skb);
 	slot = dev->tx_slot;
 
-	
+	/* skb data */
 	dev->tx_skb[slot] = NULL;
 	chunk = min(len, MAL_MAX_TX_SIZE);
 	dev->tx_desc[slot].data_ptr = pd =
@@ -1334,7 +1464,7 @@ static int emac_start_xmit_sg(struct sk_buff *skb, struct net_device *ndev)
 	if (unlikely(len))
 		slot = emac_xmit_split(dev, slot, pd + chunk, len, !nr_frags,
 				       ctrl);
-	
+	/* skb fragments */
 	for (i = 0; i < nr_frags; ++i) {
 		struct skb_frag_struct *frag = &skb_shinfo(skb)->frags[i];
 		len = skb_frag_size(frag);
@@ -1351,10 +1481,10 @@ static int emac_start_xmit_sg(struct sk_buff *skb, struct net_device *ndev)
 
 	DBG2(dev, "xmit_sg(%u) %d - %d" NL, skb->len, dev->tx_slot, slot);
 
-	
+	/* Attach skb to the last slot so we don't release it too early */
 	dev->tx_skb[slot] = skb;
 
-	
+	/* Send the packet out */
 	if (dev->tx_slot == NUM_TX_BUFF - 1)
 		ctrl |= MAL_TX_CTRL_WRAP;
 	wmb();
@@ -1364,6 +1494,9 @@ static int emac_start_xmit_sg(struct sk_buff *skb, struct net_device *ndev)
 	return emac_xmit_finish(dev, skb->len);
 
  undo_frame:
+	/* Well, too bad. Our previous estimation was overly optimistic.
+	 * Undo everything.
+	 */
 	while (slot != dev->tx_slot) {
 		dev->tx_desc[slot].ctrl = 0;
 		--dev->tx_cnt;
@@ -1378,6 +1511,7 @@ static int emac_start_xmit_sg(struct sk_buff *skb, struct net_device *ndev)
 	return NETDEV_TX_BUSY;
 }
 
+/* Tx lock BHs */
 static void emac_parse_tx_error(struct emac_instance *dev, u16 ctrl)
 {
 	struct emac_error_stats *st = &dev->estats;
@@ -1528,6 +1662,7 @@ static inline int emac_rx_sg_append(struct emac_instance *dev, int slot)
 	return -1;
 }
 
+/* NAPI poll context */
 static int emac_poll_rx(void *param, int budget)
 {
 	struct emac_instance *dev = param;
@@ -1624,7 +1759,7 @@ static int emac_poll_rx(void *param, int budget)
 		goto skip;
 	oom:
 		DBG(dev, "rx OOM %d" NL, slot);
-		
+		/* Drop the packet and recycle skb */
 		++dev->estats.rx_dropped_oom;
 		emac_recycle_rx_skb(dev, slot, 0);
 		goto next;
@@ -1658,6 +1793,7 @@ static int emac_poll_rx(void *param, int budget)
 	return received;
 }
 
+/* NAPI poll context */
 static int emac_peek_rx(void *param)
 {
 	struct emac_instance *dev = param;
@@ -1665,6 +1801,7 @@ static int emac_peek_rx(void *param)
 	return !(dev->rx_desc[dev->rx_slot].ctrl & MAL_RX_CTRL_EMPTY);
 }
 
+/* NAPI poll context */
 static int emac_peek_rx_sg(void *param)
 {
 	struct emac_instance *dev = param;
@@ -1679,12 +1816,13 @@ static int emac_peek_rx_sg(void *param)
 
 		slot = (slot + 1) % NUM_RX_BUFF;
 
-		
+		/* I'm just being paranoid here :) */
 		if (unlikely(slot == dev->rx_slot))
 			return 0;
 	}
 }
 
+/* Hard IRQ */
 static void emac_rxde(void *param)
 {
 	struct emac_instance *dev = param;
@@ -1693,6 +1831,7 @@ static void emac_rxde(void *param)
 	emac_rx_disable_async(dev);
 }
 
+/* Hard IRQ */
 static irqreturn_t emac_irq(int irq, void *dev_instance)
 {
 	struct emac_instance *dev = dev_instance;
@@ -1753,7 +1892,7 @@ static struct net_device_stats *emac_stats(struct net_device *ndev)
 
 	DBG2(dev, "stats" NL);
 
-	
+	/* Compute "legacy" statistics */
 	spin_lock_irqsave(&dev->lock, flags);
 	nst->rx_packets = (unsigned long)st->rx_packets;
 	nst->rx_bytes = (unsigned long)st->rx_bytes;
@@ -1810,6 +1949,7 @@ static struct mal_commac_ops emac_commac_sg_ops = {
 	.rxde = &emac_rxde,
 };
 
+/* Ethtool support */
 static int emac_ethtool_get_settings(struct net_device *ndev,
 				     struct ethtool_cmd *cmd)
 {
@@ -1840,7 +1980,7 @@ static int emac_ethtool_set_settings(struct net_device *ndev,
 	DBG(dev, "set_settings(%d, %d, %d, 0x%08x)" NL,
 	    cmd->autoneg, cmd->speed, cmd->duplex, cmd->advertising);
 
-	
+	/* Basic sanity checks */
 	if (dev->phy.address < 0)
 		return -EOPNOTSUPP;
 	if (cmd->autoneg != AUTONEG_ENABLE && cmd->autoneg != AUTONEG_DISABLE)
@@ -2091,7 +2231,7 @@ static int emac_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
 	switch (cmd) {
 	case SIOCGMIIPHY:
 		data->phy_id = dev->phy.address;
-		
+		/* Fall through */
 	case SIOCGMIIREG:
 		data->val_out = emac_mdio_read(ndev, dev->phy.address,
 					       data->reg_num);
@@ -2128,12 +2268,12 @@ static int __devinit emac_check_deps(struct emac_instance *dev,
 	struct device_node *np;
 
 	for (i = 0; i < EMAC_DEP_COUNT; i++) {
-		
+		/* no dependency on that item, allright */
 		if (deps[i].phandle == 0) {
 			there++;
 			continue;
 		}
-		
+		/* special case for blist as the dependency might go away */
 		if (i == EMAC_DEP_PREV_IDX) {
 			np = *(dev->blist - 1);
 			if (np == NULL) {
@@ -2177,7 +2317,7 @@ static void emac_put_deps(struct emac_instance *dev)
 static int __devinit emac_of_bus_notify(struct notifier_block *nb,
 					unsigned long action, void *data)
 {
-	
+	/* We are only intereted in device addition */
 	if (action == BUS_NOTIFY_BOUND_DRIVER)
 		wake_up_all(&emac_probe_wait);
 	return 0;
@@ -2252,9 +2392,15 @@ static int __devinit emac_init_phy(struct emac_instance *dev)
 	dev->phy.dev = ndev;
 	dev->phy.mode = dev->phy_mode;
 
+	/* PHY-less configuration.
+	 * XXX I probably should move these settings to the dev tree
+	 */
 	if (dev->phy_address == 0xffffffff && dev->phy_map == 0xffffffff) {
 		emac_reset(dev);
 
+		/* PHY-less configuration.
+		 * XXX I probably should move these settings to the dev tree
+		 */
 		dev->phy.address = -1;
 		dev->phy.features = SUPPORTED_MII;
 		if (emac_phy_supports_gige(dev->phy_mode))
@@ -2274,20 +2420,31 @@ static int __devinit emac_init_phy(struct emac_instance *dev)
 	dev->phy.mdio_read = emac_mdio_read;
 	dev->phy.mdio_write = emac_mdio_write;
 
-	
+	/* Enable internal clock source */
 #ifdef CONFIG_PPC_DCR_NATIVE
 	if (emac_has_feature(dev, EMAC_FTR_440GX_PHY_CLK_FIX))
 		dcri_clrset(SDR0, SDR0_MFR, 0, SDR0_MFR_ECS);
 #endif
-	
+	/* PHY clock workaround */
 	emac_rx_clk_tx(dev);
 
-	
+	/* Enable internal clock source on 440GX*/
 #ifdef CONFIG_PPC_DCR_NATIVE
 	if (emac_has_feature(dev, EMAC_FTR_440GX_PHY_CLK_FIX))
 		dcri_clrset(SDR0, SDR0_MFR, 0, SDR0_MFR_ECS);
 #endif
+	/* Configure EMAC with defaults so we can at least use MDIO
+	 * This is needed mostly for 440GX
+	 */
 	if (emac_phy_gpcs(dev->phy.mode)) {
+		/* XXX
+		 * Make GPCS PHY address equal to EMAC index.
+		 * We probably should take into account busy_phy_map
+		 * and/or phy_map here.
+		 *
+		 * Note that the busy_phy_map is currently global
+		 * while it should probably be per-ASIC...
+		 */
 		dev->phy.gpcs_address = dev->gpcs_address;
 		if (dev->phy.gpcs_address == 0xffffffff)
 			dev->phy.address = dev->cell_index;
@@ -2303,7 +2460,7 @@ static int __devinit emac_init_phy(struct emac_instance *dev)
 			int r;
 			busy_phy_map |= 1 << i;
 
-			
+			/* Quick check if there is a PHY at the address */
 			r = emac_mdio_read(dev->ndev, i, MII_BMCR);
 			if (r == 0xffff || r < 0)
 				continue;
@@ -2311,7 +2468,7 @@ static int __devinit emac_init_phy(struct emac_instance *dev)
 				break;
 		}
 
-	
+	/* Enable external clock source */
 #ifdef CONFIG_PPC_DCR_NATIVE
 	if (emac_has_feature(dev, EMAC_FTR_440GX_PHY_CLK_FIX))
 		dcri_clrset(SDR0, SDR0_MFR, SDR0_MFR_ECS, 0);
@@ -2322,26 +2479,26 @@ static int __devinit emac_init_phy(struct emac_instance *dev)
 		return -ENXIO;
 	}
 
-	
+	/* Init PHY */
 	if (dev->phy.def->ops->init)
 		dev->phy.def->ops->init(&dev->phy);
 
-	
+	/* Disable any PHY features not supported by the platform */
 	dev->phy.def->features &= ~dev->phy_feat_exc;
 	dev->phy.features &= ~dev->phy_feat_exc;
 
-	
+	/* Setup initial link parameters */
 	if (dev->phy.features & SUPPORTED_Autoneg) {
 		adv = dev->phy.features;
 		if (!emac_has_feature(dev, EMAC_FTR_NO_FLOW_CONTROL_40x))
 			adv |= ADVERTISED_Pause | ADVERTISED_Asym_Pause;
-		
+		/* Restart autonegotiation */
 		dev->phy.def->ops->setup_aneg(&dev->phy, adv);
 	} else {
 		u32 f = dev->phy.def->features;
 		int speed = SPEED_10, fd = DUPLEX_HALF;
 
-		
+		/* Select highest supported speed/duplex */
 		if (f & SUPPORTED_1000baseT_Full) {
 			speed = SPEED_1000;
 			fd = DUPLEX_FULL;
@@ -2355,7 +2512,7 @@ static int __devinit emac_init_phy(struct emac_instance *dev)
 		else if (f & SUPPORTED_10baseT_Full)
 			fd = DUPLEX_FULL;
 
-		
+		/* Force link parameters */
 		dev->phy.def->ops->setup_forced(&dev->phy, speed, fd);
 	}
 	return 0;
@@ -2366,7 +2523,7 @@ static int __devinit emac_init_config(struct emac_instance *dev)
 	struct device_node *np = dev->ofdev->dev.of_node;
 	const void *p;
 
-	
+	/* Read config from device-tree */
 	if (emac_read_uint_prop(np, "mal-device", &dev->mal_ph, 1))
 		return -ENXIO;
 	if (emac_read_uint_prop(np, "mal-tx-channel", &dev->mal_tx_chan, 1))
@@ -2412,12 +2569,12 @@ static int __devinit emac_init_config(struct emac_instance *dev)
 	if (emac_read_uint_prop(np, "mal-burst-size", &dev->mal_burst_size, 0))
 		dev->mal_burst_size = 256;
 
-	
+	/* PHY mode needs some decoding */
 	dev->phy_mode = of_get_phy_mode(np);
 	if (dev->phy_mode < 0)
 		dev->phy_mode = PHY_MODE_NA;
 
-	
+	/* Check EMAC version */
 	if (of_device_is_compatible(np, "ibm,emac4sync")) {
 		dev->features |= (EMAC_FTR_EMAC4 | EMAC_FTR_EMAC4SYNC);
 		if (of_device_is_compatible(np, "ibm,emac-460ex") ||
@@ -2451,18 +2608,18 @@ static int __devinit emac_init_config(struct emac_instance *dev)
 
 	}
 
-	
+	/* Fixup some feature bits based on the device tree */
 	if (of_get_property(np, "has-inverted-stacr-oc", NULL))
 		dev->features |= EMAC_FTR_STACR_OC_INVERT;
 	if (of_get_property(np, "has-new-stacr-staopc", NULL))
 		dev->features |= EMAC_FTR_HAS_NEW_STACR;
 
-	
+	/* CAB lacks the appropriate properties */
 	if (of_device_is_compatible(np, "ibm,emac-axon"))
 		dev->features |= EMAC_FTR_HAS_NEW_STACR |
 			EMAC_FTR_STACR_OC_INVERT;
 
-	
+	/* Enable TAH/ZMII/RGMII features as found */
 	if (dev->tah_ph != 0) {
 #ifdef CONFIG_IBM_EMAC_TAH
 		dev->features |= EMAC_FTR_HAS_TAH;
@@ -2493,7 +2650,7 @@ static int __devinit emac_init_config(struct emac_instance *dev)
 #endif
 	}
 
-	
+	/* Read MAC-address */
 	p = of_get_property(np, "local-mac-address", NULL);
 	if (p == NULL) {
 		printk(KERN_ERR "%s: Can't find local-mac-address property\n",
@@ -2502,7 +2659,7 @@ static int __devinit emac_init_config(struct emac_instance *dev)
 	}
 	memcpy(dev->ndev->dev_addr, p, 6);
 
-	
+	/* IAHT and GAHT filter parameterization */
 	if (emac_has_feature(dev, EMAC_FTR_EMAC4SYNC)) {
 		dev->xaht_slots_shift = EMAC4SYNC_XAHT_SLOTS_SHIFT;
 		dev->xaht_width_shift = EMAC4SYNC_XAHT_WIDTH_SHIFT;
@@ -2554,15 +2711,19 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 	struct device_node **blist = NULL;
 	int err, i;
 
+	/* Skip unused/unwired EMACS.  We leave the check for an unused
+	 * property here for now, but new flat device trees should set a
+	 * status property to "disabled" instead.
+	 */
 	if (of_get_property(np, "unused", NULL) || !of_device_is_available(np))
 		return -ENODEV;
 
-	
+	/* Find ourselves in the bootlist if we are there */
 	for (i = 0; i < EMAC_BOOT_LIST_SIZE; i++)
 		if (emac_boot_list[i] == np)
 			blist = &emac_boot_list[i];
 
-	
+	/* Allocate our net_device structure */
 	err = -ENOMEM;
 	ndev = alloc_etherdev(sizeof(struct emac_instance));
 	if (!ndev)
@@ -2574,18 +2735,18 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 	dev->blist = blist;
 	SET_NETDEV_DEV(ndev, &ofdev->dev);
 
-	
+	/* Initialize some embedded data structures */
 	mutex_init(&dev->mdio_lock);
 	mutex_init(&dev->link_lock);
 	spin_lock_init(&dev->lock);
 	INIT_WORK(&dev->reset_work, emac_reset_work);
 
-	
+	/* Init various config data based on device-tree */
 	err = emac_init_config(dev);
 	if (err != 0)
 		goto err_free;
 
-	
+	/* Get interrupts. EMAC irq is mandatory, WOL irq is optional */
 	dev->emac_irq = irq_of_parse_and_map(np, 0);
 	dev->wol_irq = irq_of_parse_and_map(np, 1);
 	if (dev->emac_irq == NO_IRQ) {
@@ -2594,13 +2755,13 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 	}
 	ndev->irq = dev->emac_irq;
 
-	
+	/* Map EMAC regs */
 	if (of_address_to_resource(np, 0, &dev->rsrc_regs)) {
 		printk(KERN_ERR "%s: Can't get registers address\n",
 		       np->full_name);
 		goto err_irq_unmap;
 	}
-	
+	// TODO : request_mem_region
 	dev->emacp = ioremap(dev->rsrc_regs.start,
 			     resource_size(&dev->rsrc_regs));
 	if (dev->emacp == NULL) {
@@ -2610,20 +2771,20 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 		goto err_irq_unmap;
 	}
 
-	
+	/* Wait for dependent devices */
 	err = emac_wait_deps(dev);
 	if (err) {
 		printk(KERN_ERR
 		       "%s: Timeout waiting for dependent devices\n",
 		       np->full_name);
-		
+		/*  display more info about what's missing ? */
 		goto err_reg_unmap;
 	}
 	dev->mal = dev_get_drvdata(&dev->mal_dev->dev);
 	if (dev->mdio_dev != NULL)
 		dev->mdio_instance = dev_get_drvdata(&dev->mdio_dev->dev);
 
-	
+	/* Register with MAL */
 	dev->commac.ops = &emac_commac_ops;
 	dev->commac.dev = dev;
 	dev->commac.tx_chan_mask = MAL_CHAN_MASK(dev->mal_tx_chan);
@@ -2637,7 +2798,7 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 	dev->rx_skb_size = emac_rx_skb_size(ndev->mtu);
 	dev->rx_sync_size = emac_rx_sync_size(ndev->mtu);
 
-	
+	/* Get pointers to BD rings */
 	dev->tx_desc =
 	    dev->mal->bd_virt + mal_tx_bd_offset(dev->mal, dev->mal_tx_chan);
 	dev->rx_desc =
@@ -2646,28 +2807,28 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 	DBG(dev, "tx_desc %p" NL, dev->tx_desc);
 	DBG(dev, "rx_desc %p" NL, dev->rx_desc);
 
-	
+	/* Clean rings */
 	memset(dev->tx_desc, 0, NUM_TX_BUFF * sizeof(struct mal_descriptor));
 	memset(dev->rx_desc, 0, NUM_RX_BUFF * sizeof(struct mal_descriptor));
 	memset(dev->tx_skb, 0, NUM_TX_BUFF * sizeof(struct sk_buff *));
 	memset(dev->rx_skb, 0, NUM_RX_BUFF * sizeof(struct sk_buff *));
 
-	
+	/* Attach to ZMII, if needed */
 	if (emac_has_feature(dev, EMAC_FTR_HAS_ZMII) &&
 	    (err = zmii_attach(dev->zmii_dev, dev->zmii_port, &dev->phy_mode)) != 0)
 		goto err_unreg_commac;
 
-	
+	/* Attach to RGMII, if needed */
 	if (emac_has_feature(dev, EMAC_FTR_HAS_RGMII) &&
 	    (err = rgmii_attach(dev->rgmii_dev, dev->rgmii_port, dev->phy_mode)) != 0)
 		goto err_detach_zmii;
 
-	
+	/* Attach to TAH, if needed */
 	if (emac_has_feature(dev, EMAC_FTR_HAS_TAH) &&
 	    (err = tah_attach(dev->tah_dev, dev->tah_port)) != 0)
 		goto err_detach_rgmii;
 
-	
+	/* Set some link defaults before we can find out real parameters */
 	dev->phy.speed = SPEED_100;
 	dev->phy.duplex = DUPLEX_FULL;
 	dev->phy.autoneg = AUTONEG_DISABLE;
@@ -2675,14 +2836,14 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 	dev->stop_timeout = STOP_TIMEOUT_100;
 	INIT_DELAYED_WORK(&dev->link_work, emac_link_timer);
 
-	
+	/* Some SoCs like APM821xx does not support Half Duplex mode. */
 	if (emac_has_feature(dev, EMAC_FTR_APM821XX_NO_HALF_DUPLEX)) {
 		dev->phy_feat_exc = (SUPPORTED_1000baseT_Half |
 				     SUPPORTED_100baseT_Half |
 				     SUPPORTED_10baseT_Half);
 	}
 
-	
+	/* Find PHY if any */
 	err = emac_init_phy(dev);
 	if (err != 0)
 		goto err_detach_tah;
@@ -2708,10 +2869,13 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 		goto err_detach_tah;
 	}
 
+	/* Set our drvdata last as we don't want them visible until we are
+	 * fully initialized
+	 */
 	wmb();
 	dev_set_drvdata(&ofdev->dev, dev);
 
-	
+	/* There's a new kid in town ! Let's tell everybody */
 	wake_up_all(&emac_probe_wait);
 
 
@@ -2727,10 +2891,10 @@ static int __devinit emac_probe(struct platform_device *ofdev)
 
 	emac_dbg_register(dev);
 
-	
+	/* Life is good */
 	return 0;
 
-	
+	/* I have a bad feeling about this ... */
 
  err_detach_tah:
 	if (emac_has_feature(dev, EMAC_FTR_HAS_TAH))
@@ -2755,6 +2919,10 @@ static int __devinit emac_probe(struct platform_device *ofdev)
  err_free:
 	free_netdev(ndev);
  err_gone:
+	/* if we were on the bootlist, remove us as we won't show up and
+	 * wake up all waiters to notify them in case they were waiting
+	 * on us
+	 */
 	if (blist) {
 		*blist = NULL;
 		wake_up_all(&emac_probe_wait);
@@ -2800,6 +2968,7 @@ static int __devexit emac_remove(struct platform_device *ofdev)
 	return 0;
 }
 
+/* XXX Features in here should be replaced by properties... */
 static struct of_device_id emac_match[] =
 {
 	{
@@ -2834,7 +3003,7 @@ static void __init emac_make_bootlist(void)
 	int j, max, i = 0, k;
 	int cell_indices[EMAC_BOOT_LIST_SIZE];
 
-	
+	/* Collect EMACs */
 	while((np = of_find_all_nodes(np)) != NULL) {
 		const u32 *idx;
 
@@ -2854,7 +3023,7 @@ static void __init emac_make_bootlist(void)
 	}
 	max = i;
 
-	
+	/* Bubble sort them (doh, what a creative algorithm :-) */
 	for (i = 0; max > 1 && (i < (max - 1)); i++)
 		for (j = i; j < max; j++) {
 			if (cell_indices[i] > cell_indices[j]) {
@@ -2874,13 +3043,13 @@ static int __init emac_init(void)
 
 	printk(KERN_INFO DRV_DESC ", version " DRV_VERSION "\n");
 
-	
+	/* Init debug stuff */
 	emac_init_debug();
 
-	
+	/* Build EMAC boot list */
 	emac_make_bootlist();
 
-	
+	/* Init submodules */
 	rc = mal_init();
 	if (rc)
 		goto err;
@@ -2923,7 +3092,7 @@ static void __exit emac_exit(void)
 	mal_exit();
 	emac_fini_debug();
 
-	
+	/* Destroy EMAC boot list */
 	for (i = 0; i < EMAC_BOOT_LIST_SIZE; i++)
 		if (emac_boot_list[i])
 			of_node_put(emac_boot_list[i]);

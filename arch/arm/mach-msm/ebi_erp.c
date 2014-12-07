@@ -115,7 +115,7 @@ static irqreturn_t msm_ebi_irq(int irq, void *dev_id)
 						"mpu error" : "");
 	err_cntl |= CNTL_CLEAR_ERR;
 	writel_relaxed(err_cntl, base + SLV_ERR_CNTL);
-	mb();	
+	mb();	/* Ensure interrupt is cleared before returning */
 
 	if ((err_apacket0 & AMID_MASK) == 0x00000102)
 		trace_usb_daytona_invalid_access(err_addr, err_apacket0,
@@ -155,11 +155,11 @@ static int __devinit msm_ebi_erp_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	
+	/* Enable the interrupt */
 	err_cntl = readl_relaxed(drvdata->base + SLV_ERR_CNTL);
 	err_cntl |= CNTL_IRQ_EN;
 	writel_relaxed(err_cntl, drvdata->base + SLV_ERR_CNTL);
-	mb();	
+	mb();	/* Ensure interrupt is enabled before returning */
 	return 0;
 }
 
@@ -168,11 +168,11 @@ static int msm_ebi_erp_remove(struct platform_device *pdev)
 	struct msm_ebi_erp_data *drvdata = platform_get_drvdata(pdev);
 	unsigned int err_cntl;
 
-	
+	/* Disable the interrupt */
 	err_cntl = readl_relaxed(drvdata->base + SLV_ERR_CNTL);
 	err_cntl &= ~CNTL_IRQ_EN;
 	writel_relaxed(err_cntl, drvdata->base + SLV_ERR_CNTL);
-	mb();	
+	mb();	/* Ensure interrupt is disabled before returning */
 	return 0;
 }
 

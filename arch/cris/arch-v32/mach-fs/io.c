@@ -63,6 +63,7 @@ struct crisv32_iopin crisv32_led2_red;
 struct crisv32_iopin crisv32_led3_green;
 struct crisv32_iopin crisv32_led3_red;
 
+/* Dummy port used when green LED and red LED is on the same bit */
 static unsigned long io_dummy;
 static struct crisv32_ioport dummy_port = {
 	&io_dummy,
@@ -81,12 +82,12 @@ static int __init crisv32_io_init(void)
 
 	u32 i;
 
-	
+	/* Locks *should* be dynamically initialized. */
 	for (i = 0; i < ARRAY_SIZE(crisv32_ioports); i++)
 		spin_lock_init(&crisv32_ioports[i].lock);
 	spin_lock_init(&dummy_port.lock);
 
-	
+	/* Initialize LEDs */
 #if (defined(CONFIG_ETRAX_NBR_LED_GRP_ONE) || defined(CONFIG_ETRAX_NBR_LED_GRP_TWO))
 	ret +=
 	    crisv32_io_get_name(&crisv32_led_net0_green,
@@ -140,8 +141,8 @@ int crisv32_io_get(struct crisv32_iopin *iopin,
 	iopin->bit = 1 << pin;
 	iopin->port = &crisv32_ioports[port];
 
-	
-	
+	/* Only allocate pinmux gpiopins if port != PORT_A (port 0) */
+	/* NOTE! crisv32_pinmux_alloc thinks PORT_B is port 0 */
 	if (port != 0 && crisv32_pinmux_alloc(port - 1, pin, pin, pinmux_gpio))
 		return -EIO;
 	DEBUG(printk(KERN_DEBUG "crisv32_io_get: Allocated pin %d on port %d\n",
@@ -171,8 +172,8 @@ int crisv32_io_get_name(struct crisv32_iopin *iopin, const char *name)
 	iopin->bit = 1 << pin;
 	iopin->port = &crisv32_ioports[port];
 
-	
-	
+	/* Only allocate pinmux gpiopins if port != PORT_A (port 0) */
+	/* NOTE! crisv32_pinmux_alloc thinks PORT_B is port 0 */
 	if (port != 0 && crisv32_pinmux_alloc(port - 1, pin, pin, pinmux_gpio))
 		return -EIO;
 
@@ -184,6 +185,7 @@ int crisv32_io_get_name(struct crisv32_iopin *iopin, const char *name)
 }
 
 #ifdef CONFIG_PCI
+/* PCI I/O access stuff */
 struct cris_io_operations *cris_iops = NULL;
 EXPORT_SYMBOL(cris_iops);
 #endif

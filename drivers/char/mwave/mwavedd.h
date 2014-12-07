@@ -124,17 +124,17 @@ extern int mwave_uart_io;
 
 
 typedef struct _MWAVE_IPC {
-	unsigned short usIntCount;	
+	unsigned short usIntCount;	/* 0=none, 1=first, 2=greater than 1st */
 	BOOLEAN bIsEnabled;
 	BOOLEAN bIsHere;
-	
+	/* entry spin lock */
 	wait_queue_head_t ipc_wait_queue;
 } MWAVE_IPC;
 
 typedef struct _MWAVE_DEVICE_DATA {
-	THINKPAD_BD_DATA rBDData;	
-	unsigned long ulIPCSource_ISR;	
-	unsigned long ulIPCSource_DPC;	
+	THINKPAD_BD_DATA rBDData;	/* board driver's data area */
+	unsigned long ulIPCSource_ISR;	/* IPC source bits for recently processed intr, set during ISR processing */
+	unsigned long ulIPCSource_DPC;	/* IPC source bits for recently processed intr, set during DPC processing */
 	BOOLEAN bBDInitialized;
 	BOOLEAN bResourcesClaimed;
 	BOOLEAN bDSPEnabled;

@@ -82,6 +82,13 @@ static const void *get_input_chunk(XENSTORE_RING_IDX cons,
 	return buf + MASK_XENSTORE_IDX(cons);
 }
 
+/**
+ * xb_write - low level write
+ * @data: buffer to send
+ * @len: length of buffer
+ *
+ * Returns 0 on success, error otherwise.
+ */
 int xb_write(const void *data, unsigned len)
 {
 	struct xenstore_domain_interface *intf = xen_store_interface;
@@ -99,7 +106,7 @@ int xb_write(const void *data, unsigned len)
 		if (rc < 0)
 			return rc;
 
-		
+		/* Read indexes, then verify. */
 		cons = intf->req_cons;
 		prod = intf->req_prod;
 		if (!check_indexes(cons, prod)) {
@@ -113,18 +120,18 @@ int xb_write(const void *data, unsigned len)
 		if (avail > len)
 			avail = len;
 
-		
+		/* Must write data /after/ reading the consumer index. */
 		mb();
 
 		memcpy(dst, data, avail);
 		data += avail;
 		len -= avail;
 
-		
+		/* Other side must not see new producer until data is there. */
 		wmb();
 		intf->req_prod += avail;
 
-		
+		/* Implies mb(): other side will see the updated producer. */
 		notify_remote_via_evtchn(xen_store_evtchn);
 	}
 
@@ -156,7 +163,7 @@ int xb_read(void *data, unsigned len)
 		if (rc < 0)
 			return rc;
 
-		
+		/* Read indexes, then verify. */
 		cons = intf->rsp_cons;
 		prod = intf->rsp_prod;
 		if (!check_indexes(cons, prod)) {
@@ -170,26 +177,29 @@ int xb_read(void *data, unsigned len)
 		if (avail > len)
 			avail = len;
 
-		
+		/* Must read data /after/ reading the producer index. */
 		rmb();
 
 		memcpy(data, src, avail);
 		data += avail;
 		len -= avail;
 
-		
+		/* Other side must not see free space until we've copied out */
 		mb();
 		intf->rsp_cons += avail;
 
 		pr_debug("Finished read of %i bytes (%i to go)\n", avail, len);
 
-		
+		/* Implies mb(): other side will see the updated consumer. */
 		notify_remote_via_evtchn(xen_store_evtchn);
 	}
 
 	return 0;
 }
 
+/**
+ * xb_init_comms - Set up interrupt handler off store event channel.
+ */
 int xb_init_comms(void)
 {
 	struct xenstore_domain_interface *intf = xen_store_interface;
@@ -202,13 +212,13 @@ int xb_init_comms(void)
 		printk(KERN_WARNING "XENBUS response ring is not quiescent "
 		       "(%08x:%08x): fixing up\n",
 		       intf->rsp_cons, intf->rsp_prod);
-		
+		/* breaks kdump */
 		if (!reset_devices)
 			intf->rsp_cons = intf->rsp_prod;
 	}
 
 	if (xenbus_irq) {
-		
+		/* Already have an irq; assume we're resuming */
 		rebind_evtchn_irq(xen_store_evtchn, xenbus_irq);
 	} else {
 		int err;

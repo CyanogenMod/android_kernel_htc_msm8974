@@ -39,6 +39,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "intelfb.h"
 #include "intelfbhw.h"
 
+/* bit locations in the registers */
 #define SCL_DIR_MASK		0x0001
 #define SCL_DIR			0x0002
 #define SCL_VAL_MASK		0x0004
@@ -121,7 +122,7 @@ static int intelfb_setup_i2c_bus(struct intelfb_info *dinfo,
 
 	i2c_set_adapdata(&chan->adapter, chan);
 
-	
+	/* Raise SCL and SDA */
 	intelfb_gpio_setsda(chan, 1);
 	intelfb_gpio_setscl(chan, 1);
 	udelay(20);
@@ -138,15 +139,19 @@ void intelfb_create_i2c_busses(struct intelfb_info *dinfo)
 {
 	int i = 0;
 
-	
+	/* everyone has at least a single analog output */
 	dinfo->num_outputs = 1;
 	dinfo->output[i].type = INTELFB_OUTPUT_ANALOG;
 
-	
+	/* setup the DDC bus for analog output */
 	intelfb_setup_i2c_bus(dinfo, &dinfo->output[i].ddc_bus, GPIOA,
 			      "CRTDDC_A", I2C_CLASS_DDC);
 	i++;
 
+	/* need to add the output busses for each device
+	   - this function is very incomplete
+	   - i915GM has LVDS and TVOUT for example
+	*/
 	switch(dinfo->chipset) {
 	case INTEL_830M:
 	case INTEL_845G:
@@ -162,25 +167,25 @@ void intelfb_create_i2c_busses(struct intelfb_info *dinfo)
 		break;
 	case INTEL_915G:
 	case INTEL_915GM:
-		
+		/* has some LVDS + tv-out */
 	case INTEL_945G:
 	case INTEL_945GM:
 	case INTEL_945GME:
 	case INTEL_965G:
 	case INTEL_965GM:
-		
+		/* SDVO ports have a single control bus - 2 devices */
 		dinfo->output[i].type = INTELFB_OUTPUT_SDVO;
 		intelfb_setup_i2c_bus(dinfo, &dinfo->output[i].i2c_bus,
 				      GPIOE, "SDVOCTRL_E", 0);
-		
-		
+		/* TODO: initialize the SDVO */
+		/* I830SDVOInit(pScrn, i, DVOB); */
 		i++;
 
-		
+		/* set up SDVOC */
 		dinfo->output[i].type = INTELFB_OUTPUT_SDVO;
 		dinfo->output[i].i2c_bus = dinfo->output[i - 1].i2c_bus;
-		
-		
+		/* TODO: initialize the SDVO */
+		/* I830SDVOInit(pScrn, i, DVOC); */
 		i++;
 		break;
 	}

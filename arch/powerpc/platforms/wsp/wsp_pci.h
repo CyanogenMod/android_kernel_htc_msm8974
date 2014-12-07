@@ -10,6 +10,7 @@
 #ifndef __WSP_PCI_H
 #define __WSP_PCI_H
 
+/* Architected registers */
 #define PCIE_REG_DMA_CHAN_STATUS	0x110
 #define PCIE_REG_CPU_LOADSTORE_STATUS	0x120
 
@@ -111,6 +112,7 @@
 
 #define IODA_TVT_COUNT			64
 
+/* UTL Core registers */
 #define PCIE_UTL_SYS_BUS_CONTROL	0x400
 #define PCIE_UTL_STATUS			0x408
 #define PCIE_UTL_SYS_BUS_AGENT_STATUS	0x410
@@ -142,6 +144,7 @@
 #define PCIE_UTL_PCI_PM_CTRL1		0x590
 #define PCIE_UTL_PCI_PM_CTRL2		0x598
 
+/* PCIe stack registers */
 #define PCIE_REG_SYSTEM_CONFIG1		0x600
 #define PCIE_REG_SYSTEM_CONFIG2		0x608
 #define PCIE_REG_EP_SYSTEM_CONFIG	0x618
@@ -163,6 +166,7 @@
 #define PCIE_REG_PORT_NUMBER		0x700
 #define PCIE_REG_POR_SYSTEM_CONFIG	0x708
 
+/* PHB internal logic registers */
 #define PCIE_REG_PHB_VERSION		0x800
 #define PCIE_REG_RESET			0x808
 #define PCIE_REG_PHB_CONTROL		0x810
@@ -171,6 +175,7 @@
 #define PCIE_REG_PHB_DMA_READ_TAG_ACTV	0x900
 #define PCIE_REG_PHB_TCE_READ_TAG_ACTV	0x908
 
+/* FIR registers */
 #define PCIE_REG_LEM_FIR_ACCUM		0xc00
 #define PCIE_REG_LEM_FIR_AND_MASK	0xc08
 #define PCIE_REG_LEM_FIR_OR_MASK	0xc10
@@ -180,6 +185,7 @@
 #define PCIE_REG_LEM_ERROR_AND_MASK	0xc38
 #define PCIE_REG_LEM_ERROR_OR_MASK	0xc40
 
+/* PHB Error registers */
 #define PCIE_REG_PHB_ERR_STATUS		0xc80
 #define PCIE_REG_PHB_ERR1_STATUS	0xc88
 #define PCIE_REG_PHB_ERR_INJECT		0xc90
@@ -216,10 +222,14 @@
 #define PCIE_REG_DMA_ERR_STATUS_MASK	0xdd0
 #define PCIE_REG_DMA_ERR1_STATUS_MASK	0xdd8
 
+/* Shortcuts for access to the above using the PHB definitions
+ * with an offset
+ */
 #define PCIE_REG_ERR_PHB_OFFSET		0x0
 #define PCIE_REG_ERR_MMIO_OFFSET	0x80
 #define PCIE_REG_ERR_DMA_OFFSET		0x100
 
+/* Debug and Trace registers */
 #define PCIE_REG_PHB_DEBUG_CONTROL0	0xe00
 #define PCIE_REG_PHB_DEBUG_STATUS0	0xe08
 #define PCIE_REG_PHB_DEBUG_CONTROL1	0xe10
@@ -235,6 +245,7 @@
 #define PCIE_REG_PHB_DEBUG_CONTROL6	0xe60
 #define PCIE_REG_PHB_DEBUG_STATUS6	0xe68
 
+/* Definition for PCIe errors */
 struct wsp_pcie_err_log_data {
 	__u64	phb_err;
 	__u64	phb_err1;
@@ -254,4 +265,4 @@ struct wsp_pcie_err_log_data {
 	__u64	unused;
 };
 
-#endif 
+#endif /* __WSP_PCI_H */

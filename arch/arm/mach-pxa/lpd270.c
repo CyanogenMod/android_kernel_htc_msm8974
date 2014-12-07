@@ -51,11 +51,11 @@
 #include "devices.h"
 
 static unsigned long lpd270_pin_config[] __initdata = {
-	
-	GPIO15_nCS_1,	
-	GPIO78_nCS_2,	
+	/* Chip Selects */
+	GPIO15_nCS_1,	/* Mainboard Flash */
+	GPIO78_nCS_2,	/* CPLD + Ethernet */
 
-	
+	/* LCD - 16bpp Active TFT */
 	GPIO58_LCD_LDD_0,
 	GPIO59_LCD_LDD_1,
 	GPIO60_LCD_LDD_2,
@@ -76,13 +76,13 @@ static unsigned long lpd270_pin_config[] __initdata = {
 	GPIO75_LCD_LCLK,
 	GPIO76_LCD_PCLK,
 	GPIO77_LCD_BIAS,
-	GPIO16_PWM0_OUT,	
+	GPIO16_PWM0_OUT,	/* Backlight */
 
-	
+	/* USB Host */
 	GPIO88_USBH1_PWR,
 	GPIO89_USBH1_PEN,
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -125,7 +125,7 @@ static void lpd270_irq_handler(unsigned int irq, struct irq_desc *desc)
 
 	pending = __raw_readw(LPD270_INT_STATUS) & lpd270_irq_enabled;
 	do {
-		
+		/* clear useless edge notification */
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
 		if (likely(pending)) {
 			irq = LPD270_IRQ(0) + __ffs(pending);
@@ -146,7 +146,7 @@ static void __init lpd270_init_irq(void)
 	__raw_writew(0, LPD270_INT_MASK);
 	__raw_writew(0, LPD270_INT_STATUS);
 
-	
+	/* setup extra LogicPD PXA270 irqs */
 	for (irq = LPD270_IRQ(2); irq <= LPD270_IRQ(4); irq++) {
 		irq_set_chip_and_handler(irq, &lpd270_irq_chip,
 					 handle_level_irq);
@@ -218,7 +218,7 @@ static struct mtd_partition lpd270_flash0_partitions[] = {
 		.name =		"Bootloader",
 		.size =		0x00040000,
 		.offset =	0,
-		.mask_flags =	MTD_WRITEABLE  
+		.mask_flags =	MTD_WRITEABLE  /* force read-only */
 	}, {
 		.name =		"Kernel",
 		.size =		0x00400000,
@@ -279,6 +279,7 @@ static struct platform_device lpd270_backlight_device = {
 	},
 };
 
+/* 5.7" TFT QVGA (LoLo display number 1) */
 static struct pxafb_mode_info sharp_lq057q3dc02_mode = {
 	.pixclock		= 150000,
 	.xres			= 320,
@@ -300,6 +301,7 @@ static struct pxafb_mach_info sharp_lq057q3dc02 = {
 				  LCD_ALTERNATE_MAPPING,
 };
 
+/* 12.1" TFT SVGA (LoLo display number 2) */
 static struct pxafb_mode_info sharp_lq121s1dg31_mode = {
 	.pixclock		= 50000,
 	.xres			= 800,
@@ -321,6 +323,7 @@ static struct pxafb_mach_info sharp_lq121s1dg31 = {
 				  LCD_ALTERNATE_MAPPING,
 };
 
+/* 3.6" TFT QVGA (LoLo display number 3) */
 static struct pxafb_mode_info sharp_lq036q1da01_mode = {
 	.pixclock		= 150000,
 	.xres			= 320,
@@ -342,6 +345,7 @@ static struct pxafb_mach_info sharp_lq036q1da01 = {
 				  LCD_ALTERNATE_MAPPING,
 };
 
+/* 6.4" TFT VGA (LoLo display number 5) */
 static struct pxafb_mode_info sharp_lq64d343_mode = {
 	.pixclock		= 25000,
 	.xres			= 640,
@@ -363,6 +367,7 @@ static struct pxafb_mach_info sharp_lq64d343 = {
 				  LCD_ALTERNATE_MAPPING,
 };
 
+/* 10.4" TFT VGA (LoLo display number 7) */
 static struct pxafb_mode_info sharp_lq10d368_mode = {
 	.pixclock		= 25000,
 	.xres			= 640,
@@ -384,6 +389,7 @@ static struct pxafb_mach_info sharp_lq10d368 = {
 				  LCD_ALTERNATE_MAPPING,
 };
 
+/* 3.5" TFT QVGA (LoLo display number 8) */
 static struct pxafb_mode_info sharp_lq035q7db02_20_mode = {
 	.pixclock		= 150000,
 	.xres			= 240,
@@ -453,6 +459,11 @@ static void __init lpd270_init(void)
 	lpd270_flash_data[0].width = (__raw_readl(BOOT_DEF) & 1) ? 2 : 4;
 	lpd270_flash_data[1].width = 4;
 
+	/*
+	 * System bus arbiter setting:
+	 * - Core_Park
+	 * - LCD_wt:DMA_wt:CORE_Wt = 2:3:4
+	 */
 	ARB_CNTRL = ARB_CORE_PARK | 0x234;
 
 	platform_add_devices(platform_devices, ARRAY_SIZE(platform_devices));
@@ -480,13 +491,13 @@ static void __init lpd270_map_io(void)
 	pxa27x_map_io();
 	iotable_init(lpd270_io_desc, ARRAY_SIZE(lpd270_io_desc));
 
-	
+	/* for use I SRAM as framebuffer.  */
 	PSLR |= 0x00000F04;
 	PCFR  = 0x00000066;
 }
 
 MACHINE_START(LOGICPD_PXA270, "LogicPD PXA270 Card Engine")
-	
+	/* Maintainer: Peter Barada */
 	.atag_offset	= 0x100,
 	.map_io		= lpd270_map_io,
 	.nr_irqs	= LPD270_NR_IRQS,

@@ -43,8 +43,13 @@ static int ptrace_dump_regs(int pid)
 	return 0;
 }
 
+/*
+ * Signals that are OK to receive in the stub - we'll just continue it.
+ * SIGWINCH will happen when UML is inside a detached screen.
+ */
 #define STUB_SIG_MASK ((1 << SIGVTALRM) | (1 << SIGWINCH))
 
+/* Signals that the stub will finish with - anything else is an error */
 #define STUB_DONE_MASK (1 << SIGTRAP)
 
 void wait_stub_done(int pid)
@@ -95,7 +100,7 @@ static void get_skas_faultinfo(int pid, struct faultinfo *fi)
 			fatal_sigsegv();
 		}
 
-		
+		/* Special handling for i386, which has different structs */
 		if (sizeof(struct ptrace_faultinfo) < sizeof(struct faultinfo))
 			memset((char *)fi + sizeof(struct ptrace_faultinfo), 0,
 			       sizeof(struct faultinfo) -
@@ -118,6 +123,10 @@ static void get_skas_faultinfo(int pid, struct faultinfo *fi)
 		}
 		wait_stub_done(pid);
 
+		/*
+		 * faultinfo is prepared by the stub-segv-handler at start of
+		 * the stub stack page. We just have to copy it.
+		 */
 		memcpy(fi, (void *)current_stub_stack(), sizeof(*fi));
 
 		err = put_fp_registers(pid, fpregs);
@@ -135,6 +144,10 @@ static void handle_segv(int pid, struct uml_pt_regs * regs)
 	segv(regs->faultinfo, 0, 1, NULL);
 }
 
+/*
+ * To use the same value of using_sysemu as the caller, ask it that value
+ * (in local_using_sysemu
+ */
 static void handle_trap(int pid, struct uml_pt_regs *regs,
 			int local_using_sysemu)
 {
@@ -143,7 +156,7 @@ static void handle_trap(int pid, struct uml_pt_regs *regs,
 	if ((UPT_IP(regs) >= STUB_START) && (UPT_IP(regs) < STUB_END))
 		fatal_sigsegv();
 
-	
+	/* Mark this as a syscall */
 	UPT_SYSCALL_NR(regs) = PT_SYSCALL_NR(regs->gp);
 
 	if (!local_using_sysemu)
@@ -199,6 +212,10 @@ static int userspace_tramp(void *stack)
 	}
 
 	if (!proc_mm) {
+		/*
+		 * This has a pte, but it can't be mapped in with the usual
+		 * tlb_flush mechanism because this is part of that mechanism
+		 */
 		int fd;
 		unsigned long long offset;
 		fd = phys_mapping(to_phys(&__syscall_stub_start), &offset);
@@ -246,6 +263,7 @@ static int userspace_tramp(void *stack)
 	return 0;
 }
 
+/* Each element set once, and only accessed by a single processor anyway */
 #undef NR_CPUS
 #define NR_CPUS 1
 int userspace_pid[NR_CPUS];
@@ -326,7 +344,7 @@ void userspace(struct uml_pt_regs *regs)
 	struct itimerval timer;
 	unsigned long long nsecs, now;
 	int err, status, op, pid = userspace_pid[0];
-	
+	/* To prevent races if using_sysemu changes under us.*/
 	int local_using_sysemu;
 
 	if (getitimer(ITIMER_VIRTUAL, &timer))
@@ -336,13 +354,21 @@ void userspace(struct uml_pt_regs *regs)
 	nsecs += os_nsecs();
 
 	while (1) {
+		/*
+		 * This can legitimately fail if the process loads a
+		 * bogus value into a segment register.  It will
+		 * segfault and PTRACE_GETREGS will read that value
+		 * out of the process.  However, PTRACE_SETREGS will
+		 * fail.  In this case, there is nothing to do but
+		 * just kill the process.
+		 */
 		if (ptrace(PTRACE_SETREGS, pid, 0, regs->gp))
 			fatal_sigsegv();
 
 		if (put_fp_registers(pid, regs->fp))
 			fatal_sigsegv();
 
-		
+		/* Now we set local_using_sysemu to be used for one loop */
 		local_using_sysemu = get_using_sysemu();
 
 		op = SELECT_PTRACE_OPERATION(local_using_sysemu,
@@ -374,7 +400,7 @@ void userspace(struct uml_pt_regs *regs)
 			fatal_sigsegv();
 		}
 
-		UPT_SYSCALL_NR(regs) = -1; 
+		UPT_SYSCALL_NR(regs) = -1; /* Assume: It's not a syscall */
 
 		if (WIFSTOPPED(status)) {
 			int sig = WSTOPSIG(status);
@@ -424,7 +450,7 @@ void userspace(struct uml_pt_regs *regs)
 			pid = userspace_pid[0];
 			interrupt_end();
 
-			
+			/* Avoid -ERESTARTSYS handling in host */
 			if (PT_SYSCALL_NR_OFFSET != PT_SYSCALL_RET_OFFSET)
 				PT_SYSCALL_NR(regs->gp) = -1;
 		}
@@ -437,7 +463,7 @@ static unsigned long thread_fp_regs[FP_SIZE];
 static int __init init_thread_regs(void)
 {
 	get_safe_registers(thread_regs, thread_fp_regs);
-	
+	/* Set parent's instruction pointer to start of clone-stub */
 	thread_regs[REGS_IP_INDEX] = STUB_CODE +
 				(unsigned long) stub_clone_handler -
 				(unsigned long) &__syscall_stub_start;
@@ -461,6 +487,10 @@ int copy_context_skas0(unsigned long new_stack, int pid)
 	unsigned long long new_offset;
 	int new_fd = phys_mapping(to_phys((void *)new_stack), &new_offset);
 
+	/*
+	 * prepare offset and fd of child's stack as argument for parent's
+	 * and child's mmap2 calls
+	 */
 	*data = ((struct stub_data) { .offset	= MMAP_OFFSET(new_offset),
 				      .fd	= new_fd,
 				      .timer    = ((struct itimerval)
@@ -482,9 +512,13 @@ int copy_context_skas0(unsigned long new_stack, int pid)
 		return err;
 	}
 
-	
+	/* set a well known return code for detection of child write failure */
 	child_data->err = 12345678;
 
+	/*
+	 * Wait, until parent has finished its work: read child's pid from
+	 * parent's stack, and check, if bad result.
+	 */
 	err = ptrace(PTRACE_CONT, pid, 0, 0);
 	if (err) {
 		err = -errno;
@@ -502,6 +536,10 @@ int copy_context_skas0(unsigned long new_stack, int pid)
 		return pid;
 	}
 
+	/*
+	 * Wait, until child has finished too: read child's result from
+	 * child's stack and check it.
+	 */
 	wait_stub_done(pid);
 	if (child_data->err != STUB_DATA) {
 		printk(UM_KERN_ERR "copy_context_skas0 - stub-child reports "
@@ -525,6 +563,11 @@ int copy_context_skas0(unsigned long new_stack, int pid)
 	return err;
 }
 
+/*
+ * This is used only, if stub pages are needed, while proc_mm is
+ * available. Opening /proc/mm creates a new mm_context, which lacks
+ * the stub-pages. Thus, we map them using /proc/mm-fd
+ */
 int map_stub_pages(int fd, unsigned long code, unsigned long data,
 		   unsigned long stack)
 {
@@ -601,6 +644,7 @@ void switch_threads(jmp_buf *me, jmp_buf *you)
 
 static jmp_buf initial_jmpbuf;
 
+/* XXX Make these percpu */
 static void (*cb_proc)(void *arg);
 static void *cb_arg;
 static jmp_buf *cb_back;
@@ -611,6 +655,14 @@ int start_idle_thread(void *stack, jmp_buf *switch_buf)
 
 	set_handler(SIGWINCH);
 
+	/*
+	 * Can't use UML_SETJMP or UML_LONGJMP here because they save
+	 * and restore signals, with the possible side-effect of
+	 * trying to handle any signals which came when they were
+	 * blocked, which can't be done on this stack.
+	 * Signals must be blocked when jumping back here and restored
+	 * after returning to the jumper.
+	 */
 	n = setjmp(initial_jmpbuf);
 	switch (n) {
 	case INIT_JMP_NEW_THREAD:
@@ -670,7 +722,7 @@ void __switch_mm(struct mm_id *mm_idp)
 {
 	int err;
 
-	
+	/* FIXME: need cpu pid in __switch_mm */
 	if (proc_mm) {
 		err = ptrace(PTRACE_SWITCH_MM, userspace_pid[0], 0,
 			     mm_idp->u.mm_fd);

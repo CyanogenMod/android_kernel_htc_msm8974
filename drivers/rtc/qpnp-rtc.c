@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-13, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -20,6 +20,10 @@
 #include <linux/spmi.h>
 #include <linux/spinlock.h>
 #include <linux/spmi.h>
+#ifdef CONFIG_HTC_POWER_DEBUG
+#include <linux/debugfs.h>
+#include <mach/devices_cmdline.h>
+#endif
 
 #define REG_OFFSET_ALARM_RW	0x40
 #define REG_OFFSET_ALARM_CTRL1	0x46
@@ -96,7 +100,8 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
 	int rc;
 	unsigned long secs, irq_flags;
-	u8 value[4], reg = 0, alarm_enabled = 0, ctrl_reg, en;
+	u8 value[4], reg = 0, alarm_enabled = 0, ctrl_reg;
+	u8 rtc_disabled = 0, rtc_ctrl_reg;
 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
 
 	rtc_tm_to_time(tm, &secs);
@@ -125,12 +130,19 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
 
 
 	
-	en = 0;
-	rc = qpnp_write_wrapper(rtc_dd, &en,
-		rtc_dd->rtc_base + REG_OFFSET_ALARM_CTRL1, 1);
-	if (rc) {
-		pr_info("QPNP_RTC_SET_TIME disable EN fail " );
-		goto rtc_rw_fail;
+	rtc_ctrl_reg = rtc_dd->rtc_ctrl_reg;
+	if (rtc_ctrl_reg & BIT_RTC_ENABLE) {
+		rtc_disabled = 1;
+		rtc_ctrl_reg &= ~BIT_RTC_ENABLE;
+		rc = qpnp_write_wrapper(rtc_dd, &rtc_ctrl_reg,
+				rtc_dd->rtc_base + REG_OFFSET_RTC_CTRL, 1);
+		if (rc) {
+			dev_err(dev,
+				"Disabling of RTC control reg failed"
+					" with error:%d\n", rc);
+			goto rtc_rw_fail;
+		}
+		rtc_dd->rtc_ctrl_reg = rtc_ctrl_reg;
 	}
 
 	
@@ -159,12 +171,17 @@ qpnp_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	}
 
 	
-	en = 0x80;
-	rc = qpnp_write_wrapper(rtc_dd, &en,
-		rtc_dd->rtc_base + REG_OFFSET_ALARM_CTRL1, 1);
-	if (rc) {
-		pr_info("QPNP_RTC_SET_TIME Enable EN fail " );
-		goto rtc_rw_fail;
+	if (rtc_disabled) {
+		rtc_ctrl_reg |= BIT_RTC_ENABLE;
+		rc = qpnp_write_wrapper(rtc_dd, &rtc_ctrl_reg,
+				rtc_dd->rtc_base + REG_OFFSET_RTC_CTRL, 1);
+		if (rc) {
+			dev_err(dev,
+				"Enabling of RTC control reg failed"
+					" with error:%d\n", rc);
+			goto rtc_rw_fail;
+		}
+		rtc_dd->rtc_ctrl_reg = rtc_ctrl_reg;
 	}
 
 	if (alarm_enabled) {
@@ -337,6 +354,7 @@ qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	unsigned long irq_flags;
 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(dev);
 	u8 ctrl_reg;
+	u8 value[4] = {0};
 
 	spin_lock_irqsave(&rtc_dd->alarm_ctrl_lock, irq_flags);
 	ctrl_reg = rtc_dd->alarm_ctrl_reg1;
@@ -351,6 +369,15 @@ qpnp_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 	}
 
 	rtc_dd->alarm_ctrl_reg1 = ctrl_reg;
+
+	
+	if (!enabled) {
+		rc = qpnp_write_wrapper(rtc_dd, value,
+			rtc_dd->alarm_base + REG_OFFSET_ALARM_RW,
+			NUM_8_BIT_RTC_REGS);
+		if (rc)
+			dev_err(dev, "Clear ALARM value reg failed\n");
+	}
 
 rtc_rw_fail:
 	spin_unlock_irqrestore(&rtc_dd->alarm_ctrl_lock, irq_flags);
@@ -402,6 +429,52 @@ static irqreturn_t qpnp_alarm_trigger(int irq, void *dev_id)
 rtc_alarm_handled:
 	return IRQ_HANDLED;
 }
+
+#ifdef CONFIG_HTC_POWER_DEBUG
+static int htc_qpnp_rtc_set_time(void *data, u64 val)
+{
+	int ret;
+	struct rtc_time tm;
+	struct spmi_device *spmi = data;
+
+	rtc_time_to_tm(val, &tm);
+	ret = qpnp_rtc_set_time(&spmi->dev, &tm);
+
+	return ret;
+}
+
+static int htc_qpnp_rtc_read_time(void *data, u64 *val)
+{
+	struct rtc_time rtc_new_time;
+	struct spmi_device *spmi = data;
+	unsigned long rtc_time ;
+
+	qpnp_rtc_read_time(&spmi->dev, &rtc_new_time);
+	rtc_tm_to_time(&rtc_new_time, &rtc_time);
+	printk("%s:rtc_time = %lu", __func__, rtc_time);
+	*val = rtc_time;
+
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(qpnp_rtc_time_ops, htc_qpnp_rtc_read_time,
+			htc_qpnp_rtc_set_time, "%llu\n");
+
+int htc_rtc_time_debugfs_init(struct spmi_device *spmi)
+{
+	static struct dentry *debugfs_rtc_time_base;
+
+	debugfs_rtc_time_base = debugfs_create_dir("htc_rtc_time", NULL);
+	if (!debugfs_rtc_time_base)
+                return -ENOMEM;
+
+	if (!debugfs_create_file("rtc_time", S_IRUGO, debugfs_rtc_time_base,
+                                spmi, &qpnp_rtc_time_ops))
+                return -ENOMEM;
+
+        return 0;
+}
+#endif
 
 static int __devinit qpnp_rtc_probe(struct spmi_device *spmi)
 {
@@ -504,8 +577,15 @@ static int __devinit qpnp_rtc_probe(struct spmi_device *spmi)
 		goto fail_rtc_enable;
 	}
 
+	rc = qpnp_read_wrapper(rtc_dd, &rtc_dd->alarm_ctrl_reg1,
+				rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
+	if (rc) {
+		dev_err(&spmi->dev,
+			"Read from  Alarm control reg failed\n");
+		goto fail_rtc_enable;
+	}
 	
-	rtc_dd->alarm_ctrl_reg1 = BIT_RTC_ABORT_ENABLE;
+	rtc_dd->alarm_ctrl_reg1 |= BIT_RTC_ABORT_ENABLE;
 	rc = qpnp_write_wrapper(rtc_dd, &rtc_dd->alarm_ctrl_reg1,
 			rtc_dd->alarm_base + REG_OFFSET_ALARM_CTRL1, 1);
 	if (rc) {
@@ -541,6 +621,13 @@ static int __devinit qpnp_rtc_probe(struct spmi_device *spmi)
 	enable_irq_wake(rtc_dd->rtc_alarm_irq);
 
 	dev_dbg(&spmi->dev, "Probe success !!\n");
+
+#ifdef CONFIG_HTC_POWER_DEBUG
+	if (get_tamper_sf() == 0 && board_is_super_cid())
+	{
+	    htc_rtc_time_debugfs_init(spmi);
+	}
+#endif
 
 	return 0;
 

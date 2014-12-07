@@ -1,6 +1,10 @@
 #ifndef __ASM_GENERIC_MMU_CONTEXT_H
 #define __ASM_GENERIC_MMU_CONTEXT_H
 
+/*
+ * Generic hooks for NOMMU architectures, which do not need to do
+ * anything special here.
+ */
 
 #include <asm-generic/mm_hooks.h>
 
@@ -38,4 +42,4 @@ static inline void activate_mm(struct mm_struct *prev_mm,
 {
 }
 
-#endif 
+#endif /* __ASM_GENERIC_MMU_CONTEXT_H */

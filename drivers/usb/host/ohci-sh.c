@@ -37,19 +37,34 @@ static const struct hc_driver ohci_sh_hc_driver = {
 	.product_desc =		"SuperH OHCI",
 	.hcd_priv_size =	sizeof(struct ohci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.start =		ohci_sh_start,
 	.stop =			ohci_stop,
 	.shutdown =		ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		ohci_urb_enqueue,
 	.urb_dequeue =		ohci_urb_dequeue,
 	.endpoint_disable =	ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
 #ifdef	CONFIG_PM
@@ -59,6 +74,7 @@ static const struct hc_driver ohci_sh_hc_driver = {
 	.start_port_reset =	ohci_start_port_reset,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int ohci_hcd_sh_probe(struct platform_device *pdev)
 {
@@ -82,7 +98,7 @@ static int ohci_hcd_sh_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	
+	/* initialize hcd */
 	hcd = usb_create_hcd(&ohci_sh_hc_driver, &pdev->dev, (char *)hcd_name);
 	if (!hcd) {
 		err("Failed to create hcd");

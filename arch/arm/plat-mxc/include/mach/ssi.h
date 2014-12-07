@@ -17,5 +17,5 @@ struct imx_ssi_platform_data {
 	void (*ac97_warm_reset)(struct snd_ac97 *ac97);
 };
 
-#endif 
+#endif /* __MACH_SSI_H */
 

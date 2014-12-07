@@ -47,6 +47,7 @@
 #define WD1_MINOR	213
 #define WD2_MINOR	214
 
+/* Internal driver definitions.  */
 #define WD0_ID			0
 #define WD1_ID			1
 #define WD2_ID			2
@@ -55,16 +56,18 @@
 #define WD_INTR_OFF		0
 #define WD_INTR_ON		1
 
-#define WD_STAT_INIT	0x01	
-#define WD_STAT_BSTOP	0x02	
-#define WD_STAT_SVCD	0x04	
+#define WD_STAT_INIT	0x01	/* Watchdog timer is initialized	*/
+#define WD_STAT_BSTOP	0x02	/* Watchdog timer is brokenstopped	*/
+#define WD_STAT_SVCD	0x04	/* Watchdog interrupt occurred		*/
 
-#define WD0_INTR_MASK	0x01	
+/* Register value definitions
+ */
+#define WD0_INTR_MASK	0x01	/* Watchdog device interrupt masks	*/
 #define WD1_INTR_MASK	0x02
 #define WD2_INTR_MASK	0x04
 
-#define WD_S_RUNNING	0x01	
-#define WD_S_EXPIRED	0x02	
+#define WD_S_RUNNING	0x01	/* Watchdog device status running	*/
+#define WD_S_EXPIRED	0x02	/* Watchdog device status expired	*/
 
 struct cpwd {
 	void __iomem	*regs;
@@ -90,6 +93,55 @@ struct cpwd {
 static DEFINE_MUTEX(cpwd_mutex);
 static struct cpwd *cpwd_device;
 
+/* Sun uses Altera PLD EPF8820ATC144-4
+ * providing three hardware watchdogs:
+ *
+ * 1) RIC - sends an interrupt when triggered
+ * 2) XIR - asserts XIR_B_RESET when triggered, resets CPU
+ * 3) POR - asserts POR_B_RESET when triggered, resets CPU, backplane, board
+ *
+ *** Timer register block definition (struct wd_timer_regblk)
+ *
+ * dcntr and limit registers (halfword access):
+ * -------------------
+ * | 15 | ...| 1 | 0 |
+ * -------------------
+ * |-  counter val  -|
+ * -------------------
+ * dcntr -	Current 16-bit downcounter value.
+ *			When downcounter reaches '0' watchdog expires.
+ *			Reading this register resets downcounter with
+ *			'limit' value.
+ * limit -	16-bit countdown value in 1/10th second increments.
+ *			Writing this register begins countdown with input value.
+ *			Reading from this register does not affect counter.
+ * NOTES:	After watchdog reset, dcntr and limit contain '1'
+ *
+ * status register (byte access):
+ * ---------------------------
+ * | 7 | ... | 2 |  1  |  0  |
+ * --------------+------------
+ * |-   UNUSED  -| EXP | RUN |
+ * ---------------------------
+ * status-	Bit 0 - Watchdog is running
+ *			Bit 1 - Watchdog has expired
+ *
+ *** PLD register block definition (struct wd_pld_regblk)
+ *
+ * intr_mask register (byte access):
+ * ---------------------------------
+ * | 7 | ... | 3 |  2  |  1  |  0  |
+ * +-------------+------------------
+ * |-   UNUSED  -| WD3 | WD2 | WD1 |
+ * ---------------------------------
+ * WD3 -  1 == Interrupt disabled for watchdog 3
+ * WD2 -  1 == Interrupt disabled for watchdog 2
+ * WD1 -  1 == Interrupt disabled for watchdog 1
+ *
+ * pld_status register (byte access):
+ * UNKNOWN, MAGICAL MYSTERY REGISTER
+ *
+ */
 #define WD_TIMER_REGSZ	16
 #define WD0_OFF		0
 #define WD1_OFF		(WD_TIMER_REGSZ * 1)
@@ -142,6 +194,13 @@ static u8 cpwd_readb(void __iomem *addr)
 	return readb(addr);
 }
 
+/* Enable or disable watchdog interrupts
+ * Because of the CP1400 defect this should only be
+ * called during initialzation or by wd_[start|stop]timer()
+ *
+ * index	- sub-device index, or -1 for 'all'
+ * enable	- non-zero to enable interrupts, zero to disable
+ */
 static void cpwd_toggleintr(struct cpwd *p, int index, int enable)
 {
 	unsigned char curregs = cpwd_readb(p->regs + PLD_IMASK);
@@ -158,17 +217,28 @@ static void cpwd_toggleintr(struct cpwd *p, int index, int enable)
 	cpwd_writeb(curregs, p->regs + PLD_IMASK);
 }
 
+/* Restarts timer with maximum limit value and
+ * does not unset 'brokenstop' value.
+ */
 static void cpwd_resetbrokentimer(struct cpwd *p, int index)
 {
 	cpwd_toggleintr(p, index, WD_INTR_ON);
 	cpwd_writew(WD_BLIMIT, p->devs[index].regs + WD_LIMIT);
 }
 
+/* Timer method called to reset stopped watchdogs--
+ * because of the PLD bug on CP1400, we cannot mask
+ * interrupts within the PLD so me must continually
+ * reset the timers ad infinitum.
+ */
 static void cpwd_brokentimer(unsigned long data)
 {
 	struct cpwd *p = (struct cpwd *) data;
 	int id, tripped = 0;
 
+	/* kill a running timer instance, in case we
+	 * were called directly instead of by kernel timer
+	 */
 	if (timer_pending(&cpwd_timer))
 		del_timer(&cpwd_timer);
 
@@ -180,18 +250,25 @@ static void cpwd_brokentimer(unsigned long data)
 	}
 
 	if (tripped) {
-		
+		/* there is at least one timer brokenstopped-- reschedule */
 		cpwd_timer.expires = WD_BTIMEOUT;
 		add_timer(&cpwd_timer);
 	}
 }
 
+/* Reset countdown timer with 'limit' value and continue countdown.
+ * This will not start a stopped timer.
+ */
 static void cpwd_pingtimer(struct cpwd *p, int index)
 {
 	if (cpwd_readb(p->devs[index].regs + WD_STATUS) & WD_S_RUNNING)
 		cpwd_readw(p->devs[index].regs + WD_DCNTR);
 }
 
+/* Stop a running watchdog timer-- the timer actually keeps
+ * running, but the interrupt is masked so that no action is
+ * taken upon expiration.
+ */
 static void cpwd_stoptimer(struct cpwd *p, int index)
 {
 	if (cpwd_readb(p->devs[index].regs + WD_STATUS) & WD_S_RUNNING) {
@@ -204,6 +281,13 @@ static void cpwd_stoptimer(struct cpwd *p, int index)
 	}
 }
 
+/* Start a watchdog timer with the specified limit value
+ * If the watchdog is running, it will be restarted with
+ * the provided limit value.
+ *
+ * This function will enable interrupts on the specified
+ * watchdog.
+ */
 static void cpwd_starttimer(struct cpwd *p, int index)
 {
 	if (p->broken)
@@ -221,22 +305,35 @@ static int cpwd_getstatus(struct cpwd *p, int index)
 	unsigned char intr = cpwd_readb(p->devs[index].regs + PLD_IMASK);
 	unsigned char ret  = WD_STOPPED;
 
-	
+	/* determine STOPPED */
 	if (!stat)
 		return ret;
 
-	
+	/* determine EXPIRED vs FREERUN vs RUNNING */
 	else if (WD_S_EXPIRED & stat) {
 		ret = WD_EXPIRED;
 	} else if (WD_S_RUNNING & stat) {
 		if (intr & p->devs[index].intr_mask) {
 			ret = WD_FREERUN;
 		} else {
+			/* Fudge WD_EXPIRED status for defective CP1400--
+			 * IF timer is running
+			 *	AND brokenstop is set
+			 *	AND an interrupt has been serviced
+			 * we are WD_EXPIRED.
+			 *
+			 * IF timer is running
+			 *	AND brokenstop is set
+			 *	AND no interrupt has been serviced
+			 * we are WD_FREERUN.
+			 */
 			if (p->broken &&
 			    (p->devs[index].runstatus & WD_STAT_BSTOP)) {
 				if (p->devs[index].runstatus & WD_STAT_SVCD) {
 					ret = WD_EXPIRED;
 				} else {
+					/* we could as well pretend
+					 * we are expired */
 					ret = WD_FREERUN;
 				}
 			} else {
@@ -245,7 +342,7 @@ static int cpwd_getstatus(struct cpwd *p, int index)
 		}
 	}
 
-	
+	/* determine SERVICED */
 	if (p->devs[index].runstatus & WD_STAT_SVCD)
 		ret |= WD_SERVICED;
 
@@ -256,6 +353,9 @@ static irqreturn_t cpwd_interrupt(int irq, void *dev_id)
 {
 	struct cpwd *p = dev_id;
 
+	/* Only WD0 will interrupt-- others are NMI and we won't
+	 * see them here....
+	 */
 	spin_lock_irq(&p->lock);
 
 	cpwd_stoptimer(p, WD0_ID);
@@ -282,7 +382,7 @@ static int cpwd_open(struct inode *inode, struct file *f)
 		return -ENODEV;
 	}
 
-	
+	/* Register IRQ on first open of device */
 	if (!p->initialized) {
 		if (request_irq(p->irq, &cpwd_interrupt,
 				IRQF_SHARED, DRIVER_NAME, p)) {
@@ -317,7 +417,7 @@ static long cpwd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	int setopt = 0;
 
 	switch (cmd) {
-	
+	/* Generic Linux IOCTLs */
 	case WDIOC_GETSUPPORT:
 		if (copy_to_user(argp, &info, sizeof(struct watchdog_info)))
 			return -EFAULT;
@@ -348,7 +448,7 @@ static long cpwd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		}
 		break;
 
-	
+	/* Solaris-compatible IOCTLs */
 	case WIOCGSTAT:
 		setopt = cpwd_getstatus(p, index);
 		if (copy_to_user(argp, &setopt, sizeof(unsigned int)))
@@ -379,7 +479,7 @@ static long cpwd_compat_ioctl(struct file *file, unsigned int cmd,
 	int rval = -ENOIOCTLCMD;
 
 	switch (cmd) {
-	
+	/* solaris ioctls are specific to this driver */
 	case WIOCSTART:
 	case WIOCSTOP:
 	case WIOCGSTAT:
@@ -388,7 +488,7 @@ static long cpwd_compat_ioctl(struct file *file, unsigned int cmd,
 		mutex_unlock(&cpwd_mutex);
 		break;
 
-	
+	/* everything else is handled by the generic compat layer */
 	default:
 		break;
 	}

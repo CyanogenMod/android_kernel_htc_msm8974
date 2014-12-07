@@ -30,4 +30,4 @@ extern ssize_t v9fs_xattr_get(struct dentry *, const char *,
 extern int v9fs_xattr_set(struct dentry *, const char *,
 			  const void *, size_t, int);
 extern ssize_t v9fs_listxattr(struct dentry *, char *, size_t);
-#endif 
+#endif /* FS_9P_XATTR_H */

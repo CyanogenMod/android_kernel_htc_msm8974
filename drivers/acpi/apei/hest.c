@@ -44,11 +44,12 @@
 bool hest_disable;
 EXPORT_SYMBOL_GPL(hest_disable);
 
+/* HEST table parsing */
 
 static struct acpi_table_hest *__read_mostly hest_tab;
 
 static const int hest_esrc_len_tab[ACPI_HEST_TYPE_RESERVED] = {
-	[ACPI_HEST_TYPE_IA32_CHECK] = -1,	
+	[ACPI_HEST_TYPE_IA32_CHECK] = -1,	/* need further calculation */
 	[ACPI_HEST_TYPE_IA32_CORRECTED_CHECK] = -1,
 	[ACPI_HEST_TYPE_IA32_NMI] = sizeof(struct acpi_hest_ia_nmi),
 	[ACPI_HEST_TYPE_AER_ROOT_PORT] = sizeof(struct acpi_hest_aer_root),

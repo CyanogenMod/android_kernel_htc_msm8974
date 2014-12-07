@@ -1,7 +1,11 @@
+/* $Id: dsp_tst.h,v 1.1.2.2 2001/02/08 12:25:43 armin Exp $ */
 
 #ifndef __DIVA_PRI_HOST_TEST_DSPS_H__
 #define __DIVA_PRI_HOST_TEST_DSPS_H__
 
+/*
+  DSP registers on maestra pri
+*/
 #define DSP1_PORT       (0x00)
 #define DSP2_PORT       (0x8)
 #define DSP3_PORT       (0x800)
@@ -34,6 +38,9 @@
 #define DSP30_PORT      (0x1070)
 #define DSP_ADR_OFFS    0x80
 
+/*------------------------------------------------------------------
+  Dsp related definitions
+  ------------------------------------------------------------------ */
 #define DSP_SIGNATURE_PROBE_WORD 0x5a5a
 #define dsp_make_address_ex(pm, address) ((word)((pm) ? (address) : (address) + 0x4000))
 

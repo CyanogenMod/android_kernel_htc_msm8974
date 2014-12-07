@@ -23,12 +23,21 @@
  * Author: Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>
  */
 
+/*
+ * A simple DMA pool losely based on dmapool.c. It has certain advantages
+ * over the DMA pools:
+ * - Pool collects resently freed pages for reuse (and hooks up to
+ *   the shrinker).
+ * - Tracks currently in use pages
+ * - Tracks whether the page is UC, WB or cached (and reverts to WB
+ *   when freed).
+ */
 
 #define pr_fmt(fmt) "[TTM] " fmt
 
 #include <linux/dma-mapping.h>
 #include <linux/list.h>
-#include <linux/seq_file.h> 
+#include <linux/seq_file.h> /* for seq_printf */
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/highmem.h>
@@ -47,6 +56,7 @@
 #define NUM_PAGES_TO_ALLOC		(PAGE_SIZE/sizeof(struct page *))
 #define SMALL_ALLOCATION		4
 #define FREE_ALL_PAGES			(~0U)
+/* times are in msecs */
 #define IS_UNDEFINED			(0)
 #define IS_WC				(1<<1)
 #define IS_UC				(1<<2)
@@ -62,8 +72,35 @@ enum pool_type {
 	POOL_IS_UC_DMA32 = IS_UC | IS_DMA32,
 	POOL_IS_CACHED_DMA32 = IS_CACHED | IS_DMA32,
 };
+/*
+ * The pool structure. There are usually six pools:
+ *  - generic (not restricted to DMA32):
+ *      - write combined, uncached, cached.
+ *  - dma32 (up to 2^32 - so up 4GB):
+ *      - write combined, uncached, cached.
+ * for each 'struct device'. The 'cached' is for pages that are actively used.
+ * The other ones can be shrunk by the shrinker API if neccessary.
+ * @pools: The 'struct device->dma_pools' link.
+ * @type: Type of the pool
+ * @lock: Protects the inuse_list and free_list from concurrnet access. Must be
+ * used with irqsave/irqrestore variants because pool allocator maybe called
+ * from delayed work.
+ * @inuse_list: Pool of pages that are in use. The order is very important and
+ *   it is in the order that the TTM pages that are put back are in.
+ * @free_list: Pool of pages that are free to be used. No order requirements.
+ * @dev: The device that is associated with these pools.
+ * @size: Size used during DMA allocation.
+ * @npages_free: Count of available pages for re-use.
+ * @npages_in_use: Count of pages that are in use.
+ * @nfrees: Stats when pool is shrinking.
+ * @nrefills: Stats when the pool is grown.
+ * @gfp_flags: Flags to pass for alloc_page.
+ * @name: Name of the pool.
+ * @dev_name: Name derieved from dev - similar to how dev_info works.
+ *   Used during shutdown as the dev_info during release is unavailable.
+ */
 struct dma_pool {
-	struct list_head pools; 
+	struct list_head pools; /* The 'struct device->dma_pools link */
 	enum pool_type type;
 	spinlock_t lock;
 	struct list_head inuse_list;
@@ -72,13 +109,21 @@ struct dma_pool {
 	unsigned size;
 	unsigned npages_free;
 	unsigned npages_in_use;
-	unsigned long nfrees; 
-	unsigned long nrefills; 
+	unsigned long nfrees; /* Stats when shrunk. */
+	unsigned long nrefills; /* Stats when grown. */
 	gfp_t gfp_flags;
-	char name[13]; 
-	char dev_name[64]; 
+	char name[13]; /* "cached dma32" */
+	char dev_name[64]; /* Constructed from dev */
 };
 
+/*
+ * The accounting page keeping track of the allocated page along with
+ * the DMA address.
+ * @page_list: The link to the 'page_list' in 'struct dma_pool'.
+ * @vaddr: The virtual address of the page
+ * @dma: The bus address of the page. If the page is not allocated
+ *   via the DMA API, it will be -1.
+ */
 struct dma_page {
 	struct list_head page_list;
 	void *vaddr;
@@ -86,6 +131,11 @@ struct dma_page {
 	dma_addr_t dma;
 };
 
+/*
+ * Limits for the pool. They are handled without locks because only place where
+ * they may change is in sysfs store. They won't have immediate effect anyway
+ * so forcing serialization to access them is pointless.
+ */
 
 struct ttm_pool_opts {
 	unsigned	alloc_size;
@@ -93,12 +143,28 @@ struct ttm_pool_opts {
 	unsigned	small;
 };
 
+/*
+ * Contains the list of all of the 'struct device' and their corresponding
+ * DMA pools. Guarded by _mutex->lock.
+ * @pools: The link to 'struct ttm_pool_manager->pools'
+ * @dev: The 'struct device' associated with the 'pool'
+ * @pool: The 'struct dma_pool' associated with the 'dev'
+ */
 struct device_pools {
 	struct list_head pools;
 	struct device *dev;
 	struct dma_pool *pool;
 };
 
+/*
+ * struct ttm_pool_manager - Holds memory pools for fast allocation
+ *
+ * @lock: Lock used when adding/removing from pools
+ * @pools: List of 'struct device' and 'struct dma_pool' tuples.
+ * @options: Limits for the pool.
+ * @npools: Total amount of pools in existence.
+ * @shrinker: The structure used by [un|]register_shrinker
+ */
 struct ttm_pool_manager {
 	struct mutex		lock;
 	struct list_head	pools;
@@ -148,7 +214,7 @@ static ssize_t ttm_pool_store(struct kobject *kobj, struct attribute *attr,
 	if (chars == 0)
 		return size;
 
-	
+	/* Convert kb to number of pages */
 	val = val / (PAGE_SIZE >> 10);
 
 	if (attr == &ttm_page_pool_max)
@@ -234,13 +300,13 @@ static int set_pages_array_uc(struct page **pages, int addrinarray)
 #endif
 	return 0;
 }
-#endif 
+#endif /* for !CONFIG_X86 */
 
 static int ttm_set_pages_caching(struct dma_pool *pool,
 				 struct page **pages, unsigned cpages)
 {
 	int r = 0;
-	
+	/* Set page caching */
 	if (pool->type & IS_UC) {
 		r = set_pages_array_uc(pages, cpages);
 		if (r)
@@ -307,12 +373,13 @@ static void ttm_pool_update_free_locked(struct dma_pool *pool,
 
 }
 
+/* set memory back to wb and free the pages. */
 static void ttm_dma_pages_put(struct dma_pool *pool, struct list_head *d_pages,
 			      struct page *pages[], unsigned npages)
 {
 	struct dma_page *d_page, *tmp;
 
-	
+	/* Don't set WB on WB page pool. */
 	if (npages && !(pool->type & IS_CACHED) &&
 	    set_pages_array_wb(pages, npages))
 		pr_err("%s: Failed to set %d pages to wb!\n",
@@ -326,7 +393,7 @@ static void ttm_dma_pages_put(struct dma_pool *pool, struct list_head *d_pages,
 
 static void ttm_dma_page_put(struct dma_pool *pool, struct dma_page *d_page)
 {
-	
+	/* Don't set WB on WB page pool. */
 	if (!(pool->type & IS_CACHED) && set_pages_array_wb(&d_page->p, 1))
 		pr_err("%s: Failed to set %d pages to wb!\n",
 		       pool->dev_name, 1);
@@ -335,6 +402,15 @@ static void ttm_dma_page_put(struct dma_pool *pool, struct dma_page *d_page)
 	__ttm_dma_free_page(pool, d_page);
 }
 
+/*
+ * Free pages from pool.
+ *
+ * To prevent hogging the ttm_swap process we only free NUM_PAGES_TO_ALLOC
+ * number of pages in one go.
+ *
+ * @pool: to free the pages from
+ * @nr_free: If set to true will free all pages in pool
+ **/
 static unsigned ttm_dma_page_pool_free(struct dma_pool *pool, unsigned nr_free)
 {
 	unsigned long irq_flags;
@@ -365,20 +441,24 @@ static unsigned ttm_dma_page_pool_free(struct dma_pool *pool, unsigned nr_free)
 restart:
 	spin_lock_irqsave(&pool->lock, irq_flags);
 
-	
+	/* We picking the oldest ones off the list */
 	list_for_each_entry_safe_reverse(dma_p, tmp, &pool->free_list,
 					 page_list) {
 		if (freed_pages >= npages_to_free)
 			break;
 
-		
+		/* Move the dma_page from one list to another. */
 		list_move(&dma_p->page_list, &d_pages);
 
 		pages_to_free[freed_pages++] = dma_p->p;
-		
+		/* We can only remove NUM_PAGES_TO_ALLOC at a time. */
 		if (freed_pages >= NUM_PAGES_TO_ALLOC) {
 
 			ttm_pool_update_free_locked(pool, freed_pages);
+			/**
+			 * Because changing page caching is costly
+			 * we unlock the pool to prevent stalling.
+			 */
 			spin_unlock_irqrestore(&pool->lock, irq_flags);
 
 			ttm_dma_pages_put(pool, &d_pages, pages_to_free,
@@ -396,16 +476,20 @@ restart:
 
 			freed_pages = 0;
 
-			
+			/* free all so restart the processing */
 			if (nr_free)
 				goto restart;
 
+			/* Not allowed to fall through or break because
+			 * following context is inside spinlock while we are
+			 * outside here.
+			 */
 			goto out;
 
 		}
 	}
 
-	
+	/* remove range of pages from the pool */
 	if (freed_pages) {
 		ttm_pool_update_free_locked(pool, freed_pages);
 		nr_free -= freed_pages;
@@ -444,9 +528,13 @@ static void ttm_dma_free_pool(struct device *dev, enum pool_type type)
 	list_for_each_entry_reverse(pool, &dev->dma_pools, pools) {
 		if (pool->type != type)
 			continue;
-		
+		/* Takes a spinlock.. */
 		ttm_dma_page_pool_free(pool, FREE_ALL_PAGES);
 		WARN_ON(((pool->npages_in_use + pool->npages_free) != 0));
+		/* This code path is called after _all_ references to the
+		 * struct device has been dropped - so nobody should be
+		 * touching it. In case somebody is trying to _add_ we are
+		 * guarded by the mutex. */
 		list_del(&pool->pools);
 		kfree(pool);
 		break;
@@ -454,6 +542,10 @@ static void ttm_dma_free_pool(struct device *dev, enum pool_type type)
 	mutex_unlock(&_manager->lock);
 }
 
+/*
+ * On free-ing of the 'struct device' this deconstructor is run.
+ * Albeit the pool might have already been freed earlier.
+ */
 static void ttm_dma_pool_release(struct device *dev, void *res)
 {
 	struct dma_pool *pool = *(struct dma_pool **)res;
@@ -520,13 +612,15 @@ static struct dma_pool *ttm_dma_pool_init(struct device *dev, gfp_t flags,
 		}
 	}
 	*p = 0;
+	/* We copy the name for pr_ calls b/c when dma_pool_destroy is called
+	 * - the kobj->name has already been deallocated.*/
 	snprintf(pool->dev_name, sizeof(pool->dev_name), "%s %s",
 		 dev_driver_string(dev), dev_name(dev));
 	mutex_lock(&_manager->lock);
-	
+	/* You can get the dma_pool from either the global: */
 	list_add(&sec_pool->pools, &_manager->pools);
 	_manager->npools++;
-	
+	/* or from 'struct device': */
 	list_add(&pool->pools, &dev->dma_pools);
 	mutex_unlock(&_manager->lock);
 
@@ -549,6 +643,17 @@ static struct dma_pool *ttm_dma_find_pool(struct device *dev,
 	if (type == IS_UNDEFINED)
 		return found;
 
+	/* NB: We iterate on the 'struct dev' which has no spinlock, but
+	 * it does have a kref which we have taken. The kref is taken during
+	 * graphic driver loading - in the drm_pci_init it calls either
+	 * pci_dev_get or pci_register_driver which both end up taking a kref
+	 * on 'struct device'.
+	 *
+	 * On teardown, the graphic drivers end up quiescing the TTM (put_pages)
+	 * and calls the dev_res deconstructors: ttm_dma_pool_release. The nice
+	 * thing is at that point of time there are no pages associated with the
+	 * driver so this function will not be called.
+	 */
 	list_for_each_entry_safe(pool, tmp, &dev->dma_pools, pools) {
 		if (pool->type != type)
 			continue;
@@ -558,6 +663,11 @@ static struct dma_pool *ttm_dma_find_pool(struct device *dev,
 	return found;
 }
 
+/*
+ * Free pages the pages that failed to change the caching state. If there
+ * are pages that have changed their caching state already put them to the
+ * pool.
+ */
 static void ttm_dma_handle_caching_state_failure(struct dma_pool *pool,
 						 struct list_head *d_pages,
 						 struct page **failed_pages,
@@ -570,11 +680,11 @@ static void ttm_dma_handle_caching_state_failure(struct dma_pool *pool,
 	p = failed_pages[0];
 	if (!p)
 		return;
-	
+	/* Find the failed page. */
 	list_for_each_entry_safe(d_page, tmp, d_pages, page_list) {
 		if (d_page->p != p)
 			continue;
-		
+		/* .. and then progress over the full list. */
 		list_del(&d_page->page_list);
 		__ttm_dma_free_page(pool, d_page);
 		if (++i < cpages)
@@ -585,6 +695,12 @@ static void ttm_dma_handle_caching_state_failure(struct dma_pool *pool,
 
 }
 
+/*
+ * Allocate 'count' pages, and put 'need' number of them on the
+ * 'pages' and as well on the 'dma_address' starting at 'dma_offset' offset.
+ * The full list of pages should also be on 'd_pages'.
+ * We return zero for success, and negative numbers as errors.
+ */
 static int ttm_dma_pool_alloc_new_pages(struct dma_pool *pool,
 					struct list_head *d_pages,
 					unsigned count)
@@ -597,7 +713,7 @@ static int ttm_dma_pool_alloc_new_pages(struct dma_pool *pool,
 	unsigned max_cpages = min(count,
 			(unsigned)(PAGE_SIZE/sizeof(struct page *)));
 
-	
+	/* allocate array for page caching change */
 	caching_array = kmalloc(max_cpages*sizeof(struct page *), GFP_KERNEL);
 
 	if (!caching_array) {
@@ -617,6 +733,8 @@ static int ttm_dma_pool_alloc_new_pages(struct dma_pool *pool,
 			pr_err("%s: Unable to get page %u\n",
 			       pool->dev_name, i);
 
+			/* store already allocated pages in the pool after
+			 * setting the caching state */
 			if (cpages) {
 				r = ttm_set_pages_caching(pool, caching_array,
 							  cpages);
@@ -630,12 +748,15 @@ static int ttm_dma_pool_alloc_new_pages(struct dma_pool *pool,
 		}
 		p = dma_p->p;
 #ifdef CONFIG_HIGHMEM
+		/* gfp flags of highmem page should never be dma32 so we
+		 * we should be fine in such case
+		 */
 		if (!PageHighMem(p))
 #endif
 		{
 			caching_array[cpages++] = p;
 			if (cpages == max_cpages) {
-				
+				/* Note: Cannot hold the spinlock */
 				r = ttm_set_pages_caching(pool, caching_array,
 						 cpages);
 				if (r) {
@@ -661,6 +782,9 @@ out:
 	return r;
 }
 
+/*
+ * @return count of pages still required to fulfill the request.
+ */
 static int ttm_dma_page_pool_fill_locked(struct dma_pool *pool,
 					 unsigned long *irq_flags)
 {
@@ -674,11 +798,13 @@ static int ttm_dma_page_pool_fill_locked(struct dma_pool *pool,
 
 		spin_unlock_irqrestore(&pool->lock, *irq_flags);
 
+		/* Returns how many more are neccessary to fulfill the
+		 * request. */
 		r = ttm_dma_pool_alloc_new_pages(pool, &d_pages, count);
 
 		spin_lock_irqsave(&pool->lock, *irq_flags);
 		if (!r) {
-			
+			/* Add the fresh to the end.. */
 			list_splice(&d_pages, &pool->free_list);
 			++pool->nrefills;
 			pool->npages_free += count;
@@ -701,6 +827,11 @@ static int ttm_dma_page_pool_fill_locked(struct dma_pool *pool,
 	return r;
 }
 
+/*
+ * @return count of pages still required to fulfill the request.
+ * The populate list is actually a stack (not that is matters as TTM
+ * allocates one page at a time.
+ */
 static int ttm_dma_pool_get_pages(struct dma_pool *pool,
 				  struct ttm_dma_tt *ttm_dma,
 				  unsigned index)
@@ -725,6 +856,10 @@ static int ttm_dma_pool_get_pages(struct dma_pool *pool,
 	return r;
 }
 
+/*
+ * On success pages list will hold count number of correctly
+ * cached pages. On failure will hold the negative return value (-ENOMEM, etc).
+ */
 int ttm_dma_populate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 {
 	struct ttm_tt *ttm = &ttm_dma->ttm;
@@ -783,6 +918,7 @@ int ttm_dma_populate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 }
 EXPORT_SYMBOL_GPL(ttm_dma_populate);
 
+/* Get good estimation how many pages are free in pools */
 static int ttm_dma_pool_get_num_unused_pages(void)
 {
 	struct device_pools *p;
@@ -795,6 +931,7 @@ static int ttm_dma_pool_get_num_unused_pages(void)
 	return total;
 }
 
+/* Put all pages in pages list to correct pool to wait for reuse */
 void ttm_dma_unpopulate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 {
 	struct ttm_tt *ttm = &ttm_dma->ttm;
@@ -813,7 +950,7 @@ void ttm_dma_unpopulate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 	is_cached = (ttm_dma_find_pool(pool->dev,
 		     ttm_to_type(ttm->page_flags, tt_cached)) == pool);
 
-	
+	/* make sure pages array match list and count number of pages */
 	list_for_each_entry(d_page, &ttm_dma->pages_list, page_list) {
 		ttm->pages[count] = d_page->p;
 		count++;
@@ -829,6 +966,8 @@ void ttm_dma_unpopulate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 		npages = count;
 		if (pool->npages_free > _manager->options.max_size) {
 			npages = pool->npages_free - _manager->options.max_size;
+			/* free at least NUM_PAGES_TO_ALLOC number of pages
+			 * to reduce calls to set_memory_wb */
 			if (npages < NUM_PAGES_TO_ALLOC)
 				npages = NUM_PAGES_TO_ALLOC;
 		}
@@ -854,13 +993,16 @@ void ttm_dma_unpopulate(struct ttm_dma_tt *ttm_dma, struct device *dev)
 		ttm_dma->dma_address[i] = 0;
 	}
 
-	
+	/* shrink pool if necessary (only on !is_cached pools)*/
 	if (npages)
 		ttm_dma_page_pool_free(pool, npages);
 	ttm->state = tt_unpopulated;
 }
 EXPORT_SYMBOL_GPL(ttm_dma_unpopulate);
 
+/**
+ * Callback for mm to request pool to reduce number of page held.
+ */
 static int ttm_dma_pool_mm_shrink(struct shrinker *shrink,
 				  struct shrink_control *sc)
 {
@@ -882,7 +1024,7 @@ static int ttm_dma_pool_mm_shrink(struct shrinker *shrink,
 			continue;
 		if (shrink_pages == 0)
 			break;
-		
+		/* Do it in round-robin fashion. */
 		if (++idx < pool_offset)
 			continue;
 		nr_free = shrink_pages;
@@ -892,7 +1034,7 @@ static int ttm_dma_pool_mm_shrink(struct shrinker *shrink,
 			 nr_free, shrink_pages);
 	}
 	mutex_unlock(&_manager->lock);
-	
+	/* return estimated number of unused pages in pool */
 	return ttm_dma_pool_get_num_unused_pages();
 }
 
@@ -927,7 +1069,7 @@ int ttm_dma_page_alloc_init(struct ttm_mem_global *glob, unsigned max_pages)
 	_manager->options.small = SMALL_ALLOCATION;
 	_manager->options.alloc_size = NUM_PAGES_TO_ALLOC;
 
-	
+	/* This takes care of auto-freeing the _manager */
 	ret = kobject_init_and_add(&_manager->kobj, &ttm_pool_kobj_type,
 				   &glob->kobj, "dma_pool");
 	if (unlikely(ret != 0)) {

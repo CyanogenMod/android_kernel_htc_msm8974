@@ -41,6 +41,10 @@
 #define MCPDM_REG_FIFO_CTRL_UP		0x54
 #define MCPDM_REG_DN_OFFSET		0x58
 
+/*
+ * MCPDM_IRQ bit fields
+ * IRQSTATUS_RAW, IRQSTATUS, IRQENABLE_SET, IRQENABLE_CLR
+ */
 
 #define MCPDM_DN_IRQ			(1 << 0)
 #define MCPDM_DN_IRQ_EMPTY		(1 << 1)
@@ -55,13 +59,19 @@
 #define MCPDM_DOWNLINK_IRQ_MASK		0x00F
 #define MCPDM_UPLINK_IRQ_MASK		0xF00
 
+/*
+ * MCPDM_DMAENABLE bit fields
+ */
 
 #define MCPDM_DMA_DN_ENABLE		(1 << 0)
 #define MCPDM_DMA_UP_ENABLE		(1 << 1)
 
+/*
+ * MCPDM_CTRL bit fields
+ */
 
-#define MCPDM_PDM_UPLINK_EN(x)		(1 << (x - 1)) 
-#define MCPDM_PDM_DOWNLINK_EN(x)	(1 << (x + 2)) 
+#define MCPDM_PDM_UPLINK_EN(x)		(1 << (x - 1)) /* ch1 is at bit 0 */
+#define MCPDM_PDM_DOWNLINK_EN(x)	(1 << (x + 2)) /* ch1 is at bit 3 */
 #define MCPDM_PDMOUTFORMAT		(1 << 8)
 #define MCPDM_CMD_INT			(1 << 9)
 #define MCPDM_STATUS_INT		(1 << 10)
@@ -75,10 +85,16 @@
 #define MCPDM_PDMOUTFORMAT_LJUST	(0 << 8)
 #define MCPDM_PDMOUTFORMAT_RJUST	(1 << 8)
 
+/*
+ * MCPDM_FIFO_CTRL bit fields
+ */
 
 #define MCPDM_UP_THRES_MAX		0xF
 #define MCPDM_DN_THRES_MAX		0xF
 
+/*
+ * MCPDM_DN_OFFSET bit fields
+ */
 
 #define MCPDM_DN_OFST_RX1_EN		(1 << 0)
 #define MCPDM_DNOFST_RX1(x)		((x & 0x1f) << 1)
@@ -88,4 +104,4 @@
 void omap_mcpdm_configure_dn_offsets(struct snd_soc_pcm_runtime *rtd,
 				    u8 rx1, u8 rx2);
 
-#endif	
+#endif	/* End of __OMAP_MCPDM_H__ */

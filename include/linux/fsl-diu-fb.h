@@ -46,51 +46,90 @@ struct aoi_display_offset {
 #define MFB_SET_PIXFMT		_IOW('M', 8, __u32)
 #define MFB_GET_PIXFMT		_IOR('M', 8, __u32)
 
+/*
+ * The original definitions of MFB_SET_PIXFMT and MFB_GET_PIXFMT used the
+ * wrong value for 'size' field of the ioctl.  The current macros above use the
+ * right size, but we still need to provide backwards compatibility, at least
+ * for a while.
+*/
 #define MFB_SET_PIXFMT_OLD	0x80014d08
 #define MFB_GET_PIXFMT_OLD	0x40014d08
 
 #ifdef __KERNEL__
 
+/*
+ * These are the fields of area descriptor(in DDR memory) for every plane
+ */
 struct diu_ad {
-	
+	/* Word 0(32-bit) in DDR memory */
+/* 	__u16 comp; */
+/* 	__u16 pixel_s:2; */
+/* 	__u16 pallete:1; */
+/* 	__u16 red_c:2; */
+/* 	__u16 green_c:2; */
+/* 	__u16 blue_c:2; */
+/* 	__u16 alpha_c:3; */
+/* 	__u16 byte_f:1; */
+/* 	__u16 res0:3; */
 
-	__be32 pix_fmt; 
+	__be32 pix_fmt; /* hard coding pixel format */
 
-	
+	/* Word 1(32-bit) in DDR memory */
 	__le32 addr;
 
-	
+	/* Word 2(32-bit) in DDR memory */
+/* 	__u32 delta_xs:11; */
+/* 	__u32 res1:1; */
+/* 	__u32 delta_ys:11; */
+/* 	__u32 res2:1; */
+/* 	__u32 g_alpha:8; */
 	__le32 src_size_g_alpha;
 
-	
+	/* Word 3(32-bit) in DDR memory */
+/* 	__u32 delta_xi:11; */
+/* 	__u32 res3:5; */
+/* 	__u32 delta_yi:11; */
+/* 	__u32 res4:3; */
+/* 	__u32 flip:2; */
 	__le32 aoi_size;
 
-	
+	/* Word 4(32-bit) in DDR memory */
+	/*__u32 offset_xi:11;
+	__u32 res5:5;
+	__u32 offset_yi:11;
+	__u32 res6:5;
+	*/
 	__le32 offset_xyi;
 
-	
+	/* Word 5(32-bit) in DDR memory */
+	/*__u32 offset_xd:11;
+	__u32 res7:5;
+	__u32 offset_yd:11;
+	__u32 res8:5; */
 	__le32 offset_xyd;
 
 
-	
+	/* Word 6(32-bit) in DDR memory */
 	__u8 ckmax_r;
 	__u8 ckmax_g;
 	__u8 ckmax_b;
 	__u8 res9;
 
-	
+	/* Word 7(32-bit) in DDR memory */
 	__u8 ckmin_r;
 	__u8 ckmin_g;
 	__u8 ckmin_b;
 	__u8 res10;
+/* 	__u32 res10:8; */
 
-	
+	/* Word 8(32-bit) in DDR memory */
 	__le32 next_ad;
 
-	
+	/* Word 9(32-bit) in DDR memory, just for 64-bit aligned */
 	__u32 paddr;
 } __attribute__ ((packed));
 
+/* DIU register map */
 struct diu {
 	__be32 desc[3];
 	__be32 gamma;
@@ -114,8 +153,12 @@ struct diu {
 	__be32 plut;
 } __attribute__ ((packed));
 
-#define MFB_MODE0	0	
-#define MFB_MODE1	1	
+/*
+ * Modes of operation of DIU.  The DIU supports five different modes, but
+ * the driver only supports modes 0 and 1.
+ */
+#define MFB_MODE0	0	/* DIU off */
+#define MFB_MODE1	1	/* All three planes output to display */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __FSL_DIU_FB_H__ */

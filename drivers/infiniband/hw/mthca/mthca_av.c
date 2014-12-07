@@ -94,7 +94,7 @@ static enum ib_rate tavor_rate_to_ib(u8 mthca_rate, u8 port_rate)
 enum ib_rate mthca_rate_to_ib(struct mthca_dev *dev, u8 mthca_rate, u8 port)
 {
 	if (mthca_is_memfree(dev)) {
-		
+		/* Handle old Arbel FW */
 		if (dev->limits.stat_rate_support == 0x3 && mthca_rate)
 			return IB_RATE_2_5_GBPS;
 
@@ -108,10 +108,14 @@ static u8 ib_rate_to_memfree(u8 req_rate, u8 cur_rate)
 	if (cur_rate <= req_rate)
 		return 0;
 
+	/*
+	 * Inter-packet delay (IPD) to get from rate X down to a rate
+	 * no more than Y is (X - 1) / Y.
+	 */
 	switch ((cur_rate - 1) / req_rate) {
 	case 0:	 return MTHCA_RATE_MEMFREE_FULL;
 	case 1:	 return MTHCA_RATE_MEMFREE_HALF;
-	case 2:	 
+	case 2:	 /* fall through */
 	case 3:	 return MTHCA_RATE_MEMFREE_QUARTER;
 	default: return MTHCA_RATE_MEMFREE_EIGHTH;
 	}
@@ -167,7 +171,7 @@ int mthca_create_ah(struct mthca_dev *dev,
 		 !(dev->mthca_flags & MTHCA_FLAG_DDR_HIDDEN)) {
 		index = mthca_alloc(&dev->av_table.alloc);
 
-		
+		/* fall back to allocate in host memory */
 		if (index == -1)
 			goto on_hca_fail;
 
@@ -197,7 +201,7 @@ on_hca_fail:
 	av->port_pd = cpu_to_be32(pd->pd_num | (ah_attr->port_num << 24));
 	av->g_slid  = ah_attr->src_path_bits;
 	av->dlid    = cpu_to_be16(ah_attr->dlid);
-	av->msg_sr  = (3 << 4) | 
+	av->msg_sr  = (3 << 4) | /* 2K message */
 		mthca_get_rate(dev, ah_attr->static_rate, ah_attr->port_num);
 	av->sl_tclass_flowlabel = cpu_to_be32(ah_attr->sl << 28);
 	if (ah_attr->ah_flags & IB_AH_GRH) {
@@ -210,7 +214,7 @@ on_hca_fail:
 				    ah_attr->grh.flow_label);
 		memcpy(av->dgid, ah_attr->grh.dgid.raw, 16);
 	} else {
-		
+		/* Arbel workaround -- low byte of GID must be 2 */
 		av->dgid[3] = cpu_to_be32(2);
 	}
 
@@ -290,7 +294,7 @@ int mthca_ah_query(struct ib_ah *ibah, struct ib_ah_attr *attr)
 	struct mthca_ah *ah   = to_mah(ibah);
 	struct mthca_dev *dev = to_mdev(ibah->device);
 
-	
+	/* Only implement for MAD and memfree ah for now. */
 	if (ah->type == MTHCA_AH_ON_HCA)
 		return -ENOSYS;
 

@@ -56,22 +56,22 @@ static inline void truly_spi_write_byte(char dc, uint8 data)
 	uint32 bit;
 	int bnum;
 
-	gpio_set_value_cansleep(spi_sclk, 0); 
-	
+	gpio_set_value_cansleep(spi_sclk, 0); /* clk low */
+	/* dc: 0 for command, 1 for parameter */
 	gpio_set_value_cansleep(spi_mosi, dc);
-	udelay(1);	
-	gpio_set_value_cansleep(spi_sclk, 1); 
-	udelay(1);	
-	bnum = 8;	
+	udelay(1);	/* at least 20 ns */
+	gpio_set_value_cansleep(spi_sclk, 1); /* clk high */
+	udelay(1);	/* at least 20 ns */
+	bnum = 8;	/* 8 data bits */
 	bit = 0x80;
 	while (bnum) {
-		gpio_set_value_cansleep(spi_sclk, 0); 
+		gpio_set_value_cansleep(spi_sclk, 0); /* clk low */
 		if (data & bit)
 			gpio_set_value_cansleep(spi_mosi, 1);
 		else
 			gpio_set_value_cansleep(spi_mosi, 0);
 		udelay(1);
-		gpio_set_value_cansleep(spi_sclk, 1); 
+		gpio_set_value_cansleep(spi_sclk, 1); /* clk high */
 		udelay(1);
 		bit >>= 1;
 		bnum--;
@@ -82,23 +82,23 @@ static inline int truly_spi_write(char cmd, char *data, int num)
 {
 	int i;
 
-	gpio_set_value_cansleep(spi_cs, 0);	
-	
+	gpio_set_value_cansleep(spi_cs, 0);	/* cs low */
+	/* command byte first */
 	truly_spi_write_byte(0, cmd);
-	
+	/* followed by parameter bytes */
 	for (i = 0; i < num; i++) {
 		if (data)
 			truly_spi_write_byte(1, data[i]);
 	}
-	gpio_set_value_cansleep(spi_mosi, 1);	
-	gpio_set_value_cansleep(spi_cs, 1);	
+	gpio_set_value_cansleep(spi_mosi, 1);	/* mosi high */
+	gpio_set_value_cansleep(spi_cs, 1);	/* cs high */
 	udelay(10);
 	return 0;
 }
 
 static void spi_pin_assign(void)
 {
-	
+	/* Setting the Default GPIO's */
 	spi_mosi	= *(lcdc_truly_pdata->gpio_num);
 	spi_sclk	= *(lcdc_truly_pdata->gpio_num + 1);
 	spi_cs		= *(lcdc_truly_pdata->gpio_num + 2);
@@ -112,8 +112,8 @@ static void spi_pin_assign(void)
 
 static void truly_disp_powerup(void)
 {
-	
-	
+	/* Reset the hardware first */
+	/* Include DAC power up implementation here */
 	if (!truly_state.disp_powered_up && !truly_state.display_on)
 		truly_state.disp_powered_up = TRUE;
 }
@@ -123,7 +123,7 @@ static void truly_disp_reginit(void)
 	pr_debug("%s disp_powered_up:%d display_on:%d\n", __func__,
 			truly_state.disp_powered_up, truly_state.display_on);
 	if (truly_state.disp_powered_up && !truly_state.display_on) {
-		gpio_set_value_cansleep(spi_cs, 1);	
+		gpio_set_value_cansleep(spi_cs, 1);	/* cs high */
 
 		truly_spi_write(0xb9, init_item_v1, sizeof(init_item_v1));
 		msleep(20);
@@ -155,7 +155,7 @@ static int lcdc_truly_panel_on(struct platform_device *pdev)
 		return 0;
 	}
 
-	
+	/* Configure reset GPIO that drives DAC */
 	if (lcdc_truly_pdata->panel_config_gpio)
 		lcdc_truly_pdata->panel_config_gpio(1);
 	gpio_set_value_cansleep(gpio_display_reset, 1);
@@ -168,7 +168,7 @@ static int lcdc_truly_panel_on(struct platform_device *pdev)
 static int lcdc_truly_panel_off(struct platform_device *pdev)
 {
 	if (truly_state.disp_powered_up && truly_state.display_on) {
-		
+		/* Main panel power off (Pull down reset) */
 		gpio_set_value_cansleep(gpio_display_reset, 0);
 		truly_state.display_on = FALSE;
 		truly_state.disp_initialized = FALSE;
@@ -182,7 +182,7 @@ static void lcdc_truly_set_backlight(struct msm_fb_data_type *mfd)
 	unsigned long flags;
 	int bl_level = mfd->bl_level;
 
-	
+	/* real backlight level, 1 - max, 16 - min, 17 - off */
 	bl_level = 17 - bl_level;
 
 	if (bl_level > prev_bl) {
@@ -197,18 +197,18 @@ static void lcdc_truly_set_backlight(struct msm_fb_data_type *mfd)
 	}
 
 	if (bl_level == 17) {
-		
+		/* turn off backlight */
 		gpio_set_value(gpio_backlight_en, 0);
 	} else {
 		local_irq_save(flags);
 
 		if (prev_bl == 17) {
-			
+			/* turn on backlight */
 			gpio_set_value(gpio_backlight_en, 1);
 			udelay(30);
 		}
 
-		
+		/* adjust backlight level */
 		for (i = 0; i < step; i++) {
 			gpio_set_value(gpio_backlight_en, 0);
 			udelay(1);
@@ -286,19 +286,19 @@ static int __init lcdc_truly_panel_init(void)
 	pinfo->wait_cycle = 0;
 	pinfo->bpp = 18;
 	pinfo->fb_num = 2;
-	
+	/* 10Mhz mdp_lcdc_pclk and mdp_lcdc_pad_pcl */
 	pinfo->clk_rate = 10240000;
 	pinfo->bl_max = 16;
 	pinfo->bl_min = 1;
 
-	pinfo->lcdc.h_back_porch = 16;		
+	pinfo->lcdc.h_back_porch = 16;		/* hsw = 8 + hbp=16 */
 	pinfo->lcdc.h_front_porch = 4;
 	pinfo->lcdc.h_pulse_width = 8;
-	pinfo->lcdc.v_back_porch = 7;		
+	pinfo->lcdc.v_back_porch = 7;		/* vsw=1 + vbp = 7 */
 	pinfo->lcdc.v_front_porch = 3;
 	pinfo->lcdc.v_pulse_width = 1;
-	pinfo->lcdc.border_clr = 0;		
-	pinfo->lcdc.underflow_clr = 0xff;	
+	pinfo->lcdc.border_clr = 0;		/* blk */
+	pinfo->lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo->lcdc.hsync_skew = 0;
 
 	ret = platform_device_register(&this_device);

@@ -21,7 +21,8 @@
 
 #define NODE_SUSPENDEDPRI -1
 
+/* NODE Objects: */
 struct node_mgr;
 struct node_object;
 
-#endif 
+#endif /* NODEDEFS_ */

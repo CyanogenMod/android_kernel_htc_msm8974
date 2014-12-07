@@ -33,15 +33,19 @@ static bool force;
 module_param(force, bool, 0444);
 MODULE_PARM_DESC(force, "force loading on processors with erratum 319");
 
+/* PCI-IDs for Northbridge devices not used anywhere else */
 #define PCI_DEVICE_ID_AMD_15H_M10H_NB_F3	0x1403
 
+/* CPUID function 0x80000001, ebx */
 #define CPUID_PKGTYPE_MASK	0xf0000000
 #define CPUID_PKGTYPE_F		0x00000000
 #define CPUID_PKGTYPE_AM2R2_AM3	0x10000000
 
+/* DRAM controller (PCI function 2) */
 #define REG_DCT0_CONFIG_HIGH		0x094
 #define  DDR3_MODE			0x00000100
 
+/* miscellaneous (PCI function 3) */
 #define REG_HARDWARE_THERMAL_CONTROL	0x64
 #define  HTC_ENABLE			0x00000001
 
@@ -101,19 +105,29 @@ static bool __devinit has_erratum_319(struct pci_dev *pdev)
 	if (boot_cpu_data.x86 != 0x10)
 		return false;
 
+	/*
+	 * Erratum 319: The thermal sensor of Socket F/AM2+ processors
+	 *              may be unreliable.
+	 */
 	pkg_type = cpuid_ebx(0x80000001) & CPUID_PKGTYPE_MASK;
 	if (pkg_type == CPUID_PKGTYPE_F)
 		return true;
 	if (pkg_type != CPUID_PKGTYPE_AM2R2_AM3)
 		return false;
 
-	
+	/* DDR3 memory implies socket AM3, which is good */
 	pci_bus_read_config_dword(pdev->bus,
 				  PCI_DEVFN(PCI_SLOT(pdev->devfn), 2),
 				  REG_DCT0_CONFIG_HIGH, &reg_dram_cfg);
 	if (reg_dram_cfg & DDR3_MODE)
 		return false;
 
+	/*
+	 * Unfortunately it is possible to run a socket AM3 CPU with DDR2
+	 * memory. We blacklist all the cores which do exist in socket AM2+
+	 * format. It still isn't perfect, as RB-C2 cores exist in both AM2+
+	 * and AM3 formats, but that's the best we can do.
+	 */
 	return boot_cpu_data.x86_model < 4 ||
 	       (boot_cpu_data.x86_model == 4 && boot_cpu_data.x86_mask <= 2);
 }

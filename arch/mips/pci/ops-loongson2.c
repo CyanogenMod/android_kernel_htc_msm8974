@@ -46,7 +46,17 @@ static int loongson_pcibios_config_access(unsigned char access_type,
 	int reg = where & ~3;
 
 	if (busnum == 0) {
+		/* board-specific part,currently,only fuloong2f,yeeloong2f
+		 * use CS5536, fuloong2e use via686b, gdium has no
+		 * south bridge
+		 */
 #ifdef CONFIG_CS5536
+		/* cs5536_pci_conf_read4/write4() will call _rdmsr/_wrmsr() to
+		 * access the regsters PCI_MSR_ADDR, PCI_MSR_DATA_LO,
+		 * PCI_MSR_DATA_HI, which is bigger than PCI_MSR_CTRL, so, it
+		 * will not go this branch, but the others. so, no calling dead
+		 * loop here.
+		 */
 		if ((PCI_IDSEL_CS5536 == device) && (reg < PCI_MSR_CTRL)) {
 			switch (access_type) {
 			case PCI_ACCESS_READ:
@@ -59,25 +69,25 @@ static int loongson_pcibios_config_access(unsigned char access_type,
 			return 0;
 		}
 #endif
-		
+		/* Type 0 configuration for onboard PCI bus */
 		if (device > MAX_DEV_NUM)
 			return -1;
 
 		addr = (1 << (device + ID_SEL_BEGIN)) | (function << 8) | reg;
 		type = 0;
 	} else {
-		
+		/* Type 1 configuration for offboard PCI bus */
 		addr = (busnum << 16) | (device << 11) | (function << 8) | reg;
 		type = 0x10000;
 	}
 
-	
+	/* Clear aborts */
 	LOONGSON_PCICMD |= LOONGSON_PCICMD_MABORT_CLR | \
 				LOONGSON_PCICMD_MTABORT_CLR;
 
 	LOONGSON_PCIMAP_CFG = (addr >> 16) | type;
 
-	
+	/* Flush Bonito register block */
 	dummy = LOONGSON_PCIMAP_CFG;
 	mmiowb();
 
@@ -87,12 +97,12 @@ static int loongson_pcibios_config_access(unsigned char access_type,
 	else
 		*data = le32_to_cpu(readl(addrp));
 
-	
+	/* Detect Master/Target abort */
 	if (LOONGSON_PCICMD & (LOONGSON_PCICMD_MABORT_CLR |
 			     LOONGSON_PCICMD_MTABORT_CLR)) {
-		
+		/* Error occurred */
 
-		
+		/* Clear bits */
 		LOONGSON_PCICMD |= (LOONGSON_PCICMD_MABORT_CLR |
 				  LOONGSON_PCICMD_MTABORT_CLR);
 
@@ -104,6 +114,10 @@ static int loongson_pcibios_config_access(unsigned char access_type,
 }
 
 
+/*
+ * We can't address 8 and 16 bit words directly.  Instead we have to
+ * read/write a 32bit word and mask/modify the data we actually want.
+ */
 static int loongson_pcibios_read(struct pci_bus *bus, unsigned int devfn,
 			     int where, int size, u32 *val)
 {

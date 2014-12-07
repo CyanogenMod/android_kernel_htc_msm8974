@@ -55,6 +55,8 @@ struct asus_wmi_driver {
 	const char		*input_name;
 	const char		*input_phys;
 	struct quirk_entry	*quirks;
+	/* Returns new code, value, and autorelease values in arguments.
+	 * Return ASUS_WMI_KEY_IGNORE in code if event should be ignored. */
 	void (*key_filter) (struct asus_wmi_driver *driver, int *code,
 			    unsigned int *value, bool *autorelease);
 
@@ -68,4 +70,4 @@ struct asus_wmi_driver {
 int asus_wmi_register_driver(struct asus_wmi_driver *driver);
 void asus_wmi_unregister_driver(struct asus_wmi_driver *driver);
 
-#endif 
+#endif /* !_ASUS_WMI_H_ */

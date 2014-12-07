@@ -46,6 +46,7 @@ EXPORT_SYMBOL(__const_udelay);
 EXPORT_SYMBOL(strlen);
 EXPORT_SYMBOL(strcpy);
 
+/* Ugh.  These come in from libgcc.a at link time. */
 #define DECLARE_EXPORT(name) extern void name(void);EXPORT_SYMBOL(name)
 
 DECLARE_EXPORT(__sdivsi3);

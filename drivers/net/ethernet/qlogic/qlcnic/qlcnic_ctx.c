@@ -14,7 +14,7 @@ qlcnic_poll_rsp(struct qlcnic_adapter *adapter)
 	int timeout = 0;
 
 	do {
-		
+		/* give atleast 1ms for firmware to respond */
 		msleep(1);
 
 		if (++timeout > QLCNIC_OS_CRB_RETRY_COUNT)
@@ -37,7 +37,7 @@ qlcnic_issue_cmd(struct qlcnic_adapter *adapter, struct qlcnic_cmd_args *cmd)
 	signature = QLCNIC_CDRP_SIGNATURE_MAKE(ahw->pci_func,
 		adapter->fw_hal_version);
 
-	
+	/* Acquire semaphore before accessing CRB */
 	if (qlcnic_api_lock(adapter)) {
 		cmd->rsp.cmd = QLCNIC_RCODE_TIMEOUT;
 		return;
@@ -71,7 +71,7 @@ qlcnic_issue_cmd(struct qlcnic_adapter *adapter, struct qlcnic_cmd_args *cmd)
 	if (cmd->rsp.arg1)
 		cmd->rsp.arg1 = QLCRD32(adapter, QLCNIC_ARG1_CRB_OFFSET);
 
-	
+	/* Release semaphore */
 	qlcnic_api_unlock(adapter);
 
 }
@@ -367,7 +367,7 @@ qlcnic_fw_cmd_create_tx_ctx(struct qlcnic_adapter *adapter)
 	dma_addr_t	rq_phys_addr, rsp_phys_addr;
 	struct qlcnic_host_tx_ring *tx_ring = adapter->tx_ring;
 
-	
+	/* reset host resources */
 	tx_ring->producer = 0;
 	tx_ring->sw_consumer = 0;
 	*(tx_ring->hw_consumer) = 0;
@@ -491,7 +491,7 @@ int qlcnic_alloc_hw_resources(struct qlcnic_adapter *adapter)
 		return -ENOMEM;
 	}
 
-	
+	/* cmd desc ring */
 	addr = dma_alloc_coherent(&pdev->dev, TX_DESC_RINGSIZE(tx_ring),
 			&tx_ring->phys_addr, GFP_KERNEL);
 
@@ -570,7 +570,7 @@ void qlcnic_fw_destroy_ctx(struct qlcnic_adapter *adapter)
 		qlcnic_fw_cmd_destroy_rx_ctx(adapter);
 		qlcnic_fw_cmd_destroy_tx_ctx(adapter);
 
-		
+		/* Allow dma queues to drain after context reset */
 		msleep(20);
 	}
 }
@@ -627,6 +627,7 @@ void qlcnic_free_hw_resources(struct qlcnic_adapter *adapter)
 }
 
 
+/* Get MAC address of a NIC partition */
 int qlcnic_get_mac_address(struct qlcnic_adapter *adapter, u8 *mac)
 {
 	int err;
@@ -650,6 +651,7 @@ int qlcnic_get_mac_address(struct qlcnic_adapter *adapter, u8 *mac)
 	return err;
 }
 
+/* Get info of a NIC partition */
 int qlcnic_get_nic_info(struct qlcnic_adapter *adapter,
 				struct qlcnic_info *npar_info, u8 func_id)
 {
@@ -706,6 +708,7 @@ int qlcnic_get_nic_info(struct qlcnic_adapter *adapter,
 	return err;
 }
 
+/* Configure a NIC partition */
 int qlcnic_set_nic_info(struct qlcnic_adapter *adapter, struct qlcnic_info *nic)
 {
 	int err = -EIO;
@@ -756,6 +759,7 @@ int qlcnic_set_nic_info(struct qlcnic_adapter *adapter, struct qlcnic_info *nic)
 	return err;
 }
 
+/* Get PCI Info of a partition */
 int qlcnic_get_pci_info(struct qlcnic_adapter *adapter,
 				struct qlcnic_pci_info *pci_info)
 {
@@ -806,6 +810,7 @@ int qlcnic_get_pci_info(struct qlcnic_adapter *adapter,
 	return err;
 }
 
+/* Configure eSwitch for port mirroring */
 int qlcnic_config_port_mirroring(struct qlcnic_adapter *adapter, u8 id,
 				u8 enable_mirroring, u8 pci_func)
 {
@@ -1018,6 +1023,13 @@ __qlcnic_get_eswitch_port_config(struct qlcnic_adapter *adapter,
 	}
 	return err;
 }
+/* Configure eSwitch port
+op_mode = 0 for setting default port behavior
+op_mode = 1 for setting  vlan id
+op_mode = 2 for deleting vlan id
+op_type = 0 for vlan_id
+op_type = 1 for port vlan_id
+*/
 int qlcnic_config_switch_port(struct qlcnic_adapter *adapter,
 		struct qlcnic_esw_func_cfg *esw_cfg)
 {

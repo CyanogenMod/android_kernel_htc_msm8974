@@ -5,6 +5,10 @@
  *                            Hitoshi Yamamoto
  */
 
+/*
+ * 'traps.c' handles hardware traps and faults after we have saved some
+ * state in 'entry.S'.
+ */
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/kallsyms.h>
@@ -37,6 +41,9 @@ extern void smp_ipi_timer_interrupt(void);
 extern void smp_flush_cache_all_interrupt(void);
 extern void smp_call_function_single_interrupt(void);
 
+/*
+ * for Boot AP function
+ */
 asm (
 	"	.section .eit_vector4,\"ax\"	\n"
 	"	.global _AP_RE			\n"
@@ -46,7 +53,7 @@ asm (
 	"_AP_EI: bra	startup_AP		\n"
 	"	.previous			\n"
 );
-#endif  
+#endif  /* CONFIG_SMP */
 
 extern unsigned long	eit_vector[];
 #define BRA_INSN(func, entry)	\
@@ -62,9 +69,9 @@ static void set_eit_vector_entries(void)
 	extern void tme_handler(void);
 	extern void _flush_cache_copyback_all(void);
 
-	eit_vector[0] = 0xd0c00001; 
+	eit_vector[0] = 0xd0c00001; /* seth r0, 0x01 */
 	eit_vector[1] = BRA_INSN(default_eit_handler, 1);
-	eit_vector[4] = 0xd0c00010; 
+	eit_vector[4] = 0xd0c00010; /* seth r0, 0x10 */
 	eit_vector[5] = BRA_INSN(default_eit_handler, 5);
 	eit_vector[8] = BRA_INSN(rie_handler, 8);
 	eit_vector[12] = BRA_INSN(alignment_check, 12);
@@ -89,14 +96,14 @@ static void set_eit_vector_entries(void)
 #ifdef CONFIG_MMU
 	eit_vector[68] = BRA_INSN(ace_handler, 68);
 	eit_vector[72] = BRA_INSN(tme_handler, 72);
-#endif 
+#endif /* CONFIG_MMU */
 #ifdef CONFIG_SMP
 	eit_vector[184] = (unsigned long)smp_reschedule_interrupt;
 	eit_vector[185] = (unsigned long)smp_invalidate_interrupt;
 	eit_vector[186] = (unsigned long)smp_call_function_interrupt;
 	eit_vector[187] = (unsigned long)smp_ipi_timer_interrupt;
 	eit_vector[188] = (unsigned long)smp_flush_cache_all_interrupt;
-	eit_vector[189] = 0;	
+	eit_vector[189] = 0;	/* CPU_BOOT_IPI */
 	eit_vector[190] = (unsigned long)smp_call_function_single_interrupt;
 	eit_vector[191] = 0;
 #endif
@@ -107,6 +114,9 @@ void __init trap_init(void)
 {
 	set_eit_vector_entries();
 
+	/*
+	 * Should be a barrier for any external CPU state.
+	 */
 	cpu_init();
 }
 
@@ -135,6 +145,10 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 	unsigned long  *stack;
 	int  i;
 
+	/*
+	 * debugging aid: "show_stack(NULL);" prints the
+	 * back trace for this cpu.
+	 */
 
 	if(sp==NULL) {
 		if (task)
@@ -184,6 +198,10 @@ static void show_registers(struct pt_regs *regs)
 	printk("Process %s (pid: %d, process nr: %d, stackpage=%08lx)",
 		current->comm, task_pid_nr(current), 0xffff & i, 4096+(unsigned long)current);
 
+	/*
+	 * When in-kernel, we also print out the stack and code at the
+	 * time of the fault..
+	 */
 	if (in_kernel) {
 		printk("\nStack: ");
 		show_stack(current, (unsigned long*) sp);
@@ -230,7 +248,7 @@ static __inline__ void do_trap(int trapnr, int signr, const char * str,
 	struct pt_regs * regs, long error_code, siginfo_t *info)
 {
 	if (user_mode(regs)) {
-		
+		/* trap_signal */
 		struct task_struct *tsk = current;
 		tsk->thread.error_code = error_code;
 		tsk->thread.trap_no = trapnr;
@@ -240,7 +258,7 @@ static __inline__ void do_trap(int trapnr, int signr, const char * str,
 			force_sig(signr, tsk);
 		return;
 	} else {
-		
+		/* kernel_trap */
 		if (!fixup_exception(regs))
 			die(str, regs, error_code);
 		return;
@@ -271,6 +289,7 @@ DO_ERROR_INFO(-1, SIGILL,  "illegal trap", ill_trap, ILL_ILLTRP, regs->bpc)
 
 extern int handle_unaligned_access(unsigned long, struct pt_regs *);
 
+/* This code taken from arch/sh/kernel/traps.c */
 asmlinkage void do_alignment_check(struct pt_regs *regs, long error_code)
 {
 	mm_segment_t oldfs;

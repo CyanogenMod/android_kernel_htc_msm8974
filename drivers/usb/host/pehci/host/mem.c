@@ -25,6 +25,7 @@
 
 #ifdef CONFIG_ISO_SUPPORT
 
+/*memory utilization fuctions*/
 void
 phci_hcd_mem_init(void)
 {
@@ -35,7 +36,7 @@ phci_hcd_mem_init(void)
 		memaddr = &memalloc[i];
 		memset(memaddr, 0, sizeof *memaddr);
 	}
-	
+	/*initialize block of 128bytes */
 	for (i = 0; i < BLK_128_; i++) {
 		memaddr = &memalloc[i];
 		memaddr->blk_num = i;
@@ -44,7 +45,7 @@ phci_hcd_mem_init(void)
 		memaddr->phy_addr = start_addr;
 		start_addr += BLK_SIZE_128;
 	}
-	
+	/*initialize block of 256bytes */
 	for (i = BLK_128_; i < BLK_256_; i++) {
 		memaddr = &memalloc[i];
 		memaddr->blk_num = i;
@@ -53,7 +54,7 @@ phci_hcd_mem_init(void)
 		memaddr->phy_addr = start_addr;
 		start_addr += BLK_SIZE_256;
 	}
-	
+	/*initialize block of 1024bytes */
 	for (i = BLK_128_ + BLK_256_; i < (BLK_128_ + BLK_256_ + BLK_1024_);
 		i++) {
 		memaddr = &memalloc[i];
@@ -64,7 +65,7 @@ phci_hcd_mem_init(void)
 		start_addr += BLK_SIZE_1024;
 	}
 
-	
+	/*initialize block of  2kbytes */
 	for (i = (BLK_128_ + BLK_256_ + BLK_1024_);
 		i < (BLK_128_ + BLK_256_ + BLK_1024_ + BLK_2048_); i++) {
 		memaddr = &memalloc[i];
@@ -74,7 +75,7 @@ phci_hcd_mem_init(void)
 		memaddr->phy_addr = start_addr;
 		start_addr += BLK_SIZE_2048;
 	}
-	
+	/* initialize block of 4kbytes */
 	for (i = (BLK_128_ + BLK_256_ + BLK_1024_ + BLK_2048_);
 		i < (BLK_128_ + BLK_256_ + BLK_1024_ + BLK_2048_ + BLK_4096_); 
 		i++){
@@ -85,7 +86,7 @@ phci_hcd_mem_init(void)
 		memaddr->phy_addr = start_addr;
 		start_addr += BLK_SIZE_4096;
 	}
-	
+	/* initialize block of 8kbytes */
 	for (i = (BLK_128_ + BLK_256_ + BLK_1024_ + BLK_2048_); i <
 		(BLK_128_ + BLK_256_ + BLK_1024_ + BLK_2048_ + BLK_4096_ +
 		BLK_8196_); i++) {
@@ -100,10 +101,11 @@ phci_hcd_mem_init(void)
 }
 
 
+/*free memory*/
 static void
 phci_hcd_mem_free(struct isp1763_mem_addr *memptr)
 {
-	
+	/*block number to be freed */
 	int block = memptr->blk_num;
 
 	if (block < BLK_TOTAL){
@@ -115,6 +117,7 @@ phci_hcd_mem_free(struct isp1763_mem_addr *memptr)
 }
 
 
+/*allocate memory*/
 static void
 phci_hcd_mem_alloc(u32 size, struct isp1763_mem_addr *memptr, u32 flag)
 {
@@ -151,9 +154,9 @@ phci_hcd_mem_alloc(u32 size, struct isp1763_mem_addr *memptr, u32 flag)
 	}
 
 	return;
-	
+	/*end of the 1k blocks */
 	nextblk1 = BLK_256_ + BLK_1024_;
-	
+	/*end of the 4k blocks */
 	nextblk4 = nextblk1 + BLK_4096_;
 
 	if (blk_size <= BLK_SIZE_128) {
@@ -188,11 +191,11 @@ phci_hcd_mem_alloc(u32 size, struct isp1763_mem_addr *memptr, u32 flag)
 		}
 	}
 
-	
-	
+	/*look for in the next block if memory is free */
+	/*start from the first place of the next block */
 	start = end;
 
-	
+	/*for 1k and 256 size request only 4k can be returned */
 	end = nextblk4;
 
 	for (i = start; i < end; i++) {
@@ -223,7 +226,7 @@ phci_hcd_mem_init(void)
 		memset(memaddr, 0, sizeof *memaddr);
 	}
 
-	
+	/*initialize block of 256bytes */
 	for (i = 0; i < BLK_256_; i++) {
 		memaddr = &memalloc[i];
 		memaddr->blk_num = i;
@@ -232,7 +235,7 @@ phci_hcd_mem_init(void)
 		memaddr->phy_addr = start_addr;
 		start_addr += BLK_SIZE_256;
 	}
-	
+	/*initialize block of 1024bytes */
 	for (i = BLK_256_; i < (BLK_256_ + BLK_1024_); i++) {
 		memaddr = &memalloc[i];
 		memaddr->blk_num = i;
@@ -242,7 +245,7 @@ phci_hcd_mem_init(void)
 		start_addr += BLK_SIZE_1024;
 	}
 
-	
+	/*initialize block of  4kbytes */
 	for (i = (BLK_256_ + BLK_1024_); i < (BLK_256_ + BLK_1024_ + BLK_4096_);
 		i++) {
 		memaddr = &memalloc[i];
@@ -256,10 +259,11 @@ phci_hcd_mem_init(void)
 }
 
 
+/*free memory*/
 static void
 phci_hcd_mem_free(struct isp1763_mem_addr *memptr)
 {
-	
+	/*block number to be freed */
 	int block = memptr->blk_num;
 
 	if (block < BLK_TOTAL)
@@ -270,6 +274,7 @@ phci_hcd_mem_free(struct isp1763_mem_addr *memptr)
 }
 
 
+/*allocate memory*/
 static void
 phci_hcd_mem_alloc(u32 size, struct isp1763_mem_addr *memptr, u32 flag)
 {
@@ -292,9 +297,9 @@ phci_hcd_mem_alloc(u32 size, struct isp1763_mem_addr *memptr, u32 flag)
 		return;
 	}
 
-	
+	/*end of the 1k blocks */
 	nextblk1 = BLK_256_ + BLK_1024_;
-	
+	/*end of the 4k blocks */
 	nextblk4 = nextblk1 + BLK_4096_;
 
 
@@ -325,11 +330,11 @@ phci_hcd_mem_alloc(u32 size, struct isp1763_mem_addr *memptr, u32 flag)
 		}
 	}
 
-	
-	
+	/*look for in the next block if memory is free */
+	/*start from the first place of the next block */
 	start = end;
 
-	
+	/*for 1k and 256 size request only 4k can be returned */
 	end = nextblk4;
 
 	for (i = start; i < end; i++) {

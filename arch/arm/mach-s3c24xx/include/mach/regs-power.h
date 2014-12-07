@@ -37,4 +37,4 @@
 #define S3C2412_PWRCFG_RTC_MASKIRQ		(1<<8)
 #define S3C2412_PWRCFG_NAND_NORST		(1<<9)
 
-#endif 
+#endif /* __ASM_ARM_REGS_PWR */

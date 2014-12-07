@@ -8,6 +8,7 @@
 #ifndef _ASM_IA64_SN_XTALK_XWIDGET_H
 #define _ASM_IA64_SN_XTALK_XWIDGET_H
 
+/* WIDGET_ID */
 #define WIDGET_REV_NUM                  0xf0000000
 #define WIDGET_PART_NUM                 0x0ffff000
 #define WIDGET_MFG_NUM                  0x00000ffe
@@ -22,31 +23,35 @@
                                         XWIDGET_REV_NUM(widgetid))
 #define XWIDGET_PART_REV_NUM_REV(partrev) (partrev & 0xf)
 
+/* widget configuration registers */
 struct widget_cfg{
-	u32	w_id;	
-	u32	w_pad_0;	
-	u32	w_status;	
-	u32	w_pad_1;	
-	u32	w_err_upper_addr;	
-	u32	w_pad_2;	
-	u32	w_err_lower_addr;	
-	u32	w_pad_3;	
-	u32	w_control;	
-	u32	w_pad_4;	
-	u32	w_req_timeout;	
-	u32	w_pad_5;	
-	u32	w_intdest_upper_addr;	
-	u32	w_pad_6;	
-	u32	w_intdest_lower_addr;	
-	u32	w_pad_7;	
-	u32	w_err_cmd_word;	
-	u32	w_pad_8;	
-	u32	w_llp_cfg;	
-	u32	w_pad_9;	
-	u32	w_tflush;	
-	u32	w_pad_10;	
+	u32	w_id;	/* 0x04 */
+	u32	w_pad_0;	/* 0x00 */
+	u32	w_status;	/* 0x0c */
+	u32	w_pad_1;	/* 0x08 */
+	u32	w_err_upper_addr;	/* 0x14 */
+	u32	w_pad_2;	/* 0x10 */
+	u32	w_err_lower_addr;	/* 0x1c */
+	u32	w_pad_3;	/* 0x18 */
+	u32	w_control;	/* 0x24 */
+	u32	w_pad_4;	/* 0x20 */
+	u32	w_req_timeout;	/* 0x2c */
+	u32	w_pad_5;	/* 0x28 */
+	u32	w_intdest_upper_addr;	/* 0x34 */
+	u32	w_pad_6;	/* 0x30 */
+	u32	w_intdest_lower_addr;	/* 0x3c */
+	u32	w_pad_7;	/* 0x38 */
+	u32	w_err_cmd_word;	/* 0x44 */
+	u32	w_pad_8;	/* 0x40 */
+	u32	w_llp_cfg;	/* 0x4c */
+	u32	w_pad_9;	/* 0x48 */
+	u32	w_tflush;	/* 0x54 */
+	u32	w_pad_10;	/* 0x50 */
 };
 
+/*
+ * Crosstalk Widget Hardware Identification, as defined in the Crosstalk spec.
+ */
 struct xwidget_hwid{
 	int		mfg_num;
 	int		rev_num;
@@ -55,11 +60,11 @@ struct xwidget_hwid{
 
 struct xwidget_info{
 
-	struct xwidget_hwid	xwi_hwid;	
-	char			xwi_masterxid;	
-	void			*xwi_hubinfo;     
-	u64			*xwi_hub_provider; 
+	struct xwidget_hwid	xwi_hwid;	/* Widget Identification */
+	char			xwi_masterxid;	/* Hub's Widget Port Number */
+	void			*xwi_hubinfo;     /* Hub's provider private info */
+	u64			*xwi_hub_provider; /* prom provider functions */
 	void			*xwi_vertex;
 };
 
-#endif                          
+#endif                          /* _ASM_IA64_SN_XTALK_XWIDGET_H */

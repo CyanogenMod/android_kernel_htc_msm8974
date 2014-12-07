@@ -34,23 +34,23 @@
 struct ds2760_device_info {
 	struct device *dev;
 
-	
-	unsigned long update_time;	
-	char raw[DS2760_DATA_SIZE];	
-	int voltage_raw;		
-	int voltage_uV;			
-	int current_raw;		
-	int current_uA;			
-	int accum_current_raw;		
-	int accum_current_uAh;		
-	int temp_raw;			
-	int temp_C;			
-	int rated_capacity;		
-	int rem_capacity;		
-	int full_active_uAh;		
-	int empty_uAh;			
-	int life_sec;			
-	int charge_status;		
+	/* DS2760 data, valid after calling ds2760_battery_read_status() */
+	unsigned long update_time;	/* jiffies when data read */
+	char raw[DS2760_DATA_SIZE];	/* raw DS2760 data */
+	int voltage_raw;		/* units of 4.88 mV */
+	int voltage_uV;			/* units of µV */
+	int current_raw;		/* units of 0.625 mA */
+	int current_uA;			/* units of µA */
+	int accum_current_raw;		/* units of 0.25 mAh */
+	int accum_current_uAh;		/* units of µAh */
+	int temp_raw;			/* units of 0.125 °C */
+	int temp_C;			/* units of 0.1 °C */
+	int rated_capacity;		/* units of µAh */
+	int rem_capacity;		/* percentage */
+	int full_active_uAh;		/* units of µAh */
+	int empty_uAh;			/* units of µAh */
+	int life_sec;			/* units of seconds */
+	int charge_status;		/* POWER_SUPPLY_STATUS_* */
 
 	int full_counter;
 	struct power_supply bat;
@@ -76,30 +76,34 @@ static unsigned int current_accum;
 module_param(current_accum, uint, 0644);
 MODULE_PARM_DESC(current_accum, "current accumulator value");
 
+/* Some batteries have their rated capacity stored a N * 10 mAh, while
+ * others use an index into this table. */
 static int rated_capacities[] = {
 	0,
-	920,	
-	920,	
-	920,	
-	920,	
-	1440,	
-	1440,	
+	920,	/* Samsung */
+	920,	/* BYD */
+	920,	/* Lishen */
+	920,	/* NEC */
+	1440,	/* Samsung */
+	1440,	/* BYD */
 #ifdef CONFIG_MACH_H4700
-	1800,	
+	1800,	/* HP iPAQ hx4700 3.7V 1800mAh (359113-001) */
 #else
-	1440,	
+	1440,	/* Lishen */
 #endif
-	1440,	
-	2880,	
-	2880,	
-	2880,	
-	2880,	
+	1440,	/* NEC */
+	2880,	/* Samsung */
+	2880,	/* BYD */
+	2880,	/* Lishen */
+	2880,	/* NEC */
 #ifdef CONFIG_MACH_H4700
 	0,
-	3600,	
+	3600,	/* HP iPAQ hx4700 3.7V 3600mAh (359114-001) */
 #endif
 };
 
+/* array is level at temps 0°C, 10°C, 20°C, 30°C, 40°C
+ * temp is in Celsius */
 static int battery_interpolate(int array[], int temp)
 {
 	int index, dt;
@@ -123,6 +127,8 @@ static int ds2760_battery_read_status(struct ds2760_device_info *di)
 					   msecs_to_jiffies(cache_time)))
 		return 0;
 
+	/* The first time we read the entire contents of SRAM/EEPROM,
+	 * but after that we just read the interesting bits that change. */
 	if (di->update_time == 0) {
 		start = 0;
 		count = DS2760_DATA_SIZE;
@@ -140,37 +146,49 @@ static int ds2760_battery_read_status(struct ds2760_device_info *di)
 
 	di->update_time = jiffies;
 
+	/* DS2760 reports voltage in units of 4.88mV, but the battery class
+	 * reports in units of uV, so convert by multiplying by 4880. */
 	di->voltage_raw = (di->raw[DS2760_VOLTAGE_MSB] << 3) |
 			  (di->raw[DS2760_VOLTAGE_LSB] >> 5);
 	di->voltage_uV = di->voltage_raw * 4880;
 
+	/* DS2760 reports current in signed units of 0.625mA, but the battery
+	 * class reports in units of µA, so convert by multiplying by 625. */
 	di->current_raw =
 	    (((signed char)di->raw[DS2760_CURRENT_MSB]) << 5) |
 			  (di->raw[DS2760_CURRENT_LSB] >> 3);
 	di->current_uA = di->current_raw * 625;
 
-	
+	/* DS2760 reports accumulated current in signed units of 0.25mAh. */
 	di->accum_current_raw =
 	    (((signed char)di->raw[DS2760_CURRENT_ACCUM_MSB]) << 8) |
 			   di->raw[DS2760_CURRENT_ACCUM_LSB];
 	di->accum_current_uAh = di->accum_current_raw * 250;
 
+	/* DS2760 reports temperature in signed units of 0.125°C, but the
+	 * battery class reports in units of 1/10 °C, so we convert by
+	 * multiplying by .125 * 10 = 1.25. */
 	di->temp_raw = (((signed char)di->raw[DS2760_TEMP_MSB]) << 3) |
 				     (di->raw[DS2760_TEMP_LSB] >> 5);
 	di->temp_C = di->temp_raw + (di->temp_raw / 4);
 
+	/* At least some battery monitors (e.g. HP iPAQ) store the battery's
+	 * maximum rated capacity. */
 	if (di->raw[DS2760_RATED_CAPACITY] < ARRAY_SIZE(rated_capacities))
 		di->rated_capacity = rated_capacities[
 			(unsigned int)di->raw[DS2760_RATED_CAPACITY]];
 	else
 		di->rated_capacity = di->raw[DS2760_RATED_CAPACITY] * 10;
 
-	di->rated_capacity *= 1000; 
+	di->rated_capacity *= 1000; /* convert to µAh */
 
-	
+	/* Calculate the full level at the present temperature. */
 	di->full_active_uAh = di->raw[DS2760_ACTIVE_FULL] << 8 |
 			      di->raw[DS2760_ACTIVE_FULL + 1];
 
+	/* If the full_active_uAh value is not given, fall back to the rated
+	 * capacity. This is likely to happen when chips are not part of the
+	 * battery pack and is therefore not bootstrapped. */
 	if (di->full_active_uAh == 0)
 		di->full_active_uAh = di->rated_capacity / 1000L;
 
@@ -179,19 +197,21 @@ static int ds2760_battery_read_status(struct ds2760_device_info *di)
 		scale[i] = scale[i - 1] + di->raw[DS2760_ACTIVE_FULL + 1 + i];
 
 	di->full_active_uAh = battery_interpolate(scale, di->temp_C / 10);
-	di->full_active_uAh *= 1000; 
+	di->full_active_uAh *= 1000; /* convert to µAh */
 
-	
+	/* Calculate the empty level at the present temperature. */
 	scale[4] = di->raw[DS2760_ACTIVE_EMPTY + 4];
 	for (i = 3; i >= 0; i--)
 		scale[i] = scale[i + 1] + di->raw[DS2760_ACTIVE_EMPTY + i];
 
 	di->empty_uAh = battery_interpolate(scale, di->temp_C / 10);
-	di->empty_uAh *= 1000; 
+	di->empty_uAh *= 1000; /* convert to µAh */
 
 	if (di->full_active_uAh == di->empty_uAh)
 		di->rem_capacity = 0;
 	else
+		/* From Maxim Application Note 131: remaining capacity =
+		 * ((ICA - Empty Value) / (Full Value - Empty Value)) x 100% */
 		di->rem_capacity = ((di->accum_current_uAh - di->empty_uAh) * 100L) /
 				    (di->full_active_uAh - di->empty_uAh);
 
@@ -214,7 +234,7 @@ static void ds2760_battery_set_current_accum(struct ds2760_device_info *di,
 {
 	unsigned char acr[2];
 
-	
+	/* acr is in units of 0.25 mAh */
 	acr_val *= 4L;
 	acr_val /= 1000;
 
@@ -247,6 +267,9 @@ static void ds2760_battery_update_status(struct ds2760_device_info *di)
 		} else if (di->current_uA < 10000 &&
 			    di->charge_status != POWER_SUPPLY_STATUS_FULL) {
 
+			/* Don't consider the battery to be full unless
+			 * we've seen the current < 10 mA at least two
+			 * consecutive times. */
 
 			di->full_counter++;
 
@@ -305,6 +328,8 @@ static void ds2760_battery_write_active_full(struct ds2760_device_info *di,
 	w1_ds2760_store_eeprom(di->w1_dev, DS2760_EEPROM_BLOCK0);
 	w1_ds2760_recall_eeprom(di->w1_dev, DS2760_EEPROM_BLOCK0);
 
+	/* Write to the di->raw[] buffer directly - the DS2760_ACTIVE_FULL
+	 * values won't be read back by ds2760_battery_read_status() */
 	di->raw[DS2760_ACTIVE_FULL] = tmp[0];
 	di->raw[DS2760_ACTIVE_FULL + 1] = tmp[1];
 }
@@ -345,6 +370,13 @@ static void ds2760_battery_set_charged_work(struct work_struct *work)
 
 	ds2760_battery_read_status(di);
 
+	/* When we get notified by external circuitry that the battery is
+	 * considered fully charged now, we know that there is no current
+	 * flow any more. However, the ds2760's internal current meter is
+	 * too inaccurate to rely on - spec say something ~15% failure.
+	 * Hence, we use the current offset bias register to compensate
+	 * that error.
+	 */
 
 	if (!power_supply_am_i_supplied(&di->bat))
 		return;
@@ -358,6 +390,8 @@ static void ds2760_battery_set_charged_work(struct work_struct *work)
 	w1_ds2760_store_eeprom(di->w1_dev, DS2760_EEPROM_BLOCK1);
 	w1_ds2760_recall_eeprom(di->w1_dev, DS2760_EEPROM_BLOCK1);
 
+	/* Write to the di->raw[] buffer directly - the CURRENT_OFFSET_BIAS
+	 * value won't be read back by ds2760_battery_read_status() */
 	di->raw[DS2760_CURRENT_OFFSET_BIAS] = bias;
 }
 
@@ -365,6 +399,8 @@ static void ds2760_battery_set_charged(struct power_supply *psy)
 {
 	struct ds2760_device_info *di = to_ds2760_device_info(psy);
 
+	/* postpone the actual work by 20 secs. This is for debouncing GPIO
+	 * signals and to let the current value settle. See AN4188. */
 	cancel_delayed_work(&di->set_charged_work);
 	queue_delayed_work(di->monitor_wqueue, &di->set_charged_work, HZ * 20);
 }
@@ -428,12 +464,12 @@ static int ds2760_battery_set_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
-		
+		/* the interface counts in uAh, convert the value */
 		ds2760_battery_write_active_full(di, val->intval / 1000L);
 		break;
 
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
-		
+		/* ds2760_battery_set_current_accum() does the conversion */
 		ds2760_battery_set_current_accum(di, val->intval);
 		break;
 
@@ -502,7 +538,7 @@ static int ds2760_battery_probe(struct platform_device *pdev)
 
 	di->charge_status = POWER_SUPPLY_STATUS_UNKNOWN;
 
-	
+	/* enable sleep mode feature */
 	ds2760_battery_read_status(di);
 	status = di->raw[DS2760_STATUS_REG];
 	if (pmod_enabled)
@@ -512,10 +548,12 @@ static int ds2760_battery_probe(struct platform_device *pdev)
 
 	ds2760_battery_write_status(di, status);
 
-	
+	/* set rated capacity from module param */
 	if (rated_capacity)
 		ds2760_battery_write_rated_capacity(di, rated_capacity);
 
+	/* set current accumulator if given as parameter.
+	 * this should only be done for bootstrapping the value */
 	if (current_accum)
 		ds2760_battery_set_current_accum(di, current_accum);
 
@@ -589,7 +627,7 @@ static int ds2760_battery_resume(struct platform_device *pdev)
 #define ds2760_battery_suspend NULL
 #define ds2760_battery_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 MODULE_ALIAS("platform:ds2760-battery");
 

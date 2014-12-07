@@ -22,6 +22,9 @@
 #include "usbaudio.h"
 #include "helper.h"
 
+/*
+ * combine bytes and get an integer value
+ */
 unsigned int snd_usb_combine_bytes(unsigned char *bytes, int size)
 {
 	switch (size) {
@@ -33,6 +36,10 @@ unsigned int snd_usb_combine_bytes(unsigned char *bytes, int size)
 	}
 }
 
+/*
+ * parse descriptor buffer and return the pointer starting the given
+ * descriptor type.
+ */
 void *snd_usb_find_desc(void *descstart, int desclen, void *after, u8 dtype)
 {
 	u8 *p, *end, *next;
@@ -53,6 +60,9 @@ void *snd_usb_find_desc(void *descstart, int desclen, void *after, u8 dtype)
 	return NULL;
 }
 
+/*
+ * find a class-specified interface descriptor with the given subtype.
+ */
 void *snd_usb_find_csint_desc(void *buffer, int buflen, void *after, u8 dsubtype)
 {
 	unsigned char *p = after;
@@ -65,6 +75,10 @@ void *snd_usb_find_csint_desc(void *buffer, int buflen, void *after, u8 dsubtype
 	return NULL;
 }
 
+/*
+ * Wrapper for usb_control_msg().
+ * Allocates a temp buffer to prevent dmaing from/to the stack.
+ */
 int snd_usb_ctl_msg(struct usb_device *dev, unsigned int pipe, __u8 request,
 		    __u8 requesttype, __u16 value, __u16 index, void *data,
 		    __u16 size)

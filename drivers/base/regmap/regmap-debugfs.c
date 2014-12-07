@@ -20,6 +20,7 @@
 
 static struct dentry *regmap_debugfs_root;
 
+/* Calculate the length of a fixed format  */
 static size_t regmap_calc_reg_len(int max_val, char *buf, size_t buf_size)
 {
 	snprintf(buf, buf_size, "%x", max_val);
@@ -74,10 +75,10 @@ static ssize_t regmap_map_read_file(struct file *file, char __user *user_buf,
 	if (!buf)
 		return -ENOMEM;
 
-	
+	/* Calculate the length of a fixed format  */
 	reg_len = regmap_calc_reg_len(map->max_register, buf, count);
 	val_len = 2 * map->format.val_bytes;
-	tot_len = reg_len + val_len + 3;      
+	tot_len = reg_len + val_len + 3;      /* : \n */
 
 	for (i = 0; i < map->max_register + 1; i++) {
 		if (!regmap_readable(map, i))
@@ -86,18 +87,18 @@ static ssize_t regmap_map_read_file(struct file *file, char __user *user_buf,
 		if (regmap_precious(map, i))
 			continue;
 
-		
+		/* If we're in the region the user is trying to read */
 		if (p >= *ppos) {
-			
+			/* ...but not beyond it */
 			if (buf_pos >= count - 1 - tot_len)
 				break;
 
-			
+			/* Format the register */
 			snprintf(buf + buf_pos, count - buf_pos, "%.*x: ",
 				 reg_len, i);
 			buf_pos += reg_len + 2;
 
-			
+			/* Format the value, write all X if we can't read */
 			ret = regmap_read(map, i, &val);
 			if (ret == 0)
 				snprintf(buf + buf_pos, count - buf_pos,
@@ -127,6 +128,12 @@ out:
 
 #undef REGMAP_ALLOW_WRITE_DEBUGFS
 #ifdef REGMAP_ALLOW_WRITE_DEBUGFS
+/*
+ * This can be dangerous especially when we have clients such as
+ * PMICs, therefore don't provide any real compile time configuration option
+ * for this feature, people who want to use this will need to modify
+ * the source code directly.
+ */
 static ssize_t regmap_map_write_file(struct file *file,
 				     const char __user *user_buf,
 				     size_t count, loff_t *ppos)
@@ -150,7 +157,7 @@ static ssize_t regmap_map_write_file(struct file *file,
 	if (strict_strtoul(start, 16, &value))
 		return -EINVAL;
 
-	
+	/* Userspace has been fiddling around behind the kernel's back */
 	add_taint(TAINT_USER);
 
 	regmap_write(map, reg, value);
@@ -186,22 +193,22 @@ static ssize_t regmap_access_read_file(struct file *file,
 	if (!buf)
 		return -ENOMEM;
 
-	
+	/* Calculate the length of a fixed format  */
 	reg_len = regmap_calc_reg_len(map->max_register, buf, count);
-	tot_len = reg_len + 10; 
+	tot_len = reg_len + 10; /* ': R W V P\n' */
 
 	for (i = 0; i < map->max_register + 1; i++) {
-		
+		/* Ignore registers which are neither readable nor writable */
 		if (!regmap_readable(map, i) && !regmap_writeable(map, i))
 			continue;
 
-		
+		/* If we're in the region the user is trying to read */
 		if (p >= *ppos) {
-			
+			/* ...but not beyond it */
 			if (buf_pos >= count - 1 - tot_len)
 				break;
 
-			
+			/* Format the register */
 			snprintf(buf + buf_pos, count - buf_pos,
 				 "%.*x: %c %c %c %c\n",
 				 reg_len, i,

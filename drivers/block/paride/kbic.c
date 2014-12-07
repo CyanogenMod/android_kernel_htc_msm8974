@@ -12,6 +12,11 @@
 
 */
 
+/* Changes:
+
+        1.01    GRG 1998.05.06 init_proto, release_proto
+
+*/
 
 #define KBIC_VERSION      "1.01"
 
@@ -31,6 +36,9 @@
 #define j53(w)                  (((w>>3)&0x1f)|((w>>4)&0xe0))
 
 
+/* cont = 0 - access the IDE register file 
+   cont = 1 - access the IDE command set 
+*/
 
 static int  cont_map[2] = { 0x80, 0x40 };
 
@@ -119,6 +127,9 @@ static void k971_disconnect ( PIA *pi )
         w2(pi->saved_r2);
 }
 
+/* counts must be congruent to 0 MOD 4, but all known applications
+   have this property.
+*/
 
 static void kbic_read_block( PIA *pi, char * buf, int count )
 

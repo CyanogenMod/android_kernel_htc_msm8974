@@ -69,8 +69,8 @@ DECLARE_PER_CPU(struct exception_data, exception_data);
 
 #define preserve_branch(label)	do {					\
 	volatile int dummy;						\
-		\
-	 	\
+	/* The following branch is never taken, it's just here to  */	\
+	/* prevent gcc from optimizing away our exception code. */ 	\
 	if (unlikely(dummy != dummy))					\
 		goto label;						\
 } while (0)
@@ -153,23 +153,33 @@ static inline void prefetch_dst(const void *addr)
 #define prefetch_dst(addr) do { } while(0)
 #endif
 
+/* Copy from a not-aligned src to an aligned dst, using shifts. Handles 4 words
+ * per loop.  This code is derived from glibc. 
+ */
 static inline unsigned long copy_dstaligned(unsigned long dst, unsigned long src, unsigned long len, unsigned long o_dst, unsigned long o_src, unsigned long o_len)
 {
+	/* gcc complains that a2 and a3 may be uninitialized, but actually
+	 * they cannot be.  Initialize a2/a3 to shut gcc up.
+	 */
 	register unsigned int a0, a1, a2 = 0, a3 = 0;
 	int sh_1, sh_2;
 	struct exception_data *d;
 
-	
+	/* prefetch_src((const void *)src); */
 
+	/* Calculate how to shift a word read at the memory operation
+	   aligned srcp to make it aligned for copy.  */
 	sh_1 = 8 * (src % sizeof(unsigned int));
 	sh_2 = 8 * sizeof(unsigned int) - sh_1;
 
-	
+	/* Make src aligned by rounding it down.  */
 	src &= -sizeof(unsigned int);
 
 	switch (len % 4)
 	{
 		case 2:
+			/* a1 = ((unsigned int *) src)[0];
+			   a2 = ((unsigned int *) src)[1]; */
 			ldw(s_space, 0, src, a1, cda_ldw_exc);
 			ldw(s_space, 4, src, a2, cda_ldw_exc);
 			src -= 1 * sizeof(unsigned int);
@@ -177,6 +187,8 @@ static inline unsigned long copy_dstaligned(unsigned long dst, unsigned long src
 			len += 2;
 			goto do1;
 		case 3:
+			/* a0 = ((unsigned int *) src)[0];
+			   a1 = ((unsigned int *) src)[1]; */
 			ldw(s_space, 0, src, a0, cda_ldw_exc);
 			ldw(s_space, 4, src, a1, cda_ldw_exc);
 			src -= 0 * sizeof(unsigned int);
@@ -186,6 +198,8 @@ static inline unsigned long copy_dstaligned(unsigned long dst, unsigned long src
 		case 0:
 			if (len == 0)
 				return 0;
+			/* a3 = ((unsigned int *) src)[0];
+			   a0 = ((unsigned int *) src)[1]; */
 			ldw(s_space, 0, src, a3, cda_ldw_exc);
 			ldw(s_space, 4, src, a0, cda_ldw_exc);
 			src -=-1 * sizeof(unsigned int);
@@ -193,6 +207,8 @@ static inline unsigned long copy_dstaligned(unsigned long dst, unsigned long src
 			len += 0;
 			goto do3;
 		case 1:
+			/* a2 = ((unsigned int *) src)[0];
+			   a3 = ((unsigned int *) src)[1]; */
 			ldw(s_space, 0, src, a2, cda_ldw_exc);
 			ldw(s_space, 4, src, a3, cda_ldw_exc);
 			src -=-2 * sizeof(unsigned int);
@@ -200,31 +216,31 @@ static inline unsigned long copy_dstaligned(unsigned long dst, unsigned long src
 			len -= 1;
 			if (len == 0)
 				goto do0;
-			goto do4;			
+			goto do4;			/* No-op.  */
 	}
 
 	do
 	{
-		
+		/* prefetch_src((const void *)(src + 4 * sizeof(unsigned int))); */
 do4:
-		
+		/* a0 = ((unsigned int *) src)[0]; */
 		ldw(s_space, 0, src, a0, cda_ldw_exc);
-		
+		/* ((unsigned int *) dst)[0] = MERGE (a2, sh_1, a3, sh_2); */
 		stw(d_space, MERGE (a2, sh_1, a3, sh_2), 0, dst, cda_stw_exc);
 do3:
-		
+		/* a1 = ((unsigned int *) src)[1]; */
 		ldw(s_space, 4, src, a1, cda_ldw_exc);
-		
+		/* ((unsigned int *) dst)[1] = MERGE (a3, sh_1, a0, sh_2); */
 		stw(d_space, MERGE (a3, sh_1, a0, sh_2), 4, dst, cda_stw_exc);
 do2:
-		
+		/* a2 = ((unsigned int *) src)[2]; */
 		ldw(s_space, 8, src, a2, cda_ldw_exc);
-		
+		/* ((unsigned int *) dst)[2] = MERGE (a0, sh_1, a1, sh_2); */
 		stw(d_space, MERGE (a0, sh_1, a1, sh_2), 8, dst, cda_stw_exc);
 do1:
-		
+		/* a3 = ((unsigned int *) src)[3]; */
 		ldw(s_space, 12, src, a3, cda_ldw_exc);
-		
+		/* ((unsigned int *) dst)[3] = MERGE (a1, sh_1, a2, sh_2); */
 		stw(d_space, MERGE (a1, sh_1, a2, sh_2), 12, dst, cda_stw_exc);
 
 		src += 4 * sizeof(unsigned int);
@@ -234,7 +250,7 @@ do1:
 	while (len != 0);
 
 do0:
-	
+	/* ((unsigned int *) dst)[0] = MERGE (a2, sh_1, a3, sh_2); */
 	stw(d_space, MERGE (a2, sh_1, a3, sh_2), 0, dst, cda_stw_exc);
 
 	preserve_branch(handle_load_error);
@@ -258,6 +274,7 @@ handle_store_error:
 }
 
 
+/* Returns 0 for success, otherwise, returns number of bytes not transferred. */
 static unsigned long pa_memcpy(void *dstp, const void *srcp, unsigned long len)
 {
 	register unsigned long src, dst, t1, t2, t3;
@@ -275,24 +292,24 @@ static unsigned long pa_memcpy(void *dstp, const void *srcp, unsigned long len)
 
 	o_dst = dst; o_src = src; o_len = len;
 
-	
+	/* prefetch_src((const void *)srcp); */
 
 	if (len < THRESHOLD)
 		goto byte_copy;
 
-	
+	/* Check alignment */
 	t1 = (src ^ dst);
 	if (unlikely(t1 & (sizeof(double)-1)))
 		goto unaligned_copy;
 
-	
+	/* src and dst have same alignment. */
 
-	
+	/* Copy bytes till we are double-aligned. */
 	t2 = src & (sizeof(double) - 1);
 	if (unlikely(t2 != 0)) {
 		t2 = sizeof(double) - t2;
 		while (t2 && len) {
-			
+			/* *pcd++ = *pcs++; */
 			ldbma(s_space, pcs, t3, pmc_load_exc);
 			len--;
 			stbma(d_space, t3, pcd, pmc_store_exc);
@@ -304,10 +321,10 @@ static unsigned long pa_memcpy(void *dstp, const void *srcp, unsigned long len)
 	pdd = (double *)pcd;
 
 #if 0
-	
+	/* Copy 8 doubles at a time */
 	while (len >= 8*sizeof(double)) {
 		register double r1, r2, r3, r4, r5, r6, r7, r8;
-		
+		/* prefetch_src((char *)pds + L1_CACHE_BYTES); */
 		flddma(s_space, pds, r1, pmc_load_exc);
 		flddma(s_space, pds, r2, pmc_load_exc);
 		flddma(s_space, pds, r3, pmc_load_exc);
@@ -339,7 +356,7 @@ static unsigned long pa_memcpy(void *dstp, const void *srcp, unsigned long len)
 word_copy:
 	while (len >= 8*sizeof(unsigned int)) {
 		register unsigned int r1,r2,r3,r4,r5,r6,r7,r8;
-		
+		/* prefetch_src((char *)pws + L1_CACHE_BYTES); */
 		ldwma(s_space, pws, r1, pmc_load_exc);
 		ldwma(s_space, pws, r2, pmc_load_exc);
 		ldwma(s_space, pws, r3, pmc_load_exc);
@@ -378,7 +395,7 @@ word_copy:
 
 byte_copy:
 	while (len) {
-		
+		/* *pcd++ = *pcs++; */
 		ldbma(s_space, pcs, t3, pmc_load_exc);
 		stbma(d_space, t3, pcd, pmc_store_exc);
 		len--;
@@ -387,14 +404,14 @@ byte_copy:
 	return 0;
 
 unaligned_copy:
-	
+	/* possibly we are aligned on a word, but not on a double... */
 	if (likely((t1 & (sizeof(unsigned int)-1)) == 0)) {
 		t2 = src & (sizeof(unsigned int) - 1);
 
 		if (unlikely(t2 != 0)) {
 			t2 = sizeof(unsigned int) - t2;
 			while (t2) {
-				
+				/* *pcd++ = *pcs++; */
 				ldbma(s_space, pcs, t3, pmc_load_exc);
 				stbma(d_space, t3, pcd, pmc_store_exc);
 				len--;
@@ -407,11 +424,11 @@ unaligned_copy:
 		goto word_copy;
 	}
 
-	
+	/* Align the destination.  */
 	if (unlikely((dst & (sizeof(unsigned int) - 1)) != 0)) {
 		t2 = sizeof(unsigned int) - (dst & (sizeof(unsigned int) - 1));
 		while (t2) {
-			
+			/* *pcd++ = *pcs++; */
 			ldbma(s_space, pcs, t3, pmc_load_exc);
 			stbma(d_space, t3, pcd, pmc_store_exc);
 			len--;

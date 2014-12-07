@@ -172,6 +172,8 @@ static int do_uevent(struct dlm_ls *ls, int in)
 
 	log_debug(ls, "%s the lockspace group...", in ? "joining" : "leaving");
 
+	/* dlm_controld will see the uevent, do the necessary group management
+	   and then write to sysfs to wake us */
 
 	error = wait_event_interruptible(ls->ls_uevent_wait,
 			test_and_clear_bit(LSFL_UEVENT_WAIT, &ls->ls_flags));
@@ -363,7 +365,7 @@ static int threads_start(void)
 		goto fail;
 	}
 
-	
+	/* Thread for sending/receiving messages for all lockspace's */
 	error = dlm_lowcomms_start();
 	if (error) {
 		log_print("cannot start dlm lowcomms %d", error);
@@ -467,6 +469,8 @@ static int new_lockspace(const char *name, const char *cluster,
 	if (flags & DLM_LSFL_TIMEWARN)
 		set_bit(LSFL_TIMEWARN, &ls->ls_flags);
 
+	/* ls_exflags are forced to match among nodes, and we don't
+	   need to require all nodes to have some flags set */
 	ls->ls_exflags = (flags & ~(DLM_LSFL_TIMEWARN | DLM_LSFL_FS |
 				    DLM_LSFL_NEWEXCL));
 
@@ -573,7 +577,7 @@ static int new_lockspace(const char *name, const char *cluster,
 		}
 	}
 
-	
+	/* needs to find ls in lslist */
 	error = dlm_recoverd_start(ls);
 	if (error) {
 		log_error(ls, "can't start dlm_recoverd %d", error);
@@ -587,9 +591,14 @@ static int new_lockspace(const char *name, const char *cluster,
 		goto out_recoverd;
 	kobject_uevent(&ls->ls_kobj, KOBJ_ADD);
 
-	
+	/* let kobject handle freeing of ls if there's an error */
 	do_unreg = 1;
 
+	/* This uevent triggers dlm_controld in userspace to add us to the
+	   group of nodes that are members of this lockspace (managed by the
+	   cluster infrastructure.)  Once it's done that, it tells us who the
+	   current lockspace members are (via configfs) and then tells the
+	   lockspace to start running (via sysfs) in dlm_ls_start(). */
 
 	error = do_uevent(ls, 1);
 	if (error)
@@ -685,6 +694,9 @@ static int lkb_idr_free(int id, void *p, void *data)
 	return 0;
 }
 
+/* NOTE: We check the lkbidr here rather than the resource table.
+   This is because there may be LKBs queued as ASTs that have been unlinked
+   from their RSBs and are pending deletion once the AST has been delivered */
 
 static int lockspace_busy(struct dlm_ls *ls, int force)
 {
@@ -715,7 +727,7 @@ static int release_lockspace(struct dlm_ls *ls, int force)
 		if (busy) {
 			rv = -EBUSY;
 		} else {
-			
+			/* remove_lockspace takes ls off lslist */
 			ls->ls_create_count = 0;
 			rv = 0;
 		}
@@ -746,15 +758,24 @@ static int release_lockspace(struct dlm_ls *ls, int force)
 
 	kfree(ls->ls_recover_buf);
 
+	/*
+	 * Free direntry structs.
+	 */
 
 	dlm_dir_clear(ls);
 	vfree(ls->ls_dirtbl);
 
+	/*
+	 * Free all lkb's in idr
+	 */
 
 	idr_for_each(&ls->ls_lkbidr, lkb_idr_free, ls);
 	idr_remove_all(&ls->ls_lkbidr);
 	idr_destroy(&ls->ls_lkbidr);
 
+	/*
+	 * Free all rsb's on rsbtbl[] lists
+	 */
 
 	for (i = 0; i < ls->ls_rsbtbl_size; i++) {
 		while ((n = rb_first(&ls->ls_rsbtbl[i].keep))) {
@@ -779,6 +800,9 @@ static int release_lockspace(struct dlm_ls *ls, int force)
 		dlm_free_rsb(rsb);
 	}
 
+	/*
+	 * Free structures on any other lists
+	 */
 
 	dlm_purge_requestqueue(ls);
 	kfree(ls->ls_recover_args);
@@ -788,12 +812,25 @@ static int release_lockspace(struct dlm_ls *ls, int force)
 	kfree(ls->ls_node_array);
 	log_debug(ls, "release_lockspace final free");
 	kobject_put(&ls->ls_kobj);
-	
+	/* The ls structure will be freed when the kobject is done with */
 
 	module_put(THIS_MODULE);
 	return 0;
 }
 
+/*
+ * Called when a system has released all its locks and is not going to use the
+ * lockspace any longer.  We free everything we're managing for this lockspace.
+ * Remaining nodes will go through the recovery process as if we'd died.  The
+ * lockspace must continue to function as usual, participating in recoveries,
+ * until this returns.
+ *
+ * Force has 4 possible values:
+ * 0 - don't destroy locksapce if it has any LKBs
+ * 1 - destroy lockspace if it has remote LKBs but not if it has local LKBs
+ * 2 - destroy lockspace regardless of LKBs
+ * 3 - destroy lockspace as part of a forced shutdown
+ */
 
 int dlm_release_lockspace(void *lockspace, int force)
 {

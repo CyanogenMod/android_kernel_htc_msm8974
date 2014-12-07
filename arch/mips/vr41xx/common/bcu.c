@@ -19,6 +19,15 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * Changes:
+ *  MontaVista Software Inc. <source@mvista.com>
+ *  - New creation, NEC VR4122 and VR4131 are supported.
+ *  - Added support for NEC VR4111 and VR4121.
+ *
+ *  Yoichi Yuasa <yuasa@linux-mips.org>
+ *  - Added support for NEC VR4133.
+ */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/smp.h>
@@ -131,14 +140,14 @@ static inline unsigned long calculate_vtclock(uint16_t clkspeed, unsigned long p
 
 	switch (current_cpu_type()) {
 	case CPU_VR4111:
-		
+		/* The NEC VR4111 doesn't have the VTClock. */
 		break;
 	case CPU_VR4121:
 		vtclock = pclock;
-		
+		/* DIVVT == 9 Divide by 1.5 . VTClock = (PClock * 6) / 9 */
 		if (DIVVT(clkspeed) == 9)
 			vtclock = pclock * 6;
-		
+		/* DIVVT == 10 Divide by 2.5 . VTClock = (PClock * 4) / 10 */
 		else if (DIVVT(clkspeed) == 10)
 			vtclock = pclock * 4;
 		vtclock /= DIVVT(clkspeed);

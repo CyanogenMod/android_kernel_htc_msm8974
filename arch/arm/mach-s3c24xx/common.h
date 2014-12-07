@@ -15,4 +15,4 @@
 void s3c2410_restart(char mode, const char *cmd);
 void s3c244x_restart(char mode, const char *cmd);
 
-#endif 
+#endif /* __ARCH_ARM_MACH_S3C24XX_COMMON_H */

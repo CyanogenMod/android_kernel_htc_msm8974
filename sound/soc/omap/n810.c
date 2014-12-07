@@ -117,7 +117,7 @@ static int n810_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	int err;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	err = snd_soc_dai_set_sysclk(codec_dai, 0, 12000000,
 					    SND_SOC_CLOCK_IN);
 
@@ -258,7 +258,7 @@ static int n810_aic33_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* Not connected */
 	snd_soc_dapm_nc_pin(dapm, "MONO_LOUT");
 	snd_soc_dapm_nc_pin(dapm, "HPLCOM");
 	snd_soc_dapm_nc_pin(dapm, "HPRCOM");
@@ -271,6 +271,7 @@ static int n810_aic33_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link n810_dai = {
 	.name = "TLV320AIC33",
 	.stream_name = "AIC33",
@@ -284,6 +285,7 @@ static struct snd_soc_dai_link n810_dai = {
 	.ops = &n810_ops,
 };
 
+/* Audio machine driver */
 static struct snd_soc_card snd_soc_n810 = {
 	.name = "N810",
 	.owner = THIS_MODULE,
@@ -331,6 +333,10 @@ static int __init n810_soc_init(void)
 		err = PTR_ERR(sys_clkout2);
 		goto err3;
 	}
+	/*
+	 * Configure 12 MHz output on SYS_CLKOUT2. Therefore we must use
+	 * 96 MHz as its parent in order to get 12 MHz
+	 */
 	func96m_clk = clk_get(dev, "func_96m_ck");
 	if (IS_ERR(func96m_clk)) {
 		dev_err(dev, "Could not get func 96M clock\n");

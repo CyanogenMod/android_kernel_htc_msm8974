@@ -14,6 +14,12 @@
  * by the Free Software Foundation.
  */
 
+/*
+ * 2005/02/19 Rick Koch:
+ *   The Touchwindow I used is made by Edmark Corp. and
+ *   constantly outputs a stream of 0's unless it is touched.
+ *   It then outputs 3 bytes: X, Y, and a copy of Y.
+ */
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -29,6 +35,9 @@ MODULE_AUTHOR("Rick Koch <n1gp@hotmail.com>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Definitions & global arrays.
+ */
 
 #define TW_LENGTH 3
 
@@ -37,6 +46,9 @@ MODULE_LICENSE("GPL");
 #define TW_MIN_YC 0
 #define TW_MAX_YC 0xff
 
+/*
+ * Per-touchscreen data.
+ */
 
 struct tw {
 	struct input_dev *dev;
@@ -53,10 +65,10 @@ static irqreturn_t tw_interrupt(struct serio *serio,
 	struct tw *tw = serio_get_drvdata(serio);
 	struct input_dev *dev = tw->dev;
 
-	if (data) {		
+	if (data) {		/* touch */
 		tw->touched = 1;
 		tw->data[tw->idx++] = data;
-		
+		/* verify length and that the two Y's are the same */
 		if (tw->idx == TW_LENGTH && tw->data[1] == tw->data[2]) {
 			input_report_abs(dev, ABS_X, tw->data[0]);
 			input_report_abs(dev, ABS_Y, tw->data[1]);
@@ -64,7 +76,7 @@ static irqreturn_t tw_interrupt(struct serio *serio,
 			input_sync(dev);
 			tw->idx = 0;
 		}
-	} else if (tw->touched) {	
+	} else if (tw->touched) {	/* untouch */
 		input_report_key(dev, BTN_TOUCH, 0);
 		input_sync(dev);
 		tw->idx = 0;
@@ -74,6 +86,9 @@ static irqreturn_t tw_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
+/*
+ * tw_disconnect() is the opposite of tw_connect()
+ */
 
 static void tw_disconnect(struct serio *serio)
 {
@@ -87,6 +102,11 @@ static void tw_disconnect(struct serio *serio)
 	kfree(tw);
 }
 
+/*
+ * tw_connect() is the routine that is called when someone adds a
+ * new serio device that supports the Touchwin protocol and registers it as
+ * an input device.
+ */
 
 static int tw_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -136,6 +156,9 @@ static int tw_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id tw_serio_ids[] = {
 	{
@@ -160,6 +183,9 @@ static struct serio_driver tw_drv = {
 	.disconnect	= tw_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init tw_init(void)
 {

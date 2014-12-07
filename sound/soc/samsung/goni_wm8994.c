@@ -31,8 +31,10 @@ static const char *aquila_str[] = {
 static struct snd_soc_card goni;
 static struct platform_device *goni_snd_device;
 
+/* 3.5 pie jack */
 static struct snd_soc_jack jack;
 
+/* 3.5 pie jack detection DAPM pins */
 static struct snd_soc_jack_pin jack_pins[] = {
 	{
 		.pin = "Headset Mic",
@@ -44,6 +46,7 @@ static struct snd_soc_jack_pin jack_pins[] = {
 	},
 };
 
+/* 3.5 pie jack detection gpios */
 static struct snd_soc_jack_gpio jack_gpios[] = {
 	{
 		.gpio = S5PV210_GPH0(6),
@@ -97,7 +100,7 @@ static int goni_wm8994_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int ret;
 
-	
+	/* set endpoints to not connected */
 	snd_soc_dapm_nc_pin(dapm, "IN2LP:VXRN");
 	snd_soc_dapm_nc_pin(dapm, "IN2RP:VXRP");
 	snd_soc_dapm_nc_pin(dapm, "LINEOUT1N");
@@ -110,7 +113,7 @@ static int goni_wm8994_init(struct snd_soc_pcm_runtime *rtd)
 		snd_soc_dapm_nc_pin(dapm, "SPKOUTRP");
 	}
 
-	
+	/* Headset jack detection */
 	ret = snd_soc_jack_new(codec, "Headset Jack",
 			SND_JACK_HEADSET | SND_JACK_MECHANICAL | SND_JACK_AVOUT,
 			&jack);
@@ -137,25 +140,25 @@ static int goni_hifi_hw_params(struct snd_pcm_substream *substream,
 	unsigned int pll_out = 24000000;
 	int ret = 0;
 
-	
+	/* set the cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S |
 			SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBM_CFM);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
 			SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBM_CFM);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the codec FLL */
 	ret = snd_soc_dai_set_pll(codec_dai, WM8994_FLL1, 0, pll_out,
 			params_rate(params) * 256);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the codec system clock */
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8994_SYSCLK_FLL1,
 			params_rate(params) * 256, SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -179,19 +182,19 @@ static int goni_voice_hw_params(struct snd_pcm_substream *substream,
 	if (params_rate(params) != 8000)
 		return -EINVAL;
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_LEFT_J |
 			SND_SOC_DAIFMT_IB_IF | SND_SOC_DAIFMT_CBM_CFM);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the codec FLL */
 	ret = snd_soc_dai_set_pll(codec_dai, WM8994_FLL2, 0, pll_out,
 			params_rate(params) * 256);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the codec system clock */
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8994_SYSCLK_FLL2,
 			params_rate(params) * 256, SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -266,7 +269,7 @@ static int __init goni_init(void)
 	if (!goni_snd_device)
 		return -ENOMEM;
 
-	
+	/* register voice DAI here */
 	ret = snd_soc_register_dai(&goni_snd_device->dev, &voice_dai);
 	if (ret) {
 		platform_device_put(goni_snd_device);
@@ -293,6 +296,7 @@ static void __exit goni_exit(void)
 module_init(goni_init);
 module_exit(goni_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("ALSA SoC WM8994 GONI(S5PV210)");
 MODULE_AUTHOR("Chanwoo Choi <cw00.choi@samsung.com>");
 MODULE_LICENSE("GPL");

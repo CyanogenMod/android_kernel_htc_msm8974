@@ -120,7 +120,7 @@ static struct resource cf_slot0_res[] = {
 		.flags = IORESOURCE_MEM
 	}, {
 		.name = "cf_irq",
-		.start = (8 + 4 * 32 + CF_GPIO_NUM),	
+		.start = (8 + 4 * 32 + CF_GPIO_NUM),	/* 149 */
 		.end = (8 + 4 * 32 + CF_GPIO_NUM),
 		.flags = IORESOURCE_IRQ
 	}
@@ -138,6 +138,7 @@ static struct platform_device cf_slot0 = {
 	.num_resources = ARRAY_SIZE(cf_slot0_res),
 };
 
+/* Resources and device for NAND */
 static int rb532_dev_ready(struct mtd_info *mtd)
 {
 	return gpio_get_value(GPIO_RDY);
@@ -270,6 +271,7 @@ static void __init parse_mac_addr(char *macstr)
 }
 
 
+/* NAND definitions */
 #define NAND_CHIP_DELAY	25
 
 static void __init rb532_nand_setup(void)
@@ -285,7 +287,7 @@ static void __init rb532_nand_setup(void)
 		break;
 	}
 
-	
+	/* Setup NAND specific settings */
 	rb532_nand_data.chip.nr_chips = 1;
 	rb532_nand_data.chip.nr_partitions = ARRAY_SIZE(rb532_partition_info);
 	rb532_nand_data.chip.partitions = rb532_partition_info;
@@ -296,20 +298,20 @@ static void __init rb532_nand_setup(void)
 
 static int __init plat_setup_devices(void)
 {
-	
+	/* Look for the CF card reader */
 	if (!readl(IDT434_REG_BASE + DEV1MASK))
-		rb532_devs[2] = NULL;	
+		rb532_devs[2] = NULL;	/* disable cf_slot0 at index 2 */
 	else {
 		cf_slot0_res[0].start =
 		    readl(IDT434_REG_BASE + DEV1BASE);
 		cf_slot0_res[0].end = cf_slot0_res[0].start + 0x1000;
 	}
 
-	
+	/* Read the NAND resources from the device controller */
 	nand_slot0_res[0].start = readl(IDT434_REG_BASE + DEV2BASE);
 	nand_slot0_res[0].end = nand_slot0_res[0].start + 0x1000;
 
-	
+	/* Read and map device controller 3 */
 	dev3.base = ioremap_nocache(readl(IDT434_REG_BASE + DEV3BASE), 1);
 
 	if (!dev3.base) {
@@ -317,10 +319,10 @@ static int __init plat_setup_devices(void)
 		return -ENXIO;
 	}
 
-	
+	/* Initialise the NAND device */
 	rb532_nand_setup();
 
-	
+	/* set the uart clock to the current cpu frequency */
 	rb532_uart_res[0].uartclk = idt_cpu_freq;
 
 	dev_set_drvdata(&korina_dev0.dev, &korina_dev0_data);

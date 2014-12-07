@@ -61,7 +61,7 @@ void h2p2_dbg_leds_event(led_event_t evt)
 
 	case led_stop:
 	case led_halted:
-		
+		/* all leds off during suspend or shutdown */
 
 		if (! machine_is_omap_perseus2()) {
 			gpio_set_value(GPIO_TIMER, 0);
@@ -155,6 +155,9 @@ void h2p2_dbg_leds_event(led_event_t evt)
 	}
 
 
+	/*
+	 *  Actually burn the LEDs
+	 */
 	if (led_state & LED_STATE_ENABLED)
 		__raw_writew(~hw_led_state, &fpga->leds);
 

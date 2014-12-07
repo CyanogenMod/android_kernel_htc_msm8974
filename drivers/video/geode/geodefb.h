@@ -27,7 +27,7 @@ struct geode_vid_ops {
 
 struct geodefb_par {
 	int enable_crt;
-	int panel_x; 
+	int panel_x; /* dimensions of an attached flat panel, non-zero => enable panel */
 	int panel_y;
 	void __iomem *dc_regs;
 	void __iomem *vid_regs;
@@ -35,4 +35,4 @@ struct geodefb_par {
 	struct geode_vid_ops *vid_ops;
 };
 
-#endif 
+#endif /* !__GEODEFB_H__ */

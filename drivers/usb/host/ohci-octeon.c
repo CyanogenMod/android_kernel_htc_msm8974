@@ -18,6 +18,7 @@
 
 #define OCTEON_OHCI_HCD_NAME "octeon-ohci"
 
+/* Common clock init code.  */
 void octeon2_usb_clocks_start(void);
 void octeon2_usb_clocks_stop(void);
 
@@ -29,15 +30,15 @@ static void ohci_octeon_hw_start(void)
 
 	ohci_ctl.u64 = cvmx_read_csr(CVMX_UCTLX_OHCI_CTL(0));
 	ohci_ctl.s.l2c_addr_msb = 0;
-	ohci_ctl.s.l2c_buff_emod = 1; 
-	ohci_ctl.s.l2c_desc_emod = 1; 
+	ohci_ctl.s.l2c_buff_emod = 1; /* Byte swapped. */
+	ohci_ctl.s.l2c_desc_emod = 1; /* Byte swapped. */
 	cvmx_write_csr(CVMX_UCTLX_OHCI_CTL(0), ohci_ctl.u64);
 
 }
 
 static void ohci_octeon_hw_stop(void)
 {
-	
+	/* Undo ohci_octeon_start() */
 	octeon2_usb_clocks_stop();
 }
 
@@ -67,19 +68,34 @@ static const struct hc_driver ohci_octeon_hc_driver = {
 	.product_desc		= "Octeon OHCI",
 	.hcd_priv_size		= sizeof(struct ohci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.start =		ohci_octeon_start,
 	.stop =			ohci_stop,
 	.shutdown =		ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		ohci_urb_enqueue,
 	.urb_dequeue =		ohci_urb_dequeue,
 	.endpoint_disable =	ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
 
@@ -110,7 +126,7 @@ static int ohci_octeon_drv_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	
+	/* Ohci is a 32-bit device. */
 	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 	pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
 
@@ -141,7 +157,7 @@ static int ohci_octeon_drv_probe(struct platform_device *pdev)
 
 	ohci = hcd_to_ohci(hcd);
 
-	
+	/* Octeon OHCI matches CPU endianness. */
 #ifdef __BIG_ENDIAN
 	ohci->flags |= OHCI_QUIRK_BE_MMIO;
 #endif

@@ -25,4 +25,4 @@ static inline int mxs_dma_is_apbx(struct dma_chan *chan)
 	return !strcmp(dev_name(chan->device->dev), "mxs-dma-apbx");
 }
 
-#endif 
+#endif /* __MACH_MXS_DMA_H__ */

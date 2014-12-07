@@ -12,11 +12,12 @@
 #include <linux/irq.h>
 #include <linux/io.h>
 
+/* All SH3 devices are equipped with IRQ0->5 (except sh7708) */
 
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5,
 };
 
@@ -30,12 +31,12 @@ static struct intc_vect vectors_irq45[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xa4000016, 0, 16, 4,  { IRQ3, IRQ2, IRQ1, IRQ0 } },
-	{ 0xa4000018, 0, 16, 4,  { 0, 0, IRQ5, IRQ4 } },
+	{ 0xa4000016, 0, 16, 4, /* IPRC */ { IRQ3, IRQ2, IRQ1, IRQ0 } },
+	{ 0xa4000018, 0, 16, 4, /* IPRD */ { 0, 0, IRQ5, IRQ4 } },
 };
 
 static struct intc_mask_reg ack_registers[] __initdata = {
-	{ 0xa4000004, 0, 8, 
+	{ 0xa4000004, 0, 8, /* IRR0 */
 	  { 0, 0, IRQ5, IRQ4, IRQ3, IRQ2, IRQ1, IRQ0 } },
 };
 

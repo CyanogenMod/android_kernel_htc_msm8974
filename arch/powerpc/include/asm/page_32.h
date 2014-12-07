@@ -14,18 +14,22 @@
 #endif
 
 #ifdef CONFIG_PTE_64BIT
-#define PTE_FLAGS_OFFSET	4	
+#define PTE_FLAGS_OFFSET	4	/* offset of PTE flags, in bytes */
 #else
 #define PTE_FLAGS_OFFSET	0
 #endif
 
 #ifdef CONFIG_PPC_256K_PAGES
-#define PTE_SHIFT	(PAGE_SHIFT - PTE_T_LOG2 - 2)	
+#define PTE_SHIFT	(PAGE_SHIFT - PTE_T_LOG2 - 2)	/* 1/4 of a page */
 #else
-#define PTE_SHIFT	(PAGE_SHIFT - PTE_T_LOG2)	
+#define PTE_SHIFT	(PAGE_SHIFT - PTE_T_LOG2)	/* full page */
 #endif
 
 #ifndef __ASSEMBLY__
+/*
+ * The basic type of a PTE - 64 bits for those CPUs with > 32 bit
+ * physical addressing.
+ */
 #ifdef CONFIG_PTE_64BIT
 typedef unsigned long long pte_basic_t;
 #else
@@ -42,6 +46,6 @@ extern void copy_page(void *to, void *from);
 #define PGD_T_LOG2	(__builtin_ffs(sizeof(pgd_t)) - 1)
 #define PTE_T_LOG2	(__builtin_ffs(sizeof(pte_t)) - 1)
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_POWERPC_PAGE_32_H */

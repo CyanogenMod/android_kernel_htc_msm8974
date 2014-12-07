@@ -15,6 +15,7 @@
 #include "chan_user.h"
 #include "mconsole_kern.h"
 
+/* There's only two modifiable fields in this - .mc.list and .driver */
 struct line_driver {
 	const char *name;
 	const char *device_name;
@@ -40,9 +41,14 @@ struct line {
 	struct list_head chan_list;
 	struct chan *chan_in, *chan_out;
 
-	
+	/*This lock is actually, mostly, local to*/
 	spinlock_t lock;
 	int throttled;
+	/* Yes, this is a real circular buffer.
+	 * XXX: And this should become a struct kfifo!
+	 *
+	 * buffer points to a buffer allocated on demand, of length
+	 * LINE_BUFSIZE, head to the start of the ring, tail to the end.*/
 	char *buffer;
 	char *head;
 	char *tail;

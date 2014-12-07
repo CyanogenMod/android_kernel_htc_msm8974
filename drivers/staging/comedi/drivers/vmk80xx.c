@@ -23,6 +23,22 @@
 
 */
 /*
+Driver: vmk80xx
+Description: Velleman USB Board Low-Level Driver
+Devices: K8055/K8061 aka VM110/VM140
+Author: Manuel Gebele <forensixs@gmx.de>
+Updated: Sun, 10 May 2009 11:14:59 +0200
+Status: works
+
+Supports:
+ - analog input
+ - analog output
+ - digital input
+ - digital output
+ - counter
+ - pwm
+*/
+/*
 Changelog:
 
 0.8.81	-3-  code completely rewritten (adjust driver logic)
@@ -74,7 +90,7 @@ static const struct usb_device_id vmk80xx_id_table[] = {
 	{USB_DEVICE(0x10cf, 0x8066), .driver_info = DEVICE_VMK8061},
 	{USB_DEVICE(0x10cf, 0x8067), .driver_info = DEVICE_VMK8061},
 	{USB_DEVICE(0x10cf, 0x8068), .driver_info = DEVICE_VMK8061},
-	{}			
+	{}			/* terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, vmk80xx_id_table);
@@ -106,19 +122,19 @@ MODULE_DEVICE_TABLE(usb, vmk80xx_id_table);
 #define VMK8055_CMD_WRT_AD      0x05
 
 #define VMK8061_CMD_RD_AI       0x00
-#define VMK8061_CMR_RD_ALL_AI   0x01	
+#define VMK8061_CMR_RD_ALL_AI   0x01	/* !non-active! */
 #define VMK8061_CMD_SET_AO      0x02
-#define VMK8061_CMD_SET_ALL_AO  0x03	
+#define VMK8061_CMD_SET_ALL_AO  0x03	/* !non-active! */
 #define VMK8061_CMD_OUT_PWM     0x04
 #define VMK8061_CMD_RD_DI       0x05
-#define VMK8061_CMD_DO          0x06	
+#define VMK8061_CMD_DO          0x06	/* !non-active! */
 #define VMK8061_CMD_CLR_DO      0x07
 #define VMK8061_CMD_SET_DO      0x08
-#define VMK8061_CMD_RD_CNT      0x09	
-#define VMK8061_CMD_RST_CNT     0x0a	
-#define VMK8061_CMD_RD_VERSION  0x0b	
-#define VMK8061_CMD_RD_JMP_STAT 0x0c	
-#define VMK8061_CMD_RD_PWR_STAT 0x0d	
+#define VMK8061_CMD_RD_CNT      0x09	/* TODO: completely pointless? */
+#define VMK8061_CMD_RST_CNT     0x0a	/* TODO: completely pointless? */
+#define VMK8061_CMD_RD_VERSION  0x0b	/* internal usage */
+#define VMK8061_CMD_RD_JMP_STAT 0x0c	/* TODO: not implemented yet */
+#define VMK8061_CMD_RD_PWR_STAT 0x0d	/* internal usage */
 #define VMK8061_CMD_RD_DO       0x0e
 #define VMK8061_CMD_RD_AO       0x0f
 #define VMK8061_CMD_RD_PWM      0x10
@@ -168,8 +184,8 @@ enum vmk80xx_model {
 };
 
 struct firmware_version {
-	unsigned char ic3_vers[32];	
-	unsigned char ic6_vers[32];	
+	unsigned char ic3_vers[32];	/* USB-Controller */
+	unsigned char ic6_vers[32];	/* CPU */
 };
 
 static const struct comedi_lrange vmk8055_range = {
@@ -303,6 +319,11 @@ static int vmk80xx_check_data_link(struct vmk80xx_usb *dev)
 
 	tx[0] = VMK8061_CMD_RD_PWR_STAT;
 
+	/*
+	 * Check that IC6 (PIC16F871) is powered and
+	 * running and the data link between IC3 and
+	 * IC6 is working properly
+	 */
 	usb_bulk_msg(dev->udev, tx_pipe, tx, 1, NULL, dev->ep_tx->bInterval);
 	usb_bulk_msg(dev->udev, rx_pipe, rx, 2, NULL, HZ * 10);
 
@@ -324,6 +345,10 @@ static void vmk80xx_read_eeprom(struct vmk80xx_usb *dev, int flag)
 
 	tx[0] = VMK8061_CMD_RD_VERSION;
 
+	/*
+	 * Read the firmware version info of IC3 and
+	 * IC6 from the internal EEPROM of the IC
+	 */
 	usb_bulk_msg(dev->udev, tx_pipe, tx, 1, NULL, dev->ep_tx->bInterval);
 	usb_bulk_msg(dev->udev, rx_pipe, rx, 64, &cnt, HZ * 10);
 
@@ -331,7 +356,7 @@ static void vmk80xx_read_eeprom(struct vmk80xx_usb *dev, int flag)
 
 	if (flag & IC3_VERSION)
 		strncpy(dev->fw.ic3_vers, rx + 1, 24);
-	else			
+	else			/* IC6_VERSION */
 		strncpy(dev->fw.ic6_vers, rx + 25, 24);
 }
 
@@ -390,7 +415,7 @@ static void vmk80xx_build_int_urb(struct urb *urb, int flag)
 		size = le16_to_cpu(dev->ep_rx->wMaxPacketSize);
 		callback = vmk80xx_rx_callback;
 		ival = dev->ep_rx->bInterval;
-	} else {		
+	} else {		/* URB_SND_FLAG */
 		tx_addr = dev->ep_tx->bEndpointAddress;
 		pipe = usb_sndintpipe(dev->udev, tx_addr);
 		buf = dev->usb_tx_buf;
@@ -420,6 +445,10 @@ static void vmk80xx_do_bulk_msg(struct vmk80xx_usb *dev)
 	tx_pipe = usb_sndbulkpipe(dev->udev, tx_addr);
 	rx_pipe = usb_rcvbulkpipe(dev->udev, rx_addr);
 
+	/*
+	 * The max packet size attributes of the K8061
+	 * input/output endpoints are identical
+	 */
 	size = le16_to_cpu(dev->ep_tx->wMaxPacketSize);
 
 	usb_bulk_msg(dev->udev, tx_pipe, dev->usb_tx_buf,
@@ -440,7 +469,7 @@ static int vmk80xx_read_packet(struct vmk80xx_usb *dev)
 	if (!dev->intf)
 		return -ENODEV;
 
-	
+	/* Only useful for interrupt transfers */
 	if (test_bit(TRANS_IN_BUSY, &dev->flags))
 		if (wait_event_interruptible(dev->read_wait,
 					     !test_bit(TRANS_IN_BUSY,
@@ -592,7 +621,7 @@ static int vmk80xx_ai_rinsn(struct comedi_device *cdev,
 			continue;
 		}
 
-		
+		/* VMK8061_MODEL */
 		data[n] = dev->usb_rx_buf[reg[0]] + 256 *
 		    dev->usb_rx_buf[reg[1]];
 	}
@@ -629,7 +658,7 @@ static int vmk80xx_ao_winsn(struct comedi_device *cdev,
 		else
 			reg = VMK8055_AO2_REG;
 		break;
-	default:		
+	default:		/* NOTE: avoid compiler warnings */
 		cmd = VMK8061_CMD_SET_AO;
 		reg = VMK8061_AO_REG;
 		dev->usb_tx_buf[VMK8061_CH_REG] = chan;
@@ -803,7 +832,7 @@ static int vmk80xx_do_winsn(struct comedi_device *cdev,
 				tx_buf[reg] |= (1 << chan);
 			else
 				tx_buf[reg] ^= (1 << chan);
-		} else { 
+		} else { /* VMK8061_MODEL */
 			reg = VMK8061_DO_REG;
 			if (data[n] == 1) {
 				cmd = VMK8061_CMD_SET_DO;
@@ -889,7 +918,7 @@ static int vmk80xx_do_bits(struct comedi_device *cdev,
 		if (dev->board.model == VMK8055_MODEL) {
 			reg = VMK8055_DO_REG;
 			cmd = VMK8055_CMD_WRT_AD;
-		} else { 
+		} else { /* VMK8061_MODEL */
 			reg = VMK8061_DO_REG;
 			cmd = VMK8061_CMD_DO;
 		}
@@ -962,7 +991,7 @@ static int vmk80xx_cnt_rinsn(struct comedi_device *cdev,
 
 		if (dev->board.model == VMK8055_MODEL)
 			data[n] = dev->usb_rx_buf[reg[0]];
-		else 
+		else /* VMK8061_MODEL */
 			data[n] = dev->usb_rx_buf[reg[0] * (chan + 1) + 1]
 			    + 256 * dev->usb_rx_buf[reg[1] * 2 + 2];
 	}
@@ -1050,7 +1079,7 @@ static int vmk80xx_cnt_winsn(struct comedi_device *cdev,
 		if (debtime == 0)
 			debtime = 1;
 
-		
+		/* TODO: Prevent overflows */
 		if (debtime > 7450)
 			debtime = 7450;
 
@@ -1127,6 +1156,19 @@ static int vmk80xx_pwm_winsn(struct comedi_device *cdev,
 
 	cmd = VMK8061_CMD_OUT_PWM;
 
+	/*
+	 * The followin piece of code was translated from the inline
+	 * assembler code in the DLL source code.
+	 *
+	 * asm
+	 *   mov eax, k  ; k is the value (data[n])
+	 *   and al, 03h ; al are the lower 8 bits of eax
+	 *   mov lo, al  ; lo is the low part (tx_buf[reg[0]])
+	 *   mov eax, k
+	 *   shr eax, 2  ; right shift eax register by 2
+	 *   mov hi, al  ; hi is the high part (tx_buf[reg[1]])
+	 * end;
+	 */
 	for (n = 0; n < insn->n; n++) {
 		tx_buf[reg[0]] = (unsigned char)(data[n] & 0x03);
 		tx_buf[reg[1]] = (unsigned char)(data[n] >> 2) & 0xff;
@@ -1180,7 +1222,7 @@ static int vmk80xx_attach(struct comedi_device *cdev,
 		return -ENOMEM;
 	}
 
-	
+	/* Analog input subdevice */
 	s = cdev->subdevices + VMK80XX_SUBD_AI;
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND;
@@ -1189,7 +1231,7 @@ static int vmk80xx_attach(struct comedi_device *cdev,
 	s->range_table = dev->board.range;
 	s->insn_read = vmk80xx_ai_rinsn;
 
-	
+	/* Analog output subdevice */
 	s = cdev->subdevices + VMK80XX_SUBD_AO;
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITEABLE | SDF_GROUND;
@@ -1203,7 +1245,7 @@ static int vmk80xx_attach(struct comedi_device *cdev,
 		s->insn_read = vmk80xx_ao_rinsn;
 	}
 
-	
+	/* Digital input subdevice */
 	s = cdev->subdevices + VMK80XX_SUBD_DI;
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND;
@@ -1212,7 +1254,7 @@ static int vmk80xx_attach(struct comedi_device *cdev,
 	s->insn_read = vmk80xx_di_rinsn;
 	s->insn_bits = vmk80xx_di_bits;
 
-	
+	/* Digital output subdevice */
 	s = cdev->subdevices + VMK80XX_SUBD_DO;
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITEABLE | SDF_GROUND;
@@ -1226,7 +1268,7 @@ static int vmk80xx_attach(struct comedi_device *cdev,
 		s->insn_read = vmk80xx_do_rinsn;
 	}
 
-	
+	/* Counter subdevice */
 	s = cdev->subdevices + VMK80XX_SUBD_CNT;
 	s->type = COMEDI_SUBD_COUNTER;
 	s->subdev_flags = SDF_READABLE;
@@ -1240,7 +1282,7 @@ static int vmk80xx_attach(struct comedi_device *cdev,
 		s->insn_write = vmk80xx_cnt_winsn;
 	}
 
-	
+	/* PWM subdevice */
 	if (dev->board.model == VMK8061_MODEL) {
 		s = cdev->subdevices + VMK80XX_SUBD_PWM;
 		s->type = COMEDI_SUBD_PWM;
@@ -1479,6 +1521,8 @@ static void vmk80xx_disconnect(struct usb_interface *intf)
 	mutex_unlock(&glb_mutex);
 }
 
+/* TODO: Add support for suspend, resume, pre_reset,
+ * post_reset and flush */
 static struct usb_driver vmk80xx_driver = {
 	.name = "vmk80xx",
 	.probe = vmk80xx_probe,

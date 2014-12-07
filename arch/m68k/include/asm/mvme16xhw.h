@@ -3,7 +3,9 @@
 
 #include <asm/irq.h>
 
+/* Board ID data structure - pointer to this retrieved from Bug by head.S */
 
+/* Note, bytes 12 and 13 are board no in BCD (0162,0166,0167,0177,etc) */
 
 extern long mvme_bdid_ptr;
 
@@ -76,6 +78,7 @@ typedef struct {
 #define MVME167_IRQ_ABORT	(IRQ_USER+46)
 #define MVME162_IRQ_ABORT	(IRQ_USER+30)
 
+/* SCC interrupts, for MVME162 */
 #define MVME162_IRQ_SCC_BASE		(IRQ_USER+0)
 #define MVME162_IRQ_SCCB_TX		(IRQ_USER+0)
 #define MVME162_IRQ_SCCB_STAT		(IRQ_USER+2)
@@ -86,11 +89,13 @@ typedef struct {
 #define MVME162_IRQ_SCCA_RX		(IRQ_USER+12)
 #define MVME162_IRQ_SCCA_SPCOND		(IRQ_USER+14)
 
+/* MVME162 version register */
 
 #define MVME162_VERSION_REG	0xfff4202e
 
 extern unsigned short mvme16x_config;
 
+/* Lower 8 bits must match the revision register in the MC2 chip */
 
 #define MVME16x_CONFIG_SPEED_32		0x0001
 #define MVME16x_CONFIG_NO_VMECHIP2	0x0002

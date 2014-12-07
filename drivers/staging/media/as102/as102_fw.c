@@ -47,6 +47,9 @@ static unsigned char atohx(unsigned char *dst, char *src)
 	return value;
 }
 
+/*
+ * Parse INTEL HEX firmware file to extract address and data.
+ */
 static int parse_hex_line(unsigned char *fw_data, unsigned char *addr,
 			  unsigned char *data, int *dataLength,
 			  unsigned char *addr_has_changed) {
@@ -59,10 +62,10 @@ static int parse_hex_line(unsigned char *fw_data, unsigned char *addr,
 		return -EFAULT;
 	}
 
-	
+	/* locate end of line */
 	for (src = fw_data; *src != '\n'; src += 2) {
 		atohx(&dst, src);
-		
+		/* parse line to split addr / data */
 		switch (count) {
 		case 0:
 			*dataLength = dst;
@@ -74,7 +77,7 @@ static int parse_hex_line(unsigned char *fw_data, unsigned char *addr,
 			addr[3] = dst;
 			break;
 		case 3:
-			
+			/* check if data is an address */
 			if (dst == 0x04)
 				*addr_has_changed = 1;
 			else
@@ -94,7 +97,7 @@ static int parse_hex_line(unsigned char *fw_data, unsigned char *addr,
 		count++;
 	}
 
-	
+	/* return read value + ':' + '\n' */
 	return (count * 2) + 2;
 }
 
@@ -111,7 +114,7 @@ static int as102_firmware_upload(struct as10x_bus_adapter_t *bus_adap,
 	for (total_read_bytes = 0; total_read_bytes < firmware->size; ) {
 		int read_bytes = 0, data_len = 0;
 
-		
+		/* parse intel hex line */
 		read_bytes = parse_hex_line(
 				(u8 *) (firmware->data + total_read_bytes),
 				fw_pkt.raw.address,
@@ -122,13 +125,13 @@ static int as102_firmware_upload(struct as10x_bus_adapter_t *bus_adap,
 		if (read_bytes <= 0)
 			goto error;
 
-		
+		/* detect the end of file */
 		total_read_bytes += read_bytes;
 		if (total_read_bytes == firmware->size) {
 			fw_pkt.u.request[0] = 0x00;
 			fw_pkt.u.request[1] = 0x03;
 
-			
+			/* send EOF command */
 			errno = bus_adap->ops->upload_fw_pkt(bus_adap,
 							     (uint8_t *)
 							     &fw_pkt, 2, 0);
@@ -136,14 +139,14 @@ static int as102_firmware_upload(struct as10x_bus_adapter_t *bus_adap,
 				goto error;
 		} else {
 			if (!addr_has_changed) {
-				
+				/* prepare command to send */
 				fw_pkt.u.request[0] = 0x00;
 				fw_pkt.u.request[1] = 0x01;
 
 				data_len += sizeof(fw_pkt.u.request);
 				data_len += sizeof(fw_pkt.raw.address);
 
-				
+				/* send cmd to device */
 				errno = bus_adap->ops->upload_fw_pkt(bus_adap,
 								     (uint8_t *)
 								     &fw_pkt,
@@ -169,7 +172,7 @@ int as102_fw_upload(struct as10x_bus_adapter_t *bus_adap)
 
 	ENTER();
 
-	
+	/* select fw file to upload */
 	if (dual_tuner) {
 		fw1 = as102_dt_fw1;
 		fw2 = as102_dt_fw2;
@@ -178,14 +181,14 @@ int as102_fw_upload(struct as10x_bus_adapter_t *bus_adap)
 		fw2 = as102_st_fw2;
 	}
 
-	
+	/* allocate buffer to store firmware upload command and data */
 	cmd_buf = kzalloc(MAX_FW_PKT_SIZE, GFP_KERNEL);
 	if (cmd_buf == NULL) {
 		errno = -ENOMEM;
 		goto error;
 	}
 
-	
+	/* request kernel to locate firmware file: part1 */
 	errno = request_firmware(&firmware, fw1, &dev->dev);
 	if (errno < 0) {
 		pr_err("%s: unable to locate firmware file: %s\n",
@@ -193,7 +196,7 @@ int as102_fw_upload(struct as10x_bus_adapter_t *bus_adap)
 		goto error;
 	}
 
-	
+	/* initiate firmware upload */
 	errno = as102_firmware_upload(bus_adap, cmd_buf, firmware);
 	if (errno < 0) {
 		pr_err("%s: error during firmware upload part1\n",
@@ -205,10 +208,10 @@ int as102_fw_upload(struct as10x_bus_adapter_t *bus_adap)
 		DRIVER_NAME, fw1);
 	release_firmware(firmware);
 
-	
+	/* wait for boot to complete */
 	mdelay(100);
 
-	
+	/* request kernel to locate firmware file: part2 */
 	errno = request_firmware(&firmware, fw2, &dev->dev);
 	if (errno < 0) {
 		pr_err("%s: unable to locate firmware file: %s\n",
@@ -216,7 +219,7 @@ int as102_fw_upload(struct as10x_bus_adapter_t *bus_adap)
 		goto error;
 	}
 
-	
+	/* initiate firmware upload */
 	errno = as102_firmware_upload(bus_adap, cmd_buf, firmware);
 	if (errno < 0) {
 		pr_err("%s: error during firmware upload part2\n",
@@ -227,9 +230,9 @@ int as102_fw_upload(struct as10x_bus_adapter_t *bus_adap)
 	pr_info("%s: firmware: %s loaded with success\n",
 		DRIVER_NAME, fw2);
 error:
-	
+	/* free data buffer */
 	kfree(cmd_buf);
-	
+	/* release firmware if needed */
 	if (firmware != NULL)
 		release_firmware(firmware);
 

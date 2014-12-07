@@ -44,21 +44,21 @@ MODULE_SUPPORTED_DEVICE("{{Yamaha,YMF719E-S},"
 		"{Intel,AL440LX sound},"
 	        "{NeoMagic,MagicWave 3DX}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; /* Enable this card */
 #ifdef CONFIG_PNP
 static bool isapnp[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
 #endif
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long sb_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long wss_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
-static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long midi_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int opl3sa3_ymode[SNDRV_CARDS];    
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0xf86,0x370,0x100 */
+static long sb_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x220,0x240,0x260 */
+static long wss_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;/* 0x530,0xe80,0xf40,0x604 */
+static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x388 */
+static long midi_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;/* 0x330,0x300 */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 0,1,3,5,9,11,12,15 */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 1,3,5,6,7 */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 1,3,5,6,7 */
+static int opl3sa3_ymode[SNDRV_CARDS];   /* 0,1,2,3 */ /*SL Added*/
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for OPL3-SA soundcard.");
@@ -95,6 +95,7 @@ static int pnp_registered;
 static int pnpc_registered;
 #endif
 
+/* control ports */
 #define OPL3SA2_PM_CTRL		0x01
 #define OPL3SA2_SYS_CTRL		0x02
 #define OPL3SA2_IRQ_CONFIG	0x03
@@ -105,12 +106,14 @@ static int pnpc_registered;
 #define OPL3SA2_MIC		0x09
 #define OPL3SA2_MISC		0x0A
 
+/* opl3sa3 only */
 #define OPL3SA3_DGTL_DOWN	0x12
 #define OPL3SA3_ANLG_DOWN	0x13
 #define OPL3SA3_WIDE		0x14
 #define OPL3SA3_BASS		0x15
 #define OPL3SA3_TREBLE		0x16
 
+/* power management bits */
 #define OPL3SA2_PM_ADOWN		0x20
 #define OPL3SA2_PM_PSV		0x04		
 #define OPL3SA2_PM_PDN		0x02
@@ -120,9 +123,9 @@ static int pnpc_registered;
 #define OPL3SA2_PM_D3	(OPL3SA2_PM_ADOWN|OPL3SA2_PM_PSV|OPL3SA2_PM_PDN|OPL3SA2_PM_PDX)
 
 struct snd_opl3sa2 {
-	int version;		
-	unsigned long port;	
-	struct resource *res_port; 
+	int version;		/* 2 or 3 */
+	unsigned long port;	/* control port */
+	struct resource *res_port; /* control port resource */
 	int irq;
 	int single_dma;
 	spinlock_t reg_lock;
@@ -130,7 +133,7 @@ struct snd_opl3sa2 {
 	struct snd_rawmidi *rmidi;
 	struct snd_wss *wss;
 	unsigned char ctlregs[0x20];
-	int ymode;		
+	int ymode;		/* SL added */
 	struct snd_kcontrol *master_switch;
 	struct snd_kcontrol *master_volume;
 };
@@ -141,42 +144,43 @@ struct snd_opl3sa2 {
 
 static struct pnp_device_id snd_opl3sa2_pnpbiosids[] = {
 	{ .id = "YMH0021" },
-	{ .id = "NMX2210" },	
-	{ .id = "" }		
+	{ .id = "NMX2210" },	/* Gateway Solo 2500 */
+	{ .id = "" }		/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp, snd_opl3sa2_pnpbiosids);
 
 static struct pnp_card_device_id snd_opl3sa2_pnpids[] = {
-	
+	/* Yamaha YMF719E-S (Genius Sound Maker 3DX) */
 	{ .id = "YMH0020", .devs = { { "YMH0021" } } },
-	
+	/* Yamaha OPL3-SA3 (integrated on Intel's Pentium II AL440LX motherboard) */
 	{ .id = "YMH0030", .devs = { { "YMH0021" } } },
-	
+	/* Yamaha OPL3-SA2 */
 	{ .id = "YMH0800", .devs = { { "YMH0021" } } },
-	
+	/* Yamaha OPL3-SA2 */
 	{ .id = "YMH0801", .devs = { { "YMH0021" } } },
-	
+	/* NeoMagic MagicWave 3DX */
 	{ .id = "NMX2200", .devs = { { "YMH2210" } } },
-	
+	/* NeoMagic MagicWave 3D */
 	{ .id = "NMX2200", .devs = { { "NMX2210" } } },
-	
-	{ .id = "" }	
+	/* --- */
+	{ .id = "" }	/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp_card, snd_opl3sa2_pnpids);
 
-#endif 
+#endif /* CONFIG_PNP */
 
 
+/* read control port (w/o spinlock) */
 static unsigned char __snd_opl3sa2_read(struct snd_opl3sa2 *chip, unsigned char reg)
 {
 	unsigned char result;
 #if 0
-	outb(0x1d, port);	
+	outb(0x1d, port);	/* password */
 	printk(KERN_DEBUG "read [0x%lx] = 0x%x\n", port, inb(port));
 #endif
-	outb(reg, chip->port);	
+	outb(reg, chip->port);	/* register */
 	result = inb(chip->port + 1);
 #if 0
 	printk(KERN_DEBUG "read [0x%lx] = 0x%x [0x%x]\n",
@@ -185,6 +189,7 @@ static unsigned char __snd_opl3sa2_read(struct snd_opl3sa2 *chip, unsigned char 
 	return result;
 }
 
+/* read control port (with spinlock) */
 static unsigned char snd_opl3sa2_read(struct snd_opl3sa2 *chip, unsigned char reg)
 {
 	unsigned long flags;
@@ -196,16 +201,18 @@ static unsigned char snd_opl3sa2_read(struct snd_opl3sa2 *chip, unsigned char re
 	return result;
 }
 
+/* write control port (w/o spinlock) */
 static void __snd_opl3sa2_write(struct snd_opl3sa2 *chip, unsigned char reg, unsigned char value)
 {
 #if 0
-	outb(0x1d, port);	
+	outb(0x1d, port);	/* password */
 #endif
-	outb(reg, chip->port);	
+	outb(reg, chip->port);	/* register */
 	outb(value, chip->port + 1);
 	chip->ctlregs[reg] = value;
 }
 
+/* write control port (with spinlock) */
 static void snd_opl3sa2_write(struct snd_opl3sa2 *chip, unsigned char reg, unsigned char value)
 {
 	unsigned long flags;
@@ -226,6 +233,10 @@ static int __devinit snd_opl3sa2_detect(struct snd_card *card)
 		snd_printk(KERN_ERR PFX "can't grab port 0x%lx\n", port);
 		return -EBUSY;
 	}
+	/*
+	snd_printk(KERN_DEBUG "REG 0A = 0x%x\n",
+		   snd_opl3sa2_read(chip, 0x0a));
+	*/
 	chip->version = 0;
 	tmp = snd_opl3sa2_read(chip, OPL3SA2_MISC);
 	if (tmp == 0xff) {
@@ -234,15 +245,15 @@ static int __devinit snd_opl3sa2_detect(struct snd_card *card)
 	}
 	switch (tmp & 0x07) {
 	case 0x01:
-		chip->version = 2; 
+		chip->version = 2; /* YMF711 */
 		break;
 	default:
 		chip->version = 3;
-		
-		
-		
-		
-		
+		/* 0x02 - standard */
+		/* 0x03 - YM715B */
+		/* 0x04 - YM719 - OPL-SA4? */
+		/* 0x05 - OPL3-SA3 - Libretto 100 */
+		/* 0x07 - unknown - Neomagic MagicWave 3D */
 		break;
 	}
 	str[0] = chip->version + '0';
@@ -253,7 +264,7 @@ static int __devinit snd_opl3sa2_detect(struct snd_card *card)
 		snd_printd("OPL3-SA [0x%lx] detect (1) = 0x%x (0x%x)\n", port, tmp, tmp1);
 		return -ENODEV;
 	}
-	
+	/* try if the MIC register is accessible */
 	tmp = snd_opl3sa2_read(chip, OPL3SA2_MIC);
 	snd_opl3sa2_write(chip, OPL3SA2_MIC, 0x8a);
 	if (((tmp1 = snd_opl3sa2_read(chip, OPL3SA2_MIC)) & 0x9f) != 0x8a) {
@@ -261,26 +272,26 @@ static int __devinit snd_opl3sa2_detect(struct snd_card *card)
 		return -ENODEV;
 	}
 	snd_opl3sa2_write(chip, OPL3SA2_MIC, 0x9f);
-	
-	
+	/* initialization */
+	/* Power Management - full on */
 	snd_opl3sa2_write(chip, OPL3SA2_PM_CTRL, OPL3SA2_PM_D0);
 	if (chip->version > 2) {
-		
+		/* ymode is bits 4&5 (of 0 to 7) on all but opl3sa2 versions */
 		snd_opl3sa2_write(chip, OPL3SA2_SYS_CTRL, (chip->ymode << 4));
 	} else {
-		
+		/* default for opl3sa2 versions */
 		snd_opl3sa2_write(chip, OPL3SA2_SYS_CTRL, 0x00);
 	}
-	snd_opl3sa2_write(chip, OPL3SA2_IRQ_CONFIG, 0x0d);	
+	snd_opl3sa2_write(chip, OPL3SA2_IRQ_CONFIG, 0x0d);	/* Interrupt Channel Configuration - IRQ A = OPL3 + MPU + WSS */
 	if (chip->single_dma) {
-		snd_opl3sa2_write(chip, OPL3SA2_DMA_CONFIG, 0x03);	
+		snd_opl3sa2_write(chip, OPL3SA2_DMA_CONFIG, 0x03);	/* DMA Configuration - DMA A = WSS-R + WSS-P */
 	} else {
-		snd_opl3sa2_write(chip, OPL3SA2_DMA_CONFIG, 0x21);	
+		snd_opl3sa2_write(chip, OPL3SA2_DMA_CONFIG, 0x21);	/* DMA Configuration - DMA B = WSS-R, DMA A = WSS-P */
 	}
-	snd_opl3sa2_write(chip, OPL3SA2_MISC, 0x80 | (tmp & 7));	
+	snd_opl3sa2_write(chip, OPL3SA2_MISC, 0x80 | (tmp & 7));	/* Miscellaneous - default */
 	if (chip->version > 2) {
-		snd_opl3sa2_write(chip, OPL3SA3_DGTL_DOWN, 0x00);	
-		snd_opl3sa2_write(chip, OPL3SA3_ANLG_DOWN, 0x00);	
+		snd_opl3sa2_write(chip, OPL3SA3_DGTL_DOWN, 0x00);	/* Digital Block Partial Power Down - default */
+		snd_opl3sa2_write(chip, OPL3SA3_ANLG_DOWN, 0x00);	/* Analog Block Partial Power Down - default */
 	}
 	return 0;
 }
@@ -308,14 +319,14 @@ static irqreturn_t snd_opl3sa2_interrupt(int irq, void *dev_id)
 		snd_mpu401_uart_interrupt(irq, chip->rmidi->private_data);
 	}
 
-	if (status & 0x07) {	
+	if (status & 0x07) {	/* TI,CI,PI */
 		handled = 1;
 		snd_wss_interrupt(irq, chip->wss);
 	}
 
-	if (status & 0x40) { 
+	if (status & 0x40) { /* hardware volume change */
 		handled = 1;
-		
+		/* reading from Master Lch register at 0x07 clears this bit */
 		snd_opl3sa2_read(chip, OPL3SA2_MASTER_RIGHT);
 		snd_opl3sa2_read(chip, OPL3SA2_MASTER_LEFT);
 		if (chip->master_switch && chip->master_volume) {
@@ -496,7 +507,7 @@ static int __devinit snd_opl3sa2_mixer(struct snd_card *card)
 	memset(&id1, 0, sizeof(id1));
 	memset(&id2, 0, sizeof(id2));
 	id1.iface = id2.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-	
+	/* reassign AUX0 to CD */
         strcpy(id1.name, "Aux Playback Switch");
         strcpy(id2.name, "CD Playback Switch");
         if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0) {
@@ -509,7 +520,7 @@ static int __devinit snd_opl3sa2_mixer(struct snd_card *card)
 		snd_printk(KERN_ERR "Cannot rename opl3sa2 control\n");
                 return err;
 	}
-	
+	/* reassign AUX1 to FM */
         strcpy(id1.name, "Aux Playback Switch"); id1.index = 1;
         strcpy(id2.name, "FM Playback Switch");
         if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0) {
@@ -522,7 +533,7 @@ static int __devinit snd_opl3sa2_mixer(struct snd_card *card)
 		snd_printk(KERN_ERR "Cannot rename opl3sa2 control\n");
                 return err;
 	}
-	
+	/* add OPL3SA2 controls */
 	for (idx = 0; idx < ARRAY_SIZE(snd_opl3sa2_controls); idx++) {
 		if ((err = snd_ctl_add(card, kctl = snd_ctl_new1(&snd_opl3sa2_controls[idx], chip))) < 0)
 			return err;
@@ -539,6 +550,7 @@ static int __devinit snd_opl3sa2_mixer(struct snd_card *card)
 	return 0;
 }
 
+/* Power Management support functions */
 #ifdef CONFIG_PM
 static int snd_opl3sa2_suspend(struct snd_card *card, pm_message_t state)
 {
@@ -547,7 +559,7 @@ static int snd_opl3sa2_suspend(struct snd_card *card, pm_message_t state)
 
 		snd_power_change_state(card, SNDRV_CTL_POWER_D3hot);
 		chip->wss->suspend(chip->wss);
-		
+		/* power down */
 		snd_opl3sa2_write(chip, OPL3SA2_PM_CTRL, OPL3SA2_PM_D3);
 	}
 
@@ -563,10 +575,10 @@ static int snd_opl3sa2_resume(struct snd_card *card)
 		return 0;
 
 	chip = card->private_data;
-	
+	/* power up */
 	snd_opl3sa2_write(chip, OPL3SA2_PM_CTRL, OPL3SA2_PM_D0);
 
-	
+	/* restore registers */
 	for (i = 2; i <= 0x0a; i++) {
 		if (i != OPL3SA2_IRQ_STATUS)
 			snd_opl3sa2_write(chip, i, chip->ctlregs[i]);
@@ -575,13 +587,13 @@ static int snd_opl3sa2_resume(struct snd_card *card)
 		for (i = 0x12; i <= 0x16; i++)
 			snd_opl3sa2_write(chip, i, chip->ctlregs[i]);
 	}
-	
+	/* restore wss */
 	chip->wss->resume(chip->wss);
 
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 #ifdef CONFIG_PNP
 static int __devinit snd_opl3sa2_pnp(int dev, struct snd_opl3sa2 *chip,
@@ -605,7 +617,7 @@ static int __devinit snd_opl3sa2_pnp(int dev, struct snd_opl3sa2 *chip,
 		pnp_device_is_pnpbios(pdev) ? "BIOS" : "ISA", port[dev], dma1[dev], dma2[dev], irq[dev]);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PNP */
 
 static void snd_opl3sa2_free(struct snd_card *card)
 {
@@ -643,7 +655,7 @@ static int __devinit snd_opl3sa2_probe(struct snd_card *card, int dev)
 	struct snd_opl3 *opl3;
 	int err;
 
-	 
+	/* initialise this card from supplied (or default) parameter*/ 
 	chip = card->private_data;
 	chip->ymode = opl3sa3_ymode[dev] & 0x03 ;
 	chip->port = port[dev];
@@ -717,7 +729,7 @@ static int __devinit snd_opl3sa2_pnp_detect(struct pnp_dev *pdev,
 	struct snd_card *card;
 
 	if (pnp_device_is_isapnp(pdev))
-		return -ENOENT;	
+		return -ENOENT;	/* we have another procedure - card */
 	for (; dev < SNDRV_CARDS; dev++) {
 		if (enable[dev] && isapnp[dev])
 			break;
@@ -836,7 +848,7 @@ static struct pnp_card_driver opl3sa2_pnpc_driver = {
 	.resume = snd_opl3sa2_pnp_cresume,
 #endif
 };
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __devinit snd_opl3sa2_isa_match(struct device *pdev,
 					   unsigned int dev)

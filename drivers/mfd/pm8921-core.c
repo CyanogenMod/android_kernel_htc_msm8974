@@ -26,8 +26,8 @@
 #include <linux/mfd/pm8xxx/regulator.h>
 #include <linux/leds-pm8xxx.h>
 
-#define REG_HWREV		0x002  
-#define REG_HWREV_2		0x0E8  
+#define REG_HWREV		0x002  /* PMIC4 revision */
+#define REG_HWREV_2		0x0E8  /* PMIC4 revision 2 */
 
 #define REG_MPP_BASE		0x050
 #define REG_IRQ_BASE		0x1BB
@@ -381,7 +381,7 @@ static struct mfd_cell vibrator_cell __devinitdata = {
 };
 
 static struct pm8xxx_vreg regulator_data[] = {
-	
+	/*   name	     pc_name	    ctrl   test   hpm_min */
 	NLDO("8921_l1",      "8921_l1_pc",  0x0AE, 0x0AF, LDO_150),
 	NLDO("8921_l2",      "8921_l2_pc",  0x0B0, 0x0B1, LDO_150),
 	PLDO("8921_l3",      "8921_l3_pc",  0x0B2, 0x0B3, LDO_150),
@@ -409,21 +409,21 @@ static struct pm8xxx_vreg regulator_data[] = {
 	NLDO1200("8921_l28",		    0x0E4, 0x0E5, LDO_1200),
 	PLDO("8921_l29",     "8921_l29_pc", 0x0E6, 0x0E7, LDO_150),
 
-	
+	/*   name	pc_name       ctrl   test2  clk    sleep  hpm_min */
 	SMPS("8921_s1", "8921_s1_pc", 0x1D0, 0x1D5, 0x009, 0x1D2, SMPS_1500),
 	SMPS("8921_s2", "8921_s2_pc", 0x1D8, 0x1DD, 0x00A, 0x1DA, SMPS_1500),
 	SMPS("8921_s3", "8921_s3_pc", 0x1E0, 0x1E5, 0x00B, 0x1E2, SMPS_1500),
 	SMPS("8921_s4", "8921_s4_pc", 0x1E8, 0x1ED, 0x011, 0x1EA, SMPS_1500),
 
-	
+	/*     name	  ctrl fts_cnfg1 pfm  pwr_cnfg  hpm_min */
 	FTSMPS("8921_s5", 0x025, 0x02E, 0x026, 0x032, SMPS_2000),
 	FTSMPS("8921_s6", 0x036, 0x03F, 0x037, 0x043, SMPS_2000),
 
-	
+	/*   name	pc_name       ctrl   test2  clk    sleep  hpm_min */
 	SMPS("8921_s7", "8921_s7_pc", 0x1F0, 0x1F5, 0x012, 0x1F2, SMPS_1500),
 	SMPS("8921_s8", "8921_s8_pc", 0x1F8, 0x1FD, 0x013, 0x1FA, SMPS_1500),
 
-	
+	/* name		       pc_name	       ctrl   test */
 	VS("8921_lvs1",        "8921_lvs1_pc", 0x060, 0x061),
 	VS300("8921_lvs2",		       0x062, 0x063),
 	VS("8921_lvs3",        "8921_lvs3_pc", 0x064, 0x065),
@@ -434,12 +434,16 @@ static struct pm8xxx_vreg regulator_data[] = {
 	VS300("8921_usb_otg",		       0x06E, 0x06F),
 	VS300("8921_hdmi_mvs",		       0x070, 0x071),
 
-	
+	/*  name	ctrl */
 	NCP("8921_ncp", 0x090),
 };
 
+/*
+ * PM8917 adds 6 LDOs and a boost regulator beyond those available on PM8921.
+ * It also replaces SMPS 3 with FTSMPS 3.  PM8917 does not have an NCP.
+ */
 static struct pm8xxx_vreg pm8917_regulator_data[] = {
-	
+	/*   name	     pc_name	    ctrl   test   hpm_min */
 	PLDO("8917_l30",     "8917_l30_pc", 0x0A3, 0x0A4, LDO_150),
 	PLDO("8917_l31",     "8917_l31_pc", 0x0A5, 0x0A6, LDO_150),
 	PLDO("8917_l32",     "8917_l32_pc", 0x0A7, 0x0A8, LDO_150),
@@ -448,7 +452,7 @@ static struct pm8xxx_vreg pm8917_regulator_data[] = {
 	PLDO("8917_l35",     "8917_l35_pc", 0x0D4, 0x0D5, LDO_300),
 	PLDO("8917_l36",     "8917_l36_pc", 0x0A9, 0x0AA, LDO_50),
 
-	
+	/*    name          ctrl */
 	BOOST("8917_boost", 0x04B),
 };
 
@@ -515,7 +519,7 @@ pm8921_add_regulators(const struct pm8921_platform_data *pdata,
 
 	version = pm8xxx_get_version(pmic->dev);
 
-	
+	/* Add one device for each regulator used by the board. */
 	mfd_regulators = kzalloc(sizeof(struct mfd_cell)
 				 * (pdata->num_regulators), GFP_KERNEL);
 	if (!mfd_regulators) {
@@ -865,7 +869,7 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Read PMIC chip revision */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_HWREV, &val, sizeof(val));
 	if (rc) {
 		pr_err("Failed to read hw rev reg %d:rc=%d\n", REG_HWREV, rc);
@@ -874,7 +878,7 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 	pr_info("PMIC revision 1: %02X\n", val);
 	pmic->rev_registers = val;
 
-	
+	/* Read PMIC chip revision 2 */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_HWREV_2, &val, sizeof(val));
 	if (rc) {
 		pr_err("Failed to read hw rev 2 reg %d:rc=%d\n",
@@ -888,7 +892,7 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 	pm8921_drvdata.pm_chip_data = pmic;
 	platform_set_drvdata(pdev, &pm8921_drvdata);
 
-	
+	/* Print out human readable version and revision names. */
 	version = pm8xxx_get_version(pmic->dev);
 	revision = pm8xxx_get_revision(pmic->dev);
 	if (version == PM8XXX_VERSION_8921) {
@@ -909,7 +913,7 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 			&& version != PM8XXX_VERSION_8917);
 	}
 
-	
+	/* Log human readable restart reason */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_PM8921_PON_CNTRL_3, &val, 1);
 	if (rc) {
 		pr_err("Cannot read restart reason rc=%d\n", rc);
@@ -925,7 +929,7 @@ static int __devinit pm8921_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	
+	/* gpio might not work if no irq device is found */
 	WARN_ON(pmic->irq_chip == NULL);
 
 	return 0;

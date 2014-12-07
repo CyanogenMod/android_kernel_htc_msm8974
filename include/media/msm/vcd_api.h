@@ -67,7 +67,7 @@ struct vcd_frame_data {
 	u32 alloc_len;
 	u32 data_len;
 	u32 offset;
-	s64 time_stamp; 
+	s64 time_stamp; /* in usecs*/
 	u32 flags;
 	u32 frm_clnt_data;
 	struct vcd_property_dec_output_buffer dec_op_prop;
@@ -118,6 +118,7 @@ struct vcd_init_config {
 	void (*timer_stop) (void *timer_handle);
 };
 
+/*Flags passed to vcd_open*/
 #define VCD_CP_SESSION 0x00000001
 
 u32 vcd_init(struct vcd_init_config *config, s32 *driver_handle);

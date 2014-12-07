@@ -27,15 +27,25 @@ static unsigned long scale_aperfmperf(void)
 
 unsigned long arch_scale_freq_power(struct sched_domain *sd, int cpu)
 {
+	/*
+	 * do aperf/mperf on the cpu level because it includes things
+	 * like turbo mode, which are relevant to full cores.
+	 */
 	if (boot_cpu_has(X86_FEATURE_APERFMPERF))
 		return scale_aperfmperf();
 
+	/*
+	 * maybe have something cpufreq here
+	 */
 
 	return default_scale_freq_power(sd, cpu);
 }
 
 unsigned long arch_scale_smt_power(struct sched_domain *sd, int cpu)
 {
+	/*
+	 * aperf/mperf already includes the smt gain
+	 */
 	if (boot_cpu_has(X86_FEATURE_APERFMPERF))
 		return SCHED_LOAD_SCALE;
 

@@ -47,6 +47,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define ORIGEN_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -92,43 +93,43 @@ static struct s3c2410_uartcfg origen_uartcfgs[] __initdata = {
 };
 
 static struct regulator_consumer_supply __initdata ldo3_consumer[] = {
-	REGULATOR_SUPPLY("vdd11", "s5p-mipi-csis.0"), 
-	REGULATOR_SUPPLY("vdd", "exynos4-hdmi"), 
-	REGULATOR_SUPPLY("vdd_pll", "exynos4-hdmi"), 
+	REGULATOR_SUPPLY("vdd11", "s5p-mipi-csis.0"), /* MIPI */
+	REGULATOR_SUPPLY("vdd", "exynos4-hdmi"), /* HDMI */
+	REGULATOR_SUPPLY("vdd_pll", "exynos4-hdmi"), /* HDMI */
 };
 static struct regulator_consumer_supply __initdata ldo6_consumer[] = {
-	REGULATOR_SUPPLY("vdd18", "s5p-mipi-csis.0"), 
+	REGULATOR_SUPPLY("vdd18", "s5p-mipi-csis.0"), /* MIPI */
 };
 static struct regulator_consumer_supply __initdata ldo7_consumer[] = {
-	REGULATOR_SUPPLY("avdd", "alc5625"), 
+	REGULATOR_SUPPLY("avdd", "alc5625"), /* Realtek ALC5625 */
 };
 static struct regulator_consumer_supply __initdata ldo8_consumer[] = {
-	REGULATOR_SUPPLY("vdd", "s5p-adc"), 
-	REGULATOR_SUPPLY("vdd_osc", "exynos4-hdmi"), 
+	REGULATOR_SUPPLY("vdd", "s5p-adc"), /* ADC */
+	REGULATOR_SUPPLY("vdd_osc", "exynos4-hdmi"), /* HDMI */
 };
 static struct regulator_consumer_supply __initdata ldo9_consumer[] = {
-	REGULATOR_SUPPLY("dvdd", "swb-a31"), 
+	REGULATOR_SUPPLY("dvdd", "swb-a31"), /* AR6003 WLAN & CSR 8810 BT */
 };
 static struct regulator_consumer_supply __initdata ldo11_consumer[] = {
-	REGULATOR_SUPPLY("dvdd", "alc5625"), 
+	REGULATOR_SUPPLY("dvdd", "alc5625"), /* Realtek ALC5625 */
 };
 static struct regulator_consumer_supply __initdata ldo14_consumer[] = {
-	REGULATOR_SUPPLY("avdd18", "swb-a31"), 
+	REGULATOR_SUPPLY("avdd18", "swb-a31"), /* AR6003 WLAN & CSR 8810 BT */
 };
 static struct regulator_consumer_supply __initdata ldo17_consumer[] = {
-	REGULATOR_SUPPLY("vdd33", "swb-a31"), 
+	REGULATOR_SUPPLY("vdd33", "swb-a31"), /* AR6003 WLAN & CSR 8810 BT */
 };
 static struct regulator_consumer_supply __initdata buck1_consumer[] = {
-	REGULATOR_SUPPLY("vdd_arm", NULL), 
+	REGULATOR_SUPPLY("vdd_arm", NULL), /* CPUFREQ */
 };
 static struct regulator_consumer_supply __initdata buck2_consumer[] = {
-	REGULATOR_SUPPLY("vdd_int", NULL), 
+	REGULATOR_SUPPLY("vdd_int", NULL), /* CPUFREQ */
 };
 static struct regulator_consumer_supply __initdata buck3_consumer[] = {
-	REGULATOR_SUPPLY("vdd_g3d", "mali_drm"), 
+	REGULATOR_SUPPLY("vdd_g3d", "mali_drm"), /* G3D */
 };
 static struct regulator_consumer_supply __initdata buck7_consumer[] = {
-	REGULATOR_SUPPLY("vcc", "platform-lcd"), 
+	REGULATOR_SUPPLY("vcc", "platform-lcd"), /* LCD */
 };
 
 static struct regulator_init_data __initdata max8997_ldo1_data = {
@@ -460,6 +461,7 @@ static struct max8997_platform_data __initdata origen_max8997_pdata = {
 	.buck5_voltage[7]	= 1200000,
 };
 
+/* I2C0 */
 static struct i2c_board_info i2c0_devs[] __initdata = {
 	{
 		I2C_BOARD_INFO("max8997", (0xCC >> 1)),
@@ -478,6 +480,7 @@ static struct s3c_sdhci_platdata origen_hsmmc2_pdata __initdata = {
 	.clk_type		= S3C_SDHCI_CLK_DIV_EXTERNAL,
 };
 
+/* USB EHCI */
 static struct s5p_ehci_platdata origen_ehci_pdata;
 
 static void __init origen_ehci_init(void)
@@ -487,6 +490,7 @@ static void __init origen_ehci_init(void)
 	s5p_ehci_set_platdata(pdata);
 }
 
+/* USB OHCI */
 static struct exynos4_ohci_platdata origen_ohci_pdata;
 
 static void __init origen_ohci_init(void)
@@ -602,6 +606,7 @@ static struct s3c_fb_platdata origen_lcd_pdata __initdata = {
 	.setup_gpio	= exynos4_fimd0_gpio_setup_24bpp,
 };
 
+/* Bluetooth rfkill gpio platform data */
 struct rfkill_gpio_platform_data origen_bt_pdata = {
 	.reset_gpio	= EXYNOS4_GPX2(2),
 	.shutdown_gpio	= -1,
@@ -609,6 +614,7 @@ struct rfkill_gpio_platform_data origen_bt_pdata = {
 	.name		= "origen-bt",
 };
 
+/* Bluetooth Platform device */
 static struct platform_device origen_device_bluetooth = {
 	.name		= "rfkill_gpio",
 	.id		= -1,
@@ -644,6 +650,7 @@ static struct platform_device *origen_devices[] __initdata = {
 	&origen_device_bluetooth,
 };
 
+/* LCD Backlight data */
 static struct samsung_bl_gpio_info origen_bl_gpio_info = {
 	.no		= EXYNOS4_GPD0(0),
 	.func		= S3C_GPIO_SFN(2),
@@ -657,16 +664,16 @@ static struct platform_pwm_backlight_data origen_bl_data = {
 static void __init origen_bt_setup(void)
 {
 	gpio_request(EXYNOS4_GPA0(0), "GPIO BT_UART");
-	
+	/* 4 UART Pins configuration */
 	s3c_gpio_cfgrange_nopull(EXYNOS4_GPA0(0), 4, S3C_GPIO_SFN(2));
-	
+	/* Setup BT Reset, this gpio will be requesed by rfkill-gpio */
 	s3c_gpio_cfgpin(EXYNOS4_GPX2(2), S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(EXYNOS4_GPX2(2), S3C_GPIO_PULL_NONE);
 }
 
 static void s5p_tv_setup(void)
 {
-	
+	/* Direct HPD to HDMI chip */
 	gpio_request_one(EXYNOS4_GPX3(7), GPIOF_IN, "hpd-plug");
 	s3c_gpio_cfgpin(EXYNOS4_GPX3(7), S3C_GPIO_SFN(0x3));
 	s3c_gpio_setpull(EXYNOS4_GPX3(7), S3C_GPIO_PULL_NONE);
@@ -698,6 +705,10 @@ static void __init origen_machine_init(void)
 	s3c_i2c0_set_platdata(NULL);
 	i2c_register_board_info(0, i2c0_devs, ARRAY_SIZE(i2c0_devs));
 
+	/*
+	 * Since sdhci instance 2 can contain a bootable media,
+	 * sdhci instance 0 is registered after instance 2.
+	 */
 	s3c_sdhci2_set_platdata(&origen_hsmmc2_pdata);
 	s3c_sdhci0_set_platdata(&origen_hsmmc0_pdata);
 
@@ -718,7 +729,7 @@ static void __init origen_machine_init(void)
 }
 
 MACHINE_START(ORIGEN, "ORIGEN")
-	
+	/* Maintainer: JeongHyeon Kim <jhkim@insignal.co.kr> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= origen_map_io,

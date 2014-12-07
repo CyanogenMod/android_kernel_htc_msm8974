@@ -37,10 +37,10 @@ static struct dentry *tunnels;
 
 struct l2tp_dfs_seq_data {
 	struct net *net;
-	int tunnel_idx;			
-	int session_idx;		
+	int tunnel_idx;			/* current tunnel */
+	int session_idx;		/* index of session within current tunnel */
 	struct l2tp_tunnel *tunnel;
-	struct l2tp_session *session;	
+	struct l2tp_session *session;	/* NULL means get next tunnel */
 };
 
 static void l2tp_dfs_next_tunnel(struct l2tp_dfs_seq_data *pd)
@@ -77,7 +77,7 @@ static void *l2tp_dfs_seq_start(struct seq_file *m, loff_t *offs)
 	else
 		l2tp_dfs_next_session(pd);
 
-	
+	/* NULL tunnel and session indicates end of list */
 	if ((pd->tunnel == NULL) && (pd->session == NULL))
 		pd = NULL;
 
@@ -94,7 +94,7 @@ static void *l2tp_dfs_seq_next(struct seq_file *m, void *v, loff_t *pos)
 
 static void l2tp_dfs_seq_stop(struct seq_file *p, void *v)
 {
-	
+	/* nothing to do */
 }
 
 static void l2tp_dfs_seq_tunnel_show(struct seq_file *m, void *v)
@@ -210,7 +210,7 @@ static int l2tp_dfs_seq_show(struct seq_file *m, void *v)
 {
 	struct l2tp_dfs_seq_data *pd = v;
 
-	
+	/* display header on line 1 */
 	if (v == SEQ_START_TOKEN) {
 		seq_puts(m, "TUNNEL ID, peer ID from IP to IP\n");
 		seq_puts(m, " L2TPv2/L2TPv3, UDP/IP\n");
@@ -226,7 +226,7 @@ static int l2tp_dfs_seq_show(struct seq_file *m, void *v)
 		goto out;
 	}
 
-	
+	/* Show the tunnel or session context */
 	if (pd->session == NULL)
 		l2tp_dfs_seq_tunnel_show(m, pd->tunnel);
 	else
@@ -253,6 +253,9 @@ static int l2tp_dfs_seq_open(struct inode *inode, struct file *file)
 	if (pd == NULL)
 		goto out;
 
+	/* Derive the network namespace from the pid opening the
+	 * file.
+	 */
 	pd->net = get_net_ns_by_pid(current->pid);
 	if (IS_ERR(pd->net)) {
 		rc = PTR_ERR(pd->net);

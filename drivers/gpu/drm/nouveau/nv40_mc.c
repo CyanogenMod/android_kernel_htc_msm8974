@@ -6,6 +6,9 @@
 int
 nv40_mc_init(struct drm_device *dev)
 {
+	/* Power up everything, resetting each individual unit will
+	 * be done later if needed.
+	 */
 	nv_wr32(dev, NV03_PMC_ENABLE, 0xFFFFFFFF);
 
 	if (nv44_graph_class(dev)) {

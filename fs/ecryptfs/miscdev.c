@@ -31,6 +31,13 @@
 
 static atomic_t ecryptfs_num_miscdev_opens;
 
+/**
+ * ecryptfs_miscdev_poll
+ * @file: dev file (ignored)
+ * @pt: dev poll table (ignored)
+ *
+ * Returns the poll mask
+ */
 static unsigned int
 ecryptfs_miscdev_poll(struct file *file, poll_table *pt)
 {
@@ -40,7 +47,7 @@ ecryptfs_miscdev_poll(struct file *file, poll_table *pt)
 	int rc;
 
 	mutex_lock(&ecryptfs_daemon_hash_mux);
-	
+	/* TODO: Just use file->private_data? */
 	rc = ecryptfs_find_daemon_by_euid(&daemon, euid, current_user_ns());
 	BUG_ON(rc || !daemon);
 	mutex_lock(&daemon->mux);
@@ -66,6 +73,13 @@ out_unlock_daemon:
 	return mask;
 }
 
+/**
+ * ecryptfs_miscdev_open
+ * @inode: inode of miscdev handle (ignored)
+ * @file: file for miscdev handle (ignored)
+ *
+ * Returns zero on success; non-zero otherwise
+ */
 static int
 ecryptfs_miscdev_open(struct inode *inode, struct file *file)
 {
@@ -119,6 +133,16 @@ out_unlock_daemon_list:
 	return rc;
 }
 
+/**
+ * ecryptfs_miscdev_release
+ * @inode: inode of fs/ecryptfs/euid handle (ignored)
+ * @file: file for fs/ecryptfs/euid handle (ignored)
+ *
+ * This keeps the daemon registered until the daemon sends another
+ * ioctl to fs/ecryptfs/ctl or until the kernel module unregisters.
+ *
+ * Returns zero on success; non-zero otherwise
+ */
 static int
 ecryptfs_miscdev_release(struct inode *inode, struct file *file)
 {
@@ -147,6 +171,22 @@ ecryptfs_miscdev_release(struct inode *inode, struct file *file)
 	return rc;
 }
 
+/**
+ * ecryptfs_send_miscdev
+ * @data: Data to send to daemon; may be NULL
+ * @data_size: Amount of data to send to daemon
+ * @msg_ctx: Message context, which is used to handle the reply. If
+ *           this is NULL, then we do not expect a reply.
+ * @msg_type: Type of message
+ * @msg_flags: Flags for message
+ * @daemon: eCryptfs daemon object
+ *
+ * Add msg_ctx to queue and then, if it exists, notify the blocked
+ * miscdevess about the data being available. Must be called with
+ * ecryptfs_daemon_hash_mux held.
+ *
+ * Returns zero on success; non-zero otherwise
+ */
 int ecryptfs_send_miscdev(char *data, size_t data_size,
 			  struct ecryptfs_msg_ctx *msg_ctx, u8 msg_type,
 			  u16 msg_flags, struct ecryptfs_daemon *daemon)
@@ -192,6 +232,7 @@ out_unlock:
 #define MIN_NON_MSG_PKT_SIZE	(PKT_TYPE_SIZE + PKT_CTR_SIZE)
 #define MIN_MSG_PKT_SIZE	(PKT_TYPE_SIZE + PKT_CTR_SIZE \
 				 + ECRYPTFS_MIN_PKT_LEN_SIZE)
+/* 4 + ECRYPTFS_MAX_ENCRYPTED_KEY_BYTES comes from tag 65 packet format */
 #define MAX_MSG_PKT_SIZE	(PKT_TYPE_SIZE + PKT_CTR_SIZE \
 				 + ECRYPTFS_MAX_PKT_LEN_SIZE \
 				 + sizeof(struct ecryptfs_message) \
@@ -200,6 +241,18 @@ out_unlock:
 #define PKT_CTR_OFFSET		PKT_TYPE_SIZE
 #define PKT_LEN_OFFSET		(PKT_TYPE_SIZE + PKT_CTR_SIZE)
 
+/**
+ * ecryptfs_miscdev_read - format and send message from queue
+ * @file: fs/ecryptfs/euid miscdevfs handle (ignored)
+ * @buf: User buffer into which to copy the next message on the daemon queue
+ * @count: Amount of space available in @buf
+ * @ppos: Offset in file (ignored)
+ *
+ * Pulls the most recent message from the daemon queue, formats it for
+ * being sent via a miscdevfs handle, and copies it into @buf
+ *
+ * Returns the number of bytes copied into the user buffer
+ */
 static ssize_t
 ecryptfs_miscdev_read(struct file *file, char __user *buf, size_t count,
 		      loff_t *ppos)
@@ -214,7 +267,7 @@ ecryptfs_miscdev_read(struct file *file, char __user *buf, size_t count,
 	int rc;
 
 	mutex_lock(&ecryptfs_daemon_hash_mux);
-	
+	/* TODO: Just use file->private_data? */
 	rc = ecryptfs_find_daemon_by_euid(&daemon, euid, current_user_ns());
 	BUG_ON(rc || !daemon);
 	mutex_lock(&daemon->mux);
@@ -230,7 +283,7 @@ ecryptfs_miscdev_read(struct file *file, char __user *buf, size_t count,
 		mutex_unlock(&ecryptfs_daemon_hash_mux);
 		goto out_unlock_daemon;
 	}
-	
+	/* This daemon will not go away so long as this flag is set */
 	daemon->flags |= ECRYPTFS_DAEMON_IN_READ;
 	mutex_unlock(&ecryptfs_daemon_hash_mux);
 check_list:
@@ -249,6 +302,9 @@ check_list:
 		goto out_unlock_daemon;
 	}
 	if (list_empty(&daemon->msg_ctx_out_queue)) {
+		/* Something else jumped in since the
+		 * wait_event_interruptable() and removed the
+		 * message from the queue; try again */
 		goto check_list;
 	}
 	BUG_ON(euid != daemon->euid);
@@ -300,6 +356,8 @@ check_list:
 	list_del(&msg_ctx->daemon_out_list);
 	kfree(msg_ctx->msg);
 	msg_ctx->msg = NULL;
+	/* We do not expect a reply from the userspace daemon for any
+	 * message type other than ECRYPTFS_MSG_REQUEST */
 	if (msg_ctx->type != ECRYPTFS_MSG_REQUEST)
 		ecryptfs_msg_ctx_alloc_to_free(msg_ctx);
 out_unlock_msg_ctx:
@@ -310,6 +368,17 @@ out_unlock_daemon:
 	return rc;
 }
 
+/**
+ * ecryptfs_miscdev_response - miscdevess response to message previously sent to daemon
+ * @data: Bytes comprising struct ecryptfs_message
+ * @data_size: sizeof(struct ecryptfs_message) + data len
+ * @euid: Effective user id of miscdevess sending the miscdev response
+ * @user_ns: The namespace in which @euid applies
+ * @pid: Miscdevess id of miscdevess sending the miscdev response
+ * @seq: Sequence number for miscdev response packet
+ *
+ * Returns zero on success; non-zero otherwise
+ */
 static int ecryptfs_miscdev_response(char *data, size_t data_size,
 				     uid_t euid, struct user_namespace *user_ns,
 				     struct pid *pid, u32 seq)
@@ -332,6 +401,15 @@ out:
 	return rc;
 }
 
+/**
+ * ecryptfs_miscdev_write - handle write to daemon miscdev handle
+ * @file: File for misc dev handle (ignored)
+ * @buf: Buffer containing user data
+ * @count: Amount of data in @buf
+ * @ppos: Pointer to offset in file (ignored)
+ *
+ * Returns the number of bytes read from @buf
+ */
 static ssize_t
 ecryptfs_miscdev_write(struct file *file, const char __user *buf,
 		       size_t count, loff_t *ppos)
@@ -347,7 +425,7 @@ ecryptfs_miscdev_write(struct file *file, const char __user *buf,
 	if (count == 0) {
 		return 0;
 	} else if (count == MIN_NON_MSG_PKT_SIZE) {
-		
+		/* Likely a harmless MSG_HELO or MSG_QUIT - no packet length */
 		goto memdup;
 	} else if (count < MIN_MSG_PKT_SIZE || count > MAX_MSG_PKT_SIZE) {
 		printk(KERN_WARNING "%s: Acceptable packet size range is "
@@ -443,6 +521,16 @@ static struct miscdevice ecryptfs_miscdev = {
 	.fops  = &ecryptfs_miscdev_fops
 };
 
+/**
+ * ecryptfs_init_ecryptfs_miscdev
+ *
+ * Messages sent to the userspace daemon from the kernel are placed on
+ * a queue associated with the daemon. The next read against the
+ * miscdev handle by that daemon will return the oldest message placed
+ * on the message queue for the daemon.
+ *
+ * Returns zero on success; non-zero otherwise
+ */
 int __init ecryptfs_init_ecryptfs_miscdev(void)
 {
 	int rc;
@@ -456,6 +544,12 @@ int __init ecryptfs_init_ecryptfs_miscdev(void)
 	return rc;
 }
 
+/**
+ * ecryptfs_destroy_ecryptfs_miscdev
+ *
+ * All of the daemons must be exorcised prior to calling this
+ * function.
+ */
 void ecryptfs_destroy_ecryptfs_miscdev(void)
 {
 	BUG_ON(atomic_read(&ecryptfs_num_miscdev_opens) != 0);

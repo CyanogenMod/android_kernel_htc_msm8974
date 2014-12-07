@@ -18,4 +18,4 @@ struct xt_devgroup_info {
 	__u32	dst_mask;
 };
 
-#endif 
+#endif /* _XT_DEVGROUP_H */

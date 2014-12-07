@@ -8,6 +8,7 @@
 #include "cpumap.h"
 #include "thread_map.h"
 
+/* Define PyVarObject_HEAD_INIT for python 2.5 */
 #ifndef PyVarObject_HEAD_INIT
 # define PyVarObject_HEAD_INIT(type, size) PyObject_HEAD_INIT(type) size,
 #endif
@@ -235,6 +236,10 @@ static PyObject *pyrf_read_event__repr(struct pyrf_event *pevent)
 	return PyString_FromFormat("{ type: read, pid: %u, tid: %u }",
 				   pevent->event.read.pid,
 				   pevent->event.read.tid);
+	/*
+ 	 * FIXME: return the array of read values,
+ 	 * making this method useful ;-)
+ 	 */
 }
 
 static PyTypeObject pyrf_read_event__type = {
@@ -560,14 +565,14 @@ static int pyrf_evsel__init(struct pyrf_evsel *pevsel,
 					 &attr.bp_addr, &attr.bp_len, &idx))
 		return -1;
 
-	
+	/* union... */
 	if (sample_period != 0) {
 		if (attr.sample_freq != 0)
-			return -1; 
+			return -1; /* FIXME: throw right exception */
 		attr.sample_period = sample_period;
 	}
 
-	
+	/* Bitfields */
 	attr.disabled	    = disabled;
 	attr.inherit	    = inherit;
 	attr.pinned	    = pinned;
@@ -618,6 +623,10 @@ static PyObject *pyrf_evsel__open(struct pyrf_evsel *pevsel,
 		cpus = ((struct pyrf_cpu_map *)pcpus)->cpus;
 
 	evsel->attr.inherit = inherit;
+	/*
+	 * This will group just the fds for this single evsel, to group
+	 * multiple events, use evlist.open().
+	 */
 	if (perf_evsel__open(evsel, cpus, threads, group, NULL) < 0) {
 		PyErr_SetFromErrno(PyExc_OSError);
 		return NULL;

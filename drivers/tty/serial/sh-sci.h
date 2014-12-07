@@ -31,6 +31,7 @@
 # define SCxSR_BREAK_CLEAR(port) (((port)->type == PORT_SCI) ? 0xc4 : 0x00e3)
 #endif
 
+/* SCFCR */
 #define SCFCR_RFRST 0x0002
 #define SCFCR_TFRST 0x0004
 #define SCFCR_MCE   0x0008

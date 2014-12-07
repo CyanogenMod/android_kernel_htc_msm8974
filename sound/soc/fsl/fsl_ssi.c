@@ -26,6 +26,14 @@
 
 #include "fsl_ssi.h"
 
+/**
+ * FSLSSI_I2S_RATES: sample rates supported by the I2S
+ *
+ * This driver currently only supports the SSI running in I2S slave mode,
+ * which means the codec determines the sample rate.  Therefore, we tell
+ * ALSA that we support all rates and let the codec driver decide what rates
+ * are really supported.
+ */
 #define FSLSSI_I2S_RATES (SNDRV_PCM_RATE_5512 | SNDRV_PCM_RATE_8000_192000 | \
 			  SNDRV_PCM_RATE_CONTINUOUS)
 
@@ -53,12 +61,28 @@
 	 SNDRV_PCM_FMTBIT_S24_3LE | SNDRV_PCM_FMTBIT_S24_LE)
 #endif
 
+/* SIER bitflag of interrupts to enable */
 #define SIER_FLAGS (CCSR_SSI_SIER_TFRC_EN | CCSR_SSI_SIER_TDMAE | \
 		    CCSR_SSI_SIER_TIE | CCSR_SSI_SIER_TUE0_EN | \
 		    CCSR_SSI_SIER_TUE1_EN | CCSR_SSI_SIER_RFRC_EN | \
 		    CCSR_SSI_SIER_RDMAE | CCSR_SSI_SIER_RIE | \
 		    CCSR_SSI_SIER_ROE0_EN | CCSR_SSI_SIER_ROE1_EN)
 
+/**
+ * fsl_ssi_private: per-SSI private data
+ *
+ * @ssi: pointer to the SSI's registers
+ * @ssi_phys: physical address of the SSI registers
+ * @irq: IRQ of this SSI
+ * @first_stream: pointer to the stream that was opened first
+ * @second_stream: pointer to second stream
+ * @playback: the number of playback streams opened
+ * @capture: the number of capture streams opened
+ * @cpu_dai: the CPU DAI for this device
+ * @dev_attr: the sysfs device attribute structure
+ * @stats: SSI statistics
+ * @name: name for this device
+ */
 struct fsl_ssi_private {
 	struct ccsr_ssi __iomem *ssi;
 	dma_addr_t ssi_phys;
@@ -97,6 +121,18 @@ struct fsl_ssi_private {
 	char name[1];
 };
 
+/**
+ * fsl_ssi_isr: SSI interrupt handler
+ *
+ * Although it's possible to use the interrupt handler to send and receive
+ * data to/from the SSI, we use the DMA instead.  Programming is more
+ * complicated, but the performance is much better.
+ *
+ * This interrupt handler is used only to gather statistics.
+ *
+ * @irq: IRQ of the SSI device
+ * @dev_id: pointer to the ssi_private structure for this SSI device
+ */
 static irqreturn_t fsl_ssi_isr(int irq, void *dev_id)
 {
 	struct fsl_ssi_private *ssi_private = dev_id;
@@ -105,6 +141,10 @@ static irqreturn_t fsl_ssi_isr(int irq, void *dev_id)
 	__be32 sisr;
 	__be32 sisr2 = 0;
 
+	/* We got an interrupt, so read the status register to see what we
+	   were interrupted for.  We mask it with the Interrupt Enable register
+	   so that we only check for events that we're interested in.
+	 */
 	sisr = in_be32(&ssi->sisr) & SIER_FLAGS;
 
 	if (sisr & CCSR_SSI_SISR_RFRC) {
@@ -218,13 +258,21 @@ static irqreturn_t fsl_ssi_isr(int irq, void *dev_id)
 		ret = IRQ_HANDLED;
 	}
 
-	
+	/* Clear the bits that we set */
 	if (sisr2)
 		out_be32(&ssi->sisr, sisr2);
 
 	return ret;
 }
 
+/**
+ * fsl_ssi_startup: create a new substream
+ *
+ * This is the first function called when a stream is opened.
+ *
+ * If this is the first stream open, then grab the IRQ and program most of
+ * the SSI registers.
+ */
 static int fsl_ssi_startup(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *dai)
 {
@@ -233,13 +281,28 @@ static int fsl_ssi_startup(struct snd_pcm_substream *substream,
 		snd_soc_dai_get_drvdata(rtd->cpu_dai);
 	int synchronous = ssi_private->cpu_dai_drv.symmetric_rates;
 
+	/*
+	 * If this is the first stream opened, then request the IRQ
+	 * and initialize the SSI registers.
+	 */
 	if (!ssi_private->first_stream) {
 		struct ccsr_ssi __iomem *ssi = ssi_private->ssi;
 
 		ssi_private->first_stream = substream;
 
+		/*
+		 * Section 16.5 of the MPC8610 reference manual says that the
+		 * SSI needs to be disabled before updating the registers we set
+		 * here.
+		 */
 		clrbits32(&ssi->scr, CCSR_SSI_SCR_SSIEN);
 
+		/*
+		 * Program the SSI into I2S Slave Non-Network Synchronous mode.
+		 * Also enable the transmit and receive FIFO.
+		 *
+		 * FIXME: Little-endian samples require a different shift dir
+		 */
 		clrsetbits_be32(&ssi->scr,
 			CCSR_SSI_SCR_I2S_MODE_MASK | CCSR_SSI_SCR_SYN,
 			CCSR_SSI_SCR_TFR_CLK_DIS | CCSR_SSI_SCR_I2S_MODE_SLAVE
@@ -255,8 +318,12 @@ static int fsl_ssi_startup(struct snd_pcm_substream *substream,
 			 CCSR_SSI_SRCR_RFSI | CCSR_SSI_SRCR_REFS |
 			 CCSR_SSI_SRCR_RSCKP);
 
+		/*
+		 * The DC and PM bits are only used if the SSI is the clock
+		 * master.
+		 */
 
-		
+		/* Enable the interrupts and DMA requests */
 		out_be32(&ssi->sier, SIER_FLAGS);
 
 		/*
@@ -276,10 +343,38 @@ static int fsl_ssi_startup(struct snd_pcm_substream *substream,
 			CCSR_SSI_SFCSR_TFWM0(ssi_private->fifo_depth - 2) |
 			CCSR_SSI_SFCSR_RFWM0(ssi_private->fifo_depth - 2));
 
+		/*
+		 * We keep the SSI disabled because if we enable it, then the
+		 * DMA controller will start.  It's not supposed to start until
+		 * the SCR.TE (or SCR.RE) bit is set, but it does anyway.  The
+		 * DMA controller will transfer one "BWC" of data (i.e. the
+		 * amount of data that the MR.BWC bits are set to).  The reason
+		 * this is bad is because at this point, the PCM driver has not
+		 * finished initializing the DMA controller.
+		 */
 	} else {
 		if (synchronous) {
 			struct snd_pcm_runtime *first_runtime =
 				ssi_private->first_stream->runtime;
+			/*
+			 * This is the second stream open, and we're in
+			 * synchronous mode, so we need to impose sample
+			 * sample size constraints. This is because STCCR is
+			 * used for playback and capture in synchronous mode,
+			 * so there's no way to specify different word
+			 * lengths.
+			 *
+			 * Note that this can cause a race condition if the
+			 * second stream is opened before the first stream is
+			 * fully initialized.  We provide some protection by
+			 * checking to make sure the first stream is
+			 * initialized, but it's not perfect.  ALSA sometimes
+			 * re-initializes the driver with a different sample
+			 * rate or size.  If the second stream is opened
+			 * before the first stream has received its final
+			 * parameters, then the second stream may be
+			 * constrained to the wrong sample rate or size.
+			 */
 			if (!first_runtime->sample_bits) {
 				dev_err(substream->pcm->card->dev,
 					"set sample size in %s stream first\n",
@@ -301,6 +396,19 @@ static int fsl_ssi_startup(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/**
+ * fsl_ssi_hw_params - program the sample size
+ *
+ * Most of the SSI registers have been programmed in the startup function,
+ * but the word length must be programmed here.  Unfortunately, programming
+ * the SxCCR.WL bits requires the SSI to be temporarily disabled.  This can
+ * cause a problem with supporting simultaneous playback and capture.  If
+ * the SSI is already playing a stream, then that stream may be temporarily
+ * stopped when you start capture.
+ *
+ * Note: The SxCCR.DC and SxCCR.PM bits are only used if the SSI is the
+ * clock master.
+ */
 static int fsl_ssi_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *hw_params, struct snd_soc_dai *cpu_dai)
 {
@@ -311,11 +419,24 @@ static int fsl_ssi_hw_params(struct snd_pcm_substream *substream,
 	u32 wl = CCSR_SSI_SxCCR_WL(sample_size);
 	int enabled = in_be32(&ssi->scr) & CCSR_SSI_SCR_SSIEN;
 
+	/*
+	 * If we're in synchronous mode, and the SSI is already enabled,
+	 * then STCCR is already set properly.
+	 */
 	if (enabled && ssi_private->cpu_dai_drv.symmetric_rates)
 		return 0;
 
+	/*
+	 * FIXME: The documentation says that SxCCR[WL] should not be
+	 * modified while the SSI is enabled.  The only time this can
+	 * happen is if we're trying to do simultaneous playback and
+	 * capture in asynchronous mode.  Unfortunately, I have been enable
+	 * to get that to work at all on the P1022DS.  Therefore, we don't
+	 * bother to disable/enable the SSI when setting SxCCR[WL], because
+	 * the SSI will stop anyway.  Maybe one day, this will get fixed.
+	 */
 
-	
+	/* In synchronous mode, the SSI uses STCCR for capture */
 	if ((substream->stream == SNDRV_PCM_STREAM_PLAYBACK) ||
 	    ssi_private->cpu_dai_drv.symmetric_rates)
 		clrsetbits_be32(&ssi->stccr, CCSR_SSI_SxCCR_WL_MASK, wl);
@@ -325,6 +446,15 @@ static int fsl_ssi_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/**
+ * fsl_ssi_trigger: start and stop the DMA transfer.
+ *
+ * This function is called by ALSA to start, stop, pause, and resume the DMA
+ * transfer of data.
+ *
+ * The DMA channel is in external master start and pause mode, which
+ * means the SSI completely controls the flow of data.
+ */
 static int fsl_ssi_trigger(struct snd_pcm_substream *substream, int cmd,
 			   struct snd_soc_dai *dai)
 {
@@ -358,6 +488,11 @@ static int fsl_ssi_trigger(struct snd_pcm_substream *substream, int cmd,
 	return 0;
 }
 
+/**
+ * fsl_ssi_shutdown: shutdown the SSI
+ *
+ * Shutdown the SSI if there are no other substreams open.
+ */
 static void fsl_ssi_shutdown(struct snd_pcm_substream *substream,
 			     struct snd_soc_dai *dai)
 {
@@ -369,6 +504,9 @@ static void fsl_ssi_shutdown(struct snd_pcm_substream *substream,
 
 	ssi_private->second_stream = NULL;
 
+	/*
+	 * If this is the last active substream, disable the SSI.
+	 */
 	if (!ssi_private->first_stream) {
 		struct ccsr_ssi __iomem *ssi = ssi_private->ssi;
 
@@ -383,9 +521,10 @@ static const struct snd_soc_dai_ops fsl_ssi_dai_ops = {
 	.trigger	= fsl_ssi_trigger,
 };
 
+/* Template for the CPU dai driver structure */
 static struct snd_soc_dai_driver fsl_ssi_dai_template = {
 	.playback = {
-		
+		/* The SSI does not support monaural audio. */
 		.channels_min = 2,
 		.channels_max = 2,
 		.rates = FSLSSI_I2S_RATES,
@@ -400,6 +539,10 @@ static struct snd_soc_dai_driver fsl_ssi_dai_template = {
 	.ops = &fsl_ssi_dai_ops,
 };
 
+/* Show the statistics of a flag only if its interrupt is enabled.  The
+ * compiler will optimze this code to a no-op if the interrupt is not
+ * enabled.
+ */
 #define SIER_SHOW(flag, name) \
 	do { \
 		if (SIER_FLAGS & CCSR_SSI_SIER_##flag) \
@@ -408,6 +551,12 @@ static struct snd_soc_dai_driver fsl_ssi_dai_template = {
 	} while (0)
 
 
+/**
+ * fsl_sysfs_ssi_show: display SSI statistics
+ *
+ * Display the statistics for the current SSI device.  To avoid confusion,
+ * we only show those counts that are enabled.
+ */
 static ssize_t fsl_sysfs_ssi_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -440,6 +589,9 @@ static ssize_t fsl_sysfs_ssi_show(struct device *dev,
 	return length;
 }
 
+/**
+ * Make every character in a string lower-case
+ */
 static void make_lowercase(char *s)
 {
 	char *p = s;
@@ -463,23 +615,27 @@ static int __devinit fsl_ssi_probe(struct platform_device *pdev)
 	struct resource res;
 	char name[64];
 
+	/* SSIs that are not connected on the board should have a
+	 *      status = "disabled"
+	 * property in their device tree nodes.
+	 */
 	if (!of_device_is_available(np))
 		return -ENODEV;
 
-	
+	/* Check for a codec-handle property. */
 	if (!of_get_property(np, "codec-handle", NULL)) {
 		dev_err(&pdev->dev, "missing codec-handle property\n");
 		return -ENODEV;
 	}
 
-	
+	/* We only support the SSI in "I2S Slave" mode */
 	sprop = of_get_property(np, "fsl,mode", NULL);
 	if (!sprop || strcmp(sprop, "i2s-slave")) {
 		dev_notice(&pdev->dev, "mode %s is unsupported\n", sprop);
 		return -ENODEV;
 	}
 
-	
+	/* The DAI name is the last part of the full name of the node. */
 	p = strrchr(np->full_name, '/') + 1;
 	ssi_private = kzalloc(sizeof(struct fsl_ssi_private) + strlen(p),
 			      GFP_KERNEL);
@@ -490,12 +646,12 @@ static int __devinit fsl_ssi_probe(struct platform_device *pdev)
 
 	strcpy(ssi_private->name, p);
 
-	
+	/* Initialize this copy of the CPU DAI driver structure */
 	memcpy(&ssi_private->cpu_dai_drv, &fsl_ssi_dai_template,
 	       sizeof(fsl_ssi_dai_template));
 	ssi_private->cpu_dai_drv.name = ssi_private->name;
 
-	
+	/* Get the addresses and IRQ */
 	ret = of_address_to_resource(np, 0, &res);
 	if (ret) {
 		dev_err(&pdev->dev, "could not determine device resources\n");
@@ -516,7 +672,7 @@ static int __devinit fsl_ssi_probe(struct platform_device *pdev)
 		goto error_iomap;
 	}
 
-	
+	/* The 'name' should not have any slashes in it. */
 	ret = request_irq(ssi_private->irq, fsl_ssi_isr, 0, ssi_private->name,
 			  ssi_private);
 	if (ret < 0) {
@@ -524,19 +680,19 @@ static int __devinit fsl_ssi_probe(struct platform_device *pdev)
 		goto error_irqmap;
 	}
 
-	
+	/* Are the RX and the TX clocks locked? */
 	if (!of_find_property(np, "fsl,ssi-asynchronous", NULL))
 		ssi_private->cpu_dai_drv.symmetric_rates = 1;
 
-	
+	/* Determine the FIFO depth. */
 	iprop = of_get_property(np, "fsl,fifo-depth", NULL);
 	if (iprop)
 		ssi_private->fifo_depth = be32_to_cpup(iprop);
 	else
-                
+                /* Older 8610 DTs didn't have the fifo-depth property */
 		ssi_private->fifo_depth = 8;
 
-	
+	/* Initialize the the device_attribute structure */
 	dev_attr = &ssi_private->dev_attr;
 	sysfs_attr_init(&dev_attr->attr);
 	dev_attr->attr.name = "statistics";
@@ -550,7 +706,7 @@ static int __devinit fsl_ssi_probe(struct platform_device *pdev)
 		goto error_irq;
 	}
 
-	
+	/* Register with ASoC */
 	dev_set_drvdata(&pdev->dev, ssi_private);
 
 	ret = snd_soc_register_dai(&pdev->dev, &ssi_private->cpu_dai_drv);
@@ -559,8 +715,13 @@ static int __devinit fsl_ssi_probe(struct platform_device *pdev)
 		goto error_dev;
 	}
 
+	/* Trigger the machine driver's probe function.  The platform driver
+	 * name of the machine driver is taken from /compatible property of the
+	 * device tree.  We also pass the address of the CPU DAI driver
+	 * structure.
+	 */
 	sprop = of_get_property(of_find_node_by_path("/"), "compatible", NULL);
-	
+	/* Sometimes the compatible name has a "fsl," prefix, so we strip it. */
 	p = strrchr(sprop, ',');
 	if (p)
 		sprop = p + 1;

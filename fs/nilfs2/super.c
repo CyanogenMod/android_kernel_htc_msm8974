@@ -56,7 +56,7 @@
 #include "btnode.h"
 #include "page.h"
 #include "cpfile.h"
-#include "sufile.h" 
+#include "sufile.h" /* nilfs_sufile_resize(), nilfs_sufile_set_alloc_range() */
 #include "ifile.h"
 #include "dat.h"
 #include "segment.h"
@@ -94,6 +94,18 @@ static void nilfs_set_error(struct super_block *sb)
 	up_write(&nilfs->ns_sem);
 }
 
+/**
+ * nilfs_error() - report failure condition on a filesystem
+ *
+ * nilfs_error() sets an ERROR_FS flag on the superblock as well as
+ * reporting an error message.  It should be called when NILFS detects
+ * incoherences or defects of meta data on disk.  As for sustainable
+ * errors such as a single-shot I/O error, nilfs_warning() or the printk()
+ * function should be used instead.
+ *
+ * The segment constructor must not call this function because it can
+ * kill itself.
+ */
 void nilfs_error(struct super_block *sb, const char *function,
 		 const char *fmt, ...)
 {
@@ -164,7 +176,7 @@ static void nilfs_i_callback(struct rcu_head *head)
 	struct nilfs_mdt_info *mdi = NILFS_MDT(inode);
 
 	if (mdi) {
-		kfree(mdi->mi_bgl); 
+		kfree(mdi->mi_bgl); /* kfree(NULL) is safe */
 		kfree(mdi);
 	}
 	kmem_cache_free(nilfs_inode_cachep, NILFS_I(inode));
@@ -193,6 +205,10 @@ static int nilfs_sync_super(struct super_block *sb, int flag)
 		printk(KERN_ERR
 		       "NILFS: unable to write superblock (err=%d)\n", err);
 		if (err == -EIO && nilfs->ns_sbh[1]) {
+			/*
+			 * sbp[0] points to newer log than sbp[1],
+			 * so copy sbp[0] to sbp[1] to take over sbp[0].
+			 */
 			memcpy(nilfs->ns_sbp[1], nilfs->ns_sbp[0],
 			       nilfs->ns_sbsize);
 			nilfs_fall_back_super_block(nilfs);
@@ -209,7 +225,7 @@ static int nilfs_sync_super(struct super_block *sb, int flag)
 		 */
 		clear_nilfs_discontinued(nilfs);
 
-		
+		/* update GC protection for recent segments */
 		if (nilfs->ns_sbh[1]) {
 			if (flag == NILFS_SB_COMMIT_ALL) {
 				set_buffer_dirty(nilfs->ns_sbh[1]);
@@ -234,7 +250,7 @@ void nilfs_set_log_cursor(struct nilfs_super_block *sbp,
 {
 	sector_t nfreeblocks;
 
-	
+	/* nilfs->ns_sem must be locked by the caller. */
 	nilfs_count_free_blocks(nilfs, &nfreeblocks);
 	sbp->s_free_blocks_count = cpu_to_le64(nfreeblocks);
 
@@ -251,7 +267,7 @@ struct nilfs_super_block **nilfs_prepare_super(struct super_block *sb,
 	struct the_nilfs *nilfs = sb->s_fs_info;
 	struct nilfs_super_block **sbp = nilfs->ns_sbp;
 
-	
+	/* nilfs->ns_sem must be locked by the caller. */
 	if (sbp[0]->s_magic != cpu_to_le16(NILFS_SUPER_MAGIC)) {
 		if (sbp[1] &&
 		    sbp[1]->s_magic == cpu_to_le16(NILFS_SUPER_MAGIC)) {
@@ -278,7 +294,7 @@ int nilfs_commit_super(struct super_block *sb, int flag)
 	struct nilfs_super_block **sbp = nilfs->ns_sbp;
 	time_t t;
 
-	
+	/* nilfs->ns_sem must be locked by the caller. */
 	t = get_seconds();
 	nilfs->ns_sbwtime = t;
 	sbp[0]->s_wtime = cpu_to_le64(t);
@@ -297,6 +313,14 @@ int nilfs_commit_super(struct super_block *sb, int flag)
 	return nilfs_sync_super(sb, flag);
 }
 
+/**
+ * nilfs_cleanup_super() - write filesystem state for cleanup
+ * @sb: super block instance to be unmounted or degraded to read-only
+ *
+ * This function restores state flags in the on-disk super block.
+ * This will set "clean" flag (i.e. NILFS_VALID_FS) unless the
+ * filesystem was not clean previously.
+ */
 int nilfs_cleanup_super(struct super_block *sb)
 {
 	struct the_nilfs *nilfs = sb->s_fs_info;
@@ -309,6 +333,11 @@ int nilfs_cleanup_super(struct super_block *sb)
 		sbp[0]->s_state = cpu_to_le16(nilfs->ns_mount_state);
 		nilfs_set_log_cursor(sbp[0], nilfs);
 		if (sbp[1] && sbp[0]->s_last_cno == sbp[1]->s_last_cno) {
+			/*
+			 * make the "clean" flag also to the opposite
+			 * super block if both super blocks point to
+			 * the same checkpoint.
+			 */
 			sbp[1]->s_state = sbp[0]->s_state;
 			flag = NILFS_SB_COMMIT_ALL;
 		}
@@ -317,6 +346,11 @@ int nilfs_cleanup_super(struct super_block *sb)
 	return ret;
 }
 
+/**
+ * nilfs_move_2nd_super - relocate secondary super block
+ * @sb: super block instance
+ * @sb2off: new offset of the secondary super block (in bytes)
+ */
 static int nilfs_move_2nd_super(struct super_block *sb, loff_t sb2off)
 {
 	struct the_nilfs *nilfs = sb->s_fs_info;
@@ -324,10 +358,10 @@ static int nilfs_move_2nd_super(struct super_block *sb, loff_t sb2off)
 	struct nilfs_super_block *nsbp;
 	sector_t blocknr, newblocknr;
 	unsigned long offset;
-	int sb2i = -1;  
+	int sb2i = -1;  /* array index of the secondary superblock */
 	int ret = 0;
 
-	
+	/* nilfs->ns_sem must be locked by the caller. */
 	if (nilfs->ns_sbh[1] &&
 	    nilfs->ns_sbh[1]->b_blocknr > nilfs->ns_first_data_block) {
 		sb2i = 1;
@@ -337,9 +371,9 @@ static int nilfs_move_2nd_super(struct super_block *sb, loff_t sb2off)
 		blocknr = nilfs->ns_sbh[0]->b_blocknr;
 	}
 	if (sb2i >= 0 && (u64)blocknr << nilfs->ns_blocksize_bits == sb2off)
-		goto out;  
+		goto out;  /* super block location is unchanged */
 
-	
+	/* Get new super block buffer */
 	newblocknr = sb2off >> nilfs->ns_blocksize_bits;
 	offset = sb2off & (nilfs->ns_blocksize - 1);
 	nsbh = sb_getblk(sb, newblocknr);
@@ -359,7 +393,7 @@ static int nilfs_move_2nd_super(struct super_block *sb, loff_t sb2off)
 		nilfs->ns_sbh[sb2i] = nsbh;
 		nilfs->ns_sbp[sb2i] = nsbp;
 	} else if (nilfs->ns_sbh[0]->b_blocknr < nilfs->ns_first_data_block) {
-		
+		/* secondary super block will be restored to index 1 */
 		nilfs->ns_sbh[1] = nsbh;
 		nilfs->ns_sbp[1] = nsbp;
 	} else {
@@ -369,6 +403,11 @@ out:
 	return ret;
 }
 
+/**
+ * nilfs_resize_fs - resize the filesystem
+ * @sb: super block instance
+ * @newsize: new size of the filesystem (in bytes)
+ */
 int nilfs_resize_fs(struct super_block *sb, __u64 newsize)
 {
 	struct the_nilfs *nilfs = sb->s_fs_info;
@@ -382,6 +421,11 @@ int nilfs_resize_fs(struct super_block *sb, __u64 newsize)
 	if (newsize > devsize)
 		goto out;
 
+	/*
+	 * Write lock is required to protect some functions depending
+	 * on the number of segments, the number of reserved segments,
+	 * and so forth.
+	 */
 	down_write(&nilfs->ns_segctor_sem);
 
 	sb2off = NILFS_SB2_OFFSET_BYTES(newsize);
@@ -403,6 +447,11 @@ int nilfs_resize_fs(struct super_block *sb, __u64 newsize)
 	sbp = nilfs_prepare_super(sb, 0);
 	if (likely(sbp)) {
 		nilfs_set_log_cursor(sbp[0], nilfs);
+		/*
+		 * Drop NILFS_RESIZE_FS flag for compatibility with
+		 * mount-time resize which may be implemented in a
+		 * future release.
+		 */
 		sbp[0]->s_state = cpu_to_le16(le16_to_cpu(sbp[0]->s_state) &
 					      ~NILFS_RESIZE_FS);
 		sbp[0]->s_dev_size = cpu_to_le64(newsize);
@@ -413,6 +462,12 @@ int nilfs_resize_fs(struct super_block *sb, __u64 newsize)
 	}
 	up_write(&nilfs->ns_sem);
 
+	/*
+	 * Reset the range of allocatable segments last.  This order
+	 * is important in the case of expansion because the secondary
+	 * superblock must be protected from log write until migration
+	 * completes.
+	 */
 	if (!ret)
 		nilfs_sufile_set_alloc_range(nilfs->ns_sufile, 0, newnsegs - 1);
 out:
@@ -477,7 +532,7 @@ int nilfs_attach_checkpoint(struct super_block *sb, __u64 cno, int curr_mnt,
 		return err;
 
 	if (root->ifile)
-		goto reuse; 
+		goto reuse; /* already attached checkpoint */
 
 	down_read(&nilfs->ns_segctor_sem);
 	err = nilfs_cpfile_get_checkpoint(nilfs->ns_cpfile, cno, 0, &raw_cp,
@@ -524,7 +579,7 @@ static int nilfs_freeze(struct super_block *sb)
 	if (sb->s_flags & MS_RDONLY)
 		return 0;
 
-	
+	/* Mark super block clean */
 	down_write(&nilfs->ns_sem);
 	err = nilfs_cleanup_super(sb);
 	up_write(&nilfs->ns_sem);
@@ -556,10 +611,22 @@ static int nilfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	sector_t nfreeblocks;
 	int err;
 
+	/*
+	 * Compute all of the segment blocks
+	 *
+	 * The blocks before first segment and after last segment
+	 * are excluded.
+	 */
 	blocks = nilfs->ns_blocks_per_segment * nilfs->ns_nsegments
 		- nilfs->ns_first_data_block;
 	nrsvblocks = nilfs->ns_nrsvsegs * nilfs->ns_blocks_per_segment;
 
+	/*
+	 * Compute the overhead
+	 *
+	 * When distributing meta data blocks outside segment structure,
+	 * We must count them as the overhead.
+	 */
 	overhead = 0;
 
 	err = nilfs_count_free_blocks(nilfs, &nfreeblocks);
@@ -573,7 +640,7 @@ static int nilfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bavail = (buf->f_bfree >= nrsvblocks) ?
 		(buf->f_bfree - nrsvblocks) : 0;
 	buf->f_files = atomic_read(&root->inodes_count);
-	buf->f_ffree = 0; 
+	buf->f_ffree = 0; /* nilfs_count_free_inodes(sb); */
 	buf->f_namelen = NILFS_NAME_LEN;
 	buf->f_fsid.val[0] = (u32)id;
 	buf->f_fsid.val[1] = (u32)(id >> 32);
@@ -609,20 +676,20 @@ static const struct super_operations nilfs_sops = {
 	.alloc_inode    = nilfs_alloc_inode,
 	.destroy_inode  = nilfs_destroy_inode,
 	.dirty_inode    = nilfs_dirty_inode,
-	
-	
-	
+	/* .write_inode    = nilfs_write_inode, */
+	/* .put_inode      = nilfs_put_inode, */
+	/* .drop_inode	  = nilfs_drop_inode, */
 	.evict_inode    = nilfs_evict_inode,
 	.put_super      = nilfs_put_super,
-	
+	/* .write_super    = nilfs_write_super, */
 	.sync_fs        = nilfs_sync_fs,
 	.freeze_fs	= nilfs_freeze,
 	.unfreeze_fs	= nilfs_unfreeze,
-	
-	
+	/* .write_super_lockfs */
+	/* .unlockfs */
 	.statfs         = nilfs_statfs,
 	.remount_fs     = nilfs_remount,
-	
+	/* .umount_begin */
 	.show_options = nilfs_show_options
 };
 
@@ -670,10 +737,10 @@ static int parse_options(char *options, struct super_block *sb, int is_remount)
 			break;
 		case Opt_order:
 			if (strcmp(args[0].from, "relaxed") == 0)
-				
+				/* Ordered data semantics */
 				nilfs_clear_opt(nilfs, STRICT_ORDER);
 			else if (strcmp(args[0].from, "strict") == 0)
-				
+				/* Strict in-order semantics */
 				nilfs_set_opt(nilfs, STRICT_ORDER);
 			else
 				return 0;
@@ -730,7 +797,7 @@ static int nilfs_setup_super(struct super_block *sb, int is_mount)
 	int max_mnt_count;
 	int mnt_count;
 
-	
+	/* nilfs->ns_sem must be locked by the caller. */
 	sbp = nilfs_prepare_super(sb, 0);
 	if (!sbp)
 		return -EIO;
@@ -759,7 +826,7 @@ static int nilfs_setup_super(struct super_block *sb, int is_mount)
 skip_mount_setup:
 	sbp[0]->s_state =
 		cpu_to_le16(le16_to_cpu(sbp[0]->s_state) & ~NILFS_VALID_FS);
-	
+	/* synchronize sbp[1] with sbp[0] */
 	if (sbp[1])
 		memcpy(sbp[1], sbp[0], nilfs->ns_sbsize);
 	return nilfs_commit_super(sb, NILFS_SB_COMMIT_ALL);
@@ -787,7 +854,7 @@ int nilfs_store_magic_and_option(struct super_block *sb,
 
 	sb->s_magic = le16_to_cpu(sbp->s_magic);
 
-	
+	/* FS independent flags */
 #ifdef NILFS_ATIME_DISABLE
 	sb->s_flags |= MS_NOATIME;
 #endif
@@ -913,6 +980,12 @@ static int nilfs_tree_was_touched(struct dentry *root_dentry)
 	return root_dentry->d_count > 1;
 }
 
+/**
+ * nilfs_try_to_shrink_tree() - try to shrink dentries of a checkpoint
+ * @root_dentry: root dentry of the tree to be shrunk
+ *
+ * This function returns true if the tree was in-use.
+ */
 static int nilfs_try_to_shrink_tree(struct dentry *root_dentry)
 {
 	if (have_submounts(root_dentry))
@@ -933,7 +1006,7 @@ int nilfs_checkpoint_is_mounted(struct super_block *sb, __u64 cno)
 		return false;
 
 	if (cno >= nilfs_last_cno(nilfs))
-		return true;	
+		return true;	/* protect recent checkpoints */
 
 	ret = false;
 	root = nilfs_lookup_root(nilfs, cno);
@@ -953,6 +1026,15 @@ int nilfs_checkpoint_is_mounted(struct super_block *sb, __u64 cno)
 	return ret;
 }
 
+/**
+ * nilfs_fill_super() - initialize a super block instance
+ * @sb: super_block
+ * @data: mount options
+ * @silent: silent mode flag
+ *
+ * This function is called exclusively by nilfs->ns_mount_mutex.
+ * So, the recovery process is protected from other simultaneous mounts.
+ */
 static int
 nilfs_fill_super(struct super_block *sb, void *data, int silent)
 {
@@ -1057,10 +1139,14 @@ static int nilfs_remount(struct super_block *sb, int *flags, char *data)
 	if ((*flags & MS_RDONLY) == (sb->s_flags & MS_RDONLY))
 		goto out;
 	if (*flags & MS_RDONLY) {
-		
+		/* Shutting down log writer */
 		nilfs_detach_log_writer(sb);
 		sb->s_flags |= MS_RDONLY;
 
+		/*
+		 * Remounting a valid RW partition RDONLY, so set
+		 * the RDONLY flag and then mark the partition as valid again.
+		 */
 		down_write(&nilfs->ns_sem);
 		nilfs_cleanup_super(sb);
 		up_write(&nilfs->ns_sem);
@@ -1068,6 +1154,11 @@ static int nilfs_remount(struct super_block *sb, int *flags, char *data)
 		__u64 features;
 		struct nilfs_root *root;
 
+		/*
+		 * Mounting a RDONLY partition read-write, so reread and
+		 * store the current valid flag.  (It may have been changed
+		 * by fsck since we originally mounted the partition.)
+		 */
 		down_read(&nilfs->ns_sem);
 		features = le64_to_cpu(nilfs->ns_sbp[0]->s_feature_compat_ro) &
 			~NILFS_FEATURE_COMPAT_RO_SUPP;
@@ -1107,6 +1198,11 @@ struct nilfs_super_data {
 	int flags;
 };
 
+/**
+ * nilfs_identify - pre-read mount options needed to identify mount instance
+ * @data: mount options
+ * @sd: nilfs_super_data
+ */
 static int nilfs_identify(char *data, struct nilfs_super_data *sd)
 {
 	char *p, *options = data;
@@ -1124,6 +1220,11 @@ static int nilfs_identify(char *data, struct nilfs_super_data *sd)
 				} else {
 					sd->cno = simple_strtoull(args[0].from,
 								  NULL, 0);
+					/*
+					 * No need to see the end pointer;
+					 * match_token() has done syntax
+					 * checking.
+					 */
 					if (sd->cno == 0)
 						ret++;
 				}
@@ -1176,6 +1277,11 @@ nilfs_mount(struct file_system_type *fs_type, int flags,
 		goto failed;
 	}
 
+	/*
+	 * once the super is inserted into the list by sget, s_umount
+	 * will protect the lockfs code from trying to start a snapshot
+	 * while we are mounting
+	 */
 	mutex_lock(&sd.bdev->bd_fsfreeze_mutex);
 	if (sd.bdev->bd_fsfreeze_count > 0) {
 		mutex_unlock(&sd.bdev->bd_fsfreeze_mutex);
@@ -1194,7 +1300,7 @@ nilfs_mount(struct file_system_type *fs_type, int flags,
 
 		s_new = true;
 
-		
+		/* New superblock instance created */
 		s->s_flags = flags;
 		s->s_mode = mode;
 		strlcpy(s->s_id, bdevname(sd.bdev, b), sizeof(s->s_id));
@@ -1220,6 +1326,10 @@ nilfs_mount(struct file_system_type *fs_type, int flags,
 			}
 		}
 		if (!busy) {
+			/*
+			 * Try remount to setup mount states if the current
+			 * tree is not mounted and only snapshots use this sb.
+			 */
 			err = nilfs_remount(s, &flags, data);
 			if (err)
 				goto failed_super;

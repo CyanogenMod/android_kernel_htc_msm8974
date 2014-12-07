@@ -67,6 +67,9 @@ u32     bfa_port_meminfo(void);
 void	     bfa_port_mem_claim(struct bfa_port_s *port,
 				 u8 *dma_kva, u64 dma_pa);
 
+/*
+ * CEE declaration
+ */
 typedef void (*bfa_cee_get_attr_cbfn_t) (void *dev, bfa_status_t status);
 typedef void (*bfa_cee_get_stats_cbfn_t) (void *dev, bfa_status_t status);
 typedef void (*bfa_cee_reset_stats_cbfn_t) (void *dev, bfa_status_t status);
@@ -117,4 +120,4 @@ bfa_status_t	bfa_cee_get_stats(struct bfa_cee_s *cee,
 bfa_status_t	bfa_cee_reset_stats(struct bfa_cee_s *cee,
 				bfa_cee_reset_stats_cbfn_t cbfn, void *cbarg);
 
-#endif	
+#endif	/* __BFA_PORT_H__ */

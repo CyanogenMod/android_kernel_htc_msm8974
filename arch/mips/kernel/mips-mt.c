@@ -41,6 +41,10 @@ static int __init maxtcs(char *str)
 
 __setup("maxtcs=", maxtcs);
 
+/*
+ * Dump new MIPS MT state for the core. Does not leave TCs halted.
+ * Takes an argument which taken to be a pre-call MVPControl value.
+ */
 
 void mips_mt_regdump(unsigned long mvpctl)
 {
@@ -55,7 +59,7 @@ void mips_mt_regdump(unsigned long mvpctl)
 	unsigned long tcstatval;
 #ifdef CONFIG_MIPS_MT_SMTC
 	void smtc_soft_dump(void);
-#endif 
+#endif /* CONFIG_MIPT_MT_SMTC */
 
 	local_irq_save(flags);
 	vpflags = dvpe();
@@ -85,7 +89,7 @@ void mips_mt_regdump(unsigned long mvpctl)
 				       i, read_vpe_c0_cause());
 				printk("   VPE%d.Config7 : %08lx\n",
 				       i, read_vpe_c0_config7());
-				break; 
+				break; /* Next VPE */
 			}
 		}
 	}
@@ -93,9 +97,9 @@ void mips_mt_regdump(unsigned long mvpctl)
 	for (tc = 0; tc < ntc; tc++) {
 		settc(tc);
 		if (read_tc_c0_tcbind() == read_c0_tcbind()) {
-			
-			haltval = 0; 
-			tcstatval = flags; 
+			/* Are we dumping ourself?  */
+			haltval = 0; /* Then we're not halted, and mustn't be */
+			tcstatval = flags; /* And pre-dump TCStatus is flags */
 			printk("  TC %d (current TC with VPE EPC above)\n", tc);
 		} else {
 			haltval = read_tc_c0_tchalt();
@@ -114,7 +118,7 @@ void mips_mt_regdump(unsigned long mvpctl)
 	}
 #ifdef CONFIG_MIPS_MT_SMTC
 	smtc_soft_dump();
-#endif 
+#endif /* CONFIG_MIPT_MT_SMTC */
 	printk("===========================\n");
 	evpe(vpflags);
 	local_irq_restore(flags);
@@ -155,6 +159,7 @@ static int __init config7_set(char *str)
 }
 __setup("config7=", config7_set);
 
+/* Experimental cache flush control parameters that should go away some day */
 int mt_protiflush;
 int mt_protdflush;
 int mt_n_iflushes = 1;
@@ -232,7 +237,7 @@ void mips_mt_set_cpuoptions(void)
 		printk("Config7: 0x%08x\n", read_c0_config7());
 	}
 
-	
+	/* Report Cache management debug options */
 	if (mt_protiflush)
 		printk("I-cache flushes single-threaded\n");
 	if (mt_protdflush)
@@ -243,31 +248,38 @@ void mips_mt_set_cpuoptions(void)
 		printk("D-Cache Flushes Repeated %d times\n", mt_n_dflushes);
 
 	if (itc_base != 0) {
+		/*
+		 * Configure ITC mapping.  This code is very
+		 * specific to the 34K core family, which uses
+		 * a special mode bit ("ITC") in the ErrCtl
+		 * register to enable access to ITC control
+		 * registers via cache "tag" operations.
+		 */
 		unsigned long ectlval;
 		unsigned long itcblkgrn;
 
-		
+		/* ErrCtl register is known as "ecc" to Linux */
 		ectlval = read_c0_ecc();
 		write_c0_ecc(ectlval | (0x1 << 26));
 		ehb();
 #define INDEX_0 (0x80000000)
 #define INDEX_8 (0x80000008)
-		
+		/* Read "cache tag" for Dcache pseudo-index 8 */
 		cache_op(Index_Load_Tag_D, INDEX_8);
 		ehb();
 		itcblkgrn = read_c0_dtaglo();
 		itcblkgrn &= 0xfffe0000;
-		
+		/* Set for 128 byte pitch of ITC cells */
 		itcblkgrn |= 0x00000c00;
-		
+		/* Stage in Tag register */
 		write_c0_dtaglo(itcblkgrn);
 		ehb();
-		
+		/* Write out to ITU with CACHE op */
 		cache_op(Index_Store_Tag_D, INDEX_8);
-		
+		/* Now set base address, and turn ITC on with 0x1 bit */
 		write_c0_dtaglo((itc_base & 0xfffffc00) | 0x1 );
 		ehb();
-		
+		/* Write out to ITU with CACHE op */
 		cache_op(Index_Store_Tag_D, INDEX_0);
 		write_c0_ecc(ectlval);
 		ehb();
@@ -276,6 +288,10 @@ void mips_mt_set_cpuoptions(void)
 	}
 }
 
+/*
+ * Function to protect cache flushes from concurrent execution
+ * depends on MP software model chosen.
+ */
 
 void mt_cflush_lockdown(void)
 {
@@ -283,8 +299,8 @@ void mt_cflush_lockdown(void)
 	void smtc_cflush_lockdown(void);
 
 	smtc_cflush_lockdown();
-#endif 
-	
+#endif /* CONFIG_MIPS_MT_SMTC */
+	/* FILL IN VSMP and AP/SP VERSIONS HERE */
 }
 
 void mt_cflush_release(void)
@@ -293,8 +309,8 @@ void mt_cflush_release(void)
 	void smtc_cflush_release(void);
 
 	smtc_cflush_release();
-#endif 
-	
+#endif /* CONFIG_MIPS_MT_SMTC */
+	/* FILL IN VSMP and AP/SP VERSIONS HERE */
 }
 
 struct class *mt_class;

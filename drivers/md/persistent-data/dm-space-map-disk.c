@@ -17,7 +17,11 @@
 
 #define DM_MSG_PREFIX "space map disk"
 
+/*----------------------------------------------------------------*/
 
+/*
+ * Space map interface.
+ */
 struct sm_disk {
 	struct dm_space_map sm;
 
@@ -93,10 +97,18 @@ static int sm_disk_set_count(struct dm_space_map *sm, dm_block_t b,
 			break;
 
 		case SM_ALLOC:
+			/*
+			 * This _must_ be free in the prior transaction
+			 * otherwise we've lost atomicity.
+			 */
 			smd->nr_allocated_this_transaction++;
 			break;
 
 		case SM_FREE:
+			/*
+			 * It's only free if it's also free in the last
+			 * transaction.
+			 */
 			r = sm_ll_lookup(&smd->old_ll, b, &old_count);
 			if (r)
 				return r;
@@ -118,6 +130,10 @@ static int sm_disk_inc_block(struct dm_space_map *sm, dm_block_t b)
 
 	r = sm_ll_inc(&smd->ll, b, &ev);
 	if (!r && (ev == SM_ALLOC))
+		/*
+		 * This _must_ be free in the prior transaction
+		 * otherwise we've lost atomicity.
+		 */
 		smd->nr_allocated_this_transaction++;
 
 	return r;
@@ -132,6 +148,10 @@ static int sm_disk_dec_block(struct dm_space_map *sm, dm_block_t b)
 
 	r = sm_ll_dec(&smd->ll, b, &ev);
 	if (!r && (ev == SM_FREE)) {
+		/*
+		 * It's only free if it's also free in the last
+		 * transaction.
+		 */
 		r = sm_ll_lookup(&smd->old_ll, b, &old_count);
 		if (r)
 			return r;
@@ -149,7 +169,7 @@ static int sm_disk_new_block(struct dm_space_map *sm, dm_block_t *b)
 	enum allocation_event ev;
 	struct sm_disk *smd = container_of(sm, struct sm_disk, sm);
 
-	
+	/* FIXME: we should loop round a couple of times */
 	r = sm_ll_find_free_block(&smd->old_ll, smd->begin, smd->old_ll.nr_blocks, b);
 	if (r)
 		return r;
@@ -214,6 +234,7 @@ static int sm_disk_copy_root(struct dm_space_map *sm, void *where_le, size_t max
 	return 0;
 }
 
+/*----------------------------------------------------------------*/
 
 static struct dm_space_map ops = {
 	.destroy = sm_disk_destroy,
@@ -311,3 +332,4 @@ struct dm_space_map *dm_sm_disk_open(struct dm_transaction_manager *tm,
 }
 EXPORT_SYMBOL_GPL(dm_sm_disk_open);
 
+/*----------------------------------------------------------------*/

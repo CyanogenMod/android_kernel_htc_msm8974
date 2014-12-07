@@ -11,8 +11,14 @@
 #include <asm/prom.h>
 #include <asm/setup.h>
 
+/* sysctl - toggle power-off restriction for serial console
+ * systems in machine_power_off()
+ */
 int scons_pwroff = 1;
 
+/* This isn't actually used, it exists merely to satisfy the
+ * reference in kernel/sys.c
+ */
 void (*pm_power_off)(void) = machine_power_off;
 EXPORT_SYMBOL(pm_power_off);
 

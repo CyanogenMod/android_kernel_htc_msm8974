@@ -166,7 +166,7 @@ static int dcc_write(const unsigned char *buf_start, int count)
 static int dcc_tty_write(struct tty_struct * tty, const unsigned char *buf, int count)
 {
 	int ret;
-	
+	/* printk("dcc_tty_write %p, %d\n", buf, count); */
 	ret = dcc_write(buf, count);
 	if (ret != count)
 		printk("dcc_tty_write %p, %d, returned %d\n", buf, count, ret);
@@ -220,7 +220,7 @@ void dcc_console_write(struct console *co, const char *b, unsigned count)
 #if 1
 	dcc_write(b, count);
 #else
-	
+	/* blocking printk */
 	while (count > 0) {
 		int written;
 		written = dcc_write(b, count);
@@ -281,7 +281,7 @@ static int __init dcc_tty_init(void)
 	g_dcc_tty_driver->owner = THIS_MODULE;
 	g_dcc_tty_driver->driver_name = "dcc";
 	g_dcc_tty_driver->name = "ttyDCC";
-	g_dcc_tty_driver->major = 0; 
+	g_dcc_tty_driver->major = 0; // auto assign
 	g_dcc_tty_driver->minor_start = 0;
 	g_dcc_tty_driver->type = TTY_DRIVER_TYPE_SERIAL;
 	g_dcc_tty_driver->subtype = SERIAL_TYPE_NORMAL;

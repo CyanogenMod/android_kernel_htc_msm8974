@@ -19,4 +19,4 @@ struct ram_console_platform_data {
 	const char *bootinfo;
 };
 
-#endif 
+#endif /* _INCLUDE_LINUX_PLATFORM_DATA_RAM_CONSOLE_H_ */

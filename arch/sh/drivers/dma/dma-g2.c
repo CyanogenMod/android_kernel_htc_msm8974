@@ -19,14 +19,14 @@
 #include <asm/dma.h>
 
 struct g2_channel {
-	unsigned long g2_addr;		
-	unsigned long root_addr;	
-	unsigned long size;		
-	unsigned long direction;	
-	unsigned long ctrl;		
-	unsigned long chan_enable;	
-	unsigned long xfer_enable;	
-	unsigned long xfer_stat;	
+	unsigned long g2_addr;		/* G2 bus address */
+	unsigned long root_addr;	/* Root bus (SH-4) address */
+	unsigned long size;		/* Size (in bytes), 32-byte aligned */
+	unsigned long direction;	/* Transfer direction */
+	unsigned long ctrl;		/* Transfer control */
+	unsigned long chan_enable;	/* Channel enable */
+	unsigned long xfer_enable;	/* Transfer enable */
+	unsigned long xfer_stat;	/* Transfer status */
 } __attribute__ ((aligned(32)));
 
 struct g2_status {
@@ -107,14 +107,14 @@ static int g2_xfer_dma(struct dma_channel *chan)
 		return -EINVAL;
 	}
 
-	
+	/* Align the count */
 	if (chan->count & 31)
 		chan->count = (chan->count + (32 - 1)) & ~(32 - 1);
 
-	
+	/* Fixup destination */
 	chan->dar += 0xa0800000;
 
-	
+	/* Fixup direction */
 	chan->mode = !chan->mode;
 
 	flush_icache_range((unsigned long)chan->sar, chan->count);
@@ -126,11 +126,16 @@ static int g2_xfer_dma(struct dma_channel *chan)
 	g2_dma->channel[chan_nr].size	   = (chan->count & ~31) | 0x80000000;
 	g2_dma->channel[chan_nr].direction = chan->mode;
 
-	g2_dma->channel[chan_nr].ctrl	= 5; 
+	/*
+	 * bit 0 - ???
+	 * bit 1 - if set, generate a hardware event on transfer completion
+	 * bit 2 - ??? something to do with suspend?
+	 */
+	g2_dma->channel[chan_nr].ctrl	= 5; /* ?? */
 
 	g2_enable_dma(chan);
 
-	
+	/* debug cruft */
 	pr_debug("count, sar, dar, mode, ctrl, chan, xfer: %ld, 0x%08lx, "
 		 "0x%08lx, %ld, %ld, %ld, %ld\n",
 		 g2_dma->channel[chan_nr].size,
@@ -170,7 +175,7 @@ static int __init g2_dma_init(void)
 	if (unlikely(ret))
 		return -EINVAL;
 
-	
+	/* Magic */
 	g2_dma->wait_state	= 27;
 	g2_dma->magic		= 0x4659404f;
 

@@ -54,6 +54,9 @@ static irqreturn_t ppi_irq_err(int irq, void *dev_id)
 		struct bfin_ppi_regs *reg = info->base;
 		unsigned short status;
 
+		/* register on bf561 is cleared when read 
+		 * others are W1C
+		 */
 		status = bfin_read16(&reg->status);
 		bfin_write16(&reg->status, 0xff00);
 		break;
@@ -107,10 +110,10 @@ static int ppi_start(struct ppi_if *ppi)
 {
 	const struct ppi_info *info = ppi->info;
 
-	
+	/* enable DMA */
 	enable_dma(info->dma_ch);
 
-	
+	/* enable PPI */
 	ppi->ppi_control |= PORT_EN;
 	switch (info->type) {
 	case PPI_TYPE_PPI:
@@ -137,7 +140,7 @@ static int ppi_stop(struct ppi_if *ppi)
 {
 	const struct ppi_info *info = ppi->info;
 
-	
+	/* disable PPI */
 	ppi->ppi_control &= ~PORT_EN;
 	switch (info->type) {
 	case PPI_TYPE_PPI:
@@ -156,7 +159,7 @@ static int ppi_stop(struct ppi_if *ppi)
 		return -EINVAL;
 	}
 
-	
+	/* disable DMA */
 	clear_dma_irqstat(info->dma_ch);
 	disable_dma(info->dma_ch);
 

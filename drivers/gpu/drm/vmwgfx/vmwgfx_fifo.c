@@ -54,7 +54,7 @@ bool vmw_fifo_have_3d(struct vmw_private *dev_priv)
 	if (hwversion < SVGA3D_HWVERSION_WS8_B1)
 		return false;
 
-	
+	/* Non-Screen Object path does not support surfaces */
 	if (!dev_priv->sou_priv)
 		return false;
 
@@ -95,6 +95,9 @@ int vmw_fifo_init(struct vmw_private *dev_priv, struct vmw_fifo_state *fifo)
 	mutex_init(&fifo->fifo_mutex);
 	init_rwsem(&fifo->rwsem);
 
+	/*
+	 * Allow mapping the first page read-only to user-space.
+	 */
 
 	DRM_INFO("width %d\n", vmw_read(dev_priv, SVGA_REG_WIDTH));
 	DRM_INFO("height %d\n", vmw_read(dev_priv, SVGA_REG_HEIGHT));
@@ -282,6 +285,16 @@ static int vmw_fifo_wait(struct vmw_private *dev_priv,
 	return ret;
 }
 
+/**
+ * Reserve @bytes number of bytes in the fifo.
+ *
+ * This function will return NULL (error) on two conditions:
+ *  If it timeouts waiting for fifo space, or if @bytes is larger than the
+ *   available fifo space.
+ *
+ * Returns:
+ *   Pointer to the fifo, or null on error (possible hardware hang).
+ */
 void *vmw_fifo_reserve(struct vmw_private *dev_priv, uint32_t bytes)
 {
 	struct vmw_fifo_state *fifo_state = &dev_priv->fifo;
@@ -475,6 +488,10 @@ int vmw_fifo_send_fence(struct vmw_private *dev_priv, uint32_t *seqno)
 
 	if (!(fifo_state->capabilities & SVGA_FIFO_CAP_FENCE)) {
 
+		/*
+		 * Don't request hardware to send a fence. The
+		 * waiting code in vmwgfx_irq.c will emulate this.
+		 */
 
 		vmw_fifo_commit(dev_priv, 0);
 		return 0;
@@ -493,9 +510,31 @@ out_err:
 	return ret;
 }
 
+/**
+ * vmw_fifo_emit_dummy_query - emits a dummy query to the fifo.
+ *
+ * @dev_priv: The device private structure.
+ * @cid: The hardware context id used for the query.
+ *
+ * This function is used to emit a dummy occlusion query with
+ * no primitives rendered between query begin and query end.
+ * It's used to provide a query barrier, in order to know that when
+ * this query is finished, all preceding queries are also finished.
+ *
+ * A Query results structure should have been initialized at the start
+ * of the dev_priv->dummy_query_bo buffer object. And that buffer object
+ * must also be either reserved or pinned when this function is called.
+ *
+ * Returns -ENOMEM on failure to reserve fifo space.
+ */
 int vmw_fifo_emit_dummy_query(struct vmw_private *dev_priv,
 			      uint32_t cid)
 {
+	/*
+	 * A query wait without a preceding query end will
+	 * actually finish all queries for this cid
+	 * without writing to the query result structure.
+	 */
 
 	struct ttm_buffer_object *bo = dev_priv->dummy_query_bo;
 	struct {

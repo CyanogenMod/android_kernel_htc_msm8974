@@ -113,16 +113,18 @@ struct video_std_to_audio_std {
 };
 
 static const struct video_std_to_audio_std video_to_audio_map[] = {
+	/* country : { 27, 32, 33, 34, 36, 44, 45, 46, 47, 48, 64,
+			65, 86, 351, 352, 353, 354, 358, 372, 852, 972 } */
 	{ (V4L2_STD_PAL_I | V4L2_STD_PAL_B | V4L2_STD_PAL_D |
 		V4L2_STD_SECAM_L | V4L2_STD_SECAM_D), TLG_TUNE_ASTD_NICAM },
 
-	
+	/* country : { 1, 52, 54, 55, 886 } */
 	{V4L2_STD_NTSC_M | V4L2_STD_PAL_N | V4L2_STD_PAL_M, TLG_TUNE_ASTD_BTSC},
 
-	
+	/* country : { 81 } */
 	{ V4L2_STD_NTSC_M_JP, TLG_TUNE_ASTD_EIAJ },
 
-	
+	/* other country : TLG_TUNE_ASTD_A2 */
 };
 static const unsigned int map_size = ARRAY_SIZE(video_to_audio_map);
 
@@ -155,6 +157,7 @@ static int vidioc_querycap(struct file *file, void *fh,
 	return 0;
 }
 
+/*====================================================================*/
 static void init_copy(struct video_data *video, bool index)
 {
 	struct front_face *front = video->front;
@@ -164,7 +167,7 @@ static void init_copy(struct video_data *video, bool index)
 	video->prev_left	= 0 ;
 	video->dst 		= (char *)videobuf_to_vmalloc(front->curr_frame)
 					+ index * video->lines_size;
-	video->vbi->copied 	= 0; 
+	video->vbi->copied 	= 0; /* set it here */
 }
 
 static bool get_frame(struct front_face *front, int *need_init)
@@ -188,6 +191,7 @@ static bool get_frame(struct front_face *front, int *need_init)
 	return !!vb;
 }
 
+/* check if the video's buffer is ready */
 static bool get_video_frame(struct front_face *front, struct video_data *video)
 {
 	int need_init = 0;
@@ -214,9 +218,13 @@ static void submit_frame(struct front_face *front)
 	wake_up(&vb->done);
 }
 
+/*
+ * A frame is composed of two fields. If we receive all the two fields,
+ * call the  submit_frame() to submit the whole frame to applications.
+ */
 static void end_field(struct video_data *video)
 {
-	
+	/* logs(video->front); */
 	if (1 == video->field_count)
 		submit_frame(video->front);
 	else
@@ -259,7 +267,7 @@ overflow:
 static void check_trailer(struct video_data *video, char *src, int count)
 {
 	struct vbi_data *vbi = video->vbi;
-	int offset; 
+	int offset; /* trailer's offset */
 	char *buf;
 
 	offset = (video->context.pix.sizeimage / 2 + vbi->vbi_size / 2)
@@ -272,7 +280,7 @@ static void check_trailer(struct video_data *video, char *src, int count)
 
 	buf = src + offset;
 
-	
+	/* trailer : (VFHS) + U32 + U32 + field_num */
 	if (!strncmp(buf, "VFHS", 4)) {
 		int field_num = *((u32 *)(buf + 12));
 
@@ -286,6 +294,7 @@ short_package:
 	end_field(video);
 }
 
+/* ==========  Check this more carefully! =========== */
 static inline void copy_vbi_data(struct vbi_data *vbi,
 				char *src, unsigned int count)
 {
@@ -301,6 +310,10 @@ static inline void copy_vbi_data(struct vbi_data *vbi,
 	vbi->copied += count;
 }
 
+/*
+ * Copy the normal data (VBI or VIDEO) without the trailer.
+ * VBI is not interlaced, while VIDEO is interlaced.
+ */
 static inline void copy_vbi_video_data(struct video_data *video,
 				char *src, unsigned int count)
 {
@@ -313,7 +326,7 @@ static inline void copy_vbi_video_data(struct video_data *video,
 		if (vbi_delta) {
 			copy_vbi_data(vbi, src, vbi_delta);
 
-			
+			/* we receive the two fields of the VBI*/
 			if (vbi->front && video->field_count)
 				submit_frame(vbi->front);
 		}
@@ -348,6 +361,7 @@ resend_it:
 		log(" submit failed: error %d", ret);
 }
 
+/************************* for ISO *********************/
 #define GET_SUCCESS		(0)
 #define GET_TRAILER		(1)
 #define GET_TOO_MUCH_BUBBLE	(2)
@@ -361,14 +375,14 @@ static int get_chunk(int start, struct urb *urb,
 	for (*head = *tail = -1; start < urb->number_of_packets; start++) {
 		pkt = &urb->iso_frame_desc[start];
 
-		
+		/* handle the bubble of the Hub */
 		if (-EOVERFLOW == pkt->status) {
 			if (++*bubble_err > urb->number_of_packets / 3)
 				return GET_TOO_MUCH_BUBBLE;
 			continue;
 		}
 
-		
+		/* This is the gap */
 		if (pkt->status || pkt->actual_length <= 0
 				|| pkt->actual_length > ISO_PKT_SIZE) {
 			if (*head != -1)
@@ -376,7 +390,7 @@ static int get_chunk(int start, struct urb *urb,
 			continue;
 		}
 
-		
+		/* a good isochronous packet */
 		if (pkt->actual_length == ISO_PKT_SIZE) {
 			if (*head == -1)
 				*head = start;
@@ -384,7 +398,7 @@ static int get_chunk(int start, struct urb *urb,
 			continue;
 		}
 
-		
+		/* trailer is here */
 		if (pkt->actual_length < ISO_PKT_SIZE) {
 			if (*head == -1) {
 				*head = start;
@@ -400,6 +414,12 @@ static int get_chunk(int start, struct urb *urb,
 	return ret;
 }
 
+/*
+ * |__|------|___|-----|_______|
+ *       ^          ^
+ *       |          |
+ *      gap        gap
+ */
 static void urb_complete_iso(struct urb *urb)
 {
 	struct front_face *front = urb->context;
@@ -438,6 +458,7 @@ out:
 	if (ret)
 		log("usb_submit_urb err : %d", ret);
 }
+/*============================= [  end  ] =====================*/
 
 static int prepare_iso_urb(struct video_data *video)
 {
@@ -462,7 +483,7 @@ static int prepare_iso_urb(struct video_data *video)
 					 GFP_KERNEL,
 					 &urb->transfer_dma);
 
-		urb->complete	= urb_complete_iso;	
+		urb->complete	= urb_complete_iso;	/* handler */
 		urb->dev	= udev;
 		urb->context	= video->front;
 		urb->pipe	= usb_rcvisocpipe(udev,
@@ -485,6 +506,7 @@ out:
 	return -ENOMEM;
 }
 
+/* return the succeeded number of the allocation */
 int alloc_bulk_urbs_generic(struct urb **urb_array, int num,
 			struct usb_device *udev, u8 ep_addr,
 			int buf_size, gfp_t gfp_flags,
@@ -543,6 +565,7 @@ static int prepare_bulk_urb(struct video_data *video)
 	return 0;
 }
 
+/* free the URBs */
 static void free_all_urb(struct video_data *video)
 {
 	free_all_urb_generic(video->urb_array, SBUF_NUM);
@@ -573,7 +596,7 @@ static int pd_buf_prepare(struct videobuf_queue *q, struct videobuf_buffer *vb,
 			struct v4l2_pix_format *pix;
 
 			pix = &front->pd->video_data.context.pix;
-			vb->size	= pix->sizeimage; 
+			vb->size	= pix->sizeimage; /* real frame size */
 			vb->width	= pix->width;
 			vb->height	= pix->height;
 			rc = videobuf_iolock(q, vb, NULL);
@@ -623,7 +646,7 @@ static int start_video_stream(struct poseidon *pd)
 		prepare_iso_urb(video);
 		INIT_WORK(&video->bubble_work, iso_bubble_handler);
 	} else {
-		
+		/* The bulk mode does not need a bubble handler */
 		prepare_bulk_urb(video);
 	}
 	fire_all_urb(video);
@@ -643,11 +666,11 @@ static int pd_buf_setup(struct videobuf_queue *q, unsigned int *count,
 		struct video_data *video = &pd->video_data;
 		struct v4l2_pix_format *pix = &video->context.pix;
 
-		*size = PAGE_ALIGN(pix->sizeimage);
+		*size = PAGE_ALIGN(pix->sizeimage);/* page aligned frame size */
 		if (*count < 4)
 			*count = 4;
 		if (1) {
-			
+			/* same in different altersetting */
 			video->endpoint_addr	= 0x82;
 			video->vbi		= &pd->vbi_data;
 			video->vbi->video	= video;
@@ -707,6 +730,10 @@ static int vidioc_try_fmt(struct file *file, void *fh,
 	return 0;
 }
 
+/*
+ * VLC calls VIDIOC_S_STD before VIDIOC_S_FMT, while
+ * Mplayer calls them in the reverse order.
+ */
 static int pd_vidioc_s_fmt(struct poseidon *pd, struct v4l2_pix_format *pix)
 {
 	struct video_data *video	= &pd->video_data;
@@ -714,7 +741,7 @@ static int pd_vidioc_s_fmt(struct poseidon *pd, struct v4l2_pix_format *pix)
 	struct v4l2_pix_format *pix_def	= &context->pix;
 	s32 ret = 0, cmd_status = 0, vid_resol;
 
-	
+	/* set the pixel format to firmware */
 	if (pix->pixelformat == V4L2_PIX_FMT_RGB565) {
 		vid_resol = TLG_TUNER_VID_FORMAT_RGB_565;
 	} else {
@@ -724,7 +751,7 @@ static int pd_vidioc_s_fmt(struct poseidon *pd, struct v4l2_pix_format *pix)
 	ret = send_set_req(pd, VIDEO_STREAM_FMT_SEL,
 				vid_resol, &cmd_status);
 
-	
+	/* set the resolution to firmware */
 	vid_resol = TLG_TUNE_VID_RES_720;
 	switch (pix->width) {
 	case 704:
@@ -740,10 +767,10 @@ static int pd_vidioc_s_fmt(struct poseidon *pd, struct v4l2_pix_format *pix)
 	if (ret || cmd_status)
 		return -EBUSY;
 
-	pix_def->pixelformat = pix->pixelformat; 
+	pix_def->pixelformat = pix->pixelformat; /* save it */
 	pix->height = (context->tvnormid & V4L2_STD_525_60) ?  480 : 576;
 
-	
+	/* Compare with the default setting */
 	if ((pix_def->width != pix->width)
 		|| (pix_def->height != pix->height)) {
 		pix_def->width		= pix->width;
@@ -762,7 +789,7 @@ static int vidioc_s_fmt(struct file *file, void *fh, struct v4l2_format *f)
 	struct poseidon *pd		= front->pd;
 
 	logs(front);
-	
+	/* stop VBI here */
 	if (V4L2_BUF_TYPE_VIDEO_CAPTURE != f->type)
 		return -EINVAL;
 
@@ -789,7 +816,7 @@ static int vidioc_g_fmt_vbi(struct file *file, void *fh,
 	vbi_fmt->samples_per_line	= 720 * 2;
 	vbi_fmt->sampling_rate		= 6750000 * 4;
 	vbi_fmt->sample_format		= V4L2_PIX_FMT_GREY;
-	vbi_fmt->offset			= 64 * 4;  
+	vbi_fmt->offset			= 64 * 4;  /*FIXME: why offset */
 	if (pd->video_data.context.tvnormid & V4L2_STD_525_60) {
 		vbi_fmt->start[0] = 10;
 		vbi_fmt->start[1] = 264;
@@ -829,7 +856,7 @@ found:
 	if (ret || cmd_status)
 		goto out;
 
-	
+	/* Set vbi size and check the height of the frame */
 	context = &video->context;
 	context->tvnormid = poseidon_tvnorms[i].v4l2_id;
 	if (context->tvnormid & V4L2_STD_525_60) {
@@ -867,6 +894,10 @@ static int vidioc_enum_input(struct file *file, void *fh, struct v4l2_input *in)
 	strcpy(in->name, pd_inputs[in->index].name);
 	in->type  = V4L2_INPUT_TYPE_TUNER;
 
+	/*
+	 * the audio input index mixed with this video input,
+	 * Poseidon only have one audio/video, set to "0"
+	 */
 	in->audioset	= 0;
 	in->tuner	= 0;
 	in->std		= V4L2_STD_ALL;
@@ -886,6 +917,7 @@ static int vidioc_g_input(struct file *file, void *fh, unsigned int *i)
 	return 0;
 }
 
+/* We can support several inputs */
 static int vidioc_s_input(struct file *file, void *fh, unsigned int i)
 {
 	struct front_face *front = fh;
@@ -965,7 +997,7 @@ static int vidioc_s_ctrl(struct file *file, void *fh, struct v4l2_control *a)
 
 	param.param_value = a->value;
 	param.param_id	= control->vc_id;
-	params = *(s32 *)&param; 
+	params = *(s32 *)&param; /* temp code */
 
 	mutex_lock(&pd->lock);
 	ret = send_set_req(pd, TUNER_CUSTOM_PARAMETER, params, &cmd_status);
@@ -977,13 +1009,14 @@ static int vidioc_s_ctrl(struct file *file, void *fh, struct v4l2_control *a)
 	return ret;
 }
 
+/* Audio ioctls */
 static int vidioc_enumaudio(struct file *file, void *fh, struct v4l2_audio *a)
 {
 	if (0 != a->index)
 		return -EINVAL;
 	a->capability = V4L2_AUDCAP_STEREO;
 	strcpy(a->name, "USB audio in");
-	
+	/*Poseidon have no AVL function.*/
 	a->mode = 0;
 	return 0;
 }
@@ -1002,6 +1035,7 @@ static int vidioc_s_audio(struct file *file, void *fh, struct v4l2_audio *a)
 	return (0 == a->index) ? 0 : -EINVAL;
 }
 
+/* Tuner ioctls */
 static int vidioc_g_tuner(struct file *file, void *fh, struct v4l2_tuner *tuner)
 {
 	struct front_face *front	= fh;
@@ -1108,7 +1142,7 @@ static int set_frequency(struct poseidon *pd, __u32 frequency)
 	ret = send_set_req(pd, TUNE_FREQ_SELECT, param, &cmd_status);
 	ret = send_set_req(pd, TAKE_REQUEST, 0, &cmd_status);
 
-	msleep(250); 
+	msleep(250); /* wait for a while until the hardware is ready. */
 	context->freq = frequency;
 	mutex_unlock(&pd->lock);
 	return ret;
@@ -1155,6 +1189,7 @@ static int vidioc_dqbuf(struct file *file, void *fh, struct v4l2_buffer *b)
 	return videobuf_dqbuf(&front->q, b, file->f_flags & O_NONBLOCK);
 }
 
+/* Just stop the URBs, do not free the URBs */
 static int usb_transfer_stop(struct video_data *video)
 {
 	if (video->is_streaming) {
@@ -1183,15 +1218,15 @@ int stop_all_video_stream(struct poseidon *pd)
 	if (video->is_streaming) {
 		struct front_face *front = video->front;
 
-		
+		/* stop the URBs */
 		usb_transfer_stop(video);
 		free_all_urb(video);
 
-		
+		/* stop the host side of VIDEO */
 		videobuf_stop(&front->q);
 		videobuf_mmap_free(&front->q);
 
-		
+		/* stop the host side of VBI */
 		front = vbi->front;
 		if (front) {
 			videobuf_stop(&front->q);
@@ -1202,6 +1237,10 @@ int stop_all_video_stream(struct poseidon *pd)
 	return 0;
 }
 
+/*
+ * The bubbles can seriously damage the video's quality,
+ * though it occurs in very rare situation.
+ */
 static void iso_bubble_handler(struct work_struct *w)
 {
 	struct video_data *video;
@@ -1240,6 +1279,7 @@ static int vidioc_streamoff(struct file *file, void *fh,
 	return videobuf_streamoff(&front->q);
 }
 
+/* Set the firmware's default values : need altersetting */
 static int pd_video_checkmode(struct poseidon *pd)
 {
 	s32 ret = 0, cmd_status, audiomode;
@@ -1247,7 +1287,7 @@ static int pd_video_checkmode(struct poseidon *pd)
 	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout(HZ/2);
 
-	
+	/* choose the altersetting */
 	ret = usb_set_interface(pd->udev, 0,
 					(pd->cur_transfer_mode ?
 					 ISO_3K_BULK_ALTERNATE_IFACE :
@@ -1255,7 +1295,7 @@ static int pd_video_checkmode(struct poseidon *pd)
 	if (ret < 0)
 		goto error;
 
-	
+	/* set default parameters for PAL-D , with the VBI enabled*/
 	ret = set_tuner_mode(pd, TLG_MODE_ANALOG_TV);
 	ret |= send_set_req(pd, SGNL_SRC_SEL,
 				TLG_SIG_SRC_ANTENNA, &cmd_status);
@@ -1266,9 +1306,9 @@ static int pd_video_checkmode(struct poseidon *pd)
 	ret |= send_set_req(pd, VIDEO_ROSOLU_SEL,
 				TLG_TUNE_VID_RES_720, &cmd_status);
 	ret |= send_set_req(pd, TUNE_FREQ_SELECT, TUNER_FREQ_MIN, &cmd_status);
-	ret |= send_set_req(pd, VBI_DATA_SEL, 1, &cmd_status);
+	ret |= send_set_req(pd, VBI_DATA_SEL, 1, &cmd_status);/* enable vbi */
 
-	
+	/* set the audio */
 	audiomode = get_audio_std(pd->video_data.context.tvnormid);
 	ret |= send_set_req(pd, TUNER_AUD_ANA_STD, audiomode, &cmd_status);
 	ret |= send_set_req(pd, TUNER_AUD_MODE,
@@ -1282,14 +1322,14 @@ error:
 #ifdef CONFIG_PM
 static int pm_video_suspend(struct poseidon *pd)
 {
-	
+	/* stop audio */
 	pm_alsa_suspend(pd);
 
-	
+	/* stop and free all the URBs */
 	usb_transfer_stop(&pd->video_data);
 	free_all_urb(&pd->video_data);
 
-	
+	/* reset the interface */
 	usb_set_interface(pd->udev, 0, 0);
 	msleep(300);
 	return 0;
@@ -1314,18 +1354,18 @@ static int pm_video_resume(struct poseidon *pd)
 {
 	struct video_data *video = &pd->video_data;
 
-	
-	
+	/* resume the video */
+	/* [1] restore the origin V4L2 parameters */
 	restore_v4l2_context(pd, &video->context);
 
-	
+	/* [2] initiate video copy variables */
 	if (video->front->curr_frame)
 		init_copy(video, 0);
 
-	
+	/* [3] fire urbs	*/
 	start_video_stream(pd);
 
-	
+	/* resume the audio */
 	pm_alsa_resume(pd);
 	return 0;
 }
@@ -1343,7 +1383,7 @@ void set_debug_mode(struct video_device *vfd, int debug_mode)
 static void init_video_context(struct running_context *context)
 {
 	context->sig_index	= 0;
-	context->audio_idx	= 1; 
+	context->audio_idx	= 1; /* stereo */
 	context->tvnormid  	= V4L2_STD_PAL_D;
 	context->pix = (struct v4l2_pix_format) {
 				.width		= 720,
@@ -1373,7 +1413,7 @@ static int pd_video_open(struct file *file)
 		if (!front)
 			goto out;
 
-		pd->cur_transfer_mode	= usb_transfer_mode;
+		pd->cur_transfer_mode	= usb_transfer_mode;/* bulk or iso */
 		init_video_context(&pd->video_data.context);
 
 		ret = pd_video_checkmode(pd);
@@ -1391,8 +1431,8 @@ static int pd_video_open(struct file *file)
 		videobuf_queue_vmalloc_init(&front->q, &pd_video_qops,
 				NULL, &front->queue_lock,
 				V4L2_BUF_TYPE_VIDEO_CAPTURE,
-				V4L2_FIELD_INTERLACED,
-				sizeof(struct videobuf_buffer),
+				V4L2_FIELD_INTERLACED,/* video is interlacd */
+				sizeof(struct videobuf_buffer),/*it's enough*/
 				front, NULL);
 	} else if (vfd->vfl_type == VFL_TYPE_VBI
 		&& !(pd->state & POSEIDON_STATE_VBI)) {
@@ -1408,11 +1448,11 @@ static int pd_video_open(struct file *file)
 		videobuf_queue_vmalloc_init(&front->q, &pd_video_qops,
 				NULL, &front->queue_lock,
 				V4L2_BUF_TYPE_VBI_CAPTURE,
-				V4L2_FIELD_NONE, 
+				V4L2_FIELD_NONE, /* vbi is NONE mode */
 				sizeof(struct videobuf_buffer),
 				front, NULL);
 	} else {
-		
+		/* maybe add FM support here */
 		log("other ");
 		ret = -EINVAL;
 		goto out;
@@ -1446,11 +1486,11 @@ static int pd_video_release(struct file *file)
 	if (front->type	== V4L2_BUF_TYPE_VIDEO_CAPTURE) {
 		pd->state &= ~POSEIDON_STATE_ANALOG;
 
-		
+		/* stop the device, and free the URBs */
 		usb_transfer_stop(&pd->video_data);
 		free_all_urb(&pd->video_data);
 
-		
+		/* stop the firmware */
 		send_set_req(pd, PLAY_SERVICE, TLG_TUNE_PLAY_SVC_STOP,
 			       &cmd_status);
 
@@ -1493,6 +1533,7 @@ static ssize_t pd_video_read(struct file *file, char __user *buffer,
 				0, file->f_flags & O_NONBLOCK);
 }
 
+/* This struct works for both VIDEO and VBI */
 static const struct v4l2_file_operations pd_video_fops = {
 	.owner		= THIS_MODULE,
 	.open		= pd_video_open,
@@ -1500,47 +1541,47 @@ static const struct v4l2_file_operations pd_video_fops = {
 	.read		= pd_video_read,
 	.poll		= pd_video_poll,
 	.mmap		= pd_video_mmap,
-	.ioctl		= video_ioctl2, 
+	.ioctl		= video_ioctl2, /* maybe changed in future */
 };
 
 static const struct v4l2_ioctl_ops pd_video_ioctl_ops = {
 	.vidioc_querycap	= vidioc_querycap,
 
-	
+	/* Video format */
 	.vidioc_g_fmt_vid_cap	= vidioc_g_fmt,
 	.vidioc_enum_fmt_vid_cap	= vidioc_enum_fmt,
 	.vidioc_s_fmt_vid_cap	= vidioc_s_fmt,
-	.vidioc_g_fmt_vbi_cap	= vidioc_g_fmt_vbi, 
+	.vidioc_g_fmt_vbi_cap	= vidioc_g_fmt_vbi, /* VBI */
 	.vidioc_try_fmt_vid_cap = vidioc_try_fmt,
 
-	
+	/* Input */
 	.vidioc_g_input		= vidioc_g_input,
 	.vidioc_s_input		= vidioc_s_input,
 	.vidioc_enum_input	= vidioc_enum_input,
 
-	
+	/* Audio ioctls */
 	.vidioc_enumaudio	= vidioc_enumaudio,
 	.vidioc_g_audio		= vidioc_g_audio,
 	.vidioc_s_audio		= vidioc_s_audio,
 
-	
+	/* Tuner ioctls */
 	.vidioc_g_tuner		= vidioc_g_tuner,
 	.vidioc_s_tuner		= vidioc_s_tuner,
 	.vidioc_s_std		= vidioc_s_std,
 	.vidioc_g_frequency	= vidioc_g_frequency,
 	.vidioc_s_frequency	= vidioc_s_frequency,
 
-	
+	/* Buffer handlers */
 	.vidioc_reqbufs		= vidioc_reqbufs,
 	.vidioc_querybuf	= vidioc_querybuf,
 	.vidioc_qbuf		= vidioc_qbuf,
 	.vidioc_dqbuf		= vidioc_dqbuf,
 
-	
+	/* Stream on/off */
 	.vidioc_streamon	= vidioc_streamon,
 	.vidioc_streamoff	= vidioc_streamoff,
 
-	
+	/* Control handling */
 	.vidioc_queryctrl	= vidioc_queryctrl,
 	.vidioc_g_ctrl		= vidioc_g_ctrl,
 	.vidioc_s_ctrl		= vidioc_s_ctrl,
@@ -1565,7 +1606,7 @@ struct video_device *vdev_init(struct poseidon *pd, struct video_device *tmp)
 	*vfd		= *tmp;
 	vfd->minor	= -1;
 	vfd->v4l2_dev	= &pd->v4l2_dev;
-	
+	/*vfd->parent	= &(pd->udev->dev); */
 	vfd->release	= video_device_release;
 	video_set_drvdata(vfd, pd);
 	return vfd;
@@ -1609,7 +1650,7 @@ int pd_video_init(struct poseidon *pd)
 	if (ret != 0)
 		goto out;
 
-	
+	/* VBI uses the same template as video */
 	vbi->v_dev = vdev_init(pd, &pd_video_template);
 	if (vbi->v_dev == NULL) {
 		ret = -ENOMEM;

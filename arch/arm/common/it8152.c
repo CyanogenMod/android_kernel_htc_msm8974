@@ -101,17 +101,19 @@ void it8152_irq_demux(unsigned int irq, struct irq_desc *desc)
        int i;
 
        while (1) {
-	       
+	       /* Read all */
 	       bits_pd = __raw_readl(IT8152_INTC_PDCNIRR);
 	       bits_lp = __raw_readl(IT8152_INTC_LPCNIRR);
 	       bits_ld = __raw_readl(IT8152_INTC_LDCNIRR);
 
-	       
+	       /* Ack */
 	       __raw_writel((~bits_pd), IT8152_INTC_PDCNIRR);
 	       __raw_writel((~bits_lp), IT8152_INTC_LPCNIRR);
 	       __raw_writel((~bits_ld), IT8152_INTC_LDCNIRR);
 
 	       if (!(bits_ld | bits_lp | bits_pd)) {
+		       /* Re-read to guarantee, that there was a moment of
+			  time, when they all three were 0. */
 		       bits_pd = __raw_readl(IT8152_INTC_PDCNIRR);
 		       bits_lp = __raw_readl(IT8152_INTC_LPCNIRR);
 		       bits_ld = __raw_readl(IT8152_INTC_LDCNIRR);
@@ -142,6 +144,7 @@ void it8152_irq_demux(unsigned int irq, struct irq_desc *desc)
        }
 }
 
+/* mapping for on-chip devices */
 int __init it8152_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	if ((dev->vendor == PCI_VENDOR_ID_ITE) &&
@@ -236,6 +239,11 @@ static struct resource it8152_mem = {
 	.flags	= IORESOURCE_MEM,
 };
 
+/*
+ * The following functions are needed for DMA bouncing.
+ * ITE8152 chip can address up to 64MByte, so all the devices
+ * connected to ITE8152 (PCI and USB) should have limited DMA window
+ */
 static int it8152_needs_bounce(struct device *dev, dma_addr_t dma_addr, size_t size)
 {
 	dev_dbg(dev, "%s: dma_addr %08x, size %08x\n",
@@ -243,6 +251,10 @@ static int it8152_needs_bounce(struct device *dev, dma_addr_t dma_addr, size_t s
 	return (dma_addr + size - PHYS_OFFSET) >= SZ_64M;
 }
 
+/*
+ * Setup DMA mask to 64MB on devices connected to ITE8152. Ignore all
+ * other devices.
+ */
 static int it8152_pci_platform_notify(struct device *dev)
 {
 	if (dev->bus == &pci_bus_type) {
@@ -308,11 +320,14 @@ err0:
 	return -EBUSY;
 }
 
+/* ITE bridge requires setting latency timer to avoid early bus access
+   termination by PCI bus master devices
+*/
 void pcibios_set_master(struct pci_dev *dev)
 {
 	u8 lat;
 
-	
+	/* no need to update on-chip OHCI controller */
 	if ((dev->vendor == PCI_VENDOR_ID_ITE) &&
 	    (dev->device == PCI_DEVICE_ID_ITE_8152) &&
 	    ((dev->class >> 8) == PCI_CLASS_SERIAL_USB))

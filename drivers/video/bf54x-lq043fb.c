@@ -79,12 +79,12 @@ struct bfin_bf54xfb_info {
 
 	struct bfin_bf54xfb_mach_info *mach_info;
 
-	unsigned char *fb_buffer;	
+	unsigned char *fb_buffer;	/* RGB Buffer */
 
 	dma_addr_t dma_handle;
 	int lq043_open_cnt;
 	int irq;
-	spinlock_t lock;	
+	spinlock_t lock;	/* lock */
 };
 
 static int nocursor;
@@ -95,38 +95,81 @@ static int outp_rgb666;
 module_param(outp_rgb666, int, 0);
 MODULE_PARM_DESC(outp_rgb666, "Output 18-bit RGB666");
 
-#define LCD_X_RES		480	
-#define LCD_Y_RES		272	
+#define LCD_X_RES		480	/*Horizontal Resolution */
+#define LCD_Y_RES		272	/* Vertical Resolution */
 
-#define LCD_BPP			24	
+#define LCD_BPP			24	/* Bit Per Pixel */
 #define	DMA_BUS_SIZE		32
 
+/* 	-- Horizontal synchronizing --
+ *
+ * Timing characteristics taken from the SHARP LQ043T1DG01 datasheet
+ * (LCY-W-06602A Page 9 of 22)
+ *
+ * Clock Frequency 	1/Tc Min 7.83 Typ 9.00 Max 9.26 MHz
+ *
+ * Period 		TH - 525 - Clock
+ * Pulse width 		THp - 41 - Clock
+ * Horizontal period 	THd - 480 - Clock
+ * Back porch 		THb - 2 - Clock
+ * Front porch 		THf - 2 - Clock
+ *
+ * -- Vertical synchronizing --
+ * Period 		TV - 286 - Line
+ * Pulse width 		TVp - 10 - Line
+ * Vertical period 	TVd - 272 - Line
+ * Back porch 		TVb - 2 - Line
+ * Front porch 		TVf - 2 - Line
+ */
 
-#define	LCD_CLK         	(8*1000*1000)	
+#define	LCD_CLK         	(8*1000*1000)	/* 8MHz */
 
+/* # active data to transfer after Horizontal Delay clock */
 #define EPPI_HCOUNT		LCD_X_RES
 
+/* # active lines to transfer after Vertical Delay clock */
 #define EPPI_VCOUNT		LCD_Y_RES
 
+/* Samples per Line = 480 (active data) + 45 (padding) */
 #define EPPI_LINE		525
 
+/* Lines per Frame = 272 (active data) + 14 (padding) */
 #define EPPI_FRAME		286
 
+/* FS1 (Hsync) Width (Typical)*/
 #define EPPI_FS1W_HBL		41
 
+/* FS1 (Hsync) Period (Typical) */
 #define EPPI_FS1P_AVPL		EPPI_LINE
 
+/* Horizontal Delay clock after assertion of Hsync (Typical) */
 #define EPPI_HDELAY		43
 
+/* FS2 (Vsync) Width    = FS1 (Hsync) Period * 10 */
 #define EPPI_FS2W_LVB		(EPPI_LINE * 10)
 
- 
+ /* FS2 (Vsync) Period   = FS1 (Hsync) Period * Lines per Frame */
 #define EPPI_FS2P_LAVF		(EPPI_LINE * EPPI_FRAME)
 
+/* Vertical Delay after assertion of Vsync (2 Lines) */
 #define EPPI_VDELAY		12
 
 #define EPPI_CLIP		0xFF00FF00
 
+/* EPPI Control register configuration value for RGB out
+ * - EPPI as Output
+ * GP 2 frame sync mode,
+ * Internal Clock generation disabled, Internal FS generation enabled,
+ * Receives samples on EPPI_CLK raising edge, Transmits samples on EPPI_CLK falling edge,
+ * FS1 & FS2 are active high,
+ * DLEN = 6 (24 bits for RGB888 out) or 5 (18 bits for RGB666 out)
+ * DMA Unpacking disabled when RGB Formating is enabled, otherwise DMA unpacking enabled
+ * Swapping Enabled,
+ * One (DMA) Channel Mode,
+ * RGB Formatting Enabled for RGB666 output, disabled for RGB888 output
+ * Regular watermark - when FIFO is 100% full,
+ * Urgent watermark - when FIFO is 75% full
+ */
 
 #define EPPI_CONTROL		(0x20136E2E | SWAPEN)
 
@@ -134,7 +177,7 @@ static inline u16 get_eppi_clkdiv(u32 target_ppi_clk)
 {
 	u32 sclk = get_sclk();
 
-	
+	/* EPPI_CLK = (SCLK) / (2 * (EPPI_CLKDIV[15:0] + 1)) */
 
 	return (((sclk / target_ppi_clk) / 2) - 1);
 }
@@ -160,6 +203,10 @@ static void config_ppi(struct bfin_bf54xfb_info *fbi)
 
 	bfin_write_EPPI0_CLKDIV(eppi_clkdiv);
 
+/*
+ * DLEN = 6 (24 bits for RGB888 out) or 5 (18 bits for RGB666 out)
+ * RGB Formatting Enabled for RGB666 output, disabled for RGB888 output
+ */
 	if (outp_rgb666)
 		bfin_write_EPPI0_CONTROL((EPPI_CONTROL & ~DLENGTH) | DLEN_18 |
 					 RGB_FMT_EN);
@@ -249,7 +296,7 @@ static int bfin_bf54x_fb_open(struct fb_info *info, int user)
 		config_dma(fbi);
 		config_ppi(fbi);
 
-		
+		/* start dma */
 		enable_dma(CH_EPPI0);
 		bfin_write_EPPI0_CONTROL(bfin_read_EPPI0_CONTROL() | EPPI_EN);
 	}
@@ -284,7 +331,7 @@ static int bfin_bf54x_fb_check_var(struct fb_var_screeninfo *var,
 {
 
 	switch (var->bits_per_pixel) {
-	case 24:
+	case 24:/* TRUECOLOUR, 16m */
 		var->red.offset = 16;
 		var->green.offset = 8;
 		var->blue.offset = 0;
@@ -310,6 +357,9 @@ static int bfin_bf54x_fb_check_var(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
+	/*
+	 *  Memory limit
+	 */
 
 	if ((info->fix.line_length * var->yres_virtual) > info->fix.smem_len) {
 		pr_debug("%s: Memory Limit requested yres_virtual = %u\n",
@@ -325,7 +375,7 @@ int bfin_bf54x_fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	if (nocursor)
 		return 0;
 	else
-		return -EINVAL;	
+		return -EINVAL;	/* just to force soft_cursor() call */
 }
 
 static int bfin_bf54x_fb_setcolreg(u_int regno, u_int red, u_int green,
@@ -336,14 +386,14 @@ static int bfin_bf54x_fb_setcolreg(u_int regno, u_int red, u_int green,
 		return -EINVAL;
 
 	if (info->var.grayscale) {
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 
 		u32 value;
-		
+		/* Place color in the pseudopalette */
 		if (regno > 16)
 			return -EINVAL;
 
@@ -428,7 +478,7 @@ static struct lcd_device *lcd_dev;
 
 static irqreturn_t bfin_bf54x_irq_error(int irq, void *dev_id)
 {
-	
+	/*struct bfin_bf54xfb_info *info = dev_id;*/
 
 	u16 status = bfin_read_EPPI0_STATUS();
 
@@ -438,7 +488,7 @@ static irqreturn_t bfin_bf54x_irq_error(int irq, void *dev_id)
 		bfin_write_EPPI0_CONTROL(bfin_read_EPPI0_CONTROL() & ~EPPI_EN);
 		disable_dma(CH_EPPI0);
 
-		
+		/* start dma */
 		enable_dma(CH_EPPI0);
 		bfin_write_EPPI0_CONTROL(bfin_read_EPPI0_CONTROL() | EPPI_EN);
 		bfin_write_EPPI0_STATUS(0xFFFF);
@@ -691,7 +741,7 @@ static int bfin_bf54x_resume(struct platform_device *pdev)
 		config_dma(info);
 		config_ppi(info);
 
-		
+		/* start dma */
 		enable_dma(CH_EPPI0);
 		bfin_write_EPPI0_CONTROL(bfin_read_EPPI0_CONTROL() | EPPI_EN);
 	}

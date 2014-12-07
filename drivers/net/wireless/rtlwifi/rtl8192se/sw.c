@@ -48,19 +48,43 @@ static void rtl92s_init_aspm_vars(struct ieee80211_hw *hw)
 {
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
 
-	
+	/*close ASPM for AMD defaultly */
 	rtlpci->const_amdpci_aspm = 0;
 
+	/*
+	 * ASPM PS mode.
+	 * 0 - Disable ASPM,
+	 * 1 - Enable ASPM without Clock Req,
+	 * 2 - Enable ASPM with Clock Req,
+	 * 3 - Alwyas Enable ASPM with Clock Req,
+	 * 4 - Always Enable ASPM without Clock Req.
+	 * set defult to RTL8192CE:3 RTL8192E:2
+	 * */
 	rtlpci->const_pci_aspm = 2;
 
-	
+	/*Setting for PCI-E device */
 	rtlpci->const_devicepci_aspm_setting = 0x03;
 
-	
+	/*Setting for PCI-E bridge */
 	rtlpci->const_hostpci_aspm_setting = 0x02;
 
+	/*
+	 * In Hw/Sw Radio Off situation.
+	 * 0 - Default,
+	 * 1 - From ASPM setting without low Mac Pwr,
+	 * 2 - From ASPM setting with low Mac Pwr,
+	 * 3 - Bus D3
+	 * set default to RTL8192CE:0 RTL8192SE:2
+	 */
 	rtlpci->const_hwsw_rfoff_d3 = 2;
 
+	/*
+	 * This setting works for those device with
+	 * backdoor ASPM setting such as EPHY setting.
+	 * 0 - Not support ASPM,
+	 * 1 - Support ASPM,
+	 * 2 - According to chipset.
+	 */
 	rtlpci->const_support_pciaspm = 2;
 }
 
@@ -104,7 +128,7 @@ static void rtl92se_fw_cb(const struct firmware *firmware, void *context)
 	rtlpci->irq_alloc = 1;
 	set_bit(RTL_STATUS_INTERFACE_START, &rtlpriv->status);
 
-	
+	/*init rfkill */
 	rtl_init_rfkill(hw);
 }
 
@@ -121,7 +145,7 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 	rtlpriv->dm.thermalvalue = 0;
 	rtlpriv->dm.useramask = true;
 
-	
+	/* compatible 5G band 91se just 2.4G band & smsp */
 	rtlpriv->rtlhal.current_bandtype = BAND_ON_2_4G;
 	rtlpriv->rtlhal.bandset = BAND_ON_2_4G;
 	rtlpriv->rtlhal.macphymode = SINGLEMAC_SINGLEPHY;
@@ -131,23 +155,23 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 	rtlpci->receive_config =
 			RCR_APPFCS |
 			RCR_APWRMGT |
-			
+			/*RCR_ADD3 |*/
 			RCR_AMF	|
 			RCR_ADF |
 			RCR_APP_MIC |
 			RCR_APP_ICV |
 			RCR_AICV |
-			
+			/* Accept ICV error, CRC32 Error */
 			RCR_ACRC32 |
 			RCR_AB |
-			
+			/* Accept Broadcast, Multicast */
 			RCR_AM	|
-			
+			/* Accept Physical match */
 			RCR_APM |
-			
-			
+			/* Accept Destination Address packets */
+			/*RCR_AAP |*/
 			RCR_APP_PHYST_STAFF |
-			
+			/* Accept PHY status */
 			RCR_APP_PHYST_RXFF |
 			(earlyrxthreshold << RCR_FIFO_OFFSET);
 
@@ -163,12 +187,13 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 			IMR_HIGHDOK |
 			IMR_BDOK |
 			IMR_RXCMDOK |
-			
+			/*IMR_TIMEOUT0 |*/
 			IMR_RDU |
 			IMR_RXFOVW	|
 			IMR_BCNINT
-			
-);
+			/*| IMR_TXFOVW*/
+			/*| IMR_TBDOK |
+			IMR_TBDER*/);
 
 	rtlpci->irq_mask[1] = (u32) 0;
 
@@ -177,9 +202,9 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 
 	rtlpci->first_init = true;
 
-	
+	/* for debug level */
 	rtlpriv->dbg.global_debuglevel = rtlpriv->cfg->mod_params->debug;
-	
+	/* for LPS & IPS */
 	rtlpriv->psc.inactiveps = rtlpriv->cfg->mod_params->inactiveps;
 	rtlpriv->psc.swctrl_lps = rtlpriv->cfg->mod_params->swctrl_lps;
 	rtlpriv->psc.fwctrl_lps = rtlpriv->cfg->mod_params->fwctrl_lps;
@@ -189,6 +214,8 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 		pr_info("FW Power Save off (module option)\n");
 	rtlpriv->psc.reg_fwctrl_lps = 3;
 	rtlpriv->psc.reg_max_lps_awakeintvl = 5;
+	/* for ASPM, you can close aspm through
+	 * set const_support_pciaspm = 0 */
 	rtl92s_init_aspm_vars(hw);
 
 	if (rtlpriv->psc.reg_fwctrl_lps == 1)
@@ -198,7 +225,7 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 	else if (rtlpriv->psc.reg_fwctrl_lps == 3)
 		rtlpriv->psc.fwctrl_psmode = FW_PS_DTIM_MODE;
 
-	
+	/* for firmware buf */
 	rtlpriv->rtlhal.pfirmware = vzalloc(sizeof(struct rt_firmware));
 	if (!rtlpriv->rtlhal.pfirmware)
 		return 1;
@@ -207,7 +234,7 @@ static int rtl92s_init_sw_vars(struct ieee80211_hw *hw)
 
 	pr_info("Driver for Realtek RTL8192SE/RTL8191SE\n"
 		"Loading firmware %s\n", rtlpriv->cfg->fw_name);
-	
+	/* request fw */
 	err = request_firmware_nowait(THIS_MODULE, 1, rtlpriv->cfg->fw_name,
 				      rtlpriv->io.dev, GFP_KERNEL, hw,
 				      rtl92se_fw_cb);
@@ -281,6 +308,8 @@ static struct rtl_mod_params rtl92se_mod_params = {
 	.debug = DBG_EMERG,
 };
 
+/* Because memory R/W bursting will cause system hang/crash
+ * for 92se, so we don't read back after every write action */
 static struct rtl_hal_cfg rtl92se_hal_cfg = {
 	.bar_id = 1,
 	.write_readback = false,
@@ -302,9 +331,9 @@ static struct rtl_hal_cfg rtl92se_hal_cfg = {
 	.maps[EFUSE_CTRL] = REG_EFUSE_CTRL,
 	.maps[EFUSE_CLK] = REG_EFUSE_CLK,
 	.maps[EFUSE_CLK_CTRL] = REG_EFUSE_CTRL,
-	.maps[EFUSE_PWC_EV12V] = 0, 
-	.maps[EFUSE_FEN_ELDR] = 0, 
-	.maps[EFUSE_LOADER_CLK_EN] = 0,
+	.maps[EFUSE_PWC_EV12V] = 0, /* nouse for 8192se */
+	.maps[EFUSE_FEN_ELDR] = 0, /* nouse for 8192se */
+	.maps[EFUSE_LOADER_CLK_EN] = 0,/* nouse for 8192se */
 	.maps[EFUSE_ANA8M] = EFUSE_ANA8M,
 	.maps[EFUSE_HWSET_MAX_SIZE] = HWSET_MAX_SIZE_92S,
 	.maps[EFUSE_MAX_SECTION_MAP] = EFUSE_MAX_SECTION,

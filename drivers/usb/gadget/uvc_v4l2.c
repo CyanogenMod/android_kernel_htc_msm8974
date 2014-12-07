@@ -26,6 +26,9 @@
 #include "uvc.h"
 #include "uvc_queue.h"
 
+/* --------------------------------------------------------------------------
+ * Requests handling
+ */
 
 static int
 uvc_send_response(struct uvc_device *uvc, struct uvc_request_data *data)
@@ -45,6 +48,9 @@ uvc_send_response(struct uvc_device *uvc, struct uvc_request_data *data)
 	return usb_ep_queue(cdev->gadget->ep0, req, GFP_KERNEL);
 }
 
+/* --------------------------------------------------------------------------
+ * V4L2
+ */
 
 struct uvc_format
 {
@@ -166,7 +172,7 @@ uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 	int ret = 0;
 
 	switch (cmd) {
-	
+	/* Query capabilities */
 	case VIDIOC_QUERYCAP:
 	{
 		struct v4l2_capability *cap = arg;
@@ -181,7 +187,7 @@ uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 		break;
 	}
 
-	
+	/* Get & Set format */
 	case VIDIOC_G_FMT:
 	{
 		struct v4l2_format *fmt = arg;
@@ -202,7 +208,7 @@ uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 		return uvc_v4l2_set_format(video, fmt);
 	}
 
-	
+	/* Buffers & streaming */
 	case VIDIOC_REQBUFS:
 	{
 		struct v4l2_requestbuffers *rb = arg;
@@ -261,7 +267,7 @@ uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 		return uvc_video_enable(video, 0);
 	}
 
-	
+	/* Events */
         case VIDIOC_DQEVENT:
 	{
 		struct v4l2_event *event = arg;
@@ -271,6 +277,10 @@ uvc_v4l2_do_ioctl(struct file *file, unsigned int cmd, void *arg)
 		if (ret == 0 && event->type == UVC_EVENT_SETUP) {
 			struct uvc_event *uvc_event = (void *)&event->u.data;
 
+			/* Tell the complete callback to generate an event for
+			 * the next request that will be enqueued by
+			 * uvc_event_write.
+			 */
 			uvc->event_setup_out =
 				!(uvc_event->req.bRequestType & USB_DIR_IN);
 			uvc->event_length = uvc_event->req.wLength;

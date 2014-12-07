@@ -36,36 +36,49 @@
 #include "card.h"
 #include "mib.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
 #define MAX_NODE_NUM             64
 #define MAX_BSS_NUM              42
-#define LOST_BEACON_COUNT        10   
-#define MAX_PS_TX_BUF            32   
-#define ADHOC_LOST_BEACON_COUNT  30   
-#define MAX_INACTIVE_COUNT       300  
+#define LOST_BEACON_COUNT        10   /* 10 sec, XP defined */
+#define MAX_PS_TX_BUF            32   // sta max power saving tx buf
+#define ADHOC_LOST_BEACON_COUNT  30   // 30 sec, beacon lost for adhoc only
+#define MAX_INACTIVE_COUNT       300  // 300 sec, inactive STA node refresh
 
-#define USE_PROTECT_PERIOD       10   
-#define ERP_RECOVER_COUNT        30   
+#define USE_PROTECT_PERIOD       10   // 10 sec, Use protect mode check period
+#define ERP_RECOVER_COUNT        30   // 30 sec, ERP support callback check
 #define BSS_CLEAR_COUNT           1
 
 #define RSSI_STAT_COUNT          10
 #define MAX_CHECK_RSSI_COUNT     8
 
+// STA dwflags
 #define WLAN_STA_AUTH            BIT0
 #define WLAN_STA_ASSOC           BIT1
 #define WLAN_STA_PS              BIT2
 #define WLAN_STA_TIM             BIT3
+// permanent; do not remove entry on expiration
 #define WLAN_STA_PERM            BIT4
+// If 802.1X is used, this flag is
+// controlling whether STA is authorized to
+// send and receive non-IEEE 802.1X frames
 #define WLAN_STA_AUTHORIZED      BIT5
 
+//#define MAX_RATE            12
 
 #define MAX_WPA_IE_LEN      64
 
 
+/*---------------------  Export Classes  ----------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
 
 
+/*---------------------  Export Types  ------------------------------*/
 
-
+//
+// IEEE 802.11 Structures and definitions
+//
 
 typedef struct tagSERPObject {
     BOOL    bERPExist;
@@ -78,9 +91,10 @@ typedef struct tagSRSNCapObject {
     WORD    wRSNCap;
 } SRSNCapObject, *PSRSNCapObject;
 
+// BSS info(AP)
 #pragma pack(1)
 typedef struct tagKnownBSS {
-    
+    // BSS info
     BOOL            bActive;
     BYTE            abyBSSID[WLAN_BSSID_LEN];
     unsigned int            uChannel;
@@ -93,14 +107,15 @@ typedef struct tagKnownBSS {
     BYTE            abySSID[WLAN_IEHDR_LEN + WLAN_SSID_MAXLEN + 1];
     BYTE            byRxRate;
 
+//    WORD            wATIMWindow;
     BYTE            byRSSIStatCnt;
     signed long            ldBmMAX;
     signed long            ldBmAverage[RSSI_STAT_COUNT];
     signed long            ldBmAverRange;
-    
+    //For any BSSID selection improvment
     BOOL            bSelected;
 
-    
+    //++ WPA informations
     BOOL            bWPAValid;
     BYTE            byGKType;
     BYTE            abyPKType[4];
@@ -109,9 +124,9 @@ typedef struct tagKnownBSS {
     WORD            wAuthCount;
     BYTE            byDefaultK_as_PK;
     BYTE            byReplayIdx;
-    
+    //--
 
-    
+    //++ WPA2 informations
     BOOL            bWPA2Valid;
     BYTE            byCSSGK;
     WORD            wCSSPKCount;
@@ -119,23 +134,24 @@ typedef struct tagKnownBSS {
     WORD            wAKMSSAuthCount;
     BYTE            abyAKMSSAuthType[4];
 
-    
+    //++  wpactl
     BYTE            byWPAIE[MAX_WPA_IE_LEN];
     BYTE            byRSNIE[MAX_WPA_IE_LEN];
     WORD            wWPALen;
     WORD            wRSNLen;
 
-    
+    // Clear count
     unsigned int            uClearCount;
+//    BYTE            abyIEs[WLAN_BEACON_FR_MAXLEN];
     unsigned int            uIELength;
     QWORD           qwBSSTimestamp;
-    QWORD           qwLocalTSF;     
+    QWORD           qwLocalTSF;     // local TSF timer
 
     CARD_PHY_TYPE   eNetworkTypeInUse;
 
     ERPObject       sERP;
     SRSNCapObject   sRSNCapObj;
-    BYTE            abyIEs[1024];   
+    BYTE            abyIEs[1024];   // don't move this field !!
 
 } __attribute__ ((__packed__))
 KnownBSS , *PKnownBSS;
@@ -151,8 +167,9 @@ typedef enum tagNODE_STATE {
 } NODE_STATE, *PNODE_STATE;
 
 
+// STA node info
 typedef struct tagKnownNodeDB {
-    
+    // STA info
     BOOL            bActive;
     BYTE            abyMACAddr[WLAN_ADDR_LEN];
     BYTE            abyCurrSuppRates[WLAN_IEHDR_LEN + WLAN_RATES_MAXLEN];
@@ -162,13 +179,13 @@ typedef struct tagKnownNodeDB {
     BOOL            bERPExist;
     BOOL            bShortSlotTime;
     unsigned int            uInActiveCount;
-    WORD            wMaxBasicRate;     
-    WORD            wMaxSuppRate;      
+    WORD            wMaxBasicRate;     //Get from byTopOFDMBasicRate or byTopCCKBasicRate which depends on packetTyp.
+    WORD            wMaxSuppRate;      //Records the highest supported rate getting from SuppRates IE and ExtSuppRates IE in Beacon.
     WORD            wSuppRate;
-    BYTE            byTopOFDMBasicRate;
-    BYTE            byTopCCKBasicRate; 
+    BYTE            byTopOFDMBasicRate;//Records the highest basic rate in OFDM mode
+    BYTE            byTopCCKBasicRate; //Records the highest basic rate in CCK mode
 
-    
+    // For AP mode
     struct sk_buff_head sTxPSQueue;
     WORD            wCapInfo;
     WORD            wListenInterval;
@@ -191,8 +208,8 @@ typedef struct tagKnownNodeDB {
     WORD            wTSC15_0;
     unsigned int            uWepKeyLength;
     BYTE            abyWepKey[WLAN_WEPMAX_KEYLEN];
-    
-    
+    //
+    // Auto rate fallback vars
     BOOL            bIsInFallback;
     unsigned int            uAverageRSSI;
     unsigned int            uRateRecoveryTimeout;
@@ -209,6 +226,7 @@ typedef struct tagKnownNodeDB {
 
 } KnownNodeDB, *PKnownNodeDB;
 
+/*---------------------  Export Functions  --------------------------*/
 
 PKnownBSS BSSpSearchBSSList(void *hDeviceContext,
 			    PBYTE pbyDesireBSSID,
@@ -286,4 +304,4 @@ void BSSvClearNodeDBTable(void *hDeviceContext,
 
 void BSSvClearAnyBSSJoinRecord(void *hDeviceContext);
 
-#endif 
+#endif /* __BSSDB_H__ */

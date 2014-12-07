@@ -35,7 +35,7 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 	pud_t *pud;
 	pte_t *pte = NULL;
 
-	
+	/* We do not yet support multiple huge page sizes. */
 	BUG_ON(sz != PMD_SIZE);
 
 	pgd = pgd_offset(mm, addr);
@@ -78,7 +78,7 @@ struct page *follow_huge_addr(struct mm_struct *mm, unsigned long address,
 
 	pte = huge_pte_offset(mm, address);
 
-	
+	/* hugetlb should be locked, and hence, prefaulted */
 	WARN_ON(!pte || pte_none(*pte));
 
 	page = &pte_page(*pte)[vpfn % (HPAGE_SIZE/PAGE_SIZE)];
@@ -172,8 +172,12 @@ full_search:
 	addr = ALIGN(start_addr, huge_page_size(h));
 
 	for (vma = find_vma(mm, addr); ; vma = vma->vm_next) {
-		
+		/* At this point:  (!vma || addr < vma->vm_end). */
 		if (TASK_SIZE - len < addr) {
+			/*
+			 * Start a new search - just in case we missed
+			 * some holes.
+			 */
 			if (start_addr != TASK_UNMAPPED_BASE) {
 				start_addr = TASK_UNMAPPED_BASE;
 				mm->cached_hole_size = 0;
@@ -202,7 +206,7 @@ static unsigned long hugetlb_get_unmapped_area_topdown(struct file *file,
 	unsigned long largest_hole = mm->cached_hole_size;
 	int first_time = 1;
 
-	
+	/* don't allow allocations above current base */
 	if (mm->free_area_cache > base)
 		mm->free_area_cache = base;
 
@@ -211,54 +215,75 @@ static unsigned long hugetlb_get_unmapped_area_topdown(struct file *file,
 		mm->free_area_cache  = base;
 	}
 try_again:
-	
+	/* make sure it can fit in the remaining address space */
 	if (mm->free_area_cache < len)
 		goto fail;
 
-	
+	/* either no address requested or can't fit in requested address hole */
 	addr = (mm->free_area_cache - len) & huge_page_mask(h);
 	do {
+		/*
+		 * Lookup failure means no vma is above this address,
+		 * i.e. return with success:
+		 */
 		vma = find_vma_prev(mm, addr, &prev_vma);
 		if (!vma) {
 			return addr;
 			break;
 		}
 
+		/*
+		 * new region fits between prev_vma->vm_end and
+		 * vma->vm_start, use it:
+		 */
 		if (addr + len <= vma->vm_start &&
 			    (!prev_vma || (addr >= prev_vma->vm_end))) {
-			
+			/* remember the address as a hint for next time */
 			mm->cached_hole_size = largest_hole;
 			mm->free_area_cache = addr;
 			return addr;
 		} else {
-			
+			/* pull free_area_cache down to the first hole */
 			if (mm->free_area_cache == vma->vm_end) {
 				mm->free_area_cache = vma->vm_start;
 				mm->cached_hole_size = largest_hole;
 			}
 		}
 
-		
+		/* remember the largest hole we saw so far */
 		if (addr + largest_hole < vma->vm_start)
 			largest_hole = vma->vm_start - addr;
 
-		
+		/* try just below the current vma->vm_start */
 		addr = (vma->vm_start - len) & huge_page_mask(h);
 
 	} while (len <= vma->vm_start);
 
 fail:
+	/*
+	 * if hint left us with no space for the requested
+	 * mapping then try again:
+	 */
 	if (first_time) {
 		mm->free_area_cache = base;
 		largest_hole = 0;
 		first_time = 0;
 		goto try_again;
 	}
+	/*
+	 * A failed mmap() very likely causes application failure,
+	 * so fall back to the bottom-up function here. This scenario
+	 * can happen with large stack limits and large mmap()
+	 * allocations.
+	 */
 	mm->free_area_cache = TASK_UNMAPPED_BASE;
 	mm->cached_hole_size = ~0UL;
 	addr = hugetlb_get_unmapped_area_bottomup(file, addr0,
 			len, pgoff, flags);
 
+	/*
+	 * Restore the topdown base:
+	 */
 	mm->free_area_cache = base;
 	mm->cached_hole_size = ~0UL;
 
@@ -314,4 +339,4 @@ static __init int setup_hugepagesz(char *opt)
 }
 __setup("hugepagesz=", setup_hugepagesz);
 
-#endif 
+#endif /*HAVE_ARCH_HUGETLB_UNMAPPED_AREA*/

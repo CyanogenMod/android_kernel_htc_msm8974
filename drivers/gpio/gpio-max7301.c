@@ -18,6 +18,7 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/max7301.h>
 
+/* A write to the MAX7301 means one message with one transfer */
 static int max7301_spi_write(struct device *dev, unsigned int reg,
 				unsigned int val)
 {
@@ -27,6 +28,7 @@ static int max7301_spi_write(struct device *dev, unsigned int reg,
 	return spi_write(spi, (const u8 *)&word, sizeof(word));
 }
 
+/* A read from the MAX7301 means two transfers; here, one message each */
 
 static int max7301_spi_read(struct device *dev, unsigned int reg)
 {
@@ -38,6 +40,10 @@ static int max7301_spi_read(struct device *dev, unsigned int reg)
 	ret = spi_write(spi, (const u8 *)&word, sizeof(word));
 	if (ret)
 		return ret;
+	/*
+	 * This relies on the fact, that a transfer with NULL tx_buf shifts out
+	 * zero bytes (=NOOP for MAX7301)
+	 */
 	ret = spi_read(spi, (u8 *)&word, sizeof(word));
 	if (ret)
 		return ret;
@@ -49,7 +55,7 @@ static int __devinit max7301_probe(struct spi_device *spi)
 	struct max7301 *ts;
 	int ret;
 
-	
+	/* bits_per_word cannot be configured in platform data */
 	spi->bits_per_word = 16;
 	ret = spi_setup(spi);
 	if (ret < 0)
@@ -94,6 +100,9 @@ static int __init max7301_init(void)
 {
 	return spi_register_driver(&max7301_driver);
 }
+/* register after spi postcore initcall and before
+ * subsys initcalls that may rely on these GPIOs
+ */
 subsys_initcall(max7301_init);
 
 static void __exit max7301_exit(void)

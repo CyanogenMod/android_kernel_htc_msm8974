@@ -22,6 +22,42 @@
 #include <linux/xattr.h>
 #include <linux/mtd/mtd.h>
 #include "nodelist.h"
+/* -------- xdatum related functions ----------------
+ * xattr_datum_hashkey(xprefix, xname, xvalue, xsize)
+ *   is used to calcurate xdatum hashkey. The reminder of hashkey into XATTRINDEX_HASHSIZE is
+ *   the index of the xattr name/value pair cache (c->xattrindex).
+ * is_xattr_datum_unchecked(c, xd)
+ *   returns 1, if xdatum contains any unchecked raw nodes. if all raw nodes are not
+ *   unchecked, it returns 0.
+ * unload_xattr_datum(c, xd)
+ *   is used to release xattr name/value pair and detach from c->xattrindex.
+ * reclaim_xattr_datum(c)
+ *   is used to reclaim xattr name/value pairs on the xattr name/value pair cache when
+ *   memory usage by cache is over c->xdatum_mem_threshold. Currently, this threshold
+ *   is hard coded as 32KiB.
+ * do_verify_xattr_datum(c, xd)
+ *   is used to load the xdatum informations without name/value pair from the medium.
+ *   It's necessary once, because those informations are not collected during mounting
+ *   process when EBS is enabled.
+ *   0 will be returned, if success. An negative return value means recoverable error, and
+ *   positive return value means unrecoverable error. Thus, caller must remove this xdatum
+ *   and xref when it returned positive value.
+ * do_load_xattr_datum(c, xd)
+ *   is used to load name/value pair from the medium.
+ *   The meanings of return value is same as do_verify_xattr_datum().
+ * load_xattr_datum(c, xd)
+ *   is used to be as a wrapper of do_verify_xattr_datum() and do_load_xattr_datum().
+ *   If xd need to call do_verify_xattr_datum() at first, it's called before calling
+ *   do_load_xattr_datum(). The meanings of return value is same as do_verify_xattr_datum().
+ * save_xattr_datum(c, xd)
+ *   is used to write xdatum to medium. xd->version will be incremented.
+ * create_xattr_datum(c, xprefix, xname, xvalue, xsize)
+ *   is used to create new xdatum and write to medium.
+ * unrefer_xattr_datum(c, xd)
+ *   is used to delete a xdatum. When nobody refers this xdatum, JFFS2_XFLAGS_DEAD
+ *   is set on xd->flags and chained xattr_dead_list or release it immediately.
+ *   In the first case, the garbage collector release it later.
+ * -------------------------------------------------- */
 static uint32_t xattr_datum_hashkey(int xprefix, const char *xname, const char *xvalue, int xsize)
 {
 	int name_len = strlen(xname);
@@ -47,7 +83,7 @@ static int is_xattr_datum_unchecked(struct jffs2_sb_info *c, struct jffs2_xattr_
 
 static void unload_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	D1(dbg_xattr("%s: xid=%u, version=%u\n", __func__, xd->xid, xd->version));
 	if (xd->xname) {
 		c->xdatum_mem_usage -= (xd->name_len + 1 + xd->value_len);
@@ -62,7 +98,7 @@ static void unload_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum
 
 static void reclaim_xattr_datum(struct jffs2_sb_info *c)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	struct jffs2_xattr_datum *xd, *_xd;
 	uint32_t target, before;
 	static int index = 0;
@@ -72,7 +108,7 @@ static void reclaim_xattr_datum(struct jffs2_sb_info *c)
 		return;
 
 	before = c->xdatum_mem_usage;
-	target = c->xdatum_mem_usage * 4 / 5; 
+	target = c->xdatum_mem_usage * 4 / 5; /* 20% reduction */
 	for (count = 0; count < XATTRINDEX_HASHSIZE; count++) {
 		list_for_each_entry_safe(xd, _xd, &c->xattrindex[index], xindex) {
 			if (xd->flags & JFFS2_XFLAGS_HOT) {
@@ -92,7 +128,7 @@ static void reclaim_xattr_datum(struct jffs2_sb_info *c)
 
 static int do_verify_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	struct jffs2_eraseblock *jeb;
 	struct jffs2_raw_node_ref *raw;
 	struct jffs2_raw_xattr rx;
@@ -153,7 +189,7 @@ static int do_verify_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_dat
 	}
 	spin_unlock(&c->erase_completion_lock);
 
-	
+	/* unchecked xdatum is chained with c->xattr_unchecked */
 	list_del_init(&xd->xindex);
 
 	dbg_xattr("success on verfying xdatum (xid=%u, version=%u)\n",
@@ -164,7 +200,7 @@ static int do_verify_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_dat
 
 static int do_load_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	char *data;
 	size_t readlen;
 	uint32_t crc, length;
@@ -223,6 +259,11 @@ static int do_load_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum
 
 static int load_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd)
 {
+	/* must be called under down_write(xattr_sem);
+	 * rc < 0 : recoverable error, try again
+	 * rc = 0 : success
+	 * rc > 0 : Unrecoverable error, this node should be deleted.
+	 */
 	int rc = 0;
 
 	BUG_ON(xd->flags & JFFS2_XFLAGS_DEAD);
@@ -239,7 +280,7 @@ static int load_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *x
 
 static int save_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	struct jffs2_raw_xattr rx;
 	struct kvec vecs[2];
 	size_t length;
@@ -255,7 +296,7 @@ static int save_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *x
 	vecs[1].iov_len = xd->name_len + 1 + xd->value_len;
 	totlen = vecs[0].iov_len + vecs[1].iov_len;
 
-	
+	/* Setup raw-xattr */
 	memset(&rx, 0, sizeof(rx));
 	rx.magic = cpu_to_je16(JFFS2_MAGIC_BITMASK);
 	rx.nodetype = cpu_to_je16(JFFS2_NODETYPE_XATTR);
@@ -280,7 +321,7 @@ static int save_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *x
 
 		return rc;
 	}
-	
+	/* success */
 	jffs2_add_physical_node_ref(c, phys_ofs | REF_PRISTINE, PAD(totlen), (void *)xd);
 
 	dbg_xattr("success on saving xdatum (xid=%u, version=%u, xprefix=%u, xname='%s')\n",
@@ -293,13 +334,13 @@ static struct jffs2_xattr_datum *create_xattr_datum(struct jffs2_sb_info *c,
 						    int xprefix, const char *xname,
 						    const char *xvalue, int xsize)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	struct jffs2_xattr_datum *xd;
 	uint32_t hashkey, name_len;
 	char *data;
 	int i, rc;
 
-	
+	/* Search xattr_datum has same xname/xvalue by index */
 	hashkey = xattr_datum_hashkey(xprefix, xname, xvalue, xsize);
 	i = hashkey % XATTRINDEX_HASHSIZE;
 	list_for_each_entry(xd, &c->xattrindex[i], xindex) {
@@ -313,7 +354,7 @@ static struct jffs2_xattr_datum *create_xattr_datum(struct jffs2_sb_info *c,
 		}
 	}
 
-	
+	/* Not found, Create NEW XATTR-Cache */
 	name_len = strlen(xname);
 
 	xd = jffs2_alloc_xattr_datum();
@@ -347,7 +388,7 @@ static struct jffs2_xattr_datum *create_xattr_datum(struct jffs2_sb_info *c,
 		return ERR_PTR(rc);
 	}
 
-	
+	/* Insert Hash Index */
 	i = hashkey % XATTRINDEX_HASHSIZE;
 	list_add(&xd->xindex, &c->xattrindex[i]);
 
@@ -359,7 +400,7 @@ static struct jffs2_xattr_datum *create_xattr_datum(struct jffs2_sb_info *c,
 
 static void unrefer_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	if (atomic_dec_and_lock(&xd->refcnt, &c->erase_completion_lock)) {
 		unload_xattr_datum(c, xd);
 		xd->flags |= JFFS2_XFLAGS_DEAD;
@@ -376,6 +417,25 @@ static void unrefer_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datu
 	}
 }
 
+/* -------- xref related functions ------------------
+ * verify_xattr_ref(c, ref)
+ *   is used to load xref information from medium. Because summary data does not
+ *   contain xid/ino, it's necessary to verify once while mounting process.
+ * save_xattr_ref(c, ref)
+ *   is used to write xref to medium. If delete marker is marked, it write
+ *   a delete marker of xref into medium.
+ * create_xattr_ref(c, ic, xd)
+ *   is used to create a new xref and write to medium.
+ * delete_xattr_ref(c, ref)
+ *   is used to delete jffs2_xattr_ref. It marks xref XREF_DELETE_MARKER,
+ *   and allows GC to reclaim those physical nodes.
+ * jffs2_xattr_delete_inode(c, ic)
+ *   is called to remove xrefs related to obsolete inode when inode is unlinked.
+ * jffs2_xattr_free_inode(c, ic)
+ *   is called to release xattr related objects when unmounting. 
+ * check_xattr_ref_inode(c, ic)
+ *   is used to confirm inode does not have duplicate xattr name/value pair.
+ * -------------------------------------------------- */
 static int verify_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref)
 {
 	struct jffs2_eraseblock *jeb;
@@ -397,7 +457,7 @@ static int verify_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref
 			      rc, sizeof(rr), readlen, offset);
 		return rc ? rc : -EIO;
 	}
-	
+	/* obsolete node */
 	crc = crc32(0, &rr, sizeof(rr) - 4);
 	if (crc != je32_to_cpu(rr.node_crc)) {
 		JFFS2_ERROR("node CRC failed at %#08x, read=%#08x, calc=%#08x\n",
@@ -440,7 +500,7 @@ static int verify_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref
 
 static int save_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	struct jffs2_raw_xref rr;
 	size_t length;
 	uint32_t xseqno, phys_ofs = write_ofs(c);
@@ -473,7 +533,7 @@ static int save_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref)
 
 		return ret;
 	}
-	
+	/* success */
 	ref->xseqno = xseqno;
 	jffs2_add_physical_node_ref(c, phys_ofs | REF_PRISTINE, PAD(sizeof(rr)), (void *)ref);
 
@@ -485,7 +545,7 @@ static int save_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref)
 static struct jffs2_xattr_ref *create_xattr_ref(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic,
 						struct jffs2_xattr_datum *xd)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	struct jffs2_xattr_ref *ref;
 	int ret;
 
@@ -501,16 +561,16 @@ static struct jffs2_xattr_ref *create_xattr_ref(struct jffs2_sb_info *c, struct 
 		return ERR_PTR(ret);
 	}
 
-	
+	/* Chain to inode */
 	ref->next = ic->xref;
 	ic->xref = ref;
 
-	return ref; 
+	return ref; /* success */
 }
 
 static void delete_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref)
 {
-	
+	/* must be called under down_write(xattr_sem) */
 	struct jffs2_xattr_datum *xd;
 
 	xd = ref->xd;
@@ -530,6 +590,8 @@ static void delete_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *re
 
 void jffs2_xattr_delete_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic)
 {
+	/* It's called from jffs2_evict_inode() on inode removing.
+	   When an inode with XATTR is removed, those XATTRs must be removed. */
 	struct jffs2_xattr_ref *ref, *_ref;
 
 	if (!ic || ic->pino_nlink > 0)
@@ -546,7 +608,7 @@ void jffs2_xattr_delete_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache 
 
 void jffs2_xattr_free_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic)
 {
-	
+	/* It's called from jffs2_free_ino_caches() until unmounting FS. */
 	struct jffs2_xattr_datum *xd;
 	struct jffs2_xattr_ref *ref, *_ref;
 
@@ -566,6 +628,10 @@ void jffs2_xattr_free_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache *i
 
 static int check_xattr_ref_inode(struct jffs2_sb_info *c, struct jffs2_inode_cache *ic)
 {
+	/* success of check_xattr_ref_inode() means that inode (ic) dose not have
+	 * duplicate name/value pairs. If duplicate name/value pair would be found,
+	 * one will be removed.
+	 */
 	struct jffs2_xattr_ref *ref, *cmp, **pref, **pcmp;
 	int rc = 0;
 
@@ -616,6 +682,18 @@ static int check_xattr_ref_inode(struct jffs2_sb_info *c, struct jffs2_inode_cac
 	return rc;
 }
 
+/* -------- xattr subsystem functions ---------------
+ * jffs2_init_xattr_subsystem(c)
+ *   is used to initialize semaphore and list_head, and some variables.
+ * jffs2_find_xattr_datum(c, xid)
+ *   is used to lookup xdatum while scanning process.
+ * jffs2_clear_xattr_subsystem(c)
+ *   is used to release any xattr related objects.
+ * jffs2_build_xattr_subsystem(c)
+ *   is used to associate xdatum and xref while super block building process.
+ * jffs2_setup_xattr_datum(c, xid, version)
+ *   is used to insert xdatum while scanning process.
+ * -------------------------------------------------- */
 void jffs2_init_xattr_subsystem(struct jffs2_sb_info *c)
 {
 	int i;
@@ -631,7 +709,7 @@ void jffs2_init_xattr_subsystem(struct jffs2_sb_info *c)
 	c->highest_xid = 0;
 	c->highest_xseqno = 0;
 	c->xdatum_mem_usage = 0;
-	c->xdatum_mem_threshold = 32 * 1024;	
+	c->xdatum_mem_threshold = 32 * 1024;	/* Default 32KB */
 }
 
 static struct jffs2_xattr_datum *jffs2_find_xattr_datum(struct jffs2_sb_info *c, uint32_t xid)
@@ -639,7 +717,7 @@ static struct jffs2_xattr_datum *jffs2_find_xattr_datum(struct jffs2_sb_info *c,
 	struct jffs2_xattr_datum *xd;
 	int i = xid % XATTRINDEX_HASHSIZE;
 
-	
+	/* It's only used in scanning/building process. */
 	BUG_ON(!(c->flags & (JFFS2_SB_FLAG_SCANNING|JFFS2_SB_FLAG_BUILDING)));
 
 	list_for_each_entry(xd, &c->xattrindex[i], xindex) {
@@ -697,7 +775,7 @@ void jffs2_build_xattr_subsystem(struct jffs2_sb_info *c)
 
 	BUG_ON(!(c->flags & JFFS2_SB_FLAG_BUILDING));
 
-	
+	/* Phase.1 : Merge same xref */
 	for (i=0; i < XREF_TMPHASH_SIZE; i++)
 		xref_tmphash[i] = NULL;
 	for (ref=c->xref_temp; ref; ref=_ref) {
@@ -738,7 +816,7 @@ void jffs2_build_xattr_subsystem(struct jffs2_sb_info *c)
 	}
 	c->xref_temp = NULL;
 
-	
+	/* Phase.2 : Bind xref with inode_cache and xattr_datum */
 	for (i=0; i < XREF_TMPHASH_SIZE; i++) {
 		for (ref=xref_tmphash[i]; ref; ref=_ref) {
 			xref_count++;
@@ -749,6 +827,8 @@ void jffs2_build_xattr_subsystem(struct jffs2_sb_info *c)
 				xref_dead_count++;
 				continue;
 			}
+			/* At this point, ref->xid and ref->ino contain XID and inode number.
+			   ref->xd and ref->ic are not valid yet. */
 			xd = jffs2_find_xattr_datum(c, ref->xid);
 			ic = jffs2_get_ino_cache(c, ref->ino);
 			if (!xd || !ic || !ic->pino_nlink) {
@@ -768,7 +848,7 @@ void jffs2_build_xattr_subsystem(struct jffs2_sb_info *c)
 		}
 	}
 
-	
+	/* Phase.3 : Link unchecked xdatum to xattr_unchecked list */
 	for (i=0; i < XATTRINDEX_HASHSIZE; i++) {
 		list_for_each_entry_safe(xd, _xd, &c->xattrindex[i], xindex) {
 			xdatum_count++;
@@ -789,7 +869,7 @@ void jffs2_build_xattr_subsystem(struct jffs2_sb_info *c)
 			}
 		}
 	}
-	
+	/* build complete */
 	JFFS2_NOTICE("complete building xattr subsystem, %u of xdatum"
 		     " (%u unchecked, %u orphan) and "
 		     "%u of xref (%u dead, %u orphan) found.\n",
@@ -816,6 +896,16 @@ struct jffs2_xattr_datum *jffs2_setup_xattr_datum(struct jffs2_sb_info *c,
 	return xd;
 }
 
+/* -------- xattr subsystem functions ---------------
+ * xprefix_to_handler(xprefix)
+ *   is used to translate xprefix into xattr_handler.
+ * jffs2_listxattr(dentry, buffer, size)
+ *   is an implementation of listxattr handler on jffs2.
+ * do_jffs2_getxattr(inode, xprefix, xname, buffer, size)
+ *   is an implementation of getxattr handler on jffs2.
+ * do_jffs2_setxattr(inode, xprefix, xname, buffer, size, flags)
+ *   is an implementation of setxattr handler on jffs2.
+ * -------------------------------------------------- */
 const struct xattr_handler *jffs2_xattr_handlers[] = {
 	&jffs2_user_xattr_handler,
 #ifdef CONFIG_JFFS2_FS_SECURITY
@@ -882,7 +972,7 @@ ssize_t jffs2_listxattr(struct dentry *dentry, char *buffer, size_t size)
 		BUG_ON(ref->ic != ic);
 		xd = ref->xd;
 		if (!xd->xname) {
-			
+			/* xdatum is unchached */
 			if (!retry) {
 				retry = 1;
 				up_read(&c->xattr_sem);
@@ -945,7 +1035,7 @@ int do_jffs2_getxattr(struct inode *inode, int xprefix, const char *xname,
 		if (xd->xprefix != xprefix)
 			continue;
 		if (!xd->xname) {
-			
+			/* xdatum is unchached */
 			if (!retry) {
 				retry = 1;
 				up_read(&c->xattr_sem);
@@ -1007,7 +1097,7 @@ int do_jffs2_setxattr(struct inode *inode, int xprefix, const char *xname,
 		return rc;
 	}
 
-	
+	/* Find existing xattr */
 	down_write(&c->xattr_sem);
  retry:
 	for (ref=ic->xref, pref=&ic->xref; ref; pref=&ref->next, ref=ref->next) {
@@ -1050,7 +1140,7 @@ int do_jffs2_setxattr(struct inode *inode, int xprefix, const char *xname,
 			goto found;
 		}
 	}
-	
+	/* not found */
 	if (flags & XATTR_REPLACE) {
 		rc = -ENODATA;
 		goto out;
@@ -1068,7 +1158,7 @@ int do_jffs2_setxattr(struct inode *inode, int xprefix, const char *xname,
 	up_write(&c->xattr_sem);
 	jffs2_complete_reservation(c);
 
-	
+	/* create xattr_ref */
 	request = PAD(sizeof(struct jffs2_raw_xref));
 	rc = jffs2_reserve_space(c, request, &length,
 				 ALLOC_NORMAL, JFFS2_SUMMARY_XREF_SIZE);
@@ -1098,6 +1188,18 @@ int do_jffs2_setxattr(struct inode *inode, int xprefix, const char *xname,
 	return rc;
 }
 
+/* -------- garbage collector functions -------------
+ * jffs2_garbage_collect_xattr_datum(c, xd, raw)
+ *   is used to move xdatum into new node.
+ * jffs2_garbage_collect_xattr_ref(c, ref, raw)
+ *   is used to move xref into new node.
+ * jffs2_verify_xattr(c)
+ *   is used to call do_verify_xattr_datum() before garbage collecting.
+ * jffs2_release_xattr_datum(c, xd)
+ *   is used to release an in-memory object of xdatum.
+ * jffs2_release_xattr_ref(c, ref)
+ *   is used to release an in-memory object of xref.
+ * -------------------------------------------------- */
 int jffs2_garbage_collect_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd,
 				      struct jffs2_raw_node_ref *raw)
 {
@@ -1204,7 +1306,7 @@ int jffs2_verify_xattr(struct jffs2_sb_info *c)
 
 void jffs2_release_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum *xd)
 {
-	
+	/* must be called under spin_lock(&c->erase_completion_lock) */
 	if (atomic_read(&xd->refcnt) || xd->node != (void *)xd)
 		return;
 
@@ -1214,7 +1316,7 @@ void jffs2_release_xattr_datum(struct jffs2_sb_info *c, struct jffs2_xattr_datum
 
 void jffs2_release_xattr_ref(struct jffs2_sb_info *c, struct jffs2_xattr_ref *ref)
 {
-	
+	/* must be called under spin_lock(&c->erase_completion_lock) */
 	struct jffs2_xattr_ref *tmp, **ptmp;
 
 	if (ref->node != (void *)ref)

@@ -82,27 +82,29 @@ static void __iomem * atmel_get_base_addr(unsigned long *base, int *region_size)
 #define atmel_putb(val, chip, offset) outb(val, chip->vendor->base + offset)
 #define atmel_request_region request_region
 #define atmel_release_region release_region
+/* Atmel definitions */
 enum tpm_atmel_addr {
 	TPM_ATMEL_BASE_ADDR_LO = 0x08,
 	TPM_ATMEL_BASE_ADDR_HI = 0x09
 };
 
+/* Verify this is a 1.1 Atmel TPM */
 static int atmel_verify_tpm11(void)
 {
 
-	
+	/* verify that it is an Atmel part */
 	if (tpm_read_index(TPM_ADDR, 4) != 'A' ||
 	    tpm_read_index(TPM_ADDR, 5) != 'T' ||
 	    tpm_read_index(TPM_ADDR, 6) != 'M' ||
 	    tpm_read_index(TPM_ADDR, 7) != 'L')
 		return 1;
 
-	
+	/* query chip for its version number */
 	if (tpm_read_index(TPM_ADDR, 0x00) != 1 ||
 	    tpm_read_index(TPM_ADDR, 0x01) != 1)
 		return 1;
 
-	
+	/* This is an atmel supported part */
 	return 0;
 }
 
@@ -110,6 +112,7 @@ static inline void atmel_put_base_addr(void __iomem *iobase)
 {
 }
 
+/* Determine where to talk to device */
 static void __iomem * atmel_get_base_addr(unsigned long *base, int *region_size)
 {
 	int lo, hi;

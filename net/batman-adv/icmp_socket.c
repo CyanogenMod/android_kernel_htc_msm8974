@@ -85,7 +85,7 @@ static int bat_socket_release(struct inode *inode, struct file *file)
 
 	spin_lock_bh(&socket_client->lock);
 
-	
+	/* for all packets in the queue ... */
 	list_for_each_safe(list_pos, list_pos_tmp, &socket_client->queue_list) {
 		socket_packet = list_entry(list_pos,
 					   struct socket_packet, list);
@@ -311,6 +311,8 @@ static void bat_socket_add_packet(struct socket_client *socket_client,
 
 	spin_lock_bh(&socket_client->lock);
 
+	/* while waiting for the lock the socket_client could have been
+	 * deleted */
 	if (!socket_client_hash[icmp_packet->uid]) {
 		spin_unlock_bh(&socket_client->lock);
 		kfree(socket_packet);

@@ -30,6 +30,7 @@
 #define RDM_MAX_ENTRIES 32
 #define RDM_MAX_CLIENTS 2
 
+/* Data Mover Parameters */
 #define DM_BLOCK_128 0x0
 #define DM_BLOCK_256 0x1
 #define DM_BR_ID_LPASS 0x0
@@ -58,7 +59,10 @@
 #define BR_CLIENT_n_ctrl(x) (BR_CLIENT_BASE + (BR_CLIENT_n_IDX(x)))
 #define BR_STATUS (0x14)
 #define BR_LAST_ADDR (0x18)
+/* 16 entries per client are supported */
+/* Use entries 0 - 15 for client0 */
 #define BR_CLIENT0_MASK	(0x1000)
+/* Use entries 16- 31 for client1 */
 #define BR_CLIENT1_MASK	(0x2010)
 
 #define BR_TBL_BASE (0x40)
@@ -69,6 +73,7 @@
 #define BR_TBL_n_paddr(x) (BR_TBL_n(x)+0x8)
 #define BR_TBL_n_ctrl(x) (BR_TBL_n(x)+0x10)
 
+/* Constants and Shifts */
 #define BR_TBL_ENTRY_ENABLE 0x1
 #define BR_TBL_START 0x0
 #define BR_TBL_END 0x8
@@ -91,6 +96,7 @@ static void *dm_base;
 
 struct completion dm_clear_event;
 struct completion dm_transfer_event;
+/* Shadow tables for debug purposes */
 struct ocmem_br_table {
 	unsigned int offset;
 	unsigned int size;
@@ -99,6 +105,8 @@ struct ocmem_br_table {
 	unsigned int ctrl;
 } br_table[RDM_MAX_ENTRIES];
 
+/* DM Table replicates an entire BR table */
+/* Note: There are more than 1 BRs in the system */
 struct ocmem_dm_table {
 	unsigned int offset;
 	unsigned int size;
@@ -145,18 +153,21 @@ static irqreturn_t ocmem_dm_irq_handler(int irq, void *dev_id)
 int ocmem_clear(unsigned long start, unsigned long size)
 {
 	INIT_COMPLETION(dm_clear_event);
-	
+	/* Clear DM Mask */
 	ocmem_write(DM_MASK_RESET, dm_base + DM_INTR_MASK);
-	
+	/* Clear DM Interrupts */
 	ocmem_write(DM_INTR_RESET, dm_base + DM_INTR_CLR);
-	
+	/* DM CLR offset */
 	ocmem_write(start, dm_base + DM_CLR_OFFSET);
-	
+	/* DM CLR size */
 	ocmem_write(size, dm_base + DM_CLR_SIZE);
-	
+	/* Wipe out memory as "OCMM" */
 	ocmem_write(0x4D4D434F, dm_base + DM_CLR_PATTERN);
+	/* The offset, size and pattern for clearing must be set
+	 * before triggering the clearing engine
+	 */
 	mb();
-	
+	/* Trigger Data Clear */
 	ocmem_write(DM_CLR_ENABLE, dm_base + DM_CLR_TRIGGER);
 
 	wait_for_completion(&dm_clear_event);
@@ -170,6 +181,7 @@ int ocmem_clear(unsigned long start, unsigned long size)
 }
 #endif
 
+/* Lock during transfers */
 int ocmem_rdm_transfer(int id, struct ocmem_map_list *clist,
 			unsigned long start, int direction)
 {
@@ -194,9 +206,9 @@ int ocmem_rdm_transfer(int id, struct ocmem_map_list *clist,
 		return rc;
 	}
 
-	
+	/* Clear DM Mask */
 	ocmem_write(DM_MASK_RESET, dm_base + DM_INTR_MASK);
-	
+	/* Clear DM Interrupts */
 	ocmem_write(DM_INTR_RESET, dm_base + DM_INTR_CLR);
 
 	for (i = 0, j = slot; i < num_chunks; i++, j++) {
@@ -210,7 +222,7 @@ int ocmem_rdm_transfer(int id, struct ocmem_map_list *clist,
 		if (chunk->ro)
 			tbl_n_ctrl |= (1 << BR_RW_SHIFT);
 
-		
+		/* Table Entry n of BR and DM */
 		ocmem_write(start, br_base + BR_TBL_n_offset(j));
 		ocmem_write(sz, br_base + BR_TBL_n_size(j));
 		ocmem_write(paddr, br_base + BR_TBL_n_paddr(j));
@@ -231,10 +243,10 @@ int ocmem_rdm_transfer(int id, struct ocmem_map_list *clist,
 	br_ctrl |= (table_end << BR_TBL_END);
 
 	ocmem_write(br_ctrl, (br_base + BR_CLIENT_n_ctrl(br_id)));
-	
+	/* Enable BR */
 	ocmem_write(0x1, br_base + BR_CTRL);
 
-	
+	/* Compute DM Control Value */
 	dm_ctrl |= (table_start << DM_TBL_START);
 	dm_ctrl |= (table_end << DM_TBL_END);
 
@@ -247,8 +259,11 @@ int ocmem_rdm_transfer(int id, struct ocmem_map_list *clist,
 	status = ocmem_read(dm_base + DM_GEN_STATUS);
 	pr_debug("Transfer status before %x\n", status);
 	INIT_COMPLETION(dm_transfer_event);
+	/* The DM and BR tables must be programmed before triggering the
+	 * Data Mover else the coherent transfer would be corrupted
+	 */
 	mb();
-	
+	/* Trigger DM */
 	ocmem_write(dm_ctrl, dm_base + DM_CTRL);
 	pr_debug("ocmem: rdm: dm_ctrl %x br_ctrl %x\n", dm_ctrl, br_ctrl);
 

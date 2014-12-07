@@ -58,7 +58,7 @@ static unsigned int read_xapic_id(void)
 
 static int numachip_apic_id_valid(int apicid)
 {
-	
+	/* Trust what bootloader passes in MADT */
 	return 1;
 }
 
@@ -161,6 +161,10 @@ static unsigned int numachip_cpu_mask_to_apicid(const struct cpumask *cpumask)
 {
 	int cpu;
 
+	/*
+	 * We're using fixed IRQ delivery, can only return one phys APIC ID.
+	 * May as well be the first.
+	 */
 	cpu = cpumask_first(cpumask);
 	if (likely((unsigned)cpu < nr_cpu_ids))
 		return per_cpu(x86_cpu_to_apicid, cpu);
@@ -174,6 +178,10 @@ numachip_cpu_mask_to_apicid_and(const struct cpumask *cpumask,
 {
 	int cpu;
 
+	/*
+	 * We're using fixed IRQ delivery, can only return one phys APIC ID.
+	 * May as well be the first.
+	 */
 	for_each_cpu_and(cpu, cpumask, andmask) {
 		if (cpumask_test_cpu(cpu, cpu_online_mask))
 			break;
@@ -243,7 +251,7 @@ static struct apic apic_numachip __refconst = {
 	.apic_id_registered		= numachip_apic_id_registered,
 
 	.irq_delivery_mode		= dest_Fixed,
-	.irq_dest_mode			= 0, 
+	.irq_dest_mode			= 0, /* physical */
 
 	.target_cpus			= numachip_target_cpus,
 	.disable_esr			= 0,
@@ -283,7 +291,7 @@ static struct apic apic_numachip __refconst = {
 	.trampoline_phys_high		= DEFAULT_TRAMPOLINE_PHYS_HIGH,
 	.wait_for_init_deassert		= NULL,
 	.smp_callin_clear_local_apic	= NULL,
-	.inquire_remote_apic		= NULL, 
+	.inquire_remote_apic		= NULL, /* REMRD not supported */
 
 	.read				= native_apic_mem_read,
 	.write				= native_apic_mem_write,

@@ -284,7 +284,7 @@ static void tnetd7200_set_clock(int base, struct tnetd7200_clock *clock,
 	writel((mul - 1) & 0xF, &clock->mul);
 
 	while (readl(&clock->status) & 0x1)
-		; 
+		; /* nop */
 
 	writel(DIVISOR_ENABLE_MASK | ((postdiv - 1) & 0x1F), &clock->postdiv);
 
@@ -292,7 +292,7 @@ static void tnetd7200_set_clock(int base, struct tnetd7200_clock *clock,
 	writel(readl(&clock->cmd) | 1, &clock->cmd);
 
 	while (readl(&clock->status) & 0x1)
-		; 
+		; /* nop */
 
 	writel(DIVISOR_ENABLE_MASK | ((postdiv2 - 1) & 0x1F), &clock->postdiv2);
 
@@ -300,7 +300,7 @@ static void tnetd7200_set_clock(int base, struct tnetd7200_clock *clock,
 	writel(readl(&clock->cmd) | 1, &clock->cmd);
 
 	while (readl(&clock->status) & 0x1)
-		; 
+		; /* nop */
 
 	writel(readl(&clock->ctrl) | 1, &clock->ctrl);
 }
@@ -308,7 +308,7 @@ static void tnetd7200_set_clock(int base, struct tnetd7200_clock *clock,
 static int tnetd7200_get_clock_base(int clock_id, u32 *bootcr)
 {
 	if (*bootcr & BOOT_PLL_ASYNC_MODE)
-		
+		/* Async */
 		switch (clock_id) {
 		case TNETD7200_CLOCK_ID_DSP:
 			return AR7_REF_CLOCK;
@@ -316,9 +316,9 @@ static int tnetd7200_get_clock_base(int clock_id, u32 *bootcr)
 			return AR7_AFE_CLOCK;
 		}
 	else
-		
+		/* Sync */
 		if (*bootcr & BOOT_PLL_2TO1_MODE)
-			
+			/* 2:1 */
 			switch (clock_id) {
 			case TNETD7200_CLOCK_ID_DSP:
 				return AR7_REF_CLOCK;
@@ -326,7 +326,7 @@ static int tnetd7200_get_clock_base(int clock_id, u32 *bootcr)
 				return AR7_AFE_CLOCK;
 			}
 		else
-			
+			/* 1:1 */
 			return AR7_REF_CLOCK;
 }
 
@@ -414,6 +414,9 @@ static void __init tnetd7200_init_clocks(void)
 	iounmap(bootcr);
 }
 
+/*
+ * Linux clock API
+ */
 int clk_enable(struct clk *clk)
 {
 	return 0;
@@ -435,7 +438,7 @@ struct clk *clk_get(struct device *dev, const char *id)
 {
 	if (!strcmp(id, "bus"))
 		return &bus_clk;
-	
+	/* cpmac and vbus share the same rate */
 	if (!strcmp(id, "cpmac"))
 		return &vbus_clk;
 	if (!strcmp(id, "cpu"))
@@ -467,6 +470,6 @@ void __init ar7_init_clocks(void)
 	default:
 		break;
 	}
-	
+	/* adjust vbus clock rate */
 	vbus_clk.rate = bus_clk.rate / 2;
 }

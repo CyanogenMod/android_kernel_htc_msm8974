@@ -617,7 +617,25 @@ static void mic_detect_work_func(struct work_struct *work)
 	mutex_lock(&hi->mutex_lock);
 	
 
+#ifdef CONFIG_HTC_INSERT_NOTIFY_DELAY
+	if (!hi->driver_one_wire_exist && hs_mgr_notifier.hs_insert)
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+		if (!hi->plugout_redetect)
+#endif
+			hs_mgr_notifier.hs_insert(1);
+#endif
+
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+	if (hi->driver_one_wire_exist && hi->one_wire_mode == 0 && !hi->plugout_redetect) {
+#else
 	if (hi->driver_one_wire_exist && hi->one_wire_mode == 0) {
+#endif
+
+#ifdef CONFIG_HTC_INSERT_NOTIFY_DELAY
+		if (hs_mgr_notifier.hs_insert)
+			hs_mgr_notifier.hs_insert(1);
+#endif
+
 		HS_LOG("1-wire re-detecting sequence");
 		if (hi->pdata.uart_tx_gpo)
 			{
@@ -635,7 +653,11 @@ static void mic_detect_work_func(struct work_struct *work)
 		if (hs_mgr_notifier.remote_adc)
 			hs_mgr_notifier.remote_adc(&adc);
 		hi->one_wire_mode = 0;
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+		if (adc > 915 && adc < hi->pdata.headset_config[0].adc_max) {
+#else
 		if (adc > 915) {
+#endif
 			HS_LOG("Not HEADSET_NO_MIC, start 1wire init");
 			if (hs_mgr_notifier.hs_1wire_init() == 0) {
 				hi->one_wire_mode = 1;
@@ -646,7 +668,6 @@ static void mic_detect_work_func(struct work_struct *work)
 					new_state = BIT_HEADSET | BIT_HEADSET_NO_MIC;
 				}
 				HS_LOG("old_state = 0x%x, new_state = 0x%x", old_state, new_state);
-				switch_set_state(&hi->sdev_h2w, old_state & ~MASK_35MM_HEADSET);
 				switch_set_state(&hi->sdev_h2w, new_state);
 				hi->hs_35mm_type = HEADSET_ONEWIRE;
 				mutex_unlock(&hi->mutex_lock);
@@ -675,15 +696,21 @@ static void mic_detect_work_func(struct work_struct *work)
 		enable_metrico_headset(1);
 
 	if (mic == HEADSET_UNKNOWN_MIC || mic == HEADSET_UNPLUG) {
-		mutex_unlock(&hi->mutex_lock);
 		if (hi->mic_detect_counter--) {
+			mutex_unlock(&hi->mutex_lock);
 			queue_delayed_work(detect_wq, &mic_detect_work,
 					   HS_JIFFIES_MIC_DETECT);
+			return;
 		} else {
 			HS_LOG("MIC polling timeout (UNKNOWN/Floating MIC status)");
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+			hi->plugout_redetect = 0;
+#else
+			mutex_unlock(&hi->mutex_lock);
 			set_35mm_hw_state(0);			
+			return;
+#endif
 		}
-		return;
 	}
 
 	if (hi->hs_35mm_type == HEADSET_UNSTABLE && hi->mic_detect_counter--) {
@@ -706,11 +733,18 @@ static void mic_detect_work_func(struct work_struct *work)
 	case HEADSET_UNPLUG:
 		new_state &= ~MASK_35MM_HEADSET;
 		HS_LOG("HEADSET_UNPLUG (FLOAT)");
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+		if (hi->one_wire_mode == 1) {
+			hi->one_wire_mode = 0;
+		}
+#endif
 		break;
 	case HEADSET_NO_MIC:
 		new_state |= BIT_HEADSET_NO_MIC;
 		HS_LOG("HEADSET_NO_MIC");
+#ifndef CONFIG_HTC_HEADSET_INT_REDETECT
 		set_35mm_hw_state(0);
+#endif
 		break;
 	case HEADSET_MIC:
 		new_state |= BIT_HEADSET;
@@ -740,18 +774,35 @@ static void mic_detect_work_func(struct work_struct *work)
 	if (new_state != old_state) {
 		HS_LOG_TIME("Plug/Unplug accessory, old_state 0x%x, new_state 0x%x", old_state, new_state);
 		hi->hs_35mm_type = mic;
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+		if (new_state != 0) {
+			new_state |= old_state;
+		}
+		else {
+			new_state = 0;
+#ifdef CONFIG_HTC_INSERT_NOTIFY_DELAY
+			if (hs_mgr_notifier.hs_insert)
+				hs_mgr_notifier.hs_insert(0);
+#endif
+		}
+#else
 		new_state |= old_state;
+#endif
 		switch_set_state(&hi->sdev_h2w, new_state);
 		HS_LOG_TIME("Sent uevent 0x%x ==> 0x%x", old_state, new_state);
 		hpin_report++;
 	} else
 		HS_LOG("MIC status has not changed");
 
+#ifndef CONFIG_HTC_HEADSET_INT_REDETECT
 if (mic != HEADSET_NO_MIC)
 	{
+#endif
 	if (hs_mgr_notifier.key_int_enable)
 		hs_mgr_notifier.key_int_enable(1);
+#ifndef CONFIG_HTC_HEADSET_INT_REDETECT
 	}
+#endif
 	mutex_unlock(&hi->mutex_lock);
 }
 
@@ -759,6 +810,9 @@ static void button_35mm_work_func(struct work_struct *work)
 {
 	int key;
 	struct button_work *works;
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+	int adc = 0;
+#endif
 
 	wake_lock_timeout(&hi->hs_wake_lock, HS_WAKE_LOCK_TIMEOUT);
 
@@ -766,6 +820,19 @@ static void button_35mm_work_func(struct work_struct *work)
 
 	works = container_of(work, struct button_work, key_work.work);
 	hi->key_level_flag = works->key_code;
+
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+	hs_mgr_notifier.remote_adc(&adc);
+	if (adc > hi->pdata.headset_config[0].adc_max) {
+		hi->plugout_redetect = 1;
+		cancel_delayed_work_sync(&mic_detect_work);
+		hi->mic_detect_counter = 0;
+		queue_delayed_work(detect_wq, &mic_detect_work, 0);
+		wake_unlock(&hi->hs_wake_lock);
+		kfree(works);
+		return;
+	}
+#endif
 
 	if (hi->key_level_flag) {
 		switch (hi->key_level_flag) {
@@ -835,6 +902,11 @@ static void remove_detect_work_func(struct work_struct *work)
 	if (hi->hs_35mm_type == HEADSET_INDICATOR &&
 	    hs_mgr_notifier.indicator_enable)
 		hs_mgr_notifier.indicator_enable(0);
+
+#ifdef CONFIG_HTC_INSERT_NOTIFY_DELAY
+	if ((hs_mgr_notifier.hs_insert)&&(hi->hs_35mm_type != HEADSET_UNPLUG))
+		hs_mgr_notifier.hs_insert(0);
+#endif
 
 	set_35mm_hw_state(0);
 #if defined(CONFIG_FB_MSM_TVOUT) && defined(CONFIG_ARCH_MSM8X60)
@@ -917,6 +989,11 @@ static void insert_detect_work_func(struct work_struct *work)
 	set_35mm_hw_state(1);
 	msleep(250); 
 
+	#ifdef CONFIG_HTC_INSERT_NOTIFY_DELAY
+	if (hs_mgr_notifier.hs_insert)
+		hs_mgr_notifier.hs_insert(1);
+#endif
+
 	HS_LOG("Start 1-wire detecting sequence");
 	if (hi->pdata.uart_tx_gpo)
 		{
@@ -938,7 +1015,11 @@ static void insert_detect_work_func(struct work_struct *work)
 	mutex_lock(&hi->mutex_lock);
 
 	hi->one_wire_mode = 0;
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+	if (hi->driver_one_wire_exist && adc > 915 && adc < hi->pdata.headset_config[0].adc_max) {
+#else
 	if (hi->driver_one_wire_exist && adc > 915) {
+#endif
 		HS_LOG("[HS_1wire]1wire driver exists, starting init");
 		if (hs_mgr_notifier.hs_1wire_init() == 0) {
 			hi->one_wire_mode = 1;
@@ -968,7 +1049,19 @@ static void insert_detect_work_func(struct work_struct *work)
 		HS_LOG("Headset float detect enable");
 		if (mic == HEADSET_UNPLUG) {
 			mutex_unlock(&hi->mutex_lock);
-			update_mic_status(HS_DEF_MIC_DETECT_COUNT);
+
+#ifdef CONFIG_HTC_INSERT_NOTIFY_DELAY
+			if (hs_mgr_notifier.hs_insert)
+				hs_mgr_notifier.hs_insert(0);
+#endif
+
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+			if (hs_mgr_notifier.key_int_enable)
+				hs_mgr_notifier.key_int_enable(1);
+#else
+			
+			set_35mm_hw_state(0);
+#endif
 			return;
 		}
 	}
@@ -990,7 +1083,9 @@ static void insert_detect_work_func(struct work_struct *work)
 	case HEADSET_NO_MIC:
 		new_state |= BIT_HEADSET_NO_MIC;
 		HS_LOG_TIME("HEADSET_NO_MIC");
+#ifndef CONFIG_HTC_HEADSET_INT_REDETECT
 		set_35mm_hw_state(0);
+#endif
 		break;
 	case HEADSET_MIC:
 		new_state |= BIT_HEADSET;
@@ -1030,10 +1125,14 @@ static void insert_detect_work_func(struct work_struct *work)
 	switch_set_state(&hi->sdev_h2w, new_state);
 	hpin_report++;
 
+#ifndef CONFIG_HTC_HEADSET_INT_REDETECT
 	if (mic != HEADSET_NO_MIC) {
+#endif
 		if (hs_mgr_notifier.key_int_enable)
 			hs_mgr_notifier.key_int_enable(1);
+#ifndef CONFIG_HTC_HEADSET_INT_REDETECT
 	}
+#endif
 	mutex_unlock(&hi->mutex_lock);
 
 #ifdef HTC_HEADSET_CONFIG_QUICK_BOOT
@@ -1062,8 +1161,10 @@ int hs_notify_plug_event(int insert, unsigned int intr_id)
 	hi->is_ext_insert = insert;
 	mutex_unlock(&hi->mutex_lock);
 
+#ifndef CONFIG_HTC_INSERT_NOTIFY_DELAY
 	if (hs_mgr_notifier.hs_insert)
 		hs_mgr_notifier.hs_insert(insert);
+#endif
 
 	cancel_delayed_work_sync(&mic_detect_work);
 	ret = cancel_delayed_work_sync(&insert_detect_work);
@@ -1113,7 +1214,11 @@ int hs_notify_key_event(int key_code)
 	if (hi->hs_35mm_type == HEADSET_UNKNOWN_MIC ||
 	    hi->hs_35mm_type == HEADSET_NO_MIC ||
 	    hi->h2w_35mm_type == HEADSET_NO_MIC)
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+		update_mic_status(0);
+#else
 		update_mic_status(HS_DEF_MIC_DETECT_COUNT);
+#endif
 	else if (hi->hs_35mm_type == HEADSET_UNSTABLE)
 		update_mic_status(0);
 	else if (!hs_hpin_stable()) {
@@ -1121,7 +1226,11 @@ int hs_notify_key_event(int key_code)
 		return 1;
 	} else if (hi->hs_35mm_type == HEADSET_UNPLUG && hi->is_ext_insert == 1) {
 		HS_LOG("MIC status is changed from float, re-polling to decide accessory type");
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+		update_mic_status(0);
+#else
 		update_mic_status(HS_DEF_MIC_DETECT_COUNT);
+#endif
 		return 1;
 	} else {
 		work = kzalloc(sizeof(struct button_work), GFP_KERNEL);
@@ -1253,6 +1362,13 @@ int hs_notify_key_irq(void)
 		wake_lock_timeout(&hi->hs_wake_lock, HS_WAKE_LOCK_TIMEOUT);
 		key_code = hs_mgr_notifier.hs_1wire_read_key();
 		if (key_code < 0) {
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+			hs_mgr_notifier.remote_adc(&adc);
+			if (adc > hi->pdata.headset_config[0].adc_max) {
+				hi->plugout_redetect = 1;
+				update_mic_status(0);
+			}
+#endif
 			wake_unlock(&hi->hs_wake_lock);
 			return 1;
 		}
@@ -1286,7 +1402,11 @@ int hs_notify_key_irq(void)
 		time_before_eq(jiffies, hi->hpin_jiffies + 10 * HZ)) {
 		HS_LOG("IGNORE key IRQ (Unstable HPIN)");
 		
+#ifdef CONFIG_HTC_HEADSET_INT_REDETECT
+		update_mic_status(0);
+#else
 		update_mic_status(HS_DEF_MIC_DETECT_COUNT);
+#endif
 	} else if (hs_hpin_stable()) {
 #ifndef CONFIG_HTC_HEADSET_ONE_WIRE
 		msleep(50);
@@ -2164,9 +2284,14 @@ static int headset_mgr_parser_dt(struct htc_hs_mgr_data *mgr)
     HS_LOG("DT:Headset type number = %d",htc_headset_mgr_data.headset_config_num);
 
 	hs_list = kzalloc(htc_headset_mgr_data.headset_config_num * sizeof(u32) * 3, GFP_KERNEL);
-	hs_typelist = kzalloc(htc_headset_mgr_data.headset_config_num * sizeof(struct headset_adc_config), GFP_KERNEL);
 	if (hs_list == NULL) {
 		HS_LOG("headset list alloc memry fail");
+		return -ENOMEM;
+		}
+	hs_typelist = kzalloc(htc_headset_mgr_data.headset_config_num * sizeof(struct headset_adc_config), GFP_KERNEL);
+	if (hs_typelist == NULL) {
+		kfree(hs_list);
+		HS_LOG("headset type list alloc memry fail");
 		return -ENOMEM;
 	}
 

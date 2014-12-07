@@ -9,6 +9,9 @@
  * archive for more details.
  */
 
+/*
+ * This file handles the architecture-dependent parts of hardware exceptions
+ */
 
 #include <linux/kernel.h>
 #include <linux/signal.h>
@@ -17,7 +20,7 @@
 #include <linux/module.h>
 
 #include <asm/exceptions.h>
-#include <asm/entry.h>		
+#include <asm/entry.h>		/* For KM CPU var */
 #include <linux/uaccess.h>
 #include <linux/errno.h>
 #include <linux/ptrace.h>
@@ -40,9 +43,13 @@ void die(const char *str, struct pt_regs *fp, long err)
 	printk(KERN_WARNING "Oops: %s, sig: %ld\n", str, err);
 	show_regs(fp);
 	spin_unlock_irq(&die_lock);
+	/* do_exit() should take care of panic'ing from an interrupt
+	 * context so we don't handle it here
+	 */
 	do_exit(err);
 }
 
+/* for user application debugging */
 asmlinkage void sw_exception(struct pt_regs *regs)
 {
 	_exception(SIGTRAP, regs, TRAP_BRKPT, regs->r16);
@@ -121,8 +128,8 @@ asmlinkage void full_exception(struct pt_regs *regs, unsigned int type,
 		break;
 	case MICROBLAZE_FPU_EXCEPTION:
 		pr_debug("FPU exception\n");
-		
-		
+		/* IEEE FP exception */
+		/* I removed fsr variable and use code var for storing fsr */
 		if (fsr & FSR_IO)
 			fsr = FPE_FLTINV;
 		else if (fsr & FSR_OF)
@@ -143,7 +150,7 @@ asmlinkage void full_exception(struct pt_regs *regs, unsigned int type,
 		break;
 #endif
 	default:
-	
+	/* FIXME what to do in unexpected exception */
 		printk(KERN_WARNING "Unexpected exception %02x "
 			"PC=%08x in %s mode\n", type, (unsigned int) addr,
 			kernel_mode(regs) ? "kernel" : "user");

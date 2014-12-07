@@ -70,13 +70,16 @@
  */
 
 struct ea_buffer {
-	int flag;		
-	int max_size;		
-	dxd_t new_ea;		
-	struct metapage *mp;	
-	struct jfs_ea_list *xattr;	
+	int flag;		/* Indicates what storage xattr points to */
+	int max_size;		/* largest xattr that fits in current buffer */
+	dxd_t new_ea;		/* dxd to replace ea when modifying xattr */
+	struct metapage *mp;	/* metapage containing ea list */
+	struct jfs_ea_list *xattr;	/* buffer containing ea list */
 };
 
+/*
+ * ea_buffer.flag values
+ */
 #define EA_INLINE	0x0001
 #define EA_EXTENT	0x0002
 #define EA_NEW		0x0004
@@ -94,6 +97,11 @@ static int is_known_namespace(const char *name)
 	return true;
 }
 
+/*
+ * These three routines are used to recognize on-disk extended attributes
+ * that are in a recognized namespace.  If the attribute is not recognized,
+ * "os2." is prepended to the name
+ */
 static int is_os2_xattr(struct jfs_ea *ea)
 {
 	return !is_known_namespace(ea->name);
@@ -122,16 +130,47 @@ static inline int copy_name(char *buffer, struct jfs_ea *ea)
 	return len;
 }
 
+/* Forward references */
 static void ea_release(struct inode *inode, struct ea_buffer *ea_buf);
 
+/*
+ * NAME: ea_write_inline
+ *
+ * FUNCTION: Attempt to write an EA inline if area is available
+ *
+ * PRE CONDITIONS:
+ *	Already verified that the specified EA is small enough to fit inline
+ *
+ * PARAMETERS:
+ *	ip	- Inode pointer
+ *	ealist	- EA list pointer
+ *	size	- size of ealist in bytes
+ *	ea	- dxd_t structure to be filled in with necessary EA information
+ *		  if we successfully copy the EA inline
+ *
+ * NOTES:
+ *	Checks if the inode's inline area is available.  If so, copies EA inline
+ *	and sets <ea> fields appropriately.  Otherwise, returns failure, EA will
+ *	have to be put into an extent.
+ *
+ * RETURNS: 0 for successful copy to inline area; -1 if area not available
+ */
 static int ea_write_inline(struct inode *ip, struct jfs_ea_list *ealist,
 			   int size, dxd_t * ea)
 {
 	struct jfs_inode_info *ji = JFS_IP(ip);
 
+	/*
+	 * Make sure we have an EA -- the NULL EA list is valid, but you
+	 * can't copy it!
+	 */
 	if (ealist && size > sizeof (struct jfs_ea_list)) {
 		assert(size <= sizeof (ji->i_inline_ea));
 
+		/*
+		 * See if the space is available or if it is already being
+		 * used for an inline EA.
+		 */
 		if (!(ji->mode2 & INLINEEA) && !(ji->ea.flag & DXD_INLINE))
 			return -EPERM;
 
@@ -147,7 +186,7 @@ static int ea_write_inline(struct inode *ip, struct jfs_ea_list *ealist,
 		DXDlength(ea, 0);
 		DXDaddress(ea, 0);
 
-		
+		/* Free up INLINE area */
 		if (ji->ea.flag & DXD_INLINE)
 			ji->mode2 |= INLINEEA;
 	}
@@ -155,6 +194,25 @@ static int ea_write_inline(struct inode *ip, struct jfs_ea_list *ealist,
 	return 0;
 }
 
+/*
+ * NAME: ea_write
+ *
+ * FUNCTION: Write an EA for an inode
+ *
+ * PRE CONDITIONS: EA has been verified
+ *
+ * PARAMETERS:
+ *	ip	- Inode pointer
+ *	ealist	- EA list pointer
+ *	size	- size of ealist in bytes
+ *	ea	- dxd_t structure to be filled in appropriately with where the
+ *		  EA was copied
+ *
+ * NOTES: Will write EA inline if able to, otherwise allocates blocks for an
+ *	extent and synchronously writes it to those blocks.
+ *
+ * RETURNS: 0 for success; Anything else indicates failure
+ */
 static int ea_write(struct inode *ip, struct jfs_ea_list *ealist, int size,
 		       dxd_t * ea)
 {
@@ -169,29 +227,42 @@ static int ea_write(struct inode *ip, struct jfs_ea_list *ealist, int size,
 	s32 bytes_to_write;
 	struct metapage *mp;
 
+	/*
+	 * Quick check to see if this is an in-linable EA.  Short EAs
+	 * and empty EAs are all in-linable, provided the space exists.
+	 */
 	if (!ealist || size <= sizeof (ji->i_inline_ea)) {
 		if (!ea_write_inline(ip, ealist, size, ea))
 			return 0;
 	}
 
-	
+	/* figure out how many blocks we need */
 	nblocks = (size + (sb->s_blocksize - 1)) >> sb->s_blocksize_bits;
 
-	
+	/* Allocate new blocks to quota. */
 	rc = dquot_alloc_block(ip, nblocks);
 	if (rc)
 		return rc;
 
 	rc = dbAlloc(ip, INOHINT(ip), nblocks, &blkno);
 	if (rc) {
-		
+		/*Rollback quota allocation. */
 		dquot_free_block(ip, nblocks);
 		return rc;
 	}
 
+	/*
+	 * Now have nblocks worth of storage to stuff into the FEALIST.
+	 * loop over the FEALIST copying data into the buffer one page at
+	 * a time.
+	 */
 	cp = (char *) ealist;
 	nbytes = size;
 	for (i = 0; i < nblocks; i += sbi->nbperpage) {
+		/*
+		 * Determine how many bytes for this request, and round up to
+		 * the nearest aggregate block size
+		 */
 		nb = min(PSIZE, nbytes);
 		bytes_to_write =
 		    ((((nb + sb->s_blocksize - 1)) >> sb->s_blocksize_bits))
@@ -204,8 +275,20 @@ static int ea_write(struct inode *ip, struct jfs_ea_list *ealist, int size,
 
 		memcpy(mp->data, cp, nb);
 
+		/*
+		 * We really need a way to propagate errors for
+		 * forced writes like this one.  --hch
+		 *
+		 * (__write_metapage => release_metapage => flush_metapage)
+		 */
 #ifdef _JFS_FIXME
 		if ((rc = flush_metapage(mp))) {
+			/*
+			 * the write failed -- this means that the buffer
+			 * is still assigned and the blocks are not being
+			 * used.  this seems like the best error recovery
+			 * we can get ...
+			 */
 			goto failed;
 		}
 #else
@@ -221,20 +304,31 @@ static int ea_write(struct inode *ip, struct jfs_ea_list *ealist, int size,
 	DXDlength(ea, nblocks);
 	DXDaddress(ea, blkno);
 
-	
+	/* Free up INLINE area */
 	if (ji->ea.flag & DXD_INLINE)
 		ji->mode2 |= INLINEEA;
 
 	return 0;
 
       failed:
-	
+	/* Rollback quota allocation. */
 	dquot_free_block(ip, nblocks);
 
 	dbFree(ip, blkno, nblocks);
 	return rc;
 }
 
+/*
+ * NAME: ea_read_inline
+ *
+ * FUNCTION: Read an inlined EA into user's buffer
+ *
+ * PARAMETERS:
+ *	ip	- Inode pointer
+ *	ealist	- Pointer to buffer to fill in with EA
+ *
+ * RETURNS: 0
+ */
 static int ea_read_inline(struct inode *ip, struct jfs_ea_list *ealist)
 {
 	struct jfs_inode_info *ji = JFS_IP(ip);
@@ -245,7 +339,7 @@ static int ea_read_inline(struct inode *ip, struct jfs_ea_list *ealist)
 		return 0;
 	}
 
-	
+	/* Sanity Check */
 	if ((sizeDXD(&ji->ea) > sizeof (ji->i_inline_ea)))
 		return -EIO;
 	if (le32_to_cpu(((struct jfs_ea_list *) &ji->i_inline_ea)->size)
@@ -256,6 +350,19 @@ static int ea_read_inline(struct inode *ip, struct jfs_ea_list *ealist)
 	return 0;
 }
 
+/*
+ * NAME: ea_read
+ *
+ * FUNCTION: copy EA data into user's buffer
+ *
+ * PARAMETERS:
+ *	ip	- Inode pointer
+ *	ealist	- Pointer to buffer to fill in with EA
+ *
+ * NOTES:  If EA is inline calls ea_read_inline() to copy EA.
+ *
+ * RETURNS: 0 for success; other indicates failure
+ */
 static int ea_read(struct inode *ip, struct jfs_ea_list *ealist)
 {
 	struct super_block *sb = ip->i_sb;
@@ -269,7 +376,7 @@ static int ea_read(struct inode *ip, struct jfs_ea_list *ealist)
 	s32 bytes_to_read;
 	struct metapage *mp;
 
-	
+	/* quick check for in-line EA */
 	if (ji->ea.flag & DXD_INLINE)
 		return ea_read_inline(ip, ealist);
 
@@ -286,7 +393,16 @@ static int ea_read(struct inode *ip, struct jfs_ea_list *ealist)
 	nblocks = lengthDXD(&ji->ea) << sbi->l2nbperpage;
 	blkno = addressDXD(&ji->ea) << sbi->l2nbperpage;
 
+	/*
+	 * I have found the disk blocks which were originally used to store
+	 * the FEALIST.  now i loop over each contiguous block copying the
+	 * data into the buffer.
+	 */
 	for (i = 0; i < nblocks; i += sbi->nbperpage) {
+		/*
+		 * Determine how many bytes for this request, and round up to
+		 * the nearest aggregate block size
+		 */
 		nb = min(PSIZE, nbytes);
 		bytes_to_read =
 		    ((((nb + sb->s_blocksize - 1)) >> sb->s_blocksize_bits))
@@ -305,6 +421,23 @@ static int ea_read(struct inode *ip, struct jfs_ea_list *ealist)
 	return 0;
 }
 
+/*
+ * NAME: ea_get
+ *
+ * FUNCTION: Returns buffer containing existing extended attributes.
+ *	     The size of the buffer will be the larger of the existing
+ *	     attributes size, or min_size.
+ *
+ *	     The buffer, which may be inlined in the inode or in the
+ *	     page cache must be release by calling ea_release or ea_put
+ *
+ * PARAMETERS:
+ *	inode	- Inode pointer
+ *	ea_buf	- Structure to be populated with ealist and its metadata
+ *	min_size- minimum size of buffer to be returned
+ *
+ * RETURNS: 0 for success; Other indicates failure
+ */
 static int ea_get(struct inode *inode, struct ea_buffer *ea_buf, int min_size)
 {
 	struct jfs_inode_info *ji = JFS_IP(inode);
@@ -316,7 +449,7 @@ static int ea_get(struct inode *inode, struct ea_buffer *ea_buf, int min_size)
 	int rc;
 	int quota_allocation = 0;
 
-	
+	/* When fsck.jfs clears a bad ea, it doesn't clear the size */
 	if (ji->ea.flag == 0)
 		ea_size = 0;
 
@@ -358,6 +491,10 @@ static int ea_get(struct inode *inode, struct ea_buffer *ea_buf, int min_size)
 	size = max(min_size, ea_size);
 
 	if (size > PSIZE) {
+		/*
+		 * To keep the rest of the code simple.  Allocate a
+		 * contiguous buffer to work with
+		 */
 		ea_buf->xattr = kmalloc(size, GFP_KERNEL);
 		if (ea_buf->xattr == NULL)
 			return -ENOMEM;
@@ -380,7 +517,7 @@ static int ea_get(struct inode *inode, struct ea_buffer *ea_buf, int min_size)
 	    sb->s_blocksize_bits;
 
 	if (blocks_needed > current_blocks) {
-		
+		/* Allocate new blocks to quota. */
 		rc = dquot_alloc_block(inode, blocks_needed);
 		if (rc)
 			return -EDQUOT;
@@ -444,7 +581,7 @@ static int ea_get(struct inode *inode, struct ea_buffer *ea_buf, int min_size)
 	return ea_size;
 
       clean_up:
-	
+	/* Rollback quota allocation */
 	if (quota_allocation)
 		dquot_free_block(inode, quota_allocation);
 
@@ -486,10 +623,10 @@ static int ea_put(tid_t tid, struct inode *inode, struct ea_buffer *ea_buf,
 		rc = ea_write(inode, ea_buf->xattr, new_size, &ea_buf->new_ea);
 		kfree(ea_buf->xattr);
 	} else if (ea_buf->flag & EA_NEW) {
-		
+		/* We have already allocated a new dxd */
 		flush_metapage(ea_buf->mp);
 	} else {
-		
+		/* ->xattr must point to original ea's metapage */
 		rc = ea_write(inode, ea_buf->xattr, new_size, &ea_buf->new_ea);
 		discard_metapage(ea_buf->mp);
 	}
@@ -519,7 +656,7 @@ static int ea_put(tid_t tid, struct inode *inode, struct ea_buffer *ea_buf,
 		ji->ea.size = 0;
 	}
 
-	
+	/* If old blocks exist, they must be removed from quota allocation. */
 	if (old_blocks)
 		dquot_free_block(inode, old_blocks);
 
@@ -528,6 +665,12 @@ static int ea_put(tid_t tid, struct inode *inode, struct ea_buffer *ea_buf,
 	return 0;
 }
 
+/*
+ * can_set_system_xattr
+ *
+ * This code is specific to the system.* namespace.  It contains policy
+ * which doesn't belong in the main xattr codepath.
+ */
 static int can_set_system_xattr(struct inode *inode, const char *name,
 				const void *value, size_t value_len)
 {
@@ -538,6 +681,9 @@ static int can_set_system_xattr(struct inode *inode, const char *name,
 	if (!inode_owner_or_capable(inode))
 		return -EPERM;
 
+	/*
+	 * POSIX_ACL_XATTR_ACCESS is tied to i_mode
+	 */
 	if (strcmp(name, POSIX_ACL_XATTR_ACCESS) == 0) {
 		acl = posix_acl_from_xattr(value, value_len);
 		if (IS_ERR(acl)) {
@@ -557,6 +703,9 @@ static int can_set_system_xattr(struct inode *inode, const char *name,
 			}
 			mark_inode_dirty(inode);
 		}
+		/*
+		 * We're changing the ACL.  Get rid of the cached one
+		 */
 		forget_cached_acl(inode, ACL_TYPE_ACCESS);
 
 		return 0;
@@ -570,14 +719,22 @@ static int can_set_system_xattr(struct inode *inode, const char *name,
 		}
 		posix_acl_release(acl);
 
+		/*
+		 * We're changing the default ACL.  Get rid of the cached one
+		 */
 		forget_cached_acl(inode, ACL_TYPE_DEFAULT);
 
 		return 0;
 	}
-#endif			
+#endif			/* CONFIG_JFS_POSIX_ACL */
 	return -EOPNOTSUPP;
 }
 
+/*
+ * Most of the permission checking is done by xattr_permission in the vfs.
+ * The local file system is responsible for handling the system.* namespace.
+ * We also need to verify that this is a namespace that we recognize.
+ */
 static int can_set_xattr(struct inode *inode, const char *name,
 			 const void *value, size_t value_len)
 {
@@ -585,11 +742,19 @@ static int can_set_xattr(struct inode *inode, const char *name,
 		return can_set_system_xattr(inode, name, value, value_len);
 
 	if (!strncmp(name, XATTR_OS2_PREFIX, XATTR_OS2_PREFIX_LEN)) {
+		/*
+		 * This makes sure that we aren't trying to set an
+		 * attribute in a different namespace by prefixing it
+		 * with "os2."
+		 */
 		if (is_known_namespace(name + XATTR_OS2_PREFIX_LEN))
 				return -EOPNOTSUPP;
 		return 0;
 	}
 
+	/*
+	 * Don't allow setting an attribute in an unknown namespace.
+	 */
 	if (strncmp(name, XATTR_TRUSTED_PREFIX, XATTR_TRUSTED_PREFIX_LEN) &&
 	    strncmp(name, XATTR_SECURITY_PREFIX, XATTR_SECURITY_PREFIX_LEN) &&
 	    strncmp(name, XATTR_USER_PREFIX, XATTR_USER_PREFIX_LEN))
@@ -667,6 +832,10 @@ int __jfs_setxattr(tid_t tid, struct inode *inode, const char *name,
 		new_size += sizeof (struct jfs_ea) + namelen + 1 + value_len;
 
 	if (new_size > ea_buf.max_size) {
+		/*
+		 * We need to allocate more space for merged ea list.
+		 * We should only have loop to again: once.
+		 */
 		ea_release(inode, &ea_buf);
 		xattr_size = ea_get(inode, &ea_buf, new_size);
 		if (xattr_size < 0) {
@@ -676,19 +845,19 @@ int __jfs_setxattr(tid_t tid, struct inode *inode, const char *name,
 		goto again;
 	}
 
-	
+	/* Remove old ea of the same name */
 	if (found) {
-		
+		/* number of bytes following target EA */
 		length = (char *) END_EALIST(ealist) - (char *) next_ea;
 		if (length > 0)
 			memmove(old_ea, next_ea, length);
 		xattr_size -= old_ea_size;
 	}
 
-	
+	/* Add new entry to the end */
 	if (value) {
 		if (xattr_size == 0)
-			
+			/* Completely new ea list */
 			xattr_size = sizeof (struct jfs_ea_list);
 
 		ea = (struct jfs_ea *) ((char *) ealist + xattr_size);
@@ -702,7 +871,7 @@ int __jfs_setxattr(tid_t tid, struct inode *inode, const char *name,
 		xattr_size += EA_SIZE(ea);
 	}
 
-	
+	/* DEBUG - If we did this right, these number match */
 	if (xattr_size != new_size) {
 		printk(KERN_ERR
 		       "jfs_xsetattr: xattr_size = %d, new_size = %d\n",
@@ -712,6 +881,9 @@ int __jfs_setxattr(tid_t tid, struct inode *inode, const char *name,
 		goto release;
 	}
 
+	/*
+	 * If we're left with an empty list, there's no ea
+	 */
 	if (new_size == sizeof (struct jfs_ea_list))
 		new_size = 0;
 
@@ -741,7 +913,7 @@ int jfs_setxattr(struct dentry *dentry, const char *name, const void *value,
 	if ((rc = can_set_xattr(inode, name, value, value_len)))
 		return rc;
 
-	if (value == NULL) {	
+	if (value == NULL) {	/* empty EA, do not remove */
 		value = "";
 		value_len = 0;
 	}
@@ -783,11 +955,11 @@ ssize_t __jfs_getxattr(struct inode *inode, const char *name, void *data,
 
 	ealist = (struct jfs_ea_list *) ea_buf.xattr;
 
-	
+	/* Find the named attribute */
 	for (ea = FIRST_EA(ealist); ea < END_EALIST(ealist); ea = NEXT_EA(ea))
 		if ((namelen == ea->namelen) &&
 		    memcmp(name, ea->name, namelen) == 0) {
-			
+			/* Found it */
 			size = le16_to_cpu(ea->valuelen);
 			if (!data)
 				goto release;
@@ -815,7 +987,14 @@ ssize_t jfs_getxattr(struct dentry *dentry, const char *name, void *data,
 	int err;
 
 	if (strncmp(name, XATTR_OS2_PREFIX, XATTR_OS2_PREFIX_LEN) == 0) {
+		/*
+		 * skip past "os2." prefix
+		 */
 		name += XATTR_OS2_PREFIX_LEN;
+		/*
+		 * Don't allow retrieving properly prefixed attributes
+		 * by prepending them with "os2."
+		 */
 		if (is_known_namespace(name))
 			return -EOPNOTSUPP;
 	}
@@ -825,6 +1004,9 @@ ssize_t jfs_getxattr(struct dentry *dentry, const char *name, void *data,
 	return err;
 }
 
+/*
+ * No special permissions are needed to list attributes except for trusted.*
+ */
 static inline int can_list(struct jfs_ea *ea)
 {
 	return (strncmp(ea->name, XATTR_TRUSTED_PREFIX,
@@ -855,7 +1037,7 @@ ssize_t jfs_listxattr(struct dentry * dentry, char *data, size_t buf_size)
 
 	ealist = (struct jfs_ea_list *) ea_buf.xattr;
 
-	
+	/* compute required size of list */
 	for (ea = FIRST_EA(ealist); ea < END_EALIST(ealist); ea = NEXT_EA(ea)) {
 		if (can_list(ea))
 			size += name_size(ea) + 1;
@@ -869,7 +1051,7 @@ ssize_t jfs_listxattr(struct dentry * dentry, char *data, size_t buf_size)
 		goto release;
 	}
 
-	
+	/* Copy attribute names to buffer */
 	buffer = data;
 	for (ea = FIRST_EA(ealist); ea < END_EALIST(ealist); ea = NEXT_EA(ea)) {
 		if (can_list(ea)) {

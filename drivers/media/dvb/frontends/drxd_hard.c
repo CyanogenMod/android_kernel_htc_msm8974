@@ -60,6 +60,7 @@
 #define DRX_LOCK_FEC   2
 #define DRX_LOCK_DEMOD 4
 
+/****************************************************************************/
 
 enum CSCDState {
 	CSCD_INIT = 0,
@@ -87,11 +88,11 @@ enum OperationMode {
 
 struct SCfgAgc {
 	enum AGC_CTRL_MODE ctrlMode;
-	u16 outputLevel;	
-	u16 settleLevel;	
-	u16 minOutputLevel;	
-	u16 maxOutputLevel;	
-	u16 speed;		
+	u16 outputLevel;	/* range [0, ... , 1023], 1/n of fullscale range */
+	u16 settleLevel;	/* range [0, ... , 1023], 1/n of fullscale range */
+	u16 minOutputLevel;	/* range [0, ... , 1023], 1/n of fullscale range */
+	u16 maxOutputLevel;	/* range [0, ... , 1023], 1/n of fullscale range */
+	u16 speed;		/* range [0, ... , 1023], 1/n of fullscale range */
 
 	u16 R1;
 	u16 R2;
@@ -201,6 +202,9 @@ struct drxd_state {
 
 };
 
+/****************************************************************************/
+/* I2C **********************************************************************/
+/****************************************************************************/
 
 static int i2c_write(struct i2c_adapter *adap, u8 adr, u8 * data, int len)
 {
@@ -354,6 +358,9 @@ static int WriteTable(struct drxd_state *state, u8 * pTable)
 	return status;
 }
 
+/****************************************************************************/
+/****************************************************************************/
+/****************************************************************************/
 
 static int ResetCEFR(struct drxd_state *state)
 {
@@ -397,7 +404,7 @@ static int InitCE(struct drxd_state *state)
 				break;
 		}
 
-		
+		/* start ce */
 		status = Write16(state, B_CE_REG_COMM_EXEC__A, 0x0001, 0);
 		if (status < 0)
 			break;
@@ -414,15 +421,15 @@ static int StopOC(struct drxd_state *state)
 	u16 dtoIncHip = 0;
 
 	do {
-		
+		/* Store output configuration */
 		status = Read16(state, EC_OC_REG_SNC_ISC_LVL__A, &ocSyncLvl, 0);
 		if (status < 0)
 			break;
-		
+		/* CHK_ERROR(Read16(EC_OC_REG_OC_MODE_LOP__A, &ocModeLop)); */
 		state->m_EcOcRegSncSncLvl = ocSyncLvl;
-		
+		/* m_EcOcRegOcModeLop = ocModeLop; */
 
-		
+		/* Flush FIFO (byte-boundary) at fixed rate */
 		status = Read16(state, EC_OC_REG_RCN_MAP_LOP__A, &dtoIncLop, 0);
 		if (status < 0)
 			break;
@@ -445,19 +452,19 @@ static int StopOC(struct drxd_state *state)
 			break;
 
 		msleep(1);
-		
+		/* Output pins to '0' */
 		status = Write16(state, EC_OC_REG_OCR_MPG_UOS__A, EC_OC_REG_OCR_MPG_UOS__M, 0);
 		if (status < 0)
 			break;
 
-		
+		/* Force the OC out of sync */
 		ocSyncLvl &= ~(EC_OC_REG_SNC_ISC_LVL_OSC__M);
 		status = Write16(state, EC_OC_REG_SNC_ISC_LVL__A, ocSyncLvl, 0);
 		if (status < 0)
 			break;
 		ocModeLop &= ~(EC_OC_REG_OC_MODE_LOP_PAR_ENA__M);
 		ocModeLop |= EC_OC_REG_OC_MODE_LOP_PAR_ENA_ENABLE;
-		ocModeLop |= 0x2;	
+		ocModeLop |= 0x2;	/* Magically-out-of-sync */
 		status = Write16(state, EC_OC_REG_OC_MODE_LOP__A, ocModeLop, 0);
 		if (status < 0)
 			break;
@@ -477,12 +484,12 @@ static int StartOC(struct drxd_state *state)
 	int status = 0;
 
 	do {
-		
+		/* Stop OC */
 		status = Write16(state, EC_OC_REG_COMM_EXEC__A, EC_OC_REG_COMM_EXEC_CTL_HOLD, 0);
 		if (status < 0)
 			break;
 
-		
+		/* Restore output configuration */
 		status = Write16(state, EC_OC_REG_SNC_ISC_LVL__A, state->m_EcOcRegSncSncLvl, 0);
 		if (status < 0)
 			break;
@@ -490,12 +497,12 @@ static int StartOC(struct drxd_state *state)
 		if (status < 0)
 			break;
 
-		
+		/* Output pins active again */
 		status = Write16(state, EC_OC_REG_OCR_MPG_UOS__A, EC_OC_REG_OCR_MPG_UOS_INIT, 0);
 		if (status < 0)
 			break;
 
-		
+		/* Start OC */
 		status = Write16(state, EC_OC_REG_COMM_EXEC__A, EC_OC_REG_COMM_EXEC_CTL_ACTIVE, 0);
 		if (status < 0)
 			break;
@@ -561,6 +568,7 @@ static int DRX_GetLockStatus(struct drxd_state *state, u32 * pLockStatus)
 	return 0;
 }
 
+/****************************************************************************/
 
 static int SetCfgIfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 {
@@ -601,7 +609,7 @@ static int SetCfgIfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			u16 FeAgRegEgcSetLvl;
 			u16 slope, offset;
 
-			
+			/* == Mode == */
 
 			status = Read16(state, FE_AG_REG_AG_MODE_LOP__A, &FeAgRegAgModeLop, 0);
 			if (status < 0)
@@ -613,7 +621,7 @@ static int SetCfgIfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			if (status < 0)
 				break;
 
-			
+			/* == Settle level == */
 
 			FeAgRegEgcSetLvl = (u16) ((cfg->settleLevel >> 1) &
 						  FE_AG_REG_EGC_SET_LVL__M);
@@ -621,7 +629,7 @@ static int SetCfgIfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			if (status < 0)
 				break;
 
-			
+			/* == Min/Max == */
 
 			slope = (u16) ((cfg->maxOutputLevel -
 					cfg->minOutputLevel) / 2);
@@ -635,7 +643,7 @@ static int SetCfgIfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			if (status < 0)
 				break;
 
-			
+			/* == Speed == */
 			{
 				const u16 maxRur = 8;
 				const u16 slowIncrDecLUT[] = { 3, 4, 4, 5, 6 };
@@ -662,6 +670,13 @@ static int SetCfgIfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 					rurCount = maxRur - invRurCount;
 				}
 
+				/*
+				   fastInc = default *
+				   (2^(fineSpeed/fineSteps))
+				   => range[default...2*default>
+				   slowInc = default *
+				   (2^(fineSpeed/fineSteps))
+				 */
 				{
 					u16 fastIncrDec =
 					    fastIncrDecLUT[fineSpeed /
@@ -692,7 +707,7 @@ static int SetCfgIfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 		} while (0);
 
 	} else {
-		
+		/* No OFF mode for IF control */
 		return -1;
 	}
 	return status;
@@ -717,9 +732,9 @@ static int SetCfgRfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			if (status < 0)
 				break;
 
-			
+			/*==== Mode ====*/
 
-			
+			/* Powerdown PD2, WRI source */
 			state->m_FeAgRegAgPwd &= ~(FE_AG_REG_AG_PWD_PWD_PD2__M);
 			state->m_FeAgRegAgPwd |=
 			    FE_AG_REG_AG_PWD_PWD_PD2_DISABLE;
@@ -738,7 +753,7 @@ static int SetCfgRfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			if (status < 0)
 				break;
 
-			
+			/* enable AGC2 pin */
 			{
 				u16 FeAgRegAgAgcSio = 0;
 				status = Read16(state, FE_AG_REG_AG_AGC_SIO__A, &FeAgRegAgAgcSio, 0x0000);
@@ -759,8 +774,8 @@ static int SetCfgRfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 
 		do {
 			u16 level;
-			
-			
+			/* Automatic control */
+			/* Powerup PD2, AGC2 as output, TGC source */
 			(state->m_FeAgRegAgPwd) &=
 			    ~(FE_AG_REG_AG_PWD_PWD_PD2__M);
 			(state->m_FeAgRegAgPwd) |=
@@ -779,18 +794,18 @@ static int SetCfgRfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			status = Write16(state, FE_AG_REG_AG_MODE_LOP__A, AgModeLop, 0x0000);
 			if (status < 0)
 				break;
-			
+			/* Settle level */
 			level = (((cfg->settleLevel) >> 4) &
 				 FE_AG_REG_TGC_SET_LVL__M);
 			status = Write16(state, FE_AG_REG_TGC_SET_LVL__A, level, 0x0000);
 			if (status < 0)
 				break;
 
-			
+			/* Min/max: don't care */
 
-			
+			/* Speed: TODO */
 
-			
+			/* enable AGC2 pin */
 			{
 				u16 FeAgRegAgAgcSio = 0;
 				status = Read16(state, FE_AG_REG_AG_AGC_SIO__A, &FeAgRegAgAgcSio, 0x0000);
@@ -810,8 +825,8 @@ static int SetCfgRfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 		u16 AgModeLop = 0;
 
 		do {
-			
-			
+			/* No RF AGC control */
+			/* Powerdown PD2, AGC2 as output, WRI source */
 			(state->m_FeAgRegAgPwd) &=
 			    ~(FE_AG_REG_AG_PWD_PWD_PD2__M);
 			(state->m_FeAgRegAgPwd) |=
@@ -831,7 +846,7 @@ static int SetCfgRfAgc(struct drxd_state *state, struct SCfgAgc *cfg)
 			if (status < 0)
 				break;
 
-			
+			/* set FeAgRegAgAgcSio AGC2 (RF) as input */
 			{
 				u16 FeAgRegAgAgcSio = 0;
 				status = Read16(state, FE_AG_REG_AG_AGC_SIO__A, &FeAgRegAgAgcSio, 0x0000);
@@ -860,6 +875,16 @@ static int ReadIFAgc(struct drxd_state *state, u32 * pValue)
 		status = Read16(state, FE_AG_REG_GC1_AGC_DAT__A, &Value, 0);
 		Value &= FE_AG_REG_GC1_AGC_DAT__M;
 		if (status >= 0) {
+			/*           3.3V
+			   |
+			   R1
+			   |
+			   Vin - R3 - * -- Vout
+			   |
+			   R2
+			   |
+			   GND
+			 */
 			u32 R1 = state->if_agc_cfg.R1;
 			u32 R2 = state->if_agc_cfg.R2;
 			u32 R3 = state->if_agc_cfg.R3;
@@ -912,8 +937,8 @@ static int DownloadMicrocode(struct drxd_state *state,
 	int i, status = 0;
 
 	pSrc = (u8 *) pMCImage;
-	
-	
+	/* We're not using Flags */
+	/* Flags = (pSrc[0] << 8) | pSrc[1]; */
 	pSrc += sizeof(u16);
 	offset += sizeof(u16);
 	nBlocks = (pSrc[0] << 8) | pSrc[1];
@@ -930,13 +955,13 @@ static int DownloadMicrocode(struct drxd_state *state,
 		pSrc += sizeof(u16);
 		offset += sizeof(u16);
 
-		
-		
+		/* We're not using Flags */
+		/* u16 Flags = (pSrc[0] << 8) | pSrc[1]; */
 		pSrc += sizeof(u16);
 		offset += sizeof(u16);
 
-		
-		
+		/* We're not using BlockCRC */
+		/* u16 BlockCRC = (pSrc[0] << 8) | pSrc[1]; */
 		pSrc += sizeof(u16);
 		offset += sizeof(u16);
 
@@ -1001,7 +1026,7 @@ static int HI_CfgCommand(struct drxd_state *state)
 static int InitHI(struct drxd_state *state)
 {
 	state->hi_cfg_wakeup_key = (state->chip_adr);
-	
+	/* port/bridge/power down ctrl */
 	state->hi_cfg_ctrl = HI_RA_RAM_SRV_CFG_ACT_SLV0_ON;
 	return HI_CfgCommand(state);
 }
@@ -1043,15 +1068,15 @@ static int AtomicReadBlock(struct drxd_state *state,
 	int status;
 	int i = 0;
 
-	
+	/* Parameter check */
 	if ((!pData) || ((DataSize & 1) != 0))
 		return -1;
 
 	mutex_lock(&state->mutex);
 
 	do {
-		
-		
+		/* Instruct HI to read n bytes */
+		/* TODO use proper names forthese egisters */
 		status = Write16(state, HI_RA_RAM_SRV_CFG_KEY__A, (HI_TR_FUNC_ADDR & 0xFFFF), 0);
 		if (status < 0)
 			break;
@@ -1115,11 +1140,11 @@ static int StopAllProcessors(struct drxd_state *state)
 static int EnableAndResetMB(struct drxd_state *state)
 {
 	if (state->type_A) {
-		
+		/* disable? monitor bus observe @ EC_OC */
 		Write16(state, EC_OC_REG_OC_MON_SIO__A, 0x0000, 0x0000);
 	}
 
-	
+	/* do inverse broadcast, followed by explicit write to HI */
 	Write16(state, HI_COMM_MB__A, 0x0000, DRX_I2C_BROADCAST);
 	Write16(state, HI_COMM_MB__A, 0x0000, 0x0000);
 	return 0;
@@ -1160,6 +1185,7 @@ static int ResetECOD(struct drxd_state *state)
 	return status;
 }
 
+/* Configure PGA switch */
 
 static int SetCfgPga(struct drxd_state *state, int pgaSwitch)
 {
@@ -1168,8 +1194,8 @@ static int SetCfgPga(struct drxd_state *state, int pgaSwitch)
 	u16 AgModeHip = 0;
 	do {
 		if (pgaSwitch) {
-			
-			
+			/* PGA on */
+			/* fine gain */
 			status = Read16(state, B_FE_AG_REG_AG_MODE_LOP__A, &AgModeLop, 0x0000);
 			if (status < 0)
 				break;
@@ -1179,7 +1205,7 @@ static int SetCfgPga(struct drxd_state *state, int pgaSwitch)
 			if (status < 0)
 				break;
 
-			
+			/* coarse gain */
 			status = Read16(state, B_FE_AG_REG_AG_MODE_HIP__A, &AgModeHip, 0x0000);
 			if (status < 0)
 				break;
@@ -1189,13 +1215,15 @@ static int SetCfgPga(struct drxd_state *state, int pgaSwitch)
 			if (status < 0)
 				break;
 
+			/* enable fine and coarse gain, enable AAF,
+			   no ext resistor */
 			status = Write16(state, B_FE_AG_REG_AG_PGA_MODE__A, B_FE_AG_REG_AG_PGA_MODE_PFY_PCY_AFY_REN, 0x0000);
 			if (status < 0)
 				break;
 		} else {
-			
+			/* PGA off, bypass */
 
-			
+			/* fine gain */
 			status = Read16(state, B_FE_AG_REG_AG_MODE_LOP__A, &AgModeLop, 0x0000);
 			if (status < 0)
 				break;
@@ -1205,7 +1233,7 @@ static int SetCfgPga(struct drxd_state *state, int pgaSwitch)
 			if (status < 0)
 				break;
 
-			
+			/* coarse gain */
 			status = Read16(state, B_FE_AG_REG_AG_MODE_HIP__A, &AgModeHip, 0x0000);
 			if (status < 0)
 				break;
@@ -1215,6 +1243,8 @@ static int SetCfgPga(struct drxd_state *state, int pgaSwitch)
 			if (status < 0)
 				break;
 
+			/* disable fine and coarse gain, enable AAF,
+			   no ext resistor */
 			status = Write16(state, B_FE_AG_REG_AG_PGA_MODE__A, B_FE_AG_REG_AG_PGA_MODE_PFN_PCN_AFY_REN, 0x0000);
 			if (status < 0)
 				break;
@@ -1266,6 +1296,10 @@ static int InitFE(struct drxd_state *state)
 
 static int InitFT(struct drxd_state *state)
 {
+	/*
+	   norm OFFSET,  MB says =2 voor 8K en =3 voor 2K waarschijnlijk
+	   SC stuff
+	 */
 	return Write16(state, FT_REG_COMM_EXEC__A, 0x0001, 0x0000);
 }
 
@@ -1384,7 +1418,7 @@ static int ConfigureMPEGOutput(struct drxd_state *state, int bEnableOutput)
 		u16 EcOcRegOcModeHip = 0;
 		u16 EcOcRegOcMpgSio = 0;
 
-		
+		/*CHK_ERROR(Read16(state, EC_OC_REG_OC_MODE_LOP__A, &EcOcRegOcModeLop, 0)); */
 
 		if (state->operation_mode == OM_DVBT_Diversity_Front) {
 			if (bEnableOutput) {
@@ -1402,7 +1436,7 @@ static int ConfigureMPEGOutput(struct drxd_state *state, int bEnableOutput)
 			else
 				EcOcRegOcMpgSio |= EC_OC_REG_OC_MPG_SIO__M;
 
-			
+			/* Don't Insert RS Byte */
 			if (state->insert_rs_byte) {
 				EcOcRegOcModeLop &=
 				    (~(EC_OC_REG_OC_MODE_LOP_PAR_ENA__M));
@@ -1419,7 +1453,7 @@ static int ConfigureMPEGOutput(struct drxd_state *state, int bEnableOutput)
 				    EC_OC_REG_OC_MODE_HIP_MPG_PAR_VAL_DISABLE;
 			}
 
-			
+			/* Mode = Parallel */
 			if (state->enable_parallel)
 				EcOcRegOcModeLop &=
 				    (~(EC_OC_REG_OC_MODE_LOP_MPG_TRM_MDE__M));
@@ -1427,27 +1461,27 @@ static int ConfigureMPEGOutput(struct drxd_state *state, int bEnableOutput)
 				EcOcRegOcModeLop |=
 				    EC_OC_REG_OC_MODE_LOP_MPG_TRM_MDE_SERIAL;
 		}
-		
-		
+		/* Invert Data */
+		/* EcOcRegIprInvMpg |= 0x00FF; */
 		EcOcRegIprInvMpg &= (~(0x00FF));
 
-		
-		
+		/* Invert Error ( we don't use the pin ) */
+		/*  EcOcRegIprInvMpg |= 0x0100; */
 		EcOcRegIprInvMpg &= (~(0x0100));
 
-		
-		
+		/* Invert Start ( we don't use the pin ) */
+		/* EcOcRegIprInvMpg |= 0x0200; */
 		EcOcRegIprInvMpg &= (~(0x0200));
 
-		
-		
+		/* Invert Valid ( we don't use the pin ) */
+		/* EcOcRegIprInvMpg |= 0x0400; */
 		EcOcRegIprInvMpg &= (~(0x0400));
 
-		
-		
+		/* Invert Clock */
+		/* EcOcRegIprInvMpg |= 0x0800; */
 		EcOcRegIprInvMpg &= (~(0x0800));
 
-		
+		/* EcOcRegOcModeLop =0x05; */
 		status = Write16(state, EC_OC_REG_IPR_INV_MPG__A, EcOcRegIprInvMpg, 0);
 		if (status < 0)
 			break;
@@ -1473,7 +1507,7 @@ static int SetDeviceTypeId(struct drxd_state *state)
 		status = Read16(state, CC_REG_JTAGID_L__A, &deviceId, 0);
 		if (status < 0)
 			break;
-		
+		/* TODO: why twice? */
 		status = Read16(state, CC_REG_JTAGID_L__A, &deviceId, 0);
 		if (status < 0)
 			break;
@@ -1482,7 +1516,7 @@ static int SetDeviceTypeId(struct drxd_state *state)
 		state->type_A = 0;
 		state->PGA = 0;
 		state->diversity = 0;
-		if (deviceId == 0) {	
+		if (deviceId == 0) {	/* on A2 only 3975 available */
 			state->type_A = 1;
 			printk(KERN_INFO "DRX3975D-A2\n");
 		} else {
@@ -1510,7 +1544,7 @@ static int SetDeviceTypeId(struct drxd_state *state)
 	if (status < 0)
 		return status;
 
-	
+	/* Init Table selection */
 	state->m_InitAtomicRead = DRXD_InitAtomicRead;
 	state->m_InitSC = DRXD_InitSC;
 	state->m_ResetECRAM = DRXD_ResetECRAM;
@@ -1563,13 +1597,15 @@ static int CorrectSysClockDeviation(struct drxd_state *state)
 	s32 nomincr = 0;
 	u32 bandwidth = 0;
 	u32 sysClockInHz = 0;
-	u32 sysClockFreq = 0;	
+	u32 sysClockFreq = 0;	/* in kHz */
 	s16 oscClockDeviation;
 	s16 Diff;
 
 	do {
-		
+		/* Retrieve bandwidth and incr, sanity check */
 
+		/* These accesses should be AtomicReadReg32, but that
+		   causes trouble (at least for diversity */
 		status = Read32(state, LC_RA_RAM_IFINCR_NOM_L__A, ((u32 *) &nomincr), 0);
 		if (status < 0)
 			break;
@@ -1600,14 +1636,16 @@ static int CorrectSysClockDeviation(struct drxd_state *state)
 			break;
 		}
 
+		/* Compute new sysclock value
+		   sysClockFreq = (((incr + 2^23)*bandwidth)/2^21)/1000 */
 		incr += (1 << 23);
 		sysClockInHz = MulDiv32(incr, bandwidth, 1 << 21);
 		sysClockFreq = (u32) (sysClockInHz / 1000);
-		
+		/* rounding */
 		if ((sysClockInHz % 1000) > 500)
 			sysClockFreq++;
 
-		
+		/* Compute clock deviation in ppm */
 		oscClockDeviation = (u16) ((((s32) (sysClockFreq) -
 					     (s32)
 					     (state->expected_sys_clock_freq)) *
@@ -1616,7 +1654,7 @@ static int CorrectSysClockDeviation(struct drxd_state *state)
 					   (state->expected_sys_clock_freq));
 
 		Diff = oscClockDeviation - state->osc_clock_deviation;
-		
+		/*printk(KERN_INFO "sysclockdiff=%d\n", Diff); */
 		if (Diff >= -200 && Diff <= 200) {
 			state->sys_clock_freq = (u16) sysClockFreq;
 			if (oscClockDeviation != state->osc_clock_deviation) {
@@ -1628,10 +1666,12 @@ static int CorrectSysClockDeviation(struct drxd_state *state)
 					    oscClockDeviation;
 				}
 			}
-			
+			/* switch OFF SRMM scan in SC */
 			status = Write16(state, SC_RA_RAM_SAMPLE_RATE_COUNT__A, DRXD_OSCDEV_DONT_SCAN, 0);
 			if (status < 0)
 				break;
+			/* overrule FE_IF internal value for
+			   proper re-locking */
 			status = Write16(state, SC_RA_RAM_IF_SAVE__AX, state->current_fe_if_incr, 0);
 			if (status < 0)
 				break;
@@ -1668,7 +1708,7 @@ static int DRX_Stop(struct drxd_state *state)
 			break;
 
 		if (state->type_A) {
-			
+			/* Stop relevant processors off the device */
 			status = Write16(state, EC_OD_REG_COMM_EXEC__A, 0x0000, 0x0000);
 			if (status < 0)
 				break;
@@ -1680,7 +1720,7 @@ static int DRX_Stop(struct drxd_state *state)
 			if (status < 0)
 				break;
 		} else {
-			
+			/* Stop all processors except HI & CC & FE */
 			status = Write16(state, B_SC_COMM_EXEC__A, SC_COMM_EXEC_CTL_STOP, 0);
 			if (status < 0)
 				break;
@@ -1736,6 +1776,8 @@ int SetOperationMode(struct drxd_state *state, int oMode)
 			status = WriteTable(state, state->m_InitDiversityEnd);
 			break;
 		case OM_Default:
+			/* We need to check how to
+			   get DRXD out of diversity */
 		default:
 			status = WriteTable(state, state->m_DisableDiversity);
 			break;
@@ -1776,7 +1818,7 @@ static int StartDiversity(struct drxd_state *state)
 				break;
 			rcControl &= ~(B_EQ_REG_RC_SEL_CAR_FFTMODE__M);
 			rcControl |= B_EQ_REG_RC_SEL_CAR_DIV_ON |
-			    
+			    /*  combining enabled */
 			    B_EQ_REG_RC_SEL_CAR_MEAS_A_CC |
 			    B_EQ_REG_RC_SEL_CAR_PASS_A_CC |
 			    B_EQ_REG_RC_SEL_CAR_LOCAL_A_CC;
@@ -1793,19 +1835,30 @@ static int SetFrequencyShift(struct drxd_state *state,
 {
 	int negativeShift = (state->tuner_mirrors == channelMirrored);
 
+	/* Handle all mirroring
+	 *
+	 * Note: ADC mirroring (aliasing) is implictly handled by limiting
+	 * feFsRegAddInc to 28 bits below
+	 * (if the result before masking is more than 28 bits, this means
+	 *  that the ADC is mirroring.
+	 * The masking is in fact the aliasing of the ADC)
+	 *
+	 */
 
-	
+	/* Compute register value, unsigned computation */
 	state->fe_fs_add_incr = MulDiv32(state->intermediate_freq +
 					 offsetFreq,
 					 1 << 28, state->sys_clock_freq);
-	
+	/* Remove integer part */
 	state->fe_fs_add_incr &= 0x0FFFFFFFL;
 	if (negativeShift)
 		state->fe_fs_add_incr = ((1 << 28) - state->fe_fs_add_incr);
 
+	/* Save the frequency shift without tunerOffset compensation
+	   for CtrlGetChannel. */
 	state->org_fe_fs_add_incr = MulDiv32(state->intermediate_freq,
 					     1 << 28, state->sys_clock_freq);
-	
+	/* Remove integer part */
 	state->org_fe_fs_add_incr &= 0x0FFFFFFFL;
 	if (negativeShift)
 		state->org_fe_fs_add_incr = ((1L << 28) -
@@ -1908,7 +1961,7 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 				break;
 		}
 
-		
+		/* Restore current IF & RF AGC settings */
 
 		status = SetCfgIfAgc(state, &state->if_agc_cfg);
 		if (status < 0)
@@ -1920,9 +1973,9 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 		mirrorFreqSpect = (state->props.inversion == INVERSION_ON);
 
 		switch (p->transmission_mode) {
-		default:	
+		default:	/* Not set, detect it automatically */
 			operationMode |= SC_RA_RAM_OP_AUTO_MODE__M;
-			
+			/* fall through , try first guess DRX_FFTMODE_8K */
 		case TRANSMISSION_MODE_8K:
 			transmissionParams |= SC_RA_RAM_OP_PARAM_MODE_8K;
 			if (state->type_A) {
@@ -1960,9 +2013,9 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 		case GUARD_INTERVAL_1_32:
 			transmissionParams |= SC_RA_RAM_OP_PARAM_GUARD_32;
 			break;
-		default:	
+		default:	/* Not set, detect it automatically */
 			operationMode |= SC_RA_RAM_OP_AUTO_GUARD__M;
-			
+			/* try first guess 1/4 */
 			transmissionParams |= SC_RA_RAM_OP_PARAM_GUARD_4;
 			break;
 		}
@@ -2058,7 +2111,7 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 			break;
 		case HIERARCHY_AUTO:
 		default:
-			
+			/* Not set, detect it automatically, start with none */
 			operationMode |= SC_RA_RAM_OP_AUTO_HIER__M;
 			transmissionParams |= SC_RA_RAM_OP_PARAM_HIER_NO;
 			if (state->type_A) {
@@ -2096,6 +2149,8 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 		switch (p->modulation) {
 		default:
 			operationMode |= SC_RA_RAM_OP_AUTO_CONST__M;
+			/* fall through , try first guess
+			   DRX_CONSTELLATION_QAM64 */
 		case QAM_64:
 			transmissionParams |= SC_RA_RAM_OP_PARAM_CONST_QAM64;
 			if (state->type_A) {
@@ -2268,14 +2323,19 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 		if (status < 0)
 			break;
 
-		
-		
+		/* First determine real bandwidth (Hz) */
+		/* Also set delay for impulse noise cruncher (only A2) */
+		/* Also set parameters for EC_OC fix, note
+		   EC_OC_REG_TMD_HIL_MAR is changed
+		   by SC for fix for some 8K,1/8 guard but is restored by
+		   InitEC and ResetEC
+		   functions */
 		switch (p->bandwidth_hz) {
 		case 0:
 			p->bandwidth_hz = 8000000;
-			
+			/* fall through */
 		case 8000000:
-			
+			/* (64/7)*(8/8)*1000000 */
 			bandwidth = DRXD_BANDWIDTH_8MHZ_IN_HZ;
 
 			bandwidthParam = 0;
@@ -2283,16 +2343,16 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 					 FE_AG_REG_IND_DEL__A, 50, 0x0000);
 			break;
 		case 7000000:
-			
+			/* (64/7)*(7/8)*1000000 */
 			bandwidth = DRXD_BANDWIDTH_7MHZ_IN_HZ;
-			bandwidthParam = 0x4807;	
+			bandwidthParam = 0x4807;	/*binary:0100 1000 0000 0111 */
 			status = Write16(state,
 					 FE_AG_REG_IND_DEL__A, 59, 0x0000);
 			break;
 		case 6000000:
-			
+			/* (64/7)*(6/8)*1000000 */
 			bandwidth = DRXD_BANDWIDTH_6MHZ_IN_HZ;
-			bandwidthParam = 0x0F07;	
+			bandwidthParam = 0x0F07;	/*binary: 0000 1111 0000 0111 */
 			status = Write16(state,
 					 FE_AG_REG_IND_DEL__A, 71, 0x0000);
 			break;
@@ -2312,12 +2372,14 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 			if (status < 0)
 				break;
 
+			/* enable SLAVE mode in 2k 1/32 to
+			   prevent timing change glitches */
 			if ((p->transmission_mode == TRANSMISSION_MODE_2K) &&
 			    (p->guard_interval == GUARD_INTERVAL_1_32)) {
-				
+				/* enable slave */
 				sc_config |= SC_RA_RAM_CONFIG_SLAVE__M;
 			} else {
-				
+				/* disable slave */
 				sc_config &= ~SC_RA_RAM_CONFIG_SLAVE__M;
 			}
 			status = Write16(state, SC_RA_RAM_CONFIG__A, sc_config, 0);
@@ -2330,14 +2392,17 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 			break;
 
 		if (state->cscd_state == CSCD_INIT) {
-			
+			/* switch on SRMM scan in SC */
 			status = Write16(state, SC_RA_RAM_SAMPLE_RATE_COUNT__A, DRXD_OSCDEV_DO_SCAN, 0x0000);
 			if (status < 0)
 				break;
+/*            CHK_ERROR(Write16(SC_RA_RAM_SAMPLE_RATE_STEP__A, DRXD_OSCDEV_STEP, 0x0000));*/
 			state->cscd_state = CSCD_SET;
 		}
 
-		
+		/* Now compute FE_IF_REG_INCR */
+		/*((( SysFreq/BandWidth)/2)/2) -1) * 2^23) =>
+		   ((SysFreq / BandWidth) * (2^21) ) - (2^23) */
 		feIfIncr = MulDiv32(state->sys_clock_freq * 1000,
 				    (1ULL << 21), bandwidth) - (1 << 23);
 		status = Write16(state, FE_IF_REG_INCR0__A, (u16) (feIfIncr & FE_IF_REG_INCR0__M), 0x0000);
@@ -2346,14 +2411,14 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 		status = Write16(state, FE_IF_REG_INCR1__A, (u16) ((feIfIncr >> FE_IF_REG_INCR0__W) & FE_IF_REG_INCR1__M), 0x0000);
 		if (status < 0)
 			break;
-		
+		/* Bandwidth setting done */
 
-		
+		/* Mirror & frequency offset */
 		SetFrequencyShift(state, off, mirrorFreqSpect);
 
-		
+		/* Start SC, write channel settings to SC */
 
-		
+		/* Enable SC after setting all other parameters */
 		status = Write16(state, SC_COMM_STATE__A, 0, 0x0000);
 		if (status < 0)
 			break;
@@ -2361,7 +2426,7 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 		if (status < 0)
 			break;
 
-		
+		/* Write SC parameter registers, operation mode */
 #if 1
 		operationMode = (SC_RA_RAM_OP_AUTO_MODE__M |
 				 SC_RA_RAM_OP_AUTO_GUARD__M |
@@ -2373,7 +2438,7 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 		if (status < 0)
 			break;
 
-		
+		/* Start correct processes to get in lock */
 		status = SC_ProcStartCommand(state, SC_RA_RAM_PROC_LOCKTRACK, SC_RA_RAM_SW_EVENT_RUN_NMASK__M, SC_RA_RAM_LOCKTRACK_MIN);
 		if (status < 0)
 			break;
@@ -2397,15 +2462,15 @@ static int DRX_Start(struct drxd_state *state, s32 off)
 static int CDRXD(struct drxd_state *state, u32 IntermediateFrequency)
 {
 	u32 ulRfAgcOutputLevel = 0xffffffff;
-	u32 ulRfAgcSettleLevel = 528;	
-	u32 ulRfAgcMinLevel = 0;	
-	u32 ulRfAgcMaxLevel = DRXD_FE_CTRL_MAX;	
-	u32 ulRfAgcSpeed = 0;	
-	u32 ulRfAgcMode = 0;	
+	u32 ulRfAgcSettleLevel = 528;	/* Optimum value for MT2060 */
+	u32 ulRfAgcMinLevel = 0;	/* Currently unused */
+	u32 ulRfAgcMaxLevel = DRXD_FE_CTRL_MAX;	/* Currently unused */
+	u32 ulRfAgcSpeed = 0;	/* Currently unused */
+	u32 ulRfAgcMode = 0;	/*2;   Off */
 	u32 ulRfAgcR1 = 820;
 	u32 ulRfAgcR2 = 2200;
 	u32 ulRfAgcR3 = 150;
-	u32 ulIfAgcMode = 0;	
+	u32 ulIfAgcMode = 0;	/* Auto */
 	u32 ulIfAgcOutputLevel = 0xffffffff;
 	u32 ulIfAgcSettleLevel = 0xffffffff;
 	u32 ulIfAgcMinLevel = 0xffffffff;
@@ -2416,7 +2481,7 @@ static int CDRXD(struct drxd_state *state, u32 IntermediateFrequency)
 	u32 ulIfAgcR3 = 150;
 	u32 ulClock = state->config.clock;
 	u32 ulSerialMode = 0;
-	u32 ulEcOcRegOcModeLop = 4;	
+	u32 ulEcOcRegOcModeLop = 4;	/* Dynamic DTO source */
 	u32 ulHiI2cDelay = HI_I2C_DELAY;
 	u32 ulHiI2cBridgeDelay = HI_I2C_BRIDGE_DELAY;
 	u32 ulHiI2cPatch = 0;
@@ -2457,7 +2522,7 @@ static int CDRXD(struct drxd_state *state, u32 IntermediateFrequency)
 	state->rf_agc_cfg.R3 = (u16) (ulRfAgcR3);
 
 	state->rf_agc_cfg.ctrlMode = AGC_CTRL_AUTO;
-	
+	/* rest of the RFAgcCfg structure currently unused */
 	if (ulRfAgcMode == 1 && ulRfAgcOutputLevel <= DRXD_FE_CTRL_MAX) {
 		state->rf_agc_cfg.ctrlMode = AGC_CTRL_USER;
 		state->rf_agc_cfg.outputLevel = (u16) (ulRfAgcOutputLevel);
@@ -2486,13 +2551,13 @@ static int CDRXD(struct drxd_state *state, u32 IntermediateFrequency)
 		    (ulEnvironmentDiversity);
 
 	if (ulIFFilter == IFFILTER_DISCRETE) {
-		
+		/* discrete filter */
 		state->noise_cal.cpOpt = 0;
 		state->noise_cal.cpNexpOfs = 40;
 		state->noise_cal.tdCal2k = -40;
 		state->noise_cal.tdCal8k = -24;
 	} else {
-		
+		/* SAW filter */
 		state->noise_cal.cpOpt = 1;
 		state->noise_cal.cpNexpOfs = 0;
 		state->noise_cal.tdCal2k = -21;
@@ -2512,11 +2577,11 @@ static int CDRXD(struct drxd_state *state, u32 IntermediateFrequency)
 		state->m_HiI2cPatch = NULL;
 	}
 
-	
+	/* modify tuner and clock attributes */
 	state->intermediate_freq = (u16) (IntermediateFrequency / 1000);
-	
+	/* expected system clock frequency in kHz */
 	state->expected_sys_clock_freq = 48000;
-	
+	/* real system clock frequency in kHz */
 	state->sys_clock_freq = 48000;
 	state->osc_clock_freq = (u16) ulClock;
 	state->osc_clock_deviation = 0;
@@ -2527,22 +2592,22 @@ static int CDRXD(struct drxd_state *state, u32 IntermediateFrequency)
 	state->type_A = 0;
 	state->tuner_mirrors = 0;
 
-	
+	/* modify MPEG output attributes */
 	state->insert_rs_byte = state->config.insert_rs_byte;
 	state->enable_parallel = (ulSerialMode != 1);
 
-	
-	
+	/* Timing div, 250ns/Psys */
+	/* Timing div, = ( delay (nano seconds) * sysclk (kHz) )/ 1000 */
 
 	state->hi_cfg_timing_div = (u16) ((state->sys_clock_freq / 1000) *
 					  ulHiI2cDelay) / 1000;
-	
-	
+	/* Bridge delay, uses oscilator clock */
+	/* Delay = ( delay (nano seconds) * oscclk (kHz) )/ 1000 */
 	state->hi_cfg_bridge_delay = (u16) ((state->osc_clock_freq / 1000) *
 					    ulHiI2cBridgeDelay) / 1000;
 
 	state->m_FeAgRegAgPwd = DRXD_DEF_AG_PWD_CONSUMER;
-	
+	/* state->m_FeAgRegAgPwd = DRXD_DEF_AG_PWD_PRO; */
 	state->m_FeAgRegAgAgcSio = DRXD_DEF_AG_AGC_SIO;
 	return 0;
 }
@@ -2564,13 +2629,15 @@ int DRXD_init(struct drxd_state *state, const u8 * fw, u32 fw_size)
 		if (status < 0)
 			break;
 
-		
+		/* Apply I2c address patch to B1 */
 		if (!state->type_A && state->m_HiI2cPatch != NULL)
 			status = WriteTable(state, state->m_HiI2cPatch);
 			if (status < 0)
 				break;
 
 		if (state->type_A) {
+			/* HI firmware patch for UIO readout,
+			   avoid clearing of result register */
 			status = Write16(state, 0x43012D, 0x047f, 0);
 			if (status < 0)
 				break;
@@ -2593,19 +2660,19 @@ int DRXD_init(struct drxd_state *state, const u8 * fw, u32 fw_size)
 			state->osc_clock_deviation =
 			    state->config.osc_deviation(state->priv, 0, 0);
 		{
-			
+			/* Handle clock deviation */
 			s32 devB;
 			s32 devA = (s32) (state->osc_clock_deviation) *
 			    (s32) (state->expected_sys_clock_freq);
-			
+			/* deviation in kHz */
 			s32 deviation = (devA / (1000000L));
-			
+			/* rounding, signed */
 			if (devA > 0)
 				devB = (2);
 			else
 				devB = (-2);
 			if ((devB * (devA % 1000000L) > 1000000L)) {
-				
+				/* add +1 or -1 */
 				deviation += (devB / 2);
 			}
 
@@ -2640,7 +2707,7 @@ int DRXD_init(struct drxd_state *state, const u8 * fw, u32 fw_size)
 
 		if (state->PGA) {
 			state->m_FeAgRegAgPwd = DRXD_DEF_AG_PWD_PRO;
-			SetCfgPga(state, 0);	
+			SetCfgPga(state, 0);	/* PGA = 0 dB */
 		} else {
 			state->m_FeAgRegAgPwd = DRXD_DEF_AG_PWD_CONSUMER;
 		}
@@ -2711,16 +2778,19 @@ int DRXD_status(struct drxd_state *state, u32 * pLockStatus)
 {
 	DRX_GetLockStatus(state, pLockStatus);
 
-	
+	/*if (*pLockStatus&DRX_LOCK_MPEG) */
 	if (*pLockStatus & DRX_LOCK_FEC) {
 		ConfigureMPEGOutput(state, 1);
-		
-		
+		/* Get status again, in case we have MPEG lock now */
+		/*DRX_GetLockStatus(state, pLockStatus); */
 	}
 
 	return 0;
 }
 
+/****************************************************************************/
+/****************************************************************************/
+/****************************************************************************/
 
 static int drxd_read_signal_strength(struct dvb_frontend *fe, u16 * strength)
 {
@@ -2743,7 +2813,7 @@ static int drxd_read_status(struct dvb_frontend *fe, fe_status_t * status)
 
 	DRXD_status(state, &lock);
 	*status = 0;
-	
+	/* No MPEG lock in V255 firmware, bug ? */
 #if 1
 	if (lock & DRX_LOCK_MPEG)
 		*status |= FE_HAS_LOCK;
@@ -2764,6 +2834,7 @@ static int drxd_init(struct dvb_frontend *fe)
 	struct drxd_state *state = fe->demodulator_priv;
 	int err = 0;
 
+/*	if (request_firmware(&state->fw, "drxd.fw", state->dev)<0) */
 	return DRXD_init(state, 0, 0);
 
 	err = DRXD_init(state, state->fw->data, state->fw->size);

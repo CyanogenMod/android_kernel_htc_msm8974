@@ -76,6 +76,12 @@ fail_holder_uninit:
 	return error;
 }
 
+/**
+ * gfs2_log_release - Release a given number of log blocks
+ * @sdp: The GFS2 superblock
+ * @blks: The number of blocks
+ *
+ */
 
 static void gfs2_log_release(struct gfs2_sbd *sdp, unsigned int blks)
 {
@@ -126,6 +132,13 @@ void gfs2_trans_end(struct gfs2_sbd *sdp)
 		gfs2_log_flush(sdp, NULL);
 }
 
+/**
+ * gfs2_trans_add_bh - Add a to-be-modified buffer to the current transaction
+ * @gl: the glock the buffer belongs to
+ * @bh: The buffer to add
+ * @meta: True in the case of adding metadata
+ *
+ */
 
 void gfs2_trans_add_bh(struct gfs2_glock *gl, struct buffer_head *bh, int meta)
 {

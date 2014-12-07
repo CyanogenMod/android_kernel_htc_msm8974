@@ -25,12 +25,16 @@
  *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* snd_printk/d() */
 #include <sound/core.h>
+/* struct snd_pcm_substream, struct snd_pcm_runtime, snd_pcm_uframes_t
+ * snd_pcm_period_elapsed() */
 #include <sound/pcm.h>
 
 #include "pcm-indirect2.h"
 
 #ifdef SND_PCM_INDIRECT2_STAT
+/* jiffies */
 #include <linux/jiffies.h>
 
 void snd_pcm_indirect2_stat(struct snd_pcm_substream *substream,
@@ -110,10 +114,24 @@ void snd_pcm_indirect2_stat(struct snd_pcm_substream *substream,
 	snd_printk(KERN_DEBUG
 		   "STAT: zero_times_saved: %d, zero_times_notsaved: %d\n",
 		   rec->zero_times_saved, rec->zero_times_notsaved);
+	/* snd_printk(KERN_DEBUG "STAT: zero_times[]\n");
+	i = 0;
+	for (j = 0; j < 3750; j++) {
+		if (rec->zero_times[j] != 0) {
+			snd_printk(KERN_DEBUG "%u: %u", j, rec->zero_times[j]);
+			i++;
+		}
+		if (((i % 8) == 0) && (i != 0))
+			snd_printk(KERN_DEBUG "\n");
+	}
+	snd_printk(KERN_DEBUG "\n"); */
 	return;
 }
 #endif
 
+/*
+ * _internal_ helper function for playback/capture transfer function
+ */
 static void
 snd_pcm_indirect2_increase_min_periods(struct snd_pcm_substream *substream,
 				       struct snd_pcm_indirect2 *rec,
@@ -126,6 +144,11 @@ snd_pcm_indirect2_increase_min_periods(struct snd_pcm_substream *substream,
 			if (rec->sw_io >= rec->sw_buffer_size)
 				rec->sw_io -= rec->sw_buffer_size;
 		} else if (isplay) {
+			/* If application does not write data in multiples of
+			 * a period, move sw_data to the next correctly aligned
+			 * position, so that sw_io can converge to it (in the
+			 * next step).
+			 */
 			if (!rec->check_alignment) {
 				if (rec->bytes2hw %
 				    snd_pcm_lib_period_bytes(substream)) {
@@ -155,6 +178,12 @@ snd_pcm_indirect2_increase_min_periods(struct snd_pcm_substream *substream,
 				}
 				rec->check_alignment = 1;
 			}
+			/* We are at the end and are copying zeros into the
+			 * fifo.
+			 * Now, we have to make sure that sw_io is increased
+			 * until the position of sw_data: Filling the fifo with
+			 * the first zeros means, the last bytes were played.
+			 */
 			if (rec->sw_io != rec->sw_data) {
 				unsigned int diff;
 				if (rec->sw_data > rec->sw_io)
@@ -196,6 +225,9 @@ snd_pcm_indirect2_increase_min_periods(struct snd_pcm_substream *substream,
 		rec->min_periods = 0;
 }
 
+/*
+ * helper function for playback/capture pointer callback
+ */
 snd_pcm_uframes_t
 snd_pcm_indirect2_pointer(struct snd_pcm_substream *substream,
 			  struct snd_pcm_indirect2 *rec)
@@ -206,6 +238,9 @@ snd_pcm_indirect2_pointer(struct snd_pcm_substream *substream,
 	return bytes_to_frames(substream->runtime, rec->sw_io);
 }
 
+/*
+ * _internal_ helper function for playback interrupt callback
+ */
 static void
 snd_pcm_indirect2_playback_transfer(struct snd_pcm_substream *substream,
 				    struct snd_pcm_indirect2 *rec,
@@ -215,6 +250,11 @@ snd_pcm_indirect2_playback_transfer(struct snd_pcm_substream *substream,
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	snd_pcm_uframes_t appl_ptr = runtime->control->appl_ptr;
 
+	/* runtime->control->appl_ptr: position where ALSA will write next time
+	 * rec->appl_ptr: position where ALSA was last time
+	 * diff: obviously ALSA wrote that much bytes into the intermediate
+	 * buffer since we checked last time
+	 */
 	snd_pcm_sframes_t diff = appl_ptr - rec->appl_ptr;
 
 	if (diff) {
@@ -223,6 +263,10 @@ snd_pcm_indirect2_playback_transfer(struct snd_pcm_substream *substream,
 #endif
 		if (diff < -(snd_pcm_sframes_t) (runtime->boundary / 2))
 			diff += runtime->boundary;
+		/* number of bytes "added" by ALSA increases the number of
+		 * bytes which are ready to "be transferred to HW"/"played"
+		 * Then, set rec->appl_ptr to not count bytes twice next time.
+		 */
 		rec->sw_ready += (int)frames_to_bytes(runtime, diff);
 		rec->appl_ptr = appl_ptr;
 	}
@@ -265,9 +309,12 @@ snd_pcm_indirect2_playback_transfer(struct snd_pcm_substream *substream,
 		return;
 	}
 	while (rec->hw_ready && (rec->sw_ready > 0)) {
+		/* sw_to_end: max. number of bytes that can be read/take from
+		 * the current position (sw_data) in _one_ step
+		 */
 		unsigned int sw_to_end = rec->sw_buffer_size - rec->sw_data;
 
-		
+		/* bytes: number of bytes we have available (for reading) */
 		unsigned int bytes = rec->sw_ready;
 
 		if (sw_to_end < bytes)
@@ -303,15 +350,26 @@ snd_pcm_indirect2_playback_transfer(struct snd_pcm_substream *substream,
 		rec->sw_data += bytes;
 		if (rec->sw_data == rec->sw_buffer_size)
 			rec->sw_data = 0;
+		/* now sw_data is the position where ALSA is going to write
+		 * in the intermediate buffer next time = position we are going
+		 * to read from next time
+		 */
 
 		snd_pcm_indirect2_increase_min_periods(substream, rec, 1, 1,
 						       bytes);
 
+		/* we read bytes from intermediate buffer, so we need to say
+		 * that the number of bytes ready for transfer are decreased
+		 * now
+		 */
 		rec->sw_ready -= bytes;
 	}
 	return;
 }
 
+/*
+ * helper function for playback interrupt routine
+ */
 void
 snd_pcm_indirect2_playback_interrupt(struct snd_pcm_substream *substream,
 				     struct snd_pcm_indirect2 *rec,
@@ -321,9 +379,12 @@ snd_pcm_indirect2_playback_interrupt(struct snd_pcm_substream *substream,
 #ifdef SND_PCM_INDIRECT2_STAT
 	rec->irq_occured++;
 #endif
-	
+	/* hardware played some bytes, so there is room again (in fifo) */
 	rec->hw_ready = 1;
 
+	/* don't call ack() now, instead call transfer() function directly
+	 * (normally called by ack() )
+	 */
 	snd_pcm_indirect2_playback_transfer(substream, rec, copy, zero);
 
 	if (rec->min_periods >= rec->min_multiple) {
@@ -345,6 +406,9 @@ snd_pcm_indirect2_playback_interrupt(struct snd_pcm_substream *substream,
 	}
 }
 
+/*
+ * _internal_ helper function for capture interrupt callback
+ */
 static void
 snd_pcm_indirect2_capture_transfer(struct snd_pcm_substream *substream,
 				   struct snd_pcm_indirect2 *rec,
@@ -364,6 +428,9 @@ snd_pcm_indirect2_capture_transfer(struct snd_pcm_substream *substream,
 		rec->sw_ready -= frames_to_bytes(runtime, diff);
 		rec->appl_ptr = appl_ptr;
 	}
+	/* if hardware has something, but the intermediate buffer is full
+	 * => skip contents of buffer
+	 */
 	if (rec->hw_ready && (rec->sw_ready >= (int)rec->sw_buffer_size)) {
 		unsigned int bytes;
 
@@ -400,15 +467,24 @@ snd_pcm_indirect2_capture_transfer(struct snd_pcm_substream *substream,
 #endif
 		snd_pcm_indirect2_increase_min_periods(substream, rec, 0, 0,
 						       bytes);
-		
+		/* report an overrun */
 		rec->sw_io = SNDRV_PCM_POS_XRUN;
 		return;
 	}
 	while (rec->hw_ready && (rec->sw_ready < (int)rec->sw_buffer_size)) {
+		/* sw_to_end: max. number of bytes that we can write to the
+		 *  intermediate buffer (until it's end)
+		 */
 		size_t sw_to_end = rec->sw_buffer_size - rec->sw_data;
 
+		/* bytes: max. number of bytes, which may be copied to the
+		 *  intermediate buffer without overflow (in _one_ step)
+		 */
 		size_t bytes = rec->sw_buffer_size - rec->sw_ready;
 
+		/* limit number of bytes (for transfer) by available room in
+		 * the intermediate buffer
+		 */
 		if (sw_to_end < bytes)
 			bytes = sw_to_end;
 		if (!bytes)
@@ -419,6 +495,11 @@ snd_pcm_indirect2_capture_transfer(struct snd_pcm_substream *substream,
 			rec->firstbytetime = jiffies;
 		rec->lastbytetime = jiffies;
 #endif
+		/* copy bytes from the intermediate buffer (position sw_data)
+		 * to the HW at most and return number of bytes actually copied
+		 * from HW
+		 * Furthermore, set hw_ready to 0, if the fifo is empty now.
+		 */
 		bytes = copy(substream, rec, bytes);
 		rec->bytes2hw += bytes;
 
@@ -431,6 +512,9 @@ snd_pcm_indirect2_capture_transfer(struct snd_pcm_substream *substream,
 				   "hardware at once - too big to save!\n",
 				   bytes);
 #endif
+		/* increase sw_data by the number of actually copied bytes from
+		 * HW
+		 */
 		rec->sw_data += bytes;
 		if (rec->sw_data == rec->sw_buffer_size)
 			rec->sw_data = 0;
@@ -438,11 +522,17 @@ snd_pcm_indirect2_capture_transfer(struct snd_pcm_substream *substream,
 		snd_pcm_indirect2_increase_min_periods(substream, rec, 0, 1,
 						       bytes);
 
+		/* number of bytes in the intermediate buffer, which haven't
+		 * been fetched by ALSA yet.
+		 */
 		rec->sw_ready += bytes;
 	}
 	return;
 }
 
+/*
+ * helper function for capture interrupt routine
+ */
 void
 snd_pcm_indirect2_capture_interrupt(struct snd_pcm_substream *substream,
 				    struct snd_pcm_indirect2 *rec,
@@ -452,8 +542,14 @@ snd_pcm_indirect2_capture_interrupt(struct snd_pcm_substream *substream,
 #ifdef SND_PCM_INDIRECT2_STAT
 	rec->irq_occured++;
 #endif
+	/* hardware recorded some bytes, so there is something to read from the
+	 * record fifo:
+	 */
 	rec->hw_ready = 1;
 
+	/* don't call ack() now, instead call transfer() function directly
+	 * (normally called by ack() )
+	 */
 	snd_pcm_indirect2_capture_transfer(substream, rec, copy, null);
 
 	if (rec->min_periods >= rec->min_multiple) {

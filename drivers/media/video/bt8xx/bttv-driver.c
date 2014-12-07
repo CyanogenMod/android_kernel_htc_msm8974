@@ -61,13 +61,14 @@
 
 #define BTTV_VERSION "0.9.19"
 
-unsigned int bttv_num;			
+unsigned int bttv_num;			/* number of Bt848s in use */
 struct bttv *bttvs[BTTV_MAX];
 
 unsigned int bttv_debug;
 unsigned int bttv_verbose = 1;
 unsigned int bttv_gpio;
 
+/* config variables */
 #ifdef __BIG_ENDIAN
 static unsigned int bigendian=1;
 #else
@@ -87,6 +88,7 @@ static int disable_ir;
 
 static unsigned int fdsr;
 
+/* options */
 static unsigned int combfilter;
 static unsigned int lumafilter;
 static unsigned int automute    = 1;
@@ -100,8 +102,10 @@ static unsigned int uv_ratio    = 50;
 static unsigned int full_luma_range;
 static unsigned int coring;
 
+/* API features (turn on/off stuff for testing) */
 static unsigned int v4l2        = 1;
 
+/* insmod args */
 module_param(bttv_verbose,      int, 0644);
 module_param(bttv_gpio,         int, 0644);
 module_param(bttv_debug,        int, 0644);
@@ -164,6 +168,8 @@ MODULE_AUTHOR("Ralph Metzler & Marcus Metzler & Gerd Knorr");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(BTTV_VERSION);
 
+/* ----------------------------------------------------------------------- */
+/* sysfs                                                                   */
 
 static ssize_t show_card(struct device *cd,
 			 struct device_attribute *attr, char *buf)
@@ -174,6 +180,8 @@ static ssize_t show_card(struct device *cd,
 }
 static DEVICE_ATTR(card, S_IRUGO, show_card, NULL);
 
+/* ----------------------------------------------------------------------- */
+/* dvb auto-load setup                                                     */
 #if defined(CONFIG_MODULES) && defined(MODULE)
 static void request_module_async(struct work_struct *work)
 {
@@ -193,24 +201,27 @@ static void flush_request_modules(struct bttv *dev)
 #else
 #define request_modules(dev)
 #define flush_request_modules(dev)
-#endif 
+#endif /* CONFIG_MODULES */
 
 
+/* ----------------------------------------------------------------------- */
+/* static data                                                             */
 
+/* special timing tables from conexant... */
 static u8 SRAM_Table[][60] =
 {
-	
+	/* PAL digital input over GPIO[7:0] */
 	{
-		45, 
+		45, // 45 bytes following
 		0x36,0x11,0x01,0x00,0x90,0x02,0x05,0x10,0x04,0x16,
 		0x12,0x05,0x11,0x00,0x04,0x12,0xC0,0x00,0x31,0x00,
 		0x06,0x51,0x08,0x03,0x89,0x08,0x07,0xC0,0x44,0x00,
 		0x81,0x01,0x01,0xA9,0x0D,0x02,0x02,0x50,0x03,0x37,
 		0x37,0x00,0xAF,0x21,0x00
 	},
-	
+	/* NTSC digital input over GPIO[7:0] */
 	{
-		51, 
+		51, // 51 bytes following
 		0x0C,0xC0,0x00,0x00,0x90,0x02,0x03,0x10,0x03,0x06,
 		0x10,0x04,0x12,0x12,0x05,0x02,0x13,0x04,0x19,0x00,
 		0x04,0x39,0x00,0x06,0x59,0x08,0x03,0x83,0x08,0x07,
@@ -218,10 +229,10 @@ static u8 SRAM_Table[][60] =
 		0x0D,0x02,0x03,0x11,0x01,0x05,0x37,0x00,0xAC,0x21,
 		0x00,
 	},
-	
-	
+	// TGB_NTSC392 // quartzsight
+	// This table has been modified to be used for Fusion Rev D
 	{
-		0x2A, 
+		0x2A, // size of table = 42
 		0x06, 0x08, 0x04, 0x0a, 0xc0, 0x00, 0x18, 0x08, 0x03, 0x24,
 		0x08, 0x07, 0x02, 0x90, 0x02, 0x08, 0x10, 0x04, 0x0c, 0x10,
 		0x05, 0x2c, 0x11, 0x04, 0x55, 0x48, 0x00, 0x05, 0x50, 0x00,
@@ -230,13 +241,24 @@ static u8 SRAM_Table[][60] =
 	}
 };
 
+/* minhdelayx1	first video pixel we can capture on a line and
+   hdelayx1	start of active video, both relative to rising edge of
+		/HRESET pulse (0H) in 1 / fCLKx1.
+   swidth	width of active video and
+   totalwidth	total line width, both in 1 / fCLKx1.
+   sqwidth	total line width in square pixels.
+   vdelay	start of active video in 2 * field lines relative to
+		trailing edge of /VRESET pulse (VDELAY register).
+   sheight	height of active video in 2 * field lines.
+   videostart0	ITU-R frame line number of the line corresponding
+		to vdelay in the first field. */
 #define CROPCAP(minhdelayx1, hdelayx1, swidth, totalwidth, sqwidth,	 \
 		vdelay, sheight, videostart0)				 \
 	.cropcap.bounds.left = minhdelayx1,				 \
-		 \
-			 \
+	/* * 2 because vertically we count field lines times two, */	 \
+	/* e.g. 23 * 2 to 23 * 2 + 576 in PAL-BGHI defrect. */		 \
 	.cropcap.bounds.top = (videostart0) * 2 - (vdelay) + MIN_VDELAY, \
-			 \
+	/* 4 is a safety margin at the end of the line. */		 \
 	.cropcap.bounds.width = (totalwidth) - (minhdelayx1) - 4,	 \
 	.cropcap.bounds.height = (sheight) + (vdelay) - MIN_VDELAY,	 \
 	.cropcap.defrect.left = hdelayx1,				 \
@@ -247,9 +269,9 @@ static u8 SRAM_Table[][60] =
 	.cropcap.pixelaspect.denominator = sqwidth,
 
 const struct bttv_tvnorm bttv_tvnorms[] = {
-	
-	
-	
+	/* PAL-BDGHI */
+	/* max. active video is actually 922, but 924 is divisible by 4 and 3! */
+	/* actually, max active PAL with HSCALE=0 is 948, NTSC is 768 - nil */
 	{
 		.v4l2_id        = V4L2_STD_PAL,
 		.name           = "PAL",
@@ -264,17 +286,25 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.hdelayx1       = 186,
 		.hactivex1      = 924,
 		.vdelay         = 0x20,
-		.vbipack        = 255, 
+		.vbipack        = 255, /* min (2048 / 4, 0x1ff) & 0xff */
 		.sram           = 0,
+		/* ITU-R frame line number of the first VBI line
+		   we can capture, of the first and second field.
+		   The last line is determined by cropcap.bounds. */
 		.vbistart       = { 7, 320 },
-		CROPCAP( 68,
-			 186,
-			 924,
-			 1135,
-			 944,
-			 0x20,
-			 576,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 186,
+			/* Should be (768 * 1135 + 944 / 2) / 944.
+			   cropcap.defrect is used for image width
+			   checks, so we keep the old value 924. */
+			/* swidth */ 924,
+			/* totalwidth */ 1135,
+			/* sqwidth */ 944,
+			/* vdelay */ 0x20,
+			/* sheight */ 576,
+			/* videostart0 */ 23)
+		/* bt878 (and bt848?) can capture another
+		   line below active video. */
 		.cropcap.bounds.height = (576 + 2) + 0x20 - 2,
 	},{
 		.v4l2_id        = V4L2_STD_NTSC_M | V4L2_STD_NTSC_M_KR,
@@ -290,18 +320,18 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.hdelayx1       = 128,
 		.hactivex1      = 910,
 		.vdelay         = 0x1a,
-		.vbipack        = 144, 
+		.vbipack        = 144, /* min (1600 / 4, 0x1ff) & 0xff */
 		.sram           = 1,
 		.vbistart	= { 10, 273 },
-		CROPCAP( 68,
-			 128,
-			
-			 768,
-			 910,
-			 780,
-			 0x1a,
-			 480,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 128,
+			/* Should be (640 * 910 + 780 / 2) / 780? */
+			/* swidth */ 768,
+			/* totalwidth */ 910,
+			/* sqwidth */ 780,
+			/* vdelay */ 0x1a,
+			/* sheight */ 480,
+			/* videostart0 */ 23)
 	},{
 		.v4l2_id        = V4L2_STD_SECAM,
 		.name           = "SECAM",
@@ -317,16 +347,16 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.hactivex1      = 922,
 		.vdelay         = 0x20,
 		.vbipack        = 255,
-		.sram           = 0, 
+		.sram           = 0, /* like PAL, correct? */
 		.vbistart	= { 7, 320 },
-		CROPCAP( 68,
-			 186,
-			 924,
-			 1135,
-			 944,
-			 0x20,
-			 576,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 186,
+			/* swidth */ 924,
+			/* totalwidth */ 1135,
+			/* sqwidth */ 944,
+			/* vdelay */ 0x20,
+			/* sheight */ 576,
+			/* videostart0 */ 23)
 	},{
 		.v4l2_id        = V4L2_STD_PAL_Nc,
 		.name           = "PAL-Nc",
@@ -344,14 +374,14 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.vbipack        = 144,
 		.sram           = -1,
 		.vbistart	= { 7, 320 },
-		CROPCAP( 68,
-			 130,
-			 (640 * 910 + 780 / 2) / 780,
-			 910,
-			 780,
-			 0x1a,
-			 576,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 130,
+			/* swidth */ (640 * 910 + 780 / 2) / 780,
+			/* totalwidth */ 910,
+			/* sqwidth */ 780,
+			/* vdelay */ 0x1a,
+			/* sheight */ 576,
+			/* videostart0 */ 23)
 	},{
 		.v4l2_id        = V4L2_STD_PAL_M,
 		.name           = "PAL-M",
@@ -369,14 +399,14 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.vbipack        = 144,
 		.sram           = -1,
 		.vbistart	= { 10, 273 },
-		CROPCAP( 68,
-			 135,
-			 (640 * 910 + 780 / 2) / 780,
-			 910,
-			 780,
-			 0x1a,
-			 480,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 135,
+			/* swidth */ (640 * 910 + 780 / 2) / 780,
+			/* totalwidth */ 910,
+			/* sqwidth */ 780,
+			/* vdelay */ 0x1a,
+			/* sheight */ 480,
+			/* videostart0 */ 23)
 	},{
 		.v4l2_id        = V4L2_STD_PAL_N,
 		.name           = "PAL-N",
@@ -394,14 +424,14 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.vbipack        = 144,
 		.sram           = -1,
 		.vbistart       = { 7, 320 },
-		CROPCAP( 68,
-			 186,
-			 (768 * 1135 + 944 / 2) / 944,
-			 1135,
-			 944,
-			 0x20,
-			 576,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 186,
+			/* swidth */ (768 * 1135 + 944 / 2) / 944,
+			/* totalwidth */ 1135,
+			/* sqwidth */ 944,
+			/* vdelay */ 0x20,
+			/* sheight */ 576,
+			/* videostart0 */ 23)
 	},{
 		.v4l2_id        = V4L2_STD_NTSC_M_JP,
 		.name           = "NTSC-JP",
@@ -419,15 +449,18 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.vbipack        = 144,
 		.sram           = -1,
 		.vbistart       = { 10, 273 },
-		CROPCAP( 68,
-			 135,
-			 (640 * 910 + 780 / 2) / 780,
-			 910,
-			 780,
-			 0x16,
-			 480,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 135,
+			/* swidth */ (640 * 910 + 780 / 2) / 780,
+			/* totalwidth */ 910,
+			/* sqwidth */ 780,
+			/* vdelay */ 0x16,
+			/* sheight */ 480,
+			/* videostart0 */ 23)
 	},{
+		/* that one hopefully works with the strange timing
+		 * which video recorders produce when playing a NTSC
+		 * tape on a PAL TV ... */
 		.v4l2_id        = V4L2_STD_PAL_60,
 		.name           = "PAL-60",
 		.Fsc            = 35468950,
@@ -445,18 +478,21 @@ const struct bttv_tvnorm bttv_tvnorms[] = {
 		.vtotal         = 524,
 		.sram           = -1,
 		.vbistart	= { 10, 273 },
-		CROPCAP( 68,
-			 186,
-			 924,
-			 1135,
-			 944,
-			 0x1a,
-			 480,
-			 23)
+		CROPCAP(/* minhdelayx1 */ 68,
+			/* hdelayx1 */ 186,
+			/* swidth */ 924,
+			/* totalwidth */ 1135,
+			/* sqwidth */ 944,
+			/* vdelay */ 0x1a,
+			/* sheight */ 480,
+			/* videostart0 */ 23)
 	}
 };
 static const unsigned int BTTV_TVNORMS = ARRAY_SIZE(bttv_tvnorms);
 
+/* ----------------------------------------------------------------------- */
+/* bttv format list
+   packed pixel formats must come first */
 static const struct bttv_format formats[] = {
 	{
 		.name     = "8 bpp, gray",
@@ -480,7 +516,7 @@ static const struct bttv_format formats[] = {
 		.name     = "15 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB555X,
 		.btformat = BT848_COLOR_FMT_RGB15,
-		.btswap   = 0x03, 
+		.btswap   = 0x03, /* byteswap */
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
@@ -493,7 +529,7 @@ static const struct bttv_format formats[] = {
 		.name     = "16 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB565X,
 		.btformat = BT848_COLOR_FMT_RGB16,
-		.btswap   = 0x03, 
+		.btswap   = 0x03, /* byteswap */
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
@@ -512,7 +548,7 @@ static const struct bttv_format formats[] = {
 		.name     = "32 bpp RGB, be",
 		.fourcc   = V4L2_PIX_FMT_RGB32,
 		.btformat = BT848_COLOR_FMT_RGB32,
-		.btswap   = 0x0f, 
+		.btswap   = 0x0f, /* byte+word swap */
 		.depth    = 32,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
@@ -531,7 +567,7 @@ static const struct bttv_format formats[] = {
 		.name     = "4:2:2, packed, UYVY",
 		.fourcc   = V4L2_PIX_FMT_UYVY,
 		.btformat = BT848_COLOR_FMT_YUY2,
-		.btswap   = 0x03, 
+		.btswap   = 0x03, /* byteswap */
 		.depth    = 16,
 		.flags    = FORMAT_FLAGS_PACKED,
 	},{
@@ -592,6 +628,7 @@ static const struct bttv_format formats[] = {
 };
 static const unsigned int FORMATS = ARRAY_SIZE(formats);
 
+/* ----------------------------------------------------------------------- */
 
 #define V4L2_CID_PRIVATE_CHROMA_AGC  (V4L2_CID_PRIVATE_BASE + 0)
 #define V4L2_CID_PRIVATE_COMBFILTER  (V4L2_CID_PRIVATE_BASE + 1)
@@ -611,7 +648,7 @@ static const struct v4l2_queryctrl no_ctl = {
 	.flags = V4L2_CTRL_FLAG_DISABLED,
 };
 static const struct v4l2_queryctrl bttv_ctls[] = {
-	
+	/* --- video --- */
 	{
 		.id            = V4L2_CID_BRIGHTNESS,
 		.name          = "Brightness",
@@ -645,7 +682,7 @@ static const struct v4l2_queryctrl bttv_ctls[] = {
 		.default_value = 32768,
 		.type          = V4L2_CTRL_TYPE_INTEGER,
 	},
-	
+	/* --- audio --- */
 	{
 		.id            = V4L2_CID_AUDIO_MUTE,
 		.name          = "Mute",
@@ -685,7 +722,7 @@ static const struct v4l2_queryctrl bttv_ctls[] = {
 		.default_value = 32768,
 		.type          = V4L2_CTRL_TYPE_INTEGER,
 	},
-	
+	/* --- private --- */
 	{
 		.id            = V4L2_CID_PRIVATE_CHROMA_AGC,
 		.name          = "chroma agc",
@@ -777,7 +814,36 @@ static const struct v4l2_queryctrl *ctrl_by_id(int id)
 	return NULL;
 }
 
+/* ----------------------------------------------------------------------- */
+/* resource management                                                     */
 
+/*
+   RESOURCE_    allocated by                freed by
+
+   VIDEO_READ   bttv_read 1)                bttv_read 2)
+
+   VIDEO_STREAM VIDIOC_STREAMON             VIDIOC_STREAMOFF
+		 VIDIOC_QBUF 1)              bttv_release
+		 VIDIOCMCAPTURE 1)
+
+   OVERLAY	 VIDIOCCAPTURE on            VIDIOCCAPTURE off
+		 VIDIOC_OVERLAY on           VIDIOC_OVERLAY off
+		 3)                          bttv_release
+
+   VBI		 VIDIOC_STREAMON             VIDIOC_STREAMOFF
+		 VIDIOC_QBUF 1)              bttv_release
+		 bttv_read, bttv_poll 1) 4)
+
+   1) The resource must be allocated when we enter buffer prepare functions
+      and remain allocated while buffers are in the DMA queue.
+   2) This is a single frame read.
+   3) VIDIOC_S_FBUF and VIDIOC_S_FMT (OVERLAY) still work when
+      RESOURCE_OVERLAY is allocated.
+   4) This is a continuous read, implies VIDIOC_STREAMON.
+
+   Note this driver permits video input and standard changes regardless if
+   resources are allocated.
+*/
 
 #define VBI_RESOURCES (RESOURCE_VBI)
 #define VIDEO_RESOURCES (RESOURCE_VIDEO_READ | \
@@ -787,30 +853,32 @@ static const struct v4l2_queryctrl *ctrl_by_id(int id)
 static
 int check_alloc_btres_lock(struct bttv *btv, struct bttv_fh *fh, int bit)
 {
-	int xbits; 
+	int xbits; /* mutual exclusive resources */
 
 	if (fh->resources & bit)
-		
+		/* have it already allocated */
 		return 1;
 
 	xbits = bit;
 	if (bit & (RESOURCE_VIDEO_READ | RESOURCE_VIDEO_STREAM))
 		xbits |= RESOURCE_VIDEO_READ | RESOURCE_VIDEO_STREAM;
 
-	
+	/* is it free? */
 	if (btv->resources & xbits) {
-		
+		/* no, someone else uses it */
 		goto fail;
 	}
 
 	if ((bit & VIDEO_RESOURCES)
 	    && 0 == (btv->resources & VIDEO_RESOURCES)) {
-		
+		/* Do crop - use current, don't - use default parameters. */
 		__s32 top = btv->crop[!!fh->do_crop].rect.top;
 
 		if (btv->vbi_end > top)
 			goto fail;
 
+		/* We cannot capture the same line as video and VBI data.
+		   Claim scan lines crop[].rect.top to bottom. */
 		btv->crop_start = top;
 	} else if (bit & VBI_RESOURCES) {
 		__s32 end = fh->vbi_fmt.end;
@@ -818,11 +886,11 @@ int check_alloc_btres_lock(struct bttv *btv, struct bttv_fh *fh, int bit)
 		if (end > btv->crop_start)
 			goto fail;
 
-		
+		/* Claim scan lines above fh->vbi_fmt.end. */
 		btv->vbi_end = end;
 	}
 
-	
+	/* it's free, grab it */
 	fh->resources  |= bit;
 	btv->resources |= bit;
 	return 1;
@@ -843,12 +911,14 @@ int locked_btres(struct bttv *btv, int bit)
 	return (btv->resources & bit);
 }
 
+/* Call with btv->lock down. */
 static void
 disclaim_vbi_lines(struct bttv *btv)
 {
 	btv->vbi_end = 0;
 }
 
+/* Call with btv->lock down. */
 static void
 disclaim_video_lines(struct bttv *btv)
 {
@@ -859,6 +929,10 @@ disclaim_video_lines(struct bttv *btv)
 	btv->crop_start = tvnorm->cropcap.bounds.top
 		+ tvnorm->cropcap.bounds.height;
 
+	/* VBI capturing ends at VDELAY, start of video capturing, no
+	   matter how many lines the VBI RISC program expects. When video
+	   capturing is off, it shall no longer "preempt" VBI capturing,
+	   so we set VDELAY to maximum. */
 	crop = btread(BT848_E_CROP) | 0xc0;
 	btwrite(crop, BT848_E_CROP);
 	btwrite(0xfe, BT848_E_VDELAY_LO);
@@ -870,7 +944,7 @@ static
 void free_btres_lock(struct bttv *btv, struct bttv_fh *fh, int bits)
 {
 	if ((fh->resources & bits) != bits) {
-		
+		/* trying to free resources not allocated by us ... */
 		pr_err("BUG! (btres)\n");
 	}
 	fh->resources  &= ~bits;
@@ -885,13 +959,24 @@ void free_btres_lock(struct bttv *btv, struct bttv_fh *fh, int bits)
 		disclaim_vbi_lines(btv);
 }
 
+/* ----------------------------------------------------------------------- */
+/* If Bt848a or Bt849, use PLL for PAL/SECAM and crystal for NTSC          */
 
+/* Frequency = (F_input / PLL_X) * PLL_I.PLL_F/PLL_C
+   PLL_X = Reference pre-divider (0=1, 1=2)
+   PLL_C = Post divider (0=6, 1=4)
+   PLL_I = Integer input
+   PLL_F = Fractional input
+
+   F_input = 28.636363 MHz:
+   PAL (CLKx2 = 35.46895 MHz): PLL_X = 1, PLL_I = 0x0E, PLL_F = 0xDCF9, PLL_C = 0
+*/
 
 static void set_pll_freq(struct bttv *btv, unsigned int fin, unsigned int fout)
 {
 	unsigned char fl, fh, fi;
 
-	
+	/* prevent overflows */
 	fin/=4;
 	fout/=4;
 
@@ -922,7 +1007,7 @@ static void set_pll(struct bttv *btv)
 	}
 
 	if (btv->pll.pll_ifreq == btv->pll.pll_ofreq) {
-		
+		/* no PLL needed */
 		if (btv->pll.pll_current == 0)
 			return;
 		if (bttv_verbose)
@@ -941,7 +1026,7 @@ static void set_pll(struct bttv *btv)
 	set_pll_freq(btv, btv->pll.pll_ifreq, btv->pll.pll_ofreq);
 
 	for (i=0; i<10; i++) {
-		
+		/*  Let other people run while the PLL stabilizes */
 		msleep(10);
 
 		if (btread(BT848_DSTATUS) & BT848_DSTATUS_PLOCK) {
@@ -960,6 +1045,7 @@ static void set_pll(struct bttv *btv)
 	return;
 }
 
+/* used to switch between the bt848's analog/digital video capture modes */
 static void bt848A_set_timing(struct bttv *btv)
 {
 	int i, len;
@@ -970,7 +1056,7 @@ static void bt848A_set_timing(struct bttv *btv)
 		dprintk("%d: load digital timing table (table_idx=%d)\n",
 			btv->c.nr,table_idx);
 
-		
+		/* timing change...reset timing generator address */
 		btwrite(0x00, BT848_TGCTRL);
 		btwrite(0x02, BT848_TGCTRL);
 		btwrite(0x00, BT848_TGCTRL);
@@ -990,15 +1076,16 @@ static void bt848A_set_timing(struct bttv *btv)
 	}
 }
 
+/* ----------------------------------------------------------------------- */
 
 static void bt848_bright(struct bttv *btv, int bright)
 {
 	int value;
 
-	
+	// printk("set bright: %d\n", bright); // DEBUG
 	btv->bright = bright;
 
-	
+	/* We want -128 to 127 we get 0-65535 */
 	value = (bright >> 8) - 128;
 	btwrite(value & 0xff, BT848_BRIGHT);
 }
@@ -1009,7 +1096,7 @@ static void bt848_hue(struct bttv *btv, int hue)
 
 	btv->hue = hue;
 
-	
+	/* -128 to 127 */
 	value = (hue >> 8) - 128;
 	btwrite(value & 0xff, BT848_HUE);
 }
@@ -1020,7 +1107,7 @@ static void bt848_contrast(struct bttv *btv, int cont)
 
 	btv->contrast = cont;
 
-	
+	/* 0-511 */
 	value = (cont  >> 7);
 	hibit = (value >> 6) & 4;
 	btwrite(value & 0xff, BT848_CONTRAST_LO);
@@ -1034,7 +1121,7 @@ static void bt848_sat(struct bttv *btv, int color)
 
 	btv->saturation = color;
 
-	
+	/* 0-511 for the color */
 	val_u   = ((color * btv->opt_uv_ratio) / 50) >> 7;
 	val_v   = (((color * (100 - btv->opt_uv_ratio) / 50) >>7)*180L)/254;
 	hibits  = (val_u >> 7) & 2;
@@ -1045,6 +1132,7 @@ static void bt848_sat(struct bttv *btv, int color)
 	btaor(hibits, ~3, BT848_O_CONTROL);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int
 video_mux(struct bttv *btv, unsigned int input)
@@ -1054,7 +1142,7 @@ video_mux(struct bttv *btv, unsigned int input)
 	if (input >= bttv_tvcards[btv->c.type].video_inputs)
 		return -EINVAL;
 
-	
+	/* needed by RemoteVideo MX */
 	mask2 = bttv_tvcards[btv->c.type].gpiomask2;
 	if (mask2)
 		gpio_inout(mask2,mask2);
@@ -1070,7 +1158,7 @@ video_mux(struct bttv *btv, unsigned int input)
 	btaor(mux<<5, ~(3<<5), BT848_IFORM);
 	dprintk("%d: video mux: input=%d mux=%d\n", btv->c.nr, input, mux);
 
-	
+	/* card specific hook */
 	if(bttv_tvcards[btv->c.type].muxsel_hook)
 		bttv_tvcards[btv->c.type].muxsel_hook (btv, input);
 	return 0;
@@ -1094,7 +1182,7 @@ audio_mux(struct bttv *btv, int input, int mute)
 	btv->mute = mute;
 	btv->audio = input;
 
-	
+	/* automute */
 	mute = mute || (btv->opt_automute && !signal && !btv->radio_user);
 
 	if (mute)
@@ -1123,6 +1211,11 @@ audio_mux(struct bttv *btv, int input, int mute)
 	if (btv->sd_msp34xx) {
 		u32 in;
 
+		/* Note: the inputs tuner/radio/extern/intern are translated
+		   to msp routings. This assumes common behavior for all msp3400
+		   based TV cards. When this assumption fails, then the
+		   specific MSP routing must be added to the card table.
+		   For now this is sufficient. */
 		switch (input) {
 		case TVAUDIO_INPUT_RADIO:
 			in = MSP_INPUT(MSP_IN_SCART2, MSP_IN_TUNER1,
@@ -1133,11 +1226,19 @@ audio_mux(struct bttv *btv, int input, int mute)
 				    MSP_DSP_IN_SCART, MSP_DSP_IN_SCART);
 			break;
 		case TVAUDIO_INPUT_INTERN:
+			/* Yes, this is the same input as for RADIO. I doubt
+			   if this is ever used. The only board with an INTERN
+			   input is the BTTV_BOARD_AVERMEDIA98. I wonder how
+			   that was tested. My guess is that the whole INTERN
+			   input does not work. */
 			in = MSP_INPUT(MSP_IN_SCART2, MSP_IN_TUNER1,
 				    MSP_DSP_IN_SCART, MSP_DSP_IN_SCART);
 			break;
 		case TVAUDIO_INPUT_TUNER:
 		default:
+			/* This is the only card that uses TUNER2, and afaik,
+			   is the only difference between the VOODOOTV_FM
+			   and VOODOOTV_200 */
 			if (btv->c.type == BTTV_BOARD_VOODOOTV_200)
 				in = MSP_INPUT(MSP_IN_SCART1, MSP_IN_TUNER2, \
 					MSP_DSP_IN_TUNER, MSP_DSP_IN_TUNER);
@@ -1170,8 +1271,12 @@ audio_input(struct bttv *btv, int input)
 static void
 bttv_crop_calc_limits(struct bttv_crop *c)
 {
+	/* Scale factor min. 1:1, max. 16:1. Min. image size
+	   48 x 32. Scaled width must be a multiple of 4. */
 
 	if (1) {
+		/* For bug compatibility with VIDIOCGCAP and image
+		   size checks in earlier driver versions. */
 		c->min_scaled_width = 48;
 		c->min_scaled_height = 32;
 	} else {
@@ -1192,6 +1297,7 @@ bttv_crop_reset(struct bttv_crop *c, unsigned int norm)
 	bttv_crop_calc_limits(c);
 }
 
+/* Call with btv->lock down. */
 static int
 set_tvnorm(struct bttv *btv, unsigned int norm)
 {
@@ -1206,7 +1312,7 @@ set_tvnorm(struct bttv *btv, unsigned int norm)
 	if (memcmp(&bttv_tvnorms[btv->tvnorm].cropcap, &tvnorm->cropcap,
 		    sizeof (tvnorm->cropcap))) {
 		bttv_crop_reset(&btv->crop[0], norm);
-		btv->crop[1] = btv->crop[0]; 
+		btv->crop[1] = btv->crop[0]; /* current = default */
 
 		if (0 == (btv->resources & VIDEO_RESOURCES)) {
 			btv->crop_start = tvnorm->cropcap.bounds.top
@@ -1236,6 +1342,7 @@ set_tvnorm(struct bttv *btv, unsigned int norm)
 	return 0;
 }
 
+/* Call with btv->lock down. */
 static void
 set_input(struct bttv *btv, unsigned int input, unsigned int norm)
 {
@@ -1245,7 +1352,7 @@ set_input(struct bttv *btv, unsigned int input, unsigned int norm)
 	if (irq_iswitch) {
 		spin_lock_irqsave(&btv->s_lock,flags);
 		if (btv->curr.frame_irq) {
-			
+			/* active capture -> delayed input switch */
 			btv->new_input = input;
 		} else {
 			video_mux(btv,input);
@@ -1261,15 +1368,15 @@ set_input(struct bttv *btv, unsigned int input, unsigned int norm)
 
 static void init_irqreg(struct bttv *btv)
 {
-	
+	/* clear status */
 	btwrite(0xfffffUL, BT848_INT_STAT);
 
 	if (bttv_tvcards[btv->c.type].no_video) {
-		
+		/* i2c only */
 		btwrite(BT848_INT_I2CDONE,
 			BT848_INT_MASK);
 	} else {
-		
+		/* full video */
 		btwrite((btv->triton1)  |
 			(btv->gpioirq ? BT848_INT_GPINT : 0) |
 			BT848_INT_SCERR |
@@ -1286,7 +1393,7 @@ static void init_bt848(struct bttv *btv)
 	int val;
 
 	if (bttv_tvcards[btv->c.type].no_video) {
-		
+		/* very basic init only */
 		init_irqreg(btv);
 		return;
 	}
@@ -1295,8 +1402,8 @@ static void init_bt848(struct bttv *btv)
 	btwrite(BT848_COLOR_CTL_GAMMA, BT848_COLOR_CTL);
 	btwrite(BT848_IFORM_XTAUTO | BT848_IFORM_AUTO, BT848_IFORM);
 
-	
-	
+	/* set planar and packed mode trigger points and         */
+	/* set rising edge of inverted GPINTR pin as irq trigger */
 	btwrite(BT848_GPIO_DMA_CTL_PKTP_32|
 		BT848_GPIO_DMA_CTL_PLTP1_16|
 		BT848_GPIO_DMA_CTL_PLTP23_16|
@@ -1329,7 +1436,7 @@ static void init_bt848(struct bttv *btv)
 	bt848_contrast(btv, btv->contrast);
 	bt848_sat(btv,      btv->saturation);
 
-	
+	/* interrupt */
 	init_irqreg(btv);
 }
 
@@ -1443,7 +1550,7 @@ static int bttv_s_ctrl(struct file *file, void *f,
 		break;
 	case V4L2_CID_AUDIO_MUTE:
 		audio_mute(btv, c->value);
-		
+		/* fall through */
 	case V4L2_CID_AUDIO_VOLUME:
 		if (btv->volume_gpio)
 			btv->volume_gpio(btv, c->value);
@@ -1513,6 +1620,7 @@ static int bttv_s_ctrl(struct file *file, void *f,
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 void bttv_gpio_tracking(struct bttv *btv, char *comment)
 {
@@ -1531,10 +1639,10 @@ static void bttv_field_count(struct bttv *btv)
 		need_count++;
 
 	if (need_count) {
-		
+		/* start field counter */
 		btor(BT848_INT_VSYNC,BT848_INT_MASK);
 	} else {
-		
+		/* stop field counter */
 		btand(~BT848_INT_VSYNC,BT848_INT_MASK);
 		btv->field_count = 0;
 	}
@@ -1554,6 +1662,8 @@ format_by_fourcc(int fourcc)
 	return NULL;
 }
 
+/* ----------------------------------------------------------------------- */
+/* misc helpers                                                            */
 
 static int
 bttv_switch_overlay(struct bttv *btv, struct bttv_fh *fh,
@@ -1584,6 +1694,8 @@ bttv_switch_overlay(struct bttv *btv, struct bttv_fh *fh,
 	return retval;
 }
 
+/* ----------------------------------------------------------------------- */
+/* video4linux (1) interface                                               */
 
 static int bttv_prepare_buffer(struct videobuf_queue *q,struct bttv *btv,
 			       struct bttv_buffer *buf,
@@ -1597,7 +1709,7 @@ static int bttv_prepare_buffer(struct videobuf_queue *q,struct bttv *btv,
 	int norm;
 	int rc;
 
-	
+	/* check settings */
 	if (NULL == fmt)
 		return -EINVAL;
 	if (fmt->btformat == BT848_COLOR_FMT_RAW) {
@@ -1607,9 +1719,13 @@ static int bttv_prepare_buffer(struct videobuf_queue *q,struct bttv *btv,
 			return -EINVAL;
 		buf->vb.size = buf->vb.bsize;
 
+		/* Make sure tvnorm and vbi_end remain consistent
+		   until we're done. */
 
 		norm = btv->tvnorm;
 
+		/* In this mode capturing always starts at defrect.top
+		   (default VDELAY), ignoring cropping parameters. */
 		if (btv->vbi_end > bttv_tvnorms[norm].cropcap.defrect.top) {
 			return -EINVAL;
 		}
@@ -1628,6 +1744,8 @@ static int bttv_prepare_buffer(struct videobuf_queue *q,struct bttv *btv,
 		case V4L2_FIELD_TOP:
 		case V4L2_FIELD_BOTTOM:
 		case V4L2_FIELD_ALTERNATE:
+			/* btv->crop counts frame lines. Max. scale
+			   factor is 16:1 for frames, 8:1 for fields. */
 			if (height * 2 > c.max_scaled_height)
 				return -EINVAL;
 			break;
@@ -1643,7 +1761,7 @@ static int bttv_prepare_buffer(struct videobuf_queue *q,struct bttv *btv,
 			return -EINVAL;
 	}
 
-	
+	/* alloc + fill struct bttv_buffer (if changed) */
 	if (buf->vb.width != width || buf->vb.height != height ||
 	    buf->vb.field != field ||
 	    buf->tvnorm != norm || buf->fmt != fmt ||
@@ -1660,7 +1778,7 @@ static int bttv_prepare_buffer(struct videobuf_queue *q,struct bttv *btv,
 		redo_dma_risc = 1;
 	}
 
-	
+	/* alloc risc memory */
 	if (VIDEOBUF_NEEDS_INIT == buf->vb.state) {
 		redo_dma_risc = 1;
 		if (0 != (rc = videobuf_iolock(q,&buf->vb,&btv->fbuf)))
@@ -1934,7 +2052,7 @@ static int bttv_g_register(struct file *file, void *f,
 	if (!v4l2_chip_match_host(&reg->match))
 		return -EINVAL;
 
-	
+	/* bt848 has a 12-bit register space */
 	reg->reg &= 0xfff;
 	reg->val = btread(reg->reg);
 	reg->size = 1;
@@ -1954,7 +2072,7 @@ static int bttv_s_register(struct file *file, void *f,
 	if (!v4l2_chip_match_host(&reg->match))
 		return -EINVAL;
 
-	
+	/* bt848 has a 12-bit register space */
 	reg->reg &= 0xfff;
 	btwrite(reg->val, reg->reg);
 
@@ -1962,6 +2080,9 @@ static int bttv_s_register(struct file *file, void *f,
 }
 #endif
 
+/* Given cropping boundaries b and the scaled width and height of a
+   single field or frame, which must not exceed hardware limits, this
+   function adjusts the cropping parameters c. */
 static void
 bttv_crop_adjust	(struct bttv_crop *             c,
 			 const struct v4l2_rect *	b,
@@ -1974,10 +2095,10 @@ bttv_crop_adjust	(struct bttv_crop *             c,
 	__s32 max_top;
 
 	if (width < c->min_scaled_width) {
-		
+		/* Max. hor. scale factor 16:1. */
 		c->rect.width = width * 16;
 	} else if (width > c->max_scaled_width) {
-		
+		/* Min. hor. scale factor 1:1. */
 		c->rect.width = width;
 
 		max_left = b->left + b->width - width;
@@ -1987,9 +2108,11 @@ bttv_crop_adjust	(struct bttv_crop *             c,
 	}
 
 	if (height < c->min_scaled_height) {
-		
+		/* Max. vert. scale factor 16:1, single fields 8:1. */
 		c->rect.height = height * 16;
 	} else if (frame_height > c->max_scaled_height) {
+		/* Min. vert. scale factor 1:1.
+		   Top and height count field lines times two. */
 		c->rect.height = (frame_height + 1) & ~1;
 
 		max_top = b->top + b->height - c->rect.height;
@@ -2000,6 +2123,13 @@ bttv_crop_adjust	(struct bttv_crop *             c,
 	bttv_crop_calc_limits(c);
 }
 
+/* Returns an error if scaling to a frame or single field with the given
+   width and height is not possible with the current cropping parameters
+   and width aligned according to width_mask. If adjust_size is TRUE the
+   function may adjust the width and/or height instead, rounding width
+   to (width + width_bias) & width_mask. If adjust_crop is TRUE it may
+   also adjust the current cropping parameters to get closer to the
+   desired image size. */
 static int
 limit_scaled_size_lock       (struct bttv_fh *               fh,
 			 __s32 *                        width,
@@ -2022,10 +2152,12 @@ limit_scaled_size_lock       (struct bttv_fh *               fh,
 	BUG_ON((int) width_mask >= 0 ||
 	       width_bias >= (unsigned int) -width_mask);
 
+	/* Make sure tvnorm, vbi_end and the current cropping parameters
+	   remain consistent until we're done. */
 
 	b = &bttv_tvnorms[btv->tvnorm].cropcap.bounds;
 
-	
+	/* Do crop - use current, don't - use default parameters. */
 	c = &btv->crop[!!fh->do_crop];
 
 	if (fh->do_crop
@@ -2035,9 +2167,15 @@ limit_scaled_size_lock       (struct bttv_fh *               fh,
 		min_width = 48;
 		min_height = 32;
 
+		/* We cannot scale up. When the scaled image is larger
+		   than crop.rect we adjust the crop.rect as required
+		   by the V4L2 spec, hence cropcap.bounds are our limit. */
 		max_width = min(b->width, (__s32) MAX_HACTIVE);
 		max_height = b->height;
 
+		/* We cannot capture the same line as video and VBI data.
+		   Note btv->vbi_end is really a minimum, see
+		   bttv_vbi_try_fmt(). */
 		if (btv->vbi_end > b->top) {
 			max_height -= btv->vbi_end - b->top;
 			rc = -EBUSY;
@@ -2060,23 +2198,23 @@ limit_scaled_size_lock       (struct bttv_fh *               fh,
 	min_width = (min_width - width_mask - 1) & width_mask;
 	max_width = max_width & width_mask;
 
-	
+	/* Max. scale factor is 16:1 for frames, 8:1 for fields. */
 	min_height = min_height;
-	
+	/* Min. scale factor is 1:1. */
 	max_height >>= !V4L2_FIELD_HAS_BOTH(field);
 
 	if (adjust_size) {
 		*width = clamp(*width, min_width, max_width);
 		*height = clamp(*height, min_height, max_height);
 
-		
+		/* Round after clamping to avoid overflow. */
 		*width = (*width + width_bias) & width_mask;
 
 		if (adjust_crop) {
 			bttv_crop_adjust(c, b, *width, *height, field);
 
 			if (btv->vbi_end > c->rect.top) {
-				
+				/* Move the crop window out of the way. */
 				c->rect.top = btv->vbi_end;
 			}
 		}
@@ -2090,13 +2228,20 @@ limit_scaled_size_lock       (struct bttv_fh *               fh,
 			goto fail;
 	}
 
-	rc = 0; 
+	rc = 0; /* success */
 
  fail:
 
 	return rc;
 }
 
+/* Returns an error if the given overlay window dimensions are not
+   possible with the current cropping parameters. If adjust_size is
+   TRUE the function may adjust the window width and/or height
+   instead, however it always rounds the horizontal position and
+   width as btcx_align() does. If adjust_crop is TRUE the function
+   may also adjust the current cropping parameters to get closer
+   to the desired window size. */
 static int
 verify_window_lock		(struct bttv_fh *               fh,
 			 struct v4l2_window *           win,
@@ -2131,7 +2276,7 @@ verify_window_lock		(struct bttv_fh *               fh,
 		return -EINVAL;
 	}
 
-	
+	/* 4-byte alignment. */
 	if (NULL == fh->ovfmt)
 		return -EINVAL;
 	width_mask = ~0;
@@ -2154,7 +2299,7 @@ verify_window_lock		(struct bttv_fh *               fh,
 
 	rc = limit_scaled_size_lock(fh, &win->w.width, &win->w.height,
 			       field, width_mask,
-			        0,
+			       /* width_bias: round down */ 0,
 			       adjust_size, adjust_crop);
 	if (0 != rc)
 		return rc;
@@ -2174,11 +2319,13 @@ static int setup_window_lock(struct bttv_fh *fh, struct bttv *btv,
 	if (!(fh->ovfmt->flags & FORMAT_FLAGS_PACKED))
 		return -EINVAL;
 	retval = verify_window_lock(fh, win,
-			        fixup,
-			        fixup);
+			       /* adjust_size */ fixup,
+			       /* adjust_crop */ fixup);
 	if (0 != retval)
 		return retval;
 
+	/* copy clips  --  luckily v4l1 + v4l2 are binary
+	   compatible here ...*/
 	n = win->clipcount;
 	size = sizeof(*clips)*(n+4);
 	clips = kmalloc(size,GFP_KERNEL);
@@ -2191,13 +2338,13 @@ static int setup_window_lock(struct bttv_fh *fh, struct bttv *btv,
 		}
 	}
 
-	
+	/* clip against screen */
 	if (NULL != btv->fbuf.base)
 		n = btcx_screen_clips(btv->fbuf.fmt.width, btv->fbuf.fmt.height,
 				      &win->w, clips, n);
 	btcx_sort_clips(clips,n);
 
-	
+	/* 4-byte alignments */
 	switch (fh->ovfmt->depth) {
 	case 8:
 	case 24:
@@ -2207,7 +2354,7 @@ static int setup_window_lock(struct bttv_fh *fh, struct bttv *btv,
 		btcx_align(&win->w, clips, n, 1);
 		break;
 	case 32:
-		
+		/* no alignment fixups needed */
 		break;
 	default:
 		BUG();
@@ -2225,7 +2372,7 @@ static int setup_window_lock(struct bttv_fh *fh, struct bttv *btv,
 	btv->init.ov.w.height  = win->w.height;
 	btv->init.ov.field     = win->field;
 
-	
+	/* update overlay if needed */
 	retval = 0;
 	if (check_btres(fh, RESOURCE_OVERLAY)) {
 		struct bttv_buffer *new;
@@ -2238,6 +2385,7 @@ static int setup_window_lock(struct bttv_fh *fh, struct bttv *btv,
 	return retval;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static struct videobuf_queue* bttv_queue(struct bttv_fh *fh)
 {
@@ -2296,7 +2444,7 @@ pix_format_set_size     (struct v4l2_pix_format *       f,
 	f->height = height;
 
 	if (fmt->flags & FORMAT_FLAGS_PLANAR) {
-		f->bytesperline = width; 
+		f->bytesperline = width; /* Y plane */
 		f->sizeimage = (width * height * fmt->depth) >> 3;
 	} else {
 		f->bytesperline = (width * fmt->depth) >> 3;
@@ -2374,14 +2522,14 @@ static int bttv_try_fmt_vid_cap(struct file *file, void *priv,
 	height = f->fmt.pix.height;
 
 	rc = limit_scaled_size_lock(fh, &width, &height, field,
-			        ~3,
-			        2,
-			        1,
-			        0);
+			       /* width_mask: 4 pixels */ ~3,
+			       /* width_bias: nearest */ 2,
+			       /* adjust_size */ 1,
+			       /* adjust_crop */ 0);
 	if (0 != rc)
 		return rc;
 
-	
+	/* update data for the application */
 	f->fmt.pix.field = field;
 	pix_format_set_size(&f->fmt.pix, fmt, width, height);
 
@@ -2394,8 +2542,8 @@ static int bttv_try_fmt_vid_overlay(struct file *file, void *priv,
 	struct bttv_fh *fh = priv;
 
 	return verify_window_lock(fh, &f->fmt.win,
-			 1,
-			 0);
+			/* adjust_size */ 1,
+			/* adjust_crop */ 0);
 }
 
 static int bttv_s_fmt_vid_cap(struct file *file, void *priv,
@@ -2421,10 +2569,10 @@ static int bttv_s_fmt_vid_cap(struct file *file, void *priv,
 	field = f->fmt.pix.field;
 
 	retval = limit_scaled_size_lock(fh, &width, &height, f->fmt.pix.field,
-			        ~3,
-			        2,
-			        1,
-			        1);
+			       /* width_mask: 4 pixels */ ~3,
+			       /* width_bias: nearest */ 2,
+			       /* adjust_size */ 1,
+			       /* adjust_crop */ 1);
 	if (0 != retval)
 		return retval;
 
@@ -2432,7 +2580,7 @@ static int bttv_s_fmt_vid_cap(struct file *file, void *priv,
 
 	fmt = format_by_fourcc(f->fmt.pix.pixelformat);
 
-	
+	/* update our state informations */
 	fh->fmt              = fmt;
 	fh->cap.field        = f->fmt.pix.field;
 	fh->cap.last         = V4L2_FIELD_NONE;
@@ -2480,6 +2628,10 @@ static int bttv_querycap(struct file *file, void  *priv,
 	if (no_overlay <= 0)
 		cap->capabilities |= V4L2_CAP_VIDEO_OVERLAY;
 
+	/*
+	 * No need to lock here: those vars are initialized during board
+	 * probe and remains untouched during the rest of the driver lifecycle
+	 */
 	if (btv->has_saa6588)
 		cap->capabilities |= V4L2_CAP_RDS_CAPTURE;
 	if (btv->tuner_type != TUNER_ABSENT)
@@ -2559,7 +2711,7 @@ static int bttv_overlay(struct file *file, void *f, unsigned int on)
 	int retval = 0;
 
 	if (on) {
-		
+		/* verify args */
 		if (unlikely(!btv->fbuf.base)) {
 			return -EINVAL;
 		}
@@ -2583,7 +2735,7 @@ static int bttv_overlay(struct file *file, void *f, unsigned int on)
 		new = NULL;
 	}
 
-	
+	/* switch over */
 	retval = bttv_switch_overlay(btv, fh, new);
 	return retval;
 }
@@ -2600,7 +2752,7 @@ static int bttv_s_fbuf(struct file *file, void *f,
 		!capable(CAP_SYS_RAWIO))
 		return -EPERM;
 
-	
+	/* check args */
 	fmt = format_by_fourcc(fb->fmt.pixelformat);
 	if (NULL == fmt)
 		return -EINVAL;
@@ -2614,15 +2766,15 @@ static int bttv_s_fbuf(struct file *file, void *f,
 
 		retval = limit_scaled_size_lock(fh, &width, &height,
 					   V4L2_FIELD_INTERLACED,
-					    ~3,
-					    2,
-					    0,
-					    0);
+					   /* width_mask */ ~3,
+					   /* width_bias */ 2,
+					   /* adjust_size */ 0,
+					   /* adjust_crop */ 0);
 		if (0 != retval)
 			return retval;
 	}
 
-	
+	/* ok, accept it */
 	btv->fbuf.base       = fb->base;
 	btv->fbuf.fmt.width  = fb->fmt.width;
 	btv->fbuf.fmt.height = fb->fmt.height;
@@ -2826,6 +2978,9 @@ static int bttv_g_crop(struct file *file, void *f, struct v4l2_crop *crop)
 	    crop->type != V4L2_BUF_TYPE_VIDEO_OVERLAY)
 		return -EINVAL;
 
+	/* No fh->do_crop = 1; because btv->crop[1] may be
+	   inconsistent with fh->width or fh->height and apps
+	   do not expect a change here. */
 
 	crop->c = btv->crop[!!fh->do_crop].rect;
 
@@ -2848,6 +3003,9 @@ static int bttv_s_crop(struct file *file, void *f, struct v4l2_crop *crop)
 	    crop->type != V4L2_BUF_TYPE_VIDEO_OVERLAY)
 		return -EINVAL;
 
+	/* Make sure tvnorm, vbi_end and the current cropping
+	   parameters remain consistent until we're done. Note
+	   read() may change vbi_end in check_alloc_btres_lock(). */
 	retval = v4l2_prio_check(&btv->prio, fh->prio);
 	if (0 != retval) {
 		return retval;
@@ -2870,7 +3028,7 @@ static int bttv_s_crop(struct file *file, void *f, struct v4l2_crop *crop)
 		return retval;
 	}
 
-	
+	/* Min. scaled size 48 x 32. */
 	c.rect.left = clamp(crop->c.left, b_left, b_right - 48);
 	c.rect.left = min(c.rect.left, (__s32) MAX_HDELAY);
 
@@ -2878,7 +3036,7 @@ static int bttv_s_crop(struct file *file, void *f, struct v4l2_crop *crop)
 			     48, b_right - c.rect.left);
 
 	c.rect.top = clamp(crop->c.top, b_top, b_bottom - 32);
-	
+	/* Top and height must be a multiple of two. */
 	c.rect.top = (c.rect.top + 1) & ~1;
 
 	c.rect.height = clamp(crop->c.height,
@@ -2941,6 +3099,8 @@ static ssize_t bttv_read(struct file *file, char __user *data,
 	switch (fh->type) {
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
 		if (!check_alloc_btres_lock(fh->btv, fh, RESOURCE_VIDEO_READ)) {
+			/* VIDEO_READ in use by another fh,
+			   or VIDEO_STREAM by any fh. */
 			return -EBUSY;
 		}
 		retval = videobuf_read_one(&fh->cap, data, count, ppos,
@@ -2973,14 +3133,14 @@ static unsigned int bttv_poll(struct file *file, poll_table *wait)
 	}
 
 	if (check_btres(fh,RESOURCE_VIDEO_STREAM)) {
-		
+		/* streaming capture */
 		if (list_empty(&fh->cap.stream))
 			goto err;
 		buf = list_entry(fh->cap.stream.next,struct bttv_buffer,vb.stream);
 	} else {
-		
+		/* read() capture */
 		if (NULL == fh->cap.read_buf) {
-			
+			/* need to capture a new frame */
 			if (locked_btres(fh->btv,RESOURCE_VIDEO_STREAM))
 				goto err;
 			fh->cap.read_buf = videobuf_sg_alloc(fh->cap.msize);
@@ -3030,7 +3190,7 @@ static int bttv_open(struct file *file)
 	dprintk("%d: open called (type=%s)\n",
 		btv->c.nr, v4l2_type_names[type]);
 
-	
+	/* allocate per filehandle data */
 	fh = kmalloc(sizeof(*fh), GFP_KERNEL);
 	if (unlikely(!fh))
 		return -ENOMEM;
@@ -3060,8 +3220,20 @@ static int bttv_open(struct file *file)
 
 	btv->users++;
 
-	fh->do_crop = !reset_crop; 
+	/* The V4L2 spec requires one global set of cropping parameters
+	   which only change on request. These are stored in btv->crop[1].
+	   However for compatibility with V4L apps and cropping unaware
+	   V4L2 apps we now reset the cropping parameters as seen through
+	   this fh, which is to say VIDIOC_G_CROP and scaling limit checks
+	   will use btv->crop[0], the default cropping parameters for the
+	   current video standard, and VIDIOC_S_FMT will not implicitely
+	   change the cropping parameters until VIDIOC_S_CROP has been
+	   called. */
+	fh->do_crop = !reset_crop; /* module parameter */
 
+	/* Likewise there should be one global set of VBI capture
+	   parameters, but for compatibility with V4L apps and earlier
+	   driver versions each fh has its own parameters. */
 	bttv_vbi_fmt_reset(&fh->vbi_fmt, btv->tvnorm);
 
 	bttv_field_count(btv);
@@ -3073,11 +3245,11 @@ static int bttv_release(struct file *file)
 	struct bttv_fh *fh = file->private_data;
 	struct bttv *btv = fh->btv;
 
-	
+	/* turn off overlay */
 	if (check_btres(fh, RESOURCE_OVERLAY))
 		bttv_switch_overlay(btv,fh,NULL);
 
-	
+	/* stop video capture */
 	if (check_btres(fh, RESOURCE_VIDEO_STREAM)) {
 		videobuf_streamoff(&fh->cap);
 		free_btres_lock(btv,fh,RESOURCE_VIDEO_STREAM);
@@ -3090,13 +3262,13 @@ static int bttv_release(struct file *file)
 		free_btres_lock(btv, fh, RESOURCE_VIDEO_READ);
 	}
 
-	
+	/* stop vbi capture */
 	if (check_btres(fh, RESOURCE_VBI)) {
 		videobuf_stop(&fh->vbi);
 		free_btres_lock(btv,fh,RESOURCE_VBI);
 	}
 
-	
+	/* free stuff */
 
 	videobuf_mmap_free(&fh->cap);
 	videobuf_mmap_free(&fh->vbi);
@@ -3191,6 +3363,8 @@ static struct video_device bttv_video_template = {
 	.current_norm = V4L2_STD_PAL,
 };
 
+/* ----------------------------------------------------------------------- */
+/* radio interface                                                         */
 
 static int radio_open(struct file *file)
 {
@@ -3202,7 +3376,7 @@ static int radio_open(struct file *file)
 
 	dprintk("%d: open called (radio)\n", btv->c.nr);
 
-	
+	/* allocate per filehandle data */
 	fh = kmalloc(sizeof(*fh), GFP_KERNEL);
 	if (unlikely(!fh))
 		return -ENOMEM;
@@ -3413,6 +3587,8 @@ static struct video_device radio_template = {
 	.ioctl_ops = &radio_ioctl_ops,
 };
 
+/* ----------------------------------------------------------------------- */
+/* some debug code                                                         */
 
 static int bttv_risc_decode(u32 risc)
 {
@@ -3490,27 +3666,29 @@ static void bttv_print_riscaddr(struct bttv *btv)
 	bttv_risc_disasm(btv, &btv->main);
 }
 
+/* ----------------------------------------------------------------------- */
+/* irq handler                                                             */
 
 static char *irq_name[] = {
-	"FMTCHG",  
-	"VSYNC",   
-	"HSYNC",   
-	"OFLOW",   
-	"HLOCK",   
-	"VPRES",   
+	"FMTCHG",  // format change detected (525 vs. 625)
+	"VSYNC",   // vertical sync (new field)
+	"HSYNC",   // horizontal sync
+	"OFLOW",   // chroma/luma AGC overflow
+	"HLOCK",   // horizontal lock changed
+	"VPRES",   // video presence changed
 	"6", "7",
-	"I2CDONE", 
-	"GPINT",   
+	"I2CDONE", // hw irc operation finished
+	"GPINT",   // gpio port triggered irq
 	"10",
-	"RISCI",   
-	"FBUS",    
-	"FTRGT",   
-	"FDSR",    
-	"PPERR",   
-	"RIPERR",  
-	"PABORT",  
-	"OCERR",   
-	"SCERR",   
+	"RISCI",   // risc instruction triggered irq
+	"FBUS",    // pixel data fifo dropped data (high pci bus latencies)
+	"FTRGT",   // pixel data fifo overrun
+	"FDSR",    // fifo data stream resyncronisation
+	"PPERR",   // parity error (data transfer)
+	"RIPERR",  // parity error (read risc instructions)
+	"PABORT",  // pci abort
+	"OCERR",   // risc instruction error
+	"SCERR",   // syncronisation error
 };
 
 static void bttv_print_irqbits(u32 print, u32 mark)
@@ -3555,7 +3733,7 @@ bttv_irq_next_video(struct bttv *btv, struct bttv_buffer_set *set)
 
 	memset(set,0,sizeof(*set));
 
-	
+	/* capture request ? */
 	if (!list_empty(&btv->capture)) {
 		set->frame_irq = 1;
 		item = list_entry(btv->capture.next, struct bttv_buffer, vb.queue);
@@ -3564,10 +3742,37 @@ bttv_irq_next_video(struct bttv *btv, struct bttv_buffer_set *set)
 		if (V4L2_FIELD_HAS_BOTTOM(item->vb.field))
 			set->bottom = item;
 
-		
+		/* capture request for other field ? */
 		if (!V4L2_FIELD_HAS_BOTH(item->vb.field) &&
 		    (item->vb.queue.next != &btv->capture)) {
 			item = list_entry(item->vb.queue.next, struct bttv_buffer, vb.queue);
+			/* Mike Isely <isely@pobox.com> - Only check
+			 * and set up the bottom field in the logic
+			 * below.  Don't ever do the top field.  This
+			 * of course means that if we set up the
+			 * bottom field in the above code that we'll
+			 * actually skip a field.  But that's OK.
+			 * Having processed only a single buffer this
+			 * time, then the next time around the first
+			 * available buffer should be for a top field.
+			 * That will then cause us here to set up a
+			 * top then a bottom field in the normal way.
+			 * The alternative to this understanding is
+			 * that we set up the second available buffer
+			 * as a top field, but that's out of order
+			 * since this driver always processes the top
+			 * field first - the effect will be the two
+			 * buffers being returned in the wrong order,
+			 * with the second buffer also being delayed
+			 * by one field time (owing to the fifo nature
+			 * of videobuf).  Worse still, we'll be stuck
+			 * doing fields out of order now every time
+			 * until something else causes a field to be
+			 * dropped.  By effectively forcing a field to
+			 * drop this way then we always get back into
+			 * sync within a single frame time.  (Out of
+			 * order fields can screw up deinterlacing
+			 * algorithms.) */
 			if (!V4L2_FIELD_HAS_BOTH(item->vb.field)) {
 				if (NULL == set->bottom &&
 				    V4L2_FIELD_BOTTOM == item->vb.field) {
@@ -3579,7 +3784,7 @@ bttv_irq_next_video(struct bttv *btv, struct bttv_buffer_set *set)
 		}
 	}
 
-	
+	/* screen overlay ? */
 	if (NULL != btv->screen) {
 		if (V4L2_FIELD_HAS_BOTH(btv->screen->vb.field)) {
 			if (NULL == set->top && NULL == set->bottom) {
@@ -3678,7 +3883,7 @@ static void bttv_irq_timeout(unsigned long data)
 
 	spin_lock_irqsave(&btv->s_lock,flags);
 
-	
+	/* deactivate stuff */
 	memset(&new,0,sizeof(new));
 	old  = btv->curr;
 	ovbi = btv->cvbi;
@@ -3689,11 +3894,11 @@ static void bttv_irq_timeout(unsigned long data)
 	bttv_buffer_activate_vbi(btv,   NULL);
 	bttv_set_dma(btv, 0);
 
-	
+	/* wake up */
 	bttv_irq_wakeup_video(btv, &old, &new, VIDEOBUF_ERROR);
 	bttv_irq_wakeup_vbi(btv, ovbi, VIDEOBUF_ERROR);
 
-	
+	/* cancel all outstanding capture / vbi requests */
 	while (!list_empty(&btv->capture)) {
 		item = list_entry(btv->capture.next, struct bttv_buffer, vb.queue);
 		list_del(&item->vb.queue);
@@ -3749,7 +3954,7 @@ bttv_irq_switch_video(struct bttv *btv)
 
 	spin_lock(&btv->s_lock);
 
-	
+	/* new buffer set */
 	bttv_irq_next_video(btv, &new);
 	rc = btread(BT848_RISC_COUNT);
 	if ((btv->curr.top    && is_active(&btv->curr.top->top,       rc)) ||
@@ -3761,20 +3966,20 @@ bttv_irq_switch_video(struct bttv *btv)
 		return;
 	}
 
-	
+	/* switch over */
 	old = btv->curr;
 	btv->curr = new;
 	btv->loop_irq &= ~1;
 	bttv_buffer_activate_video(btv, &new);
 	bttv_set_dma(btv, 0);
 
-	
+	/* switch input */
 	if (UNSET != btv->new_input) {
 		video_mux(btv,btv->new_input);
 		btv->new_input = UNSET;
 	}
 
-	
+	/* wake up finished buffers */
 	bttv_irq_wakeup_video(btv, &old, &new, VIDEOBUF_DONE);
 	spin_unlock(&btv->s_lock);
 }
@@ -3802,7 +4007,7 @@ bttv_irq_switch_vbi(struct bttv *btv)
 		return;
 	}
 
-	
+	/* switch */
 	btv->cvbi = new;
 	btv->loop_irq &= ~4;
 	bttv_buffer_activate_vbi(btv, new);
@@ -3824,7 +4029,7 @@ static irqreturn_t bttv_irq(int irq, void *dev_id)
 
 	count=0;
 	while (1) {
-		
+		/* get/clear interrupt status bits */
 		stat=btread(BT848_INT_STAT);
 		astat=stat&btread(BT848_INT_MASK);
 		if (!astat)
@@ -3832,7 +4037,7 @@ static irqreturn_t bttv_irq(int irq, void *dev_id)
 		handled = 1;
 		btwrite(stat,BT848_INT_STAT);
 
-		
+		/* get device status bits */
 		dstat=btread(BT848_DSTATUS);
 
 		if (irq_debug) {
@@ -3877,7 +4082,7 @@ static irqreturn_t bttv_irq(int irq, void *dev_id)
 			bttv_irq_switch_video(btv);
 
 		if ((astat & BT848_INT_HLOCK)  &&  btv->opt_automute)
-			audio_mute(btv, btv->mute);  
+			audio_mute(btv, btv->mute);  /* trigger automute */
 
 		if (astat & (BT848_INT_SCERR|BT848_INT_OCERR)) {
 			pr_info("%d: %s%s @ %08x,",
@@ -3925,6 +4130,8 @@ static irqreturn_t bttv_irq(int irq, void *dev_id)
 }
 
 
+/* ----------------------------------------------------------------------- */
+/* initialitation                                                          */
 
 static struct video_device *vdev_init(struct bttv *btv,
 				      const struct video_device *template,
@@ -3971,12 +4178,13 @@ static void bttv_unregister_video(struct bttv *btv)
 	}
 }
 
+/* register video4linux devices */
 static int __devinit bttv_register_video(struct bttv *btv)
 {
 	if (no_overlay > 0)
 		pr_notice("Overlay support disabled\n");
 
-	
+	/* video */
 	btv->video_dev = vdev_init(btv, &bttv_video_template, "video");
 
 	if (NULL == btv->video_dev)
@@ -3992,7 +4200,7 @@ static int __devinit bttv_register_video(struct bttv *btv)
 		goto err;
 	}
 
-	
+	/* vbi */
 	btv->vbi_dev = vdev_init(btv, &bttv_video_template, "vbi");
 
 	if (NULL == btv->vbi_dev)
@@ -4005,7 +4213,7 @@ static int __devinit bttv_register_video(struct bttv *btv)
 
 	if (!btv->has_radio)
 		return 0;
-	
+	/* radio */
 	btv->radio_dev = vdev_init(btv, &radio_template, "radio");
 	if (NULL == btv->radio_dev)
 		goto err;
@@ -4015,7 +4223,7 @@ static int __devinit bttv_register_video(struct bttv *btv)
 	pr_info("%d: registered device %s\n",
 		btv->c.nr, video_device_node_name(btv->radio_dev));
 
-	
+	/* all done */
 	return 0;
 
  err:
@@ -4024,6 +4232,8 @@ static int __devinit bttv_register_video(struct bttv *btv)
 }
 
 
+/* on OpenFirmware machines (PowerMac at least), PCI memory cycle */
+/* response on cards with no firmware is not enabled by OF */
 static void pci_set_command(struct pci_dev *dev)
 {
 #if defined(__powerpc__)
@@ -4054,7 +4264,7 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 	snprintf(btv->c.v4l2_dev.name, sizeof(btv->c.v4l2_dev.name),
 			"bttv%d", btv->c.nr);
 
-	
+	/* initialize structs / fill in defaults */
 	mutex_init(&btv->lock);
 	spin_lock_init(&btv->s_lock);
 	spin_lock_init(&btv->gpio_lock);
@@ -4073,7 +4283,7 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 	btv->new_input   = UNSET;
 	btv->has_radio=radio[btv->c.nr];
 
-	
+	/* pci stuff (init, get irq/mmio, ... */
 	btv->c.pci = dev;
 	btv->id  = dev->device;
 	if (pci_enable_device(dev)) {
@@ -4116,10 +4326,10 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 		goto fail1;
 	}
 
-	
+	/* identify card */
 	bttv_idcard(btv);
 
-	
+	/* disable irqs, register irq handler */
 	btwrite(0, BT848_INT_MASK);
 	result = request_irq(btv->c.pci->irq, bttv_irq,
 	    IRQF_SHARED | IRQF_DISABLED, btv->c.v4l2_dev.name, (void *)btv);
@@ -4134,7 +4344,7 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 		goto fail2;
 	}
 
-	
+	/* init options from insmod args */
 	btv->opt_combfilter = combfilter;
 	btv->opt_lumafilter = lumafilter;
 	btv->opt_automute   = automute;
@@ -4147,7 +4357,7 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 	btv->opt_full_luma_range   = full_luma_range;
 	btv->opt_coring     = coring;
 
-	
+	/* fill struct bttv with some useful defaults */
 	btv->init.btv         = btv;
 	btv->init.ov.w.width  = 320;
 	btv->init.ov.w.height = 240;
@@ -4156,31 +4366,31 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 	btv->init.height      = 240;
 	btv->input = 0;
 
-	
+	/* initialize hardware */
 	if (bttv_gpio)
 		bttv_gpio_tracking(btv,"pre-init");
 
 	bttv_risc_init_main(btv);
 	init_bt848(btv);
 
-	
+	/* gpio */
 	btwrite(0x00, BT848_GPIO_REG_INP);
 	btwrite(0x00, BT848_GPIO_OUT_EN);
 	if (bttv_verbose)
 		bttv_gpio_tracking(btv,"init");
 
-	
+	/* needs to be done before i2c is registered */
 	bttv_init_card1(btv);
 
-	
+	/* register i2c + gpio */
 	init_bttv_i2c(btv);
 
-	
+	/* some card-specific stuff (needs working i2c) */
 	bttv_init_card2(btv);
 	bttv_init_tuner(btv);
 	init_irqreg(btv);
 
-	
+	/* register video4linux + input */
 	if (!bttv_tvcards[btv->c.type].no_video) {
 		bttv_register_video(btv);
 		bt848_bright(btv,32768);
@@ -4190,12 +4400,12 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 		audio_mute(btv, 1);
 		set_input(btv, 0, btv->tvnorm);
 		bttv_crop_reset(&btv->crop[0], btv->tvnorm);
-		btv->crop[1] = btv->crop[0]; 
+		btv->crop[1] = btv->crop[0]; /* current = default */
 		disclaim_vbi_lines(btv);
 		disclaim_video_lines(btv);
 	}
 
-	
+	/* add subdevices and autoload dvb-bt8xx if needed */
 	if (bttv_tvcards[btv->c.type].has_dvb) {
 		bttv_sub_add_device(&btv->c, "dvb");
 		request_modules(btv);
@@ -4206,7 +4416,7 @@ static int __devinit bttv_probe(struct pci_dev *dev,
 		bttv_input_init(btv);
 	}
 
-	
+	/* everything is fine */
 	bttv_num++;
 	return 0;
 
@@ -4235,7 +4445,7 @@ static void __devexit bttv_remove(struct pci_dev *pci_dev)
 	if (bttv_tvcards[btv->c.type].has_dvb)
 		flush_request_modules(btv);
 
-	
+	/* shutdown everything (DMA+IRQs) */
 	btand(~15, BT848_GPIO_DMA_CTL);
 	btwrite(0, BT848_INT_MASK);
 	btwrite(~0x0, BT848_INT_STAT);
@@ -4243,21 +4453,21 @@ static void __devexit bttv_remove(struct pci_dev *pci_dev)
 	if (bttv_gpio)
 		bttv_gpio_tracking(btv,"cleanup");
 
-	
+	/* tell gpio modules we are leaving ... */
 	btv->shutdown=1;
 	bttv_input_fini(btv);
 	bttv_sub_del_devices(&btv->c);
 
-	
+	/* unregister i2c_bus + input */
 	fini_bttv_i2c(btv);
 
-	
+	/* unregister video4linux */
 	bttv_unregister_video(btv);
 
-	
+	/* free allocated memory */
 	btcx_riscmem_free(btv->c.pci,&btv->main);
 
-	
+	/* free ressources */
 	free_irq(btv->c.pci->irq,btv);
 	iounmap(btv->bt848_mmio);
 	release_mem_region(pci_resource_start(btv->c.pci,0),
@@ -4280,7 +4490,7 @@ static int bttv_suspend(struct pci_dev *pci_dev, pm_message_t state)
 
 	dprintk("%d: suspend %d\n", btv->c.nr, state.event);
 
-	
+	/* stop dma + irqs */
 	spin_lock_irqsave(&btv->s_lock,flags);
 	memset(&idle, 0, sizeof(idle));
 	btv->state.video = btv->curr;
@@ -4294,11 +4504,11 @@ static int bttv_suspend(struct pci_dev *pci_dev, pm_message_t state)
 	btwrite(0, BT848_INT_MASK);
 	spin_unlock_irqrestore(&btv->s_lock,flags);
 
-	
+	/* save bt878 state */
 	btv->state.gpio_enable = btread(BT848_GPIO_OUT_EN);
 	btv->state.gpio_data   = gpio_read();
 
-	
+	/* save pci state */
 	pci_save_state(pci_dev);
 	if (0 != pci_set_power_state(pci_dev, pci_choose_state(pci_dev, state))) {
 		pci_disable_device(pci_dev);
@@ -4316,7 +4526,7 @@ static int bttv_resume(struct pci_dev *pci_dev)
 
 	dprintk("%d: resume\n", btv->c.nr);
 
-	
+	/* restore pci state */
 	if (btv->state.disabled) {
 		err=pci_enable_device(pci_dev);
 		if (err) {
@@ -4335,12 +4545,12 @@ static int bttv_resume(struct pci_dev *pci_dev)
 
 	pci_restore_state(pci_dev);
 
-	
+	/* restore bt878 state */
 	bttv_reinit_bt848(btv);
 	gpio_inout(0xffffff, btv->state.gpio_enable);
 	gpio_write(btv->state.gpio_data);
 
-	
+	/* restart dma */
 	spin_lock_irqsave(&btv->s_lock,flags);
 	btv->curr = btv->state.video;
 	btv->cvbi = btv->state.vbi;
@@ -4414,3 +4624,8 @@ static void __exit bttv_cleanup_module(void)
 module_init(bttv_init_module);
 module_exit(bttv_cleanup_module);
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

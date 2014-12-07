@@ -22,8 +22,10 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 
+/* I2C ID for TPS65217 part */
 #define TPS65217_I2C_ID			0x24
 
+/* All register addresses */
 #define TPS65217_REG_CHIPID		0X00
 #define TPS65217_REG_PPATH		0X01
 #define TPS65217_REG_INT		0X02
@@ -55,6 +57,7 @@
 #define TPS65217_REG_SEQ5		0X1D
 #define TPS65217_REG_SEQ6		0X1E
 
+/* Register field definitions */
 #define TPS65217_CHIPID_CHIP_MASK	0xF0
 #define TPS65217_CHIPID_REV_MASK	0x0F
 
@@ -187,11 +190,11 @@
 
 
 enum tps65217_regulator_id {
-	
+	/* DCDC's */
 	TPS65217_DCDC_1,
 	TPS65217_DCDC_2,
 	TPS65217_DCDC_3,
-	
+	/* LDOs */
 	TPS65217_LDO_1,
 	TPS65217_LDO_2,
 	TPS65217_LDO_3,
@@ -200,14 +203,38 @@ enum tps65217_regulator_id {
 
 #define TPS65217_MAX_REG_ID		TPS65217_LDO_4
 
+/* Number of step-down converters available */
 #define TPS65217_NUM_DCDC		3
+/* Number of LDO voltage regulators available */
 #define TPS65217_NUM_LDO		4
+/* Number of total regulators available */
 #define TPS65217_NUM_REGULATOR		(TPS65217_NUM_DCDC + TPS65217_NUM_LDO)
 
+/**
+ * struct tps65217_board - packages regulator init data
+ * @tps65217_regulator_data: regulator initialization values
+ *
+ * Board data may be used to initialize regulator.
+ */
 struct tps65217_board {
 	struct regulator_init_data *tps65217_init_data;
 };
 
+/**
+ * struct tps_info - packages regulator constraints
+ * @name:		Voltage regulator name
+ * @min_uV:		minimum micro volts
+ * @max_uV:		minimum micro volts
+ * @vsel_to_uv:		Function pointer to get voltage from selector
+ * @uv_to_vsel:		Function pointer to get selector from voltage
+ * @table:		Table for non-uniform voltage step-size
+ * @table_len:		Length of the voltage table
+ * @enable_mask:	Regulator enable mask bits
+ * @set_vout_reg:	Regulator output voltage set register
+ * @set_vout_mask:	Regulator output voltage set mask
+ *
+ * This data is used to check the regualtor voltage limits while setting.
+ */
 struct tps_info {
 	const char *name;
 	int min_uV;
@@ -221,6 +248,11 @@ struct tps_info {
 	unsigned int set_vout_mask;
 };
 
+/**
+ * struct tps65217 - tps65217 sub-driver chip access routines
+ *
+ * Device data may be used to access the TPS65217 chip
+ */
 
 struct tps65217 {
 	struct device *dev;
@@ -230,7 +262,7 @@ struct tps65217 {
 	struct tps_info *info[TPS65217_NUM_REGULATOR];
 	struct regmap *regmap;
 
-	
+	/* Client devices */
 	struct platform_device *regulator_pdev[TPS65217_NUM_REGULATOR];
 };
 
@@ -248,4 +280,4 @@ int tps65217_set_bits(struct tps65217 *tps, unsigned int reg,
 int tps65217_clear_bits(struct tps65217 *tps, unsigned int reg,
 		unsigned int mask, unsigned int level);
 
-#endif 
+#endif /*  __LINUX_MFD_TPS65217_H */

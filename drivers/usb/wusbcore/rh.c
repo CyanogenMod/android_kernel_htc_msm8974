@@ -73,6 +73,29 @@
 #include <linux/export.h>
 #include "wusbhc.h"
 
+/*
+ * Reset a fake port
+ *
+ * Using a Reset Device IE is too heavyweight as it causes the device
+ * to enter the UnConnected state and leave the cluster, this can mean
+ * that when the device reconnects it is connected to a different fake
+ * port.
+ *
+ * Instead, reset authenticated devices with a SetAddress(0), followed
+ * by a SetAddresss(AuthAddr).
+ *
+ * For unauthenticated devices just pretend to reset but do nothing.
+ * If the device initialization continues to fail it will eventually
+ * time out after TrustTimeout and enter the UnConnected state.
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ *
+ * Supposedly we are the only thread accesing @wusbhc->port; in any
+ * case, maybe we should move the mutex locking from
+ * wusbhc_devconnect_auth() to here.
+ *
+ * @port_idx refers to the wusbhc's port index, not the USB port number
+ */
 static int wusbhc_rh_port_reset(struct wusbhc *wusbhc, u8 port_idx)
 {
 	int result = 0;
@@ -97,15 +120,33 @@ static int wusbhc_rh_port_reset(struct wusbhc *wusbhc, u8 port_idx)
 	return result;
 }
 
+/*
+ * Return the hub change status bitmap
+ *
+ * The bits in the change status bitmap are cleared when a
+ * ClearPortFeature request is issued (USB2.0[11.12.3,11.12.4].
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ *
+ * WARNING!! This gets called from atomic context; we cannot get the
+ *           mutex--the only race condition we can find is some bit
+ *           changing just after we copy it, which shouldn't be too
+ *           big of a problem [and we can't make it an spinlock
+ *           because other parts need to take it and sleep] .
+ *
+ *           @usb_hcd is refcounted, so it won't disappear under us
+ *           and before killing a host, the polling of the root hub
+ *           would be stopped anyway.
+ */
 int wusbhc_rh_status_data(struct usb_hcd *usb_hcd, char *_buf)
 {
 	struct wusbhc *wusbhc = usb_hcd_to_wusbhc(usb_hcd);
 	size_t cnt, size;
 	unsigned long *buf = (unsigned long *) _buf;
 
-	
-	size = wusbhc->ports_max + 1 ;
-	size = (size + 8 - 1) / 8;	
+	/* WE DON'T LOCK, see comment */
+	size = wusbhc->ports_max + 1 /* hub bit */;
+	size = (size + 8 - 1) / 8;	/* round to bytes */
 	for (cnt = 0; cnt < wusbhc->ports_max; cnt++)
 		if (wusb_port_by_idx(wusbhc, cnt)->change)
 			set_bit(cnt + 1, buf);
@@ -115,6 +156,13 @@ int wusbhc_rh_status_data(struct usb_hcd *usb_hcd, char *_buf)
 }
 EXPORT_SYMBOL_GPL(wusbhc_rh_status_data);
 
+/*
+ * Return the hub's descriptor
+ *
+ * NOTE: almost cut and paste from ehci-hub.c
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked
+ */
 static int wusbhc_rh_get_hub_descr(struct wusbhc *wusbhc, u16 wValue,
 				   u16 wIndex,
 				   struct usb_hub_descriptor *descr,
@@ -126,28 +174,38 @@ static int wusbhc_rh_get_hub_descr(struct wusbhc *wusbhc, u16 wValue,
 	if (wLength < length)
 		return -ENOSPC;
 	descr->bDescLength = 7 + 2 * temp;
-	descr->bDescriptorType = 0x29;	
+	descr->bDescriptorType = 0x29;	/* HUB type */
 	descr->bNbrPorts = wusbhc->ports_max;
 	descr->wHubCharacteristics = cpu_to_le16(
-		0x00			
-		| 0x00			
-		| 0x10			
-		| 0x00			
-		| 0x00);		
+		0x00			/* All ports power at once */
+		| 0x00			/* not part of compound device */
+		| 0x10			/* No overcurrent protection */
+		| 0x00			/* 8 FS think time FIXME ?? */
+		| 0x00);		/* No port indicators */
 	descr->bPwrOn2PwrGood = 0;
 	descr->bHubContrCurrent = 0;
-	
+	/* two bitmaps:  ports removable, and usb 1.0 legacy PortPwrCtrlMask */
 	memset(&descr->u.hs.DeviceRemovable[0], 0, temp);
 	memset(&descr->u.hs.DeviceRemovable[temp], 0xff, temp);
 	return 0;
 }
 
+/*
+ * Clear a hub feature
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ *
+ * Nothing to do, so no locking needed ;)
+ */
 static int wusbhc_rh_clear_hub_feat(struct wusbhc *wusbhc, u16 feature)
 {
 	int result;
 
 	switch (feature) {
 	case C_HUB_LOCAL_POWER:
+		/* FIXME: maybe plug bit 0 to the power input status,
+		 * if any?
+		 * see wusbhc_rh_get_hub_status() */
 	case C_HUB_OVER_CURRENT:
 		result = 0;
 		break;
@@ -157,14 +215,26 @@ static int wusbhc_rh_clear_hub_feat(struct wusbhc *wusbhc, u16 feature)
 	return result;
 }
 
+/*
+ * Return hub status (it is always zero...)
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ *
+ * Nothing to do, so no locking needed ;)
+ */
 static int wusbhc_rh_get_hub_status(struct wusbhc *wusbhc, u32 *buf,
 				    u16 wLength)
 {
-	
+	/* FIXME: maybe plug bit 0 to the power input status (if any)? */
 	*buf = 0;
 	return 0;
 }
 
+/*
+ * Set a port feature
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ */
 static int wusbhc_rh_set_port_feat(struct wusbhc *wusbhc, u16 feature,
 				   u8 selector, u8 port_idx)
 {
@@ -174,6 +244,8 @@ static int wusbhc_rh_set_port_feat(struct wusbhc *wusbhc, u16 feature,
 		return -EINVAL;
 
 	switch (feature) {
+		/* According to USB2.0[11.24.2.13]p2, these features
+		 * are not required to be implemented. */
 	case USB_PORT_FEAT_C_OVER_CURRENT:
 	case USB_PORT_FEAT_C_ENABLE:
 	case USB_PORT_FEAT_C_SUSPEND:
@@ -181,7 +253,7 @@ static int wusbhc_rh_set_port_feat(struct wusbhc *wusbhc, u16 feature,
 	case USB_PORT_FEAT_C_RESET:
 		return 0;
 	case USB_PORT_FEAT_POWER:
-		
+		/* No such thing, but we fake it works */
 		mutex_lock(&wusbhc->mutex);
 		wusb_port_by_idx(wusbhc, port_idx)->status |= USB_PORT_STAT_POWER;
 		mutex_unlock(&wusbhc->mutex);
@@ -202,6 +274,11 @@ static int wusbhc_rh_set_port_feat(struct wusbhc *wusbhc, u16 feature,
 	return 0;
 }
 
+/*
+ * Clear a port feature...
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ */
 static int wusbhc_rh_clear_port_feat(struct wusbhc *wusbhc, u16 feature,
 				     u8 selector, u8 port_idx)
 {
@@ -213,8 +290,8 @@ static int wusbhc_rh_clear_port_feat(struct wusbhc *wusbhc, u16 feature,
 
 	mutex_lock(&wusbhc->mutex);
 	switch (feature) {
-	case USB_PORT_FEAT_POWER:	
-		
+	case USB_PORT_FEAT_POWER:	/* fake port always on */
+		/* According to USB2.0[11.24.2.7.1.4], no need to implement? */
 	case USB_PORT_FEAT_C_OVER_CURRENT:
 		break;
 	case USB_PORT_FEAT_C_RESET:
@@ -246,6 +323,11 @@ static int wusbhc_rh_clear_port_feat(struct wusbhc *wusbhc, u16 feature,
 	return result;
 }
 
+/*
+ * Return the port's status
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ */
 static int wusbhc_rh_get_port_status(struct wusbhc *wusbhc, u16 port_idx,
 				     u32 *_buf, u16 wLength)
 {
@@ -262,6 +344,11 @@ static int wusbhc_rh_get_port_status(struct wusbhc *wusbhc, u16 port_idx,
 	return 0;
 }
 
+/*
+ * Entry point for Root Hub operations
+ *
+ * @wusbhc is assumed referenced and @wusbhc->mutex unlocked.
+ */
 int wusbhc_rh_control(struct usb_hcd *usb_hcd, u16 reqntype, u16 wValue,
 		      u16 wIndex, char *buf, u16 wLength)
 {
@@ -299,7 +386,7 @@ int wusbhc_rh_control(struct usb_hcd *usb_hcd, u16 reqntype, u16 wValue,
 		dev_err(wusbhc->dev, "%s (%p [%p], %x, %x, %x, %p, %x) "
 			"UNIMPLEMENTED\n", __func__, usb_hcd, wusbhc, reqntype,
 			wValue, wIndex, buf, wLength);
-		
+		/* dump_stack(); */
 		result = -ENOSYS;
 	}
 	return result;
@@ -311,7 +398,7 @@ int wusbhc_rh_suspend(struct usb_hcd *usb_hcd)
 	struct wusbhc *wusbhc = usb_hcd_to_wusbhc(usb_hcd);
 	dev_err(wusbhc->dev, "%s (%p [%p]) UNIMPLEMENTED\n", __func__,
 		usb_hcd, wusbhc);
-	
+	/* dump_stack(); */
 	return -ENOSYS;
 }
 EXPORT_SYMBOL_GPL(wusbhc_rh_suspend);
@@ -321,7 +408,7 @@ int wusbhc_rh_resume(struct usb_hcd *usb_hcd)
 	struct wusbhc *wusbhc = usb_hcd_to_wusbhc(usb_hcd);
 	dev_err(wusbhc->dev, "%s (%p [%p]) UNIMPLEMENTED\n", __func__,
 		usb_hcd, wusbhc);
-	
+	/* dump_stack(); */
 	return -ENOSYS;
 }
 EXPORT_SYMBOL_GPL(wusbhc_rh_resume);
@@ -341,6 +428,9 @@ static void wusb_port_init(struct wusb_port *port)
 	port->status |= USB_PORT_STAT_HIGH_SPEED;
 }
 
+/*
+ * Alloc fake port specific fields and status.
+ */
 int wusbhc_rh_create(struct wusbhc *wusbhc)
 {
 	int result = -ENOMEM;

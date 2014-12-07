@@ -7,7 +7,7 @@
 	qcom,v-cutoff-uv = <3000000>;
 	qcom,chg-term-ua = <260000>;
 	qcom,batt-id-kohm = <33>;
-	qcom,qc20-ibatmax-ma = <2600>;
+	qcom,qc20-ibatmax-ma = <2400>;
 	qcom,qc20-ibatsafe-ma = <2600>;
 	htc,capacity = <2600>;
 	htc,batt_id = <1>;

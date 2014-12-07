@@ -139,7 +139,7 @@ static int receive_chars_read(struct uart_port *port, struct tty_struct *tty)
 				uart_handle_dcd_change(port, 0);
 				continue;
 			} else {
-				
+				/* HV_EWOULDBLOCK, etc.  */
 				break;
 			}
 		}
@@ -184,7 +184,7 @@ static struct tty_struct *receive_chars(struct uart_port *port)
 {
 	struct tty_struct *tty = NULL;
 
-	if (port->state != NULL)		
+	if (port->state != NULL)		/* Unopened serial console */
 		tty = port->state->port.tty;
 
 	if (sunhv_ops->receive_chars(port, tty))
@@ -227,31 +227,41 @@ static irqreturn_t sunhv_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* port->lock is not held.  */
 static unsigned int sunhv_tx_empty(struct uart_port *port)
 {
+	/* Transmitter is always empty for us.  If the circ buffer
+	 * is non-empty or there is an x_char pending, our caller
+	 * will do the right thing and ignore what we return here.
+	 */
 	return TIOCSER_TEMT;
 }
 
+/* port->lock held by caller.  */
 static void sunhv_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 	return;
 }
 
+/* port->lock is held by caller and interrupts are disabled.  */
 static unsigned int sunhv_get_mctrl(struct uart_port *port)
 {
 	return TIOCM_DSR | TIOCM_CAR | TIOCM_CTS;
 }
 
+/* port->lock held by caller.  */
 static void sunhv_stop_tx(struct uart_port *port)
 {
 	return;
 }
 
+/* port->lock held by caller.  */
 static void sunhv_start_tx(struct uart_port *port)
 {
 	transmit_chars(port);
 }
 
+/* port->lock is not held.  */
 static void sunhv_send_xchar(struct uart_port *port, char ch)
 {
 	unsigned long flags;
@@ -269,14 +279,17 @@ static void sunhv_send_xchar(struct uart_port *port, char ch)
 	spin_unlock_irqrestore(&port->lock, flags);
 }
 
+/* port->lock held by caller.  */
 static void sunhv_stop_rx(struct uart_port *port)
 {
 }
 
+/* port->lock held by caller.  */
 static void sunhv_enable_ms(struct uart_port *port)
 {
 }
 
+/* port->lock is not held.  */
 static void sunhv_break_ctl(struct uart_port *port, int break_state)
 {
 	if (break_state) {
@@ -296,15 +309,18 @@ static void sunhv_break_ctl(struct uart_port *port, int break_state)
 	}
 }
 
+/* port->lock is not held.  */
 static int sunhv_startup(struct uart_port *port)
 {
 	return 0;
 }
 
+/* port->lock is not held.  */
 static void sunhv_shutdown(struct uart_port *port)
 {
 }
 
+/* port->lock is not held.  */
 static void sunhv_set_termios(struct uart_port *port, struct ktermios *termios,
 			      struct ktermios *old)
 {
@@ -324,7 +340,7 @@ static void sunhv_set_termios(struct uart_port *port, struct ktermios *termios,
 	if ((cflag & CREAD) == 0)
 		port->ignore_status_mask |= IGNORE_ALL;
 
-	
+	/* XXX */
 	uart_update_timeout(port, cflag,
 			    (port->uartclk / (16 * quot)));
 
@@ -383,6 +399,11 @@ static struct uart_driver sunhv_reg = {
 
 static struct uart_port *sunhv_port;
 
+/* Copy 's' into the con_write_page, decoding "\n" into
+ * "\r\n" along the way.  We have to return two lengths
+ * because the caller needs to know how much to advance
+ * 's' and also how many bytes to output via con_write_page.
+ */
 static int fill_con_write_page(const char *s, unsigned int n,
 			       unsigned long *page_bytes)
 {
@@ -532,7 +553,7 @@ static int __devinit hv_probe(struct platform_device *op)
 	port->line = 0;
 	port->ops = &sunhv_pops;
 	port->type = PORT_SUNHV;
-	port->uartclk = ( 29491200 / 16 ); 
+	port->uartclk = ( 29491200 / 16 ); /* arbitrary */
 
 	port->membase = (unsigned char __iomem *) __pa(port);
 

@@ -63,6 +63,14 @@ void __init s3c_init_cpu(unsigned long idcode,
 	cpu->map_io();
 }
 
+/* s3c24xx_init_clocks
+ *
+ * Initialise the clock subsystem and associated information from the
+ * given master crystal value.
+ *
+ * xtal  = 0 -> use default PLL crystal value (normally 12MHz)
+ *      != 0 -> PLL crystal value in Hz
+*/
 
 void __init s3c24xx_init_clocks(int xtal)
 {
@@ -78,11 +86,20 @@ void __init s3c24xx_init_clocks(int xtal)
 		(cpu->init_clocks)(xtal);
 }
 
+/* uart management */
 
 static int nr_uarts __initdata = 0;
 
 static struct s3c2410_uartcfg uart_cfgs[CONFIG_SERIAL_SAMSUNG_UARTS];
 
+/* s3c24xx_init_uartdevs
+ *
+ * copy the specified platform data and configuration into our central
+ * set of devices, before the data is thrown away after the init process.
+ *
+ * This also fills in the array passed to the serial driver for the
+ * early initialisation of the console.
+*/
 
 void __init s3c24xx_init_uartdevs(char *name,
 				  struct s3c24xx_uart_resources *res,
@@ -127,7 +144,7 @@ static int __init s3c_arch_init(void)
 {
 	int ret;
 
-	
+	// do the correct init for cpu
 
 	if (cpu == NULL)
 		panic("s3c_arch_init: NULL cpu\n");

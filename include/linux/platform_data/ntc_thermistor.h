@@ -27,6 +27,19 @@ enum ntc_thermistor_type {
 };
 
 struct ntc_thermistor_platform_data {
+	/*
+	 * One (not both) of read_uV and read_ohm should be provided and only
+	 * one of the two should be provided.
+	 * Both functions should return negative value for an error case.
+	 *
+	 * pullup_uV, pullup_ohm, pulldown_ohm, and connect are required to use
+	 * read_uV()
+	 *
+	 * How to setup pullup_ohm, pulldown_ohm, and connect is
+	 * described at Documentation/hwmon/ntc_thermistor
+	 *
+	 * pullup/down_ohm: 0 for infinite / not-connected
+	 */
 	int (*read_uV)(void);
 	unsigned int pullup_uV;
 
@@ -37,4 +50,4 @@ struct ntc_thermistor_platform_data {
 	int (*read_ohm)(void);
 };
 
-#endif 
+#endif /* _LINUX_NTC_H */

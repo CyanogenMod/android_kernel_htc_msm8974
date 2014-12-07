@@ -154,7 +154,7 @@ struct ar9170_eeprom {
 		cal_pier_data_5G[AR5416_MAX_CHAINS][AR5416_NUM_5G_CAL_PIERS],
 		cal_pier_data_2G[AR5416_MAX_CHAINS][AR5416_NUM_2G_CAL_PIERS];
 
-	
+	/* power calibration data */
 	struct ar9170_calibration_target_power_legacy
 		cal_tgt_pwr_5G[AR5416_NUM_5G_TARGET_PWRS];
 	struct ar9170_calibration_target_power_ht
@@ -168,7 +168,7 @@ struct ar9170_eeprom {
 		cal_tgt_pwr_2G_ht20[AR5416_NUM_2G_OFDM_TARGET_PWRS],
 		cal_tgt_pwr_2G_ht40[AR5416_NUM_2G_OFDM_TARGET_PWRS];
 
-	
+	/* conformance testing limits */
 	u8	ctl_index[AR5416_NUM_CTLS];
 	struct ar9170_calctl_data
 		ctl_data[AR5416_NUM_CTLS];
@@ -182,6 +182,7 @@ struct ar9170_eeprom {
 #define AR9170_LED_MODE_DISABLE_STATE		0x0004
 #define AR9170_LED_MODE_OFF_IN_PSM		0x0008
 
+/* AR9170_LED_MODE BIT is set */
 #define AR9170_LED_MODE_FREQUENCY_S		4
 #define AR9170_LED_MODE_FREQUENCY		0x0030
 #define AR9170_LED_MODE_FREQUENCY_1HZ		0x0000
@@ -189,11 +190,14 @@ struct ar9170_eeprom {
 #define AR9170_LED_MODE_FREQUENCY_0_25HZ	0x0020
 #define AR9170_LED_MODE_FREQUENCY_0_125HZ	0x0030
 
+/* AR9170_LED_MODE BIT is not set */
 #define AR9170_LED_MODE_CONN_STATE_S		4
 #define AR9170_LED_MODE_CONN_STATE		0x0030
 #define AR9170_LED_MODE_CONN_STATE_FORCE_OFF	0x0000
 #define AR9170_LED_MODE_CONN_STATE_FORCE_ON	0x0010
+/* Idle off / Active on */
 #define AR9170_LED_MODE_CONN_STATE_IOFF_AON	0x0020
+/* Idle on / Active off */
 #define AR9170_LED_MODE_CONN_STATE_ION_AOFF	0x0010
 
 #define AR9170_LED_MODE_MODE			0x0040
@@ -209,4 +213,4 @@ struct ar9170_led_mode {
 	__le16 led;
 };
 
-#endif 
+#endif /* __CARL9170_SHARED_EEPROM_H */

@@ -10,56 +10,75 @@
 
 */
 
+/* Changes:
+
+	1.01	GRG 1998.05.05	init_proto, release_proto
+*/
 
 #define PARIDE_H_VERSION 	"1.01"
 
+/* Some adapters need to know what kind of device they are in
 
-#define	PI_PD	0	
-#define PI_PCD	1	
-#define PI_PF   2	
-#define PI_PT	3	
-#define PI_PG   4       
+   Values for devtype:
+*/
 
+#define	PI_PD	0	/* IDE disk */
+#define PI_PCD	1	/* ATAPI CDrom */
+#define PI_PF   2	/* ATAPI disk */
+#define PI_PT	3	/* ATAPI tape */
+#define PI_PG   4       /* ATAPI generic */
+
+/* The paride module contains no state, instead the drivers allocate
+   a pi_adapter data structure and pass it to paride in every operation.
+
+*/
 
 struct pi_adapter  {
 
-	struct pi_protocol *proto;   
-	int	port;		     
-	int	mode;		     
-	int     delay;		     
-	int	devtype;	     
-	char    *device;	     
-	int     unit;		     
-	int	saved_r0;	     
-	int	saved_r2;	     
-	int	reserved;	     
-	unsigned long	private;     
+	struct pi_protocol *proto;   /* adapter protocol */
+	int	port;		     /* base address of parallel port */
+	int	mode;		     /* transfer mode in use */
+	int     delay;		     /* adapter delay setting */
+	int	devtype;	     /* device type: PI_PD etc. */
+	char    *device;	     /* name of driver */
+	int     unit;		     /* unit number for chained adapters */
+	int	saved_r0;	     /* saved port state */
+	int	saved_r2;	     /* saved port state */
+	int	reserved;	     /* number of ports reserved */
+	unsigned long	private;     /* for protocol module */
 
-	wait_queue_head_t parq;     
-	void	*pardev;	     
-	char	*parname;	     
-	int	claimed;	     
-	void (*claim_cont)(void);    
+	wait_queue_head_t parq;     /* semaphore for parport sharing */
+	void	*pardev;	     /* pointer to pardevice */
+	char	*parname;	     /* parport name */
+	int	claimed;	     /* parport has already been claimed */
+	void (*claim_cont)(void);    /* continuation for parport wait */
 };
 
 typedef struct pi_adapter PIA;
 
+/* functions exported by paride to the high level drivers */
 
 extern int pi_init(PIA *pi, 
-	int autoprobe,		
-	int port, 		
-	int mode, 		
-	int unit,		
-	int protocol, 		
-	int delay, 		
-	char * scratch, 	
-	int devtype,		
-	int verbose,		
-	char *device		
-	);			
+	int autoprobe,		/* 1 to autoprobe */
+	int port, 		/* base port address */
+	int mode, 		/* -1 for autoprobe */
+	int unit,		/* unit number, if supported */
+	int protocol, 		/* protocol to use */
+	int delay, 		/* -1 to use adapter specific default */
+	char * scratch, 	/* address of 512 byte buffer */
+	int devtype,		/* device type: PI_PD, PI_PCD, etc ... */
+	int verbose,		/* log verbose data while probing */
+	char *device		/* name of the driver */
+	);			/* returns 0 on failure, 1 on success */
 
 extern void pi_release(PIA *pi);
 
+/* registers are addressed as (cont,regr)
+
+       	cont: 0 for command register file, 1 for control register(s)
+	regr: 0-7 for register number.
+
+*/
 
 extern void pi_write_regr(PIA *pi, int cont, int regr, int val);
 
@@ -76,6 +95,7 @@ extern void pi_disconnect(PIA *pi);
 extern void pi_do_claimed(PIA *pi, void (*cont)(void));
 extern int pi_schedule_claimed(PIA *pi, void (*cont)(void));
 
+/* macros and functions exported to the protocol modules */
 
 #define delay_p			(pi->delay?udelay(pi->delay):(void)0)
 #define out_p(offs,byte)	outb(byte,pi->port+offs); delay_p;
@@ -114,14 +134,14 @@ static inline u32 pi_swab32( char *b, int k)
 
 struct pi_protocol {
 
-	char	name[8];	
-	int	index;		
+	char	name[8];	/* name for this protocol */
+	int	index;		/* index into protocol table */
 
-	int	max_mode;	
-	int	epp_first;	
+	int	max_mode;	/* max mode number */
+	int	epp_first;	/* modes >= this use 8 ports */
 	
-	int	default_delay;  
-	int	max_units;	
+	int	default_delay;  /* delay parameter if not specified */
+	int	max_units;	/* max chained units probed for */
 
 	void (*write_regr)(PIA *,int,int,int);
 	int  (*read_regr)(PIA *,int,int);
@@ -146,4 +166,5 @@ typedef struct pi_protocol PIP;
 extern int paride_register( PIP * );
 extern void paride_unregister ( PIP * );
 
-#endif 
+#endif /* __DRIVERS_PARIDE_H__ */
+/* end of paride.h */

@@ -27,6 +27,14 @@
 #define __DIVA_XDI_OS_DEPENDENT_PACK_MAIN_ON_BYTE_INC__
 
 
+/*
+  Only one purpose of this compiler dependent file to pack
+  structures, described in pc_maint.h so that no padding
+  will be included.
+
+  With microsoft compile it is done by "pshpack1.h" and
+  after is restored by "poppack.h"
+*/
 
 
 #include "pc_maint.h"

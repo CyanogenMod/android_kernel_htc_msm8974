@@ -5,4 +5,4 @@
 
 unsigned long lcm(unsigned long a, unsigned long b) __attribute_const__;
 
-#endif 
+#endif /* _LCM_H */

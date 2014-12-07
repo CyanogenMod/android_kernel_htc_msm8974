@@ -37,7 +37,7 @@ static int parse_ofpart_partitions(struct mtd_info *master,
 	if (!node)
 		return 0;
 
-	
+	/* First count the subnodes */
 	pp = NULL;
 	nr_parts = 0;
 	while ((pp = of_get_next_child(node, pp)))
@@ -113,7 +113,7 @@ static int parse_ofoldpart_partitions(struct mtd_info *master,
 
 	part = of_get_property(dp, "partitions", &plen);
 	if (!part)
-		return 0; 
+		return 0; /* No partitions found */
 
 	pr_warning("Device tree uses obsolete partition map binding: %s\n",
 			dp->full_name);
@@ -129,7 +129,7 @@ static int parse_ofoldpart_partitions(struct mtd_info *master,
 	for (i = 0; i < nr_parts; i++) {
 		(*pparts)[i].offset = be32_to_cpu(part->offset);
 		(*pparts)[i].size   = be32_to_cpu(part->len) & ~1;
-		
+		/* bit 0 set signifies read only partition */
 		if (be32_to_cpu(part->len) & 1)
 			(*pparts)[i].mask_flags = MTD_WRITEABLE;
 
@@ -176,4 +176,9 @@ module_init(ofpart_parser_init);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Parser for MTD partitioning information in device tree");
 MODULE_AUTHOR("Vitaly Wool, David Gibson");
+/*
+ * When MTD core cannot find the requested parser, it tries to load the module
+ * with the same name. Since we provide the ofoldpart parser, we should have
+ * the corresponding alias.
+ */
 MODULE_ALIAS("ofoldpart");

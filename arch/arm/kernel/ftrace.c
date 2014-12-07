@@ -22,9 +22,9 @@
 #include "insn.h"
 
 #ifdef CONFIG_THUMB2_KERNEL
-#define	NOP		0xf85deb04	
+#define	NOP		0xf85deb04	/* pop.w {lr} */
 #else
-#define	NOP		0xe8bd4000	
+#define	NOP		0xe8bd4000	/* pop {lr} */
 #endif
 
 #ifdef CONFIG_DYNAMIC_FTRACE
@@ -32,7 +32,7 @@
 #define OLD_MCOUNT_ADDR	((unsigned long) mcount)
 #define OLD_FTRACE_ADDR ((unsigned long) ftrace_caller_old)
 
-#define	OLD_NOP		0xe1a00000	
+#define	OLD_NOP		0xe1a00000	/* mov r0, r0 */
 
 static unsigned long ftrace_nop_replace(struct dyn_ftrace *rec)
 {
@@ -162,7 +162,7 @@ int __init ftrace_dyn_arch_init(void *data)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_DYNAMIC_FTRACE */
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
@@ -188,7 +188,7 @@ void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
 
 	trace.func = self_addr;
 
-	
+	/* Only trace if the calling function expects to */
 	if (!ftrace_graph_entry(&trace)) {
 		current->curr_ret_stack--;
 		*parent = old;
@@ -206,7 +206,7 @@ static int __ftrace_modify_caller(unsigned long *callsite,
 	unsigned long caller_fn = (unsigned long) func;
 	unsigned long pc = (unsigned long) callsite;
 	unsigned long branch = arm_gen_branch(pc, caller_fn);
-	unsigned long nop = 0xe1a00000;	
+	unsigned long nop = 0xe1a00000;	/* mov r0, r0 */
 	unsigned long old = enable ? nop : branch;
 	unsigned long new = enable ? branch : nop;
 
@@ -240,5 +240,5 @@ int ftrace_disable_ftrace_graph_caller(void)
 {
 	return ftrace_modify_graph_caller(false);
 }
-#endif 
-#endif 
+#endif /* CONFIG_DYNAMIC_FTRACE */
+#endif /* CONFIG_FUNCTION_GRAPH_TRACER */

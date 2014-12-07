@@ -33,7 +33,7 @@
 
 #define DEBUG
 
-#include <linux/types.h> 
+#include <linux/types.h> /* FIXME: kvm_para.h needs this */
 
 #include <linux/stop_machine.h>
 #include <linux/kvm_para.h>
@@ -75,12 +75,18 @@ void set_mtrr_ops(const struct mtrr_ops *ops)
 		mtrr_ops[ops->vendor] = ops;
 }
 
+/*  Returns non-zero if we have the write-combining memory type  */
 static int have_wrcomb(void)
 {
 	struct pci_dev *dev;
 
 	dev = pci_get_class(PCI_CLASS_BRIDGE_HOST << 8, NULL);
 	if (dev != NULL) {
+		/*
+		 * ServerWorks LE chipsets < rev 6 have problems with
+		 * write-combining. Don't allow it and leave room for other
+		 * chipsets to be tagged
+		 */
 		if (dev->vendor == PCI_VENDOR_ID_SERVERWORKS &&
 		    dev->device == PCI_DEVICE_ID_SERVERWORKS_LE &&
 		    dev->revision <= 5) {
@@ -88,6 +94,10 @@ static int have_wrcomb(void)
 			pci_dev_put(dev);
 			return 0;
 		}
+		/*
+		 * Intel 450NX errata # 23. Non ascending cacheline evictions to
+		 * write combining memory may resulting in data corruption
+		 */
 		if (dev->vendor == PCI_VENDOR_ID_INTEL &&
 		    dev->device == PCI_DEVICE_ID_INTEL_82451NX) {
 			pr_info("mtrr: Intel 450NX MMC detected. Write-combining disabled.\n");
@@ -99,6 +109,7 @@ static int have_wrcomb(void)
 	return mtrr_if->have_wrcomb ? mtrr_if->have_wrcomb() : 0;
 }
 
+/*  This function returns the number of variable MTRRs  */
 static void __init set_num_var_ranges(void)
 {
 	unsigned long config = 0, dummy;
@@ -129,10 +140,30 @@ struct set_mtrr_data {
 	mtrr_type	smp_type;
 };
 
+/**
+ * mtrr_rendezvous_handler - Work done in the synchronization handler. Executed
+ * by all the CPUs.
+ * @info: pointer to mtrr configuration data
+ *
+ * Returns nothing.
+ */
 static int mtrr_rendezvous_handler(void *info)
 {
 	struct set_mtrr_data *data = info;
 
+	/*
+	 * We use this same function to initialize the mtrrs during boot,
+	 * resume, runtime cpu online and on an explicit request to set a
+	 * specific MTRR.
+	 *
+	 * During boot or suspend, the state of the boot cpu's mtrrs has been
+	 * saved, and we want to replicate that across all the cpus that come
+	 * online (either at the end of boot or resume or during a runtime cpu
+	 * online). If we're doing that, @reg is set to something special and on
+	 * all the cpu's we do mtrr_if->set_all() (On the logical cpu that
+	 * started the boot/resume sequence, this might be a duplicate
+	 * set_all()).
+	 */
 	if (data->smp_reg != ~0U) {
 		mtrr_if->set(data->smp_reg, data->smp_base,
 			     data->smp_size, data->smp_type);
@@ -150,6 +181,40 @@ static inline int types_compatible(mtrr_type type1, mtrr_type type2)
 	       (type1 == MTRR_TYPE_WRBACK && type2 == MTRR_TYPE_WRTHROUGH);
 }
 
+/**
+ * set_mtrr - update mtrrs on all processors
+ * @reg:	mtrr in question
+ * @base:	mtrr base
+ * @size:	mtrr size
+ * @type:	mtrr type
+ *
+ * This is kinda tricky, but fortunately, Intel spelled it out for us cleanly:
+ *
+ * 1. Queue work to do the following on all processors:
+ * 2. Disable Interrupts
+ * 3. Wait for all procs to do so
+ * 4. Enter no-fill cache mode
+ * 5. Flush caches
+ * 6. Clear PGE bit
+ * 7. Flush all TLBs
+ * 8. Disable all range registers
+ * 9. Update the MTRRs
+ * 10. Enable all range registers
+ * 11. Flush all TLBs and caches again
+ * 12. Enter normal cache mode and reenable caching
+ * 13. Set PGE
+ * 14. Wait for buddies to catch up
+ * 15. Enable interrupts.
+ *
+ * What does that mean for us? Well, stop_machine() will ensure that
+ * the rendezvous handler is started on each CPU. And in lockstep they
+ * do the state transition of disabling interrupts, updating MTRR's
+ * (the CPU vendors may each do it differently, so we call mtrr_if->set()
+ * callback and let them take care of it.) and enabling interrupts.
+ *
+ * Note that the mechanism is the same for UP systems, too; all the SMP stuff
+ * becomes nops.
+ */
 static void
 set_mtrr(unsigned int reg, unsigned long base, unsigned long size, mtrr_type type)
 {
@@ -175,6 +240,41 @@ static void set_mtrr_from_inactive_cpu(unsigned int reg, unsigned long base,
 				       cpu_callout_mask);
 }
 
+/**
+ * mtrr_add_page - Add a memory type region
+ * @base: Physical base address of region in pages (in units of 4 kB!)
+ * @size: Physical size of region in pages (4 kB)
+ * @type: Type of MTRR desired
+ * @increment: If this is true do usage counting on the region
+ *
+ * Memory type region registers control the caching on newer Intel and
+ * non Intel processors. This function allows drivers to request an
+ * MTRR is added. The details and hardware specifics of each processor's
+ * implementation are hidden from the caller, but nevertheless the
+ * caller should expect to need to provide a power of two size on an
+ * equivalent power of two boundary.
+ *
+ * If the region cannot be added either because all regions are in use
+ * or the CPU cannot support it a negative value is returned. On success
+ * the register number for this entry is returned, but should be treated
+ * as a cookie only.
+ *
+ * On a multiprocessor machine the changes are made to all processors.
+ * This is required on x86 by the Intel processors.
+ *
+ * The available types are
+ *
+ * %MTRR_TYPE_UNCACHABLE - No caching
+ *
+ * %MTRR_TYPE_WRBACK - Write data back in bursts whenever
+ *
+ * %MTRR_TYPE_WRCOMB - Write data back soon but allow bursts
+ *
+ * %MTRR_TYPE_WRTHROUGH - Cache reads but not writes
+ *
+ * BUGS: Needs a quiet flag for the cases where drivers do not mind
+ * failures and do not wish system log messages to be sent.
+ */
 int mtrr_add_page(unsigned long base, unsigned long size,
 		  unsigned int type, bool increment)
 {
@@ -194,7 +294,7 @@ int mtrr_add_page(unsigned long base, unsigned long size,
 		return -EINVAL;
 	}
 
-	
+	/* If the type is WC, check that this processor supports it */
 	if ((type == MTRR_TYPE_WRCOMB) && !have_wrcomb()) {
 		pr_warning("mtrr: your processor doesn't support write-combining\n");
 		return -ENOSYS;
@@ -213,20 +313,24 @@ int mtrr_add_page(unsigned long base, unsigned long size,
 	error = -EINVAL;
 	replace = -1;
 
-	
+	/* No CPU hotplug when we change MTRR entries */
 	get_online_cpus();
 
-	
+	/* Search for existing MTRR  */
 	mutex_lock(&mtrr_mutex);
 	for (i = 0; i < num_var_ranges; ++i) {
 		mtrr_if->get(i, &lbase, &lsize, &ltype);
 		if (!lsize || base > lbase + lsize - 1 ||
 		    base + size - 1 < lbase)
 			continue;
+		/*
+		 * At this point we know there is some kind of
+		 * overlap/enclosure
+		 */
 		if (base < lbase || base + size - 1 > lbase + lsize - 1) {
 			if (base <= lbase &&
 			    base + size - 1 >= lbase + lsize - 1) {
-				
+				/*  New region encloses an existing region  */
 				if (type == ltype) {
 					replace = replace == -1 ? i : -2;
 					continue;
@@ -238,7 +342,7 @@ int mtrr_add_page(unsigned long base, unsigned long size,
 				lsize);
 			goto out;
 		}
-		
+		/* New region is enclosed by an existing region */
 		if (ltype != type) {
 			if (types_compatible(type, ltype))
 				continue;
@@ -252,7 +356,7 @@ int mtrr_add_page(unsigned long base, unsigned long size,
 		error = i;
 		goto out;
 	}
-	
+	/* Search for an empty MTRR */
 	i = mtrr_if->get_free_region(base, size, replace);
 	if (i >= 0) {
 		set_mtrr(i, base, size, type);
@@ -288,6 +392,41 @@ static int mtrr_check(unsigned long base, unsigned long size)
 	return 0;
 }
 
+/**
+ * mtrr_add - Add a memory type region
+ * @base: Physical base address of region
+ * @size: Physical size of region
+ * @type: Type of MTRR desired
+ * @increment: If this is true do usage counting on the region
+ *
+ * Memory type region registers control the caching on newer Intel and
+ * non Intel processors. This function allows drivers to request an
+ * MTRR is added. The details and hardware specifics of each processor's
+ * implementation are hidden from the caller, but nevertheless the
+ * caller should expect to need to provide a power of two size on an
+ * equivalent power of two boundary.
+ *
+ * If the region cannot be added either because all regions are in use
+ * or the CPU cannot support it a negative value is returned. On success
+ * the register number for this entry is returned, but should be treated
+ * as a cookie only.
+ *
+ * On a multiprocessor machine the changes are made to all processors.
+ * This is required on x86 by the Intel processors.
+ *
+ * The available types are
+ *
+ * %MTRR_TYPE_UNCACHABLE - No caching
+ *
+ * %MTRR_TYPE_WRBACK - Write data back in bursts whenever
+ *
+ * %MTRR_TYPE_WRCOMB - Write data back soon but allow bursts
+ *
+ * %MTRR_TYPE_WRTHROUGH - Cache reads but not writes
+ *
+ * BUGS: Needs a quiet flag for the cases where drivers do not mind
+ * failures and do not wish system log messages to be sent.
+ */
 int mtrr_add(unsigned long base, unsigned long size, unsigned int type,
 	     bool increment)
 {
@@ -298,6 +437,20 @@ int mtrr_add(unsigned long base, unsigned long size, unsigned int type,
 }
 EXPORT_SYMBOL(mtrr_add);
 
+/**
+ * mtrr_del_page - delete a memory type region
+ * @reg: Register returned by mtrr_add
+ * @base: Physical base address
+ * @size: Size of region
+ *
+ * If register is supplied then base and size are ignored. This is
+ * how drivers should call it.
+ *
+ * Releases an MTRR region. If the usage count drops to zero the
+ * register is freed and the region returns to default state.
+ * On success the register is returned, on failure a negative error
+ * code.
+ */
 int mtrr_del_page(int reg, unsigned long base, unsigned long size)
 {
 	int i, max;
@@ -309,11 +462,11 @@ int mtrr_del_page(int reg, unsigned long base, unsigned long size)
 		return -ENXIO;
 
 	max = num_var_ranges;
-	
+	/* No CPU hotplug when we change MTRR entries */
 	get_online_cpus();
 	mutex_lock(&mtrr_mutex);
 	if (reg < 0) {
-		
+		/*  Search for existing MTRR  */
 		for (i = 0; i < max; ++i) {
 			mtrr_if->get(i, &lbase, &lsize, &ltype);
 			if (lbase == base && lsize == size) {
@@ -349,6 +502,20 @@ int mtrr_del_page(int reg, unsigned long base, unsigned long size)
 	return error;
 }
 
+/**
+ * mtrr_del - delete a memory type region
+ * @reg: Register returned by mtrr_add
+ * @base: Physical base address
+ * @size: Size of region
+ *
+ * If register is supplied then base and size are ignored. This is
+ * how drivers should call it.
+ *
+ * Releases an MTRR region. If the usage count drops to zero the
+ * register is freed and the region returns to default state.
+ * On success the register is returned, on failure a negative error
+ * code.
+ */
 int mtrr_del(int reg, unsigned long base, unsigned long size)
 {
 	if (mtrr_check(base, size))
@@ -357,6 +524,11 @@ int mtrr_del(int reg, unsigned long base, unsigned long size)
 }
 EXPORT_SYMBOL(mtrr_del);
 
+/*
+ * HACK ALERT!
+ * These should be called implicitly, but we can't yet until all the initcall
+ * stuff is done...
+ */
 static void __init init_ifs(void)
 {
 #ifndef CONFIG_X86_64
@@ -366,6 +538,9 @@ static void __init init_ifs(void)
 #endif
 }
 
+/* The suspend/resume methods are only for CPU without MTRR. CPU using generic
+ * MTRR driver doesn't require this
+ */
 struct mtrr_value {
 	mtrr_type	ltype;
 	unsigned long	lbase;
@@ -408,6 +583,13 @@ static struct syscore_ops mtrr_syscore_ops = {
 
 int __initdata changed_by_mtrr_cleanup;
 
+/**
+ * mtrr_bp_init - initialize mtrrs on the boot CPU
+ *
+ * This needs to be called early; before any of the other CPUs are
+ * initialized (i.e. before smp_init()).
+ *
+ */
 void __init mtrr_bp_init(void)
 {
 	u32 phys_addr;
@@ -418,13 +600,18 @@ void __init mtrr_bp_init(void)
 
 	if (cpu_has_mtrr) {
 		mtrr_if = &generic_mtrr_ops;
-		size_or_mask = 0xff000000;			
+		size_or_mask = 0xff000000;			/* 36 bits */
 		size_and_mask = 0x00f00000;
 		phys_addr = 36;
 
+		/*
+		 * This is an AMD specific MSR, but we assume(hope?) that
+		 * Intel will implement it to when they extend the address
+		 * bus of the Xeon.
+		 */
 		if (cpuid_eax(0x80000000) >= 0x80000008) {
 			phys_addr = cpuid_eax(0x80000008) & 0xff;
-			
+			/* CPUID workaround for Intel 0F33/0F34 CPU */
 			if (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL &&
 			    boot_cpu_data.x86 == 0xF &&
 			    boot_cpu_data.x86_model == 0x3 &&
@@ -436,7 +623,11 @@ void __init mtrr_bp_init(void)
 			size_and_mask = ~size_or_mask & 0xfffff00000ULL;
 		} else if (boot_cpu_data.x86_vendor == X86_VENDOR_CENTAUR &&
 			   boot_cpu_data.x86 == 6) {
-			size_or_mask = 0xfff00000;		
+			/*
+			 * VIA C* family have Intel style MTRRs,
+			 * but don't support PAE
+			 */
+			size_or_mask = 0xfff00000;		/* 32 bits */
 			size_and_mask = 0;
 			phys_addr = 32;
 		}
@@ -444,23 +635,23 @@ void __init mtrr_bp_init(void)
 		switch (boot_cpu_data.x86_vendor) {
 		case X86_VENDOR_AMD:
 			if (cpu_has_k6_mtrr) {
-				
+				/* Pre-Athlon (K6) AMD CPU MTRRs */
 				mtrr_if = mtrr_ops[X86_VENDOR_AMD];
-				size_or_mask = 0xfff00000;	
+				size_or_mask = 0xfff00000;	/* 32 bits */
 				size_and_mask = 0;
 			}
 			break;
 		case X86_VENDOR_CENTAUR:
 			if (cpu_has_centaur_mcr) {
 				mtrr_if = mtrr_ops[X86_VENDOR_CENTAUR];
-				size_or_mask = 0xfff00000;	
+				size_or_mask = 0xfff00000;	/* 32 bits */
 				size_and_mask = 0;
 			}
 			break;
 		case X86_VENDOR_CYRIX:
 			if (cpu_has_cyrix_arr) {
 				mtrr_if = mtrr_ops[X86_VENDOR_CYRIX];
-				size_or_mask = 0xfff00000;	
+				size_or_mask = 0xfff00000;	/* 32 bits */
 				size_and_mask = 0;
 			}
 			break;
@@ -487,9 +678,25 @@ void mtrr_ap_init(void)
 {
 	if (!use_intel() || mtrr_aps_delayed_init)
 		return;
+	/*
+	 * Ideally we should hold mtrr_mutex here to avoid mtrr entries
+	 * changed, but this routine will be called in cpu boot time,
+	 * holding the lock breaks it.
+	 *
+	 * This routine is called in two cases:
+	 *
+	 *   1. very earily time of software resume, when there absolutely
+	 *      isn't mtrr entry changes;
+	 *
+	 *   2. cpu hotadd time. We let mtrr_add/del_page hold cpuhotplug
+	 *      lock to prevent mtrr entry changes
+	 */
 	set_mtrr_from_inactive_cpu(~0U, 0, 0, 0);
 }
 
+/**
+ * Save current fixed-range MTRR state of the BSP
+ */
 void mtrr_save_state(void)
 {
 	smp_call_function_single(0, mtrr_save_fixed_ranges, NULL, 1);
@@ -503,11 +710,19 @@ void set_mtrr_aps_delayed_init(void)
 	mtrr_aps_delayed_init = true;
 }
 
+/*
+ * Delayed MTRR initialization for all AP's
+ */
 void mtrr_aps_init(void)
 {
 	if (!use_intel())
 		return;
 
+	/*
+	 * Check if someone has requested the delay of AP MTRR initialization,
+	 * by doing set_mtrr_aps_delayed_init(), prior to this point. If not,
+	 * then we are done.
+	 */
 	if (!mtrr_aps_delayed_init)
 		return;
 
@@ -534,6 +749,14 @@ static int __init mtrr_init_finialize(void)
 		return 0;
 	}
 
+	/*
+	 * The CPU has no MTRR and seems to not support SMP. They have
+	 * specific drivers, we use a tricky method to support
+	 * suspend/resume for them.
+	 *
+	 * TBD: is there any system with such CPU which supports
+	 * suspend/resume? If no, we should remove the code.
+	 */
 	register_syscore_ops(&mtrr_syscore_ops);
 
 	return 0;

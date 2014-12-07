@@ -6,15 +6,23 @@
 
 struct fw_unit;
 
+/**
+ * struct fw_iso_resources - manages channel/bandwidth allocation
+ * @channels_mask: if the device does not support all channel numbers, set this
+ *                 bit mask to something else than the default (all ones)
+ *
+ * This structure manages (de)allocation of isochronous resources (channel and
+ * bandwidth) for one isochronous stream.
+ */
 struct fw_iso_resources {
 	u64 channels_mask;
-	
+	/* private: */
 	struct fw_unit *unit;
 	struct mutex mutex;
 	unsigned int channel;
-	unsigned int bandwidth; 
+	unsigned int bandwidth; /* in bandwidth units, without overhead */
 	unsigned int bandwidth_overhead;
-	int generation; 
+	int generation; /* in which allocation is valid */
 	bool allocated;
 };
 

@@ -1,3 +1,4 @@
+/***************************************************************************/
 
 /*
  *  linux/arch/m68knommu/platform/520x/config.c
@@ -8,6 +9,7 @@
  *  Copyright (C) 2001-2003, SnapGear Inc. (www.snapgear.com)
  */
 
+/***************************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/param.h>
@@ -18,35 +20,37 @@
 #include <asm/mcfsim.h>
 #include <asm/mcfuart.h>
 
+/***************************************************************************/
 
 #if IS_ENABLED(CONFIG_SPI_COLDFIRE_QSPI)
 
 static void __init m520x_qspi_init(void)
 {
 	u16 par;
-	
+	/* setup Port QS for QSPI with gpio CS control */
 	writeb(0x3f, MCF_GPIO_PAR_QSPI);
-	
+	/* make U1CTS and U2RTS gpio for cs_control */
 	par = readw(MCF_GPIO_PAR_UART);
 	par &= 0x00ff;
 	writew(par, MCF_GPIO_PAR_UART);
 }
 
-#endif 
+#endif /* IS_ENABLED(CONFIG_SPI_COLDFIRE_QSPI) */
 
+/***************************************************************************/
 
 static void __init m520x_uarts_init(void)
 {
 	u16 par;
 	u8 par2;
 
-	
+	/* UART0 and UART1 GPIO pin setup */
 	par = readw(MCF_GPIO_PAR_UART);
 	par |= MCF_GPIO_PAR_UART_PAR_UTXD0 | MCF_GPIO_PAR_UART_PAR_URXD0;
 	par |= MCF_GPIO_PAR_UART_PAR_UTXD1 | MCF_GPIO_PAR_UART_PAR_URXD1;
 	writew(par, MCF_GPIO_PAR_UART);
 
-	
+	/* UART1 GPIO pin setup */
 	par2 = readb(MCF_GPIO_PAR_FECI2C);
 	par2 &= ~0x0F;
 	par2 |= MCF_GPIO_PAR_FECI2C_PAR_SCL_UTXD2 |
@@ -54,12 +58,13 @@ static void __init m520x_uarts_init(void)
 	writeb(par2, MCF_GPIO_PAR_FECI2C);
 }
 
+/***************************************************************************/
 
 static void __init m520x_fec_init(void)
 {
 	u8 v;
 
-	
+	/* Set multi-function pins to ethernet mode */
 	v = readb(MCF_GPIO_PAR_FEC);
 	writeb(v | 0xf0, MCF_GPIO_PAR_FEC);
 
@@ -67,6 +72,7 @@ static void __init m520x_fec_init(void)
 	writeb(v | 0x0f, MCF_GPIO_PAR_FECI2C);
 }
 
+/***************************************************************************/
 
 void __init config_BSP(char *commandp, int size)
 {
@@ -78,3 +84,4 @@ void __init config_BSP(char *commandp, int size)
 #endif
 }
 
+/***************************************************************************/

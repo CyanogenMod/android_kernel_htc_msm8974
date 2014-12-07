@@ -39,7 +39,7 @@ static void dummy_perf(struct pt_regs *regs)
 
 
 static DEFINE_RAW_SPINLOCK(pmc_owner_lock);
-static void *pmc_owner_caller; 
+static void *pmc_owner_caller; /* mostly for debugging */
 perf_irq_t perf_irq = dummy_perf;
 
 int reserve_pmc_hardware(perf_irq_t new_perf_irq)
@@ -86,7 +86,7 @@ void power4_enable_pmcs(void)
 	hid0 = mfspr(SPRN_HID0);
 	hid0 |= 1UL << (63 - 20);
 
-	
+	/* POWER4 requires the following sequence */
 	asm volatile(
 		"sync\n"
 		"mtspr     %1, %0\n"
@@ -99,4 +99,4 @@ void power4_enable_pmcs(void)
 		"isync" : "=&r" (hid0) : "i" (SPRN_HID0), "0" (hid0):
 		"memory");
 }
-#endif 
+#endif /* CONFIG_PPC64 */

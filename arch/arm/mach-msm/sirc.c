@@ -48,6 +48,8 @@ static struct sirc_cascade_regs sirc_reg_table[] = {
 static unsigned int save_type;
 static unsigned int save_polarity;
 
+/* Mask off the given interrupt. Keep the int_enable mask in sync with
+   the enable reg, so it can be restored after power collapse. */
 static void sirc_irq_mask(struct irq_data *d)
 {
 	unsigned int mask;
@@ -59,6 +61,8 @@ static void sirc_irq_mask(struct irq_data *d)
 	return;
 }
 
+/* Unmask the given interrupt. Keep the int_enable mask in sync with
+   the enable reg, so it can be restored after power collapse. */
 static void sirc_irq_unmask(struct irq_data *d)
 {
 	unsigned int mask;
@@ -84,7 +88,7 @@ static int sirc_irq_set_wake(struct irq_data *d, unsigned int on)
 {
 	unsigned int mask;
 
-	
+	/* Used to set the interrupt enable mask during power collapse. */
 	mask = 1 << (d->irq - FIRST_SIRC_IRQ);
 	if (on)
 		wake_enable |= mask;
@@ -141,6 +145,7 @@ void sirc_fiq_select(int irq, bool enable)
 }
 #endif
 
+/* Finds the pending interrupt on the passed cascade irq and redrives it */
 static void sirc_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
 	unsigned int reg = 0;

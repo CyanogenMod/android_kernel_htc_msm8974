@@ -5,35 +5,42 @@
 #define HVSC			.long 0x44000022
 
 #define H_SUCCESS	0
-#define H_BUSY		1	
-#define H_CLOSED	2	
+#define H_BUSY		1	/* Hardware busy -- retry later */
+#define H_CLOSED	2	/* Resource closed */
 #define H_NOT_AVAILABLE 3
-#define H_CONSTRAINED	4	
+#define H_CONSTRAINED	4	/* Resource request constrained to max allowed */
 #define H_PARTIAL       5
-#define H_IN_PROGRESS	14	
+#define H_IN_PROGRESS	14	/* Kind of like busy */
 #define H_PAGE_REGISTERED 15
 #define H_PARTIAL_STORE   16
-#define H_PENDING	17	
-#define H_CONTINUE	18	
-#define H_LONG_BUSY_START_RANGE		9900  
-#define H_LONG_BUSY_ORDER_1_MSEC	9900  
-#define H_LONG_BUSY_ORDER_10_MSEC	9901  
-#define H_LONG_BUSY_ORDER_100_MSEC 	9902  
-#define H_LONG_BUSY_ORDER_1_SEC		9903  
-#define H_LONG_BUSY_ORDER_10_SEC	9904  
-#define H_LONG_BUSY_ORDER_100_SEC	9905  
-#define H_LONG_BUSY_END_RANGE		9905  
+#define H_PENDING	17	/* returned from H_POLL_PENDING */
+#define H_CONTINUE	18	/* Returned from H_Join on success */
+#define H_LONG_BUSY_START_RANGE		9900  /* Start of long busy range */
+#define H_LONG_BUSY_ORDER_1_MSEC	9900  /* Long busy, hint that 1msec \
+						 is a good time to retry */
+#define H_LONG_BUSY_ORDER_10_MSEC	9901  /* Long busy, hint that 10msec \
+						 is a good time to retry */
+#define H_LONG_BUSY_ORDER_100_MSEC 	9902  /* Long busy, hint that 100msec \
+						 is a good time to retry */
+#define H_LONG_BUSY_ORDER_1_SEC		9903  /* Long busy, hint that 1sec \
+						 is a good time to retry */
+#define H_LONG_BUSY_ORDER_10_SEC	9904  /* Long busy, hint that 10sec \
+						 is a good time to retry */
+#define H_LONG_BUSY_ORDER_100_SEC	9905  /* Long busy, hint that 100sec \
+						 is a good time to retry */
+#define H_LONG_BUSY_END_RANGE		9905  /* End of long busy range */
 
+/* Internal value used in book3s_hv kvm support; not returned to guests */
 #define H_TOO_HARD	9999
 
-#define H_HARDWARE	-1	
-#define H_FUNCTION	-2	
-#define H_PRIVILEGE	-3	
-#define H_PARAMETER	-4	
-#define H_BAD_MODE	-5	
-#define H_PTEG_FULL	-6	
-#define H_NOT_FOUND	-7	
-#define H_RESERVED_DABR	-8	
+#define H_HARDWARE	-1	/* Hardware error */
+#define H_FUNCTION	-2	/* Function not supported */
+#define H_PRIVILEGE	-3	/* Caller not privileged */
+#define H_PARAMETER	-4	/* Parameter invalid, out-of-range or conflicting */
+#define H_BAD_MODE	-5	/* Illegal msr value */
+#define H_PTEG_FULL	-6	/* PTEG is full */
+#define H_NOT_FOUND	-7	/* PTE was not found" */
+#define H_RESERVED_DABR	-8	/* DABR address is reserved by the hypervisor on this processor" */
 #define H_NO_MEM	-9
 #define H_AUTHORITY	-10
 #define H_PERMISSION	-11
@@ -74,30 +81,40 @@
 #define H_MULTI_THREADS_ACTIVE -9005
 
 
+/* Long Busy is a condition that can be returned by the firmware
+ * when a call cannot be completed now, but the identical call
+ * should be retried later.  This prevents calls blocking in the
+ * firmware for long periods of time.  Annoyingly the firmware can return
+ * a range of return codes, hinting at how long we should wait before
+ * retrying.  If you don't care for the hint, the macro below is a good
+ * way to check for the long_busy return codes
+ */
 #define H_IS_LONG_BUSY(x)  ((x >= H_LONG_BUSY_START_RANGE) \
 			     && (x <= H_LONG_BUSY_END_RANGE))
 
+/* Flags */
 #define H_LARGE_PAGE		(1UL<<(63-16))
-#define H_EXACT			(1UL<<(63-24))	
-#define H_R_XLATE		(1UL<<(63-25))	
-#define H_READ_4		(1UL<<(63-26))	
+#define H_EXACT			(1UL<<(63-24))	/* Use exact PTE or return H_PTEG_FULL */
+#define H_R_XLATE		(1UL<<(63-25))	/* include a valid logical page num in the pte if the valid bit is set */
+#define H_READ_4		(1UL<<(63-26))	/* Return 4 PTEs */
 #define H_PAGE_STATE_CHANGE	(1UL<<(63-28))
 #define H_PAGE_UNUSED		((1UL<<(63-29)) | (1UL<<(63-30)))
 #define H_PAGE_SET_UNUSED	(H_PAGE_STATE_CHANGE | H_PAGE_UNUSED)
 #define H_PAGE_SET_LOANED	(H_PAGE_SET_UNUSED | (1UL<<(63-31)))
 #define H_PAGE_SET_ACTIVE	H_PAGE_STATE_CHANGE
-#define H_AVPN			(1UL<<(63-32))	
+#define H_AVPN			(1UL<<(63-32))	/* An avpn is provided as a sanity test */
 #define H_ANDCOND		(1UL<<(63-33))
 #define H_LOCAL			(1UL<<(63-35))
-#define H_ICACHE_INVALIDATE	(1UL<<(63-40))	
-#define H_ICACHE_SYNCHRONIZE	(1UL<<(63-41))	
-#define H_COALESCE_CAND	(1UL<<(63-42))	
-#define H_ZERO_PAGE		(1UL<<(63-48))	
+#define H_ICACHE_INVALIDATE	(1UL<<(63-40))	/* icbi, etc.  (ignored for IO pages) */
+#define H_ICACHE_SYNCHRONIZE	(1UL<<(63-41))	/* dcbst, icbi, etc (ignored for IO pages */
+#define H_COALESCE_CAND	(1UL<<(63-42))	/* page is a good candidate for coalescing */
+#define H_ZERO_PAGE		(1UL<<(63-48))	/* zero the page before mapping (ignored for IO pages) */
 #define H_COPY_PAGE		(1UL<<(63-49))
 #define H_N			(1UL<<(63-61))
 #define H_PP1			(1UL<<(63-62))
 #define H_PP2			(1UL<<(63-63))
 
+/* VASI States */
 #define H_VASI_INVALID          0
 #define H_VASI_ENABLED          1
 #define H_VASI_ABORTED          2
@@ -106,12 +123,15 @@
 #define H_VASI_RESUMED          5
 #define H_VASI_COMPLETED        6
 
+/* DABRX flags */
 #define H_DABRX_HYPERVISOR	(1UL<<(63-61))
 #define H_DABRX_KERNEL		(1UL<<(63-62))
 #define H_DABRX_USER		(1UL<<(63-63))
 
+/* Each control block has to be on a 4K boundary */
 #define H_CB_ALIGNMENT          4096
 
+/* pSeries hypervisor opcodes */
 #define H_REMOVE		0x04
 #define H_ENTER			0x08
 #define H_READ			0x0c
@@ -225,21 +245,60 @@
 
 #ifndef __ASSEMBLY__
 
+/**
+ * plpar_hcall_norets: - Make a pseries hypervisor call with no return arguments
+ * @opcode: The hypervisor call to make.
+ *
+ * This call supports up to 7 arguments and only returns the status of
+ * the hcall. Use this version where possible, its slightly faster than
+ * the other plpar_hcalls.
+ */
 long plpar_hcall_norets(unsigned long opcode, ...);
 
+/**
+ * plpar_hcall: - Make a pseries hypervisor call
+ * @opcode: The hypervisor call to make.
+ * @retbuf: Buffer to store up to 4 return arguments in.
+ *
+ * This call supports up to 6 arguments and 4 return arguments. Use
+ * PLPAR_HCALL_BUFSIZE to size the return argument buffer.
+ *
+ * Used for all but the craziest of phyp interfaces (see plpar_hcall9)
+ */
 #define PLPAR_HCALL_BUFSIZE 4
 long plpar_hcall(unsigned long opcode, unsigned long *retbuf, ...);
 
+/**
+ * plpar_hcall_raw: - Make a hypervisor call without calculating hcall stats
+ * @opcode: The hypervisor call to make.
+ * @retbuf: Buffer to store up to 4 return arguments in.
+ *
+ * This call supports up to 6 arguments and 4 return arguments. Use
+ * PLPAR_HCALL_BUFSIZE to size the return argument buffer.
+ *
+ * Used when phyp interface needs to be called in real mode. Similar to
+ * plpar_hcall, but plpar_hcall_raw works in real mode and does not
+ * calculate hypervisor call statistics.
+ */
 long plpar_hcall_raw(unsigned long opcode, unsigned long *retbuf, ...);
 
+/**
+ * plpar_hcall9: - Make a pseries hypervisor call with up to 9 return arguments
+ * @opcode: The hypervisor call to make.
+ * @retbuf: Buffer to store up to 9 return arguments in.
+ *
+ * This call supports up to 9 arguments and 9 return arguments. Use
+ * PLPAR_HCALL9_BUFSIZE to size the return argument buffer.
+ */
 #define PLPAR_HCALL9_BUFSIZE 9
 long plpar_hcall9(unsigned long opcode, unsigned long *retbuf, ...);
 long plpar_hcall9_raw(unsigned long opcode, unsigned long *retbuf, ...);
 
+/* For hcall instrumentation.  One structure per-hcall, per-CPU */
 struct hcall_stats {
-	unsigned long	num_calls;	
-	unsigned long	tb_total;	
-	unsigned long	purr_total;	
+	unsigned long	num_calls;	/* number of calls (on this CPU) */
+	unsigned long	tb_total;	/* total wall time (mftb) of calls. */
+	unsigned long	purr_total;	/* total cpu time (PURR) of calls. */
 	unsigned long	tb_start;
 	unsigned long	purr_start;
 };
@@ -252,7 +311,7 @@ struct hvcall_mpp_data {
 	unsigned short pool_num;
 	unsigned char mem_weight;
 	unsigned char unallocated_mem_weight;
-	unsigned long unallocated_entitlement;  
+	unsigned long unallocated_entitlement;  /* value in bytes */
 	unsigned long pool_size;
 	signed long loan_request;
 	unsigned long backing_mem;
@@ -289,8 +348,8 @@ static inline unsigned long cmo_get_page_size(void)
 {
 	return CMO_PageSize;
 }
-#endif 
+#endif /* CONFIG_PPC_PSERIES */
 
-#endif 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_HVCALL_H */

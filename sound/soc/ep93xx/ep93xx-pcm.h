@@ -17,4 +17,4 @@ struct ep93xx_pcm_dma_params {
 	int	dma_port;
 };
 
-#endif 
+#endif /* _EP93XX_SND_SOC_PCM_H */

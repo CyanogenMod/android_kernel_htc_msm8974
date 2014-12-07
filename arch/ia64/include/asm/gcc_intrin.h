@@ -9,8 +9,11 @@
 #include <linux/types.h>
 #include <linux/compiler.h>
 
+/* define this macro to get some asm stmts included in 'c' files */
 #define ASM_SUPPORTED
 
+/* Optimization barrier */
+/* The "volatile" is due to gcc bugs */
 #define ia64_barrier()	asm volatile ("":::"memory")
 
 #define ia64_stop()	asm volatile (";;"::)
@@ -73,7 +76,7 @@ register unsigned long ia64_r13 asm ("r13") __used;
 	case _IA64_REG_PSR:							\
 		asm volatile ("mov %0=psr" : "=r"(ia64_intri_res));		\
 		break;								\
-	case _IA64_REG_TP:					\
+	case _IA64_REG_TP:	/* for current() */				\
 		ia64_intri_res = ia64_r13;					\
 		break;								\
 	case _IA64_REG_AR_KR0 ... _IA64_REG_AR_EC:				\
@@ -106,6 +109,7 @@ register unsigned long ia64_r13 asm ("r13") __used;
 })
 
 
+/* Integer values for mux1 instruction */
 #define ia64_mux1_brcst 0
 #define ia64_mux1_mix   8
 #define ia64_mux1_shuf  9
@@ -526,6 +530,7 @@ do {										\
 })
 
 
+/* Values for lfhint in ia64_lfetch and ia64_lfetch_fault */
 
 #define ia64_lfhint_none   0
 #define ia64_lfhint_nt1    1
@@ -613,4 +618,4 @@ do {								\
 		      :: "r"((x)) : "p6", "p7", "memory");	\
 } while (0)
 
-#endif 
+#endif /* _ASM_IA64_GCC_INTRIN_H */

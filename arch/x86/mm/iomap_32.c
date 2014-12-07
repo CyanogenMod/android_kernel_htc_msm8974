@@ -24,7 +24,7 @@
 static int is_io_mapping_possible(resource_size_t base, unsigned long size)
 {
 #if !defined(CONFIG_X86_PAE) && defined(CONFIG_PHYS_ADDR_T_64BIT)
-	
+	/* There is no way to map greater than 1 << 32 address without PAE */
 	if (base + size > 0x100000000ULL)
 		return 0;
 #endif
@@ -70,9 +70,18 @@ void *kmap_atomic_prot_pfn(unsigned long pfn, pgprot_t prot)
 	return (void *)vaddr;
 }
 
+/*
+ * Map 'pfn' using protections 'prot'
+ */
 void __iomem *
 iomap_atomic_prot_pfn(unsigned long pfn, pgprot_t prot)
 {
+	/*
+	 * For non-PAT systems, promote PAGE_KERNEL_WC to PAGE_KERNEL_UC_MINUS.
+	 * PAGE_KERNEL_WC maps to PWT, which translates to uncached if the
+	 * MTRR is UC or WC.  UC_MINUS gets the real intention, of the
+	 * user, which is "WC if the MTRR is WC, UC if you can't do that."
+	 */
 	if (!pat_enabled && pgprot_val(prot) == pgprot_val(PAGE_KERNEL_WC))
 		prot = PAGE_KERNEL_UC_MINUS;
 
@@ -95,6 +104,12 @@ iounmap_atomic(void __iomem *kvaddr)
 #ifdef CONFIG_DEBUG_HIGHMEM
 		WARN_ON_ONCE(vaddr != __fix_to_virt(FIX_KMAP_BEGIN + idx));
 #endif
+		/*
+		 * Force other mappings to Oops if they'll try to access this
+		 * pte without first remap it.  Keeping stale mappings around
+		 * is a bad idea also, in case the page changes cacheability
+		 * attributes or becomes a protected page in a hypervisor.
+		 */
 		kpte_clear_flush(kmap_pte-idx, vaddr);
 		kmap_atomic_idx_pop();
 	}

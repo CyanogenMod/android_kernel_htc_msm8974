@@ -25,9 +25,41 @@
 
 ************************************************************************
 */
+/*
+Driver: ni_labpc_cs
+Description: National Instruments Lab-PC (& compatibles)
+Author: Frank Mori Hess <fmhess@users.sourceforge.net>
+Devices: [National Instruments] DAQCard-1200 (daqcard-1200)
+Status: works
 
+Thanks go to Fredrik Lingvall for much testing and perseverance in
+helping to debug daqcard-1200 support.
 
-#undef LABPC_DEBUG  
+The 1200 series boards have onboard calibration dacs for correcting
+analog input/output offsets and gains.  The proper settings for these
+caldacs are stored on the board's eeprom.  To read the caldac values
+from the eeprom and store them into a file that can be then be used by
+comedilib, use the comedi_calibrate program.
+
+Configuration options:
+  none
+
+The daqcard-1200 has quirky chanlist requirements
+when scanning multiple channels.  Multiple channel scan
+sequence must start at highest channel, then decrement down to
+channel 0.  Chanlists consisting of all one channel
+are also legal, and allow you to pace conversions in bursts.
+
+*/
+
+/*
+
+NI manuals:
+340988a (daqcard-1200)
+
+*/
+
+#undef LABPC_DEBUG  /* debugging messages */
 
 #include "../comedidev.h"
 
@@ -50,7 +82,8 @@ static int labpc_attach(struct comedi_device *dev, struct comedi_devconfig *it);
 static const struct labpc_board_struct labpc_cs_boards[] = {
 	{
 	 .name = "daqcard-1200",
-	 .device_id = 0x103,	
+	 .device_id = 0x103,	/* 0x10b is manufacturer id,
+				   0x103 is device id */
 	 .ai_speed = 10000,
 	 .bustype = pcmcia_bustype,
 	 .register_layout = labpc_1200_layout,
@@ -61,7 +94,7 @@ static const struct labpc_board_struct labpc_cs_boards[] = {
 	 .ai_scan_up = 0,
 	 .memory_mapped_io = 0,
 	 },
-	
+	/* duplicate entry, to support using alternate name */
 	{
 	 .name = "ni_labpc_cs",
 	 .device_id = 0x103,
@@ -77,6 +110,9 @@ static const struct labpc_board_struct labpc_cs_boards[] = {
 	 },
 };
 
+/*
+ * Useful for shorthand access to the particular board structure
+ */
 #define thisboard ((const struct labpc_board_struct *)dev->board_ptr)
 
 static struct comedi_driver driver_labpc_cs = {
@@ -95,14 +131,14 @@ static int labpc_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	unsigned int irq = 0;
 	struct pcmcia_device *link;
 
-	
+	/* allocate and initialize dev->private */
 	if (alloc_private(dev, sizeof(struct labpc_private)) < 0)
 		return -ENOMEM;
 
-	
+	/*  get base address, irq etc. based on bustype */
 	switch (thisboard->bustype) {
 	case pcmcia_bustype:
-		link = pcmcia_cur_dev;	
+		link = pcmcia_cur_dev;	/* XXX hack */
 		if (!link)
 			return -EIO;
 		iobase = link->resource[0]->start;
@@ -136,7 +172,7 @@ static int labpc_cs_attach(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "labpc_cs_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(struct local_info_t), GFP_KERNEL);
 	if (!local)
 		return -ENOMEM;
@@ -148,19 +184,25 @@ static int labpc_cs_attach(struct pcmcia_device *link)
 	labpc_config(link);
 
 	return 0;
-}				
+}				/* labpc_cs_attach */
 
 static void labpc_cs_detach(struct pcmcia_device *link)
 {
 	dev_dbg(&link->dev, "labpc_cs_detach\n");
 
+	/*
+	   If the device is currently configured and active, we won't
+	   actually delete it yet.  Instead, it is marked so that when
+	   the release() function is called, that will trigger a proper
+	   detach().
+	 */
 	((struct local_info_t *)link->priv)->stop = 1;
 	labpc_release(link);
 
-	
+	/* This points to the parent local_info_t struct (may be null) */
 	kfree(link->priv);
 
-}				
+}				/* labpc_cs_detach */
 
 static int labpc_pcmcia_config_loop(struct pcmcia_device *p_dev,
 				void *priv_data)
@@ -199,23 +241,23 @@ static void labpc_config(struct pcmcia_device *link)
 failed:
 	labpc_release(link);
 
-}				
+}				/* labpc_config */
 
 static void labpc_release(struct pcmcia_device *link)
 {
 	dev_dbg(&link->dev, "labpc_release\n");
 
 	pcmcia_disable_device(link);
-}				
+}				/* labpc_release */
 
 static int labpc_cs_suspend(struct pcmcia_device *link)
 {
 	struct local_info_t *local = link->priv;
 
-	
+	/* Mark the device as stopped, to block IO until later */
 	local->stop = 1;
 	return 0;
-}				
+}				/* labpc_cs_suspend */
 
 static int labpc_cs_resume(struct pcmcia_device *link)
 {
@@ -223,11 +265,11 @@ static int labpc_cs_resume(struct pcmcia_device *link)
 
 	local->stop = 0;
 	return 0;
-}				
+}				/* labpc_cs_resume */
 
 static const struct pcmcia_device_id labpc_cs_ids[] = {
-	
-	PCMCIA_DEVICE_MANF_CARD(0x010b, 0x0103),	
+	/* N.B. These IDs should match those in labpc_cs_boards (ni_labpc.c) */
+	PCMCIA_DEVICE_MANF_CARD(0x010b, 0x0103),	/* daqcard-1200 */
 	PCMCIA_DEVICE_NULL
 };
 

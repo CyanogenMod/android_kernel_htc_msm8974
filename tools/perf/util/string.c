@@ -2,6 +2,11 @@
 #include "string.h"
 
 #define K 1024LL
+/*
+ * perf_atoll()
+ * Parse (\d+)(b|B|kb|KB|mb|MB|gb|GB|tb|TB) (e.g. "256MB")
+ * and return its numeric value
+ */
 s64 perf_atoll(const char *str)
 {
 	unsigned int i;
@@ -59,7 +64,7 @@ giga:
 tera:
 			unit = K * K * K * K;
 			break;
-		case '\0':	
+		case '\0':	/* only specified figures */
 			unit = 1;
 			break;
 		default:
@@ -78,6 +83,10 @@ out:
 	return length;
 }
 
+/*
+ * Helper function for splitting a string into an argv-like array.
+ * originally copied from lib/argv_split.c
+ */
 static const char *skip_sep(const char *cp)
 {
 	while (*cp && isspace(*cp))
@@ -109,6 +118,12 @@ static int count_argc(const char *str)
 	return count;
 }
 
+/**
+ * argv_free - free an argv
+ * @argv - the argument vector to be freed
+ *
+ * Frees an argv and the strings it points to.
+ */
 void argv_free(char **argv)
 {
 	char **p;
@@ -118,6 +133,18 @@ void argv_free(char **argv)
 	free(argv);
 }
 
+/**
+ * argv_split - split a string at whitespace, returning an argv
+ * @str: the string to be split
+ * @argcp: returned argument count
+ *
+ * Returns an array of pointers to strings which are split out from
+ * @str.  This is performed by strictly splitting on white-space; no
+ * quote processing is performed.  Multiple whitespace characters are
+ * considered to be a single argument separator.  The returned array
+ * is always NULL-terminated.  Returns NULL on memory allocation
+ * failure.
+ */
 char **argv_split(const char *str, int *argcp)
 {
 	int argc = count_argc(str);
@@ -157,6 +184,7 @@ fail:
 	return NULL;
 }
 
+/* Character class matching */
 static bool __match_charclass(const char *pat, char c, const char **npat)
 {
 	bool complement = false, ret = true;
@@ -165,11 +193,11 @@ static bool __match_charclass(const char *pat, char c, const char **npat)
 		complement = true;
 		pat++;
 	}
-	if (*pat++ == c)	
+	if (*pat++ == c)	/* First character is special */
 		goto end;
 
-	while (*pat && *pat != ']') {	
-		if (*pat == '-' && *(pat + 1) != ']') {	
+	while (*pat && *pat != ']') {	/* Matching */
+		if (*pat == '-' && *(pat + 1) != ']') {	/* Range */
 			if (*(pat - 1) <= c && c <= *(pat + 1))
 				goto end;
 			if (*(pat - 1) > *(pat + 1))
@@ -183,7 +211,7 @@ static bool __match_charclass(const char *pat, char c, const char **npat)
 	ret = false;
 
 end:
-	while (*pat && *pat != ']')	
+	while (*pat && *pat != ']')	/* Searching closing */
 		pat++;
 	if (!*pat)
 		goto error;
@@ -194,11 +222,12 @@ error:
 	return false;
 }
 
+/* Glob/lazy pattern matching */
 static bool __match_glob(const char *str, const char *pat, bool ignore_space)
 {
 	while (*str && *pat && *pat != '*') {
 		if (ignore_space) {
-			
+			/* Ignore spaces for lazy matching */
 			if (isspace(*str)) {
 				str++;
 				continue;
@@ -208,26 +237,26 @@ static bool __match_glob(const char *str, const char *pat, bool ignore_space)
 				continue;
 			}
 		}
-		if (*pat == '?') {	
+		if (*pat == '?') {	/* Matches any single character */
 			str++;
 			pat++;
 			continue;
-		} else if (*pat == '[')	
+		} else if (*pat == '[')	/* Character classes/Ranges */
 			if (__match_charclass(pat + 1, *str, &pat)) {
 				str++;
 				continue;
 			} else
 				return false;
-		else if (*pat == '\\') 
+		else if (*pat == '\\') /* Escaped char match as normal char */
 			pat++;
 		if (*str++ != *pat++)
 			return false;
 	}
-	
+	/* Check wild card */
 	if (*pat == '*') {
 		while (*pat == '*')
 			pat++;
-		if (!*pat)	
+		if (!*pat)	/* Tail wild card matches all */
 			return true;
 		while (*str)
 			if (__match_glob(str++, pat, ignore_space))
@@ -236,16 +265,43 @@ static bool __match_glob(const char *str, const char *pat, bool ignore_space)
 	return !*str && !*pat;
 }
 
+/**
+ * strglobmatch - glob expression pattern matching
+ * @str: the target string to match
+ * @pat: the pattern string to match
+ *
+ * This returns true if the @str matches @pat. @pat can includes wildcards
+ * ('*','?') and character classes ([CHARS], complementation and ranges are
+ * also supported). Also, this supports escape character ('\') to use special
+ * characters as normal character.
+ *
+ * Note: if @pat syntax is broken, this always returns false.
+ */
 bool strglobmatch(const char *str, const char *pat)
 {
 	return __match_glob(str, pat, false);
 }
 
+/**
+ * strlazymatch - matching pattern strings lazily with glob pattern
+ * @str: the target string to match
+ * @pat: the pattern string to match
+ *
+ * This is similar to strglobmatch, except this ignores spaces in
+ * the target string.
+ */
 bool strlazymatch(const char *str, const char *pat)
 {
 	return __match_glob(str, pat, true);
 }
 
+/**
+ * strtailcmp - Compare the tail of two strings
+ * @s1: 1st string to be compared
+ * @s2: 2nd string to be compared
+ *
+ * Return 0 if whole of either string is same as another's tail part.
+ */
 int strtailcmp(const char *s1, const char *s2)
 {
 	int i1 = strlen(s1);

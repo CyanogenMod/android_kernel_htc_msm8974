@@ -38,7 +38,7 @@
 #define GPIO_PB12	28
 #define GPIO_PB13	29
 #define GPIO_PB14	30
-#define GPIO_PB15	31	
+#define GPIO_PB15	31	/* N/A */
 #define GPIO_PC0	32
 #define GPIO_PC1	33
 #define GPIO_PC2	34
@@ -53,8 +53,8 @@
 #define GPIO_PC11	43
 #define GPIO_PC12	44
 #define GPIO_PC13	45
-#define GPIO_PC14	46	
-#define GPIO_PC15	47	
+#define GPIO_PC14	46	/* N/A */
+#define GPIO_PC15	47	/* N/A */
 #define GPIO_PD0	48
 #define GPIO_PD1	49
 #define GPIO_PD2	50
@@ -133,8 +133,8 @@
 #define GPIO_PH11	123
 #define GPIO_PH12	124
 #define GPIO_PH13	125
-#define GPIO_PH14	126	
-#define GPIO_PH15	127	
+#define GPIO_PH14	126	/* N/A */
+#define GPIO_PH15	127	/* N/A */
 #define GPIO_PI0	128
 #define GPIO_PI1	129
 #define GPIO_PI2	130
@@ -165,8 +165,8 @@
 #define GPIO_PJ11	155
 #define GPIO_PJ12	156
 #define GPIO_PJ13	157
-#define GPIO_PJ14	158	
-#define GPIO_PJ15	159	
+#define GPIO_PJ14	158	/* N/A */
+#define GPIO_PJ15	159	/* N/A */
 
 #define MAX_BLACKFIN_GPIOS 160
 
@@ -213,4 +213,4 @@ struct gpio_port_s {
 #include <mach-common/ports-i.h>
 #include <mach-common/ports-j.h>
 
-#endif 
+#endif /* _MACH_GPIO_H_ */

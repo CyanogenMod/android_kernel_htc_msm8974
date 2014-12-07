@@ -53,6 +53,16 @@ int kvmppc_core_emulate_op(struct kvm_run *run, struct kvm_vcpu *vcpu,
 			dcrn = get_dcrn(inst);
 			rt = get_rt(inst);
 
+			/* The guest may access CPR0 registers to determine the timebase
+			 * frequency, and it must know the real host frequency because it
+			 * can directly access the timebase registers.
+			 *
+			 * It would be possible to emulate those accesses in userspace,
+			 * but userspace can really only figure out the end frequency.
+			 * We could decompose that into the factors that compute it, but
+			 * that's tricky math, and it's easier to just report the real
+			 * CPR0 values.
+			 */
 			switch (dcrn) {
 			case DCRN_CPR0_CONFIG_ADDR:
 				kvmppc_set_gpr(vcpu, rt, vcpu->arch.cpr0_cfgaddr);
@@ -81,7 +91,7 @@ int kvmppc_core_emulate_op(struct kvm_run *run, struct kvm_vcpu *vcpu,
 			dcrn = get_dcrn(inst);
 			rs = get_rs(inst);
 
-			
+			/* emulate some access in kernel */
 			switch (dcrn) {
 			case DCRN_CPR0_CONFIG_ADDR:
 				vcpu->arch.cpr0_cfgaddr = kvmppc_get_gpr(vcpu, rs);

@@ -3,4 +3,4 @@
 
 #include <linux/byteorder/big_endian.h>
 
-#endif 
+#endif /* _S390_BYTEORDER_H */

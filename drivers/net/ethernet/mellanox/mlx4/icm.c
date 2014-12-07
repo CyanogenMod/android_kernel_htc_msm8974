@@ -42,6 +42,10 @@
 #include "icm.h"
 #include "fw.h"
 
+/*
+ * We allocate in as big chunks as we can, up to a maximum of 256 KB
+ * per chunk.
+ */
 enum {
 	MLX4_ICM_ALLOC_SIZE	= 1 << 18,
 	MLX4_TABLE_CHUNK_SIZE	= 1 << 18
@@ -123,7 +127,7 @@ struct mlx4_icm *mlx4_alloc_icm(struct mlx4_dev *dev, int npages,
 	int cur_order;
 	int ret;
 
-	
+	/* We use sg_set_buf for coherent allocs, which assumes low memory */
 	BUG_ON(coherent && (gfp_mask & __GFP_HIGHMEM));
 
 	icm = kmalloc(sizeof *icm, gfp_mask & ~(__GFP_HIGHMEM | __GFP_NOWARN));
@@ -303,6 +307,11 @@ void *mlx4_table_find(struct mlx4_icm_table *table, int obj, dma_addr_t *dma_han
 						dma_offset;
 				dma_offset -= sg_dma_len(&chunk->mem[i]);
 			}
+			/*
+			 * DMA mapping can merge pages but not split them,
+			 * so if we found the page, dma_handle has already
+			 * been assigned to.
+			 */
 			if (chunk->mem[i].length > offset) {
 				page = sg_page(&chunk->mem[i]);
 				goto out;
@@ -387,6 +396,10 @@ int mlx4_init_icm_table(struct mlx4_dev *dev, struct mlx4_icm_table *table,
 			goto err;
 		}
 
+		/*
+		 * Add a reference to this ICM chunk so that it never
+		 * gets freed (since it contains reserved firmware objects).
+		 */
 		++table->icm[i]->refcount;
 	}
 

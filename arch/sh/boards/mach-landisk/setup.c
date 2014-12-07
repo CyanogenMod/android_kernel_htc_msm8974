@@ -58,7 +58,7 @@ static int __init landisk_devices_setup(void)
 	unsigned long paddrbase;
 	void *cf_ide_base;
 
-	
+	/* open I/O area window */
 	paddrbase = virt_to_phys((void *)PA_AREA5_IO);
 	prot = PAGE_KERNEL_PCC(1, _PAGE_PCC_IO16);
 	cf_ide_base = ioremap_prot(paddrbase, PAGE_SIZE, pgprot_val(prot));
@@ -67,7 +67,7 @@ static int __init landisk_devices_setup(void)
 		return -ENOMEM;
 	}
 
-	
+	/* IDE cmd address : 0x1f0-0x1f7 and 0x3f6 */
 	cf_ide_resources[0].start = (unsigned long)cf_ide_base + 0x40;
 	cf_ide_resources[0].end   = (unsigned long)cf_ide_base + 0x40 + 0x0f;
 	cf_ide_resources[0].flags = IORESOURCE_IO;
@@ -85,13 +85,16 @@ device_initcall(landisk_devices_setup);
 
 static void __init landisk_setup(char **cmdline_p)
 {
-	
+	/* LED ON */
 	__raw_writeb(__raw_readb(PA_LED) | 0x03, PA_LED);
 
 	printk(KERN_INFO "I-O DATA DEVICE, INC. \"LANDISK Series\" support.\n");
 	pm_power_off = landisk_power_off;
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_landisk __initmv = {
 	.mv_name = "LANDISK",
 	.mv_setup = landisk_setup,

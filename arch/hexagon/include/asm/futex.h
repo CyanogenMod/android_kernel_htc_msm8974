@@ -7,11 +7,12 @@
 #include <linux/uaccess.h>
 #include <asm/errno.h>
 
+/* XXX TODO-- need to add sync barriers! */
 
 #define __futex_atomic_op(insn, ret, oldval, uaddr, oparg) \
 	__asm__ __volatile( \
 	"1: %0 = memw_locked(%3);\n" \
-	     \
+	    /* For example: %1 = %4 */ \
 	    insn \
 	"2: memw_locked(%3,p2) = %1;\n" \
 	"   if !p2 jump 1b;\n" \
@@ -132,5 +133,5 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr, u32 oldval,
 	return ret;
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_HEXAGON_FUTEX_H */

@@ -47,8 +47,8 @@
 #define sis190_rx_skb			netif_rx
 #define sis190_rx_quota(count, quota)	count
 
-#define NUM_TX_DESC		64	
-#define NUM_RX_DESC		64	
+#define NUM_TX_DESC		64	/* [8..1024] */
+#define NUM_RX_DESC		64	/* [8..8192] */
 #define TX_RING_BYTES		(NUM_TX_DESC * sizeof(struct TxDesc))
 #define RX_RING_BYTES		(NUM_RX_DESC * sizeof(struct RxDesc))
 #define RX_BUF_SIZE		1536
@@ -61,14 +61,16 @@
 				 NETIF_MSG_LINK | NETIF_MSG_IFUP | \
 				 NETIF_MSG_IFDOWN)
 
+/* Enhanced PHY access register bit definitions */
 #define EhnMIIread		0x0000
 #define EhnMIIwrite		0x0020
 #define EhnMIIdataShift		16
-#define EhnMIIpmdShift		6	
+#define EhnMIIpmdShift		6	/* 7016 only */
 #define EhnMIIregShift		11
 #define EhnMIIreq		0x0010
 #define EhnMIInotDone		0x0010
 
+/* Write/read MMIO register */
 #define SIS_W8(reg, val)	writeb ((val), ioaddr + (reg))
 #define SIS_W16(reg, val)	writew ((val), ioaddr + (reg))
 #define SIS_W32(reg, val)	writel ((val), ioaddr + (reg))
@@ -81,86 +83,86 @@
 enum sis190_registers {
 	TxControl		= 0x00,
 	TxDescStartAddr		= 0x04,
-	rsv0			= 0x08,	
-	TxSts			= 0x0c,	
+	rsv0			= 0x08,	// reserved
+	TxSts			= 0x0c,	// unused (Control/Status)
 	RxControl		= 0x10,
 	RxDescStartAddr		= 0x14,
-	rsv1			= 0x18,	
-	RxSts			= 0x1c,	
+	rsv1			= 0x18,	// reserved
+	RxSts			= 0x1c,	// unused
 	IntrStatus		= 0x20,
 	IntrMask		= 0x24,
 	IntrControl		= 0x28,
-	IntrTimer		= 0x2c,	
-	PMControl		= 0x30,	
-	rsv2			= 0x34,	
+	IntrTimer		= 0x2c,	// unused (Interrupt Timer)
+	PMControl		= 0x30,	// unused (Power Mgmt Control/Status)
+	rsv2			= 0x34,	// reserved
 	ROMControl		= 0x38,
 	ROMInterface		= 0x3c,
 	StationControl		= 0x40,
 	GMIIControl		= 0x44,
-	GIoCR			= 0x48, 
-	GIoCtrl			= 0x4c, 
+	GIoCR			= 0x48, // unused (GMAC IO Compensation)
+	GIoCtrl			= 0x4c, // unused (GMAC IO Control)
 	TxMacControl		= 0x50,
-	TxLimit			= 0x54, 
-	RGDelay			= 0x58, 
-	rsv3			= 0x5c, 
+	TxLimit			= 0x54, // unused (Tx MAC Timer/TryLimit)
+	RGDelay			= 0x58, // unused (RGMII Tx Internal Delay)
+	rsv3			= 0x5c, // reserved
 	RxMacControl		= 0x60,
 	RxMacAddr		= 0x62,
 	RxHashTable		= 0x68,
-	
+	// Undocumented		= 0x6c,
 	RxWolCtrl		= 0x70,
-	RxWolData		= 0x74, 
-	RxMPSControl		= 0x78,	
-	rsv4			= 0x7c, 
+	RxWolData		= 0x74, // unused (Rx WOL Data Access)
+	RxMPSControl		= 0x78,	// unused (Rx MPS Control)
+	rsv4			= 0x7c, // reserved
 };
 
 enum sis190_register_content {
-	
-	SoftInt			= 0x40000000,	
-	Timeup			= 0x20000000,	
-	PauseFrame		= 0x00080000,	
-	MagicPacket		= 0x00040000,	
-	WakeupFrame		= 0x00020000,	
+	/* IntrStatus */
+	SoftInt			= 0x40000000,	// unused
+	Timeup			= 0x20000000,	// unused
+	PauseFrame		= 0x00080000,	// unused
+	MagicPacket		= 0x00040000,	// unused
+	WakeupFrame		= 0x00020000,	// unused
 	LinkChange		= 0x00010000,
 	RxQEmpty		= 0x00000080,
 	RxQInt			= 0x00000040,
-	TxQ1Empty		= 0x00000020,	
+	TxQ1Empty		= 0x00000020,	// unused
 	TxQ1Int			= 0x00000010,
-	TxQ0Empty		= 0x00000008,	
+	TxQ0Empty		= 0x00000008,	// unused
 	TxQ0Int			= 0x00000004,
 	RxHalt			= 0x00000002,
 	TxHalt			= 0x00000001,
 
-	
+	/* {Rx/Tx}CmdBits */
 	CmdReset		= 0x10,
-	CmdRxEnb		= 0x08,		
+	CmdRxEnb		= 0x08,		// unused
 	CmdTxEnb		= 0x01,
-	RxBufEmpty		= 0x01,		
+	RxBufEmpty		= 0x01,		// unused
 
-	
-	Cfg9346_Lock		= 0x00,		
-	Cfg9346_Unlock		= 0xc0,		
+	/* Cfg9346Bits */
+	Cfg9346_Lock		= 0x00,		// unused
+	Cfg9346_Unlock		= 0xc0,		// unused
 
-	
-	AcceptErr		= 0x20,		
-	AcceptRunt		= 0x10,		
+	/* RxMacControl */
+	AcceptErr		= 0x20,		// unused
+	AcceptRunt		= 0x10,		// unused
 	AcceptBroadcast		= 0x0800,
 	AcceptMulticast		= 0x0400,
 	AcceptMyPhys		= 0x0200,
 	AcceptAllPhys		= 0x0100,
 
-	
+	/* RxConfigBits */
 	RxCfgFIFOShift		= 13,
-	RxCfgDMAShift		= 8,		
+	RxCfgDMAShift		= 8,		// 0x1a in RxControl ?
 
-	
+	/* TxConfigBits */
 	TxInterFrameGapShift	= 24,
-	TxDMAShift		= 8, 
+	TxDMAShift		= 8, /* DMA burst value (0-7) is shift this many bits */
 
-	LinkStatus		= 0x02,		
-	FullDup			= 0x01,		
+	LinkStatus		= 0x02,		// unused
+	FullDup			= 0x01,		// unused
 
-	
-	TBILinkOK		= 0x02000000,	
+	/* TBICSRBit */
+	TBILinkOK		= 0x02000000,	// unused
 };
 
 struct TxDesc {
@@ -178,15 +180,15 @@ struct RxDesc {
 };
 
 enum _DescStatusBit {
-	
-	OWNbit		= 0x80000000, 
-	INTbit		= 0x40000000, 
-	CRCbit		= 0x00020000, 
-	PADbit		= 0x00010000, 
-	
+	/* _Desc.status */
+	OWNbit		= 0x80000000, // RXOWN/TXOWN
+	INTbit		= 0x40000000, // RXINT/TXINT
+	CRCbit		= 0x00020000, // CRCOFF/CRCEN
+	PADbit		= 0x00010000, // PREADD/PADEN
+	/* _Desc.size */
 	RingEnd		= 0x80000000,
-	
-	LSEN		= 0x08000000, 
+	/* TxDesc.status */
+	LSEN		= 0x08000000, // TSO ? -- FR
 	IPCS		= 0x04000000,
 	TCPCS		= 0x02000000,
 	UDPCS		= 0x01000000,
@@ -206,7 +208,7 @@ enum _DescStatusBit {
 	FIFO		= 0x00020000,
 	LINK		= 0x00010000,
 	ColCountMask	= 0x0000ffff,
-	
+	/* RxDesc.status */
 	IPON		= 0x20000000,
 	TCPON		= 0x10000000,
 	UDPON		= 0x08000000,
@@ -217,9 +219,9 @@ enum _DescStatusBit {
 	BCAST		= 0x000c0000,
 	MCAST		= 0x00080000,
 	UCAST		= 0x00040000,
-	
+	/* RxDesc.PSize */
 	TAGON		= 0x80000000,
-	RxDescCountMask	= 0x7f000000, 
+	RxDescCountMask	= 0x7f000000, // multi-desc pkt when > 1 ? -- FR
 	ABORT		= 0x00800000,
 	SHORT		= 0x00400000,
 	LIMIT		= 0x00200000,
@@ -229,21 +231,27 @@ enum _DescStatusBit {
 	COLON		= 0x00020000,
 	CRCOK		= 0x00010000,
 	RxSizeMask	= 0x0000ffff
+	/*
+	 * The asic could apparently do vlan, TSO, jumbo (sis191 only) and
+	 * provide two (unused with Linux) Tx queues. No publicly
+	 * available documentation alas.
+	 */
 };
 
 enum sis190_eeprom_access_register_bits {
-	EECS	= 0x00000001,	
-	EECLK	= 0x00000002,	
-	EEDO	= 0x00000008,	
-	EEDI	= 0x00000004,	
+	EECS	= 0x00000001,	// unused
+	EECLK	= 0x00000002,	// unused
+	EEDO	= 0x00000008,	// unused
+	EEDI	= 0x00000004,	// unused
 	EEREQ	= 0x00000080,
 	EEROP	= 0x00000200,
-	EEWOP	= 0x00000100	
+	EEWOP	= 0x00000100	// unused
 };
 
+/* EEPROM Addresses */
 enum sis190_eeprom_address {
 	EEPROMSignature	= 0x00,
-	EEPROMCLK	= 0x01,	
+	EEPROMCLK	= 0x01,	// unused
 	EEPROMInfo	= 0x02,
 	EEPROMMACAddr	= 0x03
 };
@@ -348,6 +356,10 @@ MODULE_LICENSE("GPL");
 static const u32 sis190_intr_mask =
 	RxQEmpty | RxQInt | TxQ1Int | TxQ0Int | RxHalt | TxHalt | LinkChange;
 
+/*
+ * Maximum number of multicast addresses to filter (vs. Rx-all-multicast).
+ * The chips use a 64 element hash table based on the Ethernet CRC.
+ */
 static const int multicast_filter_limit = 32;
 
 static void __mdio_cmd(void __iomem *ioaddr, u32 ctl)
@@ -433,7 +445,7 @@ static void sis190_irq_mask_and_ack(void __iomem *ioaddr)
 
 static void sis190_asic_down(void __iomem *ioaddr)
 {
-	
+	/* Stop the chip's Tx and Rx DMA processes. */
 
 	SIS_W32(TxControl, 0x1a00);
 	SIS_W32(RxControl, 0x1a00);
@@ -579,7 +591,7 @@ static int sis190_rx_interrupt(struct net_device *dev,
 
 		status = le32_to_cpu(desc->PSize);
 
-		
+		//netif_info(tp, intr, dev, "Rx PSize = %08x\n", status);
 
 		if (sis190_rx_pkt_err(status, stats) < 0)
 			sis190_give_to_asic(desc, tp->rx_buf_sz);
@@ -673,6 +685,10 @@ static void sis190_tx_interrupt(struct net_device *dev,
 {
 	struct net_device_stats *stats = &dev->stats;
 	u32 pending, dirty_tx = tp->dirty_tx;
+	/*
+	 * It would not be needed if queueing was allowed to be enabled
+	 * again too early (hint: think preempt and unclocked smp systems).
+	 */
 	unsigned int queue_stopped;
 
 	smp_rmb();
@@ -709,6 +725,10 @@ static void sis190_tx_interrupt(struct net_device *dev,
 	}
 }
 
+/*
+ * The interrupt handler does all of the Rx thread work and cleans up after
+ * the Tx thread.
+ */
 static irqreturn_t sis190_interrupt(int irq, void *__dev)
 {
 	struct net_device *dev = __dev;
@@ -731,6 +751,7 @@ static irqreturn_t sis190_interrupt(int irq, void *__dev)
 
 	SIS_W32(IntrStatus, status);
 
+//	netif_info(tp, intr, dev, "status = %08x\n", status);
 
 	if (status & LinkChange) {
 		netif_info(tp, intr, dev, "link change\n");
@@ -813,7 +834,7 @@ static void sis190_set_rx_mode(struct net_device *dev)
 	struct sis190_private *tp = netdev_priv(dev);
 	void __iomem *ioaddr = tp->mmio_addr;
 	unsigned long flags;
-	u32 mc_filter[2];	
+	u32 mc_filter[2];	/* Multicast hash filter */
 	u16 rx_mode;
 
 	if (dev->flags & IFF_PROMISC) {
@@ -823,7 +844,7 @@ static void sis190_set_rx_mode(struct net_device *dev)
 		mc_filter[1] = mc_filter[0] = 0xffffffff;
 	} else if ((netdev_mc_count(dev) > multicast_filter_limit) ||
 		   (dev->flags & IFF_ALLMULTI)) {
-		
+		/* Too many to filter perfectly -- accept all multicasts. */
 		rx_mode = AcceptBroadcast | AcceptMulticast | AcceptMyPhys;
 		mc_filter[1] = mc_filter[0] = 0xffffffff;
 	} else {
@@ -880,7 +901,7 @@ static void sis190_hw_start(struct net_device *dev)
 
 	sis190_set_rx_mode(dev);
 
-	
+	/* Enable all known interrupts by setting the interrupt mask. */
 	SIS_W32(IntrMask, sis190_intr_mask);
 
 	SIS_W32(TxControl, 0x1a00 | CmdTxEnb);
@@ -905,7 +926,7 @@ static void sis190_phy_task(struct work_struct *work)
 
 	val = mdio_read(ioaddr, phy_id, MII_BMCR);
 	if (val & BMCR_RESET) {
-		
+		// FIXME: needlessly high ?  -- FR 02/07/2005
 		mod_timer(&tp->timer, jiffies + HZ/10);
 		goto out_unlock;
 	}
@@ -916,7 +937,7 @@ static void sis190_phy_task(struct work_struct *work)
 		netif_warn(tp, link, dev, "auto-negotiating...\n");
 		tp->link_status = LNK_AUTONEG;
 	} else if ((val & BMSR_LSTATUS) && tp->link_status != LNK_ON) {
-		
+		/* Rejoice ! */
 		struct {
 			int val;
 			u32 ctl;
@@ -948,7 +969,7 @@ static void sis190_phy_task(struct work_struct *work)
 			   val, adv, autoexp);
 
 		if (val & LPA_NPAGE && autoexp & EXPANSION_NWAY) {
-			
+			/* check for gigabit speed */
 			gigadv = mdio_read(ioaddr, phy_id, MII_CTRL1000);
 			gigrec = mdio_read(ioaddr, phy_id, MII_STAT1000);
 			val = (gigadv & (gigrec >> 2));
@@ -970,7 +991,7 @@ static void sis190_phy_task(struct work_struct *work)
 
 		if ((tp->features & F_HAS_RGMII) &&
 		    (tp->features & F_PHY_BCM5461)) {
-			
+			// Set Tx Delay in RGMII mode.
 			mdio_write(ioaddr, phy_id, 0x18, 0xf1c7);
 			udelay(200);
 			mdio_write(ioaddr, phy_id, 0x1c, 0x8c00);
@@ -1031,7 +1052,7 @@ static void sis190_set_rxbufsize(struct sis190_private *tp,
 	unsigned int mtu = dev->mtu;
 
 	tp->rx_buf_sz = (mtu > RX_BUF_SIZE) ? mtu + ETH_HLEN + 8 : RX_BUF_SIZE;
-	
+	/* RxDesc->size has a licence to kill the lower bits */
 	if (tp->rx_buf_sz & 0x07) {
 		tp->rx_buf_sz += 8;
 		tp->rx_buf_sz &= RX_BUF_MASK;
@@ -1046,6 +1067,10 @@ static int sis190_open(struct net_device *dev)
 
 	sis190_set_rxbufsize(tp, dev);
 
+	/*
+	 * Rx and Tx descriptors need 256 bytes alignment.
+	 * pci_alloc_consistent() guarantees a stronger alignment.
+	 */
 	tp->TxDescRing = pci_alloc_consistent(pdev, TX_RING_BYTES, &tp->tx_dma);
 	if (!tp->TxDescRing)
 		goto out;
@@ -1196,10 +1221,10 @@ static netdev_tx_t sis190_start_xmit(struct sk_buff *skb,
 
 	desc->status = cpu_to_le32(OWNbit | INTbit | DEFbit | CRCbit | PADbit);
 	if (tp->negotiated_lpa & (LPA_1000HALF | LPA_100HALF | LPA_10HALF)) {
-		
+		/* Half Duplex */
 		desc->status |= cpu_to_le32(COLEN | CRSEN | BKFEN);
 		if (tp->negotiated_lpa & (LPA_1000HALF | LPA_1000FULL))
-			desc->status |= cpu_to_le32(EXTEN | BSTEN); 
+			desc->status |= cpu_to_le32(EXTEN | BSTEN); /* gigabit HD */
 	}
 
 	tp->cur_tx++;
@@ -1228,6 +1253,14 @@ static void sis190_free_phy(struct list_head *first_phy)
 	}
 }
 
+/**
+ *	sis190_default_phy - Select default PHY for sis190 mac.
+ *	@dev: the net device to probe for
+ *
+ *	Select first detected PHY with link as default.
+ *	If no one is link on, select PHY whose types is HOME as default.
+ *	If HOME doesn't exist, select LAN.
+ */
 static u16 sis190_default_phy(struct net_device *dev)
 {
 	struct sis190_phy *phy, *phy_home, *phy_default, *phy_lan;
@@ -1241,7 +1274,7 @@ static u16 sis190_default_phy(struct net_device *dev)
 	list_for_each_entry(phy, &tp->first_phy, list) {
 		status = mdio_read_latched(ioaddr, phy->phy_id, MII_BMSR);
 
-		
+		// Link ON & Not select default PHY & not ghost PHY.
 		if ((status & BMSR_LSTATUS) &&
 		    !phy_default &&
 		    (phy->type != UNKNOWN)) {
@@ -1340,6 +1373,14 @@ static void sis190_mii_probe_88e1111_fixup(struct sis190_private *tp)
 	}
 }
 
+/**
+ *	sis190_mii_probe - Probe MII PHY for sis190
+ *	@dev: the net device to probe for
+ *
+ *	Search for total of 32 possible mii phy addresses.
+ *	Identify and set current phy if found one,
+ *	return error if it failed to found.
+ */
 static int __devinit sis190_mii_probe(struct net_device *dev)
 {
 	struct sis190_private *tp = netdev_priv(dev);
@@ -1356,7 +1397,7 @@ static int __devinit sis190_mii_probe(struct net_device *dev)
 
 		status = mdio_read_latched(ioaddr, phy_id, MII_BMSR);
 
-		
+		// Try next mii if the current one is not accessible.
 		if (status == 0xffff || status == 0x0000)
 			continue;
 
@@ -1380,7 +1421,7 @@ static int __devinit sis190_mii_probe(struct net_device *dev)
 		goto out;
 	}
 
-	
+	/* Select default PHY for mac */
 	sis190_default_phy(dev);
 
 	sis190_mii_probe_88e1111_fixup(tp);
@@ -1507,7 +1548,7 @@ static void sis190_tx_timeout(struct net_device *dev)
 	void __iomem *ioaddr = tp->mmio_addr;
 	u8 tmp8;
 
-	
+	/* Disable Tx, if not already */
 	tmp8 = SIS_R8(TxControl);
 	if (tmp8 & CmdTxEnb)
 		SIS_W8(TxControl, tmp8 & ~CmdTxEnb);
@@ -1515,15 +1556,15 @@ static void sis190_tx_timeout(struct net_device *dev)
 	netif_info(tp, tx_err, dev, "Transmit timeout, status %08x %08x\n",
 		   SIS_R32(TxControl), SIS_R32(TxSts));
 
-	
+	/* Disable interrupts by clearing the interrupt mask. */
 	SIS_W32(IntrMask, 0x0000);
 
-	
+	/* Stop a shared interrupt from scavenging while we are. */
 	spin_lock_irq(&tp->lock);
 	sis190_tx_clear(tp);
 	spin_unlock_irq(&tp->lock);
 
-	
+	/* ...and finally, reset everything. */
 	sis190_hw_start(dev);
 
 	netif_wake_queue(dev);
@@ -1545,7 +1586,7 @@ static int __devinit sis190_get_mac_addr_from_eeprom(struct pci_dev *pdev,
 	if (netif_msg_probe(tp))
 		pr_info("%s: Read MAC address from EEPROM\n", pci_name(pdev));
 
-	
+	/* Check to see if there is a sane EEPROM */
 	sig = (u16) sis190_read_eeprom(ioaddr, EEPROMSignature);
 
 	if ((sig == 0xffff) || (sig == 0x0000)) {
@@ -1555,7 +1596,7 @@ static int __devinit sis190_get_mac_addr_from_eeprom(struct pci_dev *pdev,
 		return -EIO;
 	}
 
-	
+	/* Get MAC address from EEPROM */
 	for (i = 0; i < ETH_ALEN / 2; i++) {
 		u16 w = sis190_read_eeprom(ioaddr, EEPROMMACAddr + i);
 
@@ -1567,6 +1608,15 @@ static int __devinit sis190_get_mac_addr_from_eeprom(struct pci_dev *pdev,
 	return 0;
 }
 
+/**
+ *	sis190_get_mac_addr_from_apc - Get MAC address for SiS96x model
+ *	@pdev: PCI device
+ *	@dev:  network device to get address for
+ *
+ *	SiS96x model, use APC CMOS RAM to store MAC address.
+ *	APC CMOS RAM is accessed through ISA bridge.
+ *	MAC address is read into @net_dev->dev_addr.
+ */
 static int __devinit sis190_get_mac_addr_from_apc(struct pci_dev *pdev,
 						  struct net_device *dev)
 {
@@ -1592,7 +1642,7 @@ static int __devinit sis190_get_mac_addr_from_apc(struct pci_dev *pdev,
 		return -EIO;
 	}
 
-	
+	/* Enable port 78h & 79h to access APC Registers. */
 	pci_read_config_byte(isa_bridge, 0x48, &tmp8);
 	reg = (tmp8 & ~0x02);
 	pci_write_config_byte(isa_bridge, 0x48, reg);
@@ -1609,13 +1659,20 @@ static int __devinit sis190_get_mac_addr_from_apc(struct pci_dev *pdev,
 
 	sis190_set_rgmii(tp, reg);
 
-	
+	/* Restore the value to ISA Bridge */
 	pci_write_config_byte(isa_bridge, 0x48, tmp8);
 	pci_dev_put(isa_bridge);
 
 	return 0;
 }
 
+/**
+ *      sis190_init_rxfilter - Initialize the Rx filter
+ *      @dev: network device to initialize
+ *
+ *      Set receive filter address to our MAC address
+ *      and enable packet filtering.
+ */
 static inline void sis190_init_rxfilter(struct net_device *dev)
 {
 	struct sis190_private *tp = netdev_priv(dev);
@@ -1624,6 +1681,11 @@ static inline void sis190_init_rxfilter(struct net_device *dev)
 	int i;
 
 	ctl = SIS_R16(RxMacControl);
+	/*
+	 * Disable packet filtering before setting filter.
+	 * Note: SiS's driver writes 32 bits but RxMacControl is 16 bits
+	 * only and followed by RxMacAddr (6 bytes). Strange. -- FR
+	 */
 	SIS_W16(RxMacControl, ctl & ~0x0f00);
 
 	for (i = 0; i < ETH_ALEN; i++)
@@ -1661,16 +1723,16 @@ static void sis190_set_speed_auto(struct net_device *dev)
 
 	val = mdio_read(ioaddr, phy_id, MII_ADVERTISE);
 
-	
-	
+	// Enable 10/100 Full/Half Mode, leave MII_ADVERTISE bit4:0
+	// unchanged.
 	mdio_write(ioaddr, phy_id, MII_ADVERTISE, (val & ADVERTISE_SLCT) |
 		   ADVERTISE_100FULL | ADVERTISE_10FULL |
 		   ADVERTISE_100HALF | ADVERTISE_10HALF);
 
-	
+	// Enable 1000 Full Mode.
 	mdio_write(ioaddr, phy_id, MII_CTRL1000, ADVERTISE_1000FULL);
 
-	
+	// Enable auto-negotiation and restart auto-negotiation.
 	mdio_write(ioaddr, phy_id, MII_BMCR,
 		   BMCR_ANENABLE | BMCR_ANRESTART | BMCR_RESET);
 }

@@ -24,6 +24,9 @@ perfmon_handler(struct task_struct *task, void *buf, pfm_ovfl_arg_t *arg,
  
 	arg->ovfl_ctrl.bits.reset_ovfl_pmds = 1;
 
+	/* the owner of the oprofile event buffer may have exited
+	 * without perfmon being shutdown (e.g. SIGSEGV)
+	 */
 	if (allow_ints)
 		oprofile_add_sample(regs, event);
 	return 0;
@@ -68,6 +71,7 @@ static char *get_cpu_type(void)
 }
 
 
+/* all the ops are handled via userspace for IA64 perfmon */
 
 static int using_perfmon;
 

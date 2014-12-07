@@ -62,4 +62,4 @@ void ui_browser__list_head_seek(struct ui_browser *self, off_t offset, int whenc
 unsigned int ui_browser__list_head_refresh(struct ui_browser *self);
 
 void ui_browser__init(void);
-#endif 
+#endif /* _PERF_UI_BROWSER_H_ */

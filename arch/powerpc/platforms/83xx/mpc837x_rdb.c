@@ -32,6 +32,10 @@ static void mpc837x_rdb_sd_cfg(void)
 		return;
 	}
 
+	/*
+	 * On RDB boards (in contrast to MDS) USBB pins are used for SD only,
+	 * so we can safely mux them away from the USB block.
+	 */
 	clrsetbits_be32(im + MPC83XX_SICRL_OFFS, MPC837X_SICRL_USBB_MASK,
 						 MPC837X_SICRL_SD);
 	clrsetbits_be32(im + MPC83XX_SICRH_OFFS, MPC837X_SICRH_SPI_MASK,
@@ -39,6 +43,11 @@ static void mpc837x_rdb_sd_cfg(void)
 	iounmap(im);
 }
 
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 static void __init mpc837x_rdb_setup_arch(void)
 {
 	if (ppc_md.progress)
@@ -59,6 +68,9 @@ static const char *board[] __initdata = {
 	NULL
 };
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc837x_rdb_probe(void)
 {
 	return of_flat_dt_match(of_get_flat_dt_root(), board);

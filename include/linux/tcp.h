@@ -56,6 +56,11 @@ struct tcphdr {
 	__be16	urg_ptr;
 };
 
+/*
+ *	The union cast uses a gcc extension to avoid aliasing problems
+ *  (union is compatible to any of its members)
+ *  This means this part of the code is -fstrict-aliasing safe now.
+ */
 union tcp_word_hdr { 
 	struct tcphdr hdr;
 	__be32 		  words[5];
@@ -76,33 +81,38 @@ enum {
 	TCP_DATA_OFFSET = __constant_htonl(0xF0000000)
 };
 
-#define TCP_MSS_DEFAULT		 536U	
-#define TCP_MSS_DESIRED		1220U	
+/*
+ * TCP general constants
+ */
+#define TCP_MSS_DEFAULT		 536U	/* IPv4 (RFC1122, RFC2581) */
+#define TCP_MSS_DESIRED		1220U	/* IPv6 (tunneled), EDNS0 (RFC3226) */
 
-#define TCP_NODELAY		1	
-#define TCP_MAXSEG		2	
-#define TCP_CORK		3	
-#define TCP_KEEPIDLE		4	
-#define TCP_KEEPINTVL		5	
-#define TCP_KEEPCNT		6	
-#define TCP_SYNCNT		7	
-#define TCP_LINGER2		8	
-#define TCP_DEFER_ACCEPT	9	
-#define TCP_WINDOW_CLAMP	10	
-#define TCP_INFO		11	
-#define TCP_QUICKACK		12	
-#define TCP_CONGESTION		13	
-#define TCP_MD5SIG		14	
-#define TCP_COOKIE_TRANSACTIONS	15	
-#define TCP_THIN_LINEAR_TIMEOUTS 16      
-#define TCP_THIN_DUPACK         17      
-#define TCP_USER_TIMEOUT	18	
+/* TCP socket options */
+#define TCP_NODELAY		1	/* Turn off Nagle's algorithm. */
+#define TCP_MAXSEG		2	/* Limit MSS */
+#define TCP_CORK		3	/* Never send partially complete segments */
+#define TCP_KEEPIDLE		4	/* Start keeplives after this period */
+#define TCP_KEEPINTVL		5	/* Interval between keepalives */
+#define TCP_KEEPCNT		6	/* Number of keepalives before death */
+#define TCP_SYNCNT		7	/* Number of SYN retransmits */
+#define TCP_LINGER2		8	/* Life time of orphaned FIN-WAIT-2 state */
+#define TCP_DEFER_ACCEPT	9	/* Wake up listener only when data arrive */
+#define TCP_WINDOW_CLAMP	10	/* Bound advertised window */
+#define TCP_INFO		11	/* Information about this connection. */
+#define TCP_QUICKACK		12	/* Block/reenable quick acks */
+#define TCP_CONGESTION		13	/* Congestion control algorithm */
+#define TCP_MD5SIG		14	/* TCP MD5 Signature (RFC2385) */
+#define TCP_COOKIE_TRANSACTIONS	15	/* TCP Cookie Transactions */
+#define TCP_THIN_LINEAR_TIMEOUTS 16      /* Use linear timeouts for thin streams*/
+#define TCP_THIN_DUPACK         17      /* Fast retrans. after 1 dupack */
+#define TCP_USER_TIMEOUT	18	/* How long for loss retry before timeout */
 
+/* for TCP_INFO socket option */
 #define TCPI_OPT_TIMESTAMPS	1
 #define TCPI_OPT_SACK		2
 #define TCPI_OPT_WSCALE		4
-#define TCPI_OPT_ECN		8 
-#define TCPI_OPT_ECN_SEEN	16 
+#define TCPI_OPT_ECN		8 /* ECN was negociated at TCP session init */
+#define TCPI_OPT_ECN_SEEN	16 /* we received at least one packet with ECT */
 
 enum tcp_ca_state {
 	TCP_CA_Open = 0,
@@ -138,13 +148,13 @@ struct tcp_info {
 	__u32	tcpi_retrans;
 	__u32	tcpi_fackets;
 
-	
+	/* Times. */
 	__u32	tcpi_last_data_sent;
-	__u32	tcpi_last_ack_sent;     
+	__u32	tcpi_last_ack_sent;     /* Not remembered, sorry. */
 	__u32	tcpi_last_data_recv;
 	__u32	tcpi_last_ack_recv;
 
-	
+	/* Metrics. */
 	__u32	tcpi_pmtu;
 	__u32	tcpi_rcv_ssthresh;
 	__u32	tcpi_rtt;
@@ -160,32 +170,38 @@ struct tcp_info {
 	__u32	tcpi_total_retrans;
 };
 
+/* for TCP_MD5SIG socket option */
 #define TCP_MD5SIG_MAXKEYLEN	80
 
 struct tcp_md5sig {
-	struct __kernel_sockaddr_storage tcpm_addr;	
-	__u16	__tcpm_pad1;				
-	__u16	tcpm_keylen;				
-	__u32	__tcpm_pad2;				
-	__u8	tcpm_key[TCP_MD5SIG_MAXKEYLEN];		
+	struct __kernel_sockaddr_storage tcpm_addr;	/* address associated */
+	__u16	__tcpm_pad1;				/* zero */
+	__u16	tcpm_keylen;				/* key length */
+	__u32	__tcpm_pad2;				/* zero */
+	__u8	tcpm_key[TCP_MD5SIG_MAXKEYLEN];		/* key (binary) */
 };
 
-#define TCP_COOKIE_MIN		 8		
-#define TCP_COOKIE_MAX		16		
+/* for TCP_COOKIE_TRANSACTIONS (TCPCT) socket option */
+#define TCP_COOKIE_MIN		 8		/*  64-bits */
+#define TCP_COOKIE_MAX		16		/* 128-bits */
 #define TCP_COOKIE_PAIR_SIZE	(2*TCP_COOKIE_MAX)
 
-#define TCP_COOKIE_IN_ALWAYS	(1 << 0)	
-#define TCP_COOKIE_OUT_NEVER	(1 << 1)	
+/* Flags for both getsockopt and setsockopt */
+#define TCP_COOKIE_IN_ALWAYS	(1 << 0)	/* Discard SYN without cookie */
+#define TCP_COOKIE_OUT_NEVER	(1 << 1)	/* Prohibit outgoing cookies,
+						 * supercedes everything. */
 
-#define TCP_S_DATA_IN		(1 << 2)	
-#define TCP_S_DATA_OUT		(1 << 3)	
+/* Flags for getsockopt */
+#define TCP_S_DATA_IN		(1 << 2)	/* Was data received? */
+#define TCP_S_DATA_OUT		(1 << 3)	/* Was data sent? */
 
+/* TCP_COOKIE_TRANSACTIONS data */
 struct tcp_cookie_transactions {
-	__u16	tcpct_flags;			
-	__u8	__tcpct_pad1;			
-	__u8	tcpct_cookie_desired;		
-	__u16	tcpct_s_data_desired;		
-	__u16	tcpct_used;			
+	__u16	tcpct_flags;			/* see above */
+	__u8	__tcpct_pad1;			/* zero */
+	__u8	tcpct_cookie_desired;		/* bytes */
+	__u16	tcpct_s_data_desired;		/* bytes of variable data */
+	__u16	tcpct_used;			/* bytes in value */
 	__u8	tcpct_value[TCP_MSS_DEFAULT];
 };
 
@@ -212,6 +228,7 @@ static inline unsigned int tcp_optlen(const struct sk_buff *skb)
 	return (tcp_hdr(skb)->doff - 5) * 4;
 }
 
+/* This defines a selective acknowledgement block. */
 struct tcp_sack_block_wire {
 	__be32	start_seq;
 	__be32	end_seq;
@@ -222,28 +239,30 @@ struct tcp_sack_block {
 	u32	end_seq;
 };
 
-#define TCP_SACK_SEEN     (1 << 0)   
-#define TCP_FACK_ENABLED  (1 << 1)   
-#define TCP_DSACK_SEEN    (1 << 2)   
+/*These are used to set the sack_ok field in struct tcp_options_received */
+#define TCP_SACK_SEEN     (1 << 0)   /*1 = peer is SACK capable, */
+#define TCP_FACK_ENABLED  (1 << 1)   /*1 = FACK is enabled locally*/
+#define TCP_DSACK_SEEN    (1 << 2)   /*1 = DSACK was received from peer*/
 
 struct tcp_options_received {
-	long	ts_recent_stamp;
-	u32	ts_recent;	
-	u32	rcv_tsval;	
-	u32	rcv_tsecr;	
-	u16 	saw_tstamp : 1,	
-		tstamp_ok : 1,	
-		dsack : 1,	
-		wscale_ok : 1,	
-		sack_ok : 4,	
-		snd_wscale : 4,	
-		rcv_wscale : 4;	
-	u8	cookie_plus:6,	
+/*	PAWS/RTTM data	*/
+	long	ts_recent_stamp;/* Time we stored ts_recent (for aging) */
+	u32	ts_recent;	/* Time stamp to echo next		*/
+	u32	rcv_tsval;	/* Time stamp value             	*/
+	u32	rcv_tsecr;	/* Time stamp echo reply        	*/
+	u16 	saw_tstamp : 1,	/* Saw TIMESTAMP on last packet		*/
+		tstamp_ok : 1,	/* TIMESTAMP seen on SYN packet		*/
+		dsack : 1,	/* D-SACK is scheduled			*/
+		wscale_ok : 1,	/* Wscale seen on SYN packet		*/
+		sack_ok : 4,	/* SACK seen on SYN packet		*/
+		snd_wscale : 4,	/* Window scaling received from sender	*/
+		rcv_wscale : 4;	/* Window scaling to send to receiver	*/
+	u8	cookie_plus:6,	/* bytes in authenticator/cookie option	*/
 		cookie_out_never:1,
 		cookie_in_always:1;
-	u8	num_sacks;	
-	u16	user_mss;	
-	u16	mss_clamp;	
+	u8	num_sacks;	/* Number of SACK blocks		*/
+	u16	user_mss;	/* mss requested by user in ioctl	*/
+	u16	mss_clamp;	/* Maximal mss, negotiated at connection setup */
 };
 
 static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
@@ -253,6 +272,10 @@ static inline void tcp_clear_options(struct tcp_options_received *rx_opt)
 	rx_opt->cookie_plus = 0;
 }
 
+/* This is the max number of SACKS that we'll generate and process. It's safe
+ * to increase this, although since:
+ *   size = TCPOLEN_SACK_BASE_ALIGNED (4) + n * TCPOLEN_SACK_PERBLOCK (8)
+ * only four options will fit in a standard TCP header */
 #define TCP_NUM_SACKS 4
 
 struct tcp_cookie_values;
@@ -261,12 +284,12 @@ struct tcp_request_sock_ops;
 struct tcp_request_sock {
 	struct inet_request_sock 	req;
 #ifdef CONFIG_TCP_MD5SIG
-	
+	/* Only used by TCP MD5 Signature so far. */
 	const struct tcp_request_sock_ops *af_specific;
 #endif
 	u32				rcv_isn;
 	u32				snt_isn;
-	u32				snt_synack; 
+	u32				snt_synack; /* synack sent time */
 };
 
 static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
@@ -275,24 +298,33 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 }
 
 struct tcp_sock {
-	
+	/* inet_connection_sock has to be the first member of tcp_sock */
 	struct inet_connection_sock	inet_conn;
-	u16	tcp_header_len;	
-	u16	xmit_size_goal_segs; 
+	u16	tcp_header_len;	/* Bytes of tcp header to send		*/
+	u16	xmit_size_goal_segs; /* Goal for segmenting output packets */
 
+/*
+ *	Header prediction flags
+ *	0x5?10 << 16 + snd_wnd in net byte order
+ */
 	__be32	pred_flags;
 
- 	u32	rcv_nxt;	
-	u32	copied_seq;	
-	u32	rcv_wup;	
- 	u32	snd_nxt;	
+/*
+ *	RFC793 variables by their proper names. This means you can
+ *	read the code and the spec side by side (and laugh ...)
+ *	See RFC793 and RFC1122. The RFC writes these in capitals.
+ */
+ 	u32	rcv_nxt;	/* What we want to receive next 	*/
+	u32	copied_seq;	/* Head of yet unread data		*/
+	u32	rcv_wup;	/* rcv_nxt on last window update sent	*/
+ 	u32	snd_nxt;	/* Next sequence we send		*/
 
- 	u32	snd_una;	
- 	u32	snd_sml;	
-	u32	rcv_tstamp;	
-	u32	lsndtime;	
+ 	u32	snd_una;	/* First byte we want an ack for	*/
+ 	u32	snd_sml;	/* Last byte of the most recently transmitted small packet */
+	u32	rcv_tstamp;	/* timestamp of last received ACK (for keepalives) */
+	u32	lsndtime;	/* timestamp of last sent data packet (for restart window) */
 
-	
+	/* Data for direct copy to user */
 	struct {
 		struct sk_buff_head	prequeue;
 		struct task_struct	*task;
@@ -300,7 +332,7 @@ struct tcp_sock {
 		int			memory;
 		int			len;
 #ifdef CONFIG_NET_DMA
-		
+		/* members for async copy */
 		struct dma_chan		*dma_chan;
 		int			wakeup;
 		struct dma_pinned_list	*pinned_list;
@@ -308,115 +340,138 @@ struct tcp_sock {
 #endif
 	} ucopy;
 
-	u32	snd_wl1;	
-	u32	snd_wnd;	
-	u32	max_window;	
-	u32	mss_cache;	
+	u32	snd_wl1;	/* Sequence for window update		*/
+	u32	snd_wnd;	/* The window we expect to receive	*/
+	u32	max_window;	/* Maximal window ever seen from peer	*/
+	u32	mss_cache;	/* Cached effective mss, not including SACKS */
 
-	u32	window_clamp;	
-	u32	rcv_ssthresh;	
+	u32	window_clamp;	/* Maximal window to advertise		*/
+	u32	rcv_ssthresh;	/* Current window clamp			*/
 
-	u32	frto_highmark;	
-	u16	advmss;		
-	u8	frto_counter;	
-	u8	nonagle     : 4,
-		thin_lto    : 1,
-		thin_dupack : 1,
+	u32	frto_highmark;	/* snd_nxt when RTO occurred */
+	u16	advmss;		/* Advertised MSS			*/
+	u8	frto_counter;	/* Number of new acks after RTO */
+	u8	nonagle     : 4,/* Disable Nagle algorithm?             */
+		thin_lto    : 1,/* Use linear timeouts for thin streams */
+		thin_dupack : 1,/* Fast retransmit on first dupack      */
 		unused      : 2;
 
-	u32	srtt;		
-	u32	mdev;		
-	u32	mdev_max;	
-	u32	rttvar;		
-	u32	rtt_seq;	
+/* RTT measurement */
+	u32	srtt;		/* smoothed round trip time << 3	*/
+	u32	mdev;		/* medium deviation			*/
+	u32	mdev_max;	/* maximal mdev for the last rtt period	*/
+	u32	rttvar;		/* smoothed mdev_max			*/
+	u32	rtt_seq;	/* sequence number to update rttvar	*/
 
-	u32	packets_out;	
-	u32	retrans_out;	
+	u32	packets_out;	/* Packets which are "in flight"	*/
+	u32	retrans_out;	/* Retransmitted packets out		*/
 
-	u16	urg_data;	
-	u8	ecn_flags;	
-	u8	reordering;	
-	u32	snd_up;		
+	u16	urg_data;	/* Saved octet of OOB data and control flags */
+	u8	ecn_flags;	/* ECN status bits.			*/
+	u8	reordering;	/* Packet reordering metric.		*/
+	u32	snd_up;		/* Urgent pointer		*/
 
-	u8	keepalive_probes; 
+	u8	keepalive_probes; /* num of allowed keep alive probes	*/
+/*
+ *      Options received (usually on last packet, some only on SYN packets).
+ */
 	struct tcp_options_received rx_opt;
 
- 	u32	snd_ssthresh;	
- 	u32	snd_cwnd;	
-	u32	snd_cwnd_cnt;	
-	u32	snd_cwnd_clamp; 
+/*
+ *	Slow start and congestion control (see also Nagle, and Karn & Partridge)
+ */
+ 	u32	snd_ssthresh;	/* Slow start size threshold		*/
+ 	u32	snd_cwnd;	/* Sending congestion window		*/
+	u32	snd_cwnd_cnt;	/* Linear increase counter		*/
+	u32	snd_cwnd_clamp; /* Do not allow snd_cwnd to grow above this */
 	u32	snd_cwnd_used;
 	u32	snd_cwnd_stamp;
-	u32	prior_cwnd;	
-	u32	prr_delivered;	
-	u32	prr_out;	
+	u32	prior_cwnd;	/* Congestion window at start of Recovery. */
+	u32	prr_delivered;	/* Number of newly delivered packets to
+				 * receiver in Recovery. */
+	u32	prr_out;	/* Total number of pkts sent during Recovery. */
 
- 	u32	rcv_wnd;	
-	u32	write_seq;	
-	u32	pushed_seq;	
-	u32	lost_out;	
-	u32	sacked_out;	
-	u32	fackets_out;	
+ 	u32	rcv_wnd;	/* Current receiver window		*/
+	u32	write_seq;	/* Tail(+1) of data held in tcp send buffer */
+	u32	pushed_seq;	/* Last pushed seq, required to talk to windows */
+	u32	lost_out;	/* Lost packets			*/
+	u32	sacked_out;	/* SACK'd packets			*/
+	u32	fackets_out;	/* FACK'd packets			*/
 	u32	tso_deferred;
-	u32	bytes_acked;	
+	u32	bytes_acked;	/* Appropriate Byte Counting - RFC3465 */
 
-	
+	/* from STCP, retrans queue hinting */
 	struct sk_buff* lost_skb_hint;
 	struct sk_buff *scoreboard_skb_hint;
 	struct sk_buff *retransmit_skb_hint;
 
-	struct sk_buff_head	out_of_order_queue; 
+	struct sk_buff_head	out_of_order_queue; /* Out of order segments go here */
 
-	
-	struct tcp_sack_block duplicate_sack[1]; 
-	struct tcp_sack_block selective_acks[4]; 
+	/* SACKs data, these 2 need to be together (see tcp_build_and_update_options) */
+	struct tcp_sack_block duplicate_sack[1]; /* D-SACK block */
+	struct tcp_sack_block selective_acks[4]; /* The SACKS themselves*/
 
 	struct tcp_sack_block recv_sack_cache[4];
 
-	struct sk_buff *highest_sack;   
+	struct sk_buff *highest_sack;   /* skb just after the highest
+					 * skb with SACKed bit set
+					 * (validity guaranteed only if
+					 * sacked_out > 0)
+					 */
 
 	int     lost_cnt_hint;
-	u32     retransmit_high;	
+	u32     retransmit_high;	/* L-bits may be on up to this seqno */
 
-	u32	lost_retrans_low;	
+	u32	lost_retrans_low;	/* Sent seq after any rxmit (lowest) */
 
-	u32	prior_ssthresh; 
-	u32	high_seq;	
+	u32	prior_ssthresh; /* ssthresh saved at recovery start	*/
+	u32	high_seq;	/* snd_nxt at onset of congestion	*/
 
-	u32	retrans_stamp;	
-	u32	undo_marker;	
-	int	undo_retrans;	
-	u32	total_retrans;	
+	u32	retrans_stamp;	/* Timestamp of the last retransmit,
+				 * also used in SYN-SENT to remember stamp of
+				 * the first SYN. */
+	u32	undo_marker;	/* tracking retrans started here. */
+	int	undo_retrans;	/* number of undoable retransmissions. */
+	u32	total_retrans;	/* Total retransmits for entire connection */
 
-	u32	urg_seq;	
-	unsigned int		keepalive_time;	  
-	unsigned int		keepalive_intvl;  
+	u32	urg_seq;	/* Seq of received urgent pointer */
+	unsigned int		keepalive_time;	  /* time before keep alive takes place */
+	unsigned int		keepalive_intvl;  /* time interval between keep alive probes */
 
 	int			linger2;
 
+/* Receiver side RTT estimation */
 	struct {
 		u32	rtt;
 		u32	seq;
 		u32	time;
 	} rcv_rtt_est;
 
+/* Receiver queue space */
 	struct {
 		int	space;
 		u32	seq;
 		u32	time;
 	} rcvq_space;
 
+/* TCP-specific MTU probe information. */
 	struct {
 		u32		  probe_seq_start;
 		u32		  probe_seq_end;
 	} mtu_probe;
 
 #ifdef CONFIG_TCP_MD5SIG
+/* TCP AF-Specific parts; only used by MD5 Signature support so far */
 	const struct tcp_sock_af_ops	*af_specific;
 
+/* TCP MD5 Signature Option information */
 	struct tcp_md5sig_info	__rcu *md5sig_info;
 #endif
 
+	/* When the cookie options are generated and exchanged, then this
+	 * object holds a reference to them (cookie_values->kref).  Also
+	 * contains related tcp_cookie_transactions fields.
+	 */
 	struct tcp_cookie_values  *cookie_values;
 };
 
@@ -435,6 +490,9 @@ struct tcp_timewait_sock {
 #ifdef CONFIG_TCP_MD5SIG
 	struct tcp_md5sig_key	*tw_md5_key;
 #endif
+	/* Few sockets in timewait have cookies; in that case, then this
+	 * object holds a reference to them (tw_cookie_values->kref).
+	 */
 	struct tcp_cookie_values  *tw_cookie_values;
 };
 
@@ -443,6 +501,6 @@ static inline struct tcp_timewait_sock *tcp_twsk(const struct sock *sk)
 	return (struct tcp_timewait_sock *)sk;
 }
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* _LINUX_TCP_H */

@@ -35,6 +35,7 @@
 #include <linux/usb/gadget.h>
 #include <linux/power/isp1704_charger.h>
 
+/* Vendor specific Power Control register */
 #define ISP1704_PWR_CTRL		0x3d
 #define ISP1704_PWR_CTRL_SWCTRL		(1 << 0)
 #define ISP1704_PWR_CTRL_DET_COMP	(1 << 1)
@@ -59,13 +60,13 @@ struct isp1704_charger {
 	struct notifier_block	nb;
 	struct work_struct	work;
 
-	
+	/* properties */
 	char			model[8];
 	unsigned		present:1;
 	unsigned		online:1;
 	unsigned		current_max;
 
-	
+	/* temp storage variables */
 	unsigned long		event;
 	unsigned		max_power;
 };
@@ -80,6 +81,10 @@ static inline int isp1704_write(struct isp1704_charger *isp, u32 val, u32 reg)
 	return usb_phy_io_write(isp->phy, val, reg);
 }
 
+/*
+ * Disable/enable the power from the isp1704 if a function for it
+ * has been provided with platform data.
+ */
 static void isp1704_charger_set_power(struct isp1704_charger *isp, bool on)
 {
 	struct isp1704_charger_data	*board = isp->dev->platform_data;
@@ -88,6 +93,13 @@ static void isp1704_charger_set_power(struct isp1704_charger *isp, bool on)
 		board->set_power(on);
 }
 
+/*
+ * Determine is the charging port DCP (dedicated charger) or CDP (Host/HUB
+ * chargers).
+ *
+ * REVISIT: The method is defined in Battery Charging Specification and is
+ * applicable to any ULPI transceiver. Nothing isp170x specific here.
+ */
 static inline int isp1704_charger_type(struct isp1704_charger *isp)
 {
 	u8 reg;
@@ -98,17 +110,17 @@ static inline int isp1704_charger_type(struct isp1704_charger *isp)
 	func_ctrl = isp1704_read(isp, ULPI_FUNC_CTRL);
 	otg_ctrl = isp1704_read(isp, ULPI_OTG_CTRL);
 
-	
+	/* disable pulldowns */
 	reg = ULPI_OTG_CTRL_DM_PULLDOWN | ULPI_OTG_CTRL_DP_PULLDOWN;
 	isp1704_write(isp, ULPI_CLR(ULPI_OTG_CTRL), reg);
 
-	
+	/* full speed */
 	isp1704_write(isp, ULPI_CLR(ULPI_FUNC_CTRL),
 			ULPI_FUNC_CTRL_XCVRSEL_MASK);
 	isp1704_write(isp, ULPI_SET(ULPI_FUNC_CTRL),
 			ULPI_FUNC_CTRL_FULL_SPEED);
 
-	
+	/* Enable strong pull-up on DP (1.5K) and reset */
 	reg = ULPI_FUNC_CTRL_TERMSELECT | ULPI_FUNC_CTRL_RESET;
 	isp1704_write(isp, ULPI_SET(ULPI_FUNC_CTRL), reg);
 	usleep_range(1000, 2000);
@@ -117,64 +129,68 @@ static inline int isp1704_charger_type(struct isp1704_charger *isp)
 	if ((reg & 3) != 3)
 		type = POWER_SUPPLY_TYPE_USB_CDP;
 
-	
+	/* recover original state */
 	isp1704_write(isp, ULPI_FUNC_CTRL, func_ctrl);
 	isp1704_write(isp, ULPI_OTG_CTRL, otg_ctrl);
 
 	return type;
 }
 
+/*
+ * ISP1704 detects PS/2 adapters as charger. To make sure the detected charger
+ * is actually a dedicated charger, the following steps need to be taken.
+ */
 static inline int isp1704_charger_verify(struct isp1704_charger *isp)
 {
 	int	ret = 0;
 	u8	r;
 
-	
+	/* Reset the transceiver */
 	r = isp1704_read(isp, ULPI_FUNC_CTRL);
 	r |= ULPI_FUNC_CTRL_RESET;
 	isp1704_write(isp, ULPI_FUNC_CTRL, r);
 	usleep_range(1000, 2000);
 
-	
+	/* Set normal mode */
 	r &= ~(ULPI_FUNC_CTRL_RESET | ULPI_FUNC_CTRL_OPMODE_MASK);
 	isp1704_write(isp, ULPI_FUNC_CTRL, r);
 
-	
+	/* Clear the DP and DM pull-down bits */
 	r = ULPI_OTG_CTRL_DP_PULLDOWN | ULPI_OTG_CTRL_DM_PULLDOWN;
 	isp1704_write(isp, ULPI_CLR(ULPI_OTG_CTRL), r);
 
-	
+	/* Enable strong pull-up on DP (1.5K) and reset */
 	r = ULPI_FUNC_CTRL_TERMSELECT | ULPI_FUNC_CTRL_RESET;
 	isp1704_write(isp, ULPI_SET(ULPI_FUNC_CTRL), r);
 	usleep_range(1000, 2000);
 
-	
+	/* Read the line state */
 	if (!isp1704_read(isp, ULPI_DEBUG)) {
-		
+		/* Disable strong pull-up on DP (1.5K) */
 		isp1704_write(isp, ULPI_CLR(ULPI_FUNC_CTRL),
 				ULPI_FUNC_CTRL_TERMSELECT);
 		return 1;
 	}
 
-	
+	/* Is it a charger or PS/2 connection */
 
-	
+	/* Enable weak pull-up resistor on DP */
 	isp1704_write(isp, ULPI_SET(ISP1704_PWR_CTRL),
 			ISP1704_PWR_CTRL_DP_WKPU_EN);
 
-	
+	/* Disable strong pull-up on DP (1.5K) */
 	isp1704_write(isp, ULPI_CLR(ULPI_FUNC_CTRL),
 			ULPI_FUNC_CTRL_TERMSELECT);
 
-	
+	/* Enable weak pull-down resistor on DM */
 	isp1704_write(isp, ULPI_SET(ULPI_OTG_CTRL),
 			ULPI_OTG_CTRL_DM_PULLDOWN);
 
-	
+	/* It's a charger if the line states are clear */
 	if (!(isp1704_read(isp, ULPI_DEBUG)))
 		ret = 1;
 
-	
+	/* Disable weak pull-up resistor on DP */
 	isp1704_write(isp, ULPI_CLR(ISP1704_PWR_CTRL),
 			ISP1704_PWR_CTRL_DP_WKPU_EN);
 
@@ -189,11 +205,11 @@ static inline int isp1704_charger_detect(struct isp1704_charger *isp)
 
 	pwr_ctrl = isp1704_read(isp, ISP1704_PWR_CTRL);
 
-	
+	/* set SW control bit in PWR_CTRL register */
 	isp1704_write(isp, ISP1704_PWR_CTRL,
 			ISP1704_PWR_CTRL_SWCTRL);
 
-	
+	/* enable manual charger detection */
 	isp1704_write(isp, ULPI_SET(ISP1704_PWR_CTRL),
 			ISP1704_PWR_CTRL_SWCTRL
 			| ISP1704_PWR_CTRL_DPVSRC_EN);
@@ -201,7 +217,7 @@ static inline int isp1704_charger_detect(struct isp1704_charger *isp)
 
 	timeout = jiffies + msecs_to_jiffies(300);
 	do {
-		
+		/* Check if there is a charger */
 		if (isp1704_read(isp, ISP1704_PWR_CTRL)
 				& ISP1704_PWR_CTRL_VDAT_DET) {
 			ret = isp1704_charger_verify(isp);
@@ -209,7 +225,7 @@ static inline int isp1704_charger_detect(struct isp1704_charger *isp)
 		}
 	} while (!time_after(jiffies, timeout) && isp->online);
 
-	
+	/* recover original state */
 	isp1704_write(isp, ISP1704_PWR_CTRL, pwr_ctrl);
 
 	return ret;
@@ -236,7 +252,7 @@ static void isp1704_charger_work(struct work_struct *data)
 	case USB_EVENT_VBUS:
 		isp->online = true;
 
-		
+		/* detect charger */
 		detect = isp1704_charger_detect(isp);
 
 		if (detect) {
@@ -249,11 +265,15 @@ static void isp1704_charger_work(struct work_struct *data)
 			isp->current_max = 1800;
 			break;
 		case POWER_SUPPLY_TYPE_USB_CDP:
+			/*
+			 * Only 500mA here or high speed chirp
+			 * handshaking may break
+			 */
 			isp->current_max = 500;
-			
+			/* FALLTHROUGH */
 		case POWER_SUPPLY_TYPE_USB:
 		default:
-			
+			/* enable data pullups */
 			if (isp->phy->otg->gadget)
 				usb_gadget_connect(isp->phy->otg->gadget);
 		}
@@ -265,6 +285,14 @@ static void isp1704_charger_work(struct work_struct *data)
 		isp->current_max = 0;
 		isp->psy.type = POWER_SUPPLY_TYPE_USB;
 
+		/*
+		 * Disable data pullups. We need to prevent the controller from
+		 * enumerating.
+		 *
+		 * FIXME: This is here to allow charger detection with Host/HUB
+		 * chargers. The pullups may be enabled elsewhere, so this can
+		 * not be the final solution.
+		 */
 		if (isp->phy->otg->gadget)
 			usb_gadget_disconnect(isp->phy->otg->gadget);
 
@@ -345,7 +373,7 @@ static inline int isp1704_test_ulpi(struct isp1704_charger *isp)
 	int i;
 	int ret = -ENODEV;
 
-	
+	/* Test ULPI interface */
 	ret = isp1704_write(isp, ULPI_SCRATCH, 0xaa);
 	if (ret < 0)
 		return ret;
@@ -357,7 +385,7 @@ static inline int isp1704_test_ulpi(struct isp1704_charger *isp)
 	if (ret != 0xaa)
 		return -ENODEV;
 
-	
+	/* Verify the product and vendor id matches */
 	vendor = isp1704_read(isp, ULPI_VENDOR_ID_LOW);
 	vendor |= isp1704_read(isp, ULPI_VENDOR_ID_HIGH) << 8;
 	if (vendor != NXP_VENDOR_ID)
@@ -410,6 +438,10 @@ static int __devinit isp1704_charger_probe(struct platform_device *pdev)
 	if (ret)
 		goto fail1;
 
+	/*
+	 * REVISIT: using work in order to allow the usb notifications to be
+	 * made atomically in the future.
+	 */
 	INIT_WORK(&isp->work, isp1704_charger_work);
 
 	isp->nb.notifier_call = isp1704_notifier_call;
@@ -420,10 +452,17 @@ static int __devinit isp1704_charger_probe(struct platform_device *pdev)
 
 	dev_info(isp->dev, "registered with product id %s\n", isp->model);
 
+	/*
+	 * Taking over the D+ pullup.
+	 *
+	 * FIXME: The device will be disconnected if it was already
+	 * enumerated. The charger driver should be always loaded before any
+	 * gadget is loaded.
+	 */
 	if (isp->phy->otg->gadget)
 		usb_gadget_disconnect(isp->phy->otg->gadget);
 
-	
+	/* Detect charger if VBUS is valid (the cable was already plugged). */
 	ret = isp1704_read(isp, ULPI_USB_INT_STS);
 	isp1704_charger_set_power(isp, 0);
 	if ((ret & ULPI_INT_VBUS_VALID) && !isp->phy->otg->default_a) {

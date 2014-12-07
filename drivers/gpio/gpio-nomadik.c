@@ -31,6 +31,13 @@
 #include <mach/hardware.h>
 #include <asm/gpio.h>
 
+/*
+ * The GPIO module in the Nomadik family of Systems-on-Chip is an
+ * AMBA device, managing 32 pins and alternate functions.  The logic block
+ * is currently used in the Nomadik and ux500.
+ *
+ * Symbols in this file are called "nmk_gpio" for "nomadik gpio"
+ */
 
 #define NMK_GPIO_PER_CHIP	32
 
@@ -45,7 +52,7 @@ struct nmk_gpio_chip {
 	void (*set_ioforce)(bool enable);
 	spinlock_t lock;
 	bool sleepmode;
-	
+	/* Keep track of configured edges */
 	u32 edge_rising;
 	u32 edge_falling;
 	u32 real_wake;
@@ -149,7 +156,7 @@ static void __nmk_gpio_set_mode_safe(struct nmk_gpio_chip *nmk_chip,
 	if (glitch && nmk_chip->set_ioforce) {
 		u32 bit = BIT(offset);
 
-		
+		/* Prevent spurious wakeups */
 		writel(rwimsc & ~bit, nmk_chip->addr + NMK_GPIO_RWIMSC);
 		writel(fwimsc & ~bit, nmk_chip->addr + NMK_GPIO_FWIMSC);
 
@@ -179,7 +186,7 @@ static void __nmk_config_pin(struct nmk_gpio_chip *nmk_chip, unsigned offset,
 		[NMK_GPIO_PULL_NONE]	= "none",
 		[NMK_GPIO_PULL_UP]	= "up",
 		[NMK_GPIO_PULL_DOWN]	= "down",
-		[3] 	= "??"
+		[3] /* illegal */	= "??"
 	};
 	static const char *slpmnames[] = {
 		[NMK_GPIO_SLPM_INPUT]		= "input/wakeup",
@@ -206,6 +213,10 @@ static void __nmk_config_pin(struct nmk_gpio_chip *nmk_chip, unsigned offset,
 
 		af = NMK_GPIO_ALT_GPIO;
 
+		/*
+		 * The SLPM_* values are normal values + 1 to allow zero to
+		 * mean "same as normal".
+		 */
 		if (slpm_pull)
 			pull = slpm_pull - 1;
 		if (slpm_output)
@@ -227,6 +238,10 @@ static void __nmk_config_pin(struct nmk_gpio_chip *nmk_chip, unsigned offset,
 		__nmk_gpio_set_pull(nmk_chip, offset, pull);
 	}
 
+	/*
+	 * If we've backed up the SLPM registers (glitch workaround), modify
+	 * the backups since they will be restored.
+	 */
 	if (slpmregs) {
 		if (slpm == NMK_GPIO_SLPM_NOCHANGE)
 			slpmregs[nmk_chip->bank] |= BIT(offset);
@@ -238,6 +253,18 @@ static void __nmk_config_pin(struct nmk_gpio_chip *nmk_chip, unsigned offset,
 	__nmk_gpio_set_mode_safe(nmk_chip, offset, af, glitch);
 }
 
+/*
+ * Safe sequence used to switch IOs between GPIO and Alternate-C mode:
+ *  - Save SLPM registers
+ *  - Set SLPM=0 for the IOs you want to switch and others to 1
+ *  - Configure the GPIO registers for the IOs that are being switched
+ *  - Set IOFORCE=1
+ *  - Modify the AFLSA/B registers for the IOs that are being switched
+ *  - Set IOFORCE=0
+ *  - Restore SLPM registers
+ *  - Any spurious wake up event during switch sequence to be ignored and
+ *    cleared
+ */
 static void nmk_gpio_glitch_slpm_init(unsigned int *slpm)
 {
 	int i;
@@ -329,12 +356,34 @@ static int __nmk_config_pins(pin_cfg_t *cfgs, int num, bool sleep)
 	return ret;
 }
 
+/**
+ * nmk_config_pin - configure a pin's mux attributes
+ * @cfg: pin confguration
+ *
+ * Configures a pin's mode (alternate function or GPIO), its pull up status,
+ * and its sleep mode based on the specified configuration.  The @cfg is
+ * usually one of the SoC specific macros defined in mach/<soc>-pins.h.  These
+ * are constructed using, and can be further enhanced with, the macros in
+ * plat/pincfg.h.
+ *
+ * If a pin's mode is set to GPIO, it is configured as an input to avoid
+ * side-effects.  The gpio can be manipulated later using standard GPIO API
+ * calls.
+ */
 int nmk_config_pin(pin_cfg_t cfg, bool sleep)
 {
 	return __nmk_config_pins(&cfg, 1, sleep);
 }
 EXPORT_SYMBOL(nmk_config_pin);
 
+/**
+ * nmk_config_pins - configure several pins at once
+ * @cfgs: array of pin configurations
+ * @num: number of elments in the array
+ *
+ * Configures several pins using nmk_config_pin().  Refer to that function for
+ * further information.
+ */
 int nmk_config_pins(pin_cfg_t *cfgs, int num)
 {
 	return __nmk_config_pins(cfgs, num, false);
@@ -347,6 +396,31 @@ int nmk_config_pins_sleep(pin_cfg_t *cfgs, int num)
 }
 EXPORT_SYMBOL(nmk_config_pins_sleep);
 
+/**
+ * nmk_gpio_set_slpm() - configure the sleep mode of a pin
+ * @gpio: pin number
+ * @mode: NMK_GPIO_SLPM_INPUT or NMK_GPIO_SLPM_NOCHANGE,
+ *
+ * This register is actually in the pinmux layer, not the GPIO block itself.
+ * The GPIO1B_SLPM register defines the GPIO mode when SLEEP/DEEP-SLEEP
+ * mode is entered (i.e. when signal IOFORCE is HIGH by the platform code).
+ * Each GPIO can be configured to be forced into GPIO mode when IOFORCE is
+ * HIGH, overriding the normal setting defined by GPIO_AFSELx registers.
+ * When IOFORCE returns LOW (by software, after SLEEP/DEEP-SLEEP exit),
+ * the GPIOs return to the normal setting defined by GPIO_AFSELx registers.
+ *
+ * If @mode is NMK_GPIO_SLPM_INPUT, the corresponding GPIO is switched to GPIO
+ * mode when signal IOFORCE is HIGH (i.e. when SLEEP/DEEP-SLEEP mode is
+ * entered) regardless of the altfunction selected. Also wake-up detection is
+ * ENABLED.
+ *
+ * If @mode is NMK_GPIO_SLPM_NOCHANGE, the corresponding GPIO remains
+ * controlled by NMK_GPIO_DATC, NMK_GPIO_DATS, NMK_GPIO_DIR, NMK_GPIO_PDIS
+ * (for altfunction GPIO) or respective on-chip peripherals (for other
+ * altfuncs) when IOFORCE is HIGH. Also wake-up detection DISABLED.
+ *
+ * Note that enable_irq_wake() will automatically enable wakeup detection.
+ */
 int nmk_gpio_set_slpm(int gpio, enum nmk_gpio_slpm mode)
 {
 	struct nmk_gpio_chip *nmk_chip;
@@ -369,6 +443,19 @@ int nmk_gpio_set_slpm(int gpio, enum nmk_gpio_slpm mode)
 	return 0;
 }
 
+/**
+ * nmk_gpio_set_pull() - enable/disable pull up/down on a gpio
+ * @gpio: pin number
+ * @pull: one of NMK_GPIO_PULL_DOWN, NMK_GPIO_PULL_UP, and NMK_GPIO_PULL_NONE
+ *
+ * Enables/disables pull up/down on a specified pin.  This only takes effect if
+ * the pin is configured as an input (either explicitly or by the alternate
+ * function).
+ *
+ * NOTE: If enabling the pull up/down, the caller must ensure that the GPIO is
+ * configured as an input.  Otherwise, due to the way the controller registers
+ * work, this function will change the value output on the pin.
+ */
 int nmk_gpio_set_pull(int gpio, enum nmk_gpio_pull pull)
 {
 	struct nmk_gpio_chip *nmk_chip;
@@ -387,6 +474,16 @@ int nmk_gpio_set_pull(int gpio, enum nmk_gpio_pull pull)
 	return 0;
 }
 
+/* Mode functions */
+/**
+ * nmk_gpio_set_mode() - set the mux mode of a gpio pin
+ * @gpio: pin number
+ * @gpio_mode: one of NMK_GPIO_ALT_GPIO, NMK_GPIO_ALT_A,
+ *	       NMK_GPIO_ALT_B, and NMK_GPIO_ALT_C
+ *
+ * Sets the mode of the specified pin to one of the alternate functions or
+ * plain GPIO.
+ */
 int nmk_gpio_set_mode(int gpio, int gpio_mode)
 {
 	struct nmk_gpio_chip *nmk_chip;
@@ -429,6 +526,7 @@ int nmk_gpio_get_mode(int gpio)
 EXPORT_SYMBOL(nmk_gpio_get_mode);
 
 
+/* IRQ functions */
 static inline int nmk_gpio_get_bitmask(int gpio)
 {
 	return 1 << (gpio % 32);
@@ -463,7 +561,7 @@ static void __nmk_gpio_irq_modify(struct nmk_gpio_chip *nmk_chip,
 	u32 bitmask = nmk_gpio_get_bitmask(gpio);
 	u32 reg;
 
-	
+	/* we must individually set/clear the two edges */
 	if (nmk_chip->edge_rising & bitmask) {
 		reg = readl(nmk_chip->addr + rimsc);
 		if (enable)
@@ -710,6 +808,7 @@ static int nmk_gpio_init_irq(struct nmk_gpio_chip *nmk_chip)
 	return 0;
 }
 
+/* I/O Functions */
 static int nmk_gpio_make_input(struct gpio_chip *chip, unsigned offset)
 {
 	struct nmk_gpio_chip *nmk_chip =
@@ -818,6 +917,9 @@ static void nmk_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 			int		irq = gpio_to_irq(gpio);
 			struct irq_desc	*desc = irq_to_desc(irq);
 
+			/* This races with request_irq(), set_irq_type(),
+			 * and set_irq_wake() ... but those are "rare".
+			 */
 			if (irq >= 0 && desc->action) {
 				char *trigger;
 				u32 bitmask = nmk_gpio_get_bitmask(gpio);
@@ -846,6 +948,7 @@ static void nmk_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 #define nmk_gpio_dbg_show	NULL
 #endif
 
+/* This structure is replicated for each GPIO block allocated at probe time */
 static struct gpio_chip nmk_gpio_template = {
 	.direction_input	= nmk_gpio_make_input,
 	.get			= nmk_gpio_get_input,
@@ -884,6 +987,15 @@ void nmk_gpio_clocks_disable(void)
 	}
 }
 
+/*
+ * Called from the suspend/resume path to only keep the real wakeup interrupts
+ * (those that have had set_irq_wake() called on them) as wakeup interrupts,
+ * and not the rest of the interrupts which we needed to have as wakeups for
+ * cpuidle.
+ *
+ * PM ops are not used since this needs to be done at the end, after all the
+ * other drivers are done with their suspend callbacks.
+ */
 void nmk_gpio_wakeups_suspend(void)
 {
 	int i;
@@ -907,7 +1019,7 @@ void nmk_gpio_wakeups_suspend(void)
 		if (chip->sleepmode) {
 			chip->slpm = readl(chip->addr + NMK_GPIO_SLPC);
 
-			
+			/* 0 -> wakeup enable */
 			writel(~chip->real_wake, chip->addr + NMK_GPIO_SLPC);
 		}
 
@@ -937,6 +1049,13 @@ void nmk_gpio_wakeups_resume(void)
 	}
 }
 
+/*
+ * Read the pull up/pull down status.
+ * A bit set in 'pull_up' means that pull up
+ * is selected if pull is enabled in PDIS register.
+ * Note: only pull up/down set via this driver can
+ * be detected due to HW limitations.
+ */
 void nmk_gpio_read_pull(int gpio_bank, u32 *pull_up)
 {
 	if (gpio_bank < NUM_BANKS) {
@@ -998,6 +1117,10 @@ static int __devinit nmk_gpio_probe(struct platform_device *dev)
 		ret = -ENOMEM;
 		goto out_clk;
 	}
+	/*
+	 * The virt address in nmk_chip->addr is in the nomadik register space,
+	 * so we can simply convert the resource address, without remapping
+	 */
 	nmk_chip->bank = dev->id;
 	nmk_chip->clk = clk;
 	nmk_chip->addr = io_p2v(res->start);

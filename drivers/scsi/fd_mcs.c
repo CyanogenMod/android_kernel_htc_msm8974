@@ -99,20 +99,22 @@
 
 #define DRIVER_VERSION "v0.2 by ZP Gu<zpg@castle.net>"
 
+/* START OF USER DEFINABLE OPTIONS */
 
-#define DEBUG            0	
-#define ENABLE_PARITY    1	
+#define DEBUG            0	/* Enable debugging output */
+#define ENABLE_PARITY    1	/* Enable SCSI Parity */
 
+/* END OF USER DEFINABLE OPTIONS */
 
 #if DEBUG
-#define EVERY_ACCESS     0	
-#define ERRORS_ONLY      1	
-#define DEBUG_MESSAGES   1	
-#define DEBUG_ABORT      1	
-#define DEBUG_RESET      1	
-#define DEBUG_RACE       1	
+#define EVERY_ACCESS     0	/* Write a line on every scsi access */
+#define ERRORS_ONLY      1	/* Only write a line if there is an error */
+#define DEBUG_MESSAGES   1	/* Debug MESSAGE IN phase */
+#define DEBUG_ABORT      1	/* Debug abort() routine */
+#define DEBUG_RESET      1	/* Debug reset() routine */
+#define DEBUG_RACE       1	/* Debug interrupt-driven race condition */
 #else
-#define EVERY_ACCESS     0	
+#define EVERY_ACCESS     0	/* LEAVE THESE ALONE--CHANGE THE ONES ABOVE */
 #define ERRORS_ONLY      0
 #define DEBUG_MESSAGES   0
 #define DEBUG_ABORT      0
@@ -120,6 +122,7 @@
 #define DEBUG_RACE       0
 #endif
 
+/* Errors are reported on the line, so we don't need to report them again */
 #if EVERY_ACCESS
 #undef ERRORS_ONLY
 #define ERRORS_ONLY      0
@@ -151,15 +154,15 @@ enum in_port_type {
 	Read_SCSI_Data = 0,
 	SCSI_Status = 1,
 	TMC_Status = 2,
-	FIFO_Status = 3,	
-	Interrupt_Cond = 4,	
+	FIFO_Status = 3,	/* tmc18c50/tmc18c30 only */
+	Interrupt_Cond = 4,	/* tmc18c50/tmc18c30 only */
 	LSB_ID_Code = 5,
 	MSB_ID_Code = 6,
 	Read_Loopback = 7,
 	SCSI_Data_NoACK = 8,
 	Interrupt_Status = 9,
 	Configuration1 = 10,
-	Configuration2 = 11,	
+	Configuration2 = 11,	/* tmc18c50/tmc18c30 only */
 	Read_FIFO = 12,
 	FIFO_Data_Count = 14
 };
@@ -170,9 +173,9 @@ enum out_port_type {
 	Interrupt_Cntl = 2,
 	SCSI_Mode_Cntl = 3,
 	TMC_Cntl = 4,
-	Memory_Cntl = 5,	
+	Memory_Cntl = 5,	/* tmc18c50/tmc18c30 only */
 	Write_Loopback = 7,
-	IO_Control = 11,	
+	IO_Control = 11,	/* tmc18c30 only */
 	Write_FIFO = 12
 };
 
@@ -184,7 +187,7 @@ struct fd_hostdata {
 	Scsi_Cmnd *_current_SC;
 	enum chip_type _chip;
 	int _adapter_mask;
-	int _fifo_count;	
+	int _fifo_count;	/* Number of 512 byte blocks before INTR */
 
 	char _adapter_name[64];
 #if DEBUG_RACE
@@ -206,14 +209,15 @@ struct fd_hostdata {
 	int _Write_FIFO_port;
 	int _Write_SCSI_Data_port;
 
-	int _FIFO_Size;		
-	
+	int _FIFO_Size;		/* = 0x2000;  8k FIFO for
+				   pre-tmc18c30 chips */
+	/* simple stats */
 	int _Bytes_Read;
 	int _Bytes_Written;
 	int _INTR_Processed;
 };
 
-#define FD_MAX_HOSTS 3		
+#define FD_MAX_HOSTS 3		/* enough? */
 
 #define HOSTDATA(shpnt) ((struct fd_hostdata *) shpnt->hostdata)
 #define bios_base             (HOSTDATA(shpnt)->_bios_base)
@@ -283,6 +287,7 @@ static unsigned long addresses[] = { 0xc8000, 0xca000, 0xce000, 0xde000 };
 static unsigned short ports[] = { 0x140, 0x150, 0x160, 0x170 };
 static unsigned short interrupts[] = { 3, 5, 10, 11, 12, 14, 15, 0 };
 
+/* host information */
 static int found = 0;
 static struct Scsi_Host *hosts[FD_MAX_HOSTS + 1] = { NULL };
 
@@ -307,7 +312,7 @@ static int __init fd_mcs_setup(char *str)
 }
 
 __setup("fd_mcs=", fd_mcs_setup);
-#endif 
+#endif /* !MODULE */
 
 static void print_banner(struct Scsi_Host *shpnt)
 {
@@ -324,7 +329,7 @@ static void print_banner(struct Scsi_Host *shpnt)
 
 
 static void do_pause(unsigned amount)
-{				
+{				/* Pause for amount*10 milliseconds */
 	do {
 		mdelay(10);
 	} while (--amount);
@@ -335,7 +340,7 @@ static void fd_mcs_make_bus_idle(struct Scsi_Host *shpnt)
 	outb(0, SCSI_Cntl_port);
 	outb(0, SCSI_Mode_Cntl_port);
 	if (chip == tmc18c50 || chip == tmc18c30)
-		outb(0x21 | PARITY_MASK, TMC_Cntl_port);	
+		outb(0x21 | PARITY_MASK, TMC_Cntl_port);	/* Clear forced intr. */
 	else
 		outb(0x01 | PARITY_MASK, TMC_Cntl_port);
 }
@@ -345,23 +350,25 @@ static int fd_mcs_detect(struct scsi_host_template * tpnt)
 	int loop;
 	struct Scsi_Host *shpnt;
 
-	
+	/* get id, port, bios, irq */
 	int slot;
 	u_char pos2, pos3, pos4;
 	int id, port, irq;
 	unsigned long bios;
 
-	
+	/* if not MCA machine, return */
 	if (!MCA_bus)
 		return 0;
 
-	
+	/* changeable? */
 	id = 7;
 
 	for (loop = 0; loop < FD_BRDS; loop++) {
 		slot = 0;
 		while (MCA_NOTFOUND != (slot = mca_find_adapter(fd_mcs_adapters[loop].id, slot))) {
 
+			/* if we get this far, an adapter has been detected and is
+			   enabled */
 
 			printk(KERN_INFO "scsi  <fd_mcs>: %s at slot %d\n", fd_mcs_adapters[loop].name, slot + 1);
 
@@ -369,20 +376,20 @@ static int fd_mcs_detect(struct scsi_host_template * tpnt)
 			pos3 = mca_read_stored_pos(slot, 3);
 			pos4 = mca_read_stored_pos(slot, 4);
 
-			
+			/* ready for next probe */
 			slot++;
 
-			if (fd_mcs_adapters[loop].id == REPLY_ID) {	
+			if (fd_mcs_adapters[loop].id == REPLY_ID) {	/* reply card */
 				static int reply_irq[] = { 10, 11, 14, 15 };
 
-				bios = 0;	
+				bios = 0;	/* no bios */
 
 				if (pos2 & 0x2)
 					port = ports[pos4 & 0x3];
 				else
 					continue;
 
-				
+				/* can't really disable it, same as irq=10 */
 				irq = reply_irq[((pos4 >> 2) & 0x1) + 2 * ((pos4 >> 4) & 0x1)];
 			} else {
 				bios = addresses[pos2 >> 6];
@@ -391,21 +398,21 @@ static int fd_mcs_detect(struct scsi_host_template * tpnt)
 			}
 
 			if (irq) {
-				
+				/* claim the slot */
 				mca_set_adapter_name(slot - 1, fd_mcs_adapters[loop].name);
 
-				
+				/* check irq/region */
 				if (request_irq(irq, fd_mcs_intr, IRQF_SHARED, "fd_mcs", hosts)) {
 					printk(KERN_ERR "fd_mcs: interrupt is not available, skipping...\n");
 					continue;
 				}
 
-				
+				/* request I/O region */
 				if (request_region(port, 0x10, "fd_mcs")) {
 					printk(KERN_ERR "fd_mcs: I/O region is already in use, skipping...\n");
 					continue;
 				}
-				
+				/* register */
 				if (!(shpnt = scsi_register(tpnt, sizeof(struct fd_hostdata)))) {
 					printk(KERN_ERR "fd_mcs: scsi_register() failed\n");
 					release_region(port, 0x10);
@@ -414,44 +421,52 @@ static int fd_mcs_detect(struct scsi_host_template * tpnt)
 				}
 
 
-				
+				/* save name */
 				strcpy(adapter_name, fd_mcs_adapters[loop].name);
 
-				
+				/* chip/fifo */
 				chip = fd_mcs_adapters[loop].fd_chip;
-				
+				/* use boot time value if available */
 				FIFO_COUNT = user_fifo_count ? user_fifo_count : fd_mcs_adapters[loop].fifo_count;
 				FIFO_Size = user_fifo_size ? user_fifo_size : fd_mcs_adapters[loop].fifo_size;
 
+/* FIXME: Do we need to keep this bit of code inside NOT_USED around at all? */
 #ifdef NOT_USED
-				
+				/* *************************************************** */
+				/* Try to toggle 32-bit mode.  This only
+				   works on an 18c30 chip.  (User reports
+				   say this works, so we should switch to
+				   it in the near future.) */
 				outb(0x80, port + IO_Control);
 				if ((inb(port + Configuration2) & 0x80) == 0x80) {
 					outb(0x00, port + IO_Control);
 					if ((inb(port + Configuration2) & 0x80) == 0x00) {
 						chip = tmc18c30;
-						FIFO_Size = 0x800;	
+						FIFO_Size = 0x800;	/* 2k FIFO */
 
 						printk("FIRST: chip=%s, fifo_size=0x%x\n", (chip == tmc18c30) ? "tmc18c30" : "tmc18c50", FIFO_Size);
 					}
 				}
 
+				/* That should have worked, but appears to
+				   have problems.  Let's assume it is an
+				   18c30 if the RAM is disabled. */
 
 				if (inb(port + Configuration2) & 0x02) {
 					chip = tmc18c30;
-					FIFO_Size = 0x800;	
+					FIFO_Size = 0x800;	/* 2k FIFO */
 
 					printk("SECOND: chip=%s, fifo_size=0x%x\n", (chip == tmc18c30) ? "tmc18c30" : "tmc18c50", FIFO_Size);
 				}
-				
+				/* *************************************************** */
 #endif
 
-				
-				
+				/* IBM/ANSI scsi scan ordering */
+				/* Stick this back in when the scsi.c changes are there */
 				shpnt->reverse_ordering = 1;
 
 
-				
+				/* saving info */
 				hosts[found++] = shpnt;
 
 				shpnt->this_id = id;
@@ -459,11 +474,11 @@ static int fd_mcs_detect(struct scsi_host_template * tpnt)
 				shpnt->io_port = port;
 				shpnt->n_io_port = 0x10;
 
-				
+				/* save */
 				bios_base = bios;
 				adapter_mask = (1 << id);
 
-				
+				/* save more */
 				SCSI_Mode_Cntl_port = port + SCSI_Mode_Cntl;
 				FIFO_Data_Count_port = port + FIFO_Data_Count;
 				Interrupt_Cntl_port = port + Interrupt_Cntl;
@@ -483,17 +498,17 @@ static int fd_mcs_detect(struct scsi_host_template * tpnt)
 				Bytes_Written = 0;
 				INTR_Processed = 0;
 
-				
+				/* say something */
 				print_banner(shpnt);
 
-				
+				/* reset */
 				outb(1, SCSI_Cntl_port);
 				do_pause(2);
 				outb(0, SCSI_Cntl_port);
 				do_pause(115);
 				outb(0, SCSI_Mode_Cntl_port);
 				outb(PARITY_MASK, TMC_Cntl_port);
-				
+				/* done reset */
 			}
 		}
 
@@ -549,25 +564,26 @@ static int fd_mcs_select(struct Scsi_Host *shpnt, int target)
 	int status;
 	unsigned long timeout;
 
-	outb(0x82, SCSI_Cntl_port);	
+	outb(0x82, SCSI_Cntl_port);	/* Bus Enable + Select */
 	outb(adapter_mask | (1 << target), SCSI_Data_NoACK_port);
 
-	
+	/* Stop arbitration and enable parity */
 	outb(PARITY_MASK, TMC_Cntl_port);
 
-	timeout = 350;		
+	timeout = 350;		/* 350mS -- because of timeouts
+				   (was 250mS) */
 
 	do {
-		status = inb(SCSI_Status_port);	
-		if (status & 1) {	
-			
+		status = inb(SCSI_Status_port);	/* Read adapter status */
+		if (status & 1) {	/* Busy asserted */
+			/* Enable SCSI Bus (on error, should make bus idle with 0) */
 			outb(0x80, SCSI_Cntl_port);
 			return 0;
 		}
-		udelay(1000);	
+		udelay(1000);	/* wait one msec */
 	} while (--timeout);
 
-	
+	/* Make bus idle */
 	fd_mcs_make_bus_idle(shpnt);
 #if EVERY_ACCESS
 	if (!target)
@@ -577,7 +593,7 @@ static int fd_mcs_select(struct Scsi_Host *shpnt, int target)
 	if (!target) {
 		static int flag = 0;
 
-		if (!flag)	
+		if (!flag)	/* Skip first failure for all chips. */
 			++flag;
 		else
 			printk("fd_mcs: Selection failed\n");
@@ -602,6 +618,7 @@ static void my_done(struct Scsi_Host *shpnt, int error)
 #endif
 }
 
+/* only my_done needs to be protected  */
 static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 {
 	unsigned long flags;
@@ -614,13 +631,13 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 
 	TOTAL_INTR++;
 
-	
+	/* search for one adapter-response on shared interrupt */
 	while ((shpnt = hosts[i++])) {
 		if ((inb(TMC_Status_port)) & 1)
 			break;
 	}
 
-	
+	/* return if some other device on this IRQ caused the interrupt */
 	if (!shpnt) {
 		return IRQ_NONE;
 	}
@@ -629,19 +646,19 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 
 	outb(0x00, Interrupt_Cntl_port);
 
-	
+	/* Abort calls my_done, so we do nothing here. */
 	if (current_SC->SCp.phase & aborted) {
 #if DEBUG_ABORT
 		printk("Interrupt after abort, ignoring\n");
 #endif
-		
+		/* return IRQ_HANDLED; */
 	}
 #if DEBUG_RACE
 	++in_interrupt_flag;
 #endif
 
 	if (current_SC->SCp.phase & in_arbitration) {
-		status = inb(TMC_Status_port);	
+		status = inb(TMC_Status_port);	/* Read adapter status */
 		if (!(status & 0x02)) {
 #if EVERY_ACCESS
 			printk(" AFAIL ");
@@ -655,10 +672,10 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 
 		outb(0x40 | FIFO_COUNT, Interrupt_Cntl_port);
 
-		outb(0x82, SCSI_Cntl_port);	
+		outb(0x82, SCSI_Cntl_port);	/* Bus Enable + Select */
 		outb(adapter_mask | (1 << scmd_id(current_SC)), SCSI_Data_NoACK_port);
 
-		
+		/* Stop arbitration and enable parity */
 		outb(0x10 | PARITY_MASK, TMC_Cntl_port);
 #if DEBUG_RACE
 		in_interrupt_flag = 0;
@@ -667,7 +684,7 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 	} else if (current_SC->SCp.phase & in_selection) {
 		status = inb(SCSI_Status_port);
 		if (!(status & 0x01)) {
-			
+			/* Try again, for slow devices */
 			if (fd_mcs_select(shpnt, scmd_id(current_SC))) {
 #if EVERY_ACCESS
 				printk(" SFAIL ");
@@ -680,7 +697,7 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 #if EVERY_ACCESS
 				printk(" AltSel ");
 #endif
-				
+				/* Stop arbitration and enable parity */
 				outb(0x10 | PARITY_MASK, TMC_Cntl_port);
 			}
 		}
@@ -693,33 +710,33 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
-	
+	/* current_SC->SCp.phase == in_other: this is the body of the routine */
 
 	status = inb(SCSI_Status_port);
 
-	if (status & 0x10) {	
+	if (status & 0x10) {	/* REQ */
 
 		switch (status & 0x0e) {
 
-		case 0x08:	
+		case 0x08:	/* COMMAND OUT */
 			outb(current_SC->cmnd[current_SC->SCp.sent_command++], Write_SCSI_Data_port);
 #if EVERY_ACCESS
 			printk("CMD = %x,", current_SC->cmnd[current_SC->SCp.sent_command - 1]);
 #endif
 			break;
-		case 0x00:	
+		case 0x00:	/* DATA OUT -- tmc18c50/tmc18c30 only */
 			if (chip != tmc1800 && !current_SC->SCp.have_data_in) {
 				current_SC->SCp.have_data_in = -1;
 				outb(0xd0 | PARITY_MASK, TMC_Cntl_port);
 			}
 			break;
-		case 0x04:	
+		case 0x04:	/* DATA IN -- tmc18c50/tmc18c30 only */
 			if (chip != tmc1800 && !current_SC->SCp.have_data_in) {
 				current_SC->SCp.have_data_in = 1;
 				outb(0x90 | PARITY_MASK, TMC_Cntl_port);
 			}
 			break;
-		case 0x0c:	
+		case 0x0c:	/* STATUS IN */
 			current_SC->SCp.Status = inb(Read_SCSI_Data_port);
 #if EVERY_ACCESS
 			printk("Status = %x, ", current_SC->SCp.Status);
@@ -730,10 +747,10 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 			}
 #endif
 			break;
-		case 0x0a:	
-			outb(MESSAGE_REJECT, Write_SCSI_Data_port);	
+		case 0x0a:	/* MESSAGE OUT */
+			outb(MESSAGE_REJECT, Write_SCSI_Data_port);	/* Reject */
 			break;
-		case 0x0e:	
+		case 0x0e:	/* MESSAGE IN */
 			current_SC->SCp.Message = inb(Read_SCSI_Data_port);
 #if EVERY_ACCESS
 			printk("Message = %x, ", current_SC->SCp.Message);
@@ -750,6 +767,131 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 	}
 
 	if (chip == tmc1800 && !current_SC->SCp.have_data_in && (current_SC->SCp.sent_command >= current_SC->cmd_len)) {
+		/* We have to get the FIFO direction
+		   correct, so I've made a table based
+		   on the SCSI Standard of which commands
+		   appear to require a DATA OUT phase.
+		 */
+		/*
+		   p. 94: Command for all device types
+		   CHANGE DEFINITION            40 DATA OUT
+		   COMPARE                      39 DATA OUT
+		   COPY                         18 DATA OUT
+		   COPY AND VERIFY              3a DATA OUT
+		   INQUIRY                      12 
+		   LOG SELECT                   4c DATA OUT
+		   LOG SENSE                    4d
+		   MODE SELECT (6)              15 DATA OUT
+		   MODE SELECT (10)             55 DATA OUT
+		   MODE SENSE (6)               1a
+		   MODE SENSE (10)              5a
+		   READ BUFFER                  3c
+		   RECEIVE DIAGNOSTIC RESULTS   1c
+		   REQUEST SENSE                03
+		   SEND DIAGNOSTIC              1d DATA OUT
+		   TEST UNIT READY              00
+		   WRITE BUFFER                 3b DATA OUT
+
+		   p.178: Commands for direct-access devices (not listed on p. 94)
+		   FORMAT UNIT                  04 DATA OUT
+		   LOCK-UNLOCK CACHE            36
+		   PRE-FETCH                    34
+		   PREVENT-ALLOW MEDIUM REMOVAL 1e
+		   READ (6)/RECEIVE             08
+		   READ (10)                    3c
+		   READ CAPACITY                25
+		   READ DEFECT DATA (10)        37
+		   READ LONG                    3e
+		   REASSIGN BLOCKS              07 DATA OUT
+		   RELEASE                      17
+		   RESERVE                      16 DATA OUT
+		   REZERO UNIT/REWIND           01
+		   SEARCH DATA EQUAL (10)       31 DATA OUT
+		   SEARCH DATA HIGH (10)        30 DATA OUT
+		   SEARCH DATA LOW (10)         32 DATA OUT
+		   SEEK (6)                     0b
+		   SEEK (10)                    2b
+		   SET LIMITS (10)              33
+		   START STOP UNIT              1b
+		   SYNCHRONIZE CACHE            35
+		   VERIFY (10)                  2f
+		   WRITE (6)/PRINT/SEND         0a DATA OUT
+		   WRITE (10)/SEND              2a DATA OUT
+		   WRITE AND VERIFY (10)        2e DATA OUT
+		   WRITE LONG                   3f DATA OUT
+		   WRITE SAME                   41 DATA OUT ?
+
+		   p. 261: Commands for sequential-access devices (not previously listed)
+		   ERASE                        19
+		   LOAD UNLOAD                  1b
+		   LOCATE                       2b
+		   READ BLOCK LIMITS            05
+		   READ POSITION                34
+		   READ REVERSE                 0f
+		   RECOVER BUFFERED DATA        14
+		   SPACE                        11
+		   WRITE FILEMARKS              10 ?
+
+		   p. 298: Commands for printer devices (not previously listed)
+		   ****** NOT SUPPORTED BY THIS DRIVER, since 0b is SEEK (6) *****
+		   SLEW AND PRINT               0b DATA OUT  -- same as seek
+		   STOP PRINT                   1b
+		   SYNCHRONIZE BUFFER           10
+
+		   p. 315: Commands for processor devices (not previously listed)
+
+		   p. 321: Commands for write-once devices (not previously listed)
+		   MEDIUM SCAN                  38
+		   READ (12)                    a8
+		   SEARCH DATA EQUAL (12)       b1 DATA OUT
+		   SEARCH DATA HIGH (12)        b0 DATA OUT
+		   SEARCH DATA LOW (12)         b2 DATA OUT
+		   SET LIMITS (12)              b3
+		   VERIFY (12)                  af
+		   WRITE (12)                   aa DATA OUT
+		   WRITE AND VERIFY (12)        ae DATA OUT
+
+		   p. 332: Commands for CD-ROM devices (not previously listed)
+		   PAUSE/RESUME                 4b
+		   PLAY AUDIO (10)              45
+		   PLAY AUDIO (12)              a5
+		   PLAY AUDIO MSF               47
+		   PLAY TRACK RELATIVE (10)     49
+		   PLAY TRACK RELATIVE (12)     a9
+		   READ HEADER                  44
+		   READ SUB-CHANNEL             42
+		   READ TOC                     43
+
+		   p. 370: Commands for scanner devices (not previously listed)
+		   GET DATA BUFFER STATUS       34
+		   GET WINDOW                   25
+		   OBJECT POSITION              31
+		   SCAN                         1b
+		   SET WINDOW                   24 DATA OUT
+
+		   p. 391: Commands for optical memory devices (not listed)
+		   ERASE (10)                   2c
+		   ERASE (12)                   ac
+		   MEDIUM SCAN                  38 DATA OUT
+		   READ DEFECT DATA (12)        b7
+		   READ GENERATION              29
+		   READ UPDATED BLOCK           2d
+		   UPDATE BLOCK                 3d DATA OUT
+
+		   p. 419: Commands for medium changer devices (not listed)
+		   EXCHANGE MEDIUM              46
+		   INITIALIZE ELEMENT STATUS    07
+		   MOVE MEDIUM                  a5
+		   POSITION TO ELEMENT          2b
+		   READ ELEMENT STATUS          b8
+		   REQUEST VOL. ELEMENT ADDRESS b5
+		   SEND VOLUME TAG              b6 DATA OUT
+
+		   p. 454: Commands for communications devices (not listed previously)
+		   GET MESSAGE (6)              08
+		   GET MESSAGE (10)             28
+		   GET MESSAGE (12)             a8
+		 */
 
 		switch (current_SC->cmnd[0]) {
 		case CHANGE_DEFINITION:
@@ -787,7 +929,7 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 
 		case 0xb6:
 
-		case 0xea:	
+		case 0xea:	/* alternate number for WRITE LONG */
 
 			current_SC->SCp.have_data_in = -1;
 			outb(0xd0 | PARITY_MASK, TMC_Cntl_port);
@@ -802,7 +944,7 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 		}
 	}
 
-	if (current_SC->SCp.have_data_in == -1) {	
+	if (current_SC->SCp.have_data_in == -1) {	/* DATA OUT */
 		while ((data_count = FIFO_Size - inw(FIFO_Data_Count_port)) > 512) {
 #if EVERY_ACCESS
 			printk("DC=%d, ", data_count);
@@ -837,7 +979,7 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 					break;
 			}
 		}
-	} else if (current_SC->SCp.have_data_in == 1) {	
+	} else if (current_SC->SCp.have_data_in == 1) {	/* DATA IN */
 		while ((data_count = inw(FIFO_Data_Count_port)) > 0) {
 #if EVERY_ACCESS
 			printk("DC=%d, ", data_count);
@@ -853,7 +995,7 @@ static irqreturn_t fd_mcs_intr(int irq, void *dev_id)
 					*current_SC->SCp.ptr++ = inb(Read_FIFO_port);
 					--current_SC->SCp.this_residual;
 				} else {
-					data_count >>= 1;	
+					data_count >>= 1;	/* Number of words */
 					tmp_count = data_count << 1;
 					insw(Read_FIFO_port, current_SC->SCp.ptr, data_count);
 					current_SC->SCp.ptr += tmp_count;
@@ -915,7 +1057,7 @@ static int fd_mcs_release(struct Scsi_Host *shpnt)
 			irq_usage++;
 	}
 
-	
+	/* only for the last one */
 	if (1 == irq_usage)
 		free_irq(shpnt->irq, hosts);
 
@@ -944,10 +1086,10 @@ static int fd_mcs_queue_lck(Scsi_Cmnd * SCpnt, void (*done) (Scsi_Cmnd *))
 
 	fd_mcs_make_bus_idle(shpnt);
 
-	SCpnt->scsi_done = done;	
+	SCpnt->scsi_done = done;	/* Save this for the done function */
 	current_SC = SCpnt;
 
-	
+	/* Initialize static data */
 
 	if (scsi_bufflen(current_SC)) {
 		current_SC->SCp.buffer = scsi_sglist(current_SC);
@@ -968,13 +1110,13 @@ static int fd_mcs_queue_lck(Scsi_Cmnd * SCpnt, void (*done) (Scsi_Cmnd *))
 	current_SC->SCp.sent_command = 0;
 	current_SC->SCp.phase = in_arbitration;
 
-	
+	/* Start arbitration */
 	outb(0x00, Interrupt_Cntl_port);
-	outb(0x00, SCSI_Cntl_port);	
-	outb(adapter_mask, SCSI_Data_NoACK_port);	
+	outb(0x00, SCSI_Cntl_port);	/* Disable data drivers */
+	outb(adapter_mask, SCSI_Data_NoACK_port);	/* Set our id bit */
 	in_command = 1;
 	outb(0x20, Interrupt_Cntl_port);
-	outb(0x14 | PARITY_MASK, TMC_Cntl_port);	
+	outb(0x14 | PARITY_MASK, TMC_Cntl_port);	/* Start arbitration */
 
 	return 0;
 }
@@ -1028,7 +1170,7 @@ static void fd_mcs_print_info(Scsi_Cmnd * SCpnt)
 	outb(0x0b, 0x20);
 	isr += inb(0x20);
 
-	
+	/* Print out interesting information */
 	printk("IMR = 0x%04x", imr);
 	if (imr & (1 << shpnt->irq))
 		printk(" (masked)");
@@ -1082,7 +1224,7 @@ static int fd_mcs_abort(Scsi_Cmnd * SCpnt)
 
 	current_SC->result = DID_ABORT << 16;
 
-	
+	/* Aborts are not done well. . . */
 	my_done(shpnt, DID_ABORT << 16);
 
 	spin_unlock_irqrestore(shpnt->host_lock, flags);
@@ -1119,6 +1261,9 @@ static int fd_mcs_bus_reset(Scsi_Cmnd * SCpnt) {
 
 	spin_unlock_irqrestore(shpnt->host_lock, flags);
 
+	/* Unless this is the very first call (i.e., SCPnt == NULL), everything
+	   is probably hosed at this point.  We will, however, try to keep
+	   things going by informing the high-level code that we need help. */
 		return SUCCESS;
 }
 
@@ -1130,28 +1275,59 @@ static int fd_mcs_biosparam(struct scsi_device * disk, struct block_device *bdev
 	unsigned char *p = scsi_bios_ptable(bdev);
 	int size = capacity;
 
-	
-	
+	/* BIOS >= 3.4 for MCA cards */
+	/* This algorithm was provided by Future Domain (much thanks!). */
 
-	if (p && p[65] == 0xaa && p[64] == 0x55	
-	    && p[4]) {	
+	if (p && p[65] == 0xaa && p[64] == 0x55	/* Partition table valid */
+	    && p[4]) {	/* Partition type */
+		/* The partition table layout is as follows:
 
-		info_array[0] = p[5] + 1;	
-		info_array[1] = p[6] & 0x3f;	
+		   Start: 0x1b3h
+		   Offset: 0 = partition status
+		   1 = starting head
+		   2 = starting sector and cylinder (word, encoded)
+		   4 = partition type
+		   5 = ending head
+		   6 = ending sector and cylinder (word, encoded)
+		   8 = starting absolute sector (double word)
+		   c = number of sectors (double word)
+		   Signature: 0x1fe = 0x55aa
+
+		   So, this algorithm assumes:
+		   1) the first partition table is in use,
+		   2) the data in the first entry is correct, and
+		   3) partitions never divide cylinders
+
+		   Note that (1) may be FALSE for NetBSD (and other BSD flavors),
+		   as well as for Linux.  Note also, that Linux doesn't pay any
+		   attention to the fields that are used by this algorithm -- it
+		   only uses the absolute sector data.  Recent versions of Linux's
+		   fdisk(1) will fill this data in correctly, and forthcoming
+		   versions will check for consistency.
+
+		   Checking for a non-zero partition type is not part of the
+		   Future Domain algorithm, but it seemed to be a reasonable thing
+		   to do, especially in the Linux and BSD worlds. */
+
+		info_array[0] = p[5] + 1;	/* heads */
+		info_array[1] = p[6] & 0x3f;	/* sectors */
 	} else {
+		/* Note that this new method guarantees that there will always be
+		   less than 1024 cylinders on a platter.  This is good for drives
+		   up to approximately 7.85GB (where 1GB = 1024 * 1024 kB). */
 		if ((unsigned int) size >= 0x7e0000U) 
 		{
-			info_array[0] = 0xff;	
-			info_array[1] = 0x3f;	
+			info_array[0] = 0xff;	/* heads   = 255 */
+			info_array[1] = 0x3f;	/* sectors =  63 */
 		} else if ((unsigned int) size >= 0x200000U) {
-			info_array[0] = 0x80;	
-			info_array[1] = 0x3f;	
+			info_array[0] = 0x80;	/* heads   = 128 */
+			info_array[1] = 0x3f;	/* sectors =  63 */
 		} else {
-			info_array[0] = 0x40;	
-			info_array[1] = 0x20;	
+			info_array[0] = 0x40;	/* heads   =  64 */
+			info_array[1] = 0x20;	/* sectors =  32 */
 		}
 	}
-	
+	/* For both methods, compute the cylinders */
 	info_array[2] = (unsigned int) size / (info_array[0] * info_array[1]);
 	kfree(p);
 	return 0;

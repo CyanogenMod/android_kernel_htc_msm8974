@@ -39,10 +39,12 @@
 #include "rds.h"
 #include "tcp.h"
 
+/* only for info exporting */
 static DEFINE_SPINLOCK(rds_tcp_tc_list_lock);
 static LIST_HEAD(rds_tcp_tc_list);
 static unsigned int rds_tcp_tc_count;
 
+/* Track rds_tcp_connection structs so they can be cleaned up */
 static DEFINE_SPINLOCK(rds_tcp_conn_lock);
 static LIST_HEAD(rds_tcp_conn_list);
 
@@ -50,6 +52,7 @@ static struct kmem_cache *rds_tcp_conn_slab;
 
 #define RDS_TCP_DEFAULT_BUFSIZE (128 * 1024)
 
+/* doing it this way avoids calling tcp_sk() */
 void rds_tcp_nonagle(struct socket *sock)
 {
 	mm_segment_t oldfs = get_fs();
@@ -67,6 +70,10 @@ void rds_tcp_tune(struct socket *sock)
 
 	rds_tcp_nonagle(sock);
 
+	/*
+	 * We're trying to saturate gigabit with the default,
+	 * see svc_sock_setbufsize().
+	 */
 	lock_sock(sk);
 	sk->sk_sndbuf = RDS_TCP_DEFAULT_BUFSIZE;
 	sk->sk_rcvbuf = RDS_TCP_DEFAULT_BUFSIZE;
@@ -90,7 +97,7 @@ void rds_tcp_restore_callbacks(struct socket *sock,
 	rdsdebug("restoring sock %p callbacks from tc %p\n", sock, tc);
 	write_lock_bh(&sock->sk->sk_callback_lock);
 
-	
+	/* done under the callback_lock to serialize with write_space */
 	spin_lock(&rds_tcp_tc_list_lock);
 	list_del_init(&tc->t_list_item);
 	rds_tcp_tc_count--;
@@ -106,6 +113,11 @@ void rds_tcp_restore_callbacks(struct socket *sock,
 	write_unlock_bh(&sock->sk->sk_callback_lock);
 }
 
+/*
+ * This is the only path that sets tc->t_sock.  Send and receive trust that
+ * it is set.  The RDS_CONN_CONNECTED bit protects those paths from being
+ * called while it isn't set.
+ */
 void rds_tcp_set_callbacks(struct socket *sock, struct rds_connection *conn)
 {
 	struct rds_tcp_connection *tc = conn->c_transport_data;
@@ -113,13 +125,13 @@ void rds_tcp_set_callbacks(struct socket *sock, struct rds_connection *conn)
 	rdsdebug("setting sock %p callbacks to tc %p\n", sock, tc);
 	write_lock_bh(&sock->sk->sk_callback_lock);
 
-	
+	/* done under the callback_lock to serialize with write_space */
 	spin_lock(&rds_tcp_tc_list_lock);
 	list_add_tail(&tc->t_list_item, &rds_tcp_tc_list);
 	rds_tcp_tc_count++;
 	spin_unlock(&rds_tcp_tc_list_lock);
 
-	
+	/* accepted sockets need our listen data ready undone */
 	if (sock->sk->sk_data_ready == rds_tcp_listen_data_ready)
 		sock->sk->sk_data_ready = sock->sk->sk_user_data;
 
@@ -225,7 +237,7 @@ static void rds_tcp_destroy_conns(void)
 	struct rds_tcp_connection *tc, *_tc;
 	LIST_HEAD(tmp_list);
 
-	
+	/* avoid calling conn_destroy with irqs off */
 	spin_lock_irq(&rds_tcp_conn_lock);
 	list_splice(&rds_tcp_conn_list, &tmp_list);
 	INIT_LIST_HEAD(&rds_tcp_conn_list);

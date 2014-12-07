@@ -36,19 +36,19 @@
 #define LTQ_DMA_PCTRL		0x44
 #define LTQ_DMA_IRNEN		0xf4
 
-#define DMA_DESCPT		BIT(3)		
-#define DMA_TX			BIT(8)		
-#define DMA_CHAN_ON		BIT(0)		
-#define DMA_PDEN		BIT(6)		
-#define DMA_CHAN_RST		BIT(1)		
-#define DMA_RESET		BIT(0)		
-#define DMA_IRQ_ACK		0x7e		
-#define DMA_POLL		BIT(31)		
-#define DMA_CLK_DIV4		BIT(6)		
-#define DMA_2W_BURST		BIT(1)		
-#define DMA_MAX_CHANNEL		20		
-#define DMA_ETOP_ENDIANESS	(0xf << 8) 
-#define DMA_WEIGHT	(BIT(17) | BIT(16))	
+#define DMA_DESCPT		BIT(3)		/* descriptor complete irq */
+#define DMA_TX			BIT(8)		/* TX channel direction */
+#define DMA_CHAN_ON		BIT(0)		/* channel on / off bit */
+#define DMA_PDEN		BIT(6)		/* enable packet drop */
+#define DMA_CHAN_RST		BIT(1)		/* channel on / off bit */
+#define DMA_RESET		BIT(0)		/* channel on / off bit */
+#define DMA_IRQ_ACK		0x7e		/* IRQ status register */
+#define DMA_POLL		BIT(31)		/* turn on channel polling */
+#define DMA_CLK_DIV4		BIT(6)		/* polling clock divider */
+#define DMA_2W_BURST		BIT(1)		/* 2 word burst length */
+#define DMA_MAX_CHANNEL		20		/* the soc has 20 channels */
+#define DMA_ETOP_ENDIANESS	(0xf << 8) /* endianess swap etop channels */
+#define DMA_WEIGHT	(BIT(17) | BIT(16))	/* default channel wheight */
 
 #define ltq_dma_r32(x)			ltq_r32(ltq_dma_membase + (x))
 #define ltq_dma_w32(x, y)		ltq_w32(x, ltq_dma_membase + (y))
@@ -196,6 +196,10 @@ ltq_dma_init_port(int p)
 	ltq_dma_w32(p, LTQ_DMA_PS);
 	switch (p) {
 	case DMA_PORT_ETOP:
+		/*
+		 * Tell the DMA engine to swap the endianess of data frames and
+		 * drop packets if the channel arbitration fails.
+		 */
 		ltq_dma_w32_mask(0, DMA_ETOP_ENDIANESS | DMA_PDEN,
 			LTQ_DMA_PCTRL);
 		break;
@@ -216,7 +220,7 @@ ltq_dma_init(void)
 {
 	int i;
 
-	
+	/* insert and request the memory region */
 	if (insert_resource(&iomem_resource, &ltq_dma_resource) < 0)
 		panic("Failed to insert dma memory");
 
@@ -224,20 +228,20 @@ ltq_dma_init(void)
 			resource_size(&ltq_dma_resource), "dma") < 0)
 		panic("Failed to request dma memory");
 
-	
+	/* remap dma register range */
 	ltq_dma_membase = ioremap_nocache(ltq_dma_resource.start,
 				resource_size(&ltq_dma_resource));
 	if (!ltq_dma_membase)
 		panic("Failed to remap dma memory");
 
-	
+	/* power up and reset the dma engine */
 	ltq_pmu_enable(PMU_DMA);
 	ltq_dma_w32_mask(0, DMA_RESET, LTQ_DMA_CTRL);
 
-	
+	/* disable all interrupts */
 	ltq_dma_w32(0, LTQ_DMA_IRNEN);
 
-	
+	/* reset/configure each channel */
 	for (i = 0; i < DMA_MAX_CHANNEL; i++) {
 		ltq_dma_w32(i, LTQ_DMA_CS);
 		ltq_dma_w32(DMA_CHAN_RST, LTQ_DMA_CCTRL);

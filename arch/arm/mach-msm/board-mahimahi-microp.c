@@ -109,12 +109,16 @@
 
 #define ALS_CALIBRATE_MODE  147
 
+/* Check pattern, to check if ALS has been calibrated */
 #define ALS_CALIBRATED	0x6DA5
 
+/* delay for deferred light sensor read */
 #define LS_READ_DELAY   (HZ/2)
 
+/*#define DEBUG_BMA150  */
 #ifdef DEBUG_BMA150
-#define GSENSOR_LOG_MAX 2048  
+/* Debug logging of accelleration data */
+#define GSENSOR_LOG_MAX 2048  /* needs to be power of 2 */
 #define GSENSOR_LOG_MASK (GSENSOR_LOG_MAX - 1)
 
 struct gsensor_log {
@@ -175,7 +179,7 @@ static struct file_operations gsensor_log_fops = {
 	.llseek = seq_lseek,
 	.release = single_release,
 };
-#endif 
+#endif /* def DEBUG_BMA150 */
 
 static int microp_headset_has_mic(void);
 static int microp_enable_headset_plug_event(void);
@@ -437,6 +441,9 @@ static int microp_interrupt_disable(struct i2c_client *client,
 }
 
 
+/*
+ * SD slot card-detect support
+ */
 static unsigned int sdslot_cd = 0;
 static void (*sdslot_status_cb)(int card_present, void *dev_id);
 static void *sdslot_mmc_dev;
@@ -464,6 +471,9 @@ static void mahimahi_microp_sdslot_update_status(int status)
 		sdslot_status_cb(sdslot_cd, sdslot_mmc_dev);
 }
 
+/*
+ *Headset Support
+*/
 static void hpin_debounce_do_work(struct work_struct *work)
 {
 	uint16_t gpi_status = 0;
@@ -494,14 +504,14 @@ static int microp_enable_headset_plug_event(void)
 	client = private_microp_client;
 	cdata = i2c_get_clientdata(client);
 
-	
+	/* enable microp interrupt to detect changes */
 	ret = microp_interrupt_enable(client, IRQ_HEADSETIN);
 	if (ret < 0) {
 		dev_err(&client->dev, "%s: failed to enable irqs\n",
 			__func__);
 		return 0;
 	}
-	
+	/* see if headset state has changed */
 	microp_read_gpi_status(client, &stat);
 	stat = !(stat & READ_GPI_STATE_HPIN);
 	if(cdata->headset_is_in != stat) {
@@ -532,7 +542,7 @@ static int microp_headset_has_mic(void)
 
 	mic2 = microp_headset_detect_mic();
 
-	
+	/* debounce the detection wait until 2 consecutive read are equal */
 	while ((mic1 != mic2) && (count < 10)) {
 		mic1 = mic2;
 		msleep(600);
@@ -556,8 +566,8 @@ static int microp_enable_key_event(void)
 	if (!is_cdma_version(system_rev))
 		gpio_set_value(MAHIMAHI_GPIO_35MM_KEY_INT_SHUTDOWN, 1);
 
-	
-	
+	/* turn on  key interrupt */
+	/* enable microp interrupt to detect changes */
 	ret = microp_interrupt_enable(client, IRQ_REMOTEKEY);
 	if (ret < 0) {
 		dev_err(&client->dev, "%s: failed to enable irqs\n",
@@ -574,11 +584,11 @@ static int microp_disable_key_event(void)
 
 	client = private_microp_client;
 
-	
+	/* shutdown key interrupt */
 	if (!is_cdma_version(system_rev))
 		gpio_set_value(MAHIMAHI_GPIO_35MM_KEY_INT_SHUTDOWN, 0);
 
-	
+	/* disable microp interrupt to detect changes */
 	ret = microp_interrupt_disable(client, IRQ_REMOTEKEY);
 	if (ret < 0) {
 		dev_err(&client->dev, "%s: failed to disable irqs\n",
@@ -603,7 +613,7 @@ static int get_remote_keycode(int *keycode)
 	pr_debug("%s: key = 0x%x\n", __func__, data[1]);
 	if (!data[1]) {
 		*keycode = 0;
-		return 1;		
+		return 1;		/* no keycode */
 	} else {
 		*keycode = data[1];
 	}
@@ -638,6 +648,9 @@ static ssize_t microp_i2c_remotekey_adc_show(struct device *dev,
 
 static DEVICE_ATTR(key_adc, 0644, microp_i2c_remotekey_adc_show, NULL);
 
+/*
+ * LED support
+*/
 static int microp_i2c_write_led_mode(struct i2c_client *client,
 				struct led_classdev *led_cdev,
 				uint8_t mode, uint16_t off_timer)
@@ -733,7 +746,7 @@ static ssize_t microp_i2c_led_blink_store(struct device *dev,
 
 	mutex_lock(&ldata->led_data_mutex);
 	switch (val) {
-	case 0: 
+	case 0: /* stop flashing */
 		mode = ldata->mode;
 		ldata->blink = 0;
 		break;
@@ -1017,16 +1030,16 @@ static void microp_led_buttons_brightness_set_work(struct work_struct *work)
 
 	value = brightness >= 255 ? 0x20 : 0;
 
-	
+	/* avoid a flicker that can occur when writing the same value */
 	if (cdata->button_led_value == value)
 		return;
 	cdata->button_led_value = value;
 
-	
+	/* in 40ms */
 	data[0] = 0x05;
-	
+	/* duty cycle 0-255 */
 	data[1] = value;
-	
+	/* bit2 == change brightness */
 	data[3] = 0x04;
 
 	ret = i2c_write_block(client, MICROP_I2C_WCMD_BUTTONS_LED_CTRL,
@@ -1076,6 +1089,9 @@ static void microp_led_jogball_brightness_set_work(struct work_struct *work)
 				__func__, data[0]);
 }
 
+/*
+ * Light Sensor Support
+ */
 static int microp_i2c_auto_backlight_mode(struct i2c_client *client,
 					    uint8_t enabled)
 {
@@ -1119,6 +1135,9 @@ static int lightsensor_enable(void)
 	}
 
 	cdata->auto_backlight_enabled = 1;
+	/* TEMPORARY HACK: schedule a deferred light sensor read
+	 * to work around sensor manager race condition
+	 */
 	schedule_delayed_work(&cdata->ls_read_work, LS_READ_DELAY);
 	schedule_work(&cdata->work.work);
 
@@ -1127,7 +1146,7 @@ static int lightsensor_enable(void)
 
 static int lightsensor_disable(void)
 {
-	
+	/* update trigger data when done */
 	struct i2c_client *client;
 	struct microp_i2c_client_data *cdata;
 	int ret;
@@ -1336,6 +1355,9 @@ struct miscdevice lightsensor_misc = {
 	.fops = &lightsensor_fops
 };
 
+/*
+ * G-sensor
+ */
 static int microp_spi_enable(uint8_t on)
 {
 	struct i2c_client *client;
@@ -1416,6 +1438,9 @@ static int gsensor_read_acceleration(short *buf)
 	msleep(10);
 
 	if (cdata->version <= 0x615) {
+		/*
+		 * Note the data is a 10bit signed value from the chip.
+		*/
 		ret = i2c_read_block(client, MICROP_I2C_RCMD_GSENSOR_X_DATA,
 				     tmp, 2);
 		if (ret < 0) {
@@ -1462,7 +1487,7 @@ static int gsensor_read_acceleration(short *buf)
 	}
 
 #ifdef DEBUG_BMA150
-	
+	/* Log this to debugfs */
 	gsensor_log_status(ktime_get(), buf[0], buf[1], buf[2]);
 #endif
 	return 1;
@@ -1638,6 +1663,9 @@ static struct miscdevice spi_bma_device = {
 	.fops = &bma_fops,
 };
 
+/*
+ * Interrupt
+ */
 static irqreturn_t microp_i2c_intr_irq_handler(int irq, void *dev_id)
 {
 	struct i2c_client *client;
@@ -1684,6 +1712,9 @@ static void microp_i2c_intr_work_func(struct work_struct *work)
 	if ((intr_status & IRQ_LSENSOR) || cdata->force_light_sensor_read) {
 		ret = microp_lightsensor_read(&adc_value, &adc_level);
 		if (cdata->force_light_sensor_read) {
+			/* report an invalid value first to ensure we trigger an event
+			 * when adc_level is zero.
+			 */
 			input_report_abs(cdata->ls_input_dev, ABS_MISC, -1);
 			input_sync(cdata->ls_input_dev);
 			cdata->force_light_sensor_read = 0;
@@ -1722,7 +1753,7 @@ static void ls_read_do_work(struct work_struct *work)
 	struct i2c_client *client = private_microp_client;
 	struct microp_i2c_client_data *cdata = i2c_get_clientdata(client);
 
-	
+	/* force a light sensor reading */
 	disable_irq(client->irq);
 	cdata->force_light_sensor_read = 1;
 	schedule_work(&cdata->work.work);
@@ -1739,7 +1770,7 @@ static int microp_function_initialize(struct i2c_client *client)
 
 	cdata = i2c_get_clientdata(client);
 
-	
+	/* Light Sensor */
 	if (als_kadc >> 16 == ALS_CALIBRATED)
 		cdata->als_kadc = als_kadc & 0xFFFF;
 	else {
@@ -1784,7 +1815,7 @@ static int microp_function_initialize(struct i2c_client *client)
 	}
 	cdata->light_sensor_enabled = 1;
 
-	
+	/* Headset */
 	for (i = 0; i < 6; i++) {
 		data[i] = (uint8_t)(remote_key_adc_table[i] >> 8);
 		data[i + 6] = (uint8_t)(remote_key_adc_table[i]);
@@ -1799,16 +1830,16 @@ static int microp_function_initialize(struct i2c_client *client)
 	INIT_DELAYED_WORK(
 		&cdata->ls_read_work, ls_read_do_work);
 
-	
+	/* SD Card */
 	interrupts |= IRQ_SDCARD;
 
-	
+	/* set LED initial state */
 	for (i = 0; i < BLUE_LED; i++) {
 		led_cdev = &cdata->leds[i].ldev;
 		microp_i2c_write_led_mode(client, led_cdev, 0, 0xffff);
 	}
 
-	
+	/* enable the interrupts */
 	ret = microp_interrupt_enable(client, interrupts);
 	if (ret < 0) {
 		dev_err(&client->dev, "%s: failed to enable gpi irqs\n",
@@ -1979,7 +2010,7 @@ static int microp_i2c_probe(struct i2c_client *client,
 	wake_lock_init(&microp_i2c_wakelock, WAKE_LOCK_SUSPEND,
 			 "microp_i2c_present");
 
-	
+	/* Light Sensor */
 	ret = device_create_file(&client->dev, &dev_attr_ls_adc);
 	ret = device_create_file(&client->dev, &dev_attr_ls_auto);
 	cdata->ls_input_dev = input_allocate_device();
@@ -2006,7 +2037,7 @@ static int microp_i2c_probe(struct i2c_client *client,
 		goto err_register_misc_register;
 	}
 
-	
+	/* LEDs */
 	ret = 0;
 	for (i = 0; i < ARRAY_SIZE(microp_leds) && !ret; ++i) {
 		struct microp_led_data *ldata = &cdata->leds[i];
@@ -2032,14 +2063,14 @@ static int microp_i2c_probe(struct i2c_client *client,
 		goto err_add_leds;
 	}
 
-	
+	/* Headset */
 	cdata->headset_is_in = 0;
 	cdata->is_hpin_pin_stable = 1;
 	platform_device_register(&mahimahi_h35mm);
 
 	ret = device_create_file(&client->dev, &dev_attr_key_adc);
 
-	
+	/* G-sensor */
 	ret = misc_register(&spi_bma_device);
 	if (ret < 0) {
 		pr_err("%s: init bma150 misc_register fail\n",
@@ -2049,7 +2080,7 @@ static int microp_i2c_probe(struct i2c_client *client,
 #ifdef DEBUG_BMA150
 	debugfs_create_file("gsensor_log", 0444, NULL, NULL, &gsensor_log_fops);
 #endif
-	
+	/* Setup IRQ handler */
 	INIT_WORK(&cdata->work.work, microp_i2c_intr_work_func);
 	cdata->work.client = client;
 
@@ -2167,7 +2198,7 @@ static int __devexit microp_i2c_remove(struct i2c_client *client)
 
 	platform_device_unregister(&mahimahi_h35mm);
 
-	
+	/* G-sensor */
 	misc_deregister(&spi_bma_device);
 
 	kfree(cdata);

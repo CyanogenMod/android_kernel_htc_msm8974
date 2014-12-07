@@ -12,17 +12,28 @@
 * consent.
 *****************************************************************************/
 
+/* ---- Include Files ---------------------------------------------------- */
 #include "nand_bcm_umi.h"
 
+/* ---- External Variable Declarations ----------------------------------- */
+/* ---- External Function Prototypes ------------------------------------- */
+/* ---- Public Variables ------------------------------------------------- */
+/* ---- Private Constants and Types -------------------------------------- */
 
+/* ---- Private Function Prototypes -------------------------------------- */
 static int bcm_umi_bch_read_page_hwecc(struct mtd_info *mtd,
 	struct nand_chip *chip, uint8_t *buf, int page);
 static void bcm_umi_bch_write_page_hwecc(struct mtd_info *mtd,
 	struct nand_chip *chip, const uint8_t *buf);
 
+/* ---- Private Variables ------------------------------------------------ */
 
+/*
+** nand_hw_eccoob
+** New oob placement block for use with hardware ecc generation.
+*/
 static struct nand_ecclayout nand_hw_eccoob_512 = {
-	
+	/* Reserve 5 for BI indicator */
 	.oobfree = {
 #if (NAND_ECC_NUM_BYTES > 3)
 		    {.offset = 0, .length = 2}
@@ -33,8 +44,12 @@ static struct nand_ecclayout nand_hw_eccoob_512 = {
 		    }
 };
 
+/*
+** We treat the OOB for a 2K page as if it were 4 512 byte oobs,
+** except the BI is at byte 0.
+*/
 static struct nand_ecclayout nand_hw_eccoob_2048 = {
-	
+	/* Reserve 0 as BI indicator */
 	.oobfree = {
 #if (NAND_ECC_NUM_BYTES > 10)
 		    {.offset = 1, .length = 2},
@@ -52,8 +67,10 @@ static struct nand_ecclayout nand_hw_eccoob_2048 = {
 		    }
 };
 
+/* We treat the OOB for a 4K page as if it were 8 512 byte oobs,
+ * except the BI is at byte 0. */
 static struct nand_ecclayout nand_hw_eccoob_4096 = {
-	
+	/* Reserve 0 as BI indicator */
 	.oobfree = {
 #if (NAND_ECC_NUM_BYTES > 10)
 		    {.offset = 1, .length = 2},
@@ -77,7 +94,17 @@ static struct nand_ecclayout nand_hw_eccoob_4096 = {
 		    }
 };
 
+/* ---- Private Functions ------------------------------------------------ */
+/* ==== Public Functions ================================================= */
 
+/****************************************************************************
+*
+*  bcm_umi_bch_read_page_hwecc - hardware ecc based page read function
+*  @mtd:	mtd info structure
+*  @chip:	nand chip info structure
+*  @buf:	buffer to store read data
+*
+***************************************************************************/
 static int bcm_umi_bch_read_page_hwecc(struct mtd_info *mtd,
 				       struct nand_chip *chip, uint8_t * buf,
 						 int page)
@@ -93,21 +120,21 @@ static int bcm_umi_bch_read_page_hwecc(struct mtd_info *mtd,
 	for (sectorIdx = 0; sectorIdx < eccsteps;
 			sectorIdx++, datap += eccsize) {
 		if (sectorIdx > 0) {
-			
+			/* Seek to page location within sector */
 			chip->cmdfunc(mtd, NAND_CMD_RNDOUT, sectorIdx * eccsize,
 				      -1);
 		}
 
-		
+		/* Enable hardware ECC before reading the buf */
 		nand_bcm_umi_bch_enable_read_hwecc();
 
-		
+		/* Read in data */
 		bcm_umi_nand_read_buf(mtd, datap, eccsize);
 
-		
+		/* Pause hardware ECC after reading the buf */
 		nand_bcm_umi_bch_pause_read_ecc_calc();
 
-		
+		/* Read the OOB ECC */
 		chip->cmdfunc(mtd, NAND_CMD_RNDOUT,
 			      mtd->writesize + sectorIdx * sectorOobSize, -1);
 		nand_bcm_umi_bch_read_oobEcc(mtd->writesize, eccCalc,
@@ -115,12 +142,12 @@ static int bcm_umi_bch_read_page_hwecc(struct mtd_info *mtd,
 					     chip->oob_poi +
 					     sectorIdx * sectorOobSize);
 
-		
+		/* Correct any ECC detected errors */
 		stat =
 		    nand_bcm_umi_bch_correct_page(datap, eccCalc,
 						  NAND_ECC_NUM_BYTES);
 
-		
+		/* Update Stats */
 		if (stat < 0) {
 #if defined(NAND_BCM_UMI_DEBUG)
 			printk(KERN_WARNING "%s uncorr_err sectorIdx=%d\n",
@@ -155,6 +182,14 @@ static int bcm_umi_bch_read_page_hwecc(struct mtd_info *mtd,
 	return 0;
 }
 
+/****************************************************************************
+*
+*  bcm_umi_bch_write_page_hwecc - hardware ecc based page write function
+*  @mtd:	mtd info structure
+*  @chip:	nand chip info structure
+*  @buf:	data buffer
+*
+***************************************************************************/
 static void bcm_umi_bch_write_page_hwecc(struct mtd_info *mtd,
 	struct nand_chip *chip, const uint8_t *buf)
 {
@@ -167,7 +202,7 @@ static void bcm_umi_bch_write_page_hwecc(struct mtd_info *mtd,
 
 	for (sectorIdx = 0; sectorIdx < eccsteps;
 	     sectorIdx++, datap += eccsize, oobp += sectorOobSize) {
-		
+		/* Enable hardware ECC before writing the buf */
 		nand_bcm_umi_bch_enable_write_hwecc();
 		bcm_umi_nand_write_buf(mtd, datap, eccsize);
 		nand_bcm_umi_bch_write_oobEcc(mtd->writesize, oobp,

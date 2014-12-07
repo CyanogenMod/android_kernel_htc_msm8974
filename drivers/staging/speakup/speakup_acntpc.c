@@ -32,7 +32,7 @@
 #include "spk_priv.h"
 #include "serialio.h"
 #include "speakup.h"
-#include "speakup_acnt.h" 
+#include "speakup_acnt.h" /* local header file for Accent values */
 
 #define DRV_VERSION "2.10"
 #define PROCSPEECH '\r'
@@ -58,6 +58,9 @@ static struct var_t vars[] = {
 	V_LAST_VAR
 };
 
+/*
+ * These attributes will appear in /sys/accessibility/speakup/acntpc.
+ */
 static struct kobj_attribute caps_start_attribute =
 	__ATTR(caps_start, USER_RW, spk_var_show, spk_var_store);
 static struct kobj_attribute caps_stop_attribute =
@@ -82,6 +85,10 @@ static struct kobj_attribute jiffy_delta_attribute =
 static struct kobj_attribute trigger_time_attribute =
 	__ATTR(trigger_time, ROOT_W, spk_var_show, spk_var_store);
 
+/*
+ * Create a group of attributes so that we can create and destroy them all
+ * at once.
+ */
 static struct attribute *synth_attrs[] = {
 	&caps_start_attribute.attr,
 	&caps_stop_attribute.attr,
@@ -94,7 +101,7 @@ static struct attribute *synth_attrs[] = {
 	&full_time_attribute.attr,
 	&jiffy_delta_attribute.attr,
 	&trigger_time_attribute.attr,
-	NULL,	
+	NULL,	/* need to NULL terminate the list of attributes */
 };
 
 static struct spk_synth synth_acntpc = {
@@ -273,7 +280,7 @@ static int synth_probe(struct spk_synth *synth)
 			}
 			port_val = inw(synth_portlist[i]) & 0xfffc;
 			if (port_val == 0x53fc) {
-				
+				/* 'S' and out&input bits */
 				synth_port_control = synth_portlist[i];
 				speakup_info.port_tts = synth_port_control+1;
 				break;
@@ -282,7 +289,7 @@ static int synth_probe(struct spk_synth *synth)
 	}
 	port_val &= 0xfffc;
 	if (port_val != 0x53fc) {
-		
+		/* 'S' and out&input bits */
 		pr_info("%s: not found\n", synth->long_name);
 		synth_release_region(synth_port_control, SYNTH_IO_EXTENT);
 		synth_port_control = 0;

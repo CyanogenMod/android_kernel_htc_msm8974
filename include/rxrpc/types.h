@@ -19,10 +19,10 @@
 #include <linux/spinlock.h>
 #include <linux/atomic.h>
 
-typedef uint32_t	rxrpc_seq_t;	
-typedef uint32_t	rxrpc_serial_t;	
-typedef __be32	rxrpc_seq_net_t; 
-typedef __be32	rxrpc_serial_net_t; 
+typedef uint32_t	rxrpc_seq_t;	/* Rx message sequence number */
+typedef uint32_t	rxrpc_serial_t;	/* Rx message serial number */
+typedef __be32	rxrpc_seq_net_t; /* on-the-wire Rx message sequence number */
+typedef __be32	rxrpc_serial_net_t; /* on-the-wire Rx message serial number */
 
 struct rxrpc_call;
 struct rxrpc_connection;
@@ -38,4 +38,4 @@ typedef void (*rxrpc_call_attn_func_t)(struct rxrpc_call *call);
 typedef void (*rxrpc_call_error_func_t)(struct rxrpc_call *call);
 typedef void (*rxrpc_call_aemap_func_t)(struct rxrpc_call *call);
 
-#endif 
+#endif /* _LINUX_RXRPC_TYPES_H */

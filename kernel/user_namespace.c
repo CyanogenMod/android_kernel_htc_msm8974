@@ -14,6 +14,14 @@
 
 static struct kmem_cache *user_ns_cachep __read_mostly;
 
+/*
+ * Create a new user namespace, deriving the creator from the user in the
+ * passed credentials, and replacing that user with the new root user for the
+ * new namespace.
+ *
+ * This is called by copy_creds(), which will finish setting the target task's
+ * credentials.
+ */
 int create_user_ns(struct cred *new)
 {
 	struct user_namespace *ns;
@@ -29,14 +37,14 @@ int create_user_ns(struct cred *new)
 	for (n = 0; n < UIDHASH_SZ; ++n)
 		INIT_HLIST_HEAD(ns->uidhash_table + n);
 
-	
+	/* Alloc new root user.  */
 	root_user = alloc_uid(ns, 0);
 	if (!root_user) {
 		kmem_cache_free(user_ns_cachep, ns);
 		return -ENOMEM;
 	}
 
-	
+	/* set the new root user in the credentials under preparation */
 	ns->creator = new->user;
 	new->user = root_user;
 	new->uid = new->euid = new->suid = new->fsuid = 0;
@@ -47,14 +55,19 @@ int create_user_ns(struct cred *new)
 	key_put(new->request_key_auth);
 	new->request_key_auth = NULL;
 #endif
-	
+	/* tgcred will be cleared in our caller bc CLONE_THREAD won't be set */
 
-	
+	/* root_user holds a reference to ns, our reference can be dropped */
 	put_user_ns(ns);
 
 	return 0;
 }
 
+/*
+ * Deferred destructor for a user namespace.  This is required because
+ * free_user_ns() may be called with uidhash_lock held, but we need to call
+ * back to free_uid() which will want to take the lock again.
+ */
 static void free_user_ns_work(struct work_struct *work)
 {
 	struct user_namespace *ns =
@@ -81,6 +94,9 @@ uid_t user_ns_map_uid(struct user_namespace *to, const struct cred *cred, uid_t 
 		return uid;
 
 
+	/* Is cred->user the creator of the target user_ns
+	 * or the creator of one of it's parents?
+	 */
 	for ( tmp = to; tmp != &init_user_ns;
 	      tmp = tmp->creator->user_ns ) {
 		if (cred->user == tmp->creator) {
@@ -88,7 +104,7 @@ uid_t user_ns_map_uid(struct user_namespace *to, const struct cred *cred, uid_t 
 		}
 	}
 
-	
+	/* No useful relationship so no mapping */
 	return overflowuid;
 }
 
@@ -99,6 +115,9 @@ gid_t user_ns_map_gid(struct user_namespace *to, const struct cred *cred, gid_t 
 	if (likely(to == cred->user->user_ns))
 		return gid;
 
+	/* Is cred->user the creator of the target user_ns
+	 * or the creator of one of it's parents?
+	 */
 	for ( tmp = to; tmp != &init_user_ns;
 	      tmp = tmp->creator->user_ns ) {
 		if (cred->user == tmp->creator) {
@@ -106,7 +125,7 @@ gid_t user_ns_map_gid(struct user_namespace *to, const struct cred *cred, gid_t 
 		}
 	}
 
-	
+	/* No useful relationship so no mapping */
 	return overflowgid;
 }
 

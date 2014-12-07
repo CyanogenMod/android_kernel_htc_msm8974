@@ -20,13 +20,20 @@
 #include <asm/sn/tioca_provider.h>
 
 u32 tioca_gart_found;
-EXPORT_SYMBOL(tioca_gart_found);	
+EXPORT_SYMBOL(tioca_gart_found);	/* used by agp-sgi */
 
 LIST_HEAD(tioca_list);
-EXPORT_SYMBOL(tioca_list);	
+EXPORT_SYMBOL(tioca_list);	/* used by agp-sgi */
 
 static int tioca_gart_init(struct tioca_kernel *);
 
+/**
+ * tioca_gart_init - Initialize SGI TIOCA GART
+ * @tioca_common: ptr to common prom/kernel struct identifying the 
+ *
+ * If the indicated tioca has devices present, initialize its associated
+ * GART MMR's and kernel memory.
+ */
 static int
 tioca_gart_init(struct tioca_kernel *tioca_kern)
 {
@@ -44,40 +51,43 @@ tioca_gart_init(struct tioca_kernel *tioca_kern)
 
 	ap_reg = 0;
 
+	/*
+	 * Validate aperature size
+	 */
 
 	switch (CA_APERATURE_SIZE >> 20) {
 	case 4:
-		ap_reg |= (0x3ff << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x3ff << CA_GART_AP_SIZE_SHFT);	/* 4MB */
 		break;
 	case 8:
-		ap_reg |= (0x3fe << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x3fe << CA_GART_AP_SIZE_SHFT);	/* 8MB */
 		break;
 	case 16:
-		ap_reg |= (0x3fc << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x3fc << CA_GART_AP_SIZE_SHFT);	/* 16MB */
 		break;
 	case 32:
-		ap_reg |= (0x3f8 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x3f8 << CA_GART_AP_SIZE_SHFT);	/* 32 MB */
 		break;
 	case 64:
-		ap_reg |= (0x3f0 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x3f0 << CA_GART_AP_SIZE_SHFT);	/* 64 MB */
 		break;
 	case 128:
-		ap_reg |= (0x3e0 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x3e0 << CA_GART_AP_SIZE_SHFT);	/* 128 MB */
 		break;
 	case 256:
-		ap_reg |= (0x3c0 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x3c0 << CA_GART_AP_SIZE_SHFT);	/* 256 MB */
 		break;
 	case 512:
-		ap_reg |= (0x380 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x380 << CA_GART_AP_SIZE_SHFT);	/* 512 MB */
 		break;
 	case 1024:
-		ap_reg |= (0x300 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x300 << CA_GART_AP_SIZE_SHFT);	/* 1GB */
 		break;
 	case 2048:
-		ap_reg |= (0x200 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x200 << CA_GART_AP_SIZE_SHFT);	/* 2GB */
 		break;
 	case 4096:
-		ap_reg |= (0x000 << CA_GART_AP_SIZE_SHFT);	
+		ap_reg |= (0x000 << CA_GART_AP_SIZE_SHFT);	/* 4 GB */
 		break;
 	default:
 		printk(KERN_ERR "%s:  Invalid CA_APERATURE_SIZE "
@@ -85,6 +95,9 @@ tioca_gart_init(struct tioca_kernel *tioca_kern)
 		return -1;
 	}
 
+	/*
+	 * Set up other aperature parameters
+	 */
 
 	if (PAGE_SIZE >= 16384) {
 		tioca_kern->ca_ap_pagesize = 16384;
@@ -101,6 +114,9 @@ tioca_gart_init(struct tioca_kernel *tioca_kern)
 	ap_reg |= (CA_GART_AP_ENB_AGP | CA_GART_AP_ENB_PCI);
 	ap_reg |= tioca_kern->ca_ap_bus_base;
 
+	/*
+	 * Allocate and set up the GART
+	 */
 
 	tioca_kern->ca_gart_size = tioca_kern->ca_gart_entries * sizeof(u64);
 	tmp =
@@ -121,6 +137,9 @@ tioca_gart_init(struct tioca_kernel *tioca_kern)
 	tioca_kern->ca_gart_coretalk_addr =
 	    PHYS_TO_TIODMA(virt_to_phys(tioca_kern->ca_gart));
 
+	/*
+	 * Compute PCI/AGP convenience fields 
+	 */
 
 	offset = CA_PCI32_MAPPED_BASE - CA_APERATURE_BASE;
 	tioca_kern->ca_pciap_base = CA_PCI32_MAPPED_BASE;
@@ -151,9 +170,16 @@ tioca_gart_init(struct tioca_kernel *tioca_kern)
 	tioca_kern->ca_gfxgart_entries =
 	    tioca_kern->ca_gfxap_size / tioca_kern->ca_ap_pagesize;
 
+	/*
+	 * various control settings:
+	 *      use agp op-combining
+	 *      use GET semantics to fetch memory
+	 *      participate in coherency domain
+	 * 	DISABLE GART PREFETCHING due to hw bug tracked in SGI PV930029
+	 */
 
 	__sn_setq_relaxed(&ca_base->ca_control1,
-			CA_AGPDMA_OP_ENB_COMBDELAY);	
+			CA_AGPDMA_OP_ENB_COMBDELAY);	/* PV895469 ? */
 	__sn_clrq_relaxed(&ca_base->ca_control2, CA_GART_MEM_PARAM);
 	__sn_setq_relaxed(&ca_base->ca_control2,
 			(0x2ull << CA_GART_MEM_PARAM_SHFT));
@@ -161,11 +187,17 @@ tioca_gart_init(struct tioca_kernel *tioca_kern)
 	__sn_clrq_relaxed(&ca_base->ca_control2,
 	    		(CA_GART_WR_PREFETCH_ENB | CA_GART_RD_PREFETCH_ENB));
 
+	/*
+	 * Unmask GART fetch error interrupts.  Clear residual errors first.
+	 */
 
 	writeq(CA_GART_FETCH_ERR, &ca_base->ca_int_status_alias);
 	writeq(CA_GART_FETCH_ERR, &ca_base->ca_mult_error_alias);
 	__sn_clrq_relaxed(&ca_base->ca_int_mask, CA_GART_FETCH_ERR);
 
+	/*
+	 * Program the aperature and gart registers in TIOCA
+	 */
 
 	writeq(ap_reg, &ca_base->ca_gart_aperature);
 	writeq(tioca_kern->ca_gart_coretalk_addr|1, &ca_base->ca_gart_ptr_table);
@@ -173,6 +205,13 @@ tioca_gart_init(struct tioca_kernel *tioca_kern)
 	return 0;
 }
 
+/**
+ * tioca_fastwrite_enable - enable AGP FW for a tioca and its functions
+ * @tioca_kernel: structure representing the CA
+ *
+ * Given a CA, scan all attached functions making sure they all support
+ * FastWrite.  If so, enable FastWrite for all functions and the CA itself.
+ */
 
 void
 tioca_fastwrite_enable(struct tioca_kernel *tioca_kern)
@@ -185,6 +224,10 @@ tioca_fastwrite_enable(struct tioca_kernel *tioca_kern)
 
 	common = tioca_kern->ca_common;
 
+	/*
+	 * Scan all vga controllers on this bus making sure they all
+	 * support FW.  If not, return.
+	 */
 
 	list_for_each_entry(pdev, tioca_kern->ca_devices, bus_list) {
 		if (pdev->class != (PCI_CLASS_DISPLAY_VGA << 8))
@@ -192,13 +235,16 @@ tioca_fastwrite_enable(struct tioca_kernel *tioca_kern)
 
 		cap_ptr = pci_find_capability(pdev, PCI_CAP_ID_AGP);
 		if (!cap_ptr)
-			return;	
+			return;	/* no AGP CAP means no FW */
 
 		pci_read_config_dword(pdev, cap_ptr + PCI_AGP_STATUS, &reg);
 		if (!(reg & PCI_AGP_STATUS_FW))
-			return;	
+			return;	/* function doesn't support FW */
 	}
 
+	/*
+	 * Set fw for all vga fn's
+	 */
 
 	list_for_each_entry(pdev, tioca_kern->ca_devices, bus_list) {
 		if (pdev->class != (PCI_CLASS_DISPLAY_VGA << 8))
@@ -210,13 +256,29 @@ tioca_fastwrite_enable(struct tioca_kernel *tioca_kern)
 		pci_write_config_dword(pdev, cap_ptr + PCI_AGP_COMMAND, reg);
 	}
 
+	/*
+	 * Set ca's fw to match
+	 */
 
 	tioca_base = (struct tioca __iomem*)common->ca_common.bs_base;
 	__sn_setq_relaxed(&tioca_base->ca_control1, CA_AGP_FW_ENABLE);
 }
 
-EXPORT_SYMBOL(tioca_fastwrite_enable);	
+EXPORT_SYMBOL(tioca_fastwrite_enable);	/* used by agp-sgi */
 
+/**
+ * tioca_dma_d64 - create a DMA mapping using 64-bit direct mode
+ * @paddr: system physical address
+ *
+ * Map @paddr into 64-bit CA bus space.  No device context is necessary.
+ * Bits 53:0 come from the coretalk address.  We just need to mask in the
+ * following optional bits of the 64-bit pci address:
+ *
+ * 63:60 - Coretalk Packet Type -  0x1 for Mem Get/Put (coherent)
+ *                                 0x2 for PIO (non-coherent)
+ *                                 We will always use 0x1
+ * 55:55 - Swap bytes		   Currently unused
+ */
 static u64
 tioca_dma_d64(unsigned long paddr)
 {
@@ -227,12 +289,38 @@ tioca_dma_d64(unsigned long paddr)
 	BUG_ON(!bus_addr);
 	BUG_ON(bus_addr >> 54);
 
-	
+	/* Set upper nibble to Cache Coherent Memory op */
 	bus_addr |= (1UL << 60);
 
 	return bus_addr;
 }
 
+/**
+ * tioca_dma_d48 - create a DMA mapping using 48-bit direct mode
+ * @pdev: linux pci_dev representing the function
+ * @paddr: system physical address
+ *
+ * Map @paddr into 64-bit bus space of the CA associated with @pcidev_info.
+ *
+ * The CA agp 48 bit direct address falls out as follows:
+ *
+ * When direct mapping AGP addresses, the 48 bit AGP address is
+ * constructed as follows:
+ *
+ * [47:40] - Low 8 bits of the page Node ID extracted from coretalk
+ *              address [47:40].  The upper 8 node bits are fixed
+ *              and come from the xxx register bits [5:0]
+ * [39:38] - Chiplet ID extracted from coretalk address [39:38]
+ * [37:00] - node offset extracted from coretalk address [37:00]
+ * 
+ * Since the node id in general will be non-zero, and the chiplet id
+ * will always be non-zero, it follows that the device must support
+ * a dma mask of at least 0xffffffffff (40 bits) to target node 0
+ * and in general should be 0xffffffffffff (48 bits) to target nodes
+ * up to 255.  Nodes above 255 need the support of the xxx register,
+ * and so a given CA can only directly target nodes in the range
+ * xxx - xxx+255.
+ */
 static u64
 tioca_dma_d48(struct pci_dev *pdev, u64 paddr)
 {
@@ -272,6 +360,15 @@ tioca_dma_d48(struct pci_dev *pdev, u64 paddr)
 	return bus_addr;
 }
 
+/**
+ * tioca_dma_mapped - create a DMA mapping using a CA GART 
+ * @pdev: linux pci_dev representing the function
+ * @paddr: host physical address to map
+ * @req_size: len (bytes) to map
+ *
+ * Map @paddr into CA address space using the GART mechanism.  The mapped
+ * dma_addr_t is guaranteed to be contiguous in CA bus space.
+ */
 static dma_addr_t
 tioca_dma_mapped(struct pci_dev *pdev, unsigned long paddr, size_t req_size)
 {
@@ -294,13 +391,20 @@ tioca_dma_mapped(struct pci_dev *pdev, unsigned long paddr, size_t req_size)
 
 	spin_lock_irqsave(&tioca_kern->ca_lock, flags);
 
+	/*
+	 * allocate a map struct
+	 */
 
 	ca_dmamap = kzalloc(sizeof(struct tioca_dmamap), GFP_ATOMIC);
 	if (!ca_dmamap)
 		goto map_return;
 
+	/*
+	 * Locate free entries that can hold req_size.  Account for
+	 * unaligned start/length when allocating.
+	 */
 
-	ps = tioca_kern->ca_ap_pagesize;	
+	ps = tioca_kern->ca_ap_pagesize;	/* will be power of 2 */
 	ps_shift = ffs(ps) - 1;
 	end_xio_addr = xio_addr + req_size - 1;
 
@@ -345,6 +449,16 @@ map_return:
 	return bus_addr;
 }
 
+/**
+ * tioca_dma_unmap - release CA mapping resources
+ * @pdev: linux pci_dev representing the function
+ * @bus_addr: bus address returned by an earlier tioca_dma_map
+ * @dir: mapping direction (unused)
+ *
+ * Locate mapping resources associated with @bus_addr and release them.
+ * For mappings created using the direct modes (64 or 48) there are no
+ * resources to release.
+ */
 static void
 tioca_dma_unmap(struct pci_dev *pdev, dma_addr_t bus_addr, int dir)
 {
@@ -358,7 +472,7 @@ tioca_dma_unmap(struct pci_dev *pdev, dma_addr_t bus_addr, int dir)
 	tioca_common = (struct tioca_common *)pcidev_info->pdi_pcibus_info;
 	tioca_kern = (struct tioca_kernel *)tioca_common->ca_kernel_private;
 
-	
+	/* return straight away if this isn't be a mapped address */
 
 	if (bus_addr < tioca_kern->ca_pciap_base ||
 	    bus_addr >= (tioca_kern->ca_pciap_base + tioca_kern->ca_pciap_size))
@@ -385,14 +499,32 @@ tioca_dma_unmap(struct pci_dev *pdev, dma_addr_t bus_addr, int dir)
 	kfree(map);
 }
 
+/**
+ * tioca_dma_map - map pages for PCI DMA
+ * @pdev: linux pci_dev representing the function
+ * @paddr: host physical address to map
+ * @byte_count: bytes to map
+ *
+ * This is the main wrapper for mapping host physical pages to CA PCI space.
+ * The mapping mode used is based on the devices dma_mask.  As a last resort
+ * use the GART mapped mode.
+ */
 static u64
 tioca_dma_map(struct pci_dev *pdev, unsigned long paddr, size_t byte_count, int dma_flags)
 {
 	u64 mapaddr;
 
+	/*
+	 * Not supported for now ...
+	 */
 	if (dma_flags & SN_DMA_MSI)
 		return 0;
 
+	/*
+	 * If card is 64 or 48 bit addressable, use a direct mapping.  32
+	 * bit direct is so restrictive w.r.t. where the memory resides that
+	 * we don't use it even though CA has some support.
+	 */
 
 	if (pdev->dma_mask == ~0UL)
 		mapaddr = tioca_dma_d64(paddr);
@@ -401,7 +533,7 @@ tioca_dma_map(struct pci_dev *pdev, unsigned long paddr, size_t byte_count, int 
 	else
 		mapaddr = 0;
 
-	
+	/* Last resort ... use PCI portion of CA GART */
 
 	if (mapaddr == 0)
 		mapaddr = tioca_dma_mapped(pdev, paddr, byte_count);
@@ -409,6 +541,14 @@ tioca_dma_map(struct pci_dev *pdev, unsigned long paddr, size_t byte_count, int 
 	return mapaddr;
 }
 
+/**
+ * tioca_error_intr_handler - SGI TIO CA error interrupt handler
+ * @irq: unused
+ * @arg: pointer to tioca_common struct for the given CA
+ *
+ * Handle a CA error interrupt.  Simply a wrapper around a SAL call which
+ * defers processing to the SGI prom.
+ */
 static irqreturn_t
 tioca_error_intr_handler(int irq, void *arg)
 {
@@ -429,6 +569,17 @@ tioca_error_intr_handler(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+/**
+ * tioca_bus_fixup - perform final PCI fixup for a TIO CA bus
+ * @prom_bussoft: Common prom/kernel struct representing the bus
+ *
+ * Replicates the tioca_common pointed to by @prom_bussoft in kernel
+ * space.  Allocates and initializes a kernel-only area for a given CA,
+ * and sets up an irq for handling CA error interrupts.
+ *
+ * On successful setup, returns the kernel version of tioca_common back to
+ * the caller.
+ */
 static void *
 tioca_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *controller)
 {
@@ -436,7 +587,7 @@ tioca_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 	struct tioca_kernel *tioca_kern;
 	struct pci_bus *bus;
 
-	
+	/* sanity check prom rev */
 
 	if (is_shub1() && sn_sal_rev() < 0x0406) {
 		printk
@@ -445,6 +596,9 @@ tioca_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 		return NULL;
 	}
 
+	/*
+	 * Allocate kernel bus soft and copy from prom.
+	 */
 
 	tioca_common = kmemdup(prom_bussoft, sizeof(struct tioca_common),
 			       GFP_KERNEL);
@@ -455,7 +609,7 @@ tioca_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 		ioremap(REGION_OFFSET(tioca_common->ca_common.bs_base),
 			sizeof(struct tioca_common));
 
-	
+	/* init kernel-private area */
 
 	tioca_kern = kzalloc(sizeof(struct tioca_kernel), GFP_KERNEL);
 	if (!tioca_kern) {
@@ -475,7 +629,7 @@ tioca_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 	BUG_ON(!bus);
 	tioca_kern->ca_devices = &bus->devices;
 
-	
+	/* init GART */
 
 	if (tioca_gart_init(tioca_kern) < 0) {
 		kfree(tioca_kern);
@@ -498,7 +652,7 @@ tioca_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 	irq_set_handler(SGI_TIOCA_ERROR, handle_level_irq);
 	sn_set_err_irq_affinity(SGI_TIOCA_ERROR);
 
-	
+	/* Setup locality information */
 	controller->node = tioca_kern->ca_closest_node;
 	return tioca_common;
 }
@@ -512,6 +666,9 @@ static struct sn_pcibus_provider tioca_pci_interfaces = {
 	.target_interrupt = NULL
 };
 
+/**
+ * tioca_init_provider - init SN PCI provider ops for TIO CA
+ */
 int
 tioca_init_provider(void)
 {

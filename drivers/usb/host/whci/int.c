@@ -55,6 +55,10 @@ irqreturn_t whc_int_handler(struct usb_hcd *hcd)
 	if (sts & WUSBSTS_DNTS_INT)
 		queue_work(whc->workqueue, &whc->dn_work);
 
+	/*
+	 * A transfer completed (see [WHCI] section 4.7.1.2 for when
+	 * this occurs).
+	 */
 	if (sts & (WUSBSTS_INT | WUSBSTS_ERR_INT))
 		transfer_done(whc);
 

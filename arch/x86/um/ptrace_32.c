@@ -30,6 +30,11 @@ int is_syscall(unsigned long addr)
 
 	n = copy_from_user(&instr, (void __user *) addr, sizeof(instr));
 	if (n) {
+		/* access_process_vm() grants access to vsyscall and stub,
+		 * while copy_from_user doesn't. Maybe access_process_vm is
+		 * slow, but that doesn't matter, since it will be called only
+		 * in case of singlestepping, if copy_from_user failed.
+		 */
 		n = access_process_vm(current, addr, &instr, sizeof(instr), 0);
 		if (n != sizeof(instr)) {
 			printk(KERN_ERR "is_syscall : failed to read "
@@ -37,10 +42,12 @@ int is_syscall(unsigned long addr)
 			return 1;
 		}
 	}
-	
+	/* int 0x80 or sysenter */
 	return (instr == 0x80cd) || (instr == 0x340f);
 }
 
+/* determines which flags the user has access to. */
+/* 1 = access 0 = no access */
 #define FLAG_MASK 0x00044dd5
 
 static const int reg_offsets[] = {
@@ -162,6 +169,7 @@ unsigned long getreg(struct task_struct *child, int regno)
 	return mask & child->thread.regs.regs.gp[reg_offsets[regno]];
 }
 
+/* read the word at location addr in the USER area. */
 int peek_user(struct task_struct *child, long addr, long data)
 {
 	unsigned long tmp;
@@ -169,7 +177,7 @@ int peek_user(struct task_struct *child, long addr, long data)
 	if ((addr & 3) || addr < 0)
 		return -EIO;
 
-	tmp = 0;  
+	tmp = 0;  /* Default return condition */
 	if (addr < MAX_REG_OFFSET) {
 		tmp = getreg(child, addr);
 	}
@@ -246,16 +254,16 @@ long subarch_ptrace(struct task_struct *child, long request,
 	int ret = -EIO;
 	void __user *datap = (void __user *) data;
 	switch (request) {
-	case PTRACE_GETFPREGS: 
+	case PTRACE_GETFPREGS: /* Get the child FPU state. */
 		ret = get_fpregs(datap, child);
 		break;
-	case PTRACE_SETFPREGS: 
+	case PTRACE_SETFPREGS: /* Set the child FPU state. */
 		ret = set_fpregs(datap, child);
 		break;
-	case PTRACE_GETFPXREGS: 
+	case PTRACE_GETFPXREGS: /* Get the child FPU state. */
 		ret = get_fpxregs(datap, child);
 		break;
-	case PTRACE_SETFPXREGS: 
+	case PTRACE_SETFPXREGS: /* Set the child FPU state. */
 		ret = set_fpxregs(datap, child);
 		break;
 	default:

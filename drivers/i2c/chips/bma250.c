@@ -25,6 +25,7 @@
 #include <linux/module.h>
 #include <linux/of_gpio.h>
 
+/*#define EARLY_SUSPEND_BMA 1*/
 
 #define D(x...) pr_info("[GSNR][BMA250] " x)
 #define E(x...) printk(KERN_ERR "[GSNR][BMA250 ERROR] " x)
@@ -128,7 +129,14 @@ static int BMA_Init(void)
 	range = (buffer[0] & 0xF0) | DEFAULT_RANGE;
 	bw = (buffer[1] & 0xE0) | DEFAULT_BW;
 
-	
+	/* Multiple write msgs */
+	/*buffer[3] = bw;
+	buffer[2] = bma250_BW_SEL_REG;
+	buffer[1] = range;
+	buffer[0] = bma250_RANGE_SEL_REG;
+	ret = BMA_I2C_TxData(buffer, 4);
+	if (ret < 0)
+		return -1;*/
 
 	buffer[1] = bw;
 	buffer[0] = bma250_BW_SEL_REG;
@@ -146,7 +154,7 @@ static int BMA_Init(void)
 		return -1;
 	}
 
-	
+	/* Debug use */
 	buffer[0] = bma250_RANGE_SEL_REG;
 	ret = BMA_I2C_RxData(buffer, 2);
 	if (ret < 0)
@@ -171,6 +179,10 @@ static int BMA_TransRBuff(short *rbuf)
 	if (ret < 0)
 		return ret;
 
+	/*D("%s: buffer(0, 1, 2, 3, 4, 5) = (0x%02x, 0x%02x, "
+		"0x%02x, 0x%02x, 0x%02x, 0x%02x)\n",
+		__func__, buffer[0], buffer[1], buffer[2],
+		buffer[3], buffer[4], buffer[5]);*/
 
 	rbuf[0] = (short)(buffer[1] << 8 | buffer[0]);
 	rbuf[0] >>= 6;
@@ -185,6 +197,7 @@ static int BMA_TransRBuff(short *rbuf)
 	return 1;
 }
 
+/* set  operation mode: 0 = normal, 1 = suspend */
 static int BMA_set_mode(unsigned char mode)
 {
 	char buffer[2] = "";
@@ -211,7 +224,7 @@ static int BMA_set_mode(unsigned char mode)
 		ret = BMA_I2C_RxData(buffer, 1);
 		if (ret < 0)
 			return -1;
-		
+		/*D("%s: MODE_CTRL_REG++ = 0x%02x\n", __func__, buffer[0]);*/
 
 		switch (mode) {
 		case bma250_MODE_NORMAL:
@@ -224,7 +237,7 @@ static int BMA_set_mode(unsigned char mode)
 			break;
 		}
 
-		
+		/*D("%s: data1 = 0x%02x\n", __func__, data1);*/
 		buffer[0] = bma250_MODE_CTRL_REG;
 		buffer[1] = data1;
 		ret = BMA_I2C_TxData(buffer, 2);
@@ -233,7 +246,12 @@ static int BMA_set_mode(unsigned char mode)
 
 	if (mode == bma250_MODE_NORMAL)
 		usleep(2000);
-	
+	/* Debug use */
+	/*buffer[0] = bma250_MODE_CTRL_REG;
+	ret = BMA_I2C_RxData(buffer, 1);
+	if (ret < 0)
+		return -1;
+	D("%s: MODE_CTRL_REG-- = 0x%02x\n", __func__, buffer[0]);*/
 	if (pdata->power_LPM && (mode < 2)) {
 		switch (mode) {
 		case bma250_MODE_SUSPEND:
@@ -307,10 +325,16 @@ static long bma_ioctl(struct file *file, unsigned int cmd,
 	case BMA_IOCTL_READ:
 		if (rwbuf[0] < 1)
 			return -EINVAL;
+		/*ret = BMA_I2C_RxData(&rwbuf[1], rwbuf[0]);
+		if (ret < 0)
+			return ret;*/
 		break;
 	case BMA_IOCTL_WRITE:
 		if (rwbuf[0] < 2)
 			return -EINVAL;
+		/*ret = BMA_I2C_TxData(&rwbuf[1], rwbuf[0]);
+		if (ret < 0)
+			return ret;*/
 		break;
 	case BMA_IOCTL_WRITE_CALI_VALUE:
 		pdata->gs_kvalue = kbuf;
@@ -366,6 +390,8 @@ static long bma_ioctl(struct file *file, unsigned int cmd,
 
 	switch (cmd) {
 	case BMA_IOCTL_READ:
+		/*if (copy_to_user(argp, &rwbuf, sizeof(rwbuf)))
+			return -EFAULT;*/
 		break;
 	case BMA_IOCTL_READ_ACCELERATION:
 		if (copy_to_user(argp, &buf, sizeof(buf)))
@@ -413,7 +439,7 @@ static void bma250_late_resume(struct early_suspend *handler)
 	BMA_set_mode(bma250_MODE_NORMAL);
 }
 
-#else 
+#else /* EARLY_SUSPEND_BMA */
 
 static int bma250_suspend(struct device *dev)
 {
@@ -427,7 +453,7 @@ static int bma250_resume(struct device *dev)
 	BMA_set_mode(bma250_MODE_NORMAL);
 	return 0;
 }
-#endif 
+#endif /* EARLY_SUSPEND_BMA */
 
 static ssize_t bma250_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
@@ -529,12 +555,12 @@ int bma250_registerAttr(void)
 		goto err_create_accelerometer_device;
 	}
 
-	
+	/* register the attributes */
 	ret = device_create_file(accelerometer_dev, &dev_attr_PhoneOnOffFlag);
 	if (ret)
 		goto err_create_accelerometer_device_file;
 
-	
+	/* register the debug_en attributes */
 	ret = device_create_file(accelerometer_dev, &dev_attr_debug_en);
 	if (ret)
 		goto err_create_accelerometer_debug_en_device_file;
@@ -556,7 +582,7 @@ static const struct file_operations bma_fops = {
 	.owner = THIS_MODULE,
 	.open = bma_open,
 	.release = bma_release,
-	
+	/*.ioctl = bma_ioctl,*/
 #if HAVE_COMPAT_IOCTL
 	.compat_ioctl = bma_ioctl,
 #endif
@@ -583,7 +609,7 @@ static int bma250_parse_dt(struct device *dev, struct bma250_platform_data *pdat
 		return -EINVAL;
 	}
 
-	
+	/* TODO: Add LPM function */
 	pdata->power_LPM = NULL;
 
 	return 0;

@@ -12,15 +12,17 @@
 #ifndef __ASM_TXX9_TX4938_H
 #define __ASM_TXX9_TX4938_H
 
+/* some controllers are compatible with 4927 */
 #include <asm/txx9/tx4927.h>
 
 #ifdef CONFIG_64BIT
-#define TX4938_REG_BASE	0xffffffffff1f0000UL 
+#define TX4938_REG_BASE	0xffffffffff1f0000UL /* == TX4937_REG_BASE */
 #else
-#define TX4938_REG_BASE	0xff1f0000UL 
+#define TX4938_REG_BASE	0xff1f0000UL /* == TX4937_REG_BASE */
 #endif
-#define TX4938_REG_SIZE	0x00010000 
+#define TX4938_REG_SIZE	0x00010000 /* == TX4937_REG_SIZE */
 
+/* NDFMC, SRAMC, PCIC1, SPIC: TX4938 only */
 #define TX4938_NDFMC_REG	(TX4938_REG_BASE + 0x5000)
 #define TX4938_SRAMC_REG	(TX4938_REG_BASE + 0x6000)
 #define TX4938_PCIC1_REG	(TX4938_REG_BASE + 0x7000)
@@ -57,6 +59,9 @@ struct tx4938_ccfg_reg {
 	u64 jmpadr;
 };
 
+/*
+ * IRC
+ */
 
 #define TX4938_IR_ECCERR	0
 #define TX4938_IR_WTOERR	1
@@ -65,7 +70,7 @@ struct tx4938_ccfg_reg {
 #define TX4938_NUM_IR_SIO	2
 #define TX4938_IR_SIO(n)	(8 + (n))
 #define TX4938_NUM_IR_DMA	4
-#define TX4938_IR_DMA(ch, n)	((ch ? 27 : 10) + (n)) 
+#define TX4938_IR_DMA(ch, n)	((ch ? 27 : 10) + (n)) /* 10-13, 27-30 */
 #define TX4938_IR_PIO	14
 #define TX4938_IR_PDMAC	15
 #define TX4938_IR_PCIC	16
@@ -79,13 +84,18 @@ struct tx4938_ccfg_reg {
 #define TX4938_IR_PCIC1	26
 #define TX4938_IR_SPI	31
 #define TX4938_NUM_IR	32
+/* multiplex */
 #define TX4938_IR_ETH0	TX4938_IR_INT(4)
 #define TX4938_IR_ETH1	TX4938_IR_INT(3)
 
-#define TX4938_IRC_INT	2	
+#define TX4938_IRC_INT	2	/* IP[2] in Status register */
 
 #define TX4938_NUM_PIO	16
 
+/*
+ * CCFG
+ */
+/* CCFG : Chip Configuration */
 #define TX4938_CCFG_WDRST	0x0000020000000000ULL
 #define TX4938_CCFG_WDREXEN	0x0000010000000000ULL
 #define TX4938_CCFG_BCFG_MASK	0x000000ff00000000ULL
@@ -123,6 +133,7 @@ struct tx4938_ccfg_reg {
 #define TX4938_CCFG_HALT	0x00000002
 #define TX4938_CCFG_ACEHOLD	0x00000001
 
+/* PCFG : Pin Configuration */
 #define TX4938_PCFG_ETH0_SEL	0x8000000000000000ULL
 #define TX4938_PCFG_ETH1_SEL	0x4000000000000000ULL
 #define TX4938_PCFG_ATA_SEL	0x2000000000000000ULL
@@ -148,6 +159,7 @@ struct tx4938_ccfg_reg {
 #define TX4938_PCFG_DMASEL3_DRQ3	0x00000000
 #define TX4938_PCFG_DMASEL3_SIO0	0x00000008
 
+/* CLKCTR : Clock Control */
 #define TX4938_CLKCTR_NDFCKD	0x0001000000000000ULL
 #define TX4938_CLKCTR_NDFRST	0x0000000100000000ULL
 #define TX4938_CLKCTR_ETH1CKD	0x80000000
@@ -181,6 +193,10 @@ struct tx4938_ccfg_reg {
 #define TX4938_CLKCTR_SIO0RST	0x00000002
 #define TX4938_CLKCTR_SIO1RST	0x00000001
 
+/*
+ * DMA
+ */
+/* bits for MCR */
 #define TX4938_DMA_MCR_EIS(ch)	(0x10000000<<(ch))
 #define TX4938_DMA_MCR_DIS(ch)	(0x01000000<<(ch))
 #define TX4938_DMA_MCR_RSFIF	0x00000080
@@ -188,6 +204,7 @@ struct tx4938_ccfg_reg {
 #define TX4938_DMA_MCR_RPRT	0x00000002
 #define TX4938_DMA_MCR_MSTEN	0x00000001
 
+/* bits for CCRn */
 #define TX4938_DMA_CCR_IMMCHN	0x20000000
 #define TX4938_DMA_CCR_USEXFSZ	0x10000000
 #define TX4938_DMA_CCR_LE	0x08000000
@@ -218,6 +235,7 @@ struct tx4938_ccfg_reg {
 #define TX4938_DMA_CCR_MEMIO	0x00000002
 #define TX4938_DMA_CCR_SNGAD	0x00000001
 
+/* bits for CSRn */
 #define TX4938_DMA_CSR_CHNEN	0x00000400
 #define TX4938_DMA_CSR_STLXFER	0x00000200
 #define TX4938_DMA_CSR_CHNACT	0x00000100
@@ -276,8 +294,13 @@ void tx4938_mtd_init(int ch);
 void tx4938_ndfmc_init(unsigned int hold, unsigned int spw);
 
 struct tx4938ide_platform_info {
+	/*
+	 * I/O port shift, for platforms with ports that are
+	 * constantly spaced and need larger than the 1-byte
+	 * spacing used by ata_std_ports().
+	 */
 	unsigned int ioport_shift;
-	unsigned int gbus_clock;	
+	unsigned int gbus_clock;	/*  0 means no PIO mode tuning. */
 	unsigned int ebus_ch;
 };
 

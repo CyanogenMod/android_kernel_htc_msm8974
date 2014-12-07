@@ -15,6 +15,15 @@
 #ifdef CONFIG_ARCH_AT91RM9200
 #include <mach/at91rm9200_sdramc.h>
 
+/*
+ * The AT91RM9200 goes into self-refresh mode with this command, and will
+ * terminate self-refresh automatically on the next SDRAM access.
+ *
+ * Self-refresh mode is exited as soon as a memory access is made, but we don't
+ * know for sure when that happens. However, we need to restore the low-power
+ * mode if it was enabled before going idle. Restoring low-power mode while
+ * still in self-refresh is "not recommended", but seems to work.
+ */
 
 static inline void at91rm9200_standby(void)
 {
@@ -38,8 +47,13 @@ static inline void at91rm9200_standby(void)
 
 #elif defined(CONFIG_ARCH_AT91SAM9G45)
 
+/* We manage both DDRAM/SDRAM controllers, we need more than one value to
+ * remember.
+ */
 static inline void at91sam9g45_standby(void)
 {
+	/* Those two values allow us to delay self-refresh activation
+	 * to the maximum. */
 	u32 lpr0, lpr1;
 	u32 saved_lpr0, saved_lpr1;
 
@@ -51,7 +65,7 @@ static inline void at91sam9g45_standby(void)
 	lpr0 = saved_lpr0 & ~AT91_DDRSDRC_LPCB;
 	lpr0 |= AT91_DDRSDRC_LPCB_SELF_REFRESH;
 
-	
+	/* self-refresh mode now */
 	at91_ramc_write(0, AT91_DDRSDRC_LPR, lpr0);
 	at91_ramc_write(1, AT91_DDRSDRC_LPR, lpr1);
 
@@ -66,6 +80,10 @@ static inline void at91sam9g45_standby(void)
 #else
 
 #ifdef CONFIG_ARCH_AT91SAM9263
+/*
+ * FIXME either or both the SDRAM controllers (EB0, EB1) might be in use;
+ * handle those cases both here and in the Suspend-To-RAM support.
+ */
 #warning Assuming EB1 SDRAM controller is *NOT* used
 #endif
 

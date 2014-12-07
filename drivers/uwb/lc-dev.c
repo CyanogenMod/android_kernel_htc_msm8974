@@ -32,6 +32,7 @@
 #include <linux/stat.h>
 #include "uwb-internal.h"
 
+/* We initialize addresses to 0xff (invalid, as it is bcast) */
 static inline void uwb_dev_addr_init(struct uwb_dev_addr *addr)
 {
 	memset(&addr->data, 0xff, sizeof(addr->data));
@@ -42,12 +43,16 @@ static inline void uwb_mac_addr_init(struct uwb_mac_addr *addr)
 	memset(&addr->data, 0xff, sizeof(addr->data));
 }
 
+/* @returns !0 if a device @addr is a broadcast address */
 static inline int uwb_dev_addr_bcast(const struct uwb_dev_addr *addr)
 {
 	static const struct uwb_dev_addr bcast = { .data = { 0xff, 0xff } };
 	return !uwb_dev_addr_cmp(addr, &bcast);
 }
 
+/*
+ * Add callback @new to be called when an event occurs in @rc.
+ */
 int uwb_notifs_register(struct uwb_rc *rc, struct uwb_notifs_handler *new)
 {
 	if (mutex_lock_interruptible(&rc->notifs_chain.mutex))
@@ -58,6 +63,9 @@ int uwb_notifs_register(struct uwb_rc *rc, struct uwb_notifs_handler *new)
 }
 EXPORT_SYMBOL_GPL(uwb_notifs_register);
 
+/*
+ * Remove event handler (callback)
+ */
 int uwb_notifs_deregister(struct uwb_rc *rc, struct uwb_notifs_handler *entry)
 {
 	if (mutex_lock_interruptible(&rc->notifs_chain.mutex))
@@ -68,6 +76,12 @@ int uwb_notifs_deregister(struct uwb_rc *rc, struct uwb_notifs_handler *entry)
 }
 EXPORT_SYMBOL_GPL(uwb_notifs_deregister);
 
+/*
+ * Notify all event handlers of a given event on @rc
+ *
+ * We are called with a valid reference to the device, or NULL if the
+ * event is not for a particular event (e.g., a BG join event).
+ */
 void uwb_notify(struct uwb_rc *rc, struct uwb_dev *uwb_dev, enum uwb_notifs event)
 {
 	struct uwb_notifs_handler *handler;
@@ -81,6 +95,9 @@ void uwb_notify(struct uwb_rc *rc, struct uwb_dev *uwb_dev, enum uwb_notifs even
 	mutex_unlock(&rc->notifs_chain.mutex);
 }
 
+/*
+ * Release the backing device of a uwb_dev that has been dynamically allocated.
+ */
 static void uwb_dev_sys_release(struct device *dev)
 {
 	struct uwb_dev *uwb_dev = to_uwb_dev(dev);
@@ -90,6 +107,11 @@ static void uwb_dev_sys_release(struct device *dev)
 	kfree(uwb_dev);
 }
 
+/*
+ * Initialize a UWB device instance
+ *
+ * Alloc, zero and call this function.
+ */
 void uwb_dev_init(struct uwb_dev *uwb_dev)
 {
 	mutex_init(&uwb_dev->mutex);
@@ -122,6 +144,12 @@ static ssize_t uwb_dev_DevAddr_show(struct device *dev,
 }
 static DEVICE_ATTR(DevAddr, S_IRUGO, uwb_dev_DevAddr_show, NULL);
 
+/*
+ * Show the BPST of this device.
+ *
+ * Calculated from the receive time of the device's beacon and it's
+ * slot number.
+ */
 static ssize_t uwb_dev_BPST_show(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
@@ -141,6 +169,15 @@ static ssize_t uwb_dev_BPST_show(struct device *dev,
 }
 static DEVICE_ATTR(BPST, S_IRUGO, uwb_dev_BPST_show, NULL);
 
+/*
+ * Show the IEs a device is beaconing
+ *
+ * We need to access the beacon cache, so we just lock it really
+ * quick, print the IEs and unlock.
+ *
+ * We have a reference on the cache entry, so that should be
+ * quite safe.
+ */
 static ssize_t uwb_dev_IEs_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -226,11 +263,18 @@ static const struct attribute_group *groups[] = {
 	NULL,
 };
 
+/**
+ * Device SYSFS registration
+ *
+ *
+ */
 static int __uwb_dev_sys_add(struct uwb_dev *uwb_dev, struct device *parent_dev)
 {
 	struct device *dev;
 
 	dev = &uwb_dev->dev;
+	/* Device sysfs files are only useful for neighbor devices not
+	   local radio controllers. */
 	if (&uwb_dev->rc->uwb_dev != uwb_dev)
 		dev->groups = groups;
 	dev->parent = parent_dev;
@@ -247,6 +291,19 @@ static void __uwb_dev_sys_rm(struct uwb_dev *uwb_dev)
 }
 
 
+/**
+ * Register and initialize a new UWB device
+ *
+ * Did you call uwb_dev_init() on it?
+ *
+ * @parent_rc: is the parent radio controller who has the link to the
+ *             device. When registering the UWB device that is a UWB
+ *             Radio Controller, we point back to it.
+ *
+ * If registering the device that is part of a radio, caller has set
+ * rc->uwb_dev->dev. Otherwise it is to be left NULL--a new one will
+ * be allocated.
+ */
 int uwb_dev_add(struct uwb_dev *uwb_dev, struct device *parent_dev,
 		struct uwb_rc *parent_rc)
 {
@@ -290,6 +347,12 @@ int __uwb_dev_try_get(struct device *dev, void *__target_uwb_dev)
 }
 
 
+/**
+ * Given a UWB device descriptor, validate and refcount it
+ *
+ * @returns NULL if the device does not exist or is quiescing; the ptr to
+ *               it otherwise.
+ */
 struct uwb_dev *uwb_dev_try_get(struct uwb_rc *rc, struct uwb_dev *uwb_dev)
 {
 	if (uwb_dev_for_each(rc, __uwb_dev_try_get, uwb_dev))
@@ -300,6 +363,9 @@ struct uwb_dev *uwb_dev_try_get(struct uwb_rc *rc, struct uwb_dev *uwb_dev)
 EXPORT_SYMBOL_GPL(uwb_dev_try_get);
 
 
+/**
+ * Remove a device from the system [grunt for other functions]
+ */
 int __uwb_dev_offair(struct uwb_dev *uwb_dev, struct uwb_rc *rc)
 {
 	struct device *dev = &uwb_dev->dev;
@@ -314,12 +380,24 @@ int __uwb_dev_offair(struct uwb_dev *uwb_dev, struct uwb_rc *rc)
 	uwb_dev_rm(uwb_dev);
 	list_del(&uwb_dev->bce->node);
 	uwb_bce_put(uwb_dev->bce);
-	uwb_dev_put(uwb_dev);	
+	uwb_dev_put(uwb_dev);	/* for the creation in _onair() */
 
 	return 0;
 }
 
 
+/**
+ * A device went off the air, clean up after it!
+ *
+ * This is called by the UWB Daemon (through the beacon purge function
+ * uwb_bcn_cache_purge) when it is detected that a device has been in
+ * radio silence for a while.
+ *
+ * If this device is actually a local radio controller we don't need
+ * to go through the offair process, as it is not registered as that.
+ *
+ * NOTE: uwb_bcn_cache.mutex is held!
+ */
 void uwbd_dev_offair(struct uwb_beca_e *bce)
 {
 	struct uwb_dev *uwb_dev;
@@ -332,6 +410,18 @@ void uwbd_dev_offair(struct uwb_beca_e *bce)
 }
 
 
+/**
+ * A device went on the air, start it up!
+ *
+ * This is called by the UWB Daemon when it is detected that a device
+ * has popped up in the radio range of the radio controller.
+ *
+ * It will just create the freaking device, register the beacon and
+ * stuff and yatla, done.
+ *
+ *
+ * NOTE: uwb_beca.mutex is held, bce->mutex is held
+ */
 void uwbd_dev_onair(struct uwb_rc *rc, struct uwb_beca_e *bce)
 {
 	int result;
@@ -347,7 +437,7 @@ void uwbd_dev_onair(struct uwb_rc *rc, struct uwb_beca_e *bce)
 			macbuf);
 		return;
 	}
-	uwb_dev_init(uwb_dev);		
+	uwb_dev_init(uwb_dev);		/* This sets refcnt to one, we own it */
 	uwb_dev->mac_addr = *bce->mac_addr;
 	uwb_dev->dev_addr = bce->dev_addr;
 	dev_set_name(&uwb_dev->dev, macbuf);
@@ -357,10 +447,10 @@ void uwbd_dev_onair(struct uwb_rc *rc, struct uwb_beca_e *bce)
 			macbuf);
 		goto error_dev_add;
 	}
-	
+	/* plug the beacon cache */
 	bce->uwb_dev = uwb_dev;
 	uwb_dev->bce = bce;
-	uwb_bce_get(bce);		
+	uwb_bce_get(bce);		/* released in uwb_dev_sys_release() */
 	dev_info(dev, "uwb device (mac %s dev %s) connected to %s %s\n",
 		 macbuf, devbuf, rc->uwb_dev.dev.parent->bus->name,
 		 dev_name(rc->uwb_dev.dev.parent));
@@ -372,6 +462,17 @@ error_dev_add:
 	return;
 }
 
+/**
+ * Iterate over the list of UWB devices, calling a @function on each
+ *
+ * See docs for bus_for_each()....
+ *
+ * @rc:       radio controller for the devices.
+ * @function: function to call.
+ * @priv:     data to pass to @function.
+ * @returns:  0 if no invocation of function() returned a value
+ *            different to zero. That value otherwise.
+ */
 int uwb_dev_for_each(struct uwb_rc *rc, uwb_dev_for_each_f function, void *priv)
 {
 	return device_for_each_child(&rc->uwb_dev.dev, priv, function);

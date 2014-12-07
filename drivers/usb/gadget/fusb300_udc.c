@@ -99,6 +99,7 @@ static void fusb300_set_start_entry(struct fusb300 *fusb300,
 		fusb300->fifo_entry_num++;
 }
 
+/* set fusb300_set_start_entry first before fusb300_set_epaddrofs */
 static void fusb300_set_epaddrofs(struct fusb300 *fusb300,
 				  struct fusb300_ep_info info)
 {
@@ -328,6 +329,7 @@ static void fusb300_set_cxlen(struct fusb300 *fusb300, u32 length)
 	iowrite32(reg, fusb300->reg + FUSB300_OFFSET_CSR);
 }
 
+/* write data to cx fifo */
 static void fusb300_wrcxf(struct fusb300_ep *ep,
 		   struct fusb300_request *req)
 {
@@ -348,7 +350,7 @@ static void fusb300_wrcxf(struct fusb300_ep *ep,
 			tmp += 4;
 		}
 		req->req.actual += SS_CTL_MAX_PACKET_SIZE;
-	} else { 
+	} else { /* length is less than max packet size */
 		fusb300_set_cxlen(fusb300, length);
 		for (i = length >> 2; i > 0; i--) {
 			data = *tmp | *(tmp + 1) << 8 | *(tmp + 2) << 16 |
@@ -399,7 +401,7 @@ static void fusb300_clear_epnstall(struct fusb300 *fusb300, u8 ep)
 
 static void ep0_queue(struct fusb300_ep *ep, struct fusb300_request *req)
 {
-	if (ep->fusb300->ep0_dir) { 
+	if (ep->fusb300->ep0_dir) { /* if IN */
 		if (req->req.length) {
 			fusb300_wrcxf(ep, req);
 		} else
@@ -408,7 +410,7 @@ static void ep0_queue(struct fusb300_ep *ep, struct fusb300_request *req)
 		if ((req->req.length == req->req.actual) ||
 		    (req->req.actual < ep->ep.maxpacket))
 			done(ep, req, 0);
-	} else { 
+	} else { /* OUT */
 		if (!req->req.length)
 			done(ep, req, 0);
 		else
@@ -441,7 +443,7 @@ static int fusb300_queue(struct usb_ep *_ep, struct usb_request *_req,
 	req->req.actual = 0;
 	req->req.status = -EINPROGRESS;
 
-	if (ep->desc == NULL) 
+	if (ep->desc == NULL) /* ep0 */
 		ep0_queue(ep, req);
 	else if (request && !ep->stall)
 		enable_fifo_int(ep);
@@ -531,6 +533,7 @@ static struct usb_ep_ops fusb300_ep_ops = {
 	.set_wedge	= fusb300_set_wedge,
 };
 
+/*****************************************************************************/
 static void fusb300_clear_int(struct fusb300 *fusb300, u32 offset,
 		       u32 value)
 {
@@ -553,6 +556,7 @@ static void fusb300_set_cxdone(struct fusb300 *fusb300)
 			   FUSB300_CSR_DONE);
 }
 
+/* read data from cx fifo */
 void fusb300_rdcxf(struct fusb300 *fusb300,
 		   u8 *buffer, u32 length)
 {
@@ -707,7 +711,7 @@ __acquires(fusb300->lock)
 
 	default:
 		request_error(fusb300);
-		return;		
+		return;		/* exit */
 	}
 
 	fusb300->ep0_data = cpu_to_le16(status);
@@ -826,7 +830,7 @@ static int setup_packet(struct fusb300 *fusb300, struct usb_ctrlrequest *ctrl)
 	fusb300->ep0_dir = ctrl->bRequestType & USB_DIR_IN;
 	fusb300->ep0_length = ctrl->wLength;
 
-	
+	/* check request */
 	if ((ctrl->bRequestType & USB_TYPE_MASK) == USB_TYPE_STANDARD) {
 		switch (ctrl->bRequest) {
 		case USB_REQ_GET_STATUS:
@@ -844,7 +848,7 @@ static int setup_packet(struct fusb300 *fusb300, struct usb_ctrlrequest *ctrl)
 		case USB_REQ_SET_CONFIGURATION:
 			fusb300_enable_bit(fusb300, FUSB300_OFFSET_DAR,
 					   FUSB300_DAR_SETCONFG);
-			
+			/* clear sequence number */
 			for (i = 1; i <= FUSB300_MAX_NUM_EP; i++)
 				fusb300_clear_seqnum(fusb300, i);
 			fusb300->reenum = 1;
@@ -865,7 +869,7 @@ static void done(struct fusb300_ep *ep, struct fusb300_request *req,
 {
 	list_del_init(&req->queue);
 
-	
+	/* don't modify queue heads during completion callback */
 	if (ep->fusb300->gadget.speed == USB_SPEED_UNKNOWN)
 		req->req.status = -ESHUTDOWN;
 	else
@@ -889,7 +893,7 @@ static void fusb300_fill_idma_prdtbl(struct fusb300_ep *ep, dma_addr_t d,
 	u32 value;
 	u32 reg;
 
-	
+	/* wait SW owner */
 	do {
 		reg = ioread32(ep->fusb300->reg +
 			FUSB300_OFFSET_EPPRD_W0(ep->epnum));
@@ -949,7 +953,7 @@ static void  fusb300_set_idma(struct fusb300_ep *ep,
 		FUSB300_IGER0_EEPn_PRD_INT(ep->epnum));
 
 	fusb300_fill_idma_prdtbl(ep, d, req->req.length);
-	
+	/* check idma is done */
 	fusb300_wait_idma_finished(ep);
 
 	dma_unmap_single(NULL, d, req->req.length, DMA_TO_DEVICE);
@@ -975,7 +979,7 @@ static void out_ep_fifo_handler(struct fusb300_ep *ep)
 
 	fusb300_rdfifo(ep, req, length);
 
-	
+	/* finish out transfer */
 	if ((req->req.length == req->req.actual) || (length < ep->ep.maxpacket))
 		done(ep, req, 0);
 }
@@ -1091,7 +1095,7 @@ static irqreturn_t fusb300_irq(int irq, void *_fusb300)
 				  FUSB300_IGR1_USBRST_INT);
 		fusb300_reset();
 	}
-	
+	/* COMABT_INT has a highest priority */
 
 	if (int_grp1 & FUSB300_IGR1_CX_COMABT_INT) {
 		fusb300_clear_int(fusb300, FUSB300_OFFSET_IGR1,
@@ -1282,27 +1286,28 @@ static void init_controller(struct fusb300 *fusb300)
 	u32 mask = 0;
 	u32 val = 0;
 
-	
+	/* split on */
 	mask = val = FUSB300_AHBBCR_S0_SPLIT_ON | FUSB300_AHBBCR_S1_SPLIT_ON;
 	reg = ioread32(fusb300->reg + FUSB300_OFFSET_AHBCR);
 	reg &= ~mask;
 	reg |= val;
 	iowrite32(reg, fusb300->reg + FUSB300_OFFSET_AHBCR);
 
-	
+	/* enable high-speed LPM */
 	mask = val = FUSB300_HSCR_HS_LPM_PERMIT;
 	reg = ioread32(fusb300->reg + FUSB300_OFFSET_HSCR);
 	reg &= ~mask;
 	reg |= val;
 	iowrite32(reg, fusb300->reg + FUSB300_OFFSET_HSCR);
 
-	
+	/*set u1 u2 timmer*/
 	fusb300_set_u2_timeout(fusb300, 0xff);
 	fusb300_set_u1_timeout(fusb300, 0xff);
 
-	
+	/* enable all grp1 interrupt */
 	iowrite32(0xcfffff9f, fusb300->reg + FUSB300_OFFSET_IGER1);
 }
+/*------------------------------------------------------------------------*/
 static struct fusb300 *the_controller;
 
 static int fusb300_udc_start(struct usb_gadget_driver *driver,
@@ -1323,7 +1328,7 @@ static int fusb300_udc_start(struct usb_gadget_driver *driver,
 	if (fusb300->driver)
 		return -EBUSY;
 
-	
+	/* hook up the driver */
 	driver->driver.bus = NULL;
 	fusb300->driver = driver;
 	fusb300->gadget.dev.driver = &driver->driver;
@@ -1366,6 +1371,7 @@ static int fusb300_udc_stop(struct usb_gadget_driver *driver)
 
 	return 0;
 }
+/*--------------------------------------------------------------------------*/
 
 static int fusb300_udc_pullup(struct usb_gadget *_gadget, int is_active)
 {
@@ -1431,7 +1437,7 @@ static int __init fusb300_probe(struct platform_device *pdev)
 		goto clean_up;
 	}
 
-	
+	/* initialize udc */
 	fusb300 = kzalloc(sizeof(struct fusb300), GFP_KERNEL);
 	if (fusb300 == NULL) {
 		pr_err("kzalloc error\n");

@@ -3,4 +3,4 @@
 
 #include <asm-generic/topology.h>
 
-#endif 
+#endif /* __ASM_AVR32_TOPOLOGY_H */

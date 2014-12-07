@@ -32,6 +32,9 @@
 #ifndef __CHIOCTL_H__
 #define __CHIOCTL_H__
 
+/*
+ * Ioctl commands specific to this driver.
+ */
 enum {
 	CHELSIO_GETMTUTAB 		= 1029,
 	CHELSIO_SETMTUTAB 		= 1030,
@@ -59,6 +62,7 @@ struct ch_cntxt {
 	uint32_t data[4];
 };
 
+/* context types */
 enum { CNTXT_TYPE_EGRESS, CNTXT_TYPE_FL, CNTXT_TYPE_RSP, CNTXT_TYPE_CQ };
 
 struct ch_desc {
@@ -105,9 +109,10 @@ struct ch_pktsched_params {
 # define TCB_SIZE   128
 #endif
 
+/* TCB size in 32-bit words */
 #define TCB_WORDS (TCB_SIZE / 4)
 
-enum { MEM_CM, MEM_PMRX, MEM_PMTX };	
+enum { MEM_CM, MEM_PMRX, MEM_PMTX };	/* ch_mem_range.mem_id values */
 
 struct ch_mtus {
 	uint32_t cmd;

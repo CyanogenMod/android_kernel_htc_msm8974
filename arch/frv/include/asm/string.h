@@ -12,7 +12,7 @@
 #ifndef _ASM_STRING_H_
 #define _ASM_STRING_H_
 
-#ifdef __KERNEL__ 
+#ifdef __KERNEL__ /* only set these up for kernel code */
 
 #define __HAVE_ARCH_MEMSET 1
 #define __HAVE_ARCH_MEMCPY 1
@@ -20,8 +20,12 @@
 extern void *memset(void *, int, __kernel_size_t);
 extern void *memcpy(void *, const void *, __kernel_size_t);
 
-#else 
+#else /* KERNEL */
 
+/*
+ *	let user libraries deal with these,
+ *	IMHO the kernel has no place defining these functions for user apps
+ */
 
 #define __HAVE_ARCH_STRCPY 1
 #define __HAVE_ARCH_STRNCPY 1
@@ -43,5 +47,5 @@ extern void *memcpy(void *, const void *, __kernel_size_t);
 #define __HAVE_ARCH_MEMCHR 1
 #define __HAVE_ARCH_STRTOK 1
 
-#endif 
-#endif 
+#endif /* KERNEL */
+#endif /* _ASM_STRING_H_ */

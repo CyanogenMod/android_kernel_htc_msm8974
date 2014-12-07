@@ -40,6 +40,24 @@ struct ix2505v_state {
 	u32 frequency;
 };
 
+/**
+ *  Data read format of the Sharp IX2505V B0017
+ *
+ *  byte1:   1   |   1   |   0   |   0   |   0   |  MA1  |  MA0  |  1
+ *  byte2:  POR  |   FL  |  RD2  |  RD1  |  RD0  |   X   |   X   |  X
+ *
+ *  byte1 = address
+ *  byte2;
+ *	POR = Power on Reset (VCC H=<2.2v L=>2.2v)
+ *	FL  = Phase Lock (H=lock L=unlock)
+ *	RD0-2 = Reserved internal operations
+ *
+ * Only POR can be used to check the tuner is present
+ *
+ * Caution: after byte2 the I2C reverts to write mode continuing to read
+ *          may corrupt tuning data.
+ *
+ */
 
 static int ix2505v_read_status_reg(struct ix2505v_state *state)
 {
@@ -86,6 +104,30 @@ static int ix2505v_release(struct dvb_frontend *fe)
 	return 0;
 }
 
+/**
+ *  Data write format of the Sharp IX2505V B0017
+ *
+ *  byte1:   1   |   1   |   0   |   0   |   0   | 0(MA1)| 0(MA0)|  0
+ *  byte2:   0   |  BG1  |  BG2  |   N8  |   N7  |   N6  |  N5   |  N4
+ *  byte3:   N3  |   N2  |   N1  |   A5  |   A4  |   A3  |   A2  |  A1
+ *  byte4:   1   | 1(C1) | 1(C0) |  PD5  |  PD4  |   TM  | 0(RTS)| 1(REF)
+ *  byte5:   BA2 |   BA1 |  BA0  |  PSC  |  PD3  |PD2/TS2|DIV/TS1|PD0/TS0
+ *
+ *  byte1 = address
+ *
+ *  Write order
+ *  1) byte1 -> byte2 -> byte3 -> byte4 -> byte5
+ *  2) byte1 -> byte4 -> byte5 -> byte2 -> byte3
+ *  3) byte1 -> byte2 -> byte3 -> byte4
+ *  4) byte1 -> byte4 -> byte5 -> byte2
+ *  5) byte1 -> byte2 -> byte3
+ *  6) byte1 -> byte4 -> byte5
+ *  7) byte1 -> byte2
+ *  8) byte1 -> byte4
+ *
+ *  Recommended Setup
+ *  1 -> 8 -> 6
+ */
 
 static int ix2505v_set_params(struct dvb_frontend *fe)
 {
@@ -113,17 +155,17 @@ static int ix2505v_set_params(struct dvb_frontend *fe)
 	else
 		cc = 0x3;
 
-	ref = 8; 
-	psc = 32; 
+	ref = 8; /* REF =1 */
+	psc = 32; /* PSC = 0 */
 
-	div_factor = (frequency * ref) / 40; 
+	div_factor = (frequency * ref) / 40; /* local osc = 4Mhz */
 	x = div_factor / psc;
 	N = x/100;
 	A = ((x - (N * 100)) * psc) / 100;
 
 	data[0] = ((gain & 0x3) << 5) | (N >> 3);
 	data[1] = (N << 5) | (A & 0x1f);
-	data[2] = 0x81 | ((cc & 0x3) << 5) ; 
+	data[2] = 0x81 | ((cc & 0x3) << 5) ; /*PD5,PD4 & TM = 0|C1,C0|REF=1*/
 
 	deb_info("Frq=%d x=%d N=%d A=%d\n", frequency, x, N, A);
 
@@ -141,10 +183,10 @@ static int ix2505v_set_params(struct dvb_frontend *fe)
 		local_osc = (4 << 5);
 	else if (frequency <= 1942000)
 		local_osc = (5 << 5);
-	else		
+	else		/*frequency up to 2150000*/
 		local_osc = (6 << 5);
 
-	data[3] = local_osc; 
+	data[3] = local_osc; /* all other bits set 0 */
 
 	if (b_w <= 10000)
 		lpf = 0xc;
@@ -178,17 +220,17 @@ static int ix2505v_set_params(struct dvb_frontend *fe)
 	len = sizeof(data);
 	ret |= ix2505v_write(state, data, len);
 
-	data[2] |= 0x4; 
+	data[2] |= 0x4; /* set TM = 1 other bits same */
 
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 
 	len = 1;
-	ret |= ix2505v_write(state, &data[2], len); 
+	ret |= ix2505v_write(state, &data[2], len); /* write byte 4 only */
 
 	msleep(10);
 
-	data[2] |= ((lpf >> 2) & 0x3) << 3; 
+	data[2] |= ((lpf >> 2) & 0x3) << 3; /* lpf */
 	data[3] |= (lpf & 0x3) << 2;
 
 	deb_info("Data 2=[%x%x]\n", data[2], data[3]);
@@ -197,7 +239,7 @@ static int ix2505v_set_params(struct dvb_frontend *fe)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 
 	len = 2;
-	ret |= ix2505v_write(state, &data[2], len); 
+	ret |= ix2505v_write(state, &data[2], len); /* write byte 4 & 5 */
 
 	if (state->config->min_delay_ms)
 		msleep(state->config->min_delay_ms);

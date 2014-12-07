@@ -22,6 +22,7 @@
 #include <mach/generic.h>
 #include <mach/hardware.h>
 
+/* Following will create static virtual/physical mappings */
 static struct map_desc spear6xx_io_desc[] __initdata = {
 	{
 		.virtual	= VA_SPEAR6XX_ICM1_UART0_BASE,
@@ -51,11 +52,12 @@ static struct map_desc spear6xx_io_desc[] __initdata = {
 	},
 };
 
+/* This will create static memory mapping for selected devices */
 void __init spear6xx_map_io(void)
 {
 	iotable_init(spear6xx_io_desc, ARRAY_SIZE(spear6xx_io_desc));
 
-	
+	/* This will initialize clock framework */
 	spear6xx_clk_init();
 }
 
@@ -64,14 +66,14 @@ static void __init spear6xx_timer_init(void)
 	char pclk_name[] = "pll3_48m_clk";
 	struct clk *gpt_clk, *pclk;
 
-	
+	/* get the system timer clock */
 	gpt_clk = clk_get_sys("gpt0", NULL);
 	if (IS_ERR(gpt_clk)) {
 		pr_err("%s:couldn't get clk for gpt\n", __func__);
 		BUG();
 	}
 
-	
+	/* get the suitable parent clock for timer*/
 	pclk = clk_get(NULL, pclk_name);
 	if (IS_ERR(pclk)) {
 		pr_err("%s:couldn't get %s as parent for gpt\n",
@@ -102,7 +104,7 @@ static const char *spear600_dt_board_compat[] = {
 
 static const struct of_device_id vic_of_match[] __initconst = {
 	{ .compatible = "arm,pl190-vic", .data = vic_of_init, },
-	{  }
+	{ /* Sentinel */ }
 };
 
 static void __init spear6xx_dt_init_irq(void)

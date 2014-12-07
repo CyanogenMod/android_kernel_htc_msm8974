@@ -59,6 +59,9 @@ MODULE_PARM_DESC(hotplug_disabled,
 		 "If your laptop need that, please report to "
 		 "acpi4asus-user@lists.sourceforge.net.");
 
+/*
+ * Definitions for Asus EeePC
+ */
 #define NOTIFY_BRN_MIN	0x20
 #define NOTIFY_BRN_MAX	0x2f
 
@@ -104,7 +107,7 @@ enum {
 	CM_ASL_HWCF,
 	CM_ASL_LID,
 	CM_ASL_TYPE,
-	CM_ASL_PANELPOWER,	
+	CM_ASL_PANELPOWER,	/*P901*/
 	CM_ASL_TPD
 };
 
@@ -145,20 +148,24 @@ static const struct key_entry eeepc_keymap[] = {
 	{ KE_KEY, 0x30, { KEY_SWITCHVIDEOMODE } },
 	{ KE_KEY, 0x31, { KEY_SWITCHVIDEOMODE } },
 	{ KE_KEY, 0x32, { KEY_SWITCHVIDEOMODE } },
-	{ KE_KEY, 0x37, { KEY_F13 } }, 
+	{ KE_KEY, 0x37, { KEY_F13 } }, /* Disable Touchpad */
 	{ KE_KEY, 0x38, { KEY_F14 } },
 	{ KE_END, 0 },
 };
 
+/*
+ * This is the main structure, we can use it to store useful information
+ */
 struct eeepc_laptop {
-	acpi_handle handle;		
-	u32 cm_supported;		
+	acpi_handle handle;		/* the handle of the acpi device */
+	u32 cm_supported;		/* the control methods supported
+					   by this BIOS */
 	bool cpufv_disabled;
 	bool hotplug_disabled;
-	u16 event_count[128];		
+	u16 event_count[128];		/* count for each event */
 
 	struct platform_device *platform_device;
-	struct acpi_device *device;		
+	struct acpi_device *device;		/* the device we are in */
 	struct device *hwmon_device;
 	struct backlight_device *backlight_device;
 
@@ -178,6 +185,9 @@ struct eeepc_laptop {
 	struct work_struct tpd_led_work;
 };
 
+/*
+ * ACPI Helpers
+ */
 static int write_acpi_int(acpi_handle handle, const char *method, int val)
 {
 	struct acpi_object_list params;
@@ -258,6 +268,9 @@ static int acpi_setter_handle(struct eeepc_laptop *eeepc, int cm,
 }
 
 
+/*
+ * Sys helpers
+ */
 static int parse_arg(const char *buf, unsigned long count, int *val)
 {
 	if (!count)
@@ -487,6 +500,15 @@ static void eeepc_platform_exit(struct eeepc_laptop *eeepc)
 	platform_device_unregister(eeepc->platform_device);
 }
 
+/*
+ * LEDs
+ */
+/*
+ * These functions actually update the LED's, and are called from a
+ * workqueue. By doing this as separate work rather than when the LED
+ * subsystem asks, we avoid messing with the Asus ACPI stuff during a
+ * potentially bad time, such as a timer interrupt.
+ */
 static void tpd_led_update(struct work_struct *work)
  {
 	struct eeepc_laptop *eeepc;
@@ -530,7 +552,7 @@ static int eeepc_led_init(struct eeepc_laptop *eeepc)
 
 	eeepc->tpd_led.name = "eeepc::touchpad";
 	eeepc->tpd_led.brightness_set = tpd_led_set;
-	if (get_acpi(eeepc, CM_ASL_TPD) >= 0) 
+	if (get_acpi(eeepc, CM_ASL_TPD) >= 0) /* if method is available */
 	  eeepc->tpd_led.brightness_get = tpd_led_get;
 	eeepc->tpd_led.max_brightness = 1;
 
@@ -553,6 +575,9 @@ static void eeepc_led_exit(struct eeepc_laptop *eeepc)
 }
 
 
+/*
+ * PCI hotplug (for wlan rfkill)
+ */
 static bool eeepc_wlan_rfkill_blocked(struct eeepc_laptop *eeepc)
 {
 	if (get_acpi(eeepc, CM_ASL_WLAN) == 1)
@@ -608,7 +633,7 @@ static void eeepc_rfkill_hotplug(struct eeepc_laptop *eeepc, acpi_handle handle)
 		if (!blocked) {
 			dev = pci_get_slot(bus, 0);
 			if (dev) {
-				
+				/* Device already present */
 				pci_dev_put(dev);
 				goto out_unlock;
 			}
@@ -668,6 +693,10 @@ static int eeepc_register_rfkill_notifier(struct eeepc_laptop *eeepc,
 		if (ACPI_FAILURE(status))
 			pr_warn("Failed to register notify on %s\n", node);
 
+		/*
+		 * Refresh pci hotplug in case the rfkill state was
+		 * changed during setup.
+		 */
 		eeepc_rfkill_hotplug(eeepc, handle);
 	} else
 		return -ENODEV;
@@ -690,6 +719,11 @@ static void eeepc_unregister_rfkill_notifier(struct eeepc_laptop *eeepc,
 		if (ACPI_FAILURE(status))
 			pr_err("Error removing rfkill notify handler %s\n",
 				node);
+			/*
+			 * Refresh pci hotplug in case the rfkill
+			 * state was changed after
+			 * eeepc_unregister_rfkill_notifier()
+			 */
 		eeepc_rfkill_hotplug(eeepc, handle);
 	}
 }
@@ -762,6 +796,9 @@ error_slot:
 	return ret;
 }
 
+/*
+ * Rfkill devices
+ */
 static int eeepc_rfkill_set(void *data, bool blocked)
 {
 	acpi_handle handle = data;
@@ -870,6 +907,10 @@ static int eeepc_rfkill_init(struct eeepc_laptop *eeepc)
 		return 0;
 
 	result = eeepc_setup_pci_hotplug(eeepc);
+	/*
+	 * If we get -EBUSY then something else is handling the PCI hotplug -
+	 * don't fail in this case
+	 */
 	if (result == -EBUSY)
 		result = 0;
 
@@ -883,6 +924,9 @@ exit:
 	return result;
 }
 
+/*
+ * Platform driver - hibernate/resume callbacks
+ */
 static int eeepc_hotk_thaw(struct device *device)
 {
 	struct eeepc_laptop *eeepc = dev_get_drvdata(device);
@@ -890,6 +934,11 @@ static int eeepc_hotk_thaw(struct device *device)
 	if (eeepc->wlan_rfkill) {
 		bool wlan;
 
+		/*
+		 * Work around bios bug - acpi _PTS turns off the wireless led
+		 * during suspend.  Normally it restores it on resume, but
+		 * we should kick it ourselves in case hibernation is aborted.
+		 */
 		wlan = get_acpi(eeepc, CM_ASL_WLAN);
 		set_acpi(eeepc, CM_ASL_WLAN, wlan);
 	}
@@ -901,7 +950,7 @@ static int eeepc_hotk_restore(struct device *device)
 {
 	struct eeepc_laptop *eeepc = dev_get_drvdata(device);
 
-	
+	/* Refresh both wlan rfkill state and pci hotplug */
 	if (eeepc->wlan_rfkill) {
 		eeepc_rfkill_hotplug_update(eeepc, "\\_SB.PCI0.P0P5");
 		eeepc_rfkill_hotplug_update(eeepc, "\\_SB.PCI0.P0P6");
@@ -934,14 +983,17 @@ static struct platform_driver platform_driver = {
 	}
 };
 
+/*
+ * Hwmon device
+ */
 
 #define EEEPC_EC_SC00      0x61
-#define EEEPC_EC_FAN_PWM   (EEEPC_EC_SC00 + 2) 
-#define EEEPC_EC_FAN_HRPM  (EEEPC_EC_SC00 + 5) 
-#define EEEPC_EC_FAN_LRPM  (EEEPC_EC_SC00 + 6) 
+#define EEEPC_EC_FAN_PWM   (EEEPC_EC_SC00 + 2) /* Fan PWM duty cycle (%) */
+#define EEEPC_EC_FAN_HRPM  (EEEPC_EC_SC00 + 5) /* High byte, fan speed (RPM) */
+#define EEEPC_EC_FAN_LRPM  (EEEPC_EC_SC00 + 6) /* Low byte, fan speed (RPM) */
 
 #define EEEPC_EC_SFB0      0xD0
-#define EEEPC_EC_FAN_CTRL  (EEEPC_EC_SFB0 + 3) 
+#define EEEPC_EC_FAN_CTRL  (EEEPC_EC_SFB0 + 3) /* Byte containing SF25  */
 
 static int eeepc_get_fan_pwm(void)
 {
@@ -974,9 +1026,9 @@ static int eeepc_get_fan_ctrl(void)
 
 	ec_read(EEEPC_EC_FAN_CTRL, &value);
 	if (value & 0x02)
-		return 1; 
+		return 1; /* manual */
 	else
-		return 2; 
+		return 2; /* automatic */
 }
 
 static void eeepc_set_fan_ctrl(int manual)
@@ -1078,6 +1130,9 @@ static int eeepc_hwmon_init(struct eeepc_laptop *eeepc)
 	return result;
 }
 
+/*
+ * Backlight device
+ */
 static int read_brightness(struct backlight_device *bd)
 {
 	struct eeepc_laptop *eeepc = bl_get_data(bd);
@@ -1143,6 +1198,9 @@ static void eeepc_backlight_exit(struct eeepc_laptop *eeepc)
 }
 
 
+/*
+ * Input device (i.e. hotkeys)
+ */
 static int eeepc_input_init(struct eeepc_laptop *eeepc)
 {
 	struct input_dev *input;
@@ -1190,6 +1248,9 @@ static void eeepc_input_exit(struct eeepc_laptop *eeepc)
 	eeepc->inputdev = NULL;
 }
 
+/*
+ * ACPI driver
+ */
 static void eeepc_input_notify(struct eeepc_laptop *eeepc, int event)
 {
 	if (!eeepc->inputdev)
@@ -1211,29 +1272,33 @@ static void eeepc_acpi_notify(struct acpi_device *device, u32 event)
 					dev_name(&device->dev), event,
 					count);
 
-	
+	/* Brightness events are special */
 	if (event >= NOTIFY_BRN_MIN && event <= NOTIFY_BRN_MAX) {
 
-		
+		/* Ignore them completely if the acpi video driver is used */
 		if (eeepc->backlight_device != NULL) {
 			int old_brightness, new_brightness;
 
-			
+			/* Update the backlight device. */
 			old_brightness = eeepc_backlight_notify(eeepc);
 
-			
+			/* Convert event to keypress (obsolescent hack) */
 			new_brightness = event - NOTIFY_BRN_MIN;
 
 			if (new_brightness < old_brightness) {
-				event = NOTIFY_BRN_MIN; 
+				event = NOTIFY_BRN_MIN; /* brightness down */
 			} else if (new_brightness > old_brightness) {
-				event = NOTIFY_BRN_MAX; 
+				event = NOTIFY_BRN_MAX; /* brightness up */
 			} else {
+				/*
+				* no change in brightness - already at min/max,
+				* event will be desired value (or else ignored)
+				*/
 			}
 			eeepc_input_notify(eeepc, event);
 		}
 	} else {
-		
+		/* Everything else is a bona-fide keypress event */
 		eeepc_input_notify(eeepc, event);
 	}
 }
@@ -1246,6 +1311,25 @@ static void eeepc_dmi_check(struct eeepc_laptop *eeepc)
 	if (!model)
 		return;
 
+	/*
+	 * Blacklist for setting cpufv (cpu speed).
+	 *
+	 * EeePC 4G ("701") implements CFVS, but it is not supported
+	 * by the pre-installed OS, and the original option to change it
+	 * in the BIOS setup screen was removed in later versions.
+	 *
+	 * Judging by the lack of "Super Hybrid Engine" on Asus product pages,
+	 * this applies to all "701" models (4G/4G Surf/2G Surf).
+	 *
+	 * So Asus made a deliberate decision not to support it on this model.
+	 * We have several reports that using it can cause the system to hang
+	 *
+	 * The hang has also been reported on a "702" (Model name "8G"?).
+	 *
+	 * We avoid dmi_check_system() / dmi_match(), because they use
+	 * substring matching.  We don't want to affect the "701SD"
+	 * and "701SDX" models, because they do support S.H.E.
+	 */
 	if (strcmp(model, "701") == 0 || strcmp(model, "702") == 0) {
 		eeepc->cpufv_disabled = true;
 		pr_info("model %s does not officially support setting cpu "
@@ -1253,6 +1337,13 @@ static void eeepc_dmi_check(struct eeepc_laptop *eeepc)
 		pr_info("cpufv disabled to avoid instability\n");
 	}
 
+	/*
+	 * Blacklist for wlan hotplug
+	 *
+	 * Eeepc 1005HA doesn't work like others models and don't need the
+	 * hotplug code. In fact, current hotplug code seems to unplug another
+	 * device...
+	 */
 	if (strcmp(model, "1005HA") == 0 || strcmp(model, "1201N") == 0 ||
 	    strcmp(model, "1005PE") == 0) {
 		eeepc->hotplug_disabled = true;
@@ -1264,6 +1355,8 @@ static void cmsg_quirk(struct eeepc_laptop *eeepc, int cm, const char *name)
 {
 	int dummy;
 
+	/* Some BIOSes do not report cm although it is available.
+	   Check if cm_getv[cm] works and, if yes, assume cm should be set. */
 	if (!(eeepc->cm_supported & (1 << cm))
 	    && !read_acpi_int(eeepc->handle, cm_getv[cm], &dummy)) {
 		pr_info("%s (%x) not reported by BIOS,"
@@ -1301,7 +1394,7 @@ static int __devinit eeepc_acpi_init(struct eeepc_laptop *eeepc)
 		return -ENODEV;
 	}
 
-	
+	/* get control methods supported */
 	if (read_acpi_int(eeepc->handle, "CMSG", &eeepc->cm_supported)) {
 		pr_err("Get control methods supported failed\n");
 		return -ENODEV;
@@ -1314,6 +1407,10 @@ static int __devinit eeepc_acpi_init(struct eeepc_laptop *eeepc)
 
 static void __devinit eeepc_enable_camera(struct eeepc_laptop *eeepc)
 {
+	/*
+	 * If the following call to set_acpi() fails, it's because there's no
+	 * camera so we can ignore the error.
+	 */
 	if (get_acpi(eeepc, CM_ASL_CAMERA) == 0)
 		set_acpi(eeepc, CM_ASL_CAMERA, 1);
 }
@@ -1344,6 +1441,18 @@ static int __devinit eeepc_acpi_add(struct acpi_device *device)
 		goto fail_platform;
 	eeepc_enable_camera(eeepc);
 
+	/*
+	 * Register the platform device first.  It is used as a parent for the
+	 * sub-devices below.
+	 *
+	 * Note that if there are multiple instances of this ACPI device it
+	 * will bail out, because the platform device is registered with a
+	 * fixed name.  Of course it doesn't make sense to have more than one,
+	 * and machine-specific scripts find the fixed name convenient.  But
+	 * It's also good for us to exclude multiple instances because both
+	 * our hwmon and our wlan rfkill subdevice use global ACPI objects
+	 * (the EC and the wlan PCI slot respectively).
+	 */
 	result = eeepc_platform_init(eeepc);
 	if (result)
 		goto fail_platform;

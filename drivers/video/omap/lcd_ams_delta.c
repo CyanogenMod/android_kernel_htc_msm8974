@@ -38,6 +38,7 @@
 #define AMS_DELTA_LCD_POWER		0x0100
 
 
+/* LCD class device section */
 
 static int ams_delta_lcd;
 
@@ -96,6 +97,7 @@ static struct lcd_ops ams_delta_lcd_ops = {
 #endif
 
 
+/* omapfb panel section */
 
 static const struct gpio _gpios[] = {
 	{
@@ -165,6 +167,7 @@ static struct lcd_panel ams_delta_panel = {
 };
 
 
+/* platform driver section */
 
 static int ams_delta_panel_probe(struct platform_device *pdev)
 {

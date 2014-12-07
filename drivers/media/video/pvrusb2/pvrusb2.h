@@ -22,7 +22,21 @@
 #ifndef __PVRUSB2_H
 #define __PVRUSB2_H
 
+/* Maximum number of pvrusb2 instances we can track at once.  You
+   might want to increase this - however the driver operation will not
+   be impaired if it is too small.  Instead additional units just
+   won't have an ID assigned and it might not be possible to specify
+   module parameters for those extra units. */
 #define PVR_NUM 20
 
-#endif 
+#endif /* __PVRUSB2_H */
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 70 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

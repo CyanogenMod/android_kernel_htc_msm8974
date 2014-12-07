@@ -11,6 +11,12 @@
  |                                                                           |
  +---------------------------------------------------------------------------*/
 
+/*---------------------------------------------------------------------------+
+ | Note:                                                                     |
+ |    The file contains code which accesses user memory.                     |
+ |    Emulator static data may change when user memory is accessed, due to   |
+ |    other processes using the emulator while swapping is in progress.      |
+ +---------------------------------------------------------------------------*/
 
 #include <asm/uaccess.h>
 
@@ -20,10 +26,10 @@
 #include "status_w.h"
 #include "control_w.h"
 
-#define _NONE_ 0		
-#define _REG0_ 1		
-#define _PUSH_ 3		
-#define _null_ 4		
+#define _NONE_ 0		/* st0_ptr etc not needed */
+#define _REG0_ 1		/* Will be storing st(0) */
+#define _PUSH_ 3		/* Need to check for space to push onto stack */
+#define _null_ 4		/* Function illegal or not implemented */
 
 #define pop_0()	{ FPU_settag0(TAG_Empty); top++; }
 
@@ -57,10 +63,10 @@ int FPU_load_store(u_char type, fpu_addr_modes addr_modes,
 {
 	FPU_REG loaded_data;
 	FPU_REG *st0_ptr;
-	u_char st0_tag = TAG_Empty;	
+	u_char st0_tag = TAG_Empty;	/* This is just to stop a gcc warning. */
 	u_char loaded_tag;
 
-	st0_ptr = NULL;		
+	st0_ptr = NULL;		/* Initialized just to stop compiler warnings. */
 
 	if (addr_modes.default_mode & PROTECTED) {
 		if (addr_modes.default_mode == SEG32) {
@@ -73,14 +79,15 @@ int FPU_load_store(u_char type, fpu_addr_modes addr_modes,
 #ifdef PARANOID
 		else
 			EXCEPTION(EX_INTERNAL | 0x140);
-#endif 
+#endif /* PARANOID */
 	}
 
 	switch (type_table[type]) {
 	case _NONE_:
 		break;
 	case _REG0_:
-		st0_ptr = &st(0);	
+		st0_ptr = &st(0);	/* Some of these instructions pop after
+					   storing */
 		st0_tag = FPU_gettag0();
 		break;
 	case _PUSH_:
@@ -100,11 +107,11 @@ int FPU_load_store(u_char type, fpu_addr_modes addr_modes,
 	default:
 		EXCEPTION(EX_INTERNAL | 0x141);
 		return 0;
-#endif 
+#endif /* PARANOID */
 	}
 
 	switch (type) {
-	case 000:		
+	case 000:		/* fld m32real */
 		clear_C1();
 		loaded_tag =
 		    FPU_load_single((float __user *)data_address, &loaded_data);
@@ -116,13 +123,13 @@ int FPU_load_store(u_char type, fpu_addr_modes addr_modes,
 		}
 		FPU_copy_to_reg0(&loaded_data, loaded_tag);
 		break;
-	case 001:		
+	case 001:		/* fild m32int */
 		clear_C1();
 		loaded_tag =
 		    FPU_load_int32((long __user *)data_address, &loaded_data);
 		FPU_copy_to_reg0(&loaded_data, loaded_tag);
 		break;
-	case 002:		
+	case 002:		/* fld m64real */
 		clear_C1();
 		loaded_tag =
 		    FPU_load_double((double __user *)data_address,
@@ -135,66 +142,74 @@ int FPU_load_store(u_char type, fpu_addr_modes addr_modes,
 		}
 		FPU_copy_to_reg0(&loaded_data, loaded_tag);
 		break;
-	case 003:		
+	case 003:		/* fild m16int */
 		clear_C1();
 		loaded_tag =
 		    FPU_load_int16((short __user *)data_address, &loaded_data);
 		FPU_copy_to_reg0(&loaded_data, loaded_tag);
 		break;
-	case 010:		
+	case 010:		/* fst m32real */
 		clear_C1();
 		FPU_store_single(st0_ptr, st0_tag,
 				 (float __user *)data_address);
 		break;
-	case 011:		
+	case 011:		/* fist m32int */
 		clear_C1();
 		FPU_store_int32(st0_ptr, st0_tag, (long __user *)data_address);
 		break;
-	case 012:		
+	case 012:		/* fst m64real */
 		clear_C1();
 		FPU_store_double(st0_ptr, st0_tag,
 				 (double __user *)data_address);
 		break;
-	case 013:		
+	case 013:		/* fist m16int */
 		clear_C1();
 		FPU_store_int16(st0_ptr, st0_tag, (short __user *)data_address);
 		break;
-	case 014:		
+	case 014:		/* fstp m32real */
 		clear_C1();
 		if (FPU_store_single
 		    (st0_ptr, st0_tag, (float __user *)data_address))
-			pop_0();	
+			pop_0();	/* pop only if the number was actually stored
+					   (see the 80486 manual p16-28) */
 		break;
-	case 015:		
+	case 015:		/* fistp m32int */
 		clear_C1();
 		if (FPU_store_int32
 		    (st0_ptr, st0_tag, (long __user *)data_address))
-			pop_0();	
+			pop_0();	/* pop only if the number was actually stored
+					   (see the 80486 manual p16-28) */
 		break;
-	case 016:		
+	case 016:		/* fstp m64real */
 		clear_C1();
 		if (FPU_store_double
 		    (st0_ptr, st0_tag, (double __user *)data_address))
-			pop_0();	
+			pop_0();	/* pop only if the number was actually stored
+					   (see the 80486 manual p16-28) */
 		break;
-	case 017:		
+	case 017:		/* fistp m16int */
 		clear_C1();
 		if (FPU_store_int16
 		    (st0_ptr, st0_tag, (short __user *)data_address))
-			pop_0();	
+			pop_0();	/* pop only if the number was actually stored
+					   (see the 80486 manual p16-28) */
 		break;
-	case 020:		
+	case 020:		/* fldenv  m14/28byte */
 		fldenv(addr_modes, (u_char __user *) data_address);
+		/* Ensure that the values just loaded are not changed by
+		   fix-up operations. */
 		return 1;
-	case 022:		
+	case 022:		/* frstor m94/108byte */
 		frstor(addr_modes, (u_char __user *) data_address);
+		/* Ensure that the values just loaded are not changed by
+		   fix-up operations. */
 		return 1;
-	case 023:		
+	case 023:		/* fbld m80dec */
 		clear_C1();
 		loaded_tag = FPU_load_bcd((u_char __user *) data_address);
 		FPU_settag0(loaded_tag);
 		break;
-	case 024:		
+	case 024:		/* fldcw */
 		RE_ENTRANT_CHECK_OFF;
 		FPU_access_ok(VERIFY_READ, data_address, 2);
 		FPU_get_user(control_word,
@@ -205,59 +220,62 @@ int FPU_load_store(u_char type, fpu_addr_modes addr_modes,
 		else
 			partial_status &= ~(SW_Summary | SW_Backward);
 #ifdef PECULIAR_486
-		control_word |= 0x40;	
-#endif 
+		control_word |= 0x40;	/* An 80486 appears to always set this bit */
+#endif /* PECULIAR_486 */
 		return 1;
-	case 025:		
+	case 025:		/* fld m80real */
 		clear_C1();
 		loaded_tag =
 		    FPU_load_extended((long double __user *)data_address, 0);
 		FPU_settag0(loaded_tag);
 		break;
-	case 027:		
+	case 027:		/* fild m64int */
 		clear_C1();
 		loaded_tag = FPU_load_int64((long long __user *)data_address);
 		if (loaded_tag == TAG_Error)
 			return 0;
 		FPU_settag0(loaded_tag);
 		break;
-	case 030:		
+	case 030:		/* fstenv  m14/28byte */
 		fstenv(addr_modes, (u_char __user *) data_address);
 		return 1;
-	case 032:		
+	case 032:		/* fsave */
 		fsave(addr_modes, (u_char __user *) data_address);
 		return 1;
-	case 033:		
+	case 033:		/* fbstp m80dec */
 		clear_C1();
 		if (FPU_store_bcd
 		    (st0_ptr, st0_tag, (u_char __user *) data_address))
-			pop_0();	
+			pop_0();	/* pop only if the number was actually stored
+					   (see the 80486 manual p16-28) */
 		break;
-	case 034:		
+	case 034:		/* fstcw m16int */
 		RE_ENTRANT_CHECK_OFF;
 		FPU_access_ok(VERIFY_WRITE, data_address, 2);
 		FPU_put_user(control_word,
 			     (unsigned short __user *)data_address);
 		RE_ENTRANT_CHECK_ON;
 		return 1;
-	case 035:		
+	case 035:		/* fstp m80real */
 		clear_C1();
 		if (FPU_store_extended
 		    (st0_ptr, st0_tag, (long double __user *)data_address))
-			pop_0();	
+			pop_0();	/* pop only if the number was actually stored
+					   (see the 80486 manual p16-28) */
 		break;
-	case 036:		
+	case 036:		/* fstsw m2byte */
 		RE_ENTRANT_CHECK_OFF;
 		FPU_access_ok(VERIFY_WRITE, data_address, 2);
 		FPU_put_user(status_word(),
 			     (unsigned short __user *)data_address);
 		RE_ENTRANT_CHECK_ON;
 		return 1;
-	case 037:		
+	case 037:		/* fistp m64int */
 		clear_C1();
 		if (FPU_store_int64
 		    (st0_ptr, st0_tag, (long long __user *)data_address))
-			pop_0();	
+			pop_0();	/* pop only if the number was actually stored
+					   (see the 80486 manual p16-28) */
 		break;
 	}
 	return 0;

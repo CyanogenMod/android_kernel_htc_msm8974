@@ -70,6 +70,7 @@ typedef struct net_device netdevice_t;
 #define WLAN_MACMODE_ESS_STA	2
 #define WLAN_MACMODE_ESS_AP	3
 
+/* MSD States */
 #define WLAN_MSD_HWPRESENT_PENDING	1
 #define WLAN_MSD_HWFAIL			2
 #define WLAN_MSD_HWPRESENT		3
@@ -79,25 +80,27 @@ typedef struct net_device netdevice_t;
 #define WLAN_MSD_RUNNING		7
 
 #ifndef ETH_P_ECONET
-#define ETH_P_ECONET   0x0018	
+#define ETH_P_ECONET   0x0018	/* needed for 2.2.x kernels */
 #endif
 
 #define ETH_P_80211_RAW        (ETH_P_ECONET + 1)
 
 #ifndef ARPHRD_IEEE80211
-#define ARPHRD_IEEE80211 801	
+#define ARPHRD_IEEE80211 801	/* kernel 2.4.6 */
 #endif
 
-#ifndef ARPHRD_IEEE80211_PRISM	
+#ifndef ARPHRD_IEEE80211_PRISM	/* kernel 2.4.18 */
 #define ARPHRD_IEEE80211_PRISM 802
 #endif
 
-#define P80211_NSDCAP_HARDWAREWEP           0x01  
-#define P80211_NSDCAP_SHORT_PREAMBLE        0x10  
-#define P80211_NSDCAP_HWFRAGMENT            0x80  
-#define P80211_NSDCAP_AUTOJOIN              0x100 
-#define P80211_NSDCAP_NOSCAN                0x200 
+/*--- NSD Capabilities Flags ------------------------------*/
+#define P80211_NSDCAP_HARDWAREWEP           0x01  /* hardware wep engine */
+#define P80211_NSDCAP_SHORT_PREAMBLE        0x10  /* hardware supports */
+#define P80211_NSDCAP_HWFRAGMENT            0x80  /* nsd handles frag/defrag */
+#define P80211_NSDCAP_AUTOJOIN              0x100 /* nsd does autojoin */
+#define P80211_NSDCAP_NOSCAN                0x200 /* nsd can scan */
 
+/* Received frame statistics */
 typedef struct p80211_frmrx_t {
 	u32 mgmt;
 	u32 assocreq;
@@ -134,10 +137,13 @@ typedef struct p80211_frmrx_t {
 	u32 decrypt_err;
 } p80211_frmrx_t;
 
+/* called by /proc/net/wireless */
 struct iw_statistics *p80211wext_get_wireless_stats(netdevice_t * dev);
+/* wireless extensions' ioctls */
 extern struct iw_handler_def p80211wext_handler_def;
 int p80211wext_event_associated(struct wlandevice *wlandev, int assoc);
 
+/* WEP stuff */
 #define NUM_WEPKEYS 4
 #define MAX_KEYLEN 32
 
@@ -151,28 +157,29 @@ int p80211wext_event_associated(struct wlandevice *wlandev, int assoc);
 extern int wlan_watchdog;
 extern int wlan_wext_write;
 
+/* WLAN device type */
 typedef struct wlandevice {
-	struct wlandevice *next;	
-	void *priv;		
+	struct wlandevice *next;	/* link for list of devices */
+	void *priv;		/* private data for MSD */
 
-	
-	char name[WLAN_DEVNAMELEN_MAX];	
+	/* Subsystem State */
+	char name[WLAN_DEVNAMELEN_MAX];	/* Dev name, from register_wlandev() */
 	char *nsdname;
 
-	u32 state;		
-	u32 msdstate;		
-	u32 hwremoved;		
+	u32 state;		/* Device I/F state (open/closed) */
+	u32 msdstate;		/* state of underlying driver */
+	u32 hwremoved;		/* Has the hw been yanked out? */
 
-	
+	/* Hardware config */
 	unsigned int irq;
 	unsigned int iobase;
 	unsigned int membase;
-	u32 nsdcaps;		
+	u32 nsdcaps;		/* NSD Capabilities flags */
 
-	
+	/* Config vars */
 	unsigned int ethconv;
 
-	
+	/* device methods (init by MSD, used by p80211 */
 	int (*open) (struct wlandevice *wlandev);
 	int (*close) (struct wlandevice *wlandev);
 	void (*reset) (struct wlandevice *wlandev);
@@ -184,42 +191,43 @@ typedef struct wlandevice {
 				   netdevice_t *dev);
 	void (*tx_timeout) (struct wlandevice *wlandev);
 
-	
+	/* 802.11 State */
 	u8 bssid[WLAN_BSSID_LEN];
 	p80211pstr32_t ssid;
 	u32 macmode;
 	int linkstatus;
 
-	
+	/* WEP State */
 	u8 wep_keys[NUM_WEPKEYS][MAX_KEYLEN];
 	u8 wep_keylens[NUM_WEPKEYS];
 	int hostwep;
 
-	
-	unsigned long request_pending;	
+	/* Request/Confirm i/f state (used by p80211) */
+	unsigned long request_pending;	/* flag, access atomically */
 
-	
-	
-	
-	netdevice_t *netdev;	
+	/* netlink socket */
+	/* queue for indications waiting for cmd completion */
+	/* Linux netdevice and support */
+	netdevice_t *netdev;	/* ptr to linux netdevice */
 	struct net_device_stats linux_stats;
 
-	
+	/* Rx bottom half */
 	struct tasklet_struct rx_bh;
 
 	struct sk_buff_head nsd_rxq;
 
-	
+	/* 802.11 device statistics */
 	struct p80211_frmrx_t rx;
 
 	struct iw_statistics wstats;
 
-	
+	/* jkriegl: iwspy fields */
 	u8 spy_number;
 	char spy_address[IW_MAX_SPY][ETH_ALEN];
 	struct iw_quality spy_stat[IW_MAX_SPY];
 } wlandevice_t;
 
+/* WEP stuff */
 int wep_change_key(wlandevice_t *wlandev, int keynum, u8 *key, int keylen);
 int wep_decrypt(wlandevice_t *wlandev, u8 *buf, u32 len, int key_override,
 		u8 *iv, u8 *icv);

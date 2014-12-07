@@ -26,10 +26,10 @@
 
 int __init shmobile_clk_init(void)
 {
-	
+	/* Kick the child clocks.. */
 	recalculate_root_clocks();
 
-	
+	/* Enable the necessary init clocks */
 	clk_enable_init_clocks();
 
 	return 0;

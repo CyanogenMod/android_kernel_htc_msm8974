@@ -26,6 +26,8 @@ struct gfs2_glock;
 #define RES_STATFS	1
 #define RES_QUOTA	2
 
+/* reserve either the number of blocks to be allocated plus the rg header
+ * block, or all of the blocks in the rg, whichever is smaller */
 static inline unsigned int gfs2_rg_blocks(const struct gfs2_inode *ip)
 {
 	const struct gfs2_blkreserv *rs = ip->i_res;
@@ -42,4 +44,4 @@ extern void gfs2_trans_add_bh(struct gfs2_glock *gl, struct buffer_head *bh, int
 extern void gfs2_trans_add_revoke(struct gfs2_sbd *sdp, struct gfs2_bufdata *bd);
 extern void gfs2_trans_add_unrevoke(struct gfs2_sbd *sdp, u64 blkno, unsigned int len);
 
-#endif 
+#endif /* __TRANS_DOT_H__ */

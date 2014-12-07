@@ -54,11 +54,13 @@
 #define CH7017_TEST_PATTERN		0x48
 
 #define CH7017_POWER_MANAGEMENT		0x49
+/** Enables the TV output path. */
 #define CH7017_TV_EN			(1 << 0)
 #define CH7017_DAC0_POWER_DOWN		(1 << 1)
 #define CH7017_DAC1_POWER_DOWN		(1 << 2)
 #define CH7017_DAC2_POWER_DOWN		(1 << 3)
 #define CH7017_DAC3_POWER_DOWN		(1 << 4)
+/** Powers down the TV out block, and DAC0-3 */
 #define CH7017_TV_POWER_DOWN_EN		(1 << 5)
 
 #define CH7017_VERSION_ID		0x4a
@@ -81,18 +83,26 @@
 #define CH7017_UP_SCALER_HORIZONTAL_INC_1	0x5e
 
 #define CH7017_HORIZONTAL_ACTIVE_PIXEL_INPUT	0x5f
+/**< Low bits of horizontal active pixel input */
 
 #define CH7017_ACTIVE_INPUT_LINE_OUTPUT	0x60
+/** High bits of horizontal active pixel input */
 #define CH7017_LVDS_HAP_INPUT_MASK	(0x7 << 0)
+/** High bits of vertical active line output */
 #define CH7017_LVDS_VAL_HIGH_MASK	(0x7 << 3)
 
 #define CH7017_VERTICAL_ACTIVE_LINE_OUTPUT	0x61
+/**< Low bits of vertical active line output */
 
 #define CH7017_HORIZONTAL_ACTIVE_PIXEL_OUTPUT	0x62
+/**< Low bits of horizontal active pixel output */
 
 #define CH7017_LVDS_POWER_DOWN		0x63
+/** High bits of horizontal active pixel output */
 #define CH7017_LVDS_HAP_HIGH_MASK	(0x7 << 0)
+/** Enables the LVDS power down state transition */
 #define CH7017_LVDS_POWER_DOWN_EN	(1 << 6)
+/** Enables the LVDS upscaler */
 #define CH7017_LVDS_UPSCALER_EN		(1 << 7)
 #define CH7017_LVDS_POWER_DOWN_DEFAULT_RESERVED 0x08
 
@@ -105,7 +115,9 @@
 #define CH7017_LVDS_ENCODING_2		0x65
 
 #define CH7017_LVDS_PLL_CONTROL		0x66
+/** Enables the LVDS panel output path */
 #define CH7017_LVDS_PANEN		(1 << 0)
+/** Enables the LVDS panel backlight */
 #define CH7017_LVDS_BKLEN		(1 << 3)
 
 #define CH7017_POWER_SEQUENCING_T1	0x67
@@ -184,6 +196,7 @@ static bool ch7017_write(struct intel_dvo_device *dvo, u8 addr, u8 val)
 	return i2c_transfer(dvo->i2c_bus, &msg, 1) == 1;
 }
 
+/** Probes for a CH7017 on the given bus and slave address. */
 static bool ch7017_init(struct intel_dvo_device *dvo,
 			struct i2c_adapter *adapter)
 {
@@ -254,7 +267,7 @@ static void ch7017_mode_set(struct intel_dvo_device *dvo,
 	DRM_DEBUG_KMS("Registers before mode setting\n");
 	ch7017_dump_regs(dvo);
 
-	
+	/* LVDS PLL settings from page 75 of 7017-7017ds.pdf*/
 	if (mode->clock < 100000) {
 		outputs_enable = CH7017_LVDS_CHANNEL_A | CH7017_CHARGE_PUMP_LOW;
 		lvds_pll_feedback_div = CH7017_LVDS_PLL_FEEDBACK_DEFAULT_RESERVED |
@@ -273,7 +286,7 @@ static void ch7017_mode_set(struct intel_dvo_device *dvo,
 		lvds_pll_feedback_div = 35;
 		lvds_control_2 = (3 << CH7017_LOOP_FILTER_SHIFT) |
 			(0 << CH7017_PHASE_DETECTOR_SHIFT);
-		if (1) { 
+		if (1) { /* XXX: dual channel panel detection.  Assume yes for now. */
 			outputs_enable |= CH7017_LVDS_CHANNEL_B;
 			lvds_pll_vco_control = CH7017_LVDS_PLL_VCO_DEFAULT_RESERVED |
 				(2 << CH7017_LVDS_PLL_VCO_SHIFT) |
@@ -310,20 +323,21 @@ static void ch7017_mode_set(struct intel_dvo_device *dvo,
 	ch7017_write(dvo, CH7017_LVDS_CONTROL_2, lvds_control_2);
 	ch7017_write(dvo, CH7017_OUTPUTS_ENABLE, outputs_enable);
 
-	
+	/* Turn the LVDS back on with new settings. */
 	ch7017_write(dvo, CH7017_LVDS_POWER_DOWN, lvds_power_down);
 
 	DRM_DEBUG_KMS("Registers after mode setting\n");
 	ch7017_dump_regs(dvo);
 }
 
+/* set the CH7017 power state */
 static void ch7017_dpms(struct intel_dvo_device *dvo, int mode)
 {
 	uint8_t val;
 
 	ch7017_read(dvo, CH7017_LVDS_POWER_DOWN, &val);
 
-	
+	/* Turn off TV/VGA, and never turn it on since we don't support it. */
 	ch7017_write(dvo, CH7017_POWER_MANAGEMENT,
 			CH7017_DAC0_POWER_DOWN |
 			CH7017_DAC1_POWER_DOWN |
@@ -332,16 +346,16 @@ static void ch7017_dpms(struct intel_dvo_device *dvo, int mode)
 			CH7017_TV_POWER_DOWN_EN);
 
 	if (mode == DRM_MODE_DPMS_ON) {
-		
+		/* Turn on the LVDS */
 		ch7017_write(dvo, CH7017_LVDS_POWER_DOWN,
 			     val & ~CH7017_LVDS_POWER_DOWN_EN);
 	} else {
-		
+		/* Turn off the LVDS */
 		ch7017_write(dvo, CH7017_LVDS_POWER_DOWN,
 			     val | CH7017_LVDS_POWER_DOWN_EN);
 	}
 
-	
+	/* XXX: Should actually wait for update power status somehow */
 	msleep(20);
 }
 

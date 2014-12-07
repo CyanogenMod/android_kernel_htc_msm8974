@@ -186,7 +186,7 @@ struct bnx2x_eth_stats {
 
 	u32 nig_timer_max;
 
-	
+	/* TPA */
 	u32 total_tpa_aggregations_hi;
 	u32 total_tpa_aggregations_lo;
 	u32 total_tpa_aggregated_frames_hi;
@@ -194,13 +194,13 @@ struct bnx2x_eth_stats {
 	u32 total_tpa_bytes_hi;
 	u32 total_tpa_bytes_lo;
 
-	
+	/* PFC */
 	u32 pfc_frames_received_hi;
 	u32 pfc_frames_received_lo;
 	u32 pfc_frames_sent_hi;
 	u32 pfc_frames_sent_lo;
 
-	
+	/* Recovery */
 	u32 recoverable_error;
 	u32 unrecoverable_error;
 };
@@ -255,7 +255,7 @@ struct bnx2x_eth_q_stats {
 	u32 total_transmitted_dropped_packets_error_hi;
 	u32 total_transmitted_dropped_packets_error_lo;
 
-	
+	/* TPA */
 	u32 total_tpa_aggregations_hi;
 	u32 total_tpa_aggregations_lo;
 	u32 total_tpa_aggregated_frames_hi;
@@ -270,7 +270,7 @@ struct bnx2x_eth_stats_old {
 };
 
 struct bnx2x_eth_q_stats_old {
-	
+	/* Fields to perserve over fw reset*/
 	u32 total_unicast_bytes_received_hi;
 	u32 total_unicast_bytes_received_lo;
 	u32 total_broadcast_bytes_received_hi;
@@ -286,7 +286,7 @@ struct bnx2x_eth_q_stats_old {
 	u32 total_tpa_bytes_hi;
 	u32 total_tpa_bytes_lo;
 
-	
+	/* Fields to perserve last of */
 	u32 total_bytes_received_hi;
 	u32 total_bytes_received_lo;
 	u32 total_bytes_transmitted_hi;
@@ -327,34 +327,39 @@ struct bnx2x_fw_port_stats_old {
 };
 
 
+/****************************************************************************
+* Macros
+****************************************************************************/
 
+/* sum[hi:lo] += add[hi:lo] */
 #define ADD_64(s_hi, a_hi, s_lo, a_lo) \
 	do { \
 		s_lo += a_lo; \
 		s_hi += a_hi + ((s_lo < a_lo) ? 1 : 0); \
 	} while (0)
 
+/* difference = minuend - subtrahend */
 #define DIFF_64(d_hi, m_hi, s_hi, d_lo, m_lo, s_lo) \
 	do { \
 		if (m_lo < s_lo) { \
-			 \
+			/* underflow */ \
 			d_hi = m_hi - s_hi; \
 			if (d_hi > 0) { \
-				 \
+				/* we can 'loan' 1 */ \
 				d_hi--; \
 				d_lo = m_lo + (UINT_MAX - s_lo) + 1; \
 			} else { \
-				 \
+				/* m_hi <= s_hi */ \
 				d_hi = 0; \
 				d_lo = 0; \
 			} \
 		} else { \
-			 \
+			/* m_lo >= s_lo */ \
 			if (m_hi < s_hi) { \
 				d_hi = 0; \
 				d_lo = 0; \
 			} else { \
-				 \
+				/* m_hi >= s_hi */ \
 				d_hi = m_hi - s_hi; \
 				d_lo = m_lo - s_lo; \
 			} \
@@ -379,6 +384,7 @@ struct bnx2x_fw_port_stats_old {
 		       estats->t##_lo, diff.lo); \
 	} while (0)
 
+/* sum[hi:lo] += add */
 #define ADD_EXTEND_64(s_hi, s_lo, a) \
 	do { \
 		s_lo += a; \
@@ -491,11 +497,13 @@ struct bnx2x_fw_port_stats_old {
 		estats_old->t##_lo = estats->t##_lo; \
 	} while (0)
 
+/* minuend -= subtrahend */
 #define SUB_64(m_hi, s_hi, m_lo, s_lo) \
 	do { \
 		DIFF_64(m_hi, m_hi, s_hi, m_lo, m_lo, s_lo); \
 	} while (0)
 
+/* minuend[hi:lo] -= subtrahend */
 #define SUB_EXTEND_64(m_hi, m_lo, s) \
 	do { \
 		SUB_64(m_hi, 0, m_lo, s); \
@@ -508,11 +516,17 @@ struct bnx2x_fw_port_stats_old {
 	} while (0)
 
 
+/* forward */
 struct bnx2x;
 
 void bnx2x_stats_init(struct bnx2x *bp);
 
 void bnx2x_stats_handle(struct bnx2x *bp, enum bnx2x_stats_event event);
 
+/**
+ * bnx2x_save_statistics - save statistics when unloading.
+ *
+ * @bp:		driver handle
+ */
 void bnx2x_save_statistics(struct bnx2x *bp);
-#endif 
+#endif /* BNX2X_STATS_H */

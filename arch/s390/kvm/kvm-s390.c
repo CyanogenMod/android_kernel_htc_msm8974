@@ -79,9 +79,10 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 
 static unsigned long long *facilities;
 
+/* Section: not file related */
 int kvm_arch_hardware_enable(void *garbage)
 {
-	
+	/* every s390 is virtualization enabled ;-) */
 	return 0;
 }
 
@@ -111,6 +112,7 @@ void kvm_arch_exit(void)
 {
 }
 
+/* Section: device related */
 long kvm_arch_dev_ioctl(struct file *filp,
 			unsigned int ioctl, unsigned long arg)
 {
@@ -139,6 +141,10 @@ int kvm_dev_ioctl_check_extension(long ext)
 	return r;
 }
 
+/* Section: vm related */
+/*
+ * Get (and clear) the dirty memory log for a memory slot.
+ */
 int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 			       struct kvm_dirty_log *log)
 {
@@ -272,6 +278,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
 		gmap_free(kvm->arch.gmap);
 }
 
+/* Section: vcpu related */
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
 	if (kvm_is_ucontrol(vcpu->kvm)) {
@@ -291,7 +298,7 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 
 void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 {
-	
+	/* Nothing todo */
 }
 
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
@@ -317,7 +324,7 @@ void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 
 static void kvm_s390_vcpu_initial_reset(struct kvm_vcpu *vcpu)
 {
-	
+	/* this equals initial cpu reset in pop, but we don't switch to ESA */
 	vcpu->arch.sie_block->gpsw.mask = 0UL;
 	vcpu->arch.sie_block->gpsw.addr = 0UL;
 	kvm_s390_set_prefix(vcpu, 0);
@@ -411,7 +418,7 @@ out:
 
 int kvm_arch_vcpu_runnable(struct kvm_vcpu *vcpu)
 {
-	
+	/* kvm common code refers to this, but never calls it */
 	BUG();
 	return 0;
 }
@@ -482,25 +489,25 @@ static int kvm_arch_vcpu_ioctl_set_initial_psw(struct kvm_vcpu *vcpu, psw_t psw)
 int kvm_arch_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
 				  struct kvm_translation *tr)
 {
-	return -EINVAL; 
+	return -EINVAL; /* not implemented yet */
 }
 
 int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 					struct kvm_guest_debug *dbg)
 {
-	return -EINVAL; 
+	return -EINVAL; /* not implemented yet */
 }
 
 int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state)
 {
-	return -EINVAL; 
+	return -EINVAL; /* not implemented yet */
 }
 
 int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state)
 {
-	return -EINVAL; 
+	return -EINVAL; /* not implemented yet */
 }
 
 static int __vcpu_run(struct kvm_vcpu *vcpu)
@@ -611,7 +618,7 @@ rerun_vcpu:
 #endif
 
 	if (rc == -EOPNOTSUPP) {
-		
+		/* intercept cannot be handled in-kernel, prepare kvm-run */
 		kvm_run->exit_reason         = KVM_EXIT_S390_SIEIC;
 		kvm_run->s390_sieic.icptcode = vcpu->arch.sie_block->icptcode;
 		kvm_run->s390_sieic.ipa      = vcpu->arch.sie_block->ipa;
@@ -620,6 +627,8 @@ rerun_vcpu:
 	}
 
 	if (rc == -EREMOTE) {
+		/* intercept was handled, but userspace support is needed
+		 * kvm_run has been prepared by the handler */
 		rc = 0;
 	}
 
@@ -644,6 +653,12 @@ static int __guestcopy(struct kvm_vcpu *vcpu, u64 guestdest, void *from,
 		return copy_to_guest_absolute(vcpu, guestdest, from, n);
 }
 
+/*
+ * store status at address
+ * we use have two special cases:
+ * KVM_S390_STORE_STATUS_NOADDR: -> 0x1200 on 64 bit
+ * KVM_S390_STORE_STATUS_PREFIXED: -> prefix
+ */
 int kvm_s390_vcpu_store_status(struct kvm_vcpu *vcpu, unsigned long addr)
 {
 	unsigned char archmode = 1;
@@ -809,12 +824,19 @@ int kvm_arch_create_memslot(struct kvm_memory_slot *slot, unsigned long npages)
 	return 0;
 }
 
+/* Section: memory related */
 int kvm_arch_prepare_memory_region(struct kvm *kvm,
 				   struct kvm_memory_slot *memslot,
 				   struct kvm_memory_slot old,
 				   struct kvm_userspace_memory_region *mem,
 				   int user_alloc)
 {
+	/* A few sanity checks. We can have exactly one memory slot which has
+	   to start at guest virtual zero and which has to be located at a
+	   page boundary in userland and which has to end at a page boundary.
+	   The memory in userland is ok to be fragmented into various different
+	   vmas. It is okay to mmap() and munmap() stuff in this slot after
+	   doing this call at any time */
 
 	if (mem->slot)
 		return -EINVAL;
@@ -860,6 +882,11 @@ static int __init kvm_s390_init(void)
 	if (ret)
 		return ret;
 
+	/*
+	 * guests can ask for up to 255+1 double words, we need a full page
+	 * to hold the maximum amount of facilities. On the other hand, we
+	 * only set facilities that are known to work in KVM.
+	 */
 	facilities = (unsigned long long *) get_zeroed_page(GFP_KERNEL|GFP_DMA);
 	if (!facilities) {
 		kvm_exit();

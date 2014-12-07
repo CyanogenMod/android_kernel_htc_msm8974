@@ -11,6 +11,14 @@
  *	Hamish Macdonald
  */
 
+/*
+ * Atari keyboard driver for Linux/m68k
+ *
+ * The low level init and interrupt stuff is handled in arch/mm68k/atari/atakeyb.c
+ * (the keyboard ACIA also handles the mouse and joystick data, and the keyboard
+ * interrupt is shared with the MIDI ACIA so MIDI data also get handled there).
+ * This driver only deals with handing key events off to the input layer.
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -47,9 +55,31 @@ MODULE_AUTHOR("Michael Schmitz <schmitz@biophys.uni-duesseldorf.de>");
 MODULE_DESCRIPTION("Atari keyboard driver");
 MODULE_LICENSE("GPL");
 
+/*
+ 0x47: KP_7     71
+ 0x48: KP_8     72
+ 0x49: KP_9     73
+ 0x62: KP_/     98
+ 0x4b: KP_4     75
+ 0x4c: KP_5     76
+ 0x4d: KP_6     77
+ 0x37: KP_*     55
+ 0x4f: KP_1     79
+ 0x50: KP_2     80
+ 0x51: KP_3     81
+ 0x4a: KP_-     74
+ 0x52: KP_0     82
+ 0x53: KP_.     83
+ 0x4e: KP_+     78
+
+ 0x67: Up       103
+ 0x6c: Down     108
+ 0x69: Left     105
+ 0x6a: Right    106
+ */
 
 
-static unsigned char atakbd_keycode[0x72] = {	
+static unsigned char atakbd_keycode[0x72] = {	/* American layout */
 	[0]	 = KEY_GRAVE,
 	[1]	 = KEY_ESC,
 	[2]	 = KEY_1,
@@ -91,9 +121,9 @@ static unsigned char atakbd_keycode[0x72] = {
 	[38]	 = KEY_L,
 	[39]	 = KEY_SEMICOLON,
 	[40]	 = KEY_APOSTROPHE,
-	[41]	 = KEY_BACKSLASH,	
+	[41]	 = KEY_BACKSLASH,	/* FIXME, '#' */
 	[42]	 = KEY_LEFTSHIFT,
-	[43]	 = KEY_GRAVE,		
+	[43]	 = KEY_GRAVE,		/* FIXME: '~' */
 	[44]	 = KEY_Z,
 	[45]	 = KEY_X,
 	[46]	 = KEY_C,
@@ -136,28 +166,28 @@ static unsigned char atakbd_keycode[0x72] = {
 	[83]	 = KEY_KPDOT,
 	[90]	 = KEY_KPLEFTPAREN,
 	[91]	 = KEY_KPRIGHTPAREN,
-	[92]	 = KEY_KPASTERISK,	
+	[92]	 = KEY_KPASTERISK,	/* FIXME */
 	[93]	 = KEY_KPASTERISK,
 	[94]	 = KEY_KPPLUS,
 	[95]	 = KEY_HELP,
-	[96]	 = KEY_BACKSLASH,	
-	[97]	 = KEY_KPASTERISK,	
+	[96]	 = KEY_BACKSLASH,	/* FIXME: '<' */
+	[97]	 = KEY_KPASTERISK,	/* FIXME */
 	[98]	 = KEY_KPSLASH,
 	[99]	 = KEY_KPLEFTPAREN,
 	[100]	 = KEY_KPRIGHTPAREN,
 	[101]	 = KEY_KPSLASH,
 	[102]	 = KEY_KPASTERISK,
 	[103]	 = KEY_UP,
-	[104]	 = KEY_KPASTERISK,	
+	[104]	 = KEY_KPASTERISK,	/* FIXME */
 	[105]	 = KEY_LEFT,
 	[106]	 = KEY_RIGHT,
-	[107]	 = KEY_KPASTERISK,	
+	[107]	 = KEY_KPASTERISK,	/* FIXME */
 	[108]	 = KEY_DOWN,
-	[109]	 = KEY_KPASTERISK,	
-	[110]	 = KEY_KPASTERISK,	
-	[111]	 = KEY_KPASTERISK,	
-	[112]	 = KEY_KPASTERISK,	
-	[113]	 = KEY_KPASTERISK	
+	[109]	 = KEY_KPASTERISK,	/* FIXME */
+	[110]	 = KEY_KPASTERISK,	/* FIXME */
+	[111]	 = KEY_KPASTERISK,	/* FIXME */
+	[112]	 = KEY_KPASTERISK,	/* FIXME */
+	[113]	 = KEY_KPASTERISK	/* FIXME */
 };
 
 static struct input_dev *atakbd_dev;
@@ -165,13 +195,13 @@ static struct input_dev *atakbd_dev;
 static void atakbd_interrupt(unsigned char scancode, char down)
 {
 
-	if (scancode < 0x72) {		
+	if (scancode < 0x72) {		/* scancodes < 0xf2 are keys */
 
-		
+		// report raw events here?
 
 		scancode = atakbd_keycode[scancode];
 
-		if (scancode == KEY_CAPSLOCK) {	
+		if (scancode == KEY_CAPSLOCK) {	/* CapsLock is a toggle switch key on Amiga */
 			input_report_key(atakbd_dev, scancode, 1);
 			input_report_key(atakbd_dev, scancode, 0);
 			input_sync(atakbd_dev);
@@ -179,7 +209,7 @@ static void atakbd_interrupt(unsigned char scancode, char down)
 			input_report_key(atakbd_dev, scancode, down);
 			input_sync(atakbd_dev);
 		}
-	} else				
+	} else				/* scancodes >= 0xf2 are mouse data, most likely */
 		printk(KERN_INFO "atakbd: unhandled scancode %x\n", scancode);
 
 	return;
@@ -192,7 +222,7 @@ static int __init atakbd_init(void)
 	if (!MACH_IS_ATARI || !ATARIHW_PRESENT(ST_MFP))
 		return -ENODEV;
 
-	
+	// need to init core driver if not already done so
 	error = atari_keyb_init();
 	if (error)
 		return error;
@@ -217,7 +247,7 @@ static int __init atakbd_init(void)
 		set_bit(atakbd_keycode[i], atakbd_dev->keybit);
 	}
 
-	
+	/* error check */
 	error = input_register_device(atakbd_dev);
 	if (error) {
 		input_free_device(atakbd_dev);

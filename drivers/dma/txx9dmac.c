@@ -256,6 +256,10 @@ static void txx9dmac_sync_desc_for_cpu(struct txx9dmac_chan *dc,
 			DMA_TO_DEVICE);
 }
 
+/*
+ * Move a descriptor, including any children, to the free list.
+ * `desc' must not be on any lists.
+ */
 static void txx9dmac_desc_put(struct txx9dmac_chan *dc,
 			      struct txx9dmac_desc *desc)
 {
@@ -277,6 +281,7 @@ static void txx9dmac_desc_put(struct txx9dmac_chan *dc,
 	}
 }
 
+/*----------------------------------------------------------------------*/
 
 static void txx9dmac_dump_regs(struct txx9dmac_chan *dc)
 {
@@ -325,6 +330,7 @@ static void txx9dmac_reset_chan(struct txx9dmac_chan *dc)
 	mmiowb();
 }
 
+/* Called with dc->lock held and bh disabled */
 static void txx9dmac_dostart(struct txx9dmac_chan *dc,
 			     struct txx9dmac_desc *first)
 {
@@ -333,12 +339,12 @@ static void txx9dmac_dostart(struct txx9dmac_chan *dc,
 
 	dev_vdbg(chan2dev(&dc->chan), "dostart %u %p\n",
 		 first->txd.cookie, first);
-	
+	/* ASSERT:  channel is idle */
 	if (channel_readl(dc, CSR) & TXX9_DMA_CSR_XFACT) {
 		dev_err(chan2dev(&dc->chan),
 			"BUG: Attempted to start non-idle channel\n");
 		txx9dmac_dump_regs(dc);
-		
+		/* The tasklet will hopefully advance the queue... */
 		return;
 	}
 
@@ -359,9 +365,9 @@ static void txx9dmac_dostart(struct txx9dmac_chan *dc,
 		}
 		channel64_writel(dc, SAIR, sai);
 		channel64_writel(dc, DAIR, dai);
-		
+		/* All 64-bit DMAC supports SMPCHN */
 		channel64_writel(dc, CCR, dc->ccr);
-		
+		/* Writing a non zero value to CHAR will assert XFACT */
 		channel64_write_CHAR(dc, first->txd.phys);
 	} else {
 		channel32_writel(dc, CNTR, 0);
@@ -382,7 +388,7 @@ static void txx9dmac_dostart(struct txx9dmac_chan *dc,
 		channel32_writel(dc, DAIR, dai);
 		if (txx9_dma_have_SMPCHN()) {
 			channel32_writel(dc, CCR, dc->ccr);
-			
+			/* Writing a non zero value to CHAR will assert XFACT */
 			channel32_writel(dc, CHAR, first->txd.phys);
 		} else {
 			channel32_writel(dc, CHAR, first->txd.phys);
@@ -391,6 +397,7 @@ static void txx9dmac_dostart(struct txx9dmac_chan *dc,
 	}
 }
 
+/*----------------------------------------------------------------------*/
 
 static void
 txx9dmac_descriptor_complete(struct txx9dmac_chan *dc,
@@ -436,6 +443,10 @@ txx9dmac_descriptor_complete(struct txx9dmac_chan *dc,
 		}
 	}
 
+	/*
+	 * The API requires that no submissions are done from a
+	 * callback, so we don't need to drop the lock here
+	 */
 	if (callback)
 		callback(param);
 	dma_run_dependencies(txd);
@@ -458,7 +469,7 @@ static void txx9dmac_dequeue(struct txx9dmac_chan *dc, struct list_head *list)
 		}
 		prev = txx9dmac_last_child(desc);
 		list_move_tail(&desc->desc_node, list);
-		
+		/* Make chain-completion interrupt happen */
 		if ((desc->txd.flags & DMA_PREP_INTERRUPT) &&
 		    !txx9dmac_chan_INTENT(dc))
 			break;
@@ -470,6 +481,10 @@ static void txx9dmac_complete_all(struct txx9dmac_chan *dc)
 	struct txx9dmac_desc *desc, *_desc;
 	LIST_HEAD(list);
 
+	/*
+	 * Submit queued descriptors ASAP, i.e. before we go through
+	 * the completed ones.
+	 */
 	list_splice_init(&dc->active_list, &list);
 	if (!list_empty(&dc->queue)) {
 		txx9dmac_dequeue(dc, &dc->active_list);
@@ -517,13 +532,18 @@ static void txx9dmac_handle_error(struct txx9dmac_chan *dc, u32 csr)
 	struct txx9dmac_desc *child;
 	u32 errors;
 
+	/*
+	 * The descriptor currently at the head of the active list is
+	 * borked. Since we don't have any way to report errors, we'll
+	 * just have to scream loudly and try to carry on.
+	 */
 	dev_crit(chan2dev(&dc->chan), "Abnormal Chain Completion\n");
 	txx9dmac_dump_regs(dc);
 
 	bad_desc = txx9dmac_first_active(dc);
 	list_del_init(&bad_desc->desc_node);
 
-	
+	/* Clear all error flags and try to restart the controller */
 	errors = csr & (TXX9_DMA_CSR_ABCHC |
 			TXX9_DMA_CSR_CFERR | TXX9_DMA_CSR_CHERR |
 			TXX9_DMA_CSR_DESERR | TXX9_DMA_CSR_SORERR);
@@ -540,7 +560,7 @@ static void txx9dmac_handle_error(struct txx9dmac_chan *dc, u32 csr)
 	txx9dmac_dump_desc(dc, &bad_desc->hwdesc);
 	list_for_each_entry(child, &bad_desc->tx_list, desc_node)
 		txx9dmac_dump_desc(dc, &child->hwdesc);
-	
+	/* Pretend the descriptor completed successfully */
 	txx9dmac_descriptor_complete(dc, bad_desc);
 }
 
@@ -560,21 +580,21 @@ static void txx9dmac_scan_descriptors(struct txx9dmac_chan *dc)
 		csr = channel32_readl(dc, CSR);
 		channel32_writel(dc, CSR, csr);
 	}
-	
+	/* For dynamic chain, we should look at XFACT instead of NCHNC */
 	if (!(csr & (TXX9_DMA_CSR_XFACT | TXX9_DMA_CSR_ABCHC))) {
-		
+		/* Everything we've submitted is done */
 		txx9dmac_complete_all(dc);
 		return;
 	}
 	if (!(csr & TXX9_DMA_CSR_CHNEN))
-		chain = 0;	
+		chain = 0;	/* last descriptor of this chain */
 
 	dev_vdbg(chan2dev(&dc->chan), "scan_descriptors: char=%#llx\n",
 		 (u64)chain);
 
 	list_for_each_entry_safe(desc, _desc, &dc->active_list, desc_node) {
 		if (desc_read_CHAR(dc, desc) == chain) {
-			
+			/* This one is currently in progress */
 			if (csr & TXX9_DMA_CSR_ABCHC)
 				goto scan_done;
 			return;
@@ -582,12 +602,16 @@ static void txx9dmac_scan_descriptors(struct txx9dmac_chan *dc)
 
 		list_for_each_entry(child, &desc->tx_list, desc_node)
 			if (desc_read_CHAR(dc, child) == chain) {
-				
+				/* Currently in progress */
 				if (csr & TXX9_DMA_CSR_ABCHC)
 					goto scan_done;
 				return;
 			}
 
+		/*
+		 * No descriptors so far seem to be in progress, i.e.
+		 * this one must be done.
+		 */
 		txx9dmac_descriptor_complete(dc, desc);
 	}
 scan_done:
@@ -599,7 +623,7 @@ scan_done:
 	dev_err(chan2dev(&dc->chan),
 		"BUG: All descriptors done, but channel not idle!\n");
 
-	
+	/* Try to continue after resetting the channel... */
 	txx9dmac_reset_chan(dc);
 
 	if (!list_empty(&dc->queue)) {
@@ -636,6 +660,10 @@ static irqreturn_t txx9dmac_chan_interrupt(int irq, void *dev_id)
 			channel_readl(dc, CSR));
 
 	tasklet_schedule(&dc->tasklet);
+	/*
+	 * Just disable the interrupts. We'll turn them back on in the
+	 * softirq handler.
+	 */
 	disable_irq_nosync(irq);
 
 	return IRQ_HANDLED;
@@ -679,11 +707,16 @@ static irqreturn_t txx9dmac_interrupt(int irq, void *dev_id)
 			dma_readl(ddev, MCR));
 
 	tasklet_schedule(&ddev->tasklet);
+	/*
+	 * Just disable the interrupts. We'll turn them back on in the
+	 * softirq handler.
+	 */
 	disable_irq_nosync(irq);
 
 	return IRQ_HANDLED;
 }
 
+/*----------------------------------------------------------------------*/
 
 static dma_cookie_t txx9dmac_tx_submit(struct dma_async_tx_descriptor *tx)
 {
@@ -727,6 +760,10 @@ txx9dmac_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dest, dma_addr_t src,
 
 	for (offset = 0; offset < len; offset += xfer_count) {
 		xfer_count = min_t(size_t, len - offset, TXX9_DMA_MAX_COUNT);
+		/*
+		 * Workaround for ERT-TX49H2-033, ERT-TX49H3-020,
+		 * ERT-TX49H4-016 (slightly conservative)
+		 */
 		if (__is_dmac64(ddev)) {
 			if (xfer_count > 0x100 &&
 			    (xfer_count & 0xff) >= 0xfa &&
@@ -759,6 +796,13 @@ txx9dmac_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dest, dma_addr_t src,
 					dc->ccr | TXX9_DMA_CCR_XFACT);
 		}
 
+		/*
+		 * The descriptors on tx_list are not reachable from
+		 * the dc->queue list or dc->active_list after a
+		 * submit.  If we put all descriptors on active_list,
+		 * calling of callback on the completion will be more
+		 * complex.
+		 */
 		if (!first) {
 			first = desc;
 		} else {
@@ -771,7 +815,7 @@ txx9dmac_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dest, dma_addr_t src,
 		prev = desc;
 	}
 
-	
+	/* Trigger interrupt after last block */
 	if (flags & DMA_PREP_INTERRUPT)
 		txx9dmac_desc_set_INTENT(ddev, prev);
 
@@ -866,7 +910,7 @@ txx9dmac_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 		prev = desc;
 	}
 
-	
+	/* Trigger interrupt after last block */
 	if (flags & DMA_PREP_INTERRUPT)
 		txx9dmac_desc_set_INTENT(ddev, prev);
 
@@ -888,7 +932,7 @@ static int txx9dmac_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 	struct txx9dmac_desc *desc, *_desc;
 	LIST_HEAD(list);
 
-	
+	/* Only supports DMA_TERMINATE_ALL */
 	if (cmd != DMA_TERMINATE_ALL)
 		return -EINVAL;
 
@@ -897,13 +941,13 @@ static int txx9dmac_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 
 	txx9dmac_reset_chan(dc);
 
-	
+	/* active_list entries will end up before queued entries */
 	list_splice_init(&dc->queue, &list);
 	list_splice_init(&dc->active_list, &list);
 
 	spin_unlock_bh(&dc->lock);
 
-	
+	/* Flush all pending and queued descriptors */
 	list_for_each_entry_safe(desc, _desc, &list, desc_node)
 		txx9dmac_descriptor_complete(dc, desc);
 
@@ -946,7 +990,7 @@ static void txx9dmac_chain_dynamic(struct txx9dmac_chan *dc,
 	mmiowb();
 	if (!(channel_readl(dc, CSR) & TXX9_DMA_CSR_CHNEN) &&
 	    channel_read_CHAR(dc) == prev->txd.phys)
-		
+		/* Restart chain DMA */
 		channel_write_CHAR(dc, desc->txd.phys);
 	list_splice_tail(&list, &dc->active_list);
 }
@@ -984,7 +1028,7 @@ static int txx9dmac_alloc_chan_resources(struct dma_chan *chan)
 
 	dev_vdbg(chan2dev(chan), "alloc_chan_resources\n");
 
-	
+	/* ASSERT:  channel is idle */
 	if (channel_readl(dc, CSR) & TXX9_DMA_CSR_XFACT) {
 		dev_dbg(chan2dev(chan), "DMA channel not idle?\n");
 		return -EIO;
@@ -1044,7 +1088,7 @@ static void txx9dmac_free_chan_resources(struct dma_chan *chan)
 	dev_dbg(chan2dev(chan), "free_chan_resources (descs allocated=%u)\n",
 			dc->descs_allocated);
 
-	
+	/* ASSERT:  channel is idle */
 	BUG_ON(!list_empty(&dc->active_list));
 	BUG_ON(!list_empty(&dc->queue));
 	BUG_ON(channel_readl(dc, CSR) & TXX9_DMA_CSR_XFACT);
@@ -1064,6 +1108,7 @@ static void txx9dmac_free_chan_resources(struct dma_chan *chan)
 	dev_vdbg(chan2dev(chan), "free_chan_resources done\n");
 }
 
+/*----------------------------------------------------------------------*/
 
 static void txx9dmac_off(struct txx9dmac_dev *ddev)
 {
@@ -1185,7 +1230,7 @@ static int __init txx9dmac_probe(struct platform_device *pdev)
 	else
 		ddev->descsize = sizeof(struct txx9dmac_hwdesc32);
 
-	
+	/* force dma off, just in case */
 	txx9dmac_off(ddev);
 
 	ddev->irq = platform_get_irq(pdev, 0);

@@ -54,7 +54,7 @@ static int exynos4_usb_phy1_init(struct platform_device *pdev)
 	writel(readl(S5P_USBHOST_PHY_CONTROL) | S5P_USBHOST_PHY_ENABLE,
 			S5P_USBHOST_PHY_CONTROL);
 
-	
+	/* set clock frequency for PLL */
 	phyclk = readl(EXYNOS4_PHYCLK) & ~CLKSEL_MASK;
 
 	xusbxti_clk = clk_get(&pdev->dev, "xusbxti");
@@ -68,7 +68,7 @@ static int exynos4_usb_phy1_init(struct platform_device *pdev)
 			break;
 		default:
 		case 48 * MHZ:
-			
+			/* default reference clock */
 			break;
 		}
 		clk_put(xusbxti_clk);
@@ -76,17 +76,17 @@ static int exynos4_usb_phy1_init(struct platform_device *pdev)
 
 	writel(phyclk, EXYNOS4_PHYCLK);
 
-	
+	/* floating prevention logic: disable */
 	writel((readl(EXYNOS4_PHY1CON) | FPENABLEN), EXYNOS4_PHY1CON);
 
-	
+	/* set to normal HSIC 0 and 1 of PHY1 */
 	writel((readl(EXYNOS4_PHYPWR) & ~PHY1_HSIC_NORMAL_MASK),
 			EXYNOS4_PHYPWR);
 
-	
+	/* set to normal standard USB of PHY1 */
 	writel((readl(EXYNOS4_PHYPWR) & ~PHY1_STD_NORMAL_MASK), EXYNOS4_PHYPWR);
 
-	
+	/* reset all ports of both PHY and Link */
 	rstcon = readl(EXYNOS4_RSTCON) | HOST_LINK_PORT_SWRST_MASK |
 		PHY1_SWRST_MASK;
 	writel(rstcon, EXYNOS4_RSTCON);

@@ -1,6 +1,11 @@
+/*
+ * arch/arm/include/asm/therm.h: Definitions for Dallas Semiconductor
+ *  DS1620 thermometer driver (as used in the Rebel.com NetWinder)
+ */
 #ifndef __ASM_THERM_H
 #define __ASM_THERM_H
 
+/* ioctl numbers for /dev/therm */
 #define CMD_SET_THERMOSTATE	0x53
 #define CMD_GET_THERMOSTATE	0x54
 #define CMD_GET_STATUS		0x56

@@ -26,7 +26,7 @@ EXPORT_SYMBOL_GPL(leds_list);
 
 static void led_stop_software_blink(struct led_classdev *led_cdev)
 {
-	
+	/* deactivate previous settings */
 	del_timer_sync(&led_cdev->blink_timer);
 	led_cdev->blink_delay_on = 0;
 	led_cdev->blink_delay_off = 0;
@@ -54,11 +54,11 @@ static void led_set_software_blink(struct led_classdev *led_cdev,
 	led_cdev->blink_delay_on = delay_on;
 	led_cdev->blink_delay_off = delay_off;
 
-	
+	/* never on - don't blink */
 	if (!delay_on)
 		return;
 
-	
+	/* never off - just set to brightness */
 	if (!delay_off) {
 		led_set_brightness(led_cdev, led_cdev->blink_brightness);
 		return;
@@ -78,7 +78,7 @@ void led_blink_set(struct led_classdev *led_cdev,
 	    !led_cdev->blink_set(led_cdev, delay_on, delay_off))
 		return;
 
-	
+	/* blink with 1 Hz as default if nothing specified */
 	if (!*delay_on && !*delay_off)
 		*delay_on = *delay_off = 500;
 

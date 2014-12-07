@@ -41,8 +41,8 @@
 #define UCB_IRQ_TSPX		12
 
 #define UCB_TC_A	0x05
-#define UCB_TC_A_LOOP		(1 << 7)	
-#define UCB_TC_A_AMPL		(1 << 7)	
+#define UCB_TC_A_LOOP		(1 << 7)	/* UCB1200 */
+#define UCB_TC_A_AMPL		(1 << 7)	/* UCB1300 */
 
 #define UCB_TC_B	0x06
 #define UCB_TC_B_VOICE_ENA	(1 << 3)
@@ -164,35 +164,82 @@ struct ucb1x00_driver {
 int ucb1x00_register_driver(struct ucb1x00_driver *);
 void ucb1x00_unregister_driver(struct ucb1x00_driver *);
 
+/**
+ *	ucb1x00_clkrate - return the UCB1x00 SIB clock rate
+ *	@ucb: UCB1x00 structure describing chip
+ *
+ *	Return the SIB clock rate in Hz.
+ */
 static inline unsigned int ucb1x00_clkrate(struct ucb1x00 *ucb)
 {
 	return mcp_get_sclk_rate(ucb->mcp);
 }
 
+/**
+ *	ucb1x00_enable - enable the UCB1x00 SIB clock
+ *	@ucb: UCB1x00 structure describing chip
+ *
+ *	Enable the SIB clock.  This can be called multiple times.
+ */
 static inline void ucb1x00_enable(struct ucb1x00 *ucb)
 {
 	mcp_enable(ucb->mcp);
 }
 
+/**
+ *	ucb1x00_disable - disable the UCB1x00 SIB clock
+ *	@ucb: UCB1x00 structure describing chip
+ *
+ *	Disable the SIB clock.  The SIB clock will only be disabled
+ *	when the number of ucb1x00_enable calls match the number of
+ *	ucb1x00_disable calls.
+ */
 static inline void ucb1x00_disable(struct ucb1x00 *ucb)
 {
 	mcp_disable(ucb->mcp);
 }
 
+/**
+ *	ucb1x00_reg_write - write a UCB1x00 register
+ *	@ucb: UCB1x00 structure describing chip
+ *	@reg: UCB1x00 4-bit register index to write
+ *	@val: UCB1x00 16-bit value to write
+ *
+ *	Write the UCB1x00 register @reg with value @val.  The SIB
+ *	clock must be running for this function to return.
+ */
 static inline void ucb1x00_reg_write(struct ucb1x00 *ucb, unsigned int reg, unsigned int val)
 {
 	mcp_reg_write(ucb->mcp, reg, val);
 }
 
+/**
+ *	ucb1x00_reg_read - read a UCB1x00 register
+ *	@ucb: UCB1x00 structure describing chip
+ *	@reg: UCB1x00 4-bit register index to write
+ *
+ *	Read the UCB1x00 register @reg and return its value.  The SIB
+ *	clock must be running for this function to return.
+ */
 static inline unsigned int ucb1x00_reg_read(struct ucb1x00 *ucb, unsigned int reg)
 {
 	return mcp_reg_read(ucb->mcp, reg);
 }
+/**
+ *	ucb1x00_set_audio_divisor - 
+ *	@ucb: UCB1x00 structure describing chip
+ *	@div: SIB clock divisor
+ */
 static inline void ucb1x00_set_audio_divisor(struct ucb1x00 *ucb, unsigned int div)
 {
 	mcp_set_audio_divisor(ucb->mcp, div);
 }
 
+/**
+ *	ucb1x00_set_telecom_divisor -
+ *	@ucb: UCB1x00 structure describing chip
+ *	@div: SIB clock divisor
+ */
 static inline void ucb1x00_set_telecom_divisor(struct ucb1x00 *ucb, unsigned int div)
 {
 	mcp_set_telecom_divisor(ucb->mcp, div);

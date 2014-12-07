@@ -43,55 +43,61 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long palmte2_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO6_MMC_CLK,
 	GPIO8_MMC_CS0,
-	GPIO10_GPIO,	
-	GPIO55_GPIO,	
-	GPIO51_GPIO,	
+	GPIO10_GPIO,	/* SD detect */
+	GPIO55_GPIO,	/* SD power */
+	GPIO51_GPIO,	/* SD r/o switch */
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 
-	
+	/* PWM */
 	GPIO16_PWM0_OUT,
 
-	
-	GPIO15_GPIO,	
-	GPIO53_GPIO,	
+	/* USB */
+	GPIO15_GPIO,	/* usb detect */
+	GPIO53_GPIO,	/* usb power */
 
-	
-	GPIO48_GPIO,	
+	/* IrDA */
+	GPIO48_GPIO,	/* ir disable */
 	GPIO46_FICP_RXD,
 	GPIO47_FICP_TXD,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
-	GPIO5_GPIO,	
-	GPIO7_GPIO,	
-	GPIO11_GPIO,	
-	GPIO13_GPIO,	
-	GPIO14_GPIO,	
-	GPIO19_GPIO,	
-	GPIO20_GPIO,	
-	GPIO21_GPIO,	
-	GPIO22_GPIO,	
+	/* GPIO KEYS */
+	GPIO5_GPIO,	/* notes */
+	GPIO7_GPIO,	/* tasks */
+	GPIO11_GPIO,	/* calendar */
+	GPIO13_GPIO,	/* contacts */
+	GPIO14_GPIO,	/* center */
+	GPIO19_GPIO,	/* left */
+	GPIO20_GPIO,	/* right */
+	GPIO21_GPIO,	/* down */
+	GPIO22_GPIO,	/* up */
 
-	
-	GPIO1_RST,	
-	GPIO4_GPIO,	
-	GPIO9_GPIO,	
-	GPIO15_GPIO,	
-	GPIO37_GPIO,	
-	GPIO56_GPIO,	
+	/* MISC */
+	GPIO1_RST,	/* reset */
+	GPIO4_GPIO,	/* Hotsync button */
+	GPIO9_GPIO,	/* power detect */
+	GPIO15_GPIO,	/* earphone detect */
+	GPIO37_GPIO,	/* LCD power */
+	GPIO56_GPIO,	/* Backlight power */
 };
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 static struct pxamci_platform_data palmte2_mci_platform_data = {
 	.ocr_mask		= MMC_VDD_32_33 | MMC_VDD_33_34,
 	.gpio_card_detect	= GPIO_NR_PALMTE2_SD_DETECT_N,
@@ -99,6 +105,9 @@ static struct pxamci_platform_data palmte2_mci_platform_data = {
 	.gpio_power		= GPIO_NR_PALMTE2_SD_POWER,
 };
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 static struct gpio_keys_button palmte2_pxa_buttons[] = {
 	{KEY_F1,	GPIO_NR_PALMTE2_KEY_CONTACTS,	1, "Contacts" },
 	{KEY_F2,	GPIO_NR_PALMTE2_KEY_CALENDAR,	1, "Calendar" },
@@ -124,6 +133,9 @@ static struct platform_device palmte2_pxa_keys = {
 	},
 };
 
+/******************************************************************************
+ * Backlight
+ ******************************************************************************/
 static struct gpio palmte_bl_gpios[] = {
 	{ GPIO_NR_PALMTE2_BL_POWER, GPIOF_INIT_LOW, "Backlight power" },
 	{ GPIO_NR_PALMTE2_LCD_POWER, GPIOF_INIT_LOW, "LCD power" },
@@ -164,11 +176,17 @@ static struct platform_device palmte2_backlight = {
 	},
 };
 
+/******************************************************************************
+ * IrDA
+ ******************************************************************************/
 static struct pxaficp_platform_data palmte2_ficp_platform_data = {
 	.gpio_pwdown		= GPIO_NR_PALMTE2_IR_DISABLE,
 	.transceiver_cap	= IR_SIRMODE | IR_OFF,
 };
 
+/******************************************************************************
+ * UDC
+ ******************************************************************************/
 static struct gpio_vbus_mach_info palmte2_udc_info = {
 	.gpio_vbus		= GPIO_NR_PALMTE2_USB_DETECT_N,
 	.gpio_vbus_inverted	= 1,
@@ -183,6 +201,9 @@ static struct platform_device palmte2_gpio_vbus = {
 	},
 };
 
+/******************************************************************************
+ * Power supply
+ ******************************************************************************/
 static int power_supply_init(struct device *dev)
 {
 	int ret;
@@ -232,6 +253,9 @@ static struct platform_device power_supply = {
 	},
 };
 
+/******************************************************************************
+ * WM97xx audio, battery
+ ******************************************************************************/
 static struct wm97xx_batt_pdata palmte2_batt_pdata = {
 	.batt_aux	= WM97XX_AUX_ID3,
 	.temp_aux	= WM97XX_AUX_ID2,
@@ -266,6 +290,9 @@ static struct platform_device palmte2_asoc = {
 	},
 };
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 static struct pxafb_mode_info palmte2_lcd_modes[] = {
 {
 	.pixclock	= 77757,
@@ -289,6 +316,9 @@ static struct pxafb_mach_info palmte2_lcd_screen = {
 	.lcd_conn	= LCD_COLOR_TFT_16BPP | LCD_PCLK_EDGE_FALL,
 };
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static struct platform_device *devices[] __initdata = {
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 	&palmte2_pxa_keys,
@@ -299,6 +329,7 @@ static struct platform_device *devices[] __initdata = {
 	&palmte2_gpio_vbus,
 };
 
+/* setup udc GPIOs initial state */
 static void __init palmte2_udc_init(void)
 {
 	if (!gpio_request(GPIO_NR_PALMTE2_USB_PULLUP, "UDC Vbus")) {

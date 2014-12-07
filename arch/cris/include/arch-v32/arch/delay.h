@@ -5,6 +5,11 @@ extern void cris_delay10ns(u32 n10ns);
 #define udelay(u) cris_delay10ns((u)*100)
 #define ndelay(n) cris_delay10ns(((n)+9)/10)
 
+/*
+ * Not used anymore for udelay or ndelay.  Referenced by
+ * e.g. init/calibrate.c.  All other references are likely bugs;
+ * should be replaced by mdelay, udelay or ndelay.
+ */
 
 static inline void
 __delay(int loops)
@@ -20,4 +25,4 @@ __delay(int loops)
 		: : "g" (loops) : "r9");
 }
 
-#endif 
+#endif /* _ASM_CRIS_ARCH_DELAY_H */

@@ -47,6 +47,7 @@
 #include <mach/audio_jack.h>
 #endif
 
+/* #define CONFIG_DEBUG_H2W */
 
 #define H2WI(fmt, arg...) \
 	printk(KERN_INFO "[H2W] %s " fmt "\r\n", __func__, ## arg)
@@ -102,13 +103,13 @@ static void button_35mm_do_work(struct work_struct *work)
 	int pressed = 0;
 
 	if (!hi->is_ext_insert) {
-		
+		/* no headset ignor key event */
 		H2WI("3.5mm headset is plugged out, skip report key event");
 		return;
 	}
 
 	switch (hi->key_code) {
-	case 0x1: 
+	case 0x1: /* Play/Pause */
 		H2WI("3.5mm RC: Play Pressed");
 		key = KEY_MEDIA;
 		pressed = 1;
@@ -123,7 +124,7 @@ static void button_35mm_do_work(struct work_struct *work)
 		key = KEY_NEXTSONG;
 		pressed = 1;
 		break;
-	case 0x81: 
+	case 0x81: /* Play/Pause */
 		H2WI("3.5mm RC: Play Released");
 		key = KEY_MEDIA;
 		pressed = 0;
@@ -153,7 +154,7 @@ static void remove_35mm_do_work(struct work_struct *work)
 	wake_lock_timeout(&hi->headset_wake_lock, 2.5*HZ);
 
 	H2W_DBG("");
-	
+	/*To solve the insert, remove, insert headset problem*/
 	if (time_before_eq(jiffies, hi->insert_jiffies))
 		msleep(800);
 
@@ -177,7 +178,7 @@ static void remove_35mm_do_work(struct work_struct *work)
 	if (hi->is_hpin_stable)
 		*(hi->is_hpin_stable) = 0;
 
-	
+	/* Notify framework via switch class */
 	mutex_lock(&hi->mutex_lock);
 	switch_set_state(&hi->hs_change, hi->ext_35mm_status);
 	mutex_unlock(&hi->mutex_lock);
@@ -196,32 +197,32 @@ static void insert_35mm_do_work(struct work_struct *work)
 	if (pd->key_event_enable != NULL)
 		pd->key_event_enable();
 
-		
+		/* Turn On Mic Bias */
 		if (!hi->mic_bias_state) {
 			turn_mic_bias_on(1);
 			hi->mic_bias_state = 1;
-			
+			/* Wait for pin stable */
 			msleep(300);
 		}
 
-		
+		/* Detect headset with or without microphone */
 		if(pd->headset_has_mic) {
 			if (pd->headset_has_mic() == 0) {
-				
+				/* without microphone */
 				pr_info("3.5mm without microphone\n");
 				hi->ext_35mm_status = BIT_HEADSET_NO_MIC;
-			} else { 
+			} else { /* with microphone */
 				pr_info("3.5mm with microphone\n");
 				hi->ext_35mm_status = BIT_HEADSET;
 			}
 		} else {
-			
+			/* Assume no mic */
 			pr_info("3.5mm without microphone\n");
 			hi->ext_35mm_status = BIT_HEADSET_NO_MIC;
 		}
 		hi->ext_35mm_status |= BIT_35MM_HEADSET;
 
-		
+		/* Notify framework via switch class */
 		mutex_lock(&hi->mutex_lock);
 		switch_set_state(&hi->hs_change, hi->ext_35mm_status);
 		mutex_unlock(&hi->mutex_lock);
@@ -328,7 +329,7 @@ static int htc_35mm_probe(struct platform_device *pdev)
 	if (ret < 0)
 	goto err_register_input_dev;
 
-	
+	/* Enable plug events*/
 	if (pd->plug_event_enable == NULL) {
 		ret = -ENOMEM;
 		goto err_enable_plug_event;
@@ -362,7 +363,7 @@ static int htc_35mm_remove(struct platform_device *pdev)
 	switch_dev_unregister(&hi->hs_change);
 	kzfree(hi);
 
-#if 0 
+#if 0 /* Add keys later */
 	input_unregister_device(hi->input);
 #endif
 	return 0;

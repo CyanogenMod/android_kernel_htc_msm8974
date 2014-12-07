@@ -142,6 +142,10 @@ int pciehp_unconfigure_device(struct slot *p_slot)
 			}
 		}
 		pci_stop_and_remove_bus_device(temp);
+		/*
+		 * Ensure that no new Requests will be generated from
+		 * the device.
+		 */
 		if (presence) {
 			pci_read_config_word(temp, PCI_COMMAND, &command);
 			command &= ~(PCI_COMMAND_MASTER | PCI_COMMAND_SERR);

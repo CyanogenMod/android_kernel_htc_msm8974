@@ -10,7 +10,30 @@
  * GNU General Public License for more details.
 */
 
+/*
+per-process_perf
+DESCRIPTION
+Capture the processor performances registers when the process context
+switches.  The /proc file system is used to control and access the results
+of the performance counters.
 
+Each time a process is context switched, the performance counters for
+the Snoop Control Unit and the standard ARM counters are set according
+to the values stored for that process.
+
+The events to capture per process are set in the /proc/ppPerf/settings
+directory.
+
+EXTERNALIZED FUNCTIONS
+
+INITIALIZATION AND SEQUENCING REQUIREMENTS
+Detail how to initialize and use this service.  The sequencing aspect
+is only needed if the order of operations is important.
+*/
+
+/*
+INCLUDE FILES FOR MODULE
+*/
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/sched.h>
@@ -66,14 +89,26 @@ static inline void MARKPID(char a, int pid) { MARKPIDS(a, pid, 0xFFFF); }
 #define MARKPID(a, b)
 #define MARKPIDS(a, b, c)
 
-#endif 
+#endif /* DEBUG_SWAPIO */
 
+/*
+DEFINITIONS AND DECLARATIONS FOR MODULE
 
+This section contains definitions for constants, macros, types, variables
+and other items needed by this module.
+*/
+
+/*
+Constant / Define Declarations
+*/
 
 #define PERF_MON_PROCESS_NUM 0x400
 #define PERF_MON_PROCESS_MASK (PERF_MON_PROCESS_NUM-1)
 #define PP_MAX_PROC_ENTRIES 32
 
+/*
+ * The entry is locked and is not to be replaced.
+ */
 #define PERF_ENTRY_LOCKED (1<<0)
 #define PERF_NOT_FIRST_TIME   (1<<1)
 #define PERF_EXITED (1<<2)
@@ -104,13 +139,22 @@ static inline void MARKPID(char a, int pid) { MARKPIDS(a, pid, 0xFFFF); }
 		pmResetAll();\
 	} while (0);
 
+/*
+ * Accessors for SMP based variables.
+ */
 #define _SWAPS(p) ((p)->cnts[smp_processor_id()].swaps)
 #define _CYCLES(p) ((p)->cnts[smp_processor_id()].cycles)
 #define _COUNTS(p, i) ((p)->cnts[smp_processor_id()].counts[i])
 #define _L2COUNTS(p, i) ((p)->cnts[smp_processor_id()].l2_counts[i])
 #define _L2CYCLES(p) ((p)->cnts[smp_processor_id()].l2_cycles)
 
+/*
+  Type Declarations
+*/
 
+/*
+ * Counts are on a per core basis.
+ */
 struct pm_counters_s {
   unsigned long long  cycles;
   unsigned long long  l2_cycles;
@@ -145,6 +189,9 @@ struct per_process_perf_mon_type{
 unsigned long last_in_pid[NR_CPUS];
 unsigned long fake_swap_out[NR_CPUS] = {0};
 
+/*
+  Local Object Definitions
+*/
 struct per_process_perf_mon_type perf_mons[PERF_MON_PROCESS_NUM];
 struct proc_dir_entry *proc_dir;
 struct proc_dir_entry *settings_dir;
@@ -169,7 +216,7 @@ unsigned long pp_lpm2evtyper;
 unsigned long pp_l2lpmevtyper;
 unsigned long pp_vlpmevtyper;
 unsigned long pm_stop_for_interrupts;
-unsigned long pm_global;   
+unsigned long pm_global;   /* track all, not process based */
 unsigned long pm_global_enable;
 unsigned long pm_remove_pid;
 
@@ -185,18 +232,68 @@ char *per_process_proc_names[PP_MAX_PROC_ENTRIES];
 unsigned int axi_swaps;
 #define MAX_AXI_SWAPS	10
 int first_switch = 1;
+/*
+  Forward Declarations
+*/
 
+/*
+Function Definitions
+*/
 
+/*
+FUNCTION  per_process_find
+
+DESCRIPTION
+  Find the per process information based on the process id (pid) passed.
+  This is a simple mask based on the number of entries stored in the
+  static array
+
+DEPENDENCIES
+
+RETURN VALUE
+  Pointer to the per process data
+SIDE EFFECTS
+
+*/
 struct per_process_perf_mon_type *per_process_find(unsigned long pid)
 {
   return &perf_mons[pid & PERF_MON_PROCESS_MASK];
 }
 
+/*
+FUNCTION  per_process_get_name
+
+DESCRIPTION
+  Retreive the name of the performance counter based on the table and
+  index passed.  We have two different sets of performance counters so
+  different table need to be used.
+
+DEPENDENCIES
+
+RETURN VALUE
+  Pointer to char string with the name of the event or "BAD"
+  Never returns NULL or a bad pointer.
+
+SIDE EFFECTS
+*/
 char *per_process_get_name(unsigned long index)
 {
   return pm_find_event_name(index);
 }
 
+/*
+FUNCTION per_process_results_read
+
+DESCRIPTION
+  Print out the formatted results from the process id read.  Event names
+  and counts are printed.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 int per_process_results_read(char *page, char **start, off_t off, int count,
    int *eof, void *data)
 {
@@ -205,6 +302,9 @@ int per_process_results_read(char *page, char **start, off_t off, int count,
 	struct pm_counters_s cnts;
 	int i, j;
 
+	/*
+	* Total across all CPUS
+	*/
 	memset(&cnts, 0, sizeof(cnts));
 	for (i = 0; i < num_possible_cpus(); i++) {
 		cnts.swaps += p->cnts[i].swaps;
@@ -213,6 +313,10 @@ int per_process_results_read(char *page, char **start, off_t off, int count,
 			cnts.counts[j] += p->cnts[i].counts[j];
 	}
 
+	/*
+	* Display as single results of the totals calculated above.
+	* Do we want to display or have option to display individula cores?
+	*/
 	return sprintf(page, "pid:%lu one:%s:%llu two:%s:%llu three:%s:%llu \
 	four:%s:%llu cycles:%llu swaps:%lu\n",
 	p->pid,
@@ -231,6 +335,9 @@ int per_process_l2_results_read(char *page, char **start, off_t off, int count,
 	struct pm_counters_s cnts;
 	int i, j;
 
+	/*
+	* Total across all CPUS
+	*/
 	memset(&cnts, 0, sizeof(cnts));
 	for (i = 0; i < num_possible_cpus(); i++) {
 		cnts.l2_cycles += p->cnts[i].l2_cycles;
@@ -238,6 +345,10 @@ int per_process_l2_results_read(char *page, char **start, off_t off, int count,
 			cnts.l2_counts[j] += p->cnts[i].l2_counts[j];
 	}
 
+  /*
+   * Display as single results of the totals calculated above.
+   * Do we want to display or have option to display individula cores?
+   */
    return sprintf(page, "pid:%lu l2_one:%s:%llu l2_two:%s:%llu \
 	l2_three:%s:%llu \
 	l2_four:%s:%llu l2_cycles:%llu\n",
@@ -249,6 +360,24 @@ int per_process_l2_results_read(char *page, char **start, off_t off, int count,
      cnts.l2_cycles);
 }
 
+/*
+FUNCTION  per_process_results_write
+
+DESCRIPTION
+  Allow some control over the results.  If the user forgets to autolock or
+  wants to unlock the results so they will be deleted, then this is
+  where it is processed.
+
+  For example, to unlock process 23
+  echo "unlock" > 23
+
+DEPENDENCIES
+
+RETURN VALUE
+  Number of characters used (all of them!)
+
+SIDE EFFECTS
+*/
 int per_process_results_write(struct file *file, const char *buff,
     unsigned long cnt, void *data)
 {
@@ -258,6 +387,9 @@ int per_process_results_write(struct file *file, const char *buff,
 
 	if (p == 0)
 		return cnt;
+	/*
+	* Alloc the user data in kernel space. and then copy user to kernel
+	*/
 	newbuf = kmalloc(cnt + 1, GFP_KERNEL);
 	if (0 == newbuf)
 		return cnt;
@@ -278,6 +410,17 @@ int per_process_results_write(struct file *file, const char *buff,
 	return cnt;
 }
 
+/*
+FUNCTION  perProcessCreateResults
+
+DESCRIPTION
+  Create the results /proc file if the system parameters allow it...
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void per_process_create_results_proc(struct per_process_perf_mon_type *p)
 {
 
@@ -322,6 +465,20 @@ void per_process_create_l2_results_proc(struct per_process_perf_mon_type *p)
 	p->l2_proc->write_proc = per_process_results_write;
 	p->l2_proc->data = (void *)p;
 }
+/*
+FUNCTION per_process_swap_out
+
+DESCRIPTION
+  Store the counters from the process that is about to swap out.  We take
+  the old counts and add them to the current counts in the perf registers.
+  Before the new process is swapped in, the counters are reset.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 typedef void (*vfun)(void *);
 void per_process_swap_out(struct per_process_perf_mon_type *data)
 {
@@ -341,6 +498,16 @@ void per_process_swap_out(struct per_process_perf_mon_type *data)
 	if (!pp_enabled)
 		return;
 
+	/*
+	* The kernel for some reason (2.6.32.9) starts a process context on
+	* one core and ends on another.  So the swap in and swap out can be
+	* on different cores.  If this happens, we need to stop the
+	* counters and collect the data on the core that started the counters
+	* ....otherwise we receive invalid data.  So we mark the the core with
+	* the process as deferred.  The next time a process is swapped on
+	* the core that the process was running on, the counters will be
+	* updated.
+	*/
 	if ((smp_processor_id() != p->running_cpu) && (p->pid != 0)) {
 		fake_swap_out[p->running_cpu] = 1;
 		return;
@@ -370,39 +537,91 @@ void per_process_swap_out(struct per_process_perf_mon_type *data)
 #endif
 }
 
+/*
+FUNCTION per_process_remove_manual
+
+DESCRIPTION
+  Remove an entry from the results directory if the flags allow this.
+  When not enbled or the entry is locked, the values/results will
+  not be removed.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void per_process_remove_manual(unsigned long pid)
 {
 	struct per_process_perf_mon_type *p = per_process_find(pid);
 
+	/*
+	* Check all of the flags to see if we can remove this one
+	* Then mark as not used
+	*/
 	if (0 == p)
 		return;
 	p->pid = (0xFFFFFFFF);
 
+	/*
+	* Remove the proc entry.
+	*/
 	if (p->proc)
 		remove_proc_entry(p->pidName, values_dir);
 	if (p->l2_proc)
 		remove_proc_entry(p->pidName, l2_results_dir);
 	kfree(p->pidName);
 
+	/*
+	* Clear them out...and ensure the pid is invalid
+	*/
 	memset(p, 0, sizeof *p);
 	p->pid = 0xFFFFFFFF;
 	pm_remove_pid = -1;
 }
 
+/*
+* Remove called when a process exits...
+*/
 void _per_process_remove(unsigned long pid) {}
 
+/*
+FUNCTION  per_process_initialize
+
+DESCRIPTION
+Initialize performance collection information for a new process.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+May create a new proc entry
+*/
 void per_process_initialize(struct per_process_perf_mon_type *p,
 				unsigned long pid)
 {
 	int i;
 
+	/*
+	* See if this is the pid we are interested in...
+	*/
 	if (pp_settings_valid == -1)
 		return;
 	if ((pp_set_pid != pid) && (pp_set_pid != 0))
 		return;
 
+	/*
+	* Clear out the statistics table then insert this pid
+	* We want to keep the proc entry and the name
+	*/
 	p->pid = pid;
 
+	/*
+	* Create a proc entry for this pid, then get the current event types and
+	* store in data struct so when the process is switched in we can track
+	* it.
+	*/
 	if (p->proc == 0) {
 		per_process_create_results_proc(p);
 #ifdef CONFIG_ARCH_MSM8X60
@@ -412,6 +631,11 @@ void per_process_initialize(struct per_process_perf_mon_type *p,
 	_CYCLES(p) = 0;
 	_L2CYCLES(p) = 0;
 	_SWAPS(p) = 0;
+	/*
+	* Set the per process data struct, but not the monitors until later...
+	* Init only happens with the user sets the SetPID variable to this pid
+	* so we can load new values.
+	*/
 	for (i = 0; i < PERF_NUM_MONITORS; i++) {
 		p->index[i] = per_proc_event[i];
 #ifdef CONFIG_ARCH_MSM8X60
@@ -434,22 +658,46 @@ void per_process_initialize(struct per_process_perf_mon_type *p,
 	p->l2pmevtyper4  = pp_l2pmevtyper4;
 #endif
 
+	/*
+	* Reset pid and settings value
+	*/
 	pp_set_pid = -1;
 	pp_settings_valid = -1;
 }
 
+/*
+FUNCTION  per_process_swap_in
+
+DESCRIPTION
+  Called when a context switch is about to start this PID.
+  We check to see if this process has an entry or not and create one
+  if not locked...
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void per_process_swap_in(struct per_process_perf_mon_type *p_new,
 				unsigned long pid)
 {
 	int i;
 
 	MARKPIDS('I', p_new->pid, 0);
+	/*
+	* If the set proc variable == the current pid then init a new
+	* entry...
+	*/
 	if (pp_set_pid == pid)
 		per_process_initialize(p_new, pid);
 
 	p_new->running_cpu = smp_processor_id();
 	last_in_pid[smp_processor_id()] = pid;
 
+	/*
+	* setup the monitors for this process.
+	*/
 	for (i = 0; i < PERF_NUM_MONITORS; i++) {
 		pm_set_event(i, p_new->index[i]);
 #ifdef CONFIG_ARCH_MSM8X60
@@ -470,6 +718,22 @@ void per_process_swap_in(struct per_process_perf_mon_type *p_new,
 #endif
 }
 
+/*
+FUNCTION  perProcessSwitch
+
+DESCRIPTION
+  Called during context switch.  Updates the counts on the process about to
+  be swapped out and brings in the counters for the process about to be
+  swapped in.
+
+  All is dependant on the enabled and lock flags.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 
 DEFINE_SPINLOCK(pm_lock);
 void _per_process_switch(unsigned long old_pid, unsigned long new_pid)
@@ -486,6 +750,11 @@ void _per_process_switch(unsigned long old_pid, unsigned long new_pid)
 	l2_pm_stop_all();
 #endif
 
+	/*
+	 * We detected that the process was swapped in on one core and out on
+	 * a different core.  This does not allow us to stop and stop counters
+	 * properly so we need to defer processing.  This checks to see if there
+	 * is any defered processing necessary. And does it... */
 	if (fake_swap_out[smp_processor_id()] != 0) {
 		fake_swap_out[smp_processor_id()] = 0;
 		p_old = per_process_find(last_in_pid[smp_processor_id()]);
@@ -494,6 +763,9 @@ void _per_process_switch(unsigned long old_pid, unsigned long new_pid)
 			per_process_swap_out(p_old);
 	}
 
+	/*
+	* Clear the data collected so far for this process?
+	*/
 	if (pp_clear_pid != -1) {
 		struct per_process_perf_mon_type *p_clear =
 			per_process_find(pp_clear_pid);
@@ -505,6 +777,9 @@ void _per_process_switch(unsigned long old_pid, unsigned long new_pid)
 			pp_clear_pid = -1;
 		}
 	}
+       /*
+       * Always collect for 0, it collects for all.
+       */
        if (pp_enabled) {
 		if (first_switch == 1) {
 			per_process_initialize(&perf_mons[0], 0);
@@ -518,11 +793,20 @@ void _per_process_switch(unsigned long old_pid, unsigned long new_pid)
 			p_new = per_process_find(new_pid);
 
 
+			/*
+			* save the old counts to the old data struct, if the
+			* returned ptr is NULL or the process id passed is not
+			* the same as the process id in the data struct then
+			* don't update the data.
+			*/
 			if ((p_old) && (p_old->pid == old_pid) &&
 				(p_old->pid != 0)) {
 				per_process_swap_out(p_old);
 			}
 
+	/*
+	* Setup the counters for the new process
+	*/
 	if (pp_set_pid == new_pid)
 		per_process_initialize(p_new, new_pid);
 	if ((p_new->pid == new_pid) && (new_pid != 0))
@@ -555,6 +839,19 @@ void _per_process_switch(unsigned long old_pid, unsigned long new_pid)
     spin_unlock(&pm_lock);
 }
 
+/*
+FUNCTION  pmInterruptIn
+
+DESCRIPTION
+  Called when an interrupt is being processed.  If the pmStopForInterrutps
+  flag is non zero then we disable the counting of performance monitors.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 static int pm_interrupt_nesting_count;
 static unsigned long pm_cycle_in, pm_cycle_out;
 void _perf_mon_interrupt_in(void)
@@ -563,18 +860,31 @@ void _perf_mon_interrupt_in(void)
 		return;
 	if (pm_stop_for_interrupts == 0)
 		return;
-	pm_interrupt_nesting_count++;	
+	pm_interrupt_nesting_count++;	/* Atomic */
 	pm_stop_all();
 	pm_cycle_in = pm_get_cycle_count();
 }
 
+/*
+FUNCTION perfMonInterruptOut
+
+DESCRIPTION
+  Reenable performance monitor counting whn the nest count goes to zero
+  provided the counting has been stoped
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void _perf_mon_interrupt_out(void)
 {
 	if (pm_global_enable == 0)
 		return;
 	if (pm_stop_for_interrupts == 0)
 		return;
-	--pm_interrupt_nesting_count;  
+	--pm_interrupt_nesting_count;  /* Atomic?? */
 
 	if (pm_interrupt_nesting_count <= 0) {
 		pm_cycle_out = pm_get_cycle_count();
@@ -619,12 +929,27 @@ void per_process_do_global(unsigned long g)
 }
 
 
+/*
+FUNCTION   per_process_write
+
+DESCRIPTION
+  Generic routine to handle any of the settings /proc directory writes.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 int per_process_write(struct file *file, const char *buff,
     unsigned long cnt, void *data, const char *fmt)
 {
 	char *newbuf;
 	unsigned long *d = (unsigned long *)data;
 
+	/*
+	* Alloc the user data in kernel space. and then copy user to kernel
+	*/
 	newbuf = kmalloc(cnt + 1, GFP_KERNEL);
 	if (0 == newbuf)
 		return PM_PP_ERR;
@@ -635,6 +960,9 @@ int per_process_write(struct file *file, const char *buff,
 	sscanf(newbuf, fmt, d);
 	kfree(newbuf);
 
+	/*
+	* If this is a remove  command then do it now...
+	*/
 	if (d == &pm_remove_pid)
 		per_process_remove_manual(*d);
 	if (d == &pm_global)
@@ -654,6 +982,19 @@ int per_process_write_hex(struct file *file, const char *buff,
 	return per_process_write(file, buff, cnt, data, "%lx");
 }
 
+/*
+FUNCTION per_process_read
+
+DESCRIPTION
+  Generic read handler for the /proc settings directory.
+
+DEPENDENCIES
+
+RETURN VALUE
+  Number of characters to output.
+
+SIDE EFFECTS
+*/
 int per_process_read(char *page, char **start, off_t off, int count,
    int *eof, void *data)
 {
@@ -668,6 +1009,18 @@ int per_process_read_decimal(char *page, char **start, off_t off, int count,
 	return sprintf(page, "%ld", *d);
 }
 
+/*
+FUNCTION  per_process_proc_entry
+
+DESCRIPTION
+  Create a generic entry for the /proc settings directory.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 void per_process_proc_entry(char *name, unsigned long *var,
     struct proc_dir_entry *d, int hex)
 {
@@ -714,6 +1067,18 @@ static struct notifier_block perfmon_notifier_block = {
 	.notifier_call  = perfmon_notifier,
 };
 
+/*
+FUNCTION  per_process_perf_init
+
+DESCRIPTION
+  Initialze the per process performance monitor variables and /proc space.
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+*/
 int per_process_perf_init(void)
 {
 #ifdef CONFIG_ARCH_MSM8X60
@@ -794,6 +1159,9 @@ int per_process_perf_init(void)
 	per_process_create_results_proc(&perf_mons[0]);
 	per_process_create_l2_results_proc(&perf_mons[0]);
 	thread_register_notifier(&perfmon_notifier_block);
+	/*
+	* Set the function pointers so the module can be activated.
+	*/
 	pp_interrupt_out_ptr = _perf_mon_interrupt_out;
 	pp_interrupt_in_ptr  = _perf_mon_interrupt_in;
 	pp_process_remove_ptr = _per_process_remove;
@@ -812,20 +1180,43 @@ int per_process_perf_init(void)
 	return 0;
 }
 
+/*
+FUNCTION  per_process_perf_exit
+
+DESCRIPTION
+  Module exit functionm, clean up, renmove proc entries
+
+DEPENDENCIES
+
+RETURN VALUE
+
+SIDE EFFECTS
+  No more per process
+*/
 void per_process_perf_exit(void)
 {
 	unsigned long i;
+	/*
+	* Sert the function pointers to 0 so the functions will no longer
+	* be invoked
+	*/
 	pp_loaded = 0;
 	pp_interrupt_out_ptr = 0;
 	pp_interrupt_in_ptr  = 0;
 	pp_process_remove_ptr = 0;
+	/*
+	* Remove the results
+	*/
 	for (i = 0; i < PERF_MON_PROCESS_NUM; i++)
 		per_process_remove_manual(perf_mons[i].pid);
+	/*
+	* Remove the proc entries in the settings dir
+	*/
 	i = 0;
 	for (i = 0; i < pp_proc_entry_index; i++)
 		remove_proc_entry(per_process_proc_names[i], settings_dir);
 
-	
+	/*remove proc axi files*/
 	remove_proc_entry("axi_enable", axi_settings_dir);
 	remove_proc_entry("axi_valid", axi_settings_dir);
 	remove_proc_entry("axi_refresh", axi_settings_dir);
@@ -834,6 +1225,9 @@ void per_process_perf_exit(void)
 	remove_proc_entry("axi_sel_reg1", axi_settings_dir);
 	remove_proc_entry("axi_ten_sel", axi_settings_dir);
 	remove_proc_entry("axi_cnts", axi_results_dir);
+	/*
+	* Remove the directories
+	*/
 	remove_proc_entry("results", l2_dir);
 	remove_proc_entry("l2", proc_dir);
 	remove_proc_entry("results", proc_dir);

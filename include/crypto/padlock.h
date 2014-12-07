@@ -26,4 +26,4 @@
 #define STACK_ALIGN 4
 #endif
 
-#endif	
+#endif	/* _CRYPTO_PADLOCK_H */

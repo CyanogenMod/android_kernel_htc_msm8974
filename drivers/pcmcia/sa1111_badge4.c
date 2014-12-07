@@ -25,10 +25,40 @@
 
 #include "sa1111_generic.h"
 
+/*
+ * BadgePAD 4 Details
+ *
+ * PCM Vcc:
+ *
+ *  PCM Vcc on BadgePAD 4 can be jumpered for 3v3 (short pins 1 and 3
+ *  on JP6) or 5v0 (short pins 3 and 5 on JP6).
+ *
+ * PCM Vpp:
+ *
+ *  PCM Vpp on BadgePAD 4 can be jumpered for 12v0 (short pins 4 and 6
+ *  on JP6) or tied to PCM Vcc (short pins 2 and 4 on JP6).  N.B.,
+ *  12v0 operation requires that the power supply actually supply 12v0
+ *  via pin 7 of JP7.
+ *
+ * CF Vcc:
+ *
+ *  CF Vcc on BadgePAD 4 can be jumpered either for 3v3 (short pins 1
+ *  and 2 on JP10) or 5v0 (short pins 2 and 3 on JP10).
+ *
+ * Unfortunately there's no way programmatically to determine how a
+ * given board is jumpered.  This code assumes a default jumpering
+ * as described below.
+ *
+ * If the defaults aren't correct, you may override them with a pcmv
+ * setup argument: pcmv=<pcm vcc>,<pcm vpp>,<cf vcc>.  The units are
+ * tenths of volts; e.g. pcmv=33,120,50 indicates 3v3 PCM Vcc, 12v0
+ * PCM Vpp, and 5v0 CF Vcc.
+ *
+ */
 
-static int badge4_pcmvcc = 50;  
-static int badge4_pcmvpp = 50;  
-static int badge4_cfvcc = 33;   
+static int badge4_pcmvcc = 50;  /* pins 3 and 5 jumpered on JP6 */
+static int badge4_pcmvpp = 50;  /* pins 2 and 4 jumpered on JP6 */
+static int badge4_cfvcc = 33;   /* pins 1 and 2 jumpered on JP10 */
 
 static void complain_about_jumpering(const char *whom,
 				     const char *supply,
@@ -54,8 +84,8 @@ badge4_pcmcia_configure_socket(struct soc_pcmcia_socket *skt, const socket_state
 		    (state->Vcc != badge4_pcmvcc)) {
 			complain_about_jumpering(__func__, "pcmvcc",
 						 badge4_pcmvcc, state->Vcc);
-			
-			
+			// Apply power regardless of the jumpering.
+			// return -1;
 		}
 		if ((state->Vpp != 0) &&
 		    (state->Vpp != badge4_pcmvpp)) {

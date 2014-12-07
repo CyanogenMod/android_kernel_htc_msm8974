@@ -6,4 +6,4 @@ void crisv32_intmem_free(void* addr);
 void* crisv32_intmem_phys_to_virt(unsigned long addr);
 unsigned long crisv32_intmem_virt_to_phys(void *addr);
 
-#endif 
+#endif /* _ASM_CRIS_ARCH_INTMEM_H */

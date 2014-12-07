@@ -25,6 +25,8 @@ struct capilib_ncci {
 	struct capilib_msgidqueue msgidpool[CAPI_MAXDATAWINDOW];
 };
 
+// ---------------------------------------------------------------------------
+// NCCI Handling
 
 static inline void mq_init(struct capilib_ncci *np)
 {

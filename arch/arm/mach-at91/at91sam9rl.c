@@ -27,7 +27,13 @@
 #include "clock.h"
 #include "sam9_smc.h"
 
+/* --------------------------------------------------------------------
+ *  Clocks
+ * -------------------------------------------------------------------- */
 
+/*
+ * The peripheral clocks.
+ */
 static struct clk pioA_clk = {
 	.name		= "pioA_clk",
 	.pmc_mask	= 1 << AT91SAM9RL_ID_PIOA,
@@ -168,7 +174,7 @@ static struct clk *periph_clocks[] __initdata = {
 	&udphs_clk,
 	&lcdc_clk,
 	&ac97_clk,
-	
+	// irq0
 };
 
 static struct clk_lookup periph_clocks_lookups[] = {
@@ -193,6 +199,10 @@ static struct clk_lookup usart_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("usart", "atmel_usart.4", &usart3_clk),
 };
 
+/*
+ * The two programmable clocks.
+ * You must configure pin multiplexing to bring these signals out.
+ */
 static struct clk pck0 = {
 	.name		= "pck0",
 	.pmc_mask	= AT91_PMC_PCK0,
@@ -234,6 +244,9 @@ void __init at91sam9rl_set_console_clock(int id)
 	clkdev_add(&console_clock_lookup);
 }
 
+/* --------------------------------------------------------------------
+ *  GPIO
+ * -------------------------------------------------------------------- */
 
 static struct at91_gpio_bank at91sam9rl_gpio[] __initdata = {
 	{
@@ -251,6 +264,9 @@ static struct at91_gpio_bank at91sam9rl_gpio[] __initdata = {
 	}
 };
 
+/* --------------------------------------------------------------------
+ *  AT91SAM9RL processor initialization
+ * -------------------------------------------------------------------- */
 
 static void __init at91sam9rl_map_io(void)
 {
@@ -265,7 +281,7 @@ static void __init at91sam9rl_map_io(void)
 			sram_size = SZ_16K;
 	}
 
-	
+	/* Map SRAM */
 	at91_init_sram(0, AT91SAM9RL_SRAM_BASE, sram_size);
 }
 
@@ -285,44 +301,50 @@ static void __init at91sam9rl_initialize(void)
 	arm_pm_restart = at91sam9_alt_restart;
 	at91_extern_irq = (1 << AT91SAM9RL_ID_IRQ0);
 
-	
+	/* Register GPIO subsystem */
 	at91_gpio_init(at91sam9rl_gpio, 4);
 }
 
+/* --------------------------------------------------------------------
+ *  Interrupt initialization
+ * -------------------------------------------------------------------- */
 
+/*
+ * The default interrupt priority levels (0 = lowest, 7 = highest).
+ */
 static unsigned int at91sam9rl_default_irq_priority[NR_AIC_IRQS] __initdata = {
-	7,	
-	7,	
-	1,	
-	1,	
-	1,	
-	1,	
-	5,	
-	5,	
-	5,	
-	5,	
-	0,	
-	6,	
-	6,	
-	5,	
-	4,	
-	4,	
-	0,	
-	0,	
-	0,	
+	7,	/* Advanced Interrupt Controller */
+	7,	/* System Peripherals */
+	1,	/* Parallel IO Controller A */
+	1,	/* Parallel IO Controller B */
+	1,	/* Parallel IO Controller C */
+	1,	/* Parallel IO Controller D */
+	5,	/* USART 0 */
+	5,	/* USART 1 */
+	5,	/* USART 2 */
+	5,	/* USART 3 */
+	0,	/* Multimedia Card Interface */
+	6,	/* Two-Wire Interface 0 */
+	6,	/* Two-Wire Interface 1 */
+	5,	/* Serial Peripheral Interface */
+	4,	/* Serial Synchronous Controller 0 */
+	4,	/* Serial Synchronous Controller 1 */
+	0,	/* Timer Counter 0 */
+	0,	/* Timer Counter 1 */
+	0,	/* Timer Counter 2 */
 	0,
-	0,	
-	0,	
-	2,	
-	2,	
-	6,	
-	0,
-	0,
+	0,	/* Touch Screen Controller */
+	0,	/* DMA Controller */
+	2,	/* USB Device High speed port */
+	2,	/* LCD Controller */
+	6,	/* AC97 Controller */
 	0,
 	0,
 	0,
 	0,
-	0,	
+	0,
+	0,
+	0,	/* Advanced Interrupt Controller */
 };
 
 struct at91_init_soc __initdata at91sam9rl_soc = {

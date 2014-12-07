@@ -269,6 +269,9 @@ void show_regs(struct pt_regs *regs)
 	printk("T5  : %08Lx%08Lx T6  : %08Lx%08Lx T7  : %08Lx%08Lx\n",
 	       ah, al, bh, bl, ch, cl);
 
+	/*
+	 * If we're in kernel mode, dump the stack too..
+	 */
 	if (!user_mode(regs)) {
 		void show_stack(struct task_struct *tsk, unsigned long *sp);
 		unsigned long sp = regs->regs[15] & 0xffffffff;
@@ -280,11 +283,22 @@ void show_regs(struct pt_regs *regs)
 	}
 }
 
+/*
+ * Create a kernel thread
+ */
 __noreturn void kernel_thread_helper(void *arg, int (*fn)(void *))
 {
 	do_exit(fn(arg));
 }
 
+/*
+ * This is the mechanism for creating a new kernel thread.
+ *
+ * NOTE! Only a kernel-only process(ie the swapper or direct descendants
+ * who haven't done an "execve()") should use this: it will work within
+ * a system call from a "real" process, but the process memory space will
+ * not be freed until both the parent and the child have exited.
+ */
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	struct pt_regs regs;
@@ -296,14 +310,33 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.pc = (unsigned long)kernel_thread_helper;
 	regs.sr = (1 << 30);
 
-	
+	/* Ok, create the new process.. */
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0,
 		      &regs, 0, NULL, NULL);
 }
 EXPORT_SYMBOL(kernel_thread);
 
+/*
+ * Free current thread data structures etc..
+ */
 void exit_thread(void)
 {
+	/*
+	 * See arch/sparc/kernel/process.c for the precedent for doing
+	 * this -- RPC.
+	 *
+	 * The SH-5 FPU save/restore approach relies on
+	 * last_task_used_math pointing to a live task_struct.  When
+	 * another task tries to use the FPU for the 1st time, the FPUDIS
+	 * trap handling (see arch/sh/kernel/cpu/sh5/fpu.c) will save the
+	 * existing FPU state to the FP regs field within
+	 * last_task_used_math before re-loading the new task's FPU state
+	 * (or initialising it if the FPU has been used before).  So if
+	 * last_task_used_math is stale, and its page has already been
+	 * re-allocated for another use, the consequences are rather
+	 * grim. Unless we null it here, there is no other path through
+	 * which it would get safely nulled.
+	 */
 #ifdef CONFIG_SH_FPU
 	if (last_task_used_math == current) {
 		last_task_used_math = NULL;
@@ -314,14 +347,19 @@ void exit_thread(void)
 void flush_thread(void)
 {
 
+	/* Called by fs/exec.c (setup_new_exec) to remove traces of a
+	 * previously running executable. */
 #ifdef CONFIG_SH_FPU
 	if (last_task_used_math == current) {
 		last_task_used_math = NULL;
 	}
-	
+	/* Force FPU state to be reinitialised after exec */
 	clear_used_math();
 #endif
 
+	/* if we are a kernel thread, about to change to user thread,
+         * update kreg
+         */
 	if(current->thread.kregs==&fake_swapper_regs) {
           current->thread.kregs =
              ((struct pt_regs *)(THREAD_SIZE + (unsigned long) current) - 1);
@@ -331,9 +369,10 @@ void flush_thread(void)
 
 void release_thread(struct task_struct *dead_task)
 {
-	
+	/* do nothing */
 }
 
+/* Fill in the fpu structure for a core dump.. */
 int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 {
 #ifdef CONFIG_SH_FPU
@@ -355,7 +394,7 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 
 	return fpvalid;
 #else
-	return 0; 
+	return 0; /* Task didn't use the fpu at all. */
 #endif
 }
 EXPORT_SYMBOL(dump_fpu);
@@ -377,11 +416,17 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 		regs->sr |= SR_FD;
 	}
 #endif
-	
+	/* Copy from sh version */
 	childregs = (struct pt_regs *)(THREAD_SIZE + task_stack_page(p)) - 1;
 
 	*childregs = *regs;
 
+	/*
+	 * Sign extend the edited stack.
+	 * Note that thread.pc and thread.pc will stay
+	 * 32-bit wide and context switch must take care
+	 * of NEFF sign extension.
+	 */
 	if (user_mode(regs)) {
 		childregs->regs[15] = neff_sign_extend(usp);
 		p->thread.uregs = childregs;
@@ -391,8 +436,8 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 					 THREAD_SIZE);
 	}
 
-	childregs->regs[9] = 0; 
-	childregs->sr |= SR_FD; 
+	childregs->regs[9] = 0; /* Set return value for child */
+	childregs->sr |= SR_FD; /* Invalidate FPU flag */
 
 	p->thread.sp = (unsigned long) childregs;
 	p->thread.pc = (unsigned long) ret_from_fork;
@@ -418,6 +463,16 @@ asmlinkage int sys_clone(unsigned long clone_flags, unsigned long newsp,
 	return do_fork(clone_flags, newsp, pregs, 0, 0, 0);
 }
 
+/*
+ * This is trivial, and on the face of it looks like it
+ * could equally well be done in user mode.
+ *
+ * Not so, for quite unobvious reasons - register pressure.
+ * In user mode vfork() cannot have a stack frame, and if
+ * done by calling the "clone()" system call directly, you
+ * do not have enough call-clobbered registers to hold all
+ * the information you need.
+ */
 asmlinkage int sys_vfork(unsigned long r2, unsigned long r3,
 			 unsigned long r4, unsigned long r5,
 			 unsigned long r6, unsigned long r7,
@@ -426,6 +481,9 @@ asmlinkage int sys_vfork(unsigned long r2, unsigned long r3,
 	return do_fork(CLONE_VFORK | CLONE_VM | SIGCHLD, pregs->regs[15], pregs, 0, 0, 0);
 }
 
+/*
+ * sys_execve() executes a new program.
+ */
 asmlinkage int sys_execve(const char *ufilename, char **uargv,
 			  char **uenvp, unsigned long r5,
 			  unsigned long r6, unsigned long r7,
@@ -452,6 +510,8 @@ out:
 static int in_sh64_switch_to(unsigned long pc)
 {
 	extern char __sh64_switch_to_end;
+	/* For a sleeping task, the PC is somewhere in the middle of the function,
+	   so we don't have to worry about masking the LSB off */
 	return (pc >= (unsigned long) sh64_switch_to) &&
 	       (pc < (unsigned long) &__sh64_switch_to_end);
 }
@@ -464,6 +524,9 @@ unsigned long get_wchan(struct task_struct *p)
 	if (!p || p == current || p->state == TASK_RUNNING)
 		return 0;
 
+	/*
+	 * The same comment as on the Alpha applies here, too ...
+	 */
 	pc = thread_saved_pc(p);
 
 #ifdef CONFIG_FRAME_POINTER
@@ -473,9 +536,11 @@ unsigned long get_wchan(struct task_struct *p)
 		unsigned long schedule_caller_pc;
 
 		sh64_switch_to_fp = (long) p->thread.sp;
-		
+		/* r14 is saved at offset 4 in the sh64_switch_to frame */
 		schedule_fp = *(unsigned long *) (long)(sh64_switch_to_fp + 4);
 
+		/* and the caller of 'schedule' is (currently!) saved at offset 24
+		   in the frame of schedule (from disasm) */
 		schedule_caller_pc = *(unsigned long *) (long)(schedule_fp + 24);
 		return schedule_caller_pc;
 	}

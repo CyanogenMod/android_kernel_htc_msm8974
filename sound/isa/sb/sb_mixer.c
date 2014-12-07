@@ -53,6 +53,9 @@ unsigned char snd_sbmixer_read(struct snd_sb *chip, unsigned char reg)
 	return result;
 }
 
+/*
+ * Single channel mixer element
+ */
 
 static int snd_sbmixer_info_single(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
@@ -102,6 +105,9 @@ static int snd_sbmixer_put_single(struct snd_kcontrol *kcontrol, struct snd_ctl_
 	return change;
 }
 
+/*
+ * Double channel mixer element
+ */
 
 static int snd_sbmixer_info_double(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
@@ -170,6 +176,9 @@ static int snd_sbmixer_put_double(struct snd_kcontrol *kcontrol, struct snd_ctl_
 	return change;
 }
 
+/*
+ * DT-019x / ALS-007 capture/input switch
+ */
 
 static int snd_dt019x_input_sw_info(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
@@ -208,9 +217,13 @@ static int snd_dt019x_input_sw_get(struct snd_kcontrol *kcontrol, struct snd_ctl
 	case SB_DT019X_CAP_MAIN:
 		ucontrol->value.enumerated.item[0] = 4;
 		break;
-	
-	
-	
+	/* To record the synth on these cards you must record the main.   */
+	/* Thus SB_DT019X_CAP_SYNTH == SB_DT019X_CAP_MAIN and would cause */
+	/* duplicate case labels if left uncommented. */
+	/* case SB_DT019X_CAP_SYNTH:
+	 *	ucontrol->value.enumerated.item[0] = 3;
+	 *	break;
+	 */
 	default:
 		ucontrol->value.enumerated.item[0] = 4;
 		break;
@@ -255,6 +268,9 @@ static int snd_dt019x_input_sw_put(struct snd_kcontrol *kcontrol, struct snd_ctl
 	return change;
 }
 
+/*
+ * ALS4000 mono recording control switch
+ */
 
 static int snd_als4k_mono_capture_route_info(struct snd_kcontrol *kcontrol,
 					     struct snd_ctl_elem_info *uinfo)
@@ -313,6 +329,9 @@ static int snd_als4k_mono_capture_route_put(struct snd_kcontrol *kcontrol,
 	return change;
 }
 
+/*
+ * SBPRO input multiplexer
+ */
 
 static int snd_sb8mixer_info_mux(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
@@ -383,6 +402,9 @@ static int snd_sb8mixer_put_mux(struct snd_kcontrol *kcontrol, struct snd_ctl_el
 	return change;
 }
 
+/*
+ * SB16 input switch
+ */
 
 static int snd_sb16mixer_info_input_sw(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
@@ -444,6 +466,10 @@ static int snd_sb16mixer_put_input_sw(struct snd_kcontrol *kcontrol, struct snd_
 }
 
 
+/*
+ */
+/*
+ */
 int snd_sbmixer_add_ctl(struct snd_sb *chip, const char *name, int index, int type, unsigned long value)
 {
 	static struct snd_kcontrol_new newctls[] = {
@@ -498,6 +524,9 @@ int snd_sbmixer_add_ctl(struct snd_sb *chip, const char *name, int index, int ty
 	return 0;
 }
 
+/*
+ * SB 2.0 specific mixer elements
+ */
 
 static struct sbmix_elem snd_sb20_controls[] = {
 	SB_SINGLE("Master Playback Volume", SB_DSP20_MASTER_DEV, 1, 7),
@@ -511,6 +540,9 @@ static unsigned char snd_sb20_init_values[][2] = {
 	{ SB_DSP20_FM_DEV, 0 },
 };
 
+/*
+ * SB Pro specific mixer elements
+ */
 static struct sbmix_elem snd_sbpro_controls[] = {
 	SB_DOUBLE("Master Playback Volume",
 		  SB_DSP_MASTER_DEV, SB_DSP_MASTER_DEV, 5, 1, 7),
@@ -537,6 +569,9 @@ static unsigned char snd_sbpro_init_values[][2] = {
 	{ SB_DSP_FM_DEV, 0 },
 };
 
+/*
+ * SB16 specific mixer elements
+ */
 static struct sbmix_elem snd_sb16_controls[] = {
 	SB_DOUBLE("Master Playback Volume",
 		  SB_DSP4_MASTER_DEV, (SB_DSP4_MASTER_DEV + 1), 3, 3, 31),
@@ -588,7 +623,12 @@ static unsigned char snd_sb16_init_values[][2] = {
 	{ SB_DSP4_SPEAKER_DEV, 0 },
 };
 
+/*
+ * DT019x specific mixer elements
+ */
 static struct sbmix_elem snd_dt019x_controls[] = {
+	/* ALS4000 below has some parts which we might be lacking,
+	 * e.g. snd_als4000_ctl_mono_playback_switch - check it! */
 	SB_DOUBLE("Master Playback Volume",
 		  SB_DT019X_MASTER_DEV, SB_DT019X_MASTER_DEV, 4, 0, 15),
 	SB_DOUBLE("PCM Playback Switch",
@@ -621,13 +661,16 @@ static unsigned char snd_dt019x_init_values[][2] = {
         { SB_DT019X_PCM_DEV, 0 },
         { SB_DT019X_SYNTH_DEV, 0 },
         { SB_DT019X_CD_DEV, 0 },
-        { SB_DT019X_MIC_DEV, 0 },	
+        { SB_DT019X_MIC_DEV, 0 },	/* Includes PC-speaker in high nibble */
         { SB_DT019X_LINE_DEV, 0 },
         { SB_DSP4_OUTPUT_SW, 0 },
         { SB_DT019X_OUTPUT_SW2, 0 },
         { SB_DT019X_CAPTURE_SW, 0x06 },
 };
 
+/*
+ * ALS4000 specific mixer elements
+ */
 static struct sbmix_elem snd_als4000_controls[] = {
 	SB_DOUBLE("PCM Playback Switch",
 		  SB_DT019X_OUTPUT_SW2, SB_DT019X_OUTPUT_SW2, 2, 1, 1),
@@ -644,9 +687,14 @@ static struct sbmix_elem snd_als4000_controls[] = {
 	SB_SINGLE("3D Control - Switch", SB_ALS4000_3D_SND_FX, 6, 0x01),
 	SB_SINGLE("Digital Loopback Switch",
 		  SB_ALS4000_CR3_CONFIGURATION, 7, 0x01),
+	/* FIXME: functionality of 3D controls might be swapped, I didn't find
+	 * a description of how to identify what is supposed to be what */
 	SB_SINGLE("3D Control - Level", SB_ALS4000_3D_SND_FX, 0, 0x07),
-	
+	/* FIXME: maybe there's actually some standard 3D ctrl name for it?? */
 	SB_SINGLE("3D Control - Freq", SB_ALS4000_3D_SND_FX, 4, 0x03),
+	/* FIXME: ALS4000a.pdf mentions BBD (Bucket Brigade Device) time delay,
+	 * but what ALSA 3D attribute is that actually? "Center", "Depth",
+	 * "Wide" or "Space" or even "Level"? Assuming "Wide" for now... */
 	SB_SINGLE("3D Control - Wide", SB_ALS4000_3D_TIME_DELAY, 0, 0x0f),
 	SB_SINGLE("3D PowerOff Switch", SB_ALS4000_3D_TIME_DELAY, 4, 0x01),
 	SB_SINGLE("Master Playback 8kHz / 20kHz LPF Switch",
@@ -672,6 +720,8 @@ static unsigned char snd_als4000_init_values[][2] = {
 	{ SB_ALS4000_MIC_IN_GAIN, 0 },
 };
 
+/*
+ */
 static int snd_sbmixer_init(struct snd_sb *chip,
 			    struct sbmix_elem *controls,
 			    int controls_count,
@@ -683,12 +733,12 @@ static int snd_sbmixer_init(struct snd_sb *chip,
 	struct snd_card *card = chip->card;
 	int idx, err;
 
-	
+	/* mixer reset */
 	spin_lock_irqsave(&chip->mixer_lock, flags);
 	snd_sbmixer_write(chip, 0x00, 0x00);
 	spin_unlock_irqrestore(&chip->mixer_lock, flags);
 
-	
+	/* mute and zero volume channels */
 	for (idx = 0; idx < map_count; idx++) {
 		spin_lock_irqsave(&chip->mixer_lock, flags);
 		snd_sbmixer_write(chip, map[idx][0], map[idx][1]);
@@ -717,7 +767,7 @@ int snd_sbmixer_new(struct snd_sb *chip)
 
 	switch (chip->hardware) {
 	case SB_HW_10:
-		return 0; 
+		return 0; /* no mixer chip on SB1.x */
 	case SB_HW_20:
 	case SB_HW_201:
 		if ((err = snd_sbmixer_init(chip,
@@ -750,7 +800,7 @@ int snd_sbmixer_new(struct snd_sb *chip)
 			return err;
 		break;
 	case SB_HW_ALS4000:
-		
+		/* use only the first 16 controls from SB16 */
 		err = snd_sbmixer_init(chip,
 					snd_sb16_controls,
 					16,
@@ -833,6 +883,8 @@ static unsigned char dt019x_saved_regs[] = {
 };
 
 static unsigned char als4000_saved_regs[] = {
+	/* please verify in dsheet whether regs to be added
+	   are actually real H/W or just dummy */
 	SB_DSP4_MASTER_DEV, SB_DSP4_MASTER_DEV + 1,
 	SB_DSP4_OUTPUT_SW,
 	SB_DSP4_PCM_DEV, SB_DSP4_PCM_DEV + 1,

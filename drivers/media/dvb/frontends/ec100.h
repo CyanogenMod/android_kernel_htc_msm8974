@@ -25,7 +25,7 @@
 #include <linux/dvb/frontend.h>
 
 struct ec100_config {
-	
+	/* demodulator's I2C address */
 	u8 demod_address;
 };
 
@@ -43,4 +43,4 @@ static inline struct dvb_frontend *ec100_attach(
 }
 #endif
 
-#endif 
+#endif /* EC100_H */

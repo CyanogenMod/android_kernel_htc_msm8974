@@ -29,6 +29,7 @@
 #define CCID_NOTIFY_INTERVAL	5
 #define CCID_NOTIFY_MAXPACKET	4
 
+/* number of tx requests to allocate */
 #define TX_REQ_MAX 4
 
 struct ccid_ctrl_dev {
@@ -56,7 +57,7 @@ struct f_ccid {
 	int ifc_id;
 	spinlock_t lock;
 	atomic_t online;
-	
+	/* usb eps*/
 	struct usb_ep *notify;
 	struct usb_ep *in;
 	struct usb_ep *out;
@@ -70,6 +71,7 @@ static struct f_ccid *_ccid_dev;
 static struct miscdevice ccid_bulk_device;
 static struct miscdevice ccid_ctrl_device;
 
+/* Interface Descriptor: */
 static struct usb_interface_descriptor ccid_interface_desc = {
 	.bLength =		USB_DT_INTERFACE_SIZE,
 	.bDescriptorType =	USB_DT_INTERFACE,
@@ -78,28 +80,29 @@ static struct usb_interface_descriptor ccid_interface_desc = {
 	.bInterfaceSubClass =	0,
 	.bInterfaceProtocol =	0,
 };
+/* CCID Class Descriptor */
 static struct usb_ccid_class_descriptor ccid_class_desc = {
 	.bLength =		sizeof(ccid_class_desc),
 	.bDescriptorType =	CCID_DECRIPTOR_TYPE,
 	.bcdCCID =		CCID1_10,
 	.bMaxSlotIndex =	0,
-	
+	/* This value indicates what voltages the CCID can supply to slots */
 	.bVoltageSupport =	VOLTS_3_0,
 	.dwProtocols =		PROTOCOL_TO,
-	
+	/* Default ICC clock frequency in KHz */
 	.dwDefaultClock =	3580,
-	
+	/* Maximum supported ICC clock frequency in KHz */
 	.dwMaximumClock =	3580,
 	.bNumClockSupported =	0,
-	
+	/* Default ICC I/O data rate in bps */
 	.dwDataRate =		9600,
-	
+	/* Maximum supported ICC I/O data rate in bps */
 	.dwMaxDataRate =	9600,
 	.bNumDataRatesSupported = 0,
 	.dwMaxIFSD =		0,
 	.dwSynchProtocols =	0,
 	.dwMechanical =		0,
-	
+	/* This value indicates what intelligent features the CCID has */
 	.dwFeatures =		CCID_FEATURES_EXC_SAPDU |
 				CCID_FEATURES_AUTO_PNEGO |
 				CCID_FEATURES_AUTO_BAUD |
@@ -107,7 +110,7 @@ static struct usb_ccid_class_descriptor ccid_class_desc = {
 				CCID_FEATURES_AUTO_VOLT |
 				CCID_FEATURES_AUTO_ACTIV |
 				CCID_FEATURES_AUTO_PCONF,
-	
+	/* extended APDU level Message Length */
 	.dwMaxCCIDMessageLength = 0x200,
 	.bClassGetResponse =	0x0,
 	.bClassEnvelope =	0x0,
@@ -115,6 +118,7 @@ static struct usb_ccid_class_descriptor ccid_class_desc = {
 	.bPINSupport =		0,
 	.bMaxCCIDBusySlots =	1
 };
+/* Full speed support: */
 static struct usb_endpoint_descriptor ccid_fs_notify_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -149,6 +153,7 @@ static struct usb_descriptor_header *ccid_fs_descs[] = {
 	NULL,
 };
 
+/* High speed support: */
 static struct usb_endpoint_descriptor ccid_hs_notify_desc  = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -329,7 +334,7 @@ invalid:
 		w_value, w_index, w_length);
 	}
 
-	
+	/* respond with data transfer or status phase? */
 	if (ret >= 0) {
 		pr_debug("ccid req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
@@ -350,11 +355,11 @@ static void ccid_function_disable(struct usb_function *f)
 	struct ccid_ctrl_dev *ctrl_dev = &ccid_dev->ctrl_dev;
 	struct usb_request *req;
 
-	
+	/* Disable endpoints */
 	usb_ep_disable(ccid_dev->notify);
 	usb_ep_disable(ccid_dev->in);
 	usb_ep_disable(ccid_dev->out);
-	
+	/* Free endpoint related requests */
 	ccid_request_free(ccid_dev->notify_req, ccid_dev->notify);
 	if (!atomic_read(&bulk_dev->rx_req_busy))
 		ccid_request_free(bulk_dev->rx_req, ccid_dev->out);
@@ -363,7 +368,7 @@ static void ccid_function_disable(struct usb_function *f)
 
 	ccid_dev->dtr_state = 0;
 	atomic_set(&ccid_dev->online, 0);
-	
+	/* Wake up threads */
 	wake_up(&bulk_dev->write_wq);
 	wake_up(&bulk_dev->read_wq);
 	wake_up(&ctrl_dev->tx_wait_q);
@@ -390,7 +395,7 @@ ccid_function_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	ccid_dev->notify_req->complete = ccid_notify_complete;
 	ccid_dev->notify_req->context = ccid_dev;
 
-	
+	/* now allocate requests for our endpoints */
 	req = ccid_request_alloc(ccid_dev->out, BULK_OUT_BUFFER_SIZE,
 							GFP_ATOMIC);
 	if (IS_ERR(req)) {
@@ -417,7 +422,7 @@ ccid_function_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		ccid_req_put(ccid_dev, &bulk_dev->tx_idle, req);
 	}
 
-	
+	/* choose the descriptors and enable endpoints */
 	ret = config_ep_by_speed(cdev->gadget, f, ccid_dev->notify);
 	if (ret) {
 		ccid_dev->notify->desc = NULL;
@@ -542,7 +547,7 @@ static int ccid_function_bind(struct usb_configuration *c,
 		ccid_hs_notify_desc.bEndpointAddress =
 				ccid_fs_notify_desc.bEndpointAddress;
 
-		
+		/* copy descriptors, and track endpoint copies */
 		f->hs_descriptors = usb_copy_descriptors(ccid_hs_descs);
 		if (!f->hs_descriptors)
 			goto ep_auto_out_fail;
@@ -581,7 +586,7 @@ static int ccid_bulk_open(struct inode *ip, struct file *fp)
 		return -EBUSY;
 	}
 	atomic_set(&bulk_dev->opened, 1);
-	
+	/* clear the error latch */
 	atomic_set(&bulk_dev->error, 0);
 	spin_lock_irqsave(&ccid_dev->lock, flags);
 	fp->private_data = ccid_dev;
@@ -630,7 +635,7 @@ requeue_req:
 		pr_debug("%s: USB cable not connected\n", __func__);
 		return -ENODEV;
 	}
-	
+	/* queue a request */
 	req = bulk_dev->rx_req;
 	req->length = count;
 	bulk_dev->rx_done = 0;
@@ -642,7 +647,7 @@ requeue_req:
 		atomic_set(&bulk_dev->error, 1);
 		goto done;
 	}
-	
+	/* wait for a request to complete */
 	ret = wait_event_interruptible(bulk_dev->read_wq, bulk_dev->rx_done ||
 					atomic_read(&bulk_dev->error) ||
 					!atomic_read(&ccid_dev->online));
@@ -660,7 +665,7 @@ requeue_req:
 			r = -ENODEV;
 			goto done;
 		}
-		
+		/* If we got a 0-len packet, throw it back and try again. */
 		if (req->actual == 0) {
 			spin_unlock_irqrestore(&ccid_dev->lock, flags);
 			goto requeue_req;
@@ -718,7 +723,7 @@ static ssize_t ccid_bulk_write(struct file *fp, const char __user *buf,
 	}
 
 
-	
+	/* get an idle tx request to use */
 	ret = wait_event_interruptible(bulk_dev->write_wq,
 		((req = ccid_req_get(ccid_dev, &bulk_dev->tx_idle)) ||
 		 atomic_read(&bulk_dev->error)));

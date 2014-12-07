@@ -47,8 +47,8 @@ static int __init mipi_video_simulator_init(void)
 	pinfo.lcdc.v_front_porch = 6;
 	pinfo.lcdc.v_pulse_width = 2;
 
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = 15;
 	pinfo.bl_min = 1;
@@ -69,7 +69,7 @@ static int __init mipi_video_simulator_init(void)
 	pinfo.mipi.data_lane1 = TRUE;
 	pinfo.mipi.t_clk_post = 0x03;
 	pinfo.mipi.t_clk_pre = 0x24;
-	pinfo.mipi.stream = 0; 
+	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.frame_rate = 60;

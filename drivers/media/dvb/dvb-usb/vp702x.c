@@ -17,6 +17,7 @@
 #include "vp702x.h"
 #include <linux/mutex.h>
 
+/* debug */
 int dvb_usb_vp702x_debug;
 module_param_named(debug,dvb_usb_vp702x_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debugging level (1=info,xfer=2,rc=4 (or-able))." DVB_USB_DEBUG_STATUS);
@@ -227,7 +228,7 @@ static int vp702x_init_pid_filter(struct dvb_usb_adapter *adap)
 	st->pid_filter_can_bypass = 1;
 	st->pid_filter_state = 0x00;
 
-	vp702x_set_pld_mode(adap, 1); 
+	vp702x_set_pld_mode(adap, 1); /* bypass */
 
 	for (i = 0; i < st->pid_filter_count; i++)
 		vp702x_set_pid(adap, 0xffff, i, 1);
@@ -239,7 +240,7 @@ static int vp702x_init_pid_filter(struct dvb_usb_adapter *adap)
 	vp702x_usb_in_op(adap->dev, 0xb5, 0, 0, b, 10);
 	vp702x_usb_in_op(adap->dev, 0xb5, 1, 0, b, 10);
 	mutex_unlock(&dst->buf_mutex);
-	
+	/*vp702x_set_pld_mode(d, 0); // filter */
 
 	return 0;
 }
@@ -249,16 +250,19 @@ static int vp702x_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 	return 0;
 }
 
+/* keys for the enclosed remote control */
 static struct rc_map_table rc_map_vp702x_table[] = {
 	{ 0x0001, KEY_1 },
 	{ 0x0002, KEY_2 },
 };
 
+/* remote control stuff (does not work with my box) */
 static int vp702x_rc_query(struct dvb_usb_device *d, u32 *event, int *state)
 {
 	u8 *key;
 	int i;
 
+/* remove the following return to enabled remote querying */
 	return 0;
 
 	key = kmalloc(10, GFP_KERNEL);
@@ -363,6 +367,8 @@ static void vp702x_usb_disconnect(struct usb_interface *intf)
 
 static struct usb_device_id vp702x_usb_table [] = {
 	    { USB_DEVICE(USB_VID_VISIONPLUS, USB_PID_TWINHAN_VP7021_COLD) },
+//	    { USB_DEVICE(USB_VID_VISIONPLUS, USB_PID_TWINHAN_VP7020_COLD) },
+//	    { USB_DEVICE(USB_VID_VISIONPLUS, USB_PID_TWINHAN_VP7020_WARM) },
 	    { 0 },
 };
 MODULE_DEVICE_TABLE(usb, vp702x_usb_table);
@@ -384,7 +390,7 @@ static struct dvb_usb_device_properties vp702x_properties = {
 			.streaming_ctrl   = vp702x_streaming_ctrl,
 			.frontend_attach  = vp702x_frontend_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 10,
@@ -414,10 +420,15 @@ static struct dvb_usb_device_properties vp702x_properties = {
 		  .cold_ids = { &vp702x_usb_table[0], NULL },
 		  .warm_ids = { NULL },
 		},
-		{ NULL },
+/*		{ .name = "TwinhanDTV StarBox DVB-S USB2.0 (VP7020)",
+		  .cold_ids = { &vp702x_usb_table[2], NULL },
+		  .warm_ids = { &vp702x_usb_table[3], NULL },
+		},
+*/		{ NULL },
 	}
 };
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver vp702x_usb_driver = {
 	.name		= "dvb_usb_vp702x",
 	.probe		= vp702x_usb_probe,

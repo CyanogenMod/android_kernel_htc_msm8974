@@ -27,4 +27,4 @@ struct pdev_archdata {
 	int			num_irqs;
 };
 
-#endif 
+#endif /* _ASM_SPARC_DEVICE_H */

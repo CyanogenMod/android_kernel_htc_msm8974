@@ -14,6 +14,10 @@
 
 #include <linux/swab.h>
 
+/*
+ * The C64x+ can do unaligned word and dword accesses in hardware
+ * using special load/store instructions.
+ */
 
 static inline u16 get_unaligned_le16(const void *p)
 {
@@ -99,6 +103,10 @@ static inline void put_unaligned64(u64 val, const void *p)
 
 #endif
 
+/*
+ * Cause a link-time error if we try an unaligned access other than
+ * 1,2,4 or 8 bytes long
+ */
 extern int __bad_unaligned_access_size(void);
 
 #define __get_unaligned_le(ptr) (typeof(*(ptr)))({			\
@@ -159,4 +167,4 @@ extern int __bad_unaligned_access_size(void);
 	}								\
 	(void)0; })
 
-#endif 
+#endif /* _ASM_C6X_UNALIGNED_H */

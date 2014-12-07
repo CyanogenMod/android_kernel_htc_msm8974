@@ -34,7 +34,9 @@ static void blkiocg_attach(struct cgroup *, struct cgroup_taskset *);
 static void blkiocg_destroy(struct cgroup *);
 static int blkiocg_populate(struct cgroup_subsys *, struct cgroup *);
 
+/* for encoding cft->private value on file */
 #define BLKIOFILE_PRIVATE(x, val)	(((x) << 16) | (val))
+/* What policy owns the file, proportional or throttle */
 #define BLKIOFILE_POLICY(val)		(((val) >> 16) & 0xffff)
 #define BLKIOFILE_ATTR(val)		((val) & 0xffff)
 
@@ -46,7 +48,7 @@ struct cgroup_subsys blkio_subsys = {
 	.destroy = blkiocg_destroy,
 	.populate = blkiocg_populate,
 #ifdef CONFIG_BLK_CGROUP
-	
+	/* note: blkio_subsys_id is otherwise defined in blk-cgroup.h */
 	.subsys_id = blkio_subsys_id,
 #endif
 	.use_id = 1,
@@ -71,6 +73,7 @@ static inline bool cftype_blkg_same_policy(struct cftype *cft,
 	return 0;
 }
 
+/* Determines if policy node matches cgroup file being accessed */
 static inline bool pn_matches_cftype(struct cftype *cft,
 			struct blkio_policy_node *pn)
 {
@@ -80,11 +83,13 @@ static inline bool pn_matches_cftype(struct cftype *cft,
 	return (plid == pn->plid && fileid == pn->fileid);
 }
 
+/* Must be called with blkcg->lock held */
 static inline void blkio_policy_delete_node(struct blkio_policy_node *pn)
 {
 	list_del(&pn->node);
 }
 
+/* Must be called with blkcg->lock held */
 static struct blkio_policy_node *
 blkio_policy_search_node(const struct blkio_cgroup *blkcg, dev_t dev,
 		enum blkio_policy_id plid, int fileid)
@@ -119,7 +124,7 @@ blkio_update_group_weight(struct blkio_group *blkg, unsigned int weight)
 	struct blkio_policy_type *blkiop;
 
 	list_for_each_entry(blkiop, &blkio_list, list) {
-		
+		/* If this policy does not own the blkg, do not send updates */
 		if (blkiop->plid != blkg->plid)
 			continue;
 		if (blkiop->ops.blkio_update_group_weight_fn)
@@ -135,7 +140,7 @@ static inline void blkio_update_group_bps(struct blkio_group *blkg, u64 bps,
 
 	list_for_each_entry(blkiop, &blkio_list, list) {
 
-		
+		/* If this policy does not own the blkg, do not send updates */
 		if (blkiop->plid != blkg->plid)
 			continue;
 
@@ -158,7 +163,7 @@ static inline void blkio_update_group_iops(struct blkio_group *blkg,
 
 	list_for_each_entry(blkiop, &blkio_list, list) {
 
-		
+		/* If this policy does not own the blkg, do not send updates */
 		if (blkiop->plid != blkg->plid)
 			continue;
 
@@ -174,6 +179,10 @@ static inline void blkio_update_group_iops(struct blkio_group *blkg,
 	}
 }
 
+/*
+ * Add to the appropriate stat variable depending on the request type.
+ * This should be called with the blkg->stats_lock held.
+ */
 static void blkio_add_stat(uint64_t *stat, uint64_t add, bool direction,
 				bool sync)
 {
@@ -187,6 +196,11 @@ static void blkio_add_stat(uint64_t *stat, uint64_t add, bool direction,
 		stat[BLKIO_STAT_ASYNC] += add;
 }
 
+/*
+ * Decrements the appropriate stat variable if non-zero depending on the
+ * request type. Panics on value being zero.
+ * This should be called with the blkg->stats_lock held.
+ */
 static void blkio_check_and_dec_stat(uint64_t *stat, bool direction, bool sync)
 {
 	if (direction) {
@@ -206,6 +220,7 @@ static void blkio_check_and_dec_stat(uint64_t *stat, bool direction, bool sync)
 }
 
 #ifdef CONFIG_DEBUG_BLK_CGROUP
+/* This should be called with the blkg->stats_lock held. */
 static void blkio_set_start_group_wait_time(struct blkio_group *blkg,
 						struct blkio_group *curr_blkg)
 {
@@ -217,6 +232,7 @@ static void blkio_set_start_group_wait_time(struct blkio_group *blkg,
 	blkio_mark_blkg_waiting(&blkg->stats);
 }
 
+/* This should be called with the blkg->stats_lock held. */
 static void blkio_update_group_wait_time(struct blkio_group_stats *stats)
 {
 	unsigned long long now;
@@ -230,6 +246,7 @@ static void blkio_update_group_wait_time(struct blkio_group_stats *stats)
 	blkio_clear_blkg_waiting(stats);
 }
 
+/* This should be called with the blkg->stats_lock held. */
 static void blkio_end_empty_time(struct blkio_group_stats *stats)
 {
 	unsigned long long now;
@@ -303,6 +320,11 @@ void blkiocg_set_start_empty_time(struct blkio_group *blkg)
 		return;
 	}
 
+	/*
+	 * group is already marked empty. This can happen if cfqq got new
+	 * request in parent group and moved to this group while being added
+	 * to service tree. Just ignore the event and move on.
+	 */
 	if(blkio_blkg_empty(stats)) {
 		spin_unlock_irqrestore(&blkg->stats_lock, flags);
 		return;
@@ -367,12 +389,21 @@ void blkiocg_update_timeslice_used(struct blkio_group *blkg, unsigned long time,
 }
 EXPORT_SYMBOL_GPL(blkiocg_update_timeslice_used);
 
+/*
+ * should be called under rcu read lock or queue lock to make sure blkg pointer
+ * is valid.
+ */
 void blkiocg_update_dispatch_stats(struct blkio_group *blkg,
 				uint64_t bytes, bool direction, bool sync)
 {
 	struct blkio_group_stats_cpu *stats_cpu;
 	unsigned long flags;
 
+	/*
+	 * Disabling interrupts to provide mutual exclusion between two
+	 * writes on same cpu. It probably is not needed for 64bit. Not
+	 * optimizing that case yet.
+	 */
 	local_irq_save(flags);
 
 	stats_cpu = this_cpu_ptr(blkg->stats_cpu);
@@ -407,12 +438,18 @@ void blkiocg_update_completion_stats(struct blkio_group *blkg,
 }
 EXPORT_SYMBOL_GPL(blkiocg_update_completion_stats);
 
+/*  Merged stats are per cpu.  */
 void blkiocg_update_io_merged_stats(struct blkio_group *blkg, bool direction,
 					bool sync)
 {
 	struct blkio_group_stats_cpu *stats_cpu;
 	unsigned long flags;
 
+	/*
+	 * Disabling interrupts to provide mutual exclusion between two
+	 * writes on same cpu. It probably is not needed for 64bit. Not
+	 * optimizing that case yet.
+	 */
 	local_irq_save(flags);
 
 	stats_cpu = this_cpu_ptr(blkg->stats_cpu);
@@ -425,9 +462,13 @@ void blkiocg_update_io_merged_stats(struct blkio_group *blkg, bool direction,
 }
 EXPORT_SYMBOL_GPL(blkiocg_update_io_merged_stats);
 
+/*
+ * This function allocates the per cpu stats for blkio_group. Should be called
+ * from sleepable context as alloc_per_cpu() requires that.
+ */
 int blkio_alloc_blkg_stats(struct blkio_group *blkg)
 {
-	
+	/* Allocate memory for per cpu stats */
 	blkg->stats_cpu = alloc_percpu(struct blkio_group_stats_cpu);
 	if (!blkg->stats_cpu)
 		return -ENOMEM;
@@ -448,7 +489,7 @@ void blkiocg_add_blkio_group(struct blkio_cgroup *blkcg,
 	hlist_add_head_rcu(&blkg->blkcg_node, &blkcg->blkg_list);
 	blkg->plid = plid;
 	spin_unlock_irqrestore(&blkcg->lock, flags);
-	
+	/* Need to take css reference ? */
 	cgroup_path(blkcg->css.cgroup, blkg->path, sizeof(blkg->path));
 	blkg->dev = dev;
 }
@@ -460,6 +501,10 @@ static void __blkiocg_del_blkio_group(struct blkio_group *blkg)
 	blkg->blkcg_id = 0;
 }
 
+/*
+ * returns 0 if blkio_group was still on cgroup list. Otherwise returns 1
+ * indicating that blk_group was unhashed by the time we got to it.
+ */
 int blkiocg_del_blkio_group(struct blkio_group *blkg)
 {
 	struct blkio_cgroup *blkcg;
@@ -484,6 +529,7 @@ int blkiocg_del_blkio_group(struct blkio_group *blkg)
 }
 EXPORT_SYMBOL_GPL(blkiocg_del_blkio_group);
 
+/* called under rcu_read_lock(). */
 struct blkio_group *blkiocg_lookup_group(struct blkio_cgroup *blkcg, void *key)
 {
 	struct blkio_group *blkg;
@@ -504,6 +550,17 @@ static void blkio_reset_stats_cpu(struct blkio_group *blkg)
 {
 	struct blkio_group_stats_cpu *stats_cpu;
 	int i, j, k;
+	/*
+	 * Note: On 64 bit arch this should not be an issue. This has the
+	 * possibility of returning some inconsistent value on 32bit arch
+	 * as 64bit update on 32bit is non atomic. Taking care of this
+	 * corner case makes code very complicated, like sending IPIs to
+	 * cpus, taking care of stats of offline cpus etc.
+	 *
+	 * reset stats is anyway more of a debug feature and this sounds a
+	 * corner case. So I am not complicating the code yet until and
+	 * unless this becomes a real issue.
+	 */
 	for_each_possible_cpu(i) {
 		stats_cpu = per_cpu_ptr(blkg->stats_cpu, i);
 		stats_cpu->sectors = 0;
@@ -558,7 +615,7 @@ blkiocg_reset_stats(struct cgroup *cgroup, struct cftype *cftype, u64 val)
 #endif
 		spin_unlock(&blkg->stats_lock);
 
-		
+		/* Reset Per cpu stats which don't take blkg->stats_lock */
 		blkio_reset_stats_cpu(blkg);
 	}
 
@@ -660,6 +717,7 @@ static uint64_t blkio_get_stat_cpu(struct blkio_group *blkg,
 	return disk_total;
 }
 
+/* This should be called with blkg->stats_lock held */
 static uint64_t blkio_get_stat(struct blkio_group *blkg,
 		struct cgroup_map_cb *cb, dev_t dev, enum stat_type type)
 {
@@ -728,7 +786,7 @@ static int blkio_policy_parse_and_set(char *buf,
 
 		s[i++] = p;
 
-		
+		/* Prevent from inputing too many things */
 		if (i == 3)
 			break;
 	}
@@ -757,7 +815,7 @@ static int blkio_policy_parse_and_set(char *buf,
 	if (strict_strtoull(s[1], 10, &temp))
 		goto out;
 
-	
+	/* For rule removal, do not check for device presence. */
 	if (temp) {
 		disk = get_gendisk(dev, &part);
 		if (!disk || part) {
@@ -892,6 +950,7 @@ unsigned int blkcg_get_write_iops(struct blkio_cgroup *blkcg, dev_t dev)
 	return iops;
 }
 
+/* Checks whether user asked for deleting a policy rule */
 static bool blkio_delete_rule_command(struct blkio_policy_node *pn)
 {
 	switch(pn->plid) {
@@ -942,6 +1001,10 @@ static void blkio_update_policy_rule(struct blkio_policy_node *oldpn,
 	}
 }
 
+/*
+ * Some rules/values in blkg have changed. Propagate those to respective
+ * policies.
+ */
 static void blkio_update_blkg_policy(struct blkio_cgroup *blkcg,
 		struct blkio_group *blkg, struct blkio_policy_node *pn)
 {
@@ -973,6 +1036,10 @@ static void blkio_update_blkg_policy(struct blkio_cgroup *blkcg,
 	}
 }
 
+/*
+ * A policy node rule has been updated. Propagate this update to all the
+ * block groups which might be affected by this update.
+ */
 static void blkio_update_policy_node_blkg(struct blkio_cgroup *blkcg,
 				struct blkio_policy_node *pn)
 {
@@ -1080,6 +1147,7 @@ blkio_print_policy_node(struct seq_file *m, struct blkio_policy_node *pn)
 	}
 }
 
+/* cgroup files which read their data from policy nodes end up here */
 static void blkio_read_policy_node_files(struct cftype *cft,
 			struct blkio_cgroup *blkcg, struct seq_file *m)
 {
@@ -1164,6 +1232,7 @@ static int blkio_read_blkg_stats(struct blkio_cgroup *blkcg,
 	return 0;
 }
 
+/* All map kind of cgroup file get serviced by this function */
 static int blkiocg_file_read_map(struct cgroup *cgrp, struct cftype *cft,
 				struct cgroup_map_cb *cb)
 {
@@ -1428,7 +1497,7 @@ struct cftype blkio_files[] = {
 				BLKIO_THROTL_io_serviced),
 		.read_map = blkiocg_file_read_map,
 	},
-#endif 
+#endif /* CONFIG_BLK_DEV_THROTTLING */
 
 #ifdef CONFIG_DEBUG_BLK_CGROUP
 	{
@@ -1501,6 +1570,11 @@ static void blkiocg_destroy(struct cgroup *cgroup)
 
 		spin_unlock_irqrestore(&blkcg->lock, flags);
 
+		/*
+		 * This blkio_group is being unlinked as associated cgroup is
+		 * going away. Let all the IO controlling policies know about
+		 * this event.
+		 */
 		spin_lock(&blkio_list_lock);
 		list_for_each_entry(blkiop, &blkio_list, list) {
 			if (blkiop->plid != blkg->plid)
@@ -1544,13 +1618,19 @@ done:
 	return &blkcg->css;
 }
 
+/*
+ * We cannot support shared io contexts, as we have no mean to support
+ * two tasks with the same ioc in two different groups without major rework
+ * of the main cic data structures.  For now we allow a task to change
+ * its cgroup only if it's the only owner of its ioc.
+ */
 static int blkiocg_can_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
 {
 	struct task_struct *task;
 	struct io_context *ioc;
 	int ret = 0;
 
-	
+	/* task_lock() is needed to avoid races with exit_io_context() */
 	cgroup_taskset_for_each(task, cgrp, tset) {
 		task_lock(task);
 		ioc = task->io_context;
@@ -1569,7 +1649,7 @@ static void blkiocg_attach(struct cgroup *cgrp, struct cgroup_taskset *tset)
 	struct io_context *ioc;
 
 	cgroup_taskset_for_each(task, cgrp, tset) {
-		
+		/* we don't lose anything even if ioc allocation fails */
 		ioc = get_task_io_context(task, GFP_ATOMIC, NUMA_NO_NODE);
 		if (ioc) {
 			ioc_cgroup_changed(ioc);

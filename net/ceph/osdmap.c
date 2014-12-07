@@ -36,6 +36,7 @@ done:
 	return str;
 }
 
+/* maps */
 
 static int calc_bits_of(unsigned t)
 {
@@ -47,6 +48,9 @@ static int calc_bits_of(unsigned t)
 	return b;
 }
 
+/*
+ * the foo_mask is the smallest value 2^n-1 that is >= foo.
+ */
 static void calc_pg_masks(struct ceph_pg_pool_info *pi)
 {
 	pi->pg_num_mask = (1 << calc_bits_of(le32_to_cpu(pi->v.pg_num)-1)) - 1;
@@ -58,6 +62,9 @@ static void calc_pg_masks(struct ceph_pg_pool_info *pi)
 		(1 << calc_bits_of(le32_to_cpu(pi->v.lpgp_num)-1)) - 1;
 }
 
+/*
+ * decode crush map
+ */
 static int crush_decode_uniform_bucket(void **p, void *end,
 				       struct crush_bucket_uniform *b)
 {
@@ -168,7 +175,7 @@ static struct crush_map *crush_decode(void *pbyval, void *end)
 	if (c->rules == NULL)
 		goto badmem;
 
-	
+	/* buckets */
 	for (i = 0; i < c->max_buckets; i++) {
 		int size = 0;
 		u32 alg;
@@ -255,7 +262,7 @@ static struct crush_map *crush_decode(void *pbyval, void *end)
 		}
 	}
 
-	
+	/* rules */
 	dout("rule vec is %p\n", c->rules);
 	for (i = 0; i < c->max_rules; i++) {
 		u32 yes;
@@ -272,7 +279,7 @@ static struct crush_map *crush_decode(void *pbyval, void *end)
 		dout("crush_decode rule %d off %x %p to %p\n",
 		     i, (int)(*p-start), *p, end);
 
-		
+		/* len */
 		ceph_decode_32_safe(p, end, yes, bad);
 #if BITS_PER_LONG == 32
 		err = -EINVAL;
@@ -287,7 +294,7 @@ static struct crush_map *crush_decode(void *pbyval, void *end)
 			goto badmem;
 		dout(" rule %d is at %p\n", i, r);
 		r->len = yes;
-		ceph_decode_copy_safe(p, end, &r->mask, 4, bad); 
+		ceph_decode_copy_safe(p, end, &r->mask, 4, bad); /* 4 u8's */
 		ceph_decode_need(p, end, r->len*3*sizeof(u32), bad);
 		for (j = 0; j < r->len; j++) {
 			r->steps[j].op = ceph_decode_32(p);
@@ -296,7 +303,7 @@ static struct crush_map *crush_decode(void *pbyval, void *end)
 		}
 	}
 
-	
+	/* ignore trailing name maps. */
 
 	dout("crush_decode success\n");
 	return c;
@@ -309,6 +316,10 @@ bad:
 	return ERR_PTR(err);
 }
 
+/*
+ * rbtree of pg_mapping for handling pg_temp (explicit mapping of pgid
+ * to a set of osds)
+ */
 static int pgid_cmp(struct ceph_pg l, struct ceph_pg r)
 {
 	u64 a = *(u64 *)&l;
@@ -384,6 +395,9 @@ static int __remove_pg_mapping(struct rb_root *root, struct ceph_pg pgid)
 	return -ENOENT;
 }
 
+/*
+ * rbtree of pg pool info
+ */
 static int __insert_pg_pool(struct rb_root *root, struct ceph_pg_pool_info *new)
 {
 	struct rb_node **p = &root->rb_node;
@@ -451,15 +465,15 @@ static int __decode_pool(void **p, void *end, struct ceph_pg_pool_info *pi)
 	ceph_decode_copy(p, &pi->v, sizeof(pi->v));
 	calc_pg_masks(pi);
 
-	
+	/* num_snaps * snap_info_t */
 	n = le32_to_cpu(pi->v.num_snaps);
 	while (n--) {
 		ceph_decode_need(p, end, sizeof(u64) + 1 + sizeof(u64) +
 				 sizeof(struct ceph_timespec), bad);
-		*p += sizeof(u64) +       
-			1 + sizeof(u64) + 
+		*p += sizeof(u64) +       /* key */
+			1 + sizeof(u64) + /* u8, snapid */
 			sizeof(struct ceph_timespec);
-		m = ceph_decode_32(p);    
+		m = ceph_decode_32(p);    /* snap name */
 		*p += m;
 	}
 
@@ -499,6 +513,9 @@ bad:
 	return -EINVAL;
 }
 
+/*
+ * osd map
+ */
 void ceph_osdmap_destroy(struct ceph_osdmap *map)
 {
 	dout("osdmap_destroy %p\n", map);
@@ -523,6 +540,9 @@ void ceph_osdmap_destroy(struct ceph_osdmap *map)
 	kfree(map);
 }
 
+/*
+ * adjust max osd value.  reallocate arrays.
+ */
 static int osdmap_set_max_osd(struct ceph_osdmap *map, int max)
 {
 	u8 *state;
@@ -539,7 +559,7 @@ static int osdmap_set_max_osd(struct ceph_osdmap *map, int max)
 		return -ENOMEM;
 	}
 
-	
+	/* copy old? */
 	if (map->osd_state) {
 		memcpy(state, map->osd_state, map->max_osd*sizeof(*state));
 		memcpy(addr, map->osd_addr, map->max_osd*sizeof(*addr));
@@ -556,6 +576,9 @@ static int osdmap_set_max_osd(struct ceph_osdmap *map, int max)
 	return 0;
 }
 
+/*
+ * decode a full map.
+ */
 struct ceph_osdmap *osdmap_decode(void **p, void *end)
 {
 	struct ceph_osdmap *map;
@@ -593,7 +616,7 @@ struct ceph_osdmap *osdmap_decode(void **p, void *end)
 		if (!pi)
 			goto bad;
 		pi->id = ceph_decode_32(p);
-		ev = ceph_decode_8(p); 
+		ev = ceph_decode_8(p); /* encoding version */
 		if (ev > CEPH_PG_POOL_VERSION) {
 			pr_warning("got unknown v %d > %d of ceph_pg_pool\n",
 				   ev, CEPH_PG_POOL_VERSION);
@@ -617,30 +640,30 @@ struct ceph_osdmap *osdmap_decode(void **p, void *end)
 
 	max = ceph_decode_32(p);
 
-	
+	/* (re)alloc osd arrays */
 	err = osdmap_set_max_osd(map, max);
 	if (err < 0)
 		goto bad;
 	dout("osdmap_decode max_osd = %d\n", map->max_osd);
 
-	
+	/* osds */
 	err = -EINVAL;
 	ceph_decode_need(p, end, 3*sizeof(u32) +
 			 map->max_osd*(1 + sizeof(*map->osd_weight) +
 				       sizeof(*map->osd_addr)), bad);
-	*p += 4; 
+	*p += 4; /* skip length field (should match max) */
 	ceph_decode_copy(p, map->osd_state, map->max_osd);
 
-	*p += 4; 
+	*p += 4; /* skip length field (should match max) */
 	for (i = 0; i < map->max_osd; i++)
 		map->osd_weight[i] = ceph_decode_32(p);
 
-	*p += 4; 
+	*p += 4; /* skip length field (should match max) */
 	ceph_decode_copy(p, map->osd_addr, map->max_osd*sizeof(*map->osd_addr));
 	for (i = 0; i < map->max_osd; i++)
 		ceph_decode_addr(&map->osd_addr[i]);
 
-	
+	/* pg_temp */
 	ceph_decode_32_safe(p, end, len, bad);
 	for (i = 0; i < len; i++) {
 		int n, j;
@@ -666,7 +689,7 @@ struct ceph_osdmap *osdmap_decode(void **p, void *end)
 		dout(" added pg_temp %llx len %d\n", *(u64 *)&pgid, len);
 	}
 
-	
+	/* crush */
 	ceph_decode_32_safe(p, end, len, bad);
 	dout("osdmap_decode crush len %d from off 0x%x\n", len,
 	     (int)(*p - start));
@@ -679,7 +702,7 @@ struct ceph_osdmap *osdmap_decode(void **p, void *end)
 		goto bad;
 	}
 
-	
+	/* ignore the rest of the map */
 	*p = end;
 
 	dout("osdmap_decode done %p %p\n", *p, end);
@@ -691,6 +714,9 @@ bad:
 	return ERR_PTR(err);
 }
 
+/*
+ * decode and apply an incremental map update.
+ */
 struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 					     struct ceph_osdmap *map,
 					     struct ceph_messenger *msgr)
@@ -721,7 +747,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 	new_pool_max = ceph_decode_32(p);
 	new_flags = ceph_decode_32(p);
 
-	
+	/* full map? */
 	ceph_decode_32_safe(p, end, len, bad);
 	if (len > 0) {
 		dout("apply_incremental full map len %d, %p to %p\n",
@@ -729,7 +755,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 		return osdmap_decode(p, min(*p+len, end));
 	}
 
-	
+	/* new crush? */
 	ceph_decode_32_safe(p, end, len, bad);
 	if (len > 0) {
 		dout("apply_incremental new crush map len %d, %p to %p\n",
@@ -740,7 +766,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 		*p += len;
 	}
 
-	
+	/* new flags? */
 	if (new_flags >= 0)
 		map->flags = new_flags;
 	if (new_pool_max >= 0)
@@ -748,7 +774,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 
 	ceph_decode_need(p, end, 5*sizeof(u32), bad);
 
-	
+	/* new max? */
 	max = ceph_decode_32(p);
 	if (max >= 0) {
 		err = osdmap_set_max_osd(map, max);
@@ -765,7 +791,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 		newcrush = NULL;
 	}
 
-	
+	/* new_pool */
 	ceph_decode_32_safe(p, end, len, bad);
 	while (len--) {
 		__u8 ev;
@@ -773,7 +799,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 
 		ceph_decode_32_safe(p, end, pool, bad);
 		ceph_decode_need(p, end, 1 + sizeof(pi->v), bad);
-		ev = ceph_decode_8(p);  
+		ev = ceph_decode_8(p);  /* encoding version */
 		if (ev > CEPH_PG_POOL_VERSION) {
 			pr_warning("got unknown v %d > %d of ceph_pg_pool\n",
 				   ev, CEPH_PG_POOL_VERSION);
@@ -796,7 +822,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 	if (version >= 5 && __decode_pool_names(p, end, map) < 0)
 		goto bad;
 
-	
+	/* old_pool */
 	ceph_decode_32_safe(p, end, len, bad);
 	while (len--) {
 		struct ceph_pg_pool_info *pi;
@@ -807,7 +833,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 			__remove_pg_pool(&map->pg_pools, pi);
 	}
 
-	
+	/* new_up */
 	err = -EINVAL;
 	ceph_decode_32_safe(p, end, len, bad);
 	while (len--) {
@@ -822,14 +848,14 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 		map->osd_addr[osd] = addr;
 	}
 
-	
+	/* new_state */
 	ceph_decode_32_safe(p, end, len, bad);
 	while (len--) {
 		u32 osd;
 		u8 xorstate;
 		ceph_decode_32_safe(p, end, osd, bad);
 		xorstate = **(u8 **)p;
-		(*p)++;  
+		(*p)++;  /* clean flag */
 		if (xorstate == 0)
 			xorstate = CEPH_OSD_UP;
 		if (xorstate & CEPH_OSD_UP)
@@ -838,7 +864,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 			map->osd_state[osd] ^= xorstate;
 	}
 
-	
+	/* new_weight */
 	ceph_decode_32_safe(p, end, len, bad);
 	while (len--) {
 		u32 osd, off;
@@ -852,7 +878,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 			map->osd_weight[osd] = off;
 	}
 
-	
+	/* new_pg_temp */
 	ceph_decode_32_safe(p, end, len, bad);
 	while (len--) {
 		struct ceph_pg_mapping *pg;
@@ -864,7 +890,7 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 		pglen = ceph_decode_32(p);
 
 		if (pglen) {
-			
+			/* insert */
 			ceph_decode_need(p, end, pglen*sizeof(u32), bad);
 			pg = kmalloc(sizeof(*pg) + sizeof(u32)*pglen, GFP_NOFS);
 			if (!pg) {
@@ -883,12 +909,12 @@ struct ceph_osdmap *osdmap_apply_incremental(void **p, void *end,
 			dout(" added pg_temp %llx len %d\n", *(u64 *)&pgid,
 			     pglen);
 		} else {
-			
+			/* remove */
 			__remove_pg_mapping(&map->pg_temp, pgid);
 		}
 	}
 
-	
+	/* ignore the rest */
 	*p = end;
 	return map;
 
@@ -906,6 +932,14 @@ bad:
 
 
 
+/*
+ * calculate file layout from given offset, length.
+ * fill in correct oid, logical length, and object extent
+ * offset, length.
+ *
+ * for now, we write only a single su, until we can
+ * pass a stride back to the caller.
+ */
 void ceph_calc_file_object_mapping(struct ceph_file_layout *layout,
 				   u64 off, u64 *plen,
 				   u64 *ono,
@@ -925,7 +959,7 @@ void ceph_calc_file_object_mapping(struct ceph_file_layout *layout,
 	     su_per_object);
 
 	BUG_ON((su & ~PAGE_MASK) != 0);
-	
+	/* bl = *off / su; */
 	t = off;
 	do_div(t, su);
 	bl = t;
@@ -938,7 +972,7 @@ void ceph_calc_file_object_mapping(struct ceph_file_layout *layout,
 	*ono = objsetno * sc + stripepos;
 	dout("objset %u * sc %u = ono %u\n", objsetno, sc, (unsigned)*ono);
 
-	
+	/* *oxoff = *off % layout->fl_stripe_unit;  # offset in su */
 	t = off;
 	su_offset = do_div(t, su);
 	*oxoff = su_offset + (stripeno % su_per_object) * su;
@@ -955,6 +989,10 @@ void ceph_calc_file_object_mapping(struct ceph_file_layout *layout,
 }
 EXPORT_SYMBOL(ceph_calc_file_object_mapping);
 
+/*
+ * calculate an object layout (i.e. pgid) from an oid,
+ * file_layout, and osdmap
+ */
 int ceph_calc_object_layout(struct ceph_object_layout *ol,
 			    const char *oid,
 			    struct ceph_file_layout *fl,
@@ -997,6 +1035,10 @@ int ceph_calc_object_layout(struct ceph_object_layout *ol,
 }
 EXPORT_SYMBOL(ceph_calc_object_layout);
 
+/*
+ * Calculate raw osd vector for the given pgid.  Return pointer to osd
+ * array, or NULL on failure.
+ */
 static int *calc_pg_raw(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 			int *osds, int *num)
 {
@@ -1014,7 +1056,7 @@ static int *calc_pg_raw(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 	if (!pool)
 		return NULL;
 
-	
+	/* pg_temp? */
 	if (preferred >= 0)
 		t = ceph_stable_mod(ps, le32_to_cpu(pool->v.lpg_num),
 				    pool->lpgp_num_mask);
@@ -1028,7 +1070,7 @@ static int *calc_pg_raw(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 		return pg->osds;
 	}
 
-	
+	/* crush */
 	ruleno = crush_find_rule(osdmap->crush, pool->v.crush_ruleset,
 				 pool->v.type, pool->v.size);
 	if (ruleno < 0) {
@@ -1038,7 +1080,7 @@ static int *calc_pg_raw(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 		return NULL;
 	}
 
-	
+	/* don't forcefeed bad device ids to crush */
 	if (preferred >= osdmap->max_osd ||
 	    preferred >= osdmap->crush->max_devices)
 		preferred = -1;
@@ -1058,6 +1100,9 @@ static int *calc_pg_raw(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 	return osds;
 }
 
+/*
+ * Return acting set for given pgid.
+ */
 int ceph_calc_pg_acting(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 			int *acting)
 {
@@ -1068,7 +1113,7 @@ int ceph_calc_pg_acting(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 	if (!osds)
 		return -1;
 
-	
+	/* primary is first up osd */
 	o = 0;
 	for (i = 0; i < num; i++)
 		if (ceph_osd_is_up(osdmap, osds[i]))
@@ -1076,6 +1121,9 @@ int ceph_calc_pg_acting(struct ceph_osdmap *osdmap, struct ceph_pg pgid,
 	return o;
 }
 
+/*
+ * Return primary osd for given pgid, or -1 if none.
+ */
 int ceph_calc_pg_primary(struct ceph_osdmap *osdmap, struct ceph_pg pgid)
 {
 	int rawosds[CEPH_PG_MAX_SIZE], *osds;
@@ -1085,7 +1133,7 @@ int ceph_calc_pg_primary(struct ceph_osdmap *osdmap, struct ceph_pg pgid)
 	if (!osds)
 		return -1;
 
-	
+	/* primary is first up osd */
 	for (i = 0; i < num; i++)
 		if (ceph_osd_is_up(osdmap, osds[i]))
 			return osds[i];

@@ -18,6 +18,7 @@
 #include <asm/pgtable.h>
 #include <linux/usb/ehci_def.h>
 
+/* Simple VGA output */
 #define VGABASE		(__ISA_IO_base + 0xb8000)
 
 static int max_ypos = 25, max_xpos = 80;
@@ -30,7 +31,7 @@ static void early_vga_write(struct console *con, const char *str, unsigned n)
 
 	while ((c = *str++) != '\0' && n-- > 0) {
 		if (current_ypos >= max_ypos) {
-			
+			/* scroll 1 line up */
 			for (k = 1, j = 0; k < max_ypos; k++, j++) {
 				for (i = 0; i < max_xpos; i++) {
 					writew(readw(VGABASE+2*(max_xpos*k+i)),
@@ -71,24 +72,25 @@ static struct console early_vga_console = {
 	.index =	-1,
 };
 
+/* Serial functions loosely based on a similar package from Klaus P. Gerlicher */
 
-static int early_serial_base = 0x3f8;  
+static int early_serial_base = 0x3f8;  /* ttyS0 */
 
 #define XMTRDY          0x20
 
 #define DLAB		0x80
 
-#define TXR             0       
-#define RXR             0       
-#define IER             1       
-#define IIR             2       
-#define FCR             2       
-#define LCR             3       
-#define MCR             4       
-#define LSR             5       
-#define MSR             6       
-#define DLL             0       
-#define DLH             1       
+#define TXR             0       /*  Transmit register (WRITE) */
+#define RXR             0       /*  Receive register  (READ)  */
+#define IER             1       /*  Interrupt Enable          */
+#define IIR             2       /*  Interrupt ID              */
+#define FCR             2       /*  FIFO control              */
+#define LCR             3       /*  Line control              */
+#define MCR             4       /*  Modem control             */
+#define LSR             5       /*  Line Status               */
+#define MSR             6       /*  Modem Status              */
+#define DLL             0       /*  Divisor Latch Low         */
+#define DLH             1       /*  Divisor latch High        */
 
 static int early_serial_putc(unsigned char ch)
 {
@@ -141,10 +143,10 @@ static __init void early_serial_init(char *s)
 			s++;
 	}
 
-	outb(0x3, early_serial_base + LCR);	
-	outb(0, early_serial_base + IER);	
-	outb(0, early_serial_base + FCR);	
-	outb(0x3, early_serial_base + MCR);	
+	outb(0x3, early_serial_base + LCR);	/* 8n1 */
+	outb(0, early_serial_base + IER);	/* no interrupt */
+	outb(0, early_serial_base + FCR);	/* no fifo */
+	outb(0x3, early_serial_base + MCR);	/* DTR + RTS */
 
 	if (*s) {
 		baud = simple_strtoul(s, &e, 0);
@@ -167,6 +169,7 @@ static struct console early_serial_console = {
 	.index =	-1,
 };
 
+/* Direct interface for emergencies */
 static struct console *early_console = &early_vga_console;
 static int __initdata early_console_initialized;
 

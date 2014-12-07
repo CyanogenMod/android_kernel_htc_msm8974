@@ -185,6 +185,9 @@ int touch_status(u8 status);
 #define GEOM_ROTA_UPDATE_RATE                                   0xC7
 #define SIGN_UPDATE_RATE                                        0xC8
 
+#define GESTURE_MOTION_UPDATE_ATTRIBUTE                         0xC9
+#define GESTURE_MOTION_UPDATE_ATTRIBUTE_LEN                     (4)
+
 #define UPDATE_RATE_NORMAL              1
 #define UPDATE_RATE_UI                  2
 #define UPDATE_RATE_GAME                3
@@ -307,6 +310,7 @@ struct CWMCU_platform_data {
 	int GS_chip_layout;
 	u8 ALS_goldh;
 	u8 ALS_goldl;
+	u8 ls_polling;
 
 };
 #endif

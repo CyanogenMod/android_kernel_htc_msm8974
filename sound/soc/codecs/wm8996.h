@@ -27,6 +27,9 @@ typedef void (*wm8996_polarity_fn)(struct snd_soc_codec *codec, int polarity);
 int wm8996_detect(struct snd_soc_codec *codec, struct snd_soc_jack *jack,
 		  wm8996_polarity_fn polarity_cb);
 
+/*
+ * Register values.
+ */
 #define WM8996_SOFTWARE_RESET                   0x00
 #define WM8996_POWER_MANAGEMENT_1               0x01
 #define WM8996_POWER_MANAGEMENT_2               0x02
@@ -737,2397 +740,2982 @@ int wm8996_detect(struct snd_soc_codec *codec, struct snd_soc_jack *jack,
 #define WM8996_REGISTER_COUNT                   706
 #define WM8996_MAX_REGISTER                     0x31FF
 
-
-#define WM8996_SW_RESET_MASK                    0xFFFF  
-#define WM8996_SW_RESET_SHIFT                        0  
-#define WM8996_SW_RESET_WIDTH                       16  
-
-#define WM8996_MICB2_ENA                        0x0200  
-#define WM8996_MICB2_ENA_MASK                   0x0200  
-#define WM8996_MICB2_ENA_SHIFT                       9  
-#define WM8996_MICB2_ENA_WIDTH                       1  
-#define WM8996_MICB1_ENA                        0x0100  
-#define WM8996_MICB1_ENA_MASK                   0x0100  
-#define WM8996_MICB1_ENA_SHIFT                       8  
-#define WM8996_MICB1_ENA_WIDTH                       1  
-#define WM8996_HPOUT2L_ENA                      0x0080  
-#define WM8996_HPOUT2L_ENA_MASK                 0x0080  
-#define WM8996_HPOUT2L_ENA_SHIFT                     7  
-#define WM8996_HPOUT2L_ENA_WIDTH                     1  
-#define WM8996_HPOUT2R_ENA                      0x0040  
-#define WM8996_HPOUT2R_ENA_MASK                 0x0040  
-#define WM8996_HPOUT2R_ENA_SHIFT                     6  
-#define WM8996_HPOUT2R_ENA_WIDTH                     1  
-#define WM8996_HPOUT1L_ENA                      0x0020  
-#define WM8996_HPOUT1L_ENA_MASK                 0x0020  
-#define WM8996_HPOUT1L_ENA_SHIFT                     5  
-#define WM8996_HPOUT1L_ENA_WIDTH                     1  
-#define WM8996_HPOUT1R_ENA                      0x0010  
-#define WM8996_HPOUT1R_ENA_MASK                 0x0010  
-#define WM8996_HPOUT1R_ENA_SHIFT                     4  
-#define WM8996_HPOUT1R_ENA_WIDTH                     1  
-#define WM8996_BG_ENA                           0x0001  
-#define WM8996_BG_ENA_MASK                      0x0001  
-#define WM8996_BG_ENA_SHIFT                          0  
-#define WM8996_BG_ENA_WIDTH                          1  
-
-#define WM8996_OPCLK_ENA                        0x0800  
-#define WM8996_OPCLK_ENA_MASK                   0x0800  
-#define WM8996_OPCLK_ENA_SHIFT                      11  
-#define WM8996_OPCLK_ENA_WIDTH                       1  
-#define WM8996_INL_ENA                          0x0020  
-#define WM8996_INL_ENA_MASK                     0x0020  
-#define WM8996_INL_ENA_SHIFT                         5  
-#define WM8996_INL_ENA_WIDTH                         1  
-#define WM8996_INR_ENA                          0x0010  
-#define WM8996_INR_ENA_MASK                     0x0010  
-#define WM8996_INR_ENA_SHIFT                         4  
-#define WM8996_INR_ENA_WIDTH                         1  
-#define WM8996_LDO2_ENA                         0x0002  
-#define WM8996_LDO2_ENA_MASK                    0x0002  
-#define WM8996_LDO2_ENA_SHIFT                        1  
-#define WM8996_LDO2_ENA_WIDTH                        1  
-
-#define WM8996_DSP2RXL_ENA                      0x0800  
-#define WM8996_DSP2RXL_ENA_MASK                 0x0800  
-#define WM8996_DSP2RXL_ENA_SHIFT                    11  
-#define WM8996_DSP2RXL_ENA_WIDTH                     1  
-#define WM8996_DSP2RXR_ENA                      0x0400  
-#define WM8996_DSP2RXR_ENA_MASK                 0x0400  
-#define WM8996_DSP2RXR_ENA_SHIFT                    10  
-#define WM8996_DSP2RXR_ENA_WIDTH                     1  
-#define WM8996_DSP1RXL_ENA                      0x0200  
-#define WM8996_DSP1RXL_ENA_MASK                 0x0200  
-#define WM8996_DSP1RXL_ENA_SHIFT                     9  
-#define WM8996_DSP1RXL_ENA_WIDTH                     1  
-#define WM8996_DSP1RXR_ENA                      0x0100  
-#define WM8996_DSP1RXR_ENA_MASK                 0x0100  
-#define WM8996_DSP1RXR_ENA_SHIFT                     8  
-#define WM8996_DSP1RXR_ENA_WIDTH                     1  
-#define WM8996_DMIC2L_ENA                       0x0020  
-#define WM8996_DMIC2L_ENA_MASK                  0x0020  
-#define WM8996_DMIC2L_ENA_SHIFT                      5  
-#define WM8996_DMIC2L_ENA_WIDTH                      1  
-#define WM8996_DMIC2R_ENA                       0x0010  
-#define WM8996_DMIC2R_ENA_MASK                  0x0010  
-#define WM8996_DMIC2R_ENA_SHIFT                      4  
-#define WM8996_DMIC2R_ENA_WIDTH                      1  
-#define WM8996_DMIC1L_ENA                       0x0008  
-#define WM8996_DMIC1L_ENA_MASK                  0x0008  
-#define WM8996_DMIC1L_ENA_SHIFT                      3  
-#define WM8996_DMIC1L_ENA_WIDTH                      1  
-#define WM8996_DMIC1R_ENA                       0x0004  
-#define WM8996_DMIC1R_ENA_MASK                  0x0004  
-#define WM8996_DMIC1R_ENA_SHIFT                      2  
-#define WM8996_DMIC1R_ENA_WIDTH                      1  
-#define WM8996_ADCL_ENA                         0x0002  
-#define WM8996_ADCL_ENA_MASK                    0x0002  
-#define WM8996_ADCL_ENA_SHIFT                        1  
-#define WM8996_ADCL_ENA_WIDTH                        1  
-#define WM8996_ADCR_ENA                         0x0001  
-#define WM8996_ADCR_ENA_MASK                    0x0001  
-#define WM8996_ADCR_ENA_SHIFT                        0  
-#define WM8996_ADCR_ENA_WIDTH                        1  
-
-#define WM8996_AIF2RX_CHAN1_ENA                 0x0200  
-#define WM8996_AIF2RX_CHAN1_ENA_MASK            0x0200  
-#define WM8996_AIF2RX_CHAN1_ENA_SHIFT                9  
-#define WM8996_AIF2RX_CHAN1_ENA_WIDTH                1  
-#define WM8996_AIF2RX_CHAN0_ENA                 0x0100  
-#define WM8996_AIF2RX_CHAN0_ENA_MASK            0x0100  
-#define WM8996_AIF2RX_CHAN0_ENA_SHIFT                8  
-#define WM8996_AIF2RX_CHAN0_ENA_WIDTH                1  
-#define WM8996_AIF1RX_CHAN5_ENA                 0x0020  
-#define WM8996_AIF1RX_CHAN5_ENA_MASK            0x0020  
-#define WM8996_AIF1RX_CHAN5_ENA_SHIFT                5  
-#define WM8996_AIF1RX_CHAN5_ENA_WIDTH                1  
-#define WM8996_AIF1RX_CHAN4_ENA                 0x0010  
-#define WM8996_AIF1RX_CHAN4_ENA_MASK            0x0010  
-#define WM8996_AIF1RX_CHAN4_ENA_SHIFT                4  
-#define WM8996_AIF1RX_CHAN4_ENA_WIDTH                1  
-#define WM8996_AIF1RX_CHAN3_ENA                 0x0008  
-#define WM8996_AIF1RX_CHAN3_ENA_MASK            0x0008  
-#define WM8996_AIF1RX_CHAN3_ENA_SHIFT                3  
-#define WM8996_AIF1RX_CHAN3_ENA_WIDTH                1  
-#define WM8996_AIF1RX_CHAN2_ENA                 0x0004  
-#define WM8996_AIF1RX_CHAN2_ENA_MASK            0x0004  
-#define WM8996_AIF1RX_CHAN2_ENA_SHIFT                2  
-#define WM8996_AIF1RX_CHAN2_ENA_WIDTH                1  
-#define WM8996_AIF1RX_CHAN1_ENA                 0x0002  
-#define WM8996_AIF1RX_CHAN1_ENA_MASK            0x0002  
-#define WM8996_AIF1RX_CHAN1_ENA_SHIFT                1  
-#define WM8996_AIF1RX_CHAN1_ENA_WIDTH                1  
-#define WM8996_AIF1RX_CHAN0_ENA                 0x0001  
-#define WM8996_AIF1RX_CHAN0_ENA_MASK            0x0001  
-#define WM8996_AIF1RX_CHAN0_ENA_SHIFT                0  
-#define WM8996_AIF1RX_CHAN0_ENA_WIDTH                1  
-
-#define WM8996_DSP2TXL_ENA                      0x0800  
-#define WM8996_DSP2TXL_ENA_MASK                 0x0800  
-#define WM8996_DSP2TXL_ENA_SHIFT                    11  
-#define WM8996_DSP2TXL_ENA_WIDTH                     1  
-#define WM8996_DSP2TXR_ENA                      0x0400  
-#define WM8996_DSP2TXR_ENA_MASK                 0x0400  
-#define WM8996_DSP2TXR_ENA_SHIFT                    10  
-#define WM8996_DSP2TXR_ENA_WIDTH                     1  
-#define WM8996_DSP1TXL_ENA                      0x0200  
-#define WM8996_DSP1TXL_ENA_MASK                 0x0200  
-#define WM8996_DSP1TXL_ENA_SHIFT                     9  
-#define WM8996_DSP1TXL_ENA_WIDTH                     1  
-#define WM8996_DSP1TXR_ENA                      0x0100  
-#define WM8996_DSP1TXR_ENA_MASK                 0x0100  
-#define WM8996_DSP1TXR_ENA_SHIFT                     8  
-#define WM8996_DSP1TXR_ENA_WIDTH                     1  
-#define WM8996_DAC2L_ENA                        0x0008  
-#define WM8996_DAC2L_ENA_MASK                   0x0008  
-#define WM8996_DAC2L_ENA_SHIFT                       3  
-#define WM8996_DAC2L_ENA_WIDTH                       1  
-#define WM8996_DAC2R_ENA                        0x0004  
-#define WM8996_DAC2R_ENA_MASK                   0x0004  
-#define WM8996_DAC2R_ENA_SHIFT                       2  
-#define WM8996_DAC2R_ENA_WIDTH                       1  
-#define WM8996_DAC1L_ENA                        0x0002  
-#define WM8996_DAC1L_ENA_MASK                   0x0002  
-#define WM8996_DAC1L_ENA_SHIFT                       1  
-#define WM8996_DAC1L_ENA_WIDTH                       1  
-#define WM8996_DAC1R_ENA                        0x0001  
-#define WM8996_DAC1R_ENA_MASK                   0x0001  
-#define WM8996_DAC1R_ENA_SHIFT                       0  
-#define WM8996_DAC1R_ENA_WIDTH                       1  
-
-#define WM8996_AIF2TX_CHAN1_ENA                 0x0200  
-#define WM8996_AIF2TX_CHAN1_ENA_MASK            0x0200  
-#define WM8996_AIF2TX_CHAN1_ENA_SHIFT                9  
-#define WM8996_AIF2TX_CHAN1_ENA_WIDTH                1  
-#define WM8996_AIF2TX_CHAN0_ENA                 0x0100  
-#define WM8996_AIF2TX_CHAN0_ENA_MASK            0x0100  
-#define WM8996_AIF2TX_CHAN0_ENA_SHIFT                8  
-#define WM8996_AIF2TX_CHAN0_ENA_WIDTH                1  
-#define WM8996_AIF1TX_CHAN5_ENA                 0x0020  
-#define WM8996_AIF1TX_CHAN5_ENA_MASK            0x0020  
-#define WM8996_AIF1TX_CHAN5_ENA_SHIFT                5  
-#define WM8996_AIF1TX_CHAN5_ENA_WIDTH                1  
-#define WM8996_AIF1TX_CHAN4_ENA                 0x0010  
-#define WM8996_AIF1TX_CHAN4_ENA_MASK            0x0010  
-#define WM8996_AIF1TX_CHAN4_ENA_SHIFT                4  
-#define WM8996_AIF1TX_CHAN4_ENA_WIDTH                1  
-#define WM8996_AIF1TX_CHAN3_ENA                 0x0008  
-#define WM8996_AIF1TX_CHAN3_ENA_MASK            0x0008  
-#define WM8996_AIF1TX_CHAN3_ENA_SHIFT                3  
-#define WM8996_AIF1TX_CHAN3_ENA_WIDTH                1  
-#define WM8996_AIF1TX_CHAN2_ENA                 0x0004  
-#define WM8996_AIF1TX_CHAN2_ENA_MASK            0x0004  
-#define WM8996_AIF1TX_CHAN2_ENA_SHIFT                2  
-#define WM8996_AIF1TX_CHAN2_ENA_WIDTH                1  
-#define WM8996_AIF1TX_CHAN1_ENA                 0x0002  
-#define WM8996_AIF1TX_CHAN1_ENA_MASK            0x0002  
-#define WM8996_AIF1TX_CHAN1_ENA_SHIFT                1  
-#define WM8996_AIF1TX_CHAN1_ENA_WIDTH                1  
-#define WM8996_AIF1TX_CHAN0_ENA                 0x0001  
-#define WM8996_AIF1TX_CHAN0_ENA_MASK            0x0001  
-#define WM8996_AIF1TX_CHAN0_ENA_SHIFT                0  
-#define WM8996_AIF1TX_CHAN0_ENA_WIDTH                1  
-
-#define WM8996_DMIC2_FN                         0x0200  
-#define WM8996_DMIC2_FN_MASK                    0x0200  
-#define WM8996_DMIC2_FN_SHIFT                        9  
-#define WM8996_DMIC2_FN_WIDTH                        1  
-#define WM8996_DMIC1_FN                         0x0100  
-#define WM8996_DMIC1_FN_MASK                    0x0100  
-#define WM8996_DMIC1_FN_SHIFT                        8  
-#define WM8996_DMIC1_FN_WIDTH                        1  
-#define WM8996_ADC_DMIC_DSP2R_ENA               0x0080  
-#define WM8996_ADC_DMIC_DSP2R_ENA_MASK          0x0080  
-#define WM8996_ADC_DMIC_DSP2R_ENA_SHIFT              7  
-#define WM8996_ADC_DMIC_DSP2R_ENA_WIDTH              1  
-#define WM8996_ADC_DMIC_DSP2L_ENA               0x0040  
-#define WM8996_ADC_DMIC_DSP2L_ENA_MASK          0x0040  
-#define WM8996_ADC_DMIC_DSP2L_ENA_SHIFT              6  
-#define WM8996_ADC_DMIC_DSP2L_ENA_WIDTH              1  
-#define WM8996_ADC_DMIC_SRC2_MASK               0x0030  
-#define WM8996_ADC_DMIC_SRC2_SHIFT                   4  
-#define WM8996_ADC_DMIC_SRC2_WIDTH                   2  
-#define WM8996_ADC_DMIC_DSP1R_ENA               0x0008  
-#define WM8996_ADC_DMIC_DSP1R_ENA_MASK          0x0008  
-#define WM8996_ADC_DMIC_DSP1R_ENA_SHIFT              3  
-#define WM8996_ADC_DMIC_DSP1R_ENA_WIDTH              1  
-#define WM8996_ADC_DMIC_DSP1L_ENA               0x0004  
-#define WM8996_ADC_DMIC_DSP1L_ENA_MASK          0x0004  
-#define WM8996_ADC_DMIC_DSP1L_ENA_SHIFT              2  
-#define WM8996_ADC_DMIC_DSP1L_ENA_WIDTH              1  
-#define WM8996_ADC_DMIC_SRC1_MASK               0x0003  
-#define WM8996_ADC_DMIC_SRC1_SHIFT                   0  
-#define WM8996_ADC_DMIC_SRC1_WIDTH                   2  
-
-#define WM8996_AIF2TX_SRC_MASK                  0x00C0  
-#define WM8996_AIF2TX_SRC_SHIFT                      6  
-#define WM8996_AIF2TX_SRC_WIDTH                      2  
-#define WM8996_DSP2RX_SRC                       0x0010  
-#define WM8996_DSP2RX_SRC_MASK                  0x0010  
-#define WM8996_DSP2RX_SRC_SHIFT                      4  
-#define WM8996_DSP2RX_SRC_WIDTH                      1  
-#define WM8996_DSP1RX_SRC                       0x0001  
-#define WM8996_DSP1RX_SRC_MASK                  0x0001  
-#define WM8996_DSP1RX_SRC_SHIFT                      0  
-#define WM8996_DSP1RX_SRC_WIDTH                      1  
-
-#define WM8996_IN1_VU                           0x0080  
-#define WM8996_IN1_VU_MASK                      0x0080  
-#define WM8996_IN1_VU_SHIFT                          7  
-#define WM8996_IN1_VU_WIDTH                          1  
-#define WM8996_IN1L_ZC                          0x0020  
-#define WM8996_IN1L_ZC_MASK                     0x0020  
-#define WM8996_IN1L_ZC_SHIFT                         5  
-#define WM8996_IN1L_ZC_WIDTH                         1  
-#define WM8996_IN1L_VOL_MASK                    0x001F  
-#define WM8996_IN1L_VOL_SHIFT                        0  
-#define WM8996_IN1L_VOL_WIDTH                        5  
-
-#define WM8996_IN1_VU                           0x0080  
-#define WM8996_IN1_VU_MASK                      0x0080  
-#define WM8996_IN1_VU_SHIFT                          7  
-#define WM8996_IN1_VU_WIDTH                          1  
-#define WM8996_IN1R_ZC                          0x0020  
-#define WM8996_IN1R_ZC_MASK                     0x0020  
-#define WM8996_IN1R_ZC_SHIFT                         5  
-#define WM8996_IN1R_ZC_WIDTH                         1  
-#define WM8996_IN1R_VOL_MASK                    0x001F  
-#define WM8996_IN1R_VOL_SHIFT                        0  
-#define WM8996_IN1R_VOL_WIDTH                        5  
-
-#define WM8996_INL_MODE_MASK                    0x000C  
-#define WM8996_INL_MODE_SHIFT                        2  
-#define WM8996_INL_MODE_WIDTH                        2  
-#define WM8996_INR_MODE_MASK                    0x0003  
-#define WM8996_INR_MODE_SHIFT                        0  
-#define WM8996_INR_MODE_WIDTH                        2  
-
-#define WM8996_DAC1R_HPOUT1R_VOL_MASK           0x00F0  
-#define WM8996_DAC1R_HPOUT1R_VOL_SHIFT               4  
-#define WM8996_DAC1R_HPOUT1R_VOL_WIDTH               4  
-#define WM8996_DAC1L_HPOUT1L_VOL_MASK           0x000F  
-#define WM8996_DAC1L_HPOUT1L_VOL_SHIFT               0  
-#define WM8996_DAC1L_HPOUT1L_VOL_WIDTH               4  
-
-#define WM8996_DAC2R_HPOUT2R_VOL_MASK           0x00F0  
-#define WM8996_DAC2R_HPOUT2R_VOL_SHIFT               4  
-#define WM8996_DAC2R_HPOUT2R_VOL_WIDTH               4  
-#define WM8996_DAC2L_HPOUT2L_VOL_MASK           0x000F  
-#define WM8996_DAC2L_HPOUT2L_VOL_SHIFT               0  
-#define WM8996_DAC2L_HPOUT2L_VOL_WIDTH               4  
-
-#define WM8996_DAC1L_MUTE                       0x0200  
-#define WM8996_DAC1L_MUTE_MASK                  0x0200  
-#define WM8996_DAC1L_MUTE_SHIFT                      9  
-#define WM8996_DAC1L_MUTE_WIDTH                      1  
-#define WM8996_DAC1_VU                          0x0100  
-#define WM8996_DAC1_VU_MASK                     0x0100  
-#define WM8996_DAC1_VU_SHIFT                         8  
-#define WM8996_DAC1_VU_WIDTH                         1  
-#define WM8996_DAC1L_VOL_MASK                   0x00FF  
-#define WM8996_DAC1L_VOL_SHIFT                       0  
-#define WM8996_DAC1L_VOL_WIDTH                       8  
-
-#define WM8996_DAC1R_MUTE                       0x0200  
-#define WM8996_DAC1R_MUTE_MASK                  0x0200  
-#define WM8996_DAC1R_MUTE_SHIFT                      9  
-#define WM8996_DAC1R_MUTE_WIDTH                      1  
-#define WM8996_DAC1_VU                          0x0100  
-#define WM8996_DAC1_VU_MASK                     0x0100  
-#define WM8996_DAC1_VU_SHIFT                         8  
-#define WM8996_DAC1_VU_WIDTH                         1  
-#define WM8996_DAC1R_VOL_MASK                   0x00FF  
-#define WM8996_DAC1R_VOL_SHIFT                       0  
-#define WM8996_DAC1R_VOL_WIDTH                       8  
-
-#define WM8996_DAC2L_MUTE                       0x0200  
-#define WM8996_DAC2L_MUTE_MASK                  0x0200  
-#define WM8996_DAC2L_MUTE_SHIFT                      9  
-#define WM8996_DAC2L_MUTE_WIDTH                      1  
-#define WM8996_DAC2_VU                          0x0100  
-#define WM8996_DAC2_VU_MASK                     0x0100  
-#define WM8996_DAC2_VU_SHIFT                         8  
-#define WM8996_DAC2_VU_WIDTH                         1  
-#define WM8996_DAC2L_VOL_MASK                   0x00FF  
-#define WM8996_DAC2L_VOL_SHIFT                       0  
-#define WM8996_DAC2L_VOL_WIDTH                       8  
-
-#define WM8996_DAC2R_MUTE                       0x0200  
-#define WM8996_DAC2R_MUTE_MASK                  0x0200  
-#define WM8996_DAC2R_MUTE_SHIFT                      9  
-#define WM8996_DAC2R_MUTE_WIDTH                      1  
-#define WM8996_DAC2_VU                          0x0100  
-#define WM8996_DAC2_VU_MASK                     0x0100  
-#define WM8996_DAC2_VU_SHIFT                         8  
-#define WM8996_DAC2_VU_WIDTH                         1  
-#define WM8996_DAC2R_VOL_MASK                   0x00FF  
-#define WM8996_DAC2R_VOL_SHIFT                       0  
-#define WM8996_DAC2R_VOL_WIDTH                       8  
-
-#define WM8996_DAC1_VU                          0x0100  
-#define WM8996_DAC1_VU_MASK                     0x0100  
-#define WM8996_DAC1_VU_SHIFT                         8  
-#define WM8996_DAC1_VU_WIDTH                         1  
-#define WM8996_HPOUT1L_ZC                       0x0080  
-#define WM8996_HPOUT1L_ZC_MASK                  0x0080  
-#define WM8996_HPOUT1L_ZC_SHIFT                      7  
-#define WM8996_HPOUT1L_ZC_WIDTH                      1  
-#define WM8996_HPOUT1L_VOL_MASK                 0x000F  
-#define WM8996_HPOUT1L_VOL_SHIFT                     0  
-#define WM8996_HPOUT1L_VOL_WIDTH                     4  
-
-#define WM8996_DAC1_VU                          0x0100  
-#define WM8996_DAC1_VU_MASK                     0x0100  
-#define WM8996_DAC1_VU_SHIFT                         8  
-#define WM8996_DAC1_VU_WIDTH                         1  
-#define WM8996_HPOUT1R_ZC                       0x0080  
-#define WM8996_HPOUT1R_ZC_MASK                  0x0080  
-#define WM8996_HPOUT1R_ZC_SHIFT                      7  
-#define WM8996_HPOUT1R_ZC_WIDTH                      1  
-#define WM8996_HPOUT1R_VOL_MASK                 0x000F  
-#define WM8996_HPOUT1R_VOL_SHIFT                     0  
-#define WM8996_HPOUT1R_VOL_WIDTH                     4  
-
-#define WM8996_DAC2_VU                          0x0100  
-#define WM8996_DAC2_VU_MASK                     0x0100  
-#define WM8996_DAC2_VU_SHIFT                         8  
-#define WM8996_DAC2_VU_WIDTH                         1  
-#define WM8996_HPOUT2L_ZC                       0x0080  
-#define WM8996_HPOUT2L_ZC_MASK                  0x0080  
-#define WM8996_HPOUT2L_ZC_SHIFT                      7  
-#define WM8996_HPOUT2L_ZC_WIDTH                      1  
-#define WM8996_HPOUT2L_VOL_MASK                 0x000F  
-#define WM8996_HPOUT2L_VOL_SHIFT                     0  
-#define WM8996_HPOUT2L_VOL_WIDTH                     4  
-
-#define WM8996_DAC2_VU                          0x0100  
-#define WM8996_DAC2_VU_MASK                     0x0100  
-#define WM8996_DAC2_VU_SHIFT                         8  
-#define WM8996_DAC2_VU_WIDTH                         1  
-#define WM8996_HPOUT2R_ZC                       0x0080  
-#define WM8996_HPOUT2R_ZC_MASK                  0x0080  
-#define WM8996_HPOUT2R_ZC_SHIFT                      7  
-#define WM8996_HPOUT2R_ZC_WIDTH                      1  
-#define WM8996_HPOUT2R_VOL_MASK                 0x000F  
-#define WM8996_HPOUT2R_VOL_SHIFT                     0  
-#define WM8996_HPOUT2R_VOL_WIDTH                     4  
-
-#define WM8996_MICB1_RATE                       0x0020  
-#define WM8996_MICB1_RATE_MASK                  0x0020  
-#define WM8996_MICB1_RATE_SHIFT                      5  
-#define WM8996_MICB1_RATE_WIDTH                      1  
-#define WM8996_MICB1_MODE                       0x0010  
-#define WM8996_MICB1_MODE_MASK                  0x0010  
-#define WM8996_MICB1_MODE_SHIFT                      4  
-#define WM8996_MICB1_MODE_WIDTH                      1  
-#define WM8996_MICB1_LVL_MASK                   0x000E  
-#define WM8996_MICB1_LVL_SHIFT                       1  
-#define WM8996_MICB1_LVL_WIDTH                       3  
-#define WM8996_MICB1_DISCH                      0x0001  
-#define WM8996_MICB1_DISCH_MASK                 0x0001  
-#define WM8996_MICB1_DISCH_SHIFT                     0  
-#define WM8996_MICB1_DISCH_WIDTH                     1  
-
-#define WM8996_MICB2_RATE                       0x0020  
-#define WM8996_MICB2_RATE_MASK                  0x0020  
-#define WM8996_MICB2_RATE_SHIFT                      5  
-#define WM8996_MICB2_RATE_WIDTH                      1  
-#define WM8996_MICB2_MODE                       0x0010  
-#define WM8996_MICB2_MODE_MASK                  0x0010  
-#define WM8996_MICB2_MODE_SHIFT                      4  
-#define WM8996_MICB2_MODE_WIDTH                      1  
-#define WM8996_MICB2_LVL_MASK                   0x000E  
-#define WM8996_MICB2_LVL_SHIFT                       1  
-#define WM8996_MICB2_LVL_WIDTH                       3  
-#define WM8996_MICB2_DISCH                      0x0001  
-#define WM8996_MICB2_DISCH_MASK                 0x0001  
-#define WM8996_MICB2_DISCH_SHIFT                     0  
-#define WM8996_MICB2_DISCH_WIDTH                     1  
-
-#define WM8996_LDO1_MODE                        0x0020  
-#define WM8996_LDO1_MODE_MASK                   0x0020  
-#define WM8996_LDO1_MODE_SHIFT                       5  
-#define WM8996_LDO1_MODE_WIDTH                       1  
-#define WM8996_LDO1_VSEL_MASK                   0x0006  
-#define WM8996_LDO1_VSEL_SHIFT                       1  
-#define WM8996_LDO1_VSEL_WIDTH                       2  
-#define WM8996_LDO1_DISCH                       0x0001  
-#define WM8996_LDO1_DISCH_MASK                  0x0001  
-#define WM8996_LDO1_DISCH_SHIFT                      0  
-#define WM8996_LDO1_DISCH_WIDTH                      1  
-
-#define WM8996_LDO2_MODE                        0x0020  
-#define WM8996_LDO2_MODE_MASK                   0x0020  
-#define WM8996_LDO2_MODE_SHIFT                       5  
-#define WM8996_LDO2_MODE_WIDTH                       1  
-#define WM8996_LDO2_VSEL_MASK                   0x001E  
-#define WM8996_LDO2_VSEL_SHIFT                       1  
-#define WM8996_LDO2_VSEL_WIDTH                       4  
-#define WM8996_LDO2_DISCH                       0x0001  
-#define WM8996_LDO2_DISCH_MASK                  0x0001  
-#define WM8996_LDO2_DISCH_SHIFT                      0  
-#define WM8996_LDO2_DISCH_WIDTH                      1  
-
-#define WM8996_JD_MODE_MASK                     0x0003  
-#define WM8996_JD_MODE_SHIFT                         0  
-#define WM8996_JD_MODE_WIDTH                         2  
-
-#define WM8996_HPOUT1FB_SRC                     0x0004  
-#define WM8996_HPOUT1FB_SRC_MASK                0x0004  
-#define WM8996_HPOUT1FB_SRC_SHIFT                    2  
-#define WM8996_HPOUT1FB_SRC_WIDTH                    1  
-#define WM8996_MICD_SRC                         0x0002  
-#define WM8996_MICD_SRC_MASK                    0x0002  
-#define WM8996_MICD_SRC_SHIFT                        1  
-#define WM8996_MICD_SRC_WIDTH                        1  
-#define WM8996_MICD_BIAS_SRC                    0x0001  
-#define WM8996_MICD_BIAS_SRC_MASK               0x0001  
-#define WM8996_MICD_BIAS_SRC_SHIFT                   0  
-#define WM8996_MICD_BIAS_SRC_WIDTH                   1  
-
-#define WM8996_HP_HOLDTIME_MASK                 0x00E0  
-#define WM8996_HP_HOLDTIME_SHIFT                     5  
-#define WM8996_HP_HOLDTIME_WIDTH                     3  
-#define WM8996_HP_CLK_DIV_MASK                  0x0018  
-#define WM8996_HP_CLK_DIV_SHIFT                      3  
-#define WM8996_HP_CLK_DIV_WIDTH                      2  
-#define WM8996_HP_STEP_SIZE                     0x0002  
-#define WM8996_HP_STEP_SIZE_MASK                0x0002  
-#define WM8996_HP_STEP_SIZE_SHIFT                    1  
-#define WM8996_HP_STEP_SIZE_WIDTH                    1  
-#define WM8996_HP_POLL                          0x0001  
-#define WM8996_HP_POLL_MASK                     0x0001  
-#define WM8996_HP_POLL_SHIFT                         0  
-#define WM8996_HP_POLL_WIDTH                         1  
-
-#define WM8996_HP_DONE                          0x0080  
-#define WM8996_HP_DONE_MASK                     0x0080  
-#define WM8996_HP_DONE_SHIFT                         7  
-#define WM8996_HP_DONE_WIDTH                         1  
-#define WM8996_HP_LVL_MASK                      0x007F  
-#define WM8996_HP_LVL_SHIFT                          0  
-#define WM8996_HP_LVL_WIDTH                          7  
-
-#define WM8996_MICD_BIAS_STARTTIME_MASK         0xF000  
-#define WM8996_MICD_BIAS_STARTTIME_SHIFT            12  
-#define WM8996_MICD_BIAS_STARTTIME_WIDTH             4  
-#define WM8996_MICD_RATE_MASK                   0x0F00  
-#define WM8996_MICD_RATE_SHIFT                       8  
-#define WM8996_MICD_RATE_WIDTH                       4  
-#define WM8996_MICD_DBTIME                      0x0002  
-#define WM8996_MICD_DBTIME_MASK                 0x0002  
-#define WM8996_MICD_DBTIME_SHIFT                     1  
-#define WM8996_MICD_DBTIME_WIDTH                     1  
-#define WM8996_MICD_ENA                         0x0001  
-#define WM8996_MICD_ENA_MASK                    0x0001  
-#define WM8996_MICD_ENA_SHIFT                        0  
-#define WM8996_MICD_ENA_WIDTH                        1  
-
-#define WM8996_MICD_LVL_SEL_MASK                0x00FF  
-#define WM8996_MICD_LVL_SEL_SHIFT                    0  
-#define WM8996_MICD_LVL_SEL_WIDTH                    8  
-
-#define WM8996_MICD_LVL_MASK                    0x07FC  
-#define WM8996_MICD_LVL_SHIFT                        2  
-#define WM8996_MICD_LVL_WIDTH                        9  
-#define WM8996_MICD_VALID                       0x0002  
-#define WM8996_MICD_VALID_MASK                  0x0002  
-#define WM8996_MICD_VALID_SHIFT                      1  
-#define WM8996_MICD_VALID_WIDTH                      1  
-#define WM8996_MICD_STS                         0x0001  
-#define WM8996_MICD_STS_MASK                    0x0001  
-#define WM8996_MICD_STS_SHIFT                        0  
-#define WM8996_MICD_STS_WIDTH                        1  
-
-#define WM8996_CP_ENA                           0x8000  
-#define WM8996_CP_ENA_MASK                      0x8000  
-#define WM8996_CP_ENA_SHIFT                         15  
-#define WM8996_CP_ENA_WIDTH                          1  
-
-#define WM8996_CP_DISCH                         0x8000  
-#define WM8996_CP_DISCH_MASK                    0x8000  
-#define WM8996_CP_DISCH_SHIFT                       15  
-#define WM8996_CP_DISCH_WIDTH                        1  
-
-#define WM8996_DCS_ENA_CHAN_3                   0x0008  
-#define WM8996_DCS_ENA_CHAN_3_MASK              0x0008  
-#define WM8996_DCS_ENA_CHAN_3_SHIFT                  3  
-#define WM8996_DCS_ENA_CHAN_3_WIDTH                  1  
-#define WM8996_DCS_ENA_CHAN_2                   0x0004  
-#define WM8996_DCS_ENA_CHAN_2_MASK              0x0004  
-#define WM8996_DCS_ENA_CHAN_2_SHIFT                  2  
-#define WM8996_DCS_ENA_CHAN_2_WIDTH                  1  
-#define WM8996_DCS_ENA_CHAN_1                   0x0002  
-#define WM8996_DCS_ENA_CHAN_1_MASK              0x0002  
-#define WM8996_DCS_ENA_CHAN_1_SHIFT                  1  
-#define WM8996_DCS_ENA_CHAN_1_WIDTH                  1  
-#define WM8996_DCS_ENA_CHAN_0                   0x0001  
-#define WM8996_DCS_ENA_CHAN_0_MASK              0x0001  
-#define WM8996_DCS_ENA_CHAN_0_SHIFT                  0  
-#define WM8996_DCS_ENA_CHAN_0_WIDTH                  1  
-
-#define WM8996_DCS_TRIG_SINGLE_3                0x8000  
-#define WM8996_DCS_TRIG_SINGLE_3_MASK           0x8000  
-#define WM8996_DCS_TRIG_SINGLE_3_SHIFT              15  
-#define WM8996_DCS_TRIG_SINGLE_3_WIDTH               1  
-#define WM8996_DCS_TRIG_SINGLE_2                0x4000  
-#define WM8996_DCS_TRIG_SINGLE_2_MASK           0x4000  
-#define WM8996_DCS_TRIG_SINGLE_2_SHIFT              14  
-#define WM8996_DCS_TRIG_SINGLE_2_WIDTH               1  
-#define WM8996_DCS_TRIG_SINGLE_1                0x2000  
-#define WM8996_DCS_TRIG_SINGLE_1_MASK           0x2000  
-#define WM8996_DCS_TRIG_SINGLE_1_SHIFT              13  
-#define WM8996_DCS_TRIG_SINGLE_1_WIDTH               1  
-#define WM8996_DCS_TRIG_SINGLE_0                0x1000  
-#define WM8996_DCS_TRIG_SINGLE_0_MASK           0x1000  
-#define WM8996_DCS_TRIG_SINGLE_0_SHIFT              12  
-#define WM8996_DCS_TRIG_SINGLE_0_WIDTH               1  
-#define WM8996_DCS_TRIG_SERIES_3                0x0800  
-#define WM8996_DCS_TRIG_SERIES_3_MASK           0x0800  
-#define WM8996_DCS_TRIG_SERIES_3_SHIFT              11  
-#define WM8996_DCS_TRIG_SERIES_3_WIDTH               1  
-#define WM8996_DCS_TRIG_SERIES_2                0x0400  
-#define WM8996_DCS_TRIG_SERIES_2_MASK           0x0400  
-#define WM8996_DCS_TRIG_SERIES_2_SHIFT              10  
-#define WM8996_DCS_TRIG_SERIES_2_WIDTH               1  
-#define WM8996_DCS_TRIG_SERIES_1                0x0200  
-#define WM8996_DCS_TRIG_SERIES_1_MASK           0x0200  
-#define WM8996_DCS_TRIG_SERIES_1_SHIFT               9  
-#define WM8996_DCS_TRIG_SERIES_1_WIDTH               1  
-#define WM8996_DCS_TRIG_SERIES_0                0x0100  
-#define WM8996_DCS_TRIG_SERIES_0_MASK           0x0100  
-#define WM8996_DCS_TRIG_SERIES_0_SHIFT               8  
-#define WM8996_DCS_TRIG_SERIES_0_WIDTH               1  
-#define WM8996_DCS_TRIG_STARTUP_3               0x0080  
-#define WM8996_DCS_TRIG_STARTUP_3_MASK          0x0080  
-#define WM8996_DCS_TRIG_STARTUP_3_SHIFT              7  
-#define WM8996_DCS_TRIG_STARTUP_3_WIDTH              1  
-#define WM8996_DCS_TRIG_STARTUP_2               0x0040  
-#define WM8996_DCS_TRIG_STARTUP_2_MASK          0x0040  
-#define WM8996_DCS_TRIG_STARTUP_2_SHIFT              6  
-#define WM8996_DCS_TRIG_STARTUP_2_WIDTH              1  
-#define WM8996_DCS_TRIG_STARTUP_1               0x0020  
-#define WM8996_DCS_TRIG_STARTUP_1_MASK          0x0020  
-#define WM8996_DCS_TRIG_STARTUP_1_SHIFT              5  
-#define WM8996_DCS_TRIG_STARTUP_1_WIDTH              1  
-#define WM8996_DCS_TRIG_STARTUP_0               0x0010  
-#define WM8996_DCS_TRIG_STARTUP_0_MASK          0x0010  
-#define WM8996_DCS_TRIG_STARTUP_0_SHIFT              4  
-#define WM8996_DCS_TRIG_STARTUP_0_WIDTH              1  
-#define WM8996_DCS_TRIG_DAC_WR_3                0x0008  
-#define WM8996_DCS_TRIG_DAC_WR_3_MASK           0x0008  
-#define WM8996_DCS_TRIG_DAC_WR_3_SHIFT               3  
-#define WM8996_DCS_TRIG_DAC_WR_3_WIDTH               1  
-#define WM8996_DCS_TRIG_DAC_WR_2                0x0004  
-#define WM8996_DCS_TRIG_DAC_WR_2_MASK           0x0004  
-#define WM8996_DCS_TRIG_DAC_WR_2_SHIFT               2  
-#define WM8996_DCS_TRIG_DAC_WR_2_WIDTH               1  
-#define WM8996_DCS_TRIG_DAC_WR_1                0x0002  
-#define WM8996_DCS_TRIG_DAC_WR_1_MASK           0x0002  
-#define WM8996_DCS_TRIG_DAC_WR_1_SHIFT               1  
-#define WM8996_DCS_TRIG_DAC_WR_1_WIDTH               1  
-#define WM8996_DCS_TRIG_DAC_WR_0                0x0001  
-#define WM8996_DCS_TRIG_DAC_WR_0_MASK           0x0001  
-#define WM8996_DCS_TRIG_DAC_WR_0_SHIFT               0  
-#define WM8996_DCS_TRIG_DAC_WR_0_WIDTH               1  
-
-#define WM8996_DCS_TIMER_PERIOD_23_MASK         0x0F00  
-#define WM8996_DCS_TIMER_PERIOD_23_SHIFT             8  
-#define WM8996_DCS_TIMER_PERIOD_23_WIDTH             4  
-#define WM8996_DCS_TIMER_PERIOD_01_MASK         0x000F  
-#define WM8996_DCS_TIMER_PERIOD_01_SHIFT             0  
-#define WM8996_DCS_TIMER_PERIOD_01_WIDTH             4  
-
-#define WM8996_DCS_SERIES_NO_23_MASK            0x7F00  
-#define WM8996_DCS_SERIES_NO_23_SHIFT                8  
-#define WM8996_DCS_SERIES_NO_23_WIDTH                7  
-#define WM8996_DCS_SERIES_NO_01_MASK            0x007F  
-#define WM8996_DCS_SERIES_NO_01_SHIFT                0  
-#define WM8996_DCS_SERIES_NO_01_WIDTH                7  
-
-#define WM8996_DCS_DAC_WR_VAL_3_MASK            0xFF00  
-#define WM8996_DCS_DAC_WR_VAL_3_SHIFT                8  
-#define WM8996_DCS_DAC_WR_VAL_3_WIDTH                8  
-#define WM8996_DCS_DAC_WR_VAL_2_MASK            0x00FF  
-#define WM8996_DCS_DAC_WR_VAL_2_SHIFT                0  
-#define WM8996_DCS_DAC_WR_VAL_2_WIDTH                8  
-
-#define WM8996_DCS_DAC_WR_VAL_1_MASK            0xFF00  
-#define WM8996_DCS_DAC_WR_VAL_1_SHIFT                8  
-#define WM8996_DCS_DAC_WR_VAL_1_WIDTH                8  
-#define WM8996_DCS_DAC_WR_VAL_0_MASK            0x00FF  
-#define WM8996_DCS_DAC_WR_VAL_0_SHIFT                0  
-#define WM8996_DCS_DAC_WR_VAL_0_WIDTH                8  
-
-#define WM8996_DCS_CAL_COMPLETE_MASK            0x0F00  
-#define WM8996_DCS_CAL_COMPLETE_SHIFT                8  
-#define WM8996_DCS_CAL_COMPLETE_WIDTH                4  
-#define WM8996_DCS_DAC_WR_COMPLETE_MASK         0x00F0  
-#define WM8996_DCS_DAC_WR_COMPLETE_SHIFT             4  
-#define WM8996_DCS_DAC_WR_COMPLETE_WIDTH             4  
-#define WM8996_DCS_STARTUP_COMPLETE_MASK        0x000F  
-#define WM8996_DCS_STARTUP_COMPLETE_SHIFT            0  
-#define WM8996_DCS_STARTUP_COMPLETE_WIDTH            4  
-
-#define WM8996_HPOUT1L_RMV_SHORT                0x0080  
-#define WM8996_HPOUT1L_RMV_SHORT_MASK           0x0080  
-#define WM8996_HPOUT1L_RMV_SHORT_SHIFT               7  
-#define WM8996_HPOUT1L_RMV_SHORT_WIDTH               1  
-#define WM8996_HPOUT1L_OUTP                     0x0040  
-#define WM8996_HPOUT1L_OUTP_MASK                0x0040  
-#define WM8996_HPOUT1L_OUTP_SHIFT                    6  
-#define WM8996_HPOUT1L_OUTP_WIDTH                    1  
-#define WM8996_HPOUT1L_DLY                      0x0020  
-#define WM8996_HPOUT1L_DLY_MASK                 0x0020  
-#define WM8996_HPOUT1L_DLY_SHIFT                     5  
-#define WM8996_HPOUT1L_DLY_WIDTH                     1  
-#define WM8996_HPOUT1R_RMV_SHORT                0x0008  
-#define WM8996_HPOUT1R_RMV_SHORT_MASK           0x0008  
-#define WM8996_HPOUT1R_RMV_SHORT_SHIFT               3  
-#define WM8996_HPOUT1R_RMV_SHORT_WIDTH               1  
-#define WM8996_HPOUT1R_OUTP                     0x0004  
-#define WM8996_HPOUT1R_OUTP_MASK                0x0004  
-#define WM8996_HPOUT1R_OUTP_SHIFT                    2  
-#define WM8996_HPOUT1R_OUTP_WIDTH                    1  
-#define WM8996_HPOUT1R_DLY                      0x0002  
-#define WM8996_HPOUT1R_DLY_MASK                 0x0002  
-#define WM8996_HPOUT1R_DLY_SHIFT                     1  
-#define WM8996_HPOUT1R_DLY_WIDTH                     1  
-
-#define WM8996_HPOUT2L_RMV_SHORT                0x0080  
-#define WM8996_HPOUT2L_RMV_SHORT_MASK           0x0080  
-#define WM8996_HPOUT2L_RMV_SHORT_SHIFT               7  
-#define WM8996_HPOUT2L_RMV_SHORT_WIDTH               1  
-#define WM8996_HPOUT2L_OUTP                     0x0040  
-#define WM8996_HPOUT2L_OUTP_MASK                0x0040  
-#define WM8996_HPOUT2L_OUTP_SHIFT                    6  
-#define WM8996_HPOUT2L_OUTP_WIDTH                    1  
-#define WM8996_HPOUT2L_DLY                      0x0020  
-#define WM8996_HPOUT2L_DLY_MASK                 0x0020  
-#define WM8996_HPOUT2L_DLY_SHIFT                     5  
-#define WM8996_HPOUT2L_DLY_WIDTH                     1  
-#define WM8996_HPOUT2R_RMV_SHORT                0x0008  
-#define WM8996_HPOUT2R_RMV_SHORT_MASK           0x0008  
-#define WM8996_HPOUT2R_RMV_SHORT_SHIFT               3  
-#define WM8996_HPOUT2R_RMV_SHORT_WIDTH               1  
-#define WM8996_HPOUT2R_OUTP                     0x0004  
-#define WM8996_HPOUT2R_OUTP_MASK                0x0004  
-#define WM8996_HPOUT2R_OUTP_SHIFT                    2  
-#define WM8996_HPOUT2R_OUTP_WIDTH                    1  
-#define WM8996_HPOUT2R_DLY                      0x0002  
-#define WM8996_HPOUT2R_DLY_MASK                 0x0002  
-#define WM8996_HPOUT2R_DLY_SHIFT                     1  
-#define WM8996_HPOUT2R_DLY_WIDTH                     1  
-
-#define WM8996_CHIP_REV_MASK                    0x000F  
-#define WM8996_CHIP_REV_SHIFT                        0  
-#define WM8996_CHIP_REV_WIDTH                        4  
-
-#define WM8996_REG_SYNC                         0x8000  
-#define WM8996_REG_SYNC_MASK                    0x8000  
-#define WM8996_REG_SYNC_SHIFT                       15  
-#define WM8996_REG_SYNC_WIDTH                        1  
-#define WM8996_AUTO_INC                         0x0004  
-#define WM8996_AUTO_INC_MASK                    0x0004  
-#define WM8996_AUTO_INC_SHIFT                        2  
-#define WM8996_AUTO_INC_WIDTH                        1  
-
-#define WM8996_WSEQ_ENA                         0x8000  
-#define WM8996_WSEQ_ENA_MASK                    0x8000  
-#define WM8996_WSEQ_ENA_SHIFT                       15  
-#define WM8996_WSEQ_ENA_WIDTH                        1  
-#define WM8996_WSEQ_ABORT                       0x0200  
-#define WM8996_WSEQ_ABORT_MASK                  0x0200  
-#define WM8996_WSEQ_ABORT_SHIFT                      9  
-#define WM8996_WSEQ_ABORT_WIDTH                      1  
-#define WM8996_WSEQ_START                       0x0100  
-#define WM8996_WSEQ_START_MASK                  0x0100  
-#define WM8996_WSEQ_START_SHIFT                      8  
-#define WM8996_WSEQ_START_WIDTH                      1  
-#define WM8996_WSEQ_START_INDEX_MASK            0x007F  
-#define WM8996_WSEQ_START_INDEX_SHIFT                0  
-#define WM8996_WSEQ_START_INDEX_WIDTH                7  
-
-#define WM8996_WSEQ_BUSY                        0x0100  
-#define WM8996_WSEQ_BUSY_MASK                   0x0100  
-#define WM8996_WSEQ_BUSY_SHIFT                       8  
-#define WM8996_WSEQ_BUSY_WIDTH                       1  
-#define WM8996_WSEQ_CURRENT_INDEX_MASK          0x007F  
-#define WM8996_WSEQ_CURRENT_INDEX_SHIFT              0  
-#define WM8996_WSEQ_CURRENT_INDEX_WIDTH              7  
-
-#define WM8996_SYSCLK_SRC_MASK                  0x0018  
-#define WM8996_SYSCLK_SRC_SHIFT                      3  
-#define WM8996_SYSCLK_SRC_WIDTH                      2  
-#define WM8996_SYSCLK_INV                       0x0004  
-#define WM8996_SYSCLK_INV_MASK                  0x0004  
-#define WM8996_SYSCLK_INV_SHIFT                      2  
-#define WM8996_SYSCLK_INV_WIDTH                      1  
-#define WM8996_SYSCLK_DIV                       0x0002  
-#define WM8996_SYSCLK_DIV_MASK                  0x0002  
-#define WM8996_SYSCLK_DIV_SHIFT                      1  
-#define WM8996_SYSCLK_DIV_WIDTH                      1  
-#define WM8996_SYSCLK_ENA                       0x0001  
-#define WM8996_SYSCLK_ENA_MASK                  0x0001  
-#define WM8996_SYSCLK_ENA_SHIFT                      0  
-#define WM8996_SYSCLK_ENA_WIDTH                      1  
-
-#define WM8996_DSP2_DIV_MASK                    0x0018  
-#define WM8996_DSP2_DIV_SHIFT                        3  
-#define WM8996_DSP2_DIV_WIDTH                        2  
-#define WM8996_DSP1_DIV_MASK                    0x0003  
-#define WM8996_DSP1_DIV_SHIFT                        0  
-#define WM8996_DSP1_DIV_WIDTH                        2  
-
-#define WM8996_LFCLK_ENA                        0x0020  
-#define WM8996_LFCLK_ENA_MASK                   0x0020  
-#define WM8996_LFCLK_ENA_SHIFT                       5  
-#define WM8996_LFCLK_ENA_WIDTH                       1  
-#define WM8996_TOCLK_ENA                        0x0010  
-#define WM8996_TOCLK_ENA_MASK                   0x0010  
-#define WM8996_TOCLK_ENA_SHIFT                       4  
-#define WM8996_TOCLK_ENA_WIDTH                       1  
-#define WM8996_AIFCLK_ENA                       0x0004  
-#define WM8996_AIFCLK_ENA_MASK                  0x0004  
-#define WM8996_AIFCLK_ENA_SHIFT                      2  
-#define WM8996_AIFCLK_ENA_WIDTH                      1  
-#define WM8996_SYSDSPCLK_ENA                    0x0002  
-#define WM8996_SYSDSPCLK_ENA_MASK               0x0002  
-#define WM8996_SYSDSPCLK_ENA_SHIFT                   1  
-#define WM8996_SYSDSPCLK_ENA_WIDTH                   1  
-
-#define WM8996_TOCLK_DIV_MASK                   0x0700  
-#define WM8996_TOCLK_DIV_SHIFT                       8  
-#define WM8996_TOCLK_DIV_WIDTH                       3  
-#define WM8996_DBCLK_DIV_MASK                   0x00F0  
-#define WM8996_DBCLK_DIV_SHIFT                       4  
-#define WM8996_DBCLK_DIV_WIDTH                       4  
-#define WM8996_OPCLK_DIV_MASK                   0x0007  
-#define WM8996_OPCLK_DIV_SHIFT                       0  
-#define WM8996_OPCLK_DIV_WIDTH                       3  
-
-#define WM8996_SYSCLK_RATE                      0x0001  
-#define WM8996_SYSCLK_RATE_MASK                 0x0001  
-#define WM8996_SYSCLK_RATE_SHIFT                     0  
-#define WM8996_SYSCLK_RATE_WIDTH                     1  
-
-#define WM8996_FLL_OSC_ENA                      0x0002  
-#define WM8996_FLL_OSC_ENA_MASK                 0x0002  
-#define WM8996_FLL_OSC_ENA_SHIFT                     1  
-#define WM8996_FLL_OSC_ENA_WIDTH                     1  
-#define WM8996_FLL_ENA                          0x0001  
-#define WM8996_FLL_ENA_MASK                     0x0001  
-#define WM8996_FLL_ENA_SHIFT                         0  
-#define WM8996_FLL_ENA_WIDTH                         1  
-
-#define WM8996_FLL_OUTDIV_MASK                  0x3F00  
-#define WM8996_FLL_OUTDIV_SHIFT                      8  
-#define WM8996_FLL_OUTDIV_WIDTH                      6  
-#define WM8996_FLL_FRATIO_MASK                  0x0007  
-#define WM8996_FLL_FRATIO_SHIFT                      0  
-#define WM8996_FLL_FRATIO_WIDTH                      3  
-
-#define WM8996_FLL_THETA_MASK                   0xFFFF  
-#define WM8996_FLL_THETA_SHIFT                       0  
-#define WM8996_FLL_THETA_WIDTH                      16  
-
-#define WM8996_FLL_N_MASK                       0x7FE0  
-#define WM8996_FLL_N_SHIFT                           5  
-#define WM8996_FLL_N_WIDTH                          10  
-#define WM8996_FLL_LOOP_GAIN_MASK               0x000F  
-#define WM8996_FLL_LOOP_GAIN_SHIFT                   0  
-#define WM8996_FLL_LOOP_GAIN_WIDTH                   4  
-
-#define WM8996_FLL_FRC_NCO_VAL_MASK             0x1F80  
-#define WM8996_FLL_FRC_NCO_VAL_SHIFT                 7  
-#define WM8996_FLL_FRC_NCO_VAL_WIDTH                 6  
-#define WM8996_FLL_FRC_NCO                      0x0040  
-#define WM8996_FLL_FRC_NCO_MASK                 0x0040  
-#define WM8996_FLL_FRC_NCO_SHIFT                     6  
-#define WM8996_FLL_FRC_NCO_WIDTH                     1  
-#define WM8996_FLL_REFCLK_DIV_MASK              0x0018  
-#define WM8996_FLL_REFCLK_DIV_SHIFT                  3  
-#define WM8996_FLL_REFCLK_DIV_WIDTH                  2  
-#define WM8996_FLL_REF_FREQ                     0x0004  
-#define WM8996_FLL_REF_FREQ_MASK                0x0004  
-#define WM8996_FLL_REF_FREQ_SHIFT                    2  
-#define WM8996_FLL_REF_FREQ_WIDTH                    1  
-#define WM8996_FLL_REFCLK_SRC_MASK              0x0003  
-#define WM8996_FLL_REFCLK_SRC_SHIFT                  0  
-#define WM8996_FLL_REFCLK_SRC_WIDTH                  2  
-
-#define WM8996_FLL_REFCLK_SRC_STS_MASK          0x000C  
-#define WM8996_FLL_REFCLK_SRC_STS_SHIFT              2  
-#define WM8996_FLL_REFCLK_SRC_STS_WIDTH              2  
-#define WM8996_FLL_SWITCH_CLK                   0x0001  
-#define WM8996_FLL_SWITCH_CLK_MASK              0x0001  
-#define WM8996_FLL_SWITCH_CLK_SHIFT                  0  
-#define WM8996_FLL_SWITCH_CLK_WIDTH                  1  
-
-#define WM8996_FLL_LAMBDA_MASK                  0xFFFF  
-#define WM8996_FLL_LAMBDA_SHIFT                      0  
-#define WM8996_FLL_LAMBDA_WIDTH                     16  
-
-#define WM8996_FLL_LFSR_SEL_MASK                0x0006  
-#define WM8996_FLL_LFSR_SEL_SHIFT                    1  
-#define WM8996_FLL_LFSR_SEL_WIDTH                    2  
-#define WM8996_FLL_EFS_ENA                      0x0001  
-#define WM8996_FLL_EFS_ENA_MASK                 0x0001  
-#define WM8996_FLL_EFS_ENA_SHIFT                     0  
-#define WM8996_FLL_EFS_ENA_WIDTH                     1  
-
-#define WM8996_AIF1_TRI                         0x0004  
-#define WM8996_AIF1_TRI_MASK                    0x0004  
-#define WM8996_AIF1_TRI_SHIFT                        2  
-#define WM8996_AIF1_TRI_WIDTH                        1  
-#define WM8996_AIF1_FMT_MASK                    0x0003  
-#define WM8996_AIF1_FMT_SHIFT                        0  
-#define WM8996_AIF1_FMT_WIDTH                        2  
-
-#define WM8996_AIF1_BCLK_INV                    0x0400  
-#define WM8996_AIF1_BCLK_INV_MASK               0x0400  
-#define WM8996_AIF1_BCLK_INV_SHIFT                  10  
-#define WM8996_AIF1_BCLK_INV_WIDTH                   1  
-#define WM8996_AIF1_BCLK_FRC                    0x0200  
-#define WM8996_AIF1_BCLK_FRC_MASK               0x0200  
-#define WM8996_AIF1_BCLK_FRC_SHIFT                   9  
-#define WM8996_AIF1_BCLK_FRC_WIDTH                   1  
-#define WM8996_AIF1_BCLK_MSTR                   0x0100  
-#define WM8996_AIF1_BCLK_MSTR_MASK              0x0100  
-#define WM8996_AIF1_BCLK_MSTR_SHIFT                  8  
-#define WM8996_AIF1_BCLK_MSTR_WIDTH                  1  
-#define WM8996_AIF1_BCLK_DIV_MASK               0x000F  
-#define WM8996_AIF1_BCLK_DIV_SHIFT                   0  
-#define WM8996_AIF1_BCLK_DIV_WIDTH                   4  
-
-#define WM8996_AIF1TX_RATE_MASK                 0x07FF  
-#define WM8996_AIF1TX_RATE_SHIFT                     0  
-#define WM8996_AIF1TX_RATE_WIDTH                    11  
-
-#define WM8996_AIF1TX_LRCLK_MODE                0x0008  
-#define WM8996_AIF1TX_LRCLK_MODE_MASK           0x0008  
-#define WM8996_AIF1TX_LRCLK_MODE_SHIFT               3  
-#define WM8996_AIF1TX_LRCLK_MODE_WIDTH               1  
-#define WM8996_AIF1TX_LRCLK_INV                 0x0004  
-#define WM8996_AIF1TX_LRCLK_INV_MASK            0x0004  
-#define WM8996_AIF1TX_LRCLK_INV_SHIFT                2  
-#define WM8996_AIF1TX_LRCLK_INV_WIDTH                1  
-#define WM8996_AIF1TX_LRCLK_FRC                 0x0002  
-#define WM8996_AIF1TX_LRCLK_FRC_MASK            0x0002  
-#define WM8996_AIF1TX_LRCLK_FRC_SHIFT                1  
-#define WM8996_AIF1TX_LRCLK_FRC_WIDTH                1  
-#define WM8996_AIF1TX_LRCLK_MSTR                0x0001  
-#define WM8996_AIF1TX_LRCLK_MSTR_MASK           0x0001  
-#define WM8996_AIF1TX_LRCLK_MSTR_SHIFT               0  
-#define WM8996_AIF1TX_LRCLK_MSTR_WIDTH               1  
-
-#define WM8996_AIF1RX_RATE_MASK                 0x07FF  
-#define WM8996_AIF1RX_RATE_SHIFT                     0  
-#define WM8996_AIF1RX_RATE_WIDTH                    11  
-
-#define WM8996_AIF1RX_LRCLK_INV                 0x0004  
-#define WM8996_AIF1RX_LRCLK_INV_MASK            0x0004  
-#define WM8996_AIF1RX_LRCLK_INV_SHIFT                2  
-#define WM8996_AIF1RX_LRCLK_INV_WIDTH                1  
-#define WM8996_AIF1RX_LRCLK_FRC                 0x0002  
-#define WM8996_AIF1RX_LRCLK_FRC_MASK            0x0002  
-#define WM8996_AIF1RX_LRCLK_FRC_SHIFT                1  
-#define WM8996_AIF1RX_LRCLK_FRC_WIDTH                1  
-#define WM8996_AIF1RX_LRCLK_MSTR                0x0001  
-#define WM8996_AIF1RX_LRCLK_MSTR_MASK           0x0001  
-#define WM8996_AIF1RX_LRCLK_MSTR_SHIFT               0  
-#define WM8996_AIF1RX_LRCLK_MSTR_WIDTH               1  
-
-#define WM8996_AIF1TX_WL_MASK                   0xFF00  
-#define WM8996_AIF1TX_WL_SHIFT                       8  
-#define WM8996_AIF1TX_WL_WIDTH                       8  
-#define WM8996_AIF1TX_SLOT_LEN_MASK             0x00FF  
-#define WM8996_AIF1TX_SLOT_LEN_SHIFT                 0  
-#define WM8996_AIF1TX_SLOT_LEN_WIDTH                 8  
-
-#define WM8996_AIF1TX_DAT_TRI                   0x0001  
-#define WM8996_AIF1TX_DAT_TRI_MASK              0x0001  
-#define WM8996_AIF1TX_DAT_TRI_SHIFT                  0  
-#define WM8996_AIF1TX_DAT_TRI_WIDTH                  1  
-
-#define WM8996_AIF1RX_WL_MASK                   0xFF00  
-#define WM8996_AIF1RX_WL_SHIFT                       8  
-#define WM8996_AIF1RX_WL_WIDTH                       8  
-#define WM8996_AIF1RX_SLOT_LEN_MASK             0x00FF  
-#define WM8996_AIF1RX_SLOT_LEN_SHIFT                 0  
-#define WM8996_AIF1RX_SLOT_LEN_WIDTH                 8  
-
-#define WM8996_AIF1TX_CHAN0_DAT_INV             0x8000  
-#define WM8996_AIF1TX_CHAN0_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1TX_CHAN0_DAT_INV_SHIFT           15  
-#define WM8996_AIF1TX_CHAN0_DAT_INV_WIDTH            1  
-#define WM8996_AIF1TX_CHAN0_SPACING_MASK        0x7E00  
-#define WM8996_AIF1TX_CHAN0_SPACING_SHIFT            9  
-#define WM8996_AIF1TX_CHAN0_SPACING_WIDTH            6  
-#define WM8996_AIF1TX_CHAN0_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1TX_CHAN0_SLOTS_SHIFT              6  
-#define WM8996_AIF1TX_CHAN0_SLOTS_WIDTH              3  
-#define WM8996_AIF1TX_CHAN0_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1TX_CHAN0_START_SLOT_SHIFT         0  
-#define WM8996_AIF1TX_CHAN0_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1TX_CHAN1_DAT_INV             0x8000  
-#define WM8996_AIF1TX_CHAN1_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1TX_CHAN1_DAT_INV_SHIFT           15  
-#define WM8996_AIF1TX_CHAN1_DAT_INV_WIDTH            1  
-#define WM8996_AIF1TX_CHAN1_SPACING_MASK        0x7E00  
-#define WM8996_AIF1TX_CHAN1_SPACING_SHIFT            9  
-#define WM8996_AIF1TX_CHAN1_SPACING_WIDTH            6  
-#define WM8996_AIF1TX_CHAN1_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1TX_CHAN1_SLOTS_SHIFT              6  
-#define WM8996_AIF1TX_CHAN1_SLOTS_WIDTH              3  
-#define WM8996_AIF1TX_CHAN1_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1TX_CHAN1_START_SLOT_SHIFT         0  
-#define WM8996_AIF1TX_CHAN1_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1TX_CHAN2_DAT_INV             0x8000  
-#define WM8996_AIF1TX_CHAN2_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1TX_CHAN2_DAT_INV_SHIFT           15  
-#define WM8996_AIF1TX_CHAN2_DAT_INV_WIDTH            1  
-#define WM8996_AIF1TX_CHAN2_SPACING_MASK        0x7E00  
-#define WM8996_AIF1TX_CHAN2_SPACING_SHIFT            9  
-#define WM8996_AIF1TX_CHAN2_SPACING_WIDTH            6  
-#define WM8996_AIF1TX_CHAN2_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1TX_CHAN2_SLOTS_SHIFT              6  
-#define WM8996_AIF1TX_CHAN2_SLOTS_WIDTH              3  
-#define WM8996_AIF1TX_CHAN2_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1TX_CHAN2_START_SLOT_SHIFT         0  
-#define WM8996_AIF1TX_CHAN2_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1TX_CHAN3_DAT_INV             0x8000  
-#define WM8996_AIF1TX_CHAN3_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1TX_CHAN3_DAT_INV_SHIFT           15  
-#define WM8996_AIF1TX_CHAN3_DAT_INV_WIDTH            1  
-#define WM8996_AIF1TX_CHAN3_SPACING_MASK        0x7E00  
-#define WM8996_AIF1TX_CHAN3_SPACING_SHIFT            9  
-#define WM8996_AIF1TX_CHAN3_SPACING_WIDTH            6  
-#define WM8996_AIF1TX_CHAN3_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1TX_CHAN3_SLOTS_SHIFT              6  
-#define WM8996_AIF1TX_CHAN3_SLOTS_WIDTH              3  
-#define WM8996_AIF1TX_CHAN3_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1TX_CHAN3_START_SLOT_SHIFT         0  
-#define WM8996_AIF1TX_CHAN3_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1TX_CHAN4_DAT_INV             0x8000  
-#define WM8996_AIF1TX_CHAN4_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1TX_CHAN4_DAT_INV_SHIFT           15  
-#define WM8996_AIF1TX_CHAN4_DAT_INV_WIDTH            1  
-#define WM8996_AIF1TX_CHAN4_SPACING_MASK        0x7E00  
-#define WM8996_AIF1TX_CHAN4_SPACING_SHIFT            9  
-#define WM8996_AIF1TX_CHAN4_SPACING_WIDTH            6  
-#define WM8996_AIF1TX_CHAN4_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1TX_CHAN4_SLOTS_SHIFT              6  
-#define WM8996_AIF1TX_CHAN4_SLOTS_WIDTH              3  
-#define WM8996_AIF1TX_CHAN4_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1TX_CHAN4_START_SLOT_SHIFT         0  
-#define WM8996_AIF1TX_CHAN4_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1TX_CHAN5_DAT_INV             0x8000  
-#define WM8996_AIF1TX_CHAN5_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1TX_CHAN5_DAT_INV_SHIFT           15  
-#define WM8996_AIF1TX_CHAN5_DAT_INV_WIDTH            1  
-#define WM8996_AIF1TX_CHAN5_SPACING_MASK        0x7E00  
-#define WM8996_AIF1TX_CHAN5_SPACING_SHIFT            9  
-#define WM8996_AIF1TX_CHAN5_SPACING_WIDTH            6  
-#define WM8996_AIF1TX_CHAN5_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1TX_CHAN5_SLOTS_SHIFT              6  
-#define WM8996_AIF1TX_CHAN5_SLOTS_WIDTH              3  
-#define WM8996_AIF1TX_CHAN5_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1TX_CHAN5_START_SLOT_SHIFT         0  
-#define WM8996_AIF1TX_CHAN5_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1RX_CHAN0_DAT_INV             0x8000  
-#define WM8996_AIF1RX_CHAN0_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1RX_CHAN0_DAT_INV_SHIFT           15  
-#define WM8996_AIF1RX_CHAN0_DAT_INV_WIDTH            1  
-#define WM8996_AIF1RX_CHAN0_SPACING_MASK        0x7E00  
-#define WM8996_AIF1RX_CHAN0_SPACING_SHIFT            9  
-#define WM8996_AIF1RX_CHAN0_SPACING_WIDTH            6  
-#define WM8996_AIF1RX_CHAN0_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1RX_CHAN0_SLOTS_SHIFT              6  
-#define WM8996_AIF1RX_CHAN0_SLOTS_WIDTH              3  
-#define WM8996_AIF1RX_CHAN0_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1RX_CHAN0_START_SLOT_SHIFT         0  
-#define WM8996_AIF1RX_CHAN0_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1RX_CHAN1_DAT_INV             0x8000  
-#define WM8996_AIF1RX_CHAN1_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1RX_CHAN1_DAT_INV_SHIFT           15  
-#define WM8996_AIF1RX_CHAN1_DAT_INV_WIDTH            1  
-#define WM8996_AIF1RX_CHAN1_SPACING_MASK        0x7E00  
-#define WM8996_AIF1RX_CHAN1_SPACING_SHIFT            9  
-#define WM8996_AIF1RX_CHAN1_SPACING_WIDTH            6  
-#define WM8996_AIF1RX_CHAN1_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1RX_CHAN1_SLOTS_SHIFT              6  
-#define WM8996_AIF1RX_CHAN1_SLOTS_WIDTH              3  
-#define WM8996_AIF1RX_CHAN1_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1RX_CHAN1_START_SLOT_SHIFT         0  
-#define WM8996_AIF1RX_CHAN1_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1RX_CHAN2_DAT_INV             0x8000  
-#define WM8996_AIF1RX_CHAN2_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1RX_CHAN2_DAT_INV_SHIFT           15  
-#define WM8996_AIF1RX_CHAN2_DAT_INV_WIDTH            1  
-#define WM8996_AIF1RX_CHAN2_SPACING_MASK        0x7E00  
-#define WM8996_AIF1RX_CHAN2_SPACING_SHIFT            9  
-#define WM8996_AIF1RX_CHAN2_SPACING_WIDTH            6  
-#define WM8996_AIF1RX_CHAN2_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1RX_CHAN2_SLOTS_SHIFT              6  
-#define WM8996_AIF1RX_CHAN2_SLOTS_WIDTH              3  
-#define WM8996_AIF1RX_CHAN2_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1RX_CHAN2_START_SLOT_SHIFT         0  
-#define WM8996_AIF1RX_CHAN2_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1RX_CHAN3_DAT_INV             0x8000  
-#define WM8996_AIF1RX_CHAN3_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1RX_CHAN3_DAT_INV_SHIFT           15  
-#define WM8996_AIF1RX_CHAN3_DAT_INV_WIDTH            1  
-#define WM8996_AIF1RX_CHAN3_SPACING_MASK        0x7E00  
-#define WM8996_AIF1RX_CHAN3_SPACING_SHIFT            9  
-#define WM8996_AIF1RX_CHAN3_SPACING_WIDTH            6  
-#define WM8996_AIF1RX_CHAN3_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1RX_CHAN3_SLOTS_SHIFT              6  
-#define WM8996_AIF1RX_CHAN3_SLOTS_WIDTH              3  
-#define WM8996_AIF1RX_CHAN3_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1RX_CHAN3_START_SLOT_SHIFT         0  
-#define WM8996_AIF1RX_CHAN3_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1RX_CHAN4_DAT_INV             0x8000  
-#define WM8996_AIF1RX_CHAN4_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1RX_CHAN4_DAT_INV_SHIFT           15  
-#define WM8996_AIF1RX_CHAN4_DAT_INV_WIDTH            1  
-#define WM8996_AIF1RX_CHAN4_SPACING_MASK        0x7E00  
-#define WM8996_AIF1RX_CHAN4_SPACING_SHIFT            9  
-#define WM8996_AIF1RX_CHAN4_SPACING_WIDTH            6  
-#define WM8996_AIF1RX_CHAN4_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1RX_CHAN4_SLOTS_SHIFT              6  
-#define WM8996_AIF1RX_CHAN4_SLOTS_WIDTH              3  
-#define WM8996_AIF1RX_CHAN4_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1RX_CHAN4_START_SLOT_SHIFT         0  
-#define WM8996_AIF1RX_CHAN4_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1RX_CHAN5_DAT_INV             0x8000  
-#define WM8996_AIF1RX_CHAN5_DAT_INV_MASK        0x8000  
-#define WM8996_AIF1RX_CHAN5_DAT_INV_SHIFT           15  
-#define WM8996_AIF1RX_CHAN5_DAT_INV_WIDTH            1  
-#define WM8996_AIF1RX_CHAN5_SPACING_MASK        0x7E00  
-#define WM8996_AIF1RX_CHAN5_SPACING_SHIFT            9  
-#define WM8996_AIF1RX_CHAN5_SPACING_WIDTH            6  
-#define WM8996_AIF1RX_CHAN5_SLOTS_MASK          0x01C0  
-#define WM8996_AIF1RX_CHAN5_SLOTS_SHIFT              6  
-#define WM8996_AIF1RX_CHAN5_SLOTS_WIDTH              3  
-#define WM8996_AIF1RX_CHAN5_START_SLOT_MASK     0x003F  
-#define WM8996_AIF1RX_CHAN5_START_SLOT_SHIFT         0  
-#define WM8996_AIF1RX_CHAN5_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF1RX_CHAN4_MONO_MODE           0x0004  
-#define WM8996_AIF1RX_CHAN4_MONO_MODE_MASK      0x0004  
-#define WM8996_AIF1RX_CHAN4_MONO_MODE_SHIFT          2  
-#define WM8996_AIF1RX_CHAN4_MONO_MODE_WIDTH          1  
-#define WM8996_AIF1RX_CHAN2_MONO_MODE           0x0002  
-#define WM8996_AIF1RX_CHAN2_MONO_MODE_MASK      0x0002  
-#define WM8996_AIF1RX_CHAN2_MONO_MODE_SHIFT          1  
-#define WM8996_AIF1RX_CHAN2_MONO_MODE_WIDTH          1  
-#define WM8996_AIF1RX_CHAN0_MONO_MODE           0x0001  
-#define WM8996_AIF1RX_CHAN0_MONO_MODE_MASK      0x0001  
-#define WM8996_AIF1RX_CHAN0_MONO_MODE_SHIFT          0  
-#define WM8996_AIF1RX_CHAN0_MONO_MODE_WIDTH          1  
-
-#define WM8996_AIF1TX45_DITHER_ENA              0x0004  
-#define WM8996_AIF1TX45_DITHER_ENA_MASK         0x0004  
-#define WM8996_AIF1TX45_DITHER_ENA_SHIFT             2  
-#define WM8996_AIF1TX45_DITHER_ENA_WIDTH             1  
-#define WM8996_AIF1TX23_DITHER_ENA              0x0002  
-#define WM8996_AIF1TX23_DITHER_ENA_MASK         0x0002  
-#define WM8996_AIF1TX23_DITHER_ENA_SHIFT             1  
-#define WM8996_AIF1TX23_DITHER_ENA_WIDTH             1  
-#define WM8996_AIF1TX01_DITHER_ENA              0x0001  
-#define WM8996_AIF1TX01_DITHER_ENA_MASK         0x0001  
-#define WM8996_AIF1TX01_DITHER_ENA_SHIFT             0  
-#define WM8996_AIF1TX01_DITHER_ENA_WIDTH             1  
-
-#define WM8996_AIF2_TRI                         0x0004  
-#define WM8996_AIF2_TRI_MASK                    0x0004  
-#define WM8996_AIF2_TRI_SHIFT                        2  
-#define WM8996_AIF2_TRI_WIDTH                        1  
-#define WM8996_AIF2_FMT_MASK                    0x0003  
-#define WM8996_AIF2_FMT_SHIFT                        0  
-#define WM8996_AIF2_FMT_WIDTH                        2  
-
-#define WM8996_AIF2_BCLK_INV                    0x0400  
-#define WM8996_AIF2_BCLK_INV_MASK               0x0400  
-#define WM8996_AIF2_BCLK_INV_SHIFT                  10  
-#define WM8996_AIF2_BCLK_INV_WIDTH                   1  
-#define WM8996_AIF2_BCLK_FRC                    0x0200  
-#define WM8996_AIF2_BCLK_FRC_MASK               0x0200  
-#define WM8996_AIF2_BCLK_FRC_SHIFT                   9  
-#define WM8996_AIF2_BCLK_FRC_WIDTH                   1  
-#define WM8996_AIF2_BCLK_MSTR                   0x0100  
-#define WM8996_AIF2_BCLK_MSTR_MASK              0x0100  
-#define WM8996_AIF2_BCLK_MSTR_SHIFT                  8  
-#define WM8996_AIF2_BCLK_MSTR_WIDTH                  1  
-#define WM8996_AIF2_BCLK_DIV_MASK               0x000F  
-#define WM8996_AIF2_BCLK_DIV_SHIFT                   0  
-#define WM8996_AIF2_BCLK_DIV_WIDTH                   4  
-
-#define WM8996_AIF2TX_RATE_MASK                 0x07FF  
-#define WM8996_AIF2TX_RATE_SHIFT                     0  
-#define WM8996_AIF2TX_RATE_WIDTH                    11  
-
-#define WM8996_AIF2TX_LRCLK_MODE                0x0008  
-#define WM8996_AIF2TX_LRCLK_MODE_MASK           0x0008  
-#define WM8996_AIF2TX_LRCLK_MODE_SHIFT               3  
-#define WM8996_AIF2TX_LRCLK_MODE_WIDTH               1  
-#define WM8996_AIF2TX_LRCLK_INV                 0x0004  
-#define WM8996_AIF2TX_LRCLK_INV_MASK            0x0004  
-#define WM8996_AIF2TX_LRCLK_INV_SHIFT                2  
-#define WM8996_AIF2TX_LRCLK_INV_WIDTH                1  
-#define WM8996_AIF2TX_LRCLK_FRC                 0x0002  
-#define WM8996_AIF2TX_LRCLK_FRC_MASK            0x0002  
-#define WM8996_AIF2TX_LRCLK_FRC_SHIFT                1  
-#define WM8996_AIF2TX_LRCLK_FRC_WIDTH                1  
-#define WM8996_AIF2TX_LRCLK_MSTR                0x0001  
-#define WM8996_AIF2TX_LRCLK_MSTR_MASK           0x0001  
-#define WM8996_AIF2TX_LRCLK_MSTR_SHIFT               0  
-#define WM8996_AIF2TX_LRCLK_MSTR_WIDTH               1  
-
-#define WM8996_AIF2RX_RATE_MASK                 0x07FF  
-#define WM8996_AIF2RX_RATE_SHIFT                     0  
-#define WM8996_AIF2RX_RATE_WIDTH                    11  
-
-#define WM8996_AIF2RX_LRCLK_INV                 0x0004  
-#define WM8996_AIF2RX_LRCLK_INV_MASK            0x0004  
-#define WM8996_AIF2RX_LRCLK_INV_SHIFT                2  
-#define WM8996_AIF2RX_LRCLK_INV_WIDTH                1  
-#define WM8996_AIF2RX_LRCLK_FRC                 0x0002  
-#define WM8996_AIF2RX_LRCLK_FRC_MASK            0x0002  
-#define WM8996_AIF2RX_LRCLK_FRC_SHIFT                1  
-#define WM8996_AIF2RX_LRCLK_FRC_WIDTH                1  
-#define WM8996_AIF2RX_LRCLK_MSTR                0x0001  
-#define WM8996_AIF2RX_LRCLK_MSTR_MASK           0x0001  
-#define WM8996_AIF2RX_LRCLK_MSTR_SHIFT               0  
-#define WM8996_AIF2RX_LRCLK_MSTR_WIDTH               1  
-
-#define WM8996_AIF2TX_WL_MASK                   0xFF00  
-#define WM8996_AIF2TX_WL_SHIFT                       8  
-#define WM8996_AIF2TX_WL_WIDTH                       8  
-#define WM8996_AIF2TX_SLOT_LEN_MASK             0x00FF  
-#define WM8996_AIF2TX_SLOT_LEN_SHIFT                 0  
-#define WM8996_AIF2TX_SLOT_LEN_WIDTH                 8  
-
-#define WM8996_AIF2TX_DAT_TRI                   0x0001  
-#define WM8996_AIF2TX_DAT_TRI_MASK              0x0001  
-#define WM8996_AIF2TX_DAT_TRI_SHIFT                  0  
-#define WM8996_AIF2TX_DAT_TRI_WIDTH                  1  
-
-#define WM8996_AIF2RX_WL_MASK                   0xFF00  
-#define WM8996_AIF2RX_WL_SHIFT                       8  
-#define WM8996_AIF2RX_WL_WIDTH                       8  
-#define WM8996_AIF2RX_SLOT_LEN_MASK             0x00FF  
-#define WM8996_AIF2RX_SLOT_LEN_SHIFT                 0  
-#define WM8996_AIF2RX_SLOT_LEN_WIDTH                 8  
-
-#define WM8996_AIF2TX_CHAN0_DAT_INV             0x8000  
-#define WM8996_AIF2TX_CHAN0_DAT_INV_MASK        0x8000  
-#define WM8996_AIF2TX_CHAN0_DAT_INV_SHIFT           15  
-#define WM8996_AIF2TX_CHAN0_DAT_INV_WIDTH            1  
-#define WM8996_AIF2TX_CHAN0_SPACING_MASK        0x7E00  
-#define WM8996_AIF2TX_CHAN0_SPACING_SHIFT            9  
-#define WM8996_AIF2TX_CHAN0_SPACING_WIDTH            6  
-#define WM8996_AIF2TX_CHAN0_SLOTS_MASK          0x01C0  
-#define WM8996_AIF2TX_CHAN0_SLOTS_SHIFT              6  
-#define WM8996_AIF2TX_CHAN0_SLOTS_WIDTH              3  
-#define WM8996_AIF2TX_CHAN0_START_SLOT_MASK     0x003F  
-#define WM8996_AIF2TX_CHAN0_START_SLOT_SHIFT         0  
-#define WM8996_AIF2TX_CHAN0_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF2TX_CHAN1_DAT_INV             0x8000  
-#define WM8996_AIF2TX_CHAN1_DAT_INV_MASK        0x8000  
-#define WM8996_AIF2TX_CHAN1_DAT_INV_SHIFT           15  
-#define WM8996_AIF2TX_CHAN1_DAT_INV_WIDTH            1  
-#define WM8996_AIF2TX_CHAN1_SPACING_MASK        0x7E00  
-#define WM8996_AIF2TX_CHAN1_SPACING_SHIFT            9  
-#define WM8996_AIF2TX_CHAN1_SPACING_WIDTH            6  
-#define WM8996_AIF2TX_CHAN1_SLOTS_MASK          0x01C0  
-#define WM8996_AIF2TX_CHAN1_SLOTS_SHIFT              6  
-#define WM8996_AIF2TX_CHAN1_SLOTS_WIDTH              3  
-#define WM8996_AIF2TX_CHAN1_START_SLOT_MASK     0x003F  
-#define WM8996_AIF2TX_CHAN1_START_SLOT_SHIFT         0  
-#define WM8996_AIF2TX_CHAN1_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF2RX_CHAN0_DAT_INV             0x8000  
-#define WM8996_AIF2RX_CHAN0_DAT_INV_MASK        0x8000  
-#define WM8996_AIF2RX_CHAN0_DAT_INV_SHIFT           15  
-#define WM8996_AIF2RX_CHAN0_DAT_INV_WIDTH            1  
-#define WM8996_AIF2RX_CHAN0_SPACING_MASK        0x7E00  
-#define WM8996_AIF2RX_CHAN0_SPACING_SHIFT            9  
-#define WM8996_AIF2RX_CHAN0_SPACING_WIDTH            6  
-#define WM8996_AIF2RX_CHAN0_SLOTS_MASK          0x01C0  
-#define WM8996_AIF2RX_CHAN0_SLOTS_SHIFT              6  
-#define WM8996_AIF2RX_CHAN0_SLOTS_WIDTH              3  
-#define WM8996_AIF2RX_CHAN0_START_SLOT_MASK     0x003F  
-#define WM8996_AIF2RX_CHAN0_START_SLOT_SHIFT         0  
-#define WM8996_AIF2RX_CHAN0_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF2RX_CHAN1_DAT_INV             0x8000  
-#define WM8996_AIF2RX_CHAN1_DAT_INV_MASK        0x8000  
-#define WM8996_AIF2RX_CHAN1_DAT_INV_SHIFT           15  
-#define WM8996_AIF2RX_CHAN1_DAT_INV_WIDTH            1  
-#define WM8996_AIF2RX_CHAN1_SPACING_MASK        0x7E00  
-#define WM8996_AIF2RX_CHAN1_SPACING_SHIFT            9  
-#define WM8996_AIF2RX_CHAN1_SPACING_WIDTH            6  
-#define WM8996_AIF2RX_CHAN1_SLOTS_MASK          0x01C0  
-#define WM8996_AIF2RX_CHAN1_SLOTS_SHIFT              6  
-#define WM8996_AIF2RX_CHAN1_SLOTS_WIDTH              3  
-#define WM8996_AIF2RX_CHAN1_START_SLOT_MASK     0x003F  
-#define WM8996_AIF2RX_CHAN1_START_SLOT_SHIFT         0  
-#define WM8996_AIF2RX_CHAN1_START_SLOT_WIDTH         6  
-
-#define WM8996_AIF2RX_CHAN0_MONO_MODE           0x0001  
-#define WM8996_AIF2RX_CHAN0_MONO_MODE_MASK      0x0001  
-#define WM8996_AIF2RX_CHAN0_MONO_MODE_SHIFT          0  
-#define WM8996_AIF2RX_CHAN0_MONO_MODE_WIDTH          1  
-
-#define WM8996_AIF2TX_DITHER_ENA                0x0001  
-#define WM8996_AIF2TX_DITHER_ENA_MASK           0x0001  
-#define WM8996_AIF2TX_DITHER_ENA_SHIFT               0  
-#define WM8996_AIF2TX_DITHER_ENA_WIDTH               1  
-
-#define WM8996_DSP1TX_VU                        0x0100  
-#define WM8996_DSP1TX_VU_MASK                   0x0100  
-#define WM8996_DSP1TX_VU_SHIFT                       8  
-#define WM8996_DSP1TX_VU_WIDTH                       1  
-#define WM8996_DSP1TXL_VOL_MASK                 0x00FF  
-#define WM8996_DSP1TXL_VOL_SHIFT                     0  
-#define WM8996_DSP1TXL_VOL_WIDTH                     8  
-
-#define WM8996_DSP1TX_VU                        0x0100  
-#define WM8996_DSP1TX_VU_MASK                   0x0100  
-#define WM8996_DSP1TX_VU_SHIFT                       8  
-#define WM8996_DSP1TX_VU_WIDTH                       1  
-#define WM8996_DSP1TXR_VOL_MASK                 0x00FF  
-#define WM8996_DSP1TXR_VOL_SHIFT                     0  
-#define WM8996_DSP1TXR_VOL_WIDTH                     8  
-
-#define WM8996_DSP1RX_VU                        0x0100  
-#define WM8996_DSP1RX_VU_MASK                   0x0100  
-#define WM8996_DSP1RX_VU_SHIFT                       8  
-#define WM8996_DSP1RX_VU_WIDTH                       1  
-#define WM8996_DSP1RXL_VOL_MASK                 0x00FF  
-#define WM8996_DSP1RXL_VOL_SHIFT                     0  
-#define WM8996_DSP1RXL_VOL_WIDTH                     8  
-
-#define WM8996_DSP1RX_VU                        0x0100  
-#define WM8996_DSP1RX_VU_MASK                   0x0100  
-#define WM8996_DSP1RX_VU_SHIFT                       8  
-#define WM8996_DSP1RX_VU_WIDTH                       1  
-#define WM8996_DSP1RXR_VOL_MASK                 0x00FF  
-#define WM8996_DSP1RXR_VOL_SHIFT                     0  
-#define WM8996_DSP1RXR_VOL_WIDTH                     8  
-
-#define WM8996_DSP1TX_NF                        0x2000  
-#define WM8996_DSP1TX_NF_MASK                   0x2000  
-#define WM8996_DSP1TX_NF_SHIFT                      13  
-#define WM8996_DSP1TX_NF_WIDTH                       1  
-#define WM8996_DSP1TXL_HPF                      0x1000  
-#define WM8996_DSP1TXL_HPF_MASK                 0x1000  
-#define WM8996_DSP1TXL_HPF_SHIFT                    12  
-#define WM8996_DSP1TXL_HPF_WIDTH                     1  
-#define WM8996_DSP1TXR_HPF                      0x0800  
-#define WM8996_DSP1TXR_HPF_MASK                 0x0800  
-#define WM8996_DSP1TXR_HPF_SHIFT                    11  
-#define WM8996_DSP1TXR_HPF_WIDTH                     1  
-#define WM8996_DSP1TX_HPF_MODE_MASK             0x0018  
-#define WM8996_DSP1TX_HPF_MODE_SHIFT                 3  
-#define WM8996_DSP1TX_HPF_MODE_WIDTH                 2  
-#define WM8996_DSP1TX_HPF_CUT_MASK              0x0007  
-#define WM8996_DSP1TX_HPF_CUT_SHIFT                  0  
-#define WM8996_DSP1TX_HPF_CUT_WIDTH                  3  
-
-#define WM8996_DSP1RX_MUTE                      0x0200  
-#define WM8996_DSP1RX_MUTE_MASK                 0x0200  
-#define WM8996_DSP1RX_MUTE_SHIFT                     9  
-#define WM8996_DSP1RX_MUTE_WIDTH                     1  
-#define WM8996_DSP1RX_MONO                      0x0080  
-#define WM8996_DSP1RX_MONO_MASK                 0x0080  
-#define WM8996_DSP1RX_MONO_SHIFT                     7  
-#define WM8996_DSP1RX_MONO_WIDTH                     1  
-#define WM8996_DSP1RX_MUTERATE                  0x0020  
-#define WM8996_DSP1RX_MUTERATE_MASK             0x0020  
-#define WM8996_DSP1RX_MUTERATE_SHIFT                 5  
-#define WM8996_DSP1RX_MUTERATE_WIDTH                 1  
-#define WM8996_DSP1RX_UNMUTE_RAMP               0x0010  
-#define WM8996_DSP1RX_UNMUTE_RAMP_MASK          0x0010  
-#define WM8996_DSP1RX_UNMUTE_RAMP_SHIFT              4  
-#define WM8996_DSP1RX_UNMUTE_RAMP_WIDTH              1  
-
-#define WM8996_DSP1RX_3D_GAIN_MASK              0x3E00  
-#define WM8996_DSP1RX_3D_GAIN_SHIFT                  9  
-#define WM8996_DSP1RX_3D_GAIN_WIDTH                  5  
-#define WM8996_DSP1RX_3D_ENA                    0x0100  
-#define WM8996_DSP1RX_3D_ENA_MASK               0x0100  
-#define WM8996_DSP1RX_3D_ENA_SHIFT                   8  
-#define WM8996_DSP1RX_3D_ENA_WIDTH                   1  
-
-#define WM8996_DSP1DRC_SIG_DET_RMS_MASK         0xF800  
-#define WM8996_DSP1DRC_SIG_DET_RMS_SHIFT            11  
-#define WM8996_DSP1DRC_SIG_DET_RMS_WIDTH             5  
-#define WM8996_DSP1DRC_SIG_DET_PK_MASK          0x0600  
-#define WM8996_DSP1DRC_SIG_DET_PK_SHIFT              9  
-#define WM8996_DSP1DRC_SIG_DET_PK_WIDTH              2  
-#define WM8996_DSP1DRC_NG_ENA                   0x0100  
-#define WM8996_DSP1DRC_NG_ENA_MASK              0x0100  
-#define WM8996_DSP1DRC_NG_ENA_SHIFT                  8  
-#define WM8996_DSP1DRC_NG_ENA_WIDTH                  1  
-#define WM8996_DSP1DRC_SIG_DET_MODE             0x0080  
-#define WM8996_DSP1DRC_SIG_DET_MODE_MASK        0x0080  
-#define WM8996_DSP1DRC_SIG_DET_MODE_SHIFT            7  
-#define WM8996_DSP1DRC_SIG_DET_MODE_WIDTH            1  
-#define WM8996_DSP1DRC_SIG_DET                  0x0040  
-#define WM8996_DSP1DRC_SIG_DET_MASK             0x0040  
-#define WM8996_DSP1DRC_SIG_DET_SHIFT                 6  
-#define WM8996_DSP1DRC_SIG_DET_WIDTH                 1  
-#define WM8996_DSP1DRC_KNEE2_OP_ENA             0x0020  
-#define WM8996_DSP1DRC_KNEE2_OP_ENA_MASK        0x0020  
-#define WM8996_DSP1DRC_KNEE2_OP_ENA_SHIFT            5  
-#define WM8996_DSP1DRC_KNEE2_OP_ENA_WIDTH            1  
-#define WM8996_DSP1DRC_QR                       0x0010  
-#define WM8996_DSP1DRC_QR_MASK                  0x0010  
-#define WM8996_DSP1DRC_QR_SHIFT                      4  
-#define WM8996_DSP1DRC_QR_WIDTH                      1  
-#define WM8996_DSP1DRC_ANTICLIP                 0x0008  
-#define WM8996_DSP1DRC_ANTICLIP_MASK            0x0008  
-#define WM8996_DSP1DRC_ANTICLIP_SHIFT                3  
-#define WM8996_DSP1DRC_ANTICLIP_WIDTH                1  
-#define WM8996_DSP1RX_DRC_ENA                   0x0004  
-#define WM8996_DSP1RX_DRC_ENA_MASK              0x0004  
-#define WM8996_DSP1RX_DRC_ENA_SHIFT                  2  
-#define WM8996_DSP1RX_DRC_ENA_WIDTH                  1  
-#define WM8996_DSP1TXL_DRC_ENA                  0x0002  
-#define WM8996_DSP1TXL_DRC_ENA_MASK             0x0002  
-#define WM8996_DSP1TXL_DRC_ENA_SHIFT                 1  
-#define WM8996_DSP1TXL_DRC_ENA_WIDTH                 1  
-#define WM8996_DSP1TXR_DRC_ENA                  0x0001  
-#define WM8996_DSP1TXR_DRC_ENA_MASK             0x0001  
-#define WM8996_DSP1TXR_DRC_ENA_SHIFT                 0  
-#define WM8996_DSP1TXR_DRC_ENA_WIDTH                 1  
-
-#define WM8996_DSP1DRC_ATK_MASK                 0x1E00  
-#define WM8996_DSP1DRC_ATK_SHIFT                     9  
-#define WM8996_DSP1DRC_ATK_WIDTH                     4  
-#define WM8996_DSP1DRC_DCY_MASK                 0x01E0  
-#define WM8996_DSP1DRC_DCY_SHIFT                     5  
-#define WM8996_DSP1DRC_DCY_WIDTH                     4  
-#define WM8996_DSP1DRC_MINGAIN_MASK             0x001C  
-#define WM8996_DSP1DRC_MINGAIN_SHIFT                 2  
-#define WM8996_DSP1DRC_MINGAIN_WIDTH                 3  
-#define WM8996_DSP1DRC_MAXGAIN_MASK             0x0003  
-#define WM8996_DSP1DRC_MAXGAIN_SHIFT                 0  
-#define WM8996_DSP1DRC_MAXGAIN_WIDTH                 2  
-
-#define WM8996_DSP1DRC_NG_MINGAIN_MASK          0xF000  
-#define WM8996_DSP1DRC_NG_MINGAIN_SHIFT             12  
-#define WM8996_DSP1DRC_NG_MINGAIN_WIDTH              4  
-#define WM8996_DSP1DRC_NG_EXP_MASK              0x0C00  
-#define WM8996_DSP1DRC_NG_EXP_SHIFT                 10  
-#define WM8996_DSP1DRC_NG_EXP_WIDTH                  2  
-#define WM8996_DSP1DRC_QR_THR_MASK              0x0300  
-#define WM8996_DSP1DRC_QR_THR_SHIFT                  8  
-#define WM8996_DSP1DRC_QR_THR_WIDTH                  2  
-#define WM8996_DSP1DRC_QR_DCY_MASK              0x00C0  
-#define WM8996_DSP1DRC_QR_DCY_SHIFT                  6  
-#define WM8996_DSP1DRC_QR_DCY_WIDTH                  2  
-#define WM8996_DSP1DRC_HI_COMP_MASK             0x0038  
-#define WM8996_DSP1DRC_HI_COMP_SHIFT                 3  
-#define WM8996_DSP1DRC_HI_COMP_WIDTH                 3  
-#define WM8996_DSP1DRC_LO_COMP_MASK             0x0007  
-#define WM8996_DSP1DRC_LO_COMP_SHIFT                 0  
-#define WM8996_DSP1DRC_LO_COMP_WIDTH                 3  
-
-#define WM8996_DSP1DRC_KNEE_IP_MASK             0x07E0  
-#define WM8996_DSP1DRC_KNEE_IP_SHIFT                 5  
-#define WM8996_DSP1DRC_KNEE_IP_WIDTH                 6  
-#define WM8996_DSP1DRC_KNEE_OP_MASK             0x001F  
-#define WM8996_DSP1DRC_KNEE_OP_SHIFT                 0  
-#define WM8996_DSP1DRC_KNEE_OP_WIDTH                 5  
-
-#define WM8996_DSP1DRC_KNEE2_IP_MASK            0x03E0  
-#define WM8996_DSP1DRC_KNEE2_IP_SHIFT                5  
-#define WM8996_DSP1DRC_KNEE2_IP_WIDTH                5  
-#define WM8996_DSP1DRC_KNEE2_OP_MASK            0x001F  
-#define WM8996_DSP1DRC_KNEE2_OP_SHIFT                0  
-#define WM8996_DSP1DRC_KNEE2_OP_WIDTH                5  
-
-#define WM8996_DSP1RX_EQ_B1_GAIN_MASK           0xF800  
-#define WM8996_DSP1RX_EQ_B1_GAIN_SHIFT              11  
-#define WM8996_DSP1RX_EQ_B1_GAIN_WIDTH               5  
-#define WM8996_DSP1RX_EQ_B2_GAIN_MASK           0x07C0  
-#define WM8996_DSP1RX_EQ_B2_GAIN_SHIFT               6  
-#define WM8996_DSP1RX_EQ_B2_GAIN_WIDTH               5  
-#define WM8996_DSP1RX_EQ_B3_GAIN_MASK           0x003E  
-#define WM8996_DSP1RX_EQ_B3_GAIN_SHIFT               1  
-#define WM8996_DSP1RX_EQ_B3_GAIN_WIDTH               5  
-#define WM8996_DSP1RX_EQ_ENA                    0x0001  
-#define WM8996_DSP1RX_EQ_ENA_MASK               0x0001  
-#define WM8996_DSP1RX_EQ_ENA_SHIFT                   0  
-#define WM8996_DSP1RX_EQ_ENA_WIDTH                   1  
-
-#define WM8996_DSP1RX_EQ_B4_GAIN_MASK           0xF800  
-#define WM8996_DSP1RX_EQ_B4_GAIN_SHIFT              11  
-#define WM8996_DSP1RX_EQ_B4_GAIN_WIDTH               5  
-#define WM8996_DSP1RX_EQ_B5_GAIN_MASK           0x07C0  
-#define WM8996_DSP1RX_EQ_B5_GAIN_SHIFT               6  
-#define WM8996_DSP1RX_EQ_B5_GAIN_WIDTH               5  
-
-#define WM8996_DSP1RX_EQ_B1_A_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B1_A_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B1_A_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B1_B_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B1_B_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B1_B_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B1_PG_MASK             0xFFFF  
-#define WM8996_DSP1RX_EQ_B1_PG_SHIFT                 0  
-#define WM8996_DSP1RX_EQ_B1_PG_WIDTH                16  
-
-#define WM8996_DSP1RX_EQ_B2_A_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B2_A_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B2_A_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B2_B_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B2_B_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B2_B_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B2_C_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B2_C_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B2_C_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B2_PG_MASK             0xFFFF  
-#define WM8996_DSP1RX_EQ_B2_PG_SHIFT                 0  
-#define WM8996_DSP1RX_EQ_B2_PG_WIDTH                16  
-
-#define WM8996_DSP1RX_EQ_B3_A_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B3_A_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B3_A_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B3_B_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B3_B_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B3_B_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B3_C_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B3_C_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B3_C_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B3_PG_MASK             0xFFFF  
-#define WM8996_DSP1RX_EQ_B3_PG_SHIFT                 0  
-#define WM8996_DSP1RX_EQ_B3_PG_WIDTH                16  
-
-#define WM8996_DSP1RX_EQ_B4_A_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B4_A_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B4_A_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B4_B_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B4_B_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B4_B_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B4_C_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B4_C_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B4_C_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B4_PG_MASK             0xFFFF  
-#define WM8996_DSP1RX_EQ_B4_PG_SHIFT                 0  
-#define WM8996_DSP1RX_EQ_B4_PG_WIDTH                16  
-
-#define WM8996_DSP1RX_EQ_B5_A_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B5_A_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B5_A_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B5_B_MASK              0xFFFF  
-#define WM8996_DSP1RX_EQ_B5_B_SHIFT                  0  
-#define WM8996_DSP1RX_EQ_B5_B_WIDTH                 16  
-
-#define WM8996_DSP1RX_EQ_B5_PG_MASK             0xFFFF  
-#define WM8996_DSP1RX_EQ_B5_PG_SHIFT                 0  
-#define WM8996_DSP1RX_EQ_B5_PG_WIDTH                16  
-
-#define WM8996_DSP2TX_VU                        0x0100  
-#define WM8996_DSP2TX_VU_MASK                   0x0100  
-#define WM8996_DSP2TX_VU_SHIFT                       8  
-#define WM8996_DSP2TX_VU_WIDTH                       1  
-#define WM8996_DSP2TXL_VOL_MASK                 0x00FF  
-#define WM8996_DSP2TXL_VOL_SHIFT                     0  
-#define WM8996_DSP2TXL_VOL_WIDTH                     8  
-
-#define WM8996_DSP2TX_VU                        0x0100  
-#define WM8996_DSP2TX_VU_MASK                   0x0100  
-#define WM8996_DSP2TX_VU_SHIFT                       8  
-#define WM8996_DSP2TX_VU_WIDTH                       1  
-#define WM8996_DSP2TXR_VOL_MASK                 0x00FF  
-#define WM8996_DSP2TXR_VOL_SHIFT                     0  
-#define WM8996_DSP2TXR_VOL_WIDTH                     8  
-
-#define WM8996_DSP2RX_VU                        0x0100  
-#define WM8996_DSP2RX_VU_MASK                   0x0100  
-#define WM8996_DSP2RX_VU_SHIFT                       8  
-#define WM8996_DSP2RX_VU_WIDTH                       1  
-#define WM8996_DSP2RXL_VOL_MASK                 0x00FF  
-#define WM8996_DSP2RXL_VOL_SHIFT                     0  
-#define WM8996_DSP2RXL_VOL_WIDTH                     8  
-
-#define WM8996_DSP2RX_VU                        0x0100  
-#define WM8996_DSP2RX_VU_MASK                   0x0100  
-#define WM8996_DSP2RX_VU_SHIFT                       8  
-#define WM8996_DSP2RX_VU_WIDTH                       1  
-#define WM8996_DSP2RXR_VOL_MASK                 0x00FF  
-#define WM8996_DSP2RXR_VOL_SHIFT                     0  
-#define WM8996_DSP2RXR_VOL_WIDTH                     8  
-
-#define WM8996_DSP2TX_NF                        0x2000  
-#define WM8996_DSP2TX_NF_MASK                   0x2000  
-#define WM8996_DSP2TX_NF_SHIFT                      13  
-#define WM8996_DSP2TX_NF_WIDTH                       1  
-#define WM8996_DSP2TXL_HPF                      0x1000  
-#define WM8996_DSP2TXL_HPF_MASK                 0x1000  
-#define WM8996_DSP2TXL_HPF_SHIFT                    12  
-#define WM8996_DSP2TXL_HPF_WIDTH                     1  
-#define WM8996_DSP2TXR_HPF                      0x0800  
-#define WM8996_DSP2TXR_HPF_MASK                 0x0800  
-#define WM8996_DSP2TXR_HPF_SHIFT                    11  
-#define WM8996_DSP2TXR_HPF_WIDTH                     1  
-#define WM8996_DSP2TX_HPF_MODE_MASK             0x0018  
-#define WM8996_DSP2TX_HPF_MODE_SHIFT                 3  
-#define WM8996_DSP2TX_HPF_MODE_WIDTH                 2  
-#define WM8996_DSP2TX_HPF_CUT_MASK              0x0007  
-#define WM8996_DSP2TX_HPF_CUT_SHIFT                  0  
-#define WM8996_DSP2TX_HPF_CUT_WIDTH                  3  
-
-#define WM8996_DSP2RX_MUTE                      0x0200  
-#define WM8996_DSP2RX_MUTE_MASK                 0x0200  
-#define WM8996_DSP2RX_MUTE_SHIFT                     9  
-#define WM8996_DSP2RX_MUTE_WIDTH                     1  
-#define WM8996_DSP2RX_MONO                      0x0080  
-#define WM8996_DSP2RX_MONO_MASK                 0x0080  
-#define WM8996_DSP2RX_MONO_SHIFT                     7  
-#define WM8996_DSP2RX_MONO_WIDTH                     1  
-#define WM8996_DSP2RX_MUTERATE                  0x0020  
-#define WM8996_DSP2RX_MUTERATE_MASK             0x0020  
-#define WM8996_DSP2RX_MUTERATE_SHIFT                 5  
-#define WM8996_DSP2RX_MUTERATE_WIDTH                 1  
-#define WM8996_DSP2RX_UNMUTE_RAMP               0x0010  
-#define WM8996_DSP2RX_UNMUTE_RAMP_MASK          0x0010  
-#define WM8996_DSP2RX_UNMUTE_RAMP_SHIFT              4  
-#define WM8996_DSP2RX_UNMUTE_RAMP_WIDTH              1  
-
-#define WM8996_DSP2RX_3D_GAIN_MASK              0x3E00  
-#define WM8996_DSP2RX_3D_GAIN_SHIFT                  9  
-#define WM8996_DSP2RX_3D_GAIN_WIDTH                  5  
-#define WM8996_DSP2RX_3D_ENA                    0x0100  
-#define WM8996_DSP2RX_3D_ENA_MASK               0x0100  
-#define WM8996_DSP2RX_3D_ENA_SHIFT                   8  
-#define WM8996_DSP2RX_3D_ENA_WIDTH                   1  
-
-#define WM8996_DSP2DRC_SIG_DET_RMS_MASK         0xF800  
-#define WM8996_DSP2DRC_SIG_DET_RMS_SHIFT            11  
-#define WM8996_DSP2DRC_SIG_DET_RMS_WIDTH             5  
-#define WM8996_DSP2DRC_SIG_DET_PK_MASK          0x0600  
-#define WM8996_DSP2DRC_SIG_DET_PK_SHIFT              9  
-#define WM8996_DSP2DRC_SIG_DET_PK_WIDTH              2  
-#define WM8996_DSP2DRC_NG_ENA                   0x0100  
-#define WM8996_DSP2DRC_NG_ENA_MASK              0x0100  
-#define WM8996_DSP2DRC_NG_ENA_SHIFT                  8  
-#define WM8996_DSP2DRC_NG_ENA_WIDTH                  1  
-#define WM8996_DSP2DRC_SIG_DET_MODE             0x0080  
-#define WM8996_DSP2DRC_SIG_DET_MODE_MASK        0x0080  
-#define WM8996_DSP2DRC_SIG_DET_MODE_SHIFT            7  
-#define WM8996_DSP2DRC_SIG_DET_MODE_WIDTH            1  
-#define WM8996_DSP2DRC_SIG_DET                  0x0040  
-#define WM8996_DSP2DRC_SIG_DET_MASK             0x0040  
-#define WM8996_DSP2DRC_SIG_DET_SHIFT                 6  
-#define WM8996_DSP2DRC_SIG_DET_WIDTH                 1  
-#define WM8996_DSP2DRC_KNEE2_OP_ENA             0x0020  
-#define WM8996_DSP2DRC_KNEE2_OP_ENA_MASK        0x0020  
-#define WM8996_DSP2DRC_KNEE2_OP_ENA_SHIFT            5  
-#define WM8996_DSP2DRC_KNEE2_OP_ENA_WIDTH            1  
-#define WM8996_DSP2DRC_QR                       0x0010  
-#define WM8996_DSP2DRC_QR_MASK                  0x0010  
-#define WM8996_DSP2DRC_QR_SHIFT                      4  
-#define WM8996_DSP2DRC_QR_WIDTH                      1  
-#define WM8996_DSP2DRC_ANTICLIP                 0x0008  
-#define WM8996_DSP2DRC_ANTICLIP_MASK            0x0008  
-#define WM8996_DSP2DRC_ANTICLIP_SHIFT                3  
-#define WM8996_DSP2DRC_ANTICLIP_WIDTH                1  
-#define WM8996_DSP2RX_DRC_ENA                   0x0004  
-#define WM8996_DSP2RX_DRC_ENA_MASK              0x0004  
-#define WM8996_DSP2RX_DRC_ENA_SHIFT                  2  
-#define WM8996_DSP2RX_DRC_ENA_WIDTH                  1  
-#define WM8996_DSP2TXL_DRC_ENA                  0x0002  
-#define WM8996_DSP2TXL_DRC_ENA_MASK             0x0002  
-#define WM8996_DSP2TXL_DRC_ENA_SHIFT                 1  
-#define WM8996_DSP2TXL_DRC_ENA_WIDTH                 1  
-#define WM8996_DSP2TXR_DRC_ENA                  0x0001  
-#define WM8996_DSP2TXR_DRC_ENA_MASK             0x0001  
-#define WM8996_DSP2TXR_DRC_ENA_SHIFT                 0  
-#define WM8996_DSP2TXR_DRC_ENA_WIDTH                 1  
-
-#define WM8996_DSP2DRC_ATK_MASK                 0x1E00  
-#define WM8996_DSP2DRC_ATK_SHIFT                     9  
-#define WM8996_DSP2DRC_ATK_WIDTH                     4  
-#define WM8996_DSP2DRC_DCY_MASK                 0x01E0  
-#define WM8996_DSP2DRC_DCY_SHIFT                     5  
-#define WM8996_DSP2DRC_DCY_WIDTH                     4  
-#define WM8996_DSP2DRC_MINGAIN_MASK             0x001C  
-#define WM8996_DSP2DRC_MINGAIN_SHIFT                 2  
-#define WM8996_DSP2DRC_MINGAIN_WIDTH                 3  
-#define WM8996_DSP2DRC_MAXGAIN_MASK             0x0003  
-#define WM8996_DSP2DRC_MAXGAIN_SHIFT                 0  
-#define WM8996_DSP2DRC_MAXGAIN_WIDTH                 2  
-
-#define WM8996_DSP2DRC_NG_MINGAIN_MASK          0xF000  
-#define WM8996_DSP2DRC_NG_MINGAIN_SHIFT             12  
-#define WM8996_DSP2DRC_NG_MINGAIN_WIDTH              4  
-#define WM8996_DSP2DRC_NG_EXP_MASK              0x0C00  
-#define WM8996_DSP2DRC_NG_EXP_SHIFT                 10  
-#define WM8996_DSP2DRC_NG_EXP_WIDTH                  2  
-#define WM8996_DSP2DRC_QR_THR_MASK              0x0300  
-#define WM8996_DSP2DRC_QR_THR_SHIFT                  8  
-#define WM8996_DSP2DRC_QR_THR_WIDTH                  2  
-#define WM8996_DSP2DRC_QR_DCY_MASK              0x00C0  
-#define WM8996_DSP2DRC_QR_DCY_SHIFT                  6  
-#define WM8996_DSP2DRC_QR_DCY_WIDTH                  2  
-#define WM8996_DSP2DRC_HI_COMP_MASK             0x0038  
-#define WM8996_DSP2DRC_HI_COMP_SHIFT                 3  
-#define WM8996_DSP2DRC_HI_COMP_WIDTH                 3  
-#define WM8996_DSP2DRC_LO_COMP_MASK             0x0007  
-#define WM8996_DSP2DRC_LO_COMP_SHIFT                 0  
-#define WM8996_DSP2DRC_LO_COMP_WIDTH                 3  
-
-#define WM8996_DSP2DRC_KNEE_IP_MASK             0x07E0  
-#define WM8996_DSP2DRC_KNEE_IP_SHIFT                 5  
-#define WM8996_DSP2DRC_KNEE_IP_WIDTH                 6  
-#define WM8996_DSP2DRC_KNEE_OP_MASK             0x001F  
-#define WM8996_DSP2DRC_KNEE_OP_SHIFT                 0  
-#define WM8996_DSP2DRC_KNEE_OP_WIDTH                 5  
-
-#define WM8996_DSP2DRC_KNEE2_IP_MASK            0x03E0  
-#define WM8996_DSP2DRC_KNEE2_IP_SHIFT                5  
-#define WM8996_DSP2DRC_KNEE2_IP_WIDTH                5  
-#define WM8996_DSP2DRC_KNEE2_OP_MASK            0x001F  
-#define WM8996_DSP2DRC_KNEE2_OP_SHIFT                0  
-#define WM8996_DSP2DRC_KNEE2_OP_WIDTH                5  
-
-#define WM8996_DSP2RX_EQ_B1_GAIN_MASK           0xF800  
-#define WM8996_DSP2RX_EQ_B1_GAIN_SHIFT              11  
-#define WM8996_DSP2RX_EQ_B1_GAIN_WIDTH               5  
-#define WM8996_DSP2RX_EQ_B2_GAIN_MASK           0x07C0  
-#define WM8996_DSP2RX_EQ_B2_GAIN_SHIFT               6  
-#define WM8996_DSP2RX_EQ_B2_GAIN_WIDTH               5  
-#define WM8996_DSP2RX_EQ_B3_GAIN_MASK           0x003E  
-#define WM8996_DSP2RX_EQ_B3_GAIN_SHIFT               1  
-#define WM8996_DSP2RX_EQ_B3_GAIN_WIDTH               5  
-#define WM8996_DSP2RX_EQ_ENA                    0x0001  
-#define WM8996_DSP2RX_EQ_ENA_MASK               0x0001  
-#define WM8996_DSP2RX_EQ_ENA_SHIFT                   0  
-#define WM8996_DSP2RX_EQ_ENA_WIDTH                   1  
-
-#define WM8996_DSP2RX_EQ_B4_GAIN_MASK           0xF800  
-#define WM8996_DSP2RX_EQ_B4_GAIN_SHIFT              11  
-#define WM8996_DSP2RX_EQ_B4_GAIN_WIDTH               5  
-#define WM8996_DSP2RX_EQ_B5_GAIN_MASK           0x07C0  
-#define WM8996_DSP2RX_EQ_B5_GAIN_SHIFT               6  
-#define WM8996_DSP2RX_EQ_B5_GAIN_WIDTH               5  
-
-#define WM8996_DSP2RX_EQ_B1_A_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B1_A_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B1_A_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B1_B_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B1_B_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B1_B_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B1_PG_MASK             0xFFFF  
-#define WM8996_DSP2RX_EQ_B1_PG_SHIFT                 0  
-#define WM8996_DSP2RX_EQ_B1_PG_WIDTH                16  
-
-#define WM8996_DSP2RX_EQ_B2_A_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B2_A_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B2_A_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B2_B_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B2_B_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B2_B_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B2_C_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B2_C_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B2_C_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B2_PG_MASK             0xFFFF  
-#define WM8996_DSP2RX_EQ_B2_PG_SHIFT                 0  
-#define WM8996_DSP2RX_EQ_B2_PG_WIDTH                16  
-
-#define WM8996_DSP2RX_EQ_B3_A_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B3_A_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B3_A_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B3_B_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B3_B_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B3_B_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B3_C_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B3_C_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B3_C_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B3_PG_MASK             0xFFFF  
-#define WM8996_DSP2RX_EQ_B3_PG_SHIFT                 0  
-#define WM8996_DSP2RX_EQ_B3_PG_WIDTH                16  
-
-#define WM8996_DSP2RX_EQ_B4_A_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B4_A_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B4_A_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B4_B_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B4_B_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B4_B_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B4_C_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B4_C_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B4_C_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B4_PG_MASK             0xFFFF  
-#define WM8996_DSP2RX_EQ_B4_PG_SHIFT                 0  
-#define WM8996_DSP2RX_EQ_B4_PG_WIDTH                16  
-
-#define WM8996_DSP2RX_EQ_B5_A_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B5_A_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B5_A_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B5_B_MASK              0xFFFF  
-#define WM8996_DSP2RX_EQ_B5_B_SHIFT                  0  
-#define WM8996_DSP2RX_EQ_B5_B_WIDTH                 16  
-
-#define WM8996_DSP2RX_EQ_B5_PG_MASK             0xFFFF  
-#define WM8996_DSP2RX_EQ_B5_PG_SHIFT                 0  
-#define WM8996_DSP2RX_EQ_B5_PG_WIDTH                16  
-
-#define WM8996_ADCR_DAC1_VOL_MASK               0x03E0  
-#define WM8996_ADCR_DAC1_VOL_SHIFT                   5  
-#define WM8996_ADCR_DAC1_VOL_WIDTH                   5  
-#define WM8996_ADCL_DAC1_VOL_MASK               0x001F  
-#define WM8996_ADCL_DAC1_VOL_SHIFT                   0  
-#define WM8996_ADCL_DAC1_VOL_WIDTH                   5  
-
-#define WM8996_ADCR_TO_DAC1L                    0x0020  
-#define WM8996_ADCR_TO_DAC1L_MASK               0x0020  
-#define WM8996_ADCR_TO_DAC1L_SHIFT                   5  
-#define WM8996_ADCR_TO_DAC1L_WIDTH                   1  
-#define WM8996_ADCL_TO_DAC1L                    0x0010  
-#define WM8996_ADCL_TO_DAC1L_MASK               0x0010  
-#define WM8996_ADCL_TO_DAC1L_SHIFT                   4  
-#define WM8996_ADCL_TO_DAC1L_WIDTH                   1  
-#define WM8996_DSP2RXL_TO_DAC1L                 0x0002  
-#define WM8996_DSP2RXL_TO_DAC1L_MASK            0x0002  
-#define WM8996_DSP2RXL_TO_DAC1L_SHIFT                1  
-#define WM8996_DSP2RXL_TO_DAC1L_WIDTH                1  
-#define WM8996_DSP1RXL_TO_DAC1L                 0x0001  
-#define WM8996_DSP1RXL_TO_DAC1L_MASK            0x0001  
-#define WM8996_DSP1RXL_TO_DAC1L_SHIFT                0  
-#define WM8996_DSP1RXL_TO_DAC1L_WIDTH                1  
-
-#define WM8996_ADCR_TO_DAC1R                    0x0020  
-#define WM8996_ADCR_TO_DAC1R_MASK               0x0020  
-#define WM8996_ADCR_TO_DAC1R_SHIFT                   5  
-#define WM8996_ADCR_TO_DAC1R_WIDTH                   1  
-#define WM8996_ADCL_TO_DAC1R                    0x0010  
-#define WM8996_ADCL_TO_DAC1R_MASK               0x0010  
-#define WM8996_ADCL_TO_DAC1R_SHIFT                   4  
-#define WM8996_ADCL_TO_DAC1R_WIDTH                   1  
-#define WM8996_DSP2RXR_TO_DAC1R                 0x0002  
-#define WM8996_DSP2RXR_TO_DAC1R_MASK            0x0002  
-#define WM8996_DSP2RXR_TO_DAC1R_SHIFT                1  
-#define WM8996_DSP2RXR_TO_DAC1R_WIDTH                1  
-#define WM8996_DSP1RXR_TO_DAC1R                 0x0001  
-#define WM8996_DSP1RXR_TO_DAC1R_MASK            0x0001  
-#define WM8996_DSP1RXR_TO_DAC1R_SHIFT                0  
-#define WM8996_DSP1RXR_TO_DAC1R_WIDTH                1  
-
-#define WM8996_ADCR_DAC2_VOL_MASK               0x03E0  
-#define WM8996_ADCR_DAC2_VOL_SHIFT                   5  
-#define WM8996_ADCR_DAC2_VOL_WIDTH                   5  
-#define WM8996_ADCL_DAC2_VOL_MASK               0x001F  
-#define WM8996_ADCL_DAC2_VOL_SHIFT                   0  
-#define WM8996_ADCL_DAC2_VOL_WIDTH                   5  
-
-#define WM8996_ADCR_TO_DAC2L                    0x0020  
-#define WM8996_ADCR_TO_DAC2L_MASK               0x0020  
-#define WM8996_ADCR_TO_DAC2L_SHIFT                   5  
-#define WM8996_ADCR_TO_DAC2L_WIDTH                   1  
-#define WM8996_ADCL_TO_DAC2L                    0x0010  
-#define WM8996_ADCL_TO_DAC2L_MASK               0x0010  
-#define WM8996_ADCL_TO_DAC2L_SHIFT                   4  
-#define WM8996_ADCL_TO_DAC2L_WIDTH                   1  
-#define WM8996_DSP2RXL_TO_DAC2L                 0x0002  
-#define WM8996_DSP2RXL_TO_DAC2L_MASK            0x0002  
-#define WM8996_DSP2RXL_TO_DAC2L_SHIFT                1  
-#define WM8996_DSP2RXL_TO_DAC2L_WIDTH                1  
-#define WM8996_DSP1RXL_TO_DAC2L                 0x0001  
-#define WM8996_DSP1RXL_TO_DAC2L_MASK            0x0001  
-#define WM8996_DSP1RXL_TO_DAC2L_SHIFT                0  
-#define WM8996_DSP1RXL_TO_DAC2L_WIDTH                1  
-
-#define WM8996_ADCR_TO_DAC2R                    0x0020  
-#define WM8996_ADCR_TO_DAC2R_MASK               0x0020  
-#define WM8996_ADCR_TO_DAC2R_SHIFT                   5  
-#define WM8996_ADCR_TO_DAC2R_WIDTH                   1  
-#define WM8996_ADCL_TO_DAC2R                    0x0010  
-#define WM8996_ADCL_TO_DAC2R_MASK               0x0010  
-#define WM8996_ADCL_TO_DAC2R_SHIFT                   4  
-#define WM8996_ADCL_TO_DAC2R_WIDTH                   1  
-#define WM8996_DSP2RXR_TO_DAC2R                 0x0002  
-#define WM8996_DSP2RXR_TO_DAC2R_MASK            0x0002  
-#define WM8996_DSP2RXR_TO_DAC2R_SHIFT                1  
-#define WM8996_DSP2RXR_TO_DAC2R_WIDTH                1  
-#define WM8996_DSP1RXR_TO_DAC2R                 0x0001  
-#define WM8996_DSP1RXR_TO_DAC2R_MASK            0x0001  
-#define WM8996_DSP1RXR_TO_DAC2R_SHIFT                0  
-#define WM8996_DSP1RXR_TO_DAC2R_WIDTH                1  
-
-#define WM8996_ADC1L_TO_DSP1TXL                 0x0002  
-#define WM8996_ADC1L_TO_DSP1TXL_MASK            0x0002  
-#define WM8996_ADC1L_TO_DSP1TXL_SHIFT                1  
-#define WM8996_ADC1L_TO_DSP1TXL_WIDTH                1  
-#define WM8996_DACL_TO_DSP1TXL                  0x0001  
-#define WM8996_DACL_TO_DSP1TXL_MASK             0x0001  
-#define WM8996_DACL_TO_DSP1TXL_SHIFT                 0  
-#define WM8996_DACL_TO_DSP1TXL_WIDTH                 1  
-
-#define WM8996_ADC1R_TO_DSP1TXR                 0x0002  
-#define WM8996_ADC1R_TO_DSP1TXR_MASK            0x0002  
-#define WM8996_ADC1R_TO_DSP1TXR_SHIFT                1  
-#define WM8996_ADC1R_TO_DSP1TXR_WIDTH                1  
-#define WM8996_DACR_TO_DSP1TXR                  0x0001  
-#define WM8996_DACR_TO_DSP1TXR_MASK             0x0001  
-#define WM8996_DACR_TO_DSP1TXR_SHIFT                 0  
-#define WM8996_DACR_TO_DSP1TXR_WIDTH                 1  
-
-#define WM8996_ADC2L_TO_DSP2TXL                 0x0002  
-#define WM8996_ADC2L_TO_DSP2TXL_MASK            0x0002  
-#define WM8996_ADC2L_TO_DSP2TXL_SHIFT                1  
-#define WM8996_ADC2L_TO_DSP2TXL_WIDTH                1  
-#define WM8996_DACL_TO_DSP2TXL                  0x0001  
-#define WM8996_DACL_TO_DSP2TXL_MASK             0x0001  
-#define WM8996_DACL_TO_DSP2TXL_SHIFT                 0  
-#define WM8996_DACL_TO_DSP2TXL_WIDTH                 1  
-
-#define WM8996_ADC2R_TO_DSP2TXR                 0x0002  
-#define WM8996_ADC2R_TO_DSP2TXR_MASK            0x0002  
-#define WM8996_ADC2R_TO_DSP2TXR_SHIFT                1  
-#define WM8996_ADC2R_TO_DSP2TXR_WIDTH                1  
-#define WM8996_DACR_TO_DSP2TXR                  0x0001  
-#define WM8996_DACR_TO_DSP2TXR_MASK             0x0001  
-#define WM8996_DACR_TO_DSP2TXR_SHIFT                 0  
-#define WM8996_DACR_TO_DSP2TXR_WIDTH                 1  
-
-#define WM8996_DAC_TO_DSPTX_SRC                 0x0001  
-#define WM8996_DAC_TO_DSPTX_SRC_MASK            0x0001  
-#define WM8996_DAC_TO_DSPTX_SRC_SHIFT                0  
-#define WM8996_DAC_TO_DSPTX_SRC_WIDTH                1  
-
-#define WM8996_DAC_SOFTMUTEMODE                 0x0002  
-#define WM8996_DAC_SOFTMUTEMODE_MASK            0x0002  
-#define WM8996_DAC_SOFTMUTEMODE_SHIFT                1  
-#define WM8996_DAC_SOFTMUTEMODE_WIDTH                1  
-#define WM8996_DAC_MUTERATE                     0x0001  
-#define WM8996_DAC_MUTERATE_MASK                0x0001  
-#define WM8996_DAC_MUTERATE_SHIFT                    0  
-#define WM8996_DAC_MUTERATE_WIDTH                    1  
-
-#define WM8996_SPK_OSR128                       0x0008  
-#define WM8996_SPK_OSR128_MASK                  0x0008  
-#define WM8996_SPK_OSR128_SHIFT                      3  
-#define WM8996_SPK_OSR128_WIDTH                      1  
-#define WM8996_DMIC_OSR64                       0x0004  
-#define WM8996_DMIC_OSR64_MASK                  0x0004  
-#define WM8996_DMIC_OSR64_SHIFT                      2  
-#define WM8996_DMIC_OSR64_WIDTH                      1  
-#define WM8996_ADC_OSR128                       0x0002  
-#define WM8996_ADC_OSR128_MASK                  0x0002  
-#define WM8996_ADC_OSR128_SHIFT                      1  
-#define WM8996_ADC_OSR128_WIDTH                      1  
-#define WM8996_DAC_OSR128                       0x0001  
-#define WM8996_DAC_OSR128_MASK                  0x0001  
-#define WM8996_DAC_OSR128_SHIFT                      0  
-#define WM8996_DAC_OSR128_WIDTH                      1  
-
-#define WM8996_ST_LPF                           0x1000  
-#define WM8996_ST_LPF_MASK                      0x1000  
-#define WM8996_ST_LPF_SHIFT                         12  
-#define WM8996_ST_LPF_WIDTH                          1  
-#define WM8996_ST_HPF_CUT_MASK                  0x0380  
-#define WM8996_ST_HPF_CUT_SHIFT                      7  
-#define WM8996_ST_HPF_CUT_WIDTH                      3  
-#define WM8996_ST_HPF                           0x0040  
-#define WM8996_ST_HPF_MASK                      0x0040  
-#define WM8996_ST_HPF_SHIFT                          6  
-#define WM8996_ST_HPF_WIDTH                          1  
-#define WM8996_STR_SEL                          0x0002  
-#define WM8996_STR_SEL_MASK                     0x0002  
-#define WM8996_STR_SEL_SHIFT                         1  
-#define WM8996_STR_SEL_WIDTH                         1  
-#define WM8996_STL_SEL                          0x0001  
-#define WM8996_STL_SEL_MASK                     0x0001  
-#define WM8996_STL_SEL_SHIFT                         0  
-#define WM8996_STL_SEL_WIDTH                         1  
-
-#define WM8996_GP1_DIR                          0x8000  
-#define WM8996_GP1_DIR_MASK                     0x8000  
-#define WM8996_GP1_DIR_SHIFT                        15  
-#define WM8996_GP1_DIR_WIDTH                         1  
-#define WM8996_GP1_PU                           0x4000  
-#define WM8996_GP1_PU_MASK                      0x4000  
-#define WM8996_GP1_PU_SHIFT                         14  
-#define WM8996_GP1_PU_WIDTH                          1  
-#define WM8996_GP1_PD                           0x2000  
-#define WM8996_GP1_PD_MASK                      0x2000  
-#define WM8996_GP1_PD_SHIFT                         13  
-#define WM8996_GP1_PD_WIDTH                          1  
-#define WM8996_GP1_POL                          0x0400  
-#define WM8996_GP1_POL_MASK                     0x0400  
-#define WM8996_GP1_POL_SHIFT                        10  
-#define WM8996_GP1_POL_WIDTH                         1  
-#define WM8996_GP1_OP_CFG                       0x0200  
-#define WM8996_GP1_OP_CFG_MASK                  0x0200  
-#define WM8996_GP1_OP_CFG_SHIFT                      9  
-#define WM8996_GP1_OP_CFG_WIDTH                      1  
-#define WM8996_GP1_DB                           0x0100  
-#define WM8996_GP1_DB_MASK                      0x0100  
-#define WM8996_GP1_DB_SHIFT                          8  
-#define WM8996_GP1_DB_WIDTH                          1  
-#define WM8996_GP1_LVL                          0x0040  
-#define WM8996_GP1_LVL_MASK                     0x0040  
-#define WM8996_GP1_LVL_SHIFT                         6  
-#define WM8996_GP1_LVL_WIDTH                         1  
-#define WM8996_GP1_FN_MASK                      0x000F  
-#define WM8996_GP1_FN_SHIFT                          0  
-#define WM8996_GP1_FN_WIDTH                          4  
-
-#define WM8996_GP2_DIR                          0x8000  
-#define WM8996_GP2_DIR_MASK                     0x8000  
-#define WM8996_GP2_DIR_SHIFT                        15  
-#define WM8996_GP2_DIR_WIDTH                         1  
-#define WM8996_GP2_PU                           0x4000  
-#define WM8996_GP2_PU_MASK                      0x4000  
-#define WM8996_GP2_PU_SHIFT                         14  
-#define WM8996_GP2_PU_WIDTH                          1  
-#define WM8996_GP2_PD                           0x2000  
-#define WM8996_GP2_PD_MASK                      0x2000  
-#define WM8996_GP2_PD_SHIFT                         13  
-#define WM8996_GP2_PD_WIDTH                          1  
-#define WM8996_GP2_POL                          0x0400  
-#define WM8996_GP2_POL_MASK                     0x0400  
-#define WM8996_GP2_POL_SHIFT                        10  
-#define WM8996_GP2_POL_WIDTH                         1  
-#define WM8996_GP2_OP_CFG                       0x0200  
-#define WM8996_GP2_OP_CFG_MASK                  0x0200  
-#define WM8996_GP2_OP_CFG_SHIFT                      9  
-#define WM8996_GP2_OP_CFG_WIDTH                      1  
-#define WM8996_GP2_DB                           0x0100  
-#define WM8996_GP2_DB_MASK                      0x0100  
-#define WM8996_GP2_DB_SHIFT                          8  
-#define WM8996_GP2_DB_WIDTH                          1  
-#define WM8996_GP2_LVL                          0x0040  
-#define WM8996_GP2_LVL_MASK                     0x0040  
-#define WM8996_GP2_LVL_SHIFT                         6  
-#define WM8996_GP2_LVL_WIDTH                         1  
-#define WM8996_GP2_FN_MASK                      0x000F  
-#define WM8996_GP2_FN_SHIFT                          0  
-#define WM8996_GP2_FN_WIDTH                          4  
-
-#define WM8996_GP3_DIR                          0x8000  
-#define WM8996_GP3_DIR_MASK                     0x8000  
-#define WM8996_GP3_DIR_SHIFT                        15  
-#define WM8996_GP3_DIR_WIDTH                         1  
-#define WM8996_GP3_PU                           0x4000  
-#define WM8996_GP3_PU_MASK                      0x4000  
-#define WM8996_GP3_PU_SHIFT                         14  
-#define WM8996_GP3_PU_WIDTH                          1  
-#define WM8996_GP3_PD                           0x2000  
-#define WM8996_GP3_PD_MASK                      0x2000  
-#define WM8996_GP3_PD_SHIFT                         13  
-#define WM8996_GP3_PD_WIDTH                          1  
-#define WM8996_GP3_POL                          0x0400  
-#define WM8996_GP3_POL_MASK                     0x0400  
-#define WM8996_GP3_POL_SHIFT                        10  
-#define WM8996_GP3_POL_WIDTH                         1  
-#define WM8996_GP3_OP_CFG                       0x0200  
-#define WM8996_GP3_OP_CFG_MASK                  0x0200  
-#define WM8996_GP3_OP_CFG_SHIFT                      9  
-#define WM8996_GP3_OP_CFG_WIDTH                      1  
-#define WM8996_GP3_DB                           0x0100  
-#define WM8996_GP3_DB_MASK                      0x0100  
-#define WM8996_GP3_DB_SHIFT                          8  
-#define WM8996_GP3_DB_WIDTH                          1  
-#define WM8996_GP3_LVL                          0x0040  
-#define WM8996_GP3_LVL_MASK                     0x0040  
-#define WM8996_GP3_LVL_SHIFT                         6  
-#define WM8996_GP3_LVL_WIDTH                         1  
-#define WM8996_GP3_FN_MASK                      0x000F  
-#define WM8996_GP3_FN_SHIFT                          0  
-#define WM8996_GP3_FN_WIDTH                          4  
-
-#define WM8996_GP4_DIR                          0x8000  
-#define WM8996_GP4_DIR_MASK                     0x8000  
-#define WM8996_GP4_DIR_SHIFT                        15  
-#define WM8996_GP4_DIR_WIDTH                         1  
-#define WM8996_GP4_PU                           0x4000  
-#define WM8996_GP4_PU_MASK                      0x4000  
-#define WM8996_GP4_PU_SHIFT                         14  
-#define WM8996_GP4_PU_WIDTH                          1  
-#define WM8996_GP4_PD                           0x2000  
-#define WM8996_GP4_PD_MASK                      0x2000  
-#define WM8996_GP4_PD_SHIFT                         13  
-#define WM8996_GP4_PD_WIDTH                          1  
-#define WM8996_GP4_POL                          0x0400  
-#define WM8996_GP4_POL_MASK                     0x0400  
-#define WM8996_GP4_POL_SHIFT                        10  
-#define WM8996_GP4_POL_WIDTH                         1  
-#define WM8996_GP4_OP_CFG                       0x0200  
-#define WM8996_GP4_OP_CFG_MASK                  0x0200  
-#define WM8996_GP4_OP_CFG_SHIFT                      9  
-#define WM8996_GP4_OP_CFG_WIDTH                      1  
-#define WM8996_GP4_DB                           0x0100  
-#define WM8996_GP4_DB_MASK                      0x0100  
-#define WM8996_GP4_DB_SHIFT                          8  
-#define WM8996_GP4_DB_WIDTH                          1  
-#define WM8996_GP4_LVL                          0x0040  
-#define WM8996_GP4_LVL_MASK                     0x0040  
-#define WM8996_GP4_LVL_SHIFT                         6  
-#define WM8996_GP4_LVL_WIDTH                         1  
-#define WM8996_GP4_FN_MASK                      0x000F  
-#define WM8996_GP4_FN_SHIFT                          0  
-#define WM8996_GP4_FN_WIDTH                          4  
-
-#define WM8996_GP5_DIR                          0x8000  
-#define WM8996_GP5_DIR_MASK                     0x8000  
-#define WM8996_GP5_DIR_SHIFT                        15  
-#define WM8996_GP5_DIR_WIDTH                         1  
-#define WM8996_GP5_PU                           0x4000  
-#define WM8996_GP5_PU_MASK                      0x4000  
-#define WM8996_GP5_PU_SHIFT                         14  
-#define WM8996_GP5_PU_WIDTH                          1  
-#define WM8996_GP5_PD                           0x2000  
-#define WM8996_GP5_PD_MASK                      0x2000  
-#define WM8996_GP5_PD_SHIFT                         13  
-#define WM8996_GP5_PD_WIDTH                          1  
-#define WM8996_GP5_POL                          0x0400  
-#define WM8996_GP5_POL_MASK                     0x0400  
-#define WM8996_GP5_POL_SHIFT                        10  
-#define WM8996_GP5_POL_WIDTH                         1  
-#define WM8996_GP5_OP_CFG                       0x0200  
-#define WM8996_GP5_OP_CFG_MASK                  0x0200  
-#define WM8996_GP5_OP_CFG_SHIFT                      9  
-#define WM8996_GP5_OP_CFG_WIDTH                      1  
-#define WM8996_GP5_DB                           0x0100  
-#define WM8996_GP5_DB_MASK                      0x0100  
-#define WM8996_GP5_DB_SHIFT                          8  
-#define WM8996_GP5_DB_WIDTH                          1  
-#define WM8996_GP5_LVL                          0x0040  
-#define WM8996_GP5_LVL_MASK                     0x0040  
-#define WM8996_GP5_LVL_SHIFT                         6  
-#define WM8996_GP5_LVL_WIDTH                         1  
-#define WM8996_GP5_FN_MASK                      0x000F  
-#define WM8996_GP5_FN_SHIFT                          0  
-#define WM8996_GP5_FN_WIDTH                          4  
-
-#define WM8996_DMICDAT2_PD                      0x1000  
-#define WM8996_DMICDAT2_PD_MASK                 0x1000  
-#define WM8996_DMICDAT2_PD_SHIFT                    12  
-#define WM8996_DMICDAT2_PD_WIDTH                     1  
-#define WM8996_DMICDAT1_PD                      0x0400  
-#define WM8996_DMICDAT1_PD_MASK                 0x0400  
-#define WM8996_DMICDAT1_PD_SHIFT                    10  
-#define WM8996_DMICDAT1_PD_WIDTH                     1  
-#define WM8996_MCLK2_PU                         0x0200  
-#define WM8996_MCLK2_PU_MASK                    0x0200  
-#define WM8996_MCLK2_PU_SHIFT                        9  
-#define WM8996_MCLK2_PU_WIDTH                        1  
-#define WM8996_MCLK2_PD                         0x0100  
-#define WM8996_MCLK2_PD_MASK                    0x0100  
-#define WM8996_MCLK2_PD_SHIFT                        8  
-#define WM8996_MCLK2_PD_WIDTH                        1  
-#define WM8996_MCLK1_PU                         0x0080  
-#define WM8996_MCLK1_PU_MASK                    0x0080  
-#define WM8996_MCLK1_PU_SHIFT                        7  
-#define WM8996_MCLK1_PU_WIDTH                        1  
-#define WM8996_MCLK1_PD                         0x0040  
-#define WM8996_MCLK1_PD_MASK                    0x0040  
-#define WM8996_MCLK1_PD_SHIFT                        6  
-#define WM8996_MCLK1_PD_WIDTH                        1  
-#define WM8996_DACDAT1_PU                       0x0020  
-#define WM8996_DACDAT1_PU_MASK                  0x0020  
-#define WM8996_DACDAT1_PU_SHIFT                      5  
-#define WM8996_DACDAT1_PU_WIDTH                      1  
-#define WM8996_DACDAT1_PD                       0x0010  
-#define WM8996_DACDAT1_PD_MASK                  0x0010  
-#define WM8996_DACDAT1_PD_SHIFT                      4  
-#define WM8996_DACDAT1_PD_WIDTH                      1  
-#define WM8996_DACLRCLK1_PU                     0x0008  
-#define WM8996_DACLRCLK1_PU_MASK                0x0008  
-#define WM8996_DACLRCLK1_PU_SHIFT                    3  
-#define WM8996_DACLRCLK1_PU_WIDTH                    1  
-#define WM8996_DACLRCLK1_PD                     0x0004  
-#define WM8996_DACLRCLK1_PD_MASK                0x0004  
-#define WM8996_DACLRCLK1_PD_SHIFT                    2  
-#define WM8996_DACLRCLK1_PD_WIDTH                    1  
-#define WM8996_BCLK1_PU                         0x0002  
-#define WM8996_BCLK1_PU_MASK                    0x0002  
-#define WM8996_BCLK1_PU_SHIFT                        1  
-#define WM8996_BCLK1_PU_WIDTH                        1  
-#define WM8996_BCLK1_PD                         0x0001  
-#define WM8996_BCLK1_PD_MASK                    0x0001  
-#define WM8996_BCLK1_PD_SHIFT                        0  
-#define WM8996_BCLK1_PD_WIDTH                        1  
-
-#define WM8996_LDO1ENA_PD                       0x0100  
-#define WM8996_LDO1ENA_PD_MASK                  0x0100  
-#define WM8996_LDO1ENA_PD_SHIFT                      8  
-#define WM8996_LDO1ENA_PD_WIDTH                      1  
-#define WM8996_ADDR_PD                          0x0040  
-#define WM8996_ADDR_PD_MASK                     0x0040  
-#define WM8996_ADDR_PD_SHIFT                         6  
-#define WM8996_ADDR_PD_WIDTH                         1  
-#define WM8996_DACDAT2_PU                       0x0020  
-#define WM8996_DACDAT2_PU_MASK                  0x0020  
-#define WM8996_DACDAT2_PU_SHIFT                      5  
-#define WM8996_DACDAT2_PU_WIDTH                      1  
-#define WM8996_DACDAT2_PD                       0x0010  
-#define WM8996_DACDAT2_PD_MASK                  0x0010  
-#define WM8996_DACDAT2_PD_SHIFT                      4  
-#define WM8996_DACDAT2_PD_WIDTH                      1  
-#define WM8996_DACLRCLK2_PU                     0x0008  
-#define WM8996_DACLRCLK2_PU_MASK                0x0008  
-#define WM8996_DACLRCLK2_PU_SHIFT                    3  
-#define WM8996_DACLRCLK2_PU_WIDTH                    1  
-#define WM8996_DACLRCLK2_PD                     0x0004  
-#define WM8996_DACLRCLK2_PD_MASK                0x0004  
-#define WM8996_DACLRCLK2_PD_SHIFT                    2  
-#define WM8996_DACLRCLK2_PD_WIDTH                    1  
-#define WM8996_BCLK2_PU                         0x0002  
-#define WM8996_BCLK2_PU_MASK                    0x0002  
-#define WM8996_BCLK2_PU_SHIFT                        1  
-#define WM8996_BCLK2_PU_WIDTH                        1  
-#define WM8996_BCLK2_PD                         0x0001  
-#define WM8996_BCLK2_PD_MASK                    0x0001  
-#define WM8996_BCLK2_PD_SHIFT                        0  
-#define WM8996_BCLK2_PD_WIDTH                        1  
-
-#define WM8996_GP5_EINT                         0x0010  
-#define WM8996_GP5_EINT_MASK                    0x0010  
-#define WM8996_GP5_EINT_SHIFT                        4  
-#define WM8996_GP5_EINT_WIDTH                        1  
-#define WM8996_GP4_EINT                         0x0008  
-#define WM8996_GP4_EINT_MASK                    0x0008  
-#define WM8996_GP4_EINT_SHIFT                        3  
-#define WM8996_GP4_EINT_WIDTH                        1  
-#define WM8996_GP3_EINT                         0x0004  
-#define WM8996_GP3_EINT_MASK                    0x0004  
-#define WM8996_GP3_EINT_SHIFT                        2  
-#define WM8996_GP3_EINT_WIDTH                        1  
-#define WM8996_GP2_EINT                         0x0002  
-#define WM8996_GP2_EINT_MASK                    0x0002  
-#define WM8996_GP2_EINT_SHIFT                        1  
-#define WM8996_GP2_EINT_WIDTH                        1  
-#define WM8996_GP1_EINT                         0x0001  
-#define WM8996_GP1_EINT_MASK                    0x0001  
-#define WM8996_GP1_EINT_SHIFT                        0  
-#define WM8996_GP1_EINT_WIDTH                        1  
-
-#define WM8996_DCS_DONE_23_EINT                 0x1000  
-#define WM8996_DCS_DONE_23_EINT_MASK            0x1000  
-#define WM8996_DCS_DONE_23_EINT_SHIFT               12  
-#define WM8996_DCS_DONE_23_EINT_WIDTH                1  
-#define WM8996_DCS_DONE_01_EINT                 0x0800  
-#define WM8996_DCS_DONE_01_EINT_MASK            0x0800  
-#define WM8996_DCS_DONE_01_EINT_SHIFT               11  
-#define WM8996_DCS_DONE_01_EINT_WIDTH                1  
-#define WM8996_WSEQ_DONE_EINT                   0x0400  
-#define WM8996_WSEQ_DONE_EINT_MASK              0x0400  
-#define WM8996_WSEQ_DONE_EINT_SHIFT                 10  
-#define WM8996_WSEQ_DONE_EINT_WIDTH                  1  
-#define WM8996_FIFOS_ERR_EINT                   0x0200  
-#define WM8996_FIFOS_ERR_EINT_MASK              0x0200  
-#define WM8996_FIFOS_ERR_EINT_SHIFT                  9  
-#define WM8996_FIFOS_ERR_EINT_WIDTH                  1  
-#define WM8996_DSP2DRC_SIG_DET_EINT             0x0080  
-#define WM8996_DSP2DRC_SIG_DET_EINT_MASK        0x0080  
-#define WM8996_DSP2DRC_SIG_DET_EINT_SHIFT            7  
-#define WM8996_DSP2DRC_SIG_DET_EINT_WIDTH            1  
-#define WM8996_DSP1DRC_SIG_DET_EINT             0x0040  
-#define WM8996_DSP1DRC_SIG_DET_EINT_MASK        0x0040  
-#define WM8996_DSP1DRC_SIG_DET_EINT_SHIFT            6  
-#define WM8996_DSP1DRC_SIG_DET_EINT_WIDTH            1  
-#define WM8996_FLL_SW_CLK_DONE_EINT             0x0008  
-#define WM8996_FLL_SW_CLK_DONE_EINT_MASK        0x0008  
-#define WM8996_FLL_SW_CLK_DONE_EINT_SHIFT            3  
-#define WM8996_FLL_SW_CLK_DONE_EINT_WIDTH            1  
-#define WM8996_FLL_LOCK_EINT                    0x0004  
-#define WM8996_FLL_LOCK_EINT_MASK               0x0004  
-#define WM8996_FLL_LOCK_EINT_SHIFT                   2  
-#define WM8996_FLL_LOCK_EINT_WIDTH                   1  
-#define WM8996_HP_DONE_EINT                     0x0002  
-#define WM8996_HP_DONE_EINT_MASK                0x0002  
-#define WM8996_HP_DONE_EINT_SHIFT                    1  
-#define WM8996_HP_DONE_EINT_WIDTH                    1  
-#define WM8996_MICD_EINT                        0x0001  
-#define WM8996_MICD_EINT_MASK                   0x0001  
-#define WM8996_MICD_EINT_SHIFT                       0  
-#define WM8996_MICD_EINT_WIDTH                       1  
-
-#define WM8996_DCS_DONE_23_STS                  0x1000  
-#define WM8996_DCS_DONE_23_STS_MASK             0x1000  
-#define WM8996_DCS_DONE_23_STS_SHIFT                12  
-#define WM8996_DCS_DONE_23_STS_WIDTH                 1  
-#define WM8996_DCS_DONE_01_STS                  0x0800  
-#define WM8996_DCS_DONE_01_STS_MASK             0x0800  
-#define WM8996_DCS_DONE_01_STS_SHIFT                11  
-#define WM8996_DCS_DONE_01_STS_WIDTH                 1  
-#define WM8996_WSEQ_DONE_STS                    0x0400  
-#define WM8996_WSEQ_DONE_STS_MASK               0x0400  
-#define WM8996_WSEQ_DONE_STS_SHIFT                  10  
-#define WM8996_WSEQ_DONE_STS_WIDTH                   1  
-#define WM8996_FIFOS_ERR_STS                    0x0200  
-#define WM8996_FIFOS_ERR_STS_MASK               0x0200  
-#define WM8996_FIFOS_ERR_STS_SHIFT                   9  
-#define WM8996_FIFOS_ERR_STS_WIDTH                   1  
-#define WM8996_DSP2DRC_SIG_DET_STS              0x0080  
-#define WM8996_DSP2DRC_SIG_DET_STS_MASK         0x0080  
-#define WM8996_DSP2DRC_SIG_DET_STS_SHIFT             7  
-#define WM8996_DSP2DRC_SIG_DET_STS_WIDTH             1  
-#define WM8996_DSP1DRC_SIG_DET_STS              0x0040  
-#define WM8996_DSP1DRC_SIG_DET_STS_MASK         0x0040  
-#define WM8996_DSP1DRC_SIG_DET_STS_SHIFT             6  
-#define WM8996_DSP1DRC_SIG_DET_STS_WIDTH             1  
-#define WM8996_FLL_LOCK_STS                     0x0004  
-#define WM8996_FLL_LOCK_STS_MASK                0x0004  
-#define WM8996_FLL_LOCK_STS_SHIFT                    2  
-#define WM8996_FLL_LOCK_STS_WIDTH                    1  
-
-#define WM8996_IM_GP5_EINT                      0x0010  
-#define WM8996_IM_GP5_EINT_MASK                 0x0010  
-#define WM8996_IM_GP5_EINT_SHIFT                     4  
-#define WM8996_IM_GP5_EINT_WIDTH                     1  
-#define WM8996_IM_GP4_EINT                      0x0008  
-#define WM8996_IM_GP4_EINT_MASK                 0x0008  
-#define WM8996_IM_GP4_EINT_SHIFT                     3  
-#define WM8996_IM_GP4_EINT_WIDTH                     1  
-#define WM8996_IM_GP3_EINT                      0x0004  
-#define WM8996_IM_GP3_EINT_MASK                 0x0004  
-#define WM8996_IM_GP3_EINT_SHIFT                     2  
-#define WM8996_IM_GP3_EINT_WIDTH                     1  
-#define WM8996_IM_GP2_EINT                      0x0002  
-#define WM8996_IM_GP2_EINT_MASK                 0x0002  
-#define WM8996_IM_GP2_EINT_SHIFT                     1  
-#define WM8996_IM_GP2_EINT_WIDTH                     1  
-#define WM8996_IM_GP1_EINT                      0x0001  
-#define WM8996_IM_GP1_EINT_MASK                 0x0001  
-#define WM8996_IM_GP1_EINT_SHIFT                     0  
-#define WM8996_IM_GP1_EINT_WIDTH                     1  
-
-#define WM8996_IM_DCS_DONE_23_EINT              0x1000  
-#define WM8996_IM_DCS_DONE_23_EINT_MASK         0x1000  
-#define WM8996_IM_DCS_DONE_23_EINT_SHIFT            12  
-#define WM8996_IM_DCS_DONE_23_EINT_WIDTH             1  
-#define WM8996_IM_DCS_DONE_01_EINT              0x0800  
-#define WM8996_IM_DCS_DONE_01_EINT_MASK         0x0800  
-#define WM8996_IM_DCS_DONE_01_EINT_SHIFT            11  
-#define WM8996_IM_DCS_DONE_01_EINT_WIDTH             1  
-#define WM8996_IM_WSEQ_DONE_EINT                0x0400  
-#define WM8996_IM_WSEQ_DONE_EINT_MASK           0x0400  
-#define WM8996_IM_WSEQ_DONE_EINT_SHIFT              10  
-#define WM8996_IM_WSEQ_DONE_EINT_WIDTH               1  
-#define WM8996_IM_FIFOS_ERR_EINT                0x0200  
-#define WM8996_IM_FIFOS_ERR_EINT_MASK           0x0200  
-#define WM8996_IM_FIFOS_ERR_EINT_SHIFT               9  
-#define WM8996_IM_FIFOS_ERR_EINT_WIDTH               1  
-#define WM8996_IM_DSP2DRC_SIG_DET_EINT          0x0080  
-#define WM8996_IM_DSP2DRC_SIG_DET_EINT_MASK     0x0080  
-#define WM8996_IM_DSP2DRC_SIG_DET_EINT_SHIFT         7  
-#define WM8996_IM_DSP2DRC_SIG_DET_EINT_WIDTH         1  
-#define WM8996_IM_DSP1DRC_SIG_DET_EINT          0x0040  
-#define WM8996_IM_DSP1DRC_SIG_DET_EINT_MASK     0x0040  
-#define WM8996_IM_DSP1DRC_SIG_DET_EINT_SHIFT         6  
-#define WM8996_IM_DSP1DRC_SIG_DET_EINT_WIDTH         1  
-#define WM8996_IM_FLL_SW_CLK_DONE_EINT          0x0008  
-#define WM8996_IM_FLL_SW_CLK_DONE_EINT_MASK     0x0008  
-#define WM8996_IM_FLL_SW_CLK_DONE_EINT_SHIFT         3  
-#define WM8996_IM_FLL_SW_CLK_DONE_EINT_WIDTH         1  
-#define WM8996_IM_FLL_LOCK_EINT                 0x0004  
-#define WM8996_IM_FLL_LOCK_EINT_MASK            0x0004  
-#define WM8996_IM_FLL_LOCK_EINT_SHIFT                2  
-#define WM8996_IM_FLL_LOCK_EINT_WIDTH                1  
-#define WM8996_IM_HP_DONE_EINT                  0x0002  
-#define WM8996_IM_HP_DONE_EINT_MASK             0x0002  
-#define WM8996_IM_HP_DONE_EINT_SHIFT                 1  
-#define WM8996_IM_HP_DONE_EINT_WIDTH                 1  
-#define WM8996_IM_MICD_EINT                     0x0001  
-#define WM8996_IM_MICD_EINT_MASK                0x0001  
-#define WM8996_IM_MICD_EINT_SHIFT                    0  
-#define WM8996_IM_MICD_EINT_WIDTH                    1  
-
-#define WM8996_IM_IRQ                           0x0001  
-#define WM8996_IM_IRQ_MASK                      0x0001  
-#define WM8996_IM_IRQ_SHIFT                          0  
-#define WM8996_IM_IRQ_WIDTH                          1  
-
-#define WM8996_SPKL_ENA                         0x0010  
-#define WM8996_SPKL_ENA_MASK                    0x0010  
-#define WM8996_SPKL_ENA_SHIFT                        4  
-#define WM8996_SPKL_ENA_WIDTH                        1  
-#define WM8996_SPKL_MUTE                        0x0008  
-#define WM8996_SPKL_MUTE_MASK                   0x0008  
-#define WM8996_SPKL_MUTE_SHIFT                       3  
-#define WM8996_SPKL_MUTE_WIDTH                       1  
-#define WM8996_SPKL_MUTE_ZC                     0x0004  
-#define WM8996_SPKL_MUTE_ZC_MASK                0x0004  
-#define WM8996_SPKL_MUTE_ZC_SHIFT                    2  
-#define WM8996_SPKL_MUTE_ZC_WIDTH                    1  
-#define WM8996_SPKL_SRC_MASK                    0x0003  
-#define WM8996_SPKL_SRC_SHIFT                        0  
-#define WM8996_SPKL_SRC_WIDTH                        2  
-
-#define WM8996_SPKR_ENA                         0x0010  
-#define WM8996_SPKR_ENA_MASK                    0x0010  
-#define WM8996_SPKR_ENA_SHIFT                        4  
-#define WM8996_SPKR_ENA_WIDTH                        1  
-#define WM8996_SPKR_MUTE                        0x0008  
-#define WM8996_SPKR_MUTE_MASK                   0x0008  
-#define WM8996_SPKR_MUTE_SHIFT                       3  
-#define WM8996_SPKR_MUTE_WIDTH                       1  
-#define WM8996_SPKR_MUTE_ZC                     0x0004  
-#define WM8996_SPKR_MUTE_ZC_MASK                0x0004  
-#define WM8996_SPKR_MUTE_ZC_SHIFT                    2  
-#define WM8996_SPKR_MUTE_ZC_WIDTH                    1  
-#define WM8996_SPKR_SRC_MASK                    0x0003  
-#define WM8996_SPKR_SRC_SHIFT                        0  
-#define WM8996_SPKR_SRC_WIDTH                        2  
-
-#define WM8996_SPK_MUTE_ENDIAN                  0x0100  
-#define WM8996_SPK_MUTE_ENDIAN_MASK             0x0100  
-#define WM8996_SPK_MUTE_ENDIAN_SHIFT                 8  
-#define WM8996_SPK_MUTE_ENDIAN_WIDTH                 1  
-#define WM8996_SPK_MUTE_SEQ1_MASK               0x00FF  
-#define WM8996_SPK_MUTE_SEQ1_SHIFT                   0  
-#define WM8996_SPK_MUTE_SEQ1_WIDTH                   8  
-
-#define WM8996_SPKR_VOL_MASK                    0x00F0  
-#define WM8996_SPKR_VOL_SHIFT                        4  
-#define WM8996_SPKR_VOL_WIDTH                        4  
-#define WM8996_SPKL_VOL_MASK                    0x000F  
-#define WM8996_SPKL_VOL_SHIFT                        0  
-#define WM8996_SPKL_VOL_WIDTH                        4  
+/*
+ * Field Definitions.
+ */
+
+/*
+ * R0 (0x00) - Software Reset
+ */
+#define WM8996_SW_RESET_MASK                    0xFFFF  /* SW_RESET - [15:0] */
+#define WM8996_SW_RESET_SHIFT                        0  /* SW_RESET - [15:0] */
+#define WM8996_SW_RESET_WIDTH                       16  /* SW_RESET - [15:0] */
+
+/*
+ * R1 (0x01) - Power Management (1)
+ */
+#define WM8996_MICB2_ENA                        0x0200  /* MICB2_ENA */
+#define WM8996_MICB2_ENA_MASK                   0x0200  /* MICB2_ENA */
+#define WM8996_MICB2_ENA_SHIFT                       9  /* MICB2_ENA */
+#define WM8996_MICB2_ENA_WIDTH                       1  /* MICB2_ENA */
+#define WM8996_MICB1_ENA                        0x0100  /* MICB1_ENA */
+#define WM8996_MICB1_ENA_MASK                   0x0100  /* MICB1_ENA */
+#define WM8996_MICB1_ENA_SHIFT                       8  /* MICB1_ENA */
+#define WM8996_MICB1_ENA_WIDTH                       1  /* MICB1_ENA */
+#define WM8996_HPOUT2L_ENA                      0x0080  /* HPOUT2L_ENA */
+#define WM8996_HPOUT2L_ENA_MASK                 0x0080  /* HPOUT2L_ENA */
+#define WM8996_HPOUT2L_ENA_SHIFT                     7  /* HPOUT2L_ENA */
+#define WM8996_HPOUT2L_ENA_WIDTH                     1  /* HPOUT2L_ENA */
+#define WM8996_HPOUT2R_ENA                      0x0040  /* HPOUT2R_ENA */
+#define WM8996_HPOUT2R_ENA_MASK                 0x0040  /* HPOUT2R_ENA */
+#define WM8996_HPOUT2R_ENA_SHIFT                     6  /* HPOUT2R_ENA */
+#define WM8996_HPOUT2R_ENA_WIDTH                     1  /* HPOUT2R_ENA */
+#define WM8996_HPOUT1L_ENA                      0x0020  /* HPOUT1L_ENA */
+#define WM8996_HPOUT1L_ENA_MASK                 0x0020  /* HPOUT1L_ENA */
+#define WM8996_HPOUT1L_ENA_SHIFT                     5  /* HPOUT1L_ENA */
+#define WM8996_HPOUT1L_ENA_WIDTH                     1  /* HPOUT1L_ENA */
+#define WM8996_HPOUT1R_ENA                      0x0010  /* HPOUT1R_ENA */
+#define WM8996_HPOUT1R_ENA_MASK                 0x0010  /* HPOUT1R_ENA */
+#define WM8996_HPOUT1R_ENA_SHIFT                     4  /* HPOUT1R_ENA */
+#define WM8996_HPOUT1R_ENA_WIDTH                     1  /* HPOUT1R_ENA */
+#define WM8996_BG_ENA                           0x0001  /* BG_ENA */
+#define WM8996_BG_ENA_MASK                      0x0001  /* BG_ENA */
+#define WM8996_BG_ENA_SHIFT                          0  /* BG_ENA */
+#define WM8996_BG_ENA_WIDTH                          1  /* BG_ENA */
+
+/*
+ * R2 (0x02) - Power Management (2)
+ */
+#define WM8996_OPCLK_ENA                        0x0800  /* OPCLK_ENA */
+#define WM8996_OPCLK_ENA_MASK                   0x0800  /* OPCLK_ENA */
+#define WM8996_OPCLK_ENA_SHIFT                      11  /* OPCLK_ENA */
+#define WM8996_OPCLK_ENA_WIDTH                       1  /* OPCLK_ENA */
+#define WM8996_INL_ENA                          0x0020  /* INL_ENA */
+#define WM8996_INL_ENA_MASK                     0x0020  /* INL_ENA */
+#define WM8996_INL_ENA_SHIFT                         5  /* INL_ENA */
+#define WM8996_INL_ENA_WIDTH                         1  /* INL_ENA */
+#define WM8996_INR_ENA                          0x0010  /* INR_ENA */
+#define WM8996_INR_ENA_MASK                     0x0010  /* INR_ENA */
+#define WM8996_INR_ENA_SHIFT                         4  /* INR_ENA */
+#define WM8996_INR_ENA_WIDTH                         1  /* INR_ENA */
+#define WM8996_LDO2_ENA                         0x0002  /* LDO2_ENA */
+#define WM8996_LDO2_ENA_MASK                    0x0002  /* LDO2_ENA */
+#define WM8996_LDO2_ENA_SHIFT                        1  /* LDO2_ENA */
+#define WM8996_LDO2_ENA_WIDTH                        1  /* LDO2_ENA */
+
+/*
+ * R3 (0x03) - Power Management (3)
+ */
+#define WM8996_DSP2RXL_ENA                      0x0800  /* DSP2RXL_ENA */
+#define WM8996_DSP2RXL_ENA_MASK                 0x0800  /* DSP2RXL_ENA */
+#define WM8996_DSP2RXL_ENA_SHIFT                    11  /* DSP2RXL_ENA */
+#define WM8996_DSP2RXL_ENA_WIDTH                     1  /* DSP2RXL_ENA */
+#define WM8996_DSP2RXR_ENA                      0x0400  /* DSP2RXR_ENA */
+#define WM8996_DSP2RXR_ENA_MASK                 0x0400  /* DSP2RXR_ENA */
+#define WM8996_DSP2RXR_ENA_SHIFT                    10  /* DSP2RXR_ENA */
+#define WM8996_DSP2RXR_ENA_WIDTH                     1  /* DSP2RXR_ENA */
+#define WM8996_DSP1RXL_ENA                      0x0200  /* DSP1RXL_ENA */
+#define WM8996_DSP1RXL_ENA_MASK                 0x0200  /* DSP1RXL_ENA */
+#define WM8996_DSP1RXL_ENA_SHIFT                     9  /* DSP1RXL_ENA */
+#define WM8996_DSP1RXL_ENA_WIDTH                     1  /* DSP1RXL_ENA */
+#define WM8996_DSP1RXR_ENA                      0x0100  /* DSP1RXR_ENA */
+#define WM8996_DSP1RXR_ENA_MASK                 0x0100  /* DSP1RXR_ENA */
+#define WM8996_DSP1RXR_ENA_SHIFT                     8  /* DSP1RXR_ENA */
+#define WM8996_DSP1RXR_ENA_WIDTH                     1  /* DSP1RXR_ENA */
+#define WM8996_DMIC2L_ENA                       0x0020  /* DMIC2L_ENA */
+#define WM8996_DMIC2L_ENA_MASK                  0x0020  /* DMIC2L_ENA */
+#define WM8996_DMIC2L_ENA_SHIFT                      5  /* DMIC2L_ENA */
+#define WM8996_DMIC2L_ENA_WIDTH                      1  /* DMIC2L_ENA */
+#define WM8996_DMIC2R_ENA                       0x0010  /* DMIC2R_ENA */
+#define WM8996_DMIC2R_ENA_MASK                  0x0010  /* DMIC2R_ENA */
+#define WM8996_DMIC2R_ENA_SHIFT                      4  /* DMIC2R_ENA */
+#define WM8996_DMIC2R_ENA_WIDTH                      1  /* DMIC2R_ENA */
+#define WM8996_DMIC1L_ENA                       0x0008  /* DMIC1L_ENA */
+#define WM8996_DMIC1L_ENA_MASK                  0x0008  /* DMIC1L_ENA */
+#define WM8996_DMIC1L_ENA_SHIFT                      3  /* DMIC1L_ENA */
+#define WM8996_DMIC1L_ENA_WIDTH                      1  /* DMIC1L_ENA */
+#define WM8996_DMIC1R_ENA                       0x0004  /* DMIC1R_ENA */
+#define WM8996_DMIC1R_ENA_MASK                  0x0004  /* DMIC1R_ENA */
+#define WM8996_DMIC1R_ENA_SHIFT                      2  /* DMIC1R_ENA */
+#define WM8996_DMIC1R_ENA_WIDTH                      1  /* DMIC1R_ENA */
+#define WM8996_ADCL_ENA                         0x0002  /* ADCL_ENA */
+#define WM8996_ADCL_ENA_MASK                    0x0002  /* ADCL_ENA */
+#define WM8996_ADCL_ENA_SHIFT                        1  /* ADCL_ENA */
+#define WM8996_ADCL_ENA_WIDTH                        1  /* ADCL_ENA */
+#define WM8996_ADCR_ENA                         0x0001  /* ADCR_ENA */
+#define WM8996_ADCR_ENA_MASK                    0x0001  /* ADCR_ENA */
+#define WM8996_ADCR_ENA_SHIFT                        0  /* ADCR_ENA */
+#define WM8996_ADCR_ENA_WIDTH                        1  /* ADCR_ENA */
+
+/*
+ * R4 (0x04) - Power Management (4)
+ */
+#define WM8996_AIF2RX_CHAN1_ENA                 0x0200  /* AIF2RX_CHAN1_ENA */
+#define WM8996_AIF2RX_CHAN1_ENA_MASK            0x0200  /* AIF2RX_CHAN1_ENA */
+#define WM8996_AIF2RX_CHAN1_ENA_SHIFT                9  /* AIF2RX_CHAN1_ENA */
+#define WM8996_AIF2RX_CHAN1_ENA_WIDTH                1  /* AIF2RX_CHAN1_ENA */
+#define WM8996_AIF2RX_CHAN0_ENA                 0x0100  /* AIF2RX_CHAN0_ENA */
+#define WM8996_AIF2RX_CHAN0_ENA_MASK            0x0100  /* AIF2RX_CHAN0_ENA */
+#define WM8996_AIF2RX_CHAN0_ENA_SHIFT                8  /* AIF2RX_CHAN0_ENA */
+#define WM8996_AIF2RX_CHAN0_ENA_WIDTH                1  /* AIF2RX_CHAN0_ENA */
+#define WM8996_AIF1RX_CHAN5_ENA                 0x0020  /* AIF1RX_CHAN5_ENA */
+#define WM8996_AIF1RX_CHAN5_ENA_MASK            0x0020  /* AIF1RX_CHAN5_ENA */
+#define WM8996_AIF1RX_CHAN5_ENA_SHIFT                5  /* AIF1RX_CHAN5_ENA */
+#define WM8996_AIF1RX_CHAN5_ENA_WIDTH                1  /* AIF1RX_CHAN5_ENA */
+#define WM8996_AIF1RX_CHAN4_ENA                 0x0010  /* AIF1RX_CHAN4_ENA */
+#define WM8996_AIF1RX_CHAN4_ENA_MASK            0x0010  /* AIF1RX_CHAN4_ENA */
+#define WM8996_AIF1RX_CHAN4_ENA_SHIFT                4  /* AIF1RX_CHAN4_ENA */
+#define WM8996_AIF1RX_CHAN4_ENA_WIDTH                1  /* AIF1RX_CHAN4_ENA */
+#define WM8996_AIF1RX_CHAN3_ENA                 0x0008  /* AIF1RX_CHAN3_ENA */
+#define WM8996_AIF1RX_CHAN3_ENA_MASK            0x0008  /* AIF1RX_CHAN3_ENA */
+#define WM8996_AIF1RX_CHAN3_ENA_SHIFT                3  /* AIF1RX_CHAN3_ENA */
+#define WM8996_AIF1RX_CHAN3_ENA_WIDTH                1  /* AIF1RX_CHAN3_ENA */
+#define WM8996_AIF1RX_CHAN2_ENA                 0x0004  /* AIF1RX_CHAN2_ENA */
+#define WM8996_AIF1RX_CHAN2_ENA_MASK            0x0004  /* AIF1RX_CHAN2_ENA */
+#define WM8996_AIF1RX_CHAN2_ENA_SHIFT                2  /* AIF1RX_CHAN2_ENA */
+#define WM8996_AIF1RX_CHAN2_ENA_WIDTH                1  /* AIF1RX_CHAN2_ENA */
+#define WM8996_AIF1RX_CHAN1_ENA                 0x0002  /* AIF1RX_CHAN1_ENA */
+#define WM8996_AIF1RX_CHAN1_ENA_MASK            0x0002  /* AIF1RX_CHAN1_ENA */
+#define WM8996_AIF1RX_CHAN1_ENA_SHIFT                1  /* AIF1RX_CHAN1_ENA */
+#define WM8996_AIF1RX_CHAN1_ENA_WIDTH                1  /* AIF1RX_CHAN1_ENA */
+#define WM8996_AIF1RX_CHAN0_ENA                 0x0001  /* AIF1RX_CHAN0_ENA */
+#define WM8996_AIF1RX_CHAN0_ENA_MASK            0x0001  /* AIF1RX_CHAN0_ENA */
+#define WM8996_AIF1RX_CHAN0_ENA_SHIFT                0  /* AIF1RX_CHAN0_ENA */
+#define WM8996_AIF1RX_CHAN0_ENA_WIDTH                1  /* AIF1RX_CHAN0_ENA */
+
+/*
+ * R5 (0x05) - Power Management (5)
+ */
+#define WM8996_DSP2TXL_ENA                      0x0800  /* DSP2TXL_ENA */
+#define WM8996_DSP2TXL_ENA_MASK                 0x0800  /* DSP2TXL_ENA */
+#define WM8996_DSP2TXL_ENA_SHIFT                    11  /* DSP2TXL_ENA */
+#define WM8996_DSP2TXL_ENA_WIDTH                     1  /* DSP2TXL_ENA */
+#define WM8996_DSP2TXR_ENA                      0x0400  /* DSP2TXR_ENA */
+#define WM8996_DSP2TXR_ENA_MASK                 0x0400  /* DSP2TXR_ENA */
+#define WM8996_DSP2TXR_ENA_SHIFT                    10  /* DSP2TXR_ENA */
+#define WM8996_DSP2TXR_ENA_WIDTH                     1  /* DSP2TXR_ENA */
+#define WM8996_DSP1TXL_ENA                      0x0200  /* DSP1TXL_ENA */
+#define WM8996_DSP1TXL_ENA_MASK                 0x0200  /* DSP1TXL_ENA */
+#define WM8996_DSP1TXL_ENA_SHIFT                     9  /* DSP1TXL_ENA */
+#define WM8996_DSP1TXL_ENA_WIDTH                     1  /* DSP1TXL_ENA */
+#define WM8996_DSP1TXR_ENA                      0x0100  /* DSP1TXR_ENA */
+#define WM8996_DSP1TXR_ENA_MASK                 0x0100  /* DSP1TXR_ENA */
+#define WM8996_DSP1TXR_ENA_SHIFT                     8  /* DSP1TXR_ENA */
+#define WM8996_DSP1TXR_ENA_WIDTH                     1  /* DSP1TXR_ENA */
+#define WM8996_DAC2L_ENA                        0x0008  /* DAC2L_ENA */
+#define WM8996_DAC2L_ENA_MASK                   0x0008  /* DAC2L_ENA */
+#define WM8996_DAC2L_ENA_SHIFT                       3  /* DAC2L_ENA */
+#define WM8996_DAC2L_ENA_WIDTH                       1  /* DAC2L_ENA */
+#define WM8996_DAC2R_ENA                        0x0004  /* DAC2R_ENA */
+#define WM8996_DAC2R_ENA_MASK                   0x0004  /* DAC2R_ENA */
+#define WM8996_DAC2R_ENA_SHIFT                       2  /* DAC2R_ENA */
+#define WM8996_DAC2R_ENA_WIDTH                       1  /* DAC2R_ENA */
+#define WM8996_DAC1L_ENA                        0x0002  /* DAC1L_ENA */
+#define WM8996_DAC1L_ENA_MASK                   0x0002  /* DAC1L_ENA */
+#define WM8996_DAC1L_ENA_SHIFT                       1  /* DAC1L_ENA */
+#define WM8996_DAC1L_ENA_WIDTH                       1  /* DAC1L_ENA */
+#define WM8996_DAC1R_ENA                        0x0001  /* DAC1R_ENA */
+#define WM8996_DAC1R_ENA_MASK                   0x0001  /* DAC1R_ENA */
+#define WM8996_DAC1R_ENA_SHIFT                       0  /* DAC1R_ENA */
+#define WM8996_DAC1R_ENA_WIDTH                       1  /* DAC1R_ENA */
+
+/*
+ * R6 (0x06) - Power Management (6)
+ */
+#define WM8996_AIF2TX_CHAN1_ENA                 0x0200  /* AIF2TX_CHAN1_ENA */
+#define WM8996_AIF2TX_CHAN1_ENA_MASK            0x0200  /* AIF2TX_CHAN1_ENA */
+#define WM8996_AIF2TX_CHAN1_ENA_SHIFT                9  /* AIF2TX_CHAN1_ENA */
+#define WM8996_AIF2TX_CHAN1_ENA_WIDTH                1  /* AIF2TX_CHAN1_ENA */
+#define WM8996_AIF2TX_CHAN0_ENA                 0x0100  /* AIF2TX_CHAN0_ENA */
+#define WM8996_AIF2TX_CHAN0_ENA_MASK            0x0100  /* AIF2TX_CHAN0_ENA */
+#define WM8996_AIF2TX_CHAN0_ENA_SHIFT                8  /* AIF2TX_CHAN0_ENA */
+#define WM8996_AIF2TX_CHAN0_ENA_WIDTH                1  /* AIF2TX_CHAN0_ENA */
+#define WM8996_AIF1TX_CHAN5_ENA                 0x0020  /* AIF1TX_CHAN5_ENA */
+#define WM8996_AIF1TX_CHAN5_ENA_MASK            0x0020  /* AIF1TX_CHAN5_ENA */
+#define WM8996_AIF1TX_CHAN5_ENA_SHIFT                5  /* AIF1TX_CHAN5_ENA */
+#define WM8996_AIF1TX_CHAN5_ENA_WIDTH                1  /* AIF1TX_CHAN5_ENA */
+#define WM8996_AIF1TX_CHAN4_ENA                 0x0010  /* AIF1TX_CHAN4_ENA */
+#define WM8996_AIF1TX_CHAN4_ENA_MASK            0x0010  /* AIF1TX_CHAN4_ENA */
+#define WM8996_AIF1TX_CHAN4_ENA_SHIFT                4  /* AIF1TX_CHAN4_ENA */
+#define WM8996_AIF1TX_CHAN4_ENA_WIDTH                1  /* AIF1TX_CHAN4_ENA */
+#define WM8996_AIF1TX_CHAN3_ENA                 0x0008  /* AIF1TX_CHAN3_ENA */
+#define WM8996_AIF1TX_CHAN3_ENA_MASK            0x0008  /* AIF1TX_CHAN3_ENA */
+#define WM8996_AIF1TX_CHAN3_ENA_SHIFT                3  /* AIF1TX_CHAN3_ENA */
+#define WM8996_AIF1TX_CHAN3_ENA_WIDTH                1  /* AIF1TX_CHAN3_ENA */
+#define WM8996_AIF1TX_CHAN2_ENA                 0x0004  /* AIF1TX_CHAN2_ENA */
+#define WM8996_AIF1TX_CHAN2_ENA_MASK            0x0004  /* AIF1TX_CHAN2_ENA */
+#define WM8996_AIF1TX_CHAN2_ENA_SHIFT                2  /* AIF1TX_CHAN2_ENA */
+#define WM8996_AIF1TX_CHAN2_ENA_WIDTH                1  /* AIF1TX_CHAN2_ENA */
+#define WM8996_AIF1TX_CHAN1_ENA                 0x0002  /* AIF1TX_CHAN1_ENA */
+#define WM8996_AIF1TX_CHAN1_ENA_MASK            0x0002  /* AIF1TX_CHAN1_ENA */
+#define WM8996_AIF1TX_CHAN1_ENA_SHIFT                1  /* AIF1TX_CHAN1_ENA */
+#define WM8996_AIF1TX_CHAN1_ENA_WIDTH                1  /* AIF1TX_CHAN1_ENA */
+#define WM8996_AIF1TX_CHAN0_ENA                 0x0001  /* AIF1TX_CHAN0_ENA */
+#define WM8996_AIF1TX_CHAN0_ENA_MASK            0x0001  /* AIF1TX_CHAN0_ENA */
+#define WM8996_AIF1TX_CHAN0_ENA_SHIFT                0  /* AIF1TX_CHAN0_ENA */
+#define WM8996_AIF1TX_CHAN0_ENA_WIDTH                1  /* AIF1TX_CHAN0_ENA */
+
+/*
+ * R7 (0x07) - Power Management (7)
+ */
+#define WM8996_DMIC2_FN                         0x0200  /* DMIC2_FN */
+#define WM8996_DMIC2_FN_MASK                    0x0200  /* DMIC2_FN */
+#define WM8996_DMIC2_FN_SHIFT                        9  /* DMIC2_FN */
+#define WM8996_DMIC2_FN_WIDTH                        1  /* DMIC2_FN */
+#define WM8996_DMIC1_FN                         0x0100  /* DMIC1_FN */
+#define WM8996_DMIC1_FN_MASK                    0x0100  /* DMIC1_FN */
+#define WM8996_DMIC1_FN_SHIFT                        8  /* DMIC1_FN */
+#define WM8996_DMIC1_FN_WIDTH                        1  /* DMIC1_FN */
+#define WM8996_ADC_DMIC_DSP2R_ENA               0x0080  /* ADC_DMIC_DSP2R_ENA */
+#define WM8996_ADC_DMIC_DSP2R_ENA_MASK          0x0080  /* ADC_DMIC_DSP2R_ENA */
+#define WM8996_ADC_DMIC_DSP2R_ENA_SHIFT              7  /* ADC_DMIC_DSP2R_ENA */
+#define WM8996_ADC_DMIC_DSP2R_ENA_WIDTH              1  /* ADC_DMIC_DSP2R_ENA */
+#define WM8996_ADC_DMIC_DSP2L_ENA               0x0040  /* ADC_DMIC_DSP2L_ENA */
+#define WM8996_ADC_DMIC_DSP2L_ENA_MASK          0x0040  /* ADC_DMIC_DSP2L_ENA */
+#define WM8996_ADC_DMIC_DSP2L_ENA_SHIFT              6  /* ADC_DMIC_DSP2L_ENA */
+#define WM8996_ADC_DMIC_DSP2L_ENA_WIDTH              1  /* ADC_DMIC_DSP2L_ENA */
+#define WM8996_ADC_DMIC_SRC2_MASK               0x0030  /* ADC_DMIC_SRC2 - [5:4] */
+#define WM8996_ADC_DMIC_SRC2_SHIFT                   4  /* ADC_DMIC_SRC2 - [5:4] */
+#define WM8996_ADC_DMIC_SRC2_WIDTH                   2  /* ADC_DMIC_SRC2 - [5:4] */
+#define WM8996_ADC_DMIC_DSP1R_ENA               0x0008  /* ADC_DMIC_DSP1R_ENA */
+#define WM8996_ADC_DMIC_DSP1R_ENA_MASK          0x0008  /* ADC_DMIC_DSP1R_ENA */
+#define WM8996_ADC_DMIC_DSP1R_ENA_SHIFT              3  /* ADC_DMIC_DSP1R_ENA */
+#define WM8996_ADC_DMIC_DSP1R_ENA_WIDTH              1  /* ADC_DMIC_DSP1R_ENA */
+#define WM8996_ADC_DMIC_DSP1L_ENA               0x0004  /* ADC_DMIC_DSP1L_ENA */
+#define WM8996_ADC_DMIC_DSP1L_ENA_MASK          0x0004  /* ADC_DMIC_DSP1L_ENA */
+#define WM8996_ADC_DMIC_DSP1L_ENA_SHIFT              2  /* ADC_DMIC_DSP1L_ENA */
+#define WM8996_ADC_DMIC_DSP1L_ENA_WIDTH              1  /* ADC_DMIC_DSP1L_ENA */
+#define WM8996_ADC_DMIC_SRC1_MASK               0x0003  /* ADC_DMIC_SRC1 - [1:0] */
+#define WM8996_ADC_DMIC_SRC1_SHIFT                   0  /* ADC_DMIC_SRC1 - [1:0] */
+#define WM8996_ADC_DMIC_SRC1_WIDTH                   2  /* ADC_DMIC_SRC1 - [1:0] */
+
+/*
+ * R8 (0x08) - Power Management (8)
+ */
+#define WM8996_AIF2TX_SRC_MASK                  0x00C0  /* AIF2TX_SRC - [7:6] */
+#define WM8996_AIF2TX_SRC_SHIFT                      6  /* AIF2TX_SRC - [7:6] */
+#define WM8996_AIF2TX_SRC_WIDTH                      2  /* AIF2TX_SRC - [7:6] */
+#define WM8996_DSP2RX_SRC                       0x0010  /* DSP2RX_SRC */
+#define WM8996_DSP2RX_SRC_MASK                  0x0010  /* DSP2RX_SRC */
+#define WM8996_DSP2RX_SRC_SHIFT                      4  /* DSP2RX_SRC */
+#define WM8996_DSP2RX_SRC_WIDTH                      1  /* DSP2RX_SRC */
+#define WM8996_DSP1RX_SRC                       0x0001  /* DSP1RX_SRC */
+#define WM8996_DSP1RX_SRC_MASK                  0x0001  /* DSP1RX_SRC */
+#define WM8996_DSP1RX_SRC_SHIFT                      0  /* DSP1RX_SRC */
+#define WM8996_DSP1RX_SRC_WIDTH                      1  /* DSP1RX_SRC */
+
+/*
+ * R16 (0x10) - Left Line Input Volume
+ */
+#define WM8996_IN1_VU                           0x0080  /* IN1_VU */
+#define WM8996_IN1_VU_MASK                      0x0080  /* IN1_VU */
+#define WM8996_IN1_VU_SHIFT                          7  /* IN1_VU */
+#define WM8996_IN1_VU_WIDTH                          1  /* IN1_VU */
+#define WM8996_IN1L_ZC                          0x0020  /* IN1L_ZC */
+#define WM8996_IN1L_ZC_MASK                     0x0020  /* IN1L_ZC */
+#define WM8996_IN1L_ZC_SHIFT                         5  /* IN1L_ZC */
+#define WM8996_IN1L_ZC_WIDTH                         1  /* IN1L_ZC */
+#define WM8996_IN1L_VOL_MASK                    0x001F  /* IN1L_VOL - [4:0] */
+#define WM8996_IN1L_VOL_SHIFT                        0  /* IN1L_VOL - [4:0] */
+#define WM8996_IN1L_VOL_WIDTH                        5  /* IN1L_VOL - [4:0] */
+
+/*
+ * R17 (0x11) - Right Line Input Volume
+ */
+#define WM8996_IN1_VU                           0x0080  /* IN1_VU */
+#define WM8996_IN1_VU_MASK                      0x0080  /* IN1_VU */
+#define WM8996_IN1_VU_SHIFT                          7  /* IN1_VU */
+#define WM8996_IN1_VU_WIDTH                          1  /* IN1_VU */
+#define WM8996_IN1R_ZC                          0x0020  /* IN1R_ZC */
+#define WM8996_IN1R_ZC_MASK                     0x0020  /* IN1R_ZC */
+#define WM8996_IN1R_ZC_SHIFT                         5  /* IN1R_ZC */
+#define WM8996_IN1R_ZC_WIDTH                         1  /* IN1R_ZC */
+#define WM8996_IN1R_VOL_MASK                    0x001F  /* IN1R_VOL - [4:0] */
+#define WM8996_IN1R_VOL_SHIFT                        0  /* IN1R_VOL - [4:0] */
+#define WM8996_IN1R_VOL_WIDTH                        5  /* IN1R_VOL - [4:0] */
+
+/*
+ * R18 (0x12) - Line Input Control
+ */
+#define WM8996_INL_MODE_MASK                    0x000C  /* INL_MODE - [3:2] */
+#define WM8996_INL_MODE_SHIFT                        2  /* INL_MODE - [3:2] */
+#define WM8996_INL_MODE_WIDTH                        2  /* INL_MODE - [3:2] */
+#define WM8996_INR_MODE_MASK                    0x0003  /* INR_MODE - [1:0] */
+#define WM8996_INR_MODE_SHIFT                        0  /* INR_MODE - [1:0] */
+#define WM8996_INR_MODE_WIDTH                        2  /* INR_MODE - [1:0] */
+
+/*
+ * R21 (0x15) - DAC1 HPOUT1 Volume
+ */
+#define WM8996_DAC1R_HPOUT1R_VOL_MASK           0x00F0  /* DAC1R_HPOUT1R_VOL - [7:4] */
+#define WM8996_DAC1R_HPOUT1R_VOL_SHIFT               4  /* DAC1R_HPOUT1R_VOL - [7:4] */
+#define WM8996_DAC1R_HPOUT1R_VOL_WIDTH               4  /* DAC1R_HPOUT1R_VOL - [7:4] */
+#define WM8996_DAC1L_HPOUT1L_VOL_MASK           0x000F  /* DAC1L_HPOUT1L_VOL - [3:0] */
+#define WM8996_DAC1L_HPOUT1L_VOL_SHIFT               0  /* DAC1L_HPOUT1L_VOL - [3:0] */
+#define WM8996_DAC1L_HPOUT1L_VOL_WIDTH               4  /* DAC1L_HPOUT1L_VOL - [3:0] */
+
+/*
+ * R22 (0x16) - DAC2 HPOUT2 Volume
+ */
+#define WM8996_DAC2R_HPOUT2R_VOL_MASK           0x00F0  /* DAC2R_HPOUT2R_VOL - [7:4] */
+#define WM8996_DAC2R_HPOUT2R_VOL_SHIFT               4  /* DAC2R_HPOUT2R_VOL - [7:4] */
+#define WM8996_DAC2R_HPOUT2R_VOL_WIDTH               4  /* DAC2R_HPOUT2R_VOL - [7:4] */
+#define WM8996_DAC2L_HPOUT2L_VOL_MASK           0x000F  /* DAC2L_HPOUT2L_VOL - [3:0] */
+#define WM8996_DAC2L_HPOUT2L_VOL_SHIFT               0  /* DAC2L_HPOUT2L_VOL - [3:0] */
+#define WM8996_DAC2L_HPOUT2L_VOL_WIDTH               4  /* DAC2L_HPOUT2L_VOL - [3:0] */
+
+/*
+ * R24 (0x18) - DAC1 Left Volume
+ */
+#define WM8996_DAC1L_MUTE                       0x0200  /* DAC1L_MUTE */
+#define WM8996_DAC1L_MUTE_MASK                  0x0200  /* DAC1L_MUTE */
+#define WM8996_DAC1L_MUTE_SHIFT                      9  /* DAC1L_MUTE */
+#define WM8996_DAC1L_MUTE_WIDTH                      1  /* DAC1L_MUTE */
+#define WM8996_DAC1_VU                          0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_MASK                     0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_SHIFT                         8  /* DAC1_VU */
+#define WM8996_DAC1_VU_WIDTH                         1  /* DAC1_VU */
+#define WM8996_DAC1L_VOL_MASK                   0x00FF  /* DAC1L_VOL - [7:0] */
+#define WM8996_DAC1L_VOL_SHIFT                       0  /* DAC1L_VOL - [7:0] */
+#define WM8996_DAC1L_VOL_WIDTH                       8  /* DAC1L_VOL - [7:0] */
+
+/*
+ * R25 (0x19) - DAC1 Right Volume
+ */
+#define WM8996_DAC1R_MUTE                       0x0200  /* DAC1R_MUTE */
+#define WM8996_DAC1R_MUTE_MASK                  0x0200  /* DAC1R_MUTE */
+#define WM8996_DAC1R_MUTE_SHIFT                      9  /* DAC1R_MUTE */
+#define WM8996_DAC1R_MUTE_WIDTH                      1  /* DAC1R_MUTE */
+#define WM8996_DAC1_VU                          0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_MASK                     0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_SHIFT                         8  /* DAC1_VU */
+#define WM8996_DAC1_VU_WIDTH                         1  /* DAC1_VU */
+#define WM8996_DAC1R_VOL_MASK                   0x00FF  /* DAC1R_VOL - [7:0] */
+#define WM8996_DAC1R_VOL_SHIFT                       0  /* DAC1R_VOL - [7:0] */
+#define WM8996_DAC1R_VOL_WIDTH                       8  /* DAC1R_VOL - [7:0] */
+
+/*
+ * R26 (0x1A) - DAC2 Left Volume
+ */
+#define WM8996_DAC2L_MUTE                       0x0200  /* DAC2L_MUTE */
+#define WM8996_DAC2L_MUTE_MASK                  0x0200  /* DAC2L_MUTE */
+#define WM8996_DAC2L_MUTE_SHIFT                      9  /* DAC2L_MUTE */
+#define WM8996_DAC2L_MUTE_WIDTH                      1  /* DAC2L_MUTE */
+#define WM8996_DAC2_VU                          0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_MASK                     0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_SHIFT                         8  /* DAC2_VU */
+#define WM8996_DAC2_VU_WIDTH                         1  /* DAC2_VU */
+#define WM8996_DAC2L_VOL_MASK                   0x00FF  /* DAC2L_VOL - [7:0] */
+#define WM8996_DAC2L_VOL_SHIFT                       0  /* DAC2L_VOL - [7:0] */
+#define WM8996_DAC2L_VOL_WIDTH                       8  /* DAC2L_VOL - [7:0] */
+
+/*
+ * R27 (0x1B) - DAC2 Right Volume
+ */
+#define WM8996_DAC2R_MUTE                       0x0200  /* DAC2R_MUTE */
+#define WM8996_DAC2R_MUTE_MASK                  0x0200  /* DAC2R_MUTE */
+#define WM8996_DAC2R_MUTE_SHIFT                      9  /* DAC2R_MUTE */
+#define WM8996_DAC2R_MUTE_WIDTH                      1  /* DAC2R_MUTE */
+#define WM8996_DAC2_VU                          0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_MASK                     0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_SHIFT                         8  /* DAC2_VU */
+#define WM8996_DAC2_VU_WIDTH                         1  /* DAC2_VU */
+#define WM8996_DAC2R_VOL_MASK                   0x00FF  /* DAC2R_VOL - [7:0] */
+#define WM8996_DAC2R_VOL_SHIFT                       0  /* DAC2R_VOL - [7:0] */
+#define WM8996_DAC2R_VOL_WIDTH                       8  /* DAC2R_VOL - [7:0] */
+
+/*
+ * R28 (0x1C) - Output1 Left Volume
+ */
+#define WM8996_DAC1_VU                          0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_MASK                     0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_SHIFT                         8  /* DAC1_VU */
+#define WM8996_DAC1_VU_WIDTH                         1  /* DAC1_VU */
+#define WM8996_HPOUT1L_ZC                       0x0080  /* HPOUT1L_ZC */
+#define WM8996_HPOUT1L_ZC_MASK                  0x0080  /* HPOUT1L_ZC */
+#define WM8996_HPOUT1L_ZC_SHIFT                      7  /* HPOUT1L_ZC */
+#define WM8996_HPOUT1L_ZC_WIDTH                      1  /* HPOUT1L_ZC */
+#define WM8996_HPOUT1L_VOL_MASK                 0x000F  /* HPOUT1L_VOL - [3:0] */
+#define WM8996_HPOUT1L_VOL_SHIFT                     0  /* HPOUT1L_VOL - [3:0] */
+#define WM8996_HPOUT1L_VOL_WIDTH                     4  /* HPOUT1L_VOL - [3:0] */
+
+/*
+ * R29 (0x1D) - Output1 Right Volume
+ */
+#define WM8996_DAC1_VU                          0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_MASK                     0x0100  /* DAC1_VU */
+#define WM8996_DAC1_VU_SHIFT                         8  /* DAC1_VU */
+#define WM8996_DAC1_VU_WIDTH                         1  /* DAC1_VU */
+#define WM8996_HPOUT1R_ZC                       0x0080  /* HPOUT1R_ZC */
+#define WM8996_HPOUT1R_ZC_MASK                  0x0080  /* HPOUT1R_ZC */
+#define WM8996_HPOUT1R_ZC_SHIFT                      7  /* HPOUT1R_ZC */
+#define WM8996_HPOUT1R_ZC_WIDTH                      1  /* HPOUT1R_ZC */
+#define WM8996_HPOUT1R_VOL_MASK                 0x000F  /* HPOUT1R_VOL - [3:0] */
+#define WM8996_HPOUT1R_VOL_SHIFT                     0  /* HPOUT1R_VOL - [3:0] */
+#define WM8996_HPOUT1R_VOL_WIDTH                     4  /* HPOUT1R_VOL - [3:0] */
+
+/*
+ * R30 (0x1E) - Output2 Left Volume
+ */
+#define WM8996_DAC2_VU                          0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_MASK                     0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_SHIFT                         8  /* DAC2_VU */
+#define WM8996_DAC2_VU_WIDTH                         1  /* DAC2_VU */
+#define WM8996_HPOUT2L_ZC                       0x0080  /* HPOUT2L_ZC */
+#define WM8996_HPOUT2L_ZC_MASK                  0x0080  /* HPOUT2L_ZC */
+#define WM8996_HPOUT2L_ZC_SHIFT                      7  /* HPOUT2L_ZC */
+#define WM8996_HPOUT2L_ZC_WIDTH                      1  /* HPOUT2L_ZC */
+#define WM8996_HPOUT2L_VOL_MASK                 0x000F  /* HPOUT2L_VOL - [3:0] */
+#define WM8996_HPOUT2L_VOL_SHIFT                     0  /* HPOUT2L_VOL - [3:0] */
+#define WM8996_HPOUT2L_VOL_WIDTH                     4  /* HPOUT2L_VOL - [3:0] */
+
+/*
+ * R31 (0x1F) - Output2 Right Volume
+ */
+#define WM8996_DAC2_VU                          0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_MASK                     0x0100  /* DAC2_VU */
+#define WM8996_DAC2_VU_SHIFT                         8  /* DAC2_VU */
+#define WM8996_DAC2_VU_WIDTH                         1  /* DAC2_VU */
+#define WM8996_HPOUT2R_ZC                       0x0080  /* HPOUT2R_ZC */
+#define WM8996_HPOUT2R_ZC_MASK                  0x0080  /* HPOUT2R_ZC */
+#define WM8996_HPOUT2R_ZC_SHIFT                      7  /* HPOUT2R_ZC */
+#define WM8996_HPOUT2R_ZC_WIDTH                      1  /* HPOUT2R_ZC */
+#define WM8996_HPOUT2R_VOL_MASK                 0x000F  /* HPOUT2R_VOL - [3:0] */
+#define WM8996_HPOUT2R_VOL_SHIFT                     0  /* HPOUT2R_VOL - [3:0] */
+#define WM8996_HPOUT2R_VOL_WIDTH                     4  /* HPOUT2R_VOL - [3:0] */
+
+/*
+ * R32 (0x20) - MICBIAS (1)
+ */
+#define WM8996_MICB1_RATE                       0x0020  /* MICB1_RATE */
+#define WM8996_MICB1_RATE_MASK                  0x0020  /* MICB1_RATE */
+#define WM8996_MICB1_RATE_SHIFT                      5  /* MICB1_RATE */
+#define WM8996_MICB1_RATE_WIDTH                      1  /* MICB1_RATE */
+#define WM8996_MICB1_MODE                       0x0010  /* MICB1_MODE */
+#define WM8996_MICB1_MODE_MASK                  0x0010  /* MICB1_MODE */
+#define WM8996_MICB1_MODE_SHIFT                      4  /* MICB1_MODE */
+#define WM8996_MICB1_MODE_WIDTH                      1  /* MICB1_MODE */
+#define WM8996_MICB1_LVL_MASK                   0x000E  /* MICB1_LVL - [3:1] */
+#define WM8996_MICB1_LVL_SHIFT                       1  /* MICB1_LVL - [3:1] */
+#define WM8996_MICB1_LVL_WIDTH                       3  /* MICB1_LVL - [3:1] */
+#define WM8996_MICB1_DISCH                      0x0001  /* MICB1_DISCH */
+#define WM8996_MICB1_DISCH_MASK                 0x0001  /* MICB1_DISCH */
+#define WM8996_MICB1_DISCH_SHIFT                     0  /* MICB1_DISCH */
+#define WM8996_MICB1_DISCH_WIDTH                     1  /* MICB1_DISCH */
+
+/*
+ * R33 (0x21) - MICBIAS (2)
+ */
+#define WM8996_MICB2_RATE                       0x0020  /* MICB2_RATE */
+#define WM8996_MICB2_RATE_MASK                  0x0020  /* MICB2_RATE */
+#define WM8996_MICB2_RATE_SHIFT                      5  /* MICB2_RATE */
+#define WM8996_MICB2_RATE_WIDTH                      1  /* MICB2_RATE */
+#define WM8996_MICB2_MODE                       0x0010  /* MICB2_MODE */
+#define WM8996_MICB2_MODE_MASK                  0x0010  /* MICB2_MODE */
+#define WM8996_MICB2_MODE_SHIFT                      4  /* MICB2_MODE */
+#define WM8996_MICB2_MODE_WIDTH                      1  /* MICB2_MODE */
+#define WM8996_MICB2_LVL_MASK                   0x000E  /* MICB2_LVL - [3:1] */
+#define WM8996_MICB2_LVL_SHIFT                       1  /* MICB2_LVL - [3:1] */
+#define WM8996_MICB2_LVL_WIDTH                       3  /* MICB2_LVL - [3:1] */
+#define WM8996_MICB2_DISCH                      0x0001  /* MICB2_DISCH */
+#define WM8996_MICB2_DISCH_MASK                 0x0001  /* MICB2_DISCH */
+#define WM8996_MICB2_DISCH_SHIFT                     0  /* MICB2_DISCH */
+#define WM8996_MICB2_DISCH_WIDTH                     1  /* MICB2_DISCH */
+
+/*
+ * R40 (0x28) - LDO 1
+ */
+#define WM8996_LDO1_MODE                        0x0020  /* LDO1_MODE */
+#define WM8996_LDO1_MODE_MASK                   0x0020  /* LDO1_MODE */
+#define WM8996_LDO1_MODE_SHIFT                       5  /* LDO1_MODE */
+#define WM8996_LDO1_MODE_WIDTH                       1  /* LDO1_MODE */
+#define WM8996_LDO1_VSEL_MASK                   0x0006  /* LDO1_VSEL - [2:1] */
+#define WM8996_LDO1_VSEL_SHIFT                       1  /* LDO1_VSEL - [2:1] */
+#define WM8996_LDO1_VSEL_WIDTH                       2  /* LDO1_VSEL - [2:1] */
+#define WM8996_LDO1_DISCH                       0x0001  /* LDO1_DISCH */
+#define WM8996_LDO1_DISCH_MASK                  0x0001  /* LDO1_DISCH */
+#define WM8996_LDO1_DISCH_SHIFT                      0  /* LDO1_DISCH */
+#define WM8996_LDO1_DISCH_WIDTH                      1  /* LDO1_DISCH */
+
+/*
+ * R41 (0x29) - LDO 2
+ */
+#define WM8996_LDO2_MODE                        0x0020  /* LDO2_MODE */
+#define WM8996_LDO2_MODE_MASK                   0x0020  /* LDO2_MODE */
+#define WM8996_LDO2_MODE_SHIFT                       5  /* LDO2_MODE */
+#define WM8996_LDO2_MODE_WIDTH                       1  /* LDO2_MODE */
+#define WM8996_LDO2_VSEL_MASK                   0x001E  /* LDO2_VSEL - [4:1] */
+#define WM8996_LDO2_VSEL_SHIFT                       1  /* LDO2_VSEL - [4:1] */
+#define WM8996_LDO2_VSEL_WIDTH                       4  /* LDO2_VSEL - [4:1] */
+#define WM8996_LDO2_DISCH                       0x0001  /* LDO2_DISCH */
+#define WM8996_LDO2_DISCH_MASK                  0x0001  /* LDO2_DISCH */
+#define WM8996_LDO2_DISCH_SHIFT                      0  /* LDO2_DISCH */
+#define WM8996_LDO2_DISCH_WIDTH                      1  /* LDO2_DISCH */
+
+/*
+ * R48 (0x30) - Accessory Detect Mode 1
+ */
+#define WM8996_JD_MODE_MASK                     0x0003  /* JD_MODE - [1:0] */
+#define WM8996_JD_MODE_SHIFT                         0  /* JD_MODE - [1:0] */
+#define WM8996_JD_MODE_WIDTH                         2  /* JD_MODE - [1:0] */
+
+/*
+ * R49 (0x31) - Accessory Detect Mode 2
+ */
+#define WM8996_HPOUT1FB_SRC                     0x0004  /* HPOUT1FB_SRC */
+#define WM8996_HPOUT1FB_SRC_MASK                0x0004  /* HPOUT1FB_SRC */
+#define WM8996_HPOUT1FB_SRC_SHIFT                    2  /* HPOUT1FB_SRC */
+#define WM8996_HPOUT1FB_SRC_WIDTH                    1  /* HPOUT1FB_SRC */
+#define WM8996_MICD_SRC                         0x0002  /* MICD_SRC */
+#define WM8996_MICD_SRC_MASK                    0x0002  /* MICD_SRC */
+#define WM8996_MICD_SRC_SHIFT                        1  /* MICD_SRC */
+#define WM8996_MICD_SRC_WIDTH                        1  /* MICD_SRC */
+#define WM8996_MICD_BIAS_SRC                    0x0001  /* MICD_BIAS_SRC */
+#define WM8996_MICD_BIAS_SRC_MASK               0x0001  /* MICD_BIAS_SRC */
+#define WM8996_MICD_BIAS_SRC_SHIFT                   0  /* MICD_BIAS_SRC */
+#define WM8996_MICD_BIAS_SRC_WIDTH                   1  /* MICD_BIAS_SRC */
+
+/*
+ * R52 (0x34) - Headphone Detect 1
+ */
+#define WM8996_HP_HOLDTIME_MASK                 0x00E0  /* HP_HOLDTIME - [7:5] */
+#define WM8996_HP_HOLDTIME_SHIFT                     5  /* HP_HOLDTIME - [7:5] */
+#define WM8996_HP_HOLDTIME_WIDTH                     3  /* HP_HOLDTIME - [7:5] */
+#define WM8996_HP_CLK_DIV_MASK                  0x0018  /* HP_CLK_DIV - [4:3] */
+#define WM8996_HP_CLK_DIV_SHIFT                      3  /* HP_CLK_DIV - [4:3] */
+#define WM8996_HP_CLK_DIV_WIDTH                      2  /* HP_CLK_DIV - [4:3] */
+#define WM8996_HP_STEP_SIZE                     0x0002  /* HP_STEP_SIZE */
+#define WM8996_HP_STEP_SIZE_MASK                0x0002  /* HP_STEP_SIZE */
+#define WM8996_HP_STEP_SIZE_SHIFT                    1  /* HP_STEP_SIZE */
+#define WM8996_HP_STEP_SIZE_WIDTH                    1  /* HP_STEP_SIZE */
+#define WM8996_HP_POLL                          0x0001  /* HP_POLL */
+#define WM8996_HP_POLL_MASK                     0x0001  /* HP_POLL */
+#define WM8996_HP_POLL_SHIFT                         0  /* HP_POLL */
+#define WM8996_HP_POLL_WIDTH                         1  /* HP_POLL */
+
+/*
+ * R53 (0x35) - Headphone Detect 2
+ */
+#define WM8996_HP_DONE                          0x0080  /* HP_DONE */
+#define WM8996_HP_DONE_MASK                     0x0080  /* HP_DONE */
+#define WM8996_HP_DONE_SHIFT                         7  /* HP_DONE */
+#define WM8996_HP_DONE_WIDTH                         1  /* HP_DONE */
+#define WM8996_HP_LVL_MASK                      0x007F  /* HP_LVL - [6:0] */
+#define WM8996_HP_LVL_SHIFT                          0  /* HP_LVL - [6:0] */
+#define WM8996_HP_LVL_WIDTH                          7  /* HP_LVL - [6:0] */
+
+/*
+ * R56 (0x38) - Mic Detect 1
+ */
+#define WM8996_MICD_BIAS_STARTTIME_MASK         0xF000  /* MICD_BIAS_STARTTIME - [15:12] */
+#define WM8996_MICD_BIAS_STARTTIME_SHIFT            12  /* MICD_BIAS_STARTTIME - [15:12] */
+#define WM8996_MICD_BIAS_STARTTIME_WIDTH             4  /* MICD_BIAS_STARTTIME - [15:12] */
+#define WM8996_MICD_RATE_MASK                   0x0F00  /* MICD_RATE - [11:8] */
+#define WM8996_MICD_RATE_SHIFT                       8  /* MICD_RATE - [11:8] */
+#define WM8996_MICD_RATE_WIDTH                       4  /* MICD_RATE - [11:8] */
+#define WM8996_MICD_DBTIME                      0x0002  /* MICD_DBTIME */
+#define WM8996_MICD_DBTIME_MASK                 0x0002  /* MICD_DBTIME */
+#define WM8996_MICD_DBTIME_SHIFT                     1  /* MICD_DBTIME */
+#define WM8996_MICD_DBTIME_WIDTH                     1  /* MICD_DBTIME */
+#define WM8996_MICD_ENA                         0x0001  /* MICD_ENA */
+#define WM8996_MICD_ENA_MASK                    0x0001  /* MICD_ENA */
+#define WM8996_MICD_ENA_SHIFT                        0  /* MICD_ENA */
+#define WM8996_MICD_ENA_WIDTH                        1  /* MICD_ENA */
+
+/*
+ * R57 (0x39) - Mic Detect 2
+ */
+#define WM8996_MICD_LVL_SEL_MASK                0x00FF  /* MICD_LVL_SEL - [7:0] */
+#define WM8996_MICD_LVL_SEL_SHIFT                    0  /* MICD_LVL_SEL - [7:0] */
+#define WM8996_MICD_LVL_SEL_WIDTH                    8  /* MICD_LVL_SEL - [7:0] */
+
+/*
+ * R58 (0x3A) - Mic Detect 3
+ */
+#define WM8996_MICD_LVL_MASK                    0x07FC  /* MICD_LVL - [10:2] */
+#define WM8996_MICD_LVL_SHIFT                        2  /* MICD_LVL - [10:2] */
+#define WM8996_MICD_LVL_WIDTH                        9  /* MICD_LVL - [10:2] */
+#define WM8996_MICD_VALID                       0x0002  /* MICD_VALID */
+#define WM8996_MICD_VALID_MASK                  0x0002  /* MICD_VALID */
+#define WM8996_MICD_VALID_SHIFT                      1  /* MICD_VALID */
+#define WM8996_MICD_VALID_WIDTH                      1  /* MICD_VALID */
+#define WM8996_MICD_STS                         0x0001  /* MICD_STS */
+#define WM8996_MICD_STS_MASK                    0x0001  /* MICD_STS */
+#define WM8996_MICD_STS_SHIFT                        0  /* MICD_STS */
+#define WM8996_MICD_STS_WIDTH                        1  /* MICD_STS */
+
+/*
+ * R64 (0x40) - Charge Pump (1)
+ */
+#define WM8996_CP_ENA                           0x8000  /* CP_ENA */
+#define WM8996_CP_ENA_MASK                      0x8000  /* CP_ENA */
+#define WM8996_CP_ENA_SHIFT                         15  /* CP_ENA */
+#define WM8996_CP_ENA_WIDTH                          1  /* CP_ENA */
+
+/*
+ * R65 (0x41) - Charge Pump (2)
+ */
+#define WM8996_CP_DISCH                         0x8000  /* CP_DISCH */
+#define WM8996_CP_DISCH_MASK                    0x8000  /* CP_DISCH */
+#define WM8996_CP_DISCH_SHIFT                       15  /* CP_DISCH */
+#define WM8996_CP_DISCH_WIDTH                        1  /* CP_DISCH */
+
+/*
+ * R80 (0x50) - DC Servo (1)
+ */
+#define WM8996_DCS_ENA_CHAN_3                   0x0008  /* DCS_ENA_CHAN_3 */
+#define WM8996_DCS_ENA_CHAN_3_MASK              0x0008  /* DCS_ENA_CHAN_3 */
+#define WM8996_DCS_ENA_CHAN_3_SHIFT                  3  /* DCS_ENA_CHAN_3 */
+#define WM8996_DCS_ENA_CHAN_3_WIDTH                  1  /* DCS_ENA_CHAN_3 */
+#define WM8996_DCS_ENA_CHAN_2                   0x0004  /* DCS_ENA_CHAN_2 */
+#define WM8996_DCS_ENA_CHAN_2_MASK              0x0004  /* DCS_ENA_CHAN_2 */
+#define WM8996_DCS_ENA_CHAN_2_SHIFT                  2  /* DCS_ENA_CHAN_2 */
+#define WM8996_DCS_ENA_CHAN_2_WIDTH                  1  /* DCS_ENA_CHAN_2 */
+#define WM8996_DCS_ENA_CHAN_1                   0x0002  /* DCS_ENA_CHAN_1 */
+#define WM8996_DCS_ENA_CHAN_1_MASK              0x0002  /* DCS_ENA_CHAN_1 */
+#define WM8996_DCS_ENA_CHAN_1_SHIFT                  1  /* DCS_ENA_CHAN_1 */
+#define WM8996_DCS_ENA_CHAN_1_WIDTH                  1  /* DCS_ENA_CHAN_1 */
+#define WM8996_DCS_ENA_CHAN_0                   0x0001  /* DCS_ENA_CHAN_0 */
+#define WM8996_DCS_ENA_CHAN_0_MASK              0x0001  /* DCS_ENA_CHAN_0 */
+#define WM8996_DCS_ENA_CHAN_0_SHIFT                  0  /* DCS_ENA_CHAN_0 */
+#define WM8996_DCS_ENA_CHAN_0_WIDTH                  1  /* DCS_ENA_CHAN_0 */
+
+/*
+ * R81 (0x51) - DC Servo (2)
+ */
+#define WM8996_DCS_TRIG_SINGLE_3                0x8000  /* DCS_TRIG_SINGLE_3 */
+#define WM8996_DCS_TRIG_SINGLE_3_MASK           0x8000  /* DCS_TRIG_SINGLE_3 */
+#define WM8996_DCS_TRIG_SINGLE_3_SHIFT              15  /* DCS_TRIG_SINGLE_3 */
+#define WM8996_DCS_TRIG_SINGLE_3_WIDTH               1  /* DCS_TRIG_SINGLE_3 */
+#define WM8996_DCS_TRIG_SINGLE_2                0x4000  /* DCS_TRIG_SINGLE_2 */
+#define WM8996_DCS_TRIG_SINGLE_2_MASK           0x4000  /* DCS_TRIG_SINGLE_2 */
+#define WM8996_DCS_TRIG_SINGLE_2_SHIFT              14  /* DCS_TRIG_SINGLE_2 */
+#define WM8996_DCS_TRIG_SINGLE_2_WIDTH               1  /* DCS_TRIG_SINGLE_2 */
+#define WM8996_DCS_TRIG_SINGLE_1                0x2000  /* DCS_TRIG_SINGLE_1 */
+#define WM8996_DCS_TRIG_SINGLE_1_MASK           0x2000  /* DCS_TRIG_SINGLE_1 */
+#define WM8996_DCS_TRIG_SINGLE_1_SHIFT              13  /* DCS_TRIG_SINGLE_1 */
+#define WM8996_DCS_TRIG_SINGLE_1_WIDTH               1  /* DCS_TRIG_SINGLE_1 */
+#define WM8996_DCS_TRIG_SINGLE_0                0x1000  /* DCS_TRIG_SINGLE_0 */
+#define WM8996_DCS_TRIG_SINGLE_0_MASK           0x1000  /* DCS_TRIG_SINGLE_0 */
+#define WM8996_DCS_TRIG_SINGLE_0_SHIFT              12  /* DCS_TRIG_SINGLE_0 */
+#define WM8996_DCS_TRIG_SINGLE_0_WIDTH               1  /* DCS_TRIG_SINGLE_0 */
+#define WM8996_DCS_TRIG_SERIES_3                0x0800  /* DCS_TRIG_SERIES_3 */
+#define WM8996_DCS_TRIG_SERIES_3_MASK           0x0800  /* DCS_TRIG_SERIES_3 */
+#define WM8996_DCS_TRIG_SERIES_3_SHIFT              11  /* DCS_TRIG_SERIES_3 */
+#define WM8996_DCS_TRIG_SERIES_3_WIDTH               1  /* DCS_TRIG_SERIES_3 */
+#define WM8996_DCS_TRIG_SERIES_2                0x0400  /* DCS_TRIG_SERIES_2 */
+#define WM8996_DCS_TRIG_SERIES_2_MASK           0x0400  /* DCS_TRIG_SERIES_2 */
+#define WM8996_DCS_TRIG_SERIES_2_SHIFT              10  /* DCS_TRIG_SERIES_2 */
+#define WM8996_DCS_TRIG_SERIES_2_WIDTH               1  /* DCS_TRIG_SERIES_2 */
+#define WM8996_DCS_TRIG_SERIES_1                0x0200  /* DCS_TRIG_SERIES_1 */
+#define WM8996_DCS_TRIG_SERIES_1_MASK           0x0200  /* DCS_TRIG_SERIES_1 */
+#define WM8996_DCS_TRIG_SERIES_1_SHIFT               9  /* DCS_TRIG_SERIES_1 */
+#define WM8996_DCS_TRIG_SERIES_1_WIDTH               1  /* DCS_TRIG_SERIES_1 */
+#define WM8996_DCS_TRIG_SERIES_0                0x0100  /* DCS_TRIG_SERIES_0 */
+#define WM8996_DCS_TRIG_SERIES_0_MASK           0x0100  /* DCS_TRIG_SERIES_0 */
+#define WM8996_DCS_TRIG_SERIES_0_SHIFT               8  /* DCS_TRIG_SERIES_0 */
+#define WM8996_DCS_TRIG_SERIES_0_WIDTH               1  /* DCS_TRIG_SERIES_0 */
+#define WM8996_DCS_TRIG_STARTUP_3               0x0080  /* DCS_TRIG_STARTUP_3 */
+#define WM8996_DCS_TRIG_STARTUP_3_MASK          0x0080  /* DCS_TRIG_STARTUP_3 */
+#define WM8996_DCS_TRIG_STARTUP_3_SHIFT              7  /* DCS_TRIG_STARTUP_3 */
+#define WM8996_DCS_TRIG_STARTUP_3_WIDTH              1  /* DCS_TRIG_STARTUP_3 */
+#define WM8996_DCS_TRIG_STARTUP_2               0x0040  /* DCS_TRIG_STARTUP_2 */
+#define WM8996_DCS_TRIG_STARTUP_2_MASK          0x0040  /* DCS_TRIG_STARTUP_2 */
+#define WM8996_DCS_TRIG_STARTUP_2_SHIFT              6  /* DCS_TRIG_STARTUP_2 */
+#define WM8996_DCS_TRIG_STARTUP_2_WIDTH              1  /* DCS_TRIG_STARTUP_2 */
+#define WM8996_DCS_TRIG_STARTUP_1               0x0020  /* DCS_TRIG_STARTUP_1 */
+#define WM8996_DCS_TRIG_STARTUP_1_MASK          0x0020  /* DCS_TRIG_STARTUP_1 */
+#define WM8996_DCS_TRIG_STARTUP_1_SHIFT              5  /* DCS_TRIG_STARTUP_1 */
+#define WM8996_DCS_TRIG_STARTUP_1_WIDTH              1  /* DCS_TRIG_STARTUP_1 */
+#define WM8996_DCS_TRIG_STARTUP_0               0x0010  /* DCS_TRIG_STARTUP_0 */
+#define WM8996_DCS_TRIG_STARTUP_0_MASK          0x0010  /* DCS_TRIG_STARTUP_0 */
+#define WM8996_DCS_TRIG_STARTUP_0_SHIFT              4  /* DCS_TRIG_STARTUP_0 */
+#define WM8996_DCS_TRIG_STARTUP_0_WIDTH              1  /* DCS_TRIG_STARTUP_0 */
+#define WM8996_DCS_TRIG_DAC_WR_3                0x0008  /* DCS_TRIG_DAC_WR_3 */
+#define WM8996_DCS_TRIG_DAC_WR_3_MASK           0x0008  /* DCS_TRIG_DAC_WR_3 */
+#define WM8996_DCS_TRIG_DAC_WR_3_SHIFT               3  /* DCS_TRIG_DAC_WR_3 */
+#define WM8996_DCS_TRIG_DAC_WR_3_WIDTH               1  /* DCS_TRIG_DAC_WR_3 */
+#define WM8996_DCS_TRIG_DAC_WR_2                0x0004  /* DCS_TRIG_DAC_WR_2 */
+#define WM8996_DCS_TRIG_DAC_WR_2_MASK           0x0004  /* DCS_TRIG_DAC_WR_2 */
+#define WM8996_DCS_TRIG_DAC_WR_2_SHIFT               2  /* DCS_TRIG_DAC_WR_2 */
+#define WM8996_DCS_TRIG_DAC_WR_2_WIDTH               1  /* DCS_TRIG_DAC_WR_2 */
+#define WM8996_DCS_TRIG_DAC_WR_1                0x0002  /* DCS_TRIG_DAC_WR_1 */
+#define WM8996_DCS_TRIG_DAC_WR_1_MASK           0x0002  /* DCS_TRIG_DAC_WR_1 */
+#define WM8996_DCS_TRIG_DAC_WR_1_SHIFT               1  /* DCS_TRIG_DAC_WR_1 */
+#define WM8996_DCS_TRIG_DAC_WR_1_WIDTH               1  /* DCS_TRIG_DAC_WR_1 */
+#define WM8996_DCS_TRIG_DAC_WR_0                0x0001  /* DCS_TRIG_DAC_WR_0 */
+#define WM8996_DCS_TRIG_DAC_WR_0_MASK           0x0001  /* DCS_TRIG_DAC_WR_0 */
+#define WM8996_DCS_TRIG_DAC_WR_0_SHIFT               0  /* DCS_TRIG_DAC_WR_0 */
+#define WM8996_DCS_TRIG_DAC_WR_0_WIDTH               1  /* DCS_TRIG_DAC_WR_0 */
+
+/*
+ * R82 (0x52) - DC Servo (3)
+ */
+#define WM8996_DCS_TIMER_PERIOD_23_MASK         0x0F00  /* DCS_TIMER_PERIOD_23 - [11:8] */
+#define WM8996_DCS_TIMER_PERIOD_23_SHIFT             8  /* DCS_TIMER_PERIOD_23 - [11:8] */
+#define WM8996_DCS_TIMER_PERIOD_23_WIDTH             4  /* DCS_TIMER_PERIOD_23 - [11:8] */
+#define WM8996_DCS_TIMER_PERIOD_01_MASK         0x000F  /* DCS_TIMER_PERIOD_01 - [3:0] */
+#define WM8996_DCS_TIMER_PERIOD_01_SHIFT             0  /* DCS_TIMER_PERIOD_01 - [3:0] */
+#define WM8996_DCS_TIMER_PERIOD_01_WIDTH             4  /* DCS_TIMER_PERIOD_01 - [3:0] */
+
+/*
+ * R84 (0x54) - DC Servo (5)
+ */
+#define WM8996_DCS_SERIES_NO_23_MASK            0x7F00  /* DCS_SERIES_NO_23 - [14:8] */
+#define WM8996_DCS_SERIES_NO_23_SHIFT                8  /* DCS_SERIES_NO_23 - [14:8] */
+#define WM8996_DCS_SERIES_NO_23_WIDTH                7  /* DCS_SERIES_NO_23 - [14:8] */
+#define WM8996_DCS_SERIES_NO_01_MASK            0x007F  /* DCS_SERIES_NO_01 - [6:0] */
+#define WM8996_DCS_SERIES_NO_01_SHIFT                0  /* DCS_SERIES_NO_01 - [6:0] */
+#define WM8996_DCS_SERIES_NO_01_WIDTH                7  /* DCS_SERIES_NO_01 - [6:0] */
+
+/*
+ * R85 (0x55) - DC Servo (6)
+ */
+#define WM8996_DCS_DAC_WR_VAL_3_MASK            0xFF00  /* DCS_DAC_WR_VAL_3 - [15:8] */
+#define WM8996_DCS_DAC_WR_VAL_3_SHIFT                8  /* DCS_DAC_WR_VAL_3 - [15:8] */
+#define WM8996_DCS_DAC_WR_VAL_3_WIDTH                8  /* DCS_DAC_WR_VAL_3 - [15:8] */
+#define WM8996_DCS_DAC_WR_VAL_2_MASK            0x00FF  /* DCS_DAC_WR_VAL_2 - [7:0] */
+#define WM8996_DCS_DAC_WR_VAL_2_SHIFT                0  /* DCS_DAC_WR_VAL_2 - [7:0] */
+#define WM8996_DCS_DAC_WR_VAL_2_WIDTH                8  /* DCS_DAC_WR_VAL_2 - [7:0] */
+
+/*
+ * R86 (0x56) - DC Servo (7)
+ */
+#define WM8996_DCS_DAC_WR_VAL_1_MASK            0xFF00  /* DCS_DAC_WR_VAL_1 - [15:8] */
+#define WM8996_DCS_DAC_WR_VAL_1_SHIFT                8  /* DCS_DAC_WR_VAL_1 - [15:8] */
+#define WM8996_DCS_DAC_WR_VAL_1_WIDTH                8  /* DCS_DAC_WR_VAL_1 - [15:8] */
+#define WM8996_DCS_DAC_WR_VAL_0_MASK            0x00FF  /* DCS_DAC_WR_VAL_0 - [7:0] */
+#define WM8996_DCS_DAC_WR_VAL_0_SHIFT                0  /* DCS_DAC_WR_VAL_0 - [7:0] */
+#define WM8996_DCS_DAC_WR_VAL_0_WIDTH                8  /* DCS_DAC_WR_VAL_0 - [7:0] */
+
+/*
+ * R87 (0x57) - DC Servo Readback 0
+ */
+#define WM8996_DCS_CAL_COMPLETE_MASK            0x0F00  /* DCS_CAL_COMPLETE - [11:8] */
+#define WM8996_DCS_CAL_COMPLETE_SHIFT                8  /* DCS_CAL_COMPLETE - [11:8] */
+#define WM8996_DCS_CAL_COMPLETE_WIDTH                4  /* DCS_CAL_COMPLETE - [11:8] */
+#define WM8996_DCS_DAC_WR_COMPLETE_MASK         0x00F0  /* DCS_DAC_WR_COMPLETE - [7:4] */
+#define WM8996_DCS_DAC_WR_COMPLETE_SHIFT             4  /* DCS_DAC_WR_COMPLETE - [7:4] */
+#define WM8996_DCS_DAC_WR_COMPLETE_WIDTH             4  /* DCS_DAC_WR_COMPLETE - [7:4] */
+#define WM8996_DCS_STARTUP_COMPLETE_MASK        0x000F  /* DCS_STARTUP_COMPLETE - [3:0] */
+#define WM8996_DCS_STARTUP_COMPLETE_SHIFT            0  /* DCS_STARTUP_COMPLETE - [3:0] */
+#define WM8996_DCS_STARTUP_COMPLETE_WIDTH            4  /* DCS_STARTUP_COMPLETE - [3:0] */
+
+/*
+ * R96 (0x60) - Analogue HP (1)
+ */
+#define WM8996_HPOUT1L_RMV_SHORT                0x0080  /* HPOUT1L_RMV_SHORT */
+#define WM8996_HPOUT1L_RMV_SHORT_MASK           0x0080  /* HPOUT1L_RMV_SHORT */
+#define WM8996_HPOUT1L_RMV_SHORT_SHIFT               7  /* HPOUT1L_RMV_SHORT */
+#define WM8996_HPOUT1L_RMV_SHORT_WIDTH               1  /* HPOUT1L_RMV_SHORT */
+#define WM8996_HPOUT1L_OUTP                     0x0040  /* HPOUT1L_OUTP */
+#define WM8996_HPOUT1L_OUTP_MASK                0x0040  /* HPOUT1L_OUTP */
+#define WM8996_HPOUT1L_OUTP_SHIFT                    6  /* HPOUT1L_OUTP */
+#define WM8996_HPOUT1L_OUTP_WIDTH                    1  /* HPOUT1L_OUTP */
+#define WM8996_HPOUT1L_DLY                      0x0020  /* HPOUT1L_DLY */
+#define WM8996_HPOUT1L_DLY_MASK                 0x0020  /* HPOUT1L_DLY */
+#define WM8996_HPOUT1L_DLY_SHIFT                     5  /* HPOUT1L_DLY */
+#define WM8996_HPOUT1L_DLY_WIDTH                     1  /* HPOUT1L_DLY */
+#define WM8996_HPOUT1R_RMV_SHORT                0x0008  /* HPOUT1R_RMV_SHORT */
+#define WM8996_HPOUT1R_RMV_SHORT_MASK           0x0008  /* HPOUT1R_RMV_SHORT */
+#define WM8996_HPOUT1R_RMV_SHORT_SHIFT               3  /* HPOUT1R_RMV_SHORT */
+#define WM8996_HPOUT1R_RMV_SHORT_WIDTH               1  /* HPOUT1R_RMV_SHORT */
+#define WM8996_HPOUT1R_OUTP                     0x0004  /* HPOUT1R_OUTP */
+#define WM8996_HPOUT1R_OUTP_MASK                0x0004  /* HPOUT1R_OUTP */
+#define WM8996_HPOUT1R_OUTP_SHIFT                    2  /* HPOUT1R_OUTP */
+#define WM8996_HPOUT1R_OUTP_WIDTH                    1  /* HPOUT1R_OUTP */
+#define WM8996_HPOUT1R_DLY                      0x0002  /* HPOUT1R_DLY */
+#define WM8996_HPOUT1R_DLY_MASK                 0x0002  /* HPOUT1R_DLY */
+#define WM8996_HPOUT1R_DLY_SHIFT                     1  /* HPOUT1R_DLY */
+#define WM8996_HPOUT1R_DLY_WIDTH                     1  /* HPOUT1R_DLY */
+
+/*
+ * R97 (0x61) - Analogue HP (2)
+ */
+#define WM8996_HPOUT2L_RMV_SHORT                0x0080  /* HPOUT2L_RMV_SHORT */
+#define WM8996_HPOUT2L_RMV_SHORT_MASK           0x0080  /* HPOUT2L_RMV_SHORT */
+#define WM8996_HPOUT2L_RMV_SHORT_SHIFT               7  /* HPOUT2L_RMV_SHORT */
+#define WM8996_HPOUT2L_RMV_SHORT_WIDTH               1  /* HPOUT2L_RMV_SHORT */
+#define WM8996_HPOUT2L_OUTP                     0x0040  /* HPOUT2L_OUTP */
+#define WM8996_HPOUT2L_OUTP_MASK                0x0040  /* HPOUT2L_OUTP */
+#define WM8996_HPOUT2L_OUTP_SHIFT                    6  /* HPOUT2L_OUTP */
+#define WM8996_HPOUT2L_OUTP_WIDTH                    1  /* HPOUT2L_OUTP */
+#define WM8996_HPOUT2L_DLY                      0x0020  /* HPOUT2L_DLY */
+#define WM8996_HPOUT2L_DLY_MASK                 0x0020  /* HPOUT2L_DLY */
+#define WM8996_HPOUT2L_DLY_SHIFT                     5  /* HPOUT2L_DLY */
+#define WM8996_HPOUT2L_DLY_WIDTH                     1  /* HPOUT2L_DLY */
+#define WM8996_HPOUT2R_RMV_SHORT                0x0008  /* HPOUT2R_RMV_SHORT */
+#define WM8996_HPOUT2R_RMV_SHORT_MASK           0x0008  /* HPOUT2R_RMV_SHORT */
+#define WM8996_HPOUT2R_RMV_SHORT_SHIFT               3  /* HPOUT2R_RMV_SHORT */
+#define WM8996_HPOUT2R_RMV_SHORT_WIDTH               1  /* HPOUT2R_RMV_SHORT */
+#define WM8996_HPOUT2R_OUTP                     0x0004  /* HPOUT2R_OUTP */
+#define WM8996_HPOUT2R_OUTP_MASK                0x0004  /* HPOUT2R_OUTP */
+#define WM8996_HPOUT2R_OUTP_SHIFT                    2  /* HPOUT2R_OUTP */
+#define WM8996_HPOUT2R_OUTP_WIDTH                    1  /* HPOUT2R_OUTP */
+#define WM8996_HPOUT2R_DLY                      0x0002  /* HPOUT2R_DLY */
+#define WM8996_HPOUT2R_DLY_MASK                 0x0002  /* HPOUT2R_DLY */
+#define WM8996_HPOUT2R_DLY_SHIFT                     1  /* HPOUT2R_DLY */
+#define WM8996_HPOUT2R_DLY_WIDTH                     1  /* HPOUT2R_DLY */
+
+/*
+ * R256 (0x100) - Chip Revision
+ */
+#define WM8996_CHIP_REV_MASK                    0x000F  /* CHIP_REV - [3:0] */
+#define WM8996_CHIP_REV_SHIFT                        0  /* CHIP_REV - [3:0] */
+#define WM8996_CHIP_REV_WIDTH                        4  /* CHIP_REV - [3:0] */
+
+/*
+ * R257 (0x101) - Control Interface (1)
+ */
+#define WM8996_REG_SYNC                         0x8000  /* REG_SYNC */
+#define WM8996_REG_SYNC_MASK                    0x8000  /* REG_SYNC */
+#define WM8996_REG_SYNC_SHIFT                       15  /* REG_SYNC */
+#define WM8996_REG_SYNC_WIDTH                        1  /* REG_SYNC */
+#define WM8996_AUTO_INC                         0x0004  /* AUTO_INC */
+#define WM8996_AUTO_INC_MASK                    0x0004  /* AUTO_INC */
+#define WM8996_AUTO_INC_SHIFT                        2  /* AUTO_INC */
+#define WM8996_AUTO_INC_WIDTH                        1  /* AUTO_INC */
+
+/*
+ * R272 (0x110) - Write Sequencer Ctrl (1)
+ */
+#define WM8996_WSEQ_ENA                         0x8000  /* WSEQ_ENA */
+#define WM8996_WSEQ_ENA_MASK                    0x8000  /* WSEQ_ENA */
+#define WM8996_WSEQ_ENA_SHIFT                       15  /* WSEQ_ENA */
+#define WM8996_WSEQ_ENA_WIDTH                        1  /* WSEQ_ENA */
+#define WM8996_WSEQ_ABORT                       0x0200  /* WSEQ_ABORT */
+#define WM8996_WSEQ_ABORT_MASK                  0x0200  /* WSEQ_ABORT */
+#define WM8996_WSEQ_ABORT_SHIFT                      9  /* WSEQ_ABORT */
+#define WM8996_WSEQ_ABORT_WIDTH                      1  /* WSEQ_ABORT */
+#define WM8996_WSEQ_START                       0x0100  /* WSEQ_START */
+#define WM8996_WSEQ_START_MASK                  0x0100  /* WSEQ_START */
+#define WM8996_WSEQ_START_SHIFT                      8  /* WSEQ_START */
+#define WM8996_WSEQ_START_WIDTH                      1  /* WSEQ_START */
+#define WM8996_WSEQ_START_INDEX_MASK            0x007F  /* WSEQ_START_INDEX - [6:0] */
+#define WM8996_WSEQ_START_INDEX_SHIFT                0  /* WSEQ_START_INDEX - [6:0] */
+#define WM8996_WSEQ_START_INDEX_WIDTH                7  /* WSEQ_START_INDEX - [6:0] */
+
+/*
+ * R273 (0x111) - Write Sequencer Ctrl (2)
+ */
+#define WM8996_WSEQ_BUSY                        0x0100  /* WSEQ_BUSY */
+#define WM8996_WSEQ_BUSY_MASK                   0x0100  /* WSEQ_BUSY */
+#define WM8996_WSEQ_BUSY_SHIFT                       8  /* WSEQ_BUSY */
+#define WM8996_WSEQ_BUSY_WIDTH                       1  /* WSEQ_BUSY */
+#define WM8996_WSEQ_CURRENT_INDEX_MASK          0x007F  /* WSEQ_CURRENT_INDEX - [6:0] */
+#define WM8996_WSEQ_CURRENT_INDEX_SHIFT              0  /* WSEQ_CURRENT_INDEX - [6:0] */
+#define WM8996_WSEQ_CURRENT_INDEX_WIDTH              7  /* WSEQ_CURRENT_INDEX - [6:0] */
+
+/*
+ * R512 (0x200) - AIF Clocking (1)
+ */
+#define WM8996_SYSCLK_SRC_MASK                  0x0018  /* SYSCLK_SRC - [4:3] */
+#define WM8996_SYSCLK_SRC_SHIFT                      3  /* SYSCLK_SRC - [4:3] */
+#define WM8996_SYSCLK_SRC_WIDTH                      2  /* SYSCLK_SRC - [4:3] */
+#define WM8996_SYSCLK_INV                       0x0004  /* SYSCLK_INV */
+#define WM8996_SYSCLK_INV_MASK                  0x0004  /* SYSCLK_INV */
+#define WM8996_SYSCLK_INV_SHIFT                      2  /* SYSCLK_INV */
+#define WM8996_SYSCLK_INV_WIDTH                      1  /* SYSCLK_INV */
+#define WM8996_SYSCLK_DIV                       0x0002  /* SYSCLK_DIV */
+#define WM8996_SYSCLK_DIV_MASK                  0x0002  /* SYSCLK_DIV */
+#define WM8996_SYSCLK_DIV_SHIFT                      1  /* SYSCLK_DIV */
+#define WM8996_SYSCLK_DIV_WIDTH                      1  /* SYSCLK_DIV */
+#define WM8996_SYSCLK_ENA                       0x0001  /* SYSCLK_ENA */
+#define WM8996_SYSCLK_ENA_MASK                  0x0001  /* SYSCLK_ENA */
+#define WM8996_SYSCLK_ENA_SHIFT                      0  /* SYSCLK_ENA */
+#define WM8996_SYSCLK_ENA_WIDTH                      1  /* SYSCLK_ENA */
+
+/*
+ * R513 (0x201) - AIF Clocking (2)
+ */
+#define WM8996_DSP2_DIV_MASK                    0x0018  /* DSP2_DIV - [4:3] */
+#define WM8996_DSP2_DIV_SHIFT                        3  /* DSP2_DIV - [4:3] */
+#define WM8996_DSP2_DIV_WIDTH                        2  /* DSP2_DIV - [4:3] */
+#define WM8996_DSP1_DIV_MASK                    0x0003  /* DSP1_DIV - [1:0] */
+#define WM8996_DSP1_DIV_SHIFT                        0  /* DSP1_DIV - [1:0] */
+#define WM8996_DSP1_DIV_WIDTH                        2  /* DSP1_DIV - [1:0] */
+
+/*
+ * R520 (0x208) - Clocking (1)
+ */
+#define WM8996_LFCLK_ENA                        0x0020  /* LFCLK_ENA */
+#define WM8996_LFCLK_ENA_MASK                   0x0020  /* LFCLK_ENA */
+#define WM8996_LFCLK_ENA_SHIFT                       5  /* LFCLK_ENA */
+#define WM8996_LFCLK_ENA_WIDTH                       1  /* LFCLK_ENA */
+#define WM8996_TOCLK_ENA                        0x0010  /* TOCLK_ENA */
+#define WM8996_TOCLK_ENA_MASK                   0x0010  /* TOCLK_ENA */
+#define WM8996_TOCLK_ENA_SHIFT                       4  /* TOCLK_ENA */
+#define WM8996_TOCLK_ENA_WIDTH                       1  /* TOCLK_ENA */
+#define WM8996_AIFCLK_ENA                       0x0004  /* AIFCLK_ENA */
+#define WM8996_AIFCLK_ENA_MASK                  0x0004  /* AIFCLK_ENA */
+#define WM8996_AIFCLK_ENA_SHIFT                      2  /* AIFCLK_ENA */
+#define WM8996_AIFCLK_ENA_WIDTH                      1  /* AIFCLK_ENA */
+#define WM8996_SYSDSPCLK_ENA                    0x0002  /* SYSDSPCLK_ENA */
+#define WM8996_SYSDSPCLK_ENA_MASK               0x0002  /* SYSDSPCLK_ENA */
+#define WM8996_SYSDSPCLK_ENA_SHIFT                   1  /* SYSDSPCLK_ENA */
+#define WM8996_SYSDSPCLK_ENA_WIDTH                   1  /* SYSDSPCLK_ENA */
+
+/*
+ * R521 (0x209) - Clocking (2)
+ */
+#define WM8996_TOCLK_DIV_MASK                   0x0700  /* TOCLK_DIV - [10:8] */
+#define WM8996_TOCLK_DIV_SHIFT                       8  /* TOCLK_DIV - [10:8] */
+#define WM8996_TOCLK_DIV_WIDTH                       3  /* TOCLK_DIV - [10:8] */
+#define WM8996_DBCLK_DIV_MASK                   0x00F0  /* DBCLK_DIV - [7:4] */
+#define WM8996_DBCLK_DIV_SHIFT                       4  /* DBCLK_DIV - [7:4] */
+#define WM8996_DBCLK_DIV_WIDTH                       4  /* DBCLK_DIV - [7:4] */
+#define WM8996_OPCLK_DIV_MASK                   0x0007  /* OPCLK_DIV - [2:0] */
+#define WM8996_OPCLK_DIV_SHIFT                       0  /* OPCLK_DIV - [2:0] */
+#define WM8996_OPCLK_DIV_WIDTH                       3  /* OPCLK_DIV - [2:0] */
+
+/*
+ * R528 (0x210) - AIF Rate
+ */
+#define WM8996_SYSCLK_RATE                      0x0001  /* SYSCLK_RATE */
+#define WM8996_SYSCLK_RATE_MASK                 0x0001  /* SYSCLK_RATE */
+#define WM8996_SYSCLK_RATE_SHIFT                     0  /* SYSCLK_RATE */
+#define WM8996_SYSCLK_RATE_WIDTH                     1  /* SYSCLK_RATE */
+
+/*
+ * R544 (0x220) - FLL Control (1)
+ */
+#define WM8996_FLL_OSC_ENA                      0x0002  /* FLL_OSC_ENA */
+#define WM8996_FLL_OSC_ENA_MASK                 0x0002  /* FLL_OSC_ENA */
+#define WM8996_FLL_OSC_ENA_SHIFT                     1  /* FLL_OSC_ENA */
+#define WM8996_FLL_OSC_ENA_WIDTH                     1  /* FLL_OSC_ENA */
+#define WM8996_FLL_ENA                          0x0001  /* FLL_ENA */
+#define WM8996_FLL_ENA_MASK                     0x0001  /* FLL_ENA */
+#define WM8996_FLL_ENA_SHIFT                         0  /* FLL_ENA */
+#define WM8996_FLL_ENA_WIDTH                         1  /* FLL_ENA */
+
+/*
+ * R545 (0x221) - FLL Control (2)
+ */
+#define WM8996_FLL_OUTDIV_MASK                  0x3F00  /* FLL_OUTDIV - [13:8] */
+#define WM8996_FLL_OUTDIV_SHIFT                      8  /* FLL_OUTDIV - [13:8] */
+#define WM8996_FLL_OUTDIV_WIDTH                      6  /* FLL_OUTDIV - [13:8] */
+#define WM8996_FLL_FRATIO_MASK                  0x0007  /* FLL_FRATIO - [2:0] */
+#define WM8996_FLL_FRATIO_SHIFT                      0  /* FLL_FRATIO - [2:0] */
+#define WM8996_FLL_FRATIO_WIDTH                      3  /* FLL_FRATIO - [2:0] */
+
+/*
+ * R546 (0x222) - FLL Control (3)
+ */
+#define WM8996_FLL_THETA_MASK                   0xFFFF  /* FLL_THETA - [15:0] */
+#define WM8996_FLL_THETA_SHIFT                       0  /* FLL_THETA - [15:0] */
+#define WM8996_FLL_THETA_WIDTH                      16  /* FLL_THETA - [15:0] */
+
+/*
+ * R547 (0x223) - FLL Control (4)
+ */
+#define WM8996_FLL_N_MASK                       0x7FE0  /* FLL_N - [14:5] */
+#define WM8996_FLL_N_SHIFT                           5  /* FLL_N - [14:5] */
+#define WM8996_FLL_N_WIDTH                          10  /* FLL_N - [14:5] */
+#define WM8996_FLL_LOOP_GAIN_MASK               0x000F  /* FLL_LOOP_GAIN - [3:0] */
+#define WM8996_FLL_LOOP_GAIN_SHIFT                   0  /* FLL_LOOP_GAIN - [3:0] */
+#define WM8996_FLL_LOOP_GAIN_WIDTH                   4  /* FLL_LOOP_GAIN - [3:0] */
+
+/*
+ * R548 (0x224) - FLL Control (5)
+ */
+#define WM8996_FLL_FRC_NCO_VAL_MASK             0x1F80  /* FLL_FRC_NCO_VAL - [12:7] */
+#define WM8996_FLL_FRC_NCO_VAL_SHIFT                 7  /* FLL_FRC_NCO_VAL - [12:7] */
+#define WM8996_FLL_FRC_NCO_VAL_WIDTH                 6  /* FLL_FRC_NCO_VAL - [12:7] */
+#define WM8996_FLL_FRC_NCO                      0x0040  /* FLL_FRC_NCO */
+#define WM8996_FLL_FRC_NCO_MASK                 0x0040  /* FLL_FRC_NCO */
+#define WM8996_FLL_FRC_NCO_SHIFT                     6  /* FLL_FRC_NCO */
+#define WM8996_FLL_FRC_NCO_WIDTH                     1  /* FLL_FRC_NCO */
+#define WM8996_FLL_REFCLK_DIV_MASK              0x0018  /* FLL_REFCLK_DIV - [4:3] */
+#define WM8996_FLL_REFCLK_DIV_SHIFT                  3  /* FLL_REFCLK_DIV - [4:3] */
+#define WM8996_FLL_REFCLK_DIV_WIDTH                  2  /* FLL_REFCLK_DIV - [4:3] */
+#define WM8996_FLL_REF_FREQ                     0x0004  /* FLL_REF_FREQ */
+#define WM8996_FLL_REF_FREQ_MASK                0x0004  /* FLL_REF_FREQ */
+#define WM8996_FLL_REF_FREQ_SHIFT                    2  /* FLL_REF_FREQ */
+#define WM8996_FLL_REF_FREQ_WIDTH                    1  /* FLL_REF_FREQ */
+#define WM8996_FLL_REFCLK_SRC_MASK              0x0003  /* FLL_REFCLK_SRC - [1:0] */
+#define WM8996_FLL_REFCLK_SRC_SHIFT                  0  /* FLL_REFCLK_SRC - [1:0] */
+#define WM8996_FLL_REFCLK_SRC_WIDTH                  2  /* FLL_REFCLK_SRC - [1:0] */
+
+/*
+ * R549 (0x225) - FLL Control (6)
+ */
+#define WM8996_FLL_REFCLK_SRC_STS_MASK          0x000C  /* FLL_REFCLK_SRC_STS - [3:2] */
+#define WM8996_FLL_REFCLK_SRC_STS_SHIFT              2  /* FLL_REFCLK_SRC_STS - [3:2] */
+#define WM8996_FLL_REFCLK_SRC_STS_WIDTH              2  /* FLL_REFCLK_SRC_STS - [3:2] */
+#define WM8996_FLL_SWITCH_CLK                   0x0001  /* FLL_SWITCH_CLK */
+#define WM8996_FLL_SWITCH_CLK_MASK              0x0001  /* FLL_SWITCH_CLK */
+#define WM8996_FLL_SWITCH_CLK_SHIFT                  0  /* FLL_SWITCH_CLK */
+#define WM8996_FLL_SWITCH_CLK_WIDTH                  1  /* FLL_SWITCH_CLK */
+
+/*
+ * R550 (0x226) - FLL EFS 1
+ */
+#define WM8996_FLL_LAMBDA_MASK                  0xFFFF  /* FLL_LAMBDA - [15:0] */
+#define WM8996_FLL_LAMBDA_SHIFT                      0  /* FLL_LAMBDA - [15:0] */
+#define WM8996_FLL_LAMBDA_WIDTH                     16  /* FLL_LAMBDA - [15:0] */
+
+/*
+ * R551 (0x227) - FLL EFS 2
+ */
+#define WM8996_FLL_LFSR_SEL_MASK                0x0006  /* FLL_LFSR_SEL - [2:1] */
+#define WM8996_FLL_LFSR_SEL_SHIFT                    1  /* FLL_LFSR_SEL - [2:1] */
+#define WM8996_FLL_LFSR_SEL_WIDTH                    2  /* FLL_LFSR_SEL - [2:1] */
+#define WM8996_FLL_EFS_ENA                      0x0001  /* FLL_EFS_ENA */
+#define WM8996_FLL_EFS_ENA_MASK                 0x0001  /* FLL_EFS_ENA */
+#define WM8996_FLL_EFS_ENA_SHIFT                     0  /* FLL_EFS_ENA */
+#define WM8996_FLL_EFS_ENA_WIDTH                     1  /* FLL_EFS_ENA */
+
+/*
+ * R768 (0x300) - AIF1 Control
+ */
+#define WM8996_AIF1_TRI                         0x0004  /* AIF1_TRI */
+#define WM8996_AIF1_TRI_MASK                    0x0004  /* AIF1_TRI */
+#define WM8996_AIF1_TRI_SHIFT                        2  /* AIF1_TRI */
+#define WM8996_AIF1_TRI_WIDTH                        1  /* AIF1_TRI */
+#define WM8996_AIF1_FMT_MASK                    0x0003  /* AIF1_FMT - [1:0] */
+#define WM8996_AIF1_FMT_SHIFT                        0  /* AIF1_FMT - [1:0] */
+#define WM8996_AIF1_FMT_WIDTH                        2  /* AIF1_FMT - [1:0] */
+
+/*
+ * R769 (0x301) - AIF1 BCLK
+ */
+#define WM8996_AIF1_BCLK_INV                    0x0400  /* AIF1_BCLK_INV */
+#define WM8996_AIF1_BCLK_INV_MASK               0x0400  /* AIF1_BCLK_INV */
+#define WM8996_AIF1_BCLK_INV_SHIFT                  10  /* AIF1_BCLK_INV */
+#define WM8996_AIF1_BCLK_INV_WIDTH                   1  /* AIF1_BCLK_INV */
+#define WM8996_AIF1_BCLK_FRC                    0x0200  /* AIF1_BCLK_FRC */
+#define WM8996_AIF1_BCLK_FRC_MASK               0x0200  /* AIF1_BCLK_FRC */
+#define WM8996_AIF1_BCLK_FRC_SHIFT                   9  /* AIF1_BCLK_FRC */
+#define WM8996_AIF1_BCLK_FRC_WIDTH                   1  /* AIF1_BCLK_FRC */
+#define WM8996_AIF1_BCLK_MSTR                   0x0100  /* AIF1_BCLK_MSTR */
+#define WM8996_AIF1_BCLK_MSTR_MASK              0x0100  /* AIF1_BCLK_MSTR */
+#define WM8996_AIF1_BCLK_MSTR_SHIFT                  8  /* AIF1_BCLK_MSTR */
+#define WM8996_AIF1_BCLK_MSTR_WIDTH                  1  /* AIF1_BCLK_MSTR */
+#define WM8996_AIF1_BCLK_DIV_MASK               0x000F  /* AIF1_BCLK_DIV - [3:0] */
+#define WM8996_AIF1_BCLK_DIV_SHIFT                   0  /* AIF1_BCLK_DIV - [3:0] */
+#define WM8996_AIF1_BCLK_DIV_WIDTH                   4  /* AIF1_BCLK_DIV - [3:0] */
+
+/*
+ * R770 (0x302) - AIF1 TX LRCLK(1)
+ */
+#define WM8996_AIF1TX_RATE_MASK                 0x07FF  /* AIF1TX_RATE - [10:0] */
+#define WM8996_AIF1TX_RATE_SHIFT                     0  /* AIF1TX_RATE - [10:0] */
+#define WM8996_AIF1TX_RATE_WIDTH                    11  /* AIF1TX_RATE - [10:0] */
+
+/*
+ * R771 (0x303) - AIF1 TX LRCLK(2)
+ */
+#define WM8996_AIF1TX_LRCLK_MODE                0x0008  /* AIF1TX_LRCLK_MODE */
+#define WM8996_AIF1TX_LRCLK_MODE_MASK           0x0008  /* AIF1TX_LRCLK_MODE */
+#define WM8996_AIF1TX_LRCLK_MODE_SHIFT               3  /* AIF1TX_LRCLK_MODE */
+#define WM8996_AIF1TX_LRCLK_MODE_WIDTH               1  /* AIF1TX_LRCLK_MODE */
+#define WM8996_AIF1TX_LRCLK_INV                 0x0004  /* AIF1TX_LRCLK_INV */
+#define WM8996_AIF1TX_LRCLK_INV_MASK            0x0004  /* AIF1TX_LRCLK_INV */
+#define WM8996_AIF1TX_LRCLK_INV_SHIFT                2  /* AIF1TX_LRCLK_INV */
+#define WM8996_AIF1TX_LRCLK_INV_WIDTH                1  /* AIF1TX_LRCLK_INV */
+#define WM8996_AIF1TX_LRCLK_FRC                 0x0002  /* AIF1TX_LRCLK_FRC */
+#define WM8996_AIF1TX_LRCLK_FRC_MASK            0x0002  /* AIF1TX_LRCLK_FRC */
+#define WM8996_AIF1TX_LRCLK_FRC_SHIFT                1  /* AIF1TX_LRCLK_FRC */
+#define WM8996_AIF1TX_LRCLK_FRC_WIDTH                1  /* AIF1TX_LRCLK_FRC */
+#define WM8996_AIF1TX_LRCLK_MSTR                0x0001  /* AIF1TX_LRCLK_MSTR */
+#define WM8996_AIF1TX_LRCLK_MSTR_MASK           0x0001  /* AIF1TX_LRCLK_MSTR */
+#define WM8996_AIF1TX_LRCLK_MSTR_SHIFT               0  /* AIF1TX_LRCLK_MSTR */
+#define WM8996_AIF1TX_LRCLK_MSTR_WIDTH               1  /* AIF1TX_LRCLK_MSTR */
+
+/*
+ * R772 (0x304) - AIF1 RX LRCLK(1)
+ */
+#define WM8996_AIF1RX_RATE_MASK                 0x07FF  /* AIF1RX_RATE - [10:0] */
+#define WM8996_AIF1RX_RATE_SHIFT                     0  /* AIF1RX_RATE - [10:0] */
+#define WM8996_AIF1RX_RATE_WIDTH                    11  /* AIF1RX_RATE - [10:0] */
+
+/*
+ * R773 (0x305) - AIF1 RX LRCLK(2)
+ */
+#define WM8996_AIF1RX_LRCLK_INV                 0x0004  /* AIF1RX_LRCLK_INV */
+#define WM8996_AIF1RX_LRCLK_INV_MASK            0x0004  /* AIF1RX_LRCLK_INV */
+#define WM8996_AIF1RX_LRCLK_INV_SHIFT                2  /* AIF1RX_LRCLK_INV */
+#define WM8996_AIF1RX_LRCLK_INV_WIDTH                1  /* AIF1RX_LRCLK_INV */
+#define WM8996_AIF1RX_LRCLK_FRC                 0x0002  /* AIF1RX_LRCLK_FRC */
+#define WM8996_AIF1RX_LRCLK_FRC_MASK            0x0002  /* AIF1RX_LRCLK_FRC */
+#define WM8996_AIF1RX_LRCLK_FRC_SHIFT                1  /* AIF1RX_LRCLK_FRC */
+#define WM8996_AIF1RX_LRCLK_FRC_WIDTH                1  /* AIF1RX_LRCLK_FRC */
+#define WM8996_AIF1RX_LRCLK_MSTR                0x0001  /* AIF1RX_LRCLK_MSTR */
+#define WM8996_AIF1RX_LRCLK_MSTR_MASK           0x0001  /* AIF1RX_LRCLK_MSTR */
+#define WM8996_AIF1RX_LRCLK_MSTR_SHIFT               0  /* AIF1RX_LRCLK_MSTR */
+#define WM8996_AIF1RX_LRCLK_MSTR_WIDTH               1  /* AIF1RX_LRCLK_MSTR */
+
+/*
+ * R774 (0x306) - AIF1TX Data Configuration (1)
+ */
+#define WM8996_AIF1TX_WL_MASK                   0xFF00  /* AIF1TX_WL - [15:8] */
+#define WM8996_AIF1TX_WL_SHIFT                       8  /* AIF1TX_WL - [15:8] */
+#define WM8996_AIF1TX_WL_WIDTH                       8  /* AIF1TX_WL - [15:8] */
+#define WM8996_AIF1TX_SLOT_LEN_MASK             0x00FF  /* AIF1TX_SLOT_LEN - [7:0] */
+#define WM8996_AIF1TX_SLOT_LEN_SHIFT                 0  /* AIF1TX_SLOT_LEN - [7:0] */
+#define WM8996_AIF1TX_SLOT_LEN_WIDTH                 8  /* AIF1TX_SLOT_LEN - [7:0] */
+
+/*
+ * R775 (0x307) - AIF1TX Data Configuration (2)
+ */
+#define WM8996_AIF1TX_DAT_TRI                   0x0001  /* AIF1TX_DAT_TRI */
+#define WM8996_AIF1TX_DAT_TRI_MASK              0x0001  /* AIF1TX_DAT_TRI */
+#define WM8996_AIF1TX_DAT_TRI_SHIFT                  0  /* AIF1TX_DAT_TRI */
+#define WM8996_AIF1TX_DAT_TRI_WIDTH                  1  /* AIF1TX_DAT_TRI */
+
+/*
+ * R776 (0x308) - AIF1RX Data Configuration
+ */
+#define WM8996_AIF1RX_WL_MASK                   0xFF00  /* AIF1RX_WL - [15:8] */
+#define WM8996_AIF1RX_WL_SHIFT                       8  /* AIF1RX_WL - [15:8] */
+#define WM8996_AIF1RX_WL_WIDTH                       8  /* AIF1RX_WL - [15:8] */
+#define WM8996_AIF1RX_SLOT_LEN_MASK             0x00FF  /* AIF1RX_SLOT_LEN - [7:0] */
+#define WM8996_AIF1RX_SLOT_LEN_SHIFT                 0  /* AIF1RX_SLOT_LEN - [7:0] */
+#define WM8996_AIF1RX_SLOT_LEN_WIDTH                 8  /* AIF1RX_SLOT_LEN - [7:0] */
+
+/*
+ * R777 (0x309) - AIF1TX Channel 0 Configuration
+ */
+#define WM8996_AIF1TX_CHAN0_DAT_INV             0x8000  /* AIF1TX_CHAN0_DAT_INV */
+#define WM8996_AIF1TX_CHAN0_DAT_INV_MASK        0x8000  /* AIF1TX_CHAN0_DAT_INV */
+#define WM8996_AIF1TX_CHAN0_DAT_INV_SHIFT           15  /* AIF1TX_CHAN0_DAT_INV */
+#define WM8996_AIF1TX_CHAN0_DAT_INV_WIDTH            1  /* AIF1TX_CHAN0_DAT_INV */
+#define WM8996_AIF1TX_CHAN0_SPACING_MASK        0x7E00  /* AIF1TX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN0_SPACING_SHIFT            9  /* AIF1TX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN0_SPACING_WIDTH            6  /* AIF1TX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN0_SLOTS_MASK          0x01C0  /* AIF1TX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN0_SLOTS_SHIFT              6  /* AIF1TX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN0_SLOTS_WIDTH              3  /* AIF1TX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN0_START_SLOT_MASK     0x003F  /* AIF1TX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN0_START_SLOT_SHIFT         0  /* AIF1TX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN0_START_SLOT_WIDTH         6  /* AIF1TX_CHAN0_START_SLOT - [5:0] */
+
+/*
+ * R778 (0x30A) - AIF1TX Channel 1 Configuration
+ */
+#define WM8996_AIF1TX_CHAN1_DAT_INV             0x8000  /* AIF1TX_CHAN1_DAT_INV */
+#define WM8996_AIF1TX_CHAN1_DAT_INV_MASK        0x8000  /* AIF1TX_CHAN1_DAT_INV */
+#define WM8996_AIF1TX_CHAN1_DAT_INV_SHIFT           15  /* AIF1TX_CHAN1_DAT_INV */
+#define WM8996_AIF1TX_CHAN1_DAT_INV_WIDTH            1  /* AIF1TX_CHAN1_DAT_INV */
+#define WM8996_AIF1TX_CHAN1_SPACING_MASK        0x7E00  /* AIF1TX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN1_SPACING_SHIFT            9  /* AIF1TX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN1_SPACING_WIDTH            6  /* AIF1TX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN1_SLOTS_MASK          0x01C0  /* AIF1TX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN1_SLOTS_SHIFT              6  /* AIF1TX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN1_SLOTS_WIDTH              3  /* AIF1TX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN1_START_SLOT_MASK     0x003F  /* AIF1TX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN1_START_SLOT_SHIFT         0  /* AIF1TX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN1_START_SLOT_WIDTH         6  /* AIF1TX_CHAN1_START_SLOT - [5:0] */
+
+/*
+ * R779 (0x30B) - AIF1TX Channel 2 Configuration
+ */
+#define WM8996_AIF1TX_CHAN2_DAT_INV             0x8000  /* AIF1TX_CHAN2_DAT_INV */
+#define WM8996_AIF1TX_CHAN2_DAT_INV_MASK        0x8000  /* AIF1TX_CHAN2_DAT_INV */
+#define WM8996_AIF1TX_CHAN2_DAT_INV_SHIFT           15  /* AIF1TX_CHAN2_DAT_INV */
+#define WM8996_AIF1TX_CHAN2_DAT_INV_WIDTH            1  /* AIF1TX_CHAN2_DAT_INV */
+#define WM8996_AIF1TX_CHAN2_SPACING_MASK        0x7E00  /* AIF1TX_CHAN2_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN2_SPACING_SHIFT            9  /* AIF1TX_CHAN2_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN2_SPACING_WIDTH            6  /* AIF1TX_CHAN2_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN2_SLOTS_MASK          0x01C0  /* AIF1TX_CHAN2_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN2_SLOTS_SHIFT              6  /* AIF1TX_CHAN2_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN2_SLOTS_WIDTH              3  /* AIF1TX_CHAN2_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN2_START_SLOT_MASK     0x003F  /* AIF1TX_CHAN2_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN2_START_SLOT_SHIFT         0  /* AIF1TX_CHAN2_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN2_START_SLOT_WIDTH         6  /* AIF1TX_CHAN2_START_SLOT - [5:0] */
+
+/*
+ * R780 (0x30C) - AIF1TX Channel 3 Configuration
+ */
+#define WM8996_AIF1TX_CHAN3_DAT_INV             0x8000  /* AIF1TX_CHAN3_DAT_INV */
+#define WM8996_AIF1TX_CHAN3_DAT_INV_MASK        0x8000  /* AIF1TX_CHAN3_DAT_INV */
+#define WM8996_AIF1TX_CHAN3_DAT_INV_SHIFT           15  /* AIF1TX_CHAN3_DAT_INV */
+#define WM8996_AIF1TX_CHAN3_DAT_INV_WIDTH            1  /* AIF1TX_CHAN3_DAT_INV */
+#define WM8996_AIF1TX_CHAN3_SPACING_MASK        0x7E00  /* AIF1TX_CHAN3_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN3_SPACING_SHIFT            9  /* AIF1TX_CHAN3_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN3_SPACING_WIDTH            6  /* AIF1TX_CHAN3_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN3_SLOTS_MASK          0x01C0  /* AIF1TX_CHAN3_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN3_SLOTS_SHIFT              6  /* AIF1TX_CHAN3_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN3_SLOTS_WIDTH              3  /* AIF1TX_CHAN3_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN3_START_SLOT_MASK     0x003F  /* AIF1TX_CHAN3_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN3_START_SLOT_SHIFT         0  /* AIF1TX_CHAN3_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN3_START_SLOT_WIDTH         6  /* AIF1TX_CHAN3_START_SLOT - [5:0] */
+
+/*
+ * R781 (0x30D) - AIF1TX Channel 4 Configuration
+ */
+#define WM8996_AIF1TX_CHAN4_DAT_INV             0x8000  /* AIF1TX_CHAN4_DAT_INV */
+#define WM8996_AIF1TX_CHAN4_DAT_INV_MASK        0x8000  /* AIF1TX_CHAN4_DAT_INV */
+#define WM8996_AIF1TX_CHAN4_DAT_INV_SHIFT           15  /* AIF1TX_CHAN4_DAT_INV */
+#define WM8996_AIF1TX_CHAN4_DAT_INV_WIDTH            1  /* AIF1TX_CHAN4_DAT_INV */
+#define WM8996_AIF1TX_CHAN4_SPACING_MASK        0x7E00  /* AIF1TX_CHAN4_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN4_SPACING_SHIFT            9  /* AIF1TX_CHAN4_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN4_SPACING_WIDTH            6  /* AIF1TX_CHAN4_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN4_SLOTS_MASK          0x01C0  /* AIF1TX_CHAN4_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN4_SLOTS_SHIFT              6  /* AIF1TX_CHAN4_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN4_SLOTS_WIDTH              3  /* AIF1TX_CHAN4_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN4_START_SLOT_MASK     0x003F  /* AIF1TX_CHAN4_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN4_START_SLOT_SHIFT         0  /* AIF1TX_CHAN4_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN4_START_SLOT_WIDTH         6  /* AIF1TX_CHAN4_START_SLOT - [5:0] */
+
+/*
+ * R782 (0x30E) - AIF1TX Channel 5 Configuration
+ */
+#define WM8996_AIF1TX_CHAN5_DAT_INV             0x8000  /* AIF1TX_CHAN5_DAT_INV */
+#define WM8996_AIF1TX_CHAN5_DAT_INV_MASK        0x8000  /* AIF1TX_CHAN5_DAT_INV */
+#define WM8996_AIF1TX_CHAN5_DAT_INV_SHIFT           15  /* AIF1TX_CHAN5_DAT_INV */
+#define WM8996_AIF1TX_CHAN5_DAT_INV_WIDTH            1  /* AIF1TX_CHAN5_DAT_INV */
+#define WM8996_AIF1TX_CHAN5_SPACING_MASK        0x7E00  /* AIF1TX_CHAN5_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN5_SPACING_SHIFT            9  /* AIF1TX_CHAN5_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN5_SPACING_WIDTH            6  /* AIF1TX_CHAN5_SPACING - [14:9] */
+#define WM8996_AIF1TX_CHAN5_SLOTS_MASK          0x01C0  /* AIF1TX_CHAN5_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN5_SLOTS_SHIFT              6  /* AIF1TX_CHAN5_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN5_SLOTS_WIDTH              3  /* AIF1TX_CHAN5_SLOTS - [8:6] */
+#define WM8996_AIF1TX_CHAN5_START_SLOT_MASK     0x003F  /* AIF1TX_CHAN5_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN5_START_SLOT_SHIFT         0  /* AIF1TX_CHAN5_START_SLOT - [5:0] */
+#define WM8996_AIF1TX_CHAN5_START_SLOT_WIDTH         6  /* AIF1TX_CHAN5_START_SLOT - [5:0] */
+
+/*
+ * R783 (0x30F) - AIF1RX Channel 0 Configuration
+ */
+#define WM8996_AIF1RX_CHAN0_DAT_INV             0x8000  /* AIF1RX_CHAN0_DAT_INV */
+#define WM8996_AIF1RX_CHAN0_DAT_INV_MASK        0x8000  /* AIF1RX_CHAN0_DAT_INV */
+#define WM8996_AIF1RX_CHAN0_DAT_INV_SHIFT           15  /* AIF1RX_CHAN0_DAT_INV */
+#define WM8996_AIF1RX_CHAN0_DAT_INV_WIDTH            1  /* AIF1RX_CHAN0_DAT_INV */
+#define WM8996_AIF1RX_CHAN0_SPACING_MASK        0x7E00  /* AIF1RX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN0_SPACING_SHIFT            9  /* AIF1RX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN0_SPACING_WIDTH            6  /* AIF1RX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN0_SLOTS_MASK          0x01C0  /* AIF1RX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN0_SLOTS_SHIFT              6  /* AIF1RX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN0_SLOTS_WIDTH              3  /* AIF1RX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN0_START_SLOT_MASK     0x003F  /* AIF1RX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN0_START_SLOT_SHIFT         0  /* AIF1RX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN0_START_SLOT_WIDTH         6  /* AIF1RX_CHAN0_START_SLOT - [5:0] */
+
+/*
+ * R784 (0x310) - AIF1RX Channel 1 Configuration
+ */
+#define WM8996_AIF1RX_CHAN1_DAT_INV             0x8000  /* AIF1RX_CHAN1_DAT_INV */
+#define WM8996_AIF1RX_CHAN1_DAT_INV_MASK        0x8000  /* AIF1RX_CHAN1_DAT_INV */
+#define WM8996_AIF1RX_CHAN1_DAT_INV_SHIFT           15  /* AIF1RX_CHAN1_DAT_INV */
+#define WM8996_AIF1RX_CHAN1_DAT_INV_WIDTH            1  /* AIF1RX_CHAN1_DAT_INV */
+#define WM8996_AIF1RX_CHAN1_SPACING_MASK        0x7E00  /* AIF1RX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN1_SPACING_SHIFT            9  /* AIF1RX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN1_SPACING_WIDTH            6  /* AIF1RX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN1_SLOTS_MASK          0x01C0  /* AIF1RX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN1_SLOTS_SHIFT              6  /* AIF1RX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN1_SLOTS_WIDTH              3  /* AIF1RX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN1_START_SLOT_MASK     0x003F  /* AIF1RX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN1_START_SLOT_SHIFT         0  /* AIF1RX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN1_START_SLOT_WIDTH         6  /* AIF1RX_CHAN1_START_SLOT - [5:0] */
+
+/*
+ * R785 (0x311) - AIF1RX Channel 2 Configuration
+ */
+#define WM8996_AIF1RX_CHAN2_DAT_INV             0x8000  /* AIF1RX_CHAN2_DAT_INV */
+#define WM8996_AIF1RX_CHAN2_DAT_INV_MASK        0x8000  /* AIF1RX_CHAN2_DAT_INV */
+#define WM8996_AIF1RX_CHAN2_DAT_INV_SHIFT           15  /* AIF1RX_CHAN2_DAT_INV */
+#define WM8996_AIF1RX_CHAN2_DAT_INV_WIDTH            1  /* AIF1RX_CHAN2_DAT_INV */
+#define WM8996_AIF1RX_CHAN2_SPACING_MASK        0x7E00  /* AIF1RX_CHAN2_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN2_SPACING_SHIFT            9  /* AIF1RX_CHAN2_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN2_SPACING_WIDTH            6  /* AIF1RX_CHAN2_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN2_SLOTS_MASK          0x01C0  /* AIF1RX_CHAN2_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN2_SLOTS_SHIFT              6  /* AIF1RX_CHAN2_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN2_SLOTS_WIDTH              3  /* AIF1RX_CHAN2_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN2_START_SLOT_MASK     0x003F  /* AIF1RX_CHAN2_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN2_START_SLOT_SHIFT         0  /* AIF1RX_CHAN2_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN2_START_SLOT_WIDTH         6  /* AIF1RX_CHAN2_START_SLOT - [5:0] */
+
+/*
+ * R786 (0x312) - AIF1RX Channel 3 Configuration
+ */
+#define WM8996_AIF1RX_CHAN3_DAT_INV             0x8000  /* AIF1RX_CHAN3_DAT_INV */
+#define WM8996_AIF1RX_CHAN3_DAT_INV_MASK        0x8000  /* AIF1RX_CHAN3_DAT_INV */
+#define WM8996_AIF1RX_CHAN3_DAT_INV_SHIFT           15  /* AIF1RX_CHAN3_DAT_INV */
+#define WM8996_AIF1RX_CHAN3_DAT_INV_WIDTH            1  /* AIF1RX_CHAN3_DAT_INV */
+#define WM8996_AIF1RX_CHAN3_SPACING_MASK        0x7E00  /* AIF1RX_CHAN3_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN3_SPACING_SHIFT            9  /* AIF1RX_CHAN3_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN3_SPACING_WIDTH            6  /* AIF1RX_CHAN3_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN3_SLOTS_MASK          0x01C0  /* AIF1RX_CHAN3_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN3_SLOTS_SHIFT              6  /* AIF1RX_CHAN3_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN3_SLOTS_WIDTH              3  /* AIF1RX_CHAN3_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN3_START_SLOT_MASK     0x003F  /* AIF1RX_CHAN3_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN3_START_SLOT_SHIFT         0  /* AIF1RX_CHAN3_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN3_START_SLOT_WIDTH         6  /* AIF1RX_CHAN3_START_SLOT - [5:0] */
+
+/*
+ * R787 (0x313) - AIF1RX Channel 4 Configuration
+ */
+#define WM8996_AIF1RX_CHAN4_DAT_INV             0x8000  /* AIF1RX_CHAN4_DAT_INV */
+#define WM8996_AIF1RX_CHAN4_DAT_INV_MASK        0x8000  /* AIF1RX_CHAN4_DAT_INV */
+#define WM8996_AIF1RX_CHAN4_DAT_INV_SHIFT           15  /* AIF1RX_CHAN4_DAT_INV */
+#define WM8996_AIF1RX_CHAN4_DAT_INV_WIDTH            1  /* AIF1RX_CHAN4_DAT_INV */
+#define WM8996_AIF1RX_CHAN4_SPACING_MASK        0x7E00  /* AIF1RX_CHAN4_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN4_SPACING_SHIFT            9  /* AIF1RX_CHAN4_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN4_SPACING_WIDTH            6  /* AIF1RX_CHAN4_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN4_SLOTS_MASK          0x01C0  /* AIF1RX_CHAN4_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN4_SLOTS_SHIFT              6  /* AIF1RX_CHAN4_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN4_SLOTS_WIDTH              3  /* AIF1RX_CHAN4_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN4_START_SLOT_MASK     0x003F  /* AIF1RX_CHAN4_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN4_START_SLOT_SHIFT         0  /* AIF1RX_CHAN4_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN4_START_SLOT_WIDTH         6  /* AIF1RX_CHAN4_START_SLOT - [5:0] */
+
+/*
+ * R788 (0x314) - AIF1RX Channel 5 Configuration
+ */
+#define WM8996_AIF1RX_CHAN5_DAT_INV             0x8000  /* AIF1RX_CHAN5_DAT_INV */
+#define WM8996_AIF1RX_CHAN5_DAT_INV_MASK        0x8000  /* AIF1RX_CHAN5_DAT_INV */
+#define WM8996_AIF1RX_CHAN5_DAT_INV_SHIFT           15  /* AIF1RX_CHAN5_DAT_INV */
+#define WM8996_AIF1RX_CHAN5_DAT_INV_WIDTH            1  /* AIF1RX_CHAN5_DAT_INV */
+#define WM8996_AIF1RX_CHAN5_SPACING_MASK        0x7E00  /* AIF1RX_CHAN5_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN5_SPACING_SHIFT            9  /* AIF1RX_CHAN5_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN5_SPACING_WIDTH            6  /* AIF1RX_CHAN5_SPACING - [14:9] */
+#define WM8996_AIF1RX_CHAN5_SLOTS_MASK          0x01C0  /* AIF1RX_CHAN5_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN5_SLOTS_SHIFT              6  /* AIF1RX_CHAN5_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN5_SLOTS_WIDTH              3  /* AIF1RX_CHAN5_SLOTS - [8:6] */
+#define WM8996_AIF1RX_CHAN5_START_SLOT_MASK     0x003F  /* AIF1RX_CHAN5_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN5_START_SLOT_SHIFT         0  /* AIF1RX_CHAN5_START_SLOT - [5:0] */
+#define WM8996_AIF1RX_CHAN5_START_SLOT_WIDTH         6  /* AIF1RX_CHAN5_START_SLOT - [5:0] */
+
+/*
+ * R789 (0x315) - AIF1RX Mono Configuration
+ */
+#define WM8996_AIF1RX_CHAN4_MONO_MODE           0x0004  /* AIF1RX_CHAN4_MONO_MODE */
+#define WM8996_AIF1RX_CHAN4_MONO_MODE_MASK      0x0004  /* AIF1RX_CHAN4_MONO_MODE */
+#define WM8996_AIF1RX_CHAN4_MONO_MODE_SHIFT          2  /* AIF1RX_CHAN4_MONO_MODE */
+#define WM8996_AIF1RX_CHAN4_MONO_MODE_WIDTH          1  /* AIF1RX_CHAN4_MONO_MODE */
+#define WM8996_AIF1RX_CHAN2_MONO_MODE           0x0002  /* AIF1RX_CHAN2_MONO_MODE */
+#define WM8996_AIF1RX_CHAN2_MONO_MODE_MASK      0x0002  /* AIF1RX_CHAN2_MONO_MODE */
+#define WM8996_AIF1RX_CHAN2_MONO_MODE_SHIFT          1  /* AIF1RX_CHAN2_MONO_MODE */
+#define WM8996_AIF1RX_CHAN2_MONO_MODE_WIDTH          1  /* AIF1RX_CHAN2_MONO_MODE */
+#define WM8996_AIF1RX_CHAN0_MONO_MODE           0x0001  /* AIF1RX_CHAN0_MONO_MODE */
+#define WM8996_AIF1RX_CHAN0_MONO_MODE_MASK      0x0001  /* AIF1RX_CHAN0_MONO_MODE */
+#define WM8996_AIF1RX_CHAN0_MONO_MODE_SHIFT          0  /* AIF1RX_CHAN0_MONO_MODE */
+#define WM8996_AIF1RX_CHAN0_MONO_MODE_WIDTH          1  /* AIF1RX_CHAN0_MONO_MODE */
+
+/*
+ * R794 (0x31A) - AIF1TX Test
+ */
+#define WM8996_AIF1TX45_DITHER_ENA              0x0004  /* AIF1TX45_DITHER_ENA */
+#define WM8996_AIF1TX45_DITHER_ENA_MASK         0x0004  /* AIF1TX45_DITHER_ENA */
+#define WM8996_AIF1TX45_DITHER_ENA_SHIFT             2  /* AIF1TX45_DITHER_ENA */
+#define WM8996_AIF1TX45_DITHER_ENA_WIDTH             1  /* AIF1TX45_DITHER_ENA */
+#define WM8996_AIF1TX23_DITHER_ENA              0x0002  /* AIF1TX23_DITHER_ENA */
+#define WM8996_AIF1TX23_DITHER_ENA_MASK         0x0002  /* AIF1TX23_DITHER_ENA */
+#define WM8996_AIF1TX23_DITHER_ENA_SHIFT             1  /* AIF1TX23_DITHER_ENA */
+#define WM8996_AIF1TX23_DITHER_ENA_WIDTH             1  /* AIF1TX23_DITHER_ENA */
+#define WM8996_AIF1TX01_DITHER_ENA              0x0001  /* AIF1TX01_DITHER_ENA */
+#define WM8996_AIF1TX01_DITHER_ENA_MASK         0x0001  /* AIF1TX01_DITHER_ENA */
+#define WM8996_AIF1TX01_DITHER_ENA_SHIFT             0  /* AIF1TX01_DITHER_ENA */
+#define WM8996_AIF1TX01_DITHER_ENA_WIDTH             1  /* AIF1TX01_DITHER_ENA */
+
+/*
+ * R800 (0x320) - AIF2 Control
+ */
+#define WM8996_AIF2_TRI                         0x0004  /* AIF2_TRI */
+#define WM8996_AIF2_TRI_MASK                    0x0004  /* AIF2_TRI */
+#define WM8996_AIF2_TRI_SHIFT                        2  /* AIF2_TRI */
+#define WM8996_AIF2_TRI_WIDTH                        1  /* AIF2_TRI */
+#define WM8996_AIF2_FMT_MASK                    0x0003  /* AIF2_FMT - [1:0] */
+#define WM8996_AIF2_FMT_SHIFT                        0  /* AIF2_FMT - [1:0] */
+#define WM8996_AIF2_FMT_WIDTH                        2  /* AIF2_FMT - [1:0] */
+
+/*
+ * R801 (0x321) - AIF2 BCLK
+ */
+#define WM8996_AIF2_BCLK_INV                    0x0400  /* AIF2_BCLK_INV */
+#define WM8996_AIF2_BCLK_INV_MASK               0x0400  /* AIF2_BCLK_INV */
+#define WM8996_AIF2_BCLK_INV_SHIFT                  10  /* AIF2_BCLK_INV */
+#define WM8996_AIF2_BCLK_INV_WIDTH                   1  /* AIF2_BCLK_INV */
+#define WM8996_AIF2_BCLK_FRC                    0x0200  /* AIF2_BCLK_FRC */
+#define WM8996_AIF2_BCLK_FRC_MASK               0x0200  /* AIF2_BCLK_FRC */
+#define WM8996_AIF2_BCLK_FRC_SHIFT                   9  /* AIF2_BCLK_FRC */
+#define WM8996_AIF2_BCLK_FRC_WIDTH                   1  /* AIF2_BCLK_FRC */
+#define WM8996_AIF2_BCLK_MSTR                   0x0100  /* AIF2_BCLK_MSTR */
+#define WM8996_AIF2_BCLK_MSTR_MASK              0x0100  /* AIF2_BCLK_MSTR */
+#define WM8996_AIF2_BCLK_MSTR_SHIFT                  8  /* AIF2_BCLK_MSTR */
+#define WM8996_AIF2_BCLK_MSTR_WIDTH                  1  /* AIF2_BCLK_MSTR */
+#define WM8996_AIF2_BCLK_DIV_MASK               0x000F  /* AIF2_BCLK_DIV - [3:0] */
+#define WM8996_AIF2_BCLK_DIV_SHIFT                   0  /* AIF2_BCLK_DIV - [3:0] */
+#define WM8996_AIF2_BCLK_DIV_WIDTH                   4  /* AIF2_BCLK_DIV - [3:0] */
+
+/*
+ * R802 (0x322) - AIF2 TX LRCLK(1)
+ */
+#define WM8996_AIF2TX_RATE_MASK                 0x07FF  /* AIF2TX_RATE - [10:0] */
+#define WM8996_AIF2TX_RATE_SHIFT                     0  /* AIF2TX_RATE - [10:0] */
+#define WM8996_AIF2TX_RATE_WIDTH                    11  /* AIF2TX_RATE - [10:0] */
+
+/*
+ * R803 (0x323) - AIF2 TX LRCLK(2)
+ */
+#define WM8996_AIF2TX_LRCLK_MODE                0x0008  /* AIF2TX_LRCLK_MODE */
+#define WM8996_AIF2TX_LRCLK_MODE_MASK           0x0008  /* AIF2TX_LRCLK_MODE */
+#define WM8996_AIF2TX_LRCLK_MODE_SHIFT               3  /* AIF2TX_LRCLK_MODE */
+#define WM8996_AIF2TX_LRCLK_MODE_WIDTH               1  /* AIF2TX_LRCLK_MODE */
+#define WM8996_AIF2TX_LRCLK_INV                 0x0004  /* AIF2TX_LRCLK_INV */
+#define WM8996_AIF2TX_LRCLK_INV_MASK            0x0004  /* AIF2TX_LRCLK_INV */
+#define WM8996_AIF2TX_LRCLK_INV_SHIFT                2  /* AIF2TX_LRCLK_INV */
+#define WM8996_AIF2TX_LRCLK_INV_WIDTH                1  /* AIF2TX_LRCLK_INV */
+#define WM8996_AIF2TX_LRCLK_FRC                 0x0002  /* AIF2TX_LRCLK_FRC */
+#define WM8996_AIF2TX_LRCLK_FRC_MASK            0x0002  /* AIF2TX_LRCLK_FRC */
+#define WM8996_AIF2TX_LRCLK_FRC_SHIFT                1  /* AIF2TX_LRCLK_FRC */
+#define WM8996_AIF2TX_LRCLK_FRC_WIDTH                1  /* AIF2TX_LRCLK_FRC */
+#define WM8996_AIF2TX_LRCLK_MSTR                0x0001  /* AIF2TX_LRCLK_MSTR */
+#define WM8996_AIF2TX_LRCLK_MSTR_MASK           0x0001  /* AIF2TX_LRCLK_MSTR */
+#define WM8996_AIF2TX_LRCLK_MSTR_SHIFT               0  /* AIF2TX_LRCLK_MSTR */
+#define WM8996_AIF2TX_LRCLK_MSTR_WIDTH               1  /* AIF2TX_LRCLK_MSTR */
+
+/*
+ * R804 (0x324) - AIF2 RX LRCLK(1)
+ */
+#define WM8996_AIF2RX_RATE_MASK                 0x07FF  /* AIF2RX_RATE - [10:0] */
+#define WM8996_AIF2RX_RATE_SHIFT                     0  /* AIF2RX_RATE - [10:0] */
+#define WM8996_AIF2RX_RATE_WIDTH                    11  /* AIF2RX_RATE - [10:0] */
+
+/*
+ * R805 (0x325) - AIF2 RX LRCLK(2)
+ */
+#define WM8996_AIF2RX_LRCLK_INV                 0x0004  /* AIF2RX_LRCLK_INV */
+#define WM8996_AIF2RX_LRCLK_INV_MASK            0x0004  /* AIF2RX_LRCLK_INV */
+#define WM8996_AIF2RX_LRCLK_INV_SHIFT                2  /* AIF2RX_LRCLK_INV */
+#define WM8996_AIF2RX_LRCLK_INV_WIDTH                1  /* AIF2RX_LRCLK_INV */
+#define WM8996_AIF2RX_LRCLK_FRC                 0x0002  /* AIF2RX_LRCLK_FRC */
+#define WM8996_AIF2RX_LRCLK_FRC_MASK            0x0002  /* AIF2RX_LRCLK_FRC */
+#define WM8996_AIF2RX_LRCLK_FRC_SHIFT                1  /* AIF2RX_LRCLK_FRC */
+#define WM8996_AIF2RX_LRCLK_FRC_WIDTH                1  /* AIF2RX_LRCLK_FRC */
+#define WM8996_AIF2RX_LRCLK_MSTR                0x0001  /* AIF2RX_LRCLK_MSTR */
+#define WM8996_AIF2RX_LRCLK_MSTR_MASK           0x0001  /* AIF2RX_LRCLK_MSTR */
+#define WM8996_AIF2RX_LRCLK_MSTR_SHIFT               0  /* AIF2RX_LRCLK_MSTR */
+#define WM8996_AIF2RX_LRCLK_MSTR_WIDTH               1  /* AIF2RX_LRCLK_MSTR */
+
+/*
+ * R806 (0x326) - AIF2TX Data Configuration (1)
+ */
+#define WM8996_AIF2TX_WL_MASK                   0xFF00  /* AIF2TX_WL - [15:8] */
+#define WM8996_AIF2TX_WL_SHIFT                       8  /* AIF2TX_WL - [15:8] */
+#define WM8996_AIF2TX_WL_WIDTH                       8  /* AIF2TX_WL - [15:8] */
+#define WM8996_AIF2TX_SLOT_LEN_MASK             0x00FF  /* AIF2TX_SLOT_LEN - [7:0] */
+#define WM8996_AIF2TX_SLOT_LEN_SHIFT                 0  /* AIF2TX_SLOT_LEN - [7:0] */
+#define WM8996_AIF2TX_SLOT_LEN_WIDTH                 8  /* AIF2TX_SLOT_LEN - [7:0] */
+
+/*
+ * R807 (0x327) - AIF2TX Data Configuration (2)
+ */
+#define WM8996_AIF2TX_DAT_TRI                   0x0001  /* AIF2TX_DAT_TRI */
+#define WM8996_AIF2TX_DAT_TRI_MASK              0x0001  /* AIF2TX_DAT_TRI */
+#define WM8996_AIF2TX_DAT_TRI_SHIFT                  0  /* AIF2TX_DAT_TRI */
+#define WM8996_AIF2TX_DAT_TRI_WIDTH                  1  /* AIF2TX_DAT_TRI */
+
+/*
+ * R808 (0x328) - AIF2RX Data Configuration
+ */
+#define WM8996_AIF2RX_WL_MASK                   0xFF00  /* AIF2RX_WL - [15:8] */
+#define WM8996_AIF2RX_WL_SHIFT                       8  /* AIF2RX_WL - [15:8] */
+#define WM8996_AIF2RX_WL_WIDTH                       8  /* AIF2RX_WL - [15:8] */
+#define WM8996_AIF2RX_SLOT_LEN_MASK             0x00FF  /* AIF2RX_SLOT_LEN - [7:0] */
+#define WM8996_AIF2RX_SLOT_LEN_SHIFT                 0  /* AIF2RX_SLOT_LEN - [7:0] */
+#define WM8996_AIF2RX_SLOT_LEN_WIDTH                 8  /* AIF2RX_SLOT_LEN - [7:0] */
+
+/*
+ * R809 (0x329) - AIF2TX Channel 0 Configuration
+ */
+#define WM8996_AIF2TX_CHAN0_DAT_INV             0x8000  /* AIF2TX_CHAN0_DAT_INV */
+#define WM8996_AIF2TX_CHAN0_DAT_INV_MASK        0x8000  /* AIF2TX_CHAN0_DAT_INV */
+#define WM8996_AIF2TX_CHAN0_DAT_INV_SHIFT           15  /* AIF2TX_CHAN0_DAT_INV */
+#define WM8996_AIF2TX_CHAN0_DAT_INV_WIDTH            1  /* AIF2TX_CHAN0_DAT_INV */
+#define WM8996_AIF2TX_CHAN0_SPACING_MASK        0x7E00  /* AIF2TX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF2TX_CHAN0_SPACING_SHIFT            9  /* AIF2TX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF2TX_CHAN0_SPACING_WIDTH            6  /* AIF2TX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF2TX_CHAN0_SLOTS_MASK          0x01C0  /* AIF2TX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF2TX_CHAN0_SLOTS_SHIFT              6  /* AIF2TX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF2TX_CHAN0_SLOTS_WIDTH              3  /* AIF2TX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF2TX_CHAN0_START_SLOT_MASK     0x003F  /* AIF2TX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF2TX_CHAN0_START_SLOT_SHIFT         0  /* AIF2TX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF2TX_CHAN0_START_SLOT_WIDTH         6  /* AIF2TX_CHAN0_START_SLOT - [5:0] */
+
+/*
+ * R810 (0x32A) - AIF2TX Channel 1 Configuration
+ */
+#define WM8996_AIF2TX_CHAN1_DAT_INV             0x8000  /* AIF2TX_CHAN1_DAT_INV */
+#define WM8996_AIF2TX_CHAN1_DAT_INV_MASK        0x8000  /* AIF2TX_CHAN1_DAT_INV */
+#define WM8996_AIF2TX_CHAN1_DAT_INV_SHIFT           15  /* AIF2TX_CHAN1_DAT_INV */
+#define WM8996_AIF2TX_CHAN1_DAT_INV_WIDTH            1  /* AIF2TX_CHAN1_DAT_INV */
+#define WM8996_AIF2TX_CHAN1_SPACING_MASK        0x7E00  /* AIF2TX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF2TX_CHAN1_SPACING_SHIFT            9  /* AIF2TX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF2TX_CHAN1_SPACING_WIDTH            6  /* AIF2TX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF2TX_CHAN1_SLOTS_MASK          0x01C0  /* AIF2TX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF2TX_CHAN1_SLOTS_SHIFT              6  /* AIF2TX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF2TX_CHAN1_SLOTS_WIDTH              3  /* AIF2TX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF2TX_CHAN1_START_SLOT_MASK     0x003F  /* AIF2TX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF2TX_CHAN1_START_SLOT_SHIFT         0  /* AIF2TX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF2TX_CHAN1_START_SLOT_WIDTH         6  /* AIF2TX_CHAN1_START_SLOT - [5:0] */
+
+/*
+ * R811 (0x32B) - AIF2RX Channel 0 Configuration
+ */
+#define WM8996_AIF2RX_CHAN0_DAT_INV             0x8000  /* AIF2RX_CHAN0_DAT_INV */
+#define WM8996_AIF2RX_CHAN0_DAT_INV_MASK        0x8000  /* AIF2RX_CHAN0_DAT_INV */
+#define WM8996_AIF2RX_CHAN0_DAT_INV_SHIFT           15  /* AIF2RX_CHAN0_DAT_INV */
+#define WM8996_AIF2RX_CHAN0_DAT_INV_WIDTH            1  /* AIF2RX_CHAN0_DAT_INV */
+#define WM8996_AIF2RX_CHAN0_SPACING_MASK        0x7E00  /* AIF2RX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF2RX_CHAN0_SPACING_SHIFT            9  /* AIF2RX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF2RX_CHAN0_SPACING_WIDTH            6  /* AIF2RX_CHAN0_SPACING - [14:9] */
+#define WM8996_AIF2RX_CHAN0_SLOTS_MASK          0x01C0  /* AIF2RX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF2RX_CHAN0_SLOTS_SHIFT              6  /* AIF2RX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF2RX_CHAN0_SLOTS_WIDTH              3  /* AIF2RX_CHAN0_SLOTS - [8:6] */
+#define WM8996_AIF2RX_CHAN0_START_SLOT_MASK     0x003F  /* AIF2RX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF2RX_CHAN0_START_SLOT_SHIFT         0  /* AIF2RX_CHAN0_START_SLOT - [5:0] */
+#define WM8996_AIF2RX_CHAN0_START_SLOT_WIDTH         6  /* AIF2RX_CHAN0_START_SLOT - [5:0] */
+
+/*
+ * R812 (0x32C) - AIF2RX Channel 1 Configuration
+ */
+#define WM8996_AIF2RX_CHAN1_DAT_INV             0x8000  /* AIF2RX_CHAN1_DAT_INV */
+#define WM8996_AIF2RX_CHAN1_DAT_INV_MASK        0x8000  /* AIF2RX_CHAN1_DAT_INV */
+#define WM8996_AIF2RX_CHAN1_DAT_INV_SHIFT           15  /* AIF2RX_CHAN1_DAT_INV */
+#define WM8996_AIF2RX_CHAN1_DAT_INV_WIDTH            1  /* AIF2RX_CHAN1_DAT_INV */
+#define WM8996_AIF2RX_CHAN1_SPACING_MASK        0x7E00  /* AIF2RX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF2RX_CHAN1_SPACING_SHIFT            9  /* AIF2RX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF2RX_CHAN1_SPACING_WIDTH            6  /* AIF2RX_CHAN1_SPACING - [14:9] */
+#define WM8996_AIF2RX_CHAN1_SLOTS_MASK          0x01C0  /* AIF2RX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF2RX_CHAN1_SLOTS_SHIFT              6  /* AIF2RX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF2RX_CHAN1_SLOTS_WIDTH              3  /* AIF2RX_CHAN1_SLOTS - [8:6] */
+#define WM8996_AIF2RX_CHAN1_START_SLOT_MASK     0x003F  /* AIF2RX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF2RX_CHAN1_START_SLOT_SHIFT         0  /* AIF2RX_CHAN1_START_SLOT - [5:0] */
+#define WM8996_AIF2RX_CHAN1_START_SLOT_WIDTH         6  /* AIF2RX_CHAN1_START_SLOT - [5:0] */
+
+/*
+ * R813 (0x32D) - AIF2RX Mono Configuration
+ */
+#define WM8996_AIF2RX_CHAN0_MONO_MODE           0x0001  /* AIF2RX_CHAN0_MONO_MODE */
+#define WM8996_AIF2RX_CHAN0_MONO_MODE_MASK      0x0001  /* AIF2RX_CHAN0_MONO_MODE */
+#define WM8996_AIF2RX_CHAN0_MONO_MODE_SHIFT          0  /* AIF2RX_CHAN0_MONO_MODE */
+#define WM8996_AIF2RX_CHAN0_MONO_MODE_WIDTH          1  /* AIF2RX_CHAN0_MONO_MODE */
+
+/*
+ * R815 (0x32F) - AIF2TX Test
+ */
+#define WM8996_AIF2TX_DITHER_ENA                0x0001  /* AIF2TX_DITHER_ENA */
+#define WM8996_AIF2TX_DITHER_ENA_MASK           0x0001  /* AIF2TX_DITHER_ENA */
+#define WM8996_AIF2TX_DITHER_ENA_SHIFT               0  /* AIF2TX_DITHER_ENA */
+#define WM8996_AIF2TX_DITHER_ENA_WIDTH               1  /* AIF2TX_DITHER_ENA */
+
+/*
+ * R1024 (0x400) - DSP1 TX Left Volume
+ */
+#define WM8996_DSP1TX_VU                        0x0100  /* DSP1TX_VU */
+#define WM8996_DSP1TX_VU_MASK                   0x0100  /* DSP1TX_VU */
+#define WM8996_DSP1TX_VU_SHIFT                       8  /* DSP1TX_VU */
+#define WM8996_DSP1TX_VU_WIDTH                       1  /* DSP1TX_VU */
+#define WM8996_DSP1TXL_VOL_MASK                 0x00FF  /* DSP1TXL_VOL - [7:0] */
+#define WM8996_DSP1TXL_VOL_SHIFT                     0  /* DSP1TXL_VOL - [7:0] */
+#define WM8996_DSP1TXL_VOL_WIDTH                     8  /* DSP1TXL_VOL - [7:0] */
+
+/*
+ * R1025 (0x401) - DSP1 TX Right Volume
+ */
+#define WM8996_DSP1TX_VU                        0x0100  /* DSP1TX_VU */
+#define WM8996_DSP1TX_VU_MASK                   0x0100  /* DSP1TX_VU */
+#define WM8996_DSP1TX_VU_SHIFT                       8  /* DSP1TX_VU */
+#define WM8996_DSP1TX_VU_WIDTH                       1  /* DSP1TX_VU */
+#define WM8996_DSP1TXR_VOL_MASK                 0x00FF  /* DSP1TXR_VOL - [7:0] */
+#define WM8996_DSP1TXR_VOL_SHIFT                     0  /* DSP1TXR_VOL - [7:0] */
+#define WM8996_DSP1TXR_VOL_WIDTH                     8  /* DSP1TXR_VOL - [7:0] */
+
+/*
+ * R1026 (0x402) - DSP1 RX Left Volume
+ */
+#define WM8996_DSP1RX_VU                        0x0100  /* DSP1RX_VU */
+#define WM8996_DSP1RX_VU_MASK                   0x0100  /* DSP1RX_VU */
+#define WM8996_DSP1RX_VU_SHIFT                       8  /* DSP1RX_VU */
+#define WM8996_DSP1RX_VU_WIDTH                       1  /* DSP1RX_VU */
+#define WM8996_DSP1RXL_VOL_MASK                 0x00FF  /* DSP1RXL_VOL - [7:0] */
+#define WM8996_DSP1RXL_VOL_SHIFT                     0  /* DSP1RXL_VOL - [7:0] */
+#define WM8996_DSP1RXL_VOL_WIDTH                     8  /* DSP1RXL_VOL - [7:0] */
+
+/*
+ * R1027 (0x403) - DSP1 RX Right Volume
+ */
+#define WM8996_DSP1RX_VU                        0x0100  /* DSP1RX_VU */
+#define WM8996_DSP1RX_VU_MASK                   0x0100  /* DSP1RX_VU */
+#define WM8996_DSP1RX_VU_SHIFT                       8  /* DSP1RX_VU */
+#define WM8996_DSP1RX_VU_WIDTH                       1  /* DSP1RX_VU */
+#define WM8996_DSP1RXR_VOL_MASK                 0x00FF  /* DSP1RXR_VOL - [7:0] */
+#define WM8996_DSP1RXR_VOL_SHIFT                     0  /* DSP1RXR_VOL - [7:0] */
+#define WM8996_DSP1RXR_VOL_WIDTH                     8  /* DSP1RXR_VOL - [7:0] */
+
+/*
+ * R1040 (0x410) - DSP1 TX Filters
+ */
+#define WM8996_DSP1TX_NF                        0x2000  /* DSP1TX_NF */
+#define WM8996_DSP1TX_NF_MASK                   0x2000  /* DSP1TX_NF */
+#define WM8996_DSP1TX_NF_SHIFT                      13  /* DSP1TX_NF */
+#define WM8996_DSP1TX_NF_WIDTH                       1  /* DSP1TX_NF */
+#define WM8996_DSP1TXL_HPF                      0x1000  /* DSP1TXL_HPF */
+#define WM8996_DSP1TXL_HPF_MASK                 0x1000  /* DSP1TXL_HPF */
+#define WM8996_DSP1TXL_HPF_SHIFT                    12  /* DSP1TXL_HPF */
+#define WM8996_DSP1TXL_HPF_WIDTH                     1  /* DSP1TXL_HPF */
+#define WM8996_DSP1TXR_HPF                      0x0800  /* DSP1TXR_HPF */
+#define WM8996_DSP1TXR_HPF_MASK                 0x0800  /* DSP1TXR_HPF */
+#define WM8996_DSP1TXR_HPF_SHIFT                    11  /* DSP1TXR_HPF */
+#define WM8996_DSP1TXR_HPF_WIDTH                     1  /* DSP1TXR_HPF */
+#define WM8996_DSP1TX_HPF_MODE_MASK             0x0018  /* DSP1TX_HPF_MODE - [4:3] */
+#define WM8996_DSP1TX_HPF_MODE_SHIFT                 3  /* DSP1TX_HPF_MODE - [4:3] */
+#define WM8996_DSP1TX_HPF_MODE_WIDTH                 2  /* DSP1TX_HPF_MODE - [4:3] */
+#define WM8996_DSP1TX_HPF_CUT_MASK              0x0007  /* DSP1TX_HPF_CUT - [2:0] */
+#define WM8996_DSP1TX_HPF_CUT_SHIFT                  0  /* DSP1TX_HPF_CUT - [2:0] */
+#define WM8996_DSP1TX_HPF_CUT_WIDTH                  3  /* DSP1TX_HPF_CUT - [2:0] */
+
+/*
+ * R1056 (0x420) - DSP1 RX Filters (1)
+ */
+#define WM8996_DSP1RX_MUTE                      0x0200  /* DSP1RX_MUTE */
+#define WM8996_DSP1RX_MUTE_MASK                 0x0200  /* DSP1RX_MUTE */
+#define WM8996_DSP1RX_MUTE_SHIFT                     9  /* DSP1RX_MUTE */
+#define WM8996_DSP1RX_MUTE_WIDTH                     1  /* DSP1RX_MUTE */
+#define WM8996_DSP1RX_MONO                      0x0080  /* DSP1RX_MONO */
+#define WM8996_DSP1RX_MONO_MASK                 0x0080  /* DSP1RX_MONO */
+#define WM8996_DSP1RX_MONO_SHIFT                     7  /* DSP1RX_MONO */
+#define WM8996_DSP1RX_MONO_WIDTH                     1  /* DSP1RX_MONO */
+#define WM8996_DSP1RX_MUTERATE                  0x0020  /* DSP1RX_MUTERATE */
+#define WM8996_DSP1RX_MUTERATE_MASK             0x0020  /* DSP1RX_MUTERATE */
+#define WM8996_DSP1RX_MUTERATE_SHIFT                 5  /* DSP1RX_MUTERATE */
+#define WM8996_DSP1RX_MUTERATE_WIDTH                 1  /* DSP1RX_MUTERATE */
+#define WM8996_DSP1RX_UNMUTE_RAMP               0x0010  /* DSP1RX_UNMUTE_RAMP */
+#define WM8996_DSP1RX_UNMUTE_RAMP_MASK          0x0010  /* DSP1RX_UNMUTE_RAMP */
+#define WM8996_DSP1RX_UNMUTE_RAMP_SHIFT              4  /* DSP1RX_UNMUTE_RAMP */
+#define WM8996_DSP1RX_UNMUTE_RAMP_WIDTH              1  /* DSP1RX_UNMUTE_RAMP */
+
+/*
+ * R1057 (0x421) - DSP1 RX Filters (2)
+ */
+#define WM8996_DSP1RX_3D_GAIN_MASK              0x3E00  /* DSP1RX_3D_GAIN - [13:9] */
+#define WM8996_DSP1RX_3D_GAIN_SHIFT                  9  /* DSP1RX_3D_GAIN - [13:9] */
+#define WM8996_DSP1RX_3D_GAIN_WIDTH                  5  /* DSP1RX_3D_GAIN - [13:9] */
+#define WM8996_DSP1RX_3D_ENA                    0x0100  /* DSP1RX_3D_ENA */
+#define WM8996_DSP1RX_3D_ENA_MASK               0x0100  /* DSP1RX_3D_ENA */
+#define WM8996_DSP1RX_3D_ENA_SHIFT                   8  /* DSP1RX_3D_ENA */
+#define WM8996_DSP1RX_3D_ENA_WIDTH                   1  /* DSP1RX_3D_ENA */
+
+/*
+ * R1088 (0x440) - DSP1 DRC (1)
+ */
+#define WM8996_DSP1DRC_SIG_DET_RMS_MASK         0xF800  /* DSP1DRC_SIG_DET_RMS - [15:11] */
+#define WM8996_DSP1DRC_SIG_DET_RMS_SHIFT            11  /* DSP1DRC_SIG_DET_RMS - [15:11] */
+#define WM8996_DSP1DRC_SIG_DET_RMS_WIDTH             5  /* DSP1DRC_SIG_DET_RMS - [15:11] */
+#define WM8996_DSP1DRC_SIG_DET_PK_MASK          0x0600  /* DSP1DRC_SIG_DET_PK - [10:9] */
+#define WM8996_DSP1DRC_SIG_DET_PK_SHIFT              9  /* DSP1DRC_SIG_DET_PK - [10:9] */
+#define WM8996_DSP1DRC_SIG_DET_PK_WIDTH              2  /* DSP1DRC_SIG_DET_PK - [10:9] */
+#define WM8996_DSP1DRC_NG_ENA                   0x0100  /* DSP1DRC_NG_ENA */
+#define WM8996_DSP1DRC_NG_ENA_MASK              0x0100  /* DSP1DRC_NG_ENA */
+#define WM8996_DSP1DRC_NG_ENA_SHIFT                  8  /* DSP1DRC_NG_ENA */
+#define WM8996_DSP1DRC_NG_ENA_WIDTH                  1  /* DSP1DRC_NG_ENA */
+#define WM8996_DSP1DRC_SIG_DET_MODE             0x0080  /* DSP1DRC_SIG_DET_MODE */
+#define WM8996_DSP1DRC_SIG_DET_MODE_MASK        0x0080  /* DSP1DRC_SIG_DET_MODE */
+#define WM8996_DSP1DRC_SIG_DET_MODE_SHIFT            7  /* DSP1DRC_SIG_DET_MODE */
+#define WM8996_DSP1DRC_SIG_DET_MODE_WIDTH            1  /* DSP1DRC_SIG_DET_MODE */
+#define WM8996_DSP1DRC_SIG_DET                  0x0040  /* DSP1DRC_SIG_DET */
+#define WM8996_DSP1DRC_SIG_DET_MASK             0x0040  /* DSP1DRC_SIG_DET */
+#define WM8996_DSP1DRC_SIG_DET_SHIFT                 6  /* DSP1DRC_SIG_DET */
+#define WM8996_DSP1DRC_SIG_DET_WIDTH                 1  /* DSP1DRC_SIG_DET */
+#define WM8996_DSP1DRC_KNEE2_OP_ENA             0x0020  /* DSP1DRC_KNEE2_OP_ENA */
+#define WM8996_DSP1DRC_KNEE2_OP_ENA_MASK        0x0020  /* DSP1DRC_KNEE2_OP_ENA */
+#define WM8996_DSP1DRC_KNEE2_OP_ENA_SHIFT            5  /* DSP1DRC_KNEE2_OP_ENA */
+#define WM8996_DSP1DRC_KNEE2_OP_ENA_WIDTH            1  /* DSP1DRC_KNEE2_OP_ENA */
+#define WM8996_DSP1DRC_QR                       0x0010  /* DSP1DRC_QR */
+#define WM8996_DSP1DRC_QR_MASK                  0x0010  /* DSP1DRC_QR */
+#define WM8996_DSP1DRC_QR_SHIFT                      4  /* DSP1DRC_QR */
+#define WM8996_DSP1DRC_QR_WIDTH                      1  /* DSP1DRC_QR */
+#define WM8996_DSP1DRC_ANTICLIP                 0x0008  /* DSP1DRC_ANTICLIP */
+#define WM8996_DSP1DRC_ANTICLIP_MASK            0x0008  /* DSP1DRC_ANTICLIP */
+#define WM8996_DSP1DRC_ANTICLIP_SHIFT                3  /* DSP1DRC_ANTICLIP */
+#define WM8996_DSP1DRC_ANTICLIP_WIDTH                1  /* DSP1DRC_ANTICLIP */
+#define WM8996_DSP1RX_DRC_ENA                   0x0004  /* DSP1RX_DRC_ENA */
+#define WM8996_DSP1RX_DRC_ENA_MASK              0x0004  /* DSP1RX_DRC_ENA */
+#define WM8996_DSP1RX_DRC_ENA_SHIFT                  2  /* DSP1RX_DRC_ENA */
+#define WM8996_DSP1RX_DRC_ENA_WIDTH                  1  /* DSP1RX_DRC_ENA */
+#define WM8996_DSP1TXL_DRC_ENA                  0x0002  /* DSP1TXL_DRC_ENA */
+#define WM8996_DSP1TXL_DRC_ENA_MASK             0x0002  /* DSP1TXL_DRC_ENA */
+#define WM8996_DSP1TXL_DRC_ENA_SHIFT                 1  /* DSP1TXL_DRC_ENA */
+#define WM8996_DSP1TXL_DRC_ENA_WIDTH                 1  /* DSP1TXL_DRC_ENA */
+#define WM8996_DSP1TXR_DRC_ENA                  0x0001  /* DSP1TXR_DRC_ENA */
+#define WM8996_DSP1TXR_DRC_ENA_MASK             0x0001  /* DSP1TXR_DRC_ENA */
+#define WM8996_DSP1TXR_DRC_ENA_SHIFT                 0  /* DSP1TXR_DRC_ENA */
+#define WM8996_DSP1TXR_DRC_ENA_WIDTH                 1  /* DSP1TXR_DRC_ENA */
+
+/*
+ * R1089 (0x441) - DSP1 DRC (2)
+ */
+#define WM8996_DSP1DRC_ATK_MASK                 0x1E00  /* DSP1DRC_ATK - [12:9] */
+#define WM8996_DSP1DRC_ATK_SHIFT                     9  /* DSP1DRC_ATK - [12:9] */
+#define WM8996_DSP1DRC_ATK_WIDTH                     4  /* DSP1DRC_ATK - [12:9] */
+#define WM8996_DSP1DRC_DCY_MASK                 0x01E0  /* DSP1DRC_DCY - [8:5] */
+#define WM8996_DSP1DRC_DCY_SHIFT                     5  /* DSP1DRC_DCY - [8:5] */
+#define WM8996_DSP1DRC_DCY_WIDTH                     4  /* DSP1DRC_DCY - [8:5] */
+#define WM8996_DSP1DRC_MINGAIN_MASK             0x001C  /* DSP1DRC_MINGAIN - [4:2] */
+#define WM8996_DSP1DRC_MINGAIN_SHIFT                 2  /* DSP1DRC_MINGAIN - [4:2] */
+#define WM8996_DSP1DRC_MINGAIN_WIDTH                 3  /* DSP1DRC_MINGAIN - [4:2] */
+#define WM8996_DSP1DRC_MAXGAIN_MASK             0x0003  /* DSP1DRC_MAXGAIN - [1:0] */
+#define WM8996_DSP1DRC_MAXGAIN_SHIFT                 0  /* DSP1DRC_MAXGAIN - [1:0] */
+#define WM8996_DSP1DRC_MAXGAIN_WIDTH                 2  /* DSP1DRC_MAXGAIN - [1:0] */
+
+/*
+ * R1090 (0x442) - DSP1 DRC (3)
+ */
+#define WM8996_DSP1DRC_NG_MINGAIN_MASK          0xF000  /* DSP1DRC_NG_MINGAIN - [15:12] */
+#define WM8996_DSP1DRC_NG_MINGAIN_SHIFT             12  /* DSP1DRC_NG_MINGAIN - [15:12] */
+#define WM8996_DSP1DRC_NG_MINGAIN_WIDTH              4  /* DSP1DRC_NG_MINGAIN - [15:12] */
+#define WM8996_DSP1DRC_NG_EXP_MASK              0x0C00  /* DSP1DRC_NG_EXP - [11:10] */
+#define WM8996_DSP1DRC_NG_EXP_SHIFT                 10  /* DSP1DRC_NG_EXP - [11:10] */
+#define WM8996_DSP1DRC_NG_EXP_WIDTH                  2  /* DSP1DRC_NG_EXP - [11:10] */
+#define WM8996_DSP1DRC_QR_THR_MASK              0x0300  /* DSP1DRC_QR_THR - [9:8] */
+#define WM8996_DSP1DRC_QR_THR_SHIFT                  8  /* DSP1DRC_QR_THR - [9:8] */
+#define WM8996_DSP1DRC_QR_THR_WIDTH                  2  /* DSP1DRC_QR_THR - [9:8] */
+#define WM8996_DSP1DRC_QR_DCY_MASK              0x00C0  /* DSP1DRC_QR_DCY - [7:6] */
+#define WM8996_DSP1DRC_QR_DCY_SHIFT                  6  /* DSP1DRC_QR_DCY - [7:6] */
+#define WM8996_DSP1DRC_QR_DCY_WIDTH                  2  /* DSP1DRC_QR_DCY - [7:6] */
+#define WM8996_DSP1DRC_HI_COMP_MASK             0x0038  /* DSP1DRC_HI_COMP - [5:3] */
+#define WM8996_DSP1DRC_HI_COMP_SHIFT                 3  /* DSP1DRC_HI_COMP - [5:3] */
+#define WM8996_DSP1DRC_HI_COMP_WIDTH                 3  /* DSP1DRC_HI_COMP - [5:3] */
+#define WM8996_DSP1DRC_LO_COMP_MASK             0x0007  /* DSP1DRC_LO_COMP - [2:0] */
+#define WM8996_DSP1DRC_LO_COMP_SHIFT                 0  /* DSP1DRC_LO_COMP - [2:0] */
+#define WM8996_DSP1DRC_LO_COMP_WIDTH                 3  /* DSP1DRC_LO_COMP - [2:0] */
+
+/*
+ * R1091 (0x443) - DSP1 DRC (4)
+ */
+#define WM8996_DSP1DRC_KNEE_IP_MASK             0x07E0  /* DSP1DRC_KNEE_IP - [10:5] */
+#define WM8996_DSP1DRC_KNEE_IP_SHIFT                 5  /* DSP1DRC_KNEE_IP - [10:5] */
+#define WM8996_DSP1DRC_KNEE_IP_WIDTH                 6  /* DSP1DRC_KNEE_IP - [10:5] */
+#define WM8996_DSP1DRC_KNEE_OP_MASK             0x001F  /* DSP1DRC_KNEE_OP - [4:0] */
+#define WM8996_DSP1DRC_KNEE_OP_SHIFT                 0  /* DSP1DRC_KNEE_OP - [4:0] */
+#define WM8996_DSP1DRC_KNEE_OP_WIDTH                 5  /* DSP1DRC_KNEE_OP - [4:0] */
+
+/*
+ * R1092 (0x444) - DSP1 DRC (5)
+ */
+#define WM8996_DSP1DRC_KNEE2_IP_MASK            0x03E0  /* DSP1DRC_KNEE2_IP - [9:5] */
+#define WM8996_DSP1DRC_KNEE2_IP_SHIFT                5  /* DSP1DRC_KNEE2_IP - [9:5] */
+#define WM8996_DSP1DRC_KNEE2_IP_WIDTH                5  /* DSP1DRC_KNEE2_IP - [9:5] */
+#define WM8996_DSP1DRC_KNEE2_OP_MASK            0x001F  /* DSP1DRC_KNEE2_OP - [4:0] */
+#define WM8996_DSP1DRC_KNEE2_OP_SHIFT                0  /* DSP1DRC_KNEE2_OP - [4:0] */
+#define WM8996_DSP1DRC_KNEE2_OP_WIDTH                5  /* DSP1DRC_KNEE2_OP - [4:0] */
+
+/*
+ * R1152 (0x480) - DSP1 RX EQ Gains (1)
+ */
+#define WM8996_DSP1RX_EQ_B1_GAIN_MASK           0xF800  /* DSP1RX_EQ_B1_GAIN - [15:11] */
+#define WM8996_DSP1RX_EQ_B1_GAIN_SHIFT              11  /* DSP1RX_EQ_B1_GAIN - [15:11] */
+#define WM8996_DSP1RX_EQ_B1_GAIN_WIDTH               5  /* DSP1RX_EQ_B1_GAIN - [15:11] */
+#define WM8996_DSP1RX_EQ_B2_GAIN_MASK           0x07C0  /* DSP1RX_EQ_B2_GAIN - [10:6] */
+#define WM8996_DSP1RX_EQ_B2_GAIN_SHIFT               6  /* DSP1RX_EQ_B2_GAIN - [10:6] */
+#define WM8996_DSP1RX_EQ_B2_GAIN_WIDTH               5  /* DSP1RX_EQ_B2_GAIN - [10:6] */
+#define WM8996_DSP1RX_EQ_B3_GAIN_MASK           0x003E  /* DSP1RX_EQ_B3_GAIN - [5:1] */
+#define WM8996_DSP1RX_EQ_B3_GAIN_SHIFT               1  /* DSP1RX_EQ_B3_GAIN - [5:1] */
+#define WM8996_DSP1RX_EQ_B3_GAIN_WIDTH               5  /* DSP1RX_EQ_B3_GAIN - [5:1] */
+#define WM8996_DSP1RX_EQ_ENA                    0x0001  /* DSP1RX_EQ_ENA */
+#define WM8996_DSP1RX_EQ_ENA_MASK               0x0001  /* DSP1RX_EQ_ENA */
+#define WM8996_DSP1RX_EQ_ENA_SHIFT                   0  /* DSP1RX_EQ_ENA */
+#define WM8996_DSP1RX_EQ_ENA_WIDTH                   1  /* DSP1RX_EQ_ENA */
+
+/*
+ * R1153 (0x481) - DSP1 RX EQ Gains (2)
+ */
+#define WM8996_DSP1RX_EQ_B4_GAIN_MASK           0xF800  /* DSP1RX_EQ_B4_GAIN - [15:11] */
+#define WM8996_DSP1RX_EQ_B4_GAIN_SHIFT              11  /* DSP1RX_EQ_B4_GAIN - [15:11] */
+#define WM8996_DSP1RX_EQ_B4_GAIN_WIDTH               5  /* DSP1RX_EQ_B4_GAIN - [15:11] */
+#define WM8996_DSP1RX_EQ_B5_GAIN_MASK           0x07C0  /* DSP1RX_EQ_B5_GAIN - [10:6] */
+#define WM8996_DSP1RX_EQ_B5_GAIN_SHIFT               6  /* DSP1RX_EQ_B5_GAIN - [10:6] */
+#define WM8996_DSP1RX_EQ_B5_GAIN_WIDTH               5  /* DSP1RX_EQ_B5_GAIN - [10:6] */
+
+/*
+ * R1154 (0x482) - DSP1 RX EQ Band 1 A
+ */
+#define WM8996_DSP1RX_EQ_B1_A_MASK              0xFFFF  /* DSP1RX_EQ_B1_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B1_A_SHIFT                  0  /* DSP1RX_EQ_B1_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B1_A_WIDTH                 16  /* DSP1RX_EQ_B1_A - [15:0] */
+
+/*
+ * R1155 (0x483) - DSP1 RX EQ Band 1 B
+ */
+#define WM8996_DSP1RX_EQ_B1_B_MASK              0xFFFF  /* DSP1RX_EQ_B1_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B1_B_SHIFT                  0  /* DSP1RX_EQ_B1_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B1_B_WIDTH                 16  /* DSP1RX_EQ_B1_B - [15:0] */
+
+/*
+ * R1156 (0x484) - DSP1 RX EQ Band 1 PG
+ */
+#define WM8996_DSP1RX_EQ_B1_PG_MASK             0xFFFF  /* DSP1RX_EQ_B1_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B1_PG_SHIFT                 0  /* DSP1RX_EQ_B1_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B1_PG_WIDTH                16  /* DSP1RX_EQ_B1_PG - [15:0] */
+
+/*
+ * R1157 (0x485) - DSP1 RX EQ Band 2 A
+ */
+#define WM8996_DSP1RX_EQ_B2_A_MASK              0xFFFF  /* DSP1RX_EQ_B2_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_A_SHIFT                  0  /* DSP1RX_EQ_B2_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_A_WIDTH                 16  /* DSP1RX_EQ_B2_A - [15:0] */
+
+/*
+ * R1158 (0x486) - DSP1 RX EQ Band 2 B
+ */
+#define WM8996_DSP1RX_EQ_B2_B_MASK              0xFFFF  /* DSP1RX_EQ_B2_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_B_SHIFT                  0  /* DSP1RX_EQ_B2_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_B_WIDTH                 16  /* DSP1RX_EQ_B2_B - [15:0] */
+
+/*
+ * R1159 (0x487) - DSP1 RX EQ Band 2 C
+ */
+#define WM8996_DSP1RX_EQ_B2_C_MASK              0xFFFF  /* DSP1RX_EQ_B2_C - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_C_SHIFT                  0  /* DSP1RX_EQ_B2_C - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_C_WIDTH                 16  /* DSP1RX_EQ_B2_C - [15:0] */
+
+/*
+ * R1160 (0x488) - DSP1 RX EQ Band 2 PG
+ */
+#define WM8996_DSP1RX_EQ_B2_PG_MASK             0xFFFF  /* DSP1RX_EQ_B2_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_PG_SHIFT                 0  /* DSP1RX_EQ_B2_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B2_PG_WIDTH                16  /* DSP1RX_EQ_B2_PG - [15:0] */
+
+/*
+ * R1161 (0x489) - DSP1 RX EQ Band 3 A
+ */
+#define WM8996_DSP1RX_EQ_B3_A_MASK              0xFFFF  /* DSP1RX_EQ_B3_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_A_SHIFT                  0  /* DSP1RX_EQ_B3_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_A_WIDTH                 16  /* DSP1RX_EQ_B3_A - [15:0] */
+
+/*
+ * R1162 (0x48A) - DSP1 RX EQ Band 3 B
+ */
+#define WM8996_DSP1RX_EQ_B3_B_MASK              0xFFFF  /* DSP1RX_EQ_B3_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_B_SHIFT                  0  /* DSP1RX_EQ_B3_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_B_WIDTH                 16  /* DSP1RX_EQ_B3_B - [15:0] */
+
+/*
+ * R1163 (0x48B) - DSP1 RX EQ Band 3 C
+ */
+#define WM8996_DSP1RX_EQ_B3_C_MASK              0xFFFF  /* DSP1RX_EQ_B3_C - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_C_SHIFT                  0  /* DSP1RX_EQ_B3_C - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_C_WIDTH                 16  /* DSP1RX_EQ_B3_C - [15:0] */
+
+/*
+ * R1164 (0x48C) - DSP1 RX EQ Band 3 PG
+ */
+#define WM8996_DSP1RX_EQ_B3_PG_MASK             0xFFFF  /* DSP1RX_EQ_B3_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_PG_SHIFT                 0  /* DSP1RX_EQ_B3_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B3_PG_WIDTH                16  /* DSP1RX_EQ_B3_PG - [15:0] */
+
+/*
+ * R1165 (0x48D) - DSP1 RX EQ Band 4 A
+ */
+#define WM8996_DSP1RX_EQ_B4_A_MASK              0xFFFF  /* DSP1RX_EQ_B4_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_A_SHIFT                  0  /* DSP1RX_EQ_B4_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_A_WIDTH                 16  /* DSP1RX_EQ_B4_A - [15:0] */
+
+/*
+ * R1166 (0x48E) - DSP1 RX EQ Band 4 B
+ */
+#define WM8996_DSP1RX_EQ_B4_B_MASK              0xFFFF  /* DSP1RX_EQ_B4_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_B_SHIFT                  0  /* DSP1RX_EQ_B4_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_B_WIDTH                 16  /* DSP1RX_EQ_B4_B - [15:0] */
+
+/*
+ * R1167 (0x48F) - DSP1 RX EQ Band 4 C
+ */
+#define WM8996_DSP1RX_EQ_B4_C_MASK              0xFFFF  /* DSP1RX_EQ_B4_C - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_C_SHIFT                  0  /* DSP1RX_EQ_B4_C - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_C_WIDTH                 16  /* DSP1RX_EQ_B4_C - [15:0] */
+
+/*
+ * R1168 (0x490) - DSP1 RX EQ Band 4 PG
+ */
+#define WM8996_DSP1RX_EQ_B4_PG_MASK             0xFFFF  /* DSP1RX_EQ_B4_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_PG_SHIFT                 0  /* DSP1RX_EQ_B4_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B4_PG_WIDTH                16  /* DSP1RX_EQ_B4_PG - [15:0] */
+
+/*
+ * R1169 (0x491) - DSP1 RX EQ Band 5 A
+ */
+#define WM8996_DSP1RX_EQ_B5_A_MASK              0xFFFF  /* DSP1RX_EQ_B5_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B5_A_SHIFT                  0  /* DSP1RX_EQ_B5_A - [15:0] */
+#define WM8996_DSP1RX_EQ_B5_A_WIDTH                 16  /* DSP1RX_EQ_B5_A - [15:0] */
+
+/*
+ * R1170 (0x492) - DSP1 RX EQ Band 5 B
+ */
+#define WM8996_DSP1RX_EQ_B5_B_MASK              0xFFFF  /* DSP1RX_EQ_B5_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B5_B_SHIFT                  0  /* DSP1RX_EQ_B5_B - [15:0] */
+#define WM8996_DSP1RX_EQ_B5_B_WIDTH                 16  /* DSP1RX_EQ_B5_B - [15:0] */
+
+/*
+ * R1171 (0x493) - DSP1 RX EQ Band 5 PG
+ */
+#define WM8996_DSP1RX_EQ_B5_PG_MASK             0xFFFF  /* DSP1RX_EQ_B5_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B5_PG_SHIFT                 0  /* DSP1RX_EQ_B5_PG - [15:0] */
+#define WM8996_DSP1RX_EQ_B5_PG_WIDTH                16  /* DSP1RX_EQ_B5_PG - [15:0] */
+
+/*
+ * R1280 (0x500) - DSP2 TX Left Volume
+ */
+#define WM8996_DSP2TX_VU                        0x0100  /* DSP2TX_VU */
+#define WM8996_DSP2TX_VU_MASK                   0x0100  /* DSP2TX_VU */
+#define WM8996_DSP2TX_VU_SHIFT                       8  /* DSP2TX_VU */
+#define WM8996_DSP2TX_VU_WIDTH                       1  /* DSP2TX_VU */
+#define WM8996_DSP2TXL_VOL_MASK                 0x00FF  /* DSP2TXL_VOL - [7:0] */
+#define WM8996_DSP2TXL_VOL_SHIFT                     0  /* DSP2TXL_VOL - [7:0] */
+#define WM8996_DSP2TXL_VOL_WIDTH                     8  /* DSP2TXL_VOL - [7:0] */
+
+/*
+ * R1281 (0x501) - DSP2 TX Right Volume
+ */
+#define WM8996_DSP2TX_VU                        0x0100  /* DSP2TX_VU */
+#define WM8996_DSP2TX_VU_MASK                   0x0100  /* DSP2TX_VU */
+#define WM8996_DSP2TX_VU_SHIFT                       8  /* DSP2TX_VU */
+#define WM8996_DSP2TX_VU_WIDTH                       1  /* DSP2TX_VU */
+#define WM8996_DSP2TXR_VOL_MASK                 0x00FF  /* DSP2TXR_VOL - [7:0] */
+#define WM8996_DSP2TXR_VOL_SHIFT                     0  /* DSP2TXR_VOL - [7:0] */
+#define WM8996_DSP2TXR_VOL_WIDTH                     8  /* DSP2TXR_VOL - [7:0] */
+
+/*
+ * R1282 (0x502) - DSP2 RX Left Volume
+ */
+#define WM8996_DSP2RX_VU                        0x0100  /* DSP2RX_VU */
+#define WM8996_DSP2RX_VU_MASK                   0x0100  /* DSP2RX_VU */
+#define WM8996_DSP2RX_VU_SHIFT                       8  /* DSP2RX_VU */
+#define WM8996_DSP2RX_VU_WIDTH                       1  /* DSP2RX_VU */
+#define WM8996_DSP2RXL_VOL_MASK                 0x00FF  /* DSP2RXL_VOL - [7:0] */
+#define WM8996_DSP2RXL_VOL_SHIFT                     0  /* DSP2RXL_VOL - [7:0] */
+#define WM8996_DSP2RXL_VOL_WIDTH                     8  /* DSP2RXL_VOL - [7:0] */
+
+/*
+ * R1283 (0x503) - DSP2 RX Right Volume
+ */
+#define WM8996_DSP2RX_VU                        0x0100  /* DSP2RX_VU */
+#define WM8996_DSP2RX_VU_MASK                   0x0100  /* DSP2RX_VU */
+#define WM8996_DSP2RX_VU_SHIFT                       8  /* DSP2RX_VU */
+#define WM8996_DSP2RX_VU_WIDTH                       1  /* DSP2RX_VU */
+#define WM8996_DSP2RXR_VOL_MASK                 0x00FF  /* DSP2RXR_VOL - [7:0] */
+#define WM8996_DSP2RXR_VOL_SHIFT                     0  /* DSP2RXR_VOL - [7:0] */
+#define WM8996_DSP2RXR_VOL_WIDTH                     8  /* DSP2RXR_VOL - [7:0] */
+
+/*
+ * R1296 (0x510) - DSP2 TX Filters
+ */
+#define WM8996_DSP2TX_NF                        0x2000  /* DSP2TX_NF */
+#define WM8996_DSP2TX_NF_MASK                   0x2000  /* DSP2TX_NF */
+#define WM8996_DSP2TX_NF_SHIFT                      13  /* DSP2TX_NF */
+#define WM8996_DSP2TX_NF_WIDTH                       1  /* DSP2TX_NF */
+#define WM8996_DSP2TXL_HPF                      0x1000  /* DSP2TXL_HPF */
+#define WM8996_DSP2TXL_HPF_MASK                 0x1000  /* DSP2TXL_HPF */
+#define WM8996_DSP2TXL_HPF_SHIFT                    12  /* DSP2TXL_HPF */
+#define WM8996_DSP2TXL_HPF_WIDTH                     1  /* DSP2TXL_HPF */
+#define WM8996_DSP2TXR_HPF                      0x0800  /* DSP2TXR_HPF */
+#define WM8996_DSP2TXR_HPF_MASK                 0x0800  /* DSP2TXR_HPF */
+#define WM8996_DSP2TXR_HPF_SHIFT                    11  /* DSP2TXR_HPF */
+#define WM8996_DSP2TXR_HPF_WIDTH                     1  /* DSP2TXR_HPF */
+#define WM8996_DSP2TX_HPF_MODE_MASK             0x0018  /* DSP2TX_HPF_MODE - [4:3] */
+#define WM8996_DSP2TX_HPF_MODE_SHIFT                 3  /* DSP2TX_HPF_MODE - [4:3] */
+#define WM8996_DSP2TX_HPF_MODE_WIDTH                 2  /* DSP2TX_HPF_MODE - [4:3] */
+#define WM8996_DSP2TX_HPF_CUT_MASK              0x0007  /* DSP2TX_HPF_CUT - [2:0] */
+#define WM8996_DSP2TX_HPF_CUT_SHIFT                  0  /* DSP2TX_HPF_CUT - [2:0] */
+#define WM8996_DSP2TX_HPF_CUT_WIDTH                  3  /* DSP2TX_HPF_CUT - [2:0] */
+
+/*
+ * R1312 (0x520) - DSP2 RX Filters (1)
+ */
+#define WM8996_DSP2RX_MUTE                      0x0200  /* DSP2RX_MUTE */
+#define WM8996_DSP2RX_MUTE_MASK                 0x0200  /* DSP2RX_MUTE */
+#define WM8996_DSP2RX_MUTE_SHIFT                     9  /* DSP2RX_MUTE */
+#define WM8996_DSP2RX_MUTE_WIDTH                     1  /* DSP2RX_MUTE */
+#define WM8996_DSP2RX_MONO                      0x0080  /* DSP2RX_MONO */
+#define WM8996_DSP2RX_MONO_MASK                 0x0080  /* DSP2RX_MONO */
+#define WM8996_DSP2RX_MONO_SHIFT                     7  /* DSP2RX_MONO */
+#define WM8996_DSP2RX_MONO_WIDTH                     1  /* DSP2RX_MONO */
+#define WM8996_DSP2RX_MUTERATE                  0x0020  /* DSP2RX_MUTERATE */
+#define WM8996_DSP2RX_MUTERATE_MASK             0x0020  /* DSP2RX_MUTERATE */
+#define WM8996_DSP2RX_MUTERATE_SHIFT                 5  /* DSP2RX_MUTERATE */
+#define WM8996_DSP2RX_MUTERATE_WIDTH                 1  /* DSP2RX_MUTERATE */
+#define WM8996_DSP2RX_UNMUTE_RAMP               0x0010  /* DSP2RX_UNMUTE_RAMP */
+#define WM8996_DSP2RX_UNMUTE_RAMP_MASK          0x0010  /* DSP2RX_UNMUTE_RAMP */
+#define WM8996_DSP2RX_UNMUTE_RAMP_SHIFT              4  /* DSP2RX_UNMUTE_RAMP */
+#define WM8996_DSP2RX_UNMUTE_RAMP_WIDTH              1  /* DSP2RX_UNMUTE_RAMP */
+
+/*
+ * R1313 (0x521) - DSP2 RX Filters (2)
+ */
+#define WM8996_DSP2RX_3D_GAIN_MASK              0x3E00  /* DSP2RX_3D_GAIN - [13:9] */
+#define WM8996_DSP2RX_3D_GAIN_SHIFT                  9  /* DSP2RX_3D_GAIN - [13:9] */
+#define WM8996_DSP2RX_3D_GAIN_WIDTH                  5  /* DSP2RX_3D_GAIN - [13:9] */
+#define WM8996_DSP2RX_3D_ENA                    0x0100  /* DSP2RX_3D_ENA */
+#define WM8996_DSP2RX_3D_ENA_MASK               0x0100  /* DSP2RX_3D_ENA */
+#define WM8996_DSP2RX_3D_ENA_SHIFT                   8  /* DSP2RX_3D_ENA */
+#define WM8996_DSP2RX_3D_ENA_WIDTH                   1  /* DSP2RX_3D_ENA */
+
+/*
+ * R1344 (0x540) - DSP2 DRC (1)
+ */
+#define WM8996_DSP2DRC_SIG_DET_RMS_MASK         0xF800  /* DSP2DRC_SIG_DET_RMS - [15:11] */
+#define WM8996_DSP2DRC_SIG_DET_RMS_SHIFT            11  /* DSP2DRC_SIG_DET_RMS - [15:11] */
+#define WM8996_DSP2DRC_SIG_DET_RMS_WIDTH             5  /* DSP2DRC_SIG_DET_RMS - [15:11] */
+#define WM8996_DSP2DRC_SIG_DET_PK_MASK          0x0600  /* DSP2DRC_SIG_DET_PK - [10:9] */
+#define WM8996_DSP2DRC_SIG_DET_PK_SHIFT              9  /* DSP2DRC_SIG_DET_PK - [10:9] */
+#define WM8996_DSP2DRC_SIG_DET_PK_WIDTH              2  /* DSP2DRC_SIG_DET_PK - [10:9] */
+#define WM8996_DSP2DRC_NG_ENA                   0x0100  /* DSP2DRC_NG_ENA */
+#define WM8996_DSP2DRC_NG_ENA_MASK              0x0100  /* DSP2DRC_NG_ENA */
+#define WM8996_DSP2DRC_NG_ENA_SHIFT                  8  /* DSP2DRC_NG_ENA */
+#define WM8996_DSP2DRC_NG_ENA_WIDTH                  1  /* DSP2DRC_NG_ENA */
+#define WM8996_DSP2DRC_SIG_DET_MODE             0x0080  /* DSP2DRC_SIG_DET_MODE */
+#define WM8996_DSP2DRC_SIG_DET_MODE_MASK        0x0080  /* DSP2DRC_SIG_DET_MODE */
+#define WM8996_DSP2DRC_SIG_DET_MODE_SHIFT            7  /* DSP2DRC_SIG_DET_MODE */
+#define WM8996_DSP2DRC_SIG_DET_MODE_WIDTH            1  /* DSP2DRC_SIG_DET_MODE */
+#define WM8996_DSP2DRC_SIG_DET                  0x0040  /* DSP2DRC_SIG_DET */
+#define WM8996_DSP2DRC_SIG_DET_MASK             0x0040  /* DSP2DRC_SIG_DET */
+#define WM8996_DSP2DRC_SIG_DET_SHIFT                 6  /* DSP2DRC_SIG_DET */
+#define WM8996_DSP2DRC_SIG_DET_WIDTH                 1  /* DSP2DRC_SIG_DET */
+#define WM8996_DSP2DRC_KNEE2_OP_ENA             0x0020  /* DSP2DRC_KNEE2_OP_ENA */
+#define WM8996_DSP2DRC_KNEE2_OP_ENA_MASK        0x0020  /* DSP2DRC_KNEE2_OP_ENA */
+#define WM8996_DSP2DRC_KNEE2_OP_ENA_SHIFT            5  /* DSP2DRC_KNEE2_OP_ENA */
+#define WM8996_DSP2DRC_KNEE2_OP_ENA_WIDTH            1  /* DSP2DRC_KNEE2_OP_ENA */
+#define WM8996_DSP2DRC_QR                       0x0010  /* DSP2DRC_QR */
+#define WM8996_DSP2DRC_QR_MASK                  0x0010  /* DSP2DRC_QR */
+#define WM8996_DSP2DRC_QR_SHIFT                      4  /* DSP2DRC_QR */
+#define WM8996_DSP2DRC_QR_WIDTH                      1  /* DSP2DRC_QR */
+#define WM8996_DSP2DRC_ANTICLIP                 0x0008  /* DSP2DRC_ANTICLIP */
+#define WM8996_DSP2DRC_ANTICLIP_MASK            0x0008  /* DSP2DRC_ANTICLIP */
+#define WM8996_DSP2DRC_ANTICLIP_SHIFT                3  /* DSP2DRC_ANTICLIP */
+#define WM8996_DSP2DRC_ANTICLIP_WIDTH                1  /* DSP2DRC_ANTICLIP */
+#define WM8996_DSP2RX_DRC_ENA                   0x0004  /* DSP2RX_DRC_ENA */
+#define WM8996_DSP2RX_DRC_ENA_MASK              0x0004  /* DSP2RX_DRC_ENA */
+#define WM8996_DSP2RX_DRC_ENA_SHIFT                  2  /* DSP2RX_DRC_ENA */
+#define WM8996_DSP2RX_DRC_ENA_WIDTH                  1  /* DSP2RX_DRC_ENA */
+#define WM8996_DSP2TXL_DRC_ENA                  0x0002  /* DSP2TXL_DRC_ENA */
+#define WM8996_DSP2TXL_DRC_ENA_MASK             0x0002  /* DSP2TXL_DRC_ENA */
+#define WM8996_DSP2TXL_DRC_ENA_SHIFT                 1  /* DSP2TXL_DRC_ENA */
+#define WM8996_DSP2TXL_DRC_ENA_WIDTH                 1  /* DSP2TXL_DRC_ENA */
+#define WM8996_DSP2TXR_DRC_ENA                  0x0001  /* DSP2TXR_DRC_ENA */
+#define WM8996_DSP2TXR_DRC_ENA_MASK             0x0001  /* DSP2TXR_DRC_ENA */
+#define WM8996_DSP2TXR_DRC_ENA_SHIFT                 0  /* DSP2TXR_DRC_ENA */
+#define WM8996_DSP2TXR_DRC_ENA_WIDTH                 1  /* DSP2TXR_DRC_ENA */
+
+/*
+ * R1345 (0x541) - DSP2 DRC (2)
+ */
+#define WM8996_DSP2DRC_ATK_MASK                 0x1E00  /* DSP2DRC_ATK - [12:9] */
+#define WM8996_DSP2DRC_ATK_SHIFT                     9  /* DSP2DRC_ATK - [12:9] */
+#define WM8996_DSP2DRC_ATK_WIDTH                     4  /* DSP2DRC_ATK - [12:9] */
+#define WM8996_DSP2DRC_DCY_MASK                 0x01E0  /* DSP2DRC_DCY - [8:5] */
+#define WM8996_DSP2DRC_DCY_SHIFT                     5  /* DSP2DRC_DCY - [8:5] */
+#define WM8996_DSP2DRC_DCY_WIDTH                     4  /* DSP2DRC_DCY - [8:5] */
+#define WM8996_DSP2DRC_MINGAIN_MASK             0x001C  /* DSP2DRC_MINGAIN - [4:2] */
+#define WM8996_DSP2DRC_MINGAIN_SHIFT                 2  /* DSP2DRC_MINGAIN - [4:2] */
+#define WM8996_DSP2DRC_MINGAIN_WIDTH                 3  /* DSP2DRC_MINGAIN - [4:2] */
+#define WM8996_DSP2DRC_MAXGAIN_MASK             0x0003  /* DSP2DRC_MAXGAIN - [1:0] */
+#define WM8996_DSP2DRC_MAXGAIN_SHIFT                 0  /* DSP2DRC_MAXGAIN - [1:0] */
+#define WM8996_DSP2DRC_MAXGAIN_WIDTH                 2  /* DSP2DRC_MAXGAIN - [1:0] */
+
+/*
+ * R1346 (0x542) - DSP2 DRC (3)
+ */
+#define WM8996_DSP2DRC_NG_MINGAIN_MASK          0xF000  /* DSP2DRC_NG_MINGAIN - [15:12] */
+#define WM8996_DSP2DRC_NG_MINGAIN_SHIFT             12  /* DSP2DRC_NG_MINGAIN - [15:12] */
+#define WM8996_DSP2DRC_NG_MINGAIN_WIDTH              4  /* DSP2DRC_NG_MINGAIN - [15:12] */
+#define WM8996_DSP2DRC_NG_EXP_MASK              0x0C00  /* DSP2DRC_NG_EXP - [11:10] */
+#define WM8996_DSP2DRC_NG_EXP_SHIFT                 10  /* DSP2DRC_NG_EXP - [11:10] */
+#define WM8996_DSP2DRC_NG_EXP_WIDTH                  2  /* DSP2DRC_NG_EXP - [11:10] */
+#define WM8996_DSP2DRC_QR_THR_MASK              0x0300  /* DSP2DRC_QR_THR - [9:8] */
+#define WM8996_DSP2DRC_QR_THR_SHIFT                  8  /* DSP2DRC_QR_THR - [9:8] */
+#define WM8996_DSP2DRC_QR_THR_WIDTH                  2  /* DSP2DRC_QR_THR - [9:8] */
+#define WM8996_DSP2DRC_QR_DCY_MASK              0x00C0  /* DSP2DRC_QR_DCY - [7:6] */
+#define WM8996_DSP2DRC_QR_DCY_SHIFT                  6  /* DSP2DRC_QR_DCY - [7:6] */
+#define WM8996_DSP2DRC_QR_DCY_WIDTH                  2  /* DSP2DRC_QR_DCY - [7:6] */
+#define WM8996_DSP2DRC_HI_COMP_MASK             0x0038  /* DSP2DRC_HI_COMP - [5:3] */
+#define WM8996_DSP2DRC_HI_COMP_SHIFT                 3  /* DSP2DRC_HI_COMP - [5:3] */
+#define WM8996_DSP2DRC_HI_COMP_WIDTH                 3  /* DSP2DRC_HI_COMP - [5:3] */
+#define WM8996_DSP2DRC_LO_COMP_MASK             0x0007  /* DSP2DRC_LO_COMP - [2:0] */
+#define WM8996_DSP2DRC_LO_COMP_SHIFT                 0  /* DSP2DRC_LO_COMP - [2:0] */
+#define WM8996_DSP2DRC_LO_COMP_WIDTH                 3  /* DSP2DRC_LO_COMP - [2:0] */
+
+/*
+ * R1347 (0x543) - DSP2 DRC (4)
+ */
+#define WM8996_DSP2DRC_KNEE_IP_MASK             0x07E0  /* DSP2DRC_KNEE_IP - [10:5] */
+#define WM8996_DSP2DRC_KNEE_IP_SHIFT                 5  /* DSP2DRC_KNEE_IP - [10:5] */
+#define WM8996_DSP2DRC_KNEE_IP_WIDTH                 6  /* DSP2DRC_KNEE_IP - [10:5] */
+#define WM8996_DSP2DRC_KNEE_OP_MASK             0x001F  /* DSP2DRC_KNEE_OP - [4:0] */
+#define WM8996_DSP2DRC_KNEE_OP_SHIFT                 0  /* DSP2DRC_KNEE_OP - [4:0] */
+#define WM8996_DSP2DRC_KNEE_OP_WIDTH                 5  /* DSP2DRC_KNEE_OP - [4:0] */
+
+/*
+ * R1348 (0x544) - DSP2 DRC (5)
+ */
+#define WM8996_DSP2DRC_KNEE2_IP_MASK            0x03E0  /* DSP2DRC_KNEE2_IP - [9:5] */
+#define WM8996_DSP2DRC_KNEE2_IP_SHIFT                5  /* DSP2DRC_KNEE2_IP - [9:5] */
+#define WM8996_DSP2DRC_KNEE2_IP_WIDTH                5  /* DSP2DRC_KNEE2_IP - [9:5] */
+#define WM8996_DSP2DRC_KNEE2_OP_MASK            0x001F  /* DSP2DRC_KNEE2_OP - [4:0] */
+#define WM8996_DSP2DRC_KNEE2_OP_SHIFT                0  /* DSP2DRC_KNEE2_OP - [4:0] */
+#define WM8996_DSP2DRC_KNEE2_OP_WIDTH                5  /* DSP2DRC_KNEE2_OP - [4:0] */
+
+/*
+ * R1408 (0x580) - DSP2 RX EQ Gains (1)
+ */
+#define WM8996_DSP2RX_EQ_B1_GAIN_MASK           0xF800  /* DSP2RX_EQ_B1_GAIN - [15:11] */
+#define WM8996_DSP2RX_EQ_B1_GAIN_SHIFT              11  /* DSP2RX_EQ_B1_GAIN - [15:11] */
+#define WM8996_DSP2RX_EQ_B1_GAIN_WIDTH               5  /* DSP2RX_EQ_B1_GAIN - [15:11] */
+#define WM8996_DSP2RX_EQ_B2_GAIN_MASK           0x07C0  /* DSP2RX_EQ_B2_GAIN - [10:6] */
+#define WM8996_DSP2RX_EQ_B2_GAIN_SHIFT               6  /* DSP2RX_EQ_B2_GAIN - [10:6] */
+#define WM8996_DSP2RX_EQ_B2_GAIN_WIDTH               5  /* DSP2RX_EQ_B2_GAIN - [10:6] */
+#define WM8996_DSP2RX_EQ_B3_GAIN_MASK           0x003E  /* DSP2RX_EQ_B3_GAIN - [5:1] */
+#define WM8996_DSP2RX_EQ_B3_GAIN_SHIFT               1  /* DSP2RX_EQ_B3_GAIN - [5:1] */
+#define WM8996_DSP2RX_EQ_B3_GAIN_WIDTH               5  /* DSP2RX_EQ_B3_GAIN - [5:1] */
+#define WM8996_DSP2RX_EQ_ENA                    0x0001  /* DSP2RX_EQ_ENA */
+#define WM8996_DSP2RX_EQ_ENA_MASK               0x0001  /* DSP2RX_EQ_ENA */
+#define WM8996_DSP2RX_EQ_ENA_SHIFT                   0  /* DSP2RX_EQ_ENA */
+#define WM8996_DSP2RX_EQ_ENA_WIDTH                   1  /* DSP2RX_EQ_ENA */
+
+/*
+ * R1409 (0x581) - DSP2 RX EQ Gains (2)
+ */
+#define WM8996_DSP2RX_EQ_B4_GAIN_MASK           0xF800  /* DSP2RX_EQ_B4_GAIN - [15:11] */
+#define WM8996_DSP2RX_EQ_B4_GAIN_SHIFT              11  /* DSP2RX_EQ_B4_GAIN - [15:11] */
+#define WM8996_DSP2RX_EQ_B4_GAIN_WIDTH               5  /* DSP2RX_EQ_B4_GAIN - [15:11] */
+#define WM8996_DSP2RX_EQ_B5_GAIN_MASK           0x07C0  /* DSP2RX_EQ_B5_GAIN - [10:6] */
+#define WM8996_DSP2RX_EQ_B5_GAIN_SHIFT               6  /* DSP2RX_EQ_B5_GAIN - [10:6] */
+#define WM8996_DSP2RX_EQ_B5_GAIN_WIDTH               5  /* DSP2RX_EQ_B5_GAIN - [10:6] */
+
+/*
+ * R1410 (0x582) - DSP2 RX EQ Band 1 A
+ */
+#define WM8996_DSP2RX_EQ_B1_A_MASK              0xFFFF  /* DSP2RX_EQ_B1_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B1_A_SHIFT                  0  /* DSP2RX_EQ_B1_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B1_A_WIDTH                 16  /* DSP2RX_EQ_B1_A - [15:0] */
+
+/*
+ * R1411 (0x583) - DSP2 RX EQ Band 1 B
+ */
+#define WM8996_DSP2RX_EQ_B1_B_MASK              0xFFFF  /* DSP2RX_EQ_B1_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B1_B_SHIFT                  0  /* DSP2RX_EQ_B1_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B1_B_WIDTH                 16  /* DSP2RX_EQ_B1_B - [15:0] */
+
+/*
+ * R1412 (0x584) - DSP2 RX EQ Band 1 PG
+ */
+#define WM8996_DSP2RX_EQ_B1_PG_MASK             0xFFFF  /* DSP2RX_EQ_B1_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B1_PG_SHIFT                 0  /* DSP2RX_EQ_B1_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B1_PG_WIDTH                16  /* DSP2RX_EQ_B1_PG - [15:0] */
+
+/*
+ * R1413 (0x585) - DSP2 RX EQ Band 2 A
+ */
+#define WM8996_DSP2RX_EQ_B2_A_MASK              0xFFFF  /* DSP2RX_EQ_B2_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_A_SHIFT                  0  /* DSP2RX_EQ_B2_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_A_WIDTH                 16  /* DSP2RX_EQ_B2_A - [15:0] */
+
+/*
+ * R1414 (0x586) - DSP2 RX EQ Band 2 B
+ */
+#define WM8996_DSP2RX_EQ_B2_B_MASK              0xFFFF  /* DSP2RX_EQ_B2_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_B_SHIFT                  0  /* DSP2RX_EQ_B2_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_B_WIDTH                 16  /* DSP2RX_EQ_B2_B - [15:0] */
+
+/*
+ * R1415 (0x587) - DSP2 RX EQ Band 2 C
+ */
+#define WM8996_DSP2RX_EQ_B2_C_MASK              0xFFFF  /* DSP2RX_EQ_B2_C - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_C_SHIFT                  0  /* DSP2RX_EQ_B2_C - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_C_WIDTH                 16  /* DSP2RX_EQ_B2_C - [15:0] */
+
+/*
+ * R1416 (0x588) - DSP2 RX EQ Band 2 PG
+ */
+#define WM8996_DSP2RX_EQ_B2_PG_MASK             0xFFFF  /* DSP2RX_EQ_B2_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_PG_SHIFT                 0  /* DSP2RX_EQ_B2_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B2_PG_WIDTH                16  /* DSP2RX_EQ_B2_PG - [15:0] */
+
+/*
+ * R1417 (0x589) - DSP2 RX EQ Band 3 A
+ */
+#define WM8996_DSP2RX_EQ_B3_A_MASK              0xFFFF  /* DSP2RX_EQ_B3_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_A_SHIFT                  0  /* DSP2RX_EQ_B3_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_A_WIDTH                 16  /* DSP2RX_EQ_B3_A - [15:0] */
+
+/*
+ * R1418 (0x58A) - DSP2 RX EQ Band 3 B
+ */
+#define WM8996_DSP2RX_EQ_B3_B_MASK              0xFFFF  /* DSP2RX_EQ_B3_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_B_SHIFT                  0  /* DSP2RX_EQ_B3_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_B_WIDTH                 16  /* DSP2RX_EQ_B3_B - [15:0] */
+
+/*
+ * R1419 (0x58B) - DSP2 RX EQ Band 3 C
+ */
+#define WM8996_DSP2RX_EQ_B3_C_MASK              0xFFFF  /* DSP2RX_EQ_B3_C - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_C_SHIFT                  0  /* DSP2RX_EQ_B3_C - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_C_WIDTH                 16  /* DSP2RX_EQ_B3_C - [15:0] */
+
+/*
+ * R1420 (0x58C) - DSP2 RX EQ Band 3 PG
+ */
+#define WM8996_DSP2RX_EQ_B3_PG_MASK             0xFFFF  /* DSP2RX_EQ_B3_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_PG_SHIFT                 0  /* DSP2RX_EQ_B3_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B3_PG_WIDTH                16  /* DSP2RX_EQ_B3_PG - [15:0] */
+
+/*
+ * R1421 (0x58D) - DSP2 RX EQ Band 4 A
+ */
+#define WM8996_DSP2RX_EQ_B4_A_MASK              0xFFFF  /* DSP2RX_EQ_B4_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_A_SHIFT                  0  /* DSP2RX_EQ_B4_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_A_WIDTH                 16  /* DSP2RX_EQ_B4_A - [15:0] */
+
+/*
+ * R1422 (0x58E) - DSP2 RX EQ Band 4 B
+ */
+#define WM8996_DSP2RX_EQ_B4_B_MASK              0xFFFF  /* DSP2RX_EQ_B4_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_B_SHIFT                  0  /* DSP2RX_EQ_B4_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_B_WIDTH                 16  /* DSP2RX_EQ_B4_B - [15:0] */
+
+/*
+ * R1423 (0x58F) - DSP2 RX EQ Band 4 C
+ */
+#define WM8996_DSP2RX_EQ_B4_C_MASK              0xFFFF  /* DSP2RX_EQ_B4_C - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_C_SHIFT                  0  /* DSP2RX_EQ_B4_C - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_C_WIDTH                 16  /* DSP2RX_EQ_B4_C - [15:0] */
+
+/*
+ * R1424 (0x590) - DSP2 RX EQ Band 4 PG
+ */
+#define WM8996_DSP2RX_EQ_B4_PG_MASK             0xFFFF  /* DSP2RX_EQ_B4_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_PG_SHIFT                 0  /* DSP2RX_EQ_B4_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B4_PG_WIDTH                16  /* DSP2RX_EQ_B4_PG - [15:0] */
+
+/*
+ * R1425 (0x591) - DSP2 RX EQ Band 5 A
+ */
+#define WM8996_DSP2RX_EQ_B5_A_MASK              0xFFFF  /* DSP2RX_EQ_B5_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B5_A_SHIFT                  0  /* DSP2RX_EQ_B5_A - [15:0] */
+#define WM8996_DSP2RX_EQ_B5_A_WIDTH                 16  /* DSP2RX_EQ_B5_A - [15:0] */
+
+/*
+ * R1426 (0x592) - DSP2 RX EQ Band 5 B
+ */
+#define WM8996_DSP2RX_EQ_B5_B_MASK              0xFFFF  /* DSP2RX_EQ_B5_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B5_B_SHIFT                  0  /* DSP2RX_EQ_B5_B - [15:0] */
+#define WM8996_DSP2RX_EQ_B5_B_WIDTH                 16  /* DSP2RX_EQ_B5_B - [15:0] */
+
+/*
+ * R1427 (0x593) - DSP2 RX EQ Band 5 PG
+ */
+#define WM8996_DSP2RX_EQ_B5_PG_MASK             0xFFFF  /* DSP2RX_EQ_B5_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B5_PG_SHIFT                 0  /* DSP2RX_EQ_B5_PG - [15:0] */
+#define WM8996_DSP2RX_EQ_B5_PG_WIDTH                16  /* DSP2RX_EQ_B5_PG - [15:0] */
+
+/*
+ * R1536 (0x600) - DAC1 Mixer Volumes
+ */
+#define WM8996_ADCR_DAC1_VOL_MASK               0x03E0  /* ADCR_DAC1_VOL - [9:5] */
+#define WM8996_ADCR_DAC1_VOL_SHIFT                   5  /* ADCR_DAC1_VOL - [9:5] */
+#define WM8996_ADCR_DAC1_VOL_WIDTH                   5  /* ADCR_DAC1_VOL - [9:5] */
+#define WM8996_ADCL_DAC1_VOL_MASK               0x001F  /* ADCL_DAC1_VOL - [4:0] */
+#define WM8996_ADCL_DAC1_VOL_SHIFT                   0  /* ADCL_DAC1_VOL - [4:0] */
+#define WM8996_ADCL_DAC1_VOL_WIDTH                   5  /* ADCL_DAC1_VOL - [4:0] */
+
+/*
+ * R1537 (0x601) - DAC1 Left Mixer Routing
+ */
+#define WM8996_ADCR_TO_DAC1L                    0x0020  /* ADCR_TO_DAC1L */
+#define WM8996_ADCR_TO_DAC1L_MASK               0x0020  /* ADCR_TO_DAC1L */
+#define WM8996_ADCR_TO_DAC1L_SHIFT                   5  /* ADCR_TO_DAC1L */
+#define WM8996_ADCR_TO_DAC1L_WIDTH                   1  /* ADCR_TO_DAC1L */
+#define WM8996_ADCL_TO_DAC1L                    0x0010  /* ADCL_TO_DAC1L */
+#define WM8996_ADCL_TO_DAC1L_MASK               0x0010  /* ADCL_TO_DAC1L */
+#define WM8996_ADCL_TO_DAC1L_SHIFT                   4  /* ADCL_TO_DAC1L */
+#define WM8996_ADCL_TO_DAC1L_WIDTH                   1  /* ADCL_TO_DAC1L */
+#define WM8996_DSP2RXL_TO_DAC1L                 0x0002  /* DSP2RXL_TO_DAC1L */
+#define WM8996_DSP2RXL_TO_DAC1L_MASK            0x0002  /* DSP2RXL_TO_DAC1L */
+#define WM8996_DSP2RXL_TO_DAC1L_SHIFT                1  /* DSP2RXL_TO_DAC1L */
+#define WM8996_DSP2RXL_TO_DAC1L_WIDTH                1  /* DSP2RXL_TO_DAC1L */
+#define WM8996_DSP1RXL_TO_DAC1L                 0x0001  /* DSP1RXL_TO_DAC1L */
+#define WM8996_DSP1RXL_TO_DAC1L_MASK            0x0001  /* DSP1RXL_TO_DAC1L */
+#define WM8996_DSP1RXL_TO_DAC1L_SHIFT                0  /* DSP1RXL_TO_DAC1L */
+#define WM8996_DSP1RXL_TO_DAC1L_WIDTH                1  /* DSP1RXL_TO_DAC1L */
+
+/*
+ * R1538 (0x602) - DAC1 Right Mixer Routing
+ */
+#define WM8996_ADCR_TO_DAC1R                    0x0020  /* ADCR_TO_DAC1R */
+#define WM8996_ADCR_TO_DAC1R_MASK               0x0020  /* ADCR_TO_DAC1R */
+#define WM8996_ADCR_TO_DAC1R_SHIFT                   5  /* ADCR_TO_DAC1R */
+#define WM8996_ADCR_TO_DAC1R_WIDTH                   1  /* ADCR_TO_DAC1R */
+#define WM8996_ADCL_TO_DAC1R                    0x0010  /* ADCL_TO_DAC1R */
+#define WM8996_ADCL_TO_DAC1R_MASK               0x0010  /* ADCL_TO_DAC1R */
+#define WM8996_ADCL_TO_DAC1R_SHIFT                   4  /* ADCL_TO_DAC1R */
+#define WM8996_ADCL_TO_DAC1R_WIDTH                   1  /* ADCL_TO_DAC1R */
+#define WM8996_DSP2RXR_TO_DAC1R                 0x0002  /* DSP2RXR_TO_DAC1R */
+#define WM8996_DSP2RXR_TO_DAC1R_MASK            0x0002  /* DSP2RXR_TO_DAC1R */
+#define WM8996_DSP2RXR_TO_DAC1R_SHIFT                1  /* DSP2RXR_TO_DAC1R */
+#define WM8996_DSP2RXR_TO_DAC1R_WIDTH                1  /* DSP2RXR_TO_DAC1R */
+#define WM8996_DSP1RXR_TO_DAC1R                 0x0001  /* DSP1RXR_TO_DAC1R */
+#define WM8996_DSP1RXR_TO_DAC1R_MASK            0x0001  /* DSP1RXR_TO_DAC1R */
+#define WM8996_DSP1RXR_TO_DAC1R_SHIFT                0  /* DSP1RXR_TO_DAC1R */
+#define WM8996_DSP1RXR_TO_DAC1R_WIDTH                1  /* DSP1RXR_TO_DAC1R */
+
+/*
+ * R1539 (0x603) - DAC2 Mixer Volumes
+ */
+#define WM8996_ADCR_DAC2_VOL_MASK               0x03E0  /* ADCR_DAC2_VOL - [9:5] */
+#define WM8996_ADCR_DAC2_VOL_SHIFT                   5  /* ADCR_DAC2_VOL - [9:5] */
+#define WM8996_ADCR_DAC2_VOL_WIDTH                   5  /* ADCR_DAC2_VOL - [9:5] */
+#define WM8996_ADCL_DAC2_VOL_MASK               0x001F  /* ADCL_DAC2_VOL - [4:0] */
+#define WM8996_ADCL_DAC2_VOL_SHIFT                   0  /* ADCL_DAC2_VOL - [4:0] */
+#define WM8996_ADCL_DAC2_VOL_WIDTH                   5  /* ADCL_DAC2_VOL - [4:0] */
+
+/*
+ * R1540 (0x604) - DAC2 Left Mixer Routing
+ */
+#define WM8996_ADCR_TO_DAC2L                    0x0020  /* ADCR_TO_DAC2L */
+#define WM8996_ADCR_TO_DAC2L_MASK               0x0020  /* ADCR_TO_DAC2L */
+#define WM8996_ADCR_TO_DAC2L_SHIFT                   5  /* ADCR_TO_DAC2L */
+#define WM8996_ADCR_TO_DAC2L_WIDTH                   1  /* ADCR_TO_DAC2L */
+#define WM8996_ADCL_TO_DAC2L                    0x0010  /* ADCL_TO_DAC2L */
+#define WM8996_ADCL_TO_DAC2L_MASK               0x0010  /* ADCL_TO_DAC2L */
+#define WM8996_ADCL_TO_DAC2L_SHIFT                   4  /* ADCL_TO_DAC2L */
+#define WM8996_ADCL_TO_DAC2L_WIDTH                   1  /* ADCL_TO_DAC2L */
+#define WM8996_DSP2RXL_TO_DAC2L                 0x0002  /* DSP2RXL_TO_DAC2L */
+#define WM8996_DSP2RXL_TO_DAC2L_MASK            0x0002  /* DSP2RXL_TO_DAC2L */
+#define WM8996_DSP2RXL_TO_DAC2L_SHIFT                1  /* DSP2RXL_TO_DAC2L */
+#define WM8996_DSP2RXL_TO_DAC2L_WIDTH                1  /* DSP2RXL_TO_DAC2L */
+#define WM8996_DSP1RXL_TO_DAC2L                 0x0001  /* DSP1RXL_TO_DAC2L */
+#define WM8996_DSP1RXL_TO_DAC2L_MASK            0x0001  /* DSP1RXL_TO_DAC2L */
+#define WM8996_DSP1RXL_TO_DAC2L_SHIFT                0  /* DSP1RXL_TO_DAC2L */
+#define WM8996_DSP1RXL_TO_DAC2L_WIDTH                1  /* DSP1RXL_TO_DAC2L */
+
+/*
+ * R1541 (0x605) - DAC2 Right Mixer Routing
+ */
+#define WM8996_ADCR_TO_DAC2R                    0x0020  /* ADCR_TO_DAC2R */
+#define WM8996_ADCR_TO_DAC2R_MASK               0x0020  /* ADCR_TO_DAC2R */
+#define WM8996_ADCR_TO_DAC2R_SHIFT                   5  /* ADCR_TO_DAC2R */
+#define WM8996_ADCR_TO_DAC2R_WIDTH                   1  /* ADCR_TO_DAC2R */
+#define WM8996_ADCL_TO_DAC2R                    0x0010  /* ADCL_TO_DAC2R */
+#define WM8996_ADCL_TO_DAC2R_MASK               0x0010  /* ADCL_TO_DAC2R */
+#define WM8996_ADCL_TO_DAC2R_SHIFT                   4  /* ADCL_TO_DAC2R */
+#define WM8996_ADCL_TO_DAC2R_WIDTH                   1  /* ADCL_TO_DAC2R */
+#define WM8996_DSP2RXR_TO_DAC2R                 0x0002  /* DSP2RXR_TO_DAC2R */
+#define WM8996_DSP2RXR_TO_DAC2R_MASK            0x0002  /* DSP2RXR_TO_DAC2R */
+#define WM8996_DSP2RXR_TO_DAC2R_SHIFT                1  /* DSP2RXR_TO_DAC2R */
+#define WM8996_DSP2RXR_TO_DAC2R_WIDTH                1  /* DSP2RXR_TO_DAC2R */
+#define WM8996_DSP1RXR_TO_DAC2R                 0x0001  /* DSP1RXR_TO_DAC2R */
+#define WM8996_DSP1RXR_TO_DAC2R_MASK            0x0001  /* DSP1RXR_TO_DAC2R */
+#define WM8996_DSP1RXR_TO_DAC2R_SHIFT                0  /* DSP1RXR_TO_DAC2R */
+#define WM8996_DSP1RXR_TO_DAC2R_WIDTH                1  /* DSP1RXR_TO_DAC2R */
+
+/*
+ * R1542 (0x606) - DSP1 TX Left Mixer Routing
+ */
+#define WM8996_ADC1L_TO_DSP1TXL                 0x0002  /* ADC1L_TO_DSP1TXL */
+#define WM8996_ADC1L_TO_DSP1TXL_MASK            0x0002  /* ADC1L_TO_DSP1TXL */
+#define WM8996_ADC1L_TO_DSP1TXL_SHIFT                1  /* ADC1L_TO_DSP1TXL */
+#define WM8996_ADC1L_TO_DSP1TXL_WIDTH                1  /* ADC1L_TO_DSP1TXL */
+#define WM8996_DACL_TO_DSP1TXL                  0x0001  /* DACL_TO_DSP1TXL */
+#define WM8996_DACL_TO_DSP1TXL_MASK             0x0001  /* DACL_TO_DSP1TXL */
+#define WM8996_DACL_TO_DSP1TXL_SHIFT                 0  /* DACL_TO_DSP1TXL */
+#define WM8996_DACL_TO_DSP1TXL_WIDTH                 1  /* DACL_TO_DSP1TXL */
+
+/*
+ * R1543 (0x607) - DSP1 TX Right Mixer Routing
+ */
+#define WM8996_ADC1R_TO_DSP1TXR                 0x0002  /* ADC1R_TO_DSP1TXR */
+#define WM8996_ADC1R_TO_DSP1TXR_MASK            0x0002  /* ADC1R_TO_DSP1TXR */
+#define WM8996_ADC1R_TO_DSP1TXR_SHIFT                1  /* ADC1R_TO_DSP1TXR */
+#define WM8996_ADC1R_TO_DSP1TXR_WIDTH                1  /* ADC1R_TO_DSP1TXR */
+#define WM8996_DACR_TO_DSP1TXR                  0x0001  /* DACR_TO_DSP1TXR */
+#define WM8996_DACR_TO_DSP1TXR_MASK             0x0001  /* DACR_TO_DSP1TXR */
+#define WM8996_DACR_TO_DSP1TXR_SHIFT                 0  /* DACR_TO_DSP1TXR */
+#define WM8996_DACR_TO_DSP1TXR_WIDTH                 1  /* DACR_TO_DSP1TXR */
+
+/*
+ * R1544 (0x608) - DSP2 TX Left Mixer Routing
+ */
+#define WM8996_ADC2L_TO_DSP2TXL                 0x0002  /* ADC2L_TO_DSP2TXL */
+#define WM8996_ADC2L_TO_DSP2TXL_MASK            0x0002  /* ADC2L_TO_DSP2TXL */
+#define WM8996_ADC2L_TO_DSP2TXL_SHIFT                1  /* ADC2L_TO_DSP2TXL */
+#define WM8996_ADC2L_TO_DSP2TXL_WIDTH                1  /* ADC2L_TO_DSP2TXL */
+#define WM8996_DACL_TO_DSP2TXL                  0x0001  /* DACL_TO_DSP2TXL */
+#define WM8996_DACL_TO_DSP2TXL_MASK             0x0001  /* DACL_TO_DSP2TXL */
+#define WM8996_DACL_TO_DSP2TXL_SHIFT                 0  /* DACL_TO_DSP2TXL */
+#define WM8996_DACL_TO_DSP2TXL_WIDTH                 1  /* DACL_TO_DSP2TXL */
+
+/*
+ * R1545 (0x609) - DSP2 TX Right Mixer Routing
+ */
+#define WM8996_ADC2R_TO_DSP2TXR                 0x0002  /* ADC2R_TO_DSP2TXR */
+#define WM8996_ADC2R_TO_DSP2TXR_MASK            0x0002  /* ADC2R_TO_DSP2TXR */
+#define WM8996_ADC2R_TO_DSP2TXR_SHIFT                1  /* ADC2R_TO_DSP2TXR */
+#define WM8996_ADC2R_TO_DSP2TXR_WIDTH                1  /* ADC2R_TO_DSP2TXR */
+#define WM8996_DACR_TO_DSP2TXR                  0x0001  /* DACR_TO_DSP2TXR */
+#define WM8996_DACR_TO_DSP2TXR_MASK             0x0001  /* DACR_TO_DSP2TXR */
+#define WM8996_DACR_TO_DSP2TXR_SHIFT                 0  /* DACR_TO_DSP2TXR */
+#define WM8996_DACR_TO_DSP2TXR_WIDTH                 1  /* DACR_TO_DSP2TXR */
+
+/*
+ * R1546 (0x60A) - DSP TX Mixer Select
+ */
+#define WM8996_DAC_TO_DSPTX_SRC                 0x0001  /* DAC_TO_DSPTX_SRC */
+#define WM8996_DAC_TO_DSPTX_SRC_MASK            0x0001  /* DAC_TO_DSPTX_SRC */
+#define WM8996_DAC_TO_DSPTX_SRC_SHIFT                0  /* DAC_TO_DSPTX_SRC */
+#define WM8996_DAC_TO_DSPTX_SRC_WIDTH                1  /* DAC_TO_DSPTX_SRC */
+
+/*
+ * R1552 (0x610) - DAC Softmute
+ */
+#define WM8996_DAC_SOFTMUTEMODE                 0x0002  /* DAC_SOFTMUTEMODE */
+#define WM8996_DAC_SOFTMUTEMODE_MASK            0x0002  /* DAC_SOFTMUTEMODE */
+#define WM8996_DAC_SOFTMUTEMODE_SHIFT                1  /* DAC_SOFTMUTEMODE */
+#define WM8996_DAC_SOFTMUTEMODE_WIDTH                1  /* DAC_SOFTMUTEMODE */
+#define WM8996_DAC_MUTERATE                     0x0001  /* DAC_MUTERATE */
+#define WM8996_DAC_MUTERATE_MASK                0x0001  /* DAC_MUTERATE */
+#define WM8996_DAC_MUTERATE_SHIFT                    0  /* DAC_MUTERATE */
+#define WM8996_DAC_MUTERATE_WIDTH                    1  /* DAC_MUTERATE */
+
+/*
+ * R1568 (0x620) - Oversampling
+ */
+#define WM8996_SPK_OSR128                       0x0008  /* SPK_OSR128 */
+#define WM8996_SPK_OSR128_MASK                  0x0008  /* SPK_OSR128 */
+#define WM8996_SPK_OSR128_SHIFT                      3  /* SPK_OSR128 */
+#define WM8996_SPK_OSR128_WIDTH                      1  /* SPK_OSR128 */
+#define WM8996_DMIC_OSR64                       0x0004  /* DMIC_OSR64 */
+#define WM8996_DMIC_OSR64_MASK                  0x0004  /* DMIC_OSR64 */
+#define WM8996_DMIC_OSR64_SHIFT                      2  /* DMIC_OSR64 */
+#define WM8996_DMIC_OSR64_WIDTH                      1  /* DMIC_OSR64 */
+#define WM8996_ADC_OSR128                       0x0002  /* ADC_OSR128 */
+#define WM8996_ADC_OSR128_MASK                  0x0002  /* ADC_OSR128 */
+#define WM8996_ADC_OSR128_SHIFT                      1  /* ADC_OSR128 */
+#define WM8996_ADC_OSR128_WIDTH                      1  /* ADC_OSR128 */
+#define WM8996_DAC_OSR128                       0x0001  /* DAC_OSR128 */
+#define WM8996_DAC_OSR128_MASK                  0x0001  /* DAC_OSR128 */
+#define WM8996_DAC_OSR128_SHIFT                      0  /* DAC_OSR128 */
+#define WM8996_DAC_OSR128_WIDTH                      1  /* DAC_OSR128 */
+
+/*
+ * R1569 (0x621) - Sidetone
+ */
+#define WM8996_ST_LPF                           0x1000  /* ST_LPF */
+#define WM8996_ST_LPF_MASK                      0x1000  /* ST_LPF */
+#define WM8996_ST_LPF_SHIFT                         12  /* ST_LPF */
+#define WM8996_ST_LPF_WIDTH                          1  /* ST_LPF */
+#define WM8996_ST_HPF_CUT_MASK                  0x0380  /* ST_HPF_CUT - [9:7] */
+#define WM8996_ST_HPF_CUT_SHIFT                      7  /* ST_HPF_CUT - [9:7] */
+#define WM8996_ST_HPF_CUT_WIDTH                      3  /* ST_HPF_CUT - [9:7] */
+#define WM8996_ST_HPF                           0x0040  /* ST_HPF */
+#define WM8996_ST_HPF_MASK                      0x0040  /* ST_HPF */
+#define WM8996_ST_HPF_SHIFT                          6  /* ST_HPF */
+#define WM8996_ST_HPF_WIDTH                          1  /* ST_HPF */
+#define WM8996_STR_SEL                          0x0002  /* STR_SEL */
+#define WM8996_STR_SEL_MASK                     0x0002  /* STR_SEL */
+#define WM8996_STR_SEL_SHIFT                         1  /* STR_SEL */
+#define WM8996_STR_SEL_WIDTH                         1  /* STR_SEL */
+#define WM8996_STL_SEL                          0x0001  /* STL_SEL */
+#define WM8996_STL_SEL_MASK                     0x0001  /* STL_SEL */
+#define WM8996_STL_SEL_SHIFT                         0  /* STL_SEL */
+#define WM8996_STL_SEL_WIDTH                         1  /* STL_SEL */
+
+/*
+ * R1792 (0x700) - GPIO 1
+ */
+#define WM8996_GP1_DIR                          0x8000  /* GP1_DIR */
+#define WM8996_GP1_DIR_MASK                     0x8000  /* GP1_DIR */
+#define WM8996_GP1_DIR_SHIFT                        15  /* GP1_DIR */
+#define WM8996_GP1_DIR_WIDTH                         1  /* GP1_DIR */
+#define WM8996_GP1_PU                           0x4000  /* GP1_PU */
+#define WM8996_GP1_PU_MASK                      0x4000  /* GP1_PU */
+#define WM8996_GP1_PU_SHIFT                         14  /* GP1_PU */
+#define WM8996_GP1_PU_WIDTH                          1  /* GP1_PU */
+#define WM8996_GP1_PD                           0x2000  /* GP1_PD */
+#define WM8996_GP1_PD_MASK                      0x2000  /* GP1_PD */
+#define WM8996_GP1_PD_SHIFT                         13  /* GP1_PD */
+#define WM8996_GP1_PD_WIDTH                          1  /* GP1_PD */
+#define WM8996_GP1_POL                          0x0400  /* GP1_POL */
+#define WM8996_GP1_POL_MASK                     0x0400  /* GP1_POL */
+#define WM8996_GP1_POL_SHIFT                        10  /* GP1_POL */
+#define WM8996_GP1_POL_WIDTH                         1  /* GP1_POL */
+#define WM8996_GP1_OP_CFG                       0x0200  /* GP1_OP_CFG */
+#define WM8996_GP1_OP_CFG_MASK                  0x0200  /* GP1_OP_CFG */
+#define WM8996_GP1_OP_CFG_SHIFT                      9  /* GP1_OP_CFG */
+#define WM8996_GP1_OP_CFG_WIDTH                      1  /* GP1_OP_CFG */
+#define WM8996_GP1_DB                           0x0100  /* GP1_DB */
+#define WM8996_GP1_DB_MASK                      0x0100  /* GP1_DB */
+#define WM8996_GP1_DB_SHIFT                          8  /* GP1_DB */
+#define WM8996_GP1_DB_WIDTH                          1  /* GP1_DB */
+#define WM8996_GP1_LVL                          0x0040  /* GP1_LVL */
+#define WM8996_GP1_LVL_MASK                     0x0040  /* GP1_LVL */
+#define WM8996_GP1_LVL_SHIFT                         6  /* GP1_LVL */
+#define WM8996_GP1_LVL_WIDTH                         1  /* GP1_LVL */
+#define WM8996_GP1_FN_MASK                      0x000F  /* GP1_FN - [3:0] */
+#define WM8996_GP1_FN_SHIFT                          0  /* GP1_FN - [3:0] */
+#define WM8996_GP1_FN_WIDTH                          4  /* GP1_FN - [3:0] */
+
+/*
+ * R1793 (0x701) - GPIO 2
+ */
+#define WM8996_GP2_DIR                          0x8000  /* GP2_DIR */
+#define WM8996_GP2_DIR_MASK                     0x8000  /* GP2_DIR */
+#define WM8996_GP2_DIR_SHIFT                        15  /* GP2_DIR */
+#define WM8996_GP2_DIR_WIDTH                         1  /* GP2_DIR */
+#define WM8996_GP2_PU                           0x4000  /* GP2_PU */
+#define WM8996_GP2_PU_MASK                      0x4000  /* GP2_PU */
+#define WM8996_GP2_PU_SHIFT                         14  /* GP2_PU */
+#define WM8996_GP2_PU_WIDTH                          1  /* GP2_PU */
+#define WM8996_GP2_PD                           0x2000  /* GP2_PD */
+#define WM8996_GP2_PD_MASK                      0x2000  /* GP2_PD */
+#define WM8996_GP2_PD_SHIFT                         13  /* GP2_PD */
+#define WM8996_GP2_PD_WIDTH                          1  /* GP2_PD */
+#define WM8996_GP2_POL                          0x0400  /* GP2_POL */
+#define WM8996_GP2_POL_MASK                     0x0400  /* GP2_POL */
+#define WM8996_GP2_POL_SHIFT                        10  /* GP2_POL */
+#define WM8996_GP2_POL_WIDTH                         1  /* GP2_POL */
+#define WM8996_GP2_OP_CFG                       0x0200  /* GP2_OP_CFG */
+#define WM8996_GP2_OP_CFG_MASK                  0x0200  /* GP2_OP_CFG */
+#define WM8996_GP2_OP_CFG_SHIFT                      9  /* GP2_OP_CFG */
+#define WM8996_GP2_OP_CFG_WIDTH                      1  /* GP2_OP_CFG */
+#define WM8996_GP2_DB                           0x0100  /* GP2_DB */
+#define WM8996_GP2_DB_MASK                      0x0100  /* GP2_DB */
+#define WM8996_GP2_DB_SHIFT                          8  /* GP2_DB */
+#define WM8996_GP2_DB_WIDTH                          1  /* GP2_DB */
+#define WM8996_GP2_LVL                          0x0040  /* GP2_LVL */
+#define WM8996_GP2_LVL_MASK                     0x0040  /* GP2_LVL */
+#define WM8996_GP2_LVL_SHIFT                         6  /* GP2_LVL */
+#define WM8996_GP2_LVL_WIDTH                         1  /* GP2_LVL */
+#define WM8996_GP2_FN_MASK                      0x000F  /* GP2_FN - [3:0] */
+#define WM8996_GP2_FN_SHIFT                          0  /* GP2_FN - [3:0] */
+#define WM8996_GP2_FN_WIDTH                          4  /* GP2_FN - [3:0] */
+
+/*
+ * R1794 (0x702) - GPIO 3
+ */
+#define WM8996_GP3_DIR                          0x8000  /* GP3_DIR */
+#define WM8996_GP3_DIR_MASK                     0x8000  /* GP3_DIR */
+#define WM8996_GP3_DIR_SHIFT                        15  /* GP3_DIR */
+#define WM8996_GP3_DIR_WIDTH                         1  /* GP3_DIR */
+#define WM8996_GP3_PU                           0x4000  /* GP3_PU */
+#define WM8996_GP3_PU_MASK                      0x4000  /* GP3_PU */
+#define WM8996_GP3_PU_SHIFT                         14  /* GP3_PU */
+#define WM8996_GP3_PU_WIDTH                          1  /* GP3_PU */
+#define WM8996_GP3_PD                           0x2000  /* GP3_PD */
+#define WM8996_GP3_PD_MASK                      0x2000  /* GP3_PD */
+#define WM8996_GP3_PD_SHIFT                         13  /* GP3_PD */
+#define WM8996_GP3_PD_WIDTH                          1  /* GP3_PD */
+#define WM8996_GP3_POL                          0x0400  /* GP3_POL */
+#define WM8996_GP3_POL_MASK                     0x0400  /* GP3_POL */
+#define WM8996_GP3_POL_SHIFT                        10  /* GP3_POL */
+#define WM8996_GP3_POL_WIDTH                         1  /* GP3_POL */
+#define WM8996_GP3_OP_CFG                       0x0200  /* GP3_OP_CFG */
+#define WM8996_GP3_OP_CFG_MASK                  0x0200  /* GP3_OP_CFG */
+#define WM8996_GP3_OP_CFG_SHIFT                      9  /* GP3_OP_CFG */
+#define WM8996_GP3_OP_CFG_WIDTH                      1  /* GP3_OP_CFG */
+#define WM8996_GP3_DB                           0x0100  /* GP3_DB */
+#define WM8996_GP3_DB_MASK                      0x0100  /* GP3_DB */
+#define WM8996_GP3_DB_SHIFT                          8  /* GP3_DB */
+#define WM8996_GP3_DB_WIDTH                          1  /* GP3_DB */
+#define WM8996_GP3_LVL                          0x0040  /* GP3_LVL */
+#define WM8996_GP3_LVL_MASK                     0x0040  /* GP3_LVL */
+#define WM8996_GP3_LVL_SHIFT                         6  /* GP3_LVL */
+#define WM8996_GP3_LVL_WIDTH                         1  /* GP3_LVL */
+#define WM8996_GP3_FN_MASK                      0x000F  /* GP3_FN - [3:0] */
+#define WM8996_GP3_FN_SHIFT                          0  /* GP3_FN - [3:0] */
+#define WM8996_GP3_FN_WIDTH                          4  /* GP3_FN - [3:0] */
+
+/*
+ * R1795 (0x703) - GPIO 4
+ */
+#define WM8996_GP4_DIR                          0x8000  /* GP4_DIR */
+#define WM8996_GP4_DIR_MASK                     0x8000  /* GP4_DIR */
+#define WM8996_GP4_DIR_SHIFT                        15  /* GP4_DIR */
+#define WM8996_GP4_DIR_WIDTH                         1  /* GP4_DIR */
+#define WM8996_GP4_PU                           0x4000  /* GP4_PU */
+#define WM8996_GP4_PU_MASK                      0x4000  /* GP4_PU */
+#define WM8996_GP4_PU_SHIFT                         14  /* GP4_PU */
+#define WM8996_GP4_PU_WIDTH                          1  /* GP4_PU */
+#define WM8996_GP4_PD                           0x2000  /* GP4_PD */
+#define WM8996_GP4_PD_MASK                      0x2000  /* GP4_PD */
+#define WM8996_GP4_PD_SHIFT                         13  /* GP4_PD */
+#define WM8996_GP4_PD_WIDTH                          1  /* GP4_PD */
+#define WM8996_GP4_POL                          0x0400  /* GP4_POL */
+#define WM8996_GP4_POL_MASK                     0x0400  /* GP4_POL */
+#define WM8996_GP4_POL_SHIFT                        10  /* GP4_POL */
+#define WM8996_GP4_POL_WIDTH                         1  /* GP4_POL */
+#define WM8996_GP4_OP_CFG                       0x0200  /* GP4_OP_CFG */
+#define WM8996_GP4_OP_CFG_MASK                  0x0200  /* GP4_OP_CFG */
+#define WM8996_GP4_OP_CFG_SHIFT                      9  /* GP4_OP_CFG */
+#define WM8996_GP4_OP_CFG_WIDTH                      1  /* GP4_OP_CFG */
+#define WM8996_GP4_DB                           0x0100  /* GP4_DB */
+#define WM8996_GP4_DB_MASK                      0x0100  /* GP4_DB */
+#define WM8996_GP4_DB_SHIFT                          8  /* GP4_DB */
+#define WM8996_GP4_DB_WIDTH                          1  /* GP4_DB */
+#define WM8996_GP4_LVL                          0x0040  /* GP4_LVL */
+#define WM8996_GP4_LVL_MASK                     0x0040  /* GP4_LVL */
+#define WM8996_GP4_LVL_SHIFT                         6  /* GP4_LVL */
+#define WM8996_GP4_LVL_WIDTH                         1  /* GP4_LVL */
+#define WM8996_GP4_FN_MASK                      0x000F  /* GP4_FN - [3:0] */
+#define WM8996_GP4_FN_SHIFT                          0  /* GP4_FN - [3:0] */
+#define WM8996_GP4_FN_WIDTH                          4  /* GP4_FN - [3:0] */
+
+/*
+ * R1796 (0x704) - GPIO 5
+ */
+#define WM8996_GP5_DIR                          0x8000  /* GP5_DIR */
+#define WM8996_GP5_DIR_MASK                     0x8000  /* GP5_DIR */
+#define WM8996_GP5_DIR_SHIFT                        15  /* GP5_DIR */
+#define WM8996_GP5_DIR_WIDTH                         1  /* GP5_DIR */
+#define WM8996_GP5_PU                           0x4000  /* GP5_PU */
+#define WM8996_GP5_PU_MASK                      0x4000  /* GP5_PU */
+#define WM8996_GP5_PU_SHIFT                         14  /* GP5_PU */
+#define WM8996_GP5_PU_WIDTH                          1  /* GP5_PU */
+#define WM8996_GP5_PD                           0x2000  /* GP5_PD */
+#define WM8996_GP5_PD_MASK                      0x2000  /* GP5_PD */
+#define WM8996_GP5_PD_SHIFT                         13  /* GP5_PD */
+#define WM8996_GP5_PD_WIDTH                          1  /* GP5_PD */
+#define WM8996_GP5_POL                          0x0400  /* GP5_POL */
+#define WM8996_GP5_POL_MASK                     0x0400  /* GP5_POL */
+#define WM8996_GP5_POL_SHIFT                        10  /* GP5_POL */
+#define WM8996_GP5_POL_WIDTH                         1  /* GP5_POL */
+#define WM8996_GP5_OP_CFG                       0x0200  /* GP5_OP_CFG */
+#define WM8996_GP5_OP_CFG_MASK                  0x0200  /* GP5_OP_CFG */
+#define WM8996_GP5_OP_CFG_SHIFT                      9  /* GP5_OP_CFG */
+#define WM8996_GP5_OP_CFG_WIDTH                      1  /* GP5_OP_CFG */
+#define WM8996_GP5_DB                           0x0100  /* GP5_DB */
+#define WM8996_GP5_DB_MASK                      0x0100  /* GP5_DB */
+#define WM8996_GP5_DB_SHIFT                          8  /* GP5_DB */
+#define WM8996_GP5_DB_WIDTH                          1  /* GP5_DB */
+#define WM8996_GP5_LVL                          0x0040  /* GP5_LVL */
+#define WM8996_GP5_LVL_MASK                     0x0040  /* GP5_LVL */
+#define WM8996_GP5_LVL_SHIFT                         6  /* GP5_LVL */
+#define WM8996_GP5_LVL_WIDTH                         1  /* GP5_LVL */
+#define WM8996_GP5_FN_MASK                      0x000F  /* GP5_FN - [3:0] */
+#define WM8996_GP5_FN_SHIFT                          0  /* GP5_FN - [3:0] */
+#define WM8996_GP5_FN_WIDTH                          4  /* GP5_FN - [3:0] */
+
+/*
+ * R1824 (0x720) - Pull Control (1)
+ */
+#define WM8996_DMICDAT2_PD                      0x1000  /* DMICDAT2_PD */
+#define WM8996_DMICDAT2_PD_MASK                 0x1000  /* DMICDAT2_PD */
+#define WM8996_DMICDAT2_PD_SHIFT                    12  /* DMICDAT2_PD */
+#define WM8996_DMICDAT2_PD_WIDTH                     1  /* DMICDAT2_PD */
+#define WM8996_DMICDAT1_PD                      0x0400  /* DMICDAT1_PD */
+#define WM8996_DMICDAT1_PD_MASK                 0x0400  /* DMICDAT1_PD */
+#define WM8996_DMICDAT1_PD_SHIFT                    10  /* DMICDAT1_PD */
+#define WM8996_DMICDAT1_PD_WIDTH                     1  /* DMICDAT1_PD */
+#define WM8996_MCLK2_PU                         0x0200  /* MCLK2_PU */
+#define WM8996_MCLK2_PU_MASK                    0x0200  /* MCLK2_PU */
+#define WM8996_MCLK2_PU_SHIFT                        9  /* MCLK2_PU */
+#define WM8996_MCLK2_PU_WIDTH                        1  /* MCLK2_PU */
+#define WM8996_MCLK2_PD                         0x0100  /* MCLK2_PD */
+#define WM8996_MCLK2_PD_MASK                    0x0100  /* MCLK2_PD */
+#define WM8996_MCLK2_PD_SHIFT                        8  /* MCLK2_PD */
+#define WM8996_MCLK2_PD_WIDTH                        1  /* MCLK2_PD */
+#define WM8996_MCLK1_PU                         0x0080  /* MCLK1_PU */
+#define WM8996_MCLK1_PU_MASK                    0x0080  /* MCLK1_PU */
+#define WM8996_MCLK1_PU_SHIFT                        7  /* MCLK1_PU */
+#define WM8996_MCLK1_PU_WIDTH                        1  /* MCLK1_PU */
+#define WM8996_MCLK1_PD                         0x0040  /* MCLK1_PD */
+#define WM8996_MCLK1_PD_MASK                    0x0040  /* MCLK1_PD */
+#define WM8996_MCLK1_PD_SHIFT                        6  /* MCLK1_PD */
+#define WM8996_MCLK1_PD_WIDTH                        1  /* MCLK1_PD */
+#define WM8996_DACDAT1_PU                       0x0020  /* DACDAT1_PU */
+#define WM8996_DACDAT1_PU_MASK                  0x0020  /* DACDAT1_PU */
+#define WM8996_DACDAT1_PU_SHIFT                      5  /* DACDAT1_PU */
+#define WM8996_DACDAT1_PU_WIDTH                      1  /* DACDAT1_PU */
+#define WM8996_DACDAT1_PD                       0x0010  /* DACDAT1_PD */
+#define WM8996_DACDAT1_PD_MASK                  0x0010  /* DACDAT1_PD */
+#define WM8996_DACDAT1_PD_SHIFT                      4  /* DACDAT1_PD */
+#define WM8996_DACDAT1_PD_WIDTH                      1  /* DACDAT1_PD */
+#define WM8996_DACLRCLK1_PU                     0x0008  /* DACLRCLK1_PU */
+#define WM8996_DACLRCLK1_PU_MASK                0x0008  /* DACLRCLK1_PU */
+#define WM8996_DACLRCLK1_PU_SHIFT                    3  /* DACLRCLK1_PU */
+#define WM8996_DACLRCLK1_PU_WIDTH                    1  /* DACLRCLK1_PU */
+#define WM8996_DACLRCLK1_PD                     0x0004  /* DACLRCLK1_PD */
+#define WM8996_DACLRCLK1_PD_MASK                0x0004  /* DACLRCLK1_PD */
+#define WM8996_DACLRCLK1_PD_SHIFT                    2  /* DACLRCLK1_PD */
+#define WM8996_DACLRCLK1_PD_WIDTH                    1  /* DACLRCLK1_PD */
+#define WM8996_BCLK1_PU                         0x0002  /* BCLK1_PU */
+#define WM8996_BCLK1_PU_MASK                    0x0002  /* BCLK1_PU */
+#define WM8996_BCLK1_PU_SHIFT                        1  /* BCLK1_PU */
+#define WM8996_BCLK1_PU_WIDTH                        1  /* BCLK1_PU */
+#define WM8996_BCLK1_PD                         0x0001  /* BCLK1_PD */
+#define WM8996_BCLK1_PD_MASK                    0x0001  /* BCLK1_PD */
+#define WM8996_BCLK1_PD_SHIFT                        0  /* BCLK1_PD */
+#define WM8996_BCLK1_PD_WIDTH                        1  /* BCLK1_PD */
+
+/*
+ * R1825 (0x721) - Pull Control (2)
+ */
+#define WM8996_LDO1ENA_PD                       0x0100  /* LDO1ENA_PD */
+#define WM8996_LDO1ENA_PD_MASK                  0x0100  /* LDO1ENA_PD */
+#define WM8996_LDO1ENA_PD_SHIFT                      8  /* LDO1ENA_PD */
+#define WM8996_LDO1ENA_PD_WIDTH                      1  /* LDO1ENA_PD */
+#define WM8996_ADDR_PD                          0x0040  /* ADDR_PD */
+#define WM8996_ADDR_PD_MASK                     0x0040  /* ADDR_PD */
+#define WM8996_ADDR_PD_SHIFT                         6  /* ADDR_PD */
+#define WM8996_ADDR_PD_WIDTH                         1  /* ADDR_PD */
+#define WM8996_DACDAT2_PU                       0x0020  /* DACDAT2_PU */
+#define WM8996_DACDAT2_PU_MASK                  0x0020  /* DACDAT2_PU */
+#define WM8996_DACDAT2_PU_SHIFT                      5  /* DACDAT2_PU */
+#define WM8996_DACDAT2_PU_WIDTH                      1  /* DACDAT2_PU */
+#define WM8996_DACDAT2_PD                       0x0010  /* DACDAT2_PD */
+#define WM8996_DACDAT2_PD_MASK                  0x0010  /* DACDAT2_PD */
+#define WM8996_DACDAT2_PD_SHIFT                      4  /* DACDAT2_PD */
+#define WM8996_DACDAT2_PD_WIDTH                      1  /* DACDAT2_PD */
+#define WM8996_DACLRCLK2_PU                     0x0008  /* DACLRCLK2_PU */
+#define WM8996_DACLRCLK2_PU_MASK                0x0008  /* DACLRCLK2_PU */
+#define WM8996_DACLRCLK2_PU_SHIFT                    3  /* DACLRCLK2_PU */
+#define WM8996_DACLRCLK2_PU_WIDTH                    1  /* DACLRCLK2_PU */
+#define WM8996_DACLRCLK2_PD                     0x0004  /* DACLRCLK2_PD */
+#define WM8996_DACLRCLK2_PD_MASK                0x0004  /* DACLRCLK2_PD */
+#define WM8996_DACLRCLK2_PD_SHIFT                    2  /* DACLRCLK2_PD */
+#define WM8996_DACLRCLK2_PD_WIDTH                    1  /* DACLRCLK2_PD */
+#define WM8996_BCLK2_PU                         0x0002  /* BCLK2_PU */
+#define WM8996_BCLK2_PU_MASK                    0x0002  /* BCLK2_PU */
+#define WM8996_BCLK2_PU_SHIFT                        1  /* BCLK2_PU */
+#define WM8996_BCLK2_PU_WIDTH                        1  /* BCLK2_PU */
+#define WM8996_BCLK2_PD                         0x0001  /* BCLK2_PD */
+#define WM8996_BCLK2_PD_MASK                    0x0001  /* BCLK2_PD */
+#define WM8996_BCLK2_PD_SHIFT                        0  /* BCLK2_PD */
+#define WM8996_BCLK2_PD_WIDTH                        1  /* BCLK2_PD */
+
+/*
+ * R1840 (0x730) - Interrupt Status 1
+ */
+#define WM8996_GP5_EINT                         0x0010  /* GP5_EINT */
+#define WM8996_GP5_EINT_MASK                    0x0010  /* GP5_EINT */
+#define WM8996_GP5_EINT_SHIFT                        4  /* GP5_EINT */
+#define WM8996_GP5_EINT_WIDTH                        1  /* GP5_EINT */
+#define WM8996_GP4_EINT                         0x0008  /* GP4_EINT */
+#define WM8996_GP4_EINT_MASK                    0x0008  /* GP4_EINT */
+#define WM8996_GP4_EINT_SHIFT                        3  /* GP4_EINT */
+#define WM8996_GP4_EINT_WIDTH                        1  /* GP4_EINT */
+#define WM8996_GP3_EINT                         0x0004  /* GP3_EINT */
+#define WM8996_GP3_EINT_MASK                    0x0004  /* GP3_EINT */
+#define WM8996_GP3_EINT_SHIFT                        2  /* GP3_EINT */
+#define WM8996_GP3_EINT_WIDTH                        1  /* GP3_EINT */
+#define WM8996_GP2_EINT                         0x0002  /* GP2_EINT */
+#define WM8996_GP2_EINT_MASK                    0x0002  /* GP2_EINT */
+#define WM8996_GP2_EINT_SHIFT                        1  /* GP2_EINT */
+#define WM8996_GP2_EINT_WIDTH                        1  /* GP2_EINT */
+#define WM8996_GP1_EINT                         0x0001  /* GP1_EINT */
+#define WM8996_GP1_EINT_MASK                    0x0001  /* GP1_EINT */
+#define WM8996_GP1_EINT_SHIFT                        0  /* GP1_EINT */
+#define WM8996_GP1_EINT_WIDTH                        1  /* GP1_EINT */
+
+/*
+ * R1841 (0x731) - Interrupt Status 2
+ */
+#define WM8996_DCS_DONE_23_EINT                 0x1000  /* DCS_DONE_23_EINT */
+#define WM8996_DCS_DONE_23_EINT_MASK            0x1000  /* DCS_DONE_23_EINT */
+#define WM8996_DCS_DONE_23_EINT_SHIFT               12  /* DCS_DONE_23_EINT */
+#define WM8996_DCS_DONE_23_EINT_WIDTH                1  /* DCS_DONE_23_EINT */
+#define WM8996_DCS_DONE_01_EINT                 0x0800  /* DCS_DONE_01_EINT */
+#define WM8996_DCS_DONE_01_EINT_MASK            0x0800  /* DCS_DONE_01_EINT */
+#define WM8996_DCS_DONE_01_EINT_SHIFT               11  /* DCS_DONE_01_EINT */
+#define WM8996_DCS_DONE_01_EINT_WIDTH                1  /* DCS_DONE_01_EINT */
+#define WM8996_WSEQ_DONE_EINT                   0x0400  /* WSEQ_DONE_EINT */
+#define WM8996_WSEQ_DONE_EINT_MASK              0x0400  /* WSEQ_DONE_EINT */
+#define WM8996_WSEQ_DONE_EINT_SHIFT                 10  /* WSEQ_DONE_EINT */
+#define WM8996_WSEQ_DONE_EINT_WIDTH                  1  /* WSEQ_DONE_EINT */
+#define WM8996_FIFOS_ERR_EINT                   0x0200  /* FIFOS_ERR_EINT */
+#define WM8996_FIFOS_ERR_EINT_MASK              0x0200  /* FIFOS_ERR_EINT */
+#define WM8996_FIFOS_ERR_EINT_SHIFT                  9  /* FIFOS_ERR_EINT */
+#define WM8996_FIFOS_ERR_EINT_WIDTH                  1  /* FIFOS_ERR_EINT */
+#define WM8996_DSP2DRC_SIG_DET_EINT             0x0080  /* DSP2DRC_SIG_DET_EINT */
+#define WM8996_DSP2DRC_SIG_DET_EINT_MASK        0x0080  /* DSP2DRC_SIG_DET_EINT */
+#define WM8996_DSP2DRC_SIG_DET_EINT_SHIFT            7  /* DSP2DRC_SIG_DET_EINT */
+#define WM8996_DSP2DRC_SIG_DET_EINT_WIDTH            1  /* DSP2DRC_SIG_DET_EINT */
+#define WM8996_DSP1DRC_SIG_DET_EINT             0x0040  /* DSP1DRC_SIG_DET_EINT */
+#define WM8996_DSP1DRC_SIG_DET_EINT_MASK        0x0040  /* DSP1DRC_SIG_DET_EINT */
+#define WM8996_DSP1DRC_SIG_DET_EINT_SHIFT            6  /* DSP1DRC_SIG_DET_EINT */
+#define WM8996_DSP1DRC_SIG_DET_EINT_WIDTH            1  /* DSP1DRC_SIG_DET_EINT */
+#define WM8996_FLL_SW_CLK_DONE_EINT             0x0008  /* FLL_SW_CLK_DONE_EINT */
+#define WM8996_FLL_SW_CLK_DONE_EINT_MASK        0x0008  /* FLL_SW_CLK_DONE_EINT */
+#define WM8996_FLL_SW_CLK_DONE_EINT_SHIFT            3  /* FLL_SW_CLK_DONE_EINT */
+#define WM8996_FLL_SW_CLK_DONE_EINT_WIDTH            1  /* FLL_SW_CLK_DONE_EINT */
+#define WM8996_FLL_LOCK_EINT                    0x0004  /* FLL_LOCK_EINT */
+#define WM8996_FLL_LOCK_EINT_MASK               0x0004  /* FLL_LOCK_EINT */
+#define WM8996_FLL_LOCK_EINT_SHIFT                   2  /* FLL_LOCK_EINT */
+#define WM8996_FLL_LOCK_EINT_WIDTH                   1  /* FLL_LOCK_EINT */
+#define WM8996_HP_DONE_EINT                     0x0002  /* HP_DONE_EINT */
+#define WM8996_HP_DONE_EINT_MASK                0x0002  /* HP_DONE_EINT */
+#define WM8996_HP_DONE_EINT_SHIFT                    1  /* HP_DONE_EINT */
+#define WM8996_HP_DONE_EINT_WIDTH                    1  /* HP_DONE_EINT */
+#define WM8996_MICD_EINT                        0x0001  /* MICD_EINT */
+#define WM8996_MICD_EINT_MASK                   0x0001  /* MICD_EINT */
+#define WM8996_MICD_EINT_SHIFT                       0  /* MICD_EINT */
+#define WM8996_MICD_EINT_WIDTH                       1  /* MICD_EINT */
+
+/*
+ * R1842 (0x732) - Interrupt Raw Status 2
+ */
+#define WM8996_DCS_DONE_23_STS                  0x1000  /* DCS_DONE_23_STS */
+#define WM8996_DCS_DONE_23_STS_MASK             0x1000  /* DCS_DONE_23_STS */
+#define WM8996_DCS_DONE_23_STS_SHIFT                12  /* DCS_DONE_23_STS */
+#define WM8996_DCS_DONE_23_STS_WIDTH                 1  /* DCS_DONE_23_STS */
+#define WM8996_DCS_DONE_01_STS                  0x0800  /* DCS_DONE_01_STS */
+#define WM8996_DCS_DONE_01_STS_MASK             0x0800  /* DCS_DONE_01_STS */
+#define WM8996_DCS_DONE_01_STS_SHIFT                11  /* DCS_DONE_01_STS */
+#define WM8996_DCS_DONE_01_STS_WIDTH                 1  /* DCS_DONE_01_STS */
+#define WM8996_WSEQ_DONE_STS                    0x0400  /* WSEQ_DONE_STS */
+#define WM8996_WSEQ_DONE_STS_MASK               0x0400  /* WSEQ_DONE_STS */
+#define WM8996_WSEQ_DONE_STS_SHIFT                  10  /* WSEQ_DONE_STS */
+#define WM8996_WSEQ_DONE_STS_WIDTH                   1  /* WSEQ_DONE_STS */
+#define WM8996_FIFOS_ERR_STS                    0x0200  /* FIFOS_ERR_STS */
+#define WM8996_FIFOS_ERR_STS_MASK               0x0200  /* FIFOS_ERR_STS */
+#define WM8996_FIFOS_ERR_STS_SHIFT                   9  /* FIFOS_ERR_STS */
+#define WM8996_FIFOS_ERR_STS_WIDTH                   1  /* FIFOS_ERR_STS */
+#define WM8996_DSP2DRC_SIG_DET_STS              0x0080  /* DSP2DRC_SIG_DET_STS */
+#define WM8996_DSP2DRC_SIG_DET_STS_MASK         0x0080  /* DSP2DRC_SIG_DET_STS */
+#define WM8996_DSP2DRC_SIG_DET_STS_SHIFT             7  /* DSP2DRC_SIG_DET_STS */
+#define WM8996_DSP2DRC_SIG_DET_STS_WIDTH             1  /* DSP2DRC_SIG_DET_STS */
+#define WM8996_DSP1DRC_SIG_DET_STS              0x0040  /* DSP1DRC_SIG_DET_STS */
+#define WM8996_DSP1DRC_SIG_DET_STS_MASK         0x0040  /* DSP1DRC_SIG_DET_STS */
+#define WM8996_DSP1DRC_SIG_DET_STS_SHIFT             6  /* DSP1DRC_SIG_DET_STS */
+#define WM8996_DSP1DRC_SIG_DET_STS_WIDTH             1  /* DSP1DRC_SIG_DET_STS */
+#define WM8996_FLL_LOCK_STS                     0x0004  /* FLL_LOCK_STS */
+#define WM8996_FLL_LOCK_STS_MASK                0x0004  /* FLL_LOCK_STS */
+#define WM8996_FLL_LOCK_STS_SHIFT                    2  /* FLL_LOCK_STS */
+#define WM8996_FLL_LOCK_STS_WIDTH                    1  /* FLL_LOCK_STS */
+
+/*
+ * R1848 (0x738) - Interrupt Status 1 Mask
+ */
+#define WM8996_IM_GP5_EINT                      0x0010  /* IM_GP5_EINT */
+#define WM8996_IM_GP5_EINT_MASK                 0x0010  /* IM_GP5_EINT */
+#define WM8996_IM_GP5_EINT_SHIFT                     4  /* IM_GP5_EINT */
+#define WM8996_IM_GP5_EINT_WIDTH                     1  /* IM_GP5_EINT */
+#define WM8996_IM_GP4_EINT                      0x0008  /* IM_GP4_EINT */
+#define WM8996_IM_GP4_EINT_MASK                 0x0008  /* IM_GP4_EINT */
+#define WM8996_IM_GP4_EINT_SHIFT                     3  /* IM_GP4_EINT */
+#define WM8996_IM_GP4_EINT_WIDTH                     1  /* IM_GP4_EINT */
+#define WM8996_IM_GP3_EINT                      0x0004  /* IM_GP3_EINT */
+#define WM8996_IM_GP3_EINT_MASK                 0x0004  /* IM_GP3_EINT */
+#define WM8996_IM_GP3_EINT_SHIFT                     2  /* IM_GP3_EINT */
+#define WM8996_IM_GP3_EINT_WIDTH                     1  /* IM_GP3_EINT */
+#define WM8996_IM_GP2_EINT                      0x0002  /* IM_GP2_EINT */
+#define WM8996_IM_GP2_EINT_MASK                 0x0002  /* IM_GP2_EINT */
+#define WM8996_IM_GP2_EINT_SHIFT                     1  /* IM_GP2_EINT */
+#define WM8996_IM_GP2_EINT_WIDTH                     1  /* IM_GP2_EINT */
+#define WM8996_IM_GP1_EINT                      0x0001  /* IM_GP1_EINT */
+#define WM8996_IM_GP1_EINT_MASK                 0x0001  /* IM_GP1_EINT */
+#define WM8996_IM_GP1_EINT_SHIFT                     0  /* IM_GP1_EINT */
+#define WM8996_IM_GP1_EINT_WIDTH                     1  /* IM_GP1_EINT */
+
+/*
+ * R1849 (0x739) - Interrupt Status 2 Mask
+ */
+#define WM8996_IM_DCS_DONE_23_EINT              0x1000  /* IM_DCS_DONE_23_EINT */
+#define WM8996_IM_DCS_DONE_23_EINT_MASK         0x1000  /* IM_DCS_DONE_23_EINT */
+#define WM8996_IM_DCS_DONE_23_EINT_SHIFT            12  /* IM_DCS_DONE_23_EINT */
+#define WM8996_IM_DCS_DONE_23_EINT_WIDTH             1  /* IM_DCS_DONE_23_EINT */
+#define WM8996_IM_DCS_DONE_01_EINT              0x0800  /* IM_DCS_DONE_01_EINT */
+#define WM8996_IM_DCS_DONE_01_EINT_MASK         0x0800  /* IM_DCS_DONE_01_EINT */
+#define WM8996_IM_DCS_DONE_01_EINT_SHIFT            11  /* IM_DCS_DONE_01_EINT */
+#define WM8996_IM_DCS_DONE_01_EINT_WIDTH             1  /* IM_DCS_DONE_01_EINT */
+#define WM8996_IM_WSEQ_DONE_EINT                0x0400  /* IM_WSEQ_DONE_EINT */
+#define WM8996_IM_WSEQ_DONE_EINT_MASK           0x0400  /* IM_WSEQ_DONE_EINT */
+#define WM8996_IM_WSEQ_DONE_EINT_SHIFT              10  /* IM_WSEQ_DONE_EINT */
+#define WM8996_IM_WSEQ_DONE_EINT_WIDTH               1  /* IM_WSEQ_DONE_EINT */
+#define WM8996_IM_FIFOS_ERR_EINT                0x0200  /* IM_FIFOS_ERR_EINT */
+#define WM8996_IM_FIFOS_ERR_EINT_MASK           0x0200  /* IM_FIFOS_ERR_EINT */
+#define WM8996_IM_FIFOS_ERR_EINT_SHIFT               9  /* IM_FIFOS_ERR_EINT */
+#define WM8996_IM_FIFOS_ERR_EINT_WIDTH               1  /* IM_FIFOS_ERR_EINT */
+#define WM8996_IM_DSP2DRC_SIG_DET_EINT          0x0080  /* IM_DSP2DRC_SIG_DET_EINT */
+#define WM8996_IM_DSP2DRC_SIG_DET_EINT_MASK     0x0080  /* IM_DSP2DRC_SIG_DET_EINT */
+#define WM8996_IM_DSP2DRC_SIG_DET_EINT_SHIFT         7  /* IM_DSP2DRC_SIG_DET_EINT */
+#define WM8996_IM_DSP2DRC_SIG_DET_EINT_WIDTH         1  /* IM_DSP2DRC_SIG_DET_EINT */
+#define WM8996_IM_DSP1DRC_SIG_DET_EINT          0x0040  /* IM_DSP1DRC_SIG_DET_EINT */
+#define WM8996_IM_DSP1DRC_SIG_DET_EINT_MASK     0x0040  /* IM_DSP1DRC_SIG_DET_EINT */
+#define WM8996_IM_DSP1DRC_SIG_DET_EINT_SHIFT         6  /* IM_DSP1DRC_SIG_DET_EINT */
+#define WM8996_IM_DSP1DRC_SIG_DET_EINT_WIDTH         1  /* IM_DSP1DRC_SIG_DET_EINT */
+#define WM8996_IM_FLL_SW_CLK_DONE_EINT          0x0008  /* IM_FLL_SW_CLK_DONE_EINT */
+#define WM8996_IM_FLL_SW_CLK_DONE_EINT_MASK     0x0008  /* IM_FLL_SW_CLK_DONE_EINT */
+#define WM8996_IM_FLL_SW_CLK_DONE_EINT_SHIFT         3  /* IM_FLL_SW_CLK_DONE_EINT */
+#define WM8996_IM_FLL_SW_CLK_DONE_EINT_WIDTH         1  /* IM_FLL_SW_CLK_DONE_EINT */
+#define WM8996_IM_FLL_LOCK_EINT                 0x0004  /* IM_FLL_LOCK_EINT */
+#define WM8996_IM_FLL_LOCK_EINT_MASK            0x0004  /* IM_FLL_LOCK_EINT */
+#define WM8996_IM_FLL_LOCK_EINT_SHIFT                2  /* IM_FLL_LOCK_EINT */
+#define WM8996_IM_FLL_LOCK_EINT_WIDTH                1  /* IM_FLL_LOCK_EINT */
+#define WM8996_IM_HP_DONE_EINT                  0x0002  /* IM_HP_DONE_EINT */
+#define WM8996_IM_HP_DONE_EINT_MASK             0x0002  /* IM_HP_DONE_EINT */
+#define WM8996_IM_HP_DONE_EINT_SHIFT                 1  /* IM_HP_DONE_EINT */
+#define WM8996_IM_HP_DONE_EINT_WIDTH                 1  /* IM_HP_DONE_EINT */
+#define WM8996_IM_MICD_EINT                     0x0001  /* IM_MICD_EINT */
+#define WM8996_IM_MICD_EINT_MASK                0x0001  /* IM_MICD_EINT */
+#define WM8996_IM_MICD_EINT_SHIFT                    0  /* IM_MICD_EINT */
+#define WM8996_IM_MICD_EINT_WIDTH                    1  /* IM_MICD_EINT */
+
+/*
+ * R1856 (0x740) - Interrupt Control
+ */
+#define WM8996_IM_IRQ                           0x0001  /* IM_IRQ */
+#define WM8996_IM_IRQ_MASK                      0x0001  /* IM_IRQ */
+#define WM8996_IM_IRQ_SHIFT                          0  /* IM_IRQ */
+#define WM8996_IM_IRQ_WIDTH                          1  /* IM_IRQ */
+
+/*
+ * R2048 (0x800) - Left PDM Speaker
+ */
+#define WM8996_SPKL_ENA                         0x0010  /* SPKL_ENA */
+#define WM8996_SPKL_ENA_MASK                    0x0010  /* SPKL_ENA */
+#define WM8996_SPKL_ENA_SHIFT                        4  /* SPKL_ENA */
+#define WM8996_SPKL_ENA_WIDTH                        1  /* SPKL_ENA */
+#define WM8996_SPKL_MUTE                        0x0008  /* SPKL_MUTE */
+#define WM8996_SPKL_MUTE_MASK                   0x0008  /* SPKL_MUTE */
+#define WM8996_SPKL_MUTE_SHIFT                       3  /* SPKL_MUTE */
+#define WM8996_SPKL_MUTE_WIDTH                       1  /* SPKL_MUTE */
+#define WM8996_SPKL_MUTE_ZC                     0x0004  /* SPKL_MUTE_ZC */
+#define WM8996_SPKL_MUTE_ZC_MASK                0x0004  /* SPKL_MUTE_ZC */
+#define WM8996_SPKL_MUTE_ZC_SHIFT                    2  /* SPKL_MUTE_ZC */
+#define WM8996_SPKL_MUTE_ZC_WIDTH                    1  /* SPKL_MUTE_ZC */
+#define WM8996_SPKL_SRC_MASK                    0x0003  /* SPKL_SRC - [1:0] */
+#define WM8996_SPKL_SRC_SHIFT                        0  /* SPKL_SRC - [1:0] */
+#define WM8996_SPKL_SRC_WIDTH                        2  /* SPKL_SRC - [1:0] */
+
+/*
+ * R2049 (0x801) - Right PDM Speaker
+ */
+#define WM8996_SPKR_ENA                         0x0010  /* SPKR_ENA */
+#define WM8996_SPKR_ENA_MASK                    0x0010  /* SPKR_ENA */
+#define WM8996_SPKR_ENA_SHIFT                        4  /* SPKR_ENA */
+#define WM8996_SPKR_ENA_WIDTH                        1  /* SPKR_ENA */
+#define WM8996_SPKR_MUTE                        0x0008  /* SPKR_MUTE */
+#define WM8996_SPKR_MUTE_MASK                   0x0008  /* SPKR_MUTE */
+#define WM8996_SPKR_MUTE_SHIFT                       3  /* SPKR_MUTE */
+#define WM8996_SPKR_MUTE_WIDTH                       1  /* SPKR_MUTE */
+#define WM8996_SPKR_MUTE_ZC                     0x0004  /* SPKR_MUTE_ZC */
+#define WM8996_SPKR_MUTE_ZC_MASK                0x0004  /* SPKR_MUTE_ZC */
+#define WM8996_SPKR_MUTE_ZC_SHIFT                    2  /* SPKR_MUTE_ZC */
+#define WM8996_SPKR_MUTE_ZC_WIDTH                    1  /* SPKR_MUTE_ZC */
+#define WM8996_SPKR_SRC_MASK                    0x0003  /* SPKR_SRC - [1:0] */
+#define WM8996_SPKR_SRC_SHIFT                        0  /* SPKR_SRC - [1:0] */
+#define WM8996_SPKR_SRC_WIDTH                        2  /* SPKR_SRC - [1:0] */
+
+/*
+ * R2050 (0x802) - PDM Speaker Mute Sequence
+ */
+#define WM8996_SPK_MUTE_ENDIAN                  0x0100  /* SPK_MUTE_ENDIAN */
+#define WM8996_SPK_MUTE_ENDIAN_MASK             0x0100  /* SPK_MUTE_ENDIAN */
+#define WM8996_SPK_MUTE_ENDIAN_SHIFT                 8  /* SPK_MUTE_ENDIAN */
+#define WM8996_SPK_MUTE_ENDIAN_WIDTH                 1  /* SPK_MUTE_ENDIAN */
+#define WM8996_SPK_MUTE_SEQ1_MASK               0x00FF  /* SPK_MUTE_SEQ1 - [7:0] */
+#define WM8996_SPK_MUTE_SEQ1_SHIFT                   0  /* SPK_MUTE_SEQ1 - [7:0] */
+#define WM8996_SPK_MUTE_SEQ1_WIDTH                   8  /* SPK_MUTE_SEQ1 - [7:0] */
+
+/*
+ * R2051 (0x803) - PDM Speaker Volume
+ */
+#define WM8996_SPKR_VOL_MASK                    0x00F0  /* SPKR_VOL - [7:4] */
+#define WM8996_SPKR_VOL_SHIFT                        4  /* SPKR_VOL - [7:4] */
+#define WM8996_SPKR_VOL_WIDTH                        4  /* SPKR_VOL - [7:4] */
+#define WM8996_SPKL_VOL_MASK                    0x000F  /* SPKL_VOL - [3:0] */
+#define WM8996_SPKL_VOL_SHIFT                        0  /* SPKL_VOL - [3:0] */
+#define WM8996_SPKL_VOL_WIDTH                        4  /* SPKL_VOL - [3:0] */
 
 #endif

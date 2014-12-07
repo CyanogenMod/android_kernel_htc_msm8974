@@ -26,7 +26,7 @@ static struct rc_map_table philips[] = {
 	{ 0x08, KEY_NUMERIC_8 },
 	{ 0x09, KEY_NUMERIC_9 },
 	{ 0xF4, KEY_SOUND },
-	{ 0xF3, KEY_SCREEN },	
+	{ 0xF3, KEY_SCREEN },	/* Picture */
 
 	{ 0x10, KEY_VOLUMEUP },
 	{ 0x11, KEY_VOLUMEDOWN },
@@ -41,16 +41,16 @@ static struct rc_map_table philips[] = {
 	{ 0x5a, KEY_LEFT },
 	{ 0x5b, KEY_RIGHT },
 	{ 0xcc, KEY_PAUSE },
-	{ 0x6d, KEY_PVR },	
+	{ 0x6d, KEY_PVR },	/* Demo */
 	{ 0x40, KEY_EXIT },
-	{ 0x6e, KEY_PROG1 },	
-	{ 0x6f, KEY_MODE },	
+	{ 0x6e, KEY_PROG1 },	/* Scenea */
+	{ 0x6f, KEY_MODE },	/* Dual */
 	{ 0x70, KEY_SLEEP },
-	{ 0xf5, KEY_TUNER },	
+	{ 0xf5, KEY_TUNER },	/* Format */
 
 	{ 0x4f, KEY_TV },
-	{ 0x3c, KEY_NEW },	
-	{ 0x38, KEY_COMPOSE },	
+	{ 0x3c, KEY_NEW },	/* USB */
+	{ 0x38, KEY_COMPOSE },	/* Source */
 	{ 0x54, KEY_MENU },
 
 	{ 0x0C, KEY_POWER },

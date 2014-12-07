@@ -22,12 +22,23 @@
 #include <asm/eisa_eeprom.h>
 
 
+/*
+ * Todo:
+ * 
+ * PORT init with MASK attr and other size than byte
+ * MEMORY with other decode than 20 bit
+ * CRC stuff
+ * FREEFORM stuff
+ */
 
 #define EPI 0xc80
 #define NUM_SLOT 16
 #define SLOT2PORT(x) (x<<12)
 
 
+/* macros to handle unaligned accesses and 
+ * byte swapping. The data in the EEPROM is
+ * little-endian on the big-endian PAROSC */
 #define get_8(x) (*(u_int8_t*)(x))
 
 static inline u_int16_t get_16(const unsigned char *x)
@@ -125,6 +136,9 @@ static int configure_irq(const unsigned char *buf)
 		}
 		
 		len+=2; 
+		/* hpux seems to allow for
+		 * two bytes of irq data but only defines one of
+		 * them, I think */
 		if  (!(c & HPEE_IRQ_MORE)) {
 			break;
 		}
@@ -145,7 +159,7 @@ static int configure_dma(const unsigned char *buf)
 	for (i=0;i<HPEE_DMA_MAX_ENT;i++) {
 		c = get_8(buf+len);
 		printk("DMA %d ", c&HPEE_DMA_CHANNEL_MASK);
-		
+		/* fixme: maybe initialize the dma channel withthe timing ? */
 		len+=2;      
 		if (!(c & HPEE_DMA_MORE)) {
 			break;
@@ -192,6 +206,11 @@ static int configure_port(const unsigned char *buf, struct resource *io_parent,
 }
 
 
+/* byte 1 and 2 is the port number to write
+ * and at byte 3 the value to write starts.
+ * I assume that there are and- and or- masks
+ * here when HPEE_PORT_INIT_MASK is set but I have 
+ * not yet encountered this. */
 static int configure_port_init(const unsigned char *buf)
 {
 	int len=0;
@@ -261,6 +280,10 @@ static int configure_choise(const unsigned char *buf, u_int8_t *info)
 {
 	int len;
 	
+	/* theis record contain the value of the functions
+	 * configuration choises and an info byte which 
+	 * describes which other records to expect in this 
+	 * function */
 	len = get_8(buf);
 	*info=get_8(buf+len+1);
 	 
@@ -271,7 +294,7 @@ static int configure_type_string(const unsigned char *buf)
 {
 	int len;
 	
-	
+	/* just skip past the type field */
 	len = get_8(buf);
 	if (len > 80) {
 		printk(KERN_ERR "eisa_enumerator: type info field too long (%d, max is 80)\n", len);
@@ -282,6 +305,10 @@ static int configure_type_string(const unsigned char *buf)
 
 static int configure_function(const unsigned char *buf, int *more) 
 {
+	/* the init field seems to be a two-byte field
+	 * which is non-zero if there are an other function following
+	 * I think it is the length of the function def 
+	 */
 	*more = get_16(buf);
 	
 	return 2;
@@ -324,18 +351,25 @@ static int parse_slot_config(int slot,
 		pos += configure_choise(buf+pos, &flags);
 
 		if (flags & HPEE_FUNCTION_INFO_F_DISABLED) {
-			
+			/* function disabled, skip silently */
 			pos = p0 + function_len;
 			continue;
 		}
 		if (flags & HPEE_FUNCTION_INFO_CFG_FREE_FORM) {
-			
+			/* I have no idea how to handle this */
 			printk("function %d have free-form confgiuration, skipping ",
 				num_func);
 			pos = p0 + function_len;
 			continue;
 		}
 
+		/* the ordering of the sections need
+		 * more investigation.
+		 * Currently I think that memory comaed before IRQ
+		 * I assume the order is LSB to MSB in the 
+		 * info flags 
+		 * eg type, memory, irq, dma, port, HPEE_PORT_init 
+		 */
 
 		if (flags & HPEE_FUNCTION_INFO_HAVE_TYPE) {
 			pos += configure_type_string(buf+pos);
@@ -400,14 +434,17 @@ static int init_slot(int slot, struct eeprom_eisa_slot_info *es)
 	char id_string[8];
 	
 	if (!(es->slot_info&HPEE_SLOT_INFO_NO_READID)) {
-		
+		/* try to read the id of the board in the slot */
 		id = le32_to_cpu(inl(SLOT2PORT(slot)+EPI));
 		
 		if (0xffffffff == id) {
-			
+			/* Maybe we didn't expect a card to be here... */
 			if (es->eisa_slot_id == 0xffffffff)
 				return -1;
 			
+			/* this board is not here or it does not 
+			 * support readid 
+			 */
 			printk(KERN_ERR "EISA slot %d a configured board was not detected (", 
 			       slot);
 			
@@ -430,8 +467,13 @@ static int init_slot(int slot, struct eeprom_eisa_slot_info *es)
 		}
 	}
 	
+	/* now: we need to enable the board if 
+	 * it supports enabling and run through
+	 * the port init sction if present
+	 * and finally record any interrupt polarity
+	 */
 	if (es->slot_features & HPEE_SLOT_FEATURES_ENABLE) {
-		
+		/* enable board */
 		outb(0x01| inb(SLOT2PORT(slot)+EPI+4),
 		     SLOT2PORT(slot)+EPI+4);
 	}

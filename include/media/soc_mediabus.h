@@ -14,6 +14,19 @@
 #include <linux/videodev2.h>
 #include <linux/v4l2-mediabus.h>
 
+/**
+ * enum soc_mbus_packing - data packing types on the media-bus
+ * @SOC_MBUS_PACKING_NONE:	no packing, bit-for-bit transfer to RAM, one
+ *				sample represents one pixel
+ * @SOC_MBUS_PACKING_2X8_PADHI:	16 bits transferred in 2 8-bit samples, in the
+ *				possibly incomplete byte high bits are padding
+ * @SOC_MBUS_PACKING_2X8_PADLO:	as above, but low bits are padding
+ * @SOC_MBUS_PACKING_EXTEND16:	sample width (e.g., 10 bits) has to be extended
+ *				to 16 bits
+ * @SOC_MBUS_PACKING_VARIABLE:	compressed formats with variable packing
+ * @SOC_MBUS_PACKING_1_5X8:	used for packed YUV 4:2:0 formats, where 4
+ *				pixels occupy 6 bytes in RAM
+ */
 enum soc_mbus_packing {
 	SOC_MBUS_PACKING_NONE,
 	SOC_MBUS_PACKING_2X8_PADHI,
@@ -23,11 +36,25 @@ enum soc_mbus_packing {
 	SOC_MBUS_PACKING_1_5X8,
 };
 
+/**
+ * enum soc_mbus_order - sample order on the media bus
+ * @SOC_MBUS_ORDER_LE:		least significant sample first
+ * @SOC_MBUS_ORDER_BE:		most significant sample first
+ */
 enum soc_mbus_order {
 	SOC_MBUS_ORDER_LE,
 	SOC_MBUS_ORDER_BE,
 };
 
+/**
+ * struct soc_mbus_pixelfmt - Data format on the media bus
+ * @name:		Name of the format
+ * @fourcc:		Fourcc code, that will be obtained if the data is
+ *			stored in memory in the following way:
+ * @packing:		Type of sample-packing, that has to be used
+ * @order:		Sample order when storing in memory
+ * @bits_per_sample:	How many bits the bridge has to sample
+ */
 struct soc_mbus_pixelfmt {
 	const char		*name;
 	u32			fourcc;
@@ -36,6 +63,11 @@ struct soc_mbus_pixelfmt {
 	u8			bits_per_sample;
 };
 
+/**
+ * struct soc_mbus_lookup - Lookup FOURCC IDs by mediabus codes for pass-through
+ * @code:	mediabus pixel-code
+ * @fmt:	pixel format description
+ */
 struct soc_mbus_lookup {
 	enum v4l2_mbus_pixelcode	code;
 	struct soc_mbus_pixelfmt	fmt;

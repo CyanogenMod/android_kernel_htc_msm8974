@@ -42,7 +42,7 @@
 #define INTEN		(0x01 << 29)
 
 #define TICKS_PER_SEC	100
-#define PRESCALE	0x63 
+#define PRESCALE	0x63 /* Divider = prescale + 1 */
 
 #define	TDR_SHIFT	24
 
@@ -98,12 +98,13 @@ static struct clock_event_device nuc900_clockevent_device = {
 	.rating		= 300,
 };
 
+/*IRQ handler for the timer*/
 
 static irqreturn_t nuc900_timer0_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = &nuc900_clockevent_device;
 
-	__raw_writel(0x01, REG_TISR); 
+	__raw_writel(0x01, REG_TISR); /* clear TIF0 */
 
 	evt->event_handler(evt);
 	return IRQ_HANDLED;

@@ -53,4 +53,4 @@
 #define cpu_has_mips64r1	0
 #define cpu_has_mips64r2	0
 
-#endif 
+#endif /* __ASM_COBALT_CPU_FEATURE_OVERRIDES_H */

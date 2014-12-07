@@ -39,6 +39,12 @@ probe_likely_condition(struct ftrace_branch_data *f, int val, int expect)
 	int cpu, pc;
 	const char *p;
 
+	/*
+	 * I would love to save just the ftrace_likely_data pointer, but
+	 * this code can also be used by modules. Ugly things can happen
+	 * if the module is unloaded, and then we go and read the
+	 * pointer.  This is slower, but much safer.
+	 */
 
 	if (unlikely(!tr))
 		return;
@@ -57,7 +63,7 @@ probe_likely_condition(struct ftrace_branch_data *f, int val, int expect)
 
 	entry	= ring_buffer_event_data(event);
 
-	
+	/* Strip off the path, only save the file */
 	p = f->file + strlen(f->file);
 	while (p >= f->file && *p != '/')
 		p--;
@@ -91,6 +97,10 @@ int enable_branch_tracing(struct trace_array *tr)
 {
 	mutex_lock(&branch_tracing_mutex);
 	branch_tracer = tr;
+	/*
+	 * Must be seen before enabling. The reader is a condition
+	 * where we do not need a matching rmb()
+	 */
 	smp_wmb();
 	branch_tracing_enabled++;
 	mutex_unlock(&branch_tracing_mutex);
@@ -173,7 +183,7 @@ static struct tracer branch_trace __read_mostly =
 	.reset		= branch_trace_reset,
 #ifdef CONFIG_FTRACE_SELFTEST
 	.selftest	= trace_selftest_startup_branch,
-#endif 
+#endif /* CONFIG_FTRACE_SELFTEST */
 	.print_header	= branch_print_header,
 };
 
@@ -196,13 +206,19 @@ static inline
 void trace_likely_condition(struct ftrace_branch_data *f, int val, int expect)
 {
 }
-#endif 
+#endif /* CONFIG_BRANCH_TRACER */
 
 void ftrace_likely_update(struct ftrace_branch_data *f, int val, int expect)
 {
+	/*
+	 * I would love to have a trace point here instead, but the
+	 * trace point code is so inundated with unlikely and likely
+	 * conditions that the recursive nightmare that exists is too
+	 * much to try to get working. At least for now.
+	 */
 	trace_likely_condition(f, val, expect);
 
-	
+	/* FIXME: Make this atomic! */
 	if (val == expect)
 		f->correct++;
 	else
@@ -243,12 +259,15 @@ static int branch_stat_show(struct seq_file *m, void *v)
 	const char *f;
 	long percent;
 
-	
+	/* Only print the file, not the path */
 	f = p->file + strlen(p->file);
 	while (f >= p->file && *f != '/')
 		f--;
 	f++;
 
+	/*
+	 * The miss is overlayed on correct, and hit on incorrect.
+	 */
 	percent = get_incorrect_percent(p);
 
 	seq_printf(m, "%8lu %8lu ",  p->correct, p->incorrect);
@@ -298,6 +317,11 @@ static int annotated_branch_stat_cmp(void *p1, void *p2)
 	if (a->incorrect > b->incorrect)
 		return 1;
 
+	/*
+	 * Since the above shows worse (incorrect) cases
+	 * first, we continue that by showing best (correct)
+	 * cases last.
+	 */
 	if (a->correct > b->correct)
 		return -1;
 	if (a->correct < b->correct)
@@ -384,4 +408,4 @@ __init static int all_annotated_branch_stats(void)
 	return 0;
 }
 fs_initcall(all_annotated_branch_stats);
-#endif 
+#endif /* CONFIG_PROFILE_ALL_BRANCHES */

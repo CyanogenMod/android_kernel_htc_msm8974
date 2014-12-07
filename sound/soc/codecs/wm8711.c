@@ -30,11 +30,18 @@
 
 #include "wm8711.h"
 
+/* codec private data */
 struct wm8711_priv {
 	enum snd_soc_control_type bus_type;
 	unsigned int sysclk;
 };
 
+/*
+ * wm8711 register cache
+ * We can't read the WM8711 register space when we are
+ * using 2 wire for device control, so we cache them instead.
+ * There is no point in caching the reset register
+ */
 static const u16 wm8711_reg[WM8711_CACHEREGNUM] = {
 	0x0079, 0x0079, 0x000a, 0x0008,
 	0x009f, 0x000a, 0x0000, 0x0000
@@ -53,6 +60,7 @@ SOC_DOUBLE_R("Master Playback ZC Switch", WM8711_LOUT1V, WM8711_ROUT1V,
 
 };
 
+/* Output Mixer */
 static const struct snd_kcontrol_new wm8711_output_mixer_controls[] = {
 SOC_DAPM_SINGLE("Line Bypass Switch", WM8711_APANA, 3, 1, 0),
 SOC_DAPM_SINGLE("HiFi Playback Switch", WM8711_APANA, 4, 1, 0),
@@ -70,11 +78,11 @@ SND_SOC_DAPM_OUTPUT("RHPOUT"),
 };
 
 static const struct snd_soc_dapm_route wm8711_intercon[] = {
-	
+	/* output mixer */
 	{"Output Mixer", "Line Bypass Switch", "Line Input"},
 	{"Output Mixer", "HiFi Playback Switch", "DAC"},
 
-	
+	/* outputs */
 	{"RHPOUT", NULL, "Output Mixer"},
 	{"ROUT", NULL, "Output Mixer"},
 	{"LHPOUT", NULL, "Output Mixer"},
@@ -90,35 +98,36 @@ struct _coeff_div {
 	u8 usb:1;
 };
 
+/* codec mclk clock divider coefficients */
 static const struct _coeff_div coeff_div[] = {
-	
+	/* 48k */
 	{12288000, 48000, 256, 0x0, 0x0, 0x0},
 	{18432000, 48000, 384, 0x0, 0x1, 0x0},
 	{12000000, 48000, 250, 0x0, 0x0, 0x1},
 
-	
+	/* 32k */
 	{12288000, 32000, 384, 0x6, 0x0, 0x0},
 	{18432000, 32000, 576, 0x6, 0x1, 0x0},
 	{12000000, 32000, 375, 0x6, 0x0, 0x1},
 
-	
+	/* 8k */
 	{12288000, 8000, 1536, 0x3, 0x0, 0x0},
 	{18432000, 8000, 2304, 0x3, 0x1, 0x0},
 	{11289600, 8000, 1408, 0xb, 0x0, 0x0},
 	{16934400, 8000, 2112, 0xb, 0x1, 0x0},
 	{12000000, 8000, 1500, 0x3, 0x0, 0x1},
 
-	
+	/* 96k */
 	{12288000, 96000, 128, 0x7, 0x0, 0x0},
 	{18432000, 96000, 192, 0x7, 0x1, 0x0},
 	{12000000, 96000, 125, 0x7, 0x0, 0x1},
 
-	
+	/* 44.1k */
 	{11289600, 44100, 256, 0x8, 0x0, 0x0},
 	{16934400, 44100, 384, 0x8, 0x1, 0x0},
 	{12000000, 44100, 272, 0x8, 0x1, 0x1},
 
-	
+	/* 88.2k */
 	{11289600, 88200, 128, 0xf, 0x0, 0x0},
 	{16934400, 88200, 192, 0xf, 0x1, 0x0},
 	{12000000, 88200, 136, 0xf, 0x1, 0x1},
@@ -148,7 +157,7 @@ static int wm8711_hw_params(struct snd_pcm_substream *substream,
 
 	snd_soc_write(codec, WM8711_SRATE, srate);
 
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
@@ -169,7 +178,7 @@ static int wm8711_pcm_prepare(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_codec *codec = dai->codec;
 
-	
+	/* set active */
 	snd_soc_write(codec, WM8711_ACTIVE, 0x0001);
 
 	return 0;
@@ -180,7 +189,7 @@ static void wm8711_shutdown(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_codec *codec = dai->codec;
 
-	
+	/* deactivate */
 	if (!codec->active) {
 		udelay(50);
 		snd_soc_write(codec, WM8711_ACTIVE, 0x0);
@@ -224,7 +233,7 @@ static int wm8711_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	struct snd_soc_codec *codec = codec_dai->codec;
 	u16 iface = snd_soc_read(codec, WM8711_IFACE) & 0x000c;
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
 		iface |= 0x0040;
@@ -235,7 +244,7 @@ static int wm8711_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		iface |= 0x0002;
@@ -255,7 +264,7 @@ static int wm8711_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		break;
@@ -272,7 +281,7 @@ static int wm8711_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* set iface */
 	snd_soc_write(codec, WM8711_IFACE, iface);
 	return 0;
 }
@@ -361,7 +370,7 @@ static int wm8711_probe(struct snd_soc_codec *codec)
 
 	wm8711_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* Latch the update bits */
 	snd_soc_update_bits(codec, WM8711_LOUT1V, 0x0100, 0x0100);
 	snd_soc_update_bits(codec, WM8711_ROUT1V, 0x0100, 0x0100);
 
@@ -369,6 +378,7 @@ static int wm8711_probe(struct snd_soc_codec *codec)
 
 }
 
+/* power down chip */
 static int wm8711_remove(struct snd_soc_codec *codec)
 {
 	wm8711_set_bias_level(codec, SND_SOC_BIAS_OFF);
@@ -434,7 +444,7 @@ static struct spi_driver wm8711_spi_driver = {
 	.probe		= wm8711_spi_probe,
 	.remove		= __devexit_p(wm8711_spi_remove),
 };
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 static __devinit int wm8711_i2c_probe(struct i2c_client *client,

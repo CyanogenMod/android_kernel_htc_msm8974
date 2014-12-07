@@ -1,3 +1,13 @@
+/*
+ *  ebt_ip6
+ *
+ *	Authors:
+ * Kuo-Lang Tseng <kuo-lang.tseng@intel.com>
+ * Manohar Castelino <manohar.r.castelino@intel.com>
+ *
+ *  Jan 11, 2008
+ *
+ */
 
 #ifndef __LINUX_BRIDGE_EBT_IP6_H
 #define __LINUX_BRIDGE_EBT_IP6_H
@@ -17,6 +27,7 @@
 		      EBT_IP6_ICMP6)
 #define EBT_IP6_MATCH "ip6"
 
+/* the same values are used for the invflags */
 struct ebt_ip6_info {
 	struct in6_addr saddr;
 	struct in6_addr daddr;

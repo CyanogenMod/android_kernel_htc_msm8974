@@ -15,11 +15,11 @@
 #ifndef __MACH_UART_H__
 #define __MACH_UART_H__
 
-#define UART_CR_OFFSET		0x00  
-#define UART_SR_OFFSET		0x2C  
-#define UART_FIFO_OFFSET	0x30  
+#define UART_CR_OFFSET		0x00  /* Control Register [8:0] */
+#define UART_SR_OFFSET		0x2C  /* Channel Status [11:0] */
+#define UART_FIFO_OFFSET	0x30  /* FIFO [15:0] or [7:0] */
 
-#define UART_SR_TXFULL		0x00000010	
-#define UART_SR_TXEMPTY		0x00000008	
+#define UART_SR_TXFULL		0x00000010	/* TX FIFO full */
+#define UART_SR_TXEMPTY		0x00000008	/* TX FIFO empty */
 
 #endif

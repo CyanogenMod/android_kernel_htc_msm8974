@@ -47,7 +47,7 @@ int hfsplus_block_allocate(struct super_block *sb, u32 size,
 	else
 		end = pptr + ((size + 31) & (PAGE_CACHE_BITS - 1)) / 32;
 
-	
+	/* scan the first partial u32 for zero bits */
 	val = *curr;
 	if (~val) {
 		n = be32_to_cpu(val);
@@ -59,7 +59,7 @@ int hfsplus_block_allocate(struct super_block *sb, u32 size,
 	}
 	curr++;
 
-	
+	/* scan complete u32s for the first zero bit */
 	while (1) {
 		while (curr < end) {
 			val = *curr;
@@ -99,7 +99,7 @@ found:
 		dprint(DBG_BITMAP, "bitmap full\n");
 		goto out;
 	}
-	
+	/* do any partial u32 at the start */
 	len = min(size - start, len);
 	while (1) {
 		n |= mask;
@@ -112,7 +112,7 @@ found:
 	if (!--len)
 		goto done;
 	*curr++ = cpu_to_be32(n);
-	
+	/* do full u32s */
 	while (1) {
 		while (curr < end) {
 			n = be32_to_cpu(*curr);
@@ -139,7 +139,7 @@ found:
 		end = pptr + PAGE_CACHE_BITS / 32;
 	}
 last:
-	
+	/* do any partial u32 at end */
 	mask = 1U << 31;
 	for (i = 0; i < len; i++) {
 		if (n & mask)
@@ -169,12 +169,12 @@ int hfsplus_block_free(struct super_block *sb, u32 offset, u32 count)
 	u32 mask, len, pnr;
 	int i;
 
-	
+	/* is there any actual work to be done? */
 	if (!count)
 		return 0;
 
 	dprint(DBG_BITMAP, "block_free: %u,%u\n", offset, count);
-	
+	/* are all of the bits in range? */
 	if ((offset + count) > sbi->total_blocks)
 		return -2;
 
@@ -187,7 +187,7 @@ int hfsplus_block_free(struct super_block *sb, u32 offset, u32 count)
 	end = pptr + PAGE_CACHE_BITS / 32;
 	len = count;
 
-	
+	/* do any partial u32 at the start */
 	i = offset % 32;
 	if (i) {
 		int j = 32 - i;
@@ -201,7 +201,7 @@ int hfsplus_block_free(struct super_block *sb, u32 offset, u32 count)
 		count -= j;
 	}
 
-	
+	/* do full u32s */
 	while (1) {
 		while (curr < end) {
 			if (count < 32)
@@ -219,7 +219,7 @@ int hfsplus_block_free(struct super_block *sb, u32 offset, u32 count)
 		end = pptr + PAGE_CACHE_BITS / 32;
 	}
 done:
-	
+	/* do any partial u32 at end */
 	if (count) {
 		mask = 0xffffffffU >> count;
 		*curr &= cpu_to_be32(mask);

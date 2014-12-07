@@ -37,25 +37,27 @@ enum {
 #define TOPAZ_ASR_TOGGLE	0x40
 #define TOPAZ_ASR_DISABLE	0x80
 
+/* PEARL ASR S/W REGISTER SUPERIO PORT ADDRESSES */
 #define PEARL_BASE	0xe04
 #define PEARL_WRITE	0xe06
 #define PEARL_READ	0xe07
 
-#define PEARL_ASR_DISABLE_MASK	0x80	
-#define PEARL_ASR_TOGGLE_MASK	0x40	
+#define PEARL_ASR_DISABLE_MASK	0x80	/* bit 7: disable = 1, enable = 0 */
+#define PEARL_ASR_TOGGLE_MASK	0x40	/* bit 6: 0, then 1, then 0 */
 
+/* JASPER OFFSET FROM SIO BASE ADDR TO ASR S/W REGISTERS. */
 #define JASPER_ASR_REG_OFFSET	0x38
 
-#define JASPER_ASR_DISABLE_MASK	0x01	
-#define JASPER_ASR_TOGGLE_MASK	0x02	
+#define JASPER_ASR_DISABLE_MASK	0x01	/* bit 0: disable = 1, enable = 0 */
+#define JASPER_ASR_TOGGLE_MASK	0x02	/* bit 1: 0, then 1, then 0 */
 
-#define JUNIPER_BASE_ADDRESS	0x54b	
-#define JUNIPER_ASR_DISABLE_MASK 0x01	
-#define JUNIPER_ASR_TOGGLE_MASK	0x02	
+#define JUNIPER_BASE_ADDRESS	0x54b	/* Base address of Juniper ASR */
+#define JUNIPER_ASR_DISABLE_MASK 0x01	/* bit 0: disable = 1 enable = 0 */
+#define JUNIPER_ASR_TOGGLE_MASK	0x02	/* bit 1: 0, then 1, then 0 */
 
-#define SPRUCE_BASE_ADDRESS	0x118e	
-#define SPRUCE_ASR_DISABLE_MASK	0x01	
-#define SPRUCE_ASR_TOGGLE_MASK	0x02	
+#define SPRUCE_BASE_ADDRESS	0x118e	/* Base address of Spruce ASR */
+#define SPRUCE_ASR_DISABLE_MASK	0x01	/* bit 1: disable = 1 enable = 0 */
+#define SPRUCE_ASR_TOGGLE_MASK	0x02	/* bit 0: 0, then 1, then 0 */
 
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
@@ -97,11 +99,15 @@ static void asr_enable(void)
 
 	spin_lock(&asr_lock);
 	if (asr_type == ASMTYPE_TOPAZ) {
-		
+		/* asr_write_addr == asr_read_addr */
 		reg = inb(asr_read_addr);
 		outb(reg & ~(TOPAZ_ASR_TOGGLE | TOPAZ_ASR_DISABLE),
 		     asr_read_addr);
 	} else {
+		/*
+		 * First make sure the hardware timer is reset by toggling
+		 * ASR hardware timer line.
+		 */
 		__asr_toggle();
 
 		reg = inb(asr_read_addr);
@@ -119,7 +125,7 @@ static void asr_disable(void)
 	reg = inb(asr_read_addr);
 
 	if (asr_type == ASMTYPE_TOPAZ)
-		
+		/* asr_write_addr == asr_read_addr */
 		outb(reg | TOPAZ_ASR_TOGGLE | TOPAZ_ASR_DISABLE,
 		     asr_read_addr);
 	else {
@@ -141,14 +147,16 @@ static int __init asr_get_base_address(void)
 
 	switch (asr_type) {
 	case ASMTYPE_TOPAZ:
+		/* SELECT SuperIO CHIP FOR QUERYING
+		   (WRITE 0x07 TO BOTH 0x2E and 0x2F) */
 		outb(0x07, 0x2e);
 		outb(0x07, 0x2f);
 
-		
+		/* SELECT AND READ THE HIGH-NIBBLE OF THE GPIO BASE ADDRESS */
 		outb(0x60, 0x2e);
 		high = inb(0x2f);
 
-		
+		/* SELECT AND READ THE LOW-NIBBLE OF THE GPIO BASE ADDRESS */
 		outb(0x61, 0x2e);
 		low = inb(0x2f);
 
@@ -163,7 +171,7 @@ static int __init asr_get_base_address(void)
 		type = "Jaspers ";
 #if 0
 		u32 r;
-		
+		/* Suggested fix */
 		pdev = pci_get_bus_and_slot(0, DEVFN(0x1f, 0));
 		if (pdev == NULL)
 			return -ENODEV;
@@ -171,15 +179,24 @@ static int __init asr_get_base_address(void)
 		asr_base = r & 0xFFFE;
 		pci_dev_put(pdev);
 #else
+		/* FIXME: need to use pci_config_lock here,
+		   but it's not exported */
 
+/*		spin_lock_irqsave(&pci_config_lock, flags);*/
 
-		
+		/* Select the SuperIO chip in the PCI I/O port register */
 		outl(0x8000f858, 0xcf8);
 
-		
+		/* BUS 0, Slot 1F, fnc 0, offset 58 */
 
+		/*
+		 * Read the base address for the SuperIO chip.
+		 * Only the lower 16 bits are valid, but the address is word
+		 * aligned so the last bit must be masked off.
+		 */
 		asr_base = inl(0xcfc) & 0xfffe;
 
+/*		spin_unlock_irqrestore(&pci_config_lock, flags);*/
 #endif
 		asr_read_addr = asr_write_addr =
 			asr_base + JASPER_ASR_REG_OFFSET;
@@ -234,7 +251,7 @@ static ssize_t asr_write(struct file *file, const char __user *buf,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			asr_expect_close = 0;
 
 			for (i = 0; i != count; i++) {
@@ -286,6 +303,10 @@ static long asr_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case WDIOC_KEEPALIVE:
 		asr_toggle();
 		return 0;
+	/*
+	 * The hardware has a fixed timeout value, so no WDIOC_SETTIMEOUT
+	 * and WDIOC_GETTIMEOUT always returns 256.
+	 */
 	case WDIOC_GETTIMEOUT:
 		heartbeat = 256;
 		return put_user(heartbeat, p);

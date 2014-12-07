@@ -22,8 +22,11 @@ struct msm_ipc_addr {
 	} addr;
 };
 
-#define MSM_IPC_WAIT_FOREVER	(~0)  
+#define MSM_IPC_WAIT_FOREVER	(~0)  /* timeout for permanent subscription */
 
+/*
+ * Socket API
+ */
 
 #ifndef AF_MSM_IPC
 #define AF_MSM_IPC		27

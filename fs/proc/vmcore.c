@@ -22,15 +22,24 @@
 #include <asm/uaccess.h>
 #include <asm/io.h>
 
+/* List representing chunks of contiguous memory areas and their offsets in
+ * vmcore file.
+ */
 static LIST_HEAD(vmcore_list);
 
+/* Stores the pointer to the buffer containing kernel elf core headers. */
 static char *elfcorebuf;
 static size_t elfcorebuf_sz;
 
+/* Total size of vmcore file. */
 static u64 vmcore_size;
 
 static struct proc_dir_entry *proc_vmcore = NULL;
 
+/*
+ * Returns > 0 for RAM pages, 0 for non-RAM pages, < 0 on error
+ * The called function has to take care of module refcounting.
+ */
 static int (*oldmem_pfn_is_ram)(unsigned long pfn);
 
 int register_oldmem_pfn_is_ram(int (*fn)(unsigned long pfn))
@@ -52,9 +61,14 @@ EXPORT_SYMBOL_GPL(unregister_oldmem_pfn_is_ram);
 static int pfn_is_ram(unsigned long pfn)
 {
 	int (*fn)(unsigned long pfn);
-	
+	/* pfn is ram unless fn() checks pagetype */
 	int ret = 1;
 
+	/*
+	 * Ask hypervisor if the pfn is really ram.
+	 * A ballooned page contains no data and reading from such a page
+	 * will cause high load in the hypervisor.
+	 */
 	fn = oldmem_pfn_is_ram;
 	if (fn)
 		ret = fn(pfn);
@@ -62,6 +76,7 @@ static int pfn_is_ram(unsigned long pfn)
 	return ret;
 }
 
+/* Reads a page from the oldmem device from given offset. */
 static ssize_t read_from_oldmem(char *buf, size_t count,
 				u64 *ppos, int userbuf)
 {
@@ -81,7 +96,7 @@ static ssize_t read_from_oldmem(char *buf, size_t count,
 		else
 			nr_bytes = count;
 
-		
+		/* If pfn is not ram, return zeros for sparse dump files */
 		if (pfn_is_ram(pfn) == 0)
 			memset(buf, 0, nr_bytes);
 		else {
@@ -101,6 +116,7 @@ static ssize_t read_from_oldmem(char *buf, size_t count,
 	return read;
 }
 
+/* Maps vmcore file offset to respective physical address in memroy. */
 static u64 map_offset_to_paddr(loff_t offset, struct list_head *vc_list,
 					struct vmcore **m_ptr)
 {
@@ -121,6 +137,9 @@ static u64 map_offset_to_paddr(loff_t offset, struct list_head *vc_list,
 	return 0;
 }
 
+/* Read from the ELF header and then the crash dump. On error, negative value is
+ * returned otherwise number of bytes read are returned.
+ */
 static ssize_t read_vmcore(struct file *file, char __user *buffer,
 				size_t buflen, loff_t *fpos)
 {
@@ -132,11 +151,11 @@ static ssize_t read_vmcore(struct file *file, char __user *buffer,
 	if (buflen == 0 || *fpos >= vmcore_size)
 		return 0;
 
-	
+	/* trim buflen to not go beyond EOF */
 	if (buflen > vmcore_size - *fpos)
 		buflen = vmcore_size - *fpos;
 
-	
+	/* Read ELF core header */
 	if (*fpos < elfcorebuf_sz) {
 		tsz = elfcorebuf_sz - *fpos;
 		if (buflen < tsz)
@@ -148,7 +167,7 @@ static ssize_t read_vmcore(struct file *file, char __user *buffer,
 		buffer += tsz;
 		acc += tsz;
 
-		
+		/* leave now if filled buffer already */
 		if (buflen == 0)
 			return acc;
 	}
@@ -159,7 +178,7 @@ static ssize_t read_vmcore(struct file *file, char __user *buffer,
 	if ((tsz = (PAGE_SIZE - (start & ~PAGE_MASK))) > buflen)
 		tsz = buflen;
 
-	
+	/* Calculate left bytes in current memory segment. */
 	nr_bytes = (curr_m->size - (start - curr_m->paddr));
 	if (tsz > nr_bytes)
 		tsz = nr_bytes;
@@ -174,14 +193,14 @@ static ssize_t read_vmcore(struct file *file, char __user *buffer,
 		acc += tsz;
 		if (start >= (curr_m->paddr + curr_m->size)) {
 			if (curr_m->list.next == &vmcore_list)
-				return acc;	
+				return acc;	/*EOF*/
 			curr_m = list_entry(curr_m->list.next,
 						struct vmcore, list);
 			start = curr_m->paddr;
 		}
 		if ((tsz = (PAGE_SIZE - (start & ~PAGE_MASK))) > buflen)
 			tsz = buflen;
-		
+		/* Calculate left bytes in current memory segment. */
 		nr_bytes = (curr_m->size - (start - curr_m->paddr));
 		if (tsz > nr_bytes)
 			tsz = nr_bytes;
@@ -233,6 +252,7 @@ static u64 __init get_vmcore_size_elf32(char *elfptr)
 	return size;
 }
 
+/* Merges all the PT_NOTE headers into one. */
 static int __init merge_note_headers_elf64(char *elfptr, size_t *elfsz,
 						struct list_head *vc_list)
 {
@@ -274,7 +294,7 @@ static int __init merge_note_headers_elf64(char *elfptr, size_t *elfsz,
 			nhdr_ptr = (Elf64_Nhdr*)((char*)nhdr_ptr + sz);
 		}
 
-		
+		/* Add this contiguous chunk of notes section to vmcore list.*/
 		new = get_new_element();
 		if (!new) {
 			kfree(notes_section);
@@ -287,7 +307,7 @@ static int __init merge_note_headers_elf64(char *elfptr, size_t *elfsz,
 		kfree(notes_section);
 	}
 
-	
+	/* Prepare merged PT_NOTE program header. */
 	phdr.p_type    = PT_NOTE;
 	phdr.p_flags   = 0;
 	note_off = sizeof(Elf64_Ehdr) +
@@ -297,22 +317,23 @@ static int __init merge_note_headers_elf64(char *elfptr, size_t *elfsz,
 	phdr.p_filesz  = phdr.p_memsz = phdr_sz;
 	phdr.p_align   = 0;
 
-	
+	/* Add merged PT_NOTE program header*/
 	tmp = elfptr + sizeof(Elf64_Ehdr);
 	memcpy(tmp, &phdr, sizeof(phdr));
 	tmp += sizeof(phdr);
 
-	
+	/* Remove unwanted PT_NOTE program headers. */
 	i = (nr_ptnote - 1) * sizeof(Elf64_Phdr);
 	*elfsz = *elfsz - i;
 	memmove(tmp, tmp+i, ((*elfsz)-sizeof(Elf64_Ehdr)-sizeof(Elf64_Phdr)));
 
-	
+	/* Modify e_phnum to reflect merged headers. */
 	ehdr_ptr->e_phnum = ehdr_ptr->e_phnum - nr_ptnote + 1;
 
 	return 0;
 }
 
+/* Merges all the PT_NOTE headers into one. */
 static int __init merge_note_headers_elf32(char *elfptr, size_t *elfsz,
 						struct list_head *vc_list)
 {
@@ -354,7 +375,7 @@ static int __init merge_note_headers_elf32(char *elfptr, size_t *elfsz,
 			nhdr_ptr = (Elf32_Nhdr*)((char*)nhdr_ptr + sz);
 		}
 
-		
+		/* Add this contiguous chunk of notes section to vmcore list.*/
 		new = get_new_element();
 		if (!new) {
 			kfree(notes_section);
@@ -367,7 +388,7 @@ static int __init merge_note_headers_elf32(char *elfptr, size_t *elfsz,
 		kfree(notes_section);
 	}
 
-	
+	/* Prepare merged PT_NOTE program header. */
 	phdr.p_type    = PT_NOTE;
 	phdr.p_flags   = 0;
 	note_off = sizeof(Elf32_Ehdr) +
@@ -377,22 +398,24 @@ static int __init merge_note_headers_elf32(char *elfptr, size_t *elfsz,
 	phdr.p_filesz  = phdr.p_memsz = phdr_sz;
 	phdr.p_align   = 0;
 
-	
+	/* Add merged PT_NOTE program header*/
 	tmp = elfptr + sizeof(Elf32_Ehdr);
 	memcpy(tmp, &phdr, sizeof(phdr));
 	tmp += sizeof(phdr);
 
-	
+	/* Remove unwanted PT_NOTE program headers. */
 	i = (nr_ptnote - 1) * sizeof(Elf32_Phdr);
 	*elfsz = *elfsz - i;
 	memmove(tmp, tmp+i, ((*elfsz)-sizeof(Elf32_Ehdr)-sizeof(Elf32_Phdr)));
 
-	
+	/* Modify e_phnum to reflect merged headers. */
 	ehdr_ptr->e_phnum = ehdr_ptr->e_phnum - nr_ptnote + 1;
 
 	return 0;
 }
 
+/* Add memory chunks represented by program headers to vmcore list. Also update
+ * the new offset fields of exported program headers. */
 static int __init process_ptload_program_headers_elf64(char *elfptr,
 						size_t elfsz,
 						struct list_head *vc_list)
@@ -404,18 +427,18 @@ static int __init process_ptload_program_headers_elf64(char *elfptr,
 	struct vmcore *new;
 
 	ehdr_ptr = (Elf64_Ehdr *)elfptr;
-	phdr_ptr = (Elf64_Phdr*)(elfptr + sizeof(Elf64_Ehdr)); 
+	phdr_ptr = (Elf64_Phdr*)(elfptr + sizeof(Elf64_Ehdr)); /* PT_NOTE hdr */
 
-	
+	/* First program header is PT_NOTE header. */
 	vmcore_off = sizeof(Elf64_Ehdr) +
 			(ehdr_ptr->e_phnum) * sizeof(Elf64_Phdr) +
-			phdr_ptr->p_memsz; 
+			phdr_ptr->p_memsz; /* Note sections */
 
 	for (i = 0; i < ehdr_ptr->e_phnum; i++, phdr_ptr++) {
 		if (phdr_ptr->p_type != PT_LOAD)
 			continue;
 
-		
+		/* Add this contiguous chunk of memory to vmcore list.*/
 		new = get_new_element();
 		if (!new)
 			return -ENOMEM;
@@ -423,7 +446,7 @@ static int __init process_ptload_program_headers_elf64(char *elfptr,
 		new->size = phdr_ptr->p_memsz;
 		list_add_tail(&new->list, vc_list);
 
-		
+		/* Update the program header offset. */
 		phdr_ptr->p_offset = vmcore_off;
 		vmcore_off = vmcore_off + phdr_ptr->p_memsz;
 	}
@@ -441,18 +464,18 @@ static int __init process_ptload_program_headers_elf32(char *elfptr,
 	struct vmcore *new;
 
 	ehdr_ptr = (Elf32_Ehdr *)elfptr;
-	phdr_ptr = (Elf32_Phdr*)(elfptr + sizeof(Elf32_Ehdr)); 
+	phdr_ptr = (Elf32_Phdr*)(elfptr + sizeof(Elf32_Ehdr)); /* PT_NOTE hdr */
 
-	
+	/* First program header is PT_NOTE header. */
 	vmcore_off = sizeof(Elf32_Ehdr) +
 			(ehdr_ptr->e_phnum) * sizeof(Elf32_Phdr) +
-			phdr_ptr->p_memsz; 
+			phdr_ptr->p_memsz; /* Note sections */
 
 	for (i = 0; i < ehdr_ptr->e_phnum; i++, phdr_ptr++) {
 		if (phdr_ptr->p_type != PT_LOAD)
 			continue;
 
-		
+		/* Add this contiguous chunk of memory to vmcore list.*/
 		new = get_new_element();
 		if (!new)
 			return -ENOMEM;
@@ -460,13 +483,14 @@ static int __init process_ptload_program_headers_elf32(char *elfptr,
 		new->size = phdr_ptr->p_memsz;
 		list_add_tail(&new->list, vc_list);
 
-		
+		/* Update the program header offset */
 		phdr_ptr->p_offset = vmcore_off;
 		vmcore_off = vmcore_off + phdr_ptr->p_memsz;
 	}
 	return 0;
 }
 
+/* Sets offset fields of vmcore elements. */
 static void __init set_vmcore_list_offsets_elf64(char *elfptr,
 						struct list_head *vc_list)
 {
@@ -476,7 +500,7 @@ static void __init set_vmcore_list_offsets_elf64(char *elfptr,
 
 	ehdr_ptr = (Elf64_Ehdr *)elfptr;
 
-	
+	/* Skip Elf header and program headers. */
 	vmcore_off = sizeof(Elf64_Ehdr) +
 			(ehdr_ptr->e_phnum) * sizeof(Elf64_Phdr);
 
@@ -486,6 +510,7 @@ static void __init set_vmcore_list_offsets_elf64(char *elfptr,
 	}
 }
 
+/* Sets offset fields of vmcore elements. */
 static void __init set_vmcore_list_offsets_elf32(char *elfptr,
 						struct list_head *vc_list)
 {
@@ -495,7 +520,7 @@ static void __init set_vmcore_list_offsets_elf32(char *elfptr,
 
 	ehdr_ptr = (Elf32_Ehdr *)elfptr;
 
-	
+	/* Skip Elf header and program headers. */
 	vmcore_off = sizeof(Elf32_Ehdr) +
 			(ehdr_ptr->e_phnum) * sizeof(Elf32_Phdr);
 
@@ -513,12 +538,12 @@ static int __init parse_crash_elf64_headers(void)
 
 	addr = elfcorehdr_addr;
 
-	
+	/* Read Elf header */
 	rc = read_from_oldmem((char*)&ehdr, sizeof(Elf64_Ehdr), &addr, 0);
 	if (rc < 0)
 		return rc;
 
-	
+	/* Do some basic Verification. */
 	if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0 ||
 		(ehdr.e_type != ET_CORE) ||
 		!vmcore_elf64_check_arch(&ehdr) ||
@@ -533,7 +558,7 @@ static int __init parse_crash_elf64_headers(void)
 		return -EINVAL;
 	}
 
-	
+	/* Read in all elf headers. */
 	elfcorebuf_sz = sizeof(Elf64_Ehdr) + ehdr.e_phnum * sizeof(Elf64_Phdr);
 	elfcorebuf = kmalloc(elfcorebuf_sz, GFP_KERNEL);
 	if (!elfcorebuf)
@@ -545,7 +570,7 @@ static int __init parse_crash_elf64_headers(void)
 		return rc;
 	}
 
-	
+	/* Merge all PT_NOTE headers into one. */
 	rc = merge_note_headers_elf64(elfcorebuf, &elfcorebuf_sz, &vmcore_list);
 	if (rc) {
 		kfree(elfcorebuf);
@@ -569,12 +594,12 @@ static int __init parse_crash_elf32_headers(void)
 
 	addr = elfcorehdr_addr;
 
-	
+	/* Read Elf header */
 	rc = read_from_oldmem((char*)&ehdr, sizeof(Elf32_Ehdr), &addr, 0);
 	if (rc < 0)
 		return rc;
 
-	
+	/* Do some basic Verification. */
 	if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0 ||
 		(ehdr.e_type != ET_CORE) ||
 		!elf_check_arch(&ehdr) ||
@@ -589,7 +614,7 @@ static int __init parse_crash_elf32_headers(void)
 		return -EINVAL;
 	}
 
-	
+	/* Read in all elf headers. */
 	elfcorebuf_sz = sizeof(Elf32_Ehdr) + ehdr.e_phnum * sizeof(Elf32_Phdr);
 	elfcorebuf = kmalloc(elfcorebuf_sz, GFP_KERNEL);
 	if (!elfcorebuf)
@@ -601,7 +626,7 @@ static int __init parse_crash_elf32_headers(void)
 		return rc;
 	}
 
-	
+	/* Merge all PT_NOTE headers into one. */
 	rc = merge_note_headers_elf32(elfcorebuf, &elfcorebuf_sz, &vmcore_list);
 	if (rc) {
 		kfree(elfcorebuf);
@@ -638,14 +663,14 @@ static int __init parse_crash_elf_headers(void)
 		if (rc)
 			return rc;
 
-		
+		/* Determine vmcore size. */
 		vmcore_size = get_vmcore_size_elf64(elfcorebuf);
 	} else if (e_ident[EI_CLASS] == ELFCLASS32) {
 		rc = parse_crash_elf32_headers();
 		if (rc)
 			return rc;
 
-		
+		/* Determine vmcore size. */
 		vmcore_size = get_vmcore_size_elf32(elfcorebuf);
 	} else {
 		printk(KERN_WARNING "Warning: Core image elf header is not"
@@ -655,11 +680,12 @@ static int __init parse_crash_elf_headers(void)
 	return 0;
 }
 
+/* Init function for vmcore module. */
 static int __init vmcore_init(void)
 {
 	int rc = 0;
 
-	
+	/* If elfcorehdr= has been passed in cmdline, then capture the dump.*/
 	if (!(is_vmcore_usable()))
 		return rc;
 	rc = parse_crash_elf_headers();
@@ -675,6 +701,7 @@ static int __init vmcore_init(void)
 }
 module_init(vmcore_init)
 
+/* Cleanup function for vmcore module. */
 void vmcore_cleanup(void)
 {
 	struct list_head *pos, *next;
@@ -684,7 +711,7 @@ void vmcore_cleanup(void)
 		proc_vmcore = NULL;
 	}
 
-	
+	/* clear the vmcore list. */
 	list_for_each_safe(pos, next, &vmcore_list) {
 		struct vmcore *m;
 

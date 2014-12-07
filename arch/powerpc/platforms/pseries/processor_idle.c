@@ -1,3 +1,9 @@
+/*
+ *  processor_idle - idle state cpuidle driver.
+ *  Adapted from drivers/idle/intel_idle.c and
+ *  drivers/acpi/processor_idle.c
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -38,6 +44,10 @@ static inline void idle_loop_prolog(unsigned long *in_purr, ktime_t *kt_before)
 
 	*kt_before = ktime_get_real();
 	*in_purr = mfspr(SPRN_PURR);
+	/*
+	 * Indicate to the HV that we are idle. Now would be
+	 * a good time to find other work to dispatch.
+	 */
 	get_lppaca()->idle = 1;
 }
 
@@ -88,6 +98,13 @@ out:
 
 static void check_and_cede_processor(void)
 {
+	/*
+	 * Interrupts are soft-disabled at this point,
+	 * but not hard disabled. So an interrupt might have
+	 * occurred before entering NAP, and would be potentially
+	 * lost (edge events, decrementer events, etc...) unless
+	 * we first hard disable then check.
+	 */
 	hard_irq_disable();
 	if (get_paca()->irq_happened == 0)
 		cede_processor();
@@ -122,6 +139,13 @@ static int shared_cede_loop(struct cpuidle_device *dev,
 
 	idle_loop_prolog(&in_purr, &kt_before);
 
+	/*
+	 * Yield the processor to the hypervisor.  We return if
+	 * an external interrupt occurs (which are driven prior
+	 * to returning here) or if a prod occurs from another
+	 * processor. When returning here, external interrupts
+	 * are enabled.
+	 */
 	check_and_cede_processor();
 
 	dev->last_residency =
@@ -129,15 +153,18 @@ static int shared_cede_loop(struct cpuidle_device *dev,
 	return index;
 }
 
+/*
+ * States for dedicated partition case.
+ */
 static struct cpuidle_state dedicated_states[MAX_IDLE_STATE_COUNT] = {
-	{ 
+	{ /* Snooze */
 		.name = "snooze",
 		.desc = "snooze",
 		.flags = CPUIDLE_FLAG_TIME_VALID,
 		.exit_latency = 0,
 		.target_residency = 0,
 		.enter = &snooze_loop },
-	{ 
+	{ /* CEDE */
 		.name = "CEDE",
 		.desc = "CEDE",
 		.flags = CPUIDLE_FLAG_TIME_VALID,
@@ -146,8 +173,11 @@ static struct cpuidle_state dedicated_states[MAX_IDLE_STATE_COUNT] = {
 		.enter = &dedicated_cede_loop },
 };
 
+/*
+ * States for shared partition case.
+ */
 static struct cpuidle_state shared_states[MAX_IDLE_STATE_COUNT] = {
-	{ 
+	{ /* Shared Cede */
 		.name = "Shared Cede",
 		.desc = "Shared Cede",
 		.flags = CPUIDLE_FLAG_TIME_VALID,
@@ -167,6 +197,9 @@ int pseries_notify_cpuidle_add_cpu(int cpu)
 	return 0;
 }
 
+/*
+ * pseries_cpuidle_driver_init()
+ */
 static int pseries_cpuidle_driver_init(void)
 {
 	int idle_state;
@@ -179,11 +212,11 @@ static int pseries_cpuidle_driver_init(void)
 		if (idle_state > max_idle_state)
 			break;
 
-		
+		/* is the state not enabled? */
 		if (cpuidle_state_table[idle_state].enter == NULL)
 			continue;
 
-		drv->states[drv->state_count] =	
+		drv->states[drv->state_count] =	/* structure copy */
 			cpuidle_state_table[idle_state];
 
 		if (cpuidle_state_table == dedicated_states)
@@ -196,6 +229,9 @@ static int pseries_cpuidle_driver_init(void)
 	return 0;
 }
 
+/* pseries_idle_devices_uninit(void)
+ * unregister cpuidle devices and de-allocate memory
+ */
 static void pseries_idle_devices_uninit(void)
 {
 	int i;
@@ -210,6 +246,9 @@ static void pseries_idle_devices_uninit(void)
 	return;
 }
 
+/* pseries_idle_devices_init()
+ * allocate, initialize and register cpuidle device
+ */
 static int pseries_idle_devices_init(void)
 {
 	int i;
@@ -234,6 +273,10 @@ static int pseries_idle_devices_init(void)
 	return 0;
 }
 
+/*
+ * pseries_idle_probe()
+ * Choose state table for shared versus dedicated partition
+ */
 static int pseries_idle_probe(void)
 {
 

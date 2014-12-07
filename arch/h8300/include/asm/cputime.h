@@ -3,4 +3,4 @@
 
 #include <asm-generic/cputime.h>
 
-#endif 
+#endif /* __H8300_CPUTIME_H */

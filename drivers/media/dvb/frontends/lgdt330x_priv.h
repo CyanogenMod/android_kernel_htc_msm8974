@@ -22,6 +22,7 @@
 #ifndef _LGDT330X_PRIV_
 #define _LGDT330X_PRIV_
 
+/* i2c control register addresses */
 enum I2C_REG {
 	TOP_CONTROL= 0x00,
 	IRQ_MASK= 0x01,
@@ -67,5 +68,10 @@ enum I2C_REG {
 	LGDT3303_PACKET_ERR_COUNTER2= 0x8c,
 };
 
-#endif 
+#endif /* _LGDT330X_PRIV_ */
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

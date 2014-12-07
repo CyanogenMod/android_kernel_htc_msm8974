@@ -36,9 +36,11 @@
 #include "powernv.h"
 #include "pci.h"
 
+/* Delay in usec */
 #define PCI_RESET_DELAY_US	3000000
 
 #define cfg_dbg(fmt...)	do { } while(0)
+//#define cfg_dbg(fmt...)	printk(fmt)
 
 #ifdef CONFIG_PCI_MSI
 static int pnv_msi_check_device(struct pci_dev* pdev, int nvec, int type)
@@ -147,7 +149,7 @@ static void pnv_teardown_msi_irqs(struct pci_dev *pdev)
 		irq_dispose_mapping(entry->irq);
 	}
 }
-#endif 
+#endif /* CONFIG_PCI_MSI */
 
 static void pnv_pci_dump_p7ioc_diag_data(struct pnv_phb *phb)
 {
@@ -240,6 +242,11 @@ static void pnv_pci_handle_eeh_config(struct pnv_phb *phb, u32 pe_no)
 			   " for PE#%d, err %ld\n",
 			   phb->hose->global_number, pe_no, rc);
 
+		/* For now, let's only display the diag buffer when we fail to clear
+		 * the EEH status. We'll do more sensible things later when we have
+		 * proper EEH support. We need to make sure we don't pollute ourselves
+		 * with the normal errors generated when probing empty slots
+		 */
 		if (has_diag)
 			pnv_pci_dump_phb_diag_data(phb);
 		else
@@ -258,10 +265,10 @@ static void pnv_pci_config_check_eeh(struct pnv_phb *phb, struct pci_bus *bus,
 	u16	pcierr;
 	u32	pe_no;
 
-	
+	/* Get PE# if we support IODA */
 	pe_no = phb->bdfn_to_pe ? phb->bdfn_to_pe(phb, bus, bdfn & 0xff) : 0;
 
-	
+	/* Read freeze status */
 	rc = opal_pci_eeh_freeze_status(phb->opal_id, pe_no, &fstate, &pcierr,
 					NULL);
 	if (rc) {
@@ -313,7 +320,7 @@ static int pnv_pci_read_config(struct pci_bus *bus,
 	cfg_dbg("pnv_pci_read_config bus: %x devfn: %x +%x/%x -> %08x\n",
 		bus->number, devfn, where, size, *val);
 
-	
+	/* Check if the PHB got frozen due to an error (no response) */
 	pnv_pci_config_check_eeh(phb, bus, bdfn);
 
 	return PCIBIOS_SUCCESSFUL;
@@ -345,7 +352,7 @@ static int pnv_pci_write_config(struct pci_bus *bus,
 	default:
 		return PCIBIOS_FUNC_NOT_SUPPORTED;
 	}
-	
+	/* Check if the PHB got frozen due to an error (no response) */
 	pnv_pci_config_check_eeh(phb, bus, bdfn);
 
 	return PCIBIOS_SUCCESSFUL;
@@ -367,7 +374,7 @@ static void pnv_tce_invalidate(struct iommu_table *tbl,
 	end = __pa(endp);
 
 
-	
+	/* BML uses this case for p6/p7/galaxy2: Shift addr and put in node */
 	if (tbl->it_busno) {
 		start <<= 12;
 		end <<= 12;
@@ -375,23 +382,26 @@ static void pnv_tce_invalidate(struct iommu_table *tbl,
 		start |= tbl->it_busno;
 		end |= tbl->it_busno;
 	}
-	
+	/* p7ioc-style invalidation, 2 TCEs per write */
 	else if (tbl->it_type & TCE_PCI_SWINV_PAIR) {
 		start |= (1ull << 63);
 		end |= (1ull << 63);
 		inc = 16;
 	}
-	
+	/* Default (older HW) */
 	else
 		inc = 128;
 
-	end |= inc - 1;		
+	end |= inc - 1;		/* round up end to be different than start */
 
-	mb(); 
+	mb(); /* Ensure above stores are visible */
 	while (start <= end) {
 		__raw_writeq(start, invalidate);
 		start += inc;
 	}
+	/* The iommu layer will do another mb() for us on build() and
+	 * we don't care on free()
+	 */
 }
 
 
@@ -403,7 +413,7 @@ static int pnv_tce_build(struct iommu_table *tbl, long index, long npages,
 	u64 *tcep, *tces;
 	u64 rpn;
 
-	proto_tce = TCE_PCI_READ; 
+	proto_tce = TCE_PCI_READ; // Read allowed
 
 	if (direction != DMA_TO_DEVICE)
 		proto_tce |= TCE_PCI_WRITE;
@@ -414,6 +424,10 @@ static int pnv_tce_build(struct iommu_table *tbl, long index, long npages,
 	while (npages--)
 		*(tcep++) = proto_tce | (rpn++ << TCE_RPN_SHIFT);
 
+	/* Some implementations won't cache invalid TCEs and thus may not
+	 * need that flush. We'll probably turn it_type into a bit mask
+	 * of flags if that becomes the case
+	 */
 	if (tbl->it_type & TCE_PCI_SWINV_CREATE)
 		pnv_tce_invalidate(tbl, tces, tcep - 1);
 
@@ -467,7 +481,7 @@ pnv_pci_setup_bml_iommu(struct pci_controller *hose)
 				  be32_to_cpup(sizep), 0);
 	iommu_init_table(tbl, hose->node);
 
-	
+	/* Deal with SW invalidated TCEs when needed (BML way) */
 	swinvp = of_get_property(hose->dn, "linux,tce-sw-invalidate-info",
 				 NULL);
 	if (swinvp) {
@@ -499,12 +513,16 @@ static void __devinit pnv_pci_dma_dev_setup(struct pci_dev *pdev)
 	struct pci_controller *hose = pci_bus_to_host(pdev->bus);
 	struct pnv_phb *phb = hose->private_data;
 
+	/* If we have no phb structure, try to setup a fallback based on
+	 * the device-tree (RTAS PCI for example)
+	 */
 	if (phb && phb->dma_dev_setup)
 		phb->dma_dev_setup(phb, pdev);
 	else
 		pnv_pci_dma_fallback_setup(hose, pdev);
 }
 
+/* Fixup wrong class code in p7ioc root complex */
 static void __devinit pnv_p7ioc_rc_quirk(struct pci_dev *dev)
 {
 	dev->class = PCI_CLASS_BRIDGE_PCI << 8;
@@ -518,6 +536,9 @@ static int pnv_pci_probe_mode(struct pci_bus *bus)
 	u64 now, target;
 
 
+	/* We hijack this as a way to ensure we have waited long
+	 * enough since the reset was lifted on the PCI bus
+	 */
 	if (bus != hose->bus)
 		return PCI_PROBE_NORMAL;
 	tstamp = of_get_property(hose->dn, "reset-clear-timestamp", NULL);
@@ -543,39 +564,43 @@ void __init pnv_pci_init(void)
 
 	pci_add_flags(PCI_CAN_SKIP_ISA_ALIGN);
 
-	
+	/* OPAL absent, try POPAL first then RTAS detection of PHBs */
 	if (!firmware_has_feature(FW_FEATURE_OPAL)) {
 #ifdef CONFIG_PPC_POWERNV_RTAS
 		init_pci_config_tokens();
 		find_and_init_phbs();
-#endif 
+#endif /* CONFIG_PPC_POWERNV_RTAS */
 	}
-	
+	/* OPAL is here, do our normal stuff */
 	else {
 		int found_ioda = 0;
 
+		/* Look for IODA IO-Hubs. We don't support mixing IODA
+		 * and p5ioc2 due to the need to change some global
+		 * probing flags
+		 */
 		for_each_compatible_node(np, NULL, "ibm,ioda-hub") {
 			pnv_pci_init_ioda_hub(np);
 			found_ioda = 1;
 		}
 
-		
+		/* Look for p5ioc2 IO-Hubs */
 		if (!found_ioda)
 			for_each_compatible_node(np, NULL, "ibm,p5ioc2")
 				pnv_pci_init_p5ioc2_hub(np);
 	}
 
-	
+	/* Setup the linkage between OF nodes and PHBs */
 	pci_devs_phb_init();
 
-	
+	/* Configure IOMMU DMA hooks */
 	ppc_md.pci_dma_dev_setup = pnv_pci_dma_dev_setup;
 	ppc_md.tce_build = pnv_tce_build;
 	ppc_md.tce_free = pnv_tce_free;
 	ppc_md.pci_probe_mode = pnv_pci_probe_mode;
 	set_pci_dma_ops(&dma_iommu_ops);
 
-	
+	/* Configure MSIs */
 #ifdef CONFIG_PCI_MSI
 	ppc_md.msi_check_device = pnv_msi_check_device;
 	ppc_md.setup_msi_irqs = pnv_setup_msi_irqs;

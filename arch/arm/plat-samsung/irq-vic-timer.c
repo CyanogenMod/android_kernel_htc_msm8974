@@ -33,6 +33,7 @@ static void s3c_irq_demux_vic_timer(unsigned int irq, struct irq_desc *desc)
 	chained_irq_exit(chip, desc);
 }
 
+/* We assume the IRQ_TIMER0..IRQ_TIMER4 range is continuous. */
 static void s3c_irq_timer_ack(struct irq_data *d)
 {
 	struct irq_chip_generic *gc = irq_data_get_irq_chip_data(d);
@@ -41,6 +42,14 @@ static void s3c_irq_timer_ack(struct irq_data *d)
 	irq_reg_writel(mask | gc->mask_cache, gc->reg_base);
 }
 
+/**
+ * s3c_init_vic_timer_irq() - initialise timer irq chanined off VIC.\
+ * @num: Number of timers to initialize
+ * @timer_irq: Base IRQ number to be used for the timers.
+ *
+ * Register the necessary IRQ chaining and support for the timer IRQs
+ * chained of the VIC.
+ */
 void __init s3c_init_vic_timer_irq(unsigned int num, unsigned int timer_irq)
 {
 	unsigned int pirq[5] = { IRQ_TIMER0_VIC, IRQ_TIMER1_VIC, IRQ_TIMER2_VIC,
@@ -79,7 +88,7 @@ void __init s3c_init_vic_timer_irq(unsigned int num, unsigned int timer_irq)
 	ct->chip.irq_ack = s3c_irq_timer_ack;
 	irq_setup_generic_chip(s3c_tgc, IRQ_MSK(num), IRQ_GC_INIT_MASK_CACHE,
 			       IRQ_NOREQUEST | IRQ_NOPROBE, 0);
-	
+	/* Clear the upper bits of the mask_cache*/
 	s3c_tgc->mask_cache &= 0x1f;
 
 	for (i = 0; i < num; i++, timer_irq++) {

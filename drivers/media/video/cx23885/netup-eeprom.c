@@ -34,7 +34,7 @@ int netup_eeprom_read(struct i2c_adapter *i2c_adap, u8 addr)
 	int ret;
 	unsigned char buf[2];
 
-	
+	/* Read from EEPROM */
 	struct i2c_msg msg[] = {
 		{
 			.addr	= EEPROM_I2C_ADDR,
@@ -68,7 +68,7 @@ int netup_eeprom_write(struct i2c_adapter *i2c_adap, u8 addr, u8 data)
 	int ret;
 	unsigned char bufw[2];
 
-	
+	/* Write into EEPROM */
 	struct i2c_msg msg[] = {
 		{
 			.addr	= EEPROM_I2C_ADDR,
@@ -88,7 +88,7 @@ int netup_eeprom_write(struct i2c_adapter *i2c_adap, u8 addr, u8 data)
 		return -1;
 	}
 
-	mdelay(10); 
+	mdelay(10); /* prophylactic delay, datasheet write cycle time = 5 ms */
 	return 0;
 };
 

@@ -108,12 +108,48 @@ static struct snd_pcm_hardware pcm_hardware_capture = {
 	.fifo_size = 0,
 };
 
+/*
+ * How ping/pong works....
+ *
+ * Playback:
+ * ram_params - copys 2*ping_size from start of SDRAM to iram,
+ * 	links to ram_link2
+ * ram_link2 - copys rest of SDRAM to iram in ping_size units,
+ * 	links to ram_link
+ * ram_link - copys entire SDRAM to iram in ping_size uints,
+ * 	links to self
+ *
+ * asp_params - same as asp_link[0]
+ * asp_link[0] - copys from lower half of iram to asp port
+ * 	links to asp_link[1], triggers iram copy event on completion
+ * asp_link[1] - copys from upper half of iram to asp port
+ * 	links to asp_link[0], triggers iram copy event on completion
+ * 	triggers interrupt only needed to let upper SOC levels update position
+ * 	in stream on completion
+ *
+ * When playback is started:
+ * 	ram_params started
+ * 	asp_params started
+ *
+ * Capture:
+ * ram_params - same as ram_link,
+ * 	links to ram_link
+ * ram_link - same as playback
+ * 	links to self
+ *
+ * asp_params - same as playback
+ * asp_link[0] - same as playback
+ * asp_link[1] - same as playback
+ *
+ * When capture is started:
+ * 	asp_params started
+ */
 struct davinci_runtime_data {
 	spinlock_t lock;
-	int period;		
-	int asp_channel;	
-	int asp_link[2];	
-	struct davinci_pcm_dma_params *params;	
+	int period;		/* current DMA period */
+	int asp_channel;	/* Master DMA channel */
+	int asp_link[2];	/* asp parameter link channel, ping/pong */
+	struct davinci_pcm_dma_params *params;	/* DMA params */
 	int ram_channel;
 	int ram_link;
 	int ram_link2;
@@ -137,6 +173,9 @@ static void davinci_pcm_period_reset(struct snd_pcm_substream *substream)
 
 	prtd->period = 0;
 }
+/*
+ * Not used with ping/pong
+ */
 static void davinci_pcm_enqueue_dma(struct snd_pcm_substream *substream)
 {
 	struct davinci_runtime_data *prtd = substream->runtime->private_data;
@@ -212,7 +251,7 @@ static void davinci_pcm_dma_irq(unsigned link, u16 ch_status, void *data)
 	if (snd_pcm_running(substream)) {
 		spin_lock(&prtd->lock);
 		if (prtd->ram_channel < 0) {
-			
+			/* No ping/pong must fix up link dma data*/
 			davinci_pcm_enqueue_dma(substream);
 		}
 		davinci_pcm_period_elapsed(substream);
@@ -252,6 +291,10 @@ exit1:
 	return -ENOMEM;
 }
 
+/*
+ * Only used with ping/pong.
+ * This is called after runtime->dma_addr, period_bytes and data_type are valid
+ */
 static int ping_pong_dma_setup(struct snd_pcm_substream *substream)
 {
 	unsigned short ram_src_cidx, ram_dst_cidx;
@@ -262,7 +305,7 @@ static int ping_pong_dma_setup(struct snd_pcm_substream *substream)
 	struct davinci_pcm_dma_params *params = prtd->params;
 	unsigned int data_type = params->data_type;
 	unsigned int acnt = params->acnt;
-	
+	/* divide by 2 for ping/pong */
 	unsigned int ping_size = snd_pcm_lib_period_bytes(substream) >> 1;
 	unsigned int fifo_level = prtd->params->fifo_level;
 	unsigned int count;
@@ -315,30 +358,46 @@ static int ping_pong_dma_setup(struct snd_pcm_substream *substream)
 	edma_set_transfer_params(prtd->ram_link, ping_size, 2,
 			runtime->periods, 2, ASYNC);
 
-	
+	/* init master params */
 	edma_read_slot(prtd->asp_link[0], &prtd->asp_params);
 	edma_read_slot(prtd->ram_link, &prtd->ram_params);
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		struct edmacc_param p_ram;
-		
+		/* Copy entire iram buffer before playback started */
 		prtd->ram_params.a_b_cnt = (1 << 16) | (ping_size << 1);
-		
+		/* 0 dst_bidx */
 		prtd->ram_params.src_dst_bidx = (ping_size << 1);
-		
+		/* 0 dst_cidx */
 		prtd->ram_params.src_dst_cidx = (ping_size << 1);
 		prtd->ram_params.ccnt = 1;
 
-		
+		/* Skip 1st period */
 		edma_read_slot(prtd->ram_link, &p_ram);
 		p_ram.src += (ping_size << 1);
 		p_ram.ccnt -= 1;
 		edma_write_slot(prtd->ram_link2, &p_ram);
+		/*
+		 * When 1st started, ram -> iram dma channel will fill the
+		 * entire iram.  Then, whenever a ping/pong asp buffer finishes,
+		 * 1/2 iram will be filled.
+		 */
 		prtd->ram_params.link_bcntrld =
 			EDMA_CHAN_SLOT(prtd->ram_link2) << 5;
 	}
 	return 0;
 }
 
+/* 1 asp tx or rx channel using 2 parameter channels
+ * 1 ram to/from iram channel using 1 parameter channel
+ *
+ * Playback
+ * ram copy channel kicks off first,
+ * 1st ram copy of entire iram buffer completion kicks off asp channel
+ * asp tcc always kicks off ram copy of 1/2 iram buffer
+ *
+ * Record
+ * asp channel starts, tcc kicks off ram copy
+ */
 static int request_ping_pong(struct snd_pcm_substream *substream,
 		struct davinci_runtime_data *prtd,
 		struct snd_dma_buffer *iram_dma)
@@ -348,14 +407,14 @@ static int request_ping_pong(struct snd_pcm_substream *substream,
 	int ret;
 	struct davinci_pcm_dma_params *params = prtd->params;
 
-	
+	/* Request ram master channel */
 	ret = prtd->ram_channel = edma_alloc_channel(EDMA_CHANNEL_ANY,
 				  davinci_pcm_dma_irq, substream,
 				  prtd->params->ram_chan_q);
 	if (ret < 0)
 		goto exit1;
 
-	
+	/* Request ram link channel */
 	ret = prtd->ram_link = edma_alloc_slot(
 			EDMA_CTLR(prtd->ram_channel), EDMA_SLOT_ANY);
 	if (ret < 0)
@@ -373,20 +432,20 @@ static int request_ping_pong(struct snd_pcm_substream *substream,
 		if (ret < 0)
 			goto exit4;
 	}
-	
+	/* circle ping-pong buffers */
 	edma_link(prtd->asp_link[0], prtd->asp_link[1]);
 	edma_link(prtd->asp_link[1], prtd->asp_link[0]);
-	
+	/* circle ram buffers */
 	edma_link(prtd->ram_link, prtd->ram_link);
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		asp_src_ping = iram_dma->addr;
-		asp_dst_ping = params->dma_addr;	
+		asp_dst_ping = params->dma_addr;	/* fifo */
 	} else {
-		asp_src_ping = params->dma_addr;	
+		asp_src_ping = params->dma_addr;	/* fifo */
 		asp_dst_ping = iram_dma->addr;
 	}
-	
+	/* ping */
 	edma_set_src(prtd->asp_link[0], asp_src_ping, INCR, W16BIT);
 	edma_set_dest(prtd->asp_link[0], asp_dst_ping, INCR, W16BIT);
 	edma_set_src_index(prtd->asp_link[0], 0, 0);
@@ -398,7 +457,7 @@ static int request_ping_pong(struct snd_pcm_substream *substream,
 		EDMA_TCC(prtd->ram_channel & 0x3f);
 	edma_write_slot(prtd->asp_link[0], &prtd->asp_params);
 
-	
+	/* pong */
 	edma_set_src(prtd->asp_link[1], asp_src_ping, INCR, W16BIT);
 	edma_set_dest(prtd->asp_link[1], asp_dst_ping, INCR, W16BIT);
 	edma_set_src_index(prtd->asp_link[1], 0, 0);
@@ -406,12 +465,12 @@ static int request_ping_pong(struct snd_pcm_substream *substream,
 
 	edma_read_slot(prtd->asp_link[1], &prtd->asp_params);
 	prtd->asp_params.opt &= ~(TCCMODE | EDMA_TCC(0x3f));
-	
+	/* interrupt after every pong completion */
 	prtd->asp_params.opt |= TCINTEN | TCCHEN |
 		EDMA_TCC(prtd->ram_channel & 0x3f);
 	edma_write_slot(prtd->asp_link[1], &prtd->asp_params);
 
-	
+	/* ram */
 	edma_set_src(prtd->ram_link, iram_dma->addr, INCR, W32BIT);
 	edma_set_dest(prtd->ram_link, iram_dma->addr, INCR, W32BIT);
 	pr_debug("%s: audio dma channels/slots in use for ram:%u %u %u,"
@@ -443,14 +502,14 @@ static int davinci_pcm_dma_request(struct snd_pcm_substream *substream)
 	if (!params)
 		return -ENODEV;
 
-	
+	/* Request asp master DMA channel */
 	ret = prtd->asp_channel = edma_alloc_channel(params->channel,
 			davinci_pcm_dma_irq, substream,
 			prtd->params->asp_chan_q);
 	if (ret < 0)
 		goto exit1;
 
-	
+	/* Request asp link channels */
 	ret = prtd->asp_link[0] = edma_alloc_slot(
 			EDMA_CTLR(prtd->asp_channel), EDMA_SLOT_ANY);
 	if (ret < 0)
@@ -464,6 +523,15 @@ static int davinci_pcm_dma_request(struct snd_pcm_substream *substream)
 				"not using sram\n", __func__);
 	}
 
+	/* Issue transfer completion IRQ when the channel completes a
+	 * transfer, then always reload from the same slot (by a kind
+	 * of loopback link).  The completion IRQ handler will update
+	 * the reload slot with a new buffer.
+	 *
+	 * REVISIT save p_ram here after setting up everything except
+	 * the buffer and its length (ccnt) ... use it as a template
+	 * so davinci_pcm_enqueue_dma() takes less time in IRQ.
+	 */
 	edma_read_slot(prtd->asp_link[0], &prtd->asp_params);
 	prtd->asp_params.opt |= TCINTEN |
 		EDMA_TCC(EDMA_CHAN_SLOT(prtd->asp_channel));
@@ -489,7 +557,7 @@ static int davinci_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		edma_start(prtd->asp_channel);
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
 		    prtd->ram_channel >= 0) {
-			
+			/* copy 1st iram buffer */
 			edma_start(prtd->ram_channel);
 		}
 		break;
@@ -532,6 +600,18 @@ static int davinci_pcm_prepare(struct snd_pcm_substream *substream)
 		print_buf_info(prtd->asp_link[0], "asp_link[0]");
 		print_buf_info(prtd->asp_link[1], "asp_link[1]");
 
+		/*
+		 * There is a phase offset of 2 periods between the position
+		 * used by dma setup and the position reported in the pointer
+		 * function.
+		 *
+		 * The phase offset, when not using ping-pong buffers, is due to
+		 * the two consecutive calls to davinci_pcm_enqueue_dma() below.
+		 *
+		 * Whereas here, with ping-pong buffers, the phase is due to
+		 * there being an entire buffer transfer complete before the
+		 * first dma completion event triggers davinci_pcm_dma_irq().
+		 */
 		davinci_pcm_period_elapsed(substream);
 		davinci_pcm_period_elapsed(substream);
 
@@ -540,7 +620,7 @@ static int davinci_pcm_prepare(struct snd_pcm_substream *substream)
 	davinci_pcm_enqueue_dma(substream);
 	davinci_pcm_period_elapsed(substream);
 
-	
+	/* Copy self-linked parameter RAM entry into master channel */
 	edma_read_slot(prtd->asp_link[0], &prtd->asp_params);
 	edma_write_slot(prtd->asp_channel, &prtd->asp_params);
 	davinci_pcm_enqueue_dma(substream);
@@ -558,6 +638,13 @@ davinci_pcm_pointer(struct snd_pcm_substream *substream)
 	int asp_count;
 	unsigned int period_size = snd_pcm_lib_period_bytes(substream);
 
+	/*
+	 * There is a phase offset of 2 periods between the position used by dma
+	 * setup and the position reported in the pointer function. Either +2 in
+	 * the dma setup or -2 here in the pointer function (with wrapping,
+	 * both) accounts for this offset -- choose the latter since it makes
+	 * the first-time setup clearer.
+	 */
 	spin_lock(&prtd->lock);
 	asp_count = prtd->period - 2;
 	spin_unlock(&prtd->lock);
@@ -592,7 +679,7 @@ static int davinci_pcm_open(struct snd_pcm_substream *substream)
 			&pcm_hardware_playback : &pcm_hardware_capture;
 	allocate_sram(substream, params->sram_size, ppcm);
 	snd_soc_set_runtime_hwparams(substream, ppcm);
-	
+	/* ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(runtime,
 						SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)

@@ -55,6 +55,7 @@ struct ux500_dma_controller {
 	dma_addr_t phy_base;
 };
 
+/* Work function invoked from DMA callback to handle rx transfers. */
 void ux500_dma_callback(void *private_data)
 {
 	struct dma_channel *channel = private_data;
@@ -143,6 +144,10 @@ static struct dma_channel *ux500_dma_channel_allocate(struct dma_controller *c,
 	u8 ch_num = hw_ep->epnum - 1;
 	u32 max_ch;
 
+	/* Max 8 DMA channels (0 - 7). Each DMA channel can only be allocated
+	 * to specified hw_ep. For example DMA channel 0 can only be allocated
+	 * to hw_ep 1 and 9.
+	 */
 	if (ch_num > 7)
 		ch_num -= 8;
 
@@ -155,7 +160,7 @@ static struct dma_channel *ux500_dma_channel_allocate(struct dma_controller *c,
 	ux500_channel = is_tx ? &(controller->tx_channel[ch_num]) :
 				&(controller->rx_channel[ch_num]) ;
 
-	
+	/* Check if channel is already used. */
 	if (ux500_channel->is_allocated)
 		return NULL;
 
@@ -309,7 +314,7 @@ static int ux500_dma_controller_start(struct dma_controller *c)
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_SLAVE, mask);
 
-	
+	/* Prepare the loop for RX channels */
 	channel_array = controller->rx_channel;
 	ch_count = data->num_rx_channels;
 	param_array = data->dma_rx_param_array;
@@ -333,7 +338,7 @@ static int ux500_dma_controller_start(struct dma_controller *c)
 				ERR("Dma pipe allocation error dir=%d ch=%d\n",
 					dir, ch_num);
 
-				
+				/* Release already allocated channels */
 				ux500_dma_controller_stop(c);
 
 				return -EBUSY;
@@ -341,7 +346,7 @@ static int ux500_dma_controller_start(struct dma_controller *c)
 
 		}
 
-		
+		/* Prepare the loop for TX channels */
 		channel_array = controller->tx_channel;
 		ch_count = data->num_tx_channels;
 		param_array = data->dma_tx_param_array;
@@ -372,7 +377,7 @@ dma_controller_create(struct musb *musb, void __iomem *base)
 
 	controller->private_data = musb;
 
-	
+	/* Save physical address for DMA controller. */
 	iomem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	controller->phy_base = (dma_addr_t) iomem->start;
 

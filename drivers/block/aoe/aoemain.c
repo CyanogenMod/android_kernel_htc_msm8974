@@ -1,4 +1,8 @@
 /* Copyright (c) 2007 Coraid, Inc.  See COPYING for GPL terms. */
+/*
+ * aoemain.c
+ * Module initialization routines, discover timer
+ */
 
 #include <linux/hdreg.h>
 #include <linux/blkdev.h>
@@ -20,7 +24,7 @@ discover_timer(ulong vp)
 	static volatile ulong die;
 	static spinlock_t lock;
 	ulong flags;
-	enum { DTIMERTICK = HZ * 60 }; 
+	enum { DTIMERTICK = HZ * 60 }; /* one minute */
 
 	switch (vp) {
 	case TINIT:
@@ -59,7 +63,7 @@ aoe_exit(void)
 	unregister_blkdev(AOE_MAJOR, DEVICE_NAME);
 	aoechr_exit();
 	aoedev_exit();
-	aoeblk_exit();		
+	aoeblk_exit();		/* free cache after de-allocating bufs */
 }
 
 static int __init

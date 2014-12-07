@@ -18,6 +18,14 @@
 #include "device.h"
 #include "cio_debug.h"
 
+/**
+ * lpm_adjust - adjust path mask
+ * @lpm: path mask to adjust
+ * @mask: mask of available paths
+ *
+ * Shift @lpm right until @lpm and @mask have at least one bit in common or
+ * until @lpm is zero. Return the resulting lpm.
+ */
 int lpm_adjust(int lpm, int mask)
 {
 	while (lpm && ((lpm & mask) == 0))
@@ -25,6 +33,10 @@ int lpm_adjust(int lpm, int mask)
 	return lpm;
 }
 
+/*
+ * Adjust path mask to use next path and reset retry count. Return resulting
+ * path mask.
+ */
 static u16 ccwreq_next_path(struct ccw_device *cdev)
 {
 	struct ccw_request *req = &cdev->private->req;
@@ -39,6 +51,9 @@ out:
 	return req->mask;
 }
 
+/*
+ * Clean up device state and report to callback.
+ */
 static void ccwreq_stop(struct ccw_device *cdev, int rc)
 {
 	struct ccw_request *req = &cdev->private->req;
@@ -53,6 +68,9 @@ static void ccwreq_stop(struct ccw_device *cdev, int rc)
 	req->callback(cdev, req->data, rc);
 }
 
+/*
+ * (Re-)Start the operation until retries and paths are exhausted.
+ */
 static void ccwreq_do(struct ccw_device *cdev)
 {
 	struct ccw_request *req = &cdev->private->req;
@@ -62,28 +80,28 @@ static void ccwreq_do(struct ccw_device *cdev)
 
 	while (req->mask) {
 		if (req->retries-- == 0) {
-			
+			/* Retries exhausted, try next path. */
 			ccwreq_next_path(cdev);
 			continue;
 		}
-		
+		/* Perform start function. */
 		memset(&cdev->private->irb, 0, sizeof(struct irb));
 		rc = cio_start(sch, cp, (u8) req->mask);
 		if (rc == 0) {
-			
+			/* I/O started successfully. */
 			ccw_device_set_timeout(cdev, req->timeout);
 			return;
 		}
 		if (rc == -ENODEV) {
-			
+			/* Permanent device error. */
 			break;
 		}
 		if (rc == -EACCES) {
-			
+			/* Permant path error. */
 			ccwreq_next_path(cdev);
 			continue;
 		}
-		
+		/* Temporary improper status. */
 		rc = cio_clear(sch);
 		if (rc)
 			break;
@@ -92,12 +110,18 @@ static void ccwreq_do(struct ccw_device *cdev)
 	ccwreq_stop(cdev, rc);
 }
 
+/**
+ * ccw_request_start - perform I/O request
+ * @cdev: ccw device
+ *
+ * Perform the I/O request specified by cdev->req.
+ */
 void ccw_request_start(struct ccw_device *cdev)
 {
 	struct ccw_request *req = &cdev->private->req;
 
 	if (req->singlepath) {
-		
+		/* Try all paths twice to counter link flapping. */
 		req->mask = 0x8080;
 	} else
 		req->mask = req->lpm;
@@ -116,6 +140,13 @@ out_nopath:
 	ccwreq_stop(cdev, -EACCES);
 }
 
+/**
+ * ccw_request_cancel - cancel running I/O request
+ * @cdev: ccw device
+ *
+ * Cancel the I/O request specified by cdev->req. Return non-zero if request
+ * has already finished, zero otherwise.
+ */
 int ccw_request_cancel(struct ccw_device *cdev)
 {
 	struct subchannel *sch = to_subchannel(cdev->dev.parent);
@@ -131,31 +162,35 @@ int ccw_request_cancel(struct ccw_device *cdev)
 	return 0;
 }
 
+/*
+ * Return the status of the internal I/O started on the specified ccw device.
+ * Perform BASIC SENSE if required.
+ */
 static enum io_status ccwreq_status(struct ccw_device *cdev, struct irb *lcirb)
 {
 	struct irb *irb = &cdev->private->irb;
 	struct cmd_scsw *scsw = &irb->scsw.cmd;
 	enum uc_todo todo;
 
-	
+	/* Perform BASIC SENSE if needed. */
 	if (ccw_device_accumulate_and_sense(cdev, lcirb))
 		return IO_RUNNING;
-	
+	/* Check for halt/clear interrupt. */
 	if (scsw->fctl & (SCSW_FCTL_HALT_FUNC | SCSW_FCTL_CLEAR_FUNC))
 		return IO_KILLED;
-	
+	/* Check for path error. */
 	if (scsw->cc == 3 || scsw->pno)
 		return IO_PATH_ERROR;
-	
+	/* Handle BASIC SENSE data. */
 	if (irb->esw.esw0.erw.cons) {
 		CIO_TRACE_EVENT(2, "sensedata");
 		CIO_HEX_EVENT(2, &cdev->private->dev_id,
 			      sizeof(struct ccw_dev_id));
 		CIO_HEX_EVENT(2, &cdev->private->irb.ecw, SENSE_MAX_COUNT);
-		
+		/* Check for command reject. */
 		if (irb->ecw[0] & SNS0_CMD_REJECT)
 			return IO_REJECTED;
-		
+		/* Ask the driver what to do */
 		if (cdev->drv && cdev->drv->uc_handler) {
 			todo = cdev->drv->uc_handler(cdev, lcirb);
 			CIO_TRACE_EVENT(2, "uc_response");
@@ -171,24 +206,27 @@ static enum io_status ccwreq_status(struct ccw_device *cdev, struct irb *lcirb)
 				return IO_STATUS_ERROR;
 			}
 		}
-		
+		/* Assume that unexpected SENSE data implies an error. */
 		return IO_STATUS_ERROR;
 	}
-	
+	/* Check for channel errors. */
 	if (scsw->cstat != 0)
 		return IO_STATUS_ERROR;
-	
+	/* Check for device errors. */
 	if (scsw->dstat & ~(DEV_STAT_CHN_END | DEV_STAT_DEV_END))
 		return IO_STATUS_ERROR;
-	
+	/* Check for final state. */
 	if (!(scsw->dstat & DEV_STAT_DEV_END))
 		return IO_RUNNING;
-	
+	/* Check for other improper status. */
 	if (scsw->cc == 1 && (scsw->stctl & SCSW_STCTL_ALERT_STATUS))
 		return IO_STATUS_ERROR;
 	return IO_DONE;
 }
 
+/*
+ * Log ccw request status.
+ */
 static void ccwreq_log_status(struct ccw_device *cdev, enum io_status status)
 {
 	struct ccw_request *req = &cdev->private->req;
@@ -206,6 +244,12 @@ static void ccwreq_log_status(struct ccw_device *cdev, enum io_status status)
 	CIO_HEX_EVENT(2, &data, sizeof(data));
 }
 
+/**
+ * ccw_request_handler - interrupt handler for I/O request procedure.
+ * @cdev: ccw device
+ *
+ * Handle interrupt during I/O request procedure.
+ */
 void ccw_request_handler(struct ccw_device *cdev)
 {
 	struct irb *irb = (struct irb *)&S390_lowcore.irb;
@@ -213,7 +257,7 @@ void ccw_request_handler(struct ccw_device *cdev)
 	enum io_status status;
 	int rc = -EOPNOTSUPP;
 
-	
+	/* Check status of I/O request. */
 	status = ccwreq_status(cdev, irb);
 	if (req->filter)
 		status = req->filter(cdev, req->data, irb, status);
@@ -233,14 +277,14 @@ void ccw_request_handler(struct ccw_device *cdev)
 	case IO_STATUS_ERROR:
 		goto out_restart;
 	case IO_KILLED:
-		
+		/* Check if request was cancelled on purpose. */
 		if (req->cancel) {
 			rc = -EIO;
 			goto err;
 		}
 		goto out_restart;
 	}
-	
+	/* Check back with request initiator. */
 	if (!req->check)
 		goto out;
 	switch (req->check(cdev, req->data)) {
@@ -258,13 +302,13 @@ out:
 	return;
 
 out_next_path:
-	
+	/* Try next path and restart I/O. */
 	if (!ccwreq_next_path(cdev)) {
 		rc = -EACCES;
 		goto err;
 	}
 out_restart:
-	
+	/* Restart. */
 	ccwreq_do(cdev);
 	return;
 err:
@@ -272,6 +316,12 @@ err:
 }
 
 
+/**
+ * ccw_request_timeout - timeout handler for I/O request procedure
+ * @cdev: ccw device
+ *
+ * Handle timeout during I/O request procedure.
+ */
 void ccw_request_timeout(struct ccw_device *cdev)
 {
 	struct subchannel *sch = to_subchannel(cdev->dev.parent);
@@ -293,7 +343,7 @@ void ccw_request_timeout(struct ccw_device *cdev)
 	}
 
 	if (!ccwreq_next_path(cdev)) {
-		
+		/* set the final return code for this request */
 		req->drc = -ETIME;
 	}
 	rc = cio_clear(sch);
@@ -305,6 +355,12 @@ err:
 	ccwreq_stop(cdev, rc);
 }
 
+/**
+ * ccw_request_notoper - notoper handler for I/O request procedure
+ * @cdev: ccw device
+ *
+ * Handle notoper during I/O request procedure.
+ */
 void ccw_request_notoper(struct ccw_device *cdev)
 {
 	ccwreq_stop(cdev, -ENODEV);

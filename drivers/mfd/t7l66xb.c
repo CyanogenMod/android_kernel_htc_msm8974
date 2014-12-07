@@ -52,22 +52,23 @@ static const struct resource t7l66xb_mmc_resources[] = {
 	},
 };
 
-#define SCR_REVID	0x08		
-#define SCR_IMR		0x42		
-#define SCR_DEV_CTL	0xe0		
-#define SCR_ISR		0xe1		
-#define SCR_GPO_OC	0xf0		
-#define SCR_GPO_OS	0xf1		
-#define SCR_GPI_S	0xf2		
-#define SCR_APDC	0xf8		
+#define SCR_REVID	0x08		/* b Revision ID	*/
+#define SCR_IMR		0x42		/* b Interrupt Mask	*/
+#define SCR_DEV_CTL	0xe0		/* b Device control	*/
+#define SCR_ISR		0xe1		/* b Interrupt Status	*/
+#define SCR_GPO_OC	0xf0		/* b GPO output control	*/
+#define SCR_GPO_OS	0xf1		/* b GPO output enable	*/
+#define SCR_GPI_S	0xf2		/* w GPI status		*/
+#define SCR_APDC	0xf8		/* b Active pullup down ctrl */
 
-#define SCR_DEV_CTL_USB		BIT(0)	
-#define SCR_DEV_CTL_MMC		BIT(1)	
+#define SCR_DEV_CTL_USB		BIT(0)	/* USB enable		*/
+#define SCR_DEV_CTL_MMC		BIT(1)	/* MMC enable		*/
 
+/*--------------------------------------------------------------------------*/
 
 struct t7l66xb {
 	void __iomem		*scr;
-	
+	/* Lock to protect registers requiring read/modify/write ops. */
 	spinlock_t		lock;
 
 	struct resource		rscr;
@@ -77,6 +78,7 @@ struct t7l66xb {
 	int			irq_base;
 };
 
+/*--------------------------------------------------------------------------*/
 
 static int t7l66xb_mmc_enable(struct platform_device *mmc)
 {
@@ -137,6 +139,7 @@ static void t7l66xb_mmc_clk_div(struct platform_device *mmc, int state)
 	tmio_core_mmc_clk_div(t7l66xb->scr + 0x200, 0, state);
 }
 
+/*--------------------------------------------------------------------------*/
 
 static struct tmio_mmc_data t7166xb_mmc_data = {
 	.hclk = 24000000,
@@ -179,7 +182,9 @@ static struct mfd_cell t7l66xb_cells[] = {
 	},
 };
 
+/*--------------------------------------------------------------------------*/
 
+/* Handle the T7L66XB interrupt mux */
 static void t7l66xb_irq(unsigned int irq, struct irq_desc *desc)
 {
 	struct t7l66xb *t7l66xb = irq_get_handler_data(irq);
@@ -228,7 +233,9 @@ static struct irq_chip t7l66xb_chip = {
 	.irq_unmask	= t7l66xb_irq_unmask,
 };
 
+/*--------------------------------------------------------------------------*/
 
+/* Install the IRQ handler */
 static void t7l66xb_attach_irq(struct platform_device *dev)
 {
 	struct t7l66xb *t7l66xb = platform_get_drvdata(dev);
@@ -268,6 +275,7 @@ static void t7l66xb_detach_irq(struct platform_device *dev)
 	}
 }
 
+/*--------------------------------------------------------------------------*/
 
 #ifdef CONFIG_PM
 static int t7l66xb_suspend(struct platform_device *dev, pm_message_t state)
@@ -301,6 +309,7 @@ static int t7l66xb_resume(struct platform_device *dev)
 #define t7l66xb_resume	NULL
 #endif
 
+/*--------------------------------------------------------------------------*/
 
 static int t7l66xb_probe(struct platform_device *dev)
 {
@@ -365,7 +374,7 @@ static int t7l66xb_probe(struct platform_device *dev)
 	if (pdata && pdata->enable)
 		pdata->enable(dev);
 
-	
+	/* Mask all interrupts */
 	tmio_iowrite8(0xbf, t7l66xb->scr + SCR_IMR);
 
 	printk(KERN_INFO "%s rev %d @ 0x%08lx, irq %d\n",
@@ -431,6 +440,7 @@ static struct platform_driver t7l66xb_platform_driver = {
 	.remove		= t7l66xb_remove,
 };
 
+/*--------------------------------------------------------------------------*/
 
 module_platform_driver(t7l66xb_platform_driver);
 

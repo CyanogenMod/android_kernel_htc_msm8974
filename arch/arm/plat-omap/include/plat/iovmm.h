@@ -16,17 +16,25 @@
 #include <linux/iommu.h>
 
 struct iovm_struct {
-	struct omap_iommu	*iommu;	
-	u32			da_start; 
+	struct omap_iommu	*iommu;	/* iommu object which this belongs to */
+	u32			da_start; /* area definition */
 	u32			da_end;
-	u32			flags; 
-	struct list_head	list; 
-	const struct sg_table	*sgt; 
-	void			*va; 
+	u32			flags; /* IOVMF_: see below */
+	struct list_head	list; /* linked in ascending order */
+	const struct sg_table	*sgt; /* keep 'page' <-> 'da' mapping */
+	void			*va; /* mpu side mapped address */
 };
 
+/*
+ * IOVMF_FLAGS: attribute for iommu virtual memory area(iovma)
+ *
+ * lower 16 bit is used for h/w and upper 16 bit is for s/w.
+ */
 #define IOVMF_SW_SHIFT		16
 
+/*
+ * iovma: h/w flags derived from cam and ram attribute
+ */
 #define IOVMF_CAM_MASK		(~((1 << 10) - 1))
 #define IOVMF_RAM_MASK		(~IOVMF_CAM_MASK)
 
@@ -49,10 +57,14 @@ struct iovm_struct {
 #define IOVMF_MIXED_MASK	(1 << 6)
 #define IOVMF_MIXED		MMU_RAM_MIXED
 
+/*
+ * iovma: s/w flags, used for mapping and umapping internally.
+ */
 #define IOVMF_MMIO		(1 << IOVMF_SW_SHIFT)
 #define IOVMF_ALLOC		(2 << IOVMF_SW_SHIFT)
 #define IOVMF_ALLOC_MASK	(3 << IOVMF_SW_SHIFT)
 
+/* "superpages" is supported just with physically linear pages */
 #define IOVMF_DISCONT		(1 << (2 + IOVMF_SW_SHIFT))
 #define IOVMF_LINEAR		(2 << (2 + IOVMF_SW_SHIFT))
 #define IOVMF_LINEAR_MASK	(3 << (2 + IOVMF_SW_SHIFT))
@@ -74,4 +86,4 @@ omap_iommu_vfree(struct iommu_domain *domain, struct device *dev,
 				const u32 da);
 extern void *omap_da_to_va(struct device *dev, u32 da);
 
-#endif 
+#endif /* __IOMMU_MMAP_H */

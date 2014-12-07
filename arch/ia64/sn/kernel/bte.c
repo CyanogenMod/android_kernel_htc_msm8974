@@ -27,6 +27,7 @@
 #define L1_CACHE_MASK (L1_CACHE_BYTES - 1)
 #endif
 
+/* two interfaces on two btes */
 #define MAX_INTERFACES_TO_TRY		4
 #define MAX_NODES_TO_TRY		2
 
@@ -52,7 +53,30 @@ static inline void bte_start_transfer(struct bteinfo_s *bte, u64 len, u64 mode)
 	}
 }
 
+/************************************************************************
+ * Block Transfer Engine copy related functions.
+ *
+ ***********************************************************************/
 
+/*
+ * bte_copy(src, dest, len, mode, notification)
+ *
+ * Use the block transfer engine to move kernel memory from src to dest
+ * using the assigned mode.
+ *
+ * Parameters:
+ *   src - physical address of the transfer source.
+ *   dest - physical address of the transfer destination.
+ *   len - number of bytes to transfer from source to dest.
+ *   mode - hardware defined.  See reference information
+ *          for IBCT0/1 in the SHUB Programmers Reference
+ *   notification - kernel virtual address of the notification cache
+ *                  line.  If NULL, the default is used and
+ *                  the bte_copy is synchronous.
+ *
+ * NOTE:  This function requires src, dest, and len to
+ * be cacheline aligned.
+ */
 bte_result_t bte_copy(u64 src, u64 dest, u64 len, u64 mode, void *notification)
 {
 	u64 transfer_size;
@@ -79,10 +103,13 @@ bte_result_t bte_copy(u64 src, u64 dest, u64 len, u64 mode, void *notification)
 	BUG_ON(dest & L1_CACHE_MASK);
 	BUG_ON(len > BTE_MAX_XFER);
 
+	/*
+	 * Start with interface corresponding to cpu number
+	 */
 	bte_first = raw_smp_processor_id() % btes_per_node;
 
 	if (mode & BTE_USE_DEST) {
-		
+		/* try remote then local */
 		nasid_to_try[0] = NASID_GET(dest);
 		if (mode & BTE_USE_ANY) {
 			nasid_to_try[1] = my_nasid;
@@ -90,7 +117,7 @@ bte_result_t bte_copy(u64 src, u64 dest, u64 len, u64 mode, void *notification)
 			nasid_to_try[1] = (int)NULL;
 		}
 	} else {
-		
+		/* try local then remote */
 		nasid_to_try[0] = my_nasid;
 		if (mode & BTE_USE_ANY) {
 			nasid_to_try[1] = NASID_GET(dest);
@@ -106,7 +133,7 @@ retry_bteop:
 		bte_if_index = bte_first;
 		nasid_index = 0;
 
-		
+		/* Attempt to lock one of the BTE interfaces. */
 		while (nasid_index < MAX_NODES_TO_TRY) {
 			bte = bte_if_on_node(nasid_to_try[nasid_index],bte_if_index);
 
@@ -118,16 +145,19 @@ retry_bteop:
 			if (spin_trylock(&bte->spinlock)) {
 				if (!(*bte->most_rcnt_na & BTE_WORD_AVAILABLE) ||
 				    (BTE_LNSTAT_LOAD(bte) & BTE_ACTIVE)) {
-					
+					/* Got the lock but BTE still busy */
 					spin_unlock(&bte->spinlock);
 				} else {
-					
+					/* we got the lock and it's not busy */
 					break;
 				}
 			}
 
-			bte_if_index = (bte_if_index + 1) % btes_per_node; 
+			bte_if_index = (bte_if_index + 1) % btes_per_node; /* Next interface */
 			if (bte_if_index == bte_first) {
+				/*
+				 * We've tried all interfaces on this node
+				 */
 				nasid_index++;
 			}
 
@@ -146,30 +176,30 @@ retry_bteop:
 	} while (1);
 
 	if (notification == NULL) {
-		
+		/* User does not want to be notified. */
 		bte->most_rcnt_na = &bte->notify;
 	} else {
 		bte->most_rcnt_na = notification;
 	}
 
-	
+	/* Calculate the number of cache lines to transfer. */
 	transfer_size = ((len >> L1_CACHE_SHIFT) & BTE_LEN_MASK);
 
-	
+	/* Initialize the notification to a known value. */
 	*bte->most_rcnt_na = BTE_WORD_BUSY;
 	notif_phys_addr = (u64)bte->most_rcnt_na;
 
-	
+	/* Set the source and destination registers */
 	BTE_PRINTKV(("IBSA = 0x%lx)\n", src));
 	BTE_SRC_STORE(bte, src);
 	BTE_PRINTKV(("IBDA = 0x%lx)\n", dest));
 	BTE_DEST_STORE(bte, dest);
 
-	
+	/* Set the notification register */
 	BTE_PRINTKV(("IBNA = 0x%lx)\n", notif_phys_addr));
 	BTE_NOTIF_STORE(bte, notif_phys_addr);
 
-	
+	/* Initiate the transfer */
 	BTE_PRINTK(("IBCT = 0x%lx)\n", BTE_VALID_MODE(mode)));
 	bte_start_transfer(bte, transfer_size, BTE_VALID_MODE(mode));
 
@@ -213,6 +243,22 @@ retry_bteop:
 
 EXPORT_SYMBOL(bte_copy);
 
+/*
+ * bte_unaligned_copy(src, dest, len, mode)
+ *
+ * use the block transfer engine to move kernel
+ * memory from src to dest using the assigned mode.
+ *
+ * Parameters:
+ *   src - physical address of the transfer source.
+ *   dest - physical address of the transfer destination.
+ *   len - number of bytes to transfer from source to dest.
+ *   mode - hardware defined.  See reference information
+ *          for IBCT0/1 in the SGI documentation.
+ *
+ * NOTE: If the source, dest, and len are all cache line aligned,
+ * then it would be _FAR_ preferable to use bte_copy instead.
+ */
 bte_result_t bte_unaligned_copy(u64 src, u64 dest, u64 len, u64 mode)
 {
 	int destFirstCacheOffset;
@@ -232,7 +278,7 @@ bte_result_t bte_unaligned_copy(u64 src, u64 dest, u64 len, u64 mode)
 		return BTE_SUCCESS;
 	}
 
-	
+	/* temporary buffer used during unaligned transfers */
 	bteBlock_unaligned = kmalloc(len + 3 * L1_CACHE_BYTES, GFP_KERNEL);
 	if (bteBlock_unaligned == NULL) {
 		return BTEFAIL_NOTAVAIL;
@@ -242,8 +288,34 @@ bte_result_t bte_unaligned_copy(u64 src, u64 dest, u64 len, u64 mode)
 	headBcopySrcOffset = src & L1_CACHE_MASK;
 	destFirstCacheOffset = dest & L1_CACHE_MASK;
 
+	/*
+	 * At this point, the transfer is broken into
+	 * (up to) three sections.  The first section is
+	 * from the start address to the first physical
+	 * cache line, the second is from the first physical
+	 * cache line to the last complete cache line,
+	 * and the third is from the last cache line to the
+	 * end of the buffer.  The first and third sections
+	 * are handled by bte copying into a temporary buffer
+	 * and then bcopy'ing the necessary section into the
+	 * final location.  The middle section is handled with
+	 * a standard bte copy.
+	 *
+	 * One nasty exception to the above rule is when the
+	 * source and destination are not symmetrically
+	 * mis-aligned.  If the source offset from the first
+	 * cache line is different from the destination offset,
+	 * we make the first section be the entire transfer
+	 * and the bcopy the entire block into place.
+	 */
 	if (headBcopySrcOffset == destFirstCacheOffset) {
 
+		/*
+		 * Both the source and destination are the same
+		 * distance from a cache line boundary so we can
+		 * use the bte to transfer the bulk of the
+		 * data.
+		 */
 		headBteSource = src & ~L1_CACHE_MASK;
 		headBcopyDest = dest;
 		if (headBcopySrcOffset) {
@@ -266,6 +338,10 @@ bte_result_t bte_unaligned_copy(u64 src, u64 dest, u64 len, u64 mode)
 			footBcopyDest = dest + len - footBcopyLen;
 
 			if (footBcopyDest == (headBcopyDest + headBcopyLen)) {
+				/*
+				 * We have two contiguous bcopy
+				 * blocks.  Merge them.
+				 */
 				headBcopyLen += footBcopyLen;
 				headBteLen += footBteLen;
 			} else if (footBcopyLen > 0) {
@@ -286,7 +362,7 @@ bte_result_t bte_unaligned_copy(u64 src, u64 dest, u64 len, u64 mode)
 		}
 
 		if (len > (headBcopyLen + footBcopyLen)) {
-			
+			/* now transfer the middle. */
 			rv = bte_copy((src + headBcopyLen),
 				      (dest +
 				       headBcopyLen),
@@ -300,13 +376,19 @@ bte_result_t bte_unaligned_copy(u64 src, u64 dest, u64 len, u64 mode)
 		}
 	} else {
 
+		/*
+		 * The transfer is not symmetric, we will
+		 * allocate a buffer large enough for all the
+		 * data, bte_copy into that buffer and then
+		 * bcopy to the destination.
+		 */
 
 		headBcopySrcOffset = src & L1_CACHE_MASK;
 		headBcopyDest = dest;
 		headBcopyLen = len;
 
 		headBteSource = src - headBcopySrcOffset;
-		
+		/* Add the leading and trailing bytes from source */
 		headBteLen = L1_CACHE_ALIGN(len + headBcopySrcOffset);
 	}
 
@@ -328,12 +410,31 @@ bte_result_t bte_unaligned_copy(u64 src, u64 dest, u64 len, u64 mode)
 
 EXPORT_SYMBOL(bte_unaligned_copy);
 
+/************************************************************************
+ * Block Transfer Engine initialization functions.
+ *
+ ***********************************************************************/
 
+/*
+ * bte_init_node(nodepda, cnode)
+ *
+ * Initialize the nodepda structure with BTE base addresses and
+ * spinlocks.
+ */
 void bte_init_node(nodepda_t * mynodepda, cnodeid_t cnode)
 {
 	int i;
 
+	/*
+	 * Indicate that all the block transfer engines on this node
+	 * are available.
+	 */
 
+	/*
+	 * Allocate one bte_recover_t structure per node.  It holds
+	 * the recovery lock for node.  All the bte interface structures
+	 * will point at this one bte_recover structure to get the lock.
+	 */
 	spin_lock_init(&mynodepda->bte_recovery_lock);
 	init_timer(&mynodepda->bte_recovery_timer);
 	mynodepda->bte_recovery_timer.function = bte_error_handler;
@@ -342,7 +443,7 @@ void bte_init_node(nodepda_t * mynodepda, cnodeid_t cnode)
 	for (i = 0; i < BTES_PER_NODE; i++) {
 		u64 *base_addr;
 
-		
+		/* Which link status register should we use? */
 		base_addr = (u64 *)
 		    REMOTE_HUB_ADDR(cnodeid_to_nasid(cnode), BTE_BASE_ADDR(i));
 		mynodepda->bte_if[i].bte_base_addr = base_addr;
@@ -351,6 +452,10 @@ void bte_init_node(nodepda_t * mynodepda, cnodeid_t cnode)
 		mynodepda->bte_if[i].bte_control_addr = BTE_CTRL_ADDR(base_addr);
 		mynodepda->bte_if[i].bte_notify_addr = BTE_NOTIF_ADDR(base_addr);
 
+		/*
+		 * Initialize the notification and spinlock
+		 * so the first transfer can occur.
+		 */
 		mynodepda->bte_if[i].most_rcnt_na =
 		    &(mynodepda->bte_if[i].notify);
 		mynodepda->bte_if[i].notify = BTE_WORD_AVAILABLE;

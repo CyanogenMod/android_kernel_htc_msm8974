@@ -15,6 +15,11 @@
 #include <linux/writeback.h>
 #include "incore.h"
 
+/**
+ * gfs2_log_lock - acquire the right to mess with the log manager
+ * @sdp: the filesystem
+ *
+ */
 
 static inline void gfs2_log_lock(struct gfs2_sbd *sdp)
 __acquires(&sdp->sd_log_lock)
@@ -22,6 +27,11 @@ __acquires(&sdp->sd_log_lock)
 	spin_lock(&sdp->sd_log_lock);
 }
 
+/**
+ * gfs2_log_unlock - release the right to mess with the log manager
+ * @sdp: the filesystem
+ *
+ */
 
 static inline void gfs2_log_unlock(struct gfs2_sbd *sdp)
 __releases(&sdp->sd_log_lock)
@@ -53,4 +63,4 @@ extern void gfs2_log_shutdown(struct gfs2_sbd *sdp);
 extern void gfs2_meta_syncfs(struct gfs2_sbd *sdp);
 extern int gfs2_logd(void *data);
 
-#endif 
+#endif /* __LOG_DOT_H__ */

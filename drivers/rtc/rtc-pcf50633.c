@@ -26,20 +26,20 @@
 
 #include <linux/mfd/pcf50633/core.h>
 
-#define PCF50633_REG_RTCSC	0x59 
-#define PCF50633_REG_RTCMN	0x5a 
-#define PCF50633_REG_RTCHR	0x5b 
-#define PCF50633_REG_RTCWD	0x5c 
-#define PCF50633_REG_RTCDT	0x5d 
-#define PCF50633_REG_RTCMT	0x5e 
-#define PCF50633_REG_RTCYR	0x5f 
-#define PCF50633_REG_RTCSCA	0x60 
-#define PCF50633_REG_RTCMNA	0x61 
-#define PCF50633_REG_RTCHRA	0x62 
-#define PCF50633_REG_RTCWDA	0x63 
-#define PCF50633_REG_RTCDTA	0x64 
-#define PCF50633_REG_RTCMTA	0x65 
-#define PCF50633_REG_RTCYRA	0x66 
+#define PCF50633_REG_RTCSC	0x59 /* Second */
+#define PCF50633_REG_RTCMN	0x5a /* Minute */
+#define PCF50633_REG_RTCHR	0x5b /* Hour */
+#define PCF50633_REG_RTCWD	0x5c /* Weekday */
+#define PCF50633_REG_RTCDT	0x5d /* Day */
+#define PCF50633_REG_RTCMT	0x5e /* Month */
+#define PCF50633_REG_RTCYR	0x5f /* Year */
+#define PCF50633_REG_RTCSCA	0x60 /* Alarm Second */
+#define PCF50633_REG_RTCMNA	0x61 /* Alarm Minute */
+#define PCF50633_REG_RTCHRA	0x62 /* Alarm Hour */
+#define PCF50633_REG_RTCWDA	0x63 /* Alarm Weekday */
+#define PCF50633_REG_RTCDTA	0x64 /* Alarm Day */
+#define PCF50633_REG_RTCMTA	0x65 /* Alarm Month */
+#define PCF50633_REG_RTCYRA	0x66 /* Alarm Year */
 
 enum pcf50633_time_indexes {
 	PCF50633_TI_SEC,
@@ -49,7 +49,7 @@ enum pcf50633_time_indexes {
 	PCF50633_TI_DAY,
 	PCF50633_TI_MONTH,
 	PCF50633_TI_YEAR,
-	PCF50633_TI_EXTENT 
+	PCF50633_TI_EXTENT /* always last */
 };
 
 struct pcf50633_time {
@@ -166,7 +166,7 @@ static int pcf50633_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	if (!alarm_masked)
 		pcf50633_irq_mask(rtc->pcf, PCF50633_IRQ_ALARM);
 
-	
+	/* Returns 0 on success */
 	ret = pcf50633_write_block(rtc->pcf, PCF50633_REG_RTCSC,
 					     PCF50633_TI_EXTENT,
 					     &pcf_tm.time[0]);
@@ -210,16 +210,16 @@ static int pcf50633_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 
 	rtc2pcf_time(&pcf_tm, &alrm->time);
 
-	
+	/* do like mktime does and ignore tm_wday */
 	pcf_tm.time[PCF50633_TI_WKDAY] = 7;
 
 	alarm_masked = pcf50633_irq_mask_get(rtc->pcf, PCF50633_IRQ_ALARM);
 
-	
+	/* disable alarm interrupt */
 	if (!alarm_masked)
 		pcf50633_irq_mask(rtc->pcf, PCF50633_IRQ_ALARM);
 
-	
+	/* Returns 0 on success */
 	ret = pcf50633_write_block(rtc->pcf, PCF50633_REG_RTCSCA,
 				PCF50633_TI_EXTENT, &pcf_tm.time[0]);
 	if (!alrm->enabled)

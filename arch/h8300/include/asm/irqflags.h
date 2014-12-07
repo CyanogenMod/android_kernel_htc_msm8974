@@ -40,4 +40,4 @@ static inline bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-#endif 
+#endif /* _H8300_IRQFLAGS_H */

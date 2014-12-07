@@ -53,16 +53,16 @@ struct isp_csiphy_dphy_cfg {
 
 struct isp_csiphy {
 	struct isp_device *isp;
-	struct mutex mutex;	
+	struct mutex mutex;	/* serialize csiphy configuration */
 	u8 phy_in_use;
 	struct isp_csi2_device *csi2;
 	struct regulator *vdd;
 
-	
+	/* mem resources - enums as defined in enum isp_mem_resources */
 	unsigned int cfg_regs;
 	unsigned int phy_regs;
 
-	u8 num_data_lanes;	
+	u8 num_data_lanes;	/* number of CSI2 Data Lanes supported */
 	struct isp_csiphy_lanes_cfg lanes;
 	struct isp_csiphy_dphy_cfg dphy;
 };
@@ -71,4 +71,4 @@ int omap3isp_csiphy_acquire(struct isp_csiphy *phy);
 void omap3isp_csiphy_release(struct isp_csiphy *phy);
 int omap3isp_csiphy_init(struct isp_device *isp);
 
-#endif	
+#endif	/* OMAP3_ISP_CSI_PHY_H */

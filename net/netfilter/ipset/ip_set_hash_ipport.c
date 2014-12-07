@@ -5,6 +5,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the hash:ip,port type */
 
 #include <linux/jhash.h>
 #include <linux/module.h>
@@ -29,6 +30,7 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("hash:ip,port type of IP sets");
 MODULE_ALIAS("ip_set_hash:ip,port");
 
+/* Type specific function prefix */
 #define TYPE		hash_ipport
 
 static bool
@@ -37,7 +39,9 @@ hash_ipport_same_set(const struct ip_set *a, const struct ip_set *b);
 #define hash_ipport4_same_set	hash_ipport_same_set
 #define hash_ipport6_same_set	hash_ipport_same_set
 
+/* The type variant functions: IPv4 */
 
+/* Member elements without timeout */
 struct hash_ipport4_elem {
 	__be32 ip;
 	__be16 port;
@@ -45,6 +49,7 @@ struct hash_ipport4_elem {
 	u8 padding;
 };
 
+/* Member elements with timeout support */
 struct hash_ipport4_telem {
 	__be32 ip;
 	__be16 port;
@@ -248,11 +253,12 @@ hash_ipport_same_set(const struct ip_set *a, const struct ip_set *b)
 	const struct ip_set_hash *x = a->data;
 	const struct ip_set_hash *y = b->data;
 
-	
+	/* Resizing changes htable_bits, so we ignore it */
 	return x->maxelem == y->maxelem &&
 	       x->timeout == y->timeout;
 }
 
+/* The type variant functions: IPv6 */
 
 struct hash_ipport6_elem {
 	union nf_inet_addr ip;
@@ -435,6 +441,7 @@ hash_ipport6_uadt(struct ip_set *set, struct nlattr *tb[],
 	return ret;
 }
 
+/* Create hash:ip type of sets */
 
 static int
 hash_ipport_create(struct ip_set *set, struct nlattr *tb[], u32 flags)
@@ -513,7 +520,7 @@ static struct ip_set_type hash_ipport_type __read_mostly = {
 	.dimension	= IPSET_DIM_TWO,
 	.family		= NFPROTO_UNSPEC,
 	.revision_min	= 0,
-	.revision_max	= 1,	
+	.revision_max	= 1,	/* SCTP and UDPLITE support added */
 	.create		= hash_ipport_create,
 	.create_policy	= {
 		[IPSET_ATTR_HASHSIZE]	= { .type = NLA_U32 },

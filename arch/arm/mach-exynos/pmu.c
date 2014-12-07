@@ -19,7 +19,7 @@
 static struct exynos4_pmu_conf *exynos4_pmu_config;
 
 static struct exynos4_pmu_conf exynos4210_pmu_config[] = {
-	
+	/* { .reg = address, .val = { AFTR, LPA, SLEEP } */
 	{ S5P_ARM_CORE0_LOWPWR,			{ 0x0, 0x0, 0x2 } },
 	{ S5P_DIS_IRQ_CORE0,			{ 0x0, 0x0, 0x0 } },
 	{ S5P_DIS_IRQ_CENTRAL0,			{ 0x0, 0x0, 0x0 } },
@@ -106,7 +106,7 @@ static struct exynos4_pmu_conf exynos4212_pmu_config[] = {
 	{ S5P_DIS_IRQ_ISP_ARM_CENTRAL_LOWPWR,	{ 0x0, 0x0, 0x0 } },
 	{ S5P_ARM_COMMON_LOWPWR,		{ 0x0, 0x0, 0x2 } },
 	{ S5P_L2_0_LOWPWR,			{ 0x0, 0x0, 0x3 } },
-	
+	/* XXX_OPTION register should be set other field */
 	{ S5P_ARM_L2_0_OPTION,			{ 0x10, 0x10, 0x0 } },
 	{ S5P_L2_1_LOWPWR,			{ 0x0, 0x0, 0x3 } },
 	{ S5P_ARM_L2_1_OPTION,			{ 0x10, 0x10, 0x0 } },

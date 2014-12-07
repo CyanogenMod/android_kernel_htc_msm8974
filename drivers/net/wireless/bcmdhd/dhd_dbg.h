@@ -62,7 +62,7 @@
 #define DHD_ARPOE_ON()		(dhd_msg_level & DHD_ARPOE_VAL)
 #define DHD_REORDER_ON()	(dhd_msg_level & DHD_REORDER_VAL)
 
-#else 
+#else /* defined(BCMDBG) || defined(DHD_DEBUG) */
 
 #define DHD_ERROR(args)    	do {if (net_ratelimit()) printf args;} while (0)
 #define DHD_TRACE(args)
@@ -104,6 +104,7 @@
 #define DHD_NONE(args)
 extern int dhd_msg_level;
 
+/* Defines msg bits */
 #include <dhdioctl.h>
 
-#endif 
+#endif /* _dhd_dbg_ */

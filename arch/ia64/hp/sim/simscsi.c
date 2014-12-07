@@ -26,6 +26,7 @@
 #define SIMSCSI_REQ_QUEUE_LEN	64
 #define DEFAULT_SIMSCSI_ROOT	"/var/ski-disks/sd"
 
+/* Simulator system calls: */
 
 #define SSC_OPEN			50
 #define SSC_CLOSE			51
@@ -70,14 +71,20 @@ static struct queue_entry {
 static int rd, wr;
 static atomic_t num_reqs = ATOMIC_INIT(0);
 
+/* base name for default disks */
 static char *simscsi_root = DEFAULT_SIMSCSI_ROOT;
 
 #define MAX_ROOT_LEN	128
 
+/*
+ * used to setup a new base for disk images
+ * to use /foo/bar/disk[a-z] as disk images
+ * you have to specify simscsi=/foo/bar/disk on the command line
+ */
 static int __init
 simscsi_setup (char *s)
 {
-	
+	/* XXX Fix me we may need to strcpy() ? */
 	if (strlen(s) > MAX_ROOT_LEN) {
 		printk(KERN_ERR "simscsi_setup: prefix too long---using default %s\n",
 		       simscsi_root);
@@ -107,9 +114,9 @@ static int
 simscsi_biosparam (struct scsi_device *sdev, struct block_device *n,
 		sector_t capacity, int ip[])
 {
-	ip[0] = 64;		
-	ip[1] = 32;		
-	ip[2] = capacity >> 11;	
+	ip[0] = 64;		/* heads */
+	ip[1] = 32;		/* sectors */
+	ip[2] = capacity >> 11;	/* cylinders */
 	return 0;
 }
 
@@ -133,7 +140,7 @@ simscsi_sg_readwrite (struct scsi_cmnd *sc, int mode, unsigned long offset)
 		ia64_ssc(stat.fd, 1, __pa(&req), offset, mode);
 		ia64_ssc(__pa(&stat), 0, 0, 0, SSC_WAIT_COMPLETION);
 
-		
+		/* should not happen in our case */
 		if (stat.count != req.len) {
 			sc->result = DID_ERROR << 16;
 			return;
@@ -143,6 +150,11 @@ simscsi_sg_readwrite (struct scsi_cmnd *sc, int mode, unsigned long offset)
 	sc->result = GOOD;
 }
 
+/*
+ * function handling both READ_6/WRITE_6 (non-scatter/gather mode)
+ * commands.
+ * Added 02/26/99 S.Eranian
+ */
 static void
 simscsi_readwrite6 (struct scsi_cmnd *sc, int mode)
 {
@@ -160,6 +172,11 @@ simscsi_get_disk_size (int fd)
 	struct disk_req req;
 	char buf[512];
 
+	/*
+	 * This is a bit kludgey: the simulator doesn't provide a
+	 * direct way of determining the disk size, so we do a binary
+	 * search, assuming a maximum disk size of 128GB.
+	 */
 	for (bit = (128UL << 30)/512; bit != 0; bit >>= 1) {
 		req.addr = __pa(&buf);
 		req.len = sizeof(buf);
@@ -169,7 +186,7 @@ simscsi_get_disk_size (int fd)
 		if (stat.count == sizeof(buf))
 			sectors |= bit;
 	}
-	return sectors - 1;	
+	return sectors - 1;	/* return last valid sector number */
 }
 
 static void
@@ -212,18 +229,18 @@ simscsi_queuecommand_lck (struct scsi_cmnd *sc, void (*done)(struct scsi_cmnd *)
 			desc[target_id] = ia64_ssc(__pa(fname), SSC_READ_ACCESS|SSC_WRITE_ACCESS,
 						   0, 0, SSC_OPEN);
 			if (desc[target_id] < 0) {
-				
+				/* disk doesn't exist... */
 				break;
 			}
 			buf = localbuf;
-			buf[0] = 0;	
-			buf[1] = 0;	
-			buf[2] = 2;	
-			buf[3] = 2;	
-			buf[4] = 31;	
-			buf[5] = 0;	
-			buf[6] = 0;	
-			buf[7] = 0;	
+			buf[0] = 0;	/* magnetic disk */
+			buf[1] = 0;	/* not a removable medium */
+			buf[2] = 2;	/* SCSI-2 compliant device */
+			buf[3] = 2;	/* SCSI-2 response data format */
+			buf[4] = 31;	/* additional length (bytes) */
+			buf[5] = 0;	/* reserved */
+			buf[6] = 0;	/* reserved */
+			buf[7] = 0;	/* various flags */
 			memcpy(buf + 8, "HP      SIMULATED DISK  0.00",  28);
 			scsi_sg_copy_from_buffer(sc, buf, 36);
 			sc->result = GOOD;
@@ -268,7 +285,7 @@ simscsi_queuecommand_lck (struct scsi_cmnd *sc, void (*done)(struct scsi_cmnd *)
 			buf[1] = (disk_size >> 16) & 0xff;
 			buf[2] = (disk_size >>  8) & 0xff;
 			buf[3] = (disk_size >>  0) & 0xff;
-			
+			/* set block size of 512 bytes: */
 			buf[4] = 0;
 			buf[5] = 0;
 			buf[6] = 2;
@@ -279,7 +296,7 @@ simscsi_queuecommand_lck (struct scsi_cmnd *sc, void (*done)(struct scsi_cmnd *)
 
 		      case MODE_SENSE:
 		      case MODE_SENSE_10:
-			
+			/* sd.c uses this to determine whether disk does write-caching. */
 			scsi_sg_copy_from_buffer(sc, (char *)empty_zero_page,
 						 PAGE_SIZE);
 			sc->result = GOOD;

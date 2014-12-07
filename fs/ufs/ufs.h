@@ -39,6 +39,7 @@ struct ufs_inode_info {
 	struct inode vfs_inode;
 };
 
+/* mount options */
 #define UFS_MOUNT_ONERROR		0x0000000F
 #define UFS_MOUNT_ONERROR_PANIC		0x00000001
 #define UFS_MOUNT_ONERROR_LOCK		0x00000002
@@ -61,6 +62,9 @@ struct ufs_inode_info {
 #define ufs_set_opt(o,opt)	o |= UFS_MOUNT_##opt
 #define ufs_test_opt(o,opt)	((o) & UFS_MOUNT_##opt)
 
+/*
+ * Debug code
+ */
 #ifdef CONFIG_UFS_DEBUG
 #	define UFSD(f, a...)	{					\
 		printk ("UFSD (%s, %d): %s:",				\
@@ -68,17 +72,20 @@ struct ufs_inode_info {
 		printk (f, ## a);					\
 	}
 #else
-#	define UFSD(f, a...)	
+#	define UFSD(f, a...)	/**/
 #endif
 
+/* balloc.c */
 extern void ufs_free_fragments (struct inode *, u64, unsigned);
 extern void ufs_free_blocks (struct inode *, u64, unsigned);
 extern u64 ufs_new_fragments(struct inode *, void *, u64, u64,
 			     unsigned, int *, struct page *);
 
+/* cylinder.c */
 extern struct ufs_cg_private_info * ufs_load_cylinder (struct super_block *, unsigned);
 extern void ufs_put_cylinder (struct super_block *, unsigned);
 
+/* dir.c */
 extern const struct inode_operations ufs_dir_inode_operations;
 extern int ufs_add_link (struct dentry *, struct inode *);
 extern ino_t ufs_inode_by_name(struct inode *, const struct qstr *);
@@ -90,21 +97,26 @@ extern struct ufs_dir_entry *ufs_dotdot(struct inode *, struct page **);
 extern void ufs_set_link(struct inode *dir, struct ufs_dir_entry *de,
 			 struct page *page, struct inode *inode);
 
+/* file.c */
 extern const struct inode_operations ufs_file_inode_operations;
 extern const struct file_operations ufs_file_operations;
 extern const struct address_space_operations ufs_aops;
 
+/* ialloc.c */
 extern void ufs_free_inode (struct inode *inode);
 extern struct inode * ufs_new_inode (struct inode *, umode_t);
 
+/* inode.c */
 extern struct inode *ufs_iget(struct super_block *, unsigned long);
 extern int ufs_write_inode (struct inode *, struct writeback_control *);
 extern int ufs_sync_inode (struct inode *);
 extern void ufs_evict_inode (struct inode *);
 extern int ufs_getfrag_block (struct inode *inode, sector_t fragment, struct buffer_head *bh_result, int create);
 
+/* namei.c */
 extern const struct file_operations ufs_dir_operations;
 
+/* super.c */
 extern __printf(3, 4)
 void ufs_warning(struct super_block *, const char *, const char *, ...);
 extern __printf(3, 4)
@@ -112,9 +124,11 @@ void ufs_error(struct super_block *, const char *, const char *, ...);
 extern __printf(3, 4)
 void ufs_panic(struct super_block *, const char *, const char *, ...);
 
+/* symlink.c */
 extern const struct inode_operations ufs_fast_symlink_inode_operations;
 extern const struct inode_operations ufs_symlink_inode_operations;
 
+/* truncate.c */
 extern int ufs_truncate (struct inode *, loff_t);
 extern int ufs_setattr(struct dentry *dentry, struct iattr *attr);
 
@@ -128,11 +142,17 @@ static inline struct ufs_inode_info *UFS_I(struct inode *inode)
 	return container_of(inode, struct ufs_inode_info, vfs_inode);
 }
 
+/*
+ * Give cylinder group number for a file system block.
+ * Give cylinder group block number for a file system block.
+ */
+/* #define	ufs_dtog(d)	((d) / uspi->s_fpg) */
 static inline u64 ufs_dtog(struct ufs_sb_private_info * uspi, u64 b)
 {
 	do_div(b, uspi->s_fpg);
 	return b;
 }
+/* #define	ufs_dtogd(d)	((d) % uspi->s_fpg) */
 static inline u32 ufs_dtogd(struct ufs_sb_private_info * uspi, u64 b)
 {
 	return do_div(b, uspi->s_fpg);
@@ -141,4 +161,4 @@ static inline u32 ufs_dtogd(struct ufs_sb_private_info * uspi, u64 b)
 extern void lock_ufs(struct super_block *sb);
 extern void unlock_ufs(struct super_block *sb);
 
-#endif 
+#endif /* _UFS_UFS_H */

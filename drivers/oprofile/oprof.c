@@ -29,6 +29,10 @@ unsigned long oprofile_backtrace_depth;
 static unsigned long is_setup;
 static DEFINE_MUTEX(start_mutex);
 
+/* timer
+   0 - use performance monitoring hardware if available
+   1 - use the timer int mechanism regardless
+ */
 static int timer = 0;
 
 int oprofile_setup(void)
@@ -46,6 +50,11 @@ int oprofile_setup(void)
 	if (oprofile_ops.setup && (err = oprofile_ops.setup()))
 		goto out2;
 
+	/* Note even though this starts part of the
+	 * profiling overhead, it's necessary to prevent
+	 * us missing task deaths and eventually oopsing
+	 * when trying to process the event buffer.
+	 */
 	if (oprofile_ops.sync_start) {
 		int sync_ret = oprofile_ops.sync_start();
 		switch (sync_ret) {
@@ -105,6 +114,7 @@ static void switch_worker(struct work_struct *work)
 	start_switch_worker();
 }
 
+/* User inputs in ms, converts to jiffies */
 int oprofile_set_timeout(unsigned long val_msec)
 {
 	int err = 0;
@@ -143,6 +153,7 @@ static inline void stop_switch_worker(void) { }
 
 #endif
 
+/* Actually start profiling (echo 1>/dev/oprofile/enable) */
 int oprofile_start(void)
 {
 	int err = -EINVAL;
@@ -171,6 +182,7 @@ out:
 }
 
 
+/* echo 0>/dev/oprofile/enable */
 void oprofile_stop(void)
 {
 	mutex_lock(&start_mutex);
@@ -181,7 +193,7 @@ void oprofile_stop(void)
 
 	stop_switch_worker();
 
-	
+	/* wake up the daemon to read what remains */
 	wake_up_buffer_waiter();
 out:
 	mutex_unlock(&start_mutex);
@@ -233,7 +245,7 @@ static int __init oprofile_init(void)
 {
 	int err;
 
-	
+	/* always init architecture to setup backtrace support */
 	timer_mode = 0;
 	err = oprofile_arch_init(&oprofile_ops);
 	if (!err) {
@@ -242,9 +254,9 @@ static int __init oprofile_init(void)
 		oprofile_arch_exit();
 	}
 
-	
+	/* setup timer mode: */
 	timer_mode = 1;
-	
+	/* no nmi timer mode if oprofile.timer is set */
 	if (timer || op_nmi_timer_init(&oprofile_ops)) {
 		err = oprofile_timer_init(&oprofile_ops);
 		if (err)

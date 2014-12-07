@@ -30,12 +30,12 @@
 
 #include "generic.h"
 
-#define SHARPSL_CHARGE_ON_VOLT         0x99  
-#define SHARPSL_CHARGE_ON_TEMP         0xe0  
-#define SHARPSL_CHARGE_ON_ACIN_HIGH    0x9b  
-#define SHARPSL_CHARGE_ON_ACIN_LOW     0x34  
-#define SHARPSL_FATAL_ACIN_VOLT        182   
-#define SHARPSL_FATAL_NOACIN_VOLT      170   
+#define SHARPSL_CHARGE_ON_VOLT         0x99  /* 2.9V */
+#define SHARPSL_CHARGE_ON_TEMP         0xe0  /* 2.9V */
+#define SHARPSL_CHARGE_ON_ACIN_HIGH    0x9b  /* 6V */
+#define SHARPSL_CHARGE_ON_ACIN_LOW     0x34  /* 2V */
+#define SHARPSL_FATAL_ACIN_VOLT        182   /* 3.45V */
+#define SHARPSL_FATAL_NOACIN_VOLT      170   /* 3.40V */
 
 static int spitz_last_ac_status;
 
@@ -79,6 +79,8 @@ static void spitz_discharge(int on)
 	gpio_set_value(SPITZ_GPIO_JK_A, on);
 }
 
+/* HACK - For unknown reasons, accurate voltage readings are only made with a load
+   on the power bus which the green led on spitz provides */
 static void spitz_discharge1(int on)
 {
 	gpio_set_value(SPITZ_GPIO_LED_GREEN, on);
@@ -93,7 +95,7 @@ static void spitz_presuspend(void)
 {
 	spitz_last_ac_status = sharpsl_pm.machinfo->read_devdata(SHARPSL_STATUS_ACIN);
 
-	
+	/* GPIO Sleep Register */
 	PGSR0 = 0x00144018;
 	PGSR1 = 0x00EF0000;
 	if (machine_is_akita()) {
@@ -118,12 +120,12 @@ static void spitz_presuspend(void)
 	PFER = GPIO_bit(SPITZ_GPIO_KEY_INT) | GPIO_bit(SPITZ_GPIO_RESET);
 	PWER = GPIO_bit(SPITZ_GPIO_KEY_INT) | GPIO_bit(SPITZ_GPIO_RESET) | PWER_RTC;
 	PKWR = GPIO_bit(SPITZ_GPIO_SYNC) | GPIO_bit(SPITZ_GPIO_KEY_INT) | GPIO_bit(SPITZ_GPIO_RESET);
-	PKSR = 0xffffffff; 
+	PKSR = 0xffffffff; /* clear */
 
-	
+	/* nRESET_OUT Disable */
 	PSLR |= PSLR_SL_ROD;
 
-	
+	/* Stop 3.6MHz and drive HIGH to PCMCIA and CS */
 	PCFR = PCFR_GPR_EN | PCFR_OPDE;
 }
 
@@ -139,18 +141,18 @@ static int spitz_should_wakeup(unsigned int resume_on_alarm)
 
 	if (spitz_last_ac_status != acin) {
 		if (acin) {
-			
+			/* charge on */
 			sharpsl_pm.flags |= SHARPSL_DO_OFFLINE_CHRG;
 			dev_dbg(sharpsl_pm.dev, "AC Inserted\n");
 		} else {
-			
+			/* charge off */
 			dev_dbg(sharpsl_pm.dev, "AC Removed\n");
 			sharpsl_pm_led(SHARPSL_LED_OFF);
 			sharpsl_pm.machinfo->charge(0);
 			sharpsl_pm.charge_mode = CHRG_OFF;
 		}
 		spitz_last_ac_status = acin;
-		
+		/* Return to suspend as this must be what we were woken for */
 		return 0;
 	}
 

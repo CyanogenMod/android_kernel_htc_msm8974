@@ -12,7 +12,11 @@
 
 #include <lantiq_soc.h>
 
+/* PMU - the power management unit allows us to turn part of the core
+ * on and off
+ */
 
+/* the enable / disable registers */
 #define LTQ_PMU_PWDCR	0x1C
 #define LTQ_PMU_PWDSR	0x20
 

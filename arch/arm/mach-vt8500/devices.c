@@ -27,6 +27,7 @@
 #include <mach/i8042.h>
 #include "devices.h"
 
+/* These can't use resources currently */
 unsigned long wmt_ic_base __initdata;
 unsigned long wmt_sic_base __initdata;
 unsigned long wmt_gpio_base __initdata;
@@ -37,6 +38,9 @@ int wmt_nr_irqs __initdata;
 int wmt_timer_irq __initdata;
 int wmt_gpio_ext_irq[8] __initdata;
 
+/* Should remain accessible after init.
+ * i8042 driver desperately calls for attention...
+ */
 int wmt_i8042_kbd_irq;
 int wmt_i8042_aux_irq;
 
@@ -56,6 +60,7 @@ struct platform_device vt8500_device_wm8505_fb = {
 	.id             = 0,
 };
 
+/* Smallest to largest */
 static struct vt8500fb_platform_data panels[] = {
 #ifdef CONFIG_WMT_PANEL_800X480
 {
@@ -213,7 +218,7 @@ static struct platform_pwm_backlight_data vt8500_pwmbl_data = {
 	.pwm_id		= 0,
 	.max_brightness	= 128,
 	.dft_brightness = 70,
-	.pwm_period_ns	= 250000, 
+	.pwm_period_ns	= 250000, /* revisit when clocks are implemented */
 };
 
 struct platform_device vt8500_device_pwmbl = {
@@ -230,14 +235,14 @@ struct platform_device vt8500_device_rtc = {
 };
 
 struct map_desc wmt_io_desc[] __initdata = {
-	
+	/* SoC MMIO registers */
 	[0] = {
 		.virtual	= 0xf8000000,
 		.pfn		= __phys_to_pfn(0xd8000000),
-		.length		= 0x00390000, 
+		.length		= 0x00390000, /* max of all chip variants */
 		.type		= MT_DEVICE
 	},
-	
+	/* PCI I/O space, numbers tied to those in <mach/io.h> */
 	[1] = {
 		.virtual	= 0xf0000000,
 		.pfn		= __phys_to_pfn(0xc0000000),
@@ -249,7 +254,7 @@ struct map_desc wmt_io_desc[] __initdata = {
 void __init vt8500_reserve_mem(void)
 {
 #ifdef CONFIG_FB_VT8500
-	panels[current_panel_idx].bpp = 16; 
+	panels[current_panel_idx].bpp = 16; /* Always use RGB565 */
 	preallocate_fb(&panels[current_panel_idx], SZ_4M);
 	vt8500_device_lcdc.dev.platform_data = &panels[current_panel_idx];
 #endif
@@ -258,7 +263,7 @@ void __init vt8500_reserve_mem(void)
 void __init wm8505_reserve_mem(void)
 {
 #if defined CONFIG_FB_WM8505
-	panels[current_panel_idx].bpp = 32; 
+	panels[current_panel_idx].bpp = 32; /* Always use RGB888 */
 	preallocate_fb(&panels[current_panel_idx], 32);
 	vt8500_device_wm8505_fb.dev.platform_data = &panels[current_panel_idx];
 #endif

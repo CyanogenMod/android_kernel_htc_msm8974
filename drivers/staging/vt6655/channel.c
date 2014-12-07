@@ -26,11 +26,14 @@
 #include "device.h"
 #include "rf.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
 #define CARD_MAX_CHANNEL_TBL    56
 
+//static int msglevel = MSG_LEVEL_DEBUG;
 static int msglevel = MSG_LEVEL_INFO;
 
+/*---------------------  Static Variables  --------------------------*/
 
 static SChannelTblElement sChannelTbl[CARD_MAX_CHANNEL_TBL + 1] =
 {
@@ -93,14 +96,22 @@ static SChannelTblElement sChannelTbl[CARD_MAX_CHANNEL_TBL + 1] =
   {165, 5825, true,     0}
 };
 
+/************************************************************************
+ * The Radar regulation rules for each country
+ ************************************************************************/
 static struct
 {
-	unsigned char byChannelCountryCode;             
+	unsigned char byChannelCountryCode;             /* The country code         */
 	char chCountryCode[2];
-	unsigned char bChannelIdxList[CB_MAX_CHANNEL];  
+	unsigned char bChannelIdxList[CB_MAX_CHANNEL];  /* Available channels Index */
 	unsigned char byPower[CB_MAX_CHANNEL];
 } ChannelRuleTab[] =
 {
+/************************************************************************
+ * This table is based on Athero driver rules
+ ************************************************************************/
+/* Country          Available channels, ended with 0                    */
+/*                                              1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36  37  38  39  40  41  42  43  44  45  46  47  48  49  50  51  52  53  54  55  56  */
 {CCODE_FCC,                     {'U','S'},  {   1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  0,  1,  0,  1,  0,  1,  1,  1,  1,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,  1}
                                          ,  {  27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 17,  0, 17,  0, 17,  0, 17, 23, 23, 23, 23,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 30, 30, 30, 30, 30}  },
 {CCODE_TELEC,                   {'J','P'},  {   1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0,  1,  0,  0,  1,  0,  1,  1,  0,  1,  0,  0,  1,  1,  1,  0,  1,  0,  1,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0}
@@ -339,15 +350,37 @@ static struct
                                          ,  {   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0}  },
 {CCODE_MAX,                     {'U','N'},  {   1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1}
                                          ,  {   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0}  }
+/*                                              1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36  37  38  39  40  41  42  43  44  45  46  47  48  49  50  51  52  53  54  55  56  */
 };
 
+/*---------------------  Export Functions  --------------------------*/
 
+/**
+ * is_channel_valid() - Is Country Channel Valid
+ *  @ChanneIndex: defined as VT3253 MAC channel:
+ *              1   = 2.4G channel 1
+ *              2   = 2.4G channel 2
+ *              ...
+ *              14  = 2.4G channel 14
+ *              15  = 4.9G channel 183
+ *              16  = 4.9G channel 184
+ *              .....
+ *  Output: true if the specified 5GHz band is allowed to be used,
+ *          false otherwise.
+ * 4.9G => Ch 183, 184, 185, 187, 188, 189, 192, 196 (Value:15 ~ 22)
+ *
+ * 5G => Ch 7, 8, 9, 11, 12, 16, 34, 36, 38, 40, 42, 44, 46, 48, 52, 56, 60, 64,
+ * 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 149, 153, 157, 161, 165 (Value 23 ~ 56)
+ */
 
 bool is_channel_valid(unsigned int ChannelIndex)
 {
 	bool bValid;
 
 	bValid = false;
+	/*
+	 * If Channel Index is invalid, return invalid
+	 */
 	if ((ChannelIndex > CB_MAX_CHANNEL) ||
 		(ChannelIndex == 0))
 	{
@@ -362,6 +395,17 @@ exit:
 
 }
 
+/**
+ * channel_get_list() - Get Available Channel List for a given country
+ * @CountryCode: The country code defined in country.h
+ *
+ * Output:
+ *      pbyChannelTable:   (QWORD *) correspondent bit mask
+ *                          of available channels
+ *                          0x0000000000000001 means channel 1 is supported
+ *                          0x0000000000000003 means channel 1,2 are supported
+ *                          0x000000000000000F means channel 1,2,..15 are supported
+ */
 
 bool channel_get_list(unsigned int uCountryCodeIdx, unsigned char *pbyChannelTable)
 {
@@ -389,7 +433,7 @@ void init_channel_table(void *pDeviceHandler)
 		case RF_AL2230S:
 		case RF_UW2451 :
 		case RF_VT3226 :
-			
+			//printk("chester-false\n");
 			bMultiBand = false;
 			break;
 		case RF_AIROHA7230 :
@@ -413,7 +457,7 @@ void init_channel_table(void *pDeviceHandler)
 			}
 		} else {
 			for(ii = 0 ; ii<CHANNEL_MAX_24G ; ii++) {
-				
+				//2008-8-4 <add> by chester
 				if (ChannelRuleTab[pDevice->byZoneType].bChannelIdxList[ii] != 0) {
 					sChannelTbl[ii+1].bValid = true;
 					pDevice->abyRegPwr[ii+1] = pDevice->abyCCKDefaultPwr[ii+1];
@@ -468,10 +512,19 @@ unsigned char get_channel_mapping(void *pDeviceHandler, unsigned char byChannelN
 
 unsigned char get_channel_number(void *pDeviceHandler, unsigned char byChannelIndex)
 {
-	
+	//PSDevice    pDevice = (PSDevice) pDeviceHandler;
 	return(sChannelTbl[byChannelIndex].byChannelNumber);
 }
 
+/**
+ * set_channel() - Set NIC media channel
+ *
+ * @pDeviceHandler: The adapter to be set
+ * @uConnectionChannel: Channel to be set
+ *
+ * Return Value: true if succeeded; false if failed.
+ *
+ */
 bool set_channel (void *pDeviceHandler, unsigned int uConnectionChannel)
 {
 	PSDevice pDevice = (PSDevice) pDeviceHandler;
@@ -493,32 +546,32 @@ bool set_channel (void *pDeviceHandler, unsigned int uConnectionChannel)
 			(pDevice->eCurrentPHYType == PHY_TYPE_11A)) {
 		CARDbSetPhyParameter(pDevice, PHY_TYPE_11G, 0, 0, NULL, NULL);
 	}
-	
+	// clear NAV
 	MACvRegBitsOn(pDevice->PortOffset, MAC_REG_MACCR, MACCR_CLRNAV);
 
-	
-	
+	//{{ RobertYu: 20041202
+	//// TX_PE will reserve 3 us for MAX2829 A mode only, it is for better TX throughput
 
 	if ( pDevice->byRFType == RF_AIROHA7230 )
 	{
 		RFbAL7230SelectChannelPostProcess(pDevice->PortOffset, pDevice->byCurrentCh, (unsigned char)uConnectionChannel);
 	}
-	
+	//}} RobertYu
 
 
 	pDevice->byCurrentCh = (unsigned char)uConnectionChannel;
 	bResult &= RFbSelectChannel(pDevice->PortOffset, pDevice->byRFType, (unsigned char)uConnectionChannel);
 
-	
+	// Init Synthesizer Table
 	if (pDevice->bEnablePSMode == true)
 		RFvWriteWakeProgSyn(pDevice->PortOffset, pDevice->byRFType, uConnectionChannel);
 
 
-	
+	//DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"CARDbSetMediaChannel: %d\n", (unsigned char)uConnectionChannel);
 	BBvSoftwareReset(pDevice->PortOffset);
 
 	if (pDevice->byLocalID > REV_ID_VT3253_B1) {
-		
+		// set HW default power register
 		MACvSelectPage1(pDevice->PortOffset);
 		RFbSetPower(pDevice, RATE_1M, pDevice->byCurrentCh);
 		VNSvOutPortB(pDevice->PortOffset + MAC_REG_PWRCCK, pDevice->byCurPwr);
@@ -529,12 +582,12 @@ bool set_channel (void *pDeviceHandler, unsigned int uConnectionChannel)
 
 	if (pDevice->eCurrentPHYType == PHY_TYPE_11B) {
 #ifdef	PLICE_DEBUG
-		
+		//printk("Func:ChbSetChannel:call RFbSetPower:11B\n");
 #endif
 		RFbSetPower(pDevice, RATE_1M, pDevice->byCurrentCh);
 	} else {
 #ifdef	PLICE_DEBUG
-		
+		//printk("Func:ChbSetChannel:call RFbSetPower\n");
 #endif
 		RFbSetPower(pDevice, RATE_6M, pDevice->byCurrentCh);
 	}
@@ -542,6 +595,12 @@ bool set_channel (void *pDeviceHandler, unsigned int uConnectionChannel)
 	return(bResult);
 }
 
+/**
+ * set_country_info() - Set Channel Info of Country
+ *
+ * Return Value: none.
+ *
+ */
 
 void set_country_info(void *pDeviceHandler, CARD_PHY_TYPE ePHYType, void *pIE)
 {
@@ -583,6 +642,15 @@ void set_country_info(void *pDeviceHandler, CARD_PHY_TYPE ePHYType, void *pIE)
 	}
 }
 
+/**
+ *
+ * set_support_channels() - Set Support Channels IE defined in 802.11h
+ *
+ * @hDeviceContext: device structure point
+ *
+ * Return Value: none.
+ *
+ */
 
 unsigned char set_support_channels(void *pDeviceHandler, unsigned char *pbyIEs)
 {
@@ -598,7 +666,7 @@ unsigned char set_support_channels(void *pDeviceHandler, unsigned char *pbyIEs)
 	pIE->len = 0;
 	pbyChTupple = pIE->abyChannelTuple;
 	byLen = 2;
-	
+	// lower band
 	byCount = 0;
 	if (ChannelRuleTab[pDevice->byZoneType].bChannelIdxList[28] == true) {
 		for (ii = 28 ; ii < 36 ; ii+= 2) {
@@ -619,7 +687,7 @@ unsigned char set_support_channels(void *pDeviceHandler, unsigned char *pbyIEs)
 		*pbyChTupple++ = byCount;
 		byLen += 2;
 	}
-	
+	// middle band
 	byCount = 0;
 	if (ChannelRuleTab[pDevice->byZoneType].bChannelIdxList[36] == true) {
 		for (ii = 36 ; ii < 40 ; ii++) {
@@ -631,7 +699,7 @@ unsigned char set_support_channels(void *pDeviceHandler, unsigned char *pbyIEs)
 		*pbyChTupple++ = byCount;
 		byLen += 2;
 	}
-	
+	// higher band
 	byCount = 0;
 	if (ChannelRuleTab[pDevice->byZoneType].bChannelIdxList[40] == true) {
 		for (ii = 40 ; ii < 51 ; ii++) {

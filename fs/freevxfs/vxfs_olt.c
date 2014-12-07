@@ -27,6 +27,9 @@
  * SUCH DAMAGE.
  */
 
+/* 
+ * Veritas filesystem driver - object location table support.
+ */
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include <linux/kernel.h>
@@ -58,6 +61,18 @@ vxfs_oblock(struct super_block *sbp, daddr_t block, u_long bsize)
 }
 
 
+/**
+ * vxfs_read_olt - read olt
+ * @sbp:	superblock of the filesystem
+ * @bsize:	blocksize of the filesystem
+ *
+ * Description:
+ *   vxfs_read_olt reads the olt of the filesystem described by @sbp
+ *   into main memory and does some basic setup.
+ *
+ * Returns:
+ *   Zero on success, else a negative error code.
+ */
 int
 vxfs_read_olt(struct super_block *sbp, u_long bsize)
 {
@@ -77,6 +92,10 @@ vxfs_read_olt(struct super_block *sbp, u_long bsize)
 		goto fail;
 	}
 
+	/*
+	 * It is in theory possible that vsi_oltsize is > 1.
+	 * I've not seen any such filesystem yet and I'm lazy..  --hch
+	 */
 	if (infp->vsi_oltsize > 1) {
 		printk(KERN_NOTICE "vxfs: oltsize > 1 detected.\n");
 		printk(KERN_NOTICE "vxfs: please notify hch@infradead.org\n");

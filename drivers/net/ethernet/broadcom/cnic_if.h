@@ -63,7 +63,7 @@ struct kcqe {
 	u32 kcqe_info5;
 	u32 kcqe_info6;
 	u32 kcqe_op_flag;
-		#define KCQE_RAMROD_COMPLETION		(0x1<<27) 
+		#define KCQE_RAMROD_COMPLETION		(0x1<<27) /* Everest */
 		#define KCQE_FLAGS_LAYER_MASK		(0x7<<28)
 		#define KCQE_FLAGS_LAYER_MASK_MISC	(0<<28)
 		#define KCQE_FLAGS_LAYER_MASK_L2	(2<<28)
@@ -144,6 +144,10 @@ struct drv_ctl_info {
 
 struct cnic_ops {
 	struct module	*cnic_owner;
+	/* Calls to these functions are protected by RCU.  When
+	 * unregistering, we wait for any calls to complete before
+	 * continuing.
+	 */
 	int		(*cnic_handler)(void *, void *);
 	int		(*cnic_ctl)(void *, struct cnic_ctl_info *);
 };
@@ -312,6 +316,10 @@ struct cnic_dev {
 #define CNIC_RD16(dev, off)		readw(dev->regview + off)
 
 struct cnic_ulp_ops {
+	/* Calls to these functions are protected by RCU.  When
+	 * unregistering, we wait for any calls to complete before
+	 * continuing.
+	 */
 
 	void (*cnic_init)(struct cnic_dev *dev);
 	void (*cnic_exit)(struct cnic_dev *dev);

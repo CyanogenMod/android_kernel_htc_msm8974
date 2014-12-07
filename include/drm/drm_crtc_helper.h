@@ -23,6 +23,12 @@
  * OTHER DEALINGS IN THE SOFTWARE.
  */
 
+/*
+ * The DRM mode setting helper functions are common code for drivers to use if
+ * they wish.  Drivers are not forced to use this code in their
+ * implementations but it would be useful if they code they do use at least
+ * provides a consistent interface and operation to userspace
+ */
 
 #ifndef __DRM_CRTC_HELPER_H__
 #define __DRM_CRTC_HELPER_H__
@@ -39,30 +45,34 @@ enum mode_set_atomic {
 };
 
 struct drm_crtc_helper_funcs {
+	/*
+	 * Control power levels on the CRTC.  If the mode passed in is
+	 * unsupported, the provider must use the next lowest power level.
+	 */
 	void (*dpms)(struct drm_crtc *crtc, int mode);
 	void (*prepare)(struct drm_crtc *crtc);
 	void (*commit)(struct drm_crtc *crtc);
 
-	
+	/* Provider can fixup or change mode timings before modeset occurs */
 	bool (*mode_fixup)(struct drm_crtc *crtc,
 			   struct drm_display_mode *mode,
 			   struct drm_display_mode *adjusted_mode);
-	
+	/* Actually set the mode */
 	int (*mode_set)(struct drm_crtc *crtc, struct drm_display_mode *mode,
 			struct drm_display_mode *adjusted_mode, int x, int y,
 			struct drm_framebuffer *old_fb);
 
-	
+	/* Move the crtc on the current fb to the given position *optional* */
 	int (*mode_set_base)(struct drm_crtc *crtc, int x, int y,
 			     struct drm_framebuffer *old_fb);
 	int (*mode_set_base_atomic)(struct drm_crtc *crtc,
 				    struct drm_framebuffer *fb, int x, int y,
 				    enum mode_set_atomic);
 
-	
+	/* reload the current crtc LUT */
 	void (*load_lut)(struct drm_crtc *crtc);
 
-	
+	/* disable crtc when not in use - more explicit than dpms off */
 	void (*disable)(struct drm_crtc *crtc);
 };
 
@@ -80,10 +90,10 @@ struct drm_encoder_helper_funcs {
 			 struct drm_display_mode *mode,
 			 struct drm_display_mode *adjusted_mode);
 	struct drm_crtc *(*get_crtc)(struct drm_encoder *encoder);
-	
+	/* detect for DAC style encoders */
 	enum drm_connector_status (*detect)(struct drm_encoder *encoder,
 					    struct drm_connector *connector);
-	
+	/* disable encoder when not in use - more explicit than dpms off */
 	void (*disable)(struct drm_encoder *encoder);
 };
 

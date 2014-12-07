@@ -65,16 +65,38 @@ static struct ccw_device_id zfcp_ccw_device_id[] = {
 };
 MODULE_DEVICE_TABLE(ccw, zfcp_ccw_device_id);
 
+/**
+ * zfcp_ccw_priv_sch - check if subchannel is privileged
+ * @adapter: Adapter/Subchannel to check
+ */
 int zfcp_ccw_priv_sch(struct zfcp_adapter *adapter)
 {
 	return adapter->ccw_device->id.dev_model == ZFCP_MODEL_PRIV;
 }
 
+/**
+ * zfcp_ccw_probe - probe function of zfcp driver
+ * @cdev: pointer to belonging ccw device
+ *
+ * This function gets called by the common i/o layer for each FCP
+ * device found on the current system. This is only a stub to make cio
+ * work: To only allocate adapter resources for devices actually used,
+ * the allocation is deferred to the first call to ccw_set_online.
+ */
 static int zfcp_ccw_probe(struct ccw_device *cdev)
 {
 	return 0;
 }
 
+/**
+ * zfcp_ccw_remove - remove function of zfcp driver
+ * @cdev: pointer to belonging ccw device
+ *
+ * This function gets called by the common i/o layer and removes an adapter
+ * from the system. Task of this function is to get rid of all units and
+ * ports that belong to this adapter. And in addition all resources of this
+ * adapter will be freed too.
+ */
 static void zfcp_ccw_remove(struct ccw_device *cdev)
 {
 	struct zfcp_adapter *adapter;
@@ -98,7 +120,7 @@ static void zfcp_ccw_remove(struct ccw_device *cdev)
 		list_move(&port->list, &port_remove_lh);
 	}
 	write_unlock_irq(&adapter->port_list_lock);
-	zfcp_ccw_adapter_put(adapter); 
+	zfcp_ccw_adapter_put(adapter); /* put from zfcp_ccw_adapter_by_cdev */
 
 	list_for_each_entry_safe(unit, u, &unit_remove_lh, list)
 		zfcp_device_unregister(&unit->dev, &zfcp_sysfs_unit_attrs);
@@ -109,6 +131,19 @@ static void zfcp_ccw_remove(struct ccw_device *cdev)
 	zfcp_adapter_unregister(adapter);
 }
 
+/**
+ * zfcp_ccw_set_online - set_online function of zfcp driver
+ * @cdev: pointer to belonging ccw device
+ *
+ * This function gets called by the common i/o layer and sets an
+ * adapter into state online.  The first call will allocate all
+ * adapter resources that will be retained until the device is removed
+ * via zfcp_ccw_remove.
+ *
+ * Setting an fcp device online means that it will be registered with
+ * the SCSI stack, that the QDIO queues will be set up and that the
+ * adapter will be opened.
+ */
 static int zfcp_ccw_set_online(struct ccw_device *cdev)
 {
 	struct zfcp_adapter *adapter = zfcp_ccw_adapter_by_cdev(cdev);
@@ -125,7 +160,7 @@ static int zfcp_ccw_set_online(struct ccw_device *cdev)
 		kref_get(&adapter->ref);
 	}
 
-	
+	/* initialize request counter */
 	BUG_ON(!zfcp_reqlist_isempty(adapter->req_list));
 	adapter->req_no = 0;
 
@@ -134,6 +169,13 @@ static int zfcp_ccw_set_online(struct ccw_device *cdev)
 	return 0;
 }
 
+/**
+ * zfcp_ccw_set_offline - set_offline function of zfcp driver
+ * @cdev: pointer to belonging ccw device
+ *
+ * This function gets called by the common i/o layer and sets an adapter
+ * into state offline.
+ */
 static int zfcp_ccw_set_offline(struct ccw_device *cdev)
 {
 	struct zfcp_adapter *adapter = zfcp_ccw_adapter_by_cdev(cdev);
@@ -148,6 +190,14 @@ static int zfcp_ccw_set_offline(struct ccw_device *cdev)
 	return 0;
 }
 
+/**
+ * zfcp_ccw_notify - ccw notify function
+ * @cdev: pointer to belonging ccw device
+ * @event: indicates if adapter was detached or attached
+ *
+ * This function gets called by the common i/o layer if an adapter has gone
+ * or reappeared.
+ */
 static int zfcp_ccw_notify(struct ccw_device *cdev, int event)
 {
 	struct zfcp_adapter *adapter = zfcp_ccw_adapter_by_cdev(cdev);
@@ -183,6 +233,10 @@ static int zfcp_ccw_notify(struct ccw_device *cdev, int event)
 	return 1;
 }
 
+/**
+ * zfcp_ccw_shutdown - handle shutdown from cio
+ * @cdev: device for adapter to shutdown.
+ */
 static void zfcp_ccw_shutdown(struct ccw_device *cdev)
 {
 	struct zfcp_adapter *adapter = zfcp_ccw_adapter_by_cdev(cdev);

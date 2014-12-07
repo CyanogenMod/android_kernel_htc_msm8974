@@ -22,37 +22,39 @@
 
 #include "ad7280a.h"
 
-#define AD7280A_CELL_VOLTAGE_1		0x0  
-#define AD7280A_CELL_VOLTAGE_2		0x1  
-#define AD7280A_CELL_VOLTAGE_3		0x2  
-#define AD7280A_CELL_VOLTAGE_4		0x3  
-#define AD7280A_CELL_VOLTAGE_5		0x4  
-#define AD7280A_CELL_VOLTAGE_6		0x5  
-#define AD7280A_AUX_ADC_1		0x6  
-#define AD7280A_AUX_ADC_2		0x7  
-#define AD7280A_AUX_ADC_3		0x8  
-#define AD7280A_AUX_ADC_4		0x9  
-#define AD7280A_AUX_ADC_5		0xA  
-#define AD7280A_AUX_ADC_6		0xB  
-#define AD7280A_SELF_TEST		0xC  
-#define AD7280A_CONTROL_HB		0xD  
-#define AD7280A_CONTROL_LB		0xE  
-#define AD7280A_CELL_OVERVOLTAGE	0xF  
-#define AD7280A_CELL_UNDERVOLTAGE	0x10 
-#define AD7280A_AUX_ADC_OVERVOLTAGE	0x11 
-#define AD7280A_AUX_ADC_UNDERVOLTAGE	0x12 
-#define AD7280A_ALERT			0x13 
-#define AD7280A_CELL_BALANCE		0x14 
-#define AD7280A_CB1_TIMER		0x15 
-#define AD7280A_CB2_TIMER		0x16 
-#define AD7280A_CB3_TIMER		0x17 
-#define AD7280A_CB4_TIMER		0x18 
-#define AD7280A_CB5_TIMER		0x19 
-#define AD7280A_CB6_TIMER		0x1A 
-#define AD7280A_PD_TIMER		0x1B 
-#define AD7280A_READ			0x1C 
-#define AD7280A_CNVST_CONTROL		0x1D 
+/* Registers */
+#define AD7280A_CELL_VOLTAGE_1		0x0  /* D11 to D0, Read only */
+#define AD7280A_CELL_VOLTAGE_2		0x1  /* D11 to D0, Read only */
+#define AD7280A_CELL_VOLTAGE_3		0x2  /* D11 to D0, Read only */
+#define AD7280A_CELL_VOLTAGE_4		0x3  /* D11 to D0, Read only */
+#define AD7280A_CELL_VOLTAGE_5		0x4  /* D11 to D0, Read only */
+#define AD7280A_CELL_VOLTAGE_6		0x5  /* D11 to D0, Read only */
+#define AD7280A_AUX_ADC_1		0x6  /* D11 to D0, Read only */
+#define AD7280A_AUX_ADC_2		0x7  /* D11 to D0, Read only */
+#define AD7280A_AUX_ADC_3		0x8  /* D11 to D0, Read only */
+#define AD7280A_AUX_ADC_4		0x9  /* D11 to D0, Read only */
+#define AD7280A_AUX_ADC_5		0xA  /* D11 to D0, Read only */
+#define AD7280A_AUX_ADC_6		0xB  /* D11 to D0, Read only */
+#define AD7280A_SELF_TEST		0xC  /* D11 to D0, Read only */
+#define AD7280A_CONTROL_HB		0xD  /* D15 to D8, Read/write */
+#define AD7280A_CONTROL_LB		0xE  /* D7 to D0, Read/write */
+#define AD7280A_CELL_OVERVOLTAGE	0xF  /* D7 to D0, Read/write */
+#define AD7280A_CELL_UNDERVOLTAGE	0x10 /* D7 to D0, Read/write */
+#define AD7280A_AUX_ADC_OVERVOLTAGE	0x11 /* D7 to D0, Read/write */
+#define AD7280A_AUX_ADC_UNDERVOLTAGE	0x12 /* D7 to D0, Read/write */
+#define AD7280A_ALERT			0x13 /* D7 to D0, Read/write */
+#define AD7280A_CELL_BALANCE		0x14 /* D7 to D0, Read/write */
+#define AD7280A_CB1_TIMER		0x15 /* D7 to D0, Read/write */
+#define AD7280A_CB2_TIMER		0x16 /* D7 to D0, Read/write */
+#define AD7280A_CB3_TIMER		0x17 /* D7 to D0, Read/write */
+#define AD7280A_CB4_TIMER		0x18 /* D7 to D0, Read/write */
+#define AD7280A_CB5_TIMER		0x19 /* D7 to D0, Read/write */
+#define AD7280A_CB6_TIMER		0x1A /* D7 to D0, Read/write */
+#define AD7280A_PD_TIMER		0x1B /* D7 to D0, Read/write */
+#define AD7280A_READ			0x1C /* D7 to D0, Read/write */
+#define AD7280A_CNVST_CONTROL		0x1D /* D7 to D0, Read/write */
 
+/* Bits and Masks */
 #define AD7280A_CTRL_HB_CONV_INPUT_ALL			(0 << 6)
 #define AD7280A_CTRL_HB_CONV_INPUT_6CELL_AUX1_3_4	(1 << 6)
 #define AD7280A_CTRL_HB_CONV_INPUT_6CELL		(2 << 6)
@@ -87,7 +89,7 @@
 
 #define AD7280A_ALL_CELLS				(0xAD << 16)
 
-#define AD7280A_MAX_SPI_CLK_Hz		700000 
+#define AD7280A_MAX_SPI_CLK_Hz		700000 /* < 1MHz */
 #define AD7280A_MAX_CHAIN		8
 #define AD7280A_CELLS_PER_DEV		6
 #define AD7280A_BITS			12
@@ -96,12 +98,23 @@
 
 #define AD7280A_DEVADDR_MASTER		0
 #define AD7280A_DEVADDR_ALL		0x1F
+/* 5-bit device address is sent LSB first */
 #define AD7280A_DEVADDR(addr)	(((addr & 0x1) << 4) | ((addr & 0x2) << 3) | \
 				(addr & 0x4) | ((addr & 0x8) >> 3) | \
 				((addr & 0x10) >> 4))
 
+/* During a read a valid write is mandatory.
+ * So writing to the highest available address (Address 0x1F)
+ * and setting the address all parts bit to 0 is recommended
+ * So the TXVAL is AD7280A_DEVADDR_ALL + CRC
+ */
 #define AD7280A_READ_TXVAL	0xF800030A
 
+/*
+ * AD7280 CRC
+ *
+ * P(x) = x^8 + x^5 + x^3 + x^2 + x^1 + x^0 = 0b100101111 => 0x2F
+ */
 #define POLYNOM		0x2F
 #define POLYNOM_ORDER	8
 #define HIGHBIT		1 << (POLYNOM_ORDER - 1);
@@ -160,6 +173,13 @@ static int ad7280_check_crc(struct ad7280_state *st, unsigned val)
 	return 0;
 }
 
+/* After initiating a conversion sequence we need to wait until the
+ * conversion is done. The delay is typically in the range of 15..30 us
+ * however depending an the number of devices in the daisy chain and the
+ * number of averages taken, conversion delays and acquisition time options
+ * it may take up to 250us, in this case we better sleep instead of busy
+ * wait.
+ */
 
 static void ad7280_delay(struct ad7280_state *st)
 {
@@ -211,7 +231,7 @@ static int ad7280_read(struct ad7280_state *st, unsigned devaddr,
 	int ret;
 	unsigned tmp;
 
-	
+	/* turns off the read operation on all parts */
 	ret = ad7280_write(st, AD7280A_DEVADDR_MASTER, AD7280A_CONTROL_HB, 1,
 			AD7280A_CTRL_HB_CONV_INPUT_ALL |
 			AD7280A_CTRL_HB_CONV_RES_READ_NO |
@@ -219,7 +239,7 @@ static int ad7280_read(struct ad7280_state *st, unsigned devaddr,
 	if (ret)
 		return ret;
 
-	
+	/* turns on the read operation on the addressed part */
 	ret = ad7280_write(st, devaddr, AD7280A_CONTROL_HB, 0,
 			AD7280A_CTRL_HB_CONV_INPUT_ALL |
 			AD7280A_CTRL_HB_CONV_RES_READ_ALL |
@@ -227,7 +247,7 @@ static int ad7280_read(struct ad7280_state *st, unsigned devaddr,
 	if (ret)
 		return ret;
 
-	
+	/* Set register address on the part to be read from */
 	ret = ad7280_write(st, devaddr, AD7280A_READ, 0, addr << 2);
 	if (ret)
 		return ret;
@@ -310,7 +330,7 @@ static int ad7280_read_all_channels(struct ad7280_state *st, unsigned cnt,
 
 		if (array)
 			array[i] = tmp;
-		
+		/* only sum cell voltages */
 		if (((tmp >> 23) & 0xF) <= AD7280A_CELL_VOLTAGE_6)
 			sum += ((tmp >> 11) & 0xFFF);
 	}
@@ -620,11 +640,11 @@ static ssize_t ad7280_write_channel_config(struct device *dev,
 	switch ((u32) this_attr->address) {
 	case AD7280A_CELL_OVERVOLTAGE:
 	case AD7280A_CELL_UNDERVOLTAGE:
-		val = ((val - 1000) * 100) / 1568; 
+		val = ((val - 1000) * 100) / 1568; /* LSB 15.68mV */
 		break;
 	case AD7280A_AUX_ADC_OVERVOLTAGE:
 	case AD7280A_AUX_ADC_UNDERVOLTAGE:
-		val = (val * 10) / 196; 
+		val = (val * 10) / 196; /* LSB 19.6mV */
 		break;
 	default:
 		return -EFAULT;
@@ -848,6 +868,13 @@ static int __devinit ad7280_probe(struct spi_device *spi)
 	st->cell_threshhigh = 0xFF;
 	st->aux_threshhigh = 0xFF;
 
+	/*
+	 * Total Conversion Time = ((tACQ + tCONV) *
+	 *			   (Number of Conversions per Part)) −
+	 *			   tACQ + ((N - 1) * tDELAY)
+	 *
+	 * Readback Delay = Total Conversion Time + tWAIT
+	 */
 
 	st->readback_delay_us =
 		((tACQ_ns[pdata->acquisition_time & 0x3] + 695) *
@@ -855,9 +882,9 @@ static int __devinit ad7280_probe(struct spi_device *spi)
 		- tACQ_ns[pdata->acquisition_time & 0x3] +
 		st->slave_num * 250;
 
-	
+	/* Convert to usecs */
 	st->readback_delay_us = DIV_ROUND_UP(st->readback_delay_us, 1000);
-	st->readback_delay_us += 5; 
+	st->readback_delay_us += 5; /* Add tWAIT */
 
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->dev.parent = &spi->dev;

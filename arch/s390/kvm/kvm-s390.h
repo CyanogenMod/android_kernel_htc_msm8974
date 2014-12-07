@@ -19,10 +19,12 @@
 #include <linux/kvm.h>
 #include <linux/kvm_host.h>
 
+/* The current code can have up to 256 pages for virtio */
 #define VIRTIODESCSPACE (256ul * 4096ul)
 
 typedef int (*intercept_handler_t)(struct kvm_vcpu *vcpu);
 
+/* negativ values are error codes, positive values for internal conditions */
 #define SIE_INTERCEPT_RERUNVCPU		(1<<0)
 #define SIE_INTERCEPT_UCONTROL		(1<<1)
 int kvm_handle_sie_intercept(struct kvm_vcpu *vcpu);
@@ -74,13 +76,17 @@ int kvm_s390_inject_vcpu(struct kvm_vcpu *vcpu,
 int kvm_s390_inject_program_int(struct kvm_vcpu *vcpu, u16 code);
 int kvm_s390_inject_sigp_stop(struct kvm_vcpu *vcpu, int action);
 
+/* implemented in priv.c */
 int kvm_s390_handle_b2(struct kvm_vcpu *vcpu);
 int kvm_s390_handle_e5(struct kvm_vcpu *vcpu);
 
+/* implemented in sigp.c */
 int kvm_s390_handle_sigp(struct kvm_vcpu *vcpu);
 
+/* implemented in kvm-s390.c */
 int kvm_s390_vcpu_store_status(struct kvm_vcpu *vcpu,
 				 unsigned long addr);
+/* implemented in diag.c */
 int kvm_s390_handle_diag(struct kvm_vcpu *vcpu);
 
 #endif

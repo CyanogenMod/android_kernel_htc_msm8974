@@ -27,6 +27,7 @@
 #include <asm/clock.h>
 #include <cpu/sh7724.h>
 
+/* SH7724 registers */
 #define FRQCRA		0xa4150000
 #define FRQCRB		0xa4150004
 #define VCLKCR		0xa4150048
@@ -41,14 +42,20 @@
 #define FLLFRQ		0xa4150050
 #define LSTATS		0xa4150060
 
+/* Fixed 32 KHz root clock for RTC and Power Management purposes */
 static struct clk r_clk = {
 	.rate           = 32768,
 };
 
+/*
+ * Default rate for the root input clock, reset this with clk_set_rate()
+ * from the platform code.
+ */
 static struct clk extal_clk = {
 	.rate		= 33333333,
 };
 
+/* The fll multiplies the 32khz r_clk, may be used instead of extal */
 static unsigned long fll_recalc(struct clk *clk)
 {
 	unsigned long mult = 0;
@@ -92,6 +99,7 @@ static struct clk pll_clk = {
 	.flags		= CLK_ENABLE_ON_INIT,
 };
 
+/* A fixed divide-by-3 block use by the div6 clocks */
 static unsigned long div3_recalc(struct clk *clk)
 {
 	return clk->parent->rate / 3;
@@ -106,6 +114,7 @@ static struct clk div3_clk = {
 	.parent		= &pll_clk,
 };
 
+/* External input clock (pin name: FSIMCKA/FSIMCKB/DV_CLKI ) */
 struct clk sh7724_fsimcka_clk = {
 };
 
@@ -130,7 +139,7 @@ static void div4_kick(struct clk *clk)
 {
 	unsigned long value;
 
-	
+	/* set KICK bit in FRQCRA to update hardware setting */
 	value = __raw_readl(FRQCRA);
 	value |= (1 << 31);
 	__raw_writel(value, FRQCRA);
@@ -163,6 +172,7 @@ struct clk div4_clks[DIV4_NR] = {
 
 enum { DIV6_V, DIV6_I, DIV6_S, DIV6_FA, DIV6_FB, DIV6_NR };
 
+/* Indices are important - they are the actual src selecting values */
 static struct clk *common_parent[] = {
 	[0] = &div3_clk,
 	[1] = NULL,
@@ -259,28 +269,28 @@ static struct clk mstp_clks[HWBLK_NR] = {
 };
 
 static struct clk_lookup lookups[] = {
-	
+	/* main clocks */
 	CLKDEV_CON_ID("rclk", &r_clk),
 	CLKDEV_CON_ID("extal", &extal_clk),
 	CLKDEV_CON_ID("fll_clk", &fll_clk),
 	CLKDEV_CON_ID("pll_clk", &pll_clk),
 	CLKDEV_CON_ID("div3_clk", &div3_clk),
 
-	
+	/* DIV4 clocks */
 	CLKDEV_CON_ID("cpu_clk", &div4_clks[DIV4_I]),
 	CLKDEV_CON_ID("shyway_clk", &div4_clks[DIV4_SH]),
 	CLKDEV_CON_ID("bus_clk", &div4_clks[DIV4_B]),
 	CLKDEV_CON_ID("peripheral_clk", &div4_clks[DIV4_P]),
 	CLKDEV_CON_ID("vpu_clk", &div4_clks[DIV4_M1]),
 
-	
+	/* DIV6 clocks */
 	CLKDEV_CON_ID("video_clk", &div6_clks[DIV6_V]),
 	CLKDEV_CON_ID("fsia_clk", &div6_clks[DIV6_FA]),
 	CLKDEV_CON_ID("fsib_clk", &div6_clks[DIV6_FB]),
 	CLKDEV_CON_ID("irda_clk", &div6_clks[DIV6_I]),
 	CLKDEV_CON_ID("spu_clk", &div6_clks[DIV6_S]),
 
-	
+	/* MSTP clocks */
 	CLKDEV_CON_ID("tlb0", &mstp_clks[HWBLK_TLB]),
 	CLKDEV_CON_ID("ic0", &mstp_clks[HWBLK_IC]),
 	CLKDEV_CON_ID("oc0", &mstp_clks[HWBLK_OC]),
@@ -347,7 +357,7 @@ int __init arch_clk_init(void)
 {
 	int k, ret = 0;
 
-	
+	/* autodetect extal or fll configuration */
 	if (__raw_readl(PLLCR) & 0x1000)
 		pll_clk.parent = &fll_clk;
 	else

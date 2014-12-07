@@ -22,11 +22,18 @@
 #include "rmnet_data_config.h"
 #include "rmnet_data_vnd.h"
 
+/* ***************** Module Parameters ************************************** */
 unsigned int rmnet_data_log_level = RMNET_LOG_LVL_ERR | RMNET_LOG_LVL_HI;
 module_param(rmnet_data_log_level, uint,  S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(log_level, "Logging level");
 
+/* ***************** Startup/Shutdown *************************************** */
 
+/**
+ * rmnet_init() - Module initialization
+ *
+ * todo: check for (and init) startup errors
+ */
 static int __init rmnet_init(void)
 {
 	rmnet_config_init();

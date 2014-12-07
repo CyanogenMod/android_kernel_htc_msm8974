@@ -12,10 +12,15 @@
 #include <linux/mfd/abx500/ab8500.h>
 #include <linux/module.h>
 
+/*
+ * PWM Out generators
+ * Bank: 0x10
+ */
 #define AB8500_PWM_OUT_CTRL1_REG	0x60
 #define AB8500_PWM_OUT_CTRL2_REG	0x61
 #define AB8500_PWM_OUT_CTRL7_REG	0x66
 
+/* backlight driver constants */
 #define ENABLE_PWM			1
 #define DISABLE_PWM			0
 
@@ -111,6 +116,10 @@ EXPORT_SYMBOL(pwm_free);
 static int __devinit ab8500_pwm_probe(struct platform_device *pdev)
 {
 	struct pwm_device *pwm;
+	/*
+	 * Nothing to be done in probe, this is required to get the
+	 * device which is required for ab8500 read and write
+	 */
 	pwm = kzalloc(sizeof(struct pwm_device), GFP_KERNEL);
 	if (pwm == NULL) {
 		dev_err(&pdev->dev, "failed to allocate memory\n");

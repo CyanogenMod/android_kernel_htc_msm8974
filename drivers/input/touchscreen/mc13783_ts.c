@@ -48,6 +48,12 @@ static irqreturn_t mc13783_ts_handler(int irq, void *data)
 
 	mc13xxx_irq_ack(priv->mc13xxx, irq);
 
+	/*
+	 * Kick off reading coordinates. Note that if work happens already
+	 * be queued for future execution (it rearms itself) it will not
+	 * be rescheduled for immediate execution here. However the rearm
+	 * delay is HZ / 50 which is acceptable.
+	 */
 	queue_delayed_work(priv->workq, &priv->work, 0);
 
 	return IRQ_HANDLED;
@@ -68,6 +74,10 @@ static void mc13783_ts_report_sample(struct mc13783_ts_priv *priv)
 	int x0, x1, x2, y0, y1, y2;
 	int cr0, cr1;
 
+	/*
+	 * the values are 10-bit wide only, but the two least significant
+	 * bits are for future 12 bit use and reading yields 0
+	 */
 	x0 = priv->sample[0] & 0xfff;
 	x1 = priv->sample[1] & 0xfff;
 	x2 = priv->sample[2] & 0xfff;
@@ -89,7 +99,7 @@ static void mc13783_ts_report_sample(struct mc13783_ts_priv *priv)
 	if (!cr0 || !sample_tolerance ||
 			(x2 - x0 < sample_tolerance &&
 			 y2 - y0 < sample_tolerance)) {
-		
+		/* report the median coordinate and average pressure */
 		if (cr0) {
 			input_report_abs(idev, ABS_X, x1);
 			input_report_abs(idev, ABS_Y, y1);
@@ -179,6 +189,10 @@ static int __init mc13783_ts_probe(struct platform_device *pdev)
 		goto err_free_mem;
 	}
 
+	/*
+	 * We need separate workqueue because mc13783_adc_do_conversion
+	 * uses keventd and thus would deadlock.
+	 */
 	priv->workq = create_singlethread_workqueue("mc13783_ts");
 	if (!priv->workq)
 		goto err_free_mem;

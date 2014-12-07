@@ -28,7 +28,7 @@
 #include <sound/control.h>
 #include <sound/asoundef.h>
 
-#define MONO_SUM_SCALE	0x19a8	
+#define MONO_SUM_SCALE	0x19a8	/* 2^(-0.5) in 14-bit floating format */
 #define MAX_MULTI_CHN	8
 
 #define IEC958_DEFAULT_CON ((IEC958_AES0_NONAUDIO \
@@ -45,7 +45,7 @@ static struct snd_pci_quirk __devinitdata subsys_20k1_list[] = {
 	SND_PCI_QUIRK(PCI_VENDOR_ID_CREATIVE, 0x0031, "SB073x", CTSB073X),
 	SND_PCI_QUIRK_MASK(PCI_VENDOR_ID_CREATIVE, 0xf000, 0x6000,
 			   "UAA", CTUAA),
-	{ } 
+	{ } /* terminator */
 };
 
 static struct snd_pci_quirk __devinitdata subsys_20k2_list[] = {
@@ -62,16 +62,16 @@ static struct snd_pci_quirk __devinitdata subsys_20k2_list[] = {
 	SND_PCI_QUIRK_MASK(PCI_VENDOR_ID_CREATIVE, 0xf000,
 			   PCI_SUBDEVICE_ID_CREATIVE_HENDRIX, "HENDRIX",
 			   CTHENDRIX),
-	{ } 
+	{ } /* terminator */
 };
 
 static const char *ct_subsys_name[NUM_CTCARDS] = {
-	
+	/* 20k1 models */
 	[CTSB055X]	= "SB055x",
 	[CTSB073X]	= "SB073x",
 	[CTUAA]		= "UAA",
 	[CT20K1_UNKNOWN] = "Unknown",
-	
+	/* 20k2 models */
 	[CTSB0760]	= "SB076x",
 	[CTHENDRIX]	= "Hendrix",
 	[CTSB0880]	= "SB0880",
@@ -128,6 +128,10 @@ static struct {
 static int
 atc_pcm_release_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm);
 
+/* *
+ * Only mono and interleaved modes are supported now.
+ * Always allocates a contiguous channel block.
+ * */
 
 static int ct_map_audio_buffer(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 {
@@ -193,7 +197,7 @@ atc_get_pitch(unsigned int input_rate, unsigned int output_rate)
 	unsigned int pitch;
 	int b;
 
-	
+	/* get pitch and convert to fixed-point 8.24 format. */
 	pitch = (input_rate / output_rate) << 24;
 	input_rate %= output_rate;
 	input_rate /= 100;
@@ -219,16 +223,16 @@ atc_get_pitch(unsigned int input_rate, unsigned int output_rate)
 static int select_rom(unsigned int pitch)
 {
 	if (pitch > 0x00428f5c && pitch < 0x01b851ec) {
-		
+		/* 0.26 <= pitch <= 1.72 */
 		return 1;
 	} else if (pitch == 0x01d66666 || pitch == 0x01d66667) {
-		
+		/* pitch == 1.8375 */
 		return 2;
 	} else if (pitch == 0x02000000) {
-		
+		/* pitch == 2 */
 		return 3;
 	} else if (pitch <= 0x08000000) {
-		
+		/* 0 <= pitch <= 8 */
 		return 0;
 	} else {
 		return -ENOENT;
@@ -248,10 +252,10 @@ static int atc_pcm_playback_prepare(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	int device = apcm->substream->pcm->device;
 	unsigned int pitch;
 
-	
+	/* first release old resources */
 	atc_pcm_release_resources(atc, apcm);
 
-	
+	/* Get SRC resource */
 	desc.multi = apcm->substream->runtime->channels;
 	desc.msr = atc->msr;
 	desc.mode = MEMRD;
@@ -267,7 +271,7 @@ static int atc_pcm_playback_prepare(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	src->ops->set_sf(src, convert_format(apcm->substream->runtime->format));
 	src->ops->set_pm(src, (src->ops->next_interleave(src) != NULL));
 
-	
+	/* Get AMIXER resource */
 	n_amixer = (n_amixer < 2) ? 2 : n_amixer;
 	apcm->amixers = kzalloc(sizeof(void *)*n_amixer, GFP_KERNEL);
 	if (!apcm->amixers) {
@@ -284,12 +288,12 @@ static int atc_pcm_playback_prepare(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 		apcm->n_amixer++;
 	}
 
-	
+	/* Set up device virtual mem map */
 	err = ct_map_audio_buffer(atc, apcm);
 	if (err < 0)
 		goto error1;
 
-	
+	/* Connect resources */
 	src = apcm->src;
 	for (i = 0; i < n_amixer; i++) {
 		amixer = apcm->amixers[i];
@@ -361,7 +365,7 @@ atc_pcm_release_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	}
 
 	if (apcm->vm_block) {
-		
+		/* Undo device virtual mem map */
 		ct_unmap_audio_buffer(atc, apcm);
 		apcm->vm_block = NULL;
 	}
@@ -451,18 +455,20 @@ static void setup_src_node_conf(struct ct_atc *atc, struct ct_atc_pcm *apcm,
 {
 	unsigned int pitch;
 
-	
+	/* get pitch and convert to fixed-point 8.24 format. */
 	pitch = atc_get_pitch((atc->rsr * atc->msr),
 				apcm->substream->runtime->rate);
 	*n_srcc = 0;
 
-	if (1 == atc->msr) { 
+	if (1 == atc->msr) { /* FIXME: do we really need SRC here if pitch==1 */
 		*n_srcc = apcm->substream->runtime->channels;
 		conf[0].pitch = pitch;
 		conf[0].mix_msr = conf[0].imp_msr = conf[0].msr = 1;
 		conf[0].vo = 1;
 	} else if (2 <= atc->msr) {
 		if (0x8000000 < pitch) {
+			/* Need two-stage SRCs, SRCIMPs and
+			 * AMIXERs for converting format */
 			conf[0].pitch = (atc->msr << 24);
 			conf[0].msr = conf[0].mix_msr = 1;
 			conf[0].imp_msr = atc->msr;
@@ -473,6 +479,8 @@ static void setup_src_node_conf(struct ct_atc *atc, struct ct_atc_pcm *apcm,
 			conf[1].vo = 1;
 			*n_srcc = apcm->substream->runtime->channels * 2;
 		} else if (0x1000000 < pitch) {
+			/* Need one-stage SRCs, SRCIMPs and
+			 * AMIXERs for converting format */
 			conf[0].pitch = pitch;
 			conf[0].msr = conf[0].mix_msr
 				    = conf[0].imp_msr = atc->msr;
@@ -500,13 +508,15 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	int n_srcimp, n_amixer, n_srcc, n_sum;
 	struct src_node_conf_t src_node_conf[2] = {{0} };
 
-	
+	/* first release old resources */
 	atc_pcm_release_resources(atc, apcm);
 
+	/* The numbers of converting SRCs and SRCIMPs should be determined
+	 * by pitch value. */
 
 	multi = apcm->substream->runtime->channels;
 
-	
+	/* get pitch and convert to fixed-point 8.24 format. */
 	pitch = atc_get_pitch((atc->rsr * atc->msr),
 				apcm->substream->runtime->rate);
 
@@ -515,6 +525,8 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	n_amixer = n_sum * 2 + n_srcc;
 	n_srcimp = n_srcc;
 	if ((multi > 1) && (0x8000000 >= pitch)) {
+		/* Need extra AMIXERs and SRCIMPs for special treatment
+		 * of interleaved recording of conjugate channels */
 		n_amixer += multi * atc->msr;
 		n_srcimp += multi * atc->msr;
 	} else {
@@ -539,7 +551,7 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 		goto error1;
 	}
 
-	
+	/* Allocate SRCs for sample rate conversion if needed */
 	src_dsc.multi = 1;
 	src_dsc.mode = ARCRW;
 	for (i = 0, apcm->n_srcc = 0; i < n_srcc; i++) {
@@ -558,7 +570,7 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 		apcm->n_srcc++;
 	}
 
-	
+	/* Allocate AMIXERs for routing SRCs of conversion if needed */
 	for (i = 0, apcm->n_amixer = 0; i < n_amixer; i++) {
 		if (i < (n_sum*2))
 			mix_dsc.msr = atc->msr;
@@ -575,7 +587,7 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 		apcm->n_amixer++;
 	}
 
-	
+	/* Allocate a SUM resource to mix all input channels together */
 	sum_dsc.msr = atc->msr;
 	err = sum_mgr->get_sum(sum_mgr, &sum_dsc, (struct sum **)&apcm->mono);
 	if (err)
@@ -583,7 +595,7 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 
 	pitch = atc_get_pitch((atc->rsr * atc->msr),
 				apcm->substream->runtime->rate);
-	
+	/* Allocate SRCIMP resources */
 	for (i = 0, apcm->n_srcimp = 0; i < n_srcimp; i++) {
 		if (i < (n_srcc))
 			srcimp_dsc.msr = src_node_conf[i/multi].imp_msr;
@@ -600,7 +612,7 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 		apcm->n_srcimp++;
 	}
 
-	
+	/* Allocate a SRC for writing data to host memory */
 	src_dsc.multi = apcm->substream->runtime->channels;
 	src_dsc.msr = 1;
 	src_dsc.mode = MEMWR;
@@ -611,7 +623,7 @@ atc_pcm_capture_get_resources(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	src = apcm->src;
 	src->ops->set_pitch(src, pitch);
 
-	
+	/* Set up device virtual mem map */
 	err = ct_map_audio_buffer(atc, apcm);
 	if (err < 0)
 		goto error1;
@@ -637,12 +649,12 @@ static int atc_pcm_capture_prepare(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 
 	atc_pcm_release_resources(atc, apcm);
 
-	
+	/* Get needed resources. */
 	err = atc_pcm_capture_get_resources(atc, apcm);
 	if (err)
 		return err;
 
-	
+	/* Connect resources */
 	mixer->get_output_ports(mixer, MIX_PCMO_FRONT,
 				&out_ports[0], &out_ports[1]);
 
@@ -672,6 +684,8 @@ static int atc_pcm_capture_prepare(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 				apcm->substream->runtime->rate);
 
 	if ((multi > 1) && (pitch <= 0x8000000)) {
+		/* Special connection for interleaved
+		 * recording with conjugate channels */
 		for (i = 0; i < multi; i++) {
 			out_ports[i]->ops->master(out_ports[i]);
 			for (j = 0; j < atc->msr; j++) {
@@ -710,14 +724,14 @@ static int atc_pcm_capture_start(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 
 	apcm->started = 1;
 	multi = apcm->substream->runtime->channels;
-	
+	/* Set up converting SRCs */
 	for (i = 0; i < apcm->n_srcc; i++) {
 		src = apcm->srccs[i];
 		src->ops->set_pm(src, ((i%multi) != (multi-1)));
 		src_mgr->src_disable(src_mgr, src);
 	}
 
-	
+	/*  Set up recording SRC */
 	src = apcm->src;
 	src->ops->set_sf(src, convert_format(apcm->substream->runtime->format));
 	src->ops->set_sa(src, apcm->vm_block->addr);
@@ -725,10 +739,10 @@ static int atc_pcm_capture_start(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	src->ops->set_ca(src, apcm->vm_block->addr);
 	src_mgr->src_disable(src_mgr, src);
 
-	
+	/* Disable relevant SRCs firstly */
 	src_mgr->commit_write(src_mgr);
 
-	
+	/* Enable SRCs respectively */
 	for (i = 0; i < apcm->n_srcc; i++) {
 		src = apcm->srccs[i];
 		src->ops->set_state(src, SRC_STATE_RUN);
@@ -741,7 +755,7 @@ static int atc_pcm_capture_start(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 	src->ops->commit_write(src);
 	src_mgr->src_enable_s(src_mgr, src);
 
-	
+	/* Enable relevant SRCs synchronously */
 	src_mgr->commit_write(src_mgr);
 
 	ct_timer_start(apcm->timer);
@@ -770,10 +784,10 @@ static int spdif_passthru_playback_get_resources(struct ct_atc *atc,
 	int n_amixer = apcm->substream->runtime->channels, i;
 	unsigned int pitch, rsr = atc->pll_rate;
 
-	
+	/* first release old resources */
 	atc_pcm_release_resources(atc, apcm);
 
-	
+	/* Get SRC resource */
 	desc.multi = apcm->substream->runtime->channels;
 	desc.msr = 1;
 	while (apcm->substream->runtime->rate > (rsr * desc.msr))
@@ -792,7 +806,7 @@ static int spdif_passthru_playback_get_resources(struct ct_atc *atc,
 	src->ops->set_pm(src, (src->ops->next_interleave(src) != NULL));
 	src->ops->set_bp(src, 1);
 
-	
+	/* Get AMIXER resource */
 	n_amixer = (n_amixer < 2) ? 2 : n_amixer;
 	apcm->amixers = kzalloc(sizeof(void *)*n_amixer, GFP_KERNEL);
 	if (!apcm->amixers) {
@@ -809,7 +823,7 @@ static int spdif_passthru_playback_get_resources(struct ct_atc *atc,
 		apcm->n_amixer++;
 	}
 
-	
+	/* Set up device virtual mem map */
 	err = ct_map_audio_buffer(atc, apcm);
 	if (err < 0)
 		goto error1;
@@ -879,16 +893,18 @@ spdif_passthru_playback_prepare(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 
 	atc_pcm_release_resources(atc, apcm);
 
+	/* Configure SPDIFOO and PLL to passthrough mode;
+	 * determine pll_rate. */
 	err = spdif_passthru_playback_setup(atc, apcm);
 	if (err)
 		return err;
 
-	
+	/* Get needed resources. */
 	err = spdif_passthru_playback_get_resources(atc, apcm);
 	if (err)
 		return err;
 
-	
+	/* Connect resources */
 	src = apcm->src;
 	for (i = 0; i < apcm->n_amixer; i++) {
 		amixer = apcm->amixers[i];
@@ -897,7 +913,7 @@ spdif_passthru_playback_prepare(struct ct_atc *atc, struct ct_atc_pcm *apcm)
 		if (!src)
 			src = apcm->src;
 	}
-	
+	/* Connect to SPDIFOO */
 	mutex_lock(&atc->atc_mutex);
 	dao = container_of(atc->daios[SPDIFOO], struct dao, daio);
 	amixer = apcm->amixers[0];
@@ -1104,7 +1120,7 @@ static int atc_spdif_out_passthru(struct ct_atc *atc, unsigned char state)
 					&rscs[0], &rscs[1]);
 		dao->ops->set_left_input(dao, rscs[0]);
 		dao->ops->set_right_input(dao, rscs[1]);
-		
+		/* Restore PLL to atc->rsr if needed. */
 		if (atc->pll_rate != atc->rsr)
 			err = atc_pll_init(atc, atc->rsr);
 	}
@@ -1128,7 +1144,7 @@ static int atc_release_resources(struct ct_atc *atc)
 	struct srcimp *srcimp = NULL;
 	struct ct_mixer *mixer = NULL;
 
-	
+	/* disconnect internal mixer objects */
 	if (atc->mixer) {
 		mixer = atc->mixer;
 		mixer->set_input_left(mixer, MIX_LINE_IN, NULL);
@@ -1149,7 +1165,7 @@ static int atc_release_resources(struct ct_atc *atc)
 				dao->ops->clear_right_input(dao);
 			} else {
 				dai = container_of(daio, struct dai, daio);
-				
+				/* some thing to do for dai ... */
 			}
 			daio_mgr->put_daio(daio_mgr, daio);
 		}
@@ -1203,7 +1219,7 @@ static int ct_atc_destroy(struct ct_atc *atc)
 
 	atc_release_resources(atc);
 
-	
+	/* Destroy internal mixer objects */
 	if (atc->mixer)
 		ct_mixer_destroy(atc->mixer);
 
@@ -1216,7 +1232,7 @@ static int ct_atc_destroy(struct ct_atc *atc)
 	if (atc->hw)
 		destroy_hw_obj((struct hw *)atc->hw);
 
-	
+	/* Destroy device virtual memory manager object */
 	if (atc->vm) {
 		ct_vm_destroy(atc->vm);
 		atc->vm = NULL;
@@ -1316,7 +1332,7 @@ static int __devinit atc_create_hw_devs(struct ct_atc *atc)
 	}
 	atc->hw = hw;
 
-	
+	/* Initialize card hardware. */
 	info.rsr = atc->rsr;
 	info.msr = atc->msr;
 	info.vm_pgt_phys = atc_get_ptp_phys(atc, 0);
@@ -1441,7 +1457,7 @@ atc_connect_dai(struct src_mgr *src_mgr, struct dai *dai,
 		src_mgr->src_disable(src_mgr, src);
 	}
 
-	src_mgr->commit_write(src_mgr); 
+	src_mgr->commit_write(src_mgr); /* Actually disable SRCs */
 
 	src = srcs[0];
 	src->ops->set_pm(src, 1);
@@ -1459,7 +1475,7 @@ atc_connect_dai(struct src_mgr *src_mgr, struct dai *dai,
 	dai->ops->set_enb_srt(dai, 1);
 	dai->ops->commit_write(dai);
 
-	src_mgr->commit_write(src_mgr); 
+	src_mgr->commit_write(src_mgr); /* Synchronously enable SRCs */
 }
 
 static void atc_connect_resources(struct ct_atc *atc)
@@ -1491,7 +1507,7 @@ static void atc_connect_resources(struct ct_atc *atc)
 	mixer->set_input_right(mixer, MIX_LINE_IN, &src->rsc);
 
 	if (atc->model == CTSB1270) {
-		
+		/* Titanium HD has a dedicated ADC for the Mic. */
 		dai = container_of(atc->daios[MIC], struct dai, daio);
 		atc_connect_dai(atc->rsc_mgrs[SRC], dai,
 			(struct src **)&atc->srcs[4],
@@ -1547,7 +1563,7 @@ static int atc_hw_resume(struct ct_atc *atc)
 	struct hw *hw = atc->hw;
 	struct card_conf info = {0};
 
-	
+	/* Re-initialize card hardware. */
 	info.rsr = atc->rsr;
 	info.msr = atc->msr;
 	info.vm_pgt_phys = atc_get_ptp_phys(atc, 0);
@@ -1559,14 +1575,14 @@ static int atc_resources_resume(struct ct_atc *atc)
 	struct ct_mixer *mixer;
 	int err = 0;
 
-	
+	/* Get resources */
 	err = atc_get_resources(atc);
 	if (err < 0) {
 		atc_release_resources(atc);
 		return err;
 	}
 
-	
+	/* Build topology */
 	atc_connect_resources(atc);
 
 	mixer = atc->mixer;
@@ -1579,7 +1595,7 @@ static int atc_resume(struct ct_atc *atc)
 {
 	int err = 0;
 
-	
+	/* Do hardware resume. */
 	err = atc_hw_resume(atc);
 	if (err < 0) {
 		printk(KERN_ERR "ctxfi: pci_enable_device failed, "
@@ -1637,6 +1653,17 @@ static struct ct_atc atc_preset __devinitdata = {
 #endif
 };
 
+/**
+ *  ct_atc_create - create and initialize a hardware manager
+ *  @card: corresponding alsa card object
+ *  @pci: corresponding kernel pci device object
+ *  @ratc: return created object address in it
+ *
+ *  Creates and initializes a hardware manager.
+ *
+ *  Creates kmallocated ct_atc structure. Initializes hardware.
+ *  Returns 0 if succeeds, or negative error code if fails.
+ */
 
 int __devinit ct_atc_create(struct snd_card *card, struct pci_dev *pci,
 			    unsigned int rsr, unsigned int msr,
@@ -1655,7 +1682,7 @@ int __devinit ct_atc_create(struct snd_card *card, struct pci_dev *pci,
 	if (!atc)
 		return -ENOMEM;
 
-	
+	/* Set operations */
 	*atc = atc_preset;
 
 	atc->card = card;
@@ -1666,19 +1693,19 @@ int __devinit ct_atc_create(struct snd_card *card, struct pci_dev *pci,
 
 	mutex_init(&atc->atc_mutex);
 
-	
+	/* Find card model */
 	err = atc_identify_card(atc, ssid);
 	if (err < 0) {
 		printk(KERN_ERR "ctatc: Card not recognised\n");
 		goto error1;
 	}
 
-	
+	/* Set up device virtual memory management object */
 	err = ct_vm_create(&atc->vm, pci);
 	if (err < 0)
 		goto error1;
 
-	
+	/* Create all atc hw devices */
 	err = atc_create_hw_devs(atc);
 	if (err < 0)
 		goto error1;
@@ -1689,12 +1716,12 @@ int __devinit ct_atc_create(struct snd_card *card, struct pci_dev *pci,
 		goto error1;
 	}
 
-	
+	/* Get resources */
 	err = atc_get_resources(atc);
 	if (err < 0)
 		goto error1;
 
-	
+	/* Build topology */
 	atc_connect_resources(atc);
 
 	atc->timer = ct_timer_new(atc);

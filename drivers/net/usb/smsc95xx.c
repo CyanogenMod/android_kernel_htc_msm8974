@@ -114,6 +114,8 @@ static int smsc95xx_write_reg(struct usbnet *dev, u32 index, u32 data)
 	return ret;
 }
 
+/* Loop until the read is completed with timeout
+ * called with phy_mutex held */
 static int smsc95xx_phy_wait_not_busy(struct usbnet *dev)
 {
 	unsigned long start_time = jiffies;
@@ -135,14 +137,14 @@ static int smsc95xx_mdio_read(struct net_device *netdev, int phy_id, int idx)
 
 	mutex_lock(&dev->phy_mutex);
 
-	
+	/* confirm MII not busy */
 	if (smsc95xx_phy_wait_not_busy(dev)) {
 		netdev_warn(dev->net, "MII is busy in smsc95xx_mdio_read\n");
 		mutex_unlock(&dev->phy_mutex);
 		return -EIO;
 	}
 
-	
+	/* set the address, index & direction (read from PHY) */
 	phy_id &= dev->mii.phy_id_mask;
 	idx &= dev->mii.reg_num_mask;
 	addr = (phy_id << 11) | (idx << 6) | MII_READ_;
@@ -169,7 +171,7 @@ static void smsc95xx_mdio_write(struct net_device *netdev, int phy_id, int idx,
 
 	mutex_lock(&dev->phy_mutex);
 
-	
+	/* confirm MII not busy */
 	if (smsc95xx_phy_wait_not_busy(dev)) {
 		netdev_warn(dev->net, "MII is busy in smsc95xx_mdio_write\n");
 		mutex_unlock(&dev->phy_mutex);
@@ -179,7 +181,7 @@ static void smsc95xx_mdio_write(struct net_device *netdev, int phy_id, int idx,
 	val = regval;
 	smsc95xx_write_reg(dev, MII_DATA, val);
 
-	
+	/* set the address, index & direction (write to PHY) */
 	phy_id &= dev->mii.phy_id_mask;
 	idx &= dev->mii.reg_num_mask;
 	addr = (phy_id << 11) | (idx << 6) | MII_WRITE_;
@@ -272,7 +274,7 @@ static int smsc95xx_write_eeprom(struct usbnet *dev, u32 offset, u32 length,
 	if (ret)
 		return ret;
 
-	
+	/* Issue write/erase enable command */
 	val = E2P_CMD_BUSY_ | E2P_CMD_EWEN_;
 	smsc95xx_write_reg(dev, E2P_CMD, val);
 
@@ -282,11 +284,11 @@ static int smsc95xx_write_eeprom(struct usbnet *dev, u32 offset, u32 length,
 
 	for (i = 0; i < length; i++) {
 
-		
+		/* Fill data register */
 		val = data[i];
 		smsc95xx_write_reg(dev, E2P_DATA, val);
 
-		
+		/* Send "write" command */
 		val = E2P_CMD_BUSY_ | E2P_CMD_WRITE_ | (offset & E2P_CMD_ADDR_);
 		smsc95xx_write_reg(dev, E2P_CMD, val);
 
@@ -356,6 +358,9 @@ static int smsc95xx_write_reg_async(struct usbnet *dev, u16 index, u32 *data)
 	return status;
 }
 
+/* returns hash bit number for given MAC address
+ * example:
+ * 01 00 5E 00 00 01 -> returns bit number 31 */
 static unsigned int smsc95xx_hash(char addr[ETH_ALEN])
 {
 	return (ether_crc(ETH_ALEN, addr) >> 26) & 0x3f;
@@ -405,7 +410,7 @@ static void smsc95xx_set_multicast(struct net_device *netdev)
 
 	spin_unlock_irqrestore(&pdata->mac_cr_lock, flags);
 
-	
+	/* Initiate async writes, as we can't wait for completion here */
 	smsc95xx_write_reg_async(dev, HASHH, &pdata->hash_hi);
 	smsc95xx_write_reg_async(dev, HASHL, &pdata->hash_lo);
 	smsc95xx_write_reg_async(dev, MAC_CR, &pdata->mac_cr);
@@ -457,7 +462,7 @@ static int smsc95xx_link_reset(struct usbnet *dev)
 	u16 lcladv, rmtadv;
 	u32 intdata;
 
-	
+	/* clear interrupt status */
 	smsc95xx_mdio_read(dev->net, mii->phy_id, PHY_INT_SRC);
 	intdata = 0xFFFFFFFF;
 	smsc95xx_write_reg(dev, INT_STS, intdata);
@@ -510,6 +515,7 @@ static void smsc95xx_status(struct usbnet *dev, struct urb *urb)
 			    intdata);
 }
 
+/* Enable or disable Tx & Rx checksum offload engines */
 static int smsc95xx_set_features(struct net_device *netdev,
 	netdev_features_t features)
 {
@@ -597,17 +603,17 @@ static int smsc95xx_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 
 static void smsc95xx_init_mac_address(struct usbnet *dev)
 {
-	
+	/* try reading mac address from EEPROM */
 	if (smsc95xx_read_eeprom(dev, EEPROM_MAC_OFFSET, ETH_ALEN,
 			dev->net->dev_addr) == 0) {
 		if (is_valid_ether_addr(dev->net->dev_addr)) {
-			
+			/* eeprom values are valid so use them */
 			netif_dbg(dev, ifup, dev->net, "MAC address read from EEPROM\n");
 			return;
 		}
 	}
 
-	
+	/* no eeprom, or eeprom values are invalid. generate random MAC */
 	eth_hw_addr_random(dev->net);
 	netif_dbg(dev, ifup, dev->net, "MAC address set to random_ether_addr\n");
 }
@@ -634,24 +640,26 @@ static int smsc95xx_set_mac_address(struct usbnet *dev)
 	return 0;
 }
 
+/* starts the TX path */
 static void smsc95xx_start_tx_path(struct usbnet *dev)
 {
 	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
 	unsigned long flags;
 	u32 reg_val;
 
-	
+	/* Enable Tx at MAC */
 	spin_lock_irqsave(&pdata->mac_cr_lock, flags);
 	pdata->mac_cr |= MAC_CR_TXEN_;
 	spin_unlock_irqrestore(&pdata->mac_cr_lock, flags);
 
 	smsc95xx_write_reg(dev, MAC_CR, pdata->mac_cr);
 
-	
+	/* Enable Tx at SCSRs */
 	reg_val = TX_CFG_ON_;
 	smsc95xx_write_reg(dev, TX_CFG, reg_val);
 }
 
+/* Starts the Receive path */
 static void smsc95xx_start_rx_path(struct usbnet *dev)
 {
 	struct smsc95xx_priv *pdata = (struct smsc95xx_priv *)(dev->data[0]);
@@ -668,7 +676,7 @@ static int smsc95xx_phy_initialize(struct usbnet *dev)
 {
 	int bmcr, timeout = 0;
 
-	
+	/* Initialize MII structure */
 	dev->mii.dev = dev->net;
 	dev->mii.mdio_read = smsc95xx_mdio_read;
 	dev->mii.mdio_write = smsc95xx_mdio_write;
@@ -676,7 +684,7 @@ static int smsc95xx_phy_initialize(struct usbnet *dev)
 	dev->mii.reg_num_mask = 0x1f;
 	dev->mii.phy_id = SMSC95XX_INTERNAL_PHY_ID;
 
-	
+	/* reset phy and wait for reset to complete */
 	smsc95xx_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
 
 	do {
@@ -694,7 +702,7 @@ static int smsc95xx_phy_initialize(struct usbnet *dev)
 		ADVERTISE_ALL | ADVERTISE_CSMA | ADVERTISE_PAUSE_CAP |
 		ADVERTISE_PAUSE_ASYM);
 
-	
+	/* read to clear */
 	smsc95xx_mdio_read(dev->net, dev->mii.phy_id, PHY_INT_SRC);
 
 	smsc95xx_mdio_write(dev->net, dev->mii.phy_id, PHY_INT_MASK,
@@ -852,7 +860,7 @@ static int smsc95xx_reset(struct usbnet *dev)
 
 	read_buf &= ~HW_CFG_RXDOFF_;
 
-	
+	/* set Rx data offset=2, Make IP header aligns on word boundary. */
 	read_buf |= NET_IP_ALIGN << 9;
 
 	ret = smsc95xx_write_reg(dev, HW_CFG, read_buf);
@@ -885,7 +893,7 @@ static int smsc95xx_reset(struct usbnet *dev)
 	}
 	netif_dbg(dev, ifup, dev->net, "ID_REV = 0x%08x\n", read_buf);
 
-	
+	/* Configure GPIO pins as LED outputs */
 	write_buf = LED_GPIO_CFG_SPD_LED | LED_GPIO_CFG_LNK_LED |
 		LED_GPIO_CFG_FDX_LED;
 	ret = smsc95xx_write_reg(dev, LED_GPIO_CFG, write_buf);
@@ -895,7 +903,7 @@ static int smsc95xx_reset(struct usbnet *dev)
 		return ret;
 	}
 
-	
+	/* Init Tx */
 	write_buf = 0;
 	ret = smsc95xx_write_reg(dev, FLOW, write_buf);
 	if (ret < 0) {
@@ -910,15 +918,15 @@ static int smsc95xx_reset(struct usbnet *dev)
 		return ret;
 	}
 
-	
+	/* Don't need mac_cr_lock during initialisation */
 	ret = smsc95xx_read_reg(dev, MAC_CR, &pdata->mac_cr);
 	if (ret < 0) {
 		netdev_warn(dev->net, "Failed to read MAC_CR: %d\n", ret);
 		return ret;
 	}
 
-	
-	
+	/* Init Rx */
+	/* Set Vlan */
 	write_buf = (u32)ETH_P_8021Q;
 	ret = smsc95xx_write_reg(dev, VLAN1, write_buf);
 	if (ret < 0) {
@@ -926,7 +934,7 @@ static int smsc95xx_reset(struct usbnet *dev)
 		return ret;
 	}
 
-	
+	/* Enable or disable checksum offload engines */
 	smsc95xx_set_features(dev->net, dev->net->features);
 
 	smsc95xx_set_multicast(dev->net);
@@ -940,7 +948,7 @@ static int smsc95xx_reset(struct usbnet *dev)
 		return ret;
 	}
 
-	
+	/* enable PHY interrupts */
 	read_buf |= INT_EP_CTL_PHY_INT_;
 
 	ret = smsc95xx_write_reg(dev, INT_EP_CTL, read_buf);
@@ -1002,7 +1010,7 @@ static int smsc95xx_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	smsc95xx_init_mac_address(dev);
 
-	
+	/* Init all registers */
 	ret = smsc95xx_reset(dev);
 
 	dev->net->netdev_ops = &smsc95xx_netdev_ops;
@@ -1044,7 +1052,7 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		skb_pull(skb, 4 + NET_IP_ALIGN);
 		packet = skb->data;
 
-		
+		/* get the packet length */
 		size = (u16)((header & RX_STS_FL_) >> 16);
 		align_count = (4 - ((size + NET_IP_ALIGN) % 4)) % 4;
 
@@ -1065,18 +1073,18 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 					dev->net->stats.rx_length_errors++;
 			}
 		} else {
-			
+			/* ETH_FRAME_LEN + 4(CRC) + 2(COE) + 4(Vlan) */
 			if (unlikely(size > (ETH_FRAME_LEN + 12))) {
 				netif_dbg(dev, rx_err, dev->net,
 					  "size err header=0x%08x\n", header);
 				return 0;
 			}
 
-			
+			/* last frame in this batch */
 			if (skb->len == size) {
 				if (dev->net->features & NETIF_F_RXCSUM)
 					smsc95xx_rx_csum_offload(skb);
-				skb_trim(skb, skb->len - 4); 
+				skb_trim(skb, skb->len - 4); /* remove fcs */
 				skb->truesize = size + sizeof(struct sk_buff);
 
 				return 1;
@@ -1094,7 +1102,7 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 			if (dev->net->features & NETIF_F_RXCSUM)
 				smsc95xx_rx_csum_offload(ax_skb);
-			skb_trim(ax_skb, ax_skb->len - 4); 
+			skb_trim(ax_skb, ax_skb->len - 4); /* remove fcs */
 			ax_skb->truesize = size + sizeof(struct sk_buff);
 
 			usbnet_skb_return(dev, ax_skb);
@@ -1102,7 +1110,7 @@ static int smsc95xx_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 
 		skb_pull(skb, size);
 
-		
+		/* padding bytes before the next frame starts */
 		if (skb->len)
 			skb_pull(skb, align_count);
 	}
@@ -1129,7 +1137,7 @@ static struct sk_buff *smsc95xx_tx_fixup(struct usbnet *dev,
 	int overhead = csum ? SMSC95XX_TX_OVERHEAD_CSUM : SMSC95XX_TX_OVERHEAD;
 	u32 tx_cmd_a, tx_cmd_b;
 
-	
+	/* We do not advertise SG, so skbs should be already linearized */
 	BUG_ON(skb_shinfo(skb)->nr_frags);
 
 	if (skb_headroom(skb) < overhead) {
@@ -1143,6 +1151,8 @@ static struct sk_buff *smsc95xx_tx_fixup(struct usbnet *dev,
 
 	if (csum) {
 		if (skb->len <= 45) {
+			/* workaround - hardware tx checksum does not work
+			 * properly with extremely small packets */
 			long csstart = skb_checksum_start_offset(skb);
 			__wsum calc = csum_partial(skb->data + csstart,
 				skb->len - csstart, 0);
@@ -1187,96 +1197,96 @@ static const struct driver_info smsc95xx_info = {
 
 static const struct usb_device_id products[] = {
 	{
-		
+		/* SMSC9500 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9500),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9505 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9505),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9500A USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9E00),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9505A USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9E01),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9512/9514 USB Hub & Ethernet Device */
 		USB_DEVICE(0x0424, 0xec00),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9500 USB Ethernet Device (SAL10) */
 		USB_DEVICE(0x0424, 0x9900),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9505 USB Ethernet Device (SAL10) */
 		USB_DEVICE(0x0424, 0x9901),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9500A USB Ethernet Device (SAL10) */
 		USB_DEVICE(0x0424, 0x9902),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9505A USB Ethernet Device (SAL10) */
 		USB_DEVICE(0x0424, 0x9903),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9512/9514 USB Hub & Ethernet Device (SAL10) */
 		USB_DEVICE(0x0424, 0x9904),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9500A USB Ethernet Device (HAL) */
 		USB_DEVICE(0x0424, 0x9905),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9505A USB Ethernet Device (HAL) */
 		USB_DEVICE(0x0424, 0x9906),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9500 USB Ethernet Device (Alternate ID) */
 		USB_DEVICE(0x0424, 0x9907),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9500A USB Ethernet Device (Alternate ID) */
 		USB_DEVICE(0x0424, 0x9908),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC9512/9514 USB Hub & Ethernet Device (Alternate ID) */
 		USB_DEVICE(0x0424, 0x9909),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC LAN9530 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9530),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC LAN9730 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9730),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
 	{
-		
+		/* SMSC LAN89530 USB Ethernet Device */
 		USB_DEVICE(0x0424, 0x9E08),
 		.driver_info = (unsigned long) &smsc95xx_info,
 	},
-	{ },		
+	{ },		/* END */
 };
 MODULE_DEVICE_TABLE(usb, products);
 

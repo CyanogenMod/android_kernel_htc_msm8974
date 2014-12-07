@@ -16,7 +16,7 @@
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
-#include <linux/sched.h> 
+#include <linux/sched.h> /* RLIMIT_FSIZE */
 #include <linux/mm.h>
 
 #include <asm/mmu.h>
@@ -27,6 +27,18 @@
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
 
+/*
+ * On Microblaze the fs value is actually the top of the corresponding
+ * address space.
+ *
+ * The fs value determines whether argument validity checking should be
+ * performed or not. If get_fs() == USER_DS, checking is performed, with
+ * get_fs() == KERNEL_DS, checking is bypassed.
+ *
+ * For historical reasons, these macros are grossly misnamed.
+ *
+ * For non-MMU arch like Microblaze, KERNEL_DS and USER_DS is equal.
+ */
 # define MAKE_MM_SEG(s)       ((mm_segment_t) { (s) })
 
 #  ifndef CONFIG_MMU
@@ -43,14 +55,28 @@
 
 # define segment_eq(a, b)	((a).seg == (b).seg)
 
+/*
+ * The exception table consists of pairs of addresses: the first is the
+ * address of an instruction that is allowed to fault, and the second is
+ * the address at which the program should continue. No registers are
+ * modified, so it is entirely up to the continuation code to figure out
+ * what to do.
+ *
+ * All the routines below use bits of fixup code that are out of line
+ * with the main instruction path. This means when everything is well,
+ * we don't even have to jump over them. Further, they do not intrude
+ * on our cache or tlb entries.
+ */
 struct exception_table_entry {
 	unsigned long insn, fixup;
 };
 
+/* Returns 0 if exception not found and fixup otherwise.  */
 extern unsigned long search_exception_table(unsigned long);
 
 #ifndef CONFIG_MMU
 
+/* Check against bounds of physical memory */
 static inline int ___range_ok(unsigned long addr, unsigned long size)
 {
 	return ((addr < memory_start) ||
@@ -64,10 +90,16 @@ static inline int ___range_ok(unsigned long addr, unsigned long size)
 
 #else
 
+/*
+ * Address is valid if:
+ *  - "addr", "addr + size" and "size" are all below the limit
+ */
 #define access_ok(type, addr, size) \
 	(get_fs().seg >= (((unsigned long)(addr)) | \
 		(size) | ((unsigned long)(addr) + (size))))
 
+/* || printk("access_ok failed for %s at 0x%08lx (size %d), seg 0x%08x\n",
+ type?"WRITE":"READ",addr,size,get_fs().seg)) */
 
 #endif
 
@@ -82,10 +114,11 @@ static inline int ___range_ok(unsigned long addr, unsigned long size)
 extern unsigned long __copy_tofrom_user(void __user *to,
 		const void __user *from, unsigned long size);
 
+/* Return: number of not copied bytes, i.e. 0 if OK or non-zero if fail. */
 static inline unsigned long __must_check __clear_user(void __user *to,
 							unsigned long n)
 {
-	
+	/* normal memset with two words to __ex_table */
 	__asm__ __volatile__ (				\
 			"1:	sb	r0, %1, r0;"	\
 			"	addik	%0, %0, -1;"	\
@@ -111,6 +144,7 @@ static inline unsigned long __must_check clear_user(void __user *to,
 	return __clear_user(to, n);
 }
 
+/* put_user and get_user macros */
 extern long __user_bad(void);
 
 #define __get_user_asm(insn, __gu_ptr, __gu_val, __gu_err)	\
@@ -131,6 +165,23 @@ extern long __user_bad(void);
 	);							\
 })
 
+/**
+ * get_user: - Get a simple variable from user space.
+ * @x:   Variable to store result.
+ * @ptr: Source address, in user space.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * This macro copies a single simple variable from user space to kernel
+ * space.  It supports simple types like char and int, but not larger
+ * data types like structures or arrays.
+ *
+ * @ptr must have pointer-to-simple-variable type, and the result of
+ * dereferencing @ptr must be assignable to @x without a cast.
+ *
+ * Returns zero on success, or -EFAULT on error.
+ * On error, the variable @x is set to zero.
+ */
 #define get_user(x, ptr)						\
 	__get_user_check((x), (ptr), sizeof(*(ptr)))
 
@@ -168,7 +219,7 @@ extern long __user_bad(void);
 #define __get_user(x, ptr)						\
 ({									\
 	unsigned long __gu_val;						\
-			\
+	/*unsigned long __gu_ptr = (unsigned long)(ptr);*/		\
 	long __gu_err;							\
 	switch (sizeof(*(ptr))) {					\
 	case 1:								\
@@ -181,7 +232,7 @@ extern long __user_bad(void);
 		__get_user_asm("lw", (ptr), __gu_val, __gu_err);	\
 		break;							\
 	default:							\
-		 __gu_err = __user_bad();\
+		/* __gu_val = 0; __gu_err = -EINVAL;*/ __gu_err = __user_bad();\
 	}								\
 	x = (__typeof__(*(ptr))) __gu_val;				\
 	__gu_err;							\
@@ -226,6 +277,22 @@ extern long __user_bad(void);
 		);						\
 })
 
+/**
+ * put_user: - Write a simple value into user space.
+ * @x:   Value to copy to user space.
+ * @ptr: Destination address, in user space.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * This macro copies a single simple value from kernel space to user
+ * space.  It supports simple types like char and int, but not larger
+ * data types like structures or arrays.
+ *
+ * @ptr must have pointer-to-simple-variable type, and @x must be assignable
+ * to the result of dereferencing @ptr.
+ *
+ * Returns zero on success, or -EFAULT on error.
+ */
 #define put_user(x, ptr)						\
 	__put_user_check((x), (ptr), sizeof(*(ptr)))
 
@@ -281,12 +348,13 @@ extern long __user_bad(void);
 		__put_user_asm_8((ptr), __gu_val, __gu_err);		\
 		break;							\
 	default:							\
-			__gu_err = __user_bad();	\
+		/*__gu_err = -EINVAL;*/	__gu_err = __user_bad();	\
 	}								\
 	__gu_err;							\
 })
 
 
+/* copy_to_from_user */
 #define __copy_from_user(to, from, n)	\
 	__copy_tofrom_user((__force void __user *)(to), \
 				(void __user *)(from), (n))
@@ -316,6 +384,9 @@ static inline long copy_to_user(void __user *to,
 	return n;
 }
 
+/*
+ * Copy a null terminated string from userspace.
+ */
 extern int __strncpy_user(char *to, const char __user *from, int len);
 
 #define __strncpy_from_user	__strncpy_user
@@ -328,6 +399,11 @@ strncpy_from_user(char *dst, const char __user *src, long count)
 	return __strncpy_from_user(dst, src, count);
 }
 
+/*
+ * Return the size of a string (including the ending 0)
+ *
+ * Return 0 on exception, a value greater than N if too long
+ */
 extern int __strnlen_user(const char __user *sstr, int len);
 
 static inline long strnlen_user(const char __user *src, long n)
@@ -337,7 +413,7 @@ static inline long strnlen_user(const char __user *src, long n)
 	return __strnlen_user(src, n);
 }
 
-#endif  
-#endif 
+#endif  /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_MICROBLAZE_UACCESS_H */

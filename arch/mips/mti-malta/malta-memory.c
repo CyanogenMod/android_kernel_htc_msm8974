@@ -30,6 +30,7 @@
 
 #include <asm/mips-boards/prom.h>
 
+/*#define DEBUG*/
 
 enum yamon_memtypes {
 	yamon_dontuse,
@@ -46,6 +47,7 @@ static char *mtypes[3] = {
 };
 #endif
 
+/* determined physical memory size, not overridden by command line args  */
 unsigned long physical_memsize = 0L;
 
 static struct prom_pmemblock * __init prom_getmdesc(void)
@@ -55,7 +57,7 @@ static struct prom_pmemblock * __init prom_getmdesc(void)
 	char *ptr;
 	static char cmdline[COMMAND_LINE_SIZE] __initdata;
 
-	
+	/* otherwise look in the environment */
 	memsize_str = prom_getenv("memsize");
 	if (!memsize_str) {
 		printk(KERN_WARNING
@@ -69,9 +71,13 @@ static struct prom_pmemblock * __init prom_getmdesc(void)
 	}
 
 #ifdef CONFIG_CPU_BIG_ENDIAN
+	/* SOC-it swaps, or perhaps doesn't swap, when DMA'ing the last
+	   word of physical memory */
 	physical_memsize -= PAGE_SIZE;
 #endif
 
+	/* Check the command line for a memsize directive that overrides
+	   the physical/default amount */
 	strcpy(cmdline, arcs_cmdline);
 	ptr = strstr(cmdline, "memsize=");
 	if (ptr && (ptr != cmdline) && (*(ptr - 1) != ' '))
@@ -92,6 +98,13 @@ static struct prom_pmemblock * __init prom_getmdesc(void)
 	mdesc[1].base = 0x00001000;
 	mdesc[1].size = 0x000ef000;
 
+	/*
+	 * The area 0x000f0000-0x000fffff is allocated for BIOS memory by the
+	 * south bridge and PCI access always forwarded to the ISA Bus and
+	 * BIOSCS# is always generated.
+	 * This mean that this area can't be used as DMA memory for PCI
+	 * devices.
+	 */
 	mdesc[2].type = yamon_dontuse;
 	mdesc[2].base = 0x000f0000;
 	mdesc[2].size = 0x00010000;

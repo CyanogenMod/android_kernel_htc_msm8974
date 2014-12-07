@@ -73,6 +73,9 @@ static int uwb_rc_new_index(void)
 	}
 }
 
+/**
+ * Release the backing device of a uwb_rc that has been dynamically allocated.
+ */
 static void uwb_rc_sys_release(struct device *dev)
 {
 	struct uwb_dev *uwb_dev = container_of(dev, struct uwb_dev, dev);
@@ -127,6 +130,9 @@ static struct attribute_group rc_attr_group = {
 	.attrs = rc_attrs,
 };
 
+/*
+ * Registration of sysfs specific stuff
+ */
 static int uwb_rc_sys_add(struct uwb_rc *rc)
 {
 	return sysfs_create_group(&rc->uwb_dev.dev.kobj, &rc_attr_group);
@@ -138,6 +144,15 @@ static void __uwb_rc_sys_rm(struct uwb_rc *rc)
 	sysfs_remove_group(&rc->uwb_dev.dev.kobj, &rc_attr_group);
 }
 
+/**
+ * uwb_rc_mac_addr_setup - get an RC's EUI-48 address or set it
+ * @rc:  the radio controller.
+ *
+ * If the EUI-48 address is 00:00:00:00:00:00 or FF:FF:FF:FF:FF:FF
+ * then a random locally administered EUI-48 is generated and set on
+ * the device.  The probability of address collisions is sufficiently
+ * unlikely (1/2^40 = 9.1e-13) that they're not checked for.
+ */
 static
 int uwb_rc_mac_addr_setup(struct uwb_rc *rc)
 {
@@ -154,7 +169,7 @@ int uwb_rc_mac_addr_setup(struct uwb_rc *rc)
 	}
 
 	if (uwb_mac_addr_unset(&addr) || uwb_mac_addr_bcast(&addr)) {
-		addr.data[0] = 0x02; 
+		addr.data[0] = 0x02; /* locally administered and unicast */
 		get_random_bytes(&addr.data[1], sizeof(addr.data)-1);
 
 		result = uwb_rc_mac_addr_set(rc, &addr);
@@ -212,6 +227,16 @@ error:
 }
 
 
+/**
+ * Register a new UWB radio controller
+ *
+ * Did you call uwb_rc_init() on your rc?
+ *
+ * We assume that this is being called with a > 0 refcount on
+ * it [through ops->{get|put}_device(). We'll take our own, though.
+ *
+ * @parent_dev is our real device, the one that provides the actual UWB device
+ */
 int uwb_rc_add(struct uwb_rc *rc, struct device *parent_dev, void *priv)
 {
 	int result;
@@ -279,6 +304,9 @@ static int uwb_dev_offair_helper(struct device *dev, void *priv)
 	return __uwb_dev_offair(uwb_dev, uwb_dev->rc);
 }
 
+/*
+ * Remove a Radio Controller; stop beaconing/scanning, disconnect all children
+ */
 void uwb_rc_rm(struct uwb_rc *rc)
 {
 	rc->ready = 0;
@@ -324,6 +352,12 @@ static int find_rc_try_get(struct device *dev, void *data)
 	return 0;
 }
 
+/**
+ * Given a radio controller descriptor, validate and refcount it
+ *
+ * @returns NULL if the rc does not exist or is quiescing; the ptr to
+ *               it otherwise.
+ */
 struct uwb_rc *__uwb_rc_try_get(struct uwb_rc *target_rc)
 {
 	struct device *dev;
@@ -339,6 +373,11 @@ struct uwb_rc *__uwb_rc_try_get(struct uwb_rc *target_rc)
 }
 EXPORT_SYMBOL_GPL(__uwb_rc_try_get);
 
+/*
+ * RC get for external refcount acquirers...
+ *
+ * Increments the refcount of the device and it's backend modules
+ */
 static inline struct uwb_rc *uwb_rc_get(struct uwb_rc *rc)
 {
 	if (rc->ready == 0)
@@ -359,6 +398,22 @@ static int find_rc_grandpa(struct device *dev, void *data)
 	return 0;
 }
 
+/**
+ * Locate and refcount a radio controller given a common grand-parent
+ *
+ * @grandpa_dev  Pointer to the 'grandparent' device structure.
+ * @returns NULL If the rc does not exist or is quiescing; the ptr to
+ *               it otherwise, properly referenced.
+ *
+ * The Radio Control interface (or the UWB Radio Controller) is always
+ * an interface of a device. The parent is the interface, the
+ * grandparent is the device that encapsulates the interface.
+ *
+ * There is no need to lock around as the "grandpa" would be
+ * refcounted by the target, and to remove the referemes, the
+ * uwb_rc_class->sem would have to be taken--we hold it, ergo we
+ * should be safe.
+ */
 struct uwb_rc *uwb_rc_get_by_grandpa(const struct device *grandpa_dev)
 {
 	struct device *dev;
@@ -372,6 +427,11 @@ struct uwb_rc *uwb_rc_get_by_grandpa(const struct device *grandpa_dev)
 }
 EXPORT_SYMBOL_GPL(uwb_rc_get_by_grandpa);
 
+/**
+ * Find a radio controller by device address
+ *
+ * @returns the pointer to the radio controller, properly referenced
+ */
 static int find_rc_dev(struct device *dev, void *data)
 {
 	struct uwb_dev_addr *addr = data;
@@ -402,6 +462,12 @@ struct uwb_rc *uwb_rc_get_by_dev(const struct uwb_dev_addr *addr)
 }
 EXPORT_SYMBOL_GPL(uwb_rc_get_by_dev);
 
+/**
+ * Drop a reference on a radio controller
+ *
+ * This is the version that should be done by entities external to the
+ * UWB Radio Control stack (ie: clients of the API).
+ */
 void uwb_rc_put(struct uwb_rc *rc)
 {
 	__uwb_rc_put(rc);

@@ -65,6 +65,7 @@ static inline void mmc_delay(unsigned int ms)
 }
 
 void mmc_rescan(struct work_struct *work);
+void mmc_enable_detection(struct work_struct *work);
 void mmc_stats(struct work_struct *work);
 void mmc_start_host(struct mmc_host *host);
 void mmc_stop_host(struct mmc_host *host);
@@ -91,4 +92,5 @@ extern void mmc_exit_clk_scaling(struct mmc_host *host);
 extern void mmc_reset_clk_scale_stats(struct mmc_host *host);
 extern unsigned long mmc_get_max_frequency(struct mmc_host *host);
 void mmc_init_context_info(struct mmc_host *host);
+int mmc_send_single_read(struct mmc_card *card, struct mmc_host *host, unsigned int from);
 #endif

@@ -2135,8 +2135,9 @@ int snd_soc_info_enum_double(struct snd_kcontrol *kcontrol,
 
 	if (uinfo->value.enumerated.item > e->max - 1)
 		uinfo->value.enumerated.item = e->max - 1;
+	memset(uinfo->value.enumerated.name, 0, sizeof(uinfo->value.enumerated.name));
 	strncpy(uinfo->value.enumerated.name,
-		snd_soc_get_enum_text(e, uinfo->value.enumerated.item), sizeof(uinfo->value.enumerated.name));
+		snd_soc_get_enum_text(e, uinfo->value.enumerated.item), sizeof(uinfo->value.enumerated.name)-1);
 
 	return 0;
 }
@@ -2248,8 +2249,9 @@ int snd_soc_info_enum_ext(struct snd_kcontrol *kcontrol,
 
 	if (uinfo->value.enumerated.item > e->max - 1)
 		uinfo->value.enumerated.item = e->max - 1;
+	memset(uinfo->value.enumerated.name, 0, sizeof(uinfo->value.enumerated.name));
 	strncpy(uinfo->value.enumerated.name,
-		snd_soc_get_enum_text(e, uinfo->value.enumerated.item), sizeof(uinfo->value.enumerated.name));
+		snd_soc_get_enum_text(e, uinfo->value.enumerated.item), sizeof(uinfo->value.enumerated.name)-1);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(snd_soc_info_enum_ext);

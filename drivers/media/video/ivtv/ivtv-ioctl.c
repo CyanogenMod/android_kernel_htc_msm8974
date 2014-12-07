@@ -141,20 +141,20 @@ int ivtv_set_speed(struct ivtv *itv, int speed)
 
 	if (speed == 0) speed = 1000;
 
-	
+	/* No change? */
 	if (speed == itv->speed && !single_step)
 		return 0;
 
 	s = &itv->streams[IVTV_DEC_STREAM_TYPE_MPG];
 
 	if (single_step && (speed < 0) == (itv->speed < 0)) {
-		
+		/* Single step video and no need to change direction */
 		ivtv_vapi(itv, CX2341X_DEC_STEP_VIDEO, 1, 0);
 		itv->speed = speed;
 		return 0;
 	}
 	if (single_step)
-		
+		/* Need to change direction */
 		speed = speed < 0 ? -1000 : 1000;
 
 	data[0] = (speed > 1000 || speed < -1000) ? 0x80000000 : 0;
@@ -171,14 +171,14 @@ int ivtv_set_speed(struct ivtv *itv, int speed)
 	else if (speed > -1000 && speed < 0) data[0] |= (-1000 / speed);
 	else if (speed < 1000 && speed > 0) data[0] |= (1000 / speed);
 
-	
+	/* If not decoding, just change speed setting */
 	if (atomic_read(&itv->decoding) > 0) {
 		int got_sig = 0;
 
-		
+		/* Stop all DMA and decoding activity */
 		ivtv_vapi(itv, CX2341X_DEC_PAUSE_PLAYBACK, 1, 0);
 
-		
+		/* Wait for any DMA to finish */
 		mutex_unlock(&itv->serialize_lock);
 		prepare_to_wait(&itv->dma_waitq, &wait, TASK_INTERRUPTIBLE);
 		while (test_bit(IVTV_F_I_DMA, &itv->i_flags)) {
@@ -193,7 +193,7 @@ int ivtv_set_speed(struct ivtv *itv, int speed)
 		if (got_sig)
 			return -EINTR;
 
-		
+		/* Change Speed safely */
 		ivtv_api(itv, CX2341X_DEC_SET_PLAYBACK_SPEED, 7, data);
 		IVTV_DEBUG_INFO("Setting Speed to 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n",
 				data[0], data[1], data[2], data[3], data[4], data[5], data[6]);
@@ -270,7 +270,7 @@ static int ivtv_video_command(struct ivtv *itv, struct ivtv_open_id *id,
 		if (ivtv_set_output_mode(itv, OUT_MPG) != OUT_MPG)
 			return -EBUSY;
 		if (test_and_clear_bit(IVTV_F_I_DEC_PAUSED, &itv->i_flags)) {
-			
+			/* forces ivtv_set_speed to be called */
 			itv->speed = 0;
 		}
 		return ivtv_start_decoding(id, dc->start.speed);
@@ -353,7 +353,7 @@ static int ivtv_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 	pixfmt->priv = 0;
 	if (id->type == IVTV_ENC_STREAM_TYPE_YUV) {
 		pixfmt->pixelformat = V4L2_PIX_FMT_HM12;
-		
+		/* YUV size is (Y=(h*720) + UV=(h*(720/2))) */
 		pixfmt->sizeimage = pixfmt->height * 720 * 3 / 2;
 		pixfmt->bytesperline = 720;
 	} else {
@@ -434,7 +434,7 @@ static int ivtv_g_fmt_vid_out(struct file *file, void *fh, struct v4l2_format *f
 		pixfmt->bytesperline = 720;
 		pixfmt->width = itv->yuv_info.v4l2_src_w;
 		pixfmt->height = itv->yuv_info.v4l2_src_h;
-		
+		/* YUV size is (Y=(h*w) + UV=(h*(w/2))) */
 		pixfmt->sizeimage =
 			1080 * ((pixfmt->height + 31) & ~31);
 	} else {
@@ -480,7 +480,7 @@ static int ivtv_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 	w = min(w, 720);
 	w = max(w, 2);
 	if (id->type == IVTV_ENC_STREAM_TYPE_YUV) {
-		
+		/* YUV height must be a multiple of 32 */
 		h &= ~0x1f;
 		min_h = 32;
 	}
@@ -506,7 +506,7 @@ static int ivtv_try_fmt_sliced_vbi_cap(struct file *file, void *fh, struct v4l2_
 	if (id->type == IVTV_DEC_STREAM_TYPE_VBI)
 		return ivtv_g_fmt_sliced_vbi_cap(file, fh, fmt);
 
-	
+	/* set sliced VBI capture format */
 	vbifmt->io_size = sizeof(struct v4l2_sliced_vbi_data) * 36;
 	vbifmt->reserved[0] = 0;
 	vbifmt->reserved[1] = 0;
@@ -528,6 +528,21 @@ static int ivtv_try_fmt_vid_out(struct file *file, void *fh, struct v4l2_format 
 
 	w = min(w, 720);
 	w = max(w, 2);
+	/* Why can the height be 576 even when the output is NTSC?
+
+	   Internally the buffers of the PVR350 are always set to 720x576. The
+	   decoded video frame will always be placed in the top left corner of
+	   this buffer. For any video which is not 720x576, the buffer will
+	   then be cropped to remove the unused right and lower areas, with
+	   the remaining image being scaled by the hardware to fit the display
+	   area. The video can be scaled both up and down, so a 720x480 video
+	   can be displayed full-screen on PAL and a 720x576 video can be
+	   displayed without cropping on NTSC.
+
+	   Note that the scaling only occurs on the video stream, the osd
+	   resolution is locked to the broadcast standard and not scaled.
+
+	   Thanks to Ian Armstrong for this explanation. */
 	h = min(h, 576);
 	h = max(h, 2);
 	if (id->type == IVTV_DEC_STREAM_TYPE_YUV)
@@ -629,7 +644,7 @@ static int ivtv_s_fmt_vid_out(struct file *file, void *fh, struct v4l2_format *f
 	if (id->type != IVTV_DEC_STREAM_TYPE_YUV)
 		return 0;
 
-	
+	/* Return now if we already have some frame data */
 	if (yi->stream_size)
 		return -EBUSY;
 
@@ -688,7 +703,7 @@ static int ivtv_g_chip_ident(struct file *file, void *fh, struct v4l2_dbg_chip_i
 	if (chip->match.type != V4L2_CHIP_MATCH_I2C_DRIVER &&
 	    chip->match.type != V4L2_CHIP_MATCH_I2C_ADDR)
 		return -EINVAL;
-	
+	/* TODO: is this correct? */
 	return ivtv_call_all_err(itv, core, g_chip_ident, chip);
 }
 
@@ -724,6 +739,8 @@ static int ivtv_g_register(struct file *file, void *fh, struct v4l2_dbg_register
 
 	if (v4l2_chip_match_host(&reg->match))
 		return ivtv_itvc(itv, VIDIOC_DBG_G_REGISTER, reg);
+	/* TODO: subdev errors should not be ignored, this should become a
+	   subdev helper function. */
 	ivtv_call_all(itv, core, g_register, reg);
 	return 0;
 }
@@ -734,6 +751,8 @@ static int ivtv_s_register(struct file *file, void *fh, struct v4l2_dbg_register
 
 	if (v4l2_chip_match_host(&reg->match))
 		return ivtv_itvc(itv, VIDIOC_DBG_S_REGISTER, reg);
+	/* TODO: subdev errors should not be ignored, this should become a
+	   subdev helper function. */
 	ivtv_call_all(itv, core, s_register, reg);
 	return 0;
 }
@@ -785,7 +804,7 @@ static int ivtv_enumaudout(struct file *file, void *fh, struct v4l2_audioout *vi
 {
 	struct ivtv *itv = fh2id(fh)->itv;
 
-	
+	/* set it to defaults from our table */
 	return ivtv_get_audio_output(itv, vin->index, vin);
 }
 
@@ -808,7 +827,7 @@ static int ivtv_enum_input(struct file *file, void *fh, struct v4l2_input *vin)
 {
 	struct ivtv *itv = fh2id(fh)->itv;
 
-	
+	/* set it to defaults from our table */
 	return ivtv_get_input(itv, vin->index, vin);
 }
 
@@ -981,8 +1000,12 @@ int ivtv_s_input(struct file *file, void *fh, unsigned int inp)
 			itv->active_input, inp);
 
 	itv->active_input = inp;
+	/* Set the audio input to whatever is appropriate for the
+	   input type. */
 	itv->audio_input = itv->card->video_inputs[inp].audio_index;
 
+	/* prevent others from messing with the streams until
+	   we're finished changing inputs. */
 	ivtv_mute(itv);
 	ivtv_video_set_io(itv);
 	ivtv_audio_set_io(itv);
@@ -1073,7 +1096,7 @@ void ivtv_s_std_enc(struct ivtv *itv, v4l2_std_id *std)
 	if (itv->hw_flags & IVTV_HW_CX25840)
 		itv->vbi.sliced_decoder_line_size = itv->is_60hz ? 272 : 284;
 
-	
+	/* Tuner */
 	ivtv_call_all(itv, core, s_std, itv->std);
 }
 
@@ -1083,12 +1106,18 @@ void ivtv_s_std_dec(struct ivtv *itv, v4l2_std_id *std)
 	DEFINE_WAIT(wait);
 	int f;
 
-	
+	/* set display standard */
 	itv->std_out = *std;
 	itv->is_out_60hz = (*std & V4L2_STD_525_60) ? 1 : 0;
 	itv->is_out_50hz = !itv->is_out_60hz;
 	ivtv_call_all(itv, video, s_std_output, itv->std_out);
 
+	/*
+	 * The next firmware call is time sensitive. Time it to
+	 * avoid risk of a hard lock, by trying to ensure the call
+	 * happens within the first 100 lines of the top field.
+	 * Make 4 attempts to sync to the decoder before giving up.
+	 */
 	mutex_unlock(&itv->serialize_lock);
 	for (f = 0; f < 4; f++) {
 		prepare_to_wait(&itv->vsync_waitq, &wait,
@@ -1130,6 +1159,8 @@ int ivtv_s_std(struct file *file, void *fh, v4l2_std_id *std)
 	if (test_bit(IVTV_F_I_RADIO_USER, &itv->i_flags) ||
 	    atomic_read(&itv->capturing) > 0 ||
 	    atomic_read(&itv->decoding) > 0) {
+		/* Switching standard would mess with already running
+		   streams, prevent that by returning EBUSY. */
 		return -EBUSY;
 	}
 
@@ -1320,7 +1351,7 @@ static int ivtv_g_fbuf(struct file *file, void *fh, struct v4l2_framebuffer *fb)
 
 	int pixfmt;
 	static u32 pixel_format[16] = {
-		V4L2_PIX_FMT_PAL8, 
+		V4L2_PIX_FMT_PAL8, /* Uses a 256-entry RGB colormap */
 		V4L2_PIX_FMT_RGB565,
 		V4L2_PIX_FMT_RGB555,
 		V4L2_PIX_FMT_RGB444,
@@ -1328,7 +1359,7 @@ static int ivtv_g_fbuf(struct file *file, void *fh, struct v4l2_framebuffer *fb)
 		0,
 		0,
 		0,
-		V4L2_PIX_FMT_PAL8, 
+		V4L2_PIX_FMT_PAL8, /* Uses a 256-entry YUV colormap */
 		V4L2_PIX_FMT_YUV565,
 		V4L2_PIX_FMT_YUV555,
 		V4L2_PIX_FMT_YUV444,
@@ -1378,18 +1409,18 @@ static int ivtv_g_fbuf(struct file *file, void *fh, struct v4l2_framebuffer *fb)
 
 	pixfmt &= 7;
 
-	
+	/* no local alpha for RGB565 or unknown formats */
 	if (pixfmt == 1 || pixfmt > 4)
 		return 0;
 
-	
+	/* 16-bit formats have inverted local alpha */
 	if (pixfmt == 2 || pixfmt == 3)
 		fb->capability |= V4L2_FBUF_CAP_LOCAL_INV_ALPHA;
 	else
 		fb->capability |= V4L2_FBUF_CAP_LOCAL_ALPHA;
 
 	if (itv->osd_local_alpha_state) {
-		
+		/* 16-bit formats have inverted local alpha */
 		if (pixfmt == 2 || pixfmt == 3)
 			fb->flags |= V4L2_FBUF_FLAG_LOCAL_INV_ALPHA;
 		else
@@ -1579,7 +1610,7 @@ static int ivtv_decoder_ioctls(struct file *filp, unsigned int cmd, void *arg)
 			ivtv_release_stream(s);
 			return -EBUSY;
 		}
-		
+		/* Mark that this file handle started the UDMA_YUV mode */
 		id->yuv_frames = 1;
 		if (args->y_source == NULL)
 			return 0;
@@ -1659,6 +1690,8 @@ static int ivtv_decoder_ioctls(struct file *filp, unsigned int cmd, void *arg)
 
 	case VIDEO_COMMAND:
 	case VIDEO_TRY_COMMAND: {
+		/* Note: struct v4l2_decoder_cmd has the same layout as
+		   struct video_command */
 		struct v4l2_decoder_cmd *dc = arg;
 		int try = (cmd == VIDEO_TRY_COMMAND);
 
@@ -1696,6 +1729,9 @@ static int ivtv_decoder_ioctls(struct file *filp, unsigned int cmd, void *arg)
 				return 0;
 			if (nonblocking)
 				return -EAGAIN;
+			/* Wait for event. Note that serialize_lock is locked,
+			   so to allow other processes to access the driver while
+			   we are waiting unlock first and later lock again. */
 			mutex_unlock(&itv->serialize_lock);
 			prepare_to_wait(&itv->event_waitq, &wait, TASK_INTERRUPTIBLE);
 			if (!test_bit(IVTV_F_I_EV_DEC_STOPPED, &itv->i_flags) &&
@@ -1704,7 +1740,7 @@ static int ivtv_decoder_ioctls(struct file *filp, unsigned int cmd, void *arg)
 			finish_wait(&itv->event_waitq, &wait);
 			mutex_lock(&itv->serialize_lock);
 			if (signal_pending(current)) {
-				
+				/* return if a signal was received */
 				IVTV_DEBUG_INFO("User stopped wait for event\n");
 				return -EINTR;
 			}

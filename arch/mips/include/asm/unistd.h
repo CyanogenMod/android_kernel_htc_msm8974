@@ -16,6 +16,9 @@
 
 #if _MIPS_SIM == _MIPS_SIM_ABI32
 
+/*
+ * Linux o32 style syscalls are in the range from 4000 to 4999.
+ */
 #define __NR_Linux			4000
 #define __NR_syscall			(__NR_Linux +   0)
 #define __NR_exit			(__NR_Linux +   1)
@@ -154,7 +157,7 @@
 #define __NR_bdflush			(__NR_Linux + 134)
 #define __NR_sysfs			(__NR_Linux + 135)
 #define __NR_personality		(__NR_Linux + 136)
-#define __NR_afs_syscall		(__NR_Linux + 137) 
+#define __NR_afs_syscall		(__NR_Linux + 137) /* Syscall for Andrew File System */
 #define __NR_setfsuid			(__NR_Linux + 138)
 #define __NR_setfsgid			(__NR_Linux + 139)
 #define __NR__llseek			(__NR_Linux + 140)
@@ -296,6 +299,7 @@
 #define __NR_mq_getsetattr		(__NR_Linux + 276)
 #define __NR_vserver			(__NR_Linux + 277)
 #define __NR_waitid			(__NR_Linux + 278)
+/* #define __NR_sys_setaltroot		(__NR_Linux + 279) */
 #define __NR_add_key			(__NR_Linux + 280)
 #define __NR_request_key		(__NR_Linux + 281)
 #define __NR_keyctl			(__NR_Linux + 282)
@@ -364,15 +368,21 @@
 #define __NR_process_vm_readv		(__NR_Linux + 345)
 #define __NR_process_vm_writev		(__NR_Linux + 346)
 
+/*
+ * Offset of the last Linux o32 flavoured syscall
+ */
 #define __NR_Linux_syscalls		346
 
-#endif 
+#endif /* _MIPS_SIM == _MIPS_SIM_ABI32 */
 
 #define __NR_O32_Linux			4000
 #define __NR_O32_Linux_syscalls		346
 
 #if _MIPS_SIM == _MIPS_SIM_ABI64
 
+/*
+ * Linux 64-bit syscalls are in the range from 5000 to 5999.
+ */
 #define __NR_Linux			5000
 #define __NR_read			(__NR_Linux +   0)
 #define __NR_write			(__NR_Linux +   1)
@@ -612,6 +622,7 @@
 #define __NR_mq_getsetattr		(__NR_Linux + 235)
 #define __NR_vserver			(__NR_Linux + 236)
 #define __NR_waitid			(__NR_Linux + 237)
+/* #define __NR_sys_setaltroot		(__NR_Linux + 238) */
 #define __NR_add_key			(__NR_Linux + 239)
 #define __NR_request_key		(__NR_Linux + 240)
 #define __NR_keyctl			(__NR_Linux + 241)
@@ -680,15 +691,21 @@
 #define __NR_process_vm_readv		(__NR_Linux + 304)
 #define __NR_process_vm_writev		(__NR_Linux + 305)
 
+/*
+ * Offset of the last Linux 64-bit flavoured syscall
+ */
 #define __NR_Linux_syscalls		305
 
-#endif 
+#endif /* _MIPS_SIM == _MIPS_SIM_ABI64 */
 
 #define __NR_64_Linux			5000
 #define __NR_64_Linux_syscalls		305
 
 #if _MIPS_SIM == _MIPS_SIM_NABI32
 
+/*
+ * Linux N32 syscalls are in the range from 6000 to 6999.
+ */
 #define __NR_Linux			6000
 #define __NR_read			(__NR_Linux +   0)
 #define __NR_write			(__NR_Linux +   1)
@@ -932,6 +949,7 @@
 #define __NR_mq_getsetattr		(__NR_Linux + 239)
 #define __NR_vserver			(__NR_Linux + 240)
 #define __NR_waitid			(__NR_Linux + 241)
+/* #define __NR_sys_setaltroot		(__NR_Linux + 242) */
 #define __NR_add_key			(__NR_Linux + 243)
 #define __NR_request_key		(__NR_Linux + 244)
 #define __NR_keyctl			(__NR_Linux + 245)
@@ -1001,9 +1019,12 @@
 #define __NR_process_vm_readv		(__NR_Linux + 309)
 #define __NR_process_vm_writev		(__NR_Linux + 310)
 
+/*
+ * Offset of the last N32 flavoured syscall
+ */
 #define __NR_Linux_syscalls		310
 
-#endif 
+#endif /* _MIPS_SIM == _MIPS_SIM_NABI32 */
 
 #define __NR_N32_Linux			6000
 #define __NR_N32_Linux_syscalls		310
@@ -1040,6 +1061,7 @@
 #  define __ARCH_WANT_COMPAT_SYS_TIME
 # endif
 
+/* whitelists for checksyscalls */
 #define __IGNORE_select
 #define __IGNORE_vfork
 #define __IGNORE_time
@@ -1055,9 +1077,15 @@
 #define __IGNORE_fstatat64
 #endif
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * "Conditional" syscalls
+ *
+ * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
+ * but it doesn't work on all toolchains, so we just do it by hand
+ */
 #define cond_syscall(x) asm(".weak\t" #x "\n" #x "\t=\tsys_ni_syscall")
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_UNISTD_H */

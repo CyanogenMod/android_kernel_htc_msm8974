@@ -195,7 +195,7 @@ static int atl1c_get_eeprom(struct net_device *netdev,
 	if (eeprom->len == 0)
 		return -EINVAL;
 
-	if (!atl1c_check_eeprom_exist(hw)) 
+	if (!atl1c_check_eeprom_exist(hw)) /* not exist */
 		return -EINVAL;
 
 	eeprom->magic = adapter->pdev->vendor |
@@ -267,7 +267,7 @@ static int atl1c_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 	if (wol->wolopts & (WAKE_ARP | WAKE_MAGICSECURE |
 			    WAKE_UCAST | WAKE_BCAST | WAKE_MCAST))
 		return -EOPNOTSUPP;
-	
+	/* these settings will always override what we currently have */
 	adapter->wol = 0;
 
 	if (wol->wolopts & WAKE_MAGIC)

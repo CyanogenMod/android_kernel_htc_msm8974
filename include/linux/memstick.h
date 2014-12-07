@@ -16,6 +16,7 @@
 #include <linux/scatterlist.h>
 #include <linux/device.h>
 
+/*** Hardware based structures ***/
 
 struct ms_status_register {
 	unsigned char reserved;
@@ -198,6 +199,7 @@ enum memstick_command {
 	MSPRO_CMD_OUT_IOM      = 0xb6,
 };
 
+/*** Driver structures and functions ***/
 
 enum memstick_param { MEMSTICK_POWER = 1, MEMSTICK_INTERFACE };
 
@@ -257,14 +259,14 @@ struct memstick_dev {
 	struct completion        mrq_complete;
 	struct memstick_request  current_mrq;
 
-	
+	/* Check that media driver is still willing to operate the device. */
 	int                      (*check)(struct memstick_dev *card);
-	
+	/* Get next request from the media driver.                         */
 	int                      (*next_request)(struct memstick_dev *card,
 						 struct memstick_request **mrq);
-	
+	/* Tell the media driver to stop doing things                      */
 	void                     (*stop)(struct memstick_dev *card);
-	
+	/* Allow the media driver to continue                              */
 	void                     (*start)(struct memstick_dev *card);
 
 	struct device            dev;
@@ -284,9 +286,9 @@ struct memstick_host {
 	struct memstick_dev *card;
 	unsigned int        retries;
 
-	
+	/* Notify the host that some requests are pending. */
 	void                (*request)(struct memstick_host *host);
-	
+	/* Set host IO parameters (power, clock, etc).     */
 	int                 (*set_param)(struct memstick_host *host,
 					 enum memstick_param param,
 					 int value);

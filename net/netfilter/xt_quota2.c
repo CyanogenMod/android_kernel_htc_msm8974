@@ -24,6 +24,9 @@
 #include <linux/netfilter_ipv4/ipt_ULOG.h>
 #endif
 
+/**
+ * @lock:	lock to protect quota writers from each other
+ */
 struct xt_quota_counter {
 	u_int64_t quota;
 	spinlock_t lock;
@@ -34,6 +37,7 @@ struct xt_quota_counter {
 };
 
 #ifdef CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG
+/* Harald's favorite number +1 :D From ipt_ULOG.C */
 static int qlog_nl_event = 112;
 module_param_named(event_num, qlog_nl_event, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(event_num,
@@ -77,8 +81,8 @@ static void quota2_log(unsigned int hooknum,
 		return;
 	}
 
-	
-	nlh = NLMSG_PUT(log_skb, 0, 0, qlog_nl_event,
+	/* NLMSG_PUT() uses "goto nlmsg_failure" */
+	nlh = NLMSG_PUT(log_skb, /*pid*/0, /*seq*/0, qlog_nl_event,
 			sizeof(*pm));
 	pm = NLMSG_DATA(nlh);
 	if (skb->tstamp.tv64 == 0)
@@ -103,7 +107,7 @@ static void quota2_log(unsigned int hooknum,
 	pr_debug("throwing 1 packets to netlink group 1\n");
 	netlink_broadcast(nflognl, log_skb, 0, 1, GFP_ATOMIC);
 
-nlmsg_failure:  
+nlmsg_failure:  /* Used within NLMSG_PUT() */
 	pr_debug("xt_quota2: error during NLMSG_PUT\n");
 }
 #else
@@ -114,7 +118,7 @@ static void quota2_log(unsigned int hooknum,
 		       const char *prefix)
 {
 }
-#endif  
+#endif  /* if+else CONFIG_NETFILTER_XT_MATCH_QUOTA2_LOG */
 
 static int quota_proc_read(char *page, char **start, off_t offset,
                            int count, int *eof, void *data)
@@ -152,7 +156,7 @@ q2_new_counter(const struct xt_quota_mtinfo2 *q, bool anon)
 	struct xt_quota_counter *e;
 	unsigned int size;
 
-	
+	/* Do not need all the procfs things for anonymous counters. */
 	size = anon ? offsetof(typeof(*e), list) : sizeof(*e);
 	e = kmalloc(size, GFP_KERNEL);
 	if (e == NULL)
@@ -168,6 +172,10 @@ q2_new_counter(const struct xt_quota_mtinfo2 *q, bool anon)
 	return e;
 }
 
+/**
+ * q2_get_counter - get ref to counter or create new
+ * @name:	name of counter
+ */
 static struct xt_quota_counter *
 q2_get_counter(const struct xt_quota_mtinfo2 *q)
 {
@@ -178,7 +186,7 @@ q2_get_counter(const struct xt_quota_mtinfo2 *q)
 	if (*q->name == '\0')
 		return q2_new_counter(q, true);
 
-	
+	/* No need to hold a lock while getting a new counter */
 	new_e = q2_new_counter(q, false);
 	if (new_e == NULL)
 		goto out;
@@ -195,9 +203,16 @@ q2_get_counter(const struct xt_quota_mtinfo2 *q)
 	e = new_e;
 	pr_debug("xt_quota2: new_counter name=%s", e->name);
 	list_add_tail(&e->list, &counter_list);
+	/* The entry having a refcount of 1 is not directly destructible.
+	 * This func has not yet returned the new entry, thus iptables
+	 * has not references for destroying this entry.
+	 * For another rule to try to destroy it, it would 1st need for this
+	 * func* to be re-invoked, acquire a new ref for the same named quota.
+	 * Nobody will access the e->procfs_entry either.
+	 * So release the lock. */
 	spin_unlock_bh(&counter_list_lock);
 
-	
+	/* create_proc_entry() is not spin_lock happy */
 	p = e->procfs_entry = create_proc_entry(e->name, quota_list_perms,
 	                      proc_xt_quota);
 
@@ -274,6 +289,10 @@ quota_mt2(const struct sk_buff *skb, struct xt_action_param *par)
 
 	spin_lock_bh(&e->lock);
 	if (q->flags & XT_QUOTA_GROW) {
+		/*
+		 * While no_change is pointless in "grow" mode, we will
+		 * implement it here simply to have a consistent behavior.
+		 */
 		if (!(q->flags & XT_QUOTA_NO_CHANGE)) {
 			e->quota += (q->flags & XT_QUOTA_PACKET) ? 1 : skb->len;
 		}
@@ -284,7 +303,7 @@ quota_mt2(const struct sk_buff *skb, struct xt_action_param *par)
 				e->quota -= (q->flags & XT_QUOTA_PACKET) ? 1 : skb->len;
 			ret = !ret;
 		} else {
-			
+			/* We are transitioning, log that fact. */
 			if (e->quota) {
 				quota2_log(par->hooknum,
 					   skb,
@@ -292,7 +311,7 @@ quota_mt2(const struct sk_buff *skb, struct xt_action_param *par)
 					   par->out,
 					   q->name);
 			}
-			
+			/* we do not allow even small packets from now on */
 			e->quota = 0;
 		}
 	}

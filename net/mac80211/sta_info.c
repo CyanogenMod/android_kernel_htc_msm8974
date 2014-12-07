@@ -27,7 +27,43 @@
 #include "mesh.h"
 #include "wme.h"
 
+/**
+ * DOC: STA information lifetime rules
+ *
+ * STA info structures (&struct sta_info) are managed in a hash table
+ * for faster lookup and a list for iteration. They are managed using
+ * RCU, i.e. access to the list and hash table is protected by RCU.
+ *
+ * Upon allocating a STA info structure with sta_info_alloc(), the caller
+ * owns that structure. It must then insert it into the hash table using
+ * either sta_info_insert() or sta_info_insert_rcu(); only in the latter
+ * case (which acquires an rcu read section but must not be called from
+ * within one) will the pointer still be valid after the call. Note that
+ * the caller may not do much with the STA info before inserting it, in
+ * particular, it may not start any mesh peer link management or add
+ * encryption keys.
+ *
+ * When the insertion fails (sta_info_insert()) returns non-zero), the
+ * structure will have been freed by sta_info_insert()!
+ *
+ * Station entries are added by mac80211 when you establish a link with a
+ * peer. This means different things for the different type of interfaces
+ * we support. For a regular station this mean we add the AP sta when we
+ * receive an association response from the AP. For IBSS this occurs when
+ * get to know about a peer on the same IBSS. For WDS we add the sta for
+ * the peer immediately upon device open. When using AP mode we add stations
+ * for each respective station upon request from userspace through nl80211.
+ *
+ * In order to remove a STA info structure, various sta_info_destroy_*()
+ * calls are available.
+ *
+ * There is no concept of ownership on a STA entry, each structure is
+ * owned by the global hash table/list until it is removed. All users of
+ * the structure need to be RCU protected so that the structure won't be
+ * freed before they are done using it.
+ */
 
+/* Caller must hold local->sta_mtx */
 static int sta_info_hash_del(struct ieee80211_local *local,
 			     struct sta_info *sta)
 {
@@ -55,6 +91,7 @@ static int sta_info_hash_del(struct ieee80211_local *local,
 	return -ENOENT;
 }
 
+/* protected by RCU */
 struct sta_info *sta_info_get(struct ieee80211_sub_if_data *sdata,
 			      const u8 *addr)
 {
@@ -73,6 +110,10 @@ struct sta_info *sta_info_get(struct ieee80211_sub_if_data *sdata,
 	return sta;
 }
 
+/*
+ * Get sta info either from the specified interface
+ * or from one of its vlans
+ */
 struct sta_info *sta_info_get_bss(struct ieee80211_sub_if_data *sdata,
 				  const u8 *addr)
 {
@@ -112,6 +153,17 @@ struct sta_info *sta_info_get_by_idx(struct ieee80211_sub_if_data *sdata,
 	return NULL;
 }
 
+/**
+ * sta_info_free - free STA
+ *
+ * @local: pointer to the global information
+ * @sta: STA info to free
+ *
+ * This function must undo everything done by sta_info_alloc()
+ * that may happen before sta_info_insert(). It may only be
+ * called when sta_info_insert() has not been attempted (and
+ * if that fails, the station is freed anyway.)
+ */
 void sta_info_free(struct ieee80211_local *local, struct sta_info *sta)
 {
 	if (sta->rate_ctrl)
@@ -119,11 +171,12 @@ void sta_info_free(struct ieee80211_local *local, struct sta_info *sta)
 
 #ifdef CONFIG_MAC80211_VERBOSE_DEBUG
 	wiphy_debug(local->hw.wiphy, "Destroyed STA %pM\n", sta->sta.addr);
-#endif 
+#endif /* CONFIG_MAC80211_VERBOSE_DEBUG */
 
 	kfree(sta);
 }
 
+/* Caller must hold local->sta_mtx */
 static void sta_info_hash_add(struct ieee80211_local *local,
 			      struct sta_info *sta)
 {
@@ -210,6 +263,11 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 	}
 
 	for (i = 0; i < STA_TID_NUM; i++) {
+		/*
+		 * timer_to_tid must be initialized with identity mapping
+		 * to enable session_timer's data differentiation. See
+		 * sta_rx_agg_session_timer_expired for usage.
+		 */
 		sta->timer_to_tid[i] = i;
 	}
 	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
@@ -222,7 +280,7 @@ struct sta_info *sta_info_alloc(struct ieee80211_sub_if_data *sdata,
 
 #ifdef CONFIG_MAC80211_VERBOSE_DEBUG
 	wiphy_debug(local->hw.wiphy, "Allocated STA %pM\n", sta->sta.addr);
-#endif 
+#endif /* CONFIG_MAC80211_VERBOSE_DEBUG */
 
 #ifdef CONFIG_MAC80211_MESH
 	sta->plink_state = NL80211_PLINK_LISTEN;
@@ -236,6 +294,11 @@ static int sta_info_insert_check(struct sta_info *sta)
 {
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 
+	/*
+	 * Can't be a WARN_ON because it can be triggered through a race:
+	 * something inserts a STA (on one CPU) without holding the RTNL
+	 * and another CPU turns off the net device.
+	 */
 	if (unlikely(!ieee80211_sdata_running(sdata)))
 		return -ENETDOWN;
 
@@ -260,6 +323,10 @@ static int sta_info_insert_drv_state(struct ieee80211_local *local,
 	}
 
 	if (!err) {
+		/*
+		 * Drivers using legacy sta_add/sta_remove callbacks only
+		 * get uploaded set to true after sta_add is called.
+		 */
 		if (!local->ops->sta_add)
 			sta->uploaded = true;
 		return 0;
@@ -272,13 +339,18 @@ static int sta_info_insert_drv_state(struct ieee80211_local *local,
 		err = 0;
 	}
 
-	
+	/* unwind on error */
 	for (; state > IEEE80211_STA_NOTEXIST; state--)
 		WARN_ON(drv_sta_state(local, sdata, sta, state, state - 1));
 
 	return err;
 }
 
+/*
+ * should be called with sta_mtx locked
+ * this function replaces the mutex lock
+ * with a RCU lock
+ */
 static int sta_info_insert_finish(struct sta_info *sta) __acquires(RCU)
 {
 	struct ieee80211_local *local = sta->local;
@@ -288,13 +360,13 @@ static int sta_info_insert_finish(struct sta_info *sta) __acquires(RCU)
 
 	lockdep_assert_held(&local->sta_mtx);
 
-	
+	/* check if STA exists already */
 	if (sta_info_get_bss(sdata, sta->sta.addr)) {
 		err = -EEXIST;
 		goto out_err;
 	}
 
-	
+	/* notify driver */
 	err = sta_info_insert_drv_state(local, sdata, sta);
 	if (err)
 		goto out_err;
@@ -303,7 +375,7 @@ static int sta_info_insert_finish(struct sta_info *sta) __acquires(RCU)
 	local->sta_generation++;
 	smp_mb();
 
-	
+	/* make the station visible */
 	sta_info_hash_add(local, sta);
 
 	list_add(&sta->list, &local->sta_list);
@@ -320,9 +392,9 @@ static int sta_info_insert_finish(struct sta_info *sta) __acquires(RCU)
 
 #ifdef CONFIG_MAC80211_VERBOSE_DEBUG
 	wiphy_debug(local->hw.wiphy, "Inserted STA %pM\n", sta->sta.addr);
-#endif 
+#endif /* CONFIG_MAC80211_VERBOSE_DEBUG */
 
-	
+	/* move reference to rcu-protected */
 	rcu_read_lock();
 	mutex_unlock(&local->sta_mtx);
 
@@ -373,17 +445,25 @@ int sta_info_insert(struct sta_info *sta)
 
 static inline void __bss_tim_set(struct ieee80211_if_ap *bss, u16 aid)
 {
+	/*
+	 * This format has been mandated by the IEEE specifications,
+	 * so this line may not be changed to use the __set_bit() format.
+	 */
 	bss->tim[aid / 8] |= (1 << (aid % 8));
 }
 
 static inline void __bss_tim_clear(struct ieee80211_if_ap *bss, u16 aid)
 {
+	/*
+	 * This format has been mandated by the IEEE specifications,
+	 * so this line may not be changed to use the __clear_bit() format.
+	 */
 	bss->tim[aid / 8] &= ~(1 << (aid % 8));
 }
 
 static unsigned long ieee80211_tids_for_ac(int ac)
 {
-	
+	/* If we ever support TIDs > 7, this obviously needs to be adjusted */
 	switch (ac) {
 	case IEEE80211_AC_VO:
 		return BIT(6) | BIT(7);
@@ -411,13 +491,19 @@ void sta_info_recalc_tim(struct sta_info *sta)
 	if (WARN_ON_ONCE(!sta->sdata->bss))
 		return;
 
-	
+	/* No need to do anything if the driver does all */
 	if (local->hw.flags & IEEE80211_HW_AP_LINK_PS)
 		return;
 
 	if (sta->dead)
 		goto done;
 
+	/*
+	 * If all ACs are delivery-enabled then we should build
+	 * the TIM bit for all ACs anyway; if only some are then
+	 * we ignore those and build the TIM bit using only the
+	 * non-enabled ones.
+	 */
 	if (ignore_for_tim == BIT(IEEE80211_NUM_ACS) - 1)
 		ignore_for_tim = 0;
 
@@ -465,7 +551,7 @@ static bool sta_info_buffer_expired(struct sta_info *sta, struct sk_buff *skb)
 
 	info = IEEE80211_SKB_CB(skb);
 
-	
+	/* Timeout: (2 * listen_interval * beacon_int * 1024 / 1000000) sec */
 	timeout = (sta->listen_interval *
 		   sta->sdata->vif.bss_conf.beacon_int *
 		   32 / 15625) * HZ;
@@ -481,6 +567,13 @@ static bool sta_info_cleanup_expire_buffered_ac(struct ieee80211_local *local,
 	unsigned long flags;
 	struct sk_buff *skb;
 
+	/*
+	 * First check for frames that should expire on the filtered
+	 * queue. Frames here were rejected by the driver and are on
+	 * a separate queue to avoid reordering with normal PS-buffered
+	 * frames. They also aren't accounted for right now in the
+	 * total_ps_buffered counter.
+	 */
 	for (;;) {
 		spin_lock_irqsave(&sta->tx_filtered[ac].lock, flags);
 		skb = skb_peek(&sta->tx_filtered[ac]);
@@ -490,11 +583,23 @@ static bool sta_info_cleanup_expire_buffered_ac(struct ieee80211_local *local,
 			skb = NULL;
 		spin_unlock_irqrestore(&sta->tx_filtered[ac].lock, flags);
 
+		/*
+		 * Frames are queued in order, so if this one
+		 * hasn't expired yet we can stop testing. If
+		 * we actually reached the end of the queue we
+		 * also need to stop, of course.
+		 */
 		if (!skb)
 			break;
 		dev_kfree_skb(skb);
 	}
 
+	/*
+	 * Now also check the normal PS-buffered queue, this will
+	 * only find something if the filtered queue was emptied
+	 * since the filtered frames are all before the normal PS
+	 * buffered frames.
+	 */
 	for (;;) {
 		spin_lock_irqsave(&sta->ps_tx_buf[ac].lock, flags);
 		skb = skb_peek(&sta->ps_tx_buf[ac]);
@@ -504,6 +609,11 @@ static bool sta_info_cleanup_expire_buffered_ac(struct ieee80211_local *local,
 			skb = NULL;
 		spin_unlock_irqrestore(&sta->ps_tx_buf[ac].lock, flags);
 
+		/*
+		 * frames are queued in order, so if this one
+		 * hasn't expired yet (or we reached the end of
+		 * the queue) we can stop testing
+		 */
 		if (!skb)
 			break;
 
@@ -515,8 +625,18 @@ static bool sta_info_cleanup_expire_buffered_ac(struct ieee80211_local *local,
 		dev_kfree_skb(skb);
 	}
 
+	/*
+	 * Finally, recalculate the TIM bit for this station -- it might
+	 * now be clear because the station was too slow to retrieve its
+	 * frames.
+	 */
 	sta_info_recalc_tim(sta);
 
+	/*
+	 * Return whether there are any frames still buffered, this is
+	 * used to check whether the cleanup timer still needs to run,
+	 * if there are no frames we don't need to rearm the timer.
+	 */
 	return !(skb_queue_empty(&sta->ps_tx_buf[ac]) &&
 		 skb_queue_empty(&sta->tx_filtered[ac]));
 }
@@ -527,7 +647,7 @@ static bool sta_info_cleanup_expire_buffered(struct ieee80211_local *local,
 	bool have_buffered = false;
 	int ac;
 
-	
+	/* This is only necessary for stations on BSS interfaces */
 	if (!sta->sdata->bss)
 		return false;
 
@@ -555,6 +675,12 @@ int __must_check __sta_info_destroy(struct sta_info *sta)
 
 	lockdep_assert_held(&local->sta_mtx);
 
+	/*
+	 * Before removing the station from the driver and
+	 * rate control, it might still start new aggregation
+	 * sessions -- block that to make sure the tear-down
+	 * will be sufficient.
+	 */
 	set_sta_flag(sta, WLAN_STA_BLOCK_BA);
 	ieee80211_sta_tear_down_BA_sessions(sta, true);
 
@@ -593,6 +719,12 @@ int __must_check __sta_info_destroy(struct sta_info *sta)
 		WARN_ON_ONCE(ret != 0);
 	}
 
+	/*
+	 * At this point, after we wait for an RCU grace period,
+	 * neither mac80211 nor the driver can reference this
+	 * sta struct any more except by still existing timers
+	 * associated with this station that we clean up below.
+	 */
 	synchronize_rcu();
 
 	if (test_sta_flag(sta, WLAN_STA_PS_STA)) {
@@ -617,7 +749,7 @@ int __must_check __sta_info_destroy(struct sta_info *sta)
 
 #ifdef CONFIG_MAC80211_VERBOSE_DEBUG
 	wiphy_debug(local->hw.wiphy, "Removed STA %pM\n", sta->sta.addr);
-#endif 
+#endif /* CONFIG_MAC80211_VERBOSE_DEBUG */
 	cancel_work_sync(&sta->drv_unblock_wk);
 
 	cfg80211_del_sta(sdata->dev, sta->sta.addr, GFP_KERNEL);
@@ -632,6 +764,12 @@ int __must_check __sta_info_destroy(struct sta_info *sta)
 	}
 #endif
 
+	/*
+	 * Destroy aggregation state here. It would be nice to wait for the
+	 * driver to finish aggregation stop and then clean up, but for now
+	 * drivers have to handle aggregation stop being requested, followed
+	 * directly by station destruction.
+	 */
 	for (i = 0; i < STA_TID_NUM; i++) {
 		tid_tx = rcu_dereference_raw(sta->ampdu_mlme.tid_tx[i]);
 		if (!tid_tx)
@@ -710,6 +848,14 @@ void sta_info_stop(struct ieee80211_local *local)
 	sta_info_flush(local, NULL);
 }
 
+/**
+ * sta_info_flush - flush matching STA entries from the STA table
+ *
+ * Returns the number of removed STA entries.
+ *
+ * @local: local interface data
+ * @sdata: matching rule for the net device (sta->dev) or %NULL to match all STAs
+ */
 int sta_info_flush(struct ieee80211_local *local,
 		   struct ieee80211_sub_if_data *sdata)
 {
@@ -760,6 +906,10 @@ struct ieee80211_sta *ieee80211_find_sta_by_ifaddr(struct ieee80211_hw *hw,
 {
 	struct sta_info *sta, *nxt;
 
+	/*
+	 * Just return a random station if localaddr is NULL
+	 * ... first in list.
+	 */
 	for_each_sta_info(hw_to_local(hw), addr, sta, nxt) {
 		if (localaddr &&
 		    compare_ether_addr(sta->sdata->vif.addr, localaddr) != 0)
@@ -802,6 +952,7 @@ static void clear_sta_ps_flags(void *_sta)
 		atomic_dec(&sdata->bss->num_sta_ps);
 }
 
+/* powersave support code */
 void ieee80211_sta_ps_deliver_wakeup(struct sta_info *sta)
 {
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
@@ -819,7 +970,7 @@ void ieee80211_sta_ps_deliver_wakeup(struct sta_info *sta)
 
 	skb_queue_head_init(&pending);
 
-	
+	/* Send all buffered frames to the station */
 	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
 		int count = skb_queue_len(&pending), tmp;
 
@@ -843,7 +994,7 @@ void ieee80211_sta_ps_deliver_wakeup(struct sta_info *sta)
 	printk(KERN_DEBUG "%s: STA %pM aid %d sending %d filtered/%d PS frames "
 	       "since STA not sleeping anymore\n", sdata->name,
 	       sta->sta.addr, sta->sta.aid, filtered, buffered);
-#endif 
+#endif /* CONFIG_MAC80211_VERBOSE_PS_DEBUG */
 }
 
 static void ieee80211_send_null_response(struct ieee80211_sub_if_data *sdata,
@@ -894,6 +1045,12 @@ static void ieee80211_send_null_response(struct ieee80211_sub_if_data *sdata,
 
 	info = IEEE80211_SKB_CB(skb);
 
+	/*
+	 * Tell TX path to send this frame even though the
+	 * STA may still remain is PS mode after this frame
+	 * exchange. Also set EOSP to indicate this packet
+	 * ends the poll/service period.
+	 */
 	info->flags |= IEEE80211_TX_CTL_NO_PS_BUFFER |
 		       IEEE80211_TX_STATUS_EOSP |
 		       IEEE80211_TX_CTL_REQ_TX_STATUS;
@@ -916,11 +1073,14 @@ ieee80211_sta_ps_deliver_response(struct sta_info *sta,
 	unsigned long driver_release_tids = 0;
 	struct sk_buff_head frames;
 
-	
+	/* Service or PS-Poll period starts */
 	set_sta_flag(sta, WLAN_STA_SP);
 
 	__skb_queue_head_init(&frames);
 
+	/*
+	 * Get response frame(s) and more data bit for it.
+	 */
 	for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
 		unsigned long tids;
 
@@ -952,6 +1112,11 @@ ieee80211_sta_ps_deliver_response(struct sta_info *sta,
 				}
 			}
 
+			/*
+			 * If the driver has data on more than one TID then
+			 * certainly there's more data if we release just a
+			 * single frame now (from a single TID).
+			 */
 			if (reason == IEEE80211_FRAME_RELEASE_PSPOLL &&
 			    hweight16(driver_release_tids) > 1) {
 				more_data = true;
@@ -971,8 +1136,22 @@ ieee80211_sta_ps_deliver_response(struct sta_info *sta,
 	if (!found) {
 		int tid;
 
+		/*
+		 * For PS-Poll, this can only happen due to a race condition
+		 * when we set the TIM bit and the station notices it, but
+		 * before it can poll for the frame we expire it.
+		 *
+		 * For uAPSD, this is said in the standard (11.2.1.5 h):
+		 *	At each unscheduled SP for a non-AP STA, the AP shall
+		 *	attempt to transmit at least one MSDU or MMPDU, but no
+		 *	more than the value specified in the Max SP Length field
+		 *	in the QoS Capability element from delivery-enabled ACs,
+		 *	that are destined for the non-AP STA.
+		 *
+		 * Since we have no other MSDU/MMPDU, transmit a QoS null frame.
+		 */
 
-		
+		/* This will evaluate to 1, 3, 5 or 7. */
 		tid = 7 - ((ffs(~ignored_acs) - 1) << 1);
 
 		ieee80211_send_null_response(sdata, sta, tid, reason);
@@ -994,8 +1173,17 @@ ieee80211_sta_ps_deliver_response(struct sta_info *sta,
 
 			num++;
 
+			/*
+			 * Tell TX path to send this frame even though the
+			 * STA may still remain is PS mode after this frame
+			 * exchange.
+			 */
 			info->flags |= IEEE80211_TX_CTL_NO_PS_BUFFER;
 
+			/*
+			 * Use MoreData flag to indicate whether there are
+			 * more buffered frames for this STA
+			 */
 			if (more_data || !skb_queue_empty(&frames))
 				hdr->frame_control |=
 					cpu_to_le16(IEEE80211_FCTL_MOREDATA);
@@ -1007,7 +1195,7 @@ ieee80211_sta_ps_deliver_response(struct sta_info *sta,
 			    ieee80211_is_qos_nullfunc(hdr->frame_control))
 				qoshdr = ieee80211_get_qos_ctl(hdr);
 
-			
+			/* set EOSP for the frame */
 			if (reason == IEEE80211_FRAME_RELEASE_UAPSD &&
 			    qoshdr && skb_queue_empty(&frames))
 				*qoshdr |= IEEE80211_QOS_CTL_EOSP;
@@ -1030,9 +1218,27 @@ ieee80211_sta_ps_deliver_response(struct sta_info *sta,
 
 		sta_info_recalc_tim(sta);
 	} else {
+		/*
+		 * We need to release a frame that is buffered somewhere in the
+		 * driver ... it'll have to handle that.
+		 * Note that, as per the comment above, it'll also have to see
+		 * if there is more than just one frame on the specific TID that
+		 * we're releasing from, and it needs to set the more-data bit
+		 * accordingly if we tell it that there's no more data. If we do
+		 * tell it there's more data, then of course the more-data bit
+		 * needs to be set anyway.
+		 */
 		drv_release_buffered_frames(local, sta, driver_release_tids,
 					    n_frames, reason, more_data);
 
+		/*
+		 * Note that we don't recalculate the TIM bit here as it would
+		 * most likely have no effect at all unless the driver told us
+		 * that the TID became empty before returning here from the
+		 * release function.
+		 * Either way, however, when the driver tells us that the TID
+		 * became empty we'll do the TIM recalculation.
+		 */
 	}
 }
 
@@ -1040,6 +1246,11 @@ void ieee80211_sta_ps_deliver_poll_response(struct sta_info *sta)
 {
 	u8 ignore_for_response = sta->sta.uapsd_queues;
 
+	/*
+	 * If all ACs are delivery-enabled then we should reply
+	 * from any of them, if only some are enabled we reply
+	 * only from the non-enabled ones.
+	 */
 	if (ignore_for_response == BIT(IEEE80211_NUM_ACS) - 1)
 		ignore_for_response = 0;
 
@@ -1052,6 +1263,12 @@ void ieee80211_sta_ps_deliver_uapsd(struct sta_info *sta)
 	int n_frames = sta->sta.max_sp;
 	u8 delivery_enabled = sta->sta.uapsd_queues;
 
+	/*
+	 * If we ever grow support for TSPEC this might happen if
+	 * the TSPEC update from hostapd comes in between a trigger
+	 * frame setting WLAN_STA_UAPSD in the RX path and this
+	 * actually getting called.
+	 */
 	if (!delivery_enabled)
 		return;
 
@@ -1066,7 +1283,7 @@ void ieee80211_sta_ps_deliver_uapsd(struct sta_info *sta)
 		n_frames = 6;
 		break;
 	case 0:
-		
+		/* XXX: what is a good value? */
 		n_frames = 8;
 		break;
 	}
@@ -1100,7 +1317,7 @@ void ieee80211_sta_eosp_irqsafe(struct ieee80211_sta *pubsta)
 
 	skb = alloc_skb(0, GFP_ATOMIC);
 	if (!skb) {
-		
+		/* too bad ... but race is better than loss */
 		clear_sta_flag(sta, WLAN_STA_SP);
 		return;
 	}
@@ -1139,7 +1356,7 @@ int sta_info_move_state(struct sta_info *sta,
 	if (sta->sta_state == new_state)
 		return 0;
 
-	
+	/* check allowed transitions first */
 
 	switch (new_state) {
 	case IEEE80211_STA_NONE:
@@ -1170,6 +1387,10 @@ int sta_info_move_state(struct sta_info *sta,
 		sta->sdata->name, sta->sta.addr, new_state);
 #endif
 
+	/*
+	 * notify the driver before the actual changes so it can
+	 * fail the transition
+	 */
 	if (test_sta_flag(sta, WLAN_STA_INSERTED)) {
 		int err = drv_sta_state(sta->local, sta->sdata, sta,
 					sta->sta_state, new_state);
@@ -1177,7 +1398,7 @@ int sta_info_move_state(struct sta_info *sta,
 			return err;
 	}
 
-	
+	/* reflect the change in all state variables */
 
 	switch (new_state) {
 	case IEEE80211_STA_NONE:

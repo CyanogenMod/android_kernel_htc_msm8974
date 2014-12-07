@@ -21,12 +21,14 @@ struct cb710_slot;
 
 typedef int (*cb710_irq_handler_t)(struct cb710_slot *);
 
+/* per-virtual-slot structure */
 struct cb710_slot {
 	struct platform_device	pdev;
 	void __iomem		*iobase;
 	cb710_irq_handler_t	irq_handler;
 };
 
+/* per-device structure */
 struct cb710_chip {
 	struct pci_dev		*pdev;
 	void __iomem		*iobase;
@@ -40,11 +42,15 @@ struct cb710_chip {
 	struct cb710_slot	slot[0];
 };
 
+/* NOTE: cb710_chip.slots is modified only during device init/exit and
+ * they are all serialized wrt themselves */
 
+/* cb710_chip.slot_mask values */
 #define CB710_SLOT_MMC		1
 #define CB710_SLOT_MS		2
 #define CB710_SLOT_SM		4
 
+/* slot port accessors - so the logic is more clear in the code */
 #define CB710_PORT_ACCESSORS(t) \
 static inline void cb710_write_port_##t(struct cb710_slot *slot,	\
 	unsigned port, u##t value)					\
@@ -75,6 +81,7 @@ void cb710_pci_update_config_reg(struct pci_dev *pdev,
 void cb710_set_irq_handler(struct cb710_slot *slot,
 	cb710_irq_handler_t handler);
 
+/* some device struct walking */
 
 static inline struct cb710_slot *cb710_pdev_to_slot(
 	struct platform_device *pdev)
@@ -97,6 +104,7 @@ static inline struct device *cb710_chip_dev(struct cb710_chip *chip)
 	return &chip->pdev->dev;
 }
 
+/* debugging aids */
 
 #ifdef CONFIG_CB710_DEBUG
 void cb710_dump_regs(struct cb710_chip *chip, unsigned dump);
@@ -116,7 +124,7 @@ void cb710_dump_regs(struct cb710_chip *chip, unsigned dump);
 #define CB710_DUMP_ACCESS_ALL	0x700
 #define CB710_DUMP_ACCESS_MASK	0x700
 
-#endif 
+#endif /* LINUX_CB710_DRIVER_H */
 /*
  *  cb710/sgbuf2.h
  *
@@ -132,10 +140,42 @@ void cb710_dump_regs(struct cb710_chip *chip, unsigned dump);
 #include <linux/highmem.h>
 #include <linux/scatterlist.h>
 
+/*
+ * 32-bit PIO mapping sg iterator
+ *
+ * Hides scatterlist access issues - fragment boundaries, alignment, page
+ * mapping - for drivers using 32-bit-word-at-a-time-PIO (ie. PCI devices
+ * without DMA support).
+ *
+ * Best-case reading (transfer from device):
+ *   sg_miter_start(, SG_MITER_TO_SG);
+ *   cb710_sg_dwiter_write_from_io();
+ *   sg_miter_stop();
+ *
+ * Best-case writing (transfer to device):
+ *   sg_miter_start(, SG_MITER_FROM_SG);
+ *   cb710_sg_dwiter_read_to_io();
+ *   sg_miter_stop();
+ */
 
 uint32_t cb710_sg_dwiter_read_next_block(struct sg_mapping_iter *miter);
 void cb710_sg_dwiter_write_next_block(struct sg_mapping_iter *miter, uint32_t data);
 
+/**
+ * cb710_sg_dwiter_write_from_io - transfer data to mapped buffer from 32-bit IO port
+ * @miter: sg mapping iter
+ * @port: PIO port - IO or MMIO address
+ * @count: number of 32-bit words to transfer
+ *
+ * Description:
+ *   Reads @count 32-bit words from register @port and stores it in
+ *   buffer iterated by @miter.  Data that would overflow the buffer
+ *   is silently ignored.  Iterator is advanced by 4*@count bytes
+ *   or to the buffer's end whichever is closer.
+ *
+ * Context:
+ *   IRQ disabled if the SG_MITER_ATOMIC is set.  Don't care otherwise.
+ */
 static inline void cb710_sg_dwiter_write_from_io(struct sg_mapping_iter *miter,
 	void __iomem *port, size_t count)
 {
@@ -165,4 +205,4 @@ static inline void cb710_sg_dwiter_read_to_io(struct sg_mapping_iter *miter,
 		iowrite32(cb710_sg_dwiter_read_next_block(miter), port);
 }
 
-#endif 
+#endif /* LINUX_CB710_SG_H */

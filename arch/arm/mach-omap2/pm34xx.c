@@ -51,6 +51,7 @@
 #include "sdrc.h"
 #include "control.h"
 
+/* pm34xx errata defined in pm.h */
 u16 pm34xx_errata;
 
 struct power_state {
@@ -77,7 +78,7 @@ static void omap3_enable_io_chain(void)
 
 	omap2_prm_set_mod_reg_bits(OMAP3430_EN_IO_CHAIN_MASK, WKUP_MOD,
 				   PM_WKEN);
-	
+	/* Do a readback to assure write has been done */
 	omap2_prm_read_mod_reg(WKUP_MOD, PM_WKEN);
 
 	while (!(omap2_prm_read_mod_reg(WKUP_MOD, PM_WKEN) &
@@ -102,40 +103,55 @@ static void omap3_core_save_context(void)
 {
 	omap3_ctrl_save_padconf();
 
+	/*
+	 * Force write last pad into memory, as this can fail in some
+	 * cases according to errata 1.157, 1.185
+	 */
 	omap_ctrl_writel(omap_ctrl_readl(OMAP343X_PADCONF_ETK_D14),
 		OMAP343X_CONTROL_MEM_WKUP + 0x2a0);
 
-	
+	/* Save the Interrupt controller context */
 	omap_intc_save_context();
-	
+	/* Save the GPMC context */
 	omap3_gpmc_save_context();
-	
+	/* Save the system control module context, padconf already save above*/
 	omap3_control_save_context();
 	omap_dma_global_context_save();
 }
 
 static void omap3_core_restore_context(void)
 {
-	
+	/* Restore the control module context, padconf restored by h/w */
 	omap3_control_restore_context();
-	
+	/* Restore the GPMC context */
 	omap3_gpmc_restore_context();
-	
+	/* Restore the interrupt controller context */
 	omap_intc_restore_context();
 	omap_dma_global_context_restore();
 }
 
+/*
+ * FIXME: This function should be called before entering off-mode after
+ * OMAP3 secure services have been accessed. Currently it is only called
+ * once during boot sequence, but this works as we are not using secure
+ * services.
+ */
 static void omap3_save_secure_ram_context(void)
 {
 	u32 ret;
 	int mpu_next_state = pwrdm_read_next_pwrst(mpu_pwrdm);
 
 	if (omap_type() != OMAP2_DEVICE_TYPE_GP) {
+		/*
+		 * MPU next state must be set to POWER_ON temporarily,
+		 * otherwise the WFI executed inside the ROM code
+		 * will hang the system.
+		 */
 		pwrdm_set_next_pwrst(mpu_pwrdm, PWRDM_POWER_ON);
 		ret = _omap_save_secure_sram((u32 *)
 				__pa(omap3_secure_ram_storage));
 		pwrdm_set_next_pwrst(mpu_pwrdm, mpu_next_state);
-		
+		/* Following is for error tracking, it should not happen */
 		if (ret) {
 			pr_err("save_secure_sram() returns %08x\n", ret);
 			while (1)
@@ -144,6 +160,16 @@ static void omap3_save_secure_ram_context(void)
 	}
 }
 
+/*
+ * PRCM Interrupt Handler Helper Function
+ *
+ * The purpose of this function is to clear any wake-up events latched
+ * in the PRCM PM_WKST_x registers. It is possible that a wake-up event
+ * may occur whilst attempting to clear a PM_WKST_x register and thus
+ * set another bit in this register. A while loop is used to ensure
+ * that any peripheral wake-up events occurring while attempting to
+ * clear the PM_WKST_x are detected and cleared.
+ */
 static int prcm_clear_mod_irqs(s16 module, u8 regs, u32 ignore_bits)
 {
 	u32 wkst, fclk, iclk, clken;
@@ -163,6 +189,10 @@ static int prcm_clear_mod_irqs(s16 module, u8 regs, u32 ignore_bits)
 		while (wkst) {
 			clken = wkst;
 			omap2_cm_set_mod_reg_bits(clken, module, iclk_off);
+			/*
+			 * For USBHOST, we don't know whether HOST1 or
+			 * HOST2 woke us up, so enable both f-clocks
+			 */
 			if (module == OMAP3430ES2_USBHOST_MOD)
 				clken |= 1 << OMAP3430ES2_EN_USBHOST2_SHIFT;
 			omap2_cm_set_mod_reg_bits(clken, module, fclk_off);
@@ -192,6 +222,11 @@ static irqreturn_t _prcm_int_handle_wakeup(int irq, void *unused)
 {
 	int c;
 
+	/*
+	 * Clear all except ST_IO and ST_IO_CHAIN for wkup module,
+	 * these are handled in a separate handler to avoid acking
+	 * IO events before parsing in mux code
+	 */
 	c = prcm_clear_mod_irqs(WKUP_MOD, 1,
 		OMAP3430_ST_IO_MASK | OMAP3430_ST_IO_CHAIN_MASK);
 	c += prcm_clear_mod_irqs(CORE_MOD, 1, 0);
@@ -208,12 +243,12 @@ static void omap34xx_save_context(u32 *save)
 {
 	u32 val;
 
-	
+	/* Read Auxiliary Control Register */
 	asm("mrc p15, 0, %0, c1, c0, 1" : "=r" (val));
 	*save++ = 1;
 	*save++ = val;
 
-	
+	/* Read L2 AUX ctrl register */
 	asm("mrc p15, 1, %0, c9, c0, 2" : "=r" (val));
 	*save++ = 1;
 	*save++ = val;
@@ -227,10 +262,12 @@ static int omap34xx_do_sram_idle(unsigned long save_state)
 
 void omap_sram_idle(void)
 {
-	
-	
-	
-	
+	/* Variable to tell what needs to be saved and restored
+	 * in omap_sram_idle*/
+	/* save_state = 0 => Nothing to save and restored */
+	/* save_state = 1 => Only L1 and logic lost */
+	/* save_state = 2 => Only L2 lost */
+	/* save_state = 3 => L1, L2 and logic lost */
 	int save_state = 0;
 	int mpu_next_state = PWRDM_POWER_ON;
 	int per_next_state = PWRDM_POWER_ON;
@@ -243,23 +280,23 @@ void omap_sram_idle(void)
 	switch (mpu_next_state) {
 	case PWRDM_POWER_ON:
 	case PWRDM_POWER_RET:
-		
+		/* No need to save context */
 		save_state = 0;
 		break;
 	case PWRDM_POWER_OFF:
 		save_state = 3;
 		break;
 	default:
-		
+		/* Invalid state */
 		pr_err("Invalid mpu state in sram_idle\n");
 		return;
 	}
 
-	
+	/* NEON control */
 	if (pwrdm_read_pwrst(neon_pwrdm) == PWRDM_POWER_ON)
 		pwrdm_set_next_pwrst(neon_pwrdm, mpu_next_state);
 
-	
+	/* Enable IO-PAD and IO-CHAIN wakeups */
 	per_next_state = pwrdm_read_next_pwrst(per_pwrdm);
 	core_next_state = pwrdm_read_next_pwrst(core_pwrdm);
 	if (omap3_has_io_wakeup() &&
@@ -272,13 +309,13 @@ void omap_sram_idle(void)
 
 	pwrdm_pre_transition();
 
-	
+	/* PER */
 	if (per_next_state < PWRDM_POWER_ON) {
 		per_going_off = (per_next_state == PWRDM_POWER_OFF) ? 1 : 0;
 		omap2_gpio_prepare_for_idle(per_going_off);
 	}
 
-	
+	/* CORE */
 	if (core_next_state < PWRDM_POWER_ON) {
 		if (core_next_state == PWRDM_POWER_OFF) {
 			omap3_core_save_context();
@@ -288,12 +325,23 @@ void omap_sram_idle(void)
 
 	omap3_intc_prepare_idle();
 
+	/*
+	 * On EMU/HS devices ROM code restores a SRDC value
+	 * from scratchpad which has automatic self refresh on timeout
+	 * of AUTO_CNT = 1 enabled. This takes care of erratum ID i443.
+	 * Hence store/restore the SDRC_POWER register here.
+	 */
 	if (cpu_is_omap3430() && omap_rev() >= OMAP3430_REV_ES3_0 &&
 	    (omap_type() == OMAP2_DEVICE_TYPE_EMU ||
 	     omap_type() == OMAP2_DEVICE_TYPE_SEC) &&
 	    core_next_state == PWRDM_POWER_OFF)
 		sdrc_pwr = sdrc_read_reg(SDRC_POWER);
 
+	/*
+	 * omap3_arm_context is the location where some ARM context
+	 * get saved. The rest is placed on the stack, and restored
+	 * from there before resuming.
+	 */
 	if (save_state)
 		omap34xx_save_context(omap3_arm_context);
 	if (save_state == 1 || save_state == 3)
@@ -301,14 +349,14 @@ void omap_sram_idle(void)
 	else
 		omap34xx_do_sram_idle(save_state);
 
-	
+	/* Restore normal SDRC POWER settings */
 	if (cpu_is_omap3430() && omap_rev() >= OMAP3430_REV_ES3_0 &&
 	    (omap_type() == OMAP2_DEVICE_TYPE_EMU ||
 	     omap_type() == OMAP2_DEVICE_TYPE_SEC) &&
 	    core_next_state == PWRDM_POWER_OFF)
 		sdrc_write_reg(sdrc_pwr, SDRC_POWER);
 
-	
+	/* CORE */
 	if (core_next_state < PWRDM_POWER_ON) {
 		core_prev_state = pwrdm_read_prev_pwrst(core_pwrdm);
 		if (core_prev_state == PWRDM_POWER_OFF) {
@@ -326,13 +374,13 @@ void omap_sram_idle(void)
 
 	pwrdm_post_transition();
 
-	
+	/* PER */
 	if (per_next_state < PWRDM_POWER_ON) {
 		per_prev_state = pwrdm_read_prev_pwrst(per_pwrdm);
 		omap2_gpio_resume_after_idle();
 	}
 
-	
+	/* Disable IO-PAD and IO-CHAIN wakeup */
 	if (omap3_has_io_wakeup() &&
 	    (per_next_state < PWRDM_POWER_ON ||
 	     core_next_state < PWRDM_POWER_ON)) {
@@ -370,10 +418,10 @@ static int omap3_pm_suspend(void)
 	struct power_state *pwrst;
 	int state, ret = 0;
 
-	
+	/* Read current next_pwrsts */
 	list_for_each_entry(pwrst, &pwrst_list, node)
 		pwrst->saved_state = pwrdm_read_next_pwrst(pwrst->pwrdm);
-	
+	/* Set ones wanted by suspend */
 	list_for_each_entry(pwrst, &pwrst_list, node) {
 		if (omap_set_pwrdm_state(pwrst->pwrdm, pwrst->next_state))
 			goto restore;
@@ -386,7 +434,7 @@ static int omap3_pm_suspend(void)
 	omap_sram_idle();
 
 restore:
-	
+	/* Restore next_pwrsts */
 	list_for_each_entry(pwrst, &pwrst_list, node) {
 		state = pwrdm_read_prev_pwrst(pwrst->pwrdm);
 		if (state > pwrst->next_state) {
@@ -405,40 +453,50 @@ restore:
 	return ret;
 }
 
-#endif 
+#endif /* CONFIG_SUSPEND */
 
 
+/**
+ * omap3_iva_idle(): ensure IVA is in idle so it can be put into
+ *                   retention
+ *
+ * In cases where IVA2 is activated by bootcode, it may prevent
+ * full-chip retention or off-mode because it is not idle.  This
+ * function forces the IVA2 into idle state so it can go
+ * into retention/off and thus allow full-chip retention/off.
+ *
+ **/
 static void __init omap3_iva_idle(void)
 {
-	
+	/* ensure IVA2 clock is disabled */
 	omap2_cm_write_mod_reg(0, OMAP3430_IVA2_MOD, CM_FCLKEN);
 
-	
+	/* if no clock activity, nothing else to do */
 	if (!(omap2_cm_read_mod_reg(OMAP3430_IVA2_MOD, OMAP3430_CM_CLKSTST) &
 	      OMAP3430_CLKACTIVITY_IVA2_MASK))
 		return;
 
-	
+	/* Reset IVA2 */
 	omap2_prm_write_mod_reg(OMAP3430_RST1_IVA2_MASK |
 			  OMAP3430_RST2_IVA2_MASK |
 			  OMAP3430_RST3_IVA2_MASK,
 			  OMAP3430_IVA2_MOD, OMAP2_RM_RSTCTRL);
 
-	
+	/* Enable IVA2 clock */
 	omap2_cm_write_mod_reg(OMAP3430_CM_FCLKEN_IVA2_EN_IVA2_MASK,
 			 OMAP3430_IVA2_MOD, CM_FCLKEN);
 
-	
+	/* Set IVA2 boot mode to 'idle' */
 	omap_ctrl_writel(OMAP3_IVA2_BOOTMOD_IDLE,
 			 OMAP343X_CONTROL_IVA2_BOOTMOD);
 
-	
+	/* Un-reset IVA2 */
 	omap2_prm_write_mod_reg(0, OMAP3430_IVA2_MOD, OMAP2_RM_RSTCTRL);
 
-	
+	/* Disable IVA2 clock */
 	omap2_cm_write_mod_reg(0, OMAP3430_IVA2_MOD, CM_FCLKEN);
 
-	
+	/* Reset IVA2 */
 	omap2_prm_write_mod_reg(OMAP3430_RST1_IVA2_MASK |
 			  OMAP3430_RST2_IVA2_MASK |
 			  OMAP3430_RST3_IVA2_MASK,
@@ -449,7 +507,11 @@ static void __init omap3_d2d_idle(void)
 {
 	u16 mask, padconf;
 
-	mask = (1 << 4) | (1 << 3); 
+	/* In a stand alone OMAP3430 where there is not a stacked
+	 * modem for the D2D Idle Ack and D2D MStandby must be pulled
+	 * high. S CONTROL_PADCONF_SAD2D_IDLEACK and
+	 * CONTROL_PADCONF_SAD2D_MSTDBY to have a pull up. */
+	mask = (1 << 4) | (1 << 3); /* pull-up, enabled */
 	padconf = omap_ctrl_readw(OMAP3_PADCONF_SAD2D_MSTANDBY);
 	padconf |= mask;
 	omap_ctrl_writew(padconf, OMAP3_PADCONF_SAD2D_MSTANDBY);
@@ -458,7 +520,7 @@ static void __init omap3_d2d_idle(void)
 	padconf |= mask;
 	omap_ctrl_writew(padconf, OMAP3_PADCONF_SAD2D_IDLEACK);
 
-	
+	/* reset modem */
 	omap2_prm_write_mod_reg(OMAP3430_RM_RSTCTRL_CORE_MODEM_SW_RSTPWRON_MASK |
 			  OMAP3430_RM_RSTCTRL_CORE_MODEM_SW_RST_MASK,
 			  CORE_MOD, OMAP2_RM_RSTCTRL);
@@ -472,29 +534,34 @@ static void __init prcm_setup_regs(void)
 	u32 omap3630_grpsel_uart4_mask = cpu_is_omap3630() ?
 					OMAP3630_GRPSEL_UART4_MASK : 0;
 
-	
+	/* XXX This should be handled by hwmod code or SCM init code */
 	omap_ctrl_writel(OMAP3430_AUTOIDLE_MASK, OMAP2_CONTROL_SYSCONFIG);
 
+	/*
+	 * Enable control of expternal oscillator through
+	 * sys_clkreq. In the long run clock framework should
+	 * take care of this.
+	 */
 	omap2_prm_rmw_mod_reg_bits(OMAP_AUTOEXTCLKMODE_MASK,
 			     1 << OMAP_AUTOEXTCLKMODE_SHIFT,
 			     OMAP3430_GR_MOD,
 			     OMAP3_PRM_CLKSRC_CTRL_OFFSET);
 
-	
+	/* setup wakup source */
 	omap2_prm_write_mod_reg(OMAP3430_EN_IO_MASK | OMAP3430_EN_GPIO1_MASK |
 			  OMAP3430_EN_GPT1_MASK | OMAP3430_EN_GPT12_MASK,
 			  WKUP_MOD, PM_WKEN);
-	
+	/* No need to write EN_IO, that is always enabled */
 	omap2_prm_write_mod_reg(OMAP3430_GRPSEL_GPIO1_MASK |
 			  OMAP3430_GRPSEL_GPT1_MASK |
 			  OMAP3430_GRPSEL_GPT12_MASK,
 			  WKUP_MOD, OMAP3430_PM_MPUGRPSEL);
 
-	
+	/* Enable PM_WKEN to support DSS LPR */
 	omap2_prm_write_mod_reg(OMAP3430_PM_WKEN_DSS_EN_DSS_MASK,
 				OMAP3430_DSS_MOD, PM_WKEN);
 
-	
+	/* Enable wakeups in PER */
 	omap2_prm_write_mod_reg(omap3630_en_uart4_mask |
 			  OMAP3430_EN_GPIO2_MASK | OMAP3430_EN_GPIO3_MASK |
 			  OMAP3430_EN_GPIO4_MASK | OMAP3430_EN_GPIO5_MASK |
@@ -502,7 +569,7 @@ static void __init prcm_setup_regs(void)
 			  OMAP3430_EN_MCBSP2_MASK | OMAP3430_EN_MCBSP3_MASK |
 			  OMAP3430_EN_MCBSP4_MASK,
 			  OMAP3430_PER_MOD, PM_WKEN);
-	
+	/* and allow them to wake up MPU */
 	omap2_prm_write_mod_reg(omap3630_grpsel_uart4_mask |
 			  OMAP3430_GRPSEL_GPIO2_MASK |
 			  OMAP3430_GRPSEL_GPIO3_MASK |
@@ -515,13 +582,13 @@ static void __init prcm_setup_regs(void)
 			  OMAP3430_GRPSEL_MCBSP4_MASK,
 			  OMAP3430_PER_MOD, OMAP3430_PM_MPUGRPSEL);
 
-	
+	/* Don't attach IVA interrupts */
 	omap2_prm_write_mod_reg(0, WKUP_MOD, OMAP3430_PM_IVAGRPSEL);
 	omap2_prm_write_mod_reg(0, CORE_MOD, OMAP3430_PM_IVAGRPSEL1);
 	omap2_prm_write_mod_reg(0, CORE_MOD, OMAP3430ES2_PM_IVAGRPSEL3);
 	omap2_prm_write_mod_reg(0, OMAP3430_PER_MOD, OMAP3430_PM_IVAGRPSEL);
 
-	
+	/* Clear any pending 'reset' flags */
 	omap2_prm_write_mod_reg(0xffffffff, MPU_MOD, OMAP2_RM_RSTST);
 	omap2_prm_write_mod_reg(0xffffffff, CORE_MOD, OMAP2_RM_RSTST);
 	omap2_prm_write_mod_reg(0xffffffff, OMAP3430_PER_MOD, OMAP2_RM_RSTST);
@@ -530,7 +597,7 @@ static void __init prcm_setup_regs(void)
 	omap2_prm_write_mod_reg(0xffffffff, OMAP3430_DSS_MOD, OMAP2_RM_RSTST);
 	omap2_prm_write_mod_reg(0xffffffff, OMAP3430ES2_USBHOST_MOD, OMAP2_RM_RSTST);
 
-	
+	/* Clear any pending PRCM interrupts */
 	omap2_prm_write_mod_reg(0, OCP_MOD, OMAP3_PRM_IRQSTATUS_MPU_OFFSET);
 
 	omap3_iva_idle();
@@ -605,6 +672,13 @@ static int __init pwrdms_setup(struct powerdomain *pwrdm, void *unused)
 	return omap_set_pwrdm_state(pwrst->pwrdm, pwrst->next_state);
 }
 
+/*
+ * Push functions to SRAM
+ *
+ * The minimum set of functions is pushed to SRAM for execution:
+ * - omap3_do_wfi for erratum i581 WA,
+ * - save_secure_ram_context for security extensions.
+ */
 void omap_push_sram_idle(void)
 {
 	omap3_do_wfi_sram = omap_sram_push(omap3_do_wfi, omap3_do_wfi_sz);
@@ -618,7 +692,7 @@ static void __init pm_errata_configure(void)
 {
 	if (cpu_is_omap3630()) {
 		pm34xx_errata |= PM_RTA_ERRATUM_i608;
-		
+		/* Enable the l2 cache toggling in sleep logic */
 		enable_omap3630_toggle_l2_on_restore();
 		if (omap_rev() < OMAP3630_REV_ES1_2)
 			pm34xx_errata |= PM_SDRC_WAKEUP_ERRATUM_i583;
@@ -639,6 +713,8 @@ static int __init omap3_pm_init(void)
 
 	pm_errata_configure();
 
+	/* XXX prcm_setup_regs needs to be before enabling hw
+	 * supervised mode for powerdomains */
 	prcm_setup_regs();
 
 	ret = request_irq(omap_prcm_event_to_irq("wkup"),
@@ -649,7 +725,7 @@ static int __init omap3_pm_init(void)
 		goto err1;
 	}
 
-	
+	/* IO interrupt is shared with mux code */
 	ret = request_irq(omap_prcm_event_to_irq("io"),
 		_prcm_int_handle_io, IRQF_SHARED | IRQF_NO_SUSPEND, "pm_io",
 		omap3_pm_init);
@@ -691,6 +767,11 @@ static int __init omap3_pm_init(void)
 	arm_pm_idle = omap3_pm_idle;
 	omap3_idle_init();
 
+	/*
+	 * RTA is disabled during initialization as per erratum i608
+	 * it is safer to disable RTA by the bootloader, but we would like
+	 * to be doubly sure here and prevent any mishaps.
+	 */
 	if (IS_PM34XX_ERRATUM(PM_RTA_ERRATUM_i608))
 		omap3630_ctrl_disable_rta();
 

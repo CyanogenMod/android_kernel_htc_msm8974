@@ -3,4 +3,4 @@
 
 #include <arch/cache.h>
 
-#endif 
+#endif /* _ASM_CACHE_H */

@@ -197,6 +197,10 @@ static int uhid_hid_get_raw(struct hid_device *hid, unsigned char rnum,
 	ret = wait_event_interruptible_timeout(uhid->report_wait,
 				atomic_read(&uhid->report_done), 5 * HZ);
 
+	/*
+	 * Make sure "uhid->running" is cleared on shutdown before
+	 * "uhid->report_done" is set.
+	 */
 	smp_rmb();
 	if (!ret || !uhid->running) {
 		ret = -EIO;
@@ -344,7 +348,7 @@ static int uhid_dev_destroy(struct uhid_device *uhid)
 	if (!uhid->running)
 		return -EINVAL;
 
-	
+	/* clear "running" before setting "report_done" */
 	uhid->running = false;
 	smp_wmb();
 	atomic_set(&uhid->report_done, 1);
@@ -377,7 +381,7 @@ static int uhid_dev_feature_answer(struct uhid_device *uhid,
 
 	spin_lock_irqsave(&uhid->qlock, flags);
 
-	
+	/* id for old report; drop it silently */
 	if (atomic_read(&uhid->report_id) != ev->u.feature_answer.id)
 		goto unlock;
 	if (atomic_read(&uhid->report_done))
@@ -437,7 +441,7 @@ static ssize_t uhid_char_read(struct file *file, char __user *buffer,
 	unsigned long flags;
 	size_t len;
 
-	
+	/* they need at least the "type" member of uhid_event */
 	if (count < sizeof(__u32))
 		return -EINVAL;
 
@@ -484,7 +488,7 @@ static ssize_t uhid_char_write(struct file *file, const char __user *buffer,
 	int ret;
 	size_t len;
 
-	
+	/* we need at least the "type" member of uhid_event */
 	if (count < sizeof(__u32))
 		return -EINVAL;
 
@@ -519,7 +523,7 @@ static ssize_t uhid_char_write(struct file *file, const char __user *buffer,
 unlock:
 	mutex_unlock(&uhid->devlock);
 
-	
+	/* return "count" not "len" to not confuse the caller */
 	return ret ? ret : count;
 }
 

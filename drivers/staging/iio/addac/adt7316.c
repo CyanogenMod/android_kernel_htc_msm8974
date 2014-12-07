@@ -24,6 +24,9 @@
 #include "../sysfs.h"
 #include "adt7316.h"
 
+/*
+ * ADT7316 registers definition
+ */
 #define ADT7316_INT_STAT1		0x0
 #define ADT7316_INT_STAT2		0x1
 #define ADT7316_LSB_IN_TEMP_VDD		0x3
@@ -81,6 +84,9 @@
 #define ADT7316_DEVICE_REV		0x4F
 #define ADT7316_SPI_LOCK_STAT		0x7F
 
+/*
+ * ADT7316 config1
+ */
 #define ADT7316_EN			0x1
 #define ADT7516_SEL_EX_TEMP		0x4
 #define ADT7516_SEL_AIN1_2_EX_TEMP_MASK	0x6
@@ -89,6 +95,9 @@
 #define ADT7316_INT_POLARITY		0x40
 #define ADT7316_PD			0x80
 
+/*
+ * ADT7316 config2
+ */
 #define ADT7316_AD_SINGLE_CH_MASK	0x3
 #define ADT7516_AD_SINGLE_CH_MASK	0x7
 #define ADT7316_AD_SINGLE_CH_VDD	0
@@ -103,6 +112,9 @@
 #define ADT7316_EN_SMBUS_TIMEOUT	0x40
 #define ADT7316_RESET			0x80
 
+/*
+ * ADT7316 config3
+ */
 #define ADT7316_ADCLK_22_5		0x1
 #define ADT7316_DA_HIGH_RESOLUTION	0x2
 #define ADT7316_DA_EN_VIA_DAC_LDCA	0x4
@@ -110,6 +122,9 @@
 #define ADT7316_EN_IN_TEMP_PROP_DACA	0x20
 #define ADT7316_EN_EX_TEMP_PROP_DACB	0x40
 
+/*
+ * ADT7316 DAC config
+ */
 #define ADT7316_DA_2VREF_CH_MASK	0xF
 #define ADT7316_DA_EN_MODE_MASK		0x30
 #define ADT7316_DA_EN_MODE_SINGLE	0x00
@@ -119,6 +134,9 @@
 #define ADT7316_VREF_BYPASS_DAC_AB	0x40
 #define ADT7316_VREF_BYPASS_DAC_CD	0x80
 
+/*
+ * ADT7316 LDAC config
+ */
 #define ADT7316_LDAC_EN_DA_MASK		0xF
 #define ADT7316_DAC_IN_VREF		0x10
 #define ADT7516_DAC_AB_IN_VREF		0x10
@@ -126,13 +144,22 @@
 #define ADT7516_DAC_IN_VREF_OFFSET	4
 #define ADT7516_DAC_IN_VREF_MASK	0x30
 
+/*
+ * ADT7316 INT_MASK2
+ */
 #define ADT7316_INT_MASK2_VDD		0x10
 
+/*
+ * ADT7316 value masks
+ */
 #define ADT7316_VALUE_MASK		0xfff
 #define ADT7316_T_VALUE_SIGN		0x400
 #define ADT7316_T_VALUE_FLOAT_OFFSET	2
 #define ADT7316_T_VALUE_FLOAT_MASK	0x2
 
+/*
+ * Chip ID
+ */
 #define ID_ADT7316		0x1
 #define ID_ADT7317		0x2
 #define ID_ADT7318		0x3
@@ -144,20 +171,27 @@
 #define ID_ADT73XX		0x0
 #define ID_ADT75XX		0x10
 
+/*
+ * struct adt7316_chip_info - chip specifc information
+ */
 
 struct adt7316_chip_info {
 	struct adt7316_bus	bus;
 	u16			ldac_pin;
-	u16			int_mask;	
+	u16			int_mask;	/* 0x2f */
 	u8			config1;
 	u8			config2;
 	u8			config3;
-	u8			dac_config;	
-	u8			ldac_config;	
-	u8			dac_bits;	
-	u8			id;		
+	u8			dac_config;	/* DAC config */
+	u8			ldac_config;	/* LDAC config */
+	u8			dac_bits;	/* 8, 10, 12 */
+	u8			id;		/* chip id */
 };
 
+/*
+ * Logic interrupt mask for user application to enable
+ * interrupts.
+ */
 #define ADT7316_IN_TEMP_HIGH_INT_MASK	0x1
 #define ADT7316_IN_TEMP_LOW_INT_MASK	0x2
 #define ADT7316_EX_TEMP_HIGH_INT_MASK	0x4
@@ -173,6 +207,9 @@ struct adt7316_chip_info {
 #define ADT7316_TEMP_AIN_INT_MASK	\
 	(ADT7316_TEMP_INT_MASK)
 
+/*
+ * struct adt7316_chip_info - chip specifc information
+ */
 
 struct adt7316_limit_regs {
 	u16	data_high;
@@ -852,7 +889,7 @@ static ssize_t adt7316_show_DAC_update_mode(struct device *dev,
 			return sprintf(buf, "1 - auto at MSB DAC AB and CD writing\n");
 		case ADT7316_DA_EN_MODE_ABCD:
 			return sprintf(buf, "2 - auto at MSB DAC ABCD writing\n");
-		default: 
+		default: /* ADT7316_DA_EN_MODE_LDAC */
 			return sprintf(buf, "3 - manual\n");
 		}
 	}
@@ -1146,7 +1183,7 @@ static ssize_t adt7316_show_ad(struct adt7316_chip_info *chip,
 		data = msb << ADT7316_T_VALUE_FLOAT_OFFSET;
 		data |= (lsb & ADT7316_LSB_VDD_MASK) >> ADT7316_LSB_VDD_OFFSET;
 		return sprintf(buf, "%d\n", data);
-	default: 
+	default: /* ex_temp and ain */
 		ret = chip->bus.read(chip->bus.client,
 			ADT7316_LSB_EX_TEMP_AIN, &lsb);
 		if (ret)
@@ -1169,7 +1206,7 @@ static ssize_t adt7316_show_ad(struct adt7316_chip_info *chip,
 	}
 
 	if (data & ADT7316_T_VALUE_SIGN) {
-		
+		/* convert supplement to positive value */
 		data = (ADT7316_T_VALUE_SIGN << 1) - data;
 		sign = '-';
 	}
@@ -1797,6 +1834,9 @@ static irqreturn_t adt7316_event_handler(int irq, void *private)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Show mask of enabled interrupts in Hex.
+ */
 static ssize_t adt7316_show_int_mask(struct device *dev,
 		struct device_attribute *attr,
 		char *buf)
@@ -1807,6 +1847,9 @@ static ssize_t adt7316_show_int_mask(struct device *dev,
 	return sprintf(buf, "0x%x\n", chip->int_mask);
 }
 
+/*
+ * Set 1 to the mask in Hex to enabled interrupts.
+ */
 static ssize_t adt7316_set_int_mask(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf,
@@ -1823,9 +1866,9 @@ static ssize_t adt7316_set_int_mask(struct device *dev,
 		return -EINVAL;
 
 	if (data & ADT7316_VDD_INT_MASK)
-		mask = 0;			
+		mask = 0;			/* enable vdd int */
 	else
-		mask = ADT7316_INT_MASK2_VDD;	
+		mask = ADT7316_INT_MASK2_VDD;	/* disable vdd int */
 
 	ret = chip->bus.write(chip->bus.client, ADT7316_INT_MASK2, mask);
 	if (!ret) {
@@ -1835,10 +1878,10 @@ static ssize_t adt7316_set_int_mask(struct device *dev,
 
 	if (data & ADT7316_TEMP_AIN_INT_MASK) {
 		if ((chip->id & ID_FAMILY_MASK) == ID_ADT73XX)
-			
+			/* mask in reg is opposite, set 1 to disable */
 			mask = (~data) & ADT7316_TEMP_INT_MASK;
 		else
-			
+			/* mask in reg is opposite, set 1 to disable */
 			mask = (~data) & ADT7316_TEMP_AIN_INT_MASK;
 	}
 	ret = chip->bus.write(chip->bus.client, ADT7316_INT_MASK1, mask);
@@ -1972,6 +2015,7 @@ static IIO_DEVICE_ATTR(ex_temp_low_value,
 		       adt7316_show_ad_bound, adt7316_set_ad_bound,
 		       ADT7316_EX_TEMP_LOW);
 
+/* NASTY duplication to be fixed */
 static IIO_DEVICE_ATTR(ex_temp_ain1_high_value,
 		       S_IRUGO | S_IWUSR,
 		       adt7316_show_ad_bound, adt7316_set_ad_bound,
@@ -2078,6 +2122,9 @@ static const struct iio_info adt7516_info = {
 	.driver_module = THIS_MODULE,
 };
 
+/*
+ * device probe and remove
+ */
 int __devinit adt7316_probe(struct device *dev, struct adt7316_bus *bus,
 		const char *name)
 {
@@ -2092,7 +2139,7 @@ int __devinit adt7316_probe(struct device *dev, struct adt7316_bus *bus,
 		goto error_ret;
 	}
 	chip = iio_priv(indio_dev);
-	
+	/* this is only used for device removal purposes */
 	dev_set_drvdata(dev, indio_dev);
 
 	chip->bus = *bus;

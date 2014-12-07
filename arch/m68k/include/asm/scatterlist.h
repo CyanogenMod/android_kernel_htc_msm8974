@@ -3,4 +3,4 @@
 
 #include <asm-generic/scatterlist.h>
 
-#endif 
+#endif /* !(_M68K_SCATTERLIST_H) */

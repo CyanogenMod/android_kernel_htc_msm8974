@@ -2,6 +2,9 @@
 #define __M68K_FPU_H
 
 
+/*
+ * MAX floating point unit state size (FSAVE/FRESTORE)
+ */
 
 #if defined(CONFIG_M68020) || defined(CONFIG_M68030)
 #define FPSTATESIZE (216)
@@ -17,4 +20,4 @@
 #define FPSTATESIZE (0)
 #endif
 
-#endif 
+#endif /* __M68K_FPU_H */

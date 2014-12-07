@@ -35,6 +35,7 @@
 #ifndef _ASM_NLM_INTERRUPT_H
 #define _ASM_NLM_INTERRUPT_H
 
+/* Defines for the IRQ numbers */
 
 #define IRQ_IPI_SMP_FUNCTION	3
 #define IRQ_IPI_SMP_RESCHEDULE	4

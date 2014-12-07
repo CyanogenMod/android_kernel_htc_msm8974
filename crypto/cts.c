@@ -34,6 +34,11 @@
  *	Copyright (c) 2006 Herbert Xu <herbert@gondor.apana.org.au>
  */
 
+/*
+ * This is the Cipher Text Stealing mode as described by
+ * Section 8 of rfc2040 and referenced by rfc3962.
+ * rfc3962 includes errata information in its Appendix A.
+ */
 
 #include <crypto/algapi.h>
 #include <linux/err.h>
@@ -137,11 +142,11 @@ static int crypto_cts_encrypt(struct blkcipher_desc *desc,
 	} else if (nbytes <= bsize * 2) {
 		err = cts_cbc_encrypt(ctx, desc, dst, src, 0, nbytes);
 	} else {
-		
+		/* do normal function for tot_blocks - 2 */
 		err = crypto_blkcipher_encrypt_iv(&lcldesc, dst, src,
 							cbc_blocks * bsize);
 		if (err == 0) {
-			
+			/* do cts for final two blocks */
 			err = cts_cbc_encrypt(ctx, desc, dst, src,
 						cbc_blocks * bsize,
 						nbytes - (cbc_blocks * bsize));
@@ -179,30 +184,30 @@ static int cts_cbc_decrypt(struct crypto_cts_ctx *ctx,
 	lcldesc.info = iv;
 	lcldesc.flags = desc->flags;
 
-	
+	/* 1. Decrypt Cn-1 (s) to create Dn (tmp)*/
 	memset(iv, 0, sizeof(iv));
 	sg_set_buf(&sgsrc[0], s, bsize);
 	sg_set_buf(&sgdst[0], tmp, bsize);
 	err = crypto_blkcipher_decrypt_iv(&lcldesc, sgdst, sgsrc, bsize);
 	if (err)
 		return err;
-	
+	/* 2. Pad Cn with zeros at the end to create C of length BB */
 	memset(iv, 0, sizeof(iv));
 	memcpy(iv, s + bsize, lastn);
-	
+	/* 3. Exclusive-or Dn (tmp) with C (iv) to create Xn (tmp) */
 	crypto_xor(tmp, iv, bsize);
-	
+	/* 4. Select the first Ln bytes of Xn (tmp) to create Pn */
 	memcpy(d + bsize, tmp, lastn);
 
-	
+	/* 5. Append the tail (BB - Ln) bytes of Xn (tmp) to Cn to create En */
 	memcpy(s + bsize + lastn, tmp + lastn, bsize - lastn);
-	
+	/* 6. Decrypt En to create Pn-1 */
 	memset(iv, 0, sizeof(iv));
 	sg_set_buf(&sgsrc[0], s + bsize, bsize);
 	sg_set_buf(&sgdst[0], d, bsize);
 	err = crypto_blkcipher_decrypt_iv(&lcldesc, sgdst, sgsrc, bsize);
 
-	
+	/* XOR with previous block */
 	crypto_xor(d, desc->info, bsize);
 
 	scatterwalk_map_and_copy(d, dst, offset, nbytes, 1);
@@ -231,11 +236,11 @@ static int crypto_cts_decrypt(struct blkcipher_desc *desc,
 	} else if (nbytes <= bsize * 2) {
 		err = cts_cbc_decrypt(ctx, desc, dst, src, 0, nbytes);
 	} else {
-		
+		/* do normal function for tot_blocks - 2 */
 		err = crypto_blkcipher_decrypt_iv(&lcldesc, dst, src,
 							cbc_blocks * bsize);
 		if (err == 0) {
-			
+			/* do cts for final two blocks */
 			err = cts_cbc_decrypt(ctx, desc, dst, src,
 						cbc_blocks * bsize,
 						nbytes - (cbc_blocks * bsize));
@@ -295,7 +300,7 @@ static struct crypto_instance *crypto_cts_alloc(struct rtattr **tb)
 	inst->alg.cra_alignmask = alg->cra_alignmask;
 	inst->alg.cra_type = &crypto_blkcipher_type;
 
-	
+	/* We access the data as u32s when xoring. */
 	inst->alg.cra_alignmask |= __alignof__(u32) - 1;
 
 	inst->alg.cra_blkcipher.ivsize = alg->cra_blocksize;

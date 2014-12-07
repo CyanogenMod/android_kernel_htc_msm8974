@@ -40,4 +40,4 @@ static inline int compute_return_epc(struct pt_regs *regs)
 	return __compute_return_epc(regs);
 }
 
-#endif 
+#endif /* _ASM_BRANCH_H */

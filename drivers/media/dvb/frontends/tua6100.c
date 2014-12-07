@@ -36,7 +36,7 @@
 #include "tua6100.h"
 
 struct tua6100_priv {
-	
+	/* i2c details */
 	int i2c_address;
 	struct i2c_adapter *i2c;
 	u32 frequency;
@@ -84,13 +84,13 @@ static int tua6100_set_params(struct dvb_frontend *fe)
 #define _P 32
 #define _ri 4000000
 
-	
+	// setup register 0
 	if (c->frequency < 2000000)
 		reg0[1] = 0x03;
 	else
 		reg0[1] = 0x07;
 
-	
+	// setup register 1
 	if (c->frequency < 1630000)
 		reg1[1] = 0x2c;
 	else
@@ -101,7 +101,7 @@ static int tua6100_set_params(struct dvb_frontend *fe)
 	if (c->frequency >= 1525000)
 		reg1[1] |= 0x80;
 
-	
+	// register 2
 	reg2[1] = (_R >> 8) & 0x03;
 	reg2[2] = _R;
 	if (c->frequency < 1455000)
@@ -111,6 +111,10 @@ static int tua6100_set_params(struct dvb_frontend *fe)
 	else
 		reg2[1] |= 0x1c;
 
+	/*
+	 * The N divisor ratio (note: c->frequency is in kHz, but we
+	 * need it in Hz)
+	 */
 	prediv = (c->frequency * _R) / (_ri / 1000);
 	div = prediv / _P;
 	reg1[1] |= (div >> 9) & 0x03;
@@ -118,7 +122,7 @@ static int tua6100_set_params(struct dvb_frontend *fe)
 	reg1[3] = (div << 7);
 	priv->frequency = ((div * _P) * (_ri / 1000)) / _R;
 
-	
+	// Finally, calculate and store the value for A
 	reg1[3] |= (prediv - (div*_P)) & 0x7f;
 
 #undef _R

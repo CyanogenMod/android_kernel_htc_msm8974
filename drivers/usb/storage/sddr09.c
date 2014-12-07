@@ -26,6 +26,19 @@
  * 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * Known vendor commands: 12 bytes, first byte is opcode
+ *
+ * E7: read scatter gather
+ * E8: read
+ * E9: write
+ * EA: erase
+ * EB: reset
+ * EC: read status
+ * ED: read ID
+ * EE: write CIS (?)
+ * EF: compute checksum (?)
+ */
 
 #include <linux/errno.h>
 #include <linux/module.h>
@@ -49,6 +62,9 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us);
 static int usb_stor_sddr09_init(struct us_data *us);
 
 
+/*
+ * The table of devices
+ */
 #define UNUSUAL_DEV(id_vendor, id_product, bcdDeviceMin, bcdDeviceMax, \
 		    vendorName, productName, useProtocol, useTransport, \
 		    initFunction, flags) \
@@ -57,12 +73,15 @@ static int usb_stor_sddr09_init(struct us_data *us);
 
 static struct usb_device_id sddr09_usb_ids[] = {
 #	include "unusual_sddr09.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, sddr09_usb_ids);
 
 #undef UNUSUAL_DEV
 
+/*
+ * The flags table
+ */
 #define UNUSUAL_DEV(idVendor, idProduct, bcdDeviceMin, bcdDeviceMax, \
 		    vendor_name, product_name, use_protocol, use_transport, \
 		    init_function, Flags) \
@@ -76,7 +95,7 @@ MODULE_DEVICE_TABLE(usb, sddr09_usb_ids);
 
 static struct us_unusual_dev sddr09_unusual_dev_list[] = {
 #	include "unusual_sddr09.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 
 #undef UNUSUAL_DEV
@@ -86,18 +105,28 @@ static struct us_unusual_dev sddr09_unusual_dev_list[] = {
 #define LSB_of(s) ((s)&0xFF)
 #define MSB_of(s) ((s)>>8)
 
+/* #define US_DEBUGP printk */
 
+/*
+ * First some stuff that does not belong here:
+ * data on SmartMedia and other cards, completely
+ * unrelated to this driver.
+ * Similar stuff occurs in <linux/mtd/nand_ids.h>.
+ */
 
 struct nand_flash_dev {
 	int model_id;
-	int chipshift;		
-	char pageshift;		
-	char blockshift;	
-	char zoneshift;		
-				
-	char pageadrlen;	
+	int chipshift;		/* 1<<cs bytes total capacity */
+	char pageshift;		/* 1<<ps bytes in a page */
+	char blockshift;	/* 1<<bs pages in an erase block */
+	char zoneshift;		/* 1<<zs blocks in a zone */
+				/* # of logical blocks is 125/128 of this */
+	char pageadrlen;	/* length of an address in bytes - 1 */
 };
 
+/*
+ * NAND Flash Manufacturer ID Codes
+ */
 #define NAND_MFR_AMD		0x01
 #define NAND_MFR_NATSEMI	0x8f
 #define NAND_MFR_TOSHIBA	0x98
@@ -118,29 +147,35 @@ static inline char *nand_flash_manufacturer(int manuf_id) {
 	}
 }
 
+/*
+ * It looks like it is unnecessary to attach manufacturer to the
+ * remaining data: SSFDC prescribes manufacturer-independent id codes.
+ *
+ * 256 MB NAND flash has a 5-byte ID with 2nd byte 0xaa, 0xba, 0xca or 0xda.
+ */
 
 static struct nand_flash_dev nand_flash_ids[] = {
-	
-	{ 0x6e, 20, 8, 4, 8, 2},	
-	{ 0xe8, 20, 8, 4, 8, 2},	
-	{ 0xec, 20, 8, 4, 8, 2},	
-	{ 0x64, 21, 8, 4, 9, 2}, 	
-	{ 0xea, 21, 8, 4, 9, 2},	
-	{ 0x6b, 22, 9, 4, 9, 2},	
-	{ 0xe3, 22, 9, 4, 9, 2},	
-	{ 0xe5, 22, 9, 4, 9, 2},	
-	{ 0xe6, 23, 9, 4, 10, 2},	
-	{ 0x73, 24, 9, 5, 10, 2},	
-	{ 0x75, 25, 9, 5, 10, 2},	
-	{ 0x76, 26, 9, 5, 10, 3},	
-	{ 0x79, 27, 9, 5, 10, 3},	
+	/* NAND flash */
+	{ 0x6e, 20, 8, 4, 8, 2},	/* 1 MB */
+	{ 0xe8, 20, 8, 4, 8, 2},	/* 1 MB */
+	{ 0xec, 20, 8, 4, 8, 2},	/* 1 MB */
+	{ 0x64, 21, 8, 4, 9, 2}, 	/* 2 MB */
+	{ 0xea, 21, 8, 4, 9, 2},	/* 2 MB */
+	{ 0x6b, 22, 9, 4, 9, 2},	/* 4 MB */
+	{ 0xe3, 22, 9, 4, 9, 2},	/* 4 MB */
+	{ 0xe5, 22, 9, 4, 9, 2},	/* 4 MB */
+	{ 0xe6, 23, 9, 4, 10, 2},	/* 8 MB */
+	{ 0x73, 24, 9, 5, 10, 2},	/* 16 MB */
+	{ 0x75, 25, 9, 5, 10, 2},	/* 32 MB */
+	{ 0x76, 26, 9, 5, 10, 3},	/* 64 MB */
+	{ 0x79, 27, 9, 5, 10, 3},	/* 128 MB */
 
-	
-	{ 0x5d, 21, 9, 4, 8, 2},	
-	{ 0xd5, 22, 9, 4, 9, 2},	
-	{ 0xd6, 23, 9, 4, 10, 2},	
-	{ 0x57, 24, 9, 4, 11, 2},	
-	{ 0x58, 25, 9, 4, 12, 2},	
+	/* MASK ROM */
+	{ 0x5d, 21, 9, 4, 8, 2},	/* 2 MB */
+	{ 0xd5, 22, 9, 4, 9, 2},	/* 4 MB */
+	{ 0xd6, 23, 9, 4, 10, 2},	/* 8 MB */
+	{ 0x57, 24, 9, 4, 11, 2},	/* 16 MB */
+	{ 0x58, 25, 9, 4, 12, 2},	/* 32 MB */
 	{ 0,}
 };
 
@@ -154,6 +189,9 @@ nand_find_id(unsigned char id) {
 	return NULL;
 }
 
+/*
+ * ECC computation.
+ */
 static unsigned char parity[256];
 static unsigned char ecc2[256];
 
@@ -180,6 +218,7 @@ static void nand_init_ecc(void) {
 	}
 }
 
+/* compute 3-byte ecc on 256 bytes */
 static void nand_compute_ecc(unsigned char *data, unsigned char *ecc) {
 	int i, j, a;
 	unsigned char par, bit, bits[8];
@@ -188,7 +227,7 @@ static void nand_compute_ecc(unsigned char *data, unsigned char *ecc) {
 	for (j = 0; j < 8; j++)
 		bits[j] = 0;
 
-	
+	/* collect 16 checksum bits */
 	for (i = 0; i < 256; i++) {
 		par ^= data[i];
 		bit = parity[data[i]];
@@ -197,7 +236,7 @@ static void nand_compute_ecc(unsigned char *data, unsigned char *ecc) {
 				bits[j] ^= bit;
 	}
 
-	
+	/* put 4+4+4 = 12 bits in the ecc */
 	a = (bits[3] << 6) + (bits[2] << 4) + (bits[1] << 2) + bits[0];
 	ecc[0] = ~(a ^ (a<<1) ^ (parity[par] ? 0xaa : 0));
 
@@ -215,32 +254,51 @@ static void nand_store_ecc(unsigned char *data, unsigned char *ecc) {
 	memcpy(data, ecc, 3);
 }
 
+/*
+ * The actual driver starts here.
+ */
 
 struct sddr09_card_info {
-	unsigned long	capacity;	
-	int		pagesize;	
-	int		pageshift;	
-	int		blocksize;	
-	int		blockshift;	
-	int		blockmask;	
-	int		*lba_to_pba;	
-	int		*pba_to_lba;	
-	int		lbact;		
+	unsigned long	capacity;	/* Size of card in bytes */
+	int		pagesize;	/* Size of page in bytes */
+	int		pageshift;	/* log2 of pagesize */
+	int		blocksize;	/* Size of block in pages */
+	int		blockshift;	/* log2 of blocksize */
+	int		blockmask;	/* 2^blockshift - 1 */
+	int		*lba_to_pba;	/* logical to physical map */
+	int		*pba_to_lba;	/* physical to logical map */
+	int		lbact;		/* number of available pages */
 	int		flags;
-#define	SDDR09_WP	1		
+#define	SDDR09_WP	1		/* write protected */
 };
 
+/*
+ * On my 16MB card, control blocks have size 64 (16 real control bytes,
+ * and 48 junk bytes). In reality of course the card uses 16 control bytes,
+ * so the reader makes up the remaining 48. Don't know whether these numbers
+ * depend on the card. For now a constant.
+ */
 #define CONTROL_SHIFT 6
 
+/*
+ * On my Combo CF/SM reader, the SM reader has LUN 1.
+ * (and things fail with LUN 0).
+ * It seems LUN is irrelevant for others.
+ */
 #define LUN	1
 #define	LUNBITS	(LUN << 5)
 
+/*
+ * LBA and PBA are unsigned ints. Special values.
+ */
 #define UNDEF    0xffffffff
 #define SPARE    0xfffffffe
 #define UNUSABLE 0xfffffffd
 
 static const int erase_bad_lba_entries = 0;
 
+/* send vendor interface command (0x41) */
+/* called for requests 0, 1, 8 */
 static int
 sddr09_send_command(struct us_data *us,
 		    unsigned char request,
@@ -251,7 +309,7 @@ sddr09_send_command(struct us_data *us,
 	unsigned char requesttype = (0x41 | direction);
 	int rc;
 
-	
+	// Get the receive or send control pipe number
 
 	if (direction == USB_DIR_IN)
 		pipe = us->recv_ctrl_pipe;
@@ -275,6 +333,10 @@ sddr09_send_scsi_command(struct us_data *us,
 }
 
 #if 0
+/*
+ * Test Unit Ready Command: 12 bytes.
+ * byte 0: opcode: 00
+ */
 static int
 sddr09_test_unit_ready(struct us_data *us) {
 	unsigned char *command = us->iobuf;
@@ -291,6 +353,11 @@ sddr09_test_unit_ready(struct us_data *us) {
 }
 #endif
 
+/*
+ * Request Sense Command: 12 bytes.
+ * byte 0: opcode: 03
+ * byte 4: data length
+ */
 static int
 sddr09_request_sense(struct us_data *us, unsigned char *sensebuf, int buflen) {
 	unsigned char *command = us->iobuf;
@@ -310,6 +377,27 @@ sddr09_request_sense(struct us_data *us, unsigned char *sensebuf, int buflen) {
 	return (result == USB_STOR_XFER_GOOD ? 0 : -EIO);
 }
 
+/*
+ * Read Command: 12 bytes.
+ * byte 0: opcode: E8
+ * byte 1: last two bits: 00: read data, 01: read blockwise control,
+ *			10: read both, 11: read pagewise control.
+ *	 It turns out we need values 20, 21, 22, 23 here (LUN 1).
+ * bytes 2-5: address (interpretation depends on byte 1, see below)
+ * bytes 10-11: count (idem)
+ *
+ * A page has 512 data bytes and 64 control bytes (16 control and 48 junk).
+ * A read data command gets data in 512-byte pages.
+ * A read control command gets control in 64-byte chunks.
+ * A read both command gets data+control in 576-byte chunks.
+ *
+ * Blocks are groups of 32 pages, and read blockwise control jumps to the
+ * next block, while read pagewise control jumps to the next page after
+ * reading a group of 64 control bytes.
+ * [Here 512 = 1<<pageshift, 32 = 1<<blockshift, 64 is constant?]
+ *
+ * (1 MB and 2 MB cards are a bit different, but I have only a 16 MB card.)
+ */
 
 static int
 sddr09_readX(struct us_data *us, int x, unsigned long fromaddress,
@@ -351,16 +439,38 @@ sddr09_readX(struct us_data *us, int x, unsigned long fromaddress,
 	return 0;
 }
 
+/*
+ * Read Data
+ *
+ * fromaddress counts data shorts:
+ * increasing it by 256 shifts the bytestream by 512 bytes;
+ * the last 8 bits are ignored.
+ *
+ * nr_of_pages counts pages of size (1 << pageshift).
+ */
 static int
 sddr09_read20(struct us_data *us, unsigned long fromaddress,
 	      int nr_of_pages, int pageshift, unsigned char *buf, int use_sg) {
 	int bulklen = nr_of_pages << pageshift;
 
-	
+	/* The last 8 bits of fromaddress are ignored. */
 	return sddr09_readX(us, 0, fromaddress, nr_of_pages, bulklen,
 			    buf, use_sg);
 }
 
+/*
+ * Read Blockwise Control
+ *
+ * fromaddress gives the starting position (as in read data;
+ * the last 8 bits are ignored); increasing it by 32*256 shifts
+ * the output stream by 64 bytes.
+ *
+ * count counts control groups of size (1 << controlshift).
+ * For me, controlshift = 6. Is this constant?
+ *
+ * After getting one control group, jump to the next block
+ * (fromaddress += 8192).
+ */
 static int
 sddr09_read21(struct us_data *us, unsigned long fromaddress,
 	      int count, int controlshift, unsigned char *buf, int use_sg) {
@@ -370,6 +480,15 @@ sddr09_read21(struct us_data *us, unsigned long fromaddress,
 			    buf, use_sg);
 }
 
+/*
+ * Read both Data and Control
+ *
+ * fromaddress counts data shorts, ignoring control:
+ * increasing it by 256 shifts the bytestream by 576 = 512+64 bytes;
+ * the last 8 bits are ignored.
+ *
+ * nr_of_pages counts pages of size (1 << pageshift) + (1 << controlshift).
+ */
 static int
 sddr09_read22(struct us_data *us, unsigned long fromaddress,
 	      int nr_of_pages, int pageshift, unsigned char *buf, int use_sg) {
@@ -382,6 +501,19 @@ sddr09_read22(struct us_data *us, unsigned long fromaddress,
 }
 
 #if 0
+/*
+ * Read Pagewise Control
+ *
+ * fromaddress gives the starting position (as in read data;
+ * the last 8 bits are ignored); increasing it by 256 shifts
+ * the output stream by 64 bytes.
+ *
+ * count counts control groups of size (1 << controlshift).
+ * For me, controlshift = 6. Is this constant?
+ *
+ * After getting one control group, jump to the next page
+ * (fromaddress += 256).
+ */
 static int
 sddr09_read23(struct us_data *us, unsigned long fromaddress,
 	      int count, int controlshift, unsigned char *buf, int use_sg) {
@@ -392,6 +524,15 @@ sddr09_read23(struct us_data *us, unsigned long fromaddress,
 }
 #endif
 
+/*
+ * Erase Command: 12 bytes.
+ * byte 0: opcode: EA
+ * bytes 6-9: erase address (big-endian, counting shorts, sector aligned).
+ * 
+ * Always precisely one block is erased; bytes 2-5 and 10-11 are ignored.
+ * The byte address being erased is 2*Eaddress.
+ * The CIS cannot be erased.
+ */
 static int
 sddr09_erase(struct us_data *us, unsigned long Eaddress) {
 	unsigned char *command = us->iobuf;
@@ -416,7 +557,31 @@ sddr09_erase(struct us_data *us, unsigned long Eaddress) {
 	return result;
 }
 
+/*
+ * Write CIS Command: 12 bytes.
+ * byte 0: opcode: EE
+ * bytes 2-5: write address in shorts
+ * bytes 10-11: sector count
+ *
+ * This writes at the indicated address. Don't know how it differs
+ * from E9. Maybe it does not erase? However, it will also write to
+ * the CIS.
+ *
+ * When two such commands on the same page follow each other directly,
+ * the second one is not done.
+ */
 
+/*
+ * Write Command: 12 bytes.
+ * byte 0: opcode: E9
+ * bytes 2-5: write address (big-endian, counting shorts, sector aligned).
+ * bytes 6-9: erase address (big-endian, counting shorts, sector aligned).
+ * bytes 10-11: sector count (big-endian, in 512-byte sectors).
+ *
+ * If write address equals erase address, the erase is done first,
+ * otherwise the write is done first. When erase address equals zero
+ * no erase is done?
+ */
 static int
 sddr09_writeX(struct us_data *us,
 	      unsigned long Waddress, unsigned long Eaddress,
@@ -460,6 +625,7 @@ sddr09_writeX(struct us_data *us,
 	return 0;
 }
 
+/* erase address, write same address */
 static int
 sddr09_write_inplace(struct us_data *us, unsigned long address,
 		     int nr_of_pages, int pageshift, unsigned char *buf,
@@ -470,6 +636,17 @@ sddr09_write_inplace(struct us_data *us, unsigned long address,
 }
 
 #if 0
+/*
+ * Read Scatter Gather Command: 3+4n bytes.
+ * byte 0: opcode E7
+ * byte 2: n
+ * bytes 4i-1,4i,4i+1: page address
+ * byte 4i+2: page count
+ * (i=1..n)
+ *
+ * This reads several pages from the card to a single memory buffer.
+ * The last two bits of byte 1 have the same meaning as for E8.
+ */
 static int
 sddr09_read_sg_test_only(struct us_data *us) {
 	unsigned char *command = us->iobuf;
@@ -532,6 +709,16 @@ sddr09_read_sg_test_only(struct us_data *us) {
 }
 #endif
 
+/*
+ * Read Status Command: 12 bytes.
+ * byte 0: opcode: EC
+ *
+ * Returns 64 bytes, all zero except for the first.
+ * bit 0: 1: Error
+ * bit 5: 1: Suspended
+ * bit 6: 1: Ready
+ * bit 7: 1: Not write-protected
+ */
 
 static int
 sddr09_read_status(struct us_data *us, unsigned char *status) {
@@ -569,16 +756,16 @@ sddr09_read_data(struct us_data *us,
 	struct scatterlist *sg;
 	int result;
 
-	
+	// Figure out the initial LBA and page
 	lba = address >> info->blockshift;
 	page = (address & info->blockmask);
 	maxlba = info->capacity >> (info->pageshift + info->blockshift);
 	if (lba >= maxlba)
 		return -EIO;
 
-	
-	
-	
+	// Since we only read in one block at a time, we have to create
+	// a bounce buffer and move the data a piece at a time between the
+	// bounce buffer and the actual transfer buffer.
 
 	len = min(sectors, (unsigned int) info->blocksize) * info->pagesize;
 	buffer = kmalloc(len, GFP_NOIO);
@@ -587,8 +774,8 @@ sddr09_read_data(struct us_data *us,
 		return -ENOMEM;
 	}
 
-	
-	
+	// This could be made much more efficient by checking for
+	// contiguous LBA's. Another exercise left to the student.
 
 	result = 0;
 	offset = 0;
@@ -596,11 +783,11 @@ sddr09_read_data(struct us_data *us,
 
 	while (sectors > 0) {
 
-		
+		/* Find number of pages we can read in this block */
 		pages = min(sectors, info->blocksize - page);
 		len = pages << info->pageshift;
 
-		
+		/* Not overflowing capacity? */
 		if (lba >= maxlba) {
 			US_DEBUGP("Error: Requested lba %u exceeds "
 				  "maximum %u\n", lba, maxlba);
@@ -608,7 +795,7 @@ sddr09_read_data(struct us_data *us,
 			break;
 		}
 
-		
+		/* Find where this lba lives on disk */
 		pba = info->lba_to_pba[lba];
 
 		if (pba == UNDEF) {	/* this lba was never written */
@@ -637,7 +824,7 @@ sddr09_read_data(struct us_data *us,
 				break;
 		}
 
-		
+		// Store the data in the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
 				&sg, &offset, TO_XFER_BUF);
 
@@ -708,20 +895,22 @@ sddr09_write_lba(struct us_data *us, unsigned int lba,
 	}
 
 	if (pba == 1) {
+		/* Maybe it is impossible to write to PBA 1.
+		   Fake success, but don't do anything. */
 		printk(KERN_WARNING "sddr09: avoid writing to pba 1\n");
 		return 0;
 	}
 
 	pagelen = (1 << info->pageshift) + (1 << CONTROL_SHIFT);
 
-	
+	/* read old contents */
 	address = (pba << (info->pageshift + info->blockshift));
 	result = sddr09_read22(us, address>>1, info->blocksize,
 			       info->pageshift, blockbuffer, 0);
 	if (result)
 		return result;
 
-	
+	/* check old contents and fill lba */
 	for (i = 0; i < info->blocksize; i++) {
 		bptr = blockbuffer + i*pagelen;
 		cptr = bptr + info->pagesize;
@@ -741,7 +930,7 @@ sddr09_write_lba(struct us_data *us, unsigned int lba,
 		cptr[7] = cptr[12] = LSB_of(lbap);
 	}
 
-	
+	/* copy in new stuff and compute ECC */
 	xptr = ptr;
 	for (i = page; i < page+pages; i++) {
 		bptr = blockbuffer + i*pagelen;
@@ -796,16 +985,18 @@ sddr09_write_data(struct us_data *us,
 	struct scatterlist *sg;
 	int result;
 
-	
+	// Figure out the initial LBA and page
 	lba = address >> info->blockshift;
 	page = (address & info->blockmask);
 	maxlba = info->capacity >> (info->pageshift + info->blockshift);
 	if (lba >= maxlba)
 		return -EIO;
 
-	
-	
+	// blockbuffer is used for reading in the old data, overwriting
+	// with the new data, and performing ECC calculations
 
+	/* TODO: instead of doing kmalloc/kfree for each write,
+	   add a bufferpointer to the info structure */
 
 	pagelen = (1 << info->pageshift) + (1 << CONTROL_SHIFT);
 	blocklen = (pagelen << info->blockshift);
@@ -815,9 +1006,9 @@ sddr09_write_data(struct us_data *us,
 		return -ENOMEM;
 	}
 
-	
-	
-	
+	// Since we don't write the user data directly to the device,
+	// we have to create a bounce buffer and move the data a piece
+	// at a time between the bounce buffer and the actual transfer buffer.
 
 	len = min(sectors, (unsigned int) info->blocksize) * info->pagesize;
 	buffer = kmalloc(len, GFP_NOIO);
@@ -833,12 +1024,12 @@ sddr09_write_data(struct us_data *us,
 
 	while (sectors > 0) {
 
-		
+		// Write as many sectors as possible in this block
 
 		pages = min(sectors, info->blocksize - page);
 		len = (pages << info->pageshift);
 
-		
+		/* Not overflowing capacity? */
 		if (lba >= maxlba) {
 			US_DEBUGP("Error: Requested lba %u exceeds "
 				  "maximum %u\n", lba, maxlba);
@@ -846,7 +1037,7 @@ sddr09_write_data(struct us_data *us,
 			break;
 		}
 
-		
+		// Get the data from the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
 				&sg, &offset, FROM_XFER_BUF);
 
@@ -880,6 +1071,16 @@ sddr09_read_control(struct us_data *us,
 			     CONTROL_SHIFT, content, use_sg);
 }
 
+/*
+ * Read Device ID Command: 12 bytes.
+ * byte 0: opcode: ED
+ *
+ * Returns 2 bytes: Manufacturer ID and Device ID.
+ * On more recent cards 3 bytes: the third byte is an option code A5
+ * signifying that the secret command to read an 128-bit ID is available.
+ * On still more recent cards 4 bytes: the fourth byte C0 means that
+ * a second read ID cmd is available.
+ */
 static int
 sddr09_read_deviceID(struct us_data *us, unsigned char *deviceID) {
 	unsigned char *command = us->iobuf;
@@ -915,7 +1116,7 @@ sddr09_get_wp(struct us_data *us, struct sddr09_card_info *info) {
 	}
 	US_DEBUGP("sddr09_get_wp: status 0x%02X", status);
 	if ((status & 0x80) == 0) {
-		info->flags |= SDDR09_WP;	
+		info->flags |= SDDR09_WP;	/* write protected */
 		US_DEBUGP(" WP");
 	}
 	if (status & 0x40)
@@ -929,6 +1130,10 @@ sddr09_get_wp(struct us_data *us, struct sddr09_card_info *info) {
 }
 
 #if 0
+/*
+ * Reset Command: 12 bytes.
+ * byte 0: opcode: EB
+ */
 static int
 sddr09_reset(struct us_data *us) {
 
@@ -962,14 +1167,17 @@ sddr09_get_cardinfo(struct us_data *us, unsigned char flags) {
 	sprintf(blurbtxt, "sddr09: Found Flash card, ID = %02X %02X %02X %02X",
 		deviceID[0], deviceID[1], deviceID[2], deviceID[3]);
 
-	
+	/* Byte 0 is the manufacturer */
 	sprintf(blurbtxt + strlen(blurbtxt),
 		": Manuf. %s",
 		nand_flash_manufacturer(deviceID[0]));
 
-	
+	/* Byte 1 is the device type */
 	cardinfo = nand_find_id(deviceID[1]);
 	if (cardinfo) {
+		/* MB or MiB? It is neither. A 16 MB card has
+		   17301504 raw bytes, of which 16384000 are
+		   usable for user data. */
 		sprintf(blurbtxt + strlen(blurbtxt),
 			", %d MB", 1<<(cardinfo->chipshift - 20));
 	} else {
@@ -977,13 +1185,13 @@ sddr09_get_cardinfo(struct us_data *us, unsigned char flags) {
 			", type unrecognized");
 	}
 
-	
+	/* Byte 2 is code to signal availability of 128-bit ID */
 	if (deviceID[2] == 0xa5) {
 		sprintf(blurbtxt + strlen(blurbtxt),
 			", 128-bit ID");
 	}
 
-	
+	/* Byte 3 announces the availability of another read ID command */
 	if (deviceID[3] == 0xc0) {
 		sprintf(blurbtxt + strlen(blurbtxt),
 			", extra cmd");
@@ -1010,14 +1218,14 @@ sddr09_read_map(struct us_data *us) {
 	if (!info->capacity)
 		return -1;
 
-	
-	
+	// size of a block is 1 << (blockshift + pageshift) bytes
+	// divide into the total capacity to get the number of blocks
 
 	numblocks = info->capacity >> (info->blockshift + info->pageshift);
 
-	
-	
-	
+	// read 64 bytes for every block (actually 1 << CONTROL_SHIFT)
+	// but only use a 64 KB buffer
+	// buffer size used must be a multiple of (1 << CONTROL_SHIFT)
 #define SDDR09_READ_MAP_BUFSZ 65536
 
 	alloc_blocks = min(numblocks, SDDR09_READ_MAP_BUFSZ >> CONTROL_SHIFT);
@@ -1046,6 +1254,9 @@ sddr09_read_map(struct us_data *us) {
 	for (i = 0; i < numblocks; i++)
 		info->lba_to_pba[i] = info->pba_to_lba[i] = UNDEF;
 
+	/*
+	 * Define lba-pba translation table
+	 */
 
 	ptr = buffer_end;
 	for (i = 0; i < numblocks; i++) {
@@ -1070,7 +1281,7 @@ sddr09_read_map(struct us_data *us) {
 			continue;
 		}
 
-		
+		/* special PBAs have control field 0^16 */
 		for (j = 0; j < 16; j++)
 			if (ptr[j] != 0)
 				goto nonz;
@@ -1087,7 +1298,7 @@ sddr09_read_map(struct us_data *us) {
 		continue;
 
 	nonff:
-		
+		/* normal PBAs start with six FFs */
 		if (j < 6) {
 			printk(KERN_WARNING
 			       "sddr09: PBA %d has no logical mapping: "
@@ -1108,7 +1319,7 @@ sddr09_read_map(struct us_data *us) {
 			continue;
 		}
 
-		
+		/* check even parity */
 		if (parity[ptr[6] ^ ptr[7]]) {
 			printk(KERN_WARNING
 			       "sddr09: Bad parity in LBA for block %d"
@@ -1120,6 +1331,14 @@ sddr09_read_map(struct us_data *us) {
 		lba = short_pack(ptr[7], ptr[6]);
 		lba = (lba & 0x07FF) >> 1;
 
+		/*
+		 * Every 1024 physical blocks ("zone"), the LBA numbers
+		 * go back to zero, but are within a higher block of LBA's.
+		 * Also, there is a maximum of 1000 LBA's per zone.
+		 * In other words, in PBA 1024-2047 you will find LBA 0-999
+		 * which are really LBA 1000-1999. This allows for 24 bad
+		 * or special physical blocks per zone.
+		 */
 
 		if (lba >= 1000) {
 			printk(KERN_WARNING
@@ -1152,6 +1371,12 @@ sddr09_read_map(struct us_data *us) {
 			info->pba_to_lba[i] = UNUSABLE;
 	}
 
+	/*
+	 * Approximate capacity. This is not entirely correct yet,
+	 * since a zone with less than 1000 usable pages leads to
+	 * missing LBAs. Especially if it is the last zone, some
+	 * LBAs can be past capacity.
+	 */
 	lbact = 0;
 	for (i = 0; i < numblocks; i += 1024) {
 		int ct = 0;
@@ -1196,7 +1421,7 @@ static int
 sddr09_common_init(struct us_data *us) {
 	int result;
 
-	
+	/* set the configuration -- STALL is an acceptable response here */
 	if (us->pusb_dev->actconfig->desc.bConfigurationValue != 1) {
 		US_DEBUGP("active config #%d != 1 ??\n", us->pusb_dev
 				->actconfig->desc.bConfigurationValue);
@@ -1208,7 +1433,7 @@ sddr09_common_init(struct us_data *us) {
 	if (result == -EPIPE) {
 		US_DEBUGP("-- stall on control interface\n");
 	} else if (result != 0) {
-		
+		/* it's not a stall, but another error -- time to bail */
 		US_DEBUGP("-- Unknown error.  Rejecting device\n");
 		return -EINVAL;
 	}
@@ -1223,6 +1448,11 @@ sddr09_common_init(struct us_data *us) {
 }
 
 
+/*
+ * This is needed at a very early stage. If this is not listed in the
+ * unusual devices list but called from here then LUN 0 of the combo reader
+ * is not recognized. But I do not know what precisely these calls do.
+ */
 static int
 usb_stor_sddr09_dpcm_init(struct us_data *us) {
 	int result;
@@ -1239,7 +1469,7 @@ usb_stor_sddr09_dpcm_init(struct us_data *us) {
 	}
 
 	US_DEBUGP("SDDR09init: %02X %02X\n", data[0], data[1]);
-	
+	// get 07 02
 
 	result = sddr09_send_command(us, 0x08, USB_DIR_IN, data, 2);
 	if (result) {
@@ -1248,7 +1478,7 @@ usb_stor_sddr09_dpcm_init(struct us_data *us) {
 	}
 
 	US_DEBUGP("SDDR09init: %02X %02X\n", data[0], data[1]);
-	
+	// get 07 00
 
 	result = sddr09_request_sense(us, data, 18);
 	if (result == 0 && data[2] != 0) {
@@ -1256,20 +1486,23 @@ usb_stor_sddr09_dpcm_init(struct us_data *us) {
 		for (j=0; j<18; j++)
 			printk(" %02X", data[j]);
 		printk("\n");
-		
-		
-		
-		
-		
-		
-		
+		// get 70 00 00 00 00 00 00 * 00 00 00 00 00 00
+		// 70: current command
+		// sense key 0, sense code 0, extd sense code 0
+		// additional transfer length * = sizeof(data) - 7
+		// Or: 70 00 06 00 00 00 00 0b 00 00 00 00 28 00 00 00 00 00
+		// sense key 06, sense code 28: unit attention,
+		// not ready to ready transition
 	}
 
-	
+	// test unit ready
 
-	return 0;		
+	return 0;		/* not result */
 }
 
+/*
+ * Transport for the Microtech DPCM-USB
+ */
 static int dpcm_transport(struct scsi_cmnd *srb, struct us_data *us)
 {
 	int ret;
@@ -1279,12 +1512,21 @@ static int dpcm_transport(struct scsi_cmnd *srb, struct us_data *us)
 	switch (srb->device->lun) {
 	case 0:
 
+		/*
+		 * LUN 0 corresponds to the CompactFlash card reader.
+		 */
 		ret = usb_stor_CB_transport(srb, us);
 		break;
 
 	case 1:
 
+		/*
+		 * LUN 1 corresponds to the SmartMedia card reader.
+		 */
 
+		/*
+		 * Set the LUN to 0 (just in case).
+		 */
 		srb->device->lun = 0;
 		ret = sddr09_transport(srb, us);
 		srb->device->lun = 1;
@@ -1300,6 +1542,9 @@ static int dpcm_transport(struct scsi_cmnd *srb, struct us_data *us)
 }
 
 
+/*
+ * Transport for the Sandisk SDDR-09
+ */
 static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 {
 	static unsigned char sensekey = 0, sensecode = 0;
@@ -1315,7 +1560,7 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 		0x00, 0x80, 0x00, 0x02, 0x1F, 0x00, 0x00, 0x00
 	};
 
-	
+	/* note: no block descriptor support */
 	static unsigned char mode_page_01[19] = {
 		0x00, 0x0F, 0x00, 0x0, 0x0, 0x0, 0x00,
 		0x01, 0x0A,
@@ -1325,7 +1570,7 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 	info = (struct sddr09_card_info *)us->extra;
 
 	if (srb->cmnd[0] == REQUEST_SENSE && havefakesense) {
-		
+		/* for a faked command, we have to follow with a faked sense */
 		memset(ptr, 0, 18);
 		ptr[0] = 0x70;
 		ptr[2] = sensekey;
@@ -1338,6 +1583,8 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 
 	havefakesense = 1;
 
+	/* Dummy up a response for INQUIRY since SDDR09 doesn't
+	   respond to INQUIRY commands */
 
 	if (srb->cmnd[0] == INQUIRY) {
 		memcpy(ptr, inquiry_response, 8);
@@ -1348,14 +1595,14 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 	if (srb->cmnd[0] == READ_CAPACITY) {
 		struct nand_flash_dev *cardinfo;
 
-		sddr09_get_wp(us, info);	
+		sddr09_get_wp(us, info);	/* read WP bit */
 
 		cardinfo = sddr09_get_cardinfo(us, info->flags);
 		if (!cardinfo) {
-			
+			/* probably no media */
 		init_error:
-			sensekey = 0x02;	
-			sensecode = 0x3a;	
+			sensekey = 0x02;	/* not ready */
+			sensecode = 0x3a;	/* medium not present */
 			return USB_STOR_TRANSPORT_FAILED;
 		}
 
@@ -1366,19 +1613,19 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 		info->blocksize = (1 << info->blockshift);
 		info->blockmask = info->blocksize - 1;
 
-		
+		// map initialization, must follow get_cardinfo()
 		if (sddr09_read_map(us)) {
-			
+			/* probably out of memory */
 			goto init_error;
 		}
 
-		
+		// Report capacity
 
 		capacity = (info->lbact << info->blockshift) - 1;
 
 		((__be32 *) ptr)[0] = cpu_to_be32(capacity);
 
-		
+		// Report page size
 
 		((__be32 *) ptr)[1] = cpu_to_be32(info->pagesize);
 		usb_stor_set_xfer_buf(ptr, 8, srb);
@@ -1389,7 +1636,9 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 	if (srb->cmnd[0] == MODE_SENSE_10) {
 		int modepage = (srb->cmnd[2] & 0x3F);
 
-		
+		/* They ask for the Read/Write error recovery page,
+		   or for all pages. */
+		/* %% We should check DBD %% */
 		if (modepage == 0x01 || modepage == 0x3F) {
 			US_DEBUGP("SDDR09: Dummy up request for "
 				  "mode page 0x%x\n", modepage);
@@ -1401,8 +1650,8 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 			return USB_STOR_TRANSPORT_GOOD;
 		}
 
-		sensekey = 0x05;	
-		sensecode = 0x24;	
+		sensekey = 0x05;	/* illegal request */
+		sensecode = 0x24;	/* invalid field in CDB */
 		return USB_STOR_TRANSPORT_FAILED;
 	}
 
@@ -1441,10 +1690,13 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 				USB_STOR_TRANSPORT_ERROR);
 	}
 
+	/* catch-all for all other commands, except
+	 * pass TEST_UNIT_READY and REQUEST_SENSE through
+	 */
 	if (srb->cmnd[0] != TEST_UNIT_READY &&
 	    srb->cmnd[0] != REQUEST_SENSE) {
-		sensekey = 0x05;	
-		sensecode = 0x20;	
+		sensekey = 0x05;	/* illegal request */
+		sensecode = 0x20;	/* invalid command */
 		havefakesense = 1;
 		return USB_STOR_TRANSPORT_FAILED;
 	}
@@ -1489,6 +1741,9 @@ static int sddr09_transport(struct scsi_cmnd *srb, struct us_data *us)
 	return USB_STOR_TRANSPORT_GOOD;
 }
 
+/*
+ * Initialization routine for the sddr09 subdriver
+ */
 static int
 usb_stor_sddr09_init(struct us_data *us) {
 	return sddr09_common_init(us);

@@ -38,6 +38,7 @@
 #endif
 
 
+/* And the same for proc */
 int proc_dolasatstring(ctl_table *table, int write,
 		       void *buffer, size_t *lenp, loff_t *ppos)
 {
@@ -52,6 +53,7 @@ int proc_dolasatstring(ctl_table *table, int write,
 	return 0;
 }
 
+/* proc function to write EEPROM after changing int entry */
 int proc_dolasatint(ctl_table *table, int write,
 		       void *buffer, size_t *lenp, loff_t *ppos)
 {
@@ -69,6 +71,7 @@ int proc_dolasatint(ctl_table *table, int write,
 #ifdef CONFIG_DS1603
 static int rtctmp;
 
+/* proc function to read/write RealTime Clock */
 int proc_dolasatrtc(ctl_table *table, int write,
 		       void *buffer, size_t *lenp, loff_t *ppos)
 {
@@ -78,7 +81,7 @@ int proc_dolasatrtc(ctl_table *table, int write,
 	if (!write) {
 		read_persistent_clock(&ts);
 		rtctmp = ts.tv_sec;
-		
+		/* check for time < 0 and set to 0 */
 		if (rtctmp < 0)
 			rtctmp = 0;
 	}
@@ -124,7 +127,7 @@ int proc_lasat_ip(ctl_table *table, int write,
 			return -EFAULT;
 		ipbuf[len] = 0;
 		*ppos += *lenp;
-		
+		/* Now see if we can convert it to a valid IP */
 		ip = in_aton(ipbuf);
 		*(unsigned int *)(table->data) = ip;
 		lasat_write_eeprom_info();

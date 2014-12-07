@@ -42,11 +42,11 @@ static inline void loadDouble(const unsigned int Fn, const unsigned int __user *
 	p = (unsigned int *) &fpa11->fpreg[Fn].fDouble;
 	fpa11->fType[Fn] = typeDouble;
 #ifdef __ARMEB__
-	get_user(p[0], &pMem[0]);	
+	get_user(p[0], &pMem[0]);	/* sign & exponent */
 	get_user(p[1], &pMem[1]);
 #else
 	get_user(p[0], &pMem[1]);
-	get_user(p[1], &pMem[0]);	
+	get_user(p[1], &pMem[0]);	/* sign & exponent */
 #endif
 }
 
@@ -57,13 +57,13 @@ static inline void loadExtended(const unsigned int Fn, const unsigned int __user
 	unsigned int *p;
 	p = (unsigned int *) &fpa11->fpreg[Fn].fExtended;
 	fpa11->fType[Fn] = typeExtended;
-	get_user(p[0], &pMem[0]);	
+	get_user(p[0], &pMem[0]);	/* sign & exponent */
 #ifdef __ARMEB__
-	get_user(p[1], &pMem[1]);	
-	get_user(p[2], &pMem[2]);	
+	get_user(p[1], &pMem[1]);	/* ms bits */
+	get_user(p[2], &pMem[2]);	/* ls bits */
 #else
-	get_user(p[1], &pMem[2]);	
-	get_user(p[2], &pMem[1]);	
+	get_user(p[1], &pMem[2]);	/* ls bits */
+	get_user(p[2], &pMem[1]);	/* ms bits */
 #endif
 }
 #endif
@@ -82,9 +82,9 @@ static inline void loadMultiple(const unsigned int Fn, const unsigned int __user
 	case typeSingle:
 	case typeDouble:
 		{
-			get_user(p[0], &pMem[2]);	
-			get_user(p[1], &pMem[1]);	
-			p[2] = 0;			
+			get_user(p[0], &pMem[2]);	/* Single */
+			get_user(p[1], &pMem[1]);	/* double msw */
+			p[2] = 0;			/* empty */
 		}
 		break;
 
@@ -92,7 +92,7 @@ static inline void loadMultiple(const unsigned int Fn, const unsigned int __user
 	case typeExtended:
 		{
 			get_user(p[1], &pMem[2]);
-			get_user(p[2], &pMem[1]);	
+			get_user(p[2], &pMem[1]);	/* msw */
 			p[0] = (x & 0x80003fff);
 		}
 		break;
@@ -150,11 +150,11 @@ static inline void storeDouble(struct roundingData *roundData, const unsigned in
 	}
 
 #ifdef __ARMEB__
-	put_user(val.i[0], &pMem[0]);	
-	put_user(val.i[1], &pMem[1]);	
+	put_user(val.i[0], &pMem[0]);	/* msw */
+	put_user(val.i[1], &pMem[1]);	/* lsw */
 #else
-	put_user(val.i[1], &pMem[0]);	
-	put_user(val.i[0], &pMem[1]);	
+	put_user(val.i[1], &pMem[0]);	/* msw */
+	put_user(val.i[0], &pMem[1]);	/* lsw */
 #endif
 }
 
@@ -180,13 +180,13 @@ static inline void storeExtended(const unsigned int Fn, unsigned int __user *pMe
 		val.f = fpa11->fpreg[Fn].fExtended;
 	}
 
-	put_user(val.i[0], &pMem[0]);	
+	put_user(val.i[0], &pMem[0]);	/* sign & exp */
 #ifdef __ARMEB__
-	put_user(val.i[1], &pMem[1]);	
+	put_user(val.i[1], &pMem[1]);	/* msw */
 	put_user(val.i[2], &pMem[2]);
 #else
 	put_user(val.i[1], &pMem[2]);
-	put_user(val.i[2], &pMem[1]);	
+	put_user(val.i[2], &pMem[1]);	/* msw */
 #endif
 }
 #endif
@@ -203,8 +203,8 @@ static inline void storeMultiple(const unsigned int Fn, unsigned int __user *pMe
 	case typeSingle:
 	case typeDouble:
 		{
-			put_user(p[0], &pMem[2]);	
-			put_user(p[1], &pMem[1]);	
+			put_user(p[0], &pMem[2]);	/* single */
+			put_user(p[1], &pMem[1]);	/* double msw */
 			put_user(nType << 14, &pMem[0]);
 		}
 		break;
@@ -212,7 +212,7 @@ static inline void storeMultiple(const unsigned int Fn, unsigned int __user *pMe
 #ifdef CONFIG_FPE_NWFPE_XP
 	case typeExtended:
 		{
-			put_user(p[2], &pMem[1]);	
+			put_user(p[2], &pMem[1]);	/* msw */
 			put_user(p[1], &pMem[2]);
 			put_user((p[0] & 0x80003fff) | (nType << 14), &pMem[0]);
 		}

@@ -141,6 +141,7 @@ void dma_sync_sg_for_device(struct device *dev, struct scatterlist *sglist,
 EXPORT_SYMBOL(dma_sync_sg_for_device);
 
 
+/* Number of entries preallocated for DMA-API debugging */
 #define PREALLOC_DMA_DEBUG_ENTRIES (1 << 16)
 
 static int __init dma_init(void)

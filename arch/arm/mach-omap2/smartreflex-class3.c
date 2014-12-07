@@ -43,6 +43,7 @@ static int sr_class3_configure(struct voltagedomain *voltdm)
 	return sr_configure_errgen(voltdm);
 }
 
+/* SR class3 structure */
 static struct omap_sr_class_data class3_data = {
 	.enable = sr_class3_enable,
 	.disable = sr_class3_disable,
@@ -50,6 +51,7 @@ static struct omap_sr_class_data class3_data = {
 	.class_type = SR_CLASS3,
 };
 
+/* Smartreflex Class3 init API to be called from board file */
 static int __init sr_class3_init(void)
 {
 	pr_info("SmartReflex Class3 initialized\n");

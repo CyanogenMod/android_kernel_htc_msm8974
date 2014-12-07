@@ -31,7 +31,7 @@ extern u32 ssb_cpu_clock(struct ssb_mipscore *mcore);
 extern unsigned int ssb_mips_irq(struct ssb_device *dev);
 
 
-#else 
+#else /* CONFIG_SSB_DRIVER_MIPS */
 
 struct ssb_mipscore {
 };
@@ -41,6 +41,6 @@ void ssb_mipscore_init(struct ssb_mipscore *mcore)
 {
 }
 
-#endif 
+#endif /* CONFIG_SSB_DRIVER_MIPS */
 
-#endif 
+#endif /* LINUX_SSB_MIPSCORE_H_ */

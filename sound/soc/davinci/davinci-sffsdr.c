@@ -34,6 +34,10 @@
 #include "davinci-pcm.h"
 #include "davinci-i2s.h"
 
+/*
+ * CLKX and CLKR are the inputs for the Sample Rate Generator.
+ * FSX and FSR are outputs, driven by the sample Rate Generator.
+ */
 #define AUDIO_FORMAT (SND_SOC_DAIFMT_DSP_B |	\
 		      SND_SOC_DAIFMT_CBM_CFS |	\
 		      SND_SOC_DAIFMT_IB_NF)
@@ -46,18 +50,18 @@ static int sffsdr_hw_params(struct snd_pcm_substream *substream,
 	int fs;
 	int ret = 0;
 
-	
+	/* Fsref can be 32000, 44100 or 48000. */
 	fs = params_rate(params);
 
 #ifndef CONFIG_SFFSDR_FPGA
-	
+	/* Without the FPGA module, the Fs is fixed at 44100 Hz */
 	if (fs != 44100) {
 		pr_debug("warning: only 44.1 kHz is supported without SFFSDR FPGA module\n");
 		return -EINVAL;
 	}
 #endif
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, AUDIO_FORMAT);
 	if (ret < 0)
 		return ret;
@@ -75,8 +79,9 @@ static struct snd_soc_ops sffsdr_ops = {
 	.hw_params = sffsdr_hw_params,
 };
 
+/* davinci-sffsdr digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link sffsdr_dai = {
-	.name = "PCM3008", 
+	.name = "PCM3008", /* Codec name */
 	.stream_name = "PCM3008 HiFi",
 	.cpu_dai_name = "davinci-mcbsp",
 	.codec_dai_name = "pcm3008-hifi",
@@ -85,6 +90,7 @@ static struct snd_soc_dai_link sffsdr_dai = {
 	.ops = &sffsdr_ops,
 };
 
+/* davinci-sffsdr audio machine driver */
 static struct snd_soc_card snd_soc_sffsdr = {
 	.name = "DaVinci SFFSDR",
 	.owner = THIS_MODULE,
@@ -92,6 +98,7 @@ static struct snd_soc_card snd_soc_sffsdr = {
 	.num_links = 1,
 };
 
+/* sffsdr audio private data */
 static struct pcm3008_setup_data sffsdr_pcm3008_setup = {
 	.dem0_pin = GPIO(45),
 	.dem1_pin = GPIO(46),

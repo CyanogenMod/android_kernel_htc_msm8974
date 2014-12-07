@@ -45,6 +45,7 @@ void usbip_bind_usage(void)
 	printf("usage: %s", usbip_bind_usage_string);
 }
 
+/* call at unbound state */
 static int bind_usbip(char *busid)
 {
 	char bus_type[] = "usb";
@@ -113,6 +114,7 @@ err_close_bind_attr:
 	return ret;
 }
 
+/* buggy driver may cause dead lock */
 static int unbind_other(char *busid)
 {
 	char bus_type[] = "usb";
@@ -160,17 +162,17 @@ static int unbind_other(char *busid)
 		dbg("%s -> %s", intf_dev->name,  intf_dev->driver_name);
 
 		if (!strncmp("unknown", intf_dev->driver_name, SYSFS_NAME_LEN))
-			
+			/* unbound interface */
 			continue;
 
 		if (!strncmp(USBIP_HOST_DRV_NAME, intf_dev->driver_name,
 			     SYSFS_NAME_LEN)) {
-			
+			/* already bound to usbip-host */
 			status = UNBIND_ST_USBIP_HOST;
 			continue;
 		}
 
-		
+		/* unbinding */
 		intf_drv = sysfs_open_driver(bus_type, intf_dev->driver_name);
 		if (!intf_drv) {
 			dbg("could not open interface driver on %s: %s",
@@ -188,7 +190,7 @@ static int unbind_other(char *busid)
 		rc = sysfs_write_attribute(unbind_attr, intf_dev->bus_id,
 					   SYSFS_BUS_ID_SIZE);
 		if (rc < 0) {
-			
+			/* NOTE: why keep unbinding other interfaces? */
 			dbg("unbind driver at %s failed", intf_dev->bus_id);
 			status = UNBIND_ST_FAILED;
 		}

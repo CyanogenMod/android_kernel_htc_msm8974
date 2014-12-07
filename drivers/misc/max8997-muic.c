@@ -31,6 +31,7 @@
 #include <linux/mfd/max8997.h>
 #include <linux/mfd/max8997-private.h>
 
+/* MAX8997-MUIC STATUS1 register */
 #define STATUS1_ADC_SHIFT		0
 #define STATUS1_ADCLOW_SHIFT		5
 #define STATUS1_ADCERR_SHIFT		6
@@ -38,6 +39,7 @@
 #define STATUS1_ADCLOW_MASK		(0x1 << STATUS1_ADCLOW_SHIFT)
 #define STATUS1_ADCERR_MASK		(0x1 << STATUS1_ADCERR_SHIFT)
 
+/* MAX8997-MUIC STATUS2 register */
 #define STATUS2_CHGTYP_SHIFT		0
 #define STATUS2_CHGDETRUN_SHIFT		3
 #define STATUS2_DCDTMR_SHIFT		4
@@ -49,9 +51,11 @@
 #define STATUS2_DBCHG_MASK		(0x1 << STATUS2_DBCHG_SHIFT)
 #define STATUS2_VBVOLT_MASK		(0x1 << STATUS2_VBVOLT_SHIFT)
 
+/* MAX8997-MUIC STATUS3 register */
 #define STATUS3_OVP_SHIFT		2
 #define STATUS3_OVP_MASK		(0x1 << STATUS3_OVP_SHIFT)
 
+/* MAX8997-MUIC CONTROL1 register */
 #define COMN1SW_SHIFT			0
 #define COMP2SW_SHIFT			3
 #define COMN1SW_MASK			(0x7 << COMN1SW_SHIFT)
@@ -111,7 +115,7 @@ static int max8997_muic_handle_usb(struct max8997_muic_info *info,
 	int ret = 0;
 
 	if (usb_type == MAX8997_USB_HOST) {
-		
+		/* switch to USB */
 		ret = max8997_update_reg(info->muic, MAX8997_MUIC_REG_CONTROL1,
 				attached ? MAX8997_SW_USB : MAX8997_SW_OPEN,
 				SW_MASK);
@@ -142,7 +146,7 @@ static int max8997_muic_handle_dock(struct max8997_muic_info *info,
 	struct max8997_muic_platform_data *mdata = info->muic_pdata;
 	int ret = 0;
 
-	
+	/* switch to AUDIO */
 	ret = max8997_update_reg(info->muic, MAX8997_MUIC_REG_CONTROL1,
 				attached ? MAX8997_SW_AUDIO : MAX8997_SW_OPEN,
 				SW_MASK);
@@ -173,7 +177,7 @@ static int max8997_muic_handle_jig_uart(struct max8997_muic_info *info,
 	struct max8997_muic_platform_data *mdata = info->muic_pdata;
 	int ret = 0;
 
-	
+	/* switch to UART */
 	ret = max8997_update_reg(info->muic, MAX8997_MUIC_REG_CONTROL1,
 				attached ? MAX8997_SW_UART : MAX8997_SW_OPEN,
 				SW_MASK);
@@ -444,10 +448,10 @@ static int __devinit max8997_muic_probe(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* Initialize registers according to platform data */
 	max8997_initialize_device(info);
 
-	
+	/* Initial device detection */
 	max8997_muic_detect_dev(info);
 
 	return ret;

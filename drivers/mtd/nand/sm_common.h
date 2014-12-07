@@ -21,12 +21,17 @@ struct sm_oob {
 } __attribute__((packed));
 
 
+/* one sector is always 512 bytes, but it can consist of two nand pages */
 #define SM_SECTOR_SIZE		512
 
+/* oob area is also 16 bytes, but might be from two pages */
 #define SM_OOB_SIZE		16
 
+/* This is maximum zone size, and all devices that have more that one zone
+   have this size */
 #define SM_MAX_ZONE_SIZE 	1024
 
+/* support for small page nand */
 #define SM_SMALL_PAGE 		256
 #define SM_SMALL_OOB_SIZE	8
 
@@ -49,7 +54,7 @@ static inline int sm_block_erased(struct sm_oob *oob)
 	static const uint32_t erased_pattern[4] = {
 		0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF };
 
-	
+	/* First test for erased block */
 	if (!memcmp(oob, erased_pattern, sizeof(*oob)))
 		return 1;
 	return 0;

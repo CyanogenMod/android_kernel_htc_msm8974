@@ -3,10 +3,10 @@
 
 #include "hardware.h"
 
-#define RESET_STATUS_HARDWARE	(1 << 0)	
-#define RESET_STATUS_WATCHDOG	(1 << 1)	
-#define RESET_STATUS_LOWPOWER	(1 << 2)	
-#define RESET_STATUS_GPIO	(1 << 3)	
+#define RESET_STATUS_HARDWARE	(1 << 0)	/* Hardware Reset */
+#define RESET_STATUS_WATCHDOG	(1 << 1)	/* Watchdog Reset */
+#define RESET_STATUS_LOWPOWER	(1 << 2)	/* Exit from Low Power/Sleep */
+#define RESET_STATUS_GPIO	(1 << 3)	/* GPIO Reset */
 #define RESET_STATUS_ALL	(0xf)
 
 extern unsigned int reset_status;
@@ -15,4 +15,4 @@ static inline void clear_reset_status(unsigned int mask)
 	RCSR = mask;
 }
 
-#endif 
+#endif /* __ASM_ARCH_RESET_H */

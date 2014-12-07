@@ -12,6 +12,30 @@
  *
  */
 
+/*
+ * The sh algorithm is to select server by the hash key of source IP
+ * address. The pseudo code is as follows:
+ *
+ *       n <- servernode[src_ip];
+ *       if (n is dead) OR
+ *          (n is overloaded) or (n.weight <= 0) then
+ *                 return NULL;
+ *
+ *       return n;
+ *
+ * Notes that servernode is a 256-bucket hash table that maps the hash
+ * index derived from packet source IP address to the current server
+ * array. If the sh scheduler is used in cache cluster, it is good to
+ * combine it with cache_bypass feature. When the statically assigned
+ * server is dead or overloaded, the load balancer can bypass the cache
+ * server and send requests to the original server directly.
+ *
+ * The weight destination attribute can be used to control the
+ * distribution of connections to the destinations in servernode. The
+ * greater the weight, the more connections the destination
+ * will receive.
+ *
+ */
 
 #define KMSG_COMPONENT "IPVS"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
@@ -25,10 +49,16 @@
 #include <net/ip_vs.h>
 
 
+/*
+ *      IPVS SH bucket
+ */
 struct ip_vs_sh_bucket {
-	struct ip_vs_dest       *dest;          
+	struct ip_vs_dest       *dest;          /* real server (cache) */
 };
 
+/*
+ *     for IPVS SH entry hash table
+ */
 #ifndef CONFIG_IP_VS_SH_TAB_BITS
 #define CONFIG_IP_VS_SH_TAB_BITS        8
 #endif
@@ -37,6 +67,9 @@ struct ip_vs_sh_bucket {
 #define IP_VS_SH_TAB_MASK               (IP_VS_SH_TAB_SIZE - 1)
 
 
+/*
+ *	Returns hash value for IPVS SH entry
+ */
 static inline unsigned ip_vs_sh_hashkey(int af, const union nf_inet_addr *addr)
 {
 	__be32 addr_fold = addr->ip;
@@ -50,6 +83,9 @@ static inline unsigned ip_vs_sh_hashkey(int af, const union nf_inet_addr *addr)
 }
 
 
+/*
+ *      Get ip_vs_dest associated with supplied parameters.
+ */
 static inline struct ip_vs_dest *
 ip_vs_sh_get(int af, struct ip_vs_sh_bucket *tbl,
 	     const union nf_inet_addr *addr)
@@ -58,6 +94,9 @@ ip_vs_sh_get(int af, struct ip_vs_sh_bucket *tbl,
 }
 
 
+/*
+ *      Assign all the hash buckets of the specified table with the service.
+ */
 static int
 ip_vs_sh_assign(struct ip_vs_sh_bucket *tbl, struct ip_vs_service *svc)
 {
@@ -85,7 +124,7 @@ ip_vs_sh_assign(struct ip_vs_sh_bucket *tbl, struct ip_vs_service *svc)
 				      i, IP_VS_DBG_ADDR(svc->af, &dest->addr),
 				      atomic_read(&dest->weight));
 
-			
+			/* Don't move to next dest until filling weight */
 			if (++d_count >= atomic_read(&dest->weight)) {
 				p = p->next;
 				d_count = 0;
@@ -98,6 +137,9 @@ ip_vs_sh_assign(struct ip_vs_sh_bucket *tbl, struct ip_vs_service *svc)
 }
 
 
+/*
+ *      Flush all the hash buckets of the specified table.
+ */
 static void ip_vs_sh_flush(struct ip_vs_sh_bucket *tbl)
 {
 	int i;
@@ -118,7 +160,7 @@ static int ip_vs_sh_init_svc(struct ip_vs_service *svc)
 {
 	struct ip_vs_sh_bucket *tbl;
 
-	
+	/* allocate the SH table for this service */
 	tbl = kmalloc(sizeof(struct ip_vs_sh_bucket)*IP_VS_SH_TAB_SIZE,
 		      GFP_ATOMIC);
 	if (tbl == NULL)
@@ -129,7 +171,7 @@ static int ip_vs_sh_init_svc(struct ip_vs_service *svc)
 		  "current service\n",
 		  sizeof(struct ip_vs_sh_bucket)*IP_VS_SH_TAB_SIZE);
 
-	
+	/* assign the hash buckets with the updated service */
 	ip_vs_sh_assign(tbl, svc);
 
 	return 0;
@@ -140,10 +182,10 @@ static int ip_vs_sh_done_svc(struct ip_vs_service *svc)
 {
 	struct ip_vs_sh_bucket *tbl = svc->sched_data;
 
-	
+	/* got to clean up hash buckets here */
 	ip_vs_sh_flush(tbl);
 
-	
+	/* release the table itself */
 	kfree(svc->sched_data);
 	IP_VS_DBG(6, "SH hash table (memory=%Zdbytes) released\n",
 		  sizeof(struct ip_vs_sh_bucket)*IP_VS_SH_TAB_SIZE);
@@ -156,22 +198,29 @@ static int ip_vs_sh_update_svc(struct ip_vs_service *svc)
 {
 	struct ip_vs_sh_bucket *tbl = svc->sched_data;
 
-	
+	/* got to clean up hash buckets here */
 	ip_vs_sh_flush(tbl);
 
-	
+	/* assign the hash buckets with the updated service */
 	ip_vs_sh_assign(tbl, svc);
 
 	return 0;
 }
 
 
+/*
+ *      If the dest flags is set with IP_VS_DEST_F_OVERLOAD,
+ *      consider that the server is overloaded here.
+ */
 static inline int is_overloaded(struct ip_vs_dest *dest)
 {
 	return dest->flags & IP_VS_DEST_F_OVERLOAD;
 }
 
 
+/*
+ *      Source Hashing scheduling
+ */
 static struct ip_vs_dest *
 ip_vs_sh_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 {
@@ -202,6 +251,9 @@ ip_vs_sh_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 }
 
 
+/*
+ *      IPVS SH Scheduler structure
+ */
 static struct ip_vs_scheduler ip_vs_sh_scheduler =
 {
 	.name =			"sh",

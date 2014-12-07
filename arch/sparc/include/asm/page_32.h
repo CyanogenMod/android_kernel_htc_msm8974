@@ -29,6 +29,13 @@
 		sparc_flush_page_to_ram(page);	\
 	} while (0)
 
+/* The following structure is used to hold the physical
+ * memory configuration of the machine.  This is filled in
+ * prom_meminit() and is later used by mem_init() to set up
+ * mem_map[].  We statically allocate SPARC_PHYS_BANKS+1 of
+ * these structs, this is arbitrary.  The entry after the
+ * last valid one has num_bytes==0.
+ */
 struct sparc_phys_banks {
   unsigned long base_addr;
   unsigned long num_bytes;
@@ -38,14 +45,20 @@ struct sparc_phys_banks {
 
 extern struct sparc_phys_banks sp_banks[SPARC_PHYS_BANKS+1];
 
+/* Cache alias structure.  Entry is valid if context != -1. */
 struct cache_palias {
 	unsigned long vaddr;
 	int context;
 };
 
+/* passing structs on the Sparc slow us down tremendously... */
 
+/* #define STRICT_MM_TYPECHECKS */
 
 #ifdef STRICT_MM_TYPECHECKS
+/*
+ * These are used to make use of C type-checking..
+ */
 typedef struct { unsigned long pte; } pte_t;
 typedef struct { unsigned long iopte; } iopte_t;
 typedef struct { unsigned long pmdv[16]; } pmd_t;
@@ -64,13 +77,16 @@ typedef struct { unsigned long iopgprot; } iopgprot_t;
 
 #define __pte(x)	((pte_t) { (x) } )
 #define __iopte(x)	((iopte_t) { (x) } )
- 
+/* #define __pmd(x)        ((pmd_t) { (x) } ) */ /* XXX procedure with loop */
 #define __pgd(x)	((pgd_t) { (x) } )
 #define __ctxd(x)	((ctxd_t) { (x) } )
 #define __pgprot(x)	((pgprot_t) { (x) } )
 #define __iopgprot(x)	((iopgprot_t) { (x) } )
 
 #else
+/*
+ * .. while these make it easier on the compiler
+ */
 typedef unsigned long pte_t;
 typedef unsigned long iopte_t;
 typedef struct { unsigned long pmdv[16]; } pmd_t;
@@ -89,7 +105,7 @@ typedef unsigned long iopgprot_t;
 
 #define __pte(x)	(x)
 #define __iopte(x)	(x)
- 
+/* #define __pmd(x)        (x) */ /* XXX later */
 #define __pgd(x)	(x)
 #define __ctxd(x)	(x)
 #define __pgprot(x)	(x)
@@ -105,11 +121,11 @@ BTFIXUPDEF_SETHI(sparc_unmapped_base)
 
 #define TASK_UNMAPPED_BASE	BTFIXUP_SETHI(sparc_unmapped_base)
 
-#else 
+#else /* !(__ASSEMBLY__) */
 
 #define __pgprot(x)	(x)
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
 #define PAGE_OFFSET	0xf0000000
 #ifndef __ASSEMBLY__
@@ -134,4 +150,4 @@ extern unsigned long pfn_base;
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
-#endif 
+#endif /* _SPARC_PAGE_H */

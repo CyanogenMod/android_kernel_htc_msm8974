@@ -19,5 +19,5 @@
 #ifdef CONFIG_GCOV_KERNEL
 # if __GNUC_MINOR__ < 4
 #   error "GCOV profiling support for gcc versions below 3.4 not included"
-# endif 
-#endif 
+# endif /* __GNUC_MINOR__ */
+#endif /* CONFIG_GCOV_KERNEL */

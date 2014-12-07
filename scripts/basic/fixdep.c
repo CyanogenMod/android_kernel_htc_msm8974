@@ -94,6 +94,14 @@
  * (Note: it'd be easy to port over the complete mkdep state machine,
  *  but I don't think the added complexity is worth it)
  */
+/*
+ * Note 2: if somebody writes HELLO_CONFIG_BOOM in a file, it will depend onto
+ * CONFIG_BOOM. This could seem a bug (not too hard to fix), but please do not
+ * fix it! Some UserModeLinux files (look at arch/um/) call CONFIG_BOOM as
+ * UML_CONFIG_BOOM, to avoid conflicts with /usr/include/linux/autoconf.h,
+ * through arch/um/include/uml-config.h; this fixdep "bug" makes sure that
+ * those files will have correct dependencies.
+ */
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -122,6 +130,9 @@ static void usage(void)
 	exit(1);
 }
 
+/*
+ * Print out the commandline prefixed with cmd_<target filename> :=
+ */
 static void print_cmdline(void)
 {
 	printf("cmd_%s := %s\n\n", target, cmdline);
@@ -139,7 +150,7 @@ static struct item *hashtab[HASHSZ];
 
 static unsigned int strhash(const char *str, unsigned int sz)
 {
-	
+	/* fnv32 hash */
 	unsigned int i, hash = 2166136261U;
 
 	for (i = 0; i < sz; i++)
@@ -147,6 +158,9 @@ static unsigned int strhash(const char *str, unsigned int sz)
 	return hash;
 }
 
+/*
+ * Lookup a value in the configuration string.
+ */
 static int is_defined_config(const char *name, int len, unsigned int hash)
 {
 	struct item *aux;
@@ -159,6 +173,9 @@ static int is_defined_config(const char *name, int len, unsigned int hash)
 	return 0;
 }
 
+/*
+ * Add a new value to the configuration string.
+ */
 static void define_config(const char *name, int len, unsigned int hash)
 {
 	struct item *aux = malloc(sizeof(*aux) + len);
@@ -174,6 +191,9 @@ static void define_config(const char *name, int len, unsigned int hash)
 	hashtab[hash % HASHSZ] = aux;
 }
 
+/*
+ * Clear the set of configuration strings.
+ */
 static void clear_config(void)
 {
 	struct item *aux, *next;
@@ -188,6 +208,9 @@ static void clear_config(void)
 	}
 }
 
+/*
+ * Record the use of a CONFIG_* word.
+ */
 static void use_config(const char *m, int slen)
 {
 	unsigned int hash = strhash(m, slen);
@@ -213,7 +236,7 @@ static void use_config(const char *m, int slen)
 static void parse_config_file(const char *map, size_t len)
 {
 	const int *end = (const int *) (map + len);
-	
+	/* start at +1, so that p can never be < map */
 	const int *m   = (const int *) map + 1;
 	const char *p, *q;
 
@@ -243,6 +266,7 @@ static void parse_config_file(const char *map, size_t len)
 	}
 }
 
+/* test is s ends in sub */
 static int strrcmp(char *s, char *sub)
 {
 	int slen = strlen(s);
@@ -285,6 +309,11 @@ static void do_config_file(const char *filename)
 	close(fd);
 }
 
+/*
+ * Important: The below generated source_foo.o and deps_foo.o variable
+ * assignments are parsed not only by make, but also by the rather simple
+ * parser in scripts/mod/sumversion.c.
+ */
 static void parse_dep_file(void *map, size_t len)
 {
 	char *m = map;

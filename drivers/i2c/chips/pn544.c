@@ -24,6 +24,7 @@ int is_debug = 0;
 int s_wdcmd_cnt = 0;
 int is_alive = 1;
 int is_uicc_swp = 1;
+int mfc_nfc_cmd_result = 0;
 
 #define DBUF(buff,count) \
 	if (is_debug) \
@@ -163,6 +164,12 @@ static irqreturn_t pn544_dev_irq_handler(int irq, void *dev_id)
 	struct pn544_dev *pn544_dev = dev_id;
 	static unsigned long orig_jiffies = 0;
 
+#ifdef CONFIG_SENSORS_NFC_IRQ_WORKAROUND
+	if (gpio_get_value(pn544_dev->irq_gpio) == 0) {
+		I("%s: irq_workaround\n", __func__);
+		return IRQ_HANDLED;
+	}
+#endif
 	pn544_disable_irq(pn544_dev);
 
 	
@@ -594,6 +601,47 @@ static ssize_t nxp_uicc_swp_store(struct device *dev,
 
 static DEVICE_ATTR(nxp_uicc_swp, 0664, nxp_uicc_swp_show, nxp_uicc_swp_store);
 
+static ssize_t mfg_nfc_ctrl_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	int ret = 0;
+	I("%s mfc_nfc_cmd_result is %d\n", __func__, mfc_nfc_cmd_result);
+	ret = sprintf(buf, "%d\n", mfc_nfc_cmd_result);
+	return ret;
+}
+
+static ssize_t mfg_nfc_ctrl_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	int code = -1;
+
+	sscanf(buf, "%d", &code);
+	I("%s: store value = %d\n", __func__, code);
+
+	switch (code) {
+	case 0:
+		I("%s: get nfcversion :\n", __func__);
+		mfc_nfc_cmd_result = 137;
+		break;
+	case 1:
+		I("%s: nfcreader test :\n", __func__);
+		mfc_nfc_cmd_result = 1;
+		break;
+	case 2:
+		I("%s: nfccard test :\n", __func__);
+		mfc_nfc_cmd_result = 1;
+		break;
+	default:
+		E("%s: case default\n", __func__);
+		break;
+	}
+	I("%s: END\n", __func__);
+	return count;
+}
+
+static DEVICE_ATTR(mfg_nfc_ctrl, 0664, mfg_nfc_ctrl_show, mfg_nfc_ctrl_store);
+
 static int pn544_parse_dt(struct device *dev, struct pn544_i2c_platform_data *pdata)
 {
 	struct property *prop;
@@ -791,6 +839,11 @@ static int pn544_probe(struct i2c_client *client,
 	ret = device_create_file(pni->comn_dev, &dev_attr_nxp_uicc_swp);
 	if (ret) {
 		E("pn544_probe device_create_file dev_attrnxp_uicc_swp failed\n");
+	}
+
+	ret = device_create_file(pni->comn_dev, &dev_attr_mfg_nfc_ctrl);
+	if (ret) {
+		E("pn544_probe device_create_file dev_attr_mfg_nfc_ctrl failed\n");
 	}
 
 	if (is_alive) {

@@ -18,6 +18,13 @@
 #include <asm/mmu_context.h>
 #include <asm/traps.h>
 
+/*
+ * WARNING
+ *
+ * This file is compiled with certain -ffixed-reg options.  We have to
+ * make sure not to call any functions here that could clobber these
+ * registers.
+ */
 
 int nr_dcplb_miss[NR_CPUS], nr_icplb_miss[NR_CPUS];
 int nr_dcplb_supv_miss[NR_CPUS], nr_icplb_supv_miss[NR_CPUS];
@@ -57,9 +64,13 @@ static inline void write_icplb_data(int cpu, int idx, unsigned long data,
 #endif
 }
 
+/* Counters to implement round-robin replacement.  */
 static int icplb_rr_index[NR_CPUS] PDT_ATTR;
 static int dcplb_rr_index[NR_CPUS] PDT_ATTR;
 
+/*
+ * Find an ICPLB entry to be evicted and return its index.
+ */
 static int evict_one_icplb(int cpu)
 {
 	int i = first_switched_icplb + icplb_rr_index[cpu];
@@ -113,11 +124,15 @@ MGR_ATTR static int icplb_miss(int cpu)
 	addr &= ~(SIZE_1M - 1);
 	i_data |= PAGE_SIZE_1MB;
 	if (addr1 >= base && (addr1 + SIZE_4M) <= eaddr) {
+		/*
+		 * This works because
+		 * (PAGE_SIZE_4MB & PAGE_SIZE_1MB) == PAGE_SIZE_1MB.
+		 */
 		i_data |= PAGE_SIZE_4MB;
 		addr = addr1;
 	}
 
-	
+	/* Pick entry to evict */
 	idx = evict_one_icplb(cpu);
 
 	write_icplb_data(cpu, idx, i_data, addr);
@@ -156,11 +171,15 @@ MGR_ATTR static int dcplb_miss(int cpu)
 	addr &= ~(SIZE_1M - 1);
 	d_data |= PAGE_SIZE_1MB;
 	if (addr1 >= base && (addr1 + SIZE_4M) <= eaddr) {
+		/*
+		 * This works because
+		 * (PAGE_SIZE_4MB & PAGE_SIZE_1MB) == PAGE_SIZE_1MB.
+		 */
 		d_data |= PAGE_SIZE_4MB;
 		addr = addr1;
 	}
 
-	
+	/* Pick entry to evict */
 	idx = evict_one_dcplb(cpu);
 
 	write_dcplb_data(cpu, idx, d_data, addr);

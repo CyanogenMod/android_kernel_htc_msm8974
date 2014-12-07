@@ -26,6 +26,7 @@
 
 #define VKEY_Y_OFFSET_DEFAULT 0
 
+/* numerator and denomenator for border equations */
 #define BORDER_ADJUST_NUM 3
 #define BORDER_ADJUST_DENOM 4
 

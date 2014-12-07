@@ -17,6 +17,7 @@
 
 #include <lantiq_soc.h>
 
+/* cgu registers */
 #define LTQ_CGU_SYS	0x0010
 
 unsigned int ltq_get_io_region_clock(void)

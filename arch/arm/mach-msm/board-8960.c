@@ -143,26 +143,26 @@ struct sx150x_platform_data msm8960_sx150x_data[] = {
 
 #define MSM_PMEM_ADSP_SIZE         0x7800000
 #define MSM_PMEM_AUDIO_SIZE        0x4CF000
-#define MSM_PMEM_SIZE 0x2800000 
-#define MSM_LIQUID_PMEM_SIZE 0x4000000 
-#define MSM_HDMI_PRIM_PMEM_SIZE 0x4000000 
+#define MSM_PMEM_SIZE 0x2800000 /* 40 Mbytes */
+#define MSM_LIQUID_PMEM_SIZE 0x4000000 /* 64 Mbytes */
+#define MSM_HDMI_PRIM_PMEM_SIZE 0x4000000 /* 64 Mbytes */
 
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
 #define HOLE_SIZE	0x20000
-#define MSM_ION_MFC_META_SIZE 0x40000 
+#define MSM_ION_MFC_META_SIZE 0x40000 /* 256 Kbytes */
 #define MSM_CONTIG_MEM_SIZE  0x65000
 #ifdef CONFIG_MSM_IOMMU
-#define MSM_ION_MM_SIZE            0x3800000 
+#define MSM_ION_MM_SIZE            0x3800000 /* Need to be multiple of 64K */
 #define MSM_ION_SF_SIZE            0x0
-#define MSM_ION_QSECOM_SIZE        0x780000 
+#define MSM_ION_QSECOM_SIZE        0x780000 /* (7.5MB) */
 #define MSM_ION_HEAP_NUM	8
 #else
 #define MSM_ION_MM_SIZE            MSM_PMEM_ADSP_SIZE
 #define MSM_ION_SF_SIZE            MSM_PMEM_SIZE
-#define MSM_ION_QSECOM_SIZE        0x600000 
+#define MSM_ION_QSECOM_SIZE        0x600000 /* (6MB) */
 #define MSM_ION_HEAP_NUM	8
 #endif
-#define MSM_ION_MM_FW_SIZE	(0x200000 - HOLE_SIZE) 
+#define MSM_ION_MM_FW_SIZE	(0x200000 - HOLE_SIZE) /* 128kb */
 #define MSM_ION_MFC_SIZE	(SZ_8K + MSM_ION_MFC_META_SIZE)
 #define MSM_ION_AUDIO_SIZE	MSM_PMEM_AUDIO_SIZE
 
@@ -170,7 +170,7 @@ struct sx150x_platform_data msm8960_sx150x_data[] = {
 #define MSM_LIQUID_ION_SF_SIZE MSM_LIQUID_PMEM_SIZE
 #define MSM_HDMI_PRIM_ION_SF_SIZE MSM_HDMI_PRIM_PMEM_SIZE
 
-#define MSM_MM_FW_SIZE		(0x200000 - HOLE_SIZE) 
+#define MSM_MM_FW_SIZE		(0x200000 - HOLE_SIZE) /* 2mb -128kb*/
 #define MSM8960_FIXED_AREA_START (0xa0000000 - (MSM_ION_MM_FW_SIZE + \
 							HOLE_SIZE))
 #define MAX_FIXED_AREA_SIZE	0x10000000
@@ -286,6 +286,17 @@ static struct platform_device ion_adsp_heap_device = {
 	}
 };
 
+/**
+ * These heaps are listed in the order they will be allocated. Due to
+ * video hardware restrictions and content protection the FW heap has to
+ * be allocated adjacent (below) the MM heap and the MFC heap has to be
+ * allocated after the MM heap to ensure MFC heap is not more than 256MB
+ * away from the base address of the FW heap.
+ * However, the order of FW heap and MM heap doesn't matter since these
+ * two heaps are taken care of by separate code to ensure they are adjacent
+ * to each other.
+ * Don't swap the order unless you know what you are doing!
+ */
 struct ion_platform_heap msm8960_heaps[] = {
 		{
 			.id	= ION_SYSTEM_HEAP_ID,
@@ -422,6 +433,13 @@ static void __init msm8960_reserve_fixed_area(unsigned long fixed_area_size)
 #endif
 }
 
+/**
+ * Reserve memory for ION. Also handle special case
+ * for video heaps (MM,FW, and MFC). Video requires heaps MM and MFC to be
+ * at a higher address than FW in addition to not more than 256MB away from the
+ * base address of the firmware. In addition the MM heap must be
+ * adjacent to the FW heap for content protection purposes.
+ */
 static void __init reserve_ion_memory(void)
 {
 #if defined(CONFIG_ION_MSM) && defined(CONFIG_MSM_MULTIMEDIA_USE_ION)
@@ -471,7 +489,7 @@ static void __init reserve_ion_memory(void)
 				break;
 			case ION_HEAP_TYPE_DMA:
 					use_cma = 1;
-				
+				/* Purposely fall through here */
 			case ION_HEAP_TYPE_CARVEOUT:
 				fixed_position = ((struct ion_co_heap_pdata *)
 					heap->extra_data)->fixed_position;
@@ -505,6 +523,10 @@ static void __init reserve_ion_memory(void)
 				fixed_high_size += heap->size;
 				high_use_cma = use_cma;
 			} else if (use_cma) {
+				/*
+				 * Heaps that use CMA but are not part of the
+				 * fixed set. Create wherever.
+				 */
 				dma_declare_contiguous(
 					heap->priv,
 					heap->size,
@@ -517,6 +539,11 @@ static void __init reserve_ion_memory(void)
 	if (!fixed_size)
 		return;
 
+	/*
+	 * Given the setup for the fixed area, we can't round up all sizes.
+	 * Some sizes must be set up exactly and aligned correctly. Incorrect
+	 * alignments are considered a configuration issue
+	 */
 
 	fixed_low_start = MSM8960_FIXED_AREA_START;
 	if (low_use_cma) {
@@ -544,7 +571,7 @@ static void __init reserve_ion_memory(void)
 		fixed_high_size = ALIGN(fixed_high_size, cma_alignment);
 		BUG_ON(!IS_ALIGNED(fixed_high_start, cma_alignment));
 	} else {
-		
+		/* This is the end of the fixed area so it's okay to round up */
 		fixed_high_size = ALIGN(fixed_high_size, SECTION_SIZE);
 		ret = memblock_remove(fixed_high_start, fixed_high_size);
 		BUG_ON(ret);
@@ -673,6 +700,15 @@ static void __init msm8960_allocate_memory_regions(void)
 
 #define TABLA_INTERRUPT_BASE (NR_MSM_IRQS + NR_GPIO_IRQS + NR_PM8921_IRQS)
 
+/* Micbias setting is based on 8660 CDP/MTP/FLUID requirement
+ * 4 micbiases are used to power various analog and digital
+ * microphones operating at 1800 mV. Technically, all micbiases
+ * can source from single cfilter since all microphones operate
+ * at the same voltage level. The arrangement below is to make
+ * sure all cfilters are exercised. LDO_H regulator ouput level
+ * does not need to be as high as 2.85V. It is choosen for
+ * microphone sensitivity purpose.
+ */
 static struct wcd9xxx_pdata tabla_platform_data = {
 	.slimbus_slave_device = {
 		.name = "tabla-slave",
@@ -819,7 +855,7 @@ static struct slim_boardinfo msm_slim_devices[] = {
 		.slim_slave = &msm_slim_tabla20,
 	},
 #endif
-	
+	/* add more slimbus slaves as needed */
 };
 
 #define MSM_WCNSS_PHYS	0x03000000
@@ -865,6 +901,7 @@ static struct platform_device msm_device_wcnss_wlan = {
 };
 
 #ifdef CONFIG_QSEECOM
+/* qseecom bus scaling */
 static struct msm_bus_vectors qseecom_clks_init_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_SPS,
@@ -996,6 +1033,7 @@ static struct platform_device qseecom_device = {
 #define QCE_SHARE_CE_RESOURCE	1
 #define QCE_CE_SHARED		0
 
+/* Begin Bus scaling definitions */
 static struct msm_bus_vectors crypto_hw_init_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_ADM_PORT0,
@@ -1042,6 +1080,7 @@ static struct msm_bus_scale_pdata crypto_hw_bus_scale_pdata = {
 		ARRAY_SIZE(crypto_hw_bus_scale_usecases),
 		.name = "cryptohw",
 };
+/* End Bus Scaling Definitions*/
 
 static struct resource qcrypto_resources[] = {
 	[0] = {
@@ -1146,7 +1185,7 @@ static struct platform_device qcedev_device = {
 static struct mdm_platform_data sglte_platform_data = {
 	.mdm_version = "4.0",
 	.ramdump_delay_ms = 1000,
-	
+	/* delay between two PS_HOLDs */
 	.ps_hold_delay_ms = 500,
 	.soft_reset_inverted = 1,
 	.peripheral_platform_device = NULL,
@@ -1316,27 +1355,31 @@ static struct msm_spi_platform_data msm8960_qup_spi_gsbi1_pdata = {
 static struct msm_otg_platform_data msm_otg_pdata;
 #else
 static int wr_phy_init_seq[] = {
-	0x44, 0x80, 
-	0x68, 0x81, 
-	0x14, 0x82, 
-	0x13, 0x83, 
+	0x44, 0x80, /* set VBUS valid threshold
+			and disconnect valid threshold */
+	0x68, 0x81, /* update DC voltage level */
+	0x14, 0x82, /* set preemphasis and rise/fall time */
+	0x13, 0x83, /* set source impedance adjusment */
 	-1};
 
 static int liquid_v1_phy_init_seq[] = {
-	0x44, 0x80,
-	0x6C, 0x81,
-	0x18, 0x82,
-	0x23, 0x83,
+	0x44, 0x80,/* set VBUS valid threshold
+			and disconnect valid threshold */
+	0x6C, 0x81,/* update DC voltage level */
+	0x18, 0x82,/* set preemphasis and rise/fall time */
+	0x23, 0x83,/* set source impedance sdjusment */
 	-1};
 
 static int sglte_phy_init_seq[] = {
-	0x44, 0x80, 
-	0x6A, 0x81, 
-	0x24, 0x82, 
-	0x13, 0x83, 
+	0x44, 0x80, /* set VBUS valid threshold
+			and disconnect valid threshold */
+	0x6A, 0x81, /* update DC voltage level */
+	0x24, 0x82, /* set preemphasis and rise/fall time */
+	0x13, 0x83, /* set source impedance adjusment */
 	-1};
 
 #ifdef CONFIG_MSM_BUS_SCALING
+/* Bandwidth requests (zero) if no vote placed */
 static struct msm_bus_vectors usb_init_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_SPS,
@@ -1346,12 +1389,13 @@ static struct msm_bus_vectors usb_init_vectors[] = {
 	},
 };
 
+/* Bus bandwidth requests in Bytes/sec */
 static struct msm_bus_vectors usb_max_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_SPS,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab = 60000000,		
-		.ib = 960000000,	
+		.ab = 60000000,		/* At least 480Mbps on bus. */
+		.ib = 960000000,	/* MAX bursts rate */
 	},
 };
 
@@ -1449,11 +1493,11 @@ static int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum)
 
 	pr_debug("%s: dload:%p pid:%x serial_num:%s\n",
 				__func__, dload, pid, snum);
-	
+	/* update pid */
 	dload->magic_struct.pid = PID_MAGIC_ID;
 	dload->pid = pid;
 
-	
+	/* update serial number */
 	dload->magic_struct.serial_num = 0;
 	if (!snum) {
 		memset(dload->serial_number, 0, SERIAL_NUMBER_LENGTH);
@@ -1509,6 +1553,7 @@ static uint8_t spm_power_collapse_with_rpm[] __initdata = {
 	0x24, 0x30, 0x0f,
 };
 
+/* 8960AB has a different command to assert apc_pdn */
 static uint8_t spm_power_collapse_without_rpm_krait_v3[] __initdata = {
 	0x00, 0x24, 0x84, 0x10,
 	0x09, 0x03, 0x01,
@@ -1793,6 +1838,7 @@ static struct i2c_board_info msm_isa1200_board_info[] __initdata = {
 #define CYTTSP_TS_SLEEP_GPIO		50
 #define CYTTSP_TS_RESOUT_N_GPIO		52
 
+/*virtual key support */
 static ssize_t tma340_vkeys_show(struct kobject *kobj,
 			struct kobj_attribute *attr, char *buf)
 {
@@ -1847,7 +1893,7 @@ static struct cyttsp_regulator regulator_data[] = {
 		.hpm_load_uA = CY_TMA300_CURR_24HZ_UA,
 		.lpm_load_uA = CY_TMA300_SLEEP_CURR_UA,
 	},
-	
+	/* TODO: Remove after runtime PM is enabled in I2C driver */
 	{
 		.name = "vcc_i2c",
 		.min_uV = CY_I2C_VTG_MIN_UV,
@@ -1865,7 +1911,7 @@ static struct cyttsp_platform_data cyttsp_pdata = {
 	.disp_minx = 0,
 	.disp_miny = 16,
 	.flags = 0x01,
-	.gen = CY_GEN3,	
+	.gen = CY_GEN3,	/* or */
 	.use_st = CY_USE_ST,
 	.use_mt = CY_USE_MT,
 	.use_hndshk = CY_SEND_HNDSHK,
@@ -1873,6 +1919,9 @@ static struct cyttsp_platform_data cyttsp_pdata = {
 	.use_sleep = CY_USE_DEEP_SLEEP_SEL | CY_USE_LOW_POWER_SEL,
 	.use_gestures = CY_USE_GESTURES,
 	.fw_fname = "cyttsp_8960_cdp.hex",
+	/* activate up to 4 groups
+	 * and set active distance
+	 */
 	.gest_set = CY_GEST_GRP1 | CY_GEST_GRP2 |
 				CY_GEST_GRP3 | CY_GEST_GRP4 |
 				CY_ACT_DIST,
@@ -1894,14 +1943,15 @@ static struct i2c_board_info cyttsp_info[] __initdata = {
 		.platform_data = &cyttsp_pdata,
 #ifndef CY_USE_TIMER
 		.irq = MSM_GPIO_TO_INT(CYTTSP_TS_GPIO_IRQ),
-#endif 
+#endif /* CY_USE_TIMER */
 	},
 };
 
+/* configuration data for mxt1386 */
 static const u8 mxt1386_config_data[] = {
-	
+	/* T6 Object */
 	0, 0, 0, 0, 0, 0,
-	
+	/* T38 Object */
 	11, 2, 0, 11, 11, 11, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1909,45 +1959,46 @@ static const u8 mxt1386_config_data[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T7 Object */
 	100, 16, 50,
-	
+	/* T8 Object */
 	8, 0, 0, 0, 0, 0, 8, 14, 50, 215,
-	
+	/* T9 Object */
 	131, 0, 0, 26, 42, 0, 32, 63, 3, 5,
 	0, 2, 1, 113, 10, 10, 8, 10, 255, 2,
 	85, 5, 0, 0, 20, 20, 75, 25, 202, 29,
 	10, 10, 45, 46,
-	
+	/* T15 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0,
-	
+	/* T18 Object */
 	0, 0,
-	
+	/* T22 Object */
 	5, 0, 0, 0, 0, 0, 0, 0, 30, 0,
 	0, 0, 5, 8, 10, 13, 0,
-	
+	/* T24 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0,
-	
+	/* T25 Object */
 	3, 0, 188, 52, 52, 33, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T27 Object */
 	0, 0, 0, 0, 0, 0, 0,
-	
+	/* T28 Object */
 	0, 0, 0, 8, 12, 60,
-	
+	/* T40 Object */
 	0, 0, 0, 0, 0,
-	
+	/* T41 Object */
 	0, 0, 0, 0, 0, 0,
-	
+	/* T43 Object */
 	0, 0, 0, 0, 0, 0,
 };
 
+/* configuration data for mxt1386e using V1.0 firmware */
 static const u8 mxt1386e_config_data_v1_0[] = {
-	
+	/* T6 Object */
 	0, 0, 0, 0, 0, 0,
-	
+	/* T38 Object */
 	12, 1, 0, 17, 1, 12, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1955,42 +2006,42 @@ static const u8 mxt1386e_config_data_v1_0[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T7 Object */
 	100, 16, 50,
-	
+	/* T8 Object */
 	25, 0, 20, 20, 0, 0, 20, 50, 0, 0,
-	
+	/* T9 Object */
 	131, 0, 0, 26, 42, 0, 32, 80, 2, 5,
 	0, 5, 5, 0, 10, 30, 10, 10, 255, 2,
 	85, 5, 10, 10, 10, 10, 135, 55, 70, 40,
 	10, 5, 0, 0, 0,
-	
+	/* T18 Object */
 	0, 0,
-	
+	/* T24 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0,
-	
+	/* T25 Object */
 	3, 0, 60, 115, 156, 99,
-	
+	/* T27 Object */
 	0, 0, 0, 0, 0, 0, 0,
-	
+	/* T40 Object */
 	0, 0, 0, 0, 0,
-	
+	/* T42 Object */
 	2, 0, 255, 0, 255, 0, 0, 0, 0, 0,
-	
+	/* T43 Object */
 	0, 0, 0, 0, 0, 0, 0,
-	
+	/* T46 Object */
 	64, 0, 20, 20, 0, 0, 0, 0, 0,
-	
+	/* T47 Object */
 	0, 0, 0, 0, 0, 0, 3, 64, 66, 0,
-	
+	/* T48 Object */
 	31, 64, 64, 0, 0, 0, 0, 0, 0, 0,
 	48, 40, 0, 10, 10, 0, 0, 100, 10, 80,
 	0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
 	52, 0, 12, 0, 17, 0, 1, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T56 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1998,10 +2049,11 @@ static const u8 mxt1386e_config_data_v1_0[] = {
 	2, 99, 33,
 };
 
+/* configuration data for mxt1386e using V2.1 firmware */
 static const u8 mxt1386e_config_data_v2_1[] = {
-	
+	/* T6 Object */
 	0, 0, 0, 0, 0, 0,
-	
+	/* T38 Object */
 	12, 5, 0, 28, 8, 12, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2009,43 +2061,43 @@ static const u8 mxt1386e_config_data_v2_1[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T7 Object */
 	32, 16, 50,
-	
+	/* T8 Object */
 	25, 0, 20, 20, 0, 0, 20, 50, 0, 0,
-	
+	/* T9 Object */
 	139, 0, 0, 26, 42, 0, 32, 80, 2, 5,
 	0, 5, 5, 79, 10, 30, 10, 10, 255, 2,
 	85, 5, 10, 10, 10, 10, 135, 55, 70, 40,
 	10, 5, 0, 0, 0,
-	
+	/* T18 Object */
 	0, 0,
-	
+	/* T24 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0,
-	
+	/* T25 Object */
 	1, 0, 60, 115, 156, 99,
-	
+	/* T27 Object */
 	0, 0, 0, 0, 0, 0, 0,
-	
+	/* T40 Object */
 	0, 0, 0, 0, 0,
-	
+	/* T42 Object */
 	0, 0, 255, 0, 255, 0, 0, 0, 0, 0,
-	
+	/* T43 Object */
 	0, 0, 0, 0, 0, 0, 0, 64, 0, 8,
 	16,
-	
+	/* T46 Object */
 	64, 0, 16, 16, 0, 0, 0, 0, 0,
-	
+	/* T47 Object */
 	0, 0, 0, 0, 0, 0, 3, 64, 66, 0,
-	
+	/* T48 Object */
 	1, 64, 64, 0, 0, 0, 0, 0, 0, 0,
 	48, 40, 0, 10, 10, 0, 0, 100, 10, 80,
 	0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
 	52, 0, 12, 0, 17, 0, 1, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T56 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2054,10 +2106,11 @@ static const u8 mxt1386e_config_data_v2_1[] = {
 	255,
 };
 
+/* configuration data for mxt1386e on 3D SKU using V2.1 firmware */
 static const u8 mxt1386e_config_data_3d[] = {
-	
+	/* T6 Object */
 	0, 0, 0, 0, 0, 0,
-	
+	/* T38 Object */
 	13, 1, 0, 23, 2, 12, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2065,43 +2118,43 @@ static const u8 mxt1386e_config_data_3d[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T7 Object */
 	100, 10, 50,
-	
+	/* T8 Object */
 	25, 0, 20, 20, 0, 0, 0, 0, 0, 0,
-	
+	/* T9 Object */
 	131, 0, 0, 26, 42, 0, 32, 80, 2, 5,
 	0, 5, 5, 0, 10, 30, 10, 10, 175, 4,
 	127, 7, 26, 21, 17, 19, 143, 35, 207, 40,
 	20, 5, 54, 49, 0,
-	
+	/* T18 Object */
 	0, 0,
-	
+	/* T24 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0,
-	
+	/* T25 Object */
 	0, 0, 72, 113, 168, 97,
-	
+	/* T27 Object */
 	0, 0, 0, 0, 0, 0, 0,
-	
+	/* T40 Object */
 	0, 0, 0, 0, 0,
-	
+	/* T42 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	
+	/* T43 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0,
-	
+	/* T46 Object */
 	68, 0, 16, 16, 0, 0, 0, 0, 0,
-	
+	/* T47 Object */
 	0, 0, 0, 0, 0, 0, 3, 64, 66, 0,
-	
+	/* T48 Object */
 	31, 64, 64, 0, 0, 0, 0, 0, 0, 0,
 	32, 50, 0, 10, 10, 0, 0, 100, 10, 90,
 	0, 0, 0, 0, 0, 0, 0, 10, 1, 30,
 	52, 10, 5, 0, 33, 0, 1, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T56 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2169,7 +2222,7 @@ static struct mxt_config_info mxt_config_array_2d[] = {
 		.fw_name	= "atmel_8960_liquid_v2_2_AA.hex",
 	},
 	{
-		
+		/* The config data for V2.2.AA is the same as for V2.1.AA */
 		.config		= mxt1386e_config_data_v2_1,
 		.config_length	= ARRAY_SIZE(mxt1386e_config_data_v2_1),
 		.family_id	= 0xA0,
@@ -2243,13 +2296,17 @@ static struct msm_mhl_platform_data mhl_platform_data = {
 static struct i2c_board_info sii_device_info[] __initdata = {
 	{
 #ifdef CONFIG_FB_MSM_HDMI_MHL_8334
+		/*
+		 * keeps SI 8334 as the default
+		 * MHL TX
+		 */
 		I2C_BOARD_INFO("sii8334", 0x39),
 		.platform_data = &mhl_platform_data,
 #endif
 #ifdef CONFIG_FB_MSM_HDMI_MHL_9244
 		I2C_BOARD_INFO("Sil-9244", 0x39),
 		.irq = MSM_GPIO_TO_INT(15),
-#endif 
+#endif /* CONFIG_MSM_HDMI_MHL */
 		.flags = I2C_CLIENT_WAKE,
 	},
 };
@@ -2766,18 +2823,23 @@ static void __init msm8960_gfx_init(void)
 		msm_kgsl_3d0.dev.platform_data;
 	uint32_t soc_platform_version = socinfo_get_version();
 
-	
+	/* Fixup data that needs to change based on GPU ID */
 	if (cpu_is_msm8960ab()) {
 		if (SOCINFO_VERSION_MINOR(soc_platform_version) == 0)
 			kgsl_3d0_pdata->chipid = ADRENO_CHIPID(3, 2, 1, 0);
 		else
 			kgsl_3d0_pdata->chipid = ADRENO_CHIPID(3, 2, 1, 1);
-		
+		/* 8960PRO nominal clock rate is 320Mhz */
 		kgsl_3d0_pdata->pwrlevel[1].gpu_freq = 320000000;
 #ifdef CONFIG_MSM_BUS_SCALING
 		kgsl_3d0_pdata->bus_scale_table = &grp3d_bus_scale_pdata_ab;
 #endif
 
+		/*
+		 * If this an A320 GPU device (MSM8960AB), then
+		 * switch the resource table to 8960AB, to reflect the
+		 * separate register and shader memory mapping used in A320.
+		 */
 
 		msm_kgsl_3d0.num_resources = kgsl_num_resources_8960ab;
 		msm_kgsl_3d0.resource = kgsl_3d0_resources_8960ab;
@@ -2789,14 +2851,18 @@ static void __init msm8960_gfx_init(void)
 			kgsl_3d0_pdata->pwrlevel[1].gpu_freq = 266667000;
 		}
 		if (SOCINFO_VERSION_MAJOR(soc_platform_version) >= 3) {
+			/* 8960v3 GPU registers returns 5 for patch release
+			 * but it should be 6, so dummy up the chipid here
+			 * based the platform type
+			 */
 			kgsl_3d0_pdata->chipid = ADRENO_CHIPID(2, 2, 0, 6);
 		}
 	}
 
-	
+	/* Register the 3D core */
 	platform_device_register(&msm_kgsl_3d0);
 
-	
+	/* Register the 2D cores if we are not 8960PRO */
 	if (!cpu_is_msm8960ab()) {
 		platform_device_register(&msm_kgsl_2d0);
 		platform_device_register(&msm_kgsl_2d1);
@@ -2915,9 +2981,10 @@ struct i2c_registry {
 	int                    len;
 };
 
+/* Sensors DSPS platform data */
 #ifdef CONFIG_MSM_DSPS
 #define DSPS_PIL_GENERIC_NAME		"dsps"
-#endif 
+#endif /* CONFIG_MSM_DSPS */
 
 static void __init msm8960_init_dsps(void)
 {
@@ -2929,7 +2996,7 @@ static void __init msm8960_init_dsps(void)
 	pdata->gpios_num = 0;
 
 	platform_device_register(&msm_dsps_device);
-#endif 
+#endif /* CONFIG_MSM_DSPS */
 }
 
 static int hsic_peripheral_status = 1;
@@ -2985,8 +3052,8 @@ static void __init msm8960_init_hsic(void)
 
 #ifdef CONFIG_ISL9519_CHARGER
 static struct isl_platform_data isl_data __initdata = {
-	.valid_n_gpio		= 0,	
-	.chg_detection_config	= NULL,	
+	.valid_n_gpio		= 0,	/* Not required when notify-by-pmic */
+	.chg_detection_config	= NULL,	/* Not required when notify-by-pmic */
 	.max_system_voltage	= 4200,
 	.min_system_voltage	= 3200,
 	.chgcurrent		= 1900,
@@ -2997,11 +3064,11 @@ static struct isl_platform_data isl_data __initdata = {
 static struct i2c_board_info isl_charger_i2c_info[] __initdata = {
 	{
 		I2C_BOARD_INFO("isl9519q", 0x9),
-		.irq		= 0,	
+		.irq		= 0,	/* Not required when notify-by-pmic */
 		.platform_data	= &isl_data,
 	},
 };
-#endif 
+#endif /* CONFIG_ISL9519_CHARGER */
 
 static struct i2c_board_info liquid_io_expander_i2c_info[] __initdata = {
 	{
@@ -3018,7 +3085,7 @@ static struct i2c_registry msm8960_i2c_devices[] __initdata = {
 		isl_charger_i2c_info,
 		ARRAY_SIZE(isl_charger_i2c_info),
 	},
-#endif 
+#endif /* CONFIG_ISL9519_CHARGER */
 	{
 		I2C_SURF | I2C_FFA | I2C_FLUID,
 		MSM_8960_GSBI3_QUP_I2C_BUS_ID,
@@ -3050,7 +3117,7 @@ static struct i2c_registry msm8960_i2c_devices[] __initdata = {
 		ARRAY_SIZE(liquid_io_expander_i2c_info),
 	},
 };
-#endif 
+#endif /* CONFIG_I2C */
 
 static void __init register_i2c_devices(void)
 {
@@ -3066,7 +3133,7 @@ static void __init register_i2c_devices(void)
 	};
 #endif
 
-	
+	/* Build the matching 'supported_machs' bitmask */
 	if (machine_is_msm8960_cdp())
 		mach_mask = I2C_SURF;
 	else if (machine_is_msm8960_fluid())
@@ -3087,7 +3154,7 @@ static void __init register_i2c_devices(void)
 						&mxt_platform_data_2d;
 	}
 
-	
+	/* Run the array and install devices as appropriate */
 	for (i = 0; i < ARRAY_SIZE(msm8960_i2c_devices); ++i) {
 		if (msm8960_i2c_devices[i].machs & mach_mask)
 			i2c_register_board_info(msm8960_i2c_devices[i].bus,
@@ -3120,7 +3187,7 @@ static void __init msm8960ab_update_krait_spm(void)
 {
 	int i;
 
-	
+	/* Update the SPM sequences for SPC and PC */
 	for (i = 0; i < ARRAY_SIZE(msm_spm_data); i++) {
 		int j;
 		struct msm_spm_platform_data *pdata = &msm_spm_data[i];
@@ -3141,7 +3208,7 @@ static void __init msm8960ab_update_retention_spm(void)
 {
 	int i;
 
-	
+	/* Update the SPM sequences for krait retention on all cores */
 	for (i = 0; i < ARRAY_SIZE(msm_spm_data); i++) {
 		int j;
 		struct msm_spm_platform_data *pdata = &msm_spm_data[i];
@@ -3176,6 +3243,10 @@ static void __init msm8960_cdp_init(void)
 	msm8960_device_otg.dev.platform_data = &msm_otg_pdata;
 	if (machine_is_msm8960_mtp() || machine_is_msm8960_fluid() ||
 		machine_is_msm8960_cdp()) {
+		/* Due to availability of USB Switch in SGLTE Platform
+		 * it requires different HSUSB PHY settings compare to
+		 * 8960 MTP/CDP platform.
+		 */
 		if (socinfo_get_platform_subtype() == PLATFORM_SUBTYPE_SGLTE)
 			msm_otg_pdata.phy_init_seq = sglte_phy_init_seq;
 		else
@@ -3236,14 +3307,14 @@ static void __init msm8960_cdp_init(void)
 	else
 		platform_device_register(&msm8960_device_uart_gsbi5);
 
-	
+	/* For 8960 Fusion 2.2 Primary IPC */
 	if (socinfo_get_platform_subtype() == PLATFORM_SUBTYPE_SGLTE) {
-		msm_uart_dm9_pdata.wakeup_irq = gpio_to_irq(94); 
+		msm_uart_dm9_pdata.wakeup_irq = gpio_to_irq(94); /* GSBI9(2) */
 		msm_device_uart_dm9.dev.platform_data = &msm_uart_dm9_pdata;
 		platform_device_register(&msm_device_uart_dm9);
 	}
 
-	
+	/* For 8960 Standalone External Bluetooth Interface */
 	if (socinfo_get_platform_subtype() != PLATFORM_SUBTYPE_SGLTE) {
 		msm_device_uart_dm8.dev.platform_data = &msm_uart_dm8_pdata;
 		platform_device_register(&msm_device_uart_dm8);
@@ -3256,7 +3327,7 @@ static void __init msm8960_cdp_init(void)
 	msm8960_add_vidc_device();
 
 	msm8960_pm8921_gpio_mpp_init();
-	
+	/* Don't add modem devices on APQ targets */
 	if (socinfo_get_id() != 124)
 		platform_device_register(&msm_8960_q6_mss);
 	platform_add_devices(cdp_devices, ARRAY_SIZE(cdp_devices));

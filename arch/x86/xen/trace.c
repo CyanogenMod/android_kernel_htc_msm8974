@@ -38,6 +38,7 @@ static const char *xen_hypercall_names[] = {
 	N(physdev_op),
 	N(hvm_op),
 
+/* Architecture-specific hypercall definitions. */
 	N(arch_0),
 	N(arch_1),
 	N(arch_2),

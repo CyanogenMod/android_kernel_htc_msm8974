@@ -57,32 +57,32 @@
 #include "devices.h"
 
 static unsigned long lubbock_pin_config[] __initdata = {
-	GPIO15_nCS_1,	
-	GPIO78_nCS_2,	
-	GPIO79_nCS_3,	
-	GPIO80_nCS_4,	
+	GPIO15_nCS_1,	/* CS1 - Flash */
+	GPIO78_nCS_2,	/* CS2 - Baseboard FGPA */
+	GPIO79_nCS_3,	/* CS3 - SMC ethernet */
+	GPIO80_nCS_4,	/* CS4 - SA1111 */
 
-	
+	/* SSP data pins */
 	GPIO23_SSP1_SCLK,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 
-	
+	/* LCD - 16bpp DSTN */
 	GPIOxx_LCD_DSTN_16BPP,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* PC Card */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -94,11 +94,11 @@ static unsigned long lubbock_pin_config[] __initdata = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* MMC */
 	GPIO6_MMC_CLK,
 	GPIO8_MMC_CS0,
 
-	
+	/* wakeup */
 	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,
 };
 
@@ -131,7 +131,7 @@ static void lubbock_mask_irq(struct irq_data *d)
 static void lubbock_unmask_irq(struct irq_data *d)
 {
 	int lubbock_irq = (d->irq - LUBBOCK_IRQ(0));
-	
+	/* the irq can be acknowledged only if deasserted, so it's done here */
 	LUB_IRQ_SET_CLR &= ~(1 << lubbock_irq);
 	LUB_IRQ_MASK_EN = (lubbock_irq_enabled |= (1 << lubbock_irq));
 }
@@ -147,7 +147,7 @@ static void lubbock_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
 	unsigned long pending = LUB_IRQ_SET_CLR & lubbock_irq_enabled;
 	do {
-		
+		/* clear our parent irq */
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
 		if (likely(pending)) {
 			irq = LUBBOCK_IRQ(0) + __ffs(pending);
@@ -163,7 +163,7 @@ static void __init lubbock_init_irq(void)
 
 	pxa25x_init_irq();
 
-	
+	/* setup extra lubbock irqs */
 	for (irq = LUBBOCK_IRQ(0); irq <= LUBBOCK_LAST_IRQ; irq++) {
 		irq_set_chip_and_handler(irq, &lubbock_irq_chip,
 					 handle_level_irq);
@@ -205,7 +205,7 @@ static int lubbock_udc_is_connected(void)
 
 static struct pxa2xx_udc_mach_info udc_info __initdata = {
 	.udc_is_connected	= lubbock_udc_is_connected,
-	
+	// no D+ pullup; lubbock can't connect/disconnect in software
 };
 
 static struct resource sa1111_resources[] = {
@@ -236,22 +236,27 @@ static struct platform_device sa1111_device = {
 	},
 };
 
+/* ADS7846 is connected through SSP ... and if your board has J5 populated,
+ * you can select it to replace the ucb1400 by switching the touchscreen cable
+ * (to J5) and poking board registers (as done below).  Else it's only useful
+ * for the temperature sensors.
+ */
 static struct pxa2xx_spi_master pxa_ssp_master_info = {
 	.num_chipselect	= 1,
 };
 
 static int lubbock_ads7846_pendown_state(void)
 {
-	
+	/* TS_BUSY is bit 8 in LUB_MISC_RD, but pendown is irq-only */
 	return 0;
 }
 
 static struct ads7846_platform_data ads_info = {
 	.model			= 7846,
-	.vref_delay_usecs	= 100,		
+	.vref_delay_usecs	= 100,		/* internal, no cap */
 	.get_pendown_state	= lubbock_ads7846_pendown_state,
-	
-	
+	// .x_plate_ohms		= 500,	/* GUESS! */
+	// .y_plate_ohms		= 500,	/* GUESS! */
 };
 
 static void ads7846_cs(u32 command)
@@ -271,8 +276,8 @@ static struct spi_board_info spi_board_info[] __initdata = { {
 	.platform_data	= &ads_info,
 	.controller_data = &ads_hw,
 	.irq		= LUBBOCK_BB_IRQ,
-	.max_speed_hz	= 120000 
-				* 26 ,
+	.max_speed_hz	= 120000 /* max sample rate at 3V */
+				* 26 /* command + data + overhead */,
 	.bus_num	= 1,
 	.chip_select	= 0,
 },
@@ -330,7 +335,7 @@ static struct mtd_partition lubbock_partitions[] = {
 		.name =		"Bootloader",
 		.size =		0x00040000,
 		.offset =	0,
-		.mask_flags =	MTD_WRITEABLE  
+		.mask_flags =	MTD_WRITEABLE  /* force read-only */
 	},{
 		.name =		"Kernel",
 		.size =		0x00100000,
@@ -419,12 +424,12 @@ static void lubbock_mmc_poll(unsigned long data)
 {
 	unsigned long flags;
 
-	
+	/* clear any previous irq state, then ... */
 	local_irq_save(flags);
 	LUB_IRQ_SET_CLR &= ~(1 << 0);
 	local_irq_restore(flags);
 
-	
+	/* poll until mmc/sd card is removed */
 	if (LUB_IRQ_SET_CLR & (1 << 0))
 		mod_timer(&mmc_timer, jiffies + MMC_POLL_RATE);
 	else {
@@ -435,7 +440,7 @@ static void lubbock_mmc_poll(unsigned long data)
 
 static irqreturn_t lubbock_detect_int(int irq, void *data)
 {
-	
+	/* IRQ is level triggered; disable, and poll for removal */
 	disable_irq(irq);
 	mod_timer(&mmc_timer, jiffies + MMC_POLL_RATE);
 
@@ -446,7 +451,7 @@ static int lubbock_mci_init(struct device *dev,
 		irq_handler_t detect_int,
 		void *data)
 {
-	
+	/* detect card insert/eject */
 	mmc_detect_int = detect_int;
 	init_timer(&mmc_timer);
 	mmc_timer.data = (unsigned long) data;
@@ -515,7 +520,7 @@ static void __init lubbock_init(void)
 
 	lubbock_flash_data[0].width = lubbock_flash_data[1].width =
 		(__raw_readl(BOOT_DEF) & 1) ? 2 : 4;
-	
+	/* Compensate for the nROMBT switch which swaps the flash banks */
 	printk(KERN_NOTICE "Lubbock configured to boot from %s (bank %d)\n",
 	       flashboot?"Flash":"ROM", flashboot);
 
@@ -528,7 +533,7 @@ static void __init lubbock_init(void)
 }
 
 static struct map_desc lubbock_io_desc[] __initdata = {
-  	{	
+  	{	/* CPLD */
 		.virtual	=  LUBBOCK_FPGA_VIRT,
 		.pfn		= __phys_to_pfn(LUBBOCK_FPGA_PHYS),
 		.length		= 0x00100000,
@@ -545,7 +550,7 @@ static void __init lubbock_map_io(void)
 }
 
 MACHINE_START(LUBBOCK, "Intel DBPXA250 Development Platform (aka Lubbock)")
-	
+	/* Maintainer: MontaVista Software Inc. */
 	.map_io		= lubbock_map_io,
 	.nr_irqs	= LUBBOCK_NR_IRQS,
 	.init_irq	= lubbock_init_irq,

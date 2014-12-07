@@ -1,4 +1,12 @@
+/*
+ *
+ * philips saa7134 registers
+ */
 
+/* ------------------------------------------------------------------ */
+/*
+ * PCI ID's
+ */
 #ifndef PCI_DEVICE_ID_PHILIPS_SAA7130
 # define PCI_DEVICE_ID_PHILIPS_SAA7130 0x7130
 #endif
@@ -12,7 +20,12 @@
 # define PCI_DEVICE_ID_PHILIPS_SAA7135 0x7135
 #endif
 
+/* ------------------------------------------------------------------ */
+/*
+ *  registers -- 32 bit
+ */
 
+/* DMA channels, n = 0 ... 6 */
 #define SAA7134_RS_BA1(n)			((0x200 >> 2) + 4*n)
 #define SAA7134_RS_BA2(n)			((0x204 >> 2) + 4*n)
 #define SAA7134_RS_PITCH(n)			((0x208 >> 2) + 4*n)
@@ -38,6 +51,7 @@
 #define SAA7133_DIGITAL_INPUT_XBAR1		(0x464 >> 2)
 #define SAA7133_ANALOG_IO_SELECT                (0x594 >> 2)
 
+/* main control */
 #define SAA7134_MAIN_CTRL                       (0x2a8 >> 2)
 #define   SAA7134_MAIN_CTRL_VPLLE		(1 << 15)
 #define   SAA7134_MAIN_CTRL_APLLE		(1 << 14)
@@ -55,8 +69,10 @@
 #define   SAA7134_MAIN_CTRL_TE1			(1 << 1)
 #define   SAA7134_MAIN_CTRL_TE0			(1 << 0)
 
+/* DMA status */
 #define SAA7134_DMA_STATUS                      (0x2ac >> 2)
 
+/* audio / video status */
 #define SAA7134_AV_STATUS			(0x2c0 >> 2)
 #define   SAA7134_AV_STATUS_STEREO		(1 << 17)
 #define   SAA7134_AV_STATUS_DUAL                (1 << 16)
@@ -74,6 +90,7 @@
 #define   SAA7134_AV_STATUS_TRIG_ERR            (1 << 1)
 #define   SAA7134_AV_STATUS_CONF_ERR            (1 << 0)
 
+/* interrupt */
 #define SAA7134_IRQ1                            (0x2c4 >> 2)
 #define   SAA7134_IRQ1_INTE_RA3_1               (1 << 25)
 #define   SAA7134_IRQ1_INTE_RA3_0               (1 << 24)
@@ -95,14 +112,14 @@
 #define   SAA7134_IRQ1_INTE_RA0_0               (1 <<  0)
 
 #define SAA7134_IRQ2                            (0x2c8 >> 2)
-#define   SAA7134_IRQ2_INTE_GPIO23_N             (1 << 17)	
-#define   SAA7134_IRQ2_INTE_GPIO23_P             (1 << 16)	
-#define   SAA7134_IRQ2_INTE_GPIO22_N             (1 << 15)	
-#define   SAA7134_IRQ2_INTE_GPIO22_P             (1 << 14)	
-#define   SAA7134_IRQ2_INTE_GPIO18_N             (1 << 13)	
-#define   SAA7134_IRQ2_INTE_GPIO18_P             (1 << 12)	
-#define   SAA7134_IRQ2_INTE_GPIO16_N             (1 << 11)	
-#define   SAA7134_IRQ2_INTE_GPIO16_P             (1 << 10)	
+#define   SAA7134_IRQ2_INTE_GPIO23_N             (1 << 17)	/* negative edge */
+#define   SAA7134_IRQ2_INTE_GPIO23_P             (1 << 16)	/* positive edge */
+#define   SAA7134_IRQ2_INTE_GPIO22_N             (1 << 15)	/* negative edge */
+#define   SAA7134_IRQ2_INTE_GPIO22_P             (1 << 14)	/* positive edge */
+#define   SAA7134_IRQ2_INTE_GPIO18_N             (1 << 13)	/* negative edge */
+#define   SAA7134_IRQ2_INTE_GPIO18_P             (1 << 12)	/* positive edge */
+#define   SAA7134_IRQ2_INTE_GPIO16_N             (1 << 11)	/* negative edge */
+#define   SAA7134_IRQ2_INTE_GPIO16_P             (1 << 10)	/* positive edge */
 #define   SAA7134_IRQ2_INTE_SC2                 (1 <<  9)
 #define   SAA7134_IRQ2_INTE_SC1                 (1 <<  8)
 #define   SAA7134_IRQ2_INTE_SC0                 (1 <<  7)
@@ -136,7 +153,12 @@
 #define SAA7134_IRQ_STATUS                      (0x2d0 >> 2)
 
 
+/* ------------------------------------------------------------------ */
+/*
+ *  registers -- 8 bit
+ */
 
+/* video decoder */
 #define SAA7134_INCR_DELAY                      0x101
 #define SAA7134_ANALOG_IN_CTRL1                 0x102
 #define SAA7134_ANALOG_IN_CTRL2                 0x103
@@ -164,6 +186,7 @@
 #define SAA7134_STATUS_VIDEO1                   0x11e
 #define SAA7134_STATUS_VIDEO2                   0x11f
 
+/* video scaler */
 #define SAA7134_SOURCE_TIMING1                  0x000
 #define SAA7134_SOURCE_TIMING2                  0x001
 #define SAA7134_REGION_ENABLE                   0x004
@@ -230,6 +253,7 @@
 #define SAA7134_V_PHASE_OFFSET2(t)              (0x036 +t)
 #define SAA7134_V_PHASE_OFFSET3(t)              (0x037 +t)
 
+/* clipping & dma */
 #define SAA7134_OFMT_VIDEO_A                    0x300
 #define SAA7134_OFMT_DATA_A                     0x301
 #define SAA7134_OFMT_VIDEO_B                    0x302
@@ -241,11 +265,13 @@
 #define SAA7134_CLIP_GREEN                      0x30a
 #define SAA7134_CLIP_BLUE                       0x30b
 
+/* i2c bus */
 #define SAA7134_I2C_ATTR_STATUS                 0x180
 #define SAA7134_I2C_DATA                        0x181
 #define SAA7134_I2C_CLOCK_SELECT                0x182
 #define SAA7134_I2C_TIMER                       0x183
 
+/* audio */
 #define SAA7134_NICAM_ADD_DATA1                 0x140
 #define SAA7134_NICAM_ADD_DATA2                 0x141
 #define SAA7134_NICAM_STATUS                    0x142
@@ -292,6 +318,7 @@
 #define SAA7134_AUDIO_CLOCKS_PER_FIELD1         0x175
 #define SAA7134_AUDIO_CLOCKS_PER_FIELD2         0x176
 
+/* video port output */
 #define SAA7134_VIDEO_PORT_CTRL0                0x190
 #define SAA7134_VIDEO_PORT_CTRL1                0x191
 #define SAA7134_VIDEO_PORT_CTRL2                0x192
@@ -302,6 +329,7 @@
 #define SAA7134_VIDEO_PORT_CTRL7                0x197
 #define SAA7134_VIDEO_PORT_CTRL8                0x198
 
+/* transport stream interface */
 #define SAA7134_TS_PARALLEL                     0x1a0
 #define SAA7134_TS_PARALLEL_SERIAL              0x1a1
 #define SAA7134_TS_SERIAL0                      0x1a2
@@ -310,6 +338,7 @@
 #define SAA7134_TS_DMA1                         0x1a5
 #define SAA7134_TS_DMA2                         0x1a6
 
+/* GPIO Controls */
 #define SAA7134_GPIO_GPRESCAN                   0x80
 #define SAA7134_GPIO_27_25                      0x0E
 
@@ -322,11 +351,14 @@
 #define SAA7134_GPIO_GPSTATUS2                  0x1B6
 #define SAA7134_GPIO_GPSTATUS3                  0x1B7
 
+/* I2S output */
 #define SAA7134_I2S_AUDIO_OUTPUT                0x1c0
 
+/* test modes */
 #define SAA7134_SPECIAL_MODE                    0x1d0
 #define SAA7134_PRODUCTION_TEST_MODE            0x1d1
 
+/* audio -- saa7133 + saa7135 only */
 #define SAA7135_DSP_RWSTATE                     0x580
 #define SAA7135_DSP_RWSTATE_ERR                 (1 << 3)
 #define SAA7135_DSP_RWSTATE_IDA                 (1 << 2)
@@ -337,4 +369,10 @@
 #define SAA7135_DSP_RWCLEAR_RERR		    1
 
 #define SAA7133_I2S_AUDIO_CONTROL               0x591
+/* ------------------------------------------------------------------ */
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */
 

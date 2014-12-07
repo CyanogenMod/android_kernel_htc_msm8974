@@ -47,7 +47,7 @@ enum {
 	FRA_TABLE,	
 	FRA_FWMASK,	
 	FRA_OIFNAME,
-	FRA_UID_START,	/* UID range */
+	FRA_UID_START,	
 	FRA_UID_END,
 	__FRA_MAX
 };

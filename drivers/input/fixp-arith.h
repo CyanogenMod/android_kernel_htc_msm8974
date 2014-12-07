@@ -29,11 +29,13 @@
 
 #include <linux/types.h>
 
+/* The type representing fixed-point values */
 typedef s16 fixp_t;
 
 #define FRAC_N 8
 #define FRAC_MASK ((1<<FRAC_N)-1)
 
+/* Not to be used directly. Use fixp_{cos,sin} */
 static const fixp_t cos_table[46] = {
 	0x0100,	0x00FF,	0x00FF,	0x00FE,	0x00FD,	0x00FC,	0x00FA,	0x00F8,
 	0x00F6,	0x00F3,	0x00F0,	0x00ED,	0x00E9,	0x00E6,	0x00E2,	0x00DD,
@@ -44,11 +46,16 @@ static const fixp_t cos_table[46] = {
 };
 
 
+/* a: 123 -> 123.0 */
 static inline fixp_t fixp_new(s16 a)
 {
 	return a<<FRAC_N;
 }
 
+/* a: 0xFFFF -> -1.0
+      0x8000 -> 1.0
+      0x0000 -> 0.0
+*/
 static inline fixp_t fixp_new16(s16 a)
 {
 	return ((s32)a)>>(16-FRAC_N);

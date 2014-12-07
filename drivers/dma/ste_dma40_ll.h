@@ -9,7 +9,7 @@
 
 #define D40_DREG_PCBASE		0x400
 #define D40_DREG_PCDELTA	(8 * 4)
-#define D40_LLI_ALIGN		16 
+#define D40_LLI_ALIGN		16 /* LLI alignment must be 16 bytes. */
 
 #define D40_LCPA_CHAN_SIZE 32
 #define D40_LCPA_CHAN_DST_DELTA 16
@@ -19,6 +19,7 @@
 #define D40_GROUP_SIZE 8
 #define D40_PHYS_TO_GROUP(phys) ((phys & (D40_GROUP_SIZE - 1)) / 2)
 
+/* Most bits of the CFG register are the same in log as in phy mode */
 #define D40_SREG_CFG_MST_POS		15
 #define D40_SREG_CFG_TIM_POS		14
 #define D40_SREG_CFG_EIM_POS		13
@@ -34,17 +35,25 @@
 #define D40_SREG_CFG_PHY_EVTL_POS	 0
 
 
+/* Standard channel parameters - basic mode (element register) */
 #define D40_SREG_ELEM_PHY_ECNT_POS	16
 #define D40_SREG_ELEM_PHY_EIDX_POS	 0
 
 #define D40_SREG_ELEM_PHY_ECNT_MASK	(0xFFFF << D40_SREG_ELEM_PHY_ECNT_POS)
 
+/* Standard channel parameters - basic mode (Link register) */
 #define D40_SREG_LNK_PHY_TCP_POS	0
 #define D40_SREG_LNK_PHY_LMP_POS	1
 #define D40_SREG_LNK_PHY_PRE_POS	2
+/*
+ * Source  destination link address. Contains the
+ * 29-bit byte word aligned address of the reload area.
+ */
 #define D40_SREG_LNK_PHYS_LNK_MASK	0xFFFFFFF8UL
 
+/* Standard basic channel logical mode */
 
+/* Element register */
 #define D40_SREG_ELEM_LOG_ECNT_POS	16
 #define D40_SREG_ELEM_LOG_LIDX_POS	 8
 #define D40_SREG_ELEM_LOG_LOS_POS	 1
@@ -52,16 +61,20 @@
 
 #define D40_SREG_ELEM_LOG_LIDX_MASK	(0xFF << D40_SREG_ELEM_LOG_LIDX_POS)
 
+/* Link register */
 #define D40_EVENTLINE_POS(i)		(2 * i)
 #define D40_EVENTLINE_MASK(i)		(0x3 << D40_EVENTLINE_POS(i))
 
+/* Standard basic channel logical params in memory */
 
+/* LCSP0 */
 #define D40_MEM_LCSP0_ECNT_POS		16
 #define D40_MEM_LCSP0_SPTR_POS		 0
 
 #define D40_MEM_LCSP0_ECNT_MASK		(0xFFFF << D40_MEM_LCSP0_ECNT_POS)
 #define D40_MEM_LCSP0_SPTR_MASK		(0xFFFF << D40_MEM_LCSP0_SPTR_POS)
 
+/* LCSP1 */
 #define D40_MEM_LCSP1_SPTR_POS		16
 #define D40_MEM_LCSP1_SCFG_MST_POS	15
 #define D40_MEM_LCSP1_SCFG_TIM_POS	14
@@ -79,10 +92,12 @@
 #define D40_MEM_LCSP1_SLOS_MASK		(0x7F << D40_MEM_LCSP1_SLOS_POS)
 #define D40_MEM_LCSP1_STCP_MASK		(0x1 << D40_MEM_LCSP1_STCP_POS)
 
+/* LCSP2 */
 #define D40_MEM_LCSP2_ECNT_POS		16
 
 #define D40_MEM_LCSP2_ECNT_MASK		(0xFFFF << D40_MEM_LCSP2_ECNT_POS)
 
+/* LCSP3 */
 #define D40_MEM_LCSP3_DCFG_MST_POS	15
 #define D40_MEM_LCSP3_DCFG_TIM_POS	14
 #define D40_MEM_LCSP3_DCFG_EIM_POS	13
@@ -96,6 +111,7 @@
 #define D40_MEM_LCSP3_DTCP_MASK		(0x1 << D40_MEM_LCSP3_DTCP_POS)
 
 
+/* Standard channel parameter register offsets */
 #define D40_CHAN_REG_SSCFG	0x00
 #define D40_CHAN_REG_SSELT	0x04
 #define D40_CHAN_REG_SSPTR	0x08
@@ -105,8 +121,10 @@
 #define D40_CHAN_REG_SDPTR	0x18
 #define D40_CHAN_REG_SDLNK	0x1C
 
+/* DMA Register Offsets */
 #define D40_DREG_GCC		0x000
 #define D40_DREG_GCC_ENA	0x1
+/* This assumes that there are only 4 event groups */
 #define D40_DREG_GCC_ENABLE_ALL	0xff01
 #define D40_DREG_GCC_EVTGRP_POS 8
 #define D40_DREG_GCC_SRC 0
@@ -181,7 +199,24 @@
 #define D40_DREG_CELLID2	0xFF8
 #define D40_DREG_CELLID3	0xFFC
 
+/* LLI related structures */
 
+/**
+ * struct d40_phy_lli - The basic configration register for each physical
+ * channel.
+ *
+ * @reg_cfg: The configuration register.
+ * @reg_elt: The element register.
+ * @reg_ptr: The pointer register.
+ * @reg_lnk: The link register.
+ *
+ * These registers are set up for both physical and logical transfers
+ * Note that the bit in each register means differently in logical and
+ * physical(standard) mode.
+ *
+ * This struct must be 16 bytes aligned, and only contain physical registers
+ * since it will be directly accessed by the DMA.
+ */
 struct d40_phy_lli {
 	u32 reg_cfg;
 	u32 reg_elt;
@@ -189,6 +224,14 @@ struct d40_phy_lli {
 	u32 reg_lnk;
 };
 
+/**
+ * struct d40_phy_lli_bidir - struct for a transfer.
+ *
+ * @src: Register settings for src channel.
+ * @dst: Register settings for dst channel.
+ *
+ * All DMA transfers have a source and a destination.
+ */
 
 struct d40_phy_lli_bidir {
 	struct d40_phy_lli	*src;
@@ -196,18 +239,46 @@ struct d40_phy_lli_bidir {
 };
 
 
+/**
+ * struct d40_log_lli - logical lli configuration
+ *
+ * @lcsp02: Either maps to register lcsp0 if src or lcsp2 if dst.
+ * @lcsp13: Either maps to register lcsp1 if src or lcsp3 if dst.
+ *
+ * This struct must be 8 bytes aligned since it will be accessed directy by
+ * the DMA. Never add any none hw mapped registers to this struct.
+ */
 
 struct d40_log_lli {
 	u32 lcsp02;
 	u32 lcsp13;
 };
 
+/**
+ * struct d40_log_lli_bidir - For both src and dst
+ *
+ * @src: pointer to src lli configuration.
+ * @dst: pointer to dst lli configuration.
+ *
+ * You always have a src and a dst when doing DMA transfers.
+ */
 
 struct d40_log_lli_bidir {
 	struct d40_log_lli *src;
 	struct d40_log_lli *dst;
 };
 
+/**
+ * struct d40_log_lli_full - LCPA layout
+ *
+ * @lcsp0: Logical Channel Standard Param 0 - Src.
+ * @lcsp1: Logical Channel Standard Param 1 - Src.
+ * @lcsp2: Logical Channel Standard Param 2 - Dst.
+ * @lcsp3: Logical Channel Standard Param 3 - Dst.
+ *
+ * This struct maps to LCPA physical memory layout. Must map to
+ * the hw.
+ */
 struct d40_log_lli_full {
 	u32 lcsp0;
 	u32 lcsp1;
@@ -215,11 +286,18 @@ struct d40_log_lli_full {
 	u32 lcsp3;
 };
 
+/**
+ * struct d40_def_lcsp - Default LCSP1 and LCSP3 settings
+ *
+ * @lcsp3: The default configuration for dst.
+ * @lcsp1: The default configuration for src.
+ */
 struct d40_def_lcsp {
 	u32 lcsp3;
 	u32 lcsp1;
 };
 
+/* Physical channels */
 
 enum d40_lli_flags {
 	LLI_ADDR_INC	= 1 << 0,
@@ -247,12 +325,13 @@ int d40_phy_sg_to_lli(struct scatterlist *sg,
 		      struct stedma40_half_channel_info *otherinfo,
 		      unsigned long flags);
 
+/* Logical channels */
 
 int d40_log_sg_to_lli(struct scatterlist *sg,
 		      int sg_len,
 		      dma_addr_t dev_addr,
 		      struct d40_log_lli *lli_sg,
-		      u32 lcsp13, 
+		      u32 lcsp13, /* src or dst*/
 		      u32 data_width1, u32 data_width2);
 
 void d40_log_lli_lcpa_write(struct d40_log_lli_full *lcpa,
@@ -265,4 +344,4 @@ void d40_log_lli_lcla_write(struct d40_log_lli *lcla,
 			    struct d40_log_lli *lli_src,
 			    int next, unsigned int flags);
 
-#endif 
+#endif /* STE_DMA40_LLI_H */

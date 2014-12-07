@@ -11,7 +11,7 @@
 #ifndef __ASM_GENERIC_IO_H
 #define __ASM_GENERIC_IO_H
 
-#include <asm/page.h> 
+#include <asm/page.h> /* I/O is all done through memory accesses */
 #include <asm/cacheflush.h>
 #include <linux/types.h>
 
@@ -25,6 +25,13 @@
 #define mmiowb() do {} while (0)
 #endif
 
+/*****************************************************************************/
+/*
+ * readX/writeX() are used to access memory mapped devices. On some
+ * architectures the memory mapped IO stuff needs to be accessed
+ * differently. On the simple architectures, we just read/write the
+ * memory location directly.
+ */
 #ifndef __raw_readb
 static inline u8 __raw_readb(const volatile void __iomem *addr)
 {
@@ -93,6 +100,10 @@ static inline void __raw_writeq(u64 b, volatile void __iomem *addr)
 #define PCI_IOBASE ((void __iomem *) 0)
 #endif
 
+/*****************************************************************************/
+/*
+ * traditional input/output functions
+ */
 
 static inline u8 inb(unsigned long addr)
 {
@@ -262,7 +273,7 @@ static inline void writesb(const void __iomem *addr, const void *buf, int len)
 	outsw((unsigned long) (p), (src), (count))
 #define iowrite32_rep(p, src, count) \
 	outsl((unsigned long) (p), (src), (count))
-#endif 
+#endif /* CONFIG_GENERIC_IOMAP */
 
 #ifndef IO_SPACE_LIMIT
 #define IO_SPACE_LIMIT 0xffff
@@ -278,8 +289,12 @@ struct pci_dev;
 static inline void pci_iounmap(struct pci_dev *dev, void __iomem *p)
 {
 }
-#endif 
+#endif /* CONFIG_GENERIC_IOMAP */
 
+/*
+ * Change virtual addresses to physical addresses and vv.
+ * These are pretty trivial
+ */
 static inline unsigned long virt_to_phys(volatile void *address)
 {
 	return __pa((unsigned long)address);
@@ -290,6 +305,12 @@ static inline void *phys_to_virt(unsigned long address)
 	return __va(address);
 }
 
+/*
+ * Change "struct page" to physical address.
+ *
+ * This implementation is for the no-MMU case only... if you have an MMU
+ * you'll need to provide your own definitions.
+ */
 #ifndef CONFIG_MMU
 static inline void __iomem *ioremap(phys_addr_t offset, unsigned long size)
 {
@@ -309,7 +330,7 @@ static inline void __iomem *ioremap(phys_addr_t offset, unsigned long size)
 static inline void iounmap(void __iomem *addr)
 {
 }
-#endif 
+#endif /* CONFIG_MMU */
 
 #ifdef CONFIG_HAS_IOPORT
 #ifndef CONFIG_GENERIC_IOMAP
@@ -321,11 +342,11 @@ static inline void __iomem *ioport_map(unsigned long port, unsigned int nr)
 static inline void ioport_unmap(void __iomem *p)
 {
 }
-#else 
+#else /* CONFIG_GENERIC_IOMAP */
 extern void __iomem *ioport_map(unsigned long port, unsigned int nr);
 extern void ioport_unmap(void __iomem *p);
-#endif 
-#endif 
+#endif /* CONFIG_GENERIC_IOMAP */
+#endif /* CONFIG_HAS_IOPORT */
 
 #define xlate_dev_kmem_ptr(p)	p
 #define xlate_dev_mem_ptr(p)	__va(p)
@@ -346,6 +367,6 @@ static inline void *bus_to_virt(unsigned long address)
 #define memcpy_fromio(a, b, c)	memcpy((a), __io_virt(b), (c))
 #define memcpy_toio(a, b, c)	memcpy(__io_virt(a), (b), (c))
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_GENERIC_IO_H */

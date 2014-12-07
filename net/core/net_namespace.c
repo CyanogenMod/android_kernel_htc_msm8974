@@ -14,6 +14,9 @@
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 
+/*
+ *	Our network namespace constructor/destructor lists
+ */
 
 static LIST_HEAD(pernet_list);
 static struct list_head *first_device = &pernet_list;
@@ -25,7 +28,7 @@ EXPORT_SYMBOL_GPL(net_namespace_list);
 struct net init_net;
 EXPORT_SYMBOL(init_net);
 
-#define INITIAL_NET_GEN_PTRS	13 
+#define INITIAL_NET_GEN_PTRS	13 /* +1 for len +2 for rcu_head */
 
 static unsigned int max_gen_ptrs = INITIAL_NET_GEN_PTRS;
 
@@ -58,6 +61,16 @@ static int net_assign_generic(struct net *net, int id, void *data)
 	if (ng == NULL)
 		return -ENOMEM;
 
+	/*
+	 * Some synchronisation notes:
+	 *
+	 * The net_generic explores the net->gen array inside rcu
+	 * read section. Besides once set the net->gen->ptr[x]
+	 * pointer never changes (see rules in netns/generic.h).
+	 *
+	 * That said, we simply duplicate this array and schedule
+	 * the old copy for kfree after a grace period.
+	 */
 
 	memcpy(&ng->ptr, &old_ng->ptr, old_ng->len * sizeof(void*));
 
@@ -125,9 +138,12 @@ static void ops_free_list(const struct pernet_operations *ops,
 	}
 }
 
+/*
+ * setup_net runs the initializers for the network namespace object.
+ */
 static __net_init int setup_net(struct net *net)
 {
-	
+	/* Must be called with net_mutex held */
 	const struct pernet_operations *ops, *saved_ops;
 	int error = 0;
 	LIST_HEAD(net_exit_list);
@@ -149,6 +165,9 @@ out:
 	return error;
 
 out_undo:
+	/* Walk through the list backwards calling the exit functions
+	 * for the pernet modules whose init functions did not fail.
+	 */
 	list_add(&net->exit_list, &net_exit_list);
 	saved_ops = ops;
 	list_for_each_entry_continue_reverse(ops, &pernet_list, list)
@@ -236,7 +255,7 @@ struct net *copy_net_ns(unsigned long flags, struct net *old_net)
 }
 
 static DEFINE_SPINLOCK(cleanup_list_lock);
-static LIST_HEAD(cleanup_list);  
+static LIST_HEAD(cleanup_list);  /* Must hold cleanup_list_lock to touch */
 
 static void cleanup_net(struct work_struct *work)
 {
@@ -245,14 +264,14 @@ static void cleanup_net(struct work_struct *work)
 	LIST_HEAD(net_kill_list);
 	LIST_HEAD(net_exit_list);
 
-	
+	/* Atomically snapshot the list of namespaces to cleanup */
 	spin_lock_irq(&cleanup_list_lock);
 	list_replace_init(&cleanup_list, &net_kill_list);
 	spin_unlock_irq(&cleanup_list_lock);
 
 	mutex_lock(&net_mutex);
 
-	
+	/* Don't let anyone else find us. */
 	rtnl_lock();
 	list_for_each_entry(net, &net_kill_list, cleanup_list) {
 		list_del_rcu(&net->list);
@@ -260,21 +279,29 @@ static void cleanup_net(struct work_struct *work)
 	}
 	rtnl_unlock();
 
+	/*
+	 * Another CPU might be rcu-iterating the list, wait for it.
+	 * This needs to be before calling the exit() notifiers, so
+	 * the rcu_barrier() below isn't sufficient alone.
+	 */
 	synchronize_rcu();
 
-	
+	/* Run all of the network namespace exit methods */
 	list_for_each_entry_reverse(ops, &pernet_list, list)
 		ops_exit_list(ops, &net_exit_list);
 
-	
+	/* Free the net generic variables */
 	list_for_each_entry_reverse(ops, &pernet_list, list)
 		ops_free_list(ops, &net_exit_list);
 
 	mutex_unlock(&net_mutex);
 
+	/* Ensure there are no outstanding rcu callbacks using this
+	 * network namespace.
+	 */
 	rcu_barrier();
 
-	
+	/* Finally it is safe to free my network namespace structure */
 	list_for_each_entry_safe(net, tmp, &net_exit_list, exit_list) {
 		list_del_init(&net->exit_list);
 		net_drop_ns(net);
@@ -284,7 +311,7 @@ static DECLARE_WORK(net_cleanup_work, cleanup_net);
 
 void __put_net(struct net *net)
 {
-	
+	/* Cleanup the network namespace in process context */
 	unsigned long flags;
 
 	spin_lock_irqsave(&cleanup_list_lock, flags);
@@ -334,7 +361,7 @@ struct net *get_net_ns_by_pid(pid_t pid)
 	struct task_struct *tsk;
 	struct net *net;
 
-	
+	/* Lookup the network namespace */
 	net = ERR_PTR(-ESRCH);
 	rcu_read_lock();
 	tsk = find_task_by_vpid(pid);
@@ -358,7 +385,7 @@ static int __init net_ns_init(void)
 					SMP_CACHE_BYTES,
 					SLAB_PANIC, NULL);
 
-	
+	/* Create workqueue for cleanup */
 	netns_wq = create_singlethread_workqueue("netns");
 	if (!netns_wq)
 		panic("Could not create netns workq");
@@ -405,7 +432,7 @@ static int __register_pernet_operations(struct list_head *list,
 	return 0;
 
 out_undo:
-	
+	/* If I have an error cleanup all namespaces I initialized */
 	list_del(&ops->list);
 	ops_exit_list(ops, &net_exit_list);
 	ops_free_list(ops, &net_exit_list);
@@ -440,7 +467,7 @@ static void __unregister_pernet_operations(struct pernet_operations *ops)
 	ops_free_list(ops, &net_exit_list);
 }
 
-#endif 
+#endif /* CONFIG_NET_NS */
 
 static DEFINE_IDA(net_generic_ids);
 
@@ -480,6 +507,25 @@ static void unregister_pernet_operations(struct pernet_operations *ops)
 		ida_remove(&net_generic_ids, *ops->id);
 }
 
+/**
+ *      register_pernet_subsys - register a network namespace subsystem
+ *	@ops:  pernet operations structure for the subsystem
+ *
+ *	Register a subsystem which has init and exit functions
+ *	that are called when network namespaces are created and
+ *	destroyed respectively.
+ *
+ *	When registered all network namespace init functions are
+ *	called for every existing network namespace.  Allowing kernel
+ *	modules to have a race free view of the set of network namespaces.
+ *
+ *	When a new network namespace is created all of the init
+ *	methods are called in the order in which they were registered.
+ *
+ *	When a network namespace is destroyed all of the exit methods
+ *	are called in the reverse of the order with which they were
+ *	registered.
+ */
 int register_pernet_subsys(struct pernet_operations *ops)
 {
 	int error;
@@ -490,6 +536,15 @@ int register_pernet_subsys(struct pernet_operations *ops)
 }
 EXPORT_SYMBOL_GPL(register_pernet_subsys);
 
+/**
+ *      unregister_pernet_subsys - unregister a network namespace subsystem
+ *	@ops: pernet operations structure to manipulate
+ *
+ *	Remove the pernet operations structure from the list to be
+ *	used when network namespaces are created or destroyed.  In
+ *	addition run the exit method for all existing network
+ *	namespaces.
+ */
 void unregister_pernet_subsys(struct pernet_operations *ops)
 {
 	mutex_lock(&net_mutex);
@@ -498,6 +553,25 @@ void unregister_pernet_subsys(struct pernet_operations *ops)
 }
 EXPORT_SYMBOL_GPL(unregister_pernet_subsys);
 
+/**
+ *      register_pernet_device - register a network namespace device
+ *	@ops:  pernet operations structure for the subsystem
+ *
+ *	Register a device which has init and exit functions
+ *	that are called when network namespaces are created and
+ *	destroyed respectively.
+ *
+ *	When registered all network namespace init functions are
+ *	called for every existing network namespace.  Allowing kernel
+ *	modules to have a race free view of the set of network namespaces.
+ *
+ *	When a new network namespace is created all of the init
+ *	methods are called in the order in which they were registered.
+ *
+ *	When a network namespace is destroyed all of the exit methods
+ *	are called in the reverse of the order with which they were
+ *	registered.
+ */
 int register_pernet_device(struct pernet_operations *ops)
 {
 	int error;
@@ -510,6 +584,15 @@ int register_pernet_device(struct pernet_operations *ops)
 }
 EXPORT_SYMBOL_GPL(register_pernet_device);
 
+/**
+ *      unregister_pernet_device - unregister a network namespace netdevice
+ *	@ops: pernet operations structure to manipulate
+ *
+ *	Remove the pernet operations structure from the list to be
+ *	used when network namespaces are created or destroyed.  In
+ *	addition run the exit method for all existing network
+ *	namespaces.
+ */
 void unregister_pernet_device(struct pernet_operations *ops)
 {
 	mutex_lock(&net_mutex);

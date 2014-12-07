@@ -18,17 +18,17 @@
 static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
-	
-    
+	/* 600*1024, RGB888, 3 Lane 55 fps video mode */
+    /* regulator */
 	{0x09, 0x08, 0x05, 0x00, 0x20},
-	
+	/* timing */
 	{0x73, 0x2e, 0x11, 0x00, 0x3c, 0x46, 0x14, 0x31,
 	0x1c, 0x03, 0x04, 0xa0},
-    
+    /* phy ctrl */
 	{0x5f, 0x00, 0x00, 0x10},
-    
+    /* strength */
 	{0xff, 0x00, 0x06, 0x00},
-	
+	/* pll control */
 	{0x0, 0x49, 0x30, 0xc4, 0x00, 0x20, 0x07, 0x62,
 	0x41, 0x0f, 0x01,
 	0x00, 0x14, 0x03, 0x00, 0x02, 0x00, 0x20, 0x00, 0x01 },
@@ -43,6 +43,12 @@ static int __init mipi_video_toshiba_wsvga_pt_init(void)
 
 	pinfo.xres = 600;
 	pinfo.yres = 1024;
+	/*
+	 *
+	 * Panel's Horizontal input timing requirement is to
+	 * include dummy(pad) data of 200 clk in addition to
+	 * width and porch/sync width values
+	 */
 	pinfo.lcdc.xres_pad = 200;
 	pinfo.lcdc.yres_pad = 0;
 
@@ -56,8 +62,8 @@ static int __init mipi_video_toshiba_wsvga_pt_init(void)
 	pinfo.lcdc.v_back_porch = 3;
 	pinfo.lcdc.v_front_porch = 45;
 	pinfo.lcdc.v_pulse_width = 2;
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = MIPI_TOSHIBA_PWM_LEVEL;
 	pinfo.bl_min = 1;
@@ -80,7 +86,7 @@ static int __init mipi_video_toshiba_wsvga_pt_init(void)
 	pinfo.mipi.t_clk_post = 0x04;
 	pinfo.mipi.t_clk_pre = 0x1a;
 	pinfo.mipi.esc_byte_ratio = 4;
-	pinfo.mipi.stream = 0; 
+	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = 0;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.frame_rate = 55;

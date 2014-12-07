@@ -142,4 +142,4 @@ static inline fpureg_t *get_fpu_regs(struct task_struct *tsk)
 	return tsk->thread.fpu.fpr;
 }
 
-#endif 
+#endif /* _ASM_FPU_H */

@@ -11,6 +11,7 @@
 #include <linux/elf.h>
 #include <asm/kexec.h>
 
+/* Verify architecture specific macros are defined */
 
 #ifndef KEXEC_SOURCE_MEMORY_LIMIT
 #error KEXEC_SOURCE_MEMORY_LIMIT not defined
@@ -44,12 +45,21 @@
 #define KEXEC_CORE_NOTE_NAME "CORE"
 #define KEXEC_CORE_NOTE_NAME_BYTES ALIGN(sizeof(KEXEC_CORE_NOTE_NAME), 4)
 #define KEXEC_CORE_NOTE_DESC_BYTES ALIGN(sizeof(struct elf_prstatus), 4)
+/*
+ * The per-cpu notes area is a list of notes terminated by a "NULL"
+ * note header.  For kdump, the code in vmcore.c runs in the context
+ * of the second kernel to combine them into one note.
+ */
 #ifndef KEXEC_NOTE_BYTES
 #define KEXEC_NOTE_BYTES ( (KEXEC_NOTE_HEAD_BYTES * 2) +		\
 			    KEXEC_CORE_NOTE_NAME_BYTES +		\
 			    KEXEC_CORE_NOTE_DESC_BYTES )
 #endif
 
+/*
+ * This structure is used to hold the arguments that are used when loading
+ * kernel binaries.
+ */
 
 typedef unsigned long kimage_entry_t;
 #define IND_DESTINATION  0x1
@@ -61,7 +71,7 @@ typedef unsigned long kimage_entry_t;
 struct kexec_segment {
 	void __user *buf;
 	size_t bufsz;
-	unsigned long mem;	
+	unsigned long mem;	/* User space sees this as a (void *) ... */
 	size_t memsz;
 };
 
@@ -69,7 +79,7 @@ struct kexec_segment {
 struct compat_kexec_segment {
 	compat_uptr_t buf;
 	compat_size_t bufsz;
-	compat_ulong_t mem;	
+	compat_ulong_t mem;	/* User space sees this as a (void *) ... */
 	compat_size_t memsz;
 };
 #endif
@@ -92,10 +102,10 @@ struct kimage {
 	struct list_head dest_pages;
 	struct list_head unuseable_pages;
 
-	
+	/* Address of next control page to allocate for crash kernels. */
 	unsigned long control_page;
 
-	
+	/* Flags to indicate special processing */
 	unsigned int type : 1;
 #define KEXEC_TYPE_DEFAULT 0
 #define KEXEC_TYPE_CRASH   1
@@ -108,6 +118,7 @@ struct kimage {
 
 
 
+/* kexec interface functions */
 extern void machine_kexec(struct kimage *image);
 extern int machine_kexec_prepare(struct kimage *image);
 extern void machine_kexec_cleanup(struct kimage *image);
@@ -169,6 +180,9 @@ extern struct kimage *kexec_crash_image;
 #define KEXEC_PRESERVE_CONTEXT	0x00000002
 #define KEXEC_ARCH_MASK		0xffff0000
 
+/* These values match the ELF architecture values.
+ * Unless there is a good reason that should continue to be the case.
+ */
 #define KEXEC_ARCH_DEFAULT ( 0 << 16)
 #define KEXEC_ARCH_386     ( 3 << 16)
 #define KEXEC_ARCH_X86_64  (62 << 16)
@@ -181,6 +195,7 @@ extern struct kimage *kexec_crash_image;
 #define KEXEC_ARCH_MIPS_LE (10 << 16)
 #define KEXEC_ARCH_MIPS    ( 8 << 16)
 
+/* List of defined/legal kexec flags */
 #ifndef CONFIG_KEXEC_JUMP
 #define KEXEC_FLAGS    KEXEC_ON_CRASH
 #else
@@ -193,6 +208,8 @@ extern struct kimage *kexec_crash_image;
 #define VMCOREINFO_NOTE_SIZE       (KEXEC_NOTE_HEAD_BYTES*2 + VMCOREINFO_BYTES \
 				    + VMCOREINFO_NOTE_NAME_BYTES)
 
+/* Location of a reserved region to hold the crash kernel.
+ */
 extern struct resource crashk_res;
 typedef u32 note_buf_t[KEXEC_NOTE_BYTES/4];
 extern note_buf_t __percpu *crash_notes;
@@ -206,10 +223,10 @@ int crash_shrink_memory(unsigned long new_size);
 size_t crash_get_memory_size(void);
 void crash_free_reserved_phys_range(unsigned long begin, unsigned long end);
 
-#else 
+#else /* !CONFIG_KEXEC */
 struct pt_regs;
 struct task_struct;
 static inline void crash_kexec(struct pt_regs *regs) { }
 static inline int kexec_should_crash(struct task_struct *p) { return 0; }
-#endif 
-#endif 
+#endif /* CONFIG_KEXEC */
+#endif /* LINUX_KEXEC_H */

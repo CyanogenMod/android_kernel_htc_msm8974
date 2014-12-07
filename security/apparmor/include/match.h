@@ -24,18 +24,30 @@
 #define DFA_VALID_PERM_MASK		0xffffffff
 #define DFA_VALID_PERM2_MASK		0xffffffff
 
+/**
+ * The format used for transition tables is based on the GNU flex table
+ * file format (--tables-file option; see Table File Format in the flex
+ * info pages and the flex sources for documentation). The magic number
+ * used in the header is 0x1B5E783D instead of 0xF13C57B1 though, because
+ * the YY_ID_CHK (check) and YY_ID_DEF (default) tables are used
+ * slightly differently (see the apparmor-parser package).
+ */
 
 #define YYTH_MAGIC	0x1B5E783D
-#define YYTH_DEF_RECURSE 0x1			
+#define YYTH_DEF_RECURSE 0x1			/* DEF Table is recursive */
 
 struct table_set_header {
-	u32 th_magic;		
+	u32 th_magic;		/* YYTH_MAGIC */
 	u32 th_hsize;
 	u32 th_ssize;
 	u16 th_flags;
 	char th_version[];
 };
 
+/* The YYTD_ID are one less than flex table mappings.  The flex id
+ * has 1 subtracted at table load time, this allows us to directly use the
+ * ID's as indexes.
+ */
 #define	YYTD_ID_ACCEPT	0
 #define YYTD_ID_BASE	1
 #define YYTD_ID_CHK	2
@@ -51,6 +63,9 @@ struct table_set_header {
 #define YYTD_DATA32	4
 #define YYTD_DATA64	8
 
+/* Each ACCEPT2 table gets 6 dedicated flags, YYTD_DATAX define the
+ * first flags
+ */
 #define ACCEPT1_FLAGS(X) ((X) & 0x3f)
 #define ACCEPT2_FLAGS(X) ACCEPT1_FLAGS((X) >> YYTD_ID_ACCEPT2)
 #define TO_ACCEPT1_FLAG(X) ACCEPT1_FLAGS(X)
@@ -106,10 +121,16 @@ unsigned int aa_dfa_next(struct aa_dfa *dfa, unsigned int state,
 
 void aa_dfa_free_kref(struct kref *kref);
 
+/**
+ * aa_put_dfa - put a dfa refcount
+ * @dfa: dfa to put refcount   (MAYBE NULL)
+ *
+ * Requires: if @dfa != NULL that a valid refcount be held
+ */
 static inline void aa_put_dfa(struct aa_dfa *dfa)
 {
 	if (dfa)
 		kref_put(&dfa->count, aa_dfa_free_kref);
 }
 
-#endif 
+#endif /* __AA_MATCH_H */

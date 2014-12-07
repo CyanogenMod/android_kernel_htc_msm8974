@@ -19,25 +19,29 @@
 #define _ALC5632_H
 
 #define ALC5632_RESET				0x00
-#define ALC5632_SPK_OUT_VOL			0x02 
+/* speaker output vol		   2    2           */
+/* line output vol                      4    2      */
+/* HP output vol		   4    0    4      */
+#define ALC5632_SPK_OUT_VOL			0x02 /* spe out vol */
 #define ALC5632_SPK_OUT_VOL_STEP		1.5
-#define ALC5632_HP_OUT_VOL			0x04 
-#define ALC5632_AUX_OUT_VOL			0x06 
-#define ALC5632_PHONE_IN_VOL			0x08 
-#define ALC5632_LINE_IN_VOL			0x0A 
-#define ALC5632_STEREO_DAC_IN_VOL		0x0C 
-#define ALC5632_MIC_VOL				0x0E 
+#define ALC5632_HP_OUT_VOL			0x04 /* hp out vol */
+#define ALC5632_AUX_OUT_VOL			0x06 /* aux out vol */
+#define ALC5632_PHONE_IN_VOL			0x08 /* phone in vol */
+#define ALC5632_LINE_IN_VOL			0x0A /* line in vol */
+#define ALC5632_STEREO_DAC_IN_VOL		0x0C /* stereo dac in vol */
+#define ALC5632_MIC_VOL				0x0E /* mic in vol */
+/* stero dac/mic routing */
 #define ALC5632_MIC_ROUTING_CTRL		0x10
 #define ALC5632_MIC_ROUTE_MONOMIX		(1 << 0)
 #define ALC5632_MIC_ROUTE_SPK			(1 << 1)
 #define ALC5632_MIC_ROUTE_HP			(1 << 2)
 
-#define ALC5632_ADC_REC_GAIN			0x12 
+#define ALC5632_ADC_REC_GAIN			0x12 /* rec gain */
 #define ALC5632_ADC_REC_GAIN_RANGE		0x1F1F
 #define ALC5632_ADC_REC_GAIN_BASE		(-16.5)
 #define ALC5632_ADC_REC_GAIN_STEP		1.5
 
-#define ALC5632_ADC_REC_MIXER			0x14 
+#define ALC5632_ADC_REC_MIXER			0x14 /* mixer control */
 #define ALC5632_ADC_REC_MIC1			(1 << 6)
 #define ALC5632_ADC_REC_MIC2			(1 << 5)
 #define ALC5632_ADC_REC_LINE_IN			(1 << 4)
@@ -46,9 +50,11 @@
 #define ALC5632_ADC_REC_SPK			(1 << 1)
 #define ALC5632_ADC_REC_MONOMIX			(1 << 0)
 
-#define ALC5632_VOICE_DAC_VOL			0x18 
-#define ALC5632_I2S_OUT_CTL				0x1A 
-#define ALC5632_OUTPUT_MIXER_CTRL		0x1C 
+#define ALC5632_VOICE_DAC_VOL			0x18 /* voice dac vol */
+#define ALC5632_I2S_OUT_CTL				0x1A /* undocumented reg. found in path scheme */
+/* ALC5632_OUTPUT_MIXER_CTRL :			*/
+/* same remark as for reg 2 line vs speaker	*/
+#define ALC5632_OUTPUT_MIXER_CTRL		0x1C /* out mix ctrl */
 #define ALC5632_OUTPUT_MIXER_RP			(1 << 14)
 #define ALC5632_OUTPUT_MIXER_WEEK		(1 << 12)
 #define ALC5632_OUTPUT_MIXER_HP			(1 << 10)
@@ -57,13 +63,13 @@
 #define ALC5632_OUTPUT_MIXER_HP_R               (1 << 8)
 #define ALC5632_OUTPUT_MIXER_HP_L               (1 << 9)
 
-#define ALC5632_MIC_CTRL			0x22 
+#define ALC5632_MIC_CTRL			0x22 /* mic phone ctrl */
 #define ALC5632_MIC_BOOST_BYPASS		0
 #define ALC5632_MIC_BOOST_20DB			1
 #define ALC5632_MIC_BOOST_30DB			2
 #define ALC5632_MIC_BOOST_40DB			3
 
-#define ALC5632_DIGI_BOOST_CTRL			0x24 
+#define ALC5632_DIGI_BOOST_CTRL			0x24 /* digi mic / bost ctl */
 #define ALC5632_MIC_BOOST_RANGE			7
 #define ALC5632_MIC_BOOST_STEP			6
 #define ALC5632_PWR_DOWN_CTRL_STATUS		0x26
@@ -74,15 +80,19 @@
 #define ALC5632_PWR_AMIX_STATUS			(1 << 2)
 #define ALC5632_PWR_DAC_STATUS			(1 << 1)
 #define ALC5632_PWR_ADC_STATUS			(1 << 0)
+/* stereo/voice DAC / stereo adc func ctrl */
 #define ALC5632_DAC_FUNC_SELECT			0x2E
 
+/* Main serial data port ctrl (i2s) */
 #define ALC5632_DAI_CONTROL			0x34
 
 #define ALC5632_DAI_SDP_MASTER_MODE		(0 << 15)
 #define ALC5632_DAI_SDP_SLAVE_MODE		(1 << 15)
 #define ALC5632_DAI_SADLRCK_MODE		(1 << 14)
+/* 0:voice, 1:main */
 #define ALC5632_DAI_MAIN_I2S_SYSCLK_SEL		(1 <<  8)
 #define ALC5632_DAI_MAIN_I2S_BCLK_POL_CTRL	(1 <<  7)
+/* 0:normal, 1:invert */
 #define ALC5632_DAI_MAIN_I2S_LRCK_INV		(1 <<  6)
 #define ALC5632_DAI_I2S_DL_MASK			(3 <<  2)
 #define ALC5632_DAI_I2S_DL_8			(3 <<  2)
@@ -94,12 +104,19 @@
 #define	ALC5632_DAI_I2S_DF_PCM_A		(2 <<  0)
 #define ALC5632_DAI_I2S_DF_LEFT			(1 <<  0)
 #define ALC5632_DAI_I2S_DF_I2S			(0 <<  0)
+/* extend serial data port control (VoDAC_i2c/pcm) */
 #define ALC5632_DAI_CONTROL2			0x36
+/* 0:gpio func, 1:voice pcm */
 #define ALC5632_DAI_VOICE_PCM_ENABLE		(1 << 15)
+/* 0:master, 1:slave */
 #define ALC5632_DAI_VOICE_MODE_SEL		(1 << 14)
+/* 0:disable, 1:enable */
 #define ALC5632_DAI_HPF_CLK_CTRL		(1 << 13)
+/* 0:main, 1:voice */
 #define ALC5632_DAI_VOICE_I2S_SYSCLK_SEL	(1 <<  8)
+/* 0:normal, 1:invert */
 #define ALC5632_DAI_VOICE_VBCLK_SYSCLK_SEL	(1 <<  7)
+/* 0:normal, 1:invert */
 #define ALC5632_DAI_VOICE_I2S_LR_INV		(1 <<  6)
 #define ALC5632_DAI_VOICE_DL_MASK		(3 <<  2)
 #define ALC5632_DAI_VOICE_DL_16			(0 <<  2)
@@ -226,6 +243,7 @@
 #define ALC5632_HID_CTRL_DATA			0x6C
 #define ALC5632_EQ_CTRL				0x6E
 
+/* undocumented */
 #define ALC5632_VENDOR_ID1			0x7C
 #define ALC5632_VENDOR_ID2			0x7E
 

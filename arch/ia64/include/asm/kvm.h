@@ -24,9 +24,11 @@
 #include <linux/types.h>
 #include <linux/ioctl.h>
 
+/* Select x86 specific features in <linux/kvm.h> */
 #define __KVM_HAVE_IOAPIC
 #define __KVM_HAVE_DEVICE_ASSIGNMENT
 
+/* Architectural interrupt line count. */
 #define KVM_NR_INTERRUPTS 256
 
 #define KVM_IOAPIC_NUM_PINS  48
@@ -65,12 +67,12 @@ struct kvm_ioapic_state {
 struct kvm_fpreg {
 	union {
 		unsigned long bits[2];
-		long double __dummy;	
+		long double __dummy;	/* force 16-byte alignment */
 	} u;
 };
 
 union context {
-	
+	/* 8K size */
 	char	dummy[KVM_CONTEXT_SIZE];
 	struct {
 		unsigned long       psr;
@@ -92,35 +94,35 @@ union context {
 struct thash_data {
 	union {
 		struct {
-			unsigned long p    :  1; 
-			unsigned long rv1  :  1; 
-			unsigned long ma   :  3; 
-			unsigned long a    :  1; 
-			unsigned long d    :  1; 
-			unsigned long pl   :  2; 
-			unsigned long ar   :  3; 
-			unsigned long ppn  : 38; 
-			unsigned long rv2  :  2; 
-			unsigned long ed   :  1; 
-			unsigned long ig1  : 11; 
+			unsigned long p    :  1; /* 0 */
+			unsigned long rv1  :  1; /* 1 */
+			unsigned long ma   :  3; /* 2-4 */
+			unsigned long a    :  1; /* 5 */
+			unsigned long d    :  1; /* 6 */
+			unsigned long pl   :  2; /* 7-8 */
+			unsigned long ar   :  3; /* 9-11 */
+			unsigned long ppn  : 38; /* 12-49 */
+			unsigned long rv2  :  2; /* 50-51 */
+			unsigned long ed   :  1; /* 52 */
+			unsigned long ig1  : 11; /* 53-63 */
 		};
 		struct {
-			unsigned long __rv1 : 53;     
-			unsigned long contiguous : 1; 
-			unsigned long tc : 1;         
+			unsigned long __rv1 : 53;     /* 0-52 */
+			unsigned long contiguous : 1; /*53 */
+			unsigned long tc : 1;         /* 54 TR or TC */
 			unsigned long cl : 1;
-			
-			unsigned long len  :  4;      
-			unsigned long io  : 1;	
+			/* 55 I side or D side cache line */
+			unsigned long len  :  4;      /* 56-59 */
+			unsigned long io  : 1;	/* 60 entry is for io or not */
 			unsigned long nomap : 1;
-			
+			/* 61 entry cann't be inserted into machine TLB.*/
 			unsigned long checked : 1;
-			
+			/* 62 for VTLB/VHPT sanity check */
 			unsigned long invalid : 1;
-			
+			/* 63 invalid entry */
 		};
 		unsigned long page_flags;
-	};                  
+	};                  /* same for VHPT and TLB */
 
 	union {
 		struct {
@@ -202,13 +204,13 @@ struct saved_vpd {
 
 struct kvm_regs {
 	struct saved_vpd vpd;
-	
+	/*Arch-regs*/
 	int mp_state;
 	unsigned long vmm_rr;
-	
+	/* TR and TC.  */
 	struct thash_data itrs[NITRS];
 	struct thash_data dtrs[NDTRS];
-	
+	/* Bit is set if there is a tr/tc for the region.  */
 	unsigned char itr_regions;
 	unsigned char dtr_regions;
 	unsigned char tc_regions;
@@ -223,20 +225,20 @@ struct kvm_regs {
 	unsigned long vrr[8];
 	unsigned long ibr[8];
 	unsigned long dbr[8];
-	unsigned long insvc[4];		
+	unsigned long insvc[4];		/* Interrupt in service.  */
 	unsigned long xtp;
 
-	unsigned long metaphysical_rr0; 
-	unsigned long metaphysical_rr4;	
-	unsigned long metaphysical_saved_rr0; 
-	unsigned long metaphysical_saved_rr4; 
-	unsigned long fp_psr;       
+	unsigned long metaphysical_rr0; /* from kvm_arch (so is pinned) */
+	unsigned long metaphysical_rr4;	/* from kvm_arch (so is pinned) */
+	unsigned long metaphysical_saved_rr0; /* from kvm_arch          */
+	unsigned long metaphysical_saved_rr4; /* from kvm_arch          */
+	unsigned long fp_psr;       /*used for lazy float register */
 	unsigned long saved_gp;
-	
+	/*for phycial  emulation */
 
 	union context saved_guest;
 
-	unsigned long reserved[64];	
+	unsigned long reserved[64];	/* for future use */
 };
 
 struct kvm_sregs {
@@ -255,9 +257,11 @@ struct kvm_ia64_vcpu_stack {
 struct kvm_debug_exit_arch {
 };
 
+/* for KVM_SET_GUEST_DEBUG */
 struct kvm_guest_debug_arch {
 };
 
+/* definition of registers in kvm_run */
 struct kvm_sync_regs {
 };
 

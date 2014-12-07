@@ -32,6 +32,13 @@
 #include <linux/gpio.h>
 #include <linux/input/auo-pixcir-ts.h>
 
+/*
+ * Coordinate calculation:
+ * X1 = X1_LSB + X1_MSB*256
+ * Y1 = Y1_LSB + Y1_MSB*256
+ * X2 = X2_LSB + X2_MSB*256
+ * Y2 = Y2_LSB + Y2_MSB*256
+ */
 #define AUO_PIXCIR_REG_X1_LSB		0x00
 #define AUO_PIXCIR_REG_X1_MSB		0x01
 #define AUO_PIXCIR_REG_Y1_LSB		0x02
@@ -72,6 +79,12 @@
 #define AUO_PIXCIR_INT_POL_HIGH		(1 << 2)
 #define AUO_PIXCIR_INT_MODE_MASK	0x03
 
+/*
+ * Power modes:
+ * active:	scan speed 60Hz
+ * sleep:	scan speed 10Hz can be auto-activated, wakeup on 1st touch
+ * deep sleep:	scan speed 1Hz can only be entered or left manually.
+ */
 #define AUO_PIXCIR_POWER_ACTIVE		0x00
 #define AUO_PIXCIR_POWER_SLEEP		0x01
 #define AUO_PIXCIR_POWER_DEEP_SLEEP	0x02
@@ -90,6 +103,7 @@
 
 #define AUO_PIXCIR_STRENGTH_ENABLE	(1 << 0)
 
+/* Touchscreen absolute values */
 #define AUO_PIXCIR_REPORT_POINTS	2
 #define AUO_PIXCIR_MAX_AREA		0xff
 #define AUO_PIXCIR_PENUP_TIMEOUT_MS	10
@@ -99,7 +113,7 @@ struct auo_pixcir_ts {
 	struct input_dev	*input;
 	char			phys[32];
 
-	
+	/* special handling for touch_indicate interupt mode */
 	bool			touch_ind_mode;
 
 	wait_queue_head_t	wait;
@@ -123,7 +137,7 @@ static int auo_pixcir_collect_data(struct auo_pixcir_ts *ts,
 	uint8_t raw_area[4];
 	int i, ret;
 
-	
+	/* touch coordinates */
 	ret = i2c_smbus_read_i2c_block_data(client, AUO_PIXCIR_REG_X1_LSB,
 					    8, raw_coord);
 	if (ret < 0) {
@@ -131,7 +145,7 @@ static int auo_pixcir_collect_data(struct auo_pixcir_ts *ts,
 		return ret;
 	}
 
-	
+	/* touch area */
 	ret = i2c_smbus_read_i2c_block_data(client, AUO_PIXCIR_REG_TOUCHAREA_X1,
 					    4, raw_area);
 	if (ret < 0) {
@@ -152,7 +166,7 @@ static int auo_pixcir_collect_data(struct auo_pixcir_ts *ts,
 			point[i].coord_x = point[i].coord_y = 0;
 		}
 
-		
+		/* determine touch major, minor and orientation */
 		point[i].area_major = max(raw_area[2 * i], raw_area[2 * i + 1]);
 		point[i].area_minor = min(raw_area[2 * i], raw_area[2 * i + 1]);
 		point[i].orientation = raw_area[2 * i] > raw_area[2 * i + 1];
@@ -174,7 +188,7 @@ static irqreturn_t auo_pixcir_interrupt(int irq, void *dev_id)
 
 	while (!ts->stopped) {
 
-		
+		/* check for up event in touch touch_ind_mode */
 		if (ts->touch_ind_mode) {
 			if (gpio_get_value(pdata->gpio_int) == 0) {
 				input_mt_sync(ts->input);
@@ -186,7 +200,7 @@ static irqreturn_t auo_pixcir_interrupt(int irq, void *dev_id)
 
 		ret = auo_pixcir_collect_data(ts, point);
 		if (ret < 0) {
-			
+			/* we want to loop only in touch_ind_mode */
 			if (!ts->touch_ind_mode)
 				break;
 
@@ -209,10 +223,13 @@ static irqreturn_t auo_pixcir_interrupt(int irq, void *dev_id)
 						 point[i].orientation);
 				input_mt_sync(ts->input);
 
-				
+				/* use first finger as source for singletouch */
 				if (fingers == 0)
 					abs = i;
 
+				/* number of touch points could also be queried
+				 * via i2c but would require an additional call
+				 */
 				fingers++;
 			}
 		}
@@ -226,7 +243,7 @@ static irqreturn_t auo_pixcir_interrupt(int irq, void *dev_id)
 
 		input_sync(ts->input);
 
-		
+		/* we want to loop only in touch_ind_mode */
 		if (!ts->touch_ind_mode)
 			break;
 
@@ -237,6 +254,13 @@ static irqreturn_t auo_pixcir_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Set the power mode of the device.
+ * Valid modes are
+ * - AUO_PIXCIR_POWER_ACTIVE
+ * - AUO_PIXCIR_POWER_SLEEP - automatically left on first touch
+ * - AUO_PIXCIR_POWER_DEEP_SLEEP
+ */
 static int auo_pixcir_power_mode(struct auo_pixcir_ts *ts, int mode)
 {
 	struct i2c_client *client = ts->client;
@@ -278,7 +302,7 @@ static __devinit int auo_pixcir_int_config(struct auo_pixcir_ts *ts,
 
 	ret &= ~AUO_PIXCIR_INT_MODE_MASK;
 	ret |= int_setting;
-	ret |= AUO_PIXCIR_INT_POL_HIGH; 
+	ret |= AUO_PIXCIR_INT_POL_HIGH; /* always use high for interrupts */
 
 	ret = i2c_smbus_write_byte_data(client, AUO_PIXCIR_REG_INT_SETTING,
 					ret);
@@ -293,6 +317,7 @@ static __devinit int auo_pixcir_int_config(struct auo_pixcir_ts *ts,
 	return 0;
 }
 
+/* control the generation of interrupts on the device side */
 static int auo_pixcir_int_toggle(struct auo_pixcir_ts *ts, bool enable)
 {
 	struct i2c_client *client = ts->client;
@@ -360,7 +385,7 @@ static int auo_pixcir_stop(struct auo_pixcir_ts *ts)
 		return ret;
 	}
 
-	
+	/* disable receiving of interrupts */
 	disable_irq(client->irq);
 	ts->stopped = true;
 	mb();
@@ -400,8 +425,11 @@ static int auo_pixcir_suspend(struct device *dev)
 
 	mutex_lock(&input->mutex);
 
+	/* when configured as wakeup source, device should always wake system
+	 * therefore start device if necessary
+	 */
 	if (device_may_wakeup(&client->dev)) {
-		
+		/* need to start device if not open, to be wakeup source */
 		if (!input->users) {
 			ret = auo_pixcir_start(ts);
 			if (ret)
@@ -432,14 +460,14 @@ static int auo_pixcir_resume(struct device *dev)
 	if (device_may_wakeup(&client->dev)) {
 		disable_irq_wake(client->irq);
 
-		
+		/* need to stop device if it was not open on suspend */
 		if (!input->users) {
 			ret = auo_pixcir_stop(ts);
 			if (ret)
 				goto unlock;
 		}
 
-		
+		/* device wakes automatically from SLEEP */
 	} else if (input->users) {
 		ret = auo_pixcir_start(ts);
 	}
@@ -507,11 +535,11 @@ static int __devinit auo_pixcir_probe(struct i2c_client *client,
 
 	__set_bit(BTN_TOUCH, input_dev->keybit);
 
-	
+	/* For single touch */
 	input_set_abs_params(input_dev, ABS_X, 0, pdata->x_max, 0, 0);
 	input_set_abs_params(input_dev, ABS_Y, 0, pdata->y_max, 0, 0);
 
-	
+	/* For multi touch */
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0,
 			     pdata->x_max, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0,
@@ -542,7 +570,7 @@ static int __devinit auo_pixcir_probe(struct i2c_client *client,
 		goto err_fw_vers;
 	}
 
-	
+	/* stop device and put it into deep sleep until it is opened */
 	ret = auo_pixcir_stop(ts);
 	if (ret < 0)
 		goto err_input_register;

@@ -65,7 +65,7 @@ int stmmac_open_ext_timer(struct net_device *dev, struct stmmac_timer *tm)
 
 	rtc_irq_register(stmmac_rtc, &stmmac_task);
 
-	
+	/* Periodic mode is not supported */
 	if ((rtc_irq_set_freq(stmmac_rtc, &stmmac_task, tm->freq) < 0)) {
 		pr_err("set periodic failed\n");
 		rtc_irq_unregister(stmmac_rtc, &stmmac_task);

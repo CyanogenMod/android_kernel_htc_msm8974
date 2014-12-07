@@ -53,8 +53,8 @@ struct snd_mixer_oss {
 	struct snd_card *card;
 	char id[16];
 	char name[32];
-	struct snd_mixer_oss_slot slots[SNDRV_OSS_MAX_MIXERS]; 
-	unsigned int mask_recsrc;		
+	struct snd_mixer_oss_slot slots[SNDRV_OSS_MAX_MIXERS]; /* OSS mixer slots */
+	unsigned int mask_recsrc;		/* exclusive recsrc mask */
 	int (*get_recsrc)(struct snd_mixer_oss_file *fmixer,
 			  unsigned int *active_index);
 	int (*put_recsrc)(struct snd_mixer_oss_file *fmixer,
@@ -64,7 +64,7 @@ struct snd_mixer_oss {
 	struct mutex reg_mutex;
 	struct snd_info_entry *proc_entry;
 	int oss_dev_alloc;
-	
+	/* --- */
 	int oss_recsrc;
 };
 
@@ -76,6 +76,6 @@ struct snd_mixer_oss_file {
 int snd_mixer_oss_ioctl_card(struct snd_card *card,
 			     unsigned int cmd, unsigned long arg);
 
-#endif 
+#endif /* CONFIG_SND_MIXER_OSS */
 
-#endif 
+#endif /* __SOUND_MIXER_OSS_H */

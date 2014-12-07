@@ -14,6 +14,14 @@
 #include <linux/irqflags.h>
 #include <asm/processor.h>
 
+/*
+ * An entry can be in one of four states:
+ *
+ * free	     NULL, 0 -> {claimed}       : free to be used
+ * claimed   NULL, 3 -> {pending}       : claimed to be enqueued
+ * pending   next, 3 -> {busy}          : queued, pending callback
+ * busy      NULL, 2 -> {free, claimed} : callback in progress, can be claimed
+ */
 
 #define IRQ_WORK_PENDING	1UL
 #define IRQ_WORK_BUSY		2UL
@@ -21,6 +29,9 @@
 
 static DEFINE_PER_CPU(struct llist_head, irq_work_list);
 
+/*
+ * Claim the entry so that no one else will poke at it.
+ */
 static bool irq_work_claim(struct irq_work *work)
 {
 	unsigned long flags, nflags;
@@ -40,8 +51,14 @@ static bool irq_work_claim(struct irq_work *work)
 
 void __weak arch_irq_work_raise(void)
 {
+	/*
+	 * Lame architectures will get the timer tick callback
+	 */
 }
 
+/*
+ * Queue the entry and raise the IPI if needed.
+ */
 static void __irq_work_queue(struct irq_work *work)
 {
 	bool empty;
@@ -49,16 +66,25 @@ static void __irq_work_queue(struct irq_work *work)
 	preempt_disable();
 
 	empty = llist_add(&work->llnode, &__get_cpu_var(irq_work_list));
-	
+	/* The list was empty, raise self-interrupt to start processing. */
 	if (empty)
 		arch_irq_work_raise();
 
 	preempt_enable();
 }
 
+/*
+ * Enqueue the irq_work @entry, returns true on success, failure when the
+ * @entry was already enqueued by someone else.
+ *
+ * Can be re-enqueued while the callback is still in progress.
+ */
 bool irq_work_queue(struct irq_work *work)
 {
 	if (!irq_work_claim(work)) {
+		/*
+		 * Already enqueued, can't do!
+		 */
 		return false;
 	}
 
@@ -67,6 +93,10 @@ bool irq_work_queue(struct irq_work *work)
 }
 EXPORT_SYMBOL_GPL(irq_work_queue);
 
+/*
+ * Run the irq_work entries on this cpu. Requires to be ran from hardirq
+ * context with local IRQs disabled.
+ */
 void irq_work_run(void)
 {
 	struct irq_work *work;
@@ -86,13 +116,25 @@ void irq_work_run(void)
 
 		llnode = llist_next(llnode);
 
+		/*
+		 * Clear the PENDING bit, after this point the @work
+		 * can be re-used.
+		 */
 		work->flags = IRQ_WORK_BUSY;
 		work->func(work);
+		/*
+		 * Clear the BUSY bit and return to the free state if
+		 * no-one else claimed it meanwhile.
+		 */
 		(void)cmpxchg(&work->flags, IRQ_WORK_BUSY, 0);
 	}
 }
 EXPORT_SYMBOL_GPL(irq_work_run);
 
+/*
+ * Synchronize against the irq_work @entry, ensures the entry is not
+ * currently in use.
+ */
 void irq_work_sync(struct irq_work *work)
 {
 	WARN_ON_ONCE(irqs_disabled());

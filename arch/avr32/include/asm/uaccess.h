@@ -18,6 +18,13 @@ typedef struct {
 	unsigned int is_user_space;
 } mm_segment_t;
 
+/*
+ * The fs value determines whether argument validity checking should be
+ * performed or not.  If get_fs() == USER_DS, checking is performed, with
+ * get_fs() == KERNEL_DS, checking is bypassed.
+ *
+ * For historical reasons (Data Segment Register?), these macros are misnamed.
+ */
 #define MAKE_MM_SEG(s)	((mm_segment_t) { (s) })
 #define segment_eq(a,b)	((a).is_user_space == (b).is_user_space)
 
@@ -41,6 +48,18 @@ static inline void set_fs(mm_segment_t s)
 		clear_thread_flag(TIF_USERSPACE);
 }
 
+/*
+ * Test whether a block of memory is a valid user space address.
+ * Returns 0 if the range is valid, nonzero otherwise.
+ *
+ * We do the following checks:
+ *   1. Is the access from kernel space?
+ *   2. Does (addr + size) set the carry bit?
+ *   3. Is (addr + size) a negative number (i.e. >= 0x80000000)?
+ *
+ * If yes on the first check, access is granted.
+ * If no on any of the others, access is denied.
+ */
 #define __range_ok(addr, size)						\
 	(test_thread_flag(TIF_USERSPACE)				\
 	 && (((unsigned long)(addr) >= 0x80000000)			\
@@ -49,6 +68,7 @@ static inline void set_fs(mm_segment_t s)
 
 #define access_ok(type, addr, size) (likely(__range_ok(addr, size) == 0))
 
+/* Generic arbitrary sized copy. Return the number of bytes NOT copied */
 extern __kernel_size_t __copy_user(void *to, const void *from,
 				   __kernel_size_t n);
 
@@ -72,15 +92,87 @@ static inline __kernel_size_t __copy_from_user(void *to,
 #define __copy_to_user_inatomic __copy_to_user
 #define __copy_from_user_inatomic __copy_from_user
 
+/*
+ * put_user: - Write a simple value into user space.
+ * @x:   Value to copy to user space.
+ * @ptr: Destination address, in user space.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * This macro copies a single simple value from kernel space to user
+ * space.  It supports simple types like char and int, but not larger
+ * data types like structures or arrays.
+ *
+ * @ptr must have pointer-to-simple-variable type, and @x must be assignable
+ * to the result of dereferencing @ptr.
+ *
+ * Returns zero on success, or -EFAULT on error.
+ */
 #define put_user(x,ptr)	\
 	__put_user_check((x),(ptr),sizeof(*(ptr)))
 
+/*
+ * get_user: - Get a simple variable from user space.
+ * @x:   Variable to store result.
+ * @ptr: Source address, in user space.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * This macro copies a single simple variable from user space to kernel
+ * space.  It supports simple types like char and int, but not larger
+ * data types like structures or arrays.
+ *
+ * @ptr must have pointer-to-simple-variable type, and the result of
+ * dereferencing @ptr must be assignable to @x without a cast.
+ *
+ * Returns zero on success, or -EFAULT on error.
+ * On error, the variable @x is set to zero.
+ */
 #define get_user(x,ptr) \
 	__get_user_check((x),(ptr),sizeof(*(ptr)))
 
+/*
+ * __put_user: - Write a simple value into user space, with less checking.
+ * @x:   Value to copy to user space.
+ * @ptr: Destination address, in user space.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * This macro copies a single simple value from kernel space to user
+ * space.  It supports simple types like char and int, but not larger
+ * data types like structures or arrays.
+ *
+ * @ptr must have pointer-to-simple-variable type, and @x must be assignable
+ * to the result of dereferencing @ptr.
+ *
+ * Caller must check the pointer with access_ok() before calling this
+ * function.
+ *
+ * Returns zero on success, or -EFAULT on error.
+ */
 #define __put_user(x,ptr) \
 	__put_user_nocheck((x),(ptr),sizeof(*(ptr)))
 
+/*
+ * __get_user: - Get a simple variable from user space, with less checking.
+ * @x:   Variable to store result.
+ * @ptr: Source address, in user space.
+ *
+ * Context: User context only.  This function may sleep.
+ *
+ * This macro copies a single simple variable from user space to kernel
+ * space.  It supports simple types like char and int, but not larger
+ * data types like structures or arrays.
+ *
+ * @ptr must have pointer-to-simple-variable type, and the result of
+ * dereferencing @ptr must be assignable to @x without a cast.
+ *
+ * Caller must check the pointer with access_ok() before calling this
+ * function.
+ *
+ * Returns zero on success, or -EFAULT on error.
+ * On error, the variable @x is set to zero.
+ */
 #define __get_user(x,ptr) \
 	__get_user_nocheck((x),(ptr),sizeof(*(ptr)))
 
@@ -229,4 +321,4 @@ struct exception_table_entry
 	unsigned long insn, fixup;
 };
 
-#endif 
+#endif /* __ASM_AVR32_UACCESS_H */

@@ -17,4 +17,4 @@ extern void ack_bad_irq(int irq);
 
 #include <asm-generic/hardirq.h>
 
-#endif 
+#endif /* _ASM_C6X_HARDIRQ_H */

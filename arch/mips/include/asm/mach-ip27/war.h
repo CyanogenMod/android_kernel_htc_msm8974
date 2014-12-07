@@ -22,4 +22,4 @@
 #define R10000_LLSC_WAR			1
 #define MIPS34K_MISSED_ITLB_WAR		0
 
-#endif 
+#endif /* __ASM_MIPS_MACH_IP27_WAR_H */

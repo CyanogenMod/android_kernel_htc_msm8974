@@ -50,7 +50,7 @@ static int bcm47xx_pcibios_plat_dev_init_ssb(struct pci_dev *dev)
 	slot = PCI_SLOT(dev->devfn);
 	res = ssb_pcibios_map_irq(dev, slot, pin);
 
-	
+	/* IRQ-0 and IRQ-1 are software interrupts. */
 	if (res < 2) {
 		printk(KERN_ALERT "PCI: Failed to map IRQ of device %s\n",
 		       pci_name(dev));
@@ -76,7 +76,7 @@ static int bcm47xx_pcibios_plat_dev_init_bcma(struct pci_dev *dev)
 
 	res = bcma_core_pci_pcibios_map_irq(dev);
 
-	
+	/* IRQ-0 and IRQ-1 are software interrupts. */
 	if (res < 2) {
 		printk(KERN_ALERT "PCI: Failed to map IRQ of device %s\n",
 		       pci_name(dev));

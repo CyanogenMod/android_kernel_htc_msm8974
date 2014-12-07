@@ -535,6 +535,8 @@ invalid:
 }
 
 extern int bam_adaptive_timer_enabled;
+extern int POLLING_MIN_SLEEP;
+extern int POLLING_MAX_SLEEP;
 static int rndis_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 {
 	struct f_rndis		*rndis = func_to_rndis(f);
@@ -582,7 +584,9 @@ static int rndis_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 
 		DBG(cdev, "RNDIS RX/TX early activation ... \n");
 		bam_adaptive_timer_enabled = 0;
-		pr_info("%s: bam_adaptive_timer_enabled = %d\n", __func__,bam_adaptive_timer_enabled);
+		POLLING_MIN_SLEEP = 950;
+		POLLING_MAX_SLEEP = 1050;
+		pr_info("%s: bam_adaptive_timer_enabled = %d POLLING_MIN_SLEEP = %d POLLING_MAX_SLEEP = %d\n", __func__,bam_adaptive_timer_enabled, POLLING_MIN_SLEEP, POLLING_MAX_SLEEP);
 		net = gether_connect(&rndis->port);
 		if (IS_ERR(net))
 			return PTR_ERR(net);
@@ -601,7 +605,9 @@ fail:
 static void rndis_suspend(struct usb_function *f)
 {
 	bam_adaptive_timer_enabled = 1;
-	pr_info("%s: bam_adaptive_timer_enabled = %d\n", __func__,bam_adaptive_timer_enabled);
+	POLLING_MIN_SLEEP = 2950;
+	POLLING_MAX_SLEEP = 3050;
+	pr_info("%s: bam_adaptive_timer_enabled = %d POLLING_MIN_SLEEP = %d POLLING_MAX_SLEEP = %d\n", __func__,bam_adaptive_timer_enabled, POLLING_MIN_SLEEP, POLLING_MAX_SLEEP);
 	pr_info("%s: need suspend function\n", __func__);
 }
 
@@ -623,7 +629,9 @@ static void rndis_disable(struct usb_function *f)
 	usb_ep_disable(rndis->notify);
 	rndis->notify->driver_data = NULL;
 	bam_adaptive_timer_enabled = 1;
-	pr_info("%s: bam_adaptive_timer_enabled = %d\n", __func__,bam_adaptive_timer_enabled);
+	POLLING_MIN_SLEEP = 2950;
+	POLLING_MAX_SLEEP = 3050;
+	pr_info("%s: bam_adaptive_timer_enabled = %d POLLING_MIN_SLEEP = %d POLLING_MAX_SLEEP = %d\n", __func__,bam_adaptive_timer_enabled, POLLING_MIN_SLEEP, POLLING_MAX_SLEEP);
 }
 
 

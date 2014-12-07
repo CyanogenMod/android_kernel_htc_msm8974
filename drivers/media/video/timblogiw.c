@@ -16,6 +16,9 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * Timberdale FPGA LogiWin Video In
+ */
 
 #include <linux/platform_device.h>
 #include <linux/slab.h>
@@ -43,11 +46,11 @@
 
 struct timblogiw {
 	struct video_device		video_dev;
-	struct v4l2_device		v4l2_dev; 
+	struct v4l2_device		v4l2_dev; /* mutual exclusion */
 	struct mutex			lock;
 	struct device			*dev;
 	struct timb_video_platform_data pdata;
-	struct v4l2_subdev		*sd_enc;	
+	struct v4l2_subdev		*sd_enc;	/* encoder */
 	bool				opened;
 };
 
@@ -63,12 +66,12 @@ struct timblogiw_fh {
 	struct timblogiw_tvnorm const	*cur_norm;
 	struct list_head		capture;
 	struct dma_chan			*chan;
-	spinlock_t			queue_lock; 
+	spinlock_t			queue_lock; /* mutual exclusion */
 	unsigned int			frame_count;
 };
 
 struct timblogiw_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer	vb;
 	struct scatterlist	sg[16];
 	dma_cookie_t		cookie;
@@ -108,7 +111,7 @@ static const struct timblogiw_tvnorm *timblogiw_get_norm(const v4l2_std_id std)
 		if (timblogiw_tvnorms[i].std & std)
 			return timblogiw_tvnorms + i;
 
-	
+	/* default to first element */
 	return timblogiw_tvnorms;
 }
 
@@ -120,7 +123,7 @@ static void timblogiw_dma_cb(void *data)
 
 	spin_lock(&fh->queue_lock);
 
-	
+	/* mark the transfer done */
 	buf->cookie = -1;
 
 	fh->frame_count++;
@@ -148,6 +151,7 @@ static bool timblogiw_dma_filter_fn(struct dma_chan *chan, void *filter_param)
 	return chan->chan_id == (uintptr_t)filter_param;
 }
 
+/* IOCTL functions */
 
 static int timblogiw_g_fmt(struct file *file, void  *priv,
 	struct v4l2_format *format)
@@ -466,6 +470,7 @@ static int timblogiw_enum_framesizes(struct file *file, void  *priv,
 	return 0;
 }
 
+/* Video buffer functions */
 
 static int buffer_setup(struct videobuf_queue *vq, unsigned int *count,
 	unsigned int *size)
@@ -493,7 +498,7 @@ static int buffer_prepare(struct videobuf_queue *vq, struct videobuf_buffer *vb,
 	int err = 0;
 
 	if (vb->baddr && vb->bsize < data_size)
-		
+		/* User provided buffer, but it is too small */
 		return -ENOMEM;
 
 	vb->size = data_size;
@@ -599,6 +604,7 @@ static struct videobuf_queue_ops timblogiw_video_qops = {
 	.buf_release    = buffer_release,
 };
 
+/* Device Operations functions */
 
 static int timblogiw_open(struct file *file)
 {
@@ -620,7 +626,7 @@ static int timblogiw_open(struct file *file)
 	if (TIMBLOGIW_HAS_DECODER(lw) && !lw->sd_enc) {
 		struct i2c_adapter *adapt;
 
-		
+		/* find the video decoder */
 		adapt = i2c_get_adapter(lw->pdata.i2c_adapter);
 		if (!adapt) {
 			dev_err(&vdev->dev, "No I2C bus #%d\n",
@@ -629,7 +635,7 @@ static int timblogiw_open(struct file *file)
 			goto out;
 		}
 
-		
+		/* now find the encoder */
 		lw->sd_enc = v4l2_i2c_new_subdev_board(&lw->v4l2_dev, adapt,
 			lw->pdata.encoder.info, NULL);
 
@@ -660,7 +666,7 @@ static int timblogiw_open(struct file *file)
 	dma_cap_set(DMA_SLAVE, mask);
 	dma_cap_set(DMA_PRIVATE, mask);
 
-	
+	/* find the DMA channel */
 	fh->chan = dma_request_channel(mask, timblogiw_dma_filter_fn,
 			(void *)(uintptr_t)lw->pdata.dma_channel);
 	if (!fh->chan) {
@@ -737,6 +743,7 @@ static int timblogiw_mmap(struct file *file, struct vm_area_struct *vma)
 	return videobuf_mmap_mapper(&fh->vb_vidq, vma);
 }
 
+/* Platform device functions */
 
 static __devinitconst struct v4l2_ioctl_ops timblogiw_ioctl_ops = {
 	.vidioc_querycap		= timblogiw_querycap,
@@ -764,7 +771,7 @@ static __devinitconst struct v4l2_file_operations timblogiw_fops = {
 	.owner		= THIS_MODULE,
 	.open		= timblogiw_open,
 	.release	= timblogiw_close,
-	.unlocked_ioctl		= video_ioctl2, 
+	.unlocked_ioctl		= video_ioctl2, /* V4L2 ioctl handler */
 	.mmap		= timblogiw_mmap,
 	.read		= timblogiw_read,
 	.poll		= timblogiw_poll,

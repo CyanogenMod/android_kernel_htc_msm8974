@@ -55,7 +55,14 @@ static __init int find_northbridge(void)
 
 static __init void early_get_boot_cpu_id(void)
 {
+	/*
+	 * need to get the APIC ID of the BSP so can use that to
+	 * create apicid_to_node in amd_scan_nodes()
+	 */
 #ifdef CONFIG_X86_MPPARSE
+	/*
+	 * get boot-time SMP configuration:
+	 */
 	if (smp_found_config)
 		early_get_smp_config();
 #endif
@@ -149,7 +156,7 @@ int __init amd_numa_init(void)
 			continue;
 		}
 
-		
+		/* Could sort here, but pun for now. Should not happen anyroads. */
 		if (prevbase > base) {
 			pr_err("Node map not sorted %Lx,%Lx\n",
 			       prevbase, base);
@@ -167,11 +174,15 @@ int __init amd_numa_init(void)
 	if (!nodes_weight(numa_nodes_parsed))
 		return -ENOENT;
 
+	/*
+	 * We seem to have valid NUMA configuration.  Map apicids to nodes
+	 * using the coreid bits from early_identify_cpu.
+	 */
 	bits = boot_cpu_data.x86_coreid_bits;
 	cores = 1 << bits;
 	apicid_base = 0;
 
-	
+	/* get the APIC ID of the BSP early for systems with apicid lifting */
 	early_get_boot_cpu_id();
 	if (boot_cpu_physical_apicid > 0) {
 		pr_info("BSP APIC ID: %02x\n", boot_cpu_physical_apicid);

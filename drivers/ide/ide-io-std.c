@@ -10,6 +10,9 @@
 #include <asm-generic/ide_iops.h>
 #endif
 
+/*
+ *	Conventional PIO operations for ATA devices
+ */
 
 static u8 ide_inb(unsigned long port)
 {
@@ -21,6 +24,9 @@ static void ide_outb(u8 val, unsigned long port)
 	outb(val, port);
 }
 
+/*
+ *	MMIO operations, typically used for SATA controllers
+ */
 
 static u8 ide_mm_inb(unsigned long port)
 {
@@ -134,6 +140,13 @@ void ide_tf_read(ide_drive_t *drive, struct ide_taskfile *tf, u8 valid)
 }
 EXPORT_SYMBOL_GPL(ide_tf_read);
 
+/*
+ * Some localbus EIDE interfaces require a special access sequence
+ * when using 32-bit I/O instructions to transfer data.  We call this
+ * the "vlb_sync" sequence, which consists of three successive reads
+ * of the sector count register location, with interrupts disabled
+ * to ensure that the reads all happen together.
+ */
 static void ata_vlb_sync(unsigned long port)
 {
 	(void)inb(port);
@@ -141,6 +154,13 @@ static void ata_vlb_sync(unsigned long port)
 	(void)inb(port);
 }
 
+/*
+ * This is used for most PIO data transfers *from* the IDE interface
+ *
+ * These routines will round up any request for an odd number of bytes,
+ * so if an odd len is specified, be sure that there's at least one
+ * extra byte allocated for the buffer.
+ */
 void ide_input_data(ide_drive_t *drive, struct ide_cmd *cmd, void *buf,
 		    unsigned int len)
 {
@@ -182,6 +202,9 @@ void ide_input_data(ide_drive_t *drive, struct ide_cmd *cmd, void *buf,
 }
 EXPORT_SYMBOL_GPL(ide_input_data);
 
+/*
+ * This is used for most PIO data transfers *to* the IDE interface
+ */
 void ide_output_data(ide_drive_t *drive, struct ide_cmd *cmd, void *buf,
 		     unsigned int len)
 {

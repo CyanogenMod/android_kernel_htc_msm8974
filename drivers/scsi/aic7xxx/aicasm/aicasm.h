@@ -74,7 +74,7 @@ extern struct path_list search_path;
 extern struct cs_tailq cs_tailq;
 extern struct scope_list scope_stack;
 extern struct symlist patch_functions;
-extern int includes_search_curdir;		
+extern int includes_search_curdir;		/* False if we've seen -I- */
 extern char *appname;
 extern char *stock_include_file;
 extern int yylineno;

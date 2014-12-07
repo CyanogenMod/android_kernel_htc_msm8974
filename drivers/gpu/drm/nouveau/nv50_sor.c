@@ -40,7 +40,7 @@ static u32
 nv50_sor_dp_lane_map(struct drm_device *dev, struct dcb_entry *dcb, u8 lane)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
-	static const u8 nvaf[] = { 24, 16, 8, 0 }; 
+	static const u8 nvaf[] = { 24, 16, 8, 0 }; /* thanks, apple.. */
 	static const u8 nv50[] = { 16, 8, 0, 24 };
 	if (dev_priv->chipset == 0xaf)
 		return nvaf[lane];
@@ -146,20 +146,20 @@ nv50_sor_dp_calc_tu(struct drm_device *dev, int or, int link, u32 clk, u32 bpp)
 	u32 best_diff = 64 * symbol;
 	u32 link_nr, link_bw, r;
 
-	
+	/* calculate packed data rate for each lane */
 	nv50_sor_dp_link_get(dev, or, link, &link_nr, &link_bw);
 	link_data_rate = (clk * bpp / 8) / link_nr;
 
-	
+	/* calculate ratio of packed data rate to link symbol rate */
 	link_ratio = link_data_rate * symbol;
 	r = do_div(link_ratio, link_bw);
 
 	for (TU = 64; TU >= 32; TU--) {
-		
+		/* calculate average number of valid symbols in each TU */
 		u32 tu_valid = link_ratio * TU;
 		u32 calc, diff;
 
-		
+		/* find a hw representation for the fraction.. */
 		VTUi = tu_valid / symbol;
 		calc = VTUi * symbol;
 		diff = tu_valid - calc;
@@ -185,6 +185,10 @@ nv50_sor_dp_calc_tu(struct drm_device *dev, int or, int link, u32 clk, u32 bpp)
 
 			diff = calc - tu_valid;
 		} else {
+			/* no remainder, but the hw doesn't like the fractional
+			 * part to be zero.  decrement the integer part and
+			 * have the fraction add a whole symbol back
+			 */
 			VTUa = 0;
 			VTUf = 1;
 			VTUi--;
@@ -206,7 +210,7 @@ nv50_sor_dp_calc_tu(struct drm_device *dev, int or, int link, u32 clk, u32 bpp)
 		return;
 	}
 
-	
+	/* XXX close to vbios numbers, but not right */
 	unk  = (symbol - link_ratio) * bestTU;
 	unk *= link_ratio;
 	r = do_div(unk, symbol);
@@ -275,7 +279,7 @@ nv50_sor_dpms(struct drm_encoder *encoder, int mode)
 			return;
 	}
 
-	
+	/* wait for it to be done */
 	if (!nv_wait(dev, NV50_PDISPLAY_SOR_DPMS_CTRL(or),
 		     NV50_PDISPLAY_SOR_DPMS_CTRL_PENDING, 0)) {
 		NV_ERROR(dev, "timeout: SOR_DPMS_CTRL_PENDING(%d) == 0\n", or);
@@ -350,7 +354,7 @@ nv50_sor_prepare(struct drm_encoder *encoder)
 	struct nouveau_encoder *nv_encoder = nouveau_encoder(encoder);
 	nv50_sor_disconnect(encoder);
 	if (nv_encoder->dcb->type == OUTPUT_DP) {
-		
+		/* avoid race between link training and supervisor intr */
 		nv50_display_sync(encoder->dev);
 	}
 }

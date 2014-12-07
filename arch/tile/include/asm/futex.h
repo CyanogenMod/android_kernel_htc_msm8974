@@ -133,9 +133,10 @@ static inline int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 }
 
 #ifndef __tilegx__
+/* Return failure from the atomic wrappers. */
 struct __get_user __atomic_bad_address(int __user *addr);
 #endif
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_TILE_FUTEX_H */

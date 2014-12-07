@@ -9,6 +9,7 @@
  *  (mailto:DL-MPTFusionLinux@lsi.com)
  *
  */
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 /*
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -46,6 +47,7 @@
 
 #ifndef MPTSAS_H_INCLUDED
 #define MPTSAS_H_INCLUDED
+/*{-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 
 struct mptsas_target_reset_event {
 	struct list_head 	list;
@@ -74,18 +76,18 @@ struct mptsas_mapping{
 
 struct mptsas_device_info {
 	struct list_head 	list;
-	struct mptsas_mapping	os;	
-	struct mptsas_mapping	fw;	
+	struct mptsas_mapping	os;	/* operating system mapping*/
+	struct mptsas_mapping	fw;	/* firmware mapping */
 	u64			sas_address;
-	u32			device_info; 
-	u16			slot;		
-	u64			enclosure_logical_id; 
-	u8			is_logical_volume; 
-	
+	u32			device_info; /* specific bits for devices */
+	u16			slot;		/* enclosure slot id */
+	u64			enclosure_logical_id; /*enclosure address */
+	u8			is_logical_volume; /* is this logical volume */
+	/* this belongs to volume */
 	u8			is_hidden_raid_component;
-	
+	/* this valid when is_hidden_raid_component set */
 	u8			volume_id;
-	
+	/* cached data for a removed device */
 	u8			is_cached;
 };
 
@@ -98,7 +100,7 @@ struct mptsas_hotplug_event {
 	u32			device_info;
 	u16			handle;
 	u8			phy_id;
-	u8			phys_disk_num;		
+	u8			phys_disk_num;		/* hrc - unique index*/
 	struct scsi_device	*sdev;
 };
 
@@ -116,62 +118,75 @@ struct mptsas_discovery_event {
 	MPT_ADAPTER		*ioc;
 };
 
+/*
+ * SAS topology structures
+ *
+ * The MPT Fusion firmware interface spreads information about the
+ * SAS topology over many manufacture pages, thus we need some data
+ * structure to collect it and process it for the SAS transport class.
+ */
 
 struct mptsas_devinfo {
-	u16	handle;		
-	u16	handle_parent;	
-	u16	handle_enclosure; 
-	u16	slot;		
-	u8	phy_id;		
-	u8	port_id;	
-	u8	id;		
-	u32	phys_disk_num;	
-	u8	channel;	
-	u64	sas_address;    
-	u32	device_info;	
-	u16	flags;		
+	u16	handle;		/* unique id to address this device */
+	u16	handle_parent;	/* unique id to address parent device */
+	u16	handle_enclosure; /* enclosure identifier of the enclosure */
+	u16	slot;		/* physical slot in enclosure */
+	u8	phy_id;		/* phy number of parent device */
+	u8	port_id;	/* sas physical port this device
+				   is assoc'd with */
+	u8	id;		/* logical target id of this device */
+	u32	phys_disk_num;	/* phys disk id, for csmi-ioctls */
+	u8	channel;	/* logical bus number of this device */
+	u64	sas_address;    /* WWN of this device,
+				   SATA is assigned by HBA,expander */
+	u32	device_info;	/* bitfield detailed info about this device */
+	u16	flags;		/* sas device pg0 flags */
 };
 
+/*
+ * Specific details on ports, wide/narrow
+ */
 struct mptsas_portinfo_details{
-	u16	num_phys;	
-	u64	phy_bitmask; 	
-	struct sas_rphy *rphy;	
-	struct sas_port *port;	
+	u16	num_phys;	/* number of phys belong to this port */
+	u64	phy_bitmask; 	/* TODO, extend support for 255 phys */
+	struct sas_rphy *rphy;	/* transport layer rphy object */
+	struct sas_port *port;	/* transport layer port object */
 	struct scsi_target *starget;
 	struct mptsas_portinfo *port_info;
 };
 
 struct mptsas_phyinfo {
-	u16	handle;			
-	u8	phy_id; 		
-	u8	port_id; 		
-	u8	negotiated_link_rate;	
-	u8	hw_link_rate; 		
-	u8	programmed_link_rate;	
-	u8	sas_port_add_phy;	
-	struct mptsas_devinfo identify;	
-	struct mptsas_devinfo attached;	
-	struct sas_phy *phy;		
+	u16	handle;			/* unique id to address this */
+	u8	phy_id; 		/* phy index */
+	u8	port_id; 		/* firmware port identifier */
+	u8	negotiated_link_rate;	/* nego'd link rate for this phy */
+	u8	hw_link_rate; 		/* hardware max/min phys link rate */
+	u8	programmed_link_rate;	/* programmed max/min phy link rate */
+	u8	sas_port_add_phy;	/* flag to request sas_port_add_phy*/
+	struct mptsas_devinfo identify;	/* point to phy device info */
+	struct mptsas_devinfo attached;	/* point to attached device info */
+	struct sas_phy *phy;		/* transport layer phy object */
 	struct mptsas_portinfo *portinfo;
 	struct mptsas_portinfo_details * port_details;
 };
 
 struct mptsas_portinfo {
 	struct list_head list;
-	u16		num_phys;	
+	u16		num_phys;	/* number of phys */
 	struct mptsas_phyinfo *phy_info;
 };
 
 struct mptsas_enclosure {
-	u64	enclosure_logical_id;	
-	u16	enclosure_handle;	
-	u16	flags;			
-	u16	num_slot;		
-	u16	start_slot;		
-	u8	start_id;		
-	u8	start_channel;		
-	u8	sep_id;			
-	u8	sep_channel;		
+	u64	enclosure_logical_id;	/* The WWN for the enclosure */
+	u16	enclosure_handle;	/* unique id to address this */
+	u16	flags;			/* details enclosure management */
+	u16	num_slot;		/* num slots */
+	u16	start_slot;		/* first slot */
+	u8	start_id;		/* starting logical target id */
+	u8	start_channel;		/* starting logical channel id */
+	u8	sep_id;			/* SEP device logical target id */
+	u8	sep_channel;		/* SEP channel logical channel id */
 };
 
+/*}-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 #endif

@@ -58,11 +58,20 @@
 #endif
 
 
+/* Store all idle threads, this can be reused instead of creating
+* a new thread. Also avoids complicated thread destroy functionality
+* for idle threads.
+*/
 #ifdef CONFIG_HOTPLUG_CPU
+/*
+ * Needed only for CONFIG_HOTPLUG_CPU because __cpuinitdata is
+ * removed after init for !CONFIG_HOTPLUG_CPU.
+ */
 static DEFINE_PER_CPU(struct task_struct *, idle_thread_array);
 #define get_idle_for_cpu(x)      (per_cpu(idle_thread_array, x))
 #define set_idle_for_cpu(x, p)   (per_cpu(idle_thread_array, x) = (p))
 
+/* State of each CPU during hotplug phases */
 static DEFINE_PER_CPU(int, cpu_state) = { 0 };
 
 #else
@@ -79,8 +88,10 @@ DEFINE_PER_CPU(cpumask_var_t, cpu_core_map);
 EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 EXPORT_PER_CPU_SYMBOL(cpu_core_map);
 
+/* SMP operations for this machine */
 struct smp_ops_t *smp_ops;
 
+/* Can't be static due to PowerMac hackery */
 volatile unsigned int cpu_callin_map[NR_CPUS];
 
 int smt_enabled_at_boot = 1;
@@ -92,6 +103,11 @@ int __devinit smp_generic_kick_cpu(int nr)
 {
 	BUG_ON(nr < 0 || nr >= NR_CPUS);
 
+	/*
+	 * The processor is currently spinning, waiting for the
+	 * cpu_start field to become non-zero After we set cpu_start,
+	 * the processor will continue on to secondary_start
+	 */
 	if (!paca[nr].cpu_start) {
 		paca[nr].cpu_start = 1;
 		smp_mb();
@@ -99,14 +115,18 @@ int __devinit smp_generic_kick_cpu(int nr)
 	}
 
 #ifdef CONFIG_HOTPLUG_CPU
+	/*
+	 * Ok it's not there, so it might be soft-unplugged, let's
+	 * try to bring it back
+	 */
 	per_cpu(cpu_state, nr) = CPU_UP_PREPARE;
 	smp_wmb();
 	smp_send_reschedule(nr);
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PPC64 */
 
 static irqreturn_t call_function_action(int irq, void *data)
 {
@@ -135,7 +155,7 @@ static irqreturn_t debug_ipi_action(int irq, void *data)
 
 #ifdef CONFIG_DEBUGGER
 	debugger_ipi(get_irq_regs());
-#endif 
+#endif /* CONFIG_DEBUGGER */
 
 	return IRQ_HANDLED;
 }
@@ -154,6 +174,7 @@ const char *smp_ipi_name[] = {
 	[PPC_MSG_DEBUGGER_BREAK] = "ipi debugger",
 };
 
+/* optional function to request ipi, for controllers with >= 4 ipis */
 int smp_request_message_ipi(int virq, int msg)
 {
 	int err;
@@ -177,8 +198,8 @@ int smp_request_message_ipi(int virq, int msg)
 
 #ifdef CONFIG_PPC_SMP_MUXED_IPI
 struct cpu_messages {
-	int messages;			
-	unsigned long data;		
+	int messages;			/* current messages */
+	unsigned long data;		/* data for cause ipi */
 };
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct cpu_messages, ipi_message);
 
@@ -204,7 +225,7 @@ irqreturn_t smp_ipi_demux(void)
 	struct cpu_messages *info = &__get_cpu_var(ipi_message);
 	unsigned int all;
 
-	mb();	
+	mb();	/* order any irq clear */
 
 	do {
 		all = xchg_local(&info->messages, 0);
@@ -225,7 +246,7 @@ irqreturn_t smp_ipi_demux(void)
 
 	return IRQ_HANDLED;
 }
-#endif 
+#endif /* CONFIG_PPC_SMP_MUXED_IPI */
 
 static inline void do_message_pass(int cpu, int msg)
 {
@@ -285,7 +306,7 @@ void crash_send_ipi(void (*crash_ipi_callback)(struct pt_regs *))
 
 static void stop_this_cpu(void *dummy)
 {
-	
+	/* Remove this CPU */
 	set_cpu_online(smp_processor_id(), false);
 
 	local_irq_disable();
@@ -315,9 +336,13 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 
 	DBG("smp_prepare_cpus\n");
 
+	/* 
+	 * setup_cpu may need to be called on the boot cpu. We havent
+	 * spun any cpus up but lets be paranoid.
+	 */
 	BUG_ON(boot_cpuid != smp_processor_id());
 
-	
+	/* Fixup boot cpu */
 	smp_store_cpu_info(boot_cpuid);
 	cpu_callin_map[boot_cpuid] = 1;
 
@@ -431,6 +456,11 @@ static int __cpuinit create_idle(unsigned int cpu)
 
 	c_idle.idle = get_idle_for_cpu(cpu);
 
+	/* We can't use kernel_thread since we must avoid to
+	 * reschedule the child. We use a workqueue because
+	 * we want to fork from a kernel thread, not whatever
+	 * userspace process happens to be trying to online us.
+	 */
 	if (!c_idle.idle) {
 		schedule_work(&c_idle.work);
 		wait_for_completion(&c_idle.done);
@@ -460,13 +490,16 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	    (smp_ops->cpu_bootable && !smp_ops->cpu_bootable(cpu)))
 		return -EINVAL;
 
-	
+	/* Make sure we have an idle thread */
 	rc = create_idle(cpu);
 	if (rc)
 		return rc;
 
 	secondary_ti = current_set[cpu];
 
+	/* Make sure callin-map entry is 0 (can be leftover a CPU
+	 * hotplug
+	 */
 	cpu_callin_map[cpu] = 0;
 
 	/* The information for processor bringup must
@@ -475,7 +508,7 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	 */
 	smp_mb();
 
-	
+	/* wake up cpus */
 	DBG("smp: kicking cpu %d\n", cpu);
 	rc = smp_ops->kick_cpu(cpu);
 	if (rc) {
@@ -483,11 +516,20 @@ int __cpuinit __cpu_up(unsigned int cpu)
 		return rc;
 	}
 
+	/*
+	 * wait to see if the cpu made a callin (is actually up).
+	 * use this value that I found through experimentation.
+	 * -- Cort
+	 */
 	if (system_state < SYSTEM_RUNNING)
 		for (c = 50000; c && !cpu_callin_map[cpu]; c--)
 			udelay(100);
 #ifdef CONFIG_HOTPLUG_CPU
 	else
+		/*
+		 * CPUs can take much longer to come up in the
+		 * hotplug case.  Wait five seconds.
+		 */
 		for (c = 5000; c && !cpu_callin_map[cpu]; c--)
 			msleep(1);
 #endif
@@ -502,13 +544,16 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	if (smp_ops->give_timebase)
 		smp_ops->give_timebase();
 
-	
+	/* Wait until cpu puts itself in the online map */
 	while (!cpu_online(cpu))
 		cpu_relax();
 
 	return 0;
 }
 
+/* Return the value of the reg property corresponding to the given
+ * logical cpu.
+ */
 int cpu_to_core_id(int cpu)
 {
 	struct device_node *np;
@@ -529,6 +574,7 @@ out:
 	return id;
 }
 
+/* Helper routines for cpu to core mapping */
 int cpu_core_index_of_thread(int cpu)
 {
 	return cpu >> threads_shift;
@@ -541,6 +587,9 @@ int cpu_first_thread_of_core(int core)
 }
 EXPORT_SYMBOL_GPL(cpu_first_thread_of_core);
 
+/* Must be called when no change can occur to cpu_present_mask,
+ * i.e. during cpu online or offline.
+ */
 static struct device_node *cpu_to_l2cache(int cpu)
 {
 	struct device_node *np;
@@ -560,6 +609,7 @@ static struct device_node *cpu_to_l2cache(int cpu)
 	return cache;
 }
 
+/* Activate a secondary processor. */
 void __devinit start_secondary(void *unused)
 {
 	unsigned int cpu = smp_processor_id();
@@ -588,7 +638,7 @@ void __devinit start_secondary(void *unused)
 	ipi_call_lock();
 	notify_cpu_starting(cpu);
 	set_cpu_online(cpu, true);
-	
+	/* Update sibling maps */
 	base = cpu_first_thread_sibling(cpu);
 	for (i = 0; i < threads_per_core; i++) {
 		if (cpu_is_offline(base + i))
@@ -596,6 +646,10 @@ void __devinit start_secondary(void *unused)
 		cpumask_set_cpu(cpu, cpu_sibling_mask(base + i));
 		cpumask_set_cpu(base + i, cpu_sibling_mask(cpu));
 
+		/* cpu_core_map should be a superset of
+		 * cpu_sibling_map even if we don't have cache
+		 * information, so update the former here, too.
+		 */
 		cpumask_set_cpu(cpu, cpu_core_mask(base + i));
 		cpumask_set_cpu(base + i, cpu_core_mask(cpu));
 	}
@@ -629,6 +683,10 @@ void __init smp_cpus_done(unsigned int max_cpus)
 {
 	cpumask_var_t old_mask;
 
+	/* We want the setup_cpu() here to be called from CPU 0, but our
+	 * init thread may have been "borrowed" by another CPU in the meantime
+	 * se we pin us down to CPU 0 for a short while
+	 */
 	alloc_cpumask_var(&old_mask, GFP_NOWAIT);
 	cpumask_copy(old_mask, tsk_cpus_allowed(current));
 	set_cpus_allowed_ptr(current, cpumask_of(boot_cpuid));
@@ -671,7 +729,7 @@ int __cpu_disable(void)
 	if (err)
 		return err;
 
-	
+	/* Update sibling maps */
 	base = cpu_first_thread_sibling(cpu);
 	for (i = 0; i < threads_per_core; i++) {
 		cpumask_clear_cpu(cpu, cpu_sibling_mask(base + i));
@@ -720,7 +778,7 @@ void cpu_die(void)
 	if (ppc_md.cpu_die)
 		ppc_md.cpu_die();
 
-	
+	/* If we return, we re-enter start_secondary */
 	start_secondary_resume();
 }
 

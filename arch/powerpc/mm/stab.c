@@ -31,6 +31,9 @@ struct stab_entry {
 static DEFINE_PER_CPU(long, stab_cache_ptr);
 static DEFINE_PER_CPU(long [NR_STAB_CACHE_ENTRIES], stab_cache);
 
+/*
+ * Create a segment table entry for the given esid/vsid pair.
+ */
 static int make_ste(unsigned long stab, unsigned long esid, unsigned long vsid)
 {
 	unsigned long esid_data, vsid_data;
@@ -44,11 +47,11 @@ static int make_ste(unsigned long stab, unsigned long esid, unsigned long vsid)
 	if (! kernel_segment)
 		esid_data |= STE_ESID_KS;
 
-	
+	/* Search the primary group first. */
 	global_entry = (esid & 0x1f) << 3;
 	ste = (struct stab_entry *)(stab | ((esid & 0x1f) << 7));
 
-	
+	/* Find an empty entry, if one exists. */
 	for (group = 0; group < 2; group++) {
 		for (entry = 0; entry < 8; entry++, ste++) {
 			if (!(ste->esid_data & STE_ESID_V)) {
@@ -58,11 +61,15 @@ static int make_ste(unsigned long stab, unsigned long esid, unsigned long vsid)
 				return (global_entry | entry);
 			}
 		}
-		
+		/* Now search the secondary group. */
 		global_entry = ((~esid) & 0x1f) << 3;
 		ste = (struct stab_entry *)(stab | (((~esid) & 0x1f) << 7));
 	}
 
+	/*
+	 * Could not find empty entry, pick one with a round robin selection.
+	 * Search all entries in the two groups.
+	 */
 	castout_entry = get_paca()->stab_rr;
 	for (i = 0; i < 16; i++) {
 		if (castout_entry < 8) {
@@ -75,7 +82,7 @@ static int make_ste(unsigned long stab, unsigned long esid, unsigned long vsid)
 			castout_ste = ste + (castout_entry - 8);
 		}
 
-		
+		/* Dont cast out the first kernel segment */
 		if ((castout_ste->esid_data & ESID_MASK) != PAGE_OFFSET)
 			break;
 
@@ -84,34 +91,37 @@ static int make_ste(unsigned long stab, unsigned long esid, unsigned long vsid)
 
 	get_paca()->stab_rr = (castout_entry + 1) & 0xf;
 
-	
+	/* Modify the old entry to the new value. */
 
-	
+	/* Force previous translations to complete. DRENG */
 	asm volatile("isync" : : : "memory");
 
 	old_esid = castout_ste->esid_data >> SID_SHIFT;
-	castout_ste->esid_data = 0;		
+	castout_ste->esid_data = 0;		/* Invalidate old entry */
 
-	asm volatile("sync" : : : "memory");    
+	asm volatile("sync" : : : "memory");    /* Order update */
 
 	castout_ste->vsid_data = vsid_data;
-	eieio();				
+	eieio();				/* Order update */
 	castout_ste->esid_data = esid_data;
 
 	asm volatile("slbie  %0" : : "r" (old_esid << SID_SHIFT));
-	
+	/* Ensure completion of slbie */
 	asm volatile("sync" : : : "memory");
 
 	return (global_entry | (castout_entry & 0x7));
 }
 
+/*
+ * Allocate a segment table entry for the given ea and mm
+ */
 static int __ste_allocate(unsigned long ea, struct mm_struct *mm)
 {
 	unsigned long vsid;
 	unsigned char stab_entry;
 	unsigned long offset;
 
-	
+	/* Kernel or user address? */
 	if (is_kernel_addr(ea)) {
 		vsid = get_kernel_vsid(ea, MMU_SEGSIZE_256M);
 	} else {
@@ -131,7 +141,7 @@ static int __ste_allocate(unsigned long ea, struct mm_struct *mm)
 			offset = NR_STAB_CACHE_ENTRIES+1;
 		__get_cpu_var(stab_cache_ptr) = offset;
 
-		
+		/* Order update */
 		asm volatile("sync":::"memory");
 	}
 
@@ -143,6 +153,11 @@ int ste_allocate(unsigned long ea)
 	return __ste_allocate(ea, current->mm);
 }
 
+/*
+ * Do the segment table work for a context switch: flush all user
+ * entries from the table, then preload some probably useful entries
+ * for the new task
+ */
 void switch_stab(struct task_struct *tsk, struct mm_struct *mm)
 {
 	struct stab_entry *stab = (struct stab_entry *) get_paca()->stab_addr;
@@ -152,9 +167,15 @@ void switch_stab(struct task_struct *tsk, struct mm_struct *mm)
 	unsigned long stack = KSTK_ESP(tsk);
 	unsigned long unmapped_base;
 
-	
+	/* Force previous translations to complete. DRENG */
 	asm volatile("isync" : : : "memory");
 
+	/*
+	 * We need interrupts hard-disabled here, not just soft-disabled,
+	 * so that a PMU interrupt can't occur, which might try to access
+	 * user memory (to get a stack trace) and possible cause an STAB miss
+	 * which would update the stab_cache/stab_cache_ptr per-cpu variables.
+	 */
 	hard_irq_disable();
 
 	offset = __get_cpu_var(stab_cache_ptr);
@@ -163,15 +184,15 @@ void switch_stab(struct task_struct *tsk, struct mm_struct *mm)
 
 		for (i = 0; i < offset; i++) {
 			ste = stab + __get_cpu_var(stab_cache[i]);
-			ste->esid_data = 0; 
+			ste->esid_data = 0; /* invalidate entry */
 		}
 	} else {
 		unsigned long entry;
 
-		
+		/* Invalidate all entries. */
 		ste = stab;
 
-		
+		/* Never flush the first entry. */
 		ste += 1;
 		for (entry = 1;
 		     entry < (HW_PAGE_SIZE / sizeof(struct stab_entry));
@@ -188,7 +209,7 @@ void switch_stab(struct task_struct *tsk, struct mm_struct *mm)
 
 	__get_cpu_var(stab_cache_ptr) = 0;
 
-	
+	/* Now preload some entries for the new task */
 	if (test_tsk_thread_flag(tsk, TIF_32BIT))
 		unmapped_base = TASK_UNMAPPED_BASE_USER32;
 	else
@@ -207,10 +228,15 @@ void switch_stab(struct task_struct *tsk, struct mm_struct *mm)
 
 	__ste_allocate(unmapped_base, mm);
 
-	
+	/* Order update */
 	asm volatile("sync" : : : "memory");
 }
 
+/*
+ * Allocate segment tables for secondary CPUs.  These must all go in
+ * the first (bolted) segment, so that do_stab_bolted won't get a
+ * recursive segment miss on the segment table itself.
+ */
 void __init stabs_alloc(void)
 {
 	int cpu;
@@ -222,7 +248,7 @@ void __init stabs_alloc(void)
 		unsigned long newstab;
 
 		if (cpu == 0)
-			continue; 
+			continue; /* stab for CPU 0 is statically allocated */
 
 		newstab = memblock_alloc_base(HW_PAGE_SIZE, HW_PAGE_SIZE,
 					 1<<SID_SHIFT);
@@ -238,6 +264,11 @@ void __init stabs_alloc(void)
 	}
 }
 
+/*
+ * Build an entry for the base kernel segment and put it into
+ * the segment table or SLB.  All other segment table or SLB
+ * entries are faulted in.
+ */
 void stab_initialize(unsigned long stab)
 {
 	unsigned long vsid = get_kernel_vsid(PAGE_OFFSET, MMU_SEGSIZE_256M);
@@ -246,10 +277,10 @@ void stab_initialize(unsigned long stab)
 	asm volatile("isync; slbia; isync":::"memory");
 	make_ste(stab, GET_ESID(PAGE_OFFSET), vsid);
 
-	
+	/* Order update */
 	asm volatile("sync":::"memory");
 
-	
+	/* Set ASR */
 	stabreal = get_paca()->stab_real | 0x1ul;
 
 	mtspr(SPRN_ASR, stabreal);

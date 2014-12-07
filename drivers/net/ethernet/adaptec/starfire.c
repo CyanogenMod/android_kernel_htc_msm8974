@@ -1,3 +1,4 @@
+/* starfire.c: Linux device driver for the Adaptec Starfire network adapter. */
 /*
 	Written 1998-2000 by Donald Becker.
 
@@ -43,53 +44,95 @@
 #include <linux/if_vlan.h>
 #include <linux/mm.h>
 #include <linux/firmware.h>
-#include <asm/processor.h>		
+#include <asm/processor.h>		/* Processor type for cache alignment. */
 #include <asm/uaccess.h>
 #include <asm/io.h>
 
+/*
+ * The current frame processor firmware fails to checksum a fragment
+ * of length 1. If and when this is fixed, the #define below can be removed.
+ */
 #define HAS_BROKEN_FIRMWARE
 
+/*
+ * If using the broken firmware, data must be padded to the next 32-bit boundary.
+ */
 #ifdef HAS_BROKEN_FIRMWARE
 #define PADDING_MASK 3
 #endif
 
+/*
+ * Define this if using the driver with the zero-copy patch
+ */
 #define ZEROCOPY
 
 #if defined(CONFIG_VLAN_8021Q) || defined(CONFIG_VLAN_8021Q_MODULE)
 #define VLAN_SUPPORT
 #endif
 
+/* The user-configurable values.
+   These may be modified when a driver module is loaded.*/
 
+/* Used for tuning interrupt latency vs. overhead. */
 static int intr_latency;
 static int small_frames;
 
-static int debug = 1;			
+static int debug = 1;			/* 1 normal messages, 0 quiet .. 7 verbose. */
 static int max_interrupt_work = 20;
 static int mtu;
+/* Maximum number of multicast addresses to filter (vs. rx-all-multicast).
+   The Starfire has a 512 element hash table based on the Ethernet CRC. */
 static const int multicast_filter_limit = 512;
+/* Whether to do TCP/UDP checksums in hardware */
 static int enable_hw_cksum = 1;
 
-#define PKT_BUF_SZ	1536		
+#define PKT_BUF_SZ	1536		/* Size of each temporary Rx buffer.*/
+/*
+ * Set the copy breakpoint for the copy-only-tiny-frames scheme.
+ * Setting to > 1518 effectively disables this feature.
+ *
+ * NOTE:
+ * The ia64 doesn't allow for unaligned loads even of integers being
+ * misaligned on a 2 byte boundary. Thus always force copying of
+ * packets as the starfire doesn't allow for misaligned DMAs ;-(
+ * 23/10/2000 - Jes
+ *
+ * The Alpha and the Sparc don't like unaligned loads, either. On Sparc64,
+ * at least, having unaligned frames leads to a rather serious performance
+ * penalty. -Ion
+ */
 #if defined(__ia64__) || defined(__alpha__) || defined(__sparc__)
 static int rx_copybreak = PKT_BUF_SZ;
 #else
-static int rx_copybreak ;
+static int rx_copybreak /* = 0 */;
 #endif
 
+/* PCI DMA burst size -- on sparc64 we want to force it to 64 bytes, on the others the default of 128 is fine. */
 #ifdef __sparc__
 #define DMA_BURST_SIZE 64
 #else
 #define DMA_BURST_SIZE 128
 #endif
 
-#define MAX_UNITS 8		
+/* Used to pass the media type, etc.
+   Both 'options[]' and 'full_duplex[]' exist for driver interoperability.
+   The media type is usually passed in 'options[]'.
+   These variables are deprecated, use ethtool instead. -Ion
+*/
+#define MAX_UNITS 8		/* More are supported, limit only on options */
 static int options[MAX_UNITS] = {0, };
 static int full_duplex[MAX_UNITS] = {0, };
 
+/* Operational parameters that are set at compile time. */
 
+/* The "native" ring sizes are either 256 or 2048.
+   However in some modes a descriptor may be marked to wrap the ring earlier.
+*/
 #define RX_RING_SIZE	256
 #define TX_RING_SIZE	32
+/* The completion queues are fixed at 1024 entries i.e. 4K or 8KB. */
 #define DONE_Q_SIZE	1024
+/* All queues must be aligned on a 256-byte boundary */
 #define QUEUE_ALIGN	256
 
 #if RX_RING_SIZE > 256
@@ -98,10 +141,13 @@ static int full_duplex[MAX_UNITS] = {0, };
 #define RX_Q_ENTRIES Rx256QEntries
 #endif
 
+/* Operational parameters that usually are not changed. */
+/* Time in jiffies before concluding the transmitter is hung. */
 #define TX_TIMEOUT	(2 * HZ)
 
 #ifdef CONFIG_ARCH_DMA_ADDR_T_64BIT
-#define ADDR_64BITS	
+/* 64-bit dma_addr_t */
+#define ADDR_64BITS	/* This chip uses 64 bit addresses. */
 #define netdrv_addr_t __le64
 #define cpu_to_dma(x) cpu_to_le64(x)
 #define dma_to_cpu(x) le64_to_cpu(x)
@@ -110,7 +156,7 @@ static int full_duplex[MAX_UNITS] = {0, };
 #define RX_COMPL_Q_ADDR_SIZE RxComplQAddr64bit
 #define TX_COMPL_Q_ADDR_SIZE TxComplQAddr64bit
 #define RX_DESC_ADDR_SIZE RxDescAddr64bit
-#else  
+#else  /* 32-bit dma_addr_t */
 #define netdrv_addr_t __le32
 #define cpu_to_dma(x) cpu_to_le32(x)
 #define dma_to_cpu(x) le32_to_cpu(x)
@@ -124,9 +170,11 @@ static int full_duplex[MAX_UNITS] = {0, };
 #define skb_first_frag_len(skb)	skb_headlen(skb)
 #define skb_num_frags(skb) (skb_shinfo(skb)->nr_frags + 1)
 
+/* Firmware names */
 #define FIRMWARE_RX	"adaptec/starfire_rx.bin"
 #define FIRMWARE_TX	"adaptec/starfire_tx.bin"
 
+/* These identify the driver base version and may not be removed. */
 static const char version[] __devinitconst =
 KERN_INFO "starfire.c:v1.03 7/26/2000  Written by Donald Becker <becker@scyld.com>\n"
 " (unofficial 2.2/2.4 kernel port, version " DRV_VERSION ", " DRV_RELDATE ")\n";
@@ -157,6 +205,90 @@ MODULE_PARM_DESC(options, "Deprecated: Bits 0-3: media type, bit 17: full duplex
 MODULE_PARM_DESC(full_duplex, "Deprecated: Forced full-duplex setting (0/1)");
 MODULE_PARM_DESC(enable_hw_cksum, "Enable/disable hardware cksum support (0/1)");
 
+/*
+				Theory of Operation
+
+I. Board Compatibility
+
+This driver is for the Adaptec 6915 "Starfire" 64 bit PCI Ethernet adapter.
+
+II. Board-specific settings
+
+III. Driver operation
+
+IIIa. Ring buffers
+
+The Starfire hardware uses multiple fixed-size descriptor queues/rings.  The
+ring sizes are set fixed by the hardware, but may optionally be wrapped
+earlier by the END bit in the descriptor.
+This driver uses that hardware queue size for the Rx ring, where a large
+number of entries has no ill effect beyond increases the potential backlog.
+The Tx ring is wrapped with the END bit, since a large hardware Tx queue
+disables the queue layer priority ordering and we have no mechanism to
+utilize the hardware two-level priority queue.  When modifying the
+RX/TX_RING_SIZE pay close attention to page sizes and the ring-empty warning
+levels.
+
+IIIb/c. Transmit/Receive Structure
+
+See the Adaptec manual for the many possible structures, and options for
+each structure.  There are far too many to document all of them here.
+
+For transmit this driver uses type 0/1 transmit descriptors (depending
+on the 32/64 bitness of the architecture), and relies on automatic
+minimum-length padding.  It does not use the completion queue
+consumer index, but instead checks for non-zero status entries.
+
+For receive this driver uses type 2/3 receive descriptors.  The driver
+allocates full frame size skbuffs for the Rx ring buffers, so all frames
+should fit in a single descriptor.  The driver does not use the completion
+queue consumer index, but instead checks for non-zero status entries.
+
+When an incoming frame is less than RX_COPYBREAK bytes long, a fresh skbuff
+is allocated and the frame is copied to the new skbuff.  When the incoming
+frame is larger, the skbuff is passed directly up the protocol stack.
+Buffers consumed this way are replaced by newly allocated skbuffs in a later
+phase of receive.
+
+A notable aspect of operation is that unaligned buffers are not permitted by
+the Starfire hardware.  Thus the IP header at offset 14 in an ethernet frame
+isn't longword aligned, which may cause problems on some machine
+e.g. Alphas and IA64. For these architectures, the driver is forced to copy
+the frame into a new skbuff unconditionally. Copied frames are put into the
+skbuff at an offset of "+2", thus 16-byte aligning the IP header.
+
+IIId. Synchronization
+
+The driver runs as two independent, single-threaded flows of control.  One
+is the send-packet routine, which enforces single-threaded use by the
+dev->tbusy flag.  The other thread is the interrupt handler, which is single
+threaded by the hardware and interrupt handling software.
+
+The send packet thread has partial control over the Tx ring and the netif_queue
+status. If the number of free Tx slots in the ring falls below a certain number
+(currently hardcoded to 4), it signals the upper layer to stop the queue.
+
+The interrupt handler has exclusive control over the Rx ring and records stats
+from the Tx ring.  After reaping the stats, it marks the Tx queue entry as
+empty by incrementing the dirty_tx mark. Iff the netif_queue is stopped and the
+number of free Tx slow is above the threshold, it signals the upper layer to
+restart the queue.
+
+IV. Notes
+
+IVb. References
+
+The Adaptec Starfire manuals, available only from Adaptec.
+http://www.scyld.com/expert/100mbps.html
+http://www.scyld.com/expert/NWay.html
+
+IVc. Errata
+
+- StopOnPerr is broken, don't enable
+- Hardware ethernet padding exposes random data, perform software padding
+  instead (unverified -- works correctly for all the hardware I have)
+
+*/
 
 
 
@@ -172,6 +304,7 @@ static DEFINE_PCI_DEVICE_TABLE(starfire_pci_tbl) = {
 };
 MODULE_DEVICE_TABLE(pci, starfire_pci_tbl);
 
+/* A chip capabilities table, matching the CH_xxx entries in xxx_pci_tbl[] above. */
 static const struct chip_info {
 	const char *name;
 	int drv_flags;
@@ -180,13 +313,21 @@ static const struct chip_info {
 };
 
 
+/* Offsets to the device registers.
+   Unlike software-only systems, device drivers interact with complex hardware.
+   It's not useful to define symbolic names for every register bit in the
+   device.  The name can only partially document the semantics and make
+   the driver longer and more difficult to read.
+   In general, only the important configuration values or bits changed
+   multiple times should be defined symbolically.
+*/
 enum register_offsets {
 	PCIDeviceConfig=0x50040, GenCtrl=0x50070, IntrTimerCtrl=0x50074,
 	IntrClear=0x50080, IntrStatus=0x50084, IntrEnable=0x50088,
 	MIICtrl=0x52000, TxStationAddr=0x50120, EEPROMCtrl=0x51000,
 	GPIOCtrl=0x5008C, TxDescCtrl=0x50090,
-	TxRingPtr=0x50098, HiPriTxRingPtr=0x50094, 
-	TxRingHiAddr=0x5009C,		
+	TxRingPtr=0x50098, HiPriTxRingPtr=0x50094, /* Low and High priority. */
+	TxRingHiAddr=0x5009C,		/* 64 bit address extension. */
 	TxProducerIdx=0x500A0, TxConsumerIdx=0x500A4,
 	TxThreshold=0x500B0,
 	CompletionHiAddr=0x500B4, TxCompletionAddr=0x500B8,
@@ -199,6 +340,11 @@ enum register_offsets {
 	TxGfpMem=0x58000, RxGfpMem=0x5a000,
 };
 
+/*
+ * Bits in the interrupt status/mask registers.
+ * Warning: setting Intr[Ab]NormalSummary in the IntrEnable register
+ * enables all the interrupt sources that are or'ed into those status bits.
+ */
 enum intr_status_bits {
 	IntrLinkChange=0xf0000000, IntrStatsMax=0x08000000,
 	IntrAbnormalSummary=0x02000000, IntrGeneralTimer=0x01000000,
@@ -214,12 +360,13 @@ enum intr_status_bits {
 	IntrNoTxCsum=0x20, IntrTxBadID=0x10,
 	IntrHiPriTxBadID=0x08, IntrRxGfp=0x04,
 	IntrTxGfp=0x02, IntrPCIPad=0x01,
-	
+	/* not quite bits */
 	IntrRxDone=IntrRxQ2Done | IntrRxQ1Done,
 	IntrRxEmpty=IntrRxDescQ1Low | IntrRxDescQ2Low,
 	IntrNormalMask=0xff00, IntrAbnormalMask=0x3ff00fe,
 };
 
+/* Bits in the RxFilterMode register. */
 enum rx_mode_bits {
 	AcceptBroadcast=0x04, AcceptAllMulticast=0x02, AcceptAll=0x01,
 	AcceptMulticast=0x10, PerfectFilter=0x40, HashFilter=0x30,
@@ -227,12 +374,14 @@ enum rx_mode_bits {
 	WakeupOnGFP=0x0800,
 };
 
+/* Bits in the TxMode register */
 enum tx_mode_bits {
 	MiiSoftReset=0x8000, MIILoopback=0x4000,
 	TxFlowEnable=0x0800, RxFlowEnable=0x0400,
 	PadEnable=0x04, FullDuplex=0x02, HugeFrame=0x01,
 };
 
+/* Bits in the TxDescCtrl register. */
 enum tx_ctrl_bits {
 	TxDescSpaceUnlim=0x00, TxDescSpace32=0x10, TxDescSpace64=0x20,
 	TxDescSpace128=0x30, TxDescSpace256=0x40,
@@ -244,6 +393,7 @@ enum tx_ctrl_bits {
 	TxDMABurstSizeShift=8,
 };
 
+/* Bits in the RxDescQCtrl register. */
 enum rx_ctrl_bits {
 	RxBufferLenShift=16, RxMinDescrThreshShift=0,
 	RxPrefetchMode=0x8000, RxVariableQ=0x2000,
@@ -256,6 +406,7 @@ enum rx_ctrl_bits {
 	RxConsumerWrEn=0x80,
 };
 
+/* Bits in the RxDMACtrl register. */
 enum rx_dmactrl_bits {
 	RxReportBadFrames=0x80000000, RxDMAShortFrames=0x40000000,
 	RxDMABadFrames=0x20000000, RxDMACrcErrorFrames=0x10000000,
@@ -271,6 +422,7 @@ enum rx_dmactrl_bits {
 	RxBurstSizeShift=0,
 };
 
+/* Bits in the RxCompletionAddr register */
 enum rx_compl_bits {
 	RxComplQAddr64bit=0x80, RxComplQAddr32bit=0,
 	RxComplProducerWrEn=0x40,
@@ -279,6 +431,7 @@ enum rx_compl_bits {
 	RxComplThreshShift=0,
 };
 
+/* Bits in the TxCompletionAddr register */
 enum tx_compl_bits {
 	TxComplQAddr64bit=0x80, TxComplQAddr32bit=0,
 	TxComplProducerWrEn=0x40,
@@ -287,17 +440,20 @@ enum tx_compl_bits {
 	TxComplThreshShift=0,
 };
 
+/* Bits in the GenCtrl register */
 enum gen_ctrl_bits {
 	RxEnable=0x05, TxEnable=0x0a,
 	RxGFPEnable=0x10, TxGFPEnable=0x20,
 };
 
+/* Bits in the IntrTimerCtrl register */
 enum intr_ctrl_bits {
 	Timer10X=0x800, EnableIntrMasking=0x60, SmallFrameBypass=0x100,
 	SmallFrame64=0, SmallFrame128=0x200, SmallFrame256=0x400, SmallFrame512=0x600,
 	IntrLatencyMask=0x1f,
 };
 
+/* The Rx and Tx buffer descriptors. */
 struct starfire_rx_desc {
 	netdrv_addr_t rxaddr;
 };
@@ -305,46 +461,50 @@ enum rx_desc_bits {
 	RxDescValid=1, RxDescEndRing=2,
 };
 
+/* Completion queue entry. */
 struct short_rx_done_desc {
-	__le32 status;			
+	__le32 status;			/* Low 16 bits is length. */
 };
 struct basic_rx_done_desc {
-	__le32 status;			
+	__le32 status;			/* Low 16 bits is length. */
 	__le16 vlanid;
 	__le16 status2;
 };
 struct csum_rx_done_desc {
-	__le32 status;			
-	__le16 csum;			
+	__le32 status;			/* Low 16 bits is length. */
+	__le16 csum;			/* Partial checksum */
 	__le16 status2;
 };
 struct full_rx_done_desc {
-	__le32 status;			
+	__le32 status;			/* Low 16 bits is length. */
 	__le16 status3;
 	__le16 status2;
 	__le16 vlanid;
-	__le16 csum;			
+	__le16 csum;			/* partial checksum */
 	__le32 timestamp;
 };
+/* XXX: this is ugly and I'm not sure it's worth the trouble -Ion */
 #ifdef VLAN_SUPPORT
 typedef struct full_rx_done_desc rx_done_desc;
 #define RxComplType RxComplType3
-#else  
+#else  /* not VLAN_SUPPORT */
 typedef struct csum_rx_done_desc rx_done_desc;
 #define RxComplType RxComplType2
-#endif 
+#endif /* not VLAN_SUPPORT */
 
 enum rx_done_bits {
 	RxOK=0x20000000, RxFIFOErr=0x10000000, RxBufQ2=0x08000000,
 };
 
+/* Type 1 Tx descriptor. */
 struct starfire_tx_desc_1 {
-	__le32 status;			
+	__le32 status;			/* Upper bits are status, lower 16 length. */
 	__le32 addr;
 };
 
+/* Type 2 Tx descriptor. */
 struct starfire_tx_desc_2 {
-	__le32 status;			
+	__le32 status;			/* Upper bits are status, lower 16 length. */
 	__le32 reserved;
 	__le64 addr;
 };
@@ -352,10 +512,10 @@ struct starfire_tx_desc_2 {
 #ifdef ADDR_64BITS
 typedef struct starfire_tx_desc_2 starfire_tx_desc;
 #define TX_DESC_TYPE TxDescType2
-#else  
+#else  /* not ADDR_64BITS */
 typedef struct starfire_tx_desc_1 starfire_tx_desc;
 #define TX_DESC_TYPE TxDescType1
-#endif 
+#endif /* not ADDR_64BITS */
 #define TX_DESC_SPACING TxDescSpaceUnlim
 
 enum tx_desc_bits {
@@ -364,9 +524,9 @@ enum tx_desc_bits {
 	TxRingWrap=0x04000000, TxCalTCP=0x02000000,
 };
 struct tx_done_desc {
-	__le32 status;			
+	__le32 status;			/* timestamp, index. */
 #if 0
-	__le32 intrstatus;		
+	__le32 intrstatus;		/* interrupt status */
 #endif
 };
 
@@ -382,15 +542,15 @@ struct tx_ring_info {
 
 #define PHY_CNT		2
 struct netdev_private {
-	
+	/* Descriptor rings first for alignment. */
 	struct starfire_rx_desc *rx_ring;
 	starfire_tx_desc *tx_ring;
 	dma_addr_t rx_ring_dma;
 	dma_addr_t tx_ring_dma;
-	
+	/* The addresses of rx/tx-in-place skbuffs. */
 	struct rx_ring_info rx_info[RX_RING_SIZE];
 	struct tx_ring_info tx_info[TX_RING_SIZE];
-	
+	/* Pointers to completion queues (full pages). */
 	rx_done_desc *rx_done_q;
 	dma_addr_t rx_done_q_dma;
 	unsigned int rx_done;
@@ -407,20 +567,20 @@ struct netdev_private {
 	dma_addr_t queue_mem_dma;
 	size_t queue_mem_size;
 
-	
+	/* Frequently used values: keep some adjacent for cache effect. */
 	spinlock_t lock;
-	unsigned int cur_rx, dirty_rx;	
+	unsigned int cur_rx, dirty_rx;	/* Producer/consumer ring indices */
 	unsigned int cur_tx, dirty_tx, reap_tx;
-	unsigned int rx_buf_sz;		
-	
-	int speed100;			
+	unsigned int rx_buf_sz;		/* Based on MTU+slack. */
+	/* These values keep track of the transceiver/media in use. */
+	int speed100;			/* Set if speed == 100MBit. */
 	u32 tx_mode;
 	u32 intr_timer_ctrl;
 	u8 tx_threshold;
-	
-	struct mii_if_info mii_if;		
-	int phy_cnt;			
-	unsigned char phys[PHY_CNT];	
+	/* MII transceiver section. */
+	struct mii_if_info mii_if;		/* MII lib hooks/info */
+	int phy_cnt;			/* MII device addresses. */
+	unsigned char phys[PHY_CNT];	/* MII device addresses. */
 	void __iomem *base;
 };
 
@@ -474,7 +634,7 @@ static int netdev_vlan_rx_kill_vid(struct net_device *dev, unsigned short vid)
 
 	return 0;
 }
-#endif 
+#endif /* VLAN_SUPPORT */
 
 
 static const struct net_device_ops netdev_ops = {
@@ -506,6 +666,7 @@ static int __devinit starfire_init_one(struct pci_dev *pdev,
 	int drv_flags, io_size;
 	int boguscnt;
 
+/* when built into the kernel, we only print version if device is found */
 #ifndef MODULE
 	static int printed_version;
 	if (!printed_version++)
@@ -546,27 +707,27 @@ static int __devinit starfire_init_one(struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
-	
+	/* enable MWI -- it vastly improves Rx performance on sparc64 */
 	pci_try_set_mwi(pdev);
 
 #ifdef ZEROCOPY
-	
+	/* Starfire can do TCP/UDP checksumming */
 	if (enable_hw_cksum)
 		dev->features |= NETIF_F_IP_CSUM | NETIF_F_SG;
-#endif 
+#endif /* ZEROCOPY */
 
 #ifdef VLAN_SUPPORT
 	dev->features |= NETIF_F_HW_VLAN_RX | NETIF_F_HW_VLAN_FILTER;
-#endif 
+#endif /* VLAN_RX_KILL_VID */
 #ifdef ADDR_64BITS
 	dev->features |= NETIF_F_HIGHDMA;
-#endif 
+#endif /* ADDR_64BITS */
 
-	
+	/* Serial EEPROM reads are hidden by the hardware. */
 	for (i = 0; i < 6; i++)
 		dev->dev_addr[i] = readb(base + EEPROMCtrl + 20 - i);
 
-#if ! defined(final_version) 
+#if ! defined(final_version) /* Dump the EEPROM contents during development. */
 	if (debug > 4)
 		for (i = 0; i < 0x20; i++)
 			printk("%2.2x%s",
@@ -574,12 +735,12 @@ static int __devinit starfire_init_one(struct pci_dev *pdev,
 			       i % 16 != 15 ? " " : "\n");
 #endif
 
-	
+	/* Issue soft reset */
 	writel(MiiSoftReset, base + TxMode);
 	udelay(1000);
 	writel(0, base + TxMode);
 
-	
+	/* Reset the chip to erase previous misconfiguration. */
 	writel(1, base + PCIDeviceConfig);
 	boguscnt = 1000;
 	while (--boguscnt > 0) {
@@ -589,7 +750,7 @@ static int __devinit starfire_init_one(struct pci_dev *pdev,
 	}
 	if (boguscnt == 0)
 		printk("%s: chipset reset never completed!\n", dev->name);
-	
+	/* wait a little longer */
 	udelay(1000);
 
 	dev->base_addr = (unsigned long)base;
@@ -615,7 +776,7 @@ static int __devinit starfire_init_one(struct pci_dev *pdev,
 	if (dev->mem_start)
 		option = dev->mem_start;
 
-	
+	/* The lower four bits are the media type. */
 	if (option & 0x200)
 		np->mii_if.full_duplex = 1;
 
@@ -628,7 +789,7 @@ static int __devinit starfire_init_one(struct pci_dev *pdev,
 		np->mii_if.force_media = 0;
 	np->speed100 = 1;
 
-	
+	/* timer resolution is 128 * 0.8us */
 	np->intr_timer_ctrl = (((intr_latency * 10) / 1024) & IntrLatencyMask) |
 		Timer10X | EnableIntrMasking;
 
@@ -689,7 +850,7 @@ static int __devinit starfire_init_one(struct pci_dev *pdev,
 				printk(KERN_INFO "%s: MII PHY found at address %d, status "
 					   "%#4.4x advertising %#4.4x.\n",
 					   dev->name, phy, mii_status, np->mii_if.advertising);
-				
+				/* there can be only one PHY on-board */
 				break;
 			}
 		}
@@ -715,12 +876,13 @@ err_out_free_netdev:
 }
 
 
+/* Read the MII Management Data I/O (MDIO) interfaces. */
 static int mdio_read(struct net_device *dev, int phy_id, int location)
 {
 	struct netdev_private *np = netdev_priv(dev);
 	void __iomem *mdio_addr = np->base + MIICtrl + (phy_id<<7) + (location<<2);
 	int result, boguscnt=1000;
-	
+	/* ??? Should we add a busy-wait here? */
 	do {
 		result = readl(mdio_addr);
 	} while ((result & 0xC0000000) != 0x80000000 && --boguscnt > 0);
@@ -737,7 +899,7 @@ static void mdio_write(struct net_device *dev, int phy_id, int location, int val
 	struct netdev_private *np = netdev_priv(dev);
 	void __iomem *mdio_addr = np->base + MIICtrl + (phy_id<<7) + (location<<2);
 	writel(value, mdio_addr);
-	
+	/* The busy-wait will occur before a read. */
 }
 
 
@@ -751,20 +913,20 @@ static int netdev_open(struct net_device *dev)
 	size_t tx_size, rx_size;
 	size_t tx_done_q_size, rx_done_q_size, tx_ring_size, rx_ring_size;
 
-	
+	/* Do we ever need to reset the chip??? */
 
 	retval = request_irq(dev->irq, intr_handler, IRQF_SHARED, dev->name, dev);
 	if (retval)
 		return retval;
 
-	
+	/* Disable the Rx and Tx, and reset the chip. */
 	writel(0, ioaddr + GenCtrl);
 	writel(1, ioaddr + PCIDeviceConfig);
 	if (debug > 1)
 		printk(KERN_DEBUG "%s: netdev_open() irq %d.\n",
 		       dev->name, dev->irq);
 
-	
+	/* Allocate the various queues. */
 	if (!np->queue_mem) {
 		tx_done_q_size = ((sizeof(struct tx_done_desc) * DONE_Q_SIZE + QUEUE_ALIGN - 1) / QUEUE_ALIGN) * QUEUE_ALIGN;
 		rx_done_q_size = ((sizeof(rx_done_desc) * DONE_Q_SIZE + QUEUE_ALIGN - 1) / QUEUE_ALIGN) * QUEUE_ALIGN;
@@ -787,10 +949,10 @@ static int netdev_open(struct net_device *dev)
 		np->rx_ring_dma   = np->tx_ring_dma + tx_ring_size;
 	}
 
-	
+	/* Start with no carrier, it gets adjusted later */
 	netif_carrier_off(dev);
 	init_ring(dev);
-	
+	/* Set the size of the Rx buffers. */
 	writel((np->rx_buf_sz << RxBufferLenShift) |
 	       (0 << RxMinDescrThreshShift) |
 	       RxPrefetchMode | RxVariableQ |
@@ -799,14 +961,14 @@ static int netdev_open(struct net_device *dev)
 	       RxDescSpace4,
 	       ioaddr + RxDescQCtrl);
 
-	
+	/* Set up the Rx DMA controller. */
 	writel(RxChecksumIgnore |
 	       (0 << RxEarlyIntThreshShift) |
 	       (6 << RxHighPrioThreshShift) |
 	       ((DMA_BURST_SIZE / 32) << RxBurstSizeShift),
 	       ioaddr + RxDMACtrl);
 
-	
+	/* Set Tx descriptor */
 	writel((2 << TxHiPriFIFOThreshShift) |
 	       (0 << TxPadLenShift) |
 	       ((DMA_BURST_SIZE / 32) << TxDMABurstSizeShift) |
@@ -829,9 +991,11 @@ static int netdev_open(struct net_device *dev)
 	if (debug > 1)
 		printk(KERN_DEBUG "%s: Filling in the station address.\n", dev->name);
 
-	
+	/* Fill both the Tx SA register and the Rx perfect filter. */
 	for (i = 0; i < 6; i++)
 		writeb(dev->dev_addr[i], ioaddr + TxStationAddr + 5 - i);
+	/* The first entry is special because it bypasses the VLAN filter.
+	   Don't use it. */
 	writew(0, ioaddr + PerfFilterTable);
 	writew(0, ioaddr + PerfFilterTable + 4);
 	writew(0, ioaddr + PerfFilterTable + 8);
@@ -843,9 +1007,9 @@ static int netdev_open(struct net_device *dev)
 		writew(be16_to_cpu(eaddrs[0]), setup_frm); setup_frm += 8;
 	}
 
-	
-	
-	np->tx_mode = TxFlowEnable|RxFlowEnable|PadEnable;	
+	/* Initialize other registers. */
+	/* Configure the PCI bus bursts and FIFO thresholds. */
+	np->tx_mode = TxFlowEnable|RxFlowEnable|PadEnable;	/* modified when link is up. */
 	writel(MiiSoftReset | np->tx_mode, ioaddr + TxMode);
 	udelay(1000);
 	writel(np->tx_mode, ioaddr + TxMode);
@@ -865,22 +1029,22 @@ static int netdev_open(struct net_device *dev)
 	np->mii_if.advertising = mdio_read(dev, np->phys[0], MII_ADVERTISE);
 	check_duplex(dev);
 
-	
+	/* Enable GPIO interrupts on link change */
 	writel(0x0f00ff00, ioaddr + GPIOCtrl);
 
-	
+	/* Set the interrupt mask */
 	writel(IntrRxDone | IntrRxEmpty | IntrDMAErr |
 	       IntrTxDMADone | IntrStatsMax | IntrLinkChange |
 	       IntrRxGFPDead | IntrNoTxCsum | IntrTxBadID,
 	       ioaddr + IntrEnable);
-	
+	/* Enable PCI interrupts. */
 	writel(0x00800000 | readl(ioaddr + PCIDeviceConfig),
 	       ioaddr + PCIDeviceConfig);
 
 #ifdef VLAN_SUPPORT
-	
+	/* Set VLAN type to 802.1q */
 	writel(ETH_P_8021Q, ioaddr + VlanType);
-#endif 
+#endif /* VLAN_SUPPORT */
 
 	retval = request_firmware(&fw_rx, FIRMWARE_RX, &np->pci_dev->dev);
 	if (retval) {
@@ -911,16 +1075,16 @@ static int netdev_open(struct net_device *dev)
 	rx_size = fw_rx->size / 4;
 	tx_size = fw_tx->size / 4;
 
-	
+	/* Load Rx/Tx firmware into the frame processors */
 	for (i = 0; i < rx_size; i++)
 		writel(be32_to_cpup(&fw_rx_data[i]), ioaddr + RxGfpMem + i * 4);
 	for (i = 0; i < tx_size; i++)
 		writel(be32_to_cpup(&fw_tx_data[i]), ioaddr + TxGfpMem + i * 4);
 	if (enable_hw_cksum)
-		
+		/* Enable the Rx and Tx units, and the Rx/Tx frame processors. */
 		writel(TxEnable|TxGFPEnable|RxEnable|RxGFPEnable, ioaddr + GenCtrl);
 	else
-		
+		/* Enable the Rx and Tx units only. */
 		writel(TxEnable|RxEnable, ioaddr + GenCtrl);
 
 	if (debug > 1)
@@ -948,7 +1112,7 @@ static void check_duplex(struct net_device *dev)
 	mdio_write(dev, np->phys[0], MII_BMCR, BMCR_RESET);
 	udelay(500);
 	while (--silly_count && mdio_read(dev, np->phys[0], MII_BMCR) & BMCR_RESET)
-		;
+		/* do nothing */;
 	if (!silly_count) {
 		printk("%s: MII reset failed!\n", dev->name);
 		return;
@@ -982,22 +1146,27 @@ static void tx_timeout(struct net_device *dev)
 	printk(KERN_WARNING "%s: Transmit timed out, status %#8.8x, "
 	       "resetting...\n", dev->name, (int) readl(ioaddr + IntrStatus));
 
-	
+	/* Perhaps we should reinitialize the hardware here. */
 
+	/*
+	 * Stop and restart the interface.
+	 * Cheat and increase the debug level temporarily.
+	 */
 	old_debug = debug;
 	debug = 2;
 	netdev_close(dev);
 	netdev_open(dev);
 	debug = old_debug;
 
-	
+	/* Trigger an immediate transmit demand. */
 
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	dev->stats.tx_errors++;
 	netif_wake_queue(dev);
 }
 
 
+/* Initialize the Rx and Tx rings, along with various 'dev' bits. */
 static void init_ring(struct net_device *dev)
 {
 	struct netdev_private *np = netdev_priv(dev);
@@ -1008,29 +1177,29 @@ static void init_ring(struct net_device *dev)
 
 	np->rx_buf_sz = (dev->mtu <= 1500 ? PKT_BUF_SZ : dev->mtu + 32);
 
-	
+	/* Fill in the Rx buffers.  Handle allocation failure gracefully. */
 	for (i = 0; i < RX_RING_SIZE; i++) {
 		struct sk_buff *skb = netdev_alloc_skb(dev, np->rx_buf_sz);
 		np->rx_info[i].skb = skb;
 		if (skb == NULL)
 			break;
 		np->rx_info[i].mapping = pci_map_single(np->pci_dev, skb->data, np->rx_buf_sz, PCI_DMA_FROMDEVICE);
-		
+		/* Grrr, we cannot offset to correctly align the IP header. */
 		np->rx_ring[i].rxaddr = cpu_to_dma(np->rx_info[i].mapping | RxDescValid);
 	}
 	writew(i - 1, np->base + RxDescQIdx);
 	np->dirty_rx = (unsigned int)(i - RX_RING_SIZE);
 
-	
+	/* Clear the remainder of the Rx buffer ring. */
 	for (  ; i < RX_RING_SIZE; i++) {
 		np->rx_ring[i].rxaddr = 0;
 		np->rx_info[i].skb = NULL;
 		np->rx_info[i].mapping = 0;
 	}
-	
+	/* Mark the last entry as wrapping the ring. */
 	np->rx_ring[RX_RING_SIZE - 1].rxaddr |= cpu_to_dma(RxDescEndRing);
 
-	
+	/* Clear the completion rings. */
 	for (i = 0; i < DONE_Q_SIZE; i++) {
 		np->rx_done_q[i].status = 0;
 		np->tx_done_q[i].status = 0;
@@ -1048,6 +1217,10 @@ static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 	u32 status;
 	int i;
 
+	/*
+	 * be cautious here, wrapping the queue has weird semantics
+	 * and we may not have enough slots even when it seems we do.
+	 */
 	if ((np->cur_tx - np->dirty_tx) + skb_num_frags(skb) * 2 > TX_RING_SIZE) {
 		netif_stop_queue(dev);
 		return NETDEV_TX_BUSY;
@@ -1058,7 +1231,7 @@ static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 		if (skb_padto(skb, (skb->len + PADDING_MASK) & ~PADDING_MASK))
 			return NETDEV_TX_OK;
 	}
-#endif 
+#endif /* ZEROCOPY && HAS_BROKEN_FIRMWARE */
 
 	entry = np->cur_tx % TX_RING_SIZE;
 	for (i = 0; i < skb_num_frags(skb); i++) {
@@ -1109,20 +1282,20 @@ static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 			np->cur_tx += np->tx_info[entry].used_slots;
 			entry++;
 		}
-		
+		/* scavenge the tx descriptors twice per TX_RING_SIZE */
 		if (np->cur_tx % (TX_RING_SIZE / 2) == 0)
 			np->reap_tx = 1;
 	}
 
-	
+	/* Non-x86: explicitly flush descriptor cache lines here. */
 	/* Ensure all descriptors are written back before the transmit is
 	   initiated. - Jes */
 	wmb();
 
-	
+	/* Update the producer index. */
 	writel(entry * (sizeof(starfire_tx_desc) / 8), np->base + TxProducerIdx);
 
-	
+	/* 4 is arbitrary, but should be ok */
 	if ((np->cur_tx - np->dirty_tx) + 4 > TX_RING_SIZE)
 		netif_stop_queue(dev);
 
@@ -1130,6 +1303,8 @@ static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 }
 
 
+/* The interrupt handler does all of the Rx thread work and cleans up
+   after the Tx thread. */
 static irqreturn_t intr_handler(int irq, void *dev_instance)
 {
 	struct net_device *dev = dev_instance;
@@ -1160,10 +1335,10 @@ static irqreturn_t intr_handler(int irq, void *dev_instance)
 				enable = readl(ioaddr + IntrEnable);
 				enable &= ~(IntrRxDone | IntrRxEmpty);
 				writel(enable, ioaddr + IntrEnable);
-				
+				/* flush PCI posting buffers */
 				readl(ioaddr + IntrEnable);
 			} else {
-				
+				/* Paranoia check */
 				enable = readl(ioaddr + IntrEnable);
 				if (enable & (IntrRxDone | IntrRxEmpty)) {
 					printk(KERN_INFO
@@ -1175,6 +1350,9 @@ static irqreturn_t intr_handler(int irq, void *dev_instance)
 			}
 		}
 
+		/* Scavenge the skbuff list based on the Tx-done queue.
+		   There are redundant checks here that may be cleaned up
+		   after the driver has proven to be reliable. */
 		consumer = readl(ioaddr + TxConsumerIdx);
 		if (debug > 3)
 			printk(KERN_DEBUG "%s: Tx Consumer index is %d.\n",
@@ -1218,19 +1396,19 @@ static irqreturn_t intr_handler(int irq, void *dev_instance)
 
 		if (netif_queue_stopped(dev) &&
 		    (np->cur_tx - np->dirty_tx + 4 < TX_RING_SIZE)) {
-			
+			/* The ring is no longer full, wake the queue. */
 			netif_wake_queue(dev);
 		}
 
-		
+		/* Stats overflow */
 		if (intr_status & IntrStatsMax)
 			get_stats(dev);
 
-		
+		/* Media change interrupt. */
 		if (intr_status & IntrLinkChange)
 			netdev_media_change(dev);
 
-		
+		/* Abnormal error summary/uncommon events handlers. */
 		if (intr_status & IntrAbnormalSummary)
 			netdev_error(dev, intr_status);
 
@@ -1250,13 +1428,17 @@ static irqreturn_t intr_handler(int irq, void *dev_instance)
 }
 
 
+/*
+ * This routine is logically part of the interrupt/poll handler, but separated
+ * for clarity and better register allocation.
+ */
 static int __netdev_rx(struct net_device *dev, int *quota)
 {
 	struct netdev_private *np = netdev_priv(dev);
 	u32 desc_status;
 	int retcode = 0;
 
-	
+	/* If EOP is set on the next entry, it's a new packet. Send it up. */
 	while ((desc_status = le32_to_cpu(np->rx_done_q[np->rx_done].status)) != 0) {
 		struct sk_buff *skb;
 		u16 pkt_len;
@@ -1266,7 +1448,7 @@ static int __netdev_rx(struct net_device *dev, int *quota)
 		if (debug > 4)
 			printk(KERN_DEBUG "  netdev_rx() status of %d was %#8.8x.\n", np->rx_done, desc_status);
 		if (!(desc_status & RxOK)) {
-			
+			/* There was an error. */
 			if (debug > 2)
 				printk(KERN_DEBUG "  netdev_rx() Rx error was %#8.8x.\n", desc_status);
 			dev->stats.rx_errors++;
@@ -1275,20 +1457,22 @@ static int __netdev_rx(struct net_device *dev, int *quota)
 			goto next_rx;
 		}
 
-		if (*quota <= 0) {	
+		if (*quota <= 0) {	/* out of rx quota */
 			retcode = 1;
 			goto out;
 		}
 		(*quota)--;
 
-		pkt_len = desc_status;	
+		pkt_len = desc_status;	/* Implicitly Truncate */
 		entry = (desc_status >> 16) & 0x7ff;
 
 		if (debug > 4)
 			printk(KERN_DEBUG "  netdev_rx() normal Rx pkt length %d, quota %d.\n", pkt_len, *quota);
+		/* Check if the packet is long enough to accept without copying
+		   to a minimally-sized skbuff. */
 		if (pkt_len < rx_copybreak &&
 		    (skb = netdev_alloc_skb(dev, pkt_len + 2)) != NULL) {
-			skb_reserve(skb, 2);	
+			skb_reserve(skb, 2);	/* 16 byte align the IP header */
 			pci_dma_sync_single_for_cpu(np->pci_dev,
 						    np->rx_info[entry].mapping,
 						    pkt_len, PCI_DMA_FROMDEVICE);
@@ -1304,8 +1488,8 @@ static int __netdev_rx(struct net_device *dev, int *quota)
 			np->rx_info[entry].skb = NULL;
 			np->rx_info[entry].mapping = 0;
 		}
-#ifndef final_version			
-		
+#ifndef final_version			/* Remove after testing. */
+		/* You will want this info for the initial debug. */
 		if (debug > 5) {
 			printk(KERN_DEBUG "  Rx data %pM %pM %2.2x%2.2x.\n",
 			       skb->data, skb->data + 6,
@@ -1322,6 +1506,15 @@ static int __netdev_rx(struct net_device *dev, int *quota)
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 			dev->stats.rx_compressed++;
 		}
+		/*
+		 * This feature doesn't seem to be working, at least
+		 * with the two firmware versions I have. If the GFP sees
+		 * an IP fragment, it either ignores it completely, or reports
+		 * "bad checksum" on it.
+		 *
+		 * Maybe I missed something -- corrections are welcome.
+		 * Until then, the printk stays. :-) -Ion
+		 */
 		else if (le16_to_cpu(desc->status2) & 0x0040) {
 			skb->ip_summed = CHECKSUM_COMPLETE;
 			skb->csum = le16_to_cpu(desc->csum);
@@ -1337,7 +1530,7 @@ static int __netdev_rx(struct net_device *dev, int *quota)
 			}
 			__vlan_hwaccel_put_tag(skb, vlid);
 		}
-#endif 
+#endif /* VLAN_SUPPORT */
 		netif_receive_skb(skb);
 		dev->stats.rx_packets++;
 
@@ -1347,7 +1540,7 @@ static int __netdev_rx(struct net_device *dev, int *quota)
 		np->rx_done = (np->rx_done + 1) % DONE_Q_SIZE;
 	}
 
-	if (*quota == 0) {	
+	if (*quota == 0) {	/* out of rx quota */
 		retcode = 1;
 		goto out;
 	}
@@ -1388,7 +1581,7 @@ static int netdev_poll(struct napi_struct *napi, int budget)
 		printk(KERN_DEBUG "  exiting netdev_poll(): %d.\n",
 		       budget - quota);
 
-	
+	/* Restart Rx engine if stopped. */
 	return budget - quota;
 }
 
@@ -1398,14 +1591,14 @@ static void refill_rx_ring(struct net_device *dev)
 	struct sk_buff *skb;
 	int entry = -1;
 
-	
+	/* Refill the Rx ring buffers. */
 	for (; np->cur_rx - np->dirty_rx > 0; np->dirty_rx++) {
 		entry = np->dirty_rx % RX_RING_SIZE;
 		if (np->rx_info[entry].skb == NULL) {
 			skb = netdev_alloc_skb(dev, np->rx_buf_sz);
 			np->rx_info[entry].skb = skb;
 			if (skb == NULL)
-				break;	
+				break;	/* Better luck next round. */
 			np->rx_info[entry].mapping =
 				pci_map_single(np->pci_dev, skb->data, np->rx_buf_sz, PCI_DMA_FROMDEVICE);
 			np->rx_ring[entry].rxaddr =
@@ -1427,7 +1620,7 @@ static void netdev_media_change(struct net_device *dev)
 	u32 new_tx_mode;
 	u32 new_intr_timer_ctrl;
 
-	
+	/* reset status first */
 	mdio_read(dev, np->phys[0], MII_BMCR);
 	mdio_read(dev, np->phys[0], MII_BMSR);
 
@@ -1435,9 +1628,9 @@ static void netdev_media_change(struct net_device *dev)
 	reg1 = mdio_read(dev, np->phys[0], MII_BMSR);
 
 	if (reg1 & BMSR_LSTATUS) {
-		
+		/* link is up */
 		if (reg0 & BMCR_ANENABLE) {
-			
+			/* autonegotiation is enabled */
 			reg4 = mdio_read(dev, np->phys[0], MII_ADVERTISE);
 			reg5 = mdio_read(dev, np->phys[0], MII_LPA);
 			if (reg4 & ADVERTISE_100FULL && reg5 & LPA_100FULL) {
@@ -1454,7 +1647,7 @@ static void netdev_media_change(struct net_device *dev)
 				np->mii_if.full_duplex = 0;
 			}
 		} else {
-			
+			/* autonegotiation is disabled */
 			if (reg0 & BMCR_SPEED100)
 				np->speed100 = 1;
 			else
@@ -1470,7 +1663,7 @@ static void netdev_media_change(struct net_device *dev)
 		       np->speed100 ? "100" : "10",
 		       np->mii_if.full_duplex ? "full" : "half");
 
-		new_tx_mode = np->tx_mode & ~FullDuplex;	
+		new_tx_mode = np->tx_mode & ~FullDuplex;	/* duplex setting */
 		if (np->mii_if.full_duplex)
 			new_tx_mode |= FullDuplex;
 		if (np->tx_mode != new_tx_mode) {
@@ -1498,7 +1691,7 @@ static void netdev_error(struct net_device *dev, int intr_status)
 {
 	struct netdev_private *np = netdev_priv(dev);
 
-	
+	/* Came close to underrunning the Tx FIFO, increase threshold. */
 	if (intr_status & IntrTxDataLow) {
 		if (np->tx_threshold <= PKT_BUF_SZ / 16) {
 			writel(++np->tx_threshold, np->base + TxThreshold);
@@ -1526,7 +1719,7 @@ static struct net_device_stats *get_stats(struct net_device *dev)
 	struct netdev_private *np = netdev_priv(dev);
 	void __iomem *ioaddr = np->base;
 
-	
+	/* This adapter architecture needs no SMP locks. */
 	dev->stats.tx_bytes = readl(ioaddr + 0x57010);
 	dev->stats.rx_bytes = readl(ioaddr + 0x57044);
 	dev->stats.tx_packets = readl(ioaddr + 0x57000);
@@ -1536,7 +1729,7 @@ static struct net_device_stats *get_stats(struct net_device *dev)
 	dev->stats.collisions =
 		readl(ioaddr + 0x57004) + readl(ioaddr + 0x57008);
 
-	
+	/* The chip only need report frame silently dropped. */
 	dev->stats.rx_dropped += readw(ioaddr + RxDMAStatus);
 	writew(0, ioaddr + RxDMAStatus);
 	dev->stats.rx_crc_errors = readl(ioaddr + 0x5703C);
@@ -1572,7 +1765,7 @@ static u32 set_vlan_mode(struct netdev_private *np)
 	}
 	return ret;
 }
-#endif 
+#endif /* VLAN_SUPPORT */
 
 static void set_rx_mode(struct net_device *dev)
 {
@@ -1584,16 +1777,16 @@ static void set_rx_mode(struct net_device *dev)
 
 #ifdef VLAN_SUPPORT
 	rx_mode |= set_vlan_mode(np);
-#endif 
+#endif /* VLAN_SUPPORT */
 
-	if (dev->flags & IFF_PROMISC) {	
+	if (dev->flags & IFF_PROMISC) {	/* Set promiscuous. */
 		rx_mode |= AcceptAll;
 	} else if ((netdev_mc_count(dev) > multicast_filter_limit) ||
 		   (dev->flags & IFF_ALLMULTI)) {
-		
+		/* Too many to match, or accept all multicasts. */
 		rx_mode |= AcceptBroadcast|AcceptAllMulticast|PerfectFilter;
 	} else if (netdev_mc_count(dev) <= 14) {
-		
+		/* Use the 16 element perfect filter, skip first two entries. */
 		void __iomem *filter_addr = ioaddr + PerfFilterTable + 2 * 16;
 		__be16 *eaddrs;
 		netdev_for_each_mc_addr(ha, dev) {
@@ -1611,19 +1804,21 @@ static void set_rx_mode(struct net_device *dev)
 		}
 		rx_mode |= AcceptBroadcast|PerfectFilter;
 	} else {
-		
+		/* Must use a multicast hash table. */
 		void __iomem *filter_addr;
 		__be16 *eaddrs;
-		__le16 mc_filter[32] __attribute__ ((aligned(sizeof(long))));	
+		__le16 mc_filter[32] __attribute__ ((aligned(sizeof(long))));	/* Multicast hash filter */
 
 		memset(mc_filter, 0, sizeof(mc_filter));
 		netdev_for_each_mc_addr(ha, dev) {
+			/* The chip uses the upper 9 CRC bits
+			   as index into the hash table */
 			int bit_nr = ether_crc_le(ETH_ALEN, ha->addr) >> 23;
 			__le32 *fptr = (__le32 *) &mc_filter[(bit_nr >> 4) & ~1];
 
 			*fptr |= cpu_to_le32(1 << (bit_nr & 31));
 		}
-		
+		/* Clear the perfect filter list, skip first two entries. */
 		filter_addr = ioaddr + PerfFilterTable + 2 * 16;
 		eaddrs = (__be16 *)dev->dev_addr;
 		for (i = 2; i < 16; i++) {
@@ -1743,17 +1938,17 @@ static int netdev_close(struct net_device *dev)
 		       np->cur_rx, np->dirty_rx);
 	}
 
-	
+	/* Disable interrupts by clearing the interrupt mask. */
 	writel(0, ioaddr + IntrEnable);
 
-	
+	/* Stop the chip's Tx and Rx processes. */
 	writel(0, ioaddr + GenCtrl);
 	readl(ioaddr + GenCtrl);
 
 	if (debug > 5) {
 		printk(KERN_DEBUG"  Tx ring at %#llx:\n",
 		       (long long) np->tx_ring_dma);
-		for (i = 0; i < 8 ; i++)
+		for (i = 0; i < 8 /* TX_RING_SIZE is huge! */; i++)
 			printk(KERN_DEBUG " #%d desc. %#8.8x %#llx -> %#8.8x.\n",
 			       i, le32_to_cpu(np->tx_ring[i].status),
 			       (long long) dma_to_cpu(np->tx_ring[i].addr),
@@ -1761,7 +1956,7 @@ static int netdev_close(struct net_device *dev)
 		printk(KERN_DEBUG "  Rx ring at %#llx -> %p:\n",
 		       (long long) np->rx_ring_dma, np->rx_done_q);
 		if (np->rx_done_q)
-			for (i = 0; i < 8 ; i++) {
+			for (i = 0; i < 8 /* RX_RING_SIZE */; i++) {
 				printk(KERN_DEBUG " #%d desc. %#llx -> %#8.8x\n",
 				       i, (long long) dma_to_cpu(np->rx_ring[i].rxaddr), le32_to_cpu(np->rx_done_q[i].status));
 		}
@@ -1769,9 +1964,9 @@ static int netdev_close(struct net_device *dev)
 
 	free_irq(dev->irq, dev);
 
-	
+	/* Free all the skbuffs in the Rx queue. */
 	for (i = 0; i < RX_RING_SIZE; i++) {
-		np->rx_ring[i].rxaddr = cpu_to_dma(0xBADF00D0); 
+		np->rx_ring[i].rxaddr = cpu_to_dma(0xBADF00D0); /* An invalid address. */
 		if (np->rx_info[i].skb != NULL) {
 			pci_unmap_single(np->pci_dev, np->rx_info[i].mapping, np->rx_buf_sz, PCI_DMA_FROMDEVICE);
 			dev_kfree_skb(np->rx_info[i].skb);
@@ -1824,7 +2019,7 @@ static int starfire_resume(struct pci_dev *pdev)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 
 static void __devexit starfire_remove_one (struct pci_dev *pdev)
@@ -1840,15 +2035,15 @@ static void __devexit starfire_remove_one (struct pci_dev *pdev)
 		pci_free_consistent(pdev, np->queue_mem_size, np->queue_mem, np->queue_mem_dma);
 
 
-	
-	pci_set_power_state(pdev, PCI_D3hot);	
+	/* XXX: add wakeup code -- requires firmware for MagicPacket */
+	pci_set_power_state(pdev, PCI_D3hot);	/* go to sleep in D3 mode */
 	pci_disable_device(pdev);
 
 	iounmap(np->base);
 	pci_release_regions(pdev);
 
 	pci_set_drvdata(pdev, NULL);
-	free_netdev(dev);			
+	free_netdev(dev);			/* Will also free np!! */
 }
 
 
@@ -1859,13 +2054,14 @@ static struct pci_driver starfire_driver = {
 #ifdef CONFIG_PM
 	.suspend	= starfire_suspend,
 	.resume		= starfire_resume,
-#endif 
+#endif /* CONFIG_PM */
 	.id_table	= starfire_pci_tbl,
 };
 
 
 static int __init starfire_init (void)
 {
+/* when a module, this is printed whether or not devices are found in probe */
 #ifdef MODULE
 	printk(version);
 
@@ -1888,3 +2084,9 @@ module_init(starfire_init);
 module_exit(starfire_cleanup);
 
 
+/*
+ * Local variables:
+ *  c-basic-offset: 8
+ *  tab-width: 8
+ * End:
+ */

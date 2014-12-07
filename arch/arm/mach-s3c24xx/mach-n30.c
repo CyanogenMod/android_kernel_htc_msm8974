@@ -54,11 +54,11 @@
 #include "common.h"
 
 static struct map_desc n30_iodesc[] __initdata = {
-	
+	/* nothing here yet */
 };
 
 static struct s3c2410_uartcfg n30_uartcfgs[] = {
-	
+	/* Normal serial port */
 	[0] = {
 		.hwport	     = 0,
 		.flags	     = 0,
@@ -66,7 +66,7 @@ static struct s3c2410_uartcfg n30_uartcfgs[] = {
 		.ulcon	     = 0x03,
 		.ufcon	     = 0x51,
 	},
-	
+	/* IR port */
 	[1] = {
 		.hwport	     = 1,
 		.flags	     = 0,
@@ -75,6 +75,8 @@ static struct s3c2410_uartcfg n30_uartcfgs[] = {
 		.ulcon	     = 0x43,
 		.ufcon	     = 0x51,
 	},
+	/* On the N30 the bluetooth controller is connected here.
+	 * On the N35 and variants the GPS receiver is connected here. */
 	[2] = {
 		.hwport	     = 2,
 		.flags	     = 0,
@@ -245,18 +247,25 @@ static struct platform_device n35_button_device = {
 	}
 };
 
+/* This is the bluetooth LED on the device. */
 static struct s3c24xx_led_platdata n30_blue_led_pdata = {
 	.name		= "blue_led",
 	.gpio		= S3C2410_GPG(6),
 	.def_trigger	= "",
 };
 
+/* This is the blue LED on the device. Originally used to indicate GPS activity
+ * by flashing. */
 static struct s3c24xx_led_platdata n35_blue_led_pdata = {
 	.name		= "blue_led",
 	.gpio		= S3C2410_GPD(8),
 	.def_trigger	= "",
 };
 
+/* This LED is driven by the battery microcontroller, and is blinking
+ * red, blinking green or solid green when the battery is low,
+ * charging or full respectively.  By driving GPD9 low, it's possible
+ * to force the LED to blink red, so call that warning LED.  */
 static struct s3c24xx_led_platdata n30_warning_led_pdata = {
 	.name		= "warning_led",
 	.flags          = S3C24XX_LEDF_ACTLOW,
@@ -383,34 +392,119 @@ static struct s3c2410_platform_i2c __initdata n30_i2ccfg = {
 	.frequency	= 10*1000,
 };
 
+/* Lots of hardcoded stuff, but it sets up the hardware in a useful
+ * state so that we can boot Linux directly from flash. */
 static void __init n30_hwinit(void)
 {
+	/* GPA0-11 special functions -- unknown what they do
+	 * GPA12 N30 special function -- unknown what it does
+	 *       N35/PiN output -- unknown what it does
+	 *
+	 * A12 is nGCS1 on the N30 and an output on the N35/PiN.  I
+	 * don't think it does anything useful on the N30, so I ought
+	 * to make it an output there too since it always driven to 0
+	 * as far as I can tell. */
 	if (machine_is_n30())
 		__raw_writel(0x007fffff, S3C2410_GPACON);
 	if (machine_is_n35())
 		__raw_writel(0x007fefff, S3C2410_GPACON);
 	__raw_writel(0x00000000, S3C2410_GPADAT);
 
+	/* GPB0 TOUT0 backlight level
+	 * GPB1 output 1=backlight on
+	 * GPB2 output IrDA enable 0=transceiver enabled, 1=disabled
+	 * GPB3 output USB D+ pull up 0=disabled, 1=enabled
+	 * GPB4 N30 output -- unknown function
+	 *      N30/PiN GPS control 0=GPS enabled, 1=GPS disabled
+	 * GPB5 output -- unknown function
+	 * GPB6 input -- unknown function
+	 * GPB7 output -- unknown function
+	 * GPB8 output -- probably LCD driver enable
+	 * GPB9 output -- probably LCD VSYNC driver enable
+	 * GPB10 output -- probably LCD HSYNC driver enable
+	 */
 	__raw_writel(0x00154556, S3C2410_GPBCON);
 	__raw_writel(0x00000750, S3C2410_GPBDAT);
 	__raw_writel(0x00000073, S3C2410_GPBUP);
 
+	/* GPC0 input RS232 DCD/DSR/RI
+	 * GPC1 LCD
+	 * GPC2 output RS232 DTR?
+	 * GPC3 input RS232 DCD/DSR/RI
+	 * GPC4 LCD
+	 * GPC5 output 0=NAND write enabled, 1=NAND write protect
+	 * GPC6 input -- unknown function
+	 * GPC7 input charger status 0=charger connected
+	 *      this input can be triggered by power on the USB device
+	 *      port too, but will go back to disconnected soon after.
+	 * GPC8 N30/N35 output -- unknown function, always driven to 1
+	 *      PiN input -- unknown function, always read as 1
+	 *      Make it an input with a pull up for all models.
+	 * GPC9-15 LCD
+	 */
 	__raw_writel(0xaaa80618, S3C2410_GPCCON);
 	__raw_writel(0x0000014c, S3C2410_GPCDAT);
 	__raw_writel(0x0000fef2, S3C2410_GPCUP);
 
+	/* GPD0 input -- unknown function
+	 * GPD1-D7 LCD
+	 * GPD8 N30 output -- unknown function
+	 *      N35/PiN output 1=GPS LED on
+	 * GPD9 output 0=power led blinks red, 1=normal power led function
+	 * GPD10 output -- unknown function
+	 * GPD11-15 LCD drivers
+	 */
 	__raw_writel(0xaa95aaa4, S3C2410_GPDCON);
 	__raw_writel(0x00000601, S3C2410_GPDDAT);
 	__raw_writel(0x0000fbfe, S3C2410_GPDUP);
 
+	/* GPE0-4 I2S audio bus
+	 * GPE5-10 SD/MMC bus
+	 * E11-13 outputs -- unknown function, probably power management
+	 * E14-15 I2C bus connected to the battery controller
+	 */
 	__raw_writel(0xa56aaaaa, S3C2410_GPECON);
 	__raw_writel(0x0000efc5, S3C2410_GPEDAT);
 	__raw_writel(0x0000f81f, S3C2410_GPEUP);
 
+	/* GPF0  input 0=power button pressed
+	 * GPF1  input SD/MMC switch 0=card present
+	 * GPF2  N30 1=reset button pressed (inverted compared to the rest)
+	 *	 N35/PiN 0=reset button pressed
+	 * GPF3  N30/PiN input -- unknown function
+	 *       N35 input GPS antenna position, 0=antenna closed, 1=open
+	 * GPF4  input 0=button 4 pressed
+	 * GPF5  input 0=button 3 pressed
+	 * GPF6  input 0=button 2 pressed
+	 * GPF7  input 0=button 1 pressed
+	 */
 	__raw_writel(0x0000aaaa, S3C2410_GPFCON);
 	__raw_writel(0x00000000, S3C2410_GPFDAT);
 	__raw_writel(0x000000ff, S3C2410_GPFUP);
 
+	/* GPG0  input RS232 DCD/DSR/RI
+	 * GPG1  input 1=USB gadget port has power from a host
+	 * GPG2  N30 input -- unknown function
+	 *       N35/PiN input 0=headphones plugged in, 1=not plugged in
+	 * GPG3  N30 output -- unknown function
+	 *       N35/PiN input with unknown function
+	 * GPG4  N30 output 0=MMC enabled, 1=MMC disabled
+	 * GPG5  N30 output 0=BlueTooth chip disabled, 1=enabled
+	 *       N35/PiN input joystick right
+	 * GPG6  N30 output 0=blue led on, 1=off
+	 *       N35/PiN input joystick left
+	 * GPG7  input 0=thumbwheel pressed
+	 * GPG8  input 0=thumbwheel down
+	 * GPG9  input 0=thumbwheel up
+	 * GPG10 input SD/MMC write protect switch
+	 * GPG11 N30 input -- unknown function
+	 *       N35 output 0=GPS antenna powered, 1=not powered
+	 *       PiN output -- unknown function
+	 * GPG12-15 touch screen functions
+	 *
+	 * The pullups differ between the models, so enable all
+	 * pullups that are enabled on any of the models.
+	 */
 	if (machine_is_n30())
 		__raw_writel(0xff0a956a, S3C2410_GPGCON);
 	if (machine_is_n35())
@@ -418,6 +512,19 @@ static void __init n30_hwinit(void)
 	__raw_writel(0x0000e800, S3C2410_GPGDAT);
 	__raw_writel(0x0000f86f, S3C2410_GPGUP);
 
+	/* GPH0/1/2/3 RS232 serial port
+	 * GPH4/5 IrDA serial port
+	 * GPH6/7  N30 BlueTooth serial port
+	 *         N35/PiN GPS receiver
+	 * GPH8 input -- unknown function
+	 * GPH9 CLKOUT0 HCLK -- unknown use
+	 * GPH10 CLKOUT1 FCLK -- unknown use
+	 *
+	 * The pull ups for H6/H7 are enabled on N30 but not on the
+	 * N35/PiN.  I suppose is useful for a budget model of the N30
+	 * with no bluetooh.  It doesn't hurt to have the pull ups
+	 * enabled on the N35, so leave them enabled for all models.
+	 */
 	__raw_writel(0x0028aaaa, S3C2410_GPHCON);
 	__raw_writel(0x000005ef, S3C2410_GPHDAT);
 	__raw_writel(0x0000063f, S3C2410_GPHUP);
@@ -431,6 +538,7 @@ static void __init n30_map_io(void)
 	s3c24xx_init_uarts(n30_uartcfgs, ARRAY_SIZE(n30_uartcfgs));
 }
 
+/* GPB3 is the line that controls the pull-up for the USB D+ line */
 
 static void __init n30_init(void)
 {
@@ -441,12 +549,16 @@ static void __init n30_init(void)
 	s3c24xx_mci_set_platdata(&n30_mci_cfg);
 	s3c_i2c0_set_platdata(&n30_i2ccfg);
 
+	/* Turn off suspend on both USB ports, and switch the
+	 * selectable USB port to USB device mode. */
 
 	s3c2410_modify_misccr(S3C2410_MISCCR_USBHOST |
 			      S3C2410_MISCCR_USBSUSPND0 |
 			      S3C2410_MISCCR_USBSUSPND1, 0x0);
 
 	if (machine_is_n30()) {
+		/* Turn off suspend on both USB ports, and switch the
+		 * selectable USB port to USB device mode. */
 		s3c2410_modify_misccr(S3C2410_MISCCR_USBHOST |
 				      S3C2410_MISCCR_USBSUSPND0 |
 				      S3C2410_MISCCR_USBSUSPND1, 0x0);
@@ -455,6 +567,14 @@ static void __init n30_init(void)
 	}
 
 	if (machine_is_n35()) {
+		/* Turn off suspend and switch the selectable USB port
+		 * to USB device mode.  Turn on suspend for the host
+		 * port since it is not connected on the N35.
+		 *
+		 * Actually, the host port is available at some pads
+		 * on the back of the device, so it would actually be
+		 * possible to add a USB device inside the N35 if you
+		 * are willing to do some hardware modifications. */
 		s3c2410_modify_misccr(S3C2410_MISCCR_USBHOST |
 				      S3C2410_MISCCR_USBSUSPND0 |
 				      S3C2410_MISCCR_USBSUSPND1,
@@ -465,6 +585,9 @@ static void __init n30_init(void)
 }
 
 MACHINE_START(N30, "Acer-N30")
+	/* Maintainer: Christer Weinigel <christer@weinigel.se>,
+				Ben Dooks <ben-linux@fluff.org>
+	*/
 	.atag_offset	= 0x100,
 	.timer		= &s3c24xx_timer,
 	.init_machine	= n30_init,
@@ -474,6 +597,8 @@ MACHINE_START(N30, "Acer-N30")
 MACHINE_END
 
 MACHINE_START(N35, "Acer-N35")
+	/* Maintainer: Christer Weinigel <christer@weinigel.se>
+	*/
 	.atag_offset	= 0x100,
 	.timer		= &s3c24xx_timer,
 	.init_machine	= n30_init,

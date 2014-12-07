@@ -547,6 +547,10 @@ static int ab5500_registers_print(struct seq_file *s, void *p)
 				if (err < 0) {
 					dev_err(ab->dev,
 						"seq_printf overflow\n");
+					/*
+					 * Error is not returned here since
+					 * the output is wanted in any case
+					 */
 					return 0;
 				}
 			}
@@ -591,7 +595,7 @@ static ssize_t ab5500_bank_write(struct file *file,
 	unsigned long user_bank;
 	int err;
 
-	
+	/* Get userspace string and assure termination */
 	buf_size = min(count, (sizeof(buf) - 1));
 	if (copy_from_user(buf, user_buf, buf_size))
 		return -EFAULT;
@@ -635,7 +639,7 @@ static ssize_t ab5500_address_write(struct file *file,
 	unsigned long user_address;
 	int err;
 
-	
+	/* Get userspace string and assure termination */
 	buf_size = min(count, (sizeof(buf) - 1));
 	if (copy_from_user(buf, user_buf, buf_size))
 		return -EFAULT;
@@ -688,7 +692,7 @@ static ssize_t ab5500_val_write(struct file *file,
 	int err;
 	u8 regvalue;
 
-	
+	/* Get userspace string and assure termination */
 	buf_size = min(count, (sizeof(buf)-1));
 	if (copy_from_user(buf, user_buf, buf_size))
 		return -EFAULT;

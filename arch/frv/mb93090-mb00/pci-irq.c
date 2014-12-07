@@ -17,6 +17,16 @@
 
 #include "pci-frv.h"
 
+/*
+ *	DEVICE	DEVNO	INT#A	INT#B	INT#C	INT#D
+ *	=======	=======	=======	=======	=======	=======
+ *	MB86943	0	fpga.10	-	-	-
+ *	RTL8029	16	fpga.12	-	-	-
+ *	SLOT 1	19	fpga.6	fpga.5	fpga.4	fpga.3
+ *	SLOT 2	18	fpga.5	fpga.4	fpga.3	fpga.6
+ *	SLOT 3	17	fpga.4	fpga.3	fpga.6	fpga.5
+ *
+ */
 
 static const uint8_t __initdata pci_bus0_irq_routing[32][4] = {
 	[0 ] = { IRQ_FPGA_MB86943_PCI_INTA },

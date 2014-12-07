@@ -49,6 +49,7 @@ int set_memory_rw(unsigned long addr, int numpages)
 }
 EXPORT_SYMBOL_GPL(set_memory_rw);
 
+/* not possible */
 int set_memory_nx(unsigned long addr, int numpages)
 {
 	return 0;

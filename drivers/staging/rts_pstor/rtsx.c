@@ -68,6 +68,9 @@ MODULE_PARM_DESC(msi_en, "enable msi");
 
 static irqreturn_t rtsx_interrupt(int irq, void *dev_id);
 
+/***********************************************************************
+ * Host functions
+ ***********************************************************************/
 
 static const char *host_info(struct Scsi_Host *host)
 {
@@ -76,14 +79,41 @@ static const char *host_info(struct Scsi_Host *host)
 
 static int slave_alloc(struct scsi_device *sdev)
 {
+	/*
+	 * Set the INQUIRY transfer length to 36.  We don't use any of
+	 * the extra data and many devices choke if asked for more or
+	 * less than 36 bytes.
+	 */
 	sdev->inquiry_len = 36;
 	return 0;
 }
 
 static int slave_configure(struct scsi_device *sdev)
 {
+	/* Scatter-gather buffers (all but the last) must have a length
+	 * divisible by the bulk maxpacket size.  Otherwise a data packet
+	 * would end up being short, causing a premature end to the data
+	 * transfer.  Since high-speed bulk pipes have a maxpacket size
+	 * of 512, we'll use that as the scsi device queue's DMA alignment
+	 * mask.  Guaranteeing proper alignment of the first buffer will
+	 * have the desired effect because, except at the beginning and
+	 * the end, scatter-gather buffers follow page boundaries. */
 	blk_queue_dma_alignment(sdev->request_queue, (512 - 1));
 
+	/* Set the SCSI level to at least 2.  We'll leave it at 3 if that's
+	 * what is originally reported.  We need this to avoid confusing
+	 * the SCSI layer with devices that report 0 or 1, but need 10-byte
+	 * commands (ala ATAPI devices behind certain bridges, or devices
+	 * which simply have broken INQUIRY data).
+	 *
+	 * NOTE: This means /dev/sg programs (ala cdrecord) will get the
+	 * actual information.  This seems to be the preference for
+	 * programs like that.
+	 *
+	 * NOTE: This also means that /proc/scsi/scsi and sysfs may report
+	 * the actual value or the modified one, depending on where the
+	 * data comes from.
+	 */
 	if (sdev->scsi_level < SCSI_2)
 		sdev->scsi_level = sdev->sdev_target->scsi_level = SCSI_2;
 
@@ -91,7 +121,11 @@ static int slave_configure(struct scsi_device *sdev)
 }
 
 
+/***********************************************************************
+ * /proc/scsi/ functions
+ ***********************************************************************/
 
+/* we use this macro to help us write into the buffer */
 #undef SPRINTF
 #define SPRINTF(args...) \
 	do { if (pos < buffer+length) pos += sprintf(pos, ## args); } while (0)
@@ -101,18 +135,21 @@ static int proc_info(struct Scsi_Host *host, char *buffer,
 {
 	char *pos = buffer;
 
-	
+	/* if someone is sending us data, just throw it away */
 	if (inout)
 		return length;
 
-	
+	/* print the controller name */
 	SPRINTF("   Host scsi%d: %s\n", host->host_no, CR_DRIVER_NAME);
 
-	
+	/* print product, vendor, and driver version strings */
 	SPRINTF("       Vendor: Realtek Corp.\n");
 	SPRINTF("      Product: PCIE Card Reader\n");
 	SPRINTF("      Version: %s\n", DRIVER_VERSION);
 
+	/*
+	 * Calculate start of next buffer, and return value.
+	 */
 	*start = buffer + offset;
 
 	if ((pos - buffer) < offset)
@@ -123,20 +160,22 @@ static int proc_info(struct Scsi_Host *host, char *buffer,
 		return length;
 }
 
+/* queue a command */
+/* This is always called with scsi_lock(host) held */
 static int queuecommand_lck(struct scsi_cmnd *srb,
 			void (*done)(struct scsi_cmnd *))
 {
 	struct rtsx_dev *dev = host_to_rtsx(srb->device->host);
 	struct rtsx_chip *chip = dev->chip;
 
-	
+	/* check for state-transition errors */
 	if (chip->srb != NULL) {
 		printk(KERN_ERR "Error in %s: chip->srb = %p\n",
 			__func__, chip->srb);
 		return SCSI_MLQUEUE_HOST_BUSY;
 	}
 
-	
+	/* fail the command if we are disconnecting */
 	if (rtsx_chk_stat(chip, RTSX_STAT_DISCONNECT)) {
 		printk(KERN_INFO "Fail command during disconnect\n");
 		srb->result = DID_NO_CONNECT << 16;
@@ -144,7 +183,7 @@ static int queuecommand_lck(struct scsi_cmnd *srb,
 		return 0;
 	}
 
-	
+	/* enqueue the command and wake up the control thread */
 	srb->scsi_done = done;
 	chip->srb = srb;
 	complete(&dev->cmnd_ready);
@@ -154,7 +193,11 @@ static int queuecommand_lck(struct scsi_cmnd *srb,
 
 static DEF_SCSI_QCMD(queuecommand)
 
+/***********************************************************************
+ * Error handling functions
+ ***********************************************************************/
 
+/* Command timeout and abort */
 static int command_abort(struct scsi_cmnd *srb)
 {
 	struct Scsi_Host *host = srb->device->host;
@@ -165,7 +208,7 @@ static int command_abort(struct scsi_cmnd *srb)
 
 	scsi_lock(host);
 
-	
+	/* Is this command still active? */
 	if (chip->srb != srb) {
 		scsi_unlock(host);
 		printk(KERN_INFO "-- nothing to abort\n");
@@ -176,12 +219,14 @@ static int command_abort(struct scsi_cmnd *srb)
 
 	scsi_unlock(host);
 
-	
+	/* Wait for the aborted command to finish */
 	wait_for_completion(&dev->notify);
 
 	return SUCCESS;
 }
 
+/* This invokes the transport reset mechanism to reset the state of the
+ * device */
 static int device_reset(struct scsi_cmnd *srb)
 {
 	int result = 0;
@@ -191,6 +236,7 @@ static int device_reset(struct scsi_cmnd *srb)
 	return result < 0 ? FAILED : SUCCESS;
 }
 
+/* Simulate a SCSI bus reset by resetting the device's USB port. */
 static int bus_reset(struct scsi_cmnd *srb)
 {
 	int result = 0;
@@ -201,47 +247,54 @@ static int bus_reset(struct scsi_cmnd *srb)
 }
 
 
+/*
+ * this defines our host template, with which we'll allocate hosts
+ */
 
 static struct scsi_host_template rtsx_host_template = {
-	
+	/* basic userland interface stuff */
 	.name =				CR_DRIVER_NAME,
 	.proc_name =			CR_DRIVER_NAME,
 	.proc_info =			proc_info,
 	.info =				host_info,
 
-	
+	/* command interface -- queued only */
 	.queuecommand =			queuecommand,
 
-	
+	/* error and abort handlers */
 	.eh_abort_handler =		command_abort,
 	.eh_device_reset_handler =	device_reset,
 	.eh_bus_reset_handler =		bus_reset,
 
-	
+	/* queue commands only, only one command per LUN */
 	.can_queue =			1,
 	.cmd_per_lun =			1,
 
-	
+	/* unknown initiator id */
 	.this_id =			-1,
 
 	.slave_alloc =			slave_alloc,
 	.slave_configure =		slave_configure,
 
-	
+	/* lots of sg segments can be handled */
 	.sg_tablesize =			SG_ALL,
 
-	
+	/* limit the total size of a transfer to 120 KB */
 	.max_sectors =                  240,
 
+	/* merge commands... this seems to help performance, but
+	 * periodically someone should test to see which setting is more
+	 * optimal.
+	 */
 	.use_clustering =		1,
 
-	
+	/* emulated HBA */
 	.emulated =			1,
 
-	
+	/* we do our own delay after a device or bus reset */
 	.skip_settle_delay =		1,
 
-	
+	/* module management */
 	.module =			THIS_MODULE
 };
 
@@ -286,6 +339,9 @@ int rtsx_read_pci_cfg_byte(u8 bus, u8 dev, u8 func, u8 offset, u8 *val)
 }
 
 #ifdef CONFIG_PM
+/*
+ * power management
+ */
 static int rtsx_suspend(struct pci_dev *pci, pm_message_t state)
 {
 	struct rtsx_dev *dev = (struct rtsx_dev *)pci_get_drvdata(pci);
@@ -298,7 +354,7 @@ static int rtsx_suspend(struct pci_dev *pci, pm_message_t state)
 		return 0;
 	}
 
-	
+	/* lock the device pointers */
 	mutex_lock(&(dev->dev_mutex));
 
 	chip = dev->chip;
@@ -319,7 +375,7 @@ static int rtsx_suspend(struct pci_dev *pci, pm_message_t state)
 	pci_disable_device(pci);
 	pci_set_power_state(pci, pci_choose_state(pci, state));
 
-	
+	/* unlock the device pointers */
 	mutex_unlock(&dev->dev_mutex);
 
 	return 0;
@@ -339,7 +395,7 @@ static int rtsx_resume(struct pci_dev *pci)
 
 	chip = dev->chip;
 
-	
+	/* lock the device pointers */
 	mutex_lock(&(dev->dev_mutex));
 
 	pci_set_power_state(pci, PCI_D0);
@@ -347,7 +403,7 @@ static int rtsx_resume(struct pci_dev *pci)
 	if (pci_enable_device(pci) < 0) {
 		printk(KERN_ERR "%s: pci_enable_device failed, "
 		       "disabling device\n", CR_DRIVER_NAME);
-		
+		/* unlock the device pointers */
 		mutex_unlock(&dev->dev_mutex);
 		return -EIO;
 	}
@@ -359,7 +415,7 @@ static int rtsx_resume(struct pci_dev *pci)
 	}
 
 	if (rtsx_acquire_irq(dev) < 0) {
-		
+		/* unlock the device pointers */
 		mutex_unlock(&dev->dev_mutex);
 		return -EIO;
 	}
@@ -367,12 +423,12 @@ static int rtsx_resume(struct pci_dev *pci)
 	rtsx_write_register(chip, HOST_SLEEP_STATE, 0x03, 0x00);
 	rtsx_init_chip(chip);
 
-	
+	/* unlock the device pointers */
 	mutex_unlock(&dev->dev_mutex);
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static void rtsx_shutdown(struct pci_dev *pci)
 {
@@ -414,20 +470,20 @@ static int rtsx_control_thread(void *__dev)
 		if (wait_for_completion_interruptible(&dev->cmnd_ready))
 			break;
 
-		
+		/* lock the device pointers */
 		mutex_lock(&(dev->dev_mutex));
 
-		
+		/* if the device has disconnected, we are free to exit */
 		if (rtsx_chk_stat(chip, RTSX_STAT_DISCONNECT)) {
 			printk(KERN_INFO "-- rtsx-control exiting\n");
 			mutex_unlock(&dev->dev_mutex);
 			break;
 		}
 
-		
+		/* lock access to the state */
 		scsi_lock(host);
 
-		
+		/* has the command aborted ? */
 		if (rtsx_chk_stat(chip, RTSX_STAT_ABORT)) {
 			chip->srb->result = DID_ABORT << 16;
 			goto SkipForAbort;
@@ -435,11 +491,17 @@ static int rtsx_control_thread(void *__dev)
 
 		scsi_unlock(host);
 
+		/* reject the command if the direction indicator
+		 * is UNKNOWN
+		 */
 		if (chip->srb->sc_data_direction == DMA_BIDIRECTIONAL) {
 			printk(KERN_ERR "UNKNOWN data direction\n");
 			chip->srb->result = DID_ERROR << 16;
 		}
 
+		/* reject if target != 0 or if LUN is higher than
+		 * the maximum known LUN
+		 */
 		else if (chip->srb->device->id) {
 			printk(KERN_ERR "Bad target number (%d:%d)\n",
 				chip->srb->device->id,
@@ -454,20 +516,20 @@ static int rtsx_control_thread(void *__dev)
 			chip->srb->result = DID_BAD_TARGET << 16;
 		}
 
-		
+		/* we've got a command, let's do it! */
 		else {
 			RTSX_DEBUG(scsi_show_command(chip->srb));
 			rtsx_invoke_transport(chip->srb, chip);
 		}
 
-		
+		/* lock access to the state */
 		scsi_lock(host);
 
-		
+		/* did the command already complete because of a disconnect? */
 		if (!chip->srb)
-			;		
+			;		/* nothing to do */
 
-		
+		/* indicate that the command is done */
 		else if (chip->srb->result != DID_ABORT << 16) {
 			chip->srb->scsi_done(chip->srb);
 		} else {
@@ -481,14 +543,28 @@ SkipForAbort:
 			rtsx_set_stat(chip, RTSX_STAT_IDLE);
 		}
 
-		
+		/* finished working on this command */
 		chip->srb = NULL;
 		scsi_unlock(host);
 
-		
+		/* unlock the device pointers */
 		mutex_unlock(&dev->dev_mutex);
-	} 
+	} /* for (;;) */
 
+	/* notify the exit routine that we're actually exiting now
+	 *
+	 * complete()/wait_for_completion() is similar to up()/down(),
+	 * except that complete() is safe in the case where the structure
+	 * is getting deleted in a parallel mode of execution (i.e. just
+	 * after the down() -- that's necessary for the thread-shutdown
+	 * case.
+	 *
+	 * complete_and_exit() goes even further than this -- it is safe in
+	 * the case that the thread of the caller is going away (not just
+	 * the structure) -- this is necessary for the module-remove case.
+	 * This is important in preemption kernels, which transfer the flow
+	 * of execution immediately upon a complete().
+	 */
 	complete_and_exit(&dev->control_exit, 0);
 }
 
@@ -505,7 +581,7 @@ static int rtsx_polling_thread(void *__dev)
 	xd_card->cleanup_counter = 0;
 	ms_card->cleanup_counter = 0;
 
-	
+	/* Wait until SCSI scan finished */
 	wait_timeout((delay_use + 5) * 1000);
 
 	for (;;) {
@@ -513,10 +589,10 @@ static int rtsx_polling_thread(void *__dev)
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(POLLING_INTERVAL);
 
-		
+		/* lock the device pointers */
 		mutex_lock(&(dev->dev_mutex));
 
-		
+		/* if the device has disconnected, we are free to exit */
 		if (rtsx_chk_stat(chip, RTSX_STAT_DISCONNECT)) {
 			printk(KERN_INFO "-- rtsx-polling exiting\n");
 			mutex_unlock(&dev->dev_mutex);
@@ -527,18 +603,21 @@ static int rtsx_polling_thread(void *__dev)
 
 		mspro_polling_format_status(chip);
 
-		
+		/* lock the device pointers */
 		mutex_lock(&(dev->dev_mutex));
 
 		rtsx_polling_func(chip);
 
-		
+		/* unlock the device pointers */
 		mutex_unlock(&dev->dev_mutex);
 	}
 
 	complete_and_exit(&dev->polling_exit, 0);
 }
 
+/*
+ * interrupt handler
+ */
 static irqreturn_t rtsx_interrupt(int irq, void *dev_id)
 {
 	struct rtsx_dev *dev = dev_id;
@@ -569,7 +648,7 @@ static irqreturn_t rtsx_interrupt(int irq, void *dev_id)
 
 	if (dev->check_card_cd) {
 		if (!(dev->check_card_cd & status)) {
-			
+			/* card not exist, return TRANS_RESULT_FAIL */
 			dev->trans_result = TRANS_RESULT_FAIL;
 			if (dev->done)
 				complete(dev->done);
@@ -601,10 +680,15 @@ Exit:
 }
 
 
+/* Release all our dynamic resources */
 static void rtsx_release_resources(struct rtsx_dev *dev)
 {
 	printk(KERN_INFO "-- %s\n", __func__);
 
+	/* Tell the control thread to exit.  The SCSI host must
+	 * already have been removed so it won't try to queue
+	 * any more commands.
+	 */
 	printk(KERN_INFO "-- sending exit command to thread\n");
 	complete(&dev->cmnd_ready);
 	if (dev->ctl_thread)
@@ -635,11 +719,15 @@ static void rtsx_release_resources(struct rtsx_dev *dev)
 	kfree(dev->chip);
 }
 
+/* First stage of disconnect processing: stop all commands and remove
+ * the host */
 static void quiesce_and_remove_host(struct rtsx_dev *dev)
 {
 	struct Scsi_Host *host = rtsx_to_host(dev);
 	struct rtsx_chip *chip = dev->chip;
 
+	/* Prevent new transfers, stop the current command, and
+	 * interrupt a SCSI-scan or device-reset delay */
 	mutex_lock(&dev->dev_mutex);
 	scsi_lock(host);
 	rtsx_set_stat(chip, RTSX_STAT_DISCONNECT);
@@ -648,9 +736,12 @@ static void quiesce_and_remove_host(struct rtsx_dev *dev)
 	wake_up(&dev->delay_wait);
 	wait_for_completion(&dev->scanning_done);
 
-	
+	/* Wait some time to let other threads exist */
 	wait_timeout(100);
 
+	/* queuecommand won't accept any new commands and the control
+	 * thread won't execute a previously-queued command.  If there
+	 * is such a command pending, complete it with an error. */
 	mutex_lock(&dev->dev_mutex);
 	if (chip->srb) {
 		chip->srb->result = DID_NO_CONNECT << 16;
@@ -661,23 +752,27 @@ static void quiesce_and_remove_host(struct rtsx_dev *dev)
 	}
 	mutex_unlock(&dev->dev_mutex);
 
-	
+	/* Now we own no commands so it's safe to remove the SCSI host */
 	scsi_remove_host(host);
 }
 
+/* Second stage of disconnect processing: deallocate all resources */
 static void release_everything(struct rtsx_dev *dev)
 {
 	rtsx_release_resources(dev);
 
+	/* Drop our reference to the host; the SCSI core will free it
+	 * when the refcount becomes 0. */
 	scsi_host_put(rtsx_to_host(dev));
 }
 
+/* Thread to carry out delayed SCSI-device scanning */
 static int rtsx_scan_thread(void *__dev)
 {
 	struct rtsx_dev *dev = (struct rtsx_dev *)__dev;
 	struct rtsx_chip *chip = dev->chip;
 
-	
+	/* Wait for the timeout to expire or for a disconnect */
 	if (delay_use > 0) {
 		printk(KERN_INFO "%s: waiting for device "
 				"to settle before scanning\n", CR_DRIVER_NAME);
@@ -686,12 +781,12 @@ static int rtsx_scan_thread(void *__dev)
 				delay_use * HZ);
 	}
 
-	
+	/* If the device is still connected, perform the scanning */
 	if (!rtsx_chk_stat(chip, RTSX_STAT_DISCONNECT)) {
 		scsi_scan_host(rtsx_to_host(dev));
 		printk(KERN_INFO "%s: device scan complete\n", CR_DRIVER_NAME);
 
-		
+		/* Should we unbind if no devices were detected? */
 	}
 
 	complete_and_exit(&dev->scanning_done, 0);
@@ -823,6 +918,10 @@ static int __devinit rtsx_probe(struct pci_dev *pci,
 		return err;
 	}
 
+	/*
+	 * Ask the SCSI layer to allocate a host structure, with extra
+	 * space at the end for our private rtsx_dev structure.
+	 */
 	host = scsi_host_alloc(&rtsx_host_template, sizeof(*dev));
 	if (!host) {
 		printk(KERN_ERR "Unable to allocate the scsi host\n");
@@ -860,6 +959,10 @@ static int __devinit rtsx_probe(struct pci_dev *pci,
 		goto errout;
 	}
 
+	/*
+	 * Using "unsigned long" cast here to eliminate gcc warning in
+	 * 64-bit system
+	 */
 	printk(KERN_INFO "Original address: 0x%lx, remapped address: 0x%lx\n",
 	       (unsigned long)(dev->addr), (unsigned long)(dev->remap_addr));
 
@@ -897,10 +1000,12 @@ static int __devinit rtsx_probe(struct pci_dev *pci,
 
 	rtsx_init_chip(dev->chip);
 
+	/* set the supported max_lun and max_id for the scsi host
+	 * NOTE: the minimal value of max_id is 1 */
 	host->max_id = 1;
 	host->max_lun = dev->chip->max_lun;
 
-	
+	/* Start up our control thread */
 	th = kthread_run(rtsx_control_thread, dev, CR_DRIVER_NAME);
 	if (IS_ERR(th)) {
 		printk(KERN_ERR "Unable to start control thread\n");
@@ -915,7 +1020,7 @@ static int __devinit rtsx_probe(struct pci_dev *pci,
 		goto errout;
 	}
 
-	
+	/* Start up the thread for delayed SCSI-device scanning */
 	th = kthread_create(rtsx_scan_thread, dev, "rtsx-scan");
 	if (IS_ERR(th)) {
 		printk(KERN_ERR "Unable to start the device-scanning thread\n");
@@ -927,7 +1032,7 @@ static int __devinit rtsx_probe(struct pci_dev *pci,
 
 	wake_up_process(th);
 
-	
+	/* Start up the thread for polling thread */
 	th = kthread_run(rtsx_polling_thread, dev, "rtsx-polling");
 	if (IS_ERR(th)) {
 		printk(KERN_ERR "Unable to start the device-polling thread\n");
@@ -941,7 +1046,7 @@ static int __devinit rtsx_probe(struct pci_dev *pci,
 
 	return 0;
 
-	
+	/* We come here if there are any problems */
 errout:
 	printk(KERN_ERR "rtsx_probe() failed\n");
 	release_everything(dev);
@@ -962,6 +1067,7 @@ static void __devexit rtsx_remove(struct pci_dev *pci)
 	pci_set_drvdata(pci, NULL);
 }
 
+/* PCI IDs */
 static DEFINE_PCI_DEVICE_TABLE(rtsx_ids) = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_REALTEK, 0x5208), PCI_CLASS_OTHERS << 16, 0xFF0000 },
 	{ PCI_DEVICE(PCI_VENDOR_ID_REALTEK, 0x5209), PCI_CLASS_OTHERS << 16, 0xFF0000 },
@@ -971,6 +1077,7 @@ static DEFINE_PCI_DEVICE_TABLE(rtsx_ids) = {
 
 MODULE_DEVICE_TABLE(pci, rtsx_ids);
 
+/* pci_driver definition */
 static struct pci_driver driver = {
 	.name = CR_DRIVER_NAME,
 	.id_table = rtsx_ids,

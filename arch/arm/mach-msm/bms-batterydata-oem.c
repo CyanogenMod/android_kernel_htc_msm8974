@@ -61,7 +61,7 @@ static struct pc_temp_ocv_lut pc_temp_ocv = {
 static struct sf_lut rbatt_sf = {
 	.rows		= 29,
 	.cols		= 5,
-	
+	/* row_entries are temperature */
 	.row_entries	= {-20, 0, 20, 40, 65},
 	.percent	= {100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40,
 					35, 30, 25, 20, 15, 10, 9, 8, 7, 6, 5,

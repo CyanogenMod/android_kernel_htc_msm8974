@@ -23,8 +23,8 @@
 #include <asm/bootinfo.h>
 #include <asm/cpu.h>
 
-static unsigned long icache_size, dcache_size;		
-static unsigned long icache_lsize, dcache_lsize;	
+static unsigned long icache_size, dcache_size;		/* Size in bytes */
+static unsigned long icache_lsize, dcache_lsize;	/* Size in bytes */
 
 unsigned long __cpuinit r3k_cache_size(unsigned long ca_flags)
 {
@@ -35,7 +35,7 @@ unsigned long __cpuinit r3k_cache_size(unsigned long ca_flags)
 
 	flags = read_c0_status();
 
-	
+	/* isolate cache space */
 	write_c0_status((ca_flags|flags)&~ST0_IEC);
 
 	*p = 0xa5a55a5a;
@@ -70,7 +70,7 @@ unsigned long __cpuinit r3k_cache_lsize(unsigned long ca_flags)
 
 	flags = read_c0_status();
 
-	
+	/* isolate cache space */
 	write_c0_status((ca_flags|flags)&~ST0_IEC);
 
 	for (i = 0; i < 128; i++)
@@ -115,7 +115,7 @@ static void r3k_flush_icache_range(unsigned long start, unsigned long end)
 
 	flags = read_c0_status();
 
-	
+	/* isolate cache space */
 	write_c0_status((ST0_ISC|ST0_SWC|flags)&~ST0_IEC);
 
 	for (i = 0; i < size; i += 0x080) {
@@ -172,7 +172,7 @@ static void r3k_flush_dcache_range(unsigned long start, unsigned long end)
 
 	flags = read_c0_status();
 
-	
+	/* isolate cache space */
 	write_c0_status((ST0_ISC|flags)&~ST0_IEC);
 
 	for (i = 0; i < size; i += 0x080) {
@@ -248,7 +248,7 @@ static void r3k_flush_cache_page(struct vm_area_struct *vma,
 	pr_debug("cpage[%08lx,%08lx]\n",
 		 cpu_context(smp_processor_id(), mm), addr);
 
-	
+	/* No ASID => no such page in the cache.  */
 	if (cpu_context(smp_processor_id(), mm) == 0)
 		return;
 
@@ -257,7 +257,7 @@ static void r3k_flush_cache_page(struct vm_area_struct *vma,
 	pmdp = pmd_offset(pudp, addr);
 	ptep = pte_offset(pmdp, addr);
 
-	
+	/* Invalid => no such page in the cache.  */
 	if (!(pte_val(*ptep) & _PAGE_PRESENT))
 		return;
 
@@ -284,7 +284,7 @@ static void r3k_flush_cache_sigtramp(unsigned long addr)
 
 	write_c0_status(flags&~ST0_IEC);
 
-	
+	/* Fill the TLB to avoid an exception with caches isolated. */
 	asm( 	"lw\t$0, 0x000(%0)\n\t"
 		"lw\t$0, 0x004(%0)\n\t"
 		: : "r" (addr) );
@@ -305,7 +305,7 @@ static void r3k_flush_kernel_vmap_range(unsigned long vaddr, int size)
 
 static void r3k_dma_cache_wback_inv(unsigned long start, unsigned long size)
 {
-	
+	/* Catch bad driver code */
 	BUG_ON(size == 0);
 
 	iob();

@@ -186,6 +186,8 @@ union _FP_UNION_D
 #define FP_SQRT_D(R,X)			_FP_SQRT(D,1,R,X)
 #define _FP_SQRT_MEAT_D(R,S,T,X,Q)	_FP_SQRT_MEAT_1(R,S,T,X,Q)
 
+/* The implementation of _FP_MUL_D and _FP_DIV_D should be chosen by
+   the target machine.  */
 
 #define FP_CMP_D(r,X,Y,un)	_FP_CMP(D,1,r,X,Y,un)
 #define FP_CMP_EQ_D(r,X,Y)	_FP_CMP_EQ(D,1,r,X,Y)
@@ -197,7 +199,7 @@ union _FP_UNION_D
 #define _FP_FRAC_HIGH_D(X)	_FP_FRAC_HIGH_1(X)
 #define _FP_FRAC_HIGH_RAW_D(X)	_FP_FRAC_HIGH_1(X)
 
-#endif 
+#endif /* W_TYPE_SIZE < 64 */
 
 
-#endif 
+#endif /* __MATH_EMU_DOUBLE_H__ */

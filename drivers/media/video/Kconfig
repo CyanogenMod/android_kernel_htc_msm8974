@@ -893,7 +893,10 @@ source "drivers/media/video/blackfin/Kconfig"
 
 source "drivers/media/video/nmi/Kconfig"
 
+#++ DTV_PCN1000005_HTC_PANASONIC_KCONFIG
+# [HTC]  Panasonic Kconfig 
 source "drivers/media/video/panasonic/Kconfig"
+#-- DTV_PCN1000005_HTC_PANASONIC_KCONFIG
 
 config VIDEO_SH_VOU
 	tristate "SuperH VOU video output driver"

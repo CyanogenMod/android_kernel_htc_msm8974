@@ -10,16 +10,28 @@
 #ifndef __ALPHA_ERR_COMMON_H
 #define __ALPHA_ERR_COMMON_H 1
 
+/*
+ * SCB Vector definitions
+ */
 #define SCB_Q_SYSERR	0x620
 #define SCB_Q_PROCERR	0x630
 #define SCB_Q_SYSMCHK	0x660
 #define SCB_Q_PROCMCHK	0x670
 #define SCB_Q_SYSEVENT	0x680
 
+/*
+ * Disposition definitions for logout frame parser
+ */
 #define MCHK_DISPOSITION_UNKNOWN_ERROR		0x00
 #define MCHK_DISPOSITION_REPORT			0x01
 #define MCHK_DISPOSITION_DISMISS		0x02
 
+/*
+ * Error Log definitions
+ */
+/*
+ * Types
+ */
 
 #define EL_CLASS__TERMINATION		(0)
 #  define EL_TYPE__TERMINATION__TERMINATION		(0)
@@ -66,41 +78,41 @@ union el_timestamp {
 };
 
 struct el_subpacket {
-	u16 length;		
-	u16 class;		
-	u16 type;		
-	u16 revision;		
+	u16 length;		/* length of header (in bytes)	*/
+	u16 class;		/* header class and type...   	*/
+	u16 type;		/* ...determine content     	*/
+	u16 revision;		/* header revision 		*/
 	union {
-		struct {	
+		struct {	/* Class 5, Type 1 - System Error	*/
 			u32 frame_length;
 			u32 frame_packet_count;			
 		} sys_err;			
-		struct {	
+		struct {	/* Class 5, Type 2 - System Event 	*/
 			union el_timestamp timestamp;
 			u32 frame_length;
 			u32 frame_packet_count;			
 		} sys_event;
-		struct {	
+		struct {	/* Class 5, Type 3 - Double Error Halt	*/
 			u16 halt_code;
 			u16 reserved;
 			union el_timestamp timestamp;
 			u32 frame_length;
 			u32 frame_packet_count;
 		} err_halt;
-		struct {	
+		struct {	/* Clasee 5, Type 19 - Logout Frame Header */
 			u32 frame_length;
 			u32 frame_flags;
 			u32 cpu_offset;	
 			u32 system_offset;
 		} logout_header;
-		struct {	
+		struct {	/* Class 12 - Regatta			*/
 			u64 cpuid;
 			u64 data_start[1];
 		} regatta_frame;
-		struct {	
+		struct {	/* Raw 				        */
 			u64 data_start[1];
 		} raw;
 	} by_type;
 };
 
-#endif 
+#endif /* __ALPHA_ERR_COMMON_H */

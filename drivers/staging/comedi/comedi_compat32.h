@@ -35,10 +35,10 @@
 extern long comedi_compat_ioctl(struct file *file, unsigned int cmd,
 				unsigned long arg);
 
-#else 
+#else /* CONFIG_COMPAT */
 
-#define comedi_compat_ioctl 0	
+#define comedi_compat_ioctl 0	/* NULL */
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
-#endif 
+#endif /* _COMEDI_COMPAT32_H */

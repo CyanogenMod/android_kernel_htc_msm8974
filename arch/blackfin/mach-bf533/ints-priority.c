@@ -12,7 +12,7 @@
 
 void __init program_IAR(void)
 {
-	
+	/* Program the IAR0 Register with the configured priority */
 	bfin_write_SIC_IAR0(((CONFIG_PLLWAKE_ERROR - 7) << PLLWAKE_ERROR_POS) |
 			    ((CONFIG_DMA_ERROR - 7) << DMA_ERROR_POS) |
 			    ((CONFIG_PPI_ERROR - 7) << PPI_ERROR_POS) |

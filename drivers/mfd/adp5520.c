@@ -185,7 +185,7 @@ static irqreturn_t adp5520_irq_thread(int irq, void *data)
 		ADP5520_GPI_INT | ADP5520_KR_INT | ADP5520_KP_INT);
 
 	blocking_notifier_call_chain(&chip->notifier_list, events, NULL);
-	
+	/* ACK, Sticky bits are W1C */
 	__adp5520_ack_bits(chip->client, ADP5520_MODE_STATUS, events);
 
 out:

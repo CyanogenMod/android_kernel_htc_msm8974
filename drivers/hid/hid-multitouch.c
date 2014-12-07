@@ -42,6 +42,7 @@ MODULE_LICENSE("GPL");
 
 #include "hid-ids.h"
 
+/* quirks to control the device */
 #define MT_QUIRK_NOT_SEEN_MEANS_UP	(1 << 0)
 #define MT_QUIRK_SLOT_IS_CONTACTID	(1 << 1)
 #define MT_QUIRK_CYPRESS		(1 << 2)
@@ -53,37 +54,41 @@ MODULE_LICENSE("GPL");
 
 struct mt_slot {
 	__s32 x, y, p, w, h;
-	__s32 contactid;	
-	bool touch_state;	
-	bool seen_in_this_frame;
+	__s32 contactid;	/* the device ContactID assigned to this slot */
+	bool touch_state;	/* is the touch valid? */
+	bool seen_in_this_frame;/* has this slot been updated */
 };
 
 struct mt_class {
-	__s32 name;	
+	__s32 name;	/* MT_CLS */
 	__s32 quirks;
-	__s32 sn_move;	
-	__s32 sn_width;	
-	__s32 sn_height;	
-	__s32 sn_pressure;	
+	__s32 sn_move;	/* Signal/noise ratio for move events */
+	__s32 sn_width;	/* Signal/noise ratio for width events */
+	__s32 sn_height;	/* Signal/noise ratio for height events */
+	__s32 sn_pressure;	/* Signal/noise ratio for pressure events */
 	__u8 maxcontacts;
-	bool is_indirect;	
+	bool is_indirect;	/* true for touchpads */
 };
 
 struct mt_device {
-	struct mt_slot curdata;	
-	struct mt_class mtclass;	
-	unsigned last_field_index;	
-	unsigned last_slot_field;	
-	__s8 inputmode;		
-	__s8 maxcontact_report_id;	
-	__u8 num_received;	
-	__u8 num_expected;	
+	struct mt_slot curdata;	/* placeholder of incoming data */
+	struct mt_class mtclass;	/* our mt device class */
+	unsigned last_field_index;	/* last field index of the report */
+	unsigned last_slot_field;	/* the last field of a slot */
+	__s8 inputmode;		/* InputMode HID feature, -1 if non-existent */
+	__s8 maxcontact_report_id;	/* Maximum Contact Number HID feature,
+				   -1 if non-existent */
+	__u8 num_received;	/* how many contacts we received */
+	__u8 num_expected;	/* expected last contact index */
 	__u8 maxcontacts;
-	__u8 touches_by_report;	
-	bool curvalid;		
+	__u8 touches_by_report;	/* how many touches are present in one report:
+				* 1 means we should use a serial protocol
+				* > 1 means hybrid (multitouch) protocol */
+	bool curvalid;		/* is the current contact valid? */
 	struct mt_slot *slots;
 };
 
+/* classes of device behavior */
 #define MT_CLS_DEFAULT				0x0001
 
 #define MT_CLS_SERIAL				0x0002
@@ -95,6 +100,7 @@ struct mt_device {
 #define MT_CLS_DUAL_NSMU_CONTACTID		0x0008
 #define MT_CLS_INRANGE_CONTACTNUMBER		0x0009
 
+/* vendor specific classes */
 #define MT_CLS_3M				0x0101
 #define MT_CLS_CYPRESS				0x0102
 #define MT_CLS_EGALAX				0x0103
@@ -104,6 +110,10 @@ struct mt_device {
 
 #define MT_DEFAULT_MAXCONTACT	10
 
+/*
+ * these device-dependent functions determine what slot corresponds
+ * to a valid contact that was just read.
+ */
 
 static int cypress_compute_slot(struct mt_device *td)
 {
@@ -126,6 +136,9 @@ static int find_slot_from_contactid(struct mt_device *td)
 			!td->slots[i].touch_state)
 			return i;
 	}
+	/* should not occurs. If this happens that means
+	 * that the device sent more touches that it says
+	 * in the report descriptor. It is ignored then. */
 	return -1;
 }
 
@@ -158,6 +171,9 @@ static struct mt_class mt_classes[] = {
 		.quirks = MT_QUIRK_VALID_IS_INRANGE |
 			MT_QUIRK_SLOT_IS_CONTACTNUMBER },
 
+	/*
+	 * vendor specific classes
+	 */
 	{ .name = MT_CLS_3M,
 		.quirks = MT_QUIRK_VALID_IS_CONFIDENCE |
 			MT_QUIRK_SLOT_IS_CONTACTID,
@@ -243,7 +259,7 @@ static void mt_feature_mapping(struct hid_device *hdev,
 		td->maxcontact_report_id = field->report->id;
 		td->maxcontacts = field->value[0];
 		if (td->mtclass.maxcontacts)
-			
+			/* check if the maxcontacts is given by the class */
 			td->maxcontacts = td->mtclass.maxcontacts;
 
 		break;
@@ -274,11 +290,19 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 	struct mt_class *cls = &td->mtclass;
 	int code;
 
+	/* Only map fields from TouchScreen or TouchPad collections.
+	* We need to ignore fields that belong to other collections
+	* such as Mouse that might have the same GenericDesktop usages. */
 	if (field->application == HID_DG_TOUCHSCREEN)
 		set_bit(INPUT_PROP_DIRECT, hi->input->propbit);
 	else if (field->application != HID_DG_TOUCHPAD)
 		return 0;
 
+	/* In case of an indirect device (touchpad), we need to add
+	 * specific BTN_TOOL_* to be handled by the synaptics xorg
+	 * driver.
+	 * We also consider that touchscreens providing buttons are touchpads.
+	 */
 	if (field->application == HID_DG_TOUCHPAD ||
 	    (usage->hid & HID_USAGE_PAGE) == HID_UP_BUTTON ||
 	    cls->is_indirect) {
@@ -289,9 +313,15 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		set_bit(BTN_TOOL_QUADTAP, hi->input->keybit);
 	}
 
+	/* eGalax devices provide a Digitizer.Stylus input which overrides
+	 * the correct Digitizers.Finger X/Y ranges.
+	 * Let's just ignore this input. */
 	if (field->physical == HID_DG_STYLUS)
 		return -1;
 
+	/* Only map fields from TouchScreen or TouchPad collections.
+         * We need to ignore fields that belong to other collections
+         * such as Mouse that might have the same GenericDesktop usages. */
 	if (field->application == HID_DG_TOUCHSCREEN)
 		set_bit(INPUT_PROP_DIRECT, hi->input->propbit);
 	else if (field->application == HID_DG_TOUCHPAD)
@@ -308,7 +338,7 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 					EV_ABS, ABS_MT_POSITION_X);
 			set_abs(hi->input, ABS_MT_POSITION_X, field,
 				cls->sn_move);
-			
+			/* touchscreen emulation */
 			set_abs(hi->input, ABS_X, field, cls->sn_move);
 			set_last_slot_field(usage, td, hi);
 			td->last_field_index = field->index;
@@ -318,7 +348,7 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 					EV_ABS, ABS_MT_POSITION_Y);
 			set_abs(hi->input, ABS_MT_POSITION_Y, field,
 				cls->sn_move);
-			
+			/* touchscreen emulation */
 			set_abs(hi->input, ABS_Y, field, cls->sn_move);
 			set_last_slot_field(usage, td, hi);
 			td->last_field_index = field->index;
@@ -373,7 +403,7 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 					EV_ABS, ABS_MT_PRESSURE);
 			set_abs(hi->input, ABS_MT_PRESSURE, field,
 				cls->sn_pressure);
-			
+			/* touchscreen emulation */
 			set_abs(hi->input, ABS_PRESSURE, field,
 				cls->sn_pressure);
 			set_last_slot_field(usage, td, hi);
@@ -383,12 +413,16 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 			td->last_field_index = field->index;
 			return 1;
 		case HID_DG_CONTACTMAX:
+			/* we don't set td->last_slot_field as contactcount and
+			 * contact max are global to the report */
 			td->last_field_index = field->index;
 			return -1;
 		}
 		case HID_DG_TOUCH:
+			/* Legacy devices use TIPSWITCH and not TOUCH.
+			 * Let's just ignore this field. */
 			return -1;
-		
+		/* let hid-input decide for the others */
 		return 0;
 
 	case HID_UP_BUTTON:
@@ -398,7 +432,7 @@ static int mt_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		return 1;
 
 	case 0xff000000:
-		
+		/* we do not want to map these: no input-oriented meaning */
 		return -1;
 	}
 
@@ -434,6 +468,10 @@ static int mt_compute_slot(struct mt_device *td)
 	return find_slot_from_contactid(td);
 }
 
+/*
+ * this function is called when a whole contact has been processed,
+ * so that it can assign it to a slot and store the data there
+ */
 static void mt_complete_slot(struct mt_device *td)
 {
 	td->curdata.seen_in_this_frame = true;
@@ -447,6 +485,10 @@ static void mt_complete_slot(struct mt_device *td)
 }
 
 
+/*
+ * this function is called when a whole packet has been received and processed,
+ * so that it can decide what to send to the input layer.
+ */
 static void mt_emit_event(struct mt_device *td, struct input_dev *input)
 {
 	int i;
@@ -462,9 +504,9 @@ static void mt_emit_event(struct mt_device *td, struct input_dev *input)
 		input_mt_report_slot_state(input, MT_TOOL_FINGER,
 			s->touch_state);
 		if (s->touch_state) {
-			
+			/* this finger is on the screen */
 			int wide = (s->w > s->h);
-			
+			/* divided by two to match visual scale of touch */
 			int major = max(s->w, s->h) >> 1;
 			int minor = min(s->w, s->h) >> 1;
 
@@ -528,15 +570,19 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
 			td->curdata.h = value;
 			break;
 		case HID_DG_CONTACTCOUNT:
+			/*
+			 * Includes multi-packet support where subsequent
+			 * packets are sent with zero contactcount.
+			 */
 			if (value)
 				td->num_expected = value;
 			break;
 		case HID_DG_TOUCH:
-			
+			/* do nothing */
 			break;
 
 		default:
-			
+			/* fallback to the generic hidinput handling */
 			return 0;
 		}
 
@@ -549,7 +595,7 @@ static int mt_event(struct hid_device *hid, struct hid_field *field,
 
 	}
 
-	
+	/* we have handled the hidinput part, now remains hiddev */
 	if (hid->claimed & HID_CLAIMED_HIDDEV && hid->hiddev_hid_event)
 		hid->hiddev_hid_event(hid, field, usage, value);
 
@@ -603,7 +649,7 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
 {
 	int ret, i;
 	struct mt_device *td;
-	struct mt_class *mtclass = mt_classes; 
+	struct mt_class *mtclass = mt_classes; /* MT_CLS_DEFAULT */
 
 	if (id) {
 		for (i = 0; mt_classes[i].name ; i++) {
@@ -614,6 +660,9 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
 		}
 	}
 
+	/* This allows the driver to correctly support devices
+	 * that emit events over several HID messages.
+	 */
 	hdev->quirks |= HID_QUIRK_NO_INPUT_SYNC;
 	hdev->quirks &= ~HID_QUIRK_MULTITOUCH;
 
@@ -636,7 +685,7 @@ static int mt_probe(struct hid_device *hdev, const struct hid_device_id *id)
 		goto fail;
 
 	if (!id && td->touches_by_report == 1) {
-		
+		/* the device has been sent by hid-generic */
 		mtclass = &td->mtclass;
 		mtclass->quirks |= MT_QUIRK_ALWAYS_VALID;
 		mtclass->quirks &= ~MT_QUIRK_NOT_SEEN_MEANS_UP;
@@ -686,7 +735,7 @@ static void mt_remove(struct hid_device *hdev)
 
 static const struct hid_device_id mt_devices[] = {
 
-	
+	/* 3M panels */
 	{ .driver_data = MT_CLS_3M,
 		HID_USB_DEVICE(USB_VENDOR_ID_3M,
 			USB_DEVICE_ID_3M1968) },
@@ -697,12 +746,12 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_3M,
 			USB_DEVICE_ID_3M3266) },
 
-	
+	/* ActionStar panels */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_ACTIONSTAR,
 			USB_DEVICE_ID_ACTIONSTAR_1011) },
 
-	
+	/* Atmel panels */
 	{ .driver_data = MT_CLS_SERIAL,
 		HID_USB_DEVICE(USB_VENDOR_ID_ATMEL,
 			USB_DEVICE_ID_ATMEL_MULTITOUCH) },
@@ -710,7 +759,7 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_ATMEL,
 			USB_DEVICE_ID_ATMEL_MXT_DIGITIZER) },
 
-	
+	/* Cando panels */
 	{ .driver_data = MT_CLS_DUAL_INRANGE_CONTACTNUMBER,
 		HID_USB_DEVICE(USB_VENDOR_ID_CANDO,
 			USB_DEVICE_ID_CANDO_MULTI_TOUCH) },
@@ -724,22 +773,22 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_CANDO,
 			USB_DEVICE_ID_CANDO_MULTI_TOUCH_15_6) },
 
-	
+	/* Chunghwa Telecom touch panels */
 	{  .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_CHUNGHWAT,
 			USB_DEVICE_ID_CHUNGHWAT_MULTITOUCH) },
 
-	
+	/* CVTouch panels */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_CVTOUCH,
 			USB_DEVICE_ID_CVTOUCH_SCREEN) },
 
-	
+	/* Cypress panel */
 	{ .driver_data = MT_CLS_CYPRESS,
 		HID_USB_DEVICE(USB_VENDOR_ID_CYPRESS,
 			USB_DEVICE_ID_CYPRESS_TRUETOUCH) },
 
-	
+	/* eGalax devices (resistive) */
 	{ .driver_data = MT_CLS_EGALAX,
 		HID_USB_DEVICE(USB_VENDOR_ID_DWAV,
 			USB_DEVICE_ID_DWAV_EGALAX_MULTITOUCH_480D) },
@@ -747,7 +796,7 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_DWAV,
 			USB_DEVICE_ID_DWAV_EGALAX_MULTITOUCH_480E) },
 
-	
+	/* eGalax devices (capacitive) */
 	{ .driver_data = MT_CLS_EGALAX,
 		HID_USB_DEVICE(USB_VENDOR_ID_DWAV,
 			USB_DEVICE_ID_DWAV_EGALAX_MULTITOUCH_720C) },
@@ -788,32 +837,32 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_DWAV,
 			USB_DEVICE_ID_DWAV_EGALAX_MULTITOUCH_A001) },
 
-	
+	/* Elo TouchSystems IntelliTouch Plus panel */
 	{ .driver_data = MT_CLS_DUAL_NSMU_CONTACTID,
 		HID_USB_DEVICE(USB_VENDOR_ID_ELO,
 			USB_DEVICE_ID_ELO_TS2515) },
 
-	
+	/* GeneralTouch panel */
 	{ .driver_data = MT_CLS_DUAL_INRANGE_CONTACTNUMBER,
 		HID_USB_DEVICE(USB_VENDOR_ID_GENERAL_TOUCH,
 			USB_DEVICE_ID_GENERAL_TOUCH_WIN7_TWOFINGERS) },
 
-	
+	/* Gametel game controller */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_FRUCTEL,
 			USB_DEVICE_ID_GAMETEL_MT_MODE) },
 
-	
+	/* GoodTouch panels */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_GOODTOUCH,
 			USB_DEVICE_ID_GOODTOUCH_000f) },
 
-	
+	/* Hanvon panels */
 	{ .driver_data = MT_CLS_DUAL_INRANGE_CONTACTID,
 		HID_USB_DEVICE(USB_VENDOR_ID_HANVON_ALT,
 			USB_DEVICE_ID_HANVON_ALT_MULTITOUCH) },
 
-	
+	/* Ideacom panel */
 	{ .driver_data = MT_CLS_SERIAL,
 		HID_USB_DEVICE(USB_VENDOR_ID_IDEACOM,
 			USB_DEVICE_ID_IDEACOM_IDC6650) },
@@ -821,22 +870,22 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_IDEACOM,
 			USB_DEVICE_ID_IDEACOM_IDC6651) },
 
-	
+	/* Ilitek dual touch panel */
 	{  .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_ILITEK,
 			USB_DEVICE_ID_ILITEK_MULTITOUCH) },
 
-	
+	/* IRTOUCH panels */
 	{ .driver_data = MT_CLS_DUAL_INRANGE_CONTACTID,
 		HID_USB_DEVICE(USB_VENDOR_ID_IRTOUCHSYSTEMS,
 			USB_DEVICE_ID_IRTOUCH_INFRARED_USB) },
 
-	
+	/* LG Display panels */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_LG,
 			USB_DEVICE_ID_LG_MULTITOUCH) },
 
-	
+	/* Lumio panels */
 	{ .driver_data = MT_CLS_CONFIDENCE_MINUS_ONE,
 		HID_USB_DEVICE(USB_VENDOR_ID_LUMIO,
 			USB_DEVICE_ID_CRYSTALTOUCH) },
@@ -844,7 +893,7 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_LUMIO,
 			USB_DEVICE_ID_CRYSTALTOUCH_DUAL) },
 
-	
+	/* MosArt panels */
 	{ .driver_data = MT_CLS_CONFIDENCE_MINUS_ONE,
 		HID_USB_DEVICE(USB_VENDOR_ID_ASUS,
 			USB_DEVICE_ID_ASUS_T91MT)},
@@ -855,7 +904,7 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_TURBOX,
 			USB_DEVICE_ID_TURBOX_TOUCHSCREEN_MOSART) },
 
-	
+	/* Panasonic panels */
 	{ .driver_data = MT_CLS_PANASONIC,
 		HID_USB_DEVICE(USB_VENDOR_ID_PANASONIC,
 			USB_DEVICE_ID_PANABOARD_UBT780) },
@@ -863,12 +912,12 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_PANASONIC,
 			USB_DEVICE_ID_PANABOARD_UBT880) },
 
-	
+	/* PenMount panels */
 	{ .driver_data = MT_CLS_CONFIDENCE,
 		HID_USB_DEVICE(USB_VENDOR_ID_PENMOUNT,
 			USB_DEVICE_ID_PENMOUNT_PCI) },
 
-	
+	/* PixArt optical touch screen */
 	{ .driver_data = MT_CLS_INRANGE_CONTACTNUMBER,
 		HID_USB_DEVICE(USB_VENDOR_ID_PIXART,
 			USB_DEVICE_ID_PIXART_OPTICAL_TOUCH_SCREEN) },
@@ -879,7 +928,7 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_PIXART,
 			USB_DEVICE_ID_PIXART_OPTICAL_TOUCH_SCREEN2) },
 
-	
+	/* PixCir-based panels */
 	{ .driver_data = MT_CLS_DUAL_INRANGE_CONTACTID,
 		HID_USB_DEVICE(USB_VENDOR_ID_HANVON,
 			USB_DEVICE_ID_HANVON_MULTITOUCH) },
@@ -887,7 +936,7 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_CANDO,
 			USB_DEVICE_ID_CANDO_PIXCIR_MULTI_TOUCH) },
 
-	
+	/* Quanta-based panels */
 	{ .driver_data = MT_CLS_CONFIDENCE_CONTACT_ID,
 		HID_USB_DEVICE(USB_VENDOR_ID_QUANTA,
 			USB_DEVICE_ID_QUANTA_OPTICAL_TOUCH) },
@@ -898,7 +947,7 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_QUANTA,
 			USB_DEVICE_ID_QUANTA_OPTICAL_TOUCH_3008) },
 
-	
+	/* Stantum panels */
 	{ .driver_data = MT_CLS_CONFIDENCE,
 		HID_USB_DEVICE(USB_VENDOR_ID_STANTUM,
 			USB_DEVICE_ID_MTP)},
@@ -909,29 +958,29 @@ static const struct hid_device_id mt_devices[] = {
 		HID_USB_DEVICE(USB_VENDOR_ID_STANTUM_SITRONIX,
 			USB_DEVICE_ID_MTP_SITRONIX)},
 
-	
+	/* TopSeed panels */
 	{ .driver_data = MT_CLS_TOPSEED,
 		HID_USB_DEVICE(USB_VENDOR_ID_TOPSEED2,
 			USB_DEVICE_ID_TOPSEED2_PERIPAD_701) },
 
-	
+	/* Touch International panels */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_TOUCH_INTL,
 			USB_DEVICE_ID_TOUCH_INTL_MULTI_TOUCH) },
 
-	
+	/* Unitec panels */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_UNITEC,
 			USB_DEVICE_ID_UNITEC_USB_TOUCH_0709) },
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_UNITEC,
 			USB_DEVICE_ID_UNITEC_USB_TOUCH_0A19) },
-	
+	/* XAT */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_XAT,
 			USB_DEVICE_ID_XAT_CSR) },
 
-	
+	/* Xiroku */
 	{ .driver_data = MT_CLS_DEFAULT,
 		HID_USB_DEVICE(USB_VENDOR_ID_XIROKU,
 			USB_DEVICE_ID_XIROKU_SPX) },

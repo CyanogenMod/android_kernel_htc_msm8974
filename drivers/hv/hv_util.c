@@ -108,6 +108,9 @@ static void shutdown_onchannelcallback(void *context)
 		orderly_poweroff(true);
 }
 
+/*
+ * Set guest time to host UTC time.
+ */
 static inline void do_adj_guesttime(u64 hosttime)
 {
 	s64 host_tns;
@@ -119,6 +122,9 @@ static inline void do_adj_guesttime(u64 hosttime)
 	do_settimeofday(&host_ts);
 }
 
+/*
+ * Set the host time in a process context.
+ */
 
 struct adj_time_work {
 	struct work_struct work;
@@ -134,6 +140,17 @@ static void hv_set_host_time(struct work_struct *work)
 	kfree(wrk);
 }
 
+/*
+ * Synchronize time with host after reboot, restore, etc.
+ *
+ * ICTIMESYNCFLAG_SYNC flag bit indicates reboot, restore events of the VM.
+ * After reboot the flag ICTIMESYNCFLAG_SYNC is included in the first time
+ * message after the timesync channel is opened. Since the hv_utils module is
+ * loaded after hv_vmbus, the first message is usually missed. The other
+ * thing is, systime is automatically set to emulated hardware clock which may
+ * not be UTC time or in the same time zone. So, to override these effects, we
+ * use the first 50 time samples for initial system time setting.
+ */
 static inline void adj_guesttime(u64 hosttime, u8 flags)
 {
 	struct adj_time_work    *wrk;
@@ -158,6 +175,9 @@ static inline void adj_guesttime(u64 hosttime, u8 flags)
 		kfree(wrk);
 }
 
+/*
+ * Time Sync Channel message handler.
+ */
 static void timesync_onchannelcallback(void *context)
 {
 	struct vmbus_channel *channel = context;
@@ -192,6 +212,11 @@ static void timesync_onchannelcallback(void *context)
 	}
 }
 
+/*
+ * Heartbeat functionality.
+ * Every two seconds, Hyper-V send us a heartbeat request message.
+ * we respond to this message, and Hyper-V knows we are alive.
+ */
 static void heartbeat_onchannelcallback(void *context)
 {
 	struct vmbus_channel *channel = context;
@@ -275,19 +300,19 @@ static int util_remove(struct hv_device *dev)
 }
 
 static const struct hv_vmbus_device_id id_table[] = {
-	
+	/* Shutdown guid */
 	{ VMBUS_DEVICE(0x31, 0x60, 0x0B, 0X0E, 0x13, 0x52, 0x34, 0x49,
 		       0x81, 0x8B, 0x38, 0XD9, 0x0C, 0xED, 0x39, 0xDB)
 	  .driver_data = (unsigned long)&util_shutdown },
-	
+	/* Time synch guid */
 	{ VMBUS_DEVICE(0x30, 0xe6, 0x27, 0x95, 0xae, 0xd0, 0x7b, 0x49,
 		       0xad, 0xce, 0xe8, 0x0a, 0xb0, 0x17, 0x5c, 0xaf)
 	  .driver_data = (unsigned long)&util_timesynch },
-	
+	/* Heartbeat guid */
 	{ VMBUS_DEVICE(0x39, 0x4f, 0x16, 0x57, 0x15, 0x91, 0x78, 0x4e,
 		       0xab, 0x55, 0x38, 0x2f, 0x3b, 0xd5, 0x42, 0x2d)
 	  .driver_data = (unsigned long)&util_heartbeat },
-	
+	/* KVP guid */
 	{ VMBUS_DEVICE(0xe7, 0xf4, 0xa0, 0xa9, 0x45, 0x5a, 0x96, 0x4d,
 		       0xb8, 0x27, 0x8a, 0x84, 0x1e, 0x8c, 0x3,  0xe6)
 	  .driver_data = (unsigned long)&util_kvp },
@@ -296,6 +321,7 @@ static const struct hv_vmbus_device_id id_table[] = {
 
 MODULE_DEVICE_TABLE(vmbus, id_table);
 
+/* The one and only one */
 static  struct hv_driver util_drv = {
 	.name = "hv_util",
 	.id_table = id_table,

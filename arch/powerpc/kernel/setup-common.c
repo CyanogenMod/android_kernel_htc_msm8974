@@ -71,6 +71,8 @@
 #define DBG(fmt...)
 #endif
 
+/* The main machine-dep calls structure
+ */
 struct machdep_calls ppc_md;
 EXPORT_SYMBOL(ppc_md);
 struct machdep_calls *machine_id;
@@ -80,7 +82,9 @@ unsigned long klimit = (unsigned long) _end;
 
 char cmd_line[COMMAND_LINE_SIZE];
 
- 
+/*
+ * This still seems to be needed... -- paulus
+ */ 
 struct screen_info screen_info = {
 	.orig_x = 0,
 	.orig_y = 25,
@@ -90,19 +94,26 @@ struct screen_info screen_info = {
 	.orig_video_points = 16
 };
 
+/* Variables required to store legacy IO irq routing */
 int of_i8042_kbd_irq;
 EXPORT_SYMBOL_GPL(of_i8042_kbd_irq);
 int of_i8042_aux_irq;
 EXPORT_SYMBOL_GPL(of_i8042_aux_irq);
 
 #ifdef __DO_IRQ_CANON
+/* XXX should go elsewhere eventually */
 int ppc_do_canonicalize_irqs;
 EXPORT_SYMBOL(ppc_do_canonicalize_irqs);
 #endif
 
+/* also used by kexec */
 void machine_shutdown(void)
 {
 #ifdef CONFIG_FA_DUMP
+	/*
+	 * if fadump is active, cleanup the fadump registration before we
+	 * shutdown.
+	 */
 	fadump_cleanup();
 #endif
 
@@ -135,6 +146,7 @@ void machine_power_off(void)
 	local_irq_disable();
 	while (1) ;
 }
+/* Used by the G5 thermal driver */
 EXPORT_SYMBOL_GPL(machine_power_off);
 
 void (*pm_power_off)(void) = machine_power_off;
@@ -157,7 +169,7 @@ void machine_halt(void)
 #ifdef CONFIG_TAU
 extern u32 cpu_temp(unsigned long cpu);
 extern u32 cpu_temp_both(unsigned long cpu);
-#endif 
+#endif /* CONFIG_TAU */
 
 #ifdef CONFIG_SMP
 DEFINE_PER_CPU(unsigned int, cpu_pvr);
@@ -174,7 +186,7 @@ static void show_cpuinfo_summary(struct seq_file *m)
 		bogosum += loops_per_jiffy;
 	seq_printf(m, "total bogomips\t: %lu.%02lu\n",
 		   bogosum/(500000/HZ), bogosum/(5000/HZ) % 100);
-#endif 
+#endif /* CONFIG_SMP && CONFIG_PPC32 */
 	seq_printf(m, "timebase\t: %lu\n", ppc_tb_freq);
 	if (ppc_md.name)
 		seq_printf(m, "platform\t: %s\n", ppc_md.name);
@@ -189,7 +201,7 @@ static void show_cpuinfo_summary(struct seq_file *m)
 		ppc_md.show_cpuinfo(m);
 
 #ifdef CONFIG_PPC32
-	
+	/* Display the amount of memory */
 	seq_printf(m, "Memory\t\t: %d MB\n",
 		   (unsigned int)(total_memory / (1024 * 1024)));
 #endif
@@ -202,6 +214,8 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	unsigned short maj;
 	unsigned short min;
 
+	/* We only show online cpus: disable preempt (overzealous, I
+	 * knew) to prevent cpu going down. */
 	preempt_disable();
 	if (!cpu_online(cpu_id)) {
 		preempt_enable();
@@ -227,26 +241,30 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 #ifdef CONFIG_ALTIVEC
 	if (cpu_has_feature(CPU_FTR_ALTIVEC))
 		seq_printf(m, ", altivec supported");
-#endif 
+#endif /* CONFIG_ALTIVEC */
 
 	seq_printf(m, "\n");
 
 #ifdef CONFIG_TAU
 	if (cur_cpu_spec->cpu_features & CPU_FTR_TAU) {
 #ifdef CONFIG_TAU_AVERAGE
-		
+		/* more straightforward, but potentially misleading */
 		seq_printf(m,  "temperature \t: %u C (uncalibrated)\n",
 			   cpu_temp(cpu_id));
 #else
-		
+		/* show the actual temp sensor range */
 		u32 temp;
 		temp = cpu_temp_both(cpu_id);
 		seq_printf(m, "temperature \t: %u-%u C (uncalibrated)\n",
 			   temp & 0xff, temp >> 16);
 #endif
 	}
-#endif 
+#endif /* CONFIG_TAU */
 
+	/*
+	 * Assume here that all clock rates are the same in a
+	 * smp system.  -- Cort
+	 */
 	if (ppc_proc_freq)
 		seq_printf(m, "clock\t\t: %lu.%06luMHz\n",
 			   ppc_proc_freq / 1000000, ppc_proc_freq % 1000000);
@@ -254,29 +272,31 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 	if (ppc_md.show_percpuinfo != NULL)
 		ppc_md.show_percpuinfo(m, cpu_id);
 
+	/* If we are a Freescale core do a simple check so
+	 * we dont have to keep adding cases in the future */
 	if (PVR_VER(pvr) & 0x8000) {
 		switch (PVR_VER(pvr)) {
-		case 0x8000:	
-		case 0x8001:	
-		case 0x8002:	
-		case 0x8003:	
-		case 0x8004:	
-		case 0x800c:	
+		case 0x8000:	/* 7441/7450/7451, Voyager */
+		case 0x8001:	/* 7445/7455, Apollo 6 */
+		case 0x8002:	/* 7447/7457, Apollo 7 */
+		case 0x8003:	/* 7447A, Apollo 7 PM */
+		case 0x8004:	/* 7448, Apollo 8 */
+		case 0x800c:	/* 7410, Nitro */
 			maj = ((pvr >> 8) & 0xF);
 			min = PVR_MIN(pvr);
 			break;
-		default:	
+		default:	/* e500/book-e */
 			maj = PVR_MAJ(pvr);
 			min = PVR_MIN(pvr);
 			break;
 		}
 	} else {
 		switch (PVR_VER(pvr)) {
-			case 0x0020:	
+			case 0x0020:	/* 403 family */
 				maj = PVR_MAJ(pvr) + 1;
 				min = PVR_MIN(pvr);
 				break;
-			case 0x1008:	
+			case 0x1008:	/* 740P/750P ?? */
 				maj = ((pvr >> 8) & 0xFF) - 1;
 				min = pvr & 0xFF;
 				break;
@@ -302,7 +322,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 	preempt_enable();
 
-	
+	/* If this is the last cpu, print the summary */
 	if (cpumask_next(cpu_id, cpu_online_mask) >= nr_cpu_ids)
 		show_cpuinfo_summary(m);
 
@@ -311,7 +331,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
-	if (*pos == 0)	
+	if (*pos == 0)	/* just in case, cpu 0 is not the first */
 		*pos = cpumask_first(cpu_online_mask);
 	else
 		*pos = cpumask_next(*pos - 1, cpu_online_mask);
@@ -343,6 +363,9 @@ void __init check_for_initrd(void)
 	DBG(" -> check_for_initrd()  initrd_start=0x%lx  initrd_end=0x%lx\n",
 	    initrd_start, initrd_end);
 
+	/* If we were passed an initrd, set the ROOT_DEV properly if the values
+	 * look sensible. If not, clear initrd reference.
+	 */
 	if (is_kernel_addr(initrd_start) && is_kernel_addr(initrd_end) &&
 	    initrd_end > initrd_start)
 		ROOT_DEV = Root_RAM0;
@@ -353,7 +376,7 @@ void __init check_for_initrd(void)
 		printk("Found initrd at 0x%lx:0x%lx\n", initrd_start, initrd_end);
 
 	DBG(" <- check_for_initrd()\n");
-#endif 
+#endif /* CONFIG_BLK_DEV_INITRD */
 }
 
 #ifdef CONFIG_SMP
@@ -371,6 +394,9 @@ static void __init cpu_init_thread_core_maps(int tpc)
 	threads_per_core = tpc;
 	cpumask_clear(&threads_core_mask);
 
+	/* This implementation only supports power of 2 number of threads
+	 * for simplicity and performance
+	 */
 	threads_shift = ilog2(tpc);
 	BUG_ON(tpc != (1 << threads_shift));
 
@@ -383,6 +409,24 @@ static void __init cpu_init_thread_core_maps(int tpc)
 }
 
 
+/**
+ * setup_cpu_maps - initialize the following cpu maps:
+ *                  cpu_possible_mask
+ *                  cpu_present_mask
+ *
+ * Having the possible map set up early allows us to restrict allocations
+ * of things like irqstacks to nr_cpu_ids rather than NR_CPUS.
+ *
+ * We do not initialize the online map here; cpus set their own bits in
+ * cpu_online_mask as they come up.
+ *
+ * This function is valid only for Open Firmware systems.  finish_device_tree
+ * must be called before using this.
+ *
+ * While we're here, we may as well set the "physical" cpu ids in the paca.
+ *
+ * NOTE: This must match the parsing done in early_init_dt_scan_cpus.
+ */
 void __init smp_setup_cpu_maps(void)
 {
 	struct device_node *dn = NULL;
@@ -407,7 +451,7 @@ void __init smp_setup_cpu_maps(void)
 			DBG("    no ibm,ppc-interrupt-server#s -> 1 thread\n");
 			intserv = of_get_property(dn, "reg", NULL);
 			if (!intserv)
-				intserv = &cpu;	
+				intserv = &cpu;	/* assume logical == phys */
 		}
 
 		for (j = 0; j < nthreads && cpu < nr_cpu_ids; j++) {
@@ -420,13 +464,17 @@ void __init smp_setup_cpu_maps(void)
 		}
 	}
 
-	
+	/* If no SMT supported, nthreads is forced to 1 */
 	if (!cpu_has_feature(CPU_FTR_SMT)) {
 		DBG("  SMT disabled ! nthreads forced to 1\n");
 		nthreads = 1;
 	}
 
 #ifdef CONFIG_PPC64
+	/*
+	 * On pSeries LPAR, we need to know how many cpus
+	 * could possibly be added to this partition.
+	 */
 	if (machine_is(pseries) && firmware_has_feature(FW_FEATURE_LPAR) &&
 	    (dn = of_find_node_by_path("/rtas"))) {
 		int num_addr_cell, num_size_cell, maxcpus;
@@ -442,7 +490,7 @@ void __init smp_setup_cpu_maps(void)
 
 		maxcpus = ireg[num_addr_cell + num_size_cell];
 
-		
+		/* Double maxcpus for processors which have SMT capability */
 		if (cpu_has_feature(CPU_FTR_SMT))
 			maxcpus *= nthreads;
 
@@ -462,16 +510,22 @@ void __init smp_setup_cpu_maps(void)
 		of_node_put(dn);
 	}
 	vdso_data->processorCount = num_present_cpus();
-#endif 
+#endif /* CONFIG_PPC64 */
 
+        /* Initialize CPU <=> thread mapping/
+	 *
+	 * WARNING: We assume that the number of threads is the same for
+	 * every CPU in the system. If that is not the case, then some code
+	 * here will have to be reworked
+	 */
 	cpu_init_thread_core_maps(nthreads);
 
-	
+	/* Now that possible cpus are set, set nr_cpu_ids for later use */
 	setup_nr_cpu_ids();
 
 	free_unused_pacas();
 }
-#endif 
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_PCSPKR_PLATFORM
 static __init int add_pcspkr(void)
@@ -496,13 +550,17 @@ static __init int add_pcspkr(void)
 	return ret;
 }
 device_initcall(add_pcspkr);
-#endif	
+#endif	/* CONFIG_PCSPKR_PLATFORM */
 
 void probe_machine(void)
 {
 	extern struct machdep_calls __machine_desc_start;
 	extern struct machdep_calls __machine_desc_end;
 
+	/*
+	 * Iterate all ppc_md structures until we find the proper
+	 * one for the current machine type
+	 */
 	DBG("Probing machine type ...\n");
 
 	for (machine_id = &__machine_desc_start;
@@ -516,7 +574,7 @@ void probe_machine(void)
 		}
 		DBG("\n");
 	}
-	
+	/* What can we do if we didn't find ? */
 	if (machine_id >= &__machine_desc_end) {
 		DBG("No suitable machine found !\n");
 		for (;;);
@@ -525,6 +583,7 @@ void probe_machine(void)
 	printk(KERN_INFO "Using %s machine description\n", ppc_md.name);
 }
 
+/* Match a class of boards, not a specific device configuration. */
 int check_legacy_ioport(unsigned long base_port)
 {
 	struct device_node *parent, *np = NULL;
@@ -550,6 +609,8 @@ int check_legacy_ioport(unsigned long base_port)
 			break;
 		}
 		np = of_find_node_by_type(NULL, "8042");
+		/* Pegasos has no device_type on its 8042 node, look for the
+		 * name instead */
 		if (!np)
 			np = of_find_node_by_name(NULL, "8042");
 		if (np) {
@@ -557,17 +618,17 @@ int check_legacy_ioport(unsigned long base_port)
 			of_i8042_aux_irq = 12;
 		}
 		break;
-	case FDC_BASE: 
+	case FDC_BASE: /* FDC1 */
 		np = of_find_node_by_type(NULL, "fdc");
 		break;
 #ifdef CONFIG_PPC_PREP
 	case _PIDXR:
 	case _PNPWRP:
 	case PNPBIOS_BASE:
-		
+		/* implement me */
 #endif
 	default:
-		
+		/* ipmi is supposed to fail here */
 		break;
 	}
 	if (!np)
@@ -586,14 +647,18 @@ EXPORT_SYMBOL(check_legacy_ioport);
 static int ppc_panic_event(struct notifier_block *this,
                              unsigned long event, void *ptr)
 {
+	/*
+	 * If firmware-assisted dump has been registered then trigger
+	 * firmware-assisted dump and let firmware handle everything else.
+	 */
 	crash_fadump(NULL, ptr);
-	ppc_md.panic(ptr);  
+	ppc_md.panic(ptr);  /* May not return */
 	return NOTIFY_DONE;
 }
 
 static struct notifier_block ppc_panic_block = {
 	.notifier_call = ppc_panic_event,
-	.priority = INT_MIN 
+	.priority = INT_MIN /* may not return; must be done last */
 };
 
 void __init setup_panic(void)
@@ -602,6 +667,13 @@ void __init setup_panic(void)
 }
 
 #ifdef CONFIG_CHECK_CACHE_COHERENCY
+/*
+ * For platforms that have configurable cache-coherency.  This function
+ * checks that the cache coherency setting of the kernel matches the setting
+ * left by the firmware, as indicated in the device tree.  Since a mismatch
+ * will eventually result in DMA failures, we print * and error and call
+ * BUG() in that case.
+ */
 
 #ifdef CONFIG_NOT_COHERENT_CACHE
 #define KERNEL_COHERENCY	0
@@ -633,7 +705,7 @@ static int __init check_cache_coherency(void)
 }
 
 late_initcall(check_cache_coherency);
-#endif 
+#endif /* CONFIG_CHECK_CACHE_COHERENCY */
 
 #ifdef CONFIG_DEBUG_FS
 struct dentry *powerpc_debugfs_root;

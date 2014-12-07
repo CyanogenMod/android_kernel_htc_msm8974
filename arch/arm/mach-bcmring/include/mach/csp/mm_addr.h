@@ -12,24 +12,37 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*  @file    mm_addr.h
+*
+*  @brief   Memory Map address definitions
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
 
 #ifndef _MM_ADDR_H
 #define _MM_ADDR_H
 
+/* ---- Include Files ---------------------------------------------------- */
 
 #if !defined(CSP_SIMULATION)
 #include <cfg_global.h>
 #endif
 
+/* ---- Public Constants and Types --------------------------------------- */
 
+/*  Memory Map address definitions */
 
 #define MM_ADDR_DDR                0x00000000
 
-#define MM_ADDR_IO_VPM_EXTMEM_RSVD 0x0F000000	
+#define MM_ADDR_IO_VPM_EXTMEM_RSVD 0x0F000000	/* 16 MB - Reserved external memory for VPM use */
 
 #define MM_ADDR_IO_FLASHC          0x20000000
 #define MM_ADDR_IO_BROM            0x30000000
-#define MM_ADDR_IO_ARAM            0x30100000	
+#define MM_ADDR_IO_ARAM            0x30100000	/* 64 KB - extra cycle latency - WS switch */
 #define MM_ADDR_IO_DMA0            0x30200000
 #define MM_ADDR_IO_DMA1            0x30300000
 #define MM_ADDR_IO_ESW             0x30400000
@@ -39,7 +52,7 @@
 #define MM_ADDR_IO_SPUM            0x30700000
 #define MM_ADDR_IO_VPM_PROG        0x30800000
 #define MM_ADDR_IO_VPM_DATA        0x30A00000
-#define MM_ADDR_IO_VRAM            0x40000000	
+#define MM_ADDR_IO_VRAM            0x40000000	/* 64 KB  - security block in front of it */
 #define MM_ADDR_IO_CHIPC           0x80000000
 #define MM_ADDR_IO_UMI             0x80001000
 #define MM_ADDR_IO_NAND            0x80001800
@@ -82,5 +95,7 @@
 #define MM_ADDR_IO_SDIOH1          0x80600000
 #define MM_ADDR_IO_VDEC            0x80700000
 
+/* ---- Public Variable Externs ------------------------------------------ */
+/* ---- Public Function Prototypes --------------------------------------- */
 
-#endif 
+#endif /* _MM_ADDR_H */

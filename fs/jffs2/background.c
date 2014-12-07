@@ -31,6 +31,7 @@ void jffs2_garbage_collect_trigger(struct jffs2_sb_info *c)
 		send_sig(SIGHUP, c->gc_task, 1);
 }
 
+/* This must only ever be called when no GC thread is currently running */
 int jffs2_start_garbage_collect_thread(struct jffs2_sb_info *c)
 {
 	struct task_struct *tsk;
@@ -48,7 +49,7 @@ int jffs2_start_garbage_collect_thread(struct jffs2_sb_info *c)
 		complete(&c->gc_thread_exit);
 		ret = PTR_ERR(tsk);
 	} else {
-		
+		/* Wait for it... */
 		jffs2_dbg(1, "Garbage collect thread is pid %d\n", tsk->pid);
 		wait_for_completion(&c->gc_thread_start);
 		ret = tsk->pid;
@@ -98,6 +99,16 @@ static int jffs2_garbage_collect_thread(void *_c)
 			spin_unlock(&c->erase_completion_lock);
 			
 
+		/* Problem - immediately after bootup, the GCD spends a lot
+		 * of time in places like jffs2_kill_fragtree(); so much so
+		 * that userspace processes (like gdm and X) are starved
+		 * despite plenty of cond_resched()s and renicing.  Yield()
+		 * doesn't help, either (presumably because userspace and GCD
+		 * are generally competing for a higher latency resource -
+		 * disk).
+		 * This forces the GCD to slow the hell down.   Pulling an
+		 * inode in with read_inode() is much preferable to having
+		 * the GC thread get there first. */
 		schedule_timeout_interruptible(msecs_to_jiffies(50));
 
 		if (kthread_should_stop()) {
@@ -105,6 +116,8 @@ static int jffs2_garbage_collect_thread(void *_c)
 			goto die;
 		}
 
+		/* Put_super will send a SIGKILL and then wait on the sem.
+		 */
 		while (signal_pending(current) || freezing(current)) {
 			siginfo_t info;
 			unsigned long signr;
@@ -136,7 +149,7 @@ static int jffs2_garbage_collect_thread(void *_c)
 					  __func__, signr);
 			}
 		}
-		
+		/* We don't want SIGHUP to interrupt us. STOP and KILL are OK though. */
 		disallow_signal(SIGHUP);
 
 		jffs2_dbg(1, "%s(): pass\n", __func__);

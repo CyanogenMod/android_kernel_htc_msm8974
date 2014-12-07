@@ -32,17 +32,17 @@ enum snd_pcm_plugin_action {
 };
 
 struct snd_pcm_channel_area {
-	void *addr;			
-	unsigned int first;		
-	unsigned int step;		
+	void *addr;			/* base address of channel samples */
+	unsigned int first;		/* offset to first sample in bits */
+	unsigned int step;		/* samples distance in bits */
 };
 
 struct snd_pcm_plugin_channel {
-	void *aptr;			
+	void *aptr;			/* pointer to the allocated area */
 	struct snd_pcm_channel_area area;
-	snd_pcm_uframes_t frames;	
-	unsigned int enabled:1;		
-	unsigned int wanted:1;		
+	snd_pcm_uframes_t frames;	/* allocated frames */
+	unsigned int enabled:1;		/* channel need to be processed */
+	unsigned int wanted:1;		/* channel is wanted */
 };
 
 struct snd_pcm_plugin_format {
@@ -52,12 +52,12 @@ struct snd_pcm_plugin_format {
 };
 
 struct snd_pcm_plugin {
-	const char *name;		
+	const char *name;		/* plug-in name */
 	int stream;
-	struct snd_pcm_plugin_format src_format;	
-	struct snd_pcm_plugin_format dst_format;	
-	int src_width;			
-	int dst_width;			
+	struct snd_pcm_plugin_format src_format;	/* source format */
+	struct snd_pcm_plugin_format dst_format;	/* destination format */
+	int src_width;			/* sample width in bits */
+	int dst_width;			/* sample width in bits */
 	snd_pcm_access_t access;
 	snd_pcm_sframes_t (*src_frames)(struct snd_pcm_plugin *plugin, snd_pcm_uframes_t dst_frames);
 	snd_pcm_sframes_t (*dst_frames)(struct snd_pcm_plugin *plugin, snd_pcm_uframes_t src_frames);
@@ -182,4 +182,4 @@ static inline int snd_pcm_plug_slave_format(int format, struct snd_mask *format_
 #define pdprintf(fmt, args...)
 #endif
 
-#endif				
+#endif				/* __PCM_PLUGIN_H */

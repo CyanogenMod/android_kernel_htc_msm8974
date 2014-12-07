@@ -49,12 +49,12 @@ int cxd2820r_set_frontend_c(struct dvb_frontend *fe)
 
 	dbg("%s: RF=%d SR=%d", __func__, c->frequency, c->symbol_rate);
 
-	
+	/* update GPIOs */
 	ret = cxd2820r_gpio(fe);
 	if (ret)
 		goto error;
 
-	
+	/* program tuner */
 	if (fe->ops.tuner_ops.set_params)
 		fe->ops.tuner_ops.set_params(fe);
 
@@ -68,9 +68,9 @@ int cxd2820r_set_frontend_c(struct dvb_frontend *fe)
 	}
 
 	priv->delivery_system = SYS_DVBC_ANNEX_A;
-	priv->ber_running = 0; 
+	priv->ber_running = 0; /* tune stops BER counter */
 
-	
+	/* program IF frequency */
 	if (fe->ops.tuner_ops.get_if_frequency) {
 		ret = fe->ops.tuner_ops.get_if_frequency(fe, &if_freq);
 		if (ret)
@@ -80,7 +80,7 @@ int cxd2820r_set_frontend_c(struct dvb_frontend *fe)
 
 	dbg("%s: if_freq=%d", __func__, if_freq);
 
-	num = if_freq / 1000; 
+	num = if_freq / 1000; /* Hz => kHz */
 	num *= 0x4000;
 	if_ctl = cxd2820r_div_u64_round_closest(num, 41000);
 	buf[0] = (if_ctl >> 8) & 0x3f;
@@ -176,7 +176,7 @@ int cxd2820r_read_ber_c(struct dvb_frontend *fe, u32 *ber)
 	}
 
 	if (start_ber) {
-		
+		/* (re)start BER */
 		ret = cxd2820r_wr_reg(priv, 0x10079, 0x01);
 		if (ret)
 			goto error;
@@ -204,12 +204,12 @@ int cxd2820r_read_signal_strength_c(struct dvb_frontend *fe,
 	tmp = (~tmp & 0x03ff);
 
 	if (tmp == 512)
-		
+		/* ~no signal */
 		tmp = 0;
 	else if (tmp > 350)
 		tmp = 350;
 
-	
+	/* scale value to 0x0000-0xffff */
 	*strength = tmp * 0xffff / (350-0);
 
 	return ret;
@@ -224,7 +224,7 @@ int cxd2820r_read_snr_c(struct dvb_frontend *fe, u16 *snr)
 	int ret;
 	u8 tmp;
 	unsigned int A, B;
-	
+	/* report SNR in dB * 10 */
 
 	ret = cxd2820r_rd_reg(priv, 0x10019, &tmp);
 	if (ret)
@@ -242,7 +242,7 @@ int cxd2820r_read_snr_c(struct dvb_frontend *fe, u16 *snr)
 	if (ret)
 		goto error;
 
-	#define CXD2820R_LOG2_E_24 24204406 
+	#define CXD2820R_LOG2_E_24 24204406 /* log2(e) << 24 */
 	if (tmp)
 		*snr = A * (intlog2(B / tmp) >> 5) / (CXD2820R_LOG2_E_24 >> 5)
 			/ 10;
@@ -258,7 +258,7 @@ error:
 int cxd2820r_read_ucblocks_c(struct dvb_frontend *fe, u32 *ucblocks)
 {
 	*ucblocks = 0;
-	
+	/* no way to read ? */
 	return 0;
 }
 
@@ -339,7 +339,7 @@ int cxd2820r_get_tune_settings_c(struct dvb_frontend *fe,
 	struct dvb_frontend_tune_settings *s)
 {
 	s->min_delay_ms = 500;
-	s->step_size = 0; 
+	s->step_size = 0; /* no zigzag */
 	s->max_drift = 0;
 
 	return 0;

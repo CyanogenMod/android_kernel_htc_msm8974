@@ -20,7 +20,7 @@ struct t7l66xb_platform_data {
 	int (*suspend)(struct platform_device *dev);
 	int (*resume)(struct platform_device *dev);
 
-	int irq_base; 
+	int irq_base; /* The base for subdevice irqs */
 
 	struct tmio_nand_data *nand_data;
 };

@@ -15,6 +15,9 @@
 #include <plat/addr-map.h>
 #include "common.h"
 
+/*
+ * Generic Address Decode Windows bit settings
+ */
 #define TARGET_DEV_BUS		1
 #define TARGET_PCIE0		4
 #define TARGET_PCIE1		8
@@ -28,15 +31,28 @@
 #define ATTR_PCIE_IO(l)		(0xf0 & ~(0x10 << (l)))
 #define ATTR_PCIE_MEM(l)	(0xf8 & ~(0x10 << (l)))
 
+/*
+ * CPU Address Decode Windows registers
+ */
 #define WIN0_OFF(n)		(BRIDGE_VIRT_BASE + 0x0000 + ((n) << 4))
 #define WIN8_OFF(n)		(BRIDGE_VIRT_BASE + 0x0900 + (((n) - 8) << 4))
 
 static void __init __iomem *win_cfg_base(int win)
 {
+	/*
+	 * Find the control register base address for this window.
+	 *
+	 * BRIDGE_VIRT_BASE points to the right (CPU0's or CPU1's)
+	 * MBUS bridge depending on which CPU core we're running on,
+	 * so we don't need to take that into account here.
+	 */
 
 	return (void __iomem *)((win < 8) ? WIN0_OFF(win) : WIN8_OFF(win));
 }
 
+/*
+ * Description of the windows needed by the platform code
+ */
 static struct __initdata orion_addr_map_cfg addr_map_cfg = {
 	.num_wins = 14,
 	.remappable_wins = 8,
@@ -45,8 +61,14 @@ static struct __initdata orion_addr_map_cfg addr_map_cfg = {
 
 void __init mv78xx0_setup_cpu_mbus(void)
 {
+	/*
+	 * Disable, clear and configure windows.
+	 */
 	orion_config_wins(&addr_map_cfg, NULL);
 
+	/*
+	 * Setup MBUS dram target info.
+	 */
 	if (mv78xx0_core_index() == 0)
 		orion_setup_cpu_mbus_target(&addr_map_cfg,
 					    DDR_WINDOW_CPU0_BASE);

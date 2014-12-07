@@ -19,8 +19,9 @@
 struct rw_semaphore;
 
 #ifdef CONFIG_RWSEM_GENERIC_SPINLOCK
-#include <linux/rwsem-spinlock.h> 
+#include <linux/rwsem-spinlock.h> /* use a generic implementation */
 #else
+/* All arch specific implementations share the same struct */
 struct rw_semaphore {
 	long			count;
 	raw_spinlock_t		wait_lock;
@@ -35,8 +36,10 @@ extern struct rw_semaphore *rwsem_down_write_failed(struct rw_semaphore *sem);
 extern struct rw_semaphore *rwsem_wake(struct rw_semaphore *);
 extern struct rw_semaphore *rwsem_downgrade_wake(struct rw_semaphore *sem);
 
+/* Include the arch specific part */
 #include <asm/rwsem.h>
 
+/* In all implementations count != 0 means locked */
 static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {
 	return sem->count != 0;
@@ -44,6 +47,7 @@ static inline int rwsem_is_locked(struct rw_semaphore *sem)
 
 #endif
 
+/* Common initializer macros and functions */
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 # define __RWSEM_DEP_MAP_INIT(lockname) , .dep_map = { .name = #lockname }
@@ -70,21 +74,55 @@ do {								\
 	__init_rwsem((sem), #sem, &__key);			\
 } while (0)
 
+/*
+ * lock for reading
+ */
 extern void down_read(struct rw_semaphore *sem);
 
+/*
+ * trylock for reading -- returns 1 if successful, 0 if contention
+ */
 extern int down_read_trylock(struct rw_semaphore *sem);
 
+/*
+ * lock for writing
+ */
 extern void down_write(struct rw_semaphore *sem);
 
+/*
+ * trylock for writing -- returns 1 if successful, 0 if contention
+ */
 extern int down_write_trylock(struct rw_semaphore *sem);
 
+/*
+ * release a read lock
+ */
 extern void up_read(struct rw_semaphore *sem);
 
+/*
+ * release a write lock
+ */
 extern void up_write(struct rw_semaphore *sem);
 
+/*
+ * downgrade write lock to read lock
+ */
 extern void downgrade_write(struct rw_semaphore *sem);
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
+/*
+ * nested locking. NOTE: rwsems are not allowed to recurse
+ * (which occurs if the same task tries to acquire the same
+ * lock instance multiple times), but multiple locks of the
+ * same lock class might be taken, if the order of the locks
+ * is always the same. This ordering rule can be expressed
+ * to lockdep via the _nested() APIs, but enumerating the
+ * subclasses that are used. (If the nesting relationship is
+ * static then another method for expressing nested locking is
+ * the explicit definition of lock class keys and the use of
+ * lockdep_set_class() at lock initialization time.
+ * See Documentation/lockdep-design.txt for more details.)
+ */
 extern void down_read_nested(struct rw_semaphore *sem, int subclass);
 extern void down_write_nested(struct rw_semaphore *sem, int subclass);
 #else
@@ -92,4 +130,4 @@ extern void down_write_nested(struct rw_semaphore *sem, int subclass);
 # define down_write_nested(sem, subclass)	down_write(sem)
 #endif
 
-#endif 
+#endif /* _LINUX_RWSEM_H */

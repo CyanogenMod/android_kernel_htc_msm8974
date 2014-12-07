@@ -70,6 +70,11 @@ static int hw_queue_ctor(struct hw_queue *queue, const u32 nr_of_pages,
 		return -ENOMEM;
 	}
 
+	/*
+	 * allocate pages for queue:
+	 * outer loop allocates whole kernel pages (page aligned) and
+	 * inner loop divides a kernel page into smaller hea queue pages
+	 */
 	i = 0;
 	while (i < nr_of_pages) {
 		u8 *kpage = (u8 *)get_zeroed_page(GFP_KERNEL);
@@ -210,7 +215,7 @@ static u64 ehea_destroy_cq_res(struct ehea_cq *cq, u64 force)
 	u64 hret;
 	u64 adapter_handle = cq->adapter->handle;
 
-	
+	/* deregister all previous registered pages */
 	hret = ehea_h_free_resource(adapter_handle, cq->fw_handle, force);
 	if (hret != H_SUCCESS)
 		return hret;
@@ -292,7 +297,7 @@ struct ehea_eq *ehea_create_eq(struct ehea_adapter *adapter,
 					     eq->fw_handle, rpage, 1);
 
 		if (i == (eq->attr.nr_pages - 1)) {
-			
+			/* last page */
 			vpage = hw_qpageit_get_inc(&eq->hw_queue);
 			if ((hret != H_SUCCESS) || (vpage))
 				goto out_kill_hwq;
@@ -371,6 +376,9 @@ int ehea_destroy_eq(struct ehea_eq *eq)
 	return 0;
 }
 
+/**
+ * allocates memory for a queue and registers pages in phyp
+ */
 static int ehea_qp_alloc_register(struct ehea_qp *qp, struct hw_queue *hw_queue,
 			   int nr_pages, int wqe_size, int act_nr_sges,
 			   struct ehea_adapter *adapter, int h_call_q_selector)
@@ -639,7 +647,7 @@ static int ehea_update_busmap(unsigned long pfn, unsigned long nr_pages, int add
 
 	start_section = (pfn * PAGE_SIZE) / EHEA_SECTSIZE;
 	end_section = start_section + ((nr_pages * PAGE_SIZE) / EHEA_SECTSIZE);
-	
+	/* Mark entries as valid or invalid only; address is assigned later */
 	for (i = start_section; i < end_section; i++) {
 		u64 flag;
 		int top = ehea_calc_index(i, EHEA_TOP_INDEX_SHIFT);
@@ -650,20 +658,20 @@ static int ehea_update_busmap(unsigned long pfn, unsigned long nr_pages, int add
 			int ret = ehea_init_bmap(ehea_bmap, top, dir);
 			if (ret)
 				return ret;
-			flag = 1; 
+			flag = 1; /* valid */
 			ehea_mr_len += EHEA_SECTSIZE;
 		} else {
 			if (!ehea_bmap->top[top])
 				continue;
 			if (!ehea_bmap->top[top]->dir[dir])
 				continue;
-			flag = 0; 
+			flag = 0; /* invalid */
 			ehea_mr_len -= EHEA_SECTSIZE;
 		}
 
 		ehea_bmap->top[top]->dir[dir]->ent[idx] = flag;
 	}
-	ehea_rebuild_busmap(); 
+	ehea_rebuild_busmap(); /* Assign contiguous addresses for mr */
 	return 0;
 }
 
@@ -711,28 +719,28 @@ static int ehea_create_busmap_callback(unsigned long initial_pfn,
 		return ehea_update_busmap(initial_pfn, total_nr_pages,
 					  EHEA_BUSMAP_ADD_SECT);
 
-	
+	/* Given chunk is >= 16GB -> check for hugepages */
 	start_pfn = initial_pfn;
 	end_pfn = initial_pfn + total_nr_pages;
 	pfn = start_pfn;
 
 	while (pfn < end_pfn) {
 		if (ehea_is_hugepage(pfn)) {
-			
+			/* Add mem found in front of the hugepage */
 			nr_pages = pfn - start_pfn;
 			ret = ehea_update_busmap(start_pfn, nr_pages,
 						 EHEA_BUSMAP_ADD_SECT);
 			if (ret)
 				return ret;
 
-			
+			/* Skip the hugepage */
 			pfn += (EHEA_HUGEPAGE_SIZE / PAGE_SIZE);
 			start_pfn = pfn;
 		} else
 			pfn += (EHEA_SECTSIZE / PAGE_SIZE);
 	}
 
-	
+	/* Add mem found behind the hugepage(s)  */
 	nr_pages = pfn - start_pfn;
 	return ehea_update_busmap(start_pfn, nr_pages, EHEA_BUSMAP_ADD_SECT);
 }

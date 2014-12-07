@@ -6,8 +6,8 @@
 #include <media/saa7146.h>
 #include <media/videobuf-dma-sg.h>
 
-#define MAX_SAA7146_CAPTURE_BUFFERS	32	
-#define BUFFER_TIMEOUT     (HZ/2)  
+#define MAX_SAA7146_CAPTURE_BUFFERS	32	/* arbitrary */
+#define BUFFER_TIMEOUT     (HZ/2)  /* 0.5 seconds */
 
 #define WRITE_RPS0(x) do { \
 	dev->d_rps0.cpu_addr[ count++ ] = cpu_to_le32(x); \
@@ -43,27 +43,28 @@ struct saa7146_standard
 	char          *name;
 	v4l2_std_id   id;
 
-	int v_offset;	
-	int v_field;	
+	int v_offset;	/* number of lines of vertical offset before processing */
+	int v_field;	/* number of lines in a field for HPS to process */
 
-	int h_offset;	
-	int h_pixels;	
+	int h_offset;	/* horizontal offset of processing window */
+	int h_pixels;	/* number of horizontal pixels to process */
 
 	int v_max_out;
 	int h_max_out;
 };
 
+/* buffer for one video/vbi frame */
 struct saa7146_buf {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer vb;
 
-	
+	/* saa7146 specific */
 	struct v4l2_pix_format  *fmt;
 	int (*activate)(struct saa7146_dev *dev,
 			struct saa7146_buf *buf,
 			struct saa7146_buf *next);
 
-	
+	/* page tables */
 	struct saa7146_pgtable  pt[3];
 };
 
@@ -81,24 +82,25 @@ struct saa7146_overlay {
 	int			nclips;
 };
 
+/* per open data */
 struct saa7146_fh {
 	struct saa7146_dev	*dev;
-	
+	/* if this is a vbi or capture open */
 	enum v4l2_buf_type	type;
 
-	
+	/* video overlay */
 	struct saa7146_overlay	ov;
 
-	
+	/* video capture */
 	struct videobuf_queue	video_q;
 	struct v4l2_pix_format	video_fmt;
 
-	
+	/* vbi capture */
 	struct videobuf_queue	vbi_q;
 	struct v4l2_vbi_format	vbi_fmt;
 	struct timer_list	vbi_read_timeout;
 
-	unsigned int resources;	
+	unsigned int resources;	/* resource management for device open */
 };
 
 #define STATUS_OVERLAY	0x01
@@ -106,9 +108,9 @@ struct saa7146_fh {
 
 struct saa7146_vv
 {
-	
+	/* vbi capture */
 	struct saa7146_dmaqueue		vbi_q;
-	
+	/* vbi workaround interrupt queue */
 	wait_queue_head_t		vbi_wq;
 	int				vbi_fieldcount;
 	struct saa7146_fh		*vbi_streaming;
@@ -116,16 +118,22 @@ struct saa7146_vv
 	int				video_status;
 	struct saa7146_fh		*video_fh;
 
-	
+	/* video overlay */
 	struct v4l2_framebuffer		ov_fb;
 	struct saa7146_format		*ov_fmt;
 	struct saa7146_overlay		*ov_data;
 	struct saa7146_fh		*ov_suspend;
 
-	
+	/* video capture */
 	struct saa7146_dmaqueue		video_q;
 	enum v4l2_field			last_field;
 
+	/* common: fixme? shouldn't this be in saa7146_fh?
+	   (this leads to a more complicated question: shall the driver
+	   store the different settings (for example S_INPUT) for every open
+	   and restore it appropriately, or should all settings be common for
+	   all opens? currently, we do the latter, like all other
+	   drivers do... */
 	struct saa7146_standard	*standard;
 
 	int	vflip;
@@ -133,29 +141,30 @@ struct saa7146_vv
 	int	current_hps_source;
 	int	current_hps_sync;
 
-	struct saa7146_dma	d_clipping;	
+	struct saa7146_dma	d_clipping;	/* pointer to clipping memory */
 
-	unsigned int resources;	
+	unsigned int resources;	/* resource management for device */
 };
 
-#define SAA7146_USE_PORT_B_FOR_VBI	0x2     
+/* flags */
+#define SAA7146_USE_PORT_B_FOR_VBI	0x2     /* use input port b for vbi hardware bug workaround */
 
 struct saa7146_ext_vv
 {
-	
+	/* informations about the video capabilities of the device */
 	int	inputs;
 	int	audios;
 	u32	capabilities;
 	int	flags;
 
-	
+	/* additionally supported transmission standards */
 	struct saa7146_standard *stds;
 	int num_stds;
 	int (*std_callback)(struct saa7146_dev*, struct saa7146_standard *);
 
-	
+	/* the extension can override this */
 	struct v4l2_ioctl_ops ops;
-	
+	/* pointer to the saa7146 core ops */
 	const struct v4l2_ioctl_ops *core_ops;
 
 	struct v4l2_file_operations vbi_fops;
@@ -169,6 +178,7 @@ struct saa7146_use_ops  {
 	ssize_t (*read)(struct file *, char __user *, size_t, loff_t *);
 };
 
+/* from saa7146_fops.c */
 int saa7146_register_device(struct video_device **vid, struct saa7146_dev* dev, char *name, int type);
 int saa7146_unregister_device(struct video_device **vid, struct saa7146_dev* dev);
 void saa7146_buffer_finish(struct saa7146_dev *dev, struct saa7146_dmaqueue *q, int state);
@@ -181,6 +191,7 @@ void saa7146_dma_free(struct saa7146_dev* dev,struct videobuf_queue *q,
 int saa7146_vv_init(struct saa7146_dev* dev, struct saa7146_ext_vv *ext_vv);
 int saa7146_vv_release(struct saa7146_dev* dev);
 
+/* from saa7146_hlp.c */
 int saa7146_enable_overlay(struct saa7146_fh *fh);
 void saa7146_disable_overlay(struct saa7146_fh *fh);
 
@@ -189,14 +200,17 @@ void saa7146_write_out_dma(struct saa7146_dev* dev, int which, struct saa7146_vi
 void saa7146_set_hps_source_and_sync(struct saa7146_dev *saa, int source, int sync);
 void saa7146_set_gpio(struct saa7146_dev *saa, u8 pin, u8 data);
 
+/* from saa7146_video.c */
 extern const struct v4l2_ioctl_ops saa7146_video_ioctl_ops;
 extern struct saa7146_use_ops saa7146_video_uops;
 int saa7146_start_preview(struct saa7146_fh *fh);
 int saa7146_stop_preview(struct saa7146_fh *fh);
 long saa7146_video_do_ioctl(struct file *file, unsigned int cmd, void *arg);
 
+/* from saa7146_vbi.c */
 extern struct saa7146_use_ops saa7146_vbi_uops;
 
+/* resource management functions */
 int saa7146_res_get(struct saa7146_fh *fh, unsigned int bit);
 void saa7146_res_free(struct saa7146_fh *fh, unsigned int bits);
 
@@ -204,22 +218,29 @@ void saa7146_res_free(struct saa7146_fh *fh, unsigned int bits);
 #define RESOURCE_DMA2_CLP	0x2
 #define RESOURCE_DMA3_BRS	0x4
 
+/* saa7146 source inputs */
 #define SAA7146_HPS_SOURCE_PORT_A	0x00
 #define SAA7146_HPS_SOURCE_PORT_B	0x01
 #define SAA7146_HPS_SOURCE_YPB_CPA	0x02
 #define SAA7146_HPS_SOURCE_YPA_CPB	0x03
 
+/* sync inputs */
 #define SAA7146_HPS_SYNC_PORT_A		0x00
 #define SAA7146_HPS_SYNC_PORT_B		0x01
 
+/* some memory sizes */
+/* max. 16 clipping rectangles */
 #define SAA7146_CLIPPING_MEM	(16 * 4 * sizeof(u32))
 
+/* some defines for the various clipping-modes */
 #define SAA7146_CLIPPING_RECT		0x4
 #define SAA7146_CLIPPING_RECT_INVERTED	0x5
 #define SAA7146_CLIPPING_MASK		0x6
 #define SAA7146_CLIPPING_MASK_INVERTED	0x7
 
-#define RGB08_COMPOSED	0x0217 
+/* output formats: each entry holds four informations */
+#define RGB08_COMPOSED	0x0217 /* composed is used in the sense of "not-planar" */
+/* this means: planar?=0, yuv2rgb-conversation-mode=2, dither=yes(=1), format-mode = 7 */
 #define RGB15_COMPOSED	0x0213
 #define RGB16_COMPOSED	0x0210
 #define RGB24_COMPOSED	0x0201
@@ -228,12 +249,14 @@ void saa7146_res_free(struct saa7146_fh *fh, unsigned int bits);
 #define Y8			0x0006
 #define YUV411_COMPOSED		0x0003
 #define YUV422_COMPOSED		0x0000
+/* this means: planar?=1, yuv2rgb-conversion-mode=0, dither=no(=0), format-mode = b */
 #define YUV411_DECOMPOSED	0x100b
 #define YUV422_DECOMPOSED	0x1009
 #define YUV420_DECOMPOSED	0x100a
 
 #define IS_PLANAR(x) (x & 0xf000)
 
+/* misc defines */
 #define SAA7146_NO_SWAP		(0x0)
 #define SAA7146_TWO_BYTE_SWAP	(0x1)
 #define SAA7146_FOUR_BYTE_SWAP	(0x2)

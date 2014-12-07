@@ -50,7 +50,7 @@ struct bcm3510_state {
 	const struct bcm3510_config* config;
 	struct dvb_frontend frontend;
 
-	
+	/* demodulator private data */
 	struct mutex hab_mutex;
 	u8 firmware_loaded:1;
 
@@ -74,6 +74,7 @@ MODULE_PARM_DESC(debug, "set debugging level (1=info,2=i2c (|-able)).");
 #define deb_i2c(args...)  dprintk(0x02,args)
 #define deb_hab(args...)  dprintk(0x04,args)
 
+/* transfer functions */
 static int bcm3510_writebytes (struct bcm3510_state *state, u8 reg, u8 *buf, u8 len)
 {
 	u8 b[256];
@@ -129,6 +130,7 @@ static int bcm3510_readB(struct bcm3510_state *state, u8 reg, bcm3510_register_v
 	return bcm3510_readbytes(state,reg,&v->raw,1);
 }
 
+/* Host Access Buffer transfers */
 static int bcm3510_hab_get_response(struct bcm3510_state *st, u8 *buf, int len)
 {
 	bcm3510_register_value v;
@@ -152,14 +154,19 @@ static int bcm3510_hab_send_request(struct bcm3510_state *st, u8 *buf, int len)
 	int ret,i;
 	unsigned long t;
 
+/* Check if any previous HAB request still needs to be serviced by the
+ * Acquisition Processor before sending new request */
 	if ((ret = bcm3510_readB(st,0xa8,&v)) < 0)
 		return ret;
 	if (v.HABSTAT_a8.HABR) {
 		deb_info("HAB is running already - clearing it.\n");
 		v.HABSTAT_a8.HABR = 0;
 		bcm3510_writeB(st,0xa8,v);
+//		return -EBUSY;
 	}
 
+/* Send the start HAB Address (automatically incremented after write of
+ * HABDATA) and write the HAB Data */
 	hab.HABADR_a6.HABADR = 0;
 	if ((ret = bcm3510_writeB(st,0xa6,hab)) < 0)
 		return ret;
@@ -176,6 +183,7 @@ static int bcm3510_hab_send_request(struct bcm3510_state *st, u8 *buf, int len)
 	if ((ret = bcm3510_writeB(st,0xa8,v)) < 0)
 		return ret;
 
+/* Polling method: Wait until the AP finishes processing the HAB request */
 	t = jiffies + 1*HZ;
 	while (time_before(jiffies, t)) {
 		deb_info("waiting for HAB to complete\n");
@@ -222,6 +230,7 @@ error:
 }
 
 #if 0
+/* not needed, we use a semaphore to prevent HAB races */
 static int bcm3510_is_ap_ready(struct bcm3510_state *st)
 {
 	bcm3510_register_value ap,hab;
@@ -253,7 +262,7 @@ static int bcm3510_bert_reset(struct bcm3510_state *st)
 	b.BERCTL_fa.RESYNC = 0; bcm3510_writeB(st,0xfa,b);
 	b.BERCTL_fa.CNTCTL = 1; b.BERCTL_fa.BITCNT = 1; bcm3510_writeB(st,0xfa,b);
 
-	
+	/* clear residual bit counter TODO  */
 	return 0;
 }
 
@@ -284,7 +293,7 @@ static int bcm3510_read_status(struct dvb_frontend *fe, fe_status_t *status)
 
 	if (*status & FE_HAS_LOCK)
 		st->status_check_interval = 1500;
-	else 
+	else /* more frequently checks if no lock has been achieved yet */
 		st->status_check_interval = 500;
 
 	deb_info("real_status: %02x\n",*status);
@@ -323,7 +332,7 @@ static int bcm3510_read_signal_strength(struct dvb_frontend* fe, u16* strength)
 
 	t -= 90;
 	t = t * 0xff / 100;
-	
+	/* normalize if necessary */
 	*strength = (t << 8) | t;
 	return 0;
 }
@@ -337,67 +346,88 @@ static int bcm3510_read_snr(struct dvb_frontend* fe, u16* snr)
 	return 0;
 }
 
+/* tuner frontend programming */
 static int bcm3510_tuner_cmd(struct bcm3510_state* st,u8 bc, u16 n, u8 a)
 {
 	struct bcm3510_hab_cmd_tune c;
 	memset(&c,0,sizeof(struct bcm3510_hab_cmd_tune));
 
+/* I2C Mode disabled,  set 16 control / Data pairs */
 	c.length = 0x10;
 	c.clock_width = 0;
+/* CS1, CS0, DATA, CLK bits control the tuner RF_AGC_SEL pin is set to
+ * logic high (as Configuration) */
 	c.misc = 0x10;
+/* Set duration of the initial state of TUNCTL = 3.34 micro Sec */
 	c.TUNCTL_state = 0x40;
 
+/* PRESCALER DIVIDE RATIO | BC1_2_3_4; (band switch), 1stosc REFERENCE COUNTER REF_S12 and REF_S11 */
 	c.ctl_dat[0].ctrl.size = BITS_8;
 	c.ctl_dat[0].data      = 0x80 | bc;
 
+/* Control DATA pin, 1stosc REFERENCE COUNTER REF_S10 to REF_S3 */
 	c.ctl_dat[1].ctrl.size = BITS_8;
 	c.ctl_dat[1].data      = 4;
 
+/* set CONTROL BIT 1 to 1, 1stosc REFERENCE COUNTER REF_S2 to REF_S1 */
 	c.ctl_dat[2].ctrl.size = BITS_3;
 	c.ctl_dat[2].data      = 0x20;
 
+/* control CS0 pin, pulse byte ? */
 	c.ctl_dat[3].ctrl.size = BITS_3;
 	c.ctl_dat[3].ctrl.clk_off = 1;
 	c.ctl_dat[3].ctrl.cs0  = 1;
 	c.ctl_dat[3].data      = 0x40;
 
+/* PGM_S18 to PGM_S11 */
 	c.ctl_dat[4].ctrl.size = BITS_8;
 	c.ctl_dat[4].data      = n >> 3;
 
+/* PGM_S10 to PGM_S8, SWL_S7 to SWL_S3 */
 	c.ctl_dat[5].ctrl.size = BITS_8;
 	c.ctl_dat[5].data      = ((n & 0x7) << 5) | (a >> 2);
 
+/* SWL_S2 and SWL_S1, set CONTROL BIT 2 to 0 */
 	c.ctl_dat[6].ctrl.size = BITS_3;
 	c.ctl_dat[6].data      = (a << 6) & 0xdf;
 
+/* control CS0 pin, pulse byte ? */
 	c.ctl_dat[7].ctrl.size = BITS_3;
 	c.ctl_dat[7].ctrl.clk_off = 1;
 	c.ctl_dat[7].ctrl.cs0  = 1;
 	c.ctl_dat[7].data      = 0x40;
 
+/* PRESCALER DIVIDE RATIO, 2ndosc REFERENCE COUNTER REF_S12 and REF_S11 */
 	c.ctl_dat[8].ctrl.size = BITS_8;
 	c.ctl_dat[8].data      = 0x80;
 
+/* 2ndosc REFERENCE COUNTER REF_S10 to REF_S3 */
 	c.ctl_dat[9].ctrl.size = BITS_8;
 	c.ctl_dat[9].data      = 0x10;
 
+/* set CONTROL BIT 1 to 1, 2ndosc REFERENCE COUNTER REF_S2 to REF_S1 */
 	c.ctl_dat[10].ctrl.size = BITS_3;
 	c.ctl_dat[10].data      = 0x20;
 
+/* pulse byte */
 	c.ctl_dat[11].ctrl.size = BITS_3;
 	c.ctl_dat[11].ctrl.clk_off = 1;
 	c.ctl_dat[11].ctrl.cs1  = 1;
 	c.ctl_dat[11].data      = 0x40;
 
+/* PGM_S18 to PGM_S11 */
 	c.ctl_dat[12].ctrl.size = BITS_8;
 	c.ctl_dat[12].data      = 0x2a;
 
+/* PGM_S10 to PGM_S8 and SWL_S7 to SWL_S3 */
 	c.ctl_dat[13].ctrl.size = BITS_8;
 	c.ctl_dat[13].data      = 0x8e;
 
+/* SWL_S2 and SWL_S1 and set CONTROL BIT 2 to 0 */
 	c.ctl_dat[14].ctrl.size = BITS_3;
 	c.ctl_dat[14].data      = 0;
 
+/* Pulse Byte */
 	c.ctl_dat[15].ctrl.size = BITS_3;
 	c.ctl_dat[15].ctrl.clk_off = 1;
 	c.ctl_dat[15].ctrl.cs1  = 1;
@@ -415,7 +445,7 @@ static int bcm3510_set_freq(struct bcm3510_state* st,u32 freq)
 	freq /= 1000;
 
 	deb_info("%dkHz:",freq);
-	
+	/* set Band Switch */
 	if (freq <= 168000)
 		bc = 0x1c;
 	else if (freq <= 378000)
@@ -503,8 +533,20 @@ static int bcm3510_set_frontend(struct dvb_frontend *fe)
 	cmd.ACQUIRE0.FA = 1;
 	cmd.ACQUIRE0.BW = 0;
 
+/*	if (enableOffset) {
+		cmd.IF_OFFSET0 = xx;
+		cmd.IF_OFFSET1 = xx;
+
+		cmd.SYM_OFFSET0 = xx;
+		cmd.SYM_OFFSET1 = xx;
+		if (enableNtscSweep) {
+			cmd.NTSC_OFFSET0;
+			cmd.NTSC_OFFSET1;
+		}
+	} */
 	bcm3510_do_hab_cmd(st, CMD_ACQUIRE, MSGID_EXT_TUNER_ACQUIRE, (u8 *) &cmd, sizeof(cmd), NULL, 0);
 
+/* doing it with different MSGIDs, data book and source differs */
 	bert.BE = 0;
 	bert.unused = 0;
 	bcm3510_do_hab_cmd(st, CMD_STATE_CONTROL, MSGID_BERT_CONTROL, (u8 *) &bert, sizeof(bert), NULL, 0);
@@ -520,6 +562,7 @@ static int bcm3510_set_frontend(struct dvb_frontend *fe)
 	memset(&st->status2,0,sizeof(st->status2));
 	st->status_check_interval = 500;
 
+/* Give the AP some time */
 	msleep(200);
 
 	return 0;
@@ -544,6 +587,10 @@ static void bcm3510_release(struct dvb_frontend* fe)
 	kfree(state);
 }
 
+/* firmware download:
+ * firmware file is build up like this:
+ * 16bit addr, 16bit length, 8byte of length
+ */
 #define BCM3510_DEFAULT_FIRMWARE "dvb-fe-bcm3510-01.fw"
 
 static int bcm3510_write_ram(struct bcm3510_state *st, u16 addr, const u8 *b,
@@ -614,6 +661,7 @@ static int bcm3510_check_firmware_version(struct bcm3510_state *st)
 	return -ENODEV;
 }
 
+/* (un)resetting the AP */
 static int bcm3510_reset(struct bcm3510_state *st)
 {
 	int ret;
@@ -653,7 +701,7 @@ static int bcm3510_clear_reset(struct bcm3510_state *st)
 		if ((ret = bcm3510_readB(st,0xa2,&v)) < 0)
 			return ret;
 
-		
+		/* verify that reset is cleared */
 		if (!v.APSTAT1_a2.RESET)
 			return 0;
 	}
@@ -666,7 +714,7 @@ static int bcm3510_init_cold(struct bcm3510_state *st)
 	int ret;
 	bcm3510_register_value v;
 
-	
+	/* read Acquisation Processor status register and check it is not in RUN mode */
 	if ((ret = bcm3510_readB(st,0xa2,&v)) < 0)
 		return ret;
 	if (v.APSTAT1_a2.RUN) {
@@ -679,7 +727,7 @@ static int bcm3510_init_cold(struct bcm3510_state *st)
 		return ret;
 
 	deb_info("tristate?\n");
-	
+	/* tri-state */
 	v.TSTCTL_2e.CTL = 0;
 	if ((ret = bcm3510_writeB(st,0x2e,v)) < 0)
 		return ret;
@@ -689,7 +737,7 @@ static int bcm3510_init_cold(struct bcm3510_state *st)
 		(ret = bcm3510_clear_reset(st)) < 0)
 		return ret;
 
-	
+	/* anything left here to Let the acquisition processor begin execution at program counter 0000 ??? */
 
 	return 0;
 }
@@ -711,7 +759,7 @@ static int bcm3510_init(struct dvb_frontend* fe)
 			deb_info("attempting to download firmware\n");
 			if ((ret = bcm3510_init_cold(st)) < 0)
 				return ret;
-		case JDEC_EEPROM_LOAD_WAIT: 
+		case JDEC_EEPROM_LOAD_WAIT: /* fall-through is wanted */
 			deb_info("firmware is loaded\n");
 			bcm3510_check_firmware_version(st);
 			break;
@@ -736,17 +784,17 @@ struct dvb_frontend* bcm3510_attach(const struct bcm3510_config *config,
 	int ret;
 	bcm3510_register_value v;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct bcm3510_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 
 	state->config = config;
 	state->i2c = i2c;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &bcm3510_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 
@@ -757,8 +805,8 @@ struct dvb_frontend* bcm3510_attach(const struct bcm3510_config *config,
 
 	deb_info("Revision: 0x%1x, Layer: 0x%1x.\n",v.REVID_e0.REV,v.REVID_e0.LAYER);
 
-	if ((v.REVID_e0.REV != 0x1 && v.REVID_e0.LAYER != 0xb) && 
-		(v.REVID_e0.REV != 0x8 && v.REVID_e0.LAYER != 0x0))   
+	if ((v.REVID_e0.REV != 0x1 && v.REVID_e0.LAYER != 0xb) && /* cold */
+		(v.REVID_e0.REV != 0x8 && v.REVID_e0.LAYER != 0x0))   /* warm */
 		goto error;
 
 	info("Revision: 0x%1x, Layer: 0x%1x.",v.REVID_e0.REV,v.REVID_e0.LAYER);
@@ -779,7 +827,7 @@ static struct dvb_frontend_ops bcm3510_ops = {
 		.name = "Broadcom BCM3510 VSB/QAM frontend",
 		.frequency_min =  54000000,
 		.frequency_max = 803000000,
-		
+		/* stepsize is just a guess */
 		.frequency_stepsize = 0,
 		.caps =
 			FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |

@@ -18,6 +18,6 @@ static inline void of_register_spi_devices(struct spi_master *master)
 {
 	return;
 }
-#endif 
+#endif /* CONFIG_OF_SPI */
 
-#endif 
+#endif /* __LINUX_OF_SPI */

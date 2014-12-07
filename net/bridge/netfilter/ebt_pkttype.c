@@ -1,3 +1,12 @@
+/*
+ *  ebt_pkttype
+ *
+ *	Authors:
+ *	Bart De Schuymer <bdschuym@pandora.be>
+ *
+ *  April, 2003
+ *
+ */
 #include <linux/module.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_bridge/ebtables.h>
@@ -17,7 +26,7 @@ static int ebt_pkttype_mt_check(const struct xt_mtchk_param *par)
 
 	if (info->invert != 0 && info->invert != 1)
 		return -EINVAL;
-	
+	/* Allow any pkt_type value */
 	return 0;
 }
 

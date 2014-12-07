@@ -28,12 +28,24 @@
 #include "css.h"
 #include "device.h"
 
+/*
+ * "Blacklisting" of certain devices:
+ * Device numbers given in the commandline as cio_ignore=... won't be known
+ * to Linux.
+ *
+ * These can be single devices or ranges of devices
+ */
 
+/* 65536 bits for each set to indicate if a devno is blacklisted or not */
 #define __BL_DEV_WORDS ((__MAX_SUBCHANNEL + (8*sizeof(long) - 1)) / \
 			 (8*sizeof(long)))
 static unsigned long bl_dev[__MAX_SSID + 1][__BL_DEV_WORDS];
 typedef enum {add, free} range_action;
 
+/*
+ * Function: blacklist_range
+ * (Un-)blacklist the devices from-to
+ */
 static int blacklist_range(range_action action, unsigned int from_ssid,
 			   unsigned int to_ssid, unsigned int from,
 			   unsigned int to, int msgtrigger)
@@ -98,7 +110,7 @@ static int parse_busid(char *str, unsigned int *cssid, unsigned int *ssid,
 	if (*str == '\0')
 		goto out;
 
-	
+	/* old style */
 	str_work = str;
 	val = simple_strtoul(str, &str_work, 16);
 
@@ -112,7 +124,7 @@ static int parse_busid(char *str, unsigned int *cssid, unsigned int *ssid,
 		goto out;
 	}
 
-	
+	/* new style */
 	str_work = str;
 	ret = pure_hex(&str_work, cssid, 1, 2, __MAX_CSSID);
 	if (ret || (str_work[0] != '.'))
@@ -200,7 +212,14 @@ blacklist_setup (char *str)
 
 __setup ("cio_ignore=", blacklist_setup);
 
+/* Checking if devices are blacklisted */
 
+/*
+ * Function: is_blacklisted
+ * Returns 1 if the given devicenumber can be found in the blacklist,
+ * otherwise 0.
+ * Used by validate_subchannel()
+ */
 int
 is_blacklisted (int ssid, int devno)
 {
@@ -208,6 +227,10 @@ is_blacklisted (int ssid, int devno)
 }
 
 #ifdef CONFIG_PROC_FS
+/*
+ * Function: blacklist_parse_proc_parameters
+ * parse the stuff which is piped to /proc/cio_ignore
+ */
 static int blacklist_parse_proc_parameters(char *buf)
 {
 	int rc;
@@ -229,6 +252,7 @@ static int blacklist_parse_proc_parameters(char *buf)
 	return rc;
 }
 
+/* Iterator struct for all devices. */
 struct ccwdev_iter {
 	int devno;
 	int ssid;
@@ -279,13 +303,13 @@ cio_ignore_proc_seq_show(struct seq_file *s, void *it)
 
 	iter = it;
 	if (!is_blacklisted(iter->ssid, iter->devno))
-		
+		/* Not blacklisted, nothing to output. */
 		return 0;
 	if (!iter->in_range) {
-		
+		/* First device in range. */
 		if ((iter->devno == __MAX_SUBCHANNEL) ||
 		    !is_blacklisted(iter->ssid, iter->devno + 1))
-			
+			/* Singular device. */
 			return seq_printf(s, "0.%x.%04x\n",
 					  iter->ssid, iter->devno);
 		iter->in_range = 1;
@@ -293,7 +317,7 @@ cio_ignore_proc_seq_show(struct seq_file *s, void *it)
 	}
 	if ((iter->devno == __MAX_SUBCHANNEL) ||
 	    !is_blacklisted(iter->ssid, iter->devno + 1)) {
-		
+		/* Last device in range. */
 		iter->in_range = 0;
 		return seq_printf(s, "0.%x.%04x\n", iter->ssid, iter->devno);
 	}
@@ -311,7 +335,7 @@ cio_ignore_write(struct file *file, const char __user *user_buf,
 		return -EINVAL;
 	if (user_len > 65536)
 		user_len = 65536;
-	buf = vzalloc(user_len + 1); 
+	buf = vzalloc(user_len + 1); /* maybe better use the stack? */
 	if (buf == NULL)
 		return -ENOMEM;
 
@@ -372,4 +396,4 @@ cio_ignore_proc_init (void)
 
 __initcall (cio_ignore_proc_init);
 
-#endif 
+#endif /* CONFIG_PROC_FS */

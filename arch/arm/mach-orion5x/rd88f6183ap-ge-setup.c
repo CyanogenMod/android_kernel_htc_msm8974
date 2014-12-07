@@ -82,8 +82,14 @@ static struct spi_board_info __initdata rd88f6183ap_ge_spi_slave_info[] = {
 
 static void __init rd88f6183ap_ge_init(void)
 {
+	/*
+	 * Setup basic Orion functions. Need to be called early.
+	 */
 	orion5x_init();
 
+	/*
+	 * Configure peripherals.
+	 */
 	orion5x_ehci0_init();
 	orion5x_eth_init(&rd88f6183ap_ge_eth_data);
 	orion5x_eth_switch_init(&rd88f6183ap_ge_switch_plat_data,
@@ -114,7 +120,7 @@ static int __init rd88f6183ap_ge_pci_init(void)
 subsys_initcall(rd88f6183ap_ge_pci_init);
 
 MACHINE_START(RD88F6183AP_GE, "Marvell Orion-1-90 AP GE Reference Design")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= rd88f6183ap_ge_init,
 	.map_io		= orion5x_map_io,

@@ -33,4 +33,4 @@ struct physmap_flash_data {
 	const char		**part_probe_types;
 };
 
-#endif 
+#endif /* __LINUX_MTD_PHYSMAP__ */

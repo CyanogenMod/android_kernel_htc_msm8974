@@ -27,9 +27,11 @@
 #include "cm-regbits-24xx.h"
 #include "cm-regbits-34xx.h"
 
+/* CM_AUTOIDLE_PLL.AUTO_* bit values for DPLLs */
 #define DPLL_AUTOIDLE_DISABLE				0x0
 #define OMAP2XXX_DPLL_AUTOIDLE_LOW_POWER_STOP		0x3
 
+/* CM_AUTOIDLE_PLL.AUTO_* bit values for APLLs (OMAP2xxx only) */
 #define OMAP2XXX_APLL_AUTOIDLE_DISABLE			0x0
 #define OMAP2XXX_APLL_AUTOIDLE_LOW_POWER_STOP		0x3
 
@@ -47,6 +49,7 @@ void omap2_cm_write_mod_reg(u32 val, s16 module, u16 idx)
 	__raw_writel(val, cm_base + module + idx);
 }
 
+/* Read-modify-write a register in a CM module. Caller must lock */
 u32 omap2_cm_rmw_mod_reg_bits(u32 mask, u32 bits, s16 module, s16 idx)
 {
 	u32 v;
@@ -69,6 +72,9 @@ u32 omap2_cm_clear_mod_reg_bits(u32 bits, s16 module, s16 idx)
 	return omap2_cm_rmw_mod_reg_bits(bits, 0x0, module, idx);
 }
 
+/*
+ *
+ */
 
 static void _write_clktrctrl(u8 c, s16 module, u32 mask)
 {
@@ -129,6 +135,9 @@ void omap3xxx_cm_clkdm_force_wakeup(s16 module, u32 mask)
 	_write_clktrctrl(OMAP34XX_CLKSTCTRL_FORCE_WAKEUP, module, mask);
 }
 
+/*
+ * DPLL autoidle control
+ */
 
 static void _omap2xxx_set_dpll_autoidle(u8 m)
 {
@@ -150,6 +159,9 @@ void omap2xxx_cm_set_dpll_auto_low_power_stop(void)
 	_omap2xxx_set_dpll_autoidle(DPLL_AUTOIDLE_DISABLE);
 }
 
+/*
+ * APLL autoidle control
+ */
 
 static void _omap2xxx_set_apll_autoidle(u8 m, u32 mask)
 {
@@ -185,7 +197,18 @@ void omap2xxx_cm_set_apll96_auto_low_power_stop(void)
 				    OMAP24XX_AUTO_96M_MASK);
 }
 
+/*
+ *
+ */
 
+/**
+ * omap2_cm_wait_idlest_ready - wait for a module to leave idle or standby
+ * @prcm_mod: PRCM module offset
+ * @idlest_id: CM_IDLESTx register ID (i.e., x = 1, 2, 3)
+ * @idlest_shift: shift of the bit in the CM_IDLEST* register to check
+ *
+ * XXX document
+ */
 int omap2_cm_wait_module_ready(s16 prcm_mod, u8 idlest_id, u8 idlest_shift)
 {
 	int ena = 0, i = 0;
@@ -212,6 +235,9 @@ int omap2_cm_wait_module_ready(s16 prcm_mod, u8 idlest_id, u8 idlest_shift)
 	return (i < MAX_MODULE_READY_TIME) ? 0 : -EBUSY;
 }
 
+/*
+ * Context save/restore code - OMAP3 only
+ */
 #ifdef CONFIG_ARCH_OMAP3
 struct omap3_cm_regs {
 	u32 iva2_cm_clksel1;
@@ -296,6 +322,13 @@ void omap3_cm_save_context(void)
 		omap2_cm_read_mod_reg(OMAP3430_EMU_MOD, CM_CLKSEL1);
 	cm_context.emu_cm_clkstctrl =
 		omap2_cm_read_mod_reg(OMAP3430_EMU_MOD, OMAP2_CM_CLKSTCTRL);
+	/*
+	 * As per erratum i671, ROM code does not respect the PER DPLL
+	 * programming scheme if CM_AUTOIDLE_PLL.AUTO_PERIPH_DPLL == 1.
+	 * In this case, even though this register has been saved in
+	 * scratchpad contents, we need to restore AUTO_PERIPH_DPLL
+	 * by ourselves. So, we need to save it anyway.
+	 */
 	cm_context.pll_cm_autoidle =
 		omap2_cm_read_mod_reg(PLL_MOD, CM_AUTOIDLE);
 	cm_context.pll_cm_autoidle2 =
@@ -420,6 +453,11 @@ void omap3_cm_restore_context(void)
 			       CM_CLKSEL1);
 	omap2_cm_write_mod_reg(cm_context.emu_cm_clkstctrl, OMAP3430_EMU_MOD,
 			       OMAP2_CM_CLKSTCTRL);
+	/*
+	 * As per erratum i671, ROM code does not respect the PER DPLL
+	 * programming scheme if CM_AUTOIDLE_PLL.AUTO_PERIPH_DPLL == 1.
+	 * In this case, we need to restore AUTO_PERIPH_DPLL by ourselves.
+	 */
 	omap2_cm_write_mod_reg(cm_context.pll_cm_autoidle, PLL_MOD,
 			       CM_AUTOIDLE);
 	omap2_cm_write_mod_reg(cm_context.pll_cm_autoidle2, PLL_MOD,

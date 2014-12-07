@@ -125,6 +125,7 @@ static unsigned long s3c_roundrate_clksrc(struct clk *clk,
 	return rate;
 }
 
+/* Clock initialisation code */
 
 void __init_or_cpufreq s3c_set_clksrc(struct clksrc_clk *clk, bool announce)
 {
@@ -183,7 +184,7 @@ void __init s3c_register_clksrc(struct clksrc_clk *clksrc, int size)
 			printk(KERN_ERR "%s: clock %s has no registers set\n",
 			       __func__, clksrc->clk.name);
 
-		
+		/* fill in the default functions */
 
 		if (!clksrc->clk.ops) {
 			if (!clksrc->reg_div.reg)
@@ -194,6 +195,11 @@ void __init s3c_register_clksrc(struct clksrc_clk *clksrc, int size)
 				clksrc->clk.ops = &clksrc_ops;
 		}
 
+		/* setup the clocksource, but do not announce it
+		 * as it may be re-set by the setup routines
+		 * called after the rest of the clocks have been
+		 * registered
+		 */
 		s3c_set_clksrc(clksrc, false);
 
 		ret = s3c24xx_register_clock(&clksrc->clk);

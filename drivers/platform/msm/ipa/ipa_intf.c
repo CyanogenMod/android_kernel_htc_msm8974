@@ -36,6 +36,19 @@ struct ipa_pull_msg {
 	struct list_head link;
 };
 
+/**
+ * ipa_register_intf() - register "logical" interface
+ * @name: [in] interface name
+ * @tx:	[in] TX properties of the interface
+ * @rx:	[in] RX properties of the interface
+ *
+ * Register an interface and its tx and rx properties, this allows
+ * configuration of rules from user-space
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_register_intf(const char *name, const struct ipa_tx_intf *tx,
 		       const struct ipa_rx_intf *rx)
 {
@@ -44,6 +57,18 @@ int ipa_register_intf(const char *name, const struct ipa_tx_intf *tx,
 
 	if (name == NULL || (tx == NULL && rx == NULL)) {
 		IPAERR("invalid params name=%p tx=%p rx=%p\n", name, tx, rx);
+		return -EINVAL;
+	}
+
+	if (tx && tx->num_props > IPA_NUM_PROPS_MAX) {
+		IPAERR("invalid tx num_props=%d max=%d\n", tx->num_props,
+				IPA_NUM_PROPS_MAX);
+		return -EINVAL;
+	}
+
+	if (rx && rx->num_props > IPA_NUM_PROPS_MAX) {
+		IPAERR("invalid rx num_props=%d max=%d\n", rx->num_props,
+				IPA_NUM_PROPS_MAX);
 		return -EINVAL;
 	}
 
@@ -89,6 +114,16 @@ int ipa_register_intf(const char *name, const struct ipa_tx_intf *tx,
 }
 EXPORT_SYMBOL(ipa_register_intf);
 
+/**
+ * ipa_deregister_intf() - de-register previously registered logical interface
+ * @name: [in] interface name
+ *
+ * De-register a previously registered interface
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_deregister_intf(const char *name)
 {
 	struct ipa_intf *entry;
@@ -116,6 +151,18 @@ int ipa_deregister_intf(const char *name)
 }
 EXPORT_SYMBOL(ipa_deregister_intf);
 
+/**
+ * ipa_query_intf() - query logical interface properties
+ * @lookup:	[inout] interface name and number of properties
+ *
+ * Obtain the handle and number of tx and rx properties for the named
+ * interface, used as part of querying the tx and rx properties for
+ * configuration of various rules from user-space
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_query_intf(struct ipa_ioc_query_intf *lookup)
 {
 	struct ipa_intf *entry;
@@ -140,6 +187,16 @@ int ipa_query_intf(struct ipa_ioc_query_intf *lookup)
 	return result;
 }
 
+/**
+ * ipa_query_intf_tx_props() - qeury TX props of an interface
+ * @tx:  [inout] interface tx attributes
+ *
+ * Obtain the tx properties for the specifed interface
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx)
 {
 	struct ipa_intf *entry;
@@ -163,6 +220,16 @@ int ipa_query_intf_tx_props(struct ipa_ioc_query_intf_tx_props *tx)
 	return result;
 }
 
+/**
+ * ipa_query_intf_rx_props() - qeury RX props of an interface
+ * @rx:  [inout] interface rx attributes
+ *
+ * Obtain the rx properties for the specifed interface
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx)
 {
 	struct ipa_intf *entry;
@@ -186,6 +253,21 @@ int ipa_query_intf_rx_props(struct ipa_ioc_query_intf_rx_props *rx)
 	return result;
 }
 
+/**
+ * ipa_send_msg() - Send "message" from kernel client to IPA driver
+ * @meta: [in] message meta-data
+ * @buff: [in] the payload for message
+ * @callback: [in] free callback
+ *
+ * Client supplies the message meta-data and payload which IPA driver buffers
+ * till read by user-space. After read from user space IPA driver invokes the
+ * callback supplied to free the message payload. Client must not touch/free
+ * the message payload after calling this API.
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_send_msg(struct ipa_msg_meta *meta, void *buff,
 		  ipa_msg_free_fn callback)
 {
@@ -224,6 +306,18 @@ int ipa_send_msg(struct ipa_msg_meta *meta, void *buff,
 }
 EXPORT_SYMBOL(ipa_send_msg);
 
+/**
+ * ipa_register_pull_msg() - register pull message type
+ * @meta: [in] message meta-data
+ * @callback: [in] pull callback
+ *
+ * Register message callback by kernel client with IPA driver for IPA driver to
+ * pull message on-demand.
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback)
 {
 	struct ipa_pull_msg *msg;
@@ -250,6 +344,16 @@ int ipa_register_pull_msg(struct ipa_msg_meta *meta, ipa_msg_pull_fn callback)
 }
 EXPORT_SYMBOL(ipa_register_pull_msg);
 
+/**
+ * ipa_deregister_pull_msg() - De-register pull message type
+ * @meta: [in] message meta-data
+ *
+ * De-register "message" by kernel client from IPA driver
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_deregister_pull_msg(struct ipa_msg_meta *meta)
 {
 	struct ipa_pull_msg *entry;
@@ -276,6 +380,23 @@ int ipa_deregister_pull_msg(struct ipa_msg_meta *meta)
 }
 EXPORT_SYMBOL(ipa_deregister_pull_msg);
 
+/**
+ * ipa_read() - read message from IPA device
+ * @filp:	[in] file pointer
+ * @buf:	[out] buffer to read into
+ * @count:	[in] size of above buffer
+ * @f_pos:	[inout] file position
+ *
+ * Uer-space should continually read from /dev/ipa, read wll block when there
+ * are no messages to read. Upon return, user-space should read the ipa_msg_meta
+ * from the start of the buffer to know what type of message was read and its
+ * length in the remainder of the buffer. Buffer supplied must be big enough to
+ * hold the message meta-data and the largest defined message type
+ *
+ * Returns:	how many bytes copied to buffer
+ *
+ * Note:	Should not be called from atomic context
+ */
 ssize_t ipa_read(struct file *filp, char __user *buf, size_t count,
 		  loff_t *f_pos)
 {
@@ -352,6 +473,20 @@ ssize_t ipa_read(struct file *filp, char __user *buf, size_t count,
 	return ret;
 }
 
+/**
+ * ipa_pull_msg() - pull the specified message from client
+ * @meta: [in] message meta-data
+ * @buf:  [out] buffer to read into
+ * @count: [in] size of above buffer
+ *
+ * Populate the supplied buffer with the pull message which is fetched
+ * from client, the message must have previously been registered with
+ * the IPA driver
+ *
+ * Returns:	how many bytes copied to buffer
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_pull_msg(struct ipa_msg_meta *meta, char *buff, size_t count)
 {
 	struct ipa_pull_msg *entry;

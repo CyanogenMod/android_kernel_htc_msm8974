@@ -36,14 +36,20 @@ static inline void svcpu_put(struct kvmppc_book3s_shadow_vcpu *svcpu)
 #define SPAPR_TCE_SHIFT		12
 
 #ifdef CONFIG_KVM_BOOK3S_64_HV
+/* For now use fixed-size 16MB page table */
 #define HPT_ORDER	24
-#define HPT_NPTEG	(1ul << (HPT_ORDER - 7))	
-#define HPT_NPTE	(HPT_NPTEG << 3)		
+#define HPT_NPTEG	(1ul << (HPT_ORDER - 7))	/* 128B per pteg */
+#define HPT_NPTE	(HPT_NPTEG << 3)		/* 8 PTEs per PTEG */
 #define HPT_HASH_MASK	(HPT_NPTEG - 1)
 #endif
 
-#define VRMA_VSID	0x1ffffffUL	
+#define VRMA_VSID	0x1ffffffUL	/* 1TB VSID reserved for VRMA */
 
+/*
+ * We use a lock bit in HPTE dword 0 to synchronize updates and
+ * accesses to each HPTE, and another bit to indicate non-present
+ * HPTEs.
+ */
 #define HPTE_V_HVLOCK	0x40UL
 #define HPTE_V_ABSENT	0x20UL
 
@@ -70,44 +76,44 @@ static inline unsigned long compute_tlbie_rb(unsigned long v, unsigned long r,
 {
 	unsigned long rb, va_low;
 
-	rb = (v & ~0x7fUL) << 16;		
+	rb = (v & ~0x7fUL) << 16;		/* AVA field */
 	va_low = pte_index >> 3;
 	if (v & HPTE_V_SECONDARY)
 		va_low = ~va_low;
-	
+	/* xor vsid from AVA */
 	if (!(v & HPTE_V_1TB_SEG))
 		va_low ^= v >> 12;
 	else
 		va_low ^= v >> 24;
 	va_low &= 0x7ff;
 	if (v & HPTE_V_LARGE) {
-		rb |= 1;			
+		rb |= 1;			/* L field */
 		if (cpu_has_feature(CPU_FTR_ARCH_206) &&
 		    (r & 0xff000)) {
-			
-			
-			rb |= 0x1000;		
-			rb |= (va_low & 0x7f) << 16; 
-			rb |= (va_low & 0xfe);	
+			/* non-16MB large page, must be 64k */
+			/* (masks depend on page size) */
+			rb |= 0x1000;		/* page encoding in LP field */
+			rb |= (va_low & 0x7f) << 16; /* 7b of VA in AVA/LP field */
+			rb |= (va_low & 0xfe);	/* AVAL field (P7 doesn't seem to care) */
 		}
 	} else {
-		
-		rb |= (va_low & 0x7ff) << 12;	
+		/* 4kB page */
+		rb |= (va_low & 0x7ff) << 12;	/* remaining 11b of VA */
 	}
-	rb |= (v >> 54) & 0x300;		
+	rb |= (v >> 54) & 0x300;		/* B field */
 	return rb;
 }
 
 static inline unsigned long hpte_page_size(unsigned long h, unsigned long l)
 {
-	
+	/* only handle 4k, 64k and 16M pages for now */
 	if (!(h & HPTE_V_LARGE))
-		return 1ul << 12;		
+		return 1ul << 12;		/* 4k page */
 	if ((l & 0xf000) == 0x1000 && cpu_has_feature(CPU_FTR_ARCH_206))
-		return 1ul << 16;		
+		return 1ul << 16;		/* 64k page */
 	if ((l & 0xff000) == 0)
-		return 1ul << 24;		
-	return 0;				
+		return 1ul << 24;		/* 16M page */
+	return 0;				/* error */
 }
 
 static inline unsigned long hpte_rpn(unsigned long ptel, unsigned long psize)
@@ -135,7 +141,7 @@ static inline int hpte_cache_flags_ok(unsigned long ptel, unsigned long io_type)
 {
 	unsigned int wimg = ptel & HPTE_R_WIMG;
 
-	
+	/* Handle SAO */
 	if (wimg == (HPTE_R_W | HPTE_R_I | HPTE_R_M) &&
 	    cpu_has_feature(CPU_FTR_ARCH_206))
 		wimg = HPTE_R_M;
@@ -146,11 +152,15 @@ static inline int hpte_cache_flags_ok(unsigned long ptel, unsigned long io_type)
 	return (wimg & (HPTE_R_W | HPTE_R_I)) == io_type;
 }
 
+/*
+ * Lock and read a linux PTE.  If it's present and writable, atomically
+ * set dirty and referenced bits and return the PTE, otherwise return 0.
+ */
 static inline pte_t kvmppc_read_update_linux_pte(pte_t *p, int writing)
 {
 	pte_t pte, tmp;
 
-	
+	/* wait until _PAGE_BUSY is clear then set it atomically */
 	__asm__ __volatile__ (
 		"1:	ldarx	%0,0,%3\n"
 		"	andi.	%1,%0,%4\n"
@@ -168,11 +178,12 @@ static inline pte_t kvmppc_read_update_linux_pte(pte_t *p, int writing)
 			pte = pte_mkdirty(pte);
 	}
 
-	*p = pte;	
+	*p = pte;	/* clears _PAGE_BUSY */
 
 	return pte;
 }
 
+/* Return HPTE cache control bits corresponding to Linux pte bits */
 static inline unsigned long hpte_cache_bits(unsigned long pte_val)
 {
 #if _PAGE_NO_CACHE == HPTE_R_I && _PAGE_WRITETHRU == HPTE_R_W
@@ -229,4 +240,4 @@ static inline bool slot_is_aligned(struct kvm_memory_slot *memslot,
 	return !(memslot->base_gfn & mask) && !(memslot->npages & mask);
 }
 
-#endif 
+#endif /* __ASM_KVM_BOOK3S_64_H__ */

@@ -39,6 +39,10 @@
 #include <mach/map.h>
 #include "mm.h"
 
+/*
+ * Used by ioremap() and iounmap() code to mark (super)section-mapped
+ * I/O regions in vm_struct->flags field.
+ */
 #define VM_UNICORE_SECTION_MAPPING	0x80000000
 
 int ioremap_page(unsigned long virt, unsigned long phys,
@@ -49,6 +53,16 @@ int ioremap_page(unsigned long virt, unsigned long phys,
 }
 EXPORT_SYMBOL(ioremap_page);
 
+/*
+ * Section support is unsafe on SMP - If you iounmap and ioremap a region,
+ * the other CPUs will not see this change until their next context switch.
+ * Meanwhile, (eg) if an interrupt comes in on one of those other CPUs
+ * which requires the new ioremap'd region to be referenced, the CPU will
+ * reference the _old_ region.
+ *
+ * Note that get_vm_area_caller() allocates a guard 4K page, so we need to
+ * mask the size back to 4MB aligned or we will overflow in the loop below.
+ */
 static void unmap_area_sections(unsigned long virt, unsigned long size)
 {
 	unsigned long addr = virt, end = virt + (size & ~(SZ_4M - 1));
@@ -61,8 +75,18 @@ static void unmap_area_sections(unsigned long virt, unsigned long size)
 
 		pmd = *pmdp;
 		if (!pmd_none(pmd)) {
+			/*
+			 * Clear the PMD from the page table, and
+			 * increment the kvm sequence so others
+			 * notice this change.
+			 *
+			 * Note: this is still racy on SMP machines.
+			 */
 			pmd_clear(pmdp);
 
+			/*
+			 * Free the page table, if there was one.
+			 */
 			if ((pmd_val(pmd) & PMD_TYPE_MASK) == PMD_TYPE_TABLE)
 				pte_free_kernel(&init_mm, pmd_page_vaddr(pmd));
 		}
@@ -81,6 +105,10 @@ remap_area_sections(unsigned long virt, unsigned long pfn,
 	unsigned long addr = virt, end = virt + size;
 	pgd_t *pgd;
 
+	/*
+	 * Remove and free any PTE-based mapping, and
+	 * sync the current kernel mapping.
+	 */
 	unmap_area_sections(virt, size);
 
 	pgd = pgd_offset_k(addr);
@@ -106,9 +134,15 @@ void __iomem *__uc32_ioremap_pfn_caller(unsigned long pfn,
 	unsigned long addr;
 	struct vm_struct *area;
 
+	/*
+	 * High mappings must be section aligned
+	 */
 	if (pfn >= 0x100000 && (__pfn_to_phys(pfn) & ~SECTION_MASK))
 		return NULL;
 
+	/*
+	 * Don't allow RAM to be mapped
+	 */
 	if (pfn_valid(pfn)) {
 		printk(KERN_WARNING "BUG: Your driver calls ioremap() on\n"
 			"system memory.  This leads to architecturally\n"
@@ -121,6 +155,9 @@ void __iomem *__uc32_ioremap_pfn_caller(unsigned long pfn,
 	if (!type)
 		return NULL;
 
+	/*
+	 * Page align the mapping size, taking account of any offset.
+	 */
 	size = PAGE_ALIGN(offset + size);
 
 	area = get_vm_area_caller(size, VM_IOREMAP, caller);
@@ -151,6 +188,9 @@ void __iomem *__uc32_ioremap_caller(unsigned long phys_addr, size_t size,
 	unsigned long offset = phys_addr & ~PAGE_MASK;
 	unsigned long pfn = __phys_to_pfn(phys_addr);
 
+	/*
+	 * Don't allow wraparound or zero size
+	 */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
@@ -158,6 +198,15 @@ void __iomem *__uc32_ioremap_caller(unsigned long phys_addr, size_t size,
 	return __uc32_ioremap_pfn_caller(pfn, offset, size, mtype, caller);
 }
 
+/*
+ * Remap an arbitrary physical address space into the kernel virtual
+ * address space. Needed when the kernel wants to access high addresses
+ * directly.
+ *
+ * NOTE! We need to allow non-page-aligned mappings too: we will obviously
+ * have to convert them into an offset in a page-aligned mapping, but the
+ * caller shouldn't need to know that small detail.
+ */
 void __iomem *
 __uc32_ioremap_pfn(unsigned long pfn, unsigned long offset, size_t size,
 		  unsigned int mtype)
@@ -188,6 +237,13 @@ void __uc32_iounmap(volatile void __iomem *io_addr)
 	void *addr = (void *)(PAGE_MASK & (unsigned long)io_addr);
 	struct vm_struct **p, *tmp;
 
+	/*
+	 * If this is a section based mapping we need to handle it
+	 * specially as the VM subsystem does not know how to handle
+	 * such a beast. We need the lock here b/c we need to clear
+	 * all the mappings before the area can be reclaimed
+	 * by someone else.
+	 */
 	write_lock(&vmlist_lock);
 	for (p = &vmlist ; (tmp = *p) ; p = &tmp->next) {
 		if ((tmp->flags & VM_IOREMAP) && (tmp->addr == addr)) {

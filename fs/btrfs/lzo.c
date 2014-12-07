@@ -31,8 +31,8 @@
 
 struct workspace {
 	void *mem;
-	void *buf;	
-	void *cbuf;	
+	void *buf;	/* where compressed data goes */
+	void *cbuf;	/* where decompressed data goes */
 	struct list_head list;
 };
 
@@ -119,6 +119,10 @@ static int lzo_compress_pages(struct list_head *ws,
 	in_page = find_get_page(mapping, start >> PAGE_CACHE_SHIFT);
 	data_in = kmap(in_page);
 
+	/*
+	 * store the size of all chunks of compressed data in
+	 * the first 4 bytes
+	 */
 	out_page = alloc_page(GFP_NOFS | __GFP_HIGHMEM);
 	if (out_page == NULL) {
 		ret = -ENOMEM;
@@ -131,7 +135,7 @@ static int lzo_compress_pages(struct list_head *ws,
 	nr_pages = 1;
 	pg_bytes_left = PAGE_CACHE_SIZE - LZO_LEN;
 
-	
+	/* compress at most one page of data each time */
 	in_len = min(len, PAGE_CACHE_SIZE);
 	while (tot_in < len) {
 		ret = lzo1x_1_compress(data_in, in_len, workspace->cbuf,
@@ -143,7 +147,7 @@ static int lzo_compress_pages(struct list_head *ws,
 			goto out;
 		}
 
-		
+		/* store the size of this chunk of compressed data */
 		write_compress_length(cpage_out + out_offset, out_len);
 		tot_out += LZO_LEN;
 		out_offset += LZO_LEN;
@@ -152,7 +156,7 @@ static int lzo_compress_pages(struct list_head *ws,
 		tot_in += in_len;
 		tot_out += out_len;
 
-		
+		/* copy bytes from the working buffer into the pages */
 		buf = workspace->cbuf;
 		while (out_len) {
 			bytes = min_t(unsigned long, pg_bytes_left, out_len);
@@ -164,6 +168,12 @@ static int lzo_compress_pages(struct list_head *ws,
 			buf += bytes;
 			out_offset += bytes;
 
+			/*
+			 * we need another page for writing out.
+			 *
+			 * Note if there's less than 4 bytes left, we just
+			 * skip to a new page.
+			 */
 			if ((out_len == 0 && pg_bytes_left < LZO_LEN) ||
 			    pg_bytes_left == 0) {
 				if (pg_bytes_left) {
@@ -172,7 +182,7 @@ static int lzo_compress_pages(struct list_head *ws,
 					tot_out += pg_bytes_left;
 				}
 
-				
+				/* we're done, don't allocate new page */
 				if (out_len == 0 && tot_in >= len)
 					break;
 
@@ -196,11 +206,11 @@ static int lzo_compress_pages(struct list_head *ws,
 			}
 		}
 
-		
+		/* we're making it bigger, give up */
 		if (tot_in > 8192 && tot_in < tot_out)
 			goto out;
 
-		
+		/* we're all done */
 		if (tot_in >= len)
 			break;
 
@@ -220,7 +230,7 @@ static int lzo_compress_pages(struct list_head *ws,
 	if (tot_out > tot_in)
 		goto out;
 
-	
+	/* store the size of all chunks of compressed data */
 	cpage_out = kmap(pages[0]);
 	write_compress_length(cpage_out, tot_out);
 
@@ -293,7 +303,7 @@ static int lzo_decompress_biovec(struct list_head *ws,
 		working_bytes = in_len;
 		may_late_unmap = need_unmap = false;
 
-		
+		/* fast path: avoid using the working buffer */
 		if (in_page_bytes_left >= in_len) {
 			buf = data_in + in_offset;
 			bytes = in_len;
@@ -301,7 +311,7 @@ static int lzo_decompress_biovec(struct list_head *ws,
 			goto cont;
 		}
 
-		
+		/* copy bytes from the pages into the working buffer */
 		buf = workspace->cbuf;
 		buf_offset = 0;
 		while (working_bytes) {
@@ -314,7 +324,7 @@ cont:
 			in_page_bytes_left -= bytes;
 			in_offset += bytes;
 
-			
+			/* check if we need to pick another page */
 			if ((working_bytes == 0 && in_page_bytes_left < LZO_LEN)
 			    || in_page_bytes_left == 0) {
 				tot_in += in_page_bytes_left;

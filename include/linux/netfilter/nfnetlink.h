@@ -22,18 +22,25 @@ enum nfnetlink_groups {
 };
 #define NFNLGRP_MAX	(__NFNLGRP_MAX - 1)
 
+/* General form of address family dependent message.
+ */
 struct nfgenmsg {
-	__u8  nfgen_family;		
-	__u8  version;		
-	__be16    res_id;		
+	__u8  nfgen_family;		/* AF_xxx */
+	__u8  version;		/* nfnetlink version */
+	__be16    res_id;		/* resource id */
 };
 
 #define NFNETLINK_V0	0
 
+/* netfilter netlink message types are split in two pieces:
+ * 8 bit subsystem, 8bit operation.
+ */
 
 #define NFNL_SUBSYS_ID(x)	((x & 0xff00) >> 8)
 #define NFNL_MSG_TYPE(x)	(x & 0x00ff)
 
+/* No enum here, otherwise __stringify() trick of MODULE_ALIAS_NFNL_SUBSYS()
+ * won't work anymore */
 #define NFNL_SUBSYS_NONE 		0
 #define NFNL_SUBSYS_CTNETLINK		1
 #define NFNL_SUBSYS_CTNETLINK_EXP	2
@@ -58,15 +65,15 @@ struct nfnl_callback {
 	int (*call_rcu)(struct sock *nl, struct sk_buff *skb, 
 		    const struct nlmsghdr *nlh,
 		    const struct nlattr * const cda[]);
-	const struct nla_policy *policy;	
-	const u_int16_t attr_count;		
+	const struct nla_policy *policy;	/* netlink attribute policy */
+	const u_int16_t attr_count;		/* number of nlattr's */
 };
 
 struct nfnetlink_subsystem {
 	const char *name;
-	__u8 subsys_id;			
-	__u8 cb_count;			
-	const struct nfnl_callback *cb;	
+	__u8 subsys_id;			/* nfnetlink subsystem ID */
+	__u8 cb_count;			/* number of callbacks */
+	const struct nfnl_callback *cb;	/* callback for individual types */
 };
 
 extern int nfnetlink_subsys_register(const struct nfnetlink_subsystem *n);
@@ -84,5 +91,5 @@ extern void nfnl_unlock(void);
 #define MODULE_ALIAS_NFNL_SUBSYS(subsys) \
 	MODULE_ALIAS("nfnetlink-subsys-" __stringify(subsys))
 
-#endif	
-#endif	
+#endif	/* __KERNEL__ */
+#endif	/* _NFNETLINK_H */

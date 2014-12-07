@@ -25,13 +25,14 @@
 
 #define DRIVER_DESC	"PCMCIA Flash memory card driver"
 
+/* Size of the PCMCIA address space: 26 bits = 64 MB */
 #define MAX_PCMCIA_ADDR	0x4000000
 
 struct pcmciamtd_dev {
 	struct pcmcia_device	*p_dev;
-	caddr_t		win_base;	
-	unsigned int	win_size;	
-	unsigned int	offset;		
+	caddr_t		win_base;	/* ioremapped address of PCMCIA window */
+	unsigned int	win_size;	/* size of window */
+	unsigned int	offset;		/* offset into card the window currently points at */
 	struct map_info	pcmcia_map;
 	struct mtd_info	*mtd_info;
 	int		vpp;
@@ -39,17 +40,24 @@ struct pcmciamtd_dev {
 };
 
 
+/* Module parameters */
 
+/* 2 = do 16-bit transfers, 1 = do 8-bit transfers */
 static int bankwidth = 2;
 
+/* Speed of memory accesses, in ns */
 static int mem_speed;
 
+/* Force the size of an SRAM card */
 static int force_size;
 
+/* Force Vpp */
 static int vpp;
 
+/* Set Vpp */
 static int setvpp;
 
+/* Force card to be treated as FLASH, ROM or RAM */
 static int mem_type;
 
 MODULE_LICENSE("GPL");
@@ -69,6 +77,9 @@ module_param(mem_type, int, 0);
 MODULE_PARM_DESC(mem_type, "Set Memory type (0=Flash, 1=RAM, 2=ROM, default=0)");
 
 
+/* read/write{8,16} copy_{from,to} routines with window remapping
+ * to access whole card
+ */
 static caddr_t remap_window(struct map_info *map, unsigned long to)
 {
 	struct pcmciamtd_dev *dev = (struct pcmciamtd_dev *)map->map_priv_1;
@@ -199,6 +210,7 @@ static void pcmcia_copy_to_remap(struct map_info *map, unsigned long to, const v
 }
 
 
+/* read/write{8,16} copy_{from,to} routines with direct access */
 
 #define DEV_REMOVED(x)  (!(pcmcia_dev_present(((struct pcmciamtd_dev *)map->map_priv_1)->p_dev)))
 
@@ -293,10 +305,10 @@ static void pcmciamtd_set_vpp(struct map_info *map, int on)
 	pr_debug("dev = %p on = %d vpp = %d\n\n", dev, on, dev->vpp);
 	spin_lock_irqsave(&pcmcia_vpp_lock, flags);
 	if (on) {
-		if (++pcmcia_vpp_refcnt == 1)   
+		if (++pcmcia_vpp_refcnt == 1)   /* first nested 'on' */
 			pcmcia_fixup_vpp(link, dev->vpp);
 	} else {
-		if (--pcmcia_vpp_refcnt == 0)   
+		if (--pcmcia_vpp_refcnt == 0)   /* last nested 'off' */
 			pcmcia_fixup_vpp(link, 0);
 	}
 	spin_unlock_irqrestore(&pcmcia_vpp_lock, flags);
@@ -327,7 +339,7 @@ static int pcmciamtd_cistpl_format(struct pcmcia_device *p_dev,
 
 	if (!pcmcia_parse_tuple(tuple, &parse)) {
 		cistpl_format_t *t = &parse.format;
-		(void)t; 
+		(void)t; /* Shut up, gcc */
 		pr_debug("Format type: %u, Error Detection: %u, offset = %u, length =%u\n",
 			t->type, t->edc, t->offset, t->length);
 	}
@@ -364,7 +376,7 @@ static int pcmciamtd_cistpl_device(struct pcmcia_device *p_dev,
 
 	pr_debug("Common memory:\n");
 	dev->pcmcia_map.size = t->dev[0].size;
-	
+	/* from here on: DEBUG only */
 	for (i = 0; i < t->ndev; i++) {
 		pr_debug("Region %d, type = %u\n", i, t->dev[i].type);
 		pr_debug("Region %d, wp = %u\n", i, t->dev[i].wp);
@@ -387,7 +399,7 @@ static int pcmciamtd_cistpl_geo(struct pcmcia_device *p_dev,
 		return -EINVAL;
 
 	dev->pcmcia_map.bankwidth = t->geo[0].buswidth;
-	
+	/* from here on: DEBUG only */
 	for (i = 0; i < t->ngeo; i++) {
 		pr_debug("region: %d bankwidth = %u\n", i, t->geo[i].buswidth);
 		pr_debug("region: %d erase_block = %u\n", i, t->geo[i].erase_block);
@@ -474,6 +486,11 @@ static int pcmciamtd_config(struct pcmcia_device *link)
 	if(setvpp == 1)
 		dev->pcmcia_map.set_vpp = pcmciamtd_set_vpp;
 
+	/* Request a memory window for PCMCIA. Some architeures can map windows
+	 * up to the maximum that PCMCIA can support (64MiB) - this is ideal and
+	 * we aim for a window the size of the whole card - otherwise we try
+	 * smaller windows until we succeed
+	 */
 
 	link->resource[2]->flags |=  WIN_MEMORY_TYPE_CM | WIN_ENABLE;
 	link->resource[2]->flags |= (dev->pcmcia_map.bankwidth == 1) ?
@@ -513,7 +530,7 @@ static int pcmciamtd_config(struct pcmcia_device *link)
 	}
 	pr_debug("Allocated a window of %dKiB\n", dev->win_size >> 10);
 
-	
+	/* Get write protect status */
 	dev->win_base = ioremap(link->resource[2]->start,
 				resource_size(link->resource[2]));
 	if(!dev->win_base) {
@@ -574,7 +591,10 @@ static int pcmciamtd_config(struct pcmcia_device *link)
 	if(new_name) {
 		int size = 0;
 		char unit = ' ';
-		if(mtd->size < 1048576) { 
+		/* Since we are using a default name, make it better by adding
+		 * in the size
+		 */
+		if(mtd->size < 1048576) { /* <1MiB in size, show size in KiB */
 			size = mtd->size >> 10;
 			unit = 'K';
 		} else {
@@ -584,6 +604,8 @@ static int pcmciamtd_config(struct pcmcia_device *link)
 		snprintf(dev->mtd_name, sizeof(dev->mtd_name), "%d%ciB %s", size, unit, "PCMCIA Memory card");
 	}
 
+	/* If the memory found is fits completely into the mapped PCMCIA window,
+	   use the faster non-remapping read/write functions */
 	if(mtd->size <= dev->win_size) {
 		pr_debug("Using non remapping memory functions\n");
 		dev->pcmcia_map.map_priv_2 = (unsigned long)dev->win_base;
@@ -615,7 +637,7 @@ static int pcmciamtd_suspend(struct pcmcia_device *dev)
 {
 	pr_debug("EVENT_PM_RESUME\n");
 
-	
+	/* get_lock(link); */
 
 	return 0;
 }
@@ -624,7 +646,7 @@ static int pcmciamtd_resume(struct pcmcia_device *dev)
 {
 	pr_debug("EVENT_PM_SUSPEND\n");
 
-	
+	/* free_lock(link); */
 
 	return 0;
 }
@@ -651,7 +673,7 @@ static int pcmciamtd_probe(struct pcmcia_device *link)
 {
 	struct pcmciamtd_dev *dev;
 
-	
+	/* Create new memory card device */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev) return -ENOMEM;
 	pr_debug("dev=0x%p\n", dev);
@@ -683,8 +705,8 @@ static const struct pcmcia_device_id pcmciamtd_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("SMART Modular Technologies", " 4MB FLASH Card", 0x96fd8277, 0x737a5b05),
 	PCMCIA_DEVICE_PROD_ID12("Starfish, Inc.", "REX-3000", 0x05ddca47, 0xe7d67bca),
 	PCMCIA_DEVICE_PROD_ID12("Starfish, Inc.", "REX-4100", 0x05ddca47, 0x7bc32944),
-	
-	
+	/* the following was commented out in pcmcia-cs-3.2.7 */
+	/* PCMCIA_DEVICE_PROD_ID12("RATOC Systems,Inc.", "SmartMedia ADAPTER PC Card", 0xf4a2fefe, 0x5885b2ae), */
 #ifdef CONFIG_MTD_PCMCIA_ANONYMOUS
 	{ .match_flags = PCMCIA_DEV_ID_MATCH_ANONYMOUS, },
 #endif

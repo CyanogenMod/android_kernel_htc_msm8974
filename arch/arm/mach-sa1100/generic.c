@@ -38,25 +38,29 @@ EXPORT_SYMBOL(reset_status);
 
 #define NR_FREQS	16
 
+/*
+ * This table is setup for a 3.6864MHz Crystal.
+ */
 static const unsigned short cclk_frequency_100khz[NR_FREQS] = {
-	 590,	
-	 737,	
-	 885,	
-	1032,	
-	1180,	
-	1327,	
-	1475,	
-	1622,	
-	1769,	
-	1917,	
-	2064,	
-	2212,	
-	2359,	
-	2507,	
-	2654,	
-	2802	
+	 590,	/*  59.0 MHz */
+	 737,	/*  73.7 MHz */
+	 885,	/*  88.5 MHz */
+	1032,	/* 103.2 MHz */
+	1180,	/* 118.0 MHz */
+	1327,	/* 132.7 MHz */
+	1475,	/* 147.5 MHz */
+	1622,	/* 162.2 MHz */
+	1769,	/* 176.9 MHz */
+	1917,	/* 191.7 MHz */
+	2064,	/* 206.4 MHz */
+	2212,	/* 221.2 MHz */
+	2359,	/* 235.9 MHz */
+	2507,	/* 250.7 MHz */
+	2654,	/* 265.4 MHz */
+	2802	/* 280.2 MHz */
 };
 
+/* rounds up(!)  */
 unsigned int sa11x0_freq_to_ppcr(unsigned int khz)
 {
 	int i;
@@ -79,6 +83,9 @@ unsigned int sa11x0_ppcr_to_freq(unsigned int idx)
 }
 
 
+/* make sure that only the "userspace" governor is run -- anything else wouldn't make sense on
+ * this platform, anyway.
+ */
 int sa11x0_verify_speed(struct cpufreq_policy *policy)
 {
 	unsigned int tmp;
@@ -87,7 +94,7 @@ int sa11x0_verify_speed(struct cpufreq_policy *policy)
 
 	cpufreq_verify_within_limits(policy, policy->cpuinfo.min_freq, policy->cpuinfo.max_freq);
 
-	
+	/* make sure that at least one frequency is within the policy */
 	tmp = cclk_frequency_100khz[sa11x0_freq_to_ppcr(policy->min)] * 100;
 	if (tmp > policy->max)
 		policy->max = tmp;
@@ -104,26 +111,33 @@ unsigned int sa11x0_getspeed(unsigned int cpu)
 	return cclk_frequency_100khz[PPCR & 0xf] * 100;
 }
 
+/*
+ * Default power-off for SA1100
+ */
 static void sa1100_power_off(void)
 {
 	mdelay(100);
 	local_irq_disable();
-	
+	/* disable internal oscillator, float CS lines */
 	PCFR = (PCFR_OPDE | PCFR_FP | PCFR_FS);
-	
+	/* enable wake-up on GPIO0 (Assabet...) */
 	PWER = GFER = GRER = 1;
+	/*
+	 * set scratchpad to zero, just in case it is used as a
+	 * restart address by the bootloader.
+	 */
 	PSPR = 0;
-	
+	/* enter sleep mode */
 	PMCR = PMCR_SF;
 }
 
 void sa11x0_restart(char mode, const char *cmd)
 {
 	if (mode == 's') {
-		
+		/* Jump into ROM at address 0 */
 		soft_restart(0);
 	} else {
-		
+		/* Use on-chip reset capability */
 		RSRR = RSRR_SWR;
 	}
 }
@@ -202,7 +216,7 @@ static struct platform_device sa11x0mcp_device = {
 
 void __init sa11x0_ppc_configure_mcp(void)
 {
-	
+	/* Setup the PPC unit for the MCP */
 	PPDR &= ~PPC_RXD4;
 	PPDR |= PPC_TXD4 | PPC_SCLK | PPC_SFRM;
 	PSDR |= PPC_RXD4;
@@ -346,24 +360,41 @@ static int __init sa1100_init(void)
 arch_initcall(sa1100_init);
 
 
+/*
+ * Common I/O mapping:
+ *
+ * Typically, static virtual address mappings are as follow:
+ *
+ * 0xf0000000-0xf3ffffff:	miscellaneous stuff (CPLDs, etc.)
+ * 0xf4000000-0xf4ffffff:	SA-1111
+ * 0xf5000000-0xf5ffffff:	reserved (used by cache flushing area)
+ * 0xf6000000-0xfffeffff:	reserved (internal SA1100 IO defined above)
+ * 0xffff0000-0xffff0fff:	SA1100 exception vectors
+ * 0xffff2000-0xffff2fff:	Minicache copy_user_page area
+ *
+ * Below 0xe8000000 is reserved for vm allocation.
+ *
+ * The machine specific code must provide the extra mapping beside the
+ * default mapping provided here.
+ */
 
 static struct map_desc standard_io_desc[] __initdata = {
-	{	
+	{	/* PCM */
 		.virtual	=  0xf8000000,
 		.pfn		= __phys_to_pfn(0x80000000),
 		.length		= 0x00100000,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* SCM */
 		.virtual	=  0xfa000000,
 		.pfn		= __phys_to_pfn(0x90000000),
 		.length		= 0x00100000,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* MER */
 		.virtual	=  0xfc000000,
 		.pfn		= __phys_to_pfn(0xa0000000),
 		.length		= 0x00100000,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* LCD + DMA */
 		.virtual	=  0xfe000000,
 		.pfn		= __phys_to_pfn(0xb0000000),
 		.length		= 0x00200000,
@@ -376,6 +407,12 @@ void __init sa1100_map_io(void)
 	iotable_init(standard_io_desc, ARRAY_SIZE(standard_io_desc));
 }
 
+/*
+ * Disable the memory bus request/grant signals on the SA1110 to
+ * ensure that we don't receive spurious memory requests.  We set
+ * the MBGNT signal false to ensure the SA1111 doesn't own the
+ * SDRAM bus.
+ */
 void sa1110_mb_disable(void)
 {
 	unsigned long flags;
@@ -391,6 +428,10 @@ void sa1110_mb_disable(void)
 	local_irq_restore(flags);
 }
 
+/*
+ * If the system is going to use the SA-1111 DMA engines, set up
+ * the memory bus request/grant pins.
+ */
 void sa1110_mb_enable(void)
 {
 	unsigned long flags;

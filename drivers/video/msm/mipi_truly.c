@@ -158,7 +158,7 @@ static void mipi_truly_set_backlight(struct msm_fb_data_type *mfd)
 	int step = 0, i = 0;
 	int bl_level = mfd->bl_level;
 
-	
+	/* real backlight level, 1 - max, 16 - min, 17 - off */
 	bl_level = BL_LEVEL - bl_level;
 
 	if (bl_level > prev_bl) {
@@ -173,15 +173,15 @@ static void mipi_truly_set_backlight(struct msm_fb_data_type *mfd)
 	}
 
 	if (bl_level == BL_LEVEL) {
-		
+		/* turn off backlight */
 		mipi_truly_pdata->pmic_backlight(0);
 	} else {
 		if (prev_bl == BL_LEVEL) {
-			
+			/* turn on backlight */
 			mipi_truly_pdata->pmic_backlight(1);
 			udelay(30);
 		}
-		
+		/* adjust backlight level */
 		for (i = 0; i < step; i++) {
 			mipi_truly_pdata->pmic_backlight(0);
 			udelay(1);

@@ -63,7 +63,7 @@ static int __init pcbit_init(void)
 		}
 	}
 
-	
+	/* Hardcoded default settings detection */
 
 	if (!num_boards)
 	{

@@ -47,10 +47,13 @@
 #define DRV_NAME	"pdc_adma"
 #define DRV_VERSION	"1.0"
 
+/* macro to calculate base address for ATA regs */
 #define ADMA_ATA_REGS(base, port_no)	((base) + ((port_no) * 0x40))
 
+/* macro to calculate base address for ADMA regs */
 #define ADMA_REGS(base, port_no)	((base) + 0x80 + ((port_no) * 0x20))
 
+/* macro to obtain addresses from ata_port */
 #define ADMA_PORT_REGS(ap) \
 	ADMA_REGS((ap)->host->iomap[ADMA_MMIO_BAR], ap->port_no)
 
@@ -64,31 +67,31 @@ enum {
 
 	ADMA_DMA_BOUNDARY	= 0xffffffff,
 
-	
+	/* global register offsets */
 	ADMA_MODE_LOCK		= 0x00c7,
 
-	
-	ADMA_CONTROL		= 0x0000, 
-	ADMA_STATUS		= 0x0002, 
-	ADMA_CPB_COUNT		= 0x0004, 
-	ADMA_CPB_CURRENT	= 0x000c, 
-	ADMA_CPB_NEXT		= 0x000c, 
-	ADMA_CPB_LOOKUP		= 0x0010, 
-	ADMA_FIFO_IN		= 0x0014, 
-	ADMA_FIFO_OUT		= 0x0016, 
+	/* per-channel register offsets */
+	ADMA_CONTROL		= 0x0000, /* ADMA control */
+	ADMA_STATUS		= 0x0002, /* ADMA status */
+	ADMA_CPB_COUNT		= 0x0004, /* CPB count */
+	ADMA_CPB_CURRENT	= 0x000c, /* current CPB address */
+	ADMA_CPB_NEXT		= 0x000c, /* next CPB address */
+	ADMA_CPB_LOOKUP		= 0x0010, /* CPB lookup table */
+	ADMA_FIFO_IN		= 0x0014, /* input FIFO threshold */
+	ADMA_FIFO_OUT		= 0x0016, /* output FIFO threshold */
 
-	
-	aNIEN			= (1 << 8), 
-	aGO			= (1 << 7), 
-	aRSTADM			= (1 << 5), 
-	aPIOMD4			= 0x0003,   
+	/* ADMA_CONTROL register bits */
+	aNIEN			= (1 << 8), /* irq mask: 1==masked */
+	aGO			= (1 << 7), /* packet trigger ("Go!") */
+	aRSTADM			= (1 << 5), /* ADMA logic reset */
+	aPIOMD4			= 0x0003,   /* PIO mode 4 */
 
-	
+	/* ADMA_STATUS register bits */
 	aPSD			= (1 << 6),
 	aUIRQ			= (1 << 4),
 	aPERR			= (1 << 0),
 
-	
+	/* CPB bits */
 	cDONE			= (1 << 0),
 	cATERR			= (1 << 3),
 
@@ -96,16 +99,16 @@ enum {
 	cDAT			= (1 << 2),
 	cIEN			= (1 << 3),
 
-	
+	/* PRD bits */
 	pORD			= (1 << 4),
 	pDIRO			= (1 << 5),
 	pEND			= (1 << 7),
 
-	
+	/* ATA register flags */
 	rIGN			= (1 << 5),
 	rEND			= (1 << 7),
 
-	
+	/* ATA register addresses */
 	ADMA_REGS_CONTROL	= 0x0e,
 	ADMA_REGS_SECTOR_COUNT	= 0x12,
 	ADMA_REGS_LBA_LOW	= 0x13,
@@ -114,8 +117,8 @@ enum {
 	ADMA_REGS_DEVICE	= 0x16,
 	ADMA_REGS_COMMAND	= 0x17,
 
-	
-	board_1841_idx		= 0,	
+	/* PCI device IDs */
+	board_1841_idx		= 0,	/* ADMA 2-port controller */
 };
 
 typedef enum { adma_state_idle, adma_state_pkt, adma_state_mmio } adma_state_t;
@@ -161,7 +164,7 @@ static struct ata_port_operations adma_ata_ops = {
 };
 
 static struct ata_port_info adma_port_info[] = {
-	
+	/* board_1841_idx */
 	{
 		.flags		= ATA_FLAG_SLAVE_POSS | ATA_FLAG_PIO_POLLING,
 		.pio_mask	= ATA_PIO4_ONLY,
@@ -173,7 +176,7 @@ static struct ata_port_info adma_port_info[] = {
 static const struct pci_device_id adma_ata_pci_tbl[] = {
 	{ PCI_VDEVICE(PDC, 0x1841), board_1841_idx },
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver adma_ata_pci_driver = {
@@ -185,14 +188,14 @@ static struct pci_driver adma_ata_pci_driver = {
 
 static int adma_check_atapi_dma(struct ata_queued_cmd *qc)
 {
-	return 1;	
+	return 1;	/* ATAPI DMA not yet supported */
 }
 
 static void adma_reset_engine(struct ata_port *ap)
 {
 	void __iomem *chan = ADMA_PORT_REGS(ap);
 
-	
+	/* reset ADMA to idle state */
 	writew(aPIOMD4 | aNIEN | aRSTADM, chan + ADMA_CONTROL);
 	udelay(2);
 	writew(aPIOMD4, chan + ADMA_CONTROL);
@@ -204,26 +207,26 @@ static void adma_reinit_engine(struct ata_port *ap)
 	struct adma_port_priv *pp = ap->private_data;
 	void __iomem *chan = ADMA_PORT_REGS(ap);
 
-	
+	/* mask/clear ATA interrupts */
 	writeb(ATA_NIEN, ap->ioaddr.ctl_addr);
 	ata_sff_check_status(ap);
 
-	
+	/* reset the ADMA engine */
 	adma_reset_engine(ap);
 
-	
+	/* set in-FIFO threshold to 0x100 */
 	writew(0x100, chan + ADMA_FIFO_IN);
 
-	
+	/* set CPB pointer */
 	writel((u32)pp->pkt_dma, chan + ADMA_CPB_NEXT);
 
-	
+	/* set out-FIFO threshold to 0x100 */
 	writew(0x100, chan + ADMA_FIFO_OUT);
 
-	
+	/* set CPB count */
 	writew(1, chan + ADMA_CPB_COUNT);
 
-	
+	/* read/discard ADMA status */
 	readb(chan + ADMA_STATUS);
 }
 
@@ -232,18 +235,18 @@ static inline void adma_enter_reg_mode(struct ata_port *ap)
 	void __iomem *chan = ADMA_PORT_REGS(ap);
 
 	writew(aPIOMD4, chan + ADMA_CONTROL);
-	readb(chan + ADMA_STATUS);	
+	readb(chan + ADMA_STATUS);	/* flush */
 }
 
 static void adma_freeze(struct ata_port *ap)
 {
 	void __iomem *chan = ADMA_PORT_REGS(ap);
 
-	
+	/* mask/clear ATA interrupts */
 	writeb(ATA_NIEN, ap->ioaddr.ctl_addr);
 	ata_sff_check_status(ap);
 
-	
+	/* reset ADMA to idle state */
 	writew(aPIOMD4 | aNIEN | aRSTADM, chan + ADMA_CONTROL);
 	udelay(2);
 	writew(aPIOMD4 | aNIEN, chan + ADMA_CONTROL);
@@ -260,7 +263,7 @@ static int adma_prereset(struct ata_link *link, unsigned long deadline)
 	struct ata_port *ap = link->ap;
 	struct adma_port_priv *pp = ap->private_data;
 
-	if (pp->state != adma_state_idle) 
+	if (pp->state != adma_state_idle) /* healthy paranoia */
 		pp->state = adma_state_mmio;
 	adma_reinit_engine(ap);
 
@@ -292,8 +295,8 @@ static int adma_fill_sg(struct ata_queued_cmd *qc)
 		last_buf = &buf[i];
 		buf[i++] = pFLAGS;
 		buf[i++] = qc->dev->dma_mode & 0xf;
-		buf[i++] = 0;	
-		buf[i++] = 0;	
+		buf[i++] = 0;	/* pPKLW */
+		buf[i++] = 0;	/* reserved */
 
 		*(__le32 *)(buf + i) =
 			(pFLAGS & pEND) ? 0 : cpu_to_le32(pp->pkt_dma + i + 4);
@@ -322,21 +325,21 @@ static void adma_qc_prep(struct ata_queued_cmd *qc)
 	if (qc->tf.protocol != ATA_PROT_DMA)
 		return;
 
-	buf[i++] = 0;	
-	buf[i++] = 0;	
+	buf[i++] = 0;	/* Response flags */
+	buf[i++] = 0;	/* reserved */
 	buf[i++] = cVLD | cDAT | cIEN;
-	i++;		
+	i++;		/* cLEN, gets filled in below */
 
-	*(__le32 *)(buf+i) = cpu_to_le32(pkt_dma);	
-	i += 4;		
-	i += 4;		
+	*(__le32 *)(buf+i) = cpu_to_le32(pkt_dma);	/* cNCPB */
+	i += 4;		/* cNCPB */
+	i += 4;		/* cPRD, gets filled in below */
 
-	buf[i++] = 0;	
-	buf[i++] = 0;	
-	buf[i++] = 0;	
-	buf[i++] = 0;	
+	buf[i++] = 0;	/* reserved */
+	buf[i++] = 0;	/* reserved */
+	buf[i++] = 0;	/* reserved */
+	buf[i++] = 0;	/* reserved */
 
-	
+	/* ATA registers; must be a multiple of 4 */
 	buf[i++] = qc->tf.device;
 	buf[i++] = ADMA_REGS_DEVICE;
 	if ((qc->tf.flags & ATA_TFLAG_LBA48)) {
@@ -364,13 +367,13 @@ static void adma_qc_prep(struct ata_queued_cmd *qc)
 	buf[i++] = qc->tf.command;
 	buf[i++] = ADMA_REGS_COMMAND | rEND;
 
-	buf[3] = (i >> 3) - 2;				
-	*(__le32 *)(buf+8) = cpu_to_le32(pkt_dma + i);	
+	buf[3] = (i >> 3) - 2;				/* cLEN */
+	*(__le32 *)(buf+8) = cpu_to_le32(pkt_dma + i);	/* cPRD */
 
 	i = adma_fill_sg(qc);
-	wmb();	
+	wmb();	/* flush PRDs and pkt to memory */
 #if 0
-	
+	/* dump out CPB + PRDs for debug */
 	{
 		int j, len = 0;
 		static char obuf[2048];
@@ -394,7 +397,7 @@ static inline void adma_packet_start(struct ata_queued_cmd *qc)
 
 	VPRINTK("ENTER, ap %p\n", ap);
 
-	
+	/* fire up the ADMA engine */
 	writew(aPIOMD4 | aGO, chan + ADMA_CONTROL);
 }
 
@@ -484,14 +487,14 @@ static inline unsigned int adma_intr_mmio(struct ata_host *host)
 		qc = ata_qc_from_tag(ap, ap->link.active_tag);
 		if (qc && (!(qc->tf.flags & ATA_TFLAG_POLLING))) {
 
-			
+			/* check main status, clearing INTRQ */
 			u8 status = ata_sff_check_status(ap);
 			if ((status & ATA_BUSY))
 				continue;
 			DPRINTK("ata%u: protocol %d (dev_stat 0x%X)\n",
 				ap->print_id, qc->tf.protocol, status);
 
-			
+			/* complete taskfile transaction */
 			pp->state = adma_state_idle;
 			qc->err_mask |= ac_err_mask(status);
 			if (!qc->err_mask)
@@ -558,7 +561,7 @@ static int adma_port_start(struct ata_port *ap)
 				      GFP_KERNEL);
 	if (!pp->pkt)
 		return -ENOMEM;
-	
+	/* paranoia? */
 	if ((pp->pkt_dma & 7) != 0) {
 		printk(KERN_ERR "bad alignment for pp->pkt_dma: %08x\n",
 						(u32)pp->pkt_dma);
@@ -579,10 +582,10 @@ static void adma_host_init(struct ata_host *host, unsigned int chip_id)
 {
 	unsigned int port_no;
 
-	
+	/* enable/lock aGO operation */
 	writeb(7, host->iomap[ADMA_MMIO_BAR] + ADMA_MODE_LOCK);
 
-	
+	/* reset the ADMA logic */
 	for (port_no = 0; port_no < ADMA_PORTS; ++port_no)
 		adma_reset_engine(host->ports[port_no]);
 }
@@ -615,12 +618,12 @@ static int adma_ata_init_one(struct pci_dev *pdev,
 
 	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
-	
+	/* alloc host */
 	host = ata_host_alloc_pinfo(&pdev->dev, ppi, ADMA_PORTS);
 	if (!host)
 		return -ENOMEM;
 
-	
+	/* acquire resources and fill host */
 	rc = pcim_enable_device(pdev);
 	if (rc)
 		return rc;
@@ -649,7 +652,7 @@ static int adma_ata_init_one(struct pci_dev *pdev,
 		ata_port_pbar_desc(ap, ADMA_MMIO_BAR, offset, "port");
 	}
 
-	
+	/* initialize adapter */
 	adma_host_init(host, board_idx);
 
 	pci_set_master(pdev);

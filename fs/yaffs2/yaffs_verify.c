@@ -57,7 +57,7 @@ void yaffs_verify_blk(struct yaffs_dev *dev, struct yaffs_block_info *bi, int n)
 	if (yaffs_skip_verification(dev))
 		return;
 
-	
+	/* Report illegal runtime states */
 	if (bi->block_state >= YAFFS_NUMBER_OF_BLOCK_STATES)
 		yaffs_trace(YAFFS_TRACE_VERIFY,
 			"Block %d has undefined state %d",
@@ -72,7 +72,7 @@ void yaffs_verify_blk(struct yaffs_dev *dev, struct yaffs_block_info *bi, int n)
 			n, block_state_name[bi->block_state]);
 	}
 
-	
+	/* Check pages in use and soft deletions are legal */
 
 	actually_used = bi->pages_in_use - bi->soft_del_pages;
 
@@ -85,7 +85,7 @@ void yaffs_verify_blk(struct yaffs_dev *dev, struct yaffs_block_info *bi, int n)
 			"Block %d has illegal values pages_in_used %d soft_del_pages %d",
 			n, bi->pages_in_use, bi->soft_del_pages);
 
-	
+	/* Check chunk bitmap legal */
 	in_use = yaffs_count_chunk_bits(dev, n);
 	if (in_use != bi->pages_in_use)
 		yaffs_trace(YAFFS_TRACE_VERIFY,
@@ -99,7 +99,7 @@ void yaffs_verify_collected_blk(struct yaffs_dev *dev,
 {
 	yaffs_verify_blk(dev, bi, n);
 
-	
+	/* After collection the block should be in the erased state */
 
 	if (bi->block_state != YAFFS_BLOCK_STATE_COLLECTING &&
 	    bi->block_state != YAFFS_BLOCK_STATE_EMPTY) {
@@ -162,6 +162,10 @@ void yaffs_verify_blocks(struct yaffs_dev *dev)
 			state_count[YAFFS_BLOCK_STATE_COLLECTING]);
 }
 
+/*
+ * Verify the object header. oh must be valid, but obj and tags may be NULL in which
+ * case those tests will not be performed.
+ */
 void yaffs_verify_oh(struct yaffs_obj *obj, struct yaffs_obj_hdr *oh,
 		     struct yaffs_ext_tags *tags, int parent_check)
 {
@@ -186,6 +190,11 @@ void yaffs_verify_oh(struct yaffs_obj *obj, struct yaffs_obj_hdr *oh,
 			"Obj %d header mismatch obj_id %d",
 			tags->obj_id, obj->obj_id);
 
+	/*
+	 * Check that the object's parent ids match if parent_check requested.
+	 *
+	 * Tests do not apply to the root object.
+	 */
 
 	if (parent_check && tags->obj_id > 1 && !obj->parent)
 		yaffs_trace(YAFFS_TRACE_VERIFY,
@@ -201,12 +210,12 @@ void yaffs_verify_oh(struct yaffs_obj *obj, struct yaffs_obj_hdr *oh,
 			tags->obj_id, oh->parent_obj_id,
 			obj->parent->obj_id);
 
-	if (tags->obj_id > 1 && oh->name[0] == 0)	
+	if (tags->obj_id > 1 && oh->name[0] == 0)	/* Null name */
 		yaffs_trace(YAFFS_TRACE_VERIFY,
 			"Obj %d header name is NULL",
 			obj->obj_id);
 
-	if (tags->obj_id > 1 && ((u8) (oh->name[0])) == 0xff)	
+	if (tags->obj_id > 1 && ((u8) (oh->name[0])) == 0xff)	/* Trashed name */
 		yaffs_trace(YAFFS_TRACE_VERIFY,
 			"Obj %d header name is 0xFF",
 			obj->obj_id);
@@ -233,7 +242,7 @@ void yaffs_verify_file(struct yaffs_obj *obj)
 	dev = obj->my_dev;
 	obj_id = obj->obj_id;
 
-	
+	/* Check file size is consistent with tnode depth */
 	last_chunk =
 	    obj->variant.file_variant.file_size / dev->data_bytes_per_chunk + 1;
 	x = last_chunk >> YAFFS_TNODES_LEVEL0_BITS;
@@ -245,6 +254,10 @@ void yaffs_verify_file(struct yaffs_obj *obj)
 
 	actual_depth = obj->variant.file_variant.top_level;
 
+	/* Check that the chunks in the tnode tree are all correct.
+	 * We do this by scanning through the tnode tree and
+	 * checking the tags for every chunk match.
+	 */
 
 	if (yaffs_skip_nand_verification(dev))
 		return;
@@ -272,7 +285,7 @@ void yaffs_verify_link(struct yaffs_obj *obj)
 	if (obj && yaffs_skip_verification(obj->my_dev))
 		return;
 
-	
+	/* Verify sane equivalent object */
 }
 
 void yaffs_verify_symlink(struct yaffs_obj *obj)
@@ -280,7 +293,7 @@ void yaffs_verify_symlink(struct yaffs_obj *obj)
 	if (obj && yaffs_skip_verification(obj->my_dev))
 		return;
 
-	
+	/* Verify symlink string */
 }
 
 void yaffs_verify_special(struct yaffs_obj *obj)
@@ -312,7 +325,7 @@ void yaffs_verify_obj(struct yaffs_obj *obj)
 	if (yaffs_skip_verification(dev))
 		return;
 
-	
+	/* Check sane object header chunk */
 
 	chunk_min = dev->internal_start_block * dev->param.chunks_per_block;
 	chunk_max =
@@ -348,14 +361,14 @@ void yaffs_verify_obj(struct yaffs_obj *obj)
 		yaffs_release_temp_buffer(dev, buffer, __LINE__);
 	}
 
-	
+	/* Verify it has a parent */
 	if (obj && !obj->fake && (!obj->parent || obj->parent->my_dev != dev)) {
 		yaffs_trace(YAFFS_TRACE_VERIFY,
 			"Obj %d has parent pointer %p which does not look like an object",
 			obj->obj_id, obj->parent);
 	}
 
-	
+	/* Verify parent is a directory */
 	if (obj->parent
 	    && obj->parent->variant_type != YAFFS_OBJECT_TYPE_DIRECTORY) {
 		yaffs_trace(YAFFS_TRACE_VERIFY,
@@ -397,7 +410,7 @@ void yaffs_verify_objects(struct yaffs_dev *dev)
 	if (yaffs_skip_verification(dev))
 		return;
 
-	
+	/* Iterate through the objects in each hash entry */
 
 	for (i = 0; i < YAFFS_NOBJECT_BUCKETS; i++) {
 		list_for_each(lh, &dev->obj_bucket[i].list) {
@@ -437,7 +450,7 @@ void yaffs_verify_obj_in_dir(struct yaffs_obj *obj)
 		YBUG();
 	}
 
-	
+	/* Iterate through the objects in each hash entry */
 
 	list_for_each(lh, &obj->parent->variant.dir_variant.children) {
 		if (lh) {
@@ -476,7 +489,7 @@ void yaffs_verify_dir(struct yaffs_obj *directory)
 		YBUG();
 	}
 
-	
+	/* Iterate through the objects in each hash entry */
 
 	list_for_each(lh, &directory->variant.dir_variant.children) {
 		if (lh) {

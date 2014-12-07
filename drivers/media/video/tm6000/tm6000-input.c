@@ -41,8 +41,8 @@ static unsigned int ir_clock_mhz = 12;
 module_param(ir_clock_mhz, int, 0644);
 MODULE_PARM_DESC(enable_ir, "ir clock, in MHz");
 
-#define URB_SUBMIT_DELAY	100	
-#define URB_INT_LED_DELAY	100	
+#define URB_SUBMIT_DELAY	100	/* ms - Delay to submit an URB request on retrial and init */
+#define URB_INT_LED_DELAY	100	/* ms - Delay to turn led on again on int mode */
 
 #undef dprintk
 
@@ -61,7 +61,7 @@ struct tm6000_IR {
 	char			name[32];
 	char			phys[32];
 
-	
+	/* poll expernal decoder */
 	int			polling;
 	struct delayed_work	work;
 	u8			wait:1;
@@ -70,7 +70,7 @@ struct tm6000_IR {
 	u16			key_addr;
 	struct urb		*int_urb;
 
-	
+	/* IR device properties */
 	u64			rc_type;
 };
 
@@ -96,16 +96,27 @@ static int tm6000_ir_config(struct tm6000_IR *ir)
 
 	dprintk(2, "%s\n",__func__);
 
+	/*
+	 * The IR decoder supports RC-5 or NEC, with a configurable timing.
+	 * The timing configuration there is not that accurate, as it uses
+	 * approximate values. The NEC spec mentions a 562.5 unit period,
+	 * and RC-5 uses a 888.8 period.
+	 * Currently, driver assumes a clock provided by a 12 MHz XTAL, but
+	 * a modprobe parameter can adjust it.
+	 * Adjustments are required for other timings.
+	 * It seems that the 900ms timing for NEC is used to detect a RC-5
+	 * IR, in order to discard such decoding
+	 */
 
 	switch (ir->rc_type) {
 	case RC_TYPE_NEC:
-		leader = 900;	
-		pulse  = 700;	
+		leader = 900;	/* ms */
+		pulse  = 700;	/* ms - the actual value would be 562 */
 		break;
 	default:
 	case RC_TYPE_RC5:
-		leader = 900;	
-		pulse  = 1780;	
+		leader = 900;	/* ms - from the NEC decoding */
+		pulse  = 1780;	/* ms - The actual value would be 1776 */
 		break;
 	}
 
@@ -119,15 +130,15 @@ static int tm6000_ir_config(struct tm6000_IR *ir)
 		(ir->rc_type == RC_TYPE_NEC) ? "NEC" : "RC-5",
 		ir_clock_mhz, leader, pulse);
 
-	
+	/* Remote WAKEUP = enable, normal mode, from IR decoder output */
 	tm6000_set_reg(dev, TM6010_REQ07_RE5_REMOTE_WAKEUP, 0xfe);
 
-	
+	/* Enable IR reception on non-busrt mode */
 	tm6000_set_reg(dev, TM6010_REQ07_RD8_IR, 0x2f);
 
-	
+	/* IR_WKUP_SEL = Low byte in decoded IR data */
 	tm6000_set_reg(dev, TM6010_REQ07_RDA_IR_WAKEUP_SEL, 0xff);
-	
+	/* IR_WKU_ADD code */
 	tm6000_set_reg(dev, TM6010_REQ07_RDB_IR_WAKEUP_ADD, 0xff);
 
 	tm6000_set_reg(dev, TM6010_REQ07_RDC_IR_LEADER1, leader >> 8);
@@ -142,7 +153,7 @@ static int tm6000_ir_config(struct tm6000_IR *ir)
 		tm6000_set_reg(dev, REQ_04_EN_DISABLE_MCU_INT, 2, 1);
 	msleep(10);
 
-	
+	/* Shows that IR is working via the LED */
 	tm6000_flash_led(dev, 0);
 	msleep(100);
 	tm6000_flash_led(dev, 1);
@@ -182,6 +193,10 @@ static void tm6000_ir_urb_received(struct urb *urb)
 	rc_keydown(ir->rc, poll_result.rc_data, 0);
 
 	rc = usb_submit_urb(urb, GFP_ATOMIC);
+	/*
+	 * Flash the led. We can't do it here, as it is running on IRQ context.
+	 * So, use the scheduler to do it, in a few ms.
+	 */
 	ir->pwled = 2;
 	schedule_delayed_work(&ir->work, msecs_to_jiffies(10));
 }
@@ -210,7 +225,7 @@ static void tm6000_ir_handle_key(struct work_struct *work)
 	else
 		poll_result.rc_data = buf[0];
 
-	
+	/* Check if something was read */
 	if ((poll_result.rc_data & 0xff) == 0xff) {
 		if (!ir->pwled) {
 			tm6000_flash_led(dev, 1);
@@ -224,7 +239,7 @@ static void tm6000_ir_handle_key(struct work_struct *work)
 	tm6000_flash_led(dev, 0);
 	ir->pwled = 0;
 
-	
+	/* Re-schedule polling */
 	schedule_delayed_work(&ir->work, msecs_to_jiffies(ir->polling));
 }
 
@@ -245,14 +260,14 @@ static void tm6000_ir_int_work(struct work_struct *work)
 		if (rc < 0) {
 			printk(KERN_ERR "tm6000: Can't submit an IR interrupt. Error %i\n",
 			       rc);
-			
+			/* Retry in 100 ms */
 			schedule_delayed_work(&ir->work, msecs_to_jiffies(URB_SUBMIT_DELAY));
 			return;
 		}
 		ir->submit_urb = 0;
 	}
 
-	
+	/* Led is enabled only if USB submit doesn't fail */
 	if (ir->pwled == 2) {
 		tm6000_flash_led(dev, 0);
 		ir->pwled = 0;
@@ -298,7 +313,7 @@ static int tm6000_ir_change_protocol(struct rc_dev *rc, u64 rc_type)
 	ir->rc_type = rc_type;
 
 	tm6000_ir_config(ir);
-	
+	/* TODO */
 	return 0;
 }
 
@@ -400,14 +415,14 @@ int tm6000_ir_init(struct tm6000_core *dev)
 
 	dprintk(2, "%s\n", __func__);
 
-	
+	/* record handles to ourself */
 	ir->dev = dev;
 	dev->ir = ir;
 	ir->rc = rc;
 
-	
+	/* input setup */
 	rc->allowed_protos = RC_TYPE_RC5 | RC_TYPE_NEC;
-	
+	/* Neded, in order to support NEC remotes with 24 or 32 bits */
 	rc->scanmask = 0xffff;
 	rc->priv = ir;
 	rc->change_protocol = tm6000_ir_change_protocol;
@@ -441,7 +456,7 @@ int tm6000_ir_init(struct tm6000_core *dev)
 	rc->driver_name = "tm6000";
 	rc->dev.parent = &dev->udev->dev;
 
-	
+	/* ir register */
 	err = rc_register_device(rc);
 	if (err)
 		goto out;
@@ -459,7 +474,7 @@ int tm6000_ir_fini(struct tm6000_core *dev)
 {
 	struct tm6000_IR *ir = dev->ir;
 
-	
+	/* skip detach on non attached board */
 
 	if (!ir)
 		return 0;
@@ -471,7 +486,7 @@ int tm6000_ir_fini(struct tm6000_core *dev)
 
 	tm6000_ir_stop(ir->rc);
 
-	
+	/* Turn off the led */
 	tm6000_flash_led(dev, 0);
 	ir->pwled = 0;
 

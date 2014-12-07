@@ -57,6 +57,7 @@ module_param_named(debug, dss_debug, bool, 0644);
 static int omap_dss_register_device(struct omap_dss_device *);
 static void omap_dss_unregister_device(struct omap_dss_device *);
 
+/* REGULATORS */
 
 struct regulator *dss_get_vdds_dsi(void)
 {
@@ -156,7 +157,7 @@ static void dss_uninitialize_debugfs(void)
 	if (dss_debugfs_dir)
 		debugfs_remove_recursive(dss_debugfs_dir);
 }
-#else 
+#else /* CONFIG_DEBUG_FS && CONFIG_OMAP2_DSS_DEBUG_SUPPORT */
 static inline int dss_initialize_debugfs(void)
 {
 	return 0;
@@ -164,8 +165,9 @@ static inline int dss_initialize_debugfs(void)
 static inline void dss_uninitialize_debugfs(void)
 {
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS && CONFIG_OMAP2_DSS_DEBUG_SUPPORT */
 
+/* PLATFORM DEVICE */
 static int omap_dss_probe(struct platform_device *pdev)
 {
 	struct omap_dss_board_info *pdata = pdev->dev.platform_data;
@@ -260,6 +262,7 @@ static struct platform_driver omap_dss_driver = {
 	},
 };
 
+/* BUS */
 static int dss_bus_match(struct device *dev, struct device_driver *driver)
 {
 	struct omap_dss_device *dssdev = to_dss_device(dev);
@@ -317,6 +320,7 @@ struct bus_type *dss_get_bus(void)
 	return &dss_bus_type;
 }
 
+/* DRIVER */
 static int dss_driver_probe(struct device *dev)
 {
 	int r;
@@ -388,6 +392,7 @@ void omap_dss_unregister_driver(struct omap_dss_driver *dssdriver)
 }
 EXPORT_SYMBOL(omap_dss_unregister_driver);
 
+/* DEVICE */
 static void reset_device(struct device *dev, int check)
 {
 	u8 *dev_p = (u8 *)dev;
@@ -396,6 +401,11 @@ static void reset_device(struct device *dev, int check)
 
 	saved_pdata = dev->platform_data;
 	if (check) {
+		/*
+		 * Check if there is any other setting than platform_data
+		 * in struct device; warn that these will be reset by our
+		 * init.
+		 */
 		dev->platform_data = NULL;
 		while (dev_p < dev_end) {
 			if (*dev_p) {
@@ -436,6 +446,7 @@ static void omap_dss_unregister_device(struct omap_dss_device *dssdev)
 	device_unregister(&dssdev->dev);
 }
 
+/* BUS */
 static int omap_dss_bus_register(void)
 {
 	int r;
@@ -457,6 +468,7 @@ static int omap_dss_bus_register(void)
 	return 0;
 }
 
+/* INIT */
 
 static int __init omap_dss_register_drivers(void)
 {

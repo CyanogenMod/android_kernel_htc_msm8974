@@ -21,6 +21,11 @@
 
 struct kvm_io_device;
 
+/**
+ * kvm_io_device_ops are called under kvm slots_lock.
+ * read and write handlers return 0 if the transaction has been handled,
+ * or non-zero to have it passed to the next device.
+ **/
 struct kvm_io_device_ops {
 	int (*read)(struct kvm_io_device *this,
 		    gpa_t addr,
@@ -62,4 +67,4 @@ static inline void kvm_iodevice_destructor(struct kvm_io_device *dev)
 		dev->ops->destructor(dev);
 }
 
-#endif 
+#endif /* __KVM_IODEV_H__ */

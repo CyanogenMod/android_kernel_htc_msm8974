@@ -115,6 +115,6 @@ static inline bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_SCORE_IRQFLAGS_H */

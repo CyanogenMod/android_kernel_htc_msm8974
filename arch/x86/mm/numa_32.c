@@ -29,6 +29,18 @@
 #include "numa_internal.h"
 
 #ifdef CONFIG_DISCONTIGMEM
+/*
+ * 4) physnode_map     - the mapping between a pfn and owning node
+ * physnode_map keeps track of the physical memory layout of a generic
+ * numa node on a 64Mb break (each element of the array will
+ * represent 64Mb of memory and will be marked by the node id.  so,
+ * if the first gig is on node 0, and the second gig is on node 1
+ * physnode_map will contain:
+ *
+ *     physnode_map[0-15] = 0;
+ *     physnode_map[16-31] = 1;
+ *     physnode_map[32- ] = -1;
+ */
 s8 physnode_map[MAX_SECTIONS] __read_mostly = { [0 ... (MAX_SECTIONS - 1)] = -1};
 EXPORT_SYMBOL(physnode_map);
 
@@ -66,10 +78,32 @@ extern unsigned long highend_pfn, highstart_pfn;
 static void *node_remap_start_vaddr[MAX_NUMNODES];
 void set_pmd_pfn(unsigned long vaddr, unsigned long pfn, pgprot_t flags);
 
+/*
+ * Remap memory allocator
+ */
 static unsigned long node_remap_start_pfn[MAX_NUMNODES];
 static void *node_remap_end_vaddr[MAX_NUMNODES];
 static void *node_remap_alloc_vaddr[MAX_NUMNODES];
 
+/**
+ * alloc_remap - Allocate remapped memory
+ * @nid: NUMA node to allocate memory from
+ * @size: The size of allocation
+ *
+ * Allocate @size bytes from the remap area of NUMA node @nid.  The
+ * size of the remap area is predetermined by init_alloc_remap() and
+ * only the callers considered there should call this function.  For
+ * more info, please read the comment on top of init_alloc_remap().
+ *
+ * The caller must be ready to handle allocation failure from this
+ * function and fall back to regular memory allocator in such cases.
+ *
+ * CONTEXT:
+ * Single CPU early boot context.
+ *
+ * RETURNS:
+ * Pointer to the allocated memory on success, %NULL on failure.
+ */
 void *alloc_remap(int nid, unsigned long size)
 {
 	void *allocation = node_remap_alloc_vaddr[nid];
@@ -86,6 +120,11 @@ void *alloc_remap(int nid, unsigned long size)
 }
 
 #ifdef CONFIG_HIBERNATION
+/**
+ * resume_map_numa_kva - add KVA mapping to the temporary page tables created
+ *                       during resume from hibernation
+ * @pgd_base - temporary resume page directory
+ */
 void resume_map_numa_kva(pgd_t *pgd_base)
 {
 	int node;
@@ -116,6 +155,28 @@ void resume_map_numa_kva(pgd_t *pgd_base)
 }
 #endif
 
+/**
+ * init_alloc_remap - Initialize remap allocator for a NUMA node
+ * @nid: NUMA node to initizlie remap allocator for
+ *
+ * NUMA nodes may end up without any lowmem.  As allocating pgdat and
+ * memmap on a different node with lowmem is inefficient, a special
+ * remap allocator is implemented which can be used by alloc_remap().
+ *
+ * For each node, the amount of memory which will be necessary for
+ * pgdat and memmap is calculated and two memory areas of the size are
+ * allocated - one in the node and the other in lowmem; then, the area
+ * in the node is remapped to the lowmem area.
+ *
+ * As pgdat and memmap must be allocated in lowmem anyway, this
+ * doesn't waste lowmem address space; however, the actual lowmem
+ * which gets remapped over is wasted.  The amount shouldn't be
+ * problematic on machines this feature will be used.
+ *
+ * Initialization failure isn't fatal.  alloc_remap() is used
+ * opportunistically and the callers will fall back to other memory
+ * allocation mechanisms on failure.
+ */
 void __init init_alloc_remap(int nid, u64 start, u64 end)
 {
 	unsigned long start_pfn = start >> PAGE_SHIFT;
@@ -124,15 +185,19 @@ void __init init_alloc_remap(int nid, u64 start, u64 end)
 	u64 node_pa, remap_pa;
 	void *remap_va;
 
+	/*
+	 * The acpi/srat node info can show hot-add memroy zones where
+	 * memory could be added but not currently present.
+	 */
 	printk(KERN_DEBUG "node %d pfn: [%lx - %lx]\n",
 	       nid, start_pfn, end_pfn);
 
-	
+	/* calculate the necessary space aligned to large page size */
 	size = node_memmap_size_bytes(nid, start_pfn, end_pfn);
 	size += ALIGN(sizeof(pg_data_t), PAGE_SIZE);
 	size = ALIGN(size, LARGE_PAGE_BYTES);
 
-	
+	/* allocate node memory and the lowmem remap area */
 	node_pa = memblock_find_in_range(start, end, size, LARGE_PAGE_BYTES);
 	if (!node_pa) {
 		pr_warning("remap_alloc: failed to allocate %lu bytes for node %d\n",
@@ -153,13 +218,13 @@ void __init init_alloc_remap(int nid, u64 start, u64 end)
 	memblock_reserve(remap_pa, size);
 	remap_va = phys_to_virt(remap_pa);
 
-	
+	/* perform actual remap */
 	for (pfn = 0; pfn < size >> PAGE_SHIFT; pfn += PTRS_PER_PTE)
 		set_pmd_pfn((unsigned long)remap_va + (pfn << PAGE_SHIFT),
 			    (node_pa >> PAGE_SHIFT) + pfn,
 			    PAGE_KERNEL_LARGE);
 
-	
+	/* initialize remap allocator parameters */
 	node_remap_start_pfn[nid] = node_pa >> PAGE_SHIFT;
 	node_remap_start_vaddr[nid] = remap_va;
 	node_remap_end_vaddr[nid] = remap_va + size;

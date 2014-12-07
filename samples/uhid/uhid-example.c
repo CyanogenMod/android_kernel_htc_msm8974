@@ -8,6 +8,27 @@
  * applications using uhid.
  */
 
+/* UHID Example
+ * This example emulates a basic 3 buttons mouse with wheel over UHID. Run this
+ * program as root and then use the following keys to control the mouse:
+ *   q: Quit the application
+ *   1: Toggle left button (down, up, ...)
+ *   2: Toggle right button
+ *   3: Toggle middle button
+ *   a: Move mouse left
+ *   d: Move mouse right
+ *   w: Move mouse up
+ *   s: Move mouse down
+ *   r: Move wheel up
+ *   f: Move wheel down
+ *
+ * If uhid is not available as /dev/uhid, then you can pass a different path as
+ * first argument.
+ * If <linux/uhid.h> is not installed in /usr, then compile this with:
+ *   gcc -o ./uhid_test -Wall -I./include ./samples/uhid/uhid-example.c
+ * And ignore the warning about kernel headers. However, it is recommended to
+ * use the installed uhid.h if available.
+ */
 
 #include <errno.h>
 #include <fcntl.h>
@@ -20,6 +41,49 @@
 #include <unistd.h>
 #include <linux/uhid.h>
 
+/* HID Report Desciptor
+ * We emulate a basic 3 button mouse with wheel. This is the report-descriptor
+ * as the kernel will parse it:
+ *
+ * INPUT[INPUT]
+ *   Field(0)
+ *     Physical(GenericDesktop.Pointer)
+ *     Application(GenericDesktop.Mouse)
+ *     Usage(3)
+ *       Button.0001
+ *       Button.0002
+ *       Button.0003
+ *     Logical Minimum(0)
+ *     Logical Maximum(1)
+ *     Report Size(1)
+ *     Report Count(3)
+ *     Report Offset(0)
+ *     Flags( Variable Absolute )
+ *   Field(1)
+ *     Physical(GenericDesktop.Pointer)
+ *     Application(GenericDesktop.Mouse)
+ *     Usage(3)
+ *       GenericDesktop.X
+ *       GenericDesktop.Y
+ *       GenericDesktop.Wheel
+ *     Logical Minimum(-128)
+ *     Logical Maximum(127)
+ *     Report Size(8)
+ *     Report Count(3)
+ *     Report Offset(8)
+ *     Flags( Variable Relative )
+ *
+ * This is the mapping that we expect:
+ *   Button.0001 ---> Key.LeftBtn
+ *   Button.0002 ---> Key.RightBtn
+ *   Button.0003 ---> Key.MiddleBtn
+ *   GenericDesktop.X ---> Relative.X
+ *   GenericDesktop.Y ---> Relative.Y
+ *   GenericDesktop.Wheel ---> Relative.Wheel
+ *
+ * This information can be verified by reading /sys/kernel/debug/hid/<dev>/rdesc
+ * This file should print the same information as showed above.
+ */
 
 static unsigned char rdesc[] = {
 	0x05, 0x01, 0x09, 0x02, 0xa1, 0x01, 0x09, 0x01,

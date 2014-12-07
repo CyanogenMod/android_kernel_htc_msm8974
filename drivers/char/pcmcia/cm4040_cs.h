@@ -44,4 +44,4 @@
 #define  CMD_RDR_TO_PC_ESCAPE             0x83
 #define  CMD_RDR_TO_PC_OK_SECURE          0x89
 
-#endif	
+#endif	/* _CM4040_H_ */

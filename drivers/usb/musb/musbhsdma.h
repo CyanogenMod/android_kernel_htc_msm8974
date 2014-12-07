@@ -123,8 +123,9 @@ static inline void musb_write_hsdma_count(void __iomem *mbase,
 		(len >> 16));
 }
 
-#endif 
+#endif /* CONFIG_BLACKFIN */
 
+/* control register (16-bit): */
 #define MUSB_HSDMA_ENABLE_SHIFT		0
 #define MUSB_HSDMA_TRANSMIT_SHIFT	1
 #define MUSB_HSDMA_MODE1_SHIFT		2

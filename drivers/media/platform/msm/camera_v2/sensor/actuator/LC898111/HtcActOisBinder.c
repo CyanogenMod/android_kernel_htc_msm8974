@@ -397,7 +397,7 @@ static int32_t process_OIS_MFG_debug(void)
 
 	
 	ois_level = get_ois_level();
-	if ((ois_level >= 0) && (ois_level <= 6))
+	if (ois_level <= 6)
 	{
 		pr_info("[OIS]  set OIS level : %d\n", ois_level);
 		SetGcf(ois_level); 
@@ -582,7 +582,7 @@ int32_t HtcActOisBinder_mappingTbl_i2c_write(int startup_mode, struct sensor_act
 	}
 
 
-		if ((cur_ois_level >= 0) && (cur_ois_level <= 6))
+		if (cur_ois_level <= 6)
 		{
 			pr_info("[OIS]  set OIS level : %d\n", cur_ois_level);
 			SetGcf(cur_ois_level); 

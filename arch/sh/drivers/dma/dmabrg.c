@@ -13,6 +13,46 @@
 #include <asm/dmabrg.h>
 #include <asm/io.h>
 
+/*
+ * The DMABRG is a special DMA unit within the SH7760. It does transfers
+ * from USB-SRAM/Audio units to main memory (and also the LCDC; but that
+ * part is sensibly placed  in the LCDC  registers and requires no irqs)
+ * It has 3 IRQ lines which trigger 10 events, and works independently
+ * from the traditional SH DMAC (although it blocks usage of DMAC 0)
+ *
+ * BRGIRQID   | component | dir | meaning      | source
+ * -----------------------------------------------------
+ *     0      | USB-DMA   | ... | xfer done    | DMABRGI1
+ *     1      | USB-UAE   | ... | USB addr err.| DMABRGI0
+ *     2      | HAC0/SSI0 | play| all done     | DMABRGI1
+ *     3      | HAC0/SSI0 | play| half done    | DMABRGI2
+ *     4      | HAC0/SSI0 | rec | all done     | DMABRGI1
+ *     5      | HAC0/SSI0 | rec | half done    | DMABRGI2
+ *     6      | HAC1/SSI1 | play| all done     | DMABRGI1
+ *     7      | HAC1/SSI1 | play| half done    | DMABRGI2
+ *     8      | HAC1/SSI1 | rec | all done     | DMABRGI1
+ *     9      | HAC1/SSI1 | rec | half done    | DMABRGI2
+ *
+ * all can be enabled/disabled in the DMABRGCR register,
+ * as well as checked if they occurred.
+ *
+ * DMABRGI0 services  USB  DMA  Address  errors,  but it still must be
+ * enabled/acked in the DMABRGCR register.  USB-DMA complete indicator
+ * is grouped together with the audio buffer end indicators, too bad...
+ *
+ * DMABRGCR:	Bits 31-24: audio-dma ENABLE flags,
+ *		Bits 23-16: audio-dma STATUS flags,
+ *		Bits  9-8:  USB error/xfer ENABLE,
+ *		Bits  1-0:  USB error/xfer STATUS.
+ *	Ack an IRQ by writing 0 to the STATUS flag.
+ *	Mask IRQ by writing 0 to ENABLE flag.
+ *
+ * Usage is almost like with any other IRQ:
+ *  dmabrg_request_irq(BRGIRQID, handler, data)
+ *  dmabrg_free_irq(BRGIRQID)
+ *
+ * handler prototype:  void brgirqhandler(void *data)
+ */
 
 #define DMARSRA		0xfe090000
 #define DMAOR		0xffa00040
@@ -36,22 +76,28 @@ static inline void dmabrg_call_handler(int i)
 	dmabrg_handlers[i].handler(dmabrg_handlers[i].data);
 }
 
+/*
+ * main DMABRG irq handler. It acks irqs and then
+ * handles every set and unmasked bit sequentially.
+ * No locking and no validity checks; it should be
+ * as fast as possible (audio!)
+ */
 static irqreturn_t dmabrg_irq(int irq, void *data)
 {
 	unsigned long dcr;
 	unsigned int i;
 
 	dcr = __raw_readl(DMABRGCR);
-	__raw_writel(dcr & ~0x00ff0003, DMABRGCR);	
-	dcr &= dcr >> 8;	
+	__raw_writel(dcr & ~0x00ff0003, DMABRGCR);	/* ack all */
+	dcr &= dcr >> 8;	/* ignore masked */
 
-	
+	/* USB stuff, get it out of the way first */
 	if (dcr & 1)
 		dmabrg_call_handler(DMABRGIRQ_USBDMA);
 	if (dcr & 2)
 		dmabrg_call_handler(DMABRGIRQ_USBDMAERR);
 
-	
+	/* Audio */
 	dcr >>= 16;
 	while (dcr) {
 		i = __ffs(dcr);
@@ -114,7 +160,7 @@ static int __init dmabrg_init(void)
 		return -ENOMEM;
 
 #ifdef CONFIG_SH_DMA
-	
+	/* request DMAC channel 0 before anyone else can get it */
 	ret = request_dma(0, "DMAC 0 (DMABRG)");
 	if (ret < 0)
 		printk(KERN_INFO "DMABRG: DMAC ch0 not reserved!\n");
@@ -122,9 +168,9 @@ static int __init dmabrg_init(void)
 
 	__raw_writel(0, DMABRGCR);
 	__raw_writel(0, DMACHCR0);
-	__raw_writel(0x94000000, DMARSRA);	
+	__raw_writel(0x94000000, DMARSRA);	/* enable DMABRG in DMAC 0 */
 
-	
+	/* enable DMABRG mode, enable the DMAC */
 	or = __raw_readl(DMAOR);
 	__raw_writel(or | DMAOR_BRG | DMAOR_DMEN, DMAOR);
 

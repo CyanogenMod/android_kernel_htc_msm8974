@@ -1,3 +1,8 @@
+/*
+ * linux/arch/arm/mach-omap1/leds.c
+ *
+ * OMAP LEDs dispatcher
+ */
 #include <linux/gpio.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -36,6 +41,14 @@ omap_leds_init(void)
 #endif
 			) {
 
+		/* LED1/LED2 pins can be used as GPIO (as done here), or by
+		 * the LPG (works even in deep sleep!), to drive a bicolor
+		 * LED on the H2 sample board, and another on the H2/P2
+		 * "surfer" expansion board.
+		 *
+		 * The same pins drive a LED on the OSK Mistral board, but
+		 * that's a different kind of LED (just one color at a time).
+		 */
 		omap_cfg_reg(P18_1610_GPIO3);
 		if (gpio_request(3, "LED red") == 0)
 			gpio_direction_output(3, 1);

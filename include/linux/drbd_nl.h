@@ -1,3 +1,11 @@
+/*
+   PAKET( name,
+	  TYPE ( pn, pr, member )
+	  ...
+   )
+
+   You may never reissue one of the pn arguments
+*/
 
 #if !defined(NL_PACKET) || !defined(NL_STRING) || !defined(NL_INTEGER) || !defined(NL_BIT) || !defined(NL_INT64)
 #error "The macros NL_PACKET, NL_STRING, NL_INTEGER, NL_INT64 and NL_BIT needs to be defined"
@@ -19,7 +27,7 @@ NL_PACKET(disk_conf, 3,
 	NL_BIT(		37,	T_MAY_IGNORE,	use_bmbv)
 	NL_BIT(		53,	T_MAY_IGNORE,	no_disk_flush)
 	NL_BIT(		54,	T_MAY_IGNORE,	no_md_flush)
-	  
+	  /*  55 max_bio_size was available in 8.2.6rc2 */
 	NL_INTEGER(	56,	T_MAY_IGNORE,	max_bio_bvecs)
 	NL_BIT(		57,	T_MAY_IGNORE,	no_disk_barrier)
 	NL_BIT(		58,	T_MAY_IGNORE,	no_disk_drain)
@@ -51,7 +59,7 @@ NL_PACKET(net_conf, 5,
 	NL_INTEGER(	81,	T_MAY_IGNORE,	on_congestion)
 	NL_INTEGER(	82,	T_MAY_IGNORE,	cong_fill)
 	NL_INTEGER(	83,	T_MAY_IGNORE,	cong_extents)
-	  
+	  /* 59 addr_family was available in GIT, never released */
 	NL_BIT(		60,	T_MANDATORY,	mind_af)
 	NL_BIT(		27,	T_MAY_IGNORE,	want_lose)
 	NL_BIT(		28,	T_MAY_IGNORE,	two_primaries)
@@ -75,6 +83,11 @@ NL_PACKET(syncer_conf, 8,
 	NL_INTEGER(	30,	T_MAY_IGNORE,	rate)
 	NL_INTEGER(	31,	T_MAY_IGNORE,	after)
 	NL_INTEGER(	32,	T_MAY_IGNORE,	al_extents)
+/*	NL_INTEGER(     71,	T_MAY_IGNORE,	dp_volume)
+ *	NL_INTEGER(     72,	T_MAY_IGNORE,	dp_interval)
+ *	NL_INTEGER(     73,	T_MAY_IGNORE,	throttle_th)
+ *	NL_INTEGER(     74,	T_MAY_IGNORE,	hold_off_th)
+ * feature will be reimplemented differently with 8.3.9 */
 	NL_STRING(      52,     T_MAY_IGNORE,   verify_alg,     SHARED_SECRET_MAX)
 	NL_STRING(      51,     T_MAY_IGNORE,   cpu_mask,       32)
 	NL_STRING(	64,	T_MAY_IGNORE,	csums_alg,	SHARED_SECRET_MAX)
@@ -112,6 +125,7 @@ NL_PACKET(call_helper, 20,
 	NL_STRING(	38,	T_MAY_IGNORE,	helper,		32)
 )
 
+/* Tag nr 42 already allocated in drbd-8.1 development. */
 
 NL_PACKET(sync_progress, 23,
 	NL_INTEGER(	43,	T_MAY_IGNORE,	sync_progress)

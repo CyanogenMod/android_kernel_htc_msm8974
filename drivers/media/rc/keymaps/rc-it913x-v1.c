@@ -13,30 +13,30 @@
 
 
 static struct rc_map_table it913x_v1_rc[] = {
-	
-	{ 0x61d601, KEY_VIDEO },           
+	/* Type 1 */
+	{ 0x61d601, KEY_VIDEO },           /* Source */
 	{ 0x61d602, KEY_3 },
-	{ 0x61d603, KEY_POWER },           
+	{ 0x61d603, KEY_POWER },           /* ShutDown */
 	{ 0x61d604, KEY_1 },
 	{ 0x61d605, KEY_5 },
 	{ 0x61d606, KEY_6 },
-	{ 0x61d607, KEY_CHANNELDOWN },     
+	{ 0x61d607, KEY_CHANNELDOWN },     /* CH- */
 	{ 0x61d608, KEY_2 },
-	{ 0x61d609, KEY_CHANNELUP },       
+	{ 0x61d609, KEY_CHANNELUP },       /* CH+ */
 	{ 0x61d60a, KEY_9 },
-	{ 0x61d60b, KEY_ZOOM },            
+	{ 0x61d60b, KEY_ZOOM },            /* Zoom */
 	{ 0x61d60c, KEY_7 },
 	{ 0x61d60d, KEY_8 },
-	{ 0x61d60e, KEY_VOLUMEUP },        
+	{ 0x61d60e, KEY_VOLUMEUP },        /* Vol+ */
 	{ 0x61d60f, KEY_4 },
-	{ 0x61d610, KEY_ESC },             
+	{ 0x61d610, KEY_ESC },             /* [back up arrow] */
 	{ 0x61d611, KEY_0 },
-	{ 0x61d612, KEY_OK },              
-	{ 0x61d613, KEY_VOLUMEDOWN },      
-	{ 0x61d614, KEY_RECORD },          
-	{ 0x61d615, KEY_STOP },            
-	{ 0x61d616, KEY_PLAY },            
-	{ 0x61d617, KEY_MUTE },            
+	{ 0x61d612, KEY_OK },              /* [enter arrow] */
+	{ 0x61d613, KEY_VOLUMEDOWN },      /* Vol- */
+	{ 0x61d614, KEY_RECORD },          /* Rec */
+	{ 0x61d615, KEY_STOP },            /* Stop */
+	{ 0x61d616, KEY_PLAY },            /* Play */
+	{ 0x61d617, KEY_MUTE },            /* Mute */
 	{ 0x61d618, KEY_UP },
 	{ 0x61d619, KEY_DOWN },
 	{ 0x61d61a, KEY_LEFT },
@@ -45,8 +45,8 @@ static struct rc_map_table it913x_v1_rc[] = {
 	{ 0x61d61d, KEY_GREEN },
 	{ 0x61d61e, KEY_YELLOW },
 	{ 0x61d61f, KEY_BLUE },
-	{ 0x61d643, KEY_POWER2 },          
-	
+	{ 0x61d643, KEY_POWER2 },          /* [red power button] */
+	/* Type 2 - 20 buttons */
 	{ 0x807f0d, KEY_0 },
 	{ 0x807f04, KEY_1 },
 	{ 0x807f05, KEY_2 },
@@ -58,10 +58,10 @@ static struct rc_map_table it913x_v1_rc[] = {
 	{ 0x807f1b, KEY_8 },
 	{ 0x807f1f, KEY_9 },
 	{ 0x807f12, KEY_POWER },
-	{ 0x807f01, KEY_MEDIA_REPEAT}, 
-	{ 0x807f19, KEY_PAUSE }, 
-	{ 0x807f1e, KEY_VOLUMEUP }, 
-	{ 0x807f03, KEY_VOLUMEDOWN }, 
+	{ 0x807f01, KEY_MEDIA_REPEAT}, /* Recall */
+	{ 0x807f19, KEY_PAUSE }, /* Timeshift */
+	{ 0x807f1e, KEY_VOLUMEUP }, /* 2 x -/+ Keys not marked */
+	{ 0x807f03, KEY_VOLUMEDOWN }, /* Volume defined as right hand*/
 	{ 0x807f1a, KEY_CHANNELUP },
 	{ 0x807f02, KEY_CHANNELDOWN },
 	{ 0x807f0c, KEY_ZOOM },

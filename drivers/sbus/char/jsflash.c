@@ -43,18 +43,37 @@
 #include <asm/pcic.h>
 #include <asm/oplib.h>
 
-#include <asm/jsflash.h>		
+#include <asm/jsflash.h>		/* ioctl arguments. <linux/> ?? */
 #define JSFIDSZ		(sizeof(struct jsflash_ident_arg))
 #define JSFPRGSZ	(sizeof(struct jsflash_program_arg))
 
-#define JSF_MINOR	178	
-#define JSF_MAX		 3	
-#define JSF_NPART	 3	
-#define JSF_PART_BITS	 2	
-#define JSF_PART_MASK	 0x3	
+/*
+ * Our device numbers have no business in system headers.
+ * The only thing a user knows is the device name /dev/jsflash.
+ *
+ * Block devices are laid out like this:
+ *   minor+0	- Bootstrap, for 8MB SIMM 0x20400000[0x800000]
+ *   minor+1	- Filesystem to mount, normally 0x20400400[0x7ffc00]
+ *   minor+2	- Whole flash area for any case... 0x20000000[0x01000000]
+ * Total 3 minors per flash device.
+ *
+ * It is easier to have static size vectors, so we define
+ * a total minor range JSF_MAX, which must cover all minors.
+ */
+/* character device */
+#define JSF_MINOR	178	/* 178 is registered with hpa */
+/* block device */
+#define JSF_MAX		 3	/* 3 minors wasted total so far. */
+#define JSF_NPART	 3	/* 3 minors per flash device */
+#define JSF_PART_BITS	 2	/* 2 bits of minors to cover JSF_NPART */
+#define JSF_PART_MASK	 0x3	/* 2 bits mask */
 
 static DEFINE_MUTEX(jsf_mutex);
 
+/*
+ * Access functions.
+ * We could ioremap(), but it's easier this way.
+ */
 static unsigned int jsf_inl(unsigned long addr)
 {
 	unsigned long retval;
@@ -73,6 +92,9 @@ static void jsf_outl(unsigned long addr, __u32 data)
 				"memory");
 }
 
+/*
+ * soft carrier
+ */
 
 struct jsfd_part {
 	unsigned long dbase;
@@ -82,21 +104,37 @@ struct jsfd_part {
 struct jsflash {
 	unsigned long base;
 	unsigned long size;
-	unsigned long busy;		
+	unsigned long busy;		/* In use? */
 	struct jsflash_ident_arg id;
-			
+	/* int mbase; */		/* Minor base, typically zero */
 	struct jsfd_part dv[JSF_NPART];
 };
 
+/*
+ * We do not map normal memory or obio as a safety precaution.
+ * But offsets are real, for ease of userland programming.
+ */
 #define JSF_BASE_TOP	0x30000000
 #define JSF_BASE_ALL	0x20000000
 
 #define JSF_BASE_JK	0x20400000
 
+/*
+ */
 static struct gendisk *jsfd_disk[JSF_MAX];
 
+/*
+ * Let's pretend we may have several of these...
+ */
 static struct jsflash jsf0;
 
+/*
+ * Wait for AMD to finish its embedded algorithm.
+ * We use the Toggle bit DQ6 (0x40) because it does not
+ * depend on the data value as /DATA bit DQ7 does.
+ *
+ * XXX Do we need any timeout here? So far it never hanged, beware broken hw.
+ */
 static void jsf_wait(unsigned long p) {
 	unsigned int x1, x2;
 
@@ -120,14 +158,16 @@ static void jsf_wait(unsigned long p) {
  */
 static void jsf_write4(unsigned long fa, u32 data) {
 
-	jsf_outl(fa, 0xAAAAAAAA);		
-	jsf_outl(fa, 0x55555555);		
-	jsf_outl(fa, 0xA0A0A0A0);		
+	jsf_outl(fa, 0xAAAAAAAA);		/* Unlock 1 Write 1 */
+	jsf_outl(fa, 0x55555555);		/* Unlock 1 Write 2 */
+	jsf_outl(fa, 0xA0A0A0A0);		/* Byte Program */
 	jsf_outl(fa, data);
 
 	jsf_wait(fa);
 }
 
+/*
+ */
 static void jsfd_read(char *buf, unsigned long p, size_t togo) {
 	union byte4 {
 		char s[4];
@@ -175,6 +215,14 @@ static void jsfd_do_request(struct request_queue *q)
 	}
 }
 
+/*
+ * The memory devices use the full 32/64 bits of the offset, and so we cannot
+ * check against negative addresses: they are ok. The return value is weird,
+ * though, in that case (0).
+ *
+ * also note that seeking relative to the "end of file" isn't supported:
+ * it has no meaning, so it returns -EINVAL.
+ */
 static loff_t jsf_lseek(struct file * file, loff_t offset, int orig)
 {
 	loff_t ret;
@@ -196,6 +244,9 @@ static loff_t jsf_lseek(struct file * file, loff_t offset, int orig)
 	return ret;
 }
 
+/*
+ * OS SIMM Cannot be read in other size but a 32bits word.
+ */
 static ssize_t jsf_read(struct file * file, char __user * buf, 
     size_t togo, loff_t *ppos)
 {
@@ -211,13 +262,13 @@ static ssize_t jsf_read(struct file * file, char __user * buf,
 		return 0;
 	}
 
-	if ((p + togo) < p	
+	if ((p + togo) < p	/* wrap */
 	   || (p + togo) >= JSF_BASE_TOP) {
 		togo = JSF_BASE_TOP - p;
 	}
 
 	if (p < JSF_BASE_ALL && togo != 0) {
-#if 0 
+#if 0 /* __bzero XXX */
 		size_t x = JSF_BASE_ALL - p;
 		if (x > togo) x = togo;
 		clear_user(tmp, x);
@@ -225,6 +276,11 @@ static ssize_t jsf_read(struct file * file, char __user * buf,
 		p += x;
 		togo -= x;
 #else
+		/*
+		 * Implementation of clear_user() calls __bzero
+		 * without regard to modversions,
+		 * so we cannot build a module.
+		 */
 		return 0;
 #endif
 	}
@@ -238,6 +294,10 @@ static ssize_t jsf_read(struct file * file, char __user * buf,
 		p += 4;
 	}
 
+	/*
+	 * XXX Small togo may remain if 1 byte is ordered.
+	 * It would be nice if we did a word size read and unpacked it.
+	 */
 
 	*ppos = p;
 	return tmp-buf;
@@ -249,21 +309,27 @@ static ssize_t jsf_write(struct file * file, const char __user * buf,
 	return -ENOSPC;
 }
 
+/*
+ */
 static int jsf_ioctl_erase(unsigned long arg)
 {
 	unsigned long p;
 
-	
+	/* p = jsf0.base;	hits wrong bank */
 	p = 0x20400000;
 
-	jsf_outl(p, 0xAAAAAAAA);		
-	jsf_outl(p, 0x55555555);		
-	jsf_outl(p, 0x80808080);		
-	jsf_outl(p, 0xAAAAAAAA);		
-	jsf_outl(p, 0x55555555);		
-	jsf_outl(p, 0x10101010);		
+	jsf_outl(p, 0xAAAAAAAA);		/* Unlock 1 Write 1 */
+	jsf_outl(p, 0x55555555);		/* Unlock 1 Write 2 */
+	jsf_outl(p, 0x80808080);		/* Erase setup */
+	jsf_outl(p, 0xAAAAAAAA);		/* Unlock 2 Write 1 */
+	jsf_outl(p, 0x55555555);		/* Unlock 2 Write 2 */
+	jsf_outl(p, 0x10101010);		/* Chip erase */
 
 #if 0
+	/*
+	 * This code is ok, except that counter based timeout
+	 * has no place in this world. Let's just drop timeouts...
+	 */
 	{
 		int i;
 		__u32 x;
@@ -284,6 +350,10 @@ static int jsf_ioctl_erase(unsigned long arg)
 	return 0;
 }
 
+/*
+ * Program a block of flash.
+ * Very simple because we can do it byte by byte anyway.
+ */
 static int jsf_ioctl_program(void __user *arg)
 {
 	struct jsflash_program_arg abuf;
@@ -361,7 +431,7 @@ static int jsf_open(struct inode * inode, struct file * filp)
 	}
 
 	mutex_unlock(&jsf_mutex);
-	return 0;	
+	return 0;	/* XXX What security? */
 }
 
 static int jsf_release(struct inode *inode, struct file *file)
@@ -408,6 +478,10 @@ static int jsflash_init(void)
 			    reg0.which_io, reg0.phys_addr);
 			return -ENXIO;
 		}
+		/*
+		 * Flash may be somewhere else, for instance on Ebus.
+		 * So, don't do the following check for IIep flash space.
+		 */
 #if 0
 		if ((reg0.phys_addr >> 24) != 0x20) {
 			printk("jsflash: suspicious address: 0x%x:%x\n",
@@ -420,7 +494,7 @@ static int jsflash_init(void)
 			return -ENXIO;
 		}
 	} else {
-		
+		/* XXX Remove this code once PROLL ID12 got widespread */
 		printk("jsflash: no /flash-memory node, use PROLL >= 12\n");
 		prom_getproperty(prom_root_node, "banner-name", banner, 128);
 		if (strcmp (banner, "JavaStation-NC") != 0 &&
@@ -432,10 +506,10 @@ static int jsflash_init(void)
 		reg0.reg_size  = 0x00800000;
 	}
 
-	
-	 
+	/* Let us be really paranoid for modifications to probing code. */
+	/* extern enum sparc_cpu sparc_cpu_model; */ /* in <asm/system.h> */
 	if (sparc_cpu_model != sun4m) {
-		
+		/* We must be on sun4m because we use MMU Bypass ASI. */
 		return -ENXIO;
 	}
 
@@ -445,9 +519,9 @@ static int jsflash_init(void)
 		jsf->base = reg0.phys_addr;
 		jsf->size = reg0.reg_size;
 
-		
+		/* XXX Redo the userland interface. */
 		jsf->id.off = JSF_BASE_ALL;
-		jsf->id.size = 0x01000000;	
+		jsf->id.size = 0x01000000;	/* 16M - all segments */
 		strcpy(jsf->id.name, "Krups_all");
 
 		jsf->dv[0].dbase = jsf->base;
@@ -507,7 +581,7 @@ static int jsfd_init(void)
 	for (i = 0; i < JSF_MAX; i++) {
 		struct gendisk *disk = jsfd_disk[i];
 		if ((i & JSF_PART_MASK) >= JSF_NPART) continue;
-		jsf = &jsf0;	
+		jsf = &jsf0;	/* actually, &jsfv[i >> JSF_PART_BITS] */
 		jdp = &jsf->dv[i&JSF_PART_MASK];
 
 		disk->major = JSFD_MAJOR;

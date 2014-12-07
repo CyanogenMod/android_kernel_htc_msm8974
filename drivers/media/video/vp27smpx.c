@@ -36,6 +36,7 @@ MODULE_AUTHOR("Hans Verkuil");
 MODULE_LICENSE("GPL");
 
 
+/* ----------------------------------------------------------------------- */
 
 struct vp27smpx_state {
 	struct v4l2_subdev sd;
@@ -127,6 +128,7 @@ static int vp27smpx_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops vp27smpx_core_ops = {
 	.log_status = vp27smpx_log_status,
@@ -145,8 +147,14 @@ static const struct v4l2_subdev_ops vp27smpx_ops = {
 	.tuner = &vp27smpx_tuner_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
+/* i2c implementation */
 
+/*
+ * Generic i2c probe
+ * concerning the addresses: i2c wants 7 bit (without the r/w bit), so '>>1'
+ */
 
 static int vp27smpx_probe(struct i2c_client *client,
 			  const struct i2c_device_id *id)
@@ -154,7 +162,7 @@ static int vp27smpx_probe(struct i2c_client *client,
 	struct vp27smpx_state *state;
 	struct v4l2_subdev *sd;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -168,7 +176,7 @@ static int vp27smpx_probe(struct i2c_client *client,
 	v4l2_i2c_subdev_init(sd, client, &vp27smpx_ops);
 	state->audmode = V4L2_TUNER_MODE_STEREO;
 
-	
+	/* initialize vp27smpx */
 	vp27smpx_set_audmode(sd, state->audmode);
 	return 0;
 }
@@ -182,6 +190,7 @@ static int vp27smpx_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id vp27smpx_id[] = {
 	{ "vp27smpx", 0 },

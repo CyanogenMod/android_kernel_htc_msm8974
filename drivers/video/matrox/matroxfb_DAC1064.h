@@ -21,7 +21,7 @@ void DAC1064_global_restore(struct matrox_fb_info *minfo);
 #define M1064_PIXRDMSK	0x02
 #define M1064_PALRDADD	0x03
 #define M1064_X_DATAREG	0x0A
-#define M1064_CURPOSXL	0x0C	
+#define M1064_CURPOSXL	0x0C	/* can be accessed as DWORD */
 #define M1064_CURPOSXH	0x0D
 #define M1064_CURPOSYL	0x0E
 #define M1064_CURPOSYH	0x0F
@@ -29,24 +29,24 @@ void DAC1064_global_restore(struct matrox_fb_info *minfo);
 #define M1064_XCURADDL		0x04
 #define M1064_XCURADDH		0x05
 #define M1064_XCURCTRL		0x06
-#define     M1064_XCURCTRL_DIS		0x00	
-#define     M1064_XCURCTRL_3COLOR	0x01	
-#define     M1064_XCURCTRL_XGA		0x02	
-#define     M1064_XCURCTRL_XWIN		0x03	
-	
-	
+#define     M1064_XCURCTRL_DIS		0x00	/* transparent, transparent, transparent, transparent */
+#define     M1064_XCURCTRL_3COLOR	0x01	/* transparent, 0, 1, 2 */
+#define     M1064_XCURCTRL_XGA		0x02	/* 0, 1, transparent, complement */
+#define     M1064_XCURCTRL_XWIN		0x03	/* transparent, transparent, 0, 1 */
+	/* drive DVI by standard(0)/DVI(1) PLL */
+	/* if set(1), C?DVICLKEN and C?DVICLKSEL must be set(1) */
 #define      M1064_XDVICLKCTRL_DVIDATAPATHSEL   0x01
-	
+	/* drive CRTC1 by standard(0)/DVI(1) PLL */
 #define      M1064_XDVICLKCTRL_C1DVICLKSEL      0x02
-	
+	/* drive CRTC2 by standard(0)/DVI(1) PLL */
 #define      M1064_XDVICLKCTRL_C2DVICLKSEL      0x04
-	
+	/* pixel clock allowed to(0)/blocked from(1) driving CRTC1 */
 #define      M1064_XDVICLKCTRL_C1DVICLKEN       0x08
-	
+	/* DVI PLL loop filter bandwidth selection bits */
 #define      M1064_XDVICLKCTRL_DVILOOPCTL       0x30
-	
+	/* CRTC2 pixel clock allowed to(0)/blocked from(1) driving CRTC2 */
 #define      M1064_XDVICLKCTRL_C2DVICLKEN       0x40
-	
+	/* P1PLL loop filter bandwidth selection */
 #define      M1064_XDVICLKCTRL_P1LOOPBWDTCTL    0x80
 #define M1064_XCURCOL0RED	0x08
 #define M1064_XCURCOL0GREEN	0x09
@@ -63,22 +63,22 @@ void DAC1064_global_restore(struct matrox_fb_info *minfo);
 #define      DAC1064_XVREFCTRL_EXTERNAL		0x00
 #define      DAC1064_XVREFCTRL_G100_DEFAULT	0x03
 #define M1064_XMULCTRL		0x19
-#define      M1064_XMULCTRL_DEPTH_8BPP		0x00	
-#define      M1064_XMULCTRL_DEPTH_15BPP_1BPP	0x01	
-#define      M1064_XMULCTRL_DEPTH_16BPP		0x02	
-#define      M1064_XMULCTRL_DEPTH_24BPP		0x03	
-#define      M1064_XMULCTRL_DEPTH_24BPP_8BPP	0x04	
-#define      M1064_XMULCTRL_2G8V16		0x05	
-#define      M1064_XMULCTRL_G16V16		0x06	
-#define      M1064_XMULCTRL_DEPTH_32BPP		0x07	
+#define      M1064_XMULCTRL_DEPTH_8BPP		0x00	/* 8 bpp paletized */
+#define      M1064_XMULCTRL_DEPTH_15BPP_1BPP	0x01	/* 15 bpp paletized + 1 bpp overlay */
+#define      M1064_XMULCTRL_DEPTH_16BPP		0x02	/* 16 bpp paletized */
+#define      M1064_XMULCTRL_DEPTH_24BPP		0x03	/* 24 bpp paletized */
+#define      M1064_XMULCTRL_DEPTH_24BPP_8BPP	0x04	/* 24 bpp direct + 8 bpp overlay paletized */
+#define      M1064_XMULCTRL_2G8V16		0x05	/* 15 bpp video direct, half xres, 8bpp paletized */
+#define      M1064_XMULCTRL_G16V16		0x06	/* 15 bpp video, 15bpp graphics, one of them paletized */
+#define      M1064_XMULCTRL_DEPTH_32BPP		0x07	/* 24 bpp paletized + 8 bpp unused */
 #define      M1064_XMULCTRL_GRAPHICS_PALETIZED	0x00
 #define      M1064_XMULCTRL_VIDEO_PALETIZED	0x08
 #define M1064_XPIXCLKCTRL	0x1A
 #define      M1064_XPIXCLKCTRL_SRC_PCI		0x00
 #define      M1064_XPIXCLKCTRL_SRC_PLL		0x01
 #define      M1064_XPIXCLKCTRL_SRC_EXT		0x02
-#define	     M1064_XPIXCLKCTRL_SRC_SYS		0x03	
-#define      M1064_XPIXCLKCTRL_SRC_PLL2		0x03	
+#define	     M1064_XPIXCLKCTRL_SRC_SYS		0x03	/* G200/G400 */
+#define      M1064_XPIXCLKCTRL_SRC_PLL2		0x03	/* G450 */
 #define      M1064_XPIXCLKCTRL_SRC_MASK		0x03
 #define      M1064_XPIXCLKCTRL_EN		0x00
 #define      M1064_XPIXCLKCTRL_DIS		0x04
@@ -176,4 +176,4 @@ enum POS1064 {
 	POS1064_XOUTPUTCONN, POS1064_XPANMODE, POS1064_XPWRCTRL };
 
 
-#endif	
+#endif	/* __MATROXFB_DAC1064_H__ */

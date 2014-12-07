@@ -124,6 +124,12 @@ static struct m5mols_scenemode m5mols_default_scenemode[] = {
 	},
 };
 
+/**
+ * m5mols_do_scenemode() - Change current scenemode
+ * @mode:	Desired mode of the scenemode
+ *
+ * WARNING: The execution order is important. Do not change the order.
+ */
 int m5mols_do_scenemode(struct m5mols_info *info, u8 mode)
 {
 	struct v4l2_subdev *sd = &info->sd;
@@ -206,6 +212,7 @@ static int m5mols_lock_awb(struct m5mols_info *info, bool lock)
 	return ret;
 }
 
+/* m5mols_lock_3a() - Lock 3A(Auto Exposure, Auto Whitebalance, Auto Focus) */
 int m5mols_lock_3a(struct m5mols_info *info, bool lock)
 {
 	int ret;
@@ -213,13 +220,14 @@ int m5mols_lock_3a(struct m5mols_info *info, bool lock)
 	ret = m5mols_lock_ae(info, lock);
 	if (!ret)
 		ret = m5mols_lock_awb(info, lock);
-	
+	/* Don't need to handle unlocking AF */
 	if (!ret && is_available_af(info) && lock)
 		ret = m5mols_write(&info->sd, AF_EXECUTE, REG_AF_STOP);
 
 	return ret;
 }
 
+/* m5mols_set_ctrl() - The main s_ctrl function called by m5mols_set_ctrl() */
 int m5mols_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct v4l2_subdev *sd = to_sd(ctrl);
@@ -259,6 +267,15 @@ int m5mols_set_ctrl(struct v4l2_ctrl *ctrl)
 		return ret;
 
 	case V4L2_CID_COLORFX:
+		/*
+		 * This control uses two kinds of registers: normal & color.
+		 * The normal effect belongs to category 1, while the color
+		 * one belongs to category 2.
+		 *
+		 * The normal effect uses one register: CAT1_EFFECT.
+		 * The color effect uses three registers:
+		 * CAT2_COLOR_EFFECT, CAT2_CFIXR, CAT2_CFIXB.
+		 */
 		ret = m5mols_write(sd, PARM_EFFECT,
 			ctrl->val == V4L2_COLORFX_NEGATIVE ? REG_EFFECT_NEGA :
 			ctrl->val == V4L2_COLORFX_EMBOSS ? REG_EFFECT_EMBOSS :

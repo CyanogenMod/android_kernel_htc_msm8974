@@ -21,6 +21,10 @@
  * block.c
  */
 
+/*
+ * This file implements the low-level routines to read and decompress
+ * datablocks and metadata blocks.
+ */
 
 #include <linux/fs.h>
 #include <linux/vfs.h>
@@ -33,6 +37,10 @@
 #include "squashfs.h"
 #include "decompressor.h"
 
+/*
+ * Read the metadata block length, this is stored in the first two
+ * bytes of the metadata block.
+ */
 static struct buffer_head *get_block_length(struct super_block *sb,
 			u64 *cur_index, int *offset, int *length)
 {
@@ -69,6 +77,15 @@ static struct buffer_head *get_block_length(struct super_block *sb,
 }
 
 
+/*
+ * Read and decompress a metadata block or datablock.  Length is non-zero
+ * if a datablock is being read (the size is stored elsewhere in the
+ * filesystem), otherwise the length is obtained from the first two bytes of
+ * the metadata block.  A bit in the length field indicates if the block
+ * is stored uncompressed in the filesystem (usually because compression
+ * generated a larger block - this does occasionally happen with compression
+ * algorithms).
+ */
 int squashfs_read_data(struct super_block *sb, void **buffer, u64 index,
 			int length, u64 *next_index, int srclength, int pages)
 {
@@ -84,6 +101,9 @@ int squashfs_read_data(struct super_block *sb, void **buffer, u64 index,
 		return -ENOMEM;
 
 	if (length) {
+		/*
+		 * Datablock.
+		 */
 		bytes = -offset;
 		compressed = SQUASHFS_COMPRESSED_BLOCK(length);
 		length = SQUASHFS_COMPRESSED_SIZE_BLOCK(length);
@@ -105,6 +125,9 @@ int squashfs_read_data(struct super_block *sb, void **buffer, u64 index,
 		}
 		ll_rw_block(READ, b, bh);
 	} else {
+		/*
+		 * Metadata block.
+		 */
 		if ((index + 2) > msblk->bytes_used)
 			goto read_failure;
 
@@ -141,6 +164,9 @@ int squashfs_read_data(struct super_block *sb, void **buffer, u64 index,
 		if (length < 0)
 			goto read_failure;
 	} else {
+		/*
+		 * Block is uncompressed.
+		 */
 		int i, in, pg_offset = 0;
 
 		for (i = 0; i < b; i++) {

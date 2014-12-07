@@ -21,6 +21,9 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+/*
+ * RFCOMM TTY.
+ */
 
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -37,9 +40,9 @@
 #include <net/bluetooth/hci_core.h>
 #include <net/bluetooth/rfcomm.h>
 
-#define RFCOMM_TTY_MAGIC 0x6d02		
-#define RFCOMM_TTY_PORTS RFCOMM_MAX_DEV	
-#define RFCOMM_TTY_MAJOR 216		
+#define RFCOMM_TTY_MAGIC 0x6d02		/* magic number for rfcomm struct */
+#define RFCOMM_TTY_PORTS RFCOMM_MAX_DEV	/* whole lotta rfcomm devices */
+#define RFCOMM_TTY_MAJOR 216		/* device node major id of the usb/bluetooth.c driver */
 #define RFCOMM_TTY_MINOR 0
 
 static struct tty_driver *rfcomm_tty_driver;
@@ -81,16 +84,20 @@ static void rfcomm_dev_modem_status(struct rfcomm_dlc *dlc, u8 v24_sig);
 
 static void rfcomm_tty_wakeup(unsigned long arg);
 
+/* ---- Device functions ---- */
 static void rfcomm_dev_destruct(struct rfcomm_dev *dev)
 {
 	struct rfcomm_dlc *dlc = dev->dlc;
 
 	BT_DBG("dev %p dlc %p", dev, dlc);
 
+	/* Refcount should only hit zero when called from rfcomm_dev_del()
+	   which will have taken us off the list. Everything else are
+	   refcounting bugs. */
 	BUG_ON(!list_empty(&dev->list));
 
 	rfcomm_dlc_lock(dlc);
-	
+	/* Detach DLC if it's owned by this dev */
 	if (dlc->owner == dev)
 		dlc->owner = NULL;
 	rfcomm_dlc_unlock(dlc);
@@ -101,6 +108,8 @@ static void rfcomm_dev_destruct(struct rfcomm_dev *dev)
 
 	kfree(dev);
 
+	/* It's safe to call module_put() here because socket still
+	   holds reference to this module. */
 	module_put(THIS_MODULE);
 }
 
@@ -111,6 +120,13 @@ static inline void rfcomm_dev_hold(struct rfcomm_dev *dev)
 
 static inline void rfcomm_dev_put(struct rfcomm_dev *dev)
 {
+	/* The reason this isn't actually a race, as you no
+	   doubt have a little voice screaming at you in your
+	   head, is that the refcount should never actually
+	   reach zero unless the device has already been taken
+	   off the list, in rfcomm_dev_del(). And if that's not
+	   true, we'll hit the BUG() in rfcomm_dev_destruct()
+	   anyway. */
 	if (atomic_dec_and_test(&dev->refcnt))
 		rfcomm_dev_destruct(dev);
 }
@@ -274,6 +290,8 @@ static int rfcomm_dev_add(struct rfcomm_dev_req *req, struct rfcomm_dlc *dlc)
 
 	rfcomm_dlc_unlock(dlc);
 
+	/* It's safe to call __module_get() here because socket already
+	   holds reference to this module. */
 	__module_get(THIS_MODULE);
 
 out:
@@ -321,8 +339,11 @@ static void rfcomm_dev_del(struct rfcomm_dev *dev)
 	rfcomm_dev_put(dev);
 }
 
+/* ---- Send buffer ---- */
 static inline unsigned int rfcomm_room(struct rfcomm_dlc *dlc)
 {
+	/* We can't let it be zero, because we don't get a callback
+	   when tx_credits becomes nonzero, hence we'd never wake up */
 	return dlc->mtu * (dlc->tx_credits?:1);
 }
 
@@ -355,6 +376,7 @@ static struct sk_buff *rfcomm_wmalloc(struct rfcomm_dev *dev, unsigned long size
 	return NULL;
 }
 
+/* ---- Device IOCTLs ---- */
 
 #define NOCAP_FLAGS ((1 << RFCOMM_REUSE_DLC) | (1 << RFCOMM_RELEASE_ONHUP))
 
@@ -373,7 +395,7 @@ static int rfcomm_create_dev(struct sock *sk, void __user *arg)
 		return -EPERM;
 
 	if (req.flags & (1 << RFCOMM_REUSE_DLC)) {
-		
+		/* Socket must be connected */
 		if (sk->sk_state != BT_CONNECTED)
 			return -EBADFD;
 
@@ -392,6 +414,8 @@ static int rfcomm_create_dev(struct sock *sk, void __user *arg)
 	}
 
 	if (req.flags & (1 << RFCOMM_REUSE_DLC)) {
+		/* DLC is now used by device.
+		 * Socket must be disconnected */
 		sk->sk_state = BT_CLOSED;
 	}
 
@@ -420,7 +444,7 @@ static int rfcomm_release_dev(void __user *arg)
 	if (req.flags & (1 << RFCOMM_HANGUP_NOW))
 		rfcomm_dlc_close(dev->dlc, 0);
 
-	
+	/* Shut down TTY synchronously before freeing rfcomm_dev */
 	if (dev->tty)
 		tty_vhangup(dev->tty);
 
@@ -530,6 +554,7 @@ int rfcomm_dev_ioctl(struct sock *sk, unsigned int cmd, void __user *arg)
 	return -EINVAL;
 }
 
+/* ---- DLC callbacks ---- */
 static void rfcomm_dev_data_ready(struct rfcomm_dlc *dlc, struct sk_buff *skb)
 {
 	struct rfcomm_dev *dev = dlc->owner;
@@ -568,6 +593,13 @@ static void rfcomm_dev_state_change(struct rfcomm_dlc *dlc, int err)
 	if (dlc->state == BT_CLOSED) {
 		if (!dev->tty) {
 			if (test_bit(RFCOMM_RELEASE_ONHUP, &dev->flags)) {
+				/* Drop DLC lock here to avoid deadlock
+				 * 1. rfcomm_dev_get will take rfcomm_dev_lock
+				 *    but in rfcomm_dev_add there's lock order:
+				 *    rfcomm_dev_lock -> dlc lock
+				 * 2. rfcomm_dev_put will deadlock if it's
+				 *    the last reference
+				 */
 				rfcomm_dlc_unlock(dlc);
 				if (rfcomm_dev_get(dev->id) == NULL) {
 					rfcomm_dlc_lock(dlc);
@@ -603,6 +635,7 @@ static void rfcomm_dev_modem_status(struct rfcomm_dlc *dlc, u8 v24_sig)
 		((v24_sig & RFCOMM_V24_DV)  ? TIOCM_CD : 0);
 }
 
+/* ---- TTY functions ---- */
 static void rfcomm_tty_wakeup(unsigned long arg)
 {
 	struct rfcomm_dev *dev = (void *) arg;
@@ -649,6 +682,10 @@ static int rfcomm_tty_open(struct tty_struct *tty, struct file *filp)
 
 	BT_DBG("tty %p id %d", tty, id);
 
+	/* We don't leak this refcount. For reasons which are not entirely
+	   clear, the TTY layer will call our ->close() method even if the
+	   open fails. We decrease the refcount there, and decreasing it
+	   here too would cause breakage. */
 	dev = rfcomm_dev_get(id);
 	if (!dev)
 		return -ENODEV;
@@ -661,7 +698,7 @@ static int rfcomm_tty_open(struct tty_struct *tty, struct file *filp)
 
 	dlc = dev->dlc;
 
-	
+	/* Attach TTY and open DLC */
 
 	rfcomm_dlc_lock(dlc);
 	tty->driver_data = dev;
@@ -673,7 +710,7 @@ static int rfcomm_tty_open(struct tty_struct *tty, struct file *filp)
 	if (err < 0)
 		return err;
 
-	
+	/* Wait for DLC to connect */
 	add_wait_queue(&dev->wait, &wait);
 	while (1) {
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -722,7 +759,7 @@ static void rfcomm_tty_close(struct tty_struct *tty, struct file *filp)
 		if (dev->tty_dev->parent)
 			device_move(dev->tty_dev, NULL, DPM_ORDER_DEV_LAST);
 
-		
+		/* Close DLC and dettach TTY */
 		rfcomm_dlc_close(dev->dlc, 0);
 
 		clear_bit(RFCOMM_TTY_ATTACHED, &dev->flags);
@@ -834,7 +871,7 @@ static int rfcomm_tty_ioctl(struct tty_struct *tty, unsigned int cmd, unsigned l
 		return -ENOIOCTLCMD;
 
 	default:
-		return -ENOIOCTLCMD;	
+		return -ENOIOCTLCMD;	/* ioctls which we must ignore */
 
 	}
 
@@ -857,18 +894,18 @@ static void rfcomm_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 	if (!dev || !dev->dlc || !dev->dlc->session)
 		return;
 
-	
+	/* Handle turning off CRTSCTS */
 	if ((old->c_cflag & CRTSCTS) && !(new->c_cflag & CRTSCTS))
 		BT_DBG("Turning off CRTSCTS unsupported");
 
-	
+	/* Parity on/off and when on, odd/even */
 	if (((old->c_cflag & PARENB) != (new->c_cflag & PARENB)) ||
 			((old->c_cflag & PARODD) != (new->c_cflag & PARODD))) {
 		changes |= RFCOMM_RPN_PM_PARITY;
 		BT_DBG("Parity change detected.");
 	}
 
-	
+	/* Mark and space parity are not supported! */
 	if (new->c_cflag & PARENB) {
 		if (new->c_cflag & PARODD) {
 			BT_DBG("Parity is ODD");
@@ -882,7 +919,7 @@ static void rfcomm_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 		parity = RFCOMM_RPN_PARITY_NONE;
 	}
 
-	
+	/* Setting the x_on / x_off characters */
 	if (old->c_cc[VSTOP] != new->c_cc[VSTOP]) {
 		BT_DBG("XOFF custom");
 		x_on = new->c_cc[VSTOP];
@@ -901,16 +938,19 @@ static void rfcomm_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 		x_off = RFCOMM_RPN_XOFF_CHAR;
 	}
 
-	
+	/* Handle setting of stop bits */
 	if ((old->c_cflag & CSTOPB) != (new->c_cflag & CSTOPB))
 		changes |= RFCOMM_RPN_PM_STOP;
 
+	/* POSIX does not support 1.5 stop bits and RFCOMM does not
+	 * support 2 stop bits. So a request for 2 stop bits gets
+	 * translated to 1.5 stop bits */
 	if (new->c_cflag & CSTOPB)
 		stop_bits = RFCOMM_RPN_STOP_15;
 	else
 		stop_bits = RFCOMM_RPN_STOP_1;
 
-	
+	/* Handle number of data bits [5-8] */
 	if ((old->c_cflag & CSIZE) != (new->c_cflag & CSIZE))
 		changes |= RFCOMM_RPN_PM_DATA;
 
@@ -932,7 +972,7 @@ static void rfcomm_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 		break;
 	}
 
-	
+	/* Handle baudrate settings */
 	if (old_baud_rate != new_baud_rate)
 		changes |= RFCOMM_RPN_PM_BITRATE;
 
@@ -965,7 +1005,7 @@ static void rfcomm_tty_set_termios(struct tty_struct *tty, struct ktermios *old)
 		baud = RFCOMM_RPN_BR_230400;
 		break;
 	default:
-		
+		/* 9600 is standard accordinag to the RFCOMM specification */
 		baud = RFCOMM_RPN_BR_9600;
 		break;
 
@@ -1094,6 +1134,7 @@ static int rfcomm_tty_tiocmset(struct tty_struct *tty, unsigned int set, unsigne
 	return 0;
 }
 
+/* ---- TTY structure ---- */
 
 static const struct tty_operations rfcomm_ops = {
 	.open			= rfcomm_tty_open,

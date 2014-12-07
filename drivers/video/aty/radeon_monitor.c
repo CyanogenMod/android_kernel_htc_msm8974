@@ -56,6 +56,12 @@ static char *radeon_get_mon_name(int type)
 
 
 #if defined(CONFIG_PPC_OF) || defined(CONFIG_SPARC)
+/*
+ * Try to find monitor informations & EDID data out of the Open Firmware
+ * device-tree. This also contains some "hacks" to work around a few machine
+ * models with broken OF probing by hard-coding known EDIDs for some Mac
+ * laptops internal LVDS panel. (XXX: not done yet)
+ */
 static int __devinit radeon_parse_montype_prop(struct device_node *dp, u8 **out_EDID,
 					       int hdno)
 {
@@ -71,6 +77,9 @@ static int __devinit radeon_parse_montype_prop(struct device_node *dp, u8 **out_
 	if (!pmt)
 		return MT_NONE;
 	pr_debug("display-type: %s\n", pmt);
+	/* OF says "LCD" for DFP as well, we discriminate from the caller of this
+	 * function
+	 */
 	if (!strcmp(pmt, "LCD") || !strcmp(pmt, "DFP"))
 		mt = MT_DFP;
 	else if (!strcmp(pmt, "CRT"))
@@ -87,6 +96,10 @@ static int __devinit radeon_parse_montype_prop(struct device_node *dp, u8 **out_
 		if (pedid != NULL)
 			break;
 	}
+	/* We didn't find the EDID in the leaf node, some cards will actually
+	 * put EDID1/EDID2 in the parent, look for these (typically M6 tipb).
+	 * single-head cards have hdno == -1 and skip this step
+	 */
 	if (pedid == NULL && dp->parent && (hdno != -1))
 		pedid = of_get_property(dp->parent,
 				(hdno == 0) ? "EDID1" : "EDID2", NULL);
@@ -129,6 +142,9 @@ static int __devinit radeon_probe_OF_head(struct radeonfb_info *rinfo, int head_
 			       pname, pname[len-1], head_no);
 			if (pname[len-1] == 'A' && head_no == 0) {
 				int mt = radeon_parse_montype_prop(dp, out_EDID, 0);
+				/* Maybe check for LVDS_GEN_CNTL here ? I need to check out
+				 * what OF does when booting with lid closed
+				 */
 				if (mt == MT_DFP && rinfo->is_mobility)
 					mt = MT_LCD;
 				return mt;
@@ -144,7 +160,7 @@ static int __devinit radeon_probe_OF_head(struct radeonfb_info *rinfo, int head_
 	}
         return MT_NONE;
 }
-#endif 
+#endif /* CONFIG_PPC_OF || CONFIG_SPARC */
 
 
 static int __devinit radeon_get_panel_info_BIOS(struct radeonfb_info *rinfo)
@@ -176,6 +192,9 @@ static int __devinit radeon_get_panel_info_BIOS(struct radeonfb_info *rinfo)
 	if (rinfo->panel_info.pwr_delay > 2000 || rinfo->panel_info.pwr_delay <= 0)
 		rinfo->panel_info.pwr_delay = 2000;
 
+	/*
+	 * Some panels only work properly with some divider combinations
+	 */
 	rinfo->panel_info.ref_divider = BIOS_IN16(tmp + 46);
 	rinfo->panel_info.post_divider = BIOS_IN8(tmp + 48);
 	rinfo->panel_info.fbk_divider = BIOS_IN16(tmp + 49);
@@ -203,9 +222,12 @@ static int __devinit radeon_get_panel_info_BIOS(struct radeonfb_info *rinfo)
 			rinfo->panel_info.vOver_plus = (BIOS_IN16(tmp0+28) & 0x7ff) - BIOS_IN16(tmp0+26);
 			rinfo->panel_info.vSync_width = (BIOS_IN16(tmp0+28) & 0xf800) >> 11;
 			rinfo->panel_info.clock = BIOS_IN16(tmp0+9);
+			/* Assume high active syncs for now until ATI tells me more... maybe we
+			 * can probe register values here ?
+			 */
 			rinfo->panel_info.hAct_high = 1;
 			rinfo->panel_info.vAct_high = 1;
-			
+			/* Mark panel infos valid */
 			rinfo->panel_info.valid = 1;
 
 			pr_debug("Found panel in BIOS table:\n");
@@ -225,6 +247,10 @@ static int __devinit radeon_get_panel_info_BIOS(struct radeonfb_info *rinfo)
 	return 0;
 }
 
+/* Try to extract the connector informations from the BIOS. This
+ * doesn't quite work yet, but it's output is still useful for
+ * debugging
+ */
 static void __devinit radeon_parse_connector_info(struct radeonfb_info *rinfo)
 {
 	int offset, chips, connectors, tmp, i, conn, type;
@@ -244,6 +270,9 @@ static void __devinit radeon_parse_connector_info(struct radeonfb_info *rinfo)
 		return;
 	}
 
+	/* Don't do much more at this point but displaying the data if
+	 * DEBUG is enabled
+	 */
 	chips = BIOS_IN8(offset++) >> 4;
 	pr_debug("%d chips in connector info\n", chips);
 	for (i = 0; i < chips; i++) {
@@ -263,10 +292,18 @@ static void __devinit radeon_parse_connector_info(struct radeonfb_info *rinfo)
 }
 
 
+/*
+ * Probe physical connection of a CRT. This code comes from XFree
+ * as well and currently is only implemented for the CRT DAC, the
+ * code for the TVDAC is commented out in XFree as "non working"
+ */
 static int __devinit radeon_crt_is_connected(struct radeonfb_info *rinfo, int is_crt_dac)
 {
     int	          connected = 0;
 
+    /* the monitor either wasn't connected or it is a non-DDC CRT.
+     * try to probe it
+     */
     if (is_crt_dac) {
 	unsigned long ulOrigVCLK_ECP_CNTL;
 	unsigned long ulOrigDAC_CNTL;
@@ -328,6 +365,10 @@ static int __devinit radeon_crt_is_connected(struct radeonfb_info *rinfo, int is
     return connected ? MT_CRT : MT_NONE;
 }
 
+/*
+ * Parse the "monitor_layout" string if any. This code is mostly
+ * copied from XFree's radeon driver
+ */
 static int __devinit radeon_parse_monitor_layout(struct radeonfb_info *rinfo,
 						 const char *monitor_layout)
 {
@@ -386,6 +427,12 @@ static int __devinit radeon_parse_monitor_layout(struct radeonfb_info *rinfo,
 	return 1;
 }
 
+/*
+ * Probe display on both primary and secondary card's connector (if any)
+ * by various available techniques (i2c, OF device tree, BIOS, ...) and
+ * try to retrieve EDID. The algorithm here comes from XFree's radeon
+ * driver
+ */
 void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 				    const char *monitor_layout, int ignore_edid)
 {
@@ -398,6 +445,12 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 
 	if (radeon_parse_monitor_layout(rinfo, monitor_layout)) {
 
+		/*
+		 * If user specified a monitor_layout option, use it instead
+		 * of auto-detecting. Maybe we should only use this argument
+		 * on the first radeon card probed or provide a way to specify
+		 * a layout for each card ?
+		 */
 
 		pr_debug("Using specified monitor layout: %s", monitor_layout);
 #ifdef CONFIG_FB_RADEON_I2C
@@ -412,7 +465,7 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 				    !ddc_crt2_used)
 					radeon_probe_i2c_connector(rinfo, ddc_crt2, &rinfo->mon2_EDID);
 		}
-#endif 
+#endif /* CONFIG_FB_RADEON_I2C */
 		if (rinfo->mon1_type == MT_NONE) {
 			if (rinfo->mon2_type != MT_NONE) {
 				rinfo->mon1_type = rinfo->mon2_type;
@@ -425,6 +478,9 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 			rinfo->mon2_EDID = NULL;
 		}
 	} else {
+		/*
+		 * Auto-detecting display type (well... trying to ...)
+		 */
 		
 		pr_debug("Starting monitor auto detection...\n");
 
@@ -438,13 +494,16 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 				mon_types[i] = radeon_probe_i2c_connector(rinfo,
 									  i+1, &EDIDs[i]);
 		}
-#endif 
+#endif /* DEBUG */
+		/*
+		 * Old single head cards
+		 */
 		if (!rinfo->has_CRTC2) {
 #if defined(CONFIG_PPC_OF) || defined(CONFIG_SPARC)
 			if (rinfo->mon1_type == MT_NONE)
 				rinfo->mon1_type = radeon_probe_OF_head(rinfo, 0,
 									&rinfo->mon1_EDID);
-#endif 
+#endif /* CONFIG_PPC_OF || CONFIG_SPARC */
 #ifdef CONFIG_FB_RADEON_I2C
 			if (rinfo->mon1_type == MT_NONE)
 				rinfo->mon1_type =
@@ -458,12 +517,15 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 				rinfo->mon1_type =
 					radeon_probe_i2c_connector(rinfo, ddc_crt2,
 								   &rinfo->mon1_EDID);	
-#endif 
+#endif /* CONFIG_FB_RADEON_I2C */
 			if (rinfo->mon1_type == MT_NONE)
 				rinfo->mon1_type = MT_CRT;
 			goto bail;
 		}
 
+		/*
+		 * Check for cards with reversed DACs or TMDS controllers using BIOS
+		 */
 		if (rinfo->bios_seg &&
 		    (tmp = BIOS_IN16(rinfo->fp_bios_start + 0x50))) {
 			for (i = 1; i < 4; i++) {
@@ -483,11 +545,14 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 			}
 		}
 
+		/*
+		 * Probe primary head (DVI or laptop internal panel)
+		 */
 #if defined(CONFIG_PPC_OF) || defined(CONFIG_SPARC)
 		if (rinfo->mon1_type == MT_NONE)
 			rinfo->mon1_type = radeon_probe_OF_head(rinfo, 0,
 								&rinfo->mon1_EDID);
-#endif 
+#endif /* CONFIG_PPC_OF || CONFIG_SPARC */
 #ifdef CONFIG_FB_RADEON_I2C
 		if (rinfo->mon1_type == MT_NONE)
 			rinfo->mon1_type = radeon_probe_i2c_connector(rinfo, ddc_dvi,
@@ -498,7 +563,7 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 			if (rinfo->mon1_type != MT_NONE)
 				ddc_crt2_used = 1;
 		}
-#endif 
+#endif /* CONFIG_FB_RADEON_I2C */
 		if (rinfo->mon1_type == MT_NONE && rinfo->is_mobility &&
 		    ((rinfo->bios_seg && (INREG(BIOS_4_SCRATCH) & 4))
 		     || (INREG(LVDS_GEN_CNTL) & LVDS_ON))) {
@@ -508,11 +573,14 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 		if (rinfo->mon1_type == MT_NONE)
 			rinfo->mon1_type = radeon_crt_is_connected(rinfo, rinfo->reversed_DAC);
 
+		/*
+		 * Probe secondary head (mostly VGA, can be DVI)
+		 */
 #if defined(CONFIG_PPC_OF) || defined(CONFIG_SPARC)
 		if (rinfo->mon2_type == MT_NONE)
 			rinfo->mon2_type = radeon_probe_OF_head(rinfo, 1,
 								&rinfo->mon2_EDID);
-#endif 
+#endif /* CONFIG_PPC_OF || defined(CONFIG_SPARC) */
 #ifdef CONFIG_FB_RADEON_I2C
 		if (rinfo->mon2_type == MT_NONE)
 			rinfo->mon2_type = radeon_probe_i2c_connector(rinfo, ddc_vga,
@@ -520,10 +588,15 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 		if (rinfo->mon2_type == MT_NONE && !ddc_crt2_used)
 			rinfo->mon2_type = radeon_probe_i2c_connector(rinfo, ddc_crt2,
 								      &rinfo->mon2_EDID);
-#endif 
+#endif /* CONFIG_FB_RADEON_I2C */
 		if (rinfo->mon2_type == MT_NONE)
 			rinfo->mon2_type = radeon_crt_is_connected(rinfo, !rinfo->reversed_DAC);
 
+		/*
+		 * If we only detected port 2, we swap them, if none detected,
+		 * assume CRT (maybe fallback to old BIOS_SCRATCH stuff ? or look
+		 * at FP registers ?)
+		 */
 		if (rinfo->mon1_type == MT_NONE) {
 			if (rinfo->mon2_type != MT_NONE) {
 				rinfo->mon1_type = rinfo->mon2_type;
@@ -534,8 +607,11 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 			rinfo->mon2_EDID = NULL;
 		}
 
+		/*
+		 * Deal with reversed TMDS
+		 */
 		if (rinfo->reversed_TMDS) {
-			
+			/* Always keep internal TMDS as primary head */
 			if (rinfo->mon1_type == MT_DFP || rinfo->mon2_type == MT_DFP) {
 				int tmp_type = rinfo->mon1_type;
 				u8 *tmp_EDID = rinfo->mon1_EDID;
@@ -569,9 +645,19 @@ void __devinit radeon_probe_screens(struct radeonfb_info *rinfo,
 }
 
 
+/*
+ * This functions applyes any arch/model/machine specific fixups
+ * to the panel info. It may eventually alter EDID block as
+ * well or whatever is specific to a given model and not probed
+ * properly by the default code
+ */
 static void radeon_fixup_panel_info(struct radeonfb_info *rinfo)
 {
 #ifdef CONFIG_PPC_OF
+	/*
+	 * LCD Flat panels should use fixed dividers, we enfore that on
+	 * PPC only for now...
+	 */
 	if (!rinfo->panel_info.use_bios_dividers && rinfo->mon1_type == MT_LCD
 	    && rinfo->is_mobility) {
 		int ppll_div_sel;
@@ -590,10 +676,14 @@ static void radeon_fixup_panel_info(struct radeonfb_info *rinfo)
 		       (rinfo->panel_info.post_divider << 16),
 		       ppll_div_sel);
 	}
-#endif 
+#endif /* CONFIG_PPC_OF */
 }
 
 
+/*
+ * Fill up panel infos from a mode definition, either returned by the EDID
+ * or from the default mode when we can't do any better
+ */
 static void radeon_var_to_panel_info(struct radeonfb_info *rinfo, struct fb_var_screeninfo *var)
 {
 	rinfo->panel_info.xres = var->xres;
@@ -612,6 +702,11 @@ static void radeon_var_to_panel_info(struct radeonfb_info *rinfo, struct fb_var_
 	rinfo->panel_info.vAct_high =
 		(var->sync & FB_SYNC_VERT_HIGH_ACT) != 0;
 	rinfo->panel_info.valid = 1;
+	/* We use a default of 200ms for the panel power delay, 
+	 * I need to have a real schedule() instead of mdelay's in the panel code.
+	 * we might be possible to figure out a better power delay either from
+	 * MacOS OF tree or from the EDID block (proprietary extensions ?)
+	 */
 	rinfo->panel_info.pwr_delay = 200;
 }
 
@@ -635,17 +730,32 @@ static void radeon_videomode_to_var(struct fb_var_screeninfo *var,
 	var->vmode = mode->vmode;
 }
 
+/*
+ * Build the modedb for head 1 (head 2 will come later), check panel infos
+ * from either BIOS or EDID, and pick up the default mode
+ */
 void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_option)
 {
 	struct fb_info * info = rinfo->info;
 	int has_default_mode = 0;
 
+	/*
+	 * Fill default var first
+	 */
 	info->var = radeonfb_default_var;
 	INIT_LIST_HEAD(&info->modelist);
 
+	/*
+	 * First check out what BIOS has to say
+	 */
 	if (rinfo->mon1_type == MT_LCD)
 		radeon_get_panel_info_BIOS(rinfo);
 
+	/*
+	 * Parse EDID detailed timings and deduce panel infos if any. Right now
+	 * we only deal with first entry returned by parse_EDID, we may do better
+	 * some day...
+	 */
 	if (!rinfo->panel_info.use_bios_dividers && rinfo->mon1_type != MT_CRT
 	    && rinfo->mon1_EDID) {
 		struct fb_var_screeninfo var;
@@ -657,8 +767,15 @@ void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_
 		}
 	}
 
+	/*
+	 * Do any additional platform/arch fixups to the panel infos
+	 */
 	radeon_fixup_panel_info(rinfo);
 
+	/*
+	 * If we have some valid panel infos, we setup the default mode based on
+	 * those
+	 */
 	if (rinfo->mon1_type != MT_CRT && rinfo->panel_info.valid) {
 		struct fb_var_screeninfo *var = &info->var;
 
@@ -687,6 +804,9 @@ void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_
 		has_default_mode = 1;
 	}
 
+	/*
+	 * Now build modedb from EDID
+	 */
 	if (rinfo->mon1_EDID) {
 		fb_edid_to_monspecs(rinfo->mon1_EDID, &info->monspecs);
 		fb_videomode_to_modelist(info->monspecs.modedb,
@@ -697,6 +817,11 @@ void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_
 	}
 
 	
+	/*
+	 * Finally, if we don't have panel infos we need to figure some (or
+	 * we try to read it from card), we try to pick a default mode
+	 * and create some panel infos. Whatever...
+	 */
 	if (rinfo->mon1_type != MT_CRT && !rinfo->panel_info.valid) {
 		struct fb_videomode	*modedb;
 		int			dbsize;
@@ -730,6 +855,9 @@ void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_
 	}
 
  pickup_default:
+	/*
+	 * Apply passed-in mode option if any
+	 */
 	if (mode_option) {
 		if (fb_find_mode(&info->var, info, mode_option,
 				 info->monspecs.modedb,
@@ -737,11 +865,14 @@ void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_
 			has_default_mode = 1;
  	}
 
+	/*
+	 * Still no mode, let's pick up a default from the db
+	 */
 	if (!has_default_mode && info->monspecs.modedb != NULL) {
 		struct fb_monspecs *specs = &info->monspecs;
 		struct fb_videomode *modedb = NULL;
 
-		
+		/* get preferred timing */
 		if (specs->misc & FB_MISC_1ST_DETAIL) {
 			int i;
 
@@ -752,7 +883,7 @@ void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_
 				}
 			}
 		} else {
-			
+			/* otherwise, get first mode in database */
 			modedb = &specs->modedb[0];
 		}
 		if (modedb != NULL) {
@@ -763,12 +894,26 @@ void __devinit radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_
 	}
 	if (1) {
 		struct fb_videomode mode;
+		/* Make sure that whatever mode got selected is actually in the
+		 * modelist or the kernel may die
+		 */
 		fb_var_to_videomode(&mode, &info->var);
 		fb_add_videomode(&mode, &info->modelist);
 	}
 }
 
+/*
+ * The code below is used to pick up a mode in check_var and
+ * set_var. It should be made generic
+ */
 
+/*
+ * This is used when looking for modes. We assign a "distance" value
+ * to a mode in the modedb depending how "close" it is from what we
+ * are looking for.
+ * Currently, we don't compare that much, we could do better but
+ * the current fbcon doesn't quite mind ;)
+ */
 static int radeon_compare_modes(const struct fb_var_screeninfo *var,
 				const struct fb_videomode *mode)
 {
@@ -779,6 +924,18 @@ static int radeon_compare_modes(const struct fb_var_screeninfo *var,
 	return distance;
 }
 
+/*
+ * This function is called by check_var, it gets the passed in mode parameter, and
+ * outputs a valid mode matching the passed-in one as closely as possible.
+ * We need something better ultimately. Things like fbcon basically pass us out
+ * current mode with xres/yres hacked, while things like XFree will actually
+ * produce a full timing that we should respect as much as possible.
+ *
+ * This is why I added the FB_ACTIVATE_FIND that is used by fbcon. Without this,
+ * we do a simple spec match, that's all. With it, we actually look for a mode in
+ * either our monitor modedb or the vesa one if none
+ *
+ */
 int  radeon_match_mode(struct radeonfb_info *rinfo,
 		       struct fb_var_screeninfo *dest,
 		       const struct fb_var_screeninfo *src)
@@ -789,28 +946,37 @@ int  radeon_match_mode(struct radeonfb_info *rinfo,
 	int				distance = INT_MAX;
 	const struct fb_videomode	*candidate = NULL;
 
-	
+	/* Start with a copy of the requested mode */
 	memcpy(dest, src, sizeof(struct fb_var_screeninfo));
 
-	
+	/* Check if we have a modedb built from EDID */
 	if (rinfo->mon1_modedb) {
 		db = rinfo->mon1_modedb;
 		dbsize = rinfo->mon1_dbsize;
 		native_db = 1;
 	}
 
-	
+	/* Check if we have a scaler allowing any fancy mode */
 	has_rmx = rinfo->mon1_type == MT_LCD || rinfo->mon1_type == MT_DFP;
 
+	/* If we have a scaler and are passed FB_ACTIVATE_TEST or
+	 * FB_ACTIVATE_NOW, just do basic checking and return if the
+	 * mode match
+	 */
 	if ((src->activate & FB_ACTIVATE_MASK) == FB_ACTIVATE_TEST ||
 	    (src->activate & FB_ACTIVATE_MASK) == FB_ACTIVATE_NOW) {
+		/* We don't have an RMX, validate timings. If we don't have
+	 	 * monspecs, we should be paranoid and not let use go above
+		 * 640x480-60, but I assume userland knows what it's doing here
+		 * (though I may be proven wrong...)
+		 */
 		if (has_rmx == 0 && rinfo->mon1_modedb)
 			if (fb_validate_mode((struct fb_var_screeninfo *)src, rinfo->info))
 				return -EINVAL;
 		return 0;
 	}
 
-	
+	/* Now look for a mode in the database */
 	while (db) {
 		for (i = 0; i < dbsize; i++) {
 			int d;
@@ -820,13 +986,16 @@ int  radeon_match_mode(struct radeonfb_info *rinfo,
 			if (db[i].xres < src->xres)
 				continue;
 			d = radeon_compare_modes(src, &db[i]);
+			/* If the new mode is at least as good as the previous one,
+			 * then it's our new candidate
+			 */
 			if (d < distance) {
 				candidate = &db[i];
 				distance = d;
 			}
 		}
 		db = NULL;
-		
+		/* If we have a scaler, we allow any mode from the database */
 		if (native_db && has_rmx) {
 			db = vesa_modes;
 			dbsize = 34;
@@ -834,13 +1003,13 @@ int  radeon_match_mode(struct radeonfb_info *rinfo,
 		}
 	}
 
-	
+	/* If we have found a match, return it */
 	if (candidate != NULL) {
 		radeon_videomode_to_var(dest, candidate);
 		return 0;
 	}
 
-	
+	/* If we haven't and don't have a scaler, fail */
 	if (!has_rmx)
 		return -EINVAL;
 

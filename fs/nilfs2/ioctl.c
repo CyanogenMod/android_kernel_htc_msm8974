@@ -23,11 +23,11 @@
 #include <linux/fs.h>
 #include <linux/wait.h>
 #include <linux/slab.h>
-#include <linux/capability.h>	
-#include <linux/uaccess.h>	
+#include <linux/capability.h>	/* capable() */
+#include <linux/uaccess.h>	/* copy_from_user(), copy_to_user() */
 #include <linux/vmalloc.h>
-#include <linux/compat.h>	
-#include <linux/mount.h>	
+#include <linux/compat.h>	/* compat_ptr() */
+#include <linux/mount.h>	/* mnt_want_write_file(), mnt_drop_write_file() */
 #include <linux/buffer_head.h>
 #include <linux/nilfs2_fs.h>
 #include "nilfs.h"
@@ -129,6 +129,10 @@ static int nilfs_ioctl_setflags(struct inode *inode, struct file *filp,
 
 	oldflags = NILFS_I(inode)->i_flags;
 
+	/*
+	 * The IMMUTABLE and APPEND_ONLY flags can only be changed by the
+	 * relevant capability.
+	 */
 	ret = -EPERM;
 	if (((flags ^ oldflags) & (FS_APPEND_FL | FS_IMMUTABLE_FL)) &&
 	    !capable(CAP_LINUX_IMMUTABLE))
@@ -186,7 +190,7 @@ static int nilfs_ioctl_change_cpmode(struct inode *inode, struct file *filp,
 	if (unlikely(ret < 0))
 		nilfs_transaction_abort(inode->i_sb);
 	else
-		nilfs_transaction_commit(inode->i_sb); 
+		nilfs_transaction_commit(inode->i_sb); /* never fails */
 
 	up_read(&inode->i_sb->s_umount);
 out:
@@ -219,7 +223,7 @@ nilfs_ioctl_delete_checkpoint(struct inode *inode, struct file *filp,
 	if (unlikely(ret < 0))
 		nilfs_transaction_abort(inode->i_sb);
 	else
-		nilfs_transaction_commit(inode->i_sb); 
+		nilfs_transaction_commit(inode->i_sb); /* never fails */
 out:
 	mnt_drop_write_file(filp);
 	return ret;
@@ -415,6 +419,11 @@ static int nilfs_ioctl_move_blocks(struct super_block *sb,
 			goto failed;
 		}
 		if (list_empty(&NILFS_I(inode)->i_dirty)) {
+			/*
+			 * Add the inode to GC inode list. Garbage Collection
+			 * is serialized and no two processes manipulate the
+			 * list simultaneously.
+			 */
 			igrab(inode);
 			list_add(&NILFS_I(inode)->i_dirty,
 				 &nilfs->ns_gc_inodes);
@@ -431,7 +440,7 @@ static int nilfs_ioctl_move_blocks(struct super_block *sb,
 		} while (++i < nmembs &&
 			 vdesc->vd_ino == ino && vdesc->vd_cno == cno);
 
-		iput(inode); 
+		iput(inode); /* The inode still remains in GC inode list */
 	}
 
 	list_for_each_entry_safe(bh, n, &buffers, b_assoc_buffers) {
@@ -490,7 +499,7 @@ static int nilfs_ioctl_mark_blocks_dirty(struct the_nilfs *nilfs,
 	int ret, i;
 
 	for (i = 0; i < nmembs; i++) {
-		
+		/* XXX: use macro or inline func to check liveness */
 		ret = nilfs_bmap_lookup_at_level(bmap,
 						 bdescs[i].bd_offset,
 						 bdescs[i].bd_level + 1,
@@ -501,7 +510,7 @@ static int nilfs_ioctl_mark_blocks_dirty(struct the_nilfs *nilfs,
 			bdescs[i].bd_blocknr = 0;
 		}
 		if (bdescs[i].bd_blocknr != bdescs[i].bd_oblocknr)
-			
+			/* skip dead block */
 			continue;
 		if (bdescs[i].bd_level == 0) {
 			ret = nilfs_mdt_mark_block_dirty(nilfs->ns_dat,
@@ -530,16 +539,27 @@ int nilfs_ioctl_prepare_clean_segments(struct the_nilfs *nilfs,
 
 	ret = nilfs_ioctl_delete_checkpoints(nilfs, &argv[1], kbufs[1]);
 	if (ret < 0) {
+		/*
+		 * can safely abort because checkpoints can be removed
+		 * independently.
+		 */
 		msg = "cannot delete checkpoints";
 		goto failed;
 	}
 	ret = nilfs_ioctl_free_vblocknrs(nilfs, &argv[2], kbufs[2]);
 	if (ret < 0) {
+		/*
+		 * can safely abort because DAT file is updated atomically
+		 * using a copy-on-write technique.
+		 */
 		msg = "cannot delete virtual blocks from DAT file";
 		goto failed;
 	}
 	ret = nilfs_ioctl_mark_blocks_dirty(nilfs, &argv[3], kbufs[3]);
 	if (ret < 0) {
+		/*
+		 * can safely abort because the operation is nondestructive.
+		 */
 		msg = "cannot mark copying blocks dirty";
 		goto failed;
 	}
@@ -586,6 +606,11 @@ static int nilfs_ioctl_clean_segments(struct inode *inode, struct file *filp,
 	if (nsegs > UINT_MAX / sizeof(__u64))
 		goto out;
 
+	/*
+	 * argv[4] points to segment numbers this ioctl cleans.  We
+	 * use kmalloc() for its buffer because memory used for the
+	 * segment numbers is enough small.
+	 */
 	kbufs[4] = memdup_user((void __user *)(unsigned long)argv[4].v_base,
 			       nsegs * sizeof(__u64));
 	if (IS_ERR(kbufs[4])) {
@@ -624,6 +649,12 @@ static int nilfs_ioctl_clean_segments(struct inode *inode, struct file *filp,
 		}
 	}
 
+	/*
+	 * nilfs_ioctl_move_blocks() will call nilfs_iget_for_gc(),
+	 * which will operates an inode list without blocking.
+	 * To protect the list from concurrent operations,
+	 * nilfs_ioctl_move_blocks should be atomic operation.
+	 */
 	if (test_and_set_bit(THE_NILFS_GC_RUNNING, &nilfs->ns_flags)) {
 		ret = -EBUSY;
 		goto out_free;

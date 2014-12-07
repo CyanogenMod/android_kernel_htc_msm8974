@@ -1,6 +1,14 @@
 #ifndef _PSYCHO_COMMON_H
 #define _PSYCHO_COMMON_H
 
+/* U2P Programmer's Manual, page 13-55, configuration space
+ * address format:
+ * 
+ *  32             24 23 16 15    11 10       8 7   2  1 0
+ * ---------------------------------------------------------
+ * |0 0 0 0 0 0 0 0 1| bus | device | function | reg | 0 0 |
+ * ---------------------------------------------------------
+ */
 #define PSYCHO_CONFIG_BASE(PBM)	\
 	((PBM)->config_space | (1UL << 24))
 #define PSYCHO_CONFIG_ENCODE(BUS, DEVFN, REG)	\
@@ -37,4 +45,4 @@ extern void psycho_pbm_init_common(struct pci_pbm_info *pbm,
 				   struct platform_device *op,
 				   const char *chip_name, int chip_type);
 
-#endif 
+#endif /* _PSYCHO_COMMON_H */

@@ -70,7 +70,7 @@ again:
 		eb = simple_rand();
 	else
 		eb = (simple_rand() << 15) | simple_rand();
-	
+	/* Read or write up 2 eraseblocks at a time - hence 'ebcnt - 1' */
 	eb %= (ebcnt - 1);
 	if (bbt[eb])
 		goto again;
@@ -289,7 +289,7 @@ static int __init mtd_stresstest_init(void)
 		goto out_put_mtd;
 	}
 
-	
+	/* Read or write up 2 eraseblocks at a time */
 	bufsize = mtd->erasesize * 2;
 
 	err = -ENOMEM;
@@ -310,7 +310,7 @@ static int __init mtd_stresstest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Do operations */
 	printk(PRINT_PREF "doing operations\n");
 	for (op = 0; op < count; op++) {
 		if ((op & 1023) == 0)

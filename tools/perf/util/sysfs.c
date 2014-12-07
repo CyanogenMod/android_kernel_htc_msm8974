@@ -41,7 +41,7 @@ const char *sysfs_find_mountpoint(void)
 		ptr++;
 	}
 
-	
+	/* give up and parse /proc/mounts */
 	fp = fopen("/proc/mounts", "r");
 	if (fp == NULL)
 		return NULL;

@@ -24,7 +24,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5,
 	PINT07, PINT815,
 	DMAC, SCIF0, SCIF2, SCI, ADC_ADI,
@@ -46,7 +46,7 @@ static struct intc_vect vectors[] __initdata = {
 #if defined(CONFIG_CPU_SUBTYPE_SH7706) || \
     defined(CONFIG_CPU_SUBTYPE_SH7707) || \
     defined(CONFIG_CPU_SUBTYPE_SH7709)
-	
+	/* IRQ0->5 are handled in setup-sh3.c */
 	INTC_VECT(DMAC, 0x800), INTC_VECT(DMAC, 0x820),
 	INTC_VECT(DMAC, 0x840), INTC_VECT(DMAC, 0x860),
 	INTC_VECT(ADC_ADI, 0x980),
@@ -66,22 +66,22 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfffffee2, 0, 16, 4,  { TMU0, TMU1, TMU2, RTC } },
-	{ 0xfffffee4, 0, 16, 4,  { WDT, REF, SCI, 0 } },
+	{ 0xfffffee2, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2, RTC } },
+	{ 0xfffffee4, 0, 16, 4, /* IPRB */ { WDT, REF, SCI, 0 } },
 #if defined(CONFIG_CPU_SUBTYPE_SH7706) || \
     defined(CONFIG_CPU_SUBTYPE_SH7707) || \
     defined(CONFIG_CPU_SUBTYPE_SH7709)
-	{ 0xa4000016, 0, 16, 4,  { IRQ3, IRQ2, IRQ1, IRQ0 } },
-	{ 0xa4000018, 0, 16, 4,  { 0, 0, IRQ5, IRQ4 } },
-	{ 0xa400001a, 0, 16, 4,  { DMAC, 0, SCIF2, ADC_ADI } },
+	{ 0xa4000016, 0, 16, 4, /* IPRC */ { IRQ3, IRQ2, IRQ1, IRQ0 } },
+	{ 0xa4000018, 0, 16, 4, /* IPRD */ { 0, 0, IRQ5, IRQ4 } },
+	{ 0xa400001a, 0, 16, 4, /* IPRE */ { DMAC, 0, SCIF2, ADC_ADI } },
 #endif
 #if defined(CONFIG_CPU_SUBTYPE_SH7707) || \
     defined(CONFIG_CPU_SUBTYPE_SH7709)
-	{ 0xa4000018, 0, 16, 4,  { PINT07, PINT815, } },
-	{ 0xa400001a, 0, 16, 4,  { 0, SCIF0 } },
+	{ 0xa4000018, 0, 16, 4, /* IPRD */ { PINT07, PINT815, } },
+	{ 0xa400001a, 0, 16, 4, /* IPRE */ { 0, SCIF0 } },
 #endif
 #if defined(CONFIG_CPU_SUBTYPE_SH7707)
-	{ 0xa400001c, 0, 16, 4,  { 0, LCDC, PCC0, PCC1, } },
+	{ 0xa400001c, 0, 16, 4, /* IPRF */ { 0, LCDC, PCC0, PCC1, } },
 #endif
 };
 

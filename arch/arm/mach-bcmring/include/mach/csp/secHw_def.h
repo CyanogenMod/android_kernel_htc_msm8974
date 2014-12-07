@@ -12,12 +12,23 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*  @file    secHw_def.h
+*
+*  @brief   Definitions for configuring/testing secure blocks
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
 
 #ifndef SECHW_DEF_H
 #define SECHW_DEF_H
 
 #include <mach/csp/mm_io.h>
 
+/* Bit mask for various secure device */
 #define secHw_BLK_MASK_CHIP_CONTROL     0x00000001
 #define secHw_BLK_MASK_KEY_SCAN         0x00000002
 #define secHw_BLK_MASK_TOUCH_SCREEN     0x00000004
@@ -38,12 +49,15 @@
 #define secHw_BLK_MASK_TZCTRL           0x00800000
 #define secHw_BLK_MASK_INTR             0x01000000
 
+/* Trustzone register set */
 typedef struct {
-	volatile uint32_t status;	
-	volatile uint32_t setUnsecure;	
-	volatile uint32_t setSecure;	
+	volatile uint32_t status;	/* read only - reflects status of writes of 2 write registers */
+	volatile uint32_t setUnsecure;	/* write only. reads back as 0 */
+	volatile uint32_t setSecure;	/* write only. reads back as 0 */
 } secHw_TZREG_t;
 
+/* There are 2 register sets. The first is for the lower 16 bits, the 2nd */
+/* is for the higher 16 bits. */
 
 typedef enum {
 	secHw_IDX_LS = 0,
@@ -55,14 +69,32 @@ typedef struct {
 	volatile secHw_TZREG_t reg[secHw_IDX_NUM];
 } secHw_REGS_t;
 
-static inline void secHw_setSecure(uint32_t mask	
+/****************************************************************************/
+/**
+*  @brief  Configures a device as a secure device
+*
+*/
+/****************************************************************************/
+static inline void secHw_setSecure(uint32_t mask	/*  mask of type secHw_BLK_MASK_XXXXXX */
     );
 
-static inline void secHw_setUnsecure(uint32_t mask	
+/****************************************************************************/
+/**
+*  @brief  Configures a device as a non-secure device
+*
+*/
+/****************************************************************************/
+static inline void secHw_setUnsecure(uint32_t mask	/*  mask of type secHw_BLK_MASK_XXXXXX */
     );
 
+/****************************************************************************/
+/**
+*  @brief  Get the trustzone status for all components. 1 = non-secure, 0 = secure
+*
+*/
+/****************************************************************************/
 static inline uint32_t secHw_getStatus(void);
 
 #include <mach/csp/secHw_inline.h>
 
-#endif 
+#endif /* SECHW_DEF_H */

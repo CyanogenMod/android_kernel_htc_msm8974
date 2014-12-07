@@ -43,6 +43,7 @@
 #define SSBI_REG_ADDR_WLED_CTRL_BASE	0x25A
 #define SSBI_REG_ADDR_WLED_CTRL(n)	(SSBI_REG_ADDR_WLED_CTRL_BASE + (n) - 1)
 
+/* wled control registers */
 #define WLED_MOD_CTRL_REG		SSBI_REG_ADDR_WLED_CTRL(1)
 #define WLED_MAX_CURR_CFG_REG(n)	SSBI_REG_ADDR_WLED_CTRL(n + 2)
 #define WLED_BRIGHTNESS_CNTL_REG1(n)	SSBI_REG_ADDR_WLED_CTRL((2 * n) + 5)
@@ -52,9 +53,9 @@
 #define WLED_BOOST_CFG_REG		SSBI_REG_ADDR_WLED_CTRL(14)
 #define WLED_HIGH_POLE_CAP_REG		SSBI_REG_ADDR_WLED_CTRL(16)
 
-#define WLED_STRING_ONE			0	
-#define WLED_STRING_TWO			1	
-#define WLED_STRING_THREE		2	
+#define WLED_STRING_ONE			0	/* Rightmost string */
+#define WLED_STRING_TWO			1	/* Middle string */
+#define WLED_STRING_THREE		2	/* Leftmost string */
 #define WLED_STRINGS			0x03
 #define WLED_OVP_VAL_MASK		0x30
 #define WLED_OVP_VAL_BIT_SHFT		0x04
@@ -102,8 +103,8 @@
 #define MAX_LC_LED_CURRENT		40
 #define MAX_KP_BL_LED_CURRENT		300
 
-#define PM8XXX_ID_LED_CURRENT_FACTOR	2  
-#define PM8XXX_ID_FLASH_CURRENT_FACTOR	20 
+#define PM8XXX_ID_LED_CURRENT_FACTOR	2  /* Iout = x * 2mA */
+#define PM8XXX_ID_FLASH_CURRENT_FACTOR	20 /* Iout = x * 20mA */
 
 #define PM8XXX_FLASH_MODE_DBUS1		1
 #define PM8XXX_FLASH_MODE_DBUS2		2
@@ -137,6 +138,11 @@
 #define PM8XXX_PWM_CURRENT_12MA		12
 
 
+/**
+ * supported_leds - leds supported for each PMIC version
+ * @version - version of PMIC
+ * @supported - which leds are supported on version
+ */
 
 struct supported_leds {
 	enum pm8xxx_version version;
@@ -151,6 +157,18 @@ static const struct supported_leds led_map[] = {
 	LED_MAP(PM8XXX_VERSION_8038, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1),
 };
 
+/**
+ * struct pm8xxx_led_data - internal led data structure
+ * @led_classdev - led class device
+ * @id - led index
+ * @work - workqueue for led
+ * @lock - to protect the transactions
+ * @reg - cached value of led register
+ * @pwm_dev - pointer to PWM device if LED is driven using PWM
+ * @pwm_channel - PWM channel ID
+ * @pwm_period_us - PWM period in micro seconds
+ * @pwm_duty_cycles - struct that describes PWM duty cycles info
+ */
 struct pm8xxx_led_data {
 	struct led_classdev	cdev;
 	int			id;
@@ -258,7 +276,7 @@ led_wled_set(struct pm8xxx_led_data *led, enum led_brightness value)
 
 	duty = (WLED_MAX_DUTY_CYCLE * value) / WLED_MAX_LEVEL;
 
-	
+	/* program brightness control registers */
 	for (i = 0; i < WLED_STRINGS; i++) {
 		if (led->wled_cfg->strings && (1 << i)) {
 			rc = pm8xxx_readb(led->dev->parent,
@@ -300,7 +318,7 @@ led_wled_set(struct pm8xxx_led_data *led, enum led_brightness value)
 			"can't read wled sync register rc=%d\n", rc);
 		return rc;
 	}
-	
+	/* sync */
 	val &= WLED_SYNC_MASK;
 	val |= WLED_SYNC_VAL;
 	rc = pm8xxx_writeb(led->dev->parent, WLED_SYNC_REG, val);
@@ -557,7 +575,7 @@ static int __devinit init_wled(struct pm8xxx_led_data *led)
 	int rc, i;
 	u8 val, string_max_current;
 
-	
+	/* program over voltage protection threshold */
 	if (led->wled_cfg->ovp_val > WLED_OVP_37V) {
 		dev_err(led->dev->parent, "Invalid ovp value");
 		return -EINVAL;
@@ -580,7 +598,7 @@ static int __devinit init_wled(struct pm8xxx_led_data *led)
 		return rc;
 	}
 
-	
+	/* program current boost limit and output feedback*/
 	if (led->wled_cfg->boost_curr_lim > WLED_CURR_LIMIT_1680mA) {
 		dev_err(led->dev->parent, "Invalid boost current limit");
 		return -EINVAL;
@@ -606,7 +624,7 @@ static int __devinit init_wled(struct pm8xxx_led_data *led)
 		return rc;
 	}
 
-	
+	/* program high pole capacitance */
 	if (led->wled_cfg->cp_select > WLED_CP_SELECT_MAX) {
 		dev_err(led->dev->parent, "Invalid pole capacitance");
 		return -EINVAL;
@@ -628,7 +646,7 @@ static int __devinit init_wled(struct pm8xxx_led_data *led)
 		return rc;
 	}
 
-	
+	/* program activation delay and maximum current */
 	for (i = 0; i < WLED_STRINGS; i++) {
 		if (led->wled_cfg->strings && (1 << i)) {
 			rc = pm8xxx_readb(led->dev->parent,
@@ -705,7 +723,7 @@ static int __devinit init_wled(struct pm8xxx_led_data *led)
 		}
 	}
 
-	
+	/* program digital module generator, cs out and enable the module */
 	rc = pm8xxx_readb(led->dev->parent, WLED_MOD_CTRL_REG, &val);
 	if (rc) {
 		dev_err(led->dev->parent, "can't read wled module ctrl"
@@ -729,7 +747,7 @@ static int __devinit init_wled(struct pm8xxx_led_data *led)
 	}
 	led->wled_mod_ctrl_val = val;
 
-	
+	/* dump wled registers */
 	wled_dump_regs(led);
 
 	return 0;
@@ -933,7 +951,7 @@ static int __devinit pm8xxx_led_probe(struct platform_device *pdev)
 			goto fail_id_check;
 		}
 
-		
+		/* configure default state */
 		if (led_cfg->default_state)
 			led->cdev.brightness = led_dat->cdev.max_brightness;
 		else

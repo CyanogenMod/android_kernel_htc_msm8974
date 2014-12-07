@@ -36,39 +36,53 @@
 #include <linux/uaccess.h>
 #include <asm/exceptions.h>
 
-static unsigned long pte_misses;	
-static unsigned long pte_errors;	
+static unsigned long pte_misses;	/* updated by do_page_fault() */
+static unsigned long pte_errors;	/* updated by do_page_fault() */
 
+/*
+ * Check whether the instruction at regs->pc is a store using
+ * an update addressing form which will update r1.
+ */
 static int store_updates_sp(struct pt_regs *regs)
 {
 	unsigned int inst;
 
 	if (get_user(inst, (unsigned int __user *)regs->pc))
 		return 0;
-	
+	/* check for 1 in the rD field */
 	if (((inst >> 21) & 0x1f) != 1)
 		return 0;
-	
+	/* check for store opcodes */
 	if ((inst & 0xd0000000) == 0xd0000000)
 		return 1;
 	return 0;
 }
 
 
+/*
+ * bad_page_fault is called when we have a bad access from the kernel.
+ * It is called from do_page_fault above and from some of the procedures
+ * in traps.c.
+ */
 void bad_page_fault(struct pt_regs *regs, unsigned long address, int sig)
 {
 	const struct exception_table_entry *fixup;
-	
+/* MS: no context */
+	/* Are we prepared to handle this fault?  */
 	fixup = search_exception_tables(regs->pc);
 	if (fixup) {
 		regs->pc = fixup->fixup;
 		return;
 	}
 
-	
+	/* kernel has accessed a bad area */
 	die("kernel access of bad area", regs, sig);
 }
 
+/*
+ * The error_code parameter is ESR for a data fault,
+ * 0 for an instruction fault.
+ */
 void do_page_fault(struct pt_regs *regs, unsigned long address,
 		   unsigned long error_code)
 {
@@ -82,13 +96,13 @@ void do_page_fault(struct pt_regs *regs, unsigned long address,
 	regs->ear = address;
 	regs->esr = error_code;
 
-	
+	/* On a kernel SLB miss we can only check for a valid exception entry */
 	if (unlikely(kernel_mode(regs) && (address >= TASK_SIZE))) {
 		printk(KERN_WARNING "kernel task_size exceed");
 		_exception(SIGSEGV, regs, code, address);
 	}
 
-	
+	/* for instr TLB miss and instr storage exception ESR_S is undefined */
 	if ((error_code & 0x13) == 0x13 || (error_code & 0x11) == 0x11)
 		is_write = 0;
 
@@ -96,6 +110,8 @@ void do_page_fault(struct pt_regs *regs, unsigned long address,
 		if (kernel_mode(regs))
 			goto bad_area_nosemaphore;
 
+		/* in_atomic() in user mode is really bad,
+		   as is current->mm == NULL. */
 		printk(KERN_EMERG "Page fault in user mode with "
 		       "in_atomic(), mm = %p\n", mm);
 		printk(KERN_EMERG "r15 = %lx  MSR = %lx\n",
@@ -103,6 +119,21 @@ void do_page_fault(struct pt_regs *regs, unsigned long address,
 		die("Weird page fault", regs, SIGSEGV);
 	}
 
+	/* When running in the kernel we expect faults to occur only to
+	 * addresses in user space.  All other faults represent errors in the
+	 * kernel and should generate an OOPS.  Unfortunately, in the case of an
+	 * erroneous fault occurring in a code path which already holds mmap_sem
+	 * we will deadlock attempting to validate the fault against the
+	 * address space.  Luckily the kernel only validly references user
+	 * space from well defined areas of code, which are listed in the
+	 * exceptions table.
+	 *
+	 * As the vast majority of faults will be valid we will only perform
+	 * the source reference check when there is a possibility of a deadlock.
+	 * Attempt to lock the address space, if we cannot we then validate the
+	 * source.  If this is invalid we can skip the address space check,
+	 * thus avoiding the deadlock.
+	 */
 	if (unlikely(!down_read_trylock(&mm->mmap_sem))) {
 		if (kernel_mode(regs) && !search_exception_tables(regs->pc))
 			goto bad_area_nosemaphore;
@@ -123,13 +154,34 @@ void do_page_fault(struct pt_regs *regs, unsigned long address,
 	if (unlikely(!is_write))
 		goto bad_area;
 
+	/*
+	 * N.B. The ABI allows programs to access up to
+	 * a few hundred bytes below the stack pointer (TBD).
+	 * The kernel signal delivery code writes up to about 1.5kB
+	 * below the stack pointer (r1) before decrementing it.
+	 * The exec code can write slightly over 640kB to the stack
+	 * before setting the user r1.  Thus we allow the stack to
+	 * expand to 1MB without further checks.
+	 */
 	if (unlikely(address + 0x100000 < vma->vm_end)) {
 
-		
+		/* get user regs even if this fault is in kernel mode */
 		struct pt_regs *uregs = current->thread.regs;
 		if (uregs == NULL)
 			goto bad_area;
 
+		/*
+		 * A user-mode access to an address a long way below
+		 * the stack pointer is only valid if the instruction
+		 * is one which would update the stack pointer to the
+		 * address accessed if the instruction completed,
+		 * i.e. either stwu rs,n(r1) or stwux rs,r1,rb
+		 * (or the byte, halfword, float or double forms).
+		 *
+		 * If we don't check this then any write to the area
+		 * between the last mapped region and the stack will
+		 * expand the stack rather than segfaulting.
+		 */
 		if (address + 2048 < uregs->r1
 			&& (kernel_mode(regs) || !store_updates_sp(regs)))
 				goto bad_area;
@@ -140,19 +192,24 @@ void do_page_fault(struct pt_regs *regs, unsigned long address,
 good_area:
 	code = SEGV_ACCERR;
 
-	
+	/* a write */
 	if (unlikely(is_write)) {
 		if (unlikely(!(vma->vm_flags & VM_WRITE)))
 			goto bad_area;
-	
+	/* a read */
 	} else {
-		
+		/* protection fault */
 		if (unlikely(error_code & 0x08000000))
 			goto bad_area;
 		if (unlikely(!(vma->vm_flags & (VM_READ | VM_EXEC))))
 			goto bad_area;
 	}
 
+	/*
+	 * If for any reason at all we couldn't handle the fault,
+	 * make sure we exit gracefully rather than endlessly redo
+	 * the fault.
+	 */
 	fault = handle_mm_fault(mm, vma, address, is_write ? FAULT_FLAG_WRITE : 0);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM)
@@ -166,6 +223,11 @@ good_area:
 	else
 		current->min_flt++;
 	up_read(&mm->mmap_sem);
+	/*
+	 * keep track of tlb+htab misses that are good addrs but
+	 * just need pte's created via handle_mm_fault()
+	 * -- Cort
+	 */
 	pte_misses++;
 	return;
 
@@ -175,15 +237,24 @@ bad_area:
 bad_area_nosemaphore:
 	pte_errors++;
 
-	
+	/* User mode accesses cause a SIGSEGV */
 	if (user_mode(regs)) {
 		_exception(SIGSEGV, regs, code, address);
+/*		info.si_signo = SIGSEGV;
+		info.si_errno = 0;
+		info.si_code = code;
+		info.si_addr = (void *) address;
+		force_sig_info(SIGSEGV, &info, current);*/
 		return;
 	}
 
 	bad_page_fault(regs, address, SIGSEGV);
 	return;
 
+/*
+ * We ran out of memory, or some other thing happened to us that made
+ * us unable to handle the page fault gracefully.
+ */
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (!user_mode(regs))

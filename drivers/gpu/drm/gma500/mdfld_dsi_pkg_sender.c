@@ -147,8 +147,8 @@ static int handle_dsi_error(struct mdfld_dsi_pkg_sender *sender, u32 mask)
 		dev_dbg(sender->dev->dev, "No Action required\n");
 		break;
 	case BIT(14):
-		
-		;
+		/*wait for all fifo empty*/
+		/*wait_for_all_fifos_empty(sender)*/;
 		break;
 	case BIT(15):
 		dev_dbg(sender->dev->dev, "No Action required\n");
@@ -160,9 +160,9 @@ static int handle_dsi_error(struct mdfld_dsi_pkg_sender *sender, u32 mask)
 	case BIT(18):
 	case BIT(19):
 		dev_dbg(sender->dev->dev, "High/Low contention detected\n");
-		
-		
-		
+		/*wait for contention recovery time*/
+		/*mdelay(10);*/
+		/*wait for all fifo empty*/
 		if (0)
 			wait_for_all_fifos_empty(sender);
 		break;
@@ -170,8 +170,8 @@ static int handle_dsi_error(struct mdfld_dsi_pkg_sender *sender, u32 mask)
 		dev_dbg(sender->dev->dev, "No Action required\n");
 		break;
 	case BIT(21):
-		
-		
+		/*wait for all fifo empty*/
+		/*wait_for_all_fifos_empty(sender);*/
 		break;
 	case BIT(22):
 		break;
@@ -236,11 +236,11 @@ static int send_short_pkg(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 	if (hs) {
 		ctrl_reg = sender->mipi_hs_gen_ctrl_reg;
 
-		
+		/* FIXME: wait_for_hs_fifos_empty(sender); */
 	} else {
 		ctrl_reg = sender->mipi_lp_gen_ctrl_reg;
 
-		
+		/* FIXME: wait_for_lp_fifos_empty(sender); */
 	}
 
 	val = FLD_VAL(param, 23, 16) | FLD_VAL(cmd, 15, 8) |
@@ -267,12 +267,12 @@ static int send_long_pkg(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 		ctrl_reg = sender->mipi_hs_gen_ctrl_reg;
 		data_reg = sender->mipi_hs_gen_data_reg;
 
-		
+		/* FIXME: wait_for_hs_fifos_empty(sender); */
 	} else {
 		ctrl_reg = sender->mipi_lp_gen_ctrl_reg;
 		data_reg = sender->mipi_lp_gen_data_reg;
 
-		
+		/* FIXME: wait_for_lp_fifos_empty(sender); */
 	}
 
 	p = data;
@@ -330,17 +330,17 @@ static int send_pkg_prepare(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 		return 0;
 	}
 
-	
+	/*this prevents other package sending while doing msleep*/
 	sender->status = MDFLD_DSI_PKG_SENDER_BUSY;
 
-	
+	/*wait for 120 milliseconds in case exit_sleep_mode just be sent*/
 	if (unlikely(cmd == DCS_ENTER_SLEEP_MODE)) {
-		
+		/*TODO: replace it with msleep later*/
 		mdelay(120);
 	}
 
 	if (unlikely(cmd == DCS_EXIT_SLEEP_MODE)) {
-		
+		/*TODO: replace it with msleep later*/
 		mdelay(120);
 	}
 	return 0;
@@ -361,17 +361,17 @@ static int send_pkg_done(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 		return 0;
 	}
 
-	
+	/*update panel status*/
 	if (unlikely(cmd == DCS_ENTER_SLEEP_MODE)) {
 		sender->panel_mode |= MDFLD_DSI_PANEL_MODE_SLEEP;
-		
+		/*TODO: replace it with msleep later*/
 		mdelay(120);
 	} else if (unlikely(cmd == DCS_EXIT_SLEEP_MODE)) {
 		sender->panel_mode &= ~MDFLD_DSI_PANEL_MODE_SLEEP;
-		
+		/*TODO: replace it with msleep later*/
 		mdelay(120);
 	} else if (unlikely(cmd == DCS_SOFT_RESET)) {
-		
+		/*TODO: replace it with msleep later*/
 		mdelay(5);
 	}
 
@@ -385,14 +385,14 @@ static int send_pkg(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 {
 	int ret;
 
-	
+	/*handle DSI error*/
 	ret = dsi_error_handler(sender);
 	if (ret) {
 		DRM_ERROR("Error handling failed\n");
 		return -EAGAIN;
 	}
 
-	
+	/* send pkg */
 	if (sender->status == MDFLD_DSI_PKG_SENDER_BUSY) {
 		DRM_ERROR("sender is busy\n");
 		return -EAGAIN;
@@ -424,7 +424,7 @@ static int send_pkg(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 
 	send_pkg_done(sender, data_type, data, len);
 
-	
+	/*FIXME: should I query complete and fifo empty here?*/
 
 	return ret;
 }
@@ -543,6 +543,12 @@ static int __read_panel_data(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 		return -EINVAL;
 	}
 
+	/**
+	 * do reading.
+	 * 0) send out generic read request
+	 * 1) polling read data avail interrupt
+	 * 2) read data
+	 */
 	spin_lock_irqsave(&sender->lock, flags);
 
 	REG_WRITE(sender->mipi_intr_stat_reg, BIT(29));
@@ -550,10 +556,10 @@ static int __read_panel_data(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 	if ((REG_READ(sender->mipi_intr_stat_reg) & BIT(29)))
 		DRM_ERROR("Can NOT clean read data valid interrupt\n");
 
-	
+	/*send out read request*/
 	send_pkg(sender, data_type, data, len, hs);
 
-	
+	/*polling read data avail interrupt*/
 	while (retry && !(REG_READ(sender->mipi_intr_stat_reg) & BIT(29))) {
 		udelay(100);
 		retry--;
@@ -566,7 +572,7 @@ static int __read_panel_data(struct mdfld_dsi_pkg_sender *sender, u8 data_type,
 
 	REG_WRITE(sender->mipi_intr_stat_reg, BIT(29));
 
-	
+	/*read data*/
 	if (hs)
 		gen_data_reg = sender->mipi_hs_gen_data_reg;
 	else
@@ -625,7 +631,7 @@ int mdfld_dsi_pkg_sender_init(struct mdfld_dsi_connector *dsi_connector,
 	pkg_sender->panel_mode = 0;
 	pkg_sender->status = MDFLD_DSI_PKG_SENDER_FREE;
 
-	
+	/*init regs*/
 	if (pipe == 0) {
 		pkg_sender->dpll_reg = MRST_DPLL_A;
 		pkg_sender->dspcntr_reg = DSPACNTR;
@@ -653,10 +659,14 @@ int mdfld_dsi_pkg_sender_init(struct mdfld_dsi_connector *dsi_connector,
 	pkg_sender->mipi_cmd_addr_reg = MIPI_CMD_ADD_REG(pipe);
 	pkg_sender->mipi_cmd_len_reg = MIPI_CMD_LEN_REG(pipe);
 
-	
+	/*init lock*/
 	spin_lock_init(&pkg_sender->lock);
 
 	if (mdfld_get_panel_type(dev, pipe) != TC35876X) {
+		/**
+		 * For video mode, don't enable DPI timing output here,
+		 * will init the DPI timing output during mode setting.
+		 */
 		mipi_val = PASS_FROM_SPHY_TO_AFE | SEL_FLOPPED_HSTX;
 
 		if (pipe == 0)
@@ -665,7 +675,7 @@ int mdfld_dsi_pkg_sender_init(struct mdfld_dsi_connector *dsi_connector,
 		REG_WRITE(MIPI_PORT_CONTROL(pipe), mipi_val);
 		REG_READ(MIPI_PORT_CONTROL(pipe));
 
-		
+		/* do dsi controller init */
 		mdfld_dsi_controller_init(dsi_config, pipe);
 	}
 
@@ -677,7 +687,7 @@ void mdfld_dsi_pkg_sender_destroy(struct mdfld_dsi_pkg_sender *sender)
 	if (!sender || IS_ERR(sender))
 		return;
 
-	
+	/*free*/
 	kfree(sender);
 }
 

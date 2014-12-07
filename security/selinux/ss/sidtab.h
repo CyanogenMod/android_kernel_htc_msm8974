@@ -1,11 +1,17 @@
+/*
+ * A security identifier table (sidtab) is a hash table
+ * of security context structures indexed by SID value.
+ *
+ * Author : Stephen Smalley, <sds@epoch.ncsc.mil>
+ */
 #ifndef _SS_SIDTAB_H_
 #define _SS_SIDTAB_H_
 
 #include "context.h"
 
 struct sidtab_node {
-	u32 sid;		
-	struct context context;	
+	u32 sid;		/* security identifier */
+	struct context context;	/* security context structure */
 	struct sidtab_node *next;
 };
 
@@ -17,8 +23,8 @@ struct sidtab_node {
 
 struct sidtab {
 	struct sidtab_node **htable;
-	unsigned int nel;	
-	unsigned int next_sid;	
+	unsigned int nel;	/* number of elements */
+	unsigned int next_sid;	/* next SID to allocate */
 	unsigned char shutdown;
 #define SIDTAB_CACHE_LEN	3
 	struct sidtab_node *cache[SIDTAB_CACHE_LEN];
@@ -45,6 +51,6 @@ void sidtab_destroy(struct sidtab *s);
 void sidtab_set(struct sidtab *dst, struct sidtab *src);
 void sidtab_shutdown(struct sidtab *s);
 
-#endif	
+#endif	/* _SS_SIDTAB_H_ */
 
 

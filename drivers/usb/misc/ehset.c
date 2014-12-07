@@ -60,7 +60,7 @@ static int ehset_probe(struct usb_interface *intf,
 			(4 << 8) | port1, NULL, 0, 1000);
 		break;
 	case TEST_HS_HOST_PORT_SUSPEND_RESUME:
-		
+		/* Test: wait for 15secs -> suspend -> 15secs delay -> resume */
 		msleep(15 * 1000);
 		status = usb_control_msg(hub_udev, usb_sndctrlpipe(hub_udev, 0),
 			USB_REQ_SET_FEATURE, USB_RT_PORT,
@@ -73,7 +73,7 @@ static int ehset_probe(struct usb_interface *intf,
 			USB_PORT_FEAT_SUSPEND, port1, NULL, 0, 1000);
 		break;
 	case TEST_SINGLE_STEP_GET_DEV_DESC:
-		
+		/* Test: wait for 15secs -> GetDescriptor request */
 		msleep(15 * 1000);
 		{
 			struct usb_device_descriptor *buf;
@@ -90,6 +90,9 @@ static int ehset_probe(struct usb_interface *intf,
 		}
 		break;
 	case TEST_SINGLE_STEP_SET_FEATURE:
+		/* GetDescriptor's SETUP request -> 15secs delay -> IN & STATUS
+		 * Issue request to ehci root hub driver with portnum = 1
+		 */
 		status = usb_control_msg(rh_udev, usb_sndctrlpipe(rh_udev, 0),
 			USB_REQ_SET_FEATURE, USB_RT_PORT, USB_PORT_FEAT_TEST,
 			(6 << 8) | 1, NULL, 0, 60 * 1000);
@@ -115,7 +118,7 @@ static struct usb_device_id ehset_id_table[] = {
 	{ USB_DEVICE(0x1a0a, TEST_HS_HOST_PORT_SUSPEND_RESUME) },
 	{ USB_DEVICE(0x1a0a, TEST_SINGLE_STEP_GET_DEV_DESC) },
 	{ USB_DEVICE(0x1a0a, TEST_SINGLE_STEP_SET_FEATURE) },
-	{ }			
+	{ }			/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, ehset_id_table);

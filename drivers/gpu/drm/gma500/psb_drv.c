@@ -57,7 +57,7 @@ static DEFINE_PCI_DEVICE_TABLE(pciidlist) = {
 	{ 0x8086, 0x4105, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (long) &oaktrail_chip_ops},
 	{ 0x8086, 0x4106, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (long) &oaktrail_chip_ops},
 	{ 0x8086, 0x4107, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (long) &oaktrail_chip_ops},
-	
+	/* Atom E620 */
 	{ 0x8086, 0x4108, PCI_ANY_ID, PCI_ANY_ID, 0, 0, (long) &oaktrail_chip_ops},
 #endif
 #if defined(CONFIG_DRM_MEDFIELD)
@@ -84,6 +84,9 @@ static DEFINE_PCI_DEVICE_TABLE(pciidlist) = {
 };
 MODULE_DEVICE_TABLE(pci, pciidlist);
 
+/*
+ * Standard IOCTLs.
+ */
 
 #define DRM_IOCTL_GMA_ADB	\
 		DRM_IOWR(DRM_GMA_ADB + DRM_COMMAND_BASE, uint32_t)
@@ -197,7 +200,7 @@ static int psb_do_init(struct drm_device *dev)
 							PSB_CR_BIF_CTRL);
 	psb_spank(dev_priv);
 
-	
+	/* mmu_gatt ?? */
 	PSB_WSGX32(pg->gatt_start, PSB_CR_BIF_TWOD_REQ_BASE);
 	return 0;
 out_err:
@@ -209,7 +212,7 @@ static int psb_driver_unload(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 
-	
+	/* Kill vblank etc here */
 
 	gma_backlight_exit(dev);
 
@@ -258,7 +261,7 @@ static int psb_driver_unload(struct drm_device *dev)
 		kfree(dev_priv);
 		dev->dev_private = NULL;
 
-		
+		/*destroy VBT data*/
 		psb_intel_destroy_bios(dev);
 	}
 
@@ -310,7 +313,7 @@ static int psb_driver_load(struct drm_device *dev, unsigned long chipset)
 	if (ret)
 		goto out_err;
 
-	
+	/* Init OSPM support */
 	gma_power_init(dev);
 
 	ret = -ENOMEM;
@@ -345,6 +348,7 @@ static int psb_driver_load(struct drm_device *dev, unsigned long chipset)
 	PSB_WSGX32(0x20000000, PSB_CR_PDS_EXEC_BASE);
 	PSB_WSGX32(0x30000000, PSB_CR_BIF_3D_REQ_BASE);
 
+/*	igd_opregion_init(&dev_priv->opregion_dev); */
 	acpi_video_register();
 	if (dev_priv->lid_state)
 		psb_lid_timer_init(dev_priv);
@@ -353,6 +357,10 @@ static int psb_driver_load(struct drm_device *dev, unsigned long chipset)
 	if (ret)
 		goto out_err;
 
+	/*
+	 * Install interrupt handlers prior to powering off SGX or else we will
+	 * crash.
+	 */
 	dev_priv->vdc_irq_mask = 0;
 	dev_priv->pipestat[0] = 0;
 	dev_priv->pipestat[1] = 0;
@@ -367,7 +375,7 @@ static int psb_driver_load(struct drm_device *dev, unsigned long chipset)
 
 	dev->vblank_disable_allowed = 1;
 
-	dev->max_vblank_count = 0xffffff; 
+	dev->max_vblank_count = 0xffffff; /* only 24 bits of frame count */
 
 	dev->driver->get_vblank_counter = psb_get_vblank_counter;
 
@@ -375,7 +383,7 @@ static int psb_driver_load(struct drm_device *dev, unsigned long chipset)
 	psb_fbdev_init(dev);
 	drm_kms_helper_poll_init(dev);
 
-	
+	/* Only add backlight support if we have LVDS output */
 	list_for_each_entry(connector, &dev->mode_config.connector_list,
 			    head) {
 		psb_intel_encoder = psb_intel_attached_encoder(connector);
@@ -391,11 +399,11 @@ static int psb_driver_load(struct drm_device *dev, unsigned long chipset)
 	if (ret)
 		return ret;
 #if 0
-	
+	/*enable runtime pm at last*/
 	pm_runtime_enable(&dev->pdev->dev);
 	pm_runtime_set_active(&dev->pdev->dev);
 #endif
-	
+	/*Intel drm driver load is done, continue doing pvr load*/
 	return 0;
 out_err:
 	psb_driver_unload(dev);
@@ -508,7 +516,7 @@ static int psb_mode_operation_ioctl(struct drm_device *dev, void *data,
 			goto mode_op_out;
 		}
 
-		
+		/* drm_crtc_convert_umode(mode, umode); */
 		{
 			mode->clock = umode->clock;
 			mode->hdisplay = umode->hdisplay;
@@ -536,7 +544,7 @@ static int psb_mode_operation_ioctl(struct drm_device *dev, void *data,
 			arg->data = resp;
 		}
 
-		
+		/*do some clean up work*/
 		if (mode)
 			drm_mode_destroy(dev, mode);
 mode_op_out:
@@ -586,10 +594,13 @@ static long psb_unlocked_ioctl(struct file *filp, unsigned int cmd,
 		dev_priv->rpm_enabled = 1;
 	}
 	return drm_ioctl(filp, cmd, arg);
-	
+	/* FIXME: do we need to wrap the other side of this */
 }
 
 
+/* When a client dies:
+ *    - Check for and clean up flipped page state
+ */
 static void psb_driver_preclose(struct drm_device *dev, struct drm_file *priv)
 {
 }

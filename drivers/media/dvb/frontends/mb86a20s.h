@@ -18,6 +18,11 @@
 
 #include <linux/dvb/frontend.h>
 
+/**
+ * struct mb86a20s_config - Define the per-device attributes of the frontend
+ *
+ * @demod_address:	the demodulator's i2c address
+ */
 
 struct mb86a20s_config {
 	u8 demod_address;
@@ -44,4 +49,4 @@ static struct i2c_adapter *
 }
 #endif
 
-#endif 
+#endif /* MB86A20S */

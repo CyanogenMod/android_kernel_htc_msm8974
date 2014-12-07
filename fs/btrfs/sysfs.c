@@ -28,6 +28,7 @@
 #include "disk-io.h"
 #include "transaction.h"
 
+/* /sys/fs/btrfs/ entry */
 static struct kset *btrfs_kset;
 
 int btrfs_init_sysfs(void)

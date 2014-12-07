@@ -8,6 +8,7 @@
  */
 #include "dvb-usb-common.h"
 
+/* does the complete input transfer handling */
 static int dvb_usb_ctrl_feed(struct dvb_demux_feed *dvbdmxfeed, int onoff)
 {
 	struct dvb_usb_adapter *adap = dvbdmxfeed->demux->priv;
@@ -23,7 +24,7 @@ static int dvb_usb_ctrl_feed(struct dvb_demux_feed *dvbdmxfeed, int onoff)
 
 	newfeedcount = adap->feedcount + (onoff ? 1 : -1);
 
-	
+	/* stop feed before setting a new pid if there will be no pid anymore */
 	if (newfeedcount == 0) {
 		deb_ts("stop feeding\n");
 		usb_urb_kill(&adap->fe_adap[adap->active_fe].stream);
@@ -39,7 +40,7 @@ static int dvb_usb_ctrl_feed(struct dvb_demux_feed *dvbdmxfeed, int onoff)
 
 	adap->feedcount = newfeedcount;
 
-	
+	/* activate the pid on the device specific pid_filter */
 	deb_ts("setting pid (%s): %5d %04x at index %d '%s'\n",
 		adap->fe_adap[adap->active_fe].pid_filtering ?
 		"yes" : "no", dvbdmxfeed->pid, dvbdmxfeed->pid,
@@ -49,6 +50,9 @@ static int dvb_usb_ctrl_feed(struct dvb_demux_feed *dvbdmxfeed, int onoff)
 		adap->props.fe[adap->active_fe].pid_filter != NULL)
 		adap->props.fe[adap->active_fe].pid_filter(adap, dvbdmxfeed->index, dvbdmxfeed->pid, onoff);
 
+	/* start the feed if this was the first feed and there is still a feed
+	 * for reception.
+	 */
 	if (adap->feedcount == onoff && adap->feedcount > 0) {
 		deb_ts("submitting all URBs\n");
 		usb_urb_submit(&adap->fe_adap[adap->active_fe].stream);
@@ -217,7 +221,7 @@ int dvb_usb_adapter_frontend_init(struct dvb_usb_adapter *adap)
 {
 	int ret, i;
 
-	
+	/* register all given adapter frontends */
 	for (i = 0; i < adap->props.num_frontends; i++) {
 
 		if (adap->props.fe[i].frontend_attach == NULL) {
@@ -230,7 +234,7 @@ int dvb_usb_adapter_frontend_init(struct dvb_usb_adapter *adap)
 
 		ret = adap->props.fe[i].frontend_attach(adap);
 		if (ret || adap->fe_adap[i].fe == NULL) {
-			
+			/* only print error when there is no FE at all */
 			if (i == 0)
 				err("no frontend was attached by '%s'",
 					adap->dev->desc->name);
@@ -240,7 +244,7 @@ int dvb_usb_adapter_frontend_init(struct dvb_usb_adapter *adap)
 
 		adap->fe_adap[i].fe->id = i;
 
-		
+		/* re-assign sleep and wakeup functions */
 		adap->fe_adap[i].fe_init = adap->fe_adap[i].fe->ops.init;
 		adap->fe_adap[i].fe->ops.init  = dvb_usb_fe_wakeup;
 		adap->fe_adap[i].fe_sleep = adap->fe_adap[i].fe->ops.sleep;
@@ -250,13 +254,15 @@ int dvb_usb_adapter_frontend_init(struct dvb_usb_adapter *adap)
 			err("Frontend %d registration failed.", i);
 			dvb_frontend_detach(adap->fe_adap[i].fe);
 			adap->fe_adap[i].fe = NULL;
+			/* In error case, do not try register more FEs,
+			 * still leaving already registered FEs alive. */
 			if (i == 0)
 				return -ENODEV;
 			else
 				return 0;
 		}
 
-		
+		/* only attach the tuner if the demod is there */
 		if (adap->props.fe[i].tuner_attach != NULL)
 			adap->props.fe[i].tuner_attach(adap);
 
@@ -270,7 +276,7 @@ int dvb_usb_adapter_frontend_exit(struct dvb_usb_adapter *adap)
 {
 	int i = adap->num_frontends_initialized - 1;
 
-	
+	/* unregister all given adapter frontends */
 	for (; i >= 0; i--) {
 		if (adap->fe_adap[i].fe != NULL) {
 			dvb_unregister_frontend(adap->fe_adap[i].fe);

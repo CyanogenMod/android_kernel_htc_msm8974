@@ -16,6 +16,7 @@
 
 extern void *omap_sram_push_address(unsigned long size);
 
+/* Macro to push a function to the internal SRAM, using the fncpy API */
 #define omap_sram_push(funcp, size) ({				\
 	typeof(&(funcp)) _res = NULL;				\
 	void *_sram_address = omap_sram_push_address(size);	\
@@ -40,6 +41,7 @@ extern u32 omap3_configure_core_dpll(
 			u32 sdrc_actim_ctrl_b_1, u32 sdrc_mr_1);
 extern void omap3_sram_restore_context(void);
 
+/* Do not use these */
 extern void omap1_sram_reprogram_clock(u32 ckctl, u32 dpllctl);
 extern unsigned long omap1_sram_reprogram_clock_sz;
 
@@ -83,10 +85,14 @@ extern unsigned long omap3_sram_configure_core_dpll_sz;
 extern void omap_push_sram_idle(void);
 #else
 static inline void omap_push_sram_idle(void) {}
-#endif 
+#endif /* CONFIG_PM */
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/*
+ * OMAP2+: define the SRAM PA addresses.
+ * Used by the SRAM management code and the idle sleep code.
+ */
 #define OMAP2_SRAM_PA		0x40200000
 #define OMAP3_SRAM_PA           0x40200000
 #ifdef CONFIG_OMAP4_ERRATA_I688

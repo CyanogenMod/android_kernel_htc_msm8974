@@ -30,6 +30,7 @@
 #define PWM0_CLK_ENABLE		BIT(0)
 #define PWM0_ENABLE		BIT(2)
 
+/* range accepted by hardware */
 #define MIN_VALUE 9
 #define MAX_VALUE 63
 #define MAX_USER_VALUE (MAX_VALUE - MIN_VALUE)
@@ -55,7 +56,7 @@ static int pandora_backlight_update_status(struct backlight_device *bl)
 		if (bl->props.state & PANDORABL_WAS_OFF)
 			goto done;
 
-		
+		/* first disable PWM0 output, then clock */
 		twl_i2c_read_u8(TWL4030_MODULE_INTBR, &r, TWL_INTBR_GPBR1);
 		r &= ~PWM0_ENABLE;
 		twl_i2c_write_u8(TWL4030_MODULE_INTBR, r, TWL_INTBR_GPBR1);
@@ -66,10 +67,14 @@ static int pandora_backlight_update_status(struct backlight_device *bl)
 	}
 
 	if (bl->props.state & PANDORABL_WAS_OFF) {
+		/*
+		 * set PWM duty cycle to max. TPS61161 seems to use this
+		 * to calibrate it's PWM sensitivity when it starts.
+		 */
 		twl_i2c_write_u8(TWL4030_MODULE_PWM0, MAX_VALUE,
 					TWL_PWM0_OFF);
 
-		
+		/* first enable clock, then PWM0 out */
 		twl_i2c_read_u8(TWL4030_MODULE_INTBR, &r, TWL_INTBR_GPBR1);
 		r &= ~PWM0_ENABLE;
 		r |= PWM0_CLK_ENABLE;
@@ -77,6 +82,11 @@ static int pandora_backlight_update_status(struct backlight_device *bl)
 		r |= PWM0_ENABLE;
 		twl_i2c_write_u8(TWL4030_MODULE_INTBR, r, TWL_INTBR_GPBR1);
 
+		/*
+		 * TI made it very easy to enable digital control, so easy that
+		 * it often triggers unintentionally and disabes PWM control,
+		 * so wait until 1 wire mode detection window ends.
+		 */
 		usleep_range(2000, 10000);
 	}
 
@@ -121,14 +131,14 @@ static int pandora_backlight_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, bl);
 
-	
+	/* 64 cycle period, ON position 0 */
 	twl_i2c_write_u8(TWL4030_MODULE_PWM0, 0x80, TWL_PWM0_ON);
 
 	bl->props.state |= PANDORABL_WAS_OFF;
 	bl->props.brightness = MAX_USER_VALUE;
 	backlight_update_status(bl);
 
-	
+	/* enable PWM function in pin mux */
 	twl_i2c_read_u8(TWL4030_MODULE_INTBR, &r, TWL_INTBR_PMBR1);
 	r &= ~TWL_PMBR1_PWM0_MUXMASK;
 	r |= TWL_PMBR1_PWM0;

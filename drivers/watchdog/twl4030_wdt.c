@@ -133,7 +133,7 @@ static int twl4030_wdt_open(struct inode *inode, struct file *file)
 {
 	struct twl4030_wdt *wdt = platform_get_drvdata(twl4030_wdt_dev);
 
-	
+	/* /dev/watchdog can only be opened once */
 	if (test_and_set_bit(0, &wdt->state))
 		return -EBUSY;
 

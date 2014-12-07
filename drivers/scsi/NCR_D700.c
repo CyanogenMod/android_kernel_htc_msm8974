@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /* NCR Dual 700 MCA SCSI Driver
  *
@@ -21,6 +22,16 @@
 **-----------------------------------------------------------------------------
  */
 
+/* Notes:
+ *
+ * Most of the work is done in the chip specific module, 53c700.o
+ *
+ * TODO List:
+ *
+ * 1. Extract the SCSI ID from the voyager CMOS table (necessary to
+ *    support multi-host environments.
+ *
+ * */
 
 
 /* CHANGELOG 
@@ -96,7 +107,7 @@
 #include "53c700.h"
 #include "NCR_D700.h"
 
-static char *NCR_D700;		
+static char *NCR_D700;		/* command line from insmod */
 
 MODULE_AUTHOR("James Bottomley");
 MODULE_DESCRIPTION("NCR Dual700 SCSI Driver");
@@ -145,6 +156,8 @@ param_setup(char *string)
 	return 1;
 }
 
+/* Host template.  The 53c700 routine NCR_700_detect will
+ * fill in all of the missing routines */
 static struct scsi_host_template NCR_D700_driver_template = {
 	.module			= THIS_MODULE,
 	.name			= "NCR Dual 700 MCA",
@@ -152,6 +165,7 @@ static struct scsi_host_template NCR_D700_driver_template = {
 	.this_id		= 7,
 };
 
+/* We needs this helper because we have two hosts per struct device */
 struct NCR_D700_private {
 	struct device		*dev;
 	struct Scsi_Host	*hosts[2];
@@ -181,13 +195,13 @@ NCR_D700_probe_one(struct NCR_D700_private *p, int siop, int irq,
 		goto region_failed;
 	}
 		
-	
+	/* Fill in the three required pieces of hostdata */
 	hostdata->base = ioport_map(region, 64);
 	hostdata->differential = (((1<<siop) & differential) != 0);
 	hostdata->clock = NCR_D700_CLOCK_MHZ;
 	hostdata->burst_length = 8;
 
-	
+	/* and register the siop */
 	host = NCR_700_detect(&NCR_D700_driver_template, hostdata, p->dev);
 	if (!host) {
 		ret = -ENOMEM;
@@ -195,7 +209,7 @@ NCR_D700_probe_one(struct NCR_D700_private *p, int siop, int irq,
 	}
 
 	p->hosts[siop] = host;
-	
+	/* FIXME: read this from SUS */
 	host->this_id = id_array[slot * 2 + siop];
 	host->irq = irq;
 	host->base = region;
@@ -225,6 +239,10 @@ NCR_D700_intr(int irq, void *data)
 	return found ? IRQ_HANDLED : IRQ_NONE;
 }
 
+/* Detect a D700 card.  Note, because of the setup --- the chips are
+ * essentially connectecd to the MCA bus independently, it is easier
+ * to set them up as two separate host adapters, rather than one
+ * adapter with two channels */
 static int __devinit
 NCR_D700_probe(struct device *dev)
 {
@@ -238,7 +256,7 @@ NCR_D700_probe(struct device *dev)
 	int pos3j, pos3k, pos3a, pos3b, pos4;
 	__u32 base_addr, offset_addr;
 
-	
+	/* enable board interrupt */
 	pos4 = mca_device_read_pos(mca_dev, 4);
 	pos4 |= 0x4;
 	mca_device_write_pos(mca_dev, 4, pos4);
@@ -264,29 +282,29 @@ NCR_D700_probe(struct device *dev)
 		       "NCR D700:\n");
 		banner = 0;
 	}
-	
+	/* now do the bus related transforms */
 	irq = mca_device_transform_irq(mca_dev, irq);
 	base_addr = mca_device_transform_ioport(mca_dev, base_addr);
 	offset_addr = mca_device_transform_ioport(mca_dev, offset_addr);
 
 	printk(KERN_NOTICE "NCR D700: found in slot %d  irq = %d  I/O base = 0x%x\n", slot, irq, offset_addr);
 
-	
+	/*outb(BOARD_RESET, base_addr);*/
 
-	
+	/* clear any pending interrupts */
 	(void)inb(base_addr + 0x08);
-	
+	/* get modctl, used later for setting diff bits */
 	switch(differential = (inb(base_addr + 0x08) >> 6)) {
 	case 0x00:
-		
+		/* only SIOP1 differential */
 		differential = 0x02;
 		break;
 	case 0x01:
-		
+		/* Both SIOPs differential */
 		differential = 0x03;
 		break;
 	case 0x03:
-		
+		/* No SIOPs differential */
 		differential = 0x00;
 		break;
 	default:
@@ -307,7 +325,7 @@ NCR_D700_probe(struct device *dev)
 		kfree(p);
 		return -EBUSY;
 	}
-	
+	/* plumb in both 700 chips */
 	for (i = 0; i < 2; i++) {
 		int err;
 

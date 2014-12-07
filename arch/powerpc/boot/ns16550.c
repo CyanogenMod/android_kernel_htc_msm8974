@@ -15,16 +15,16 @@
 #include "io.h"
 #include "ops.h"
 
-#define UART_DLL	0	
-#define UART_DLM	1	
-#define UART_FCR	2	
-#define UART_LCR	3	
-#define UART_MCR	4	
-#define UART_LSR	5	
-#define UART_LSR_THRE	0x20	
-#define UART_LSR_DR	0x01	
-#define UART_MSR	6	
-#define UART_SCR	7	
+#define UART_DLL	0	/* Out: Divisor Latch Low */
+#define UART_DLM	1	/* Out: Divisor Latch High */
+#define UART_FCR	2	/* Out: FIFO Control Register */
+#define UART_LCR	3	/* Out: Line Control Register */
+#define UART_MCR	4	/* Out: Modem Control Register */
+#define UART_LSR	5	/* In:  Line Status Register */
+#define UART_LSR_THRE	0x20	/* Transmit-hold-register empty */
+#define UART_LSR_DR	0x01	/* Receiver data ready */
+#define UART_MSR	6	/* In:  Modem Status Register */
+#define UART_SCR	7	/* I/O: Scratch Register */
 
 static unsigned char *reg_base;
 static u32 reg_shift;

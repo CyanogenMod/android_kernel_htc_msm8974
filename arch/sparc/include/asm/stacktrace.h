@@ -3,4 +3,4 @@
 
 extern void stack_trace_flush(void);
 
-#endif 
+#endif /* _SPARC64_STACKTRACE_H */

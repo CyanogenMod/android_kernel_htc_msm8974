@@ -45,6 +45,7 @@
 #ifndef _AIC79XX_INLINE_H_
 #define _AIC79XX_INLINE_H_
 
+/******************************** Debugging ***********************************/
 static inline char *ahd_name(struct ahd_softc *ahd);
 
 static inline char *ahd_name(struct ahd_softc *ahd)
@@ -52,6 +53,7 @@ static inline char *ahd_name(struct ahd_softc *ahd)
 	return (ahd->name);
 }
 
+/************************ Sequencer Execution Control *************************/
 static inline void ahd_known_modes(struct ahd_softc *ahd,
 				     ahd_mode src, ahd_mode dst);
 static inline ahd_mode_state ahd_build_mode_state(struct ahd_softc *ahd,
@@ -93,10 +95,12 @@ ahd_extract_mode_state(struct ahd_softc *ahd, ahd_mode_state state,
 	*dst = (state & DST_MODE) >> DST_MODE_SHIFT;
 }
 
+/*********************** Scatter Gather List Handling *************************/
 void	*ahd_sg_setup(struct ahd_softc *ahd, struct scb *scb,
 		      void *sgptr, dma_addr_t addr,
 		      bus_size_t len, int last);
 
+/************************** Memory mapping routines ***************************/
 static inline size_t	ahd_sg_size(struct ahd_softc *ahd);
 
 void	ahd_sync_sglist(struct ahd_softc *ahd,
@@ -109,6 +113,7 @@ static inline size_t ahd_sg_size(struct ahd_softc *ahd)
 	return (sizeof(struct ahd_dma_seg));
 }
 
+/*********************** Miscellaneous Support Functions ***********************/
 struct ahd_initiator_tinfo *
 	ahd_fetch_transinfo(struct ahd_softc *ahd,
 			    char channel, u_int our_id,
@@ -139,7 +144,7 @@ static inline uint8_t *ahd_get_sense_buf(struct ahd_softc *ahd,
 static inline uint32_t ahd_get_sense_bufaddr(struct ahd_softc *ahd,
 					      struct scb *scb);
 
-#if 0 
+#if 0 /* unused */
 
 #define AHD_COPY_COL_IDX(dst, src)				\
 do {								\
@@ -161,6 +166,7 @@ ahd_get_sense_bufaddr(struct ahd_softc *ahd, struct scb *scb)
 	return (scb->sense_busaddr);
 }
 
+/************************** Interrupt Processing ******************************/
 int	ahd_intr(struct ahd_softc *ahd);
 
-#endif  
+#endif  /* _AIC79XX_INLINE_H_ */

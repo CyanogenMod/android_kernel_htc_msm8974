@@ -65,7 +65,7 @@ asm(
 
 #define FTRACE_INSN_SIZE	6
 
-#else 
+#else /* CONFIG_64BIT */
 /*
  * The 31-bit mcount code looks like this:
  *	st	%r14,4(%r15)		# offset 0
@@ -110,7 +110,7 @@ asm(
 
 #define FTRACE_INSN_SIZE	4
 
-#endif 
+#endif /* CONFIG_64BIT */
 
 
 int ftrace_make_nop(struct module *mod, struct dyn_ftrace *rec,
@@ -141,9 +141,13 @@ int __init ftrace_dyn_arch_init(void *data)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_DYNAMIC_FTRACE */
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
+/*
+ * Hook the return address and push it in the stack of return addresses
+ * in current thread info.
+ */
 unsigned long __kprobes prepare_ftrace_return(unsigned long parent,
 					      unsigned long ip)
 {
@@ -154,7 +158,7 @@ unsigned long __kprobes prepare_ftrace_return(unsigned long parent,
 	if (ftrace_push_return_trace(parent, ip, &trace.depth, 0) == -EBUSY)
 		goto out;
 	trace.func = (ip & PSW_ADDR_INSN) - MCOUNT_OFFSET_RET;
-	
+	/* Only trace if the calling function expects to. */
 	if (!ftrace_graph_entry(&trace)) {
 		current->curr_ret_stack--;
 		goto out;
@@ -165,6 +169,13 @@ out:
 }
 
 #ifdef CONFIG_DYNAMIC_FTRACE
+/*
+ * Patch the kernel code at ftrace_graph_caller location. The instruction
+ * there is branch relative and save to prepare_ftrace_return. To disable
+ * the call to prepare_ftrace_return we patch the bras offset to point
+ * directly after the instructions. To enable the call we calculate
+ * the original offset to prepare_ftrace_return and put it back.
+ */
 int ftrace_enable_ftrace_graph_caller(void)
 {
 	unsigned short offset;
@@ -183,5 +194,5 @@ int ftrace_disable_ftrace_graph_caller(void)
 				  &offset, sizeof(offset));
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_DYNAMIC_FTRACE */
+#endif /* CONFIG_FUNCTION_GRAPH_TRACER */

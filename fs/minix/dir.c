@@ -31,6 +31,10 @@ static inline void dir_put_page(struct page *page)
 	page_cache_release(page);
 }
 
+/*
+ * Return the offset into page `page_nr' of the last valid
+ * byte in that page, plus one.
+ */
 static unsigned
 minix_last_byte(struct inode *inode, unsigned long page_nr)
 {
@@ -144,6 +148,14 @@ static inline int namecompare(int len, int maxlen,
 	return !memcmp(name, buffer, len);
 }
 
+/*
+ *	minix_find_entry()
+ *
+ * finds an entry in the specified directory with the wanted name. It
+ * returns the cache buffer in which the entry was found, and the entry
+ * itself (as a parameter - res_dir). It does NOT read the inode of the
+ * entry - you'll have to do that yourself if you want to.
+ */
 minix_dirent *minix_find_entry(struct dentry *dentry, struct page **res_page)
 {
 	const char * name = dentry->d_name.name;
@@ -211,6 +223,11 @@ int minix_add_link(struct dentry *dentry, struct inode *inode)
 	char *namx = NULL;
 	__u32 inumber;
 
+	/*
+	 * We take care of directory expansion in the same loop
+	 * This code plays outside i_size, so it locks the page
+	 * to protect that region.
+	 */
 	for (n = 0; n <= npages; n++) {
 		char *limit, *dir_end;
 
@@ -233,7 +250,7 @@ int minix_add_link(struct dentry *dentry, struct inode *inode)
 				inumber = de->inode;
 			}
 			if (p == dir_end) {
-				
+				/* We hit i_size */
 				if (sbi->s_version == MINIX_V3)
 					de3->inode = 0;
 		 		else
@@ -346,6 +363,9 @@ fail:
 	return err;
 }
 
+/*
+ * routine to check that the specified directory is empty (for rmdir)
+ */
 int minix_empty_dir(struct inode * inode)
 {
 	struct page *page = NULL;
@@ -375,7 +395,7 @@ int minix_empty_dir(struct inode * inode)
 			}
 
 			if (inumber != 0) {
-				
+				/* check for . and .. */
 				if (name[0] != '.')
 					goto not_empty;
 				if (!name[1]) {
@@ -396,6 +416,7 @@ not_empty:
 	return 0;
 }
 
+/* Releases the page */
 void minix_set_link(struct minix_dir_entry *de, struct page *page,
 	struct inode *inode)
 {

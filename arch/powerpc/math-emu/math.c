@@ -57,6 +57,7 @@ FLOATFUNC(fmr);
 FLOATFUNC(fnabs);
 FLOATFUNC(fneg);
 
+/* Optional */
 FLOATFUNC(fres);
 FLOATFUNC(frsqrte);
 FLOATFUNC(fsel);
@@ -64,66 +65,73 @@ FLOATFUNC(fsqrt);
 FLOATFUNC(fsqrts);
 
 
-#define OP31		0x1f		
-#define LFS		0x30		
-#define LFSU		0x31		
-#define LFD		0x32		
-#define LFDU		0x33		
-#define STFS		0x34		
-#define STFSU		0x35		
-#define STFD		0x36		
-#define STFDU		0x37		
-#define OP59		0x3b		
-#define OP63		0x3f		
+#define OP31		0x1f		/*   31 */
+#define LFS		0x30		/*   48 */
+#define LFSU		0x31		/*   49 */
+#define LFD		0x32		/*   50 */
+#define LFDU		0x33		/*   51 */
+#define STFS		0x34		/*   52 */
+#define STFSU		0x35		/*   53 */
+#define STFD		0x36		/*   54 */
+#define STFDU		0x37		/*   55 */
+#define OP59		0x3b		/*   59 */
+#define OP63		0x3f		/*   63 */
 
-#define LFSX		0x217		
-#define LFSUX		0x237		
-#define LFDX		0x257		
-#define LFDUX		0x277		
-#define STFSX		0x297		
-#define STFSUX		0x2b7		
-#define STFDX		0x2d7		
-#define STFDUX		0x2f7		
-#define STFIWX		0x3d7		
+/* Opcode 31: */
+/* X-Form: */
+#define LFSX		0x217		/*  535 */
+#define LFSUX		0x237		/*  567 */
+#define LFDX		0x257		/*  599 */
+#define LFDUX		0x277		/*  631 */
+#define STFSX		0x297		/*  663 */
+#define STFSUX		0x2b7		/*  695 */
+#define STFDX		0x2d7		/*  727 */
+#define STFDUX		0x2f7		/*  759 */
+#define STFIWX		0x3d7		/*  983 */
 
-#define FDIVS		0x012		
-#define FSUBS		0x014		
-#define FADDS		0x015		
-#define FSQRTS		0x016		
-#define FRES		0x018		
-#define FMULS		0x019		
-#define FMSUBS		0x01c		
-#define FMADDS		0x01d		
-#define FNMSUBS		0x01e		
-#define FNMADDS		0x01f		
+/* Opcode 59: */
+/* A-Form: */
+#define FDIVS		0x012		/*   18 */
+#define FSUBS		0x014		/*   20 */
+#define FADDS		0x015		/*   21 */
+#define FSQRTS		0x016		/*   22 */
+#define FRES		0x018		/*   24 */
+#define FMULS		0x019		/*   25 */
+#define FMSUBS		0x01c		/*   28 */
+#define FMADDS		0x01d		/*   29 */
+#define FNMSUBS		0x01e		/*   30 */
+#define FNMADDS		0x01f		/*   31 */
 
-#define FDIV		0x012		
-#define FSUB		0x014		
-#define FADD		0x015		
-#define FSQRT		0x016		
-#define FSEL		0x017		
-#define FMUL		0x019		
-#define FRSQRTE		0x01a		
-#define FMSUB		0x01c		
-#define FMADD		0x01d		
-#define FNMSUB		0x01e		
-#define FNMADD		0x01f		
+/* Opcode 63: */
+/* A-Form: */
+#define FDIV		0x012		/*   18 */
+#define FSUB		0x014		/*   20 */
+#define FADD		0x015		/*   21 */
+#define FSQRT		0x016		/*   22 */
+#define FSEL		0x017		/*   23 */
+#define FMUL		0x019		/*   25 */
+#define FRSQRTE		0x01a		/*   26 */
+#define FMSUB		0x01c		/*   28 */
+#define FMADD		0x01d		/*   29 */
+#define FNMSUB		0x01e		/*   30 */
+#define FNMADD		0x01f		/*   31 */
 
-#define FCMPU		0x000		
-#define FRSP		0x00c		
-#define FCTIW		0x00e		
-#define FCTIWZ		0x00f		
-#define FCMPO		0x020		
-#define MTFSB1		0x026		
-#define FNEG		0x028		
-#define MCRFS		0x040		
-#define MTFSB0		0x046		
-#define FMR		0x048		
-#define MTFSFI		0x086		
-#define FNABS		0x088		
-#define FABS		0x108		
-#define MFFS		0x247		
-#define MTFSF		0x2c7		
+/* X-Form: */
+#define FCMPU		0x000		/*    0	*/
+#define FRSP		0x00c		/*   12 */
+#define FCTIW		0x00e		/*   14 */
+#define FCTIWZ		0x00f		/*   15 */
+#define FCMPO		0x020		/*   32 */
+#define MTFSB1		0x026		/*   38 */
+#define FNEG		0x028		/*   40 */
+#define MCRFS		0x040		/*   64 */
+#define MTFSB0		0x046		/*   70 */
+#define FMR		0x048		/*   72 */
+#define MTFSFI		0x086		/*  134 */
+#define FNABS		0x088		/*  136 */
+#define FABS		0x108		/*  264 */
+#define MFFS		0x247		/*  583 */
+#define MTFSF		0x2c7		/*  711 */
 
 
 #define AB	2
@@ -182,6 +190,7 @@ record_exception(struct pt_regs *regs, int eflag)
 			fpscr |= FPSCR_VXCVI;
 	}
 
+//	fpscr &= ~(FPSCR_VX);
 	if (fpscr & (FPSCR_VXSNAN | FPSCR_VXISI | FPSCR_VXIDI |
 		     FPSCR_VXZDZ | FPSCR_VXIMZ | FPSCR_VXVC |
 		     FPSCR_VXSOFT | FPSCR_VXSQRT | FPSCR_VXCVI))
@@ -199,7 +208,7 @@ record_exception(struct pt_regs *regs, int eflag)
 
 	return (fpscr & FPSCR_FEX) ? 1 : 0;
 }
-#endif 
+#endif /* CONFIG_MATH_EMULATION */
 
 int
 do_mathemu(struct pt_regs *regs)
@@ -258,7 +267,7 @@ do_mathemu(struct pt_regs *regs)
 	default:
 		goto illegal;
 	}
-#else 
+#else /* CONFIG_MATH_EMULATION */
 	switch (insn >> 26) {
 	case LFS:	func = lfs;	type = D;	break;
 	case LFSU:	func = lfs;	type = DU;	break;
@@ -470,7 +479,7 @@ do_mathemu(struct pt_regs *regs)
 	default:
 		break;
 	}
-#endif 
+#endif /* CONFIG_MATH_EMULATION */
 
 	regs->nip += 4;
 	return 0;

@@ -30,4 +30,4 @@ int mwifiex_11n_aggregate_pkt(struct mwifiex_private *priv,
 			      int ptr_index, unsigned long flags)
 			      __releases(&priv->wmm.ra_list_spinlock);
 
-#endif 
+#endif /* !_MWIFIEX_11N_AGGR_H_ */

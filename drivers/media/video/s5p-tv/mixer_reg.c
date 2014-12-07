@@ -17,6 +17,7 @@
 
 #include <linux/delay.h>
 
+/* Register access subroutines */
 
 static inline u32 vp_read(struct mxr_device *mdev, u32 reg_id)
 {
@@ -58,7 +59,7 @@ static inline void mxr_write_mask(struct mxr_device *mdev, u32 reg_id,
 
 void mxr_vsync_set_update(struct mxr_device *mdev, int en)
 {
-	
+	/* block update on vsync */
 	mxr_write_mask(mdev, MXR_STATUS, en ? MXR_STATUS_SYNC_ENABLE : 0,
 		MXR_STATUS_SYNC_ENABLE);
 	vp_write(mdev, VP_SHADOW_UPDATE, en ? VP_SHADOW_UPDATE_ENABLE : 0);
@@ -70,7 +71,7 @@ static void __mxr_reg_vp_reset(struct mxr_device *mdev)
 
 	vp_write(mdev, VP_SRESET, VP_SRESET_PROCESSING);
 	for (tries = 100; tries; --tries) {
-		
+		/* waiting until VP_SRESET_PROCESSING is 0 */
 		if (~vp_read(mdev, VP_SRESET) & VP_SRESET_PROCESSING)
 			break;
 		mdelay(10);
@@ -83,43 +84,49 @@ static void mxr_reg_vp_default_filter(struct mxr_device *mdev);
 void mxr_reg_reset(struct mxr_device *mdev)
 {
 	unsigned long flags;
-	u32 val; 
+	u32 val; /* value stored to register */
 
 	spin_lock_irqsave(&mdev->reg_slock, flags);
 	mxr_vsync_set_update(mdev, MXR_DISABLE);
 
-	
+	/* set output in RGB888 mode */
 	mxr_write(mdev, MXR_CFG, MXR_CFG_OUT_RGB888);
 
-	
+	/* 16 beat burst in DMA */
 	mxr_write_mask(mdev, MXR_STATUS, MXR_STATUS_16_BURST,
 		MXR_STATUS_BURST_MASK);
 
+	/* setting default layer priority: layer1 > video > layer0
+	 * because typical usage scenario would be
+	 * layer0 - framebuffer
+	 * video - video overlay
+	 * layer1 - OSD
+	 */
 	val  = MXR_LAYER_CFG_GRP0_VAL(1);
 	val |= MXR_LAYER_CFG_VP_VAL(2);
 	val |= MXR_LAYER_CFG_GRP1_VAL(3);
 	mxr_write(mdev, MXR_LAYER_CFG, val);
 
-	
+	/* use dark gray background color */
 	mxr_write(mdev, MXR_BG_COLOR0, 0x808080);
 	mxr_write(mdev, MXR_BG_COLOR1, 0x808080);
 	mxr_write(mdev, MXR_BG_COLOR2, 0x808080);
 
-	
+	/* setting graphical layers */
 
-	val  = MXR_GRP_CFG_COLOR_KEY_DISABLE; 
-	val |= MXR_GRP_CFG_BLEND_PRE_MUL; 
-	val |= MXR_GRP_CFG_ALPHA_VAL(0xff); 
+	val  = MXR_GRP_CFG_COLOR_KEY_DISABLE; /* no blank key */
+	val |= MXR_GRP_CFG_BLEND_PRE_MUL; /* premul mode */
+	val |= MXR_GRP_CFG_ALPHA_VAL(0xff); /* non-transparent alpha */
 
-	
+	/* the same configuration for both layers */
 	mxr_write(mdev, MXR_GRAPHIC_CFG(0), val);
 	mxr_write(mdev, MXR_GRAPHIC_CFG(1), val);
 
-	
+	/* configuration of Video Processor Registers */
 	__mxr_reg_vp_reset(mdev);
 	mxr_reg_vp_default_filter(mdev);
 
-	
+	/* enable all interrupts */
 	mxr_write_mask(mdev, MXR_INT_EN, ~0, MXR_INT_EN_ALL);
 
 	mxr_vsync_set_update(mdev, MXR_ENABLE);
@@ -135,11 +142,11 @@ void mxr_reg_graph_format(struct mxr_device *mdev, int idx,
 	spin_lock_irqsave(&mdev->reg_slock, flags);
 	mxr_vsync_set_update(mdev, MXR_DISABLE);
 
-	
+	/* setup format */
 	mxr_write_mask(mdev, MXR_GRAPHIC_CFG(idx),
 		MXR_GRP_CFG_FORMAT_VAL(fmt->cookie), MXR_GRP_CFG_FORMAT_MASK);
 
-	
+	/* setup geometry */
 	mxr_write(mdev, MXR_GRAPHIC_SPAN(idx), geo->src.full_width);
 	val  = MXR_GRP_WH_WIDTH(geo->src.width);
 	val |= MXR_GRP_WH_HEIGHT(geo->src.height);
@@ -147,12 +154,12 @@ void mxr_reg_graph_format(struct mxr_device *mdev, int idx,
 	val |= MXR_GRP_WH_V_SCALE(geo->y_ratio);
 	mxr_write(mdev, MXR_GRAPHIC_WH(idx), val);
 
-	
+	/* setup offsets in source image */
 	val  = MXR_GRP_SXY_SX(geo->src.x_offset);
 	val |= MXR_GRP_SXY_SY(geo->src.y_offset);
 	mxr_write(mdev, MXR_GRAPHIC_SXY(idx), val);
 
-	
+	/* setup offsets in display image */
 	val  = MXR_GRP_DXY_DX(geo->dst.x_offset);
 	val |= MXR_GRP_DXY_DY(geo->dst.y_offset);
 	mxr_write(mdev, MXR_GRAPHIC_DXY(idx), val);
@@ -171,10 +178,10 @@ void mxr_reg_vp_format(struct mxr_device *mdev,
 
 	vp_write_mask(mdev, VP_MODE, fmt->cookie, VP_MODE_FMT_MASK);
 
-	
+	/* setting size of input image */
 	vp_write(mdev, VP_IMG_SIZE_Y, VP_IMG_HSIZE(geo->src.full_width) |
 		VP_IMG_VSIZE(geo->src.full_height));
-	
+	/* chroma height has to reduced by 2 to avoid chroma distorions */
 	vp_write(mdev, VP_IMG_SIZE_C, VP_IMG_HSIZE(geo->src.full_width) |
 		VP_IMG_VSIZE(geo->src.full_height / 2));
 
@@ -233,7 +240,7 @@ void mxr_reg_vp_buffer(struct mxr_device *mdev,
 
 	mxr_write_mask(mdev, MXR_CFG, val, MXR_CFG_VP_ENABLE);
 	vp_write_mask(mdev, VP_ENABLE, val, VP_ENABLE_ON);
-	
+	/* TODO: fix tiled mode */
 	vp_write(mdev, VP_TOP_Y_PTR, luma_addr[0]);
 	vp_write(mdev, VP_TOP_C_PTR, chroma_addr[0]);
 	vp_write(mdev, VP_BOT_Y_PTR, luma_addr[1]);
@@ -248,7 +255,7 @@ static void mxr_irq_layer_handle(struct mxr_layer *layer)
 	struct list_head *head = &layer->enq_list;
 	struct mxr_buffer *done;
 
-	
+	/* skip non-existing layer */
 	if (layer == NULL)
 		return;
 
@@ -286,22 +293,22 @@ irqreturn_t mxr_irq_handler(int irq, void *dev_data)
 	spin_lock(&mdev->reg_slock);
 	val = mxr_read(mdev, MXR_INT_STATUS);
 
-	
+	/* wake up process waiting for VSYNC */
 	if (val & MXR_INT_STATUS_VSYNC) {
 		set_bit(MXR_EVENT_VSYNC, &mdev->event_flags);
 		wake_up(&mdev->event_queue);
 	}
 
-	
+	/* clear interrupts */
 	if (~val & MXR_INT_EN_VSYNC) {
-		
+		/* vsync interrupt use different bit for read and clear */
 		val &= ~MXR_INT_EN_VSYNC;
 		val |= MXR_INT_CLEAR_VSYNC;
 	}
 	mxr_write(mdev, MXR_INT_STATUS, val);
 
 	spin_unlock(&mdev->reg_slock);
-	
+	/* leave on non-vsync event */
 	if (~val & MXR_INT_CLEAR_VSYNC)
 		return IRQ_HANDLED;
 	for (i = 0; i < MXR_MAX_LAYERS; ++i)
@@ -322,9 +329,9 @@ void mxr_reg_streamon(struct mxr_device *mdev)
 	unsigned long flags;
 
 	spin_lock_irqsave(&mdev->reg_slock, flags);
-	
+	/* single write -> no need to block vsync update */
 
-	
+	/* start MIXER */
 	mxr_write_mask(mdev, MXR_STATUS, ~0, MXR_STATUS_REG_RUN);
 
 	spin_unlock_irqrestore(&mdev->reg_slock, flags);
@@ -335,9 +342,9 @@ void mxr_reg_streamoff(struct mxr_device *mdev)
 	unsigned long flags;
 
 	spin_lock_irqsave(&mdev->reg_slock, flags);
-	
+	/* single write -> no need to block vsync update */
 
-	
+	/* stop MIXER */
 	mxr_write_mask(mdev, MXR_STATUS, 0, MXR_STATUS_REG_RUN);
 
 	spin_unlock_irqrestore(&mdev->reg_slock, flags);
@@ -348,7 +355,7 @@ int mxr_reg_wait4vsync(struct mxr_device *mdev)
 	int ret;
 
 	clear_bit(MXR_EVENT_VSYNC, &mdev->event_flags);
-	
+	/* TODO: consider adding interruptible */
 	ret = wait_event_timeout(mdev->event_queue,
 		test_bit(MXR_EVENT_VSYNC, &mdev->event_flags),
 		msecs_to_jiffies(1000));
@@ -369,19 +376,19 @@ void mxr_reg_set_mbus_fmt(struct mxr_device *mdev,
 	spin_lock_irqsave(&mdev->reg_slock, flags);
 	mxr_vsync_set_update(mdev, MXR_DISABLE);
 
-	
+	/* selecting colorspace accepted by output */
 	if (fmt->colorspace == V4L2_COLORSPACE_JPEG)
 		val |= MXR_CFG_OUT_YUV444;
 	else
 		val |= MXR_CFG_OUT_RGB888;
 
-	
+	/* choosing between interlace and progressive mode */
 	if (fmt->field == V4L2_FIELD_INTERLACED)
 		val |= MXR_CFG_SCAN_INTERLACE;
 	else
 		val |= MXR_CFG_SCAN_PROGRASSIVE;
 
-	
+	/* choosing between porper HD and SD mode */
 	if (fmt->height == 480)
 		val |= MXR_CFG_SCAN_NTSC | MXR_CFG_SCAN_SD;
 	else if (fmt->height == 576)
@@ -406,12 +413,12 @@ void mxr_reg_set_mbus_fmt(struct mxr_device *mdev,
 
 void mxr_reg_graph_layer_stream(struct mxr_device *mdev, int idx, int en)
 {
-	
+	/* no extra actions need to be done */
 }
 
 void mxr_reg_vp_layer_stream(struct mxr_device *mdev, int en)
 {
-	
+	/* no extra actions need to be done */
 }
 
 static const u8 filter_y_horiz_tap8[] = {
@@ -446,7 +453,7 @@ static const u8 filter_cr_horiz_tap4[] = {
 static inline void mxr_reg_vp_filter_set(struct mxr_device *mdev,
 	int reg_id, const u8 *data, unsigned int size)
 {
-	
+	/* assure 4-byte align */
 	BUG_ON(size & 3);
 	for (; size; size -= 4, reg_id += 4, data += 4) {
 		u32 val = (data[0] << 24) |  (data[1] << 16) |

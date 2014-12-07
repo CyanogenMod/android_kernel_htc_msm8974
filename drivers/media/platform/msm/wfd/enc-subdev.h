@@ -40,6 +40,7 @@ struct mem_region {
 	struct ion_handle *ion_handle;
 };
 
+/* FIXME: need to come with a less stupid name */
 struct mem_region_map {
 	struct mem_region *mregion;
 	struct ion_client *ion_client;
@@ -120,4 +121,4 @@ extern int venc_load_fw(struct v4l2_subdev *sd);
 extern long venc_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg);
 
 
-#endif 
+#endif /* _WFD_ENC_SUBDEV_ */

@@ -37,6 +37,7 @@ static void start_purge_timer(struct bat_priv *bat_priv)
 	queue_delayed_work(bat_event_workqueue, &bat_priv->orig_work, 1 * HZ);
 }
 
+/* returns 1 if they are the same originator */
 static int compare_orig(const struct hlist_node *node, const void *data2)
 {
 	const void *data1 = container_of(node, struct orig_node, hash_entry);
@@ -67,6 +68,7 @@ void neigh_node_free_ref(struct neigh_node *neigh_node)
 		kfree_rcu(neigh_node, rcu);
 }
 
+/* increases the refcounter of a found router */
 struct neigh_node *orig_node_get_router(struct orig_node *orig_node)
 {
 	struct neigh_node *router;
@@ -104,7 +106,7 @@ struct neigh_node *create_neighbor(struct orig_node *orig_node,
 	neigh_node->orig_node = orig_neigh_node;
 	neigh_node->if_incoming = if_incoming;
 
-	
+	/* extra reference for return */
 	atomic_set(&neigh_node->refcount, 2);
 
 	spin_lock_bh(&orig_node->neigh_list_lock);
@@ -123,14 +125,14 @@ static void orig_node_free_rcu(struct rcu_head *rcu)
 
 	spin_lock_bh(&orig_node->neigh_list_lock);
 
-	
+	/* for all bonding members ... */
 	list_for_each_entry_safe(neigh_node, tmp_neigh_node,
 				 &orig_node->bond_list, bonding_list) {
 		list_del_rcu(&neigh_node->bonding_list);
 		neigh_node_free_ref(neigh_node);
 	}
 
-	
+	/* for all neighbors towards this originator ... */
 	hlist_for_each_entry_safe(neigh_node, node, node_tmp,
 				  &orig_node->neigh_list, list) {
 		hlist_del_rcu(&neigh_node->list);
@@ -160,7 +162,7 @@ void originator_free(struct bat_priv *bat_priv)
 	struct hashtable_t *hash = bat_priv->orig_hash;
 	struct hlist_node *node, *node_tmp;
 	struct hlist_head *head;
-	spinlock_t *list_lock; 
+	spinlock_t *list_lock; /* spinlock to protect write access */
 	struct orig_node *orig_node;
 	uint32_t i;
 
@@ -188,6 +190,8 @@ void originator_free(struct bat_priv *bat_priv)
 	hash_destroy(hash);
 }
 
+/* this function finds or creates an originator entry for the given
+ * address if it does not exits */
 struct orig_node *get_orig_node(struct bat_priv *bat_priv, const uint8_t *addr)
 {
 	struct orig_node *orig_node;
@@ -212,7 +216,7 @@ struct orig_node *get_orig_node(struct bat_priv *bat_priv, const uint8_t *addr)
 	spin_lock_init(&orig_node->neigh_list_lock);
 	spin_lock_init(&orig_node->tt_buff_lock);
 
-	
+	/* extra reference for return */
 	atomic_set(&orig_node->refcount, 2);
 
 	orig_node->tt_initialised = false;
@@ -274,7 +278,7 @@ static bool purge_orig_neighbors(struct bat_priv *bat_priv,
 
 	spin_lock_bh(&orig_node->neigh_list_lock);
 
-	
+	/* for all neighbors towards this originator ... */
 	hlist_for_each_entry_safe(neigh_node, node, node_tmp,
 				  &orig_node->neigh_list, list) {
 
@@ -339,14 +343,14 @@ static void _purge_orig(struct bat_priv *bat_priv)
 	struct hashtable_t *hash = bat_priv->orig_hash;
 	struct hlist_node *node, *node_tmp;
 	struct hlist_head *head;
-	spinlock_t *list_lock; 
+	spinlock_t *list_lock; /* spinlock to protect write access */
 	struct orig_node *orig_node;
 	uint32_t i;
 
 	if (!hash)
 		return;
 
-	
+	/* for all origins... */
 	for (i = 0; i < hash->size; i++) {
 		head = &hash->table[i];
 		list_lock = &hash->list_locks[i];
@@ -514,6 +518,8 @@ int orig_hash_add_if(struct hard_iface *hard_iface, int max_if_num)
 	uint32_t i;
 	int ret;
 
+	/* resize all orig nodes because orig_node->bcast_own(_sum) depend on
+	 * if_num */
 	for (i = 0; i < hash->size; i++) {
 		head = &hash->table[i];
 
@@ -542,7 +548,7 @@ static int orig_node_del_if(struct orig_node *orig_node,
 	void *data_ptr = NULL;
 	int chunk_size;
 
-	
+	/* last interface was removed */
 	if (max_if_num == 0)
 		goto free_bcast_own;
 
@@ -551,10 +557,10 @@ static int orig_node_del_if(struct orig_node *orig_node,
 	if (!data_ptr)
 		return -1;
 
-	
+	/* copy first part */
 	memcpy(data_ptr, orig_node->bcast_own, del_if_num * chunk_size);
 
-	
+	/* copy second part */
 	memcpy((char *)data_ptr + del_if_num * chunk_size,
 	       orig_node->bcast_own + ((del_if_num + 1) * chunk_size),
 	       (max_if_num - del_if_num) * chunk_size);
@@ -595,6 +601,8 @@ int orig_hash_del_if(struct hard_iface *hard_iface, int max_if_num)
 	uint32_t i;
 	int ret;
 
+	/* resize all orig nodes because orig_node->bcast_own(_sum) depend on
+	 * if_num */
 	for (i = 0; i < hash->size; i++) {
 		head = &hash->table[i];
 
@@ -611,7 +619,7 @@ int orig_hash_del_if(struct hard_iface *hard_iface, int max_if_num)
 		rcu_read_unlock();
 	}
 
-	
+	/* renumber remaining batman interfaces _inside_ of orig_hash_lock */
 	rcu_read_lock();
 	list_for_each_entry_rcu(hard_iface_tmp, &hardif_list, list) {
 		if (hard_iface_tmp->if_status == IF_NOT_IN_USE)

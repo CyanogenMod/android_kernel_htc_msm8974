@@ -46,13 +46,13 @@ static void __init micrel_init(void)
 	ks8695_init_pci(&micrel_pci);
 #endif
 
-	
-	ks8695_add_device_wan();	
-	ks8695_add_device_lan();	
+	/* Add devices */
+	ks8695_add_device_wan();	/* eth0 = WAN */
+	ks8695_add_device_lan();	/* eth1 = LAN */
 }
 
 MACHINE_START(KS8695, "KS8695 Centaur Development Board")
-	
+	/* Maintainer: Micrel Semiconductor Inc. */
 	.atag_offset	= 0x100,
 	.map_io		= ks8695_map_io,
 	.init_irq	= ks8695_init_irq,

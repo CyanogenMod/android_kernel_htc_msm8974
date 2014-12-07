@@ -51,6 +51,7 @@ MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Yamaha/SEGA, AICA}}");
 MODULE_FIRMWARE("aica_firmware.bin");
 
+/* module parameters */
 #define CARD_NAME "AICA"
 static int index = -1;
 static char *id;
@@ -62,8 +63,10 @@ MODULE_PARM_DESC(id, "ID string for " CARD_NAME " soundcard.");
 module_param(enable, bool, 0644);
 MODULE_PARM_DESC(enable, "Enable " CARD_NAME " soundcard.");
 
+/* Use workqueue */
 static struct workqueue_struct *aica_queue;
 
+/* Simple platform device */
 static struct platform_device *pd;
 static struct resource aica_memory_space[2] = {
 	{
@@ -80,6 +83,8 @@ static struct resource aica_memory_space[2] = {
 	 },
 };
 
+/* SPU specific functions */
+/* spu_write_wait - wait for G2-SH FIFO to clear */
 static void spu_write_wait(void)
 {
 	int time_count;
@@ -87,7 +92,7 @@ static void spu_write_wait(void)
 	while (1) {
 		if (!(readl(G2_FIFO) & 0x11))
 			break;
-		
+		/* To ensure hardware failure doesn't wedge kernel */
 		time_count++;
 		if (time_count > 0x10000) {
 			snd_printk
@@ -97,6 +102,7 @@ static void spu_write_wait(void)
 	}
 }
 
+/* spu_memset - write to memory in SPU address space */
 static void spu_memset(u32 toi, u32 what, int length)
 {
 	int i;
@@ -113,6 +119,7 @@ static void spu_memset(u32 toi, u32 what, int length)
 	}
 }
 
+/* spu_memload - write to SPU address space */
 static void spu_memload(u32 toi, void *from, int length)
 {
 	unsigned long flags;
@@ -134,6 +141,7 @@ static void spu_memload(u32 toi, void *from, int length)
 	}
 }
 
+/* spu_disable - set spu registers to stop sound output */
 static void spu_disable(void)
 {
 	int i;
@@ -157,6 +165,7 @@ static void spu_disable(void)
 	}
 }
 
+/* spu_enable - set spu registers to enable sound output */
 static void spu_enable(void)
 {
 	unsigned long flags;
@@ -168,18 +177,23 @@ static void spu_enable(void)
 	local_irq_restore(flags);
 }
 
+/* 
+ * Halt the sound processor, clear the memory,
+ * load some default ARM7 code, and then restart ARM7
+*/
 static void spu_reset(void)
 {
 	unsigned long flags;
 	spu_disable();
 	spu_memset(0, 0, 0x200000 / 4);
-	
+	/* Put ARM7 in endless loop */
 	local_irq_save(flags);
 	__raw_writel(0xea000002, SPU_MEMORY_BASE);
 	local_irq_restore(flags);
 	spu_enable();
 }
 
+/* aica_chn_start - write to spu to start playback */
 static void aica_chn_start(void)
 {
 	unsigned long flags;
@@ -189,6 +203,7 @@ static void aica_chn_start(void)
 	local_irq_restore(flags);
 }
 
+/* aica_chn_halt - write to spu to halt playback */
 static void aica_chn_halt(void)
 {
 	unsigned long flags;
@@ -198,6 +213,7 @@ static void aica_chn_halt(void)
 	local_irq_restore(flags);
 }
 
+/* ALSA code below */
 static struct snd_pcm_hardware snd_pcm_aica_playback_hw = {
 	.info = (SNDRV_PCM_INFO_NONINTERLEAVED),
 	.formats =
@@ -288,7 +304,7 @@ static void run_spu_dma(struct work_struct *work)
 
 static void aica_period_elapsed(unsigned long timer_var)
 {
-	
+	/*timer function - so cannot sleep */
 	int play_period;
 	struct snd_pcm_runtime *runtime;
 	struct snd_pcm_substream *substream;
@@ -296,14 +312,14 @@ static void aica_period_elapsed(unsigned long timer_var)
 	substream = (struct snd_pcm_substream *) timer_var;
 	runtime = substream->runtime;
 	dreamcastcard = substream->pcm->private_data;
-	
+	/* Have we played out an additional period? */
 	play_period =
 	    frames_to_bytes(runtime,
 			    readl
 			    (AICA_CONTROL_CHANNEL_SAMPLE_NUMBER)) /
 	    AICA_PERIOD_SIZE;
 	if (play_period == dreamcastcard->current_period) {
-		
+		/* reschedule the timer */
 		mod_timer(&(dreamcastcard->timer), jiffies + 1);
 		return;
 	}
@@ -320,9 +336,9 @@ static void spu_begin_dma(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime;
 	runtime = substream->runtime;
 	dreamcastcard = substream->pcm->private_data;
-	
+	/*get the queue to do the work */
 	queue_work(aica_queue, &(dreamcastcard->spu_dma_work));
-	
+	/* Timer may already be running */
 	if (unlikely(dreamcastcard->timer.data)) {
 		mod_timer(&dreamcastcard->timer, jiffies + 4);
 		return;
@@ -346,13 +362,13 @@ static int snd_aicapcm_pcm_open(struct snd_pcm_substream
 	channel = kmalloc(sizeof(struct aica_channel), GFP_KERNEL);
 	if (!channel)
 		return -ENOMEM;
-	
+	/* set defaults for channel */
 	channel->sfmt = SM_8BIT;
 	channel->cmd = AICA_CMD_START;
 	channel->vol = dreamcastcard->master_volume;
 	channel->pan = 0x80;
 	channel->pos = 0;
-	channel->flags = 0;	
+	channel->flags = 0;	/* default to mono */
 	dreamcastcard->channel = channel;
 	runtime = substream->runtime;
 	runtime->hw = snd_pcm_aica_playback_hw;
@@ -378,7 +394,7 @@ static int snd_aicapcm_pcm_close(struct snd_pcm_substream
 static int snd_aicapcm_pcm_hw_free(struct snd_pcm_substream
 				   *substream)
 {
-	
+	/* Free the DMA buffer */
 	return snd_pcm_lib_free_pages(substream);
 }
 
@@ -386,7 +402,7 @@ static int snd_aicapcm_pcm_hw_params(struct snd_pcm_substream
 				     *substream, struct snd_pcm_hw_params
 				     *hw_params)
 {
-	
+	/* Allocate a DMA buffer using ALSA built-ins */
 	return
 	    snd_pcm_lib_malloc_pages(substream,
 				     params_buffer_bytes(hw_params));
@@ -436,12 +452,13 @@ static struct snd_pcm_ops snd_aicapcm_playback_ops = {
 	.pointer = snd_aicapcm_pcm_pointer,
 };
 
+/* TO DO: set up to handle more than one pcm instance */
 static int __init snd_aicapcmchip(struct snd_card_aica
 				  *dreamcastcard, int pcm_index)
 {
 	struct snd_pcm *pcm;
 	int err;
-	
+	/* AICA has no capture ability */
 	err =
 	    snd_pcm_new(dreamcastcard->card, "AICA PCM", pcm_index, 1, 0,
 			&pcm);
@@ -451,7 +468,7 @@ static int __init snd_aicapcmchip(struct snd_card_aica
 	strcpy(pcm->name, "AICA PCM");
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK,
 			&snd_aicapcm_playback_ops);
-	
+	/* Allocate the DMA buffers */
 	err =
 	    snd_pcm_lib_preallocate_pages_for_all(pcm,
 						  SNDRV_DMA_TYPE_CONTINUOUS,
@@ -462,12 +479,13 @@ static int __init snd_aicapcmchip(struct snd_card_aica
 	return err;
 }
 
+/* Mixer controls */
 #define aica_pcmswitch_info		snd_ctl_boolean_mono_info
 
 static int aica_pcmswitch_get(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_value *ucontrol)
 {
-	ucontrol->value.integer.value[0] = 1;	
+	ucontrol->value.integer.value[0] = 1;	/* TO DO: Fix me */
 	return 0;
 }
 
@@ -475,7 +493,7 @@ static int aica_pcmswitch_put(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_value *ucontrol)
 {
 	if (ucontrol->value.integer.value[0] == 1)
-		return 0;	
+		return 0;	/* TO DO: Fix me */
 	else
 		aica_chn_halt();
 	return 0;
@@ -497,7 +515,7 @@ static int aica_pcmvolume_get(struct snd_kcontrol *kcontrol,
 	struct snd_card_aica *dreamcastcard;
 	dreamcastcard = kcontrol->private_data;
 	if (unlikely(!dreamcastcard->channel))
-		return -ETXTBSY;	
+		return -ETXTBSY;	/* we've not yet been set up */
 	ucontrol->value.integer.value[0] = dreamcastcard->channel->vol;
 	return 0;
 }
@@ -548,7 +566,7 @@ static int load_aica_firmware(void)
 	err = request_firmware(&fw_entry, "aica_firmware.bin", &pd->dev);
 	if (unlikely(err))
 		return err;
-	
+	/* write firmware into memory */
 	spu_disable();
 	spu_memload(0, fw_entry->data, fw_entry->size);
 	spu_enable();
@@ -602,20 +620,20 @@ static int __devinit snd_aica_probe(struct platform_device *devptr)
 	strcpy(dreamcastcard->card->shortname, SND_AICA_DRIVER);
 	strcpy(dreamcastcard->card->longname,
 	       "Yamaha AICA Super Intelligent Sound Processor for SEGA Dreamcast");
-	
+	/* Prepare to use the queue */
 	INIT_WORK(&(dreamcastcard->spu_dma_work), run_spu_dma);
-	
+	/* Load the PCM 'chip' */
 	err = snd_aicapcmchip(dreamcastcard, 0);
 	if (unlikely(err < 0))
 		goto freedreamcast;
 	snd_card_set_dev(dreamcastcard->card, &devptr->dev);
 	dreamcastcard->timer.data = 0;
 	dreamcastcard->channel = NULL;
-	
+	/* Add basic controls */
 	err = add_aicamixer_controls(dreamcastcard);
 	if (unlikely(err < 0))
 		goto freedreamcast;
-	
+	/* Register the card with ALSA subsystem */
 	err = snd_card_register(dreamcastcard->card);
 	if (unlikely(err < 0))
 		goto freedreamcast;
@@ -651,17 +669,19 @@ static int __init aica_init(void)
 		platform_driver_unregister(&snd_aica_driver);
 		return PTR_ERR(pd);
 	}
-	
+	/* Load the firmware */
 	return load_aica_firmware();
 }
 
 static void __exit aica_exit(void)
 {
+	/* Destroy the aica kernel thread            *
+	 * being extra cautious to check if it exists*/
 	if (likely(aica_queue))
 		destroy_workqueue(aica_queue);
 	platform_device_unregister(pd);
 	platform_driver_unregister(&snd_aica_driver);
-	
+	/* Kill any sound still playing and reset ARM7 to safe state */
 	spu_reset();
 }
 

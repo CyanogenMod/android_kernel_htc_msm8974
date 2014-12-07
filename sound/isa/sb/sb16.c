@@ -66,21 +66,21 @@ MODULE_SUPPORTED_DEVICE("{{Creative Labs,SB AWE 32},"
 #define SNDRV_SBAWE_EMU8000
 #endif
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; /* Enable this card */
 #ifdef CONFIG_PNP
 static bool isapnp[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
 #endif
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x220,0x240,0x260,0x280 */
+static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x330,0x300 */
 static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 #ifdef SNDRV_SBAWE_EMU8000
 static long awe_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 #endif
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma8[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma16[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 5,7,9,10 */
+static int dma8[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3 */
+static int dma16[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 5,6,7 */
 static int mic_agc[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
 #ifdef CONFIG_SND_SB16_CSP
 static int csp[SNDRV_CARDS];
@@ -132,7 +132,7 @@ static int pnp_registered;
 #endif
 
 struct snd_card_sb16 {
-	struct resource *fm_res;	
+	struct resource *fm_res;	/* used to block FM i/o region for legacy cards */
 	struct snd_sb *chip;
 #ifdef CONFIG_PNP
 	int dev_no;
@@ -147,100 +147,100 @@ struct snd_card_sb16 {
 
 static struct pnp_card_device_id snd_sb16_pnpids[] = {
 #ifndef SNDRV_SBAWE
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL0024", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL0025", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL0026", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL0027", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL0028", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL0029", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL002a", .devs = { { "CTL0031" } } },
-	
-	
+	/* Sound Blaster 16 PnP */
+	/* Note: This card has also a CTL0051:StereoEnhance device!!! */
 	{ .id = "CTL002b", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster 16 PnP */
 	{ .id = "CTL002c", .devs = { { "CTL0031" } } },
-	
+	/* Sound Blaster Vibra16S */
 	{ .id = "CTL0051", .devs = { { "CTL0001" } } },
-	
+	/* Sound Blaster Vibra16C */
 	{ .id = "CTL0070", .devs = { { "CTL0001" } } },
-	
+	/* Sound Blaster Vibra16CL - added by ctm@ardi.com */
 	{ .id = "CTL0080", .devs = { { "CTL0041" } } },
-	
-	
+	/* Sound Blaster 16 'value' PnP. It says model ct4130 on the pcb, */
+	/* but ct4131 on a sticker on the board.. */
 	{ .id = "CTL0086", .devs = { { "CTL0041" } } },
-	
+	/* Sound Blaster Vibra16X */
 	{ .id = "CTL00f0", .devs = { { "CTL0043" } } },
-	
+	/* Sound Blaster 16 (Virtual PC 2004) */
 	{ .id = "tBA03b0", .devs = { {.id="PNPb003" } } },
-#else  
-	
+#else  /* SNDRV_SBAWE defined */
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0035", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0039", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0042", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0043", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
-	
+	/* Sound Blaster AWE 32 PnP */
+	/* Note: This card has also a CTL0051:StereoEnhance device!!! */
 	{ .id = "CTL0044", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
-	
+	/* Sound Blaster AWE 32 PnP */
+	/* Note: This card has also a CTL0051:StereoEnhance device!!! */
 	{ .id = "CTL0045", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0046", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0047", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0048", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL0054", .devs = { { "CTL0031" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL009a", .devs = { { "CTL0041" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 32 PnP */
 	{ .id = "CTL009c", .devs = { { "CTL0041" }, { "CTL0021" } } },
-	
+	/* Sound Blaster 32 PnP */
 	{ .id = "CTL009f", .devs = { { "CTL0041" }, { "CTL0021" } } },
-	
+	/* Sound Blaster AWE 64 PnP */
 	{ .id = "CTL009d", .devs = { { "CTL0042" }, { "CTL0022" } } },
-	
+	/* Sound Blaster AWE 64 PnP Gold */
 	{ .id = "CTL009e", .devs = { { "CTL0044" }, { "CTL0023" } } },
-	
+	/* Sound Blaster AWE 64 PnP Gold */
 	{ .id = "CTL00b2", .devs = { { "CTL0044" }, { "CTL0023" } } },
-	
+	/* Sound Blaster AWE 64 PnP */
 	{ .id = "CTL00c1", .devs = { { "CTL0042" }, { "CTL0022" } } },
-	
+	/* Sound Blaster AWE 64 PnP */
 	{ .id = "CTL00c3", .devs = { { "CTL0045" }, { "CTL0022" } } },
-	
+	/* Sound Blaster AWE 64 PnP */
 	{ .id = "CTL00c5", .devs = { { "CTL0045" }, { "CTL0022" } } },
-	
+	/* Sound Blaster AWE 64 PnP */
 	{ .id = "CTL00c7", .devs = { { "CTL0045" }, { "CTL0022" } } },
-	
+	/* Sound Blaster AWE 64 PnP */
 	{ .id = "CTL00e4", .devs = { { "CTL0045" }, { "CTL0022" } } },
-	
+	/* Sound Blaster AWE 64 PnP */
 	{ .id = "CTL00e9", .devs = { { "CTL0045" }, { "CTL0022" } } },
-	
+	/* Sound Blaster 16 PnP (AWE) */
 	{ .id = "CTL00ed", .devs = { { "CTL0041" }, { "CTL0070" } } },
-	
+	/* Generic entries */
 	{ .id = "CTLXXXX" , .devs = { { "CTL0031" }, { "CTL0021" } } },
 	{ .id = "CTLXXXX" , .devs = { { "CTL0041" }, { "CTL0021" } } },
 	{ .id = "CTLXXXX" , .devs = { { "CTL0042" }, { "CTL0022" } } },
 	{ .id = "CTLXXXX" , .devs = { { "CTL0044" }, { "CTL0023" } } },
 	{ .id = "CTLXXXX" , .devs = { { "CTL0045" }, { "CTL0022" } } },
-#endif 
+#endif /* SNDRV_SBAWE */
 	{ .id = "", }
 };
 
 MODULE_DEVICE_TABLE(pnp_card, snd_sb16_pnpids);
 
-#endif 
+#endif /* CONFIG_PNP */
 
 #ifdef SNDRV_SBAWE_EMU8000
 #define DRIVER_NAME	"snd-card-sbawe"
@@ -264,7 +264,7 @@ static int __devinit snd_card_sb16_pnp(int dev, struct snd_card_sb16 *acard,
 #ifdef SNDRV_SBAWE_EMU8000
 	acard->devwt = pnp_request_card_device(card, id->devs[1].id, acard->dev);
 #endif
-	
+	/* Audio initialization */
 	pdev = acard->dev;
 
 	err = pnp_activate_dev(pdev); 
@@ -283,7 +283,7 @@ static int __devinit snd_card_sb16_pnp(int dev, struct snd_card_sb16 *acard,
 	snd_printdd("pnp SB16: dma1=%i, dma2=%i, irq=%i\n",
 			dma8[dev], dma16[dev], irq[dev]);
 #ifdef SNDRV_SBAWE_EMU8000
-	
+	/* WaveTable initialization */
 	pdev = acard->devwt;
 	if (pdev != NULL) {
 		err = pnp_activate_dev(pdev); 
@@ -306,7 +306,7 @@ __wt_error:
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PNP */
 
 static void snd_sb16_free(struct snd_card *card)
 {
@@ -403,7 +403,7 @@ static int __devinit snd_sb16_probe(struct snd_card *card, int dev)
 
 #ifdef SNDRV_SBAWE_EMU8000
 	if (awe_port[dev] == SNDRV_AUTO_PORT)
-		awe_port[dev] = 0; 
+		awe_port[dev] = 0; /* disable */
 #endif
 
 	if (fm_port[dev] > 0 && fm_port[dev] != SNDRV_AUTO_PORT) {
@@ -428,7 +428,7 @@ static int __devinit snd_sb16_probe(struct snd_card *card, int dev)
 		return err;
 
 #ifdef CONFIG_SND_SB16_CSP
-	
+	/* CSP chip on SB16ASP/AWE32 */
 	if ((chip->hardware == SB_HW_16) && csp[dev]) {
 		snd_sb_csp_new(chip, synth != NULL ? 1 : 0, &xcsp);
 		if (xcsp) {
@@ -450,7 +450,7 @@ static int __devinit snd_sb16_probe(struct snd_card *card, int dev)
 	}
 #endif
 
-	
+	/* setup Mic AGC */
 	spin_lock_irqsave(&chip->mixer_lock, flags);
 	snd_sbmixer_write(chip, SB_DSP4_MIC_AGC,
 		(snd_sbmixer_read(chip, SB_DSP4_MIC_AGC) & 0x01) |
@@ -498,12 +498,12 @@ static int __devinit snd_sb16_isa_probe1(int dev, struct device *pdev)
 		return err;
 
 	acard = card->private_data;
-	
+	/* non-PnP FM port address is hardwired with base port address */
 	fm_port[dev] = port[dev];
-	
+	/* block the 0x388 port to avoid PnP conflicts */
 	acard->fm_res = request_region(0x388, 4, "SoundBlaster FM");
 #ifdef SNDRV_SBAWE_EMU8000
-	
+	/* non-PnP AWE port address is hardwired with base port address */
 	awe_port[dev] = port[dev] + 0x400;
 #endif
 
@@ -664,7 +664,7 @@ static struct pnp_card_driver sb16_pnpc_driver = {
 #endif
 };
 
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init alsa_card_sb16_init(void)
 {

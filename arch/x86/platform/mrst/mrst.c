@@ -44,6 +44,26 @@
 #include <asm/apb_timer.h>
 #include <asm/reboot.h>
 
+/*
+ * the clockevent devices on Moorestown/Medfield can be APBT or LAPIC clock,
+ * cmdline option x86_mrst_timer can be used to override the configuration
+ * to prefer one or the other.
+ * at runtime, there are basically three timer configurations:
+ * 1. per cpu apbt clock only
+ * 2. per cpu always-on lapic clocks only, this is Penwell/Medfield only
+ * 3. per cpu lapic clock (C3STOP) and one apbt clock, with broadcast.
+ *
+ * by default (without cmdline option), platform code first detects cpu type
+ * to see if we are on lincroft or penwell, then set up both lapic or apbt
+ * clocks accordingly.
+ * i.e. by default, medfield uses configuration #2, moorestown uses #1.
+ * config #3 is supported but not recommended on medfield.
+ *
+ * rating and feature summary:
+ * lapic (with C3STOP) --------- 100
+ * apbt (always-on) ------------ 110
+ * lapic (always-on,ARAT) ------ 150
+ */
 
 __cpuinitdata enum mrst_timer_options mrst_timer_options;
 
@@ -67,6 +87,7 @@ static void mrst_reboot(void)
 	intel_scu_ipc_simple_command(IPCMSG_COLD_BOOT, 0);
 }
 
+/* parse all the mtimer info to a static mtimer array */
 static int __init sfi_parse_mtmr(struct sfi_table_header *table)
 {
 	struct sfi_table_simple *sb;
@@ -93,9 +114,10 @@ static int __init sfi_parse_mtmr(struct sfi_table_header *table)
 				continue;
 			mp_irq.type = MP_INTSRC;
 			mp_irq.irqtype = mp_INT;
+/* triggering mode edge bit 2-3, active high polarity bit 0-1 */
 			mp_irq.irqflag = 5;
 			mp_irq.srcbus = MP_BUS_ISA;
-			mp_irq.srcbusirq = pentry->irq;	
+			mp_irq.srcbusirq = pentry->irq;	/* IRQ */
 			mp_irq.dstapic = MP_APIC_ALL;
 			mp_irq.dstirq = pentry->irq;
 			mp_save_irq(&mp_irq);
@@ -115,7 +137,7 @@ struct sfi_timer_table_entry *sfi_get_mtmr(int hint)
 			return &sfi_mtimer_array[hint];
 		}
 	}
-	
+	/* take the first timer available */
 	for (i = 0; i < sfi_mtimer_num;) {
 		if (!sfi_mtimer_usage[i]) {
 			sfi_mtimer_usage[i] = 1;
@@ -138,6 +160,7 @@ void sfi_free_mtmr(struct sfi_timer_table_entry *mtmr)
 	}
 }
 
+/* parse all the mrtc info to a global mrtc array */
 int __init sfi_parse_mrtc(struct sfi_table_header *table)
 {
 	struct sfi_table_simple *sb;
@@ -162,9 +185,9 @@ int __init sfi_parse_mrtc(struct sfi_table_header *table)
 			totallen, (u32)pentry->phys_addr, pentry->irq);
 		mp_irq.type = MP_INTSRC;
 		mp_irq.irqtype = mp_INT;
-		mp_irq.irqflag = 0xf;	
+		mp_irq.irqflag = 0xf;	/* level trigger and active low */
 		mp_irq.srcbus = MP_BUS_ISA;
-		mp_irq.srcbusirq = pentry->irq;	
+		mp_irq.srcbusirq = pentry->irq;	/* IRQ */
 		mp_irq.dstapic = MP_APIC_ALL;
 		mp_irq.dstirq = pentry->irq;
 		mp_save_irq(&mp_irq);
@@ -194,7 +217,7 @@ static unsigned long __init mrst_calibrate_tsc(void)
 	fast_calibrate = ratio * fsb;
 	pr_debug("read penwell tsc %lu khz\n", fast_calibrate);
 	lapic_timer_frequency = fsb * 1000 / HZ;
-	
+	/* mark tsc clocksource as reliable */
 	set_cpu_cap(&boot_cpu_data, X86_FEATURE_TSC_RELIABLE);
 	
 	if (fast_calibrate)
@@ -220,7 +243,7 @@ static void __init mrst_time_init(void)
 		x86_cpuinit.setup_percpu_clockev = setup_secondary_APIC_clock;
 		return;
 	}
-	
+	/* we need at least one APB timer */
 	pre_init_apic_IRQ0();
 	apbt_time_init();
 }
@@ -236,16 +259,27 @@ static void __cpuinit mrst_arch_setup(void)
 	}
 }
 
+/* MID systems don't have i8042 controller */
 static int mrst_i8042_detect(void)
 {
 	return 0;
 }
 
+/*
+ * Moorestown does not have external NMI source nor port 0x61 to report
+ * NMI status. The possible NMI sources are from pmu as a result of NMI
+ * watchdog or lock debug. Reading io port 0x61 results in 0xff which
+ * misled NMI handler.
+ */
 static unsigned char mrst_get_nmi_reason(void)
 {
 	return 0;
 }
 
+/*
+ * Moorestown specific x86_init function overrides and early setup
+ * calls.
+ */
 void __init x86_mrst_early_setup(void)
 {
 	x86_init.resources.probe_roms = x86_init_noop;
@@ -270,16 +304,20 @@ void __init x86_mrst_early_setup(void)
 
 	legacy_pic = &null_legacy_pic;
 
-	
+	/* Moorestown specific power_off/restart method */
 	pm_power_off = mrst_power_off;
 	machine_ops.emergency_restart  = mrst_reboot;
 
-	
+	/* Avoid searching for BIOS MP tables */
 	x86_init.mpparse.find_smp_config = x86_init_noop;
 	x86_init.mpparse.get_smp_config = x86_init_uint_noop;
 	set_bit(MP_BUS_ISA, mp_bus_not_pci);
 }
 
+/*
+ * if user does not want to use per CPU apb timer, just give it a lower rating
+ * than local apic timer and skip the late per cpu timer init.
+ */
 static inline int __init setup_x86_mrst_timer(char *arg)
 {
 	if (!arg)
@@ -299,6 +337,10 @@ static inline int __init setup_x86_mrst_timer(char *arg)
 }
 __setup("x86_mrst_timer=", setup_x86_mrst_timer);
 
+/*
+ * Parsing GPIO table first, since the DEVS table will need this table
+ * to map the pin name to the actual pin.
+ */
 static struct sfi_gpio_table_entry *gpio_table;
 static int gpio_num_entry;
 
@@ -345,6 +387,11 @@ static int get_gpio_by_name(const char *name)
 	return -1;
 }
 
+/*
+ * Here defines the array of devices platform data that IAFW would export
+ * through SFI "DEVS" table, we use name and type to match the device and
+ * its platform data.
+ */
 struct devs_id {
 	char name[SFI_NAME_LEN + 1];
 	u8 type;
@@ -352,6 +399,7 @@ struct devs_id {
 	void *(*get_platform_data)(void *info);
 };
 
+/* the offset for the mapping of global gpio pin to irq */
 #define MRST_IRQ_OFFSET 0x100
 
 static void __init *pmic_gpio_platform_data(void *info)
@@ -380,6 +428,7 @@ static void __init *max3111_platform_data(void *info)
 	return NULL;
 }
 
+/* we have multiple max7315 on the board ... */
 #define MAX7315_NUM 2
 static void __init *max7315_platform_data(void *info)
 {
@@ -396,6 +445,9 @@ static void __init *max7315_platform_data(void *info)
 				MAX7315_NUM);
 		return NULL;
 	}
+	/* we have several max7315 on the board, we only need load several
+	 * instances of the same pca953x driver to cover them
+	 */
 	strcpy(i2c_info->type, "max7315");
 	if (nr++) {
 		sprintf(base_pin_name, "max7315_%d_base", nr);
@@ -540,6 +592,10 @@ static int __init msic_init(void)
 		.notifier_call	= msic_scu_status_change,
 	};
 
+	/*
+	 * We need to be sure that the SCU IPC is ready before MSIC device
+	 * can be registered.
+	 */
 	if (mrst_has_msic())
 		intel_scu_notifier_add(&msic_scu_notifier);
 
@@ -547,6 +603,14 @@ static int __init msic_init(void)
 }
 arch_initcall(msic_init);
 
+/*
+ * msic_generic_platform_data - sets generic platform data for the block
+ * @info: pointer to the SFI device table entry for this block
+ * @block: MSIC block
+ *
+ * Function sets IRQ number from the SFI table entry for given device to
+ * the MSIC platform data.
+ */
 static void *msic_generic_platform_data(void *info, enum intel_msic_block block)
 {
 	struct sfi_device_table_entry *entry = info;
@@ -613,11 +677,12 @@ static void *msic_thermal_platform_data(void *info)
 	return msic_generic_platform_data(info, INTEL_MSIC_BLOCK_THERMAL);
 }
 
+/* tc35876x DSI-LVDS bridge chip and panel platform data */
 static void *tc35876x_platform_data(void *data)
 {
        static struct tc35876x_platform_data pdata;
 
-       
+       /* gpio pins set to -1 will not be used by the driver */
        pdata.gpio_bridge_reset = get_gpio_by_name("LCMB_RXEN");
        pdata.gpio_panel_bl_en = get_gpio_by_name("6S6P_BL_EN");
        pdata.gpio_panel_vadd = get_gpio_by_name("EN_VREG_LCD_V3P3");
@@ -639,7 +704,7 @@ static const struct devs_id __initconst device_ids[] = {
 	{"mpu3050", SFI_DEV_TYPE_I2C, 1, &mpu3050_platform_data},
 	{"i2c_disp_brig", SFI_DEV_TYPE_I2C, 0, &tc35876x_platform_data},
 
-	
+	/* MSIC subdevices */
 	{"msic_battery", SFI_DEV_TYPE_IPC, 1, &msic_battery_platform_data},
 	{"msic_gpio", SFI_DEV_TYPE_IPC, 1, &msic_gpio_platform_data},
 	{"msic_audio", SFI_DEV_TYPE_IPC, 1, &msic_audio_platform_data},
@@ -716,6 +781,7 @@ static void __init intel_scu_i2c_device_register(int bus,
 BLOCKING_NOTIFIER_HEAD(intel_scu_notifier);
 EXPORT_SYMBOL_GPL(intel_scu_notifier);
 
+/* Called by IPC driver */
 void intel_scu_devices_create(void)
 {
 	int i;
@@ -743,6 +809,7 @@ void intel_scu_devices_create(void)
 }
 EXPORT_SYMBOL_GPL(intel_scu_devices_create);
 
+/* Called by IPC driver */
 void intel_scu_devices_destroy(void)
 {
 	int i;
@@ -756,7 +823,7 @@ EXPORT_SYMBOL_GPL(intel_scu_devices_destroy);
 
 static void __init install_irq_resource(struct platform_device *pdev, int irq)
 {
-	
+	/* Single threaded */
 	static struct resource __initdata res = {
 		.name = "IRQ",
 		.flags = IORESOURCE_IRQ,
@@ -780,6 +847,10 @@ static void __init sfi_handle_ipc_dev(struct sfi_device_table_entry *entry)
 		dev++;
 	}
 
+	/*
+	 * On Medfield the platform device creation is handled by the MSIC
+	 * MFD driver so we don't need to do it here.
+	 */
 	if (mrst_has_msic())
 		return;
 
@@ -854,7 +925,11 @@ static int __init sfi_parse_devs(struct sfi_table_header *table)
 	for (i = 0; i < num; i++, pentry++) {
 		int irq = pentry->irq;
 
-		if (irq != (u8)0xff) { 
+		if (irq != (u8)0xff) { /* native RTE case */
+			/* these SPI2 devices are not exposed to system as PCI
+			 * devices, but they have separate RTE entry in IOAPIC
+			 * so we have to enable them one by one here
+			 */
 			ioapic = mp_find_ioapic(irq);
 			irq_attr.ioapic = ioapic;
 			irq_attr.ioapic_pin = irq;
@@ -862,7 +937,7 @@ static int __init sfi_parse_devs(struct sfi_table_header *table)
 			irq_attr.polarity = 1;
 			io_apic_set_pci_routing(NULL, irq, &irq_attr);
 		} else
-			irq = 0; 
+			irq = 0; /* No irq */
 
 		switch (pentry->type) {
 		case SFI_DEV_TYPE_IPC:
@@ -916,6 +991,11 @@ static int __init mrst_platform_init(void)
 }
 arch_initcall(mrst_platform_init);
 
+/*
+ * we will search these buttons in SFI GPIO table (by name)
+ * and register them dynamically. Please add all possible
+ * buttons here, we will shrink them if no GPIO found.
+ */
 static struct gpio_keys_button gpio_button[] = {
 	{KEY_POWER,		-1, 1, "power_btn",	EV_KEY, 0, 3000},
 	{KEY_PROG1,		-1, 1, "prog_btn1",	EV_KEY, 0, 20},
@@ -932,7 +1012,7 @@ static struct gpio_keys_button gpio_button[] = {
 static struct gpio_keys_platform_data mrst_gpio_keys = {
 	.buttons	= gpio_button,
 	.rep		= 1,
-	.nbuttons	= -1, 
+	.nbuttons	= -1, /* will fill it after search */
 };
 
 static struct platform_device pb_device = {
@@ -943,6 +1023,10 @@ static struct platform_device pb_device = {
 	},
 };
 
+/*
+ * Shrink the non-existent buttons, register the gpio button
+ * device if there is some
+ */
 static int __init pb_keys_init(void)
 {
 	struct gpio_keys_button *gb = gpio_button;

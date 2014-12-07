@@ -45,7 +45,7 @@
 	TEST_ARG_REG(14, 99f+1)					\
 	TEST_ARG_MEM(15, 3f)					\
 	TEST_ARG_END("")					\
-	"	nop			\n\t" 	\
+	"	nop			\n\t" /* To align 1f */	\
 	"50:	nop			\n\t"			\
 	"1:	"code1 #reg code2"	\n\t"			\
 	"	bx	lr		\n\t"			\
@@ -137,7 +137,7 @@ void kprobe_thumb16_test_cases(void)
 	TESTCASE_START("bx	pc")
 		TEST_ARG_REG(14, 99f+1)
 		TEST_ARG_END("")
-		"	nop			\n\t" 
+		"	nop			\n\t" /* To align the bx pc*/
 		"50:	nop			\n\t"
 		"1:	bx	pc		\n\t"
 		"	bx	lr		\n\t"
@@ -216,7 +216,7 @@ void kprobe_thumb16_test_cases(void)
 	TEST_UNSUPPORTED( "setend	le")
 	TEST_UNSUPPORTED( "setend	be")
 
-	TEST("add	sp, #"__stringify(TEST_MEMORY_SIZE)) 
+	TEST("add	sp, #"__stringify(TEST_MEMORY_SIZE)) /* Assumes TEST_MEMORY_SIZE < 0x400 */
 	TEST("sub	sp, #0x7f*4")
 
 DONT_TEST_IN_ITBLOCK(
@@ -272,8 +272,8 @@ DONT_TEST_IN_ITBLOCK(
 	TEST("nop")
 	TEST("wfi")
 	TEST_SUPPORTED("wfe")
-	TEST_UNSUPPORTED(".short 0xbf50") 
-	TEST_UNSUPPORTED(".short 0xbff0") 
+	TEST_UNSUPPORTED(".short 0xbf50") /* Unassigned hints */
+	TEST_UNSUPPORTED(".short 0xbff0") /* Unassigned hints */
 
 #define TEST_IT(code, code2)			\
 	TESTCASE_START(code)			\
@@ -889,12 +889,12 @@ CONDITION_INSTRUCTIONS(22,
 	TEST_UNSUPPORTED(".short 0xf814,0xd008	@ ldrb	sp, [r4, r8]")
 	TEST_UNSUPPORTED(".short 0xf894,0xd000	@ ldrb	sp, [r4]")
 
-	TEST_UNSUPPORTED(".short 0xf860,0x0000") 
-	TEST_UNSUPPORTED(".short 0xf9ff,0xffff") 
-	TEST_UNSUPPORTED(".short 0xf950,0x0000") 
-	TEST_UNSUPPORTED(".short 0xf95f,0xffff") 
-	TEST_UNSUPPORTED(".short 0xf800,0x0800") 
-	TEST_UNSUPPORTED(".short 0xf97f,0xfaff") 
+	TEST_UNSUPPORTED(".short 0xf860,0x0000") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xf9ff,0xffff") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xf950,0x0000") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xf95f,0xffff") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xf800,0x0800") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xf97f,0xfaff") /* Unallocated space */
 
 	TEST(   "pli	[pc, #4]")
 	TEST(   "pli	[pc, #-4]")
@@ -1031,10 +1031,10 @@ CONDITION_INSTRUCTIONS(22,
 	TEST_R("clz	r7, r",14,0x1,"")
 	TEST_R("clz	lr, r",7, 0xffffffff,"")
 
-	TEST_UNSUPPORTED(".short 0xfa80,0xf030") 
-	TEST_UNSUPPORTED(".short 0xfaff,0xff7f") 
-	TEST_UNSUPPORTED(".short 0xfab0,0xf000") 
-	TEST_UNSUPPORTED(".short 0xfaff,0xff7f") 
+	TEST_UNSUPPORTED(".short 0xfa80,0xf030") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfaff,0xff7f") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfab0,0xf000") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfaff,0xff7f") /* Unallocated space */
 
 	TEST_GROUP("Multiply, multiply accumulate, and absolute difference operations")
 
@@ -1123,12 +1123,12 @@ CONDITION_INSTRUCTIONS(22,
 	TEST_RR(    "usad8	r0, r",0,  VAL1,", r",1, VAL2,"")
 	TEST_RR(    "usad8	r14, r",12,VAL2,", r",10,VAL1,"")
 
-	TEST_UNSUPPORTED(".short 0xfb00,0xf010") 
-	TEST_UNSUPPORTED(".short 0xfb0f,0xff1f") 
-	TEST_UNSUPPORTED(".short 0xfb70,0xf010") 
-	TEST_UNSUPPORTED(".short 0xfb7f,0xff1f") 
-	TEST_UNSUPPORTED(".short 0xfb70,0x0010") 
-	TEST_UNSUPPORTED(".short 0xfb7f,0xff1f") 
+	TEST_UNSUPPORTED(".short 0xfb00,0xf010") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfb0f,0xff1f") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfb70,0xf010") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfb7f,0xff1f") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfb70,0x0010") /* Unallocated space */
+	TEST_UNSUPPORTED(".short 0xfb7f,0xff1f") /* Unallocated space */
 
 	TEST_GROUP("Long multiply, long multiply accumulate, and divide")
 

@@ -8,6 +8,17 @@
 #include <asm/ptrace.h>
 
 
+/*
+ * A syscall entry in the ftrace syscalls array.
+ *
+ * @name: name of the syscall
+ * @syscall_nr: number of the syscall
+ * @nb_args: number of parameters it takes
+ * @types: list of types as strings
+ * @args: list of args as strings (args[i] matches types[i])
+ * @enter_event: associated syscall_enter trace event
+ * @exit_event: associated syscall_exit trace event
+ */
 struct syscall_metadata {
 	const char	*name;
 	int		syscall_nr;
@@ -43,4 +54,4 @@ int perf_sysexit_enable(struct ftrace_event_call *call);
 void perf_sysexit_disable(struct ftrace_event_call *call);
 #endif
 
-#endif 
+#endif /* _TRACE_SYSCALL_H */

@@ -71,6 +71,11 @@ static struct iwl_wimax_coex_event_entry cu_priorities[COEX_NUM_OF_EVENTS] = {
 	{COEX_CU_RSRVD2_RP, COEX_CU_RSRVD2_WP, 0, COEX_RSRVD2_FLAGS}
 };
 
+/******************************************************************************
+ *
+ * uCode download functions
+ *
+ ******************************************************************************/
 
 static inline const struct fw_img *
 iwl_get_ucode_image(struct iwl_priv *priv, enum iwl_ucode_type ucode_type)
@@ -81,6 +86,9 @@ iwl_get_ucode_image(struct iwl_priv *priv, enum iwl_ucode_type ucode_type)
 	return &priv->fw->img[ucode_type];
 }
 
+/*
+ *  Calibration
+ */
 static int iwl_set_Xtal_calib(struct iwl_priv *priv)
 {
 	struct iwl_calib_xtal_freq_cmd cmd;
@@ -174,7 +182,7 @@ int iwlagn_rx_calib_result(struct iwl_priv *priv,
 	struct iwl_calib_hdr *hdr = (struct iwl_calib_hdr *)pkt->data;
 	int len = le32_to_cpu(pkt->len_n_flags) & FH_RSCSR_FRAME_SIZE_MSK;
 
-	
+	/* reduce the size of the length field itself */
 	len -= 4;
 
 	if (iwl_calib_set(priv, hdr, len))
@@ -190,6 +198,12 @@ int iwl_init_alive_start(struct iwl_priv *priv)
 
 	if (cfg(priv)->bt_params &&
 	    cfg(priv)->bt_params->advanced_bt_coexist) {
+		/*
+		 * Tell uCode we are ready to perform calibration
+		 * need to perform this before any calibration
+		 * no need to close the envlope since we are going
+		 * to load the runtime uCode later.
+		 */
 		ret = iwl_send_bt_env(priv, IWL_BT_COEX_ENV_OPEN,
 			BT_COEX_PRIO_TBL_EVT_INIT_CALIB2);
 		if (ret)
@@ -201,6 +215,10 @@ int iwl_init_alive_start(struct iwl_priv *priv)
 	if (ret)
 		return ret;
 
+	/**
+	 * temperature offset calibration is only needed for runtime ucode,
+	 * so prepare the value now.
+	 */
 	if (cfg(priv)->need_temp_offset_calib) {
 		if (cfg(priv)->temp_offset_v2)
 			return iwl_set_temperature_offset_calib_v2(priv);
@@ -216,22 +234,22 @@ static int iwl_send_wimax_coex(struct iwl_priv *priv)
 	struct iwl_wimax_coex_cmd coex_cmd;
 
 	if (cfg(priv)->base_params->support_wimax_coexist) {
-		
+		/* UnMask wake up src at associated sleep */
 		coex_cmd.flags = COEX_FLAGS_ASSOC_WA_UNMASK_MSK;
 
-		
+		/* UnMask wake up src at unassociated sleep */
 		coex_cmd.flags |= COEX_FLAGS_UNASSOC_WA_UNMASK_MSK;
 		memcpy(coex_cmd.sta_prio, cu_priorities,
 			sizeof(struct iwl_wimax_coex_event_entry) *
 			 COEX_NUM_OF_EVENTS);
 
-		
+		/* enabling the coexistence feature */
 		coex_cmd.flags |= COEX_FLAGS_COEX_ENABLE_MSK;
 
-		
+		/* enabling the priorities tables */
 		coex_cmd.flags |= COEX_FLAGS_STA_TABLE_VALID_MSK;
 	} else {
-		
+		/* coexistence is disabled */
 		memset(&coex_cmd, 0, sizeof(coex_cmd));
 	}
 	return iwl_dvm_send_cmd_pdu(priv,
@@ -312,6 +330,11 @@ static int iwl_alive_notify(struct iwl_priv *priv)
 }
 
 
+/**
+ * iwl_verify_inst_sparse - verify runtime uCode image in card vs. host,
+ *   using sample data 100 bytes apart.  If these sample points are good,
+ *   it's a pretty good bet that everything between them is good, too.
+ */
 static int iwl_verify_sec_sparse(struct iwl_priv *priv,
 				  const struct fw_desc *fw_desc)
 {
@@ -323,7 +346,9 @@ static int iwl_verify_sec_sparse(struct iwl_priv *priv,
 	IWL_DEBUG_FW(priv, "ucode inst image size is %u\n", len);
 
 	for (i = 0; i < len; i += 100, image += 100/sizeof(u32)) {
-		
+		/* read data comes through single port, auto-incr addr */
+		/* NOTE: Use the debugless read so we don't flood kernel log
+		 * if IWL_DL_IO is set */
 		iwl_write_direct32(trans(priv), HBUS_TARG_MEM_RADDR,
 			i + fw_desc->offset);
 		val = iwl_read32(trans(priv), HBUS_TARG_MEM_RDAT);
@@ -351,7 +376,7 @@ static void iwl_print_mismatch_sec(struct iwl_priv *priv,
 	for (offs = 0;
 	     offs < len && errors < 20;
 	     offs += sizeof(u32), image++) {
-		
+		/* read data comes through single port, auto-incr addr */
 		val = iwl_read32(trans(priv), HBUS_TARG_MEM_RDAT);
 		if (val != le32_to_cpu(*image)) {
 			IWL_ERR(priv, "uCode INST section at "
@@ -362,6 +387,10 @@ static void iwl_print_mismatch_sec(struct iwl_priv *priv,
 	}
 }
 
+/**
+ * iwl_verify_ucode - determine which instruction image is in SRAM,
+ *    and verify its contents
+ */
 static int iwl_verify_ucode(struct iwl_priv *priv,
 			    enum iwl_ucode_type ucode_type)
 {
@@ -444,6 +473,10 @@ int iwl_load_ucode_wait_alive(struct iwl_priv *priv,
 		return ret;
 	}
 
+	/*
+	 * Some things may run in the background now, but we
+	 * just wait for the ALIVE notification here.
+	 */
 	ret = iwl_wait_notification(&priv->notif_wait, &alive_wait,
 					UCODE_ALIVE_TIMEOUT);
 	if (ret) {
@@ -457,6 +490,11 @@ int iwl_load_ucode_wait_alive(struct iwl_priv *priv,
 		return -EIO;
 	}
 
+	/*
+	 * This step takes a long time (60-80ms!!) and
+	 * WoWLAN image should be loaded quickly, so
+	 * skip it for WoWLAN.
+	 */
 	if (ucode_type != IWL_UCODE_WOWLAN) {
 		ret = iwl_verify_ucode(priv, ucode_type);
 		if (ret) {
@@ -464,7 +502,7 @@ int iwl_load_ucode_wait_alive(struct iwl_priv *priv,
 			return ret;
 		}
 
-		
+		/* delay a bit to give rfkill time to run */
 		msleep(5);
 	}
 
@@ -488,7 +526,7 @@ int iwl_run_init_ucode(struct iwl_priv *priv)
 
 	lockdep_assert_held(&priv->mutex);
 
-	
+	/* No init ucode required? Curious, but maybe ok */
 	if (!priv->fw->img[IWL_UCODE_INIT].sec[0].len)
 		return 0;
 
@@ -499,7 +537,7 @@ int iwl_run_init_ucode(struct iwl_priv *priv)
 				      CALIBRATION_COMPLETE_NOTIFICATION,
 				      NULL, NULL);
 
-	
+	/* Will also start the device */
 	ret = iwl_load_ucode_wait_alive(priv, IWL_UCODE_INIT);
 	if (ret)
 		goto error;
@@ -508,6 +546,10 @@ int iwl_run_init_ucode(struct iwl_priv *priv)
 	if (ret)
 		goto error;
 
+	/*
+	 * Some things may run in the background now, but we
+	 * just wait for the calibration complete notification.
+	 */
 	ret = iwl_wait_notification(&priv->notif_wait, &calib_wait,
 					UCODE_CALIB_TIMEOUT);
 	if (!ret)
@@ -518,7 +560,7 @@ int iwl_run_init_ucode(struct iwl_priv *priv)
  error:
 	iwl_remove_notification(&priv->notif_wait, &calib_wait);
  out:
-	
+	/* Whatever happened, stop the device */
 	iwl_trans_stop_device(trans(priv));
 	priv->ucode_loaded = false;
 

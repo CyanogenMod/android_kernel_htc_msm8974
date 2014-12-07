@@ -17,6 +17,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * infrastructure for devices connected via I2C
+ */
 
 #ifndef __VIA_AUX_H__
 #define __VIA_AUX_H__
@@ -28,18 +31,18 @@
 
 
 struct via_aux_bus {
-	struct i2c_adapter *adap;	
-	struct list_head drivers;	
+	struct i2c_adapter *adap;	/* the I2C device to access the bus */
+	struct list_head drivers;	/* drivers for devices on this bus */
 };
 
 struct via_aux_drv {
-	struct list_head chain;		
+	struct list_head chain;		/* chain to support multiple drivers */
 
-	struct via_aux_bus *bus;	
-	u8 addr;			
+	struct via_aux_bus *bus;	/* the I2C bus used */
+	u8 addr;			/* the I2C slave address */
 
-	const char *name;	
-	void *data;		
+	const char *name;	/* human readable name of the driver */
+	void *data;		/* private data of this driver */
 
 	void (*cleanup)(struct via_aux_drv *drv);
 	const struct fb_videomode* (*get_preferred_mode)
@@ -75,6 +78,7 @@ static inline bool via_aux_read(struct via_aux_drv *drv, u8 start, u8 *buf,
 }
 
 
+/* probe functions of existing drivers - should only be called in via_aux.c */
 void via_aux_ch7301_probe(struct via_aux_bus *bus);
 void via_aux_edid_probe(struct via_aux_bus *bus);
 void via_aux_sii164_probe(struct via_aux_bus *bus);
@@ -86,4 +90,4 @@ void via_aux_vt1622_probe(struct via_aux_bus *bus);
 void via_aux_vt1621_probe(struct via_aux_bus *bus);
 
 
-#endif 
+#endif /* __VIA_AUX_H__ */

@@ -33,33 +33,33 @@ struct wis_tw9903 {
 
 static u8 initial_registers[] =
 {
-	0x02, 0x44, 
-	0x03, 0x92, 
+	0x02, 0x44, /* input 1, composite */
+	0x03, 0x92, /* correct digital format */
 	0x04, 0x00,
-	0x05, 0x80, 
-	0x06, 0x40, 
-	0x07, 0x02, 
-	0x08, 0x14, 
-	0x09, 0xf0, 
-	0x0a, 0x81, 
-	0x0b, 0xd0, 
+	0x05, 0x80, /* or 0x00 for PAL */
+	0x06, 0x40, /* second internal current reference */
+	0x07, 0x02, /* window */
+	0x08, 0x14, /* window */
+	0x09, 0xf0, /* window */
+	0x0a, 0x81, /* window */
+	0x0b, 0xd0, /* window */
 	0x0c, 0x8c,
-	0x0d, 0x00, 
-	0x0e, 0x11, 
-	0x0f, 0x00, 
-	0x10, 0x00, 
-	0x11, 0x60, 
-	0x12, 0x01, 
-	0x13, 0x7f, 
-	0x14, 0x5a, 
-	0x15, 0x00, 
-	0x16, 0xc3, 
+	0x0d, 0x00, /* scaling */
+	0x0e, 0x11, /* scaling */
+	0x0f, 0x00, /* scaling */
+	0x10, 0x00, /* brightness */
+	0x11, 0x60, /* contrast */
+	0x12, 0x01, /* sharpness */
+	0x13, 0x7f, /* U gain */
+	0x14, 0x5a, /* V gain */
+	0x15, 0x00, /* hue */
+	0x16, 0xc3, /* sharpness */
 	0x18, 0x00,
-	0x19, 0x58, 
+	0x19, 0x58, /* vbi */
 	0x1a, 0x80,
-	0x1c, 0x0f, 
-	0x1d, 0x7f, 
-	0x20, 0xa0, 
+	0x1c, 0x0f, /* video norm */
+	0x1d, 0x7f, /* video norm */
+	0x20, 0xa0, /* clamping gain (working 0x50) */
 	0x21, 0x22,
 	0x22, 0xf0,
 	0x23, 0xfe,
@@ -73,15 +73,15 @@ static u8 initial_registers[] =
 	0x2b, 0x44,
 	0x2c, 0x37,
 	0x2d, 0x00,
-	0x2e, 0xa5, 
-	0x2f, 0xe0, 
+	0x2e, 0xa5, /* burst PLL control (working: a9) */
+	0x2f, 0xe0, /* 0xea is blue test frame -- 0xe0 for normal */
 	0x31, 0x00,
 	0x33, 0x22,
 	0x34, 0x11,
 	0x35, 0x35,
 	0x3b, 0x05,
-	0x06, 0xc0, 
-	0x00, 0x00, 
+	0x06, 0xc0, /* reset device */
+	0x00, 0x00, /* Terminator (reg 0x00 is read-only) */
 };
 
 static int write_reg(struct i2c_client *client, u8 reg, u8 value)
@@ -113,11 +113,11 @@ static int wis_tw9903_command(struct i2c_client *client,
 		break;
 	}
 #if 0
-	
+	/* The scaler on this thing seems to be horribly broken */
 	case DECODER_SET_RESOLUTION:
 	{
 		struct video_decoder_resolution *res = arg;
-		
+		/*int hscale = 256 * 720 / res->width;*/
 		int hscale = 256 * 720 / (res->width - (res->width > 704 ? 0 : 8));
 		int vscale = 256 * (dec->norm & V4L2_STD_NTSC ?  240 : 288)
 				/ res->height;
@@ -125,12 +125,12 @@ static int wis_tw9903_command(struct i2c_client *client,
 			0x0d, vscale & 0xff,
 			0x0f, hscale & 0xff,
 			0x0e, ((vscale & 0xf00) >> 4) | ((hscale & 0xf00) >> 8),
-			0x06, 0xc0, 
+			0x06, 0xc0, /* reset device */
 			0,	0,
 		};
 		printk(KERN_DEBUG "vscale is %04x, hscale is %04x\n",
 				vscale, hscale);
-		
+		/*write_regs(client, regs);*/
 		break;
 	}
 #endif
@@ -172,7 +172,7 @@ static int wis_tw9903_command(struct i2c_client *client,
 			ctrl->flags = 0;
 			break;
 #if 0
-		
+		/* I don't understand how the Chroma Gain registers work... */
 		case V4L2_CID_SATURATION:
 			ctrl->type = V4L2_CTRL_TYPE_INTEGER;
 			strncpy(ctrl->name, "Saturation", sizeof(ctrl->name));
@@ -226,7 +226,7 @@ static int wis_tw9903_command(struct i2c_client *client,
 				dec->saturation = 0;
 			else
 				dec->saturation = ctrl->value;
-			
+			/*write_reg(client, 0x0c, dec->saturation);*/
 			break;
 #endif
 		case V4L2_CID_HUE:

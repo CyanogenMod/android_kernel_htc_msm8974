@@ -76,25 +76,25 @@ enum omap_channel {
 };
 
 enum omap_color_mode {
-	OMAP_DSS_COLOR_CLUT1	= 1 << 0,  
-	OMAP_DSS_COLOR_CLUT2	= 1 << 1,  
-	OMAP_DSS_COLOR_CLUT4	= 1 << 2,  
-	OMAP_DSS_COLOR_CLUT8	= 1 << 3,  
-	OMAP_DSS_COLOR_RGB12U	= 1 << 4,  
-	OMAP_DSS_COLOR_ARGB16	= 1 << 5,  
-	OMAP_DSS_COLOR_RGB16	= 1 << 6,  
-	OMAP_DSS_COLOR_RGB24U	= 1 << 7,  
-	OMAP_DSS_COLOR_RGB24P	= 1 << 8,  
-	OMAP_DSS_COLOR_YUV2	= 1 << 9,  
-	OMAP_DSS_COLOR_UYVY	= 1 << 10, 
-	OMAP_DSS_COLOR_ARGB32	= 1 << 11, 
-	OMAP_DSS_COLOR_RGBA32	= 1 << 12, 
-	OMAP_DSS_COLOR_RGBX32	= 1 << 13, 
-	OMAP_DSS_COLOR_NV12		= 1 << 14, 
-	OMAP_DSS_COLOR_RGBA16		= 1 << 15, 
-	OMAP_DSS_COLOR_RGBX16		= 1 << 16, 
-	OMAP_DSS_COLOR_ARGB16_1555	= 1 << 17, 
-	OMAP_DSS_COLOR_XRGB16_1555	= 1 << 18, 
+	OMAP_DSS_COLOR_CLUT1	= 1 << 0,  /* BITMAP 1 */
+	OMAP_DSS_COLOR_CLUT2	= 1 << 1,  /* BITMAP 2 */
+	OMAP_DSS_COLOR_CLUT4	= 1 << 2,  /* BITMAP 4 */
+	OMAP_DSS_COLOR_CLUT8	= 1 << 3,  /* BITMAP 8 */
+	OMAP_DSS_COLOR_RGB12U	= 1 << 4,  /* RGB12, 16-bit container */
+	OMAP_DSS_COLOR_ARGB16	= 1 << 5,  /* ARGB16 */
+	OMAP_DSS_COLOR_RGB16	= 1 << 6,  /* RGB16 */
+	OMAP_DSS_COLOR_RGB24U	= 1 << 7,  /* RGB24, 32-bit container */
+	OMAP_DSS_COLOR_RGB24P	= 1 << 8,  /* RGB24, 24-bit container */
+	OMAP_DSS_COLOR_YUV2	= 1 << 9,  /* YUV2 4:2:2 co-sited */
+	OMAP_DSS_COLOR_UYVY	= 1 << 10, /* UYVY 4:2:2 co-sited */
+	OMAP_DSS_COLOR_ARGB32	= 1 << 11, /* ARGB32 */
+	OMAP_DSS_COLOR_RGBA32	= 1 << 12, /* RGBA32 */
+	OMAP_DSS_COLOR_RGBX32	= 1 << 13, /* RGBx32 */
+	OMAP_DSS_COLOR_NV12		= 1 << 14, /* NV12 format: YUV 4:2:0 */
+	OMAP_DSS_COLOR_RGBA16		= 1 << 15, /* RGBA16 - 4444 */
+	OMAP_DSS_COLOR_RGBX16		= 1 << 16, /* RGBx16 - 4444 */
+	OMAP_DSS_COLOR_ARGB16_1555	= 1 << 17, /* ARGB16 - 1555 */
+	OMAP_DSS_COLOR_XRGB16_1555	= 1 << 18, /* xRGB16 - 1555 */
 };
 
 enum omap_lcd_display_type {
@@ -158,6 +158,7 @@ enum omap_dss_display_state {
 	OMAP_DSS_DISPLAY_SUSPENDED,
 };
 
+/* XXX perhaps this should be removed */
 enum omap_dss_overlay_managers {
 	OMAP_DSS_OVL_MGR_LCD,
 	OMAP_DSS_OVL_MGR_TV,
@@ -169,6 +170,7 @@ enum omap_dss_rotation_type {
 	OMAP_DSS_ROT_VRFB = 1,
 };
 
+/* clockwise rotation angle */
 enum omap_dss_rotation_angle {
 	OMAP_DSS_ROT_0   = 0,
 	OMAP_DSS_ROT_90  = 1,
@@ -184,21 +186,25 @@ enum omap_overlay_caps {
 };
 
 enum omap_overlay_manager_caps {
-	OMAP_DSS_DUMMY_VALUE, 
+	OMAP_DSS_DUMMY_VALUE, /* add a dummy value to prevent compiler error */
 };
 
 enum omap_dss_clk_source {
-	OMAP_DSS_CLK_SRC_FCK = 0,		
-	OMAP_DSS_CLK_SRC_DSI_PLL_HSDIV_DISPC,	
-	OMAP_DSS_CLK_SRC_DSI_PLL_HSDIV_DSI,	
-	OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,	
-	OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DSI,	
+	OMAP_DSS_CLK_SRC_FCK = 0,		/* OMAP2/3: DSS1_ALWON_FCLK
+						 * OMAP4: DSS_FCLK */
+	OMAP_DSS_CLK_SRC_DSI_PLL_HSDIV_DISPC,	/* OMAP3: DSI1_PLL_FCLK
+						 * OMAP4: PLL1_CLK1 */
+	OMAP_DSS_CLK_SRC_DSI_PLL_HSDIV_DSI,	/* OMAP3: DSI2_PLL_FCLK
+						 * OMAP4: PLL1_CLK2 */
+	OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DISPC,	/* OMAP4: PLL2_CLK1 */
+	OMAP_DSS_CLK_SRC_DSI2_PLL_HSDIV_DSI,	/* OMAP4: PLL2_CLK2 */
 };
 
 enum omap_hdmi_flags {
 	OMAP_HDMI_SDA_SCL_EXTERNAL_PULLUP = 1 << 0,
 };
 
+/* RFBI */
 
 struct rfbi_timings {
 	int cs_on_time;
@@ -214,7 +220,7 @@ struct rfbi_timings {
 
 	int clk_div;
 
-	u32 tim[5];             
+	u32 tim[5];             /* set by rfbi_convert_timings() */
 
 	int converted;
 };
@@ -232,25 +238,26 @@ int omap_rfbi_setup_te(enum omap_rfbi_te_mode mode,
 void rfbi_bus_lock(void);
 void rfbi_bus_unlock(void);
 
+/* DSI */
 
 struct omap_dss_dsi_videomode_data {
-	
-	
+	/* DSI video mode blanking data */
+	/* Unit: byte clock cycles */
 	u16 hsa;
 	u16 hfp;
 	u16 hbp;
-	
+	/* Unit: line clocks */
 	u16 vsa;
 	u16 vfp;
 	u16 vbp;
 
-	
+	/* DSI blanking modes */
 	int blanking_mode;
 	int hsa_blanking_mode;
 	int hbp_blanking_mode;
 	int hfp_blanking_mode;
 
-	
+	/* Video port sync events */
 	int vp_de_pol;
 	int vp_hsync_pol;
 	int vp_vsync_pol;
@@ -294,6 +301,7 @@ int dsi_vc_send_bta_sync(struct omap_dss_device *dssdev, int channel);
 int dsi_enable_video_output(struct omap_dss_device *dssdev, int channel);
 void dsi_disable_video_output(struct omap_dss_device *dssdev, int channel);
 
+/* Board specific data */
 struct omap_dss_board_info {
 	int (*get_context_loss_count)(struct device *dev);
 	int num_devices;
@@ -303,36 +311,42 @@ struct omap_dss_board_info {
 	void (*dsi_disable_pads)(int dsi_id, unsigned lane_mask);
 };
 
+/* Init with the board info */
 extern int omap_display_init(struct omap_dss_board_info *board_data);
+/* HDMI mux init*/
 extern int omap_hdmi_init(enum omap_hdmi_flags flags);
 
 struct omap_display_platform_data {
 	struct omap_dss_board_info *board_data;
-	
+	/* TODO: Additional members to be added when PM is considered */
 };
 
 struct omap_video_timings {
-	
+	/* Unit: pixels */
 	u16 x_res;
-	
+	/* Unit: pixels */
 	u16 y_res;
-	
+	/* Unit: KHz */
 	u32 pixel_clock;
-	
-	u16 hsw;	
-	
-	u16 hfp;	
-	
-	u16 hbp;	
-	
-	u16 vsw;	
-	
-	u16 vfp;	
-	
-	u16 vbp;	
+	/* Unit: pixel clocks */
+	u16 hsw;	/* Horizontal synchronization pulse width */
+	/* Unit: pixel clocks */
+	u16 hfp;	/* Horizontal front porch */
+	/* Unit: pixel clocks */
+	u16 hbp;	/* Horizontal back porch */
+	/* Unit: line clocks */
+	u16 vsw;	/* Vertical synchronization pulse width */
+	/* Unit: line clocks */
+	u16 vfp;	/* Vertical front porch */
+	/* Unit: line clocks */
+	u16 vbp;	/* Vertical back porch */
 };
 
 #ifdef CONFIG_OMAP2_DSS_VENC
+/* Hardcoded timings for tv modes. Venc only uses these to
+ * identify the mode, and does not actually use the configs
+ * itself. However, the configs should be something that
+ * a normal monitor can also show */
 extern const struct omap_video_timings omap_dss_pal_timings;
 extern const struct omap_video_timings omap_dss_ntsc_timings;
 #endif
@@ -345,7 +359,7 @@ struct omap_dss_cpr_coefs {
 
 struct omap_overlay_info {
 	u32 paddr;
-	u32 p_uv_addr;  
+	u32 p_uv_addr;  /* for NV12 format */
 	u16 screen_width;
 	u16 width;
 	u16 height;
@@ -356,8 +370,8 @@ struct omap_overlay_info {
 
 	u16 pos_x;
 	u16 pos_y;
-	u16 out_width;	
-	u16 out_height;	
+	u16 out_width;	/* if 0, out_width == width */
+	u16 out_height;	/* if 0, out_height == height */
 	u8 global_alpha;
 	u8 pre_mult_alpha;
 	u8 zorder;
@@ -367,15 +381,25 @@ struct omap_overlay {
 	struct kobject kobj;
 	struct list_head list;
 
-	
+	/* static fields */
 	const char *name;
 	enum omap_plane id;
 	enum omap_color_mode supported_modes;
 	enum omap_overlay_caps caps;
 
-	
+	/* dynamic fields */
 	struct omap_overlay_manager *manager;
 
+	/*
+	 * The following functions do not block:
+	 *
+	 * is_enabled
+	 * set_overlay_info
+	 * get_overlay_info
+	 *
+	 * The rest of the functions may block and cannot be called from
+	 * interrupt context
+	 */
 
 	int (*enable)(struct omap_overlay *ovl);
 	int (*disable)(struct omap_overlay *ovl);
@@ -409,16 +433,26 @@ struct omap_overlay_manager_info {
 struct omap_overlay_manager {
 	struct kobject kobj;
 
-	
+	/* static fields */
 	const char *name;
 	enum omap_channel id;
 	enum omap_overlay_manager_caps caps;
 	struct list_head overlays;
 	enum omap_display_type supported_displays;
 
-	
+	/* dynamic fields */
 	struct omap_dss_device *device;
 
+	/*
+	 * The following functions do not block:
+	 *
+	 * set_manager_info
+	 * get_manager_info
+	 * apply
+	 *
+	 * The rest of the functions may block and cannot be called from
+	 * interrupt context
+	 */
 
 	int (*set_device)(struct omap_overlay_manager *mgr,
 		struct omap_dss_device *dssdev);
@@ -491,7 +525,7 @@ struct omap_dss_device {
 		} dispc;
 
 		struct {
-			
+			/* regn is one greater than TRM's REGN value */
 			u16 regn;
 			u16 regm;
 			u16 regm_dispc;
@@ -502,7 +536,7 @@ struct omap_dss_device {
 		} dsi;
 
 		struct {
-			
+			/* regn is one greater than TRM's REGN value */
 			u16 regn;
 			u16 regm2;
 		} hdmi;
@@ -511,9 +545,9 @@ struct omap_dss_device {
 	struct {
 		struct omap_video_timings timings;
 
-		int acbi;	
-		
-		int acb;	
+		int acbi;	/* ac-bias pin transitions per interrupt */
+		/* Unit: line clocks */
+		int acb;	/* ac-bias pin frequency */
 
 		enum omap_panel_config config;
 
@@ -533,14 +567,14 @@ struct omap_dss_device {
 
 	const char *name;
 
-	
+	/* used to match device to driver */
 	const char *driver_name;
 
 	void *data;
 
 	struct omap_dss_driver *driver;
 
-	
+	/* helper variable for driver suspend/resume */
 	bool activate_after_resume;
 
 	enum omap_display_caps caps;
@@ -549,7 +583,7 @@ struct omap_dss_device {
 
 	enum omap_dss_display_state state;
 
-	
+	/* platform specific  */
 	int (*platform_enable)(struct omap_dss_device *dssdev);
 	void (*platform_disable)(struct omap_dss_device *dssdev);
 	int (*set_backlight)(struct omap_dss_device *dssdev, int level);

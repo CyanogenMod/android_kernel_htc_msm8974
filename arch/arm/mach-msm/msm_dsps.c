@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * msm_dsps - control DSPS clocks, gpios and vregs.
+ *
+ */
 
 #include <linux/types.h>
 #include <linux/slab.h>
@@ -43,6 +47,23 @@
 #define PPSS_TIMER0_32KHZ_REG	0x1004
 #define PPSS_TIMER0_20MHZ_REG	0x0804
 
+/**
+ *  Driver Context
+ *
+ *  @dev_class - device class.
+ *  @dev_num - device major & minor number.
+ *  @dev - the device.
+ *  @cdev - character device for user interface.
+ *  @pdata - platform data.
+ *  @pil - handle to DSPS Firmware loader.
+ *  @dspsfw_ramdump_dev - handle to ramdump device for DSPS
+ *  @dspsfw_ramdump_segments - Ramdump segment information for DSPS
+ *  @smem_ramdump_dev - handle to ramdump device for smem
+ *  @smem_ramdump_segments - Ramdump segment information for smem
+ *  @is_on - DSPS is on.
+ *  @ref_count - open/close reference count.
+ *  @ppss_base - ppss registers virtual base address.
+ */
 struct dsps_drv {
 
 	struct class *dev_class;
@@ -60,8 +81,14 @@ struct dsps_drv {
 	void __iomem *ppss_base;
 };
 
+/**
+ * Driver context.
+ */
 static struct dsps_drv *drv;
 
+/**
+ *  Load DSPS Firmware.
+ */
 static int dsps_load(void)
 {
 	pr_debug("%s.\n", __func__);
@@ -75,6 +102,9 @@ static int dsps_load(void)
 	return 0;
 }
 
+/**
+ *  Unload DSPS Firmware.
+ */
 static void dsps_unload(void)
 {
 	pr_debug("%s.\n", __func__);
@@ -82,44 +112,71 @@ static void dsps_unload(void)
 	subsystem_put(drv->pil);
 }
 
+/**
+ *  Suspend DSPS CPU.
+ *
+ * Only call if dsps_pwr_ctl_en is false.
+ * If dsps_pwr_ctl_en is true, then DSPS will control its own power state.
+ */
 static void dsps_suspend(void)
 {
 	pr_debug("%s.\n", __func__);
 
 	writel_relaxed(1, drv->ppss_base + drv->pdata->ppss_pause_reg);
-	mb(); 
+	mb(); /* Make sure write commited before ioctl returns. */
 }
 
+/**
+ *  Resume DSPS CPU.
+ *
+ * Only call if dsps_pwr_ctl_en is false.
+ * If dsps_pwr_ctl_en is true, then DSPS will control its own power state.
+ */
 static void dsps_resume(void)
 {
 	pr_debug("%s.\n", __func__);
 
 	writel_relaxed(0, drv->ppss_base + drv->pdata->ppss_pause_reg);
-	mb(); 
+	mb(); /* Make sure write commited before ioctl returns. */
 }
 
+/**
+ * Read DSPS slow timer.
+ */
 static u32 dsps_read_slow_timer(void)
 {
 	u32 val;
 
+	/* Read the timer value from the MSM sclk. The MSM slow clock & DSPS
+	 * timers are in sync, so these are the same value */
 	val = msm_timer_get_sclk_ticks();
 	pr_debug("%s.count=%d.\n", __func__, val);
 
 	return val;
 }
 
+/**
+ * Read DSPS fast timer.
+ */
 static u32 dsps_read_fast_timer(void)
 {
 	u32 val;
 
 	val = readl_relaxed(drv->ppss_base + PPSS_TIMER0_20MHZ_REG);
-	rmb(); 
+	rmb(); /* order reads from the user output buffer */
 
 	pr_debug("%s.count=%d.\n", __func__, val);
 
 	return val;
 }
 
+/**
+ *  Power on request.
+ *
+ *  Set clocks to ON.
+ *  Set sensors chip-select GPIO to non-reset (on) value.
+ *
+ */
 static int dsps_power_on_handler(void)
 {
 	int ret = 0;
@@ -207,6 +264,11 @@ static int dsps_power_on_handler(void)
 
 	return 0;
 
+	/*
+	 * If failling to set ANY clock/gpio/regulator to ON then we set
+	 * them back to OFF to avoid consuming power for unused
+	 * clocks/gpios/regulators.
+	 */
 reg_err:
 	for (i = 0; i < ri; i++) {
 		struct regulator *reg = drv->pdata->regs[ri].reg;
@@ -242,6 +304,13 @@ clk_err:
 	return -ENODEV;
 }
 
+/**
+ *  Power off request.
+ *
+ *  Set clocks to OFF.
+ *  Set sensors chip-select GPIO to reset (off) value.
+ *
+ */
 static int dsps_power_off_handler(void)
 {
 	int ret;
@@ -270,7 +339,7 @@ static int dsps_power_off_handler(void)
 			regulator_disable(drv->pdata->regs[i].reg);
 		}
 
-	
+	/* Clocks on/off has reference count but GPIOs don't. */
 	drv->is_on = false;
 
 	for (i = 0; i < drv->pdata->gpios_num; i++) {
@@ -290,6 +359,10 @@ static int dsps_power_off_handler(void)
 	return 0;
 }
 
+/**
+ * IO Control - handle commands from client.
+ *
+ */
 static long dsps_ioctl(struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
@@ -333,6 +406,10 @@ static long dsps_ioctl(struct file *file,
 	return ret;
 }
 
+/**
+ * allocate resources.
+ * @pdev - pointer to platform device.
+ */
 static int dsps_alloc_resources(struct platform_device *pdev)
 {
 	int ret = -ENODEV;
@@ -435,6 +512,10 @@ clk_err:
 	return ret;
 }
 
+/**
+ * Open File.
+ *
+ */
 static int dsps_open(struct inode *ip, struct file *fp)
 {
 	int ret = 0;
@@ -443,7 +524,7 @@ static int dsps_open(struct inode *ip, struct file *fp)
 
 	if (drv->ref_count == 0) {
 
-		
+		/* clocks must be ON before loading.*/
 		ret = dsps_power_on_handler();
 		if (ret)
 			return ret;
@@ -463,6 +544,10 @@ static int dsps_open(struct inode *ip, struct file *fp)
 	return ret;
 }
 
+/**
+ * free resources.
+ *
+ */
 static void dsps_free_resources(void)
 {
 	int i;
@@ -491,6 +576,19 @@ static void dsps_free_resources(void)
 	iounmap(drv->ppss_base);
 }
 
+/**
+ * Close File.
+ *
+ * The client shall close and re-open the file for re-loading the DSPS
+ * firmware.
+ * The file system will close the file if the user space app has crashed.
+ *
+ * If the DSPS is running, then we must reset DSPS CPU & HW before
+ * setting the clocks off.
+ * The DSPS reset should be done as part of the subsystem_put().
+ * The DSPS reset should be used for error recovery if the DSPS firmware
+ * has crashed and re-loading the firmware is required.
+ */
 static int dsps_release(struct inode *inode, struct file *file)
 {
 	pr_debug("%s.\n", __func__);
@@ -517,6 +615,10 @@ const struct file_operations dsps_fops = {
 	.unlocked_ioctl = dsps_ioctl,
 };
 
+/**
+ * platform driver
+ *
+ */
 static int __devinit dsps_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -619,6 +721,9 @@ static struct platform_driver dsps_driver = {
 	},
 };
 
+/**
+ * Module Init.
+ */
 static int __init dsps_init(void)
 {
 	int ret;
@@ -633,6 +738,9 @@ static int __init dsps_init(void)
 	return ret;
 }
 
+/**
+ * Module Exit.
+ */
 static void __exit dsps_exit(void)
 {
 	pr_debug("%s.\n", __func__);

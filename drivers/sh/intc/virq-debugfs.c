@@ -51,6 +51,10 @@ static const struct file_operations intc_irq_xlate_fops = {
 
 static int __init intc_irq_xlate_init(void)
 {
+	/*
+	 * XXX.. use arch_debugfs_dir here when all of the intc users are
+	 * converted.
+	 */
 	if (debugfs_create_file("intc_irq_xlate", S_IRUGO, NULL, NULL,
 				&intc_irq_xlate_fops) == NULL)
 		return -ENOMEM;

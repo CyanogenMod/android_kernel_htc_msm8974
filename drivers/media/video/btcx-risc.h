@@ -1,3 +1,5 @@
+/*
+ */
 struct btcx_riscmem {
 	unsigned int   size;
 	__le32         *cpu;
@@ -25,3 +27,8 @@ void btcx_calc_skips(int line, int width, int *maxy,
 		     struct btcx_skiplist *skips, unsigned int *nskips,
 		     const struct v4l2_clip *clips, unsigned int nclips);
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

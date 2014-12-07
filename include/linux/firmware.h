@@ -23,6 +23,8 @@ struct builtin_fw {
 	unsigned long size;
 };
 
+/* We have to play tricks here much like stringify() to get the
+   __COUNTER__ macro to be expanded as we want it */
 #define __fw_concat1(x, y) x##y
 #define __fw_concat(x, y) __fw_concat1(x, y)
 

@@ -8,10 +8,14 @@
 #ifdef WANT_URB_PARANOIA
 #include "ozurbparanoia.h"
 #include "oztrace.h"
+/*-----------------------------------------------------------------------------
+ */
 #define OZ_MAX_URBS	1000
 struct urb *g_urb_memory[OZ_MAX_URBS];
 int g_nb_urbs;
 DEFINE_SPINLOCK(g_urb_mem_lock);
+/*-----------------------------------------------------------------------------
+ */
 void oz_remember_urb(struct urb *urb)
 {
 	unsigned long irq_state;
@@ -24,6 +28,8 @@ void oz_remember_urb(struct urb *urb)
 	}
 	spin_unlock_irqrestore(&g_urb_mem_lock, irq_state);
 }
+/*------------------------------------------------------------------------------
+ */
 int oz_forget_urb(struct urb *urb)
 {
 	unsigned long irq_state;
@@ -43,5 +49,5 @@ int oz_forget_urb(struct urb *urb)
 	spin_unlock_irqrestore(&g_urb_mem_lock, irq_state);
 	return rc;
 }
-#endif 
+#endif /* #ifdef WANT_URB_PARANOIA */
 

@@ -27,6 +27,11 @@
 #include <linux/posix_acl_xattr.h>
 
 
+/*
+ * Locking scheme:
+ *  - all ACL updates are protected by inode->i_mutex, which is taken before
+ *    calling into this file.
+ */
 
 STATIC struct posix_acl *
 xfs_acl_from_disk(struct xfs_acl *aclp)
@@ -48,6 +53,12 @@ xfs_acl_from_disk(struct xfs_acl *aclp)
 		acl_e = &acl->a_entries[i];
 		ace = &aclp->acl_entry[i];
 
+		/*
+		 * The tag is 32 bits on disk and 16 bits in core.
+		 *
+		 * Because every access to it goes through the core
+		 * format first this is not a problem.
+		 */
 		acl_e->e_tag = be32_to_cpu(ace->ae_tag);
 		acl_e->e_perm = be16_to_cpu(ace->ae_perm);
 
@@ -118,6 +129,10 @@ xfs_get_acl(struct inode *inode, int type)
 		BUG();
 	}
 
+	/*
+	 * If we have a cached ACLs value just return it, not need to
+	 * go out to the disk.
+	 */
 
 	xfs_acl = kzalloc(sizeof(struct xfs_acl), GFP_KERNEL);
 	if (!xfs_acl)
@@ -126,6 +141,11 @@ xfs_get_acl(struct inode *inode, int type)
 	error = -xfs_attr_get(ip, ea_name, (unsigned char *)xfs_acl,
 							&len, ATTR_ROOT);
 	if (error) {
+		/*
+		 * If the attribute doesn't exist make sure we have a negative
+		 * cache entry, for any other error assume it is transient and
+		 * leave the cache entry as ACL_NOT_CACHED.
+		 */
 		if (error == -ENOATTR) {
 			acl = NULL;
 			goto out_update_cache;
@@ -185,8 +205,14 @@ xfs_set_acl(struct inode *inode, int type, struct posix_acl *acl)
 
 		kfree(xfs_acl);
 	} else {
+		/*
+		 * A NULL ACL argument means we want to remove the ACL.
+		 */
 		error = -xfs_attr_remove(ip, ea_name, ATTR_ROOT);
 
+		/*
+		 * If the attribute didn't exist to start with that's fine.
+		 */
 		if (error == -ENOATTR)
 			error = 0;
 	}
@@ -237,6 +263,9 @@ posix_acl_default_exists(struct inode *inode)
 	return xfs_acl_exists(inode, SGI_ACL_DEFAULT);
 }
 
+/*
+ * No need for i_mutex because the inode is not yet exposed to the VFS.
+ */
 int
 xfs_inherit_acl(struct inode *inode, struct posix_acl *acl)
 {
@@ -253,6 +282,11 @@ xfs_inherit_acl(struct inode *inode, struct posix_acl *acl)
 	if (error < 0)
 		return error;
 
+	/*
+	 * If posix_acl_create returns a positive value we need to
+	 * inherit a permission that can't be represented using the Unix
+	 * mode bits and we actually need to set an ACL.
+	 */
 	if (error > 0)
 		inherit = 1;
 
@@ -329,6 +363,10 @@ xfs_xattr_acl_set(struct dentry *dentry, const char *name,
 
 	acl = posix_acl_from_xattr(value, size);
 	if (!acl) {
+		/*
+		 * acl_set_file(3) may request that we set default ACLs with
+		 * zero length -- defend (gracefully) against that here.
+		 */
 		goto out;
 	}
 	if (IS_ERR(acl)) {

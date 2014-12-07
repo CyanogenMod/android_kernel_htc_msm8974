@@ -10,6 +10,10 @@
 #ifndef __UNICORE_CMPXCHG_H__
 #define __UNICORE_CMPXCHG_H__
 
+/*
+ * Generate a link failure on undefined symbol if the pointer points to a value
+ * of unsupported size.
+ */
 extern void __xchg_bad_pointer(void);
 
 static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
@@ -42,6 +46,10 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 
 #include <asm-generic/cmpxchg-local.h>
 
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
 #define cmpxchg_local(ptr, o, n)					\
 		((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr),	\
 		(unsigned long)(o), (unsigned long)(n), sizeof(*(ptr))))
@@ -50,4 +58,4 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 
 #include <asm-generic/cmpxchg.h>
 
-#endif 
+#endif /* __UNICORE_CMPXCHG_H__ */

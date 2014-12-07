@@ -16,13 +16,25 @@
 
 #include <plat/irqs.h>
 
+/*
+ * Interrupt number used for passing control from FIQ to IRQ.
+ * IRQ12, described as reserved, has been selected.
+ */
 #define INT_DEFERRED_FIQ	INT_1510_RES12
+/*
+ * Base address of an interrupt handler that the INT_DEFERRED_FIQ belongs to.
+ */
 #if (INT_DEFERRED_FIQ < IH2_BASE)
 #define DEFERRED_FIQ_IH_BASE	OMAP_IH1_BASE
 #else
 #define DEFERRED_FIQ_IH_BASE	OMAP_IH2_BASE
 #endif
 
+/*
+ * These are the offsets from the beginning of the fiq_buffer. They are put here
+ * since the buffer and header need to be accessed by drivers servicing devices
+ * which generate GPIO interrupts - e.g. keyboard, modem, hook switch.
+ */
 #define FIQ_MASK		 0
 #define FIQ_STATE		 1
 #define FIQ_KEYS_CNT		 2
@@ -55,7 +67,7 @@
 #define FIQ_CNT_INT_14		28
 #define FIQ_CNT_INT_15		29
 
-#define FIQ_CIRC_BUFF		30      
+#define FIQ_CIRC_BUFF		30      /*Start of circular buffer */
 
 #ifndef __ASSEMBLER__
 extern unsigned int fiq_buffer[];

@@ -42,7 +42,7 @@ static long long mdp_do_div(long long num, long long den)
 }
 
 struct mdp_table_entry mdp_gaussian_blur_table[] = {
-	
+	/* max variance */
 	{ 0x5fffc, 0x20000080 },
 	{ 0x50280, 0x20000080 },
 	{ 0x5fffc, 0x20000080 },
@@ -1408,33 +1408,53 @@ static void mdp_load_bc_downscale_table_y_point8TO1(void)
 static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 {
 	uint32 reg;
-	uint32 dst_roi_width;	
-	uint32 dst_roi_height;	
+	uint32 dst_roi_width;	/* Dimensions of DST ROI. */
+	uint32 dst_roi_height;	/* Used to calculate scaling ratios. */
 
-	int32 luma_interp_point_left = 0; 
-	int32 luma_interp_point_right = 0; 
-	int32 luma_interp_point_top = 0; 
-	int32 luma_interp_point_bottom = 0; 
+	/*
+	 * positions of the luma pixel(relative to the image ) required for
+	 * scaling the ROI
+	 */
+	int32 luma_interp_point_left = 0; /* left-most luma pixel needed */
+	int32 luma_interp_point_right = 0; /* right-most luma pixel needed */
+	int32 luma_interp_point_top = 0; /* top-most luma pixel needed */
+	int32 luma_interp_point_bottom = 0; /* bottom-most luma pixel needed */
 
-	
+	/*
+	 * positions of the chroma pixel(relative to the image ) required for
+	 * interpolating a chroma value at all required luma positions
+	 */
+	/* left-most chroma pixel needed */
 	int32 chroma_interp_point_left = 0;
-	
+	/* right-most chroma pixel needed */
 	int32 chroma_interp_point_right = 0;
-	
+	/* top-most chroma pixel needed */
 	int32 chroma_interp_point_top = 0;
-	
+	/* bottom-most chroma pixel needed */
 	int32 chroma_interp_point_bottom = 0;
 
+	/*
+	 * a rectangular region within the chroma plane of the "image".
+	 * Chroma pixels falling inside of this rectangle belongs to the ROI
+	 */
 	int32 chroma_bound_left = 0;
 	int32 chroma_bound_right = 0;
 	int32 chroma_bound_top = 0;
 	int32 chroma_bound_bottom = 0;
 
+	/*
+	 * number of chroma pixels to replicate on the left, right,
+	 * top and bottom edge of the ROI.
+	 */
 	int32 chroma_repeat_left = 0;
 	int32 chroma_repeat_right = 0;
 	int32 chroma_repeat_top = 0;
 	int32 chroma_repeat_bottom = 0;
 
+	/*
+	 * number of luma pixels to replicate on the left, right,
+	 * top and bottom edge of the ROI.
+	 */
 	int32 luma_repeat_left = 0;
 	int32 luma_repeat_right = 0;
 	int32 luma_repeat_top = 0;
@@ -1445,13 +1465,19 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 	uint32 _is_scale_enabled = 0;
 	uint32 _is_yuv_offsite_vertical = 0;
 
-	
+	/* fg edge duplicate */
 	reg = 0x0;
 
-	if (iBuf->mdpImg.mdpOp & MDPOP_ASCALE) {	
+	if (iBuf->mdpImg.mdpOp & MDPOP_ASCALE) {	/* if scaling enabled */
 
 		_is_scale_enabled = 1;
 
+		/*
+		 * if rotation mode involves a 90 deg rotation, flip
+		 * dst_roi_width with dst_roi_height.
+		 * Scaling ratios is based on source ROI dimensions, and
+		 * dst ROI dimensions before rotation.
+		 */
 		if (iBuf->mdpImg.mdpOp & MDPOP_ROT90) {
 			dst_roi_width = iBuf->roi.dst_height;
 			dst_roi_height = iBuf->roi.dst_width;
@@ -1460,21 +1486,28 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 			dst_roi_height = iBuf->roi.dst_height;
 		}
 
+		/*
+		 * Find out the luma pixels needed for scaling in the
+		 * x direction (LEFT and RIGHT).  Locations of pixels are
+		 * relative to the ROI. Upper-left corner of ROI corresponds
+		 * to coordinates (0,0). Also set the number of luma pixel
+		 * to repeat.
+		 */
 		if (iBuf->roi.width > 3 * dst_roi_width) {
-			
+			/* scale factor < 1/3 */
 			luma_interp_point_left = 0;
 			luma_interp_point_right = (iBuf->roi.width - 1);
 			luma_repeat_left = 0;
 			luma_repeat_right = 0;
 		} else if (iBuf->roi.width == 3 * dst_roi_width) {
-			
+			/* scale factor == 1/3 */
 			luma_interp_point_left = 0;
 			luma_interp_point_right = (iBuf->roi.width - 1) + 1;
 			luma_repeat_left = 0;
 			luma_repeat_right = 1;
 		} else if ((iBuf->roi.width > dst_roi_width) &&
 			   (iBuf->roi.width < 3 * dst_roi_width)) {
-			
+			/* 1/3 < scale factor < 1 */
 			luma_interp_point_left = -1;
 			luma_interp_point_right = (iBuf->roi.width - 1) + 1;
 			luma_repeat_left = 1;
@@ -1482,53 +1515,64 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 		}
 
 		else if (iBuf->roi.width == dst_roi_width) {
-			
+			/* scale factor == 1 */
 			luma_interp_point_left = -1;
 			luma_interp_point_right = (iBuf->roi.width - 1) + 2;
 			luma_repeat_left = 1;
 			luma_repeat_right = 2;
-		} else {	
-			  
+		} else {	/* (iBuf->roi.width < dst_roi_width) */
+			  /* scale factor > 1 */
 			luma_interp_point_left = -2;
 			luma_interp_point_right = (iBuf->roi.width - 1) + 2;
 			luma_repeat_left = 2;
 			luma_repeat_right = 2;
 		}
 
+		/*
+		 * Find out the number of pixels needed for scaling in the
+		 * y direction (TOP and BOTTOM).  Locations of pixels are
+		 * relative to the ROI. Upper-left corner of ROI corresponds
+		 * to coordinates (0,0). Also set the number of luma pixel
+		 * to repeat.
+		 */
 		if (iBuf->roi.height > 3 * dst_roi_height) {
-			
+			/* scale factor < 1/3 */
 			luma_interp_point_top = 0;
 			luma_interp_point_bottom = (iBuf->roi.height - 1);
 			luma_repeat_top = 0;
 			luma_repeat_bottom = 0;
 		} else if (iBuf->roi.height == 3 * dst_roi_height) {
-			
+			/* scale factor == 1/3 */
 			luma_interp_point_top = 0;
 			luma_interp_point_bottom = (iBuf->roi.height - 1) + 1;
 			luma_repeat_top = 0;
 			luma_repeat_bottom = 1;
 		} else if ((iBuf->roi.height > dst_roi_height) &&
 			   (iBuf->roi.height < 3 * dst_roi_height)) {
-			
+			/* 1/3 < scale factor < 1 */
 			luma_interp_point_top = -1;
 			luma_interp_point_bottom = (iBuf->roi.height - 1) + 1;
 			luma_repeat_top = 1;
 			luma_repeat_bottom = 1;
 		} else if (iBuf->roi.height == dst_roi_height) {
-			
+			/* scale factor == 1 */
 			luma_interp_point_top = -1;
 			luma_interp_point_bottom = (iBuf->roi.height - 1) + 2;
 			luma_repeat_top = 1;
 			luma_repeat_bottom = 2;
-		} else {	
-			 
+		} else {	/* (iBuf->roi.height < dst_roi_height) */
+			 /* scale factor > 1 */
 			luma_interp_point_top = -2;
 			luma_interp_point_bottom = (iBuf->roi.height - 1) + 2;
 			luma_repeat_top = 2;
 			luma_repeat_bottom = 2;
 		}
-	}			
-	else {			
+	}			/* if (iBuf->scale.scale_flag) */
+	else {			/* scaling disabled */
+		/*
+		 * Since no scaling needed, Tile Fetch does not require any
+		 * more luma pixel than what the ROI contains.
+		 */
 		luma_interp_point_left = (int32) 0;
 		luma_interp_point_right = (int32) (iBuf->roi.width - 1);
 		luma_interp_point_top = (int32) 0;
@@ -1540,44 +1584,59 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 		luma_repeat_bottom = 0;
 	}
 
+	/* After adding the ROI offsets, we have locations of
+	 * luma_interp_points relative to the image.
+	 */
 	luma_interp_point_left += (int32) (iBuf->roi.x);
 	luma_interp_point_right += (int32) (iBuf->roi.x);
 	luma_interp_point_top += (int32) (iBuf->roi.y);
 	luma_interp_point_bottom += (int32) (iBuf->roi.y);
 
+	/*
+	 * After adding the ROI offsets, we have locations of
+	 * chroma_interp_points relative to the image.
+	 */
 	chroma_interp_point_left = luma_interp_point_left;
 	chroma_interp_point_right = luma_interp_point_right;
 	chroma_interp_point_top = luma_interp_point_top;
 	chroma_interp_point_bottom = luma_interp_point_bottom;
 
 	chroma_edge_enable = TRUE;
-	
+	/* find out which chroma pixels are needed for chroma upsampling. */
 	switch (iBuf->mdpImg.imgType) {
+		/*
+		 * cosite in horizontal axis
+		 * fully sampled in vertical axis
+		 */
 	case MDP_Y_CBCR_H2V1:
 	case MDP_Y_CRCB_H2V1:
 	case MDP_YCRYCB_H2V1:
-		
+		/* floor( luma_interp_point_left / 2 ); */
 		chroma_interp_point_left = luma_interp_point_left >> 1;
-		
+		/* floor( ( luma_interp_point_right + 1 ) / 2 ); */
 		chroma_interp_point_right = (luma_interp_point_right + 1) >> 1;
 
 		chroma_interp_point_top = luma_interp_point_top;
 		chroma_interp_point_bottom = luma_interp_point_bottom;
 		break;
 
+		/*
+		 * cosite in horizontal axis
+		 * offsite in vertical axis
+		 */
 	case MDP_Y_CBCR_H2V2:
 	case MDP_Y_CBCR_H2V2_ADRENO:
 	case MDP_Y_CRCB_H2V2:
-		
+		/* floor( luma_interp_point_left / 2) */
 		chroma_interp_point_left = luma_interp_point_left >> 1;
 
-		
+		/* floor( ( luma_interp_point_right + 1 )/ 2 ) */
 		chroma_interp_point_right = (luma_interp_point_right + 1) >> 1;
 
-		
+		/* floor( (luma_interp_point_top - 1 ) / 2 ) */
 		chroma_interp_point_top = (luma_interp_point_top - 1) >> 1;
 
-		
+		/* floor( ( luma_interp_point_bottom + 1 ) / 2 ) */
 		chroma_interp_point_bottom =
 		    (luma_interp_point_bottom + 1) >> 1;
 
@@ -1594,16 +1653,24 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 		break;
 	}
 
-	
+	/* only if the image type is in YUV domain, we calculate chroma edge */
 	if (chroma_edge_enable) {
-		
+		/* Defines which chroma pixels belongs to the roi */
 		switch (iBuf->mdpImg.imgType) {
+			/*
+			 * Cosite in horizontal direction, and fully sampled
+			 * in vertical direction.
+			 */
 		case MDP_Y_CBCR_H2V1:
 		case MDP_Y_CRCB_H2V1:
 		case MDP_YCRYCB_H2V1:
+			/*
+			 * width of chroma ROI is 1/2 of size of luma ROI
+			 * height of chroma ROI same as size of luma ROI
+			 */
 			chroma_bound_left = iBuf->roi.x / 2;
 
-			
+			/* there are half as many chroma pixel as luma pixels */
 			chroma_bound_right =
 			    (iBuf->roi.width + iBuf->roi.x - 1) / 2;
 			chroma_bound_top = iBuf->roi.y;
@@ -1614,6 +1681,11 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 		case MDP_Y_CBCR_H2V2:
 		case MDP_Y_CBCR_H2V2_ADRENO:
 		case MDP_Y_CRCB_H2V2:
+			/*
+			 * cosite in horizontal dir, and offsite in vertical dir
+			 * width of chroma ROI is 1/2 of size of luma ROI
+			 * height of chroma ROI is 1/2 of size of luma ROI
+			 */
 
 			chroma_bound_left = iBuf->roi.x / 2;
 			chroma_bound_right =
@@ -1624,6 +1696,12 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 			break;
 
 		default:
+			/*
+			 * If no valid chroma sub-sampling format specified,
+			 * assume 4:4:4 ( i.e. fully sampled).  Set ROI
+			 * boundaries for chroma same as ROI boundaries for
+			 * luma.
+			 */
 			chroma_bound_left = iBuf->roi.x;
 			chroma_bound_right = iBuf->roi.width + iBuf->roi.x - 1;
 			chroma_bound_top = iBuf->roi.y;
@@ -1632,6 +1710,14 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 			break;
 		}
 
+		/*
+		 * Knowing which chroma pixels are needed, and which chroma
+		 * pixels belong to the ROI (i.e. available for fetching ),
+		 * calculate how many chroma pixels Tile Fetch needs to
+		 * duplicate.  If any required chroma pixels falls outside
+		 * of the ROI, Tile Fetch must obtain them by replicating
+		 * pixels.
+		 */
 		if (chroma_bound_left > chroma_interp_point_left)
 			chroma_repeat_left =
 			    chroma_bound_left - chroma_interp_point_left;
@@ -1662,59 +1748,65 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 			chroma_repeat_top = 0;
 		}
 	}
-	
+	/* make sure chroma repeats are non-negative */
 	if ((chroma_repeat_left < 0) || (chroma_repeat_right < 0) ||
 	    (chroma_repeat_top < 0) || (chroma_repeat_bottom < 0))
 		return -1;
 
-	
+	/* make sure chroma repeats are no larger than 3 pixels */
 	if ((chroma_repeat_left > 3) || (chroma_repeat_right > 3) ||
 	    (chroma_repeat_top > 3) || (chroma_repeat_bottom > 3))
 		return -1;
 
-	
+	/* make sure luma repeats are non-negative */
 	if ((luma_repeat_left < 0) || (luma_repeat_right < 0) ||
 	    (luma_repeat_top < 0) || (luma_repeat_bottom < 0))
 		return -1;
 
-	
+	/* make sure luma repeats are no larger than 3 pixels */
 	if ((luma_repeat_left > 3) || (luma_repeat_right > 3) ||
 	    (luma_repeat_top > 3) || (luma_repeat_bottom > 3))
 		return -1;
 
-	
+	/* write chroma_repeat_left to register */
 	reg |= (chroma_repeat_left & 3) << MDP_LEFT_CHROMA;
 
-	
+	/* write chroma_repeat_right to register */
 	reg |= (chroma_repeat_right & 3) << MDP_RIGHT_CHROMA;
 
-	
+	/* write chroma_repeat_top to register */
 	reg |= (chroma_repeat_top & 3) << MDP_TOP_CHROMA;
 
-	
+	/* write chroma_repeat_bottom to register */
 	reg |= (chroma_repeat_bottom & 3) << MDP_BOTTOM_CHROMA;
 
-	
+	/* write luma_repeat_left to register */
 	reg |= (luma_repeat_left & 3) << MDP_LEFT_LUMA;
 
-	
+	/* write luma_repeat_right to register */
 	reg |= (luma_repeat_right & 3) << MDP_RIGHT_LUMA;
 
-	
+	/* write luma_repeat_top to register */
 	reg |= (luma_repeat_top & 3) << MDP_TOP_LUMA;
 
-	
+	/* write luma_repeat_bottom to register */
 	reg |= (luma_repeat_bottom & 3) << MDP_BOTTOM_LUMA;
 
-	
+	/* done with reg */
 	*dup = reg;
 
-	
+	/* bg edge duplicate */
 	reg = 0x0;
 
 	switch (iBuf->ibuf_type) {
 	case MDP_Y_CBCR_H2V2:
 	case MDP_Y_CRCB_H2V2:
+		/*
+		 * Edge condition for MDP_Y_CRCB/CBCR_H2V2 cosite only.
+		 * For 420 cosite, 1 chroma replicated on all sides except
+		 * left, so reg 101b8 should be 0x0209. For 420 offsite,
+		 * 1 chroma replicated all sides.
+		 */
 		if (iBuf->roi.lcd_y == 0) {
 			reg |= BIT(MDP_TOP_CHROMA);
 		}
@@ -1748,16 +1840,24 @@ static int mdp_get_edge_cond(MDPIBUF *iBuf, uint32 *dup, uint32 *dup2)
 	return 0;
 }
 
-#define ADJUST_IP		
+#define ADJUST_IP		/* for 1/3 scale factor fix */
 
 static int mdp_calc_scale_params(
+/* ROI origin coordinate for the dimension */
 					uint32 org,
+/* src ROI dimension */
 					uint32 dim_in,
+/* scaled ROI dimension*/
 					uint32 dim_out,
+/* is this ROI width dimension? */
 					boolean is_W,
+/* initial phase location address */
 					int32 *phase_init_ptr,
+/* phase increment location address */
 					uint32 *phase_step_ptr,
+/* ROI start over-fetch location address */
 					uint32 *num_repl_beg_ptr,
+/* ROI end over-fetch location address */
 					uint32 *num_repl_end_ptr)
 {
 	boolean rpa_on = FALSE;
@@ -1766,10 +1866,10 @@ static int mdp_calc_scale_params(
 	uint32 end_of = 0;
 	uint64 numer = 0;
 	uint64 denom = 0;
-	
+	/*uint64 inverter = 1; */
 	int64 point5 = 1;
 	int64 one = 1;
-	int64 k1, k2, k3, k4;	
+	int64 k1, k2, k3, k4;	/* linear equation coefficients */
 	uint64 int_mask;
 	uint64 fract_mask;
 	uint64 Os;
@@ -1786,6 +1886,25 @@ static int mdp_calc_scale_params(
 #endif
 	uint32 mult;
 
+	/*
+	 * The phase accumulator should really be rational for all cases in a
+	 * general purpose polyphase scaler for a tiled architecture with
+	 * non-zero * origin capability because there is no way to represent
+	 * certain scale factors in fixed point regardless of precision.
+	 * The error incurred in attempting to use fixed point is most
+	 * eggregious for SF where 1/SF is an integral multiple of 1/3.
+	 *
+	 * However, since the MDP2 has already been committed to HW, we
+	 * only use the rational phase accumulator (RPA) when 1/SF is an
+	 * integral multiple of 1/3.  This will help minimize regressions in
+	 * matching the HW to the C-Sim.
+	 */
+	/*
+	 * Set the RPA flag for this dimension.
+	 *
+	 * In order for 1/SF (dim_in/dim_out) to be an integral multiple of
+	 * 1/3, dim_out must be an integral multiple of 3.
+	 */
 	if (!(dim_out % 3)) {
 		mult = dim_out / 3;
 		rpa_on = (!(dim_in % mult));
@@ -1794,102 +1913,129 @@ static int mdp_calc_scale_params(
 	numer = dim_out;
 	denom = dim_in;
 
+	/*
+	 * convert to U30.34 before division
+	 *
+	 * The K vectors carry 4 extra bits of precision
+	 * and are rounded.
+	 *
+	 * We initially go 5 bits over then round by adding
+	 * 1 and right shifting by 1
+	 * so final result is U31.33
+	 */
 	numer <<= PQF_PLUS_5;
 
-	
+	/* now calculate the scale factor (aka k3) */
 	k3 = ((mdp_do_div(numer, denom) + 1) >> 1);
 
-	
+	/* check scale factor for legal range [0.25 - 4.0] */
 	if (((k3 >> 4) < (1LL << PQF_MINUS_2)) ||
 	    ((k3 >> 4) > (1LL << PQF_PLUS_2))) {
 		return -1;
 	}
 
-	
+	/* calculate inverse scale factor (aka k1) for phase init */
 	numer = dim_in;
 	denom = dim_out;
 	numer <<= PQF_PLUS_5;
 	k1 = ((mdp_do_div(numer, denom) + 1) >> 1);
 
-	
+	/*
+	 * calculate initial phase and ROI overfetch
+	 */
+	/* convert point5 & one to S39.24 (will always be positive) */
 	point5 <<= (PQF_PLUS_4 - 1);
 	one <<= PQF_PLUS_4;
 	k2 = ((k1 - one) >> 1);
 	init_phase = (int)(k2 >> 4);
 	k4 = ((k3 - one) >> 1);
 	if (k3 == one) {
-		
+		/* the simple case; SF = 1.0 */
 		beg_of = 1;
 		end_of = 2;
 	} else {
-		
+		/* calculate the masks */
 		fract_mask = one - 1;
 		int_mask = ~fract_mask;
 
 		if (!rpa_on) {
+			/*
+			 * FIXED POINT IMPLEMENTATION
+			 */
 			if (!org) {
-				
+				/* A fairly simple case; ROI origin = 0 */
 				if (k1 < one) {
-					
+					/* upscaling */
 					beg_of = end_of = 2;
 				}
-				
+				/* 0.33 <= SF < 1.0 */
 				else if (k1 < (3LL << PQF_PLUS_4))
 					beg_of = end_of = 1;
-				
+				/* 0.33 == SF */
 				else if (k1 == (3LL << PQF_PLUS_4)) {
 					beg_of = 0;
 					end_of = 1;
 				}
-				
+				/* 0.25 <= SF < 0.33 */
 				else
 					beg_of = end_of = 0;
 			} else {
+				/*
+				 * The complicated case; ROI origin != 0
+				 * init_phase needs to be adjusted
+				 * OF is also position dependent
+				 */
 
-				
+				/* map (org - .5) into destination space */
 				Os = ((uint64) org << 1) - 1;
 				Od = ((k3 * Os) >> 1) + k4;
 
-				
+				/* take the ceiling */
 				Odprime = (Od & int_mask);
 				if (Odprime != Od)
 					Odprime += one;
 
-				
+				/* now map that back to source space */
 				Osprime = (k1 * (Odprime >> PQF_PLUS_4)) + k2;
 
+				/* then floor & decrement to calculate the required
+				   starting coordinate */
 				Oreq = (Osprime & int_mask) - one;
 
+				/* calculate end coord in destination space then map to
+				   source space */
 				Ed = Odprime +
 				    ((uint64) dim_out << PQF_PLUS_4) - one;
 				Es = (k1 * (Ed >> PQF_PLUS_4)) + k2;
 
+				/* now floor & increment by 2 to calculate the required
+				   ending coordinate */
 				Ereq = (Es & int_mask) + (one << 1);
 
-				
+				/* calculate initial phase */
 #ifdef ADJUST_IP
 
 				IP64 = Osprime - Oreq;
 				delta = ((int64) (org) << PQF_PLUS_4) - Oreq;
 				IP64 -= delta;
 
-				
+				/* limit to valid range before the left shift */
 				delta = (IP64 & (1LL << 63)) ? 4 : -4;
 				delta <<= PQF_PLUS_4;
 				while (abs((int)(IP64 >> PQF_PLUS_4)) > 4)
 					IP64 += delta;
 
-				
+				/* right shift to account for extra bits of precision */
 				init_phase = (int)(IP64 >> 4);
 
-#else 
+#else /* ADJUST_IP */
 
-				
+				/* just calculate the real initial phase */
 				init_phase = (int)((Osprime - Oreq) >> 4);
 
-#endif 
+#endif /* ADJUST_IP */
 
-				
+				/* calculate the overfetch */
 				beg_of = org - (uint32) (Oreq >> PQF_PLUS_4);
 				end_of =
 				    (uint32) (Ereq >> PQF_PLUS_4) - (org +
@@ -1897,31 +2043,43 @@ static int mdp_calc_scale_params(
 								     1);
 			}
 		} else {
+			/*
+			 * RPA IMPLEMENTATION
+			 *
+			 * init_phase needs to be calculated in all RPA_on cases
+			 * because it's a numerator, not a fixed point value.
+			 */
 
-			
+			/* map (org - .5) into destination space */
 			Os = ((uint64) org << PQF_PLUS_4) - point5;
 			Od = mdp_do_div((dim_out * (Os + point5)),
 					dim_in) - point5;
 
-			
+			/* take the ceiling */
 			Odprime = (Od & int_mask);
 			if (Odprime != Od)
 				Odprime += one;
 
-			
+			/* now map that back to source space */
 			Osprime =
 			    mdp_do_div((dim_in * (Odprime + point5)),
 				       dim_out) - point5;
 
+			/* then floor & decrement to calculate the required
+			   starting coordinate */
 			Oreq = (Osprime & int_mask) - one;
 
+			/* calculate end coord in destination space then map to
+			   source space */
 			Ed = Odprime + ((uint64) dim_out << PQF_PLUS_4) - one;
 			Es = mdp_do_div((dim_in * (Ed + point5)),
 					dim_out) - point5;
 
+			/* now floor & increment by 2 to calculate the required
+			   ending coordinate */
 			Ereq = (Es & int_mask) + (one << 1);
 
-			
+			/* calculate initial phase */
 
 #ifdef ADJUST_IP
 
@@ -1929,30 +2087,30 @@ static int mdp_calc_scale_params(
 			delta = ((int64) (org) << PQF_PLUS_4) - Oreq;
 			IP64 -= delta;
 
-			
+			/* limit to valid range before the left shift */
 			delta = (IP64 & (1LL << 63)) ? 4 : -4;
 			delta <<= PQF_PLUS_4;
 			while (abs((int)(IP64 >> PQF_PLUS_4)) > 4)
 				IP64 += delta;
 
-			
+			/* right shift to account for extra bits of precision */
 			init_phase = (int)(IP64 >> 4);
 
-#else 
+#else /* ADJUST_IP */
 
-			
+			/* just calculate the real initial phase */
 			init_phase = (int)((Osprime - Oreq) >> 4);
 
-#endif 
+#endif /* ADJUST_IP */
 
-			
+			/* calculate the overfetch */
 			beg_of = org - (uint32) (Oreq >> PQF_PLUS_4);
 			end_of =
 			    (uint32) (Ereq >> PQF_PLUS_4) - (org + dim_in - 1);
 		}
 	}
 
-	
+	/* return the scale parameters */
 	*phase_init_ptr = init_phase;
 	*phase_step_ptr = (uint32) (k1 >> 4);
 	*num_repl_beg_ptr = beg_of;
@@ -2019,6 +2177,8 @@ void mdp_set_scale(MDPIBUF *iBuf,
 			*pppop_reg_ptr |=
 			    (PPP_OP_SCALE_Y_ON | PPP_OP_SCALE_X_ON);
 
+			/* let's use SHIM logic to calculate the
+			   partial ROI scaling */
 			mdp_calc_scale_params(iBuf->roi.x, iBuf->roi.width,
 					      dst_roi_width_scale, 1,
 					      &phasex_init, &phasex_step,
@@ -2036,7 +2196,7 @@ void mdp_set_scale(MDPIBUF *iBuf,
 			MDP_OUTP(MDP_CMD_DEBUG_ACCESS_BASE + 0x0148,
 				 phasey_step);
 
-			
+			/* disable the pixel repeat option for scaling */
 			use_pr = false;
 
 			if ((dst_roi_width_scale > iBuf->roi.width) ||
@@ -2061,7 +2221,7 @@ void mdp_set_scale(MDPIBUF *iBuf,
 				mdp_curr_down_scale_y = MDP_SCALE_BLUR;
 			}
 
-			
+			/* 0.2 < x <= 1 scaling factor */
 			if ((dst_roi_width_scale <= iBuf->roi.width) &&
 				!mdp_blur) {
 				if (((dst_roi_width_scale * 10) /
@@ -2138,7 +2298,7 @@ void mdp_set_scale(MDPIBUF *iBuf,
 					}
 				}
 			}
-			
+			/* 0.2 < y <= 1 scaling factor */
 			if ((dst_roi_height_scale <= iBuf->roi.height) &&
 				!mdp_blur) {
 				if (((dst_roi_height_scale * 10) /
@@ -2219,7 +2379,7 @@ void mdp_set_scale(MDPIBUF *iBuf,
 			iBuf->mdpImg.mdpOp &= ~(MDPOP_ASCALE);
 		}
 	}
-	
+	/* setting edge condition here after scaling check */
 	if (mdp_get_edge_cond(iBuf, &lines_dup, &lines_dup_bg))
 		printk(KERN_ERR "msm_fb: mdp_get_edge_cond() error!\n");
 
@@ -2248,11 +2408,15 @@ void mdp_adjust_start_addr(uint8 **src0,
 	else
 		*src0 += (x + y * width) * bpp;
 
-	
+	/* if it's dest/bg buffer, we need to adjust it for rotation */
 	if (layer != 0)
 		*src0 = mdp_adjust_rot_addr(iBuf, *src0, 0);
 
 	if (*src1) {
+		/*
+		 * MDP_Y_CBCR_H2V2/MDP_Y_CRCB_H2V2 cosite for now
+		 * we need to shift x direction same as y dir for offsite
+		 */
 		if (iBuf->mdpImg.imgType == MDP_Y_CBCR_H2V2_ADRENO
 							&& layer == 0)
 			*src1 += ((x / h_slice) * h_slice + ((y == 0) ? 0 :
@@ -2262,7 +2426,7 @@ void mdp_adjust_start_addr(uint8 **src0,
 			*src1 += ((x / h_slice) * h_slice +
 			((y == 0) ? 0 : ((y + 1) / v_slice - 1) * width)) * bpp;
 
-		
+		/* if it's dest/bg buffer, we need to adjust it for rotation */
 		if (layer != 0)
 			*src1 = mdp_adjust_rot_addr(iBuf, *src1, 1);
 	}

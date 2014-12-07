@@ -5,4 +5,4 @@
 
 #include <asm-generic/param.h>
 
-#endif 
+#endif /* _ASM_PARAM_H */

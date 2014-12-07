@@ -70,4 +70,4 @@
 #define AC97C_CHANNEL_NONE	0x0
 #define AC97C_CHANNEL_A		0x1
 
-#endif 
+#endif /* __SOUND_ATMEL_AC97C_H */

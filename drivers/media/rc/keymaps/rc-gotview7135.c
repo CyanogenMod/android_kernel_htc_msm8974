@@ -13,6 +13,7 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Mike Baikov <mike@baikov.com> */
 
 static struct rc_map_table gotview7135[] = {
 
@@ -28,36 +29,36 @@ static struct rc_map_table gotview7135[] = {
 	{ 0x24, KEY_7 },
 	{ 0x18, KEY_8 },
 	{ 0x2b, KEY_9 },
-	{ 0x3b, KEY_AGAIN },	
+	{ 0x3b, KEY_AGAIN },	/* LOOP */
 	{ 0x06, KEY_AUDIO },
-	{ 0x31, KEY_PRINT },	
+	{ 0x31, KEY_PRINT },	/* PREVIEW */
 	{ 0x3e, KEY_VIDEO },
 	{ 0x10, KEY_CHANNELUP },
 	{ 0x20, KEY_CHANNELDOWN },
 	{ 0x0c, KEY_VOLUMEDOWN },
 	{ 0x28, KEY_VOLUMEUP },
 	{ 0x08, KEY_MUTE },
-	{ 0x26, KEY_SEARCH },	
-	{ 0x3f, KEY_CAMERA },	
+	{ 0x26, KEY_SEARCH },	/* SCAN */
+	{ 0x3f, KEY_CAMERA },	/* SNAPSHOT */
 	{ 0x12, KEY_RECORD },
 	{ 0x32, KEY_STOP },
 	{ 0x3c, KEY_PLAY },
 	{ 0x1d, KEY_REWIND },
 	{ 0x2d, KEY_PAUSE },
 	{ 0x0d, KEY_FORWARD },
-	{ 0x05, KEY_ZOOM },	
+	{ 0x05, KEY_ZOOM },	/*FULL*/
 
-	{ 0x2a, KEY_F21 },	
-	{ 0x0e, KEY_F22 },	
-	{ 0x1e, KEY_TIME },	
-	{ 0x38, KEY_F24 },	
+	{ 0x2a, KEY_F21 },	/* LIVE TIMESHIFT */
+	{ 0x0e, KEY_F22 },	/* MIN TIMESHIFT */
+	{ 0x1e, KEY_TIME },	/* TIMESHIFT */
+	{ 0x38, KEY_F24 },	/* NORMAL TIMESHIFT */
 };
 
 static struct rc_map_list gotview7135_map = {
 	.map = {
 		.scan    = gotview7135,
 		.size    = ARRAY_SIZE(gotview7135),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_GOTVIEW7135,
 	}
 };

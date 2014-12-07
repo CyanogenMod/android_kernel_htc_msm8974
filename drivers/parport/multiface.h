@@ -1,6 +1,13 @@
 #ifndef _MULTIFACE_H_
 #define _MULTIFACE_H_
 
+/*
+ * Defines for SerialMaster, Multiface Card II and Multiface Card III
+ * The addresses given below are offsets to the board base address
+ * 
+ * 6.11.95 Joerg Dorchain (dorchain@mpi-sb.mpg.de)
+ *
+ */
 
 #define PIA_REG_PADWIDTH 255
 

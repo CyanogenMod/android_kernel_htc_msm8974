@@ -55,12 +55,14 @@ struct h4_struct {
 	struct sk_buff_head txq;
 };
 
+/* H4 receiver States */
 #define H4_W4_PACKET_TYPE	0
 #define H4_W4_EVENT_HDR		1
 #define H4_W4_ACL_HDR		2
 #define H4_W4_SCO_HDR		3
 #define H4_W4_DATA		4
 
+/* Initialize protocol */
 static int h4_open(struct hci_uart *hu)
 {
 	struct h4_struct *h4;
@@ -77,6 +79,7 @@ static int h4_open(struct hci_uart *hu)
 	return 0;
 }
 
+/* Flush protocol data */
 static int h4_flush(struct hci_uart *hu)
 {
 	struct h4_struct *h4 = hu->priv;
@@ -88,6 +91,7 @@ static int h4_flush(struct hci_uart *hu)
 	return 0;
 }
 
+/* Close protocol */
 static int h4_close(struct hci_uart *hu)
 {
 	struct h4_struct *h4 = hu->priv;
@@ -106,13 +110,14 @@ static int h4_close(struct hci_uart *hu)
 	return 0;
 }
 
+/* Enqueue frame for transmittion (padding, crc, etc) */
 static int h4_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 {
 	struct h4_struct *h4 = hu->priv;
 
 	BT_DBG("hu %p skb %p", hu, skb);
 
-	
+	/* Prepend skb with frame type */
 	memcpy(skb_push(skb, 1), &bt_cb(skb)->pkt_type, 1);
 	skb_queue_tail(&h4->txq, skb);
 
@@ -143,6 +148,7 @@ static inline int h4_check_data_len(struct h4_struct *h4, int len)
 	return 0;
 }
 
+/* Recv data */
 static int h4_recv(struct hci_uart *hu, void *data, int count)
 {
 	int ret;

@@ -28,13 +28,23 @@
 
 #include <plat/cpu.h>
 
-#define RNG_OUT_REG		0x00		
-#define RNG_STAT_REG		0x04		
-#define RNG_ALARM_REG		0x24		
-#define RNG_CONFIG_REG		0x28		
-#define RNG_REV_REG		0x3c		
-#define RNG_MASK_REG		0x40		
-#define RNG_SYSSTATUS		0x44		
+#define RNG_OUT_REG		0x00		/* Output register */
+#define RNG_STAT_REG		0x04		/* Status register
+							[0] = STAT_BUSY */
+#define RNG_ALARM_REG		0x24		/* Alarm register
+							[7:0] = ALARM_COUNTER */
+#define RNG_CONFIG_REG		0x28		/* Configuration register
+							[11:6] = RESET_COUNT
+							[5:3]  = RING2_DELAY
+							[2:0]  = RING1_DELAY */
+#define RNG_REV_REG		0x3c		/* Revision register
+							[7:0] = REV_NB */
+#define RNG_MASK_REG		0x40		/* Mask and reset register
+							[2] = IT_EN
+							[1] = SOFTRESET
+							[0] = AUTOIDLE */
+#define RNG_SYSSTATUS		0x44		/* System status
+							[0] = RESETDONE */
 
 static void __iomem *rng_base;
 static struct clk *rng_ick;
@@ -58,6 +68,11 @@ static int omap_rng_data_present(struct hwrng *rng, int wait)
 		data = omap_rng_read_reg(RNG_STAT_REG) ? 0 : 1;
 		if (data || !wait)
 			break;
+		/* RNG produces data fast enough (2+ MBit/sec, even
+		 * during "rngtest" loads, that these delays don't
+		 * seem to trigger.  We *could* use the RNG IRQ, but
+		 * that'd be higher overhead ... so why bother?
+		 */
 		udelay(10);
 	}
 	return data;
@@ -81,6 +96,10 @@ static int __devinit omap_rng_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret;
 
+	/*
+	 * A bit ugly, and it will never actually happen but there can
+	 * be only one RNG and this catches any bork
+	 */
 	if (rng_dev)
 		return -EBUSY;
 
@@ -180,6 +199,7 @@ static int omap_rng_resume(struct platform_device *pdev)
 
 #endif
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:omap_rng");
 
 static struct platform_driver omap_rng_driver = {

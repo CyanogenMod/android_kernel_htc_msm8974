@@ -131,6 +131,11 @@ static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 	return bh;
 }
 
+/*
+ * To avoid calling the atomic setbit hundreds or thousands of times, we only
+ * need to use it within a single byte (to ensure we get endianness right).
+ * We can use memset for the rest of the bitmap as there are no other users.
+ */
 static void mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
 {
 	int i;
@@ -145,6 +150,11 @@ static void mark_bitmap_end(int start_bit, int end_bit, char *bitmap)
 		memset(bitmap + (i >> 3), 0xff, (end_bit - i) >> 3);
 }
 
+/*
+ * If we have fewer than thresh credits, extend by EXT3_MAX_TRANS_DATA.
+ * If that fails, restart the transaction & regain write access for the
+ * buffer head which is used for block_bitmap modifications.
+ */
 static int extend_or_restart_transaction(handle_t *handle, int thresh,
 					 struct buffer_head *bh)
 {
@@ -168,6 +178,13 @@ static int extend_or_restart_transaction(handle_t *handle, int thresh,
 	return 0;
 }
 
+/*
+ * Set up the block and inode bitmaps, and the inode table for the new group.
+ * This doesn't need to be part of the main transaction, since we are only
+ * changing blocks outside the actual filesystem.  We still do journaling to
+ * ensure the recovery is correct in case of a failure just after resize.
+ * If any part of this fails, we simply abort the resize.
+ */
 static int setup_new_group_blocks(struct super_block *sb,
 				  struct ext3_new_group_data *input)
 {
@@ -183,7 +200,7 @@ static int setup_new_group_blocks(struct super_block *sb,
 	int i;
 	int err = 0, err2;
 
-	
+	/* This transaction may be extended/restarted along the way */
 	handle = ext3_journal_start_sb(sb, EXT3_MAX_TRANS_DATA);
 
 	if (IS_ERR(handle))
@@ -205,7 +222,7 @@ static int setup_new_group_blocks(struct super_block *sb,
 		ext3_set_bit(0, bh->b_data);
 	}
 
-	
+	/* Copy all of the GDT blocks into the backup in this group */
 	for (i = 0, bit = 1, block = start + 1;
 	     i < gdblocks; i++, block++, bit++) {
 		struct buffer_head *gdb;
@@ -238,7 +255,7 @@ static int setup_new_group_blocks(struct super_block *sb,
 		brelse(gdb);
 	}
 
-	
+	/* Zero out all of the reserved backup group descriptor table blocks */
 	for (i = 0, bit = gdblocks + 1, block = start + bit;
 	     i < reserved_gdb; i++, block++, bit++) {
 		struct buffer_head *gdb;
@@ -268,7 +285,7 @@ static int setup_new_group_blocks(struct super_block *sb,
 		   input->inode_bitmap - start);
 	ext3_set_bit(input->inode_bitmap - start, bh->b_data);
 
-	
+	/* Zero out all of the inode table blocks */
 	for (i = 0, block = input->inode_table, bit = block - start;
 	     i < sbi->s_itb_per_group; i++, bit++, block++) {
 		struct buffer_head *it;
@@ -303,7 +320,7 @@ static int setup_new_group_blocks(struct super_block *sb,
 		goto exit_bh;
 	brelse(bh);
 
-	
+	/* Mark unused entries in inode bitmap used */
 	ext3_debug("clear inode bitmap %#04x (+%ld)\n",
 		   input->inode_bitmap, input->inode_bitmap - start);
 	if (IS_ERR(bh = bclean(handle, sb, input->inode_bitmap))) {
@@ -325,6 +342,13 @@ exit_journal:
 	return err;
 }
 
+/*
+ * Iterate through the groups which hold BACKUP superblock/GDT copies in an
+ * ext3 filesystem.  The counters should be initialized to 1, 5, and 7 before
+ * calling this for the first time.  In a sparse filesystem it will be the
+ * sequence of powers of 3, 5, and 7: 1, 3, 5, 7, 9, 25, 27, 49, 81, ...
+ * For a non-sparse filesystem it will be every group: 1, 2, 3, 4, ...
+ */
 static unsigned ext3_list_backups(struct super_block *sb, unsigned *three,
 				  unsigned *five, unsigned *seven)
 {
@@ -354,6 +378,11 @@ static unsigned ext3_list_backups(struct super_block *sb, unsigned *three,
 	return ret;
 }
 
+/*
+ * Check that all of the backup GDT blocks are held in the primary GDT block.
+ * It is assumed that they are stored in group order.  Returns the number of
+ * groups in current filesystem that have BACKUPS, or -ve error code.
+ */
 static int verify_reserved_gdb(struct super_block *sb,
 			       struct buffer_head *primary)
 {
@@ -382,6 +411,19 @@ static int verify_reserved_gdb(struct super_block *sb,
 	return gdbackups;
 }
 
+/*
+ * Called when we need to bring a reserved group descriptor table block into
+ * use from the resize inode.  The primary copy of the new GDT block currently
+ * is an indirect block (under the double indirect block in the resize inode).
+ * The new backup GDT blocks will be stored as leaf blocks in this indirect
+ * block, in group order.  Even though we know all the block numbers we need,
+ * we check to ensure that the resize inode has actually reserved these blocks.
+ *
+ * Don't need to update the block bitmaps because the blocks are still in use.
+ *
+ * We get all of the error cases out of the way, so that we are sure to not
+ * fail once we start modifying the data on disk, because JBD has no rollback.
+ */
 static int add_new_gdb(handle_t *handle, struct inode *inode,
 		       struct ext3_new_group_data *input,
 		       struct buffer_head **primary)
@@ -402,6 +444,11 @@ static int add_new_gdb(handle_t *handle, struct inode *inode,
 		       "EXT3-fs: ext3_add_new_gdb: adding group block %lu\n",
 		       gdb_num);
 
+	/*
+	 * If we are not using the primary superblock/GDT copy don't resize,
+	 * because the user tools have no way of handling this.  Probably a
+	 * bad time to do it anyways.
+	 */
 	if (EXT3_SB(sb)->s_sbh->b_blocknr !=
 	    le32_to_cpu(EXT3_SB(sb)->s_es->s_first_data_block)) {
 		ext3_warning(sb, __func__,
@@ -444,7 +491,7 @@ static int add_new_gdb(handle_t *handle, struct inode *inode,
 	if ((err = ext3_journal_get_write_access(handle, dind)))
 		goto exit_primary;
 
-	
+	/* ext3_reserve_inode_write() gets a reference on the iloc */
 	if ((err = ext3_reserve_inode_write(handle, inode, &iloc)))
 		goto exit_dindj;
 
@@ -457,6 +504,15 @@ static int add_new_gdb(handle_t *handle, struct inode *inode,
 		goto exit_inode;
 	}
 
+	/*
+	 * Finally, we have all of the possible failures behind us...
+	 *
+	 * Remove new GDT block from inode double-indirect block and clear out
+	 * the new GDT block for use (which also "frees" the backup GDT blocks
+	 * from the reserved inode).  We don't need to change the bitmaps for
+	 * these blocks, because they are marked as in-use from being in the
+	 * reserved inode, and will become GDT blocks (primary and backup).
+	 */
 	data[gdb_num % EXT3_ADDR_PER_BLOCK(sb)] = 0;
 	err = ext3_journal_dirty_metadata(handle, dind);
 	if (err)
@@ -490,14 +546,14 @@ static int add_new_gdb(handle_t *handle, struct inode *inode,
 exit_group_desc:
 	kfree(n_group_desc);
 exit_inode:
-	
+	//ext3_journal_release_buffer(handle, iloc.bh);
 	brelse(iloc.bh);
 exit_dindj:
-	
+	//ext3_journal_release_buffer(handle, dind);
 exit_primary:
-	
+	//ext3_journal_release_buffer(handle, *primary);
 exit_sbh:
-	
+	//ext3_journal_release_buffer(handle, *primary);
 exit_dind:
 	brelse(dind);
 exit_bh:
@@ -507,6 +563,19 @@ exit_bh:
 	return err;
 }
 
+/*
+ * Called when we are adding a new group which has a backup copy of each of
+ * the GDT blocks (i.e. sparse group) and there are reserved GDT blocks.
+ * We need to add these reserved backup GDT blocks to the resize inode, so
+ * that they are kept for future resizing and not allocated to files.
+ *
+ * Each reserved backup GDT block will go into a different indirect block.
+ * The indirect blocks are actually the primary reserved GDT blocks,
+ * so we know in advance what their block numbers are.  We only get the
+ * double-indirect block to verify it is pointing to the primary reserved
+ * GDT blocks so we don't overwrite a data block by accident.  The reserved
+ * backup GDT blocks are stored in their reserved primary GDT block.
+ */
 static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 			      struct ext3_new_group_data *input)
 {
@@ -537,7 +606,7 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 					 EXT3_ADDR_PER_BLOCK(sb));
 	end = (__le32 *)dind->b_data + EXT3_ADDR_PER_BLOCK(sb);
 
-	
+	/* Get each reserved primary GDT block and verify it holds backups */
 	for (res = 0; res < reserved_gdb; res++, blk++) {
 		if (le32_to_cpu(*data) != blk) {
 			ext3_warning(sb, __func__,
@@ -564,6 +633,11 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 
 	for (i = 0; i < reserved_gdb; i++) {
 		if ((err = ext3_journal_get_write_access(handle, primary[i]))) {
+			/*
+			int j;
+			for (j = 0; j < i; j++)
+				ext3_journal_release_buffer(handle, primary[j]);
+			 */
 			goto exit_bh;
 		}
 	}
@@ -571,10 +645,17 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 	if ((err = ext3_reserve_inode_write(handle, inode, &iloc)))
 		goto exit_bh;
 
+	/*
+	 * Finally we can add each of the reserved backup GDT blocks from
+	 * the new group to its reserved primary GDT block.
+	 */
 	blk = input->group * EXT3_BLOCKS_PER_GROUP(sb);
 	for (i = 0; i < reserved_gdb; i++) {
 		int err2;
 		data = (__le32 *)primary[i]->b_data;
+		/* printk("reserving backup %lu[%u] = %lu\n",
+		       primary[i]->b_blocknr, gdbackups,
+		       blk + primary[i]->b_blocknr); */
 		data[gdbackups] = cpu_to_le32(blk + primary[i]->b_blocknr);
 		err2 = ext3_journal_dirty_metadata(handle, primary[i]);
 		if (!err)
@@ -594,6 +675,22 @@ exit_free:
 	return err;
 }
 
+/*
+ * Update the backup copies of the ext3 metadata.  These don't need to be part
+ * of the main resize transaction, because e2fsck will re-write them if there
+ * is a problem (basically only OOM will cause a problem).  However, we
+ * _should_ update the backups if possible, in case the primary gets trashed
+ * for some reason and we need to run e2fsck from a backup superblock.  The
+ * important part is that the new block and inode counts are in the backup
+ * superblocks, and the location of the new group metadata in the GDT backups.
+ *
+ * We do not need take the s_resize_lock for this, because these
+ * blocks are not otherwise touched by the filesystem code when it is
+ * mounted.  We don't need to worry about last changing from
+ * sbi->s_groups_count, because the worst that can happen is that we
+ * do not copy the full number of backups at this time.  The resize
+ * which changed s_groups_count will backup again.
+ */
 static void update_backups(struct super_block *sb,
 			   int blk_off, char *data, int size)
 {
@@ -618,7 +715,7 @@ static void update_backups(struct super_block *sb,
 	while ((group = ext3_list_backups(sb, &three, &five, &seven)) < last) {
 		struct buffer_head *bh;
 
-		
+		/* Out of journal space, and can't get more - abort - so sad */
 		if (handle->h_buffer_credits == 0 &&
 		    ext3_journal_extend(handle, EXT3_MAX_TRANS_DATA) &&
 		    (err = ext3_journal_restart(handle, EXT3_MAX_TRANS_DATA)))
@@ -670,6 +767,19 @@ exit_err:
 	}
 }
 
+/* Add group descriptor data to an existing or new group descriptor block.
+ * Ensure we handle all possible error conditions _before_ we start modifying
+ * the filesystem, because we cannot abort the transaction and not have it
+ * write the data to disk.
+ *
+ * If we are on a GDT block boundary, we need to get the reserved GDT block.
+ * Otherwise, we may need to add backup GDT blocks for a sparse group.
+ *
+ * We only need to hold the superblock lock while we are actually adding
+ * in the new group's counts to the superblock.  Prior to that we have
+ * not really "added" the group at all.  We re-check that we are still
+ * adding in the last group in case things have changed since verifying.
+ */
 int ext3_group_add(struct super_block *sb, struct ext3_new_group_data *input)
 {
 	struct ext3_sb_info *sbi = EXT3_SB(sb);
@@ -727,6 +837,13 @@ int ext3_group_add(struct super_block *sb, struct ext3_new_group_data *input)
 	if ((err = setup_new_group_blocks(sb, input)))
 		goto exit_put;
 
+	/*
+	 * We will always be modifying at least the superblock and a GDT
+	 * block.  If we are adding a group past the last current GDT block,
+	 * we will also modify the inode and the dindirect block.  If we
+	 * are adding a group with superblock/GDT backups  we will also
+	 * modify each of the reserved GDT dindirect blocks.
+	 */
 	handle = ext3_journal_start_sb(sb,
 				       ext3_bg_has_super(sb, input->group) ?
 				       3 + reserved_gdb : 4);
@@ -746,6 +863,12 @@ int ext3_group_add(struct super_block *sb, struct ext3_new_group_data *input)
 	if ((err = ext3_journal_get_write_access(handle, sbi->s_sbh)))
 		goto exit_journal;
 
+	/*
+	 * We will only either add reserved group blocks to a backup group
+	 * or remove reserved blocks for the first group in a new group block.
+	 * Doing both would be mean more complex code, and sane people don't
+	 * use non-sparse filesystems anymore.  This is already checked above.
+	 */
 	if (gdb_off) {
 		primary = sbi->s_group_desc[gdb_num];
 		if ((err = ext3_journal_get_write_access(handle, primary)))
@@ -757,8 +880,26 @@ int ext3_group_add(struct super_block *sb, struct ext3_new_group_data *input)
 	} else if ((err = add_new_gdb(handle, inode, input, &primary)))
 		goto exit_journal;
 
+	/*
+	 * OK, now we've set up the new group.  Time to make it active.
+	 *
+	 * We do not lock all allocations via s_resize_lock
+	 * so we have to be safe wrt. concurrent accesses the group
+	 * data.  So we need to be careful to set all of the relevant
+	 * group descriptor data etc. *before* we enable the group.
+	 *
+	 * The key field here is sbi->s_groups_count: as long as
+	 * that retains its old value, nobody is going to access the new
+	 * group.
+	 *
+	 * So first we update all the descriptor metadata for the new
+	 * group; then we update the total disk blocks count; then we
+	 * update the groups count to enable the group; then finally we
+	 * update the free space counts so that the system can start
+	 * using the new disk blocks.
+	 */
 
-	
+	/* Update group descriptor block for new group */
 	gdp = (struct ext3_group_desc *)primary->b_data + gdb_off;
 
 	gdp->bg_block_bitmap = cpu_to_le32(input->block_bitmap);
@@ -767,21 +908,55 @@ int ext3_group_add(struct super_block *sb, struct ext3_new_group_data *input)
 	gdp->bg_free_blocks_count = cpu_to_le16(input->free_blocks_count);
 	gdp->bg_free_inodes_count = cpu_to_le16(EXT3_INODES_PER_GROUP(sb));
 
+	/*
+	 * Make the new blocks and inodes valid next.  We do this before
+	 * increasing the group count so that once the group is enabled,
+	 * all of its blocks and inodes are already valid.
+	 *
+	 * We always allocate group-by-group, then block-by-block or
+	 * inode-by-inode within a group, so enabling these
+	 * blocks/inodes before the group is live won't actually let us
+	 * allocate the new space yet.
+	 */
 	le32_add_cpu(&es->s_blocks_count, input->blocks_count);
 	le32_add_cpu(&es->s_inodes_count, EXT3_INODES_PER_GROUP(sb));
 
+	/*
+	 * We need to protect s_groups_count against other CPUs seeing
+	 * inconsistent state in the superblock.
+	 *
+	 * The precise rules we use are:
+	 *
+	 * * Writers of s_groups_count *must* hold s_resize_lock
+	 * AND
+	 * * Writers must perform a smp_wmb() after updating all dependent
+	 *   data and before modifying the groups count
+	 *
+	 * * Readers must hold s_resize_lock over the access
+	 * OR
+	 * * Readers must perform an smp_rmb() after reading the groups count
+	 *   and before reading any dependent data.
+	 *
+	 * NB. These rules can be relaxed when checking the group count
+	 * while freeing data, as we can only allocate from a block
+	 * group after serialising against the group count, and we can
+	 * only then free after serialising in turn against that
+	 * allocation.
+	 */
 	smp_wmb();
 
-	
+	/* Update the global fs size fields */
 	sbi->s_groups_count++;
 
 	err = ext3_journal_dirty_metadata(handle, primary);
 	if (err)
 		goto exit_journal;
 
+	/* Update the reserved block counts only once the new group is
+	 * active. */
 	le32_add_cpu(&es->s_r_blocks_count, input->reserved_blocks);
 
-	
+	/* Update the free space counts */
 	percpu_counter_add(&sbi->s_freeblocks_counter,
 			   input->free_blocks_count);
 	percpu_counter_add(&sbi->s_freeinodes_counter,
@@ -802,8 +977,17 @@ exit_journal:
 exit_put:
 	iput(inode);
 	return err;
-} 
+} /* ext3_group_add */
 
+/* Extend the filesystem to the new number of blocks specified.  This entry
+ * point is only used to extend the current filesystem to the end of the last
+ * existing group.  It can be accessed via ioctl, or by "remount,resize=<size>"
+ * for emergencies (because it has no dependencies on reserved blocks).
+ *
+ * If we _really_ wanted, we could use default values to call ext3_group_add()
+ * allow the "remount" trick to work for arbitrary resizing, assuming enough
+ * GDT blocks are reserved to grow to the desired size.
+ */
 int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 		      ext3_fsblk_t n_blocks_count)
 {
@@ -815,6 +999,9 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 	int err;
 	unsigned long freed_blocks;
 
+	/* We don't need to worry about locking wrt other resizers just
+	 * yet: we're going to revalidate es->s_blocks_count after
+	 * taking the s_resize_lock below. */
 	o_blocks_count = le32_to_cpu(es->s_blocks_count);
 
 	if (test_opt(sb, DEBUG))
@@ -841,7 +1028,7 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 		return -EBUSY;
 	}
 
-	
+	/* Handle the remaining blocks in the last group only. */
 	last = (o_blocks_count - le32_to_cpu(es->s_first_data_block)) %
 		EXT3_BLOCKS_PER_GROUP(sb);
 
@@ -867,7 +1054,7 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 			     " blocks, %u new)",
 			     o_blocks_count + add, add);
 
-	
+	/* See if the device is actually as big as what was requested */
 	bh = sb_bread(sb, o_blocks_count + add -1);
 	if (!bh) {
 		ext3_warning(sb, __func__,
@@ -876,6 +1063,9 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 	}
 	brelse(bh);
 
+	/* We will update the superblock, one block bitmap, and
+	 * one group descriptor via ext3_free_blocks().
+	 */
 	handle = ext3_journal_start_sb(sb, 3);
 	if (IS_ERR(handle)) {
 		err = PTR_ERR(handle);
@@ -924,4 +1114,4 @@ int ext3_group_extend(struct super_block *sb, struct ext3_super_block *es,
 		       sizeof(struct ext3_super_block));
 exit_put:
 	return err;
-} 
+} /* ext3_group_extend */

@@ -39,4 +39,4 @@ VOID Bcm_kill_all_URBs(PS_INTERFACE_ADAPTER psIntfAdapter);
 
 #define DISABLE_USB_ZERO_LEN_INT 0x0F011878
 
-#endif 
+#endif // __INTERFACE_MISC_H

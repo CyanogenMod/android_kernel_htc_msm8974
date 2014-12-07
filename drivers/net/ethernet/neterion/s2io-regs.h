@@ -16,7 +16,9 @@
 #define TBD 0
 
 struct XENA_dev_config {
+/* Convention: mHAL_XXX is mask, vHAL_XXX is value */
 
+/* General Control-Status Registers */
 	u64 general_int_status;
 #define GEN_INTR_TXPIC             s2BIT(0)
 #define GEN_INTR_TXDMA             s2BIT(1)
@@ -40,12 +42,14 @@ struct XENA_dev_config {
 	u8 unused0[0x100 - 0x10];
 
 	u64 sw_reset;
+/* XGXS must be removed from reset only once. */
 #define SW_RESET_XENA              vBIT(0xA5,0,8)
 #define SW_RESET_FLASH             vBIT(0xA5,8,8)
 #define SW_RESET_EOI               vBIT(0xA5,16,8)
 #define SW_RESET_ALL               (SW_RESET_XENA     |   \
                                     SW_RESET_FLASH    |   \
                                     SW_RESET_EOI)
+/* The SW_RESET register must read this value after a successful reset. */
 #define	SW_RESET_RAW_VAL			0xA5000000
 
 
@@ -104,6 +108,7 @@ struct XENA_dev_config {
 
 	u8 unused_0[0x800 - 0x128];
 
+/* PCI-X Controller registers */
 	u64 pic_int_status;
 	u64 pic_int_mask;
 #define PIC_INT_TX                     s2BIT(0)
@@ -128,6 +133,11 @@ struct XENA_dev_config {
 #define PCIX_INT_REG_RRC_TX_REQ_FSM_SERR       s2BIT(23)
 #define PCIX_INT_REG_INI_RX_FSM_SERR           s2BIT(48)
 #define PCIX_INT_REG_RA_RX_FSM_SERR            s2BIT(50)
+/*
+#define PCIX_INT_REG_WRC_RX_SEND_FSM_SERR      s2BIT(52)
+#define PCIX_INT_REG_RRC_RX_REQ_FSM_SERR       s2BIT(54)
+#define PCIX_INT_REG_RRC_RX_SPLIT_FSM_SERR     s2BIT(58)
+*/
 	u64 txpic_alarms;
 	u64 rxpic_int_reg;
 	u64 rxpic_int_mask;
@@ -176,6 +186,7 @@ struct XENA_dev_config {
 #define RX_TRAFFIC_INT_n(n)                    s2BIT(n)
 	u64 rx_traffic_mask;
 
+/* PIC Control registers */
 	u64 pic_control;
 #define PIC_CNTL_RX_ALARM_MAP_1                s2BIT(0)
 #define PIC_CNTL_SHARED_SPLITS(n)              vBIT(n,11,5)
@@ -243,7 +254,7 @@ struct XENA_dev_config {
 	u64 stat_byte_cnt;
 #define STAT_BC(n)                              vBIT(n,4,12)
 
-	
+	/* Automated statistics collection */
 	u64 stat_cfg;
 #define STAT_CFG_STAT_EN           s2BIT(0)
 #define STAT_CFG_ONE_SHOT_EN       s2BIT(1)
@@ -256,7 +267,7 @@ struct XENA_dev_config {
 
 	u64 stat_addr;
 
-	
+	/* General Configuration */
 	u64 mdio_control;
 #define MDIO_MMD_INDX_ADDR(val)		vBIT(val, 0, 16)
 #define MDIO_MMD_DEV_ADDR(val)		vBIT(val, 19, 5)
@@ -299,6 +310,7 @@ struct XENA_dev_config {
 
 	u8 unused7_2[0x800 - 0x248];
 
+/* TxDMA registers */
 	u64 txdma_int_status;
 	u64 txdma_int_mask;
 #define TXDMA_PFC_INT                  s2BIT(0)
@@ -374,10 +386,12 @@ struct XENA_dev_config {
 
 	u8 unused8[0x100 - 0xB8];
 
+/* TxDMA arbiter */
 	u64 tx_dma_wrap_stat;
 
+/* Tx FIFO controller */
 #define X_MAX_FIFOS                        8
-#define X_FIFO_MAX_LEN                     0x1FFF	
+#define X_FIFO_MAX_LEN                     0x1FFF	/*8191 */
 	u64 tx_fifo_partition_0;
 #define TX_FIFO_PARTITION_EN               s2BIT(0)
 #define TX_FIFO_PARTITION_0_PRI(val)       vBIT(val,5,3)
@@ -403,14 +417,14 @@ struct XENA_dev_config {
 #define TX_FIFO_PARTITION_7_PRI(val)       vBIT(val,37,3)
 #define TX_FIFO_PARTITION_7_LEN(val)       vBIT(val,51,13)
 
-#define TX_FIFO_PARTITION_PRI_0                 0	
+#define TX_FIFO_PARTITION_PRI_0                 0	/* highest */
 #define TX_FIFO_PARTITION_PRI_1                 1
 #define TX_FIFO_PARTITION_PRI_2                 2
 #define TX_FIFO_PARTITION_PRI_3                 3
 #define TX_FIFO_PARTITION_PRI_4                 4
 #define TX_FIFO_PARTITION_PRI_5                 5
 #define TX_FIFO_PARTITION_PRI_6                 6
-#define TX_FIFO_PARTITION_PRI_7                 7	
+#define TX_FIFO_PARTITION_PRI_7                 7	/* lowest */
 
 	u64 tx_w_round_robin_0;
 	u64 tx_w_round_robin_1;
@@ -439,6 +453,7 @@ struct XENA_dev_config {
 #define TTI_DATA2_MEM_TX_UFC_C(n)          vBIT(n,32,16)
 #define TTI_DATA2_MEM_TX_UFC_D(n)          vBIT(n,48,16)
 
+/* Tx Protocol assist */
 	u64 tx_pa_cfg;
 #define TX_PA_CFG_IGNORE_FRM_ERR           s2BIT(1)
 #define TX_PA_CFG_IGNORE_SNAP_OUI          s2BIT(2)
@@ -446,6 +461,7 @@ struct XENA_dev_config {
 #define	TX_PA_CFG_IGNORE_L2_ERR			   s2BIT(6)
 #define RX_PA_CFG_STRIP_VLAN_TAG		s2BIT(15)
 
+/* Recent add, used only debug purposes. */
 	u64 pcc_enable;
 
 	u8 unused9[0x700 - 0x178];
@@ -454,6 +470,7 @@ struct XENA_dev_config {
 
 	u8 unused10[0x1800 - 0x1708];
 
+/* RxDMA Registers */
 	u64 rxdma_int_status;
 	u64 rxdma_int_mask;
 #define RXDMA_INT_RC_INT_M             s2BIT(0)
@@ -513,6 +530,7 @@ struct XENA_dev_config {
 
 	u8 unused11[0x100 - 0x88];
 
+/* DMA arbiter */
 	u64 rx_queue_priority;
 #define RX_QUEUE_0_PRIORITY(val)       vBIT(val,5,3)
 #define RX_QUEUE_1_PRIORITY(val)       vBIT(val,13,3)
@@ -523,14 +541,14 @@ struct XENA_dev_config {
 #define RX_QUEUE_6_PRIORITY(val)       vBIT(val,53,3)
 #define RX_QUEUE_7_PRIORITY(val)       vBIT(val,61,3)
 
-#define RX_QUEUE_PRI_0                 0	
+#define RX_QUEUE_PRI_0                 0	/* highest */
 #define RX_QUEUE_PRI_1                 1
 #define RX_QUEUE_PRI_2                 2
 #define RX_QUEUE_PRI_3                 3
 #define RX_QUEUE_PRI_4                 4
 #define RX_QUEUE_PRI_5                 5
 #define RX_QUEUE_PRI_6                 6
-#define RX_QUEUE_PRI_7                 7	
+#define RX_QUEUE_PRI_7                 7	/* lowest */
 
 	u64 rx_w_round_robin_0;
 	u64 rx_w_round_robin_1;
@@ -538,11 +556,11 @@ struct XENA_dev_config {
 	u64 rx_w_round_robin_3;
 	u64 rx_w_round_robin_4;
 
-	
+	/* Per-ring controller regs */
 #define RX_MAX_RINGS                8
 #if 0
-#define RX_MAX_RINGS_SZ             0xFFFF	
-#define RX_MIN_RINGS_SZ             0x3F	
+#define RX_MAX_RINGS_SZ             0xFFFF	/* 65536 */
+#define RX_MIN_RINGS_SZ             0x3F	/* 63 */
 #endif
 	u64 prc_rxd0_n[RX_MAX_RINGS];
 	u64 prc_ctrl_n[RX_MAX_RINGS];
@@ -577,6 +595,7 @@ struct XENA_dev_config {
 #define PRC_ALARM_ACTION_RR_R7_STOP            s2BIT(59)
 #define PRC_ALARM_ACTION_RW_R7_STOP            s2BIT(63)
 
+/* Receive traffic interrupts */
 	u64 rti_command_mem;
 #define RTI_CMD_MEM_WE                          s2BIT(7)
 #define RTI_CMD_MEM_STROBE                      s2BIT(15)
@@ -615,6 +634,7 @@ struct XENA_dev_config {
 
 	u8 unused13[0x2000 - 0x1f08];
 
+/* Media Access Controller Register */
 	u64 mac_int_status;
 	u64 mac_int_mask;
 #define MAC_INT_STATUS_TMAC_INT            s2BIT(0)
@@ -700,7 +720,7 @@ struct XENA_dev_config {
 
 #define S2IO_MAC_ADDR_START_OFFSET	0
 
-#define S2IO_XENA_MAX_MC_ADDRESSES	64	
+#define S2IO_XENA_MAX_MC_ADDRESSES	64	/* multicast addresses */
 #define S2IO_HERC_MAX_MC_ADDRESSES	256
 
 #define S2IO_XENA_MAX_MAC_ADDRESSES	16
@@ -725,6 +745,13 @@ struct XENA_dev_config {
 
 	u8 unused15[0x8];
 
+/*
+        u64 rmac_addr_cfg;
+#define RMAC_ADDR_UCASTn_EN(n)     mBIT(0)_n(n)
+#define RMAC_ADDR_MCASTn_EN(n)     mBIT(0)_n(n)
+#define RMAC_ADDR_BCAST_EN         vBIT(0)_48
+#define RMAC_ADDR_ALL_ADDR_EN      vBIT(0)_49
+*/
 	u64 tmac_ipg_cfg;
 
 	u64 rmac_pause_cfg;
@@ -753,6 +780,7 @@ struct XENA_dev_config {
 
 	u64 rmac_invalid_ipg;
 
+/* rx traffic steering */
 #define	MAC_RTS_FRM_LEN_SET(len)	vBIT(len,2,14)
 	u64 rts_frm_len_n[8];
 
@@ -795,6 +823,7 @@ struct XENA_dev_config {
 
 	u8 unused17[0x2800 - 0x2708];
 
+/* memory controller registers */
 	u64 mc_int_status;
 #define MC_INT_STATUS_MC_INT               s2BIT(0)
 	u64 mc_int_mask;
@@ -818,6 +847,7 @@ struct XENA_dev_config {
 
 	u8 unused18[0x100 - 0x28];
 
+/* MC configuration */
 	u64 rx_queue_cfg;
 #define RX_QUEUE_CFG_Q0_SZ(n)              vBIT(n,0,8)
 #define RX_QUEUE_CFG_Q1_SZ(n)              vBIT(n,8,8)
@@ -874,7 +904,8 @@ struct XENA_dev_config {
 
 	u8 unused26[0x3000 - 0x2f08];
 
-	
+/* XGXG */
+	/* XGXS control registers */
 
 	u64 xgxs_int_status;
 #define XGXS_INT_STATUS_TXGXS              s2BIT(0)
@@ -904,9 +935,9 @@ struct XENA_dev_config {
 	u64 xgxs_status;
 
 	u64 xgxs_cfg_key;
-	u64 xgxs_efifo_cfg;	
-	u64 rxgxs_ber_0;	
-	u64 rxgxs_ber_1;	
+	u64 xgxs_efifo_cfg;	/* CHANGED */
+	u64 rxgxs_ber_0;	/* CHANGED */
+	u64 rxgxs_ber_1;	/* CHANGED */
 
 	u64 spi_control;
 #define SPI_CONTROL_KEY(key)		vBIT(key,0,4)
@@ -924,4 +955,4 @@ struct XENA_dev_config {
 #define XENA_REG_SPACE	sizeof(struct XENA_dev_config)
 #define	XENA_EEPROM_SPACE (0x01 << 11)
 
-#endif				
+#endif				/* _REGS_H */

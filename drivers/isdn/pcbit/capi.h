@@ -19,6 +19,7 @@
 
 #define AppInfoMask  REQ_CAUSE | REQ_DISPLAY | REQ_USER_TO_USER
 
+/* Connection Setup */
 extern int capi_conn_req(const char *calledPN, struct sk_buff **buf,
 			 int proto);
 extern int capi_decode_conn_conf(struct pcbit_chan *chan, struct sk_buff *skb,
@@ -37,6 +38,7 @@ extern int capi_decode_conn_actv_ind(struct pcbit_chan *chan,
 extern int capi_conn_active_resp(struct pcbit_chan *chan,
 				 struct sk_buff **skb);
 
+/* Data */
 extern int capi_select_proto_req(struct pcbit_chan *chan, struct sk_buff **skb,
 				 int outgoing);
 extern int capi_decode_sel_proto_conf(struct pcbit_chan *chan,
@@ -50,6 +52,7 @@ extern int capi_decode_actv_trans_conf(struct pcbit_chan *chan,
 extern int capi_tdata_req(struct pcbit_chan *chan, struct sk_buff *skb);
 extern int capi_tdata_resp(struct pcbit_chan *chan, struct sk_buff **skb);
 
+/* Connection Termination */
 extern int capi_disc_req(ushort callref, struct sk_buff **skb, u_char cause);
 
 extern int capi_decode_disc_ind(struct pcbit_chan *chan, struct sk_buff *skb);

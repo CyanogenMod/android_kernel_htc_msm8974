@@ -38,29 +38,30 @@ enum gdctype {
 };
 
 struct mb862xx_gc_mode {
-	struct fb_videomode	def_mode;	
-	unsigned int		def_bpp;	
-	unsigned long		max_vram;	
-	unsigned long		ccf;		
-	unsigned long		mmr;		
+	struct fb_videomode	def_mode;	/* mode of connected display */
+	unsigned int		def_bpp;	/* default depth */
+	unsigned long		max_vram;	/* connected SDRAM size */
+	unsigned long		ccf;		/* gdc clk */
+	unsigned long		mmr;		/* memory mode for SDRAM */
 };
 
+/* private data */
 struct mb862xxfb_par {
-	struct fb_info		*info;		
+	struct fb_info		*info;		/* fb info head */
 	struct device		*dev;
 	struct pci_dev		*pdev;
-	struct resource		*res;		
+	struct resource		*res;		/* framebuffer/mmio resource */
 
-	resource_size_t		fb_base_phys;	
-	resource_size_t		mmio_base_phys;	
-	void __iomem		*fb_base;	
-	void __iomem		*mmio_base;	
-	size_t			mapped_vram;	
-	size_t			mmio_len;	
-	unsigned long		cap_buf;	
-	size_t			cap_len;	
+	resource_size_t		fb_base_phys;	/* fb base, 36-bit PPC440EPx */
+	resource_size_t		mmio_base_phys;	/* io base addr */
+	void __iomem		*fb_base;	/* remapped framebuffer */
+	void __iomem		*mmio_base;	/* remapped registers */
+	size_t			mapped_vram;	/* length of remapped vram */
+	size_t			mmio_len;	/* length of register region */
+	unsigned long		cap_buf;	/* capture buffers offset */
+	size_t			cap_len;	/* length of capture buffers */
 
-	void __iomem		*host;		
+	void __iomem		*host;		/* relocatable reg. bases */
 	void __iomem		*i2c;
 	void __iomem		*disp;
 	void __iomem		*disp1;
@@ -74,11 +75,11 @@ struct mb862xxfb_par {
 	void __iomem		*wrback;
 
 	unsigned int		irq;
-	unsigned int		type;		
-	unsigned int		refclk;		
-	struct mb862xx_gc_mode	*gc_mode;	
-	int			pre_init;	
-	struct i2c_adapter	*adap;		
+	unsigned int		type;		/* GDC type */
+	unsigned int		refclk;		/* disp. reference clock */
+	struct mb862xx_gc_mode	*gc_mode;	/* GDC mode init data */
+	int			pre_init;	/* don't init display if 1 */
+	struct i2c_adapter	*adap;		/* GDC I2C bus adapter */
 	int			i2c_rs;
 
 	struct mb862xx_l1_cfg	l1_cfg;
@@ -115,6 +116,6 @@ static inline void mb862xx_i2c_exit(struct mb862xxfb_par *par) { }
 
 #define pack(a, b)	(((a) << 16) | (b))
 
-#endif 
+#endif /* __KERNEL__ */
 
 #endif

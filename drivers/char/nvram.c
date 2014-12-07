@@ -43,9 +43,10 @@
 #define PC		1
 #define ATARI		2
 
+/* select machine configuration */
 #if defined(CONFIG_ATARI)
 #  define MACH ATARI
-#elif defined(__i386__) || defined(__x86_64__) || defined(__arm__)  
+#elif defined(__i386__) || defined(__x86_64__) || defined(__arm__)  /* and ?? */
 #  define MACH PC
 #else
 #  error Cannot build nvram driver for this machine configuration.
@@ -53,8 +54,10 @@
 
 #if MACH == PC
 
+/* RTC in a PC */
 #define CHECK_DRIVER_INIT()	1
 
+/* On PCs, the checksum is built only over bytes 2..31 */
 #define PC_CKS_RANGE_START	2
 #define PC_CKS_RANGE_END	31
 #define PC_CKS_LOC		32
@@ -68,6 +71,7 @@
 
 #if MACH == ATARI
 
+/* Special parameters for RTC in Atari machines */
 #include <asm/atarihw.h>
 #include <asm/atariints.h>
 #define RTC_PORT(x)		(TT_RTC_BAS + 2*(x))
@@ -75,6 +79,8 @@
 
 #define NVRAM_BYTES		50
 
+/* On Ataris, the checksum is over all bytes except the checksum bytes
+ * themselves; these are at the very end */
 #define ATARI_CKS_RANGE_START	0
 #define ATARI_CKS_RANGE_END	47
 #define ATARI_CKS_LOC		48
@@ -85,6 +91,11 @@
 
 #endif
 
+/* Note that *all* calls to CMOS_READ and CMOS_WRITE must be done with
+ * rtc_lock held. Due to the index-port/data-port design of the RTC, we
+ * don't want two different things trying to get to it at once. (e.g. the
+ * periodic 11 min sync from kernel/time/ntp.c vs. this driver.)
+ */
 
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -103,10 +114,10 @@
 
 static DEFINE_MUTEX(nvram_mutex);
 static DEFINE_SPINLOCK(nvram_state_lock);
-static int nvram_open_cnt;	
-static int nvram_open_mode;	
-#define NVRAM_WRITE		1 
-#define NVRAM_EXCL		2 
+static int nvram_open_cnt;	/* #times opened */
+static int nvram_open_mode;	/* special open modes */
+#define NVRAM_WRITE		1 /* opened for writing (exclusive) */
+#define NVRAM_EXCL		2 /* opened with O_EXCL */
 
 static int mach_check_checksum(void);
 static void mach_set_checksum(void);
@@ -116,6 +127,16 @@ static void mach_proc_infos(unsigned char *contents, struct seq_file *seq,
 								void *offset);
 #endif
 
+/*
+ * These functions are provided to be called internally or by other parts of
+ * the kernel. It's up to the caller to ensure correct checksum before reading
+ * or after writing (needs to be done only once).
+ *
+ * It is worth noting that these functions all access bytes of general
+ * purpose memory in the NVRAM - that is to say, they all add the
+ * NVRAM_FIRST_BYTE offset.  Pass them offsets into NVRAM as if you did not
+ * know about the RTC cruft.
+ */
 
 unsigned char __nvram_read_byte(int i)
 {
@@ -135,6 +156,7 @@ unsigned char nvram_read_byte(int i)
 }
 EXPORT_SYMBOL(nvram_read_byte);
 
+/* This races nicely with trying to read with checksum checking (nvram_read) */
 void __nvram_write_byte(unsigned char c, int i)
 {
 	CMOS_WRITE(c, NVRAM_FIRST_BYTE + i);
@@ -183,14 +205,17 @@ void nvram_set_checksum(void)
 	__nvram_set_checksum();
 	spin_unlock_irqrestore(&rtc_lock, flags);
 }
-#endif  
+#endif  /*  0  */
 
+/*
+ * The are the file operation function for user access to /dev/nvram
+ */
 
 static loff_t nvram_llseek(struct file *file, loff_t offset, int origin)
 {
 	switch (origin) {
 	case 0:
-		
+		/* nothing to do */
 		break;
 	case 1:
 		offset += file->f_pos;
@@ -242,12 +267,12 @@ static ssize_t nvram_write(struct file *file, const char __user *buf,
 	unsigned char *tmp;
 
 	if (i >= NVRAM_BYTES)
-		return 0;	
+		return 0;	/* Past EOF */
 
 	if (count > NVRAM_BYTES - i)
 		count = NVRAM_BYTES - i;
 	if (count > NVRAM_BYTES)
-		return -EFAULT;	
+		return -EFAULT;	/* Can't happen, but prove it to gcc */
 
 	if (copy_from_user(contents, buf, count))
 		return -EFAULT;
@@ -281,7 +306,7 @@ static long nvram_ioctl(struct file *file, unsigned int cmd,
 	switch (cmd) {
 
 	case NVRAM_INIT:
-		
+		/* initialize NVRAM contents and checksum */
 		if (!capable(CAP_SYS_ADMIN))
 			return -EACCES;
 
@@ -297,6 +322,8 @@ static long nvram_ioctl(struct file *file, unsigned int cmd,
 		return 0;
 
 	case NVRAM_SETCKS:
+		/* just set checksum, contents unchanged (maybe useful after
+		 * checksum garbaged somehow...) */
 		if (!capable(CAP_SYS_ADMIN))
 			return -EACCES;
 
@@ -340,7 +367,7 @@ static int nvram_release(struct inode *inode, struct file *file)
 
 	nvram_open_cnt--;
 
-	
+	/* if only one instance is open, clear the EXCL bit */
 	if (nvram_open_mode & NVRAM_EXCL)
 		nvram_open_mode &= ~NVRAM_EXCL;
 	if (file->f_mode & FMODE_WRITE)
@@ -394,7 +421,7 @@ static int nvram_add_proc_fs(void)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 static const struct file_operations nvram_fops = {
 	.owner		= THIS_MODULE,
@@ -416,7 +443,7 @@ static int __init nvram_init(void)
 {
 	int ret;
 
-	
+	/* First test whether the driver should init at all */
 	if (!CHECK_DRIVER_INIT())
 		return -ENODEV;
 
@@ -449,6 +476,9 @@ static void __exit nvram_cleanup_module(void)
 module_init(nvram_init);
 module_exit(nvram_cleanup_module);
 
+/*
+ * Machine specific functions
+ */
 
 #if MACH == PC
 
@@ -554,7 +584,7 @@ static void pc_proc_infos(unsigned char *nvram, struct seq_file *seq,
 }
 #endif
 
-#endif 
+#endif /* MACH == PC */
 
 #if MACH == ATARI
 
@@ -647,7 +677,7 @@ static void atari_proc_infos(unsigned char *nvram, struct seq_file *seq,
 	else
 		seq_printf(seq, "n/a\n");
 
-	
+	/* the following entries are defined only for the Falcon */
 	if ((atari_mch_cookie >> 16) != ATARI_MCH_FALCON)
 		return;
 
@@ -688,7 +718,7 @@ static void atari_proc_infos(unsigned char *nvram, struct seq_file *seq,
 }
 #endif
 
-#endif 
+#endif /* MACH == ATARI */
 
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_MISCDEV(NVRAM_MINOR);

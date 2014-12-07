@@ -34,12 +34,13 @@ MODULE_DESCRIPTION("ICPlus IP175C/IP101A/IP101G/IC1001 PHY drivers");
 MODULE_AUTHOR("Michael Barkowski");
 MODULE_LICENSE("GPL");
 
-#define IP10XX_SPEC_CTRL_STATUS		16	
-#define IP1001_SPEC_CTRL_STATUS_2	20	
-#define IP1001_PHASE_SEL_MASK		3	
-#define IP1001_APS_ON			11	
-#define IP101A_G_APS_ON			2	
-#define IP101A_G_IRQ_CONF_STATUS	0x11	
+/* IP101A/G - IP1001 */
+#define IP10XX_SPEC_CTRL_STATUS		16	/* Spec. Control Register */
+#define IP1001_SPEC_CTRL_STATUS_2	20	/* IP1001 Spec. Control Reg 2 */
+#define IP1001_PHASE_SEL_MASK		3	/* IP1001 RX/TXPHASE_SEL */
+#define IP1001_APS_ON			11	/* IP1001 APS Mode  bit */
+#define IP101A_G_APS_ON			2	/* IP101A/G APS Mode bit */
+#define IP101A_G_IRQ_CONF_STATUS	0x11	/* Conf Info IRQ & Status Reg */
 
 static int ip175c_config_init(struct phy_device *phydev)
 {
@@ -48,28 +49,28 @@ static int ip175c_config_init(struct phy_device *phydev)
 
 	if (full_reset_performed == 0) {
 
-		
+		/* master reset */
 		err = mdiobus_write(phydev->bus, 30, 0, 0x175c);
 		if (err < 0)
 			return err;
 
-		
+		/* ensure no bus delays overlap reset period */
 		err = mdiobus_read(phydev->bus, 30, 0);
 
-		
+		/* data sheet specifies reset period is 2 msec */
 		mdelay(2);
 
-		
+		/* enable IP175C mode */
 		err = mdiobus_write(phydev->bus, 29, 31, 0x175c);
 		if (err < 0)
 			return err;
 
-		
+		/* Set MII0 speed and duplex (in PHY mode) */
 		err = mdiobus_write(phydev->bus, 29, 22, 0x420);
 		if (err < 0)
 			return err;
 
-		
+		/* reset switch ports */
 		for (i = 0; i < 5; i++) {
 			err = mdiobus_write(phydev->bus, i,
 					    MII_BMCR, BMCR_RESET);
@@ -100,7 +101,7 @@ static int ip1xx_reset(struct phy_device *phydev)
 {
 	int bmcr;
 
-	
+	/* Software Reset PHY */
 	bmcr = phy_read(phydev, MII_BMCR);
 	if (bmcr < 0)
 		return bmcr;
@@ -126,7 +127,7 @@ static int ip1001_config_init(struct phy_device *phydev)
 	if (c < 0)
 		return c;
 
-	
+	/* Enable Auto Power Saving mode */
 	c = phy_read(phydev, IP1001_SPEC_CTRL_STATUS_2);
 	if (c < 0)
 		return c;
@@ -136,6 +137,8 @@ static int ip1001_config_init(struct phy_device *phydev)
 		return c;
 
 	if (phydev->interface == PHY_INTERFACE_MODE_RGMII) {
+		/* Additional delay (2ns) used to adjust RX clock phase
+		 * at RGMII interface */
 		c = phy_read(phydev, IP10XX_SPEC_CTRL_STATUS);
 		if (c < 0)
 			return c;
@@ -157,7 +160,7 @@ static int ip101a_g_config_init(struct phy_device *phydev)
 	if (c < 0)
 		return c;
 
-	
+	/* Enable Auto Power Saving mode */
 	c = phy_read(phydev, IP10XX_SPEC_CTRL_STATUS);
 	c |= IP101A_G_APS_ON;
 
@@ -166,10 +169,10 @@ static int ip101a_g_config_init(struct phy_device *phydev)
 
 static int ip175c_read_status(struct phy_device *phydev)
 {
-	if (phydev->addr == 4) 
+	if (phydev->addr == 4) /* WAN port */
 		genphy_read_status(phydev);
 	else
-		
+		/* Don't need to read status for switch ports */
 		phydev->irq = PHY_IGNORE_INTERRUPT;
 
 	return 0;
@@ -177,7 +180,7 @@ static int ip175c_read_status(struct phy_device *phydev)
 
 static int ip175c_config_aneg(struct phy_device *phydev)
 {
-	if (phydev->addr == 4) 
+	if (phydev->addr == 4) /* WAN port */
 		genphy_config_aneg(phydev);
 
 	return 0;

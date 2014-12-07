@@ -25,6 +25,7 @@
  * Or, point your browser to http://www.gnu.org/copyleft/gpl.html
  */
 
+/* Enables DVBv3 compatibility bits at the headers */
 #define __DVB_CORE__
 
 #include <linux/string.h>
@@ -82,6 +83,20 @@ MODULE_PARM_DESC(dvb_mfe_wait_time, "Wait up to <mfe_wait_time> seconds on open(
 #define FESTATE_LOSTLOCK (FESTATE_ZIGZAG_FAST | FESTATE_ZIGZAG_SLOW)
 
 #define FE_ALGO_HW		1
+/*
+ * FESTATE_IDLE. No tuning parameters have been supplied and the loop is idling.
+ * FESTATE_RETUNE. Parameters have been supplied, but we have not yet performed the first tune.
+ * FESTATE_TUNING_FAST. Tuning parameters have been supplied and fast zigzag scan is in progress.
+ * FESTATE_TUNING_SLOW. Tuning parameters have been supplied. Fast zigzag failed, so we're trying again, but slower.
+ * FESTATE_TUNED. The frontend has successfully locked on.
+ * FESTATE_ZIGZAG_FAST. The lock has been lost, and a fast zigzag has been initiated to try and regain it.
+ * FESTATE_ZIGZAG_SLOW. The lock has been lost. Fast zigzag has been failed, so we're trying again, but slower.
+ * FESTATE_DISEQC. A DISEQC command has just been issued.
+ * FESTATE_WAITFORLOCK. When we're waiting for a lock.
+ * FESTATE_SEARCHING_FAST. When we're searching for a signal using a fast zigzag scan.
+ * FESTATE_SEARCHING_SLOW. When we're searching for a signal using a slow zigzag scan.
+ * FESTATE_LOSTLOCK. When the lock has been lost, and we're searching it again.
+ */
 
 #define DVB_FE_NO_EXIT	0
 #define DVB_FE_NORMAL_EXIT	1
@@ -91,7 +106,7 @@ static DEFINE_MUTEX(frontend_mutex);
 
 struct dvb_frontend_private {
 
-	
+	/* thread/frontend values */
 	struct dvb_device *dvbdev;
 	struct dvb_frontend_parameters parameters_out;
 	struct dvb_fe_events events;
@@ -109,7 +124,7 @@ struct dvb_frontend_private {
 	int tone;
 	int voltage;
 
-	
+	/* swzigzag values */
 	unsigned int state;
 	unsigned int bending;
 	int lnb_drift;
@@ -136,6 +151,11 @@ static bool has_get_frontend(struct dvb_frontend *fe)
 	return fe->ops.get_frontend != NULL;
 }
 
+/*
+ * Due to DVBv3 API calls, a delivery system should be mapped into one of
+ * the 4 DVBv3 delivery systems (FE_QPSK, FE_QAM, FE_OFDM or FE_ATSC),
+ * otherwise, a DVBv3 call will fail.
+ */
 enum dvbv3_emulation_type {
 	DVBV3_UNKNOWN,
 	DVBV3_QPSK,
@@ -170,6 +190,12 @@ static enum dvbv3_emulation_type dvbv3_type(u32 delivery_system)
 	case SYS_DAB:
 	case SYS_ATSCMH:
 	default:
+		/*
+		 * Doesn't know how to emulate those types and/or
+		 * there's no frontend driver from this type yet
+		 * with some emulation code, so, we're not sure yet how
+		 * to handle them, or they're not compatible with a DVBv3 call.
+		 */
 		return DVBV3_UNKNOWN;
 	}
 }
@@ -298,6 +324,13 @@ static void dvb_frontend_swzigzag_update_delay(struct dvb_frontend_private *fepr
 	fepriv->delay = fepriv->min_delay + q2 * HZ / (128*128);
 }
 
+/**
+ * Performs automatic twiddling of frontend parameters.
+ *
+ * @param fe The frontend concerned.
+ * @param check_wrapped Checks if an iteration has completed. DO NOT SET ON THE FIRST ATTEMPT
+ * @returns Number of complete iterations that have been performed.
+ */
 static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wrapped)
 {
 	int autoinversion;
@@ -308,26 +341,26 @@ static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wra
 	int original_inversion = c->inversion;
 	u32 original_frequency = c->frequency;
 
-	
+	/* are we using autoinversion? */
 	autoinversion = ((!(fe->ops.info.caps & FE_CAN_INVERSION_AUTO)) &&
 			 (c->inversion == INVERSION_AUTO));
 
-	
+	/* setup parameters correctly */
 	while(!ready) {
-		
+		/* calculate the lnb_drift */
 		fepriv->lnb_drift = fepriv->auto_step * fepriv->step_size;
 
-		
+		/* wrap the auto_step if we've exceeded the maximum drift */
 		if (fepriv->lnb_drift > fepriv->max_drift) {
 			fepriv->auto_step = 0;
 			fepriv->auto_sub_step = 0;
 			fepriv->lnb_drift = 0;
 		}
 
-		
+		/* perform inversion and +/- zigzag */
 		switch(fepriv->auto_sub_step) {
 		case 0:
-			
+			/* try with the current inversion and current drift setting */
 			ready = 1;
 			break;
 
@@ -356,13 +389,15 @@ static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wra
 
 		default:
 			fepriv->auto_step++;
-			fepriv->auto_sub_step = -1; 
+			fepriv->auto_sub_step = -1; /* it'll be incremented to 0 in a moment */
 			break;
 		}
 
 		if (!ready) fepriv->auto_sub_step++;
 	}
 
+	/* if this attempt would hit where we started, indicate a complete
+	 * iteration has occurred */
 	if ((fepriv->auto_step == fepriv->started_auto_step) &&
 	    (fepriv->auto_sub_step == 0) && check_wrapped) {
 		return 1;
@@ -373,7 +408,7 @@ static int dvb_frontend_swzigzag_autotune(struct dvb_frontend *fe, int check_wra
 		__func__, fepriv->lnb_drift, fepriv->inversion,
 		fepriv->auto_step, fepriv->auto_sub_step, fepriv->started_auto_step);
 
-	
+	/* set the frontend itself */
 	c->frequency += fepriv->lnb_drift;
 	if (autoinversion)
 		c->inversion = fepriv->inversion;
@@ -400,14 +435,14 @@ static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 	struct dvb_frontend_private *fepriv = fe->frontend_priv;
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache, tmp;
 
-	
+	/* if we've got no parameters, just keep idling */
 	if (fepriv->state & FESTATE_IDLE) {
 		fepriv->delay = 3*HZ;
 		fepriv->quality = 0;
 		return;
 	}
 
-	
+	/* in SCAN mode, we just set the frontend when asked and leave it alone */
 	if (fepriv->tune_mode_flags & FE_TUNE_MODE_ONESHOT) {
 		if (fepriv->state & FESTATE_RETUNE) {
 			tmp = *c;
@@ -424,7 +459,7 @@ static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 		return;
 	}
 
-	
+	/* get the frontend status */
 	if (fepriv->state & FESTATE_RETUNE) {
 		s = 0;
 	} else {
@@ -436,12 +471,12 @@ static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 		}
 	}
 
-	
+	/* if we're not tuned, and we have a lock, move to the TUNED state */
 	if ((fepriv->state & FESTATE_WAITFORLOCK) && (s & FE_HAS_LOCK)) {
 		dvb_frontend_swzigzag_update_delay(fepriv, s & FE_HAS_LOCK);
 		fepriv->state = FESTATE_TUNED;
 
-		
+		/* if we're tuned, then we have determined the correct inversion */
 		if ((!(fe->ops.info.caps & FE_CAN_INVERSION_AUTO)) &&
 		    (c->inversion == INVERSION_AUTO)) {
 			c->inversion = fepriv->inversion;
@@ -449,31 +484,39 @@ static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 		return;
 	}
 
-	
+	/* if we are tuned already, check we're still locked */
 	if (fepriv->state & FESTATE_TUNED) {
 		dvb_frontend_swzigzag_update_delay(fepriv, s & FE_HAS_LOCK);
 
-		
+		/* we're tuned, and the lock is still good... */
 		if (s & FE_HAS_LOCK) {
 			return;
-		} else { 
+		} else { /* if we _WERE_ tuned, but now don't have a lock */
 			fepriv->state = FESTATE_ZIGZAG_FAST;
 			fepriv->started_auto_step = fepriv->auto_step;
 			fepriv->check_wrapped = 0;
 		}
 	}
 
+	/* don't actually do anything if we're in the LOSTLOCK state,
+	 * the frontend is set to FE_CAN_RECOVER, and the max_drift is 0 */
 	if ((fepriv->state & FESTATE_LOSTLOCK) &&
 	    (fe->ops.info.caps & FE_CAN_RECOVER) && (fepriv->max_drift == 0)) {
 		dvb_frontend_swzigzag_update_delay(fepriv, s & FE_HAS_LOCK);
 		return;
 	}
 
+	/* don't do anything if we're in the DISEQC state, since this
+	 * might be someone with a motorized dish controlled by DISEQC.
+	 * If its actually a re-tune, there will be a SET_FRONTEND soon enough.	*/
 	if (fepriv->state & FESTATE_DISEQC) {
 		dvb_frontend_swzigzag_update_delay(fepriv, s & FE_HAS_LOCK);
 		return;
 	}
 
+	/* if we're in the RETUNE state, set everything up for a brand
+	 * new scan, keeping the current inversion setting, as the next
+	 * tune is _very_ likely to require the same */
 	if (fepriv->state & FESTATE_RETUNE) {
 		fepriv->lnb_drift = 0;
 		fepriv->auto_step = 0;
@@ -482,31 +525,39 @@ static void dvb_frontend_swzigzag(struct dvb_frontend *fe)
 		fepriv->check_wrapped = 0;
 	}
 
-	
+	/* fast zigzag. */
 	if ((fepriv->state & FESTATE_SEARCHING_FAST) || (fepriv->state & FESTATE_RETUNE)) {
 		fepriv->delay = fepriv->min_delay;
 
-		
+		/* perform a tune */
 		retval = dvb_frontend_swzigzag_autotune(fe,
 							fepriv->check_wrapped);
 		if (retval < 0) {
 			return;
 		} else if (retval) {
+			/* OK, if we've run out of trials at the fast speed.
+			 * Drop back to slow for the _next_ attempt */
 			fepriv->state = FESTATE_SEARCHING_SLOW;
 			fepriv->started_auto_step = fepriv->auto_step;
 			return;
 		}
 		fepriv->check_wrapped = 1;
 
+		/* if we've just retuned, enter the ZIGZAG_FAST state.
+		 * This ensures we cannot return from an
+		 * FE_SET_FRONTEND ioctl before the first frontend tune
+		 * occurs */
 		if (fepriv->state & FESTATE_RETUNE) {
 			fepriv->state = FESTATE_TUNING_FAST;
 		}
 	}
 
-	
+	/* slow zigzag */
 	if (fepriv->state & FESTATE_SEARCHING_SLOW) {
 		dvb_frontend_swzigzag_update_delay(fepriv, s & FE_HAS_LOCK);
 
+		/* Note: don't bother checking for wrapping; we stay in this
+		 * state until we get a lock */
 		dvb_frontend_swzigzag_autotune(fe, 0);
 	}
 }
@@ -567,7 +618,7 @@ static int dvb_frontend_thread(void *data)
 
 	set_freezable();
 	while (1) {
-		up(&fepriv->sem);	    
+		up(&fepriv->sem);	    /* is locked when we enter the thread... */
 restart:
 		wait_event_interruptible_timeout(fepriv->wait_queue,
 			dvb_frontend_should_wakeup(fe) || kthread_should_stop()
@@ -575,7 +626,7 @@ restart:
 			fepriv->delay);
 
 		if (kthread_should_stop() || dvb_frontend_is_exiting(fe)) {
-			
+			/* got signal or quitting */
 			fepriv->exit = DVB_FE_NORMAL_EXIT;
 			break;
 		}
@@ -595,7 +646,7 @@ restart:
 			fepriv->reinitialise = 0;
 		}
 
-		
+		/* do an iteration of the tuning loop */
 		if (fe->ops.get_frontend_algo) {
 			algo = fe->ops.get_frontend_algo(fe);
 			switch (algo) {
@@ -629,14 +680,21 @@ restart:
 					dprintk("%s: Retune requested, FESTAT_RETUNE\n", __func__);
 					fepriv->state = FESTATE_TUNED;
 				}
+				/* Case where we are going to search for a carrier
+				 * User asked us to retune again for some reason, possibly
+				 * requesting a search with a new set of parameters
+				 */
 				if (fepriv->algo_status & DVBFE_ALGO_SEARCH_AGAIN) {
 					if (fe->ops.search) {
 						fepriv->algo_status = fe->ops.search(fe);
+						/* We did do a search as was requested, the flags are
+						 * now unset as well and has the flags wrt to search.
+						 */
 					} else {
 						fepriv->algo_status &= ~DVBFE_ALGO_SEARCH_AGAIN;
 					}
 				}
-				
+				/* Track the carrier if the search was successful */
 				if (fepriv->algo_status != DVBFE_ALGO_SEARCH_SUCCESS) {
 					fepriv->algo_status |= DVBFE_ALGO_SEARCH_AGAIN;
 					fepriv->delay = HZ / 2;
@@ -644,7 +702,7 @@ restart:
 				dtv_property_legacy_params_sync(fe, &fepriv->parameters_out);
 				fe->ops.read_status(fe, &s);
 				if (s != fepriv->status) {
-					dvb_frontend_add_event(fe, s); 
+					dvb_frontend_add_event(fe, s); /* update event list */
 					fepriv->status = s;
 					if (!(s & FE_HAS_LOCK)) {
 						fepriv->delay = HZ / 10;
@@ -705,7 +763,7 @@ static void dvb_frontend_stop(struct dvb_frontend *fe)
 	sema_init(&fepriv->sem, 1);
 	fepriv->state = FESTATE_IDLE;
 
-	
+	/* paranoia check in case a signal arrived */
 	if (fepriv->thread)
 		printk("dvb_frontend_stop: warning: thread %p won't exit\n",
 				fepriv->thread);
@@ -728,6 +786,12 @@ static inline void timeval_usec_add(struct timeval *curtime, u32 add_usec)
 	}
 }
 
+/*
+ * Sleep until gettimeofday() > waketime + add_usec
+ * This needs to be as precise as possible, but as the delay is
+ * usually between 2ms and 32ms, it is done using a scheduled msleep
+ * followed by usleep (normally a busy-wait loop) for the remainder
+ */
 void dvb_frontend_sleep_until(struct timeval *waketime, u32 add_usec)
 {
 	struct timeval lasttime;
@@ -808,7 +872,7 @@ static int dvb_frontend_check_parameters(struct dvb_frontend *fe)
 	u32 freq_min;
 	u32 freq_max;
 
-	
+	/* range check: frequency */
 	dvb_frontend_get_frequency_limits(fe, &freq_min, &freq_max);
 	if ((freq_min && c->frequency < freq_min) ||
 	    (freq_max && c->frequency > freq_max)) {
@@ -817,7 +881,7 @@ static int dvb_frontend_check_parameters(struct dvb_frontend *fe)
 		return -EINVAL;
 	}
 
-	
+	/* range check: symbol rate */
 	switch (c->delivery_system) {
 	case SYS_DVBS:
 	case SYS_DVBS2:
@@ -857,7 +921,7 @@ static int dvb_frontend_clear_cache(struct dvb_frontend *fe)
 		c->delivery_system);
 
 	c->transmission_mode = TRANSMISSION_MODE_AUTO;
-	c->bandwidth_hz = 0;	
+	c->bandwidth_hz = 0;	/* AUTO */
 	c->guard_interval = GUARD_INTERVAL_AUTO;
 	c->hierarchy = HIERARCHY_AUTO;
 	c->symbol_rate = 0;
@@ -889,8 +953,8 @@ static int dvb_frontend_clear_cache(struct dvb_frontend *fe)
 	case SYS_DVBS:
 	case SYS_DVBS2:
 	case SYS_TURBO:
-		c->modulation = QPSK;   
-		c->rolloff = ROLLOFF_35;
+		c->modulation = QPSK;   /* implied for DVB-S in legacy API */
+		c->rolloff = ROLLOFF_35;/* implied for DVB-S */
 		break;
 	case SYS_ATSC:
 		c->modulation = VSB_8;
@@ -915,7 +979,7 @@ static struct dtv_cmds_h dtv_cmds[DTV_MAX_COMMAND + 1] = {
 	_DTV_CMD(DTV_TUNE, 1, 0),
 	_DTV_CMD(DTV_CLEAR, 1, 0),
 
-	
+	/* Set */
 	_DTV_CMD(DTV_FREQUENCY, 1, 0),
 	_DTV_CMD(DTV_BANDWIDTH_HZ, 1, 0),
 	_DTV_CMD(DTV_MODULATION, 1, 0),
@@ -956,7 +1020,7 @@ static struct dtv_cmds_h dtv_cmds[DTV_MAX_COMMAND + 1] = {
 	_DTV_CMD(DTV_ISDBS_TS_ID, 1, 0),
 	_DTV_CMD(DTV_DVBT2_PLP_ID, 1, 0),
 
-	
+	/* Get */
 	_DTV_CMD(DTV_DISEQC_SLAVE_REPLY, 0, 1),
 	_DTV_CMD(DTV_API_VERSION, 0, 0),
 	_DTV_CMD(DTV_CODE_RATE_HP, 0, 0),
@@ -999,6 +1063,10 @@ static void dtv_property_dump(struct dtv_property *tvp)
 		dprintk("%s() tvp.u.data = 0x%08x\n", __func__, tvp->u.data);
 }
 
+/* Synchronise the legacy tuning parameters into the cache, so that demodulator
+ * drivers can use a single set_frontend tuning function, regardless of whether
+ * it's being used for the legacy or new API, reducing code and complexity.
+ */
 static int dtv_property_cache_sync(struct dvb_frontend *fe,
 				   struct dtv_frontend_properties *c,
 				   const struct dvb_frontend_parameters *p)
@@ -1068,6 +1136,9 @@ static int dtv_property_cache_sync(struct dvb_frontend *fe,
 	return 0;
 }
 
+/* Ensure the cached values are set correctly in the frontend
+ * legacy tuning structures, for the advanced tuning API.
+ */
 static int dtv_property_legacy_params_sync(struct dvb_frontend *fe,
 					    struct dvb_frontend_parameters *p)
 {
@@ -1134,6 +1205,16 @@ static int dtv_property_legacy_params_sync(struct dvb_frontend *fe,
 	return 0;
 }
 
+/**
+ * dtv_get_frontend - calls a callback for retrieving DTV parameters
+ * @fe:		struct dvb_frontend pointer
+ * @c:		struct dtv_frontend_properties pointer (DVBv5 cache)
+ * @p_out	struct dvb_frontend_parameters pointer (DVBv3 FE struct)
+ *
+ * This routine calls either the DVBv3 or DVBv5 get_frontend call.
+ * If c is not null, it will update the DVBv5 cache struct pointed by it.
+ * If p_out is not null, it will update the DVBv3 params pointed by it.
+ */
 static int dtv_get_frontend(struct dvb_frontend *fe,
 			    struct dvb_frontend_parameters *p_out)
 {
@@ -1148,7 +1229,7 @@ static int dtv_get_frontend(struct dvb_frontend *fe,
 		return 0;
 	}
 
-	
+	/* As everything is in cache, get_frontend fops are always supported */
 	return 0;
 }
 
@@ -1225,7 +1306,7 @@ static int dtv_property_process_get(struct dvb_frontend *fe,
 		tvp->u.data = c->hierarchy;
 		break;
 
-	
+	/* ISDB-T Support here */
 	case DTV_ISDBT_PARTIAL_RECEPTION:
 		tvp->u.data = c->isdbt_partial_reception;
 		break;
@@ -1290,7 +1371,7 @@ static int dtv_property_process_get(struct dvb_frontend *fe,
 		return -EINVAL;
 	}
 
-	
+	/* Allow the frontend to override outgoing properties */
 	if (fe->ops.get_property) {
 		r = fe->ops.get_property(fe, tvp);
 		if (r < 0)
@@ -1321,10 +1402,26 @@ static int set_delivery_system(struct dvb_frontend *fe, u32 desired_system)
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
 	enum dvbv3_emulation_type type;
 
+	/*
+	 * It was reported that some old DVBv5 applications were
+	 * filling delivery_system with SYS_UNDEFINED. If this happens,
+	 * assume that the application wants to use the first supported
+	 * delivery system.
+	 */
 	if (c->delivery_system == SYS_UNDEFINED)
 	        c->delivery_system = fe->ops.delsys[0];
 
 	if (desired_system == SYS_UNDEFINED) {
+		/*
+		 * A DVBv3 call doesn't know what's the desired system.
+		 * Also, DVBv3 applications don't know that ops.info->type
+		 * could be changed, and they simply dies when it doesn't
+		 * match.
+		 * So, don't change the current delivery system, as it
+		 * may be trying to do the wrong thing, like setting an
+		 * ISDB-T frontend as DVB-T. Instead, find the closest
+		 * DVBv3 system that matches the delivery system.
+		 */
 		if (is_dvbv3_delsys(c->delivery_system)) {
 			dprintk("%s() Using delivery system to %d\n",
 				__func__, c->delivery_system);
@@ -1349,6 +1446,16 @@ static int set_delivery_system(struct dvb_frontend *fe, u32 desired_system)
 				__func__);
 			return -EINVAL;
 		}
+		/*
+		 * Get a delivery system that is compatible with DVBv3
+		 * NOTE: in order for this to work with softwares like Kaffeine that
+		 *	uses a DVBv5 call for DVB-S2 and a DVBv3 call to go back to
+		 *	DVB-S, drivers that support both should put the SYS_DVBS entry
+		 *	before the SYS_DVBS2, otherwise it won't switch back to DVB-S.
+		 *	The real fix is that userspace applications should not use DVBv3
+		 *	and not trust on calling FE_SET_FRONTEND to switch the delivery
+		 *	system.
+		 */
 		ncaps = 0;
 		while (fe->ops.delsys[ncaps] && ncaps < MAX_DELSYS) {
 			if (fe->ops.delsys[ncaps] == desired_system) {
@@ -1362,8 +1469,12 @@ static int set_delivery_system(struct dvb_frontend *fe, u32 desired_system)
 				__func__, desired_system);
 		}
 	} else {
+		/*
+		 * This is a DVBv5 call. So, it likely knows the supported
+		 * delivery systems.
+		 */
 
-		
+		/* Check if the desired delivery system is supported */
 		ncaps = 0;
 		while (fe->ops.delsys[ncaps] && ncaps < MAX_DELSYS) {
 			if (fe->ops.delsys[ncaps] == desired_system) {
@@ -1376,12 +1487,22 @@ static int set_delivery_system(struct dvb_frontend *fe, u32 desired_system)
 		}
 		type = dvbv3_type(desired_system);
 
+		/*
+		 * The delivery system is not supported. See if it can be
+		 * emulated.
+		 * The emulation only works if the desired system is one of the
+		 * DVBv3 delivery systems
+		 */
 		if (!is_dvbv3_delsys(desired_system)) {
 			dprintk("%s() can't use a DVBv3 FE_SET_FRONTEND call on this frontend\n",
 				__func__);
 			return -EINVAL;
 		}
 
+		/*
+		 * Get the last non-DVBv3 delivery system that has the same type
+		 * of the desired system
+		 */
 		ncaps = 0;
 		while (fe->ops.delsys[ncaps] && ncaps < MAX_DELSYS) {
 			if ((dvbv3_type(fe->ops.delsys[ncaps]) == type) &&
@@ -1389,7 +1510,7 @@ static int set_delivery_system(struct dvb_frontend *fe, u32 desired_system)
 				delsys = fe->ops.delsys[ncaps];
 			ncaps++;
 		}
-		
+		/* There's nothing compatible with the desired delivery system */
 		if (delsys == SYS_UNDEFINED) {
 			dprintk("%s() Incompatible DVBv3 FE_SET_FRONTEND call for this frontend\n",
 				__func__);
@@ -1399,9 +1520,22 @@ static int set_delivery_system(struct dvb_frontend *fe, u32 desired_system)
 
 	c->delivery_system = delsys;
 
+	/*
+	 * The DVBv3 or DVBv5 call is requesting a different system. So,
+	 * emulation is needed.
+	 *
+	 * Emulate newer delivery systems like ISDBT, DVBT and DMBTH
+	 * for older DVBv5 applications. The emulation will try to use
+	 * the auto mode for most things, and will assume that the desired
+	 * delivery system is the last one at the ops.delsys[] array
+	 */
 	dprintk("%s() Using delivery system %d emulated as if it were a %d\n",
 		__func__, delsys, desired_system);
 
+	/*
+	 * For now, handles ISDB-T calls. More code may be needed here for the
+	 * other emulated stuff
+	 */
 	if (type == DVBV3_OFDM) {
 		if (c->delivery_system == SYS_ISDBT) {
 			dprintk("%s() Using defaults for SYS_ISDBT\n",
@@ -1435,7 +1569,7 @@ static int dtv_property_process_set(struct dvb_frontend *fe,
 	int r = 0;
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
 
-	
+	/* Allow the frontend to validate incoming properties */
 	if (fe->ops.set_property) {
 		r = fe->ops.set_property(fe, tvp);
 		if (r < 0)
@@ -1444,9 +1578,17 @@ static int dtv_property_process_set(struct dvb_frontend *fe,
 
 	switch(tvp->cmd) {
 	case DTV_CLEAR:
+		/*
+		 * Reset a cache of data specific to the frontend here. This does
+		 * not effect hardware.
+		 */
 		dvb_frontend_clear_cache(fe);
 		break;
 	case DTV_TUNE:
+		/* interpret the cache of data, build either a traditional frontend
+		 * tunerequest so we can pass validation in the FE_SET_FRONTEND
+		 * ioctl.
+		 */
 		c->state = tvp->cmd;
 		dprintk("%s() Finalised property cache\n", __func__);
 
@@ -1505,7 +1647,7 @@ static int dtv_property_process_set(struct dvb_frontend *fe,
 		c->hierarchy = tvp->u.data;
 		break;
 
-	
+	/* ISDB-T Support here */
 	case DTV_ISDBT_PARTIAL_RECEPTION:
 		c->isdbt_partial_reception = tvp->u.data;
 		break;
@@ -1627,6 +1769,8 @@ static int dvb_frontend_ioctl_properties(struct file *file,
 		dprintk("%s() properties.num = %d\n", __func__, tvps->num);
 		dprintk("%s() properties.props = %p\n", __func__, tvps->props);
 
+		/* Put an arbitrary limit on the number of messages that can
+		 * be sent at once */
 		if ((tvps->num == 0) || (tvps->num > DTV_IOCTL_MAX_MSGS))
 			return -EINVAL;
 
@@ -1658,6 +1802,8 @@ static int dvb_frontend_ioctl_properties(struct file *file,
 		dprintk("%s() properties.num = %d\n", __func__, tvps->num);
 		dprintk("%s() properties.props = %p\n", __func__, tvps->props);
 
+		/* Put an arbitrary limit on the number of messages that can
+		 * be sent at once */
 		if ((tvps->num == 0) || (tvps->num > DTV_IOCTL_MAX_MSGS))
 			return -EINVAL;
 
@@ -1672,6 +1818,11 @@ static int dvb_frontend_ioctl_properties(struct file *file,
 			goto out;
 		}
 
+		/*
+		 * Fills the cache out struct with the cache contents, plus
+		 * the data retrieved from get_frontend, if the frontend
+		 * is not idle. Otherwise, returns the cached content
+		 */
 		if (fepriv->state != FESTATE_IDLE) {
 			err = dtv_get_frontend(fe, NULL);
 			if (err < 0)
@@ -1707,8 +1858,32 @@ static int dtv_set_frontend(struct dvb_frontend *fe)
 	if (dvb_frontend_check_parameters(fe) < 0)
 		return -EINVAL;
 
+	/*
+	 * Initialize output parameters to match the values given by
+	 * the user. FE_SET_FRONTEND triggers an initial frontend event
+	 * with status = 0, which copies output parameters to userspace.
+	 */
 	dtv_property_legacy_params_sync(fe, &fepriv->parameters_out);
 
+	/*
+	 * Be sure that the bandwidth will be filled for all
+	 * non-satellite systems, as tuners need to know what
+	 * low pass/Nyquist half filter should be applied, in
+	 * order to avoid inter-channel noise.
+	 *
+	 * ISDB-T and DVB-T/T2 already sets bandwidth.
+	 * ATSC and DVB-C don't set, so, the core should fill it.
+	 *
+	 * On DVB-C Annex A and C, the bandwidth is a function of
+	 * the roll-off and symbol rate. Annex B defines different
+	 * roll-off factors depending on the modulation. Fortunately,
+	 * Annex B is only used with 6MHz, so there's no need to
+	 * calculate it.
+	 *
+	 * While not officially supported, a side effect of handling it at
+	 * the cache level is that a program could retrieve the bandwidth
+	 * via DTV_BANDWIDTH_HZ, which may be useful for test programs.
+	 */
 	switch (c->delivery_system) {
 	case SYS_ATSC:
 	case SYS_DVBC_ANNEX_B:
@@ -1726,21 +1901,25 @@ static int dtv_set_frontend(struct dvb_frontend *fe)
 	if (rolloff)
 		c->bandwidth_hz = (c->symbol_rate * rolloff) / 100;
 
-	
+	/* force auto frequency inversion if requested */
 	if (dvb_force_auto_inversion)
 		c->inversion = INVERSION_AUTO;
 
+	/*
+	 * without hierarchical coding code_rate_LP is irrelevant,
+	 * so we tolerate the otherwise invalid FEC_NONE setting
+	 */
 	if (c->hierarchy == HIERARCHY_NONE && c->code_rate_LP == FEC_NONE)
 		c->code_rate_LP = FEC_AUTO;
 
-	
+	/* get frontend-specific tuning settings */
 	memset(&fetunesettings, 0, sizeof(struct dvb_frontend_tune_settings));
 	if (fe->ops.get_tune_settings && (fe->ops.get_tune_settings(fe, &fetunesettings) == 0)) {
 		fepriv->min_delay = (fetunesettings.min_delay_ms * HZ) / 1000;
 		fepriv->max_drift = fetunesettings.max_drift;
 		fepriv->step_size = fetunesettings.step_size;
 	} else {
-		
+		/* default values */
 		switch (c->delivery_system) {
 		case SYS_DVBS:
 		case SYS_DVBS2:
@@ -1761,8 +1940,12 @@ static int dtv_set_frontend(struct dvb_frontend *fe)
 			fepriv->max_drift = (fe->ops.info.frequency_stepsize * 2) + 1;
 			break;
 		default:
+			/*
+			 * FIXME: This sounds wrong! if freqency_stepsize is
+			 * defined by the frontend, why not use it???
+			 */
 			fepriv->min_delay = HZ / 20;
-			fepriv->step_size = 0; 
+			fepriv->step_size = 0; /* no zigzag */
 			fepriv->max_drift = 0;
 			break;
 		}
@@ -1772,7 +1955,7 @@ static int dtv_set_frontend(struct dvb_frontend *fe)
 
 	fepriv->state = FESTATE_RETUNE;
 
-	
+	/* Request the search algorithm to search */
 	fepriv->algo_status |= DVBFE_ALGO_SEARCH_AGAIN;
 
 	dvb_frontend_clear_events(fe);
@@ -1800,6 +1983,8 @@ static int dvb_frontend_ioctl_legacy(struct file *file,
 			return cb_err;
 		if (cb_err > 0)
 			return 0;
+		/* fe_ioctl_override returning 0 allows
+		 * dvb-core to continue handling the ioctl */
 	}
 
 	switch (cmd) {
@@ -1809,6 +1994,17 @@ static int dvb_frontend_ioctl_legacy(struct file *file,
 		memcpy(info, &fe->ops.info, sizeof(struct dvb_frontend_info));
 		dvb_frontend_get_frequency_limits(fe, &info->frequency_min, &info->frequency_max);
 
+		/*
+		 * Associate the 4 delivery systems supported by DVBv3
+		 * API with their DVBv5 counterpart. For the other standards,
+		 * use the closest type, assuming that it would hopefully
+		 * work with a DVBv3 application.
+		 * It should be noticed that, on multi-frontend devices with
+		 * different types (terrestrial and cable, for example),
+		 * a pure DVBv3 application won't be able to use all delivery
+		 * systems. Yet, changing the DVBv5 cache to the other delivery
+		 * system should be enough for making it work.
+		 */
 		switch (dvbv3_type(c->delivery_system)) {
 		case DVBV3_QPSK:
 			info->type = FE_QPSK;
@@ -1831,6 +2027,8 @@ static int dvb_frontend_ioctl_legacy(struct file *file,
 		dprintk("current delivery system on cache: %d, V3 type: %d\n",
 			c->delivery_system, fe->ops.info.type);
 
+		/* Force the CAN_INVERSION_AUTO bit on. If the frontend doesn't
+		 * do it, it is done for it. */
 		info->caps |= FE_CAN_INVERSION_AUTO;
 		err = 0;
 		break;
@@ -1839,6 +2037,8 @@ static int dvb_frontend_ioctl_legacy(struct file *file,
 	case FE_READ_STATUS: {
 		fe_status_t* status = parg;
 
+		/* if retune was requested but hasn't occurred yet, prevent
+		 * that user get signal state from previous tuning */
 		if (fepriv->state == FESTATE_RETUNE ||
 		    fepriv->state == FESTATE_ERROR) {
 			err=0;
@@ -1919,6 +2119,22 @@ static int dvb_frontend_ioctl_legacy(struct file *file,
 			fepriv->state = FESTATE_DISEQC;
 			fepriv->status = 0;
 		} else if (fe->ops.set_voltage) {
+			/*
+			 * NOTE: This is a fallback condition.  Some frontends
+			 * (stv0299 for instance) take longer than 8msec to
+			 * respond to a set_voltage command.  Those switches
+			 * need custom routines to switch properly.  For all
+			 * other frontends, the following should work ok.
+			 * Dish network legacy switches (as used by Dish500)
+			 * are controlled by sending 9-bit command words
+			 * spaced 8msec apart.
+			 * the actual command word is switch/port dependent
+			 * so it is up to the userspace application to send
+			 * the right command.
+			 * The command must always start with a '0' after
+			 * initialization, so parg is 8 bits and does not
+			 * include the initialization or start bit
+			 */
 			unsigned long swcmd = ((unsigned long) parg) << 1;
 			struct timeval nexttime;
 			struct timeval tv[10];
@@ -1929,6 +2145,9 @@ static int dvb_frontend_ioctl_legacy(struct file *file,
 			do_gettimeofday(&nexttime);
 			if (dvb_frontend_debug)
 				memcpy(&tv[0], &nexttime, sizeof(struct timeval));
+			/* before sending a command, initialize by sending
+			 * a 32ms 18V to the switch
+			 */
 			fe->ops.set_voltage(fe, SEC_VOLTAGE_18);
 			dvb_frontend_sleep_until(&nexttime, 32000);
 
@@ -1936,7 +2155,7 @@ static int dvb_frontend_ioctl_legacy(struct file *file,
 				if (dvb_frontend_debug)
 					do_gettimeofday(&tv[i + 1]);
 				if ((swcmd & 0x01) != last) {
-					
+					/* set voltage to (last ? 13V : 18V) */
 					fe->ops.set_voltage(fe, (last) ? SEC_VOLTAGE_13 : SEC_VOLTAGE_18);
 					last = (last) ? 0 : 1;
 				}
@@ -2072,6 +2291,12 @@ static int dvb_frontend_open(struct inode *inode, struct file *file)
 		if ((ret = fe->ops.ts_bus_ctrl(fe, 1)) < 0)
 			goto err0;
 
+		/* If we took control of the bus, we need to force
+		   reinitialization.  This is because many ts_bus_ctrl()
+		   functions strobe the RESET pin on the demod, and if the
+		   frontend thread already exists then the dvb_init() routine
+		   won't get called (which is what usually does initial
+		   register configuration). */
 		fepriv->reinitialise = 1;
 	}
 
@@ -2079,7 +2304,7 @@ static int dvb_frontend_open(struct inode *inode, struct file *file)
 		goto err1;
 
 	if ((file->f_flags & O_ACCMODE) != O_RDONLY) {
-		
+		/* normal tune mode when opened R/W */
 		fepriv->tune_mode_flags &= ~FE_TUNE_MODE_ONESHOT;
 		fepriv->tone = -1;
 		fepriv->voltage = -1;
@@ -2088,7 +2313,7 @@ static int dvb_frontend_open(struct inode *inode, struct file *file)
 		if (ret)
 			goto err2;
 
-		
+		/*  empty event queue */
 		fepriv->events.eventr = fepriv->events.eventw = 0;
 	}
 
@@ -2185,6 +2410,10 @@ int dvb_register_frontend(struct dvb_adapter* dvb,
 	dvb_register_device (fe->dvb, &fepriv->dvbdev, &dvbdev_template,
 			     fe, DVB_DEVICE_FRONTEND);
 
+	/*
+	 * Initialize the cache to the proper values according with the
+	 * first supported delivery system (ops->delsys[0])
+	 */
 
         fe->dtv_property_cache.delivery_system = fe->ops.delsys[0];
 	dvb_frontend_clear_cache(fe);
@@ -2210,7 +2439,7 @@ int dvb_unregister_frontend(struct dvb_frontend* fe)
 	mutex_lock(&frontend_mutex);
 	dvb_unregister_device (fepriv->dvbdev);
 
-	
+	/* fe is invalid now */
 	kfree(fepriv);
 	mutex_unlock(&frontend_mutex);
 	return 0;

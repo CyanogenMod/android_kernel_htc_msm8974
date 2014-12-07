@@ -127,7 +127,7 @@ nvc0_instmem_init(struct drm_device *dev)
 		return -ENOMEM;
 	pinstmem->priv = priv;
 
-	
+	/* BAR3 VM */
 	ret = nouveau_vm_new(dev, 0, pci_resource_len(pdev, 3), 0,
 			     &dev_priv->bar3_vm);
 	if (ret)
@@ -159,7 +159,7 @@ nvc0_instmem_init(struct drm_device *dev)
 	if (ret)
 		goto error;
 
-	
+	/* BAR1 VM */
 	ret = nouveau_vm_new(dev, 0, pci_resource_len(pdev, 1), 0, &vm);
 	if (ret)
 		goto error;
@@ -179,7 +179,7 @@ nvc0_instmem_init(struct drm_device *dev)
 	if (ret)
 		goto error;
 
-	
+	/* channel vm */
 	ret = nouveau_vm_new(dev, 0, (1ULL << 40), 0x0008000000ULL,
 			     &dev_priv->chan_vm);
 	if (ret)

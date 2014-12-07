@@ -24,9 +24,26 @@
 #include <linux/slab.h>
 #include "hsi_core.h"
 
+/*
+ * hsi_board_list is only used internally by the HSI framework.
+ * No one else is allowed to make use of it.
+ */
 LIST_HEAD(hsi_board_list);
 EXPORT_SYMBOL_GPL(hsi_board_list);
 
+/**
+ * hsi_register_board_info - Register HSI clients information
+ * @info: Array of HSI clients on the board
+ * @len: Length of the array
+ *
+ * HSI clients are statically declared and registered on board files.
+ *
+ * HSI clients will be automatically registered to the HSI bus once the
+ * controller and the port where the clients wishes to attach are registered
+ * to it.
+ *
+ * Return -errno on failure, 0 on success.
+ */
 int __init hsi_register_board_info(struct hsi_board_info const *info,
 							unsigned int len)
 {

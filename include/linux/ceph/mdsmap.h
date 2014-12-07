@@ -4,6 +4,11 @@
 #include <linux/bug.h>
 #include "types.h"
 
+/*
+ * mds map - describe servers in the mds cluster.
+ *
+ * we limit fields to those the client actually xcares about
+ */
 struct ceph_mds_info {
 	u64 global_id;
 	struct ceph_entity_addr addr;
@@ -16,13 +21,13 @@ struct ceph_mds_info {
 struct ceph_mdsmap {
 	u32 m_epoch, m_client_epoch, m_last_failure;
 	u32 m_root;
-	u32 m_session_timeout;          
-	u32 m_session_autoclose;        
+	u32 m_session_timeout;          /* seconds */
+	u32 m_session_autoclose;        /* seconds */
 	u64 m_max_file_size;
-	u32 m_max_mds;                  
+	u32 m_max_mds;                  /* size of m_addr, m_state arrays */
 	struct ceph_mds_info *m_info;
 
-	
+	/* which object pools file data can be stored in */
 	int m_num_data_pg_pools;
 	u32 *m_data_pg_pools;
 	u32 m_cas_pg_pool;

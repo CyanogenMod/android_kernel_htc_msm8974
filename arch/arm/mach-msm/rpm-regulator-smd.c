@@ -29,6 +29,7 @@
 #include <mach/rpm-regulator-smd.h>
 #include <mach/socinfo.h>
 
+/* Debug Definitions */
 
 enum {
 	RPM_VREG_DEBUG_REQUEST		= BIT(0),
@@ -44,6 +45,7 @@ module_param_named(
 #define vreg_err(req, fmt, ...) \
 	pr_err("%s: " fmt, req->rdesc.name, ##__VA_ARGS__)
 
+/* RPM regulator request types */
 enum rpm_regulator_smd_type {
 	RPM_REGULATOR_SMD_TYPE_LDO,
 	RPM_REGULATOR_SMD_TYPE_SMPS,
@@ -52,6 +54,7 @@ enum rpm_regulator_smd_type {
 	RPM_REGULATOR_SMD_TYPE_MAX,
 };
 
+/* RPM resource parameters */
 enum rpm_regulator_param_index {
 	RPM_REGULATOR_PARAM_ENABLE,
 	RPM_REGULATOR_PARAM_VOLTAGE,
@@ -109,7 +112,7 @@ struct rpm_regulator_param {
 	}
 
 static struct rpm_regulator_param params[RPM_REGULATOR_PARAM_MAX] = {
-	
+	/*    ID             LDO SMPS VS  NCP  name  min max          property-name */
 	PARAM(ENABLE,          1,  1,  1,  1, "swen", 0, 1,          "qcom,init-enable"),
 	PARAM(VOLTAGE,         1,  1,  0,  1, "uv",   0, 0x7FFFFFF,  "qcom,init-voltage"),
 	PARAM(CURRENT,         1,  1,  0,  0, "ma",   0, 0x1FFF,     "qcom,init-current"),
@@ -160,6 +163,7 @@ struct rpm_vreg {
 	struct mutex		mlock;
 	unsigned long		flags;
 	bool			sleep_request_sent;
+	bool			apps_only;
 	struct msm_rpm_request	*handle_active;
 	struct msm_rpm_request	*handle_sleep;
 };
@@ -179,8 +183,24 @@ struct rpm_regulator {
 	int			max_uV;
 };
 
+/*
+ * This voltage in uV is returned by get_voltage functions when there is no way
+ * to determine the current voltage level.  It is needed because the regulator
+ * framework treats a 0 uV voltage as an error.
+ */
 #define VOLTAGE_UNKNOWN 1
 
+/*
+ * Regulator requests sent in the active set take effect immediately.  Requests
+ * sent in the sleep set take effect when the Apps processor transitions into
+ * RPM assisted power collapse.  For any given regulator, if an active set
+ * request is present, but not a sleep set request, then the active set request
+ * is used at all times, even when the Apps processor is power collapsed.
+ *
+ * The rpm-regulator-smd takes advantage of this default usage of the active set
+ * request by only sending a sleep set request if it differs from the
+ * corresponding active set request.
+ */
 #define RPM_SET_ACTIVE	MSM_RPM_CTX_ACTIVE_SET
 #define RPM_SET_SLEEP	MSM_RPM_CTX_SLEEP_SET
 
@@ -222,6 +242,20 @@ static inline bool rpm_vreg_active_or_sleep_enabled(struct rpm_vreg *rpm_vreg)
 					& BIT(RPM_REGULATOR_PARAM_ENABLE)));
 }
 
+static inline bool rpm_vreg_shared_active_or_sleep_enabled_valid
+						(struct rpm_vreg *rpm_vreg)
+{
+	return !rpm_vreg->apps_only &&
+		((rpm_vreg->aggr_req_active.valid
+					& BIT(RPM_REGULATOR_PARAM_ENABLE))
+		 || (rpm_vreg->aggr_req_sleep.valid
+					& BIT(RPM_REGULATOR_PARAM_ENABLE)));
+}
+
+/*
+ * This is used when voting for LPM or HPM by subtracting or adding to the
+ * hpm_min_load of a regulator.  It has units of uA.
+ */
 #define LOAD_THRESHOLD_STEP	1000
 
 static inline int rpm_vreg_hpm_min_uA(struct rpm_vreg *rpm_vreg)
@@ -340,6 +374,10 @@ static void rpm_vreg_check_modified_requests(const u32 *prev_param,
 			value_changed |= BIT(i);
 	}
 
+	/*
+	 * Only keep bits that are for changed parameters or previously
+	 * invalid parameters.
+	 */
 	*modified &= value_changed | ~prev_valid;
 }
 
@@ -351,7 +389,7 @@ static int rpm_vreg_add_modified_requests(struct rpm_regulator *regulator,
 	int i;
 
 	for (i = 0; i < RPM_REGULATOR_PARAM_MAX; i++) {
-		
+		/* Only send requests for modified parameters. */
 		if (modified & BIT(i)) {
 			rc = rpm_vreg_add_kvp_to_request(rpm_vreg, param, i,
 							set);
@@ -418,6 +456,10 @@ static int rpm_vreg_send_request(struct rpm_regulator *regulator, u32 set)
 		|= _param_reg[RPM_REGULATOR_PARAM_##_idx]; \
 }
 
+/*
+ * Aggregation is performed on each parameter based on the way that the RPM
+ * aggregates that type internally between RPM masters.
+ */
 static void rpm_vreg_aggregate_params(u32 *param_aggr, const u32 *param_reg)
 {
 	RPM_VREG_AGGR_MAX(ENABLE, param_aggr, param_reg);
@@ -454,6 +496,10 @@ static int rpm_vreg_aggregate_requests(struct rpm_regulator *regulator)
 	modified_active = rpm_vreg->aggr_req_active.modified;
 	modified_sleep = rpm_vreg->aggr_req_sleep.modified;
 
+	/*
+	 * Aggregate all of the requests for this regulator in both active
+	 * and sleep sets.
+	 */
 	list_for_each_entry(reg, &rpm_vreg->reg_list, list) {
 		if (reg->set_active) {
 			rpm_vreg_aggregate_params(param_active, reg->req.param);
@@ -465,6 +511,10 @@ static int rpm_vreg_aggregate_requests(struct rpm_regulator *regulator)
 		}
 	}
 
+	/*
+	 * Check if the aggregated sleep set parameter values differ from the
+	 * aggregated active set parameter values.
+	 */
 	if (!rpm_vreg->sleep_request_sent) {
 		for (i = 0; i < RPM_REGULATOR_PARAM_MAX; i++) {
 			if ((param_active[i] != param_sleep[i])
@@ -475,7 +525,7 @@ static int rpm_vreg_aggregate_requests(struct rpm_regulator *regulator)
 		}
 	}
 
-	
+	/* Add KVPs to the active set RPM request if they have new values. */
 	rpm_vreg_check_modified_requests(rpm_vreg->aggr_req_active.param,
 		param_active, rpm_vreg->aggr_req_active.valid,
 		&modified_active);
@@ -485,8 +535,18 @@ static int rpm_vreg_aggregate_requests(struct rpm_regulator *regulator)
 		return rc;
 	send_active = modified_active;
 
+	/*
+	 * Sleep set configurations are only sent if they differ from the
+	 * active set values.  This is because the active set values will take
+	 * effect during rpm assisted power collapse in the absence of sleep set
+	 * values.
+	 *
+	 * However, once a sleep set request is sent for a given regulator,
+	 * additional sleep set requests must be sent in the future even if they
+	 * match the corresponding active set requests.
+	 */
 	if (rpm_vreg->sleep_request_sent || sleep_set_differs) {
-		
+		/* Add KVPs to the sleep set RPM request if they are new. */
 		rpm_vreg_check_modified_requests(rpm_vreg->aggr_req_sleep.param,
 			param_sleep, rpm_vreg->aggr_req_sleep.valid,
 			&modified_sleep);
@@ -497,24 +557,24 @@ static int rpm_vreg_aggregate_requests(struct rpm_regulator *regulator)
 		send_sleep = modified_sleep;
 	}
 
-	
+	/* Send active set request to the RPM if it contains new KVPs. */
 	if (send_active) {
 		rc = rpm_vreg_send_request(regulator, RPM_SET_ACTIVE);
 		if (rc)
 			return rc;
 		rpm_vreg->aggr_req_active.valid |= modified_active;
 	}
-	
+	/* Store the results of the aggregation. */
 	rpm_vreg->aggr_req_active.modified = modified_active;
 	memcpy(rpm_vreg->aggr_req_active.param, param_active,
 		sizeof(param_active));
 
-	
+	/* Handle debug printing of the active set request. */
 	rpm_regulator_req(regulator, RPM_SET_ACTIVE, send_active);
 	if (send_active)
 		rpm_vreg->aggr_req_active.modified = 0;
 
-	
+	/* Send sleep set request to the RPM if it contains new KVPs. */
 	if (send_sleep) {
 		rc = rpm_vreg_send_request(regulator, RPM_SET_SLEEP);
 		if (rc)
@@ -523,16 +583,20 @@ static int rpm_vreg_aggregate_requests(struct rpm_regulator *regulator)
 			rpm_vreg->sleep_request_sent = true;
 		rpm_vreg->aggr_req_sleep.valid |= modified_sleep;
 	}
-	
+	/* Store the results of the aggregation. */
 	rpm_vreg->aggr_req_sleep.modified = modified_sleep;
 	memcpy(rpm_vreg->aggr_req_sleep.param, param_sleep,
 		sizeof(param_sleep));
 
-	
+	/* Handle debug printing of the sleep set request. */
 	rpm_regulator_req(regulator, RPM_SET_SLEEP, send_sleep);
 	if (send_sleep)
 		rpm_vreg->aggr_req_sleep.modified = 0;
 
+	/*
+	 * Loop over all requests for this regulator to update the valid and
+	 * modified values for use in future aggregation.
+	 */
 	list_for_each_entry(reg, &rpm_vreg->reg_list, list) {
 		reg->req.valid |= reg->req.modified;
 		reg->req.modified = 0;
@@ -602,8 +666,13 @@ static int rpm_vreg_set_voltage(struct regulator_dev *rdev, int min_uV,
 	prev_voltage = reg->req.param[RPM_REGULATOR_PARAM_VOLTAGE];
 	RPM_VREG_SET_PARAM(reg, VOLTAGE, min_uV);
 
+	/*
+	 * Only send a new voltage if the regulator is currently enabled or
+	 * if the regulator has been configured to always send voltage updates.
+	 */
 	if (reg->always_send_voltage
-	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg))
+	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg)
+	    || rpm_vreg_shared_active_or_sleep_enabled_valid(reg->rpm_vreg))
 		rc = rpm_vreg_aggregate_requests(reg);
 
 	if (rc) {
@@ -636,6 +705,11 @@ static int rpm_vreg_set_voltage_corner(struct regulator_dev *rdev, int min_uV,
 	int corner;
 	u32 prev_corner;
 
+	/*
+	 * Translate from values which work as inputs in the
+	 * regulator_set_voltage function to the actual corner values
+	 * sent to the RPM.
+	 */
 	corner = min_uV - RPM_REGULATOR_CORNER_NONE;
 
 	if (corner < params[RPM_REGULATOR_PARAM_CORNER].min
@@ -651,8 +725,14 @@ static int rpm_vreg_set_voltage_corner(struct regulator_dev *rdev, int min_uV,
 	prev_corner = reg->req.param[RPM_REGULATOR_PARAM_CORNER];
 	RPM_VREG_SET_PARAM(reg, CORNER, corner);
 
+	/*
+	 * Only send a new voltage corner if the regulator is currently enabled
+	 * or if the regulator has been configured to always send voltage
+	 * updates.
+	 */
 	if (reg->always_send_voltage
-	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg))
+	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg)
+	    || rpm_vreg_shared_active_or_sleep_enabled_valid(reg->rpm_vreg))
 		rc = rpm_vreg_aggregate_requests(reg);
 
 	if (rc) {
@@ -681,6 +761,11 @@ static int rpm_vreg_set_voltage_floor_corner(struct regulator_dev *rdev,
 	int corner;
 	u32 prev_corner;
 
+	/*
+	 * Translate from values which work as inputs in the
+	 * regulator_set_voltage function to the actual corner values
+	 * sent to the RPM.
+	 */
 	corner = min_uV - RPM_REGULATOR_CORNER_NONE;
 
 	if (corner < params[RPM_REGULATOR_PARAM_FLOOR_CORNER].min
@@ -696,8 +781,14 @@ static int rpm_vreg_set_voltage_floor_corner(struct regulator_dev *rdev,
 	prev_corner = reg->req.param[RPM_REGULATOR_PARAM_FLOOR_CORNER];
 	RPM_VREG_SET_PARAM(reg, FLOOR_CORNER, corner);
 
+	/*
+	 * Only send a new voltage floor corner if the regulator is currently
+	 * enabled or if the regulator has been configured to always send
+	 * voltage updates.
+	 */
 	if (reg->always_send_voltage
-	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg))
+	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg)
+	    || rpm_vreg_shared_active_or_sleep_enabled_valid(reg->rpm_vreg))
 		rc = rpm_vreg_aggregate_requests(reg);
 
 	if (rc) {
@@ -731,12 +822,12 @@ static int rpm_vreg_set_mode(struct regulator_dev *rdev, unsigned int mode)
 	prev_uA = MILLI_TO_MICRO(prev_current);
 
 	if (mode == REGULATOR_MODE_NORMAL) {
-		
+		/* Make sure that request current is in HPM range. */
 		if (prev_uA < rpm_vreg_hpm_min_uA(reg->rpm_vreg))
 			RPM_VREG_SET_PARAM(reg, CURRENT,
 			    MICRO_TO_MILLI(rpm_vreg_hpm_min_uA(reg->rpm_vreg)));
 	} else if (REGULATOR_MODE_IDLE) {
-		
+		/* Make sure that request current is in LPM range. */
 		if (prev_uA > rpm_vreg_lpm_max_uA(reg->rpm_vreg))
 			RPM_VREG_SET_PARAM(reg, CURRENT,
 			    MICRO_TO_MILLI(rpm_vreg_lpm_max_uA(reg->rpm_vreg)));
@@ -746,8 +837,14 @@ static int rpm_vreg_set_mode(struct regulator_dev *rdev, unsigned int mode)
 		return -EINVAL;
 	}
 
+	/*
+	 * Only send a new load current value if the regulator is currently
+	 * enabled or if the regulator has been configured to always send
+	 * current updates.
+	 */
 	if (reg->always_send_current
-	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg))
+	    || rpm_vreg_active_or_sleep_enabled(reg->rpm_vreg)
+	    || rpm_vreg_shared_active_or_sleep_enabled_valid(reg->rpm_vreg))
 		rc = rpm_vreg_aggregate_requests(reg);
 
 	if (rc) {
@@ -796,6 +893,16 @@ static int rpm_vreg_enable_time(struct regulator_dev *rdev)
 	return reg->rpm_vreg->enable_time;
 }
 
+/**
+ * rpm_regulator_get() - lookup and obtain a handle to an RPM regulator
+ * @dev: device for regulator consumer
+ * @supply: supply name
+ *
+ * Returns a struct rpm_regulator corresponding to the regulator producer,
+ * or ERR_PTR() containing errno.
+ *
+ * This function may only be called from nonatomic context.
+ */
 struct rpm_regulator *rpm_regulator_get(struct device *dev, const char *supply)
 {
 	struct rpm_regulator *framework_reg;
@@ -828,6 +935,10 @@ struct rpm_regulator *rpm_regulator_get(struct device *dev, const char *supply)
 		return ERR_PTR(-ENOMEM);
 	}
 
+	/*
+	 * Allocate a regulator_dev struct so that framework callback functions
+	 * can be called from the private API functions.
+	 */
 	priv_reg->rdev = kzalloc(sizeof(struct regulator_dev), GFP_KERNEL);
 	if (priv_reg->rdev == NULL) {
 		vreg_err(framework_reg, "could not allocate memory for "
@@ -866,6 +977,18 @@ static int rpm_regulator_check_input(struct rpm_regulator *regulator)
 	return 0;
 }
 
+/**
+ * rpm_regulator_put() - free the RPM regulator handle
+ * @regulator: RPM regulator handle
+ *
+ * Parameter reaggregation does not take place when rpm_regulator_put is called.
+ * Therefore, regulator enable state and voltage must be configured
+ * appropriately before calling rpm_regulator_put.
+ *
+ * This function may be called from either atomic or nonatomic context.  If this
+ * function is called from atomic context, then the regulator being operated on
+ * must be configured via device tree with qcom,allow-atomic == 1.
+ */
 void rpm_regulator_put(struct rpm_regulator *regulator)
 {
 	struct rpm_vreg *rpm_vreg;
@@ -886,6 +1009,16 @@ void rpm_regulator_put(struct rpm_regulator *regulator)
 }
 EXPORT_SYMBOL_GPL(rpm_regulator_put);
 
+/**
+ * rpm_regulator_enable() - enable regulator output
+ * @regulator: RPM regulator handle
+ *
+ * Returns 0 on success or errno on failure.
+ *
+ * This function may be called from either atomic or nonatomic context.  If this
+ * function is called from atomic context, then the regulator being operated on
+ * must be configured via device tree with qcom,allow-atomic == 1.
+ */
 int rpm_regulator_enable(struct rpm_regulator *regulator)
 {
 	int rc = rpm_regulator_check_input(regulator);
@@ -897,6 +1030,20 @@ int rpm_regulator_enable(struct rpm_regulator *regulator)
 }
 EXPORT_SYMBOL_GPL(rpm_regulator_enable);
 
+/**
+ * rpm_regulator_disable() - disable regulator output
+ * @regulator: RPM regulator handle
+ *
+ * Returns 0 on success or errno on failure.
+ *
+ * The enable state of the regulator is determined by aggregating the requests
+ * of all consumers.  Therefore, it is possible that the regulator will remain
+ * enabled even after rpm_regulator_disable is called.
+ *
+ * This function may be called from either atomic or nonatomic context.  If this
+ * function is called from atomic context, then the regulator being operated on
+ * must be configured via device tree with qcom,allow-atomic == 1.
+ */
 int rpm_regulator_disable(struct rpm_regulator *regulator)
 {
 	int rc = rpm_regulator_check_input(regulator);
@@ -908,6 +1055,31 @@ int rpm_regulator_disable(struct rpm_regulator *regulator)
 }
 EXPORT_SYMBOL_GPL(rpm_regulator_disable);
 
+/**
+ * rpm_regulator_set_voltage() - set regulator output voltage
+ * @regulator: RPM regulator handle
+ * @min_uV: minimum required voltage in uV
+ * @max_uV: maximum acceptable voltage in uV
+ *
+ * Sets a voltage regulator to the desired output voltage. This can be set
+ * while the regulator is disabled or enabled.  If the regulator is enabled then
+ * the voltage will change to the new value immediately; otherwise, if the
+ * regulator is disabled, then the regulator will output at the new voltage when
+ * enabled.
+ *
+ * The min_uV to max_uV voltage range requested must intersect with the
+ * voltage constraint range configured for the regulator.
+ *
+ * Returns 0 on success or errno on failure.
+ *
+ * The final voltage value that is sent to the RPM is aggregated based upon the
+ * values requested by all consumers of the regulator.  This corresponds to the
+ * maximum min_uV value.
+ *
+ * This function may be called from either atomic or nonatomic context.  If this
+ * function is called from atomic context, then the regulator being operated on
+ * must be configured via device tree with qcom,allow-atomic == 1.
+ */
 int rpm_regulator_set_voltage(struct rpm_regulator *regulator, int min_uV,
 			      int max_uV)
 {
@@ -943,6 +1115,16 @@ int rpm_regulator_set_voltage(struct rpm_regulator *regulator, int min_uV,
 }
 EXPORT_SYMBOL_GPL(rpm_regulator_set_voltage);
 
+/**
+ * rpm_regulator_set_mode() - set regulator operating mode
+ * @regulator: RPM regulator handle
+ * @mode: operating mode requested for the regulator
+ *
+ * Requests that the mode of the regulator be set to the mode specified.  This
+ * parameter is aggregated using a max function such that AUTO < IPEAK < HPM.
+ *
+ * Returns 0 on success or errno on failure.
+ */
 int rpm_regulator_set_mode(struct rpm_regulator *regulator,
 				enum rpm_regulator_mode mode)
 {
@@ -1128,7 +1310,7 @@ static int __devexit rpm_vreg_resource_remove(struct platform_device *pdev)
 		rpm_vreg_lock(rpm_vreg);
 		list_for_each_entry_safe(reg, reg_temp, &rpm_vreg->reg_list,
 				list) {
-			
+			/* Only touch data for private consumers. */
 			if (reg->rdev->desc == NULL) {
 				list_del(&reg->list);
 				kfree(reg->rdev);
@@ -1154,6 +1336,11 @@ static int __devexit rpm_vreg_resource_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/*
+ * This probe is called for child rpm-regulator devices which have
+ * properties which are required to configure individual regulator
+ * framework regulators for a given RPM regulator resource.
+ */
 static int __devinit rpm_vreg_device_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1195,6 +1382,10 @@ static int __devinit rpm_vreg_device_probe(struct platform_device *pdev)
 	reg->rdesc.owner	= THIS_MODULE;
 	reg->rdesc.type		= REGULATOR_VOLTAGE;
 
+	/*
+	 * Switch to voltage corner regulator ops if qcom,use-voltage-corner
+	 * is specified in the device node (SMPS and LDO only).
+	 */
 	if (of_property_read_bool(node, "qcom,use-voltage-corner")) {
 		if (of_property_read_bool(node,
 				"qcom,use-voltage-floor-corner")) {
@@ -1258,6 +1449,10 @@ static int __devinit rpm_vreg_device_probe(struct platform_device *pdev)
 	if (of_get_property(node, "parent-supply", NULL))
 		init_data->supply_regulator = "parent";
 
+	/*
+	 * Fill in ops and mode masks based on callbacks specified for
+	 * this type of regulator.
+	 */
 	if (reg->rdesc.ops->enable)
 		init_data->constraints.valid_ops_mask
 			|= REGULATOR_CHANGE_STATUS;
@@ -1275,7 +1470,7 @@ static int __devinit rpm_vreg_device_probe(struct platform_device *pdev)
 	reg->min_uV		= init_data->constraints.min_uV;
 	reg->max_uV		= init_data->constraints.max_uV;
 
-	
+	/* Initialize the param array based on optional properties. */
 	for (i = 0; i < RPM_REGULATOR_PARAM_MAX; i++) {
 		rc = of_property_read_u32(node, params[i].property_name, &val);
 		if (rc == 0) {
@@ -1333,6 +1528,10 @@ fail_free_reg:
 	return rc;
 }
 
+/*
+ * This probe is called for parent rpm-regulator devices which have
+ * properties which are required to identify a given RPM resource.
+ */
 static int __devinit rpm_vreg_resource_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1347,7 +1546,7 @@ static int __devinit rpm_vreg_resource_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	
+	/* Create new rpm_vreg entry. */
 	rpm_vreg = kzalloc(sizeof(struct rpm_vreg), GFP_KERNEL);
 	if (rpm_vreg == NULL) {
 		dev_err(dev, "%s: could not allocate memory for vreg\n",
@@ -1355,7 +1554,7 @@ static int __devinit rpm_vreg_resource_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Required device tree properties: */
 	rc = of_property_read_string(node, "qcom,resource-name",
 			&rpm_vreg->resource_name);
 	if (rc) {
@@ -1389,12 +1588,13 @@ static int __devinit rpm_vreg_resource_probe(struct platform_device *pdev)
 		goto fail_free_vreg;
 	}
 
-	
+	/* Optional device tree properties: */
 	of_property_read_u32(node, "qcom,allow-atomic", &val);
 	rpm_vreg->allow_atomic = !!val;
 	of_property_read_u32(node, "qcom,enable-time", &rpm_vreg->enable_time);
 	of_property_read_u32(node, "qcom,hpm-min-load",
 		&rpm_vreg->hpm_min_load);
+	rpm_vreg->apps_only = of_property_read_bool(node, "qcom,apps-only");
 
 	rpm_vreg->handle_active = msm_rpm_create_request(RPM_SET_ACTIVE,
 		resource_type, rpm_vreg->resource_id, RPM_REGULATOR_PARAM_MAX);
@@ -1479,6 +1679,13 @@ static struct platform_driver rpm_vreg_resource_driver = {
 	},
 };
 
+/**
+ * rpm_regulator_smd_driver_init() - initialized SMD RPM regulator driver
+ *
+ * This function registers the SMD RPM regulator platform drivers.
+ *
+ * Returns 0 on success or errno on failure.
+ */
 int __init rpm_regulator_smd_driver_init(void)
 {
 	static bool initialized;
@@ -1489,7 +1696,7 @@ int __init rpm_regulator_smd_driver_init(void)
 	else
 		initialized = true;
 
-	
+	/* Store parameter string names as integers */
 	for (i = 0; i < RPM_REGULATOR_PARAM_MAX; i++)
 		params[i].key = rpm_vreg_string_to_int(params[i].name);
 

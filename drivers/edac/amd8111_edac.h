@@ -24,6 +24,9 @@
 #ifndef _AMD8111_EDAC_H_
 #define _AMD8111_EDAC_H_
 
+/************************************************************
+ *	PCI Bridge Status and Command Register, DevA:0x04
+ ************************************************************/
 #define REG_PCI_STSCMD	0x04
 enum pci_stscmd_bits {
 	PCI_STSCMD_SSE		= BIT(30),
@@ -35,6 +38,9 @@ enum pci_stscmd_bits {
 				   PCI_STSCMD_RTA)
 };
 
+/************************************************************
+ *	PCI Bridge Memory Base-Limit Register, DevA:0x1c
+ ************************************************************/
 #define REG_MEM_LIM     0x1c
 enum mem_limit_bits {
 	MEM_LIMIT_DPE   = BIT(31),
@@ -51,6 +57,9 @@ enum mem_limit_bits {
 				 MEM_LIMIT_MDPE)
 };
 
+/************************************************************
+ *	HyperTransport Link Control Register, DevA:0xc4
+ ************************************************************/
 #define REG_HT_LINK	0xc4
 enum ht_link_bits {
 	HT_LINK_LKFAIL	= BIT(4),
@@ -58,6 +67,9 @@ enum ht_link_bits {
 	HT_LINK_CLEAR_MASK = (HT_LINK_LKFAIL)
 };
 
+/************************************************************
+ *	PCI Bridge Interrupt and Bridge Control, DevA:0x3c
+ ************************************************************/
 #define REG_PCI_INTBRG_CTRL	0x3c
 enum pci_intbrg_ctrl_bits {
 	PCI_INTBRG_CTRL_DTSERREN	= BIT(27),
@@ -71,6 +83,9 @@ enum pci_intbrg_ctrl_bits {
 					   PCI_INTBRG_CTRL_SERREN)
 };
 
+/************************************************************
+ *		I/O Control 1 Register, DevB:0x40
+ ************************************************************/
 #define REG_IO_CTRL_1 0x40
 enum io_ctrl_1_bits {
 	IO_CTRL_1_NMIONERR	= BIT(7),
@@ -79,6 +94,9 @@ enum io_ctrl_1_bits {
 	IO_CTRL_1_CLEAR_MASK	= (IO_CTRL_1_LPC_ERR | IO_CTRL_1_PW2LPC)
 };
 
+/************************************************************
+ *		Legacy I/O Space Registers
+ ************************************************************/
 #define REG_AT_COMPAT 0x61
 enum at_compat_bits {
 	AT_COMPAT_SERR		= BIT(7),
@@ -88,9 +106,9 @@ enum at_compat_bits {
 };
 
 struct amd8111_dev_info {
-	u16 err_dev;	
+	u16 err_dev;	/* PCI Device ID */
 	struct pci_dev *dev;
-	int edac_idx;	
+	int edac_idx;	/* device index */
 	char *ctl_name;
 	struct edac_device_ctl_info *edac_dev;
 	void (*init)(struct amd8111_dev_info *dev_info);
@@ -99,9 +117,9 @@ struct amd8111_dev_info {
 };
 
 struct amd8111_pci_info {
-	u16 err_dev;	
+	u16 err_dev;	/* PCI Device ID */
 	struct pci_dev *dev;
-	int edac_idx;	
+	int edac_idx;	/* pci index */
 	const char *ctl_name;
 	struct edac_pci_ctl_info *edac_dev;
 	void (*init)(struct amd8111_pci_info *dev_info);
@@ -109,4 +127,4 @@ struct amd8111_pci_info {
 	void (*check)(struct edac_pci_ctl_info *edac_dev);
 };
 
-#endif 
+#endif /* _AMD8111_EDAC_H_ */

@@ -25,6 +25,15 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+/**
+ * \file mga_dma.c
+ * DMA support for MGA G200 / G400.
+ *
+ * \author Rickard E. (Rik) Faith <faith@valinux.com>
+ * \author Jeff Hartmann <jhartmann@valinux.com>
+ * \author Keith Whitwell <keith@tungstengraphics.com>
+ * \author Gareth Hughes <gareth@valinux.com>
+ */
 
 #include "drmP.h"
 #include "drm.h"
@@ -39,6 +48,9 @@
 #define FULL_CLEANUP 1
 static int mga_do_cleanup_dma(struct drm_device *dev, int full_cleanup);
 
+/* ================================================================
+ * Engine control
+ */
 
 int mga_do_wait_for_idle(drm_mga_private_t *dev_priv)
 {
@@ -69,17 +81,26 @@ static int mga_do_dma_reset(drm_mga_private_t *dev_priv)
 
 	DRM_DEBUG("\n");
 
+	/* The primary DMA stream should look like new right about now.
+	 */
 	primary->tail = 0;
 	primary->space = primary->size;
 	primary->last_flush = 0;
 
 	sarea_priv->last_wrap = 0;
 
+	/* FIXME: Reset counters, buffer ages etc...
+	 */
 
+	/* FIXME: What else do we need to reinitialize?  WARP stuff?
+	 */
 
 	return 0;
 }
 
+/* ================================================================
+ * Primary DMA stream
+ */
 
 void mga_do_dma_flush(drm_mga_private_t *dev_priv)
 {
@@ -90,7 +111,7 @@ void mga_do_dma_flush(drm_mga_private_t *dev_priv)
 	DMA_LOCALS;
 	DRM_DEBUG("\n");
 
-	
+	/* We need to wait so that we can do an safe flush */
 	for (i = 0; i < dev_priv->usec_timeout; i++) {
 		status = MGA_READ(MGA_STATUS) & MGA_ENGINE_IDLE_MASK;
 		if (status == MGA_ENDPRDMASTS)
@@ -105,6 +126,10 @@ void mga_do_dma_flush(drm_mga_private_t *dev_priv)
 
 	tail = primary->tail + dev_priv->primary->offset;
 
+	/* We need to pad the stream between flushes, as the card
+	 * actually (partially?) reads the first of these commands.
+	 * See page 4-16 in the G400 manual, middle of the page or so.
+	 */
 	BEGIN_DMA(1);
 
 	DMA_BLOCK(MGA_DMAPAD, 0x00000000,
@@ -189,6 +214,9 @@ void mga_do_dma_wrap_end(drm_mga_private_t *dev_priv)
 	DRM_DEBUG("done.\n");
 }
 
+/* ================================================================
+ * Freelist management
+ */
 
 #define MGA_BUFFER_USED		(~0)
 #define MGA_BUFFER_FREE		0
@@ -276,6 +304,8 @@ static void mga_freelist_cleanup(struct drm_device *dev)
 }
 
 #if 0
+/* FIXME: Still needed?
+ */
 static void mga_freelist_reset(struct drm_device *dev)
 {
 	struct drm_device_dma *dma = dev->dma;
@@ -355,6 +385,9 @@ int mga_freelist_put(struct drm_device *dev, struct drm_buf *buf)
 	return 0;
 }
 
+/* ================================================================
+ * DMA initialization, cleanup
+ */
 
 int mga_driver_load(struct drm_device *dev, unsigned long flags)
 {
@@ -391,6 +424,21 @@ int mga_driver_load(struct drm_device *dev, unsigned long flags)
 }
 
 #if __OS_HAS_AGP
+/**
+ * Bootstrap the driver for AGP DMA.
+ *
+ * \todo
+ * Investigate whether there is any benefit to storing the WARP microcode in
+ * AGP memory.  If not, the microcode may as well always be put in PCI
+ * memory.
+ *
+ * \todo
+ * This routine needs to set dma_bs->agp_mode to the mode actually configured
+ * in the hardware.  Looking just at the Linux AGP driver code, I don't see
+ * an easy way to determine this.
+ *
+ * \sa mga_do_dma_bootstrap, mga_do_pci_dma_bootstrap
+ */
 static int mga_do_agp_dma_bootstrap(struct drm_device *dev,
 				    drm_mga_dma_bootstrap_t *dma_bs)
 {
@@ -408,7 +456,7 @@ static int mga_do_agp_dma_bootstrap(struct drm_device *dev,
 	struct drm_agp_buffer agp_req;
 	struct drm_agp_binding bind_req;
 
-	
+	/* Acquire AGP. */
 	err = drm_agp_acquire(dev);
 	if (err) {
 		DRM_ERROR("Unable to acquire AGP: %d\n", err);
@@ -428,6 +476,9 @@ static int mga_do_agp_dma_bootstrap(struct drm_device *dev,
 		return err;
 	}
 
+	/* In addition to the usual AGP mode configuration, the G200 AGP cards
+	 * need to have the AGP mode "manually" set.
+	 */
 
 	if (dev_priv->chipset == MGA_CARD_TYPE_G200) {
 		if (mode.mode & 0x02)
@@ -436,7 +487,7 @@ static int mga_do_agp_dma_bootstrap(struct drm_device *dev,
 			MGA_WRITE(MGA_AGP_PLL, MGA_AGP2XPLL_DISABLE);
 	}
 
-	
+	/* Allocate and bind AGP memory. */
 	agp_req.size = agp_size;
 	agp_req.type = 0;
 	err = drm_agp_alloc(dev, &agp_req);
@@ -458,6 +509,9 @@ static int mga_do_agp_dma_bootstrap(struct drm_device *dev,
 		return err;
 	}
 
+	/* Make drm_addbufs happy by not trying to create a mapping for less
+	 * than a page.
+	 */
 	if (warp_size < PAGE_SIZE)
 		warp_size = PAGE_SIZE;
 
@@ -545,6 +599,20 @@ static int mga_do_agp_dma_bootstrap(struct drm_device *dev,
 }
 #endif
 
+/**
+ * Bootstrap the driver for PCI DMA.
+ *
+ * \todo
+ * The algorithm for decreasing the size of the primary DMA buffer could be
+ * better.  The size should be rounded up to the nearest page size, then
+ * decrease the request size by a single page each pass through the loop.
+ *
+ * \todo
+ * Determine whether the maximum address passed to drm_pci_alloc is correct.
+ * The same goes for drm_addbufs_pci.
+ *
+ * \sa mga_do_dma_bootstrap, mga_do_agp_dma_bootstrap
+ */
 static int mga_do_pci_dma_bootstrap(struct drm_device *dev,
 				    drm_mga_dma_bootstrap_t *dma_bs)
 {
@@ -561,10 +629,13 @@ static int mga_do_pci_dma_bootstrap(struct drm_device *dev,
 		return -EFAULT;
 	}
 
+	/* Make drm_addbufs happy by not trying to create a mapping for less
+	 * than a page.
+	 */
 	if (warp_size < PAGE_SIZE)
 		warp_size = PAGE_SIZE;
 
-	
+	/* The proper alignment is 0x100 for this mapping */
 	err = drm_addmap(dev, 0, warp_size, _DRM_CONSISTENT,
 			 _DRM_READ_ONLY, &dev_priv->warp);
 	if (err != 0) {
@@ -573,10 +644,14 @@ static int mga_do_pci_dma_bootstrap(struct drm_device *dev,
 		return err;
 	}
 
+	/* Other than the bottom two bits being used to encode other
+	 * information, there don't appear to be any restrictions on the
+	 * alignment of the primary or secondary DMA buffers.
+	 */
 
 	for (primary_size = dma_bs->primary_size; primary_size != 0;
 	     primary_size >>= 1) {
-		
+		/* The proper alignment for this mapping is 0x04 */
 		err = drm_addmap(dev, 0, primary_size, _DRM_CONSISTENT,
 				 _DRM_READ_ONLY, &dev_priv->primary);
 		if (!err)
@@ -637,6 +712,9 @@ static int mga_do_dma_bootstrap(struct drm_device *dev,
 
 	dev_priv->used_new_dma_init = 1;
 
+	/* The first steps are the same for both PCI and AGP based DMA.  Map
+	 * the cards MMIO registers and map a status page.
+	 */
 	err = drm_addmap(dev, dev_priv->mmio_base, dev_priv->mmio_size,
 			 _DRM_REGISTERS, _DRM_READ_ONLY, &dev_priv->mmio);
 	if (err) {
@@ -652,13 +730,28 @@ static int mga_do_dma_bootstrap(struct drm_device *dev,
 		return err;
 	}
 
+	/* The DMA initialization procedure is slightly different for PCI and
+	 * AGP cards.  AGP cards just allocate a large block of AGP memory and
+	 * carve off portions of it for internal uses.  The remaining memory
+	 * is returned to user-mode to be used for AGP textures.
+	 */
 	if (is_agp)
 		err = mga_do_agp_dma_bootstrap(dev, dma_bs);
 
+	/* If we attempted to initialize the card for AGP DMA but failed,
+	 * clean-up any mess that may have been created.
+	 */
 
 	if (err)
 		mga_do_cleanup_dma(dev, MINIMAL_CLEANUP);
 
+	/* Not only do we want to try and initialized PCI cards for PCI DMA,
+	 * but we also try to initialized AGP cards that could not be
+	 * initialized for AGP DMA.  This covers the case where we have an AGP
+	 * card in a system with an unsupported AGP chipset.  In that case the
+	 * card will be detected as AGP, but we won't be able to allocate any
+	 * AGP memory, etc.
+	 */
 
 	if (!is_agp || err)
 		err = mga_do_pci_dma_bootstrap(dev, dma_bs);
@@ -718,6 +811,8 @@ static int mga_do_init_dma(struct drm_device *dev, drm_mga_init_t *init)
 	dev_priv->depth_offset = init->depth_offset;
 	dev_priv->depth_pitch = init->depth_pitch;
 
+	/* FIXME: Need to support AGP textures...
+	 */
 	dev_priv->texture_offset = init->texture_offset[0];
 	dev_priv->texture_size = init->texture_size[0];
 
@@ -794,10 +889,12 @@ static int mga_do_init_dma(struct drm_device *dev, drm_mga_init_t *init)
 
 	mga_do_wait_for_idle(dev_priv);
 
+	/* Init the primary DMA registers.
+	 */
 	MGA_WRITE(MGA_PRIMADDRESS, dev_priv->primary->offset | MGA_DMA_GENERAL);
 #if 0
-	MGA_WRITE(MGA_PRIMPTR, virt_to_bus((void *)dev_priv->prim.status) | MGA_PRIMPTREN0 |	
-		  MGA_PRIMPTREN1);	
+	MGA_WRITE(MGA_PRIMPTR, virt_to_bus((void *)dev_priv->prim.status) | MGA_PRIMPTREN0 |	/* Soft trap, SECEND, SETUPEND */
+		  MGA_PRIMPTREN1);	/* DWGSYNC */
 #endif
 
 	dev_priv->prim.start = (u8 *) dev_priv->primary->handle;
@@ -834,6 +931,10 @@ static int mga_do_cleanup_dma(struct drm_device *dev, int full_cleanup)
 	int err = 0;
 	DRM_DEBUG("\n");
 
+	/* Make sure interrupts are disabled here because the uninstall ioctl
+	 * may not have been called from userspace and after dev_private
+	 * is freed, it's too late.
+	 */
 	if (dev->irq_enabled)
 		drm_irq_uninstall(dev);
 
@@ -918,6 +1019,9 @@ int mga_dma_init(struct drm_device *dev, void *data,
 	return -EINVAL;
 }
 
+/* ================================================================
+ * Primary DMA stream management
+ */
 
 int mga_dma_flush(struct drm_device *dev, void *data,
 		  struct drm_file *file_priv)
@@ -961,6 +1065,9 @@ int mga_dma_reset(struct drm_device *dev, void *data,
 	return mga_do_dma_reset(dev_priv);
 }
 
+/* ================================================================
+ * DMA buffer management
+ */
 
 static int mga_dma_get_buffers(struct drm_device *dev,
 			       struct drm_file *file_priv, struct drm_dma *d)
@@ -997,12 +1104,16 @@ int mga_dma_buffers(struct drm_device *dev, void *data,
 
 	LOCK_TEST_WITH_RETURN(dev, file_priv);
 
+	/* Please don't send us buffers.
+	 */
 	if (d->send_count != 0) {
 		DRM_ERROR("Process %d trying to send %d buffers via drmDMA\n",
 			  DRM_CURRENTPID, d->send_count);
 		return -EINVAL;
 	}
 
+	/* We'll send you buffers.
+	 */
 	if (d->request_count < 0 || d->request_count > dma->buf_count) {
 		DRM_ERROR("Process %d trying to get %d buffers (of %d max)\n",
 			  DRM_CURRENTPID, d->request_count, dma->buf_count);
@@ -1019,6 +1130,9 @@ int mga_dma_buffers(struct drm_device *dev, void *data,
 	return ret;
 }
 
+/**
+ * Called just before the module is unloaded.
+ */
 int mga_driver_unload(struct drm_device *dev)
 {
 	kfree(dev->dev_private);
@@ -1027,6 +1141,9 @@ int mga_driver_unload(struct drm_device *dev)
 	return 0;
 }
 
+/**
+ * Called when the last opener of the device is closed.
+ */
 void mga_driver_lastclose(struct drm_device *dev)
 {
 	mga_do_cleanup_dma(dev, FULL_CLEANUP);

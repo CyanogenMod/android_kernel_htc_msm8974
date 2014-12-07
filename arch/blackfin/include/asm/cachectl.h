@@ -10,8 +10,11 @@
 #ifndef	_ASM_CACHECTL
 #define	_ASM_CACHECTL
 
-#define	ICACHE	(1<<0)		
-#define	DCACHE	(1<<1)		
-#define	BCACHE	(ICACHE|DCACHE)	
+/*
+ * Options for cacheflush system call
+ */
+#define	ICACHE	(1<<0)		/* flush instruction cache        */
+#define	DCACHE	(1<<1)		/* writeback and flush data cache */
+#define	BCACHE	(ICACHE|DCACHE)	/* flush both caches              */
 
-#endif	
+#endif	/* _ASM_CACHECTL */

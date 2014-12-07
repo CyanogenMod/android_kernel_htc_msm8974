@@ -18,14 +18,14 @@ struct xt_sctp_flag_info {
 #define XT_NUM_SCTP_FLAGS	4
 
 struct xt_sctp_info {
-	__u16 dpts[2];  
-	__u16 spts[2];  
+	__u16 dpts[2];  /* Min, Max */
+	__u16 spts[2];  /* Min, Max */
 
-	__u32 chunkmap[256 / sizeof (__u32)];  
+	__u32 chunkmap[256 / sizeof (__u32)];  /* Bit mask of chunks to be matched according to RFC 2960 */
 
-#define SCTP_CHUNK_MATCH_ANY   0x01  
-#define SCTP_CHUNK_MATCH_ALL   0x02  
-#define SCTP_CHUNK_MATCH_ONLY  0x04  
+#define SCTP_CHUNK_MATCH_ANY   0x01  /* Match if any of the chunk types are present */
+#define SCTP_CHUNK_MATCH_ALL   0x02  /* Match if all of the chunk types are present */
+#define SCTP_CHUNK_MATCH_ONLY  0x04  /* Match if these are the only chunk types present */
 
 	__u32 chunk_match_type;
 	struct xt_sctp_flag_info flag_info[XT_NUM_SCTP_FLAGS];
@@ -88,5 +88,5 @@ __sctp_chunkmap_is_all_set(const __u32 *chunkmap, unsigned int n)
 	return true;
 }
 
-#endif 
+#endif /* _XT_SCTP_H_ */
 

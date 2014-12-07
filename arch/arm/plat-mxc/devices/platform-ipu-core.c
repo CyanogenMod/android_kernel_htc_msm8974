@@ -33,7 +33,7 @@ struct platform_device *__init imx_add_ipu_core(
 		const struct imx_ipu_core_data *data,
 		const struct ipu_platform_data *pdata)
 {
-	
+	/* The resource order is important! */
 	struct resource res[] = {
 		{
 			.start = data->iobase,

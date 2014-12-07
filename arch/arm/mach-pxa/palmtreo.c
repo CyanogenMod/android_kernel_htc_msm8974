@@ -51,17 +51,20 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long treo_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 	GPIO112_MMC_CMD,
-	GPIO113_GPIO,				
+	GPIO113_GPIO,				/* SD detect */
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -69,17 +72,17 @@ static unsigned long treo_pin_config[] __initdata = {
 	GPIO89_AC97_SYSCLK,
 	GPIO95_AC97_nRESET,
 
-	
+	/* IrDA */
 	GPIO46_FICP_RXD,
 	GPIO47_FICP_TXD,
 
-	
+	/* PWM */
 	GPIO16_PWM0_OUT,
 
-	
-	GPIO1_GPIO | WAKEUP_ON_EDGE_BOTH,	
+	/* USB */
+	GPIO1_GPIO | WAKEUP_ON_EDGE_BOTH,	/* usb detect */
 
-	
+	/* MATRIX KEYPAD */
 	GPIO101_KP_MKIN_1,
 	GPIO102_KP_MKIN_2,
 	GPIO97_KP_MKIN_3,
@@ -93,12 +96,12 @@ static unsigned long treo_pin_config[] __initdata = {
 	GPIO107_KP_MKOUT_4,
 	GPIO108_KP_MKOUT_5,
 	GPIO96_KP_MKOUT_6,
-	GPIO93_KP_DKIN_0 | WAKEUP_ON_LEVEL_HIGH,	
+	GPIO93_KP_DKIN_0 | WAKEUP_ON_LEVEL_HIGH,	/* Hotsync button */
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* Quick Capture Interface */
 	GPIO84_CIF_FV,
 	GPIO85_CIF_LV,
 	GPIO53_CIF_MCLK,
@@ -112,102 +115,105 @@ static unsigned long treo_pin_config[] __initdata = {
 	GPIO17_CIF_DD_6,
 	GPIO12_CIF_DD_7,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
-	GPIO14_GPIO | WAKEUP_ON_EDGE_BOTH,	
+	/* GSM */
+	GPIO14_GPIO | WAKEUP_ON_EDGE_BOTH,	/* GSM host wake up */
 	GPIO34_FFUART_RXD,
 	GPIO35_FFUART_CTS,
 	GPIO39_FFUART_TXD,
 	GPIO41_FFUART_RTS,
 
-	
-	GPIO0_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO15_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO116_GPIO,				
-	GPIO11_GPIO | WAKEUP_ON_EDGE_BOTH,	
+	/* MISC. */
+	GPIO0_GPIO | WAKEUP_ON_EDGE_BOTH,	/* external power detect */
+	GPIO15_GPIO | WAKEUP_ON_EDGE_BOTH,	/* silent switch */
+	GPIO116_GPIO,				/* headphone detect */
+	GPIO11_GPIO | WAKEUP_ON_EDGE_BOTH,	/* bluetooth host wake up */
 };
 
 #ifdef CONFIG_MACH_TREO680
 static unsigned long treo680_pin_config[] __initdata = {
-	GPIO33_GPIO,    
+	GPIO33_GPIO,    /* SD read only */
 
-	
+	/* MATRIX KEYPAD - different wake up source */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO99_KP_MKIN_5,
 };
-#endif 
+#endif /* CONFIG_MACH_TREO680 */
 
 #ifdef CONFIG_MACH_CENTRO
 static unsigned long centro685_pin_config[] __initdata = {
-	
-	MFP_CFG_OUT(GPIO80, AF0, DRIVE_LOW),    
+	/* Bluetooth attached to BT UART*/
+	MFP_CFG_OUT(GPIO80, AF0, DRIVE_LOW),    /* power: LOW = off */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* MATRIX KEYPAD - different wake up source */
 	GPIO100_KP_MKIN_0,
 	GPIO99_KP_MKIN_5 | WAKEUP_ON_LEVEL_HIGH,
 };
-#endif 
+#endif /* CONFIG_MACH_CENTRO */
 
+/******************************************************************************
+ * GPIO keyboard
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int treo680_matrix_keys[] = {
-	KEY(0, 0, KEY_F8),		
+	KEY(0, 0, KEY_F8),		/* Red/Off/Power */
 	KEY(0, 1, KEY_LEFT),
-	KEY(0, 2, KEY_LEFTCTRL),	
+	KEY(0, 2, KEY_LEFTCTRL),	/* Alternate */
 	KEY(0, 3, KEY_L),
 	KEY(0, 4, KEY_A),
 	KEY(0, 5, KEY_Q),
 	KEY(0, 6, KEY_P),
 
-	KEY(1, 0, KEY_RIGHTCTRL),	
+	KEY(1, 0, KEY_RIGHTCTRL),	/* Menu */
 	KEY(1, 1, KEY_RIGHT),
-	KEY(1, 2, KEY_LEFTSHIFT),	
+	KEY(1, 2, KEY_LEFTSHIFT),	/* Left shift */
 	KEY(1, 3, KEY_Z),
 	KEY(1, 4, KEY_S),
 	KEY(1, 5, KEY_W),
 
-	KEY(2, 0, KEY_F1),		
+	KEY(2, 0, KEY_F1),		/* Phone */
 	KEY(2, 1, KEY_UP),
 	KEY(2, 2, KEY_0),
 	KEY(2, 3, KEY_X),
 	KEY(2, 4, KEY_D),
 	KEY(2, 5, KEY_E),
 
-	KEY(3, 0, KEY_F10),		
+	KEY(3, 0, KEY_F10),		/* Calendar */
 	KEY(3, 1, KEY_DOWN),
 	KEY(3, 2, KEY_SPACE),
 	KEY(3, 3, KEY_C),
 	KEY(3, 4, KEY_F),
 	KEY(3, 5, KEY_R),
 
-	KEY(4, 0, KEY_F12),		
+	KEY(4, 0, KEY_F12),		/* Mail */
 	KEY(4, 1, KEY_KPENTER),
-	KEY(4, 2, KEY_RIGHTALT),	
+	KEY(4, 2, KEY_RIGHTALT),	/* Alt */
 	KEY(4, 3, KEY_V),
 	KEY(4, 4, KEY_G),
 	KEY(4, 5, KEY_T),
 
-	KEY(5, 0, KEY_F9),		
-	KEY(5, 1, KEY_PAGEUP),		
+	KEY(5, 0, KEY_F9),		/* Home */
+	KEY(5, 1, KEY_PAGEUP),		/* Side up */
 	KEY(5, 2, KEY_DOT),
 	KEY(5, 3, KEY_B),
 	KEY(5, 4, KEY_H),
 	KEY(5, 5, KEY_Y),
 
-	KEY(6, 0, KEY_TAB),		
-	KEY(6, 1, KEY_PAGEDOWN),	
+	KEY(6, 0, KEY_TAB),		/* Side Activate */
+	KEY(6, 1, KEY_PAGEDOWN),	/* Side down */
 	KEY(6, 2, KEY_ENTER),
 	KEY(6, 3, KEY_N),
 	KEY(6, 4, KEY_J),
 	KEY(6, 5, KEY_U),
 
-	KEY(7, 0, KEY_F6),		
+	KEY(7, 0, KEY_F6),		/* Green/Call */
 	KEY(7, 1, KEY_O),
 	KEY(7, 2, KEY_BACKSPACE),
 	KEY(7, 3, KEY_M),
@@ -216,57 +222,57 @@ static unsigned int treo680_matrix_keys[] = {
 };
 
 static unsigned int centro_matrix_keys[] = {
-	KEY(0, 0, KEY_F9),		
+	KEY(0, 0, KEY_F9),		/* Home */
 	KEY(0, 1, KEY_LEFT),
-	KEY(0, 2, KEY_LEFTCTRL),	
+	KEY(0, 2, KEY_LEFTCTRL),	/* Alternate */
 	KEY(0, 3, KEY_L),
 	KEY(0, 4, KEY_A),
 	KEY(0, 5, KEY_Q),
 	KEY(0, 6, KEY_P),
 
-	KEY(1, 0, KEY_RIGHTCTRL),	
+	KEY(1, 0, KEY_RIGHTCTRL),	/* Menu */
 	KEY(1, 1, KEY_RIGHT),
-	KEY(1, 2, KEY_LEFTSHIFT),	
+	KEY(1, 2, KEY_LEFTSHIFT),	/* Left shift */
 	KEY(1, 3, KEY_Z),
 	KEY(1, 4, KEY_S),
 	KEY(1, 5, KEY_W),
 
-	KEY(2, 0, KEY_F1),		
+	KEY(2, 0, KEY_F1),		/* Phone */
 	KEY(2, 1, KEY_UP),
 	KEY(2, 2, KEY_0),
 	KEY(2, 3, KEY_X),
 	KEY(2, 4, KEY_D),
 	KEY(2, 5, KEY_E),
 
-	KEY(3, 0, KEY_F10),		
+	KEY(3, 0, KEY_F10),		/* Calendar */
 	KEY(3, 1, KEY_DOWN),
 	KEY(3, 2, KEY_SPACE),
 	KEY(3, 3, KEY_C),
 	KEY(3, 4, KEY_F),
 	KEY(3, 5, KEY_R),
 
-	KEY(4, 0, KEY_F12),		
+	KEY(4, 0, KEY_F12),		/* Mail */
 	KEY(4, 1, KEY_KPENTER),
-	KEY(4, 2, KEY_RIGHTALT),	
+	KEY(4, 2, KEY_RIGHTALT),	/* Alt */
 	KEY(4, 3, KEY_V),
 	KEY(4, 4, KEY_G),
 	KEY(4, 5, KEY_T),
 
-	KEY(5, 0, KEY_F8),		
-	KEY(5, 1, KEY_PAGEUP),		
+	KEY(5, 0, KEY_F8),		/* Red/Off/Power */
+	KEY(5, 1, KEY_PAGEUP),		/* Side up */
 	KEY(5, 2, KEY_DOT),
 	KEY(5, 3, KEY_B),
 	KEY(5, 4, KEY_H),
 	KEY(5, 5, KEY_Y),
 
-	KEY(6, 0, KEY_TAB),		
-	KEY(6, 1, KEY_PAGEDOWN),	
+	KEY(6, 0, KEY_TAB),		/* Side Activate */
+	KEY(6, 1, KEY_PAGEDOWN),	/* Side down */
 	KEY(6, 2, KEY_ENTER),
 	KEY(6, 3, KEY_N),
 	KEY(6, 4, KEY_J),
 	KEY(6, 5, KEY_U),
 
-	KEY(7, 0, KEY_F6),		
+	KEY(7, 0, KEY_F6),		/* Green/Call */
 	KEY(7, 1, KEY_O),
 	KEY(7, 2, KEY_BACKSPACE),
 	KEY(7, 3, KEY_M),
@@ -300,6 +306,9 @@ static void __init palmtreo_kpc_init(void)
 static inline void palmtreo_kpc_init(void) {}
 #endif
 
+/******************************************************************************
+ * USB host
+ ******************************************************************************/
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static struct pxaohci_platform_data treo680_ohci_info = {
 	.port_mode    = PMM_PERPORT_MODE,
@@ -316,6 +325,9 @@ static void __init palmtreo_uhc_init(void)
 static inline void palmtreo_uhc_init(void) {}
 #endif
 
+/******************************************************************************
+ * Vibra and LEDs
+ ******************************************************************************/
 #ifdef CONFIG_MACH_TREO680
 static struct gpio_led treo680_gpio_leds[] = {
 	{
@@ -383,6 +395,9 @@ static void __init palmtreo_leds_init(void)
 static inline void palmtreo_leds_init(void) {}
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static void __init treo_reserve(void)
 {
 	memblock_reserve(0xa0000000, 0x1000);

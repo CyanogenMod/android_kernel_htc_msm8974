@@ -20,6 +20,7 @@
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 
+/* Add a function return address to the trace stack on thread info.*/
 static int push_return_trace(unsigned long ret, unsigned long long time,
 				unsigned long func, int *depth)
 {
@@ -28,7 +29,7 @@ static int push_return_trace(unsigned long ret, unsigned long long time,
 	if (!current->ret_stack)
 		return -EBUSY;
 
-	
+	/* The return trace stack is full */
 	if (current->curr_ret_stack == FTRACE_RETFUNC_DEPTH - 1) {
 		atomic_inc(&current->trace_overrun);
 		return -EBUSY;
@@ -44,6 +45,7 @@ static int push_return_trace(unsigned long ret, unsigned long long time,
 	return 0;
 }
 
+/* Retrieve a function return address to the trace stack on thread info.*/
 static void pop_return_trace(struct ftrace_graph_ret *trace, unsigned long *ret)
 {
 	int index;
@@ -53,7 +55,7 @@ static void pop_return_trace(struct ftrace_graph_ret *trace, unsigned long *ret)
 	if (unlikely(index < 0)) {
 		ftrace_graph_stop();
 		WARN_ON(1);
-		
+		/* Might as well panic, otherwise we have no where to go */
 		*ret = (unsigned long)
 			dereference_function_descriptor(&panic);
 		return;
@@ -69,6 +71,10 @@ static void pop_return_trace(struct ftrace_graph_ret *trace, unsigned long *ret)
 
 }
 
+/*
+ * Send the trace to the ring-buffer.
+ * @return the original return address.
+ */
 unsigned long ftrace_return_to_handler(unsigned long retval0,
 				       unsigned long retval1)
 {
@@ -82,17 +88,24 @@ unsigned long ftrace_return_to_handler(unsigned long retval0,
 	if (unlikely(!ret)) {
 		ftrace_graph_stop();
 		WARN_ON(1);
-		
+		/* Might as well panic. What else to do? */
 		ret = (unsigned long)
 			dereference_function_descriptor(&panic);
 	}
 
+	/* HACK: we hand over the old functions' return values
+	   in %r23 and %r24. Assembly in entry.S will take care
+	   and move those to their final registers %ret0 and %ret1 */
 	asm( "copy %0, %%r23 \n\t"
 	     "copy %1, %%r24 \n" : : "r" (retval0), "r" (retval1) );
 
 	return ret;
 }
 
+/*
+ * Hook the return address and push it in the stack of return addrs
+ * in current thread info.
+ */
 void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr)
 {
 	unsigned long old;
@@ -123,14 +136,14 @@ void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr)
 
 	trace.func = self_addr;
 
-	
+	/* Only trace if the calling function expects to */
 	if (!ftrace_graph_entry(&trace)) {
 		current->curr_ret_stack--;
 		*parent = old;
 	}
 }
 
-#endif 
+#endif /* CONFIG_FUNCTION_GRAPH_TRACER */
 
 
 void ftrace_function_trampoline(unsigned long parent,
@@ -152,12 +165,15 @@ void ftrace_function_trampoline(unsigned long parent,
 		unsigned long *parent_rp;
 
                 asm volatile ("copy %%r30, %0" : "=r"(sp));
+		/* sanity check: is stack pointer which we got from
+		   assembler function in entry.S in a reasonable
+		   range compared to current stack pointer? */
 		if ((sp - org_sp_gr3) > 0x400)
 			return;
 
-		
+		/* calculate pointer to %rp in stack */
 		parent_rp = (unsigned long *) org_sp_gr3 - 0x10;
-		
+		/* sanity check: parent_rp should hold parent */
 		if (*parent_rp != parent)
 			return;
 		

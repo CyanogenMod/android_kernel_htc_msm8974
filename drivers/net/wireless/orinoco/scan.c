@@ -32,7 +32,7 @@ static int symbol_build_supp_rates(u8 *buf, const __le16 *rates)
 	buf[0] = WLAN_EID_SUPP_RATES;
 	for (i = 0; i < 5; i++) {
 		rate = le16_to_cpu(rates[i]);
-		
+		/* NULL terminated */
 		if (rate == 0x0)
 			break;
 		buf[i + 2] = rate;
@@ -48,17 +48,19 @@ static int prism_build_supp_rates(u8 *buf, const u8 *rates)
 
 	buf[0] = WLAN_EID_SUPP_RATES;
 	for (i = 0; i < 8; i++) {
-		
+		/* NULL terminated */
 		if (rates[i] == 0x0)
 			break;
 		buf[i + 2] = rates[i];
 	}
 	buf[1] = i;
 
+	/* We might still have another 2 rates, which need to go in
+	 * extended supported rates */
 	if (i == 8 && rates[i] > 0) {
 		buf[10] = WLAN_EID_EXT_SUPP_RATES;
 		for (; i < 10; i++) {
-			
+			/* NULL terminated */
 			if (rates[i] == 0x0)
 				break;
 			buf[i + 2] = rates[i];
@@ -87,7 +89,7 @@ static void orinoco_add_hostscan_result(struct orinoco_private *priv,
 
 	len = le16_to_cpu(bss->a.essid_len);
 
-	
+	/* Reconstruct SSID and bitrate IEs to pass up */
 	ie_buf[0] = WLAN_EID_SSID;
 	ie_buf[1] = len;
 	memcpy(&ie_buf[2], bss->a.essid, len);
@@ -113,7 +115,7 @@ static void orinoco_add_hostscan_result(struct orinoco_private *priv,
 	if (!channel) {
 		printk(KERN_DEBUG "Invalid channel designation %04X(%04X)",
 			bss->a.channel, freq);
-		return;	
+		return;	/* Then ignore it for now */
 	}
 	timestamp = 0;
 	capability = le16_to_cpu(bss->a.capabilities);
@@ -163,7 +165,7 @@ void orinoco_add_hostscan_results(struct orinoco_private *priv,
 				  unsigned char *buf,
 				  size_t len)
 {
-	int offset;		
+	int offset;		/* In the scan data */
 	size_t atom_len;
 	bool abort = false;
 
@@ -174,6 +176,12 @@ void orinoco_add_hostscan_results(struct orinoco_private *priv,
 		break;
 
 	case FIRMWARE_TYPE_SYMBOL:
+		/* Lack of documentation necessitates this hack.
+		 * Different firmwares have 68 or 76 byte long atoms.
+		 * We try modulo first.  If the length divides by both,
+		 * we check what would be the channel in the second
+		 * frame for a 68-byte atom.  76-byte atoms have 0 there.
+		 * Valid channel cannot be 0.  */
 		if (len % 76)
 			atom_len = 68;
 		else if (len % 68)
@@ -189,7 +197,7 @@ void orinoco_add_hostscan_results(struct orinoco_private *priv,
 		offset = 4;
 		if (priv->has_hostscan) {
 			atom_len = le16_to_cpup((__le16 *)buf);
-			
+			/* Sanity check for atom_len */
 			if (atom_len < sizeof(struct prism2_scan_apinfo)) {
 				printk(KERN_ERR "%s: Invalid atom_len in scan "
 				       "data: %zu\n", priv->ndev->name,
@@ -206,7 +214,7 @@ void orinoco_add_hostscan_results(struct orinoco_private *priv,
 		goto scan_abort;
 	}
 
-	
+	/* Check that we got an whole number of atoms */
 	if ((len - offset) % atom_len) {
 		printk(KERN_ERR "%s: Unexpected scan data length %zu, "
 		       "atom_len %zu, offset %d\n", priv->ndev->name, len,
@@ -215,7 +223,7 @@ void orinoco_add_hostscan_results(struct orinoco_private *priv,
 		goto scan_abort;
 	}
 
-	
+	/* Process the entries one by one */
 	for (; offset + atom_len <= len; offset += atom_len) {
 		union hermes_scan_info *atom;
 

@@ -49,6 +49,11 @@ static inline int can_merge(struct ext4_system_zone *entry1,
 	return 0;
 }
 
+/*
+ * Mark a range of blocks as belonging to the "system zone" --- that
+ * is, filesystem metadata blocks which should never be used by
+ * inodes.
+ */
 static int add_system_zone(struct ext4_sb_info *sbi,
 			   ext4_fsblk_t start_blk,
 			   unsigned int count)
@@ -89,7 +94,7 @@ static int add_system_zone(struct ext4_sb_info *sbi,
 		rb_insert_color(new_node, &sbi->system_blks);
 	}
 
-	
+	/* Can we merge to the left? */
 	node = rb_prev(new_node);
 	if (node) {
 		entry = rb_entry(node, struct ext4_system_zone, node);
@@ -101,7 +106,7 @@ static int add_system_zone(struct ext4_sb_info *sbi,
 		}
 	}
 
-	
+	/* Can we merge to the right? */
 	node = rb_next(new_node);
 	if (node) {
 		entry = rb_entry(node, struct ext4_system_zone, node);
@@ -172,6 +177,7 @@ int ext4_setup_system_zone(struct super_block *sb)
 	return 0;
 }
 
+/* Called when the filesystem is unmounted */
 void ext4_release_system_zone(struct super_block *sb)
 {
 	struct rb_node	*n = EXT4_SB(sb)->system_blks.rb_node;
@@ -179,7 +185,7 @@ void ext4_release_system_zone(struct super_block *sb)
 	struct ext4_system_zone	*entry;
 
 	while (n) {
-		
+		/* Do the node's children first */
 		if (n->rb_left) {
 			n = n->rb_left;
 			continue;
@@ -188,6 +194,12 @@ void ext4_release_system_zone(struct super_block *sb)
 			n = n->rb_right;
 			continue;
 		}
+		/*
+		 * The node has no children; free it, and then zero
+		 * out parent's link to it.  Finally go to the
+		 * beginning of the loop and try to free the parent
+		 * node.
+		 */
 		parent = rb_parent(n);
 		entry = rb_entry(n, struct ext4_system_zone, node);
 		kmem_cache_free(ext4_system_zone_cachep, entry);
@@ -202,6 +214,11 @@ void ext4_release_system_zone(struct super_block *sb)
 	EXT4_SB(sb)->system_blks = RB_ROOT;
 }
 
+/*
+ * Returns 1 if the passed-in block region (start_blk,
+ * start_blk+count) is valid; 0 if some part of the block region
+ * overlaps with filesystem metadata blocks.
+ */
 int ext4_data_block_valid(struct ext4_sb_info *sbi, ext4_fsblk_t start_blk,
 			  unsigned int count)
 {

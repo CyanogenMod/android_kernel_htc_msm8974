@@ -10,6 +10,8 @@
 	We want to tanks the Authors of such projects and the Ndiswrapper project Authors.
 */
 
+/*This files contains card eeprom (93c46 or 93c56) programming routines*/
+/*memory is addressed by WORDS*/
 
 #include "r8192U.h"
 #include "r8192U_hw.h"
@@ -35,4 +37,4 @@
 #define EPROM_TXPW1 0x3d
 
 
-u32 eprom_read(struct net_device *dev,u32 addr); 
+u32 eprom_read(struct net_device *dev,u32 addr); //reads a 16 bits word

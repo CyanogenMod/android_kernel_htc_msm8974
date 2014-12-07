@@ -21,6 +21,8 @@ static void bcma_host_pci_switch_core(struct bcma_device *core)
 	pr_debug("Switched to core: 0x%X\n", core->id.id);
 }
 
+/* Provides access to the requested core. Returns base offset that has to be
+ * used. It makes use of fixed windows when possible. */
 static u16 bcma_host_pci_provide_access_to_core(struct bcma_device *core)
 {
 	switch (core->id.id) {
@@ -160,12 +162,12 @@ static int __devinit bcma_host_pci_probe(struct pci_dev *dev,
 	const char *name;
 	u32 val;
 
-	
+	/* Alloc */
 	bus = kzalloc(sizeof(*bus), GFP_KERNEL);
 	if (!bus)
 		goto out;
 
-	
+	/* Basic PCI configuration */
 	err = pci_enable_device(dev);
 	if (err)
 		goto err_kfree_bus;
@@ -178,26 +180,28 @@ static int __devinit bcma_host_pci_probe(struct pci_dev *dev,
 		goto err_pci_disable;
 	pci_set_master(dev);
 
+	/* Disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state */
 	pci_read_config_dword(dev, 0x40, &val);
 	if ((val & 0x0000ff00) != 0)
 		pci_write_config_dword(dev, 0x40, val & 0xffff00ff);
 
-	
+	/* SSB needed additional powering up, do we have any AMBA PCI cards? */
 	if (!pci_is_pcie(dev))
 		pr_err("PCI card detected, report problems.\n");
 
-	
+	/* Map MMIO */
 	err = -ENOMEM;
 	bus->mmio = pci_iomap(dev, 0, ~0UL);
 	if (!bus->mmio)
 		goto err_pci_release_regions;
 
-	
+	/* Host specific */
 	bus->host_pci = dev;
 	bus->hosttype = BCMA_HOSTTYPE_PCI;
 	bus->ops = &bcma_host_pci_ops;
 
-	
+	/* Register */
 	err = bcma_bus_register(bus);
 	if (err)
 		goto err_pci_unmap_mmio;
@@ -253,11 +257,11 @@ static SIMPLE_DEV_PM_OPS(bcma_pm_ops, bcma_host_pci_suspend,
 			 bcma_host_pci_resume);
 #define BCMA_PM_OPS	(&bcma_pm_ops)
 
-#else 
+#else /* CONFIG_PM */
 
 #define BCMA_PM_OPS     NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static DEFINE_PCI_DEVICE_TABLE(bcma_pci_bridge_tbl) = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_BROADCOM, 0x0576) },

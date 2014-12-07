@@ -24,6 +24,10 @@ struct bfin_timer {
 	int irq;
 };
 
+/*
+ * this covers all hardware timer configurations on
+ * all Blackfin derivatives out there today
+ */
 
 static struct bfin_timer iio_bfin_timer_code[MAX_BLACKFIN_GPTIMERS] = {
 	{TIMER0_id,  TIMER0bit,  TIMER_STATUS_TIMIL0,  IRQ_TIMER0},

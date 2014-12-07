@@ -29,11 +29,11 @@
 
 struct tda827x_config
 {
-	
+	/* saa7134 - provided callbacks */
 	int (*init) (struct dvb_frontend *fe);
 	int (*sleep) (struct dvb_frontend *fe);
 
-	
+	/* interface to tda829x driver */
 	unsigned int config;
 	int 	     switch_addr;
 
@@ -41,6 +41,15 @@ struct tda827x_config
 };
 
 
+/**
+ * Attach a tda827x tuner to the supplied frontend structure.
+ *
+ * @param fe Frontend to attach to.
+ * @param addr i2c address of the tuner.
+ * @param i2c i2c adapter to use.
+ * @param cfg optional callback function pointers.
+ * @return FE pointer on success, NULL on failure.
+ */
 #if defined(CONFIG_MEDIA_TUNER_TDA827X) || (defined(CONFIG_MEDIA_TUNER_TDA827X_MODULE) && defined(MODULE))
 extern struct dvb_frontend* tda827x_attach(struct dvb_frontend *fe, int addr,
 					   struct i2c_adapter *i2c,
@@ -54,6 +63,6 @@ static inline struct dvb_frontend* tda827x_attach(struct dvb_frontend *fe,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_MEDIA_TUNER_TDA827X
 
-#endif 
+#endif // __DVB_TDA827X_H__

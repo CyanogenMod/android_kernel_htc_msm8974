@@ -31,7 +31,7 @@
 #include "common.h"
 
 static unsigned long common_pin_config[] __initdata = {
-	
+	/* Data Flash Interface */
 	GPIO0_DFI_D15,
 	GPIO1_DFI_D14,
 	GPIO2_DFI_D13,
@@ -49,7 +49,7 @@ static unsigned long common_pin_config[] __initdata = {
 	GPIO14_DFI_D1,
 	GPIO15_DFI_D0,
 
-	
+	/* Static Memory Controller */
 	GPIO18_SMC_nCS0,
 	GPIO34_SMC_nCS1,
 	GPIO23_SMC_nLUA,
@@ -58,20 +58,20 @@ static unsigned long common_pin_config[] __initdata = {
 	GPIO29_SMC_SCLK,
 	GPIO35_SMC_BE1,
 	GPIO36_SMC_BE2,
-	GPIO27_GPIO,	
+	GPIO27_GPIO,	/* Ethernet IRQ */
 
-	
+	/* UART1 */
 	GPIO107_UART1_RXD,
 	GPIO108_UART1_TXD,
 
-	
+	/* SSP1 */
 	GPIO113_I2S_MCLK,
 	GPIO114_I2S_FRM,
 	GPIO115_I2S_BCLK,
 	GPIO116_I2S_RXD,
 	GPIO117_I2S_TXD,
 
-	
+	/* LCD */
 	GPIO56_LCD_FCLK_RD,
 	GPIO57_LCD_LCLK_A0,
 	GPIO58_LCD_PCLK_WR,
@@ -101,7 +101,7 @@ static unsigned long common_pin_config[] __initdata = {
 	GPIO82_LCD_DD22,
 	GPIO83_LCD_DD23,
 
-	
+	/* Keypad */
 	GPIO109_KP_MKIN1,
 	GPIO110_KP_MKIN0,
 	GPIO111_KP_MKOUT7,
@@ -205,12 +205,12 @@ struct pxa168fb_mach_info aspenite_lcd_info = {
 };
 
 static unsigned int aspenite_matrix_key_map[] = {
-	KEY(0, 6, KEY_UP),	
-	KEY(0, 7, KEY_DOWN),	
-	KEY(1, 6, KEY_LEFT),	
-	KEY(1, 7, KEY_RIGHT),	
-	KEY(4, 6, KEY_ENTER),	
-	KEY(4, 7, KEY_ESC),	
+	KEY(0, 6, KEY_UP),	/* SW 4 */
+	KEY(0, 7, KEY_DOWN),	/* SW 5 */
+	KEY(1, 6, KEY_LEFT),	/* SW 6 */
+	KEY(1, 7, KEY_RIGHT),	/* SW 7 */
+	KEY(4, 6, KEY_ENTER),	/* SW 8 */
+	KEY(4, 7, KEY_ESC),	/* SW 9 */
 };
 
 static struct pxa27x_keypad_platform_data aspenite_keypad_info __initdata = {
@@ -225,7 +225,7 @@ static void __init common_init(void)
 {
 	mfp_config(ARRAY_AND_SIZE(common_pin_config));
 
-	
+	/* on-chip devices */
 	pxa168_add_uart(1);
 	pxa168_add_twsi(1, NULL, ARRAY_AND_SIZE(aspenite_i2c_info));
 	pxa168_add_ssp(1);
@@ -234,7 +234,7 @@ static void __init common_init(void)
 	pxa168_add_keypad(&aspenite_keypad_info);
 	platform_device_register(&pxa168_device_gpio);
 
-	
+	/* off-chip devices */
 	platform_device_register(&smc91x_device);
 }
 

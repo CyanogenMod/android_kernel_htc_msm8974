@@ -19,6 +19,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+/* #define VERBOSE_DEBUG */
 
 #ifdef pr_fmt
 #undef pr_fmt
@@ -37,12 +38,31 @@
 #include <mach/ecm_ipa.h>
 
 
+/*
+ * This function is a "CDC Ethernet Networking Control Model" (CDC ECM)
+ * Ethernet link.  The data transfer model is simple (packets sent and
+ * received over bulk endpoints using normal short packet termination),
+ * and the control model exposes various data and optional notifications.
+ *
+ * ECM is well standardized and (except for Microsoft) supported by most
+ * operating systems with USB host support.  It's the preferred interop
+ * solution for Ethernet over USB, at least for firmware based solutions.
+ * (Hardware solutions tend to be more minimalist.)  A newer and simpler
+ * "Ethernet Emulation Model" (CDC EEM) hasn't yet caught on.
+ *
+ * Note that ECM requires the use of "alternate settings" for its data
+ * interface.  This means that the set_alt() method has real work to do,
+ * and also means that a get_alt() method is required.
+ *
+ * This function is based on USB CDC Ethernet link function driver and
+ * contains MSM specific implementation.
+ */
 
 
 enum ecm_qc_notify_state {
-	ECM_QC_NOTIFY_NONE,		
-	ECM_QC_NOTIFY_CONNECT,		
-	ECM_QC_NOTIFY_SPEED,		
+	ECM_QC_NOTIFY_NONE,		/* don't notify */
+	ECM_QC_NOTIFY_CONNECT,		/* issue CONNECT next */
+	ECM_QC_NOTIFY_SPEED,		/* issue SPEED_CHANGE next */
 };
 
 struct f_ecm_qc {
@@ -65,6 +85,7 @@ static inline struct f_ecm_qc *func_to_ecm_qc(struct usb_function *f)
 	return container_of(f, struct f_ecm_qc, port.func);
 }
 
+/* peak (theoretical) bulk transfer rate in bits-per-second */
 static inline unsigned ecm_qc_bitrate(struct usb_gadget *g)
 {
 	if (gadget_is_dualspeed(g) && g->speed == USB_SPEED_HIGH)
@@ -73,26 +94,41 @@ static inline unsigned ecm_qc_bitrate(struct usb_gadget *g)
 		return 19 *  64 * 1 * 1000 * 8;
 }
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Include the status endpoint if we can, even though it's optional.
+ *
+ * Use wMaxPacketSize big enough to fit CDC_NOTIFY_SPEED_CHANGE in one
+ * packet, to simplify cancellation; and a big transfer interval, to
+ * waste less bandwidth.
+ *
+ * Some drivers (like Linux 2.4 cdc-ether!) "need" it to exist even
+ * if they ignore the connect/disconnect notifications that real aether
+ * can provide.  More advanced cdc configurations might want to support
+ * encapsulated commands (vendor-specific, using control-OUT).
+ */
 
-#define ECM_QC_LOG2_STATUS_INTERVAL_MSEC	5	
-#define ECM_QC_STATUS_BYTECOUNT		16	
+#define ECM_QC_LOG2_STATUS_INTERVAL_MSEC	5	/* 1 << 5 == 32 msec */
+#define ECM_QC_STATUS_BYTECOUNT		16	/* 8 byte header + data */
 
+/* Currently only one std ecm instance is supported - port index 0. */
 #define ECM_QC_NO_PORTS						1
 #define ECM_QC_ACTIVE_PORT					0
 
+/* interface descriptor: */
 
 static struct usb_interface_descriptor ecm_qc_control_intf = {
 	.bLength =		sizeof ecm_qc_control_intf,
 	.bDescriptorType =	USB_DT_INTERFACE,
 
-	
-	
+	/* .bInterfaceNumber = DYNAMIC */
+	/* status endpoint is optional; this could be patched later */
 	.bNumEndpoints =	1,
 	.bInterfaceClass =	USB_CLASS_COMM,
 	.bInterfaceSubClass =	USB_CDC_SUBCLASS_ETHERNET,
 	.bInterfaceProtocol =	USB_CDC_PROTO_NONE,
-	
+	/* .iInterface = DYNAMIC */
 };
 
 static struct usb_cdc_header_desc ecm_qc_header_desc = {
@@ -107,8 +143,8 @@ static struct usb_cdc_union_desc ecm_qc_union_desc = {
 	.bLength =		sizeof(ecm_qc_union_desc),
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
 	.bDescriptorSubType =	USB_CDC_UNION_TYPE,
-	
-	
+	/* .bMasterInterface0 =	DYNAMIC */
+	/* .bSlaveInterface0 =	DYNAMIC */
 };
 
 static struct usb_cdc_ether_desc ecm_qc_desc = {
@@ -116,14 +152,15 @@ static struct usb_cdc_ether_desc ecm_qc_desc = {
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
 	.bDescriptorSubType =	USB_CDC_ETHERNET_TYPE,
 
-	
-	
-	.bmEthernetStatistics =	cpu_to_le32(0), 
+	/* this descriptor actually adds value, surprise! */
+	/* .iMACAddress = DYNAMIC */
+	.bmEthernetStatistics =	cpu_to_le32(0), /* no statistics */
 	.wMaxSegmentSize =	cpu_to_le16(ETH_FRAME_LEN),
 	.wNumberMCFilters =	cpu_to_le16(0),
 	.bNumberPowerFilters =	0,
 };
 
+/* the default data interface has no endpoints ... */
 
 static struct usb_interface_descriptor ecm_qc_data_nop_intf = {
 	.bLength =		sizeof ecm_qc_data_nop_intf,
@@ -135,9 +172,10 @@ static struct usb_interface_descriptor ecm_qc_data_nop_intf = {
 	.bInterfaceClass =	USB_CLASS_CDC_DATA,
 	.bInterfaceSubClass =	0,
 	.bInterfaceProtocol =	0,
-	
+	/* .iInterface = DYNAMIC */
 };
 
+/* ... but the "real" data interface has two bulk endpoints */
 
 static struct usb_interface_descriptor ecm_qc_data_intf = {
 	.bLength =		sizeof ecm_qc_data_intf,
@@ -149,9 +187,10 @@ static struct usb_interface_descriptor ecm_qc_data_intf = {
 	.bInterfaceClass =	USB_CLASS_CDC_DATA,
 	.bInterfaceSubClass =	0,
 	.bInterfaceProtocol =	0,
-	
+	/* .iInterface = DYNAMIC */
 };
 
+/* full speed support: */
 
 static struct usb_endpoint_descriptor ecm_qc_fs_notify_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -180,14 +219,14 @@ static struct usb_endpoint_descriptor ecm_qc_fs_out_desc = {
 };
 
 static struct usb_descriptor_header *ecm_qc_fs_function[] = {
-	
+	/* CDC ECM control descriptors */
 	(struct usb_descriptor_header *) &ecm_qc_control_intf,
 	(struct usb_descriptor_header *) &ecm_qc_header_desc,
 	(struct usb_descriptor_header *) &ecm_qc_union_desc,
 	(struct usb_descriptor_header *) &ecm_qc_desc,
-	
+	/* NOTE: status endpoint might need to be removed */
 	(struct usb_descriptor_header *) &ecm_qc_fs_notify_desc,
-	
+	/* data interface, altsettings 0 and 1 */
 	(struct usb_descriptor_header *) &ecm_qc_data_nop_intf,
 	(struct usb_descriptor_header *) &ecm_qc_data_intf,
 	(struct usb_descriptor_header *) &ecm_qc_fs_in_desc,
@@ -195,6 +234,7 @@ static struct usb_descriptor_header *ecm_qc_fs_function[] = {
 	NULL,
 };
 
+/* high speed support: */
 
 static struct usb_endpoint_descriptor ecm_qc_hs_notify_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -224,14 +264,14 @@ static struct usb_endpoint_descriptor ecm_qc_hs_out_desc = {
 };
 
 static struct usb_descriptor_header *ecm_qc_hs_function[] = {
-	
+	/* CDC ECM control descriptors */
 	(struct usb_descriptor_header *) &ecm_qc_control_intf,
 	(struct usb_descriptor_header *) &ecm_qc_header_desc,
 	(struct usb_descriptor_header *) &ecm_qc_union_desc,
 	(struct usb_descriptor_header *) &ecm_qc_desc,
-	
+	/* NOTE: status endpoint might need to be removed */
 	(struct usb_descriptor_header *) &ecm_qc_hs_notify_desc,
-	
+	/* data interface, altsettings 0 and 1 */
 	(struct usb_descriptor_header *) &ecm_qc_data_nop_intf,
 	(struct usb_descriptor_header *) &ecm_qc_data_intf,
 	(struct usb_descriptor_header *) &ecm_qc_hs_in_desc,
@@ -239,16 +279,17 @@ static struct usb_descriptor_header *ecm_qc_hs_function[] = {
 	NULL,
 };
 
+/* string descriptors: */
 
 static struct usb_string ecm_qc_string_defs[] = {
 	[0].s = "CDC Ethernet Control Model (ECM)",
-	[1].s = NULL ,
+	[1].s = NULL /* DYNAMIC */,
 	[2].s = "CDC Ethernet Data",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings ecm_qc_string_table = {
-	.language =		0x0409,	
+	.language =		0x0409,	/* en-us */
 	.strings =		ecm_qc_string_defs,
 };
 
@@ -265,7 +306,7 @@ static void ecm_qc_do_notify(struct f_ecm_qc *ecm)
 	__le32				*data;
 	int				status;
 
-	
+	/* notification already in flight? */
 	if (!req)
 		return;
 
@@ -294,7 +335,7 @@ static void ecm_qc_do_notify(struct f_ecm_qc *ecm)
 		event->wLength = cpu_to_le16(8);
 		req->length = ECM_QC_STATUS_BYTECOUNT;
 
-		
+		/* SPEED_CHANGE data is up/down speeds in bits/sec */
 		data = req->buf + sizeof *event;
 		data[0] = cpu_to_le32(ecm_qc_bitrate(cdev->gadget));
 		data[1] = data[0];
@@ -316,6 +357,11 @@ static void ecm_qc_do_notify(struct f_ecm_qc *ecm)
 
 static void ecm_qc_notify(struct f_ecm_qc *ecm)
 {
+	/* NOTE on most versions of Linux, host side cdc-ethernet
+	 * won't listen for notifications until its netdevice opens.
+	 * The first notification then sits in the FIFO for a long
+	 * time, and the second one is queued.
+	 */
 	ecm->notify_state = ECM_QC_NOTIFY_CONNECT;
 	ecm_qc_do_notify(ecm);
 }
@@ -347,7 +393,7 @@ static int ecm_qc_bam_connect(struct f_ecm_qc *dev)
 	dev->bam_port.in = dev->port.in_ep;
 	dev->bam_port.out = dev->port.out_ep;
 
-	
+	/* currently we use the first connection */
 	src_connection_idx = usb_bam_get_connection_idx(gadget->name, peer_bam,
 		USB_TO_PEER_PERIPHERAL, 0);
 	dst_connection_idx = usb_bam_get_connection_idx(gadget->name, peer_bam,
@@ -395,6 +441,7 @@ void *ecm_qc_get_ipa_priv(void)
 	return ipa_params.private;
 }
 
+/*-------------------------------------------------------------------------*/
 
 
 
@@ -406,7 +453,7 @@ static void ecm_qc_notify_complete(struct usb_ep *ep, struct usb_request *req)
 
 	switch (req->status) {
 	case 0:
-		
+		/* no fault */
 		break;
 	case -ECONNRESET:
 	case -ESHUTDOWN:
@@ -432,16 +479,34 @@ static int ecm_qc_setup(struct usb_function *f,
 	u16			w_value = le16_to_cpu(ctrl->wValue);
 	u16			w_length = le16_to_cpu(ctrl->wLength);
 
+	/* composite driver infrastructure handles everything except
+	 * CDC class messages; interface activation uses set_alt().
+	 */
 	switch ((ctrl->bRequestType << 8) | ctrl->bRequest) {
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 			| USB_CDC_SET_ETHERNET_PACKET_FILTER:
+		/* see 6.2.30: no data, wIndex = interface,
+		 * wValue = packet filter bitmap
+		 */
 		if (w_length != 0 || w_index != ecm->ctrl_id)
 			goto invalid;
 		DBG(cdev, "packet filter %02x\n", w_value);
+		/* REVISIT locking of cdc_filter.  This assumes the UDC
+		 * driver won't have a concurrent packet TX irq running on
+		 * another CPU; or that if it does, this write is atomic...
+		 */
 		ecm->port.cdc_filter = w_value;
 		value = 0;
 		break;
 
+	/* and optionally:
+	 * case USB_CDC_SEND_ENCAPSULATED_COMMAND:
+	 * case USB_CDC_GET_ENCAPSULATED_RESPONSE:
+	 * case USB_CDC_SET_ETHERNET_MULTICAST_FILTERS:
+	 * case USB_CDC_SET_ETHERNET_PM_PATTERN_FILTER:
+	 * case USB_CDC_GET_ETHERNET_PM_PATTERN_FILTER:
+	 * case USB_CDC_GET_ETHERNET_STATISTIC:
+	 */
 
 	default:
 invalid:
@@ -450,7 +515,7 @@ invalid:
 			w_value, w_index, w_length);
 	}
 
-	
+	/* respond with data transfer or status phase? */
 	if (value >= 0) {
 		DBG(cdev, "ecm req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
@@ -464,7 +529,7 @@ invalid:
 					value);
 	}
 
-	
+	/* device either stalls (value < 0) or reports success */
 	return value;
 }
 
@@ -474,7 +539,7 @@ static int ecm_qc_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	struct f_ecm_qc		*ecm = func_to_ecm_qc(f);
 	struct usb_composite_dev *cdev = f->config->cdev;
 
-	
+	/* Control interface has only altsetting 0 */
 	if (intf == ecm->ctrl_id) {
 		if (alt != 0)
 			goto fail;
@@ -491,13 +556,17 @@ static int ecm_qc_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		usb_ep_enable(ecm->notify);
 		ecm->notify->driver_data = ecm;
 
-	
+	/* Data interface has two altsettings, 0 and 1 */
 	} else if (intf == ecm->data_id) {
 		if (alt > 1)
 			goto fail;
 
 		if (ecm->port.in_ep->driver_data) {
 			DBG(cdev, "reset ecm\n");
+			/* ecm->port is needed for disconnecting the BAM data
+			 * path. Only after the BAM data path is disconnected,
+			 * we can disconnect the port from the network layer.
+			 */
 			ecm_qc_bam_disconnect(ecm);
 			if (ecm->xport != USB_GADGET_XPORT_BAM2BAM_IPA)
 				gether_qc_disconnect_name(&ecm->port, "ecm0");
@@ -516,9 +585,15 @@ static int ecm_qc_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 			}
 		}
 
+		/* CDC Ethernet only sends data in non-default altsettings.
+		 * Changing altsettings resets filters, statistics, etc.
+		 */
 		if (alt == 1) {
 			struct net_device	*net;
 
+			/* Enable zlps by default for ECM conformance;
+			 * override for musb_hdrc (avoids txdma ovhead).
+			 */
 			ecm->port.is_zlp_ok = !(gadget_is_musbhdrc(cdev->gadget)
 				);
 			ecm->port.cdc_filter = DEFAULT_FILTER;
@@ -534,6 +609,12 @@ static int ecm_qc_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 				goto fail;
 		}
 
+		/* NOTE this can be a minor disagreement with the ECM spec,
+		 * which says speed notifications will "always" follow
+		 * connection notifications.  But we allow one connect to
+		 * follow another (if the first is in flight), and instead
+		 * just guarantee that a speed notification is always sent.
+		 */
 		ecm_qc_notify(ecm);
 	} else
 		goto fail;
@@ -543,6 +624,9 @@ fail:
 	return -EINVAL;
 }
 
+/* Because the data interface supports multiple altsettings,
+ * this ECM function *MUST* implement a get_alt() method.
+ */
 static int ecm_qc_get_alt(struct usb_function *f, unsigned intf)
 {
 	struct f_ecm_qc		*ecm = func_to_ecm_qc(f);
@@ -586,7 +670,25 @@ static void ecm_qc_resume(struct usb_function *f)
 	bam_data_resume(ECM_QC_ACTIVE_PORT);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Callbacks let us notify the host about connect/disconnect when the
+ * net device is opened or closed.
+ *
+ * For testing, note that link states on this side include both opened
+ * and closed variants of:
+ *
+ *   - disconnected/unconfigured
+ *   - configured but inactive (data alt 0)
+ *   - configured and active (data alt 1)
+ *
+ * Each needs to be tested with unplug, rmmod, SET_CONFIGURATION, and
+ * SET_INTERFACE (altsetting).  Remember also that "configured" doesn't
+ * imply the host is actually polling the notification endpoint, and
+ * likewise that "active" doesn't imply it's actually using the data
+ * endpoints for traffic.
+ */
 
 static void ecm_qc_open(struct qc_gether *geth)
 {
@@ -607,7 +709,9 @@ static void ecm_qc_close(struct qc_gether *geth)
 	ecm_qc_notify(ecm);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* ethernet function driver setup/binding */
 
 static int
 ecm_qc_bind(struct usb_configuration *c, struct usb_function *f)
@@ -617,7 +721,7 @@ ecm_qc_bind(struct usb_configuration *c, struct usb_function *f)
 	int			status;
 	struct usb_ep		*ep;
 
-	
+	/* allocate instance-specific interface IDs */
 	status = usb_interface_id(c, f);
 	if (status < 0)
 		goto fail;
@@ -639,30 +743,34 @@ ecm_qc_bind(struct usb_configuration *c, struct usb_function *f)
 
 	status = -ENODEV;
 
-	
+	/* allocate instance-specific endpoints */
 	ep = usb_ep_autoconfig(cdev->gadget, &ecm_qc_fs_in_desc);
 	if (!ep)
 		goto fail;
 
 	ecm->port.in_ep = ep;
-	ep->driver_data = cdev;	
+	ep->driver_data = cdev;	/* claim */
 
 	ep = usb_ep_autoconfig(cdev->gadget, &ecm_qc_fs_out_desc);
 	if (!ep)
 		goto fail;
 
 	ecm->port.out_ep = ep;
-	ep->driver_data = cdev;	
+	ep->driver_data = cdev;	/* claim */
 
+	/* NOTE:  a status/notification endpoint is *OPTIONAL* but we
+	 * don't treat it that way.  It's simpler, and some newer CDC
+	 * profiles (wireless handsets) no longer treat it as optional.
+	 */
 	ep = usb_ep_autoconfig(cdev->gadget, &ecm_qc_fs_notify_desc);
 	if (!ep)
 		goto fail;
 	ecm->notify = ep;
-	ep->driver_data = cdev;	
+	ep->driver_data = cdev;	/* claim */
 
 	status = -ENOMEM;
 
-	
+	/* allocate notification request and buffer */
 	ecm->notify_req = usb_ep_alloc_request(ep, GFP_KERNEL);
 	if (!ecm->notify_req)
 		goto fail;
@@ -672,11 +780,15 @@ ecm_qc_bind(struct usb_configuration *c, struct usb_function *f)
 	ecm->notify_req->context = ecm;
 	ecm->notify_req->complete = ecm_qc_notify_complete;
 
-	
+	/* copy descriptors, and track endpoint copies */
 	f->descriptors = usb_copy_descriptors(ecm_qc_fs_function);
 	if (!f->descriptors)
 		goto fail;
 
+	/* support all relevant hardware speeds... we expect that when
+	 * hardware is dual speed, all bulk-capable endpoints work at
+	 * both speeds
+	 */
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 		ecm_qc_hs_in_desc.bEndpointAddress =
 				ecm_qc_fs_in_desc.bEndpointAddress;
@@ -685,12 +797,16 @@ ecm_qc_bind(struct usb_configuration *c, struct usb_function *f)
 		ecm_qc_hs_notify_desc.bEndpointAddress =
 				ecm_qc_fs_notify_desc.bEndpointAddress;
 
-		
+		/* copy descriptors, and track endpoint copies */
 		f->hs_descriptors = usb_copy_descriptors(ecm_qc_hs_function);
 		if (!f->hs_descriptors)
 			goto fail;
 	}
 
+	/* NOTE:  all that is done without knowing or caring about
+	 * the network link ... which is unavailable to this code
+	 * until we're activated via set_alt().
+	 */
 
 	ecm->port.open = ecm_qc_open;
 	ecm->port.close = ecm_qc_close;
@@ -710,7 +826,7 @@ fail:
 		usb_ep_free_request(ecm->notify, ecm->notify_req);
 	}
 
-	
+	/* we might as well release our claims on endpoints */
 	if (ecm->notify)
 		ecm->notify->driver_data = NULL;
 	if (ecm->port.out_ep->desc)
@@ -746,6 +862,19 @@ ecm_qc_unbind(struct usb_configuration *c, struct usb_function *f)
 	kfree(ecm);
 }
 
+/**
+ * ecm_qc_bind_config - add CDC Ethernet network link to a configuration
+ * @c: the configuration to support the network link
+ * @ethaddr: a buffer in which the ethernet address of the host side
+ *	side of the link was recorded
+ * @xport_name: data path transport type name ("BAM2BAM" or "BAM2BAM_IPA")
+ * Context: single threaded during gadget setup
+ *
+ * Returns zero on success, else negative errno.
+ *
+ * Caller must have called @gether_qc_setup().  Caller is also responsible
+ * for calling @gether_cleanup() before module unload.
+ */
 int
 ecm_qc_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 	char *xport_name)
@@ -764,24 +893,24 @@ ecm_qc_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 
 	pr_debug("data transport type is %s", xport_name);
 
-	
+	/* maybe allocate device-global string IDs */
 	if (ecm_qc_string_defs[0].id == 0) {
 
-		
+		/* control interface label */
 		status = usb_string_id(c->cdev);
 		if (status < 0)
 			return status;
 		ecm_qc_string_defs[0].id = status;
 		ecm_qc_control_intf.iInterface = status;
 
-		
+		/* data interface label */
 		status = usb_string_id(c->cdev);
 		if (status < 0)
 			return status;
 		ecm_qc_string_defs[2].id = status;
 		ecm_qc_data_intf.iInterface = status;
 
-		
+		/* MAC address */
 		status = usb_string_id(c->cdev);
 		if (status < 0)
 			return status;
@@ -789,7 +918,7 @@ ecm_qc_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 		ecm_qc_desc.iMACAddress = status;
 	}
 
-	
+	/* allocate and initialize one new instance */
 	ecm = kzalloc(sizeof *ecm, GFP_KERNEL);
 	if (!ecm)
 		return -ENOMEM;
@@ -797,7 +926,7 @@ ecm_qc_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 	ecm->xport = str_to_xport(xport_name);
 	pr_debug("set xport = %d", ecm->xport);
 
-	
+	/* export host's Ethernet address in CDC format */
 	if (ecm->xport == USB_GADGET_XPORT_BAM2BAM_IPA) {
 		gether_qc_get_macs(ipa_params.device_ethaddr,
 				ipa_params.host_ethaddr);
@@ -818,7 +947,7 @@ ecm_qc_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 
 	ecm->port.func.name = "cdc_ethernet";
 	ecm->port.func.strings = ecm_qc_strings;
-	
+	/* descriptors are per-instance copies */
 	ecm->port.func.bind = ecm_qc_bind;
 	ecm->port.func.unbind = ecm_qc_unbind;
 	ecm->port.func.set_alt = ecm_qc_set_alt;

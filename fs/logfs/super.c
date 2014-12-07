@@ -31,7 +31,7 @@ struct page *emergency_read_begin(struct address_space *mapping, pgoff_t index)
 	if (page)
 		return page;
 
-	
+	/* No more pages available, switch to emergency page */
 	printk(KERN_INFO"Logfs: Using emergency page\n");
 	mutex_lock(&emergency_mutex);
 	err = filler(NULL, emergency_page);
@@ -80,11 +80,20 @@ static void dump_segfile(struct super_block *sb)
 	}
 }
 
+/*
+ * logfs_crash_dump - dump debug information to device
+ *
+ * The LogFS superblock only occupies part of a segment.  This function will
+ * write as much debug information as it can gather into the spare space.
+ */
 void logfs_crash_dump(struct super_block *sb)
 {
 	dump_segfile(sb);
 }
 
+/*
+ * FIXME: There should be a reserve for root, similar to ext2.
+ */
 int logfs_statfs(struct dentry *dentry, struct kstatfs *stats)
 {
 	struct super_block *sb = dentry->d_sb;
@@ -155,7 +164,7 @@ static void logfs_write_ds(struct super_block *sb, struct logfs_disk_super *ds,
 
 	ds->ds_ifile_levels	= super->s_ifile_levels;
 	ds->ds_iblock_levels	= super->s_iblock_levels;
-	ds->ds_data_levels	= super->s_data_levels; 
+	ds->ds_data_levels	= super->s_data_levels; /* XXX: Remove */
 	ds->ds_segment_shift	= super->s_segshift;
 	ds->ds_block_shift	= sb->s_blocksize_bits;
 	ds->ds_write_shift	= super->s_writeshift;
@@ -206,12 +215,12 @@ int logfs_write_sb(struct super_block *sb)
 	struct logfs_super *super = logfs_super(sb);
 	int err;
 
-	
+	/* First superblock */
 	err = write_one_sb(sb, super->s_devops->find_first_sb);
 	if (err)
 		return err;
 
-	
+	/* Last superblock */
 	err = write_one_sb(sb, super->s_devops->find_last_sb);
 	if (err)
 		return err;
@@ -222,7 +231,7 @@ static int ds_cmp(const void *ds0, const void *ds1)
 {
 	size_t len = sizeof(struct logfs_disk_super);
 
-	
+	/* We know the segment headers differ, so ignore them */
 	len -= LOGFS_SEGMENT_HEADERSIZE;
 	ds0 += LOGFS_SEGMENT_HEADERSIZE;
 	ds1 += LOGFS_SEGMENT_HEADERSIZE;
@@ -236,11 +245,11 @@ static int logfs_recover_sb(struct super_block *sb)
 	struct logfs_disk_super _ds1, *ds1 = &_ds1;
 	int err, valid0, valid1;
 
-	
+	/* read first superblock */
 	err = wbuf_read(sb, super->s_sb_ofs[0], sizeof(*ds0), ds0);
 	if (err)
 		return err;
-	
+	/* read last superblock */
 	err = wbuf_read(sb, super->s_sb_ofs[1], sizeof(*ds1), ds1);
 	if (err)
 		return err;
@@ -259,6 +268,8 @@ static int logfs_recover_sb(struct super_block *sb)
 		printk(KERN_INFO"Superblocks don't match - fixing.\n");
 		return logfs_write_sb(sb);
 	}
+	/* If neither is valid now, something's wrong.  Didn't we properly
+	 * check them before?!? */
 	BUG_ON(!valid0 && !valid1);
 	return 0;
 }
@@ -271,19 +282,21 @@ static int logfs_make_writeable(struct super_block *sb)
 	if (err)
 		return err;
 
-	
+	/* Repair any broken superblock copies */
 	err = logfs_recover_sb(sb);
 	if (err)
 		return err;
 
-	
+	/* Check areas for trailing unaccounted data */
 	err = logfs_check_areas(sb);
 	if (err)
 		return err;
 
-	
+	/* Do one GC pass before any data gets dirtied */
 	logfs_gc_pass(sb);
 
+	/* after all initializations are done, replay the journal
+	 * for rw-mounts, if necessary */
 	err = logfs_replay_journal(sb);
 	if (err)
 		return err;
@@ -297,7 +310,7 @@ static int logfs_get_sb_final(struct super_block *sb)
 	struct inode *rootdir;
 	int err;
 
-	
+	/* root dir */
 	rootdir = logfs_iget(sb, LOGFS_INO_ROOT);
 	if (IS_ERR(rootdir))
 		goto fail;
@@ -306,13 +319,13 @@ static int logfs_get_sb_final(struct super_block *sb)
 	if (!sb->s_root)
 		goto fail;
 
-	
+	/* at that point we know that ->put_super() will be called */
 	super->s_erase_page = alloc_pages(GFP_KERNEL, 0);
 	if (!super->s_erase_page)
 		return -ENOMEM;
 	memset(page_address(super->s_erase_page), 0xFF, PAGE_SIZE);
 
-	
+	/* FIXME: check for read-only mounts */
 	err = logfs_make_writeable(sb);
 	if (err) {
 		__free_page(super->s_erase_page);
@@ -362,13 +375,13 @@ static struct page *find_super_block(struct super_block *sb)
 		return first;
 	}
 
-	
+	/* First one didn't work, try the second superblock */
 	if (!logfs_check_ds(page_address(last))) {
 		page_cache_release(first);
 		return last;
 	}
 
-	
+	/* Neither worked, sorry folks */
 	page_cache_release(first);
 	page_cache_release(last);
 	return NULL;
@@ -468,11 +481,15 @@ static void logfs_kill_sb(struct super_block *sb)
 	struct logfs_super *super = logfs_super(sb);
 
 	log_super("LogFS: Start unmounting\n");
-	
+	/* Alias entries slow down mount, so evict as many as possible */
 	sync_filesystem(sb);
 	logfs_write_anchor(sb);
 	free_areas(sb);
 
+	/*
+	 * From this point on alias entries are simply dropped - and any
+	 * writes to the object store are considered bugs.
+	 */
 	log_super("LogFS: Now in shutdown\n");
 	generic_shutdown_super(sb);
 	super->s_flags |= LOGFS_SB_FLAG_SHUTDOWN;
@@ -510,12 +527,18 @@ static struct dentry *logfs_get_sb_device(struct logfs_super *super,
 	}
 
 	if (sb->s_root) {
-		
+		/* Device is already in use */
 		super->s_devops->put_device(super);
 		kfree(super);
 		return dget(sb->s_root);
 	}
 
+	/*
+	 * sb->s_maxbytes is limited to 8TB.  On 32bit systems, the page cache
+	 * only covers 16TB and the upper 8TB are used for indirect blocks.
+	 * On 64bit system we could bump up the limit, but that would make
+	 * the filesystem incompatible with 32bit systems.
+	 */
 	sb->s_maxbytes	= (1ull << 43) - 1;
 	sb->s_max_links = LOGFS_LINK_MAX;
 	sb->s_op	= &logfs_super_operations;
@@ -534,7 +557,7 @@ static struct dentry *logfs_get_sb_device(struct logfs_super *super,
 	return dget(sb->s_root);
 
 err1:
-	
+	/* no ->s_root, no ->put_super() */
 	iput(super->s_master_inode);
 	iput(super->s_segfile_inode);
 	iput(super->s_mapping_inode);

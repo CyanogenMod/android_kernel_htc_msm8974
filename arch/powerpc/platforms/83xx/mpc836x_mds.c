@@ -56,6 +56,11 @@
 #define DBG(fmt...)
 #endif
 
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 static void __init mpc836x_mds_setup_arch(void)
 {
 	struct device_node *np;
@@ -64,7 +69,7 @@ static void __init mpc836x_mds_setup_arch(void)
 	if (ppc_md.progress)
 		ppc_md.progress("mpc836x_mds_setup_arch()", 0);
 
-	
+	/* Map BCSR area */
 	np = of_find_node_by_name(NULL, "bcsr");
 	if (np) {
 		struct resource res;
@@ -86,36 +91,44 @@ static void __init mpc836x_mds_setup_arch(void)
 		for (np = NULL; (np = of_find_node_by_name(np, "ucc")) != NULL;)
 			par_io_of_config(np);
 #ifdef CONFIG_QE_USB
-		
-		par_io_config_pin(1,  2, 1, 0, 3, 0); 
-		par_io_config_pin(1,  3, 1, 0, 3, 0); 
-		par_io_config_pin(1,  8, 1, 0, 1, 0); 
-		par_io_config_pin(1, 10, 2, 0, 3, 0); 
-		par_io_config_pin(1,  9, 2, 1, 3, 0); 
-		par_io_config_pin(1, 11, 2, 1, 3, 0); 
-		par_io_config_pin(2, 20, 2, 0, 1, 0); 
-#endif 
+		/* Must fixup Par IO before QE GPIO chips are registered. */
+		par_io_config_pin(1,  2, 1, 0, 3, 0); /* USBOE  */
+		par_io_config_pin(1,  3, 1, 0, 3, 0); /* USBTP  */
+		par_io_config_pin(1,  8, 1, 0, 1, 0); /* USBTN  */
+		par_io_config_pin(1, 10, 2, 0, 3, 0); /* USBRXD */
+		par_io_config_pin(1,  9, 2, 1, 3, 0); /* USBRP  */
+		par_io_config_pin(1, 11, 2, 1, 3, 0); /* USBRN  */
+		par_io_config_pin(2, 20, 2, 0, 1, 0); /* CLK21  */
+#endif /* CONFIG_QE_USB */
 	}
 
 	if ((np = of_find_compatible_node(NULL, "network", "ucc_geth"))
 			!= NULL){
 		uint svid;
 
-		
+		/* Reset the Ethernet PHY */
 #define BCSR9_GETHRST 0x20
 		clrbits8(&bcsr_regs[9], BCSR9_GETHRST);
 		udelay(1000);
 		setbits8(&bcsr_regs[9], BCSR9_GETHRST);
 
-		
+		/* handle mpc8360ea rev.2.1 erratum 2: RGMII Timing */
 		svid = mfspr(SPRN_SVR);
 		if (svid == 0x80480021) {
 			void __iomem *immap;
 
 			immap = ioremap(get_immrbase() + 0x14a8, 8);
 
+			/*
+			 * IMMR + 0x14A8[4:5] = 11 (clk delay for UCC 2)
+			 * IMMR + 0x14A8[18:19] = 11 (clk delay for UCC 1)
+			 */
 			setbits32(immap, 0x0c003000);
 
+			/*
+			 * IMMR + 0x14AC[20:27] = 10101010
+			 * (data delay for both UCC's)
+			 */
 			clrsetbits_be32(immap + 4, 0xff0, 0xaa0);
 
 			iounmap(immap);
@@ -124,7 +137,7 @@ static void __init mpc836x_mds_setup_arch(void)
 		iounmap(bcsr_regs);
 		of_node_put(np);
 	}
-#endif				
+#endif				/* CONFIG_QUICC_ENGINE */
 }
 
 machine_device_initcall(mpc836x_mds, mpc83xx_declare_of_platform_devices);
@@ -156,14 +169,18 @@ static int __init mpc836x_usb_cfg(void)
 #define BCSR8_TSEC1M_RGMII	(0x0 << 6)
 #define BCSR8_TSEC2M_MASK	(0x3 << 4)
 #define BCSR8_TSEC2M_RGMII	(0x0 << 4)
+	/*
+	 * Default is GMII (2), but we should set it to RGMII (0) if we use
+	 * USB (Eth PHY is in RGMII mode anyway).
+	 */
 	clrsetbits_8(&bcsr[8], BCSR8_TSEC1M_MASK | BCSR8_TSEC2M_MASK,
 			       BCSR8_TSEC1M_RGMII | BCSR8_TSEC2M_RGMII);
 
 #define BCSR13_USBMASK	0x0f
-#define BCSR13_nUSBEN	0x08 
-#define BCSR13_USBSPEED	0x04 
-#define BCSR13_USBMODE	0x02 
-#define BCSR13_nUSBVCC	0x01 
+#define BCSR13_nUSBEN	0x08 /* 1 - Disable, 0 - Enable			*/
+#define BCSR13_USBSPEED	0x04 /* 1 - Full, 0 - Low			*/
+#define BCSR13_USBMODE	0x02 /* 1 - Host, 0 - Function			*/
+#define BCSR13_nUSBVCC	0x01 /* 1 - gets VBUS, 0 - supplies VBUS 	*/
 
 	clrsetbits_8(&bcsr[13], BCSR13_USBMASK, BCSR13_USBSPEED);
 
@@ -173,6 +190,11 @@ static int __init mpc836x_usb_cfg(void)
 		qe_usb_clock_set(QE_CLK21, 48000000);
 	} else {
 		setbits8(&bcsr[13], BCSR13_USBMODE);
+		/*
+		 * The BCSR GPIOs are used to control power and
+		 * speed of the USB transceiver. This is needed for
+		 * the USB Host only.
+		 */
 		simple_gpiochip_init("fsl,mpc8360mds-bcsr-gpio");
 	}
 
@@ -182,8 +204,11 @@ err:
 	return ret;
 }
 machine_arch_initcall(mpc836x_mds, mpc836x_usb_cfg);
-#endif 
+#endif /* CONFIG_QE_USB */
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc836x_mds_probe(void)
 {
         unsigned long root = of_get_flat_dt_root();

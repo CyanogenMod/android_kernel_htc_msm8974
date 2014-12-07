@@ -31,6 +31,12 @@
 #include "base.h"
 #include "rc.h"
 
+/*
+ *Finds the highest rate index we can use
+ *if skb is special data like DHCP/EAPOL, we set should
+ *it to lowest rate CCK_1M, otherwise we set rate to
+ *CCK11M or OFDM_54M based on wireless mode.
+ */
 static u8 _rtl_rc_get_highest_rix(struct rtl_priv *rtlpriv,
 				  struct ieee80211_sta *sta,
 				  struct sk_buff *skb, bool not_data)
@@ -41,6 +47,13 @@ static u8 _rtl_rc_get_highest_rix(struct rtl_priv *rtlpriv,
 	struct rtl_sta_info *sta_entry = NULL;
 	u8 wireless_mode = 0;
 
+	/*
+	 *this rate is no use for true rate, firmware
+	 *will control rate at all it just used for
+	 *1.show in iwconfig in B/G mode
+	 *2.in rtl_get_tcb_desc when we check rate is
+	 *      1M we will not use FW rate but user rate.
+	 */
 	if (rtlmac->opmode == NL80211_IFTYPE_AP ||
 		rtlmac->opmode == NL80211_IFTYPE_ADHOC) {
 		if (sta) {
@@ -162,6 +175,7 @@ static bool _rtl_tx_aggr_check(struct rtl_priv *rtlpriv,
 	return false;
 }
 
+/*mac80211 Rate Control callbacks*/
 static void rtl_tx_status(void *ppriv,
 			  struct ieee80211_supported_band *sband,
 			  struct ieee80211_sta *sta, void *priv_sta,
@@ -184,7 +198,7 @@ static void rtl_tx_status(void *ppriv,
 		return;
 
 	if (sta) {
-		
+		/* Check if aggregation has to be enabled for this tid */
 		sta_entry = (struct rtl_sta_info *) sta->drv_priv;
 		if ((sta->ht_cap.ht_supported) &&
 				!(skb->protocol == cpu_to_be16(ETH_P_PAE))) {

@@ -137,11 +137,13 @@ static inline long kvm_hypercall6(unsigned long nr, unsigned long p1,
 	return __rc;
 }
 
+/* kvm on s390 is always paravirtualization enabled */
 static inline int kvm_para_available(void)
 {
 	return 1;
 }
 
+/* No feature bits are currently assigned for kvm on s390 */
 static inline unsigned int kvm_arch_para_features(void)
 {
 	return 0;
@@ -149,4 +151,4 @@ static inline unsigned int kvm_arch_para_features(void)
 
 #endif
 
-#endif 
+#endif /* __S390_KVM_PARA_H */

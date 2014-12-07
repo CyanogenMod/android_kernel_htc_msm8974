@@ -85,7 +85,7 @@ void __init arch_init_irq(void)
 
 	jz_intc_base = ioremap(JZ4740_INTC_BASE_ADDR, 0x14);
 
-	
+	/* Mask all irqs */
 	writel(0xffffffff, jz_intc_base + JZ_REG_INTC_SET_MASK);
 
 	gc = irq_alloc_generic_chip("INTC", 1, JZ4740_IRQ_BASE, jz_intc_base,

@@ -38,6 +38,7 @@
 
 #define VCPU_STAT(x) offsetof(struct kvm_vcpu, stat.x), KVM_STAT_VCPU
 
+/* #define EXIT_DEBUG */
 
 struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "exits",       VCPU_STAT(sum_exits) },
@@ -129,7 +130,7 @@ void kvmppc_book3s_queue_irqprio(struct kvm_vcpu *vcpu, unsigned int vec)
 
 void kvmppc_core_queue_program(struct kvm_vcpu *vcpu, ulong flags)
 {
-	
+	/* might as well deliver this straight away */
 	kvmppc_inject_interrupt(vcpu, BOOK3S_INTERRUPT_PROGRAM, flags);
 }
 
@@ -240,14 +241,17 @@ int kvmppc_book3s_irqprio_deliver(struct kvm_vcpu *vcpu, unsigned int priority)
 	return deliver;
 }
 
+/*
+ * This function determines if an irqprio should be cleared once issued.
+ */
 static bool clear_irqprio(struct kvm_vcpu *vcpu, unsigned int priority)
 {
 	switch (priority) {
 		case BOOK3S_IRQPRIO_DECREMENTER:
-			
+			/* DEC interrupts get cleared by mtdec */
 			return false;
 		case BOOK3S_IRQPRIO_EXTERNAL_LEVEL:
-			
+			/* External interrupts get cleared by userspace */
 			return false;
 	}
 
@@ -277,7 +281,7 @@ void kvmppc_core_prepare_to_enter(struct kvm_vcpu *vcpu)
 					 priority + 1);
 	}
 
-	
+	/* Tell the guest about our interrupt status */
 	kvmppc_update_int_pending(vcpu, *pending, old_pending);
 }
 
@@ -285,7 +289,7 @@ pfn_t kvmppc_gfn_to_pfn(struct kvm_vcpu *vcpu, gfn_t gfn)
 {
 	ulong mp_pa = vcpu->arch.magic_page_pa;
 
-	
+	/* Magic page override */
 	if (unlikely(mp_pa) &&
 	    unlikely(((gfn << PAGE_SHIFT) & KVM_PAM) ==
 		     ((mp_pa & PAGE_MASK) & KVM_PAM))) {

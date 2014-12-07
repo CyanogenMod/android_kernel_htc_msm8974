@@ -31,6 +31,9 @@ extern void board_pcmcia_power(int power);
 
 static int trizeps_pcmcia_hw_init(struct soc_pcmcia_socket *skt)
 {
+	/* we dont have voltage/card/ready detection
+	 * so we dont need interrupts for it
+	 */
 	switch (skt->nr) {
 	case 0:
 		skt->stat[SOC_STAT_CD].gpio = GPIO_PCD;
@@ -41,7 +44,7 @@ static int trizeps_pcmcia_hw_init(struct soc_pcmcia_socket *skt)
 	default:
 		break;
 	}
-	
+	/* release the reset of this card */
 	pr_debug("%s: sock %d irq %d\n", __func__, skt->nr, skt->socket.pci_irq);
 
 	return 0;
@@ -59,15 +62,15 @@ static void trizeps_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 	if (change) {
 		trizeps_pcmcia_status[skt->nr] = status;
 		if (status & ConXS_CFSR_BVD1) {
-			
+			/* enable_irq empty */
 		} else {
-			
+			/* disable_irq empty */
 		}
 	}
 
 	switch (skt->nr) {
 	case 0:
-		
+		/* just fill in fix states */
 		state->bvd1   = (status & ConXS_CFSR_BVD1) ? 1 : 0;
 		state->bvd2   = (status & ConXS_CFSR_BVD2) ? 1 : 0;
 		state->vs_3v  = (status & ConXS_CFSR_VS1) ? 0 : 1;
@@ -75,7 +78,7 @@ static void trizeps_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 		break;
 
 #ifndef CONFIG_MACH_TRIZEPS_CONXS
-	
+	/* on ConXS we only have one slot. Second is inactive */
 	case 1:
 		state->detect = 0;
 		state->ready  = 0;
@@ -95,7 +98,7 @@ static int trizeps_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 	int ret = 0;
 	unsigned short power = 0;
 
-	
+	/* we do nothing here just check a bit */
 	switch (state->Vcc) {
 	case 0:  power &= 0xfc; break;
 	case 33: power |= ConXS_BCR_S0_VCC_3V3; break;
@@ -121,12 +124,12 @@ static int trizeps_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 	}
 
 	switch (skt->nr) {
-	case 0:			 
+	case 0:			 /* we only have 3.3V */
 		board_pcmcia_power(power);
 		break;
 
 #ifndef CONFIG_MACH_TRIZEPS_CONXS
-	
+	/* on ConXS we only have one slot. Second is inactive */
 	case 1:
 #endif
 	default:
@@ -138,7 +141,7 @@ static int trizeps_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 
 static void trizeps_pcmcia_socket_init(struct soc_pcmcia_socket *skt)
 {
-	
+	/* default is on */
 	board_pcmcia_power(0x9);
 }
 

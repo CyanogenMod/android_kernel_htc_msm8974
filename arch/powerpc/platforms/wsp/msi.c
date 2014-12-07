@@ -17,6 +17,7 @@
 #include "ics.h"
 #include "wsp_pci.h"
 
+/* Magic addresses for 32 & 64-bit MSIs with hardcoded MVE 0 */
 #define MSI_ADDR_32		0xFFFF0000ul
 #define MSI_ADDR_64		0x1000000000000000ul
 
@@ -84,7 +85,7 @@ void wsp_teardown_msi_irqs(struct pci_dev *dev)
 		wsp_ics_set_std_chip(entry->irq);
 
 		hwirq = virq_to_hw(entry->irq);
-		
+		/* In this order to avoid racing with irq_create_mapping() */
 		irq_dispose_mapping(entry->irq);
 		wsp_ics_free_irq(phb->dn, hwirq);
 	}
@@ -92,7 +93,7 @@ void wsp_teardown_msi_irqs(struct pci_dev *dev)
 
 void wsp_setup_phb_msi(struct pci_controller *phb)
 {
-	
+	/* Create a single MVE at offset 0 that matches everything */
 	out_be64(phb->cfg_data + PCIE_REG_IODA_ADDR, PCIE_REG_IODA_AD_TBL_MVT);
 	out_be64(phb->cfg_data + PCIE_REG_IODA_DATA0, 1ull << 63);
 

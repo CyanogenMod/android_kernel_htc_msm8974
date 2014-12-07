@@ -64,7 +64,7 @@ static void gpio_enable(struct timed_output_dev *dev, int value)
 
 	spin_lock_irqsave(&data->lock, flags);
 
-	
+	/* cancel previous timer and set GPIO according to value */
 	hrtimer_cancel(&data->timer);
 	gpio_direction_output(data->gpio, data->active_low ? !value : !!value);
 

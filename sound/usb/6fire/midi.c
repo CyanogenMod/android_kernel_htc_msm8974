@@ -30,7 +30,7 @@ static void usb6fire_midi_out_handler(struct urb *urb)
 	if (rt->out) {
 		ret = snd_rawmidi_transmit(rt->out, rt->out_buffer + 4,
 				MIDI_BUFSIZE - 4);
-		if (ret > 0) { 
+		if (ret > 0) { /* more data available, send next packet */
 			rt->out_buffer[1] = ret + 2;
 			rt->out_buffer[3] = rt->out_serial++;
 			urb->transfer_buffer_length = ret + 4;
@@ -39,7 +39,7 @@ static void usb6fire_midi_out_handler(struct urb *urb)
 			if (ret < 0)
 				snd_printk(KERN_ERR PREFIX "midi out urb "
 						"submit failed: %d\n", ret);
-		} else 
+		} else /* no more data to transmit */
 			rt->out = NULL;
 	}
 	spin_unlock_irqrestore(&rt->out_lock, flags);
@@ -75,8 +75,8 @@ static void usb6fire_midi_out_trigger(
 	unsigned long flags;
 
 	spin_lock_irqsave(&rt->out_lock, flags);
-	if (up) { 
-		if (rt->out) { 
+	if (up) { /* start transfer */
+		if (rt->out) { /* we are already transmitting so just return */
 			spin_unlock_irqrestore(&rt->out_lock, flags);
 			return;
 		}
@@ -158,9 +158,9 @@ int __devinit usb6fire_midi_init(struct sfire_chip *chip)
 
 	rt->chip = chip;
 	rt->in_received = usb6fire_midi_in_received;
-	rt->out_buffer[0] = 0x80; 
-	rt->out_buffer[1] = 0x00; 
-	rt->out_buffer[2] = 0x00; 
+	rt->out_buffer[0] = 0x80; /* 'send midi' command */
+	rt->out_buffer[1] = 0x00; /* size of data */
+	rt->out_buffer[2] = 0x00; /* always 0 */
 	spin_lock_init(&rt->in_lock);
 	spin_lock_init(&rt->out_lock);
 

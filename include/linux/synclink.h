@@ -144,27 +144,27 @@
 
 typedef struct _MGSL_PARAMS
 {
-	
+	/* Common */
 
-	unsigned long	mode;		
-	unsigned char	loopback;	
+	unsigned long	mode;		/* Asynchronous or HDLC */
+	unsigned char	loopback;	/* internal loopback mode */
 
-	
+	/* HDLC Only */
 
 	unsigned short	flags;
-	unsigned char	encoding;	
-	unsigned long	clock_speed;	
-	unsigned char	addr_filter;	
-	unsigned short	crc_type;	
+	unsigned char	encoding;	/* NRZ, NRZI, etc. */
+	unsigned long	clock_speed;	/* external clock speed in bits per second */
+	unsigned char	addr_filter;	/* receive HDLC address filter, 0xFF = disable */
+	unsigned short	crc_type;	/* None, CRC16-CCITT, or CRC32-CCITT */
 	unsigned char	preamble_length;
 	unsigned char	preamble;
 
-	
+	/* Async Only */
 
-	unsigned long	data_rate;	
-	unsigned char	data_bits;	
-	unsigned char	stop_bits;	
-	unsigned char	parity;		
+	unsigned long	data_rate;	/* bits per second */
+	unsigned char	data_bits;	/* 7 or 8 data bits */
+	unsigned char	stop_bits;	/* 1 or 2 stop bits */
+	unsigned char	parity;		/* none, even, or odd */
 
 } MGSL_PARAMS, *PMGSL_PARAMS;
 
@@ -178,6 +178,9 @@ typedef struct _MGSL_PARAMS
 #define SYNCLINK_GT2_DEVICE_ID 0x00A0
 #define MGSL_MAX_SERIAL_NUMBER 30
 
+/*
+** device diagnostics status
+*/
 
 #define DiagStatus_OK				0
 #define DiagStatus_AddressFailure		1
@@ -193,16 +196,19 @@ typedef struct _MGSL_PARAMS
 #define DiagStatus_CantAssignPciIrq		11
 #define DiagStatus_MemoryError			12
 
-#define SerialSignal_DCD            0x01     
-#define SerialSignal_TXD            0x02     
-#define SerialSignal_RI             0x04     
-#define SerialSignal_RXD            0x08     
-#define SerialSignal_CTS            0x10     
-#define SerialSignal_RTS            0x20     
-#define SerialSignal_DSR            0x40     
-#define SerialSignal_DTR            0x80     
+#define SerialSignal_DCD            0x01     /* Data Carrier Detect */
+#define SerialSignal_TXD            0x02     /* Transmit Data */
+#define SerialSignal_RI             0x04     /* Ring Indicator */
+#define SerialSignal_RXD            0x08     /* Receive Data */
+#define SerialSignal_CTS            0x10     /* Clear to Send */
+#define SerialSignal_RTS            0x20     /* Request to Send */
+#define SerialSignal_DSR            0x40     /* Data Set Ready */
+#define SerialSignal_DTR            0x80     /* Data Terminal Ready */
 
 
+/*
+ * Counters of the input lines (CTS, DSR, RI, CD) interrupts
+ */
 struct mgsl_icount {
 	__u32	cts, dsr, rng, dcd, tx, rx;
 	__u32	frame, parity, overrun, brk;
@@ -234,6 +240,9 @@ struct gpio_desc {
 #define DEBUG_LEVEL_BH    	4
 #define DEBUG_LEVEL_ISR		5
 
+/*
+** Event bit flags for use with MgslWaitEvent
+*/
 
 #define MgslEvent_DsrActive	0x0001
 #define MgslEvent_DsrInactive	0x0002
@@ -250,6 +259,21 @@ struct gpio_desc {
 #define MgslEvent_ExitHuntMode	0x0100
 #define MgslEvent_IdleReceived	0x0200
 
+/* Private IOCTL codes:
+ *
+ * MGSL_IOCSPARAMS	set MGSL_PARAMS structure values
+ * MGSL_IOCGPARAMS	get current MGSL_PARAMS structure values
+ * MGSL_IOCSTXIDLE	set current transmit idle mode
+ * MGSL_IOCGTXIDLE	get current transmit idle mode
+ * MGSL_IOCTXENABLE	enable or disable transmitter
+ * MGSL_IOCRXENABLE	enable or disable receiver
+ * MGSL_IOCTXABORT	abort transmitting frame (HDLC)
+ * MGSL_IOCGSTATS	return current statistics
+ * MGSL_IOCWAITEVENT	wait for specified event to occur
+ * MGSL_LOOPTXDONE	transmit in HDLC LoopMode done
+ * MGSL_IOCSIF          set the serial interface type
+ * MGSL_IOCGIF          get the serial interface type
+ */
 #define MGSL_MAGIC_IOC	'm'
 #define MGSL_IOCSPARAMS		_IOW(MGSL_MAGIC_IOC,0,struct _MGSL_PARAMS)
 #define MGSL_IOCGPARAMS		_IOR(MGSL_MAGIC_IOC,1,struct _MGSL_PARAMS)
@@ -273,6 +297,7 @@ struct gpio_desc {
 #define MGSL_IOCGXCTRL		_IO(MGSL_MAGIC_IOC, 22)
 
 #ifdef __KERNEL__
+/* provide 32 bit ioctl compatibility on 64 bit systems */
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 struct MGSL_PARAMS32 {
@@ -295,4 +320,4 @@ struct MGSL_PARAMS32 {
 #endif
 #endif
 
-#endif 
+#endif /* _SYNCLINK_H_ */

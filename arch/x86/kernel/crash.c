@@ -46,6 +46,12 @@ static void kdump_nmi_callback(int cpu, struct pt_regs *regs)
 #endif
 	crash_save_cpu(regs, cpu);
 
+	/* Disable VMX or SVM if needed.
+	 *
+	 * We need to disable virtualization on all CPUs.
+	 * Having VMX or SVM enabled on any CPU may break rebooting
+	 * after the kdump kernel has finished its task.
+	 */
 	cpu_emergency_vmxoff();
 	cpu_emergency_svm_disable();
 
@@ -63,17 +69,29 @@ static void kdump_nmi_shootdown_cpus(void)
 #else
 static void kdump_nmi_shootdown_cpus(void)
 {
-	
+	/* There are no cpus to shootdown */
 }
 #endif
 
 void native_machine_crash_shutdown(struct pt_regs *regs)
 {
-	
+	/* This function is only called after the system
+	 * has panicked or is otherwise in a critical state.
+	 * The minimum amount of code to allow a kexec'd kernel
+	 * to run successfully needs to happen here.
+	 *
+	 * In practice this means shooting down the other cpus in
+	 * an SMP system.
+	 */
+	/* The kernel is broken so disable interrupts */
 	local_irq_disable();
 
 	kdump_nmi_shootdown_cpus();
 
+	/* Booting kdump kernel with VMX or SVM enabled won't work,
+	 * because (among other limitations) we can't disable paging
+	 * with the virt flags.
+	 */
 	cpu_emergency_vmxoff();
 	cpu_emergency_svm_disable();
 

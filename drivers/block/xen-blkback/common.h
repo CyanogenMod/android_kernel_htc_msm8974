@@ -49,6 +49,10 @@
 		 __func__, __LINE__, ##args)
 
 
+/* Not a real protocol.  Used to generate ring structs which contain
+ * the elements common to all protocols only.  This way we get a
+ * compiler-checkable way to use common struct elements, so we can
+ * avoid using switch(protocol) in a number of places.  */
 struct blkif_common_request {
 	char dummy;
 };
@@ -57,57 +61,59 @@ struct blkif_common_response {
 };
 
 struct blkif_x86_32_request_rw {
-	uint8_t        nr_segments;  
-	blkif_vdev_t   handle;       
-	uint64_t       id;           
-	blkif_sector_t sector_number;
+	uint8_t        nr_segments;  /* number of segments                   */
+	blkif_vdev_t   handle;       /* only for read/write requests         */
+	uint64_t       id;           /* private guest value, echoed in resp  */
+	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
 	struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 } __attribute__((__packed__));
 
 struct blkif_x86_32_request_discard {
-	uint8_t        flag;         
-	blkif_vdev_t   _pad1;        
-	uint64_t       id;           
-	blkif_sector_t sector_number;
+	uint8_t        flag;         /* BLKIF_DISCARD_SECURE or zero         */
+	blkif_vdev_t   _pad1;        /* was "handle" for read/write requests */
+	uint64_t       id;           /* private guest value, echoed in resp  */
+	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
 	uint64_t       nr_sectors;
 } __attribute__((__packed__));
 
 struct blkif_x86_32_request {
-	uint8_t        operation;    
+	uint8_t        operation;    /* BLKIF_OP_???                         */
 	union {
 		struct blkif_x86_32_request_rw rw;
 		struct blkif_x86_32_request_discard discard;
 	} u;
 } __attribute__((__packed__));
 
+/* i386 protocol version */
 #pragma pack(push, 4)
 struct blkif_x86_32_response {
-	uint64_t        id;              
-	uint8_t         operation;       
-	int16_t         status;          
+	uint64_t        id;              /* copied from request */
+	uint8_t         operation;       /* copied from request */
+	int16_t         status;          /* BLKIF_RSP_???       */
 };
 #pragma pack(pop)
+/* x86_64 protocol version */
 
 struct blkif_x86_64_request_rw {
-	uint8_t        nr_segments;  
-	blkif_vdev_t   handle;       
-	uint32_t       _pad1;        
+	uint8_t        nr_segments;  /* number of segments                   */
+	blkif_vdev_t   handle;       /* only for read/write requests         */
+	uint32_t       _pad1;        /* offsetof(blkif_reqest..,u.rw.id)==8  */
 	uint64_t       id;
-	blkif_sector_t sector_number;
+	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
 	struct blkif_request_segment seg[BLKIF_MAX_SEGMENTS_PER_REQUEST];
 } __attribute__((__packed__));
 
 struct blkif_x86_64_request_discard {
-	uint8_t        flag;         
-	blkif_vdev_t   _pad1;        
-        uint32_t       _pad2;        
+	uint8_t        flag;         /* BLKIF_DISCARD_SECURE or zero         */
+	blkif_vdev_t   _pad1;        /* was "handle" for read/write requests */
+        uint32_t       _pad2;        /* offsetof(blkif_..,u.discard.id)==8   */
 	uint64_t       id;
-	blkif_sector_t sector_number;
+	blkif_sector_t sector_number;/* start sector idx on disk (r/w only)  */
 	uint64_t       nr_sectors;
 } __attribute__((__packed__));
 
 struct blkif_x86_64_request {
-	uint8_t        operation;    
+	uint8_t        operation;    /* BLKIF_OP_???                         */
 	union {
 		struct blkif_x86_64_request_rw rw;
 		struct blkif_x86_64_request_discard discard;
@@ -116,8 +122,8 @@ struct blkif_x86_64_request {
 
 struct blkif_x86_64_response {
 	uint64_t       __attribute__((__aligned__(8))) id;
-	uint8_t         operation;       
-	int16_t         status;          
+	uint8_t         operation;       /* copied from request */
+	int16_t         status;          /* BLKIF_RSP_???       */
 };
 
 DEFINE_RING_TYPES(blkif_common, struct blkif_common_request,
@@ -141,16 +147,16 @@ enum blkif_protocol {
 };
 
 struct xen_vbd {
-	
+	/* What the domain refers to this vbd as. */
 	blkif_vdev_t		handle;
-	
+	/* Non-zero -> read-only */
 	unsigned char		readonly;
-	
+	/* VDISK_xxx */
 	unsigned char		type;
-	
+	/* phys device that this vbd maps to. */
 	u32			pdevice;
 	struct block_device	*bdev;
-	
+	/* Cached size parameter. */
 	sector_t		size;
 	bool			flush_support;
 	bool			discard_secure;
@@ -159,32 +165,32 @@ struct xen_vbd {
 struct backend_info;
 
 struct xen_blkif {
-	
+	/* Unique identifier for this interface. */
 	domid_t			domid;
 	unsigned int		handle;
-	
+	/* Physical parameters of the comms window. */
 	unsigned int		irq;
-	
+	/* Comms information. */
 	enum blkif_protocol	blk_protocol;
 	union blkif_back_rings	blk_rings;
 	void			*blk_ring;
-	
+	/* The VBD attached to this interface. */
 	struct xen_vbd		vbd;
-	
+	/* Back pointer to the backend_info. */
 	struct backend_info	*be;
-	
+	/* Private fields. */
 	spinlock_t		blk_ring_lock;
 	atomic_t		refcnt;
 
 	wait_queue_head_t	wq;
-	
+	/* for barrier (drain) requests */
 	struct completion	drain_complete;
 	atomic_t		drain;
-	
+	/* One thread per one blkif. */
 	struct task_struct	*xenblkd;
 	unsigned int		waiting_reqs;
 
-	
+	/* statistics */
 	unsigned long		st_print;
 	int			st_rd_req;
 	int			st_wr_req;
@@ -289,4 +295,4 @@ static inline void blkif_get_x86_64_req(struct blkif_request *dst,
 	}
 }
 
-#endif 
+#endif /* __XEN_BLKIF__BACKEND__COMMON_H__ */

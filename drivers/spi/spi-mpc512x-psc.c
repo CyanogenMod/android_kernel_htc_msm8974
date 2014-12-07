@@ -34,7 +34,7 @@ struct mpc512x_psc_spi {
 	void (*cs_control)(struct spi_device *spi, bool on);
 	u32 sysclk;
 
-	
+	/* driver internal data */
 	struct mpc52xx_psc __iomem *psc;
 	struct mpc512x_psc_fifo __iomem *fifo;
 	unsigned int irq;
@@ -47,16 +47,20 @@ struct mpc512x_psc_spi {
 	struct work_struct work;
 
 	struct list_head queue;
-	spinlock_t lock;	
+	spinlock_t lock;	/* Message queue lock */
 
 	struct completion done;
 };
 
+/* controller state */
 struct mpc512x_psc_spi_cs {
 	int bits_per_word;
 	int speed_hz;
 };
 
+/* set clock freq, clock ramp, bits per work
+ * if t is NULL then reset the values to the default values
+ */
 static int mpc512x_psc_spi_transfer_setup(struct spi_device *spi,
 					  struct spi_transfer *t)
 {
@@ -81,7 +85,7 @@ static void mpc512x_psc_spi_activate_cs(struct spi_device *spi)
 
 	sicr = in_be32(&psc->sicr);
 
-	
+	/* Set clock phase and polarity */
 	if (spi->mode & SPI_CPHA)
 		sicr |= 0x00001000;
 	else
@@ -103,7 +107,7 @@ static void mpc512x_psc_spi_activate_cs(struct spi_device *spi)
 	if (cs->speed_hz)
 		bclkdiv = (mps->mclk / cs->speed_hz) - 1;
 	else
-		bclkdiv = (mps->mclk / 1000000) - 1;	
+		bclkdiv = (mps->mclk / 1000000) - 1;	/* default 1MHz */
 
 	ccr |= (((bclkdiv & 0xff) << 16) | (((bclkdiv >> 8) & 0xff) << 8));
 	out_be32(&psc->ccr, ccr);
@@ -122,6 +126,7 @@ static void mpc512x_psc_spi_deactivate_cs(struct spi_device *spi)
 
 }
 
+/* extract and scale size field in txsz or rxsz */
 #define MPC512x_PSC_FIFO_SZ(sz) ((sz & 0x7ff) << 2);
 
 #define EOFBYTE 1
@@ -139,7 +144,7 @@ static int mpc512x_psc_spi_transfer_rxtx(struct spi_device *spi,
 	if (!tx_buf && !rx_buf && t->len)
 		return -EINVAL;
 
-	
+	/* Zero MR2 */
 	in_8(&psc->mode);
 	out_8(&psc->mode, 0x0);
 
@@ -150,6 +155,10 @@ static int mpc512x_psc_spi_transfer_rxtx(struct spi_device *spi,
 		size_t fifosz;
 		int rxcount;
 
+		/*
+		 * The number of bytes that can be sent at a time
+		 * depends on the fifo size.
+		 */
 		fifosz = MPC512x_PSC_FIFO_SZ(in_be32(&fifo->txsz));
 		count = min(fifosz, len);
 
@@ -163,11 +172,11 @@ static int mpc512x_psc_spi_transfer_rxtx(struct spi_device *spi,
 
 		INIT_COMPLETION(mps->done);
 
-		
+		/* interrupt on tx fifo empty */
 		out_be32(&fifo->txisr, MPC512x_PSC_FIFO_EMPTY);
 		out_be32(&fifo->tximr, MPC512x_PSC_FIFO_EMPTY);
 
-		
+		/* enable transmiter/receiver */
 		out_8(&psc->command,
 		      MPC52xx_PSC_TX_ENABLE | MPC52xx_PSC_RX_ENABLE);
 
@@ -175,7 +184,7 @@ static int mpc512x_psc_spi_transfer_rxtx(struct spi_device *spi,
 
 		mdelay(1);
 
-		
+		/* rx fifo should have count bytes in it */
 		rxcount = in_be32(&fifo->rxcnt);
 		if (rxcount != count)
 			mdelay(1);
@@ -199,7 +208,7 @@ static int mpc512x_psc_spi_transfer_rxtx(struct spi_device *spi,
 		out_8(&psc->command,
 		      MPC52xx_PSC_TX_DISABLE | MPC52xx_PSC_RX_DISABLE);
 	}
-	
+	/* disable transmiter/receiver and fifo interrupt */
 	out_8(&psc->command, MPC52xx_PSC_TX_DISABLE | MPC52xx_PSC_RX_DISABLE);
 	out_be32(&fifo->tximr, 0);
 	return 0;
@@ -331,45 +340,45 @@ static int mpc512x_psc_spi_port_config(struct spi_master *master,
 	mps->mclk = clk_get_rate(spiclk);
 	clk_put(spiclk);
 
-	
+	/* Reset the PSC into a known state */
 	out_8(&psc->command, MPC52xx_PSC_RST_RX);
 	out_8(&psc->command, MPC52xx_PSC_RST_TX);
 	out_8(&psc->command, MPC52xx_PSC_TX_DISABLE | MPC52xx_PSC_RX_DISABLE);
 
-	
+	/* Disable psc interrupts all useful interrupts are in fifo */
 	out_be16(&psc->isr_imr.imr, 0);
 
-	
+	/* Disable fifo interrupts, will be enabled later */
 	out_be32(&fifo->tximr, 0);
 	out_be32(&fifo->rximr, 0);
 
-	
-	
-	
+	/* Setup fifo slice address and size */
+	/*out_be32(&fifo->txsz, 0x0fe00004);*/
+	/*out_be32(&fifo->rxsz, 0x0ff00004);*/
 
-	sicr =	0x01000000 |	
-		0x00800000 |	
-		0x00008000 |	
-		0x00004000 |	
-		0x00000800;	
+	sicr =	0x01000000 |	/* SIM = 0001 -- 8 bit */
+		0x00800000 |	/* GenClk = 1 -- internal clk */
+		0x00008000 |	/* SPI = 1 */
+		0x00004000 |	/* MSTR = 1   -- SPI master */
+		0x00000800;	/* UseEOF = 1 -- SS low until EOF */
 
 	out_be32(&psc->sicr, sicr);
 
 	ccr = in_be32(&psc->ccr);
 	ccr &= 0xFF000000;
-	bclkdiv = (mps->mclk / 1000000) - 1;	
+	bclkdiv = (mps->mclk / 1000000) - 1;	/* default 1MHz */
 	ccr |= (((bclkdiv & 0xff) << 16) | (((bclkdiv >> 8) & 0xff) << 8));
 	out_be32(&psc->ccr, ccr);
 
-	
+	/* Set 2ms DTL delay */
 	out_8(&psc->ctur, 0x00);
 	out_8(&psc->ctlr, 0x82);
 
-	
+	/* we don't use the alarms */
 	out_be32(&fifo->rxalarm, 0xfff);
 	out_be32(&fifo->txalarm, 0);
 
-	
+	/* Enable FIFO slices for Rx/Tx */
 	out_be32(&fifo->rxcmd,
 		 MPC512x_PSC_FIFO_ENABLE_SLICE | MPC512x_PSC_FIFO_ENABLE_DMA);
 	out_be32(&fifo->txcmd,
@@ -385,7 +394,7 @@ static irqreturn_t mpc512x_psc_spi_isr(int irq, void *dev_id)
 	struct mpc512x_psc_spi *mps = (struct mpc512x_psc_spi *)dev_id;
 	struct mpc512x_psc_fifo __iomem *fifo = mps->fifo;
 
-	
+	/* clear interrupt and wake up the work queue */
 	if (in_be32(&fifo->txisr) &
 	    in_be32(&fifo->tximr) & MPC512x_PSC_FIFO_EMPTY) {
 		out_be32(&fifo->txisr, MPC512x_PSC_FIFO_EMPTY);
@@ -396,6 +405,7 @@ static irqreturn_t mpc512x_psc_spi_isr(int irq, void *dev_id)
 	return IRQ_NONE;
 }
 
+/* bus_num is used only for the case dev->platform_data == NULL */
 static int __devinit mpc512x_psc_spi_do_probe(struct device *dev, u32 regaddr,
 					      u32 size, unsigned int irq,
 					      s16 bus_num)
@@ -510,7 +520,7 @@ static int __devinit mpc512x_psc_spi_of_probe(struct platform_device *op)
 	}
 	regaddr64 = of_translate_address(op->dev.of_node, regaddr_p);
 
-	
+	/* get PSC id (0..11, used by port_config) */
 	if (op->dev.platform_data == NULL) {
 		const u32 *psc_nump;
 

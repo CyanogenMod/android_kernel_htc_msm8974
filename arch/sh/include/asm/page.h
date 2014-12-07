@@ -7,6 +7,7 @@
 
 #include <linux/const.h>
 
+/* PAGE_SHIFT determines the page size */
 #if defined(CONFIG_PAGE_SIZE_4KB)
 # define PAGE_SHIFT	12
 #elif defined(CONFIG_PAGE_SIZE_8KB)
@@ -68,6 +69,9 @@ extern void copy_user_highpage(struct page *to, struct page *from,
 extern void clear_user_highpage(struct page *page, unsigned long vaddr);
 #define clear_user_highpage	clear_user_highpage
 
+/*
+ * These are used to make use of C type-checking..
+ */
 #ifdef CONFIG_X2TLB
 typedef struct { unsigned long pte_low, pte_high; } pte_t;
 typedef struct { unsigned long long pgprot; } pgprot_t;
@@ -100,19 +104,39 @@ typedef struct page *pgtable_t;
 
 #define pte_pgprot(x) __pgprot(pte_val(x) & PTE_FLAGS_MASK)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * __MEMORY_START and SIZE are the physical addresses and size of RAM.
+ */
 #define __MEMORY_START		CONFIG_MEMORY_START
 #define __MEMORY_SIZE		CONFIG_MEMORY_SIZE
 
+/*
+ * PHYSICAL_OFFSET is the offset in physical memory where the base
+ * of the kernel is loaded.
+ */
 #ifdef CONFIG_PHYSICAL_START
 #define PHYSICAL_OFFSET (CONFIG_PHYSICAL_START - __MEMORY_START)
 #else
 #define PHYSICAL_OFFSET 0
 #endif
 
+/*
+ * PAGE_OFFSET is the virtual address of the start of kernel address
+ * space.
+ */
 #define PAGE_OFFSET		CONFIG_PAGE_OFFSET
 
+/*
+ * Virtual to physical RAM address translation.
+ *
+ * In 29 bit mode, the physical offset of RAM from address 0 is visible in
+ * the kernel virtual address space, and thus we don't have to take
+ * this into account when translating. However in 32 bit mode this offset
+ * is not visible (it is part of the PMB mapping) and so needs to be
+ * added or subtracted as required.
+ */
 #ifdef CONFIG_PMB
 #define ___pa(x)	((x)-PAGE_OFFSET+__MEMORY_START)
 #define ___va(x)	((x)+PAGE_OFFSET-__MEMORY_START)
@@ -124,7 +148,7 @@ typedef struct page *pgtable_t;
 #ifndef __ASSEMBLY__
 #define __pa(x)		___pa((unsigned long)x)
 #define __va(x)		(void *)___va((unsigned long)x)
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #ifdef CONFIG_UNCACHED_MAPPING
 #if defined(CONFIG_29BIT)
@@ -142,6 +166,12 @@ typedef struct page *pgtable_t;
 #define pfn_to_kaddr(pfn)	__va((pfn) << PAGE_SHIFT)
 #define page_to_phys(page)	(page_to_pfn(page) << PAGE_SHIFT)
 
+/*
+ * PFN = physical frame number (ie PFN 0 == physical address 0)
+ * PFN_START is the PFN of the first page of RAM. By defining this we
+ * don't have struct page entries for the portion of address space
+ * between physical address 0 and the start of RAM.
+ */
 #define PFN_START		(__MEMORY_START >> PAGE_SHIFT)
 #define ARCH_PFN_OFFSET		(PFN_START)
 #define virt_to_page(kaddr)	pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
@@ -156,14 +186,26 @@ typedef struct page *pgtable_t;
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
+/* vDSO support */
 #ifdef CONFIG_VSYSCALL
 #define __HAVE_ARCH_GATE_AREA
 #endif
 
+/*
+ * Some drivers need to perform DMA into kmalloc'ed buffers
+ * and so we have to increase the kmalloc minalign for this.
+ */
 #define ARCH_DMA_MINALIGN	L1_CACHE_BYTES
 
 #ifdef CONFIG_SUPERH64
+/*
+ * While BYTES_PER_WORD == 4 on the current sh64 ABI, GCC will still
+ * happily generate {ld/st}.q pairs, requiring us to have 8-byte
+ * alignment to avoid traps. The kmalloc alignment is guaranteed by
+ * virtue of L1_CACHE_BYTES, requiring this to only be special cased
+ * for slab caches.
+ */
 #define ARCH_SLAB_MINALIGN	8
 #endif
 
-#endif 
+#endif /* __ASM_SH_PAGE_H */

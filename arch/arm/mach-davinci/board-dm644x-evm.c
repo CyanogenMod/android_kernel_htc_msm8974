@@ -46,28 +46,28 @@
 #define LXT971_PHY_MASK	(0xfffffff0)
 
 static struct mtd_partition davinci_evm_norflash_partitions[] = {
-	
+	/* bootloader (UBL, U-Boot, etc) in first 5 sectors */
 	{
 		.name		= "bootloader",
 		.offset		= 0,
 		.size		= 5 * SZ_64K,
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	},
-	
+	/* bootloader params in the next 1 sectors */
 	{
 		.name		= "params",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_64K,
 		.mask_flags	= 0,
 	},
-	
+	/* kernel */
 	{
 		.name		= "kernel",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_2M,
 		.mask_flags	= 0
 	},
-	
+	/* file system */
 	{
 		.name		= "filesystem",
 		.offset		= MTDPART_OFS_APPEND,
@@ -82,6 +82,8 @@ static struct physmap_flash_data davinci_evm_norflash_data = {
 	.nr_parts	= ARRAY_SIZE(davinci_evm_norflash_partitions),
 };
 
+/* NOTE: CFI probe will correctly detect flash part as 32M, but EMIF
+ * limits addresses to 16M, so using addresses past 16M will wrap */
 static struct resource davinci_evm_norflash_resource = {
 	.start		= DM644X_ASYNC_EMIF_DATA_CE0_BASE,
 	.end		= DM644X_ASYNC_EMIF_DATA_CE0_BASE + SZ_16M - 1,
@@ -98,27 +100,42 @@ static struct platform_device davinci_evm_norflash_device = {
 	.resource	= &davinci_evm_norflash_resource,
 };
 
+/* DM644x EVM includes a 64 MByte small-page NAND flash (16K blocks).
+ * It may used instead of the (default) NOR chip to boot, using TI's
+ * tools to install the secondary boot loader (UBL) and U-Boot.
+ */
 static struct mtd_partition davinci_evm_nandflash_partition[] = {
+	/* Bootloader layout depends on whose u-boot is installed, but we
+	 * can hide all the details.
+	 *  - block 0 for u-boot environment ... in mainline u-boot
+	 *  - block 1 for UBL (plus up to four backup copies in blocks 2..5)
+	 *  - blocks 6...? for u-boot
+	 *  - blocks 16..23 for u-boot environment ... in TI's u-boot
+	 */
 	{
 		.name		= "bootloader",
 		.offset		= 0,
 		.size		= SZ_256K + SZ_128K,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
-	
+	/* Kernel */
 	{
 		.name		= "kernel",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_4M,
 		.mask_flags	= 0,
 	},
-	
+	/* File system (older GIT kernels started this on the 5MB mark) */
 	{
 		.name		= "filesystem",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= MTDPART_SIZ_FULL,
 		.mask_flags	= 0,
 	}
+	/* A few blocks at end hold a flash BBT ... created by TI's CCS
+	 * using flashwriter_nand.out, but ignored by TI's versions of
+	 * Linux and u-boot.  We boot faster by using them.
+	 */
 };
 
 static struct davinci_aemif_timing davinci_evm_nandflash_timing = {
@@ -180,6 +197,7 @@ static struct tvp514x_platform_data dm644xevm_tvp5146_pdata = {
 };
 
 #define TVP514X_STD_ALL	(V4L2_STD_NTSC | V4L2_STD_PAL)
+/* Inputs available at the TVP5146 */
 static struct v4l2_input dm644xevm_tvp5146_inputs[] = {
 	{
 		.index = 0,
@@ -195,6 +213,11 @@ static struct v4l2_input dm644xevm_tvp5146_inputs[] = {
 	},
 };
 
+/*
+ * this is the route info for connecting each input to decoder
+ * ouput that goes to vpfe. There is a one to one correspondence
+ * with tvp5146_inputs
+ */
 static struct vpfe_route dm644xevm_tvp5146_routes[] = {
 	{
 		.input = INPUT_CVBS_VI2B,
@@ -241,11 +264,16 @@ static struct platform_device rtc_dev = {
 
 static struct snd_platform_data dm644x_evm_snd_data;
 
+/*----------------------------------------------------------------------*/
 
+/*
+ * I2C GPIO expanders
+ */
 
 #define PCF_Uxx_BASE(x)	(DAVINCI_N_GPIO + ((x) * 8))
 
 
+/* U2 -- LEDs */
 
 static struct gpio_led evm_leds[] = {
 	{ .name = "DS8", .active_low = 1,
@@ -279,6 +307,9 @@ evm_led_setup(struct i2c_client *client, int gpio, unsigned ngpio, void *c)
 		leds++;
 	}
 
+	/* what an extremely annoying way to be forced to handle
+	 * device unregistration ...
+	 */
 	evm_led_dev = platform_device_alloc("leds-gpio", 0);
 	platform_device_add_data(evm_led_dev,
 			&evm_led_data, sizeof evm_led_data);
@@ -309,6 +340,7 @@ static struct pcf857x_platform_data pcf_data_u2 = {
 };
 
 
+/* U18 - A/V clock generator and user switch */
 
 static int sw_gpio;
 
@@ -328,7 +360,7 @@ evm_u18_setup(struct i2c_client *client, int gpio, unsigned ngpio, void *c)
 {
 	int	status;
 
-	
+	/* export dip switch option */
 	sw_gpio = gpio + 7;
 	status = gpio_request(sw_gpio, "user_sw");
 	if (status == 0)
@@ -340,7 +372,7 @@ evm_u18_setup(struct i2c_client *client, int gpio, unsigned ngpio, void *c)
 	if (status != 0)
 		sw_gpio = -EINVAL;
 
-	
+	/* audio PLL:  48 kHz (vs 44.1 or 32), single rate (vs double) */
 	gpio_request(gpio + 3, "pll_fs2");
 	gpio_direction_output(gpio + 3, 0);
 
@@ -375,37 +407,38 @@ static struct pcf857x_platform_data pcf_data_u18 = {
 };
 
 
+/* U35 - various I/O signals used to manage USB, CF, ATA, etc */
 
 static int
 evm_u35_setup(struct i2c_client *client, int gpio, unsigned ngpio, void *c)
 {
-	
+	/* p0 = nDRV_VBUS (initial:  don't supply it) */
 	gpio_request(gpio + 0, "nDRV_VBUS");
 	gpio_direction_output(gpio + 0, 1);
 
-	
+	/* p1 = VDDIMX_EN */
 	gpio_request(gpio + 1, "VDDIMX_EN");
 	gpio_direction_output(gpio + 1, 1);
 
-	
+	/* p2 = VLYNQ_EN */
 	gpio_request(gpio + 2, "VLYNQ_EN");
 	gpio_direction_output(gpio + 2, 1);
 
-	
+	/* p3 = n3V3_CF_RESET (initial: stay in reset) */
 	gpio_request(gpio + 3, "nCF_RESET");
 	gpio_direction_output(gpio + 3, 0);
 
-	
+	/* (p4 unused) */
 
-	
+	/* p5 = 1V8_WLAN_RESET (initial: stay in reset) */
 	gpio_request(gpio + 5, "WLAN_RESET");
 	gpio_direction_output(gpio + 5, 1);
 
-	
+	/* p6 = nATA_SEL (initial: select) */
 	gpio_request(gpio + 6, "nATA_SEL");
 	gpio_direction_output(gpio + 6, 0);
 
-	
+	/* p7 = nCF_SEL (initial: deselect) */
 	gpio_request(gpio + 7, "nCF_SEL");
 	gpio_direction_output(gpio + 7, 1);
 
@@ -431,7 +464,13 @@ static struct pcf857x_platform_data pcf_data_u35 = {
 	.teardown	= evm_u35_teardown,
 };
 
+/*----------------------------------------------------------------------*/
 
+/* Most of this EEPROM is unused, but U-Boot uses some data:
+ *  - 0x7f00, 6 bytes Ethernet Address
+ *  - 0x0039, 1 byte NTSC vs PAL (bit 0x80 == PAL)
+ *  - ... newer boards may have more
+ */
 
 static struct at24_platform_data eeprom_info = {
 	.byte_len	= (256*1024) / 8,
@@ -441,6 +480,11 @@ static struct at24_platform_data eeprom_info = {
 	.context	= (void *)0x7f00,
 };
 
+/*
+ * MSP430 supports RTC, card detection, input from IR remote, and
+ * a bit more.  It triggers interrupts on GPIO(7) from pressing
+ * buttons on the IR remote, and for card detect switches.
+ */
 static struct i2c_client *dm6446evm_msp;
 
 static int dm6446evm_msp_probe(struct i2c_client *client,
@@ -458,7 +502,7 @@ static int dm6446evm_msp_remove(struct i2c_client *client)
 
 static const struct i2c_device_id dm6446evm_msp_ids[] = {
 	{ "dm6446evm_msp", 0, },
-	{  },
+	{ /* end of list */ },
 };
 
 static struct i2c_driver dm6446evm_msp_driver = {
@@ -491,6 +535,10 @@ static int dm6444evm_msp430_get_pins(void)
 	if (!dm6446evm_msp)
 		return -ENXIO;
 
+	/* Command 4 == get input state, returns port 2 and port3 data
+	 *   S Addr W [A] len=2 [A] cmd=4 [A]
+	 *   RS Addr R [A] [len=4] A [cmd=4] A [port2] A [port3] N P
+	 */
 	status = i2c_transfer(dm6446evm_msp->adapter, msg, 2);
 	if (status < 0)
 		return status;
@@ -548,9 +596,12 @@ static struct i2c_board_info __initdata i2c_info[] =  {
 	},
 };
 
+/* The msp430 uses a slow bitbanged I2C implementation (ergo 20 KHz),
+ * which requires 100 usec of idle bus after i2c writes sent to it.
+ */
 static struct davinci_i2c_platform_data i2c_pdata = {
-	.bus_freq	= 20 ,
-	.bus_delay	= 100 ,
+	.bus_freq	= 20 /* kHz */,
+	.bus_delay	= 100 /* usec */,
 	.sda_pin        = 44,
 	.scl_pin        = 43,
 };
@@ -564,6 +615,7 @@ static void __init evm_init_i2c(void)
 
 #define VENC_STD_ALL	(V4L2_STD_NTSC | V4L2_STD_PAL)
 
+/* venc standard timings */
 static struct vpbe_enc_mode_info dm644xevm_enc_std_timing[] = {
 	{
 		.name		= "ntsc",
@@ -591,6 +643,7 @@ static struct vpbe_enc_mode_info dm644xevm_enc_std_timing[] = {
 	},
 };
 
+/* venc dv preset timings */
 static struct vpbe_enc_mode_info dm644xevm_enc_preset_timing[] = {
 	{
 		.name		= "480p59_94",
@@ -618,6 +671,14 @@ static struct vpbe_enc_mode_info dm644xevm_enc_preset_timing[] = {
 	},
 };
 
+/*
+ * The outputs available from VPBE + encoders. Keep the order same
+ * as that of encoders. First those from venc followed by that from
+ * encoders. Index in the output refers to index on a particular encoder.
+ * Driver uses this index to pass it to encoder when it supports more
+ * than one output. Userspace applications use index of the array to
+ * set an output.
+ */
 static struct vpbe_output dm644xevm_vpbe_outputs[] = {
 	{
 		.output		= {
@@ -677,6 +738,11 @@ davinci_evm_map_io(void)
 static int davinci_phy_fixup(struct phy_device *phydev)
 {
 	unsigned int control;
+	/* CRITICAL: Fix for increasing PHY signal drive strength for
+	 * TX lockup issue. On DaVinci EVM, the Intel LXT971 PHY
+	 * signal strength was low causing  TX to fail randomly. The
+	 * fix is to Set bit 11 (Increased MII drive strength) of PHY
+	 * register 26 (Digital Config register) on this phy. */
 	control = phy_read(phydev, 26);
 	phy_write(phydev, 26, (control | 0x800));
 	return 0;
@@ -721,7 +787,7 @@ static __init void davinci_evm_init(void)
 		davinci_cfg_reg(DM644X_HPIEN_DISABLE);
 		davinci_cfg_reg(DM644X_ATAEN_DISABLE);
 
-		
+		/* only one device will be jumpered and detected */
 		if (HAS_NAND) {
 			platform_device_register(&davinci_evm_nandflash_device);
 			evm_leds[7].default_trigger = "nand-disk";
@@ -742,18 +808,18 @@ static __init void davinci_evm_init(void)
 	davinci_serial_init(&uart_config);
 	dm644x_init_asp(&dm644x_evm_snd_data);
 
-	
+	/* irlml6401 switches over 1A, in under 8 msec */
 	davinci_setup_usb(1000, 8);
 
 	soc_info->emac_pdata->phy_id = DM644X_EVM_PHY_ID;
-	
+	/* Register the fixup for PHY on DaVinci */
 	phy_register_fixup_for_uid(LXT971_PHY_ID, LXT971_PHY_MASK,
 					davinci_phy_fixup);
 
 }
 
 MACHINE_START(DAVINCI_EVM, "DaVinci DM644x EVM")
-	
+	/* Maintainer: MontaVista Software <source@mvista.com> */
 	.atag_offset  = 0x100,
 	.map_io	      = davinci_evm_map_io,
 	.init_irq     = davinci_irq_init,

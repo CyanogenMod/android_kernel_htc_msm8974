@@ -21,8 +21,9 @@
 #ifndef IVTV_YUV_H
 #define IVTV_YUV_H
 
-#define IVTV_YUV_BUFFER_UV_OFFSET 0x65400	
+#define IVTV_YUV_BUFFER_UV_OFFSET 0x65400	/* Offset to UV Buffer */
 
+/* Offset to filter table in firmware */
 #define IVTV_YUV_HORIZONTAL_FILTER_OFFSET 0x025d8
 #define IVTV_YUV_VERTICAL_FILTER_OFFSET 0x03358
 

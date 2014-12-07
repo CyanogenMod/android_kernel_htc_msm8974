@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/* Sensor : OV9655 */
 
 #include "gl860.h"
 
@@ -147,6 +148,7 @@ static int  ov9655_init_pre_alt(struct gspca_dev *gspca_dev);
 static int  ov9655_init_post_alt(struct gspca_dev *gspca_dev);
 static void ov9655_post_unset_alt(struct gspca_dev *gspca_dev);
 static int  ov9655_camera_settings(struct gspca_dev *gspca_dev);
+/*==========================================================================*/
 
 void ov9655_init_settings(struct gspca_dev *gspca_dev)
 {
@@ -180,12 +182,14 @@ void ov9655_init_settings(struct gspca_dev *gspca_dev)
 	sd->dev_post_unset_alt  = ov9655_post_unset_alt;
 }
 
+/*==========================================================================*/
 
 static int ov9655_init_at_startup(struct gspca_dev *gspca_dev)
 {
 	fetch_validx(gspca_dev, tbl_init_at_startup,
 			ARRAY_SIZE(tbl_init_at_startup));
 	fetch_validx(gspca_dev, tbl_commmon, ARRAY_SIZE(tbl_commmon));
+/*	ctrl_out(gspca_dev, 0x40, 11, 0x0000, 0x0000, 0, NULL);*/
 
 	return 0;
 }
@@ -207,7 +211,7 @@ static int ov9655_init_pre_alt(struct gspca_dev *gspca_dev)
 static int ov9655_init_post_alt(struct gspca_dev *gspca_dev)
 {
 	s32 reso = gspca_dev->cam.cam_mode[(s32) gspca_dev->curr_mode].priv;
-	s32 n; 
+	s32 n; /* reserved for FETCH functions */
 	s32 i;
 	u8 **tbl;
 

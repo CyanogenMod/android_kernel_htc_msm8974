@@ -11,6 +11,10 @@
  * any later version.
  */
 
+/*
+ * Roccat Isku is a gamer keyboard with macro keys that can be configured in
+ * 5 profiles.
+ */
 
 #include <linux/device.h>
 #include <linux/input.h>
@@ -54,7 +58,7 @@ static int isku_receive_control_status(struct usb_device *usb_dev)
 		case ISKU_CONTROL_VALUE_STATUS_WAIT:
 			continue;
 		case ISKU_CONTROL_VALUE_STATUS_INVALID:
-		
+		/* seems to be critical - replug necessary */
 		case ISKU_CONTROL_VALUE_STATUS_OVERLOAD:
 			return -EINVAL;
 		default:

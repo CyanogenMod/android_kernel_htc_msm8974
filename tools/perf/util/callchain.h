@@ -24,8 +24,8 @@ struct callchain_node {
 	struct list_head	siblings;
 	struct list_head	children;
 	struct list_head	val;
-	struct rb_node		rb_node; 
-	struct rb_root		rb_root; 
+	struct rb_node		rb_node; /* to sort nodes in an rbtree */
+	struct rb_root		rb_root; /* sorted tree of children */
 	unsigned int		val_nr;
 	u64			hit;
 	u64			children_hit;
@@ -55,6 +55,12 @@ struct callchain_list {
 	struct list_head	list;
 };
 
+/*
+ * A callchain cursor is a single linked list that
+ * let one feed a callchain progressively.
+ * It keeps persitent allocated entries to minimize
+ * allocations.
+ */
 struct callchain_cursor_node {
 	u64				ip;
 	struct map			*map;
@@ -100,6 +106,10 @@ union perf_event;
 
 bool ip_callchain__valid(struct ip_callchain *chain,
 			 const union perf_event *event);
+/*
+ * Initialize a cursor before adding entries inside, but keep
+ * the previously allocated entries as a cache.
+ */
 static inline void callchain_cursor_reset(struct callchain_cursor *cursor)
 {
 	cursor->nr = 0;
@@ -109,12 +119,14 @@ static inline void callchain_cursor_reset(struct callchain_cursor *cursor)
 int callchain_cursor_append(struct callchain_cursor *cursor, u64 ip,
 			    struct map *map, struct symbol *sym);
 
+/* Close a cursor writing session. Initialize for the reader */
 static inline void callchain_cursor_commit(struct callchain_cursor *cursor)
 {
 	cursor->curr = cursor->first;
 	cursor->pos = 0;
 }
 
+/* Cursor reading iteration helpers */
 static inline struct callchain_cursor_node *
 callchain_cursor_current(struct callchain_cursor *cursor)
 {
@@ -129,4 +141,4 @@ static inline void callchain_cursor_advance(struct callchain_cursor *cursor)
 	cursor->curr = cursor->curr->next;
 	cursor->pos++;
 }
-#endif	
+#endif	/* __PERF_CALLCHAIN_H */

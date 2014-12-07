@@ -20,6 +20,7 @@
 #include "prcm_mpu44xx.h"
 #include "cm-regbits-44xx.h"
 
+/* PRCM_MPU low-level functions */
 
 u32 omap4_prcm_mpu_read_inst_reg(s16 inst, u16 reg)
 {

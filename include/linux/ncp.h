@@ -63,12 +63,14 @@ struct ncp_volume_info {
 
 #define NCP_FILE_ID_LEN 6
 
+/* Defines for Name Spaces */
 #define NW_NS_DOS     0
 #define NW_NS_MAC     1
 #define NW_NS_NFS     2
 #define NW_NS_FTAM    3
 #define NW_NS_OS2     4
 
+/*  Defines for ReturnInformationMask */
 #define RIM_NAME	      (cpu_to_le32(1))
 #define RIM_SPACE_ALLOCATED   (cpu_to_le32(2))
 #define RIM_ATTRIBUTES	      (cpu_to_le32(4))
@@ -84,6 +86,7 @@ struct ncp_volume_info {
 #define RIM_ALL 	      (cpu_to_le32(0xFFF))
 #define RIM_COMPRESSED_INFO   (cpu_to_le32(0x80000000))
 
+/* Defines for NSInfoBitMask */
 #define NSIBM_NFS_NAME		0x0001
 #define NSIBM_NFS_MODE		0x0002
 #define NSIBM_NFS_GID		0x0004
@@ -95,17 +98,20 @@ struct ncp_volume_info {
 #define NSIBM_NFS_ACSFLAG	0x0100
 #define NSIBM_NFS_MYFLAG	0x0200
 
+/* open/create modes */
 #define OC_MODE_OPEN	  0x01
 #define OC_MODE_TRUNCATE  0x02
 #define OC_MODE_REPLACE   0x02
 #define OC_MODE_CREATE	  0x08
 
+/* open/create results */
 #define OC_ACTION_NONE	   0x00
 #define OC_ACTION_OPEN	   0x01
 #define OC_ACTION_CREATE   0x02
 #define OC_ACTION_TRUNCATE 0x04
 #define OC_ACTION_REPLACE  0x04
 
+/* access rights attributes */
 #ifndef AR_READ_ONLY
 #define AR_READ_ONLY	   0x0001
 #define AR_WRITE_ONLY	   0x0002
@@ -148,12 +154,13 @@ struct nw_info_struct {
 	__u32 NSCreator;
 	__u8 nameLen;
 	__u8 entryName[256];
-	
+	/* libncp may depend on there being nothing after entryName */
 #ifdef __KERNEL__
 	struct nw_nfs_info nfs;
 #endif
 } __attribute__((packed));
 
+/* modify mask - use with MODIFY_DOS_INFO structure */
 #define DM_ATTRIBUTES		  (cpu_to_le32(0x02))
 #define DM_CREATE_DATE		  (cpu_to_le32(0x04))
 #define DM_CREATE_TIME		  (cpu_to_le32(0x08))
@@ -191,4 +198,4 @@ struct nw_search_sequence {
 	__u32 sequence;
 } __attribute__((packed));
 
-#endif				
+#endif				/* _LINUX_NCP_H */

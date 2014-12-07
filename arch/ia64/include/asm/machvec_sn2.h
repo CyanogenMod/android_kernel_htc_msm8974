@@ -64,6 +64,13 @@ extern ia64_mv_teardown_msi_irq_t	sn_teardown_msi_irq;
 extern ia64_mv_pci_fixup_bus_t		sn_pci_fixup_bus;
 
 
+/*
+ * This stuff has dual use!
+ *
+ * For a generic kernel, the macros are used to initialize the
+ * platform's machvec structure.  When compiling a non-generic kernel,
+ * the macros are used directly.
+ */
 #define platform_name			"sn2"
 #define platform_setup			sn_setup
 #define platform_cpu_init		sn_cpu_init
@@ -108,4 +115,4 @@ extern ia64_mv_pci_fixup_bus_t		sn_pci_fixup_bus;
 
 #include <asm/sn/io.h>
 
-#endif 
+#endif /* _ASM_IA64_MACHVEC_SN2_H */

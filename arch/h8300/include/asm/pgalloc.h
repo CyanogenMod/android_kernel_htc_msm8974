@@ -5,4 +5,4 @@
 
 #define check_pgt_cache()	do { } while (0)
 
-#endif 
+#endif /* _H8300_PGALLOC_H */

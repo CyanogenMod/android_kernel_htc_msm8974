@@ -11,6 +11,12 @@
  *  more details.
  */
 
+/*
+ * TODO:
+ *
+ * Switch to grant tables when they become capable of dealing with the
+ * frame buffer.
+ */
 
 #include <linux/console.h>
 #include <linux/kernel.h>
@@ -33,16 +39,17 @@
 struct xenfb_info {
 	unsigned char		*fb;
 	struct fb_info		*fb_info;
-	int			x1, y1, x2, y2;	
+	int			x1, y1, x2, y2;	/* dirty rectangle,
+						   protected by dirty_lock */
 	spinlock_t		dirty_lock;
 	int			nr_pages;
 	int			irq;
 	struct xenfb_page	*page;
 	unsigned long 		*mfns;
-	int			update_wanted; 
-	int			feature_resize; 
-	struct xenfb_resize	resize;		
-	int			resize_dpy;	
+	int			update_wanted; /* XENFB_TYPE_UPDATE wanted */
+	int			feature_resize; /* XENFB_TYPE_RESIZE ok */
+	struct xenfb_resize	resize;		/* protected by resize_lock */
+	int			resize_dpy;	/* ditto */
 	spinlock_t		resize_lock;
 
 	struct xenbus_device	*xbdev;
@@ -68,10 +75,10 @@ static void xenfb_send_event(struct xenfb_info *info,
 	u32 prod;
 
 	prod = info->page->out_prod;
-	
-	mb();			
+	/* caller ensures !xenfb_queue_full() */
+	mb();			/* ensure ring space available */
 	XENFB_OUT_RING_REF(info->page, prod) = *event;
-	wmb();			
+	wmb();			/* ensure ring contents visible */
 	info->page->out_prod = prod + 1;
 
 	notify_remote_via_irq(info->irq);
@@ -89,7 +96,7 @@ static void xenfb_do_update(struct xenfb_info *info,
 	event.update.width = w;
 	event.update.height = h;
 
-	
+	/* caller ensures !xenfb_queue_full() */
 	xenfb_send_event(info, &event);
 }
 
@@ -100,7 +107,7 @@ static void xenfb_do_resize(struct xenfb_info *info)
 	memset(&event, 0, sizeof(event));
 	event.resize = info->resize;
 
-	
+	/* caller ensures !xenfb_queue_full() */
 	xenfb_send_event(info, &event);
 }
 
@@ -141,7 +148,7 @@ static void xenfb_refresh(struct xenfb_info *info,
 
 	spin_lock_irqsave(&info->dirty_lock, flags);
 
-	
+	/* Combine with dirty rectangle: */
 	if (info->y1 < y1)
 		y1 = info->y1;
 	if (info->y2 > y2)
@@ -152,7 +159,7 @@ static void xenfb_refresh(struct xenfb_info *info,
 		x2 = info->x2;
 
 	if (xenfb_queue_full(info)) {
-		
+		/* Can't send right now, stash it in the dirty rectangle */
 		info->x1 = x1;
 		info->x2 = x2;
 		info->y1 = y1;
@@ -161,7 +168,7 @@ static void xenfb_refresh(struct xenfb_info *info,
 		return;
 	}
 
-	
+	/* Clear dirty rectangle: */
 	info->x1 = info->y1 = INT_MAX;
 	info->x2 = info->y2 = 0;
 
@@ -284,7 +291,7 @@ xenfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 	}
 
-	
+	/* Can't resize past initial width and height */
 	if (var->xres > video[KPARAM_WIDTH] || var->yres > video[KPARAM_HEIGHT])
 		return -EINVAL;
 
@@ -332,6 +339,11 @@ static struct fb_ops xenfb_fb_ops = {
 
 static irqreturn_t xenfb_event_handler(int rq, void *dev_id)
 {
+	/*
+	 * No in events recognized, simply ignore them all.
+	 * If you need to recognize some, see xen-kbdfront's
+	 * input_handler() for how to do that.
+	 */
 	struct xenfb_info *info = dev_id;
 	struct xenfb_page *page = info->page;
 
@@ -340,7 +352,7 @@ static irqreturn_t xenfb_event_handler(int rq, void *dev_id)
 		notify_remote_via_irq(info->irq);
 	}
 
-	
+	/* Flush dirty rectangle: */
 	xenfb_refresh(info, INT_MAX, INT_MAX, -INT_MAX, -INT_MAX);
 
 	return IRQ_HANDLED;
@@ -361,13 +373,13 @@ static int __devinit xenfb_probe(struct xenbus_device *dev,
 		return -ENOMEM;
 	}
 
-	
+	/* Limit kernel param videoram amount to what is in xenstore */
 	if (xenbus_scanf(XBT_NIL, dev->otherend, "videoram", "%d", &val) == 1) {
 		if (val < video[KPARAM_MEM])
 			video[KPARAM_MEM] = val;
 	}
 
-	
+	/* If requested res does not fit in available memory, use default */
 	fb_size = video[KPARAM_MEM] * 1024 * 1024;
 	if (video[KPARAM_WIDTH] * video[KPARAM_HEIGHT] * XENFB_DEPTH / 8
 	    > fb_size) {
@@ -393,17 +405,17 @@ static int __devinit xenfb_probe(struct xenbus_device *dev,
 	if (!info->mfns)
 		goto error_nomem;
 
-	
+	/* set up shared page */
 	info->page = (void *)__get_free_page(GFP_KERNEL | __GFP_ZERO);
 	if (!info->page)
 		goto error_nomem;
 
-	
+	/* abusing framebuffer_alloc() to allocate pseudo_palette */
 	fb_info = framebuffer_alloc(sizeof(u32) * 256, NULL);
 	if (fb_info == NULL)
 		goto error_nomem;
 
-	
+	/* complete the abuse: */
 	fb_info->pseudo_palette = fb_info->par;
 	fb_info->par = info;
 
@@ -492,7 +504,7 @@ xenfb_make_preferred_console(void)
 	if (c) {
 		unregister_console(c);
 		c->flags |= CON_CONSDEV;
-		c->flags &= ~CON_PRINTBUFFER; 
+		c->flags &= ~CON_PRINTBUFFER; /* don't print again */
 		register_console(c);
 	}
 }
@@ -610,7 +622,7 @@ static int xenfb_connect_backend(struct xenbus_device *dev,
 
 static void xenfb_disconnect_backend(struct xenfb_info *info)
 {
-	
+	/* Prevent xenfb refresh */
 	info->update_wanted = 0;
 	if (info->irq >= 0)
 		unbind_from_irqhandler(info->irq, info);
@@ -638,8 +650,13 @@ InitWait:
 		break;
 
 	case XenbusStateConnected:
+		/*
+		 * Work around xenbus race condition: If backend goes
+		 * through InitWait to Connected fast enough, we can
+		 * get Connected twice here.
+		 */
 		if (dev->state != XenbusStateConnected)
-			goto InitWait; 
+			goto InitWait; /* no InitWait seen yet, fudge it */
 
 		if (xenbus_scanf(XBT_NIL, info->xbdev->otherend,
 				 "request-update", "%d", &val) < 0)
@@ -676,7 +693,7 @@ static int __init xenfb_init(void)
 	if (!xen_pv_domain())
 		return -ENODEV;
 
-	
+	/* Nothing to do if running in dom0. */
 	if (xen_initial_domain())
 		return -ENODEV;
 

@@ -1,3 +1,38 @@
+/* -*-linux-c-*-
+
+ * vendor-specific code for SCSI CD-ROM's goes here.
+ *
+ * This is needed becauce most of the new features (multisession and
+ * the like) are too new to be included into the SCSI-II standard (to
+ * be exact: there is'nt anything in my draft copy).
+ *
+ * Aug 1997: Ha! Got a SCSI-3 cdrom spec across my fingers. SCSI-3 does
+ *           multisession using the READ TOC command (like SONY).
+ *
+ *           Rearranged stuff here: SCSI-3 is included allways, support
+ *           for NEC/TOSHIBA/HP commands is optional.
+ *
+ *   Gerd Knorr <kraxel@cs.tu-berlin.de> 
+ *
+ * --------------------------------------------------------------------------
+ *
+ * support for XA/multisession-CD's
+ * 
+ *   - NEC:     Detection and support of multisession CD's.
+ *     
+ *   - TOSHIBA: Detection and support of multisession CD's.
+ *              Some XA-Sector tweaking, required for older drives.
+ *
+ *   - SONY:    Detection and support of multisession CD's.
+ *              added by Thomas Quinot <thomas@cuivre.freenix.fr>
+ *
+ *   - PIONEER, HITACHI, PLEXTOR, MATSHITA, TEAC, PHILIPS: known to
+ *              work with SONY (SCSI3 now)  code.
+ *
+ *   - HP:      Much like SONY, but a little different... (Thomas)
+ *              HP-Writers only ??? Maybe other CD-Writers work with this too ?
+ *              HP 6020 writers now supported.
+ */
 
 #include <linux/cdrom.h>
 #include <linux/errno.h>
@@ -18,12 +53,13 @@
 #define DEBUG
 #endif
 
+/* here are some constants to sort the vendors into groups */
 
-#define VENDOR_SCSI3           1	
+#define VENDOR_SCSI3           1	/* default: scsi-3 mmc */
 
 #define VENDOR_NEC             2
 #define VENDOR_TOSHIBA         3
-#define VENDOR_WRITER          4	
+#define VENDOR_WRITER          4	/* pre-scsi3 writers */
 
 #define VENDOR_TIMEOUT	30*HZ
 
@@ -35,10 +71,10 @@ void sr_vendor_init(Scsi_CD *cd)
 	const char *vendor = cd->device->vendor;
 	const char *model = cd->device->model;
 	
-	
+	/* default */
 	cd->vendor = VENDOR_SCSI3;
 	if (cd->readcd_known)
-		
+		/* this is true for scsi3/mmc drives - no more checks */
 		return;
 
 	if (cd->device->type == TYPE_WORM) {
@@ -51,10 +87,12 @@ void sr_vendor_init(Scsi_CD *cd)
 		    !strncmp(model, "CD-ROM DRIVE:83", 15) ||
 		    !strncmp(model, "CD-ROM DRIVE:84 ", 16)
 #if 0
+		/* my NEC 3x returns the read-raw data if a read-raw
+		   is followed by a read for the same sector - aeb */
 		    || !strncmp(model, "CD-ROM DRIVE:500", 16)
 #endif
 		    )
-			
+			/* these can't handle multisession, may hang */
 			cd->cdi.mask |= CDC_MULTI_SESSION;
 
 	} else if (!strncmp(vendor, "TOSHIBA", 7)) {
@@ -65,10 +103,12 @@ void sr_vendor_init(Scsi_CD *cd)
 }
 
 
+/* small handy function for switching block length using MODE SELECT,
+ * used by sr_read_sector() */
 
 int sr_set_blocklength(Scsi_CD *cd, int blocklength)
 {
-	unsigned char *buffer;	
+	unsigned char *buffer;	/* the buffer for the ioctl */
 	struct packet_command cgc;
 	struct ccs_modesel_head *modesel;
 	int rc, density = 0;
@@ -111,12 +151,14 @@ int sr_set_blocklength(Scsi_CD *cd, int blocklength)
 	return rc;
 }
 
+/* This function gets called after a media change. Checks if the CD is
+   multisession, asks for offset etc. */
 
 int sr_cd_check(struct cdrom_device_info *cdi)
 {
 	Scsi_CD *cd = cdi->handle;
 	unsigned long sector;
-	unsigned char *buffer;	
+	unsigned char *buffer;	/* the buffer for the ioctl */
 	struct packet_command cgc;
 	int rc, no_multi;
 
@@ -127,8 +169,8 @@ int sr_cd_check(struct cdrom_device_info *cdi)
 	if (!buffer)
 		return -ENOMEM;
 
-	sector = 0;		
-	no_multi = 0;		
+	sector = 0;		/* the multisession sector offset goes here  */
+	no_multi = 0;		/* flag: the drive can't handle multisession */
 	rc = 0;
 
 	memset(&cgc, 0, sizeof(struct packet_command));
@@ -156,7 +198,7 @@ int sr_cd_check(struct cdrom_device_info *cdi)
 		sector = buffer[11] + (buffer[10] << 8) +
 		    (buffer[9] << 16) + (buffer[8] << 24);
 		if (buffer[6] <= 1) {
-			
+			/* ignore sector offsets from first track */
 			sector = 0;
 		}
 		break;
@@ -192,6 +234,8 @@ int sr_cd_check(struct cdrom_device_info *cdi)
 	case VENDOR_TOSHIBA:{
 			unsigned long min, sec, frame;
 
+			/* we request some disc information (is it a XA-CD ?,
+			 * where starts the last session ?) */
 			cgc.cmd[0] = 0xc7;
 			cgc.cmd[1] = 0x03;
 			cgc.buffer = buffer;
@@ -237,8 +281,8 @@ int sr_cd_check(struct cdrom_device_info *cdi)
 			       "%s: No finished session\n", cd->cdi.name);
 			break;
 		}
-		cgc.cmd[0] = READ_TOC;	
-		cgc.cmd[6] = rc & 0x7f;	
+		cgc.cmd[0] = READ_TOC;	/* Read TOC */
+		cgc.cmd[6] = rc & 0x7f;	/* number of last session */
 		cgc.cmd[8] = 0x0c;
 		cgc.cmd[9] = 0x40;
 		cgc.buffer = buffer;
@@ -253,10 +297,10 @@ int sr_cd_check(struct cdrom_device_info *cdi)
 		sector = buffer[11] + (buffer[10] << 8) +
 		    (buffer[9] << 16) + (buffer[8] << 24);
 		break;
-#endif				
+#endif				/* CONFIG_BLK_DEV_SR_VENDOR */
 
 	default:
-		
+		/* should not happen */
 		printk(KERN_WARNING
 		   "%s: unknown vendor code (%i), not initialized ?\n",
 		       cd->cdi.name, cd->vendor);

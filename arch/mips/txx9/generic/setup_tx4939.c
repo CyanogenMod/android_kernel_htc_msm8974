@@ -33,13 +33,13 @@
 
 static void __init tx4939_wdr_init(void)
 {
-	
+	/* report watchdog reset status */
 	if (____raw_readq(&tx4939_ccfgptr->ccfg) & TX4939_CCFG_WDRST)
 		pr_warning("Watchdog reset detected at 0x%lx\n",
 			   read_c0_errorepc());
-	
+	/* clear WatchDogReset (W1C) */
 	tx4939_ccfg_set(TX4939_CCFG_WDRST);
-	
+	/* do reset on watchdog */
 	tx4939_ccfg_set(TX4939_CCFG_WR);
 }
 
@@ -54,18 +54,18 @@ static void tx4939_machine_restart(char *command)
 	pr_emerg("Rebooting (with %s watchdog reset)...\n",
 		 (____raw_readq(&tx4939_ccfgptr->ccfg) & TX4939_CCFG_WDREXEN) ?
 		 "external" : "internal");
-	
-	tx4939_ccfg_set(TX4939_CCFG_WDRST);	
+	/* clear watchdog status */
+	tx4939_ccfg_set(TX4939_CCFG_WDRST);	/* W1C */
 	txx9_wdt_now(TX4939_TMR_REG(2) & 0xfffffffffULL);
 	while (!(____raw_readq(&tx4939_ccfgptr->ccfg) & TX4939_CCFG_WDRST))
 		;
 	mdelay(10);
 	if (____raw_readq(&tx4939_ccfgptr->ccfg) & TX4939_CCFG_WDREXEN) {
 		pr_emerg("Rebooting (with internal watchdog reset)...\n");
-		
+		/* External WDRST failed.  Do internal watchdog reset */
 		tx4939_ccfg_clear(TX4939_CCFG_WDREXEN);
 	}
-	
+	/* fallback */
 	(*_machine_halt)();
 }
 
@@ -121,45 +121,45 @@ void __init tx4939_setup(void)
 			  TX4939_REG_SIZE);
 	set_c0_config(TX49_CONF_CWFON);
 
-	
+	/* SDRAMC,EBUSC are configured by PROM */
 	for (i = 0; i < 4; i++) {
 		if (!(TX4939_EBUSC_CR(i) & 0x8))
-			continue;	
+			continue;	/* disabled */
 		txx9_ce_res[i].start = (unsigned long)TX4939_EBUSC_BA(i);
 		txx9_ce_res[i].end =
 			txx9_ce_res[i].start + TX4939_EBUSC_SIZE(i) - 1;
 		request_resource(&iomem_resource, &txx9_ce_res[i]);
 	}
 
-	
+	/* clocks */
 	if (txx9_master_clock) {
-		
+		/* calculate cpu_clock from master_clock */
 		divmode = (__u32)____raw_readq(&tx4939_ccfgptr->ccfg) &
 			TX4939_CCFG_MULCLK_MASK;
 		cpuclk = txx9_master_clock * 20 / 2;
 		switch (divmode) {
 		case TX4939_CCFG_MULCLK_8:
-			cpuclk = cpuclk / 3 * 4 ; break;
+			cpuclk = cpuclk / 3 * 4 /* / 6 *  8 */; break;
 		case TX4939_CCFG_MULCLK_9:
-			cpuclk = cpuclk / 2 * 3 ; break;
+			cpuclk = cpuclk / 2 * 3 /* / 6 *  9 */; break;
 		case TX4939_CCFG_MULCLK_10:
-			cpuclk = cpuclk / 3 * 5 ; break;
+			cpuclk = cpuclk / 3 * 5 /* / 6 * 10 */; break;
 		case TX4939_CCFG_MULCLK_11:
 			cpuclk = cpuclk / 6 * 11; break;
 		case TX4939_CCFG_MULCLK_12:
-			cpuclk = cpuclk * 2 ; break;
+			cpuclk = cpuclk * 2 /* / 6 * 12 */; break;
 		case TX4939_CCFG_MULCLK_13:
 			cpuclk = cpuclk / 6 * 13; break;
 		case TX4939_CCFG_MULCLK_14:
-			cpuclk = cpuclk / 3 * 7 ; break;
+			cpuclk = cpuclk / 3 * 7 /* / 6 * 14 */; break;
 		case TX4939_CCFG_MULCLK_15:
-			cpuclk = cpuclk / 2 * 5 ; break;
+			cpuclk = cpuclk / 2 * 5 /* / 6 * 15 */; break;
 		}
 		txx9_cpu_clock = cpuclk;
 	} else {
 		if (txx9_cpu_clock == 0)
-			txx9_cpu_clock = 400000000;	
-		
+			txx9_cpu_clock = 400000000;	/* 400MHz */
+		/* calculate master_clock from cpu_clock */
 		cpuclk = txx9_cpu_clock;
 		divmode = (__u32)____raw_readq(&tx4939_ccfgptr->ccfg) &
 			TX4939_CCFG_MULCLK_MASK;
@@ -181,9 +181,9 @@ void __init tx4939_setup(void)
 		case TX4939_CCFG_MULCLK_15:
 			txx9_master_clock = cpuclk * 6 / 15; break;
 		}
-		txx9_master_clock /= 10; 
+		txx9_master_clock /= 10; /* * 2 / 20 */
 	}
-	
+	/* calculate gbus_clock from cpu_clock */
 	divmode = (__u32)____raw_readq(&tx4939_ccfgptr->ccfg) &
 		TX4939_CCFG_YDIVMODE_MASK;
 	txx9_gbus_clock = txx9_cpu_clock;
@@ -197,21 +197,21 @@ void __init tx4939_setup(void)
 	case TX4939_CCFG_YDIVMODE_6:
 		txx9_gbus_clock /= 6; break;
 	}
-	
+	/* change default value to udelay/mdelay take reasonable time */
 	loops_per_jiffy = txx9_cpu_clock / HZ / 2;
 
-	
+	/* CCFG */
 	tx4939_wdr_init();
-	
+	/* clear BusErrorOnWrite flag (W1C) */
 	tx4939_ccfg_set(TX4939_CCFG_WDRST | TX4939_CCFG_BEOW);
-	
+	/* enable Timeout BusError */
 	if (txx9_ccfg_toeon)
 		tx4939_ccfg_set(TX4939_CCFG_TOE);
 
-	
+	/* DMA selection */
 	txx9_clear64(&tx4939_ccfgptr->pcfg, TX4939_PCFG_DMASEL_ALL);
 
-	
+	/* Use external clock for external arbiter */
 	if (!(____raw_readq(&tx4939_ccfgptr->ccfg) & TX4939_CCFG_PCIARB))
 		txx9_clear64(&tx4939_ccfgptr->pcfg, TX4939_PCFG_PCICLKEN_ALL);
 
@@ -229,7 +229,7 @@ void __init tx4939_setup(void)
 	for (i = 0; i < 4; i++) {
 		__u64 win = ____raw_readq(&tx4939_ddrcptr->win[i]);
 		if (!((__u32)____raw_readq(&tx4939_ddrcptr->winen) & (1 << i)))
-			continue;	
+			continue;	/* disabled */
 		printk(KERN_CONT " #%d:%016llx", i, (unsigned long long)win);
 		tx4939_sdram_resource[i].name = "DDR SDRAM";
 		tx4939_sdram_resource[i].start =
@@ -242,7 +242,7 @@ void __init tx4939_setup(void)
 	}
 	printk(KERN_CONT "\n");
 
-	
+	/* SRAM */
 	if (____raw_readq(&tx4939_sramcptr->cr) & 1) {
 		unsigned int size = TX4939_SRAM_SIZE;
 		tx4939_sram_resource.name = "SRAM";
@@ -255,21 +255,21 @@ void __init tx4939_setup(void)
 		request_resource(&iomem_resource, &tx4939_sram_resource);
 	}
 
-	
-	
+	/* TMR */
+	/* disable all timers */
 	for (i = 0; i < TX4939_NR_TMR; i++)
 		txx9_tmr_init(TX4939_TMR_REG(i) & 0xfffffffffULL);
 
-	
+	/* set PCIC1 reset (required to prevent hangup on BIST) */
 	txx9_set64(&tx4939_ccfgptr->clkctr, TX4939_CLKCTR_PCI1RST);
 	pcfg = ____raw_readq(&tx4939_ccfgptr->pcfg);
 	if (pcfg & (TX4939_PCFG_ET0MODE | TX4939_PCFG_ET1MODE)) {
-		mdelay(1);	
-		
+		mdelay(1);	/* at least 128 cpu clock */
+		/* clear PCIC1 reset */
 		txx9_clear64(&tx4939_ccfgptr->clkctr, TX4939_CLKCTR_PCI1RST);
 	} else {
 		pr_info("%s: stop PCIC1\n", txx9_pcode_str);
-		
+		/* stop PCIC1 */
 		txx9_set64(&tx4939_ccfgptr->clkctr, TX4939_CLKCTR_PCI1CKD);
 	}
 	if (!(pcfg & TX4939_PCFG_ET0MODE)) {
@@ -301,13 +301,13 @@ void __init tx4939_sio_init(unsigned int sclk, unsigned int cts_mask)
 	unsigned int ch_mask = 0;
 	__u64 pcfg = __raw_readq(&tx4939_ccfgptr->pcfg);
 
-	cts_mask |= ~1;	
+	cts_mask |= ~1;	/* only SIO0 have RTS/CTS */
 	if ((pcfg & TX4939_PCFG_SIO2MODE_MASK) != TX4939_PCFG_SIO2MODE_SIO0)
-		cts_mask |= 1 << 0; 
+		cts_mask |= 1 << 0; /* disable SIO0 RTS/CTS by PCFG setting */
 	if ((pcfg & TX4939_PCFG_SIO2MODE_MASK) != TX4939_PCFG_SIO2MODE_SIO2)
-		ch_mask |= 1 << 2; 
+		ch_mask |= 1 << 2; /* disable SIO2 by PCFG setting */
 	if (pcfg & TX4939_PCFG_SIO3MODE)
-		ch_mask |= 1 << 3; 
+		ch_mask |= 1 << 3; /* disable SIO3 by PCFG setting */
 	for (i = 0; i < 4; i++) {
 		if ((1 << i) & ch_mask)
 			continue;
@@ -322,7 +322,7 @@ static u32 tx4939_get_eth_speed(struct net_device *dev)
 {
 	struct ethtool_cmd cmd;
 	if (__ethtool_get_settings(dev, &cmd))
-		return 100;	
+		return 100;	/* default 100Mbps */
 
 	return ethtool_cmd_speed(&cmd);
 }
@@ -378,7 +378,7 @@ void __init tx4939_mtd_init(int ch)
 	unsigned long size = txx9_ce_res[ch].end - start + 1;
 
 	if (!(TX4939_EBUSC_CR(ch) & 0x8))
-		return;	
+		return;	/* disabled */
 	txx9_physmap_flash_init(ch, start, size, &pdata);
 }
 

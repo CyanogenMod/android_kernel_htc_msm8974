@@ -40,6 +40,15 @@ static int __init ppc44x_device_probe(void)
 }
 machine_device_initcall(ppc44x_simple, ppc44x_device_probe);
 
+/* This is the list of boards that can be supported by this simple
+ * platform code.  This does _not_ mean the boards are compatible,
+ * as they most certainly are not from a device tree perspective.
+ * However, their differences are handled by the device tree and the
+ * drivers and therefore they don't need custom board support files.
+ *
+ * Again, if your board needs to do things differently then create a
+ * board.c file for it rather than adding it to this list.
+ */
 static char *board[] __initdata = {
 	"amcc,arches",
 	"amcc,bamboo",

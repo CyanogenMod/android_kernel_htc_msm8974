@@ -10,15 +10,24 @@
  * the Free Software Foundation.
  */
 
+/*
+ * Names.
+ */
 
 #define I8042_KBD_PHYS_DESC "hpc3ps2/serio0"
 #define I8042_AUX_PHYS_DESC "hpc3ps2/serio1"
 #define I8042_MUX_PHYS_DESC "hpc3ps2/serio%d"
 
+/*
+ * IRQs.
+ */
 
 #define I8042_KBD_IRQ SGI_KEYBD_IRQ
 #define I8042_AUX_IRQ SGI_KEYBD_IRQ
 
+/*
+ * Register numbers.
+ */
 
 #define I8042_COMMAND_REG	((unsigned long)&sgioc->kbdmouse.command)
 #define I8042_STATUS_REG	((unsigned long)&sgioc->kbdmouse.command)
@@ -47,7 +56,7 @@ static inline void i8042_write_command(int val)
 static inline int i8042_platform_init(void)
 {
 #if 0
-	
+	/* XXX sgi_kh is a virtual address */
 	if (!request_mem_region(sgi_kh, sizeof(struct hpc_keyb), "i8042"))
 		return -EBUSY;
 #endif
@@ -64,4 +73,4 @@ static inline void i8042_platform_exit(void)
 #endif
 }
 
-#endif 
+#endif /* _I8042_IP22_H */

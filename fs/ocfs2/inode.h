@@ -28,6 +28,7 @@
 
 #include "extent_map.h"
 
+/* OCFS2 Inode Private Data */
 struct ocfs2_inode_info
 {
 	u64			ip_blkno;
@@ -36,16 +37,16 @@ struct ocfs2_inode_info
 	struct ocfs2_lock_res		ip_inode_lockres;
 	struct ocfs2_lock_res		ip_open_lockres;
 
-	
+	/* protects allocation changes on this inode. */
 	struct rw_semaphore		ip_alloc_sem;
 
-	
+	/* protects extended attribute changes on this inode */
 	struct rw_semaphore		ip_xattr_sem;
 
-	
+	/* Number of outstanding AIO's which are not page aligned */
 	atomic_t			ip_unaligned_aio;
 
-	
+	/* These fields are protected by ip_lock */
 	spinlock_t			ip_lock;
 	u32				ip_open_count;
 	struct list_head		ip_io_markers;
@@ -53,10 +54,10 @@ struct ocfs2_inode_info
 
 	u16				ip_dyn_features;
 	struct mutex			ip_io_mutex;
-	u32				ip_flags; 
-	u32				ip_attr; 
+	u32				ip_flags; /* see below */
+	u32				ip_attr; /* inode attributes */
 
-	
+	/* protected by recovery_lock. */
 	struct inode			*ip_next_orphan;
 
 	struct ocfs2_caching_info	ip_metadata_cache;
@@ -66,7 +67,7 @@ struct ocfs2_inode_info
 
 	u32				ip_dir_start_lookup;
 
-	
+	/* Only valid if the inode is the dir. */
 	u32				ip_last_used_slot;
 	u64				ip_last_used_group;
 	u32				ip_dir_lock_gen;
@@ -74,13 +75,35 @@ struct ocfs2_inode_info
 	struct ocfs2_alloc_reservation	ip_la_data_resv;
 };
 
+/*
+ * Flags for the ip_flags field
+ */
+/* System file inodes  */
 #define OCFS2_INODE_SYSTEM_FILE		0x00000001
 #define OCFS2_INODE_JOURNAL		0x00000002
 #define OCFS2_INODE_BITMAP		0x00000004
+/* This inode has been wiped from disk */
 #define OCFS2_INODE_DELETED		0x00000008
+/* Another node is deleting, so our delete is a nop */
 #define OCFS2_INODE_SKIP_DELETE		0x00000010
+/* Has the inode been orphaned on another node?
+ *
+ * This hints to ocfs2_drop_inode that it should clear i_nlink before
+ * continuing.
+ *
+ * We *only* set this on unlink vote from another node. If the inode
+ * was locally orphaned, then we're sure of the state and don't need
+ * to twiddle i_nlink later - it's either zero or not depending on
+ * whether our unlink succeeded. Otherwise we got this from a node
+ * whose intention was to orphan the inode, however he may have
+ * crashed, failed etc, so we let ocfs2_drop_inode zero the value and
+ * rely on ocfs2_delete_inode to sort things out under the proper
+ * cluster locks.
+ */
 #define OCFS2_INODE_MAYBE_ORPHANED	0x00000020
+/* Does someone have the file open O_DIRECT */
 #define OCFS2_INODE_OPEN_DIRECT		0x00000040
+/* Tell the inode wipe code it's not in orphan dir */
 #define OCFS2_INODE_SKIP_ORPHAN_DIR     0x00000080
 
 static inline struct ocfs2_inode_info *OCFS2_I(struct inode *inode)
@@ -104,6 +127,7 @@ static inline struct ocfs2_caching_info *INODE_CACHE(struct inode *inode)
 void ocfs2_evict_inode(struct inode *inode);
 int ocfs2_drop_inode(struct inode *inode);
 
+/* Flags for ocfs2_iget() */
 #define OCFS2_FI_FLAG_SYSFILE		0x1
 #define OCFS2_FI_FLAG_ORPHAN_RECOVERY	0x2
 struct inode *ocfs2_ilookup(struct super_block *sb, u64 feoff);
@@ -138,9 +162,16 @@ static inline blkcnt_t ocfs2_inode_sector_count(struct inode *inode)
 	return (blkcnt_t)(OCFS2_I(inode)->ip_clusters << c_to_s_bits);
 }
 
+/* Validate that a bh contains a valid inode */
 int ocfs2_validate_inode_block(struct super_block *sb,
 			       struct buffer_head *bh);
+/*
+ * Read an inode block into *bh.  If *bh is NULL, a bh will be allocated.
+ * This is a cached read.  The inode will be validated with
+ * ocfs2_validate_inode_block().
+ */
 int ocfs2_read_inode_block(struct inode *inode, struct buffer_head **bh);
+/* The same, but can be passed OCFS2_BH_* flags */
 int ocfs2_read_inode_block_full(struct inode *inode, struct buffer_head **bh,
 				int flags);
 
@@ -149,4 +180,4 @@ static inline struct ocfs2_inode_info *cache_info_to_inode(struct ocfs2_caching_
 	return container_of(ci, struct ocfs2_inode_info, ip_metadata_cache);
 }
 
-#endif 
+#endif /* OCFS2_INODE_H */

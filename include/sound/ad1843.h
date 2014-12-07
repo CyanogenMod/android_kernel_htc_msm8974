@@ -43,4 +43,4 @@ void ad1843_setup_adc(struct snd_ad1843 *ad1843,
 void ad1843_shutdown_adc(struct snd_ad1843 *ad1843);
 int ad1843_init(struct snd_ad1843 *ad1843);
 
-#endif 
+#endif /* __SOUND_AD1843_H */

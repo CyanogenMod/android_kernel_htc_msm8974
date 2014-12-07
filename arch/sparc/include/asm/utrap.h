@@ -46,6 +46,6 @@
 #ifndef __ASSEMBLY__
 typedef int utrap_entry_t;
 typedef void *utrap_handler_t;
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* !(__ASM_SPARC64_PROCESSOR_H) */

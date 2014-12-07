@@ -20,6 +20,22 @@
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
  */
+/*
+Driver: rti802
+Description: Analog Devices RTI-802
+Author: Anders Blomdell <anders.blomdell@control.lth.se>
+Devices: [Analog Devices] RTI-802 (rti802)
+Status: works
+
+Configuration Options:
+    [0] - i/o base
+    [1] - unused
+    [2] - dac#0  0=two's comp, 1=straight
+    [3] - dac#0  0=bipolar, 1=unipolar
+    [4] - dac#1 ...
+    ...
+    [17] - dac#7 ...
+*/
 
 #include "../comedidev.h"
 
@@ -116,7 +132,7 @@ static int rti802_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s = dev->subdevices;
-	
+	/* ao subdevice */
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->maxdata = 0xfff;

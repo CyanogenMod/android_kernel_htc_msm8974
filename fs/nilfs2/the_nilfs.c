@@ -58,6 +58,13 @@ void nilfs_set_last_segment(struct the_nilfs *nilfs,
 	spin_unlock(&nilfs->ns_last_segment_lock);
 }
 
+/**
+ * alloc_nilfs - allocate a nilfs object
+ * @bdev: block device to which the_nilfs is related
+ *
+ * Return Value: On success, pointer to the_nilfs is returned.
+ * On error, NULL is returned.
+ */
 struct the_nilfs *alloc_nilfs(struct block_device *bdev)
 {
 	struct the_nilfs *nilfs;
@@ -81,6 +88,10 @@ struct the_nilfs *alloc_nilfs(struct block_device *bdev)
 	return nilfs;
 }
 
+/**
+ * destroy_nilfs - destroy nilfs object
+ * @nilfs: nilfs object to be released
+ */
 void destroy_nilfs(struct the_nilfs *nilfs)
 {
 	might_sleep();
@@ -156,6 +167,16 @@ static void nilfs_clear_recovery_info(struct nilfs_recovery_info *ri)
 	nilfs_dispose_segment_list(&ri->ri_used_segments);
 }
 
+/**
+ * nilfs_store_log_cursor - load log cursor from a super block
+ * @nilfs: nilfs object
+ * @sbp: buffer storing super block to be read
+ *
+ * nilfs_store_log_cursor() reads the last position of the log
+ * containing a super root from a given super block, and initializes
+ * relevant information on the nilfs object preparatory for log
+ * scanning and recovery.
+ */
 static int nilfs_store_log_cursor(struct the_nilfs *nilfs,
 				  struct nilfs_super_block *sbp)
 {
@@ -177,6 +198,15 @@ static int nilfs_store_log_cursor(struct the_nilfs *nilfs,
 	return ret;
 }
 
+/**
+ * load_nilfs - load and recover the nilfs
+ * @nilfs: the_nilfs structure to be released
+ * @sb: super block isntance used to recover past segment
+ *
+ * load_nilfs() searches and load the latest super root,
+ * attaches the last segment, and does recovery if needed.
+ * The caller must call this exclusively for simultaneous mounts.
+ */
 int load_nilfs(struct the_nilfs *nilfs, struct super_block *sb)
 {
 	struct nilfs_recovery_info ri;
@@ -214,11 +244,15 @@ int load_nilfs(struct the_nilfs *nilfs, struct super_block *sb)
 		printk(KERN_INFO
 		       "NILFS: try rollback from an earlier position\n");
 
+		/*
+		 * restore super block with its spare and reconfigure
+		 * relevant states of the nilfs object.
+		 */
 		memcpy(sbp[0], sbp[1], nilfs->ns_sbsize);
 		nilfs->ns_crc_seed = le32_to_cpu(sbp[0]->s_crc_seed);
 		nilfs->ns_sbwtime = le64_to_cpu(sbp[0]->s_wtime);
 
-		
+		/* verify consistency between two super blocks */
 		blocksize = BLOCK_SIZE << le32_to_cpu(sbp[0]->s_log_block_size);
 		if (blocksize != nilfs->ns_blocksize) {
 			printk(KERN_WARNING
@@ -232,7 +266,7 @@ int load_nilfs(struct the_nilfs *nilfs, struct super_block *sb)
 		if (err)
 			goto scan_error;
 
-		
+		/* drop clean flag to allow roll-forward and recovery */
 		nilfs->ns_mount_state &= ~NILFS_VALID_FS;
 		valid_fs = 0;
 
@@ -287,7 +321,7 @@ int load_nilfs(struct the_nilfs *nilfs, struct super_block *sb)
 		goto failed_unload;
 
 	down_write(&nilfs->ns_sem);
-	nilfs->ns_mount_state |= NILFS_VALID_FS; 
+	nilfs->ns_mount_state |= NILFS_VALID_FS; /* set "clean" flag */
 	err = nilfs_cleanup_super(sb);
 	up_write(&nilfs->ns_sem);
 
@@ -321,14 +355,19 @@ int load_nilfs(struct the_nilfs *nilfs, struct super_block *sb)
 static unsigned long long nilfs_max_size(unsigned int blkbits)
 {
 	unsigned int max_bits;
-	unsigned long long res = MAX_LFS_FILESIZE; 
+	unsigned long long res = MAX_LFS_FILESIZE; /* page cache limit */
 
-	max_bits = blkbits + NILFS_BMAP_KEY_BIT; 
+	max_bits = blkbits + NILFS_BMAP_KEY_BIT; /* bmap size limit */
 	if (max_bits < 64)
 		res = min_t(unsigned long long, res, (1ULL << max_bits) - 1);
 	return res;
 }
 
+/**
+ * nilfs_nrsvsegs - calculate the number of reserved segments
+ * @nilfs: nilfs object
+ * @nsegs: total number of segments
+ */
 unsigned long nilfs_nrsvsegs(struct the_nilfs *nilfs, unsigned long nsegs)
 {
 	return max_t(unsigned long, NILFS_MIN_NRSVSEGS,
@@ -468,6 +507,10 @@ static int nilfs_load_super_block(struct the_nilfs *nilfs,
 		       "(blocksize = %d)\n", blocksize);
 	}
 
+	/*
+	 * Compare two super blocks and set 1 in swp if the secondary
+	 * super block is valid and newer.  Otherwise, set 0 in swp.
+	 */
 	valid[0] = nilfs_valid_sb(sbp[0]);
 	valid[1] = nilfs_valid_sb(sbp[1]);
 	swp = valid[1] && (!valid[0] ||
@@ -501,6 +544,19 @@ static int nilfs_load_super_block(struct the_nilfs *nilfs,
 	return 0;
 }
 
+/**
+ * init_nilfs - initialize a NILFS instance.
+ * @nilfs: the_nilfs structure
+ * @sb: super block
+ * @data: mount options
+ *
+ * init_nilfs() performs common initialization per block device (e.g.
+ * reading the super block, getting disk layout information, initializing
+ * shared fields in the_nilfs).
+ *
+ * Return Value: On success, 0 is returned. On error, a negative error
+ * code is returned.
+ */
 int init_nilfs(struct the_nilfs *nilfs, struct super_block *sb, char *data)
 {
 	struct nilfs_super_block *sbp;
@@ -552,6 +608,8 @@ int init_nilfs(struct the_nilfs *nilfs, struct super_block *sb, char *data)
 		err = nilfs_load_super_block(nilfs, sb, blocksize, &sbp);
 		if (err)
 			goto out;
+			/* not failed_sbh; sbh is released automatically
+			   when reloading fails. */
 	}
 	nilfs->ns_blocksize_bits = sb->s_blocksize_bits;
 	nilfs->ns_blocksize = blocksize;

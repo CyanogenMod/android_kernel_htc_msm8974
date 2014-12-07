@@ -32,4 +32,4 @@ int ieee80211_tkip_decrypt_data(struct crypto_cipher *tfm,
 				u8 *ra, int only_iv, int queue,
 				u32 *out_iv32, u16 *out_iv16);
 
-#endif 
+#endif /* TKIP_H */

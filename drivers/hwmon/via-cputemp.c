@@ -43,6 +43,9 @@
 
 enum { SHOW_TEMP, SHOW_LABEL, SHOW_NAME };
 
+/*
+ * Functions declaration
+ */
 
 struct via_cputemp_data {
 	struct device *hwmon_dev;
@@ -53,6 +56,9 @@ struct via_cputemp_data {
 	u32 msr_vid;
 };
 
+/*
+ * Sysfs stuff
+ */
 
 static ssize_t show_name(struct device *dev, struct device_attribute
 			  *devattr, char *buf)
@@ -63,7 +69,7 @@ static ssize_t show_name(struct device *dev, struct device_attribute
 
 	if (attr->index == SHOW_NAME)
 		ret = sprintf(buf, "%s\n", data->name);
-	else	
+	else	/* show label */
 		ret = sprintf(buf, "Core %d\n", data->id);
 	return ret;
 }
@@ -112,6 +118,7 @@ static const struct attribute_group via_cputemp_group = {
 	.attrs = via_cputemp_attributes,
 };
 
+/* Optional attributes */
 static DEVICE_ATTR(cpu0_vid, S_IRUGO, show_cpu_vid, NULL);
 
 static int __devinit via_cputemp_probe(struct platform_device *pdev)
@@ -133,14 +140,14 @@ static int __devinit via_cputemp_probe(struct platform_device *pdev)
 
 	switch (c->x86_model) {
 	case 0xA:
-		
+		/* C7 A */
 	case 0xD:
-		
+		/* C7 D */
 		data->msr_temp = 0x1169;
 		data->msr_vid = 0x198;
 		break;
 	case 0xF:
-		
+		/* Nano */
 		data->msr_temp = 0x1423;
 		break;
 	default:
@@ -148,7 +155,7 @@ static int __devinit via_cputemp_probe(struct platform_device *pdev)
 		goto exit_free;
 	}
 
-	
+	/* test if we can access the TEMPERATURE MSR */
 	err = rdmsr_safe_on_cpu(data->id, data->msr_temp, &eax, &edx);
 	if (err) {
 		dev_err(&pdev->dev,
@@ -303,9 +310,9 @@ static struct notifier_block via_cputemp_cpu_notifier __refdata = {
 };
 
 static const struct x86_cpu_id cputemp_ids[] = {
-	{ X86_VENDOR_CENTAUR, 6, 0xa, }, 
-	{ X86_VENDOR_CENTAUR, 6, 0xd, }, 
-	{ X86_VENDOR_CENTAUR, 6, 0xf, }, 
+	{ X86_VENDOR_CENTAUR, 6, 0xa, }, /* C7 A */
+	{ X86_VENDOR_CENTAUR, 6, 0xd, }, /* C7 D */
+	{ X86_VENDOR_CENTAUR, 6, 0xf, }, /* Nano */
 	{}
 };
 MODULE_DEVICE_TABLE(x86cpu, cputemp_ids);

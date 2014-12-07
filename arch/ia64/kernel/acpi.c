@@ -125,7 +125,7 @@ acpi_get_sysname(void)
 	}
 
 #ifdef CONFIG_INTEL_IOMMU
-	
+	/* Look for Intel IOMMU */
 	nentries = (hdr->length - sizeof(*hdr)) /
 			 sizeof(xsdt->table_offset_entry[0]);
 	for (i = 0; i < nentries; i++) {
@@ -138,22 +138,27 @@ acpi_get_sysname(void)
 
 	return "dig";
 }
-#endif 
+#endif /* CONFIG_IA64_GENERIC */
 
 #define ACPI_MAX_PLATFORM_INTERRUPTS	256
 
+/* Array to record platform interrupt vectors for generic interrupt routing. */
 int platform_intr_list[ACPI_MAX_PLATFORM_INTERRUPTS] = {
 	[0 ... ACPI_MAX_PLATFORM_INTERRUPTS - 1] = -1
 };
 
 enum acpi_irq_model_id acpi_irq_model = ACPI_IRQ_MODEL_IOSAPIC;
 
+/*
+ * Interrupt routing API for device drivers.  Provides interrupt vector for
+ * a generic platform event.  Currently only CPEI is implemented.
+ */
 int acpi_request_vector(u32 int_type)
 {
 	int vector = -1;
 
 	if (int_type < ACPI_MAX_PLATFORM_INTERRUPTS) {
-		
+		/* corrected platform error interrupt */
 		vector = platform_intr_list[int_type];
 	} else
 		printk(KERN_ERR
@@ -170,6 +175,9 @@ void __init __acpi_unmap_table(char *map, unsigned long size)
 {
 }
 
+/* --------------------------------------------------------------------------
+                            Boot-time Table Parsing
+   -------------------------------------------------------------------------- */
 
 static int available_cpus __initdata;
 struct acpi_table_madt *acpi_madt __initdata;
@@ -200,7 +208,7 @@ acpi_parse_lsapic(struct acpi_subtable_header * header, const unsigned long end)
 
 	lsapic = (struct acpi_madt_local_sapic *)header;
 
-	
+	/*Skip BAD_MADT_ENTRY check, as lsapic size could vary */
 
 	if (lsapic->lapic_flags & ACPI_MADT_ENABLED) {
 #ifdef CONFIG_SMP
@@ -224,7 +232,7 @@ acpi_parse_lapic_nmi(struct acpi_subtable_header * header, const unsigned long e
 	if (BAD_MADT_ENTRY(lacpi_nmi, end))
 		return -EINVAL;
 
-	
+	/* TBD: Support lapic_nmi entries */
 	return 0;
 }
 
@@ -255,6 +263,10 @@ acpi_parse_plat_int_src(struct acpi_subtable_header * header,
 	if (BAD_MADT_ENTRY(plintsrc, end))
 		return -EINVAL;
 
+	/*
+	 * Get vector assignment for this interrupt, set attributes,
+	 * and program the IOSAPIC routing table.
+	 */
 	vector = iosapic_register_platform_intr(plintsrc->type,
 						plintsrc->global_irq,
 						plintsrc->io_sapic_vector,
@@ -272,6 +284,9 @@ acpi_parse_plat_int_src(struct acpi_subtable_header * header,
 		acpi_cpei_override = plintsrc->flags & ACPI_MADT_CPEI_OVERRIDE;
 	}
 
+	/*
+	 * Save the physical id, so we can check when its being removed
+	 */
 	acpi_cpei_phys_cpuid = ((plintsrc->id << 8) | (plintsrc->eid)) & 0xffff;
 
 	return 0;
@@ -283,6 +298,11 @@ unsigned int can_cpei_retarget(void)
 	extern int cpe_vector;
 	extern unsigned int force_cpei_retarget;
 
+	/*
+	 * Only if CPEI is supported and the override flag
+	 * is present, otherwise return that its re-targettable
+	 * if we are in polling mode.
+	 */
 	if (cpe_vector > 0) {
 		if (acpi_cpei_override || force_cpei_retarget)
 			return 1;
@@ -346,7 +366,7 @@ acpi_parse_nmi_src(struct acpi_subtable_header * header, const unsigned long end
 	if (BAD_MADT_ENTRY(nmi_src, end))
 		return -EINVAL;
 
-	
+	/* TBD: Support nimsrc entries */
 	return 0;
 }
 
@@ -354,6 +374,11 @@ static void __init acpi_madt_oem_check(char *oem_id, char *oem_table_id)
 {
 	if (!strncmp(oem_id, "IBM", 3) && (!strncmp(oem_table_id, "SERMOW", 6))) {
 
+		/*
+		 * Unfortunately ITC_DRIFT is not yet part of the
+		 * official SAL spec, so the ITC_DRIFT bit is not
+		 * set by the BIOS on this hardware.
+		 */
 		sal_platform_features |= IA64_SAL_PLATFORM_FEATURE_ITC_DRIFT;
 
 		cyclone_setup();
@@ -369,15 +394,15 @@ static int __init acpi_parse_madt(struct acpi_table_header *table)
 
 	acpi_madt_rev = acpi_madt->header.revision;
 
-	
+	/* remember the value for reference after free_initmem() */
 #ifdef CONFIG_ITANIUM
-	has_8259 = 1;		
+	has_8259 = 1;		/* Firmware on old Itanium systems is broken */
 #else
 	has_8259 = acpi_madt->flags & ACPI_MADT_PCAT_COMPAT;
 #endif
 	iosapic_system_init(has_8259);
 
-	
+	/* Get base address of IPI Message Block */
 
 	if (acpi_madt->address)
 		ipi_base_addr = ioremap(acpi_madt->address, 0);
@@ -396,7 +421,7 @@ static int __init acpi_parse_madt(struct acpi_table_header *table)
 
 #define PXM_FLAG_LEN ((MAX_PXM_DOMAINS + 1)/32)
 
-static int __initdata srat_num_cpus;	
+static int __initdata srat_num_cpus;	/* number of cpus */
 static u32 __devinitdata pxm_flag[PXM_FLAG_LEN];
 #define pxm_bit_set(bit)	(set_bit(bit,(void *)pxm_flag))
 #define pxm_bit_test(bit)	(test_bit(bit,(void *)pxm_flag))
@@ -426,6 +451,10 @@ get_memory_proximity_domain(struct acpi_srat_mem_affinity *ma)
 	return pxm;
 }
 
+/*
+ * ACPI 2.0 SLIT (System Locality Information Table)
+ * http://devresource.hp.com/devresource/Docs/TechPapers/IA64/slit.pdf
+ */
 void __init acpi_numa_slit_init(struct acpi_table_slit *slit)
 {
 	u32 len;
@@ -457,12 +486,12 @@ acpi_numa_processor_affinity_init(struct acpi_srat_cpu_affinity *pa)
 	}
 	pxm = get_processor_proximity_domain(pa);
 
-	
+	/* record this node in proximity bitmap */
 	pxm_bit_set(pxm);
 
 	node_cpuid[srat_num_cpus].phys_id =
 	    (pa->apic_id << 8) | (pa->local_sapic_eid);
-	
+	/* nid should be overridden as logical node id later */
 	node_cpuid[srat_num_cpus].nid = pxm;
 	cpu_set(srat_num_cpus, early_cpu_possible_map);
 	srat_num_cpus++;
@@ -477,18 +506,18 @@ acpi_numa_memory_affinity_init(struct acpi_srat_mem_affinity *ma)
 
 	pxm = get_memory_proximity_domain(ma);
 
-	
+	/* fill node memory chunk structure */
 	paddr = ma->base_address;
 	size = ma->length;
 
-	
+	/* Ignore disabled entries */
 	if (!(ma->flags & ACPI_SRAT_MEM_ENABLED))
 		return;
 
-	
+	/* record this node in proximity bitmap */
 	pxm_bit_set(pxm);
 
-	
+	/* Insertion sort based on base address */
 	pend = &node_memblk[num_node_memblks];
 	for (p = &node_memblk[0]; p < pend; p++) {
 		if (paddr < p->start_paddr)
@@ -508,13 +537,17 @@ void __init acpi_numa_arch_fixup(void)
 {
 	int i, j, node_from, node_to;
 
-	
+	/* If there's no SRAT, fix the phys_id and mark node 0 online */
 	if (srat_num_cpus == 0) {
 		node_set_online(0);
 		node_cpuid[0].phys_id = hard_smp_processor_id();
 		return;
 	}
 
+	/*
+	 * MCD - This can probably be dropped now.  No need for pxm ID to node ID
+	 * mapping with sparse node numbering iff MAX_PXM_DOMAINS <= MAX_NUMNODES.
+	 */
 	nodes_clear(node_online_map);
 	for (i = 0; i < MAX_PXM_DOMAINS; i++) {
 		if (pxm_bit_test(i)) {
@@ -523,11 +556,11 @@ void __init acpi_numa_arch_fixup(void)
 		}
 	}
 
-	
+	/* set logical node id in memory chunk structure */
 	for (i = 0; i < num_node_memblks; i++)
 		node_memblk[i].nid = pxm_to_node(node_memblk[i].nid);
 
-	
+	/* assign memory bank numbers for each chunk on each node */
 	for_each_online_node(i) {
 		int bank;
 
@@ -537,7 +570,7 @@ void __init acpi_numa_arch_fixup(void)
 				node_memblk[j].bank = bank++;
 	}
 
-	
+	/* set logical node id in cpu structure */
 	for_each_possible_early_cpu(i)
 		node_cpuid[i].nid = pxm_to_node(node_cpuid[i].nid);
 
@@ -577,8 +610,12 @@ void __init acpi_numa_arch_fixup(void)
 	}
 #endif
 }
-#endif				
+#endif				/* CONFIG_ACPI_NUMA */
 
+/*
+ * success: return IRQ number (>=0)
+ * failure: return < 0
+ */
 int acpi_register_gsi(struct device *dev, u32 gsi, int triggering, int polarity)
 {
 	if (acpi_irq_model == ACPI_IRQ_MODEL_PLATFORM)
@@ -617,7 +654,7 @@ static int __init acpi_parse_fadt(struct acpi_table_header *table)
 
 	fadt_header = (struct acpi_table_header *)table;
 	if (fadt_header->revision != 3)
-		return -ENODEV;	
+		return -ENODEV;	/* Only deal with ACPI 2.0 FADT */
 
 	fadt = (struct acpi_table_fadt *)fadt_header;
 
@@ -630,6 +667,10 @@ int __init early_acpi_boot_init(void)
 {
 	int ret;
 
+	/*
+	 * do a partial walk of MADT to determine how many CPUs
+	 * we have including offline CPUs
+	 */
 	if (acpi_table_parse(ACPI_SIG_MADT, acpi_parse_madt)) {
 		printk(KERN_ERR PREFIX "Can't find MADT\n");
 		return 0;
@@ -647,11 +688,11 @@ int __init early_acpi_boot_init(void)
 		printk(KERN_INFO "CPU 0 (0x%04x)", hard_smp_processor_id());
 		smp_boot_data.cpu_phys_id[available_cpus] =
 		    hard_smp_processor_id();
-		available_cpus = 1;	
+		available_cpus = 1;	/* We've got at least one of these, no? */
 	}
 	smp_boot_data.cpu_count = available_cpus;
 #endif
-	
+	/* Make boot-up look pretty */
 	printk(KERN_INFO "%d CPUs available, %d CPUs total\n", available_cpus,
 	       total_cpus);
 
@@ -661,13 +702,20 @@ int __init early_acpi_boot_init(void)
 int __init acpi_boot_init(void)
 {
 
+	/*
+	 * MADT
+	 * ----
+	 * Parse the Multiple APIC Description Table (MADT), if exists.
+	 * Note that this table provides platform SMP configuration
+	 * information -- the successor to MPS tables.
+	 */
 
 	if (acpi_table_parse(ACPI_SIG_MADT, acpi_parse_madt)) {
 		printk(KERN_ERR PREFIX "Can't find MADT\n");
 		goto skip_madt;
 	}
 
-	
+	/* Local APIC */
 
 	if (acpi_table_parse_madt
 	    (ACPI_MADT_TYPE_LOCAL_APIC_OVERRIDE, acpi_parse_lapic_addr_ovr, 0) < 0)
@@ -678,7 +726,7 @@ int __init acpi_boot_init(void)
 	    < 0)
 		printk(KERN_ERR PREFIX "Error parsing LAPIC NMI entry\n");
 
-	
+	/* I/O APIC */
 
 	if (acpi_table_parse_madt
 	    (ACPI_MADT_TYPE_IO_SAPIC, acpi_parse_iosapic, NR_IOSAPICS) < 1) {
@@ -687,7 +735,7 @@ int __init acpi_boot_init(void)
 			       "Error parsing MADT - no IOSAPIC entries\n");
 	}
 
-	
+	/* System-Level Interrupt Routing */
 
 	if (acpi_table_parse_madt
 	    (ACPI_MADT_TYPE_INTERRUPT_SOURCE, acpi_parse_plat_int_src,
@@ -704,6 +752,12 @@ int __init acpi_boot_init(void)
 		printk(KERN_ERR PREFIX "Error parsing NMI SRC entry\n");
       skip_madt:
 
+	/*
+	 * FADT says whether a legacy keyboard controller is present.
+	 * The FADT also contains an SCI_INT line, by which the system
+	 * gets interrupts such as power and sleep buttons.  If it's not
+	 * on a Legacy interrupt, it needs to be setup.
+	 */
 	if (acpi_table_parse(ACPI_SIG_FADT, acpi_parse_fadt))
 		printk(KERN_ERR PREFIX "Can't find FADT\n");
 
@@ -746,6 +800,9 @@ int acpi_isa_irq_to_gsi(unsigned isa_irq, u32 *gsi)
 	return 0;
 }
 
+/*
+ *  ACPI based hotplug CPU support
+ */
 #ifdef CONFIG_ACPI_HOTPLUG_CPU
 static __cpuinit
 int acpi_map_cpu2node(acpi_handle handle, int cpu, int physid)
@@ -755,6 +812,13 @@ int acpi_map_cpu2node(acpi_handle handle, int cpu, int physid)
 	int nid;
 
 	pxm_id = acpi_get_pxm(handle);
+	/*
+	 * We don't have cpu-only-node hotadd. But if the system equips
+	 * SRAT table, pxm is already found and node is ready.
+  	 * So, just pxm_to_nid(pxm) is OK.
+	 * This code here is for the system which doesn't have full SRAT
+  	 * table for possible cpus.
+	 */
 	nid = acpi_map_pxm_to_node(pxm_id);
 	node_cpuid[cpu].phys_id = physid;
 	node_cpuid[cpu].nid = nid;
@@ -774,6 +838,21 @@ static __init int setup_additional_cpus(char *s)
 
 early_param("additional_cpus", setup_additional_cpus);
 
+/*
+ * cpu_possible_mask should be static, it cannot change as CPUs
+ * are onlined, or offlined. The reason is per-cpu data-structures
+ * are allocated by some modules at init time, and dont expect to
+ * do this dynamically on cpu arrival/departure.
+ * cpu_present_mask on the other hand can change dynamically.
+ * In case when cpu_hotplug is not compiled, then we resort to current
+ * behaviour, which is cpu_possible == cpu_present.
+ * - Ashok Raj
+ *
+ * Three ways to find out the number of additional hotplug CPUs:
+ * - If the BIOS specified disabled CPUs in ACPI/mptables use that.
+ * - The user can overwrite it with additional_cpus=NUM
+ * - Otherwise don't reserve additional CPUs.
+ */
 __init void prefill_possible_map(void)
 {
 	int i;
@@ -851,6 +930,7 @@ static int __cpuinit _acpi_map_lsapic(acpi_handle handle, int *pcpu)
 	return (0);
 }
 
+/* wrapper to silence section mismatch warning */
 int __ref acpi_map_lsapic(acpi_handle handle, int *pcpu)
 {
 	return _acpi_map_lsapic(handle, pcpu);
@@ -863,14 +943,14 @@ int acpi_unmap_lsapic(int cpu)
 	set_cpu_present(cpu, false);
 
 #ifdef CONFIG_ACPI_NUMA
-	
+	/* NUMA specific cleanup's */
 #endif
 
 	return (0);
 }
 
 EXPORT_SYMBOL(acpi_unmap_lsapic);
-#endif				
+#endif				/* CONFIG_ACPI_HOTPLUG_CPU */
 
 #ifdef CONFIG_ACPI_NUMA
 static acpi_status __devinit
@@ -882,7 +962,7 @@ acpi_map_iosapic(acpi_handle handle, u32 depth, void *context, void **ret)
 	unsigned int gsi_base;
 	int pxm, node;
 
-	
+	/* Only care about objects w/ a method that returns the MADT */
 	if (ACPI_FAILURE(acpi_evaluate_object(handle, "_MAT", NULL, &buffer)))
 		return AE_OK;
 
@@ -907,6 +987,10 @@ acpi_map_iosapic(acpi_handle handle, u32 depth, void *context, void **ret)
 
 	kfree(buffer.pointer);
 
+	/*
+	 * OK, it's an IOSAPIC MADT entry, look for a _PXM value to tell
+	 * us which node to associate this with.
+	 */
 	pxm = acpi_get_pxm(handle);
 	if (pxm < 0)
 		return AE_OK;
@@ -917,7 +1001,7 @@ acpi_map_iosapic(acpi_handle handle, u32 depth, void *context, void **ret)
 	    cpumask_empty(cpumask_of_node(node)))
 		return AE_OK;
 
-	
+	/* We know a gsi to node mapping! */
 	map_iosapic_to_node(gsi_base, node);
 	return AE_OK;
 }
@@ -930,7 +1014,7 @@ acpi_map_iosapics (void)
 }
 
 fs_initcall(acpi_map_iosapics);
-#endif				
+#endif				/* CONFIG_ACPI_NUMA */
 
 int __ref acpi_register_ioapic(acpi_handle handle, u64 phys_addr, u32 gsi_base)
 {
@@ -941,7 +1025,7 @@ int __ref acpi_register_ioapic(acpi_handle handle, u64 phys_addr, u32 gsi_base)
 
 #ifdef CONFIG_ACPI_NUMA
 	acpi_map_iosapic(handle, 0, NULL, NULL);
-#endif				
+#endif				/* CONFIG_ACPI_NUMA */
 
 	return 0;
 }
@@ -955,4 +1039,9 @@ int acpi_unregister_ioapic(acpi_handle handle, u32 gsi_base)
 
 EXPORT_SYMBOL(acpi_unregister_ioapic);
 
+/*
+ * acpi_suspend_lowlevel() - save kernel state and suspend.
+ *
+ * TBD when when IA64 starts to support suspend...
+ */
 int acpi_suspend_lowlevel(void) { return 0; }

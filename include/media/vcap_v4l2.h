@@ -102,10 +102,10 @@ enum vcap_op_mode {
 struct vc_action {
 	struct list_head		active;
 
-	
+	/* thread for generating video stream*/
 	wait_queue_head_t		wq;
 
-	
+	/* Buffer index */
 	uint8_t					tot_buf;
 	uint8_t					buf_num;
 
@@ -115,7 +115,7 @@ struct vc_action {
 	struct timeval			vc_ts;
 	uint32_t				last_ts;
 
-	
+	/* Buffers inside vc */
 	struct vcap_buffer      *buf[6];
 };
 
@@ -129,10 +129,10 @@ struct vp_action {
 	struct list_head		in_active;
 	struct list_head		out_active;
 
-	
+	/* Buffer index */
 	enum vp_state			vp_state;
 
-	
+	/* Buffers inside vc */
 	struct vcap_buffer      *bufTm1;
 	struct vcap_buffer      *bufT0;
 	struct vcap_buffer      *bufT1;
@@ -155,7 +155,7 @@ struct vcap_debugfs_params {
 	atomic_t vc_drop_count;
 	uint32_t vc_timestamp;
 	uint32_t vp_timestamp;
-	uint32_t vp_ewma;
+	uint32_t vp_ewma;/* Exponential moving average */
 	uint32_t clk_rate;
 	uint32_t bw_request;
 	uint32_t reg_addr;
@@ -181,7 +181,7 @@ struct vcap_dev {
 	struct clk				*vcap_p_clk;
 	struct clk				*vcap_npl_clk;
 	struct device			*ddev;
-	
+	/*struct platform_device	*pdev;*/
 
 	uint32_t				bus_client_handle;
 
@@ -223,7 +223,7 @@ struct vp_format_data {
 };
 
 struct vcap_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct vb2_buffer	vb;
 	struct list_head	list;
 	unsigned long		paddr;
@@ -255,7 +255,7 @@ struct vcap_client_data {
 	uint32_t				hold_vc;
 	uint32_t				hold_vp;
 
-	
+	/* Mutex ensures only one thread is dq buffer or turning streamoff */
 	struct mutex			mutex;
 	spinlock_t				cap_slock;
 	bool					streaming;

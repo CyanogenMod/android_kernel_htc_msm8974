@@ -35,7 +35,7 @@
 #include <asm/m54xxgpt.h>
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
-static unsigned int heartbeat = 30;	
+static unsigned int heartbeat = 30;	/* (secs) Default is 0.5 minute */
 static unsigned long wdt_status;
 
 #define	WDT_IN_USE		0
@@ -45,7 +45,7 @@ static void wdt_enable(void)
 {
 	unsigned int gms0;
 
-	
+	/* preserve GPIO usage, if any */
 	gms0 = __raw_readl(MCF_MBAR + MCF_GPT_GMS0);
 	if (gms0 & MCF_GPT_GMS_TMS_GPIO)
 		gms0 &= (MCF_GPT_GMS_TMS_GPIO | MCF_GPT_GMS_GPIO_MASK
@@ -63,7 +63,7 @@ static void wdt_disable(void)
 {
 	unsigned int gms0;
 
-	
+	/* disable watchdog */
 	gms0 = __raw_readl(MCF_MBAR + MCF_GPT_GMS0);
 	gms0 &= ~(MCF_GPT_GMS_WDEN | MCF_GPT_GMS_CE);
 	__raw_writel(gms0, MCF_MBAR + MCF_GPT_GMS0);
@@ -154,7 +154,7 @@ static long m54xx_wdt_ioctl(struct file *file, unsigned int cmd,
 
 		heartbeat = time;
 		wdt_enable();
-		
+		/* Fall through */
 
 	case WDIOC_GETTIMEOUT:
 		ret = put_user(heartbeat, (int *)arg);

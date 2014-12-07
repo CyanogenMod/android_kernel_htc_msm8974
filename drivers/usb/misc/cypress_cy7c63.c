@@ -56,17 +56,20 @@
 #define CYPRESS_MAX_REQSIZE	8
 
 
+/* table of devices that work with this driver */
 static const struct usb_device_id cypress_table[] = {
 	{ USB_DEVICE(CYPRESS_VENDOR_ID, CYPRESS_PRODUCT_ID) },
 	{ }
 };
 MODULE_DEVICE_TABLE(usb, cypress_table);
 
+/* structure to hold all of our device specific stuff */
 struct cypress {
 	struct usb_device *	udev;
 	unsigned char		port[2];
 };
 
+/* used to send usb control messages to device */
 static int vendor_command(struct cypress *dev, unsigned char request,
 			  unsigned char address, unsigned char data)
 {
@@ -74,7 +77,7 @@ static int vendor_command(struct cypress *dev, unsigned char request,
 	unsigned int pipe;
 	unsigned char *iobuf;
 
-	
+	/* allocate some memory for the i/o buffer*/
 	iobuf = kzalloc(CYPRESS_MAX_REQSIZE, GFP_KERNEL);
 	if (!iobuf) {
 		dev_err(&dev->udev->dev, "Out of memory!\n");
@@ -84,14 +87,14 @@ static int vendor_command(struct cypress *dev, unsigned char request,
 
 	dev_dbg(&dev->udev->dev, "Sending usb_control_msg (data: %d)\n", data);
 
-	
+	/* prepare usb control message and send it upstream */
 	pipe = usb_rcvctrlpipe(dev->udev, 0);
 	retval = usb_control_msg(dev->udev, pipe, request,
 				 USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_OTHER,
 				 address, data, iobuf, CYPRESS_MAX_REQSIZE,
 				 USB_CTRL_GET_TIMEOUT);
 
-	
+	/* store returned data (more READs to be added) */
 	switch (request) {
 		case CYPRESS_READ_PORT:
 			if (address == CYPRESS_READ_PORT_ID0) {
@@ -114,6 +117,7 @@ error:
 	return retval;
 }
 
+/* write port value */
 static ssize_t write_port(struct device *dev, struct device_attribute *attr,
 			  const char *buf, size_t count,
 			  int port_num, int write_id)
@@ -126,7 +130,7 @@ static ssize_t write_port(struct device *dev, struct device_attribute *attr,
 
 	dev_dbg(&cyp->udev->dev, "WRITE_PORT%d called\n", port_num);
 
-	
+	/* validate input data */
 	if (sscanf(buf, "%d", &value) < 1) {
 		result = -EINVAL;
 		goto error;
@@ -144,6 +148,7 @@ error:
 	return result < 0 ? result : count;
 }
 
+/* attribute callback handler (write) */
 static ssize_t set_port0_handler(struct device *dev,
 				 struct device_attribute *attr,
 				 const char *buf, size_t count)
@@ -151,6 +156,7 @@ static ssize_t set_port0_handler(struct device *dev,
 	return write_port(dev, attr, buf, count, 0, CYPRESS_WRITE_PORT_ID0);
 }
 
+/* attribute callback handler (write) */
 static ssize_t set_port1_handler(struct device *dev,
 				 struct device_attribute *attr,
 				 const char *buf, size_t count)
@@ -158,6 +164,7 @@ static ssize_t set_port1_handler(struct device *dev,
 	return write_port(dev, attr, buf, count, 1, CYPRESS_WRITE_PORT_ID1);
 }
 
+/* read port value */
 static ssize_t read_port(struct device *dev, struct device_attribute *attr,
 			 char *buf, int port_num, int read_id)
 {
@@ -175,12 +182,14 @@ static ssize_t read_port(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%d", cyp->port[port_num]);
 }
 
+/* attribute callback handler (read) */
 static ssize_t get_port0_handler(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
 	return read_port(dev, attr, buf, 0, CYPRESS_READ_PORT_ID0);
 }
 
+/* attribute callback handler (read) */
 static ssize_t get_port1_handler(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
@@ -198,7 +207,7 @@ static int cypress_probe(struct usb_interface *interface,
 	struct cypress *dev = NULL;
 	int retval = -ENOMEM;
 
-	
+	/* allocate memory for our device state and initialize it */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (dev == NULL) {
 		dev_err(&interface->dev, "Out of memory!\n");
@@ -207,10 +216,10 @@ static int cypress_probe(struct usb_interface *interface,
 
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
 
-	
+	/* save our data pointer in this interface device */
 	usb_set_intfdata(interface, dev);
 
-	
+	/* create device attribute files */
 	retval = device_create_file(&interface->dev, &dev_attr_port0);
 	if (retval)
 		goto error;
@@ -218,7 +227,7 @@ static int cypress_probe(struct usb_interface *interface,
 	if (retval)
 		goto error;
 
-	
+	/* let the user know that the device is now attached */
 	dev_info(&interface->dev,
 		 "Cypress CY7C63xxx device now attached\n");
 	return 0;
@@ -240,9 +249,11 @@ static void cypress_disconnect(struct usb_interface *interface)
 
 	dev = usb_get_intfdata(interface);
 
-	
+	/* remove device attribute files */
 	device_remove_file(&interface->dev, &dev_attr_port0);
 	device_remove_file(&interface->dev, &dev_attr_port1);
+	/* the intfdata can be set to NULL only after the
+	 * device files have been removed */
 	usb_set_intfdata(interface, NULL);
 
 	usb_put_dev(dev->udev);

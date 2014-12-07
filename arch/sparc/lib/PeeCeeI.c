@@ -40,14 +40,14 @@ void outsl(unsigned long __addr, const void *src, unsigned long count)
 
 	switch (((unsigned long)src) & 0x3) {
 	case 0x0:
-		
+		/* src is naturally aligned */
 		while (count--) {
 			__raw_writel(*(u32 *)src, addr);
 			src += sizeof(u32);
 		}
 		break;
 	case 0x2:
-		
+		/* 2-byte alignment */
 		while (count--) {
 			l = (*(u16 *)src) << 16;
 			l |= *(u16 *)(src + sizeof(u16));
@@ -56,7 +56,7 @@ void outsl(unsigned long __addr, const void *src, unsigned long count)
 		}
 		break;
 	case 0x1:
-		
+		/* Hold three bytes in l each time, grab a byte from l2 */
 		l = (*(u8 *)src) << 24;
 		l |= (*(u16 *)(src + sizeof(u8))) << 8;
 		src += sizeof(u8) + sizeof(u16);
@@ -69,7 +69,7 @@ void outsl(unsigned long __addr, const void *src, unsigned long count)
 		}
 		break;
 	case 0x3:
-		
+		/* Hold a byte in l each time, grab 3 bytes from l2 */
 		l = (*(u8 *)src) << 24;
 		src += sizeof(u8);
 		while (count--) {

@@ -9,6 +9,9 @@
 #ifndef _CTCM_DBUG_H_
 #define _CTCM_DBUG_H_
 
+/*
+ * Debug Facility stuff
+ */
 
 #include <asm/debug.h>
 
@@ -29,15 +32,16 @@
  #define do_debug_data 0
 #endif
 
-#define	CTC_DBF_ALWAYS	0	
-#define	CTC_DBF_EMERG	0	
-#define	CTC_DBF_ALERT	1	
-#define	CTC_DBF_CRIT	2	
-#define	CTC_DBF_ERROR	3	
-#define	CTC_DBF_WARN	4	
-#define	CTC_DBF_NOTICE	5	
-#define	CTC_DBF_INFO	5	
-#define	CTC_DBF_DEBUG	6	
+/* define dbf debug levels similar to kernel msg levels */
+#define	CTC_DBF_ALWAYS	0	/* always print this 			*/
+#define	CTC_DBF_EMERG	0	/* system is unusable			*/
+#define	CTC_DBF_ALERT	1	/* action must be taken immediately	*/
+#define	CTC_DBF_CRIT	2	/* critical conditions			*/
+#define	CTC_DBF_ERROR	3	/* error conditions			*/
+#define	CTC_DBF_WARN	4	/* warning conditions			*/
+#define	CTC_DBF_NOTICE	5	/* normal but significant condition	*/
+#define	CTC_DBF_INFO	5	/* informational			*/
+#define	CTC_DBF_DEBUG	6	/* debug-level messages			*/
 
 enum ctcm_dbf_names {
 	CTCM_DBF_SETUP,
@@ -46,7 +50,7 @@ enum ctcm_dbf_names {
 	CTCM_DBF_MPC_SETUP,
 	CTCM_DBF_MPC_ERROR,
 	CTCM_DBF_MPC_TRACE,
-	CTCM_DBF_INFOS	
+	CTCM_DBF_INFOS	/* must be last element */
 };
 
 struct ctcm_dbf_info {
@@ -86,6 +90,11 @@ static inline const char *strtail(const char *s, int n)
 #define CTCM_DBF_TEXT_(name, level, text...) \
 	ctcm_dbf_longtext(CTCM_DBF_##name, level, text)
 
+/*
+ * cat : one of {setup, mpc_setup, trace, mpc_trace, error, mpc_error}.
+ * dev : netdevice with valid name field.
+ * text: any text string.
+ */
 #define CTCM_DBF_DEV_NAME(cat, dev, text) \
 	do { \
 		CTCM_DBF_TEXT_(cat, CTC_DBF_INFO, "%s(%s) :- %s", \
@@ -106,6 +115,11 @@ static inline const char *strtail(const char *s, int n)
 			CTCM_DBF_DEV_NAME(cat, dev, text); \
 	} while (0)
 
+/*
+ * cat : one of {setup, mpc_setup, trace, mpc_trace, error, mpc_error}.
+ * dev : netdevice.
+ * text: any text string.
+ */
 #define CTCM_DBF_DEV(cat, dev, text) \
 	do { \
 		CTCM_DBF_TEXT_(cat, CTC_DBF_INFO, "%s(%p) :-: %s", \

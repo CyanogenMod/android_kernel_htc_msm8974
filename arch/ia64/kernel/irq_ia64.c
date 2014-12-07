@@ -23,7 +23,7 @@
 #include <linux/ioport.h>
 #include <linux/kernel_stat.h>
 #include <linux/ptrace.h>
-#include <linux/random.h>	
+#include <linux/random.h>	/* for rand_initialize_irq() */
 #include <linux/signal.h>
 #include <linux/smp.h>
 #include <linux/threads.h>
@@ -53,16 +53,21 @@
 #define IRQ_USED		(1)
 #define IRQ_RSVD		(2)
 
+/* These can be overridden in platform_irq_init */
 int ia64_first_device_vector = IA64_DEF_FIRST_DEVICE_VECTOR;
 int ia64_last_device_vector = IA64_DEF_LAST_DEVICE_VECTOR;
 
+/* default base addr of IPI table */
 void __iomem *ipi_base_addr = ((void __iomem *)
 			       (__IA64_UNCACHED_OFFSET | IA64_IPI_DEFAULT_BASE_ADDR));
 
 static cpumask_t vector_allocation_domain(int cpu);
 
+/*
+ * Legacy IRQ to IA-64 vector translation table.
+ */
 __u8 isa_irq_to_vector_map[16] = {
-	
+	/* 8259 IRQ translation, first 16 entries */
 	0x2f, 0x20, 0x2e, 0x2d, 0x2c, 0x2b, 0x2a, 0x29,
 	0x28, 0x27, 0x26, 0x25, 0x24, 0x23, 0x22, 0x21
 };
@@ -235,14 +240,18 @@ reserve_irq_vector (int vector)
 	return !!bind_irq_vector(vector, vector, CPU_MASK_ALL);
 }
 
+/*
+ * Initialize vector_irq on a new cpu. This function must be called
+ * with vector_lock held.
+ */
 void __setup_vector_irq(int cpu)
 {
 	int irq, vector;
 
-	
+	/* Clear vector_irq */
 	for (vector = 0; vector < IA64_NUM_VECTORS; ++vector)
 		per_cpu(vector_irq, cpu)[vector] = -1;
-	
+	/* Mark the inuse vectors */
 	for (irq = 0; irq < NR_IRQS; ++irq) {
 		if (!cpu_isset(cpu, irq_cfg[irq].domain))
 			continue;
@@ -391,6 +400,9 @@ void destroy_and_reserve_irq(unsigned int irq)
 	spin_unlock_irqrestore(&vector_lock, flags);
 }
 
+/*
+ * Dynamic irq allocate and deallocation for MSI
+ */
 int create_irq(void)
 {
 	unsigned long flags;
@@ -431,6 +443,11 @@ void destroy_irq(unsigned int irq)
 #	define IS_RESCHEDULE(vec)	(0)
 #	define IS_LOCAL_TLB_FLUSH(vec)	(0)
 #endif
+/*
+ * That's where the IVT branches when we get an external
+ * interrupt. This branches to the correct hardware IRQ handler via
+ * function ptr.
+ */
 void
 ia64_handle_irq (ia64_vector vector, struct pt_regs *regs)
 {
@@ -441,6 +458,13 @@ ia64_handle_irq (ia64_vector vector, struct pt_regs *regs)
 	{
 		unsigned long bsp, sp;
 
+		/*
+		 * Note: if the interrupt happened while executing in
+		 * the context switch routine (ia64_switch_to), we may
+		 * get a spurious stack overflow here.  This is
+		 * because the register and the memory stack are not
+		 * switched atomically.
+		 */
 		bsp = ia64_getreg(_IA64_REG_AR_BSP);
 		sp = ia64_getreg(_IA64_REG_SP);
 
@@ -454,8 +478,13 @@ ia64_handle_irq (ia64_vector vector, struct pt_regs *regs)
 			}
 		}
 	}
-#endif 
+#endif /* IRQ_DEBUG */
 
+	/*
+	 * Always set TPR to limit maximum interrupt nesting depth to
+	 * 16 (without this, it would be ~240, which could easily lead
+	 * to kernel stack overflows).
+	 */
 	irq_enter();
 	saved_tpr = ia64_getreg(_IA64_REG_CR_TPR);
 	ia64_srlz_d();
@@ -481,17 +510,29 @@ ia64_handle_irq (ia64_vector vector, struct pt_regs *regs)
 			} else
 				generic_handle_irq(irq);
 
+			/*
+			 * Disable interrupts and send EOI:
+			 */
 			local_irq_disable();
 			ia64_setreg(_IA64_REG_CR_TPR, saved_tpr);
 		}
 		ia64_eoi();
 		vector = ia64_get_ivr();
 	}
+	/*
+	 * This must be done *after* the ia64_eoi().  For example, the keyboard softirq
+	 * handler needs to be able to wait for further keyboard interrupts, which can't
+	 * come through until ia64_eoi() has been done.
+	 */
 	irq_exit();
 	set_irq_regs(old_regs);
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
+/*
+ * This function emulates a interrupt processing when a cpu is about to be
+ * brought down.
+ */
 void ia64_process_pending_intr(void)
 {
 	ia64_vector vector;
@@ -504,6 +545,9 @@ void ia64_process_pending_intr(void)
 	saved_tpr = ia64_getreg(_IA64_REG_CR_TPR);
 	ia64_srlz_d();
 
+	 /*
+	  * Perform normal interrupt style processing
+	  */
 	while (vector != IA64_SPURIOUS_INT_VECTOR) {
 		int irq = local_vector_to_irq(vector);
 		struct irq_desc *desc = irq_to_desc(irq);
@@ -519,6 +563,12 @@ void ia64_process_pending_intr(void)
 			ia64_setreg(_IA64_REG_CR_TPR, vector);
 			ia64_srlz_d();
 
+			/*
+			 * Now try calling normal ia64_handle_irq as it would have got called
+			 * from a real intr handler. Try passing null for pt_regs, hopefully
+			 * it will work. I hope it works!.
+			 * Probably could shared code.
+			 */
 			if (unlikely(irq < 0)) {
 				printk(KERN_ERR "%s: Unexpected interrupt "
 				       "vector %d on CPU %d not being mapped "
@@ -530,6 +580,9 @@ void ia64_process_pending_intr(void)
 			}
 			set_irq_regs(old_regs);
 
+			/*
+			 * Disable interrupts and send EOI
+			 */
 			local_irq_disable();
 			ia64_setreg(_IA64_REG_CR_TPR, saved_tpr);
 		}
@@ -554,6 +607,9 @@ static struct irqaction ipi_irqaction = {
 	.name =		"IPI"
 };
 
+/*
+ * KVM uses this interrupt to force a cpu out of guest mode
+ */
 static struct irqaction resched_irqaction = {
 	.handler =	dummy_handler,
 	.flags =	IRQF_DISABLED,
@@ -621,6 +677,9 @@ ia64_send_ipi (int cpu, int vector, int delivery_mode, int redirect)
 
 	phys_cpu_id = cpu_physical_id(cpu);
 
+	/*
+	 * cpu number is in 8bit ID and 8bit EID
+	 */
 
 	ipi_data = (delivery_mode << 8) | (vector & 0xff);
 	ipi_addr = ipi_base_addr + ((phys_cpu_id << 4) | ((redirect & 1) << 3));

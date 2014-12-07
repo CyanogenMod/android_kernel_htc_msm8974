@@ -111,14 +111,14 @@ enum ispif_cfg_type_t {
 struct ispif_cfg_data {
 	enum ispif_cfg_type_t cfg_type;
 	union {
-		int reg_dump;                        
-		uint32_t csid_version;               
-		struct msm_ispif_vfe_info vfe_info;  
-		struct msm_ispif_param_data params;  
+		int reg_dump;                        /* ISPIF_ENABLE_REG_DUMP */
+		uint32_t csid_version;               /* ISPIF_INIT */
+		struct msm_ispif_vfe_info vfe_info;  /* ISPIF_SET_VFE_INFO */
+		struct msm_ispif_param_data params;  /* CFG, START, STOP */
 	};
 };
 
 #define VIDIOC_MSM_ISPIF_CFG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE, struct ispif_cfg_data)
 
-#endif 
+#endif /* MSM_CAM_ISPIF_H */

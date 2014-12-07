@@ -1,3 +1,15 @@
+/*
+ * xfrm6_policy.c: based on xfrm4_policy.c
+ *
+ * Authors:
+ *	Mitsuru KANDA @USAGI
+ * 	Kazunori MIYAZAWA @USAGI
+ * 	Kunihiro Ishiguro <kunihiro@ipinfusion.com>
+ * 		IPv6 support
+ * 	YOSHIFUJI Hideaki
+ * 		Split up af-specific portion
+ *
+ */
 
 #include <linux/err.h>
 #include <linux/kernel.h>
@@ -91,6 +103,8 @@ static int xfrm6_fill_dst(struct xfrm_dst *xdst, struct net_device *dev,
 	if (rt->rt6i_peer)
 		atomic_inc(&rt->rt6i_peer->refcnt);
 
+	/* Sheit... I remember I did this right. Apparently,
+	 * it was magically lost, so this code needs audit */
 	xdst->u.rt6.rt6i_flags = rt->rt6i_flags & (RTF_ANYCAST |
 						   RTF_LOCAL);
 	xdst->u.rt6.rt6i_metric = rt->rt6i_metric;
@@ -174,7 +188,7 @@ _decode_session6(struct sk_buff *skb, struct flowi *fl, int reverse)
 			return;
 #endif
 
-		
+		/* XXX Why are there these headers? */
 		case IPPROTO_AH:
 		case IPPROTO_ESP:
 		case IPPROTO_COMP:
@@ -295,6 +309,17 @@ int __init xfrm6_init(void)
 	int ret;
 	unsigned int gc_thresh;
 
+	/*
+	 * We need a good default value for the xfrm6 gc threshold.
+	 * In ipv4 we set it to the route hash table size * 8, which
+	 * is half the size of the maximaum route cache for ipv4.  It
+	 * would be good to do the same thing for v6, except the table is
+	 * constructed differently here.  Here each table for a net namespace
+	 * can have FIB_TABLE_HASHSZ entries, so lets go with the same
+	 * computation that we used for ipv4 here.  Also, lets keep the initial
+	 * gc_thresh to a minimum of 1024, since, the ipv6 route cache defaults
+	 * to that as a minimum as well
+	 */
 	gc_thresh = FIB6_TABLE_HASHSZ * 8;
 	xfrm6_dst_ops.gc_thresh = (gc_thresh < 1024) ? 1024 : gc_thresh;
 	dst_entries_init(&xfrm6_dst_ops);
@@ -325,7 +350,7 @@ void xfrm6_fini(void)
 	if (sysctl_hdr)
 		unregister_net_sysctl_table(sysctl_hdr);
 #endif
-	
+	//xfrm6_input_fini();
 	xfrm6_policy_fini();
 	xfrm6_state_fini();
 	dst_entries_destroy(&xfrm6_dst_ops);

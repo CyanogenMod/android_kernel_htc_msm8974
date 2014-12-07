@@ -22,7 +22,7 @@
 #include <linux/input/tps6507x-ts.h>
 #include <linux/delay.h>
 
-#define TSC_DEFAULT_POLL_PERIOD 30 
+#define TSC_DEFAULT_POLL_PERIOD 30 /* ms */
 #define TPS_DEFAULT_MIN_PRESSURE 0x30
 #define MAX_10BIT ((1 << 10) - 1)
 
@@ -42,16 +42,16 @@ struct tps6507x_ts {
 	struct device		*dev;
 	char			phys[32];
 	struct delayed_work	work;
-	unsigned		polling;	
+	unsigned		polling;	/* polling is active */
 	struct ts_event		tc;
 	struct tps6507x_dev	*mfd;
 	u16			model;
 	unsigned		pendown;
 	int			irq;
 	void			(*clear_penirq)(void);
-	unsigned long		poll_period;	
+	unsigned long		poll_period;	/* ms */
 	u16			min_pressure;
-	int			vref;		
+	int			vref;		/* non-zero to leave vref on */
 };
 
 static int tps6507x_read_u8(struct tps6507x_ts *tsc, u8 reg, u8 *data)
@@ -78,7 +78,7 @@ static s32 tps6507x_adc_conversion(struct tps6507x_ts *tsc,
 	u8 adc_status;
 	u8 result;
 
-	
+	/* Route input signal to A/D converter */
 
 	ret = tps6507x_write_u8(tsc, TPS6507X_REG_TSCMODE, tsc_mode);
 	if (ret) {
@@ -86,7 +86,7 @@ static s32 tps6507x_adc_conversion(struct tps6507x_ts *tsc,
 		goto err;
 	}
 
-	
+	/* Start A/D conversion */
 
 	ret = tps6507x_write_u8(tsc, TPS6507X_REG_ADCONFIG,
 				TPS6507X_ADCONFIG_CONVERT_TS);
@@ -126,6 +126,9 @@ err:
 	return ret;
 }
 
+/* Need to call tps6507x_adc_standby() after using A/D converter for the
+ * touch screen interrupt to work properly.
+ */
 
 static s32 tps6507x_adc_standby(struct tps6507x_ts *tsc)
 {
@@ -210,7 +213,7 @@ static void tps6507x_ts_handler(struct work_struct *work)
 	}
 
 done:
-	
+	/* always poll if not using interrupts */
 	poll = 1;
 
 	if (poll) {
@@ -238,6 +241,10 @@ static int tps6507x_ts_probe(struct platform_device *pdev)
 	struct tps6507x_board *tps_board;
 	int schd;
 
+	/**
+	 * tps_board points to pmic related constants
+	 * coming from the board-evm file.
+	 */
 
 	tps_board = (struct tps6507x_board *)tps6507x_dev->dev->platform_data;
 
@@ -247,6 +254,10 @@ static int tps6507x_ts_probe(struct platform_device *pdev)
 		return -EIO;
 	}
 
+	/**
+	 * init_data points to array of regulator_init structures
+	 * coming from the board-evm file.
+	 */
 
 	init_data = tps_board->tps6507x_ts_init_data;
 

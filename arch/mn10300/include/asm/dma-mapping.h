@@ -17,6 +17,10 @@
 #include <asm/cache.h>
 #include <asm/io.h>
 
+/*
+ * See Documentation/DMA-API.txt for the description of how the
+ * following DMA API should work.
+ */
 
 extern void *dma_alloc_coherent(struct device *dev, size_t size,
 				dma_addr_t *dma_handle, int flag);
@@ -137,6 +141,11 @@ int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 static inline
 int dma_supported(struct device *dev, u64 mask)
 {
+	/*
+	 * we fall back to GFP_DMA when the mask isn't all 1s, so we can't
+	 * guarantee allocations that must be within a tighter range than
+	 * GFP_DMA
+	 */
 	if (mask < 0x00ffffff)
 		return 0;
 	return 1;

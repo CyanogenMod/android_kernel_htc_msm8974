@@ -69,9 +69,9 @@ static int mscan_set_mode(struct net_device *dev, u8 mode)
 
 	if (mode != MSCAN_NORMAL_MODE) {
 		if (priv->tx_active) {
-			#
+			/* Abort transfers before going to sleep */#
 			out_8(&regs->cantarq, priv->tx_active);
-			
+			/* Suppress TX done interrupts */
 			out_8(&regs->cantier, 0);
 		}
 
@@ -83,6 +83,17 @@ static int mscan_set_mode(struct net_device *dev, u8 mode)
 					break;
 				udelay(100);
 			}
+			/*
+			 * The mscan controller will fail to enter sleep mode,
+			 * while there are irregular activities on bus, like
+			 * somebody keeps retransmitting. This behavior is
+			 * undocumented and seems to differ between mscan built
+			 * in mpc5200b and mpc5200. We proceed in that case,
+			 * since otherwise the slprq will be kept set and the
+			 * controller will get stuck. NOTE: INITRQ or CSWAI
+			 * will abort all active transmit actions, if still
+			 * any, at once.
+			 */
 			if (i >= MSCAN_SET_MODE_RETRIES)
 				netdev_dbg(dev,
 					   "device failed to enter sleep mode. "
@@ -141,7 +152,7 @@ static int mscan_start(struct net_device *dev)
 	priv->flags = 0;
 
 	if (priv->type == MSCAN_TYPE_MPC5121) {
-		
+		/* Clear pending bus-off condition */
 		if (in_8(&regs->canmisc) & MSCAN_BOHOLD)
 			out_8(&regs->canmisc, MSCAN_BOHOLD);
 	}
@@ -156,7 +167,7 @@ static int mscan_start(struct net_device *dev)
 				    MSCAN_STATE_TX(canrflg))];
 	out_8(&regs->cantier, 0);
 
-	
+	/* Enable receive interrupts. */
 	out_8(&regs->canrier, MSCAN_RX_INTS_ENABLE);
 
 	return 0;
@@ -173,7 +184,7 @@ static int mscan_restart(struct net_device *dev)
 		WARN(!(in_8(&regs->canmisc) & MSCAN_BOHOLD),
 		     "bus-off state expected\n");
 		out_8(&regs->canmisc, MSCAN_BOHOLD);
-		
+		/* Re-enable receive interrupts. */
 		out_8(&regs->canrier, MSCAN_RX_INTS_ENABLE);
 	} else {
 		if (priv->can.state <= CAN_STATE_BUS_OFF)
@@ -205,6 +216,10 @@ static netdev_tx_t mscan_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		netdev_err(dev, "Tx Ring full when queue awake!\n");
 		return NETDEV_TX_BUSY;
 	case 1:
+		/*
+		 * if buf_id < 3, then current frame will be send out of order,
+		 * since buffer with lower id have higher priority (hell..)
+		 */
 		netif_stop_queue(dev);
 	case 2:
 		if (buf_id < priv->prev_buf_id) {
@@ -222,7 +237,7 @@ static netdev_tx_t mscan_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	rtr = frame->can_id & CAN_RTR_FLAG;
 
-	
+	/* RTR is always the lowest bit of interest, then IDs follow */
 	if (frame->can_id & CAN_EFF_FLAG) {
 		can_id = (frame->can_id & CAN_EFF_MASK)
 			 << (MSCAN_EFF_RTR_SHIFT + 1);
@@ -231,7 +246,7 @@ static netdev_tx_t mscan_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		out_be16(&regs->tx.idr3_2, can_id);
 
 		can_id >>= 16;
-		
+		/* EFF_FLAGS are between the IDs :( */
 		can_id = (can_id & 0x7) | ((can_id << 2) & 0xffe0)
 			 | MSCAN_EFF_FLAGS;
 	} else {
@@ -250,7 +265,7 @@ static netdev_tx_t mscan_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			out_be16(data, *payload++);
 			data += 2 + _MSCAN_RESERVED_DSR_SIZE;
 		}
-		
+		/* write remaining byte if necessary */
 		if (frame->can_dlc & 1)
 			out_8(data, frame->data[frame->can_dlc - 1]);
 	}
@@ -258,7 +273,7 @@ static netdev_tx_t mscan_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	out_8(&regs->tx.dlr, frame->can_dlc);
 	out_8(&regs->tx.tbpr, priv->cur_pri);
 
-	
+	/* Start transmission. */
 	out_8(&regs->cantflg, 1 << buf_id);
 
 	if (!test_bit(F_TX_PROGRESS, &priv->flags))
@@ -268,13 +283,14 @@ static netdev_tx_t mscan_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	can_put_echo_skb(skb, dev, buf_id);
 
-	
+	/* Enable interrupt. */
 	priv->tx_active |= 1 << buf_id;
 	out_8(&regs->cantier, priv->tx_active);
 
 	return NETDEV_TX_OK;
 }
 
+/* This function returns the old state to see where we came from */
 static enum can_state check_set_state(struct net_device *dev, u8 canrflg)
 {
 	struct mscan_priv *priv = netdev_priv(dev);
@@ -320,7 +336,7 @@ static void mscan_get_rx_frame(struct net_device *dev, struct can_frame *frame)
 			*payload++ = in_be16(data);
 			data += 2 + _MSCAN_RESERVED_DSR_SIZE;
 		}
-		
+		/* read remaining byte if necessary */
 		if (frame->can_dlc & 1)
 			frame->data[frame->can_dlc - 1] = in_8(data);
 	}
@@ -349,7 +365,7 @@ static void mscan_get_err_frame(struct net_device *dev, struct can_frame *frame,
 	}
 
 	old_state = check_set_state(dev, canrflg);
-	
+	/* State changed */
 	if (old_state != priv->can.state) {
 		switch (priv->can.state) {
 		case CAN_STATE_ERROR_WARNING:
@@ -369,6 +385,11 @@ static void mscan_get_err_frame(struct net_device *dev, struct can_frame *frame,
 			break;
 		case CAN_STATE_BUS_OFF:
 			frame->can_id |= CAN_ERR_BUSOFF;
+			/*
+			 * The MSCAN on the MPC5200 does recover from bus-off
+			 * automatically. To avoid that we stop the chip doing
+			 * a light-weight stop (we are in irq-context).
+			 */
 			if (priv->type != MSCAN_TYPE_MPC5121) {
 				out_8(&regs->cantier, 0);
 				out_8(&regs->canrier, 0);
@@ -556,7 +577,7 @@ static int mscan_open(struct net_device *dev)
 	struct mscan_priv *priv = netdev_priv(dev);
 	struct mscan_regs __iomem *regs = priv->reg_base;
 
-	
+	/* common open */
 	ret = open_candev(dev);
 	if (ret)
 		return ret;
@@ -631,14 +652,14 @@ int register_mscandev(struct net_device *dev, int mscan_clksrc)
 
 	if (priv->type == MSCAN_TYPE_MPC5121) {
 		priv->can.do_get_berr_counter = mscan_get_berr_counter;
-		ctl1 |= MSCAN_BORM; 
+		ctl1 |= MSCAN_BORM; /* bus-off recovery upon request */
 	}
 
 	ctl1 |= MSCAN_CANE;
 	out_8(&regs->canctl1, ctl1);
 	udelay(100);
 
-	
+	/* acceptance mask/acceptance code (accept everything) */
 	out_be16(&regs->canidar1_0, 0);
 	out_be16(&regs->canidar3_2, 0);
 	out_be16(&regs->canidar5_4, 0);
@@ -648,7 +669,7 @@ int register_mscandev(struct net_device *dev, int mscan_clksrc)
 	out_be16(&regs->canidmr3_2, 0xffff);
 	out_be16(&regs->canidmr5_4, 0xffff);
 	out_be16(&regs->canidmr7_6, 0xffff);
-	
+	/* Two 32 bit Acceptance Filters */
 	out_8(&regs->canidac, MSCAN_AF_32BIT);
 
 	mscan_set_mode(dev, MSCAN_INIT_MODE);
@@ -678,7 +699,7 @@ struct net_device *alloc_mscandev(void)
 
 	dev->netdev_ops = &mscan_netdev_ops;
 
-	dev->flags |= IFF_ECHO;	
+	dev->flags |= IFF_ECHO;	/* we support local echo */
 
 	netif_napi_add(dev, &priv->napi, mscan_rx_poll, 8);
 

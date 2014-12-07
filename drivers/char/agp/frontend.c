@@ -69,7 +69,7 @@ static void agp_remove_from_pool(struct agp_memory *temp)
 	struct agp_memory *prev;
 	struct agp_memory *next;
 
-	
+	/* Check to see if this is even in the memory pool */
 
 	DBG("mem=%p", temp);
 	if (agp_find_mem_by_key(temp->key) != NULL) {
@@ -82,7 +82,7 @@ static void agp_remove_from_pool(struct agp_memory *temp)
 				next->prev = prev;
 
 		} else {
-			
+			/* This is the first item on the list */
 			if (next != NULL)
 				next->prev = NULL;
 
@@ -91,6 +91,11 @@ static void agp_remove_from_pool(struct agp_memory *temp)
 	}
 }
 
+/*
+ * Routines for managing each client's segment list -
+ * These routines handle adding and removing segments
+ * to each auth'ed client.
+ */
 
 static struct
 agp_segment_priv *agp_find_seg_in_client(const struct agp_client *client,
@@ -189,7 +194,9 @@ int agp_create_segment(struct agp_client *client, struct agp_region *region)
 	return 0;
 }
 
+/* End - Routines for managing each client's segment list */
 
+/* This function must only be called when current_controller != NULL */
 static void agp_insert_into_pool(struct agp_memory * temp)
 {
 	struct agp_memory *prev;
@@ -204,6 +211,7 @@ static void agp_insert_into_pool(struct agp_memory * temp)
 }
 
 
+/* File private list routines */
 
 struct agp_file_private *agp_find_private(pid_t pid)
 {
@@ -254,7 +262,12 @@ static void agp_remove_file_private(struct agp_file_private * priv)
 	}
 }
 
+/* End - File flag list routines */
 
+/*
+ * Wrappers for agp_free_memory & agp_allocate_memory
+ * These make sure that internal lists are kept updated.
+ */
 void agp_free_memory_wrap(struct agp_memory *memory)
 {
 	agp_remove_from_pool(memory);
@@ -273,6 +286,10 @@ struct agp_memory *agp_allocate_memory_wrap(size_t pg_count, u32 type)
 	return memory;
 }
 
+/* Routines for managing the list of controllers -
+ * These routines manage the current controller, and the list of
+ * controllers
+ */
 
 static struct agp_controller *agp_find_controller_by_pid(pid_t id)
 {
@@ -430,6 +447,10 @@ static void agp_controller_release_current(struct agp_controller *controller,
 	agp_backend_release(agp_bridge);
 }
 
+/*
+ * Routines for managing client lists -
+ * These routines are for managing the list of auth'ed clients.
+ */
 
 static struct agp_client
 *agp_find_client_in_controller(struct agp_controller *controller, pid_t id)
@@ -538,7 +559,9 @@ int agp_remove_client(pid_t id)
 	return 0;
 }
 
+/* End - Routines for managing client lists */
 
+/* File Operations */
 
 static int agp_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -668,7 +691,7 @@ static int agp_open(struct inode *inode, struct file *file)
 	priv->my_pid = current->pid;
 
 	if (capable(CAP_SYS_RAWIO))
-		
+		/* Root priv, can be controller */
 		set_bit(AGP_FF_ALLOW_CONTROLLER, &priv->access_flags);
 
 	client = agp_find_client_by_pid(current->pid);
@@ -800,7 +823,7 @@ static int agpioc_reserve_wrap(struct agp_file_private *priv, void __user *arg)
 	client = agp_find_client_by_pid(reserve.pid);
 
 	if (reserve.seg_count == 0) {
-		
+		/* remove a client */
 		client_priv = agp_find_private(reserve.pid);
 
 		if (client_priv != NULL) {
@@ -808,7 +831,7 @@ static int agpioc_reserve_wrap(struct agp_file_private *priv, void __user *arg)
 			set_bit(AGP_FF_IS_VALID, &client_priv->access_flags);
 		}
 		if (client == NULL) {
-			
+			/* client is already removed */
 			return 0;
 		}
 		return agp_remove_client(reserve.pid);
@@ -832,7 +855,7 @@ static int agpioc_reserve_wrap(struct agp_file_private *priv, void __user *arg)
 		reserve.seg_list = segment;
 
 		if (client == NULL) {
-			
+			/* Create the client and add the segment */
 			client = agp_create_client(reserve.pid);
 
 			if (client == NULL) {
@@ -848,14 +871,14 @@ static int agpioc_reserve_wrap(struct agp_file_private *priv, void __user *arg)
 		}
 		return agp_create_segment(client, &reserve);
 	}
-	
+	/* Will never really happen */
 	return -EINVAL;
 }
 
 int agpioc_protect_wrap(struct agp_file_private *priv)
 {
 	DBG("");
-	
+	/* This function is not currently implemented */
 	return -EINVAL;
 }
 
@@ -958,6 +981,8 @@ static long agp_ioctl(struct file *file,
 			ret_val = -EPERM;
 			goto ioctl_out;
 		}
+		/* Use the original pid of the controller,
+		 * in case it's threaded */
 
 		if (agp_fe.current_controller->pid != curr_priv->my_pid) {
 			ret_val = -EBUSY;

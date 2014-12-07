@@ -35,10 +35,17 @@ static void msm_pm_restart(char str, const char *cmd)
 {
 	pr_debug("The reset reason is %x\n", restart_reason);
 
-	
+	/* Disable interrupts */
 	local_irq_disable();
 	local_fiq_disable();
 
+	/*
+	 * Take out a flat memory mapping  and will
+	 * insert a 1:1 mapping in place of
+	 * the user-mode pages to ensure predictable results
+	 * This function takes care of flushing the caches
+	 * and flushing the TLB.
+	 */
 	setup_mm_for_reboot();
 
 	msm_proc_comm(PCOM_RESET_CHIP, &restart_reason, 0);

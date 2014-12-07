@@ -16,15 +16,34 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/*
+ *
+ * Broadcom Common Firmware Environment (CFE)
+ *
+ * This module contains device function stubs (small routines to
+ * call the standard "iocb" interface entry point to CFE).
+ * There should be one routine here per iocb function call.
+ *
+ * Authors:  Mitch Lichtenberg, Chris Demetriou
+ */
 
 #include <asm/fw/cfe/cfe_api.h>
 #include "cfe_api_int.h"
 
+/* Cast from a native pointer to a cfe_xptr_t and back.	 */
 #define XPTR_FROM_NATIVE(n)	((cfe_xptr_t) (intptr_t) (n))
 #define NATIVE_FROM_XPTR(x)	((void *) (intptr_t) (x))
 
 int cfe_iocb_dispatch(struct cfe_xiocb *xiocb);
 
+/*
+ * Declare the dispatch function with args of "intptr_t".
+ * This makes sure whatever model we're compiling in
+ * puts the pointers in a single register.  For example,
+ * combining -mlong64 and -mips1 or -mips2 would lead to
+ * trouble, since the handle and IOCB pointer will be
+ * passed in two registers each, and CFE expects one.
+ */
 
 static int (*cfe_dispfunc) (intptr_t handle, intptr_t xiocb);
 static u64 cfe_handle;

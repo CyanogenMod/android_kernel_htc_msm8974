@@ -41,7 +41,7 @@ static void inet_frag_secret_rebuild(unsigned long dummy)
 			if (hval != i) {
 				hlist_del(&q->list);
 
-				
+				/* Relink to new hash chain. */
 				hlist_add_head(&q->list, &f->hash[hval]);
 			}
 		}
@@ -137,7 +137,7 @@ void inet_frag_destroy(struct inet_frag_queue *q, struct inet_frags *f,
 	WARN_ON(!(q->last_in & INET_FRAG_COMPLETE));
 	WARN_ON(del_timer(&q->timer) != 0);
 
-	
+	/* Release all fragment data. */
 	fp = q->fragments;
 	nf = q->net;
 	while (fp) {
@@ -201,8 +201,17 @@ static struct inet_frag_queue *inet_frag_intern(struct netns_frags *nf,
 	unsigned int hash;
 
 	write_lock(&f->lock);
+	/*
+	 * While we stayed w/o the lock other CPU could update
+	 * the rnd seed, so we need to re-calculate the hash
+	 * chain. Fortunatelly the qp_in can be used to get one.
+	 */
 	hash = f->hashfn(qp_in);
 #ifdef CONFIG_SMP
+	/* With SMP race we have to recheck hash table, because
+	 * such entry could be created on other cpu, while we
+	 * promoted read lock to write lock.
+	 */
 	hlist_for_each_entry(qp, n, &f->hash[hash], list) {
 		if (qp->net == nf && f->match(qp, arg)) {
 			atomic_inc(&qp->refcnt);

@@ -39,4 +39,4 @@ static inline int plat_iounmap(const volatile void __iomem *addr)
 	return is_bcm63xx_internal_registers((unsigned long)addr);
 }
 
-#endif 
+#endif /* BCM63XX_IOREMAP_H_ */

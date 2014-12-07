@@ -1,34 +1,40 @@
+/* net/atm/svc.c - ATM SVC sockets */
 
 /* Written 1995-2000 by Werner Almesberger, EPFL LRC/ICA */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ":%s: " fmt, __func__
 
 #include <linux/string.h>
-#include <linux/net.h>		
-#include <linux/errno.h>	
-#include <linux/kernel.h>	
+#include <linux/net.h>		/* struct socket, struct proto_ops */
+#include <linux/errno.h>	/* error codes */
+#include <linux/kernel.h>	/* printk */
 #include <linux/skbuff.h>
 #include <linux/wait.h>
-#include <linux/sched.h>	
-#include <linux/fcntl.h>	
+#include <linux/sched.h>	/* jiffies and HZ */
+#include <linux/fcntl.h>	/* O_NONBLOCK */
 #include <linux/init.h>
-#include <linux/atm.h>		
+#include <linux/atm.h>		/* ATM stuff */
 #include <linux/atmsap.h>
 #include <linux/atmsvc.h>
 #include <linux/atmdev.h>
 #include <linux/bitops.h>
-#include <net/sock.h>		
+#include <net/sock.h>		/* for sock_no_* */
 #include <linux/uaccess.h>
 #include <linux/export.h>
 
 #include "resources.h"
-#include "common.h"		
+#include "common.h"		/* common for PVCs and SVCs */
 #include "signaling.h"
 #include "addr.h"
 
 static int svc_create(struct net *net, struct socket *sock, int protocol,
 		      int kern);
 
+/*
+ * Note: since all this is still nicely synchronized with the signaling demon,
+ *       there's no need to protect sleep loops with clis. If signaling is
+ *       moved into the kernel, that would change.
+ */
 
 
 static int svc_shutdown(struct socket *sock, int how)
@@ -53,6 +59,8 @@ static void svc_disconnect(struct atm_vcc *vcc)
 		}
 		finish_wait(sk_sleep(sk), &wait);
 	}
+	/* beware - socket is still in use by atmsigd until the last
+	   as_indicate has been answered */
 	while ((skb = skb_dequeue(&sk->sk_receive_queue)) != NULL) {
 		atm_return(vcc, skb->truesize);
 		pr_debug("LISTEN REL\n");
@@ -60,7 +68,7 @@ static void svc_disconnect(struct atm_vcc *vcc)
 		dev_kfree_skb(skb);
 	}
 	clear_bit(ATM_VF_REGIS, &vcc->flags);
-	
+	/* ... may retry later */
 }
 
 static int svc_release(struct socket *sock)
@@ -72,6 +80,11 @@ static int svc_release(struct socket *sock)
 		vcc = ATM_SD(sock);
 		pr_debug("%p\n", vcc);
 		clear_bit(ATM_VF_READY, &vcc->flags);
+		/*
+		 * VCC pointer is used as a reference,
+		 * so we must not free it (thereby subjecting it to re-use)
+		 * before all pending connections are closed
+		 */
 		svc_disconnect(vcc);
 		vcc_release(sock);
 	}
@@ -105,8 +118,8 @@ static int svc_bind(struct socket *sock, struct sockaddr *sockaddr,
 		goto out;
 	}
 	clear_bit(ATM_VF_BOUND, &vcc->flags);
-	    
-	
+	    /* failing rebind will kill old binding */
+	/* @@@ check memory (de)allocation on rebind */
 	if (!test_bit(ATM_VF_HASQOS, &vcc->flags)) {
 		error = -EBADFD;
 		goto out;
@@ -120,7 +133,7 @@ static int svc_bind(struct socket *sock, struct sockaddr *sockaddr,
 		prepare_to_wait(sk_sleep(sk), &wait, TASK_UNINTERRUPTIBLE);
 	}
 	finish_wait(sk_sleep(sk), &wait);
-	clear_bit(ATM_VF_REGIS, &vcc->flags); 
+	clear_bit(ATM_VF_REGIS, &vcc->flags); /* doesn't count */
 	if (!sigd) {
 		error = -EUNATCH;
 		goto out;
@@ -206,6 +219,18 @@ static int svc_connect(struct socket *sock, struct sockaddr *sockaddr,
 				continue;
 			}
 			pr_debug("*ABORT*\n");
+			/*
+			 * This is tricky:
+			 *   Kernel ---close--> Demon
+			 *   Kernel <--close--- Demon
+			 * or
+			 *   Kernel ---close--> Demon
+			 *   Kernel <--error--- Demon
+			 * or
+			 *   Kernel ---close--> Demon
+			 *   Kernel <--okay---- Demon
+			 *   Kernel <--close--- Demon
+			 */
 			sigd_enq(vcc, as_close, NULL, NULL, NULL);
 			while (test_bit(ATM_VF_WAITING, &vcc->flags) && sigd) {
 				prepare_to_wait(sk_sleep(sk), &wait,
@@ -222,7 +247,7 @@ static int svc_connect(struct socket *sock, struct sockaddr *sockaddr,
 			clear_bit(ATM_VF_REGIS, &vcc->flags);
 			clear_bit(ATM_VF_RELEASED, &vcc->flags);
 			clear_bit(ATM_VF_CLOSE, &vcc->flags);
-			    
+			    /* we're gone now but may connect later */
 			error = -EINTR;
 			break;
 		}
@@ -238,9 +263,17 @@ static int svc_connect(struct socket *sock, struct sockaddr *sockaddr,
 			goto out;
 		}
 	}
+/*
+ * Not supported yet
+ *
+ * #ifndef CONFIG_SINGLE_SIGITF
+ */
 	vcc->qos.txtp.max_pcr = SELECT_TOP_PCR(vcc->qos.txtp);
 	vcc->qos.txtp.pcr = 0;
 	vcc->qos.txtp.min_pcr = 0;
+/*
+ * #endif
+ */
 	error = vcc_connect(sock, vcc->itf, vcc->vpi, vcc->vci);
 	if (!error)
 		sock->state = SS_CONNECTED;
@@ -260,7 +293,7 @@ static int svc_listen(struct socket *sock, int backlog)
 
 	pr_debug("%p\n", vcc);
 	lock_sock(sk);
-	
+	/* let server handle listen on unbound sockets */
 	if (test_bit(ATM_VF_SESSION, &vcc->flags)) {
 		error = -EINVAL;
 		goto out;
@@ -358,7 +391,7 @@ static int svc_accept(struct socket *sock, struct socket *newsock, int flags)
 			error = error == -EAGAIN ? -EBUSY : error;
 			goto out;
 		}
-		
+		/* wait should be short, so we ignore the non-blocking flag */
 		set_bit(ATM_VF_WAITING, &new_vcc->flags);
 		prepare_to_wait(sk_sleep(sk_atm(new_vcc)), &wait,
 				TASK_UNINTERRUPTIBLE);
@@ -581,6 +614,9 @@ static int svc_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 static int svc_compat_ioctl(struct socket *sock, unsigned int cmd,
 			    unsigned long arg)
 {
+	/* The definition of ATM_ADDPARTY uses the size of struct atm_iobuf.
+	   But actually it takes a struct sockaddr_atmsvc, which doesn't need
+	   compat handling. So all we have to do is fix up cmd... */
 	if (cmd == COMPAT_ATM_ADDPARTY)
 		cmd = ATM_ADDPARTY;
 
@@ -589,7 +625,7 @@ static int svc_compat_ioctl(struct socket *sock, unsigned int cmd,
 	else
 		return vcc_compat_ioctl(sock, cmd, arg);
 }
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static const struct proto_ops svc_proto_ops = {
 	.family =	PF_ATMSVC,
@@ -641,6 +677,9 @@ static const struct net_proto_family svc_family_ops = {
 };
 
 
+/*
+ *	Initialize the ATM SVC protocol family
+ */
 
 int __init atmsvc_init(void)
 {

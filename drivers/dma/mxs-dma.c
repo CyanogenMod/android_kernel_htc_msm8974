@@ -30,6 +30,11 @@
 
 #include "dmaengine.h"
 
+/*
+ * NOTE: The term "PIO" throughout the mxs-dma implementation means
+ * PIO mode of mxs apbh-dma and apbx-dma.  With this working mode,
+ * dma can program the controller registers of peripheral devices.
+ */
 
 #define MXS_DMA_APBH		0
 #define MXS_DMA_APBX		1
@@ -54,6 +59,21 @@
 #define HW_APBHX_CHn_SEMA(n) \
 	(((dma_is_apbh() && apbh_is_old()) ? 0x080 : 0x140) + (n) * 0x70)
 
+/*
+ * ccw bits definitions
+ *
+ * COMMAND:		0..1	(2)
+ * CHAIN:		2	(1)
+ * IRQ:			3	(1)
+ * NAND_LOCK:		4	(1) - not implemented
+ * NAND_WAIT4READY:	5	(1) - not implemented
+ * DEC_SEM:		6	(1)
+ * WAIT4END:		7	(1)
+ * HALT_ON_TERMINATE:	8	(1)
+ * TERMINATE_FLUSH:	9	(1)
+ * RESERVED:		10..11	(2)
+ * PIO_NUM:		12..15	(4)
+ */
 #define BP_CCW_COMMAND		0
 #define BM_CCW_COMMAND		(3 << 0)
 #define CCW_CHAIN		(1 << 2)
@@ -70,7 +90,7 @@
 #define MXS_DMA_CMD_NO_XFER	0
 #define MXS_DMA_CMD_WRITE	1
 #define MXS_DMA_CMD_READ	2
-#define MXS_DMA_CMD_DMA_SENSE	3	
+#define MXS_DMA_CMD_DMA_SENSE	3	/* not implemented */
 
 struct mxs_dma_ccw {
 	u32		next;
@@ -129,11 +149,11 @@ static void mxs_dma_enable_chan(struct mxs_dma_chan *mxs_chan)
 	struct mxs_dma_engine *mxs_dma = mxs_chan->mxs_dma;
 	int chan_id = mxs_chan->chan.chan_id;
 
-	
+	/* set cmd_addr up */
 	writel(mxs_chan->ccw_phys,
 		mxs_dma->base + HW_APBHX_CHn_NXTCMDAR(chan_id));
 
-	
+	/* write 1 to SEMA to kick off the channel */
 	writel(1, mxs_dma->base + HW_APBHX_CHn_SEMA(chan_id));
 }
 
@@ -147,7 +167,7 @@ static void mxs_dma_pause_chan(struct mxs_dma_chan *mxs_chan)
 	struct mxs_dma_engine *mxs_dma = mxs_chan->mxs_dma;
 	int chan_id = mxs_chan->chan.chan_id;
 
-	
+	/* freeze the channel */
 	if (dma_is_apbh() && apbh_is_old())
 		writel(1 << chan_id,
 			mxs_dma->base + HW_APBHX_CTRL0 + MXS_SET_ADDR);
@@ -163,7 +183,7 @@ static void mxs_dma_resume_chan(struct mxs_dma_chan *mxs_chan)
 	struct mxs_dma_engine *mxs_dma = mxs_chan->mxs_dma;
 	int chan_id = mxs_chan->chan.chan_id;
 
-	
+	/* unfreeze the channel */
 	if (dma_is_apbh() && apbh_is_old())
 		writel(1 << chan_id,
 			mxs_dma->base + HW_APBHX_CTRL0 + MXS_CLR_ADDR);
@@ -197,19 +217,25 @@ static irqreturn_t mxs_dma_int_handler(int irq, void *dev_id)
 	struct mxs_dma_engine *mxs_dma = dev_id;
 	u32 stat1, stat2;
 
-	
+	/* completion status */
 	stat1 = readl(mxs_dma->base + HW_APBHX_CTRL1);
 	stat1 &= MXS_DMA_CHANNELS_MASK;
 	writel(stat1, mxs_dma->base + HW_APBHX_CTRL1 + MXS_CLR_ADDR);
 
-	
+	/* error status */
 	stat2 = readl(mxs_dma->base + HW_APBHX_CTRL2);
 	writel(stat2, mxs_dma->base + HW_APBHX_CTRL2 + MXS_CLR_ADDR);
 
-	stat2 = ((stat2 >> MXS_DMA_CHANNELS) & stat2) | 
-		(~(stat2 >> MXS_DMA_CHANNELS) & stat2 & ~stat1); 
+	/*
+	 * When both completion and error of termination bits set at the
+	 * same time, we do not take it as an error.  IOW, it only becomes
+	 * an error we need to handle here in case of either it's (1) a bus
+	 * error or (2) a termination error with no completion.
+	 */
+	stat2 = ((stat2 >> MXS_DMA_CHANNELS) & stat2) | /* (1) */
+		(~(stat2 >> MXS_DMA_CHANNELS) & stat2 & ~stat1); /* (2) */
 
-	
+	/* combine error and completion status for checking */
 	stat1 = (stat2 << MXS_DMA_CHANNELS) | stat1;
 	while (stat1) {
 		int channel = fls(stat1) - 1;
@@ -234,7 +260,7 @@ static irqreturn_t mxs_dma_int_handler(int irq, void *dev_id)
 		if (mxs_chan->status == DMA_SUCCESS)
 			dma_cookie_complete(&mxs_chan->desc);
 
-		
+		/* schedule tasklet on this channel */
 		tasklet_schedule(&mxs_chan->tasklet);
 	}
 
@@ -278,7 +304,7 @@ static int mxs_dma_alloc_chan_resources(struct dma_chan *chan)
 	dma_async_tx_descriptor_init(&mxs_chan->desc, chan);
 	mxs_chan->desc.tx_submit = mxs_dma_tx_submit;
 
-	
+	/* the descriptor is ready */
 	async_tx_ack(&mxs_chan->desc);
 
 	return 0;
@@ -307,6 +333,28 @@ static void mxs_dma_free_chan_resources(struct dma_chan *chan)
 	clk_disable_unprepare(mxs_dma->clk);
 }
 
+/*
+ * How to use the flags for ->device_prep_slave_sg() :
+ *    [1] If there is only one DMA command in the DMA chain, the code should be:
+ *            ......
+ *            ->device_prep_slave_sg(DMA_CTRL_ACK);
+ *            ......
+ *    [2] If there are two DMA commands in the DMA chain, the code should be
+ *            ......
+ *            ->device_prep_slave_sg(0);
+ *            ......
+ *            ->device_prep_slave_sg(DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+ *            ......
+ *    [3] If there are more than two DMA commands in the DMA chain, the code
+ *        should be:
+ *            ......
+ *            ->device_prep_slave_sg(0);                                // First
+ *            ......
+ *            ->device_prep_slave_sg(DMA_PREP_INTERRUPT [| DMA_CTRL_ACK]);
+ *            ......
+ *            ->device_prep_slave_sg(DMA_PREP_INTERRUPT | DMA_CTRL_ACK); // Last
+ *            ......
+ */
 static struct dma_async_tx_descriptor *mxs_dma_prep_slave_sg(
 		struct dma_chan *chan, struct scatterlist *sgl,
 		unsigned int sg_len, enum dma_transfer_direction direction,
@@ -334,6 +382,10 @@ static struct dma_async_tx_descriptor *mxs_dma_prep_slave_sg(
 	mxs_chan->status = DMA_IN_PROGRESS;
 	mxs_chan->flags = 0;
 
+	/*
+	 * If the sg is prepared with append flag set, the sg
+	 * will be appended to the last prepared sg.
+	 */
 	if (append) {
 		BUG_ON(idx < 1);
 		ccw = &mxs_chan->ccw[idx - 1];
@@ -519,13 +571,13 @@ static int __init mxs_dma_init(struct mxs_dma_engine *mxs_dma)
 	if (ret)
 		goto err_out;
 
-	
+	/* only major version matters */
 	mxs_dma->version = readl(mxs_dma->base +
 				((mxs_dma->dev_id == MXS_DMA_APBX) ?
 				HW_APBX_VERSION : HW_APBH_VERSION)) >>
 				BP_APBHX_VERSION_MAJOR;
 
-	
+	/* enable apbh burst */
 	if (dma_is_apbh()) {
 		writel(BM_APBH_CTRL0_APB_BURST_EN,
 			mxs_dma->base + HW_APBHX_CTRL0 + MXS_SET_ADDR);
@@ -533,7 +585,7 @@ static int __init mxs_dma_init(struct mxs_dma_engine *mxs_dma)
 			mxs_dma->base + HW_APBHX_CTRL0 + MXS_SET_ADDR);
 	}
 
-	
+	/* enable irq for all the channels */
 	writel(MXS_DMA_CHANNELS_MASK << MXS_DMA_CHANNELS,
 		mxs_dma->base + HW_APBHX_CTRL1 + MXS_SET_ADDR);
 
@@ -581,7 +633,7 @@ static int __init mxs_dma_probe(struct platform_device *pdev)
 
 	INIT_LIST_HEAD(&mxs_dma->dma_device.channels);
 
-	
+	/* Initialize channel parameters */
 	for (i = 0; i < MXS_DMA_CHANNELS; i++) {
 		struct mxs_dma_chan *mxs_chan = &mxs_dma->mxs_chans[i];
 
@@ -593,7 +645,7 @@ static int __init mxs_dma_probe(struct platform_device *pdev)
 			     (unsigned long) mxs_chan);
 
 
-		
+		/* Add the channel to mxs_chan list */
 		list_add_tail(&mxs_chan->chan.device_node,
 			&mxs_dma->dma_device.channels);
 	}
@@ -604,7 +656,7 @@ static int __init mxs_dma_probe(struct platform_device *pdev)
 
 	mxs_dma->dma_device.dev = &pdev->dev;
 
-	
+	/* mxs_dma gets 65535 bytes maximum sg size */
 	mxs_dma->dma_device.dev->dma_parms = &mxs_dma->dma_parms;
 	dma_set_max_seg_size(mxs_dma->dma_device.dev, MAX_XFER_BYTES);
 
@@ -645,7 +697,7 @@ static struct platform_device_id mxs_dma_type[] = {
 		.name = "mxs-dma-apbx",
 		.driver_data = MXS_DMA_APBX,
 	}, {
-		
+		/* end of list */
 	}
 };
 

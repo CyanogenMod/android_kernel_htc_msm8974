@@ -90,6 +90,10 @@ static int iodyn_find_io(struct pcmcia_socket *s, unsigned int attr,
 {
 	int i, ret = 0;
 
+	/* Check for an already-allocated window that must conflict with
+	 * what was asked for.  It is a hack because it does not catch all
+	 * potential conflicts, just the most obvious ones.
+	 */
 	for (i = 0; i < MAX_IO_WIN; i++) {
 		if (!s->io[i].res)
 			continue;
@@ -127,7 +131,7 @@ static int iodyn_find_io(struct pcmcia_socket *s, unsigned int attr,
 			return 0;
 		}
 
-		
+		/* Try to extend top of window */
 		try = res->end + 1;
 		if ((*base == 0) || (*base == try)) {
 			if (adjust_resource(s->io[i].res, res->start,
@@ -139,7 +143,7 @@ static int iodyn_find_io(struct pcmcia_socket *s, unsigned int attr,
 			return 0;
 		}
 
-		
+		/* Try to extend bottom of window */
 		try = res->start - num;
 		if ((*base == 0) || (*base == try)) {
 			if (adjust_resource(s->io[i].res,

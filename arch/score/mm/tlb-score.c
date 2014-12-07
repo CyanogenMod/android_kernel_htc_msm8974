@@ -43,8 +43,8 @@ void local_flush_tlb_all(void)
 
 	local_irq_save(flags);
 	old_ASID = pevn_get() & ASID_MASK;
-	pectx_set(0);			
-	entry = tlblock_get();		
+	pectx_set(0);			/* invalid */
+	entry = tlblock_get();		/* skip locked entries*/
 
 	for (; entry < TLBSIZE; entry++) {
 		tlbpt_set(entry);
@@ -56,6 +56,10 @@ void local_flush_tlb_all(void)
 	local_irq_restore(flags);
 }
 
+/*
+ * If mm is currently active_mm, we can't really drop it. Instead,
+ * we will get a new one for it.
+ */
 static inline void
 drop_mmu_context(struct mm_struct *mm)
 {
@@ -107,7 +111,7 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 			}
 			pevn_set(oldpid);
 		} else {
-			
+			/* Bigger than TLBSIZE, get new ASID directly */
 			get_new_mmu_context(mm);
 			if (mm == current->active_mm)
 				pevn_set(vma_mm_context & ASID_MASK);
@@ -169,7 +173,7 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 		idx = tlbpt_get();
 		pectx_set(0);
 		pevn_set(KSEG1);
-		if (idx < 0)		
+		if (idx < 0)		/* p_bit(31) - 1: miss, 0: hit*/
 			goto finish;
 		barrier();
 		tlb_write_indexed();
@@ -179,6 +183,10 @@ finish:
 	}
 }
 
+/*
+ * This one is only used for pages with the global bit set so we don't care
+ * much about the ASID.
+ */
 void local_flush_tlb_one(unsigned long page)
 {
 	unsigned long flags;
@@ -193,7 +201,7 @@ void local_flush_tlb_one(unsigned long page)
 	idx = tlbpt_get();
 	pectx_set(0);
 	if (idx >= 0) {
-		
+		/* Make sure all entries differ. */
 		pevn_set(KSEG1);
 		barrier();
 		tlb_write_indexed();
@@ -207,6 +215,9 @@ void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t pte)
 	unsigned long flags;
 	int idx, pid;
 
+	/*
+	 * Handle debugger faulting in for debugee.
+	 */
 	if (current->active_mm != vma->vm_mm)
 		return;
 

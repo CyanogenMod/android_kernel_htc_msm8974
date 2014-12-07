@@ -49,22 +49,37 @@
 #include <asm/unaligned.h>
 
 
+/*--------------------------------------------------------------*
+ *               linux system include files
+ *--------------------------------------------------------------*/
 #include "hal_msm.h"
 #include "../hal/hal_intf.h"
 #include "../hal/isp1763.h"
 
 
+/*--------------------------------------------------------------*
+ *               Local variable Definitions
+ *--------------------------------------------------------------*/
 struct isp1763_dev isp1763_loc_dev[ISP1763_LAST_DEV];
 
 
+/*--------------------------------------------------------------*
+ *               Local # Definitions
+ *--------------------------------------------------------------*/
 #define         PCI_ACCESS_RETRY_COUNT  20
 #define         ISP1763_DRIVER_NAME     "isp1763_usb"
 
+/*--------------------------------------------------------------*
+ *               Local Function
+ *--------------------------------------------------------------*/
 
 static int __devexit isp1763_remove(struct platform_device *pdev);
 static int __devinit isp1763_probe(struct platform_device *pdev);
 
 
+/*--------------------------------------------------------------*
+ *               Platform Driver Interface Functions
+ *--------------------------------------------------------------*/
 
 static struct platform_driver isp1763_usb_driver = {
 	.remove = __exit_p(isp1763_remove),
@@ -75,11 +90,24 @@ static struct platform_driver isp1763_usb_driver = {
 };
 
 
+/*--------------------------------------------------------------*
+ *               ISP1763 Read write routine
+ *--------------------------------------------------------------*/
+/*
+ * EBI2 on 8660 ignores the first bit and shifts the address by
+ * one bit to the right.
+ * Hence, shift left all the register addresses before accessing
+ * them over EBI2.
+ * This logic applies only for the register read/writes, for
+ * read/write from ISP memory this conversion is not needed
+ * as the ISP obtains the memory address from 'memory' register
+ */
 
+/* Write a 32 bit Register of isp1763 */
 void
 isp1763_reg_write32(struct isp1763_dev *dev, u16 reg, u32 data)
 {
-	
+	/* Write the 32bit to the register address given to us */
 
 	reg <<= 1;
 #ifdef DATABUS_WIDTH_16
@@ -96,6 +124,7 @@ isp1763_reg_write32(struct isp1763_dev *dev, u16 reg, u32 data)
 EXPORT_SYMBOL(isp1763_reg_write32);
 
 
+/* Read a 32 bit Register of isp1763 */
 u32
 isp1763_reg_read32(struct isp1763_dev *dev, u16 reg, u32 data)
 {
@@ -135,6 +164,7 @@ isp1763_reg_read32(struct isp1763_dev *dev, u16 reg, u32 data)
 EXPORT_SYMBOL(isp1763_reg_read32);
 
 
+/* Read a 16 bit Register of isp1763 */
 u16
 isp1763_reg_read16(struct isp1763_dev * dev, u16 reg, u16 data)
 {
@@ -159,6 +189,7 @@ isp1763_reg_read16(struct isp1763_dev * dev, u16 reg, u16 data)
 }
 EXPORT_SYMBOL(isp1763_reg_read16);
 
+/* Write a 16 bit Register of isp1763 */
 void
 isp1763_reg_write16(struct isp1763_dev *dev, u16 reg, u16 data)
 {
@@ -177,6 +208,7 @@ isp1763_reg_write16(struct isp1763_dev *dev, u16 reg, u16 data)
 }
 EXPORT_SYMBOL(isp1763_reg_write16);
 
+/* Read a 8 bit Register of isp1763 */
 u8
 isp1763_reg_read8(struct isp1763_dev *dev, u16 reg, u8 data)
 {
@@ -186,6 +218,7 @@ isp1763_reg_read8(struct isp1763_dev *dev, u16 reg, u8 data)
 }
 EXPORT_SYMBOL(isp1763_reg_read8);
 
+/* Write a 8 bit Register of isp1763 */
 void
 isp1763_reg_write8(struct isp1763_dev *dev, u16 reg, u8 data)
 {
@@ -195,6 +228,27 @@ isp1763_reg_write8(struct isp1763_dev *dev, u16 reg, u8 data)
 EXPORT_SYMBOL(isp1763_reg_write8);
 
 
+/*--------------------------------------------------------------*
+ *
+ * Module dtatils: isp1763_mem_read
+ *
+ * Memory read using PIO method.
+ *
+ *  Input: struct isp1763_driver *drv  -->  Driver structure.
+ *                      u32 start_add     --> Starting address of memory
+ *              u32 end_add     ---> End address
+ *
+ *              u32 * buffer      --> Buffer pointer.
+ *              u32 length       ---> Length
+ *              u16 dir          ---> Direction ( Inc or Dec)
+ *
+ *  Output     int Length  ----> Number of bytes read
+ *
+ *  Called by: system function
+ *
+ *
+ *--------------------------------------------------------------*/
+/* Memory read function PIO */
 
 int
 isp1763_mem_read(struct isp1763_dev *dev, u32 start_add,
@@ -213,7 +267,7 @@ isp1763_mem_read(struct isp1763_dev *dev, u32 start_add,
 
 
 	isp1763_reg_write16(dev, HC_MEM_READ_REG, start_add);
-	
+	/* This delay requirement comes from the ISP1763A programming guide */
 	ndelay(100);
 last:
 	w = isp1763_reg_read16(dev, HC_DATA_REG, w);
@@ -261,7 +315,28 @@ last:
 EXPORT_SYMBOL(isp1763_mem_read);
 
 
+/*--------------------------------------------------------------*
+ *
+ * Module dtatils: isp1763_mem_write
+ *
+ * Memory write using PIO method.
+ *
+ *  Input: struct isp1763_driver *drv  -->  Driver structure.
+ *                      u32 start_add     --> Starting address of memory
+ *              u32 end_add     ---> End address
+ *
+ *              u32 * buffer      --> Buffer pointer.
+ *              u32 length       ---> Length
+ *              u16 dir          ---> Direction ( Inc or Dec)
+ *
+ *  Output     int Length  ----> Number of bytes read
+ *
+ *  Called by: system function
+ *
+ *
+ *--------------------------------------------------------------*/
 
+/* Memory read function IO */
 
 int
 isp1763_mem_write(struct isp1763_dev *dev,
@@ -273,7 +348,7 @@ isp1763_mem_write(struct isp1763_dev *dev,
 
 
 	isp1763_reg_write16(dev, HC_MEM_READ_REG, start_add);
-	
+	/* This delay requirement comes from the ISP1763A programming guide */
 	ndelay(100);
 
 	if (a == 1) {
@@ -304,6 +379,25 @@ isp1763_mem_write(struct isp1763_dev *dev,
 EXPORT_SYMBOL(isp1763_mem_write);
 
 
+/*--------------------------------------------------------------*
+ *
+ * Module dtatils: isp1763_register_driver
+ *
+ * This function is used by top driver (OTG, HCD, DCD) to register
+ * their communication functions (probe, remove, suspend, resume) using
+ * the drv data structure.
+ * This function will call the probe function of the driver if the ISP1763
+ * corresponding to the driver is enabled
+ *
+ *  Input: struct isp1763_driver *drv  --> Driver structure.
+ *  Output result
+ *         0= complete
+ *         1= error.
+ *
+ *  Called by: system function module_init
+ *
+ *
+ *--------------------------------------------------------------*/
 
 int
 isp1763_register_driver(struct isp1763_driver *drv)
@@ -322,7 +416,7 @@ isp1763_register_driver(struct isp1763_driver *drv)
 	if (!dev->baseaddress)
 		return -EINVAL;
 
-	dev->active = 1;	
+	dev->active = 1;	/* set the driver as active*/
 
 	if (drv->probe) {
 		result = drv->probe(dev, drv->id);
@@ -338,10 +432,29 @@ isp1763_register_driver(struct isp1763_driver *drv)
 	}
 	hal_entry("%s: Exit\n", __FUNCTION__);
 	return result;
-}				
+}				/* End of isp1763_register_driver */
 EXPORT_SYMBOL(isp1763_register_driver);
 
 
+/*--------------------------------------------------------------*
+ *
+ * Module dtatils: isp1763_unregister_driver
+ *
+ * This function is used by top driver (OTG, HCD, DCD) to de-register
+ * their communication functions (probe, remove, suspend, resume) using
+ * the drv data structure.
+ * This function will check whether the driver is registered or not and
+ * call the remove function of the driver if registered
+ *
+ *  Input: struct isp1763_driver *drv  --> Driver structure.
+ *  Output result
+ *         0= complete
+ *         1= error.
+ *
+ *  Called by: system function module_init
+ *
+ *
+ *--------------------------------------------------------------*/
 
 void
 isp1763_unregister_driver(struct isp1763_driver *drv)
@@ -352,19 +465,40 @@ isp1763_unregister_driver(struct isp1763_driver *drv)
 	info("isp1763_unregister_driver(drv=%p)\n", drv);
 	dev = &isp1763_loc_dev[drv->index];
 	if (dev->driver == drv) {
-		
+		/* driver registered is same as the requestig driver */
 		drv->remove(dev);
 		dev->driver = NULL;
 		info(": De-registered Driver %s\n", drv->name);
 		return;
 	}
 	hal_entry("%s: Exit\n", __FUNCTION__);
-}				
+}				/* End of isp1763_unregister_driver */
 EXPORT_SYMBOL(isp1763_unregister_driver);
 
 
+/*--------------------------------------------------------------*
+ *               ISP1763 Platform driver interface routine.
+ *--------------------------------------------------------------*/
 
 
+/*--------------------------------------------------------------*
+ *
+ *  Module dtatils: isp1763_module_init
+ *
+ *  This  is the module initialization function. It registers to
+ *  driver for a isp1763 platform device. And also resets the
+ *  internal data structures.
+ *
+ *  Input: void
+ *  Output result
+ *         0= complete
+ *         1= error.
+ *
+ *  Called by: system function module_init
+ *
+ *
+ *
+ -------------------------------------------------------------------*/
 static int __init
 isp1763_module_init(void)
 {
@@ -380,6 +514,21 @@ isp1763_module_init(void)
 	return result;
 }
 
+/*--------------------------------------------------------------*
+ *
+ *  Module dtatils: isp1763_module_cleanup
+ *
+ * This  is the module cleanup function. It de-registers the
+ * Platform driver and resets the internal data structures.
+ *
+ *  Input: void
+ *  Output void
+ *
+ *  Called by: system function module_cleanup
+ *
+ *
+ *
+ --------------------------------------------------------------*/
 
 static void __exit
 isp1763_module_cleanup(void)
@@ -399,6 +548,27 @@ void dummy_mem_read(struct isp1763_dev *dev)
 	pr_debug("dummy_read DONE: %x\n", w);
 	msleep(10);
 }
+/*--------------------------------------------------------------*
+ *
+ *  Module dtatils: isp1763_probe
+ *
+ * probe function of ISP1763
+ * This function is called from module_init if the corresponding platform
+ * device is present. This function initializes the information
+ * for the Host Controller with the assigned resources and tests the register
+ * access to the controller and do a software reset and makes it ready
+ * for the driver to play with. It also calls setup_gpio passed from pdata
+ * to setup GPIOs (e.g. used for IRQ and RST lines).
+ *
+ *  Input:
+ *              struct platform_device *dev   ----> Platform Device structure
+ *  Output void
+ *
+ *  Called by: system function module_cleanup
+ *
+ *
+ *
+ --------------------------------------------------------------**/
 
 static int __devinit
 isp1763_probe(struct platform_device *pdev)
@@ -418,7 +588,7 @@ isp1763_probe(struct platform_device *pdev)
 	loc_dev = &(isp1763_loc_dev[ISP1763_HC]);
 	loc_dev->dev = pdev;
 
-	
+	/* Get the Host Controller IO and INT resources */
 	loc_dev->mem_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!loc_dev->mem_res) {
 		pr_err("%s: failed to get platform resource mem\n", __func__);
@@ -441,13 +611,13 @@ isp1763_probe(struct platform_device *pdev)
 		goto free_regs;
 	}
 
-	loc_dev->index = ISP1763_HC;	
+	loc_dev->index = ISP1763_HC;	/*zero */
 	loc_dev->length = resource_size(loc_dev->mem_res);
 
 	hal_init(("isp1763 HC MEM Base= %p irq = %d\n",
 		loc_dev->baseaddress, loc_dev->irq));
 
-	
+	/* Setup GPIOs and isssue RESET_N to Controller */
 	if (pdata->setup_gpio)
 		if (pdata->setup_gpio(1))
 			pr_err("%s: Failed to setup GPIOs for isp1763\n",
@@ -465,7 +635,7 @@ isp1763_probe(struct platform_device *pdev)
 	chipid = isp1763_reg_read32(loc_dev, DC_CHIPID, chipid);
 	pr_info("START: chip id:%x\n", chipid);
 
-	
+	/*reset the host controller  */
 	pr_debug("RESETTING\n");
 	us_reset_hc |= 0x1;
 	isp1763_reg_write16(loc_dev, 0xB8, us_reset_hc);
@@ -481,10 +651,10 @@ isp1763_probe(struct platform_device *pdev)
 	hwmodectrl = isp1763_reg_read16(loc_dev, HC_HWMODECTRL_REG, hwmodectrl);
 	pr_debug("Mode Ctrl Value b4 setting buswidth: %x\n", hwmodectrl);
 #ifdef DATABUS_WIDTH_16
-	hwmodectrl &= 0xFFEF;	
+	hwmodectrl &= 0xFFEF;	/*enable the 16 bit bus */
 #else
 	pr_debug("Setting 8-BIT mode\n");
-	hwmodectrl |= 0x0010;	
+	hwmodectrl |= 0x0010;	/*enable the 8 bit bus */
 #endif
 	isp1763_reg_write16(loc_dev, HC_HWMODECTRL_REG, hwmodectrl);
 	pr_debug("writing 0x%x to hw mode reg\n", hwmodectrl);
@@ -531,9 +701,27 @@ put_mem_res:
 	loc_dev->baseaddress = NULL;
 	hal_entry("%s: Exit\n", __FUNCTION__);
 	return status;
-}				
+}				/* End of isp1763_probe */
 
 
+/*--------------------------------------------------------------*
+ *
+ *  Module details: isp1763_remove
+ *
+ * cleanup function of ISP1763
+ * This functions de-initializes the local variables, frees GPIOs
+ * and releases memory resource.
+ *
+ *  Input:
+ *              struct platform_device *dev    ----> Platform Device structure
+ *
+ *  Output void
+ *
+ *  Called by: system function module_cleanup
+ *
+ *
+ *
+ --------------------------------------------------------------*/
 static int __devexit
 isp1763_remove(struct platform_device *pdev)
 {
@@ -549,7 +737,7 @@ isp1763_remove(struct platform_device *pdev)
 		return pdata->setup_gpio(0);
 
 	return 0;
-}				
+}				/* End of isp1763_remove */
 
 
 MODULE_AUTHOR(DRIVER_AUTHOR);

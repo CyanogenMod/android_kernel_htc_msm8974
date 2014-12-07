@@ -467,19 +467,19 @@ static int pll_enable(struct clk *clk)
 	val = readl_relaxed(reg);
 	val &= ~BM_PLL_BYPASS;
 	val &= ~BM_PLL_POWER_DOWN;
-	
+	/* 480MHz PLLs have the opposite definition for power bit */
 	if (clk == &pll3_usb_otg || clk == &pll7_usb_host)
 		val |= BM_PLL_POWER_DOWN;
 	writel_relaxed(val, reg);
 
-	
+	/* Wait for PLL to lock */
 	while (!(readl_relaxed(reg) & BM_PLL_LOCK) && --timeout)
 		cpu_relax();
 
 	if (unlikely(!timeout))
 		return -EBUSY;
 
-	
+	/* Enable the PLL output now */
 	val = readl_relaxed(reg);
 	val |= BM_PLL_ENABLE;
 	writel_relaxed(val, reg);
@@ -723,12 +723,20 @@ static int pfd_set_rate(struct clk *clk, unsigned long rate)
 	if (apbh_dma_clk.usecount == 0)
 		apbh_dma_clk.enable(&apbh_dma_clk);
 
+	/*
+	 * Round up the divider so that we don't set a rate
+	 * higher than what is requested
+	 */
 	tmp += rate / 2;
 	do_div(tmp, rate);
 	frac = tmp;
 	frac = (frac < 12) ? 12 : frac;
 	frac = (frac > 35) ? 35 : frac;
 
+	/*
+	 * The frac field always starts from 7 bits lower
+	 * position of enable bit
+	 */
 	bp_frac = clk->enable_shift - 7;
 	val = readl_relaxed(clk->enable_reg);
 	val &= ~(PFD_FRAC_MASK << bp_frac);
@@ -2035,7 +2043,7 @@ int __init mx6q_clocks_init(void)
 	void __iomem *base;
 	int i, irq;
 
-	
+	/* retrieve the freqency of fixed clocks from device tree */
 	for_each_compatible_node(np, NULL, "fixed-clock") {
 		u32 rate;
 		if (of_property_read_u32(np, "clock-frequency", &rate))
@@ -2052,7 +2060,7 @@ int __init mx6q_clocks_init(void)
 	for (i = 0; i < ARRAY_SIZE(lookups); i++)
 		clkdev_add(&lookups[i]);
 
-	
+	/* only keep necessary clocks on */
 	writel_relaxed(0x3 << CG0  | 0x3 << CG1  | 0x3 << CG2,	CCGR0);
 	writel_relaxed(0x3 << CG8  | 0x3 << CG9  | 0x3 << CG10,	CCGR2);
 	writel_relaxed(0x3 << CG10 | 0x3 << CG12,		CCGR3);
@@ -2076,6 +2084,16 @@ int __init mx6q_clocks_init(void)
 	clk_set_rate(&asrc_serial_clk, 1500000);
 	clk_set_rate(&enfc_clk, 11000000);
 
+	/*
+	 * Before pinctrl API is available, we have to rely on the pad
+	 * configuration set up by bootloader.  For usdhc example here,
+	 * u-boot sets up the pads for 49.5 MHz case, and we have to lower
+	 * the usdhc clock from 198 to 49.5 MHz to match the pad configuration.
+	 *
+	 * FIXME: This is should be removed after pinctrl API is available.
+	 * At that time, usdhc driver can call pinctrl API to change pad
+	 * configuration dynamically per different usdhc clock settings.
+	 */
 	clk_set_rate(&usdhc1_clk, 49500000);
 	clk_set_rate(&usdhc2_clk, 49500000);
 	clk_set_rate(&usdhc3_clk, 49500000);

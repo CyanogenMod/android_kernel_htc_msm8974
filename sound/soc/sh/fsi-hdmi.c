@@ -96,7 +96,7 @@ static struct fsi_hdmi_data fsi2_b_hdmi = {
 };
 
 static struct platform_device_id fsi_id_table[] = {
-	
+	/* FSI 2 */
 	{ "sh_fsi2_a_hdmi",	(kernel_ulong_t)&fsi2_a_hdmi },
 	{ "sh_fsi2_b_hdmi",	(kernel_ulong_t)&fsi2_b_hdmi },
 	{},

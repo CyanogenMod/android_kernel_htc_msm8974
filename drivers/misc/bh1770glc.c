@@ -35,33 +35,35 @@
 #include <linux/wait.h>
 #include <linux/slab.h>
 
-#define BH1770_ALS_CONTROL	0x80 
-#define BH1770_PS_CONTROL	0x81 
-#define BH1770_I_LED		0x82 
-#define BH1770_I_LED3		0x83 
-#define BH1770_ALS_PS_MEAS	0x84 
-#define BH1770_PS_MEAS_RATE	0x85 
-#define BH1770_ALS_MEAS_RATE	0x86 
-#define BH1770_PART_ID		0x8a 
-#define BH1770_MANUFACT_ID	0x8b 
-#define BH1770_ALS_DATA_0	0x8c 
-#define BH1770_ALS_DATA_1	0x8d 
-#define BH1770_ALS_PS_STATUS	0x8e 
-#define BH1770_PS_DATA_LED1	0x8f 
-#define BH1770_PS_DATA_LED2	0x90 
-#define BH1770_PS_DATA_LED3	0x91 
-#define BH1770_INTERRUPT	0x92 
-#define BH1770_PS_TH_LED1	0x93 
-#define BH1770_PS_TH_LED2	0x94 
-#define BH1770_PS_TH_LED3	0x95 
-#define BH1770_ALS_TH_UP_0	0x96 
-#define BH1770_ALS_TH_UP_1	0x97 
-#define BH1770_ALS_TH_LOW_0	0x98 
-#define BH1770_ALS_TH_LOW_1	0x99 
+#define BH1770_ALS_CONTROL	0x80 /* ALS operation mode control */
+#define BH1770_PS_CONTROL	0x81 /* PS operation mode control */
+#define BH1770_I_LED		0x82 /* active LED and LED1, LED2 current */
+#define BH1770_I_LED3		0x83 /* LED3 current setting */
+#define BH1770_ALS_PS_MEAS	0x84 /* Forced mode trigger */
+#define BH1770_PS_MEAS_RATE	0x85 /* PS meas. rate at stand alone mode */
+#define BH1770_ALS_MEAS_RATE	0x86 /* ALS meas. rate at stand alone mode */
+#define BH1770_PART_ID		0x8a /* Part number and revision ID */
+#define BH1770_MANUFACT_ID	0x8b /* Manufacturerer ID */
+#define BH1770_ALS_DATA_0	0x8c /* ALS DATA low byte */
+#define BH1770_ALS_DATA_1	0x8d /* ALS DATA high byte */
+#define BH1770_ALS_PS_STATUS	0x8e /* Measurement data and int status */
+#define BH1770_PS_DATA_LED1	0x8f /* PS data from LED1 */
+#define BH1770_PS_DATA_LED2	0x90 /* PS data from LED2 */
+#define BH1770_PS_DATA_LED3	0x91 /* PS data from LED3 */
+#define BH1770_INTERRUPT	0x92 /* Interrupt setting */
+#define BH1770_PS_TH_LED1	0x93 /* PS interrupt threshold for LED1 */
+#define BH1770_PS_TH_LED2	0x94 /* PS interrupt threshold for LED2 */
+#define BH1770_PS_TH_LED3	0x95 /* PS interrupt threshold for LED3 */
+#define BH1770_ALS_TH_UP_0	0x96 /* ALS upper threshold low byte */
+#define BH1770_ALS_TH_UP_1	0x97 /* ALS upper threshold high byte */
+#define BH1770_ALS_TH_LOW_0	0x98 /* ALS lower threshold low byte */
+#define BH1770_ALS_TH_LOW_1	0x99 /* ALS lower threshold high byte */
 
+/* MANUFACT_ID */
 #define BH1770_MANUFACT_ROHM	0x01
 #define BH1770_MANUFACT_OSRAM	0x03
 
+/* PART_ID */
 #define BH1770_PART		0x90
 #define BH1770_PART_MASK	0xf0
 #define BH1770_REV_MASK		0x0f
@@ -69,6 +71,7 @@
 #define BH1770_REV_0		0x00
 #define BH1770_REV_1		0x01
 
+/* Operating modes for both */
 #define BH1770_STANDBY		0x00
 #define BH1770_FORCED		0x02
 #define BH1770_STANDALONE	0x03
@@ -77,11 +80,13 @@
 #define BH1770_PS_TRIG_MEAS	(1 << 0)
 #define BH1770_ALS_TRIG_MEAS	(1 << 1)
 
-#define BH1770_INT_OUTPUT_MODE	(1 << 3) 
-#define BH1770_INT_POLARITY	(1 << 2) 
+/* Interrupt control */
+#define BH1770_INT_OUTPUT_MODE	(1 << 3) /* 0 = latched */
+#define BH1770_INT_POLARITY	(1 << 2) /* 1 = active high */
 #define BH1770_INT_ALS_ENA	(1 << 1)
 #define BH1770_INT_PS_ENA	(1 << 0)
 
+/* Interrupt status */
 #define BH1770_INT_LED1_DATA	(1 << 0)
 #define BH1770_INT_LED1_INT	(1 << 1)
 #define BH1770_INT_LED2_DATA	(1 << 2)
@@ -92,18 +97,19 @@
 #define BH1770_INT_ALS_DATA	(1 << 6)
 #define BH1770_INT_ALS_INT	(1 << 7)
 
+/* Led channels */
 #define BH1770_LED1		0x00
 
 #define BH1770_DISABLE		0
 #define BH1770_ENABLE		1
 #define BH1770_PROX_CHANNELS	1
 
-#define BH1770_LUX_DEFAULT_RATE	1 
-#define BH1770_PROX_DEFAULT_RATE 1 
-#define BH1770_PROX_DEF_RATE_THRESH 6 
+#define BH1770_LUX_DEFAULT_RATE	1 /* Index to lux rate table */
+#define BH1770_PROX_DEFAULT_RATE 1 /* Direct HW value =~ 50Hz */
+#define BH1770_PROX_DEF_RATE_THRESH 6 /* Direct HW value =~ 5 Hz */
 #define BH1770_STARTUP_DELAY	50
 #define BH1770_RESET_TIME	10
-#define BH1770_TIMEOUT		2100 
+#define BH1770_TIMEOUT		2100 /* Timeout in 2.1 seconds */
 
 #define BH1770_LUX_RANGE	65535
 #define BH1770_PROX_RANGE	255
@@ -116,7 +122,7 @@
 #define BH1770_DEFAULT_PERSISTENCE  10
 #define BH1770_PROX_MAX_PERSISTENCE 50
 #define BH1770_LUX_GA_SCALE	16384
-#define BH1770_LUX_CF_SCALE	2048 
+#define BH1770_LUX_CF_SCALE	2048 /* CF ChipFactor */
 #define BH1770_NEUTRAL_CF	BH1770_LUX_CF_SCALE
 #define BH1770_LUX_CORR_SCALE	4096
 
@@ -131,13 +137,13 @@ struct bh1770_chip {
 	u8				revision;
 	struct i2c_client		*client;
 	struct regulator_bulk_data	regs[2];
-	struct mutex			mutex; 
+	struct mutex			mutex; /* avoid parallel access */
 	wait_queue_head_t		wait;
 
 	bool			int_mode_prox;
 	bool			int_mode_lux;
 	struct delayed_work	prox_work;
-	u32	lux_cf; 
+	u32	lux_cf; /* Chip specific factor */
 	u32	lux_ga;
 	u32	lux_calib;
 	int	lux_rate_index;
@@ -167,18 +173,31 @@ struct bh1770_chip {
 static const char reg_vcc[] = "Vcc";
 static const char reg_vleds[] = "Vleds";
 
+/*
+ * Supported stand alone rates in ms from chip data sheet
+ * {10, 20, 30, 40, 70, 100, 200, 500, 1000, 2000};
+ */
 static const s16 prox_rates_hz[] = {100, 50, 33, 25, 14, 10, 5, 2};
 static const s16 prox_rates_ms[] = {10, 20, 30, 40, 70, 100, 200, 500};
 
+/* Supported IR-led currents in mA */
 static const u8 prox_curr_ma[] = {5, 10, 20, 50, 100, 150, 200};
 
+/*
+ * Supported stand alone rates in ms from chip data sheet
+ * {100, 200, 500, 1000, 2000};
+ */
 static const s16 lux_rates_hz[] = {10, 5, 2, 1, 0};
 
+/*
+ * interrupt control functions are called while keeping chip->mutex
+ * excluding module probe / remove
+ */
 static inline int bh1770_lux_interrupt_control(struct bh1770_chip *chip,
 					int lux)
 {
 	chip->int_mode_lux = lux;
-	
+	/* Set interrupt modes, interrupt active low, latched */
 	return i2c_smbus_write_byte_data(chip->client,
 					BH1770_INTERRUPT,
 					(lux << 1) | chip->int_mode_prox);
@@ -193,13 +212,14 @@ static inline int bh1770_prox_interrupt_control(struct bh1770_chip *chip,
 					(chip->int_mode_lux << 1) | (ps << 0));
 }
 
+/* chip->mutex is always kept here */
 static int bh1770_lux_rate(struct bh1770_chip *chip, int rate_index)
 {
-	
+	/* sysfs may call this when the chip is powered off */
 	if (pm_runtime_suspended(&chip->client->dev))
 		return 0;
 
-	
+	/* Proper proximity response needs fastest lux rate (100ms) */
 	if (chip->prox_enable_count)
 		rate_index = 0;
 
@@ -220,9 +240,10 @@ static int bh1770_prox_rate(struct bh1770_chip *chip, int mode)
 					rate);
 }
 
+/* InfraredLED is controlled by the chip during proximity scanning */
 static inline int bh1770_led_cfg(struct bh1770_chip *chip)
 {
-	
+	/* LED cfg, current for leds 1 and 2 */
 	return i2c_smbus_write_byte_data(chip->client,
 					BH1770_I_LED,
 					(BH1770_LED1 << 6) |
@@ -230,6 +251,12 @@ static inline int bh1770_led_cfg(struct bh1770_chip *chip)
 					chip->prox_led);
 }
 
+/*
+ * Following two functions converts raw ps values from HW to normalized
+ * values. Purpose is to compensate differences between different sensor
+ * versions and variants so that result means about the same between
+ * versions.
+ */
 static inline u8 bh1770_psraw_to_adjusted(struct bh1770_chip *chip, u8 psraw)
 {
 	u16 adjusted;
@@ -252,11 +279,17 @@ static inline u8 bh1770_psadjusted_to_raw(struct bh1770_chip *chip, u8 ps)
 	return raw;
 }
 
+/*
+ * Following two functions converts raw lux values from HW to normalized
+ * values. Purpose is to compensate differences between different sensor
+ * versions and variants so that result means about the same between
+ * versions. Chip->mutex is kept when this is called.
+ */
 static int bh1770_prox_set_threshold(struct bh1770_chip *chip)
 {
 	u8 tmp = 0;
 
-	
+	/* sysfs may call this when the chip is powered off */
 	if (pm_runtime_suspended(&chip->client->dev))
 		return 0;
 
@@ -280,16 +313,22 @@ static inline u16 bh1770_lux_adjusted_to_raw(struct bh1770_chip *chip,
 	return (u32)adjusted * BH1770_LUX_CORR_SCALE / chip->lux_corr;
 }
 
+/* chip->mutex is kept when this is called */
 static int bh1770_lux_update_thresholds(struct bh1770_chip *chip,
 					u16 threshold_hi, u16 threshold_lo)
 {
 	u8 data[4];
 	int ret;
 
-	
+	/* sysfs may call this when the chip is powered off */
 	if (pm_runtime_suspended(&chip->client->dev))
 		return 0;
 
+	/*
+	 * Compensate threshold values with the correction factors if not
+	 * set to minimum or maximum.
+	 * Min & max values disables interrupts.
+	 */
 	if (threshold_hi != BH1770_LUX_RANGE && threshold_hi != 0)
 		threshold_hi = bh1770_lux_adjusted_to_raw(chip, threshold_hi);
 
@@ -334,14 +373,15 @@ static int bh1770_lux_get_result(struct bh1770_chip *chip)
 	return 0;
 }
 
+/* Calculate correction value which contains chip and device specific parts */
 static u32 bh1770_get_corr_value(struct bh1770_chip *chip)
 {
 	u32 tmp;
-	
+	/* Impact of glass attenuation correction */
 	tmp = (BH1770_LUX_CORR_SCALE * chip->lux_ga) / BH1770_LUX_GA_SCALE;
-	
+	/* Impact of chip factor correction */
 	tmp = (tmp * chip->lux_cf) / BH1770_LUX_CF_SCALE;
-	
+	/* Impact of Device specific calibration correction */
 	tmp = (tmp * chip->lux_calib) / BH1770_CALIB_SCALER;
 	return tmp;
 }
@@ -352,6 +392,10 @@ static int bh1770_lux_read_result(struct bh1770_chip *chip)
 	return bh1770_lux_raw_to_adjusted(chip, chip->lux_data_raw);
 }
 
+/*
+ * Chip on / off functions are called while keeping mutex except probe
+ * or remove phase
+ */
 static int bh1770_chip_on(struct bh1770_chip *chip)
 {
 	int ret = regulator_bulk_enable(ARRAY_SIZE(chip->regs),
@@ -361,17 +405,22 @@ static int bh1770_chip_on(struct bh1770_chip *chip)
 
 	usleep_range(BH1770_STARTUP_DELAY, BH1770_STARTUP_DELAY * 2);
 
-	
+	/* Reset the chip */
 	i2c_smbus_write_byte_data(chip->client, BH1770_ALS_CONTROL,
 				BH1770_SWRESET);
 	usleep_range(BH1770_RESET_TIME, BH1770_RESET_TIME * 2);
 
+	/*
+	 * ALS is started always since proximity needs als results
+	 * for realibility estimation.
+	 * Let's assume dark until the first ALS measurement is ready.
+	 */
 	chip->lux_data_raw = 0;
 	chip->prox_data = 0;
 	ret = i2c_smbus_write_byte_data(chip->client,
 					BH1770_ALS_CONTROL, BH1770_STANDALONE);
 
-	
+	/* Assume reset defaults */
 	chip->lux_thres_hi_onchip = BH1770_LUX_RANGE;
 	chip->lux_thres_lo_onchip = 0;
 
@@ -389,10 +438,11 @@ static void bh1770_chip_off(struct bh1770_chip *chip)
 	regulator_bulk_disable(ARRAY_SIZE(chip->regs), chip->regs);
 }
 
+/* chip->mutex is kept when this is called */
 static int bh1770_prox_mode_control(struct bh1770_chip *chip)
 {
 	if (chip->prox_enable_count) {
-		chip->prox_force_update = true; 
+		chip->prox_force_update = true; /* Force immediate update */
 
 		bh1770_lux_rate(chip, chip->lux_rate_index);
 		bh1770_prox_set_threshold(chip);
@@ -411,6 +461,7 @@ static int bh1770_prox_mode_control(struct bh1770_chip *chip)
 	return 0;
 }
 
+/* chip->mutex is kept when this is called */
 static int bh1770_prox_read_result(struct bh1770_chip *chip)
 {
 	int ret;
@@ -426,19 +477,24 @@ static int bh1770_prox_read_result(struct bh1770_chip *chip)
 	else
 		above = false;
 
+	/*
+	 * when ALS levels goes above limit, proximity result may be
+	 * false proximity. Thus ignore the result. With real proximity
+	 * there is a shadow causing low als levels.
+	 */
 	if (chip->lux_data_raw > PROX_IGNORE_LUX_LIMIT)
 		ret = 0;
 
 	chip->prox_data = bh1770_psraw_to_adjusted(chip, ret);
 
-	
+	/* Strong proximity level or force mode requires immediate response */
 	if (chip->prox_data >= chip->prox_abs_thres ||
 	    chip->prox_force_update)
 		chip->prox_persistence_counter = chip->prox_persistence;
 
 	chip->prox_force_update = false;
 
-	
+	/* Persistence filttering to reduce false proximity events */
 	if (likely(above)) {
 		if (chip->prox_persistence_counter < chip->prox_persistence) {
 			chip->prox_persistence_counter++;
@@ -454,7 +510,7 @@ static int bh1770_prox_read_result(struct bh1770_chip *chip)
 		ret = 0;
 	}
 
-	
+	/* Set proximity detection rate based on above or below value */
 	if (ret == 0) {
 		bh1770_prox_rate(chip, mode);
 		sysfs_notify(&chip->client->dev.kobj, NULL, "prox0_raw");
@@ -493,8 +549,8 @@ static int bh1770_detect(struct bh1770_chip *chip)
 	if ((manu == BH1770_MANUFACT_OSRAM) &&
 	    ((part & BH1770_PART_MASK) == BH1770_PART)) {
 		snprintf(chip->chipname, sizeof(chip->chipname), "SFH7770");
-		
-		chip->prox_coef = 819; 
+		/* Values selected by comparing different versions */
+		chip->prox_coef = 819; /* 0.8 * BH1770_COEF_SCALER */
 		chip->prox_const = 40;
 		return 0;
 	}
@@ -506,6 +562,14 @@ error:
 	return ret;
 }
 
+/*
+ * This work is re-scheduled at every proximity interrupt.
+ * If this work is running, it means that there hasn't been any
+ * proximity interrupt in time. Situation is handled as no-proximity.
+ * It would be nice to have low-threshold interrupt or interrupt
+ * when measurement and hi-threshold are both 0. But neither of those exists.
+ * This is a workaroud for missing HW feature.
+ */
 
 static void bh1770_prox_work(struct work_struct *work)
 {
@@ -517,6 +581,7 @@ static void bh1770_prox_work(struct work_struct *work)
 	mutex_unlock(&chip->mutex);
 }
 
+/* This is threaded irq handler */
 static irqreturn_t bh1770_irq(int irq, void *data)
 {
 	struct bh1770_chip *chip = data;
@@ -526,9 +591,13 @@ static irqreturn_t bh1770_irq(int irq, void *data)
 	mutex_lock(&chip->mutex);
 	status = i2c_smbus_read_byte_data(chip->client, BH1770_ALS_PS_STATUS);
 
-	
+	/* Acknowledge interrupt by reading this register */
 	i2c_smbus_read_byte_data(chip->client, BH1770_INTERRUPT);
 
+	/*
+	 * Check if there is fresh data available for als.
+	 * If this is the very first data, update thresholds after that.
+	 */
 	if (status & BH1770_INT_ALS_DATA) {
 		bh1770_lux_get_result(chip);
 		if (unlikely(chip->lux_wait_result)) {
@@ -540,7 +609,7 @@ static irqreturn_t bh1770_irq(int irq, void *data)
 		}
 	}
 
-	
+	/* Disable interrupt logic to guarantee acknowledgement */
 	i2c_smbus_write_byte_data(chip->client, BH1770_INTERRUPT,
 				  (0 << 1) | (0 << 0));
 
@@ -552,13 +621,21 @@ static irqreturn_t bh1770_irq(int irq, void *data)
 		bh1770_prox_read_result(chip);
 	}
 
-	
+	/* Re-enable interrupt logic */
 	i2c_smbus_write_byte_data(chip->client, BH1770_INTERRUPT,
 				  (chip->int_mode_lux << 1) |
 				  (chip->int_mode_prox << 0));
 	mutex_unlock(&chip->mutex);
 
+	/*
+	 * Can't cancel work while keeping mutex since the work uses the
+	 * same mutex.
+	 */
 	if (rate) {
+		/*
+		 * Simulate missing no-proximity interrupt 50ms after the
+		 * next expected interrupt time.
+		 */
 		cancel_delayed_work_sync(&chip->prox_work);
 		schedule_delayed_work(&chip->prox_work,
 				msecs_to_jiffies(rate + 50));
@@ -593,10 +670,10 @@ static ssize_t bh1770_power_state_store(struct device *dev,
 			goto leave;
 		}
 
-		
+		/* This causes interrupt after the next measurement cycle */
 		bh1770_lux_update_thresholds(chip, BH1770_LUX_DEF_THRES,
 					BH1770_LUX_DEF_THRES);
-		
+		/* Inform that we are waiting for a result from ALS */
 		chip->lux_wait_result = true;
 		bh1770_prox_mode_control(chip);
 	} else if (!pm_runtime_suspended(dev)) {
@@ -622,7 +699,7 @@ static ssize_t bh1770_lux_result_show(struct device *dev,
 	long timeout;
 
 	if (pm_runtime_suspended(dev))
-		return -EIO; 
+		return -EIO; /* Chip is not enabled at all */
 
 	timeout = wait_event_interruptible_timeout(chip->wait,
 					!chip->lux_wait_result,
@@ -654,7 +731,7 @@ static ssize_t bh1770_prox_enable_store(struct device *dev,
 		return -EINVAL;
 
 	mutex_lock(&chip->mutex);
-	
+	/* Assume no proximity. Sensor will tell real state soon */
 	if (!chip->prox_enable_count)
 		chip->prox_data = 0;
 
@@ -665,7 +742,7 @@ static ssize_t bh1770_prox_enable_store(struct device *dev,
 	else
 		goto leave;
 
-	
+	/* Run control only when chip is powered on */
 	if (!pm_runtime_suspended(dev))
 		bh1770_prox_mode_control(chip);
 leave:
@@ -900,7 +977,7 @@ static ssize_t bh1770_lux_calib_store(struct device *dev,
 		return -EINVAL;
 	}
 	chip->lux_corr = new_corr;
-	
+	/* Refresh thresholds on HW after changing correction value */
 	bh1770_lux_update_thresholds(chip, chip->lux_threshold_hi,
 				chip->lux_threshold_lo);
 
@@ -981,6 +1058,10 @@ static ssize_t bh1770_set_lux_thresh(struct bh1770_chip *chip, u16 *target,
 
 	mutex_lock(&chip->mutex);
 	*target = thresh;
+	/*
+	 * Don't update values in HW if we are still waiting for
+	 * first interrupt to come after device handle open call.
+	 */
 	if (!chip->lux_wait_result)
 		ret = bh1770_lux_update_thresholds(chip,
 						chip->lux_threshold_hi,
@@ -1145,7 +1226,7 @@ static int __devinit bh1770_probe(struct i2c_client *client,
 	if (err < 0)
 		goto fail3;
 
-	
+	/* Start chip */
 	bh1770_chip_on(chip);
 	pm_runtime_set_active(&client->dev);
 	pm_runtime_enable(&client->dev);
@@ -1172,6 +1253,11 @@ static int __devinit bh1770_probe(struct i2c_client *client,
 		goto fail4;
 	}
 
+	/*
+	 * Chip needs level triggered interrupt to work. However,
+	 * level triggering doesn't work always correctly with power
+	 * management. Select both
+	 */
 	err = request_threaded_irq(client->irq, NULL,
 				bh1770_irq,
 				IRQF_TRIGGER_FALLING | IRQF_ONESHOT |
@@ -1244,13 +1330,17 @@ static int bh1770_resume(struct device *dev)
 	bh1770_chip_on(chip);
 
 	if (!pm_runtime_suspended(dev)) {
+		/*
+		 * If we were enabled at suspend time, it is expected
+		 * everything works nice and smoothly
+		 */
 		ret = bh1770_lux_rate(chip, chip->lux_rate_index);
 		ret |= bh1770_lux_interrupt_control(chip, BH1770_ENABLE);
 
-		
+		/* This causes interrupt after the next measurement cycle */
 		bh1770_lux_update_thresholds(chip, BH1770_LUX_DEF_THRES,
 					BH1770_LUX_DEF_THRES);
-		
+		/* Inform that we are waiting for a result from ALS */
 		chip->lux_wait_result = true;
 		bh1770_prox_mode_control(chip);
 	}

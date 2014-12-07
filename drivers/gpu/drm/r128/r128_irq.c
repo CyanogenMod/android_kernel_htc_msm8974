@@ -1,3 +1,4 @@
+/* r128_irq.c -- IRQ handling for radeon -*- linux-c -*- */
 /*
  * Copyright (C) The Weather Channel, Inc.  2002.  All Rights Reserved.
  *
@@ -52,7 +53,7 @@ irqreturn_t r128_driver_irq_handler(DRM_IRQ_ARGS)
 
 	status = R128_READ(R128_GEN_INT_STATUS);
 
-	
+	/* VBLANK interrupt */
 	if (status & R128_CRTC_VBLANK_INT) {
 		R128_WRITE(R128_GEN_INT_STATUS, R128_CRTC_VBLANK_INT_AK);
 		atomic_inc(&dev_priv->vbl_received);
@@ -80,15 +81,22 @@ void r128_disable_vblank(struct drm_device *dev, int crtc)
 	if (crtc != 0)
 		DRM_ERROR("%s:  bad crtc %d\n", __func__, crtc);
 
+	/*
+	 * FIXME: implement proper interrupt disable by using the vblank
+	 * counter register (if available)
+	 *
+	 * R128_WRITE(R128_GEN_INT_CNTL,
+	 *            R128_READ(R128_GEN_INT_CNTL) & ~R128_CRTC_VBLANK_INT_EN);
+	 */
 }
 
 void r128_driver_irq_preinstall(struct drm_device *dev)
 {
 	drm_r128_private_t *dev_priv = (drm_r128_private_t *) dev->dev_private;
 
-	
+	/* Disable *all* interrupts */
 	R128_WRITE(R128_GEN_INT_CNTL, 0);
-	
+	/* Clear vblank bit if it's already high */
 	R128_WRITE(R128_GEN_INT_STATUS, R128_CRTC_VBLANK_INT_AK);
 }
 
@@ -103,6 +111,6 @@ void r128_driver_irq_uninstall(struct drm_device *dev)
 	if (!dev_priv)
 		return;
 
-	
+	/* Disable *all* interrupts */
 	R128_WRITE(R128_GEN_INT_CNTL, 0);
 }

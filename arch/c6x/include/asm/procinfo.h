@@ -20,9 +20,9 @@ struct proc_info_list {
 	unsigned int		elf_hwcap;
 };
 
-#else	
+#else	/* __KERNEL__ */
 #include <asm/elf.h>
 #warning "Please include asm/elf.h instead"
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* _ASM_C6X_PROCINFO_H */

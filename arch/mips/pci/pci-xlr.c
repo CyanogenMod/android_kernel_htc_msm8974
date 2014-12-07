@@ -56,6 +56,7 @@ static void *pci_config_base;
 
 #define	pci_cfg_addr(bus, devfn, off) (((bus) << 16) | ((devfn) << 8) | (off))
 
+/* PCI ops */
 static inline u32 pci_cfg_read_32bit(struct pci_bus *bus, unsigned int devfn,
 	int where)
 {
@@ -134,14 +135,14 @@ struct pci_ops nlm_pci_ops = {
 
 static struct resource nlm_pci_mem_resource = {
 	.name           = "XLR PCI MEM",
-	.start          = 0xd0000000UL,	
+	.start          = 0xd0000000UL,	/* 256MB PCI mem @ 0xd000_0000 */
 	.end            = 0xdfffffffUL,
 	.flags          = IORESOURCE_MEM,
 };
 
 static struct resource nlm_pci_io_resource = {
 	.name           = "XLR IO MEM",
-	.start          = 0x10000000UL,	
+	.start          = 0x10000000UL,	/* 16MB PCI IO @ 0x1000_0000 */
 	.end            = 0x100fffffUL,
 	.flags          = IORESOURCE_IO,
 };
@@ -158,8 +159,12 @@ struct pci_controller nlm_pci_controller = {
 static int get_irq_vector(const struct pci_dev *dev)
 {
 	if (!nlm_chip_is_xls())
-		return	PIC_PCIX_IRQ;	
+		return	PIC_PCIX_IRQ;	/* for XLR just one IRQ*/
 
+	/*
+	 * For XLS PCIe, there is an IRQ per Link, find out which
+	 * link the device is on to assign interrupts
+	*/
 	if (dev->bus->self == NULL)
 		return 0;
 
@@ -186,7 +191,7 @@ static int get_irq_vector(const struct pci_dev *dev)
 #ifdef CONFIG_PCI_MSI
 void destroy_irq(unsigned int irq)
 {
-	    
+	    /* nothing to do yet */
 }
 
 void arch_teardown_msi_irq(unsigned int irq)
@@ -223,6 +228,7 @@ int arch_setup_msi_irq(struct pci_dev *dev, struct msi_desc *desc)
 }
 #endif
 
+/* Extra ACK needed for XLR on chip PCI controller */
 static void xlr_pci_ack(struct irq_data *d)
 {
 	uint64_t pcibase = nlm_mmio_base(NETLOGIC_IO_PCIX_OFFSET);
@@ -230,6 +236,7 @@ static void xlr_pci_ack(struct irq_data *d)
 	nlm_read_reg(pcibase, (0x140 >> 2));
 }
 
+/* Extra ACK needed for XLS on chip PCIe controller */
 static void xls_pcie_ack(struct irq_data *d)
 {
 	uint64_t pciebase_le = nlm_mmio_base(NETLOGIC_IO_PCIE_1_OFFSET);
@@ -250,6 +257,7 @@ static void xls_pcie_ack(struct irq_data *d)
 	}
 }
 
+/* For XLS B silicon, the 3,4 PCI interrupts are different */
 static void xls_pcie_ack_b(struct irq_data *d)
 {
 	uint64_t pciebase_le = nlm_mmio_base(NETLOGIC_IO_PCIE_1_OFFSET);
@@ -275,6 +283,7 @@ int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	return get_irq_vector(dev);
 }
 
+/* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
 	return 0;
@@ -282,11 +291,11 @@ int pcibios_plat_dev_init(struct pci_dev *dev)
 
 static int __init pcibios_init(void)
 {
-	
+	/* PSB assigns PCI resources */
 	pci_set_flags(PCI_PROBE_ONLY);
 	pci_config_base = ioremap(DEFAULT_PCI_CONFIG_BASE, 16 << 20);
 
-	
+	/* Extend IO port for memory mapped io */
 	ioport_resource.start =  0;
 	ioport_resource.end   = ~0;
 
@@ -296,6 +305,10 @@ static int __init pcibios_init(void)
 	pr_info("Registering XLR/XLS PCIX/PCIE Controller.\n");
 	register_pci_controller(&nlm_pci_controller);
 
+	/*
+	 * For PCI interrupts, we need to ack the PCI controller too, overload
+	 * irq handler data to do this
+	 */
 	if (nlm_chip_is_xls()) {
 		if (nlm_chip_is_xls_b()) {
 			irq_set_handler_data(PIC_PCIE_LINK0_IRQ,
@@ -313,7 +326,7 @@ static int __init pcibios_init(void)
 			irq_set_handler_data(PIC_PCIE_LINK3_IRQ, xls_pcie_ack);
 		}
 	} else {
-		
+		/* XLR PCI controller ACK */
 		irq_set_handler_data(PIC_PCIE_XLSB0_LINK3_IRQ, xlr_pci_ack);
 	}
 

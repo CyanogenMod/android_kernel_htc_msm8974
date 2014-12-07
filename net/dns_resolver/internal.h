@@ -23,8 +23,14 @@
 #include <linux/kernel.h>
 #include <linux/sched.h>
 
+/*
+ * dns_key.c
+ */
 extern const struct cred *dns_resolver_cache;
 
+/*
+ * debug tracing
+ */
 extern unsigned dns_resolver_debug;
 
 #define	kdebug(FMT, ...)				\

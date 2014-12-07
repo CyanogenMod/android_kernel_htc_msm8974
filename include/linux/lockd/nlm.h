@@ -10,9 +10,11 @@
 #define LINUX_LOCKD_NLM_H
 
 
+/* Maximum file offset in file_lock.fl_end */
 # define NLM_OFFSET_MAX		((s32) 0x7fffffff)
 # define NLM4_OFFSET_MAX	((s64) ((~(u64)0) >> 1))
 
+/* Return states for NLM */
 enum {
 	NLM_LCK_GRANTED			= 0,
 	NLM_LCK_DENIED			= 1,
@@ -46,10 +48,10 @@ enum {
 #define NLMPROC_CANCEL_RES	13
 #define NLMPROC_UNLOCK_RES	14
 #define NLMPROC_GRANTED_RES	15
-#define NLMPROC_NSM_NOTIFY	16		
+#define NLMPROC_NSM_NOTIFY	16		/* statd callback */
 #define NLMPROC_SHARE		20
 #define NLMPROC_UNSHARE		21
 #define NLMPROC_NM_LOCK		22
 #define NLMPROC_FREE_ALL	23
 
-#endif 
+#endif /* LINUX_LOCKD_NLM_H */

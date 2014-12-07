@@ -44,12 +44,12 @@
 #include "bf5xx-sport.h"
 
 static unsigned int ac97_chan_mask[] = {
-	SP_FL, 
-	SP_STEREO, 
-	SP_2DOT1, 
-	SP_QUAD,
-	SP_FL | SP_FR | SP_FC | SP_SL | SP_SR,
-	SP_5DOT1, 
+	SP_FL, /* Mono */
+	SP_STEREO, /* Stereo */
+	SP_2DOT1, /* 2.1*/
+	SP_QUAD,/*Quadraquic*/
+	SP_FL | SP_FR | SP_FC | SP_SL | SP_SR,/*5 channels */
+	SP_5DOT1, /* 5.1 */
 };
 
 #if defined(CONFIG_SND_BF5XX_MMAP_SUPPORT)
@@ -96,6 +96,10 @@ static void bf5xx_dma_irq(void *data)
 	snd_pcm_period_elapsed(pcm);
 }
 
+/* The memory size for pure pcm data is 128*1024 = 0x20000 bytes.
+ * The total rx/tx buffer is for ac97 frame to hold all pcm data
+ * is  0x20000 * sizeof(struct ac97_frame) / 4.
+ */
 static const struct snd_pcm_hardware bf5xx_pcm_hardware = {
 	.info			= SNDRV_PCM_INFO_INTERLEAVED |
 #if defined(CONFIG_SND_BF5XX_MMAP_SUPPORT)
@@ -109,7 +113,7 @@ static const struct snd_pcm_hardware bf5xx_pcm_hardware = {
 	.period_bytes_max	= 0x10000,
 	.periods_min		= 1,
 	.periods_max		= PAGE_SIZE/32,
-	.buffer_bytes_max	= 0x20000, 
+	.buffer_bytes_max	= 0x20000, /* 128 kbytes */
 	.fifo_size		= 16,
 };
 
@@ -149,6 +153,9 @@ static int bf5xx_pcm_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct sport_device *sport = runtime->private_data;
 
+	/* An intermediate buffer is introduced for implementing mmap for
+	 * SPORT working in TMD mode(include AC97).
+	 */
 #if defined(CONFIG_SND_BF5XX_MMAP_SUPPORT)
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		sport_set_tx_callback(sport, bf5xx_dma_irq, substream);
@@ -338,6 +345,10 @@ static int bf5xx_pcm_preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 	else
 		sport_handle->rx_buf = buf->area;
 
+/*
+ * Need to allocate local buffer when enable
+ * MMAP for SPORT working in TMD mode (include AC97).
+ */
 #if defined(CONFIG_SND_BF5XX_MMAP_SUPPORT)
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		if (!sport_handle->tx_dma_buf) {

@@ -25,6 +25,7 @@
 #include <asm/io.h>
 #include "netjet.h"
 
+/* Interface functions */
 
 u_char
 NETjet_ReadIC(struct IsdnCardState *cs, u_char offset)
@@ -110,9 +111,9 @@ mode_tiger(struct BCState *bcs, int mode, int bc)
 		}
 		if (cs->typ == ISDN_CTYPE_NETJET_S)
 		{
-			
+			// led off
 			led = bc & 0x01;
-			led = 0x01 << (6 + led); 
+			led = 0x01 << (6 + led); // convert to mask
 			led = ~led;
 			cs->hw.njet.auxd &= led;
 			byteout(cs->hw.njet.auxa, cs->hw.njet.auxd);
@@ -137,16 +138,16 @@ mode_tiger(struct BCState *bcs, int mode, int bc)
 			byteout(cs->hw.njet.base + NETJET_DMACTRL,
 				cs->hw.njet.dmactrl);
 			byteout(cs->hw.njet.base + NETJET_IRQMASK0, 0x0f);
-			
+			/* was 0x3f now 0x0f for TJ300 and TJ320  GE 13/07/00 */
 		}
 		bcs->hw.tiger.sendp = bcs->hw.tiger.send;
 		bcs->hw.tiger.free = NETJET_DMA_TXSIZE;
 		test_and_set_bit(BC_FLG_EMPTY, &bcs->Flag);
 		if (cs->typ == ISDN_CTYPE_NETJET_S)
 		{
-			
+			// led on
 			led = bc & 0x01;
-			led = 0x01 << (6 + led); 
+			led = 0x01 << (6 + led); // convert to mask
 			cs->hw.njet.auxd |= led;
 			byteout(cs->hw.njet.auxa, cs->hw.njet.auxd);
 		}
@@ -183,6 +184,7 @@ static void printframe(struct IsdnCardState *cs, u_char *buf, int count, char *s
 	}
 }
 
+// macro for 64k
 
 #define MAKE_RAW_BYTE for (j = 0; j < 8; j++) {			\
 		bitcnt++;					\
@@ -212,6 +214,7 @@ static void printframe(struct IsdnCardState *cs, u_char *buf, int count, char *s
 	}
 
 static int make_raw_data(struct BCState *bcs) {
+// this make_raw is for 64k
 	register u_int i, s_cnt = 0;
 	register u_char j;
 	register u_char val;
@@ -259,7 +262,7 @@ static int make_raw_data(struct BCState *bcs) {
 			s_val |= 0x80;
 		}
 		bcs->hw.tiger.sendbuf[s_cnt++] = s_val;
-		bcs->hw.tiger.sendbuf[s_cnt++] = 0xff;	
+		bcs->hw.tiger.sendbuf[s_cnt++] = 0xff;	// NJ<->NJ thoughput bug fix
 	}
 	bcs->hw.tiger.sendcnt = s_cnt;
 	bcs->tx_cnt -= bcs->tx_skb->len;
@@ -267,6 +270,7 @@ static int make_raw_data(struct BCState *bcs) {
 	return (0);
 }
 
+// macro for 56k
 
 #define MAKE_RAW_BYTE_56K for (j = 0; j < 8; j++) {			\
 		bitcnt++;					\
@@ -300,6 +304,7 @@ static int make_raw_data(struct BCState *bcs) {
 	}
 
 static int make_raw_data_56k(struct BCState *bcs) {
+// this make_raw is for 56k
 	register u_int i, s_cnt = 0;
 	register u_char j;
 	register u_char val;
@@ -364,7 +369,7 @@ static int make_raw_data_56k(struct BCState *bcs) {
 			s_val |= 0x80;
 		}
 		bcs->hw.tiger.sendbuf[s_cnt++] = s_val;
-		bcs->hw.tiger.sendbuf[s_cnt++] = 0xff;	
+		bcs->hw.tiger.sendbuf[s_cnt++] = 0xff;	// NJ<->NJ thoughput bug fix
 	}
 	bcs->hw.tiger.sendcnt = s_cnt;
 	bcs->tx_cnt -= bcs->tx_skb->len;
@@ -403,11 +408,11 @@ static void read_raw(struct BCState *bcs, u_int *buf, int cnt) {
 	int bits;
 	u_char mask;
 
-	if (bcs->mode == L1_MODE_HDLC) { 
+	if (bcs->mode == L1_MODE_HDLC) { // it's 64k
 		mask = 0xff;
 		bits = 8;
 	}
-	else { 
+	else { // it's 56K
 		mask = 0x7f;
 		bits = 7;
 	};
@@ -611,11 +616,11 @@ void netjet_fill_dma(struct BCState *bcs)
 			bcs->Flag);
 	if (test_and_set_bit(BC_FLG_BUSY, &bcs->Flag))
 		return;
-	if (bcs->mode == L1_MODE_HDLC) { 
+	if (bcs->mode == L1_MODE_HDLC) { // it's 64k
 		if (make_raw_data(bcs))
 			return;
 	}
-	else { 
+	else { // it's 56k
 		if (make_raw_data_56k(bcs))
 			return;
 	};
@@ -823,13 +828,13 @@ tiger_l2l1(struct PStack *st, int pr, void *arg)
 		spin_lock_irqsave(&bcs->cs->lock, flags);
 		test_and_set_bit(BC_FLG_ACTIV, &bcs->Flag);
 		mode_tiger(bcs, st->l1.mode, st->l1.bc);
-		
+		/* 2001/10/04 Christoph Ersfeld, Formula-n Europe AG */
 		spin_unlock_irqrestore(&bcs->cs->lock, flags);
 		bcs->cs->cardmsg(bcs->cs, MDL_BC_ASSIGN, (void *)(&st->l1.bc));
 		l1_msg_b(st, pr, arg);
 		break;
 	case (PH_DEACTIVATE | REQUEST):
-		
+		/* 2001/10/04 Christoph Ersfeld, Formula-n Europe AG */
 		bcs->cs->cardmsg(bcs->cs, MDL_BC_RELEASE, (void *)(&st->l1.bc));
 		l1_msg_b(st, pr, arg);
 		break;

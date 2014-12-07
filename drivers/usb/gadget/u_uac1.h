@@ -23,6 +23,10 @@
 
 #include "gadget_chips.h"
 
+/*
+ * This represents the USB side of an audio card device, managed by a USB
+ * function which provides control and stream interfaces.
+ */
 
 struct gaudio_snd_dev {
 	struct gaudio			*card;
@@ -38,15 +42,15 @@ struct gaudio {
 	struct usb_function		func;
 	struct usb_gadget		*gadget;
 
-	
+	/* ALSA sound device interfaces */
 	struct gaudio_snd_dev		control;
 	struct gaudio_snd_dev		playback;
 	struct gaudio_snd_dev		capture;
 
-	
+	/* TODO */
 };
 
 int gaudio_setup(struct gaudio *card);
 void gaudio_cleanup(void);
 
-#endif 
+#endif /* __U_AUDIO_H */

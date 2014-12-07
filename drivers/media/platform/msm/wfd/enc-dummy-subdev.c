@@ -269,16 +269,16 @@ static int encode_memcpy(uint8_t *dst, uint8_t *src, int size)
 	int y_size = y_stride * y_scan;
 	int c = 0, dst_offset = 0, src_offset = 0;
 
-	
+	/* copy the luma */
 	for (c = 0; c < DEFAULT_HEIGHT; ++c) {
 		memcpy(dst + dst_offset, src + src_offset, DEFAULT_WIDTH);
 		src_offset += y_stride;
 		dst_offset += DEFAULT_WIDTH;
 	}
 
-	
+	/* skip over padding between luma and chroma */
 	src_offset = y_size;
-	
+	/* now do the chroma */
 	for (c = 0; c < DEFAULT_HEIGHT / 2; ++c) {
 		memcpy(dst + dst_offset, src + src_offset, DEFAULT_WIDTH);
 		src_offset += uv_stride;
@@ -322,7 +322,7 @@ static void encode(struct work_struct *work)
 		return;
 	}
 
-	
+	/* Grab an i/p & o/p buffer pair */
 	input = list_first_entry(&inst->input_bufs.list,
 			struct mem_region, list);
 	list_del(&input->list);
@@ -332,7 +332,7 @@ static void encode(struct work_struct *work)
 	list_del(&output->list);
 	mutex_unlock(&inst->lock);
 
-	
+	/* This is our "encode" */
 	bytes_copied = encode_memcpy(output->kvaddr, input->kvaddr,
 			min(output->size, input->size));
 
@@ -374,7 +374,7 @@ static long venc_fill_outbuf(struct v4l2_subdev *sd, void *arg)
 
 	inst = (struct venc_inst *)sd->dev_priv;
 
-	
+	/* check for dupes */
 	list_for_each_entry(mregion, &inst->output_bufs.list, list) {
 		struct mem_region *temp = arg;
 		if (mem_region_equals(temp, mregion)) {

@@ -57,6 +57,12 @@ static int __simc (int a, int b, int c, int d, int e, int f)
 static char *serial_version = "0.1";
 static char *serial_name = "ISS serial driver";
 
+/*
+ * This routine is called whenever a serial port is opened.  It
+ * enables interrupts for a serial port, linking in its async structure into
+ * the IRQ chain.   It also performs the serial-specific
+ * initialization for the tty structure.
+ */
 
 static void rs_poll(unsigned long);
 
@@ -74,6 +80,16 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
 }
 
 
+/*
+ * ------------------------------------------------------------
+ * iss_serial_close()
+ *
+ * This routine is called when the serial port gets closed.  First, we
+ * wait for the last remaining data to be sent.  Then, we unlink its
+ * async structure from the interrupt chain if necessary, and we free
+ * that IRQ if nothing is left in the chain.
+ * ------------------------------------------------------------
+ */
 static void rs_close(struct tty_struct *tty, struct file * filp)
 {
 	spin_lock_bh(&timer_lock);
@@ -86,7 +102,7 @@ static void rs_close(struct tty_struct *tty, struct file * filp)
 static int rs_write(struct tty_struct * tty,
 		    const unsigned char *buf, int count)
 {
-	
+	/* see drivers/char/serialX.c to reference original version */
 
 	__simc (SYS_write, 1, (unsigned long)buf, count, 0, 0);
 	return count;
@@ -122,7 +138,7 @@ static int rs_put_char(struct tty_struct *tty, unsigned char ch)
 	char buf[2];
 
 	buf[0] = ch;
-	buf[1] = '\0';		
+	buf[1] = '\0';		/* Is this NULL necessary? */
 	__simc (SYS_write, 1, (unsigned long) buf, 1, 0, 0);
 	return 1;
 }
@@ -133,24 +149,24 @@ static void rs_flush_chars(struct tty_struct *tty)
 
 static int rs_write_room(struct tty_struct *tty)
 {
-	
+	/* Let's say iss can always accept 2K characters.. */
 	return 2 * 1024;
 }
 
 static int rs_chars_in_buffer(struct tty_struct *tty)
 {
-	
+	/* the iss doesn't buffer characters */
 	return 0;
 }
 
 static void rs_hangup(struct tty_struct *tty)
 {
-	
+	/* Stub, once again.. */
 }
 
 static void rs_wait_until_sent(struct tty_struct *tty, int timeout)
 {
-	
+	/* Stub, once again.. */
 }
 
 static int rs_proc_show(struct seq_file *m, void *v)
@@ -193,7 +209,7 @@ int __init rs_init(void)
 
 	printk ("%s %s\n", serial_name, serial_version);
 
-	
+	/* Initialize the tty_driver structure */
 
 	serial_driver->driver_name = "iss_serial";
 	serial_driver->name = "ttyS";
@@ -225,6 +241,14 @@ static __exit void rs_exit(void)
 }
 
 
+/* We use `late_initcall' instead of just `__initcall' as a workaround for
+ * the fact that (1) simcons_tty_init can't be called before tty_init,
+ * (2) tty_init is called via `module_init', (3) if statically linked,
+ * module_init == device_init, and (4) there's no ordering of init lists.
+ * We can do this easily because simcons is always statically linked, but
+ * other tty drivers that depend on tty_init and which must use
+ * `module_init' to declare their init routines are likely to be broken.
+ */
 
 late_initcall(rs_init);
 
@@ -263,5 +287,5 @@ static int __init iss_console_init(void)
 
 console_initcall(iss_console_init);
 
-#endif 
+#endif /* CONFIG_SERIAL_CONSOLE */
 

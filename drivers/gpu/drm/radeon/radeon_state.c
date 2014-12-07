@@ -1,3 +1,4 @@
+/* radeon_state.c -- State support for Radeon -*- linux-c -*- */
 /*
  * Copyright 2000 VA Linux Systems, Inc., Fremont, California.
  * All Rights Reserved.
@@ -33,6 +34,9 @@
 #include "radeon_drm.h"
 #include "radeon_drv.h"
 
+/* ================================================================
+ * Helper functions for client state checking and fixup
+ */
 
 static __inline__ int radeon_check_and_fixup_offset(drm_radeon_private_t *
 						    dev_priv,
@@ -43,20 +47,40 @@ static __inline__ int radeon_check_and_fixup_offset(drm_radeon_private_t *
 	u32 fb_end = dev_priv->fb_location + dev_priv->fb_size - 1;
 	struct drm_radeon_driver_file_fields *radeon_priv;
 
+	/* Hrm ... the story of the offset ... So this function converts
+	 * the various ideas of what userland clients might have for an
+	 * offset in the card address space into an offset into the card
+	 * address space :) So with a sane client, it should just keep
+	 * the value intact and just do some boundary checking. However,
+	 * not all clients are sane. Some older clients pass us 0 based
+	 * offsets relative to the start of the framebuffer and some may
+	 * assume the AGP aperture it appended to the framebuffer, so we
+	 * try to detect those cases and fix them up.
+	 *
+	 * Note: It might be a good idea here to make sure the offset lands
+	 * in some "allowed" area to protect things like the PCIE GART...
+	 */
 
+	/* First, the best case, the offset already lands in either the
+	 * framebuffer or the GART mapped space
+	 */
 	if (radeon_check_offset(dev_priv, off))
 		return 0;
 
+	/* Ok, that didn't happen... now check if we have a zero based
+	 * offset that fits in the framebuffer + gart space, apply the
+	 * magic offset we get from SETPARAM or calculated from fb_location
+	 */
 	if (off < (dev_priv->fb_size + dev_priv->gart_size)) {
 		radeon_priv = file_priv->driver_priv;
 		off += radeon_priv->radeon_fb_delta;
 	}
 
-	
+	/* Finally, assume we aimed at a GART offset if beyond the fb */
 	if (off > fb_end)
 		off = off - fb_end - 1 + dev_priv->gart_vm_start;
 
-	
+	/* Now recheck and fail if out of bounds */
 	if (radeon_check_offset(dev_priv, off)) {
 		DRM_DEBUG("offset fixed up to 0x%x\n", (unsigned int)off);
 		*offset = off;
@@ -237,7 +261,7 @@ static __inline__ int radeon_check_and_fixup_packets(drm_radeon_private_t *
 	case R200_EMIT_PP_TXCTLALL_4:
 	case R200_EMIT_PP_TXCTLALL_5:
 	case R200_EMIT_VAP_PVS_CNTL:
-		
+		/* These packets don't contain memory offsets */
 		break;
 
 	default:
@@ -273,7 +297,7 @@ static int radeon_check_and_fixup_packet3(drm_radeon_private_t *
 	}
 
 	switch (*cmd & 0xff00) {
-	
+	/* XXX Are there old drivers needing other packets? */
 
 	case RADEON_3D_DRAW_IMMD:
 	case RADEON_3D_DRAW_VBUF:
@@ -281,15 +305,17 @@ static int radeon_check_and_fixup_packet3(drm_radeon_private_t *
 	case RADEON_WAIT_FOR_IDLE:
 	case RADEON_CP_NOP:
 	case RADEON_3D_CLEAR_ZMASK:
- 
-		
+/*	case RADEON_CP_NEXT_CHAR:
+	case RADEON_CP_PLY_NEXTSCAN:
+	case RADEON_CP_SET_SCISSORS: */ /* probably safe but will never need them? */
+		/* these packets are safe */
 		break;
 
 	case RADEON_CP_3D_DRAW_IMMD_2:
 	case RADEON_CP_3D_DRAW_VBUF_2:
 	case RADEON_CP_3D_DRAW_INDX_2:
 	case RADEON_3D_CLEAR_HIZ:
-		
+		/* safe but r200 only */
 		if (dev_priv->microcode_version != UCODE_R200) {
 			DRM_ERROR("Invalid 3d packet for r100-class chip\n");
 			return -EINVAL;
@@ -298,20 +324,20 @@ static int radeon_check_and_fixup_packet3(drm_radeon_private_t *
 
 	case RADEON_3D_LOAD_VBPNTR:
 
-		if (count > 18) { 
+		if (count > 18) { /* 12 arrays max */
 			DRM_ERROR("Too large payload in 3D_LOAD_VBPNTR (count=%d)\n",
 				  count);
 			return -EINVAL;
 		}
 
-		
+		/* carefully check packet contents */
 		cmd = drm_buffer_pointer_to_dword(cmdbuf->buffer, 1);
 
 		narrays = *cmd & ~0xc000;
 		k = 0;
 		i = 2;
 		while ((k < narrays) && (i < (count + 2))) {
-			i++;		
+			i++;		/* skip attribute field */
 			cmd = drm_buffer_pointer_to_dword(cmdbuf->buffer, i);
 			if (radeon_check_and_fixup_offset(dev_priv, file_priv,
 							  cmd)) {
@@ -324,7 +350,7 @@ static int radeon_check_and_fixup_packet3(drm_radeon_private_t *
 			i++;
 			if (k == narrays)
 				break;
-			
+			/* have one more to process, they come in pairs */
 			cmd = drm_buffer_pointer_to_dword(cmdbuf->buffer, i);
 
 			if (radeon_check_and_fixup_offset(dev_priv,
@@ -338,7 +364,7 @@ static int radeon_check_and_fixup_packet3(drm_radeon_private_t *
 			k++;
 			i++;
 		}
-		
+		/* do the counts match what we expect ? */
 		if ((k != narrays) || (i != (count + 2))) {
 			DRM_ERROR
 			    ("Malformed 3D_LOAD_VBPNTR packet (k=%d i=%d narrays=%d count+1=%d).\n",
@@ -381,7 +407,7 @@ static int radeon_check_and_fixup_packet3(drm_radeon_private_t *
 	case RADEON_CNTL_HOSTDATA_BLT:
 	case RADEON_CNTL_PAINT_MULTI:
 	case RADEON_CNTL_BITBLT_MULTI:
-		
+		/* MSB of opcode: next DWORD GUI_CNTL */
 		cmd = drm_buffer_pointer_to_dword(cmdbuf->buffer, 1);
 		if (*cmd & (RADEON_GMC_SRC_PITCH_OFFSET_CNTL
 			      | RADEON_GMC_DST_PITCH_OFFSET_CNTL)) {
@@ -416,6 +442,9 @@ static int radeon_check_and_fixup_packet3(drm_radeon_private_t *
 	return 0;
 }
 
+/* ================================================================
+ * CP hardware state programming functions
+ */
 
 static void radeon_emit_clip_rect(drm_radeon_private_t * dev_priv,
 				  struct drm_clip_rect * box)
@@ -433,6 +462,8 @@ static void radeon_emit_clip_rect(drm_radeon_private_t * dev_priv,
 	ADVANCE_RING();
 }
 
+/* Emit 1.1 state
+ */
 static int radeon_emit_state(drm_radeon_private_t * dev_priv,
 			     struct drm_file *file_priv,
 			     drm_radeon_context_regs_t * ctx,
@@ -600,6 +631,8 @@ static int radeon_emit_state(drm_radeon_private_t * dev_priv,
 	return 0;
 }
 
+/* Emit 1.2 state
+ */
 static int radeon_emit_state2(drm_radeon_private_t * dev_priv,
 			      struct drm_file *file_priv,
 			      drm_radeon_state_t * state)
@@ -618,6 +651,10 @@ static int radeon_emit_state2(drm_radeon_private_t * dev_priv,
 				 state->tex, state->dirty);
 }
 
+/* New (1.3) state mechanism.  3 commands (packet, scalar, vector) in
+ * 1.3 cmdbuffers allow all previous state to be updated as well as
+ * the tcl scalar and vector areas.
+ */
 static struct {
 	int start;
 	int len;
@@ -687,8 +724,8 @@ static struct {
 	{R200_RE_POINTSIZE, 1, "R200_RE_POINTSIZE"},
 	{R200_SE_TCL_INPUT_VTX_VECTOR_ADDR_0, 4,
 		    "R200_SE_TCL_INPUT_VTX_VECTOR_ADDR_0"},
-	{R200_PP_CUBIC_FACES_0, 1, "R200_PP_CUBIC_FACES_0"},	
-	{R200_PP_CUBIC_OFFSET_F1_0, 5, "R200_PP_CUBIC_OFFSET_F1_0"}, 
+	{R200_PP_CUBIC_FACES_0, 1, "R200_PP_CUBIC_FACES_0"},	/* 61 */
+	{R200_PP_CUBIC_OFFSET_F1_0, 5, "R200_PP_CUBIC_OFFSET_F1_0"}, /* 62 */
 	{R200_PP_CUBIC_FACES_1, 1, "R200_PP_CUBIC_FACES_1"},
 	{R200_PP_CUBIC_OFFSET_F1_1, 5, "R200_PP_CUBIC_OFFSET_F1_1"},
 	{R200_PP_CUBIC_FACES_2, 1, "R200_PP_CUBIC_FACES_2"},
@@ -711,7 +748,7 @@ static struct {
 	{RADEON_PP_CUBIC_FACES_2, 1, "RADEON_PP_CUBIC_FACES_2"},
 	{RADEON_PP_CUBIC_OFFSET_T2_0, 5, "RADEON_PP_CUBIC_OFFSET_T2_0"},
 	{R200_PP_TRI_PERF, 2, "R200_PP_TRI_PERF"},
-	{R200_PP_AFS_0, 32, "R200_PP_AFS_0"},     
+	{R200_PP_AFS_0, 32, "R200_PP_AFS_0"},     /* 85 */
 	{R200_PP_AFS_1, 32, "R200_PP_AFS_1"},
 	{R200_PP_TFACTOR_0, 8, "R200_ATF_TFACTOR"},
 	{R200_PP_TXFILTER_0, 8, "R200_PP_TXCTLALL_0"},
@@ -723,6 +760,9 @@ static struct {
 	{R200_VAP_PVS_CNTL_1, 2, "R200_VAP_PVS_CNTL"},
 };
 
+/* ================================================================
+ * Performance monitoring functions
+ */
 
 static void radeon_clear_box(drm_radeon_private_t * dev_priv,
 			     struct drm_radeon_master_private *master_priv,
@@ -776,6 +816,9 @@ static void radeon_clear_box(drm_radeon_private_t * dev_priv,
 
 static void radeon_cp_performance_boxes(drm_radeon_private_t *dev_priv, struct drm_radeon_master_private *master_priv)
 {
+	/* Collapse various things into a wait flag -- trying to
+	 * guess if userspase slept -- better just to have them tell us.
+	 */
 	if (dev_priv->stats.last_frame_reads > 1 ||
 	    dev_priv->stats.last_clear_reads > dev_priv->stats.clears) {
 		dev_priv->stats.boxes |= RADEON_BOX_WAIT_IDLE;
@@ -785,19 +828,32 @@ static void radeon_cp_performance_boxes(drm_radeon_private_t *dev_priv, struct d
 		dev_priv->stats.boxes |= RADEON_BOX_WAIT_IDLE;
 	}
 
+	/* Purple box for page flipping
+	 */
 	if (dev_priv->stats.boxes & RADEON_BOX_FLIP)
 		radeon_clear_box(dev_priv, master_priv, 4, 4, 8, 8, 255, 0, 255);
 
+	/* Red box if we have to wait for idle at any point
+	 */
 	if (dev_priv->stats.boxes & RADEON_BOX_WAIT_IDLE)
 		radeon_clear_box(dev_priv, master_priv, 16, 4, 8, 8, 255, 0, 0);
 
+	/* Blue box: lost context?
+	 */
 
+	/* Yellow box for texture swaps
+	 */
 	if (dev_priv->stats.boxes & RADEON_BOX_TEXTURE_LOAD)
 		radeon_clear_box(dev_priv, master_priv, 40, 4, 8, 8, 255, 255, 0);
 
+	/* Green box if hardware never idles (as far as we can tell)
+	 */
 	if (!(dev_priv->stats.boxes & RADEON_BOX_DMA_IDLE))
 		radeon_clear_box(dev_priv, master_priv, 64, 4, 8, 8, 0, 255, 0);
 
+	/* Draw bars indicating number of buffers allocated
+	 * (not a great measure, easily confused)
+	 */
 	if (dev_priv->stats.requested_bufs) {
 		if (dev_priv->stats.requested_bufs > 100)
 			dev_priv->stats.requested_bufs = 100;
@@ -811,6 +867,9 @@ static void radeon_cp_performance_boxes(drm_radeon_private_t *dev_priv, struct d
 
 }
 
+/* ================================================================
+ * CP command dispatch functions
+ */
 
 static void radeon_cp_dispatch_clear(struct drm_device * dev,
 				     struct drm_master *master,
@@ -851,6 +910,9 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 
 		BEGIN_RING(4);
 
+		/* Ensure the 3D stream is idle before doing a
+		 * 2D fill to clear the front or back buffer.
+		 */
 		RADEON_WAIT_UNTIL_3D_IDLE();
 
 		OUT_RING(CP_PACKET0(RADEON_DP_WRITE_MASK, 0));
@@ -858,6 +920,8 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 
 		ADVANCE_RING();
 
+		/* Make sure we restore the 3D state next time.
+		 */
 		sarea_priv->ctx_owner = 0;
 
 		for (i = 0; i < nbox; i++) {
@@ -915,8 +979,8 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 		}
 	}
 
-	
-	
+	/* hyper z clear */
+	/* no docs available, based on reverse engineering by Stephane Marchesin */
 	if ((flags & (RADEON_DEPTH | RADEON_STENCIL))
 	    && (flags & RADEON_CLEAR_FASTZ)) {
 
@@ -932,13 +996,39 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 		u32 tempRB3D_DEPTHCLEARVALUE = clear->clear_depth |
 		    ((clear->depth_mask & 0xff) << 24);
 
+		/* Make sure we restore the 3D state next time.
+		 * we haven't touched any "normal" state - still need this?
+		 */
 		sarea_priv->ctx_owner = 0;
 
 		if ((dev_priv->flags & RADEON_HAS_HIERZ)
 		    && (flags & RADEON_USE_HIERZ)) {
-			
+			/* FIXME : reverse engineer that for Rx00 cards */
+			/* FIXME : the mask supposedly contains low-res z values. So can't set
+			   just to the max (0xff? or actually 0x3fff?), need to take z clear
+			   value into account? */
+			/* pattern seems to work for r100, though get slight
+			   rendering errors with glxgears. If hierz is not enabled for r100,
+			   only 4 bits which indicate clear (15,16,31,32, all zero) matter, the
+			   other ones are ignored, and the same clear mask can be used. That's
+			   very different behaviour than R200 which needs different clear mask
+			   and different number of tiles to clear if hierz is enabled or not !?!
+			 */
 			clearmask = (0xff << 22) | (0xff << 6) | 0x003f003f;
 		} else {
+			/* clear mask : chooses the clearing pattern.
+			   rv250: could be used to clear only parts of macrotiles
+			   (but that would get really complicated...)?
+			   bit 0 and 1 (either or both of them ?!?!) are used to
+			   not clear tile (or maybe one of the bits indicates if the tile is
+			   compressed or not), bit 2 and 3 to not clear tile 1,...,.
+			   Pattern is as follows:
+			   | 0,1 | 4,5 | 8,9 |12,13|16,17|20,21|24,25|28,29|
+			   bits -------------------------------------------------
+			   | 2,3 | 6,7 |10,11|14,15|18,19|22,23|26,27|30,31|
+			   rv100: clearmask covers 2x8 4x1 tiles, but one clear still
+			   covers 256 pixels ?!?
+			 */
 			clearmask = 0x0;
 		}
 
@@ -946,18 +1036,25 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 		RADEON_WAIT_UNTIL_2D_IDLE();
 		OUT_RING_REG(RADEON_RB3D_DEPTHCLEARVALUE,
 			     tempRB3D_DEPTHCLEARVALUE);
-		
+		/* what offset is this exactly ? */
 		OUT_RING_REG(RADEON_RB3D_ZMASKOFFSET, 0);
-		
+		/* need ctlstat, otherwise get some strange black flickering */
 		OUT_RING_REG(RADEON_RB3D_ZCACHE_CTLSTAT,
 			     RADEON_RB3D_ZC_FLUSH_ALL);
 		ADVANCE_RING();
 
 		for (i = 0; i < nbox; i++) {
 			int tileoffset, nrtilesx, nrtilesy, j;
-			
+			/* it looks like r200 needs rv-style clears, at least if hierz is not enabled? */
 			if ((dev_priv->flags & RADEON_HAS_HIERZ)
 			    && !(dev_priv->microcode_version == UCODE_R200)) {
+				/* FIXME : figure this out for r200 (when hierz is enabled). Or
+				   maybe r200 actually doesn't need to put the low-res z value into
+				   the tile cache like r100, but just needs to clear the hi-level z-buffer?
+				   Works for R100, both with hierz and without.
+				   R100 seems to operate on 2x1 8x8 tiles, but...
+				   odd: offset/nrtiles need to be 64 pix (4 block) aligned? Potentially
+				   problematic with resolutions which are not 64 pix aligned? */
 				tileoffset =
 				    ((pbox[i].y1 >> 3) * depthpixperline +
 				     pbox[i].x1) >> 6;
@@ -970,18 +1067,18 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 					BEGIN_RING(4);
 					OUT_RING(CP_PACKET3
 						 (RADEON_3D_CLEAR_ZMASK, 2));
-					
+					/* first tile */
 					OUT_RING(tileoffset * 8);
-					
+					/* the number of tiles to clear */
 					OUT_RING(nrtilesx + 4);
-					
+					/* clear mask : chooses the clearing pattern. */
 					OUT_RING(clearmask);
 					ADVANCE_RING();
 					tileoffset += depthpixperline >> 6;
 				}
 			} else if (dev_priv->microcode_version == UCODE_R200) {
-				
-				
+				/* works for rv250. */
+				/* find first macro tile (8x2 4x4 z-pixels on rv250) */
 				tileoffset =
 				    ((pbox[i].y1 >> 3) * depthpixperline +
 				     pbox[i].x1) >> 5;
@@ -993,18 +1090,22 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 					BEGIN_RING(4);
 					OUT_RING(CP_PACKET3
 						 (RADEON_3D_CLEAR_ZMASK, 2));
-					
+					/* first tile */
+					/* judging by the first tile offset needed, could possibly
+					   directly address/clear 4x4 tiles instead of 8x2 * 4x4
+					   macro tiles, though would still need clear mask for
+					   right/bottom if truly 4x4 granularity is desired ? */
 					OUT_RING(tileoffset * 16);
-					
+					/* the number of tiles to clear */
 					OUT_RING(nrtilesx + 1);
-					
+					/* clear mask : chooses the clearing pattern. */
 					OUT_RING(clearmask);
 					ADVANCE_RING();
 					tileoffset += depthpixperline >> 5;
 				}
-			} else {	
-				
-				
+			} else {	/* rv 100 */
+				/* rv100 might not need 64 pix alignment, who knows */
+				/* offsets are, hmm, weird */
 				tileoffset =
 				    ((pbox[i].y1 >> 4) * depthpixperline +
 				     pbox[i].x1) >> 6;
@@ -1018,9 +1119,9 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 					OUT_RING(CP_PACKET3
 						 (RADEON_3D_CLEAR_ZMASK, 2));
 					OUT_RING(tileoffset * 128);
-					
+					/* the number of tiles to clear */
 					OUT_RING(nrtilesx + 4);
-					
+					/* clear mask : chooses the clearing pattern. */
 					OUT_RING(clearmask);
 					ADVANCE_RING();
 					tileoffset += depthpixperline >> 6;
@@ -1028,21 +1129,28 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 			}
 		}
 
-		
+		/* TODO don't always clear all hi-level z tiles */
 		if ((dev_priv->flags & RADEON_HAS_HIERZ)
 		    && (dev_priv->microcode_version == UCODE_R200)
 		    && (flags & RADEON_USE_HIERZ))
-			
+			/* r100 and cards without hierarchical z-buffer have no high-level z-buffer */
+			/* FIXME : the mask supposedly contains low-res z values. So can't set
+			   just to the max (0xff? or actually 0x3fff?), need to take z clear
+			   value into account? */
 		{
 			BEGIN_RING(4);
 			OUT_RING(CP_PACKET3(RADEON_3D_CLEAR_HIZ, 2));
-			OUT_RING(0x0);	
+			OUT_RING(0x0);	/* First tile */
 			OUT_RING(0x3cc0);
 			OUT_RING((0xff << 22) | (0xff << 6) | 0x003f003f);
 			ADVANCE_RING();
 		}
 	}
 
+	/* We have to clear the depth and/or stencil buffers by
+	 * rendering a quad into just those buffers.  Thus, we have to
+	 * make sure the 3D engine is configured correctly.
+	 */
 	else if ((dev_priv->microcode_version == UCODE_R200) &&
 		(flags & (RADEON_DEPTH | RADEON_STENCIL))) {
 
@@ -1069,9 +1177,9 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 
 		tempSE_CNTL = depth_clear->se_cntl;
 
-		
+		/* Disable TCL */
 
-		tempSE_VAP_CNTL = (	
+		tempSE_VAP_CNTL = (	/* SE_VAP_CNTL__FORCE_W_TO_ONE_MASK |  */
 					  (0x9 <<
 					   SE_VAP_CNTL__VF_MAX_VTX_NUM__SHIFT));
 
@@ -1082,20 +1190,26 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 		tempSE_VTE_CNTL =
 		    SE_VTE_CNTL__VTX_XY_FMT_MASK | SE_VTE_CNTL__VTX_Z_FMT_MASK;
 
-		
+		/* Vertex format (X, Y, Z, W) */
 		tempSE_VTX_FMT_0 =
 		    SE_VTX_FMT_0__VTX_Z0_PRESENT_MASK |
 		    SE_VTX_FMT_0__VTX_W0_PRESENT_MASK;
 		tempSE_VTX_FMT_1 = 0x0;
 
+		/*
+		 * Depth buffer specific enables
+		 */
 		if (flags & RADEON_DEPTH) {
-			
+			/* Enable depth buffer */
 			tempRB3D_CNTL |= RADEON_Z_ENABLE;
 		} else {
-			
+			/* Disable depth buffer */
 			tempRB3D_CNTL &= ~RADEON_Z_ENABLE;
 		}
 
+		/*
+		 * Stencil buffer specific enables
+		 */
 		if (flags & RADEON_STENCIL) {
 			tempRB3D_CNTL |= RADEON_STENCIL_ENABLE;
 			tempRB3D_STENCILREFMASK = clear->depth_mask;
@@ -1130,10 +1244,15 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 		OUT_RING_REG(R200_RE_AUX_SCISSOR_CNTL, tempRE_AUX_SCISSOR_CNTL);
 		ADVANCE_RING();
 
+		/* Make sure we restore the 3D state next time.
+		 */
 		sarea_priv->ctx_owner = 0;
 
 		for (i = 0; i < nbox; i++) {
 
+			/* Funny that this should be required --
+			 *  sets top-left?
+			 */
 			radeon_emit_clip_rect(dev_priv, &sarea_priv->boxes[i]);
 
 			BEGIN_RING(14);
@@ -1169,7 +1288,7 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 
 		if (flags & RADEON_STENCIL) {
 			rb3d_cntl |= RADEON_STENCIL_ENABLE;
-			rb3d_stencilrefmask = clear->depth_mask;	
+			rb3d_stencilrefmask = clear->depth_mask;	/* misnamed field */
 		} else {
 			rb3d_cntl &= ~RADEON_STENCIL_ENABLE;
 			rb3d_stencilrefmask = 0x00000000;
@@ -1196,10 +1315,15 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 		OUT_RING_REG(RADEON_SE_CNTL, depth_clear->se_cntl);
 		ADVANCE_RING();
 
+		/* Make sure we restore the 3D state next time.
+		 */
 		sarea_priv->ctx_owner = 0;
 
 		for (i = 0; i < nbox; i++) {
 
+			/* Funny that this should be required --
+			 *  sets top-left?
+			 */
 			radeon_emit_clip_rect(dev_priv, &sarea_priv->boxes[i]);
 
 			BEGIN_RING(15);
@@ -1232,6 +1356,10 @@ static void radeon_cp_dispatch_clear(struct drm_device * dev,
 		}
 	}
 
+	/* Increment the clear counter.  The client-side 3D driver must
+	 * wait on this value before performing the clear ioctl.  We
+	 * need this because the card's so damned fast...
+	 */
 	sarea_priv->last_clear++;
 
 	BEGIN_RING(4);
@@ -1253,9 +1381,14 @@ static void radeon_cp_dispatch_swap(struct drm_device *dev, struct drm_master *m
 	RING_LOCALS;
 	DRM_DEBUG("\n");
 
+	/* Do some trivial performance monitoring...
+	 */
 	if (dev_priv->do_boxes)
 		radeon_cp_performance_boxes(dev_priv, master_priv);
 
+	/* Wait for the 3D stream to idle before dispatching the bitblt.
+	 * This will prevent data corruption between the two streams.
+	 */
 	BEGIN_RING(2);
 
 	RADEON_WAIT_UNTIL_3D_IDLE();
@@ -1282,6 +1415,8 @@ static void radeon_cp_dispatch_swap(struct drm_device *dev, struct drm_master *m
 			 RADEON_DP_SRC_SOURCE_MEMORY |
 			 RADEON_GMC_CLR_CMP_CNTL_DIS | RADEON_GMC_WR_MSK_DIS);
 
+		/* Make this work even if front & back are flipped:
+		 */
 		OUT_RING(CP_PACKET0(RADEON_SRC_PITCH_OFFSET, 1));
 		if (sarea_priv->pfCurrentPage == 0) {
 			OUT_RING(dev_priv->back_pitch_offset);
@@ -1299,6 +1434,10 @@ static void radeon_cp_dispatch_swap(struct drm_device *dev, struct drm_master *m
 		ADVANCE_RING();
 	}
 
+	/* Increment the frame counter.  The client-side 3D driver must
+	 * throttle the framerate by waiting for this value before
+	 * performing the swapbuffer ioctl.
+	 */
 	sarea_priv->last_frame++;
 
 	BEGIN_RING(4);
@@ -1320,11 +1459,15 @@ void radeon_cp_dispatch_flip(struct drm_device *dev, struct drm_master *master)
 	DRM_DEBUG("pfCurrentPage=%d\n",
 		  master_priv->sarea_priv->pfCurrentPage);
 
+	/* Do some trivial performance monitoring...
+	 */
 	if (dev_priv->do_boxes) {
 		dev_priv->stats.boxes |= RADEON_BOX_FLIP;
 		radeon_cp_performance_boxes(dev_priv, master_priv);
 	}
 
+	/* Update the frame offsets for both CRTCs
+	 */
 	BEGIN_RING(6);
 
 	RADEON_WAIT_UNTIL_3D_IDLE();
@@ -1337,6 +1480,10 @@ void radeon_cp_dispatch_flip(struct drm_device *dev, struct drm_master *master)
 
 	ADVANCE_RING();
 
+	/* Increment the frame counter.  The client-side 3D driver must
+	 * throttle the framerate by waiting for this value before
+	 * performing the swapbuffer ioctl.
+	 */
 	master_priv->sarea_priv->last_frame++;
 	master_priv->sarea_priv->pfCurrentPage =
 		1 - master_priv->sarea_priv->pfCurrentPage;
@@ -1405,12 +1552,12 @@ static void radeon_cp_dispatch_vertex(struct drm_device * dev,
 	}
 
 	do {
-		
+		/* Emit the next cliprect */
 		if (i < nbox) {
 			radeon_emit_clip_rect(dev_priv, &sarea_priv->boxes[i]);
 		}
 
-		
+		/* Emit the vertex buffer rendering commands */
 		BEGIN_RING(5);
 
 		OUT_RING(CP_PACKET3(RADEON_3D_RNDR_GEN_INDX_PRIM, 3));
@@ -1437,7 +1584,7 @@ void radeon_cp_discard_buffer(struct drm_device *dev, struct drm_master *master,
 
 	buf_priv->age = ++master_priv->sarea_priv->last_dispatch;
 
-	
+	/* Emit the vertex buffer age */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600) {
 		BEGIN_RING(3);
 		R600_DISPATCH_AGE(buf_priv->age);
@@ -1464,6 +1611,10 @@ static void radeon_cp_dispatch_indirect(struct drm_device * dev,
 			      + buf->offset + start);
 		int dwords = (end - start + 3) / sizeof(u32);
 
+		/* Indirect buffer data must be an even number of
+		 * dwords, so if we've been given an odd number we must
+		 * pad the data with a Type-2 CP packet.
+		 */
 		if (dwords & 1) {
 			u32 *data = (u32 *)
 			    ((char *)dev->agp_buffer_map->handle
@@ -1471,7 +1622,7 @@ static void radeon_cp_dispatch_indirect(struct drm_device * dev,
 			data[dwords++] = RADEON_CP_PACKET2;
 		}
 
-		
+		/* Fire off the indirect buffer */
 		BEGIN_RING(3);
 
 		OUT_RING(CP_PACKET0(RADEON_CP_IB_BASE, 1));
@@ -1566,11 +1717,19 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 
 	dev_priv->stats.boxes |= RADEON_BOX_TEXTURE_LOAD;
 
+	/* Flush the pixel cache.  This ensures no pixel data gets mixed
+	 * up with the texture data from the host data blit, otherwise
+	 * part of the texture image may be corrupted.
+	 */
 	BEGIN_RING(4);
 	RADEON_FLUSH_CACHE();
 	RADEON_WAIT_UNTIL_IDLE();
 	ADVANCE_RING();
 
+	/* The compiler won't optimize away a division by a variable,
+	 * even if the only legal values are powers of two.  Thus, we'll
+	 * use a shift instead.
+	 */
 	switch (tex->format) {
 	case RADEON_TXFORMAT_ARGB8888:
 	case RADEON_TXFORMAT_RGBA8888:
@@ -1607,13 +1766,13 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 		microtile = 1;
 		if (tex_width < 64) {
 			texpitch &= ~(RADEON_DST_TILE_MICRO >> 22);
-			
+			/* we got tiled coordinates, untile them */
 			image->x *= 2;
 		}
 	} else
 		microtile = 0;
 
-	
+	/* this might fail for zero-sized uploads - are those illegal? */
 	if (!radeon_check_offset(dev_priv, tex->offset + image->height *
 				blit_width - 1)) {
 		DRM_ERROR("Invalid final destination offset\n");
@@ -1627,6 +1786,9 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 			  tex->offset >> 10, tex->pitch, tex->format,
 			  image->x, image->y, image->width, image->height);
 
+		/* Make a copy of some parameters in case we have to
+		 * update them for a multi-pass texture blit.
+		 */
 		height = image->height;
 		data = (const u8 __user *)image->data;
 
@@ -1653,6 +1815,8 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 			return -EAGAIN;
 		}
 
+		/* Dispatch the indirect buffer.
+		 */
 		buffer =
 		    (u32 *) ((char *)dev->agp_buffer_map->handle + buf->offset);
 		dwords = size / 4;
@@ -1666,6 +1830,14 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 	} while(0)
 
 		if (microtile) {
+			/* texture micro tiling in use, minimum texture width is thus 16 bytes.
+			   however, we cannot use blitter directly for texture width < 64 bytes,
+			   since minimum tex pitch is 64 bytes and we need this to match
+			   the texture width, otherwise the blitter will tile it wrong.
+			   Thus, tiling manually in this case. Additionally, need to special
+			   case tex height = 1, since our actual image will have height 2
+			   and we need to ensure we don't read beyond the texture size
+			   from user space. */
 			if (tex->height == 1) {
 				if (tex_width >= 64 || tex_width <= 16) {
 					RADEON_COPY_MT(buffer, data,
@@ -1685,6 +1857,8 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 					data += tex_width;
 				}
 			} else if (tex_width == 32) {
+				/* TODO: make sure this works when not fitting in one buffer
+				   (i.e. 32bytes x 2048...) */
 				for (i = 0; i < tex->height; i += 2) {
 					RADEON_COPY_MT(buffer, data, 16);
 					data += 16;
@@ -1699,9 +1873,16 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 			}
 		} else {
 			if (tex_width >= 32) {
+				/* Texture image width is larger than the minimum, so we
+				 * can upload it directly.
+				 */
 				RADEON_COPY_MT(buffer, data,
 					       (int)(dwords * sizeof(u32)));
 			} else {
+				/* Texture image width is less than the minimum, so we
+				 * need to pad out each image scanline to the minimum
+				 * width.
+				 */
 				for (i = 0; i < tex->height; i++) {
 					RADEON_COPY_MT(buffer, data, tex_width);
 					buffer += 8;
@@ -1736,7 +1917,7 @@ static int radeon_cp_dispatch_texture(struct drm_device * dev,
 
 		radeon_cp_discard_buffer(dev, file_priv->master, buf);
 
-		
+		/* Update the input parameters for next time */
 		image->y += height;
 		image->height -= height;
 		image->data = (const u8 __user *)image->data + size;
@@ -1791,6 +1972,17 @@ static void radeon_apply_surface_regs(int surf_index,
 		     dev_priv->surfaces[surf_index].upper);
 }
 
+/* Allocates a virtual surface
+ * doesn't always allocate a real surface, will stretch an existing
+ * surface when possible.
+ *
+ * Note that refcount can be at most 2, since during a free refcount=3
+ * might mean we have to allocate a new surface which might not always
+ * be available.
+ * For example : we allocate three contiguous surfaces ABC. If B is
+ * freed, we suddenly need two surfaces to store A and C, which might
+ * not always be available.
+ */
 static int alloc_surface(drm_radeon_surface_alloc_t *new,
 			 drm_radeon_private_t *dev_priv,
 			 struct drm_file *file_priv)
@@ -1803,14 +1995,14 @@ static int alloc_surface(drm_radeon_surface_alloc_t *new,
 	new_lower = new->address;
 	new_upper = new_lower + new->size - 1;
 
-	
+	/* sanity check */
 	if ((new_lower >= new_upper) || (new->flags == 0) || (new->size == 0) ||
 	    ((new_upper & RADEON_SURF_ADDRESS_FIXED_MASK) !=
 	     RADEON_SURF_ADDRESS_FIXED_MASK)
 	    || ((new_lower & RADEON_SURF_ADDRESS_FIXED_MASK) != 0))
 		return -1;
 
-	
+	/* make sure there is no overlap with existing surfaces */
 	for (i = 0; i < RADEON_MAX_SURFACES; i++) {
 		if ((dev_priv->surfaces[i].refcount != 0) &&
 		    (((new_lower >= dev_priv->surfaces[i].lower) &&
@@ -1821,7 +2013,7 @@ static int alloc_surface(drm_radeon_surface_alloc_t *new,
 		}
 	}
 
-	
+	/* find a virtual surface */
 	for (i = 0; i < 2 * RADEON_MAX_SURFACES; i++)
 		if (dev_priv->virt_surfaces[i].file_priv == NULL)
 			break;
@@ -1830,9 +2022,9 @@ static int alloc_surface(drm_radeon_surface_alloc_t *new,
 	}
 	virt_surface_index = i;
 
-	
+	/* try to reuse an existing surface */
 	for (i = 0; i < RADEON_MAX_SURFACES; i++) {
-		
+		/* extend before */
 		if ((dev_priv->surfaces[i].refcount == 1) &&
 		    (new->flags == dev_priv->surfaces[i].flags) &&
 		    (new_upper + 1 == dev_priv->surfaces[i].lower)) {
@@ -1848,7 +2040,7 @@ static int alloc_surface(drm_radeon_surface_alloc_t *new,
 			return virt_surface_index;
 		}
 
-		
+		/* extend after */
 		if ((dev_priv->surfaces[i].refcount == 1) &&
 		    (new->flags == dev_priv->surfaces[i].flags) &&
 		    (new_lower == dev_priv->surfaces[i].upper + 1)) {
@@ -1865,7 +2057,7 @@ static int alloc_surface(drm_radeon_surface_alloc_t *new,
 		}
 	}
 
-	
+	/* okay, we need a new one */
 	for (i = 0; i < RADEON_MAX_SURFACES; i++) {
 		if (dev_priv->surfaces[i].refcount == 0) {
 			s = &(dev_priv->virt_surfaces[virt_surface_index]);
@@ -1883,7 +2075,7 @@ static int alloc_surface(drm_radeon_surface_alloc_t *new,
 		}
 	}
 
-	
+	/* we didn't find anything */
 	return -1;
 }
 
@@ -1893,7 +2085,7 @@ static int free_surface(struct drm_file *file_priv,
 {
 	struct radeon_virt_surface *s;
 	int i;
-	
+	/* find the virtual surface */
 	for (i = 0; i < 2 * RADEON_MAX_SURFACES; i++) {
 		s = &(dev_priv->virt_surfaces[i]);
 		if (s->file_priv) {
@@ -1935,6 +2127,9 @@ static void radeon_surfaces_release(struct drm_file *file_priv,
 	}
 }
 
+/* ================================================================
+ * IOCTL functions
+ */
 static int radeon_surface_alloc(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -1983,6 +2178,8 @@ static int radeon_cp_clear(struct drm_device *dev, void *data, struct drm_file *
 	return 0;
 }
 
+/* Not sure why this isn't set all the time:
+ */
 static int radeon_do_init_pageflip(struct drm_device *dev, struct drm_master *master)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -2009,6 +2206,9 @@ static int radeon_do_init_pageflip(struct drm_device *dev, struct drm_master *ma
 	return 0;
 }
 
+/* Swapping and flipping are different operations, need different ioctls.
+ * They can & should be intermixed to support multiple 3d windows.
+ */
 static int radeon_cp_flip(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -2094,8 +2294,10 @@ static int radeon_cp_vertex(struct drm_device *dev, void *data, struct drm_file 
 		return -EINVAL;
 	}
 
+	/* Build up a prim_t record:
+	 */
 	if (vertex->count) {
-		buf->used = vertex->count;	
+		buf->used = vertex->count;	/* not used? */
 
 		if (sarea_priv->dirty & ~RADEON_UPLOAD_CLIPRECTS) {
 			if (radeon_emit_state(dev_priv, file_priv,
@@ -2113,7 +2315,7 @@ static int radeon_cp_vertex(struct drm_device *dev, void *data, struct drm_file 
 		}
 
 		prim.start = 0;
-		prim.finish = vertex->count;	
+		prim.finish = vertex->count;	/* unused */
 		prim.prim = vertex->prim;
 		prim.numverts = vertex->count;
 		prim.vc_format = sarea_priv->vc_format;
@@ -2202,11 +2404,13 @@ static int radeon_cp_indices(struct drm_device *dev, void *data, struct drm_file
 				       RADEON_REQUIRE_QUIESCENCE);
 	}
 
+	/* Build up a prim_t record:
+	 */
 	prim.start = elts->start;
 	prim.finish = elts->end;
 	prim.prim = elts->prim;
-	prim.offset = 0;	
-	prim.numverts = RADEON_MAX_VB_VERTS;	
+	prim.offset = 0;	/* offset from start of dma buffers */
+	prim.numverts = RADEON_MAX_VB_VERTS;	/* duh */
 	prim.vc_format = sarea_priv->vc_format;
 
 	radeon_cp_dispatch_indices(dev, file_priv->master, buf, &prim);
@@ -2310,9 +2514,16 @@ static int radeon_cp_indirect(struct drm_device *dev, void *data, struct drm_fil
 
 	buf->used = indirect->end;
 
+	/* Dispatch the indirect buffer full of commands from the
+	 * X server.  This is insecure and is thus only available to
+	 * privileged clients.
+	 */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
 		r600_cp_dispatch_indirect(dev, buf, indirect->start, indirect->end);
 	else {
+		/* Wait for the 3D stream to idle before the indirect buffer
+		 * containing 2D acceleration commands is processed.
+		 */
 		BEGIN_RING(2);
 		RADEON_WAIT_UNTIL_3D_IDLE();
 		ADVANCE_RING();
@@ -2400,12 +2611,12 @@ static int radeon_cp_vertex2(struct drm_device *dev, void *data, struct drm_file
 
 		if (prim.prim & RADEON_PRIM_WALK_IND) {
 			tclprim.offset = prim.numverts * 64;
-			tclprim.numverts = RADEON_MAX_VB_VERTS;	
+			tclprim.numverts = RADEON_MAX_VB_VERTS;	/* duh */
 
 			radeon_cp_dispatch_indices(dev, file_priv->master, buf, &tclprim);
 		} else {
 			tclprim.numverts = prim.numverts;
-			tclprim.offset = 0;	
+			tclprim.offset = 0;	/* not used */
 
 			radeon_cp_dispatch_vertex(dev, file_priv, buf, &tclprim);
 		}
@@ -2474,6 +2685,8 @@ static __inline__ int radeon_emit_scalars(drm_radeon_private_t *dev_priv,
 	return 0;
 }
 
+/* God this is ugly
+ */
 static __inline__ int radeon_emit_scalars2(drm_radeon_private_t *dev_priv,
 					   drm_radeon_cmd_header_t header,
 					   drm_radeon_kcmd_buffer_t *cmdbuf)
@@ -2588,6 +2801,18 @@ static int radeon_emit_packet3_cliprect(struct drm_device *dev,
 		if (i < cmdbuf->nbox) {
 			if (DRM_COPY_FROM_USER(&box, &boxes[i], sizeof(box)))
 				return -EFAULT;
+			/* FIXME The second and subsequent times round
+			 * this loop, send a WAIT_UNTIL_3D_IDLE before
+			 * calling emit_clip_rect(). This fixes a
+			 * lockup on fast machines when sending
+			 * several cliprects with a cmdbuf, as when
+			 * waving a 2D window over a 3D
+			 * window. Something in the commands from user
+			 * space seems to hang the card when they're
+			 * sent several times in a row. That would be
+			 * the correct place to fix it but this works
+			 * around it until I can figure that out - Tim
+			 * Smith */
 			if (i) {
 				BEGIN_RING(2);
 				RADEON_WAIT_UNTIL_3D_IDLE();
@@ -2659,6 +2884,10 @@ static int radeon_cp_cmdbuf(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
+	/* Allocate an in-kernel area and copy in the cmdbuf.  Do this to avoid
+	 * races between checking values and using those values in other code,
+	 * and simply to avoid a lot of function calls to copy in data.
+	 */
 	if (cmdbuf->bufsz != 0) {
 		int rv;
 		void __user *buffer = cmdbuf->buffer;
@@ -2685,7 +2914,7 @@ static int radeon_cp_cmdbuf(struct drm_device *dev, void *data,
 		return temp;
 	}
 
-	
+	/* microcode_version != r300 */
 	while (drm_buffer_unprocessed(cmdbuf->buffer) >= sizeof(stack_header)) {
 
 		drm_radeon_cmd_header_t *header;
@@ -2837,9 +3066,18 @@ static int radeon_cp_getparam(struct drm_device *dev, void *data, struct drm_fil
 		value = dev_priv->ring_rptr_offset;
 		break;
 #if BITS_PER_LONG == 32
+		/*
+		 * This ioctl() doesn't work on 64-bit platforms because hw_lock is a
+		 * pointer which can't fit into an int-sized variable.  According to
+		 * Michel Dänzer, the ioctl() is only used on embedded platforms, so
+		 * not supporting it shouldn't be a problem.  If the same functionality
+		 * is needed on 64-bit platforms, a new ioctl() would have to be added,
+		 * so backwards-compatibility for the embedded platforms can be
+		 * maintained.  --davidm 4-Feb-2004.
+		 */
 	case RADEON_PARAM_SAREA_HANDLE:
-		
-		
+		/* The lock is the first dword in the sarea. */
+		/* no users of this parameter */
 		break;
 #endif
 	case RADEON_PARAM_GART_TEX_HANDLE:
@@ -2937,6 +3175,13 @@ static int radeon_cp_setparam(struct drm_device *dev, void *data, struct drm_fil
 	return 0;
 }
 
+/* When a client dies:
+ *    - Check for and clean up flipped page state
+ *    - Free any alloced GART memory.
+ *    - Free any alloced radeon surfaces.
+ *
+ * DRM infrastructure takes care of reclaiming dma buffers.
+ */
 void radeon_driver_preclose(struct drm_device *dev, struct drm_file *file_priv)
 {
 	if (dev->dev_private) {

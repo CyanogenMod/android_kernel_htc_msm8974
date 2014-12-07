@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
+#include <mach/devices_cmdline.h>
 #include <linux/htc_flashlight.h>
 #include <linux/module.h>
 #include <mach/socinfo.h>
@@ -541,7 +542,11 @@ int tps61310_flashlight_control(int mode)
 {
 	int ret = 0;
 	int err = 0;
+	int rc = 0;
 
+	rc = cancel_delayed_work_sync(&tps61310_delayed_work);
+	if (rc)
+		FLT_INFO_LOG("tps61310_delayed_work is cancelled\n");
 	mutex_lock(&tps61310_mutex);
 	if (this_tps61310->reset && reg_init_fail) {
 		reg_init_fail = 0;
@@ -1540,7 +1545,10 @@ static int tps61310_probe(struct i2c_client *client,
 	int num_leds = 0, parsed_leds = 0;
 	const char *led_label;
 	int rc;
-
+	if (board_mfg_mode() == MFG_MODE_OFFMODE_CHARGING) {
+		FLT_INFO_LOG("%s: offmode_charging, do not probe tps61310_flashlight\n", __func__);
+		return -EACCES;
+	}
 	FLT_INFO_LOG("%s +\n", __func__);
 
 
@@ -1560,6 +1568,7 @@ static int tps61310_probe(struct i2c_client *client,
 	tps61310 = kzalloc(sizeof(struct tps61310_data), GFP_KERNEL);
 	if (!tps61310) {
 		FLT_ERR_LOG("%s: kzalloc fail !!!\n", __func__);
+		kfree(pdata);
 		return -ENOMEM;
 	}
 
@@ -1742,9 +1751,9 @@ static int tps61310_probe(struct i2c_client *client,
 
 	this_tps61310 = tps61310;
 
-	ret = register_reboot_notifier(&reboot_notifier);
+	err = register_reboot_notifier(&reboot_notifier);
 	if (err < 0) {
-		FLT_ERR_LOG("%s: Register reboot notifier failed(err=%d)\n", __func__, ret);
+		FLT_ERR_LOG("%s: Register reboot notifier failed(err=%d)\n", __func__, err);
 		goto platform_data_null;
 	}
 

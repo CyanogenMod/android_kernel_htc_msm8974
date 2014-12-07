@@ -39,20 +39,33 @@ static struct of_device_id zynq_of_bus_ids[] __initdata = {
 	{}
 };
 
+/**
+ * xilinx_init_machine() - System specific initialization, intended to be
+ *			   called from board specific initialization.
+ */
 static void __init xilinx_init_machine(void)
 {
 #ifdef CONFIG_CACHE_L2X0
+	/*
+	 * 64KB way size, 8-way associativity, parity disabled
+	 */
 	l2x0_init(PL310_L2CC_BASE, 0x02060000, 0xF0F0FFFF);
 #endif
 
 	of_platform_bus_probe(NULL, zynq_of_bus_ids, NULL);
 }
 
+/**
+ * xilinx_irq_init() - Interrupt controller initialization for the GIC.
+ */
 static void __init xilinx_irq_init(void)
 {
 	gic_init(0, 29, SCU_GIC_DIST_BASE, SCU_GIC_CPU_BASE);
 }
 
+/* The minimum devices needed to be mapped before the VM system is up and
+ * running include the GIC, UART and Timer Counter.
+ */
 
 static struct map_desc io_desc[] __initdata = {
 	{
@@ -83,6 +96,9 @@ static struct map_desc io_desc[] __initdata = {
 
 };
 
+/**
+ * xilinx_map_io() - Create memory mappings needed for early I/O.
+ */
 static void __init xilinx_map_io(void)
 {
 	iotable_init(io_desc, ARRAY_SIZE(io_desc));

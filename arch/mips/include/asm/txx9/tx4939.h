@@ -10,14 +10,15 @@
 #ifndef __ASM_TXX9_TX4939_H
 #define __ASM_TXX9_TX4939_H
 
+/* some controllers are compatible with 4927/4938 */
 #include <asm/txx9/tx4938.h>
 
 #ifdef CONFIG_64BIT
-#define TX4939_REG_BASE	0xffffffffff1f0000UL 
+#define TX4939_REG_BASE	0xffffffffff1f0000UL /* == TX4938_REG_BASE */
 #else
-#define TX4939_REG_BASE	0xff1f0000UL 
+#define TX4939_REG_BASE	0xff1f0000UL /* == TX4938_REG_BASE */
 #endif
-#define TX4939_REG_SIZE	0x00010000 
+#define TX4939_REG_SIZE	0x00010000 /* == TX4938_REG_SIZE */
 
 #define TX4939_ATA_REG(ch)	(TX4939_REG_BASE + 0x3000 + (ch) * 0x1000)
 #define TX4939_NDFMC_REG	(TX4939_REG_BASE + 0x5000)
@@ -31,10 +32,10 @@
 #define TX4939_PCIC_REG		(TX4939_REG_BASE + 0xd000)
 #define TX4939_CCFG_REG		(TX4939_REG_BASE + 0xe000)
 #define TX4939_IRC_REG		(TX4939_REG_BASE + 0xe800)
-#define TX4939_NR_TMR	6	
+#define TX4939_NR_TMR	6	/* 0xf000,0xf100,0xf200,0xfd00,0xfe00,0xff00 */
 #define TX4939_TMR_REG(ch)	\
 	(TX4939_REG_BASE + 0xf000 + ((ch) + ((ch) >= 3) * 10) * 0x100)
-#define TX4939_NR_SIO	4	
+#define TX4939_NR_SIO	4	/* 0xf300, 0xf400, 0xf380, 0xf480 */
 #define TX4939_SIO_REG(ch)	\
 	(TX4939_REG_BASE + 0xf300 + (((ch) & 1) << 8) + (((ch) & 2) << 6))
 #define TX4939_ACLC_REG		(TX4939_REG_BASE + 0xf700)
@@ -178,6 +179,9 @@ struct tx4939_vpc_desc {
 	__u32 ctrl2;
 };
 
+/*
+ * IRC
+ */
 #define TX4939_IR_NONE	0
 #define TX4939_IR_DDR	1
 #define TX4939_IR_WTOERR	2
@@ -188,13 +192,13 @@ struct tx4939_vpc_desc {
 #define TX4939_IR_VIDEO	7
 #define TX4939_IR_CIR	8
 #define TX4939_NUM_IR_SIO	4
-#define TX4939_IR_SIO(n)	((n) ? 43 + (n) : 9)	
+#define TX4939_IR_SIO(n)	((n) ? 43 + (n) : 9)	/* 9,44-46 */
 #define TX4939_NUM_IR_DMA	4
-#define TX4939_IR_DMA(ch, n)	(((ch) ? 22 : 10) + (n)) 
+#define TX4939_IR_DMA(ch, n)	(((ch) ? 22 : 10) + (n)) /* 10-13,22-25 */
 #define TX4939_IR_IRC	14
 #define TX4939_IR_PDMAC	15
 #define TX4939_NUM_IR_TMR	6
-#define TX4939_IR_TMR(n)	(((n) >= 3 ? 45 : 16) + (n)) 
+#define TX4939_IR_TMR(n)	(((n) >= 3 ? 45 : 16) + (n)) /* 16-18,48-50 */
 #define TX4939_NUM_IR_ATA	2
 #define TX4939_IR_ATA(n)	(19 + (n))
 #define TX4939_IR_ACLC	21
@@ -216,8 +220,12 @@ struct tx4939_vpc_desc {
 #define TX4939_IR_I2S	47
 #define TX4939_NUM_IR	64
 
-#define TX4939_IRC_INT	2	
+#define TX4939_IRC_INT	2	/* IP[2] in Status register */
 
+/*
+ * CCFG
+ */
+/* CCFG : Chip Configuration */
 #define TX4939_CCFG_PCIBOOT	0x0000040000000000ULL
 #define TX4939_CCFG_WDRST	0x0000020000000000ULL
 #define TX4939_CCFG_WDREXEN	0x0000010000000000ULL
@@ -258,6 +266,7 @@ struct tx4939_vpc_desc {
 #define TX4939_CCFG_ARMODE	0x00000002
 #define TX4939_CCFG_ACEHOLD	0x00000001
 
+/* PCFG : Pin Configuration */
 #define TX4939_PCFG_SIO2MODE_MASK	0xc000000000000000ULL
 #define TX4939_PCFG_SIO2MODE_GPIO	0x8000000000000000ULL
 #define TX4939_PCFG_SIO2MODE_SIO2	0x4000000000000000ULL
@@ -296,6 +305,7 @@ struct tx4939_vpc_desc {
 #define TX4939_PCFG_DMASEL0	0x00000001
 #define TX4939_PCFG_DMASEL0_DRQ0	0x00000000
 
+/* CLKCTR : Clock Control */
 #define TX4939_CLKCTR_IOSCKD	0x8000000000000000ULL
 #define TX4939_CLKCTR_SYSCKD	0x4000000000000000ULL
 #define TX4939_CLKCTR_TM5CKD	0x2000000000000000ULL
@@ -359,6 +369,9 @@ struct tx4939_vpc_desc {
 #define TX4939_CLKCTR_SIO0RST	0x00000002
 #define TX4939_CLKCTR_CYPRST	0x00000001
 
+/*
+ * RTC
+ */
 #define TX4939_RTCCTL_ALME	0x00000080
 #define TX4939_RTCCTL_ALMD	0x00000040
 #define TX4939_RTCCTL_BUSY	0x00000020
@@ -376,6 +389,9 @@ struct tx4939_vpc_desc {
 #define TX4939_RTC_REG_RAMSIZE	0x00000100
 #define TX4939_RTC_REG_RWBSIZE	0x00000006
 
+/*
+ * CRYPTO
+ */
 #define TX4939_CRYPTO_CSR_SAESO	0x08000000
 #define TX4939_CRYPTO_CSR_SAESI	0x04000000
 #define TX4939_CRYPTO_CSR_SDESO	0x02000000
@@ -407,6 +423,7 @@ struct tx4939_vpc_desc {
 #define TX4939_CRYPTO_CSR_RSTC	0x00000002
 #define TX4939_CRYPTO_CSR_ENCR	0x00000001
 
+/* bits for tx4939_crypto_reg.cdr.gen.ctrl */
 #define TX4939_CRYPTO_CTX_ENGINE_MASK	0x00000003
 #define TX4939_CRYPTO_CTX_ENGINE_DES	0x00000000
 #define TX4939_CRYPTO_CTX_ENGINE_AES	0x00000001
@@ -417,6 +434,7 @@ struct tx4939_vpc_desc {
 #define TX4939_CRYPTO_CTX_DMS	0x00000040
 #define TX4939_CRYPTO_CTX_UPDATE	0x00000080
 
+/* bits for tx4939_crypto_desc.ctrl */
 #define TX4939_CRYPTO_DESC_OB_CNT_MASK	0xffe00000
 #define TX4939_CRYPTO_DESC_OB_CNT(cnt)	((cnt) << 21)
 #define TX4939_CRYPTO_DESC_IB_CNT_MASK	0x001ffc00
@@ -431,6 +449,7 @@ struct tx4939_vpc_desc {
 #define TX4939_CRYPTO_DESC_ERR_DIGEST	0x00000004
 #define TX4939_CRYPTO_DESC_OWN	0x00000001
 
+/* bits for tx4939_crypto_desc.index */
 #define TX4939_CRYPTO_DESC_HASH_IDX_MASK	0x00000070
 #define TX4939_CRYPTO_DESC_HASH_IDX(idx)	((idx) << 4)
 #define TX4939_CRYPTO_DESC_ENCRYPT_IDX_MASK	0x00000007
@@ -443,6 +462,9 @@ struct tx4939_vpc_desc {
 #define TX4939_CRYPTO_RCSR_FIN	0x00000002
 #define TX4939_CRYPTO_RCSR_ST	0x00000001
 
+/*
+ * VPC
+ */
 #define TX4939_VPC_CSR_GBINT	0x00010000
 #define TX4939_VPC_CSR_SWAPO	0x00000020
 #define TX4939_VPC_CSR_SWAPI	0x00000010
@@ -463,6 +485,7 @@ struct tx4939_vpc_desc {
 #define TX4939_VPC_CTRLA_VDFOR	0x00000002
 #define TX4939_VPC_CTRLA_ENVPC	0x00000001
 
+/* bits for tx4939_vpc_desc.ctrl1 */
 #define TX4939_VPC_DESC_CTRL1_ERR_MASK	0x00000006
 #define TX4939_VPC_DESC_CTRL1_OWN	0x00000001
 
@@ -499,6 +522,7 @@ struct tx4939_vpc_desc {
 #define TX4939_EBUSC_WIDTH(ch)	\
 	(16 >> ((__u32)(TX4939_EBUSC_CR(ch) >> 20) & 0x1))
 
+/* SCLK0 = MSTCLK * 429/19 * 16/245 / 2  (14.745MHz for MST 20MHz) */
 #define TX4939_SCLK0(mst)	\
 	((((mst) + 245/2) / 245UL * 429 * 16 + 19) / 19 / 2)
 
@@ -527,4 +551,4 @@ void tx4939_aclc_init(void);
 void tx4939_sramc_init(void);
 void tx4939_rng_init(void);
 
-#endif 
+#endif /* __ASM_TXX9_TX4939_H */

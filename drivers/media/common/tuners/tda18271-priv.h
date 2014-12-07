@@ -27,48 +27,49 @@
 #include "tuner-i2c.h"
 #include "tda18271.h"
 
-#define R_ID     0x00	
-#define R_TM     0x01	
-#define R_PL     0x02	
-#define R_EP1    0x03	
-#define R_EP2    0x04	
-#define R_EP3    0x05	
-#define R_EP4    0x06	
-#define R_EP5    0x07	
-#define R_CPD    0x08	
-#define R_CD1    0x09	
-#define R_CD2    0x0a	
-#define R_CD3    0x0b	
-#define R_MPD    0x0c	
-#define R_MD1    0x0d	
-#define R_MD2    0x0e	
-#define R_MD3    0x0f	
-#define R_EB1    0x10	
-#define R_EB2    0x11	
-#define R_EB3    0x12	
-#define R_EB4    0x13	
-#define R_EB5    0x14	
-#define R_EB6    0x15	
-#define R_EB7    0x16	
-#define R_EB8    0x17	
-#define R_EB9    0x18	
-#define R_EB10   0x19	
-#define R_EB11   0x1a	
-#define R_EB12   0x1b	
-#define R_EB13   0x1c	
-#define R_EB14   0x1d	
-#define R_EB15   0x1e	
-#define R_EB16   0x1f	
-#define R_EB17   0x20	
-#define R_EB18   0x21	
-#define R_EB19   0x22	
-#define R_EB20   0x23	
-#define R_EB21   0x24	
-#define R_EB22   0x25	
-#define R_EB23   0x26	
+#define R_ID     0x00	/* ID byte                */
+#define R_TM     0x01	/* Thermo byte            */
+#define R_PL     0x02	/* Power level byte       */
+#define R_EP1    0x03	/* Easy Prog byte 1       */
+#define R_EP2    0x04	/* Easy Prog byte 2       */
+#define R_EP3    0x05	/* Easy Prog byte 3       */
+#define R_EP4    0x06	/* Easy Prog byte 4       */
+#define R_EP5    0x07	/* Easy Prog byte 5       */
+#define R_CPD    0x08	/* Cal Post-Divider byte  */
+#define R_CD1    0x09	/* Cal Divider byte 1     */
+#define R_CD2    0x0a	/* Cal Divider byte 2     */
+#define R_CD3    0x0b	/* Cal Divider byte 3     */
+#define R_MPD    0x0c	/* Main Post-Divider byte */
+#define R_MD1    0x0d	/* Main Divider byte 1    */
+#define R_MD2    0x0e	/* Main Divider byte 2    */
+#define R_MD3    0x0f	/* Main Divider byte 3    */
+#define R_EB1    0x10	/* Extended byte 1        */
+#define R_EB2    0x11	/* Extended byte 2        */
+#define R_EB3    0x12	/* Extended byte 3        */
+#define R_EB4    0x13	/* Extended byte 4        */
+#define R_EB5    0x14	/* Extended byte 5        */
+#define R_EB6    0x15	/* Extended byte 6        */
+#define R_EB7    0x16	/* Extended byte 7        */
+#define R_EB8    0x17	/* Extended byte 8        */
+#define R_EB9    0x18	/* Extended byte 9        */
+#define R_EB10   0x19	/* Extended byte 10       */
+#define R_EB11   0x1a	/* Extended byte 11       */
+#define R_EB12   0x1b	/* Extended byte 12       */
+#define R_EB13   0x1c	/* Extended byte 13       */
+#define R_EB14   0x1d	/* Extended byte 14       */
+#define R_EB15   0x1e	/* Extended byte 15       */
+#define R_EB16   0x1f	/* Extended byte 16       */
+#define R_EB17   0x20	/* Extended byte 17       */
+#define R_EB18   0x21	/* Extended byte 18       */
+#define R_EB19   0x22	/* Extended byte 19       */
+#define R_EB20   0x23	/* Extended byte 20       */
+#define R_EB21   0x24	/* Extended byte 21       */
+#define R_EB22   0x25	/* Extended byte 22       */
+#define R_EB23   0x26	/* Extended byte 23       */
 
 #define TDA18271_NUM_REGS 39
 
+/*---------------------------------------------------------------------*/
 
 struct tda18271_rf_tracking_filter_cal {
 	u32 rfmax;
@@ -110,7 +111,7 @@ struct tda18271_priv {
 	enum tda18271_output_options output_opt;
 	enum tda18271_small_i2c small_i2c;
 
-	unsigned int config; 
+	unsigned int config; /* interface to saa713x / tda829x */
 	unsigned int cal_initialized:1;
 
 	u8 tm_rfcal;
@@ -127,6 +128,7 @@ struct tda18271_priv {
 	u32 bandwidth;
 };
 
+/*---------------------------------------------------------------------*/
 
 extern int tda18271_debug;
 
@@ -167,12 +169,13 @@ do {								\
 	__ret;								     \
 })
 
+/*---------------------------------------------------------------------*/
 
 enum tda18271_map_type {
-	
+	/* tda18271_pll_map */
 	MAIN_PLL,
 	CAL_PLL,
-	
+	/* tda18271_map */
 	RF_CAL,
 	RF_CAL_KMCO,
 	RF_CAL_DC_OVER_DT,
@@ -200,6 +203,7 @@ extern int tda18271_lookup_cid_target(struct dvb_frontend *fe,
 
 extern int tda18271_assign_map_layout(struct dvb_frontend *fe);
 
+/*---------------------------------------------------------------------*/
 
 extern int tda18271_read_regs(struct dvb_frontend *fe);
 extern int tda18271_read_extended(struct dvb_frontend *fe);
@@ -221,5 +225,12 @@ extern int tda18271_calc_gain_taper(struct dvb_frontend *fe, u32 *freq);
 extern int tda18271_calc_ir_measure(struct dvb_frontend *fe, u32 *freq);
 extern int tda18271_calc_rf_cal(struct dvb_frontend *fe, u32 *freq);
 
-#endif 
+#endif /* __TDA18271_PRIV_H__ */
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

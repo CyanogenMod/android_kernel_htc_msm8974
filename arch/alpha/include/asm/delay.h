@@ -7,4 +7,4 @@ extern void udelay(unsigned long usecs);
 extern void ndelay(unsigned long nsecs);
 #define ndelay ndelay
 
-#endif 
+#endif /* defined(__ALPHA_DELAY_H) */

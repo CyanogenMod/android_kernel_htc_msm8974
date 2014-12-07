@@ -51,11 +51,17 @@
 #include "jr.h"
 #include "error.h"
 
+/*
+ * crypto alg
+ */
 #define CAAM_CRA_PRIORITY		3000
+/* max key is sum of AES_MAX_KEY_SIZE, max split key size */
 #define CAAM_MAX_KEY_SIZE		(AES_MAX_KEY_SIZE + \
 					 SHA512_DIGEST_SIZE * 2)
+/* max IV is max of AES_BLOCK_SIZE, DES3_EDE_BLOCK_SIZE */
 #define CAAM_MAX_IV_LENGTH		16
 
+/* length of descriptors text */
 #define DESC_JOB_IO_LEN			(CAAM_CMD_SZ * 3 + CAAM_PTR_SZ * 3)
 
 #define DESC_AEAD_BASE			(4 * CAAM_CMD_SZ)
@@ -74,6 +80,7 @@
 #define DESC_MAX_USED_LEN		(DESC_MAX_USED_BYTES / CAAM_CMD_SZ)
 
 #ifdef DEBUG
+/* for print_hex_dumps with line references */
 #define xstr(s) str(s)
 #define str(s) #s
 #define debug(format, arg...) printk(format, arg)
@@ -81,6 +88,7 @@
 #define debug(format, arg...)
 #endif
 
+/* Set DK bit in class 1 operation if shared */
 static inline void append_dec_op1(u32 *desc, u32 type)
 {
 	u32 *jump_cmd, *uncond_jump_cmd;
@@ -95,6 +103,10 @@ static inline void append_dec_op1(u32 *desc, u32 type)
 	set_jump_tgt_here(desc, uncond_jump_cmd);
 }
 
+/*
+ * Wait for completion of class 1 key loading before allowing
+ * error propagation
+ */
 static inline void append_dec_shr_done(u32 *desc)
 {
 	u32 *jump_cmd;
@@ -104,6 +116,10 @@ static inline void append_dec_shr_done(u32 *desc)
 	append_cmd(desc, SET_OK_NO_PROP_ERRORS | CMD_LOAD);
 }
 
+/*
+ * For aead functions, read payload and write payload,
+ * both of which are specified in req->src and req->dst
+ */
 static inline void aead_append_src_dst(u32 *desc, u32 msg_type)
 {
 	append_seq_fifo_load(desc, 0, FIFOLD_CLASS_BOTH |
@@ -111,6 +127,9 @@ static inline void aead_append_src_dst(u32 *desc, u32 msg_type)
 	append_seq_fifo_store(desc, 0, FIFOST_TYPE_MESSAGE_DATA | KEY_VLF);
 }
 
+/*
+ * For aead encrypt and decrypt, read iv for both classes
+ */
 static inline void aead_append_ld_iv(u32 *desc, int ivsize)
 {
 	append_cmd(desc, CMD_SEQ_LOAD | LDST_SRCDST_BYTE_CONTEXT |
@@ -118,6 +137,10 @@ static inline void aead_append_ld_iv(u32 *desc, int ivsize)
 	append_move(desc, MOVE_SRC_CLASS1CTX | MOVE_DEST_CLASS2INFIFO | ivsize);
 }
 
+/*
+ * For ablkcipher encrypt and decrypt, read from req->src and
+ * write to req->dst
+ */
 static inline void ablkcipher_append_src_dst(u32 *desc)
 {
 	append_math_add(desc, VARSEQOUTLEN, SEQINLEN, REG0, CAAM_CMD_SZ); \
@@ -127,9 +150,16 @@ static inline void ablkcipher_append_src_dst(u32 *desc)
 	append_seq_fifo_store(desc, 0, FIFOST_TYPE_MESSAGE_DATA | KEY_VLF); \
 }
 
+/*
+ * If all data, including src (with assoc and iv) or dst (with iv only) are
+ * contiguous
+ */
 #define GIV_SRC_CONTIG		1
 #define GIV_DST_CONTIG		(1 << 1)
 
+/*
+ * per-session context
+ */
 struct caam_ctx {
 	struct device *jrdev;
 	u32 sh_desc_enc[DESC_MAX_USED_LEN];
@@ -174,7 +204,7 @@ static void init_sh_desc_key_aead(u32 *desc, struct caam_ctx *ctx,
 
 	init_sh_desc(desc, HDR_SHARE_WAIT);
 
-	
+	/* Skip if already shared */
 	key_jump_cmd = append_jump(desc, JUMP_JSL | JUMP_TEST_ALL |
 				   JUMP_COND_SHRD);
 
@@ -182,7 +212,7 @@ static void init_sh_desc_key_aead(u32 *desc, struct caam_ctx *ctx,
 
 	set_jump_tgt_here(desc, key_jump_cmd);
 
-	
+	/* Propagate errors from shared to job descriptor */
 	append_cmd(desc, SET_OK_NO_PROP_ERRORS | CMD_LOAD);
 }
 
@@ -199,44 +229,48 @@ static int aead_set_sh_desc(struct crypto_aead *aead)
 	if (!ctx->enckeylen || !ctx->authsize)
 		return 0;
 
+	/*
+	 * Job Descriptor and Shared Descriptors
+	 * must all fit into the 64-word Descriptor h/w Buffer
+	 */
 	if (DESC_AEAD_ENC_LEN + DESC_JOB_IO_LEN +
 	    ctx->split_key_pad_len + ctx->enckeylen <=
 	    CAAM_DESC_BYTES_MAX)
 		keys_fit_inline = 1;
 
-	
+	/* aead_encrypt shared descriptor */
 	desc = ctx->sh_desc_enc;
 
 	init_sh_desc_key_aead(desc, ctx, keys_fit_inline);
 
-	
+	/* Class 2 operation */
 	append_operation(desc, ctx->class2_alg_type |
 			 OP_ALG_AS_INITFINAL | OP_ALG_ENCRYPT);
 
-	
+	/* cryptlen = seqoutlen - authsize */
 	append_math_sub_imm_u32(desc, REG3, SEQOUTLEN, IMM, ctx->authsize);
 
-	
+	/* assoclen + cryptlen = seqinlen - ivsize */
 	append_math_sub_imm_u32(desc, REG2, SEQINLEN, IMM, tfm->ivsize);
 
-	
+	/* assoclen + cryptlen = (assoclen + cryptlen) - cryptlen */
 	append_math_sub(desc, VARSEQINLEN, REG2, REG3, CAAM_CMD_SZ);
 
-	
+	/* read assoc before reading payload */
 	append_seq_fifo_load(desc, 0, FIFOLD_CLASS_CLASS2 | FIFOLD_TYPE_MSG |
 			     KEY_VLF);
 	aead_append_ld_iv(desc, tfm->ivsize);
 
-	
+	/* Class 1 operation */
 	append_operation(desc, ctx->class1_alg_type |
 			 OP_ALG_AS_INITFINAL | OP_ALG_ENCRYPT);
 
-	
+	/* Read and write cryptlen bytes */
 	append_math_add(desc, VARSEQINLEN, ZERO, REG3, CAAM_CMD_SZ);
 	append_math_add(desc, VARSEQOUTLEN, ZERO, REG3, CAAM_CMD_SZ);
 	aead_append_src_dst(desc, FIFOLD_TYPE_MSG1OUT2);
 
-	
+	/* Write ICV */
 	append_seq_store(desc, ctx->authsize, LDST_CLASS_2_CCB |
 			 LDST_SRCDST_BYTE_CONTEXT);
 
@@ -253,6 +287,10 @@ static int aead_set_sh_desc(struct crypto_aead *aead)
 		       desc_bytes(desc), 1);
 #endif
 
+	/*
+	 * Job Descriptor and Shared Descriptors
+	 * must all fit into the 64-word Descriptor h/w Buffer
+	 */
 	if (DESC_AEAD_DEC_LEN + DESC_JOB_IO_LEN +
 	    ctx->split_key_pad_len + ctx->enckeylen <=
 	    CAAM_DESC_BYTES_MAX)
@@ -260,33 +298,33 @@ static int aead_set_sh_desc(struct crypto_aead *aead)
 
 	desc = ctx->sh_desc_dec;
 
-	
+	/* aead_decrypt shared descriptor */
 	init_sh_desc(desc, HDR_SHARE_WAIT);
 
-	
+	/* Skip if already shared */
 	key_jump_cmd = append_jump(desc, JUMP_JSL | JUMP_TEST_ALL |
 				   JUMP_COND_SHRD);
 
 	append_key_aead(desc, ctx, keys_fit_inline);
 
-	
+	/* Only propagate error immediately if shared */
 	jump_cmd = append_jump(desc, JUMP_TEST_ALL);
 	set_jump_tgt_here(desc, key_jump_cmd);
 	append_cmd(desc, SET_OK_NO_PROP_ERRORS | CMD_LOAD);
 	set_jump_tgt_here(desc, jump_cmd);
 
-	
+	/* Class 2 operation */
 	append_operation(desc, ctx->class2_alg_type |
 			 OP_ALG_AS_INITFINAL | OP_ALG_DECRYPT | OP_ALG_ICV_ON);
 
-	
+	/* assoclen + cryptlen = seqinlen - ivsize */
 	append_math_sub_imm_u32(desc, REG3, SEQINLEN, IMM,
 				ctx->authsize + tfm->ivsize)
-	
+	/* assoclen = (assoclen + cryptlen) - cryptlen */
 	append_math_sub(desc, REG2, SEQOUTLEN, REG0, CAAM_CMD_SZ);
 	append_math_sub(desc, VARSEQINLEN, REG3, REG2, CAAM_CMD_SZ);
 
-	
+	/* read assoc before reading payload */
 	append_seq_fifo_load(desc, 0, FIFOLD_CLASS_CLASS2 | FIFOLD_TYPE_MSG |
 			     KEY_VLF);
 
@@ -294,12 +332,12 @@ static int aead_set_sh_desc(struct crypto_aead *aead)
 
 	append_dec_op1(desc, ctx->class1_alg_type);
 
-	
+	/* Read and write cryptlen bytes */
 	append_math_add(desc, VARSEQINLEN, ZERO, REG2, CAAM_CMD_SZ);
 	append_math_add(desc, VARSEQOUTLEN, ZERO, REG2, CAAM_CMD_SZ);
 	aead_append_src_dst(desc, FIFOLD_TYPE_MSG);
 
-	
+	/* Load ICV */
 	append_seq_fifo_load(desc, ctx->authsize, FIFOLD_CLASS_CLASS2 |
 			     FIFOLD_TYPE_LAST2 | FIFOLD_TYPE_ICV);
 	append_dec_shr_done(desc);
@@ -317,17 +355,21 @@ static int aead_set_sh_desc(struct crypto_aead *aead)
 		       desc_bytes(desc), 1);
 #endif
 
+	/*
+	 * Job Descriptor and Shared Descriptors
+	 * must all fit into the 64-word Descriptor h/w Buffer
+	 */
 	if (DESC_AEAD_GIVENC_LEN + DESC_JOB_IO_LEN +
 	    ctx->split_key_pad_len + ctx->enckeylen <=
 	    CAAM_DESC_BYTES_MAX)
 		keys_fit_inline = 1;
 
-	
+	/* aead_givencrypt shared descriptor */
 	desc = ctx->sh_desc_givenc;
 
 	init_sh_desc_key_aead(desc, ctx, keys_fit_inline);
 
-	
+	/* Generate IV */
 	geniv = NFIFOENTRY_STYPE_PAD | NFIFOENTRY_DEST_DECO |
 		NFIFOENTRY_DTYPE_MSG | NFIFOENTRY_LC1 |
 		NFIFOENTRY_PTYPE_RND | (tfm->ivsize << NFIFOENTRY_DLEN_SHIFT);
@@ -338,25 +380,25 @@ static int aead_set_sh_desc(struct crypto_aead *aead)
 		    MOVE_DEST_CLASS1CTX | (tfm->ivsize << MOVE_LEN_SHIFT));
 	append_cmd(desc, CMD_LOAD | ENABLE_AUTO_INFO_FIFO);
 
-	
+	/* Copy IV to class 1 context */
 	append_move(desc, MOVE_SRC_CLASS1CTX |
 		    MOVE_DEST_OUTFIFO | (tfm->ivsize << MOVE_LEN_SHIFT));
 
-	
+	/* Return to encryption */
 	append_operation(desc, ctx->class2_alg_type |
 			 OP_ALG_AS_INITFINAL | OP_ALG_ENCRYPT);
 
-	
+	/* ivsize + cryptlen = seqoutlen - authsize */
 	append_math_sub_imm_u32(desc, REG3, SEQOUTLEN, IMM, ctx->authsize);
 
-	
+	/* assoclen = seqinlen - (ivsize + cryptlen) */
 	append_math_sub(desc, VARSEQINLEN, SEQINLEN, REG3, CAAM_CMD_SZ);
 
-	
+	/* read assoc before reading payload */
 	append_seq_fifo_load(desc, 0, FIFOLD_CLASS_CLASS2 | FIFOLD_TYPE_MSG |
 			     KEY_VLF);
 
-	
+	/* Copy iv from class 1 ctx to class 2 fifo*/
 	moveiv = NFIFOENTRY_STYPE_OFIFO | NFIFOENTRY_DEST_CLASS2 |
 		 NFIFOENTRY_DTYPE_MSG | (tfm->ivsize << NFIFOENTRY_DLEN_SHIFT);
 	append_load_imm_u32(desc, moveiv, LDST_CLASS_IND_CCB |
@@ -364,22 +406,22 @@ static int aead_set_sh_desc(struct crypto_aead *aead)
 	append_load_imm_u32(desc, tfm->ivsize, LDST_CLASS_2_CCB |
 			    LDST_SRCDST_WORD_DATASZ_REG | LDST_IMM);
 
-	
+	/* Class 1 operation */
 	append_operation(desc, ctx->class1_alg_type |
 			 OP_ALG_AS_INITFINAL | OP_ALG_ENCRYPT);
 
-	
+	/* Will write ivsize + cryptlen */
 	append_math_add(desc, VARSEQOUTLEN, SEQINLEN, REG0, CAAM_CMD_SZ);
 
-	
+	/* Not need to reload iv */
 	append_seq_fifo_load(desc, tfm->ivsize,
 			     FIFOLD_CLASS_SKIP);
 
-	
+	/* Will read cryptlen */
 	append_math_add(desc, VARSEQINLEN, SEQINLEN, REG0, CAAM_CMD_SZ);
 	aead_append_src_dst(desc, FIFOLD_TYPE_MSG1OUT2);
 
-	
+	/* Write ICV */
 	append_seq_store(desc, ctx->authsize, LDST_CLASS_2_CCB |
 			 LDST_SRCDST_BYTE_CONTEXT);
 
@@ -435,6 +477,20 @@ static void split_key_done(struct device *dev, u32 *desc, u32 err,
 	complete(&res->completion);
 }
 
+/*
+get a split ipad/opad key
+
+Split key generation-----------------------------------------------
+
+[00] 0xb0810008    jobdesc: stidx=1 share=never len=8
+[01] 0x04000014        key: class2->keyreg len=20
+			@0xffe01000
+[03] 0x84410014  operation: cls2-op sha1 hmac init dec
+[04] 0x24940000     fifold: class2 msgdata-last2 len=0 imm
+[05] 0xa4000001       jump: class2 local all ->1 [06]
+[06] 0x64260028    fifostr: class2 mdsplit-jdk len=40
+			@0xffe04000
+*/
 static u32 gen_split_key(struct caam_ctx *ctx, const u8 *key_in, u32 authkeylen)
 {
 	struct device *jrdev = ctx->jrdev;
@@ -457,13 +513,21 @@ static u32 gen_split_key(struct caam_ctx *ctx, const u8 *key_in, u32 authkeylen)
 	append_key(desc, dma_addr_in, authkeylen, CLASS_2 |
 		       KEY_DEST_CLASS_REG);
 
-	
+	/* Sets MDHA up into an HMAC-INIT */
 	append_operation(desc, ctx->alg_op | OP_ALG_DECRYPT |
 			     OP_ALG_AS_INIT);
 
+	/*
+	 * do a FIFO_LOAD of zero, this will trigger the internal key expansion
+	   into both pads inside MDHA
+	 */
 	append_fifo_load_as_imm(desc, NULL, 0, LDST_CLASS_2_CCB |
 				FIFOLD_TYPE_MSG | FIFOLD_TYPE_LAST2);
 
+	/*
+	 * FIFO_STORE with the explicit split-key content store
+	 * (0x26 output type)
+	 */
 	dma_addr_out = dma_map_single(jrdev, ctx->key, ctx->split_key_pad_len,
 				      DMA_FROM_DEVICE);
 	if (dma_mapping_error(jrdev, dma_addr_out)) {
@@ -486,7 +550,7 @@ static u32 gen_split_key(struct caam_ctx *ctx, const u8 *key_in, u32 authkeylen)
 
 	ret = caam_jr_enqueue(jrdev, desc, split_key_done, &result);
 	if (!ret) {
-		
+		/* in progress */
 		wait_for_completion_interruptible(&result.completion);
 		ret = result.err;
 #ifdef DEBUG
@@ -508,7 +572,7 @@ static u32 gen_split_key(struct caam_ctx *ctx, const u8 *key_in, u32 authkeylen)
 static int aead_setkey(struct crypto_aead *aead,
 			       const u8 *key, unsigned int keylen)
 {
-	
+	/* Sizes for MDHA pads (*not* keys): MD5, SHA1, 224, 256, 384, 512 */
 	static const u8 mdpadlen[] = { 16, 20, 32, 32, 64, 64 };
 	struct caam_ctx *ctx = crypto_aead_ctx(aead);
 	struct device *jrdev = ctx->jrdev;
@@ -532,7 +596,7 @@ static int aead_setkey(struct crypto_aead *aead,
 	if (keylen > CAAM_MAX_KEY_SIZE)
 		goto badkey;
 
-	
+	/* Pick class 2 key length from algorithm submask */
 	ctx->split_key_len = mdpadlen[(ctx->alg_op & OP_ALG_ALGSEL_SUBMASK) >>
 				      OP_ALG_ALGSEL_SHIFT] * 2;
 	ctx->split_key_pad_len = ALIGN(ctx->split_key_len, 16);
@@ -551,7 +615,7 @@ static int aead_setkey(struct crypto_aead *aead,
 		goto badkey;
 	}
 
-	
+	/* postpend encryption key to auth split key */
 	memcpy(ctx->key + ctx->split_key_pad_len, key + authkeylen, enckeylen);
 
 	ctx->key_dma = dma_map_single(jrdev, ctx->key, ctx->split_key_pad_len +
@@ -604,32 +668,32 @@ static int ablkcipher_setkey(struct crypto_ablkcipher *ablkcipher,
 	}
 	ctx->enckeylen = keylen;
 
-	
+	/* ablkcipher_encrypt shared descriptor */
 	desc = ctx->sh_desc_enc;
 	init_sh_desc(desc, HDR_SHARE_WAIT);
-	
+	/* Skip if already shared */
 	key_jump_cmd = append_jump(desc, JUMP_JSL | JUMP_TEST_ALL |
 				   JUMP_COND_SHRD);
 
-	
+	/* Load class1 key only */
 	append_key_as_imm(desc, (void *)ctx->key, ctx->enckeylen,
 			  ctx->enckeylen, CLASS_1 |
 			  KEY_DEST_CLASS_REG);
 
 	set_jump_tgt_here(desc, key_jump_cmd);
 
-	
+	/* Propagate errors from shared to job descriptor */
 	append_cmd(desc, SET_OK_NO_PROP_ERRORS | CMD_LOAD);
 
-	
+	/* Load iv */
 	append_cmd(desc, CMD_SEQ_LOAD | LDST_SRCDST_BYTE_CONTEXT |
 		   LDST_CLASS_1_CCB | tfm->ivsize);
 
-	
+	/* Load operation */
 	append_operation(desc, ctx->class1_alg_type |
 			 OP_ALG_AS_INITFINAL | OP_ALG_ENCRYPT);
 
-	
+	/* Perform operation */
 	ablkcipher_append_src_dst(desc);
 
 	ctx->sh_desc_enc_dma = dma_map_single(jrdev, desc,
@@ -644,36 +708,36 @@ static int ablkcipher_setkey(struct crypto_ablkcipher *ablkcipher,
 		       DUMP_PREFIX_ADDRESS, 16, 4, desc,
 		       desc_bytes(desc), 1);
 #endif
-	
+	/* ablkcipher_decrypt shared descriptor */
 	desc = ctx->sh_desc_dec;
 
 	init_sh_desc(desc, HDR_SHARE_WAIT);
-	
+	/* Skip if already shared */
 	key_jump_cmd = append_jump(desc, JUMP_JSL | JUMP_TEST_ALL |
 				   JUMP_COND_SHRD);
 
-	
+	/* Load class1 key only */
 	append_key_as_imm(desc, (void *)ctx->key, ctx->enckeylen,
 			  ctx->enckeylen, CLASS_1 |
 			  KEY_DEST_CLASS_REG);
 
-	
+	/* For aead, only propagate error immediately if shared */
 	jump_cmd = append_jump(desc, JUMP_TEST_ALL);
 	set_jump_tgt_here(desc, key_jump_cmd);
 	append_cmd(desc, SET_OK_NO_PROP_ERRORS | CMD_LOAD);
 	set_jump_tgt_here(desc, jump_cmd);
 
-	
+	/* load IV */
 	append_cmd(desc, CMD_SEQ_LOAD | LDST_SRCDST_BYTE_CONTEXT |
 		   LDST_CLASS_1_CCB | tfm->ivsize);
 
-	
+	/* Choose operation */
 	append_dec_op1(desc, ctx->class1_alg_type);
 
-	
+	/* Perform operation */
 	ablkcipher_append_src_dst(desc);
 
-	
+	/* Wait for key to load before allowing propagating error */
 	append_dec_shr_done(desc);
 
 	ctx->sh_desc_dec_dma = dma_map_single(jrdev, desc,
@@ -701,6 +765,17 @@ struct link_tbl_entry {
 	u16 offset;
 };
 
+/*
+ * aead_edesc - s/w-extended aead descriptor
+ * @assoc_nents: number of segments in associated data (SPI+Seq) scatterlist
+ * @src_nents: number of segments in input scatterlist
+ * @dst_nents: number of segments in output scatterlist
+ * @iv_dma: dma address of iv for checking continuity and link table
+ * @desc: h/w descriptor (variable length; must not exceed MAX_CAAM_DESCSIZE)
+ * @link_tbl_bytes: length of dma mapped link_tbl space
+ * @link_tbl_dma: bus physical mapped address of h/w link table
+ * @hw_desc: the h/w job descriptor followed by any referenced link tables
+ */
 struct aead_edesc {
 	int assoc_nents;
 	int src_nents;
@@ -712,6 +787,16 @@ struct aead_edesc {
 	u32 hw_desc[0];
 };
 
+/*
+ * ablkcipher_edesc - s/w-extended ablkcipher descriptor
+ * @src_nents: number of segments in input scatterlist
+ * @dst_nents: number of segments in output scatterlist
+ * @iv_dma: dma address of iv for checking continuity and link table
+ * @desc: h/w descriptor (variable length; must not exceed MAX_CAAM_DESCSIZE)
+ * @link_tbl_bytes: length of dma mapped link_tbl space
+ * @link_tbl_dma: bus physical mapped address of h/w link table
+ * @hw_desc: the h/w job descriptor followed by any referenced link tables
+ */
 struct ablkcipher_edesc {
 	int src_nents;
 	int dst_nents;
@@ -844,6 +929,9 @@ static void aead_decrypt_done(struct device *jrdev, u32 *desc, u32 err,
 
 	aead_unmap(jrdev, edesc, req);
 
+	/*
+	 * verify hw auth check passed else return -EBADMSG
+	 */
 	if ((err & JRSTA_CCBERR_ERRID_MASK) == JRSTA_CCBERR_ERRID_ICVCHK)
 		err = -EBADMSG;
 
@@ -953,6 +1041,10 @@ static void sg_to_link_tbl_one(struct link_tbl_entry *link_tbl_ptr,
 #endif
 }
 
+/*
+ * convert scatterlist to h/w link table format
+ * but does not have final bit; instead, returns last entry
+ */
 static struct link_tbl_entry *sg_to_link_tbl(struct scatterlist *sg,
 					     int sg_count, struct link_tbl_entry
 					     *link_tbl_ptr, u32 offset)
@@ -967,6 +1059,10 @@ static struct link_tbl_entry *sg_to_link_tbl(struct scatterlist *sg,
 	return link_tbl_ptr - 1;
 }
 
+/*
+ * convert scatterlist to h/w link table format
+ * scatterlist must have been previously dma mapped
+ */
 static void sg_to_link_tbl_last(struct scatterlist *sg, int sg_count,
 				struct link_tbl_entry *link_tbl_ptr, u32 offset)
 {
@@ -974,6 +1070,9 @@ static void sg_to_link_tbl_last(struct scatterlist *sg, int sg_count,
 	link_tbl_ptr->len |= 0x40000000;
 }
 
+/*
+ * Fill in aead job descriptor
+ */
 static void init_aead_job(u32 *sh_desc, dma_addr_t ptr,
 			  struct aead_edesc *edesc,
 			  struct aead_request *req,
@@ -1049,6 +1148,9 @@ static void init_aead_job(u32 *sh_desc, dma_addr_t ptr,
 				   out_options);
 }
 
+/*
+ * Fill in aead givencrypt job descriptor
+ */
 static void init_aead_giv_job(u32 *sh_desc, dma_addr_t ptr,
 			      struct aead_edesc *edesc,
 			      struct aead_request *req,
@@ -1111,6 +1213,9 @@ static void init_aead_giv_job(u32 *sh_desc, dma_addr_t ptr,
 	append_seq_out_ptr(desc, dst_dma, ivsize + req->cryptlen, out_options);
 }
 
+/*
+ * Fill in ablkcipher job descriptor
+ */
 static void init_ablkcipher_job(u32 *sh_desc, dma_addr_t ptr,
 				struct ablkcipher_edesc *edesc,
 				struct ablkcipher_request *req,
@@ -1165,6 +1270,9 @@ static void init_ablkcipher_job(u32 *sh_desc, dma_addr_t ptr,
 	append_seq_out_ptr(desc, dst_dma, req->nbytes, out_options);
 }
 
+/*
+ * derive number of elements in scatterlist
+ */
 static int sg_count(struct scatterlist *sg_list, int nbytes)
 {
 	struct scatterlist *sg = sg_list;
@@ -1174,7 +1282,7 @@ static int sg_count(struct scatterlist *sg_list, int nbytes)
 		sg_nents++;
 		nbytes -= sg->length;
 		if (!sg_is_last(sg) && (sg + 1)->length == 0)
-			BUG(); 
+			BUG(); /* Not support chaining */
 		sg = scatterwalk_sg_next(sg);
 	}
 
@@ -1184,6 +1292,9 @@ static int sg_count(struct scatterlist *sg_list, int nbytes)
 	return sg_nents;
 }
 
+/*
+ * allocate and map the aead extended descriptor
+ */
 static struct aead_edesc *aead_edesc_alloc(struct aead_request *req,
 					   int desc_bytes, bool *all_contig_ptr)
 {
@@ -1218,7 +1329,7 @@ static struct aead_edesc *aead_edesc_alloc(struct aead_request *req,
 				 DMA_FROM_DEVICE);
 	}
 
-	
+	/* Check if data are contiguous */
 	iv_dma = dma_map_single(jrdev, req->iv, ivsize, DMA_TO_DEVICE);
 	if (assoc_nents || sg_dma_address(req->assoc) + req->assoclen !=
 	    iv_dma || src_nents || iv_dma + ivsize !=
@@ -1232,7 +1343,7 @@ static struct aead_edesc *aead_edesc_alloc(struct aead_request *req,
 
 	link_tbl_bytes = link_tbl_len * sizeof(struct link_tbl_entry);
 
-	
+	/* allocate space for base edesc and hw desc commands, link tables */
 	edesc = kmalloc(sizeof(struct aead_edesc) + desc_bytes +
 			link_tbl_bytes, GFP_DMA | flags);
 	if (!edesc) {
@@ -1287,13 +1398,13 @@ static int aead_encrypt(struct aead_request *req)
 
 	req->cryptlen += ctx->authsize;
 
-	
+	/* allocate extended descriptor */
 	edesc = aead_edesc_alloc(req, DESC_JOB_IO_LEN *
 				 CAAM_CMD_SZ, &all_contig);
 	if (IS_ERR(edesc))
 		return PTR_ERR(edesc);
 
-	
+	/* Create and submit job descriptor */
 	init_aead_job(ctx->sh_desc_enc, ctx->sh_desc_enc_dma, edesc, req,
 		      all_contig, true);
 #ifdef DEBUG
@@ -1324,7 +1435,7 @@ static int aead_decrypt(struct aead_request *req)
 	u32 *desc;
 	int ret = 0;
 
-	
+	/* allocate extended descriptor */
 	edesc = aead_edesc_alloc(req, DESC_JOB_IO_LEN *
 				 CAAM_CMD_SZ, &all_contig);
 	if (IS_ERR(edesc))
@@ -1336,7 +1447,7 @@ static int aead_decrypt(struct aead_request *req)
 		       req->cryptlen, 1);
 #endif
 
-	
+	/* Create and submit job descriptor*/
 	init_aead_job(ctx->sh_desc_dec,
 		      ctx->sh_desc_dec_dma, edesc, req, all_contig, false);
 #ifdef DEBUG
@@ -1357,6 +1468,9 @@ static int aead_decrypt(struct aead_request *req)
 	return ret;
 }
 
+/*
+ * allocate and map the aead extended descriptor for aead givencrypt
+ */
 static struct aead_edesc *aead_giv_edesc_alloc(struct aead_givcrypt_request
 					       *greq, int desc_bytes,
 					       u32 *contig_ptr)
@@ -1393,7 +1507,7 @@ static struct aead_edesc *aead_giv_edesc_alloc(struct aead_givcrypt_request
 				 DMA_FROM_DEVICE);
 	}
 
-	
+	/* Check if data are contiguous */
 	iv_dma = dma_map_single(jrdev, greq->giv, ivsize, DMA_TO_DEVICE);
 	if (assoc_nents || sg_dma_address(req->assoc) + req->assoclen !=
 	    iv_dma || src_nents || iv_dma + ivsize != sg_dma_address(req->src))
@@ -1415,7 +1529,7 @@ static struct aead_edesc *aead_giv_edesc_alloc(struct aead_givcrypt_request
 
 	link_tbl_bytes = link_tbl_len * sizeof(struct link_tbl_entry);
 
-	
+	/* allocate space for base edesc and hw desc commands, link tables */
 	edesc = kmalloc(sizeof(struct aead_edesc) + desc_bytes +
 			link_tbl_bytes, GFP_DMA | flags);
 	if (!edesc) {
@@ -1472,7 +1586,7 @@ static int aead_givencrypt(struct aead_givcrypt_request *areq)
 
 	req->cryptlen += ctx->authsize;
 
-	
+	/* allocate extended descriptor */
 	edesc = aead_giv_edesc_alloc(areq, DESC_JOB_IO_LEN *
 				     CAAM_CMD_SZ, &contig);
 
@@ -1485,7 +1599,7 @@ static int aead_givencrypt(struct aead_givcrypt_request *areq)
 		       req->cryptlen, 1);
 #endif
 
-	
+	/* Create and submit job descriptor*/
 	init_aead_giv_job(ctx->sh_desc_givenc,
 			  ctx->sh_desc_givenc_dma, edesc, req, contig);
 #ifdef DEBUG
@@ -1506,6 +1620,9 @@ static int aead_givencrypt(struct aead_givcrypt_request *areq)
 	return ret;
 }
 
+/*
+ * allocate and map the ablkcipher extended descriptor for ablkcipher
+ */
 static struct ablkcipher_edesc *ablkcipher_edesc_alloc(struct ablkcipher_request
 						       *req, int desc_bytes,
 						       bool *iv_contig_out)
@@ -1539,6 +1656,10 @@ static struct ablkcipher_edesc *ablkcipher_edesc_alloc(struct ablkcipher_request
 				 DMA_FROM_DEVICE);
 	}
 
+	/*
+	 * Check if iv can be contiguous with source and destination.
+	 * If so, include it. If not, create scatterlist.
+	 */
 	iv_dma = dma_map_single(jrdev, req->info, ivsize, DMA_TO_DEVICE);
 	if (!src_nents && iv_dma + ivsize == sg_dma_address(req->src))
 		iv_contig = true;
@@ -1547,7 +1668,7 @@ static struct ablkcipher_edesc *ablkcipher_edesc_alloc(struct ablkcipher_request
 	link_tbl_bytes = ((iv_contig ? 0 : 1) + src_nents + dst_nents) *
 			 sizeof(struct link_tbl_entry);
 
-	
+	/* allocate space for base edesc and hw desc commands, link tables */
 	edesc = kmalloc(sizeof(struct ablkcipher_edesc) + desc_bytes +
 			link_tbl_bytes, GFP_DMA | flags);
 	if (!edesc) {
@@ -1598,13 +1719,13 @@ static int ablkcipher_encrypt(struct ablkcipher_request *req)
 	u32 *desc;
 	int ret = 0;
 
-	
+	/* allocate extended descriptor */
 	edesc = ablkcipher_edesc_alloc(req, DESC_JOB_IO_LEN *
 				       CAAM_CMD_SZ, &iv_contig);
 	if (IS_ERR(edesc))
 		return PTR_ERR(edesc);
 
-	
+	/* Create and submit job descriptor*/
 	init_ablkcipher_job(ctx->sh_desc_enc,
 		ctx->sh_desc_enc_dma, edesc, req, iv_contig);
 #ifdef DEBUG
@@ -1635,13 +1756,13 @@ static int ablkcipher_decrypt(struct ablkcipher_request *req)
 	u32 *desc;
 	int ret = 0;
 
-	
+	/* allocate extended descriptor */
 	edesc = ablkcipher_edesc_alloc(req, DESC_JOB_IO_LEN *
 				       CAAM_CMD_SZ, &iv_contig);
 	if (IS_ERR(edesc))
 		return PTR_ERR(edesc);
 
-	
+	/* Create and submit job descriptor*/
 	init_ablkcipher_job(ctx->sh_desc_dec,
 		ctx->sh_desc_dec_dma, edesc, req, iv_contig);
 	desc = edesc->hw_desc;
@@ -1683,7 +1804,7 @@ struct caam_alg_template {
 };
 
 static struct caam_alg_template driver_algs[] = {
-	
+	/* single-pass ipsec_esp descriptor */
 	{
 		.name = "authenc(hmac(md5),cbc(aes))",
 		.driver_name = "authenc-hmac-md5-cbc-aes-caam",
@@ -2033,7 +2154,7 @@ static struct caam_alg_template driver_algs[] = {
 				   OP_ALG_AAI_HMAC_PRECOMP,
 		.alg_op = OP_ALG_ALGSEL_SHA512 | OP_ALG_AAI_HMAC,
 	},
-	
+	/* ablkcipher descriptor */
 	{
 		.name = "cbc(aes)",
 		.driver_name = "cbc-aes-caam",
@@ -2102,9 +2223,13 @@ static int caam_cra_init(struct crypto_tfm *tfm)
 	struct caam_drv_private *priv = dev_get_drvdata(caam_alg->ctrldev);
 	int tgt_jr = atomic_inc_return(&priv->tfm_count);
 
+	/*
+	 * distribute tfms across job rings to ensure in-order
+	 * crypto request processing per tfm
+	 */
 	ctx->jrdev = priv->algapi_jr[(tgt_jr / 2) % priv->num_jrs_for_algapi];
 
-	
+	/* copy descriptor header template value */
 	ctx->class1_alg_type = OP_TYPE_CLASS1_ALG | caam_alg->class1_alg_type;
 	ctx->class2_alg_type = OP_TYPE_CLASS2_ALG | caam_alg->class2_alg_type;
 	ctx->alg_op = OP_TYPE_CLASS2_ALG | caam_alg->alg_op;
@@ -2258,9 +2383,9 @@ static int __init caam_algapi_init(void)
 	priv->algapi_jr = jrdev;
 	atomic_set(&priv->tfm_count, -1);
 
-	
+	/* register crypto algorithms the device supports */
 	for (i = 0; i < ARRAY_SIZE(driver_algs); i++) {
-		
+		/* TODO: check if h/w supports alg */
 		struct caam_crypto_alg *t_alg;
 
 		t_alg = caam_alg_alloc(ctrldev, &driver_algs[i]);

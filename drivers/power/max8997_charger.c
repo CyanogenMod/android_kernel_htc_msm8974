@@ -34,11 +34,12 @@ struct charger_data {
 };
 
 static enum power_supply_property max8997_battery_props[] = {
-	POWER_SUPPLY_PROP_STATUS, 
-	POWER_SUPPLY_PROP_PRESENT, 
-	POWER_SUPPLY_PROP_ONLINE, 
+	POWER_SUPPLY_PROP_STATUS, /* "FULL" or "NOT FULL" only. */
+	POWER_SUPPLY_PROP_PRESENT, /* the presence of battery */
+	POWER_SUPPLY_PROP_ONLINE, /* charger is active or not */
 };
 
+/* Note that the charger control is done by a current regulator "CHARGER" */
 static int max8997_battery_get_property(struct power_supply *psy,
 		enum power_supply_property psp,
 		union power_supply_propval *val)
@@ -73,7 +74,7 @@ static int max8997_battery_get_property(struct power_supply *psy,
 		ret = max8997_read_reg(i2c, MAX8997_REG_STATUS4, &reg);
 		if (ret)
 			return ret;
-		
+		/* DCINOK */
 		if (reg & (1 << 1))
 			val->intval = 1;
 

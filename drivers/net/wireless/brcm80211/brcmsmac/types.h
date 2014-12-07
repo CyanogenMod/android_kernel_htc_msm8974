@@ -25,50 +25,110 @@
 #define WL_CHAN_FREQ_RANGE_5GM     2
 #define WL_CHAN_FREQ_RANGE_5GH     3
 
+/* boardflags */
 
+/* Board has gpio 9 controlling the PA */
 #define	BFL_PACTRL		0x00000002
+/* Not ok to power down the chip pll and oscillator */
 #define	BFL_NOPLLDOWN		0x00000020
+/* Board supports the Front End Module */
 #define BFL_FEM			0x00000800
+/* Board has an external LNA in 2.4GHz band */
 #define BFL_EXTLNA		0x00001000
+/* Board has no PA */
 #define BFL_NOPA		0x00010000
+/* Power topology uses BUCKBOOST */
 #define BFL_BUCKBOOST		0x00200000
+/* Board has FEM and switch to share antenna w/ BT */
 #define BFL_FEM_BT		0x00400000
+/* Power topology doesn't use CBUCK */
 #define BFL_NOCBUCK		0x00800000
+/* Power topology uses PALDO */
 #define BFL_PALDO		0x02000000
+/* Board has an external LNA in 5GHz band */
 #define BFL_EXTLNA_5GHz		0x10000000
 
+/* boardflags2 */
 
+/* Board has an external rxbb regulator */
 #define BFL2_RXBB_INT_REG_DIS	0x00000001
+/* Flag to implement alternative A-band PLL settings */
 #define BFL2_APLL_WAR		0x00000002
+/* Board permits enabling TX Power Control */
 #define BFL2_TXPWRCTRL_EN	0x00000004
+/* Board supports the 2X4 diversity switch */
 #define BFL2_2X4_DIV		0x00000008
+/* Board supports 5G band power gain */
 #define BFL2_5G_PWRGAIN		0x00000010
+/* Board overrides ASPM and Clkreq settings */
 #define BFL2_PCIEWAR_OVR	0x00000020
 #define BFL2_LEGACY		0x00000080
+/* 4321mcm93 board uses Skyworks FEM */
 #define BFL2_SKWRKFEM_BRD	0x00000100
+/* Board has a WAR for clock-harmonic spurs */
 #define BFL2_SPUR_WAR		0x00000200
+/* Flag to narrow G-band PLL loop b/w */
 #define BFL2_GPLL_WAR		0x00000400
+/* Tx CCK pkts on Ant 0 only */
 #define BFL2_SINGLEANT_CCK	0x00001000
+/* WAR to reduce and avoid clock-harmonic spurs in 2G */
 #define BFL2_2G_SPUR_WAR	0x00002000
+/* Flag to widen G-band PLL loop b/w */
 #define BFL2_GPLL_WAR2	        0x00010000
 #define BFL2_IPALVLSHIFT_3P3    0x00020000
+/* Use internal envelope detector for TX IQCAL */
 #define BFL2_INTERNDET_TXIQCAL  0x00040000
+/* Keep the buffered Xtal output from radio "ON". Most drivers will turn it
+ * off without this flag to save power. */
 #define BFL2_XTALBUFOUTEN       0x00080000
 
+/*
+ * board specific GPIO assignment, gpio 0-3 are also customer-configurable
+ * led
+ */
 
+/* bit 9 controls the PA on new 4306 boards */
 #define	BOARD_GPIO_PACTRL	0x200
 #define BOARD_GPIO_12		0x1000
 #define BOARD_GPIO_13		0x2000
 
-#define D11CONF		0x0fffffb0	
+/* **** Core type/rev defaults **** */
+#define D11CONF		0x0fffffb0	/* Supported  D11 revs: 4, 5, 7-27
+					 * also need to update wlc.h MAXCOREREV
+					 */
 
-#define NCONF		0x000001ff	
+#define NCONF		0x000001ff	/* Supported nphy revs:
+					 *      0       4321a0
+					 *      1       4321a1
+					 *      2       4321b0/b1/c0/c1
+					 *      3       4322a0
+					 *      4       4322a1
+					 *      5       4716a0
+					 *      6       43222a0, 43224a0
+					 *      7       43226a0
+					 *      8       5357a0, 43236a0
+					 */
 
-#define LCNCONF		0x00000007	
+#define LCNCONF		0x00000007	/* Supported lcnphy revs:
+					 *      0       4313a0, 4336a0, 4330a0
+					 *      1
+					 *      2       4330a0
+					 */
 
-#define SSLPNCONF	0x0000000f	
+#define SSLPNCONF	0x0000000f	/* Supported sslpnphy revs:
+					 *      0       4329a0/k0
+					 *      1       4329b0/4329C0
+					 *      2       4319a0
+					 *      3       5356a0
+					 */
 
+/********************************************************************
+ * Phy/Core Configuration.  Defines macros to to check core phy/rev *
+ * compile-time configuration.  Defines default core support.       *
+ * ******************************************************************
+ */
 
+/* Basic macros to check a configuration bitmask */
 
 #define CONF_HAS(config, val)	((config) & (1 << (val)))
 #define CONF_MSK(config, mask)	((config) & (mask))
@@ -81,6 +141,7 @@
 #define CONF_LT(config, val)	((config) & ((1 << (val))-1))
 #define CONF_LE(config, val)	((config) & (2*(1 << (val))-1))
 
+/* Wrappers for some of the above, specific to config constants */
 
 #define NCONF_HAS(val)	CONF_HAS(NCONF, val)
 #define NCONF_MSK(mask)	CONF_MSK(NCONF, mask)
@@ -157,6 +218,7 @@
 #define PHYTYPE_IS(var, val)\
 	(PHYCONF_HAS(val) && (PHYCONF_IS(val) || ((var) == (val))))
 
+/* Set up PHYTYPE automatically: (depends on PHY_TYPE_X, from d11.h) */
 
 #define _PHYCONF_N (1 << PHY_TYPE_N)
 #define _PHYCONF_LCN (1 << PHY_TYPE_LCN)
@@ -164,17 +226,23 @@
 
 #define PHYTYPE (_PHYCONF_N | _PHYCONF_LCN | _PHYCONF_SSLPN)
 
+/* Utility macro to identify 802.11n (HT) capable PHYs */
 #define PHYTYPE_11N_CAP(phytype) \
 	(PHYTYPE_IS(phytype, PHY_TYPE_N) ||	\
 	 PHYTYPE_IS(phytype, PHY_TYPE_LCN) || \
 	 PHYTYPE_IS(phytype, PHY_TYPE_SSN))
 
+/* Last but not least: shorter wlc-specific var checks */
 #define BRCMS_ISNPHY(band)		PHYTYPE_IS((band)->phytype, PHY_TYPE_N)
 #define BRCMS_ISLCNPHY(band)	PHYTYPE_IS((band)->phytype, PHY_TYPE_LCN)
 #define BRCMS_ISSSLPNPHY(band)	PHYTYPE_IS((band)->phytype, PHY_TYPE_SSN)
 
 #define BRCMS_PHY_11N_CAP(band)	PHYTYPE_11N_CAP((band)->phytype)
 
+/**********************************************************************
+ * ------------- End of Core phy/rev configuration. ----------------- *
+ * ********************************************************************
+ */
 
 #define BCMMSG(dev, fmt, args...)		\
 do {						\
@@ -183,20 +251,30 @@ do {						\
 } while (0)
 
 #ifdef CONFIG_BCM47XX
+/*
+ * bcm4716 (which includes 4717 & 4718), plus 4706 on PCIe can reorder
+ * transactions. As a fix, a read after write is performed on certain places
+ * in the code. Older chips and the newer 5357 family don't require this fix.
+ */
 #define bcma_wflush16(c, o, v) \
 	({ bcma_write16(c, o, v); (void)bcma_read16(c, o); })
 #else
 #define bcma_wflush16(c, o, v)	bcma_write16(c, o, v)
-#endif				
+#endif				/* CONFIG_BCM47XX */
 
+/* multi-bool data type: set of bools, mbool is true if any is set */
 
+/* set one bool */
 #define mboolset(mb, bit)		((mb) |= (bit))
+/* clear one bool */
 #define mboolclr(mb, bit)		((mb) &= ~(bit))
+/* true if one bool is set */
 #define mboolisset(mb, bit)		(((mb) & (bit)) != 0)
 #define	mboolmaskset(mb, mask, val)	((mb) = (((mb) & ~(mask)) | (val)))
 
 #define CEIL(x, y)		(((x) + ((y)-1)) / (y))
 
+/* forward declarations */
 struct wiphy;
 struct ieee80211_sta;
 struct ieee80211_tx_queue_params;
@@ -211,14 +289,16 @@ struct tx_status;
 struct d11rxhdr;
 struct txpwr_limits;
 
+/* iovar structure */
 struct brcmu_iovar {
-	const char *name;	
-	u16 varid;	
-	u16 flags;	
-	u16 type;	
-	u16 minlen;	
+	const char *name;	/* name for lookup and display */
+	u16 varid;	/* id for switch */
+	u16 flags;	/* driver-specific flag bits */
+	u16 type;	/* base type of argument */
+	u16 minlen;	/* min length for buffer vars */
 };
 
+/* brcm_msg_level is a bit vector with defs in defs.h */
 extern u32 brcm_msg_level;
 
-#endif				
+#endif				/* _BRCM_TYPES_H_ */

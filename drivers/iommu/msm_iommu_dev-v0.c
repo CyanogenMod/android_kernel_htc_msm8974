@@ -133,7 +133,7 @@ static int __get_bus_vote_client(struct platform_device *pdev,
 	struct msm_bus_scale_pdata *bs_table;
 	const char *dummy;
 
-	
+	/* Check whether bus scaling has been specified for this node */
 	ret = of_property_read_string(pdev->dev.of_node, "qcom,msm-bus,name",
 				      &dummy);
 	if (ret)
@@ -251,6 +251,10 @@ static void __put_bus_vote_client(struct msm_iommu_drvdata *drvdata)
 
 #endif
 
+/*
+ * Do a basic check of the IOMMU by performing an ATS operation
+ * on context bank 0.
+ */
 static int iommu_sanity_check(struct msm_iommu_drvdata *drvdata)
 {
 	int par;
@@ -384,6 +388,10 @@ static int msm_iommu_probe(struct platform_device *pdev)
 			ret = -EBUSY;
 			goto fail;
 		}
+		/*
+		 * Global register space offset for legacy IOMMUv1 hardware
+		 * is always 0xFF000
+		 */
 		drvdata->glb_base = drvdata->base + 0xFF000;
 		drvdata->name = iommu_dev->name;
 		drvdata->dev = &pdev->dev;
@@ -496,6 +504,9 @@ static int msm_iommu_ctx_parse_dt(struct platform_device *pdev,
 		goto out;
 	}
 
+	/* Calculate the context bank number using the base addresses. CB0
+	 * starts at the base address.
+	 */
 	ctx_drvdata->num = ((r->start - rp.start) >> CTX_SHIFT);
 
 	if (of_property_read_string(pdev->dev.of_node, "label",
@@ -536,7 +547,7 @@ static void __program_m2v_tables(struct msm_iommu_drvdata *drvdata,
 {
 	int i;
 
-	
+	/* Program the M2V tables for this context */
 	for (i = 0; i < ctx_drvdata->nsid; i++) {
 		int sid = ctx_drvdata->sids[i];
 		int num = ctx_drvdata->num;
@@ -544,22 +555,22 @@ static void __program_m2v_tables(struct msm_iommu_drvdata *drvdata,
 		SET_M2VCBR_N(drvdata->glb_base, sid, 0);
 		SET_CBACR_N(drvdata->glb_base, num, 0);
 
-		
+		/* Route page faults to the non-secure interrupt */
 		SET_IRPTNDX(drvdata->glb_base, num, 1);
 
-		
+		/* Set VMID = 0 */
 		SET_VMID(drvdata->glb_base, sid, 0);
 
-		
+		/* Set the context number for that SID to this context */
 		SET_CBNDX(drvdata->glb_base, sid, num);
 
-		
+		/* Set SID associated with this context bank to 0 */
 		SET_CBVMID(drvdata->glb_base, num, 0);
 
-		
+		/* Set the ASID for TLB tagging for this context to 0 */
 		SET_CONTEXTIDR_ASID(drvdata->base, num, 0);
 
-		
+		/* Set security bit override to be Non-secure */
 		SET_NSCFG(drvdata->glb_base, sid, 3);
 	}
 	mb();

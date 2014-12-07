@@ -48,21 +48,21 @@
 
 static void __init dk_init_early(void)
 {
-	
+	/* Initialize processor: 18.432 MHz crystal */
 	at91_initialize(18432000);
 
-	
+	/* Setup the LEDs */
 	at91_init_leds(AT91_PIN_PB2, AT91_PIN_PB2);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART1 on ttyS1. (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI) */
 	at91_register_uart(AT91RM9200_ID_US1, 1, ATMEL_UART_CTS | ATMEL_UART_RTS
 			   | ATMEL_UART_DTR | ATMEL_UART_DSR | ATMEL_UART_DCD
 			   | ATMEL_UART_RI);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
@@ -100,23 +100,23 @@ static struct at91_mmc_data __initdata dk_mmc_data = {
 #endif
 
 static struct spi_board_info dk_spi_devices[] = {
-	{	
+	{	/* DataFlash chip */
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 0,
 		.max_speed_hz	= 15 * 1000 * 1000,
 	},
-	{	
+	{	/* UR6HCPS2-SP40 PS2-to-SPI adapter */
 		.modalias	= "ur6hcps2",
 		.chip_select	= 1,
 		.max_speed_hz	= 250 *  1000,
 	},
-	{	
+	{	/* TLV1504 ADC, 4 channels, 10 bits; one is a temp sensor */
 		.modalias	= "tlv1504",
 		.chip_select	= 2,
 		.max_speed_hz	= 20 * 1000 * 1000,
 	},
 #ifdef CONFIG_MTD_AT91_DATAFLASH_CARD
-	{	
+	{	/* DataFlash card */
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 3,
 		.max_speed_hz	= 15 * 1000 * 1000,
@@ -190,40 +190,41 @@ static struct gpio_led dk_leds[] = {
 
 static void __init dk_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* Ethernet */
 	at91_add_device_eth(&dk_eth_data);
-	
+	/* USB Host */
 	at91_add_device_usbh(&dk_usbh_data);
-	
+	/* USB Device */
 	at91_add_device_udc(&dk_udc_data);
-	at91_set_multi_drive(dk_udc_data.pullup_pin, 1);	
-	
+	at91_set_multi_drive(dk_udc_data.pullup_pin, 1);	/* pullup_pin is connected to reset */
+	/* Compact Flash */
 	at91_add_device_cf(&dk_cf_data);
-	
+	/* I2C */
 	at91_add_device_i2c(dk_i2c_devices, ARRAY_SIZE(dk_i2c_devices));
-	
+	/* SPI */
 	at91_add_device_spi(dk_spi_devices, ARRAY_SIZE(dk_spi_devices));
 #ifdef CONFIG_MTD_AT91_DATAFLASH_CARD
-	
+	/* DataFlash card */
 	at91_set_gpio_output(AT91_PIN_PB7, 0);
 #else
-	
-	at91_set_gpio_output(AT91_PIN_PB7, 1);	
+	/* MMC */
+	at91_set_gpio_output(AT91_PIN_PB7, 1);	/* this MMC card slot can optionally use SPI signaling (CS3). */
 	at91_add_device_mmc(0, &dk_mmc_data);
 #endif
-	
+	/* NAND */
 	at91_add_device_nand(&dk_nand_data);
-	
+	/* NOR Flash */
 	platform_device_register(&dk_flash);
-	
+	/* LEDs */
 	at91_gpio_leds(dk_leds, ARRAY_SIZE(dk_leds));
-	
+	/* VGA */
+//	dk_add_device_video();
 }
 
 MACHINE_START(AT91RM9200DK, "Atmel AT91RM9200-DK")
-	
+	/* Maintainer: SAN People/Atmel */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= dk_init_early,

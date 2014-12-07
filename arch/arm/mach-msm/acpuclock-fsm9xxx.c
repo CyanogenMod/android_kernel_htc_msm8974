@@ -19,6 +19,7 @@
 
 #include "acpuclock.h"
 
+/* Registers */
 #define PLL1_CTL_ADDR		(MSM_CLK_CTL_BASE + 0x604)
 
 static unsigned long acpuclk_9xxx_get_rate(int cpu)

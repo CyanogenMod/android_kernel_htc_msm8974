@@ -34,6 +34,7 @@
 #define G_MODE_MAX_RIX 11
 #define A_MODE_MAX_RIX 7
 
+/* in mac80211 mcs0-mcs15 is idx0-idx15*/
 #define N_MODE_MCS7_RIX 7
 #define N_MODE_MCS15_RIX 15
 

@@ -62,7 +62,7 @@ int __ref shpchp_configure_device(struct slot *p_slot)
 			continue;
 		if ((dev->hdr_type == PCI_HEADER_TYPE_BRIDGE) ||
 				(dev->hdr_type == PCI_HEADER_TYPE_CARDBUS)) {
-			
+			/* Find an unused bus number for the new bridge */
 			struct pci_bus *child;
 			unsigned char busnr, start = parent->secondary;
 			unsigned char end = parent->subordinate;

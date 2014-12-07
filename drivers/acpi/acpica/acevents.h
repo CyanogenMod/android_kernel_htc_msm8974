@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Name: acevents.h - Event subcomponent prototypes and defines
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -39,12 +44,18 @@
 #ifndef __ACEVENTS_H__
 #define __ACEVENTS_H__
 
+/*
+ * evevent
+ */
 acpi_status acpi_ev_initialize_events(void);
 
 acpi_status acpi_ev_install_xrupt_handlers(void);
 
 u32 acpi_ev_fixed_event_detect(void);
 
+/*
+ * evmisc
+ */
 u8 acpi_ev_is_notify_object(struct acpi_namespace_node *node);
 
 u32 acpi_ev_get_gpe_number_index(u32 gpe_number);
@@ -53,6 +64,9 @@ acpi_status
 acpi_ev_queue_notify_request(struct acpi_namespace_node *node,
 			     u32 notify_value);
 
+/*
+ * evglock - Global Lock support
+ */
 acpi_status acpi_ev_init_global_lock_handler(void);
 
 ACPI_HW_DEPENDENT_RETURN_OK(acpi_status
@@ -60,6 +74,9 @@ ACPI_HW_DEPENDENT_RETURN_OK(acpi_status
  ACPI_HW_DEPENDENT_RETURN_OK(acpi_status acpi_ev_release_global_lock(void))
  acpi_status acpi_ev_remove_global_lock_handler(void);
 
+/*
+ * evgpe - Low-level GPE support
+ */
 u32 acpi_ev_gpe_detect(struct acpi_gpe_xrupt_info *gpe_xrupt_list);
 
 acpi_status
@@ -80,6 +97,9 @@ struct acpi_gpe_event_info *acpi_ev_low_get_gpe_info(u32 gpe_number,
 
 acpi_status acpi_ev_finish_gpe(struct acpi_gpe_event_info *gpe_event_info);
 
+/*
+ * evgpeblk - Upper-level GPE block support
+ */
 acpi_status
 acpi_ev_create_gpe_block(struct acpi_namespace_node *gpe_device,
 			 struct acpi_generic_address *gpe_block_address,
@@ -102,6 +122,9 @@ acpi_ev_gpe_dispatch(struct acpi_namespace_node *gpe_device,
 		     struct acpi_gpe_event_info *gpe_event_info,
 		     u32 gpe_number);
 
+/*
+ * evgpeinit - GPE initialization and update
+ */
 acpi_status acpi_ev_gpe_initialize(void);
 
 ACPI_HW_DEPENDENT_RETURN_VOID(void
@@ -111,6 +134,9 @@ ACPI_HW_DEPENDENT_RETURN_VOID(void
 acpi_ev_match_gpe_method(acpi_handle obj_handle,
 			 u32 level, void *context, void **return_value);
 
+/*
+ * evgpeutil - GPE utilities
+ */
 acpi_status
 acpi_ev_walk_gpe_list(acpi_gpe_callback gpe_walk_callback, void *context);
 
@@ -129,6 +155,9 @@ acpi_ev_delete_gpe_handlers(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
 			    struct acpi_gpe_block_info *gpe_block,
 			    void *context);
 
+/*
+ * evregion - Address Space handling
+ */
 acpi_status acpi_ev_install_region_handlers(void);
 
 acpi_status acpi_ev_initialize_op_regions(void);
@@ -161,6 +190,9 @@ acpi_ev_execute_reg_methods(struct acpi_namespace_node *node,
 acpi_status
 acpi_ev_execute_reg_method(union acpi_operand_object *region_obj, u32 function);
 
+/*
+ * evregini - Region initialization and setup
+ */
 acpi_status
 acpi_ev_system_memory_region_setup(acpi_handle handle,
 				   u32 function,
@@ -196,6 +228,9 @@ acpi_status
 acpi_ev_initialize_region(union acpi_operand_object *region_obj,
 			  u8 acpi_ns_locked);
 
+/*
+ * evsci - SCI (System Control Interrupt) handling/dispatch
+ */
 u32 ACPI_SYSTEM_XFACE acpi_ev_gpe_xrupt_handler(void *context);
 
 u32 acpi_ev_install_sci_handler(void);
@@ -205,4 +240,4 @@ acpi_status acpi_ev_remove_sci_handler(void);
 u32 acpi_ev_initialize_sCI(u32 program_sCI);
 
 ACPI_HW_DEPENDENT_RETURN_VOID(void acpi_ev_terminate(void))
-#endif				
+#endif				/* __ACEVENTS_H__  */

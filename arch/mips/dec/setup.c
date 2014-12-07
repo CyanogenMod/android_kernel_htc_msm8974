@@ -62,6 +62,27 @@ volatile u32 *ioasic_base;
 
 EXPORT_SYMBOL(ioasic_base);
 
+/*
+ * IRQ routing and priority tables.  Priorites are set as follows:
+ *
+ * 		KN01	KN230	KN02	KN02-BA	KN02-CA	KN03
+ *
+ * MEMORY	CPU	CPU	CPU	ASIC	CPU	CPU
+ * RTC		CPU	CPU	CPU	ASIC	CPU	CPU
+ * DMA		-	-	-	ASIC	ASIC	ASIC
+ * SERIAL0	CPU	CPU	CSR	ASIC	ASIC	ASIC
+ * SERIAL1	-	-	-	ASIC	-	ASIC
+ * SCSI		CPU	CPU	CSR	ASIC	ASIC	ASIC
+ * ETHERNET	CPU	*	CSR	ASIC	ASIC	ASIC
+ * other	-	-	-	ASIC	-	-
+ * TC2		-	-	CSR	CPU	ASIC	ASIC
+ * TC1		-	-	CSR	CPU	ASIC	ASIC
+ * TC0		-	-	CSR	CPU	ASIC	ASIC
+ * other	-	CPU	-	CPU	ASIC	ASIC
+ * other	-	-	-	-	CPU	CPU
+ *
+ * * -- shared with SCSI
+ */
 
 int dec_interrupt[DEC_NR_INTS] = {
 	[0 ... DEC_NR_INTS - 1] = -1
@@ -100,24 +121,27 @@ static struct irqaction haltirq = {
 };
 
 
+/*
+ * Bus error (DBE/IBE exceptions and bus interrupts) handling setup.
+ */
 static void __init dec_be_init(void)
 {
 	switch (mips_machtype) {
-	case MACH_DS23100:	
+	case MACH_DS23100:	/* DS2100/DS3100 Pmin/Pmax */
 		board_be_handler = dec_kn01_be_handler;
 		busirq.handler = dec_kn01_be_interrupt;
 		busirq.flags |= IRQF_SHARED;
 		dec_kn01_be_init();
 		break;
-	case MACH_DS5000_1XX:	
-	case MACH_DS5000_XX:	
+	case MACH_DS5000_1XX:	/* DS5000/1xx 3min */
+	case MACH_DS5000_XX:	/* DS5000/xx Maxine */
 		board_be_handler = dec_kn02xa_be_handler;
 		busirq.handler = dec_kn02xa_be_interrupt;
 		dec_kn02xa_be_init();
 		break;
-	case MACH_DS5000_200:	
-	case MACH_DS5000_2X0:	
-	case MACH_DS5900:	
+	case MACH_DS5000_200:	/* DS5000/200 3max */
+	case MACH_DS5000_2X0:	/* DS5000/240 3max+ */
+	case MACH_DS5900:	/* DS5900 bigmax */
 		board_be_handler = dec_ecc_be_handler;
 		busirq.handler = dec_ecc_be_interrupt;
 		dec_ecc_be_init();
@@ -139,6 +163,10 @@ void __init plat_mem_setup(void)
 	ioport_resource.end = 0UL;
 }
 
+/*
+ * Machine-specific initialisation for KN01, aka DS2100 (aka Pmin)
+ * or DS3100 (aka Pmax).
+ */
 static int kn01_interrupt[DEC_NR_INTS] __initdata = {
 	[DEC_IRQ_CASCADE]	= -1,
 	[DEC_IRQ_AB_RECV]	= -1,
@@ -200,19 +228,22 @@ static int_ptr kn01_cpu_mask_nr_tbl[][2] __initdata = {
 
 static void __init dec_init_kn01(void)
 {
-	
+	/* IRQ routing. */
 	memcpy(&dec_interrupt, &kn01_interrupt,
 		sizeof(kn01_interrupt));
 
-	
+	/* CPU IRQ priorities. */
 	memcpy(&cpu_mask_nr_tbl, &kn01_cpu_mask_nr_tbl,
 		sizeof(kn01_cpu_mask_nr_tbl));
 
 	mips_cpu_irq_init();
 
-}				
+}				/* dec_init_kn01 */
 
 
+/*
+ * Machine-specific initialisation for KN230, aka DS5100, aka MIPSmate.
+ */
 static int kn230_interrupt[DEC_NR_INTS] __initdata = {
 	[DEC_IRQ_CASCADE]	= -1,
 	[DEC_IRQ_AB_RECV]	= -1,
@@ -272,19 +303,22 @@ static int_ptr kn230_cpu_mask_nr_tbl[][2] __initdata = {
 
 static void __init dec_init_kn230(void)
 {
-	
+	/* IRQ routing. */
 	memcpy(&dec_interrupt, &kn230_interrupt,
 		sizeof(kn230_interrupt));
 
-	
+	/* CPU IRQ priorities. */
 	memcpy(&cpu_mask_nr_tbl, &kn230_cpu_mask_nr_tbl,
 		sizeof(kn230_cpu_mask_nr_tbl));
 
 	mips_cpu_irq_init();
 
-}				
+}				/* dec_init_kn230 */
 
 
+/*
+ * Machine-specific initialisation for KN02, aka DS5000/200, aka 3max.
+ */
 static int kn02_interrupt[DEC_NR_INTS] __initdata = {
 	[DEC_IRQ_CASCADE]	= DEC_CPU_IRQ_NR(KN02_CPU_INR_CASCADE),
 	[DEC_IRQ_AB_RECV]	= -1,
@@ -359,24 +393,29 @@ static int_ptr kn02_asic_mask_nr_tbl[][2] __initdata = {
 
 static void __init dec_init_kn02(void)
 {
-	
+	/* IRQ routing. */
 	memcpy(&dec_interrupt, &kn02_interrupt,
 		sizeof(kn02_interrupt));
 
-	
+	/* CPU IRQ priorities. */
 	memcpy(&cpu_mask_nr_tbl, &kn02_cpu_mask_nr_tbl,
 		sizeof(kn02_cpu_mask_nr_tbl));
 
-	
+	/* KN02 CSR IRQ priorities. */
 	memcpy(&asic_mask_nr_tbl, &kn02_asic_mask_nr_tbl,
 		sizeof(kn02_asic_mask_nr_tbl));
 
 	mips_cpu_irq_init();
 	init_kn02_irqs(KN02_IRQ_BASE);
 
-}				
+}				/* dec_init_kn02 */
 
 
+/*
+ * Machine-specific initialisation for KN02-BA, aka DS5000/1xx
+ * (xx = 20, 25, 33), aka 3min.  Also applies to KN04(-BA), aka
+ * DS5000/150, aka 4min.
+ */
 static int kn02ba_interrupt[DEC_NR_INTS] __initdata = {
 	[DEC_IRQ_CASCADE]	= DEC_CPU_IRQ_NR(KN02BA_CPU_INR_CASCADE),
 	[DEC_IRQ_AB_RECV]	= -1,
@@ -455,24 +494,29 @@ static int_ptr kn02ba_asic_mask_nr_tbl[][2] __initdata = {
 
 static void __init dec_init_kn02ba(void)
 {
-	
+	/* IRQ routing. */
 	memcpy(&dec_interrupt, &kn02ba_interrupt,
 		sizeof(kn02ba_interrupt));
 
-	
+	/* CPU IRQ priorities. */
 	memcpy(&cpu_mask_nr_tbl, &kn02ba_cpu_mask_nr_tbl,
 		sizeof(kn02ba_cpu_mask_nr_tbl));
 
-	
+	/* I/O ASIC IRQ priorities. */
 	memcpy(&asic_mask_nr_tbl, &kn02ba_asic_mask_nr_tbl,
 		sizeof(kn02ba_asic_mask_nr_tbl));
 
 	mips_cpu_irq_init();
 	init_ioasic_irqs(IO_IRQ_BASE);
 
-}				
+}				/* dec_init_kn02ba */
 
 
+/*
+ * Machine-specific initialisation for KN02-CA, aka DS5000/xx,
+ * (xx = 20, 25, 33), aka MAXine.  Also applies to KN04(-CA), aka
+ * DS5000/50, aka 4MAXine.
+ */
 static int kn02ca_interrupt[DEC_NR_INTS] __initdata = {
 	[DEC_IRQ_CASCADE]	= DEC_CPU_IRQ_NR(KN02CA_CPU_INR_CASCADE),
 	[DEC_IRQ_AB_RECV]	= IO_IRQ_NR(KN02CA_IO_INR_AB_RECV),
@@ -547,24 +591,29 @@ static int_ptr kn02ca_asic_mask_nr_tbl[][2] __initdata = {
 
 static void __init dec_init_kn02ca(void)
 {
-	
+	/* IRQ routing. */
 	memcpy(&dec_interrupt, &kn02ca_interrupt,
 		sizeof(kn02ca_interrupt));
 
-	
+	/* CPU IRQ priorities. */
 	memcpy(&cpu_mask_nr_tbl, &kn02ca_cpu_mask_nr_tbl,
 		sizeof(kn02ca_cpu_mask_nr_tbl));
 
-	
+	/* I/O ASIC IRQ priorities. */
 	memcpy(&asic_mask_nr_tbl, &kn02ca_asic_mask_nr_tbl,
 		sizeof(kn02ca_asic_mask_nr_tbl));
 
 	mips_cpu_irq_init();
 	init_ioasic_irqs(IO_IRQ_BASE);
 
-}				
+}				/* dec_init_kn02ca */
 
 
+/*
+ * Machine-specific initialisation for KN03, aka DS5000/240,
+ * aka 3max+ and DS5900, aka BIGmax.  Also applies to KN05, aka
+ * DS5000/260, aka 4max+ and DS5900/260.
+ */
 static int kn03_interrupt[DEC_NR_INTS] __initdata = {
 	[DEC_IRQ_CASCADE]	= DEC_CPU_IRQ_NR(KN03_CPU_INR_CASCADE),
 	[DEC_IRQ_AB_RECV]	= -1,
@@ -643,74 +692,74 @@ static int_ptr kn03_asic_mask_nr_tbl[][2] __initdata = {
 
 static void __init dec_init_kn03(void)
 {
-	
+	/* IRQ routing. */
 	memcpy(&dec_interrupt, &kn03_interrupt,
 		sizeof(kn03_interrupt));
 
-	
+	/* CPU IRQ priorities. */
 	memcpy(&cpu_mask_nr_tbl, &kn03_cpu_mask_nr_tbl,
 		sizeof(kn03_cpu_mask_nr_tbl));
 
-	
+	/* I/O ASIC IRQ priorities. */
 	memcpy(&asic_mask_nr_tbl, &kn03_asic_mask_nr_tbl,
 		sizeof(kn03_asic_mask_nr_tbl));
 
 	mips_cpu_irq_init();
 	init_ioasic_irqs(IO_IRQ_BASE);
 
-}				
+}				/* dec_init_kn03 */
 
 
 void __init arch_init_irq(void)
 {
 	switch (mips_machtype) {
-	case MACH_DS23100:	
+	case MACH_DS23100:	/* DS2100/DS3100 Pmin/Pmax */
 		dec_init_kn01();
 		break;
-	case MACH_DS5100:	
+	case MACH_DS5100:	/* DS5100 MIPSmate */
 		dec_init_kn230();
 		break;
-	case MACH_DS5000_200:	
+	case MACH_DS5000_200:	/* DS5000/200 3max */
 		dec_init_kn02();
 		break;
-	case MACH_DS5000_1XX:	
+	case MACH_DS5000_1XX:	/* DS5000/1xx 3min */
 		dec_init_kn02ba();
 		break;
-	case MACH_DS5000_2X0:	
-	case MACH_DS5900:	
+	case MACH_DS5000_2X0:	/* DS5000/240 3max+ */
+	case MACH_DS5900:	/* DS5900 bigmax */
 		dec_init_kn03();
 		break;
-	case MACH_DS5000_XX:	
+	case MACH_DS5000_XX:	/* Personal DS5000/xx */
 		dec_init_kn02ca();
 		break;
-	case MACH_DS5800:	
+	case MACH_DS5800:	/* DS5800 Isis */
 		panic("Don't know how to set this up!");
 		break;
-	case MACH_DS5400:	
+	case MACH_DS5400:	/* DS5400 MIPSfair */
 		panic("Don't know how to set this up!");
 		break;
-	case MACH_DS5500:	
+	case MACH_DS5500:	/* DS5500 MIPSfair-2 */
 		panic("Don't know how to set this up!");
 		break;
 	}
 
-	
+	/* Free the FPU interrupt if the exception is present. */
 	if (!cpu_has_nofpuex) {
 		cpu_fpu_mask = 0;
 		dec_interrupt[DEC_IRQ_FPU] = -1;
 	}
 
-	
+	/* Register board interrupts: FPU and cascade. */
 	if (dec_interrupt[DEC_IRQ_FPU] >= 0)
 		setup_irq(dec_interrupt[DEC_IRQ_FPU], &fpuirq);
 	if (dec_interrupt[DEC_IRQ_CASCADE] >= 0)
 		setup_irq(dec_interrupt[DEC_IRQ_CASCADE], &ioirq);
 
-	
+	/* Register the bus error interrupt. */
 	if (dec_interrupt[DEC_IRQ_BUS] >= 0 && busirq.handler)
 		setup_irq(dec_interrupt[DEC_IRQ_BUS], &busirq);
 
-	
+	/* Register the HALT interrupt. */
 	if (dec_interrupt[DEC_IRQ_HALT] >= 0)
 		setup_irq(dec_interrupt[DEC_IRQ_HALT], &haltirq);
 }

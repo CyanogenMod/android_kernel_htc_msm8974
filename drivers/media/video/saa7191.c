@@ -34,6 +34,7 @@ MODULE_AUTHOR("Mikael Nousiainen <tmnousia@cc.hut.fi>");
 MODULE_LICENSE("GPL");
 
 
+// #define SAA7191_DEBUG
 
 #ifdef SAA7191_DEBUG
 #define dprintk(x...) printk("SAA7191: " x);
@@ -42,11 +43,13 @@ MODULE_LICENSE("GPL");
 #endif
 
 #define SAA7191_SYNC_COUNT	30
-#define SAA7191_SYNC_DELAY	100	
+#define SAA7191_SYNC_DELAY	100	/* milliseconds */
 
 struct saa7191 {
 	struct v4l2_subdev sd;
 
+	/* the register values are stored here as the actual
+	 * I2C-registers are write-only */
 	u8 reg[25];
 
 	int input;
@@ -59,43 +62,48 @@ static inline struct saa7191 *to_saa7191(struct v4l2_subdev *sd)
 }
 
 static const u8 initseq[] = {
-	0,	
+	0,	/* Subaddress */
 
-	0x50,	
+	0x50,	/* (0x50) SAA7191_REG_IDEL */
 
-	
-	0x30,	
-	0x00,	
-	0xe8,	
-	0xb6,	
-	0xf4,	
+	/* 50 Hz signal timing */
+	0x30,	/* (0x30) SAA7191_REG_HSYB */
+	0x00,	/* (0x00) SAA7191_REG_HSYS */
+	0xe8,	/* (0xe8) SAA7191_REG_HCLB */
+	0xb6,	/* (0xb6) SAA7191_REG_HCLS */
+	0xf4,	/* (0xf4) SAA7191_REG_HPHI */
 
-	
-	SAA7191_LUMA_APER_1,	
-	0x00,	
-	0xf8,	
-	0xf8,	
-	0x90,	
-	0x90,	
-	0x00,	
-	SAA7191_STDC_NFEN | SAA7191_STDC_HRMV,	
+	/* control */
+	SAA7191_LUMA_APER_1,	/* (0x01) SAA7191_REG_LUMA - CVBS mode */
+	0x00,	/* (0x00) SAA7191_REG_HUEC */
+	0xf8,	/* (0xf8) SAA7191_REG_CKTQ */
+	0xf8,	/* (0xf8) SAA7191_REG_CKTS */
+	0x90,	/* (0x90) SAA7191_REG_PLSE */
+	0x90,	/* (0x90) SAA7191_REG_SESE */
+	0x00,	/* (0x00) SAA7191_REG_GAIN */
+	SAA7191_STDC_NFEN | SAA7191_STDC_HRMV,	/* (0x0c) SAA7191_REG_STDC
+						 * - not SECAM,
+						 * slow time constant */
 	SAA7191_IOCK_OEDC | SAA7191_IOCK_OEHS | SAA7191_IOCK_OEVS
-	| SAA7191_IOCK_OEDY,	
+	| SAA7191_IOCK_OEDY,	/* (0x78) SAA7191_REG_IOCK
+				 * - chroma from CVBS, GPSW1 & 2 off */
 	SAA7191_CTL3_AUFD | SAA7191_CTL3_SCEN | SAA7191_CTL3_OFTS
-	| SAA7191_CTL3_YDEL0,	
-	0x00,	
-	0x2c,	
-	0x00,	
-	0x00,	
+	| SAA7191_CTL3_YDEL0,	/* (0x99) SAA7191_REG_CTL3
+				 * - automatic field detection */
+	0x00,	/* (0x00) SAA7191_REG_CTL4 */
+	0x2c,	/* (0x2c) SAA7191_REG_CHCV - PAL nominal value */
+	0x00,	/* unused */
+	0x00,	/* unused */
 
-	
-	0x34,	
-	0x0a,	
-	0xf4,	
-	0xce,	
-	0xf4,	
+	/* 60 Hz signal timing */
+	0x34,	/* (0x34) SAA7191_REG_HS6B */
+	0x0a,	/* (0x0a) SAA7191_REG_HS6S */
+	0xf4,	/* (0xf4) SAA7191_REG_HC6B */
+	0xce,	/* (0xce) SAA7191_REG_HC6S */
+	0xf4,	/* (0xf4) SAA7191_REG_HP6I */
 };
 
+/* SAA7191 register handling */
 
 static u8 saa7191_read_reg(struct v4l2_subdev *sd, u8 reg)
 {
@@ -125,6 +133,7 @@ static int saa7191_write_reg(struct v4l2_subdev *sd, u8 reg, u8 value)
 	return i2c_smbus_write_byte_data(client, reg, value);
 }
 
+/* the first byte of data must be the first subaddress number (register) */
 static int saa7191_write_block(struct v4l2_subdev *sd,
 			       u8 length, const u8 *data)
 {
@@ -147,6 +156,7 @@ static int saa7191_write_block(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/* Helper functions */
 
 static int saa7191_s_routing(struct v4l2_subdev *sd,
 			     u32 input, u32 output, u32 config)
@@ -157,15 +167,15 @@ static int saa7191_s_routing(struct v4l2_subdev *sd,
 	int err;
 
 	switch (input) {
-	case SAA7191_INPUT_COMPOSITE: 
+	case SAA7191_INPUT_COMPOSITE: /* Set Composite input */
 		iock &= ~(SAA7191_IOCK_CHRS | SAA7191_IOCK_GPSW1
 			  | SAA7191_IOCK_GPSW2);
-		
+		/* Chrominance trap active */
 		luma &= ~SAA7191_LUMA_BYPS;
 		break;
-	case SAA7191_INPUT_SVIDEO: 
+	case SAA7191_INPUT_SVIDEO: /* Set S-Video input */
 		iock |= SAA7191_IOCK_CHRS | SAA7191_IOCK_GPSW2;
-		
+		/* Chrominance trap bypassed */
 		luma |= SAA7191_LUMA_BYPS;
 		break;
 	default:
@@ -291,16 +301,16 @@ static int saa7191_querystd(struct v4l2_subdev *sd, v4l2_std_id *norm)
 		goto out;
 
 	if (status & SAA7191_STATUS_FIDT) {
-		
+		/* 60Hz signal -> NTSC */
 		dprintk("60Hz signal: NTSC\n");
 		*norm = V4L2_STD_NTSC;
 		return 0;
 	}
 
-	
+	/* 50Hz signal */
 	dprintk("50Hz signal: Trying PAL...\n");
 
-	
+	/* try PAL first */
 	err = saa7191_s_std(sd, V4L2_STD_PAL);
 	if (err)
 		goto out;
@@ -311,7 +321,7 @@ static int saa7191_querystd(struct v4l2_subdev *sd, v4l2_std_id *norm)
 	if (err)
 		goto out;
 
-	
+	/* not 50Hz ? */
 	if (status & SAA7191_STATUS_FIDT) {
 		dprintk("No 50Hz signal\n");
 		saa7191_s_std(sd, old_norm);
@@ -326,7 +336,7 @@ static int saa7191_querystd(struct v4l2_subdev *sd, v4l2_std_id *norm)
 
 	dprintk("No color detected with PAL - Trying SECAM...\n");
 
-	
+	/* no color detected ? -> try SECAM */
 	err = saa7191_s_std(sd, V4L2_STD_SECAM);
 	if (err)
 		goto out;
@@ -337,7 +347,7 @@ static int saa7191_querystd(struct v4l2_subdev *sd, v4l2_std_id *norm)
 	if (err)
 		goto out;
 
-	
+	/* not 50Hz ? */
 	if (status & SAA7191_STATUS_FIDT) {
 		dprintk("No 50Hz signal\n");
 		err = -EAGAIN;
@@ -345,7 +355,7 @@ static int saa7191_querystd(struct v4l2_subdev *sd, v4l2_std_id *norm)
 	}
 
 	if (status & SAA7191_STATUS_CODE) {
-		
+		/* Color detected -> SECAM */
 		dprintk("SECAM\n");
 		*norm = V4L2_STD_SECAM;
 		return saa7191_s_std(sd, old_norm);
@@ -370,7 +380,7 @@ static int saa7191_autodetect_norm(struct v4l2_subdev *sd)
 
 	dprintk("Checking for signal...\n");
 
-	
+	/* no signal ? */
 	if (status & SAA7191_STATUS_HLCK) {
 		dprintk("No signal\n");
 		return -EBUSY;
@@ -379,11 +389,11 @@ static int saa7191_autodetect_norm(struct v4l2_subdev *sd)
 	dprintk("Signal found\n");
 
 	if (status & SAA7191_STATUS_FIDT) {
-		
+		/* 60hz signal -> NTSC */
 		dprintk("NTSC\n");
 		return saa7191_s_std(sd, V4L2_STD_NTSC);
 	} else {
-		
+		/* 50hz signal -> PAL */
 		dprintk("PAL\n");
 		return saa7191_s_std(sd, V4L2_STD_PAL);
 	}
@@ -539,6 +549,7 @@ static int saa7191_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	return ret;
 }
 
+/* I2C-interface */
 
 static int saa7191_g_input_status(struct v4l2_subdev *sd, u32 *status)
 {
@@ -564,6 +575,7 @@ static int saa7191_g_chip_ident(struct v4l2_subdev *sd,
 	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_SAA7191, 0);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops saa7191_core_ops = {
 	.g_chip_ident = saa7191_g_chip_ident,

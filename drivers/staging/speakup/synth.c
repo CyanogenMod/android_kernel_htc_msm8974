@@ -1,14 +1,14 @@
 #include <linux/types.h>
-#include <linux/ctype.h>	
+#include <linux/ctype.h>	/* for isdigit() and friends */
 #include <linux/fs.h>
-#include <linux/mm.h>		
-#include <linux/errno.h>	
-#include <linux/ioport.h>	
+#include <linux/mm.h>		/* for verify_area */
+#include <linux/errno.h>	/* for -EBUSY */
+#include <linux/ioport.h>	/* for check_region, request_region */
 #include <linux/interrupt.h>
-#include <linux/delay.h>	
+#include <linux/delay.h>	/* for loops_per_sec */
 #include <linux/kmod.h>
 #include <linux/jiffies.h>
-#include <linux/uaccess.h> 
+#include <linux/uaccess.h> /* for copy_from_user */
 #include <linux/sched.h>
 #include <linux/timer.h>
 #include <linux/kthread.h>
@@ -17,7 +17,7 @@
 #include "speakup.h"
 #include "serialio.h"
 
-#define MAXSYNTHS       16      
+#define MAXSYNTHS       16      /* Max number of synths in array. */
 static struct spk_synth *synths[MAXSYNTHS];
 struct spk_synth *synth;
 char pitch_buff[32] = "";
@@ -61,6 +61,12 @@ int serial_synth_probe(struct spk_synth *synth)
 }
 EXPORT_SYMBOL_GPL(serial_synth_probe);
 
+/* Main loop of the progression thread: keep eating from the buffer
+ * and push to the serial port, waiting as needed
+ *
+ * For devices that have a "full" notification mecanism, the driver can
+ * adapt the loop the way they prefer.
+ */
 void spk_do_catch_up(struct spk_synth *synth)
 {
 	u_char ch;
@@ -161,10 +167,10 @@ int spk_synth_is_alive_restart(struct spk_synth *synth)
 	if (synth->alive)
 		return 1;
 	if (!synth->alive && wait_for_xmitr() > 0) {
-		
+		/* restart */
 		synth->alive = 1;
 		synth_printf("%s", synth->init);
-		return 2; 
+		return 2; /* reenabled */
 	}
 	pr_warn("%s: can't restart synth\n", synth->long_name);
 	return 0;
@@ -317,6 +323,7 @@ struct var_t synth_time_vars[] = {
 	V_LAST_VAR
 };
 
+/* called by: speakup_init() */
 int synth_init(char *synth_name)
 {
 	int i;
@@ -334,12 +341,12 @@ int synth_init(char *synth_name)
 	}
 
 	mutex_lock(&spk_mutex);
-	
+	/* First, check if we already have it loaded. */
 	for (i = 0; synths[i] != NULL && i < MAXSYNTHS; i++)
 		if (strcmp(synths[i]->name, synth_name) == 0)
 			synth = synths[i];
 
-	
+	/* If we got one, initialize it now. */
 	if (synth)
 		ret = do_synth_init(synth);
 	else
@@ -349,6 +356,7 @@ int synth_init(char *synth_name)
 	return ret;
 }
 
+/* called by: synth_add() */
 static int do_synth_init(struct spk_synth *in_synth)
 {
 	struct var_t *var;
@@ -409,13 +417,14 @@ void synth_release(void)
 	synth = NULL;
 }
 
+/* called by: all_driver_init() */
 int synth_add(struct spk_synth *in_synth)
 {
 	int i;
 	int status = 0;
 	mutex_lock(&spk_mutex);
 	for (i = 0; synths[i] != NULL && i < MAXSYNTHS; i++)
-		
+		/* synth_remove() is responsible for rotating the array down */
 		if (in_synth == synths[i]) {
 			mutex_unlock(&spk_mutex);
 			return 0;
@@ -444,7 +453,7 @@ void synth_remove(struct spk_synth *in_synth)
 		if (in_synth == synths[i])
 			break;
 	}
-	for ( ; synths[i] != NULL; i++) 
+	for ( ; synths[i] != NULL; i++) /* compress table */
 		synths[i] = synths[i+1];
 	module_status = 0;
 	mutex_unlock(&spk_mutex);

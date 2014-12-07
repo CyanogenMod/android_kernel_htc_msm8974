@@ -28,6 +28,7 @@
 #include <linux/err.h>
 #include <linux/hwmon.h>
 
+/* Insmod parameters */
 
 static int input_mode;
 module_param(input_mode, int, 0);
@@ -38,18 +39,41 @@ MODULE_PARM_DESC(input_mode,
 	" 2 = single ended and differential mixed\n"
 	" 3 = two differential inputs\n");
 
+/*
+ * The PCF8591 control byte
+ *      7    6    5    4    3    2    1    0
+ *   |  0 |AOEF|   AIP   |  0 |AINC|  AICH   |
+ */
 
+/* Analog Output Enable Flag (analog output active if 1) */
 #define PCF8591_CONTROL_AOEF		0x40
 
+/*
+ * Analog Input Programming
+ * 0x00 = four single ended inputs
+ * 0x10 = three differential inputs
+ * 0x20 = single ended and differential mixed
+ * 0x30 = two differential inputs
+ */
 #define PCF8591_CONTROL_AIP_MASK	0x30
 
+/* Autoincrement Flag (switch on if 1) */
 #define PCF8591_CONTROL_AINC		0x04
 
+/*
+ * Channel selection
+ * 0x00 = channel 0
+ * 0x01 = channel 1
+ * 0x02 = channel 2
+ * 0x03 = channel 3
+ */
 #define PCF8591_CONTROL_AICH_MASK	0x03
 
+/* Initial values */
 #define PCF8591_INIT_CONTROL	((input_mode << 4) | PCF8591_CONTROL_AOEF)
-#define PCF8591_INIT_AOUT	0	
+#define PCF8591_INIT_AOUT	0	/* DAC out = 0 */
 
+/* Conversions */
 #define REG_TO_SIGNED(reg)	(((reg) & 0x80) ? ((reg) - 256) : (reg))
 
 struct pcf8591_data {
@@ -63,6 +87,7 @@ struct pcf8591_data {
 static void pcf8591_init_client(struct i2c_client *client);
 static int pcf8591_read_channel(struct device *dev, int channel);
 
+/* following are the sysfs callback functions */
 #define show_in_channel(channel)					\
 static ssize_t show_in##channel##_input(struct device *dev,		\
 					struct device_attribute *attr,	\
@@ -165,6 +190,9 @@ static const struct attribute_group pcf8591_attr_group_opt = {
 	.attrs = pcf8591_attributes_opt,
 };
 
+/*
+ * Real code
+ */
 
 static int pcf8591_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
@@ -181,22 +209,22 @@ static int pcf8591_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the PCF8591 chip */
 	pcf8591_init_client(client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &pcf8591_attr_group);
 	if (err)
 		goto exit_kfree;
 
-	
+	/* Register input2 if not in "two differential inputs" mode */
 	if (input_mode != 3) {
 		err = device_create_file(&client->dev, &dev_attr_in2_input);
 		if (err)
 			goto exit_sysfs_remove;
 	}
 
-	
+	/* Register input3 only in "four single ended inputs" mode */
 	if (input_mode == 0) {
 		err = device_create_file(&client->dev, &dev_attr_in3_input);
 		if (err)
@@ -231,6 +259,7 @@ static int pcf8591_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* Called when we have found a new PCF8591. */
 static void pcf8591_init_client(struct i2c_client *client)
 {
 	struct pcf8591_data *data = i2c_get_clientdata(client);
@@ -239,6 +268,10 @@ static void pcf8591_init_client(struct i2c_client *client)
 
 	i2c_smbus_write_byte_data(client, data->control, data->aout);
 
+	/*
+	 * The first byte transmitted contains the conversion code of the
+	 * previous read cycle. FLUSH IT!
+	 */
 	i2c_smbus_read_byte(client);
 }
 
@@ -255,6 +288,10 @@ static int pcf8591_read_channel(struct device *dev, int channel)
 			      | channel;
 		i2c_smbus_write_byte(client, data->control);
 
+		/*
+		 * The first byte transmitted contains the conversion code of
+		 * the previous read cycle. FLUSH IT!
+		 */
 		i2c_smbus_read_byte(client);
 	}
 	value = i2c_smbus_read_byte(client);

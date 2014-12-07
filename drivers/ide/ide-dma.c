@@ -10,7 +10,23 @@
  *  DMA is supported for all IDE devices (disk drives, cdroms, tapes, floppies).
  */
 
+/*
+ *  Special Thanks to Mark for his Six years of work.
+ */
 
+/*
+ * Thanks to "Christopher J. Reimer" <reimer@doe.carleton.ca> for
+ * fixing the problem with the BIOS on some Acer motherboards.
+ *
+ * Thanks to "Benoit Poulot-Cazajous" <poulot@chorus.fr> for testing
+ * "TX" chipset compatibility and for providing patches for the "TX" chipset.
+ *
+ * Thanks to Christian Brunner <chb@muc.de> for taking a good first crack
+ * at generic DMA -- his patches were referred to when preparing this code.
+ *
+ * Most importantly, thanks to Robert Bringman <rob@mars.trion.com>
+ * for supplying a Promise UDMA board & WD UDMA drive for this work!
+ */
 
 #include <linux/types.h>
 #include <linux/gfp.h>
@@ -64,6 +80,13 @@ static const struct drive_list_entry drive_blacklist[] = {
 
 };
 
+/**
+ *	ide_dma_intr	-	IDE DMA interrupt handler
+ *	@drive: the drive the interrupt is for
+ *
+ *	Handle an interrupt completing a read/write DMA transfer on an
+ *	IDE device
+ */
 
 ide_startstop_t ide_dma_intr(ide_drive_t *drive)
 {
@@ -96,6 +119,16 @@ int ide_dma_good_drive(ide_drive_t *drive)
 	return ide_in_drive_list(drive->id, drive_whitelist);
 }
 
+/**
+ *	ide_dma_map_sg	-	map IDE scatter gather for DMA I/O
+ *	@drive: the drive to map the DMA table for
+ *	@cmd: command
+ *
+ *	Perform the DMA mapping magic necessary to access the source or
+ *	target buffers of a request via DMA.  The lower layers of the
+ *	kernel provide the necessary cache management so that we can
+ *	operate in a portable fashion.
+ */
 
 static int ide_dma_map_sg(ide_drive_t *drive, struct ide_cmd *cmd)
 {
@@ -117,6 +150,16 @@ static int ide_dma_map_sg(ide_drive_t *drive, struct ide_cmd *cmd)
 	return i;
 }
 
+/**
+ *	ide_dma_unmap_sg	-	clean up DMA mapping
+ *	@drive: The drive to unmap
+ *
+ *	Teardown mappings after DMA has completed. This must be called
+ *	after the completion of each use of ide_build_dmatable and before
+ *	the next use of ide_build_dmatable. Failure to do so will cause
+ *	an oops as only one mapping can be live for each target at a given
+ *	time.
+ */
 
 void ide_dma_unmap_sg(ide_drive_t *drive, struct ide_cmd *cmd)
 {
@@ -127,6 +170,12 @@ void ide_dma_unmap_sg(ide_drive_t *drive, struct ide_cmd *cmd)
 }
 EXPORT_SYMBOL_GPL(ide_dma_unmap_sg);
 
+/**
+ *	ide_dma_off_quietly	-	Generic DMA kill
+ *	@drive: drive to control
+ *
+ *	Turn off the current DMA on this IDE controller.
+ */
 
 void ide_dma_off_quietly(ide_drive_t *drive)
 {
@@ -137,6 +186,13 @@ void ide_dma_off_quietly(ide_drive_t *drive)
 }
 EXPORT_SYMBOL(ide_dma_off_quietly);
 
+/**
+ *	ide_dma_off	-	disable DMA on a device
+ *	@drive: drive to disable DMA on
+ *
+ *	Disable IDE DMA for a device on this IDE controller.
+ *	Inform the user that DMA has been disabled.
+ */
 
 void ide_dma_off(ide_drive_t *drive)
 {
@@ -145,6 +201,12 @@ void ide_dma_off(ide_drive_t *drive)
 }
 EXPORT_SYMBOL(ide_dma_off);
 
+/**
+ *	ide_dma_on		-	Enable DMA on a device
+ *	@drive: drive to enable DMA on
+ *
+ *	Enable IDE DMA for a device on this IDE controller.
+ */
 
 void ide_dma_on(ide_drive_t *drive)
 {
@@ -191,6 +253,9 @@ static unsigned int ide_get_mode_mask(ide_drive_t *drive, u8 base, u8 req_mode)
 		else
 			mask &= hwif->ultra_mask;
 
+		/*
+		 * avoid false cable warning from eighty_ninty_three()
+		 */
 		if (req_mode > XFER_UDMA_2) {
 			if ((mask & 0x78) && (eighty_ninty_three(drive) == 0))
 				mask &= 0x07;
@@ -199,7 +264,7 @@ static unsigned int ide_get_mode_mask(ide_drive_t *drive, u8 base, u8 req_mode)
 	case XFER_MW_DMA_0:
 		mask = id[ATA_ID_MWDMA_MODES];
 
-		
+		/* Also look for the CF specific MWDMA modes... */
 		if (ata_id_is_cfa(id) && (id[ATA_ID_CFA_MODES] & 0x38)) {
 			u8 mode = ((id[ATA_ID_CFA_MODES] & 0x38) >> 3) - 1;
 
@@ -216,6 +281,10 @@ static unsigned int ide_get_mode_mask(ide_drive_t *drive, u8 base, u8 req_mode)
 		if (!(mask & ATA_SWDMA2) && (id[ATA_ID_OLD_DMA_MODES] >> 8)) {
 			u8 mode = id[ATA_ID_OLD_DMA_MODES] >> 8;
 
+			/*
+			 * if the mode is valid convert it to the mask
+			 * (the maximum allowed mode is XFER_SW_DMA_2)
+			 */
 			if (mode <= 2)
 				mask = (2 << mode) - 1;
 		}
@@ -229,6 +298,17 @@ static unsigned int ide_get_mode_mask(ide_drive_t *drive, u8 base, u8 req_mode)
 	return mask;
 }
 
+/**
+ *	ide_find_dma_mode	-	compute DMA speed
+ *	@drive: IDE device
+ *	@req_mode: requested mode
+ *
+ *	Checks the drive/host capabilities and finds the speed to use for
+ *	the DMA transfer.  The speed is then limited by the requested mode.
+ *
+ *	Returns 0 if the drive/host combination is incapable of DMA transfers
+ *	or if the requested mode is not a DMA mode.
+ */
 
 u8 ide_find_dma_mode(ide_drive_t *drive, u8 req_mode)
 {
@@ -254,6 +334,9 @@ u8 ide_find_dma_mode(ide_drive_t *drive, u8 req_mode)
 	}
 
 	if (hwif->chipset == ide_acorn && mode == 0) {
+		/*
+		 * is this correct?
+		 */
 		if (ide_dma_good_drive(drive) &&
 		    drive->id[ATA_ID_EIDE_DMA_TIME] < 150)
 			mode = XFER_MW_DMA_1;
@@ -276,7 +359,7 @@ static int ide_tune_dma(ide_drive_t *drive)
 	    (drive->dev_flags & IDE_DFLAG_NODMA))
 		return 0;
 
-	
+	/* consult the list of known "bad" drives */
 	if (__ide_dma_bad_drive(drive))
 		return 0;
 
@@ -301,7 +384,7 @@ static int ide_dma_check(ide_drive_t *drive)
 	if (ide_tune_dma(drive))
 		return 0;
 
-	
+	/* TODO: always do PIO fallback */
 	if (hwif->host_flags & IDE_HFLAG_TRUST_BIOS_FOR_DMA)
 		return -1;
 
@@ -314,6 +397,12 @@ int ide_set_dma(ide_drive_t *drive)
 {
 	int rc;
 
+	/*
+	 * Force DMAing for the beginning of the check.
+	 * Some chipsets appear to do interesting
+	 * things, if not checked and cleared.
+	 *   PARANOIA!!!
+	 */
 	ide_dma_off_quietly(drive);
 
 	rc = ide_dma_check(drive);
@@ -332,6 +421,10 @@ void ide_check_dma_crc(ide_drive_t *drive)
 	ide_dma_off_quietly(drive);
 	drive->crc_count = 0;
 	mode = drive->current_speed;
+	/*
+	 * Don't try non Ultra-DMA modes without iCRC's.  Force the
+	 * device to PIO and make the user enable SWDMA/MWDMA modes.
+	 */
 	if (mode > XFER_UDMA_0 && mode <= XFER_UDMA_7)
 		mode--;
 	else
@@ -347,6 +440,11 @@ void ide_dma_lost_irq(ide_drive_t *drive)
 }
 EXPORT_SYMBOL_GPL(ide_dma_lost_irq);
 
+/*
+ * un-busy the port etc, and clear any pending DMA status. we want to
+ * retry the current request in pio mode instead of risking tossing it
+ * all away
+ */
 ide_startstop_t ide_dma_timeout_retry(ide_drive_t *drive, int error)
 {
 	ide_hwif_t *hwif = drive->hwif;
@@ -354,6 +452,9 @@ ide_startstop_t ide_dma_timeout_retry(ide_drive_t *drive, int error)
 	struct ide_cmd *cmd = &hwif->cmd;
 	ide_startstop_t ret = ide_stopped;
 
+	/*
+	 * end current dma transaction
+	 */
 
 	if (error < 0) {
 		printk(KERN_WARNING "%s: DMA timeout error\n", drive->name);
@@ -376,10 +477,18 @@ ide_startstop_t ide_dma_timeout_retry(ide_drive_t *drive, int error)
 		}
 	}
 
+	/*
+	 * disable dma for now, but remember that we did so because of
+	 * a timeout -- we'll reenable after we finish this next request
+	 * (or rather the first chunk of it) in pio.
+	 */
 	drive->dev_flags |= IDE_DFLAG_DMA_PIO_RETRY;
 	drive->retry_pio++;
 	ide_dma_off_quietly(drive);
 
+	/*
+	 * make sure request is sane
+	 */
 	if (hwif->rq)
 		hwif->rq->errors = 0;
 	return ret;

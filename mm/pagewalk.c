@@ -42,11 +42,19 @@ again:
 				break;
 			continue;
 		}
+		/*
+		 * This implies that each ->pmd_entry() handler
+		 * needs to know about pmd_trans_huge() pmds
+		 */
 		if (walk->pmd_entry)
 			err = walk->pmd_entry(pmd, addr, next, walk);
 		if (err)
 			break;
 
+		/*
+		 * Check this here so we only break down trans_huge
+		 * pages when we _need_ to
+		 */
 		if (!walk->pte_entry)
 			continue;
 
@@ -123,7 +131,7 @@ static struct vm_area_struct* hugetlb_vma(unsigned long addr, struct mm_walk *wa
 {
 	struct vm_area_struct *vma;
 
-	
+	/* We don't need vma lookup at all. */
 	if (!walk->hugetlb_entry)
 		return NULL;
 
@@ -135,7 +143,7 @@ static struct vm_area_struct* hugetlb_vma(unsigned long addr, struct mm_walk *wa
 	return NULL;
 }
 
-#else 
+#else /* CONFIG_HUGETLB_PAGE */
 static struct vm_area_struct* hugetlb_vma(unsigned long addr, struct mm_walk *walk)
 {
 	return NULL;
@@ -148,10 +156,36 @@ static int walk_hugetlb_range(struct vm_area_struct *vma,
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_HUGETLB_PAGE */
 
 
 
+/**
+ * walk_page_range - walk a memory map's page tables with a callback
+ * @mm: memory map to walk
+ * @addr: starting address
+ * @end: ending address
+ * @walk: set of callbacks to invoke for each level of the tree
+ *
+ * Recursively walk the page table for the memory area in a VMA,
+ * calling supplied callbacks. Callbacks are called in-order (first
+ * PGD, first PUD, first PMD, first PTE, second PTE... second PMD,
+ * etc.). If lower-level callbacks are omitted, walking depth is reduced.
+ *
+ * Each callback receives an entry pointer and the start and end of the
+ * associated range, and a copy of the original mm_walk for access to
+ * the ->private or ->mm fields.
+ *
+ * Usually no locks are taken, but splitting transparent huge page may
+ * take page table lock. And the bottom level iterator will map PTE
+ * directories from highmem if necessary.
+ *
+ * If any callback returns a non-zero value, the walk is aborted and
+ * the return value is propagated back to the caller. Otherwise 0 is returned.
+ *
+ * walk->mm->mmap_sem must be held for at least read if walk->hugetlb_entry
+ * is !NULL.
+ */
 int walk_page_range(unsigned long addr, unsigned long end,
 		    struct mm_walk *walk)
 {
@@ -171,10 +205,19 @@ int walk_page_range(unsigned long addr, unsigned long end,
 
 		next = pgd_addr_end(addr, end);
 
+		/*
+		 * handle hugetlb vma individually because pagetable walk for
+		 * the hugetlb page is dependent on the architecture and
+		 * we can't handled it in the same manner as non-huge pages.
+		 */
 		vma = hugetlb_vma(addr, walk);
 		if (vma) {
 			if (vma->vm_end < next)
 				next = vma->vm_end;
+			/*
+			 * Hugepage is very tightly coupled with vma, so
+			 * walk through hugetlb entries within a given vma.
+			 */
 			err = walk_hugetlb_range(vma, addr, next, walk);
 			if (err)
 				break;

@@ -3,4 +3,4 @@
 
 #include <asm-generic/poll.h>
 
-#endif 
+#endif /* _ASM_SCORE_POLL_H */

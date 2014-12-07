@@ -200,6 +200,11 @@ void tracing_stop_cmdline_record(void)
 	tracing_stop_sched_switch();
 }
 
+/**
+ * tracing_start_sched_switch_record - start tracing context switches
+ *
+ * Turns on context switch tracing for a tracer.
+ */
 void tracing_start_sched_switch_record(void)
 {
 	if (unlikely(!ctx_trace)) {
@@ -214,6 +219,11 @@ void tracing_start_sched_switch_record(void)
 	mutex_unlock(&sched_register_mutex);
 }
 
+/**
+ * tracing_stop_sched_switch_record - start tracing context switches
+ *
+ * Turns off context switch tracing for a tracer.
+ */
 void tracing_stop_sched_switch_record(void)
 {
 	mutex_lock(&sched_register_mutex);
@@ -224,6 +234,14 @@ void tracing_stop_sched_switch_record(void)
 	tracing_stop_sched_switch();
 }
 
+/**
+ * tracing_sched_switch_assign_trace - assign a trace array for ctx switch
+ * @tr: trace array pointer to assign
+ *
+ * Some tracers might want to record the context switches in their
+ * trace. This function lets those tracers assign the trace array
+ * to use.
+ */
 void tracing_sched_switch_assign_trace(struct trace_array *tr)
 {
 	ctx_trace = tr;

@@ -43,15 +43,21 @@ void iforce_dump_packet(char *msg, u16 cmd, unsigned char *data)
 	printk("\n");
 }
 
+/*
+ * Send a packet of bytes to the device
+ */
 int iforce_send_packet(struct iforce *iforce, u16 cmd, unsigned char* data)
 {
-	
+	/* Copy data to buffer */
 	int n = LO(cmd);
 	int c;
 	int empty;
 	int head, tail;
 	unsigned long flags;
 
+/*
+ * Update head and tail of xmit buffer
+ */
 	spin_lock_irqsave(&iforce->xmit_lock, flags);
 
 	head = iforce->xmit.head;
@@ -68,6 +74,9 @@ int iforce_send_packet(struct iforce *iforce, u16 cmd, unsigned char* data)
 	empty = head == tail;
 	XMIT_INC(iforce->xmit.head, n+2);
 
+/*
+ * Store packet in xmit buffer
+ */
 	iforce->xmit.buf[head] = HI(cmd);
 	XMIT_INC(head, 1);
 	iforce->xmit.buf[head] = LO(cmd);
@@ -87,6 +96,9 @@ int iforce_send_packet(struct iforce *iforce, u16 cmd, unsigned char* data)
 	XMIT_INC(head, n);
 
 	spin_unlock_irqrestore(&iforce->xmit_lock, flags);
+/*
+ * If necessary, start the transmission
+ */
 	switch (iforce->bus) {
 
 #ifdef CONFIG_JOYSTICK_IFORCE_232
@@ -109,6 +121,7 @@ int iforce_send_packet(struct iforce *iforce, u16 cmd, unsigned char* data)
 	return 0;
 }
 
+/* Start or stop an effect */
 int iforce_control_playback(struct iforce* iforce, u16 id, unsigned int value)
 {
 	unsigned char data[3];
@@ -119,6 +132,8 @@ int iforce_control_playback(struct iforce* iforce, u16 id, unsigned int value)
 	return iforce_send_packet(iforce, FF_CMD_PLAY, data);
 }
 
+/* Mark an effect that was being updated as ready. That means it can be updated
+ * again */
 static int mark_core_as_ready(struct iforce *iforce, unsigned short addr)
 {
 	int i;
@@ -165,8 +180,8 @@ void iforce_process_packet(struct iforce *iforce, u16 cmd, unsigned char *data)
 
 	switch (HI(cmd)) {
 
-		case 0x01:	
-		case 0x03:	
+		case 0x01:	/* joystick position data */
+		case 0x03:	/* wheel position data */
 			if (HI(cmd) == 1) {
 				input_report_abs(dev, ABS_X, (__s16) (((__s16)data[1] << 8) | data[0]));
 				input_report_abs(dev, ABS_Y, (__s16) (((__s16)data[3] << 8) | data[2]));
@@ -185,7 +200,7 @@ void iforce_process_packet(struct iforce *iforce, u16 cmd, unsigned char *data)
 			for (i = 0; iforce->type->btn[i] >= 0; i++)
 				input_report_key(dev, iforce->type->btn[i], data[(i >> 3) + 5] & (1 << (i & 7)));
 
-			
+			/* If there are untouched bits left, interpret them as the second hat */
 			if (i <= 8) {
 				int btns = data[6];
 				if (test_bit(ABS_HAT1X, dev->absbit)) {
@@ -204,19 +219,19 @@ void iforce_process_packet(struct iforce *iforce, u16 cmd, unsigned char *data)
 
 			break;
 
-		case 0x02:	
+		case 0x02:	/* status report */
 			input_report_key(dev, BTN_DEAD, data[0] & 0x02);
 			input_sync(dev);
 
-			
+			/* Check if an effect was just started or stopped */
 			i = data[1] & 0x7f;
 			if (data[1] & 0x80) {
 				if (!test_and_set_bit(FF_CORE_IS_PLAYED, iforce->core_effects[i].flags)) {
-					
+					/* Report play event */
 					input_report_ff_status(dev, i, FF_STATUS_PLAYING);
 				}
 			} else if (test_and_clear_bit(FF_CORE_IS_PLAYED, iforce->core_effects[i].flags)) {
-				
+				/* Report stop event */
 				input_report_ff_status(dev, i, FF_STATUS_STOPPED);
 			}
 			if (LO(cmd) > 3) {

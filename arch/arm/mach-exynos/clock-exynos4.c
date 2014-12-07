@@ -208,6 +208,7 @@ static int exynos4_clk_dac_ctrl(struct clk *clk, int enable)
 	return s5p_gatectrl(S5P_DAC_PHY_CONTROL, clk, enable);
 }
 
+/* Core list of CMU_CPU side */
 
 static struct clksrc_clk exynos4_clk_mout_apll = {
 	.clk	= {
@@ -239,7 +240,7 @@ struct clksrc_clk exynos4_clk_mout_mpll = {
 	},
 	.sources = &clk_src_mpll,
 
-	
+	/* reg_src will be added in each SoCs' clock */
 };
 
 static struct clk *exynos4_clkset_moutcore_list[] = {
@@ -307,6 +308,7 @@ static struct clksrc_clk exynos4_clk_periphclk = {
 	.reg_div = { .reg = EXYNOS4_CLKDIV_CPU, .shift = 12, .size = 3 },
 };
 
+/* Core list of CMU_CORE side */
 
 static struct clk *exynos4_clkset_corebus_list[] = {
 	[0] = &exynos4_clk_mout_mpll.clk,
@@ -366,6 +368,7 @@ static struct clksrc_clk exynos4_clk_pclk_acp = {
 	.reg_div = { .reg = EXYNOS4_CLKDIV_DMC0, .shift = 4, .size = 3 },
 };
 
+/* Core list of CMU_TOP side */
 
 struct clk *exynos4_clkset_aclk_top_list[] = {
 	[0] = &exynos4_clk_mout_mpll.clk,
@@ -1276,6 +1279,7 @@ static struct clksrc_clk exynos4_clk_sclk_spi2 = {
 	.reg_div = { .reg = EXYNOS4_CLKDIV_PERIL2, .shift = 0, .size = 4 },
 };
 
+/* Clock initialization code */
 static struct clksrc_clk *exynos4_sysclks[] = {
 	&exynos4_clk_mout_apll,
 	&exynos4_clk_sclk_apll,
@@ -1381,7 +1385,7 @@ static int exynos4_vpll_set_rate(struct clk *clk, unsigned long rate)
 	unsigned int vpll_con0, vpll_con1 = 0;
 	unsigned int i;
 
-	
+	/* Return if nothing changed */
 	if (clk->rate == rate)
 		return 0;
 
@@ -1418,7 +1422,7 @@ static int exynos4_vpll_set_rate(struct clk *clk, unsigned long rate)
 	__raw_writel(vpll_con0, EXYNOS4_VPLL_CON0);
 	__raw_writel(vpll_con1, EXYNOS4_VPLL_CON1);
 
-	
+	/* Wait for VPLL lock */
 	while (!(__raw_readl(EXYNOS4_VPLL_CON0) & (1 << PLL46XX_LOCKED_SHIFT)))
 		continue;
 
@@ -1482,7 +1486,7 @@ void __init_or_cpufreq exynos4_setup_clocks(void)
 		vpll = s5p_get_pll36xx(vpllsrc, __raw_readl(EXYNOS4_VPLL_CON0),
 					__raw_readl(EXYNOS4_VPLL_CON1));
 	} else {
-		
+		/* nothing */
 	}
 
 	clk_fout_apll.ops = &exynos4_fout_apll_ops;

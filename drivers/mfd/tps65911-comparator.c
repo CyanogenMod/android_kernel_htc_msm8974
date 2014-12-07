@@ -26,6 +26,7 @@
 #define COMP1					1
 #define COMP2					2
 
+/* Comparator 1 voltage selection table in milivolts */
 static const u16 COMP_VSEL_TABLE[] = {
 	0, 2500, 2500, 2500, 2500, 2550, 2600, 2650,
 	2700, 2750, 2800, 2850, 2900, 2950, 3000, 3050,
@@ -139,7 +140,7 @@ static __devinit int tps65911_comparator_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* Create sysfs entry */
 	ret = device_create_file(&pdev->dev, &dev_attr_comp1_threshold);
 	if (ret < 0)
 		dev_err(&pdev->dev, "failed to add COMP1 sysfs file\n");

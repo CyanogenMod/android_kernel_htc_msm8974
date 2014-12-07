@@ -15,6 +15,14 @@
 #include <asm/abs_addr.h>
 #include <asm/machdep.h>
 
+/*
+ * Generic direct DMA implementation
+ *
+ * This implementation supports a per-device offset that can be applied if
+ * the address at which memory is visible to devices is not 0. Platform code
+ * can set archdata.dma_data to an unsigned long holding the offset. By
+ * default the offset is PCI_DRAM_OFFSET.
+ */
 
 
 void *dma_direct_alloc_coherent(struct device *dev, size_t size,
@@ -32,7 +40,7 @@ void *dma_direct_alloc_coherent(struct device *dev, size_t size,
 	struct page *page;
 	int node = dev_to_node(dev);
 
-	
+	/* ignore region specifiers */
 	flag  &= ~(__GFP_HIGHMEM);
 
 	page = alloc_pages_node(node, flag, get_order(size));
@@ -82,6 +90,9 @@ static void dma_direct_unmap_sg(struct device *dev, struct scatterlist *sg,
 static int dma_direct_dma_supported(struct device *dev, u64 mask)
 {
 #ifdef CONFIG_PPC64
+	/* Could be improved so platforms can set the limit in case
+	 * they have limited DMA windows
+	 */
 	return mask >= get_dma_offset(dev) + (memblock_end_of_DRAM() - 1);
 #else
 	return 1;

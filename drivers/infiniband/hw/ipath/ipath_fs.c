@@ -288,6 +288,10 @@ static int remove_file(struct dentry *parent, char *name)
 
 	ret = 0;
 bail:
+	/*
+	 * We don't expect clients to care about the return value, but
+	 * it's there if they need it.
+	 */
 	return ret;
 }
 

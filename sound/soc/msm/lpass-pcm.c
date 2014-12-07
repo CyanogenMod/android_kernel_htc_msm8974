@@ -46,6 +46,7 @@ struct msm_pcm_data {
 	int			ch;
 };
 
+/* Conventional and unconventional sample rate supported */
 static unsigned int supported_sample_rates[] = {
 	8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000
 };
@@ -98,7 +99,7 @@ static irqreturn_t msm_pcm_irq(int intrsrc, void *data)
 		ret = IRQ_HANDLED;
 		if (likely(substream->runtime &&
 			   snd_pcm_running(substream))) {
-			
+			/* end of buffer missed? loop back */
 			if (++prtd->period_index >= runtime->periods)
 				prtd->period_index = 0;
 				snd_pcm_period_elapsed(substream);

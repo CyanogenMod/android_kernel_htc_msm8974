@@ -101,6 +101,14 @@ static void cs5536_program_dtc(ide_drive_t *drive, u8 tim)
 	cs5536_write(pdev, DTC, dtc);
 }
 
+/**
+ *	cs5536_cable_detect	-	detect cable type
+ *	@hwif: Port to detect on
+ *
+ *	Perform cable detection for ATA66 capable cable.
+ *
+ *	Returns a cable type.
+ */
 
 static u8 cs5536_cable_detect(ide_hwif_t *hwif)
 {
@@ -115,6 +123,11 @@ static u8 cs5536_cable_detect(ide_hwif_t *hwif)
 		return ATA_CBL_PATA40;
 }
 
+/**
+ *	cs5536_set_pio_mode		-	PIO timing setup
+ *	@hwif: ATA port
+ *	@drive: ATA device
+ */
 
 static void cs5536_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -158,6 +171,11 @@ static void cs5536_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	cs5536_write(pdev, CAST, cast);
 }
 
+/**
+ *	cs5536_set_dma_mode		-	DMA timing setup
+ *	@hwif: ATA port
+ *	@drive: ATA device
+ */
 
 static void cs5536_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -180,7 +198,7 @@ static void cs5536_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	if (mode >= XFER_UDMA_0) {
 		etc &= ~(IDE_DRV_MASK << dshift);
 		etc |= udma_timings[mode - XFER_UDMA_0] << dshift;
-	} else { 
+	} else { /* MWDMA */
 		etc &= ~(IDE_ETC_UDMA_MASK << dshift);
 		timings &= IDE_DRV_MASK;
 		timings |= mwdma_timings[mode - XFER_MW_DMA_0] << 8;
@@ -240,6 +258,11 @@ static const struct ide_port_info cs5536_info = {
 	.udma_mask	= ATA_UDMA5,
 };
 
+/**
+ *	cs5536_init_one
+ *	@dev: PCI device
+ *	@id: Entry in match table
+ */
 
 static int cs5536_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

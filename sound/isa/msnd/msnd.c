@@ -215,6 +215,9 @@ static void snd_msnd_dsp_write_flush(struct snd_msnd *chip)
 	if (!(chip->mode & FMODE_WRITE) || !test_bit(F_WRITING, &chip->flags))
 		return;
 	set_bit(F_WRITEFLUSH, &chip->flags);
+/*	interruptible_sleep_on_timeout(
+		&chip->writeflush,
+		get_play_delay_jiffies(&chip, chip->DAPF.len));*/
 	clear_bit(F_WRITEFLUSH, &chip->flags);
 	if (!signal_pending(current))
 		schedule_timeout_interruptible(
@@ -254,11 +257,11 @@ EXPORT_SYMBOL(snd_msnd_dsp_halt);
 
 int snd_msnd_DARQ(struct snd_msnd *chip, int bank)
 {
-	int  timeout = 3;
+	int /*size, n,*/ timeout = 3;
 	u16 wTmp;
-	
+	/* void *DAQD; */
 
-	
+	/* Increment the tail and check for queue wrap */
 	wTmp = readw(chip->DARQ + JQS_wTail) + PCTODSP_OFFSET(DAQDS__size);
 	if (wTmp > readw(chip->DARQ + JQS_wSize))
 		wTmp = 0;
@@ -278,12 +281,14 @@ int snd_msnd_DARQ(struct snd_msnd *chip, int bank)
 	writew(wTmp, chip->DARQ + JQS_wTail);
 
 #if 0
-	
+	/* Get our digital audio queue struct */
 	DAQD = bank * DAQDS__size + chip->mappedbase + DARQ_DATA_BUFF;
 
-	
+	/* Get length of data */
 	size = readw(DAQD + DAQDS_wSize);
 
+	/* Read data from the head (unprotected bank 1 access okay
+	   since this is only called inside an interrupt) */
 	outb(HPBLKSEL_1, chip->io + HP_BLKS);
 	n = msnd_fifo_write(&chip->DARF,
 			    (char *)(chip->base + bank * DAR_BUFF_SIZE),
@@ -305,6 +310,8 @@ int snd_msnd_DAPQ(struct snd_msnd *chip, int start)
 	int	protect = start, nbanks = 0;
 	void	*DAQD;
 	static int play_banks_submitted;
+	/* unsigned long flags;
+	spin_lock_irqsave(&chip->lock, flags); not necessary */
 
 	DAPQ_tail = readw(chip->DAPQ + JQS_wTail);
 	while (DAPQ_tail != readw(chip->DAPQ + JQS_wHead) || start) {
@@ -315,11 +322,11 @@ int snd_msnd_DAPQ(struct snd_msnd *chip, int start)
 			play_banks_submitted = 0;
 		}
 
-		
+		/* Get our digital audio queue struct */
 		DAQD = bank_num * DAQDS__size + chip->mappedbase +
 			DAPQ_DATA_BUFF;
 
-		
+		/* Write size of this bank */
 		writew(chip->play_period_bytes, DAQD + DAQDS_wSize);
 		if (play_banks_submitted < 3)
 			++play_banks_submitted;
@@ -333,17 +340,26 @@ int snd_msnd_DAPQ(struct snd_msnd *chip, int start)
 		}
 		++nbanks;
 
-		
+		/* Then advance the tail */
+		/*
+		if (protect)
+			snd_printd(KERN_INFO "B %X %lX\n",
+				   bank_num, xtime.tv_usec);
+		*/
 
 		DAPQ_tail = (++bank_num % 3) * PCTODSP_OFFSET(DAQDS__size);
 		writew(DAPQ_tail, chip->DAPQ + JQS_wTail);
-		
+		/* Tell the DSP to play the bank */
 		snd_msnd_send_dsp_cmd(chip, HDEX_PLAY_START);
 		if (protect)
 			if (2 == bank_num)
 				break;
 	}
-	
+	/*
+	if (protect)
+		snd_printd(KERN_INFO "%lX\n", xtime.tv_usec);
+	*/
+	/* spin_unlock_irqrestore(&chip->lock, flags); not necessary */
 	return nbanks;
 }
 EXPORT_SYMBOL(snd_msnd_DAPQ);
@@ -382,9 +398,9 @@ static void snd_msnd_capture_reset_queue(struct snd_msnd *chip,
 {
 	int		n;
 	void		*pDAQ;
-	
+	/* unsigned long	flags; */
 
-	
+	/* snd_msnd_init_queue(chip->DARQ, DARQ_DATA_BUFF, DARQ_BUFF_SIZE); */
 
 	chip->last_recbank = 2;
 	chip->captureLimit = pcm_count * (pcm_periods - 1);
@@ -393,7 +409,7 @@ static void snd_msnd_capture_reset_queue(struct snd_msnd *chip,
 	writew(PCTODSP_OFFSET(chip->last_recbank * DAQDS__size),
 		chip->DARQ + JQS_wTail);
 
-#if 0 
+#if 0 /* Critical section: bank 1 access. this is how the OSS driver does it:*/
 	spin_lock_irqsave(&chip->lock, flags);
 	outb(HPBLKSEL_1, chip->io + HP_BLKS);
 	memset_io(chip->mappedbase, 0, DAR_BUFF_SIZE * 3);
@@ -502,6 +518,9 @@ static int snd_msnd_playback_hw_params(struct snd_pcm_substream *substream,
 		writew(chip->play_channels, pDAQ + DAQDS_wChannels);
 		writew(chip->play_sample_rate, pDAQ + DAQDS_wSampleRate);
 	}
+	/* dont do this here:
+	 * snd_msnd_calibrate_adc(chip->play_sample_rate);
+	 */
 
 	return 0;
 }
@@ -531,7 +550,7 @@ static int snd_msnd_playback_trigger(struct snd_pcm_substream *substream,
 		snd_msnd_DAPQ(chip, 1);
 	} else if (cmd == SNDRV_PCM_TRIGGER_STOP) {
 		snd_printdd("snd_msnd_playback_trigger(STop)\n");
-		
+		/* interrupt diagnostic, comment this out later */
 		clear_bit(F_WRITING, &chip->flags);
 		snd_msnd_send_dsp_cmd(chip, HDEX_PLAY_STOP);
 	} else {

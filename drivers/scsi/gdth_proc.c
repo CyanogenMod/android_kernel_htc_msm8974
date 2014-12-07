@@ -1,3 +1,6 @@
+/* gdth_proc.c 
+ * $Id: gdth_proc.c,v 1.43 2006/01/11 16:15:00 achim Exp $
+ */
 
 #include <linux/completion.h>
 #include <linux/slab.h>
@@ -183,9 +186,9 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
     TRACE2(("gdth_get_info() ha %d\n",ha->hanum));
 
     
-     
-    
-    
+    /* request is i.e. "cat /proc/scsi/gdth/0" */ 
+    /* format: %-15s\t%-10s\t%-15s\t%s */
+    /* driver parameters */
     size = sprintf(buffer+len,"Driver Parameters:\n");
     len += size;  pos = begin + len;
     if (reserve_list[0] == 0xff)
@@ -207,7 +210,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
                    max_ids, hdr_channel);
     len += size;  pos = begin + len;
 
-    
+    /* controller information */
     size = sprintf(buffer+len,"\nDisk Array Controller Information:\n");
     len += size;  pos = begin + len;
     strcpy(hrec, ha->binfo.type_string);
@@ -233,7 +236,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
     len += size;  pos = begin + len;
  
     if (ha->more_proc) {
-        
+        /* more information: 1. about controller */
         size = sprintf(buffer+len,
                        " Serial No.:   \t0x%8X\tCache RAM size:\t%d KB\n",
                        ha->binfo.ser_no, ha->binfo.memsize / 1024);
@@ -241,7 +244,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
     }
 
 #ifdef GDTH_DMA_STATISTICS
-    
+    /* controller statistics */
     size = sprintf(buffer+len,"\nController Statistics:\n");
     len += size;  pos = begin + len;
     size = sprintf(buffer+len,
@@ -258,7 +261,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
         goto stop_output;
 
     if (ha->more_proc) {
-        
+        /* more information: 2. about physical devices */
         size = sprintf(buffer+len,"\nPhysical Devices:");
         len += size;  pos = begin + len;
         flag = FALSE;
@@ -267,7 +270,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
         if (!buf) 
             goto stop_output;
         for (i = 0; i < ha->bus_cnt; ++i) {
-            
+            /* 2.a statistics (and retries/reassigns) */
             TRACE2(("pdr_statistics() chn %d\n",i));                
             pds = (gdth_dskstat_str *)(buf + GDTH_SCRATCH/4);
             gdtcmd->Service = CACHESERVICE;
@@ -287,9 +290,9 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
             if (gdth_execute(host, gdtcmd, cmnd, 30, NULL) != S_OK)
                 pds->count = 0;
 
-            
+            /* other IOCTLs must fit into area GDTH_SCRATCH/4 */
             for (j = 0; j < ha->raw[i].pdev_cnt; ++j) {
-                
+                /* 2.b drive info */
                 TRACE2(("scsi_drv_info() chn %d dev %d\n",
                     i, ha->raw[i].id_list[j]));             
                 pdi = (gdth_diskinfo_str *)buf;
@@ -326,7 +329,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
                 }
                     
                 if (pdi->devtype == 0) {
-                    
+                    /* search retries/reassigns */
                     for (k = 0; k < pds->count; ++k) {
                         if (pds->list[k].tid == pdi->target_id &&
                             pds->list[k].lun == pdi->lun) {
@@ -338,7 +341,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
                             break;
                         }
                     }
-                    
+                    /* 2.c grown defects */
                     TRACE2(("scsi_drv_defcnt() chn %d dev %d\n",
                             i, ha->raw[i].id_list[j]));             
                     pdef = (gdth_defcnt_str *)buf;
@@ -375,7 +378,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
             len += size;  pos = begin + len;
         }
 
-        
+        /* 3. about logical drives */
         size = sprintf(buffer+len,"\nLogical Drives:");
         len += size;  pos = begin + len;
         flag = FALSE;
@@ -390,7 +393,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
             j = k = 0;
             is_mirr = FALSE;
             do {
-                
+                /* 3.a log. drive info */
                 TRACE2(("cache_drv_info() drive no %d\n",drv_no));
                 pcdi = (gdth_cdrinfo_str *)buf;
                 gdtcmd->Service = CACHESERVICE;
@@ -485,7 +488,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
             len += size;  pos = begin + len;
         }   
 
-        
+        /* 4. about array drives */
         size = sprintf(buffer+len,"\nArray Drives:");
         len += size;  pos = begin + len;
         flag = FALSE;
@@ -496,7 +499,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
         for (i = 0; i < MAX_LDRIVES; ++i) {
             if (!(ha->hdr[i].is_arraydrv && ha->hdr[i].is_master))
                 continue;
-            
+            /* 4.a array drive info */
             TRACE2(("array_info() drive no %d\n",i));
             pai = (gdth_arrayinf_str *)buf;
             gdtcmd->Service = CACHESERVICE;
@@ -558,7 +561,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
             len += size;  pos = begin + len;
         }
 
-        
+        /* 5. about host drives */
         size = sprintf(buffer+len,"\nHost Drives:");
         len += size;  pos = begin + len;
         flag = FALSE;
@@ -570,7 +573,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
             if (!ha->hdr[i].is_logdrv || 
                 (ha->hdr[i].is_arraydrv && !ha->hdr[i].is_master))
                 continue;
-            
+            /* 5.a get host drive list */
             TRACE2(("host_get() drv_no %d\n",i));           
             phg = (gdth_hget_str *)buf;
             gdtcmd->Service = CACHESERVICE;
@@ -626,7 +629,7 @@ static int gdth_get_info(char *buffer,char **start,off_t offset,int length,
         }
     }
 
-    
+    /* controller events */
     size = sprintf(buffer+len,"\nController Events:\n");
     len += size;  pos = begin + len;
 

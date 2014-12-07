@@ -16,7 +16,7 @@
 
 #ifdef CONFIG_P54_LEDS
 #include <linux/leds.h>
-#endif 
+#endif /* CONFIG_P54_LEDS */
 
 #define ISL38XX_DEV_FIRMWARE_ADDR 0x20000
 
@@ -36,6 +36,7 @@ struct bootrec {
 	u32 data[10];
 } __packed;
 
+/* Interface role definitions */
 #define BR_INTERFACE_ROLE_SERVER	0x0000
 #define BR_INTERFACE_ROLE_CLIENT	0x8000
 
@@ -83,8 +84,10 @@ struct bootrec_end {
 	u8 md5[16];
 } __packed;
 
+/* provide 16 bytes for the transport back-end */
 #define P54_TX_INFO_DATA_SIZE		16
 
+/* stored in ieee80211_tx_info's rate_driver_data */
 struct p54_tx_info {
 	u32 start_addr;
 	u32 end_addr;
@@ -153,7 +156,7 @@ struct p54_led_dev {
 	unsigned int registered;
 };
 
-#endif 
+#endif /* CONFIG_P54_LEDS */
 
 struct p54_tx_queue_stats {
 	unsigned int len;
@@ -171,26 +174,26 @@ struct p54_common {
 	struct sk_buff_head tx_queue;
 	struct mutex conf_mutex;
 
-	
+	/* memory management (as seen by the firmware) */
 	u32 rx_start;
 	u32 rx_end;
 	u16 rx_mtu;
 	u8 headroom;
 	u8 tailroom;
 
-	
+	/* firmware/hardware info */
 	unsigned int tx_hdr_len;
 	unsigned int fw_var;
 	unsigned int fw_interface;
 	u8 version;
 
-	
+	/* (e)DCF / QOS state */
 	bool use_short_slot;
 	spinlock_t tx_stats_lock;
 	struct p54_tx_queue_stats tx_stats[8];
 	struct p54_edcf_queue_param qos_params[8];
 
-	
+	/* Radio data */
 	u16 rxhw;
 	u8 rx_diversity_mask;
 	u8 tx_diversity_mask;
@@ -213,7 +216,7 @@ struct p54_common {
 	} survey_raw;
 
 	int noise;
-	
+	/* calibration, output power limit and rssi<->dBm conversation data */
 	struct pda_iq_autocal_entry *iq_autocal;
 	unsigned int iq_autocal_len;
 	struct p54_cal_database *curve_data;
@@ -221,7 +224,7 @@ struct p54_common {
 	struct p54_cal_database *rssi_db;
 	struct ieee80211_supported_band *band_table[IEEE80211_NUM_BANDS];
 
-	
+	/* BBP/MAC state */
 	u8 mac_addr[ETH_ALEN];
 	u8 bssid[ETH_ALEN];
 	u8 mc_maclist[4][ETH_ALEN];
@@ -239,28 +242,29 @@ struct p54_common {
 	__le32 beacon_req_id;
 	struct completion beacon_comp;
 
-	
+	/* cryptographic engine information */
 	u8 privacy_caps;
 	u8 rx_keycache_size;
 	unsigned long *used_rxkeys;
 
-	
+	/* LED management */
 #ifdef CONFIG_P54_LEDS
 	struct p54_led_dev leds[4];
 	struct delayed_work led_work;
-#endif 
-	u16 softled_state;		
+#endif /* CONFIG_P54_LEDS */
+	u16 softled_state;		/* bit field of glowing LEDs */
 
-	
+	/* statistics */
 	struct ieee80211_low_level_stats stats;
 	struct delayed_work work;
 
-	
+	/* eeprom handling */
 	void *eeprom;
 	struct completion eeprom_comp;
 	struct mutex eeprom_mutex;
 };
 
+/* interfaces for the drivers */
 int p54_rx(struct ieee80211_hw *dev, struct sk_buff *skb);
 void p54_free_skb(struct ieee80211_hw *dev, struct sk_buff *skb);
 int p54_parse_firmware(struct ieee80211_hw *dev, const struct firmware *fw);
@@ -273,4 +277,4 @@ void p54_free_common(struct ieee80211_hw *dev);
 
 void p54_unregister_common(struct ieee80211_hw *dev);
 
-#endif 
+#endif /* P54_H */

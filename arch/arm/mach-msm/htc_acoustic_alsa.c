@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include <linux/switch.h>
 #include <mach/htc_acoustic_alsa.h>
+#include <mach/htc_headset_mgr.h>
 
 struct device_info {
 	unsigned pcb_id;
@@ -50,7 +51,8 @@ static struct amp_power_ops *the_amp_power_ops = &default_amp_power_ops;
 static struct wake_lock htc_acoustic_wakelock;
 static struct wake_lock htc_acoustic_wakelock_timeout;
 static struct wake_lock htc_acoustic_dummy_wakelock;
-
+static struct hs_notify_t hs_plug_nt[HS_N_MAX] = {{0,NULL,NULL}};
+static struct mutex hs_nt_lock;
 
 static int hs_amp_open(struct inode *inode, struct file *file);
 static int hs_amp_release(struct inode *inode, struct file *file);
@@ -105,6 +107,232 @@ struct hw_component HTC_AUD_HW_LIST[AUD_HW_NUM] = {
 };
 EXPORT_SYMBOL(HTC_AUD_HW_LIST);
 
+
+#include <linux/atomic.h>
+#include <linux/wait.h>
+#define HTC_NSD_IOCTL_MAGIC 'n'
+#define HTC_NSD_READ_ADSP       _IOW(HTC_NSD_IOCTL_MAGIC, 40, unsigned)
+#define HTC_NSD_RELEASE_READ    _IOW(HTC_NSD_IOCTL_MAGIC, 41, unsigned)
+
+enum nsd_state_type {
+	AUDIO_NSD_CLOSED,
+	AUDIO_NSD_OPENED,
+	AUDIO_NSD_FAIL,
+};
+
+#define DETECT_RESULT_PAYLOAD_SIZE	8
+typedef struct {
+	uint32_t flag;
+	uint32_t master_vol;
+	uint32_t left_vol;
+	uint32_t right_vol;
+	uint32_t in_event_seq;
+	uint32_t out_event_seq;
+	uint32_t obj_id;
+	uint32_t topology_id;
+} detect_result_payload;
+
+typedef struct {
+	struct list_head list;
+	detect_result_payload payload;
+} nsd_event_node;
+
+#define NSD_MAX_Q_LEN   10
+typedef struct {
+	enum nsd_state_type state;
+	struct list_head    event_queue;
+	struct list_head    free_event_queue;
+	wait_queue_head_t   cmd_wait;
+	spinlock_t          lock;
+	struct wake_lock    wakelock;
+	void*               memory_chunk;
+} audio_nsd_info_def;
+audio_nsd_info_def audio_nsd_info;
+
+void htc_nsd_update(void* payload) {
+	unsigned long flags;
+	nsd_event_node *event_node = NULL;
+	D("htc_nsd_update, flag 0x%x, (%d, %d, %d), (%d, %d), %x, %x\n",
+			*(uint32_t*)(payload),*(uint32_t*)((uint32_t*)payload + 1),
+			*(uint32_t*)((uint32_t*)payload + 2),*(uint32_t*)((uint32_t*)payload + 3),
+			*(uint32_t*)((uint32_t*)payload + 4),*(uint32_t*)((uint32_t*)payload + 5),
+			*(uint32_t*)((uint32_t*)payload + 6),*(uint32_t*)((uint32_t*)payload + 7));
+
+	if (audio_nsd_info.state == AUDIO_NSD_OPENED) {
+		wake_lock_timeout(&audio_nsd_info.wakelock, 1*HZ);
+		spin_lock_irqsave(&audio_nsd_info.lock, flags);
+		
+		if (list_empty(&audio_nsd_info.free_event_queue)) {
+			spin_unlock_irqrestore(&audio_nsd_info.lock, flags);
+			E("htc_nsd_update, free queue is empty");
+			return;
+		}
+		event_node = list_first_entry(&audio_nsd_info.free_event_queue,
+				nsd_event_node,
+				list);
+		list_del(&event_node->list);
+
+		memcpy((void*)&event_node->payload, payload, sizeof(detect_result_payload));
+
+		list_add_tail(&event_node->list,
+				&audio_nsd_info.event_queue);
+
+		spin_unlock_irqrestore(&audio_nsd_info.lock, flags);
+		wake_up(&audio_nsd_info.cmd_wait);
+	} else {
+		E("htc_nsd_update Fail, status is %d\n", audio_nsd_info.state);
+	}
+}
+EXPORT_SYMBOL(htc_nsd_update);
+
+static int htc_nsd_open(struct inode *inode, struct file *file)
+{
+	int i = 0;
+	int offset = 0;
+	int ret = 0 ;
+	unsigned long flags;
+	nsd_event_node* event_node = NULL;
+
+	pr_info("%s\n", __func__);
+
+	
+	spin_lock_irqsave(&audio_nsd_info.lock, flags);
+	INIT_LIST_HEAD(&audio_nsd_info.event_queue);
+	INIT_LIST_HEAD(&audio_nsd_info.free_event_queue);
+
+	
+	if (audio_nsd_info.state == AUDIO_NSD_CLOSED) {
+		audio_nsd_info.memory_chunk = kmalloc(NSD_MAX_Q_LEN * sizeof(nsd_event_node), GFP_KERNEL);
+
+		if (audio_nsd_info.memory_chunk != NULL) {
+			for (i = 0; i < NSD_MAX_Q_LEN; i++) {
+				event_node = audio_nsd_info.memory_chunk + offset;
+				list_add_tail(&event_node->list, &audio_nsd_info.free_event_queue);
+				offset = offset + sizeof(nsd_event_node);
+			}
+			file->private_data = &audio_nsd_info;
+			audio_nsd_info.state = AUDIO_NSD_OPENED;
+		} else {
+			pr_err("%s: No memory for IO buffers\n", __func__);
+			ret = -ENOMEM;
+		}
+	}
+	spin_unlock_irqrestore(&audio_nsd_info.lock, flags);
+	return 0;
+}
+
+static int htc_nsd_release(struct inode *inode, struct file *file)
+{
+	struct list_head *ptr = NULL;
+	struct list_head *next = NULL;
+	nsd_event_node *event_node = NULL;
+	unsigned long flags;
+	audio_nsd_info_def *audio = file->private_data;
+
+	pr_info("%s\n", __func__);
+	spin_lock_irqsave(&audio_nsd_info.lock, flags);
+	if (audio->state == AUDIO_NSD_OPENED) {
+		
+		list_for_each_safe(ptr, next, &audio->event_queue) {
+			event_node = list_entry(ptr, nsd_event_node, list);
+			list_del(&event_node->list);
+		}
+		list_for_each_safe(ptr, next, &audio->free_event_queue) {
+			event_node = list_entry(ptr, nsd_event_node, list);
+			list_del(&event_node->list);
+		}
+	}
+	audio->state = AUDIO_NSD_CLOSED;
+	spin_unlock_irqrestore(&audio_nsd_info.lock, flags);
+	wake_up(&audio_nsd_info.cmd_wait);
+	kfree(audio->memory_chunk);
+	audio->memory_chunk = NULL;
+	return 0;
+}
+
+static long
+htc_nsd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	int rc = 0;
+	unsigned long flags;
+	switch (cmd) {
+	case HTC_NSD_READ_ADSP: {
+		wait_queue_t wait;
+		nsd_event_node *event_node = NULL;
+		detect_result_payload tmp_payload = {0};
+		init_waitqueue_entry(&wait, current);
+		add_wait_queue(&audio_nsd_info.cmd_wait, &wait);
+		set_current_state(TASK_INTERRUPTIBLE);
+		spin_lock_irqsave(&audio_nsd_info.lock, flags);
+		if (list_empty(&audio_nsd_info.event_queue)) {
+			spin_unlock_irqrestore(&audio_nsd_info.lock, flags);
+			schedule();
+			spin_lock_irqsave(&audio_nsd_info.lock, flags);
+		}
+		set_current_state(TASK_RUNNING);
+
+		if (list_empty(&audio_nsd_info.event_queue)) {
+			tmp_payload.flag = 0;
+		} else {
+			event_node = list_first_entry(&audio_nsd_info.event_queue,
+					nsd_event_node, list);
+			memcpy(&tmp_payload, (void*)&event_node->payload, sizeof(detect_result_payload));
+			list_del(&event_node->list);
+			list_add_tail(&event_node->list, &audio_nsd_info.free_event_queue);
+		}
+		spin_unlock_irqrestore(&audio_nsd_info.lock, flags);
+		D("htc_nsd_ioctl, receive %x\n", tmp_payload.flag);
+		if (copy_to_user((void *) arg, (void*)&tmp_payload, sizeof(detect_result_payload))) {
+			E("htc_nsd_ioctl - HTC_NSD_READ_ADSP: copy to user failed\n");
+			rc = -EINVAL;
+		}
+		remove_wait_queue(&audio_nsd_info.cmd_wait, &wait);
+		break;
+	}
+	case HTC_NSD_RELEASE_READ: {
+		uint32_t payload[DETECT_RESULT_PAYLOAD_SIZE] = {0};
+		payload[0] = 0xFFFF0000;
+		htc_nsd_update(&payload);
+		break;
+	}
+	default: {
+		E("htc_nsd_ioctl - Non Support ioctl cmd\n");
+		break;
+	}
+
+	}
+	return rc;
+}
+
+static struct file_operations htc_nsd_def_fops = {
+	.owner = THIS_MODULE,
+	.open = htc_nsd_open,
+	.release = htc_nsd_release,
+	.unlocked_ioctl = htc_nsd_ioctl,
+};
+
+static struct miscdevice htc_nsd_misc = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "htc_nsd_misc",
+	.fops = &htc_nsd_def_fops,
+};
+
+static int nsd_init(void) {
+	int ret = 0;
+	spin_lock_init(&audio_nsd_info.lock);
+	init_waitqueue_head(&audio_nsd_info.cmd_wait);
+	wake_lock_init(&audio_nsd_info.wakelock, WAKE_LOCK_SUSPEND, "wakelock");
+
+	ret = misc_register(&htc_nsd_misc);
+	if (ret < 0) {
+		pr_err("failed to register htc_nsd_misc misc device!\n");
+		audio_nsd_info.state = AUDIO_NSD_FAIL;
+		return ret;
+	}
+	audio_nsd_info.state = AUDIO_NSD_CLOSED;
+	return ret;
+}
+
 extern unsigned int system_rev;
 void htc_acoustic_register_spk_amp(enum SPK_AMP_TYPE type,int (*aud_spk_amp_f)(int, int), struct file_operations* ops)
 {
@@ -150,6 +378,22 @@ void htc_acoustic_register_hs_amp(int (*aud_hs_amp_f)(int, int), struct file_ope
 	hs_amp.aud_amp_f = aud_hs_amp_f;
 	hs_amp.fops = ops;
 	mutex_unlock(&hs_amp_lock);
+}
+
+void htc_acoustic_register_hs_notify(enum HS_NOTIFY_TYPE type, struct hs_notify_t *notify)
+{
+	if(notify == NULL)
+		return;
+
+	mutex_lock(&hs_nt_lock);
+	if(hs_plug_nt[type].used) {
+		pr_err("%s: hs notification %d is reigstered\n",__func__,(int)type);
+	} else {
+		hs_plug_nt[type].private_data = notify->private_data;
+		hs_plug_nt[type].callback_f = notify->callback_f;
+		hs_plug_nt[type].used = 1;
+	}
+	mutex_unlock(&hs_nt_lock);
 }
 
 void htc_acoustic_register_ops(struct acoustic_ops *ops)
@@ -490,6 +734,19 @@ void htc_amp_power_enable(bool enable)
 		the_amp_power_ops->set_amp_power_enable(enable);
 }
 
+static int htc_acoustic_hsnotify(int on)
+{
+	int i = 0;
+	mutex_lock(&hs_nt_lock);
+	for(i=0; i<HS_N_MAX; i++) {
+		if(hs_plug_nt[i].used && hs_plug_nt[i].callback_f)
+			hs_plug_nt[i].callback_f(hs_plug_nt[i].private_data, on);
+	}
+	mutex_unlock(&hs_nt_lock);
+
+	return 0;
+}
+
 static struct file_operations acoustic_fops = {
 	.owner = THIS_MODULE,
 	.open = acoustic_open,
@@ -507,9 +764,12 @@ static int __init acoustic_init(void)
 {
 	int ret = 0;
 
+	struct headset_notifier notifier;
+
 	mutex_init(&api_lock);
 	mutex_init(&hs_amp_lock);
 	mutex_init(&spk_amp_lock);
+	mutex_init(&hs_nt_lock);
 	ret = misc_register(&acoustic_misc);
 	wake_lock_init(&htc_acoustic_wakelock, WAKE_LOCK_SUSPEND, "htc_acoustic");
 	wake_lock_init(&htc_acoustic_wakelock_timeout, WAKE_LOCK_SUSPEND, "htc_acoustic_timeout");
@@ -553,6 +813,13 @@ static int __init acoustic_init(void)
 		return ret;
 	}
 
+	notifier.id = HEADSET_REG_HS_INSERT;
+	notifier.func = htc_acoustic_hsnotify;
+	headset_notifier_register(&notifier);
+
+	
+	nsd_init();
+	
 	return 0;
 }
 

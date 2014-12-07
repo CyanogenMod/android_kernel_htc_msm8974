@@ -168,12 +168,14 @@ int mt9m111_probe(struct sd *sd)
 			pr_info("Forcing a %s sensor\n", mt9m111.name);
 			goto sensor_found;
 		}
+		/* If we want to force another sensor, don't try to probe this
+		 * one */
 		return -ENODEV;
 	}
 
 	PDEBUG(D_PROBE, "Probing for a mt9m111 sensor");
 
-	
+	/* Do the preinit */
 	for (i = 0; i < ARRAY_SIZE(preinit_mt9m111); i++) {
 		if (preinit_mt9m111[i][0] == BRIDGE) {
 			m5602_write_bridge(sd,
@@ -220,7 +222,7 @@ int mt9m111_init(struct sd *sd)
 	int i, err = 0;
 	s32 *sensor_settings = sd->sensor_priv;
 
-	
+	/* Init the sensor */
 	for (i = 0; i < ARRAY_SIZE(init_mt9m111) && !err; i++) {
 		u8 data[2];
 
@@ -384,10 +386,10 @@ static int mt9m111_set_vflip(struct gspca_dev *gspca_dev, __s32 val)
 
 	sensor_settings[VFLIP_IDX] = val;
 
-	
+	/* The mt9m111 is flipped by default */
 	val = !val;
 
-	
+	/* Set the correct page map */
 	err = m5602_write_sensor(sd, MT9M111_PAGE_MAP, data, 2);
 	if (err < 0)
 		return err;
@@ -424,10 +426,10 @@ static int mt9m111_set_hflip(struct gspca_dev *gspca_dev, __s32 val)
 
 	sensor_settings[HFLIP_IDX] = val;
 
-	
+	/* The mt9m111 is flipped by default */
 	val = !val;
 
-	
+	/* Set the correct page map */
 	err = m5602_write_sensor(sd, MT9M111_PAGE_MAP, data, 2);
 	if (err < 0)
 		return err;
@@ -493,7 +495,7 @@ static int mt9m111_set_gain(struct gspca_dev *gspca_dev, __s32 val)
 
 	sensor_settings[GAIN_IDX] = val;
 
-	
+	/* Set the correct page map */
 	err = m5602_write_sensor(sd, MT9M111_PAGE_MAP, data, 2);
 	if (err < 0)
 		return err;

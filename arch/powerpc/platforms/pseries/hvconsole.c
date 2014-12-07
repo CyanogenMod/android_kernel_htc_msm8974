@@ -30,6 +30,14 @@
 #include <asm/hvconsole.h>
 #include "plpar_wrappers.h"
 
+/**
+ * hvc_get_chars - retrieve characters from firmware for denoted vterm adatper
+ * @vtermno: The vtermno or unit_address of the adapter from which to fetch the
+ *	data.
+ * @buf: The character buffer into which to put the character data fetched from
+ *	firmware.
+ * @count: not used?
+ */
 int hvc_get_chars(uint32_t vtermno, char *buf, int count)
 {
 	unsigned long got;
@@ -43,13 +51,21 @@ int hvc_get_chars(uint32_t vtermno, char *buf, int count)
 EXPORT_SYMBOL(hvc_get_chars);
 
 
+/**
+ * hvc_put_chars: send characters to firmware for denoted vterm adapter
+ * @vtermno: The vtermno or unit_address of the adapter from which the data
+ *	originated.
+ * @buf: The character buffer that contains the character data to send to
+ *	firmware.
+ * @count: Send this number of characters.
+ */
 int hvc_put_chars(uint32_t vtermno, const char *buf, int count)
 {
 	unsigned long *lbuf = (unsigned long *) buf;
 	long ret;
 
 
-	
+	/* hcall will ret H_PARAMETER if 'count' exceeds firmware max.*/
 	if (count > MAX_VIO_PUT_CHARS)
 		count = MAX_VIO_PUT_CHARS;
 

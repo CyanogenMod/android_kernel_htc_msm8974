@@ -2,7 +2,9 @@
 
 typedef unsigned char UCHAR;
 
+/****** IEEE 802.11 constants ************************************************/
 #define ADDRLEN           6
+/* Frame control 1 bit fields */
 #define PROTOCOL_VER      0x00
 #define DATA_TYPE         0x08
 #define ASSOC_REQ_TYPE    0x00
@@ -15,6 +17,7 @@ typedef unsigned char UCHAR;
 #define PSPOLL_TYPE       0xA4
 #define AUTHENTIC_TYPE    0xB0
 #define DEAUTHENTIC_TYPE  0xC0
+/* Frame control 2 bit fields */
 #define FC2_TO_DS         0x01
 #define FC2_FROM_DS       0x02
 #define FC2_MORE_FRAG     0x04
@@ -23,6 +26,8 @@ typedef unsigned char UCHAR;
 #define FC2_MORE_DATA     0x20
 #define FC2_WEP           0x40
 #define FC2_ORDER         0x80
+/*****************************************************************************/
+/* 802.11 element ID's and lengths */
 #define C_BP_CAPABILITY_ESS             0x01
 #define C_BP_CAPABILITY_IBSS            0x02
 #define C_BP_CAPABILITY_CF_POLLABLE     0x04
@@ -56,6 +61,7 @@ typedef unsigned char UCHAR;
 
 #define C_CRC_LEN                        4
 #define C_NUM_SUPPORTED_RATES            8 
+/****** IEEE 802.11 mac header for type data packets *************************/
 struct mac_header {
   UCHAR frame_ctl_1;                          
   UCHAR frame_ctl_2;
@@ -65,7 +71,9 @@ struct mac_header {
   UCHAR addr_2[ADDRLEN];
   UCHAR addr_3[ADDRLEN];
   UCHAR seq_frag_num[2];
+/*  UCHAR addr_4[ADDRLEN]; *//* only present for AP to AP (TO DS and FROM DS */
 };
+/****** IEEE 802.11 frame element structures *********************************/
 struct essid_element
 {
   UCHAR id;
@@ -108,6 +116,8 @@ struct japan_call_sign_element
   UCHAR length;
   UCHAR call_sign[12];
 };
+/****** Beacon message structures ********************************************/
+/* .elements is a large lump of max size because elements are variable size  */
 struct infra_beacon
 {
     UCHAR timestamp[8];
@@ -130,6 +140,10 @@ struct adhoc_beacon
                   + sizeof(struct japan_call_sign_element)
                   + sizeof(struct ibss_element)];
 };
+/*****************************************************************************/
+/*****************************************************************************/
+/* #define C_MAC_HDR_2_WEP 0x40 */
+/* TX/RX CCS constants */
 #define TX_HEADER_LENGTH 0x1C
 #define RX_MAC_HEADER_LENGTH 0x18
 #define TX_AUTHENTICATE_LENGTH (TX_HEADER_LENGTH + 6)
@@ -151,6 +165,7 @@ struct adhoc_beacon
 
 #define PSM_CAM               0
 
+/* Country codes */
 #define USA                   1
 #define EUROPE                2
 #define JAPAN                 3
@@ -161,6 +176,7 @@ struct adhoc_beacon
 #define AUSTRALIA             8
 #define JAPAN_TEST            9
 
+/* Hop pattern lengths */
 #define USA_HOP_MOD          79 
 #define EUROPE_HOP_MOD       79 
 #define JAPAN_HOP_MOD        23
@@ -172,36 +188,53 @@ struct adhoc_beacon
 #define JAPAN_TEST_HOP_MOD   23
 
 #define ESSID_SIZE           32
+/**********************************************************************/
+/* CIS Register Constants */
 #define CIS_OFFSET             0x0f00
+/* Configuration Option Register (0x0F00) */
 #define COR_OFFSET             0x00
 #define COR_SOFT_RESET         0x80
 #define COR_LEVEL_IRQ          0x40
 #define COR_CONFIG_NUM         0x01
 #define COR_DEFAULT            (COR_LEVEL_IRQ | COR_CONFIG_NUM)
 
+/* Card Configuration and Status Register (0x0F01) */
 #define CCSR_OFFSET            0x01
 #define CCSR_HOST_INTR_PENDING 0x01
 #define CCSR_POWER_DOWN        0x04
 
+/* HCS Interrupt Register (0x0F05) */
 #define HCS_INTR_OFFSET        0x05
+/* #define HCS_INTR_OFFSET        0x0A */
 #define HCS_INTR_CLEAR         0x00
 
+/* ECF Interrupt Register (0x0F06) */
 #define ECF_INTR_OFFSET        0x06
+/* #define ECF_INTR_OFFSET        0x0C */
 #define ECF_INTR_SET           0x01
 
+/* Authorization Register 0 (0x0F08) */
 #define AUTH_0_ON              0x57
 
+/* Authorization Register 1 (0x0F09) */
 #define AUTH_1_ON              0x82
 
+/* Program Mode Register (0x0F0A) */
 #define PC2PM                  0x02
 #define PC2CAL                 0x10
 #define PC2MLSE                0x20
 
+/* PC Test Mode Register (0x0F0B) */
 #define PC_TEST_MODE           0x08
 
+/* Frequency Control Word (0x0F10) */
+/* Range 0x02 - 0xA6 */
 
+/* Test Mode Control 1-4 (0x0F14 - 0x0F17) */
 
+/**********************************************************************/
 
+/* Shared RAM Area */
 #define SCB_BASE               0x0000
 #define STATUS_BASE            0x0100
 #define HOST_TO_ECF_BASE       0x0200
@@ -215,15 +248,18 @@ struct adhoc_beacon
 
 #define NUMBER_OF_CCS    64
 #define NUMBER_OF_RCS    64
+/*#define NUMBER_OF_TX_CCS 14 */
 #define NUMBER_OF_TX_CCS 14
 
 #define TX_BUF_SIZE      (2048 - sizeof(struct tx_msg))
 #define RX_BUFF_END      0x3FFF
+/* Values for buffer_status */
 #define CCS_BUFFER_FREE       0
 #define CCS_BUFFER_BUSY       1
 #define CCS_COMMAND_COMPLETE  2
 #define CCS_COMMAND_FAILED    3
 
+/* Values for cmd */
 #define CCS_DOWNLOAD_STARTUP_PARAMS    1
 #define CCS_UPDATE_PARAMS              2
 #define CCS_REPORT_PARAMS              3
@@ -239,30 +275,37 @@ struct adhoc_beacon
 #define CCS_START_TIMER              0xe
 #define CCS_LAST_CMD                 CCS_START_TIMER
 
+/* Values for link field */
 #define CCS_END_LIST                 0xff
 
+/* values for buffer_status field */
 #define RCS_BUFFER_FREE       0
 #define RCS_BUFFER_BUSY       1
 #define RCS_COMPLETE          2
 #define RCS_FAILED            3
 #define RCS_BUFFER_RELEASE    0xFF
 
-#define PROCESS_RX_PACKET           0x80 
-#define REJOIN_NET_COMPLETE         0x81 
-#define ROAMING_INITIATED           0x82 
-#define JAPAN_CALL_SIGN_RXD         0x83 
+/* values for interrupt_id field */
+#define PROCESS_RX_PACKET           0x80 /* */
+#define REJOIN_NET_COMPLETE         0x81 /* RCS ID: Rejoin Net Complete */
+#define ROAMING_INITIATED           0x82 /* RCS ID: Roaming Initiated   */
+#define JAPAN_CALL_SIGN_RXD         0x83 /* RCS ID: New Japan Call Sign */
 
+/*****************************************************************************/
+/* Memory types for dump memory command */
 #define C_MEM_PROG  0
 #define C_MEM_XDATA 1
 #define C_MEM_SFR   2
 #define C_MEM_IDATA 3
 
+/*** Return values for hw_xmit **********/
 #define XMIT_OK        (0)
 #define XMIT_MSG_BAD   (-1)
 #define XMIT_NO_CCS    (-2)
 #define XMIT_NO_INTR   (-3)
 #define XMIT_NEED_AUTH (-4)
 
+/*** Values for card status */
 #define CARD_INSERTED       (0)
 
 #define CARD_AWAITING_PARAM (1)
@@ -282,20 +325,25 @@ struct adhoc_beacon
 #define CARD_ASSOC_COMPLETE (6)
 #define CARD_ASSOC_FAILED   (16)
 
+/*** Values for authentication_state ***********************************/
 #define UNAUTHENTICATED     (0)
 #define AWAITING_RESPONSE   (1)
 #define AUTHENTICATED       (2)
 #define NEED_TO_AUTH        (3)
 
+/*** Values for authentication type ************************************/
 #define OPEN_AUTH_REQUEST   (1)
 #define OPEN_AUTH_RESPONSE  (2)
 #define BROADCAST_DEAUTH    (0xc0)
+/*** Values for timer functions ****************************************/
 #define TODO_NOTHING              (0)
 #define TODO_VERIFY_DL_START      (-1)
 #define TODO_START_NET            (-2)
 #define TODO_JOIN_NET             (-3)
 #define TODO_AUTHENTICATE_TIMEOUT (-4)
 #define TODO_SEND_CCS             (-5)
+/***********************************************************************/
+/* Parameter passing structure for update/report parameter CCS's */
 struct object_id {
     void          *object_addr;
     unsigned char object_length;
@@ -348,26 +396,33 @@ struct object_id {
 #define OBJID_privacy_can_join       44
 #define OBJID_basic_rate_set         45
 
+/**** Configuration/Status/Control Area ***************************/
+/*    System Control Block (SCB) Area
+ *    Located at Shared RAM offset 0
+ */
 struct scb {
     UCHAR ccs_index;
     UCHAR rcs_index;
 };
 
+/****** Status area at Shared RAM offset 0x0100 ******************************/
 struct status {
-    UCHAR mrx_overflow_for_host;         
-    UCHAR mrx_checksum_error_for_host;   
-    UCHAR rx_hec_error_for_host;         
+    UCHAR mrx_overflow_for_host;         /* 0=ECF may write, 1=host may write*/
+    UCHAR mrx_checksum_error_for_host;   /* 0=ECF may write, 1=host may write*/
+    UCHAR rx_hec_error_for_host;         /* 0=ECF may write, 1=host may write*/
     UCHAR reserved1;
-    short mrx_overflow;                  
-    short mrx_checksum_error;            
-    short rx_hec_error;                  
-    UCHAR rxnoise;                       
+    short mrx_overflow;                  /* ECF increments on rx overflow    */
+    short mrx_checksum_error;            /* ECF increments on rx CRC error   */
+    short rx_hec_error;                  /* ECF incs on mac header CRC error */
+    UCHAR rxnoise;                       /* Average RSL measurement          */
 };
 
+/****** Host-to-ECF Data Area at Shared RAM offset 0x200 *********************/
 struct host_to_ecf_area {
     
 };
 
+/****** ECF-to-Host Data Area at Shared RAM offset 0x0300 ********************/
 struct startup_res_518 {
     UCHAR startup_word;
     UCHAR station_addr[ADDRLEN];
@@ -397,6 +452,8 @@ struct start_join_net_params {
     UCHAR privacy_can_join;
 };
 
+/****** Command Control Structure area at Shared ram offset 0x0400 ***********/
+/* Structures for command specific parameters (ccs.var) */
 struct update_param_cmd {
     UCHAR object_id;
     UCHAR number_objects;
@@ -456,11 +513,11 @@ struct start_timer_cmd {
 };
 
 struct ccs {
-    UCHAR buffer_status;                 
-                                         
-    UCHAR cmd;                           
-    UCHAR link;                          
-    
+    UCHAR buffer_status;                 /* 0 = buffer free, 1 = buffer busy */
+                                         /* 2 = command complete, 3 = failed */
+    UCHAR cmd;                           /* command to ECF                   */
+    UCHAR link;                          /* link to next CCS, FF=end of list */
+    /* command specific parameters      */
     union {
         char reserved[13];
         struct update_param_cmd update_param;
@@ -476,6 +533,8 @@ struct ccs {
     } var;
 };
 
+/*****************************************************************************/
+/* Transmit buffer structures */
 struct tib_structure {
     UCHAR ccs_index;
     UCHAR psm;
@@ -519,6 +578,8 @@ struct tx_msg {
     UCHAR  var[1];
 };
 
+/****** ECF Receive Control Structure (RCS) Area at Shared RAM offset 0x0800  */
+/* Structures for command specific parameters (rcs.var) */
 struct rx_packet_cmd {
     UCHAR rx_data_ptr[2];
     UCHAR rx_data_length[2];
@@ -539,7 +600,7 @@ struct rcs {
     UCHAR buffer_status;
     UCHAR interrupt_id;
     UCHAR link_field;
-    
+    /* command specific parameters      */
     union {
         UCHAR reserved[13]; 
         struct rx_packet_cmd rx_packet;
@@ -548,106 +609,111 @@ struct rcs {
     } var;
 };
 
+/****** Startup parameter structures for both versions of firmware ***********/
 struct b4_startup_params {
-    UCHAR a_network_type;                
-    UCHAR a_acting_as_ap_status;         
-    UCHAR a_current_ess_id[ESSID_SIZE];  
-    UCHAR a_scanning_mode;               
-    UCHAR a_power_mgt_state;             
-    UCHAR a_mac_addr[ADDRLEN];           
-    UCHAR a_frag_threshold[2];           
-    UCHAR a_hop_time[2];                 
-    UCHAR a_beacon_period[2];            
-    UCHAR a_dtim_period;                 
-    UCHAR a_retry_max;                   
-    UCHAR a_ack_timeout;                 
-    UCHAR a_sifs;                        
-    UCHAR a_difs;                        
-    UCHAR a_pifs;                        
-    UCHAR a_rts_threshold[2];            
-    UCHAR a_scan_dwell_time[2];          
-    UCHAR a_max_scan_dwell_time[2];      
-    UCHAR a_assoc_resp_timeout_thresh;   
-    UCHAR a_adhoc_scan_cycle_max;        
-    UCHAR a_infra_scan_cycle_max;        
-    UCHAR a_infra_super_scan_cycle_max;  
-    UCHAR a_promiscuous_mode;            
-    UCHAR a_unique_word[2];              
-    UCHAR a_slot_time;                   
-    UCHAR a_roaming_low_snr_thresh;      
-    UCHAR a_low_snr_count_thresh;        
-    UCHAR a_infra_missed_bcn_thresh;     
-    UCHAR a_adhoc_missed_bcn_thresh;     
-    UCHAR a_curr_country_code;           
-    UCHAR a_hop_pattern;                 
-    UCHAR a_hop_pattern_length;          
-    UCHAR a_cw_max;                      
-    UCHAR a_cw_min;                      
-    UCHAR a_noise_filter_gain;           
-    UCHAR a_noise_limit_offset;          
-    UCHAR a_det_rssi_thresh_offset;      
-    UCHAR a_med_busy_thresh_offset;      
-    UCHAR a_det_sync_thresh;             
-    UCHAR a_test_mode;                   
-    UCHAR a_test_min_chan_num;           
-    UCHAR a_test_max_chan_num;           
-    UCHAR a_rx_tx_delay;                 
-    UCHAR a_current_bss_id[ADDRLEN];     
-    UCHAR a_hop_set;                     
+    UCHAR a_network_type;                /* C_ADHOC, C_INFRA                 */
+    UCHAR a_acting_as_ap_status;         /* C_TYPE_STA, C_TYPE_AP            */
+    UCHAR a_current_ess_id[ESSID_SIZE];  /* Null terminated unless 32 long   */
+    UCHAR a_scanning_mode;               /* passive 0, active 1              */
+    UCHAR a_power_mgt_state;             /* CAM 0,                           */
+    UCHAR a_mac_addr[ADDRLEN];           /*                                  */
+    UCHAR a_frag_threshold[2];           /* 512                              */
+    UCHAR a_hop_time[2];                 /* 16k * 2**n, n=0-4 in Kus         */
+    UCHAR a_beacon_period[2];            /* n * a_hop_time  in Kus           */
+    UCHAR a_dtim_period;                 /* in beacons                       */
+    UCHAR a_retry_max;                   /*                                  */
+    UCHAR a_ack_timeout;                 /*                                  */
+    UCHAR a_sifs;                        /*                                  */
+    UCHAR a_difs;                        /*                                  */
+    UCHAR a_pifs;                        /*                                  */
+    UCHAR a_rts_threshold[2];            /*                                  */
+    UCHAR a_scan_dwell_time[2];          /*                                  */
+    UCHAR a_max_scan_dwell_time[2];      /*                                  */
+    UCHAR a_assoc_resp_timeout_thresh;   /*                                  */
+    UCHAR a_adhoc_scan_cycle_max;        /*                                  */
+    UCHAR a_infra_scan_cycle_max;        /*                                  */
+    UCHAR a_infra_super_scan_cycle_max;  /*                                  */
+    UCHAR a_promiscuous_mode;            /*                                  */
+    UCHAR a_unique_word[2];              /*                                  */
+    UCHAR a_slot_time;                   /*                                  */
+    UCHAR a_roaming_low_snr_thresh;      /*                                  */
+    UCHAR a_low_snr_count_thresh;        /*                                  */
+    UCHAR a_infra_missed_bcn_thresh;     /*                                  */
+    UCHAR a_adhoc_missed_bcn_thresh;     /*                                  */
+    UCHAR a_curr_country_code;           /* C_USA                            */
+    UCHAR a_hop_pattern;                 /*                                  */
+    UCHAR a_hop_pattern_length;          /*                                  */
+/* b4 - b5 differences start here */
+    UCHAR a_cw_max;                      /*                                  */
+    UCHAR a_cw_min;                      /*                                  */
+    UCHAR a_noise_filter_gain;           /*                                  */
+    UCHAR a_noise_limit_offset;          /*                                  */
+    UCHAR a_det_rssi_thresh_offset;      /*                                  */
+    UCHAR a_med_busy_thresh_offset;      /*                                  */
+    UCHAR a_det_sync_thresh;             /*                                  */
+    UCHAR a_test_mode;                   /*                                  */
+    UCHAR a_test_min_chan_num;           /*                                  */
+    UCHAR a_test_max_chan_num;           /*                                  */
+    UCHAR a_rx_tx_delay;                 /*                                  */
+    UCHAR a_current_bss_id[ADDRLEN];     /*                                  */
+    UCHAR a_hop_set;                     /*                                  */
 };
 struct b5_startup_params {
-    UCHAR a_network_type;                
-    UCHAR a_acting_as_ap_status;         
-    UCHAR a_current_ess_id[ESSID_SIZE];  
-    UCHAR a_scanning_mode;               
-    UCHAR a_power_mgt_state;             
-    UCHAR a_mac_addr[ADDRLEN];           
-    UCHAR a_frag_threshold[2];           
-    UCHAR a_hop_time[2];                 
-    UCHAR a_beacon_period[2];            
-    UCHAR a_dtim_period;                 
-    UCHAR a_retry_max;                   
-    UCHAR a_ack_timeout;                 
-    UCHAR a_sifs;                        
-    UCHAR a_difs;                        
-    UCHAR a_pifs;                        
-    UCHAR a_rts_threshold[2];            
-    UCHAR a_scan_dwell_time[2];          
-    UCHAR a_max_scan_dwell_time[2];      
-    UCHAR a_assoc_resp_timeout_thresh;   
-    UCHAR a_adhoc_scan_cycle_max;        
-    UCHAR a_infra_scan_cycle_max;        
-    UCHAR a_infra_super_scan_cycle_max;  
-    UCHAR a_promiscuous_mode;            
-    UCHAR a_unique_word[2];              
-    UCHAR a_slot_time;                   
-    UCHAR a_roaming_low_snr_thresh;      
-    UCHAR a_low_snr_count_thresh;        
-    UCHAR a_infra_missed_bcn_thresh;     
-    UCHAR a_adhoc_missed_bcn_thresh;     
-    UCHAR a_curr_country_code;           
-    UCHAR a_hop_pattern;                 
-    UCHAR a_hop_pattern_length;          
-    UCHAR a_cw_max[2];                   
-    UCHAR a_cw_min[2];                   
-    UCHAR a_noise_filter_gain;           
-    UCHAR a_noise_limit_offset;          
-    UCHAR a_det_rssi_thresh_offset;      
-    UCHAR a_med_busy_thresh_offset;      
-    UCHAR a_det_sync_thresh;             
-    UCHAR a_test_mode;                   
-    UCHAR a_test_min_chan_num;           
-    UCHAR a_test_max_chan_num;           
+    UCHAR a_network_type;                /* C_ADHOC, C_INFRA                 */
+    UCHAR a_acting_as_ap_status;         /* C_TYPE_STA, C_TYPE_AP            */
+    UCHAR a_current_ess_id[ESSID_SIZE];  /* Null terminated unless 32 long   */
+    UCHAR a_scanning_mode;               /* passive 0, active 1              */
+    UCHAR a_power_mgt_state;             /* CAM 0,                           */
+    UCHAR a_mac_addr[ADDRLEN];           /*                                  */
+    UCHAR a_frag_threshold[2];           /* 512                              */
+    UCHAR a_hop_time[2];                 /* 16k * 2**n, n=0-4 in Kus         */
+    UCHAR a_beacon_period[2];            /* n * a_hop_time  in Kus           */
+    UCHAR a_dtim_period;                 /* in beacons                       */
+    UCHAR a_retry_max;                   /* 4                                */
+    UCHAR a_ack_timeout;                 /*                                  */
+    UCHAR a_sifs;                        /*                                  */
+    UCHAR a_difs;                        /*                                  */
+    UCHAR a_pifs;                        /*                                  */
+    UCHAR a_rts_threshold[2];            /*                                  */
+    UCHAR a_scan_dwell_time[2];          /*                                  */
+    UCHAR a_max_scan_dwell_time[2];      /*                                  */
+    UCHAR a_assoc_resp_timeout_thresh;   /*                                  */
+    UCHAR a_adhoc_scan_cycle_max;        /*                                  */
+    UCHAR a_infra_scan_cycle_max;        /*                                  */
+    UCHAR a_infra_super_scan_cycle_max;  /*                                  */
+    UCHAR a_promiscuous_mode;            /*                                  */
+    UCHAR a_unique_word[2];              /*                                  */
+    UCHAR a_slot_time;                   /*                                  */
+    UCHAR a_roaming_low_snr_thresh;      /*                                  */
+    UCHAR a_low_snr_count_thresh;        /*                                  */
+    UCHAR a_infra_missed_bcn_thresh;     /*                                  */
+    UCHAR a_adhoc_missed_bcn_thresh;     /*                                  */
+    UCHAR a_curr_country_code;           /* C_USA                            */
+    UCHAR a_hop_pattern;                 /*                                  */
+    UCHAR a_hop_pattern_length;          /*                                  */
+/* b4 - b5 differences start here */
+    UCHAR a_cw_max[2];                   /*                                  */
+    UCHAR a_cw_min[2];                   /*                                  */
+    UCHAR a_noise_filter_gain;           /*                                  */
+    UCHAR a_noise_limit_offset;          /*                                  */
+    UCHAR a_det_rssi_thresh_offset;      /*                                  */
+    UCHAR a_med_busy_thresh_offset;      /*                                  */
+    UCHAR a_det_sync_thresh;             /*                                  */
+    UCHAR a_test_mode;                   /*                                  */
+    UCHAR a_test_min_chan_num;           /*                                  */
+    UCHAR a_test_max_chan_num;           /*                                  */
     UCHAR a_allow_bcast_SSID_probe_rsp;
     UCHAR a_privacy_must_start;
     UCHAR a_privacy_can_join;
     UCHAR a_basic_rate_set[8];
 };
 
+/*****************************************************************************/
 #define RAY_IOCG_PARMS (SIOCDEVPRIVATE)
 #define RAY_IOCS_PARMS (SIOCDEVPRIVATE + 1)
 #define RAY_DO_CMD     (SIOCDEVPRIVATE + 2)
 
+/****** ethernet <-> 802.11 translation **************************************/
 typedef struct snaphdr_t
 {
   UCHAR   dsap;
@@ -662,4 +728,5 @@ typedef struct snaphdr_t
 #define SNAP_ID       0x0003aaaa
 #define RAY_IPX_TYPE  0x8137
 #define APPLEARP_TYPE 0x80f3
-#endif 
+/*****************************************************************************/
+#endif /* #ifndef RAYLINK_H */

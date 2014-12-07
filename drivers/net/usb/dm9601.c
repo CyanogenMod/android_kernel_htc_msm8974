@@ -8,6 +8,7 @@
  * kind, whether express or implied.
  */
 
+//#define DEBUG
 
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -22,7 +23,11 @@
 #include <linux/usb/usbnet.h>
 #include <linux/slab.h>
 
+/* datasheet:
+ http://ptm2.cc.utu.fi/ftp/network/cards/DM9601/From_NET/DM9601-DS-P01-930914.pdf
+*/
 
+/* control requests */
 #define DM_READ_REGS	0x00
 #define DM_WRITE_REGS	0x01
 #define DM_READ_MEMS	0x02
@@ -30,21 +35,22 @@
 #define DM_WRITE_MEMS	0x05
 #define DM_WRITE_MEM	0x07
 
+/* registers */
 #define DM_NET_CTRL	0x00
 #define DM_RX_CTRL	0x05
 #define DM_SHARED_CTRL	0x0b
 #define DM_SHARED_ADDR	0x0c
-#define DM_SHARED_DATA	0x0d	
-#define DM_PHY_ADDR	0x10	
-#define DM_MCAST_ADDR	0x16	
+#define DM_SHARED_DATA	0x0d	/* low + high */
+#define DM_PHY_ADDR	0x10	/* 6 bytes */
+#define DM_MCAST_ADDR	0x16	/* 8 bytes */
 #define DM_GPR_CTRL	0x1e
 #define DM_GPR_DATA	0x1f
 
 #define DM_MAX_MCAST	64
 #define DM_MCAST_SIZE	8
 #define DM_EEPROM_LEN	256
-#define DM_TX_OVERHEAD	2	
-#define DM_RX_OVERHEAD	7	
+#define DM_TX_OVERHEAD	2	/* 2 byte header */
+#define DM_RX_OVERHEAD	7	/* 3 byte header + 4 byte crc tail */
 #define DM_TIMEOUT	1000
 
 
@@ -200,7 +206,7 @@ static int dm_read_shared_word(struct usbnet *dev, int phy, u8 reg, __le16 *valu
 		if (ret < 0)
 			goto out;
 
-		
+		/* ready */
 		if ((tmp & 1) == 0)
 			break;
 	}
@@ -243,7 +249,7 @@ static int dm_write_shared_word(struct usbnet *dev, int phy, u8 reg, __le16 valu
 		if (ret < 0)
 			goto out;
 
-		
+		/* ready */
 		if ((tmp & 1) == 0)
 			break;
 	}
@@ -280,7 +286,7 @@ static int dm9601_get_eeprom(struct net_device *net,
 	__le16 *ebuf = (__le16 *) data;
 	int i;
 
-	
+	/* access is 16bit */
 	if ((eeprom->offset % 2) || (eeprom->len % 2))
 		return -EINVAL;
 
@@ -332,7 +338,7 @@ static void dm9601_mdio_write(struct net_device *netdev, int phy_id, int loc,
 static void dm9601_get_drvinfo(struct net_device *net,
 			       struct ethtool_drvinfo *info)
 {
-	
+	/* Inherit standard device info */
 	usbnet_get_drvinfo(net, info);
 	info->eedump_len = DM_EEPROM_LEN;
 }
@@ -366,11 +372,13 @@ static const struct ethtool_ops dm9601_ethtool_ops = {
 static void dm9601_set_multicast(struct net_device *net)
 {
 	struct usbnet *dev = netdev_priv(net);
+	/* We use the 20 byte dev->data for our 8 byte filter buffer
+	 * to avoid allocating memory that is tricky to free later */
 	u8 *hashes = (u8 *) & dev->data;
 	u8 rx_ctl = 0x31;
 
 	memset(hashes, 0x00, DM_MCAST_SIZE);
-	hashes[DM_MCAST_SIZE - 1] |= 0x80;	
+	hashes[DM_MCAST_SIZE - 1] |= 0x80;	/* broadcast address */
 
 	if (net->flags & IFF_PROMISC) {
 		rx_ctl |= 0x02;
@@ -445,17 +453,20 @@ static int dm9601_bind(struct usbnet *dev, struct usb_interface *intf)
 	dev->mii.phy_id_mask = 0x1f;
 	dev->mii.reg_num_mask = 0x1f;
 
-	
+	/* reset */
 	dm_write_reg(dev, DM_NET_CTRL, 1);
 	udelay(20);
 
-	
+	/* read MAC */
 	if (dm_read(dev, DM_PHY_ADDR, ETH_ALEN, mac) < 0) {
 		printk(KERN_ERR "Error reading MAC address\n");
 		ret = -ENODEV;
 		goto out;
 	}
 
+	/*
+	 * Overwrite the auto-generated address only with good ones.
+	 */
 	if (is_valid_ether_addr(mac))
 		memcpy(dev->net->dev_addr, mac, ETH_ALEN);
 	else {
@@ -465,11 +476,11 @@ static int dm9601_bind(struct usbnet *dev, struct usb_interface *intf)
 		__dm9601_set_mac_address(dev);
 	}
 
-	
+	/* power up phy */
 	dm_write_reg(dev, DM_GPR_CTRL, 1);
 	dm_write_reg(dev, DM_GPR_DATA, 0);
 
-	
+	/* receive broadcast packets */
 	dm9601_set_multicast(dev->net);
 
 	dm9601_mdio_write(dev->net, dev->mii.phy_id, MII_BMCR, BMCR_RESET);
@@ -486,6 +497,13 @@ static int dm9601_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 	u8 status;
 	int len;
 
+	/* format:
+	   b1: rx status
+	   b2: packet length (incl crc) low
+	   b3: packet length (incl crc) high
+	   b4..n-4: packet data
+	   bn-3..bn: ethernet crc
+	 */
 
 	if (unlikely(skb->len < DM_RX_OVERHEAD)) {
 		dev_err(&dev->udev->dev, "unexpected tiny rx frame\n");
@@ -515,6 +533,11 @@ static struct sk_buff *dm9601_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 {
 	int len;
 
+	/* format:
+	   b1: packet length low
+	   b2: packet length high
+	   b3..n: packet data
+	*/
 
 	len = skb->len;
 
@@ -530,6 +553,8 @@ static struct sk_buff *dm9601_tx_fixup(struct usbnet *dev, struct sk_buff *skb,
 
 	__skb_push(skb, DM_TX_OVERHEAD);
 
+	/* usbnet adds padding if length is a multiple of packet size
+	   if so, adjust length value in header */
 	if ((skb->len % dev->maxpacket) == 0)
 		len++;
 
@@ -544,6 +569,16 @@ static void dm9601_status(struct usbnet *dev, struct urb *urb)
 	int link;
 	u8 *buf;
 
+	/* format:
+	   b0: net status
+	   b1: tx status 1
+	   b2: tx status 2
+	   b3: rx status
+	   b4: rx overflow
+	   b5: rx count
+	   b6: tx count
+	   b7: gpr
+	*/
 
 	if (urb->actual_length < 8)
 		return;
@@ -588,42 +623,42 @@ static const struct driver_info dm9601_info = {
 
 static const struct usb_device_id products[] = {
 	{
-	 USB_DEVICE(0x07aa, 0x9601),	
+	 USB_DEVICE(0x07aa, 0x9601),	/* Corega FEther USB-TXC */
 	 .driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	 USB_DEVICE(0x0a46, 0x9601),	
+	 USB_DEVICE(0x0a46, 0x9601),	/* Davicom USB-100 */
 	 .driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	 USB_DEVICE(0x0a46, 0x6688),	
+	 USB_DEVICE(0x0a46, 0x6688),	/* ZT6688 USB NIC */
 	 .driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	 USB_DEVICE(0x0a46, 0x0268),	
+	 USB_DEVICE(0x0a46, 0x0268),	/* ShanTou ST268 USB NIC */
 	 .driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	 USB_DEVICE(0x0a46, 0x8515),	
+	 USB_DEVICE(0x0a46, 0x8515),	/* ADMtek ADM8515 USB NIC */
 	 .driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	USB_DEVICE(0x0a47, 0x9601),	
+	USB_DEVICE(0x0a47, 0x9601),	/* Hirose USB-100 */
 	.driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	USB_DEVICE(0x0fe6, 0x8101),	
+	USB_DEVICE(0x0fe6, 0x8101),	/* DM9601 USB to Fast Ethernet Adapter */
 	.driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	 USB_DEVICE(0x0fe6, 0x9700),	
+	 USB_DEVICE(0x0fe6, 0x9700),	/* DM9601 USB to Fast Ethernet Adapter */
 	 .driver_info = (unsigned long)&dm9601_info,
 	 },
 	{
-	 USB_DEVICE(0x0a46, 0x9000),	
+	 USB_DEVICE(0x0a46, 0x9000),	/* DM9000E */
 	 .driver_info = (unsigned long)&dm9601_info,
 	 },
-	{},			
+	{},			// END
 };
 
 MODULE_DEVICE_TABLE(usb, products);

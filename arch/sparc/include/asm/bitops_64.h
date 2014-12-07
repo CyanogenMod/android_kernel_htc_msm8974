@@ -38,6 +38,10 @@ extern unsigned long __ffs(unsigned long);
 #include <asm-generic/bitops/ffz.h>
 #include <asm-generic/bitops/sched.h>
 
+/*
+ * hweightN: returns the hamming weight (i.e. the number
+ * of bits set) of a N-bit word
+ */
 
 extern unsigned long __arch_hweight64(__u64 w);
 extern unsigned int __arch_hweight32(unsigned int w);
@@ -46,7 +50,7 @@ extern unsigned int __arch_hweight8(unsigned int w);
 
 #include <asm-generic/bitops/const_hweight.h>
 #include <asm-generic/bitops/lock.h>
-#endif 
+#endif /* __KERNEL__ */
 
 #include <asm-generic/bitops/find.h>
 
@@ -56,6 +60,6 @@ extern unsigned int __arch_hweight8(unsigned int w);
 
 #include <asm-generic/bitops/ext2-atomic-setbit.h>
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* defined(_SPARC64_BITOPS_H) */

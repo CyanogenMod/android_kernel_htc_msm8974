@@ -59,6 +59,9 @@ static void holly_remap_bridge(void)
 
 	printk(KERN_INFO "Remapping PCI bridge\n");
 
+	/* Re-init the PCI bridge and LUT registers to have mappings that don't
+	 * rely on PIBS
+	 */
 	lut_addr = 0x900;
 	for (i = 0; i < 31; i++) {
 		tsi108_write_reg(TSI108_PB_OFFSET + lut_addr, 0x00000201);
@@ -67,29 +70,29 @@ static void holly_remap_bridge(void)
 		lut_addr += 4;
 	}
 
-	
+	/* Reserve the last LUT entry for PCI I/O space */
 	tsi108_write_reg(TSI108_PB_OFFSET + lut_addr, 0x00000241);
 	lut_addr += 4;
 	tsi108_write_reg(TSI108_PB_OFFSET + lut_addr, 0x0);
 
-	
+	/* Map PCI I/O space */
 	tsi108_write_reg(TSI108_PCI_PFAB_IO_UPPER, 0x0);
 	tsi108_write_reg(TSI108_PCI_PFAB_IO, 0x1);
 
-	
+	/* Map PCI CFG space */
 	tsi108_write_reg(TSI108_PCI_PFAB_BAR0_UPPER, 0x0);
 	tsi108_write_reg(TSI108_PCI_PFAB_BAR0, 0x7c000000 | 0x01);
 
-	
+	/* We don't need MEM32 and PRM remapping so disable them */
 	tsi108_write_reg(TSI108_PCI_PFAB_MEM32, 0x0);
 	tsi108_write_reg(TSI108_PCI_PFAB_PFM3, 0x0);
 	tsi108_write_reg(TSI108_PCI_PFAB_PFM4, 0x0);
 
-	
+	/* Set P2O_BAR0 */
 	tsi108_write_reg(TSI108_PCI_P2O_BAR0_UPPER, 0x0);
 	tsi108_write_reg(TSI108_PCI_P2O_BAR0, 0xc0000000);
 
-	
+	/* Init the PCI LUTs to do no remapping */
 	lut_addr = 0x500;
 	lut_val = 0x00000002;
 
@@ -102,7 +105,7 @@ static void holly_remap_bridge(void)
 	}
 	tsi108_write_reg(TSI108_PCI_P2O_PAGE_SIZES, 0x00007900);
 
-	
+	/* Set 64-bit PCI bus address for system memory */
 	tsi108_write_reg(TSI108_PCI_P2O_BAR2_UPPER, 0x0);
 	tsi108_write_reg(TSI108_PCI_P2O_BAR2, 0x0);
 }
@@ -116,7 +119,7 @@ static void __init holly_setup_arch(void)
 
 	tsi108_csr_vir_base = get_vir_csrbase();
 
-	
+	/* setup PCI host bridge */
 	holly_remap_bridge();
 
 	np = of_find_node_by_type(NULL, "pci");
@@ -130,6 +133,17 @@ static void __init holly_setup_arch(void)
 	printk(KERN_INFO "PPC750GX/CL Platform\n");
 }
 
+/*
+ * Interrupt setup and service.  Interrupts on the holly come
+ * from the four external INT pins, PCI interrupts are routed via
+ * PCI interrupt control registers, it generates internal IRQ23
+ *
+ * Interrupt routing on the Holly Board:
+ * TSI108:PB_INT[0] -> CPU0:INT#
+ * TSI108:PB_INT[1] -> CPU0:MCP#
+ * TSI108:PB_INT[2] -> N/C
+ * TSI108:PB_INT[3] -> N/C
+ */
 static void __init holly_init_IRQ(void)
 {
 	struct mpic *mpic;
@@ -169,7 +183,7 @@ static void __init holly_init_IRQ(void)
 	irq_set_handler_data(cascade_pci_irq, mpic);
 	irq_set_chained_handler(cascade_pci_irq, tsi108_irq_cascade);
 #endif
-	
+	/* Configure MPIC outputs to CPU0 */
 	tsi108_write_reg(TSI108_MPIC_OFFSET + 0x30c, 0);
 }
 
@@ -199,25 +213,30 @@ void holly_restart(char *cmd)
 
 	ocn_bar1 = ioremap(addr, 0x4);
 
+	/* Turn on the BOOT bit so the addresses are correctly
+	 * routed to the HLP interface */
 	bar = ioread32be(ocn_bar1);
 	bar |= 2;
 	iowrite32be(bar, ocn_bar1);
 	iosync();
 
-	
+	/* Set SRR0 to the reset vector and turn on MSR_IP */
 	mtspr(SPRN_SRR0, 0xfff00100);
 	mtspr(SPRN_SRR1, MSR_IP);
 
+	/* Do an rfi to jump back to firmware.  Somewhat evil,
+	 * but it works
+	 */
 	__asm__ __volatile__("rfi" : : : "memory");
 
-	
+	/* Spin until reset happens.  Shouldn't really get here */
 	for (;;) ;
 }
 
 void holly_power_off(void)
 {
 	local_irq_disable();
-	
+	/* No way to shut power off with software */
 	for (;;) ;
 }
 
@@ -226,6 +245,9 @@ void holly_halt(void)
 	holly_power_off();
 }
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init holly_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -239,7 +261,7 @@ static int ppc750_machine_check_exception(struct pt_regs *regs)
 {
 	const struct exception_table_entry *entry;
 
-	
+	/* Are we prepared to handle this fault */
 	if ((entry = search_exception_tables(regs->nip)) != NULL) {
 		tsi108_clear_pci_cfg_error();
 		regs->msr |= MSR_RI;

@@ -57,4 +57,4 @@ fail:
 
 late_initcall(failslab_debugfs_init);
 
-#endif 
+#endif /* CONFIG_FAULT_INJECTION_DEBUG_FS */

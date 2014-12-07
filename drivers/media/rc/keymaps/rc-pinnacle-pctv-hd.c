@@ -13,11 +13,12 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Pinnacle PCTV HD 800i mini remote */
 
 static struct rc_map_table pinnacle_pctv_hd[] = {
-	
+	/* Key codes for the tiny Pinnacle remote*/
 	{ 0x0700, KEY_MUTE },
-	{ 0x0701, KEY_MENU }, 
+	{ 0x0701, KEY_MENU }, /* Pinnacle logo */
 	{ 0x0739, KEY_POWER },
 	{ 0x0703, KEY_VOLUMEUP },
 	{ 0x0705, KEY_OK },
@@ -34,14 +35,14 @@ static struct rc_map_table pinnacle_pctv_hd[] = {
 	{ 0x0721, KEY_8 },
 	{ 0x0712, KEY_9 },
 	{ 0x0727, KEY_0 },
-	{ 0x0724, KEY_ZOOM }, 
-	{ 0x072a, KEY_SUBTITLE },   
+	{ 0x0724, KEY_ZOOM }, /* 'Square' key */
+	{ 0x072a, KEY_SUBTITLE },   /* 'T' key */
 	{ 0x072d, KEY_REWIND },
 	{ 0x0730, KEY_PLAYPAUSE },
 	{ 0x0733, KEY_FASTFORWARD },
 	{ 0x0736, KEY_RECORD },
 	{ 0x073c, KEY_STOP },
-	{ 0x073f, KEY_HELP }, 
+	{ 0x073f, KEY_HELP }, /* '?' key */
 };
 
 static struct rc_map_list pinnacle_pctv_hd_map = {

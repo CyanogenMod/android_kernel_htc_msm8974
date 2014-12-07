@@ -24,6 +24,7 @@
 #include <linux/compiler.h>
 #include <linux/types.h>
 
+/* Framebuffer external API */
 
 struct ivtvfb_dma_frame {
 	void __user *source;

@@ -3,4 +3,4 @@
 
 #include <asm-generic/ioctls.h>
 
-#endif 
+#endif /* _ASM_IA64_IOCTLS_H */

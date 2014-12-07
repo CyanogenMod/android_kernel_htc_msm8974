@@ -13,9 +13,15 @@
 #include <asm/addrspace.h>
 #include "pci-sh4.h"
 
+/*
+ * Direct access to PCI hardware...
+ */
 #define CONFIG_CMD(bus, devfn, where) \
 	(0x80000000 | (bus->number << 16) | (devfn << 8) | (where & ~3))
 
+/*
+ * Functions for accessing PCI configuration space with type 1 accesses
+ */
 static int sh4_pci_read(struct pci_bus *bus, unsigned int devfn,
 			   int where, int size, u32 *val)
 {
@@ -23,6 +29,10 @@ static int sh4_pci_read(struct pci_bus *bus, unsigned int devfn,
 	unsigned long flags;
 	u32 data;
 
+	/*
+	 * PCIPDR may only be accessed as 32 bit words,
+	 * so we must do byte alignment by hand
+	 */
 	raw_spin_lock_irqsave(&pci_config_lock, flags);
 	pci_write_reg(chan, CONFIG_CMD(bus, devfn, where), SH4_PCIPAR);
 	data = pci_read_reg(chan, SH4_PCIPDR);
@@ -45,6 +55,11 @@ static int sh4_pci_read(struct pci_bus *bus, unsigned int devfn,
 	return PCIBIOS_SUCCESSFUL;
 }
 
+/*
+ * Since SH4 only does 32bit access we'll have to do a read,
+ * mask,write operation.
+ * We'll allow an odd byte offset, though it should be illegal.
+ */
 static int sh4_pci_write(struct pci_bus *bus, unsigned int devfn,
 			 int where, int size, u32 val)
 {
@@ -88,6 +103,6 @@ struct pci_ops sh4_pci_ops = {
 
 int __attribute__((weak)) pci_fixup_pcic(struct pci_channel *chan)
 {
-	
+	/* Nothing to do. */
 	return 0;
 }

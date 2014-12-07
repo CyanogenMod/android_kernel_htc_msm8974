@@ -34,11 +34,11 @@
 
 struct ves1820_state {
 	struct i2c_adapter* i2c;
-	
+	/* configuration settings */
 	const struct ves1820_config* config;
 	struct dvb_frontend frontend;
 
-	
+	/* private demodulator data */
 	u8 reg0;
 	u8 pwm;
 };
@@ -135,7 +135,7 @@ static int ves1820_set_symbolrate(struct ves1820_state *state, u32 symbolrate)
 	if (symbolrate < state->config->xin / 64)
 		NDEC = 3;
 
-	
+	/* yeuch! */
 	fpxin = state->config->xin * 10;
 	fptmp = fpxin; do_div(fptmp, 123);
 	if (symbolrate < fptmp)
@@ -251,7 +251,7 @@ static int ves1820_read_status(struct dvb_frontend* fe, fe_status_t* status)
 	if (sync & 2)
 		*status |= FE_HAS_CARRIER;
 
-	if (sync & 2)	
+	if (sync & 2)	/* XXX FIXME! */
 		*status |= FE_HAS_VITERBI;
 
 	if (sync & 4)
@@ -303,7 +303,7 @@ static int ves1820_read_ucblocks(struct dvb_frontend* fe, u32* ucblocks)
 	if (*ucblocks == 0x7f)
 		*ucblocks = 0xffffffff;
 
-	
+	/* reset uncorrected block counter */
 	ves1820_writereg(state, 0x10, ves1820_inittab[0x10] & 0xdf);
 	ves1820_writereg(state, 0x10, ves1820_inittab[0x10]);
 
@@ -320,7 +320,7 @@ static int ves1820_get_frontend(struct dvb_frontend *fe)
 	sync = ves1820_readreg(state, 0x11);
 	afc = ves1820_readreg(state, 0x19);
 	if (verbose) {
-		
+		/* AFC only valid when carrier has been recovered */
 		printk(sync & 2 ? "ves1820: AFC (%d) %dHz\n" :
 			"ves1820: [AFC (%d) %dHz]\n", afc, -((s32) p->symbol_rate * afc) >> 10);
 	}
@@ -346,8 +346,8 @@ static int ves1820_sleep(struct dvb_frontend* fe)
 {
 	struct ves1820_state* state = fe->demodulator_priv;
 
-	ves1820_writereg(state, 0x1b, 0x02);	
-	ves1820_writereg(state, 0x00, 0x80);	
+	ves1820_writereg(state, 0x1b, 0x02);	/* pdown ADC */
+	ves1820_writereg(state, 0x00, 0x80);	/* standby */
 
 	return 0;
 }
@@ -375,28 +375,28 @@ struct dvb_frontend* ves1820_attach(const struct ves1820_config* config,
 {
 	struct ves1820_state* state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct ves1820_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->reg0 = ves1820_inittab[0];
 	state->config = config;
 	state->i2c = i2c;
 	state->pwm = pwm;
 
-	
+	/* check if the demod is there */
 	if ((ves1820_readreg(state, 0x1a) & 0xf0) != 0x70)
 		goto error;
 
 	if (verbose)
 		printk("ves1820: pwm=0x%02x\n", state->pwm);
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &ves1820_ops, sizeof(struct dvb_frontend_ops));
-	state->frontend.ops.info.symbol_rate_min = (state->config->xin / 2) / 64;      
-	state->frontend.ops.info.symbol_rate_max = (state->config->xin / 2) / 4;       
+	state->frontend.ops.info.symbol_rate_min = (state->config->xin / 2) / 64;      /* SACLK/64 == (XIN/2)/64 */
+	state->frontend.ops.info.symbol_rate_max = (state->config->xin / 2) / 4;       /* SACLK/4 */
 	state->frontend.demodulator_priv = state;
 
 	return &state->frontend;

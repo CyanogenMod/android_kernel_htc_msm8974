@@ -36,15 +36,27 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 
+/* GPIO 5,6,7 and 12 are hard wired to the Kendin KS8995M Switch
+   and operate as an SPI type interface.  The details of the interface
+   are available on Kendin/Micrel's web site. */
 
 #define GTWX5715_KSSPI_SELECT	5
 #define GTWX5715_KSSPI_TXD	6
 #define GTWX5715_KSSPI_CLOCK	7
 #define GTWX5715_KSSPI_RXD	12
 
+/* The "reset" button is wired to GPIO 3.
+   The GPIO is brought "low" when the button is pushed. */
 
 #define GTWX5715_BUTTON_GPIO	3
 
+/* Board Label      Front Label
+   LED1             Power
+   LED2             Wireless-G
+   LED3             not populated but could be
+   LED4             Internet
+   LED5 - LED8      Controlled by KS8995M Switch
+   LED9             DMZ */
 
 #define GTWX5715_LED1_GPIO	2
 #define GTWX5715_LED2_GPIO	9
@@ -52,6 +64,20 @@
 #define GTWX5715_LED4_GPIO	1
 #define GTWX5715_LED9_GPIO	4
 
+/*
+ * Xscale UART registers are 32 bits wide with only the least
+ * significant 8 bits having any meaning.  From a configuration
+ * perspective, this means 2 things...
+ *
+ *   Setting .regshift = 2 so that the standard 16550 registers
+ *   line up on every 4th byte.
+ *
+ *   Shifting the register start virtual address +3 bytes when
+ *   compiled big-endian.  Since register writes are done on a
+ *   single byte basis, if the shift isn't done the driver will
+ *   write the value into the most significant byte of the register,
+ *   which is ignored, instead of the least significant.
+ */
 
 #ifdef	__ARMEB__
 #define	REG_OFFSET	3
@@ -59,6 +85,9 @@
 #define	REG_OFFSET	0
 #endif
 
+/*
+ * Only the second or "console" uart is connected on the gtwx5715.
+ */
 
 static struct resource gtwx5715_uart_resources[] = {
 	{
@@ -134,7 +163,7 @@ static void __init gtwx5715_init(void)
 
 
 MACHINE_START(GTWX5715, "Gemtek GTWX5715 (Linksys WRV54G)")
-	
+	/* Maintainer: George Joseph */
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,

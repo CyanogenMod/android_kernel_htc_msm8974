@@ -265,13 +265,13 @@ bool htc_m8_renesas_panel_check(int panelID)
 	}
 }
 
-void htc_m8_panel_reset(struct mdss_panel_data *pdata, int enable)
+int htc_m8_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
-		return;
+		return -EINVAL;
 	}
 
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
@@ -285,7 +285,7 @@ void htc_m8_panel_reset(struct mdss_panel_data *pdata, int enable)
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio)) {
 		pr_debug("%s:%d, reset line not configured\n",
 			   __func__, __LINE__);
-		return;
+		return -EINVAL;
 	}
 
 	pr_debug("%s: enable = %d\n", __func__, enable);
@@ -293,7 +293,7 @@ void htc_m8_panel_reset(struct mdss_panel_data *pdata, int enable)
 	if (enable) {
 		if (pdata->panel_info.first_power_on == 1) {
 			PR_DISP_INFO("reset already on in first time\n");
-			return;
+			return 0;
 		}
 
 		if (!htc_m8_renesas_panel_check(pdata->panel_info.panel_id)) {
@@ -324,6 +324,7 @@ void htc_m8_panel_reset(struct mdss_panel_data *pdata, int enable)
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
 	}
 
+	return 0;
 }
 
 bool htc_m8_lg_panel_check(int panelID)

@@ -12,6 +12,15 @@
 #define _ASM_SN_KLDIR_H
 
 
+/*
+ * The kldir memory area resides at a fixed place in each node's memory and
+ * provides pointers to most other IP27 memory areas.  This allows us to
+ * resize and/or relocate memory areas at a later time without breaking all
+ * firmware and kernels that use them.  Indices in the array are
+ * permanently dedicated to areas listed below.  Some memory areas (marked
+ * below) reside at a permanently fixed location, but are included in the
+ * directory for completeness.
+ */
 
 #define KLDIR_MAGIC		0x434d5f53505f5357
 
@@ -120,12 +129,23 @@
 #define KLDIR_OFF_SIZE			0x18
 #define KLDIR_OFF_COUNT			0x20
 #define KLDIR_OFF_STRIDE		0x28
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/*
+ * This is defined here because IP27_SYMMON_STK_SIZE must be at least what
+ * we define here.  Since it's set up in the prom.  We can't redefine it later
+ * and expect more space to be allocated.  The way to find out the true size
+ * of the symmon stacks is to divide SYMMON_STK_SIZE by SYMMON_STK_STRIDE
+ * for a particular node.
+ */
 #define SYMMON_STACK_SIZE		0x8000
 
 #if defined(PROM)
 
+/*
+ * These defines are prom version dependent.  No code other than the IP27
+ * prom should attempt to use these values.
+ */
 #define IP27_LAUNCH_OFFSET		0x2400
 #define IP27_LAUNCH_SIZE		0x400
 #define IP27_LAUNCH_COUNT		2
@@ -149,6 +169,7 @@
 #define IP27_SYMMON_STK_OFFSET		0x25000
 #define IP27_SYMMON_STK_SIZE		0xe000
 #define IP27_SYMMON_STK_COUNT		2
+/* IP27_SYMMON_STK_STRIDE must be >= SYMMON_STACK_SIZE */
 #define IP27_SYMMON_STK_STRIDE		0x7000
 
 #define IP27_FREEMEM_OFFSET		0x19000
@@ -156,14 +177,23 @@
 #define IP27_FREEMEM_COUNT		1
 #define IP27_FREEMEM_STRIDE		0
 
-#endif 
+#endif /* PROM */
+/*
+ * There will be only one of these in a partition so the IO6 must set it up.
+ */
 #define IO6_GDA_OFFSET			0x11000
 #define IO6_GDA_SIZE			0x400
 #define IO6_GDA_COUNT			1
 #define IO6_GDA_STRIDE			0
 
+/*
+ * save area of kernel nmi regs in the prom format
+ */
 #define IP27_NMI_KREGS_OFFSET		0x11400
 #define IP27_NMI_KREGS_CPU_SIZE		0x200
+/*
+ * save area of kernel nmi regs in eframe format
+ */
 #define IP27_NMI_EFRAME_OFFSET		0x11800
 #define IP27_NMI_EFRAME_SIZE		0x200
 
@@ -172,14 +202,16 @@
 
 #ifndef __ASSEMBLY__
 typedef struct kldir_ent_s {
-	u64		magic;		
-	off_t		offset;		
-	unsigned long	pointer;	
-	size_t		size;		
-	u64		count;		
-	size_t		stride;		
-	char		rsvd[16];	
+	u64		magic;		/* Indicates validity of entry      */
+	off_t		offset;		/* Offset from start of node space  */
+	unsigned long	pointer;	/* Pointer to area in some cases    */
+	size_t		size;		/* Size in bytes 		    */
+	u64		count;		/* Repeat count if array, 1 if not  */
+	size_t		stride;		/* Stride if array, 0 if not        */
+	char		rsvd[16];	/* Pad entry to 0x40 bytes          */
+	/* NOTE: These 16 bytes are used in the Partition KLDIR
+	   entry to store partition info. Refer to klpart.h for this. */
 } kldir_ent_t;
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_SN_KLDIR_H */

@@ -23,9 +23,9 @@ struct gpio_trig_data {
 	struct led_classdev *led;
 	struct work_struct work;
 
-	unsigned desired_brightness;	
-	unsigned inverted;		
-	unsigned gpio;			
+	unsigned desired_brightness;	/* desired brightness when led is on */
+	unsigned inverted;		/* true when gpio is inverted */
+	unsigned gpio;			/* gpio that triggers the leds */
 };
 
 static irqreturn_t gpio_trig_irq(int irq, void *_led)
@@ -33,7 +33,7 @@ static irqreturn_t gpio_trig_irq(int irq, void *_led)
 	struct led_classdev *led = _led;
 	struct gpio_trig_data *gpio_data = led->trigger_data;
 
-	
+	/* just schedule_work since gpio_get_value can sleep */
 	schedule_work(&gpio_data->work);
 
 	return IRQ_HANDLED;
@@ -119,7 +119,7 @@ static ssize_t gpio_trig_inverted_store(struct device *dev,
 
 	gpio_data->inverted = inverted;
 
-	
+	/* After inverting, we need to update the LED. */
 	schedule_work(&gpio_data->work);
 
 	return n;

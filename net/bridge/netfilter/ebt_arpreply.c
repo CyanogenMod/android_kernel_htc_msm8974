@@ -1,3 +1,13 @@
+/*
+ *  ebt_arpreply
+ *
+ *	Authors:
+ *	Grzegorz Borowiak <grzes@gnu.univ.gda.pl>
+ *	Bart De Schuymer <bdschuym@pandora.be>
+ *
+ *  August, 2003
+ *
+ */
 #include <linux/if_arp.h>
 #include <net/arp.h>
 #include <linux/module.h>

@@ -8,7 +8,18 @@
 
 #ifndef __ASSEMBLY__
 
+/* To get debugging spinlocks which detect and catch
+ * deadlock situations, set CONFIG_DEBUG_SPINLOCK
+ * and rebuild your kernel.
+ */
 
+/* Because we play games to save cycles in the non-contention case, we
+ * need to be extra careful about branch targets into the "spinning"
+ * code.  They live in their own section, but the newer V9 branches
+ * have a shorter range than the traditional 32-bit sparc branch
+ * variants.  The rule is that the branches that go into and out of
+ * the spinner sections must be pre-V9 branches.
+ */
 
 #define arch_spin_is_locked(lp)	((lp)->lock != 0)
 
@@ -52,7 +63,7 @@ static inline void arch_spin_unlock(arch_spinlock_t *lock)
 {
 	__asm__ __volatile__(
 "	stb		%%g0, [%0]"
-	: 
+	: /* No outputs */
 	: "r" (lock)
 	: "memory");
 }
@@ -79,6 +90,7 @@ static inline void arch_spin_lock_flags(arch_spinlock_t *lock, unsigned long fla
 	: "memory");
 }
 
+/* Multi-reader locks, these are much saner than the 32-bit Sparc ones... */
 
 static void inline arch_read_lock(arch_rwlock_t *lock)
 {
@@ -169,7 +181,7 @@ static void inline arch_write_unlock(arch_rwlock_t *lock)
 {
 	__asm__ __volatile__(
 "	stw		%%g0, [%0]"
-	: 
+	: /* no outputs */
 	: "r" (lock)
 	: "memory");
 }
@@ -208,6 +220,6 @@ static int inline arch_write_trylock(arch_rwlock_t *lock)
 #define arch_read_relax(lock)	cpu_relax()
 #define arch_write_relax(lock)	cpu_relax()
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
-#endif 
+#endif /* !(__SPARC64_SPINLOCK_H) */

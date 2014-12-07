@@ -7,6 +7,17 @@
  * Released under the term of the GNU GPL v2.
  */
 
+/*
+ * TODO:
+ *  - maybe add timeout to commands ?
+ *  - blocking version of time functions
+ *  - polling version of i2c commands (including timer that works with
+ *    interrupts off)
+ *  - maybe avoid some data copies with i2c by directly using the smu cmd
+ *    buffer and a lower level internal interface
+ *  - understand SMU -> CPU events and implement reception of them via
+ *    the userland interface
+ */
 
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -48,6 +59,9 @@
 #define DPRINTK(fmt, args...) do { } while (0)
 #endif
 
+/*
+ * This is the command buffer passed to the SMU hardware
+ */
 #define SMU_MAX_DATA	254
 
 struct smu_cmd_buf {
@@ -60,23 +74,27 @@ struct smu_device {
 	spinlock_t		lock;
 	struct device_node	*of_node;
 	struct platform_device	*of_dev;
-	int			doorbell;	
-	u32 __iomem		*db_buf;	
+	int			doorbell;	/* doorbell gpio */
+	u32 __iomem		*db_buf;	/* doorbell buffer */
 	struct device_node	*db_node;
 	unsigned int		db_irq;
 	int			msg;
 	struct device_node	*msg_node;
 	unsigned int		msg_irq;
-	struct smu_cmd_buf	*cmd_buf;	
-	u32			cmd_buf_abs;	
+	struct smu_cmd_buf	*cmd_buf;	/* command buffer virtual */
+	u32			cmd_buf_abs;	/* command buffer absolute */
 	struct list_head	cmd_list;
-	struct smu_cmd		*cmd_cur;	
+	struct smu_cmd		*cmd_cur;	/* pending command */
 	int			broken_nap;
 	struct list_head	cmd_i2c_list;
-	struct smu_i2c_cmd	*cmd_i2c_cur;	
+	struct smu_i2c_cmd	*cmd_i2c_cur;	/* pending i2c command */
 	struct timer_list	i2c_timer;
 };
 
+/*
+ * I don't think there will ever be more than one SMU, so
+ * for now, just hard code that
+ */
 static DEFINE_MUTEX(smu_mutex);
 static struct smu_device	*smu;
 static DEFINE_MUTEX(smu_part_access);
@@ -84,6 +102,9 @@ static int smu_irq_inited;
 
 static void smu_i2c_retry(unsigned long data);
 
+/*
+ * SMU driver low level stuff
+ */
 
 static void smu_start_cmd(void)
 {
@@ -93,7 +114,7 @@ static void smu_start_cmd(void)
 	if (list_empty(&smu->cmd_list))
 		return;
 
-	
+	/* Fetch first command in queue */
 	cmd = list_entry(smu->cmd_list.next, struct smu_cmd, link);
 	smu->cmd_cur = cmd;
 	list_del(&cmd->link);
@@ -106,12 +127,12 @@ static void smu_start_cmd(void)
 		((u8 *)cmd->data_buf)[4], ((u8 *)cmd->data_buf)[5],
 		((u8 *)cmd->data_buf)[6], ((u8 *)cmd->data_buf)[7]);
 
-	
+	/* Fill the SMU command buffer */
 	smu->cmd_buf->cmd = cmd->cmd;
 	smu->cmd_buf->length = cmd->data_len;
 	memcpy(smu->cmd_buf->data, cmd->data_buf, cmd->data_len);
 
-	
+	/* Flush command and data to RAM */
 	faddr = (unsigned long)smu->cmd_buf;
 	fend = faddr + smu->cmd_buf->length + 2;
 	flush_inval_dcache_range(faddr, fend);
@@ -129,9 +150,13 @@ static void smu_start_cmd(void)
 	if (smu->broken_nap)
 		powersave_nap = 0;
 
+	/* This isn't exactly a DMA mapping here, I suspect
+	 * the SMU is actually communicating with us via i2c to the
+	 * northbridge or the CPU to access RAM.
+	 */
 	writel(smu->cmd_buf_abs, smu->db_buf);
 
-	
+	/* Ring the SMU doorbell */
 	pmac_do_feature_call(PMAC_FTR_WRITE_GPIO, NULL, smu->doorbell, 4);
 }
 
@@ -145,6 +170,9 @@ static irqreturn_t smu_db_intr(int irq, void *arg)
 	u8 gpio;
 	int rc = 0;
 
+	/* SMU completed the command, well, we hope, let's make sure
+	 * of it
+	 */
 	spin_lock_irqsave(&smu->lock, flags);
 
 	gpio = pmac_do_feature_call(PMAC_FTR_READ_GPIO, NULL, smu->doorbell);
@@ -163,10 +191,15 @@ static irqreturn_t smu_db_intr(int irq, void *arg)
 		int reply_len;
 		u8 ack;
 
+		/* CPU might have brought back the cache line, so we need
+		 * to flush again before peeking at the SMU response. We
+		 * flush the entire buffer for now as we haven't read the
+		 * reply length (it's only 2 cache lines anyway)
+		 */
 		faddr = (unsigned long)smu->cmd_buf;
 		flush_inval_dcache_range(faddr, faddr + 256);
 
-		
+		/* Now check ack */
 		ack = (~cmd->cmd) & 0xff;
 		if (ack != smu->cmd_buf->cmd) {
 			DPRINTK("SMU: incorrect ack, want %x got %x\n",
@@ -186,38 +219,49 @@ static irqreturn_t smu_db_intr(int irq, void *arg)
 			memcpy(cmd->reply_buf, smu->cmd_buf->data, reply_len);
 	}
 
+	/* Now complete the command. Write status last in order as we lost
+	 * ownership of the command structure as soon as it's no longer -1
+	 */
 	done = cmd->done;
 	misc = cmd->misc;
 	mb();
 	cmd->status = rc;
 
-	
+	/* Re-enable NAP mode */
 	if (smu->broken_nap)
 		powersave_nap = 1;
  bail:
-	
+	/* Start next command if any */
 	smu_start_cmd();
 	spin_unlock_irqrestore(&smu->lock, flags);
 
-	
+	/* Call command completion handler if any */
 	if (done)
 		done(cmd, misc);
 
-	
+	/* It's an edge interrupt, nothing to do */
 	return IRQ_HANDLED;
 }
 
 
 static irqreturn_t smu_msg_intr(int irq, void *arg)
 {
+	/* I don't quite know what to do with this one, we seem to never
+	 * receive it, so I suspect we have to arm it someway in the SMU
+	 * to start getting events that way.
+	 */
 
 	printk(KERN_INFO "SMU: message interrupt !\n");
 
-	
+	/* It's an edge interrupt, nothing to do */
 	return IRQ_HANDLED;
 }
 
 
+/*
+ * Queued command management.
+ *
+ */
 
 int smu_queue_cmd(struct smu_cmd *cmd)
 {
@@ -236,7 +280,7 @@ int smu_queue_cmd(struct smu_cmd *cmd)
 		smu_start_cmd();
 	spin_unlock_irqrestore(&smu->lock, flags);
 
-	
+	/* Workaround for early calls when irq isn't available */
 	if (!smu_irq_inited || smu->db_irq == NO_IRQ)
 		smu_spinwait_cmd(cmd);
 
@@ -307,6 +351,7 @@ void smu_spinwait_cmd(struct smu_cmd *cmd)
 EXPORT_SYMBOL(smu_spinwait_cmd);
 
 
+/* RTC low level commands */
 static inline int bcd2hex (int n)
 {
 	return (((n & 0xf0) >> 4) * 10) + (n & 0xf);
@@ -453,6 +498,9 @@ int __init smu_init (void)
 	smu->db_irq = NO_IRQ;
 	smu->msg_irq = NO_IRQ;
 
+	/* smu_cmdbuf_abs is in the low 2G of RAM, can be converted to a
+	 * 32 bits value safely
+	 */
 	smu->cmd_buf_abs = (u32)smu_cmdbuf_abs;
 	smu->cmd_buf = (struct smu_cmd_buf *)abs_to_virt(smu_cmdbuf_abs);
 
@@ -469,11 +517,15 @@ int __init smu_init (void)
 		goto fail_db_node;
 	}
 
+	/* Current setup has one doorbell GPIO that does both doorbell
+	 * and ack. GPIOs are at 0x50, best would be to find that out
+	 * in the device-tree though.
+	 */
 	smu->doorbell = *data;
 	if (smu->doorbell < 0x50)
 		smu->doorbell += 0x50;
 
-	
+	/* Now look for the smu-interrupt GPIO */
 	do {
 		smu->msg_node = of_find_node_by_name(NULL, "smu-interrupt");
 		if (smu->msg_node == NULL)
@@ -489,6 +541,10 @@ int __init smu_init (void)
 			smu->msg += 0x50;
 	} while(0);
 
+	/* Doorbell buffer is currently hard-coded, I didn't find a proper
+	 * device-tree entry giving the address. Best would probably to use
+	 * an offset for K2 base though, but let's do it that way for now.
+	 */
 	smu->db_buf = ioremap(0x8000860c, 0x1000);
 	if (smu->db_buf == NULL) {
 		printk(KERN_ERR "SMU: Can't map doorbell buffer pointer !\n");
@@ -496,7 +552,7 @@ int __init smu_init (void)
 		goto fail_msg_node;
 	}
 
-	
+	/* U3 has an issue with NAP mode when issuing SMU commands */
 	smu->broken_nap = pmac_get_uninorth_variant() < 4;
 	if (smu->broken_nap)
 		printk(KERN_INFO "SMU: using NAP mode workaround\n");
@@ -540,6 +596,9 @@ static int smu_late_init(void)
 			       smu->msg_node->full_name);
 	}
 
+	/*
+	 * Try to request the interrupts
+	 */
 
 	if (smu->db_irq != NO_IRQ) {
 		if (request_irq(smu->db_irq, smu_db_intr,
@@ -564,8 +623,14 @@ static int smu_late_init(void)
 	smu_irq_inited = 1;
 	return 0;
 }
+/* This has to be before arch_initcall as the low i2c stuff relies on the
+ * above having been done before we reach arch_initcalls
+ */
 core_initcall(smu_late_init);
 
+/*
+ * sysfs visibility
+ */
 
 static void smu_expose_childs(struct work_struct *unused)
 {
@@ -585,6 +650,10 @@ static int smu_platform_probe(struct platform_device* dev)
 		return -ENODEV;
 	smu->of_dev = dev;
 
+	/*
+	 * Ok, we are matched, now expose all i2c busses. We have to defer
+	 * that unfortunately or it would deadlock inside the device model
+	 */
 	schedule_work(&smu_expose_childs_work);
 
 	return 0;
@@ -610,6 +679,11 @@ static struct platform_driver smu_of_platform_driver =
 
 static int __init smu_init_sysfs(void)
 {
+	/*
+	 * For now, we don't power manage machines with an SMU chip,
+	 * I'm a bit too far from figuring out how that works with those
+	 * new chipsets, but that will come back and bite us
+	 */
 	platform_driver_register(&smu_of_platform_driver);
 	return 0;
 }
@@ -625,6 +699,9 @@ struct platform_device *smu_get_ofdev(void)
 
 EXPORT_SYMBOL_GPL(smu_get_ofdev);
 
+/*
+ * i2c interface
+ */
 
 static void smu_i2c_complete_command(struct smu_i2c_cmd *cmd, int fail)
 {
@@ -632,7 +709,7 @@ static void smu_i2c_complete_command(struct smu_i2c_cmd *cmd, int fail)
 	void *misc = cmd->misc;
 	unsigned long flags;
 
-	
+	/* Check for read case */
 	if (!fail && cmd->read) {
 		if (cmd->pdata[0] < 1)
 			fail = 1;
@@ -643,29 +720,33 @@ static void smu_i2c_complete_command(struct smu_i2c_cmd *cmd, int fail)
 
 	DPRINTK("SMU: completing, success: %d\n", !fail);
 
+	/* Update status and mark no pending i2c command with lock
+	 * held so nobody comes in while we dequeue an eventual
+	 * pending next i2c command
+	 */
 	spin_lock_irqsave(&smu->lock, flags);
 	smu->cmd_i2c_cur = NULL;
 	wmb();
 	cmd->status = fail ? -EIO : 0;
 
-	
+	/* Is there another i2c command waiting ? */
 	if (!list_empty(&smu->cmd_i2c_list)) {
 		struct smu_i2c_cmd *newcmd;
 
-		
+		/* Fetch it, new current, remove from list */
 		newcmd = list_entry(smu->cmd_i2c_list.next,
 				    struct smu_i2c_cmd, link);
 		smu->cmd_i2c_cur = newcmd;
 		list_del(&cmd->link);
 
-		
+		/* Queue with low level smu */
 		list_add_tail(&cmd->scmd.link, &smu->cmd_list);
 		if (smu->cmd_cur == NULL)
 			smu_start_cmd();
 	}
 	spin_unlock_irqrestore(&smu->lock, flags);
 
-	
+	/* Call command completion handler if any */
 	if (done)
 		done(cmd, misc);
 
@@ -678,7 +759,7 @@ static void smu_i2c_retry(unsigned long data)
 
 	DPRINTK("SMU: i2c failure, requeuing...\n");
 
-	
+	/* requeue command simply by resetting reply_len */
 	cmd->pdata[0] = 0xff;
 	cmd->scmd.reply_len = sizeof(cmd->pdata);
 	smu_queue_cmd(&cmd->scmd);
@@ -693,7 +774,7 @@ static void smu_i2c_low_completion(struct smu_cmd *scmd, void *misc)
 	DPRINTK("SMU: i2c compl. stage=%d status=%x pdata[0]=%x rlen: %x\n",
 		cmd->stage, scmd->status, cmd->pdata[0], scmd->reply_len);
 
-	
+	/* Check for possible status */
 	if (scmd->status < 0)
 		fail = 1;
 	else if (cmd->read) {
@@ -705,6 +786,8 @@ static void smu_i2c_low_completion(struct smu_cmd *scmd, void *misc)
 		fail = cmd->pdata[0] != 0;
 	}
 
+	/* Handle failures by requeuing command, after 5ms interval
+	 */
 	if (fail && --cmd->retries > 0) {
 		DPRINTK("SMU: i2c failure, starting timer...\n");
 		BUG_ON(cmd != smu->cmd_i2c_cur);
@@ -717,7 +800,7 @@ static void smu_i2c_low_completion(struct smu_cmd *scmd, void *misc)
 		return;
 	}
 
-	
+	/* If failure or stage 1, command is complete */
 	if (fail || cmd->stage != 0) {
 		smu_i2c_complete_command(cmd, fail);
 		return;
@@ -725,7 +808,7 @@ static void smu_i2c_low_completion(struct smu_cmd *scmd, void *misc)
 
 	DPRINTK("SMU: going to stage 1\n");
 
-	
+	/* Ok, initial command complete, now poll status */
 	scmd->reply_buf = cmd->pdata;
 	scmd->reply_len = sizeof(cmd->pdata);
 	scmd->data_buf = cmd->pdata;
@@ -744,7 +827,7 @@ int smu_queue_i2c(struct smu_i2c_cmd *cmd)
 	if (smu == NULL)
 		return -ENODEV;
 
-	
+	/* Fill most fields of scmd */
 	cmd->scmd.cmd = SMU_CMD_I2C_COMMAND;
 	cmd->scmd.done = smu_i2c_low_completion;
 	cmd->scmd.misc = cmd;
@@ -757,6 +840,9 @@ int smu_queue_i2c(struct smu_i2c_cmd *cmd)
 	cmd->retries = 20;
 	cmd->status = 1;
 
+	/* Check transfer type, sanitize some "info" fields
+	 * based on transfer type and do more checking
+	 */
 	cmd->info.caddr = cmd->info.devaddr;
 	cmd->read = cmd->info.devaddr & 0x01;
 	switch(cmd->info.type) {
@@ -773,6 +859,8 @@ int smu_queue_i2c(struct smu_i2c_cmd *cmd)
 		return -EINVAL;
 	}
 
+	/* Finish setting up command based on transfer direction
+	 */
 	if (cmd->read) {
 		if (cmd->info.datalen > SMU_I2C_READ_MAX)
 			return -EINVAL;
@@ -791,6 +879,9 @@ int smu_queue_i2c(struct smu_i2c_cmd *cmd)
 		cmd->info.subaddr[0], cmd->info.type);
 
 
+	/* Enqueue command in i2c list, and if empty, enqueue also in
+	 * main command list
+	 */
 	spin_lock_irqsave(&smu->lock, flags);
 	if (smu->cmd_i2c_cur == NULL) {
 		smu->cmd_i2c_cur = cmd;
@@ -804,6 +895,9 @@ int smu_queue_i2c(struct smu_i2c_cmd *cmd)
 	return 0;
 }
 
+/*
+ * Handling of "partitions"
+ */
 
 static int smu_read_datablock(u8 *dest, unsigned int addr, unsigned int len)
 {
@@ -813,6 +907,9 @@ static int smu_read_datablock(u8 *dest, unsigned int addr, unsigned int len)
 	int rc;
 	u8 params[8];
 
+	/* We currently use a chunk size of 0xe. We could check the
+	 * SMU firmware version and use bigger sizes though
+	 */
 	chunk = 0xe;
 
 	while (len) {
@@ -857,7 +954,7 @@ static struct smu_sdbp_header *smu_create_sdb_partition(int id)
 	struct smu_sdbp_header *hdr;
 	struct property *prop;
 
-	
+	/* First query the partition info */
 	DPRINTK("SMU: Query partition infos ... (irq=%d)\n", smu->db_irq);
 	smu_queue_simple(&cmd, SMU_CMD_PARTITION_COMMAND, 2,
 			 smu_done_complete, &comp,
@@ -866,13 +963,16 @@ static struct smu_sdbp_header *smu_create_sdb_partition(int id)
 	DPRINTK("SMU: done, status: %d, reply_len: %d\n",
 		cmd.cmd.status, cmd.cmd.reply_len);
 
-	
+	/* Partition doesn't exist (or other error) */
 	if (cmd.cmd.status != 0 || cmd.cmd.reply_len != 6)
 		return NULL;
 
-	
+	/* Fetch address and length from reply */
 	addr = *((u16 *)cmd.buffer);
 	len = cmd.buffer[3] << 2;
+	/* Calucluate total length to allocate, including the 17 bytes
+	 * for "sdb-partition-XX" that we append at the end of the buffer
+	 */
 	tlen = sizeof(struct property) + len + 18;
 
 	prop = kzalloc(tlen, GFP_KERNEL);
@@ -885,14 +985,14 @@ static struct smu_sdbp_header *smu_create_sdb_partition(int id)
 	prop->value = hdr;
 	prop->next = NULL;
 
-	
+	/* Read the datablock */
 	if (smu_read_datablock((u8 *)hdr, addr, len)) {
 		printk(KERN_DEBUG "SMU: datablock read failed while reading "
 		       "partition %02x !\n", id);
 		goto failure;
 	}
 
-	
+	/* Got it, check a few things and create the property */
 	if (hdr->id != id) {
 		printk(KERN_DEBUG "SMU: Reading partition %02x and got "
 		       "%02x !\n", id, hdr->id);
@@ -910,6 +1010,9 @@ static struct smu_sdbp_header *smu_create_sdb_partition(int id)
 	return NULL;
 }
 
+/* Note: Only allowed to return error code in pointers (using ERR_PTR)
+ * when interruptible is 1
+ */
 const struct smu_sdbp_header *__smu_get_sdb_partition(int id,
 		unsigned int *size, int interruptible)
 {
@@ -949,6 +1052,9 @@ const struct smu_sdbp_header *smu_get_sdb_partition(int id, unsigned int *size)
 EXPORT_SYMBOL(smu_get_sdb_partition);
 
 
+/*
+ * Userland driver interface
+ */
 
 
 static LIST_HEAD(smu_clist);
@@ -1120,7 +1226,7 @@ static ssize_t smu_read_command(struct file *file, struct smu_private *pp,
 static ssize_t smu_read_events(struct file *file, struct smu_private *pp,
 			       char __user *buf, size_t count)
 {
-	
+	/* Not implemented */
 	msleep_interruptible(1000);
 	return 0;
 }
@@ -1156,7 +1262,7 @@ static unsigned int smu_fpoll(struct file *file, poll_table *wait)
 			mask |= POLLIN;
 		spin_unlock_irqrestore(&pp->lock, flags);
 	} if (pp->mode == smu_file_events) {
-		
+		/* Not yet implemented */
 	}
 	return mask;
 }
@@ -1172,12 +1278,12 @@ static int smu_release(struct inode *inode, struct file *file)
 
 	file->private_data = NULL;
 
-	
+	/* Mark file as closing to avoid races with new request */
 	spin_lock_irqsave(&pp->lock, flags);
 	pp->mode = smu_file_closing;
 	busy = pp->busy;
 
-	
+	/* Wait for any pending request to complete */
 	if (busy && pp->cmd.status == 1) {
 		DECLARE_WAITQUEUE(wait, current);
 

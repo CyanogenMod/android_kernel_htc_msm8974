@@ -116,6 +116,8 @@ void ncp_tcp_write_space(struct sock *sk)
 {
 	struct ncp_server *server = sk->sk_user_data;
 	
+	/* We do not need any locking: we first set tx.creq, and then we do sendmsg,
+	   not vice versa... */
 	server->write_space(sk);
 	if (server->tx.creq)
 		schedule_work(&server->tx.tq);
@@ -171,7 +173,7 @@ static inline int get_conn_number(struct ncp_reply_header *rp)
 
 static inline void __ncp_abort_request(struct ncp_server *server, struct ncp_request_reply *req, int err)
 {
-	
+	/* If req is done, we got signal, but we also received answer... */
 	switch (req->status) {
 		case RQ_IDLE:
 		case RQ_DONE:
@@ -203,7 +205,7 @@ static inline void __ncptcp_abort(struct ncp_server *server)
 static int ncpdgram_send(struct socket *sock, struct ncp_request_reply *req)
 {
 	struct kvec vec[3];
-	
+	/* sock_sendmsg updates iov pointers for us :-( */
 	memcpy(vec, req->tx_ciov, req->tx_iovlen * sizeof(vec[0]));
 	return do_send(sock, vec, req->tx_iovlen,
 		       req->tx_totallen, MSG_DONTWAIT);
@@ -220,7 +222,7 @@ static void __ncptcp_try_send(struct ncp_server *server)
 	if (!rq)
 		return;
 
-	
+	/* sock_sendmsg updates iov pointers for us :-( */
 	memcpy(iovc, rq->tx_ciov, rq->tx_iovlen * sizeof(iov[0]));
 	result = do_send(server->ncp_sock, iovc, rq->tx_iovlen,
 			 rq->tx_totallen, MSG_NOSIGNAL | MSG_DONTWAIT);
@@ -314,6 +316,8 @@ static void ncptcp_start_request(struct ncp_server *server, struct ncp_request_r
 
 static inline void __ncp_start_request(struct ncp_server *server, struct ncp_request_reply *req)
 {
+	/* we copy the data so that we do not depend on the caller
+	   staying alive */
 	memcpy(server->txbuf, req->tx_iov[1].iov_base, req->tx_iov[1].iov_len);
 	req->tx_iov[1].iov_base = server->txbuf;
 
@@ -467,7 +471,7 @@ drop:;
 
 static void __ncpdgram_timeout_proc(struct ncp_server *server)
 {
-	
+	/* If timer is pending, we are processing another request... */
 	if (!timer_pending(&server->timeout_tm)) {
 		struct ncp_request_reply* req;
 		
@@ -481,7 +485,7 @@ static void __ncpdgram_timeout_proc(struct ncp_server *server)
 					return;
 				}
 			}
-			
+			/* Ignore errors */
 			ncpdgram_send(server->ncp_sock, req);
 			timeout = server->timeout_last << 1;
 			if (timeout > NCP_MAX_RPC_TIMEOUT) {
@@ -528,7 +532,7 @@ static int do_tcp_rcv(struct ncp_server *server, void *buffer, size_t len)
 
 static int __ncptcp_rcv_proc(struct ncp_server *server)
 {
-	
+	/* We have to check the result, so store the complete header */
 	while (1) {
 		int result;
 		struct ncp_request_reply *req;
@@ -728,6 +732,9 @@ out:
 	return result;
 }
 
+/*
+ * We need the server to be locked here, so check!
+ */
 
 static int ncp_do_request(struct ncp_server *server, int size,
 		void* reply, int max_reply_size)
@@ -752,6 +759,11 @@ static int ncp_do_request(struct ncp_server *server, int size,
 		else
 			mask = sigmask(SIGKILL);
 		if (server->m.flags & NCP_MOUNT_INTR) {
+			/* FIXME: This doesn't seem right at all.  So, like,
+			   we can't handle SIGINT and get whatever to stop?
+			   What if we've blocked it ourselves?  What about
+			   alarms?  Why, in fact, are we mucking with the
+			   sigmask at all? -- r~ */
 			if (current->sighand->action[SIGINT - 1].sa.sa_handler == SIG_DFL)
 				mask |= sigmask(SIGINT);
 			if (current->sighand->action[SIGQUIT - 1].sa.sa_handler == SIG_DFL)
@@ -774,6 +786,10 @@ static int ncp_do_request(struct ncp_server *server, int size,
 	return result;
 }
 
+/* ncp_do_request assures that at least a complete reply header is
+ * received. It assumes that server->current_size contains the ncp
+ * request size
+ */
 int ncp_request2(struct ncp_server *server, int function, 
 		void* rpl, int size)
 {
@@ -786,7 +802,11 @@ int ncp_request2(struct ncp_server *server, int function,
 		*(__u16 *) & (h->data[0]) = htons(server->current_size - sizeof(*h) - 2);
 	}
 	h->type = NCP_REQUEST;
-	h->task = 2; 
+	/*
+	 * The server shouldn't know or care what task is making a
+	 * request, so we always use the same task number.
+	 */
+	h->task = 2; /* (current->pid) & 0xff; */
 	h->function = function;
 
 	result = ncp_do_request(server, server->current_size, reply, size);
@@ -817,7 +837,7 @@ int ncp_connect(struct ncp_server *server)
 
 	h = (struct ncp_request_header *) (server->packet);
 	h->type = NCP_ALLOC_SLOT_REQUEST;
-	h->task		= 2; 
+	h->task		= 2; /* see above */
 	h->function	= 0;
 
 	result = ncp_do_request(server, sizeof(*h), server->packet, server->packet_size);
@@ -835,7 +855,7 @@ int ncp_disconnect(struct ncp_server *server)
 
 	h = (struct ncp_request_header *) (server->packet);
 	h->type = NCP_DEALLOC_SLOT_REQUEST;
-	h->task		= 2; 
+	h->task		= 2; /* see above */
 	h->function	= 0;
 
 	return ncp_do_request(server, sizeof(*h), server->packet, server->packet_size);

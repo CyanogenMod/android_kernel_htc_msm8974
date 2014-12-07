@@ -16,6 +16,15 @@
 #include "planetcore.h"
 #include "io.h"
 
+/* PlanetCore passes information to the OS in the form of
+ * a table of key=value strings, separated by newlines.
+ *
+ * The list is terminated by an empty string (i.e. two
+ * consecutive newlines).
+ *
+ * To make it easier to parse, we first convert all the
+ * newlines into null bytes.
+ */
 
 void planetcore_prepare_table(char *table)
 {

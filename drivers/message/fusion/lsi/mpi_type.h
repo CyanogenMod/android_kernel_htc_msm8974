@@ -27,11 +27,21 @@
 #define MPI_TYPE_H
 
 
+/*******************************************************************************
+ * Define MPI_POINTER if it hasn't already been defined. By default MPI_POINTER
+ * is defined to be a near pointer. MPI_POINTER can be defined as a far pointer
+ * by defining MPI_POINTER as "far *" before this header file is included.
+ */
 #ifndef MPI_POINTER
 #define MPI_POINTER     *
 #endif
 
 
+/*****************************************************************************
+*
+*               B a s i c    T y p e s
+*
+*****************************************************************************/
 
 typedef signed   char   S8;
 typedef unsigned char   U8;
@@ -55,6 +65,9 @@ typedef struct _U64
 } U64;
 
 
+/****************************************************************************/
+/*  Pointers                                                                */
+/****************************************************************************/
 
 typedef S8      *PS8;
 typedef U8      *PU8;

@@ -57,8 +57,9 @@ struct ddb_info {
 	u32   port_type[DDB_MAX_PORT];
 };
 
+/* DMA_SIZE MUST be divisible by 188 and 128 !!! */
 
-#define INPUT_DMA_MAX_BUFS 32      
+#define INPUT_DMA_MAX_BUFS 32      /* hardware table limit */
 #define INPUT_DMA_BUFS 8
 #define INPUT_DMA_SIZE (128*47*21)
 
@@ -169,6 +170,7 @@ struct ddb {
 	int                    msi;
 };
 
+/****************************************************************************/
 
 #define ddbwritel(_val, _adr)        writel((_val), \
 				     (char *) (dev->regs+(_adr)))
@@ -178,5 +180,6 @@ struct ddb {
 #define ddbcpyfrom(_dst, _adr, _count) memcpy_fromio((_dst), (char *) \
 				       (dev->regs+(_adr)), (_count))
 
+/****************************************************************************/
 
 #endif

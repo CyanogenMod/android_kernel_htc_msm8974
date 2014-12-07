@@ -35,66 +35,66 @@
 	vect(p ## _IRQ30, 0x33c0), vect(p ## _IRQ31, 0x33e0)
 
 #define INTC_IRQ_PINS_MASK_16L(p, base)					\
-	{ base + 0x40, base + 0x60, 8, 	\
+	{ base + 0x40, base + 0x60, 8, /* INTMSK00A / INTMSKCLR00A */	\
 	  { p ## _IRQ0, p ## _IRQ1, p ## _IRQ2, p ## _IRQ3,		\
 	    p ## _IRQ4, p ## _IRQ5, p ## _IRQ6, p ## _IRQ7 } },		\
-	{ base + 0x44, base + 0x64, 8, 	\
+	{ base + 0x44, base + 0x64, 8, /* INTMSK10A / INTMSKCLR10A */	\
 	  { p ## _IRQ8, p ## _IRQ9, p ## _IRQ10, p ## _IRQ11,		\
 	    p ## _IRQ12, p ## _IRQ13, p ## _IRQ14, p ## _IRQ15 } }
 
 #define INTC_IRQ_PINS_MASK_16H(p, base)					\
-	{ base + 0x48, base + 0x68, 8, 	\
+	{ base + 0x48, base + 0x68, 8, /* INTMSK20A / INTMSKCLR20A */	\
 	  { p ## _IRQ16, p ## _IRQ17, p ## _IRQ18, p ## _IRQ19,		\
 	    p ## _IRQ20, p ## _IRQ21, p ## _IRQ22, p ## _IRQ23 } },	\
-	{ base + 0x4c, base + 0x6c, 8, 	\
+	{ base + 0x4c, base + 0x6c, 8, /* INTMSK30A / INTMSKCLR30A */	\
 	  { p ## _IRQ24, p ## _IRQ25, p ## _IRQ26, p ## _IRQ27,		\
 	    p ## _IRQ28, p ## _IRQ29, p ## _IRQ30, p ## _IRQ31 } }
 
 #define INTC_IRQ_PINS_PRIO_16L(p, base)					\
-	{ base + 0x10, 0, 32, 4, 			\
+	{ base + 0x10, 0, 32, 4, /* INTPRI00A */			\
 	  { p ## _IRQ0, p ## _IRQ1, p ## _IRQ2, p ## _IRQ3,		\
 	    p ## _IRQ4, p ## _IRQ5, p ## _IRQ6, p ## _IRQ7 } },		\
-	{ base + 0x14, 0, 32, 4, 			\
+	{ base + 0x14, 0, 32, 4, /* INTPRI10A */			\
 	  { p ## _IRQ8, p ## _IRQ9, p ## _IRQ10, p ## _IRQ11,		\
 	    p ## _IRQ12, p ## _IRQ13, p ## _IRQ14, p ## _IRQ15 } }
 
 #define INTC_IRQ_PINS_PRIO_16H(p, base)					\
-	{ base + 0x18, 0, 32, 4, 			\
+	{ base + 0x18, 0, 32, 4, /* INTPRI20A */			\
 	  { p ## _IRQ16, p ## _IRQ17, p ## _IRQ18, p ## _IRQ19,		\
 	    p ## _IRQ20, p ## _IRQ21, p ## _IRQ22, p ## _IRQ23 } },	\
-	{ base + 0x1c, 0, 32, 4, 			\
+	{ base + 0x1c, 0, 32, 4, /* INTPRI30A */			\
 	  { p ## _IRQ24, p ## _IRQ25, p ## _IRQ26, p ## _IRQ27,		\
 	    p ## _IRQ28, p ## _IRQ29, p ## _IRQ30, p ## _IRQ31 } }
 
 #define INTC_IRQ_PINS_SENSE_16L(p, base)				\
-	{ base + 0x00, 32, 4, 				\
+	{ base + 0x00, 32, 4, /* ICR1A */				\
 	  { p ## _IRQ0, p ## _IRQ1, p ## _IRQ2, p ## _IRQ3,		\
 	    p ## _IRQ4, p ## _IRQ5, p ## _IRQ6, p ## _IRQ7 } },		\
-	{ base + 0x04, 32, 4, 				\
+	{ base + 0x04, 32, 4, /* ICR2A */				\
 	  { p ## _IRQ8, p ## _IRQ9, p ## _IRQ10, p ## _IRQ11,		\
 	    p ## _IRQ12, p ## _IRQ13, p ## _IRQ14, p ## _IRQ15 } }
 
 #define INTC_IRQ_PINS_SENSE_16H(p, base)				\
-	{ base + 0x08, 32, 4, 				\
+	{ base + 0x08, 32, 4, /* ICR3A */				\
 	  { p ## _IRQ16, p ## _IRQ17, p ## _IRQ18, p ## _IRQ19,		\
 	    p ## _IRQ20, p ## _IRQ21, p ## _IRQ22, p ## _IRQ23 } },	\
-	{ base + 0x0c, 32, 4, 				\
+	{ base + 0x0c, 32, 4, /* ICR4A */				\
 	  { p ## _IRQ24, p ## _IRQ25, p ## _IRQ26, p ## _IRQ27,		\
 	    p ## _IRQ28, p ## _IRQ29, p ## _IRQ30, p ## _IRQ31 } }
 
 #define INTC_IRQ_PINS_ACK_16L(p, base)					\
-	{ base + 0x20, 0, 8, 				\
+	{ base + 0x20, 0, 8, /* INTREQ00A */				\
 	  { p ## _IRQ0, p ## _IRQ1, p ## _IRQ2, p ## _IRQ3,		\
 	    p ## _IRQ4, p ## _IRQ5, p ## _IRQ6, p ## _IRQ7 } },		\
-	{ base + 0x24, 0, 8, 				\
+	{ base + 0x24, 0, 8, /* INTREQ10A */				\
 	  { p ## _IRQ8, p ## _IRQ9, p ## _IRQ10, p ## _IRQ11,		\
 	    p ## _IRQ12, p ## _IRQ13, p ## _IRQ14, p ## _IRQ15 } }
 
 #define INTC_IRQ_PINS_ACK_16H(p, base)					\
-	{ base + 0x28, 0, 8, 				\
+	{ base + 0x28, 0, 8, /* INTREQ20A */				\
 	  { p ## _IRQ16, p ## _IRQ17, p ## _IRQ18, p ## _IRQ19,		\
 	    p ## _IRQ20, p ## _IRQ21, p ## _IRQ22, p ## _IRQ23 } },	\
-	{ base + 0x2c, 0, 8, 				\
+	{ base + 0x2c, 0, 8, /* INTREQ30A */				\
 	  { p ## _IRQ24, p ## _IRQ25, p ## _IRQ26, p ## _IRQ27,		\
 	    p ## _IRQ28, p ## _IRQ29, p ## _IRQ30, p ## _IRQ31 } }
 
@@ -221,18 +221,18 @@ static struct intc_vect p ## _vectors[] __initdata = {			\
 };									\
 									\
 static struct intc_mask_reg p ## _mask_registers[] __initdata = {	\
-	{ mask_reg, 0, 32, 					\
+	{ mask_reg, 0, 32, /* PINTER */					\
 	  { mask_a mask_b mask_c mask_d } }				\
 };									\
 									\
 static struct intc_sense_reg p ## _sense_registers[] __initdata = {	\
-	{ sense_base + 0x00, 16, 2, 			\
+	{ sense_base + 0x00, 16, 2, /* PINTCR */			\
 	  { sense_a } },						\
-	{ sense_base + 0x04, 16, 2, 			\
+	{ sense_base + 0x04, 16, 2, /* PINTCR */			\
 	  { sense_b } },						\
-	{ sense_base + 0x08, 16, 2, 			\
+	{ sense_base + 0x08, 16, 2, /* PINTCR */			\
 	  { sense_c } },						\
-	{ sense_base + 0x0c, 16, 2, 			\
+	{ sense_base + 0x0c, 16, 2, /* PINTCR */			\
 	  { sense_d } },						\
 };									\
 									\
@@ -243,4 +243,4 @@ static struct intc_desc p ## _desc __initdata = {			\
 			     p ## _sense_registers, NULL),		\
 }
 
-#endif  
+#endif  /* __ASM_MACH_INTC_H */

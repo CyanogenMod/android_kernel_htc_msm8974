@@ -12,4 +12,4 @@ struct xt_tcpoptstrip_target_info {
 	__u32 strip_bmap[8];
 };
 
-#endif 
+#endif /* _XT_TCPOPTSTRIP_H */

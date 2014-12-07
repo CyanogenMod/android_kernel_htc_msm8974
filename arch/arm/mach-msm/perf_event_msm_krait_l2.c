@@ -18,53 +18,10 @@
 
 #include <mach/msm-krait-l2-accessors.h>
 
-#define MAX_L2_PERIOD	((1ULL << 32) - 1)
-#define MAX_KRAIT_L2_CTRS 10
-
-#define PMCR_NUM_EV_SHIFT 11
-#define PMCR_NUM_EV_MASK 0x1f
-
-#define L2_EVT_MASK 0xfffff
-
-#define L2_SLAVE_EV_PREFIX 4
-
-#define L2PMCCNTR 0x409
-#define L2PMCCNTCR 0x408
-#define L2PMCCNTSR 0x40A
-#define L2CYCLE_CTR_BIT 31
-#define L2CYCLE_CTR_RAW_CODE 0xfe
-
-#define L2PMOVSR	0x406
-
-#define L2PMCR	0x400
-#define L2PMCR_RESET_ALL	0x6
-#define L2PMCR_GLOBAL_ENABLE	0x1
-#define L2PMCR_GLOBAL_DISABLE	0x0
-
-#define L2PMCNTENSET	0x403
-#define L2PMCNTENCLR	0x402
-
-#define L2PMINTENSET	0x405
-#define L2PMINTENCLR	0x404
-
-#define IA_L2PMXEVCNTCR_BASE	0x420
-#define IA_L2PMXEVTYPER_BASE	0x424
-#define IA_L2PMRESX_BASE	0x410
-#define IA_L2PMXEVFILTER_BASE	0x423
-#define IA_L2PMXEVCNTR_BASE	0x421
-
-
-#define EVENT_PREFIX_MASK	0xf0000
-#define EVENT_REG_MASK		0x0f000
-#define EVENT_GROUPSEL_MASK	0x0000f
-#define	EVENT_GROUPCODE_MASK	0x00ff0
-
-#define EVENT_PREFIX_SHIFT	16
-#define EVENT_REG_SHIFT		12
-#define EVENT_GROUPCODE_SHIFT	4
-
-#define	RESRX_VALUE_EN	0x80000000
-
+/*
+ * The L2 PMU is shared between all CPU's, so protect
+ * its bitmap access.
+ */
 struct pmu_constraints {
 	u64 pmu_bitmap;
 	u8 codes[64];
@@ -75,6 +32,7 @@ struct pmu_constraints {
 	.lock = __RAW_SPIN_LOCK_UNLOCKED(l2_pmu_constraints.lock),
 };
 
+/* NRCCG format for perf RAW codes. */
 PMU_FORMAT_ATTR(l2_prefix, "config:16-19");
 PMU_FORMAT_ATTR(l2_reg,	"config:12-15");
 PMU_FORMAT_ATTR(l2_code, "config:4-11");
@@ -88,6 +46,10 @@ static struct attribute *msm_l2_ev_formats[] = {
 	NULL,
 };
 
+/*
+ * Format group is essential to access PMU's from userspace
+ * via their .name field.
+ */
 static struct attribute_group msm_l2_pmu_format_group = {
 	.name = "format",
 	.attrs = msm_l2_ev_formats,
@@ -100,6 +62,7 @@ static const struct attribute_group *msm_l2_pmu_attr_grps[] = {
 
 static u32 l2_orig_filter_prefix = 0x000f0030;
 
+/* L2 slave port traffic filtering */
 static u32 l2_slv_filter_prefix = 0x000f0010;
 
 static int total_l2_ctrs;
@@ -131,12 +94,12 @@ static struct pmu_hw_events *krait_l2_get_hw_events(void)
 
 void get_event_desc(u64 config, struct event_desc *evdesc)
 {
-	
+	/* L2PMEVCNTRX */
 	evdesc->event_reg = (config & EVENT_REG_MASK) >> EVENT_REG_SHIFT;
-	
+	/* Group code (row ) */
 	evdesc->event_group_code =
 	    (config & EVENT_GROUPCODE_MASK) >> EVENT_GROUPCODE_SHIFT;
-	
+	/* Group sel (col) */
 	evdesc->event_groupsel = (config & EVENT_GROUPSEL_MASK);
 
 	pr_debug("%s: reg: %x, group_code: %x, groupsel: %x\n", __func__,
@@ -186,13 +149,16 @@ static void set_evfilter_task_mode(int ctr, unsigned int is_slv)
 	set_l2_indirect_reg(filter_reg, filter_val);
 }
 
-static void set_evfilter_sys_mode(int ctr, unsigned int is_slv)
+static void set_evfilter_sys_mode(int ctr, unsigned int is_slv, int cpu,
+		unsigned int is_tracectr)
 {
 	u32 filter_reg = (ctr * 16) + IA_L2PMXEVFILTER_BASE;
 	u32 filter_val = l2_orig_filter_prefix | 0xf;
 
-	if (is_slv)
+	if (is_slv == 1)
 		filter_val = l2_slv_filter_prefix;
+	if (is_tracectr == 1)
+		filter_val = l2_orig_filter_prefix | 1 << cpu;
 
 	set_l2_indirect_reg(filter_reg, filter_val);
 }
@@ -266,6 +232,7 @@ static void krait_l2_enable(struct hw_perf_event *hwc, int idx, int cpu)
 	struct event_desc evdesc;
 	unsigned long iflags;
 	unsigned int is_slv = 0;
+	unsigned int is_tracectr = 0;
 	unsigned int evt_prefix;
 
 	raw_spin_lock_irqsave(&krait_l2_pmu_hw_events.pmu_lock, iflags);
@@ -273,12 +240,14 @@ static void krait_l2_enable(struct hw_perf_event *hwc, int idx, int cpu)
 	if (hwc->config_base == L2CYCLE_CTR_RAW_CODE)
 		goto out;
 
-	
+	/* Check if user requested any special origin filtering. */
 	evt_prefix = (hwc->config_base &
 			EVENT_PREFIX_MASK) >> EVENT_PREFIX_SHIFT;
 
 	if (evt_prefix == L2_SLAVE_EV_PREFIX)
 		is_slv = 1;
+	else if (evt_prefix == L2_TRACECTR_PREFIX)
+		is_tracectr = 1;
 
 	set_evcntcr(idx);
 
@@ -294,7 +263,7 @@ static void krait_l2_enable(struct hw_perf_event *hwc, int idx, int cpu)
 	if (cpu < 0)
 		set_evfilter_task_mode(idx, is_slv);
 	else
-		set_evfilter_sys_mode(idx, is_slv);
+		set_evfilter_sys_mode(idx, is_slv, cpu, is_tracectr);
 
 out:
 	enable_intenset(idx);
@@ -357,7 +326,7 @@ u32 get_reset_pmovsr(void)
 	int val;
 
 	val = get_l2_indirect_reg(L2PMOVSR);
-	
+	/* reset it */
 	val &= 0xffffffff;
 	set_l2_indirect_reg(L2PMOVSR, val);
 
@@ -445,6 +414,7 @@ krait_l2_pmu_generic_free_irq(int irq)
 static int msm_l2_test_set_ev_constraint(struct perf_event *event)
 {
 	u32 evt_type = event->attr.config & L2_EVT_MASK;
+	u8 evt_prefix = (evt_type & EVENT_PREFIX_MASK) >> EVENT_PREFIX_SHIFT;
 	u8 reg   = (evt_type & 0x0F000) >> 12;
 	u8 group = evt_type & 0x0000F;
 	u8 code = (evt_type & 0x00FF0) >> 4;
@@ -453,6 +423,12 @@ static int msm_l2_test_set_ev_constraint(struct perf_event *event)
 	u64 bitmap_t;
 	u32 shift_idx;
 
+	if (evt_prefix == L2_TRACECTR_PREFIX)
+		return err;
+	/*
+	 * Cycle counter collision is detected in
+	 * get_event_idx().
+	 */
 	if (evt_type == L2CYCLE_CTR_RAW_CODE)
 		return err;
 
@@ -467,11 +443,24 @@ static int msm_l2_test_set_ev_constraint(struct perf_event *event)
 		l2_pmu_constraints.codes[shift_idx] = code;
 		goto out;
 	} else {
+		/*
+		 * If NRCCG's are identical,
+		 * its not column exclusion.
+		 */
 		if (l2_pmu_constraints.codes[shift_idx] != code)
 			err = -EPERM;
 		else
-			if (!(event->cpu < 0))
+			/*
+			 * If the event is counted in syswide mode
+			 * then we want to count only on one CPU
+			 * and set its filter to count from all.
+			 * This sets the event OFF on all but one
+			 * CPU.
+			 */
+			if (!(event->cpu < 0)) {
 				event->state = PERF_EVENT_STATE_OFF;
+				event->attr.constraint_duplicate = 1;
+			}
 	}
 out:
 	raw_spin_unlock_irqrestore(&l2_pmu_constraints.lock, flags);
@@ -481,22 +470,25 @@ out:
 static int msm_l2_clear_ev_constraint(struct perf_event *event)
 {
 	u32 evt_type = event->attr.config & L2_EVT_MASK;
+	u8 evt_prefix = (evt_type & EVENT_PREFIX_MASK) >> EVENT_PREFIX_SHIFT;
 	u8 reg   = (evt_type & 0x0F000) >> 12;
 	u8 group =  evt_type & 0x0000F;
 	unsigned long flags;
 	u64 bitmap_t;
 	u32 shift_idx;
 
+	if (evt_prefix == L2_TRACECTR_PREFIX)
+		return 1;
 	raw_spin_lock_irqsave(&l2_pmu_constraints.lock, flags);
 
 	shift_idx = ((reg * 4) + group);
 
 	bitmap_t = 1 << shift_idx;
 
-	
+	/* Clear constraint bit. */
 	l2_pmu_constraints.pmu_bitmap &= ~bitmap_t;
 
-	
+	/* Clear code. */
 	l2_pmu_constraints.codes[shift_idx] = -1;
 
 	raw_spin_unlock_irqrestore(&l2_pmu_constraints.lock, flags);
@@ -509,6 +501,10 @@ int get_num_events(void)
 
 	val = get_l2_indirect_reg(L2PMCR);
 
+	/*
+	 * Read bits 15:11 of the L2PMCR and add 1
+	 * for the cycle counter.
+	 */
 	return ((val >> PMCR_NUM_EV_SHIFT) & PMCR_NUM_EV_MASK) + 1;
 }
 
@@ -534,6 +530,9 @@ static struct arm_pmu krait_l2_pmu = {
 	.pmu.attr_groups		= msm_l2_pmu_attr_grps,
 };
 
+/*
+ * PMU platform driver and devicetree bindings.
+ */
 static struct of_device_id l2pmu_of_device_ids[] = {
 	{.compatible = "qcom,l2-pmu"},
 	{},
@@ -559,20 +558,33 @@ static struct platform_driver krait_l2_pmu_driver = {
 
 static int __init register_krait_l2_pmu_driver(void)
 {
-	
+	int i;
+
+	/* Reset all ctrs */
 	set_l2_indirect_reg(L2PMCR, L2PMCR_RESET_ALL);
 
-	
+	/* Get num of counters in the L2cc PMU. */
 	total_l2_ctrs = get_num_events();
 	krait_l2_pmu.num_events	= total_l2_ctrs;
 
 	pr_info("Detected %d counters on the L2CC PMU.\n",
 			total_l2_ctrs);
 
+	/*
+	 * The L2 cycle counter index in the used_mask
+	 * bit stream is always after the other counters.
+	 * Counter indexes begin from 0 to keep it consistent
+	 * with the h/w.
+	 */
 	l2_cycle_ctr_idx = total_l2_ctrs - 1;
 
-	
+	/* Avoid spurious interrupt if any */
 	get_reset_pmovsr();
+
+	/* Clear counter enables */
+	disable_counter(l2_cycle_ctr_idx);
+	for (i = 0; i < total_l2_ctrs; i++)
+		disable_counter(i);
 
 	return platform_driver_register(&krait_l2_pmu_driver);
 }

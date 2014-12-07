@@ -31,6 +31,7 @@
 #define DWMAC_LIB_DBG(fmt, args...)  do { } while (0)
 #endif
 
+/* CSR1 enables the transmit DMA to check for new descriptor */
 void dwmac_enable_dma_transmission(void __iomem *ioaddr)
 {
 	writel(1, ioaddr + DMA_XMT_POLL_DEMAND);
@@ -148,16 +149,16 @@ int dwmac_dma_interrupt(void __iomem *ioaddr,
 			struct stmmac_extra_stats *x)
 {
 	int ret = 0;
-	
+	/* read the status register (CSR5) */
 	u32 intr_status = readl(ioaddr + DMA_STATUS);
 
 	DWMAC_LIB_DBG(KERN_INFO "%s: [CSR5: 0x%08x]\n", __func__, intr_status);
 #ifdef DWMAC_DMA_DEBUG
-	
+	/* It displays the DMA process states (CSR5 register) */
 	show_tx_process_state(intr_status);
 	show_rx_process_state(intr_status);
 #endif
-	
+	/* ABNORMAL interrupts */
 	if (unlikely(intr_status & DMA_STATUS_AIS)) {
 		DWMAC_LIB_DBG(KERN_INFO "CSR5[15] DMA ABNORMAL IRQ: ");
 		if (unlikely(intr_status & DMA_STATUS_UNF)) {
@@ -200,18 +201,18 @@ int dwmac_dma_interrupt(void __iomem *ioaddr,
 			ret = tx_hard_error;
 		}
 	}
-	
+	/* TX/RX NORMAL interrupts */
 	if (intr_status & DMA_STATUS_NIS) {
 		x->normal_irq_n++;
 		if (likely((intr_status & DMA_STATUS_RI) ||
 			 (intr_status & (DMA_STATUS_TI))))
 				ret = handle_tx_rx;
 	}
-	
+	/* Optional hardware blocks, interrupts should be disabled */
 	if (unlikely(intr_status &
 		     (DMA_STATUS_GPI | DMA_STATUS_GMI | DMA_STATUS_GLI)))
 		pr_info("%s: unexpected status %08x\n", __func__, intr_status);
-	
+	/* Clear the interrupt by writing a logic 1 to the CSR5[15-0] */
 	writel((intr_status & 0x1ffff), ioaddr + DMA_STATUS);
 
 	DWMAC_LIB_DBG(KERN_INFO "\n\n");
@@ -237,6 +238,7 @@ void stmmac_set_mac_addr(void __iomem *ioaddr, u8 addr[6],
 	writel(data, ioaddr + low);
 }
 
+/* Enable disable MAC RX/TX */
 void stmmac_set_mac(void __iomem *ioaddr, bool enable)
 {
 	u32 value = readl(ioaddr + MAC_CTRL_REG);
@@ -254,11 +256,11 @@ void stmmac_get_mac_addr(void __iomem *ioaddr, unsigned char *addr,
 {
 	unsigned int hi_addr, lo_addr;
 
-	
+	/* Read the MAC address from the hardware */
 	hi_addr = readl(ioaddr + high);
 	lo_addr = readl(ioaddr + low);
 
-	
+	/* Extract the MAC address from the high and low words */
 	addr[0] = lo_addr & 0xff;
 	addr[1] = (lo_addr >> 8) & 0xff;
 	addr[2] = (lo_addr >> 16) & 0xff;

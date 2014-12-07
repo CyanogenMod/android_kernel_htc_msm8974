@@ -72,7 +72,7 @@ static void writeseg_end_io(struct bio *bio, int err)
 	struct logfs_super *super = logfs_super(sb);
 	struct page *page;
 
-	BUG_ON(!uptodate); 
+	BUG_ON(!uptodate); /* FIXME: Retry io or write elsewhere */
 	BUG_ON(err);
 	BUG_ON(bio->bi_vcnt == 0);
 	do {
@@ -106,7 +106,7 @@ static int __bdev_writeseg(struct super_block *sb, u64 ofs, pgoff_t index,
 
 	for (i = 0; i < nr_pages; i++) {
 		if (i >= max_pages) {
-			
+			/* Block layer cannot split bios :( */
 			bio->bi_vcnt = i;
 			bio->bi_idx = 0;
 			bio->bi_size = i * PAGE_SIZE;
@@ -177,7 +177,7 @@ static void erase_end_io(struct bio *bio, int err)
 	struct super_block *sb = bio->bi_private; 
 	struct logfs_super *super = logfs_super(sb); 
 
-	BUG_ON(!uptodate);  
+	BUG_ON(!uptodate); /* FIXME: Retry io or write elsewhere */ 
 	BUG_ON(err); 
 	BUG_ON(bio->bi_vcnt == 0); 
 	bio_put(bio); 
@@ -201,7 +201,7 @@ static int do_erase(struct super_block *sb, u64 ofs, pgoff_t index,
 
 	for (i = 0; i < nr_pages; i++) {
 		if (i >= max_pages) {
-			
+			/* Block layer cannot split bios :( */
 			bio->bi_vcnt = i;
 			bio->bi_idx = 0;
 			bio->bi_size = i * PAGE_SIZE;
@@ -248,6 +248,12 @@ static int bdev_erase(struct super_block *sb, loff_t to, size_t len,
 		return -EROFS;
 
 	if (ensure_write) {
+		/*
+		 * Object store doesn't care whether erases happen or not.
+		 * But for the journal they are required.  Otherwise a scan
+		 * can find an old commit entry and assume it is the current
+		 * one, travelling back in time.
+		 */
 		do_erase(sb, to, to >> PAGE_SHIFT, len >> PAGE_SHIFT);
 	}
 
@@ -287,7 +293,7 @@ static int bdev_write_sb(struct super_block *sb, struct page *page)
 {
 	struct block_device *bdev = logfs_super(sb)->s_bdev;
 
-	
+	/* Nothing special to do for block devices. */
 	return sync_request(page, bdev, WRITE);
 }
 

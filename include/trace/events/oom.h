@@ -29,4 +29,5 @@ TRACE_EVENT(oom_score_adj_update,
 
 #endif
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

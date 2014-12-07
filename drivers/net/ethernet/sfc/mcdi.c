@@ -15,8 +15,14 @@
 #include "mcdi_pcol.h"
 #include "phy.h"
 
+/**************************************************************************
+ *
+ * Management-Controller-to-Driver Interface
+ *
+ **************************************************************************
+ */
 
-#define MCDI_RPC_TIMEOUT       10 
+#define MCDI_RPC_TIMEOUT       10 /*seconds */
 
 #define MCDI_PDU(efx)							\
 	(efx_port_num(efx) ? MC_SMEM_P1_PDU_OFST : MC_SMEM_P0_PDU_OFST)
@@ -25,6 +31,9 @@
 #define MCDI_STATUS(efx)						\
 	(efx_port_num(efx) ? MC_SMEM_P1_STATUS_OFST : MC_SMEM_P0_STATUS_OFST)
 
+/* A reboot/assertion causes the MCDI status word to be set after the
+ * command word is set or a REBOOT event is sent. If we notice a reboot
+ * via these mechanisms then wait 10ms for the status word to be set. */
 #define MCDI_STATUS_DELAY_US		100
 #define MCDI_STATUS_DELAY_COUNT		100
 #define MCDI_STATUS_SLEEP_MS						\
@@ -91,7 +100,7 @@ static void efx_mcdi_copyin(struct efx_nic *efx, unsigned cmd,
 	/* Ensure the payload is written out before the header */
 	wmb();
 
-	
+	/* ring the doorbell with a distinctive value */
 	_efx_writed(efx, (__force __le32) 0x45789abc, doorbell);
 }
 
@@ -117,11 +126,15 @@ static int efx_mcdi_poll(struct efx_nic *efx)
 	unsigned int rc, spins;
 	efx_dword_t reg;
 
-	
+	/* Check for a reboot atomically with respect to efx_mcdi_copyout() */
 	rc = -efx_mcdi_poll_reboot(efx);
 	if (rc)
 		goto out;
 
+	/* Poll for completion. Poll quickly (once a us) for the 1st jiffy,
+	 * because generally mcdi responses are fast. After that, back off
+	 * and poll once a jiffy (approximately)
+	 */
 	spins = TICK_USEC;
 	finish = get_seconds() + MCDI_RPC_TIMEOUT;
 
@@ -138,6 +151,9 @@ static int efx_mcdi_poll(struct efx_nic *efx)
 		rmb();
 		efx_readd(efx, &reg, pdu);
 
+		/* All 1's indicates that shared memory is in reset (and is
+		 * not a valid header). Wait for it to come out reset before
+		 * completing the command */
 		if (EFX_DWORD_FIELD(reg, EFX_DWORD_0) != 0xffffffff &&
 		    EFX_DWORD_FIELD(reg, MCDI_HEADER_RESPONSE))
 			break;
@@ -187,10 +203,11 @@ out:
 	if (rc)
 		mcdi->resplen = 0;
 
-	
+	/* Return rc=0 like wait_event_timeout() */
 	return 0;
 }
 
+/* Test and clear MC-rebooted flag for this port/function */
 int efx_mcdi_poll_reboot(struct efx_nic *efx)
 {
 	unsigned int addr = FR_CZ_MC_TREG_SMEM + MCDI_STATUS(efx);
@@ -217,6 +234,8 @@ int efx_mcdi_poll_reboot(struct efx_nic *efx)
 
 static void efx_mcdi_acquire(struct efx_mcdi_iface *mcdi)
 {
+	/* Wait until the interface becomes QUIESCENT and we win the race
+	 * to mark it RUNNING. */
 	wait_event(mcdi->wq,
 		   atomic_cmpxchg(&mcdi->state,
 				  MCDI_STATE_QUIESCENT,
@@ -234,6 +253,14 @@ static int efx_mcdi_await_completion(struct efx_nic *efx)
 		    msecs_to_jiffies(MCDI_RPC_TIMEOUT * 1000)) == 0)
 		return -ETIMEDOUT;
 
+	/* Check if efx_mcdi_set_mode() switched us back to polled completions.
+	 * In which case, poll for completions directly. If efx_mcdi_ev_cpl()
+	 * completed the request first, then we'll just end up completing the
+	 * request again, which is safe.
+	 *
+	 * We need an smp_rmb() to synchronise with efx_mcdi_mode_poll(), which
+	 * wait_event_timeout() implicitly provides.
+	 */
 	if (mcdi->mode == MCDI_MODE_POLL)
 		return efx_mcdi_poll(efx);
 
@@ -242,6 +269,12 @@ static int efx_mcdi_await_completion(struct efx_nic *efx)
 
 static bool efx_mcdi_complete(struct efx_mcdi_iface *mcdi)
 {
+	/* If the interface is RUNNING, then move to COMPLETED and wake any
+	 * waiters. If the interface isn't in RUNNING then we've received a
+	 * duplicate completion after we've already transitioned back to
+	 * QUIESCENT. [A subsequent invocation would increment seqno, so would
+	 * have failed the seqno check].
+	 */
 	if (atomic_cmpxchg(&mcdi->state,
 			   MCDI_STATE_RUNNING,
 			   MCDI_STATE_COMPLETED) == MCDI_STATE_RUNNING) {
@@ -268,7 +301,7 @@ static void efx_mcdi_ev_cpl(struct efx_nic *efx, unsigned int seqno,
 
 	if ((seqno ^ mcdi->seqno) & SEQ_MASK) {
 		if (mcdi->credits)
-			
+			/* The request has been cancelled */
 			--mcdi->credits;
 		else
 			netif_err(efx, hw, efx->net_dev,
@@ -287,6 +320,8 @@ static void efx_mcdi_ev_cpl(struct efx_nic *efx, unsigned int seqno,
 		efx_mcdi_complete(mcdi);
 }
 
+/* Issue the given command by writing the data into the shared memory PDU,
+ * ring the doorbell and wait for completion. Copyout the result. */
 int efx_mcdi_rpc(struct efx_nic *efx, unsigned cmd,
 		 const u8 *inbuf, size_t inlen, u8 *outbuf, size_t outlen,
 		 size_t *outlen_actual)
@@ -297,7 +332,7 @@ int efx_mcdi_rpc(struct efx_nic *efx, unsigned cmd,
 
 	efx_mcdi_acquire(mcdi);
 
-	
+	/* Serialise with efx_mcdi_ev_cpl() and efx_mcdi_ev_death() */
 	spin_lock_bh(&mcdi->iface_lock);
 	++mcdi->seqno;
 	spin_unlock_bh(&mcdi->iface_lock);
@@ -310,6 +345,10 @@ int efx_mcdi_rpc(struct efx_nic *efx, unsigned cmd,
 		rc = efx_mcdi_await_completion(efx);
 
 	if (rc != 0) {
+		/* Close the race with efx_mcdi_ev_cpl() executing just too late
+		 * and completing a request we've just cancelled, by ensuring
+		 * that the seqno check therein fails.
+		 */
 		spin_lock_bh(&mcdi->iface_lock);
 		++mcdi->seqno;
 		++mcdi->credits;
@@ -321,6 +360,10 @@ int efx_mcdi_rpc(struct efx_nic *efx, unsigned cmd,
 	} else {
 		size_t resplen;
 
+		/* At the very least we need a memory barrier here to ensure
+		 * we pick up changes from efx_mcdi_ev_cpl(). Protect against
+		 * a spurious efx_mcdi_ev_cpl() running concurrently by
+		 * acquiring the iface_lock. */
 		spin_lock_bh(&mcdi->iface_lock);
 		rc = -mcdi->resprc;
 		resplen = mcdi->resplen;
@@ -332,7 +375,7 @@ int efx_mcdi_rpc(struct efx_nic *efx, unsigned cmd,
 			if (outlen_actual != NULL)
 				*outlen_actual = resplen;
 		} else if (cmd == MC_CMD_REBOOT && rc == -EIO)
-			; 
+			; /* Don't reset if MC_CMD_REBOOT returns EIO */
 		else if (rc == -EIO || rc == -EINTR) {
 			netif_err(efx, hw, efx->net_dev, "MC fatal error %d\n",
 				  -rc);
@@ -363,6 +406,14 @@ void efx_mcdi_mode_poll(struct efx_nic *efx)
 	if (mcdi->mode == MCDI_MODE_POLL)
 		return;
 
+	/* We can switch from event completion to polled completion, because
+	 * mcdi requests are always completed in shared memory. We do this by
+	 * switching the mode to POLL'd then completing the request.
+	 * efx_mcdi_await_completion() will then call efx_mcdi_poll().
+	 *
+	 * We need an smp_wmb() to synchronise with efx_mcdi_await_completion(),
+	 * which efx_mcdi_complete() provides for us.
+	 */
 	mcdi->mode = MCDI_MODE_POLL;
 
 	efx_mcdi_complete(mcdi);
@@ -380,6 +431,13 @@ void efx_mcdi_mode_event(struct efx_nic *efx)
 	if (mcdi->mode == MCDI_MODE_EVENTS)
 		return;
 
+	/* We can't switch from polled to event completion in the middle of a
+	 * request, because the completion method is specified in the request.
+	 * So acquire the interface to serialise the requestors. We don't need
+	 * to acquire the iface_lock to change the mode here, but we do need a
+	 * write memory barrier ensure that efx_mcdi_rpc() sees it, which
+	 * efx_mcdi_acquire() provides.
+	 */
 	efx_mcdi_acquire(mcdi);
 	mcdi->mode = MCDI_MODE_EVENTS;
 	efx_mcdi_release(mcdi);
@@ -389,6 +447,22 @@ static void efx_mcdi_ev_death(struct efx_nic *efx, int rc)
 {
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 
+	/* If there is an outstanding MCDI request, it has been terminated
+	 * either by a BADASSERT or REBOOT event. If the mcdi interface is
+	 * in polled mode, then do nothing because the MC reboot handler will
+	 * set the header correctly. However, if the mcdi interface is waiting
+	 * for a CMDDONE event it won't receive it [and since all MCDI events
+	 * are sent to the same queue, we can't be racing with
+	 * efx_mcdi_ev_cpl()]
+	 *
+	 * There's a race here with efx_mcdi_rpc(), because we might receive
+	 * a REBOOT event *before* the request has been copied out. In polled
+	 * mode (during startup) this is irrelevant, because efx_mcdi_complete()
+	 * is ignored. In event mode, this condition is just an edge-case of
+	 * receiving a REBOOT event after posting the MCDI request. Did the mc
+	 * reboot before or after the copyout? The best we can do always is
+	 * just return failure.
+	 */
 	spin_lock(&mcdi->iface_lock);
 	if (efx_mcdi_complete(mcdi)) {
 		if (mcdi->mode == MCDI_MODE_EVENTS) {
@@ -399,10 +473,10 @@ static void efx_mcdi_ev_death(struct efx_nic *efx, int rc)
 	} else {
 		int count;
 
-		
+		/* Nobody was waiting for an MCDI request, so trigger a reset */
 		efx_schedule_reset(efx, RESET_TYPE_MC_FAILURE);
 
-		
+		/* Consume the status word since efx_mcdi_rpc_finish() won't */
 		for (count = 0; count < MCDI_STATUS_DELAY_COUNT; ++count) {
 			if (efx_mcdi_poll_reboot(efx))
 				break;
@@ -432,6 +506,10 @@ static void efx_mcdi_process_link_change(struct efx_nic *efx, efx_qword_t *ev)
 	fcntl = EFX_QWORD_FIELD(*ev, MCDI_EVENT_LINKCHANGE_FCNTL);
 	lpa = EFX_QWORD_FIELD(*ev, MCDI_EVENT_LINKCHANGE_LP_CAP);
 
+	/* efx->link_state is only modified by efx_mcdi_phy_get_link(),
+	 * which is only run after flushing the event queues. Therefore, it
+	 * is safe to modify the link state outside of the mac_lock here.
+	 */
 	efx_mcdi_phy_decode_link(efx, &efx->link_state, speed, flags, fcntl);
 
 	efx_mcdi_phy_check_fcntl(efx, lpa);
@@ -439,6 +517,7 @@ static void efx_mcdi_process_link_change(struct efx_nic *efx, efx_qword_t *ev)
 	efx_link_status_changed(efx);
 }
 
+/* Called from  falcon_process_eventq for MCDI events */
 void efx_mcdi_process_event(struct efx_channel *channel,
 			    efx_qword_t *event)
 {
@@ -479,7 +558,7 @@ void efx_mcdi_process_event(struct efx_channel *channel,
 		efx_mcdi_ev_death(efx, EIO);
 		break;
 	case MCDI_EVENT_CODE_MAC_STATS_DMA:
-		
+		/* MAC stats are gather lazily.  We can ignore this. */
 		break;
 	case MCDI_EVENT_CODE_FLR:
 		efx_sriov_flr(efx, MCDI_EVENT_FIELD(*event, FLR_VF));
@@ -491,6 +570,12 @@ void efx_mcdi_process_event(struct efx_channel *channel,
 	}
 }
 
+/**************************************************************************
+ *
+ * Specific request functions
+ *
+ **************************************************************************
+ */
 
 void efx_mcdi_print_fwver(struct efx_nic *efx, char *buf, size_t len)
 {
@@ -866,6 +951,11 @@ static int efx_mcdi_read_assertion(struct efx_nic *efx)
 	int retry;
 	int rc;
 
+	/* Attempt to read any stored assertion state before we reboot
+	 * the mcfw out of the assertion handler. Retry twice, once
+	 * because a boot-time assertion might cause this command to fail
+	 * with EINTR. And once again because GET_ASSERTS can race with
+	 * MC_CMD_REBOOT running on the other port. */
 	retry = 2;
 	do {
 		MCDI_SET_DWORD(inbuf, GET_ASSERTS_IN_CLEAR, 1);
@@ -879,7 +969,7 @@ static int efx_mcdi_read_assertion(struct efx_nic *efx)
 	if (outlen < MC_CMD_GET_ASSERTS_OUT_LEN)
 		return -EIO;
 
-	
+	/* Print out any recorded assertion state */
 	flags = MCDI_DWORD(outbuf, GET_ASSERTS_OUT_GLOBAL_FLAGS);
 	if (flags == MC_CMD_GET_ASSERTS_FLAGS_NO_FAILS)
 		return 0;
@@ -896,7 +986,7 @@ static int efx_mcdi_read_assertion(struct efx_nic *efx)
 		  MCDI_DWORD(outbuf, GET_ASSERTS_OUT_SAVED_PC_OFFS),
 		  MCDI_DWORD(outbuf, GET_ASSERTS_OUT_THREAD_OFFS));
 
-	
+	/* Print out the registers */
 	ofst = MC_CMD_GET_ASSERTS_OUT_GP_REGS_OFFS_OFST;
 	for (index = 1; index < 32; index++) {
 		netif_err(efx, hw, efx->net_dev, "R%.2d (?): 0x%.8x\n", index,
@@ -911,7 +1001,7 @@ static void efx_mcdi_exit_assertion(struct efx_nic *efx)
 {
 	u8 inbuf[MC_CMD_REBOOT_IN_LEN];
 
-	
+	/* Atomically reboot the mcfw out of the assertion handler */
 	BUILD_BUG_ON(MC_CMD_REBOOT_OUT_LEN != 0);
 	MCDI_SET_DWORD(inbuf, REBOOT_IN_FLAGS,
 		       MC_CMD_REBOOT_FLAGS_AFTER_ASSERTION);
@@ -970,7 +1060,7 @@ int efx_mcdi_reset_mc(struct efx_nic *efx)
 	MCDI_SET_DWORD(inbuf, REBOOT_IN_FLAGS, 0);
 	rc = efx_mcdi_rpc(efx, MC_CMD_REBOOT, inbuf, sizeof(inbuf),
 			  NULL, 0, NULL);
-	
+	/* White is black, and up is down */
 	if (rc == -EIO)
 		return 0;
 	if (rc == 0)

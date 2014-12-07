@@ -12,6 +12,7 @@
  */
 #include "friio.h"
 
+/* debug */
 int dvb_usb_friio_debug;
 module_param_named(debug, dvb_usb_friio_debug, int, 0644);
 MODULE_PARM_DESC(debug,
@@ -20,12 +21,21 @@ MODULE_PARM_DESC(debug,
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+/**
+ * Indirect I2C access to the PLL via FE.
+ * whole I2C protocol data to the PLL is sent via the FE's I2C register.
+ * This is done by a control msg to the FE with the I2C data accompanied, and
+ * a specific USB request number is assigned for that purpose.
+ *
+ * this func sends wbuf[1..] to the I2C register wbuf[0] at addr (= at FE).
+ * TODO: refoctored, smarter i2c functions.
+ */
 static int gl861_i2c_ctrlmsg_data(struct dvb_usb_device *d, u8 addr,
 				  u8 *wbuf, u16 wlen, u8 *rbuf, u16 rlen)
 {
-	u16 index = wbuf[0];	
+	u16 index = wbuf[0];	/* must be JDVBT90502_2ND_I2C_REG(=0xFE) */
 	u16 value = addr << (8 + 1);
-	int wo = (rbuf == NULL || rlen == 0);	
+	int wo = (rbuf == NULL || rlen == 0);	/* write only */
 	u8 req, type;
 
 	deb_xfer("write to PLL:0x%02x via FE reg:0x%02x, len:%d\n",
@@ -44,16 +54,21 @@ static int gl861_i2c_ctrlmsg_data(struct dvb_usb_device *d, u8 addr,
 	return -EINVAL;
 }
 
+/* normal I2C access (without extra data arguments).
+ * write to the register wbuf[0] at I2C address addr with the value wbuf[1],
+ *  or read from the register wbuf[0].
+ * register address can be 16bit (wbuf[2]<<8 | wbuf[0]) if wlen==3
+ */
 static int gl861_i2c_msg(struct dvb_usb_device *d, u8 addr,
 			 u8 *wbuf, u16 wlen, u8 *rbuf, u16 rlen)
 {
 	u16 index;
 	u16 value = addr << (8 + 1);
-	int wo = (rbuf == NULL || rlen == 0);	
+	int wo = (rbuf == NULL || rlen == 0);	/* write-only */
 	u8 req, type;
 	unsigned int pipe;
 
-	
+	/* special case for the indirect I2C access to the PLL via FE, */
 	if (addr == friio_fe_config.demod_address &&
 	    wbuf[0] == JDVBT90502_2ND_I2C_REG)
 		return gl861_i2c_ctrlmsg_data(d, addr, wbuf, wlen, rbuf, rlen);
@@ -62,7 +77,7 @@ static int gl861_i2c_msg(struct dvb_usb_device *d, u8 addr,
 		req = GL861_REQ_I2C_WRITE;
 		type = GL861_WRITE;
 		pipe = usb_sndctrlpipe(d->udev, 0);
-	} else {		
+	} else {		/* rw */
 		req = GL861_REQ_I2C_READ;
 		type = GL861_READ;
 		pipe = usb_rcvctrlpipe(d->udev, 0);
@@ -77,7 +92,7 @@ static int gl861_i2c_msg(struct dvb_usb_device *d, u8 addr,
 		value = value + wbuf[1];
 		break;
 	case 3:
-		
+		/* special case for 16bit register-address */
 		index = (wbuf[2] << 8) | wbuf[0];
 		value = value + wbuf[1];
 		break;
@@ -90,6 +105,7 @@ static int gl861_i2c_msg(struct dvb_usb_device *d, u8 addr,
 			       value, index, rbuf, rlen, 2000);
 }
 
+/* I2C */
 static int gl861_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 			  int num)
 {
@@ -104,7 +120,7 @@ static int gl861_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 		return -EAGAIN;
 
 	for (i = 0; i < num; i++) {
-		
+		/* write/read request */
 		if (i + 1 < num && (msg[i + 1].flags & I2C_M_RD)) {
 			if (gl861_i2c_msg(d, msg[i].addr,
 					  msg[i].buf, msg[i].len,
@@ -147,7 +163,7 @@ static int friio_ext_ctl(struct dvb_usb_adapter *adap,
 
 	buf[0] = 0x00;
 
-	
+	/* send 2bit header (&B10) */
 	buf[1] = lnb | FRIIO_CTL_LED | FRIIO_CTL_STROBE;
 	ret = gl861_i2c_xfer(&adap->dev->i2c_adap, &msg, 1);
 	buf[1] |= FRIIO_CTL_CLK;
@@ -158,7 +174,7 @@ static int friio_ext_ctl(struct dvb_usb_adapter *adap,
 	buf[1] |= FRIIO_CTL_CLK;
 	ret += gl861_i2c_xfer(&adap->dev->i2c_adap, &msg, 1);
 
-	
+	/* send 32bit(satur, R, G, B) data in serial */
 	mask = 1 << 31;
 	for (i = 0; i < 32; i++) {
 		buf[1] = lnb | FRIIO_CTL_STROBE;
@@ -170,7 +186,7 @@ static int friio_ext_ctl(struct dvb_usb_adapter *adap,
 		mask >>= 1;
 	}
 
-	
+	/* set the strobe off */
 	buf[1] = lnb;
 	ret += gl861_i2c_xfer(&adap->dev->i2c_adap, &msg, 1);
 	buf[1] |= FRIIO_CTL_CLK;
@@ -183,6 +199,7 @@ static int friio_ext_ctl(struct dvb_usb_adapter *adap,
 
 static int friio_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff);
 
+/* TODO: move these init cmds to the FE's init routine? */
 static u8 streaming_init_cmds[][2] = {
 	{0x33, 0x08},
 	{0x37, 0x40},
@@ -197,6 +214,10 @@ static u8 streaming_init_cmds[][2] = {
 };
 static int cmdlen = sizeof(streaming_init_cmds) / 2;
 
+/*
+ * Command sequence in this init function is a replay
+ *  of the captured USB commands from the Windows proprietary driver.
+ */
 static int friio_initialize(struct dvb_usb_device *d)
 {
 	int ret;
@@ -216,8 +237,8 @@ static int friio_initialize(struct dvb_usb_device *d)
 		return -ENOMEM;
 	}
 
-	
-	
+	/* use gl861_i2c_msg instead of gl861_i2c_xfer(), */
+	/* because the i2c device is not set up yet. */
 	wbuf[0] = 0x11;
 	wbuf[1] = 0x02;
 	ret = gl861_i2c_msg(d, 0x00, wbuf, 2, NULL, 0);
@@ -232,11 +253,11 @@ static int friio_initialize(struct dvb_usb_device *d)
 		goto error;
 	msleep(1);
 
-	
-	
+	/* following msgs should be in the FE's init code? */
+	/* cmd sequence to identify the device type? (friio black/white) */
 	wbuf[0] = 0x03;
 	wbuf[1] = 0x80;
-	
+	/* can't use gl861_i2c_cmd, as the register-addr is 16bit(0x0100) */
 	ret = usb_control_msg(d->udev, usb_sndctrlpipe(d->udev, 0),
 			      GL861_REQ_I2C_DATA_CTRL_WRITE, GL861_WRITE,
 			      0x1200, 0x0100, wbuf, 2, 2000);
@@ -245,10 +266,10 @@ static int friio_initialize(struct dvb_usb_device *d)
 
 	msleep(2);
 	wbuf[0] = 0x00;
-	wbuf[2] = 0x01;		
+	wbuf[2] = 0x01;		/* reg.0x0100 */
 	wbuf[1] = 0x00;
 	ret = gl861_i2c_msg(d, 0x12 >> 1, wbuf, 3, rbuf, 2);
-	
+	/* my Friio White returns 0xffff. */
 	if (ret < 0 || rbuf[0] != 0xff || rbuf[1] != 0xff)
 		goto error;
 
@@ -263,33 +284,41 @@ static int friio_initialize(struct dvb_usb_device *d)
 
 	msleep(2);
 	wbuf[0] = 0x00;
-	wbuf[2] = 0x01;		
+	wbuf[2] = 0x01;		/* reg.0x0100 */
 	wbuf[1] = 0x00;
 	ret = gl861_i2c_msg(d, 0x90 >> 1, wbuf, 3, rbuf, 2);
-	
+	/* my Friio White returns 0xffff again. */
 	if (ret < 0 || rbuf[0] != 0xff || rbuf[1] != 0xff)
 		goto error;
 
 	msleep(1);
 
 restart:
-	
-	
+	/* ============ start DEMOD init cmds ================== */
+	/* read PLL status to clear the POR bit */
 	wbuf[0] = JDVBT90502_2ND_I2C_REG;
-	wbuf[1] = (FRIIO_PLL_ADDR << 1) + 1;	
+	wbuf[1] = (FRIIO_PLL_ADDR << 1) + 1;	/* +1 for reading */
 	ret = gl861_i2c_msg(d, FRIIO_DEMOD_ADDR, wbuf, 2, NULL, 0);
 	if (ret < 0)
 		goto error;
 
 	msleep(5);
-	
+	/* note: DEMODULATOR has 16bit register-address. */
 	wbuf[0] = 0x00;
-	wbuf[2] = 0x01;		
-	wbuf[1] = 0x00;		
+	wbuf[2] = 0x01;		/* reg addr: 0x0100 */
+	wbuf[1] = 0x00;		/* val: not used */
 	ret = gl861_i2c_msg(d, FRIIO_DEMOD_ADDR, wbuf, 3, rbuf, 1);
 	if (ret < 0)
 		goto error;
-	if (rbuf[0] & 0x80) {	
+/*
+	msleep(1);
+	wbuf[0] = 0x80;
+	wbuf[1] = 0x00;
+	ret = gl861_i2c_msg(d, FRIIO_DEMOD_ADDR, wbuf, 2, rbuf, 1);
+	if (ret < 0)
+		goto error;
+ */
+	if (rbuf[0] & 0x80) {	/* still in PowerOnReset state? */
 		if (++retry > 3) {
 			deb_info("failed to get the correct"
 				 " FE demod status:0x%02x\n", rbuf[0]);
@@ -299,8 +328,8 @@ restart:
 		goto restart;
 	}
 
-	
-	
+	/* TODO: check return value in rbuf */
+	/* =========== end DEMOD init cmds ===================== */
 	msleep(1);
 
 	wbuf[0] = 0x30;
@@ -310,7 +339,7 @@ restart:
 		goto error;
 
 	msleep(2);
-	
+	/* following 2 cmds unnecessary? */
 	wbuf[0] = 0x00;
 	wbuf[1] = 0x01;
 	ret = gl861_i2c_msg(d, 0x00, wbuf, 2, NULL, 0);
@@ -323,7 +352,7 @@ restart:
 	if (ret < 0)
 		goto error;
 
-	
+	/* some streaming ctl cmds (maybe) */
 	msleep(10);
 	for (i = 0; i < cmdlen; i++) {
 		ret = gl861_i2c_msg(d, 0x00, streaming_init_cmds[i], 2,
@@ -334,7 +363,7 @@ restart:
 	}
 	msleep(20);
 
-	
+	/* change the LED color etc. */
 	ret = friio_streaming_ctrl(&d->adapter[0], 0);
 	if (ret < 0)
 		goto error;
@@ -348,6 +377,7 @@ error:
 	return -EIO;
 }
 
+/* Callbacks for DVB USB */
 
 static int friio_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 {
@@ -355,7 +385,7 @@ static int friio_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 
 	deb_info("%s called.(%d)\n", __func__, onoff);
 
-	
+	/* set the LED color and saturation (and LNB on) */
 	if (onoff)
 		ret = friio_ext_ctl(adap, 0x6400ff64, 1);
 	else
@@ -380,6 +410,7 @@ static int friio_frontend_attach(struct dvb_usb_adapter *adap)
 	return 0;
 }
 
+/* DVB USB Driver stuff */
 static struct dvb_usb_device_properties friio_properties;
 
 static int friio_probe(struct usb_interface *intf,
@@ -426,7 +457,7 @@ static struct i2c_algorithm gl861_i2c_algo = {
 
 static struct usb_device_id friio_table[] = {
 	{ USB_DEVICE(USB_VID_774, USB_PID_FRIIO_WHITE) },
-	{ }		
+	{ }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, friio_table);
 
@@ -439,8 +470,8 @@ static struct dvb_usb_device_properties friio_properties = {
 
 	.num_adapters = 1,
 	.adapter = {
-		
-		
+		/* caps:0 =>  no pid filter, 188B TS packet */
+		/* GL861 has a HW pid filter, but no info available. */
 		{
 		.num_frontends = 1,
 		.fe = {{
@@ -451,11 +482,11 @@ static struct dvb_usb_device_properties friio_properties = {
 
 			.stream = {
 				.type = USB_BULK,
-				
+				/* count <= MAX_NO_URBS_FOR_DATA_STREAM(10) */
 				.count = 8,
 				.endpoint = 0x01,
 				.u = {
-					
+					/* GL861 has 6KB buf inside */
 					.bulk = {
 						.buffersize = 16384,
 					}

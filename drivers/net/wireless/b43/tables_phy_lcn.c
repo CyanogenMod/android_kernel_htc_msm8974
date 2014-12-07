@@ -35,6 +35,9 @@ struct b43_lcntab_tx_gain_tbl_entry {
 	u8 bb_mult;
 };
 
+/**************************************************
+ * Static tables.
+ **************************************************/
 
 static const u16 b43_lcntab_0x02[] = {
 	0x014d, 0x014d, 0x014d, 0x014d, 0x014d, 0x014d,
@@ -306,6 +309,9 @@ static const u32 b43_lcntab_0x18[] = {
 	0x00080000, 0x00080000, 0x00080000, 0x00080000,
 };
 
+/**************************************************
+ * TX gain.
+ **************************************************/
 
 const struct b43_lcntab_tx_gain_tbl_entry
 	b43_lcntab_tx_gain_tbl_2ghz_ext_pa_rev0[B43_LCNTAB_TX_GAIN_SIZE] = {
@@ -439,6 +445,9 @@ const struct b43_lcntab_tx_gain_tbl_entry
 	{ 0x03, 0x00, 0x01, 0x0, 0x39 },
 };
 
+/**************************************************
+ * SW control.
+ **************************************************/
 
 const u16 b43_lcntab_sw_ctl_4313_epa_rev0[] = {
 	0x0002, 0x0008, 0x0004, 0x0001, 0x0002, 0x0008,
@@ -454,6 +463,9 @@ const u16 b43_lcntab_sw_ctl_4313_epa_rev0[] = {
 	0x0002, 0x0008, 0x0004, 0x0001,
 };
 
+/**************************************************
+ * R/W ops.
+ **************************************************/
 
 u32 b43_lcntab_read(struct b43_wldev *dev, u32 offset)
 {
@@ -594,6 +606,9 @@ void b43_lcntab_write_bulk(struct b43_wldev *dev, u32 offset,
 	}
 }
 
+/**************************************************
+ * Tables ops.
+ **************************************************/
 
 #define lcntab_upload(dev, offset, data) do { \
 		b43_lcntab_write_bulk(dev, offset, ARRAY_SIZE(data), data); \
@@ -633,7 +648,7 @@ void b43_phy_lcn_load_tx_gain_tab(struct b43_wldev *dev,
 			gain_table[i].gm);
 		b43_lcntab_write(dev, B43_LCNTAB32(0x7, 0xc0 + i), val);
 
-		
+		/* brcmsmac doesn't maskset, we follow newer wl here */
 		val = b43_lcntab_read(dev, B43_LCNTAB32(0x7, 0x140 + i));
 		val &= 0x000fffff;
 		val |= ((gain_table[i].dac << 28) |
@@ -642,6 +657,7 @@ void b43_phy_lcn_load_tx_gain_tab(struct b43_wldev *dev,
 	}
 }
 
+/* wlc_lcnphy_load_rfpower */
 static void b43_phy_lcn_load_rfpower(struct b43_wldev *dev)
 {
 	u32 bbmult, rfgain;
@@ -652,9 +668,13 @@ static void b43_phy_lcn_load_rfpower(struct b43_wldev *dev)
 		bbmult >>= 20;
 		rfgain = b43_lcntab_read(dev, B43_LCNTAB32(0x7, 0xc0 + i));
 
+		/* TODO: calculate value for 0x240 + i table offset
+		 * b43_lcntab_write(dev, B43_LCNTAB32(0x7, 0x240 + i), val);
+		 */
 	}
 }
 
+/* Not implemented in brcmsmac, noticed in wl in MMIO dump */
 static void b43_phy_lcn_rewrite_rfpower_table(struct b43_wldev *dev)
 {
 	int i;
@@ -665,6 +685,7 @@ static void b43_phy_lcn_rewrite_rfpower_table(struct b43_wldev *dev)
 	}
 }
 
+/* wlc_lcnphy_clear_papd_comptable */
 static void b43_phy_lcn_clean_papd_comp_table(struct b43_wldev *dev)
 {
 	u8 i;
@@ -673,6 +694,7 @@ static void b43_phy_lcn_clean_papd_comp_table(struct b43_wldev *dev)
 		b43_lcntab_write(dev, B43_LCNTAB32(0x18, i), 0x80000);
 }
 
+/* wlc_lcnphy_tbl_init */
 void b43_phy_lcn_tables_init(struct b43_wldev *dev)
 {
 	struct ssb_sprom *sprom = dev->dev->bus_sprom;

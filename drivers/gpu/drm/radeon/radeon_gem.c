@@ -55,7 +55,7 @@ int radeon_gem_object_create(struct radeon_device *rdev, int size,
 	int r;
 
 	*obj = NULL;
-	
+	/* At least align on page size */
 	if (alignment < PAGE_SIZE) {
 		alignment = PAGE_SIZE;
 	}
@@ -82,20 +82,20 @@ int radeon_gem_set_domain(struct drm_gem_object *gobj,
 	uint32_t domain;
 	int r;
 
-	
+	/* FIXME: reeimplement */
 	robj = gem_to_radeon_bo(gobj);
-	
+	/* work out where to validate the buffer to */
 	domain = wdomain;
 	if (!domain) {
 		domain = rdomain;
 	}
 	if (!domain) {
-		
+		/* Do nothings */
 		printk(KERN_WARNING "Set domain withou domain !\n");
 		return 0;
 	}
 	if (domain == RADEON_GEM_DOMAIN_CPU) {
-		
+		/* Asking for cpu access wait for object idle */
 		r = radeon_bo_wait(robj, NULL, false);
 		if (r) {
 			printk(KERN_ERR "Failed to wait for object !\n");
@@ -116,6 +116,10 @@ void radeon_gem_fini(struct radeon_device *rdev)
 	radeon_bo_force_delete(rdev);
 }
 
+/*
+ * Call from drm_gem_handle_create which appear in both new and open ioctl
+ * case.
+ */
 int radeon_gem_object_open(struct drm_gem_object *obj, struct drm_file *file_priv)
 {
 	return 0;
@@ -139,7 +143,7 @@ void radeon_gem_object_close(struct drm_gem_object *obj,
 	}
 	list_for_each_entry_safe(bo_va, tmp, &rbo->va, bo_list) {
 		if (bo_va->vm == vm) {
-			
+			/* remove from this vm address space */
 			mutex_lock(&vm->mutex);
 			list_del(&bo_va->vm_list);
 			mutex_unlock(&vm->mutex);
@@ -151,6 +155,9 @@ void radeon_gem_object_close(struct drm_gem_object *obj,
 }
 
 
+/*
+ * GEM ioctls.
+ */
 int radeon_gem_info_ioctl(struct drm_device *dev, void *data,
 			  struct drm_file *filp)
 {
@@ -175,7 +182,7 @@ int radeon_gem_info_ioctl(struct drm_device *dev, void *data,
 int radeon_gem_pread_ioctl(struct drm_device *dev, void *data,
 			   struct drm_file *filp)
 {
-	
+	/* TODO: implement */
 	DRM_ERROR("unimplemented %s\n", __func__);
 	return -ENOSYS;
 }
@@ -183,7 +190,7 @@ int radeon_gem_pread_ioctl(struct drm_device *dev, void *data,
 int radeon_gem_pwrite_ioctl(struct drm_device *dev, void *data,
 			    struct drm_file *filp)
 {
-	
+	/* TODO: implement */
 	DRM_ERROR("unimplemented %s\n", __func__);
 	return -ENOSYS;
 }
@@ -197,7 +204,7 @@ int radeon_gem_create_ioctl(struct drm_device *dev, void *data,
 	uint32_t handle;
 	int r;
 
-	
+	/* create a gem object to contain this object in */
 	args->size = roundup(args->size, PAGE_SIZE);
 	r = radeon_gem_object_create(rdev, args->size, args->alignment,
 					args->initial_domain, false,
@@ -206,7 +213,7 @@ int radeon_gem_create_ioctl(struct drm_device *dev, void *data,
 		return r;
 	}
 	r = drm_gem_handle_create(filp, gobj, &handle);
-	
+	/* drop reference from allocate - handle holds it now */
 	drm_gem_object_unreference_unlocked(gobj);
 	if (r) {
 		return r;
@@ -218,13 +225,17 @@ int radeon_gem_create_ioctl(struct drm_device *dev, void *data,
 int radeon_gem_set_domain_ioctl(struct drm_device *dev, void *data,
 				struct drm_file *filp)
 {
+	/* transition the BO to a domain -
+	 * just validate the BO into a certain domain */
 	struct drm_radeon_gem_set_domain *args = data;
 	struct drm_gem_object *gobj;
 	struct radeon_bo *robj;
 	int r;
 
+	/* for now if someone requests domain CPU -
+	 * just make sure the buffer is finished with */
 
-	
+	/* just do a BO wait for now */
 	gobj = drm_gem_object_lookup(dev, filp, args->handle);
 	if (gobj == NULL) {
 		return -ENOENT;
@@ -307,7 +318,7 @@ int radeon_gem_wait_idle_ioctl(struct drm_device *dev, void *data,
 	}
 	robj = gem_to_radeon_bo(gobj);
 	r = radeon_bo_wait(robj, NULL, false);
-	
+	/* callback hw specific functions if any */
 	if (robj->rdev->asic->ioctl_wait_idle)
 		robj->rdev->asic->ioctl_wait_idle(robj->rdev, robj);
 	drm_gem_object_unreference_unlocked(gobj);
@@ -372,6 +383,11 @@ int radeon_gem_va_ioctl(struct drm_device *dev, void *data,
 		return -ENOTTY;
 	}
 
+	/* !! DONT REMOVE !!
+	 * We don't support vm_id yet, to be sure we don't have have broken
+	 * userspace, reject anyone trying to use non 0 value thus moving
+	 * forward we can use those fields without breaking existant userspace
+	 */
 	if (args->vm_id) {
 		args->operation = RADEON_VA_RESULT_ERROR;
 		return -EINVAL;
@@ -386,6 +402,10 @@ int radeon_gem_va_ioctl(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
+	/* don't remove, we need to enforce userspace to set the snooped flag
+	 * otherwise we will endup with broken userspace and we won't be able
+	 * to enable this feature without adding new interface
+	 */
 	invalid_flags = RADEON_VM_PAGE_VALID | RADEON_VM_PAGE_SYSTEM;
 	if ((args->flags & invalid_flags)) {
 		dev_err(&dev->pdev->dev, "invalid flags 0x%08X vs 0x%08X\n",
@@ -470,7 +490,7 @@ int radeon_mode_dumb_create(struct drm_file *file_priv,
 		return -ENOMEM;
 
 	r = drm_gem_handle_create(file_priv, gobj, &handle);
-	
+	/* drop reference from allocate - handle holds it now */
 	drm_gem_object_unreference_unlocked(gobj);
 	if (r) {
 		return r;

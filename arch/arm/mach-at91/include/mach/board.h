@@ -18,6 +18,15 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+/*
+ * These are data structures found in platform_device.dev.platform_data,
+ * and describing board-specific data needed by drivers.  For example,
+ * which pin is used for a given GPIO role.
+ *
+ * In 2.6, drivers should strongly avoid board-specific knowledge so
+ * that supporting new boards normally won't require driver patches.
+ * Most board-specific knowledge should be in arch/.../board-*.c files.
+ */
 
 #ifndef __ASM_ARCH_BOARD_H
 #define __ASM_ARCH_BOARD_H
@@ -34,54 +43,54 @@
 #include <linux/platform_data/macb.h>
 #include <linux/platform_data/atmel.h>
 
- 
+ /* USB Device */
 struct at91_udc_data {
-	int	vbus_pin;		
-	u8	vbus_active_low;	
-	u8	vbus_polled;		
-	int	pullup_pin;		
-	u8	pullup_active_low;	
+	int	vbus_pin;		/* high == host powering us */
+	u8	vbus_active_low;	/* vbus polarity */
+	u8	vbus_polled;		/* Use polling, not interrupt */
+	int	pullup_pin;		/* active == D+ pulled up */
+	u8	pullup_active_low;	/* true == pullup_pin is active low */
 };
 extern void __init at91_add_device_udc(struct at91_udc_data *data);
 
- 
+ /* USB High Speed Device */
 extern void __init at91_add_device_usba(struct usba_platform_data *data);
 
- 
+ /* Compact Flash */
 struct at91_cf_data {
-	int	irq_pin;		
-	int	det_pin;		
-	int	vcc_pin;		
-	int	rst_pin;		
-	u8	chipselect;		
+	int	irq_pin;		/* I/O IRQ */
+	int	det_pin;		/* Card detect */
+	int	vcc_pin;		/* power switching */
+	int	rst_pin;		/* card reset */
+	u8	chipselect;		/* EBI Chip Select number */
 	u8	flags;
 #define AT91_CF_TRUE_IDE	0x01
 #define AT91_IDE_SWAP_A0_A2	0x02
 };
 extern void __init at91_add_device_cf(struct at91_cf_data *data);
 
- 
-  
+ /* MMC / SD */
+  /* at91_mci platform config */
 struct at91_mmc_data {
-	int		det_pin;	
-	unsigned	slot_b:1;	
-	unsigned	wire4:1;	
-	int		wp_pin;		
-	int		vcc_pin;	
+	int		det_pin;	/* card detect IRQ */
+	unsigned	slot_b:1;	/* uses Slot B */
+	unsigned	wire4:1;	/* (SD) supports DAT0..DAT3 */
+	int		wp_pin;		/* (SD) writeprotect detect */
+	int		vcc_pin;	/* power switching (high == on) */
 };
 extern void __init at91_add_device_mmc(short mmc_id, struct at91_mmc_data *data);
 
-  
+  /* atmel-mci platform config */
 extern void __init at91_add_device_mci(short mmc_id, struct mci_platform_data *data);
 
 extern void __init at91_add_device_eth(struct macb_platform_data *data);
 
- 
+ /* USB Host */
 #define AT91_MAX_USBH_PORTS	3
 struct at91_usbh_data {
-	int		vbus_pin[AT91_MAX_USBH_PORTS];	
+	int		vbus_pin[AT91_MAX_USBH_PORTS];	/* port power-control pin */
 	int             overcurrent_pin[AT91_MAX_USBH_PORTS];
-	u8		ports;				
+	u8		ports;				/* number of ports on root hub */
 	u8              overcurrent_supported;
 	u8              vbus_pin_active_low[AT91_MAX_USBH_PORTS];
 	u8              overcurrent_status[AT91_MAX_USBH_PORTS];
@@ -93,17 +102,17 @@ extern void __init at91_add_device_usbh_ehci(struct at91_usbh_data *data);
 
 extern void __init at91_add_device_nand(struct atmel_nand_data *data);
 
- 
+ /* I2C*/
 #if defined(CONFIG_ARCH_AT91SAM9G45)
 extern void __init at91_add_device_i2c(short i2c_id, struct i2c_board_info *devices, int nr_devices);
 #else
 extern void __init at91_add_device_i2c(struct i2c_board_info *devices, int nr_devices);
 #endif
 
- 
+ /* SPI */
 extern void __init at91_add_device_spi(struct spi_board_info *devices, int nr_devices);
 
- 
+ /* Serial */
 #define ATMEL_UART_CTS	0x01
 #define ATMEL_UART_RTS	0x02
 #define ATMEL_UART_DSR	0x04
@@ -117,14 +126,17 @@ extern void __init at91_set_serial_console(unsigned portnr);
 extern struct platform_device *atmel_default_console_device;
 
 struct atmel_uart_data {
-	int			num;		
-	short			use_dma_tx;	
-	short			use_dma_rx;	
-	void __iomem		*regs;		
-	struct serial_rs485	rs485;		
+	int			num;		/* port num */
+	short			use_dma_tx;	/* use transmit DMA? */
+	short			use_dma_rx;	/* use receive DMA? */
+	void __iomem		*regs;		/* virt. base address, if any */
+	struct serial_rs485	rs485;		/* rs485 settings */
 };
 extern void __init at91_add_device_serial(void);
 
+/*
+ * PWM
+ */
 #define AT91_PWM0	0
 #define AT91_PWM1	1
 #define AT91_PWM2	2
@@ -132,6 +144,11 @@ extern void __init at91_add_device_serial(void);
 
 extern void __init at91_add_device_pwm(u32 mask);
 
+/*
+ * SSC -- accessed through ssc_request(id).  Drivers don't bind to SSC
+ * platform devices.  Their SSC ID is part of their configuration data,
+ * along with information about which SSC signals they should use.
+ */
 #define ATMEL_SSC_TK	0x01
 #define ATMEL_SSC_TF	0x02
 #define ATMEL_SSC_TD	0x04
@@ -144,19 +161,19 @@ extern void __init at91_add_device_pwm(u32 mask);
 
 extern void __init at91_add_device_ssc(unsigned id, unsigned pins);
 
- 
+ /* LCD Controller */
 struct atmel_lcdfb_info;
 extern void __init at91_add_device_lcdc(struct atmel_lcdfb_info *data);
 
- 
+ /* AC97 */
 extern void __init at91_add_device_ac97(struct ac97c_platform_data *data);
 
- 
+ /* ISI */
 struct isi_platform_data;
 extern void __init at91_add_device_isi(struct isi_platform_data *data,
 		bool use_pck_as_mck);
 
- 
+ /* Touchscreen Controller */
 struct at91_tsadcc_data {
 	unsigned int    adc_clock;
 	u8		pendet_debounce;
@@ -164,16 +181,18 @@ struct at91_tsadcc_data {
 };
 extern void __init at91_add_device_tsadcc(struct at91_tsadcc_data *data);
 
+/* CAN */
 struct at91_can_data {
 	void (*transceiver_switch)(int on);
 };
 extern void __init at91_add_device_can(struct at91_can_data *data);
 
- 
+ /* LEDs */
 extern void __init at91_init_leds(u8 cpu_led, u8 timer_led);
 extern void __init at91_gpio_leds(struct gpio_led *leds, int nr);
 extern void __init at91_pwm_leds(struct gpio_led *leds, int nr);
 
+/* FIXME: this needs a better location, but gets stuff building again */
 extern int at91_suspend_entering_slow_clock(void);
 
 #endif

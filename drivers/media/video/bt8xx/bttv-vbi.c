@@ -35,10 +35,25 @@
 #include <asm/io.h>
 #include "bttvp.h"
 
+/* Offset from line sync pulse leading edge (0H) to start of VBI capture,
+   in fCLKx2 pixels.  According to the datasheet, VBI capture starts
+   VBI_HDELAY fCLKx1 pixels from the tailing edgeof /HRESET, and /HRESET
+   is 64 fCLKx1 pixels wide.  VBI_HDELAY is set to 0, so this should be
+   (64 + 0) * 2 = 128 fCLKx2 pixels.  But it's not!  The datasheet is
+   Just Plain Wrong.  The real value appears to be different for
+   different revisions of the bt8x8 chips, and to be affected by the
+   horizontal scaling factor.  Experimentally, the value is measured
+   to be about 244.  */
 #define VBI_OFFSET 244
 
+/* 2048 for compatibility with earlier driver versions. The driver
+   really stores 1024 + tvnorm->vbipack * 4 samples per line in the
+   buffer. Note tvnorm->vbipack is <= 0xFF (limit of VBIPACK_LO + HI
+   is 0x1FF DWORDs) and VBI read()s store a frame counter in the last
+   four bytes of the VBI image. */
 #define VBI_BPL 2048
 
+/* Compatibility. */
 #define VBI_DEFLINES 16
 
 static unsigned int vbibufs = 4;
@@ -61,6 +76,8 @@ do {									\
 #define IMAGE_SIZE(fmt) \
 	(((fmt)->count[0] + (fmt)->count[1]) * (fmt)->samples_per_line)
 
+/* ----------------------------------------------------------------------- */
+/* vbi risc code + mm                                                      */
 
 static int vbi_buffer_setup(struct videobuf_queue *q,
 			    unsigned int *count, unsigned int *size)
@@ -101,6 +118,12 @@ static int vbi_buffer_prepare(struct videobuf_queue *q,
 
 	tvnorm = fh->vbi_fmt.tvnorm;
 
+	/* There's no VBI_VDELAY register, RISC must skip the lines
+	   we don't want. With default parameters we skip zero lines
+	   as earlier driver versions did. The driver permits video
+	   standard changes while capturing, so we use vbi_fmt.tvnorm
+	   instead of btv->tvnorm to skip zero lines after video
+	   standard changes as well. */
 
 	skip_lines0 = 0;
 	skip_lines1 = 0;
@@ -135,13 +158,13 @@ static int vbi_buffer_prepare(struct videobuf_queue *q,
 		unsigned int bpl, padding, offset;
 		struct videobuf_dmabuf *dma=videobuf_to_dma(&buf->vb);
 
-		bpl = 2044; 
+		bpl = 2044; /* max. vbipack */
 		padding = VBI_BPL - bpl;
 
 		if (fh->vbi_fmt.fmt.count[0] > 0) {
 			rc = bttv_risc_packed(btv, &buf->top,
 					      dma->sglist,
-					       0, bpl,
+					      /* offset */ 0, bpl,
 					      padding, skip_lines0,
 					      fh->vbi_fmt.fmt.count[0]);
 			if (0 != rc)
@@ -161,11 +184,15 @@ static int vbi_buffer_prepare(struct videobuf_queue *q,
 		}
 	}
 
+	/* VBI capturing ends at VDELAY, start of video capturing,
+	   no matter where the RISC program ends. VDELAY minimum is 2,
+	   bounds.top is the corresponding first field line number
+	   times two. VDELAY counts half field lines. */
 	min_vdelay = MIN_VDELAY;
 	if (fh->vbi_fmt.end >= tvnorm->cropcap.bounds.top)
 		min_vdelay += fh->vbi_fmt.end - tvnorm->cropcap.bounds.top;
 
-	
+	/* For bttv_buffer_activate_vbi(). */
 	buf->geo.vdelay = min_vdelay;
 
 	buf->vb.state = VIDEOBUF_PREPARED;
@@ -213,6 +240,7 @@ struct videobuf_queue_ops bttv_vbi_qops = {
 	.buf_release  = vbi_buffer_release,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int try_fmt(struct v4l2_vbi_format *f, const struct bttv_tvnorm *tvnorm,
 			__s32 crop_start)
@@ -220,6 +248,12 @@ static int try_fmt(struct v4l2_vbi_format *f, const struct bttv_tvnorm *tvnorm,
 	__s32 min_start, max_start, max_end, f2_offset;
 	unsigned int i;
 
+	/* For compatibility with earlier driver versions we must pretend
+	   the VBI and video capture window may overlap. In reality RISC
+	   magic aborts VBI capturing at the first line of video capturing,
+	   leaving the rest of the buffer unchanged, usually all zero.
+	   VBI capturing must always start before video capturing. >> 1
+	   because cropping counts field lines times two. */
 	min_start = tvnorm->vbistart[0];
 	max_start = (crop_start >> 1) - 1;
 	max_end = (tvnorm->cropcap.bounds.top
@@ -239,11 +273,15 @@ static int try_fmt(struct v4l2_vbi_format *f, const struct bttv_tvnorm *tvnorm,
 
 	for (i = 0; i < 2; ++i) {
 		if (0 == f->count[i]) {
+			/* No data from this field. We leave f->start[i]
+			   alone because VIDIOCSVBIFMT is w/o and EINVALs
+			   when a driver does not support exactly the
+			   requested parameters. */
 		} else {
 			s64 start, count;
 
 			start = clamp(f->start[i], min_start, max_start);
-			
+			/* s64 to prevent overflow. */
 			count = (s64) f->start[i] + f->count[i] - start;
 			f->start[i] = start;
 			f->count[i] = clamp(count, (s64) 1,
@@ -256,7 +294,7 @@ static int try_fmt(struct v4l2_vbi_format *f, const struct bttv_tvnorm *tvnorm,
 	}
 
 	if (0 == (f->count[0] | f->count[1])) {
-		
+		/* As in earlier driver versions. */
 		f->start[0] = tvnorm->vbistart[0];
 		f->start[1] = tvnorm->vbistart[1];
 		f->count[0] = 1;
@@ -312,6 +350,12 @@ int bttv_s_fmt_vbi_cap(struct file *file, void *f, struct v4l2_format *frt)
 	start1 = frt->fmt.vbi.start[1] - tvnorm->vbistart[1] +
 		tvnorm->vbistart[0];
 
+	/* First possible line of video capturing. Should be
+	   max(f->start[0] + f->count[0], start1 + f->count[1]) * 2
+	   when capturing both fields. But for compatibility we must
+	   pretend the VBI and video capture window may overlap,
+	   so end = start + 1, the lowest possible value, times two
+	   because vbi_fmt.end counts field lines times two. */
 	end = max(frt->fmt.vbi.start[0], start1) * 2 + 2;
 
 	mutex_lock(&fh->vbi.vb_lock);
@@ -344,6 +388,9 @@ int bttv_g_fmt_vbi_cap(struct file *file, void *f, struct v4l2_format *frt)
 		__s32 max_end;
 		unsigned int i;
 
+		/* As in vbi_buffer_prepare() this imitates the
+		   behaviour of earlier driver versions after video
+		   standard changes, with default parameters anyway. */
 
 		max_end = (tvnorm->cropcap.bounds.top
 			   + tvnorm->cropcap.bounds.height) >> 1;
@@ -389,6 +436,8 @@ void bttv_vbi_fmt_reset(struct bttv_vbi_fmt *f, unsigned int norm)
 	f->fmt.reserved[0]      = 0;
 	f->fmt.reserved[1]      = 0;
 
+	/* For compatibility the buffer size must be 2 * VBI_DEFLINES *
+	   VBI_BPL regardless of the current video standard. */
 	real_samples_per_line   = 1024 + tvnorm->vbipack * 4;
 	real_count              = ((tvnorm->cropcap.defrect.top >> 1)
 				   - tvnorm->vbistart[0]);
@@ -398,7 +447,13 @@ void bttv_vbi_fmt_reset(struct bttv_vbi_fmt *f, unsigned int norm)
 
 	f->tvnorm               = tvnorm;
 
-	
+	/* See bttv_vbi_fmt_set(). */
 	f->end                  = tvnorm->vbistart[0] * 2 + 2;
 }
 
+/* ----------------------------------------------------------------------- */
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

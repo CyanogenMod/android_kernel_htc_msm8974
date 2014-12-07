@@ -7,7 +7,7 @@
  */
 
 
-#include <asm/io.h>		
+#include <asm/io.h>		/* need byte IO */
 
 extern unsigned long MAX_DMA_ADDRESS;
 
@@ -21,4 +21,4 @@ extern unsigned long MAX_DMA_ADDRESS;
 
 void dma_mark_clean(void *addr, size_t size);
 
-#endif 
+#endif /* _ASM_IA64_DMA_H */

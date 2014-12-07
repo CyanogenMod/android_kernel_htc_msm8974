@@ -22,7 +22,7 @@
 #include <mach/qdsp6v2/apr_us_a.h>
 #include "q6usm.h"
 
-#define SESSION_MAX 0x02 
+#define SESSION_MAX 0x02 /* aDSP:USM limit */
 
 #define READDONE_IDX_STATUS     0
 #define READDONE_IDX_BUFFER     1
@@ -36,7 +36,8 @@
 
 #define WRITEDONE_IDX_STATUS    0
 
-#define Q6USM_TIMEOUT_JIFFIES	(1*HZ) 
+/* Standard timeout in the asynchronous ops */
+#define Q6USM_TIMEOUT_JIFFIES	(1*HZ) /* 1 sec */
 
 static DEFINE_MUTEX(session_lock);
 
@@ -154,7 +155,7 @@ static int q6usm_session_alloc(struct us_client *usc)
 		if (!session[ind]) {
 			session[ind] = usc;
 			mutex_unlock(&session_lock);
-			++ind; 
+			++ind; /* session id: 0 reserved */
 			pr_debug("%s: session[%d] was allocated\n",
 				  __func__, ind);
 			return ind;
@@ -166,7 +167,7 @@ static int q6usm_session_alloc(struct us_client *usc)
 
 static void q6usm_session_free(struct us_client *usc)
 {
-	
+	/* Session index was incremented during allocation */
 	uint16_t ind = (uint16_t)usc->session - 1;
 
 	pr_debug("%s: to free session[%d]\n", __func__, ind);
@@ -370,7 +371,7 @@ static int32_t q6usm_mmapcallback(struct apr_client_data *data, void *priv)
 		 data->src_port, data->dest_port);
 
 	if (data->opcode == APR_BASIC_RSP_RESULT) {
-		
+		/* status field check */
 		if (payload[1]) {
 			pr_err("%s: wrong response[%d] on cmd [%d]\n",
 			       __func__, payload[1], payload[0]);
@@ -411,7 +412,7 @@ static int32_t q6usm_callback(struct apr_client_data *data, void *priv)
 	}
 
 	if (data->opcode == APR_BASIC_RSP_RESULT) {
-		
+		/* status field check */
 		if (payload[1]) {
 			pr_err("%s: wrong response[%d] on cmd [%d]\n",
 			       __func__, payload[1], payload[0]);
@@ -473,27 +474,27 @@ static int32_t q6usm_callback(struct apr_client_data *data, void *priv)
 				__func__,   port->dsp_buf, cpu_buf);
 
 			token = USM_WRONG_TOKEN;
-			
+			/* To prevent data handle continiue */
 			port->expected_token = USM_WRONG_TOKEN;
 			spin_unlock_irqrestore(&port->dsp_lock,
 					       dsp_flags);
 			break;
-		} 
+		} /* port->expected_token != data->token */
 
 		port->expected_token = token + 1;
 		if (port->expected_token == port->buf_cnt)
 			port->expected_token = 0;
 
-		
+		/* gap support */
 		if (port->expected_token != port->cpu_buf) {
 			port->dsp_buf = port->expected_token;
-			token = port->dsp_buf; 
+			token = port->dsp_buf; /* for callback */
 		} else
 			port->dsp_buf = token;
 
 		spin_unlock_irqrestore(&port->dsp_lock, dsp_flags);
 		break;
-	} 
+	} /* case USM_DATA_EVENT_READ_DONE */
 
 	case USM_DATA_EVENT_WRITE_DONE: {
 		struct us_port_data *port = &usc->port[IN];
@@ -513,7 +514,7 @@ static int32_t q6usm_callback(struct apr_client_data *data, void *priv)
 		spin_unlock_irqrestore(&port->dsp_lock, dsp_flags);
 
 		break;
-	} 
+	} /* case USM_DATA_EVENT_WRITE_DONE */
 
 	case USM_SESSION_EVENT_SIGNAL_DETECT_RESULT: {
 		pr_debug("%s: US detect result: result=%d",
@@ -522,12 +523,12 @@ static int32_t q6usm_callback(struct apr_client_data *data, void *priv)
 		opcode = Q6USM_EVENT_SIGNAL_DETECT_RESULT;
 
 		break;
-	} 
+	} /* case USM_SESSION_EVENT_SIGNAL_DETECT_RESULT */
 
 	default:
 		return 0;
 
-	} 
+	} /* switch */
 
 	if (usc->cb)
 		usc->cb(opcode, token,
@@ -610,8 +611,8 @@ int q6usm_open_read(struct us_client *usc,
 
 	q6usm_add_hdr(usc, &open.hdr, sizeof(open), true);
 	open.hdr.opcode = USM_STREAM_CMD_OPEN_READ;
-	open.src_endpoint = 0; 
-	open.pre_proc_top = 0; 
+	open.src_endpoint = 0; /* AFE */
+	open.pre_proc_top = 0; /* No preprocessing required */
 
 	int_format = q6usm_ext2int_format(format);
 	if (int_format == INVALID_FORMAT)
@@ -665,12 +666,12 @@ int q6usm_enc_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg)
 		return -EINVAL;
 	}
 
-	
-	
+	/* Transparent configuration data is after enc_cfg */
+	/* Integer number of u32s is requred */
 	round_params_size = ((us_cfg->params_size + 3)/4) * 4;
 	if (round_params_size > USM_MAX_CFG_DATA_SIZE) {
-		
-		
+		/* Dynamic allocated encdec_cfg_blk is required */
+		/* static part use */
 		round_params_size -= USM_MAX_CFG_DATA_SIZE;
 		total_cfg_size += round_params_size;
 		enc_cfg = kzalloc(total_cfg_size, GFP_KERNEL);
@@ -698,7 +699,7 @@ int q6usm_enc_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg)
 				    round_params_size;
 	memcpy(&(enc_cfg->enc_blk.cfg_common), &(us_cfg->cfg_common),
 	       min_common_size);
-	
+	/* Transparent data copy */
 	memcpy(enc_cfg->enc_blk.transp_data, us_cfg->params,
 	       us_cfg->params_size);
 	pr_debug("%s: cfg_size[%d], params_size[%d]\n",
@@ -775,12 +776,12 @@ int q6usm_dec_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg)
 		return -EINVAL;
 	}
 
-	
-	
+	/* Transparent configuration data is after enc_cfg */
+	/* Integer number of u32s is requred */
 	round_params_size = ((us_cfg->params_size + 3)/4) * 4;
 	if (round_params_size > USM_MAX_CFG_DATA_SIZE) {
-		
-		
+		/* Dynamic allocated encdec_cfg_blk is required */
+		/* static part use */
 		round_params_size -= USM_MAX_CFG_DATA_SIZE;
 		total_cfg_size += round_params_size;
 		dec_cfg = kzalloc(total_cfg_size, GFP_KERNEL);
@@ -790,7 +791,7 @@ int q6usm_dec_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg)
 			return -ENOMEM;
 		}
 		is_allocated = 1;
-	} else { 
+	} else { /* static transp_data is enough */
 		round_params_size = 0;
 	}
 
@@ -805,7 +806,7 @@ int q6usm_dec_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg)
 			    round_params_size;
 	memcpy(&(dec_cfg->cfg_common), &(us_cfg->cfg_common),
 	       min_common_size);
-	
+	/* Transparent data copy */
 	memcpy(dec_cfg->transp_data, us_cfg->params, us_cfg->params_size);
 	pr_debug("%s: cfg_size[%d], params_size[%d]; parambytes[%d,%d,%d,%d]\n",
 		__func__,
@@ -949,9 +950,9 @@ int q6usm_read(struct us_client *usc, uint32_t read_ind)
 		return 0;
 	}
 
-	if (read_ind > port->cpu_buf) { 
+	if (read_ind > port->cpu_buf) { /* 1 range */
 		read_counter = read_ind - port->cpu_buf;
-	} else { 
+	} else { /* 2 ranges */
 		read_counter = (port->buf_cnt - port->cpu_buf) + read_ind;
 	}
 
@@ -983,7 +984,7 @@ int q6usm_read(struct us_client *usc, uint32_t read_ind)
 			break;
 		} else
 			rc = 0;
-	} 
+	} /* bufs loop */
 
 	return rc;
 }
@@ -1002,10 +1003,10 @@ int q6usm_write(struct us_client *usc, uint32_t write_ind)
 	port = &usc->port[IN];
 
 	current_dsp_buf = port->dsp_buf;
-	
-	
+	/* free region, caused by new dsp_buf report from DSP, */
+	/* can be only extended */
 	if (port->cpu_buf >= current_dsp_buf) {
-		
+		/* 2 -part free region, including empty buffer */
 		if ((write_ind <= port->cpu_buf)  &&
 		    (write_ind > current_dsp_buf)) {
 			pr_err("%s: wrong w_ind[%d]; d_buf=%d; c_buf=%d\n",
@@ -1014,7 +1015,7 @@ int q6usm_write(struct us_client *usc, uint32_t write_ind)
 			return -EINVAL;
 		}
 	} else {
-		
+		/* 1 -part free region */
 		if ((write_ind <= port->cpu_buf)  ||
 		    (write_ind > current_dsp_buf)) {
 			pr_err("%s: wrong w_ind[%d]; d_buf=%d; c_buf=%d\n",

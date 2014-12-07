@@ -29,6 +29,7 @@
 #include "../codecs/wcd9310.h"
 #include <mach/gpiomux.h>
 
+/* 9615 machine driver */
 
 #define PM8018_GPIO_BASE		NR_GPIO_IRQS
 #define PM8018_GPIO_PM_TO_SYS(pm_gpio)  (pm_gpio - 1 + PM8018_GPIO_BASE)
@@ -64,6 +65,9 @@
 #define JACK_DETECT_GPIO 3
 #define JACK_DETECT_INT PM8018_GPIO_IRQ(PM8018_IRQ_BASE, JACK_DETECT_GPIO)
 
+/*
+ * Added for I2S
+ */
 #define GPIO_SPKR_I2S_MCLK	24
 #define GPIO_PRIM_I2S_SCK	20
 #define GPIO_PRIM_I2S_DOUT	23
@@ -86,13 +90,13 @@ static struct gpiomux_setting cdc_i2s_sclk = {
 	.pull = GPIOMUX_PULL_NONE,
 };
 static struct gpiomux_setting audio_sec_i2s[] = {
-	
+	/* Suspend state */
 	{
 		.func = GPIOMUX_FUNC_GPIO,
 		.drv  = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_DOWN,
 	},
-	
+	/* Active state */
 	{
 		.func = GPIOMUX_FUNC_2,
 		.drv  = GPIOMUX_DRV_8MA,
@@ -188,6 +192,10 @@ static struct msm_gpiomux_config msm9615_audio_sec_i2s_codec_configs[] = {
 		},
 	},
 };
+/* Physical address for LPA CSR
+ * LPA SIF mux registers. These are
+ * ioremap( ) for Virtual address.
+ */
 #define LPASS_CSR_BASE	0x28000000
 #define LPA_IF_BASE		0x28100000
 #define SIF_MUX_REG_BASE (LPASS_CSR_BASE + 0x00000000)
@@ -195,28 +203,34 @@ static struct msm_gpiomux_config msm9615_audio_sec_i2s_codec_configs[] = {
 #define LPASS_SIF_MUX_ADDR  (SIF_MUX_REG_BASE + 0x00004000)
 #define LPAIF_SPARE_ADDR (LPA_IF_REG_BASE + 0x00000070)
 #define SEC_PCM_PORT_SLC_ADDR 0x00802074
+/* bits 2:0 should be updated with 100 to select SDC2 */
 #define SEC_PCM_PORT_SLC_VALUE 0x4
+/* SIF & SPARE MUX Values */
 #define MSM_SIF_FUNC_PCM              0
 #define MSM_SIF_FUNC_I2S_MIC        1
 #define MSM_SIF_FUNC_I2S_SPKR      2
 #define MSM_LPAIF_SPARE_DISABLE                 0x0
 #define MSM_LPAIF_SPARE_BOTH_ENABLE     0x3
 
+/* I2S INTF CTL */
 #define MSM_INTF_PRIM        0
 #define MSM_INTF_SECN        1
 #define MSM_INTF_BOTH       2
 
+/* I2S Dir CTL */
 #define MSM_DIR_RX         0
 #define MSM_DIR_TX         1
 #define MSM_DIR_BOTH   2
 #define MSM_DIR_MAX     3
 
+/* I2S HW Params */
 #define NO_OF_BITS_PER_SAMPLE  16
 #define I2S_MIC_SCLK_RATE 1536000
 static int msm9615_i2s_rx_ch = 1;
 static int msm9615_i2s_tx_ch = 1;
 static int msm9615_i2s_spk_control;
 
+/* SIF mux bit mask & shift */
 #define LPASS_SIF_MUX_CTL_PRI_MUX_SEL_BMSK                   0x30000
 #define LPASS_SIF_MUX_CTL_PRI_MUX_SEL_SHFT                      0x10
 #define LPASS_SIF_MUX_CTL_SEC_MUX_SEL_BMSK                       0x3
@@ -252,27 +266,27 @@ struct msm_i2s_ctl {
 	void *spare_virt_addr;
 };
 static struct msm_i2s_ctl msm9x15_i2s_ctl = {
-	{{NULL, NULL, 0}, {NULL, NULL, 0} }, 
-	{{NULL, NULL, 0}, {NULL, NULL, 0} }, 
-	
+	{{NULL, NULL, 0}, {NULL, NULL, 0} }, /* prim_clk */
+	{{NULL, NULL, 0}, {NULL, NULL, 0} }, /* sec_clk */
+	/* mux_ctl */
 	{
-		
+		/* Rx path only */
 		{ MSM_SIF_FUNC_I2S_SPKR, MSM_LPAIF_SPARE_DISABLE },
-		
+		/* Tx path only */
 		{  MSM_SIF_FUNC_I2S_MIC, MSM_LPAIF_SPARE_DISABLE },
-		
+		/* Rx + Tx path only */
 		{ MSM_SIF_FUNC_I2S_SPKR, MSM_LPAIF_SPARE_BOTH_ENABLE },
 	},
-	
+	/* intf_status */
 	{
-		
+		/* Prim I2S */
 		{0, 0},
-		
+		/* Sec I2S */
 		{0, 0}
 	},
-	
+	/* sif_virt_addr */
 	NULL,
-	
+	/* spare_virt_addr */
 	NULL,
 };
 
@@ -281,6 +295,9 @@ enum msm9x15_set_i2s_clk {
 	MSM_I2S_CLK_SET_TRUE,
 	MSM_I2S_CLK_SET_RATE0,
 };
+/*
+ * Added for I2S
+ */
 static u32 top_and_bottom_spk_pamp_gpio = PM8018_GPIO_PM_TO_SYS(5);
 
 void *sif_virt_addr;
@@ -572,20 +589,26 @@ static const struct snd_soc_dapm_route common_audio_map[] = {
 	{"RX_BIAS", NULL, "MCLK"},
 	{"LDO_H", NULL, "MCLK"},
 
-	
+	/* Speaker path */
 	{"Ext Spk Pos", NULL, "LINEOUT1"},
 	{"Ext Spk Neg", NULL, "LINEOUT3"},
 
 	{"Ext Spk Pos", NULL, "LINEOUT2"},
 	{"Ext Spk Neg", NULL, "LINEOUT4"},
 
-	
+	/* Microphone path */
 	{"AMIC1", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Handset Mic"},
 
 	{"AMIC2", NULL, "MIC BIAS2 External"},
 	{"MIC BIAS2 External", NULL, "Headset Mic"},
 
+	/**
+	 * AMIC3 and AMIC4 inputs are connected to ANC microphones
+	 * These mics are biased differently on CDP and FLUID
+	 * routing entries below are based on bias arrangement
+	 * on FLUID.
+	 */
 	{"AMIC3", NULL, "MIC BIAS3 Internal1"},
 	{"MIC BIAS3 Internal1", NULL, "ANCRight Headset Mic"},
 
@@ -594,22 +617,54 @@ static const struct snd_soc_dapm_route common_audio_map[] = {
 
 	{"HEADPHONE", NULL, "LDO_H"},
 
+	/**
+	 * The digital Mic routes are setup considering
+	 * fluid as default device.
+	 */
 
+	/**
+	 * Digital Mic1. Front Bottom left Digital Mic on Fluid and MTP.
+	 * Digital Mic GM5 on CDP mainboard.
+	 * Conncted to DMIC2 Input on Tabla codec.
+	 */
 	{"DMIC2", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Digital Mic1"},
 
+	/**
+	 * Digital Mic2. Front Bottom right Digital Mic on Fluid and MTP.
+	 * Digital Mic GM6 on CDP mainboard.
+	 * Conncted to DMIC1 Input on Tabla codec.
+	 */
 	{"DMIC1", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Digital Mic2"},
 
+	/**
+	 * Digital Mic3. Back Bottom Digital Mic on Fluid.
+	 * Digital Mic GM1 on CDP mainboard.
+	 * Conncted to DMIC4 Input on Tabla codec.
+	 */
 	{"DMIC4", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "Digital Mic3"},
 
+	/**
+	 * Digital Mic4. Back top Digital Mic on Fluid.
+	 * Digital Mic GM2 on CDP mainboard.
+	 * Conncted to DMIC3 Input on Tabla codec.
+	 */
 	{"DMIC3", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "Digital Mic4"},
 
+	/**
+	 * Digital Mic5. Front top Digital Mic on Fluid.
+	 * Digital Mic GM3 on CDP mainboard.
+	 * Conncted to DMIC5 Input on Tabla codec.
+	 */
 	{"DMIC5", NULL, "MIC BIAS4 External"},
 	{"MIC BIAS4 External", NULL, "Digital Mic5"},
 
+	/* Tabla digital Mic6 - back bottom digital Mic on Liquid and
+	 * bottom mic on CDP. FLUID/MTP do not have dmic6 installed.
+	 */
 	{"DMIC6", NULL, "MIC BIAS4 External"},
 	{"MIC BIAS4 External", NULL, "Digital Mic6"},
 };
@@ -1247,7 +1302,7 @@ static void msm9615_config_i2s_sif_mux(u8 value, u8 i2s_intf)
 	}
 	if (pintf->sif_virt_addr != NULL)
 		iowrite32(sif_reg_value, pintf->sif_virt_addr);
-	
+	/* Dont read SIF register. Device crashes. */
 	pr_debug("%s() SIF Reg = 0x%x\n", __func__, sif_reg_value);
 }
 
@@ -1258,7 +1313,7 @@ static void msm9615_config_i2s_spare_mux(u8 value, u8 i2s_intf)
 
 	pr_debug("%s() Value = 0x%x intf = 0x%x\n", __func__, value, i2s_intf);
 	if (i2s_intf == MSM_INTF_PRIM) {
-		
+		/* Configure Primary SIF */
 		spare_shadow =
 			(spare_shadow & LPAIF_SPARE_MUX_CTL_PRI_MUX_SEL_BMSK) |
 			(value << LPAIF_SPARE_MUX_CTL_PRI_MUX_SEL_SHFT);
@@ -1268,7 +1323,7 @@ static void msm9615_config_i2s_spare_mux(u8 value, u8 i2s_intf)
 			spare_shadow);
 	}
 	if (i2s_intf == MSM_INTF_SECN) {
-		
+		/*Secondary interface configuration*/
 		spare_shadow =
 			(spare_shadow & LPAIF_SPARE_MUX_CTL_SEC_MUX_SEL_BMSK) |
 			(value << LPAIF_SPARE_MUX_CTL_SEC_MUX_SEL_SHFT);
@@ -1279,7 +1334,7 @@ static void msm9615_config_i2s_spare_mux(u8 value, u8 i2s_intf)
 	}
 	if (pintf->spare_virt_addr != NULL)
 		iowrite32(spare_reg_value, pintf->spare_virt_addr);
-	
+	/* Dont read SPARE register. Device crashes. */
 	pr_debug("%s( ): SPARE Reg =0x%x\n", __func__, spare_reg_value);
 }
 
@@ -1313,6 +1368,10 @@ static int msm9615_i2s_hw_params(struct snd_pcm_substream *substream,
 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		bit_clk_set = I2S_MIC_SCLK_RATE / (rate * 2 *
 						NO_OF_BITS_PER_SAMPLE);
+		/* Not required to modify TX rate.
+		  * Speaker clock are looped back
+		  * to Mic.
+		  */
 	}
 	return 1;
 }
@@ -1334,7 +1393,7 @@ static int msm9615_i2s_startup(struct snd_pcm_substream *substream)
 		msm9615_enable_i2s_gpio(i2s_intf, i2s_dir);
 		if (i2s_dir == MSM_DIR_TX) {
 			if (pintf->intf_status[i2s_intf][MSM_DIR_RX] > 0) {
-				
+				/* This means that Rx is enabled before */
 				ret = msm9615_set_i2s_osr_bit_clk(cpu_dai,
 						    i2s_intf, i2s_dir,
 						    MSM_I2S_CLK_SET_RATE0);
@@ -1358,6 +1417,10 @@ static int msm9615_i2s_startup(struct snd_pcm_substream *substream)
 				if (ret < 0)
 					pr_err("set fmt codec dai failed\n");
 			} else if (pintf->intf_status[i2s_intf][i2s_dir] == 0) {
+				/* This means that Rx is
+				 * not enabled before.
+				 * only Tx will be used.
+				 */
 				ret = msm9615_set_i2s_osr_bit_clk(cpu_dai,
 							i2s_intf, i2s_dir,
 							MSM_I2S_CLK_SET_TRUE);
@@ -1514,6 +1577,10 @@ static int mdm9615_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	};
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 
+	/* Tabla SLIMBUS configuration
+	 * RX1, RX2, RX3, RX4, RX5, RX6, RX7
+	 * TX1, TX2, TX3, TX4, TX5, TX6, TX7, TX8, TX9, TX10
+	 */
 	unsigned int rx_ch[TABLA_RX_MAX] = {138, 139, 140, 141, 142, 143, 144};
 	unsigned int tx_ch[TABLA_TX_MAX]  = {128, 129, 130, 131, 132, 133, 134,
 					     135, 136, 137};
@@ -1632,7 +1699,7 @@ static int mdm9615_auxpcm_be_params_fixup(struct snd_soc_pcm_runtime *rtd,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 
 	rate->min = rate->max = mdm9615_auxpcm_rate;
-	
+	/* PCM only supports mono output */
 	channels->min = channels->max = 1;
 
 	return 0;
@@ -1777,7 +1844,7 @@ void msm9615_config_sif_mux(u8 value)
 	sif_shadow = (sif_shadow & LPASS_SIF_MUX_CTL_SEC_MUX_SEL_BMSK) |
 		     (value << LPASS_SIF_MUX_CTL_SEC_MUX_SEL_SHFT);
 	iowrite32(sif_shadow, sif_virt_addr);
-	
+	/* Dont read SIF register. Device crashes. */
 	pr_debug("%s() SIF Reg = 0x%x\n", __func__, sif_shadow);
 }
 
@@ -1852,8 +1919,9 @@ static struct snd_soc_ops mdm9615_sec_auxpcm_be_ops = {
 };
 
 
+/* Digital audio interface glue - connects codec <---> CPU */
 static struct snd_soc_dai_link mdm9615_dai_common[] = {
-	
+	/* FrontEnd DAI Links */
 	{
 		.name = "MDM9615 Media1",
 		.stream_name = "MultiMedia1",
@@ -1904,7 +1972,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.ignore_suspend = 1,
 		.be_id = MSM_FRONTEND_DAI_VOIP,
 	},
-	
+	/* Hostless PMC purpose */
 	{
 		.name = "SLIMBUS_0 Hostless",
 		.stream_name = "SLIMBUS_0 Hostless",
@@ -1916,7 +1984,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
-		
+		/* .be_id = do not care */
 	},
 	{
 		.name = "MSM AFE-PCM RX",
@@ -2025,7 +2093,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.ignore_suspend = 1,
 	},
 
-	
+	/* Backend BT DAI Links */
 	{
 		.name = LPASS_BE_INT_BT_SCO_RX,
 		.stream_name = "Internal BT-SCO Playback",
@@ -2049,7 +2117,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.be_hw_params_fixup = mdm9615_btsco_be_hw_params_fixup,
 	},
 
-	
+	/* Backend AFE DAI Links */
 	{
 		.name = LPASS_BE_AFE_PCM_RX,
 		.stream_name = "AFE Playback",
@@ -2070,7 +2138,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_AFE_PCM_TX,
 	},
-	
+	/* AUX PCM Backend DAI Links */
 	{
 		.name = LPASS_BE_AUXPCM_RX,
 		.stream_name = "AUX PCM Playback",
@@ -2096,7 +2164,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.ops = &mdm9615_auxpcm_be_ops,
 	},
 
-	
+	/* SECONDARY AUX PCM Backend DAI Links */
 	{
 		.name = LPASS_BE_SEC_AUXPCM_RX,
 		.stream_name = "SEC AUX PCM Playback",
@@ -2121,7 +2189,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.be_hw_params_fixup = mdm9615_auxpcm_be_params_fixup,
 		.ops = &mdm9615_sec_auxpcm_be_ops,
 	},
-	
+	/* Incall Music BACK END DAI Link */
 	{
 		.name = LPASS_BE_VOICE_PLAYBACK_TX,
 		.stream_name = "Voice Farend Playback",
@@ -2133,7 +2201,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.be_id = MSM_BACKEND_DAI_VOICE_PLAYBACK_TX,
 		.be_hw_params_fixup = mdm9615_be_hw_params_fixup,
 	},
-	
+	/* Incall Record Uplink BACK END DAI Link */
 	{
 		.name = LPASS_BE_INCALL_RECORD_TX,
 		.stream_name = "Voice Uplink Capture",
@@ -2145,7 +2213,7 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.be_id = MSM_BACKEND_DAI_INCALL_RECORD_TX,
 		.be_hw_params_fixup = mdm9615_be_hw_params_fixup,
 	},
-	
+	/* Incall Record Downlink BACK END DAI Link */
 	{
 		.name = LPASS_BE_INCALL_RECORD_RX,
 		.stream_name = "Voice Downlink Capture",
@@ -2156,12 +2224,12 @@ static struct snd_soc_dai_link mdm9615_dai_common[] = {
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_INCALL_RECORD_RX,
 		.be_hw_params_fixup = mdm9615_be_hw_params_fixup,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* this dailink has playback support */
 	},
 };
 
 static struct snd_soc_dai_link mdm9615_dai_i2s_tabla[] = {
-	
+	/* Backend I2S DAI Links */
 	{
 		.name = LPASS_BE_PRI_I2S_RX,
 		.stream_name = "Primary I2S Playback",
@@ -2214,7 +2282,7 @@ static struct snd_soc_dai_link mdm9615_dai_i2s_tabla[] = {
 };
 
 static struct snd_soc_dai_link mdm9615_dai_slimbus_tabla[] = {
-	
+	/* Backend SlimBus DAI Links */
 	{
 		.name = LPASS_BE_SLIMBUS_0_RX,
 		.stream_name = "Slimbus Playback",
@@ -2268,7 +2336,7 @@ static int __init mdm9615_audio_init(void)
 {
 	int ret;
 
-	
+	/* Set GPIO headset detection by default */
 	hs_detect_use_gpio = true;
 
 	if (!cpu_is_msm9615()) {
@@ -2288,7 +2356,7 @@ static int __init mdm9615_audio_init(void)
 		return -ENOMEM;
 	}
 
-	
+	/* Install SLIM specific links */
 	memcpy(mdm9615_slimbus_dai, mdm9615_dai_common,
 			sizeof(mdm9615_dai_common));
 	memcpy(mdm9615_slimbus_dai + ARRAY_SIZE(mdm9615_dai_common),
@@ -2307,7 +2375,7 @@ static int __init mdm9615_audio_init(void)
 	pr_err("%s: Interface Type = %d\n", __func__,
 			wcd9xxx_get_intf_type());
 
-	
+	/* Install I2S specific links */
 	memcpy(mdm9615_i2s_dai, mdm9615_dai_common,
 	       sizeof(mdm9615_dai_common));
 	memcpy(mdm9615_i2s_dai + ARRAY_SIZE(mdm9615_dai_common),
@@ -2333,6 +2401,11 @@ static int __init mdm9615_audio_init(void)
 		return ret;
 	}
 
+	/*
+	 * Irrespective of audio interface type get virtual address
+	 * of LPAIF registers as it may not  be guaranted that I2S
+	 * will probed successfully in Init.
+	 */
 	atomic_set(&msm9615_auxpcm_ref, 0);
 	atomic_set(&msm9615_sec_auxpcm_ref, 0);
 	msm9x15_i2s_ctl.sif_virt_addr = ioremap(LPASS_SIF_MUX_ADDR, 4);

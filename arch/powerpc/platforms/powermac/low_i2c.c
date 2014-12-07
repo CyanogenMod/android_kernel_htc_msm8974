@@ -72,6 +72,9 @@
 
 static int pmac_i2c_force_poll = 1;
 
+/*
+ * A bus structure. Each bus in the system has such a structure associated.
+ */
 struct pmac_i2c_bus
 {
 	struct list_head	link;
@@ -81,14 +84,14 @@ struct pmac_i2c_bus
 	int			flags;
 	struct i2c_adapter	adapter;
 	void			*hostdata;
-	int			channel;	
-	int			mode;		
+	int			channel;	/* some hosts have multiple */
+	int			mode;		/* current mode */
 	struct mutex		mutex;
 	int			opened;
-	int			polled;		
+	int			polled;		/* open mode */
 	struct platform_device	*platform_dev;
 
-	
+	/* ops */
 	int (*open)(struct pmac_i2c_bus *bus);
 	void (*close)(struct pmac_i2c_bus *bus);
 	int (*xfer)(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
@@ -97,13 +100,17 @@ struct pmac_i2c_bus
 
 static LIST_HEAD(pmac_i2c_busses);
 
+/*
+ * Keywest implementation
+ */
 
 struct pmac_i2c_host_kw
 {
-	struct mutex		mutex;		
-	void __iomem		*base;		
-	int			bsteps;		
-	int			speed;		
+	struct mutex		mutex;		/* Access mutex for use by
+						 * i2c-keywest */
+	void __iomem		*base;		/* register base address */
+	int			bsteps;		/* register stepping */
+	int			speed;		/* speed */
 	int			irq;
 	u8			*data;
 	unsigned		len;
@@ -116,6 +123,7 @@ struct pmac_i2c_host_kw
 	struct timer_list	timeout_timer;
 };
 
+/* Register indices */
 typedef enum {
 	reg_mode = 0,
 	reg_control,
@@ -127,8 +135,10 @@ typedef enum {
 	reg_data
 } reg_t;
 
+/* The Tumbler audio equalizer can be really slow sometimes */
 #define KW_POLL_TIMEOUT		(2*HZ)
 
+/* Mode register */
 #define KW_I2C_MODE_100KHZ	0x00
 #define KW_I2C_MODE_50KHZ	0x01
 #define KW_I2C_MODE_25KHZ	0x02
@@ -139,23 +149,27 @@ typedef enum {
 #define KW_I2C_MODE_MODE_MASK	0x0C
 #define KW_I2C_MODE_CHAN_MASK	0xF0
 
+/* Control register */
 #define KW_I2C_CTL_AAK		0x01
 #define KW_I2C_CTL_XADDR	0x02
 #define KW_I2C_CTL_STOP		0x04
 #define KW_I2C_CTL_START	0x08
 
+/* Status register */
 #define KW_I2C_STAT_BUSY	0x01
 #define KW_I2C_STAT_LAST_AAK	0x02
 #define KW_I2C_STAT_LAST_RW	0x04
 #define KW_I2C_STAT_SDA		0x08
 #define KW_I2C_STAT_SCL		0x10
 
+/* IER & ISR registers */
 #define KW_I2C_IRQ_DATA		0x01
 #define KW_I2C_IRQ_ADDR		0x02
 #define KW_I2C_IRQ_STOP		0x04
 #define KW_I2C_IRQ_START	0x08
 #define KW_I2C_IRQ_MASK		0x0F
 
+/* State machine states */
 enum {
 	state_idle,
 	state_addr,
@@ -205,6 +219,10 @@ static u8 kw_i2c_wait_interrupt(struct pmac_i2c_host_kw *host)
 		if (isr != 0)
 			return isr;
 
+		/* This code is used with the timebase frozen, we cannot rely
+		 * on udelay nor schedule when in polled mode !
+		 * For now, just use a bogus loop....
+		 */
 		if (host->polled) {
 			for (j = 1; j < 100000; j++)
 				mb();
@@ -319,12 +337,13 @@ static void kw_i2c_handle_interrupt(struct pmac_i2c_host_kw *host, u8 isr)
 			complete(&host->complete);
 	}
 
-	
+	/* Below should only happen in manual mode which we don't use ... */
 	if (isr & KW_I2C_IRQ_START)
 		kw_write_reg(reg_isr, KW_I2C_IRQ_START);
 
 }
 
+/* Interrupt handler */
 static irqreturn_t kw_i2c_irq(int irq, void *dev_id)
 {
 	struct pmac_i2c_host_kw *host = dev_id;
@@ -348,6 +367,10 @@ static void kw_i2c_timeout(unsigned long data)
 
 	spin_lock_irqsave(&host->lock, flags);
 
+	/*
+	 * If the timer is pending, that means we raced with the
+	 * irq, in which case we just return
+	 */
 	if (timer_pending(&host->timeout_timer))
 		goto skip;
 
@@ -380,7 +403,7 @@ static int kw_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 	u8 mode_reg = host->speed;
 	int use_irq = host->irq != NO_IRQ && !bus->polled;
 
-	
+	/* Setup mode & subaddress if any */
 	switch(bus->mode) {
 	case pmac_i2c_mode_dumb:
 		return -EINVAL;
@@ -401,19 +424,22 @@ static int kw_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 		break;
 	}
 
-	
+	/* Setup channel & clear pending irqs */
 	kw_write_reg(reg_isr, kw_read_reg(reg_isr));
 	kw_write_reg(reg_mode, mode_reg | (bus->channel << 4));
 	kw_write_reg(reg_status, 0);
 
+	/* Set up address and r/w bit, strip possible stale bus number from
+	 * address top bits
+	 */
 	kw_write_reg(reg_addr, addrdir & 0xff);
 
-	
+	/* Set up the sub address */
 	if ((mode_reg & KW_I2C_MODE_MODE_MASK) == KW_I2C_MODE_STANDARDSUB
 	    || (mode_reg & KW_I2C_MODE_MODE_MASK) == KW_I2C_MODE_COMBINED)
 		kw_write_reg(reg_subaddr, subaddr);
 
-	
+	/* Prepare for async operations */
 	host->data = data;
 	host->len = len;
 	host->state = state_addr;
@@ -421,22 +447,25 @@ static int kw_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 	host->rw = (addrdir & 1);
 	host->polled = bus->polled;
 
+	/* Enable interrupt if not using polled mode and interrupt is
+	 * available
+	 */
 	if (use_irq) {
-		
+		/* Clear completion */
 		INIT_COMPLETION(host->complete);
-		
+		/* Ack stale interrupts */
 		kw_write_reg(reg_isr, kw_read_reg(reg_isr));
-		
+		/* Arm timeout */
 		host->timeout_timer.expires = jiffies + KW_POLL_TIMEOUT;
 		add_timer(&host->timeout_timer);
-		
+		/* Enable emission */
 		kw_write_reg(reg_ier, KW_I2C_IRQ_MASK);
 	}
 
-	
+	/* Start sending address */
 	kw_write_reg(reg_control, KW_I2C_CTL_XADDR);
 
-	
+	/* Wait for completion */
 	if (use_irq)
 		wait_for_completion(&host->complete);
 	else {
@@ -450,7 +479,7 @@ static int kw_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 		}
 	}
 
-	
+	/* Disable emission */
 	kw_write_reg(reg_ier, 0);
 
 	return host->result;
@@ -469,6 +498,10 @@ static struct pmac_i2c_host_kw *__init kw_i2c_host_init(struct device_node *np)
 		return NULL;
 	}
 
+	/* Apple is kind enough to provide a valid AAPL,address property
+	 * on all i2c keywest nodes so far ... we would have to fallback
+	 * to macio parsing if that wasn't the case
+	 */
 	addrp = of_get_property(np, "AAPL,address", NULL);
 	if (addrp == NULL) {
 		printk(KERN_ERR "low_i2c: Can't find address for %s\n",
@@ -487,7 +520,7 @@ static struct pmac_i2c_host_kw *__init kw_i2c_host_init(struct device_node *np)
 	steps = psteps ? (*psteps) : 0x10;
 	for (host->bsteps = 0; (steps & 0x01) == 0; host->bsteps++)
 		steps >>= 1;
-	
+	/* Select interface rate */
 	host->speed = KW_I2C_MODE_25KHZ;
 	prate = of_get_property(np, "AAPL,i2c-rate", NULL);
 	if (prate) switch(*prate) {
@@ -515,9 +548,13 @@ static struct pmac_i2c_host_kw *__init kw_i2c_host_init(struct device_node *np)
 		return NULL;
 	}
 
-	
+	/* Make sure IRQ is disabled */
 	kw_write_reg(reg_ier, 0);
 
+	/* Request chip interrupt. We set IRQF_NO_SUSPEND because we don't
+	 * want that interrupt disabled between the 2 passes of driver
+	 * suspend or we'll have issues running the pfuncs
+	 */
 	if (request_irq(host->irq, kw_i2c_irq, IRQF_NO_SUSPEND,
 			"keywest i2c", host))
 		host->irq = NO_IRQ;
@@ -562,20 +599,30 @@ static void __init kw_i2c_probe(void)
 {
 	struct device_node *np, *child, *parent;
 
-	
+	/* Probe keywest-i2c busses */
 	for_each_compatible_node(np, "i2c","keywest-i2c") {
 		struct pmac_i2c_host_kw *host;
 		int multibus;
 
-		
+		/* Found one, init a host structure */
 		host = kw_i2c_host_init(np);
 		if (host == NULL)
 			continue;
 
+		/* Now check if we have a multibus setup (old style) or if we
+		 * have proper bus nodes. Note that the "new" way (proper bus
+		 * nodes) might cause us to not create some busses that are
+		 * kept hidden in the device-tree. In the future, we might
+		 * want to work around that by creating busses without a node
+		 * but not for now
+		 */
 		child = of_get_next_child(np, NULL);
 		multibus = !child || strcmp(child->name, "i2c-bus");
 		of_node_put(child);
 
+		/* For a multibus setup, we get the bus count based on the
+		 * parent type
+		 */
 		if (multibus) {
 			int chans, i;
 
@@ -599,9 +646,17 @@ static void __init kw_i2c_probe(void)
 }
 
 
+/*
+ *
+ * PMU implementation
+ *
+ */
 
 #ifdef CONFIG_ADB_PMU
 
+/*
+ * i2c command block to the PMU
+ */
 struct pmu_i2c_hdr {
 	u8	bus;
 	u8	mode;
@@ -628,7 +683,7 @@ static int pmu_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 	int retry;
 	int rc = 0;
 
-	
+	/* For now, limit ourselves to 16 bytes transfers */
 	if (len > 16)
 		return -EINVAL;
 
@@ -686,6 +741,9 @@ static int pmu_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 	for (retry = 0; retry < 16; retry++) {
 		memset(req, 0, sizeof(struct adb_request));
 
+		/* I know that looks like a lot, slow as hell, but darwin
+		 * does it so let's be on the safe side for now
+		 */
 		msleep(15);
 
 		hdr->bus = PMU_I2C_BUS_STATUS;
@@ -728,6 +786,10 @@ static void __init pmu_i2c_probe(void)
 	if (!pmu_present())
 		return;
 
+	/* There might or might not be a "pmu-i2c" node, we use that
+	 * or via-pmu itself, whatever we find. I haven't seen a machine
+	 * with separate bus nodes, so we assume a multibus setup
+	 */
 	busnode = of_find_node_by_name(NULL, "pmu-i2c");
 	if (busnode == NULL)
 		busnode = of_find_node_by_name(NULL, "via-pmu");
@@ -736,6 +798,9 @@ static void __init pmu_i2c_probe(void)
 
 	printk(KERN_INFO "PMU i2c %s\n", busnode->full_name);
 
+	/*
+	 * We add bus 1 and 2 only for now, bus 0 is "special"
+	 */
 	for (channel = 1; channel <= 2; channel++) {
 		sz = sizeof(struct pmac_i2c_bus) + sizeof(struct adb_request);
 		bus = kzalloc(sz, GFP_KERNEL);
@@ -757,9 +822,14 @@ static void __init pmu_i2c_probe(void)
 	}
 }
 
-#endif 
+#endif /* CONFIG_ADB_PMU */
 
 
+/*
+ *
+ * SMU implementation
+ *
+ */
 
 #ifdef CONFIG_PMAC_SMU
 
@@ -796,7 +866,7 @@ static int smu_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 		if (subsize > 3 || subsize < 1)
 			return -EINVAL;
 		cmd->info.sublen = subsize;
-		
+		/* that's big-endian only but heh ! */
 		memcpy(&cmd->info.subaddr, ((char *)&subaddr) + (4 - subsize),
 		       subsize);
 		if (bus->mode == pmac_i2c_mode_stdsub)
@@ -842,6 +912,10 @@ static void __init smu_i2c_probe(void)
 
 	printk(KERN_INFO "SMU i2c %s\n", controller->full_name);
 
+	/* Look for childs, note that they might not be of the right
+	 * type as older device trees mix i2c busses and other things
+	 * at the same level
+	 */
 	for (busnode = NULL;
 	     (busnode = of_get_next_child(controller, busnode)) != NULL;) {
 		if (strcmp(busnode->type, "i2c") &&
@@ -872,8 +946,13 @@ static void __init smu_i2c_probe(void)
 	}
 }
 
-#endif 
+#endif /* CONFIG_PMAC_SMU */
 
+/*
+ *
+ * Core code
+ *
+ */
 
 
 struct pmac_i2c_bus *pmac_i2c_find_bus(struct device_node *node)
@@ -1041,6 +1120,9 @@ int pmac_i2c_setmode(struct pmac_i2c_bus *bus, int mode)
 {
 	WARN_ON(!bus->opened);
 
+	/* Report me if you see the error below as there might be a new
+	 * "combined4" mode that I need to implement for the SMU bus
+	 */
 	if (mode < pmac_i2c_mode_dumb || mode > pmac_i2c_mode_combined) {
 		printk(KERN_ERR "low_i2c: Invalid mode %d requested on"
 		       " bus %s !\n", mode, bus->busnode->full_name);
@@ -1073,6 +1155,7 @@ int pmac_i2c_xfer(struct pmac_i2c_bus *bus, u8 addrdir, int subsize,
 }
 EXPORT_SYMBOL_GPL(pmac_i2c_xfer);
 
+/* some quirks for platform function decoding */
 enum {
 	pmac_i2c_quirk_invmask = 0x00000001u,
 	pmac_i2c_quirk_skip = 0x00000002u,
@@ -1088,6 +1171,16 @@ static void pmac_i2c_devscan(void (*callback)(struct device_node *dev,
 		char *compatible;
 		int quirks;
 	} whitelist[] = {
+		/* XXX Study device-tree's & apple drivers are get the quirks
+		 * right !
+		 */
+		/* Workaround: It seems that running the clockspreading
+		 * properties on the eMac will cause lockups during boot.
+		 * The machine seems to work fine without that. So for now,
+		 * let's make sure i2c-hwclock doesn't match about "imic"
+		 * clocks and we'll figure out if we really need to do
+		 * something special about those later.
+		 */
 		{ "i2c-hwclock", "imic5002", pmac_i2c_quirk_skip },
 		{ "i2c-hwclock", "imic5003", pmac_i2c_quirk_skip },
 		{ "i2c-hwclock", NULL, pmac_i2c_quirk_invmask },
@@ -1097,11 +1190,16 @@ static void pmac_i2c_devscan(void (*callback)(struct device_node *dev,
 		{ NULL, NULL, 0 },
 	};
 
+	/* Only some devices need to have platform functions instanciated
+	 * here. For now, we have a table. Others, like 9554 i2c GPIOs used
+	 * on Xserve, if we ever do a driver for them, will use their own
+	 * platform function instance
+	 */
 	list_for_each_entry(bus, &pmac_i2c_busses, link) {
 		for (np = NULL;
 		     (np = of_get_next_child(bus->busnode, np)) != NULL;) {
 			struct whitelist_ent *p;
-			
+			/* If multibus, check if device is on that bus */
 			if (bus->flags & pmac_i2c_multibus)
 				if (bus != pmac_i2c_find_bus(np))
 					continue;
@@ -1149,6 +1247,11 @@ static void* pmac_i2c_do_begin(struct pmf_function *func, struct pmf_args *args)
 		return NULL;
 	}
 
+	/* XXX might need GFP_ATOMIC when called during the suspend process,
+	 * but then, there are already lots of issues with suspending when
+	 * near OOM that need to be resolved, the allocator itself should
+	 * probably make GFP_NOIO implicit during suspend
+	 */
 	inst = kzalloc(sizeof(struct pmac_i2c_pf_inst), GFP_KERNEL);
 	if (inst == NULL) {
 		pmac_i2c_close(bus);
@@ -1187,6 +1290,12 @@ static int pmac_i2c_do_write(PMF_STD_ARGS, u32 len, const u8 *data)
 			     (u8 *)data, len);
 }
 
+/* This function is used to do the masking & OR'ing for the "rmw" type
+ * callbacks. Ze should apply the mask and OR in the values in the
+ * buffer before writing back. The problem is that it seems that
+ * various darwin drivers implement the mask/or differently, thus
+ * we need to check the quirks first
+ */
 static void pmac_i2c_do_apply_rmw(struct pmac_i2c_pf_inst *inst,
 				  u32 len, const u8 *mask, const u8 *val)
 {
@@ -1266,11 +1375,11 @@ static int pmac_i2c_do_mask_and_comp(PMF_STD_ARGS, u32 len,
 	struct pmac_i2c_pf_inst *inst = instdata;
 	int i, match;
 
-	
+	/* Get return value pointer, it's assumed to be a u32 */
 	if (!args || !args->count || !args->u[0].p)
 		return -EINVAL;
 
-	
+	/* Check buffer */
 	if (len > inst->bytes)
 		return -EINVAL;
 
@@ -1339,6 +1448,11 @@ void pmac_pfunc_i2c_resume(void)
 	pmac_i2c_devscan(pmac_i2c_dev_resume);
 }
 
+/*
+ * Initialize us: probe all i2c busses on the machine, instantiate
+ * busses and platform functions as needed.
+ */
+/* This is non-static as it might be called early by smp code */
 int __init pmac_i2c_init(void)
 {
 	static int i2c_inited;
@@ -1347,34 +1461,42 @@ int __init pmac_i2c_init(void)
 		return 0;
 	i2c_inited = 1;
 
-	
+	/* Probe keywest-i2c busses */
 	kw_i2c_probe();
 
 #ifdef CONFIG_ADB_PMU
-	
+	/* Probe PMU i2c busses */
 	pmu_i2c_probe();
 #endif
 
 #ifdef CONFIG_PMAC_SMU
-	
+	/* Probe SMU i2c busses */
 	smu_i2c_probe();
 #endif
 
-	
+	/* Now add plaform functions for some known devices */
 	pmac_i2c_devscan(pmac_i2c_dev_create);
 
 	return 0;
 }
 machine_arch_initcall(powermac, pmac_i2c_init);
 
+/* Since pmac_i2c_init can be called too early for the platform device
+ * registration, we need to do it at a later time. In our case, subsys
+ * happens to fit well, though I agree it's a bit of a hack...
+ */
 static int __init pmac_i2c_create_platform_devices(void)
 {
 	struct pmac_i2c_bus *bus;
 	int i = 0;
 
+	/* In the case where we are initialized from smp_init(), we must
+	 * not use the timer (and thus the irq). It's safe from now on
+	 * though
+	 */
 	pmac_i2c_force_poll = 0;
 
-	
+	/* Create platform devices */
 	list_for_each_entry(bus, &pmac_i2c_busses, link) {
 		bus->platform_dev =
 			platform_device_alloc("i2c-powermac", i++);
@@ -1384,7 +1506,7 @@ static int __init pmac_i2c_create_platform_devices(void)
 		platform_device_add(bus->platform_dev);
 	}
 
-	
+	/* Now call platform "init" functions */
 	pmac_i2c_devscan(pmac_i2c_dev_init);
 
 	return 0;

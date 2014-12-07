@@ -37,14 +37,19 @@
 
 #include "drm.h"
 
+/* WARNING: If you change any of these defines, make sure to change the
+ * defines in the Xserver file (mga_sarea.h)
+ */
 
 #ifndef __MGA_SAREA_DEFINES__
 #define __MGA_SAREA_DEFINES__
 
-#define MGA_F			0x1	
-#define MGA_A			0x2	
-#define MGA_S			0x4	
-#define MGA_T2			0x8	
+/* WARP pipe flags
+ */
+#define MGA_F			0x1	/* fog */
+#define MGA_A			0x2	/* alpha */
+#define MGA_S			0x4	/* specular */
+#define MGA_T2			0x8	/* multitexture */
 
 #define MGA_WARP_TGZ		0
 #define MGA_WARP_TGZF		(MGA_F)
@@ -63,38 +68,51 @@
 #define MGA_WARP_T2GZSA		(MGA_T2|MGA_S|MGA_A)
 #define MGA_WARP_T2GZSAF	(MGA_T2|MGA_S|MGA_F|MGA_A)
 
-#define MGA_MAX_G200_PIPES	8	
+#define MGA_MAX_G200_PIPES	8	/* no multitex */
 #define MGA_MAX_G400_PIPES	16
 #define MGA_MAX_WARP_PIPES	MGA_MAX_G400_PIPES
-#define MGA_WARP_UCODE_SIZE	32768	
+#define MGA_WARP_UCODE_SIZE	32768	/* in bytes */
 
 #define MGA_CARD_TYPE_G200	1
 #define MGA_CARD_TYPE_G400	2
-#define MGA_CARD_TYPE_G450	3	
+#define MGA_CARD_TYPE_G450	3	/* not currently used */
 #define MGA_CARD_TYPE_G550	4
 
 #define MGA_FRONT		0x1
 #define MGA_BACK		0x2
 #define MGA_DEPTH		0x4
 
+/* What needs to be changed for the current vertex dma buffer?
+ */
 #define MGA_UPLOAD_CONTEXT	0x1
 #define MGA_UPLOAD_TEX0		0x2
 #define MGA_UPLOAD_TEX1		0x4
 #define MGA_UPLOAD_PIPE		0x8
-#define MGA_UPLOAD_TEX0IMAGE	0x10	
-#define MGA_UPLOAD_TEX1IMAGE	0x20	
+#define MGA_UPLOAD_TEX0IMAGE	0x10	/* handled client-side */
+#define MGA_UPLOAD_TEX1IMAGE	0x20	/* handled client-side */
 #define MGA_UPLOAD_2D		0x40
-#define MGA_WAIT_AGE		0x80	
-#define MGA_UPLOAD_CLIPRECTS	0x100	
+#define MGA_WAIT_AGE		0x80	/* handled client-side */
+#define MGA_UPLOAD_CLIPRECTS	0x100	/* handled client-side */
 #if 0
-#define MGA_DMA_FLUSH		0x200	
+#define MGA_DMA_FLUSH		0x200	/* set when someone gets the lock
+					   quiescent */
 #endif
 
+/* 32 buffers of 64k each, total 2 meg.
+ */
 #define MGA_BUFFER_SIZE		(1 << 16)
 #define MGA_NUM_BUFFERS		128
 
+/* Keep these small for testing.
+ */
 #define MGA_NR_SAREA_CLIPRECTS	8
 
+/* 2 heaps (1 for card, 1 for agp), each divided into up to 128
+ * regions, subject to a minimum region size of (1<<16) == 64k.
+ *
+ * Clients may subdivide regions internally, but when sharing between
+ * clients, the region size is the minimum granularity.
+ */
 
 #define MGA_CARD_HEAP			0
 #define MGA_AGP_HEAP			1
@@ -104,8 +122,10 @@
 
 #define  DRM_MGA_IDLE_RETRY          2048
 
-#endif				
+#endif				/* __MGA_SAREA_DEFINES__ */
 
+/* Setup registers for 3D context
+ */
 typedef struct {
 	unsigned int dstorg;
 	unsigned int maccess;
@@ -121,10 +141,14 @@ typedef struct {
 	unsigned int stencilctl;
 } drm_mga_context_regs_t;
 
+/* Setup registers for 2D, X server
+ */
 typedef struct {
 	unsigned int pitch;
 } drm_mga_server_regs_t;
 
+/* Setup registers for each texture unit
+ */
 typedef struct {
 	unsigned int texctl;
 	unsigned int texctl2;
@@ -139,12 +163,17 @@ typedef struct {
 	unsigned int texorg4;
 } drm_mga_texture_regs_t;
 
+/* General aging mechanism
+ */
 typedef struct {
-	unsigned int head;	
-	unsigned int wrap;	
+	unsigned int head;	/* Position of head pointer          */
+	unsigned int wrap;	/* Primary DMA wrap count            */
 } drm_mga_age_t;
 
 typedef struct _drm_mga_sarea {
+	/* The channel for communication of state information to the kernel
+	 * on firing a vertex dma buffer.
+	 */
 	drm_mga_context_regs_t context_state;
 	drm_mga_server_regs_t server_state;
 	drm_mga_texture_regs_t tex_state[2];
@@ -152,11 +181,20 @@ typedef struct _drm_mga_sarea {
 	unsigned int dirty;
 	unsigned int vertsize;
 
+	/* The current cliprects, or a subset thereof.
+	 */
 	struct drm_clip_rect boxes[MGA_NR_SAREA_CLIPRECTS];
 	unsigned int nbox;
 
-	unsigned int req_drawable;	
-	unsigned int req_draw_buffer;	
+	/* Information about the most recently used 3d drawable.  The
+	 * client fills in the req_* fields, the server fills in the
+	 * exported_ fields and puts the cliprects into boxes, above.
+	 *
+	 * The client clears the exported_drawable field before
+	 * clobbering the boxes data.
+	 */
+	unsigned int req_drawable;	/* the X drawable id */
+	unsigned int req_draw_buffer;	/* MGA_FRONT or MGA_BACK */
 
 	unsigned int exported_drawable;
 	unsigned int exported_index;
@@ -168,20 +206,29 @@ typedef struct _drm_mga_sarea {
 	int exported_back_y, exported_front_y, exported_h;
 	struct drm_clip_rect exported_boxes[MGA_NR_SAREA_CLIPRECTS];
 
+	/* Counters for aging textures and for client-side throttling.
+	 */
 	unsigned int status[4];
 	unsigned int last_wrap;
 
 	drm_mga_age_t last_frame;
-	unsigned int last_enqueue;	
-	unsigned int last_dispatch;	
-	unsigned int last_quiescent;	
+	unsigned int last_enqueue;	/* last time a buffer was enqueued */
+	unsigned int last_dispatch;	/* age of the most recently dispatched buffer */
+	unsigned int last_quiescent;	/*  */
 
+	/* LRU lists for texture memory in agp space and on the card.
+	 */
 	struct drm_tex_region texList[MGA_NR_TEX_HEAPS][MGA_NR_TEX_REGIONS + 1];
 	unsigned int texAge[MGA_NR_TEX_HEAPS];
 
+	/* Mechanism to validate card state.
+	 */
 	int ctxOwner;
 } drm_mga_sarea_t;
 
+/* MGA specific ioctls
+ * The device specific ioctl range is 0x40 to 0x79.
+ */
 #define DRM_MGA_INIT     0x00
 #define DRM_MGA_FLUSH    0x01
 #define DRM_MGA_RESET    0x02
@@ -193,6 +240,9 @@ typedef struct _drm_mga_sarea {
 #define DRM_MGA_BLIT     0x08
 #define DRM_MGA_GETPARAM 0x09
 
+/* 3.2:
+ * ioctls for operating on fences.
+ */
 #define DRM_MGA_SET_FENCE      0x0a
 #define DRM_MGA_WAIT_FENCE     0x0b
 #define DRM_MGA_DMA_BOOTSTRAP  0x0c
@@ -249,19 +299,64 @@ typedef struct drm_mga_init {
 } drm_mga_init_t;
 
 typedef struct drm_mga_dma_bootstrap {
-	
-	unsigned long texture_handle; 
-	__u32 texture_size;	      
-	
+	/**
+	 * \name AGP texture region
+	 *
+	 * On return from the DRM_MGA_DMA_BOOTSTRAP ioctl, these fields will
+	 * be filled in with the actual AGP texture settings.
+	 *
+	 * \warning
+	 * If these fields are non-zero, but dma_mga_dma_bootstrap::agp_mode
+	 * is zero, it means that PCI memory (most likely through the use of
+	 * an IOMMU) is being used for "AGP" textures.
+	 */
+	/*@{ */
+	unsigned long texture_handle; /**< Handle used to map AGP textures. */
+	__u32 texture_size;	      /**< Size of the AGP texture region. */
+	/*@} */
 
+	/**
+	 * Requested size of the primary DMA region.
+	 *
+	 * On return from the DRM_MGA_DMA_BOOTSTRAP ioctl, this field will be
+	 * filled in with the actual AGP mode.  If AGP was not available
+	 */
 	__u32 primary_size;
 
+	/**
+	 * Requested number of secondary DMA buffers.
+	 *
+	 * On return from the DRM_MGA_DMA_BOOTSTRAP ioctl, this field will be
+	 * filled in with the actual number of secondary DMA buffers
+	 * allocated.  Particularly when PCI DMA is used, this may be
+	 * (subtantially) less than the number requested.
+	 */
 	__u32 secondary_bin_count;
 
+	/**
+	 * Requested size of each secondary DMA buffer.
+	 *
+	 * While the kernel \b is free to reduce
+	 * dma_mga_dma_bootstrap::secondary_bin_count, it is \b not allowed
+	 * to reduce dma_mga_dma_bootstrap::secondary_bin_size.
+	 */
 	__u32 secondary_bin_size;
 
+	/**
+	 * Bit-wise mask of AGPSTAT2_* values.  Currently only \c AGPSTAT2_1X,
+	 * \c AGPSTAT2_2X, and \c AGPSTAT2_4X are supported.  If this value is
+	 * zero, it means that PCI DMA should be used, even if AGP is
+	 * possible.
+	 *
+	 * On return from the DRM_MGA_DMA_BOOTSTRAP ioctl, this field will be
+	 * filled in with the actual AGP mode.  If AGP was not available
+	 * (i.e., PCI DMA was used), this value will be zero.
+	 */
 	__u32 agp_mode;
 
+	/**
+	 * Desired AGP GART size, measured in megabytes.
+	 */
 	__u8 agp_size;
 } drm_mga_dma_bootstrap_t;
 
@@ -274,16 +369,16 @@ typedef struct drm_mga_clear {
 } drm_mga_clear_t;
 
 typedef struct drm_mga_vertex {
-	int idx;		
-	int used;		
-	int discard;		
+	int idx;		/* buffer to queue */
+	int used;		/* bytes in use */
+	int discard;		/* client finished with buffer?  */
 } drm_mga_vertex_t;
 
 typedef struct drm_mga_indices {
-	int idx;		
+	int idx;		/* buffer to queue */
 	unsigned int start;
 	unsigned int end;
-	int discard;		
+	int discard;		/* client finished with buffer?  */
 } drm_mga_indices_t;
 
 typedef struct drm_mga_iload {
@@ -299,12 +394,21 @@ typedef struct _drm_mga_blit {
 	int src_pitch, dst_pitch;
 	int delta_sx, delta_sy;
 	int delta_dx, delta_dy;
-	int height, ydir;	
+	int height, ydir;	/* flip image vertically */
 	int source_pitch, dest_pitch;
 } drm_mga_blit_t;
 
+/* 3.1: An ioctl to get parameters that aren't available to the 3d
+ * client any other way.
+ */
 #define MGA_PARAM_IRQ_NR            1
 
+/* 3.2: Query the actual card type.  The DDX only distinguishes between
+ * G200 chips and non-G200 chips, which it calls G400.  It turns out that
+ * there are some very sublte differences between the G4x0 chips and the G550
+ * chips.  Using this parameter query, a client-side driver can detect the
+ * difference between a G4x0 and a G550.
+ */
 #define MGA_PARAM_CARD_TYPE         2
 
 typedef struct drm_mga_getparam {

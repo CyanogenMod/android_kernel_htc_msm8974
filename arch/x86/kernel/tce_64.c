@@ -36,9 +36,10 @@
 #include <asm/proto.h>
 #include <asm/cacheflush.h>
 
+/* flush a tce at 'tceaddr' to main memory */
 static inline void flush_tce(void* tceaddr)
 {
-	
+	/* a single tce can't cross a cache line */
 	if (cpu_has_clflush)
 		clflush(tceaddr);
 	else
@@ -86,6 +87,11 @@ void tce_free(struct iommu_table *tbl, long index, unsigned int npages)
 
 static inline unsigned int table_size_to_number_of_entries(unsigned char size)
 {
+	/*
+	 * size is the order of the table, 0-7
+	 * smallest table is 8K entries, so shift result by 13 to
+	 * multiply by 8K
+	 */
 	return (1 << size) << 13;
 }
 
@@ -97,9 +103,13 @@ static int tce_table_setparms(struct pci_dev *dev, struct iommu_table *tbl)
 
 	tbl->it_busno = dev->bus->number;
 
-	
+	/* set the tce table size - measured in entries */
 	tbl->it_size = table_size_to_number_of_entries(specified_table_size);
 
+	/*
+	 * number of bytes needed for the bitmap size in number of
+	 * entries; we need one bit per entry
+	 */
 	bitmapsz = tbl->it_size / BITS_PER_BYTE;
 	bmppages = __get_free_pages(GFP_KERNEL, get_order(bitmapsz));
 	if (!bmppages) {

@@ -52,7 +52,7 @@
 #define devp_offset(devp)	(devp ? ((int)(devp))-1 : 0)
 
 static void *fdt;
-static void *buf; 
+static void *buf; /* = NULL */
 
 #define EXPAND_GRANULARITY	1024
 
@@ -183,7 +183,7 @@ void fdt_init(void *blob)
 	dt_ops.get_path = fdt_wrapper_get_path;
 	dt_ops.finalize = fdt_wrapper_finalize;
 
-	
+	/* Make sure the dt blob is the right version and so forth */
 	fdt = blob;
 	bufsize = fdt_totalsize(fdt) + EXPAND_GRANULARITY;
 	buf = malloc(bufsize);

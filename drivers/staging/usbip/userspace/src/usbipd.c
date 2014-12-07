@@ -101,10 +101,10 @@ static int recv_request_import(int sockfd)
 	}
 
 	if (found) {
-		
+		/* should set TCP_NODELAY for usbip */
 		usbip_net_set_nodelay(sockfd);
 
-		
+		/* export device needs a TCP/IP socket descriptor */
 		rc = usbip_host_export_device(edev, sockfd);
 		if (rc < 0)
 			error = 1;
@@ -149,7 +149,7 @@ static int send_reply_devlist(int connfd)
 	int rc;
 
 	reply.ndev = 0;
-	
+	/* number of exported devices */
 	dlist_for_each_data(host_driver->edev_list, edev,
 			    struct usbip_exported_device) {
 		reply.ndev += 1;

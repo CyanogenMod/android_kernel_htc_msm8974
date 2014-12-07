@@ -30,7 +30,7 @@ static inline void taskstats_tgid_free(struct signal_struct *sig)
 {}
 static inline void taskstats_init_early(void)
 {}
-#endif 
+#endif /* CONFIG_TASKSTATS */
 
 #endif
 

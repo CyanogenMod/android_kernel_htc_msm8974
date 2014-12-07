@@ -21,11 +21,14 @@
 #include <linux/module.h>
 #include "rc-core-priv.h"
 
+/* Sizes are in bytes, 256 bytes allows for 32 entries on x64 */
 #define IR_TAB_MIN_SIZE	256
 #define IR_TAB_MAX_SIZE	8192
 
+/* FIXME: IR_KEYPRESS_TIMEOUT should be protocol specific */
 #define IR_KEYPRESS_TIMEOUT 250
 
+/* Used to keep track of known keymaps */
 static LIST_HEAD(rc_map_list);
 static DEFINE_SPINLOCK(rc_map_lock);
 
@@ -58,7 +61,7 @@ struct rc_map *rc_map_get(const char *name)
 			printk(KERN_ERR "Couldn't load IR keymap %s\n", name);
 			return NULL;
 		}
-		msleep(20);	
+		msleep(20);	/* Give some time for IR to register */
 
 		map = seek_rc_map(name);
 	}
@@ -100,11 +103,22 @@ static struct rc_map_list empty_map = {
 	.map = {
 		.scan    = empty,
 		.size    = ARRAY_SIZE(empty),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_EMPTY,
 	}
 };
 
+/**
+ * ir_create_table() - initializes a scancode table
+ * @rc_map:	the rc_map to initialize
+ * @name:	name to assign to the table
+ * @rc_type:	ir type to assign to the new table
+ * @size:	initial size of the table
+ * @return:	zero on success or a negative error code
+ *
+ * This routine will initialize the rc_map and will allocate
+ * memory to hold at least the specified number of elements.
+ */
 static int ir_create_table(struct rc_map *rc_map,
 			   const char *name, u64 rc_type, size_t size)
 {
@@ -121,6 +135,13 @@ static int ir_create_table(struct rc_map *rc_map,
 	return 0;
 }
 
+/**
+ * ir_free_table() - frees memory allocated by a scancode table
+ * @rc_map:	the table whose mappings need to be freed
+ *
+ * This routine will free memory alloctaed for key mappings used by given
+ * scancode table.
+ */
 static void ir_free_table(struct rc_map *rc_map)
 {
 	rc_map->size = 0;
@@ -128,6 +149,15 @@ static void ir_free_table(struct rc_map *rc_map)
 	rc_map->scan = NULL;
 }
 
+/**
+ * ir_resize_table() - resizes a scancode table if necessary
+ * @rc_map:	the rc_map to resize
+ * @gfp_flags:	gfp flags to use when allocating memory
+ * @return:	zero on success or a negative error code
+ *
+ * This routine will shrink the rc_map if it has lots of
+ * unused entries and grow it if it is full.
+ */
 static int ir_resize_table(struct rc_map *rc_map, gfp_t gfp_flags)
 {
 	unsigned int oldalloc = rc_map->alloc;
@@ -136,7 +166,7 @@ static int ir_resize_table(struct rc_map *rc_map, gfp_t gfp_flags)
 	struct rc_map_table *newscan;
 
 	if (rc_map->size == rc_map->len) {
-		
+		/* All entries in use -> grow keytable */
 		if (rc_map->alloc >= IR_TAB_MAX_SIZE)
 			return -ENOMEM;
 
@@ -145,7 +175,7 @@ static int ir_resize_table(struct rc_map *rc_map, gfp_t gfp_flags)
 	}
 
 	if ((rc_map->len * 3 < rc_map->size) && (oldalloc > IR_TAB_MIN_SIZE)) {
-		
+		/* Less than 1/3 of entries in use -> shrink keytable */
 		newalloc /= 2;
 		IR_dprintk(1, "Shrinking table to %u bytes\n", newalloc);
 	}
@@ -167,6 +197,17 @@ static int ir_resize_table(struct rc_map *rc_map, gfp_t gfp_flags)
 	return 0;
 }
 
+/**
+ * ir_update_mapping() - set a keycode in the scancode->keycode table
+ * @dev:	the struct rc_dev device descriptor
+ * @rc_map:	scancode table to be adjusted
+ * @index:	index of the mapping that needs to be updated
+ * @keycode:	the desired keycode
+ * @return:	previous keycode assigned to the mapping
+ *
+ * This routine is used to update scancode->keycode mapping at given
+ * position.
+ */
 static unsigned int ir_update_mapping(struct rc_dev *dev,
 				      struct rc_map *rc_map,
 				      unsigned int index,
@@ -175,7 +216,7 @@ static unsigned int ir_update_mapping(struct rc_dev *dev,
 	int old_keycode = rc_map->scan[index].keycode;
 	int i;
 
-	
+	/* Did the user wish to remove the mapping? */
 	if (new_keycode == KEY_RESERVED || new_keycode == KEY_UNKNOWN) {
 		IR_dprintk(1, "#%d: Deleting scan 0x%04x\n",
 			   index, rc_map->scan[index].scancode);
@@ -192,9 +233,9 @@ static unsigned int ir_update_mapping(struct rc_dev *dev,
 	}
 
 	if (old_keycode != KEY_RESERVED) {
-		
+		/* A previous mapping was updated... */
 		__clear_bit(old_keycode, dev->input_dev->keybit);
-		
+		/* ... but another scancode might use the same keycode */
 		for (i = 0; i < rc_map->len; i++) {
 			if (rc_map->scan[i].keycode == old_keycode) {
 				__set_bit(old_keycode, dev->input_dev->keybit);
@@ -202,13 +243,27 @@ static unsigned int ir_update_mapping(struct rc_dev *dev,
 			}
 		}
 
-		
+		/* Possibly shrink the keytable, failure is not a problem */
 		ir_resize_table(rc_map, GFP_ATOMIC);
 	}
 
 	return old_keycode;
 }
 
+/**
+ * ir_establish_scancode() - set a keycode in the scancode->keycode table
+ * @dev:	the struct rc_dev device descriptor
+ * @rc_map:	scancode table to be searched
+ * @scancode:	the desired scancode
+ * @resize:	controls whether we allowed to resize the table to
+ *		accommodate not yet present scancodes
+ * @return:	index of the mapping containing scancode in question
+ *		or -1U in case of failure.
+ *
+ * This routine is used to locate given scancode in rc_map.
+ * If scancode is not yet present the routine will allocate a new slot
+ * for it.
+ */
 static unsigned int ir_establish_scancode(struct rc_dev *dev,
 					  struct rc_map *rc_map,
 					  unsigned int scancode,
@@ -216,26 +271,34 @@ static unsigned int ir_establish_scancode(struct rc_dev *dev,
 {
 	unsigned int i;
 
+	/*
+	 * Unfortunately, some hardware-based IR decoders don't provide
+	 * all bits for the complete IR code. In general, they provide only
+	 * the command part of the IR code. Yet, as it is possible to replace
+	 * the provided IR with another one, it is needed to allow loading
+	 * IR tables from other remotes. So, we support specifying a mask to
+	 * indicate the valid bits of the scancodes.
+	 */
 	if (dev->scanmask)
 		scancode &= dev->scanmask;
 
-	
+	/* First check if we already have a mapping for this ir command */
 	for (i = 0; i < rc_map->len; i++) {
 		if (rc_map->scan[i].scancode == scancode)
 			return i;
 
-		
+		/* Keytable is sorted from lowest to highest scancode */
 		if (rc_map->scan[i].scancode >= scancode)
 			break;
 	}
 
-	
+	/* No previous mapping found, we might need to grow the table */
 	if (rc_map->size == rc_map->len) {
 		if (!resize || ir_resize_table(rc_map, GFP_ATOMIC))
 			return -1U;
 	}
 
-	
+	/* i is the proper index to insert our new keycode */
 	if (i < rc_map->len)
 		memmove(&rc_map->scan[i + 1], &rc_map->scan[i],
 			(rc_map->len - i) * sizeof(struct rc_map_table));
@@ -246,6 +309,15 @@ static unsigned int ir_establish_scancode(struct rc_dev *dev,
 	return i;
 }
 
+/**
+ * ir_setkeycode() - set a keycode in the scancode->keycode table
+ * @idev:	the struct input_dev device descriptor
+ * @scancode:	the desired scancode
+ * @keycode:	result
+ * @return:	-EINVAL if the keycode could not be inserted, otherwise zero.
+ *
+ * This routine is used to handle evdev EVIOCSKEY ioctl.
+ */
 static int ir_setkeycode(struct input_dev *idev,
 			 const struct input_keymap_entry *ke,
 			 unsigned int *old_keycode)
@@ -284,6 +356,15 @@ out:
 	return retval;
 }
 
+/**
+ * ir_setkeytable() - sets several entries in the scancode->keycode table
+ * @dev:	the struct rc_dev device descriptor
+ * @to:		the struct rc_map to copy entries to
+ * @from:	the struct rc_map to copy entries from
+ * @return:	-ENOMEM if all keycodes could not be inserted, otherwise zero.
+ *
+ * This routine is used to handle table initialization.
+ */
 static int ir_setkeytable(struct rc_dev *dev,
 			  const struct rc_map *from)
 {
@@ -317,6 +398,15 @@ static int ir_setkeytable(struct rc_dev *dev,
 	return rc;
 }
 
+/**
+ * ir_lookup_by_scancode() - locate mapping by scancode
+ * @rc_map:	the struct rc_map to search
+ * @scancode:	scancode to look for in the table
+ * @return:	index in the table, -1U if not found
+ *
+ * This routine performs binary search in RC keykeymap table for
+ * given scancode.
+ */
 static unsigned int ir_lookup_by_scancode(const struct rc_map *rc_map,
 					  unsigned int scancode)
 {
@@ -337,6 +427,15 @@ static unsigned int ir_lookup_by_scancode(const struct rc_map *rc_map,
 	return -1U;
 }
 
+/**
+ * ir_getkeycode() - get a keycode from the scancode->keycode table
+ * @idev:	the struct input_dev device descriptor
+ * @scancode:	the desired scancode
+ * @keycode:	used to return the keycode, if found, or KEY_RESERVED
+ * @return:	always returns zero.
+ *
+ * This routine is used to handle evdev EVIOCGKEY ioctl.
+ */
 static int ir_getkeycode(struct input_dev *idev,
 			 struct input_keymap_entry *ke)
 {
@@ -369,6 +468,11 @@ static int ir_getkeycode(struct input_dev *idev,
 		memcpy(ke->scancode, &entry->scancode, sizeof(entry->scancode));
 
 	} else if (!(ke->flags & INPUT_KEYMAP_BY_INDEX)) {
+		/*
+		 * We do not really know the valid range of scancodes
+		 * so let's respond with KEY_RESERVED to anything we
+		 * do not have mapping for [yet].
+		 */
 		ke->index = index;
 		ke->keycode = KEY_RESERVED;
 	} else {
@@ -383,6 +487,16 @@ out:
 	return retval;
 }
 
+/**
+ * rc_g_keycode_from_table() - gets the keycode that corresponds to a scancode
+ * @dev:	the struct rc_dev descriptor of the device
+ * @scancode:	the scancode to look for
+ * @return:	the corresponding keycode, or KEY_RESERVED
+ *
+ * This routine is used by drivers which need to convert a scancode to a
+ * keycode. Normally it should not be used since drivers should have no
+ * interest in keycodes.
+ */
 u32 rc_g_keycode_from_table(struct rc_dev *dev, u32 scancode)
 {
 	struct rc_map *rc_map = &dev->rc_map;
@@ -406,6 +520,14 @@ u32 rc_g_keycode_from_table(struct rc_dev *dev, u32 scancode)
 }
 EXPORT_SYMBOL_GPL(rc_g_keycode_from_table);
 
+/**
+ * ir_do_keyup() - internal function to signal the release of a keypress
+ * @dev:	the struct rc_dev descriptor of the device
+ * @sync:	whether or not to call input_sync
+ *
+ * This function is used internally to release a keypress, it must be
+ * called with keylock held.
+ */
 static void ir_do_keyup(struct rc_dev *dev, bool sync)
 {
 	if (!dev->keypressed)
@@ -418,6 +540,13 @@ static void ir_do_keyup(struct rc_dev *dev, bool sync)
 	dev->keypressed = false;
 }
 
+/**
+ * rc_keyup() - signals the release of a keypress
+ * @dev:	the struct rc_dev descriptor of the device
+ *
+ * This routine is used to signal that a key has been released on the
+ * remote control.
+ */
 void rc_keyup(struct rc_dev *dev)
 {
 	unsigned long flags;
@@ -428,17 +557,42 @@ void rc_keyup(struct rc_dev *dev)
 }
 EXPORT_SYMBOL_GPL(rc_keyup);
 
+/**
+ * ir_timer_keyup() - generates a keyup event after a timeout
+ * @cookie:	a pointer to the struct rc_dev for the device
+ *
+ * This routine will generate a keyup event some time after a keydown event
+ * is generated when no further activity has been detected.
+ */
 static void ir_timer_keyup(unsigned long cookie)
 {
 	struct rc_dev *dev = (struct rc_dev *)cookie;
 	unsigned long flags;
 
+	/*
+	 * ir->keyup_jiffies is used to prevent a race condition if a
+	 * hardware interrupt occurs at this point and the keyup timer
+	 * event is moved further into the future as a result.
+	 *
+	 * The timer will then be reactivated and this function called
+	 * again in the future. We need to exit gracefully in that case
+	 * to allow the input subsystem to do its auto-repeat magic or
+	 * a keyup event might follow immediately after the keydown.
+	 */
 	spin_lock_irqsave(&dev->keylock, flags);
 	if (time_is_before_eq_jiffies(dev->keyup_jiffies))
 		ir_do_keyup(dev, true);
 	spin_unlock_irqrestore(&dev->keylock, flags);
 }
 
+/**
+ * rc_repeat() - signals that a key is still pressed
+ * @dev:	the struct rc_dev descriptor of the device
+ *
+ * This routine is used by IR decoders when a repeat message which does
+ * not include the necessary bits to reproduce the scancode has been
+ * received.
+ */
 void rc_repeat(struct rc_dev *dev)
 {
 	unsigned long flags;
@@ -459,6 +613,16 @@ out:
 }
 EXPORT_SYMBOL_GPL(rc_repeat);
 
+/**
+ * ir_do_keydown() - internal function to process a keypress
+ * @dev:	the struct rc_dev descriptor of the device
+ * @scancode:   the scancode of the keypress
+ * @keycode:    the keycode of the keypress
+ * @toggle:     the toggle value of the keypress
+ *
+ * This function is used internally to register a keypress, it must be
+ * called with keylock held.
+ */
 static void ir_do_keydown(struct rc_dev *dev, int scancode,
 			  u32 keycode, u8 toggle)
 {
@@ -472,7 +636,7 @@ static void ir_do_keydown(struct rc_dev *dev, int scancode,
 	input_event(dev->input_dev, EV_MSC, MSC_SCAN, scancode);
 
 	if (new_event && keycode != KEY_RESERVED) {
-		
+		/* Register a keypress */
 		dev->keypressed = true;
 		dev->last_scancode = scancode;
 		dev->last_toggle = toggle;
@@ -487,6 +651,16 @@ static void ir_do_keydown(struct rc_dev *dev, int scancode,
 	input_sync(dev->input_dev);
 }
 
+/**
+ * rc_keydown() - generates input event for a key press
+ * @dev:	the struct rc_dev descriptor of the device
+ * @scancode:   the scancode that we're seeking
+ * @toggle:     the toggle value (protocol dependent, if the protocol doesn't
+ *              support toggle values, this should be set to zero)
+ *
+ * This routine is used to signal that a key has been pressed on the
+ * remote control.
+ */
 void rc_keydown(struct rc_dev *dev, int scancode, u8 toggle)
 {
 	unsigned long flags;
@@ -503,6 +677,17 @@ void rc_keydown(struct rc_dev *dev, int scancode, u8 toggle)
 }
 EXPORT_SYMBOL_GPL(rc_keydown);
 
+/**
+ * rc_keydown_notimeout() - generates input event for a key press without
+ *                          an automatic keyup event at a later time
+ * @dev:	the struct rc_dev descriptor of the device
+ * @scancode:   the scancode that we're seeking
+ * @toggle:     the toggle value (protocol dependent, if the protocol doesn't
+ *              support toggle values, this should be set to zero)
+ *
+ * This routine is used to signal that a key has been pressed on the
+ * remote control. The driver must manually call rc_keyup() at a later stage.
+ */
 void rc_keydown_notimeout(struct rc_dev *dev, int scancode, u8 toggle)
 {
 	unsigned long flags;
@@ -529,6 +714,7 @@ static void ir_close(struct input_dev *idev)
 		rdev->close(rdev);
 }
 
+/* class for /sys/class/rc */
 static char *ir_devnode(struct device *dev, umode_t *mode)
 {
 	return kasprintf(GFP_KERNEL, "rc/%s", dev_name(dev));
@@ -558,6 +744,20 @@ static struct {
 
 #define PROTO_NONE	"none"
 
+/**
+ * show_protocols() - shows the current IR protocol(s)
+ * @device:	the device descriptor
+ * @mattr:	the device attribute struct (unused)
+ * @buf:	a pointer to the output buffer
+ *
+ * This routine is a callback routine for input read the IR protocol type(s).
+ * it is trigged by reading /sys/class/rc/rc?/protocols.
+ * It returns the protocol names of supported protocols.
+ * Enabled protocols are printed in brackets.
+ *
+ * dev->lock is taken to guard against races between device
+ * registration, store_protocols and show_protocols.
+ */
 static ssize_t show_protocols(struct device *device,
 			      struct device_attribute *mattr, char *buf)
 {
@@ -566,7 +766,7 @@ static ssize_t show_protocols(struct device *device,
 	char *tmp = buf;
 	int i;
 
-	
+	/* Device is being removed */
 	if (!dev)
 		return -EINVAL;
 
@@ -600,6 +800,25 @@ static ssize_t show_protocols(struct device *device,
 	return tmp + 1 - buf;
 }
 
+/**
+ * store_protocols() - changes the current IR protocol(s)
+ * @device:	the device descriptor
+ * @mattr:	the device attribute struct (unused)
+ * @buf:	a pointer to the input buffer
+ * @len:	length of the input buffer
+ *
+ * This routine is for changing the IR protocol type.
+ * It is trigged by writing to /sys/class/rc/rc?/protocols.
+ * Writing "+proto" will add a protocol to the list of enabled protocols.
+ * Writing "-proto" will remove a protocol from the list of enabled protocols.
+ * Writing "proto" will enable only "proto".
+ * Writing "none" will disable all protocols.
+ * Returns -EINVAL if an invalid protocol combination or unknown protocol name
+ * is used, otherwise @len.
+ *
+ * dev->lock is taken to guard against races between device
+ * registration, store_protocols and show_protocols.
+ */
 static ssize_t store_protocols(struct device *device,
 			       struct device_attribute *mattr,
 			       const char *data,
@@ -614,7 +833,7 @@ static ssize_t store_protocols(struct device *device,
 	unsigned long flags;
 	ssize_t ret;
 
-	
+	/* Device is being removed */
 	if (!dev)
 		return -EINVAL;
 
@@ -735,6 +954,9 @@ static int rc_dev_uevent(struct device *device, struct kobj_uevent_env *env)
 	return 0;
 }
 
+/*
+ * Static device attribute struct with the sysfs attributes for IR's
+ */
 static DEVICE_ATTR(protocols, S_IRUGO | S_IWUSR,
 		   show_protocols, store_protocols);
 
@@ -807,7 +1029,7 @@ EXPORT_SYMBOL_GPL(rc_free_device);
 
 int rc_register_device(struct rc_dev *dev)
 {
-	static bool raw_init = false; 
+	static bool raw_init = false; /* raw decoders loaded? */
 	static atomic_t devno = ATOMIC_INIT(0);
 	struct rc_map *rc_map;
 	const char *path;
@@ -831,6 +1053,13 @@ int rc_register_device(struct rc_dev *dev)
 	if (dev->close)
 		dev->input_dev->close = ir_close;
 
+	/*
+	 * Take the lock here, as the device sysfs node will appear
+	 * when device_add() is called, which may trigger an ir-keytable udev
+	 * rule, which will in turn call show_protocols and access either
+	 * dev->rc_map.rc_type or dev->raw->enabled_protocols before it has
+	 * been initialized.
+	 */
 	mutex_lock(&dev->lock);
 
 	dev->devno = (unsigned long)(atomic_inc_return(&devno) - 1);
@@ -852,8 +1081,19 @@ int rc_register_device(struct rc_dev *dev)
 	if (rc)
 		goto out_table;
 
+	/*
+	 * Default delay of 250ms is too short for some protocols, especially
+	 * since the timeout is currently set to 250ms. Increase it to 500ms,
+	 * to avoid wrong repetition of the keycodes. Note that this must be
+	 * set after the call to input_register_device().
+	 */
 	dev->input_dev->rep[REP_DELAY] = 500;
 
+	/*
+	 * As a repeat event on protocols like RC-5 and NEC take as long as
+	 * 110/114ms, using 33ms as a repeat period is not the right thing
+	 * to do.
+	 */
 	dev->input_dev->rep[REP_PERIOD] = 125;
 
 	path = kobject_get_path(&dev->dev.kobj, GFP_KERNEL);
@@ -864,7 +1104,7 @@ int rc_register_device(struct rc_dev *dev)
 	kfree(path);
 
 	if (dev->driver_type == RC_DRIVER_IR_RAW) {
-		
+		/* Load raw decoders, if they aren't already */
 		if (!raw_init) {
 			IR_dprintk(1, "Loading raw decoders\n");
 			ir_raw_init();
@@ -917,7 +1157,7 @@ void rc_unregister_device(struct rc_dev *dev)
 	if (dev->driver_type == RC_DRIVER_IR_RAW)
 		ir_raw_event_unregister(dev);
 
-	
+	/* Freeing the table should also call the stop callback */
 	ir_free_table(&dev->rc_map);
 	IR_dprintk(1, "Freed keycode table\n");
 
@@ -931,6 +1171,9 @@ void rc_unregister_device(struct rc_dev *dev)
 
 EXPORT_SYMBOL_GPL(rc_unregister_device);
 
+/*
+ * Init/exit code for the module. Basically, creates/removes /sys/class/rc
+ */
 
 static int __init rc_core_init(void)
 {
@@ -954,7 +1197,7 @@ static void __exit rc_core_exit(void)
 module_init(rc_core_init);
 module_exit(rc_core_exit);
 
-int rc_core_debug;    
+int rc_core_debug;    /* ir_debug level (0,1,2) */
 EXPORT_SYMBOL_GPL(rc_core_debug);
 module_param_named(debug, rc_core_debug, int, 0644);
 

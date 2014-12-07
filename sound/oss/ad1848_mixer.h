@@ -1,3 +1,8 @@
+/*
+ * sound/oss/ad1848_mixer.h
+ *
+ * Definitions for the mixer of AD1848 and compatible codecs.
+ */
 
 /*
  * Copyright (C) by Hannu Savolainen 1993-1997
@@ -8,6 +13,16 @@
  */
 
 
+/*
+ * The AD1848 codec has generic input lines called Line, Aux1 and Aux2.
+ * Sound card manufacturers have connected actual inputs (CD, synth, line,
+ * etc) to these inputs in different order. Therefore it's difficult
+ * to assign mixer channels to these inputs correctly. The following
+ * contains two alternative mappings. The first one is for GUS MAX and
+ * the second is just a generic one (line1, line2 and line3).
+ * (Actually this is not a mapping but rather some kind of interleaving
+ * solution).
+ */
 #define MODE1_REC_DEVICES		(SOUND_MASK_LINE3 | SOUND_MASK_MIC | \
 					 SOUND_MASK_LINE1 | SOUND_MASK_IMIX)
 
@@ -27,6 +42,9 @@
 
 #define MODE3_MIXER_DEVICES		(MODE2_MIXER_DEVICES | SOUND_MASK_VOLUME)
 
+/* OPTi 82C930 has no IMIX level control, but it can still be selected as an
+ * input
+ */
 #define C930_MIXER_DEVICES	(SOUND_MASK_LINE1 | SOUND_MASK_LINE2 | \
 				 SOUND_MASK_MIC | SOUND_MASK_VOLUME | \
 				 SOUND_MASK_LINE3 | \
@@ -39,16 +57,16 @@
 				 SOUND_MASK_OGAIN)
 
 struct mixer_def {
-	unsigned int regno:6;		
-	unsigned int polarity:1;	
-	unsigned int bitpos:3;		
-	unsigned int nbits:3;		
-	unsigned int mutereg:6;		
-	unsigned int mutepol:1;		
-	unsigned int mutepos:4;		
-	unsigned int recreg:6;		
-	unsigned int recpol:1;		
-	unsigned int recpos:4;		
+	unsigned int regno:6;		/* register number for volume */
+	unsigned int polarity:1;	/* volume polarity: 0=normal, 1=reversed */
+	unsigned int bitpos:3;		/* position of bits in register for volume */
+	unsigned int nbits:3;		/* number of bits in register for volume */
+	unsigned int mutereg:6;		/* register number for mute bit */
+	unsigned int mutepol:1;		/* mute polarity: 0=normal, 1=reversed */
+	unsigned int mutepos:4;		/* position of mute bit in register */
+	unsigned int recreg:6;		/* register number for recording bit */
+	unsigned int recpol:1;		/* recording polarity: 0=normal, 1=reversed */
+	unsigned int recpos:4;		/* position of recording bit in register */
 };
 
 static char mix_cvt[101] = {
@@ -63,6 +81,14 @@ static char mix_cvt[101] = {
 typedef struct mixer_def mixer_ent;
 typedef mixer_ent mixer_ents[2];
 
+/*
+ * Most of the mixer entries work in backwards. Setting the polarity field
+ * makes them to work correctly.
+ *
+ * The channel numbering used by individual sound cards is not fixed. Some
+ * cards have assigned different meanings for the AUX1, AUX2 and LINE inputs.
+ * The current version doesn't try to compensate this.
+ */
 
 #define MIX_ENT(name, reg_l, pola_l, pos_l, len_l, reg_r, pola_r, pos_r, len_r, mute_bit)	\
 	[name] = {{reg_l, pola_l, pos_l, len_l, reg_l, 0, mute_bit, 0, 0, 8},			\
@@ -118,6 +144,8 @@ static mixer_ents iwave_mix_devices[32] = {
 };
 
 static mixer_ents cs42xb_mix_devices[32] = {
+	/* Digital master volume actually has seven bits, but we only use
+	   six to avoid the discontinuity when the analog gain kicks in. */
 	MIX_ENT(SOUND_MIXER_VOLUME,	46, 1, 0, 6,	47, 1, 0, 6,  7),
 	MIX_ENT(SOUND_MIXER_BASS,	 0, 0, 0, 0,	 0, 0, 0, 0,  8),
 	MIX_ENT(SOUND_MIXER_TREBLE,	 0, 0, 0, 0,	 0, 0, 0, 0,  8),
@@ -127,6 +155,9 @@ static mixer_ents cs42xb_mix_devices[32] = {
 	MIX_ENT(SOUND_MIXER_LINE,	18, 1, 0, 5,	19, 1, 0, 5,  7),
 	MIX_ENT(SOUND_MIXER_MIC,	34, 1, 0, 5,	35, 1, 0, 5,  7),
 	MIX_ENT(SOUND_MIXER_CD,		 2, 1, 0, 5,	 3, 1, 0, 5,  7),
+	/* For the IMIX entry, it was not possible to use the MIX_ENT macro
+	   because the mute bit is in different positions for the two
+	   channels and requires reverse polarity. */
 	[SOUND_MIXER_IMIX] = {{13, 1, 2, 6, 13, 1, 0, 0, 0, 8},
 		      {42, 1, 0, 6, 42, 1, 7, 0, 0, 8}},
 	MIX_ENT(SOUND_MIXER_ALTPCM,	 0, 0, 0, 0,	 0, 0, 0, 0,  8),
@@ -138,6 +169,11 @@ static mixer_ents cs42xb_mix_devices[32] = {
 	MIX_ENT(SOUND_MIXER_LINE3,	38, 1, 0, 6,	39, 1, 0, 6,  7)
 };
 
+/* OPTi 82C930 has somewhat different port addresses.
+ * Note: VOLUME == SPEAKER, SYNTH == LINE2, LINE == LINE3, CD == LINE1
+ * VOLUME, SYNTH, LINE, CD are not enabled above.
+ * MIC is level of mic monitoring direct to output. Same for CD, LINE, etc.
+ */
 static mixer_ents c930_mix_devices[32] = {
 	MIX_ENT(SOUND_MIXER_VOLUME,	22, 1, 1, 5,	23, 1, 1, 5,  7),
 	MIX_ENT(SOUND_MIXER_BASS,	 0, 0, 0, 0,	 0, 0, 0, 0,  8),
@@ -177,38 +213,41 @@ static mixer_ents spro_mix_devices[32] = {
 	MIX_ENT (SOUND_MIXER_RECLEV,	 0, 0, 0, 0,			  0, 0, 0, 0,  8),
 	MIX_ENT (SOUND_MIXER_IGAIN,	 0, 0, 0, 0,			  0, 0, 0, 0,  8),
 	MIX_ENT (SOUND_MIXER_OGAIN,	17, 1, 6, 1,			  0, 0, 0, 0,  8),
-	
+	/* This is external wavetable */
 	MIX_ENT2(SOUND_MIXER_LINE1,	22, 0, 4, 4, 23, 1, 1, 23, 0, 4,
 		 			22, 0, 0, 4, 23, 1, 0, 23, 0, 5),
 };
 
 static int default_mixer_levels[32] =
 {
-	0x3232,			
-	0x3232,			
-	0x3232,			
-	0x4b4b,			
-	0x3232,			
-	0x1515,			
-	0x2020,			
-	0x1010,			
-	0x4b4b,			
-	0x0000,			
-	0x4b4b,			
-	0x4b4b,			
-	0x4b4b,			
-	0x4b4b,			
-	0x2020,			
-	0x2020,			
-	0x1515			
+	0x3232,			/* Master Volume */
+	0x3232,			/* Bass */
+	0x3232,			/* Treble */
+	0x4b4b,			/* FM */
+	0x3232,			/* PCM */
+	0x1515,			/* PC Speaker */
+	0x2020,			/* Ext Line */
+	0x1010,			/* Mic */
+	0x4b4b,			/* CD */
+	0x0000,			/* Recording monitor */
+	0x4b4b,			/* Second PCM */
+	0x4b4b,			/* Recording level */
+	0x4b4b,			/* Input gain */
+	0x4b4b,			/* Output gain */
+	0x2020,			/* Line1 */
+	0x2020,			/* Line2 */
+	0x1515			/* Line3 (usually line in)*/
 };
 
 #define LEFT_CHN	0
 #define RIGHT_CHN	1
 
+/*
+ * Channel enable bits for ioctl(SOUND_MIXER_PRIVATE1)
+ */
 
 #ifndef AUDIO_SPEAKER
-#define	AUDIO_SPEAKER		0x01	
-#define	AUDIO_HEADPHONE		0x02	
-#define	AUDIO_LINE_OUT		0x04	
+#define	AUDIO_SPEAKER		0x01	/* Enable mono output */
+#define	AUDIO_HEADPHONE		0x02	/* Sparc only */
+#define	AUDIO_LINE_OUT		0x04	/* Sparc only */
 #endif

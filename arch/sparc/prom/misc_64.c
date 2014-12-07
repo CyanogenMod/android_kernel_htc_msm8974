@@ -47,6 +47,7 @@ void prom_sun4v_guest_soft_state(void)
 	p1275_cmd_direct(args);
 }
 
+/* Reset and reboot the machine with the command 'bcommand'. */
 void prom_reboot(const char *bcommand)
 {
 	unsigned long args[4];
@@ -63,6 +64,7 @@ void prom_reboot(const char *bcommand)
 	p1275_cmd_direct(args);
 }
 
+/* Forth evaluate the expression contained in 'fstring'. */
 void prom_feval(const char *fstring)
 {
 	unsigned long args[5];
@@ -84,6 +86,9 @@ extern void smp_capture(void);
 extern void smp_release(void);
 #endif
 
+/* Drop into the prom, with the chance to continue with the 'go'
+ * prom command.
+ */
 void prom_cmdline(void)
 {
 	unsigned long args[3];
@@ -108,6 +113,9 @@ void prom_cmdline(void)
 	local_irq_restore(flags);
 }
 
+/* Drop into the prom, but completely terminate the program.
+ * No chance of continuing.
+ */
 void notrace prom_halt(void)
 {
 	unsigned long args[3];
@@ -121,7 +129,7 @@ again:
 	args[1] = 0;
 	args[2] = 0;
 	p1275_cmd_direct(args);
-	goto again; 
+	goto again; /* PROM is out to get me -DaveM */
 }
 
 void prom_halt_power_off(void)
@@ -137,10 +145,14 @@ void prom_halt_power_off(void)
 	args[2] = 0;
 	p1275_cmd_direct(args);
 
-	
+	/* if nothing else helps, we just halt */
 	prom_halt();
 }
 
+/* Get the idprom and stuff it into buffer 'idbuf'.  Returns the
+ * format type.  'num_bytes' is the number of bytes that your idbuf
+ * has space for.  Returns 0xff on error.
+ */
 unsigned char prom_get_idprom(char *idbuf, int num_bytes)
 {
 	int len;
@@ -191,6 +203,7 @@ static int prom_get_memory_ihandle(void)
 	return ret;
 }
 
+/* Load explicit I/D TLB entries. */
 static long tlb_load(const char *type, unsigned long index,
 		     unsigned long tte_data, unsigned long vaddr)
 {
@@ -266,6 +279,9 @@ void prom_unmap(unsigned long size, unsigned long vaddr)
 	p1275_cmd_direct(args);
 }
 
+/* Set aside physical memory which is not touched or modified
+ * across soft resets.
+ */
 int prom_retain(const char *name, unsigned long size,
 		unsigned long align, unsigned long *paddr)
 {
@@ -288,11 +304,21 @@ int prom_retain(const char *name, unsigned long size,
 	if (args[8])
 		return (int) args[8];
 
+	/* Next we get "phys_high" then "phys_low".  On 64-bit
+	 * the phys_high cell is don't care since the phys_low
+	 * cell has the full value.
+	 */
 	*paddr = args[10];
 
 	return 0;
 }
 
+/* Get "Unumber" string for the SIMM at the given
+ * memory address.  Usually this will be of the form
+ * "Uxxxx" where xxxx is a decimal number which is
+ * etched into the motherboard next to the SIMM slot
+ * in question.
+ */
 int prom_getunumber(int syndrome_code,
 		    unsigned long phys_addr,
 		    char *buf, int buflen)
@@ -317,6 +343,7 @@ int prom_getunumber(int syndrome_code,
 	return (int) args[10];
 }
 
+/* Power management extensions. */
 void prom_sleepself(void)
 {
 	unsigned long args[3];

@@ -17,6 +17,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * generic EDID driver
+ */
 
 #include <linux/slab.h>
 #include <linux/fb.h>
@@ -92,6 +95,6 @@ void via_aux_edid_probe(struct via_aux_bus *bus)
 
 	query_edid(&drv);
 
-	
+	/* as EDID devices can be connected/disconnected just add the driver */
 	via_aux_add(&drv);
 }

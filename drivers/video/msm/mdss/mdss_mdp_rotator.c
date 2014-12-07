@@ -23,6 +23,7 @@
 #include "mdss_mdp.h"
 #include "mdss_mdp_rotator.h"
 #include "mdss_fb.h"
+#include "mdss_debug.h"
 
 #define MAX_ROTATOR_SESSIONS 8
 
@@ -200,14 +201,6 @@ static int mdss_mdp_rotator_pipe_dequeue(struct mdss_mdp_rotator_session *rot)
 	return 0;
 }
 
-/**
- * __mdss_mdp_rotator_to_pipe() - setup pipe according to rotator session params
- * @rot:	Pointer to rotator session
- * @pipe:	Pointer to pipe driving structure
- *
- * After calling this the pipe structure will contain all parameters required
- * to use rotator pipe. Note that this function assumes rotator pipe is idle.
- */
 static int __mdss_mdp_rotator_to_pipe(struct mdss_mdp_rotator_session *rot,
 		struct mdss_mdp_pipe *pipe)
 {
@@ -281,8 +274,9 @@ static int mdss_mdp_rotator_queue_sub(struct mdss_mdp_rotator_session *rot,
 		pr_err("unable to queue rot data\n");
 		goto error;
 	}
-
+	ATRACE_BEGIN("rotator_kickoff");
 	ret = mdss_mdp_rotator_kickoff(rot_ctl, rot, dst_data);
+	ATRACE_END("rotator_kickoff");
 
 	return ret;
 error:
@@ -392,11 +386,6 @@ static int mdss_mdp_rotator_queue(struct mdss_mdp_rotator_session *rot)
 	return ret;
 }
 
-/*
- * Try to reserve hardware resources for rotator session if possible, if this
- * is not possible we may still have a chance to reuse existing pipes used by
- * other sessions at a later point.
- */
 static int __mdss_mdp_rotator_pipe_reserve(struct mdss_mdp_rotator_session *rot)
 {
 	int ret;
@@ -407,12 +396,6 @@ static int __mdss_mdp_rotator_pipe_reserve(struct mdss_mdp_rotator_session *rot)
 			pr_debug("reserved rotator pipe=%d\n", rot->pipe->num);
 			list_add_tail(&rot->head, &rotator_queue);
 		} else {
-			/*
-			 * if rotator queue is not empty means that we'll be
-			 * able to reuse existing rotator pipes for this rotator
-			 * session, otherwise it means that there are no DMA
-			 * pipes available so we should abort now
-			 */
 			if (list_empty(&rotator_queue)) {
 				pr_err("unable to reserve rot pipe\n");
 				return -ENODEV;
@@ -633,7 +616,7 @@ static int mdss_mdp_rotator_finish(struct mdss_mdp_rotator_session *rot)
 
 	if (rot_pipe) {
 		struct mdss_mdp_mixer *mixer = rot_pipe->mixer;
-		mdss_mdp_pipe_unmap(rot_pipe);
+		mdss_mdp_pipe_destroy(rot_pipe);
 		tmp = mdss_mdp_ctl_mixer_switch(mixer->ctl,
 				MDSS_MDP_WB_CTL_TYPE_BLOCK);
 		if (!tmp)

@@ -1,9 +1,34 @@
+/*
+ * File:	sta_h24.236
+ *
+ * Abstract:	This file contains memory image 'fw_image'.
+ *
+ * Contents:	Total size of the memory image: 69294 bytes.
+ *		Total number of blocks: 4 blocks.
+ *		Block  1 : load address 00000060, 390 bytes.
+ *		Block  2 : load address 00000C16, 9496 bytes.
+ *		Block  3 : load address 001E312E, 15786 bytes.
+ *		Block  4 : load address 001F4000, 43622 bytes.
+ *
+ * Identity:	component id: 31 (variant 3) version 2.36
+ *
+ * Compatibility:
+ *		supplying interface 4 (variant 2) : 2 - 5
+ *		acting on interface 1 (variant 4) : 6 - 7
+ *		acting on interface 1 (variant 5) : 6 - 7
+ *		acting on interface 1 (variant 6) : 6 - 7
+ *		acting on interface 2 (variant 2) : 1 - 2
+ *
+ * Generated:	by g:\fw\fupu3.exe version 4.26
+ *
+ * Commandline:	g:\fw\fupu3.exe /f=4 /n=fw_image /i=r3023600.hex
+ */
 
 
-#include "hcfcfg.h"				
-                                
-#include "mdd.h"   				
-#include "dhf.h"   				
+#include "hcfcfg.h"				// to get hcf_16 etc defined as well as
+                                // possible settings which inluence mdd.h or dhf.h
+#include "mdd.h"   				//to get COMP_ID_STA etc defined
+#include "dhf.h"   				//used to be "fhfmem.h", to get memblock,plugrecord,
 
 static const hcf_8 fw_image_1_data[] = {
 	 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -32,7 +57,7 @@ static const hcf_8 fw_image_1_data[] = {
 	 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
-};  
+};  /* fw_image_1_data */
 
 static const hcf_8 fw_image_2_data[] = {
 	 0x4B, 0xA3, 0x00, 0x0A, 0x10, 0x01, 0x68, 0xA4, 0xB0, 0x01, 0x84, 0x01, 0x30, 0x33, 0x31, 0x33,
@@ -630,7 +655,7 @@ static const hcf_8 fw_image_2_data[] = {
 	 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
-};  
+};  /* fw_image_2_data */
 
 static const hcf_8 fw_image_3_data[] = {
 	 0x00, 0xE1, 0x30, 0x40, 0x02, 0x36, 0xA1, 0xFF, 0x83, 0xFF, 0x8D, 0xFF, 0x5C, 0x44, 0x5C, 0x43,
@@ -1621,7 +1646,7 @@ static const hcf_8 fw_image_3_data[] = {
 	 0x01, 0x00, 0x24, 0xFA, 0x58, 0x27, 0x00, 0x00, 0x0E, 0x00, 0x25, 0xFA, 0x78, 0x25, 0x00, 0x00,
 	 0x80, 0x00, 0x26, 0xFA, 0x5E, 0x25, 0x00, 0x00, 0x01, 0x00,
 
-};  
+};  /* fw_image_3_data */
 
 static const hcf_8 fw_image_4_data[] = {
 	 0xA2, 0x60, 0xDD, 0x78, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -4352,63 +4377,63 @@ static const hcf_8 fw_image_4_data[] = {
 	 0xFF, 0xFF, 0x10, 0x60, 0x02, 0x62, 0xA2, 0xD1, 0x00, 0x60, 0x02, 0x64, 0xB0, 0x84, 0xA2, 0xDB,
 	 0xCF, 0xFE, 0x2F, 0x58, 0xFF, 0xFF,
 
-};  
+};  /* fw_image_4_data */
 
 static const CFG_IDENTITY_STRCT fw_image_infoidentity[] = {
 	{
 		sizeof( CFG_IDENTITY_STRCT ) / sizeof(hcf_16) - 1,
 		CFG_FW_IDENTITY,
 		COMP_ID_FW_STA,
-		3,							
-		2,							
-		36							
+		3,							//Variant
+		2,							//Major
+		36							//Minor
 	},
-	{ 0000, 0000, 0000, 0000, 0000, 0000 }		
+	{ 0000, 0000, 0000, 0000, 0000, 0000 }		//endsentinel
 };
 
 static const CFG_PROG_STRCT fw_image_code[] = {
 	{
 		8,
 		CFG_PROG,
-		CFG_PROG_VOLATILE,			
-		0x0186,		
-		0x00000060,					
-		0x0000,						
+		CFG_PROG_VOLATILE,			// mode
+		0x0186,		// sizeof(fw_image_1_data),
+		0x00000060,					// Target address in NIC Memory
+		0x0000,						// CRC: yes/no	TYPE: primary/station/tertiary
 		(hcf_8 FAR   *) fw_image_1_data
 	},
 	{
 		8,
 		CFG_PROG,
-		CFG_PROG_VOLATILE,			
-		0x2518,		
-		0x00000C16,					
-		0x0000,						
+		CFG_PROG_VOLATILE,			// mode
+		0x2518,		// sizeof(fw_image_2_data),
+		0x00000C16,					// Target address in NIC Memory
+		0x0000,						// CRC: yes/no	TYPE: primary/station/tertiary
 		(hcf_8 FAR   *) fw_image_2_data
 	},
 	{
 		8,
 		CFG_PROG,
-		CFG_PROG_VOLATILE,			
-		0x3daa,		
-		0x001E312E,					
-		0x0000,						
+		CFG_PROG_VOLATILE,			// mode
+		0x3daa,		// sizeof(fw_image_3_data),
+		0x001E312E,					// Target address in NIC Memory
+		0x0000,						// CRC: yes/no	TYPE: primary/station/tertiary
 		(hcf_8 FAR   *) fw_image_3_data
 	},
 	{
 		8,
 		CFG_PROG,
-		CFG_PROG_VOLATILE,			
-		0xaa66,		
-		0x001F4000,					
-		0x0000,						
+		CFG_PROG_VOLATILE,			// mode
+		0xaa66,		// sizeof(fw_image_4_data),
+		0x001F4000,					// Target address in NIC Memory
+		0x0000,						// CRC: yes/no	TYPE: primary/station/tertiary
 		(hcf_8 FAR   *) fw_image_4_data
 	},
 	{
 		5,
 		CFG_PROG,
-		CFG_PROG_STOP,				
+		CFG_PROG_STOP,				// mode
 		0000,
- 	0x000F368E,					
+ 	0x000F368E,					// Start execution address
 	},
 	{ 0000, 0000, 0000, 0000, 00000000, 0000, 00000000}
 };
@@ -4419,7 +4444,7 @@ static const CFG_RANGE20_STRCT fw_image_infocompat[] = {
 		COMP_ROLE_SUPL,
 		COMP_ID_STA,
 		{
-			{ 2, 2, 5 }  				
+			{ 2, 2, 5 }  				//variant, bottom, top
 		}
 	},
 	{	3 + ((20 * sizeof(CFG_RANGE_SPEC_STRCT)) / sizeof(hcf_16)),
@@ -4427,9 +4452,9 @@ static const CFG_RANGE20_STRCT fw_image_infocompat[] = {
 		COMP_ROLE_ACT,
 		COMP_ID_MFI,
 		{
-			{ 4, 6, 7 }, 				
-			{ 5, 6, 7 }, 				
-			{ 6, 6, 7 }  				
+			{ 4, 6, 7 }, 				//variant, bottom, top
+			{ 5, 6, 7 }, 				//variant, bottom, top
+			{ 6, 6, 7 }  				//variant, bottom, top
 		}
 	},
 	{	3 + ((20 * sizeof(CFG_RANGE_SPEC_STRCT)) / sizeof(hcf_16)),
@@ -4437,18 +4462,18 @@ static const CFG_RANGE20_STRCT fw_image_infocompat[] = {
 		COMP_ROLE_ACT,
 		COMP_ID_CFI,
 		{
-			{ 2, 1, 2 }  				
+			{ 2, 1, 2 }  				//variant, bottom, top
 		}
 	},
-	{ 0000, 0000, 0000, 0000, { { 0000, 0000, 0000 } } }	
+	{ 0000, 0000, 0000, 0000, { { 0000, 0000, 0000 } } }	//endsentinel
 };
 
 memimage fw_image = {
-	"FUPU7D37dhfwci\001C",			
+	"FUPU7D37dhfwci\001C",			//signature, <format number>, C/Bin type
 	(CFG_PROG_STRCT *) fw_image_code,
 	0x000F368E,
-	00000000,					
-	00000000,					
+	00000000,					//(dummy) pdaplug
+	00000000,					//(dummy) priplug
 	(CFG_RANGE20_STRCT *) fw_image_infocompat,
 	(CFG_IDENTITY_STRCT *) fw_image_infoidentity,
 };

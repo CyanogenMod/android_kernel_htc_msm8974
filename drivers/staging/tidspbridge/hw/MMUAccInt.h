@@ -17,6 +17,7 @@
 #ifndef _MMU_ACC_INT_H
 #define _MMU_ACC_INT_H
 
+/* Mappings of level 1 EASI function numbers to function names */
 
 #define EASIL1_MMUMMU_SYSCONFIG_READ_REGISTER32 (MMU_BASE_EASIL1 + 3)
 #define EASIL1_MMUMMU_SYSCONFIG_IDLE_MODE_WRITE32  (MMU_BASE_EASIL1 + 17)
@@ -42,6 +43,7 @@
 #define EASIL1_MMUMMU_RAM_WRITE_REGISTER32 (MMU_BASE_EASIL1 + 268)
 #define EASIL1_MMUMMU_FLUSH_ENTRY_WRITE_REGISTER32  (MMU_BASE_EASIL1 + 322)
 
+/* Register offset address definitions */
 #define MMU_MMU_SYSCONFIG_OFFSET   0x10
 #define MMU_MMU_IRQSTATUS_OFFSET  0x18
 #define MMU_MMU_IRQENABLE_OFFSET    0x1c
@@ -55,6 +57,7 @@
 #define MMU_MMU_RAM_OFFSET   0x5c
 #define MMU_MMU_GFLUSH_OFFSET  0x60
 #define MMU_MMU_FLUSH_ENTRY_OFFSET  0x64
+/* Bitfield mask and offset declarations */
 #define MMU_MMU_SYSCONFIG_IDLE_MODE_MASK  0x18
 #define MMU_MMU_SYSCONFIG_IDLE_MODE_OFFSET  3
 #define MMU_MMU_SYSCONFIG_AUTO_IDLE_MASK  0x1
@@ -70,4 +73,4 @@
 #define MMU_MMU_LOCK_CURRENT_VICTIM_MASK   0x3f0
 #define MMU_MMU_LOCK_CURRENT_VICTIM_OFFSET    4
 
-#endif 
+#endif /* _MMU_ACC_INT_H */

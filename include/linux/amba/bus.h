@@ -74,6 +74,7 @@ void amba_release_regions(struct amba_device *);
 #define amba_pclk_disable(d)	\
 	do { if (!IS_ERR((d)->pclk)) clk_disable((d)->pclk); } while (0)
 
+/* Some drivers don't use the struct amba_device */
 #define AMBA_CONFIG_BITS(a) (((a) >> 24) & 0xff)
 #define AMBA_REV_BITS(a) (((a) >> 20) & 0x0f)
 #define AMBA_MANF_BITS(a) (((a) >> 12) & 0xff)
@@ -91,6 +92,12 @@ void amba_release_regions(struct amba_device *);
 		.platform_data = data,				\
 	}
 
+/*
+ * APB devices do not themselves have the ability to address memory,
+ * so DMA masks should be zero (much like USB peripheral devices.)
+ * The DMA controller DMA masks should be used instead (much like
+ * USB host controllers in conventional PCs.)
+ */
 #define AMBA_APB_DEVICE(name, busid, id, base, irqs, data)	\
 struct amba_device name##_device = {				\
 	.dev = __AMBA_DEV(busid, data, 0),			\
@@ -99,6 +106,9 @@ struct amba_device name##_device = {				\
 	.periphid = id,						\
 }
 
+/*
+ * AHB devices are DMA capable, so set their DMA masks
+ */
 #define AMBA_AHB_DEVICE(name, busid, id, base, irqs, data)	\
 struct amba_device name##_device = {				\
 	.dev = __AMBA_DEV(busid, data, ~0ULL),			\
@@ -108,6 +118,12 @@ struct amba_device name##_device = {				\
 	.periphid = id,						\
 }
 
+/*
+ * module_amba_driver() - Helper macro for drivers that don't do anything
+ * special in module init/exit.  This eliminates a lot of boilerplate.  Each
+ * module may only use this macro once, and calling it replaces module_init()
+ * and module_exit()
+ */
 #define module_amba_driver(__amba_drv) \
 	module_driver(__amba_drv, amba_driver_register, amba_driver_unregister)
 

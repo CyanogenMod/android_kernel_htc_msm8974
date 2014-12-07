@@ -1,3 +1,4 @@
+/* smc-mca.c: A SMC Ultra ethernet driver for linux. */
 /*
     Most of this driver, except for ultramca_probe is nearly
     verbatim from smc-ultra.c by Donald Becker. The rest is
@@ -64,14 +65,14 @@ static void ultramca_block_output(struct net_device *dev, int count,
                                   const int start_page);
 static int ultramca_close_card(struct net_device *dev);
 
-#define START_PG        0x00    
+#define START_PG        0x00    /* First page of TX buffer */
 
-#define ULTRA_CMDREG 0      
-#define ULTRA_RESET  0x80   
-#define ULTRA_MEMENB 0x40   
-#define ULTRA_NIC_OFFSET 16 
+#define ULTRA_CMDREG 0      /* Offset to ASIC command register. */
+#define ULTRA_RESET  0x80   /* Board reset, in ULTRA_CMDREG. */
+#define ULTRA_MEMENB 0x40   /* Enable the shared memory. */
+#define ULTRA_NIC_OFFSET 16 /* NIC register offset from the base_addr. */
 #define ULTRA_IO_EXTENT 32
-#define EN0_ERWCNT      0x08  
+#define EN0_ERWCNT      0x08  /* Early receive warning count. */
 
 #define _61c8_SMC_Ethercard_PLUS_Elite_A_BNC_AUI_WD8013EP_A            0
 #define _61c9_SMC_Ethercard_PLUS_Elite_A_UTP_AUI_WD8013EP_A            1
@@ -87,7 +88,7 @@ struct smc_mca_adapters_t {
 	char *name;
 };
 
-#define MAX_ULTRAMCA_CARDS 4	
+#define MAX_ULTRAMCA_CARDS 4	/* Max number of Ultra cards per module */
 
 static int ultra_io[MAX_ULTRAMCA_CARDS];
 static int ultra_irq[MAX_ULTRAMCA_CARDS];
@@ -227,12 +228,24 @@ static int __init ultramca_probe(struct device *gen_dev)
 	tirq = 0;
 	tbase = 0;
 
+	/* If we're trying to match a specificied irq or io address,
+	 * we'll reject the adapter found unless it's the one we're
+	 * looking for */
 
-	pos2 = mca_device_read_stored_pos(mca_dev, 2); 
-	pos3 = mca_device_read_stored_pos(mca_dev, 3); 
-	pos4 = mca_device_read_stored_pos(mca_dev, 4); 
-	pos5 = mca_device_read_stored_pos(mca_dev, 5); 
+	pos2 = mca_device_read_stored_pos(mca_dev, 2); /* io_addr */
+	pos3 = mca_device_read_stored_pos(mca_dev, 3); /* shared mem */
+	pos4 = mca_device_read_stored_pos(mca_dev, 4); /* ROM bios addr range */
+	pos5 = mca_device_read_stored_pos(mca_dev, 5); /* irq, media and RIPL */
 
+	/* Test the following conditions:
+	 * - If an irq parameter is supplied, compare it
+	 *   with the irq of the adapter we found
+	 * - If a base_addr paramater is given, compare it
+	 *   with the base_addr of the adapter we found
+	 * - Check that the irq and the base_addr of the
+	 *   adapter we found is not already in use by
+	 *   this driver
+	 */
 
 	switch (mca_dev->index) {
 	case _61c8_SMC_Ethercard_PLUS_Elite_A_BNC_AUI_WD8013EP_A:
@@ -258,9 +271,12 @@ static int __init ultramca_probe(struct device *gen_dev)
 	if(!tirq || !tbase ||
 	   (irq && irq != tirq) ||
 	   (base_addr && tbase != base_addr))
+		/* FIXME: we're trying to force the ordering of the
+		 * devices here, there should be a way of getting this
+		 * to happen */
 		return -ENXIO;
 
-        
+        /* Adapter found. */
 	dev  = alloc_ei_netdev();
 	if(!dev)
 		return -ENODEV;
@@ -279,11 +295,12 @@ static int __init ultramca_probe(struct device *gen_dev)
 	dev->mem_start = 0;
 	num_pages      = 40;
 
-	switch (adapter) {	
+	switch (adapter) {	/* card-# in const array above [hs] */
 		case _61c8_SMC_Ethercard_PLUS_Elite_A_BNC_AUI_WD8013EP_A:
 		case _61c9_SMC_Ethercard_PLUS_Elite_A_UTP_AUI_WD8013EP_A:
 		{
-			for (i = 0; i < 16; i++) { 
+			for (i = 0; i < 16; i++) { /* taking 16 counts
+						    * up to 15 [hs] */
 				if (mem_table[i].mem_index == (pos3 & ~MEM_MASK)) {
 					dev->mem_start = (unsigned long)
 					  mca_device_transform_memory(mca_dev, (void *)mem_table[i].mem_start);
@@ -305,6 +322,10 @@ static int __init ultramca_probe(struct device *gen_dev)
 		case _efd4_IBM_PS2_Adapter_A_for_Ethernet_UTP_AUI_WD8013WP_A:
 		case _efd5_IBM_PS2_Adapter_A_for_Ethernet_BNC_AUI_WD8013WP_A:
 		{
+			/* courtesy of gamera@quartz.ocn.ne.jp, pos3 indicates
+			 * the index of the 0x2000 step.
+			 * beware different number of pages [hs]
+			 */
 			dev->mem_start = (unsigned long)
 			  mca_device_transform_memory(mca_dev, (void *)(0xc0000 + (0x2000 * (pos3 & 0xf))));
 			num_pages = 0x20 + (2 * (pos3 & 0x10));
@@ -312,7 +333,7 @@ static int __init ultramca_probe(struct device *gen_dev)
 		}
 	}
 
-	
+	/* sanity check, shouldn't happen */
 	if (dev->mem_start == 0) {
 		rc = -ENODEV;
 		goto err_unclaim;
@@ -332,17 +353,27 @@ static int __init ultramca_probe(struct device *gen_dev)
 	printk(KERN_INFO "smc_mca[%d]: Parameters: %#3x, %pM",
 	       slot + 1, ioaddr, dev->dev_addr);
 
+	/* Switch from the station address to the alternate register set
+	 * and read the useful registers there.
+	 */
 
 	outb(0x80 | reg4, ioaddr + 4);
 
+	/* Enable FINE16 mode to avoid BIOS ROM width mismatches @ reboot.
+	 */
 
 	outb(0x80 | inb(ioaddr + 0x0c), ioaddr + 0x0c);
 
+	/* Switch back to the station address register set so that
+	 * the MS-DOS driver can find the card after a warm boot.
+	 */
 
 	outb(reg4, ioaddr + 4);
 
 	dev_set_drvdata(gen_dev, dev);
 
+	/* The 8390 isn't at the base address, so fake the offset
+	 */
 
 	dev->base_addr = ioaddr + ULTRA_NIC_OFFSET;
 
@@ -392,18 +423,24 @@ err_unclaim:
 
 static int ultramca_open(struct net_device *dev)
 {
-	int ioaddr = dev->base_addr - ULTRA_NIC_OFFSET; 
+	int ioaddr = dev->base_addr - ULTRA_NIC_OFFSET; /* ASIC addr */
 	int retval;
 
 	if ((retval = request_irq(dev->irq, ei_interrupt, 0, dev->name, dev)))
 		return retval;
 
-	outb(ULTRA_MEMENB, ioaddr); 
-	outb(0x80, ioaddr + 5);     
-	outb(0x01, ioaddr + 6);     
-	outb(0x04, ioaddr + 5);     
+	outb(ULTRA_MEMENB, ioaddr); /* Enable memory */
+	outb(0x80, ioaddr + 5);     /* ??? */
+	outb(0x01, ioaddr + 6);     /* Enable interrupts and memory. */
+	outb(0x04, ioaddr + 5);     /* ??? */
 
+	/* Set the early receive warning level in window 0 high enough not
+	 * to receive ERW interrupts.
+	 */
 
+	/* outb_p(E8390_NODMA + E8390_PAGE0, dev->base_addr);
+	 * outb(0xff, dev->base_addr + EN0_ERWCNT);
+	 */
 
 	ei_open(dev);
 	return 0;
@@ -411,40 +448,47 @@ static int ultramca_open(struct net_device *dev)
 
 static void ultramca_reset_8390(struct net_device *dev)
 {
-	int ioaddr = dev->base_addr - ULTRA_NIC_OFFSET; 
+	int ioaddr = dev->base_addr - ULTRA_NIC_OFFSET; /* ASIC addr */
 
 	outb(ULTRA_RESET, ioaddr);
 	if (ei_debug > 1)
 		printk("resetting Ultra, t=%ld...", jiffies);
 	ei_status.txing = 0;
 
-	outb(0x80, ioaddr + 5);     
-	outb(0x01, ioaddr + 6);     
+	outb(0x80, ioaddr + 5);     /* ??? */
+	outb(0x01, ioaddr + 6);     /* Enable interrupts and memory. */
 
 	if (ei_debug > 1)
 		printk("reset done\n");
 }
 
+/* Grab the 8390 specific header. Similar to the block_input routine, but
+ * we don't need to be concerned with ring wrap as the header will be at
+ * the start of a page, so we optimize accordingly.
+ */
 
 static void ultramca_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_page)
 {
 	void __iomem *hdr_start = ei_status.mem + ((ring_page - START_PG) << 8);
 
 #ifdef notdef
-	
+	/* Officially this is what we are doing, but the readl() is faster */
 	memcpy_fromio(hdr, hdr_start, sizeof(struct e8390_pkt_hdr));
 #else
 	((unsigned int*)hdr)[0] = readl(hdr_start);
 #endif
 }
 
+/* Block input and output are easy on shared memory ethercards, the only
+ * complication is when the ring buffer wraps.
+ */
 
 static void ultramca_block_input(struct net_device *dev, int count, struct sk_buff *skb, int ring_offset)
 {
 	void __iomem *xfer_start = ei_status.mem + ring_offset - START_PG * 256;
 
 	if (ring_offset + count > ei_status.stop_page * 256) {
-		
+		/* We must wrap the input move. */
 		int semi_count = ei_status.stop_page * 256 - ring_offset;
 		memcpy_fromio(skb->data, xfer_start, semi_count);
 		count -= semi_count;
@@ -465,17 +509,20 @@ static void ultramca_block_output(struct net_device *dev, int count, const unsig
 
 static int ultramca_close_card(struct net_device *dev)
 {
-	int ioaddr = dev->base_addr - ULTRA_NIC_OFFSET; 
+	int ioaddr = dev->base_addr - ULTRA_NIC_OFFSET; /* ASIC addr */
 
 	netif_stop_queue(dev);
 
 	if (ei_debug > 1)
 		printk("%s: Shutting down ethercard.\n", dev->name);
 
-	outb(0x00, ioaddr + 6);     
+	outb(0x00, ioaddr + 6);     /* Disable interrupts. */
 	free_irq(dev->irq, dev);
 
 	NS8390_init(dev, 0);
+	/* We should someday disable shared memory and change to 8-bit mode
+         * "just in case"...
+	 */
 
 	return 0;
 }
@@ -486,7 +533,7 @@ static int ultramca_remove(struct device *gen_dev)
 	struct net_device *dev = dev_get_drvdata(gen_dev);
 
 	if (dev) {
-		
+		/* NB: ultra_close_card() does free_irq */
 		int ioaddr = dev->base_addr - ULTRA_NIC_OFFSET;
 
 		unregister_netdev(dev);

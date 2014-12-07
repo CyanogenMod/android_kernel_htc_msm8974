@@ -41,6 +41,9 @@
 static DEFINE_PER_CPU(unsigned long, clean_list_grace);
 #define CLEAN_LIST_BUSY_BIT 0
 
+/*
+ * This is stored as mr->r_trans_private.
+ */
 struct rds_ib_mr {
 	struct rds_ib_device	*device;
 	struct rds_ib_mr_pool	*pool;
@@ -48,7 +51,7 @@ struct rds_ib_mr {
 
 	struct llist_node	llnode;
 
-	
+	/* unmap_list is for freeing */
 	struct list_head	unmap_list;
 	unsigned int		remap_count;
 
@@ -58,19 +61,22 @@ struct rds_ib_mr {
 	int			sg_dma_len;
 };
 
+/*
+ * Our own little FMR pool
+ */
 struct rds_ib_mr_pool {
-	struct mutex		flush_lock;		
-	struct delayed_work	flush_worker;		
+	struct mutex		flush_lock;		/* serialize fmr invalidate */
+	struct delayed_work	flush_worker;		/* flush worker */
 
-	atomic_t		item_count;		
-	atomic_t		dirty_count;		
+	atomic_t		item_count;		/* total # of MRs */
+	atomic_t		dirty_count;		/* # dirty of MRs */
 
-	struct llist_head	drop_list;		
-	struct llist_head	free_list;		
-	struct llist_head	clean_list;		
+	struct llist_head	drop_list;		/* MRs that have reached their max_maps limit */
+	struct llist_head	free_list;		/* unused MRs */
+	struct llist_head	clean_list;		/* global unused & unamapped MRs */
 	wait_queue_head_t	flush_wait;
 
-	atomic_t		free_pinned;		
+	atomic_t		free_pinned;		/* memory pinned by free MRs */
 	unsigned long		max_items;
 	unsigned long		max_items_soft;
 	unsigned long		max_free_pinned;
@@ -157,7 +163,7 @@ void rds_ib_add_conn(struct rds_ib_device *rds_ibdev, struct rds_connection *con
 {
 	struct rds_ib_connection *ic = conn->c_transport_data;
 
-	
+	/* conn was previously on the nodev_conns_list */
 	spin_lock_irq(&ib_nodev_conns_lock);
 	BUG_ON(list_empty(&ib_nodev_conns));
 	BUG_ON(list_empty(&ic->ib_node));
@@ -176,7 +182,7 @@ void rds_ib_remove_conn(struct rds_ib_device *rds_ibdev, struct rds_connection *
 {
 	struct rds_ib_connection *ic = conn->c_transport_data;
 
-	
+	/* place conn on nodev_conns_list */
 	spin_lock(&ib_nodev_conns_lock);
 
 	spin_lock_irq(&rds_ibdev->spinlock);
@@ -197,7 +203,7 @@ void rds_ib_destroy_nodev_conns(void)
 	struct rds_ib_connection *ic, *_ic;
 	LIST_HEAD(tmp_list);
 
-	
+	/* avoid calling conn_destroy with irqs off */
 	spin_lock_irq(&ib_nodev_conns_lock);
 	list_splice(&ib_nodev_conns, &tmp_list);
 	spin_unlock_irq(&ib_nodev_conns_lock);
@@ -226,6 +232,11 @@ struct rds_ib_mr_pool *rds_ib_create_mr_pool(struct rds_ib_device *rds_ibdev)
 	pool->fmr_attr.page_shift = PAGE_SHIFT;
 	pool->max_free_pinned = rds_ibdev->max_fmrs * fmr_message_size / 4;
 
+	/* We never allow more than max_items MRs to be allocated.
+	 * When we exceed more than max_items_soft, we start freeing
+	 * items more aggressively.
+	 * Make sure that max_items > max_items_soft > max_items / 2
+	 */
 	pool->max_items_soft = rds_ibdev->max_fmrs * 3 / 4;
 	pool->max_items = rds_ibdev->max_fmrs;
 
@@ -293,6 +304,15 @@ static struct rds_ib_mr *rds_ib_alloc_fmr(struct rds_ib_device *rds_ibdev)
 		if (ibmr)
 			return ibmr;
 
+		/* No clean MRs - now we have the choice of either
+		 * allocating a fresh MR up to the limit imposed by the
+		 * driver, or flush any dirty unused MRs.
+		 * We try to avoid stalling in the send path if possible,
+		 * so we allocate as long as we're allowed to.
+		 *
+		 * We're fussy with enforcing the FMR limit, though. If the driver
+		 * tells us we can't use more than N fmrs, we shouldn't start
+		 * arguing with it */
 		if (atomic_inc_return(&pool->item_count) <= pool->max_items)
 			break;
 
@@ -303,7 +323,7 @@ static struct rds_ib_mr *rds_ib_alloc_fmr(struct rds_ib_device *rds_ibdev)
 			return ERR_PTR(-EAGAIN);
 		}
 
-		
+		/* We do have some empty MRs. Flush them out. */
 		rds_ib_stats_inc(s_ib_rdma_mr_pool_wait);
 		rds_ib_flush_mr_pool(pool, 0, &ibmr);
 		if (ibmr)
@@ -410,6 +430,8 @@ static int rds_ib_map_fmr(struct rds_ib_device *rds_ibdev, struct rds_ib_mr *ibm
 	if (ret)
 		goto out;
 
+	/* Success - we successfully remapped the MR, so we can
+	 * safely tear down the old mapping. */
 	rds_ib_teardown_mr(ibmr);
 
 	ibmr->sg = scat;
@@ -454,13 +476,15 @@ static void __rds_ib_teardown_mr(struct rds_ib_mr *ibmr)
 		ibmr->sg_dma_len = 0;
 	}
 
-	
+	/* Release the s/g list */
 	if (ibmr->sg_len) {
 		unsigned int i;
 
 		for (i = 0; i < ibmr->sg_len; ++i) {
 			struct page *page = sg_page(&ibmr->sg[i]);
 
+			/* FIXME we need a way to tell a r/w MR
+			 * from a r/o MR */
 			BUG_ON(irqs_disabled());
 			set_page_dirty(page);
 			put_page(page);
@@ -496,6 +520,9 @@ static inline unsigned int rds_ib_flush_goal(struct rds_ib_mr_pool *pool, int fr
 	return 0;
 }
 
+/*
+ * given an llist of mrs, put them all into the list_head for more processing
+ */
 static void llist_append_to_list(struct llist_head *llist, struct list_head *list)
 {
 	struct rds_ib_mr *ibmr;
@@ -511,6 +538,11 @@ static void llist_append_to_list(struct llist_head *llist, struct list_head *lis
 	}
 }
 
+/*
+ * this takes a list head of mrs and turns it into linked llist nodes
+ * of clusters.  Each cluster has linked llist nodes of
+ * MR_CLUSTER_SIZE mrs that are ready for reuse.
+ */
 static void list_to_llist_nodes(struct rds_ib_mr_pool *pool,
 				struct list_head *list,
 				struct llist_node **nodes_head,
@@ -529,6 +561,12 @@ static void list_to_llist_nodes(struct rds_ib_mr_pool *pool,
 	*nodes_tail = cur;
 }
 
+/*
+ * Flush our pool of MRs.
+ * At a minimum, all currently unused MRs are unmapped.
+ * If the number of MRs allocated exceeds the limit, we also try
+ * to free as many MRs as needed to get back to this limit.
+ */
 static int rds_ib_flush_mr_pool(struct rds_ib_mr_pool *pool,
 			        int free_all, struct rds_ib_mr **ibmr_ret)
 {
@@ -577,6 +615,9 @@ static int rds_ib_flush_mr_pool(struct rds_ib_mr_pool *pool,
 		}
 	}
 
+	/* Get the list of all MRs to be dropped. Ordering matters -
+	 * we want to put drop_list ahead of free_list.
+	 */
 	llist_append_to_list(&pool->drop_list, &unmap_list);
 	llist_append_to_list(&pool->free_list, &unmap_list);
 	if (free_all)
@@ -587,7 +628,7 @@ static int rds_ib_flush_mr_pool(struct rds_ib_mr_pool *pool,
 	if (list_empty(&unmap_list))
 		goto out;
 
-	
+	/* String all ib_mr's onto one list and hand them to ib_unmap_fmr */
 	list_for_each_entry(ibmr, &unmap_list, unmap_list)
 		list_add(&ibmr->fmr->list, &fmr_list);
 
@@ -595,7 +636,7 @@ static int rds_ib_flush_mr_pool(struct rds_ib_mr_pool *pool,
 	if (ret)
 		printk(KERN_WARNING "RDS/IB: ib_unmap_fmr failed (err=%d)\n", ret);
 
-	
+	/* Now we can destroy the DMA mapping and unpin any pages */
 	list_for_each_entry_safe(ibmr, next, &unmap_list, unmap_list) {
 		unpinned += ibmr->sg_len;
 		__rds_ib_teardown_mr(ibmr);
@@ -610,13 +651,22 @@ static int rds_ib_flush_mr_pool(struct rds_ib_mr_pool *pool,
 	}
 
 	if (!list_empty(&unmap_list)) {
+		/* we have to make sure that none of the things we're about
+		 * to put on the clean list would race with other cpus trying
+		 * to pull items off.  The llist would explode if we managed to
+		 * remove something from the clean list and then add it back again
+		 * while another CPU was spinning on that same item in llist_del_first.
+		 *
+		 * This is pretty unlikely, but just in case  wait for an llist grace period
+		 * here before adding anything back into the clean list.
+		 */
 		wait_clean_list_grace();
 
 		list_to_llist_nodes(pool, &unmap_list, &clean_nodes, &clean_tail);
 		if (ibmr_ret)
 			*ibmr_ret = llist_entry(clean_nodes, struct rds_ib_mr, llnode);
 
-		
+		/* more than one entry in llist nodes */
 		if (clean_nodes->next)
 			llist_add_batch(clean_nodes->next, clean_tail, &pool->clean_list);
 
@@ -649,7 +699,7 @@ void rds_ib_free_mr(void *trans_private, int invalidate)
 
 	rdsdebug("RDS/IB: free_mr nents %u\n", ibmr->sg_len);
 
-	
+	/* Return it to the pool's free list */
 	if (ibmr->remap_count >= pool->fmr_attr.max_maps)
 		llist_add(&ibmr->llnode, &pool->drop_list);
 	else
@@ -658,7 +708,7 @@ void rds_ib_free_mr(void *trans_private, int invalidate)
 	atomic_add(ibmr->sg_len, &pool->free_pinned);
 	atomic_inc(&pool->dirty_count);
 
-	
+	/* If we've pinned too many pages, request a flush */
 	if (atomic_read(&pool->free_pinned) >= pool->max_free_pinned ||
 	    atomic_read(&pool->dirty_count) >= pool->max_items / 10)
 		schedule_delayed_work(&pool->flush_worker, 10);
@@ -667,6 +717,8 @@ void rds_ib_free_mr(void *trans_private, int invalidate)
 		if (likely(!in_interrupt())) {
 			rds_ib_flush_mr_pool(pool, 0, NULL);
 		} else {
+			/* We get here if the user created a MR marked
+			 * as use_once and invalidate at the same time. */
 			schedule_delayed_work(&pool->flush_worker, 10);
 		}
 	}

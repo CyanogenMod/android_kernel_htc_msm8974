@@ -57,6 +57,7 @@ static struct platform_device smartq5_leds_device = {
 	.dev.platform_data	= &smartq5_led_data,
 };
 
+/* Labels according to the SmartQ manual */
 static struct gpio_keys_button smartq5_buttons[] = {
 	{
 		.gpio			= S3C64XX_GPL(14),
@@ -145,7 +146,7 @@ static void __init smartq5_machine_init(void)
 }
 
 MACHINE_START(SMARTQ5, "SmartQ 5")
-	
+	/* Maintainer: Maurus Cuelenaere <mcuelenaere AT gmail DOT com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s3c6410_init_irq,
 	.handle_irq	= vic_handle_irq,

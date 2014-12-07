@@ -42,6 +42,7 @@
 #define		PACKET3_IT_OPCODE_MASK		(0xff << 8)
 #define		PACKET3_COUNT_SHIFT		16
 #define		PACKET3_COUNT_MASK		(0x3fff << 16)
+/* PACKET3 op code */
 #define		PACKET3_NOP			0x10
 #define		PACKET3_3D_DRAW_VBUF		0x28
 #define		PACKET3_3D_DRAW_IMMD		0x29
@@ -75,6 +76,7 @@
 #define CP_PACKET0_GET_ONE_REG_WR(h) (((h) >> 15) & 1)
 #define CP_PACKET3_GET_OPCODE(h) (((h) >> 8) & 0xFF)
 
+/* Registers */
 #define R_000148_MC_FB_LOCATION                      0x000148
 #define   S_000148_MC_FB_START(x)                      (((x) & 0xFFFF) << 0)
 #define   G_000148_MC_FB_START(x)                      (((x) >> 0) & 0xFFFF)

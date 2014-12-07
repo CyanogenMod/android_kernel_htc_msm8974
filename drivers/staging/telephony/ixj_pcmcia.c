@@ -3,9 +3,9 @@
 #include <linux/module.h>
 
 #include <linux/init.h>
-#include <linux/kernel.h>	
-#include <linux/fs.h>		
-#include <linux/errno.h>	
+#include <linux/kernel.h>	/* printk() */
+#include <linux/fs.h>		/* everything... */
+#include <linux/errno.h>	/* error codes */
 #include <linux/slab.h>
 
 #include <pcmcia/cistpl.h>
@@ -13,6 +13,9 @@
 
 #include "ixj.h"
 
+/*
+ *	PCMCIA service support for Quicknet cards
+ */
  
 
 typedef struct ixj_info_t {
@@ -27,7 +30,7 @@ static void ixj_cs_release(struct pcmcia_device * link);
 static int ixj_probe(struct pcmcia_device *p_dev)
 {
 	dev_dbg(&p_dev->dev, "ixj_attach()\n");
-	
+	/* Create new ixj device */
 	p_dev->priv = kzalloc(sizeof(struct ixj_info_t), GFP_KERNEL);
 	if (!p_dev->priv) {
 		return -ENOMEM;
@@ -131,6 +134,9 @@ static int ixj_config(struct pcmcia_device * link)
 	if (pcmcia_enable_device(link))
 		goto failed;
 
+	/*
+ 	 *	Register the card with the core.
+	 */
 	j = ixj_pcmcia_probe(link->resource[0]->start,
 			     link->resource[0]->start + 0x10);
 

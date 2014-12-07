@@ -68,6 +68,12 @@ static const struct file_operations qib_file_ops = {
 	.llseek = noop_llseek,
 };
 
+/*
+ * Convert kernel virtual addresses to physical addresses so they don't
+ * potentially conflict with the chip addresses used as mmap offsets.
+ * It doesn't really matter what mmap offset we use as long as we can
+ * interpret it correctly.
+ */
 static u64 cvt_kvaddr(void *p)
 {
 	struct page *page;
@@ -103,7 +109,7 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
 	}
 
 	sz = sizeof(*kinfo);
-	
+	/* If context sharing is not requested, allow the old size structure */
 	if (!shared)
 		sz -= 7 * sizeof(u64);
 	if (ubase_size < sz) {
@@ -125,6 +131,9 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
 	kinfo->spi_rcvhdrent_size = dd->rcvhdrentsize;
 	kinfo->spi_tidegrcnt = rcd->rcvegrcnt;
 	kinfo->spi_rcv_egrbufsize = dd->rcvegrbufsize;
+	/*
+	 * have to mmap whole thing
+	 */
 	kinfo->spi_rcv_egrbuftotlen =
 		rcd->rcvegrbuf_chunks * rcd->rcvegrbuf_size;
 	kinfo->spi_rcv_egrperchunk = rcd->rcvegrbufs_perchunk;
@@ -133,19 +142,42 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
 	kinfo->spi_tidcnt = dd->rcvtidcnt / subctxt_cnt;
 	if (master)
 		kinfo->spi_tidcnt += dd->rcvtidcnt % subctxt_cnt;
+	/*
+	 * for this use, may be cfgctxts summed over all chips that
+	 * are are configured and present
+	 */
 	kinfo->spi_nctxts = dd->cfgctxts;
-	
+	/* unit (chip/board) our context is on */
 	kinfo->spi_unit = dd->unit;
 	kinfo->spi_port = ppd->port;
-	
+	/* for now, only a single page */
 	kinfo->spi_tid_maxsize = PAGE_SIZE;
 
+	/*
+	 * Doing this per context, and based on the skip value, etc.  This has
+	 * to be the actual buffer size, since the protocol code treats it
+	 * as an array.
+	 *
+	 * These have to be set to user addresses in the user code via mmap.
+	 * These values are used on return to user code for the mmap target
+	 * addresses only.  For 32 bit, same 44 bit address problem, so use
+	 * the physical address, not virtual.  Before 2.6.11, using the
+	 * page_address() macro worked, but in 2.6.11, even that returns the
+	 * full 64 bit address (upper bits all 1's).  So far, using the
+	 * physical addresses (or chip offsets, for chip mapping) works, but
+	 * no doubt some future kernel release will change that, and we'll be
+	 * on to yet another method of dealing with this.
+	 * Normally only one of rcvhdr_tailaddr or rhf_offset is useful
+	 * since the chips with non-zero rhf_offset don't normally
+	 * enable tail register updates to host memory, but for testing,
+	 * both can be enabled and used.
+	 */
 	kinfo->spi_rcvhdr_base = (u64) rcd->rcvhdrq_phys;
 	kinfo->spi_rcvhdr_tailaddr = (u64) rcd->rcvhdrqtailaddr_phys;
 	kinfo->spi_rhf_offset = dd->rhf_offset;
 	kinfo->spi_rcv_egrbufs = (u64) rcd->rcvegr_phys;
 	kinfo->spi_pioavailaddr = (u64) dd->pioavailregs_phys;
-	
+	/* setup per-unit (not port) status area for user programs */
 	kinfo->spi_status = (u64) kinfo->spi_pioavailaddr +
 		(char *) ppd->statusp -
 		(char *) dd->pioavailregs_dma;
@@ -157,7 +189,7 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
 	} else if (master) {
 		kinfo->spi_piocnt = (rcd->piocnt / subctxt_cnt) +
 				    (rcd->piocnt % subctxt_cnt);
-		
+		/* Master's PIO buffers are after all the slave's */
 		kinfo->spi_piobufbase = (u64) rcd->piobufs +
 			dd->palign *
 			(rcd->piocnt - kinfo->spi_piocnt);
@@ -172,7 +204,7 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
 	if (shared) {
 		kinfo->spi_sendbuf_status =
 			cvt_kvaddr(&rcd->user_event_mask[subctxt_fp(fp)]);
-		
+		/* only spi_subctxt_* fields should be set in this block! */
 		kinfo->spi_subctxt_uregbase = cvt_kvaddr(rcd->subctxt_uregbase);
 
 		kinfo->spi_subctxt_rcvegrbuf =
@@ -181,16 +213,27 @@ static int qib_get_base_info(struct file *fp, void __user *ubase,
 			cvt_kvaddr(rcd->subctxt_rcvhdr_base);
 	}
 
+	/*
+	 * All user buffers are 2KB buffers.  If we ever support
+	 * giving 4KB buffers to user processes, this will need some
+	 * work.  Can't use piobufbase directly, because it has
+	 * both 2K and 4K buffer base values.
+	 */
 	kinfo->spi_pioindex = (kinfo->spi_piobufbase - dd->pio2k_bufbase) /
 		dd->palign;
 	kinfo->spi_pioalign = dd->palign;
 	kinfo->spi_qpair = QIB_KD_QP;
+	/*
+	 * user mode PIO buffers are always 2KB, even when 4KB can
+	 * be received, and sent via the kernel; this is ibmaxlen
+	 * for 2K MTU.
+	 */
 	kinfo->spi_piosize = dd->piosize2k - 2 * sizeof(u32);
-	kinfo->spi_mtu = ppd->ibmaxlen; 
+	kinfo->spi_mtu = ppd->ibmaxlen; /* maxlen, not ibmtu */
 	kinfo->spi_ctxt = rcd->ctxt;
 	kinfo->spi_subctxt = subctxt_fp(fp);
 	kinfo->spi_sw_version = QIB_KERN_SWVERSION;
-	kinfo->spi_sw_version |= 1U << 31; 
+	kinfo->spi_sw_version |= 1U << 31; /* QLogic-built, not kernel.org */
 	kinfo->spi_hw_version = dd->revision;
 
 	if (master)
@@ -204,6 +247,31 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_tid_update - update a context TID
+ * @rcd: the context
+ * @fp: the qib device file
+ * @ti: the TID information
+ *
+ * The new implementation as of Oct 2004 is that the driver assigns
+ * the tid and returns it to the caller.   To reduce search time, we
+ * keep a cursor for each context, walking the shadow tid array to find
+ * one that's not in use.
+ *
+ * For now, if we can't allocate the full list, we fail, although
+ * in the long run, we'll allocate as many as we can, and the
+ * caller will deal with that by trying the remaining pages later.
+ * That means that when we fail, we have to mark the tids as not in
+ * use again, in our shadow copy.
+ *
+ * It's up to the caller to free the tids when they are done.
+ * We'll unlock the pages as they free them.
+ *
+ * Also, right now we are locking one page at a time, but since
+ * the intended use of this routine is for a single group of
+ * virtually contiguous pages, that should change to improve
+ * performance.
+ */
 static int qib_tid_update(struct qib_ctxtdata *rcd, struct file *fp,
 			  const struct qib_tid_info *ti)
 {
@@ -246,7 +314,7 @@ static int qib_tid_update(struct qib_ctxtdata *rcd, struct file *fp,
 		tid = tidcursor_fp(fp);
 	}
 	if (cnt > tidcnt) {
-		
+		/* make sure it all fits in tid_pg_list */
 		qib_devinfo(dd->pcidev, "Process tried to allocate %u "
 			 "TIDs, only trying max (%u)\n", cnt, tidcnt);
 		cnt = tidcnt;
@@ -257,13 +325,13 @@ static int qib_tid_update(struct qib_ctxtdata *rcd, struct file *fp,
 	tidlist += tidoff;
 
 	memset(tidmap, 0, sizeof(tidmap));
-	
+	/* before decrement; chip actual # */
 	ntids = tidcnt;
 	tidbase = (u64 __iomem *) (((char __iomem *) dd->kregbase) +
 				   dd->rcvtidbase +
 				   ctxttid * sizeof(*tidbase));
 
-	
+	/* virtual address of first page in transfer */
 	vaddr = ti->tidvaddr;
 	if (!access_ok(VERIFY_WRITE, (void __user *) vaddr,
 		       cnt * PAGE_SIZE)) {
@@ -272,6 +340,13 @@ static int qib_tid_update(struct qib_ctxtdata *rcd, struct file *fp,
 	}
 	ret = qib_get_user_pages(vaddr, cnt, pagep);
 	if (ret) {
+		/*
+		 * if (ret == -EBUSY)
+		 * We can't continue because the pagep array won't be
+		 * initialized. This should never happen,
+		 * unless perhaps the user has mpin'ed the pages
+		 * themselves.
+		 */
 		qib_devinfo(dd->pcidev,
 			 "Failed to lock addr %p, %u pages: "
 			 "errno %d\n", (void *) vaddr, cnt, -ret);
@@ -285,32 +360,44 @@ static int qib_tid_update(struct qib_ctxtdata *rcd, struct file *fp,
 				break;
 		}
 		if (ntids < 0) {
-			i--;    
+			/*
+			 * Oops, wrapped all the way through their TIDs,
+			 * and didn't have enough free; see comments at
+			 * start of routine
+			 */
+			i--;    /* last tidlist[i] not filled in */
 			ret = -ENOMEM;
 			break;
 		}
 		tidlist[i] = tid + tidoff;
-		
+		/* we "know" system pages and TID pages are same size */
 		dd->pageshadow[ctxttid + tid] = pagep[i];
 		dd->physshadow[ctxttid + tid] =
 			qib_map_page(dd->pcidev, pagep[i], 0, PAGE_SIZE,
 				     PCI_DMA_FROMDEVICE);
+		/*
+		 * don't need atomic or it's overhead
+		 */
 		__set_bit(tid, tidmap);
 		physaddr = dd->physshadow[ctxttid + tid];
-		
+		/* PERFORMANCE: below should almost certainly be cached */
 		dd->f_put_tid(dd, &tidbase[tid],
 				  RCVHQ_RCV_TYPE_EXPECTED, physaddr);
+		/*
+		 * don't check this tid in qib_ctxtshadow, since we
+		 * just filled it in; start with the next one.
+		 */
 		tid++;
 	}
 
 	if (ret) {
 		u32 limit;
 cleanup:
-		
-		
+		/* jump here if copy out of updated info failed... */
+		/* same code that's in qib_free_tid() */
 		limit = sizeof(tidmap) * BITS_PER_BYTE;
 		if (limit > tidcnt)
-			
+			/* just in case size changes in future */
 			limit = tidcnt;
 		tid = find_first_bit((const unsigned long *)tidmap, limit);
 		for (; tid < limit; tid++) {
@@ -321,6 +408,9 @@ cleanup:
 
 				phys = dd->physshadow[ctxttid + tid];
 				dd->physshadow[ctxttid + tid] = dd->tidinvalid;
+				/* PERFORMANCE: below should almost certainly
+				 * be cached
+				 */
 				dd->f_put_tid(dd, &tidbase[tid],
 					      RCVHQ_RCV_TYPE_EXPECTED,
 					      dd->tidinvalid);
@@ -331,6 +421,11 @@ cleanup:
 		}
 		qib_release_user_pages(pagep, cnt);
 	} else {
+		/*
+		 * Copy the updated array, with qib_tid's filled in, back
+		 * to user.  Since we did the copy in already, this "should
+		 * never fail" If it does, we have to clean up...
+		 */
 		if (copy_to_user((void __user *)
 				 (unsigned long) ti->tidlist,
 				 tidlist, cnt * sizeof(*tidlist))) {
@@ -354,6 +449,22 @@ done:
 	return ret;
 }
 
+/**
+ * qib_tid_free - free a context TID
+ * @rcd: the context
+ * @subctxt: the subcontext
+ * @ti: the TID info
+ *
+ * right now we are unlocking one page at a time, but since
+ * the intended use of this routine is for a single group of
+ * virtually contiguous pages, that should change to improve
+ * performance.  We check that the TID is in range for this context
+ * but otherwise don't check validity; if user has an error and
+ * frees the wrong tid, it's only their own data that can thereby
+ * be corrupted.  We do check that the TID was in use, for sanity
+ * We always use our idea of the saved address, not the address that
+ * they pass in to us.
+ */
 static int qib_tid_free(struct qib_ctxtdata *rcd, unsigned subctxt,
 			const struct qib_tid_info *ti)
 {
@@ -391,10 +502,17 @@ static int qib_tid_free(struct qib_ctxtdata *rcd, unsigned subctxt,
 
 	limit = sizeof(tidmap) * BITS_PER_BYTE;
 	if (limit > tidcnt)
-		
+		/* just in case size changes in future */
 		limit = tidcnt;
 	tid = find_first_bit(tidmap, limit);
 	for (cnt = 0; tid < limit; tid++) {
+		/*
+		 * small optimization; if we detect a run of 3 or so without
+		 * any set, use find_first_bit again.  That's mainly to
+		 * accelerate the case where we wrapped, so we have some at
+		 * the beginning, and some at the end, and a big gap
+		 * in the middle.
+		 */
 		if (!test_bit(tid, tidmap))
 			continue;
 		cnt++;
@@ -406,6 +524,9 @@ static int qib_tid_free(struct qib_ctxtdata *rcd, unsigned subctxt,
 			dd->pageshadow[ctxttid + tid] = NULL;
 			phys = dd->physshadow[ctxttid + tid];
 			dd->physshadow[ctxttid + tid] = dd->tidinvalid;
+			/* PERFORMANCE: below should almost certainly be
+			 * cached
+			 */
 			dd->f_put_tid(dd, &tidbase[tid],
 				      RCVHQ_RCV_TYPE_EXPECTED, dd->tidinvalid);
 			pci_unmap_page(dd->pcidev, phys, PAGE_SIZE,
@@ -417,6 +538,22 @@ done:
 	return ret;
 }
 
+/**
+ * qib_set_part_key - set a partition key
+ * @rcd: the context
+ * @key: the key
+ *
+ * We can have up to 4 active at a time (other than the default, which is
+ * always allowed).  This is somewhat tricky, since multiple contexts may set
+ * the same key, so we reference count them, and clean up at exit.  All 4
+ * partition keys are packed into a single qlogic_ib register.  It's an
+ * error for a process to set the same pkey multiple times.  We provide no
+ * mechanism to de-allocate a pkey at this time, we may eventually need to
+ * do that.  I've used the atomic operations, and no locking, and only make
+ * a single pass through what's available.  This should be more than
+ * adequate for some time. I'll think about spinlocks or the like if and as
+ * it's necessary.
+ */
 static int qib_set_part_key(struct qib_ctxtdata *rcd, u16 key)
 {
 	struct qib_pportdata *ppd = rcd->ppd;
@@ -425,7 +562,7 @@ static int qib_set_part_key(struct qib_ctxtdata *rcd, u16 key)
 	int ret;
 
 	if (lkey == (QIB_DEFAULT_P_KEY & 0x7FFF)) {
-		
+		/* nothing to do; this key always valid */
 		ret = 0;
 		goto bail;
 	}
@@ -435,6 +572,12 @@ static int qib_set_part_key(struct qib_ctxtdata *rcd, u16 key)
 		goto bail;
 	}
 
+	/*
+	 * Set the full membership bit, because it has to be
+	 * set in the register or the packet, and it seems
+	 * cleaner to set in the register than to force all
+	 * callers to set it.
+	 */
 	key |= 0x8000;
 
 	for (i = 0; i < ARRAY_SIZE(rcd->pkeys); i++) {
@@ -462,11 +605,19 @@ static int qib_set_part_key(struct qib_ctxtdata *rcd, u16 key)
 				ret = 0;
 				goto bail;
 			} else {
+				/*
+				 * lost race, decrement count, catch below
+				 */
 				atomic_dec(pkrefs);
 				any++;
 			}
 		}
 		if ((ppd->pkeys[i] & 0x7FFF) == lkey) {
+			/*
+			 * It makes no sense to have both the limited and
+			 * full membership PKEY set at the same time since
+			 * the unlimited one will disable the limited one.
+			 */
 			ret = -EEXIST;
 			goto bail;
 		}
@@ -491,6 +642,16 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_manage_rcvq - manage a context's receive queue
+ * @rcd: the context
+ * @subctxt: the subcontext
+ * @start_stop: action to carry out
+ *
+ * start_stop == 0 disables receive on the context, for use in queue
+ * overflow conditions.  start_stop==1 re-enables, to be used to
+ * re-init the software copy of the head register
+ */
 static int qib_manage_rcvq(struct qib_ctxtdata *rcd, unsigned subctxt,
 			   int start_stop)
 {
@@ -499,15 +660,23 @@ static int qib_manage_rcvq(struct qib_ctxtdata *rcd, unsigned subctxt,
 
 	if (subctxt)
 		goto bail;
-	
+	/* atomically clear receive enable ctxt. */
 	if (start_stop) {
+		/*
+		 * On enable, force in-memory copy of the tail register to
+		 * 0, so that protocol code doesn't have to worry about
+		 * whether or not the chip has yet updated the in-memory
+		 * copy or not on return from the system call. The chip
+		 * always resets it's tail register back to 0 on a
+		 * transition from disabled to enabled.
+		 */
 		if (rcd->rcvhdrtail_kvaddr)
 			qib_clear_rcvhdrtail(rcd);
 		rcvctrl_op = QIB_RCVCTRL_CTXT_ENB;
 	} else
 		rcvctrl_op = QIB_RCVCTRL_CTXT_DIS;
 	dd->f_rcvctrl(rcd->ppd, rcvctrl_op, rcd->ctxt);
-	
+	/* always; new head should be equal to new tail; see above */
 bail:
 	return 0;
 }
@@ -519,7 +688,7 @@ static void qib_clean_part_key(struct qib_ctxtdata *rcd,
 	u64 oldpkey;
 	struct qib_pportdata *ppd = rcd->ppd;
 
-	
+	/* for debugging only */
 	oldpkey = (u64) ppd->pkeys[0] |
 		((u64) ppd->pkeys[1] << 16) |
 		((u64) ppd->pkeys[2] << 32) |
@@ -529,7 +698,7 @@ static void qib_clean_part_key(struct qib_ctxtdata *rcd,
 		if (!rcd->pkeys[i])
 			continue;
 		for (j = 0; j < ARRAY_SIZE(ppd->pkeys); j++) {
-			
+			/* check for match independent of the global bit */
 			if ((ppd->pkeys[j] & 0x7fff) !=
 			    (rcd->pkeys[i] & 0x7fff))
 				continue;
@@ -545,6 +714,7 @@ static void qib_clean_part_key(struct qib_ctxtdata *rcd,
 		(void) ppd->dd->f_set_ib_cfg(ppd, QIB_IB_CFG_PKEYS, 0);
 }
 
+/* common code for the mappings on dma_alloc_coherent mem */
 static int qib_mmap_mem(struct vm_area_struct *vma, struct qib_ctxtdata *rcd,
 			unsigned len, void *kvaddr, u32 write_ok, char *what)
 {
@@ -560,6 +730,10 @@ static int qib_mmap_mem(struct vm_area_struct *vma, struct qib_ctxtdata *rcd,
 		goto bail;
 	}
 
+	/*
+	 * shared context user code requires rcvhdrq mapped r/w, others
+	 * only allowed readonly mapping.
+	 */
 	if (!write_ok) {
 		if (vma->vm_flags & VM_WRITE) {
 			qib_devinfo(dd->pcidev,
@@ -568,7 +742,7 @@ static int qib_mmap_mem(struct vm_area_struct *vma, struct qib_ctxtdata *rcd,
 			goto bail;
 		}
 
-		
+		/* don't allow them to later change with mprotect */
 		vma->vm_flags &= ~VM_MAYWRITE;
 	}
 
@@ -590,6 +764,11 @@ static int mmap_ureg(struct vm_area_struct *vma, struct qib_devdata *dd,
 	unsigned long sz;
 	int ret;
 
+	/*
+	 * This is real hardware, so use io_remap.  This is the mechanism
+	 * for the user process to update the head registers for their ctxt
+	 * in the chip.
+	 */
 	sz = dd->flags & QIB_HAS_HDRSUPP ? 2 * PAGE_SIZE : PAGE_SIZE;
 	if ((vma->vm_end - vma->vm_start) > sz) {
 		qib_devinfo(dd->pcidev, "FAIL mmap userreg: reqlen "
@@ -616,6 +795,12 @@ static int mmap_piobufs(struct vm_area_struct *vma,
 	unsigned long phys;
 	int ret;
 
+	/*
+	 * When we map the PIO buffers in the chip, we want to map them as
+	 * writeonly, no read possible; unfortunately, x86 doesn't allow
+	 * for this in hardware, but we still prevent users from asking
+	 * for it.
+	 */
 	if ((vma->vm_end - vma->vm_start) > (piocnt * dd->palign)) {
 		qib_devinfo(dd->pcidev, "FAIL mmap piobufs: "
 			 "reqlen %lx > PAGE\n",
@@ -627,12 +812,16 @@ static int mmap_piobufs(struct vm_area_struct *vma,
 	phys = dd->physaddr + piobufs;
 
 #if defined(__powerpc__)
-	
+	/* There isn't a generic way to specify writethrough mappings */
 	pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE;
 	pgprot_val(vma->vm_page_prot) |= _PAGE_WRITETHRU;
 	pgprot_val(vma->vm_page_prot) &= ~_PAGE_GUARDED;
 #endif
 
+	/*
+	 * don't allow them to later change to readable with mprotect (for when
+	 * not initially mapped readable, as is normally the case)
+	 */
 	vma->vm_flags &= ~VM_MAYREAD;
 	vma->vm_flags |= VM_DONTCOPY | VM_DONTEXPAND;
 
@@ -672,7 +861,7 @@ static int mmap_rcvegrbufs(struct vm_area_struct *vma,
 		ret = -EPERM;
 		goto bail;
 	}
-	
+	/* don't allow them to later change to writeable with mprotect */
 	vma->vm_flags &= ~VM_MAYWRITE;
 
 	start = vma->vm_start;
@@ -690,6 +879,9 @@ bail:
 	return ret;
 }
 
+/*
+ * qib_file_vma_fault - handle a VMA page fault.
+ */
 static int qib_file_vma_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct page *page;
@@ -721,6 +913,11 @@ static int mmap_kvaddr(struct vm_area_struct *vma, u64 pgaddr,
 	subctxt_cnt = rcd->subctxt_cnt;
 	size = rcd->rcvegrbuf_chunks * rcd->rcvegrbuf_size;
 
+	/*
+	 * Each process has all the subctxt uregbase, rcvhdrq, and
+	 * rcvegrbufs mmapped - as an array for all the processes,
+	 * and also separately for this process.
+	 */
 	if (pgaddr == cvt_kvaddr(rcd->subctxt_uregbase)) {
 		addr = rcd->subctxt_uregbase;
 		size = PAGE_SIZE * subctxt_cnt;
@@ -745,7 +942,7 @@ static int mmap_kvaddr(struct vm_area_struct *vma, u64 pgaddr,
 	} else if (pgaddr == cvt_kvaddr(rcd->subctxt_rcvegrbuf +
 					size * subctxt)) {
 		addr = rcd->subctxt_rcvegrbuf + size * subctxt;
-		
+		/* rcvegrbufs are read-only on the slave */
 		if (vma->vm_flags & VM_WRITE) {
 			qib_devinfo(dd->pcidev,
 				 "Can't map eager buffers as "
@@ -753,6 +950,10 @@ static int mmap_kvaddr(struct vm_area_struct *vma, u64 pgaddr,
 			ret = -EPERM;
 			goto bail;
 		}
+		/*
+		 * Don't allow permission to later change to writeable
+		 * with mprotect.
+		 */
 		vma->vm_flags &= ~VM_MAYWRITE;
 	} else
 		goto bail;
@@ -771,6 +972,16 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_mmapf - mmap various structures into user space
+ * @fp: the file pointer
+ * @vma: the VM area
+ *
+ * We use this to have a shared buffer between the kernel and the user code
+ * for the rcvhdr queue, egr buffers, and the per-context user regs and pio
+ * buffers in the chip.  We have the open and close entries so we can bump
+ * the ref count and keep the driver from being unloaded while still mapped.
+ */
 static int qib_mmapf(struct file *fp, struct vm_area_struct *vma)
 {
 	struct qib_ctxtdata *rcd;
@@ -786,13 +997,31 @@ static int qib_mmapf(struct file *fp, struct vm_area_struct *vma)
 	}
 	dd = rcd->dd;
 
+	/*
+	 * This is the qib_do_user_init() code, mapping the shared buffers
+	 * and per-context user registers into the user process. The address
+	 * referred to by vm_pgoff is the file offset passed via mmap().
+	 * For shared contexts, this is the kernel vmalloc() address of the
+	 * pages to share with the master.
+	 * For non-shared or master ctxts, this is a physical address.
+	 * We only do one mmap for each space mapped.
+	 */
 	pgaddr = vma->vm_pgoff << PAGE_SHIFT;
 
+	/*
+	 * Check for 0 in case one of the allocations failed, but user
+	 * called mmap anyway.
+	 */
 	if (!pgaddr)  {
 		ret = -EINVAL;
 		goto bail;
 	}
 
+	/*
+	 * Physical addresses must fit in 40 bits for our hardware.
+	 * Check for kernel virtual addresses first, anything else must
+	 * match a HW or memory address.
+	 */
 	ret = mmap_kvaddr(vma, pgaddr, rcd, subctxt_fp(fp));
 	if (ret) {
 		if (ret > 0)
@@ -802,11 +1031,11 @@ static int qib_mmapf(struct file *fp, struct vm_area_struct *vma)
 
 	ureg = dd->uregbase + dd->ureg_align * rcd->ctxt;
 	if (!rcd->subctxt_cnt) {
-		
+		/* ctxt is not shared */
 		piocnt = rcd->piocnt;
 		piobufs = rcd->piobufs;
 	} else if (!subctxt_fp(fp)) {
-		
+		/* caller is the master */
 		piocnt = (rcd->piocnt / rcd->subctxt_cnt) +
 			 (rcd->piocnt % rcd->subctxt_cnt);
 		piobufs = rcd->piobufs +
@@ -814,7 +1043,7 @@ static int qib_mmapf(struct file *fp, struct vm_area_struct *vma)
 	} else {
 		unsigned slave = subctxt_fp(fp) - 1;
 
-		
+		/* caller is a slave */
 		piocnt = rcd->piocnt / rcd->subctxt_cnt;
 		piobufs = rcd->piobufs + dd->palign * piocnt * slave;
 	}
@@ -824,17 +1053,22 @@ static int qib_mmapf(struct file *fp, struct vm_area_struct *vma)
 	else if (pgaddr == piobufs)
 		ret = mmap_piobufs(vma, dd, rcd, piobufs, piocnt);
 	else if (pgaddr == dd->pioavailregs_phys)
-		
+		/* in-memory copy of pioavail registers */
 		ret = qib_mmap_mem(vma, rcd, PAGE_SIZE,
 				   (void *) dd->pioavailregs_dma, 0,
 				   "pioavail registers");
 	else if (pgaddr == rcd->rcvegr_phys)
 		ret = mmap_rcvegrbufs(vma, rcd);
 	else if (pgaddr == (u64) rcd->rcvhdrq_phys)
+		/*
+		 * The rcvhdrq itself; multiple pages, contiguous
+		 * from an i/o perspective.  Shared contexts need
+		 * to map r/w, so we allow writing.
+		 */
 		ret = qib_mmap_mem(vma, rcd, rcd->rcvhdrq_size,
 				   rcd->rcvhdrq, 1, "rcvhdrq");
 	else if (pgaddr == (u64) rcd->rcvhdrqtailaddr_phys)
-		
+		/* in-memory copy of rcvhdrq tail register */
 		ret = qib_mmap_mem(vma, rcd, PAGE_SIZE,
 				   rcd->rcvhdrtail_kvaddr, 0,
 				   "rcvhdrq tail");
@@ -909,17 +1143,20 @@ static unsigned int qib_poll(struct file *fp, struct poll_table_struct *pt)
 		pollflag = qib_poll_urgent(rcd, fp, pt);
 	else  if (rcd->poll_type == QIB_POLL_TYPE_ANYRCV)
 		pollflag = qib_poll_next(rcd, fp, pt);
-	else 
+	else /* invalid */
 		pollflag = POLLERR;
 
 	return pollflag;
 }
 
+/*
+ * Check that userland and driver are compatible for subcontexts.
+ */
 static int qib_compatible_subctxts(int user_swmajor, int user_swminor)
 {
 	/* this code is written long-hand for clarity */
 	if (QIB_USER_SWMAJOR != user_swmajor) {
-		
+		/* no promise of compatibility if major mismatch */
 		return 0;
 	}
 	if (QIB_USER_SWMAJOR == 1) {
@@ -927,17 +1164,17 @@ static int qib_compatible_subctxts(int user_swmajor, int user_swminor)
 		case 0:
 		case 1:
 		case 2:
-			
+			/* no subctxt implementation so cannot be compatible */
 			return 0;
 		case 3:
-			
+			/* 3 is only compatible with itself */
 			return user_swminor == 3;
 		default:
-			
+			/* >= 4 are compatible (or are expected to be) */
 			return user_swminor >= 4;
 		}
 	}
-	
+	/* make no promises yet for future major versions */
 	return 0;
 }
 
@@ -949,11 +1186,15 @@ static int init_subctxts(struct qib_devdata *dd,
 	unsigned num_subctxts;
 	size_t size;
 
+	/*
+	 * If the user is requesting zero subctxts,
+	 * skip the subctxt allocation.
+	 */
 	if (uinfo->spu_subctxt_cnt <= 0)
 		goto bail;
 	num_subctxts = uinfo->spu_subctxt_cnt;
 
-	
+	/* Check for subctxt compatibility */
 	if (!qib_compatible_subctxts(uinfo->spu_userversion >> 16,
 		uinfo->spu_userversion & 0xffff)) {
 		qib_devinfo(dd->pcidev,
@@ -976,7 +1217,7 @@ static int init_subctxts(struct qib_devdata *dd,
 		ret = -ENOMEM;
 		goto bail;
 	}
-	
+	/* Note: rcd->rcvhdrq_size isn't initialized yet. */
 	size = ALIGN(dd->rcvhdrcnt * dd->rcvhdrentsize *
 		     sizeof(u32), PAGE_SIZE) * num_subctxts;
 	rcd->subctxt_rcvhdr_base = vmalloc_user(size);
@@ -1019,6 +1260,10 @@ static int setup_ctxt(struct qib_pportdata *ppd, int ctxt,
 
 	rcd = qib_create_ctxtdata(ppd, ctxt);
 
+	/*
+	 * Allocate memory for use in qib_tid_update() at open to
+	 * reduce cost of expected send setup per message segment
+	 */
 	if (rcd)
 		ptmp = kmalloc(dd->rcvtidcnt * sizeof(u16) +
 			       dd->rcvtidcnt * sizeof(struct page **),
@@ -1060,6 +1305,10 @@ static inline int usable(struct qib_pportdata *ppd)
 		(ppd->lflags & QIBL_LINKACTIVE);
 }
 
+/*
+ * Select a context on the given device, either using a requested port
+ * or the port based on the context number.
+ */
 static int choose_port_ctxt(struct file *fp, struct qib_devdata *dd, u32 port,
 			    const struct qib_user_info *uinfo)
 {
@@ -1129,7 +1378,7 @@ static int get_a_ctxt(struct file *fp, const struct qib_user_info *uinfo,
 
 	if (alg == QIB_PORT_ALG_ACROSS) {
 		unsigned inuse = ~0U;
-		
+		/* find device (with ACTIVE ports) with fewest ctxts in use */
 		for (ndev = 0; ndev < devmax; ndev++) {
 			struct qib_devdata *dd = qib_lookup(ndev);
 			unsigned cused = 0, cfree = 0, pusable = 0;
@@ -1188,19 +1437,19 @@ static int find_shared_ctxt(struct file *fp,
 	for (ndev = 0; ndev < devmax; ndev++) {
 		struct qib_devdata *dd = qib_lookup(ndev);
 
-		
+		/* device portion of usable() */
 		if (!(dd && (dd->flags & QIB_PRESENT) && dd->kregbase))
 			continue;
 		for (i = dd->first_user_ctxt; i < dd->cfgctxts; i++) {
 			struct qib_ctxtdata *rcd = dd->rcd[i];
 
-			
+			/* Skip ctxts which are not yet open */
 			if (!rcd || !rcd->cnt)
 				continue;
-			
+			/* Skip ctxt if it doesn't match the requested one */
 			if (rcd->subctxt_id != uinfo->spu_subctxt_id)
 				continue;
-			
+			/* Verify the sharing process matches the master */
 			if (rcd->subctxt_cnt != uinfo->spu_subctxt_cnt ||
 			    rcd->userversion != uinfo->spu_userversion ||
 			    rcd->cnt >= rcd->subctxt_cnt) {
@@ -1223,26 +1472,29 @@ done:
 
 static int qib_open(struct inode *in, struct file *fp)
 {
-	
+	/* The real work is performed later in qib_assign_ctxt() */
 	fp->private_data = kzalloc(sizeof(struct qib_filedata), GFP_KERNEL);
-	if (fp->private_data) 
+	if (fp->private_data) /* no cpu affinity by default */
 		((struct qib_filedata *)fp->private_data)->rec_cpu_num = -1;
 	return fp->private_data ? 0 : -ENOMEM;
 }
 
+/*
+ * Get ctxt early, so can set affinity prior to memory allocation.
+ */
 static int qib_assign_ctxt(struct file *fp, const struct qib_user_info *uinfo)
 {
 	int ret;
 	int i_minor;
 	unsigned swmajor, swminor, alg = QIB_PORT_ALG_ACROSS;
 
-	
+	/* Check to be sure we haven't already initialized this file */
 	if (ctxt_fp(fp)) {
 		ret = -EINVAL;
 		goto done;
 	}
 
-	
+	/* for now, if major version is different, bail */
 	swmajor = uinfo->spu_userversion >> 16;
 	if (swmajor != QIB_USER_SWMAJOR) {
 		ret = -ENODEV;
@@ -1288,6 +1540,14 @@ done_chk_sdma:
 				ret = -ENOMEM;
 		}
 
+		/*
+		 * If process has NOT already set it's affinity, select and
+		 * reserve a processor for it, as a rendezvous for all
+		 * users of the driver.  If they don't actually later
+		 * set affinity to this cpu, or set it to some other cpu,
+		 * it just means that sooner or later we don't recommend
+		 * a cpu, and let the scheduler do it's best.
+		 */
 		weight = cpumask_weight(tsk_cpus_allowed(current));
 		if (!ret && weight >= qib_cpulist_count) {
 			int cpu;
@@ -1321,7 +1581,7 @@ static int qib_do_user_init(struct file *fp,
 	struct qib_devdata *dd;
 	unsigned uctxt;
 
-	
+	/* Subctxts don't need to initialize anything since master did it. */
 	if (subctxt_fp(fp)) {
 		ret = wait_event_interruptible(rcd->wait,
 			!test_bit(QIB_CTXT_MASTER_UNINIT, &rcd->flag));
@@ -1330,7 +1590,7 @@ static int qib_do_user_init(struct file *fp,
 
 	dd = rcd->dd;
 
-	
+	/* some ctxts may get extra buffers, calculate that here */
 	uctxt = rcd->ctxt - dd->first_user_ctxt;
 	if (uctxt < dd->ctxts_extrabuf) {
 		rcd->piocnt = dd->pbufsctxt + 1;
@@ -1341,6 +1601,12 @@ static int qib_do_user_init(struct file *fp,
 			dd->ctxts_extrabuf;
 	}
 
+	/*
+	 * All user buffers are 2KB buffers.  If we ever support
+	 * giving 4KB buffers to user processes, this will need some
+	 * work.  Can't use piobufbase directly, because it has
+	 * both 2K and 4K buffer base values.  So check and handle.
+	 */
 	if ((rcd->pio_base + rcd->piocnt) > dd->piobcnt2k) {
 		if (rcd->pio_base >= dd->piobcnt2k) {
 			qib_dev_err(dd,
@@ -1357,27 +1623,54 @@ static int qib_do_user_init(struct file *fp,
 	rcd->piobufs = dd->pio2k_bufbase + rcd->pio_base * dd->palign;
 	qib_chg_pioavailkernel(dd, rcd->pio_base, rcd->piocnt,
 			       TXCHK_CHG_TYPE_USER, rcd);
+	/*
+	 * try to ensure that processes start up with consistent avail update
+	 * for their own range, at least.   If system very quiet, it might
+	 * have the in-memory copy out of date at startup for this range of
+	 * buffers, when a context gets re-used.  Do after the chg_pioavail
+	 * and before the rest of setup, so it's "almost certain" the dma
+	 * will have occurred (can't 100% guarantee, but should be many
+	 * decimals of 9s, with this ordering), given how much else happens
+	 * after this.
+	 */
 	dd->f_sendctrl(dd->pport, QIB_SENDCTRL_AVAIL_BLIP);
 
+	/*
+	 * Now allocate the rcvhdr Q and eager TIDs; skip the TID
+	 * array for time being.  If rcd->ctxt > chip-supported,
+	 * we need to do extra stuff here to handle by handling overflow
+	 * through ctxt 0, someday
+	 */
 	ret = qib_create_rcvhdrq(dd, rcd);
 	if (!ret)
 		ret = qib_setup_eagerbufs(rcd);
 	if (ret)
 		goto bail_pio;
 
-	rcd->tidcursor = 0; 
+	rcd->tidcursor = 0; /* start at beginning after open */
 
-	
+	/* initialize poll variables... */
 	rcd->urgent = 0;
 	rcd->urgent_poll = 0;
 
+	/*
+	 * Now enable the ctxt for receive.
+	 * For chips that are set to DMA the tail register to memory
+	 * when they change (and when the update bit transitions from
+	 * 0 to 1.  So for those chips, we turn it off and then back on.
+	 * This will (very briefly) affect any other open ctxts, but the
+	 * duration is very short, and therefore isn't an issue.  We
+	 * explicitly set the in-memory tail copy to 0 beforehand, so we
+	 * don't have to wait to be sure the DMA update has happened
+	 * (chip resets head/tail to 0 on transition to enable).
+	 */
 	if (rcd->rcvhdrtail_kvaddr)
 		qib_clear_rcvhdrtail(rcd);
 
 	dd->f_rcvctrl(rcd->ppd, QIB_RCVCTRL_CTXT_ENB | QIB_RCVCTRL_TIDFLOW_ENB,
 		      rcd->ctxt);
 
-	
+	/* Notify any waiting slaves */
 	if (rcd->subctxt_cnt) {
 		clear_bit(QIB_CTXT_MASTER_UNINIT, &rcd->flag);
 		wake_up(&rcd->wait);
@@ -1391,6 +1684,13 @@ bail:
 	return ret;
 }
 
+/**
+ * unlock_exptid - unlock any expected TID entries context still had in use
+ * @rcd: ctxt
+ *
+ * We don't actually update the chip here, because we do a bulk update
+ * below, using f_clear_tids.
+ */
 static void unlock_expected_tids(struct qib_ctxtdata *rcd)
 {
 	struct qib_devdata *dd = rcd->dd;
@@ -1436,10 +1736,10 @@ static int qib_close(struct inode *in, struct file *fp)
 
 	dd = rcd->dd;
 
-	
+	/* ensure all pio buffer writes in progress are flushed */
 	qib_flush_wc();
 
-	
+	/* drain user sdma queue */
 	if (fd->pq) {
 		qib_user_sdma_queue_drain(rcd->ppd, fd->pq);
 		qib_user_sdma_queue_destroy(fd->pq);
@@ -1449,13 +1749,18 @@ static int qib_close(struct inode *in, struct file *fp)
 		__clear_bit(fd->rec_cpu_num, qib_cpulist);
 
 	if (--rcd->cnt) {
+		/*
+		 * XXX If the master closes the context before the slave(s),
+		 * revoke the mmap for the eager receive queue so
+		 * the slave(s) don't wait for receive data forever.
+		 */
 		rcd->active_slaves &= ~(1 << fd->subctxt);
 		rcd->subpid[fd->subctxt] = 0;
 		mutex_unlock(&qib_mutex);
 		goto bail;
 	}
 
-	
+	/* early; no interrupt users after this */
 	spin_lock_irqsave(&dd->uctxt_lock, flags);
 	ctxt = rcd->ctxt;
 	dd->rcd[ctxt] = NULL;
@@ -1474,11 +1779,11 @@ static int qib_close(struct inode *in, struct file *fp)
 		rcd->flag = 0;
 
 	if (dd->kregbase) {
-		
+		/* atomically clear receive enable ctxt and intr avail. */
 		dd->f_rcvctrl(rcd->ppd, QIB_RCVCTRL_CTXT_DIS |
 				  QIB_RCVCTRL_INTRAVAIL_DIS, ctxt);
 
-		
+		/* clean up the pkeys for this ctxt user */
 		qib_clean_part_key(rcd, dd);
 		qib_disarm_piobufs(dd, rcd->pio_base, rcd->piocnt);
 		qib_chg_pioavailkernel(dd, rcd->pio_base,
@@ -1493,7 +1798,7 @@ static int qib_close(struct inode *in, struct file *fp)
 	}
 
 	mutex_unlock(&qib_mutex);
-	qib_free_ctxtdata(dd, rcd); 
+	qib_free_ctxtdata(dd, rcd); /* after releasing the mutex */
 
 bail:
 	kfree(fd);
@@ -1515,7 +1820,7 @@ static int qib_ctxt_info(struct file *fp, struct qib_ctxt_info __user *uinfo)
 	info.port = rcd->ppd->port;
 	info.ctxt = rcd->ctxt;
 	info.subctxt =  subctxt_fp(fp);
-	
+	/* Number of user ctxts available for this device. */
 	info.num_ctxts = rcd->dd->cfgctxts - rcd->dd->first_user_ctxt;
 	info.num_subctxts = rcd->subctxt_cnt;
 	info.rec_cpu = fd->rec_cpu_num;
@@ -1569,7 +1874,17 @@ static int disarm_req_delay(struct qib_ctxtdata *rcd)
 
 	if (!usable(rcd->ppd)) {
 		int i;
+		/*
+		 * if link is down, or otherwise not usable, delay
+		 * the caller up to 30 seconds, so we don't thrash
+		 * in trying to get the chip back to ACTIVE, and
+		 * set flag so they make the call again.
+		 */
 		if (rcd->user_event_mask) {
+			/*
+			 * subctxt_cnt is 0 if not shared, so do base
+			 * separately, first, then remaining subctxt, if any
+			 */
 			set_bit(_QIB_EVENT_DISARM_BUFS_BIT,
 				&rcd->user_event_mask[0]);
 			for (i = 1; i < rcd->subctxt_cnt; i++)
@@ -1583,6 +1898,11 @@ static int disarm_req_delay(struct qib_ctxtdata *rcd)
 	return ret;
 }
 
+/*
+ * Find all user contexts in use, and set the specified bit in their
+ * event mask.
+ * See also find_ctxt() for a similar use, that is specific to send buffers.
+ */
 int qib_set_uevent_bits(struct qib_pportdata *ppd, const int evtbit)
 {
 	struct qib_ctxtdata *rcd;
@@ -1598,6 +1918,10 @@ int qib_set_uevent_bits(struct qib_pportdata *ppd, const int evtbit)
 			continue;
 		if (rcd->user_event_mask) {
 			int i;
+			/*
+			 * subctxt_cnt is 0 if not shared, so do base
+			 * separately, first, then remaining subctxt, if any
+			 */
 			set_bit(evtbit, &rcd->user_event_mask[0]);
 			for (i = 1; i < rcd->subctxt_cnt; i++)
 				set_bit(evtbit, &rcd->user_event_mask[i]);
@@ -1610,6 +1934,15 @@ int qib_set_uevent_bits(struct qib_pportdata *ppd, const int evtbit)
 	return ret;
 }
 
+/*
+ * clear the event notifier events for this context.
+ * For the DISARM_BUFS case, we also take action (this obsoletes
+ * the older QIB_CMD_DISARM_BUFS, but we keep it for backwards
+ * compatibility.
+ * Other bits don't currently require actions, just atomically clear.
+ * User process then performs actions appropriate to bit having been
+ * set, if desired, and checks again in future.
+ */
 static int qib_user_event_ack(struct qib_ctxtdata *rcd, int subctxt,
 			      unsigned long events)
 {
@@ -1686,7 +2019,7 @@ static ssize_t qib_write(struct file *fp, const char __user *data,
 		break;
 
 	case QIB_CMD_DISARM_BUFS:
-	case QIB_CMD_PIOAVAILUPD: 
+	case QIB_CMD_PIOAVAILUPD: /* force an update of PIOAvail reg */
 		copy = 0;
 		src = NULL;
 		dest = NULL;
@@ -1970,6 +2303,9 @@ done:
 	return ret;
 }
 
+/*
+ * Create per-unit files in /dev
+ */
 int qib_device_create(struct qib_devdata *dd)
 {
 	int r, ret;
@@ -1981,6 +2317,10 @@ int qib_device_create(struct qib_devdata *dd)
 	return ret;
 }
 
+/*
+ * Remove per-unit files in /dev
+ * void, core kernel returns no errors for this stuff
+ */
 void qib_device_remove(struct qib_devdata *dd)
 {
 	qib_user_remove(dd);

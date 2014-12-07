@@ -4,4 +4,4 @@
 void b43_wa_initgains(struct b43_wldev *dev);
 void b43_wa_all(struct b43_wldev *dev);
 
-#endif 
+#endif /* B43_WA_H_ */

@@ -481,9 +481,8 @@ static int cpufreq_stat_notifier_policy(struct notifier_block *nb,
 		cpufreq_allstats_create(cpu);
 
 	ret = cpufreq_stats_create_table(policy, table);
-	if (ret)
-		return ret;
-	return 0;
+
+	return (ret == -EBUSY)? 0 : ret;
 }
 
 static int cpufreq_stat_notifier_trans(struct notifier_block *nb,

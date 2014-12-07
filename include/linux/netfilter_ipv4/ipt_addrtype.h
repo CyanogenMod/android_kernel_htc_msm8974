@@ -11,14 +11,15 @@ enum {
 };
 
 struct ipt_addrtype_info_v1 {
-	__u16	source;		
-	__u16	dest;		
+	__u16	source;		/* source-type mask */
+	__u16	dest;		/* dest-type mask */
 	__u32	flags;
 };
 
+/* revision 0 */
 struct ipt_addrtype_info {
-	__u16	source;		
-	__u16	dest;		
+	__u16	source;		/* source-type mask */
+	__u16	dest;		/* dest-type mask */
 	__u32	invert_source;
 	__u32	invert_dest;
 };

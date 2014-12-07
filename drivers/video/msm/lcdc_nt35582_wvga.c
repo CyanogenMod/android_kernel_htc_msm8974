@@ -148,17 +148,17 @@ static void nt35582_disp_on(void)
 
 	if (!nt35582_state.display_on) {
 
-		
+		/* GVDD setting */
 		spi_write_3bytes(spi_client, 0xC0, 0x00, 0xC0);
 		spi_write_3bytes(spi_client, 0xC0, 0x01, 0x00);
 		spi_write_3bytes(spi_client, 0xC0, 0x02, 0xC0);
 		spi_write_3bytes(spi_client, 0xC0, 0x03, 0x00);
-		
+		/* Power setting */
 		spi_write_3bytes(spi_client, 0xC1, 0x00, 0x40);
 		spi_write_3bytes(spi_client, 0xC2, 0x00, 0x21);
 		spi_write_3bytes(spi_client, 0xC2, 0x02, 0x02);
 
-		
+		/* Gamma setting */
 		spi_write_3bytes(spi_client, 0xE0, 0x00, 0x0E);
 		spi_write_3bytes(spi_client, 0xE0, 0x01, 0x54);
 		spi_write_3bytes(spi_client, 0xE0, 0x02, 0x63);
@@ -273,21 +273,21 @@ static void nt35582_disp_on(void)
 		spi_write_3bytes(spi_client, 0xE5, 0x10, 0x24);
 		spi_write_3bytes(spi_client, 0xE5, 0x11, 0x57);
 
-		
+		/* Data format setting */
 		spi_write_3bytes(spi_client, 0x3A, 0x00, 0x70);
 
-		
+		/* Reverse PCLK signal of LCM to meet Qualcomm's platform */
 		spi_write_3bytes(spi_client, 0x3B, 0x00, 0x2B);
 
-		
+		/* Scan direstion setting */
 		spi_write_3bytes(spi_client, 0x36, 0x00, 0x00);
 
-		
+		/* Sleep out */
 		spi_write_2bytes(spi_client, 0x11, 0x00);
 
 		msleep(120);
 
-		
+		/* Display on */
 		spi_write_2bytes(spi_client, 0x29, 0x00);
 
 		pr_info("%s: LCM SPI display on CMD finished...\n", __func__);
@@ -297,7 +297,7 @@ static void nt35582_disp_on(void)
 		nt35582_state.display_on = TRUE;
 	}
 
-	
+	/* Test to read RDDID. It should be 0x0055h and 0x0082h */
 	spi_read_bytes(spi_client, 0x10, 0x80, (unsigned char *)&panel_id1);
 	spi_read_bytes(spi_client, 0x11, 0x80, (unsigned char *)&panel_id2);
 
@@ -333,7 +333,7 @@ static void lcdc_nt35582_set_backlight(struct msm_fb_data_type *mfd)
 		return;
 	}
 
-	
+	/* Level:0~31 mapping to step 32~1 */
 	step = 32 - bl_level;
 	for (i = 0; i < step; i++) {
 		gpio_set_value_cansleep(gpio_backlight_en, 0);
@@ -435,14 +435,14 @@ static int __init lcdc_nt35582_panel_init(void)
 	pinfo->bl_max = 31;
 	pinfo->bl_min = 1;
 
-	pinfo->lcdc.h_back_porch = 10;	
+	pinfo->lcdc.h_back_porch = 10;	/* hsw = 8 + hbp=184 */
 	pinfo->lcdc.h_front_porch = 10;
 	pinfo->lcdc.h_pulse_width = 2;
-	pinfo->lcdc.v_back_porch = 4;	
+	pinfo->lcdc.v_back_porch = 4;	/* vsw=1 + vbp = 2 */
 	pinfo->lcdc.v_front_porch = 10;
 	pinfo->lcdc.v_pulse_width = 2;
-	pinfo->lcdc.border_clr = 0;	
-	pinfo->lcdc.underflow_clr = 0xff;	
+	pinfo->lcdc.border_clr = 0;	/* blk */
+	pinfo->lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo->lcdc.hsync_skew = 0;
 
 	ret = platform_device_register(&this_device);

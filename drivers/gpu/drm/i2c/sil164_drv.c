@@ -55,6 +55,7 @@ struct sil164_priv {
 #define SIL164_I2C_ADDR_MASTER			0x38
 #define SIL164_I2C_ADDR_SLAVE			0x39
 
+/* HW register definitions */
 
 #define SIL164_VENDOR_LO			0x0
 #define SIL164_VENDOR_HI			0x1
@@ -98,6 +99,7 @@ struct sil164_priv {
 #  define SIL164_PLLZONE_FORCE_ON		0x10
 #  define SIL164_PLLZONE_FORCE_HIGH		0x20
 
+/* HW access functions */
 
 static void
 sil164_write(struct i2c_client *client, uint8_t addr, uint8_t val)
@@ -201,6 +203,7 @@ sil164_init_state(struct i2c_client *client,
 		sil164_write(client, SIL164_DUALLINK, 0);
 }
 
+/* DRM encoder functions */
 
 static void
 sil164_encoder_set_config(struct drm_encoder *encoder, void *params)
@@ -353,6 +356,7 @@ static struct drm_encoder_slave_funcs sil164_encoder_funcs = {
 	.set_property = sil164_encoder_set_property,
 };
 
+/* I2C driver functions */
 
 static int
 sil164_probe(struct i2c_client *client, const struct i2c_device_id *id)
@@ -438,6 +442,7 @@ static struct drm_i2c_encoder_driver sil164_driver = {
 	.encoder_init = sil164_encoder_init,
 };
 
+/* Module initialization */
 
 static int __init
 sil164_init(void)

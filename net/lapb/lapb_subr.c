@@ -32,12 +32,20 @@
 #include <linux/interrupt.h>
 #include <net/lapb.h>
 
+/*
+ *	This routine purges all the queues of frames.
+ */
 void lapb_clear_queues(struct lapb_cb *lapb)
 {
 	skb_queue_purge(&lapb->write_queue);
 	skb_queue_purge(&lapb->ack_queue);
 }
 
+/*
+ * This routine purges the input queue of those frames that have been
+ * acknowledged. This replaces the boxes labelled "V(a) <- N(r)" on the
+ * SDL diagram.
+ */
 void lapb_frames_acked(struct lapb_cb *lapb, unsigned short nr)
 {
 	struct sk_buff *skb;
@@ -45,6 +53,9 @@ void lapb_frames_acked(struct lapb_cb *lapb, unsigned short nr)
 
 	modulus = (lapb->mode & LAPB_EXTENDED) ? LAPB_EMODULUS : LAPB_SMODULUS;
 
+	/*
+	 * Remove all the ack-ed frames from the ack queue.
+	 */
 	if (lapb->va != nr)
 		while (skb_peek(&lapb->ack_queue) && lapb->va != nr) {
 			skb = skb_dequeue(&lapb->ack_queue);
@@ -57,6 +68,11 @@ void lapb_requeue_frames(struct lapb_cb *lapb)
 {
 	struct sk_buff *skb, *skb_prev = NULL;
 
+	/*
+	 * Requeue all the un-ack-ed frames on the output queue to be picked
+	 * up by lapb_kick called from the timer. This arrangement handles the
+	 * possibility of an empty output queue.
+	 */
 	while ((skb = skb_dequeue(&lapb->ack_queue)) != NULL) {
 		if (!skb_prev)
 			skb_queue_head(&lapb->write_queue, skb);
@@ -66,6 +82,10 @@ void lapb_requeue_frames(struct lapb_cb *lapb)
 	}
 }
 
+/*
+ *	Validate that the value of nr is between va and vs. Return true or
+ *	false for testing.
+ */
 int lapb_validate_nr(struct lapb_cb *lapb, unsigned short nr)
 {
 	unsigned short vc = lapb->va;
@@ -82,6 +102,10 @@ int lapb_validate_nr(struct lapb_cb *lapb, unsigned short nr)
 	return nr == lapb->vs;
 }
 
+/*
+ *	This routine is the centralised routine for parsing the control
+ *	information for the different frame formats.
+ */
 int lapb_decode(struct lapb_cb *lapb, struct sk_buff *skb,
 		struct lapb_frame *frame)
 {
@@ -93,6 +117,9 @@ int lapb_decode(struct lapb_cb *lapb, struct sk_buff *skb,
 	       skb->data[0], skb->data[1], skb->data[2]);
 #endif
 
+	/* We always need to look at 2 bytes, sometimes we need
+	 * to look at 3 and those cases are handled below.
+	 */
 	if (!pskb_may_pull(skb, 2))
 		return -1;
 
@@ -128,6 +155,9 @@ int lapb_decode(struct lapb_cb *lapb, struct sk_buff *skb,
 		if (!(skb->data[0] & LAPB_S)) {
 			if (!pskb_may_pull(skb, 2))
 				return -1;
+			/*
+			 * I frame - carries NR/NS/PF
+			 */
 			frame->type       = LAPB_I;
 			frame->ns         = (skb->data[0] >> 1) & 0x7F;
 			frame->nr         = (skb->data[1] >> 1) & 0x7F;
@@ -138,6 +168,9 @@ int lapb_decode(struct lapb_cb *lapb, struct sk_buff *skb,
 		} else if ((skb->data[0] & LAPB_U) == 1) {
 			if (!pskb_may_pull(skb, 2))
 				return -1;
+			/*
+			 * S frame - take out PF/NR
+			 */
 			frame->type       = skb->data[0] & 0x0F;
 			frame->nr         = (skb->data[1] >> 1) & 0x7F;
 			frame->pf         = skb->data[1] & LAPB_EPF;
@@ -145,6 +178,9 @@ int lapb_decode(struct lapb_cb *lapb, struct sk_buff *skb,
 			frame->control[1] = skb->data[1];
 			skb_pull(skb, 2);
 		} else if ((skb->data[0] & LAPB_U) == 3) {
+			/*
+			 * U frame - take out PF
+			 */
 			frame->type       = skb->data[0] & ~LAPB_SPF;
 			frame->pf         = skb->data[0] & LAPB_SPF;
 			frame->control[0] = skb->data[0];
@@ -153,15 +189,24 @@ int lapb_decode(struct lapb_cb *lapb, struct sk_buff *skb,
 		}
 	} else {
 		if (!(skb->data[0] & LAPB_S)) {
+			/*
+			 * I frame - carries NR/NS/PF
+			 */
 			frame->type = LAPB_I;
 			frame->ns   = (skb->data[0] >> 1) & 0x07;
 			frame->nr   = (skb->data[0] >> 5) & 0x07;
 			frame->pf   = skb->data[0] & LAPB_SPF;
 		} else if ((skb->data[0] & LAPB_U) == 1) {
+			/*
+			 * S frame - take out PF/NR
+			 */
 			frame->type = skb->data[0] & 0x0F;
 			frame->nr   = (skb->data[0] >> 5) & 0x07;
 			frame->pf   = skb->data[0] & LAPB_SPF;
 		} else if ((skb->data[0] & LAPB_U) == 3) {
+			/*
+			 * U frame - take out PF
+			 */
 			frame->type = skb->data[0] & ~LAPB_SPF;
 			frame->pf   = skb->data[0] & LAPB_SPF;
 		}
@@ -174,6 +219,12 @@ int lapb_decode(struct lapb_cb *lapb, struct sk_buff *skb,
 	return 0;
 }
 
+/*
+ *	This routine is called when the HDLC layer internally  generates a
+ *	command or  response  for  the remote machine ( eg. RR, UA etc. ).
+ *	Only supervisory or unnumbered frames are processed, FRMRs are handled
+ *	by lapb_transmit_frmr below.
+ */
 void lapb_send_control(struct lapb_cb *lapb, int frametype,
 		       int poll_bit, int type)
 {
@@ -200,13 +251,17 @@ void lapb_send_control(struct lapb_cb *lapb, int frametype,
 		dptr   = skb_put(skb, 1);
 		*dptr  = frametype;
 		*dptr |= poll_bit ? LAPB_SPF : 0;
-		if ((frametype & LAPB_U) == LAPB_S)	
+		if ((frametype & LAPB_U) == LAPB_S)	/* S frames carry NR */
 			*dptr |= (lapb->vr << 5);
 	}
 
 	lapb_transmit_buffer(lapb, skb, type);
 }
 
+/*
+ *	This routine generates FRMRs based on information previously stored in
+ *	the LAPB control block.
+ */
 void lapb_transmit_frmr(struct lapb_cb *lapb)
 {
 	struct sk_buff *skb;

@@ -39,6 +39,7 @@ static struct snd_soc_jack_pin mic_jack_pins[] = {
 	{ .pin = "Headset Mic 2",	.mask = SND_JACK_MICROPHONE, },
 };
 
+/* tavorevb3 machine dapm widgets */
 static const struct snd_soc_dapm_widget evb3_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headset Stereophone", NULL),
 	SND_SOC_DAPM_LINE("Lineout Out 1", NULL),
@@ -49,6 +50,7 @@ static const struct snd_soc_dapm_widget evb3_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Ext Mic 3", NULL),
 };
 
+/* tavorevb3 machine audio map */
 static const struct snd_soc_dapm_route evb3_audio_map[] = {
 	{"Headset Stereophone", NULL, "HS1"},
 	{"Headset Stereophone", NULL, "HS2"},
@@ -130,14 +132,14 @@ static int evb3_pm860x_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* connected pins */
 	snd_soc_dapm_enable_pin(dapm, "Ext Speaker");
 	snd_soc_dapm_enable_pin(dapm, "Ext Mic 1");
 	snd_soc_dapm_enable_pin(dapm, "Ext Mic 3");
 	snd_soc_dapm_disable_pin(dapm, "Headset Mic 2");
 	snd_soc_dapm_disable_pin(dapm, "Headset Stereophone");
 
-	
+	/* Headset jack detection */
 	snd_soc_jack_new(codec, "Headphone Jack", SND_JACK_HEADPHONE
 			| SND_JACK_BTN_0 | SND_JACK_BTN_1 | SND_JACK_BTN_2,
 			&hs_jack);
@@ -148,7 +150,7 @@ static int evb3_pm860x_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_jack_add_pins(&mic_jack, ARRAY_SIZE(mic_jack_pins),
 			      mic_jack_pins);
 
-	
+	/* headphone, microphone detection & headset short detection */
 	pm860x_hs_jack_detect(codec, &hs_jack, SND_JACK_HEADPHONE,
 			      SND_JACK_BTN_0, SND_JACK_BTN_1, SND_JACK_BTN_2);
 	pm860x_mic_jack_detect(codec, &hs_jack, SND_JACK_MICROPHONE);

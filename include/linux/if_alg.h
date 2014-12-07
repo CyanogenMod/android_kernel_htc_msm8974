@@ -28,11 +28,13 @@ struct af_alg_iv {
 	__u8	iv[0];
 };
 
+/* Socket options */
 #define ALG_SET_KEY			1
 #define ALG_SET_IV			2
 #define ALG_SET_OP			3
 
+/* Operations */
 #define ALG_OP_DECRYPT			0
 #define ALG_OP_ENCRYPT			1
 
-#endif	
+#endif	/* _LINUX_IF_ALG_H */

@@ -28,7 +28,7 @@
 #define DA8XX_TPCC_BASE			0x01c00000
 #define DA8XX_TPTC0_BASE		0x01c08000
 #define DA8XX_TPTC1_BASE		0x01c08400
-#define DA8XX_WDOG_BASE			0x01c21000 
+#define DA8XX_WDOG_BASE			0x01c21000 /* DA8XX_TIMER64P1_BASE */
 #define DA8XX_I2C0_BASE			0x01c22000
 #define DA8XX_RTC_BASE			0x01c23000
 #define DA8XX_MMCSD0_BASE		0x01c40000
@@ -103,27 +103,27 @@ struct platform_device da8xx_serial_device = {
 };
 
 static const s8 da8xx_queue_tc_mapping[][2] = {
-	
+	/* {event queue no, TC no} */
 	{0, 0},
 	{1, 1},
 	{-1, -1}
 };
 
 static const s8 da8xx_queue_priority_mapping[][2] = {
-	
+	/* {event queue no, Priority} */
 	{0, 3},
 	{1, 7},
 	{-1, -1}
 };
 
 static const s8 da850_queue_tc_mapping[][2] = {
-	
+	/* {event queue no, TC no} */
 	{0, 0},
 	{-1, -1}
 };
 
 static const s8 da850_queue_priority_mapping[][2] = {
-	
+	/* {event queue no, Priority} */
 	{0, 3},
 	{-1, -1}
 };
@@ -456,13 +456,13 @@ static struct resource da830_mcasp1_resources[] = {
 		.end	= DAVINCI_DA830_MCASP1_REG_BASE + (SZ_1K * 12) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	
+	/* TX event */
 	{
 		.start	= DAVINCI_DA830_DMA_MCASP1_AXEVT,
 		.end	= DAVINCI_DA830_DMA_MCASP1_AXEVT,
 		.flags	= IORESOURCE_DMA,
 	},
-	
+	/* RX event */
 	{
 		.start	= DAVINCI_DA830_DMA_MCASP1_AREVT,
 		.end	= DAVINCI_DA830_DMA_MCASP1_AREVT,
@@ -484,13 +484,13 @@ static struct resource da850_mcasp_resources[] = {
 		.end	= DAVINCI_DA8XX_MCASP0_REG_BASE + (SZ_1K * 12) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	
+	/* TX event */
 	{
 		.start	= DAVINCI_DA8XX_DMA_MCASP0_AXEVT,
 		.end	= DAVINCI_DA8XX_DMA_MCASP0_AXEVT,
 		.flags	= IORESOURCE_DMA,
 	},
-	
+	/* RX event */
 	{
 		.start	= DAVINCI_DA8XX_DMA_MCASP0_AREVT,
 		.end	= DAVINCI_DA8XX_DMA_MCASP0_AREVT,
@@ -514,7 +514,7 @@ void __init da8xx_register_mcasp(int id, struct snd_platform_data *pdata)
 {
 	platform_device_register(&davinci_pcm_device);
 
-	
+	/* DA830/OMAP-L137 has 3 instances of McASP */
 	if (cpu_is_davinci_da830() && id == 1) {
 		da830_mcasp1_device.dev.platform_data = pdata;
 		platform_device_register(&da830_mcasp1_device);
@@ -561,12 +561,12 @@ struct da8xx_lcdc_platform_data sharp_lk043t1dg01_pdata = {
 };
 
 static struct resource da8xx_lcdc_resources[] = {
-	[0] = { 
+	[0] = { /* registers */
 		.start  = DA8XX_LCD_CNTRL_BASE,
 		.end    = DA8XX_LCD_CNTRL_BASE + SZ_4K - 1,
 		.flags  = IORESOURCE_MEM,
 	},
-	[1] = { 
+	[1] = { /* interrupt */
 		.start  = IRQ_DA8XX_LCDINT,
 		.end    = IRQ_DA8XX_LCDINT,
 		.flags  = IORESOURCE_IRQ,
@@ -587,22 +587,22 @@ int __init da8xx_register_lcdc(struct da8xx_lcdc_platform_data *pdata)
 }
 
 static struct resource da8xx_mmcsd0_resources[] = {
-	{		
+	{		/* registers */
 		.start	= DA8XX_MMCSD0_BASE,
 		.end	= DA8XX_MMCSD0_BASE + SZ_4K - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	{		
+	{		/* interrupt */
 		.start	= IRQ_DA8XX_MMCSDINT0,
 		.end	= IRQ_DA8XX_MMCSDINT0,
 		.flags	= IORESOURCE_IRQ,
 	},
-	{		
+	{		/* DMA RX */
 		.start	= DA8XX_DMA_MMCSD0_RX,
 		.end	= DA8XX_DMA_MMCSD0_RX,
 		.flags	= IORESOURCE_DMA,
 	},
-	{		
+	{		/* DMA TX */
 		.start	= DA8XX_DMA_MMCSD0_TX,
 		.end	= DA8XX_DMA_MMCSD0_TX,
 		.flags	= IORESOURCE_DMA,
@@ -624,22 +624,22 @@ int __init da8xx_register_mmcsd0(struct davinci_mmc_config *config)
 
 #ifdef CONFIG_ARCH_DAVINCI_DA850
 static struct resource da850_mmcsd1_resources[] = {
-	{		
+	{		/* registers */
 		.start	= DA850_MMCSD1_BASE,
 		.end	= DA850_MMCSD1_BASE + SZ_4K - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	{		
+	{		/* interrupt */
 		.start	= IRQ_DA850_MMCSDINT0_1,
 		.end	= IRQ_DA850_MMCSDINT0_1,
 		.flags	= IORESOURCE_IRQ,
 	},
-	{		
+	{		/* DMA RX */
 		.start	= DA850_DMA_MMCSD1_RX,
 		.end	= DA850_DMA_MMCSD1_RX,
 		.flags	= IORESOURCE_DMA,
 	},
-	{		
+	{		/* DMA TX */
 		.start	= DA850_DMA_MMCSD1_TX,
 		.end	= DA850_DMA_MMCSD1_TX,
 		.flags	= IORESOURCE_DMA,
@@ -666,12 +666,12 @@ static struct resource da8xx_rtc_resources[] = {
 		.end		= DA8XX_RTC_BASE + SZ_4K - 1,
 		.flags		= IORESOURCE_MEM,
 	},
-	{ 
+	{ /* timer irq */
 		.start		= IRQ_DA8XX_RTC,
 		.end		= IRQ_DA8XX_RTC,
 		.flags		= IORESOURCE_IRQ,
 	},
-	{ 
+	{ /* alarm irq */
 		.start		= IRQ_DA8XX_RTC,
 		.end		= IRQ_DA8XX_RTC,
 		.flags		= IORESOURCE_IRQ,
@@ -694,7 +694,7 @@ int da8xx_register_rtc(void)
 	if (WARN_ON(!base))
 		return -ENOMEM;
 
-	
+	/* Unlock the rtc's registers */
 	__raw_writel(0x83e70b13, base + 0x6c);
 	__raw_writel(0x95a4f1e0, base + 0x70);
 
@@ -702,7 +702,7 @@ int da8xx_register_rtc(void)
 
 	ret = platform_device_register(&da8xx_rtc_device);
 	if (!ret)
-		
+		/* Atleast on DA850, RTC is a wakeup source */
 		device_init_wakeup(&da8xx_rtc_device.dev, true);
 
 	return ret;
@@ -729,6 +729,7 @@ static struct resource da8xx_cpuidle_resources[] = {
 	},
 };
 
+/* DA8XX devices support DDR2 power down */
 static struct davinci_cpuidle_config da8xx_cpuidle_pdata = {
 	.ddr2_pdown	= 1,
 };
@@ -867,6 +868,7 @@ static struct resource da850_sata_resources[] = {
 	},
 };
 
+/* SATA PHY Control Register offset from AHCI base */
 #define SATA_P0PHYCR_REG	0x178
 
 #define SATA_PHY_MPY(x)		((x) << 0)
@@ -879,11 +881,12 @@ static struct resource da850_sata_resources[] = {
 static struct clk *da850_sata_clk;
 static unsigned long da850_sata_refclkpn;
 
+/* Supported DA850 SATA crystal frequencies */
 #define KHZ_TO_HZ(freq) ((freq) * 1000)
 static unsigned long da850_sata_xtal[] = {
 	KHZ_TO_HZ(300000),
 	KHZ_TO_HZ(250000),
-	0,			
+	0,			/* Reserved */
 	KHZ_TO_HZ(187500),
 	KHZ_TO_HZ(150000),
 	KHZ_TO_HZ(125000),
@@ -906,12 +909,12 @@ static int da850_sata_init(struct device *dev, void __iomem *addr)
 	if (ret)
 		goto err0;
 
-	
+	/* Enable SATA clock receiver */
 	val = __raw_readl(DA8XX_SYSCFG1_VIRT(DA8XX_PWRDN_REG));
 	val &= ~BIT(0);
 	__raw_writel(val, DA8XX_SYSCFG1_VIRT(DA8XX_PWRDN_REG));
 
-	
+	/* Get the multiplier needed for 1.5GHz PLL output */
 	for (i = 0; i < ARRAY_SIZE(da850_sata_xtal); i++)
 		if (da850_sata_xtal[i] == da850_sata_refclkpn)
 			break;

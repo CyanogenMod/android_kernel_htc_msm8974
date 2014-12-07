@@ -15,6 +15,9 @@
 
 #include <linux/io.h>
 
+/*
+ * MMU Register offsets
+ */
 #define MMU_REVISION		0x00
 #define MMU_SYSCONFIG		0x10
 #define MMU_SYSSTATUS		0x14
@@ -36,6 +39,9 @@
 
 #define MMU_REG_SIZE		256
 
+/*
+ * MMU Register bit definitions
+ */
 #define MMU_LOCK_BASE_SHIFT	10
 #define MMU_LOCK_BASE_MASK	(0x1f << MMU_LOCK_BASE_SHIFT)
 #define MMU_LOCK_BASE(x)	\
@@ -74,6 +80,9 @@
 #define MMU_RAM_MIXED_MASK	(1 << MMU_RAM_MIXED_SHIFT)
 #define MMU_RAM_MIXED		MMU_RAM_MIXED_MASK
 
+/*
+ * register accessors
+ */
 static inline u32 iommu_read_reg(struct omap_iommu *obj, size_t offs)
 {
 	return __raw_readl(obj->regbase + offs);
@@ -84,4 +93,4 @@ static inline void iommu_write_reg(struct omap_iommu *obj, u32 val, size_t offs)
 	__raw_writel(val, obj->regbase + offs);
 }
 
-#endif 
+#endif /* __MACH_IOMMU2_H */

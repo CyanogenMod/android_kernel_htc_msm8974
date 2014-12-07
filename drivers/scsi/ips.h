@@ -1,10 +1,51 @@
+/*****************************************************************************/
+/* ips.h -- driver for the Adaptec / IBM ServeRAID controller                */
+/*                                                                           */
 /* Written By: Keith Mitchell, IBM Corporation                               */
+/*             Jack Hammer, Adaptec, Inc.                                    */
+/*             David Jeffery, Adaptec, Inc.                                  */
+/*                                                                           */
 /* Copyright (C) 1999 IBM Corporation                                        */
 /* Copyright (C) 2003 Adaptec, Inc.                                          */
+/*                                                                           */
+/* This program is free software; you can redistribute it and/or modify      */
 /* it under the terms of the GNU General Public License as published by      */
 /* the Free Software Foundation; either version 2 of the License, or         */
+/* (at your option) any later version.                                       */
+/*                                                                           */
+/* This program is distributed in the hope that it will be useful,           */
+/* but WITHOUT ANY WARRANTY; without even the implied warranty of            */
+/* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the             */
 /* GNU General Public License for more details.                              */
+/*                                                                           */
+/* NO WARRANTY                                                               */
+/* THE PROGRAM IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR        */
+/* CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED INCLUDING, WITHOUT      */
+/* LIMITATION, ANY WARRANTIES OR CONDITIONS OF TITLE, NON-INFRINGEMENT,      */
+/* MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE. Each Recipient is    */
+/* solely responsible for determining the appropriateness of using and       */
+/* distributing the Program and assumes all risks associated with its        */
+/* exercise of rights under this Agreement, including but not limited to     */
+/* the risks and costs of program errors, damage to or loss of data,         */
+/* programs or equipment, and unavailability or interruption of operations.  */
+/*                                                                           */
+/* DISCLAIMER OF LIABILITY                                                   */
+/* NEITHER RECIPIENT NOR ANY CONTRIBUTORS SHALL HAVE ANY LIABILITY FOR ANY   */
+/* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL        */
+/* DAMAGES (INCLUDING WITHOUT LIMITATION LOST PROFITS), HOWEVER CAUSED AND   */
+/* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR     */
+/* TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE    */
+/* USE OR DISTRIBUTION OF THE PROGRAM OR THE EXERCISE OF ANY RIGHTS GRANTED  */
+/* HEREUNDER, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES             */
+/*                                                                           */
 /* You should have received a copy of the GNU General Public License         */
+/* along with this program; if not, write to the Free Software               */
+/* Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA */
+/*                                                                           */
+/* Bugs/Comments/Suggestions should be mailed to:                            */
+/*      ipslinux@adaptec.com                                                 */
+/*                                                                           */
+/*****************************************************************************/
 
 #ifndef _IPS_H_
    #define _IPS_H_
@@ -13,6 +54,9 @@
    #include <asm/uaccess.h>
    #include <asm/io.h>
 
+   /*
+    * Some handy macros
+    */
    #define IPS_HA(x)                   ((ips_ha_t *) x->hostdata)
    #define IPS_COMMAND_ID(ha, scb)     (int) (scb - ha->scbs)
    #define IPS_IS_TROMBONE(ha)         (((ha->pcidev->device == IPS_DEVICEID_COPPERHEAD) && \
@@ -48,7 +92,7 @@
       #define min(x,y) ((x) < (y) ? x : y)
    #endif
 
-   #ifndef __iomem       
+   #ifndef __iomem       /* For clean compiles in earlier kernels without __iomem annotations */
       #define __iomem
    #endif
 
@@ -61,42 +105,51 @@
       #define IPS_ENABLE_DMA64        (0)
    #endif
 
-   #define IPS_REG_HISR                 0x08    
-   #define IPS_REG_CCSAR                0x10    
-   #define IPS_REG_CCCR                 0x14    
-   #define IPS_REG_SQHR                 0x20    
-   #define IPS_REG_SQTR                 0x24    
-   #define IPS_REG_SQER                 0x28    
-   #define IPS_REG_SQSR                 0x2C    
-   #define IPS_REG_SCPR                 0x05    
-   #define IPS_REG_ISPR                 0x06    
-   #define IPS_REG_CBSP                 0x07    
-   #define IPS_REG_FLAP                 0x18    
-   #define IPS_REG_FLDP                 0x1C    
-   #define IPS_REG_NDAE                 0x38    
-   #define IPS_REG_I2O_INMSGQ           0x40    
-   #define IPS_REG_I2O_OUTMSGQ          0x44    
-   #define IPS_REG_I2O_HIR              0x30    
-   #define IPS_REG_I960_IDR             0x20    
-   #define IPS_REG_I960_MSG0            0x18    
-   #define IPS_REG_I960_MSG1            0x1C    
-   #define IPS_REG_I960_OIMR            0x34    
+   /*
+    * Adapter address map equates
+    */
+   #define IPS_REG_HISR                 0x08    /* Host Interrupt Status Reg   */
+   #define IPS_REG_CCSAR                0x10    /* Cmd Channel System Addr Reg */
+   #define IPS_REG_CCCR                 0x14    /* Cmd Channel Control Reg     */
+   #define IPS_REG_SQHR                 0x20    /* Status Q Head Reg           */
+   #define IPS_REG_SQTR                 0x24    /* Status Q Tail Reg           */
+   #define IPS_REG_SQER                 0x28    /* Status Q End Reg            */
+   #define IPS_REG_SQSR                 0x2C    /* Status Q Start Reg          */
+   #define IPS_REG_SCPR                 0x05    /* Subsystem control port reg  */
+   #define IPS_REG_ISPR                 0x06    /* interrupt status port reg   */
+   #define IPS_REG_CBSP                 0x07    /* CBSP register               */
+   #define IPS_REG_FLAP                 0x18    /* Flash address port          */
+   #define IPS_REG_FLDP                 0x1C    /* Flash data port             */
+   #define IPS_REG_NDAE                 0x38    /* Anaconda 64 NDAE Register   */
+   #define IPS_REG_I2O_INMSGQ           0x40    /* I2O Inbound Message Queue   */
+   #define IPS_REG_I2O_OUTMSGQ          0x44    /* I2O Outbound Message Queue  */
+   #define IPS_REG_I2O_HIR              0x30    /* I2O Interrupt Status        */
+   #define IPS_REG_I960_IDR             0x20    /* i960 Inbound Doorbell       */
+   #define IPS_REG_I960_MSG0            0x18    /* i960 Outbound Reg 0         */
+   #define IPS_REG_I960_MSG1            0x1C    /* i960 Outbound Reg 1         */
+   #define IPS_REG_I960_OIMR            0x34    /* i960 Oubound Int Mask Reg   */
 
-   #define IPS_BIT_GHI                  0x04    
-   #define IPS_BIT_SQO                  0x02    
-   #define IPS_BIT_SCE                  0x01    
-   #define IPS_BIT_SEM                  0x08    
-   #define IPS_BIT_ILE                  0x10    
-   #define IPS_BIT_START_CMD            0x101A  
-   #define IPS_BIT_START_STOP           0x0002  
-   #define IPS_BIT_RST                  0x80    
-   #define IPS_BIT_EBM                  0x02    
-   #define IPS_BIT_EI                   0x80    
-   #define IPS_BIT_OP                   0x01    
-   #define IPS_BIT_I2O_OPQI             0x08    
-   #define IPS_BIT_I960_MSG0I           0x01    
-   #define IPS_BIT_I960_MSG1I           0x02    
+   /*
+    * Adapter register bit equates
+    */
+   #define IPS_BIT_GHI                  0x04    /* HISR General Host Interrupt */
+   #define IPS_BIT_SQO                  0x02    /* HISR Status Q Overflow      */
+   #define IPS_BIT_SCE                  0x01    /* HISR Status Channel Enqueue */
+   #define IPS_BIT_SEM                  0x08    /* CCCR Semaphore Bit          */
+   #define IPS_BIT_ILE                  0x10    /* CCCR ILE Bit                */
+   #define IPS_BIT_START_CMD            0x101A  /* CCCR Start Command Channel  */
+   #define IPS_BIT_START_STOP           0x0002  /* CCCR Start/Stop Bit         */
+   #define IPS_BIT_RST                  0x80    /* SCPR Reset Bit              */
+   #define IPS_BIT_EBM                  0x02    /* SCPR Enable Bus Master      */
+   #define IPS_BIT_EI                   0x80    /* HISR Enable Interrupts      */
+   #define IPS_BIT_OP                   0x01    /* OP bit in CBSP              */
+   #define IPS_BIT_I2O_OPQI             0x08    /* General Host Interrupt      */
+   #define IPS_BIT_I960_MSG0I           0x01    /* Message Register 0 Interrupt*/
+   #define IPS_BIT_I960_MSG1I           0x02    /* Message Register 1 Interrupt*/
 
+   /*
+    * Adapter Command ID Equates
+    */
    #define IPS_CMD_GET_LD_INFO          0x19
    #define IPS_CMD_GET_SUBSYS           0x40
    #define IPS_CMD_READ_CONF            0x38
@@ -119,6 +172,9 @@
    #define IPS_CMD_GET_VERSION_INFO     0xC6
    #define IPS_CMD_RESET_CHANNEL        0x1A
 
+   /*
+    * Adapter Equates
+    */
    #define IPS_CSL                      0xFF
    #define IPS_POCL                     0x30
    #define IPS_NORM_STATE               0x00
@@ -168,11 +224,17 @@
    #define IPS_ONE_MSEC                 1
    #define IPS_ONE_SEC                  1000
 
+   /*
+    * Geometry Settings
+    */
    #define IPS_COMP_HEADS               128
    #define IPS_COMP_SECTORS             32
    #define IPS_NORM_HEADS               254
    #define IPS_NORM_SECTORS             63
 
+   /*
+    * Adapter Basic Status Codes
+    */
    #define IPS_BASIC_STATUS_MASK        0xFF
    #define IPS_GSC_STATUS_MASK          0x0F
    #define IPS_CMD_SUCCESS              0x00
@@ -186,6 +248,9 @@
    #define IPS_CMD_TIMEOUT              0x0E
    #define IPS_PHYS_DRV_ERROR           0x0F
 
+   /*
+    * Adapter Extended Status Equates
+    */
    #define IPS_ERR_SEL_TO               0xF0
    #define IPS_ERR_OU_RUN               0xF2
    #define IPS_ERR_HOST_RESET           0xF7
@@ -193,6 +258,9 @@
    #define IPS_ERR_RECOVERY             0xFC
    #define IPS_ERR_CKCOND               0xFF
 
+   /*
+    * Operating System Defines
+    */
    #define IPS_OS_WINDOWS_NT            0x01
    #define IPS_OS_NETWARE               0x02
    #define IPS_OS_OPENSERVER            0x03
@@ -202,6 +270,9 @@
    #define IPS_OS_LINUX                 0x07
    #define IPS_OS_FREEBSD               0x08
 
+   /*
+    * Adapter Revision ID's
+    */
    #define IPS_REVID_SERVERAID          0x02
    #define IPS_REVID_NAVAJO             0x03
    #define IPS_REVID_SERVERAID2         0x04
@@ -211,6 +282,9 @@
    #define IPS_REVID_TROMBONE32         0x0F
    #define IPS_REVID_TROMBONE64         0x10
 
+   /*
+    * NVRAM Page 5 Adapter Defines
+    */
    #define IPS_ADTYPE_SERVERAID         0x01
    #define IPS_ADTYPE_SERVERAID2        0x02
    #define IPS_ADTYPE_NAVAJO            0x03
@@ -230,16 +304,25 @@
    #define IPS_ADTYPE_SERVERAID7k       0x11
    #define IPS_ADTYPE_SERVERAID7M       0x12
 
-   #define IPS_SUCCESS                  0x01 
-   #define IPS_SUCCESS_IMM              0x02 
-   #define IPS_FAILURE                  0x04 
+   /*
+    * Adapter Command/Status Packet Definitions
+    */
+   #define IPS_SUCCESS                  0x01 /* Successfully completed       */
+   #define IPS_SUCCESS_IMM              0x02 /* Success - Immediately        */
+   #define IPS_FAILURE                  0x04 /* Completed with Error         */
 
+   /*
+    * Logical Drive Equates
+    */
    #define IPS_LD_OFFLINE               0x02
    #define IPS_LD_OKAY                  0x03
    #define IPS_LD_FREE                  0x00
    #define IPS_LD_SYS                   0x06
    #define IPS_LD_CRS                   0x24
 
+   /*
+    * DCDB Table Equates
+    */
    #define IPS_NO_DISCONNECT            0x00
    #define IPS_DISCONNECT_ALLOWED       0x80
    #define IPS_NO_AUTO_REQSEN           0x40
@@ -253,6 +336,9 @@
    #define IPS_TIMEOUT60                0x20
    #define IPS_TIMEOUT20M               0x30
 
+   /*
+    * SCSI Inquiry Data Flags
+    */
    #define IPS_SCSI_INQ_TYPE_DASD       0x00
    #define IPS_SCSI_INQ_TYPE_PROCESSOR  0x03
    #define IPS_SCSI_INQ_LU_CONNECTED    0x00
@@ -272,27 +358,42 @@
    #define IPS_SCSI_INQ_WBus32          0x40
    #define IPS_SCSI_INQ_RelAdr          0x80
 
+   /*
+    * SCSI Request Sense Data Flags
+    */
    #define IPS_SCSI_REQSEN_VALID        0x80
    #define IPS_SCSI_REQSEN_CURRENT_ERR  0x70
    #define IPS_SCSI_REQSEN_NO_SENSE     0x00
 
+   /*
+    * SCSI Mode Page Equates
+    */
    #define IPS_SCSI_MP3_SoftSector      0x01
    #define IPS_SCSI_MP3_HardSector      0x02
    #define IPS_SCSI_MP3_Removeable      0x04
    #define IPS_SCSI_MP3_AllocateSurface 0x08
 
+   /*
+    * HA Flags
+    */
 
    #define IPS_HA_ENH_SG                0x1
 
+   /*
+    * SCB Flags
+    */
    #define IPS_SCB_MAP_SG               0x00008
    #define IPS_SCB_MAP_SINGLE           0X00010
 
+   /*
+    * Passthru stuff
+    */
    #define IPS_COPPUSRCMD              (('C'<<8) | 65)
    #define IPS_COPPIOCCMD              (('C'<<8) | 66)
    #define IPS_NUMCTRLS                (('C'<<8) | 68)
    #define IPS_CTRLINFO                (('C'<<8) | 69)
 
-   
+   /* flashing defines */
    #define IPS_FW_IMAGE                0x00
    #define IPS_BIOS_IMAGE              0x01
    #define IPS_WRITE_FW                0x01
@@ -300,7 +401,7 @@
    #define IPS_ERASE_BIOS              0x03
    #define IPS_BIOS_HEADER             0xC0
 
-   
+   /* time oriented stuff */
    #define IPS_IS_LEAP_YEAR(y)           (((y % 4 == 0) && ((y % 100 != 0) || (y % 400 == 0))) ? 1 : 0)
    #define IPS_NUM_LEAP_YEARS_THROUGH(y) ((y) / 4 - (y) / 100 + (y) / 400)
 
@@ -312,11 +413,17 @@
    #define IPS_DAYS_LEAP_YEAR           366
    #define IPS_EPOCH_YEAR               1970
 
+   /*
+    * Scsi_Host Template
+    */
    static int ips_proc_info(struct Scsi_Host *, char *, char **, off_t, int, int);
    static int ips_biosparam(struct scsi_device *sdev, struct block_device *bdev,
 		sector_t capacity, int geom[]);
    static int ips_slave_configure(struct scsi_device *SDptr);
 
+/*
+ * Raid Command Formats
+ */
 typedef struct {
    uint8_t  op_code;
    uint8_t  command_id;
@@ -661,23 +768,26 @@ typedef struct {
    uint8_t   adapter_slot;
    uint16_t  adapter_type;
    uint8_t   ctrl_bios[8];
-   uint8_t   versioning;                   
-   uint8_t   version_mismatch;             
+   uint8_t   versioning;                   /* 1 = Versioning Supported, else 0 */
+   uint8_t   version_mismatch;             /* 1 = Versioning MisMatch,  else 0 */
    uint8_t   reserved2;
    uint8_t   operating_system;
    uint8_t   driver_high[4];
    uint8_t   driver_low[4];
    uint8_t   BiosCompatibilityID[8];
    uint8_t   ReservedForOS2[8];
-   uint8_t   bios_high[4];                 
+   uint8_t   bios_high[4];                 /* Adapter's Flashed BIOS Version   */
    uint8_t   bios_low[4];
-   uint8_t   adapter_order[16];            
+   uint8_t   adapter_order[16];            /* BIOS Telling us the Sort Order   */
    uint8_t   Filler[60];
 } IPS_NVRAM_P5, *PIPS_NVRAM_P5;
 
+/*--------------------------------------------------------------------------*/
+/* Data returned from a GetVersion Command                                  */
+/*--------------------------------------------------------------------------*/
 
-                                             
-#define  IPS_GET_VERSION_SUPPORT 0x00018000  
+                                             /* SubSystem Parameter[4]      */
+#define  IPS_GET_VERSION_SUPPORT 0x00018000  /* Mask for Versioning Support */
 
 typedef struct
 {
@@ -696,7 +806,13 @@ typedef struct _IPS_SUBSYS {
    uint32_t  param[128];
 } IPS_SUBSYS, *PIPS_SUBSYS;
 
+/**
+ ** SCSI Structures
+ **/
 
+/*
+ * Inquiry Data Format
+ */
 typedef struct {
    uint8_t   DeviceType;
    uint8_t   DeviceTypeQualifier;
@@ -708,14 +824,20 @@ typedef struct {
    uint8_t   VendorId[8];
    uint8_t   ProductId[16];
    uint8_t   ProductRevisionLevel[4];
-   uint8_t   Reserved2;                                  
+   uint8_t   Reserved2;                                  /* Provides NULL terminator to name */
 } IPS_SCSI_INQ_DATA, *PIPS_SCSI_INQ_DATA;
 
+/*
+ * Read Capacity Data Format
+ */
 typedef struct {
    uint32_t lba;
    uint32_t len;
 } IPS_SCSI_CAPACITY;
 
+/*
+ * Request Sense Data Format
+ */
 typedef struct {
    uint8_t  ResponseCode;
    uint8_t  SegmentNumber;
@@ -729,6 +851,9 @@ typedef struct {
    uint8_t  SenseKeySpecific[3];
 } IPS_SCSI_REQSEN;
 
+/*
+ * Sense Data Format - Page 3
+ */
 typedef struct {
    uint8_t  PageCode;
    uint8_t  PageLength;
@@ -745,6 +870,9 @@ typedef struct {
    uint8_t  reserved[3];
 } IPS_SCSI_MODE_PAGE3;
 
+/*
+ * Sense Data Format - Page 4
+ */
 typedef struct {
    uint8_t  PageCode;
    uint8_t  PageLength;
@@ -765,6 +893,9 @@ typedef struct {
    uint8_t  Reserved2[2];
 } IPS_SCSI_MODE_PAGE4;
 
+/*
+ * Sense Data Format - Page 8
+ */
 typedef struct {
    uint8_t  PageCode;
    uint8_t  PageLength;
@@ -776,6 +907,9 @@ typedef struct {
    uint16_t MaxPrefetchCeiling;
 } IPS_SCSI_MODE_PAGE8;
 
+/*
+ * Sense Data Format - Block Descriptor (DASD)
+ */
 typedef struct {
    uint32_t NumberOfBlocks;
    uint8_t  DensityCode;
@@ -783,6 +917,9 @@ typedef struct {
    uint8_t  BlockLengthLow;
 } IPS_SCSI_MODE_PAGE_BLKDESC;
 
+/*
+ * Sense Data Format - Mode Page Header
+ */
 typedef struct {
    uint8_t  DataLength;
    uint8_t  MediumType;
@@ -801,6 +938,9 @@ typedef struct {
    } pdata;
 } IPS_SCSI_MODE_PAGE_DATA;
 
+/*
+ * Scatter Gather list format
+ */
 typedef struct ips_sglist {
    uint32_t address;
    uint32_t length;
@@ -833,18 +973,27 @@ typedef struct {
    int   option_value;
 } IPS_OPTION;
 
+/*
+ * Status Info
+ */
 typedef struct ips_stat {
    uint32_t residue_len;
    void     *scb_addr;
    uint8_t  padding[12 - sizeof(void *)];
 } ips_stat_t;
 
+/*
+ * SCB Queue Format
+ */
 typedef struct ips_scb_queue {
    struct ips_scb *head;
    struct ips_scb *tail;
    int             count;
 } ips_scb_queue_t;
 
+/*
+ * Wait queue_format
+ */
 typedef struct ips_wait_queue {
 	struct scsi_cmnd *head;
 	struct scsi_cmnd *tail;
@@ -862,6 +1011,7 @@ typedef struct ips_copp_queue {
    int                        count;
 } ips_copp_queue_t;
 
+/* forward decl for host structure */
 struct ips_ha;
 
 typedef struct {
@@ -882,59 +1032,62 @@ typedef struct {
 typedef struct ips_ha {
    uint8_t            ha_id[IPS_MAX_CHANNELS+1];
    uint32_t           dcdb_active[IPS_MAX_CHANNELS];
-   uint32_t           io_addr;            
-   uint8_t            ntargets;           
-   uint8_t            nbus;               
-   uint8_t            nlun;               
-   uint16_t           ad_type;            
-   uint16_t           host_num;           
-   uint32_t           max_xfer;           
-   uint32_t           max_cmds;           
-   uint32_t           num_ioctl;          
-   ips_stat_t         sp;                 
-   struct ips_scb    *scbs;               
-   struct ips_scb    *scb_freelist;       
-   ips_wait_queue_t   scb_waitlist;       
-   ips_copp_queue_t   copp_waitlist;      
-   ips_scb_queue_t    scb_activelist;     
-   IPS_IO_CMD        *dummy;              
-   IPS_ADAPTER       *adapt;              
-   IPS_LD_INFO       *logical_drive_info; 
-   dma_addr_t         logical_drive_info_dma_addr; 
-   IPS_ENQ           *enq;                
-   IPS_CONF          *conf;               
-   IPS_NVRAM_P5      *nvram;              
-   IPS_SUBSYS        *subsys;             
-   char              *ioctl_data;         
-   uint32_t           ioctl_datasize;     
-   uint32_t           cmd_in_progress;    
-   int                flags;              
-   uint8_t            waitflag;           
+   uint32_t           io_addr;            /* Base I/O address           */
+   uint8_t            ntargets;           /* Number of targets          */
+   uint8_t            nbus;               /* Number of buses            */
+   uint8_t            nlun;               /* Number of Luns             */
+   uint16_t           ad_type;            /* Adapter type               */
+   uint16_t           host_num;           /* Adapter number             */
+   uint32_t           max_xfer;           /* Maximum Xfer size          */
+   uint32_t           max_cmds;           /* Max concurrent commands    */
+   uint32_t           num_ioctl;          /* Number of Ioctls           */
+   ips_stat_t         sp;                 /* Status packer pointer      */
+   struct ips_scb    *scbs;               /* Array of all CCBS          */
+   struct ips_scb    *scb_freelist;       /* SCB free list              */
+   ips_wait_queue_t   scb_waitlist;       /* Pending SCB list           */
+   ips_copp_queue_t   copp_waitlist;      /* Pending PT list            */
+   ips_scb_queue_t    scb_activelist;     /* Active SCB list            */
+   IPS_IO_CMD        *dummy;              /* dummy command              */
+   IPS_ADAPTER       *adapt;              /* Adapter status area        */
+   IPS_LD_INFO       *logical_drive_info; /* Adapter Logical Drive Info */
+   dma_addr_t         logical_drive_info_dma_addr; /* Logical Drive Info DMA Address */
+   IPS_ENQ           *enq;                /* Adapter Enquiry data       */
+   IPS_CONF          *conf;               /* Adapter config data        */
+   IPS_NVRAM_P5      *nvram;              /* NVRAM page 5 data          */
+   IPS_SUBSYS        *subsys;             /* Subsystem parameters       */
+   char              *ioctl_data;         /* IOCTL data area            */
+   uint32_t           ioctl_datasize;     /* IOCTL data size            */
+   uint32_t           cmd_in_progress;    /* Current command in progress*/
+   int                flags;              /*                            */
+   uint8_t            waitflag;           /* are we waiting for cmd     */
    uint8_t            active;
-   int                ioctl_reset;        
-   uint16_t           reset_count;        
-   time_t             last_ffdc;          
-   uint8_t            slot_num;           
-   int                ioctl_len;          
-   dma_addr_t         ioctl_busaddr;      
-   uint8_t            bios_version[8];    
-   uint32_t           mem_addr;           
-   uint32_t           io_len;             
-   uint32_t           mem_len;            
-   char              __iomem *mem_ptr;    
-   char              __iomem *ioremap_ptr;
-   ips_hw_func_t      func;               
-   struct pci_dev    *pcidev;             
-   char              *flash_data;         
-   int                flash_len;          
-   u32                flash_datasize;     
-   dma_addr_t         flash_busaddr;      
-   dma_addr_t         enq_busaddr;        
-   uint8_t            requires_esl;       
+   int                ioctl_reset;        /* IOCTL Requested Reset Flag */
+   uint16_t           reset_count;        /* number of resets           */
+   time_t             last_ffdc;          /* last time we sent ffdc info*/
+   uint8_t            slot_num;           /* PCI Slot Number            */
+   int                ioctl_len;          /* size of ioctl buffer       */
+   dma_addr_t         ioctl_busaddr;      /* dma address of ioctl buffer*/
+   uint8_t            bios_version[8];    /* BIOS Revision              */
+   uint32_t           mem_addr;           /* Memory mapped address      */
+   uint32_t           io_len;             /* Size of IO Address         */
+   uint32_t           mem_len;            /* Size of memory address     */
+   char              __iomem *mem_ptr;    /* Memory mapped Ptr          */
+   char              __iomem *ioremap_ptr;/* ioremapped memory pointer  */
+   ips_hw_func_t      func;               /* hw function pointers       */
+   struct pci_dev    *pcidev;             /* PCI device handle          */
+   char              *flash_data;         /* Save Area for flash data   */
+   int                flash_len;          /* length of flash buffer     */
+   u32                flash_datasize;     /* Save Area for flash data size */
+   dma_addr_t         flash_busaddr;      /* dma address of flash buffer*/
+   dma_addr_t         enq_busaddr;        /* dma address of enq struct  */
+   uint8_t            requires_esl;       /* Requires an EraseStripeLock */
 } ips_ha_t;
 
 typedef void (*ips_scb_callback) (ips_ha_t *, struct ips_scb *);
 
+/*
+ * SCB Format
+ */
 typedef struct ips_scb {
    IPS_HOST_COMMAND  cmd;
    IPS_DCDB_TABLE    dcdb;
@@ -943,7 +1096,7 @@ typedef struct ips_scb {
    uint8_t           lun;
    uint8_t           cdb[12];
    uint32_t          scb_busaddr;
-   uint32_t          old_data_busaddr;  
+   uint32_t          old_data_busaddr;  // Obsolete, but kept for old utility compatibility
    uint32_t          timeout;
    uint8_t           basic_status;
    uint8_t           extended_status;
@@ -985,6 +1138,9 @@ typedef struct ips_scb_pt {
    ips_scb_callback  callback;
 } ips_scb_pt_t;
 
+/*
+ * Passthru Command Format
+ */
 typedef struct {
    uint8_t       CoppID[4];
    uint32_t      CoppCmd;
@@ -1001,6 +1157,9 @@ typedef struct {
 
 #endif
 
+/* The Version Information below gets created by SED during the build process. */
+/* Do not modify the next line; it's what SED is looking for to do the insert. */
+/* Version Info                                                                */
 /*************************************************************************
 *
 * VERSION.H -- version numbers and copyright notices in various formats
@@ -1022,6 +1181,7 @@ typedef struct {
 #define IPS_DELLCOPYRIGHT_STRING "(c) Copyright Dell 2004. All Rights Reserved."
 #define IPS_NT_LEGALCOPYRIGHT_STRING "(C) Copyright IBM Corp. 1994, 2002."
 
+/* Version numbers for various adapters */
 #define IPS_VER_SERVERAID1 "2.25.01"
 #define IPS_VER_SERVERAID2 "2.88.13"
 #define IPS_VER_NAVAJO "2.88.13"
@@ -1033,6 +1193,7 @@ typedef struct {
 #define IPS_VER_SEBRING "7.12.02"
 #define IPS_VER_KEYWEST "7.12.02"
 
+/* Compatibility IDs for various adapters */
 #define IPS_COMPAT_UNKNOWN ""
 #define IPS_COMPAT_CURRENT "KW710"
 #define IPS_COMPAT_SERVERAID1 "2.25.01"
@@ -1070,8 +1231,8 @@ typedef struct {
       IPS_COMPAT_SERVERAID4L, \
       IPS_COMPAT_SERVERAID4Mx, \
       IPS_COMPAT_SERVERAID4Lx, \
-      IPS_COMPAT_SARASOTA,           \
-      IPS_COMPAT_SARASOTA,           \
+      IPS_COMPAT_SARASOTA,         /* one-channel variety of SARASOTA */  \
+      IPS_COMPAT_SARASOTA,         /* two-channel variety of SARASOTA */  \
       IPS_COMPAT_MARCO, \
       IPS_COMPAT_SEBRING, \
       IPS_COMPAT_TAMPA, \
@@ -1079,3 +1240,21 @@ typedef struct {
    }
 
 
+/*
+ * Overrides for Emacs so that we almost follow Linus's tabbing style.
+ * Emacs will notice this stuff at the end of the file and automatically
+ * adjust the settings for this buffer only.  This must remain at the end
+ * of the file.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-indent-level: 2
+ * c-brace-imaginary-offset: 0
+ * c-brace-offset: -2
+ * c-argdecl-indent: 2
+ * c-label-offset: -2
+ * c-continued-statement-offset: 2
+ * c-continued-brace-offset: 0
+ * indent-tabs-mode: nil
+ * tab-width: 8
+ * End:
+ */

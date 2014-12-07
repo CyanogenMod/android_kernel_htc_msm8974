@@ -359,6 +359,7 @@ TRACE_EVENT(scsi_eh_wakeup,
 	TP_printk("host_no=%u", __entry->host_no)
 );
 
-#endif 
+#endif /*  _TRACE_SCSI_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

@@ -32,12 +32,19 @@
 #include <asm/iosapic.h>
 #include <asm/paravirt.h>
 
+/***************************************************************************
+ * general info
+ */
 struct pv_info pv_info = {
 	.kernel_rpl = 0,
 	.paravirt_enabled = 0,
 	.name = "bare hardware"
 };
 
+/***************************************************************************
+ * pv_init_ops
+ * initialization hooks.
+ */
 
 static void __init
 ia64_native_patch_branch(unsigned long tag, unsigned long type);
@@ -50,8 +57,13 @@ struct pv_init_ops pv_init_ops =
 	.patch_branch = ia64_native_patch_branch,
 };
 
+/***************************************************************************
+ * pv_cpu_ops
+ * intrinsics hooks.
+ */
 
 #ifndef ASM_SUPPORTED
+/* ia64_native_xxx are macros so that we have to make them real functions */
 
 #define DEFINE_VOID_FUNC1(name)					\
 	static void						\
@@ -135,7 +147,7 @@ ia64_native_getreg_func(int regnum)
 	unsigned long res = -1;
 	switch (regnum) {
 	CASE_GET_REG(GP);
-	 
+	/*CASE_GET_REG(IP);*/ /* returned ip value shouldn't be constant */
 	CASE_GET_REG(PSR);
 	CASE_GET_REG(TP);
 	CASE_GET_REG(SP);
@@ -340,6 +352,7 @@ DEFINE_VOID_FUNC2(ptcga,
 DEFINE_VOID_FUNC2(set_rr,
 		  "mov rr[r8] = r9\n");
 
+/* ia64_native_getreg(_IA64_REG_PSR) & IA64_PSR_I */
 DEFINE_FUNC0(get_psr_i,
 	     "mov r2 = " __stringify(1 << IA64_PSR_I_BIT) "\n"
 	     "mov r8 = psr\n"
@@ -369,13 +382,13 @@ __DEFINE_FUNC(set_rr0_to_rr4,
 	      "movl r2 = 0x2000000000000000\n"
 	      ";;\n"
 	      "mov rr[r2] = r9\n"
-	      "shl r3 = r2, 1\n"	
+	      "shl r3 = r2, 1\n"	/* movl r3 = 0x4000000000000000 */
 	      ";;\n"
-	      "add r2 = r2, r3\n"	
+	      "add r2 = r2, r3\n"	/* movl r2 = 0x6000000000000000 */
 	      "mov rr[r3] = r10\n"
 	      ";;\n"
 	      "mov rr[r2] = r11\n"
-	      "shl r3 = r3, 1\n"	
+	      "shl r3 = r3, 1\n"	/* movl r3 = 0x8000000000000000 */
 	      ";;\n"
 	      "mov rr[r3] = r14\n");
 
@@ -394,7 +407,7 @@ asm(".global ia64_native_getreg_func\n");
 
 __DEFINE_FUNC(getreg,
 	      __DEFINE_GET_REG(GP, gp)
-	       
+	      /*__DEFINE_GET_REG(IP, ip)*/ /* returned ip value shouldn't be constant */
 	      __DEFINE_GET_REG(PSR, psr)
 	      __DEFINE_GET_REG(TP, tp)
 	      __DEFINE_GET_REG(SP, sp)
@@ -454,7 +467,7 @@ __DEFINE_FUNC(getreg,
 	      __DEFINE_GET_CR(LRR0, lrr0)
 	      __DEFINE_GET_CR(LRR1, lrr1)
 
-	      "mov r8 = -1\n"	
+	      "mov r8 = -1\n"	/* unsupported case */
 	);
 
 extern void ia64_native_setreg_func(int regnum, unsigned long val);
@@ -577,6 +590,10 @@ paravirt_cpu_asm_init(const struct pv_cpu_asm_switch *cpu_asm_switch)
 	paravirt_leave_kernel_targ = cpu_asm_switch->leave_kernel;
 }
 
+/***************************************************************************
+ * pv_iosapic_ops
+ * iosapic read/write hooks.
+ */
 
 static unsigned int
 ia64_native_iosapic_read(char __iomem *iosapic, unsigned int reg)
@@ -598,6 +615,10 @@ struct pv_iosapic_ops pv_iosapic_ops = {
 	.__write = ia64_native_iosapic_write,
 };
 
+/***************************************************************************
+ * pv_irq_ops
+ * irq operations
+ */
 
 struct pv_irq_ops pv_irq_ops = {
 	.register_ipi = ia64_native_register_ipi,
@@ -609,6 +630,10 @@ struct pv_irq_ops pv_irq_ops = {
 	.resend_irq = ia64_native_resend_irq,
 };
 
+/***************************************************************************
+ * pv_time_ops
+ * time operations
+ */
 struct static_key paravirt_steal_enabled;
 struct static_key paravirt_steal_rq_enabled;
 
@@ -623,6 +648,10 @@ struct pv_time_ops pv_time_ops = {
 	.sched_clock = ia64_native_sched_clock,
 };
 
+/***************************************************************************
+ * binary pacthing
+ * pv_init_ops.patch_bundle
+ */
 
 #ifdef ASM_SUPPORTED
 #define IA64_NATIVE_PATCH_DEFINE_GET_REG(name, reg)	\
@@ -651,6 +680,7 @@ struct pv_time_ops pv_time_ops = {
 IA64_NATIVE_PATCH_DEFINE_GET_REG(psr, psr);
 IA64_NATIVE_PATCH_DEFINE_GET_REG(tp, tp);
 
+/* IA64_NATIVE_PATCH_DEFINE_SET_REG(psr_l, psr.l); */
 __DEFINE_FUNC(set_psr_l,
 	      ";;\n"
 	      "mov psr.l = r8\n"
@@ -841,7 +871,7 @@ ia64_native_patch_bundle(void *sbundle, void *ebundle, unsigned long type)
 					      ia64_native_patch_bundle_elems,
 					      nelems, NULL);
 }
-#endif 
+#endif /* ASM_SUPPOTED */
 
 extern const char ia64_native_switch_to[];
 extern const char ia64_native_leave_syscall[];

@@ -20,7 +20,7 @@
 #include <linux/pci.h>
 #include "bkm_ax.h"
 
-#define	ATTEMPT_PCI_REMAPPING	
+#define	ATTEMPT_PCI_REMAPPING	/* Required for PLX rev 1 */
 
 static const char sct_quadro_revision[] = "$Revision: 1.22.2.4 $";
 
@@ -72,6 +72,7 @@ writefifo(unsigned int ale, unsigned int adr, u_char off, u_char *data, int size
 		wordout(adr, data[i]);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -110,14 +111,18 @@ WriteHSCX(struct IsdnCardState *cs, int hscx, u_char offset, u_char value)
 	writereg(cs->hw.ax.base, cs->hw.ax.data_adr, offset + (hscx ? 0x40 : 0), value);
 }
 
+/* Set the specific ipac to active */
 static void
 set_ipac_active(struct IsdnCardState *cs, u_int active)
 {
-	
+	/* set irq mask */
 	writereg(cs->hw.ax.base, cs->hw.ax.data_adr, IPAC_MASK,
 		 active ? 0xc0 : 0xff);
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) readreg(cs->hw.ax.base,			\
 				      cs->hw.ax.data_adr, reg + (nr ? 0x40 : 0))
@@ -139,7 +144,7 @@ bkm_interrupt_ipac(int intno, void *dev_id)
 
 	spin_lock_irqsave(&cs->lock, flags);
 	ista = readreg(cs->hw.ax.base, cs->hw.ax.data_adr, IPAC_ISTA);
-	if (!(ista & 0x3f)) { 
+	if (!(ista & 0x3f)) { /* not this IPAC */
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return IRQ_NONE;
 	}
@@ -207,7 +212,7 @@ reset_bkm(struct IsdnCardState *cs)
 	if (cs->subtyp == SCT_1) {
 		wordout(cs->hw.ax.plx_adr + 0x50, (wordin(cs->hw.ax.plx_adr + 0x50) & ~4));
 		mdelay(10);
-		
+		/* Remove the soft reset */
 		wordout(cs->hw.ax.plx_adr + 0x50, (wordin(cs->hw.ax.plx_adr + 0x50) | 4));
 		mdelay(10);
 	}
@@ -221,14 +226,14 @@ BKM_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 	switch (mt) {
 	case CARD_RESET:
 		spin_lock_irqsave(&cs->lock, flags);
-		
+		/* Disable ints */
 		set_ipac_active(cs, 0);
 		enable_bkm_int(cs, 0);
 		reset_bkm(cs);
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return (0);
 	case CARD_RELEASE:
-		
+		/* Sanity */
 		spin_lock_irqsave(&cs->lock, flags);
 		set_ipac_active(cs, 0);
 		enable_bkm_int(cs, 0);
@@ -240,7 +245,7 @@ BKM_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		cs->debug |= L1_DEB_IPAC;
 		set_ipac_active(cs, 1);
 		inithscxisac(cs, 3);
-		
+		/* Enable ints */
 		enable_bkm_int(cs, 1);
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return (0);
@@ -280,11 +285,11 @@ setup_sct_quadro(struct IsdnCard *card)
 	strcpy(tmp, sct_quadro_revision);
 	printk(KERN_INFO "HiSax: T-Berkom driver Rev. %s\n", HiSax_getrev(tmp));
 	if (cs->typ == ISDN_CTYPE_SCT_QUADRO) {
-		cs->subtyp = SCT_1;	
+		cs->subtyp = SCT_1;	/* Preset */
 	} else
 		return (0);
 
-	
+	/* Identify subtype by para[0] */
 	if (card->para[0] >= SCT_1 && card->para[0] <= SCT_4)
 		cs->subtyp = card->para[0];
 	else {
@@ -320,21 +325,22 @@ setup_sct_quadro(struct IsdnCard *card)
 			return (0);
 		}
 #ifdef ATTEMPT_PCI_REMAPPING
+/* HACK: PLX revision 1 bug: PLX address bit 7 must not be set */
 		if ((pci_ioaddr1 & 0x80) && (dev_a8->revision == 1)) {
 			printk(KERN_WARNING "HiSax: Scitel Quadro (%s): "
 			       "PLX rev 1, remapping required!\n",
 			       sct_quadro_subtypes[cs->subtyp]);
-			
+			/* Restart PCI negotiation */
 			pci_write_config_dword(dev_a8, PCI_BASE_ADDRESS_1, (u_int)-1);
-			
+			/* Move up by 0x80 byte */
 			pci_ioaddr1 += 0x80;
 			pci_ioaddr1 &= PCI_BASE_ADDRESS_IO_MASK;
 			pci_write_config_dword(dev_a8, PCI_BASE_ADDRESS_1, pci_ioaddr1);
 			dev_a8->resource[1].start = pci_ioaddr1;
 		}
-#endif 
+#endif /* End HACK */
 	}
-	if (!pci_irq) {		
+	if (!pci_irq) {		/* IRQ range check ?? */
 		printk(KERN_WARNING "HiSax: Scitel Quadro (%s): No IRQ\n",
 		       sct_quadro_subtypes[cs->subtyp]);
 		return (0);
@@ -355,16 +361,16 @@ setup_sct_quadro(struct IsdnCard *card)
 	pci_ioaddr3 &= PCI_BASE_ADDRESS_IO_MASK;
 	pci_ioaddr4 &= PCI_BASE_ADDRESS_IO_MASK;
 	pci_ioaddr5 &= PCI_BASE_ADDRESS_IO_MASK;
-	
+	/* Take over */
 	cs->irq = pci_irq;
 	cs->irq_flags |= IRQF_SHARED;
-	
-	
-	
-	
-	
+	/* pci_ioaddr1 is unique to all subdevices */
+	/* pci_ioaddr2 is for the fourth subdevice only */
+	/* pci_ioaddr3 is for the third subdevice only */
+	/* pci_ioaddr4 is for the second subdevice only */
+	/* pci_ioaddr5 is for the first subdevice only */
 	cs->hw.ax.plx_adr = pci_ioaddr1;
-	
+	/* Enter all ipac_base addresses */
 	switch (cs->subtyp) {
 	case 1:
 		cs->hw.ax.base = pci_ioaddr5 + 0x00;
@@ -372,7 +378,7 @@ setup_sct_quadro(struct IsdnCard *card)
 			return (0);
 		if (sct_alloc_io(pci_ioaddr5, 64))
 			return (0);
-		
+		/* disable all IPAC */
 		writereg(pci_ioaddr5, pci_ioaddr5 + 4,
 			 IPAC_MASK, 0xFF);
 		writereg(pci_ioaddr4 + 0x08, pci_ioaddr4 + 0x0c,
@@ -398,7 +404,7 @@ setup_sct_quadro(struct IsdnCard *card)
 			return (0);
 		break;
 	}
-	
+	/* For isac and hscx data path */
 	cs->hw.ax.data_adr = cs->hw.ax.base + 4;
 
 	printk(KERN_INFO "HiSax: Scitel Quadro (%s) configured at "

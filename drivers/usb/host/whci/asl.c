@@ -56,7 +56,7 @@ static void asl_qset_insert(struct whc *whc, struct whc_qset *qset)
 
 	qset_clear(whc, qset);
 
-	
+	/* Link into ASL. */
 	qset_get_next_prev(whc, qset, &next, &prev);
 	whc_qset_set_link_ptr(&qset->qh.link, next->qset_dma);
 	whc_qset_set_link_ptr(&prev->qh.link, qset->qset_dma);
@@ -72,14 +72,28 @@ static void asl_qset_remove(struct whc *whc, struct whc_qset *qset)
 	list_move(&qset->list_node, &whc->async_removed_list);
 	qset->in_sw_list = false;
 
+	/*
+	 * No more qsets in the ASL?  The caller must stop the ASL as
+	 * it's no longer valid.
+	 */
 	if (list_empty(&whc->async_list))
 		return;
 
-	
+	/* Remove from ASL. */
 	whc_qset_set_link_ptr(&prev->qh.link, next->qset_dma);
 	qset->in_hw_list = false;
 }
 
+/**
+ * process_qset - process any recently inactivated or halted qTDs in a
+ * qset.
+ *
+ * After inactive qTDs are removed, new qTDs can be added if the
+ * urb queue still contains URBs.
+ *
+ * Returns any additional WUSBCMD bits for the ASL sync command (i.e.,
+ * WUSBCMD_ASYNC_QSET_RM if a halted qset was removed).
+ */
 static uint32_t process_qset(struct whc *whc, struct whc_qset *qset)
 {
 	enum whc_update update = 0;
@@ -93,17 +107,23 @@ static uint32_t process_qset(struct whc *whc, struct whc_qset *qset)
 		td = &qset->qtd[qset->td_start];
 		status = le32_to_cpu(td->status);
 
+		/*
+		 * Nothing to do with a still active qTD.
+		 */
 		if (status & QTD_STS_ACTIVE)
 			break;
 
 		if (status & QTD_STS_HALTED) {
-			
+			/* Ug, an error. */
 			process_halted_qtd(whc, qset, td);
+			/* A halted qTD always triggers an update
+			   because the qset was either removed or
+			   reactivated. */
 			update |= WHC_UPDATE_UPDATED;
 			goto done;
 		}
 
-		
+		/* Mmm, a completed qTD. */
 		process_inactive_qtd(whc, qset, td);
 	}
 
@@ -111,6 +131,10 @@ static uint32_t process_qset(struct whc *whc, struct whc_qset *qset)
 		update |= qset_add_qtds(whc, qset);
 
 done:
+	/*
+	 * Remove this qset from the ASL if requested, but only if has
+	 * no qTDs.
+	 */
 	if (qset->remove && qset->ntds == 0) {
 		asl_qset_remove(whc, qset);
 		update |= WHC_UPDATE_REMOVED;
@@ -140,6 +164,15 @@ void asl_stop(struct whc *whc)
 		      1000, "stop ASL");
 }
 
+/**
+ * asl_update - request an ASL update and wait for the hardware to be synced
+ * @whc: the WHCI HC
+ * @wusbcmd: WUSBCMD value to start the update.
+ *
+ * If the WUSB HC is inactive (i.e., the ASL is stopped) then the
+ * update must be skipped as the hardware may not respond to update
+ * requests.
+ */
 void asl_update(struct whc *whc, uint32_t wusbcmd)
 {
 	struct wusbhc *wusbhc = &whc->wusbhc;
@@ -158,6 +191,14 @@ void asl_update(struct whc *whc, uint32_t wusbcmd)
 	mutex_unlock(&wusbhc->mutex);
 }
 
+/**
+ * scan_async_work - scan the ASL for qsets to process.
+ *
+ * Process each qset in the ASL in turn and then signal the WHC that
+ * the ASL has been updated.
+ *
+ * Then start, stop or update the asynchronous schedule as required.
+ */
 void scan_async_work(struct work_struct *work)
 {
 	struct whc *whc = container_of(work, struct whc, async_work);
@@ -166,6 +207,10 @@ void scan_async_work(struct work_struct *work)
 
 	spin_lock_irq(&whc->lock);
 
+	/*
+	 * Transerve the software list backwards so new qsets can be
+	 * safely inserted into the ASL without making it non-circular.
+	 */
 	list_for_each_entry_safe_reverse(qset, t, &whc->async_list, list_node) {
 		if (!qset->in_hw_list) {
 			asl_qset_insert(whc, qset);
@@ -184,6 +229,13 @@ void scan_async_work(struct work_struct *work)
 		asl_update(whc, wusbcmd);
 	}
 
+	/*
+	 * Now that the ASL is updated, complete the removal of any
+	 * removed qsets.
+	 *
+	 * If the qset was to be reset, do so and reinsert it into the
+	 * ASL if it has pending transfers.
+	 */
 	spin_lock_irq(&whc->lock);
 
 	list_for_each_entry_safe(qset, t, &whc->async_removed_list, list_node) {
@@ -200,6 +252,16 @@ void scan_async_work(struct work_struct *work)
 	spin_unlock_irq(&whc->lock);
 }
 
+/**
+ * asl_urb_enqueue - queue an URB onto the asynchronous list (ASL).
+ * @whc: the WHCI host controller
+ * @urb: the URB to enqueue
+ * @mem_flags: flags for any memory allocations
+ *
+ * The qset for the endpoint is obtained and the urb queued on to it.
+ *
+ * Work is scheduled to update the hardware's view of the ASL.
+ */
 int asl_urb_enqueue(struct whc *whc, struct urb *urb, gfp_t mem_flags)
 {
 	struct whc_qset *qset;
@@ -233,6 +295,16 @@ int asl_urb_enqueue(struct whc *whc, struct urb *urb, gfp_t mem_flags)
 	return err;
 }
 
+/**
+ * asl_urb_dequeue - remove an URB (qset) from the async list.
+ * @whc: the WHCI host controller
+ * @urb: the URB to dequeue
+ * @status: the current status of the URB
+ *
+ * URBs that do yet have qTDs can simply be removed from the software
+ * queue, otherwise the qset must be removed from the ASL so the qTDs
+ * can be removed.
+ */
 int asl_urb_dequeue(struct whc *whc, struct urb *urb, int status)
 {
 	struct whc_urb *wurb = urb->hcpriv;
@@ -254,7 +326,7 @@ int asl_urb_dequeue(struct whc *whc, struct urb *urb, int status)
 				has_qtd = true;
 			qset_free_std(whc, std);
 		} else
-			std->qtd = NULL; 
+			std->qtd = NULL; /* so this std is re-added when the qset is */
 	}
 
 	if (has_qtd) {
@@ -270,6 +342,9 @@ out:
 	return ret;
 }
 
+/**
+ * asl_qset_delete - delete a qset from the ASL
+ */
 void asl_qset_delete(struct whc *whc, struct whc_qset *qset)
 {
 	qset->remove = 1;
@@ -277,6 +352,12 @@ void asl_qset_delete(struct whc *whc, struct whc_qset *qset)
 	qset_delete(whc, qset);
 }
 
+/**
+ * asl_init - initialize the asynchronous schedule list
+ *
+ * A dummy qset with no qTDs is added to the ASL to simplify removing
+ * qsets (no need to stop the ASL when the last qset is removed).
+ */
 int asl_init(struct whc *whc)
 {
 	struct whc_qset *qset;
@@ -291,6 +372,11 @@ int asl_init(struct whc *whc)
 	return 0;
 }
 
+/**
+ * asl_clean_up - free ASL resources
+ *
+ * The ASL is stopped and empty except for the dummy qset.
+ */
 void asl_clean_up(struct whc *whc)
 {
 	struct whc_qset *qset;

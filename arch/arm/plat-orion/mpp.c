@@ -16,6 +16,7 @@
 #include <mach/hardware.h>
 #include <plat/mpp.h>
 
+/* Address of the ith MPP control register */
 static __init unsigned long mpp_ctrl_addr(unsigned int i,
 					  unsigned long dev_bus)
 {

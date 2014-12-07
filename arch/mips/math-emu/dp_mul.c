@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * double precision: common utilities
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -65,7 +68,7 @@ ieee754dp ieee754dp_mul(ieee754dp x, ieee754dp y)
 		return x;
 
 
-		
+		/* Infinity handling */
 
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_ZERO):
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_INF):
@@ -101,7 +104,7 @@ ieee754dp ieee754dp_mul(ieee754dp x, ieee754dp y)
 	case CLPAIR(IEEE754_CLASS_NORM, IEEE754_CLASS_NORM):
 		break;
 	}
-	
+	/* rm = xm * ym, re = xe+ye basically */
 	assert(xm & DP_HIDDEN_BIT);
 	assert(ym & DP_HIDDEN_BIT);
 	{
@@ -109,12 +112,14 @@ ieee754dp ieee754dp_mul(ieee754dp x, ieee754dp y)
 		int rs = xs ^ ys;
 		u64 rm;
 
-		
+		/* shunt to top of word */
 		xm <<= 64 - (DP_MBITS + 1);
 		ym <<= 64 - (DP_MBITS + 1);
 
+		/* multiply 32bits xm,ym to give high 32bits rm with stickness
+		 */
 
-		
+		/* 32 * 32 => 64 */
 #define DPXMULT(x, y)	((u64)(x) * (u64)y)
 
 		{
@@ -152,6 +157,9 @@ ieee754dp ieee754dp_mul(ieee754dp x, ieee754dp y)
 			rm = hrm | (lrm != 0);
 		}
 
+		/*
+		 * sticky shift down to normal rounding precision
+		 */
 		if ((s64) rm < 0) {
 			rm =
 			    (rm >> (64 - (DP_MBITS + 1 + 3))) |

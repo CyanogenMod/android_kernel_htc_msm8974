@@ -43,7 +43,7 @@ int __devinit mal_register_commac(struct mal_instance	*mal,
 	MAL_DBG(mal, "reg(%08x, %08x)" NL,
 		commac->tx_chan_mask, commac->rx_chan_mask);
 
-	
+	/* Don't let multiple commacs claim the same channel(s) */
 	if ((mal->tx_chan_mask & commac->tx_chan_mask) ||
 	    (mal->rx_chan_mask & commac->rx_chan_mask)) {
 		spin_unlock_irqrestore(&mal->lock, flags);
@@ -138,6 +138,11 @@ void mal_enable_rx_channel(struct mal_instance *mal, int channel)
 {
 	unsigned long flags;
 
+	/*
+	 * On some 4xx PPC's (e.g. 460EX/GT), the rx channel is a multiple
+	 * of 8, but enabling in MAL_RXCASR needs the divided by 8 value
+	 * for the bitmask
+	 */
 	if (!(channel % 8))
 		channel >>= 3;
 
@@ -153,6 +158,11 @@ void mal_enable_rx_channel(struct mal_instance *mal, int channel)
 
 void mal_disable_rx_channel(struct mal_instance *mal, int channel)
 {
+	/*
+	 * On some 4xx PPC's (e.g. 460EX/GT), the rx channel is a multiple
+	 * of 8, but enabling in MAL_RXCASR needs the divided by 8 value
+	 * for the bitmask
+	 */
 	if (!(channel % 8))
 		channel >>= 3;
 
@@ -169,7 +179,7 @@ void mal_poll_add(struct mal_instance *mal, struct mal_commac *commac)
 
 	MAL_DBG(mal, "poll_add(%p)" NL, commac);
 
-	
+	/* starts disabled */
 	set_bit(MAL_COMMAC_POLL_DISABLED, &commac->flags);
 
 	list_add_tail(&commac->poll_list, &mal->poll_list);
@@ -190,17 +200,19 @@ void mal_poll_del(struct mal_instance *mal, struct mal_commac *commac)
 	spin_unlock_irqrestore(&mal->lock, flags);
 }
 
+/* synchronized by mal_poll() */
 static inline void mal_enable_eob_irq(struct mal_instance *mal)
 {
 	MAL_DBG2(mal, "enable_irq" NL);
 
-	
+	// XXX might want to cache MAL_CFG as the DCR read can be slooooow
 	set_mal_dcrn(mal, MAL_CFG, get_mal_dcrn(mal, MAL_CFG) | MAL_CFG_EOPIE);
 }
 
+/* synchronized by NAPI state */
 static inline void mal_disable_eob_irq(struct mal_instance *mal)
 {
-	
+	// XXX might want to cache MAL_CFG as the DCR read can be slooooow
 	set_mal_dcrn(mal, MAL_CFG, get_mal_dcrn(mal, MAL_CFG) & ~MAL_CFG_EOPIE);
 
 	MAL_DBG2(mal, "disable_irq" NL);
@@ -212,17 +224,23 @@ static irqreturn_t mal_serr(int irq, void *dev_instance)
 
 	u32 esr = get_mal_dcrn(mal, MAL_ESR);
 
-	
+	/* Clear the error status register */
 	set_mal_dcrn(mal, MAL_ESR, esr);
 
 	MAL_DBG(mal, "SERR %08x" NL, esr);
 
 	if (esr & MAL_ESR_EVB) {
 		if (esr & MAL_ESR_DE) {
+			/* We ignore Descriptor error,
+			 * TXDE or RXDE interrupt will be generated anyway.
+			 */
 			return IRQ_HANDLED;
 		}
 
 		if (esr & MAL_ESR_PEIN) {
+			/* PLB error, it's probably buggy hardware or
+			 * incorrect physical address in BD (i.e. bug)
+			 */
 			if (net_ratelimit())
 				printk(KERN_ERR
 				       "mal%d: system error, "
@@ -231,6 +249,9 @@ static irqreturn_t mal_serr(int irq, void *dev_instance)
 			return IRQ_HANDLED;
 		}
 
+		/* OPB error, it's probably buggy hardware or incorrect
+		 * EBC setup
+		 */
 		if (net_ratelimit())
 			printk(KERN_ERR
 			       "mal%d: system error, OPB (ESR = 0x%08x)\n",
@@ -335,13 +356,13 @@ static irqreturn_t mal_int(int irq, void *dev_instance)
 	u32 esr = get_mal_dcrn(mal, MAL_ESR);
 
 	if (esr & MAL_ESR_EVB) {
-		
+		/* descriptor error */
 		if (esr & MAL_ESR_DE) {
 			if (esr & MAL_ESR_CIDT)
 				return mal_rxde(irq, dev_instance);
 			else
 				return mal_txde(irq, dev_instance);
-		} else { 
+		} else { /* SERR */
 			return mal_serr(irq, dev_instance);
 		}
 	}
@@ -350,11 +371,11 @@ static irqreturn_t mal_int(int irq, void *dev_instance)
 
 void mal_poll_disable(struct mal_instance *mal, struct mal_commac *commac)
 {
-	
+	/* Spinlock-type semantics: only one caller disable poll at a time */
 	while (test_and_set_bit(MAL_COMMAC_POLL_DISABLED, &commac->flags))
 		msleep(1);
 
-	
+	/* Synchronize with the MAL NAPI poller */
 	napi_synchronize(&mal->napi);
 }
 
@@ -363,6 +384,11 @@ void mal_poll_enable(struct mal_instance *mal, struct mal_commac *commac)
 	smp_wmb();
 	clear_bit(MAL_COMMAC_POLL_DISABLED, &commac->flags);
 
+	/* Feels better to trigger a poll here to catch up with events that
+	 * may have happened on this channel while disabled. It will most
+	 * probably be delayed until the next interrupt but that's mostly a
+	 * non-issue in the context where this is called.
+	 */
 	napi_schedule(&mal->napi);
 }
 
@@ -375,13 +401,18 @@ static int mal_poll(struct napi_struct *napi, int budget)
 
 	MAL_DBG2(mal, "poll(%d)" NL, budget);
  again:
-	
+	/* Process TX skbs */
 	list_for_each(l, &mal->poll_list) {
 		struct mal_commac *mc =
 			list_entry(l, struct mal_commac, poll_list);
 		mc->ops->poll_tx(mc->dev);
 	}
 
+	/* Process RX skbs.
+	 *
+	 * We _might_ need something more smart here to enforce polling
+	 * fairness.
+	 */
 	list_for_each(l, &mal->poll_list) {
 		struct mal_commac *mc =
 			list_entry(l, struct mal_commac, poll_list);
@@ -393,17 +424,17 @@ static int mal_poll(struct napi_struct *napi, int budget)
 			received += n;
 			budget -= n;
 			if (budget <= 0)
-				goto more_work; 
+				goto more_work; // XXX What if this is the last one ?
 		}
 	}
 
-	
+	/* We need to disable IRQs to protect from RXDE IRQ here */
 	spin_lock_irqsave(&mal->lock, flags);
 	__napi_complete(napi);
 	mal_enable_eob_irq(mal);
 	spin_unlock_irqrestore(&mal->lock, flags);
 
-	
+	/* Check for "rotting" packet(s) */
 	list_for_each(l, &mal->poll_list) {
 		struct mal_commac *mc =
 			list_entry(l, struct mal_commac, poll_list);
@@ -438,7 +469,7 @@ static void mal_reset(struct mal_instance *mal)
 
 	set_mal_dcrn(mal, MAL_CFG, MAL_CFG_SR);
 
-	
+	/* Wait for reset to complete (1 system clock) */
 	while ((get_mal_dcrn(mal, MAL_CFG) & MAL_CFG_SR) && n)
 		--n;
 
@@ -587,20 +618,23 @@ static int __devinit mal_probe(struct platform_device *ofdev)
 	netif_napi_add(&mal->dummy_dev, &mal->napi, mal_poll,
 		       CONFIG_IBM_EMAC_POLL_WEIGHT);
 
-	
+	/* Load power-on reset defaults */
 	mal_reset(mal);
 
-	
+	/* Set the MAL configuration register */
 	cfg = (mal->version == 2) ? MAL2_CFG_DEFAULT : MAL1_CFG_DEFAULT;
 	cfg |= MAL_CFG_PLBB | MAL_CFG_OPBBL | MAL_CFG_LEA;
 
+	/* Current Axon is not happy with priority being non-0, it can
+	 * deadlock, fix it up here
+	 */
 	if (of_device_is_compatible(ofdev->dev.of_node, "ibm,mcmal-axon"))
 		cfg &= ~(MAL2_CFG_RPP_10 | MAL2_CFG_WPP_10);
 
-	
+	/* Apply configuration */
 	set_mal_dcrn(mal, MAL_CFG, cfg);
 
-	
+	/* Allocate space for BD rings */
 	BUG_ON(mal->num_tx_chans <= 0 || mal->num_tx_chans > 32);
 	BUG_ON(mal->num_rx_chans <= 0 || mal->num_rx_chans > 32);
 
@@ -655,13 +689,13 @@ static int __devinit mal_probe(struct platform_device *ofdev)
 	if (err)
 		goto fail6;
 
-	
+	/* Enable all MAL SERR interrupt sources */
 	if (mal->version == 2)
 		set_mal_dcrn(mal, MAL_IER, MAL2_IER_EVENTS);
 	else
 		set_mal_dcrn(mal, MAL_IER, MAL1_IER_EVENTS);
 
-	
+	/* Enable EOB interrupt */
 	mal_enable_eob_irq(mal);
 
 	printk(KERN_INFO
@@ -669,7 +703,7 @@ static int __devinit mal_probe(struct platform_device *ofdev)
 	       mal->version, ofdev->dev.of_node->full_name,
 	       mal->num_tx_chans, mal->num_rx_chans);
 
-	
+	/* Advertise this instance to the rest of the world */
 	wmb();
 	dev_set_drvdata(&ofdev->dev, mal);
 
@@ -701,11 +735,11 @@ static int __devexit mal_remove(struct platform_device *ofdev)
 
 	MAL_DBG(mal, "remove" NL);
 
-	
+	/* Synchronize with scheduled polling */
 	napi_disable(&mal->napi);
 
 	if (!list_empty(&mal->list)) {
-		
+		/* This is *very* bad */
 		printk(KERN_EMERG
 		       "mal%d: commac list is not empty on remove!\n",
 		       mal->index);
@@ -742,7 +776,7 @@ static struct of_device_id mal_platform_match[] =
 	{
 		.compatible	= "ibm,mcmal2",
 	},
-	
+	/* Backward compat */
 	{
 		.type		= "mcmal-dma",
 		.compatible	= "ibm,mcmal",

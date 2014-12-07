@@ -41,7 +41,7 @@
 static int vt8500lcd_set_par(struct fb_info *info)
 {
 	struct vt8500lcd_info *fbi = to_vt8500lcd_info(info);
-	int reg_bpp = 5; 
+	int reg_bpp = 5; /* 16bpp */
 	int i;
 	unsigned long control0;
 
@@ -49,7 +49,7 @@ static int vt8500lcd_set_par(struct fb_info *info)
 		return -EINVAL;
 
 	if (info->var.bits_per_pixel <= 8) {
-		
+		/* palettized */
 		info->var.red.offset    = 0;
 		info->var.red.length    = info->var.bits_per_pixel;
 		info->var.red.msb_right = 0;
@@ -70,13 +70,13 @@ static int vt8500lcd_set_par(struct fb_info *info)
 		info->fix.line_length = info->var.xres_virtual /
 						(8/info->var.bits_per_pixel);
 	} else {
-		
+		/* non-palettized */
 		info->var.transp.offset = 0;
 		info->var.transp.length = 0;
 		info->var.transp.msb_right = 0;
 
 		if (info->var.bits_per_pixel == 16) {
-			
+			/* RGB565 */
 			info->var.red.offset = 11;
 			info->var.red.length = 5;
 			info->var.red.msb_right = 0;
@@ -87,7 +87,7 @@ static int vt8500lcd_set_par(struct fb_info *info)
 			info->var.blue.length = 5;
 			info->var.blue.msb_right = 0;
 		} else {
-			
+			/* Equal depths per channel */
 			info->var.red.offset = info->var.bits_per_pixel
 							* 2 / 3;
 			info->var.red.length = info->var.bits_per_pixel / 3;
@@ -116,7 +116,7 @@ static int vt8500lcd_set_par(struct fb_info *info)
 	control0 = readl(fbi->regbase) & ~0xf;
 	writel(0, fbi->regbase);
 	while (readl(fbi->regbase + 0x38) & 0x10)
-		;
+		/* wait */;
 	writel((((info->var.hsync_len - 1) & 0x3f) << 26)
 		| ((info->var.left_margin & 0xff) << 18)
 		| (((info->var.xres - 1) & 0x3ff) << 8)
@@ -186,11 +186,11 @@ static int vt8500lcd_ioctl(struct fb_info *info, unsigned int cmd,
 	struct vt8500lcd_info *fbi = to_vt8500lcd_info(info);
 
 	if (cmd == FBIO_WAITFORVSYNC) {
-		
+		/* Unmask End of Frame interrupt */
 		writel(0xffffffff ^ (1 << 3), fbi->regbase + 0x3c);
 		ret = wait_event_interruptible_timeout(fbi->wait,
 			readl(fbi->regbase + 0x38) & (1 << 3), HZ / 10);
-		
+		/* Mask back to reduce unwanted interrupt traffic */
 		writel(0xffffffff, fbi->regbase + 0x3c);
 		if (ret < 0)
 			return ret;
@@ -215,6 +215,12 @@ static int vt8500lcd_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/*
+ * vt8500lcd_blank():
+ *	Blank the display by setting all palette values to zero.  Note,
+ * 	True Color modes do not really use the palette, so this will not
+ *      blank the display in all modes.
+ */
 static int vt8500lcd_blank(int blank, struct fb_info *info)
 {
 	int i;
@@ -387,6 +393,9 @@ static int __devinit vt8500lcd_probe(struct platform_device *pdev)
 		goto failed_free_cmap;
 	}
 
+	/*
+	 * Ok, now enable the LCD controller
+	 */
 	writel(readl(fbi->regbase) | 1, fbi->regbase);
 
 	return 0;

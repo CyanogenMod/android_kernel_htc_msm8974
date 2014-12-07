@@ -14,26 +14,37 @@
 
 #include <mach/memory.h>
 
+/*
+ * What hardware must be present
+ */
 #define HAS_IOMD
 #define HAS_VIDC20
 
+/* Hardware addresses of major areas.
+ *  *_START is the physical address
+ *  *_SIZE  is the size of the region
+ *  *_BASE  is the virtual address
+ */
 #define RAM_SIZE		0x10000000
 #define RAM_START		0x10000000
 
-#define EASI_SIZE		0x08000000	
+#define EASI_SIZE		0x08000000	/* EASI I/O */
 #define EASI_START		0x08000000
 #define EASI_BASE		IOMEM(0xe5000000)
 
-#define IO_START		0x03000000	
+#define IO_START		0x03000000	/* I/O */
 #define IO_SIZE			0x01000000
 #define IO_BASE			IOMEM(0xe0000000)
 
-#define SCREEN_START		0x02000000	
+#define SCREEN_START		0x02000000	/* VRAM */
 #define SCREEN_END		0xdfc00000
 #define SCREEN_BASE		0xdf800000
 
 #define UNCACHEABLE_ADDR	0xdf010000
 
+/*
+ * IO Addresses
+ */
 #define ECARD_EASI_BASE		(EASI_BASE)
 #define VIDC_BASE		(IO_BASE + 0x00400000)
 #define EXPMASK_BASE		(IO_BASE + 0x00360000)

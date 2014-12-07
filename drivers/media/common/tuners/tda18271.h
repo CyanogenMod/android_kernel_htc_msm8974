@@ -27,15 +27,15 @@
 struct tda18271_std_map_item {
 	u16 if_freq;
 
-	
+	/* EP3[4:3] */
 	unsigned int agc_mode:2;
-	
+	/* EP3[2:0] */
 	unsigned int std:3;
-	
+	/* EP4[7] */
 	unsigned int fm_rfn:1;
-	
+	/* EP4[4:2] */
 	unsigned int if_lvl:3;
-	
+	/* EB22[6:0] */
 	unsigned int rfagc_top:7;
 };
 
@@ -69,13 +69,13 @@ enum tda18271_i2c_gate {
 };
 
 enum tda18271_output_options {
-	
+	/* slave tuner output & loop thru & xtal oscillator always on */
 	TDA18271_OUTPUT_LT_XT_ON = 0,
 
-	
+	/* slave tuner output loop thru off */
 	TDA18271_OUTPUT_LT_OFF = 1,
 
-	
+	/* xtal oscillator off */
 	TDA18271_OUTPUT_XT_OFF = 2,
 };
 
@@ -87,25 +87,25 @@ enum tda18271_small_i2c {
 };
 
 struct tda18271_config {
-	
+	/* override default if freq / std settings (optional) */
 	struct tda18271_std_map *std_map;
 
-	
+	/* master / slave tuner: master uses main pll, slave uses cal pll */
 	enum tda18271_role role;
 
-	
+	/* use i2c gate provided by analog or digital demod */
 	enum tda18271_i2c_gate gate;
 
-	
+	/* output options that can be disabled */
 	enum tda18271_output_options output_opt;
 
-	
+	/* some i2c providers can't write all 39 registers at once */
 	enum tda18271_small_i2c small_i2c;
 
-	
+	/* force rf tracking filter calibration on startup */
 	unsigned int rf_cal_on_startup:1;
 
-	
+	/* interface to saa713x / tda829x */
 	unsigned int config;
 };
 
@@ -131,4 +131,4 @@ static inline struct dvb_frontend *tda18271_attach(struct dvb_frontend *fe,
 }
 #endif
 
-#endif 
+#endif /* __TDA18271_H__ */

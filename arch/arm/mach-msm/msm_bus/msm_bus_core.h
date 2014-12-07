@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -82,10 +82,12 @@ struct msm_bus_node_info {
 	unsigned int prio_wr;
 	unsigned int prio1;
 	unsigned int prio0;
-	u64 th;
+	unsigned int num_thresh;
+	u64 *th;
+	u64 cur_lim_bw;
 	unsigned int mode_thresh;
 	bool dual_conf;
-	u64 bimc_bw;
+	u64 *bimc_bw;
 	u32 bimc_gp;
 	u32 bimc_thmp;
 	const char *name;
@@ -201,6 +203,11 @@ struct msm_bus_board_algorithm {
 	int (*get_iid)(int id);
 };
 
+/**
+ * Used to store the list of fabrics and other info to be
+ * maintained outside the fabric structure.
+ * Used while calculating path, and to find fabric ptrs
+ */
 struct msm_bus_fabnodeinfo {
 	struct list_head list;
 	struct msm_bus_inode_info *info;
@@ -295,4 +302,4 @@ static inline struct msm_bus_fabric_registration
 }
 #endif
 
-#endif 
+#endif /*_ARCH_ARM_MACH_MSM_BUS_CORE_H*/

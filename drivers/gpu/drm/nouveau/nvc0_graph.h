@@ -62,15 +62,16 @@ struct nvc0_graph_priv {
 
 struct nvc0_graph_chan {
 	struct nouveau_gpuobj *grctx;
-	struct nouveau_gpuobj *unk408004; 
-	struct nouveau_gpuobj *unk40800c; 
-	struct nouveau_gpuobj *unk418810; 
+	struct nouveau_gpuobj *unk408004; /* 0x418810 too */
+	struct nouveau_gpuobj *unk40800c; /* 0x419004 too */
+	struct nouveau_gpuobj *unk418810; /* 0x419848 too */
 	struct nouveau_gpuobj *mmio;
 	int mmio_nr;
 };
 
 int nvc0_grctx_generate(struct nouveau_channel *);
 
+/* nvc0_graph.c uses this also to determine supported chipsets */
 static inline u32
 nvc0_graph_class(struct drm_device *dev)
 {
@@ -80,8 +81,8 @@ nvc0_graph_class(struct drm_device *dev)
 	case 0xc0:
 	case 0xc3:
 	case 0xc4:
-	case 0xce: 
-	case 0xcf: 
+	case 0xce: /* guess, mmio trace shows only 0x9097 state */
+	case 0xcf: /* guess, mmio trace shows only 0x9097 state */
 		return 0x9097;
 	case 0xc1:
 		return 0x9197;

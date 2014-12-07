@@ -17,6 +17,7 @@
 #include <linux/skbuff.h>
 #include <net/pkt_sched.h>
 
+/* 1 band FIFO pseudo-"scheduler" */
 
 static int bfifo_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
@@ -39,7 +40,7 @@ static int pfifo_tail_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	if (likely(skb_queue_len(&sch->q) < sch->limit))
 		return qdisc_enqueue_tail(skb, sch);
 
-	
+	/* queue full, remove one skb to fulfill the limit */
 	__qdisc_queue_drop_head(sch, &sch->q);
 	sch->qstats.drops++;
 	qdisc_enqueue_tail(skb, sch);
@@ -135,12 +136,13 @@ struct Qdisc_ops pfifo_head_drop_qdisc_ops __read_mostly = {
 	.owner		=	THIS_MODULE,
 };
 
+/* Pass size change message down to embedded FIFO */
 int fifo_set_limit(struct Qdisc *q, unsigned int limit)
 {
 	struct nlattr *nla;
 	int ret = -ENOMEM;
 
-	
+	/* Hack to avoid sending change message to non-FIFO */
 	if (strncmp(q->ops->id + 1, "fifo", 4) != 0)
 		return 0;
 

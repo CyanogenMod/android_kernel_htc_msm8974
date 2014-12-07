@@ -41,6 +41,10 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION("Serio abstraction core");
 MODULE_LICENSE("GPL");
 
+/*
+ * serio_mutex protects entire serio subsystem and is taken every time
+ * serio port or driver registered or unregistered.
+ */
 static DEFINE_MUTEX(serio_mutex);
 
 static LIST_HEAD(serio_list);
@@ -97,6 +101,9 @@ static int serio_match_port(const struct serio_device_id *ids, struct serio *ser
 	return 0;
 }
 
+/*
+ * Basic serio -> driver core mappings
+ */
 
 static int serio_bind_driver(struct serio *serio, struct serio_driver *drv)
 {
@@ -136,6 +143,9 @@ static void serio_find_driver(struct serio *serio)
 }
 
 
+/*
+ * Serio event processing.
+ */
 
 enum serio_event_type {
 	SERIO_RESCAN_PORT,
@@ -152,7 +162,7 @@ struct serio_event {
 	struct list_head node;
 };
 
-static DEFINE_SPINLOCK(serio_event_lock);	
+static DEFINE_SPINLOCK(serio_event_lock);	/* protects serio_event_list */
 static LIST_HEAD(serio_event_list);
 
 static struct serio_event *serio_get_event(void)
@@ -188,6 +198,11 @@ static void serio_remove_duplicate_events(void *object,
 
 	list_for_each_entry_safe(e, next, &serio_event_list, node) {
 		if (object == e->object) {
+			/*
+			 * If this event is of different type we should not
+			 * look further - we only suppress duplicate events
+			 * that were sent back-to-back.
+			 */
 			if (type != e->type)
 				break;
 
@@ -249,6 +264,13 @@ static int serio_queue_event(void *object, struct module *owner,
 
 	spin_lock_irqsave(&serio_event_lock, flags);
 
+	/*
+	 * Scan event list for the other events for the same serio port,
+	 * starting with the most recent one. If event is the same we
+	 * do not need add new one. If event is of different type we
+	 * need to add this event and should not look further because
+	 * we need to preseve sequence of distinct events.
+	 */
 	list_for_each_entry_reverse(event, &serio_event_list, node) {
 		if (event->object == object) {
 			if (event->type == event_type)
@@ -284,6 +306,10 @@ out:
 	return retval;
 }
 
+/*
+ * Remove all events that have been submitted for a given
+ * object, be it serio port or driver.
+ */
 static void serio_remove_pending_events(void *object)
 {
 	struct serio_event *event, *next;
@@ -301,6 +327,12 @@ static void serio_remove_pending_events(void *object)
 	spin_unlock_irqrestore(&serio_event_lock, flags);
 }
 
+/*
+ * Locate child serio port (if any) that has not been fully registered yet.
+ *
+ * Children are registered by driver's connect() handler so there can't be a
+ * grandchild pending registration together with a child.
+ */
 static struct serio *serio_get_pending_child(struct serio *parent)
 {
 	struct serio_event *event;
@@ -323,6 +355,9 @@ static struct serio *serio_get_pending_child(struct serio *parent)
 	return child;
 }
 
+/*
+ * Serio port operations
+ */
 
 static ssize_t serio_show_description(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -456,6 +491,9 @@ static void serio_release_port(struct device *dev)
 	module_put(THIS_MODULE);
 }
 
+/*
+ * Prepare serio port for registration.
+ */
 static void serio_init_port(struct serio *serio)
 {
 	static atomic_t serio_no = ATOMIC_INIT(0);
@@ -481,6 +519,10 @@ static void serio_init_port(struct serio *serio)
 	lockdep_set_subclass(&serio->lock, serio->depth);
 }
 
+/*
+ * Complete serio port registration.
+ * Driver core will attempt to find appropriate driver for the port.
+ */
 static void serio_add_port(struct serio *serio)
 {
 	struct serio *parent = serio->parent;
@@ -504,6 +546,10 @@ static void serio_add_port(struct serio *serio)
 			serio->phys, serio->name, error);
 }
 
+/*
+ * serio_destroy_port() completes unregistration process and removes
+ * port from the system
+ */
 static void serio_destroy_port(struct serio *serio)
 {
 	struct serio *child;
@@ -531,6 +577,12 @@ static void serio_destroy_port(struct serio *serio)
 	put_device(&serio->dev);
 }
 
+/*
+ * Reconnect serio port (re-initialize attached device).
+ * If reconnect fails (old device is no longer attached or
+ * there was no device to begin with) we do full rescan in
+ * hope of finding a driver for the port.
+ */
 static int serio_reconnect_port(struct serio *serio)
 {
 	int error = serio_reconnect_driver(serio);
@@ -543,6 +595,10 @@ static int serio_reconnect_port(struct serio *serio)
 	return error;
 }
 
+/*
+ * Reconnect serio port and all its children (re-initialize attached
+ * devices).
+ */
 static void serio_reconnect_subtree(struct serio *root)
 {
 	struct serio *s = root;
@@ -551,6 +607,10 @@ static void serio_reconnect_subtree(struct serio *root)
 	do {
 		error = serio_reconnect_port(s);
 		if (!error) {
+			/*
+			 * Reconnect was successful, move on to do the
+			 * first child.
+			 */
 			if (!list_empty(&s->children)) {
 				s = list_first_entry(&s->children,
 						     struct serio, child_node);
@@ -558,6 +618,11 @@ static void serio_reconnect_subtree(struct serio *root)
 			}
 		}
 
+		/*
+		 * Either it was a leaf node or reconnect failed and it
+		 * became a leaf node. Continue reconnecting starting with
+		 * the next sibling of the parent node.
+		 */
 		while (s != root) {
 			struct serio *parent = s->parent;
 
@@ -572,17 +637,29 @@ static void serio_reconnect_subtree(struct serio *root)
 	} while (s != root);
 }
 
+/*
+ * serio_disconnect_port() unbinds a port from its driver. As a side effect
+ * all children ports are unbound and destroyed.
+ */
 static void serio_disconnect_port(struct serio *serio)
 {
 	struct serio *s = serio;
 
+	/*
+	 * Children ports should be disconnected and destroyed
+	 * first; we travel the tree in depth-first order.
+	 */
 	while (!list_empty(&serio->children)) {
 
-		
+		/* Locate a leaf */
 		while (!list_empty(&s->children))
 			s = list_first_entry(&s->children,
 					     struct serio, child_node);
 
+		/*
+		 * Prune this leaf node unless it is the one we
+		 * started with.
+		 */
 		if (s != serio) {
 			struct serio *parent = s->parent;
 
@@ -593,6 +670,9 @@ static void serio_disconnect_port(struct serio *serio)
 		}
 	}
 
+	/*
+	 * OK, no children left, now disconnect this port.
+	 */
 	device_release_driver(&serio->dev);
 }
 
@@ -608,6 +688,10 @@ void serio_reconnect(struct serio *serio)
 }
 EXPORT_SYMBOL(serio_reconnect);
 
+/*
+ * Submits register request to kseriod for subsequent execution.
+ * Note that port registration is always asynchronous.
+ */
 void __serio_register_port(struct serio *serio, struct module *owner)
 {
 	serio_init_port(serio);
@@ -615,6 +699,9 @@ void __serio_register_port(struct serio *serio, struct module *owner)
 }
 EXPORT_SYMBOL(__serio_register_port);
 
+/*
+ * Synchronously unregisters serio port.
+ */
 void serio_unregister_port(struct serio *serio)
 {
 	mutex_lock(&serio_mutex);
@@ -624,6 +711,9 @@ void serio_unregister_port(struct serio *serio)
 }
 EXPORT_SYMBOL(serio_unregister_port);
 
+/*
+ * Safely unregisters children ports if they are present.
+ */
 void serio_unregister_child_port(struct serio *serio)
 {
 	struct serio *s, *next;
@@ -638,6 +728,9 @@ void serio_unregister_child_port(struct serio *serio)
 EXPORT_SYMBOL(serio_unregister_child_port);
 
 
+/*
+ * Serio driver operations
+ */
 
 static ssize_t serio_driver_show_description(struct device_driver *drv, char *buf)
 {
@@ -726,6 +819,10 @@ int __serio_register_driver(struct serio_driver *drv, struct module *owner, cons
 	drv->driver.owner = owner;
 	drv->driver.mod_name = mod_name;
 
+	/*
+	 * Temporarily disable automatic binding because probing
+	 * takes long time and we are better off doing it in kseriod
+	 */
 	drv->manual_bind = true;
 
 	error = driver_register(&drv->driver);
@@ -735,6 +832,10 @@ int __serio_register_driver(struct serio_driver *drv, struct module *owner, cons
 		return error;
 	}
 
+	/*
+	 * Restore original bind mode and let kseriod bind the
+	 * driver to free ports
+	 */
 	if (!manual_bind) {
 		drv->manual_bind = false;
 		error = serio_queue_event(drv, NULL, SERIO_ATTACH_DRIVER);
@@ -754,7 +855,7 @@ void serio_unregister_driver(struct serio_driver *drv)
 
 	mutex_lock(&serio_mutex);
 
-	drv->manual_bind = true;	
+	drv->manual_bind = true;	/* so serio_find_driver ignores it */
 	serio_remove_pending_events(drv);
 
 start_over:
@@ -762,7 +863,7 @@ start_over:
 		if (serio->drv == drv) {
 			serio_disconnect_port(serio);
 			serio_find_driver(serio);
-			
+			/* we could've deleted some ports, restart */
 			goto start_over;
 		}
 	}
@@ -826,7 +927,7 @@ static int serio_uevent(struct device *dev, struct kobj_uevent_env *env)
 	return -ENODEV;
 }
 
-#endif 
+#endif /* CONFIG_HOTPLUG */
 
 #ifdef CONFIG_PM
 static int serio_suspend(struct device *dev)
@@ -842,6 +943,10 @@ static int serio_resume(struct device *dev)
 {
 	struct serio *serio = to_serio_port(dev);
 
+	/*
+	 * Driver reconnect can take a while, so better let kseriod
+	 * deal with it.
+	 */
 	serio_queue_event(serio, NULL, SERIO_RECONNECT_PORT);
 
 	return 0;
@@ -853,8 +958,9 @@ static const struct dev_pm_ops serio_pm_ops = {
 	.poweroff	= serio_suspend,
 	.restore	= serio_resume,
 };
-#endif 
+#endif /* CONFIG_PM */
 
+/* called from serio_driver->connect/disconnect methods under serio_mutex */
 int serio_open(struct serio *serio, struct serio_driver *drv)
 {
 	serio_set_drv(serio, drv);
@@ -867,6 +973,7 @@ int serio_open(struct serio *serio, struct serio_driver *drv)
 }
 EXPORT_SYMBOL(serio_open);
 
+/* called from serio_driver->connect/disconnect methods under serio_mutex */
 void serio_close(struct serio *serio)
 {
 	if (serio->close)
@@ -928,6 +1035,10 @@ static void __exit serio_exit(void)
 {
 	bus_unregister(&serio_bus);
 
+	/*
+	 * There should not be any outstanding events but work may
+	 * still be scheduled so simply cancel it.
+	 */
 	cancel_work_sync(&serio_event_work);
 }
 

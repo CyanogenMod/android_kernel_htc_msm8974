@@ -52,5 +52,5 @@
 #define CCK_TXAGC			(RTL8712_RATECTRL_ + 0x68)
 
 
-#endif	
+#endif	/*__RTL8712_RATECTRL_REGDEF_H__*/
 

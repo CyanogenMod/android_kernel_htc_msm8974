@@ -20,4 +20,4 @@ struct mod_arch_specific
 asm(".section .got,\"aws\",@progbits; .align 3; .previous");
 #endif
 
-#endif 
+#endif /*_ALPHA_MODULE_H*/

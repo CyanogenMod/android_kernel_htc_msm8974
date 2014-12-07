@@ -29,7 +29,11 @@ static unsigned long __iomem *ipi_mappings[NR_CPUS];
 #endif
 
 
+/*
+ * Top-level send_IPI*() functions to send messages to other cpus.
+ */
 
+/* Set by smp_send_stop() to avoid recursive panics. */
 static int stopping_cpus;
 
 static void __send_IPI_many(HV_Recipient *recip, int nrecip, int tag)
@@ -39,7 +43,7 @@ static void __send_IPI_many(HV_Recipient *recip, int nrecip, int tag)
 		int rc = hv_send_message(recip, nrecip,
 					 (HV_VirtAddr)&tag, sizeof(tag));
 		if (rc < 0) {
-			if (!stopping_cpus)  
+			if (!stopping_cpus)  /* avoid recursive panic */
 				panic("hv_send_message returned %d", rc);
 			break;
 		}
@@ -83,12 +87,17 @@ void send_IPI_allbutself(int tag)
 	send_IPI_many(&mask, tag);
 }
 
+/*
+ * Functions related to starting/stopping cpus.
+ */
 
+/* Handler to start the current cpu. */
 static void smp_start_cpu_interrupt(void)
 {
 	get_irq_regs()->pc = start_cpu_function_addr;
 }
 
+/* Handler to stop the current cpu. */
 static void smp_stop_cpu_interrupt(void)
 {
 	set_cpu_online(smp_processor_id(), 0);
@@ -97,34 +106,39 @@ static void smp_stop_cpu_interrupt(void)
 		asm("nap; nop");
 }
 
+/* This function calls the 'stop' function on all other CPUs in the system. */
 void smp_send_stop(void)
 {
 	stopping_cpus = 1;
 	send_IPI_allbutself(MSG_TAG_STOP_CPU);
 }
 
+/* On panic, just wait; we may get an smp_send_stop() later on. */
 void panic_smp_self_stop(void)
 {
 	while (1)
 		asm("nap; nop");
 }
 
+/*
+ * Dispatch code called from hv_message_intr() for HV_MSG_TILE hv messages.
+ */
 void evaluate_message(int tag)
 {
 	switch (tag) {
-	case MSG_TAG_START_CPU: 
+	case MSG_TAG_START_CPU: /* Start up a cpu */
 		smp_start_cpu_interrupt();
 		break;
 
-	case MSG_TAG_STOP_CPU: 
+	case MSG_TAG_STOP_CPU: /* Sent to shut down slave CPU's */
 		smp_stop_cpu_interrupt();
 		break;
 
-	case MSG_TAG_CALL_FUNCTION_MANY: 
+	case MSG_TAG_CALL_FUNCTION_MANY: /* Call function on cpumask */
 		generic_smp_call_function_interrupt();
 		break;
 
-	case MSG_TAG_CALL_FUNCTION_SINGLE: 
+	case MSG_TAG_CALL_FUNCTION_SINGLE: /* Call function on one other CPU */
 		generic_smp_call_function_single_interrupt();
 		break;
 
@@ -135,6 +149,9 @@ void evaluate_message(int tag)
 }
 
 
+/*
+ * flush_icache_range() code uses smp_call_function().
+ */
 
 struct ipi_flush {
 	unsigned long start;
@@ -156,6 +173,7 @@ void flush_icache_range(unsigned long start, unsigned long end)
 }
 
 
+/* Called when smp_send_reschedule() triggers IRQ_RESCHEDULE. */
 static irqreturn_t handle_reschedule_ipi(int irq, void *token)
 {
 	__get_cpu_var(irq_stat).irq_resched_count++;
@@ -167,14 +185,14 @@ static irqreturn_t handle_reschedule_ipi(int irq, void *token)
 static struct irqaction resched_action = {
 	.handler = handle_reschedule_ipi,
 	.name = "resched",
-	.dev_id = handle_reschedule_ipi ,
+	.dev_id = handle_reschedule_ipi /* unique token */,
 };
 
 void __init ipi_init(void)
 {
 #if CHIP_HAS_IPI()
 	int cpu;
-	
+	/* Map IPI trigger MMIO addresses. */
 	for_each_possible_cpu(cpu) {
 		HV_Coord tile;
 		HV_PTE pte;
@@ -190,7 +208,7 @@ void __init ipi_init(void)
 	}
 #endif
 
-	
+	/* Bind handle_reschedule_ipi() to IRQ_RESCHEDULE. */
 	tile_irq_activate(IRQ_RESCHEDULE, TILE_IRQ_PERCPU);
 	BUG_ON(setup_irq(IRQ_RESCHEDULE, &resched_action));
 }
@@ -201,6 +219,12 @@ void smp_send_reschedule(int cpu)
 {
 	WARN_ON(cpu_is_offline(cpu));
 
+	/*
+	 * We just want to do an MMIO store.  The traditional writeq()
+	 * functions aren't really correct here, since they're always
+	 * directed at the PCI shim.  For now, just do a raw store,
+	 * casting away the __iomem attribute.
+	 */
 	((unsigned long __force *)ipi_mappings[cpu])[IRQ_RESCHEDULE] = 0;
 }
 
@@ -217,4 +241,4 @@ void smp_send_reschedule(int cpu)
 	hv_trigger_ipi(coord, IRQ_RESCHEDULE);
 }
 
-#endif 
+#endif /* CHIP_HAS_IPI() */

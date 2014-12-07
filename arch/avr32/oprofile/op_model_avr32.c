@@ -52,7 +52,7 @@ static struct avr32_perf_counter counter[NR_counter] = {
 
 static void avr32_perf_counter_reset(void)
 {
-	
+	/* Reset all counter and disable/clear all interrupts */
 	sysreg_write(PCCR, (SYSREG_BIT(PCCR_R)
 				| SYSREG_BIT(PCCR_C)
 				| SYSREG_BIT(FC)
@@ -73,22 +73,22 @@ static irqreturn_t avr32_perf_counter_interrupt(int irq, void *dev_id)
 	regs = get_irq_regs();
 	pccr = sysreg_read(PCCR);
 
-	
+	/* Clear the interrupt flags we're about to handle */
 	sysreg_write(PCCR, pccr);
 
-	
+	/* PCCNT */
 	if (ctr->enabled && (pccr & ctr->flag_mask)) {
 		sysreg_write(PCCNT, -ctr->count);
 		oprofile_add_sample(regs, PCCNT);
 	}
 	ctr++;
-	
+	/* PCNT0 */
 	if (ctr->enabled && (pccr & ctr->flag_mask)) {
 		sysreg_write(PCNT0, -ctr->count);
 		oprofile_add_sample(regs, PCNT0);
 	}
 	ctr++;
-	
+	/* PCNT1 */
 	if (ctr->enabled && (pccr & ctr->flag_mask)) {
 		sysreg_write(PCNT1, -ctr->count);
 		oprofile_add_sample(regs, PCNT1);
@@ -115,7 +115,7 @@ static int avr32_perf_counter_create_files(struct super_block *sb,
 		oprofilefs_create_ulong(sb, dir, "count",
 				&counter[i].count);
 
-		
+		/* Dummy entries */
 		oprofilefs_create_ulong(sb, dir, "kernel",
 				&counter[i].kernel);
 		oprofilefs_create_ulong(sb, dir, "user",
@@ -162,7 +162,7 @@ static int avr32_perf_counter_setup(void)
 
 		switch (i) {
 		case PCCNT:
-			
+			/* PCCNT always counts cycles, so no events */
 			sysreg_write(PCCNT, -ctr->count);
 			break;
 		case PCNT0:

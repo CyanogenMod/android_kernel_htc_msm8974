@@ -19,12 +19,19 @@
 static int afs_write_back_from_locked_page(struct afs_writeback *wb,
 					   struct page *page);
 
+/*
+ * mark a page as having been made dirty and thus needing writeback
+ */
 int afs_set_page_dirty(struct page *page)
 {
 	_enter("");
 	return __set_page_dirty_nobuffers(page);
 }
 
+/*
+ * unlink a writeback record because its usage has reached zero
+ * - must be called with the wb->vnode->writeback_lock held
+ */
 static void afs_unlink_writeback(struct afs_writeback *wb)
 {
 	struct afs_writeback *front;
@@ -32,6 +39,8 @@ static void afs_unlink_writeback(struct afs_writeback *wb)
 
 	list_del_init(&wb->link);
 	if (!list_empty(&vnode->writebacks)) {
+		/* if an fsync rises to the front of the queue then wake it
+		 * up */
 		front = list_entry(vnode->writebacks.next,
 				   struct afs_writeback, link);
 		if (front->state == AFS_WBACK_SYNCING) {
@@ -42,6 +51,9 @@ static void afs_unlink_writeback(struct afs_writeback *wb)
 	}
 }
 
+/*
+ * free a writeback record
+ */
 static void afs_free_writeback(struct afs_writeback *wb)
 {
 	_enter("");
@@ -49,6 +61,9 @@ static void afs_free_writeback(struct afs_writeback *wb)
 	kfree(wb);
 }
 
+/*
+ * dispose of a reference to a writeback record
+ */
 void afs_put_writeback(struct afs_writeback *wb)
 {
 	struct afs_vnode *vnode = wb->vnode;
@@ -65,6 +80,9 @@ void afs_put_writeback(struct afs_writeback *wb)
 		afs_free_writeback(wb);
 }
 
+/*
+ * partly or wholly fill a page that's under preparation for writing
+ */
 static int afs_fill_page(struct afs_vnode *vnode, struct key *key,
 			 loff_t pos, struct page *page)
 {
@@ -94,6 +112,9 @@ static int afs_fill_page(struct afs_vnode *vnode, struct key *key,
 	return ret;
 }
 
+/*
+ * prepare to perform part of a write to a page
+ */
 int afs_write_begin(struct file *file, struct address_space *mapping,
 		    loff_t pos, unsigned len, unsigned flags,
 		    struct page **pagep, void **fsdata)
@@ -128,7 +149,7 @@ int afs_write_begin(struct file *file, struct address_space *mapping,
 		return -ENOMEM;
 	}
 	*pagep = page;
-	
+	/* page won't leak in error case: it eventually gets cleaned off LRU */
 
 	if (!PageUptodate(page) && len != PAGE_CACHE_SIZE) {
 		ret = afs_fill_page(vnode, key, index << PAGE_CACHE_SHIFT, page);
@@ -143,6 +164,8 @@ int afs_write_begin(struct file *file, struct address_space *mapping,
 try_again:
 	spin_lock(&vnode->writeback_lock);
 
+	/* see if this page is already pending a writeback under a suitable key
+	 * - if so we can just join onto that one */
 	wb = (struct afs_writeback *) page_private(page);
 	if (wb) {
 		if (wb->key == key && wb->state == AFS_WBACK_PENDING)
@@ -151,6 +174,8 @@ try_again:
 	}
 
 	if (index > 0) {
+		/* see if we can find an already pending writeback that we can
+		 * append this page to */
 		list_for_each_entry(wb, &vnode->writebacks, link) {
 			if (wb->last == index - 1 && wb->key == key &&
 			    wb->state == AFS_WBACK_PENDING)
@@ -190,6 +215,8 @@ append_to_previous_wb:
 	_leave(" = 0 [app]");
 	return 0;
 
+	/* the page is currently bound to another context, so if it's dirty we
+	 * need to flush it before we can use the new context */
 flush_conflicting_wb:
 	_debug("flush conflict");
 	if (wb->state == AFS_WBACK_PENDING)
@@ -204,13 +231,16 @@ flush_conflicting_wb:
 		}
 	}
 
-	
+	/* the page holds a ref on the writeback record */
 	afs_put_writeback(wb);
 	set_page_private(page, 0);
 	ClearPagePrivate(page);
 	goto try_again;
 }
 
+/*
+ * finalise part of a write to a page
+ */
 int afs_write_end(struct file *file, struct address_space *mapping,
 		  loff_t pos, unsigned len, unsigned copied,
 		  struct page *page, void *fsdata)
@@ -241,6 +271,9 @@ int afs_write_end(struct file *file, struct address_space *mapping,
 	return copied;
 }
 
+/*
+ * kill all the pages in the given range
+ */
 static void afs_kill_pages(struct afs_vnode *vnode, bool error,
 			   pgoff_t first, pgoff_t last)
 {
@@ -275,6 +308,10 @@ static void afs_kill_pages(struct afs_vnode *vnode, bool error,
 	_leave("");
 }
 
+/*
+ * synchronously write back the locked page and any subsequent non-locked dirty
+ * pages also covered by the same writeback record
+ */
 static int afs_write_back_from_locked_page(struct afs_writeback *wb,
 					   struct page *primary_page)
 {
@@ -292,6 +329,9 @@ static int afs_write_back_from_locked_page(struct afs_writeback *wb,
 	if (test_set_page_writeback(primary_page))
 		BUG();
 
+	/* find all consecutive lockable dirty pages, stopping when we find a
+	 * page that is not immediately lockable, is not dirty or is missing,
+	 * or we reach the end of the range */
 	start = primary_page->index;
 	if (start >= wb->last)
 		goto no_more;
@@ -342,6 +382,9 @@ static int afs_write_back_from_locked_page(struct afs_writeback *wb,
 	} while (start <= wb->last && count < 65536);
 
 no_more:
+	/* we now have a contiguous set of dirty pages, each with writeback set
+	 * and the dirty mark cleared; the first page is locked and must remain
+	 * so, all the rest are unlocked */
 	first = primary_page->index;
 	last = first + count - 1;
 
@@ -387,6 +430,10 @@ no_more:
 	return ret;
 }
 
+/*
+ * write a page back to the server
+ * - the caller locked the page for us
+ */
 int afs_writepage(struct page *page, struct writeback_control *wbc)
 {
 	struct afs_writeback *wb;
@@ -410,6 +457,9 @@ int afs_writepage(struct page *page, struct writeback_control *wbc)
 	return 0;
 }
 
+/*
+ * write a region of pages back to the server
+ */
 static int afs_writepages_region(struct address_space *mapping,
 				 struct writeback_control *wbc,
 				 pgoff_t index, pgoff_t end, pgoff_t *_next)
@@ -435,6 +485,11 @@ static int afs_writepages_region(struct address_space *mapping,
 			return 0;
 		}
 
+		/* at this point we hold neither mapping->tree_lock nor lock on
+		 * the page itself: the page may be truncated or invalidated
+		 * (changing page->mapping to NULL), or even swizzled back from
+		 * swapper_space to tmpfs file mapping
+		 */
 		lock_page(page);
 
 		if (page->mapping != mapping) {
@@ -476,6 +531,9 @@ static int afs_writepages_region(struct address_space *mapping,
 	return 0;
 }
 
+/*
+ * write some of the pending data back to the server
+ */
 int afs_writepages(struct address_space *mapping,
 		   struct writeback_control *wbc)
 {
@@ -507,6 +565,9 @@ int afs_writepages(struct address_space *mapping,
 	return ret;
 }
 
+/*
+ * completion of write to server
+ */
 void afs_pages_written_back(struct afs_vnode *vnode, struct afs_call *call)
 {
 	struct afs_writeback *wb = call->wb;
@@ -560,6 +621,9 @@ void afs_pages_written_back(struct afs_vnode *vnode, struct afs_call *call)
 	_leave("");
 }
 
+/*
+ * write to an AFS file
+ */
 ssize_t afs_file_write(struct kiocb *iocb, const struct iovec *iov,
 		       unsigned long nr_segs, loff_t pos)
 {
@@ -590,6 +654,9 @@ ssize_t afs_file_write(struct kiocb *iocb, const struct iovec *iov,
 	return result;
 }
 
+/*
+ * flush the vnode to the fileserver
+ */
 int afs_writeback_all(struct afs_vnode *vnode)
 {
 	struct address_space *mapping = vnode->vfs_inode.i_mapping;
@@ -609,6 +676,11 @@ int afs_writeback_all(struct afs_vnode *vnode)
 	return ret;
 }
 
+/*
+ * flush any dirty pages for this process, and check for write errors.
+ * - the return status from this call provides a reliable indication of
+ *   whether any write errors occurred for this process.
+ */
 int afs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	struct dentry *dentry = file->f_path.dentry;
@@ -626,6 +698,9 @@ int afs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 		return ret;
 	mutex_lock(&inode->i_mutex);
 
+	/* use a writeback record as a marker in the queue - when this reaches
+	 * the front of the queue, all the outstanding writes are either
+	 * completed or rejected */
 	wb = kzalloc(sizeof(*wb), GFP_KERNEL);
 	if (!wb) {
 		ret = -ENOMEM;
@@ -648,7 +723,7 @@ int afs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	list_add_tail(&wb->link, &vnode->writebacks);
 	spin_unlock(&vnode->writeback_lock);
 
-	
+	/* push all the outstanding writebacks to the server */
 	ret = afs_writeback_all(vnode);
 	if (ret < 0) {
 		afs_put_writeback(wb);
@@ -656,7 +731,7 @@ int afs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 		goto out;
 	}
 
-	
+	/* wait for the preceding writes to actually complete */
 	ret = wait_event_interruptible(wb->waitq,
 				       wb->state == AFS_WBACK_COMPLETE ||
 				       vnode->writebacks.next == &wb->link);
@@ -667,6 +742,10 @@ out:
 	return ret;
 }
 
+/*
+ * notification that a previously read-only page is about to become writable
+ * - if it returns an error, the caller will deliver a bus error signal
+ */
 int afs_page_mkwrite(struct vm_area_struct *vma, struct page *page)
 {
 	struct afs_vnode *vnode = AFS_FS_I(vma->vm_file->f_mapping->host);

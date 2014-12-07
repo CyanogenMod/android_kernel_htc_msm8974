@@ -24,10 +24,19 @@
 #include <asm/fasttimer.h>
 #include <linux/proc_fs.h>
 
+/*
+ * timer0 is running at 100MHz and generating jiffies timer ticks
+ * at 100 or 1000 HZ.
+ * fasttimer gives an API that gives timers that expire "between" the jiffies
+ * giving microsecond resolution (10 ns).
+ * fasttimer uses reg_timer_rw_trig register to get interrupt when
+ * r_time reaches a certain value.
+ */
 
 
 #define DEBUG_LOG_INCLUDED
 #define FAST_TIMER_LOG
+/* #define FAST_TIMER_TEST */
 
 #define FAST_TIMER_SANITY_CHECKS
 
@@ -91,6 +100,7 @@ timer_trig_handler(struct work_struct *work);
 
 
 
+/* Not true gettimeofday, only checks the jiffies (uptime) + useconds */
 inline void do_gettimeofday_fast(struct fasttime_t *tv)
 {
 	tv->tv_jiff = jiffies;
@@ -99,13 +109,13 @@ inline void do_gettimeofday_fast(struct fasttime_t *tv)
 
 inline int fasttime_cmp(struct fasttime_t *t0, struct fasttime_t *t1)
 {
-	
+	/* Compare jiffies. Takes care of wrapping */
 	if (time_before(t0->tv_jiff, t1->tv_jiff))
 		return -1;
 	else if (time_after(t0->tv_jiff, t1->tv_jiff))
 		return 1;
 
-	
+	/* Compare us */
 	if (t0->tv_usec < t1->tv_usec)
 		return -1;
 	else if (t0->tv_usec > t1->tv_usec)
@@ -113,6 +123,7 @@ inline int fasttime_cmp(struct fasttime_t *t0, struct fasttime_t *t1)
 	return 0;
 }
 
+/* Called with ints off */
 inline void start_timer_trig(unsigned long delay_us)
 {
   reg_timer_rw_ack_intr ack_intr = { 0 };
@@ -128,50 +139,51 @@ inline void start_timer_trig(unsigned long delay_us)
 
   D1(printk("start_timer_trig : %d us freq: %i div: %i\n",
             delay_us, freq_index, div));
-  
+  /* Clear trig irq */
 	intr_mask = REG_RD(timer, regi_timer0, rw_intr_mask);
   intr_mask.trig = 0;
 	REG_WR(timer, regi_timer0, rw_intr_mask, intr_mask);
 
-	
-	
+	/* Set timer values and check if trigger wraps. */
+	/* r_time is 100MHz (10 ns resolution) */
 	trig_wrap = (trig = r_time0 + delay_us*(1000/10)) < r_time0;
 
   timer_div_settings[fast_timers_started % NUM_TIMER_STATS] = trig;
   timer_delay_settings[fast_timers_started % NUM_TIMER_STATS] = delay_us;
 
-  
+  /* Ack interrupt */
   ack_intr.trig = 1;
 	REG_WR(timer, regi_timer0, rw_ack_intr, ack_intr);
 
-  
+  /* Start timer */
 	REG_WR(timer, regi_timer0, rw_trig, trig);
   trig_cfg.tmr = regk_timer_time;
 	REG_WR(timer, regi_timer0, rw_trig_cfg, trig_cfg);
 
-  
+  /* Check if we have already passed the trig time */
 	r_time1 = REG_RD(timer, regi_timer0, r_time);
 	time_wrap = r_time1 < r_time0;
 
 	if ((trig_wrap && !time_wrap) || (r_time1 < trig)) {
-    
+    /* No, Enable trig irq */
 		intr_mask = REG_RD(timer, regi_timer0, rw_intr_mask);
     intr_mask.trig = 1;
 		REG_WR(timer, regi_timer0, rw_intr_mask, intr_mask);
     fast_timers_started++;
     fast_timer_running = 1;
 	} else {
-    
+    /* We have passed the time, disable trig point, ack intr */
     trig_cfg.tmr = regk_timer_off;
 		REG_WR(timer, regi_timer0, rw_trig_cfg, trig_cfg);
 		REG_WR(timer, regi_timer0, rw_ack_intr, ack_intr);
-		
+		/* call the int routine */
 		INIT_WORK(&fast_work, timer_trig_handler);
 		schedule_work(&fast_work);
   }
 
 }
 
+/* In version 1.4 this function takes 27 - 50 us */
 void start_one_shot_timer(struct fast_timer *t,
                           fast_timer_function_type *function,
                           unsigned long data,
@@ -189,7 +201,7 @@ void start_one_shot_timer(struct fast_timer *t,
   tmp = fast_timer_list;
 
 #ifdef FAST_TIMER_SANITY_CHECKS
-	
+	/* Check so this is not in the list already... */
 	while (tmp != NULL) {
 		if (tmp == t) {
 			printk(KERN_DEBUG
@@ -219,9 +231,9 @@ void start_one_shot_timer(struct fast_timer *t,
 #endif
   fast_timers_added++;
 
-  
+  /* Check if this should timeout before anything else */
   if (tmp == NULL || fasttime_cmp(&t->tv_expires, &tmp->tv_expires) < 0) {
-    
+    /* Put first in list and modify the timer value */
     t->prev = NULL;
     t->next = fast_timer_list;
     if (fast_timer_list)
@@ -232,11 +244,11 @@ void start_one_shot_timer(struct fast_timer *t,
 #endif
     start_timer_trig(delay_us);
   } else {
-    
+    /* Put in correct place in list */
     while (tmp->next &&
         fasttime_cmp(&t->tv_expires, &tmp->next->tv_expires) > 0)
       tmp = tmp->next;
-    
+    /* Insert t after tmp */
     t->prev = tmp;
     t->next = tmp->next;
     if (tmp->next)
@@ -250,7 +262,7 @@ void start_one_shot_timer(struct fast_timer *t,
 
 done:
   local_irq_restore(flags);
-} 
+} /* start_one_shot_timer */
 
 static inline int fast_timer_pending (const struct fast_timer * t)
 {
@@ -284,16 +296,18 @@ int del_fast_timer(struct fast_timer * t)
   t->next = t->prev = NULL;
   local_irq_restore(flags);
   return ret;
-} 
+} /* del_fast_timer */
 
 
+/* Interrupt routines or functions called in interrupt context */
 
+/* Timer interrupt handler for trig interrupts */
 
 static irqreturn_t
 timer_trig_interrupt(int irq, void *dev_id)
 {
   reg_timer_r_masked_intr masked_intr;
-  
+  /* Check if the timer interrupt is for us (a trig int) */
 	masked_intr = REG_RD(timer, regi_timer0, r_masked_intr);
   if (!masked_intr.trig)
     return IRQ_NONE;
@@ -309,19 +323,26 @@ static void timer_trig_handler(struct work_struct *work)
   struct fast_timer *t;
   unsigned long flags;
 
+	/* We keep interrupts disabled not only when we modify the
+	 * fast timer list, but any time we hold a reference to a
+	 * timer in the list, since del_fast_timer may be called
+	 * from (another) interrupt context.  Thus, the only time
+	 * when interrupts are enabled is when calling the timer
+	 * callback function.
+	 */
   local_irq_save(flags);
 
-  
+  /* Clear timer trig interrupt */
 	intr_mask = REG_RD(timer, regi_timer0, rw_intr_mask);
   intr_mask.trig = 0;
   REG_WR(timer, regi_timer0, rw_intr_mask, intr_mask);
 
-  
-  
+  /* First stop timer, then ack interrupt */
+  /* Stop timer */
   trig_cfg.tmr = regk_timer_off;
 	REG_WR(timer, regi_timer0, rw_trig_cfg, trig_cfg);
 
-  
+  /* Ack interrupt */
   ack_intr.trig = 1;
 	REG_WR(timer, regi_timer0, rw_ack_intr, ack_intr);
 
@@ -335,19 +356,19 @@ static void timer_trig_handler(struct work_struct *work)
 	while (t) {
 		struct fasttime_t tv;
 
-    
+    /* Has it really expired? */
     do_gettimeofday_fast(&tv);
 		D1(printk(KERN_DEBUG
 			"t: %is %06ius\n", tv.tv_jiff, tv.tv_usec));
 
 		if (fasttime_cmp(&t->tv_expires, &tv) <= 0) {
-      
+      /* Yes it has expired */
 #ifdef FAST_TIMER_LOG
       timer_expired_log[fast_timers_expired % NUM_TIMER_STATS] = *t;
 #endif
       fast_timers_expired++;
 
-      
+      /* Remove this timer before call, since it may reuse the timer */
       if (t->prev)
         t->prev->next = t->next;
       else
@@ -367,25 +388,27 @@ static void timer_trig_handler(struct work_struct *work)
 			d = t->data;
 
 			if (f != NULL) {
+				/* Run the callback function with interrupts
+				 * enabled. */
 				local_irq_restore(flags);
 				f(d);
 				local_irq_save(flags);
 			} else
         DEBUG_LOG("!trimertrig %i function==NULL!\n", fast_timer_ints);
 		} else {
-      
+      /* Timer is to early, let's set it again using the normal routines */
       D1(printk(".\n"));
     }
 
 		t = fast_timer_list;
 		if (t != NULL) {
-      
+      /* Start next timer.. */
 			long us = 0;
 			struct fasttime_t tv;
 
       do_gettimeofday_fast(&tv);
 
-			
+			/* time_after_eq takes care of wrapping */
 			if (time_after_eq(t->tv_expires.tv_jiff, tv.tv_jiff))
 				us = ((t->tv_expires.tv_jiff - tv.tv_jiff) *
 					1000000 / HZ + t->tv_expires.tv_usec -
@@ -400,6 +423,9 @@ static void timer_trig_handler(struct work_struct *work)
         }
         break;
 			} else {
+        /* Timer already expired, let's handle it better late than never.
+         * The normal loop handles it
+         */
         D1(printk("e! %d\n", us));
       }
     }
@@ -418,6 +444,7 @@ static void wake_up_func(unsigned long data)
 }
 
 
+/* Useful API */
 
 void schedule_usleep(unsigned long us)
 {
@@ -428,6 +455,8 @@ void schedule_usleep(unsigned long us)
   D1(printk("schedule_usleep(%d)\n", us));
   start_one_shot_timer(&t, wake_up_func, (unsigned long)&sleep_wait, us,
                        "usleep");
+	/* Uninterruptible sleep on the fast timer. (The condition is
+	 * somewhat redundant since the timer is what wakes us up.) */
 	wait_event(sleep_wait, !fast_timer_pending(&t));
 
   D1(printk("done schedule_usleep(%d)\n", us));
@@ -437,10 +466,11 @@ void schedule_usleep(unsigned long us)
 static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
                        ,int *eof, void *data_unused);
 static struct proc_dir_entry *fasttimer_proc_entry;
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 #ifdef CONFIG_PROC_FS
 
+/* This value is very much based on testing */
 #define BIG_BUF_SIZE (500 + NUM_TIMER_STATS * 300)
 
 static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
@@ -515,7 +545,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
     {
       int cur = (fast_timers_started - i - 1) % NUM_TIMER_STATS;
 
-#if 1 
+#if 1 //ndef FAST_TIMER_LOG
       used += sprintf(bigbuf + used, "div: %i delay: %i"
                       "\n",
                       timer_div_settings[cur],
@@ -590,6 +620,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
       local_irq_restore(flags);
       used += sprintf(bigbuf + used, "%-14s s: %6lu.%06lu e: %6lu.%06lu "
 			"d: %6li us data: 0x%08lX"
+/*			" func: 0x%08lX" */
 			"\n",
 			t->name,
 			(unsigned long)t->tv_set.tv_jiff,
@@ -598,6 +629,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
 			(unsigned long)t->tv_expires.tv_usec,
                       t->delay_us,
                       t->data
+/*                      , t->function */
                       );
 			local_irq_save(flags);
       if (t->next != nextt)
@@ -620,7 +652,7 @@ static int proc_fasttimer_read(char *buf, char **start, off_t offset, int len
 
   return len;
 }
-#endif 
+#endif /* PROC_FS */
 
 #ifdef FAST_TIMER_TEST
 static volatile unsigned long i = 0;
@@ -778,7 +810,7 @@ static void fast_timer_test(void)
 
 int fast_timer_init(void)
 {
-  
+  /* For some reason, request_irq() hangs when called froom time_init() */
   if (!fast_timer_is_init)
   {
     printk("fast_timer_init()\n");
@@ -787,7 +819,7 @@ int fast_timer_init(void)
     fasttimer_proc_entry = create_proc_entry("fasttimer", 0, 0);
     if (fasttimer_proc_entry)
       fasttimer_proc_entry->read_proc = proc_fasttimer_read;
-#endif 
+#endif /* PROC_FS */
 		if (request_irq(TIMER0_INTR_VECT, timer_trig_interrupt,
 				IRQF_SHARED | IRQF_DISABLED,
 				"fast timer int", &fast_timer_list))

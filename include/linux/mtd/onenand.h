@@ -21,13 +21,69 @@
 #define MAX_DIES		2
 #define MAX_BUFFERRAM		2
 
+/* Scan and identify a OneNAND device */
 extern int onenand_scan(struct mtd_info *mtd, int max_chips);
+/* Free resources held by the OneNAND device */
 extern void onenand_release(struct mtd_info *mtd);
 
+/**
+ * struct onenand_bufferram - OneNAND BufferRAM Data
+ * @blockpage:		block & page address in BufferRAM
+ */
 struct onenand_bufferram {
 	int	blockpage;
 };
 
+/**
+ * struct onenand_chip - OneNAND Private Flash Chip Data
+ * @base:		[BOARDSPECIFIC] address to access OneNAND
+ * @dies:		[INTERN][FLEX-ONENAND] number of dies on chip
+ * @boundary:		[INTERN][FLEX-ONENAND] Boundary of the dies
+ * @diesize:		[INTERN][FLEX-ONENAND] Size of the dies
+ * @chipsize:		[INTERN] the size of one chip for multichip arrays
+ *			FIXME For Flex-OneNAND, chipsize holds maximum possible
+ *			device size ie when all blocks are considered MLC
+ * @device_id:		[INTERN] device ID
+ * @density_mask:	chip density, used for DDP devices
+ * @verstion_id:	[INTERN] version ID
+ * @options:		[BOARDSPECIFIC] various chip options. They can
+ *			partly be set to inform onenand_scan about
+ * @erase_shift:	[INTERN] number of address bits in a block
+ * @page_shift:		[INTERN] number of address bits in a page
+ * @page_mask:		[INTERN] a page per block mask
+ * @writesize:		[INTERN] a real page size
+ * @bufferram_index:	[INTERN] BufferRAM index
+ * @bufferram:		[INTERN] BufferRAM info
+ * @readw:		[REPLACEABLE] hardware specific function for read short
+ * @writew:		[REPLACEABLE] hardware specific function for write short
+ * @command:		[REPLACEABLE] hardware specific function for writing
+ *			commands to the chip
+ * @wait:		[REPLACEABLE] hardware specific function for wait on ready
+ * @bbt_wait:		[REPLACEABLE] hardware specific function for bbt wait on ready
+ * @unlock_all:		[REPLACEABLE] hardware specific function for unlock all
+ * @read_bufferram:	[REPLACEABLE] hardware specific function for BufferRAM Area
+ * @write_bufferram:	[REPLACEABLE] hardware specific function for BufferRAM Area
+ * @read_word:		[REPLACEABLE] hardware specific function for read
+ *			register of OneNAND
+ * @write_word:		[REPLACEABLE] hardware specific function for write
+ *			register of OneNAND
+ * @mmcontrol:		sync burst read function
+ * @chip_probe:		[REPLACEABLE] hardware specific function for chip probe
+ * @block_markbad:	function to mark a block as bad
+ * @scan_bbt:		[REPLACEALBE] hardware specific function for scanning
+ *			Bad block Table
+ * @chip_lock:		[INTERN] spinlock used to protect access to this
+ *			structure and the chip
+ * @wq:			[INTERN] wait queue to sleep on if a OneNAND
+ *			operation is in progress
+ * @state:		[INTERN] the current state of the OneNAND device
+ * @page_buf:		[INTERN] page main data buffer
+ * @oob_buf:		[INTERN] page oob data buffer
+ * @subpagesize:	[INTERN] holds the subpagesize
+ * @ecclayout:		[REPLACEABLE] the default ecc placement scheme
+ * @bbm:		[REPLACEABLE] pointer to Bad Block Management
+ * @priv:		[OPTIONAL] pointer to private chip date
+ */
 struct onenand_chip {
 	void __iomem		*base;
 	unsigned		dies;
@@ -84,9 +140,18 @@ struct onenand_chip {
 
 	void			*priv;
 
+	/*
+	 * Shows that the current operation is composed
+	 * of sequence of commands. For example, cache program.
+	 * Such command status OnGo bit is checked at the end of
+	 * sequence.
+	 */
 	unsigned int		ongoing;
 };
 
+/*
+ * Helper macros
+ */
 #define ONENAND_PAGES_PER_BLOCK        (1<<6)
 
 #define ONENAND_CURRENT_BUFFERRAM(this)		(this->bufferram_index)
@@ -122,8 +187,12 @@ struct onenand_chip {
 #define ONENAND_IS_NOP_1(this)						\
 	(this->options & ONENAND_HAS_NOP_1)
 
+/* Check byte access in OneNAND */
 #define ONENAND_CHECK_BYTE_ACCESS(addr)		(addr & 0x1)
 
+/*
+ * Options bits
+ */
 #define ONENAND_HAS_CONT_LOCK		(0x0001)
 #define ONENAND_HAS_UNLOCK_ALL		(0x0002)
 #define ONENAND_HAS_2PLANE		(0x0004)
@@ -138,9 +207,17 @@ struct onenand_chip {
 #define ONENAND_IS_4KB_PAGE(this)					\
 	(this->options & ONENAND_HAS_4KB_PAGE)
 
+/*
+ * OneNAND Flash Manufacturer ID Codes
+ */
 #define ONENAND_MFR_SAMSUNG	0xec
 #define ONENAND_MFR_NUMONYX	0x20
 
+/**
+ * struct onenand_manufacturers - NAND Flash Manufacturer ID Structure
+ * @name:	Manufacturer name
+ * @id:		manufacturer ID code of device.
+*/
 struct onenand_manufacturers {
         int id;
         char *name;
@@ -162,4 +239,4 @@ struct onenand_platform_data {
 	unsigned int	nr_parts;
 };
 
-#endif	
+#endif	/* __LINUX_MTD_ONENAND_H */

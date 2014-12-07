@@ -18,19 +18,20 @@
 #include <asm/serial.h>
 #include <asm/io.h>
 
+/* SUPERIO uart register map */
 struct yo_uartregs {
 	union {
-		volatile u8	rbr;	
-		volatile u8	thr;	
-		volatile u8	dll;	
+		volatile u8	rbr;	/* read only, DLAB == 0 */
+		volatile u8	thr;	/* write only, DLAB == 0 */
+		volatile u8	dll;	/* DLAB == 1 */
 	} u1;
 	union {
-		volatile u8	ier;	
-		volatile u8	dlm;	
+		volatile u8	ier;	/* DLAB == 0 */
+		volatile u8	dlm;	/* DLAB == 1 */
 	} u2;
 	union {
-		volatile u8	iir;	
-		volatile u8	fcr;	
+		volatile u8	iir;	/* read only */
+		volatile u8	fcr;	/* write only */
 	} u3;
 	volatile u8	iu_lcr;
 	volatile u8	iu_mcr;

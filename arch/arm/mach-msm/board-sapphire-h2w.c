@@ -19,6 +19,41 @@
  *
  */
 
+/*  For detecting HTC 2 Wire devices, such as wired headset.
+
+    Logically, the H2W driver is always present, and H2W state (hi->state)
+    indicates what is currently plugged into the H2W interface.
+
+    When the headset is plugged in, CABLE_IN1 is pulled low. When the headset
+    button is pressed, CABLE_IN2 is pulled low. These two lines are shared with
+    the TX and RX (respectively) of UART3 - used for serial debugging.
+
+    This headset driver keeps the CPLD configured as UART3 for as long as
+    possible, so that we can do serial FIQ debugging even when the kernel is
+    locked and this driver no longer runs. So it only configures the CPLD to
+    GPIO while the headset is plugged in, and for 10ms during detection work.
+
+    Unfortunately we can't leave the CPLD as UART3 while a headset is plugged
+    in, UART3 is pullup on TX but the headset is pull-down, causing a 55 mA
+    drain on sapphire.
+
+    The headset detection work involves setting CPLD to GPIO, and then pulling
+    CABLE_IN1 high with a stronger pullup than usual. A H2W headset will still
+    pull this line low, whereas other attachments such as a serial console
+    would get pulled up by this stronger pullup.
+
+    Headset insertion/removal causes UEvent's to be sent, and
+    /sys/class/switch/h2w/state to be updated.
+
+    Button presses are interpreted as input event (KEY_MEDIA). Button presses
+    are ignored if the headset is plugged in, so the buttons on 11 pin -> 3.5mm
+    jack adapters do not work until a headset is plugged into the adapter. This
+    is to avoid serial RX traffic causing spurious button press events.
+
+    We tend to check the status of CABLE_IN1 a few more times than strictly
+    necessary during headset detection, to avoid spurious headset insertion
+    events caused by serial debugger TX traffic.
+*/
 
 
 #include <linux/module.h>
@@ -142,14 +177,22 @@ static void insert_headset(void)
 #endif
 
 
+	/* On some non-standard headset adapters (usually those without a
+	 * button) the btn line is pulled down at the same time as the detect
+	 * line. We can check here by sampling the button line, if it is
+	 * low then it is probably a bad adapter so ignore the button.
+	 * If the button is released then we stop ignoring the button, so that
+	 * the user can recover from the situation where a headset is plugged
+	 * in with button held down.
+	 */
 	hi->ignore_btn = !gpio_get_value(SAPPHIRE_GPIO_CABLE_IN2);
 
-	
+	/* Enable button irq */
 	local_irq_save(irq_flags);
 	enable_irq(hi->irq_btn);
 	local_irq_restore(irq_flags);
 
-	hi->debounce_time = ktime_set(0, 20000000);  
+	hi->debounce_time = ktime_set(0, 20000000);  /* 20 ms */
 }
 
 static void remove_headset(void)
@@ -161,7 +204,7 @@ static void remove_headset(void)
 	switch_set_state(&hi->sdev, NO_DEVICE);
 	configure_cpld(UART3);
 
-	
+	/* Disable button */
 	local_irq_save(irq_flags);
 	disable_irq(hi->irq_btn);
 	local_irq_restore(irq_flags);
@@ -169,7 +212,7 @@ static void remove_headset(void)
 	if (atomic_read(&hi->btn_state))
 		button_released();
 
-	hi->debounce_time = ktime_set(0, 100000000);  
+	hi->debounce_time = ktime_set(0, 100000000);  /* 100 ms */
 }
 
 static void detection_work(struct work_struct *work)
@@ -180,31 +223,31 @@ static void detection_work(struct work_struct *work)
 	H2W_DBG("");
 
 	if (gpio_get_value(SAPPHIRE_GPIO_CABLE_IN1) != 0) {
-		
+		/* Headset not plugged in */
 		if (switch_get_state(&hi->sdev) == HTC_HEADSET)
 			remove_headset();
 		return;
 	}
 
-	
+	/* Something plugged in, lets make sure its a headset */
 
-	
+	/* Switch CPLD to GPIO to do detection */
 	configure_cpld(GPIO);
-	
+	/* Disable headset interrupt while detecting.*/
 	local_irq_save(irq_flags);
 	disable_irq(hi->irq);
 	local_irq_restore(irq_flags);
 
-	
+	/* Set GPIO_CABLE_IN1 as output high */
 	gpio_direction_output(SAPPHIRE_GPIO_CABLE_IN1, 1);
-	
+	/* Delay 10ms for pin stable. */
 	msleep(10);
-	
+	/* Save H2W_CLK */
 	clk = gpio_get_value(SAPPHIRE_GPIO_H2W_CLK_GPI);
-	
+	/* Set GPIO_CABLE_IN1 as input */
 	gpio_direction_input(SAPPHIRE_GPIO_CABLE_IN1);
 
-	
+	/* Restore IRQs */
 	local_irq_save(irq_flags);
 	enable_irq(hi->irq);
 	local_irq_restore(irq_flags);
@@ -266,7 +309,7 @@ static irqreturn_t detect_irq_handler(int irq, void *dev_id)
 	if ((switch_get_state(&hi->sdev) == NO_DEVICE) ^ value2) {
 		if (switch_get_state(&hi->sdev) == HTC_HEADSET)
 			hi->ignore_btn = 1;
-		
+		/* Do the rest of the work in timer context */
 		hrtimer_start(&hi->timer, hi->debounce_time, HRTIMER_MODE_REL);
 	}
 
@@ -334,8 +377,8 @@ static int sapphire_h2w_probe(struct platform_device *pdev)
 	atomic_set(&hi->btn_state, 0);
 	hi->ignore_btn = 0;
 
-	hi->debounce_time = ktime_set(0, 100000000);  
-	hi->btn_debounce_time = ktime_set(0, 10000000); 
+	hi->debounce_time = ktime_set(0, 100000000);  /* 100 ms */
+	hi->btn_debounce_time = ktime_set(0, 10000000); /* 10 ms */
 	hi->sdev.name = "h2w";
 	hi->sdev.print_name = sapphire_h2w_print_name;
 
@@ -377,9 +420,9 @@ static int sapphire_h2w_probe(struct platform_device *pdev)
 		goto err_get_button_irq_num_failed;
 	}
 
-	
+	/* Set CPLD MUX to H2W <-> CPLD GPIO */
 	configure_cpld(UART3);
-	
+	/* Set the CPLD connected H2W GPIO's to input */
 	gpio_set_value(SAPPHIRE_GPIO_H2W_CLK_DIR, 0);
 	gpio_set_value(SAPPHIRE_GPIO_H2W_DAT_DIR, 0);
 
@@ -393,7 +436,7 @@ static int sapphire_h2w_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err_request_detect_irq;
 
-	
+	/* Disable button until plugged in */
 	set_irq_flags(hi->irq_btn, IRQF_VALID | IRQF_NOAUTOEN);
 	ret = request_irq(hi->irq_btn, button_irq_handler,
 			  IRQF_TRIGGER_LOW, "h2w_button", NULL);

@@ -20,5 +20,5 @@ struct gpio_ir_recv_platform_data {
 	u32 swfi_latency;
 };
 
-#endif 
+#endif /* __GPIO_IR_RECV_H__ */
 

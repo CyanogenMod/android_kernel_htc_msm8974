@@ -15,6 +15,8 @@
 #ifndef CAP_H
 #define CAP_H
 
+/* ---- Include Files ---------------------------------------------------- */
+/* ---- Public Constants and Types --------------------------------------- */
 typedef enum {
 	CAP_NOT_PRESENT = 0,
 	CAP_PRESENT
@@ -50,6 +52,8 @@ typedef enum {
 	CAP_LCD_QVGA = 0x3
 } CAP_LCD_RES_T;
 
+/* ---- Public Variable Externs ------------------------------------------ */
+/* ---- Public Function Prototypes --------------------------------------- */
 
 static inline CAP_RC_T cap_isPresent(CAP_CAPABILITY_T capability, int index);
 static inline uint32_t cap_getMaxArmSpeedHz(void);

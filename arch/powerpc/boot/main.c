@@ -36,7 +36,7 @@ static struct addr_range prep_kernel(void)
 	struct elf_info ei;
 	int len;
 
-	
+	/* gunzip the ELF header of the kernel */
 	gunzip_start(&gzstate, vmlinuz_addr, vmlinuz_size);
 	gunzip_exactly(&gzstate, elfheader, sizeof(elfheader));
 
@@ -46,11 +46,21 @@ static struct addr_range prep_kernel(void)
 	if (platform_ops.image_hdr)
 		platform_ops.image_hdr(elfheader);
 
+	/* We need to alloc the memsize: gzip will expand the kernel
+	 * text/data, then possible rubbish we don't care about. But
+	 * the kernel bss must be claimed (it will be zero'd by the
+	 * kernel itself)
+	 */
 	printf("Allocating 0x%lx bytes for kernel ...\n\r", ei.memsize);
 
 	if (platform_ops.vmlinux_alloc) {
 		addr = platform_ops.vmlinux_alloc(ei.memsize);
 	} else {
+		/*
+		 * Check if the kernel image (without bss) would overwrite the
+		 * bootwrapper. The device tree has been moved in fdt_init()
+		 * to an area allocated with malloc() (somewhere past _end).
+		 */
 		if ((unsigned long)_start < ei.loadsize)
 			fatal("Insufficient memory for kernel at address 0!"
 			       " (_start=%p, uncompressed size=%08lx)\n\r",
@@ -61,10 +71,10 @@ static struct addr_range prep_kernel(void)
 					"device tree\n\r");
 	}
 
-	
+	/* Finally, gunzip the kernel */
 	printf("gunzipping (0x%p <- 0x%p:0x%p)...", addr,
 	       vmlinuz_addr, vmlinuz_addr+vmlinuz_size);
-	
+	/* discard up to the actual load data */
 	gunzip_discard(&gzstate, ei.elfoffset - sizeof(elfheader));
 	len = gunzip_finish(&gzstate, addr, ei.loadsize);
 	if (len != ei.loadsize)
@@ -81,6 +91,8 @@ static struct addr_range prep_initrd(struct addr_range vmlinux, void *chosen,
 				     unsigned long initrd_addr,
 				     unsigned long initrd_size)
 {
+	/* If we have an image attached to us, it overrides anything
+	 * supplied by the loader. */
 	if (_initrd_end > _initrd_start) {
 		printf("Attached initrd image at 0x%p-0x%p\n\r",
 		       _initrd_start, _initrd_end);
@@ -91,10 +103,15 @@ static struct addr_range prep_initrd(struct addr_range vmlinux, void *chosen,
 		       initrd_addr, initrd_addr + initrd_size);
 	}
 
-	
+	/* If there's no initrd at all, we're done */
 	if (! initrd_size)
 		return (struct addr_range){0, 0};
 
+	/*
+	 * If the initrd is too low it will be clobbered when the
+	 * kernel relocates to its final location.  In this case,
+	 * allocate a safer place and move it.
+	 */
 	if (initrd_addr < vmlinux.size) {
 		void *old_addr = (void *)initrd_addr;
 
@@ -111,13 +128,17 @@ static struct addr_range prep_initrd(struct addr_range vmlinux, void *chosen,
 
 	printf("initrd head: 0x%lx\n\r", *((unsigned long *)initrd_addr));
 
-	
+	/* Tell the kernel initrd address via device tree */
 	setprop_val(chosen, "linux,initrd-start", (u32)(initrd_addr));
 	setprop_val(chosen, "linux,initrd-end", (u32)(initrd_addr+initrd_size));
 
 	return (struct addr_range){(void *)initrd_addr, initrd_size};
 }
 
+/* A buffer that may be edited by tools operating on a zImage binary so as to
+ * edit the command line passed to vmlinux (by setting /chosen/bootargs).
+ * The buffer is put in it's own section so that tools may locate it easier.
+ */
 static char cmdline[COMMAND_LINE_SIZE]
 	__attribute__((__section__("__builtin_cmdline")));
 
@@ -127,12 +148,12 @@ static void prep_cmdline(void *chosen)
 		getprop(chosen, "bootargs", cmdline, COMMAND_LINE_SIZE-1);
 
 	printf("\n\rLinux/PowerPC load: %s", cmdline);
-	
+	/* If possible, edit the command line */
 	if (console_ops.edit_cmdline)
 		console_ops.edit_cmdline(cmdline, COMMAND_LINE_SIZE);
 	printf("\n\r");
 
-	
+	/* Put the command line back into the devtree for the kernel */
 	setprop_str(chosen, "bootargs", cmdline);
 }
 
@@ -148,6 +169,9 @@ void start(void)
 	unsigned long ft_addr = 0;
 	void *chosen;
 
+	/* Do this first, because malloc() could clobber the loader's
+	 * command line.  Only use the loader command line if a
+	 * built-in command line wasn't set by an external tool */
 	if ((loader_info.cmdline_len > 0) && (cmdline[0] == '\0'))
 		memmove(cmdline, loader_info.cmdline,
 			min(loader_info.cmdline_len, COMMAND_LINE_SIZE-1));
@@ -160,7 +184,7 @@ void start(void)
 	printf("\n\rzImage starting: loaded at 0x%p (sp: 0x%p)\n\r",
 	       _start, get_sp());
 
-	
+	/* Ensure that the device tree has a /chosen node */
 	chosen = finddevice("/chosen");
 	if (!chosen)
 		chosen = create_node(NULL, "chosen");
@@ -188,6 +212,6 @@ void start(void)
 		kentry((unsigned long)initrd.addr, initrd.size,
 		       loader_info.promptr);
 
-	
+	/* console closed so printf in fatal below may not work */
 	fatal("Error: Linux kernel returned to zImage boot wrapper!\n\r");
 }

@@ -20,6 +20,7 @@
 #ifndef __ASM_ARCH_NETX_REGS_H
 #define __ASM_ARCH_NETX_REGS_H
 
+/* offsets relative to the beginning of the io space */
 #define NETX_OFS_SYSTEM  0x00000
 #define NETX_OFS_MEMCR   0x00100
 #define NETX_OFS_DPMAS   0x03000
@@ -49,6 +50,7 @@
 #define NETX_OFS_XPEC(no) (0x70000 + (no) * 0x4000)
 #define NETX_OFS_VIC     0xff000
 
+/* physical addresses */
 #define NETX_PA_SYSTEM   (NETX_IO_PHYS + NETX_OFS_SYSTEM)
 #define NETX_PA_MEMCR    (NETX_IO_PHYS + NETX_OFS_MEMCR)
 #define NETX_PA_DPMAS    (NETX_IO_PHYS + NETX_OFS_DPMAS)
@@ -78,6 +80,7 @@
 #define NETX_PA_XPEC(no) (NETX_IO_PHYS + NETX_OFS_XPEC(no))
 #define NETX_PA_VIC      (NETX_IO_PHYS + NETX_OFS_VIC)
 
+/* virtual addresses */
 #define NETX_VA_SYSTEM   (NETX_IO_VIRT + NETX_OFS_SYSTEM)
 #define NETX_VA_MEMCR    (NETX_IO_VIRT + NETX_OFS_MEMCR)
 #define NETX_VA_DPMAS    (NETX_IO_VIRT + NETX_OFS_DPMAS)
@@ -107,12 +110,18 @@
 #define NETX_VA_XPEC(no) (NETX_IO_VIRT + NETX_OFS_XPEC(no))
 #define NETX_VA_VIC      (NETX_IO_VIRT + NETX_OFS_VIC)
 
+/*********************************
+ * System functions              *
+ *********************************/
 
+/* Registers */
 #define NETX_SYSTEM_REG(ofs)            IOMEM(NETX_VA_SYSTEM + (ofs))
 #define NETX_SYSTEM_BOO_SR          NETX_SYSTEM_REG(0x00)
 #define NETX_SYSTEM_IOC_CR          NETX_SYSTEM_REG(0x04)
 #define NETX_SYSTEM_IOC_MR          NETX_SYSTEM_REG(0x08)
 
+/* FIXME: Docs are not consistent */
+/* #define NETX_SYSTEM_RES_CR          NETX_SYSTEM_REG(0x08) */
 #define NETX_SYSTEM_RES_CR          NETX_SYSTEM_REG(0x0c)
 
 #define NETX_SYSTEM_PHY_CONTROL     NETX_SYSTEM_REG(0x10)
@@ -123,6 +132,7 @@
 #define NETX_SYSTEM_WDG_IRQ_TIMEOUT NETX_SYSTEM_REG(0x208)
 #define NETX_SYSTEM_WDG_RES_TIMEOUT NETX_SYSTEM_REG(0x20c)
 
+/* Bits */
 #define NETX_SYSTEM_RES_CR_RSTIN         (1<<0)
 #define NETX_SYSTEM_RES_CR_WDG_RES       (1<<1)
 #define NETX_SYSTEM_RES_CR_HOST_RES      (1<<2)
@@ -167,9 +177,14 @@
 #define PHY_MODE_POWER_DOWN         6
 #define PHY_MODE_ALL                7
 
+/* Bits */
 #define VECT_CNTL_ENABLE               (1 << 5)
 
+/*******************************
+ * GPIO and timer module       *
+ *******************************/
 
+/* Registers */
 #define NETX_GPIO_REG(ofs)                     IOMEM(NETX_VA_GPIO + (ofs))
 #define NETX_GPIO_CFG(gpio)                NETX_GPIO_REG(0x0  + ((gpio)<<2))
 #define NETX_GPIO_THRESHOLD_CAPTURE(gpio)  NETX_GPIO_REG(0x40 + ((gpio)<<2))
@@ -182,6 +197,7 @@
 #define NETX_GPIO_LINE                     NETX_GPIO_REG(0xc8)
 #define NETX_GPIO_IRQ                      NETX_GPIO_REG(0xd0)
 
+/* Bits */
 #define NETX_GPIO_CFG_IOCFG_GP_INPUT                 (0x0)
 #define NETX_GPIO_CFG_IOCFG_GP_OUTPUT                (0x1)
 #define NETX_GPIO_CFG_IOCFG_GP_UART                  (0x2)
@@ -204,20 +220,29 @@
 #define NETX_GPIO_COUNTER_CTRL_CNT_EVENT             (1<<4)
 #define NETX_GPIO_COUNTER_CTRL_RST_EN                (1<<5)
 #define NETX_GPIO_COUNTER_CTRL_SEL_EVENT             (1<<6)
-#define NETX_GPIO_COUNTER_CTRL_GPIO_REF 
+#define NETX_GPIO_COUNTER_CTRL_GPIO_REF /* FIXME */
 
 #define GPIO_BIT(gpio)                     (1<<(gpio))
 #define COUNTER_BIT(counter)               ((1<<16)<<(counter))
 
+/*******************************
+ * PIO                         *
+ *******************************/
 
+/* Registers */
 #define NETX_PIO_REG(ofs)        IOMEM(NETX_VA_PIO + (ofs))
 #define NETX_PIO_INPIO       NETX_PIO_REG(0x0)
 #define NETX_PIO_OUTPIO      NETX_PIO_REG(0x4)
 #define NETX_PIO_OEPIO       NETX_PIO_REG(0x8)
 
+/*******************************
+ * MII Unit                    *
+ *******************************/
 
+/* Registers */
 #define NETX_MIIMU           IOMEM(NETX_VA_MIIMU)
 
+/* Bits */
 #define MIIMU_SNRDY        (1<<0)
 #define MIIMU_PREAMBLE     (1<<1)
 #define MIIMU_OPMODE_WRITE (1<<2)
@@ -228,7 +253,11 @@
 #define MIIMU_PHYADDR(adr) (((adr) & 0x1f) << 11)
 #define MIIMU_DATA(data)   (((data) & 0xffff) << 16)
 
+/*******************************
+ * xmac / xpec                 *
+ *******************************/
 
+/* XPEC register offsets relative to NETX_VA_XPEC(no) */
 #define NETX_XPEC_R0_OFS           0x00
 #define NETX_XPEC_R1_OFS           0x04
 #define NETX_XPEC_R2_OFS           0x08
@@ -261,8 +290,10 @@
 #define NETX_XPEC_XPU_HOLD_PC_OFS  0x100
 #define NETX_XPEC_RAM_START_OFS    0x2000
 
+/* Bits */
 #define XPU_HOLD_PC (1<<0)
 
+/* XMAC register offsets relative to NETX_VA_XMAC(no) */
 #define NETX_XMAC_RPU_PROGRAM_START_OFS       0x000
 #define NETX_XMAC_RPU_PROGRAM_END_OFS         0x3ff
 #define NETX_XMAC_TPU_PROGRAM_START_OFS       0x400
@@ -281,7 +312,11 @@
 #define RPU_HOLD_PC            (1<<15)
 #define TPU_HOLD_PC            (1<<15)
 
+/*******************************
+ * Pointer FIFO                *
+ *******************************/
 
+/* Registers */
 #define NETX_PFIFO_REG(ofs)               IOMEM(NETX_VA_PFIFO + (ofs))
 #define NETX_PFIFO_BASE(pfifo)        NETX_PFIFO_REG(0x00 + ((pfifo)<<2))
 #define NETX_PFIFO_BORDER_BASE(pfifo) NETX_PFIFO_REG(0x80 + ((pfifo)<<2))
@@ -294,9 +329,13 @@
 #define NETX_PFIFO_XPEC_ISR(xpec)     NETX_PFIFO_REG(0x400 + ((xpec) << 2))
 
 
+/*******************************
+ * Memory Controller           *
+ *******************************/
 
+/* Registers */
 #define NETX_MEMCR_REG(ofs)               IOMEM(NETX_VA_MEMCR + (ofs))
-#define NETX_MEMCR_SRAM_CTRL(cs)      NETX_MEMCR_REG(0x0 + 4 * (cs)) 
+#define NETX_MEMCR_SRAM_CTRL(cs)      NETX_MEMCR_REG(0x0 + 4 * (cs)) /* SRAM for CS 0..2 */
 #define NETX_MEMCR_SDRAM_CFG_CTRL     NETX_MEMCR_REG(0x40)
 #define NETX_MEMCR_SDRAM_TIMING_CTRL  NETX_MEMCR_REG(0x44)
 #define NETX_MEMCR_SDRAM_MODE         NETX_MEMCR_REG(0x48)
@@ -304,13 +343,18 @@
 #define NETX_MEMCR_PRIO_TIMESLOT_CTRL NETX_MEMCR_REG(0x80)
 #define NETX_MEMCR_PRIO_ACCESS_CTRL   NETX_MEMCR_REG(0x84)
 
+/* Bits */
 #define NETX_MEMCR_SRAM_CTRL_WIDTHEXTMEM(x)       (((x) & 0x3)  << 24)
 #define NETX_MEMCR_SRAM_CTRL_WSPOSTPAUSEEXTMEM(x) (((x) & 0x3)  << 16)
 #define NETX_MEMCR_SRAM_CTRL_WSPREPASEEXTMEM(x)   (((x) & 0x3)  << 8)
 #define NETX_MEMCR_SRAM_CTRL_WSEXTMEM(x)          (((x) & 0x1f) << 0)
 
 
+/*******************************
+ * Dual Port Memory            *
+ *******************************/
 
+/* Registers */
 #define NETX_DPMAS_REG(ofs)               IOMEM(NETX_VA_DPMAS + (ofs))
 #define NETX_DPMAS_SYS_STAT           NETX_DPMAS_REG(0x4d8)
 #define NETX_DPMAS_INT_STAT           NETX_DPMAS_REG(0x4e0)
@@ -318,13 +362,14 @@
 #define NETX_DPMAS_IF_CONF0           NETX_DPMAS_REG(0x608)
 #define NETX_DPMAS_IF_CONF1           NETX_DPMAS_REG(0x60c)
 #define NETX_DPMAS_EXT_CONFIG(cs)     NETX_DPMAS_REG(0x610 + 4 * (cs))
-#define NETX_DPMAS_IO_MODE0           NETX_DPMAS_REG(0x620) 
+#define NETX_DPMAS_IO_MODE0           NETX_DPMAS_REG(0x620) /* I/O 32..63 */
 #define NETX_DPMAS_DRV_EN0            NETX_DPMAS_REG(0x624)
 #define NETX_DPMAS_DATA0              NETX_DPMAS_REG(0x628)
-#define NETX_DPMAS_IO_MODE1           NETX_DPMAS_REG(0x630) 
+#define NETX_DPMAS_IO_MODE1           NETX_DPMAS_REG(0x630) /* I/O 64..84 */
 #define NETX_DPMAS_DRV_EN1            NETX_DPMAS_REG(0x634)
 #define NETX_DPMAS_DATA1              NETX_DPMAS_REG(0x638)
 
+/* Bits */
 #define NETX_DPMAS_INT_EN_GLB_EN         (1<<31)
 #define NETX_DPMAS_INT_EN_MEM_LCK        (1<<30)
 #define NETX_DPMAS_INT_EN_WDG            (1<<29)
@@ -377,8 +422,11 @@
 #define NETX_DPMAS_IO_MODE1_SAMPLE_NPIO36 (2<<30)
 #define NETX_DPMAS_IO_MODE1_SAMPLE_PIO36  (3<<30)
 
+/*******************************
+ * I2C                         *
+ *******************************/
 #define NETX_I2C_REG(ofs)	IOMEM(NETX_VA_I2C, (ofs))
 #define NETX_I2C_CTRL	NETX_I2C_REG(0x0)
 #define NETX_I2C_DATA	NETX_I2C_REG(0x4)
 
-#endif 
+#endif /* __ASM_ARCH_NETX_REGS_H */

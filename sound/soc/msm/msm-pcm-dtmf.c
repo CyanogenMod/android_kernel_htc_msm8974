@@ -186,9 +186,9 @@ static void dtmf_rx_detected_cb(uint8_t *pkt,
 	if (prtd->capture_substream == NULL)
 		return;
 
-	
+	/* Copy dtmf detected info into out_queue. */
 	spin_lock_irqsave(&prtd->dsp_lock, dsp_flags);
-	
+	/* discarding dtmf detection info till start is received */
 	if (!list_empty(&prtd->free_out_queue) && prtd->capture_start) {
 		buf_node = list_first_entry(&prtd->free_out_queue,
 					    struct dtmf_buf_node, list);
@@ -344,8 +344,8 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 				voc_disable_dtmf_det_on_active_sessions();
 				voc_register_dtmf_rx_detection_cb(NULL, NULL);
 			}
-			
-			
+			/* release all buffer */
+			/* release out_queue and free_out_queue */
 			pr_debug("release all buffer\n");
 			c_substream = prtd->capture_substream;
 			if (c_substream == NULL) {

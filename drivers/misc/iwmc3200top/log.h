@@ -28,12 +28,16 @@
 #define __LOG_H__
 
 
+/* log severity:
+ * The log levels here match FW log levels
+ * so values need to stay as is */
 #define LOG_SEV_CRITICAL		0
 #define LOG_SEV_ERROR			1
 #define LOG_SEV_WARNING			2
 #define LOG_SEV_INFO			3
 #define LOG_SEV_INFOEX			4
 
+/* Log levels not defined for FW */
 #define LOG_SEV_TRACE			5
 #define LOG_SEV_DUMP			6
 
@@ -53,6 +57,7 @@
 	 BIT(LOG_SEV_TRACE)	|	\
 	 BIT(LOG_SEV_DUMP))
 
+/* log source */
 #define LOG_SRC_INIT			0
 #define LOG_SRC_DEBUGFS			1
 #define LOG_SRC_FW_DOWNLOAD		2
@@ -63,6 +68,9 @@
 #define	LOG_SRC_MAX			6
 #define	LOG_SRC_ALL			0xFF
 
+/**
+ * Default intitialization runtime log level
+ */
 #ifndef LOG_SEV_FILTER_RUNTIME
 #define LOG_SEV_FILTER_RUNTIME			\
 	(BIT(LOG_SEV_CRITICAL)	|		\
@@ -75,6 +83,9 @@
 #endif
 
 #ifdef CONFIG_IWMC3200TOP_DEBUG
+/**
+ * Log macros
+ */
 
 #define priv2dev(priv) (&(priv->func)->dev)
 
@@ -152,9 +163,9 @@ static inline void iwmct_log_top_message(struct iwmct_priv *priv,
 static inline int iwmct_log_set_filter(u8 src, u8 logmask) { return 0; }
 static inline int iwmct_log_set_fw_filter(u8 src, u8 logmask) { return 0; }
 
-#endif 
+#endif /* CONFIG_IWMC3200TOP_DEBUG */
 
 int log_get_filter_str(char *buf, int size);
 int log_get_fw_filter_str(char *buf, int size);
 
-#endif 
+#endif /* __LOG_H__ */

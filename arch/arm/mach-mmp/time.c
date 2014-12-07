@@ -41,6 +41,9 @@
 #define MAX_DELTA		(0xfffffffe)
 #define MIN_DELTA		(16)
 
+/*
+ * FIXME: the timer needs some delay to stablize the counter capture
+ */
 static inline uint32_t timer_read(void)
 {
 	int delay = 100;
@@ -62,8 +65,14 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *c = dev_id;
 
+	/*
+	 * Clear pending interrupt status.
+	 */
 	__raw_writel(0x01, TIMERS_VIRT_BASE + TMR_ICR(0));
 
+	/*
+	 * Disable timer 0.
+	 */
 	__raw_writel(0x02, TIMERS_VIRT_BASE + TMR_CER);
 
 	c->event_handler(c);
@@ -78,13 +87,25 @@ static int timer_set_next_event(unsigned long delta,
 
 	local_irq_save(flags);
 
+	/*
+	 * Disable timer 0.
+	 */
 	__raw_writel(0x02, TIMERS_VIRT_BASE + TMR_CER);
 
+	/*
+	 * Clear and enable timer match 0 interrupt.
+	 */
 	__raw_writel(0x01, TIMERS_VIRT_BASE + TMR_ICR(0));
 	__raw_writel(0x01, TIMERS_VIRT_BASE + TMR_IER(0));
 
+	/*
+	 * Setup new clockevent timer value.
+	 */
 	__raw_writel(delta - 1, TIMERS_VIRT_BASE + TMR_TN_MM(0, 0));
 
+	/*
+	 * Enable timer 0.
+	 */
 	__raw_writel(0x03, TIMERS_VIRT_BASE + TMR_CER);
 
 	local_irq_restore(flags);
@@ -102,7 +123,7 @@ static void timer_set_mode(enum clock_event_mode mode,
 	case CLOCK_EVT_MODE_ONESHOT:
 	case CLOCK_EVT_MODE_UNUSED:
 	case CLOCK_EVT_MODE_SHUTDOWN:
-		
+		/* disable the matching interrupt */
 		__raw_writel(0x00, TIMERS_VIRT_BASE + TMR_IER(0));
 		break;
 	case CLOCK_EVT_MODE_RESUME:
@@ -138,24 +159,24 @@ static void __init timer_config(void)
 {
 	uint32_t ccr = __raw_readl(TIMERS_VIRT_BASE + TMR_CCR);
 
-	__raw_writel(0x0, TIMERS_VIRT_BASE + TMR_CER); 
+	__raw_writel(0x0, TIMERS_VIRT_BASE + TMR_CER); /* disable */
 
 	ccr &= (cpu_is_mmp2()) ? (TMR_CCR_CS_0(0) | TMR_CCR_CS_1(0)) :
 		(TMR_CCR_CS_0(3) | TMR_CCR_CS_1(3));
 	__raw_writel(ccr, TIMERS_VIRT_BASE + TMR_CCR);
 
-	
+	/* set timer 0 to periodic mode, and timer 1 to free-running mode */
 	__raw_writel(0x2, TIMERS_VIRT_BASE + TMR_CMR);
 
-	__raw_writel(0x1, TIMERS_VIRT_BASE + TMR_PLCR(0)); 
-	__raw_writel(0x7, TIMERS_VIRT_BASE + TMR_ICR(0));  
+	__raw_writel(0x1, TIMERS_VIRT_BASE + TMR_PLCR(0)); /* periodic */
+	__raw_writel(0x7, TIMERS_VIRT_BASE + TMR_ICR(0));  /* clear status */
 	__raw_writel(0x0, TIMERS_VIRT_BASE + TMR_IER(0));
 
-	__raw_writel(0x0, TIMERS_VIRT_BASE + TMR_PLCR(1)); 
-	__raw_writel(0x7, TIMERS_VIRT_BASE + TMR_ICR(1));  
+	__raw_writel(0x0, TIMERS_VIRT_BASE + TMR_PLCR(1)); /* free-running */
+	__raw_writel(0x7, TIMERS_VIRT_BASE + TMR_ICR(1));  /* clear status */
 	__raw_writel(0x0, TIMERS_VIRT_BASE + TMR_IER(1));
 
-	
+	/* enable timer 1 counter */
 	__raw_writel(0x2, TIMERS_VIRT_BASE + TMR_CER);
 }
 

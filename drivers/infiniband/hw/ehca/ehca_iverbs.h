@@ -114,8 +114,8 @@ int ehca_unmap_fmr(struct list_head *fmr_list);
 int ehca_dealloc_fmr(struct ib_fmr *fmr);
 
 enum ehca_eq_type {
-	EHCA_EQ = 0, 
-	EHCA_NEQ     
+	EHCA_EQ = 0, /* Event Queue              */
+	EHCA_NEQ     /* Notification Event Queue */
 };
 
 int ehca_create_eq(struct ehca_shca *shca, struct ehca_eq *eq,

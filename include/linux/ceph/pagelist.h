@@ -13,9 +13,9 @@ struct ceph_pagelist {
 };
 
 struct ceph_pagelist_cursor {
-	struct ceph_pagelist *pl;   
-	struct list_head *page_lru; 
-	size_t room;		    
+	struct ceph_pagelist *pl;   /* pagelist, for error checking */
+	struct list_head *page_lru; /* page in list */
+	size_t room;		    /* room remaining to reset to */
 };
 
 static inline void ceph_pagelist_init(struct ceph_pagelist *pl)

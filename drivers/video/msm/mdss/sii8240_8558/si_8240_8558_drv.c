@@ -40,7 +40,12 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #include "si_tpi_regs.h"
 #include "si_8240_8558_regs.h"
 #include "../mdss_hdmi_mhl.h"
+#include "../mdss_panel.h"
+#include "../mdss_hdmi_tx.h"
+#include "../mdss_hdmi_hdcp.h"
 
+extern bool ap_hdcp_success;
+extern struct hdmi_hdcp_ctrl *hdcp_ctrl_global;
 
 static	int	int_4_isr(struct drv_hw_context *hw_context, uint8_t int_4_status);
 static	int	int_5_isr(struct drv_hw_context *hw_context, uint8_t int_5_status);
@@ -540,6 +545,12 @@ bool si_mhl_tx_drv_send_cbus_command(struct drv_hw_context *hw_context, struct c
 		mhl_tx_write_reg(hw_context, REG_CBUS_MSC_1ST_TRANSMIT_DATA, req->reg_data);
 		mhl_tx_write_reg(hw_context, REG_CBUS_MSC_COMMAND_START,
 				BIT_CBUS_MSC_WRITE_STAT_OR_SET_INT);
+#ifdef CONFIG_MHL_DONGLE_WORKAROUND
+		if((req->reg == MHL_RCHANGE_INT) && (req->reg_data == MHL_INT_DCAP_CHG)){
+			MHL_TX_DBG_INFO(hw_context,"Sleep 50ms for dongle reading DCAP");
+			msleep(50);
+		}
+#endif
 		break;
 
 	case MHL_WRITE_STAT:
@@ -1741,6 +1752,25 @@ static int hdcp_isr(struct drv_hw_context *hw_context, uint8_t tpi_int_status)
 	if (BIT_TPI_INTR_ST0_BKSV_DONE & tpi_int_status) {
 		if (PROTECTION_TYPE_MASK & query_data) {
 			int temp;
+			if (!ap_hdcp_success) {
+				if (!hdmi_hpd_status()) {
+					pr_info("sii8240: HDMI hpd is low\n");
+				} else {
+					pr_info("sii8240: workaround for drm\n");
+					mhl_tx_modify_reg(hw_context,REG_DCTL,BIT_DCTL_EXT_DDC_SEL,BIT_DCTL_EXT_DDC_SEL);
+					hdmi_hdcp_set_state(HDCP_STATE_AUTHENTICATING);
+					if (hdmi_hdcp_authentication_from_mhl()) {
+						pr_err("%s: HDMI HDCP Auth Part I failed\n", __func__);
+						ap_hdcp_success = false;
+					} else {
+						ap_hdcp_success = true;
+					}
+					mhl_tx_modify_reg(hw_context,REG_DCTL,BIT_DCTL_EXT_DDC_SEL,0);
+					hdmi_hdcp_set_state(HDCP_STATE_AUTHENTICATED);
+					msleep(100);
+				}
+			}
+
 			do{
 				temp = mhl_tx_read_reg(hw_context,REG_TPI_HW_DBG6) & 0x1F;
 			} while (temp == 2);

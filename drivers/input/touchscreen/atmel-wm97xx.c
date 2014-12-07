@@ -58,16 +58,16 @@
 #ifdef CONFIG_CPU_AT32AP700X
 #define ATMEL_WM97XX_AC97C_IOMEM	(0xfff02800)
 #define ATMEL_WM97XX_AC97C_IRQ		(29)
-#define ATMEL_WM97XX_GPIO_DEFAULT	(32+16) 
+#define ATMEL_WM97XX_GPIO_DEFAULT	(32+16) /* Pin 16 on port B. */
 #else
 #error Unknown CPU, this driver only supports AT32AP700X CPUs.
 #endif
 
 struct continuous {
-	u16 id;    
-	u8 code;   
-	u8 reads;  
-	u32 speed; 
+	u16 id;    /* codec id */
+	u8 code;   /* continuous code */
+	u8 reads;  /* number of coord reads per read cycle */
+	u32 speed; /* number of coords per second */
 };
 
 #define WM_READS(sp) ((sp / HZ) + 1)
@@ -87,24 +87,49 @@ static const struct continuous cinfo[] = {
 	{WM9713_ID2, 3, WM_READS(188), 188},
 };
 
+/* Continuous speed index. */
 static int sp_idx;
 
+/*
+ * Pen sampling frequency (Hz) in continuous mode.
+ */
 static int cont_rate = 188;
 module_param(cont_rate, int, 0);
 MODULE_PARM_DESC(cont_rate, "Sampling rate in continuous mode (Hz)");
 
+/*
+ * Pen down detection.
+ *
+ * This driver can either poll or use an interrupt to indicate a pen down
+ * event. If the irq request fails then it will fall back to polling mode.
+ */
 static int pen_int = 1;
 module_param(pen_int, int, 0);
 MODULE_PARM_DESC(pen_int, "Pen down detection (1 = interrupt, 0 = polling)");
 
+/*
+ * Pressure readback.
+ *
+ * Set to 1 to read back pen down pressure.
+ */
 static int pressure;
 module_param(pressure, int, 0);
 MODULE_PARM_DESC(pressure, "Pressure readback (1 = pressure, 0 = no pressure)");
 
+/*
+ * AC97 touch data slot.
+ *
+ * Touch screen readback data ac97 slot.
+ */
 static int ac97_touch_slot = 5;
 module_param(ac97_touch_slot, int, 0);
 MODULE_PARM_DESC(ac97_touch_slot, "Touch screen data slot AC97 number");
 
+/*
+ * GPIO line number.
+ *
+ * Set to GPIO number where the signal from the WM97xx device is hooked up.
+ */
 static int atmel_gpio_line = ATMEL_WM97XX_GPIO_DEFAULT;
 module_param(atmel_gpio_line, int, 0);
 MODULE_PARM_DESC(atmel_gpio_line, "GPIO line number connected to WM97xx");
@@ -217,8 +242,12 @@ static int atmel_wm97xx_acc_startup(struct wm97xx *wm)
 		wm->pen_irq = atmel_wm97xx->gpio_irq;
 
 		switch (wm->id) {
-		case WM9712_ID2: 
+		case WM9712_ID2: /* Fall through. */
 		case WM9713_ID2:
+			/*
+			 * Use GPIO 13 (PEN_DOWN) to assert GPIO line 3
+			 * (PENDOWN).
+			 */
 			wm97xx_config_gpio(wm, WM97XX_GPIO_13, WM97XX_GPIO_IN,
 					WM97XX_GPIO_POL_HIGH,
 					WM97XX_GPIO_STICKY,
@@ -227,19 +256,29 @@ static int atmel_wm97xx_acc_startup(struct wm97xx *wm)
 					WM97XX_GPIO_POL_HIGH,
 					WM97XX_GPIO_NOTSTICKY,
 					WM97XX_GPIO_NOWAKE);
-		case WM9705_ID2: 
+		case WM9705_ID2: /* Fall through. */
+			/*
+			 * Enable touch data slot in AC97 controller channel B.
+			 */
 			reg = ac97c_readl(atmel_wm97xx, ICA);
 			reg &= ~AC97C_CH_MASK(wm->acc_slot);
 			reg |= AC97C_CH_ASSIGN(wm->acc_slot, B);
 			ac97c_writel(atmel_wm97xx, ICA, reg);
 
+			/*
+			 * Enable channel and interrupt for RXRDY and OVERRUN.
+			 */
 			ac97c_writel(atmel_wm97xx, CBMR, AC97C_CMR_CENA
 					| AC97C_CMR_CEM_BIG
 					| AC97C_CMR_SIZE_16
 					| AC97C_OVRUN
 					| AC97C_RXRDY);
-			
+			/* Dummy read to empty RXRHR. */
 			ac97c_readl(atmel_wm97xx, CBRHR);
+			/*
+			 * Enable interrupt for channel B in the AC97
+			 * controller.
+			 */
 			ac97c_writel(atmel_wm97xx, IER, AC97C_INT_CBEVT);
 			break;
 		default:
@@ -261,10 +300,10 @@ static void atmel_wm97xx_acc_shutdown(struct wm97xx *wm)
 		unsigned long ica;
 
 		switch (wm->id & 0xffff) {
-		case WM9705_ID2: 
-		case WM9712_ID2: 
+		case WM9705_ID2: /* Fall through. */
+		case WM9712_ID2: /* Fall through. */
 		case WM9713_ID2:
-			
+			/* Disable slot and turn off channel B interrupts. */
 			ica = ac97c_readl(atmel_wm97xx, ICA);
 			ica &= ~AC97C_CH_MASK(wm->acc_slot);
 			ac97c_writel(atmel_wm97xx, ICA, ica);
@@ -281,7 +320,7 @@ static void atmel_wm97xx_acc_shutdown(struct wm97xx *wm)
 
 static void atmel_wm97xx_irq_enable(struct wm97xx *wm, int enable)
 {
-	
+	/* Intentionally left empty. */
 }
 
 static struct wm97xx_mach_ops atmel_mach_ops = {

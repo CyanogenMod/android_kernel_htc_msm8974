@@ -18,6 +18,7 @@ struct dibx000_i2c_master {
 
 	enum dibx000_i2c_interface selected_interface;
 
+/*	struct i2c_adapter  tuner_i2c_adap; */
 	struct i2c_adapter gated_tuner_i2c_adap;
 	struct i2c_adapter master_i2c_adap_gpio12;
 	struct i2c_adapter master_i2c_adap_gpio34;
@@ -28,7 +29,7 @@ struct dibx000_i2c_master {
 
 	u16 base_reg;
 
-	
+	/* for the I2C transfer */
 	struct i2c_msg msg[34];
 	u8 i2c_write_buffer[8];
 	u8 i2c_read_buffer[2];
@@ -62,7 +63,7 @@ extern u32 systime(void);
 									(freq_kHz) <= 2000000 ? BAND_LBAND : BAND_SBAND )
 
 struct dibx000_agc_config {
-	
+	/* defines the capabilities of this AGC-setting - using the BAND_-defines */
 	u8 band_caps;
 
 	u16 setup;
@@ -148,6 +149,7 @@ enum dibx000_adc_states {
 #define BANDWIDTH_TO_KHZ(v)	((v) / 1000)
 #define BANDWIDTH_TO_HZ(v)	((v) * 1000)
 
+/* Chip output mode. */
 #define OUTMODE_HIGH_Z              0
 #define OUTMODE_MPEG2_PAR_GATED_CLK 1
 #define OUTMODE_MPEG2_PAR_CONT_CLK  2
@@ -240,6 +242,16 @@ struct dibGPIOFunction {
 #define BOARD_GPIO_FUNCTION_SUBBAND_GPIO   6
 	u8 function;
 
+/* mask, direction and value are used specify which GPIO to change GPIO0
+ * is LSB and possible GPIO31 is MSB.  The same bit-position as in the
+ * mask is used for the direction and the value. Direction == 1 is OUT,
+ * 0 == IN. For direction "OUT" value is either 1 or 0, for direction IN
+ * value has no meaning.
+ *
+ * In case of BOARD_GPIO_FUNCTION_PWM mask is giving the GPIO to be
+ * used to do the PWM. Direction gives the PWModulator to be used.
+ * Value gives the PWM value in device-dependent scale.
+ */
 	u32 mask;
 	u32 direction;
 	u32 value;
@@ -247,7 +259,7 @@ struct dibGPIOFunction {
 
 #define MAX_NB_SUBBANDS   8
 struct dibSubbandSelection {
-	u8  size; 
+	u8  size; /* Actual number of subbands. */
 	struct {
 		u16 f_mhz;
 		struct dibGPIOFunction gpio;

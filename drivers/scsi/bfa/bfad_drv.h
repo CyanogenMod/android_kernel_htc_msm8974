@@ -15,7 +15,13 @@
  * General Public License for more details.
  */
 
+/*
+ * Contains base driver definitions.
+ */
 
+/*
+ *  bfa_drv.h Linux driver data structures.
+ */
 
 #ifndef __BFAD_DRV_H__
 #define __BFAD_DRV_H__
@@ -60,6 +66,9 @@
 #define FC_PORTSPEED_8GBIT 0x10
 #endif
 
+/*
+ * BFAD flags
+ */
 #define BFAD_MSIX_ON				0x00000001
 #define BFAD_HAL_INIT_DONE			0x00000002
 #define BFAD_DRV_INIT_DONE			0x00000004
@@ -72,14 +81,20 @@
 #define BFAD_FC4_PROBE_DONE			0x00000200
 #define BFAD_PORT_DELETE			0x00000001
 #define BFAD_INTX_ON				0x00000400
+/*
+ * BFAD related definition
+ */
 #define SCSI_SCAN_DELAY		HZ
 #define BFAD_STOP_TIMEOUT	30
 #define BFAD_SUSPEND_TIMEOUT	BFAD_STOP_TIMEOUT
 
+/*
+ * BFAD configuration parameter default values
+ */
 #define BFAD_LUN_QUEUE_DEPTH	32
 #define BFAD_IO_MAX_SGE		SG_ALL
-#define BFAD_MIN_SECTORS	128 
-#define BFAD_MAX_SECTORS	0xFFFF  
+#define BFAD_MIN_SECTORS	128 /* 64k   */
+#define BFAD_MAX_SECTORS	0xFFFF  /* 32 MB */
 
 #define bfad_isr_t irq_handler_t
 
@@ -91,6 +106,10 @@ struct bfad_msix_s {
 	char name[32];
 };
 
+/*
+ * Only append to the enums defined here to avoid any versioning
+ * needed between trace utility and driver version
+ */
 enum {
 	BFA_TRC_LDRV_BFAD		= 1,
 	BFA_TRC_LDRV_IM			= 2,
@@ -104,6 +123,9 @@ enum bfad_port_pvb_type {
 	BFAD_PORT_VF_VPORT = 3,
 };
 
+/*
+ * PORT data structure
+ */
 struct bfad_port_s {
 	struct list_head list_entry;
 	struct bfad_s	*bfad;
@@ -112,11 +134,14 @@ struct bfad_port_s {
 	s32		flags;
 	u32	supported_fc4s;
 	enum bfad_port_pvb_type pvb_type;
-	struct bfad_im_port_s *im_port;	
-	
+	struct bfad_im_port_s *im_port;	/* IM specific data */
+	/* port debugfs specific data */
 	struct dentry *port_debugfs_root;
 };
 
+/*
+ * VPORT data structure
+ */
 struct bfad_vport_s {
 	struct bfad_port_s     drv_port;
 	struct bfa_fcs_vport_s fcs_vport;
@@ -124,9 +149,12 @@ struct bfad_vport_s {
 	struct list_head list_entry;
 };
 
+/*
+ * VF data structure
+ */
 struct bfad_vf_s {
 	bfa_fcs_vf_t    fcs_vf;
-	struct bfad_port_s    base_port;	
+	struct bfad_port_s    base_port;	/* base port for vf */
 	struct bfad_s   *bfad;
 };
 
@@ -139,21 +167,24 @@ struct bfad_cfg_param_s {
 };
 
 union bfad_tmp_buf {
-	
+	/* From struct bfa_adapter_attr_s */
 	char		manufacturer[BFA_ADAPTER_MFG_NAME_LEN];
 	char		serial_num[BFA_ADAPTER_SERIAL_NUM_LEN];
 	char		model[BFA_ADAPTER_MODEL_NAME_LEN];
 	char		fw_ver[BFA_VERSION_LEN];
 	char		optrom_ver[BFA_VERSION_LEN];
 
-	
-	u8		chip_rev[BFA_IOC_CHIP_REV_LEN];  
+	/* From struct bfa_ioc_pci_attr_s */
+	u8		chip_rev[BFA_IOC_CHIP_REV_LEN];  /*  chip revision */
 
 	wwn_t		wwn[BFA_FCS_MAX_LPORTS];
 };
 
+/*
+ * BFAD (PCI function) data structure
+ */
 struct bfad_s {
-	bfa_sm_t	sm;	
+	bfa_sm_t	sm;	/* state machine */
 	struct list_head list_entry;
 	struct bfa_s	bfa;
 	struct bfa_fcs_s bfa_fcs;
@@ -168,10 +199,10 @@ struct bfad_s {
 	struct completion enable_comp;
 	struct completion disable_comp;
 	bfa_boolean_t   disable_active;
-	struct bfad_port_s     pport;	
+	struct bfad_port_s     pport;	/* physical port of the BFAD */
 	struct bfa_meminfo_s meminfo;
 	struct bfa_iocfc_cfg_s   ioc_cfg;
-	u32	inst_no;	
+	u32	inst_no;	/* BFAD instance number */
 	u32	bfad_flags;
 	spinlock_t      bfad_lock;
 	struct task_struct *bfad_tsk;
@@ -182,14 +213,14 @@ struct bfad_s {
 	char	port_name[BFA_ADAPTER_SYM_NAME_LEN];
 	struct timer_list hal_tmo;
 	unsigned long   hs_start;
-	struct bfad_im_s *im;		
+	struct bfad_im_s *im;		/* IM specific data */
 	struct bfa_trc_mod_s  *trcmod;
 	struct bfa_plog_s      plog_buf;
 	int		ref_count;
 	union bfad_tmp_buf tmp_buf;
 	struct fc_host_statistics link_stats;
 	struct list_head pbc_vport_list;
-	
+	/* debugfs specific data */
 	char *regdata;
 	u32 reglen;
 	struct dentry *bfad_dentry_files[5];
@@ -200,6 +231,7 @@ struct bfad_s {
 	struct list_head	vport_list;
 };
 
+/* BFAD state machine events */
 enum bfad_sm_event {
 	BFAD_E_CREATE			= 1,
 	BFAD_E_KTHREAD_CREATE_FAILED	= 2,
@@ -212,6 +244,9 @@ enum bfad_sm_event {
 	BFAD_E_STOP			= 9
 };
 
+/*
+ * RPORT data structure
+ */
 struct bfad_rport_s {
 	struct bfa_fcs_rport_s fcs_rport;
 };
@@ -319,4 +354,4 @@ extern int	max_xfer_size;
 extern int bfa_debugfs_enable;
 extern struct mutex bfad_mutex;
 
-#endif 
+#endif /* __BFAD_DRV_H__ */

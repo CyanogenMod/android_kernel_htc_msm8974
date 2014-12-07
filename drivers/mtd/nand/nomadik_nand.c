@@ -47,18 +47,18 @@ struct nomadik_nand_host {
 
 static struct nand_ecclayout nomadik_ecc_layout = {
 	.eccbytes = 3 * 4,
-	.eccpos = { 
+	.eccpos = { /* each subpage has 16 bytes: pos 2,3,4 hosts ECC */
 		0x02, 0x03, 0x04,
 		0x12, 0x13, 0x14,
 		0x22, 0x23, 0x24,
 		0x32, 0x33, 0x34},
-	
+	/* let's keep bytes 5,6,7 for us, just in case we change ECC algo */
 	.oobfree = { {0x08, 0x08}, {0x18, 0x08}, {0x28, 0x08}, {0x38, 0x08} },
 };
 
 static void nomadik_ecc_control(struct mtd_info *mtd, int mode)
 {
-	
+	/* No need to enable hw ecc, it's on by default */
 }
 
 static void nomadik_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
@@ -84,14 +84,14 @@ static int nomadik_nand_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret = 0;
 
-	
+	/* Allocate memory for the device structure (and zero it) */
 	host = kzalloc(sizeof(struct nomadik_nand_host), GFP_KERNEL);
 	if (!host) {
 		dev_err(&pdev->dev, "Failed to allocate device structure.\n");
 		return -ENOMEM;
 	}
 
-	
+	/* Call the client's init function, if any */
 	if (pdata->init)
 		ret = pdata->init();
 	if (ret < 0) {
@@ -99,7 +99,7 @@ static int nomadik_nand_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	
+	/* ioremap three regions */
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "nand_addr");
 	if (!res) {
 		ret = -EIO;
@@ -126,7 +126,7 @@ static int nomadik_nand_probe(struct platform_device *pdev)
 		goto err_unmap;
 	}
 
-	
+	/* Link all private pointers */
 	mtd = &host->mtd;
 	nand = &host->nand;
 	mtd->priv = nand;
@@ -137,6 +137,11 @@ static int nomadik_nand_probe(struct platform_device *pdev)
 	nand->IO_ADDR_W = host->data_va;
 	nand->cmd_ctrl = nomadik_cmd_ctrl;
 
+	/*
+	 * This stanza declares ECC_HW but uses soft routines. It's because
+	 * HW claims to make the calculation but not the correction. However,
+	 * I haven't managed to get the desired data out of it until now.
+	 */
 	nand->ecc.mode = NAND_ECC_SOFT;
 	nand->ecc.layout = &nomadik_ecc_layout;
 	nand->ecc.hwctl = nomadik_ecc_control;
@@ -145,6 +150,9 @@ static int nomadik_nand_probe(struct platform_device *pdev)
 
 	nand->options = pdata->options;
 
+	/*
+	 * Scan to find existence of the device
+	 */
 	if (nand_scan(&host->mtd, 1)) {
 		ret = -ENXIO;
 		goto err_unmap;
@@ -167,6 +175,9 @@ static int nomadik_nand_probe(struct platform_device *pdev)
 	return ret;
 }
 
+/*
+ * Clean up routine
+ */
 static int nomadik_nand_remove(struct platform_device *pdev)
 {
 	struct nomadik_nand_host *host = platform_get_drvdata(pdev);

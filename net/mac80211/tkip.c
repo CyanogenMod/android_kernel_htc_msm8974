@@ -21,6 +21,10 @@
 
 #define PHASE1_LOOP_COUNT 8
 
+/*
+ * 2-byte by 2-byte subset of the full AES S-box table; second part of this
+ * table is identical to first part but byte-swapped
+ */
 static const u16 tkip_sbox[256] =
 {
 	0xC6A5, 0xF884, 0xEE99, 0xF68D, 0xFF0D, 0xD6BD, 0xDEB1, 0x9154,
@@ -70,6 +74,13 @@ static u8 *write_tkip_iv(u8 *pos, u16 iv16)
 	return pos;
 }
 
+/*
+ * P1K := Phase1(TA, TK, TSC)
+ * TA = transmitter address (48 bits)
+ * TK = dot11DefaultKeyValue or dot11KeyMappingValue (128 bits)
+ * TSC = TKIP sequence counter (48 bits, only 32 msb bits used)
+ * P1K: 80 bits
+ */
 static void tkip_mixing_phase1(const u8 *tk, struct tkip_ctx *ctx,
 			       const u8 *ta, u32 tsc_IV32)
 {
@@ -128,12 +139,15 @@ static void tkip_mixing_phase2(const u8 *tk, struct tkip_ctx *ctx,
 		put_unaligned_le16(ppk[i], rc4key + 2 * i);
 }
 
+/* Add TKIP IV and Ext. IV at @pos. @iv0, @iv1, and @iv2 are the first octets
+ * of the IV. Returns pointer to the octet following IVs (i.e., beginning of
+ * the packet payload). */
 u8 *ieee80211_tkip_add_iv(u8 *pos, struct ieee80211_key *key)
 {
 	lockdep_assert_held(&key->u.tkip.txlock);
 
 	pos = write_tkip_iv(pos, key->u.tkip.tx.iv16);
-	*pos++ = (key->conf.keyidx << 6) | (1 << 5) ;
+	*pos++ = (key->conf.keyidx << 6) | (1 << 5) /* Ext IV */;
 	put_unaligned_le32(key->u.tkip.tx.iv32, pos);
 	return pos + 4;
 }
@@ -146,6 +160,13 @@ static void ieee80211_compute_tkip_p1k(struct ieee80211_key *key, u32 iv32)
 
 	lockdep_assert_held(&key->u.tkip.txlock);
 
+	/*
+	 * Update the P1K when the IV32 is different from the value it
+	 * had when we last computed it (or when not initialised yet).
+	 * This might flip-flop back and forth if packets are processed
+	 * out-of-order due to the different ACs, but then we have to
+	 * just compute the P1K more often.
+	 */
 	if (ctx->p1k_iv32 != iv32 || ctx->state == TKIP_STATE_NOT_INIT)
 		tkip_mixing_phase1(tk, ctx, sdata->vif.addr, iv32);
 }
@@ -196,6 +217,13 @@ void ieee80211_get_tkip_p2k(struct ieee80211_key_conf *keyconf,
 }
 EXPORT_SYMBOL(ieee80211_get_tkip_p2k);
 
+/*
+ * Encrypt packet payload with TKIP using @key. @pos is a pointer to the
+ * beginning of the buffer containing payload. This payload must include
+ * the IV/Ext.IV and space for (taildroom) four octets for ICV.
+ * @payload_len is the length of payload (_not_ including IV/ICV length).
+ * @ta is the transmitter addresses.
+ */
 int ieee80211_tkip_encrypt_data(struct crypto_cipher *tfm,
 				struct ieee80211_key *key,
 				struct sk_buff *skb,
@@ -209,6 +237,10 @@ int ieee80211_tkip_encrypt_data(struct crypto_cipher *tfm,
 					  payload, payload_len);
 }
 
+/* Decrypt packet payload with TKIP using @key. @pos is a pointer to the
+ * beginning of the buffer containing IEEE 802.11 header payload, i.e.,
+ * including IV, Ext. IV, real data, Michael MIC, ICV. @payload_len is the
+ * length of payload, including IV, Ext. IV, MIC, ICV.  */
 int ieee80211_tkip_decrypt_data(struct crypto_cipher *tfm,
 				struct ieee80211_key *key,
 				u8 *payload, size_t payload_len, u8 *ta,
@@ -268,7 +300,7 @@ int ieee80211_tkip_decrypt_data(struct crypto_cipher *tfm,
 
 	if (key->u.tkip.rx[queue].state == TKIP_STATE_NOT_INIT ||
 	    key->u.tkip.rx[queue].iv32 != iv32) {
-		
+		/* IV16 wrapped around - perform TKIP phase 1 */
 		tkip_mixing_phase1(tk, &key->u.tkip.rx[queue], ta, iv32);
 #ifdef CONFIG_MAC80211_TKIP_DEBUG
 		{
@@ -314,6 +346,12 @@ int ieee80211_tkip_decrypt_data(struct crypto_cipher *tfm,
 	res = ieee80211_wep_decrypt_data(tfm, rc4key, 16, pos, payload_len - 12);
  done:
 	if (res == TKIP_DECRYPT_OK) {
+		/*
+		 * Record previously received IV, will be copied into the
+		 * key information after MIC verification. It is possible
+		 * that we don't catch replays of fragments but that's ok
+		 * because the Michael MIC verication will then fail.
+		 */
 		*out_iv32 = iv32;
 		*out_iv16 = iv16;
 	}

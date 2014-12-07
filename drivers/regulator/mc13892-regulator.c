@@ -239,6 +239,7 @@ static const int mc13892_pwgtdrv[] = {
 };
 
 static struct regulator_ops mc13892_gpo_regulator_ops;
+/* sw regulators need special care due to the "hi bit" */
 static struct regulator_ops mc13892_sw_regulator_ops;
 
 
@@ -308,14 +309,14 @@ static int mc13892_powermisc_rmw(struct mc13xxx_regulator_priv *priv, u32 mask,
 	if (ret)
 		return ret;
 
-	
+	/* Update the stored state for Power Gates. */
 	priv->powermisc_pwgt_state =
 		(priv->powermisc_pwgt_state & ~mask) | val;
 	priv->powermisc_pwgt_state &= MC13892_POWERMISC_PWGTSPI_M;
 
-	
+	/* Construct the new register value */
 	valread = (valread & ~mask) | val;
-	
+	/* Overwrite the PWGTxEN with the stored version */
 	valread = (valread & ~MC13892_POWERMISC_PWGTSPI_M) |
 		priv->powermisc_pwgt_state;
 
@@ -332,7 +333,7 @@ static int mc13892_gpo_regulator_enable(struct regulator_dev *rdev)
 
 	dev_dbg(rdev_get_dev(rdev), "%s id: %d\n", __func__, id);
 
-	
+	/* Power Gate enable value is 0 */
 	if (id == MC13892_PWGT1SPI || id == MC13892_PWGT2SPI)
 		en_val = 0;
 
@@ -355,7 +356,7 @@ static int mc13892_gpo_regulator_disable(struct regulator_dev *rdev)
 
 	dev_dbg(rdev_get_dev(rdev), "%s id: %d\n", __func__, id);
 
-	
+	/* Power Gate disable value is 1 */
 	if (id == MC13892_PWGT1SPI || id == MC13892_PWGT2SPI)
 		dis_val = mc13892_regulators[id].enable_bit;
 
@@ -380,6 +381,8 @@ static int mc13892_gpo_regulator_is_enabled(struct regulator_dev *rdev)
 	if (ret)
 		return ret;
 
+	/* Power Gates state is stored in powermisc_pwgt_state
+	 * where the meaning of bits is negated */
 	val = (val & ~MC13892_POWERMISC_PWGTSPI_M) |
 		(priv->powermisc_pwgt_state ^ MC13892_POWERMISC_PWGTSPI_M);
 
@@ -436,7 +439,7 @@ static int mc13892_sw_regulator_set_voltage(struct regulator_dev *rdev,
 	dev_dbg(rdev_get_dev(rdev), "%s id: %d min_uV: %d max_uV: %d\n",
 		__func__, id, min_uV, max_uV);
 
-	
+	/* Find the best index */
 	value = mc13xxx_get_best_voltage_index(rdev, min_uV, max_uV);
 	dev_dbg(rdev_get_dev(rdev), "%s best value: %d\n", __func__, value);
 	if (value < 0)
@@ -551,7 +554,7 @@ static int __devinit mc13892_regulator_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_unlock;
 
-	
+	/* enable switch auto mode */
 	if ((val & 0x0000FFFF) == 0x45d0) {
 		ret = mc13xxx_reg_rmw(mc13892, MC13892_SWITCHERS4,
 			MC13892_SWITCHERS4_SW1MODE_M |

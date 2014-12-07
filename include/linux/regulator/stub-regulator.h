@@ -17,6 +17,14 @@
 
 #define STUB_REGULATOR_DRIVER_NAME "stub-regulator"
 
+/**
+ * struct stub_regulator_pdata - stub regulator device data
+ * @init_data:		regulator constraints
+ * @hpm_min_load:	minimum load in uA that will result in the regulator
+ *			being set to high power mode
+ * @system_uA:		current drawn from regulator not accounted for by any
+ *			regulator framework consumer
+ */
 struct stub_regulator_pdata {
 	struct regulator_init_data	init_data;
 	int				hpm_min_load;
@@ -25,6 +33,12 @@ struct stub_regulator_pdata {
 
 #ifdef CONFIG_REGULATOR_STUB
 
+/**
+ * regulator_stub_init() - register platform driver for stub-regulator
+ *
+ * This initialization function should be called in systems in which driver
+ * registration ordering must be controlled precisely.
+ */
 
 int __init regulator_stub_init(void);
 
@@ -35,6 +49,6 @@ static inline int __init regulator_stub_init(void)
 	return -ENODEV;
 }
 
-#endif 
+#endif /* CONFIG_REGULATOR_STUB */
 
 #endif

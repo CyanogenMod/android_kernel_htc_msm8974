@@ -69,18 +69,19 @@ int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	case 3:
 		return LASAT_IRQ_PCIA + (((slot-1) + (pin-1)) % 4);
 	case 4:
-		return LASAT_IRQ_ETH1;   
+		return LASAT_IRQ_ETH1;   /* Ethernet 1 (LAN 2) */
 	case 5:
-		return LASAT_IRQ_ETH0;   
+		return LASAT_IRQ_ETH0;   /* Ethernet 0 (LAN 1) */
 	case 6:
-		return LASAT_IRQ_HDC;    
+		return LASAT_IRQ_HDC;    /* IDE controller */
 	default:
-		return 0xff;            
+		return 0xff;            /* Illegal */
 	}
 
 	return -1;
 }
 
+/* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
 	return 0;

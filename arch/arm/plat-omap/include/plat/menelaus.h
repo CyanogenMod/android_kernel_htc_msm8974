@@ -1,3 +1,8 @@
+/*
+ * arch/arm/plat-omap/include/mach/menelaus.h
+ *
+ * Functions to access Menelaus power management chip
+ */
 
 #ifndef __ASM_ARCH_MENELAUS_H
 #define __ASM_ARCH_MENELAUS_H

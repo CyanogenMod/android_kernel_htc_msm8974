@@ -30,12 +30,23 @@
 #include <mach/init.h>
 #include <mach/portmux.h>
 
+/* Oscillator frequencies. These are board-specific */
 unsigned long at32_board_osc_rates[3] = {
-	[0] = 32768,	
-	[1] = 20000000,	
-	[2] = 12000000,	
+	[0] = 32768,	/* 32.768 kHz on RTC osc */
+	[1] = 20000000,	/* 20 MHz on osc0 */
+	[2] = 12000000,	/* 12 MHz on osc1 */
 };
 
+/*
+ * The ATNGW100 mkII is very similar to the ATNGW100. Both have the AT32AP7000
+ * chip on board; the difference is that the ATNGW100 mkII has 128 MB 32-bit
+ * SDRAM (the ATNGW100 has 32 MB 16-bit SDRAM) and 256 MB 16-bit NAND flash
+ * (the ATNGW100 has none.)
+ *
+ * The RAM difference is handled by the boot loader, so the only difference we
+ * end up handling here is the NAND flash, EBI pin reservation and if LCDC or
+ * MACB1 should be enabled.
+ */
 #ifdef CONFIG_BOARD_ATNGW100_MKII
 #include <linux/mtd/partitions.h>
 #include <mach/smc.h>
@@ -57,7 +68,7 @@ static struct smc_timing nand_timing __initdata = {
 	.ncs_read_recover	= 0,
 	.nrd_recover		= 15,
 	.ncs_write_recover	= 0,
-	
+	/* WE# high -> RE# low min 60 ns */
 	.nwe_recover		= 50,
 };
 
@@ -92,6 +103,7 @@ static struct atmel_nand_data atngw100mkii_nand_data __initdata = {
 };
 #endif
 
+/* Initialized by bootloader-specific startup code. */
 struct tag *bootloader_tags __initdata;
 
 struct eth_addr {
@@ -129,6 +141,14 @@ static struct usba_platform_data atngw100_usba_data __initdata = {
 #endif
 };
 
+/*
+ * The next two functions should go away as the boot loader is
+ * supposed to initialize the macb address registers with a valid
+ * ethernet address. But we need to keep it around for a while until
+ * we can be reasonably sure the boot loader does this.
+ *
+ * The phy_id is ignored as the driver will probe for it.
+ */
 static int __init parse_tag_ethernet(struct tag *tag)
 {
 	int i;
@@ -158,6 +178,11 @@ static void __init set_hw_addr(struct platform_device *pdev)
 	if (!is_valid_ether_addr(addr))
 		return;
 
+	/*
+	 * Since this is board-specific code, we'll cheat and use the
+	 * physical address directly as we happen to know that it's
+	 * the same as the virtual address.
+	 */
 	regs = (void __iomem __force *)res->start;
 	pclk = clk_get(&pdev->dev, "pclk");
 	if (IS_ERR(pclk))
@@ -173,7 +198,7 @@ static void __init set_hw_addr(struct platform_device *pdev)
 
 void __init setup_board(void)
 {
-	at32_map_usart(1, 0, 0);	
+	at32_map_usart(1, 0, 0);	/* USART 1: /dev/ttyS0, DB9 */
 	at32_setup_serial_console(0);
 }
 
@@ -203,7 +228,7 @@ static struct i2c_gpio_platform_data i2c_gpio_data = {
 	.scl_pin		= GPIO_PIN_PA(7),
 	.sda_is_open_drain	= 1,
 	.scl_is_open_drain	= 1,
-	.udelay			= 2,	
+	.udelay			= 2,	/* close to 100 kHz */
 };
 
 static struct platform_device i2c_gpio_device = {
@@ -215,13 +240,17 @@ static struct platform_device i2c_gpio_device = {
 };
 
 static struct i2c_board_info __initdata i2c_info[] = {
-	
+	/* NOTE:  original ATtiny24 firmware is at address 0x0b */
 };
 
 static int __init atngw100_init(void)
 {
 	unsigned	i;
 
+	/*
+	 * ATNGW100 mkII uses 32-bit SDRAM interface. Reserve the
+	 * SDRAM-specific pins so that nobody messes with them.
+	 */
 #ifdef CONFIG_BOARD_ATNGW100_MKII
 	at32_reserve_pin(GPIO_PIOE_BASE, ATMEL_EBI_PE_DATA_ALL);
 
@@ -247,6 +276,11 @@ static int __init atngw100_init(void)
 	}
 	platform_device_register(&ngw_gpio_leds);
 
+	/* all these i2c/smbus pins should have external pullups for
+	 * open-drain sharing among all I2C devices.  SDA and SCL do;
+	 * PB28/EXTINT3 (ATNGW100) and PE21 (ATNGW100 mkII) doesn't; it should
+	 * be SMBALERT# (for PMBus), but it's not available off-board.
+	 */
 #ifdef CONFIG_BOARD_ATNGW100_MKII
 	at32_select_periph(GPIO_PIOE_BASE, 1 << 21, 0, AT32_GPIOF_PULLUP);
 #else
@@ -265,6 +299,11 @@ postcore_initcall(atngw100_init);
 
 static int __init atngw100_arch_init(void)
 {
+	/* PB30 (ATNGW100) and PE30 (ATNGW100 mkII) is the otherwise unused
+	 * jumper on the mainboard, with an external pullup; the jumper grounds
+	 * it. Use it however you like, including letting U-Boot or Linux tweak
+	 * boot sequences.
+	 */
 #ifdef CONFIG_BOARD_ATNGW100_MKII
 	at32_select_gpio(GPIO_PIN_PE(30), 0);
 	gpio_request(GPIO_PIN_PE(30), "j15");
@@ -277,6 +316,9 @@ static int __init atngw100_arch_init(void)
 	gpio_export(GPIO_PIN_PB(30), false);
 #endif
 
+	/* set_irq_type() after the arch_initcall for EIC has run, and
+	 * before the I2C subsystem could try using this IRQ.
+	 */
 	return irq_set_irq_type(AT32_EXTINT(3), IRQ_TYPE_EDGE_FALLING);
 }
 arch_initcall(atngw100_arch_init);

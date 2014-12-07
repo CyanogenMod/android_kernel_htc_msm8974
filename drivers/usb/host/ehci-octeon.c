@@ -18,6 +18,7 @@
 
 #define OCTEON_EHCI_HCD_NAME "octeon-ehci"
 
+/* Common clock init code.  */
 void octeon2_usb_clocks_start(void);
 void octeon2_usb_clocks_stop(void);
 
@@ -28,11 +29,11 @@ static void ehci_octeon_start(void)
 	octeon2_usb_clocks_start();
 
 	ehci_ctl.u64 = cvmx_read_csr(CVMX_UCTLX_EHCI_CTL(0));
-	
+	/* Use 64-bit addressing. */
 	ehci_ctl.s.ehci_64b_addr_en = 1;
 	ehci_ctl.s.l2c_addr_msb = 0;
-	ehci_ctl.s.l2c_buff_emod = 1; 
-	ehci_ctl.s.l2c_desc_emod = 1; 
+	ehci_ctl.s.l2c_buff_emod = 1; /* Byte swapped. */
+	ehci_ctl.s.l2c_desc_emod = 1; /* Byte swapped. */
 	cvmx_write_csr(CVMX_UCTLX_EHCI_CTL(0), ehci_ctl.u64);
 }
 
@@ -46,21 +47,36 @@ static const struct hc_driver ehci_octeon_hc_driver = {
 	.product_desc		= "Octeon EHCI",
 	.hcd_priv_size		= sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq			= ehci_irq,
 	.flags			= HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset			= ehci_init,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 	.bus_suspend		= ehci_bus_suspend,
@@ -96,6 +112,10 @@ static int ehci_octeon_drv_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+	/*
+	 * We can DMA from anywhere. But the descriptors must be in
+	 * the lower 4GB.
+	 */
 	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 	pdev->dev.dma_mask = &ehci_octeon_dma_mask;
 
@@ -124,7 +144,7 @@ static int ehci_octeon_drv_probe(struct platform_device *pdev)
 
 	ehci = hcd_to_ehci(hcd);
 
-	
+	/* Octeon EHCI matches CPU endianness. */
 #ifdef __BIG_ENDIAN
 	ehci->big_endian_mmio = 1;
 #endif
@@ -132,7 +152,7 @@ static int ehci_octeon_drv_probe(struct platform_device *pdev)
 	ehci->caps = hcd->regs;
 	ehci->regs = hcd->regs +
 		HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	ehci_reset(ehci);
@@ -145,7 +165,7 @@ static int ehci_octeon_drv_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, hcd);
 
-	
+	/* root ports should always stay powered */
 	ehci_port_power(ehci, 1);
 
 	return 0;

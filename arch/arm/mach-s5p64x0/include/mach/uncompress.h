@@ -15,23 +15,32 @@
 
 #include <mach/map.h>
 
+/*
+ * cannot use commonly <plat/uncompress.h>
+ * because uart base of S5P6440 and S5P6450 is different
+ */
 
-typedef unsigned int upf_t;	
+typedef unsigned int upf_t;	/* cannot include linux/serial_core.h */
 
+/* uart setup */
 
 unsigned int fifo_mask;
 unsigned int fifo_max;
 
+/* forward declerations */
 
 static void arch_detect_cpu(void);
 
+/* defines for UART registers */
 
 #include <plat/regs-serial.h>
 #include <plat/regs-watchdog.h>
 
+/* working in physical space... */
 #undef S3C2410_WDOGREG
 #define S3C2410_WDOGREG(x) ((S3C24XX_PA_WATCHDOG + (x)))
 
+/* how many bytes we allow into the FIFO at a time in FIFO mode */
 #define FIFO_MAX	 (14)
 
 unsigned long uart_base;
@@ -68,6 +77,11 @@ static __inline__ unsigned int uart_rd(unsigned int reg)
 	return *ptr;
 }
 
+/*
+ * we can deal with the case the UARTs are being run
+ * in FIFO mode, so that we don't hold up our execution
+ * waiting for tx to happen...
+ */
 
 static void putc(int ch)
 {
@@ -83,13 +97,13 @@ static void putc(int ch)
 		}
 
 	} else {
-		
+		/* not using fifos */
 
 		while ((uart_rd(S3C2410_UTRSTAT) & S3C2410_UTRSTAT_TXE) != S3C2410_UTRSTAT_TXE)
 			barrier();
 	}
 
-	
+	/* write byte to transmission register */
 	uart_wr(S3C2410_UTXH, ch);
 }
 
@@ -102,6 +116,12 @@ static inline void flush(void)
 		*((volatile unsigned int __force *)(ad)) = (d); \
 	} while (0)
 
+/*
+ * CONFIG_S3C_BOOT_WATCHDOG
+ *
+ * Simple boot-time watchdog setup, to reboot the system if there is
+ * any problem with the boot process
+ */
 
 #ifdef CONFIG_S3C_BOOT_WATCHDOG
 
@@ -151,7 +171,7 @@ static inline void arch_enable_uart_fifo(void)
 		fifocon |= S3C2410_UFCON_RESETBOTH;
 		uart_wr(S3C2410_UFCON, fifocon);
 
-		
+		/* wait for fifo reset to complete */
 		while (1) {
 			fifocon = uart_rd(S3C2410_UFCON);
 			if (!(fifocon & S3C2410_UFCON_RESETBOTH))
@@ -165,10 +185,19 @@ static inline void arch_enable_uart_fifo(void)
 
 static void arch_decomp_setup(void)
 {
+	/*
+	 * we may need to setup the uart(s) here if we are not running
+	 * on an BAST... the BAST will have left the uarts configured
+	 * after calling linux.
+	 */
 
 	arch_detect_cpu();
 	arch_decomp_wdog_start();
 
+	/*
+	 * Enable the UART FIFOs if they where not enabled and our
+	 * configuration says we should turn them on.
+	 */
 
 	arch_enable_uart_fifo();
 }
@@ -177,7 +206,7 @@ static void arch_decomp_setup(void)
 
 static void arch_detect_cpu(void)
 {
-	
+	/* we do not need to do any cpu detection here at the moment. */
 }
 
-#endif 
+#endif /* __ASM_ARCH_UNCOMPRESS_H */

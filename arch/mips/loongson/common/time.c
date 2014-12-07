@@ -18,7 +18,7 @@
 
 void __init plat_time_init(void)
 {
-	
+	/* setup mips r4k timer */
 	mips_hpt_frequency = cpu_clock_freq / 2;
 
 	setup_mfgpt0_timer();

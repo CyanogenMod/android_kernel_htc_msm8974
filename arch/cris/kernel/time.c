@@ -30,13 +30,13 @@
 #include <linux/timex.h>
 #include <linux/init.h>
 #include <linux/profile.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* just for sched_clock() - funny that */
 
-int have_rtc;  ;
+int have_rtc;  /* used to remember if we have an RTC or not */;
 
 #define TICK_SIZE tick
 
-extern unsigned long loops_per_jiffy; 
+extern unsigned long loops_per_jiffy; /* init/main.c */
 unsigned long loops_per_usec;
 
 
@@ -50,6 +50,10 @@ u32 arch_gettimeoffset(void)
 }
 #endif
 
+/*
+ * BUG: This routine does not handle hour overflow properly; it just
+ *      sets the minutes. Usually you'll only notice that after reboot!
+ */
 
 int set_rtc_mmss(unsigned long nowtime)
 {
@@ -64,10 +68,16 @@ int set_rtc_mmss(unsigned long nowtime)
 	cmos_minutes = CMOS_READ(RTC_MINUTES);
 	cmos_minutes = bcd2bin(cmos_minutes);
 
+	/*
+	 * since we're only adjusting minutes and seconds,
+	 * don't interfere with hour overflow. This avoids
+	 * messing with unknown time zones but requires your
+	 * RTC not to be off by more than 15 minutes
+	 */
 	real_seconds = nowtime % 60;
 	real_minutes = nowtime / 60;
 	if (((abs(real_minutes - cmos_minutes) + 15)/30) & 1)
-		real_minutes += 30;		
+		real_minutes += 30;		/* correct for half hour time zone */
 	real_minutes %= 60;
 
 	if (abs(real_minutes - cmos_minutes) < 30) {
@@ -85,6 +95,7 @@ int set_rtc_mmss(unsigned long nowtime)
 	return retval;
 }
 
+/* grab the time from the RTC chip */
 
 unsigned long
 get_cmos_time(void)

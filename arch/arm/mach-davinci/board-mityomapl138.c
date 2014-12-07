@@ -35,6 +35,7 @@
 #define FACTORY_CONFIG_MAGIC	0x012C0138
 #define FACTORY_CONFIG_VERSION	0x00010001
 
+/* Data Held in On-Board I2C device */
 struct factory_config {
 	u32	magic;
 	u32	version;
@@ -48,8 +49,8 @@ struct factory_config {
 static struct factory_config factory_config;
 
 struct part_no_info {
-	const char	*part_no;	
-	int		max_freq;	
+	const char	*part_no;	/* part number string of interest */
+	int		max_freq;	/* khz */
 };
 
 static struct part_no_info mityomapl138_pn_info[] = {
@@ -89,6 +90,13 @@ static void mityomapl138_cpufreq_init(const char *partnum)
 	int i, ret;
 
 	for (i = 0; partnum && i < ARRAY_SIZE(mityomapl138_pn_info); i++) {
+		/*
+		 * the part number has additional characters beyond what is
+		 * stored in the table.  This information is not needed for
+		 * determining the speed grade, and would require several
+		 * more table entries.  Only check the first N characters
+		 * for a match.
+		 */
 		if (!strncmp(partnum, mityomapl138_pn_info[i].part_no,
 			     strlen(mityomapl138_pn_info[i].part_no))) {
 			da850_max_speed = mityomapl138_pn_info[i].max_freq;
@@ -141,7 +149,7 @@ static void read_factory_config(struct memory_accessor *a, void *context)
 	pr_info("MityOMAPL138: Part Number = %s\n", partnum);
 
 bad_config:
-	
+	/* default maximum speed is valid for all platforms */
 	mityomapl138_cpufreq_init(partnum);
 }
 
@@ -154,16 +162,19 @@ static struct at24_platform_data mityomapl138_fd_chip = {
 };
 
 static struct davinci_i2c_platform_data mityomap_i2c_0_pdata = {
-	.bus_freq	= 100,	
-	.bus_delay	= 0,	
+	.bus_freq	= 100,	/* kHz */
+	.bus_delay	= 0,	/* usec */
 };
 
+/* TPS65023 voltage regulator support */
+/* 1.2V Core */
 static struct regulator_consumer_supply tps65023_dcdc1_consumers[] = {
 	{
 		.supply = "cvdd",
 	},
 };
 
+/* 1.8V */
 static struct regulator_consumer_supply tps65023_dcdc2_consumers[] = {
 	{
 		.supply = "usb0_vdda18",
@@ -179,6 +190,7 @@ static struct regulator_consumer_supply tps65023_dcdc2_consumers[] = {
 	},
 };
 
+/* 1.2V */
 static struct regulator_consumer_supply tps65023_dcdc3_consumers[] = {
 	{
 		.supply = "sata_vdd",
@@ -194,12 +206,14 @@ static struct regulator_consumer_supply tps65023_dcdc3_consumers[] = {
 	},
 };
 
+/* 1.8V Aux LDO, not used */
 static struct regulator_consumer_supply tps65023_ldo1_consumers[] = {
 	{
 		.supply = "1.8v_aux",
 	},
 };
 
+/* FPGA VCC Aux (2.5 or 3.3) LDO */
 static struct regulator_consumer_supply tps65023_ldo2_consumers[] = {
 	{
 		.supply = "vccaux",
@@ -207,7 +221,7 @@ static struct regulator_consumer_supply tps65023_ldo2_consumers[] = {
 };
 
 static struct regulator_init_data tps65023_regulator_data[] = {
-	
+	/* dcdc1 */
 	{
 		.constraints = {
 			.min_uV = 1150000,
@@ -219,7 +233,7 @@ static struct regulator_init_data tps65023_regulator_data[] = {
 		.num_consumer_supplies = ARRAY_SIZE(tps65023_dcdc1_consumers),
 		.consumer_supplies = tps65023_dcdc1_consumers,
 	},
-	
+	/* dcdc2 */
 	{
 		.constraints = {
 			.min_uV = 1800000,
@@ -230,7 +244,7 @@ static struct regulator_init_data tps65023_regulator_data[] = {
 		.num_consumer_supplies = ARRAY_SIZE(tps65023_dcdc2_consumers),
 		.consumer_supplies = tps65023_dcdc2_consumers,
 	},
-	
+	/* dcdc3 */
 	{
 		.constraints = {
 			.min_uV = 1200000,
@@ -241,7 +255,7 @@ static struct regulator_init_data tps65023_regulator_data[] = {
 		.num_consumer_supplies = ARRAY_SIZE(tps65023_dcdc3_consumers),
 		.consumer_supplies = tps65023_dcdc3_consumers,
 	},
-	
+	/* ldo1 */
 	{
 		.constraints = {
 			.min_uV = 1800000,
@@ -252,7 +266,7 @@ static struct regulator_init_data tps65023_regulator_data[] = {
 		.num_consumer_supplies = ARRAY_SIZE(tps65023_ldo1_consumers),
 		.consumer_supplies = tps65023_ldo1_consumers,
 	},
-	
+	/* ldo2 */
 	{
 		.constraints = {
 			.min_uV = 2500000,
@@ -283,6 +297,10 @@ static int __init pmic_tps65023_init(void)
 					ARRAY_SIZE(mityomap_tps65023_info));
 }
 
+/*
+ * SPI Devices:
+ *	SPI1_CS0: 8M Flash ST-M25P64-VME6G
+ */
 static struct mtd_partition spi_flash_partitions[] = {
 	[0] = {
 		.name		= "ubl",
@@ -355,12 +373,16 @@ static struct spi_board_info mityomapl138_spi_flash_info[] = {
 	},
 };
 
+/*
+ * MityDSP-L138 includes a 256 MByte large-page NAND flash
+ * (128K blocks).
+ */
 static struct mtd_partition mityomapl138_nandflash_partition[] = {
 	{
 		.name		= "rootfs",
 		.offset		= 0,
 		.size		= SZ_128M,
-		.mask_flags	= 0, 
+		.mask_flags	= 0, /* MTD_WRITEABLE, */
 	},
 	{
 		.name		= "homefs",
@@ -376,7 +398,7 @@ static struct davinci_nand_pdata mityomapl138_nandflash_data = {
 	.ecc_mode	= NAND_ECC_HW,
 	.bbt_options	= NAND_BBT_USE_FLASH,
 	.options	= NAND_BUSWIDTH_16,
-	.ecc_bits	= 1, 
+	.ecc_bits	= 1, /* 4 bit mode is not supported with 16 bit NAND */
 };
 
 static struct resource mityomapl138_nandflash_resource[] = {
@@ -440,7 +462,7 @@ static void __init mityomapl138_config_emac(void)
 	u32 val;
 	struct davinci_soc_info *soc_info = &davinci_soc_info;
 
-	soc_info->emac_pdata->rmii_en = 0; 
+	soc_info->emac_pdata->rmii_en = 0; /* hardcoded for now */
 
 	cfg_chip3_base = DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP3_REG);
 	val = __raw_readl(cfg_chip3_base);
@@ -460,7 +482,7 @@ static void __init mityomapl138_config_emac(void)
 		return;
 	}
 
-	
+	/* configure the CFGCHIP3 register for RMII or MII */
 	__raw_writel(val, cfg_chip3_base);
 
 	soc_info->emac_pdata->phy_id = MITYOMAPL138_PHY_ID;
@@ -486,7 +508,7 @@ static void __init mityomapl138_init(void)
 {
 	int ret;
 
-	
+	/* for now, no special EDMA channels are reserved */
 	ret = da850_register_edma(NULL);
 	if (ret)
 		pr_warning("edma registration failed: %d\n", ret);

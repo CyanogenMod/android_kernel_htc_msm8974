@@ -13,7 +13,65 @@
 #include "core.h"
 #include "dsp.h"
 
+/*
+ * how to encode a sample stream to 64-bit blocks that will be encryped
+ *
+ * first of all, data is collected until a block of 9 samples are received.
+ * of course, a packet may have much more than 9 sample, but is may have
+ * not excacly the multiple of 9 samples. if there is a rest, the next
+ * received data will complete the block.
+ *
+ * the block is then converted to 9 uLAW samples without the least sigificant
+ * bit. the result is a 7-bit encoded sample.
+ *
+ * the samples will be reoganised to form 8 bytes of data:
+ * (5(6) means: encoded sample no. 5, bit 6)
+ *
+ * 0(6) 0(5) 0(4) 0(3) 0(2) 0(1) 0(0) 1(6)
+ * 1(5) 1(4) 1(3) 1(2) 1(1) 1(0) 2(6) 2(5)
+ * 2(4) 2(3) 2(2) 2(1) 2(0) 3(6) 3(5) 3(4)
+ * 3(3) 3(2) 3(1) 3(0) 4(6) 4(5) 4(4) 4(3)
+ * 4(2) 4(1) 4(0) 5(6) 5(5) 5(4) 5(3) 5(2)
+ * 5(1) 5(0) 6(6) 6(5) 6(4) 6(3) 6(2) 6(1)
+ * 6(0) 7(6) 7(5) 7(4) 7(3) 7(2) 7(1) 7(0)
+ * 8(6) 8(5) 8(4) 8(3) 8(2) 8(1) 8(0)
+ *
+ * the missing bit 0 of the last byte is filled with some
+ * random noise, to fill all 8 bytes.
+ *
+ * the 8 bytes will be encrypted using blowfish.
+ *
+ * the result will be converted into 9 bytes. the bit 7 is used for
+ * checksumme (CS) for sync (0, 1) and for the last bit:
+ * (5(6) means: crypted byte 5, bit 6)
+ *
+ * 1    0(7) 0(6) 0(5) 0(4) 0(3) 0(2) 0(1)
+ * 0    0(0) 1(7) 1(6) 1(5) 1(4) 1(3) 1(2)
+ * 0    1(1) 1(0) 2(7) 2(6) 2(5) 2(4) 2(3)
+ * 0    2(2) 2(1) 2(0) 3(7) 3(6) 3(5) 3(4)
+ * 0    3(3) 3(2) 3(1) 3(0) 4(7) 4(6) 4(5)
+ * CS   4(4) 4(3) 4(2) 4(1) 4(0) 5(7) 5(6)
+ * CS   5(5) 5(4) 5(3) 5(2) 5(1) 5(0) 6(7)
+ * CS   6(6) 6(5) 6(4) 6(3) 6(2) 6(1) 6(0)
+ * 7(0) 7(6) 7(5) 7(4) 7(3) 7(2) 7(1) 7(0)
+ *
+ * the checksum is used to detect transmission errors and frame drops.
+ *
+ * synchronisation of received block is done by shifting the upper bit of each
+ * byte (bit 7) to a shift register. if the rigister has the first five bits
+ * (10000), this is used to find the sync. only if sync has been found, the
+ * current block of 9 received bytes are decrypted. before that the check
+ * sum is calculated. if it is incorrect the block is dropped.
+ * this will avoid loud noise due to corrupt encrypted data.
+ *
+ * if the last block is corrupt, the current decoded block is repeated
+ * until a valid block has been received.
+ */
 
+/*
+ *  some blowfish parts are taken from the
+ * crypto-api for faster implementation
+ */
 
 struct bf_ctx {
 	u32 p[18];
@@ -287,6 +345,10 @@ static const u32 bf_sbox[256 * 4] = {
 	0xb74e6132, 0xce77e25b, 0x578fdfe3, 0x3ac372e6,
 };
 
+/*
+ * Round loop unrolling macros, S is a pointer to a S-Box array
+ * organized in 4 unsigned longs at a row.
+ */
 #define GET32_3(x) (((x) & 0xff))
 #define GET32_2(x) (((x) >> (8)) & (0xff))
 #define GET32_1(x) (((x) >> (16)) & (0xff))
@@ -299,6 +361,10 @@ static const u32 bf_sbox[256 * 4] = {
 #define DROUND(a, b, n)  do { a ^= bf_F(b); b ^= P[n]; } while (0)
 
 
+/*
+ * encrypt isdn data frame
+ * every block with 9 samples is encrypted
+ */
 void
 dsp_bf_encrypt(struct dsp *dsp, u8 *data, int len)
 {
@@ -312,7 +378,7 @@ dsp_bf_encrypt(struct dsp *dsp, u8 *data, int len)
 	u8 nibble;
 
 	while (i < len) {
-		
+		/* collect a block of 9 samples */
 		if (j < 9) {
 			bf_data_in[j] = *data;
 			*data++ = bf_crypt_out[j++];
@@ -320,7 +386,7 @@ dsp_bf_encrypt(struct dsp *dsp, u8 *data, int len)
 			continue;
 		}
 		j = 0;
-		
+		/* transcode 9 samples xlaw to 8 bytes */
 		yl = dsp_audio_law2seven[bf_data_in[0]];
 		yl = (yl << 7) | dsp_audio_law2seven[bf_data_in[1]];
 		yl = (yl << 7) | dsp_audio_law2seven[bf_data_in[2]];
@@ -334,8 +400,8 @@ dsp_bf_encrypt(struct dsp *dsp, u8 *data, int len)
 		yr = (yr << 7) | dsp_audio_law2seven[bf_data_in[8]];
 		yr = (yr << 1) | (bf_data_in[0] & 1);
 
-		
-		
+		/* fill unused bit with random noise of audio input */
+		/* encrypt */
 
 		EROUND(yr, yl, 0);
 		EROUND(yl, yr, 1);
@@ -356,13 +422,17 @@ dsp_bf_encrypt(struct dsp *dsp, u8 *data, int len)
 		yl ^= P[16];
 		yr ^= P[17];
 
-		
+		/* calculate 3-bit checksumme */
 		cs = yl ^ (yl >> 3) ^ (yl >> 6) ^ (yl >> 9) ^ (yl >> 12) ^ (yl >> 15)
 			^ (yl >> 18) ^ (yl >> 21) ^ (yl >> 24) ^ (yl >> 27) ^ (yl >> 30)
 			^ (yr << 2) ^ (yr >> 1) ^ (yr >> 4) ^ (yr >> 7) ^ (yr >> 10)
 			^ (yr >> 13) ^ (yr >> 16) ^ (yr >> 19) ^ (yr >> 22) ^ (yr >> 25)
 			^ (yr >> 28) ^ (yr >> 31);
 
+		/*
+		 * transcode 8 crypted bytes to 9 data bytes with sync
+		 * and checksum information
+		 */
 		bf_crypt_out[0] = (yl >> 25) | 0x80;
 		bf_crypt_out[1] = (yl >> 18) & 0x7f;
 		bf_crypt_out[2] = (yl >> 11) & 0x7f;
@@ -374,12 +444,16 @@ dsp_bf_encrypt(struct dsp *dsp, u8 *data, int len)
 		bf_crypt_out[8] = yr;
 	}
 
-	
+	/* write current count */
 	dsp->bf_crypt_pos = j;
 
 }
 
 
+/*
+ * decrypt isdn data frame
+ * every block with 9 bytes is decrypted
+ */
 void
 dsp_bf_decrypt(struct dsp *dsp, u8 *data, int len)
 {
@@ -396,22 +470,26 @@ dsp_bf_decrypt(struct dsp *dsp, u8 *data, int len)
 	u8 cs, cs0, cs1, cs2;
 
 	while (i < len) {
+		/*
+		 * shift upper bit and rotate data to buffer ring
+		 * send current decrypted data
+		 */
 		sync = (sync << 1) | ((*data) >> 7);
 		bf_crypt_inring[j++ & 15] = *data;
 		*data++ = bf_data_out[k++];
 		i++;
 		if (k == 9)
-			k = 0; 
-		
+			k = 0; /* repeat if no sync has been found */
+		/* check if not in sync */
 		if ((sync & 0x1f0) != 0x100)
 			continue;
 		j -= 9;
-		
+		/* transcode receive data to 64 bit block of encrypted data */
 		yl = bf_crypt_inring[j++ & 15];
-		yl = (yl << 7) | bf_crypt_inring[j++ & 15]; 
-		yl = (yl << 7) | bf_crypt_inring[j++ & 15]; 
-		yl = (yl << 7) | bf_crypt_inring[j++ & 15]; 
-		nibble = bf_crypt_inring[j++ & 15]; 
+		yl = (yl << 7) | bf_crypt_inring[j++ & 15]; /* bit7 = 0 */
+		yl = (yl << 7) | bf_crypt_inring[j++ & 15]; /* bit7 = 0 */
+		yl = (yl << 7) | bf_crypt_inring[j++ & 15]; /* bit7 = 0 */
+		nibble = bf_crypt_inring[j++ & 15]; /* bit7 = 0 */
 		yr = nibble;
 		yl = (yl << 4) | (nibble >> 3);
 		cs2 = bf_crypt_inring[j++ & 15];
@@ -422,14 +500,14 @@ dsp_bf_decrypt(struct dsp *dsp, u8 *data, int len)
 		yr = (yr << 7) | (cs0 & 0x7f);
 		yr = (yr << 8) | bf_crypt_inring[j++ & 15];
 
-		
+		/* calculate 3-bit checksumme */
 		cs = yl ^ (yl >> 3) ^ (yl >> 6) ^ (yl >> 9) ^ (yl >> 12) ^ (yl >> 15)
 			^ (yl >> 18) ^ (yl >> 21) ^ (yl >> 24) ^ (yl >> 27) ^ (yl >> 30)
 			^ (yr << 2) ^ (yr >> 1) ^ (yr >> 4) ^ (yr >> 7) ^ (yr >> 10)
 			^ (yr >> 13) ^ (yr >> 16) ^ (yr >> 19) ^ (yr >> 22) ^ (yr >> 25)
 			^ (yr >> 28) ^ (yr >> 31);
 
-		
+		/* check if frame is valid */
 		if ((cs & 0x7) != (((cs2 >> 5) & 4) | ((cs1 >> 6) & 2) | (cs0 >> 7))) {
 			if (dsp_debug & DEBUG_DSP_BLOWFISH)
 				printk(KERN_DEBUG
@@ -438,7 +516,7 @@ dsp_bf_decrypt(struct dsp *dsp, u8 *data, int len)
 			continue;
 		}
 
-		
+		/* decrypt */
 		yr ^= P[17];
 		yl ^= P[16];
 		DROUND(yl, yr, 15);
@@ -458,7 +536,7 @@ dsp_bf_decrypt(struct dsp *dsp, u8 *data, int len)
 		DROUND(yl, yr, 1);
 		DROUND(yr, yl, 0);
 
-		
+		/* transcode 8 crypted bytes to 9 sample bytes */
 		bf_data_out[0] = dsp_audio_seven2law[(yl >> 25) & 0x7f];
 		bf_data_out[1] = dsp_audio_seven2law[(yl >> 18) & 0x7f];
 		bf_data_out[2] = dsp_audio_seven2law[(yl >> 11) & 0x7f];
@@ -470,16 +548,17 @@ dsp_bf_decrypt(struct dsp *dsp, u8 *data, int len)
 		bf_data_out[6] = dsp_audio_seven2law[(yr >> 15) & 0x7f];
 		bf_data_out[7] = dsp_audio_seven2law[(yr >> 8) & 0x7f];
 		bf_data_out[8] = dsp_audio_seven2law[(yr >> 1) & 0x7f];
-		k = 0; 
+		k = 0; /* start with new decoded frame */
 	}
 
-	
+	/* write current count and sync */
 	dsp->bf_decrypt_in_pos = j;
 	dsp->bf_decrypt_out_pos = k;
 	dsp->bf_sync = sync;
 }
 
 
+/* used to encrypt S and P boxes */
 static inline void
 encrypt_block(const u32 *P, const u32 *S, u32 *dst, u32 *src)
 {
@@ -510,6 +589,12 @@ encrypt_block(const u32 *P, const u32 *S, u32 *dst, u32 *src)
 	dst[1] = yl;
 }
 
+/*
+ * initialize the dsp for encryption and decryption using the same key
+ * Calculates the blowfish S and P boxes for encryption and decryption.
+ * The margin of keylen must be 4-56 bytes.
+ * returns 0 if ok.
+ */
 int
 dsp_bf_init(struct dsp *dsp, const u8 *key, uint keylen)
 {
@@ -521,7 +606,7 @@ dsp_bf_init(struct dsp *dsp, const u8 *key, uint keylen)
 	if (keylen < 4 || keylen > 56)
 		return 1;
 
-	
+	/* Set dsp states */
 	i = 0;
 	while (i < 9) {
 		dsp->bf_crypt_out[i] = 0xff;
@@ -534,16 +619,16 @@ dsp_bf_init(struct dsp *dsp, const u8 *key, uint keylen)
 	dsp->bf_sync = 0x1ff;
 	dsp->bf_enable = 1;
 
-	
+	/* Copy the initialization s-boxes */
 	for (i = 0, count = 0; i < 256; i++)
 		for (j = 0; j < 4; j++, count++)
 			S[count] = bf_sbox[count];
 
-	
+	/* Set the p-boxes */
 	for (i = 0; i < 16 + 2; i++)
 		P[i] = bf_pbox[i];
 
-	
+	/* Actual subkey generation */
 	for (j = 0, i = 0; i < 16 + 2; i++) {
 		temp = (((u32)key[j] << 24) |
 			((u32)key[(j + 1) % keylen] << 16) |
@@ -577,6 +662,9 @@ dsp_bf_init(struct dsp *dsp, const u8 *key, uint keylen)
 }
 
 
+/*
+ * turn encryption off
+ */
 void
 dsp_bf_cleanup(struct dsp *dsp)
 {

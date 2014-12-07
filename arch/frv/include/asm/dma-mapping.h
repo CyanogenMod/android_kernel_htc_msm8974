@@ -7,6 +7,10 @@
 #include <asm/scatterlist.h>
 #include <asm/io.h>
 
+/*
+ * See Documentation/DMA-API.txt for the description of how the
+ * following DMA API should work.
+ */
 
 #define dma_alloc_noncoherent(d, s, h, f) dma_alloc_coherent(d, s, h, f)
 #define dma_free_noncoherent(d, s, v, h) dma_free_coherent(d, s, v, h)
@@ -99,6 +103,11 @@ int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 static inline
 int dma_supported(struct device *dev, u64 mask)
 {
+        /*
+         * we fall back to GFP_DMA when the mask isn't all 1s,
+         * so we can't guarantee allocations that must be
+         * within a tighter range than GFP_DMA..
+         */
         if (mask < 0x00ffffff)
                 return 0;
 
@@ -123,4 +132,4 @@ void dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 	flush_write_buffers();
 }
 
-#endif  
+#endif  /* _ASM_DMA_MAPPING_H */

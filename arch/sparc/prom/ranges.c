@@ -15,6 +15,7 @@
 static struct linux_prom_ranges promlib_obio_ranges[PROMREG_MAX];
 static int num_obio_ranges;
 
+/* Adjust register values based upon the ranges parameters. */
 static void
 prom_adjust_regs(struct linux_prom_registers *regp, int nregs,
 		 struct linux_prom_ranges *rangep, int nranges)
@@ -24,8 +25,8 @@ prom_adjust_regs(struct linux_prom_registers *regp, int nregs,
 	for (regc = 0; regc < nregs; regc++) {
 		for (rngc = 0; rngc < nranges; rngc++)
 			if (regp[regc].which_io == rangep[rngc].ot_child_space)
-				break; 
-		if (rngc == nranges) 
+				break; /* Fount it */
+		if (rngc == nranges) /* oops */
 			prom_printf("adjust_regs: Could not find range with matching bus type...\n");
 		regp[regc].which_io = rangep[rngc].ot_parent_space;
 		regp[regc].phys_addr -= rangep[rngc].ot_child_base;
@@ -45,7 +46,7 @@ prom_adjust_ranges(struct linux_prom_ranges *ranges1, int nranges1,
 			   ranges1[rng1c].ot_parent_base >= ranges2[rng2c].ot_child_base &&
 			   ranges2[rng2c].ot_child_base + ranges2[rng2c].or_size - ranges1[rng1c].ot_parent_base > 0U)
 			break;
-		if(rng2c == nranges2) 
+		if(rng2c == nranges2) /* oops */
 			prom_printf("adjust_ranges: Could not find matching bus type...\n");
 		else if (ranges1[rng1c].ot_parent_base + ranges1[rng1c].or_size > ranges2[rng2c].ot_child_base + ranges2[rng2c].or_size)
 			ranges1[rng1c].or_size =
@@ -55,6 +56,7 @@ prom_adjust_ranges(struct linux_prom_ranges *ranges1, int nranges1,
 	}
 }
 
+/* Apply probed obio ranges to registers passed, if no ranges return. */
 void
 prom_apply_obio_ranges(struct linux_prom_registers *regs, int nregs)
 {
@@ -70,7 +72,7 @@ void __init prom_ranges_init(void)
 
 	num_obio_ranges = 0;
 
-	
+	/* Check for obio and sbus ranges. */
 	node = prom_getchild(prom_root_node);
 	obio_node = prom_searchsiblings(node, "obio");
 

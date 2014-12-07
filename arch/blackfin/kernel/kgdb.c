@@ -6,7 +6,7 @@
  * Licensed under the GPL-2 or later.
  */
 
-#include <linux/ptrace.h>		
+#include <linux/ptrace.h>		/* for linux pt_regs struct */
 #include <linux/kgdb.h>
 #include <linux/uaccess.h>
 
@@ -73,6 +73,13 @@ void pt_regs_to_gdb_regs(unsigned long *gdb_regs, struct pt_regs *regs)
 	gdb_regs[BFIN_IPEND] = regs->ipend;
 }
 
+/*
+ * Extracts ebp, esp and eip values understandable by gdb from the values
+ * saved by switch_to.
+ * thread.esp points to ebp. flags and ebp are pushed in switch_to hence esp
+ * prior to entering switch_to is 8 greater than the value that is saved.
+ * If switch_to changes, change following code appropriately.
+ */
 void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 {
 	gdb_regs[BFIN_SP] = p->thread.ksp;
@@ -131,7 +138,7 @@ void gdb_regs_to_pt_regs(unsigned long *gdb_regs, struct pt_regs *regs)
 	regs->rete = gdb_regs[BFIN_RETE];
 	regs->pc = gdb_regs[BFIN_PC];
 
-#if 0				
+#if 0				/* can't change these */
 	regs->astat = gdb_regs[BFIN_ASTAT];
 	regs->seqstat = gdb_regs[BFIN_SEQSTAT];
 	regs->ipend = gdb_regs[BFIN_IPEND];
@@ -174,6 +181,12 @@ static int bfin_set_hw_break(unsigned long addr, int len, enum kgdb_bptype type)
 		return -ENOSPC;
 	}
 
+	/* Because hardware data watchpoint impelemented in current
+	 * Blackfin can not trigger an exception event as the hardware
+	 * instrction watchpoint does, we ignaore all data watch point here.
+	 * They can be turned on easily after future blackfin design
+	 * supports this feature.
+	 */
 	for (breakno = 0; breakno < HW_INST_WATCHPOINT_NUM; breakno++)
 		if (bfin_type == breakinfo[breakno].type
 			&& !breakinfo[breakno].occupied) {
@@ -296,6 +309,8 @@ static void bfin_correct_hw_break(void)
 			}
 		}
 
+	/* Should enable WPPWR bit first before set any other
+	 * WPIACTL and WPDACTL bits */
 	if (enable_wp) {
 		bfin_write_WPIACTL(WPPWR);
 		CSYNC();
@@ -307,7 +322,7 @@ static void bfin_correct_hw_break(void)
 
 static void bfin_disable_hw_debug(struct pt_regs *regs)
 {
-	
+	/* Disable hardware debugging while we are in kgdb */
 	bfin_write_WPIACTL(0);
 	bfin_write_WPDACTL(0);
 	CSYNC();
@@ -367,17 +382,17 @@ int kgdb_arch_handle_exception(int vector, int signo,
 
 		kgdb_contthread = NULL;
 
-		
+		/* try to read optional parameter, pc unchanged if no parm */
 		ptr = &remcom_in_buffer[1];
 		if (kgdb_hex2long(&ptr, &addr)) {
 			regs->retx = addr;
 		}
 		newPC = regs->retx;
 
-		
+		/* clear the trace bit */
 		regs->syscfg &= 0xfffffffe;
 
-		
+		/* set the trace bit if we're stepping */
 		if (remcom_in_buffer[0] == 's') {
 			regs->syscfg |= 0x1;
 			kgdb_single_step = regs->ipend;
@@ -385,6 +400,10 @@ int kgdb_arch_handle_exception(int vector, int signo,
 			for (i = 10; i > 0; i--, kgdb_single_step >>= 1)
 				if (kgdb_single_step & 1)
 					break;
+			/* i indicate event priority of current stopped instruction
+			 * user space instruction is 0, IVG15 is 1, IVTMR is 10.
+			 * kgdb_single_step > 0 means in single step mode
+			 */
 			kgdb_single_step = i + 1;
 
 			preempt_disable();
@@ -397,8 +416,8 @@ int kgdb_arch_handle_exception(int vector, int signo,
 		bfin_correct_hw_break();
 
 		return 0;
-	}			
-	return -1;		
+	}			/* switch */
+	return -1;		/* this means that we do not want to exit from the handler */
 }
 
 struct kgdb_arch arch_kgdb_ops = {

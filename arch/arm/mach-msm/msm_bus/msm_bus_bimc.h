@@ -91,19 +91,19 @@ struct msm_bus_bimc_qos_mode {
 };
 
 struct msm_bus_bimc_qos_bw {
-	uint64_t bw;	
-	uint32_t ws;	
-	int64_t thh;	
-	int64_t thm;	
-	int64_t thl;	
-	u32 gp;	
-	u32 thmp; 
+	uint64_t bw;	/* bw is in Bytes/sec */
+	uint32_t ws;	/* Window size in nano seconds*/
+	int64_t thh;	/* Threshold high, bytes per second */
+	int64_t thm;	/* Threshold medium, bytes per second */
+	int64_t thl;	/* Threshold low, bytes per second */
+	u32 gp;	/* Grant Period in micro seconds */
+	u32 thmp; /* Threshold medium in percentage */
 };
 
 struct msm_bus_bimc_clk_gate {
 	bool core_clk_gate_en;
-	bool arb_clk_gate_en;	
-	bool port_clk_gate_en;	
+	bool arb_clk_gate_en;	/* For arbiter */
+	bool port_clk_gate_en;	/* For regs on BIMC core clock */
 };
 
 void msm_bus_bimc_set_slave_seg(struct msm_bus_bimc_info *binfo,
@@ -124,4 +124,4 @@ void msm_bus_bimc_get_slv_params(struct msm_bus_bimc_info *binfo,
 bool msm_bus_bimc_get_arb_en(struct msm_bus_bimc_info *binfo,
 	uint32_t slv_index);
 
-#endif 
+#endif /*_ARCH_ARM_MACH_MSM_BUS_BIMC_H*/

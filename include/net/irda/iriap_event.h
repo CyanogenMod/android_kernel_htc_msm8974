@@ -25,15 +25,17 @@
 #ifndef IRIAP_FSM_H
 #define IRIAP_FSM_H
 
+/* Forward because of circular include dependecies */
 struct iriap_cb;
 
+/* IrIAP states */
 typedef enum {
-	
+	/* Client */
 	S_DISCONNECT,
 	S_CONNECTING,
 	S_CALL,
 
-	
+	/* S-Call */
 	S_MAKE_CALL,
 	S_CALLING,
 	S_OUTSTANDING,
@@ -41,11 +43,11 @@ typedef enum {
 	S_WAIT_FOR_CALL,
 	S_WAIT_ACTIVE,
 
-	
+	/* Server */
 	R_DISCONNECT,
 	R_CALL,
 	
-	
+	/* R-Connect */
 	R_WAITING,
 	R_WAIT_ACTIVE,
 	R_RECEIVING,
@@ -79,5 +81,5 @@ void iriap_do_server_event   (struct iriap_cb *self, IRIAP_EVENT event,
 void iriap_do_r_connect_event(struct iriap_cb *self, IRIAP_EVENT event, 
 			      struct sk_buff *skb);
 
-#endif 
+#endif /* IRIAP_FSM_H */
 

@@ -57,7 +57,7 @@ static int tps65912_gpio_output(struct gpio_chip *gc, unsigned offset,
 {
 	struct tps65912 *tps65912 = container_of(gc, struct tps65912, gpio);
 
-	
+	/* Set the initial value */
 	tps65912_gpio_set(gc, offset, value);
 
 	return tps65912_set_bits(tps65912, TPS65912_GPIO1 + offset,

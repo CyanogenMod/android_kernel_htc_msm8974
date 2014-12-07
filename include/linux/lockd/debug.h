@@ -13,6 +13,10 @@
 
 #include <linux/sunrpc/debug.h>
 
+/*
+ * Enable lockd debugging.
+ * Requires RPC_DEBUG.
+ */
 #ifdef RPC_DEBUG
 # define LOCKD_DEBUG		1
 #endif
@@ -24,8 +28,11 @@
 # define ifdebug(flag)		if (0)
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
+/*
+ * Debug flags
+ */
 #define NLMDBG_SVC		0x0001
 #define NLMDBG_CLIENT		0x0002
 #define NLMDBG_CLNTLOCK		0x0004
@@ -37,4 +44,4 @@
 #define NLMDBG_XDR		0x0100
 #define NLMDBG_ALL		0x7fff
 
-#endif 
+#endif /* LINUX_LOCKD_DEBUG_H */

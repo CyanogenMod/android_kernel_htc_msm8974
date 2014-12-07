@@ -35,6 +35,7 @@
 
 #define TM6000_VERSION KERNEL_VERSION(0, 0, 2)
 
+/* Inputs */
 enum tm6000_itype {
 	TM6000_INPUT_TV	= 1,
 	TM6000_INPUT_COMPOSITE1,
@@ -69,15 +70,20 @@ struct tm6000_input {
 	unsigned int		a_gpio;
 };
 
+/* ------------------------------------------------------------------
+ *	Basic structures
+ * ------------------------------------------------------------------
+ */
 
 struct tm6000_fmt {
 	char  *name;
-	u32   fourcc;          
+	u32   fourcc;          /* v4l2 format id */
 	int   depth;
 };
 
+/* buffer for one video frame */
 struct tm6000_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer vb;
 
 	struct tm6000_fmt      *fmt;
@@ -87,20 +93,22 @@ struct tm6000_dmaqueue {
 	struct list_head       active;
 	struct list_head       queued;
 
-	
+	/* thread for generating video stream*/
 	struct task_struct         *kthread;
 	wait_queue_head_t          wq;
-	
+	/* Counters to control fps rate */
 	int                        frame;
 	int                        ini_jiffies;
 };
 
+/* device states */
 enum tm6000_core_state {
 	DEV_INITIALIZED   = 0x01,
 	DEV_DISCONNECTED  = 0x02,
 	DEV_MISCONFIGURED = 0x04,
 };
 
+/* io methods */
 enum tm6000_io_method {
 	IO_NONE,
 	IO_READ,
@@ -149,7 +157,7 @@ struct snd_tm6000_card {
 	struct tm6000_core		*core;
 	struct snd_pcm_substream	*substream;
 
-	
+	/* temporary data for buffer fill processing */
 	unsigned			buf_pos;
 	unsigned			period_pos;
 };
@@ -164,28 +172,28 @@ struct tm6000_endpoint {
 #define TM6000_QUIRK_NO_USB_DELAY (1 << 0)
 
 struct tm6000_core {
-	
-	char				name[30];	
-	int				model;		
-	int				devno;		
-	enum tm6000_devtype		dev_type;	
-	unsigned char			eedata[256];	
-	unsigned			eedata_size;	
+	/* generic device properties */
+	char				name[30];	/* name (including minor) of the device */
+	int				model;		/* index in the device_data struct */
+	int				devno;		/* marks the number of this device */
+	enum tm6000_devtype		dev_type;	/* type of device */
+	unsigned char			eedata[256];	/* Eeprom data */
+	unsigned			eedata_size;	/* Size of the eeprom info */
 
-	v4l2_std_id                     norm;           
-	int				width, height;	
+	v4l2_std_id                     norm;           /* Current norm */
+	int				width, height;	/* Selected resolution */
 
 	enum tm6000_core_state		state;
 
-	
+	/* Device Capabilities*/
 	struct tm6000_capabilities	caps;
 
-	
+	/* Used to load alsa/dvb */
         struct work_struct		request_module_wk;
 
-	
-	int				tuner_type;		
-	int				tuner_addr;		
+	/* Tuner configuration */
+	int				tuner_type;		/* type of the tuner */
+	int				tuner_addr;		/* tuner address */
 
 	struct tm6000_gpio		gpio;
 
@@ -193,23 +201,23 @@ struct tm6000_core {
 
 	__u8				radio;
 
-	
-	int				demod_addr;	
+	/* Demodulator configuration */
+	int				demod_addr;	/* demodulator address */
 
 	int				audio_bitrate;
-	
+	/* i2c i/o */
 	struct i2c_adapter		i2c_adap;
 	struct i2c_client		i2c_client;
 
 
-	
+	/* extension */
 	struct list_head		devlist;
 
-	
+	/* video for linux */
 	int				users;
 
-	
-	struct tm6000_fh		*resources;	
+	/* various device info */
+	struct tm6000_fh		*resources;	/* Points to fh that is streaming */
 	bool				is_res_read;
 
 	struct video_device		*vfd;
@@ -218,42 +226,42 @@ struct tm6000_core {
 	struct v4l2_device		v4l2_dev;
 
 	int				input;
-	struct tm6000_input		vinput[3];	
-	struct tm6000_input		rinput;		
+	struct tm6000_input		vinput[3];	/* video input */
+	struct tm6000_input		rinput;		/* radio input */
 
 	int				freq;
 	unsigned int			fourcc;
 
 	enum tm6000_mode		mode;
 
-	int				ctl_mute;             
+	int				ctl_mute;             /* audio */
 	int				ctl_volume;
 	int				amode;
 
-	
+	/* DVB-T support */
 	struct tm6000_dvb		*dvb;
 
-	
+	/* audio support */
 	struct snd_tm6000_card		*adev;
-	struct work_struct		wq_trigger;   
-	atomic_t			stream_started;  
+	struct work_struct		wq_trigger;   /* Trigger to start/stop audio for alsa module */
+	atomic_t			stream_started;  /* stream should be running if true */
 
 	struct tm6000_IR		*ir;
 
-	
+	/* locks */
 	struct mutex			lock;
 	struct mutex			usb_lock;
 
-	
-	struct usb_device		*udev;		
+	/* usb transfer */
+	struct usb_device		*udev;		/* the usb device */
 
 	struct tm6000_endpoint		bulk_in, bulk_out, isoc_in, isoc_out;
 	struct tm6000_endpoint		int_in, int_out;
 
-	
+	/* scaler!=0 if scaler is active*/
 	int				scaler;
 
-		
+		/* Isoc control struct */
 	struct usb_isoc_ctl          isoc_ctl;
 
 	spinlock_t                   slock;
@@ -279,7 +287,7 @@ struct tm6000_fh {
 	struct tm6000_core           *dev;
 	unsigned int                 radio;
 
-	
+	/* video capture */
 	struct tm6000_fmt            *fmt;
 	unsigned int                 width, height;
 	struct videobuf_queue        vb_vidq;
@@ -291,12 +299,14 @@ struct tm6000_fh {
 			V4L2_STD_PAL_M|V4L2_STD_PAL_60|V4L2_STD_NTSC_M| \
 			V4L2_STD_NTSC_M_JP|V4L2_STD_SECAM)
 
+/* In tm6000-cards.c */
 
 int tm6000_tuner_callback(void *ptr, int component, int command, int arg);
 int tm6000_xc5000_callback(void *ptr, int component, int command, int arg);
 int tm6000_cards_setup(struct tm6000_core *dev);
 void tm6000_flash_led(struct tm6000_core *dev, u8 state);
 
+/* In tm6000-core.c */
 
 int tm6000_read_write_usb(struct tm6000_core *dev, u8 reqtype, u8 req,
 			   u16 value, u16 index, u8 *buf, u16 len);
@@ -332,12 +342,15 @@ int tm6000_call_fillbuf(struct tm6000_core *dev, enum tm6000_ops_type type,
 			char *buf, int size);
 
 
+/* In tm6000-stds.c */
 void tm6000_get_std_res(struct tm6000_core *dev);
 int tm6000_set_standard(struct tm6000_core *dev);
 
+/* In tm6000-i2c.c */
 int tm6000_i2c_register(struct tm6000_core *dev);
 int tm6000_i2c_unregister(struct tm6000_core *dev);
 
+/* In tm6000-queue.c */
 
 int tm6000_v4l2_mmap(struct file *filp, struct vm_area_struct *vma);
 
@@ -357,13 +370,17 @@ unsigned int tm6000_v4l2_poll(struct file *file,
 			      struct poll_table_struct *wait);
 int tm6000_queue_init(struct tm6000_core *dev);
 
+/* In tm6000-alsa.c */
+/*int tm6000_audio_init(struct tm6000_core *dev, int idx);*/
 
+/* In tm6000-input.c */
 int tm6000_ir_init(struct tm6000_core *dev);
 int tm6000_ir_fini(struct tm6000_core *dev);
 void tm6000_ir_wait(struct tm6000_core *dev, u8 state);
 int tm6000_ir_int_start(struct tm6000_core *dev);
 void tm6000_ir_int_stop(struct tm6000_core *dev);
 
+/* Debug stuff */
 
 extern int tm6000_debug;
 
@@ -376,8 +393,8 @@ extern int tm6000_debug;
 #define V4L2_DEBUG_I2C		0x0008
 #define V4L2_DEBUG_QUEUE	0x0010
 #define V4L2_DEBUG_ISOC		0x0020
-#define V4L2_DEBUG_RES_LOCK	0x0040	
-#define V4L2_DEBUG_OPEN		0x0080	
+#define V4L2_DEBUG_RES_LOCK	0x0040	/* Resource locking */
+#define V4L2_DEBUG_OPEN		0x0080	/* video open/close debug */
 
 #define tm6000_err(fmt, arg...) do {\
 	printk(KERN_ERR "tm6000 %s :"fmt, \

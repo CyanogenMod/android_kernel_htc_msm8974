@@ -92,7 +92,7 @@ static int umcast_open(void *data)
 	}
 
 	if (!pri->unicast) {
-		
+		/* set ttl according to config */
 		if (setsockopt(fd, SOL_IP, IP_MULTICAST_TTL, &pri->ttl,
 			       sizeof(pri->ttl)) < 0) {
 			err = -errno;
@@ -101,7 +101,7 @@ static int umcast_open(void *data)
 			goto out_close;
 		}
 
-		
+		/* set LOOP, so data does get fed back to local sockets */
 		if (setsockopt(fd, SOL_IP, IP_MULTICAST_LOOP,
 			       &yes, sizeof(yes)) < 0) {
 			err = -errno;
@@ -111,7 +111,7 @@ static int umcast_open(void *data)
 		}
 	}
 
-	
+	/* bind socket to the address */
 	if (bind(fd, (struct sockaddr *) lsin, sizeof(*lsin)) < 0) {
 		err = -errno;
 		printk(UM_KERN_ERR "umcast_open : data bind failed, "
@@ -120,7 +120,7 @@ static int umcast_open(void *data)
 	}
 
 	if (!pri->unicast) {
-		
+		/* subscribe to the multicast group */
 		mreq.imr_multiaddr.s_addr = lsin->sin_addr.s_addr;
 		mreq.imr_interface.s_addr = 0;
 		if (setsockopt(fd, SOL_IP, IP_ADD_MEMBERSHIP,

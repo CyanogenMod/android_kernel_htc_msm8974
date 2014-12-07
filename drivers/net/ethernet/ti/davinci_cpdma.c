@@ -22,6 +22,7 @@
 
 #include "davinci_cpdma.h"
 
+/* DMA Registers */
 #define CPDMA_TXIDVER		0x00
 #define CPDMA_TXCONTROL		0x04
 #define CPDMA_TXTEARDOWN	0x08
@@ -45,11 +46,13 @@
 #define CPDMA_DMAINTMASKCLEAR	0xbc
 #define CPDMA_DMAINT_HOSTERR	BIT(1)
 
+/* the following exist only if has_ext_regs is set */
 #define CPDMA_DMACONTROL	0x20
 #define CPDMA_DMASTATUS		0x24
 #define CPDMA_RXBUFFOFS		0x28
 #define CPDMA_EM_CONTROL	0x2c
 
+/* Descriptor mode bits */
 #define CPDMA_DESC_SOP		BIT(31)
 #define CPDMA_DESC_EOP		BIT(30)
 #define CPDMA_DESC_OWNER	BIT(29)
@@ -60,12 +63,12 @@
 #define CPDMA_TEARDOWN_VALUE	0xfffffffc
 
 struct cpdma_desc {
-	
+	/* hardware fields */
 	u32			hw_next;
 	u32			hw_buffer;
 	u32			hw_len;
 	u32			hw_mode;
-	
+	/* software fields */
 	void			*sw_token;
 	u32			sw_buffer;
 	u32			sw_len;
@@ -74,8 +77,8 @@ struct cpdma_desc {
 struct cpdma_desc_pool {
 	u32			phys;
 	u32			hw_addr;
-	void __iomem		*iomap;		
-	void			*cpumap;	
+	void __iomem		*iomap;		/* ioremap map */
+	void			*cpumap;	/* dma_alloc map */
 	int			desc_size, mem_size;
 	int			num_desc, used_desc;
 	unsigned long		*bitmap;
@@ -112,13 +115,15 @@ struct cpdma_chan {
 	cpdma_handler_fn		handler;
 	enum dma_data_direction		dir;
 	struct cpdma_chan_stats		stats;
-	
+	/* offsets into dmaregs */
 	int	int_set, int_clear, td;
 };
 
+/* The following make access to common cpdma_ctlr params more readable */
 #define dmaregs		params.dmaregs
 #define num_chan	params.num_chan
 
+/* various accessors */
 #define dma_reg_read(ctlr, ofs)		__raw_readl((ctlr)->dmaregs + (ofs))
 #define chan_read(chan, fld)		__raw_readl((chan)->fld)
 #define desc_read(desc, fld)		__raw_readl(&(desc)->fld)
@@ -126,6 +131,12 @@ struct cpdma_chan {
 #define chan_write(chan, fld, v)	__raw_writel(v, (chan)->fld)
 #define desc_write(desc, fld, v)	__raw_writel((u32)(v), &(desc)->fld)
 
+/*
+ * Utility constructs for a cpdma descriptor pool.  Some devices (e.g. davinci
+ * emac) have dedicated on-chip memory for these descriptors.  Some other
+ * devices (e.g. cpsw switches) use plain old memory.  Descriptor pools
+ * abstract out these details
+ */
 static struct cpdma_desc_pool *
 cpdma_desc_pool_create(struct device *dev, u32 phys, u32 hw_addr,
 				int size, int align)
@@ -606,7 +617,7 @@ static void __cpdma_chan_submit(struct cpdma_chan *chan,
 
 	desc_dma = desc_phys(pool, desc);
 
-	
+	/* simple case - idle channel */
 	if (!chan->head) {
 		chan->stats.head_enqueue++;
 		chan->head = desc;
@@ -616,12 +627,12 @@ static void __cpdma_chan_submit(struct cpdma_chan *chan,
 		return;
 	}
 
-	
+	/* first chain the descriptor at the tail of the list */
 	desc_write(prev, hw_next, desc_dma);
 	chan->tail = desc;
 	chan->stats.tail_enqueue++;
 
-	
+	/* next check if EOQ has been triggered already */
 	mode = desc_read(prev, hw_mode);
 	if (((mode & (CPDMA_DESC_EOQ | CPDMA_DESC_OWNER)) == CPDMA_DESC_EOQ) &&
 	    (chan->state == CPDMA_STATE_ACTIVE)) {
@@ -810,11 +821,11 @@ int cpdma_chan_stop(struct cpdma_chan *chan)
 	chan->state = CPDMA_STATE_TEARDOWN;
 	dma_reg_write(ctlr, chan->int_clear, chan->mask);
 
-	
+	/* trigger teardown */
 	dma_reg_write(ctlr, chan->td, chan_linear(chan));
 
-	
-	timeout = jiffies + HZ/10;	
+	/* wait for teardown complete */
+	timeout = jiffies + HZ/10;	/* 100 msec */
 	while (time_before(jiffies, timeout)) {
 		u32 cp = chan_read(chan, cp);
 		if ((cp & CPDMA_TEARDOWN_VALUE) == CPDMA_TEARDOWN_VALUE)
@@ -824,7 +835,7 @@ int cpdma_chan_stop(struct cpdma_chan *chan)
 	WARN_ON(!time_before(jiffies, timeout));
 	chan_write(chan, cp, CPDMA_TEARDOWN_VALUE);
 
-	
+	/* handle completed packets */
 	spin_unlock_irqrestore(&chan->lock, flags);
 	do {
 		ret = __cpdma_chan_process(chan);
@@ -833,7 +844,7 @@ int cpdma_chan_stop(struct cpdma_chan *chan)
 	} while ((ret & CPDMA_DESC_TD_COMPLETE) == 0);
 	spin_lock_irqsave(&chan->lock, flags);
 
-	
+	/* remaining packets haven't been tx/rx'ed, clean them up */
 	while (chan->head) {
 		struct cpdma_desc __iomem *desc = chan->head;
 		dma_addr_t next_dma;
@@ -842,7 +853,7 @@ int cpdma_chan_stop(struct cpdma_chan *chan)
 		chan->head = desc_from_phys(pool, next_dma);
 		chan->stats.teardown_dequeue++;
 
-		
+		/* issue callback without locks held */
 		spin_unlock_irqrestore(&chan->lock, flags);
 		__cpdma_chan_free(chan, desc, 0, -ENOSYS);
 		spin_lock_irqsave(&chan->lock, flags);

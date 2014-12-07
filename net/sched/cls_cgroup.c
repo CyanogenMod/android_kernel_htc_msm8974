@@ -109,8 +109,18 @@ static int cls_cgroup_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 	classid = task_cls_state(current)->classid;
 	rcu_read_unlock();
 
+	/*
+	 * Due to the nature of the classifier it is required to ignore all
+	 * packets originating from softirq context as accessing `current'
+	 * would lead to false results.
+	 *
+	 * This test assumes that all callers of dev_queue_xmit() explicitely
+	 * disable bh. Knowing this, it is possible to detect softirq based
+	 * calls by looking at the number of nested bh disable calls because
+	 * softirqs always disables bh.
+	 */
 	if (in_serving_softirq()) {
-		
+		/* If there is an sk_classid we'll use that. */
 		if (!skb->sk)
 			return -1;
 		classid = skb->sk->sk_classid;
@@ -283,7 +293,7 @@ static int __init init_cgroup_cls(void)
 		goto out;
 
 #ifndef CONFIG_NET_CLS_CGROUP
-	
+	/* We can't use rcu_assign_pointer because this is an int. */
 	smp_wmb();
 	net_cls_subsys_id = net_cls_subsys.subsys_id;
 #endif

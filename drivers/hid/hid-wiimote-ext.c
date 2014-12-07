@@ -31,9 +31,9 @@ struct wiimote_ext {
 };
 
 enum wiiext_type {
-	WIIEXT_NONE,		
-	WIIEXT_CLASSIC,		
-	WIIEXT_NUNCHUCK,	
+	WIIEXT_NONE,		/* placeholder */
+	WIIEXT_CLASSIC,		/* Nintendo classic controller */
+	WIIEXT_NUNCHUCK,	/* Nintendo nunchuck controller */
 };
 
 enum wiiext_keys {
@@ -58,25 +58,26 @@ enum wiiext_keys {
 };
 
 static __u16 wiiext_keymap[] = {
-	BTN_C,		
-	BTN_Z,		
-	BTN_A,		
-	BTN_B,		
-	BTN_X,		
-	BTN_Y,		
-	BTN_TL2,	
-	BTN_TR2,	
-	KEY_NEXT,	
-	KEY_PREVIOUS,	
-	BTN_MODE,	
-	KEY_LEFT,	
-	KEY_RIGHT,	
-	KEY_UP,		
-	KEY_DOWN,	
-	BTN_TL,		
-	BTN_TR,		
+	BTN_C,		/* WIIEXT_KEY_C */
+	BTN_Z,		/* WIIEXT_KEY_Z */
+	BTN_A,		/* WIIEXT_KEY_A */
+	BTN_B,		/* WIIEXT_KEY_B */
+	BTN_X,		/* WIIEXT_KEY_X */
+	BTN_Y,		/* WIIEXT_KEY_Y */
+	BTN_TL2,	/* WIIEXT_KEY_ZL */
+	BTN_TR2,	/* WIIEXT_KEY_ZR */
+	KEY_NEXT,	/* WIIEXT_KEY_PLUS */
+	KEY_PREVIOUS,	/* WIIEXT_KEY_MINUS */
+	BTN_MODE,	/* WIIEXT_KEY_HOME */
+	KEY_LEFT,	/* WIIEXT_KEY_LEFT */
+	KEY_RIGHT,	/* WIIEXT_KEY_RIGHT */
+	KEY_UP,		/* WIIEXT_KEY_UP */
+	KEY_DOWN,	/* WIIEXT_KEY_DOWN */
+	BTN_TL,		/* WIIEXT_KEY_LT */
+	BTN_TR,		/* WIIEXT_KEY_RT */
 };
 
+/* diable all extensions */
 static void ext_disable(struct wiimote_ext *ext)
 {
 	unsigned long flags;
@@ -106,13 +107,13 @@ static bool motionp_read(struct wiimote_ext *ext)
 	if (wiimote_cmd_acquire(ext->wdata))
 		return false;
 
-	
+	/* initialize motion plus */
 	wmem = 0x55;
 	ret = wiimote_cmd_write(ext->wdata, 0xa600f0, &wmem, sizeof(wmem));
 	if (ret)
 		goto error;
 
-	
+	/* read motion plus ID */
 	ret = wiimote_cmd_read(ext->wdata, 0xa600fe, rmem, 2);
 	if (ret == 2 || rmem[1] == 0x5)
 		avail = true;
@@ -134,16 +135,16 @@ static __u8 ext_read(struct wiimote_ext *ext)
 	if (wiimote_cmd_acquire(ext->wdata))
 		return WIIEXT_NONE;
 
-	
+	/* initialize extension */
 	wmem = 0x55;
 	ret = wiimote_cmd_write(ext->wdata, 0xa400f0, &wmem, sizeof(wmem));
 	if (!ret) {
-		
+		/* disable encryption */
 		wmem = 0x0;
 		wiimote_cmd_write(ext->wdata, 0xa400fb, &wmem, sizeof(wmem));
 	}
 
-	
+	/* read extension ID */
 	ret = wiimote_cmd_read(ext->wdata, 0xa400fe, rmem, 2);
 	if (ret == 2) {
 		if (rmem[0] == 0 && rmem[1] == 0)
@@ -200,11 +201,20 @@ static void wiiext_worker(struct work_struct *work)
 	ext_enable(ext, motionp, ext_type);
 }
 
+/* schedule work only once, otherwise mark for reschedule */
 static void wiiext_schedule(struct wiimote_ext *ext)
 {
 	queue_work(system_nrt_wq, &ext->worker);
 }
 
+/*
+ * Reacts on extension port events
+ * Whenever the driver gets an event from the wiimote that an extension has been
+ * plugged or unplugged, this funtion shall be called. It checks what extensions
+ * are connected and initializes and activates them.
+ * This can be called in atomic context. The initialization is done in a
+ * separate worker thread. The state.lock spinlock must be held by the caller.
+ */
 void wiiext_event(struct wiimote_data *wdata, bool plugged)
 {
 	if (!wdata->ext)
@@ -218,8 +228,20 @@ void wiiext_event(struct wiimote_data *wdata, bool plugged)
 	if (!plugged)
 		wdata->ext->mp_plugged = false;
 
+	/*
+	 * We need to call wiiext_schedule(wdata->ext) here, however, the
+	 * extension initialization logic is not fully understood and so
+	 * automatic initialization is not supported, yet.
+	 */
 }
 
+/*
+ * Returns true if the current DRM mode should contain extension data and false
+ * if there is no interest in extension data.
+ * All supported extensions send 6 byte extension data so any DRM that contains
+ * extension bytes is fine.
+ * The caller must hold the state.lock spinlock.
+ */
 bool wiiext_active(struct wiimote_data *wdata)
 {
 	if (!wdata->ext)
@@ -233,6 +255,26 @@ static void handler_motionp(struct wiimote_ext *ext, const __u8 *payload)
 	__s32 x, y, z;
 	bool plugged;
 
+	/*        |   8    7    6    5    4    3 |  2  |  1  |
+	 *   -----+------------------------------+-----+-----+
+	 *    1   |               Yaw Speed <7:0>            |
+	 *    2   |              Roll Speed <7:0>            |
+	 *    3   |             Pitch Speed <7:0>            |
+	 *   -----+------------------------------+-----+-----+
+	 *    4   |       Yaw Speed <13:8>       | Yaw |Pitch|
+	 *   -----+------------------------------+-----+-----+
+	 *    5   |      Roll Speed <13:8>       |Roll | Ext |
+	 *   -----+------------------------------+-----+-----+
+	 *    6   |     Pitch Speed <13:8>       |  1  |  0  |
+	 *   -----+------------------------------+-----+-----+
+	 * The single bits Yaw, Roll, Pitch in the lower right corner specify
+	 * whether the wiimote is rotating fast (0) or slow (1). Speed for slow
+	 * roation is 440 deg/s and for fast rotation 2000 deg/s. To get a
+	 * linear scale we multiply by 2000/440 = ~4.5454 which is 18 for fast
+	 * and 9 for slow.
+	 * If the wiimote is not rotating the sensor reports 2^13 = 8192.
+	 * Ext specifies whether an extension is connected to the motionp.
+	 */
 
 	x = payload[0];
 	y = payload[1];
@@ -273,6 +315,35 @@ static void handler_nunchuck(struct wiimote_ext *ext, const __u8 *payload)
 {
 	__s16 x, y, z, bx, by;
 
+	/*   Byte |   8    7 |  6    5 |  4    3 |  2 |  1  |
+	 *   -----+----------+---------+---------+----+-----+
+	 *    1   |              Button X <7:0>             |
+	 *    2   |              Button Y <7:0>             |
+	 *   -----+----------+---------+---------+----+-----+
+	 *    3   |               Speed X <9:2>             |
+	 *    4   |               Speed Y <9:2>             |
+	 *    5   |               Speed Z <9:2>             |
+	 *   -----+----------+---------+---------+----+-----+
+	 *    6   | Z <1:0>  | Y <1:0> | X <1:0> | BC | BZ  |
+	 *   -----+----------+---------+---------+----+-----+
+	 * Button X/Y is the analog stick. Speed X, Y and Z are the
+	 * accelerometer data in the same format as the wiimote's accelerometer.
+	 * The 6th byte contains the LSBs of the accelerometer data.
+	 * BC and BZ are the C and Z buttons: 0 means pressed
+	 *
+	 * If reported interleaved with motionp, then the layout changes. The
+	 * 5th and 6th byte changes to:
+	 *   -----+-----------------------------------+-----+
+	 *    5   |            Speed Z <9:3>          | EXT |
+	 *   -----+--------+-----+-----+----+----+----+-----+
+	 *    6   |Z <2:1> |Y <1>|X <1>| BC | BZ | 0  |  0  |
+	 *   -----+--------+-----+-----+----+----+----+-----+
+	 * All three accelerometer values lose their LSB. The other data is
+	 * still available but slightly moved.
+	 *
+	 * Center data for button values is 128. Center value for accelerometer
+	 * values it 512 / 0x200
+	 */
 
 	bx = payload[0];
 	by = payload[1];
@@ -324,6 +395,48 @@ static void handler_classic(struct wiimote_ext *ext, const __u8 *payload)
 {
 	__s8 rx, ry, lx, ly, lt, rt;
 
+	/*   Byte |  8  |  7  |  6  |  5  |  4  |  3  |  2  |  1  |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 *    1   | RX <5:4>  |              LX <5:0>             |
+	 *    2   | RX <3:2>  |              LY <5:0>             |
+	 *   -----+-----+-----+-----+-----------------------------+
+	 *    3   |RX<1>| LT <5:4>  |         RY <5:1>            |
+	 *   -----+-----+-----------+-----------------------------+
+	 *    4   |     LT <3:1>    |         RT <5:1>            |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 *    5   | BDR | BDD | BLT | B-  | BH  | B+  | BRT |  1  |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 *    6   | BZL | BB  | BY  | BA  | BX  | BZR | BDL | BDU |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 * All buttons are 0 if pressed
+	 * RX and RY are right analog stick
+	 * LX and LY are left analog stick
+	 * LT is left trigger, RT is right trigger
+	 * BLT is 0 if left trigger is fully pressed
+	 * BRT is 0 if right trigger is fully pressed
+	 * BDR, BDD, BDL, BDU form the D-Pad with right, down, left, up buttons
+	 * BZL is left Z button and BZR is right Z button
+	 * B-, BH, B+ are +, HOME and - buttons
+	 * BB, BY, BA, BX are A, B, X, Y buttons
+	 * LSB of RX, RY, LT, and RT are not transmitted and always 0.
+	 *
+	 * With motionp enabled it changes slightly to this:
+	 *   Byte |  8  |  7  |  6  |  5  |  4  |  3  |  2  |  1  |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 *    1   | RX <4:3>  |          LX <5:1>           | BDU |
+	 *    2   | RX <2:1>  |          LY <5:1>           | BDL |
+	 *   -----+-----+-----+-----+-----------------------+-----+
+	 *    3   |RX<0>| LT <4:3>  |         RY <4:0>            |
+	 *   -----+-----+-----------+-----------------------------+
+	 *    4   |     LT <2:0>    |         RT <4:0>            |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 *    5   | BDR | BDD | BLT | B-  | BH  | B+  | BRT | EXT |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 *    6   | BZL | BB  | BY  | BA  | BX  | BZR |  0  |  0  |
+	 *   -----+-----+-----+-----+-----+-----+-----+-----+-----+
+	 * Only the LSBs of LX and LY are lost. BDU and BDL are moved, the rest
+	 * is the same as before.
+	 */
 
 	if (ext->motionp) {
 		lx = payload[0] & 0x3e;
@@ -396,6 +509,7 @@ static void handler_classic(struct wiimote_ext *ext, const __u8 *payload)
 	input_sync(ext->input);
 }
 
+/* call this with state.lock spinlock held */
 void wiiext_handle(struct wiimote_data *wdata, const __u8 *payload)
 {
 	struct wiimote_ext *ext = wdata->ext;
@@ -495,6 +609,7 @@ static void wiiext_mp_close(struct input_dev *dev)
 	hid_hw_close(ext->wdata->hdev);
 }
 
+/* Initializes the extension driver of a wiimote */
 int wiiext_init(struct wiimote_data *wdata)
 {
 	struct wiimote_ext *ext;
@@ -607,6 +722,7 @@ err_input:
 	return ret;
 }
 
+/* Deinitializes the extension driver of a wiimote */
 void wiiext_deinit(struct wiimote_data *wdata)
 {
 	struct wiimote_ext *ext = wdata->ext;
@@ -615,6 +731,13 @@ void wiiext_deinit(struct wiimote_data *wdata)
 	if (!ext)
 		return;
 
+	/*
+	 * We first unset wdata->ext to avoid further input from the wiimote
+	 * core. The worker thread does not access this pointer so it is not
+	 * affected by this.
+	 * We kill the worker after this so it does not get respawned during
+	 * deinitialization.
+	 */
 
 	spin_lock_irqsave(&wdata->state.lock, flags);
 	wdata->ext = NULL;

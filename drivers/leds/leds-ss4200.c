@@ -35,13 +35,22 @@ MODULE_AUTHOR("Rodney Girod <rgirod@confocus.com>, Dave Hansen <dave@sr71.net>")
 MODULE_DESCRIPTION("Intel NAS/Home Server ICH7 GPIO Driver");
 MODULE_LICENSE("GPL");
 
+/*
+ * ICH7 LPC/GPIO PCI Config register offsets
+ */
 #define PMBASE		0x040
 #define GPIO_BASE	0x048
 #define GPIO_CTRL	0x04c
 #define GPIO_EN		0x010
 
+/*
+ * The ICH7 GPIO register block is 64 bytes in size.
+ */
 #define ICH7_GPIO_SIZE	64
 
+/*
+ * Define register offsets within the ICH7 register block.
+ */
 #define GPIO_USE_SEL	0x000
 #define GP_IO_SEL	0x004
 #define GP_LVL		0x00c
@@ -51,12 +60,15 @@ MODULE_LICENSE("GPL");
 #define GP_IO_SEL2	0x038
 #define GP_LVL2		0x03c
 
+/*
+ * PCI ID of the Intel ICH7 LPC Device within which the GPIO block lives.
+ */
 static const struct pci_device_id ich7_lpc_pci_id[] =
 {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH7_0) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH7_1) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH7_30) },
-	{ } 
+	{ } /* NULL entry */
 };
 
 MODULE_DEVICE_TABLE(pci, ich7_lpc_pci_id);
@@ -71,6 +83,15 @@ static bool __initdata nodetect;
 module_param_named(nodetect, nodetect, bool, 0);
 MODULE_PARM_DESC(nodetect, "Skip DMI-based hardware detection");
 
+/*
+ * struct nas_led_whitelist - List of known good models
+ *
+ * Contains the known good models this driver is compatible with.
+ * When adding a new model try to be as strict as possible. This
+ * makes it possible to keep the false positives (the model is
+ * detected as working, but in reality it is not) as low as
+ * possible.
+ */
 static struct dmi_system_id __initdata nas_led_whitelist[] = {
 	{
 		.callback = ss4200_led_dmi_callback,
@@ -84,10 +105,21 @@ static struct dmi_system_id __initdata nas_led_whitelist[] = {
 	{}
 };
 
+/*
+ * Base I/O address assigned to the Power Management register block
+ */
 static u32 g_pm_io_base;
 
+/*
+ * Base I/O address assigned to the ICH7 GPIO register block
+ */
 static u32 nas_gpio_io_base;
 
+/*
+ * When we successfully register a region, we are returned a resource.
+ * We use these to identify which regions we need to release on our way
+ * back out.
+ */
 static struct resource *gp_gpio_resource;
 
 struct nasgpio_led {
@@ -96,6 +128,9 @@ struct nasgpio_led {
 	struct led_classdev led_cdev;
 };
 
+/*
+ * gpio_bit(s) are the ICH7 GPIO bit assignments
+ */
 static struct nasgpio_led nasgpio_leds[] = {
 	{ .name = "hdd1:blue:sata",	.gpio_bit = 0 },
 	{ .name = "hdd1:amber:sata",	.gpio_bit = 1 },
@@ -109,7 +144,7 @@ static struct nasgpio_led nasgpio_leds[] = {
 	{ .name = "power:amber:power",  .gpio_bit = 28},
 };
 
-#define NAS_RECOVERY	0x00000400	
+#define NAS_RECOVERY	0x00000400	/* GPIO10 */
 
 static struct nasgpio_led *
 led_classdev_to_nasgpio_led(struct led_classdev *led_cdev)
@@ -128,8 +163,18 @@ static struct nasgpio_led *get_led_named(char *name)
 	return NULL;
 }
 
+/*
+ * This protects access to the gpio ports.
+ */
 static DEFINE_SPINLOCK(nasgpio_gpio_lock);
 
+/*
+ * There are two gpio ports, one for blinking and the other
+ * for power.  @port tells us if we're doing blinking or
+ * power control.
+ *
+ * Caller must hold nasgpio_gpio_lock
+ */
 static void __nasgpio_led_set_attr(struct led_classdev *led_cdev,
 				   u32 port, u32 value)
 {
@@ -166,13 +211,27 @@ u32 nasgpio_led_get_attr(struct led_classdev *led_cdev, u32 port)
 	return 0;
 }
 
+/*
+ * There is actual brightness control in the hardware,
+ * but it is via smbus commands and not implemented
+ * in this driver.
+ */
 static void nasgpio_led_set_brightness(struct led_classdev *led_cdev,
 				       enum led_brightness brightness)
 {
 	u32 setting = 0;
 	if (brightness >= LED_HALF)
 		setting = 1;
+	/*
+	 * Hold the lock across both operations.  This ensures
+	 * consistency so that both the "turn off blinking"
+	 * and "turn light off" operations complete as a set.
+	 */
 	spin_lock(&nasgpio_gpio_lock);
+	/*
+	 * LED class documentation asks that past blink state
+	 * be disabled when brightness is turned to zero.
+	 */
 	if (brightness == 0)
 		__nasgpio_led_set_attr(led_cdev, GPO_BLINK, 0);
 	__nasgpio_led_set_attr(led_cdev, GP_LVL, setting);
@@ -187,6 +246,9 @@ static int nasgpio_led_set_blink(struct led_classdev *led_cdev,
 	if (!(*delay_on == 0 && *delay_off == 0) &&
 	    !(*delay_on == 500 && *delay_off == 500))
 		return -EINVAL;
+	/*
+	 * These are very approximate.
+	 */
 	*delay_on = 500;
 	*delay_off = 500;
 
@@ -196,6 +258,11 @@ static int nasgpio_led_set_blink(struct led_classdev *led_cdev,
 }
 
 
+/*
+ * Initialize the ICH7 GPIO registers for NAS usage.  The BIOS should have
+ * already taken care of this, but we will do so in a non destructive manner
+ * so that we have what we need whether the BIOS did it or not.
+ */
 static int __devinit ich7_gpio_init(struct device *dev)
 {
 	int i;
@@ -206,6 +273,12 @@ static int __devinit ich7_gpio_init(struct device *dev)
 		all_nas_led |= (1<<nasgpio_leds[i].gpio_bit);
 
 	spin_lock(&nasgpio_gpio_lock);
+	/*
+	 * We need to enable all of the GPIO lines used by the NAS box,
+	 * so we will read the current Use Selection and add our usage
+	 * to it.  This should be benign with regard to the original
+	 * BIOS configuration.
+	 */
 	config_data = inl(nas_gpio_io_base + GPIO_USE_SEL);
 	dev_dbg(dev, ": Data read from GPIO_USE_SEL = 0x%08x\n", config_data);
 	config_data |= all_nas_led + NAS_RECOVERY;
@@ -213,6 +286,12 @@ static int __devinit ich7_gpio_init(struct device *dev)
 	config_data = inl(nas_gpio_io_base + GPIO_USE_SEL);
 	dev_dbg(dev, ": GPIO_USE_SEL = 0x%08x\n\n", config_data);
 
+	/*
+	 * The LED GPIO outputs need to be configured for output, so we
+	 * will ensure that all LED lines are cleared for output and the
+	 * RECOVERY line ready for input.  This too should be benign with
+	 * regard to BIOS configuration.
+	 */
 	config_data = inl(nas_gpio_io_base + GP_IO_SEL);
 	dev_dbg(dev, ": Data read from GP_IO_SEL = 0x%08x\n",
 					config_data);
@@ -222,11 +301,22 @@ static int __devinit ich7_gpio_init(struct device *dev)
 	config_data = inl(nas_gpio_io_base + GP_IO_SEL);
 	dev_dbg(dev, ": GP_IO_SEL = 0x%08x\n", config_data);
 
+	/*
+	 * In our final system, the BIOS will initialize the state of all
+	 * of the LEDs.  For now, we turn them all off (or Low).
+	 */
 	config_data = inl(nas_gpio_io_base + GP_LVL);
 	dev_dbg(dev, ": Data read from GP_LVL = 0x%08x\n", config_data);
+	/*
+	 * In our final system, the BIOS will initialize the blink state of all
+	 * of the LEDs.  For now, we turn blink off for all of them.
+	 */
 	config_data = inl(nas_gpio_io_base + GPO_BLINK);
 	dev_dbg(dev, ": Data read from GPO_BLINK = 0x%08x\n", config_data);
 
+	/*
+	 * At this moment, I am unsure if anything needs to happen with GPI_INV
+	 */
 	config_data = inl(nas_gpio_io_base + GPI_INV);
 	dev_dbg(dev, ": Data read from GPI_INV = 0x%08x\n", config_data);
 
@@ -236,6 +326,10 @@ static int __devinit ich7_gpio_init(struct device *dev)
 
 static void ich7_lpc_cleanup(struct device *dev)
 {
+	/*
+	 * If we were given exclusive use of the GPIO
+	 * I/O Address range, we must return it.
+	 */
 	if (gp_gpio_resource) {
 		dev_dbg(dev, ": Releasing GPIO I/O addresses\n");
 		release_region(nas_gpio_io_base, ICH7_GPIO_SIZE);
@@ -243,6 +337,10 @@ static void ich7_lpc_cleanup(struct device *dev)
 	}
 }
 
+/*
+ * The OS has determined that the LPC of the Intel ICH7 Southbridge is present
+ * so we can retrive the required operational information and prepare the GPIO.
+ */
 static struct pci_dev *nas_gpio_pci_dev;
 static int __devinit ich7_lpc_probe(struct pci_dev *dev,
 				    const struct pci_device_id *id)
@@ -278,6 +376,9 @@ static int __devinit ich7_lpc_probe(struct pci_dev *dev,
 	dev_dbg(&dev->dev, ": GPIOBASE = 0x%08x\n", nas_gpio_io_base);
 	nas_gpio_io_base &= 0x00000ffc0;
 
+	/*
+	 * Insure that we have exclusive access to the GPIO I/O address range.
+	 */
 	gp_gpio_resource = request_region(nas_gpio_io_base, ICH7_GPIO_SIZE,
 					  KBUILD_MODNAME);
 	if (NULL == gp_gpio_resource) {
@@ -287,6 +388,9 @@ static int __devinit ich7_lpc_probe(struct pci_dev *dev,
 		goto out;
 	}
 
+	/*
+	 * Initialize the GPIO for NAS/Home Server Use
+	 */
 	ich7_gpio_init(&dev->dev);
 
 out:
@@ -303,6 +407,9 @@ static void ich7_lpc_remove(struct pci_dev *dev)
 	pci_disable_device(dev);
 }
 
+/*
+ * pci_driver structure passed to the PCI modules
+ */
 static struct pci_driver nas_gpio_pci_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = ich7_lpc_pci_id,
@@ -325,6 +432,9 @@ static void set_power_light_amber_noblink(void)
 
 	if (!amber || !blue)
 		return;
+	/*
+	 * LED_OFF implies disabling future blinking
+	 */
 	pr_debug("setting blue off and amber on\n");
 
 	nasgpio_led_set_brightness(&blue->led_cdev, LED_OFF);
@@ -387,6 +497,9 @@ static void unregister_nasgpio_led(int led_nr)
 	led_classdev_unregister(led);
 	device_remove_file(led->dev, &dev_attr_blink);
 }
+/*
+ * module load/initialization
+ */
 static int __init nas_gpio_init(void)
 {
 	int i;
@@ -414,6 +527,11 @@ static int __init nas_gpio_init(void)
 		if (ret)
 			goto out_err;
 	}
+	/*
+	 * When the system powers on, the BIOS leaves the power
+	 * light blue and blinking.  This will turn it solid
+	 * amber once the driver is loaded.
+	 */
 	set_power_light_amber_noblink();
 	return 0;
 out_err:
@@ -423,6 +541,9 @@ out_err:
 	return ret;
 }
 
+/*
+ * module unload
+ */
 static void __exit nas_gpio_exit(void)
 {
 	int i;

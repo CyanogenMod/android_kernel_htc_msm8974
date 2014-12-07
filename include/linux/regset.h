@@ -21,14 +21,61 @@ struct task_struct;
 struct user_regset;
 
 
+/**
+ * user_regset_active_fn - type of @active function in &struct user_regset
+ * @target:	thread being examined
+ * @regset:	regset being examined
+ *
+ * Return -%ENODEV if not available on the hardware found.
+ * Return %0 if no interesting state in this thread.
+ * Return >%0 number of @size units of interesting state.
+ * Any get call fetching state beyond that number will
+ * see the default initialization state for this data,
+ * so a caller that knows what the default state is need
+ * not copy it all out.
+ * This call is optional; the pointer is %NULL if there
+ * is no inexpensive check to yield a value < @n.
+ */
 typedef int user_regset_active_fn(struct task_struct *target,
 				  const struct user_regset *regset);
 
+/**
+ * user_regset_get_fn - type of @get function in &struct user_regset
+ * @target:	thread being examined
+ * @regset:	regset being examined
+ * @pos:	offset into the regset data to access, in bytes
+ * @count:	amount of data to copy, in bytes
+ * @kbuf:	if not %NULL, a kernel-space pointer to copy into
+ * @ubuf:	if @kbuf is %NULL, a user-space pointer to copy into
+ *
+ * Fetch register values.  Return %0 on success; -%EIO or -%ENODEV
+ * are usual failure returns.  The @pos and @count values are in
+ * bytes, but must be properly aligned.  If @kbuf is non-null, that
+ * buffer is used and @ubuf is ignored.  If @kbuf is %NULL, then
+ * ubuf gives a userland pointer to access directly, and an -%EFAULT
+ * return value is possible.
+ */
 typedef int user_regset_get_fn(struct task_struct *target,
 			       const struct user_regset *regset,
 			       unsigned int pos, unsigned int count,
 			       void *kbuf, void __user *ubuf);
 
+/**
+ * user_regset_set_fn - type of @set function in &struct user_regset
+ * @target:	thread being examined
+ * @regset:	regset being examined
+ * @pos:	offset into the regset data to access, in bytes
+ * @count:	amount of data to copy, in bytes
+ * @kbuf:	if not %NULL, a kernel-space pointer to copy from
+ * @ubuf:	if @kbuf is %NULL, a user-space pointer to copy from
+ *
+ * Store register values.  Return %0 on success; -%EIO or -%ENODEV
+ * are usual failure returns.  The @pos and @count values are in
+ * bytes, but must be properly aligned.  If @kbuf is non-null, that
+ * buffer is used and @ubuf is ignored.  If @kbuf is %NULL, then
+ * ubuf gives a userland pointer to access directly, and an -%EFAULT
+ * return value is possible.
+ */
 typedef int user_regset_set_fn(struct task_struct *target,
 			       const struct user_regset *regset,
 			       unsigned int pos, unsigned int count,
@@ -59,6 +106,51 @@ typedef int user_regset_writeback_fn(struct task_struct *target,
 				     const struct user_regset *regset,
 				     int immediate);
 
+/**
+ * struct user_regset - accessible thread CPU state
+ * @n:			Number of slots (registers).
+ * @size:		Size in bytes of a slot (register).
+ * @align:		Required alignment, in bytes.
+ * @bias:		Bias from natural indexing.
+ * @core_note_type:	ELF note @n_type value used in core dumps.
+ * @get:		Function to fetch values.
+ * @set:		Function to store values.
+ * @active:		Function to report if regset is active, or %NULL.
+ * @writeback:		Function to write data back to user memory, or %NULL.
+ *
+ * This data structure describes a machine resource we call a register set.
+ * This is part of the state of an individual thread, not necessarily
+ * actual CPU registers per se.  A register set consists of a number of
+ * similar slots, given by @n.  Each slot is @size bytes, and aligned to
+ * @align bytes (which is at least @size).
+ *
+ * These functions must be called only on the current thread or on a
+ * thread that is in %TASK_STOPPED or %TASK_TRACED state, that we are
+ * guaranteed will not be woken up and return to user mode, and that we
+ * have called wait_task_inactive() on.  (The target thread always might
+ * wake up for SIGKILL while these functions are working, in which case
+ * that thread's user_regset state might be scrambled.)
+ *
+ * The @pos argument must be aligned according to @align; the @count
+ * argument must be a multiple of @size.  These functions are not
+ * responsible for checking for invalid arguments.
+ *
+ * When there is a natural value to use as an index, @bias gives the
+ * difference between the natural index and the slot index for the
+ * register set.  For example, x86 GDT segment descriptors form a regset;
+ * the segment selector produces a natural index, but only a subset of
+ * that index space is available as a regset (the TLS slots); subtracting
+ * @bias from a segment selector index value computes the regset slot.
+ *
+ * If nonzero, @core_note_type gives the n_type field (NT_* value)
+ * of the core file note in which this regset's data appears.
+ * NT_PRSTATUS is a special case in that the regset data starts at
+ * offsetof(struct elf_prstatus, pr_reg) into the note data; that is
+ * part of the per-machine ELF formats userland knows about.  In
+ * other cases, the core file note contains exactly the whole regset
+ * (@n * @size) and nothing else.  The core file note is normally
+ * omitted when there is an @active function and it returns zero.
+ */
 struct user_regset {
 	user_regset_get_fn		*get;
 	user_regset_set_fn		*set;
@@ -98,9 +190,32 @@ struct user_regset_view {
 	u8 ei_osabi;
 };
 
+/*
+ * This is documented here rather than at the definition sites because its
+ * implementation is machine-dependent but its interface is universal.
+ */
+/**
+ * task_user_regset_view - Return the process's native regset view.
+ * @tsk: a thread of the process in question
+ *
+ * Return the &struct user_regset_view that is native for the given process.
+ * For example, what it would access when it called ptrace().
+ * Throughout the life of the process, this only changes at exec.
+ */
 const struct user_regset_view *task_user_regset_view(struct task_struct *tsk);
 
 
+/*
+ * These are helpers for writing regset get/set functions in arch code.
+ * Because @start_pos and @end_pos are always compile-time constants,
+ * these are inlined into very little code though they look large.
+ *
+ * Use one or more calls sequentially for each chunk of regset data stored
+ * contiguously in memory.  Call with constants for @start_pos and @end_pos,
+ * giving the range of byte positions in the regset that data corresponds
+ * to; @end_pos can be -1 if this chunk is at the end of the regset layout.
+ * Each call updates the arguments to point past its chunk.
+ */
 
 static inline int user_regset_copyout(unsigned int *pos, unsigned int *count,
 				      void **kbuf,
@@ -152,6 +267,10 @@ static inline int user_regset_copyin(unsigned int *pos, unsigned int *count,
 	return 0;
 }
 
+/*
+ * These two parallel the two above, but for portions of a regset layout
+ * that always read as all-zero or for which writes are ignored.
+ */
 static inline int user_regset_copyout_zero(unsigned int *pos,
 					   unsigned int *count,
 					   void **kbuf, void __user **ubuf,
@@ -200,6 +319,15 @@ static inline int user_regset_copyin_ignore(unsigned int *pos,
 	return 0;
 }
 
+/**
+ * copy_regset_to_user - fetch a thread's user_regset data into user memory
+ * @target:	thread to be examined
+ * @view:	&struct user_regset_view describing user thread machine state
+ * @setno:	index in @view->regsets
+ * @offset:	offset into the regset data, in bytes
+ * @size:	amount of data to copy, in bytes
+ * @data:	user-mode pointer to copy into
+ */
 static inline int copy_regset_to_user(struct task_struct *target,
 				      const struct user_regset_view *view,
 				      unsigned int setno,
@@ -217,6 +345,15 @@ static inline int copy_regset_to_user(struct task_struct *target,
 	return regset->get(target, regset, offset, size, NULL, data);
 }
 
+/**
+ * copy_regset_from_user - store into thread's user_regset data from user memory
+ * @target:	thread to be examined
+ * @view:	&struct user_regset_view describing user thread machine state
+ * @setno:	index in @view->regsets
+ * @offset:	offset into the regset data, in bytes
+ * @size:	amount of data to copy, in bytes
+ * @data:	user-mode pointer to copy from
+ */
 static inline int copy_regset_from_user(struct task_struct *target,
 					const struct user_regset_view *view,
 					unsigned int setno,
@@ -235,4 +372,4 @@ static inline int copy_regset_from_user(struct task_struct *target,
 }
 
 
-#endif	
+#endif	/* <linux/regset.h> */

@@ -1,3 +1,6 @@
+/*
+ * include/asm-m68knommu/flat.h -- uClinux flat-format executables
+ */
 
 #ifndef __M68KNOMMU_FLAT_H__
 #define __M68KNOMMU_FLAT_H__
@@ -10,4 +13,4 @@
 #define	flat_get_relocate_addr(rel)		(rel)
 #define	flat_set_persistent(relval, p)		0
 
-#endif 
+#endif /* __M68KNOMMU_FLAT_H__ */

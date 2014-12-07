@@ -32,4 +32,4 @@ extern int cu2_notifier_call_chain(unsigned long val, void *v);
 	register_cu2_notifier(&fn##_nb);				\
 })
 
-#endif 
+#endif /* __ASM_COP2_H */

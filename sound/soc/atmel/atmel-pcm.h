@@ -36,34 +36,48 @@
 
 #include <linux/atmel-ssc.h>
 
+/*
+ * Registers and status bits that are required by the PCM driver.
+ */
 struct atmel_pdc_regs {
-	unsigned int	xpr;		
-	unsigned int	xcr;		
-	unsigned int	xnpr;		
-	unsigned int	xncr;		
-	unsigned int	ptcr;		
+	unsigned int	xpr;		/* PDC recv/trans pointer */
+	unsigned int	xcr;		/* PDC recv/trans counter */
+	unsigned int	xnpr;		/* PDC next recv/trans pointer */
+	unsigned int	xncr;		/* PDC next recv/trans counter */
+	unsigned int	ptcr;		/* PDC transfer control */
 };
 
 struct atmel_ssc_mask {
-	u32	ssc_enable;		
-	u32	ssc_disable;		
-	u32	ssc_endx;		
-	u32	ssc_endbuf;		
-	u32	pdc_enable;		
-	u32	pdc_disable;		
+	u32	ssc_enable;		/* SSC recv/trans enable */
+	u32	ssc_disable;		/* SSC recv/trans disable */
+	u32	ssc_endx;		/* SSC ENDTX or ENDRX */
+	u32	ssc_endbuf;		/* SSC TXBUFE or RXBUFF */
+	u32	pdc_enable;		/* PDC recv/trans enable */
+	u32	pdc_disable;		/* PDC recv/trans disable */
 };
 
+/*
+ * This structure, shared between the PCM driver and the interface,
+ * contains all information required by the PCM driver to perform the
+ * PDC DMA operation.  All fields except dma_intr_handler() are initialized
+ * by the interface.  The dma_intr_handler() pointer is set by the PCM
+ * driver and called by the interface SSC interrupt handler if it is
+ * non-NULL.
+ */
 struct atmel_pcm_dma_params {
-	char *name;			
-	int pdc_xfer_size;		
-	struct ssc_device *ssc;		
-	struct atmel_pdc_regs *pdc;	
-	struct atmel_ssc_mask *mask;	
+	char *name;			/* stream identifier */
+	int pdc_xfer_size;		/* PDC counter increment in bytes */
+	struct ssc_device *ssc;		/* SSC device for stream */
+	struct atmel_pdc_regs *pdc;	/* PDC receive or transmit registers */
+	struct atmel_ssc_mask *mask;	/* SSC & PDC status bits */
 	struct snd_pcm_substream *substream;
 	void (*dma_intr_handler)(u32, struct snd_pcm_substream *);
 };
 
+/*
+ * SSC register access (since ssc_writel() / ssc_readl() require literal name)
+ */
 #define ssc_readx(base, reg)            (__raw_readl((base) + (reg)))
 #define ssc_writex(base, reg, value)    __raw_writel((value), (base) + (reg))
 
-#endif 
+#endif /* _ATMEL_PCM_H */

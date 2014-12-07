@@ -24,6 +24,7 @@
 #define COMPLETE_BAR 0
 #define SYNOPSYS_DW_MCI_VENDOR_ID 0x700
 #define SYNOPSYS_DW_MCI_DEVICE_ID 0x1107
+/* Defining the Capabilities */
 #define DW_MCI_CAPABILITIES (MMC_CAP_4_BIT_DATA | MMC_CAP_MMC_HIGHSPEED |\
 				MMC_CAP_SD_HIGHSPEED | MMC_CAP_8_BIT_DATA |\
 				MMC_CAP_SDIO_IRQ)
@@ -119,7 +120,7 @@ static int dw_mci_pci_resume(struct device *dev)
 #else
 #define dw_mci_pci_suspend	NULL
 #define dw_mci_pci_resume	NULL
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 static SIMPLE_DEV_PM_OPS(dw_mci_pci_pmops, dw_mci_pci_suspend, dw_mci_pci_resume);
 

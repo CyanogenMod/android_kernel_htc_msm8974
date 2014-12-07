@@ -20,7 +20,17 @@
  * Maintained by: Dmitry Torokhov <dtor@vmware.com>
  */
 
+/*
+ * This is VMware physical memory management driver for Linux. The driver
+ * acts like a "balloon" that can be inflated to reclaim physical pages by
+ * reserving them in the guest and invalidating them in the monitor,
+ * freeing up the underlying machine pages so they can be allocated to
+ * other guests.  The balloon can also be deflated to allow the guest to
+ * use more physical memory. Higher level policies can control the sizes
+ * of balloons in VMs in order to manage physical memory resources.
+ */
 
+//#define DEBUG
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/types.h>
@@ -40,31 +50,67 @@ MODULE_ALIAS("dmi:*:svnVMware*:*");
 MODULE_ALIAS("vmware_vmmemctl");
 MODULE_LICENSE("GPL");
 
+/*
+ * Various constants controlling rate of inflaint/deflating balloon,
+ * measured in pages.
+ */
 
+/*
+ * Rate of allocating memory when there is no memory pressure
+ * (driver performs non-sleeping allocations).
+ */
 #define VMW_BALLOON_NOSLEEP_ALLOC_MAX	16384U
 
+/*
+ * Rates of memory allocaton when guest experiences memory pressure
+ * (driver performs sleeping allocations).
+ */
 #define VMW_BALLOON_RATE_ALLOC_MIN	512U
 #define VMW_BALLOON_RATE_ALLOC_MAX	2048U
 #define VMW_BALLOON_RATE_ALLOC_INC	16U
 
+/*
+ * Rates for releasing pages while deflating balloon.
+ */
 #define VMW_BALLOON_RATE_FREE_MIN	512U
 #define VMW_BALLOON_RATE_FREE_MAX	16384U
 #define VMW_BALLOON_RATE_FREE_INC	16U
 
+/*
+ * When guest is under memory pressure, use a reduced page allocation
+ * rate for next several cycles.
+ */
 #define VMW_BALLOON_SLOW_CYCLES		4
 
+/*
+ * Use __GFP_HIGHMEM to allow pages from HIGHMEM zone. We don't
+ * allow wait (__GFP_WAIT) for NOSLEEP page allocations. Use
+ * __GFP_NOWARN, to suppress page allocation failure warnings.
+ */
 #define VMW_PAGE_ALLOC_NOSLEEP		(__GFP_HIGHMEM|__GFP_NOWARN)
 
+/*
+ * Use GFP_HIGHUSER when executing in a separate kernel thread
+ * context and allocation can sleep.  This is less stressful to
+ * the guest memory system, since it allows the thread to block
+ * while memory is reclaimed, and won't take pages from emergency
+ * low-memory pools.
+ */
 #define VMW_PAGE_ALLOC_CANSLEEP		(GFP_HIGHUSER)
 
+/* Maximum number of page allocations without yielding processor */
 #define VMW_BALLOON_YIELD_THRESHOLD	1024
 
+/* Maximum number of refused pages we accumulate during inflation cycle */
 #define VMW_BALLOON_MAX_REFUSED		16
 
+/*
+ * Hypervisor communication port definitions.
+ */
 #define VMW_BALLOON_HV_PORT		0x5670
 #define VMW_BALLOON_HV_MAGIC		0x456c6d6f
 #define VMW_BALLOON_PROTOCOL_VERSION	2
-#define VMW_BALLOON_GUEST_ID		1	
+#define VMW_BALLOON_GUEST_ID		1	/* Linux */
 
 #define VMW_BALLOON_CMD_START		0
 #define VMW_BALLOON_CMD_GET_TARGET	1
@@ -72,6 +118,7 @@ MODULE_LICENSE("GPL");
 #define VMW_BALLOON_CMD_UNLOCK		3
 #define VMW_BALLOON_CMD_GUEST_ID	4
 
+/* error codes */
 #define VMW_BALLOON_SUCCESS		0
 #define VMW_BALLOON_FAILURE		-1
 #define VMW_BALLOON_ERROR_CMD_INVALID	1
@@ -104,7 +151,7 @@ MODULE_LICENSE("GPL");
 struct vmballoon_stats {
 	unsigned int timer;
 
-	
+	/* allocation statistics */
 	unsigned int alloc;
 	unsigned int alloc_fail;
 	unsigned int sleep_alloc;
@@ -113,7 +160,7 @@ struct vmballoon_stats {
 	unsigned int refused_free;
 	unsigned int free;
 
-	
+	/* monitor operations */
 	unsigned int lock;
 	unsigned int lock_fail;
 	unsigned int unlock;
@@ -133,32 +180,32 @@ struct vmballoon_stats {
 
 struct vmballoon {
 
-	
+	/* list of reserved physical pages */
 	struct list_head pages;
 
-	
+	/* transient list of non-balloonable pages */
 	struct list_head refused_pages;
 	unsigned int n_refused_pages;
 
-	
+	/* balloon size in pages */
 	unsigned int size;
 	unsigned int target;
 
-	
+	/* reset flag */
 	bool reset_required;
 
-	
+	/* adjustment rates (pages per second) */
 	unsigned int rate_alloc;
 	unsigned int rate_free;
 
-	
+	/* slowdown page allocations for next few cycles */
 	unsigned int slow_allocation_cycles;
 
 #ifdef CONFIG_DEBUG_FS
-	
+	/* statistics */
 	struct vmballoon_stats stats;
 
-	
+	/* debugfs file exporting statistics */
 	struct dentry *dbg_entry;
 #endif
 
@@ -169,6 +216,10 @@ struct vmballoon {
 
 static struct vmballoon balloon;
 
+/*
+ * Send "start" command to the host, communicating supported version
+ * of the protocol.
+ */
 static bool vmballoon_send_start(struct vmballoon *b)
 {
 	unsigned long status, dummy;
@@ -192,13 +243,19 @@ static bool vmballoon_check_status(struct vmballoon *b, unsigned long status)
 
 	case VMW_BALLOON_ERROR_RESET:
 		b->reset_required = true;
-		
+		/* fall through */
 
 	default:
 		return false;
 	}
 }
 
+/*
+ * Communicate guest type to the host so that it can adjust ballooning
+ * algorithm to the one most appropriate for the guest. This command
+ * is normally issued after sending "start" command and is part of
+ * standard reset sequence.
+ */
 static bool vmballoon_send_guest_id(struct vmballoon *b)
 {
 	unsigned long status, dummy;
@@ -215,6 +272,9 @@ static bool vmballoon_send_guest_id(struct vmballoon *b)
 	return false;
 }
 
+/*
+ * Retrieve desired balloon size from the host.
+ */
 static bool vmballoon_send_get_target(struct vmballoon *b, u32 *new_target)
 {
 	unsigned long status;
@@ -222,15 +282,20 @@ static bool vmballoon_send_get_target(struct vmballoon *b, u32 *new_target)
 	unsigned long limit;
 	u32 limit32;
 
+	/*
+	 * si_meminfo() is cheap. Moreover, we want to provide dynamic
+	 * max balloon size later. So let us call si_meminfo() every
+	 * iteration.
+	 */
 	si_meminfo(&b->sysinfo);
 	limit = b->sysinfo.totalram;
 
-	
+	/* Ensure limit fits in 32-bits */
 	limit32 = (u32)limit;
 	if (limit != limit32)
 		return false;
 
-	
+	/* update stats */
 	STATS_INC(b->stats.target);
 
 	status = VMWARE_BALLOON_CMD(GET_TARGET, limit, target);
@@ -244,6 +309,11 @@ static bool vmballoon_send_get_target(struct vmballoon *b, u32 *new_target)
 	return false;
 }
 
+/*
+ * Notify the host about allocated page so that host can use it without
+ * fear that guest will need it. Host may reject some pages, we need to
+ * check the return value and maybe submit a different page.
+ */
 static int vmballoon_send_lock_page(struct vmballoon *b, unsigned long pfn,
 				     unsigned int *hv_status)
 {
@@ -265,6 +335,10 @@ static int vmballoon_send_lock_page(struct vmballoon *b, unsigned long pfn,
 	return 1;
 }
 
+/*
+ * Notify the host that guest intends to release given page back into
+ * the pool of available (to the guest) pages.
+ */
 static bool vmballoon_send_unlock_page(struct vmballoon *b, unsigned long pfn)
 {
 	unsigned long status, dummy;
@@ -285,6 +359,12 @@ static bool vmballoon_send_unlock_page(struct vmballoon *b, unsigned long pfn)
 	return false;
 }
 
+/*
+ * Quickly release all pages allocated for the balloon. This function is
+ * called when host decides to "reset" balloon for one reason or another.
+ * Unlike normal "deflate" we do not (shall not) notify host of the pages
+ * being released.
+ */
 static void vmballoon_pop(struct vmballoon *b)
 {
 	struct page *page, *next;
@@ -303,9 +383,14 @@ static void vmballoon_pop(struct vmballoon *b)
 	}
 }
 
+/*
+ * Perform standard reset sequence by popping the balloon (in case it
+ * is not  empty) and then restarting protocol. This operation normally
+ * happens when host responds with VMW_BALLOON_ERROR_RESET to a command.
+ */
 static void vmballoon_reset(struct vmballoon *b)
 {
-	
+	/* free all pages, skipping monitor unlock */
 	vmballoon_pop(b);
 
 	if (vmballoon_send_start(b)) {
@@ -315,6 +400,12 @@ static void vmballoon_reset(struct vmballoon *b)
 	}
 }
 
+/*
+ * Allocate (or reserve) a page for the balloon and notify the host.  If host
+ * refuses the page put it on "refuse" list and allocate another one until host
+ * is satisfied. "Refused" pages are released at the end of inflation cycle
+ * (when we allocate b->rate_alloc pages).
+ */
 static int vmballoon_reserve_page(struct vmballoon *b, bool can_sleep)
 {
 	struct page *page;
@@ -338,7 +429,7 @@ static int vmballoon_reserve_page(struct vmballoon *b, bool can_sleep)
 			return -ENOMEM;
 		}
 
-		
+		/* inform monitor */
 		locked = vmballoon_send_lock_page(b, page_to_pfn(page), &hv_status);
 		if (locked > 0) {
 			STATS_INC(b->stats.refused_alloc);
@@ -349,21 +440,31 @@ static int vmballoon_reserve_page(struct vmballoon *b, bool can_sleep)
 				return -EIO;
 			}
 
+			/*
+			 * Place page on the list of non-balloonable pages
+			 * and retry allocation, unless we already accumulated
+			 * too many of them, in which case take a breather.
+			 */
 			list_add(&page->lru, &b->refused_pages);
 			if (++b->n_refused_pages >= VMW_BALLOON_MAX_REFUSED)
 				return -EIO;
 		}
 	} while (locked != 0);
 
-	
+	/* track allocated page */
 	list_add(&page->lru, &b->pages);
 
-	
+	/* update balloon size */
 	b->size++;
 
 	return 0;
 }
 
+/*
+ * Release the page allocated for the balloon. Note that we first notify
+ * the host so it can make sure the page will be available for the guest
+ * to use, if needed.
+ */
 static int vmballoon_release_page(struct vmballoon *b, struct page *page)
 {
 	if (!vmballoon_send_unlock_page(b, page_to_pfn(page)))
@@ -371,16 +472,20 @@ static int vmballoon_release_page(struct vmballoon *b, struct page *page)
 
 	list_del(&page->lru);
 
-	
+	/* deallocate page */
 	__free_page(page);
 	STATS_INC(b->stats.free);
 
-	
+	/* update balloon size */
 	b->size--;
 
 	return 0;
 }
 
+/*
+ * Release pages that were allocated while attempting to inflate the
+ * balloon but were refused by the host for one reason or another.
+ */
 static void vmballoon_release_refused_pages(struct vmballoon *b)
 {
 	struct page *page, *next;
@@ -394,6 +499,11 @@ static void vmballoon_release_refused_pages(struct vmballoon *b)
 	b->n_refused_pages = 0;
 }
 
+/*
+ * Inflate the balloon towards its target size. Note that we try to limit
+ * the rate of allocation to make sure we are not choking the rest of the
+ * system.
+ */
 static void vmballoon_inflate(struct vmballoon *b)
 {
 	unsigned int goal;
@@ -405,8 +515,26 @@ static void vmballoon_inflate(struct vmballoon *b)
 
 	pr_debug("%s - size: %d, target %d\n", __func__, b->size, b->target);
 
+	/*
+	 * First try NOSLEEP page allocations to inflate balloon.
+	 *
+	 * If we do not throttle nosleep allocations, we can drain all
+	 * free pages in the guest quickly (if the balloon target is high).
+	 * As a side-effect, draining free pages helps to inform (force)
+	 * the guest to start swapping if balloon target is not met yet,
+	 * which is a desired behavior. However, balloon driver can consume
+	 * all available CPU cycles if too many pages are allocated in a
+	 * second. Therefore, we throttle nosleep allocations even when
+	 * the guest is not under memory pressure. OTOH, if we have already
+	 * predicted that the guest is under memory pressure, then we
+	 * slowdown page allocations considerably.
+	 */
 
 	goal = b->target - b->size;
+	/*
+	 * Start with no sleep allocation rate which may be higher
+	 * than sleeping allocation rate.
+	 */
 	rate = b->slow_allocation_cycles ?
 			b->rate_alloc : VMW_BALLOON_NOSLEEP_ALLOC_MAX;
 
@@ -418,22 +546,40 @@ static void vmballoon_inflate(struct vmballoon *b)
 		error = vmballoon_reserve_page(b, alloc_can_sleep);
 		if (error) {
 			if (error != -ENOMEM) {
+				/*
+				 * Not a page allocation failure, stop this
+				 * cycle. Maybe we'll get new target from
+				 * the host soon.
+				 */
 				break;
 			}
 
 			if (alloc_can_sleep) {
+				/*
+				 * CANSLEEP page allocation failed, so guest
+				 * is under severe memory pressure. Quickly
+				 * decrease allocation rate.
+				 */
 				b->rate_alloc = max(b->rate_alloc / 2,
 						    VMW_BALLOON_RATE_ALLOC_MIN);
 				break;
 			}
 
+			/*
+			 * NOSLEEP page allocation failed, so the guest is
+			 * under memory pressure. Let us slow down page
+			 * allocations for next few cycles so that the guest
+			 * gets out of memory pressure. Also, if we already
+			 * allocated b->rate_alloc pages, let's pause,
+			 * otherwise switch to sleeping allocations.
+			 */
 			b->slow_allocation_cycles = VMW_BALLOON_SLOW_CYCLES;
 
 			if (i >= b->rate_alloc)
 				break;
 
 			alloc_can_sleep = true;
-			
+			/* Lower rate for sleeping allocations. */
 			rate = b->rate_alloc;
 		}
 
@@ -443,11 +589,15 @@ static void vmballoon_inflate(struct vmballoon *b)
 		}
 
 		if (i >= rate) {
-			
+			/* We allocated enough pages, let's take a break. */
 			break;
 		}
 	}
 
+	/*
+	 * We reached our goal without failures so try increasing
+	 * allocation rate.
+	 */
 	if (error == 0 && i >= b->rate_alloc) {
 		unsigned int mult = i / b->rate_alloc;
 
@@ -459,6 +609,9 @@ static void vmballoon_inflate(struct vmballoon *b)
 	vmballoon_release_refused_pages(b);
 }
 
+/*
+ * Decrease the size of the balloon allowing guest to use more memory.
+ */
 static void vmballoon_deflate(struct vmballoon *b)
 {
 	struct page *page, *next;
@@ -468,16 +621,16 @@ static void vmballoon_deflate(struct vmballoon *b)
 
 	pr_debug("%s - size: %d, target %d\n", __func__, b->size, b->target);
 
-	
+	/* limit deallocation rate */
 	goal = min(b->size - b->target, b->rate_free);
 
 	pr_debug("%s - goal: %d, rate: %d\n", __func__, goal, b->rate_free);
 
-	
+	/* free pages to reach target */
 	list_for_each_entry_safe(page, next, &b->pages, lru) {
 		error = vmballoon_release_page(b, page);
 		if (error) {
-			
+			/* quickly decrease rate in case of error */
 			b->rate_free = max(b->rate_free / 2,
 					   VMW_BALLOON_RATE_FREE_MIN);
 			return;
@@ -487,11 +640,15 @@ static void vmballoon_deflate(struct vmballoon *b)
 			break;
 	}
 
-	
+	/* slowly increase rate if there were no errors */
 	b->rate_free = min(b->rate_free + VMW_BALLOON_RATE_FREE_INC,
 			   VMW_BALLOON_RATE_FREE_MAX);
 }
 
+/*
+ * Balloon work function: reset protocol, if needed, get the new size and
+ * adjust balloon as needed. Repeat in 1 sec.
+ */
 static void vmballoon_work(struct work_struct *work)
 {
 	struct delayed_work *dwork = to_delayed_work(work);
@@ -507,7 +664,7 @@ static void vmballoon_work(struct work_struct *work)
 		b->slow_allocation_cycles--;
 
 	if (vmballoon_send_get_target(b, &target)) {
-		
+		/* update target, adjust size */
 		b->target = target;
 
 		if (b->size < target)
@@ -516,10 +673,17 @@ static void vmballoon_work(struct work_struct *work)
 			vmballoon_deflate(b);
 	}
 
+	/*
+	 * We are using a freezable workqueue so that balloon operations are
+	 * stopped while the system transitions to/from sleep/hibernation.
+	 */
 	queue_delayed_work(system_freezable_wq,
 			   dwork, round_jiffies_relative(HZ));
 }
 
+/*
+ * DEBUGFS Interface
+ */
 #ifdef CONFIG_DEBUG_FS
 
 static int vmballoon_debug_show(struct seq_file *f, void *offset)
@@ -527,13 +691,13 @@ static int vmballoon_debug_show(struct seq_file *f, void *offset)
 	struct vmballoon *b = f->private;
 	struct vmballoon_stats *stats = &b->stats;
 
-	
+	/* format size info */
 	seq_printf(f,
 		   "target:             %8d pages\n"
 		   "current:            %8d pages\n",
 		   b->target, b->size);
 
-	
+	/* format rate info */
 	seq_printf(f,
 		   "rateNoSleepAlloc:   %8d pages/sec\n"
 		   "rateSleepAlloc:     %8d pages/sec\n"
@@ -612,24 +776,31 @@ static inline void vmballoon_debugfs_exit(struct vmballoon *b)
 {
 }
 
-#endif	
+#endif	/* CONFIG_DEBUG_FS */
 
 static int __init vmballoon_init(void)
 {
 	int error;
 
+	/*
+	 * Check if we are running on VMware's hypervisor and bail out
+	 * if we are not.
+	 */
 	if (x86_hyper != &x86_hyper_vmware)
 		return -ENODEV;
 
 	INIT_LIST_HEAD(&balloon.pages);
 	INIT_LIST_HEAD(&balloon.refused_pages);
 
-	
+	/* initialize rates */
 	balloon.rate_alloc = VMW_BALLOON_RATE_ALLOC_MAX;
 	balloon.rate_free = VMW_BALLOON_RATE_FREE_MAX;
 
 	INIT_DELAYED_WORK(&balloon.dwork, vmballoon_work);
 
+	/*
+	 * Start balloon.
+	 */
 	if (!vmballoon_send_start(&balloon)) {
 		pr_err("failed to send start command to the host\n");
 		return -EIO;
@@ -656,6 +827,11 @@ static void __exit vmballoon_exit(void)
 
 	vmballoon_debugfs_exit(&balloon);
 
+	/*
+	 * Deallocate all reserved memory, and reset connection with monitor.
+	 * Reset connection before deallocating memory to avoid potential for
+	 * additional spurious resets from guest touching deallocated pages.
+	 */
 	vmballoon_send_start(&balloon);
 	vmballoon_pop(&balloon);
 }

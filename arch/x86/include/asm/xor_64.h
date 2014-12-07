@@ -38,6 +38,8 @@ typedef struct {
 	unsigned long a, b;
 } __attribute__((aligned(16))) xmm_store_t;
 
+/* Doesn't use gcc to save the XMM registers, because there is no easy way to
+   tell it to do a clts before the register saving. */
 #define XMMS_SAVE				\
 do {						\
 	preempt_disable();			\
@@ -351,6 +353,9 @@ do {						\
 	xor_speed(&xor_block_sse);		\
 } while (0)
 
+/* We force the use of the SSE xor block because it can write around L2.
+   We may also be able to load into the L1 only depending on how the cpu
+   deals with a load to a line that is being prefetched.  */
 #define XOR_SELECT_TEMPLATE(FASTEST) (&xor_block_sse)
 
-#endif 
+#endif /* _ASM_X86_XOR_64_H */

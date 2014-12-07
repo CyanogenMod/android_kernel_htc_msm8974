@@ -11,6 +11,15 @@
 #include <asm-generic/pgtable.h>
 
 #ifndef __HAVE_ARCH_PTEP_SET_ACCESS_FLAGS
+/*
+ * Only sets the access flags (dirty, accessed, and
+ * writable). Furthermore, we know it always gets set to a "more
+ * permissive" setting, which allows most architectures to optimize
+ * this. We return whether the PTE actually changed, which in turn
+ * instructs the caller to do things like update__mmu_cache.  This
+ * used to be done in the caller, but sparc needs minor faults to
+ * force that call on sun4c so we changed this macro slightly
+ */
 int ptep_set_access_flags(struct vm_area_struct *vma,
 			  unsigned long address, pte_t *ptep,
 			  pte_t entry, int dirty)
@@ -37,10 +46,10 @@ int pmdp_set_access_flags(struct vm_area_struct *vma,
 		flush_tlb_range(vma, address, address + HPAGE_PMD_SIZE);
 	}
 	return changed;
-#else 
+#else /* CONFIG_TRANSPARENT_HUGEPAGE */
 	BUG();
 	return 0;
-#endif 
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 }
 #endif
 
@@ -65,7 +74,7 @@ int pmdp_clear_flush_young(struct vm_area_struct *vma,
 	VM_BUG_ON(address & ~HPAGE_PMD_MASK);
 #else
 	BUG();
-#endif 
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 	young = pmdp_test_and_clear_young(vma, address, pmdp);
 	if (young)
 		flush_tlb_range(vma, address, address + HPAGE_PMD_SIZE);
@@ -95,7 +104,7 @@ pmd_t pmdp_clear_flush(struct vm_area_struct *vma, unsigned long address,
 	flush_tlb_range(vma, address, address + HPAGE_PMD_SIZE);
 	return pmd;
 }
-#endif 
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 #endif
 
 #ifndef __HAVE_ARCH_PMDP_SPLITTING_FLUSH
@@ -106,8 +115,8 @@ pmd_t pmdp_splitting_flush(struct vm_area_struct *vma, unsigned long address,
 	pmd_t pmd = pmd_mksplitting(*pmdp);
 	VM_BUG_ON(address & ~HPAGE_PMD_MASK);
 	set_pmd_at(vma->vm_mm, address, pmdp, pmd);
-	
+	/* tlb flush only to serialize against gup-fast */
 	flush_tlb_range(vma, address, address + HPAGE_PMD_SIZE);
 }
-#endif 
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 #endif

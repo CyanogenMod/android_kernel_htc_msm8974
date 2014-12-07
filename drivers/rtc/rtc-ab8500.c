@@ -35,9 +35,11 @@
 #define AB8500_RTC_CALIB_REG		0x0E
 #define AB8500_RTC_SWITCH_STAT_REG	0x0F
 
+/* RtcReadRequest bits */
 #define RTC_READ_REQUEST		0x01
 #define RTC_WRITE_REQUEST		0x02
 
+/* RtcCtrl bits */
 #define RTC_ALARM_ENA			0x04
 #define RTC_STATUS_DATA			0x01
 
@@ -55,6 +57,7 @@ static const u8 ab8500_rtc_alarm_regs[] = {
 	AB8500_RTC_ALRM_MIN_LOW_REG
 };
 
+/* Calculate the seconds from 1970 to 01-01-2000 00:00:00 */
 static unsigned long get_elapsed_seconds(int year)
 {
 	unsigned long secs;
@@ -63,6 +66,10 @@ static unsigned long get_elapsed_seconds(int year)
 		.tm_mday = 1,
 	};
 
+	/*
+	 * This function calculates secs from 1970 and not from
+	 * 1900, even if we supply the offset from year 1900.
+	 */
 	rtc_tm_to_time(&tm, &secs);
 	return secs;
 }
@@ -75,17 +82,17 @@ static int ab8500_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	unsigned char buf[ARRAY_SIZE(ab8500_rtc_time_regs)];
 	u8 value;
 
-	
+	/* Request a data read */
 	retval = abx500_set_register_interruptible(dev,
 		AB8500_RTC, AB8500_RTC_READ_REQ_REG, RTC_READ_REQUEST);
 	if (retval < 0)
 		return retval;
 
-	
+	/* Early AB8500 chips will not clear the rtc read request bit */
 	if (abx500_get_chip_id(dev) == 0) {
 		usleep_range(1000, 1000);
 	} else {
-		
+		/* Wait for some cycles after enabling the rtc read in ab8500 */
 		while (time_before(jiffies, timeout)) {
 			retval = abx500_get_register_interruptible(dev,
 				AB8500_RTC, AB8500_RTC_READ_REQ_REG, &value);
@@ -99,7 +106,7 @@ static int ab8500_rtc_read_time(struct device *dev, struct rtc_time *tm)
 		}
 	}
 
-	
+	/* Read the Watchtime registers */
 	for (i = 0; i < ARRAY_SIZE(ab8500_rtc_time_regs); i++) {
 		retval = abx500_get_register_interruptible(dev,
 			AB8500_RTC, ab8500_rtc_time_regs[i], &value);
@@ -114,7 +121,7 @@ static int ab8500_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	secs =	secs / COUNTS_PER_SEC;
 	secs =	secs + (mins * 60);
 
-	
+	/* Add back the initially subtracted number of seconds */
 	secs += get_elapsed_seconds(AB8500_RTC_EPOCH);
 
 	rtc_time_to_tm(secs, tm);
@@ -133,15 +140,19 @@ static int ab8500_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return -EINVAL;
 	}
 
-	
+	/* Get the number of seconds since 1970 */
 	rtc_tm_to_time(tm, &secs);
 
+	/*
+	 * Convert it to the number of seconds since 01-01-2000 00:00:00, since
+	 * we only have a small counter in the RTC.
+	 */
 	secs -= get_elapsed_seconds(AB8500_RTC_EPOCH);
 
 	no_mins = secs / 60;
 
 	no_secs = secs % 60;
-	
+	/* Make the seconds count as per the RTC resolution */
 	no_secs = no_secs * COUNTS_PER_SEC;
 
 	buf[4] = no_secs & 0xFF;
@@ -158,7 +169,7 @@ static int ab8500_rtc_set_time(struct device *dev, struct rtc_time *tm)
 			return retval;
 	}
 
-	
+	/* Request a data write */
 	return abx500_set_register_interruptible(dev, AB8500_RTC,
 		AB8500_RTC_READ_REQ_REG, RTC_WRITE_REQUEST);
 }
@@ -170,7 +181,7 @@ static int ab8500_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	unsigned char buf[ARRAY_SIZE(ab8500_rtc_alarm_regs)];
 	unsigned long secs, mins;
 
-	
+	/* Check if the alarm is enabled or not */
 	retval = abx500_get_register_interruptible(dev, AB8500_RTC,
 		AB8500_RTC_STAT_REG, &rtc_ctrl);
 	if (retval < 0)
@@ -194,7 +205,7 @@ static int ab8500_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	mins = (buf[0] << 16) | (buf[1] << 8) | (buf[2]);
 	secs = mins * 60;
 
-	
+	/* Add back the initially subtracted number of seconds */
 	secs += get_elapsed_seconds(AB8500_RTC_EPOCH);
 
 	rtc_time_to_tm(secs, &alarm->time);
@@ -221,9 +232,13 @@ static int ab8500_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 		return -EINVAL;
 	}
 
-	
+	/* Get the number of seconds since 1970 */
 	rtc_tm_to_time(&alarm->time, &secs);
 
+	/*
+	 * Convert it to the number of seconds since 01-01-2000 00:00:00, since
+	 * we only have a small counter in the RTC.
+	 */
 	secs -= get_elapsed_seconds(AB8500_RTC_EPOCH);
 
 	mins = secs / 60;
@@ -232,7 +247,7 @@ static int ab8500_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	buf[1] = (mins >> 8) & 0xFF;
 	buf[0] = (mins >> 16) & 0xFF;
 
-	
+	/* Set the alarm time */
 	for (i = 0; i < ARRAY_SIZE(ab8500_rtc_alarm_regs); i++) {
 		retval = abx500_set_register_interruptible(dev, AB8500_RTC,
 			ab8500_rtc_alarm_regs[i], buf[i]);
@@ -249,11 +264,23 @@ static int ab8500_rtc_set_calibration(struct device *dev, int calibration)
 	int retval;
 	u8  rtccal = 0;
 
+	/*
+	 * Check that the calibration value (which is in units of 0.5
+	 * parts-per-million) is in the AB8500's range for RtcCalibration
+	 * register. -128 (0x80) is not permitted because the AB8500 uses
+	 * a sign-bit rather than two's complement, so 0x80 is just another
+	 * representation of zero.
+	 */
 	if ((calibration < -127) || (calibration > 127)) {
 		dev_err(dev, "RtcCalibration value outside permitted range\n");
 		return -EINVAL;
 	}
 
+	/*
+	 * The AB8500 uses sign (in bit7) and magnitude (in bits0-7)
+	 * so need to convert to this sort of representation before writing
+	 * into RtcCalibration register...
+	 */
 	if (calibration >= 0)
 		rtccal = 0x7F & calibration;
 	else
@@ -273,6 +300,11 @@ static int ab8500_rtc_get_calibration(struct device *dev, int *calibration)
 	retval =  abx500_get_register_interruptible(dev, AB8500_RTC,
 			AB8500_RTC_CALIB_REG, &rtccal);
 	if (retval >= 0) {
+		/*
+		 * The AB8500 uses sign (in bit7) and magnitude (in bits0-7)
+		 * so need to convert value from RtcCalibration register into
+		 * a two's complement signed value...
+		 */
 		if (rtccal & 0x80)
 			*calibration = 0 - (rtccal & 0x7F);
 		else
@@ -359,13 +391,13 @@ static int __devinit ab8500_rtc_probe(struct platform_device *pdev)
 	if (irq < 0)
 		return irq;
 
-	
+	/* For RTC supply test */
 	err = abx500_mask_and_set_register_interruptible(&pdev->dev, AB8500_RTC,
 		AB8500_RTC_STAT_REG, RTC_STATUS_DATA, RTC_STATUS_DATA);
 	if (err < 0)
 		return err;
 
-	
+	/* Wait for reset by the PorRtc */
 	usleep_range(1000, 5000);
 
 	err = abx500_get_register_interruptible(&pdev->dev, AB8500_RTC,
@@ -373,7 +405,7 @@ static int __devinit ab8500_rtc_probe(struct platform_device *pdev)
 	if (err < 0)
 		return err;
 
-	
+	/* Check if the RTC Supply fails */
 	if (!(rtc_ctrl & RTC_STATUS_DATA)) {
 		dev_err(&pdev->dev, "RTC supply failure\n");
 		return -ENODEV;

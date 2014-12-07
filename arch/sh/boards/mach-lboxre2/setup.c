@@ -49,11 +49,11 @@ static struct platform_device *lboxre2_devices[] __initdata = {
 
 static int __init lboxre2_devices_setup(void)
 {
-	u32 cf0_io_base;	
+	u32 cf0_io_base;	/* Boot CF base address */
 	pgprot_t prot;
 	unsigned long paddrbase, psize;
 
-	
+	/* open I/O area window */
 	paddrbase = virt_to_phys((void*)PA_AREA5_IO);
 	psize = PAGE_SIZE;
 	prot = PAGE_KERNEL_PCC(1, _PAGE_PCC_IO16);
@@ -74,6 +74,9 @@ static int __init lboxre2_devices_setup(void)
 }
 device_initcall(lboxre2_devices_setup);
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_lboxre2 __initmv = {
 	.mv_name		= "L-BOX RE2",
 	.mv_nr_irqs		= 72,

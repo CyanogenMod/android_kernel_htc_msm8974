@@ -28,6 +28,13 @@
 #include <linux/mfd/core.h>
 #include <linux/mfd/tps65217.h>
 
+/**
+ * tps65217_reg_read: Read a single tps65217 register.
+ *
+ * @tps: Device to read from.
+ * @reg: Register to read.
+ * @val: Contians the value
+ */
 int tps65217_reg_read(struct tps65217 *tps, unsigned int reg,
 			unsigned int *val)
 {
@@ -35,6 +42,14 @@ int tps65217_reg_read(struct tps65217 *tps, unsigned int reg,
 }
 EXPORT_SYMBOL_GPL(tps65217_reg_read);
 
+/**
+ * tps65217_reg_write: Write a single tps65217 register.
+ *
+ * @tps65217: Device to write to.
+ * @reg: Register to write to.
+ * @val: Value to write.
+ * @level: Password protected level
+ */
 int tps65217_reg_write(struct tps65217 *tps, unsigned int reg,
 			unsigned int val, unsigned int level)
 {
@@ -72,6 +87,15 @@ int tps65217_reg_write(struct tps65217 *tps, unsigned int reg,
 }
 EXPORT_SYMBOL_GPL(tps65217_reg_write);
 
+/**
+ * tps65217_update_bits: Modify bits w.r.t mask, val and level.
+ *
+ * @tps65217: Device to write to.
+ * @reg: Register to read-write to.
+ * @mask: Mask.
+ * @val: Value to write.
+ * @level: Password protected level
+ */
 int tps65217_update_bits(struct tps65217 *tps, unsigned int reg,
 		unsigned int mask, unsigned int val, unsigned int level)
 {
@@ -188,7 +212,7 @@ static int __devexit tps65217_remove(struct i2c_client *client)
 
 static const struct i2c_device_id tps65217_id_table[] = {
 	{"tps65217", 0xF0},
-	{}
+	{/* end of list */}
 };
 MODULE_DEVICE_TABLE(i2c, tps65217_id_table);
 

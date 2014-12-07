@@ -70,7 +70,7 @@ static int intelfb_create(struct intel_fbdev *ifbdev,
 	struct device *device = &dev->pdev->dev;
 	int size, ret;
 
-	
+	/* we don't do packed 24bpp */
 	if (sizes->surface_bpp == 24)
 		sizes->surface_bpp = 32;
 
@@ -93,7 +93,7 @@ static int intelfb_create(struct intel_fbdev *ifbdev,
 
 	mutex_lock(&dev->struct_mutex);
 
-	
+	/* Flush everything out, we'll be doing GTT only from now on */
 	ret = intel_pin_and_fence_fb_obj(dev, obj, false);
 	if (ret) {
 		DRM_ERROR("failed to pin fb: %d\n", ret);
@@ -127,7 +127,7 @@ static int intelfb_create(struct intel_fbdev *ifbdev,
 		ret = -ENOMEM;
 		goto out_unpin;
 	}
-	
+	/* setup aperture base/size for vesafb takeover */
 	info->apertures = alloc_apertures(1);
 	if (!info->apertures) {
 		ret = -ENOMEM;
@@ -147,11 +147,12 @@ static int intelfb_create(struct intel_fbdev *ifbdev,
 	}
 	info->screen_size = size;
 
+//	memset(info->screen_base, 0, size);
 
 	drm_fb_helper_fill_fix(info, fb->pitches[0], fb->depth);
 	drm_fb_helper_fill_var(info, &ifbdev->helper, sizes->fb_width, sizes->fb_height);
 
-	
+	/* Use default scratch pixmap (info->pixmap.flags = FB_PIXMAP_SYSTEM) */
 
 	DRM_DEBUG_KMS("allocated %dx%d fb: 0x%08x, bo %p\n",
 		      fb->width, fb->height,
@@ -284,7 +285,7 @@ void intel_fb_restore_mode(struct drm_device *dev)
 	if (ret)
 		DRM_DEBUG("failed to restore crtc mode\n");
 
-	
+	/* Be sure to shut off any planes that may be active */
 	list_for_each_entry(plane, &config->plane_list, head)
 		plane->funcs->disable_plane(plane);
 

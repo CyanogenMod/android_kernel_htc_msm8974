@@ -13,14 +13,15 @@
 #define __ASM_SH_SE7721_H
 #include <asm/addrspace.h>
 
-#define SE_AREA0_WIDTH	2		
-#define PA_ROM		0xa0000000	
-#define PA_ROM_SIZE	0x00200000	
-#define PA_FROM		0xa1000000	
-#define PA_FROM_SIZE	0x01000000	
+/* Box specific addresses. */
+#define SE_AREA0_WIDTH	2		/* Area0: 32bit */
+#define PA_ROM		0xa0000000	/* EPROM */
+#define PA_ROM_SIZE	0x00200000	/* EPROM size 2M byte */
+#define PA_FROM		0xa1000000	/* Flash-ROM */
+#define PA_FROM_SIZE	0x01000000	/* Flash-ROM size 16M byte */
 #define PA_EXT1		0xa4000000
 #define PA_EXT1_SIZE	0x04000000
-#define PA_SDRAM	0xaC000000	
+#define PA_SDRAM	0xaC000000	/* SDRAM(Area3) 64MB */
 #define PA_SDRAM_SIZE	0x04000000
 
 #define PA_EXT4		0xb0000000
@@ -47,8 +48,8 @@
 #define MRSHPC_CDCR	(PA_MRSHPC + 28)
 #define MRSHPC_PCIC_INFO	(PA_MRSHPC + 30)
 
-#define PA_LED		0xB6800000	
-#define PA_FPGA		0xB7000000 	
+#define PA_LED		0xB6800000	/* 8bit LED */
+#define PA_FPGA		0xB7000000 	/* FPGA base address */
 
 #define MRSHPC_IRQ0	10
 
@@ -66,4 +67,4 @@ void init_se7721_IRQ(void);
 #define __IO_PREFIX		se7721
 #include <asm/io_generic.h>
 
-#endif  
+#endif  /* __ASM_SH_SE7721_H */

@@ -24,16 +24,16 @@ struct xfs_mount;
 struct xfs_qoff_logitem;
 
 typedef struct xfs_dq_logitem {
-	xfs_log_item_t		 qli_item;	   
-	struct xfs_dquot	*qli_dquot;	   
-	xfs_lsn_t		 qli_flush_lsn;	   
-	xfs_dq_logformat_t	 qli_format;	   
+	xfs_log_item_t		 qli_item;	   /* common portion */
+	struct xfs_dquot	*qli_dquot;	   /* dquot ptr */
+	xfs_lsn_t		 qli_flush_lsn;	   /* lsn at last flush */
+	xfs_dq_logformat_t	 qli_format;	   /* logged structure */
 } xfs_dq_logitem_t;
 
 typedef struct xfs_qoff_logitem {
-	xfs_log_item_t		 qql_item;	
-	struct xfs_qoff_logitem *qql_start_lip; 
-	xfs_qoff_logformat_t	 qql_format;	
+	xfs_log_item_t		 qql_item;	/* common portion */
+	struct xfs_qoff_logitem *qql_start_lip; /* qoff-start logitem, if any */
+	xfs_qoff_logformat_t	 qql_format;	/* logged structure */
 } xfs_qoff_logitem_t;
 
 
@@ -45,4 +45,4 @@ extern xfs_qoff_logitem_t *xfs_trans_get_qoff_item(struct xfs_trans *,
 extern void		   xfs_trans_log_quotaoff_item(struct xfs_trans *,
 					struct xfs_qoff_logitem *);
 
-#endif	
+#endif	/* __XFS_DQUOT_ITEM_H__ */

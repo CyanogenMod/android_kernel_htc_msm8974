@@ -28,11 +28,15 @@ struct team;
 
 struct team_port {
 	struct net_device *dev;
-	struct hlist_node hlist; 
-	struct list_head list; 
+	struct hlist_node hlist; /* node in hash list */
+	struct list_head list; /* node in ordinary list */
 	struct team *team;
 	int index;
 
+	/*
+	 * A place for storing original values of the device before it
+	 * become a port.
+	 */
 	struct {
 		unsigned char dev_addr[MAX_ADDR_LEN];
 		unsigned int mtu;
@@ -42,7 +46,7 @@ struct team_port {
 	u32 speed;
 	u8 duplex;
 
-	
+	/* Custom gennetlink interface related flags */
 	bool changed;
 	bool removed;
 
@@ -73,7 +77,7 @@ struct team_option {
 	int (*getter)(struct team *team, void *arg);
 	int (*setter)(struct team *team, void *arg);
 
-	
+	/* Custom gennetlink interface related flags */
 	bool changed;
 	bool removed;
 };
@@ -93,11 +97,14 @@ struct team_mode {
 #define TEAM_MODE_PRIV_SIZE (sizeof(long) * TEAM_MODE_PRIV_LONGS)
 
 struct team {
-	struct net_device *dev; 
+	struct net_device *dev; /* associated netdevice */
 	struct team_pcpu_stats __percpu *pcpu_stats;
 
-	struct mutex lock; 
+	struct mutex lock; /* used for overall locking, e.g. port lists write */
 
+	/*
+	 * port lists with port count
+	 */
 	int port_count;
 	struct hlist_head port_hlist[TEAM_PORT_HASHENTRIES];
 	struct list_head port_list;
@@ -150,10 +157,13 @@ extern void team_options_unregister(struct team *team,
 extern int team_mode_register(struct team_mode *mode);
 extern int team_mode_unregister(struct team_mode *mode);
 
-#endif 
+#endif /* __KERNEL__ */
 
 #define TEAM_STRING_MAX_LEN 32
 
+/**********************************
+ * NETLINK_GENERIC netlink family.
+ **********************************/
 
 enum {
 	TEAM_CMD_NOOP,
@@ -167,18 +177,33 @@ enum {
 
 enum {
 	TEAM_ATTR_UNSPEC,
-	TEAM_ATTR_TEAM_IFINDEX,		
-	TEAM_ATTR_LIST_OPTION,		
-	TEAM_ATTR_LIST_PORT,		
+	TEAM_ATTR_TEAM_IFINDEX,		/* u32 */
+	TEAM_ATTR_LIST_OPTION,		/* nest */
+	TEAM_ATTR_LIST_PORT,		/* nest */
 
 	__TEAM_ATTR_MAX,
 	TEAM_ATTR_MAX = __TEAM_ATTR_MAX - 1,
 };
 
+/* Nested layout of get/set msg:
+ *
+ *	[TEAM_ATTR_LIST_OPTION]
+ *		[TEAM_ATTR_ITEM_OPTION]
+ *			[TEAM_ATTR_OPTION_*], ...
+ *		[TEAM_ATTR_ITEM_OPTION]
+ *			[TEAM_ATTR_OPTION_*], ...
+ *		...
+ *	[TEAM_ATTR_LIST_PORT]
+ *		[TEAM_ATTR_ITEM_PORT]
+ *			[TEAM_ATTR_PORT_*], ...
+ *		[TEAM_ATTR_ITEM_PORT]
+ *			[TEAM_ATTR_PORT_*], ...
+ *		...
+ */
 
 enum {
 	TEAM_ATTR_ITEM_OPTION_UNSPEC,
-	TEAM_ATTR_ITEM_OPTION,		
+	TEAM_ATTR_ITEM_OPTION,		/* nest */
 
 	__TEAM_ATTR_ITEM_OPTION_MAX,
 	TEAM_ATTR_ITEM_OPTION_MAX = __TEAM_ATTR_ITEM_OPTION_MAX - 1,
@@ -186,11 +211,11 @@ enum {
 
 enum {
 	TEAM_ATTR_OPTION_UNSPEC,
-	TEAM_ATTR_OPTION_NAME,		
-	TEAM_ATTR_OPTION_CHANGED,	
-	TEAM_ATTR_OPTION_TYPE,		
-	TEAM_ATTR_OPTION_DATA,		
-	TEAM_ATTR_OPTION_REMOVED,	
+	TEAM_ATTR_OPTION_NAME,		/* string */
+	TEAM_ATTR_OPTION_CHANGED,	/* flag */
+	TEAM_ATTR_OPTION_TYPE,		/* u8 */
+	TEAM_ATTR_OPTION_DATA,		/* dynamic */
+	TEAM_ATTR_OPTION_REMOVED,	/* flag */
 
 	__TEAM_ATTR_OPTION_MAX,
 	TEAM_ATTR_OPTION_MAX = __TEAM_ATTR_OPTION_MAX - 1,
@@ -198,7 +223,7 @@ enum {
 
 enum {
 	TEAM_ATTR_ITEM_PORT_UNSPEC,
-	TEAM_ATTR_ITEM_PORT,		
+	TEAM_ATTR_ITEM_PORT,		/* nest */
 
 	__TEAM_ATTR_ITEM_PORT_MAX,
 	TEAM_ATTR_ITEM_PORT_MAX = __TEAM_ATTR_ITEM_PORT_MAX - 1,
@@ -206,19 +231,22 @@ enum {
 
 enum {
 	TEAM_ATTR_PORT_UNSPEC,
-	TEAM_ATTR_PORT_IFINDEX,		
-	TEAM_ATTR_PORT_CHANGED,		
-	TEAM_ATTR_PORT_LINKUP,		
-	TEAM_ATTR_PORT_SPEED,		
-	TEAM_ATTR_PORT_DUPLEX,		
-	TEAM_ATTR_PORT_REMOVED,		
+	TEAM_ATTR_PORT_IFINDEX,		/* u32 */
+	TEAM_ATTR_PORT_CHANGED,		/* flag */
+	TEAM_ATTR_PORT_LINKUP,		/* flag */
+	TEAM_ATTR_PORT_SPEED,		/* u32 */
+	TEAM_ATTR_PORT_DUPLEX,		/* u8 */
+	TEAM_ATTR_PORT_REMOVED,		/* flag */
 
 	__TEAM_ATTR_PORT_MAX,
 	TEAM_ATTR_PORT_MAX = __TEAM_ATTR_PORT_MAX - 1,
 };
 
+/*
+ * NETLINK_GENERIC related info
+ */
 #define TEAM_GENL_NAME "team"
 #define TEAM_GENL_VERSION 0x1
 #define TEAM_GENL_CHANGE_EVENT_MC_GRP_NAME "change_event"
 
-#endif 
+#endif /* _LINUX_IF_TEAM_H_ */

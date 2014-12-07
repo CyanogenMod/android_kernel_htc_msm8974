@@ -44,7 +44,7 @@
 #include "iw.h"
 
 unsigned int fastreg_pool_size = RDS_FASTREG_POOL_SIZE;
-unsigned int fastreg_message_size = RDS_FASTREG_SIZE + 1; 
+unsigned int fastreg_message_size = RDS_FASTREG_SIZE + 1; /* +1 allows for unaligned MRs */
 
 module_param(fastreg_pool_size, int, 0444);
 MODULE_PARM_DESC(fastreg_pool_size, " Max number of fastreg MRs per device");
@@ -53,6 +53,7 @@ MODULE_PARM_DESC(fastreg_message_size, " Max size of a RDMA transfer (fastreg MR
 
 struct list_head rds_iw_devices;
 
+/* NOTE: if also grabbing iwdev lock, grab this first */
 DEFINE_SPINLOCK(iw_nodev_conns_lock);
 LIST_HEAD(iw_nodev_conns);
 
@@ -61,7 +62,7 @@ static void rds_iw_add_one(struct ib_device *device)
 	struct rds_iw_device *rds_iwdev;
 	struct ib_device_attr *dev_attr;
 
-	
+	/* Only handle iwarp devices */
 	if (device->node_type != RDMA_NODE_RNIC)
 		return;
 
@@ -169,7 +170,7 @@ static int rds_iw_conn_info_visitor(struct rds_connection *conn,
 	struct rds_info_rdma_connection *iinfo = buffer;
 	struct rds_iw_connection *ic;
 
-	
+	/* We will only ever look at IB transports */
 	if (conn->c_trans != &rds_iw_transport)
 		return 0;
 
@@ -207,12 +208,25 @@ static void rds_iw_ic_info(struct socket *sock, unsigned int len,
 }
 
 
+/*
+ * Early RDS/IB was built to only bind to an address if there is an IPoIB
+ * device with that address set.
+ *
+ * If it were me, I'd advocate for something more flexible.  Sending and
+ * receiving should be device-agnostic.  Transports would try and maintain
+ * connections between peers who have messages queued.  Userspace would be
+ * allowed to influence which paths have priority.  We could call userspace
+ * asserting this policy "routing".
+ */
 static int rds_iw_laddr_check(__be32 addr)
 {
 	int ret;
 	struct rdma_cm_id *cm_id;
 	struct sockaddr_in sin;
 
+	/* Create a CMA ID and try to bind it. This catches both
+	 * IB and iWARP capable NICs.
+	 */
 	cm_id = rdma_create_id(NULL, NULL, RDMA_PS_TCP, IB_QPT_RC);
 	if (IS_ERR(cm_id))
 		return PTR_ERR(cm_id);
@@ -221,8 +235,10 @@ static int rds_iw_laddr_check(__be32 addr)
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = addr;
 
-	
+	/* rdma_bind_addr will only succeed for IB & iWARP devices */
 	ret = rdma_bind_addr(cm_id, (struct sockaddr *)&sin);
+	/* due to this, we will claim to support IB devices unless we
+	   check node_type. */
 	if (ret || cm_id->device->node_type != RDMA_NODE_RNIC)
 		ret = -EADDRNOTAVAIL;
 

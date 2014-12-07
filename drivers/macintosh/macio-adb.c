@@ -1,3 +1,6 @@
+/*
+ * Driver for the ADB controller in the Mac I/O (Hydra) chip.
+ */
 #include <stdarg.h>
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -32,21 +35,26 @@ struct adb_regs {
 	struct preg test;
 };
 
-#define DFB	1		
-#define TAG	2		
+/* Bits in intr and intr_enb registers */
+#define DFB	1		/* data from bus */
+#define TAG	2		/* transfer access grant */
 
-#define HMB	0x0f		
-#define APD	0x10		
+/* Bits in dcount register */
+#define HMB	0x0f		/* how many bytes */
+#define APD	0x10		/* auto-poll data */
 
-#define NRE	1		
-#define DLE	2		
+/* Bits in error register */
+#define NRE	1		/* no response error */
+#define DLE	2		/* data lost error */
 
-#define TAR	1		
-#define DTB	2		
-#define CRE	4		
-#define ADB_RST	8		
+/* Bits in ctrl register */
+#define TAR	1		/* transfer access request */
+#define DTB	2		/* data to bus */
+#define CRE	4		/* command response expected */
+#define ADB_RST	8		/* ADB reset */
 
-#define APE	1		
+/* Bits in autopoll register */
+#define APE	1		/* autopoll enable */
 
 static volatile struct adb_regs __iomem *adb;
 static struct adb_request *current_req, *last_req;
@@ -65,7 +73,7 @@ struct adb_driver macio_adb_driver = {
 	macio_probe,
 	macio_init,
 	macio_send_request,
-	
+	/*macio_write,*/
 	macio_adb_autopoll,
 	macio_adb_poll,
 	macio_adb_reset_bus
@@ -102,7 +110,7 @@ int macio_init(void)
 	out_8(&adb->ctrl.r, 0);
 	out_8(&adb->intr.r, 0);
 	out_8(&adb->error.r, 0);
-	out_8(&adb->active_hi.r, 0xff); 
+	out_8(&adb->active_hi.r, 0xff); /* for now, set all devices active */
 	out_8(&adb->active_lo.r, 0xff);
 	out_8(&adb->autopoll.r, APE);
 
@@ -136,6 +144,11 @@ static int macio_adb_reset_bus(void)
 	unsigned long flags;
 	int timeout = 1000000;
 
+	/* Hrm... we may want to not lock interrupts for so
+	 * long ... oh well, who uses that chip anyway ? :)
+	 * That function will be seldom used during boot
+	 * on rare machines, so...
+	 */
 	spin_lock_irqsave(&macio_lock, flags);
 	out_8(&adb->ctrl.r, in_8(&adb->ctrl.r) | ADB_RST);
 	while ((in_8(&adb->ctrl.r) & ADB_RST) != 0) {
@@ -149,6 +162,7 @@ static int macio_adb_reset_bus(void)
 	return 0;
 }
 
+/* Send an ADB command */
 static int macio_send_request(struct adb_request *req, int sync)
 {
 	unsigned long flags;
@@ -198,7 +212,7 @@ static irqreturn_t macio_adb_interrupt(int irq, void *arg)
 	if (in_8(&adb->intr.r) & TAG) {
 		handled = 1;
 		if ((req = current_req) != 0) {
-			
+			/* put the current request in */
 			for (i = 0; i < req->nbytes; ++i)
 				out_8(&adb->data[i].r, req->data[i]);
 			out_8(&adb->dcount.r, req->nbytes & HMB);
@@ -220,7 +234,7 @@ static irqreturn_t macio_adb_interrupt(int irq, void *arg)
 		handled = 1;
 		err = in_8(&adb->error.r);
 		if (current_req && current_req->sent) {
-			
+			/* this is the response to a command */
 			req = current_req;
 			if (err == 0) {
 				req->reply_len = in_8(&adb->dcount.r) & HMB;
@@ -232,7 +246,7 @@ static irqreturn_t macio_adb_interrupt(int irq, void *arg)
 			if (current_req)
 				out_8(&adb->ctrl.r, in_8(&adb->ctrl.r) | TAR);
 		} else if (err == 0) {
-			
+			/* autopoll data */
 			n = in_8(&adb->dcount.r) & HMB;
 			for (i = 0; i < n; ++i)
 				ibuf[i] = in_8(&adb->data[i].r);
@@ -247,6 +261,9 @@ static irqreturn_t macio_adb_interrupt(int irq, void *arg)
 	    void (*done)(struct adb_request *) = req->done;
 	    mb();
 	    req->complete = 1;
+	    /* Here, we assume that if the request has a done member, the
+    	     * struct request will survive to setting req->complete to 1
+	     */
 	    if (done)
 		(*done)(req);
 	}

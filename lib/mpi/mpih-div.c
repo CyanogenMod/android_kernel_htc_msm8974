@@ -37,6 +37,9 @@
 #define UDIV_TIME UMUL_TIME
 #endif
 
+/* FIXME: We should be using invert_limb (or invert_normalized_limb)
+ * here (not udiv_qrnnd).
+ */
 
 mpi_limb_t
 mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
@@ -46,10 +49,18 @@ mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 	mpi_limb_t n1, n0, r;
 	int dummy;
 
-	
+	/* Botch: Should this be handled at all?  Rely on callers?  */
 	if (!dividend_size)
 		return 0;
 
+	/* If multiplication is much faster than division, and the
+	 * dividend is large, pre-invert the divisor, and use
+	 * only multiplications in the inner loop.
+	 *
+	 * This test should be read:
+	 *   Does it ever help to use udiv_qrnnd_preinv?
+	 *     && Does what we save compensate for the inversion overhead?
+	 */
 	if (UDIV_TIME > (2 * UMUL_TIME + 6)
 	    && (UDIV_TIME - (2 * UMUL_TIME + 6)) * dividend_size > UDIV_TIME) {
 		int normalization_steps;
@@ -60,6 +71,12 @@ mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 
 			divisor_limb <<= normalization_steps;
 
+			/* Compute (2**2N - 2**N * DIVISOR_LIMB) / DIVISOR_LIMB.  The
+			 * result is a (N+1)-bit approximation to 1/DIVISOR_LIMB, with the
+			 * most significant bit (with weight 2**N) implicit.
+			 *
+			 * Special case for DIVISOR_LIMB == 100...000.
+			 */
 			if (!(divisor_limb << 1))
 				divisor_limb_inverted = ~(mpi_limb_t) 0;
 			else
@@ -69,6 +86,12 @@ mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 			n1 = dividend_ptr[dividend_size - 1];
 			r = n1 >> (BITS_PER_MPI_LIMB - normalization_steps);
 
+			/* Possible optimization:
+			 * if (r == 0
+			 * && divisor_limb > ((n1 << normalization_steps)
+			 *                 | (dividend_ptr[dividend_size - 2] >> ...)))
+			 * ...one division less...
+			 */
 			for (i = dividend_size - 2; i >= 0; i--) {
 				n0 = dividend_ptr[i];
 				UDIV_QRNND_PREINV(dummy, r, r,
@@ -87,6 +110,12 @@ mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 		} else {
 			mpi_limb_t divisor_limb_inverted;
 
+			/* Compute (2**2N - 2**N * DIVISOR_LIMB) / DIVISOR_LIMB.  The
+			 * result is a (N+1)-bit approximation to 1/DIVISOR_LIMB, with the
+			 * most significant bit (with weight 2**N) implicit.
+			 *
+			 * Special case for DIVISOR_LIMB == 100...000.
+			 */
 			if (!(divisor_limb << 1))
 				divisor_limb_inverted = ~(mpi_limb_t) 0;
 			else
@@ -121,6 +150,12 @@ mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 				r = n1 >> (BITS_PER_MPI_LIMB -
 					   normalization_steps);
 
+				/* Possible optimization:
+				 * if (r == 0
+				 * && divisor_limb > ((n1 << normalization_steps)
+				 *                 | (dividend_ptr[dividend_size - 2] >> ...)))
+				 * ...one division less...
+				 */
 				for (i = dividend_size - 2; i >= 0; i--) {
 					n0 = dividend_ptr[i];
 					udiv_qrnnd(dummy, r, r,
@@ -137,6 +172,8 @@ mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 				return r >> normalization_steps;
 			}
 		}
+		/* No normalization needed, either because udiv_qrnnd doesn't require
+		 * it, or because DIVISOR_LIMB is already normalized.  */
 		i = dividend_size - 1;
 		r = dividend_ptr[i];
 
@@ -153,6 +190,22 @@ mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 	}
 }
 
+/* Divide num (NP/NSIZE) by den (DP/DSIZE) and write
+ * the NSIZE-DSIZE least significant quotient limbs at QP
+ * and the DSIZE long remainder at NP.	If QEXTRA_LIMBS is
+ * non-zero, generate that many fraction bits and append them after the
+ * other quotient limbs.
+ * Return the most significant limb of the quotient, this is always 0 or 1.
+ *
+ * Preconditions:
+ * 0. NSIZE >= DSIZE.
+ * 1. The most significant bit of the divisor must be set.
+ * 2. QP must either not overlap with the input operands at all, or
+ *    QP + DSIZE >= NP must hold true.	(This means that it's
+ *    possible to put the quotient in the high part of NUM, right after the
+ *    remainder in NUM.
+ * 3. NSIZE >= DSIZE, even if QEXTRA_LIMBS is non-zero.
+ */
 
 mpi_limb_t
 mpihelp_divrem(mpi_ptr_t qp, mpi_size_t qextra_limbs,
@@ -162,6 +215,12 @@ mpihelp_divrem(mpi_ptr_t qp, mpi_size_t qextra_limbs,
 
 	switch (dsize) {
 	case 0:
+		/* We are asked to divide by zero, so go ahead and do it!  (To make
+		   the compiler not remove this statement, return the value.)  */
+		/*
+		 * existing clients of this function have been modified
+		 * not to call it with dsize == 0, so this should not happen
+		 */
 		return 1 / dsize;
 
 	case 1:
@@ -217,10 +276,13 @@ mpihelp_divrem(mpi_ptr_t qp, mpi_size_t qextra_limbs,
 					np[0] = 0;
 
 				if (n1 == d1) {
+					/* Q should be either 111..111 or 111..110.  Need special
+					 * treatment of this rare case as normal division would
+					 * give overflow.  */
 					q = ~(mpi_limb_t) 0;
 
 					r = n0 + d1;
-					if (r < d1) {	
+					if (r < d1) {	/* Carry in the addition? */
 						add_ssaaaa(n1, n0, r - d0,
 							   np[0], 0, d0);
 						qp[i] = q;
@@ -236,11 +298,11 @@ mpihelp_divrem(mpi_ptr_t qp, mpi_size_t qextra_limbs,
 				n2 = np[0];
 q_test:
 				if (n1 > r || (n1 == r && n0 > n2)) {
-					
+					/* The estimated Q was too large.  */
 					q--;
 					sub_ddmmss(n1, n0, n1, n0, 0, d0);
 					r += d1;
-					if (r >= d1)	
+					if (r >= d1)	/* If not carry, test Q again.  */
 						goto q_test;
 				}
 
@@ -286,6 +348,8 @@ q_test:
 				}
 
 				if (n0 == dX) {
+					/* This might over-estimate q, but it's probably not worth
+					 * the extra code here to find out.  */
 					q = ~(mpi_limb_t) 0;
 				} else {
 					mpi_limb_t r;
@@ -298,13 +362,16 @@ q_test:
 						   && n0 > np[dsize - 2])) {
 						q--;
 						r += dX;
-						if (r < dX)	
+						if (r < dX)	/* I.e. "carry in previous addition?" */
 							break;
 						n1 -= n0 < d1;
 						n0 -= d1;
 					}
 				}
 
+				/* Possible optimization: We already have (q * n0) and (1 * n1)
+				 * after the calculation of q.  Taking advantage of that, we
+				 * could make this loop make two iterations less.  */
 				cy_limb = mpihelp_submul_1(np, dp, dsize, q);
 
 				if (n2 != cy_limb) {
@@ -321,6 +388,14 @@ q_test:
 	return most_significant_q_limb;
 }
 
+/****************
+ * Divide (DIVIDEND_PTR,,DIVIDEND_SIZE) by DIVISOR_LIMB.
+ * Write DIVIDEND_SIZE limbs of quotient at QUOT_PTR.
+ * Return the single-limb remainder.
+ * There are no constraints on the value of the divisor.
+ *
+ * QUOT_PTR and DIVIDEND_PTR might point to the same limb.
+ */
 
 mpi_limb_t
 mpihelp_divmod_1(mpi_ptr_t quot_ptr,
@@ -334,6 +409,14 @@ mpihelp_divmod_1(mpi_ptr_t quot_ptr,
 	if (!dividend_size)
 		return 0;
 
+	/* If multiplication is much faster than division, and the
+	 * dividend is large, pre-invert the divisor, and use
+	 * only multiplications in the inner loop.
+	 *
+	 * This test should be read:
+	 * Does it ever help to use udiv_qrnnd_preinv?
+	 * && Does what we save compensate for the inversion overhead?
+	 */
 	if (UDIV_TIME > (2 * UMUL_TIME + 6)
 	    && (UDIV_TIME - (2 * UMUL_TIME + 6)) * dividend_size > UDIV_TIME) {
 		int normalization_steps;
@@ -344,7 +427,11 @@ mpihelp_divmod_1(mpi_ptr_t quot_ptr,
 
 			divisor_limb <<= normalization_steps;
 
-			
+			/* Compute (2**2N - 2**N * DIVISOR_LIMB) / DIVISOR_LIMB.  The
+			 * result is a (N+1)-bit approximation to 1/DIVISOR_LIMB, with the
+			 * most significant bit (with weight 2**N) implicit.
+			 */
+			/* Special case for DIVISOR_LIMB == 100...000.  */
 			if (!(divisor_limb << 1))
 				divisor_limb_inverted = ~(mpi_limb_t) 0;
 			else
@@ -354,6 +441,12 @@ mpihelp_divmod_1(mpi_ptr_t quot_ptr,
 			n1 = dividend_ptr[dividend_size - 1];
 			r = n1 >> (BITS_PER_MPI_LIMB - normalization_steps);
 
+			/* Possible optimization:
+			 * if (r == 0
+			 * && divisor_limb > ((n1 << normalization_steps)
+			 *                 | (dividend_ptr[dividend_size - 2] >> ...)))
+			 * ...one division less...
+			 */
 			for (i = dividend_size - 2; i >= 0; i--) {
 				n0 = dividend_ptr[i];
 				UDIV_QRNND_PREINV(quot_ptr[i + 1], r, r,
@@ -372,7 +465,11 @@ mpihelp_divmod_1(mpi_ptr_t quot_ptr,
 		} else {
 			mpi_limb_t divisor_limb_inverted;
 
-			
+			/* Compute (2**2N - 2**N * DIVISOR_LIMB) / DIVISOR_LIMB.  The
+			 * result is a (N+1)-bit approximation to 1/DIVISOR_LIMB, with the
+			 * most significant bit (with weight 2**N) implicit.
+			 */
+			/* Special case for DIVISOR_LIMB == 100...000.  */
 			if (!(divisor_limb << 1))
 				divisor_limb_inverted = ~(mpi_limb_t) 0;
 			else
@@ -407,6 +504,12 @@ mpihelp_divmod_1(mpi_ptr_t quot_ptr,
 				r = n1 >> (BITS_PER_MPI_LIMB -
 					   normalization_steps);
 
+				/* Possible optimization:
+				 * if (r == 0
+				 * && divisor_limb > ((n1 << normalization_steps)
+				 *                 | (dividend_ptr[dividend_size - 2] >> ...)))
+				 * ...one division less...
+				 */
 				for (i = dividend_size - 2; i >= 0; i--) {
 					n0 = dividend_ptr[i];
 					udiv_qrnnd(quot_ptr[i + 1], r, r,
@@ -423,6 +526,8 @@ mpihelp_divmod_1(mpi_ptr_t quot_ptr,
 				return r >> normalization_steps;
 			}
 		}
+		/* No normalization needed, either because udiv_qrnnd doesn't require
+		 * it, or because DIVISOR_LIMB is already normalized.  */
 		i = dividend_size - 1;
 		r = dividend_ptr[i];
 

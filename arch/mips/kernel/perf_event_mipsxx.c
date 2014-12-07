@@ -25,24 +25,39 @@
 #include <asm/irq.h>
 #include <asm/irq_regs.h>
 #include <asm/stacktrace.h>
-#include <asm/time.h> 
+#include <asm/time.h> /* For perf_irq */
 
 #define MIPS_MAX_HWEVENTS 4
 
 struct cpu_hw_events {
-	
+	/* Array of events on this cpu. */
 	struct perf_event	*events[MIPS_MAX_HWEVENTS];
 
+	/*
+	 * Set the bit (indexed by the counter number) when the counter
+	 * is used for an event.
+	 */
 	unsigned long		used_mask[BITS_TO_LONGS(MIPS_MAX_HWEVENTS)];
 
+	/*
+	 * Software copy of the control register for each performance counter.
+	 * MIPS CPUs vary in performance counters. They use this differently,
+	 * and even may not use it.
+	 */
 	unsigned int		saved_ctrl[MIPS_MAX_HWEVENTS];
 };
 DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events) = {
 	.saved_ctrl = {0},
 };
 
+/* The description of MIPS performance events. */
 struct mips_perf_event {
 	unsigned int event_id;
+	/*
+	 * MIPS performance counters are indexed starting from 0.
+	 * CNTR_EVEN indicates the indexes of the counters to be used are
+	 * even numbers.
+	 */
 	unsigned int cntr_mask;
 	#define CNTR_EVEN	0x55555555
 	#define CNTR_ODD	0xaaaaaaaa
@@ -121,6 +136,10 @@ static int cpu_has_mipsmt_pertccounters;
 
 static DEFINE_RWLOCK(pmuint_rwlock);
 
+/*
+ * FIXME: For VSMP, vpe_id() is redefined for Perf-events, because
+ * cpu_data[cpuid].vpe_id reports 0 for _both_ CPUs.
+ */
 #if defined(CONFIG_HW_PERF_EVENTS)
 #define vpe_id()	(cpu_has_mipsmt_pertccounters ? \
 			0 : smp_processor_id())
@@ -129,6 +148,7 @@ static DEFINE_RWLOCK(pmuint_rwlock);
 			0 : cpu_data[smp_processor_id()].vpe_id)
 #endif
 
+/* Copied from op_model_mipsxx.c */
 static unsigned int vpe_shift(void)
 {
 	if (num_possible_cpus() > 1)
@@ -147,10 +167,10 @@ static unsigned int counters_per_cpu_to_total(unsigned int counters)
 	return counters << vpe_shift();
 }
 
-#else 
+#else /* !CONFIG_MIPS_MT_SMP */
 #define vpe_id()	0
 
-#endif 
+#endif /* CONFIG_MIPS_MT_SMP */
 
 static void resume_local_counters(void);
 static void pause_local_counters(void);
@@ -170,6 +190,10 @@ static u64 mipsxx_pmu_read_counter(unsigned int idx)
 
 	switch (idx) {
 	case 0:
+		/*
+		 * The counters are unsigned, we must cast to truncate
+		 * off the high bits.
+		 */
 		return (u32)read_c0_perfcntr0();
 	case 1:
 		return (u32)read_c0_perfcntr1();
@@ -286,9 +310,23 @@ static int mipsxx_pmu_alloc_counter(struct cpu_hw_events *cpuc,
 {
 	int i;
 
+	/*
+	 * We only need to care the counter mask. The range has been
+	 * checked definitely.
+	 */
 	unsigned long cntr_mask = (hwc->event_base >> 8) & 0xffff;
 
 	for (i = mipspmu.num_counters - 1; i >= 0; i--) {
+		/*
+		 * Note that some MIPS perf events can be counted by both
+		 * even and odd counters, wheresas many other are only by
+		 * even _or_ odd counters. This introduces an issue that
+		 * when the former kind of event takes the counter the
+		 * latter kind of event wants to use, then the "counter
+		 * allocation" for the latter event will fail. In fact if
+		 * they can be dynamically swapped, they both feel happy.
+		 * But here we leave this issue alone for now.
+		 */
 		if (test_bit(i, &cntr_mask) &&
 			!test_and_set_bit(i, cpuc->used_mask))
 			return i;
@@ -305,8 +343,11 @@ static void mipsxx_pmu_enable_event(struct hw_perf_event *evt, int idx)
 
 	cpuc->saved_ctrl[idx] = M_PERFCTL_EVENT(evt->event_base & 0xff) |
 		(evt->config_base & M_PERFCTL_CONFIG_MASK) |
-		
+		/* Make sure interrupt enabled. */
 		M_PERFCTL_INTERRUPT_ENABLE;
+	/*
+	 * We do not actually let the counter run. Leave it until start().
+	 */
 }
 
 static void mipsxx_pmu_disable_event(int idx)
@@ -332,13 +373,13 @@ static int mipspmu_event_set_period(struct perf_event *event,
 	int ret = 0;
 
 	if (unlikely((left + period) & (1ULL << 63))) {
-		
+		/* left underflowed by more than period. */
 		left = period;
 		local64_set(&hwc->period_left, left);
 		hwc->last_period = period;
 		ret = 1;
 	} else	if (unlikely((left + period) <= period)) {
-		
+		/* left underflowed by less than period. */
 		left += period;
 		local64_set(&hwc->period_left, left);
 		hwc->last_period = period;
@@ -389,10 +430,10 @@ static void mipspmu_start(struct perf_event *event, int flags)
 
 	hwc->state = 0;
 
-	
+	/* Set the period for the event. */
 	mipspmu_event_set_period(event, hwc, hwc->idx);
 
-	
+	/* Enable the event. */
 	mipsxx_pmu_enable_event(hwc, hwc->idx);
 }
 
@@ -401,7 +442,7 @@ static void mipspmu_stop(struct perf_event *event, int flags)
 	struct hw_perf_event *hwc = &event->hw;
 
 	if (!(hwc->state & PERF_HES_STOPPED)) {
-		
+		/* We are working on a local event. */
 		mipsxx_pmu_disable_event(hwc->idx);
 		barrier();
 		mipspmu_event_update(event, hwc, hwc->idx);
@@ -418,13 +459,17 @@ static int mipspmu_add(struct perf_event *event, int flags)
 
 	perf_pmu_disable(event->pmu);
 
-	
+	/* To look for a free counter for this event. */
 	idx = mipsxx_pmu_alloc_counter(cpuc, hwc);
 	if (idx < 0) {
 		err = idx;
 		goto out;
 	}
 
+	/*
+	 * If there is an event in the counter we are going to use then
+	 * make sure it is disabled.
+	 */
 	event->hw.idx = idx;
 	mipsxx_pmu_disable_event(idx);
 	cpuc->events[idx] = event;
@@ -433,7 +478,7 @@ static int mipspmu_add(struct perf_event *event, int flags)
 	if (flags & PERF_EF_START)
 		mipspmu_start(event, PERF_EF_RELOAD);
 
-	
+	/* Propagate our changes to the userspace mapping. */
 	perf_event_update_userpage(event);
 
 out:
@@ -460,7 +505,7 @@ static void mipspmu_read(struct perf_event *event)
 {
 	struct hw_perf_event *hwc = &event->hw;
 
-	
+	/* Don't read disabled counters! */
 	if (hwc->idx < 0)
 		return;
 
@@ -475,6 +520,17 @@ static void mipspmu_enable(struct pmu *pmu)
 	resume_local_counters();
 }
 
+/*
+ * MIPS performance counters can be per-TC. The control registers can
+ * not be directly accessed accross CPUs. Hence if we want to do global
+ * control, we need cross CPU calls. on_each_cpu() can help us, but we
+ * can not make sure this function is called with interrupts enabled. So
+ * here we pause local counters and then grab a rwlock and leave the
+ * counters on other CPUs alone. If any counter interrupt raises while
+ * we own the write lock, simply pause local counters on that CPU and
+ * spin in the handler. Also we know we won't be switched to another
+ * CPU after pausing local counters and before grabbing the lock.
+ */
 static void mipspmu_disable(struct pmu *pmu)
 {
 	pause_local_counters();
@@ -492,7 +548,7 @@ static int mipspmu_get_irq(void)
 	int err;
 
 	if (mipspmu.irq >= 0) {
-		
+		/* Request my own irq handler. */
 		err = request_irq(mipspmu.irq, mipsxx_pmu_handle_irq,
 			IRQF_PERCPU | IRQF_NOBALANCING,
 			"mips_perf_pmu", NULL);
@@ -501,6 +557,9 @@ static int mipspmu_get_irq(void)
 			   "performance counters!\n", mipspmu.irq);
 		}
 	} else if (cp0_perfcount_irq < 0) {
+		/*
+		 * We are sharing the irq number with the timer interrupt.
+		 */
 		save_perf_irq = perf_irq;
 		perf_irq = mipsxx_pmu_handle_shared_irq;
 		err = 0;
@@ -521,6 +580,10 @@ static void mipspmu_free_irq(void)
 		perf_irq = save_perf_irq;
 }
 
+/*
+ * mipsxx/rm9000/loongson2 have different performance counters, they have
+ * specific low-level init routines.
+ */
 static void reset_counters(void *arg);
 static int __hw_perf_event_init(struct perf_event *event);
 
@@ -528,6 +591,10 @@ static void hw_perf_event_destroy(struct perf_event *event)
 {
 	if (atomic_dec_and_mutex_lock(&active_events,
 				&pmu_reserve_mutex)) {
+		/*
+		 * We must not call the destroy function with interrupts
+		 * disabled.
+		 */
 		on_each_cpu(reset_counters,
 			(void *)(long)mipspmu.num_counters, 1);
 		mipspmu_free_irq();
@@ -539,7 +606,7 @@ static int mipspmu_event_init(struct perf_event *event)
 {
 	int err = 0;
 
-	
+	/* does not support taken branch sampling */
 	if (has_branch_stack(event))
 		return -EOPNOTSUPP;
 
@@ -586,6 +653,10 @@ static struct pmu pmu = {
 
 static unsigned int mipspmu_perf_event_encode(const struct mips_perf_event *pev)
 {
+/*
+ * Top 8 bits for range, next 16 bits for cntr_mask, lowest 8 bits for
+ * event_id.
+ */
 #ifdef CONFIG_MIPS_MT_SMP
 	return ((unsigned int)pev->range << 24) |
 		(pev->cntr_mask & 0xffff00) |
@@ -657,6 +728,7 @@ static int validate_group(struct perf_event *event)
 	return 0;
 }
 
+/* This is needed by specific irq handlers in perf_event_*.c */
 static void handle_associated_event(struct cpu_hw_events *cpuc,
 				    int idx, struct perf_sample_data *data,
 				    struct pt_regs *regs)
@@ -728,6 +800,7 @@ static void reset_counters(void *arg)
 	}
 }
 
+/* 24K/34K/1004K cores can share the same event map. */
 static const struct mips_perf_event mipsxxcore_event_map
 				[PERF_COUNT_HW_MAX] = {
 	[PERF_COUNT_HW_CPU_CYCLES] = { 0x00, CNTR_EVEN | CNTR_ODD, P },
@@ -739,6 +812,7 @@ static const struct mips_perf_event mipsxxcore_event_map
 	[PERF_COUNT_HW_BUS_CYCLES] = { UNSUPPORTED_PERF_EVENT_ID },
 };
 
+/* 74K core has different branch event code. */
 static const struct mips_perf_event mipsxx74Kcore_event_map
 				[PERF_COUNT_HW_MAX] = {
 	[PERF_COUNT_HW_CPU_CYCLES] = { 0x00, CNTR_EVEN | CNTR_ODD, P },
@@ -760,11 +834,18 @@ static const struct mips_perf_event octeon_event_map[PERF_COUNT_HW_MAX] = {
 	[PERF_COUNT_HW_BUS_CYCLES] = { 0x25, CNTR_ALL },
 };
 
+/* 24K/34K/1004K cores can share the same cache event map. */
 static const struct mips_perf_event mipsxxcore_cache_map
 				[PERF_COUNT_HW_CACHE_MAX]
 				[PERF_COUNT_HW_CACHE_OP_MAX]
 				[PERF_COUNT_HW_CACHE_RESULT_MAX] = {
 [C(L1D)] = {
+	/*
+	 * Like some other architectures (e.g. ARM), the performance
+	 * counters don't differentiate between read and write
+	 * accesses/misses, so this isn't strictly correct, but it's the
+	 * best we can do. Writes and reads get combined.
+	 */
 	[C(OP_READ)] = {
 		[C(RESULT_ACCESS)]	= { 0x0a, CNTR_EVEN, T },
 		[C(RESULT_MISS)]	= { 0x0b, CNTR_EVEN | CNTR_ODD, T },
@@ -789,6 +870,10 @@ static const struct mips_perf_event mipsxxcore_cache_map
 	},
 	[C(OP_PREFETCH)] = {
 		[C(RESULT_ACCESS)]	= { 0x14, CNTR_EVEN, T },
+		/*
+		 * Note that MIPS has only "hit" events countable for
+		 * the prefetch operation.
+		 */
 		[C(RESULT_MISS)]	= { UNSUPPORTED_PERF_EVENT_ID },
 	},
 },
@@ -835,7 +920,7 @@ static const struct mips_perf_event mipsxxcore_cache_map
 	},
 },
 [C(BPU)] = {
-	
+	/* Using the same code for *HW_BRANCH* */
 	[C(OP_READ)] = {
 		[C(RESULT_ACCESS)]	= { 0x02, CNTR_EVEN, T },
 		[C(RESULT_MISS)]	= { 0x02, CNTR_ODD, T },
@@ -865,11 +950,18 @@ static const struct mips_perf_event mipsxxcore_cache_map
 },
 };
 
+/* 74K core has completely different cache event map. */
 static const struct mips_perf_event mipsxx74Kcore_cache_map
 				[PERF_COUNT_HW_CACHE_MAX]
 				[PERF_COUNT_HW_CACHE_OP_MAX]
 				[PERF_COUNT_HW_CACHE_RESULT_MAX] = {
 [C(L1D)] = {
+	/*
+	 * Like some other architectures (e.g. ARM), the performance
+	 * counters don't differentiate between read and write
+	 * accesses/misses, so this isn't strictly correct, but it's the
+	 * best we can do. Writes and reads get combined.
+	 */
 	[C(OP_READ)] = {
 		[C(RESULT_ACCESS)]	= { 0x17, CNTR_ODD, T },
 		[C(RESULT_MISS)]	= { 0x18, CNTR_ODD, T },
@@ -894,6 +986,10 @@ static const struct mips_perf_event mipsxx74Kcore_cache_map
 	},
 	[C(OP_PREFETCH)] = {
 		[C(RESULT_ACCESS)]	= { 0x34, CNTR_EVEN, T },
+		/*
+		 * Note that MIPS has only "hit" events countable for
+		 * the prefetch operation.
+		 */
 		[C(RESULT_MISS)]	= { UNSUPPORTED_PERF_EVENT_ID },
 	},
 },
@@ -912,7 +1008,7 @@ static const struct mips_perf_event mipsxx74Kcore_cache_map
 	},
 },
 [C(DTLB)] = {
-	
+	/* 74K core does not have specific DTLB events. */
 	[C(OP_READ)] = {
 		[C(RESULT_ACCESS)]	= { UNSUPPORTED_PERF_EVENT_ID },
 		[C(RESULT_MISS)]	= { UNSUPPORTED_PERF_EVENT_ID },
@@ -941,7 +1037,7 @@ static const struct mips_perf_event mipsxx74Kcore_cache_map
 	},
 },
 [C(BPU)] = {
-	
+	/* Using the same code for *HW_BRANCH* */
 	[C(OP_READ)] = {
 		[C(RESULT_ACCESS)]	= { 0x27, CNTR_EVEN, T },
 		[C(RESULT_MISS)]	= { 0x27, CNTR_ODD, T },
@@ -1019,6 +1115,10 @@ static const struct mips_perf_event octeon_cache_map
 	},
 },
 [C(DTLB)] = {
+	/*
+	 * Only general DTLB misses are counted use the same event for
+	 * read and write.
+	 */
 	[C(OP_READ)] = {
 		[C(RESULT_ACCESS)]	= { UNSUPPORTED_PERF_EVENT_ID },
 		[C(RESULT_MISS)]	= { 0x35, CNTR_ALL },
@@ -1047,7 +1147,7 @@ static const struct mips_perf_event octeon_cache_map
 	},
 },
 [C(BPU)] = {
-	
+	/* Using the same code for *HW_BRANCH* */
 	[C(OP_READ)] = {
 		[C(RESULT_ACCESS)]	= { UNSUPPORTED_PERF_EVENT_ID },
 		[C(RESULT_MISS)]	= { UNSUPPORTED_PERF_EVENT_ID },
@@ -1071,8 +1171,16 @@ static void check_and_calc_range(struct perf_event *event,
 
 	if (event->cpu >= 0) {
 		if (pev->range > V) {
+			/*
+			 * The user selected an event that is processor
+			 * wide, while expecting it to be VPE wide.
+			 */
 			hwc->config_base |= M_TC_EN_ALL;
 		} else {
+			/*
+			 * FIXME: cpu_data[event->cpu].vpe_id reports 0
+			 * for both CPUs.
+			 */
 			hwc->config_base |= M_PERFCTL_VPEID(event->cpu);
 			hwc->config_base |= M_TC_EN_VPE;
 		}
@@ -1093,7 +1201,7 @@ static int __hw_perf_event_init(struct perf_event *event)
 	const struct mips_perf_event *pev;
 	int err;
 
-	
+	/* Returning MIPS event descriptor for generic perf event. */
 	if (PERF_TYPE_HARDWARE == event->attr.type) {
 		if (event->attr.config >= PERF_COUNT_HW_MAX)
 			return -EINVAL;
@@ -1101,11 +1209,11 @@ static int __hw_perf_event_init(struct perf_event *event)
 	} else if (PERF_TYPE_HW_CACHE == event->attr.type) {
 		pev = mipspmu_map_cache_event(event->attr.config);
 	} else if (PERF_TYPE_RAW == event->attr.type) {
-		
+		/* We are working on the global raw event. */
 		mutex_lock(&raw_event_mutex);
 		pev = mipspmu.map_raw_event(event->attr.config);
 	} else {
-		
+		/* The event type is not (yet) supported. */
 		return -EOPNOTSUPP;
 	}
 
@@ -1115,9 +1223,13 @@ static int __hw_perf_event_init(struct perf_event *event)
 		return PTR_ERR(pev);
 	}
 
+	/*
+	 * We allow max flexibility on how each individual counter shared
+	 * by the single CPU operates (the mode exclusion and the range).
+	 */
 	hwc->config_base = M_PERFCTL_INTERRUPT_ENABLE;
 
-	
+	/* Calculate range bits and validate it. */
 	if (num_possible_cpus() > 1)
 		check_and_calc_range(event, pev);
 
@@ -1129,13 +1241,17 @@ static int __hw_perf_event_init(struct perf_event *event)
 		hwc->config_base |= M_PERFCTL_USER;
 	if (!attr->exclude_kernel) {
 		hwc->config_base |= M_PERFCTL_KERNEL;
-		
+		/* MIPS kernel mode: KSU == 00b || EXL == 1 || ERL == 1 */
 		hwc->config_base |= M_PERFCTL_EXL;
 	}
 	if (!attr->exclude_hv)
 		hwc->config_base |= M_PERFCTL_SUPERVISOR;
 
 	hwc->config_base &= M_PERFCTL_CONFIG_MASK;
+	/*
+	 * The event can belong to another cpu. We do not assign a local
+	 * counter for it for now.
+	 */
 	hwc->idx = -1;
 	hwc->config = 0;
 
@@ -1195,6 +1311,13 @@ static int mipsxx_pmu_handle_shared_irq(void)
 
 	if (cpu_has_mips_r2 && !(read_c0_cause() & (1 << 26)))
 		return handled;
+	/*
+	 * First we pause the local counters, so that when we are locked
+	 * here, the counters are all paused. When it gets locked due to
+	 * perf_disable(), the timer interrupt handler will be delayed.
+	 *
+	 * See also mipsxx_pmu_start().
+	 */
 	pause_local_counters();
 #ifdef CONFIG_MIPS_MT_SMP
 	read_lock(&pmuint_rwlock);
@@ -1220,6 +1343,11 @@ static int mipsxx_pmu_handle_shared_irq(void)
 	HANDLE_COUNTER(0)
 	}
 
+	/*
+	 * Do all the work for the pending perf events. We can do this
+	 * in here because the performance counter interrupt is a regular
+	 * interrupt, not NMI.
+	 */
 	if (handled == IRQ_HANDLED)
 		irq_work_run();
 
@@ -1235,9 +1363,11 @@ static irqreturn_t mipsxx_pmu_handle_irq(int irq, void *dev)
 	return mipsxx_pmu_handle_shared_irq();
 }
 
+/* 24K */
 #define IS_BOTH_COUNTERS_24K_EVENT(b)					\
 	((b) == 0 || (b) == 1 || (b) == 11)
 
+/* 34K */
 #define IS_BOTH_COUNTERS_34K_EVENT(b)					\
 	((b) == 0 || (b) == 1 || (b) == 11)
 #ifdef CONFIG_MIPS_MT_SMP
@@ -1249,9 +1379,11 @@ static irqreturn_t mipsxx_pmu_handle_irq(int irq, void *dev)
 #define IS_RANGE_V_34K_EVENT(r)	((r) == 47)
 #endif
 
+/* 74K */
 #define IS_BOTH_COUNTERS_74K_EVENT(b)					\
 	((b) == 0 || (b) == 1)
 
+/* 1004K */
 #define IS_BOTH_COUNTERS_1004K_EVENT(b)					\
 	((b) == 0 || (b) == 1 || (b) == 11)
 #ifdef CONFIG_MIPS_MT_SMP
@@ -1264,6 +1396,14 @@ static irqreturn_t mipsxx_pmu_handle_irq(int irq, void *dev)
 #define IS_RANGE_V_1004K_EVENT(r)	((r) == 47)
 #endif
 
+/*
+ * User can use 0-255 raw events, where 0-127 for the events of even
+ * counters, and 128-255 for odd counters. Note that bit 7 is used to
+ * indicate the parity. So, for example, when user wants to take the
+ * Event Num of 15 for odd counters (by referring to the user manual),
+ * then 128 needs to be added to 15 as the input for the event config,
+ * i.e., 143 (0x8F) to be used.
+ */
 static const struct mips_perf_event *mipsxx_pmu_map_raw_event(u64 config)
 {
 	unsigned int raw_id = config & 0xff;
@@ -1279,6 +1419,10 @@ static const struct mips_perf_event *mipsxx_pmu_map_raw_event(u64 config)
 			raw_event.cntr_mask =
 				raw_id > 127 ? CNTR_ODD : CNTR_EVEN;
 #ifdef CONFIG_MIPS_MT_SMP
+		/*
+		 * This is actually doing nothing. Non-multithreading
+		 * CPUs will not check and calculate the range.
+		 */
 		raw_event.range = P;
 #endif
 		break;
@@ -1382,6 +1526,9 @@ init_hw_perf_events(void)
 
 #ifdef MSC01E_INT_BASE
 	if (cpu_has_veic) {
+		/*
+		 * Using platform specific interrupt controller defines.
+		 */
 		irq = MSC01E_INT_BASE + MSC01E_INT_PERFCTR;
 	} else {
 #endif

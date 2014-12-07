@@ -23,6 +23,7 @@
 
 static char nvram_buf[NVRAM_SPACE];
 
+/* Probe for NVRAM header */
 static void early_nvram_init(void)
 {
 #ifdef CONFIG_BCM47XX_SSB
@@ -57,7 +58,7 @@ static void early_nvram_init(void)
 
 	off = FLASH_MIN;
 	while (off <= lim) {
-		
+		/* Windowed flash access */
 		header = (struct nvram_header *)
 			KSEG1ADDR(base + off - NVRAM_SPACE);
 		if (header->magic == NVRAM_HEADER)
@@ -65,7 +66,7 @@ static void early_nvram_init(void)
 		off <<= 1;
 	}
 
-	
+	/* Try embedded NVRAM at 4 KB and 1 KB as last resorts */
 	header = (struct nvram_header *) KSEG1ADDR(base + 4096);
 	if (header->magic == NVRAM_HEADER)
 		goto found;
@@ -95,7 +96,7 @@ int nvram_getenv(char *name, char *val, size_t val_len)
 	if (!nvram_buf[0])
 		early_nvram_init();
 
-	
+	/* Look for name=value and return value */
 	var = &nvram_buf[sizeof(struct nvram_header)];
 	end = nvram_buf + sizeof(nvram_buf) - 2;
 	end[0] = end[1] = '\0';

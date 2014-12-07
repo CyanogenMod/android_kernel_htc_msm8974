@@ -94,6 +94,7 @@ extern struct layer2	*create_l2(struct mISDNchannel *, u_int,
 extern int		tei_l2(struct layer2 *, u_int, u_long arg);
 
 
+/* from tei.c */
 extern int		l2_tei(struct layer2 *, u_int, u_long arg);
 extern void		TEIrelease(struct layer2 *);
 extern int		TEIInit(u_int *);

@@ -56,8 +56,8 @@ static int __init storcenter_add_bridge(struct device_node *dev)
 
 	setup_indirect_pci(hose, MPC10X_MAPB_CNFG_ADDR, MPC10X_MAPB_CNFG_DATA, 0);
 
-	
-	
+	/* Interpret the "ranges" property */
+	/* This also maps the I/O region and sets isa_io/mem_base */
 	pci_process_bridge_OF_ranges(hose, dev, 1);
 #endif
 
@@ -68,13 +68,17 @@ static void __init storcenter_setup_arch(void)
 {
 	struct device_node *np;
 
-	
+	/* Lookup PCI host bridges */
 	for_each_compatible_node(np, "pci", "mpc10x-pci")
 		storcenter_add_bridge(np);
 
 	printk(KERN_INFO "IOMEGA StorCenter\n");
 }
 
+/*
+ * Interrupt setup and service.  Interrupts on the turbostation come
+ * from the four PCI slots plus onboard 8241 devices: I2C, DUART.
+ */
 static void __init storcenter_init_IRQ(void)
 {
 	struct mpic *mpic;
@@ -82,6 +86,10 @@ static void __init storcenter_init_IRQ(void)
 	mpic = mpic_alloc(NULL, 0, 0, 16, 0, " OpenPIC  ");
 	BUG_ON(mpic == NULL);
 
+	/*
+	 * 16 Serial Interrupts followed by 16 Internal Interrupts.
+	 * I2C is the second internal, so it is at 17, 0x11020.
+	 */
 	mpic_assign_isu(mpic, 0, mpic->paddr + 0x10200);
 	mpic_assign_isu(mpic, 1, mpic->paddr + 0x11000);
 
@@ -92,10 +100,10 @@ static void storcenter_restart(char *cmd)
 {
 	local_irq_disable();
 
-	
+	/* Set exception prefix high - to the firmware */
 	_nmask_and_or_msr(0, MSR_IP);
 
-	
+	/* Wait for reset to happen */
 	for (;;) ;
 }
 

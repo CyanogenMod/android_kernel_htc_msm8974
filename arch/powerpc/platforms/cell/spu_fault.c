@@ -27,6 +27,11 @@
 #include <asm/spu.h>
 #include <asm/spu_csa.h>
 
+/*
+ * This ought to be kept in sync with the powerpc specific do_page_fault
+ * function. Currently, there are a few corner cases that we haven't had
+ * to handle fortunately.
+ */
 int spu_handle_mm_fault(struct mm_struct *mm, unsigned long ea,
 		unsigned long dsisr, unsigned *flt)
 {

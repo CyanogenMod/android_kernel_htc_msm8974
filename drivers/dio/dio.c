@@ -30,29 +30,39 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/dio.h>
-#include <linux/slab.h>                         
+#include <linux/slab.h>                         /* kmalloc() */
 #include <asm/uaccess.h>
-#include <asm/io.h>                             
+#include <asm/io.h>                             /* readb() */
 
 struct dio_bus dio_bus = {
 	.resources = {
-		
+		/* DIO range */
 		{ .name = "DIO mem", .start = 0x00600000, .end = 0x007fffff },
-		
+		/* DIO-II range */
 		{ .name = "DIO-II mem", .start = 0x01000000, .end = 0x1fffffff }
 	},
 	.name = "DIO bus"
 };
 
+/* not a real config option yet! */
 #define CONFIG_DIO_CONSTANTS
 
 #ifdef CONFIG_DIO_CONSTANTS
+/* We associate each numeric ID with an appropriate descriptive string
+ * using a constant array of these structs.
+ * FIXME: we should be able to arrange to throw away most of the strings
+ * using the initdata stuff. Then we wouldn't need to worry about 
+ * carrying them around...
+ * I think we do this by copying them into newly kmalloc()ed memory and 
+ * marking the names[] array as .initdata ?
+ */
 struct dioname
 {
         int id;
         const char *name;
 };
 
+/* useful macro */
 #define DIONAME(x) { DIO_ID_##x, DIO_DESC_##x }
 #define DIOFBNAME(x) { DIO_ENCODE_ID( DIO_ID_FBUFFER, DIO_ID2_##x), DIO_DESC2_##x }
 
@@ -83,7 +93,7 @@ static const char *unknowndioname
 
 static const char *dio_getname(int id)
 {
-        
+        /* return pointer to a constant string describing the board with given ID */
 	unsigned int i;
 	for (i = 0; i < ARRAY_SIZE(names); i++)
                 if (names[i].id == id) 
@@ -97,10 +107,13 @@ static const char *dio_getname(int id)
 static char dio_no_name[] = { 0 };
 #define dio_getname(_id)	(dio_no_name)
 
-#endif 
+#endif /* CONFIG_DIO_CONSTANTS */
 
 int __init dio_find(int deviceid)
 {
+	/* Called to find a DIO device before the full bus scan has run.
+	 * Only used by the console driver.
+	 */
 	int scode, id;
 	u_char prid, secid, i;
 	mm_segment_t fs;
@@ -129,7 +142,7 @@ int __init dio_find(int deviceid)
 			set_fs(fs);
 			if (scode >= DIOII_SCBASE)
 				iounmap(va);
-                        continue;             
+                        continue;             /* no board present at that select code */
 		}
 
 		set_fs(fs);
@@ -151,6 +164,9 @@ int __init dio_find(int deviceid)
 	return -1;
 }
 
+/* This is the function that scans the DIO space and works out what
+ * hardware is actually present.
+ */
 static int __init dio_init(void)
 {
 	int scode;
@@ -164,7 +180,7 @@ static int __init dio_init(void)
 
         printk(KERN_INFO "Scanning for DIO devices...\n");
 
-	 
+	/* Initialize the DIO bus */ 
 	INIT_LIST_HEAD(&dio_bus.devices);
 	dev_set_name(&dio_bus.dev, "dio");
 	error = device_register(&dio_bus.dev);
@@ -173,15 +189,15 @@ static int __init dio_init(void)
 		return error;
 	}
 
-	
+	/* Request all resources */
 	dio_bus.num_resources = (hp300_model == HP_320 ? 1 : 2);
 	for (i = 0; i < dio_bus.num_resources; i++)
 		request_resource(&iomem_resource, &dio_bus.resources[i]);
 
-	
+	/* Register all devices */
         for (scode = 0; scode < DIO_SCMAX; ++scode)
         {
-                u_char prid, secid = 0;        
+                u_char prid, secid = 0;        /* primary, secondary ID bytes */
                 u_char *va;
 		unsigned long pa;
                 
@@ -205,12 +221,12 @@ static int __init dio_init(void)
 			set_fs(fs);
 			if (scode >= DIOII_SCBASE)
 				iounmap(va);
-                        continue;              
+                        continue;              /* no board present at that select code */
 		}
 
 		set_fs(fs);
 
-                
+                /* Found a board, allocate it an entry in the list */
 		dev = kzalloc(sizeof(struct dio_dev), GFP_KERNEL);
 		if (!dev)
 			return 0;
@@ -223,7 +239,7 @@ static int __init dio_init(void)
 		dev->resource.end = pa + DIO_SIZE(scode, va);
 		dev_set_name(&dev->dev, "%02x", scode);
 
-                
+                /* read the ID byte(s) and encode if necessary. */
 		prid = DIO_ID(va);
 
                 if (DIO_NEEDSSECID(prid)) {
@@ -256,6 +272,9 @@ static int __init dio_init(void)
 
 subsys_initcall(dio_init);
 
+/* Bear in mind that this is called in the very early stages of initialisation
+ * in order to get the address of the serial port for the console...
+ */
 unsigned long dio_scodetophysaddr(int scode)
 {
         if (scode >= DIOII_SCBASE) {

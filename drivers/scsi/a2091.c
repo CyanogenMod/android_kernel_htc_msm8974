@@ -47,24 +47,24 @@ static int dma_setup(struct scsi_cmnd *cmd, int dir_in)
 	unsigned short cntr = CNTR_PDMD | CNTR_INTEN;
 	unsigned long addr = virt_to_bus(cmd->SCp.ptr);
 
-	
+	/* don't allow DMA if the physical address is bad */
 	if (addr & A2091_XFER_MASK) {
 		wh->dma_bounce_len = (cmd->SCp.this_residual + 511) & ~0x1ff;
 		wh->dma_bounce_buffer = kmalloc(wh->dma_bounce_len,
 						GFP_KERNEL);
 
-		
+		/* can't allocate memory; use PIO */
 		if (!wh->dma_bounce_buffer) {
 			wh->dma_bounce_len = 0;
 			return 1;
 		}
 
-		
+		/* get the physical address of the bounce buffer */
 		addr = virt_to_bus(wh->dma_bounce_buffer);
 
-		
+		/* the bounce buffer may not be in the first 16M of physmem */
 		if (addr & A2091_XFER_MASK) {
-			
+			/* we could use chipmem... maybe later */
 			kfree(wh->dma_bounce_buffer);
 			wh->dma_bounce_buffer = NULL;
 			wh->dma_bounce_len = 0;
@@ -72,35 +72,35 @@ static int dma_setup(struct scsi_cmnd *cmd, int dir_in)
 		}
 
 		if (!dir_in) {
-			
+			/* copy to bounce buffer for a write */
 			memcpy(wh->dma_bounce_buffer, cmd->SCp.ptr,
 			       cmd->SCp.this_residual);
 		}
 	}
 
-	
+	/* setup dma direction */
 	if (!dir_in)
 		cntr |= CNTR_DDIR;
 
-	
+	/* remember direction */
 	wh->dma_dir = dir_in;
 
 	regs->CNTR = cntr;
 
-	
+	/* setup DMA *physical* address */
 	regs->ACR = addr;
 
 	if (dir_in) {
-		
+		/* invalidate any cache */
 		cache_clear(addr, cmd->SCp.this_residual);
 	} else {
-		
+		/* push any dirty cache */
 		cache_push(addr, cmd->SCp.this_residual);
 	}
-	
+	/* start DMA */
 	regs->ST_DMA = 1;
 
-	
+	/* return success */
 	return 0;
 }
 
@@ -111,32 +111,32 @@ static void dma_stop(struct Scsi_Host *instance, struct scsi_cmnd *SCpnt,
 	struct WD33C93_hostdata *wh = &hdata->wh;
 	struct a2091_scsiregs *regs = hdata->regs;
 
-	
+	/* disable SCSI interrupts */
 	unsigned short cntr = CNTR_PDMD;
 
 	if (!wh->dma_dir)
 		cntr |= CNTR_DDIR;
 
-	
+	/* disable SCSI interrupts */
 	regs->CNTR = cntr;
 
-	
+	/* flush if we were reading */
 	if (wh->dma_dir) {
 		regs->FLUSH = 1;
 		while (!(regs->ISTR & ISTR_FE_FLG))
 			;
 	}
 
-	
+	/* clear a possible interrupt */
 	regs->CINT = 1;
 
-	
+	/* stop DMA */
 	regs->SP_DMA = 1;
 
-	
+	/* restore the CONTROL bits (minus the direction flag) */
 	regs->CNTR = CNTR_PDMD | CNTR_INTEN;
 
-	
+	/* copy from a bounce buffer, if necessary */
 	if (status && wh->dma_bounce_buffer) {
 		if (wh->dma_dir)
 			memcpy(SCpnt->SCp.ptr, wh->dma_bounce_buffer,
@@ -151,8 +151,10 @@ static int a2091_bus_reset(struct scsi_cmnd *cmd)
 {
 	struct Scsi_Host *instance = cmd->device->host;
 
-	
+	/* FIXME perform bus-specific reset */
 
+	/* FIXME 2: kill this function, and let midlayer fall back
+	   to the same action, calling wd33c93_host_reset() */
 
 	spin_lock_irq(instance->host_lock);
 	wd33c93_host_reset(cmd);

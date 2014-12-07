@@ -31,19 +31,21 @@
 
 #include "hwspinlock_internal.h"
 
+/* Spinlock register offsets */
 #define SYSSTATUS_OFFSET		0x0014
 #define LOCK_BASE_OFFSET		0x0800
 
 #define SPINLOCK_NUMLOCKS_BIT_OFFSET	(24)
 
-#define SPINLOCK_NOTTAKEN		(0)	
-#define SPINLOCK_TAKEN			(1)	
+/* Possible values of SPINLOCK_LOCK_REG */
+#define SPINLOCK_NOTTAKEN		(0)	/* free */
+#define SPINLOCK_TAKEN			(1)	/* locked */
 
 static int omap_hwspinlock_trylock(struct hwspinlock *lock)
 {
 	void __iomem *lock_addr = lock->priv;
 
-	
+	/* attempt to acquire the lock by reading its value */
 	return (SPINLOCK_NOTTAKEN == readl(lock_addr));
 }
 
@@ -51,10 +53,20 @@ static void omap_hwspinlock_unlock(struct hwspinlock *lock)
 {
 	void __iomem *lock_addr = lock->priv;
 
-	
+	/* release the lock by writing 0 to it */
 	writel(SPINLOCK_NOTTAKEN, lock_addr);
 }
 
+/*
+ * relax the OMAP interconnect while spinning on it.
+ *
+ * The specs recommended that the retry delay time will be
+ * just over half of the time that a requester would be
+ * expected to hold the lock.
+ *
+ * The number below is taken from an hardware specs example,
+ * obviously it is somewhat arbitrary.
+ */
 static void omap_hwspinlock_relax(struct hwspinlock *lock)
 {
 	ndelay(50);
@@ -86,17 +98,17 @@ static int __devinit omap_hwspinlock_probe(struct platform_device *pdev)
 	if (!io_base)
 		return -ENOMEM;
 
-	
+	/* Determine number of locks */
 	i = readl(io_base + SYSSTATUS_OFFSET);
 	i >>= SPINLOCK_NUMLOCKS_BIT_OFFSET;
 
-	
+	/* one of the four lsb's must be set, and nothing else */
 	if (hweight_long(i & 0xf) != 1 || i > 8) {
 		ret = -EINVAL;
 		goto iounmap_base;
 	}
 
-	num_locks = i * 32; 
+	num_locks = i * 32; /* actual number of locks in this device */
 
 	bank = kzalloc(sizeof(*bank) + num_locks * sizeof(*hwlock), GFP_KERNEL);
 	if (!bank) {
@@ -109,6 +121,10 @@ static int __devinit omap_hwspinlock_probe(struct platform_device *pdev)
 	for (i = 0, hwlock = &bank->lock[0]; i < num_locks; i++, hwlock++)
 		hwlock->priv = io_base + LOCK_BASE_OFFSET + sizeof(u32) * i;
 
+	/*
+	 * runtime PM will make sure the clock of this module is
+	 * enabled iff at least one lock is requested
+	 */
 	pm_runtime_enable(&pdev->dev);
 
 	ret = hwspin_lock_register(bank, &pdev->dev, &omap_hwspinlock_ops,
@@ -158,6 +174,7 @@ static int __init omap_hwspinlock_init(void)
 {
 	return platform_driver_register(&omap_hwspinlock_driver);
 }
+/* board init code might need to reserve hwspinlocks for predefined purposes */
 postcore_initcall(omap_hwspinlock_init);
 
 static void __exit omap_hwspinlock_exit(void)

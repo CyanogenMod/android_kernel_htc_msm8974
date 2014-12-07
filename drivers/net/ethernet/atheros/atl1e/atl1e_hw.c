@@ -25,6 +25,10 @@
 
 #include "atl1e.h"
 
+/*
+ * check_eeprom_exist
+ * return 0 if eeprom exist
+ */
 int atl1e_check_eeprom_exist(struct atl1e_hw *hw)
 {
 	u32 value;
@@ -41,17 +45,26 @@ int atl1e_check_eeprom_exist(struct atl1e_hw *hw)
 void atl1e_hw_set_mac_addr(struct atl1e_hw *hw)
 {
 	u32 value;
+	/*
+	 * 00-0B-6A-F6-00-DC
+	 * 0:  6AF600DC 1: 000B
+	 * low dword
+	 */
 	value = (((u32)hw->mac_addr[2]) << 24) |
 		(((u32)hw->mac_addr[3]) << 16) |
 		(((u32)hw->mac_addr[4]) << 8)  |
 		(((u32)hw->mac_addr[5])) ;
 	AT_WRITE_REG_ARRAY(hw, REG_MAC_STA_ADDR, 0, value);
-	
+	/* hight dword */
 	value = (((u32)hw->mac_addr[0]) << 8) |
 		(((u32)hw->mac_addr[1])) ;
 	AT_WRITE_REG_ARRAY(hw, REG_MAC_STA_ADDR, 1, value);
 }
 
+/*
+ * atl1e_get_permanent_address
+ * return 0 if get valid mac address,
+ */
 static int atl1e_get_permanent_address(struct atl1e_hw *hw)
 {
 	u32 addr[2];
@@ -62,11 +75,11 @@ static int atl1e_get_permanent_address(struct atl1e_hw *hw)
 	if (is_valid_ether_addr(hw->perm_mac_addr))
 		return 0;
 
-	
+	/* init */
 	addr[0] = addr[1] = 0;
 
 	if (!atl1e_check_eeprom_exist(hw)) {
-		
+		/* eeprom exist */
 		twsi_ctrl_data = AT_READ_REG(hw, REG_TWSI_CTRL);
 		twsi_ctrl_data |= TWSI_CTRL_SW_LDSTART;
 		AT_WRITE_REG(hw, REG_TWSI_CTRL, twsi_ctrl_data);
@@ -80,7 +93,7 @@ static int atl1e_get_permanent_address(struct atl1e_hw *hw)
 			return AT_ERR_TIMEOUT;
 	}
 
-	
+	/* maybe MAC-address is from BIOS */
 	addr[0] = AT_READ_REG(hw, REG_MAC_STA_ADDR);
 	addr[1] = AT_READ_REG(hw, REG_MAC_STA_ADDR + 4);
 	*(u32 *) &eth_addr[2] = swab32(addr[0]);
@@ -105,7 +118,7 @@ bool atl1e_read_eeprom(struct atl1e_hw *hw, u32 offset, u32 *p_value)
 	u32 control;
 
 	if (offset & 3)
-		return false; 
+		return false; /* address do not align */
 
 	AT_WRITE_REG(hw, REG_VPD_DATA, 0);
 	control = (offset & VPD_CAP_VPD_ADDR_MASK) << VPD_CAP_VPD_ADDR_SHIFT;
@@ -121,7 +134,7 @@ bool atl1e_read_eeprom(struct atl1e_hw *hw, u32 offset, u32 *p_value)
 		*p_value = AT_READ_REG(hw, REG_VPD_DATA);
 		return true;
 	}
-	return false; 
+	return false; /* timeout */
 }
 
 void atl1e_force_ps(struct atl1e_hw *hw)
@@ -130,6 +143,11 @@ void atl1e_force_ps(struct atl1e_hw *hw)
 			GPHY_CTRL_PW_WOL_DIS | GPHY_CTRL_EXT_RESET);
 }
 
+/*
+ * Reads the adapter's MAC address from the EEPROM
+ *
+ * hw - Struct containing variables accessed by shared code
+ */
 int atl1e_read_mac_addr(struct atl1e_hw *hw)
 {
 	int err = 0;
@@ -141,6 +159,11 @@ int atl1e_read_mac_addr(struct atl1e_hw *hw)
 	return 0;
 }
 
+/*
+ * atl1e_hash_mc_addr
+ *  purpose
+ *      set hash value for a multicast address
+ */
 u32 atl1e_hash_mc_addr(struct atl1e_hw *hw, u8 *mc_addr)
 {
 	u32 crc32;
@@ -154,11 +177,25 @@ u32 atl1e_hash_mc_addr(struct atl1e_hw *hw, u8 *mc_addr)
 	return value;
 }
 
+/*
+ * Sets the bit in the multicast table corresponding to the hash value.
+ * hw - Struct containing variables accessed by shared code
+ * hash_value - Multicast address hash value
+ */
 void atl1e_hash_set(struct atl1e_hw *hw, u32 hash_value)
 {
 	u32 hash_bit, hash_reg;
 	u32 mta;
 
+	/*
+	 * The HASH Table  is a register array of 2 32-bit registers.
+	 * It is treated like an array of 64 bits.  We want to set
+	 * bit BitArray[hash_value]. So we figure out what register
+	 * the bit is in, read it, OR in the new bit, then write
+	 * back the new value.  The register is determined by the
+	 * upper 7 bits of the hash value and the bit within that
+	 * register are determined by the lower 5 bits of the value.
+	 */
 	hash_reg = (hash_value >> 31) & 0x1;
 	hash_bit = (hash_value >> 26) & 0x1F;
 
@@ -168,6 +205,11 @@ void atl1e_hash_set(struct atl1e_hw *hw, u32 hash_value)
 
 	AT_WRITE_REG_ARRAY(hw, REG_RX_HASH_TABLE, hash_reg, mta);
 }
+/*
+ * Reads the value from a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to read
+ */
 int atl1e_read_phy_reg(struct atl1e_hw *hw, u16 reg_addr, u16 *phy_data)
 {
 	u32 val;
@@ -196,6 +238,12 @@ int atl1e_read_phy_reg(struct atl1e_hw *hw, u16 reg_addr, u16 *phy_data)
 	return AT_ERR_PHY;
 }
 
+/*
+ * Writes a value to a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to write
+ * data - data to write to the PHY
+ */
 int atl1e_write_phy_reg(struct atl1e_hw *hw, u32 reg_addr, u16 phy_data)
 {
 	int i;
@@ -224,15 +272,27 @@ int atl1e_write_phy_reg(struct atl1e_hw *hw, u32 reg_addr, u16 phy_data)
 	return AT_ERR_PHY;
 }
 
+/*
+ * atl1e_init_pcie - init PCIE module
+ */
 static void atl1e_init_pcie(struct atl1e_hw *hw)
 {
 	u32 value;
+	/* comment 2lines below to save more power when sususpend
+	   value = LTSSM_TEST_MODE_DEF;
+	   AT_WRITE_REG(hw, REG_LTSSM_TEST_MODE, value);
+	 */
 
-	
+	/* pcie flow control mode change */
 	value = AT_READ_REG(hw, 0x1008);
 	value |= 0x8000;
 	AT_WRITE_REG(hw, 0x1008, value);
 }
+/*
+ * Configures PHY autoneg and flow control advertisement settings
+ *
+ * hw - Struct containing variables accessed by shared code
+ */
 static int atl1e_phy_setup_autoneg_adv(struct atl1e_hw *hw)
 {
 	s32 ret_val;
@@ -241,14 +301,30 @@ static int atl1e_phy_setup_autoneg_adv(struct atl1e_hw *hw)
 
 	if (0 != hw->mii_autoneg_adv_reg)
 		return 0;
-	
+	/* Read the MII Auto-Neg Advertisement Register (Address 4/9). */
 	mii_autoneg_adv_reg = MII_AR_DEFAULT_CAP_MASK;
 	mii_1000t_ctrl_reg  = MII_AT001_CR_1000T_DEFAULT_CAP_MASK;
 
+	/*
+	 * Need to parse autoneg_advertised  and set up
+	 * the appropriate PHY registers.  First we will parse for
+	 * autoneg_advertised software override.  Since we can advertise
+	 * a plethora of combinations, we need to check each bit
+	 * individually.
+	 */
 
+	/*
+	 * First we clear all the 10/100 mb speed bits in the Auto-Neg
+	 * Advertisement Register (Address 4) and the 1000 mb speed bits in
+	 * the  1000Base-T control Register (Address 9).
+	 */
 	mii_autoneg_adv_reg &= ~ADVERTISE_ALL;
 	mii_1000t_ctrl_reg  &= ~MII_AT001_CR_1000T_SPEED_MASK;
 
+	/*
+	 * Need to parse MediaType and setup the
+	 * appropriate PHY registers.
+	 */
 	switch (hw->media_type) {
 	case MEDIA_TYPE_AUTO_SENSOR:
 		mii_autoneg_adv_reg |= ADVERTISE_ALL;
@@ -280,7 +356,7 @@ static int atl1e_phy_setup_autoneg_adv(struct atl1e_hw *hw)
 		break;
 	}
 
-	
+	/* flow control fixed to enable all */
 	mii_autoneg_adv_reg |= (ADVERTISE_PAUSE_ASYM | ADVERTISE_PAUSE_CAP);
 
 	hw->mii_autoneg_adv_reg = mii_autoneg_adv_reg;
@@ -301,6 +377,13 @@ static int atl1e_phy_setup_autoneg_adv(struct atl1e_hw *hw)
 }
 
 
+/*
+ * Resets the PHY and make all config validate
+ *
+ * hw - Struct containing variables accessed by shared code
+ *
+ * Sets bit 15 and 12 of the MII control regiser (for F001 bug)
+ */
 int atl1e_phy_commit(struct atl1e_hw *hw)
 {
 	struct atl1e_adapter *adapter = hw->adapter;
@@ -313,6 +396,9 @@ int atl1e_phy_commit(struct atl1e_hw *hw)
 	if (ret_val) {
 		u32 val;
 		int i;
+		/**************************************
+		 * pcie serdes link may be down !
+		 **************************************/
 		for (i = 0; i < 25; i++) {
 			msleep(1);
 			val = AT_READ_REG(hw, REG_MDIO_CTRL);
@@ -345,39 +431,39 @@ int atl1e_phy_init(struct atl1e_hw *hw)
 		return 0;
 	}
 
-	
+	/* RESET GPHY Core */
 	AT_WRITE_REGW(hw, REG_GPHY_CTRL, GPHY_CTRL_DEFAULT);
 	msleep(2);
 	AT_WRITE_REGW(hw, REG_GPHY_CTRL, GPHY_CTRL_DEFAULT |
 		      GPHY_CTRL_EXT_RESET);
 	msleep(2);
 
-	
-	
+	/* patches */
+	/* p1. eable hibernation mode */
 	ret_val = atl1e_write_phy_reg(hw, MII_DBG_ADDR, 0xB);
 	if (ret_val)
 		return ret_val;
 	ret_val = atl1e_write_phy_reg(hw, MII_DBG_DATA, 0xBC00);
 	if (ret_val)
 		return ret_val;
-	
+	/* p2. set Class A/B for all modes */
 	ret_val = atl1e_write_phy_reg(hw, MII_DBG_ADDR, 0);
 	if (ret_val)
 		return ret_val;
 	phy_val = 0x02ef;
-	
-	
+	/* remove Class AB */
+	/* phy_val = hw->emi_ca ? 0x02ef : 0x02df; */
 	ret_val = atl1e_write_phy_reg(hw, MII_DBG_DATA, phy_val);
 	if (ret_val)
 		return ret_val;
-	
+	/* p3. 10B ??? */
 	ret_val = atl1e_write_phy_reg(hw, MII_DBG_ADDR, 0x12);
 	if (ret_val)
 		return ret_val;
 	ret_val = atl1e_write_phy_reg(hw, MII_DBG_DATA, 0x4C04);
 	if (ret_val)
 		return ret_val;
-	
+	/* p4. 1000T power */
 	ret_val = atl1e_write_phy_reg(hw, MII_DBG_ADDR, 0x4);
 	if (ret_val)
 		return ret_val;
@@ -394,21 +480,21 @@ int atl1e_phy_init(struct atl1e_hw *hw)
 
 	msleep(1);
 
-	
+	/*Enable PHY LinkChange Interrupt */
 	ret_val = atl1e_write_phy_reg(hw, MII_INT_CTRL, 0xC00);
 	if (ret_val) {
 		netdev_err(adapter->netdev,
 			   "Error enable PHY linkChange Interrupt\n");
 		return ret_val;
 	}
-	
+	/* setup AutoNeg parameters */
 	ret_val = atl1e_phy_setup_autoneg_adv(hw);
 	if (ret_val) {
 		netdev_err(adapter->netdev,
 			   "Error Setting up Auto-Negotiation\n");
 		return ret_val;
 	}
-	
+	/* SW.Reset & En-Auto-Neg to restart Auto-Neg*/
 	netdev_dbg(adapter->netdev, "Restarting Auto-Negotiation\n");
 	ret_val = atl1e_phy_commit(hw);
 	if (ret_val) {
@@ -421,6 +507,11 @@ int atl1e_phy_init(struct atl1e_hw *hw)
 	return 0;
 }
 
+/*
+ * Reset the transmit and receive units; mask and clear all interrupts.
+ * hw - Struct containing variables accessed by shared code
+ * return : 0  or  idle status (if error)
+ */
 int atl1e_reset_hw(struct atl1e_hw *hw)
 {
 	struct atl1e_adapter *adapter = hw->adapter;
@@ -430,7 +521,7 @@ int atl1e_reset_hw(struct atl1e_hw *hw)
 	u16 pci_cfg_cmd_word = 0;
 	int timeout = 0;
 
-	
+	/* Workaround for PCI problem when BIOS sets MMRBC incorrectly. */
 	pci_read_config_word(pdev, PCI_REG_COMMAND, &pci_cfg_cmd_word);
 	if ((pci_cfg_cmd_word & (CMD_IO_SPACE |
 				CMD_MEMORY_SPACE | CMD_BUS_MASTER))
@@ -440,12 +531,18 @@ int atl1e_reset_hw(struct atl1e_hw *hw)
 		pci_write_config_word(pdev, PCI_REG_COMMAND, pci_cfg_cmd_word);
 	}
 
+	/*
+	 * Issue Soft Reset to the MAC.  This will reset the chip's
+	 * transmit, receive, DMA.  It will not effect
+	 * the current PCI configuration.  The global reset bit is self-
+	 * clearing, and should clear within a microsecond.
+	 */
 	AT_WRITE_REG(hw, REG_MASTER_CTRL,
 			MASTER_CTRL_LED_MODE | MASTER_CTRL_SOFT_RST);
 	wmb();
 	msleep(1);
 
-	
+	/* Wait at least 10ms for All module to be Idle */
 	for (timeout = 0; timeout < AT_HW_MAX_IDLE_DELAY; timeout++) {
 		idle_status_data = AT_READ_REG(hw, REG_IDLE_STATUS);
 		if (idle_status_data == 0)
@@ -464,14 +561,23 @@ int atl1e_reset_hw(struct atl1e_hw *hw)
 }
 
 
+/*
+ * Performs basic configuration of the adapter.
+ *
+ * hw - Struct containing variables accessed by shared code
+ * Assumes that the controller has previously been reset and is in a
+ * post-reset uninitialized state. Initializes multicast table,
+ * and  Calls routines to setup link
+ * Leaves the transmit and receive units disabled and uninitialized.
+ */
 int atl1e_init_hw(struct atl1e_hw *hw)
 {
 	s32 ret_val = 0;
 
 	atl1e_init_pcie(hw);
 
-	
-	
+	/* Zero out the Multicast HASH table */
+	/* clear the old settings from the multicast hash table */
 	AT_WRITE_REG(hw, REG_RX_HASH_TABLE, 0);
 	AT_WRITE_REG_ARRAY(hw, REG_RX_HASH_TABLE, 1, 0);
 
@@ -480,12 +586,19 @@ int atl1e_init_hw(struct atl1e_hw *hw)
 	return ret_val;
 }
 
+/*
+ * Detects the current speed and duplex settings of the hardware.
+ *
+ * hw - Struct containing variables accessed by shared code
+ * speed - Speed of the connection
+ * duplex - Duplex setting of the connection
+ */
 int atl1e_get_speed_and_duplex(struct atl1e_hw *hw, u16 *speed, u16 *duplex)
 {
 	int err;
 	u16 phy_data;
 
-	
+	/* Read   PHY Specific Status Register (17) */
 	err = atl1e_read_phy_reg(hw, MII_AT001_PSSR, &phy_data);
 	if (err)
 		return err;

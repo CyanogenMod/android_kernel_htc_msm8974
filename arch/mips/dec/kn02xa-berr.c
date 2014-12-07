@@ -32,8 +32,8 @@ static inline void dec_kn02xa_be_ack(void)
 	volatile u32 *mer = (void *)CKSEG1ADDR(KN02XA_MER);
 	volatile u32 *mem_intr = (void *)CKSEG1ADDR(KN02XA_MEM_INTR);
 
-	*mer = KN02CA_MER_INTR;		
-	*mem_intr = 0;			
+	*mer = KN02CA_MER_INTR;		/* Clear errors; keep the ARC IRQ. */
+	*mem_intr = 0;			/* Any write clears the bus IRQ. */
 	iob();
 }
 
@@ -60,17 +60,17 @@ static int dec_kn02xa_be_backend(struct pt_regs *regs, int is_fixup,
 	u32 ear = *kn02xa_ear;
 	int action = MIPS_BE_FATAL;
 
-	
+	/* Ack ASAP, so that any subsequent errors get caught. */
 	dec_kn02xa_be_ack();
 
 	kind = invoker ? intstr : excstr;
 
-	
+	/* No DMA errors? */
 	agent = cpustr;
 
 	address = ear & KN02XA_EAR_ADDRESS;
 
-	
+	/* Low 256MB is decoded as memory, high -- as TC. */
 	if (address < 0x10000000) {
 		cycle = mreadstr;
 		event = paritystr;
@@ -111,6 +111,13 @@ irqreturn_t dec_kn02xa_be_interrupt(int irq, void *dev_id)
 	if (action == MIPS_BE_DISCARD)
 		return IRQ_HANDLED;
 
+	/*
+	 * FIXME: Find the affected processes and kill them, otherwise
+	 * we must die.
+	 *
+	 * The interrupt is asynchronously delivered thus EPC and RA
+	 * may be irrelevant, but are printed for a reference.
+	 */
 	printk(KERN_ALERT "Fatal bus interrupt, epc == %08lx, ra == %08lx\n",
 	       regs->cp0_epc, regs->regs[31]);
 	die("Unrecoverable bus error", regs);
@@ -121,11 +128,11 @@ void __init dec_kn02xa_be_init(void)
 {
 	volatile u32 *mbcs = (void *)CKSEG1ADDR(KN4K_SLOT_BASE + KN4K_MB_CSR);
 
-        
+        /* For KN04 we need to make sure EE (?) is enabled in the MB.  */
         if (current_cpu_type() == CPU_R4000SC)
 		*mbcs |= KN4K_MB_CSR_EE;
 	fast_iob();
 
-	
+	/* Clear any leftover errors from the firmware. */
 	dec_kn02xa_be_ack();
 }

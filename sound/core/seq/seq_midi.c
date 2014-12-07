@@ -19,6 +19,11 @@
  *
  */
  
+/* 
+Possible options for midisynth module:
+	- automatic opening of midi ports on first received event or subscription
+	  (close will be performed when client leaves)
+*/
 
 
 #include <linux/init.h>
@@ -44,6 +49,7 @@ static int input_buffer_size = PAGE_SIZE;
 module_param(input_buffer_size, int, 0644);
 MODULE_PARM_DESC(input_buffer_size, "Input buffer size in bytes.");
 
+/* data for this midi synth driver */
 struct seq_midisynth {
 	struct snd_card *card;
 	int device;
@@ -65,6 +71,7 @@ struct seq_midisynth_client {
 static struct seq_midisynth_client *synths[SNDRV_CARDS];
 static DEFINE_MUTEX(register_mutex);
 
+/* handle rawmidi input event (MIDI v1.0 stream) */
 static void snd_midi_input_event(struct snd_rawmidi_substream *substream)
 {
 	struct snd_rawmidi_runtime *runtime;
@@ -97,7 +104,7 @@ static void snd_midi_input_event(struct snd_rawmidi_substream *substream)
 				ev.source.port = msynth->seq_port;
 				ev.dest.client = SNDRV_SEQ_ADDRESS_SUBSCRIBERS;
 				snd_seq_kernel_client_dispatch(msynth->seq_client, &ev, 1, 0);
-				
+				/* clear event and reset header */
 				memset(&ev, 0, sizeof(ev));
 			}
 		}
@@ -126,7 +133,7 @@ static int event_process_midi(struct snd_seq_event *ev, int direct,
 			      void *private_data, int atomic, int hop)
 {
 	struct seq_midisynth *msynth = private_data;
-	unsigned char msg[10];	
+	unsigned char msg[10];	/* buffer for constructing midi messages */
 	struct snd_rawmidi_substream *substream;
 	int len;
 
@@ -135,9 +142,9 @@ static int event_process_midi(struct snd_seq_event *ev, int direct,
 	substream = msynth->output_rfile.output;
 	if (substream == NULL)
 		return -ENODEV;
-	if (ev->type == SNDRV_SEQ_EVENT_SYSEX) {	
+	if (ev->type == SNDRV_SEQ_EVENT_SYSEX) {	/* special case, to save space */
 		if ((ev->flags & SNDRV_SEQ_EVENT_LENGTH_MASK) != SNDRV_SEQ_EVENT_LENGTH_VARIABLE) {
-			
+			/* invalid event */
 			snd_printd("seq_midi: invalid sysex event flags = 0x%x\n", ev->flags);
 			return 0;
 		}
@@ -169,6 +176,7 @@ static int snd_seq_midisynth_new(struct seq_midisynth *msynth,
 	return 0;
 }
 
+/* open associated midi device for input */
 static int midisynth_subscribe(void *private_data, struct snd_seq_port_subscribe *info)
 {
 	int err;
@@ -176,7 +184,7 @@ static int midisynth_subscribe(void *private_data, struct snd_seq_port_subscribe
 	struct snd_rawmidi_runtime *runtime;
 	struct snd_rawmidi_params params;
 
-	
+	/* open midi port */
 	if ((err = snd_rawmidi_kernel_open(msynth->card, msynth->device,
 					   msynth->subdevice,
 					   SNDRV_RAWMIDI_LFLG_INPUT,
@@ -199,6 +207,7 @@ static int midisynth_subscribe(void *private_data, struct snd_seq_port_subscribe
 	return 0;
 }
 
+/* close associated midi device for input */
 static int midisynth_unsubscribe(void *private_data, struct snd_seq_port_subscribe *info)
 {
 	int err;
@@ -210,13 +219,14 @@ static int midisynth_unsubscribe(void *private_data, struct snd_seq_port_subscri
 	return err;
 }
 
+/* open associated midi device for output */
 static int midisynth_use(void *private_data, struct snd_seq_port_subscribe *info)
 {
 	int err;
 	struct seq_midisynth *msynth = private_data;
 	struct snd_rawmidi_params params;
 
-	
+	/* open midi port */
 	if ((err = snd_rawmidi_kernel_open(msynth->card, msynth->device,
 					   msynth->subdevice,
 					   SNDRV_RAWMIDI_LFLG_OUTPUT,
@@ -236,6 +246,7 @@ static int midisynth_use(void *private_data, struct snd_seq_port_subscribe *info
 	return 0;
 }
 
+/* close associated midi device for output */
 static int midisynth_unuse(void *private_data, struct snd_seq_port_subscribe *info)
 {
 	struct seq_midisynth *msynth = private_data;
@@ -246,13 +257,14 @@ static int midisynth_unuse(void *private_data, struct snd_seq_port_subscribe *in
 	return snd_rawmidi_kernel_release(&msynth->output_rfile);
 }
 
+/* delete given midi synth port */
 static void snd_seq_midisynth_delete(struct seq_midisynth *msynth)
 {
 	if (msynth == NULL)
 		return;
 
 	if (msynth->seq_client > 0) {
-		
+		/* delete port */
 		snd_seq_event_port_detach(msynth->seq_client, msynth->seq_port);
 	}
 
@@ -260,6 +272,7 @@ static void snd_seq_midisynth_delete(struct seq_midisynth *msynth)
 		snd_midi_event_free(msynth->parser);
 }
 
+/* register new midi synth port */
 static int
 snd_seq_midisynth_register_port(struct snd_seq_device *dev)
 {
@@ -332,7 +345,7 @@ snd_seq_midisynth_register_port(struct snd_seq_device *dev)
 		if (snd_seq_midisynth_new(ms, card, device, p) < 0)
 			goto __nomem;
 
-		
+		/* declare port */
 		memset(port, 0, sizeof(*port));
 		port->addr.client = client->seq_client;
 		port->addr.port = device * (256 / SNDRV_RAWMIDI_DEVICES) + p;
@@ -353,7 +366,7 @@ snd_seq_midisynth_register_port(struct snd_seq_device *dev)
 				else
 					snprintf(port->name, sizeof(port->name), "%s", info->name);
 			} else {
-				
+				/* last resort */
 				if (ports > 1)
 					sprintf(port->name, "MIDI %d-%d-%d", card->number, device, p);
 				else
@@ -395,7 +408,7 @@ snd_seq_midisynth_register_port(struct snd_seq_device *dev)
 	mutex_unlock(&register_mutex);
 	kfree(info);
 	kfree(port);
-	return 0;	
+	return 0;	/* success */
 
       __nomem:
 	if (msynth != NULL) {
@@ -413,6 +426,7 @@ snd_seq_midisynth_register_port(struct snd_seq_device *dev)
 	return -ENOMEM;
 }
 
+/* release midi synth port */
 static int
 snd_seq_midisynth_unregister_port(struct snd_seq_device *dev)
 {

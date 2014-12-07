@@ -42,6 +42,7 @@ extern struct dentry *arch_debugfs_dir;
 
 #if defined(CONFIG_DEBUG_FS)
 
+/* declared over in file.c */
 extern const struct file_operations debugfs_file_operations;
 extern const struct inode_operations debugfs_link_operations;
 
@@ -98,6 +99,11 @@ bool debugfs_initialized(void);
 
 #include <linux/err.h>
 
+/* 
+ * We do not return NULL from these functions if CONFIG_DEBUG_FS is not enabled
+ * so users have a chance to detect if there was a real error or not.  We don't
+ * want to duplicate the design decision mistakes of procfs and devfs again.
+ */
 
 static inline struct dentry *debugfs_create_file(const char *name, umode_t mode,
 					struct dentry *parent, void *data,

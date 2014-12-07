@@ -349,7 +349,7 @@ static ssize_t yas_hard_offset_store(struct device *dev,
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct yas_state *st = iio_priv(indio_dev);
-	int32_t tmp[3];
+	int tmp[3];
 	int8_t hard_offset[3];
 	int ret, i;
 	sscanf(buf, "%d %d %d\n", &tmp[0], &tmp[1], &tmp[2]);

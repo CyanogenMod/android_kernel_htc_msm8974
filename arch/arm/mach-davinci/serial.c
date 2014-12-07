@@ -55,9 +55,9 @@ static void __init davinci_serial_reset(struct plat_serial8250_port *p)
 {
 	unsigned int pwremu = 0;
 
-	serial_write_reg(p, UART_IER, 0);  
+	serial_write_reg(p, UART_IER, 0);  /* disable all interrupts */
 
-	
+	/* reset both transmitter and receiver: bits 14,13 = UTRST, URRST */
 	serial_write_reg(p, UART_DAVINCI_PWREMU, pwremu);
 	mdelay(10);
 
@@ -79,6 +79,10 @@ int __init davinci_serial_init(struct davinci_uart_config *info)
 	struct device *dev = &soc_info->serial_dev->dev;
 	struct plat_serial8250_port *p = dev->platform_data;
 
+	/*
+	 * Make sure the serial ports are muxed on at this point.
+	 * You have to mux them off in device drivers later on if not needed.
+	 */
 	for (i = 0; p->flags; i++, p++) {
 		if (!(info->enabled_uarts & (1 << i)))
 			continue;

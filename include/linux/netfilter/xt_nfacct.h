@@ -10,4 +10,4 @@ struct xt_nfacct_match_info {
 	struct nf_acct	*nfacct;
 };
 
-#endif 
+#endif /* _XT_NFACCT_MATCH_H */

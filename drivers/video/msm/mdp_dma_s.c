@@ -71,31 +71,31 @@ static void mdp_dma_s_update_lcd(struct msm_fb_data_type *mfd)
 	}
 
 	src = (uint8 *) iBuf->buf;
-	
+	/* starting input address */
 	src += (iBuf->dma_x + iBuf->dma_y * iBuf->ibuf_width) * outBpp;
 
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-	
+	/* PIXELSIZE */
 	if (mfd->panel_info.type == MDDI_PANEL) {
 		MDP_OUTP(MDP_BASE + 0xa0004,
 			(iBuf->dma_h << 16 | iBuf->dma_w));
-		MDP_OUTP(MDP_BASE + 0xa0008, src);	
+		MDP_OUTP(MDP_BASE + 0xa0008, src);	/* ibuf address */
 		MDP_OUTP(MDP_BASE + 0xa000c,
-			iBuf->ibuf_width * outBpp);
+			iBuf->ibuf_width * outBpp);/* ystride */
 	} else {
 		MDP_OUTP(MDP_BASE + 0xb0004,
 			(iBuf->dma_h << 16 | iBuf->dma_w));
-		MDP_OUTP(MDP_BASE + 0xb0008, src);	
+		MDP_OUTP(MDP_BASE + 0xb0008, src);	/* ibuf address */
 		MDP_OUTP(MDP_BASE + 0xb000c,
-			iBuf->ibuf_width * outBpp);
+			iBuf->ibuf_width * outBpp);/* ystride */
 	}
 
 	if (mfd->panel_info.bpp == 18) {
-		dma_s_cfg_reg |= DMA_DSTC0G_6BITS |	
+		dma_s_cfg_reg |= DMA_DSTC0G_6BITS |	/* 666 18BPP */
 		    DMA_DSTC1B_6BITS | DMA_DSTC2R_6BITS;
 	} else {
-		dma_s_cfg_reg |= DMA_DSTC0G_6BITS |	
+		dma_s_cfg_reg |= DMA_DSTC0G_6BITS |	/* 565 16BPP */
 		    DMA_DSTC1B_5BITS | DMA_DSTC2R_5BITS;
 	}
 
@@ -113,7 +113,7 @@ static void mdp_dma_s_update_lcd(struct msm_fb_data_type *mfd)
 				(MDDI_VDO_PACKET_DESC << 16) |
 				mfd->panel_info.mddi.vdopkt);
 	} else {
-		
+		/* setting LCDC write window */
 		pdata->set_rect(iBuf->dma_x, iBuf->dma_y, iBuf->dma_w,
 				iBuf->dma_h);
 	}
@@ -124,7 +124,7 @@ static void mdp_dma_s_update_lcd(struct msm_fb_data_type *mfd)
 		MDP_OUTP(MDP_BASE + 0xb0000, dma_s_cfg_reg);
 
 
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 	if (mfd->panel_info.type == MDDI_PANEL)
 		mdp_pipe_kickoff(MDP_DMA_S_TERM, mfd);
@@ -149,14 +149,14 @@ void mdp_dma_s_update(struct msm_fb_data_type *mfd)
 		mdp_dma_s_update_lcd(mfd);
 		up(&mfd->sem);
 
-		
+		/* wait until DMA finishes the current job */
 		wait_for_completion_killable(&mfd->dma->comp);
 		if (mfd->panel_info.type == MDDI_PANEL)
 			mdp_disable_irq(MDP_DMA_S_TERM);
 		else
 			mdp_disable_irq(MDP_DMA_E_TERM);
 
-	
+	/* signal if pan function is waiting for the update completion */
 		if (mfd->pan_waiting) {
 			mfd->pan_waiting = FALSE;
 			complete(&mfd->pan_comp);

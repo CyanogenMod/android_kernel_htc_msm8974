@@ -22,4 +22,4 @@ struct nf_nat_ipv4_multi_range_compat {
 	struct nf_nat_ipv4_range	range[1];
 };
 
-#endif 
+#endif /* _NETFILTER_NF_NAT_H */

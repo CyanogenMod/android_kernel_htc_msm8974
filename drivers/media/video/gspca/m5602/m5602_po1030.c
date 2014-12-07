@@ -202,12 +202,14 @@ int po1030_probe(struct sd *sd)
 			pr_info("Forcing a %s sensor\n", po1030.name);
 			goto sensor_found;
 		}
+		/* If we want to force another sensor, don't try to probe this
+		 * one */
 		return -ENODEV;
 	}
 
 	PDEBUG(D_PROBE, "Probing for a po1030 sensor");
 
-	
+	/* Run the pre-init to actually probe the unit */
 	for (i = 0; i < ARRAY_SIZE(preinit_po1030); i++) {
 		u8 data = preinit_po1030[i][2];
 		if (preinit_po1030[i][0] == SENSOR)
@@ -249,7 +251,7 @@ int po1030_init(struct sd *sd)
 	s32 *sensor_settings = sd->sensor_priv;
 	int i, err = 0;
 
-	
+	/* Init the sensor */
 	for (i = 0; i < ARRAY_SIZE(init_po1030) && !err; i++) {
 		u8 data[2] = {0x00, 0x00};
 
@@ -755,7 +757,7 @@ static void po1030_dump_registers(struct sd *sd)
 		else
 			pr_info("register 0x%x is read only\n", address);
 
-		
+		/* Restore original value */
 		m5602_write_sensor(sd, address, &old_value, 1);
 	}
 }

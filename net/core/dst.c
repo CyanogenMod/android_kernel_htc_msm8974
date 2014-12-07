@@ -1,3 +1,9 @@
+/*
+ * net/core/dst.c	Protocol independent destination cache.
+ *
+ * Authors:		Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
+ *
+ */
 
 #include <linux/bitops.h>
 #include <linux/errno.h>
@@ -17,7 +23,23 @@
 
 #include <net/dst.h>
 
+/*
+ * Theory of operations:
+ * 1) We use a list, protected by a spinlock, to add
+ *    new entries from both BH and non-BH context.
+ * 2) In order to keep spinlock held for a small delay,
+ *    we use a second list where are stored long lived
+ *    entries, that are handled by the garbage collect thread
+ *    fired by a workqueue.
+ * 3) This list is guarded by a mutex,
+ *    so that the gc_task and dst_dev_event() can be synchronized.
+ */
 
+/*
+ * We want to keep lock & list close together
+ * to dirty as few cache lines as possible in __dst_free().
+ * As this is not a very strong hint, we dont force an alignment on SMP.
+ */
 static struct {
 	spinlock_t		lock;
 	struct dst_entry	*list;
@@ -33,6 +55,9 @@ static void ___dst_free(struct dst_entry *dst);
 static DECLARE_DELAYED_WORK(dst_gc_work, dst_gc_task);
 
 static DEFINE_MUTEX(dst_gc_mutex);
+/*
+ * long lived entries are maintained in this list, guarded by dst_gc_mutex
+ */
 static struct dst_entry         *dst_busy_list;
 
 static void dst_gc_task(struct work_struct *work)
@@ -61,6 +86,14 @@ loop:
 
 		dst = dst_destroy(dst);
 		if (dst) {
+			/* NOHASH and still referenced. Unless it is already
+			 * on gc list, invalidate it and add to gc list.
+			 *
+			 * Note: this is temporary. Actually, NOHASH dst's
+			 * must be obsoleted when parent is obsoleted.
+			 * But we do not have state "obsoleted, but
+			 * referenced by parent", so it is right.
+			 */
 			if (dst->obsolete > 1)
 				continue;
 
@@ -82,6 +115,10 @@ loop:
 	if (!dst_busy_list)
 		dst_garbage.timer_inc = DST_GC_MAX;
 	else {
+		/*
+		 * if we freed less than 1/10 of delayed entries,
+		 * we can sleep longer.
+		 */
 		if (work_performed <= delayed/10) {
 			dst_garbage.timer_expires += dst_garbage.timer_inc;
 			if (dst_garbage.timer_expires > DST_GC_MAX)
@@ -92,6 +129,10 @@ loop:
 			dst_garbage.timer_expires = DST_GC_MIN;
 		}
 		expires = dst_garbage.timer_expires;
+		/*
+		 * if the next desired timer is more than 4 seconds in the
+		 * future then round the timer to whole seconds
+		 */
 		if (expires > 4*HZ)
 			expires = round_jiffies_relative(expires);
 		schedule_delayed_work(&dst_gc_work, expires);
@@ -156,6 +197,9 @@ EXPORT_SYMBOL(dst_alloc);
 
 static void ___dst_free(struct dst_entry *dst)
 {
+	/* The first case (dev==NULL) is required, when
+	   protocol module is unloaded.
+	 */
 	if (dst->dev == NULL || !(dst->dev->flags&IFF_UP))
 		dst->input = dst->output = dst_discard;
 	dst->obsolete = 2;
@@ -207,14 +251,14 @@ again:
 		int nohash = dst->flags & DST_NOHASH;
 
 		if (atomic_dec_and_test(&dst->__refcnt)) {
-			
+			/* We were real parent of this dst, so kill child. */
 			if (nohash)
 				goto again;
 		} else {
-			
+			/* Child is still referenced, return it for freeing. */
 			if (nohash)
 				return dst;
-			
+			/* Child is still in his hash table */
 		}
 	}
 	return NULL;
@@ -261,6 +305,7 @@ u32 *dst_cow_metrics_generic(struct dst_entry *dst, unsigned long old)
 }
 EXPORT_SYMBOL(dst_cow_metrics_generic);
 
+/* Caller asserts that dst_metrics_read_only(dst) is false.  */
 void __dst_destroy_metrics_generic(struct dst_entry *dst, unsigned long old)
 {
 	unsigned long prev, new;
@@ -272,9 +317,20 @@ void __dst_destroy_metrics_generic(struct dst_entry *dst, unsigned long old)
 }
 EXPORT_SYMBOL(__dst_destroy_metrics_generic);
 
+/**
+ * skb_dst_set_noref - sets skb dst, without a reference
+ * @skb: buffer
+ * @dst: dst entry
+ *
+ * Sets skb dst, assuming a reference was not taken on dst
+ * skb_dst_drop() should not dst_release() this dst
+ */
 void skb_dst_set_noref(struct sk_buff *skb, struct dst_entry *dst)
 {
 	WARN_ON(!rcu_read_lock_held() && !rcu_read_lock_bh_held());
+	/* If dst not in cache, we must take a reference, because
+	 * dst_release() will destroy dst as soon as its refcount becomes zero
+	 */
 	if (unlikely(dst->flags & DST_NOCACHE)) {
 		dst_hold(dst);
 		skb_dst_set(skb, dst);
@@ -354,7 +410,7 @@ static int dst_dev_event(struct notifier_block *this, unsigned long event,
 
 static struct notifier_block dst_dev_notifier = {
 	.notifier_call	= dst_dev_event,
-	.priority = -10, 
+	.priority = -10, /* must be called after other network notifiers */
 };
 
 void __init dst_init(void)

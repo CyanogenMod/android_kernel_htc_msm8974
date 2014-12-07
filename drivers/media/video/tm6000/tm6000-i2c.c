@@ -32,6 +32,7 @@
 #include "tuner-xc2028.h"
 
 
+/* ----------------------------------------------------------- */
 
 static unsigned int i2c_debug;
 module_param(i2c_debug, int, 0644);
@@ -59,20 +60,21 @@ static int tm6000_i2c_send_regs(struct tm6000_core *dev, unsigned char addr,
 		return -1;
 	}
 
-	
+	/* capture mutex */
 	rc = tm6000_read_write_usb(dev, USB_DIR_OUT | USB_TYPE_VENDOR |
 		USB_RECIP_DEVICE, REQ_16_SET_GET_I2C_WR1_RDN,
 		addr | reg << 8, 0, buf, len);
 
 	if (rc < 0) {
-		
+		/* release mutex */
 		return rc;
 	}
 
-	
+	/* release mutex */
 	return rc;
 }
 
+/* Generic read - doesn't work fine with 16bit registers */
 static int tm6000_i2c_recv_regs(struct tm6000_core *dev, unsigned char addr,
 				__u8 reg, char *buf, int len)
 {
@@ -92,8 +94,11 @@ static int tm6000_i2c_recv_regs(struct tm6000_core *dev, unsigned char addr,
 		return -1;
 	}
 
-	
+	/* capture mutex */
 	if ((dev->caps.has_zl10353) && (dev->demod_addr << 1 == addr) && (reg % 2 == 0)) {
+		/*
+		 * Workaround an I2C bug when reading from zl10353
+		 */
 		reg -= 1;
 		len += 1;
 
@@ -106,10 +111,14 @@ static int tm6000_i2c_recv_regs(struct tm6000_core *dev, unsigned char addr,
 			REQ_16_SET_GET_I2C_WR1_RDN, addr | reg << 8, 0, buf, len);
 	}
 
-	
+	/* release mutex */
 	return rc;
 }
 
+/*
+ * read from a 16bit register
+ * for example xc2028, xc3028 or xc3028L
+ */
 static int tm6000_i2c_recv_regs16(struct tm6000_core *dev, unsigned char addr,
 				  __u16 reg, char *buf, int len)
 {
@@ -119,7 +128,7 @@ static int tm6000_i2c_recv_regs16(struct tm6000_core *dev, unsigned char addr,
 	if (!buf || len != 2)
 		return -1;
 
-	
+	/* capture mutex */
 	if (dev->dev_type == TM6010) {
 		ureg = reg & 0xFF;
 		rc = tm6000_read_write_usb(dev, USB_DIR_OUT | USB_TYPE_VENDOR |
@@ -127,7 +136,7 @@ static int tm6000_i2c_recv_regs16(struct tm6000_core *dev, unsigned char addr,
 			addr | (reg & 0xFF00), 0, &ureg, 1);
 
 		if (rc < 0) {
-			
+			/* release mutex */
 			return rc;
 		}
 
@@ -140,7 +149,7 @@ static int tm6000_i2c_recv_regs16(struct tm6000_core *dev, unsigned char addr,
 			addr, reg, buf, len);
 	}
 
-	
+	/* release mutex */
 	return rc;
 }
 
@@ -158,7 +167,12 @@ static int tm6000_i2c_xfer(struct i2c_adapter *i2c_adap,
 			 (msgs[i].flags & I2C_M_RD) ? "read" : "write",
 			 i == num - 1 ? "stop" : "nonstop", addr, msgs[i].len);
 		if (msgs[i].flags & I2C_M_RD) {
-			
+			/* read request without preceding register selection */
+			/*
+			 * The TM6000 only supports a read transaction
+			 * immediately after a 1 or 2 byte write to select
+			 * a register.  We cannot fulfil this request.
+			 */
 			i2c_dprintk(2, " read without preceding write not"
 				       " supported");
 			rc = -EOPNOTSUPP;
@@ -166,7 +180,7 @@ static int tm6000_i2c_xfer(struct i2c_adapter *i2c_adap,
 		} else if (i + 1 < num && msgs[i].len <= 2 &&
 			   (msgs[i + 1].flags & I2C_M_RD) &&
 			   msgs[i].addr == msgs[i + 1].addr) {
-			
+			/* 1 or 2 byte write followed by a read */
 			if (i2c_debug >= 2)
 				for (byte = 0; byte < msgs[i].len; byte++)
 					printk(KERN_CONT " %02x", msgs[i].buf[byte]);
@@ -193,7 +207,7 @@ static int tm6000_i2c_xfer(struct i2c_adapter *i2c_adap,
 				for (byte = 0; byte < msgs[i].len; byte++)
 					printk(KERN_CONT " %02x", msgs[i].buf[byte]);
 		} else {
-			
+			/* write bytes */
 			if (i2c_debug >= 2)
 				for (byte = 0; byte < msgs[i].len; byte++)
 					printk(KERN_CONT " %02x", msgs[i].buf[byte]);
@@ -267,7 +281,11 @@ noeeprom:
 	return -EINVAL;
 }
 
+/* ----------------------------------------------------------- */
 
+/*
+ * functionality()
+ */
 static u32 functionality(struct i2c_adapter *adap)
 {
 	return I2C_FUNC_SMBUS_EMUL;
@@ -278,7 +296,12 @@ static const struct i2c_algorithm tm6000_algo = {
 	.functionality = functionality,
 };
 
+/* ----------------------------------------------------------- */
 
+/*
+ * tm6000_i2c_register()
+ * register i2c bus
+ */
 int tm6000_i2c_register(struct tm6000_core *dev)
 {
 	int rc;
@@ -300,6 +323,10 @@ int tm6000_i2c_register(struct tm6000_core *dev)
 	return 0;
 }
 
+/*
+ * tm6000_i2c_unregister()
+ * unregister i2c_bus
+ */
 int tm6000_i2c_unregister(struct tm6000_core *dev)
 {
 	i2c_del_adapter(&dev->i2c_adap);

@@ -15,23 +15,24 @@
 #include <linux/types.h>
 #endif
 
-#define __HAVE_ARCH_MEMCHR	
-#define __HAVE_ARCH_MEMCMP	
-#define __HAVE_ARCH_MEMCPY	
-#define __HAVE_ARCH_MEMSCAN	
-#define __HAVE_ARCH_MEMSET	
-#define __HAVE_ARCH_STRCAT	
-#define __HAVE_ARCH_STRCMP	
-#define __HAVE_ARCH_STRCPY	
-#define __HAVE_ARCH_STRLCAT	
-#define __HAVE_ARCH_STRLCPY	
-#define __HAVE_ARCH_STRLEN	
-#define __HAVE_ARCH_STRNCAT	
-#define __HAVE_ARCH_STRNCPY	
-#define __HAVE_ARCH_STRNLEN	
-#define __HAVE_ARCH_STRRCHR	
-#define __HAVE_ARCH_STRSTR	
+#define __HAVE_ARCH_MEMCHR	/* inline & arch function */
+#define __HAVE_ARCH_MEMCMP	/* arch function */
+#define __HAVE_ARCH_MEMCPY	/* gcc builtin & arch function */
+#define __HAVE_ARCH_MEMSCAN	/* inline & arch function */
+#define __HAVE_ARCH_MEMSET	/* gcc builtin & arch function */
+#define __HAVE_ARCH_STRCAT	/* inline & arch function */
+#define __HAVE_ARCH_STRCMP	/* arch function */
+#define __HAVE_ARCH_STRCPY	/* inline & arch function */
+#define __HAVE_ARCH_STRLCAT	/* arch function */
+#define __HAVE_ARCH_STRLCPY	/* arch function */
+#define __HAVE_ARCH_STRLEN	/* inline & arch function */
+#define __HAVE_ARCH_STRNCAT	/* arch function */
+#define __HAVE_ARCH_STRNCPY	/* arch function */
+#define __HAVE_ARCH_STRNLEN	/* inline & arch function */
+#define __HAVE_ARCH_STRRCHR	/* arch function */
+#define __HAVE_ARCH_STRSTR	/* arch function */
 
+/* Prototypes for non-inlined arch strings functions. */
 extern int memcmp(const void *, const void *, size_t);
 extern void *memcpy(void *, const void *, size_t);
 extern void *memset(void *, int, size_t);
@@ -142,15 +143,15 @@ static inline size_t strnlen(const char * s, size_t n)
 		: "+a" (end), "+a" (tmp) : "d" (r0)  : "cc");
 	return end - s;
 }
-#else 
+#else /* IN_ARCH_STRING_C */
 void *memchr(const void * s, int c, size_t n);
 void *memscan(void *s, int c, size_t n);
 char *strcat(char *dst, const char *src);
 char *strcpy(char *dst, const char *src);
 size_t strlen(const char *s);
 size_t strnlen(const char * s, size_t n);
-#endif 
+#endif /* !IN_ARCH_STRING_C */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __S390_STRING_H_ */

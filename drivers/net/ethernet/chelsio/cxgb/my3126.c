@@ -1,9 +1,15 @@
+/* $Date: 2005/11/12 02:13:49 $ $RCSfile: my3126.c,v $ $Revision: 1.15 $ */
 #include "cphy.h"
 #include "elmer0.h"
 #include "suni1x10gexp_regs.h"
 
+/* Port Reset */
 static int my3126_reset(struct cphy *cphy, int wait)
 {
+	/*
+	 * This can be done through registers.  It is not required since
+	 * a full chip reset is used.
+	 */
 	return 0;
 }
 
@@ -45,6 +51,9 @@ static int my3126_interrupt_handler(struct cphy *cphy)
 			t1_link_changed(adapter, 0);
 		cphy->bmsr = val16;
 
+		/* We have only enabled link change interrupts so it
+		   must be that
+		 */
 		cphy->count = 0;
 	}
 
@@ -56,7 +65,7 @@ static int my3126_interrupt_handler(struct cphy *cphy)
 		OFFSET(SUNI1x10GEXP_REG_MSTAT_COUNTER_33_LOW), &val);
 	act_count += val;
 
-	
+	/* Populate elmer_gpo with the register value */
 	t1_tpi_read(adapter, A_ELMER0_GPO, &val);
 	cphy->elmer_gpo = val;
 
@@ -96,6 +105,7 @@ static int my3126_set_loopback(struct cphy *cphy, int on)
 	return 0;
 }
 
+/* To check the activity LED */
 static int my3126_get_link_status(struct cphy *cphy,
 			int *link_ok, int *speed, int *duplex, int *fc)
 {
@@ -107,20 +117,20 @@ static int my3126_get_link_status(struct cphy *cphy,
 	cphy_mdio_read(cphy, MDIO_MMD_PMAPMD, MDIO_STAT1, &val);
 	val16 = (u16) val;
 
-	
+	/* Populate elmer_gpo with the register value */
 	t1_tpi_read(adapter, A_ELMER0_GPO, &val);
 	cphy->elmer_gpo = val;
 
 	*link_ok = (val16 & MDIO_STAT1_LSTATUS);
 
 	if (*link_ok) {
-		
+		/* Turn on the LED. */
 		if (is_T2(adapter))
 			 val &= ~(1 << 8);
 		else if (t1_is_T1B(adapter))
 			 val &= ~(1 << 19);
 	} else {
-		
+		/* Turn off the LED. */
 		if (is_T2(adapter))
 			 val |= (1 << 8);
 		else if (t1_is_T1B(adapter))
@@ -132,7 +142,7 @@ static int my3126_get_link_status(struct cphy *cphy,
 	*speed = SPEED_10000;
 	*duplex = DUPLEX_FULL;
 
-	
+	/* need to add flow control */
 	if (fc)
 		*fc = PAUSE_RX | PAUSE_TX;
 
@@ -172,6 +182,7 @@ static struct cphy *my3126_phy_create(struct net_device *dev,
 	return cphy;
 }
 
+/* Chip Reset */
 static int my3126_phy_reset(adapter_t * adapter)
 {
 	u32 val;
@@ -184,7 +195,7 @@ static int my3126_phy_reset(adapter_t * adapter)
 	t1_tpi_write(adapter, A_ELMER0_GPO, val | 4);
 	msleep(1000);
 
-	
+	/* Now lets enable the Laser. Delay 100us */
 	t1_tpi_read(adapter, A_ELMER0_GPO, &val);
 	val |= 0x8000;
 	t1_tpi_write(adapter, A_ELMER0_GPO, val);

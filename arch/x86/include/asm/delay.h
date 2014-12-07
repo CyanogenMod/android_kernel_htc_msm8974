@@ -5,4 +5,4 @@
 
 void use_tsc_delay(void);
 
-#endif 
+#endif /* _ASM_X86_DELAY_H */

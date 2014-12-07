@@ -65,7 +65,7 @@
 #define MACH_MINI2440_DM9K_BASE (S3C2410_CS4 + 0x300)
 
 static struct map_desc mini2440_iodesc[] __initdata = {
-	
+	/* nothing to declare, move along */
 };
 
 #define UCON S3C2410_UCON_DEFAULT
@@ -97,13 +97,18 @@ static struct s3c2410_uartcfg mini2440_uartcfgs[] __initdata = {
 	},
 };
 
+/* USB device UDC support */
 
 static struct s3c2410_udc_mach_info mini2440_udc_cfg __initdata = {
 	.pullup_pin = S3C2410_GPC(5),
 };
 
 
+/* LCD timing and setup */
 
+/*
+ * This macro simplifies the table bellow
+ */
 #define _LCD_DECLARE(_clock,_xres,margin_left,margin_right,hsync, \
 			_yres,margin_top,margin_bottom,vsync, refresh) \
 	.width = _xres, \
@@ -125,48 +130,55 @@ static struct s3c2410_udc_mach_info mini2440_udc_cfg __initdata = {
 			   S3C2410_LCDCON1_TFT)
 
 static struct s3c2410fb_display mini2440_lcd_cfg[] __initdata = {
-	[0] = {	
+	[0] = {	/* mini2440 + 3.5" TFT + touchscreen */
 		_LCD_DECLARE(
-			7,			
-			240, 21, 38, 6, 	
-			320, 4, 4, 2,		
-			60),			
+			7,			/* The 3.5 is quite fast */
+			240, 21, 38, 6, 	/* x timing */
+			320, 4, 4, 2,		/* y timing */
+			60),			/* refresh rate */
 		.lcdcon5	= (S3C2410_LCDCON5_FRM565 |
 				   S3C2410_LCDCON5_INVVLINE |
 				   S3C2410_LCDCON5_INVVFRAME |
 				   S3C2410_LCDCON5_INVVDEN |
 				   S3C2410_LCDCON5_PWREN),
 	},
-	[1] = { 
+	[1] = { /* mini2440 + 7" TFT + touchscreen */
 		_LCD_DECLARE(
-			10,			
-			800, 40, 40, 48, 	
-			480, 29, 3, 3,		
-			50),			
+			10,			/* the 7" runs slower */
+			800, 40, 40, 48, 	/* x timing */
+			480, 29, 3, 3,		/* y timing */
+			50),			/* refresh rate */
 		.lcdcon5	= (S3C2410_LCDCON5_FRM565 |
 				   S3C2410_LCDCON5_INVVLINE |
 				   S3C2410_LCDCON5_INVVFRAME |
 				   S3C2410_LCDCON5_PWREN),
 	},
+	/* The VGA shield can outout at several resolutions. All share 
+	 * the same timings, however, anything smaller than 1024x768
+	 * will only be displayed in the top left corner of a 1024x768
+	 * XGA output unless you add optional dip switches to the shield.
+	 * Therefore timings for other resolutions have been omitted here.
+	 */
 	[2] = {
 		_LCD_DECLARE(
 			10,
-			1024, 1, 2, 2,		
-			768, 200, 16, 16, 	
-			24),	
+			1024, 1, 2, 2,		/* y timing */
+			768, 200, 16, 16, 	/* x timing */
+			24),	/* refresh rate, maximum stable,
+				 tested with the FPGA shield */
 		.lcdcon5	= (S3C2410_LCDCON5_FRM565 |
 				   S3C2410_LCDCON5_HWSWP),
 	},
-	
+	/* mini2440 + 3.5" TFT (LCD-W35i, LQ035Q1DG06 type) + touchscreen*/
 	[3] = {
 		_LCD_DECLARE(
-			
+			/* clock */
 			7,
-			
+			/* xres, margin_right, margin_left, hsync */
 			320, 68, 66, 4,
-			
+			/* yres, margin_top, margin_bottom, vsync */
 			240, 4, 4, 9,
-			
+			/* refresh rate */
 			60),
 		.lcdcon5	= (S3C2410_LCDCON5_FRM565 |
 				   S3C2410_LCDCON5_INVVDEN |
@@ -177,15 +189,19 @@ static struct s3c2410fb_display mini2440_lcd_cfg[] __initdata = {
 	},
 };
 
+/* todo - put into gpio header */
 
 #define S3C2410_GPCCON_MASK(x)	(3 << ((x) * 2))
 #define S3C2410_GPDCON_MASK(x)	(3 << ((x) * 2))
 
 static struct s3c2410fb_mach_info mini2440_fb_info __initdata = {
-	.displays	 = &mini2440_lcd_cfg[0], 
+	.displays	 = &mini2440_lcd_cfg[0], /* not constant! see init */
 	.num_displays	 = 1,
 	.default_display = 0,
 
+	/* Enable VD[2..7], VD[10..15], VD[18..23] and VCLK, syncs, VDEN
+	 * and disable the pull down resistors on pins we are using for LCD
+	 * data. */
 
 	.gpcup		= (0xf << 1) | (0x3f << 10),
 
@@ -218,6 +234,7 @@ static struct s3c2410fb_mach_info mini2440_fb_info __initdata = {
 			   S3C2410_GPDCON_MASK(14) | S3C2410_GPDCON_MASK(15)),
 };
 
+/* MMC/SD  */
 
 static struct s3c24xx_mci_pdata mini2440_mmc_cfg __initdata = {
    .gpio_detect   = S3C2410_GPG(8),
@@ -226,6 +243,7 @@ static struct s3c24xx_mci_pdata mini2440_mmc_cfg __initdata = {
    .ocr_avail     = MMC_VDD_32_33|MMC_VDD_33_34,
 };
 
+/* NAND Flash on MINI2440 board */
 
 static struct mtd_partition mini2440_default_nand_part[] __initdata = {
 	[0] = {
@@ -240,6 +258,8 @@ static struct mtd_partition mini2440_default_nand_part[] __initdata = {
 	},
 	[2] = {
 		.name	= "kernel",
+		/* 5 megabytes, for a kernel with no modules
+		 * or a uImage with a ramdisk attached */
 		.size	= 0x00500000,
 		.offset	= SZ_256K + SZ_128K,
 	},
@@ -256,7 +276,7 @@ static struct s3c2410_nand_set mini2440_nand_sets[] __initdata = {
 		.nr_chips	= 1,
 		.nr_partitions	= ARRAY_SIZE(mini2440_default_nand_part),
 		.partitions	= mini2440_default_nand_part,
-		.flash_bbt 	= 1, 
+		.flash_bbt 	= 1, /* we use u-boot to create a BBT */
 	},
 };
 
@@ -269,6 +289,7 @@ static struct s3c2410_platform_nand mini2440_nand_info __initdata = {
 	.ignore_unset_ecc = 1,
 };
 
+/* DM9000AEP 10/100 ethernet controller */
 
 static struct resource mini2440_dm9k_resource[] = {
 	[0] = {
@@ -288,6 +309,10 @@ static struct resource mini2440_dm9k_resource[] = {
 	}
 };
 
+/*
+ * The DM9000 has no eeprom, and it's MAC address is set by
+ * the bootloader before starting the kernel.
+ */
 static struct dm9000_plat_data mini2440_dm9k_pdata = {
 	.flags		= (DM9000_PLATF_16BITONLY | DM9000_PLATF_NO_EEPROM),
 };
@@ -302,40 +327,59 @@ static struct platform_device mini2440_device_eth = {
 	},
 };
 
+/*  CON5
+ *	+--+	 /-----\
+ *	|  |    |	|
+ *	|  |	|  BAT	|
+ *	|  |	 \_____/
+ *	|  |
+ *	|  |  +----+  +----+
+ *	|  |  | K5 |  | K1 |
+ *	|  |  +----+  +----+
+ *	|  |  +----+  +----+
+ *	|  |  | K4 |  | K2 |
+ *	|  |  +----+  +----+
+ *	|  |  +----+  +----+
+ *	|  |  | K6 |  | K3 |
+ *	|  |  +----+  +----+
+ *	  .....
+ */
 static struct gpio_keys_button mini2440_buttons[] = {
 	{
-		.gpio		= S3C2410_GPG(0),		
+		.gpio		= S3C2410_GPG(0),		/* K1 */
 		.code		= KEY_F1,
 		.desc		= "Button 1",
 		.active_low	= 1,
 	},
 	{
-		.gpio		= S3C2410_GPG(3),		
+		.gpio		= S3C2410_GPG(3),		/* K2 */
 		.code		= KEY_F2,
 		.desc		= "Button 2",
 		.active_low	= 1,
 	},
 	{
-		.gpio		= S3C2410_GPG(5),		
+		.gpio		= S3C2410_GPG(5),		/* K3 */
 		.code		= KEY_F3,
 		.desc		= "Button 3",
 		.active_low	= 1,
 	},
 	{
-		.gpio		= S3C2410_GPG(6),		
+		.gpio		= S3C2410_GPG(6),		/* K4 */
 		.code		= KEY_POWER,
 		.desc		= "Power",
 		.active_low	= 1,
 	},
 	{
-		.gpio		= S3C2410_GPG(7),		
+		.gpio		= S3C2410_GPG(7),		/* K5 */
 		.code		= KEY_F5,
 		.desc		= "Button 5",
 		.active_low	= 1,
 	},
 #if 0
+	/* this pin is also known as TCLK1 and seems to already
+	 * marked as "in use" somehow in the kernel -- possibly wrongly */
 	{
-		.gpio		= S3C2410_GPG(11),	
+		.gpio		= S3C2410_GPG(11),	/* K6 */
 		.code		= KEY_F6,
 		.desc		= "Button 6",
 		.active_low	= 1,
@@ -356,6 +400,7 @@ static struct platform_device mini2440_button_device = {
 	}
 };
 
+/* LEDS */
 
 static struct s3c24xx_led_platdata mini2440_led1_pdata = {
 	.name		= "led1",
@@ -431,6 +476,7 @@ static struct platform_device mini2440_led_backlight = {
 	},
 };
 
+/* AUDIO */
 
 static struct s3c24xx_uda134x_platform_data mini2440_audio_pins = {
 	.l3_clk = S3C2410_GPB(4),
@@ -447,6 +493,9 @@ static struct platform_device mini2440_audio = {
 	},
 };
 
+/*
+ * I2C devices
+ */
 static struct at24_platform_data at24c08 = {
 	.byte_len	= SZ_8K / 8,
 	.page_size	= 16,
@@ -491,6 +540,15 @@ static void __init mini2440_map_io(void)
 	s3c24xx_init_uarts(mini2440_uartcfgs, ARRAY_SIZE(mini2440_uartcfgs));
 }
 
+/*
+ * mini2440_features string
+ *
+ * t = Touchscreen present
+ * b = backlight control
+ * c = camera [TODO]
+ * 0-9 LCD configuration
+ *
+ */
 static char mini2440_features_str[12] __initdata = "0tb";
 
 static int __init mini2440_features_setup(char *str)
@@ -528,7 +586,7 @@ static void __init mini2440_parse_features(
 		char f = *fp++;
 
 		switch (f) {
-		case '0'...'9':	
+		case '0'...'9':	/* tft screen */
 			if (features->done & FEATURE_SCREEN) {
 				printk(KERN_INFO "MINI2440: '%c' ignored, "
 					"screen type already set\n", f);
@@ -580,22 +638,22 @@ static void __init mini2440_init(void)
 	printk(KERN_INFO "MINI2440: Option string mini2440=%s\n",
 			mini2440_features_str);
 
-	
+	/* Parse the feature string */
 	mini2440_parse_features(&features, mini2440_features_str);
 
-	
+	/* turn LCD on */
 	s3c_gpio_cfgpin(S3C2410_GPC(0), S3C2410_GPC0_LEND);
 
-	
+	/* Turn the backlight early on */
 	WARN_ON(gpio_request(S3C2410_GPG(4), "backlight"));
 	gpio_direction_output(S3C2410_GPG(4), 1);
 
-	
+	/* remove pullup on optional PWM backlight -- unused on 3.5 and 7"s */
 	s3c_gpio_setpull(S3C2410_GPB(1), S3C_GPIO_PULL_UP);
 	s3c2410_gpio_setpin(S3C2410_GPB(1), 0);
 	s3c_gpio_cfgpin(S3C2410_GPB(1), S3C2410_GPIO_INPUT);
 
-	
+	/* mark the key as input, without pullups (there is one on the board) */
 	for (i = 0; i < ARRAY_SIZE(mini2440_buttons); i++) {
 		s3c_gpio_setpull(mini2440_buttons[i].gpio, S3C_GPIO_PULL_UP);
 		s3c_gpio_cfgpin(mini2440_buttons[i].gpio, S3C2410_GPIO_INPUT);
@@ -630,14 +688,14 @@ static void __init mini2440_init(void)
 
 	platform_add_devices(mini2440_devices, ARRAY_SIZE(mini2440_devices));
 
-	if (features.count)	
+	if (features.count)	/* the optional features */
 		platform_add_devices(features.optional, features.count);
 
 }
 
 
 MACHINE_START(MINI2440, "MINI2440")
-	
+	/* Maintainer: Michel Pollet <buserror@gmail.com> */
 	.atag_offset	= 0x100,
 	.map_io		= mini2440_map_io,
 	.init_machine	= mini2440_init,

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -474,11 +474,11 @@ static int32_t qpnp_adc_tm_timer_interval_select(
 
 	while (i < chip->max_channels_available) {
 		if (chip->sensor[i].btm_channel_num == btm_chan) {
-				chan_idx = i;
-				chan_found = true;
-				i++;
+			chan_idx = i;
+			chan_found = true;
+			i++;
 		} else
-				i++;
+			i++;
 	}
 
 	if (!chan_found) {
@@ -549,17 +549,17 @@ static int32_t qpnp_adc_tm_timer_interval_select(
 		return rc;
 	}
 	rc = qpnp_adc_tm_write_reg(chip,
-		adc_tm_data[btm_chan_idx].meas_interval_ctl,
-		chip->sensor[chan_idx].timer_select);
+			adc_tm_data[btm_chan_idx].meas_interval_ctl,
+				chip->sensor[chan_idx].timer_select);
 	if (rc < 0) {
 		pr_err("TM channel timer configure failed\n");
 		return rc;
 	}
 
 	pr_debug("timer select:%d, timer_value_within_select:%d, channel:%x\n",
-		chip->sensor[chan_idx].timer_select,
-		chip->sensor[chan_idx].meas_interval,
-		btm_chan);
+			chip->sensor[chan_idx].timer_select,
+			chip->sensor[chan_idx].meas_interval,
+			btm_chan);
 
 	return rc;
 }
@@ -1890,25 +1890,25 @@ static int __devinit qpnp_adc_tm_probe(struct spmi_device *spmi)
 			goto fail;
 		}
 		rc = of_property_read_u32(child,
-					  "qcom,meas-interval-timer-idx", &timer_select);
+				"qcom,meas-interval-timer-idx", &timer_select);
 		if (rc) {
-			   pr_debug("Default to timer1 with interval of 1 sec\n");
-			   chip->sensor[sen_idx].timer_select =
-										   ADC_MEAS_TIMER_SELECT1;
-			   chip->sensor[sen_idx].meas_interval =
-										   ADC_MEAS1_INTERVAL_1S;
+			pr_debug("Default to timer1 with interval of 1 sec\n");
+			chip->sensor[sen_idx].timer_select =
+							ADC_MEAS_TIMER_SELECT1;
+			chip->sensor[sen_idx].meas_interval =
+							ADC_MEAS1_INTERVAL_1S;
 		} else {
-			   if (timer_select >= ADC_MEAS_TIMER_NUM) {
-					  pr_err("Invalid timer selection number\n");
-					  goto fail;
-			   }
-			   chip->sensor[sen_idx].timer_select = timer_select;
-			   if (timer_select == ADC_MEAS_TIMER_SELECT2)
-					  chip->sensor[sen_idx].meas_interval =
-									ADC_MEAS2_INTERVAL_500MS;
-			   if (timer_select == ADC_MEAS_TIMER_SELECT3)
-					  chip->sensor[sen_idx].meas_interval =
-									ADC_MEAS3_INTERVAL_4S;
+			if (timer_select >= ADC_MEAS_TIMER_NUM) {
+				pr_err("Invalid timer selection number\n");
+				goto fail;
+			}
+			chip->sensor[sen_idx].timer_select = timer_select;
+			if (timer_select == ADC_MEAS_TIMER_SELECT2)
+				chip->sensor[sen_idx].meas_interval =
+						ADC_MEAS2_INTERVAL_500MS;
+			if (timer_select == ADC_MEAS_TIMER_SELECT3)
+				chip->sensor[sen_idx].meas_interval =
+						ADC_MEAS3_INTERVAL_4S;
 		}
 
 		chip->sensor[sen_idx].btm_channel_num = btm_channel_num;

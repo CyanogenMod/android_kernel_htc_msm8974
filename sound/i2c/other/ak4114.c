@@ -34,7 +34,7 @@ MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("AK4114 IEC958 (S/PDIF) receiver by Asahi Kasei");
 MODULE_LICENSE("GPL");
 
-#define AK4114_ADDR			0x00 
+#define AK4114_ADDR			0x00 /* fixed address */
 
 static void ak4114_stats(struct work_struct *work);
 static void ak4114_init_regs(struct ak4114 *chip);
@@ -66,7 +66,7 @@ static void reg_dump(struct ak4114 *ak4114)
 
 static void snd_ak4114_free(struct ak4114 *chip)
 {
-	chip->init = 1;	
+	chip->init = 1;	/* don't schedule new work */
 	mb();
 	cancel_delayed_work_sync(&chip->work);
 	kfree(chip);
@@ -136,17 +136,17 @@ static void ak4114_init_regs(struct ak4114 *chip)
 {
 	unsigned char old = chip->regmap[AK4114_REG_PWRDN], reg;
 
-	
+	/* bring the chip to reset state and powerdown state */
 	reg_write(chip, AK4114_REG_PWRDN, old & ~(AK4114_RST|AK4114_PWN));
 	udelay(200);
-	
+	/* release reset, but leave powerdown */
 	reg_write(chip, AK4114_REG_PWRDN, (old | AK4114_RST) & ~AK4114_PWN);
 	udelay(200);
 	for (reg = 1; reg < 7; reg++)
 		reg_write(chip, reg, chip->regmap[reg]);
 	for (reg = 0; reg < 5; reg++)
 		reg_write(chip, reg + AK4114_REG_TXCSB0, chip->txcsb[reg]);
-	
+	/* release powerdown, everything is initialized now */
 	reg_write(chip, AK4114_REG_PWRDN, old | AK4114_RST | AK4114_PWN);
 }
 
@@ -156,7 +156,7 @@ void snd_ak4114_reinit(struct ak4114 *chip)
 	mb();
 	flush_delayed_work_sync(&chip->work);
 	ak4114_init_regs(chip);
-	
+	/* bring up statistics / event queing */
 	chip->init = 0;
 	if (chip->kctls[0])
 		schedule_delayed_work(&chip->work, HZ / 10);
@@ -329,6 +329,7 @@ static int snd_ak4114_spdif_qget(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* Don't forget to change AK4114_CONTROLS define!!! */
 static struct snd_kcontrol_new snd_ak4114_iec958_controls[] = {
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_PCM,
@@ -452,7 +453,7 @@ static void snd_ak4114_proc_regs_read(struct snd_info_entry *entry,
 {
 	struct ak4114 *ak4114 = entry->private_data;
 	int reg, val;
-	
+	/* all ak4114 registers 0x00 - 0x1f */
 	for (reg = 0; reg < 0x20; reg++) {
 		val = reg_read(ak4114, reg);
 		snd_iprintf(buffer, "0x%02x = 0x%02x\n", reg, val);
@@ -500,11 +501,12 @@ int snd_ak4114_build(struct ak4114 *ak4114,
 		ak4114->kctls[idx] = kctl;
 	}
 	snd_ak4114_proc_init(ak4114);
-	
+	/* trigger workq */
 	schedule_delayed_work(&ak4114->work, HZ / 10);
 	return 0;
 }
 
+/* notify kcontrols if any parameters are changed */
 static void ak4114_notify(struct ak4114 *ak4114,
 			  unsigned char rcs0, unsigned char rcs1,
 			  unsigned char c0, unsigned char c1)
@@ -525,7 +527,7 @@ static void ak4114_notify(struct ak4114 *ak4114,
 		snd_ctl_notify(ak4114->card, SNDRV_CTL_EVENT_MASK_VALUE,
 			       &ak4114->kctls[3]->id);
 
-	
+	/* rate change */
 	if (c1 & 0xf0)
 		snd_ctl_notify(ak4114->card, SNDRV_CTL_EVENT_MASK_VALUE,
 			       &ak4114->kctls[4]->id);
@@ -592,12 +594,12 @@ int snd_ak4114_check_rate_and_errors(struct ak4114 *ak4114, unsigned int flags)
 		ak4114->change_callback(ak4114, c0, c1);
 
       __rate:
-	
+	/* compare rate */
 	res = external_rate(rcs1);
 	if (!(flags & AK4114_CHECK_NO_RATE) && runtime && runtime->rate != res) {
 		snd_pcm_stream_lock_irqsave(ak4114->capture_substream, _flags);
 		if (snd_pcm_running(ak4114->capture_substream)) {
-			
+			// printk(KERN_DEBUG "rate changed (%i <- %i)\n", runtime->rate, res);
 			snd_pcm_stop(ak4114->capture_substream, SNDRV_PCM_STATE_DRAINING);
 			res = 1;
 		}

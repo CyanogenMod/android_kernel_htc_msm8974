@@ -51,17 +51,22 @@ struct privcmd_mmap_entry {
 
 struct privcmd_mmap {
 	int num;
-	domid_t dom; 
+	domid_t dom; /* target domain */
 	struct privcmd_mmap_entry __user *entry;
 };
 
 struct privcmd_mmapbatch {
-	int num;     
-	domid_t dom; 
-	__u64 addr;  
-	xen_pfn_t __user *arr; 
+	int num;     /* number of pages to populate */
+	domid_t dom; /* target domain */
+	__u64 addr;  /* virtual address */
+	xen_pfn_t __user *arr; /* array of mfns - top nibble set on err */
 };
 
+/*
+ * @cmd: IOCTL_PRIVCMD_HYPERCALL
+ * @arg: &privcmd_hypercall_t
+ * Return: Value returned from execution of the specified hypercall.
+ */
 #define IOCTL_PRIVCMD_HYPERCALL					\
 	_IOC(_IOC_NONE, 'P', 0, sizeof(struct privcmd_hypercall))
 #define IOCTL_PRIVCMD_MMAP					\
@@ -69,4 +74,4 @@ struct privcmd_mmapbatch {
 #define IOCTL_PRIVCMD_MMAPBATCH					\
 	_IOC(_IOC_NONE, 'P', 3, sizeof(struct privcmd_mmapbatch))
 
-#endif 
+#endif /* __LINUX_PUBLIC_PRIVCMD_H__ */

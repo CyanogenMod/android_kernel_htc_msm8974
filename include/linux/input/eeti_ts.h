@@ -5,5 +5,5 @@ struct eeti_ts_platform_data {
 	unsigned int irq_active_high;
 };
 
-#endif 
+#endif /* LINUX_INPUT_EETI_TS_H */
 

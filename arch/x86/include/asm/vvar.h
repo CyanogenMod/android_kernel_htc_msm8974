@@ -16,10 +16,14 @@
  * you mess up, the linker will catch it.)
  */
 
+/* Base address of vvars.  This is not ABI. */
 #define VVAR_ADDRESS (-10*1024*1024 - 4096)
 
 #if defined(__VVAR_KERNEL_LDS)
 
+/* The kernel linker script defines its own magic to put vvars in the
+ * right place.
+ */
 #define DECLARE_VVAR(offset, type, name) \
 	EMIT_VVAR(name, offset)
 
@@ -37,6 +41,7 @@
 
 #endif
 
+/* DECLARE_VVAR(offset, type, name) */
 
 DECLARE_VVAR(0, volatile unsigned long, jiffies)
 DECLARE_VVAR(16, int, vgetcpu_mode)

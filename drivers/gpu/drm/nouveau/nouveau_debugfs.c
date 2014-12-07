@@ -23,6 +23,10 @@
  *
  */
 
+/*
+ * Authors:
+ *  Ben Skeggs <bskeggs@redhat.com>
+ */
 
 #include <linux/debugfs.h>
 

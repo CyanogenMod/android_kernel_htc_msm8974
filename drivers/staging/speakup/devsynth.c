@@ -1,5 +1,5 @@
 #include <linux/errno.h>
-#include <linux/miscdevice.h>	
+#include <linux/miscdevice.h>	/* for misc_register, and SYNTH_MINOR */
 #include <linux/types.h>
 #include <linux/uaccess.h>
 
@@ -75,6 +75,7 @@ void speakup_register_devsynth(void)
 {
 	if (misc_registered != 0)
 		return;
+/* zero it so if register fails, deregister will not ref invalid ptrs */
 	if (misc_register(&synth_device))
 		pr_warn("Couldn't initialize miscdevice /dev/synth.\n");
 	else {

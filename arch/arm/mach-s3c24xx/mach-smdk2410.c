@@ -57,7 +57,7 @@
 #include "common.h"
 
 static struct map_desc smdk2410_iodesc[] __initdata = {
-  
+  /* nothing here yet */
 };
 
 #define UCON S3C2410_UCON_DEFAULT
@@ -110,8 +110,9 @@ static void __init smdk2410_init(void)
 	smdk_machine_init();
 }
 
-MACHINE_START(SMDK2410, "SMDK2410") 
-	
+MACHINE_START(SMDK2410, "SMDK2410") /* @TODO: request a new identifier and switch
+				    * to SMDK2410 */
+	/* Maintainer: Jonas Dietsche */
 	.atag_offset	= 0x100,
 	.map_io		= smdk2410_map_io,
 	.init_irq	= s3c24xx_init_irq,

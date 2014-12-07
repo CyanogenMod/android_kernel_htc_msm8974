@@ -3,4 +3,4 @@
 
 #include <asm-generic/cputime.h>
 
-#endif 
+#endif /* __MIPS_CPUTIME_H */

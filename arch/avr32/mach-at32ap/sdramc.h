@@ -8,6 +8,7 @@
  * version 2 as published by the Free Software Foundation.
  */
 
+/* Register offsets */
 #define SDRAMC_MR			0x0000
 #define SDRAMC_TR			0x0004
 #define SDRAMC_CR			0x0008
@@ -19,6 +20,7 @@
 #define SDRAMC_ISR			0x0020
 #define SDRAMC_MDR			0x0024
 
+/* MR - Mode Register */
 #define SDRAMC_MR_MODE_NORMAL		(  0 <<  0)
 #define SDRAMC_MR_MODE_NOP		(  1 <<  0)
 #define SDRAMC_MR_MODE_BANKS_PRECHARGE	(  2 <<  0)
@@ -27,6 +29,7 @@
 #define SDRAMC_MR_MODE_EXT_LOAD_MODE	(  5 <<  0)
 #define SDRAMC_MR_MODE_POWER_DOWN	(  6 <<  0)
 
+/* CR - Configuration Register */
 #define SDRAMC_CR_NC_8_BITS		(  0 <<  0)
 #define SDRAMC_CR_NC_9_BITS		(  1 <<  0)
 #define SDRAMC_CR_NC_10_BITS		(  2 <<  0)
@@ -46,8 +49,10 @@
 #define SDRAMC_CR_TRAS(x)		((x) << 24)
 #define SDRAMC_CR_TXSR(x)		((x) << 28)
 
+/* HSR - High Speed Register */
 #define SDRAMC_HSR_DA			(  1 <<  0)
 
+/* LPR - Low Power Register */
 #define SDRAMC_LPR_LPCB_INHIBIT		(  0 <<  0)
 #define SDRAMC_LPR_LPCB_SELF_RFR	(  1 <<  0)
 #define SDRAMC_LPR_LPCB_PDOWN		(  2 <<  0)
@@ -57,11 +62,14 @@
 #define SDRAMC_LPR_DS(x)		((x) << 10)
 #define SDRAMC_LPR_TIMEOUT(x)		((x) << 12)
 
+/* IER/IDR/IMR/ISR - Interrupt Enable/Disable/Mask/Status Register */
 #define SDRAMC_ISR_RES			(  1 <<  0)
 
+/* MDR - Memory Device Register */
 #define SDRAMC_MDR_MD_SDRAM		(  0 <<  0)
 #define SDRAMC_MDR_MD_LOW_PWR_SDRAM	(  1 <<  0)
 
+/* Register access macros */
 #define sdramc_readl(reg) \
 	__raw_readl((void __iomem __force *)SDRAMC_BASE + SDRAMC_##reg)
 #define sdramc_writel(reg, value) \

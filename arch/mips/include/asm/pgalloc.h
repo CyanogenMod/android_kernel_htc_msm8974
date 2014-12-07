@@ -26,6 +26,9 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 }
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
+/*
+ * Initialize a new pmd table with invalid pointers.
+ */
 extern void pmd_init(unsigned long page, unsigned long pagetable);
 
 #ifndef __PAGETABLE_PMD_FOLDED
@@ -36,6 +39,9 @@ static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 }
 #endif
 
+/*
+ * Initialize a new pgd / pmd table with invalid pointers.
+ */
 extern void pgd_init(unsigned long page);
 
 static inline pgd_t *pgd_alloc(struct mm_struct *mm)
@@ -123,4 +129,4 @@ static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
 
 extern void pagetable_init(void);
 
-#endif 
+#endif /* _ASM_PGALLOC_H */

@@ -30,8 +30,10 @@
 #include <linux/log2.h>
 #include <linux/slab.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x58, 0x5C, I2C_CLIENT_END };
 
+/* ADT7462 registers */
 #define ADT7462_REG_DEVICE			0x3D
 #define ADT7462_REG_VENDOR			0x3E
 #define ADT7462_REG_REVISION			0x3F
@@ -73,11 +75,11 @@ static const unsigned short normal_i2c[] = { 0x58, 0x5C, I2C_CLIENT_END };
 
 #define ADT7462_REG_PIN_CFG_BASE_ADDR		0x10
 #define ADT7462_REG_PIN_CFG_MAX_ADDR		0x13
-#define		ADT7462_PIN7_INPUT		0x01	
+#define		ADT7462_PIN7_INPUT		0x01	/* cfg0 */
 #define		ADT7462_DIODE3_INPUT		0x20
 #define		ADT7462_DIODE1_INPUT		0x40
 #define		ADT7462_VID_INPUT		0x80
-#define		ADT7462_PIN22_INPUT		0x04	
+#define		ADT7462_PIN22_INPUT		0x04	/* cfg1 */
 #define		ADT7462_PIN21_INPUT		0x08
 #define		ADT7462_PIN19_INPUT		0x10
 #define		ADT7462_PIN15_INPUT		0x20
@@ -85,7 +87,7 @@ static const unsigned short normal_i2c[] = { 0x58, 0x5C, I2C_CLIENT_END };
 #define		ADT7462_PIN8_INPUT		0x80
 #define		ADT7462_PIN23_MASK		0x03
 #define		ADT7462_PIN23_SHIFT		0
-#define		ADT7462_PIN26_MASK		0x0C	
+#define		ADT7462_PIN26_MASK		0x0C	/* cfg2 */
 #define		ADT7462_PIN26_SHIFT		2
 #define		ADT7462_PIN25_MASK		0x30
 #define		ADT7462_PIN25_SHIFT		4
@@ -93,7 +95,7 @@ static const unsigned short normal_i2c[] = { 0x58, 0x5C, I2C_CLIENT_END };
 #define		ADT7462_PIN24_SHIFT		6
 #define		ADT7462_PIN26_VOLT_INPUT	0x08
 #define		ADT7462_PIN25_VOLT_INPUT	0x20
-#define		ADT7462_PIN28_SHIFT		4	
+#define		ADT7462_PIN28_SHIFT		4	/* cfg3 */
 #define		ADT7462_PIN28_VOLT		0x5
 
 #define ADT7462_REG_ALARM1			0xB8
@@ -155,16 +157,43 @@ static const unsigned short normal_i2c[] = { 0x58, 0x5C, I2C_CLIENT_END };
 
 #define ADT7462_ALARM_REG_COUNT		4
 
+/*
+ * The chip can measure 13 different voltage sources:
+ *
+ * 1. +12V1 (pin 7)
+ * 2. Vccp1/+2.5V/+1.8V/+1.5V (pin 23)
+ * 3. +12V3 (pin 22)
+ * 4. +5V (pin 21)
+ * 5. +1.25V/+0.9V (pin 19)
+ * 6. +2.5V/+1.8V (pin 15)
+ * 7. +3.3v (pin 13)
+ * 8. +12V2 (pin 8)
+ * 9. Vbatt/FSB_Vtt (pin 26)
+ * A. +3.3V/+1.2V1 (pin 25)
+ * B. Vccp2/+2.5V/+1.8V/+1.5V (pin 24)
+ * C. +1.5V ICH (only if BOTH pin 28/29 are set to +1.5V)
+ * D. +1.5V 3GPIO (only if BOTH pin 28/29 are set to +1.5V)
+ *
+ * Each of these 13 has a factor to convert raw to voltage.  Even better,
+ * the pins can be connected to other sensors (tach/gpio/hot/etc), which
+ * makes the bookkeeping tricky.
+ *
+ * Some, but not all, of these voltages have low/high limits.
+ */
 #define ADT7462_VOLT_COUNT	13
 
 #define ADT7462_VENDOR		0x41
 #define ADT7462_DEVICE		0x62
+/* datasheet only mentions a revision 4 */
 #define ADT7462_REVISION	0x04
 
+/* How often do we reread sensors values? (In jiffies) */
 #define SENSOR_REFRESH_INTERVAL	(2 * HZ)
 
+/* How often do we reread sensor limit values? (In jiffies) */
 #define LIMIT_REFRESH_INTERVAL	(60 * HZ)
 
+/* datasheet says to divide this number by the fan reading to get fan rpm */
 #define FAN_PERIOD_TO_RPM(x)	((90000 * 60) / (x))
 #define FAN_RPM_TO_PERIOD	FAN_PERIOD_TO_RPM
 #define FAN_PERIOD_INVALID	65535
@@ -179,11 +208,11 @@ struct adt7462_data {
 	struct mutex		lock;
 	char			sensors_valid;
 	char			limits_valid;
-	unsigned long		sensors_last_updated;	
-	unsigned long		limits_last_updated;	
+	unsigned long		sensors_last_updated;	/* In jiffies */
+	unsigned long		limits_last_updated;	/* In jiffies */
 
 	u8			temp[ADT7462_TEMP_COUNT];
-				
+				/* bits 6-7 are quarter pieces of temp */
 	u8			temp_frac[ADT7462_TEMP_COUNT];
 	u8			temp_min[ADT7462_TEMP_COUNT];
 	u8			temp_max[ADT7462_TEMP_COUNT];
@@ -199,7 +228,7 @@ struct adt7462_data {
 	u8			pwm_min[ADT7462_PWM_COUNT];
 	u8			pwm_tmin[ADT7462_PWM_COUNT];
 	u8			pwm_trange[ADT7462_PWM_COUNT];
-	u8			pwm_max;	
+	u8			pwm_max;	/* only one per chip */
 	u8			pwm_cfg[ADT7462_PWM_COUNT];
 	u8			alarms[ADT7462_ALARM_REG_COUNT];
 };
@@ -228,6 +257,10 @@ static struct i2c_driver adt7462_driver = {
 	.address_list	= normal_i2c,
 };
 
+/*
+ * 16-bit registers on the ADT7462 are low-byte first.  The data sheet says
+ * that the low byte must be read before the high byte.
+ */
 static inline int adt7462_read_word_data(struct i2c_client *client, u8 reg)
 {
 	u16 foo;
@@ -236,6 +269,7 @@ static inline int adt7462_read_word_data(struct i2c_client *client, u8 reg)
 	return foo;
 }
 
+/* For some reason these registers are not contiguous. */
 static int ADT7462_REG_FAN(int fan)
 {
 	if (fan < 4)
@@ -243,6 +277,7 @@ static int ADT7462_REG_FAN(int fan)
 	return ADT7462_REG_FAN2_BASE_ADDR + (2 * (fan - 4));
 }
 
+/* Voltage registers are scattered everywhere */
 static int ADT7462_REG_VOLT_MAX(struct adt7462_data *data, int which)
 {
 	switch (which) {
@@ -420,6 +455,7 @@ static int ADT7462_REG_VOLT(struct adt7462_data *data, int which)
 	return -ENODEV;
 }
 
+/* Provide labels for sysfs */
 static const char *voltage_label(struct adt7462_data *data, int which)
 {
 	switch (which) {
@@ -511,6 +547,7 @@ static const char *voltage_label(struct adt7462_data *data, int which)
 	return "N/A";
 }
 
+/* Multipliers are actually in uV, not mV. */
 static int voltage_multiplier(struct adt7462_data *data, int which)
 {
 	switch (which) {
@@ -635,6 +672,7 @@ static const char *temp_label(struct adt7462_data *data, int which)
 	return "N/A";
 }
 
+/* Map Trange register values to mC */
 #define NUM_TRANGE_VALUES	16
 static const int trange_values[NUM_TRANGE_VALUES] = {
 	2000,
@@ -680,6 +718,10 @@ static struct adt7462_data *adt7462_update_device(struct device *dev)
 		goto no_sensor_update;
 
 	for (i = 0; i < ADT7462_TEMP_COUNT; i++) {
+		/*
+		 * Reading the fractional register locks the integral
+		 * register until both have been read.
+		 */
 		data->temp_frac[i] = i2c_smbus_read_byte_data(client,
 						ADT7462_TEMP_REG(i));
 		data->temp[i] = i2c_smbus_read_byte_data(client,
@@ -877,7 +919,7 @@ static ssize_t show_volt_max(struct device *dev,
 	int x = voltage_multiplier(data, attr->index);
 
 	x *= data->volt_max[attr->index];
-	x /= 1000; 
+	x /= 1000; /* convert from uV to mV */
 
 	return sprintf(buf, "%d\n", x);
 }
@@ -896,7 +938,7 @@ static ssize_t set_volt_max(struct device *dev,
 	if (kstrtol(buf, 10, &temp) || !x)
 		return -EINVAL;
 
-	temp *= 1000; 
+	temp *= 1000; /* convert mV to uV */
 	temp = DIV_ROUND_CLOSEST(temp, x);
 	temp = SENSORS_LIMIT(temp, 0, 255);
 
@@ -919,7 +961,7 @@ static ssize_t show_volt_min(struct device *dev,
 	int x = voltage_multiplier(data, attr->index);
 
 	x *= data->volt_min[attr->index];
-	x /= 1000; 
+	x /= 1000; /* convert from uV to mV */
 
 	return sprintf(buf, "%d\n", x);
 }
@@ -938,7 +980,7 @@ static ssize_t set_volt_min(struct device *dev,
 	if (kstrtol(buf, 10, &temp) || !x)
 		return -EINVAL;
 
-	temp *= 1000; 
+	temp *= 1000; /* convert mV to uV */
 	temp = DIV_ROUND_CLOSEST(temp, x);
 	temp = SENSORS_LIMIT(temp, 0, 255);
 
@@ -961,7 +1003,7 @@ static ssize_t show_voltage(struct device *dev,
 	int x = voltage_multiplier(data, attr->index);
 
 	x *= data->voltages[attr->index];
-	x /= 1000; 
+	x /= 1000; /* convert from uV to mV */
 
 	return sprintf(buf, "%d\n", x);
 }
@@ -1004,7 +1046,7 @@ static ssize_t show_fan_min(struct device *dev,
 	struct adt7462_data *data = adt7462_update_device(dev);
 	u16 temp;
 
-	
+	/* Only the MSB of the min fan period is stored... */
 	temp = data->fan_min[attr->index];
 	temp <<= 8;
 
@@ -1207,7 +1249,7 @@ static ssize_t set_pwm_hyst(struct device *dev,
 	temp = DIV_ROUND_CLOSEST(temp, 1000);
 	temp = SENSORS_LIMIT(temp, 0, 15);
 
-	
+	/* package things up */
 	temp &= ADT7462_PWM_HYST_MASK;
 	temp |= data->pwm_trange[attr->index] & ADT7462_PWM_RANGE_MASK;
 
@@ -1227,7 +1269,7 @@ static ssize_t show_pwm_tmax(struct device *dev,
 	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
 	struct adt7462_data *data = adt7462_update_device(dev);
 
-	
+	/* tmax = tmin + trange */
 	int trange = trange_values[data->pwm_trange[attr->index] >>
 				   ADT7462_PWM_RANGE_SHIFT];
 	int tmin = (data->pwm_tmin[attr->index] - 64) * 1000;
@@ -1250,7 +1292,7 @@ static ssize_t set_pwm_tmax(struct device *dev,
 	if (kstrtol(buf, 10, &trange))
 		return -EINVAL;
 
-	
+	/* trange = tmax - tmin */
 	tmin = (data->pwm_tmin[attr->index] - 64) * 1000;
 	trange_value = find_trange_value(trange - tmin);
 
@@ -1312,11 +1354,11 @@ static ssize_t show_pwm_auto(struct device *dev,
 	int cfg = data->pwm_cfg[attr->index] >> ADT7462_PWM_CHANNEL_SHIFT;
 
 	switch (cfg) {
-	case 4: 
+	case 4: /* off */
 		return sprintf(buf, "0\n");
-	case 7: 
+	case 7: /* manual */
 		return sprintf(buf, "1\n");
-	default: 
+	default: /* automatic */
 		return sprintf(buf, "2\n");
 	}
 }
@@ -1349,10 +1391,10 @@ static ssize_t set_pwm_auto(struct device *dev,
 		return -EINVAL;
 
 	switch (temp) {
-	case 0: 
+	case 0: /* off */
 		set_pwm_channel(client, data, attr->index, 4);
 		return count;
-	case 1: 
+	case 1: /* manual */
 		set_pwm_channel(client, data, attr->index, 7);
 		return count;
 	default:
@@ -1369,12 +1411,12 @@ static ssize_t show_pwm_auto_temp(struct device *dev,
 	int channel = data->pwm_cfg[attr->index] >> ADT7462_PWM_CHANNEL_SHIFT;
 
 	switch (channel) {
-	case 0: 
+	case 0: /* temp[1234] only */
 	case 1:
 	case 2:
 	case 3:
 		return sprintf(buf, "%d\n", (1 << channel));
-	case 5: 
+	case 5: /* temp1 & temp4  */
 		return sprintf(buf, "9\n");
 	case 6:
 		return sprintf(buf, "15\n");
@@ -1856,6 +1898,7 @@ static struct attribute *adt7462_attr[] = {
 	NULL
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int adt7462_detect(struct i2c_client *client,
 			  struct i2c_board_info *info)
 {
@@ -1899,7 +1942,7 @@ static int adt7462_probe(struct i2c_client *client,
 
 	dev_info(&client->dev, "%s chip found\n", client->name);
 
-	
+	/* Register sysfs hooks */
 	data->attrs.attrs = adt7462_attr;
 	err = sysfs_create_group(&client->dev.kobj, &data->attrs);
 	if (err)

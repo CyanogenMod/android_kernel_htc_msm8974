@@ -30,7 +30,7 @@ static int diag_release_pages(struct kvm_vcpu *vcpu)
 	VCPU_EVENT(vcpu, 5, "diag release pages %lX %lX", start, end);
 	vcpu->stat.diagnose_10++;
 
-	
+	/* we checked for start > end above */
 	if (end < prefix || start >= prefix + 2 * PAGE_SIZE) {
 		gmap_discard(start, end, vcpu->arch.gmap);
 	} else {

@@ -46,6 +46,11 @@ MODULE_LICENSE("GPL");
 #define QUICKSTART_PF_DRIVER_NAME	"quickstart"
 #define QUICKSTART_PF_DEVICE_NAME	"quickstart"
 
+/*
+ * There will be two events:
+ * 0x02 - A hot button was pressed while device was off/sleeping.
+ * 0x80 - A hot button was pressed while device was up.
+ */
 #define QUICKSTART_EVENT_WAKE		0x02
 #define QUICKSTART_EVENT_RUNTIME	0x80
 
@@ -65,6 +70,7 @@ static struct quickstart_button *pressed;
 
 static struct input_dev *quickstart_input;
 
+/* Platform driver functions */
 static ssize_t quickstart_buttons_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -111,6 +117,7 @@ static ssize_t quickstart_pressed_button_store(struct device *dev,
 	return count;
 }
 
+/* Helper functions */
 static struct quickstart_button *quickstart_buttons_add(void)
 {
 	struct quickstart_button *b;
@@ -142,6 +149,7 @@ static void quickstart_buttons_free(void)
 		quickstart_button_del(b);
 }
 
+/* ACPI Driver functions */
 static void quickstart_acpi_notify(acpi_handle handle, u32 event, void *data)
 {
 	struct quickstart_acpi *quickstart = data;
@@ -171,6 +179,10 @@ static int quickstart_acpi_ghid(struct quickstart_acpi *quickstart)
 	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
 	int ret = 0;
 
+	/*
+	 * This returns a buffer telling the button usage ID,
+	 * and triggers pending notify events (The ones before booting).
+	 */
 	status = acpi_evaluate_object(quickstart->device->handle, "GHID", NULL,
 								&buffer);
 	if (ACPI_FAILURE(status)) {
@@ -178,6 +190,11 @@ static int quickstart_acpi_ghid(struct quickstart_acpi *quickstart)
 		return -EINVAL;
 	}
 
+	/*
+	 * <<The GHID method can return a BYTE, WORD, or DWORD.
+	 * The value must be encoded in little-endian byte
+	 * order (least significant byte first).>>
+	 */
 	switch (buffer.length) {
 	case 1:
 		quickstart->button->id = *(uint8_t *)buffer.pointer;
@@ -213,7 +230,7 @@ static int quickstart_acpi_config(struct quickstart_acpi *quickstart)
 	if (!name)
 		return -ENOMEM;
 
-	
+	/* Add new button to list */
 	quickstart->button = quickstart_buttons_add();
 	if (!quickstart->button) {
 		kfree(name);
@@ -245,7 +262,7 @@ static int quickstart_acpi_add(struct acpi_device *device)
 	strcpy(acpi_device_class(device), QUICKSTART_ACPI_CLASS);
 	device->driver_data = quickstart;
 
-	
+	/* Add button to list and initialize some stuff */
 	ret = quickstart_acpi_config(quickstart);
 	if (ret < 0)
 		goto fail_config;
@@ -301,6 +318,7 @@ static int quickstart_acpi_remove(struct acpi_device *device, int type)
 	return 0;
 }
 
+/* Platform driver structs */
 static DEVICE_ATTR(pressed_button, 0666, quickstart_pressed_button_show,
 					 quickstart_pressed_button_store);
 static DEVICE_ATTR(buttons, 0444, quickstart_buttons_show, NULL);
@@ -327,6 +345,7 @@ static struct acpi_driver quickstart_acpi_driver = {
 		},
 };
 
+/* Module functions */
 static void quickstart_exit(void)
 {
 	input_unregister_device(quickstart_input);
@@ -374,27 +393,27 @@ static int __init quickstart_init(void)
 {
 	int ret;
 
-	
+	/* ACPI Check */
 	if (acpi_disabled)
 		return -ENODEV;
 
-	
+	/* ACPI driver register */
 	ret = acpi_bus_register_driver(&quickstart_acpi_driver);
 	if (ret)
 		return ret;
 
-	
+	/* If existing bus with no devices */
 	if (list_empty(&buttons)) {
 		ret = -ENODEV;
 		goto fail_pfdrv_reg;
 	}
 
-	
+	/* Platform driver register */
 	ret = platform_driver_register(&pf_driver);
 	if (ret)
 		goto fail_pfdrv_reg;
 
-	
+	/* Platform device register */
 	pf_device = platform_device_alloc(QUICKSTART_PF_DEVICE_NAME, -1);
 	if (!pf_device) {
 		ret = -ENOMEM;
@@ -404,7 +423,7 @@ static int __init quickstart_init(void)
 	if (ret)
 		goto fail_pfdev_add;
 
-	
+	/* Create device sysfs file */
 	ret = device_create_file(&pf_device->dev, &dev_attr_pressed_button);
 	if (ret)
 		goto fail_dev_file;
@@ -413,7 +432,7 @@ static int __init quickstart_init(void)
 	if (ret)
 		goto fail_dev_file2;
 
-	
+	/* Input device */
 	ret = quickstart_init_input();
 	if (ret)
 		goto fail_input;

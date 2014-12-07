@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * SMD Packet Driver -- Provides a binary SMD non-muxed packet port
+ *                       interface.
+ */
 
 #include <linux/slab.h>
 #include <linux/cdev.h>
@@ -73,7 +77,7 @@ struct smd_pkt_dev {
 	int has_reset;
 	int do_reset_notification;
 	struct completion ch_allocated;
-	struct wake_lock pa_wake_lock;		
+	struct wake_lock pa_wake_lock;		/* Packet Arrival Wake lock*/
 	struct work_struct packet_arrival_work;
 	struct spinlock pa_spinlock;
 	int wakelock_locked;
@@ -255,6 +259,10 @@ static void clean_and_signal(struct smd_pkt_dev *smd_pkt_devp)
 static void loopback_probe_worker(struct work_struct *work)
 {
 
+	/* Wait for the modem SMSM to be inited for the SMD
+	** Loopback channel to be allocated at the modem. Since
+	** the wait need to be done atmost once, using msleep
+	** doesn't degrade the performance. */
 	if (!is_modem_smsm_inited())
 		schedule_delayed_work(&loopback_work, msecs_to_jiffies(1000));
 	else
@@ -341,7 +349,7 @@ ssize_t smd_pkt_read(struct file *file,
 	}
 
 	if (smd_pkt_devp->do_reset_notification) {
-		
+		/* notify client that a reset occurred */
 		E_SMD_PKT_SSR(smd_pkt_devp);
 		return notify_reset(smd_pkt_devp);
 	}
@@ -371,9 +379,9 @@ wait_for_packet:
 
 	if (r < 0) {
 		mutex_unlock(&smd_pkt_devp->rx_lock);
-		
+		/* qualify error message */
 		if (r != -ERESTARTSYS) {
-			
+			/* we get this anytime a signal comes in */
 			pr_err("%s: wait_event_interruptible on smd_pkt_dev"
 			       " id:%d ret %i\n",
 				__func__, smd_pkt_devp->i, r);
@@ -381,7 +389,7 @@ wait_for_packet:
 		return r;
 	}
 
-	
+	/* Here we have a whole packet waiting for us */
 	pkt_size = smd_cur_packet_size(smd_pkt_devp->ch);
 
 	if (!pkt_size) {
@@ -443,7 +451,7 @@ wait_for_packet:
 	D_READ("Finished %s on smd_pkt_dev id:%d  %d bytes\n",
 		__func__, smd_pkt_devp->i, bytes_read);
 
-	
+	/* check and wakeup read threads waiting on this device */
 	check_and_wakeup_reader(smd_pkt_devp);
 
 	return bytes_read;
@@ -473,7 +481,7 @@ ssize_t smd_pkt_write(struct file *file,
 
 	if (smd_pkt_devp->do_reset_notification || smd_pkt_devp->has_reset) {
 		E_SMD_PKT_SSR(smd_pkt_devp);
-		
+		/* notify client that a reset occurred */
 		return notify_reset(smd_pkt_devp);
 	}
 	D_WRITE("Begin %s on smd_pkt_dev id:%d data_size %d\n",
@@ -598,7 +606,7 @@ static void check_and_wakeup_reader(struct smd_pkt_dev *smd_pkt_devp)
 		return;
 	}
 
-	
+	/* here we have a packet of size sz ready */
 	spin_lock_irqsave(&smd_pkt_devp->pa_spinlock, flags);
 	wake_lock(&smd_pkt_devp->pa_wake_lock);
 	smd_pkt_devp->wakelock_locked = 1;
@@ -663,7 +671,7 @@ static void ch_notify(void *priv, unsigned event)
 		D_STATUS("%s: CLOSE event in smd_pkt_dev id:%d\n",
 			  __func__, smd_pkt_devp->i);
 		smd_pkt_devp->is_open = 0;
-		
+		/* put port into reset state */
 		clean_and_signal(smd_pkt_devp);
 		if (smd_pkt_devp->i == LOOPBACK_INX)
 			schedule_delayed_work(&loopback_work,
@@ -869,10 +877,19 @@ int smd_pkt_open(struct inode *inode, struct file *file)
 				r = PTR_ERR(smd_pkt_devp->pil);
 				pr_err("%s failed on smd_pkt_dev id:%d - subsystem_get failed for %s\n",
 					__func__, smd_pkt_devp->i, peripheral);
+				/*
+				 * Sleep inorder to reduce the frequency of
+				 * retry by user-space modules and to avoid
+				 * possible watchdog bite.
+				 */
 				msleep((smd_pkt_devp->open_modem_wait * 1000));
 				goto release_pd;
 			}
 
+			/* Wait for the modem SMSM to be inited for the SMD
+			** Loopback channel to be allocated at the modem. Since
+			** the wait need to be done atmost once, using msleep
+			** doesn't degrade the performance. */
 			if (!strncmp(smd_ch_name[smd_pkt_devp->i], "LOOPBACK",
 						SMD_MAX_CH_NAME_LEN)) {
 				if (!is_modem_smsm_inited())
@@ -882,6 +899,10 @@ int smd_pkt_open(struct inode *inode, struct file *file)
 				msleep(100);
 			}
 
+			/*
+			 * Wait for a packet channel to be allocated so we know
+			 * the modem is ready enough.
+			 */
 			if (smd_pkt_devp->open_modem_wait) {
 				r = wait_for_completion_interruptible_timeout(
 					&smd_pkt_devp->ch_allocated,
@@ -915,7 +936,7 @@ int smd_pkt_open(struct inode *inode, struct file *file)
 				smd_pkt_devp->is_open, (2 * HZ));
 		if (r == 0) {
 			r = -ETIMEDOUT;
-			
+			/* close the ch to sync smd's state with smd_pkt */
 			smd_close(smd_pkt_devp->ch);
 			smd_pkt_devp->ch = NULL;
 		}

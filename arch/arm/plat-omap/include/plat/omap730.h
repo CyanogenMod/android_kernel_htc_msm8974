@@ -28,7 +28,13 @@
 #ifndef __ASM_ARCH_OMAP730_H
 #define __ASM_ARCH_OMAP730_H
 
+/*
+ * ----------------------------------------------------------------------------
+ * Base addresses
+ * ----------------------------------------------------------------------------
+ */
 
+/* Syntax: XX_BASE = Virtual base address, XX_START = Physical base address */
 
 #define OMAP730_DSP_BASE	0xE0000000
 #define OMAP730_DSP_SIZE	0x50000
@@ -38,6 +44,11 @@
 #define OMAP730_DSPREG_SIZE	SZ_128K
 #define OMAP730_DSPREG_START	0xE1000000
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP730 specific configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP730_CONFIG_BASE	0xfffe1000
 #define OMAP730_IO_CONF_0	0xfffe1070
 #define OMAP730_IO_CONF_1	0xfffe1074
@@ -57,19 +68,35 @@
 #define OMAP730_MODE_1		0xfffe1010
 #define OMAP730_MODE_2		0xfffe1014
 
+/* CSMI specials: in terms of base + offset */
 #define OMAP730_MODE2_OFFSET	0x14
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP730 traffic controller configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP730_FLASH_CFG_0	0xfffecc10
 #define OMAP730_FLASH_ACFG_0	0xfffecc50
 #define OMAP730_FLASH_CFG_1	0xfffecc14
 #define OMAP730_FLASH_ACFG_1	0xfffecc54
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP730 DSP control registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP730_ICR_BASE	0xfffbb800
 #define OMAP730_DSP_M_CTL	0xfffbb804
 #define OMAP730_DSP_MMU_BASE	0xfffed200
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP730 PCC_UPLD configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP730_PCC_UPLD_CTRL_BASE	(0xfffe0900)
 #define OMAP730_PCC_UPLD_CTRL		(OMAP730_PCC_UPLD_CTRL_BASE + 0x00)
 
-#endif 
+#endif /*  __ASM_ARCH_OMAP730_H */
 

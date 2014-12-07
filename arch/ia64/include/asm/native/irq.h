@@ -30,4 +30,4 @@
 #define IA64_NATIVE_NR_IRQS 1024
 #endif
 
-#endif 
+#endif /* _ASM_IA64_NATIVE_IRQ_H */

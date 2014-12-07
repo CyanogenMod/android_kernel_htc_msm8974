@@ -10,6 +10,7 @@
 #ifndef __ARCH_AVR32_AT32AP_PIO_H__
 #define __ARCH_AVR32_AT32AP_PIO_H__
 
+/* PIO register offsets */
 #define PIO_PER                                0x0000
 #define PIO_PDR                                0x0004
 #define PIO_PSR                                0x0008
@@ -40,31 +41,57 @@
 #define PIO_OWDR                               0x00a4
 #define PIO_OWSR                               0x00a8
 
+/* Bitfields in PER */
 
+/* Bitfields in PDR */
 
+/* Bitfields in PSR */
 
+/* Bitfields in OER */
 
+/* Bitfields in ODR */
 
+/* Bitfields in OSR */
 
+/* Bitfields in IFER */
 
+/* Bitfields in IFDR */
 
+/* Bitfields in IFSR */
 
+/* Bitfields in SODR */
 
+/* Bitfields in CODR */
 
+/* Bitfields in ODSR */
 
+/* Bitfields in PDSR */
 
+/* Bitfields in IER */
 
+/* Bitfields in IDR */
 
+/* Bitfields in IMR */
 
+/* Bitfields in ISR */
 
+/* Bitfields in MDER */
 
+/* Bitfields in MDDR */
 
+/* Bitfields in MDSR */
 
+/* Bitfields in PUDR */
 
+/* Bitfields in PUER */
 
+/* Bitfields in PUSR */
 
+/* Bitfields in ASR */
 
+/* Bitfields in BSR */
 
+/* Bitfields in ABSR */
 #define PIO_P0_OFFSET                          0
 #define PIO_P0_SIZE                            1
 #define PIO_P1_OFFSET                          1
@@ -130,14 +157,19 @@
 #define PIO_P31_OFFSET                         31
 #define PIO_P31_SIZE                           1
 
+/* Bitfields in OWER */
 
+/* Bitfields in OWDR */
 
+/* Bitfields in OWSR */
 
+/* Bit manipulation macros */
 #define PIO_BIT(name)                          (1 << PIO_##name##_OFFSET)
 #define PIO_BF(name,value)                     (((value) & ((1 << PIO_##name##_SIZE) - 1)) << PIO_##name##_OFFSET)
 #define PIO_BFEXT(name,value)                  (((value) >> PIO_##name##_OFFSET) & ((1 << PIO_##name##_SIZE) - 1))
 #define PIO_BFINS(name,value,old)              (((old) & ~(((1 << PIO_##name##_SIZE) - 1) << PIO_##name##_OFFSET)) | PIO_BF(name,value))
 
+/* Register access macros */
 #define pio_readl(port,reg)					\
 	__raw_readl((port)->regs + PIO_##reg)
 #define pio_writel(port,reg,value)				\
@@ -145,4 +177,4 @@
 
 void at32_init_pio(struct platform_device *pdev);
 
-#endif 
+#endif /* __ARCH_AVR32_AT32AP_PIO_H__ */

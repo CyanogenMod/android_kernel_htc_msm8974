@@ -30,4 +30,4 @@ static inline bool ip_set_proto_with_ports(u8 proto)
 	return false;
 }
 
-#endif 
+#endif /*_IP_SET_GETPORT_H*/

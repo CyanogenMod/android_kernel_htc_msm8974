@@ -18,6 +18,7 @@
 #ifndef __XFS_DIR2_PRIV_H__
 #define __XFS_DIR2_PRIV_H__
 
+/* xfs_dir2.c */
 extern int xfs_dir_ino_validate(struct xfs_mount *mp, xfs_ino_t ino);
 extern int xfs_dir2_isblock(struct xfs_trans *tp, struct xfs_inode *dp, int *r);
 extern int xfs_dir2_isleaf(struct xfs_trans *tp, struct xfs_inode *dp, int *r);
@@ -28,6 +29,7 @@ extern int xfs_dir2_shrink_inode(struct xfs_da_args *args, xfs_dir2_db_t db,
 extern int xfs_dir_cilookup_result(struct xfs_da_args *args,
 				const unsigned char *name, int len);
 
+/* xfs_dir2_block.c */
 extern int xfs_dir2_block_addname(struct xfs_da_args *args);
 extern int xfs_dir2_block_getdents(struct xfs_inode *dp, void *dirent,
 		xfs_off_t *offset, filldir_t filldir);
@@ -37,6 +39,7 @@ extern int xfs_dir2_block_replace(struct xfs_da_args *args);
 extern int xfs_dir2_leaf_to_block(struct xfs_da_args *args,
 		struct xfs_dabuf *lbp, struct xfs_dabuf *dbp);
 
+/* xfs_dir2_data.c */
 #ifdef DEBUG
 extern void xfs_dir2_data_check(struct xfs_inode *dp, struct xfs_dabuf *bp);
 #else
@@ -62,6 +65,7 @@ extern void xfs_dir2_data_use_free(struct xfs_trans *tp, struct xfs_dabuf *bp,
 		struct xfs_dir2_data_unused *dup, xfs_dir2_data_aoff_t offset,
 		xfs_dir2_data_aoff_t len, int *needlogp, int *needscanp);
 
+/* xfs_dir2_leaf.c */
 extern int xfs_dir2_block_to_leaf(struct xfs_da_args *args,
 		struct xfs_dabuf *dbp);
 extern int xfs_dir2_leaf_addname(struct xfs_da_args *args);
@@ -90,6 +94,7 @@ xfs_dir2_leaf_find_entry(struct xfs_dir2_leaf *leaf, int index, int compact,
 		int *lfloglow, int *lfloghigh);
 extern int xfs_dir2_node_to_leaf(struct xfs_da_state *state);
 
+/* xfs_dir2_node.c */
 extern int xfs_dir2_leaf_to_node(struct xfs_da_args *args,
 		struct xfs_dabuf *lbp);
 extern xfs_dahash_t xfs_dir2_leafn_lasthash(struct xfs_dabuf *bp, int *count);
@@ -111,6 +116,7 @@ extern int xfs_dir2_node_replace(struct xfs_da_args *args);
 extern int xfs_dir2_node_trim_free(struct xfs_da_args *args, xfs_fileoff_t fo,
 		int *rvalp);
 
+/* xfs_dir2_sf.c */
 extern xfs_ino_t xfs_dir2_sf_get_parent_ino(struct xfs_dir2_sf_hdr *sfp);
 extern xfs_ino_t xfs_dir2_sfe_get_ino(struct xfs_dir2_sf_hdr *sfp,
 		struct xfs_dir2_sf_entry *sfep);
@@ -126,4 +132,4 @@ extern int xfs_dir2_sf_lookup(struct xfs_da_args *args);
 extern int xfs_dir2_sf_removename(struct xfs_da_args *args);
 extern int xfs_dir2_sf_replace(struct xfs_da_args *args);
 
-#endif 
+#endif /* __XFS_DIR2_PRIV_H__ */

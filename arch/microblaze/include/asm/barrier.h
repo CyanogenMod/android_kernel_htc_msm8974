@@ -24,4 +24,4 @@
 #define smp_rmb()		rmb()
 #define smp_wmb()		wmb()
 
-#endif 
+#endif /* _ASM_MICROBLAZE_BARRIER_H */

@@ -18,7 +18,7 @@
 #include "ste-dma40-db5500.h"
 
 static pin_cfg_t u5500_sdi_pins[] = {
-	
+	/* SDI0 (POP eMMC) */
 	GPIO5_MC0_DAT0		| PIN_DIR_INPUT | PIN_PULL_UP,
 	GPIO6_MC0_DAT1		| PIN_DIR_INPUT | PIN_PULL_UP,
 	GPIO7_MC0_DAT2		| PIN_DIR_INPUT | PIN_PULL_UP,

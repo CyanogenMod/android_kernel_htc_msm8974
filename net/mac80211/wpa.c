@@ -48,7 +48,7 @@ ieee80211_tx_h_michael_mic_add(struct ieee80211_tx_data *tx)
 	data_len = skb->len - hdrlen;
 
 	if (unlikely(info->flags & IEEE80211_TX_INTFL_TKIP_MIC_FAILURE)) {
-		
+		/* Need to use software crypto for the test */
 		info->control.hw_key = NULL;
 	}
 
@@ -56,7 +56,7 @@ ieee80211_tx_h_michael_mic_add(struct ieee80211_tx_data *tx)
 	    (info->flags & IEEE80211_TX_CTL_DONTFRAG ||
 	     tx->local->ops->set_frag_threshold) &&
 	    !(tx->key->conf.flags & IEEE80211_KEY_FLAG_GENERATE_MMIC)) {
-		
+		/* hwaccel - with no need for SW-generated MMIC */
 		return TX_CONTINUE;
 	}
 
@@ -89,9 +89,19 @@ ieee80211_rx_h_michael_mic_verify(struct ieee80211_rx_data *rx)
 	struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 
+	/*
+	 * it makes no sense to check for MIC errors on anything other
+	 * than data frames.
+	 */
 	if (!ieee80211_is_data_present(hdr->frame_control))
 		return RX_CONTINUE;
 
+	/*
+	 * No way to verify the MIC if the hardware stripped it or
+	 * the IV with the key index. In this case we have solely rely
+	 * on the driver to set RX_FLAG_MMIC_ERROR in the event of a
+	 * MIC failure report.
+	 */
 	if (status->flag & (RX_FLAG_MMIC_STRIPPED | RX_FLAG_IV_STRIPPED)) {
 		if (status->flag & RX_FLAG_MMIC_ERROR)
 			goto mic_fail;
@@ -102,11 +112,22 @@ ieee80211_rx_h_michael_mic_verify(struct ieee80211_rx_data *rx)
 		return RX_CONTINUE;
 	}
 
+	/*
+	 * Some hardware seems to generate Michael MIC failure reports; even
+	 * though, the frame was not encrypted with TKIP and therefore has no
+	 * MIC. Ignore the flag them to avoid triggering countermeasures.
+	 */
 	if (!rx->key || rx->key->conf.cipher != WLAN_CIPHER_SUITE_TKIP ||
 	    !(status->flag & RX_FLAG_DECRYPTED))
 		return RX_CONTINUE;
 
 	if (rx->sdata->vif.type == NL80211_IFTYPE_AP && rx->key->conf.keyidx) {
+		/*
+		 * APs with pairwise keys should never receive Michael MIC
+		 * errors for non-zero keyidx because these are reserved for
+		 * group keys and only the AP is sending real multicast
+		 * frames in the BSS. (
+		 */
 		return RX_DROP_UNUSABLE;
 	}
 
@@ -128,17 +149,22 @@ ieee80211_rx_h_michael_mic_verify(struct ieee80211_rx_data *rx)
 	if (memcmp(mic, data + data_len, MICHAEL_MIC_LEN) != 0)
 		goto mic_fail;
 
-	
+	/* remove Michael MIC from payload */
 	skb_trim(skb, skb->len - MICHAEL_MIC_LEN);
 
 update_iv:
-	
+	/* update IV in key information to be able to detect replays */
 	rx->key->u.tkip.rx[rx->security_idx].iv32 = rx->tkip_iv32;
 	rx->key->u.tkip.rx[rx->security_idx].iv16 = rx->tkip_iv16;
 
 	return RX_CONTINUE;
 
 mic_fail:
+	/*
+	 * In some cases the key can be unset - e.g. a multicast packet, in
+	 * a driver that supports HW encryption. Send up the key idx only if
+	 * the key is set.
+	 */
 	mac80211_ev_michael_mic_failure(rx->sdata,
 					rx->key ? rx->key->conf.keyidx : -1,
 					(void *) skb->data, NULL, GFP_ATOMIC);
@@ -158,7 +184,7 @@ static int tkip_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 
 	if (info->control.hw_key &&
 	    !(info->control.hw_key->flags & IEEE80211_KEY_FLAG_GENERATE_IV)) {
-		
+		/* hwaccel - with no need for software-generated IV */
 		return 0;
 	}
 
@@ -178,7 +204,7 @@ static int tkip_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 	memmove(pos, pos + TKIP_IV_LEN, hdrlen);
 	pos += hdrlen;
 
-	
+	/* Increase IV for the frame */
 	spin_lock_irqsave(&key->u.tkip.txlock, flags);
 	key->u.tkip.tx.iv16++;
 	if (key->u.tkip.tx.iv16 == 0)
@@ -186,11 +212,11 @@ static int tkip_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 	pos = ieee80211_tkip_add_iv(pos, key);
 	spin_unlock_irqrestore(&key->u.tkip.txlock, flags);
 
-	
+	/* hwaccel - with software IV */
 	if (info->control.hw_key)
 		return 0;
 
-	
+	/* Add room for ICV */
 	skb_put(skb, TKIP_ICV_LEN);
 
 	return ieee80211_tkip_encrypt_data(tx->local->wep_tx_tfm,
@@ -231,11 +257,16 @@ ieee80211_crypto_tkip_decrypt(struct ieee80211_rx_data *rx)
 	if (!rx->sta || skb->len - hdrlen < 12)
 		return RX_DROP_UNUSABLE;
 
-	
+	/* it may be possible to optimize this a bit more */
 	if (skb_linearize(rx->skb))
 		return RX_DROP_UNUSABLE;
 	hdr = (void *)skb->data;
 
+	/*
+	 * Let TKIP code verify IV, but skip decryption.
+	 * In the case where hardware checks the IV as well,
+	 * we don't even get here, see ieee80211_rx_h_decrypt()
+	 */
 	if (status->flag & RX_FLAG_DECRYPTED)
 		hwaccel = 1;
 
@@ -248,10 +279,10 @@ ieee80211_crypto_tkip_decrypt(struct ieee80211_rx_data *rx)
 	if (res != TKIP_DECRYPT_OK)
 		return RX_DROP_UNUSABLE;
 
-	
+	/* Trim ICV */
 	skb_trim(skb, skb->len - TKIP_ICV_LEN);
 
-	
+	/* Remove IV */
 	memmove(skb->data + TKIP_IV_LEN, skb->data, hdrlen);
 	skb_pull(skb, TKIP_IV_LEN);
 
@@ -275,6 +306,10 @@ static void ccmp_special_blocks(struct sk_buff *skb, u8 *pn, u8 *scratch,
 	b_0 = scratch + 3 * AES_BLOCK_SIZE;
 	aad = scratch + 4 * AES_BLOCK_SIZE;
 
+	/*
+	 * Mask FC: zero subtype b4 b5 b6 (if not mgmt)
+	 * Retry, PwrMgt, MoreData; set Protected
+	 */
 	mgmt = ieee80211_is_mgmt(hdr->frame_control);
 	mask_fc = hdr->frame_control;
 	mask_fc &= ~cpu_to_le16(IEEE80211_FCTL_RETRY |
@@ -296,19 +331,24 @@ static void ccmp_special_blocks(struct sk_buff *skb, u8 *pn, u8 *scratch,
 	if (encrypted)
 		data_len -= CCMP_MIC_LEN;
 
-	
-	b_0[0] = 0x59; 
+	/* First block, b_0 */
+	b_0[0] = 0x59; /* flags: Adata: 1, M: 011, L: 001 */
+	/* Nonce: Nonce Flags | A2 | PN
+	 * Nonce Flags: Priority (b0..b3) | Management (b4) | Reserved (b5..b7)
+	 */
 	b_0[1] = qos_tid | (mgmt << 4);
 	memcpy(&b_0[2], hdr->addr2, ETH_ALEN);
 	memcpy(&b_0[8], pn, CCMP_PN_LEN);
-	
+	/* l(m) */
 	put_unaligned_be16(data_len, &b_0[14]);
 
+	/* AAD (extra authenticate-only data) / masked 802.11 header
+	 * FC | A1 | A2 | A3 | SC | [A4] | [QC] */
 	put_unaligned_be16(len_a, &aad[0]);
 	put_unaligned(mask_fc, (__le16 *)&aad[2]);
 	memcpy(&aad[4], &hdr->addr1, 3 * ETH_ALEN);
 
-	
+	/* Mask Seq#, leave Frag# */
 	aad[22] = *((u8 *) &hdr->seq_ctrl) & 0x0f;
 	aad[23] = 0;
 
@@ -361,6 +401,10 @@ static int ccmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 	if (info->control.hw_key &&
 	    !(info->control.hw_key->flags & IEEE80211_KEY_FLAG_GENERATE_IV) &&
 	    !(info->control.hw_key->flags & IEEE80211_KEY_FLAG_PUT_IV_SPACE)) {
+		/*
+		 * hwaccel has no need for preallocated room for CCMP
+		 * header or MIC fields
+		 */
 		return 0;
 	}
 
@@ -379,7 +423,7 @@ static int ccmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 	pos = skb_push(skb, CCMP_HDR_LEN);
 	memmove(pos, pos + CCMP_HDR_LEN, hdrlen);
 
-	
+	/* the HW only needs room for the IV, but not the actual IV */
 	if (info->control.hw_key &&
 	    (info->control.hw_key->flags & IEEE80211_KEY_FLAG_PUT_IV_SPACE))
 		return 0;
@@ -398,7 +442,7 @@ static int ccmp_encrypt_skb(struct ieee80211_tx_data *tx, struct sk_buff *skb)
 
 	ccmp_pn2hdr(pos, pn, key->conf.keyidx);
 
-	
+	/* hwaccel - with software CCMP header */
 	if (info->control.hw_key)
 		return 0;
 
@@ -468,7 +512,7 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 
 	if (!(status->flag & RX_FLAG_DECRYPTED)) {
 		u8 scratch[6 * AES_BLOCK_SIZE];
-		
+		/* hardware didn't decrypt/verify MIC */
 		ccmp_special_blocks(skb, pn, scratch, 1);
 
 		if (ieee80211_aes_ccm_decrypt(
@@ -481,7 +525,7 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 
 	memcpy(key->u.ccmp.rx_pn[queue], pn, CCMP_PN_LEN);
 
-	
+	/* Remove CCMP header and MIC */
 	if (pskb_trim(skb, skb->len - CCMP_MIC_LEN))
 		return RX_DROP_UNUSABLE;
 	memmove(skb->data + CCMP_HDR_LEN, skb->data, hdrlen);
@@ -493,13 +537,13 @@ ieee80211_crypto_ccmp_decrypt(struct ieee80211_rx_data *rx)
 
 static void bip_aad(struct sk_buff *skb, u8 *aad)
 {
-	
+	/* BIP AAD: FC(masked) || A1 || A2 || A3 */
 
-	
+	/* FC type/subtype */
 	aad[0] = skb->data[0];
-	
+	/* Mask FC Retry, PwrMgt, MoreData flags to zero */
 	aad[1] = skb->data[1] & ~(BIT(4) | BIT(5) | BIT(6));
-	
+	/* A1 || A2 || A3 */
 	memcpy(aad + 2, skb->data + 4, 3 * ETH_ALEN);
 }
 
@@ -553,13 +597,16 @@ ieee80211_crypto_aes_cmac_encrypt(struct ieee80211_tx_data *tx)
 	mmie->length = sizeof(*mmie) - 2;
 	mmie->key_id = cpu_to_le16(key->conf.keyidx);
 
-	
+	/* PN = PN + 1 */
 	pn64 = atomic64_inc_return(&key->u.aes_cmac.tx_pn);
 
 	bip_ipn_set64(mmie->sequence_number, pn64);
 
 	bip_aad(skb, aad);
 
+	/*
+	 * MIC = AES-128-CMAC(IGTK, AAD || Management Frame Body || MMIE, 64)
+	 */
 	ieee80211_aes_cmac(key->u.aes_cmac.tfm, aad,
 			   skb->data + 24, skb->len - 24, mmie->mic);
 
@@ -580,7 +627,7 @@ ieee80211_crypto_aes_cmac_decrypt(struct ieee80211_rx_data *rx)
 	if (!ieee80211_is_mgmt(hdr->frame_control))
 		return RX_CONTINUE;
 
-	
+	/* management frames are already linear */
 
 	if (skb->len < 24 + sizeof(*mmie))
 		return RX_DROP_UNUSABLE;
@@ -589,7 +636,7 @@ ieee80211_crypto_aes_cmac_decrypt(struct ieee80211_rx_data *rx)
 		(skb->data + skb->len - sizeof(*mmie));
 	if (mmie->element_id != WLAN_EID_MMIE ||
 	    mmie->length != sizeof(*mmie) - 2)
-		return RX_DROP_UNUSABLE; 
+		return RX_DROP_UNUSABLE; /* Invalid MMIE */
 
 	bip_ipn_swap(ipn, mmie->sequence_number);
 
@@ -599,7 +646,7 @@ ieee80211_crypto_aes_cmac_decrypt(struct ieee80211_rx_data *rx)
 	}
 
 	if (!(status->flag & RX_FLAG_DECRYPTED)) {
-		
+		/* hardware didn't decrypt/verify MIC */
 		bip_aad(skb, aad);
 		ieee80211_aes_cmac(key->u.aes_cmac.tfm, aad,
 				   skb->data + 24, skb->len - 24, mic);
@@ -611,7 +658,7 @@ ieee80211_crypto_aes_cmac_decrypt(struct ieee80211_rx_data *rx)
 
 	memcpy(key->u.aes_cmac.rx_pn, ipn, 6);
 
-	
+	/* Remove MMIE */
 	skb_trim(skb, skb->len - sizeof(*mmie));
 
 	return RX_CONTINUE;
@@ -626,7 +673,7 @@ ieee80211_crypto_hw_encrypt(struct ieee80211_tx_data *tx)
 	skb_queue_walk(&tx->skbs, skb) {
 		info  = IEEE80211_SKB_CB(skb);
 
-		
+		/* handle hw-only algorithm */
 		if (!info->control.hw_key)
 			return TX_DROP;
 	}

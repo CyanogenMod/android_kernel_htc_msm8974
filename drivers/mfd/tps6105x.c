@@ -58,6 +58,10 @@ int tps6105x_get(struct tps6105x *tps6105x, u8 reg, u8 *buf)
 }
 EXPORT_SYMBOL(tps6105x_get);
 
+/*
+ * Masks off the bits in the mask and sets the bits in the bitvalues
+ * parameter in one atomic operation
+ */
 int tps6105x_mask_and_set(struct tps6105x *tps6105x, u8 reg,
 			  u8 bitmask, u8 bitvalues)
 {
@@ -114,9 +118,13 @@ static int __devinit tps6105x_startup(struct tps6105x *tps6105x)
 	return ret;
 }
 
+/*
+ * MFD cells - we have one cell which is selected operation
+ * mode, and we always have a GPIO cell.
+ */
 static struct mfd_cell tps6105x_cells[] = {
 	{
-		
+		/* name will be runtime assigned */
 		.id = -1,
 	},
 	{
@@ -149,7 +157,7 @@ static int __devinit tps6105x_probe(struct i2c_client *client,
 		goto fail;
 	}
 
-	
+	/* Remove warning texts when you implement new cell drivers */
 	switch (pdata->mode) {
 	case TPS6105X_MODE_SHUTDOWN:
 		dev_info(&client->dev,
@@ -172,9 +180,9 @@ static int __devinit tps6105x_probe(struct i2c_client *client,
 		break;
 	}
 
-	
+	/* Set up and register the platform devices. */
 	for (i = 0; i < ARRAY_SIZE(tps6105x_cells); i++) {
-		
+		/* One state holder for all drivers, this is simple */
 		tps6105x_cells[i].platform_data = tps6105x;
 		tps6105x_cells[i].pdata_size = sizeof(*tps6105x);
 	}
@@ -197,7 +205,7 @@ static int __devexit tps6105x_remove(struct i2c_client *client)
 
 	mfd_remove_devices(&client->dev);
 
-	
+	/* Put chip in shutdown mode */
 	tps6105x_mask_and_set(tps6105x, TPS6105X_REG_0,
 		TPS6105X_REG0_MODE_MASK,
 		TPS6105X_MODE_SHUTDOWN << TPS6105X_REG0_MODE_SHIFT);

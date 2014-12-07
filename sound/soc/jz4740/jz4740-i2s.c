@@ -344,7 +344,7 @@ static void jz4740_i2c_init_pcm_config(struct jz4740_i2s *i2s)
 {
 	struct jz4740_dma_config *dma_config;
 
-	
+	/* Playback */
 	dma_config = &i2s->pcm_config_playback.dma_config;
 	dma_config->src_width = JZ4740_DMA_WIDTH_32BIT,
 	dma_config->transfer_size = JZ4740_DMA_TRANSFER_SIZE_16BYTE;
@@ -353,7 +353,7 @@ static void jz4740_i2c_init_pcm_config(struct jz4740_i2s *i2s)
 	dma_config->mode = JZ4740_DMA_MODE_SINGLE;
 	i2s->pcm_config_playback.fifo_addr = i2s->phys_base + JZ_REG_AIC_FIFO;
 
-	
+	/* Capture */
 	dma_config = &i2s->pcm_config_capture.dma_config;
 	dma_config->dst_width = JZ4740_DMA_WIDTH_32BIT,
 	dma_config->transfer_size = JZ4740_DMA_TRANSFER_SIZE_16BYTE;

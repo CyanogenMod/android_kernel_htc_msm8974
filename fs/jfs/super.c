@@ -88,7 +88,7 @@ static void jfs_handle_error(struct super_block *sb)
 		sb->s_flags |= MS_RDONLY;
 	}
 
-	
+	/* nothing is done for continue beyond marking the superblock dirty */
 }
 
 void jfs_error(struct super_block *sb, const char * function, ...)
@@ -150,6 +150,15 @@ static int jfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_blocks = sbi->bmap->db_mapsize;
 	buf->f_bfree = sbi->bmap->db_nfree;
 	buf->f_bavail = sbi->bmap->db_nfree;
+	/*
+	 * If we really return the number of allocated & free inodes, some
+	 * applications will fail because they won't see enough free inodes.
+	 * We'll try to calculate some guess as to how may inodes we can
+	 * really allocate
+	 *
+	 * buf->f_files = atomic_read(&imap->im_numinos);
+	 * buf->f_ffree = atomic_read(&imap->im_numfree);
+	 */
 	maxinodes = min((s64) atomic_read(&imap->im_numinos) +
 			((sbi->bmap->db_nfree >> imap->im_l2nbperiext)
 			 << L2INOSPEREXT), (s64) 0xffffffffLL);
@@ -211,7 +220,7 @@ static const match_table_t tokens = {
 static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 			 int *flag)
 {
-	void *nls_map = (void *)-1;	
+	void *nls_map = (void *)-1;	/* -1: no change;  NULL: none */
 	char *p;
 	struct jfs_sb_info *sbi = JFS_SBI(sb);
 
@@ -235,8 +244,8 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 			*flag |= JFS_NOINTEGRITY;
 			break;
 		case Opt_ignore:
-			
-			
+			/* Silently ignore the quota options */
+			/* Don't do anything ;-) */
 			break;
 		case Opt_iocharset:
 			if (nls_map && nls_map != (void *) -1)
@@ -340,7 +349,7 @@ static int parse_options(char *options, struct super_block *sb, s64 *newLVSize,
 	}
 
 	if (nls_map != (void *) -1) {
-		
+		/* Discard old (if remount) */
 		unload_nls(sbi->nls_tab);
 		sbi->nls_tab = nls_map;
 	}
@@ -375,12 +384,16 @@ static int jfs_remount(struct super_block *sb, int *flags, char *data)
 	}
 
 	if ((sb->s_flags & MS_RDONLY) && !(*flags & MS_RDONLY)) {
+		/*
+		 * Invalidate any previously read metadata.  fsck may have
+		 * changed the on-disk data since we mounted r/o
+		 */
 		truncate_inode_pages(JFS_SBI(sb)->direct_inode->i_mapping, 0);
 
 		JFS_SBI(sb)->flag = flag;
 		ret = jfs_mount_rw(sb, 1);
 
-		
+		/* mark the fs r/w for quota activity */
 		sb->s_flags &= ~MS_RDONLY;
 
 		dquot_resume(sb, -1);
@@ -432,7 +445,7 @@ static int jfs_fill_super(struct super_block *sb, void *data, int silent)
 	sbi->sb = sb;
 	sbi->uid = sbi->gid = sbi->umask = -1;
 
-	
+	/* initialize the mount flag and determine the default error handler */
 	flag = JFS_ERR_REMOUNT_RO;
 
 	if (!parse_options((char *) data, sb, &newLVSize, &flag))
@@ -448,8 +461,14 @@ static int jfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto out_kfree;
 	}
 
+	/*
+	 * Initialize blocksize to 4K.
+	 */
 	sb_set_blocksize(sb, PSIZE);
 
+	/*
+	 * Set method vectors.
+	 */
 	sb->s_op = &jfs_super_operations;
 	sb->s_export_op = &jfs_export_operations;
 #ifdef CONFIG_QUOTA
@@ -457,6 +476,9 @@ static int jfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_qcop = &dquot_quotactl_ops;
 #endif
 
+	/*
+	 * Initialize direct-mapping inode/address-space
+	 */
 	inode = new_inode(sb);
 	if (inode == NULL) {
 		ret = -ENOMEM;
@@ -504,9 +526,13 @@ static int jfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (!sb->s_root)
 		goto out_no_root;
 
-	
+	/* logical blocks are represented by 40 bits in pxd_t, etc. */
 	sb->s_maxbytes = ((u64) sb->s_blocksize) << 40;
 #if BITS_PER_LONG == 32
+	/*
+	 * Page cache is indexed by long.
+	 * I would use MAX_LFS_FILESIZE, but it's only half as big
+	 */
 	sb->s_maxbytes = min(((u64) PAGE_CACHE_SIZE << 32) - 1, (u64)sb->s_maxbytes);
 #endif
 	sb->s_time_gran = 1;
@@ -573,7 +599,7 @@ static int jfs_sync_fs(struct super_block *sb, int wait)
 {
 	struct jfs_log *log = JFS_SBI(sb)->log;
 
-	
+	/* log == NULL indicates read-only mount */
 	if (log) {
 		jfs_flush_journal(log, wait);
 		jfs_syncpt(log, 0);
@@ -614,6 +640,10 @@ static int jfs_show_options(struct seq_file *seq, struct dentry *root)
 
 #ifdef CONFIG_QUOTA
 
+/* Read data from quotafile - avoid pagecache and such because we cannot afford
+ * acquiring the locks... As quota files are never truncated and quota code
+ * itself serializes the operations (and no one else should touch the files)
+ * we don't have to be afraid of races */
 static ssize_t jfs_quota_read(struct super_block *sb, int type, char *data,
 			      size_t len, loff_t off)
 {
@@ -641,7 +671,7 @@ static ssize_t jfs_quota_read(struct super_block *sb, int type, char *data,
 		err = jfs_get_block(inode, blk, &tmp_bh, 0);
 		if (err)
 			return err;
-		if (!buffer_mapped(&tmp_bh))	
+		if (!buffer_mapped(&tmp_bh))	/* A hole? */
 			memset(data, 0, tocopy);
 		else {
 			bh = sb_bread(sb, tmp_bh.b_blocknr);
@@ -658,6 +688,7 @@ static ssize_t jfs_quota_read(struct super_block *sb, int type, char *data,
 	return len;
 }
 
+/* Write to quotafile */
 static ssize_t jfs_quota_write(struct super_block *sb, int type,
 			       const char *data, size_t len, loff_t off)
 {
@@ -775,18 +806,27 @@ static int __init init_jfs_fs(void)
 	if (jfs_inode_cachep == NULL)
 		return -ENOMEM;
 
+	/*
+	 * Metapage initialization
+	 */
 	rc = metapage_init();
 	if (rc) {
 		jfs_err("metapage_init failed w/rc = %d", rc);
 		goto free_slab;
 	}
 
+	/*
+	 * Transaction Manager initialization
+	 */
 	rc = txInit();
 	if (rc) {
 		jfs_err("txInit failed w/rc = %d", rc);
 		goto free_metapage;
 	}
 
+	/*
+	 * I/O completion thread (endio)
+	 */
 	jfsIOthread = kthread_run(jfsIOWait, NULL, "jfsIO");
 	if (IS_ERR(jfsIOthread)) {
 		rc = PTR_ERR(jfsIOthread);

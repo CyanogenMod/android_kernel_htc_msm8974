@@ -60,6 +60,7 @@
 #define HFCD_DATA	1
 #define HFCD_DATA_NODEB	2
 
+/* Status (READ) */
 #define HFCD_BUSY	0x01
 #define HFCD_BUSY_NBUSY	0x04
 #define HFCD_TIMER_ELAP	0x10
@@ -67,6 +68,7 @@
 #define HFCD_FRAMEINT	0x40
 #define HFCD_ANYINT	0x80
 
+/* CTMT (Write) */
 #define HFCD_CLTIMER 0x80
 #define HFCD_TIM25  0x00
 #define HFCD_TIM50  0x08
@@ -76,6 +78,7 @@
 #define HFCD_TRANSB2 0x02
 #define HFCD_TRANSB1 0x01
 
+/* CIRM (Write) */
 #define HFCD_RESET	0x08
 #define HFCD_MEM8K	0x10
 #define HFCD_INTA	0x01
@@ -85,6 +88,7 @@
 #define HFCD_INTE	0x05
 #define HFCD_INTF	0x06
 
+/* INT_M1;INT_S1 */
 #define HFCD_INTS_B1TRANS	0x01
 #define HFCD_INTS_B2TRANS	0x02
 #define HFCD_INTS_DTRANS	0x04
@@ -94,14 +98,18 @@
 #define HFCD_INTS_L1STATE	0x40
 #define HFCD_INTS_TIMER		0x80
 
+/* INT_M2 */
 #define HFCD_IRQ_ENABLE		0x08
 
+/* STATES */
 #define HFCD_LOAD_STATE		0x10
 #define HFCD_ACTIVATE		0x20
 #define HFCD_DO_ACTION		0x40
 
+/* HFCD_MST_MODE */
 #define HFCD_MASTER		0x01
 
+/* HFCD_SCTRL */
 #define SCTRL_B1_ENA		0x01
 #define SCTRL_B2_ENA		0x02
 #define SCTRL_LOW_PRIO		0x08
@@ -110,6 +118,7 @@
 #define SCTRL_NONE_CAP		0x40
 #define SCTRL_PWR_DOWN		0x80
 
+/* HFCD_TEST */
 #define HFCD_AUTO_AWAKE		0x01
 
 extern void main_irq_2bds0(struct BCState *bcs);

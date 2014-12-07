@@ -444,6 +444,15 @@ void ib_sa_unregister_client(struct ib_sa_client *client)
 }
 EXPORT_SYMBOL(ib_sa_unregister_client);
 
+/**
+ * ib_sa_cancel_query - try to cancel an SA query
+ * @id:ID of query to cancel
+ * @query:query pointer to cancel
+ *
+ * Try to cancel an SA query.  If the id and query don't match up or
+ * the query has already completed, nothing is done.  Otherwise the
+ * query is canceled and will complete with a status of -EINTR.
+ */
 void ib_sa_cancel_query(int id, struct ib_sa_query *query)
 {
 	unsigned long flags;
@@ -593,6 +602,11 @@ retry:
 		spin_unlock_irqrestore(&idr_lock, flags);
 	}
 
+	/*
+	 * It's not safe to dereference query any more, because the
+	 * send may already have completed and freed the query in
+	 * another context.
+	 */
 	return ret ? ret : id;
 }
 
@@ -624,6 +638,31 @@ static void ib_sa_path_rec_release(struct ib_sa_query *sa_query)
 	kfree(container_of(sa_query, struct ib_sa_path_query, sa_query));
 }
 
+/**
+ * ib_sa_path_rec_get - Start a Path get query
+ * @client:SA client
+ * @device:device to send query on
+ * @port_num: port number to send query on
+ * @rec:Path Record to send in query
+ * @comp_mask:component mask to send in query
+ * @timeout_ms:time to wait for response
+ * @gfp_mask:GFP mask to use for internal allocations
+ * @callback:function called when query completes, times out or is
+ * canceled
+ * @context:opaque user context passed to callback
+ * @sa_query:query context, used to cancel query
+ *
+ * Send a Path Record Get query to the SA to look up a path.  The
+ * callback function will be called when the query completes (or
+ * fails); status is 0 for a successful response, -EINTR if the query
+ * is canceled, -ETIMEDOUT is the query timed out, or -EIO if an error
+ * occurred sending the query.  The resp parameter of the callback is
+ * only valid if status is 0.
+ *
+ * If the return value of ib_sa_path_rec_get() is negative, it is an
+ * error code.  Otherwise it is a query ID that can be used to cancel
+ * the query.
+ */
 int ib_sa_path_rec_get(struct ib_sa_client *client,
 		       struct ib_device *device, u8 port_num,
 		       struct ib_sa_path_rec *rec,
@@ -714,6 +753,33 @@ static void ib_sa_service_rec_release(struct ib_sa_query *sa_query)
 	kfree(container_of(sa_query, struct ib_sa_service_query, sa_query));
 }
 
+/**
+ * ib_sa_service_rec_query - Start Service Record operation
+ * @client:SA client
+ * @device:device to send request on
+ * @port_num: port number to send request on
+ * @method:SA method - should be get, set, or delete
+ * @rec:Service Record to send in request
+ * @comp_mask:component mask to send in request
+ * @timeout_ms:time to wait for response
+ * @gfp_mask:GFP mask to use for internal allocations
+ * @callback:function called when request completes, times out or is
+ * canceled
+ * @context:opaque user context passed to callback
+ * @sa_query:request context, used to cancel request
+ *
+ * Send a Service Record set/get/delete to the SA to register,
+ * unregister or query a service record.
+ * The callback function will be called when the request completes (or
+ * fails); status is 0 for a successful response, -EINTR if the query
+ * is canceled, -ETIMEDOUT is the query timed out, or -EIO if an error
+ * occurred sending the query.  The resp parameter of the callback is
+ * only valid if status is 0.
+ *
+ * If the return value of ib_sa_service_rec_query() is negative, it is an
+ * error code.  Otherwise it is a request ID that can be used to cancel
+ * the query.
+ */
 int ib_sa_service_rec_query(struct ib_sa_client *client,
 			    struct ib_device *device, u8 port_num, u8 method,
 			    struct ib_sa_service_rec *rec,
@@ -888,7 +954,7 @@ static void send_handler(struct ib_mad_agent *agent,
 	if (query->callback)
 		switch (mad_send_wc->status) {
 		case IB_WC_SUCCESS:
-			
+			/* No callback -- already got recv */
 			break;
 		case IB_WC_RESP_TIMEOUT_ERR:
 			query->callback(query, -ETIMEDOUT, NULL);
@@ -976,6 +1042,12 @@ static void ib_sa_add_one(struct ib_device *device)
 
 	ib_set_client_data(device, &sa_client, sa_dev);
 
+	/*
+	 * We register our event handler after everything is set up,
+	 * and then update our cached info after the event handler is
+	 * registered to avoid any problems if a port changes state
+	 * during our initialization.
+	 */
 
 	INIT_IB_EVENT_HANDLER(&sa_dev->event_handler, device, ib_sa_event);
 	if (ib_register_event_handler(&sa_dev->event_handler))

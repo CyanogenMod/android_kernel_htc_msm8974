@@ -18,6 +18,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 
+/* Serialize access to ssc_list and user count */
 static DEFINE_SPINLOCK(user_lock);
 static LIST_HEAD(ssc_list);
 
@@ -102,7 +103,7 @@ static int __init ssc_probe(struct platform_device *pdev)
 		goto out_clk;
 	}
 
-	
+	/* disable all interrupts */
 	clk_enable(ssc->clk);
 	ssc_writel(ssc->regs, IDR, ~0UL);
 	ssc_readl(ssc->regs, SR);

@@ -21,12 +21,14 @@ unsigned long w100fb_gpio_read(int port);
 void w100fb_gpio_write(int port, unsigned long value);
 unsigned long w100fb_get_hsynclen(struct device *dev);
 
+/* LCD Specific Routines and Config */
 struct w100_tg_info {
 	void (*change)(struct w100fb_par*);
 	void (*suspend)(struct w100fb_par*);
 	void (*resume)(struct w100fb_par*);
 };
 
+/* General Platform Specific w100 Register Values */
 struct w100_gen_regs {
 	unsigned long lcd_format;
 	unsigned long lcdd_cntl1;
@@ -45,6 +47,7 @@ struct w100_gpio_regs {
 	unsigned long gpio_oe2;
 };
 
+/* Optional External Memory Configuration */
 struct w100_mem_info {
 	unsigned long ext_cntl;
 	unsigned long sdram_mode_reg;
@@ -63,6 +66,7 @@ struct w100_bm_mem_info {
 	unsigned long config;
 };
 
+/* LCD Mode definition */
 struct w100_mode {
 	unsigned int xres;
 	unsigned int yres;
@@ -89,39 +93,46 @@ struct w100_mode {
 };
 
 struct w100_pll_info {
-	uint16_t freq;  
-	uint8_t M;      
-	uint8_t N_int;  
-	uint8_t N_fac;  
+	uint16_t freq;  /* desired Fout for PLL (Mhz) */
+	uint8_t M;      /* input divider */
+	uint8_t N_int;  /* VCO multiplier */
+	uint8_t N_fac;  /* VCO multiplier fractional part */
 	uint8_t tfgoal;
 	uint8_t lock_time;
 };
 
+/* Initial Video mode orientation flags */
 #define INIT_MODE_ROTATED  0x1
 #define INIT_MODE_FLIPPED  0x2
 
+/*
+ * This structure describes the machine which we are running on.
+ * It is set by machine specific code and used in the probe routine
+ * of drivers/video/w100fb.c
+ */
 struct w100fb_mach_info {
-	
+	/* General Platform Specific Registers */
 	struct w100_gen_regs *regs;
-	
+	/* Table of modes the LCD is capable of */
 	struct w100_mode *modelist;
 	unsigned int num_modes;
-	
+	/* Hooks for any platform specific tg/lcd code (optional) */
 	struct w100_tg_info *tg;
-	
+	/* External memory definition (if present) */
 	struct w100_mem_info *mem;
-	
+	/* Additional External memory definition (if present) */
 	struct w100_bm_mem_info *bm_mem;
-	
+	/* GPIO definitions (optional) */
 	struct w100_gpio_regs *gpio;
-	
+	/* Initial Mode flags */
 	unsigned int init_mode;
-	
+	/* Xtal Frequency */
 	unsigned int xtal_freq;
-	
+	/* Enable Xtal input doubler (1 == enable) */
 	unsigned int xtal_dbl;
 };
 
+/* General frame buffer data structure */
 struct w100fb_par {
 	unsigned int chip_id;
 	unsigned int xres;

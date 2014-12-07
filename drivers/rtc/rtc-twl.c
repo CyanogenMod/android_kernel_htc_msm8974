@@ -31,6 +31,9 @@
 #include <linux/i2c/twl.h>
 
 
+/*
+ * RTC block register offsets (use TWL_MODULE_RTC)
+ */
 enum {
 	REG_SECONDS_REG = 0,
 	REG_MINUTES_REG,
@@ -101,6 +104,7 @@ static const u8 twl6030_rtc_reg_map[] = {
 	[REG_RTC_COMP_MSB_REG] = 0x14,
 };
 
+/* RTC_CTRL_REG bitfields */
 #define BIT_RTC_CTRL_REG_STOP_RTC_M              0x01
 #define BIT_RTC_CTRL_REG_ROUND_30S_M             0x02
 #define BIT_RTC_CTRL_REG_AUTO_COMP_M             0x04
@@ -110,6 +114,7 @@ static const u8 twl6030_rtc_reg_map[] = {
 #define BIT_RTC_CTRL_REG_GET_TIME_M              0x40
 #define BIT_RTC_CTRL_REG_RTC_V_OPT               0x80
 
+/* RTC_STATUS_REG bitfields */
 #define BIT_RTC_STATUS_REG_RUN_M                 0x02
 #define BIT_RTC_STATUS_REG_1S_EVENT_M            0x04
 #define BIT_RTC_STATUS_REG_1M_EVENT_M            0x08
@@ -118,15 +123,21 @@ static const u8 twl6030_rtc_reg_map[] = {
 #define BIT_RTC_STATUS_REG_ALARM_M               0x40
 #define BIT_RTC_STATUS_REG_POWER_UP_M            0x80
 
+/* RTC_INTERRUPTS_REG bitfields */
 #define BIT_RTC_INTERRUPTS_REG_EVERY_M           0x03
 #define BIT_RTC_INTERRUPTS_REG_IT_TIMER_M        0x04
 #define BIT_RTC_INTERRUPTS_REG_IT_ALARM_M        0x08
 
 
+/* REG_SECONDS_REG through REG_YEARS_REG is how many registers? */
 #define ALL_TIME_REGS		6
 
+/*----------------------------------------------------------------------*/
 static u8  *rtc_reg_map;
 
+/*
+ * Supports 1 byte read from TWL RTC register.
+ */
 static int twl_rtc_read_u8(u8 *data, u8 reg)
 {
 	int ret;
@@ -138,6 +149,9 @@ static int twl_rtc_read_u8(u8 *data, u8 reg)
 	return ret;
 }
 
+/*
+ * Supports 1 byte write to TWL RTC registers.
+ */
 static int twl_rtc_write_u8(u8 data, u8 reg)
 {
 	int ret;
@@ -149,14 +163,21 @@ static int twl_rtc_write_u8(u8 data, u8 reg)
 	return ret;
 }
 
+/*
+ * Cache the value for timer/alarm interrupts register; this is
+ * only changed by callers holding rtc ops lock (or resume).
+ */
 static unsigned char rtc_irq_bits;
 
+/*
+ * Enable 1/second update and/or alarm interrupts.
+ */
 static int set_rtc_irq_bit(unsigned char bit)
 {
 	unsigned char val;
 	int ret;
 
-	
+	/* if the bit is set, return from here */
 	if (rtc_irq_bits & bit)
 		return 0;
 
@@ -169,12 +190,15 @@ static int set_rtc_irq_bit(unsigned char bit)
 	return ret;
 }
 
+/*
+ * Disable update and/or alarm interrupts.
+ */
 static int mask_rtc_irq_bit(unsigned char bit)
 {
 	unsigned char val;
 	int ret;
 
-	
+	/* if the bit is clear, return from here */
 	if (!(rtc_irq_bits & bit))
 		return 0;
 
@@ -198,6 +222,15 @@ static int twl_rtc_alarm_irq_enable(struct device *dev, unsigned enabled)
 	return ret;
 }
 
+/*
+ * Gets current TWL RTC time and date parameters.
+ *
+ * The RTC's time/alarm representation is not what gmtime(3) requires
+ * Linux to use:
+ *
+ *  - Months are 1..12 vs Linux 0-11
+ *  - Years are 0..99 vs Linux 1900..N (we assume 21st century)
+ */
 static int twl_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
 	unsigned char rtc_data[ALL_TIME_REGS + 1];
@@ -210,7 +243,7 @@ static int twl_rtc_read_time(struct device *dev, struct rtc_time *tm)
 		dev_err(dev, "%s: reading CTRL_REG, error %d\n", __func__, ret);
 		return ret;
 	}
-	
+	/* for twl6030/32 make sure BIT_RTC_CTRL_REG_GET_TIME_M is clear */
 	if (twl_class_is_6030()) {
 		if (save_control & BIT_RTC_CTRL_REG_GET_TIME_M) {
 			save_control &= ~BIT_RTC_CTRL_REG_GET_TIME_M;
@@ -223,10 +256,10 @@ static int twl_rtc_read_time(struct device *dev, struct rtc_time *tm)
 		}
 	}
 
-	
+	/* Copy RTC counting registers to static registers or latches */
 	rtc_control = save_control | BIT_RTC_CTRL_REG_GET_TIME_M;
 
-	
+	/* for twl6030/32 enable read access to static shadowed registers */
 	if (twl_class_is_6030())
 		rtc_control |= BIT_RTC_CTRL_REG_RTC_V_OPT;
 
@@ -244,7 +277,7 @@ static int twl_rtc_read_time(struct device *dev, struct rtc_time *tm)
 		return ret;
 	}
 
-	
+	/* for twl6030 restore original state of rtc control register */
 	if (twl_class_is_6030()) {
 		ret = twl_rtc_write_u8(save_control, REG_RTC_CTRL_REG);
 		if (ret < 0) {
@@ -277,7 +310,7 @@ static int twl_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	rtc_data[5] = bin2bcd(tm->tm_mon + 1);
 	rtc_data[6] = bin2bcd(tm->tm_year - 100);
 
-	
+	/* Stop RTC while updating the TC registers */
 	ret = twl_rtc_read_u8(&save_control, REG_RTC_CTRL_REG);
 	if (ret < 0)
 		goto out;
@@ -287,7 +320,7 @@ static int twl_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	if (ret < 0)
 		goto out;
 
-	
+	/* update all the time registers in one shot */
 	ret = twl_i2c_write(TWL_MODULE_RTC, rtc_data,
 		(rtc_reg_map[REG_SECONDS_REG]), ALL_TIME_REGS);
 	if (ret < 0) {
@@ -295,7 +328,7 @@ static int twl_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		goto out;
 	}
 
-	
+	/* Start back RTC */
 	save_control |= BIT_RTC_CTRL_REG_STOP_RTC_M;
 	ret = twl_rtc_write_u8(save_control, REG_RTC_CTRL_REG);
 
@@ -303,6 +336,9 @@ out:
 	return ret;
 }
 
+/*
+ * Gets current TWL RTC alarm time.
+ */
 static int twl_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 {
 	unsigned char rtc_data[ALL_TIME_REGS + 1];
@@ -315,7 +351,7 @@ static int twl_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 		return ret;
 	}
 
-	
+	/* some of these fields may be wildcard/"match all" */
 	alm->time.tm_sec = bcd2bin(rtc_data[0]);
 	alm->time.tm_min = bcd2bin(rtc_data[1]);
 	alm->time.tm_hour = bcd2bin(rtc_data[2]);
@@ -323,7 +359,7 @@ static int twl_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	alm->time.tm_mon = bcd2bin(rtc_data[4]) - 1;
 	alm->time.tm_year = bcd2bin(rtc_data[5]) + 100;
 
-	
+	/* report cached alarm enable state */
 	if (rtc_irq_bits & BIT_RTC_INTERRUPTS_REG_IT_ALARM_M)
 		alm->enabled = 1;
 
@@ -346,7 +382,7 @@ static int twl_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	alarm_data[5] = bin2bcd(alm->time.tm_mon + 1);
 	alarm_data[6] = bin2bcd(alm->time.tm_year - 100);
 
-	
+	/* update all the alarm registers in one shot */
 	ret = twl_i2c_write(TWL_MODULE_RTC, alarm_data,
 		(rtc_reg_map[REG_ALARM_SECONDS_REG]), ALL_TIME_REGS);
 	if (ret) {
@@ -370,6 +406,12 @@ static irqreturn_t twl_rtc_interrupt(int irq, void *rtc)
 	res = twl_rtc_read_u8(&rd_reg, REG_RTC_STATUS_REG);
 	if (res)
 		goto out;
+	/*
+	 * Figure out source of interrupt: ALARM or TIMER in RTC_STATUS_REG.
+	 * only one (ALARM or RTC) interrupt source may be enabled
+	 * at time, we also could check our results
+	 * by reading RTS_INTERRUPTS_REGISTER[IT_TIMER,IT_ALARM]
+	 */
 	if (rd_reg & BIT_RTC_STATUS_REG_ALARM_M)
 		events = RTC_IRQF | RTC_AF;
 	else
@@ -381,13 +423,24 @@ static irqreturn_t twl_rtc_interrupt(int irq, void *rtc)
 		goto out;
 
 	if (twl_class_is_4030()) {
+		/* Clear on Read enabled. RTC_IT bit of TWL4030_INT_PWR_ISR1
+		 * needs 2 reads to clear the interrupt. One read is done in
+		 * do_twl_pwrirq(). Doing the second read, to clear
+		 * the bit.
+		 *
+		 * FIXME the reason PWR_ISR1 needs an extra read is that
+		 * RTC_IF retriggered until we cleared REG_ALARM_M above.
+		 * But re-reading like this is a bad hack; by doing so we
+		 * risk wrongly clearing status for some other IRQ (losing
+		 * the interrupt).  Be smarter about handling RTC_UF ...
+		 */
 		res = twl_i2c_read_u8(TWL4030_MODULE_INT,
 			&rd_reg, TWL4030_INT_PWR_ISR1);
 		if (res)
 			goto out;
 	}
 
-	
+	/* Notify RTC core on event */
 	rtc_update_irq(rtc, 1, events);
 
 	ret = IRQ_HANDLED;
@@ -403,6 +456,7 @@ static struct rtc_class_ops twl_rtc_ops = {
 	.alarm_irq_enable = twl_rtc_alarm_irq_enable,
 };
 
+/*----------------------------------------------------------------------*/
 
 static int __devinit twl_rtc_probe(struct platform_device *pdev)
 {
@@ -424,7 +478,7 @@ static int __devinit twl_rtc_probe(struct platform_device *pdev)
 	if (rd_reg & BIT_RTC_STATUS_REG_ALARM_M)
 		dev_warn(&pdev->dev, "Pending Alarm interrupt detected.\n");
 
-	
+	/* Clear RTC Power up reset and pending alarm interrupts */
 	ret = twl_rtc_write_u8(rd_reg, REG_RTC_STATUS_REG);
 	if (ret < 0)
 		goto out1;
@@ -441,7 +495,7 @@ static int __devinit twl_rtc_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto out1;
 
-	
+	/* init cached IRQ enable bits */
 	ret = twl_rtc_read_u8(&rtc_irq_bits, REG_RTC_INTERRUPTS_REG);
 	if (ret < 0)
 		goto out1;
@@ -472,9 +526,13 @@ out1:
 	return ret;
 }
 
+/*
+ * Disable all TWL RTC module interrupts.
+ * Sets status flag to free.
+ */
 static int __devexit twl_rtc_remove(struct platform_device *pdev)
 {
-	
+	/* leave rtc running, but disable irqs */
 	struct rtc_device *rtc = platform_get_drvdata(pdev);
 	int irq = platform_get_irq(pdev, 0);
 
@@ -497,6 +555,8 @@ static int __devexit twl_rtc_remove(struct platform_device *pdev)
 
 static void twl_rtc_shutdown(struct platform_device *pdev)
 {
+	/* mask timer interrupts, but leave alarm interrupts on to enable
+	   power-on when alarm is triggered */
 	mask_rtc_irq_bit(BIT_RTC_INTERRUPTS_REG_IT_TIMER_M);
 }
 

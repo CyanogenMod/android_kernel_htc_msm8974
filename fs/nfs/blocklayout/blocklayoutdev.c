@@ -30,7 +30,7 @@
  * possibility of such damages.
  */
 #include <linux/module.h>
-#include <linux/buffer_head.h> 
+#include <linux/buffer_head.h> /* __bread */
 
 #include <linux/genhd.h>
 #include <linux/blkdev.h>
@@ -53,6 +53,7 @@ static int decode_sector_number(__be32 **rp, sector_t *sp)
 	return 0;
 }
 
+/* Open a block_device by device number. */
 struct block_device *nfs4_blkdev_get(dev_t dev)
 {
 	struct block_device *bd;
@@ -68,6 +69,9 @@ fail:
 	return NULL;
 }
 
+/*
+ * Release the block device
+ */
 int nfs4_blkdev_put(struct block_device *bdev)
 {
 	dprintk("%s for device %d:%d\n", __func__, MAJOR(bdev->bd_dev),
@@ -101,6 +105,9 @@ void bl_pipe_destroy_msg(struct rpc_pipe_msg *msg)
 	wake_up(bl_pipe_msg->bl_wq);
 }
 
+/*
+ * Decodes pnfs_block_deviceaddr4 which is XDR encoded in dev->dev_addr_buf.
+ */
 struct pnfs_block_dev *
 nfs4_blk_decode_device(struct nfs_server *server,
 		       struct pnfs_device *dev)
@@ -192,6 +199,7 @@ out:
 	return rv;
 }
 
+/* Map deviceid returned by the server to constructed block_device */
 static struct block_device *translate_devid(struct pnfs_layout_hdr *lo,
 					    struct nfs4_deviceid *id)
 {
@@ -215,13 +223,17 @@ static struct block_device *translate_devid(struct pnfs_layout_hdr *lo,
 	return rv;
 }
 
+/* Tracks info needed to ensure extents in layout obey constraints of spec */
 struct layout_verification {
-	u32 mode;	
-	u64 start;	
-	u64 inval;	
-	u64 cowread;	
+	u32 mode;	/* R or RW */
+	u64 start;	/* Expected start of next non-COW extent */
+	u64 inval;	/* Start of INVAL coverage */
+	u64 cowread;	/* End of COW read coverage */
 };
 
+/* Verify the extent meets the layout requirements of the pnfs-block draft,
+ * section 2.3.1.
+ */
 static int verify_extent(struct pnfs_block_extent *be,
 			 struct layout_verification *lv)
 {
@@ -234,7 +246,7 @@ static int verify_extent(struct pnfs_block_extent *be,
 		lv->start += be->be_length;
 		return 0;
 	}
-	
+	/* lv->mode == IOMODE_RW */
 	if (be->be_state == PNFS_BLOCK_READWRITE_DATA) {
 		if (be->be_f_offset != lv->start)
 			return -EIO;
@@ -255,6 +267,9 @@ static int verify_extent(struct pnfs_block_extent *be,
 			return -EIO;
 		if (be->be_f_offset < lv->cowread)
 			return -EIO;
+		/* It looks like you might want to min this with lv->start,
+		 * but you really don't.
+		 */
 		lv->inval = lv->inval + be->be_length;
 		lv->cowread = be->be_f_offset + be->be_length;
 		return 0;
@@ -262,6 +277,7 @@ static int verify_extent(struct pnfs_block_extent *be,
 		return -EIO;
 }
 
+/* XDR decode pnfs_block_layout4 structure */
 int
 nfs4_blk_process_layoutget(struct pnfs_layout_hdr *lo,
 			   struct nfs4_layoutget_res *lgr, gfp_t gfp_flags)
@@ -302,6 +318,10 @@ nfs4_blk_process_layoutget(struct pnfs_layout_hdr *lo,
 	if (unlikely(!p))
 		goto out_err;
 
+	/* Decode individual extents, putting them in temporary
+	 * staging area until whole layout is decoded to make error
+	 * recovery easier.
+	 */
 	for (i = 0; i < count; i++) {
 		be = bl_alloc_extent();
 		if (!be) {
@@ -314,6 +334,9 @@ nfs4_blk_process_layoutget(struct pnfs_layout_hdr *lo,
 		if (!be->be_mdev)
 			goto out_err;
 
+		/* The next three values are read in as bytes,
+		 * but stored as 512-byte sector lengths
+		 */
 		if (decode_sector_number(&p, &be->be_f_offset) < 0)
 			goto out_err;
 		if (decode_sector_number(&p, &be->be_length) < 0)
@@ -340,12 +363,19 @@ nfs4_blk_process_layoutget(struct pnfs_layout_hdr *lo,
 		be = NULL;
 		goto out_err;
 	}
+	/* Extents decoded properly, now try to merge them in to
+	 * existing layout extents.
+	 */
 	spin_lock(&bl->bl_ext_lock);
 	list_for_each_entry_safe(be, save, &extents, be_node) {
 		list_del(&be->be_node);
 		status = bl_add_merge_extent(bl, be);
 		if (status) {
 			spin_unlock(&bl->bl_ext_lock);
+			/* This is a fairly catastrophic error, as the
+			 * entire layout extent lists are now corrupted.
+			 * We should have some way to distinguish this.
+			 */
 			be = NULL;
 			goto out_err;
 		}

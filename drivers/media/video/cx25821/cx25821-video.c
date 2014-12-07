@@ -143,6 +143,9 @@ void cx25821_video_wakeup(struct cx25821_dev *dev, struct cx25821_dmaqueue *q,
 		buf = list_entry(q->active.next, struct cx25821_buffer,
 				vb.queue);
 
+		/* count comes from the hw and it is 16bit wide --
+		 * this trick handles wrap-arounds correctly for
+		 * up to 32767 buffers in flight... */
 		if ((s16) (count - buf->count) < 0)
 			break;
 
@@ -168,7 +171,7 @@ int cx25821_set_tvnorm(struct cx25821_dev *dev, v4l2_std_id norm)
 
 	dev->tvnorm = norm;
 
-	
+	/* Tell the internal A/V decoder */
 	cx25821_call_all(dev, core, s_std, norm);
 
 	return 0;
@@ -195,23 +198,42 @@ struct video_device *cx25821_vdev_init(struct cx25821_dev *dev,
 	return vfd;
 }
 
+/*
+static int cx25821_ctrl_query(struct v4l2_queryctrl *qctrl)
+{
+	int i;
 
+	if (qctrl->id < V4L2_CID_BASE || qctrl->id >= V4L2_CID_LASTP1)
+		return -EINVAL;
+	for (i = 0; i < CX25821_CTLS; i++)
+		if (cx25821_ctls[i].v.id == qctrl->id)
+			break;
+	if (i == CX25821_CTLS) {
+		*qctrl = no_ctl;
+		return 0;
+	}
+	*qctrl = cx25821_ctls[i].v;
+	return 0;
+}
+*/
+
+/* resource management */
 int cx25821_res_get(struct cx25821_dev *dev, struct cx25821_fh *fh,
 		    unsigned int bit)
 {
 	dprintk(1, "%s()\n", __func__);
 	if (fh->resources & bit)
-		
+		/* have it already allocated */
 		return 1;
 
-	
+	/* is it free? */
 	mutex_lock(&dev->lock);
 	if (dev->channels[fh->channel_id].resources & bit) {
-		
+		/* no, someone else uses it */
 		mutex_unlock(&dev->lock);
 		return 0;
 	}
-	
+	/* it's free, grab it */
 	fh->resources |= bit;
 	dev->channels[fh->channel_id].resources |= bit;
 	dprintk(1, "res: get %d\n", bit);
@@ -254,7 +276,7 @@ int cx25821_video_mux(struct cx25821_dev *dev, unsigned int input)
 
 	route.input = INPUT(input)->vmux;
 
-	
+	/* Tell the internal A/V decoder */
 	cx25821_call_all(dev, video, s_routing, INPUT(input)->vmux, 0, 0);
 
 	return 0;
@@ -267,21 +289,21 @@ int cx25821_start_video_dma(struct cx25821_dev *dev,
 {
 	int tmp = 0;
 
-	
+	/* setup fifo + format */
 	cx25821_sram_channel_setup(dev, channel, buf->bpl, buf->risc.dma);
 
-	
+	/* reset counter */
 	cx_write(channel->gpcnt_ctl, 3);
 	q->count = 1;
 
-	
+	/* enable irq */
 	cx_set(PCI_INT_MSK, cx_read(PCI_INT_MSK) | (1 << channel->i));
 	cx_set(channel->int_msk, 0x11);
 
-	
-	cx_write(channel->dma_ctl, 0x11);	
+	/* start dma */
+	cx_write(channel->dma_ctl, 0x11);	/* FIFO and RISC enable */
 
-	
+	/* make sure upstream setting if any is reversed */
 	tmp = cx_read(VID_CH_MODE_SEL);
 	cx_write(VID_CH_MODE_SEL, tmp & 0xFFFFFE00);
 
@@ -331,7 +353,7 @@ int cx25821_restart_video_queue(struct cx25821_dev *dev,
 			buf->vb.state = VIDEOBUF_ACTIVE;
 			buf->count = q->count++;
 			prev->risc.jmp[1] = cpu_to_le32(buf->risc.dma);
-			prev->risc.jmp[2] = cpu_to_le32(0); 
+			prev->risc.jmp[2] = cpu_to_le32(0); /* Bits 63 - 32 */
 		} else {
 			return 0;
 		}
@@ -348,7 +370,7 @@ void cx25821_vid_timeout(unsigned long data)
 	struct cx25821_buffer *buf;
 	unsigned long flags;
 
-	
+	/* cx25821_sram_channel_dump(dev, channel); */
 	cx_clear(channel->dma_ctl, 0x11);
 
 	spin_lock_irqsave(&dev->slock, flags);
@@ -378,7 +400,7 @@ int cx25821_video_irq(struct cx25821_dev *dev, int chan_num, u32 status)
 
 	cx_write(channel->int_stat, status);
 
-	
+	/* risc op code error */
 	if (status & (1 << 16)) {
 		pr_warn("%s, %s: video risc op code error\n",
 			dev->name, channel->name);
@@ -386,7 +408,7 @@ int cx25821_video_irq(struct cx25821_dev *dev, int chan_num, u32 status)
 		cx25821_sram_channel_dump(dev, channel);
 	}
 
-	
+	/* risc1 y */
 	if (status & FLD_VID_DST_RISC1) {
 		spin_lock(&dev->slock);
 		count = cx_read(channel->gpcnt);
@@ -396,7 +418,7 @@ int cx25821_video_irq(struct cx25821_dev *dev, int chan_num, u32 status)
 		handled++;
 	}
 
-	
+	/* risc2 y */
 	if (status & 0x10) {
 		dprintk(2, "stopper video\n");
 		spin_lock(&dev->slock);
@@ -481,7 +503,7 @@ int cx25821_video_register(struct cx25821_dev *dev)
 			(unsigned long)&dev->channels[i].timeout_data;
 		init_timer(&dev->channels[i].vidq.timeout);
 
-		
+		/* register v4l devices */
 		dev->channels[i].video_dev = cx25821_vdev_init(dev, dev->pci,
 				&cx25821_video_device, "video");
 
@@ -493,10 +515,10 @@ int cx25821_video_register(struct cx25821_dev *dev)
 
 	}
 
-	
+	/* set PCI interrupt */
 	cx_set(PCI_INT_MSK, 0xff);
 
-	
+	/* initial device configuration */
 	mutex_lock(&dev->lock);
 #ifdef TUNER_FLAG
 	dev->tvnorm = cx25821_video_device.current_norm;
@@ -587,7 +609,7 @@ int cx25821_buffer_prepare(struct videobuf_queue *q, struct videobuf_buffer *vb,
 				PIXEL_FRMT_411) {
 			bpl_local = buf->bpl;
 		} else {
-			bpl_local = buf->bpl;   
+			bpl_local = buf->bpl;   /* Default */
 
 			if (channel_opened >= 0 && channel_opened <= 7) {
 				if (dev->channels[channel_opened]
@@ -615,7 +637,7 @@ int cx25821_buffer_prepare(struct videobuf_queue *q, struct videobuf_buffer *vb,
 					    buf->bpl, 0, buf->vb.height);
 			break;
 		case V4L2_FIELD_INTERLACED:
-			
+			/* All other formats are top field first */
 			line0_offset = 0;
 			line1_offset = buf->bpl;
 			dprintk(1, "top field first\n");
@@ -703,10 +725,10 @@ static void buffer_queue(struct videobuf_queue *vq, struct videobuf_buffer *vb)
 	struct cx25821_dev *dev = fh->dev;
 	struct cx25821_dmaqueue *q = &dev->channels[fh->channel_id].vidq;
 
-	
+	/* add jump to stopper */
 	buf->risc.jmp[0] = cpu_to_le32(RISC_JUMP | RISC_IRQ1 | RISC_CNT_INC);
 	buf->risc.jmp[1] = cpu_to_le32(q->stopper.dma);
-	buf->risc.jmp[2] = cpu_to_le32(0);      
+	buf->risc.jmp[2] = cpu_to_le32(0);      /* bits 63-32 */
 
 	dprintk(2, "jmp to stopper (0x%x)\n", buf->risc.jmp[1]);
 
@@ -736,7 +758,7 @@ static void buffer_queue(struct videobuf_queue *vq, struct videobuf_buffer *vb)
 			buf->count = q->count++;
 			prev->risc.jmp[1] = cpu_to_le32(buf->risc.dma);
 
-			
+			/* 64 bit bits 63-32 */
 			prev->risc.jmp[2] = cpu_to_le32(0);
 			dprintk(2, "[%p/%d] buffer_queue - append to active, buf->count=%d\n",
 					buf, buf->vb.i, buf->count);
@@ -775,7 +797,7 @@ static int video_open(struct file *file)
 	dprintk(1, "open dev=%s type=%s\n", video_device_node_name(vdev),
 			v4l2_type_names[type]);
 
-	
+	/* allocate + initialize per filehandle data */
 	fh = kzalloc(sizeof(*fh), GFP_KERNEL);
 	if (NULL == fh)
 		return -ENOMEM;
@@ -859,13 +881,13 @@ static unsigned int video_poll(struct file *file,
 	struct cx25821_buffer *buf;
 
 	if (cx25821_res_check(fh, RESOURCE_VIDEO0)) {
-		
+		/* streaming capture */
 		if (list_empty(&fh->vidq.stream))
 			return POLLERR;
 		buf = list_entry(fh->vidq.stream.next,
 				struct cx25821_buffer, vb.stream);
 	} else {
-		
+		/* read() capture */
 		buf = (struct cx25821_buffer *)fh->vidq.read_buf;
 		if (NULL == buf)
 			return POLLERR;
@@ -897,10 +919,10 @@ static int video_release(struct file *file)
 	struct cx25821_fh *fh = file->private_data;
 	struct cx25821_dev *dev = fh->dev;
 
-	
-	cx_write(channel0->dma_ctl, 0); 
+	/* stop the risc engine and fifo */
+	cx_write(channel0->dma_ctl, 0); /* FIFO and RISC disable */
 
-	
+	/* stop video capture */
 	if (cx25821_res_check(fh, RESOURCE_VIDEO0)) {
 		videobuf_queue_cancel(&fh->vidq);
 		cx25821_res_free(dev, fh, RESOURCE_VIDEO0);
@@ -982,7 +1004,7 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 	fh->fmt = cx25821_format_by_fourcc(f->fmt.pix.pixelformat);
 	fh->vidq.field = f->fmt.pix.field;
 
-	
+	/* check if width and height is valid based on set standard */
 	if (cx25821_is_valid_width(f->fmt.pix.width, dev->tvnorm))
 		fh->width = f->fmt.pix.width;
 
@@ -998,7 +1020,7 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 
 	cx25821_set_pixel_format(dev, SRAM_CH00, pix_format);
 
-	
+	/* check if cif resolution */
 	if (fh->width == 320 || fh->width == 352)
 		dev->channels[fh->channel_id].use_cif_resolution = 1;
 	else
@@ -1067,6 +1089,7 @@ static int vidioc_s_ctrl(struct file *file, void *priv,
 	return cx25821_set_control(dev, ctl, fh->channel_id);
 }
 
+/* VIDEO IOCTLS */
 int cx25821_vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 				 struct v4l2_format *f)
 {
@@ -1316,7 +1339,7 @@ int cx25821_set_freq(struct cx25821_dev *dev, struct v4l2_frequency *f)
 
 	cx25821_call_all(dev, tuner, s_frequency, f);
 
-	
+	/* When changing channels it is required to reset TVAUDIO */
 	msleep(10);
 
 	mutex_unlock(&dev->lock);
@@ -1390,7 +1413,7 @@ int cx25821_vidioc_g_tuner(struct file *file, void *priv, struct v4l2_tuner *t)
 	t->capability = V4L2_TUNER_CAP_NORM;
 	t->rangehigh = 0xffffffffUL;
 
-	t->signal = 0xffff;	
+	t->signal = 0xffff;	/* LOCKED */
 	return 0;
 }
 
@@ -1417,13 +1440,14 @@ int cx25821_vidioc_s_tuner(struct file *file, void *priv, struct v4l2_tuner *t)
 }
 
 #endif
+/*****************************************************************************/
 static const struct v4l2_queryctrl no_ctl = {
 	.name = "42",
 	.flags = V4L2_CTRL_FLAG_DISABLED,
 };
 
 static struct v4l2_queryctrl cx25821_ctls[] = {
-	
+	/* --- video --- */
 	{
 		.id = V4L2_CID_BRIGHTNESS,
 		.name = "Brightness",
@@ -1483,6 +1507,8 @@ int cx25821_vidioc_queryctrl(struct file *file, void *priv,
 	return cx25821_ctrl_query(qctrl);
 }
 
+/* ------------------------------------------------------------------ */
+/* VIDEO CTRL IOCTLS                                                  */
 
 static const struct v4l2_queryctrl *ctrl_by_id(unsigned int id)
 {
@@ -1546,7 +1572,7 @@ int cx25821_set_control(struct cx25821_dev *dev,
 			ctl->value = ctrl->maximum;
 		break;
 	default:
-		 ;
+		/* nothing */ ;
 	}
 
 	switch (ctl->id) {
@@ -1616,19 +1642,19 @@ int cx25821_vidioc_s_crop(struct file *file, void *priv, struct v4l2_crop *crop)
 		if (0 != err)
 			return err;
 	}
-	
+	/* cx25821_vidioc_s_crop not supported */
 	return -EINVAL;
 }
 
 int cx25821_vidioc_g_crop(struct file *file, void *priv, struct v4l2_crop *crop)
 {
-	
+	/* cx25821_vidioc_g_crop not supported */
 	return -EINVAL;
 }
 
 int cx25821_vidioc_querystd(struct file *file, void *priv, v4l2_std_id * norm)
 {
-	
+	/* medusa does not support video standard sensing of current input */
 	*norm = CX25821_NORMS;
 
 	return 0;
@@ -1909,7 +1935,7 @@ static long cx25821_video_ioctl(struct file *file,
 
 	struct cx25821_fh *fh = file->private_data;
 
-	
+	/* check to see if it's the video upstream */
 	if (fh->channel_id == SRAM_CH09) {
 		ret = video_ioctl_upstream9(file, cmd, arg);
 		return ret;
@@ -1925,6 +1951,7 @@ static long cx25821_video_ioctl(struct file *file,
 	return video_ioctl2(file, cmd, arg);
 }
 
+/* exported stuff */
 static const struct v4l2_file_operations video_fops = {
 	.owner = THIS_MODULE,
 	.open = video_open,

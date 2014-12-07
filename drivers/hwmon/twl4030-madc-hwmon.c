@@ -37,6 +37,9 @@
 #include <linux/err.h>
 #include <linux/types.h>
 
+/*
+ * sysfs hook function
+ */
 static ssize_t madc_read(struct device *dev,
 			 struct device_attribute *devattr, char *buf)
 {
@@ -54,6 +57,7 @@ static ssize_t madc_read(struct device *dev,
 	return sprintf(buf, "%d\n", req.rbuf[attr->index]);
 }
 
+/* sysfs nodes to read individual channels from user side */
 static SENSOR_DEVICE_ATTR(in0_input, S_IRUGO, madc_read, NULL, 0);
 static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, madc_read, NULL, 1);
 static SENSOR_DEVICE_ATTR(in2_input, S_IRUGO, madc_read, NULL, 2);

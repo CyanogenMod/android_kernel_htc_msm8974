@@ -29,7 +29,7 @@ static int get_callid(const char *dptr, unsigned int dataoff,
 		      unsigned int datalen,
 		      unsigned int *matchoff, unsigned int *matchlen)
 {
-	
+	/* Find callid */
 	while (1) {
 		int ret = ct_sip_get_header(NULL, dptr, dataoff, datalen,
 					    SIP_HDR_CALL_ID, matchoff,
@@ -41,18 +41,20 @@ static int get_callid(const char *dptr, unsigned int dataoff,
 		dataoff += *matchoff;
 	}
 
-	
+	/* Empty callid is useless */
 	if (!*matchlen)
 		return -EINVAL;
 
-	
+	/* Too large is useless */
 	if (*matchlen > IP_VS_PEDATA_MAXLEN)
 		return -EINVAL;
 
-	
+	/* SIP headers are always followed by a line terminator */
 	if (*matchoff + *matchlen == datalen)
 		return -EINVAL;
 
+	/* RFC 2543 allows lines to be terminated with CR, LF or CRLF,
+	 * RFC 3261 allows only CRLF, we support both. */
 	if (*(dptr + *matchoff + *matchlen) != '\r' &&
 	    *(dptr + *matchoff + *matchlen) != '\n')
 		return -EINVAL;
@@ -73,11 +75,11 @@ ip_vs_sip_fill_param(struct ip_vs_conn_param *p, struct sk_buff *skb)
 
 	ip_vs_fill_iphdr(p->af, skb_network_header(skb), &iph);
 
-	
+	/* Only useful with UDP */
 	if (iph.protocol != IPPROTO_UDP)
 		return -EINVAL;
 
-	
+	/* No Data ? */
 	dataoff = iph.len + sizeof(struct udphdr);
 	if (dataoff >= skb->len)
 		return -EINVAL;
@@ -90,6 +92,9 @@ ip_vs_sip_fill_param(struct ip_vs_conn_param *p, struct sk_buff *skb)
 	if (get_callid(dptr, dataoff, datalen, &matchoff, &matchlen))
 		return -EINVAL;
 
+	/* N.B: pe_data is only set on success,
+	 * this allows fallback to the default persistence logic on failure
+	 */
 	p->pe_data = kmemdup(dptr + matchoff, matchlen, GFP_ATOMIC);
 	if (!p->pe_data)
 		return -ENOMEM;
@@ -107,6 +112,8 @@ static bool ip_vs_sip_ct_match(const struct ip_vs_conn_param *p,
 
 	if (ct->af == p->af &&
 	    ip_vs_addr_equal(p->af, p->caddr, &ct->caddr) &&
+	    /* protocol should only be IPPROTO_IP if
+	     * d_addr is a fwmark */
 	    ip_vs_addr_equal(p->protocol == IPPROTO_IP ? AF_UNSPEC : p->af,
 			     p->vaddr, &ct->vaddr) &&
 	    ct->vport == p->vport &&

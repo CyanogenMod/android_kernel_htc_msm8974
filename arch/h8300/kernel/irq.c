@@ -21,6 +21,7 @@
 #include <asm/setup.h>
 #include <asm/errno.h>
 
+/*#define DEBUG*/
 
 extern unsigned long *interrupt_redirect_table;
 extern const int h8300_saved_vectors[];
@@ -62,6 +63,9 @@ static void h8300_shutdown_irq(struct irq_data *data)
 		h8300_disable_irq_pin(data->irq);
 }
 
+/*
+ * h8300 interrupt controller implementation
+ */
 struct irq_chip h8300irq_chip = {
 	.name		= "H8300-INTC",
 	.irq_startup	= h8300_startup_irq,
@@ -79,16 +83,16 @@ static unsigned long __init *get_vector_address(void)
 
 	base = rom_vector[EXT_IRQ0] & ADDR_MASK;
 
-	
+	/* check romvector format */
 	for (vec_no = EXT_IRQ1; vec_no <= EXT_IRQ0+EXT_IRQS; vec_no++) {
 		if ((base+(vec_no - EXT_IRQ0)*4) != (rom_vector[vec_no] & ADDR_MASK))
 			return NULL;
 	}
 
-	
+	/* ramvector base address */
 	base -= EXT_IRQ0*4;
 
-	
+	/* writerble check */
 	tmp = ~(*(volatile unsigned long *)base);
 	(*(volatile unsigned long *)base) = tmp;
 	if ((*(volatile unsigned long *)base) != tmp)
@@ -109,7 +113,7 @@ static void __init setup_vector(void)
 	else
 		printk(KERN_INFO "virtual vector at 0x%08lx\n",(unsigned long)ramvec);
 
-	
+	/* create redirect table */
 	ramvec_p = ramvec;
 	trap_entry = h8300_trap_table;
 	saved_vector = h8300_saved_vectors;

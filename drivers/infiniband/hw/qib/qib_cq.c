@@ -37,6 +37,14 @@
 
 #include "qib_verbs.h"
 
+/**
+ * qib_cq_enter - add a new entry to the completion queue
+ * @cq: completion queue
+ * @entry: work completion entry to add
+ * @sig: true if @entry is a solicitated entry
+ *
+ * This may be called with qp->s_lock held.
+ */
 void qib_cq_enter(struct qib_cq *cq, struct ib_wc *entry, int solicited)
 {
 	struct qib_cq_wc *wc;
@@ -46,6 +54,10 @@ void qib_cq_enter(struct qib_cq *cq, struct ib_wc *entry, int solicited)
 
 	spin_lock_irqsave(&cq->lock, flags);
 
+	/*
+	 * Note that the head pointer might be writable by user processes.
+	 * Take care to verify it is a sane value.
+	 */
 	wc = cq->queue;
 	head = wc->head;
 	if (head >= (unsigned) cq->ibcq.cqe) {
@@ -92,12 +104,27 @@ void qib_cq_enter(struct qib_cq *cq, struct ib_wc *entry, int solicited)
 	     (solicited || entry->status != IB_WC_SUCCESS))) {
 		cq->notify = IB_CQ_NONE;
 		cq->triggered++;
+		/*
+		 * This will cause send_complete() to be called in
+		 * another thread.
+		 */
 		queue_work(qib_cq_wq, &cq->comptask);
 	}
 
 	spin_unlock_irqrestore(&cq->lock, flags);
 }
 
+/**
+ * qib_poll_cq - poll for work completion entries
+ * @ibcq: the completion queue to poll
+ * @num_entries: the maximum number of entries to return
+ * @entry: pointer to array where work completions are placed
+ *
+ * Returns the number of completion entries polled.
+ *
+ * This may be called from interrupt context.  Also called by ib_poll_cq()
+ * in the generic verbs code.
+ */
 int qib_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *entry)
 {
 	struct qib_cq *cq = to_icq(ibcq);
@@ -106,7 +133,7 @@ int qib_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *entry)
 	int npolled;
 	u32 tail;
 
-	
+	/* The kernel can only poll a kernel completion queue */
 	if (cq->ip) {
 		npolled = -EINVAL;
 		goto bail;
@@ -121,7 +148,7 @@ int qib_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *entry)
 	for (npolled = 0; npolled < num_entries; ++npolled, ++entry) {
 		if (tail == wc->head)
 			break;
-		
+		/* The kernel doesn't need a RMB since it has the lock. */
 		*entry = wc->kqueue[tail];
 		if (tail >= cq->ibcq.cqe)
 			tail = 0;
@@ -140,9 +167,22 @@ static void send_complete(struct work_struct *work)
 {
 	struct qib_cq *cq = container_of(work, struct qib_cq, comptask);
 
+	/*
+	 * The completion handler will most likely rearm the notification
+	 * and poll for all pending entries.  If a new completion entry
+	 * is added while we are in this routine, queue_work()
+	 * won't call us again until we return so we check triggered to
+	 * see if we need to call the handler again.
+	 */
 	for (;;) {
 		u8 triggered = cq->triggered;
 
+		/*
+		 * IPoIB connected mode assumes the callback is from a
+		 * soft IRQ. We simulate this by blocking "bottom halves".
+		 * See the implementation for ipoib_cm_handle_tx_wc(),
+		 * netif_tx_lock_bh() and netif_tx_lock().
+		 */
 		local_bh_disable();
 		cq->ibcq.comp_handler(&cq->ibcq, cq->ibcq.cq_context);
 		local_bh_enable();
@@ -152,6 +192,18 @@ static void send_complete(struct work_struct *work)
 	}
 }
 
+/**
+ * qib_create_cq - create a completion queue
+ * @ibdev: the device this completion queue is attached to
+ * @entries: the minimum size of the completion queue
+ * @context: unused by the QLogic_IB driver
+ * @udata: user data for libibverbs.so
+ *
+ * Returns a pointer to the completion queue or negative errno values
+ * for failure.
+ *
+ * Called by ib_create_cq() in the generic verbs code.
+ */
 struct ib_cq *qib_create_cq(struct ib_device *ibdev, int entries,
 			    int comp_vector, struct ib_ucontext *context,
 			    struct ib_udata *udata)
@@ -167,13 +219,20 @@ struct ib_cq *qib_create_cq(struct ib_device *ibdev, int entries,
 		goto done;
 	}
 
-	
+	/* Allocate the completion queue structure. */
 	cq = kmalloc(sizeof(*cq), GFP_KERNEL);
 	if (!cq) {
 		ret = ERR_PTR(-ENOMEM);
 		goto done;
 	}
 
+	/*
+	 * Allocate the completion queue entries and head/tail pointers.
+	 * This is allocated separately so that it can be resized and
+	 * also mapped into user space.
+	 * We need to use vmalloc() in order to support mmap and large
+	 * numbers of entries.
+	 */
 	sz = sizeof(*wc);
 	if (udata && udata->outlen >= sizeof(__u64))
 		sz += sizeof(struct ib_uverbs_wc) * (entries + 1);
@@ -185,6 +244,10 @@ struct ib_cq *qib_create_cq(struct ib_device *ibdev, int entries,
 		goto bail_cq;
 	}
 
+	/*
+	 * Return the address of the WC as the offset to mmap.
+	 * See qib_mmap() for details.
+	 */
 	if (udata && udata->outlen >= sizeof(__u64)) {
 		int err;
 
@@ -219,6 +282,11 @@ struct ib_cq *qib_create_cq(struct ib_device *ibdev, int entries,
 		spin_unlock_irq(&dev->pending_lock);
 	}
 
+	/*
+	 * ib_create_cq() will initialize cq->ibcq except for cq->ibcq.cqe.
+	 * The number of entries should be >= the number requested or return
+	 * an error.
+	 */
 	cq->ibcq.cqe = entries;
 	cq->notify = IB_CQ_NONE;
 	cq->triggered = 0;
@@ -242,6 +310,14 @@ done:
 	return ret;
 }
 
+/**
+ * qib_destroy_cq - destroy a completion queue
+ * @ibcq: the completion queue to destroy.
+ *
+ * Returns 0 for success.
+ *
+ * Called by ib_destroy_cq() in the generic verbs code.
+ */
 int qib_destroy_cq(struct ib_cq *ibcq)
 {
 	struct qib_ibdev *dev = to_idev(ibcq->device);
@@ -260,6 +336,16 @@ int qib_destroy_cq(struct ib_cq *ibcq)
 	return 0;
 }
 
+/**
+ * qib_req_notify_cq - change the notification type for a completion queue
+ * @ibcq: the completion queue
+ * @notify_flags: the type of notification to request
+ *
+ * Returns 0 for success.
+ *
+ * This may be called from interrupt context.  Also called by
+ * ib_req_notify_cq() in the generic verbs code.
+ */
 int qib_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags notify_flags)
 {
 	struct qib_cq *cq = to_icq(ibcq);
@@ -267,6 +353,10 @@ int qib_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags notify_flags)
 	int ret = 0;
 
 	spin_lock_irqsave(&cq->lock, flags);
+	/*
+	 * Don't change IB_CQ_NEXT_COMP to IB_CQ_SOLICITED but allow
+	 * any other transitions (see C11-31 and C11-32 in ch. 11.4.2.2).
+	 */
 	if (cq->notify != IB_CQ_NEXT_COMP)
 		cq->notify = notify_flags & IB_CQ_SOLICITED_MASK;
 
@@ -279,6 +369,12 @@ int qib_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags notify_flags)
 	return ret;
 }
 
+/**
+ * qib_resize_cq - change the size of the CQ
+ * @ibcq: the completion queue
+ *
+ * Returns 0 for success.
+ */
 int qib_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 {
 	struct qib_cq *cq = to_icq(ibcq);
@@ -293,6 +389,9 @@ int qib_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 		goto bail;
 	}
 
+	/*
+	 * Need to use vmalloc() if we want to support large #s of entries.
+	 */
 	sz = sizeof(*wc);
 	if (udata && udata->outlen >= sizeof(__u64))
 		sz += sizeof(struct ib_uverbs_wc) * (cqe + 1);
@@ -304,7 +403,7 @@ int qib_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 		goto bail;
 	}
 
-	
+	/* Check that we can write the offset to mmap. */
 	if (udata && udata->outlen >= sizeof(__u64)) {
 		__u64 offset = 0;
 
@@ -314,6 +413,10 @@ int qib_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 	}
 
 	spin_lock_irq(&cq->lock);
+	/*
+	 * Make sure head and tail are sane since they
+	 * might be user writable.
+	 */
 	old_wc = cq->queue;
 	head = old_wc->head;
 	if (head > (u32) cq->ibcq.cqe)
@@ -353,6 +456,10 @@ int qib_resize_cq(struct ib_cq *ibcq, int cqe, struct ib_udata *udata)
 
 		qib_update_mmap_info(dev, ip, sz, wc);
 
+		/*
+		 * Return the offset to mmap.
+		 * See qib_mmap() for details.
+		 */
 		if (udata && udata->outlen >= sizeof(__u64)) {
 			ret = ib_copy_to_udata(udata, &ip->offset,
 					       sizeof(ip->offset));

@@ -75,10 +75,10 @@ int __init tx4939_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	if (irq >= 0)
 		return irq;
 	irq = pin;
-	
-	irq--;	
+	/* IRQ rotation */
+	irq--;	/* 0-3 */
 	irq = (irq + 33 - slot) % 4;
-	irq++;	
+	irq++;	/* 1-4 */
 
 	switch (irq) {
 	case 1:

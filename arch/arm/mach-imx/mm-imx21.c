@@ -28,12 +28,35 @@
 #include <mach/irqs.h>
 #include <mach/iomux-v1.h>
 
+/* MX21 memory map definition */
 static struct map_desc imx21_io_desc[] __initdata = {
+	/*
+	 * this fixed mapping covers:
+	 * - AIPI1
+	 * - AIPI2
+	 * - AITC
+	 * - ROM Patch
+	 * - and some reserved space
+	 */
 	imx_map_entry(MX21, AIPI, MT_DEVICE),
+	/*
+	 * this fixed mapping covers:
+	 * - CSI
+	 * - ATA
+	 */
 	imx_map_entry(MX21, SAHB1, MT_DEVICE),
+	/*
+	 * this fixed mapping covers:
+	 * - EMI
+	 */
 	imx_map_entry(MX21, X_MEMC, MT_DEVICE),
 };
 
+/*
+ * Initialize the memory map. It is called during the
+ * system startup to create static physical to virtual
+ * memory map for the IO modules.
+ */
 void __init mx21_map_io(void)
 {
 	iotable_init(imx21_io_desc, ARRAY_SIZE(imx21_io_desc));

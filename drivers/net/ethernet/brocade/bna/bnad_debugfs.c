@@ -20,6 +20,23 @@
 #include <linux/module.h>
 #include "bnad.h"
 
+/*
+ * BNA debufs interface
+ *
+ * To access the interface, debugfs file system should be mounted
+ * if not already mounted using:
+ *	mount -t debugfs none /sys/kernel/debug
+ *
+ * BNA Hierarchy:
+ *	- bna/pci_dev:<pci_name>
+ * where the pci_name corresponds to the one under /sys/bus/pci/drivers/bna
+ *
+ * Debugging service available per pci_dev:
+ *	fwtrc:  To collect current firmware trace.
+ *	fwsave: To collect last saved fw trace as a result of firmware crash.
+ *	regwr:  To write one word to chip register
+ *	regrd:  To read one or more words from chip register.
+ */
 
 struct bnad_debug_info {
 	char *debug_buffer;
@@ -133,12 +150,12 @@ bnad_get_debug_drvinfo(struct bnad *bnad, void *buffer, u32 len)
 	unsigned long flags = 0;
 	int ret = BFA_STATUS_FAILED;
 
-	
+	/* Get IOC info */
 	spin_lock_irqsave(&bnad->bna_lock, flags);
 	bfa_nw_ioc_get_attr(&bnad->bna.ioceth.ioc, &drvinfo->ioc_attr);
 	spin_unlock_irqrestore(&bnad->bna_lock, flags);
 
-	
+	/* Retrieve CEE related info */
 	fcomp.bnad = bnad;
 	fcomp.comp_status = 0;
 	init_completion(&fcomp.comp);
@@ -153,7 +170,7 @@ bnad_get_debug_drvinfo(struct bnad *bnad, void *buffer, u32 len)
 	wait_for_completion(&fcomp.comp);
 	drvinfo->cee_status = fcomp.comp_status;
 
-	
+	/* Retrieve flash partition info */
 	fcomp.comp_status = 0;
 	init_completion(&fcomp.comp);
 	spin_lock_irqsave(&bnad->bna_lock, flags);
@@ -209,6 +226,7 @@ bnad_debugfs_open_drvinfo(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* Changes the current file position */
 static loff_t
 bnad_debugfs_lseek(struct file *file, loff_t offset, int orig)
 {
@@ -260,23 +278,26 @@ bnad_debugfs_read(struct file *file, char __user *buf,
 	 BFA_REG_CT_ADDRSZ : BFA_REG_CB_ADDRSZ))
 #define BFA_REG_ADDRMSK(__ioc)	(BFA_REG_ADDRSZ(__ioc) - 1)
 
+/*
+ * Function to check if the register offset passed is valid.
+ */
 static int
 bna_reg_offset_check(struct bfa_ioc *ioc, u32 offset, u32 len)
 {
 	u8 area;
 
-	
+	/* check [16:15] */
 	area = (offset >> 15) & 0x7;
 	if (area == 0) {
-		
-		if ((offset + (len<<2)) > 0x8000)	
+		/* PCIe core register */
+		if ((offset + (len<<2)) > 0x8000)	/* 8k dwords or 32KB */
 			return BFA_STATUS_EINVAL;
 	} else if (area == 0x1) {
-		
-		if ((offset + (len<<2)) > 0x10000)	
+		/* CB 32 KB memory page */
+		if ((offset + (len<<2)) > 0x10000)	/* 8k dwords or 32KB */
 			return BFA_STATUS_EINVAL;
 	} else {
-		
+		/* CB register space 64KB */
 		if ((offset + (len<<2)) > BFA_REG_ADDRMSK(ioc))
 			return BFA_STATUS_EINVAL;
 	}
@@ -319,7 +340,7 @@ bnad_debugfs_write_regrd(struct file *file, const char __user *buf,
 	unsigned long flags;
 	void *kern_buf;
 
-	
+	/* Allocate memory to store the user space buf */
 	kern_buf = kzalloc(nbytes, GFP_KERNEL);
 	if (!kern_buf)
 		return -ENOMEM;
@@ -350,7 +371,7 @@ bnad_debugfs_write_regrd(struct file *file, const char __user *buf,
 	rb = bfa_ioc_bar0(ioc);
 	addr &= BFA_REG_ADDRMSK(ioc);
 
-	
+	/* offset and len sanity check */
 	rc = bna_reg_offset_check(ioc, addr, len);
 	if (rc) {
 		pr_warn("bna %s: Failed reg offset check\n",
@@ -386,7 +407,7 @@ bnad_debugfs_write_regwr(struct file *file, const char __user *buf,
 	unsigned long flags;
 	void *kern_buf;
 
-	
+	/* Allocate memory to store the user space buf */
 	kern_buf = kzalloc(nbytes, GFP_KERNEL);
 	if (!kern_buf)
 		return -ENOMEM;
@@ -405,9 +426,9 @@ bnad_debugfs_write_regwr(struct file *file, const char __user *buf,
 	}
 	kfree(kern_buf);
 
-	addr &= BFA_REG_ADDRMSK(ioc); 
+	addr &= BFA_REG_ADDRMSK(ioc); /* offset only 17 bit and word align */
 
-	
+	/* offset and len sanity check */
 	rc = bna_reg_offset_check(ioc, addr, 1);
 	if (rc) {
 		pr_warn("bna %s: Failed reg offset check\n",
@@ -510,6 +531,7 @@ static const struct bnad_debugfs_entry bnad_debugfs_files[] = {
 static struct dentry *bna_debugfs_root;
 static atomic_t bna_debugfs_port_count;
 
+/* Initialize debugfs interface for BNA */
 void
 bnad_debugfs_init(struct bnad *bnad)
 {
@@ -517,7 +539,7 @@ bnad_debugfs_init(struct bnad *bnad)
 	char name[64];
 	int i;
 
-	
+	/* Setup the BNA debugfs root directory*/
 	if (!bna_debugfs_root) {
 		bna_debugfs_root = debugfs_create_dir("bna", NULL);
 		atomic_set(&bna_debugfs_port_count, 0);
@@ -527,7 +549,7 @@ bnad_debugfs_init(struct bnad *bnad)
 		}
 	}
 
-	
+	/* Setup the pci_dev debugfs directory for the port */
 	snprintf(name, sizeof(name), "pci_dev:%s", pci_name(bnad->pcidev));
 	if (!bnad->port_debugfs_root) {
 		bnad->port_debugfs_root =
@@ -558,6 +580,7 @@ bnad_debugfs_init(struct bnad *bnad)
 	}
 }
 
+/* Uninitialize debugfs interface for BNA */
 void
 bnad_debugfs_uninit(struct bnad *bnad)
 {
@@ -570,14 +593,14 @@ bnad_debugfs_uninit(struct bnad *bnad)
 		}
 	}
 
-	
+	/* Remove the pci_dev debugfs directory for the port */
 	if (bnad->port_debugfs_root) {
 		debugfs_remove(bnad->port_debugfs_root);
 		bnad->port_debugfs_root = NULL;
 		atomic_dec(&bna_debugfs_port_count);
 	}
 
-	
+	/* Remove the BNA debugfs root directory */
 	if (atomic_read(&bna_debugfs_port_count) == 0) {
 		debugfs_remove(bna_debugfs_root);
 		bna_debugfs_root = NULL;

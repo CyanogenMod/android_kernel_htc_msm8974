@@ -52,6 +52,7 @@ static void libipw_monitor_rx(struct libipw_device *ieee,
 	netif_rx(skb);
 }
 
+/* Called only as a tasklet (software IRQ) */
 static struct libipw_frag_entry *libipw_frag_cache_find(struct
 							      libipw_device
 							      *ieee,
@@ -84,6 +85,7 @@ static struct libipw_frag_entry *libipw_frag_cache_find(struct
 	return NULL;
 }
 
+/* Called only as a tasklet (software IRQ) */
 static struct sk_buff *libipw_frag_cache_get(struct libipw_device *ieee,
 						struct libipw_hdr_4addr *hdr)
 {
@@ -97,12 +99,12 @@ static struct sk_buff *libipw_frag_cache_get(struct libipw_device *ieee,
 	seq = WLAN_GET_SEQ_SEQ(sc);
 
 	if (frag == 0) {
-		
+		/* Reserve enough space to fit maximum frame length */
 		skb = dev_alloc_skb(ieee->dev->mtu +
 				    sizeof(struct libipw_hdr_4addr) +
-				    8   +
-				    2   +
-				    8   + ETH_ALEN  );
+				    8 /* LLC */  +
+				    2 /* alignment */  +
+				    8 /* WEP */  + ETH_ALEN /* WDS */ );
 		if (skb == NULL)
 			return NULL;
 
@@ -121,6 +123,8 @@ static struct sk_buff *libipw_frag_cache_get(struct libipw_device *ieee,
 		memcpy(entry->src_addr, hdr->addr2, ETH_ALEN);
 		memcpy(entry->dst_addr, hdr->addr1, ETH_ALEN);
 	} else {
+		/* received a fragment of a frame for which the head fragment
+		 * should have already been received */
 		entry = libipw_frag_cache_find(ieee, seq, frag, hdr->addr2,
 						  hdr->addr1);
 		if (entry != NULL) {
@@ -132,6 +136,7 @@ static struct sk_buff *libipw_frag_cache_get(struct libipw_device *ieee,
 	return skb;
 }
 
+/* Called only as a tasklet (software IRQ) */
 static int libipw_frag_cache_invalidate(struct libipw_device *ieee,
 					   struct libipw_hdr_4addr *hdr)
 {
@@ -156,6 +161,11 @@ static int libipw_frag_cache_invalidate(struct libipw_device *ieee,
 }
 
 #ifdef NOT_YET
+/* libipw_rx_frame_mgtmt
+ *
+ * Responsible for handling management control frames
+ *
+ * Called by libipw_rx */
 static int
 libipw_rx_frame_mgmt(struct libipw_device *ieee, struct sk_buff *skb,
 			struct libipw_rx_stats *rx_stats, u16 type,
@@ -165,17 +175,24 @@ libipw_rx_frame_mgmt(struct libipw_device *ieee, struct sk_buff *skb,
 		printk(KERN_DEBUG "%s: Master mode not yet supported.\n",
 		       ieee->dev->name);
 		return 0;
+/*
+  hostap_update_sta_ps(ieee, (struct hostap_libipw_hdr_4addr *)
+  skb->data);*/
 	}
 
 	if (ieee->hostapd && type == WLAN_FC_TYPE_MGMT) {
 		if (stype == WLAN_FC_STYPE_BEACON &&
 		    ieee->iw_mode == IW_MODE_MASTER) {
 			struct sk_buff *skb2;
+			/* Process beacon frames also in kernel driver to
+			 * update STA(AP) table statistics */
 			skb2 = skb_clone(skb, GFP_ATOMIC);
 			if (skb2)
 				hostap_rx(skb2->dev, skb2, rx_stats);
 		}
 
+		/* send management frames to the user space daemon for
+		 * processing */
 		ieee->apdevstats.rx_packets++;
 		ieee->apdevstats.rx_bytes += skb->len;
 		prism2_rx_80211(ieee->apdev, skb, rx_stats, PRISM2_RX_MGMT);
@@ -200,12 +217,17 @@ libipw_rx_frame_mgmt(struct libipw_device *ieee, struct sk_buff *skb,
 }
 #endif
 
+/* See IEEE 802.1H for LLC/SNAP encapsulation/decapsulation */
+/* Ethernet-II snap header (RFC1042 for most EtherTypes) */
 static unsigned char libipw_rfc1042_header[] =
     { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
 
+/* Bridge-Tunnel header (for EtherTypes ETH_P_AARP and ETH_P_IPX) */
 static unsigned char libipw_bridge_tunnel_header[] =
     { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0xf8 };
+/* No encapsulation header if EtherType < 0x600 (=length) */
 
+/* Called by libipw_rx_frame_decrypt */
 static int libipw_is_eapol_frame(struct libipw_device *ieee,
 				    struct sk_buff *skb)
 {
@@ -220,23 +242,23 @@ static int libipw_is_eapol_frame(struct libipw_device *ieee,
 	hdr = (struct libipw_hdr_3addr *)skb->data;
 	fc = le16_to_cpu(hdr->frame_ctl);
 
-	
+	/* check that the frame is unicast frame to us */
 	if ((fc & (IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS)) ==
 	    IEEE80211_FCTL_TODS &&
 	    !compare_ether_addr(hdr->addr1, dev->dev_addr) &&
 	    !compare_ether_addr(hdr->addr3, dev->dev_addr)) {
-		
+		/* ToDS frame with own addr BSSID and DA */
 	} else if ((fc & (IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS)) ==
 		   IEEE80211_FCTL_FROMDS &&
 		   !compare_ether_addr(hdr->addr1, dev->dev_addr)) {
-		
+		/* FromDS frame with own addr as DA */
 	} else
 		return 0;
 
 	if (skb->len < 24 + 8)
 		return 0;
 
-	
+	/* check for port access entity Ethernet type */
 	pos = skb->data + 24;
 	ethertype = (pos[6] << 8) | pos[7];
 	if (ethertype == ETH_P_PAE)
@@ -245,6 +267,7 @@ static int libipw_is_eapol_frame(struct libipw_device *ieee,
 	return 0;
 }
 
+/* Called only as a tasklet (software IRQ), by libipw_rx */
 static int
 libipw_rx_frame_decrypt(struct libipw_device *ieee, struct sk_buff *skb,
 			   struct lib80211_crypt_data *crypt)
@@ -275,6 +298,7 @@ libipw_rx_frame_decrypt(struct libipw_device *ieee, struct sk_buff *skb,
 	return res;
 }
 
+/* Called only as a tasklet (software IRQ), by libipw_rx */
 static int
 libipw_rx_frame_decrypt_msdu(struct libipw_device *ieee,
 				struct sk_buff *skb, int keyidx,
@@ -302,6 +326,9 @@ libipw_rx_frame_decrypt_msdu(struct libipw_device *ieee,
 	return 0;
 }
 
+/* All received frames are sent to this function. @skb contains the frame in
+ * IEEE 802.11 format, i.e., in the format it was sent over air.
+ * This function is called only as a tasklet (software IRQ). */
 int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		 struct libipw_rx_stats *rx_stats)
 {
@@ -345,9 +372,11 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		goto rx_dropped;
 	}
 
+	/* Put this code here so that we avoid duplicating it in all
+	 * Rx paths. - Jean II */
 #ifdef CONFIG_WIRELESS_EXT
-#ifdef IW_WIRELESS_SPY		
-	
+#ifdef IW_WIRELESS_SPY		/* defined in iw_handler.h */
+	/* If spy monitoring on */
 	if (ieee->spy_data.spy_number > 0) {
 		struct iw_quality wstats;
 
@@ -370,11 +399,11 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		} else
 			wstats.updated |= IW_QUAL_QUAL_INVALID;
 
-		
+		/* Update spy records */
 		wireless_spy_update(ieee->dev, hdr->addr2, &wstats);
 	}
-#endif				
-#endif				
+#endif				/* IW_WIRELESS_SPY */
+#endif				/* CONFIG_WIRELESS_EXT */
 
 #ifdef NOT_YET
 	hostap_update_rx_stats(local->ap, hdr, rx_stats);
@@ -393,26 +422,42 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 
 	if (can_be_decrypted) {
 		if (skb->len >= hdrlen + 3) {
-			
+			/* Top two-bits of byte 3 are the key index */
 			keyidx = skb->data[hdrlen + 3] >> 6;
 		}
 
+		/* ieee->crypt[] is WEP_KEY (4) in length.  Given that keyidx
+		 * is only allowed 2-bits of storage, no value of keyidx can
+		 * be provided via above code that would result in keyidx
+		 * being out of range */
 		crypt = ieee->crypt_info.crypt[keyidx];
 
 #ifdef NOT_YET
 		sta = NULL;
 
+		/* Use station specific key to override default keys if the
+		 * receiver address is a unicast address ("individual RA"). If
+		 * bcrx_sta_key parameter is set, station specific key is used
+		 * even with broad/multicast targets (this is against IEEE
+		 * 802.11, but makes it easier to use different keys with
+		 * stations that do not support WEP key mapping). */
 
 		if (is_unicast_ether_addr(hdr->addr1) || local->bcrx_sta_key)
 			(void)hostap_handle_sta_crypto(local, hdr, &crypt,
 						       &sta);
 #endif
 
+		/* allow NULL decrypt to indicate an station specific override
+		 * for default encryption */
 		if (crypt && (crypt->ops == NULL ||
 			      crypt->ops->decrypt_mpdu == NULL))
 			crypt = NULL;
 
 		if (!crypt && (fc & IEEE80211_FCTL_PROTECTED)) {
+			/* This seems to be triggered by some (multicast?)
+			 * frames from other than current BSS, so just drop the
+			 * frames silently instead of filling system log with
+			 * these reports. */
 			LIBIPW_DEBUG_DROP("Decryption failed (not set)"
 					     " (SA=%pM)\n", hdr->addr2);
 			ieee->ieee_stats.rx_discards_undecryptable++;
@@ -426,6 +471,8 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		    (keyidx = hostap_rx_frame_decrypt(ieee, skb, crypt)) < 0) {
 			printk(KERN_DEBUG "%s: failed to decrypt mgmt::auth "
 			       "from %pM\n", dev->name, hdr->addr2);
+			/* TODO: could inform hostapd about this so that it
+			 * could send auth failure report */
 			goto rx_dropped;
 		}
 
@@ -435,13 +482,13 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 			goto rx_exit;
 	}
 #endif
-	
+	/* drop duplicate 802.11 retransmissions (IEEE 802.11 Chap. 9.29) */
 	if (sc == ieee->prev_seq_ctl)
 		goto rx_dropped;
 	else
 		ieee->prev_seq_ctl = sc;
 
-	
+	/* Data frame - extract src/dst addresses */
 	if (skb->len < LIBIPW_3ADDR_LEN)
 		goto rx_dropped;
 
@@ -478,7 +525,7 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 	    (fc & (IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS)) ==
 	    IEEE80211_FCTL_FROMDS && ieee->stadev
 	    && !compare_ether_addr(hdr->addr2, ieee->assoc_ap_addr)) {
-		
+		/* Frame from BSSID of the AP for which we are a client */
 		skb->dev = dev = ieee->stadev;
 		stats = hostap_get_stats(dev);
 		from_assoc_ap = 1;
@@ -504,6 +551,8 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 	}
 #endif
 
+	/* Nullfunc frames may have PS-bit set, so they must be passed to
+	 * hostap_handle_sta_rx() before being dropped here. */
 
 	stype &= ~IEEE80211_STYPE_QOS_DATA;
 
@@ -519,7 +568,7 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		goto rx_dropped;
 	}
 
-	
+	/* skb: hdr + (possibly fragmented, possibly encrypted) payload */
 
 	if ((fc & IEEE80211_FCTL_PROTECTED) && can_be_decrypted &&
 	    (keyidx = libipw_rx_frame_decrypt(ieee, skb, crypt)) < 0)
@@ -527,9 +576,9 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 
 	hdr = (struct libipw_hdr_4addr *)skb->data;
 
-	
-	
-	
+	/* skb: hdr + (possibly fragmented) plaintext payload */
+	// PR: FIXME: hostap has additional conditions in the "if" below:
+	// ieee->host_decrypt && (fc & IEEE80211_FCTL_PROTECTED) &&
 	if ((frag != 0) || (fc & IEEE80211_FCTL_MOREFRAGS)) {
 		int flen;
 		struct sk_buff *frag_skb = libipw_frag_cache_get(ieee, hdr);
@@ -557,8 +606,12 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		}
 
 		if (frag == 0) {
+			/* copy first fragment (including full headers) into
+			 * beginning of the fragment cache skb */
 			skb_copy_from_linear_data(skb, skb_put(frag_skb, flen), flen);
 		} else {
+			/* append frame payload to the end of the fragment
+			 * cache skb */
 			skb_copy_from_linear_data_offset(skb, hdrlen,
 				      skb_put(frag_skb, flen), flen);
 		}
@@ -566,22 +619,31 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		skb = NULL;
 
 		if (fc & IEEE80211_FCTL_MOREFRAGS) {
+			/* more fragments expected - leave the skb in fragment
+			 * cache for now; it will be delivered to upper layers
+			 * after all fragments have been received */
 			goto rx_exit;
 		}
 
+		/* this was the last fragment and the frame will be
+		 * delivered, so remove skb from fragment cache */
 		skb = frag_skb;
 		hdr = (struct libipw_hdr_4addr *)skb->data;
 		libipw_frag_cache_invalidate(ieee, hdr);
 	}
 
+	/* skb: hdr + (possible reassembled) full MSDU payload; possibly still
+	 * encrypted/authenticated */
 	if ((fc & IEEE80211_FCTL_PROTECTED) && can_be_decrypted &&
 	    libipw_rx_frame_decrypt_msdu(ieee, skb, keyidx, crypt))
 		goto rx_dropped;
 
 	hdr = (struct libipw_hdr_4addr *)skb->data;
 	if (crypt && !(fc & IEEE80211_FCTL_PROTECTED) && !ieee->open_wep) {
-		if (		
+		if (		/*ieee->ieee802_1x && */
 			   libipw_is_eapol_frame(ieee, skb)) {
+			/* pass unencrypted EAPOL frames even if encryption is
+			 * configured */
 		} else {
 			LIBIPW_DEBUG_DROP("encryption configured, but RX "
 					     "frame not encrypted (SA=%pM)\n",
@@ -598,32 +660,38 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 		goto rx_dropped;
 	}
 
+	/* If the frame was decrypted in hardware, we may need to strip off
+	 * any security data (IV, ICV, etc) that was left behind */
 	if (!can_be_decrypted && (fc & IEEE80211_FCTL_PROTECTED) &&
 	    ieee->host_strip_iv_icv) {
 		int trimlen = 0;
 
-		
+		/* Top two-bits of byte 3 are the key index */
 		if (skb->len >= hdrlen + 3)
 			keyidx = skb->data[hdrlen + 3] >> 6;
 
+		/* To strip off any security data which appears before the
+		 * payload, we simply increase hdrlen (as the header gets
+		 * chopped off immediately below). For the security data which
+		 * appears after the payload, we use skb_trim. */
 
 		switch (ieee->sec.encode_alg[keyidx]) {
 		case SEC_ALG_WEP:
-			
+			/* 4 byte IV */
 			hdrlen += 4;
-			
+			/* 4 byte ICV */
 			trimlen = 4;
 			break;
 		case SEC_ALG_TKIP:
-			
+			/* 4 byte IV, 4 byte ExtIV */
 			hdrlen += 8;
-			
+			/* 8 byte MIC, 4 byte ICV */
 			trimlen = 12;
 			break;
 		case SEC_ALG_CCMP:
-			
+			/* 8 byte CCMP header */
 			hdrlen += 8;
-			
+			/* 8 byte MIC */
 			trimlen = 8;
 			break;
 		}
@@ -637,17 +705,21 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 			goto rx_dropped;
 	}
 
-	
+	/* skb: hdr + (possible reassembled) full plaintext payload */
 
 	payload = skb->data + hdrlen;
 	ethertype = (payload[6] << 8) | payload[7];
 
 #ifdef NOT_YET
+	/* If IEEE 802.1X is used, check whether the port is authorized to send
+	 * the received frame. */
 	if (ieee->ieee802_1x && ieee->iw_mode == IW_MODE_MASTER) {
 		if (ethertype == ETH_P_PAE) {
 			printk(KERN_DEBUG "%s: RX: IEEE 802.1X frame\n",
 			       dev->name);
 			if (ieee->hostapd && ieee->apdev) {
+				/* Send IEEE 802.1X frames to the user
+				 * space daemon for processing */
 				prism2_rx_80211(ieee->apdev, skb, rx_stats,
 						PRISM2_RX_MGMT);
 				ieee->apdevstats.rx_packets++;
@@ -663,17 +735,19 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 	}
 #endif
 
-	
+	/* convert hdr + possible LLC headers into Ethernet header */
 	if (skb->len - hdrlen >= 8 &&
 	    ((memcmp(payload, libipw_rfc1042_header, SNAP_SIZE) == 0 &&
 	      ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
 	     memcmp(payload, libipw_bridge_tunnel_header, SNAP_SIZE) == 0)) {
+		/* remove RFC1042 or Bridge-Tunnel encapsulation and
+		 * replace EtherType */
 		skb_pull(skb, hdrlen + SNAP_SIZE);
 		memcpy(skb_push(skb, ETH_ALEN), src, ETH_ALEN);
 		memcpy(skb_push(skb, ETH_ALEN), dst, ETH_ALEN);
 	} else {
 		__be16 len;
-		
+		/* Leave Ethernet header part of hdr and full payload */
 		skb_pull(skb, hdrlen);
 		len = htons(skb->len);
 		memcpy(skb_push(skb, 2), &len, 2);
@@ -684,6 +758,8 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 #ifdef NOT_YET
 	if (wds && ((fc & (IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS)) ==
 		    IEEE80211_FCTL_TODS) && skb->len >= ETH_HLEN + ETH_ALEN) {
+		/* Non-standard frame: get addr4 from its bogus location after
+		 * the payload */
 		skb_copy_to_linear_data_offset(skb, ETH_ALEN,
 					       skb->data + skb->len - ETH_ALEN,
 					       ETH_ALEN);
@@ -697,12 +773,16 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 #ifdef NOT_YET
 	if (ieee->iw_mode == IW_MODE_MASTER && !wds && ieee->ap->bridge_packets) {
 		if (is_multicast_ether_addr(dst)) {
+			/* copy multicast frame both to the higher layers and
+			 * to the wireless media */
 			ieee->ap->bridged_multicast++;
 			skb2 = skb_clone(skb, GFP_ATOMIC);
 			if (skb2 == NULL)
 				printk(KERN_DEBUG "%s: skb_clone failed for "
 				       "multicast frame\n", dev->name);
 		} else if (hostap_is_sta_assoc(ieee->ap, dst)) {
+			/* send frame directly to the associated STA using
+			 * wireless media and not passing to higher layers */
 			ieee->ap->bridged_unicast++;
 			skb2 = skb;
 			skb = NULL;
@@ -710,12 +790,12 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 	}
 
 	if (skb2 != NULL) {
-		
+		/* send to wireless media */
 		skb2->dev = dev;
 		skb2->protocol = htons(ETH_P_802_3);
 		skb_reset_mac_header(skb2);
 		skb_reset_network_header(skb2);
-		
+		/* skb2->network_header += ETH_HLEN; */
 		dev_queue_xmit(skb2);
 	}
 #endif
@@ -723,8 +803,11 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
 	if (skb) {
 		skb->protocol = eth_type_trans(skb, dev);
 		memset(skb->cb, 0, sizeof(skb->cb));
-		skb->ip_summed = CHECKSUM_NONE;	
+		skb->ip_summed = CHECKSUM_NONE;	/* 802.11 crc not sufficient */
 		if (netif_rx(skb) == NET_RX_DROP) {
+			/* netif_rx always succeeds, but it might drop
+			 * the packet.  If it drops the packet, we log that
+			 * in our stats. */
 			LIBIPW_DEBUG_DROP
 			    ("RX: netif_rx dropped the packet\n");
 			dev->stats.rx_dropped++;
@@ -741,9 +824,15 @@ int libipw_rx(struct libipw_device *ieee, struct sk_buff *skb,
       rx_dropped:
 	dev->stats.rx_dropped++;
 
+	/* Returning 0 indicates to caller that we have not handled the SKB--
+	 * so it is still allocated and can be used again by underlying
+	 * hardware as a DMA target */
 	return 0;
 }
 
+/* Filter out unrelated packets, call libipw_rx[_mgt]
+ * This function takes over the skb, it should not be used again after calling
+ * this function. */
 void libipw_rx_any(struct libipw_device *ieee,
 		     struct sk_buff *skb, struct libipw_rx_stats *stats)
 {
@@ -784,40 +873,40 @@ void libipw_rx_any(struct libipw_device *ieee,
 	is_packet_for_us = 0;
 	switch (ieee->iw_mode) {
 	case IW_MODE_ADHOC:
-		
+		/* our BSS and not from/to DS */
 		if (memcmp(hdr->addr3, ieee->bssid, ETH_ALEN) == 0)
 		if ((fc & (IEEE80211_FCTL_TODS+IEEE80211_FCTL_FROMDS)) == 0) {
-			
+			/* promisc: get all */
 			if (ieee->dev->flags & IFF_PROMISC)
 				is_packet_for_us = 1;
-			
+			/* to us */
 			else if (memcmp(hdr->addr1, ieee->dev->dev_addr, ETH_ALEN) == 0)
 				is_packet_for_us = 1;
-			
+			/* mcast */
 			else if (is_multicast_ether_addr(hdr->addr1))
 				is_packet_for_us = 1;
 		}
 		break;
 	case IW_MODE_INFRA:
-		
+		/* our BSS (== from our AP) and from DS */
 		if (memcmp(hdr->addr2, ieee->bssid, ETH_ALEN) == 0)
 		if ((fc & (IEEE80211_FCTL_TODS+IEEE80211_FCTL_FROMDS)) == IEEE80211_FCTL_FROMDS) {
-			
+			/* promisc: get all */
 			if (ieee->dev->flags & IFF_PROMISC)
 				is_packet_for_us = 1;
-			
+			/* to us */
 			else if (memcmp(hdr->addr1, ieee->dev->dev_addr, ETH_ALEN) == 0)
 				is_packet_for_us = 1;
-			
+			/* mcast */
 			else if (is_multicast_ether_addr(hdr->addr1)) {
-				
+				/* not our own packet bcasted from AP */
 				if (memcmp(hdr->addr3, ieee->dev->dev_addr, ETH_ALEN))
 					is_packet_for_us = 1;
 			}
 		}
 		break;
 	default:
-		
+		/* ? */
 		break;
 	}
 
@@ -835,6 +924,10 @@ drop_free:
 
 static u8 qos_oui[QOS_OUI_LEN] = { 0x00, 0x50, 0xF2 };
 
+/*
+* Make the structure we read from the beacon packet to have
+* the right values
+*/
 static int libipw_verify_qos_info(struct libipw_qos_information_element
 				     *info_element, int sub_type)
 {
@@ -851,6 +944,9 @@ static int libipw_verify_qos_info(struct libipw_qos_information_element
 	return 0;
 }
 
+/*
+ * Parse a QoS parameter element
+ */
 static int libipw_read_qos_param_element(struct libipw_qos_parameter_info
 					    *element_param, struct libipw_info_element
 					    *info_element)
@@ -874,6 +970,9 @@ static int libipw_read_qos_param_element(struct libipw_qos_parameter_info
 	return ret;
 }
 
+/*
+ * Parse a QoS information element
+ */
 static int libipw_read_qos_info_element(struct
 					   libipw_qos_information_element
 					   *element_info, struct libipw_info_element
@@ -901,6 +1000,9 @@ static int libipw_read_qos_info_element(struct
 	return ret;
 }
 
+/*
+ * Write QoS parameters from the ac parameters.
+ */
 static int libipw_qos_convert_ac_to_parameters(struct
 						  libipw_qos_parameter_info
 						  *param_elm, struct
@@ -935,6 +1037,11 @@ static int libipw_qos_convert_ac_to_parameters(struct
 	return rc;
 }
 
+/*
+ * we have a generic data element which it may contain QoS information or
+ * parameters element. check the information element length to decide
+ * which type to read
+ */
 static int libipw_parse_qos_info_param_IE(struct libipw_info_element
 					     *info_element,
 					     struct libipw_network *network)
@@ -1028,6 +1135,9 @@ static int libipw_parse_info_param(struct libipw_info_element
 					     info_element->len +
 					     sizeof(*info_element),
 					     length, info_element->id);
+			/* We stop processing but don't return an error here
+			 * because some misbehaviour APs break this rule. ie.
+			 * Orinoco AP1000. */
 			break;
 		}
 
@@ -1170,7 +1280,7 @@ static int libipw_parse_info_param(struct libipw_info_element
 			printk(KERN_ERR
 			       "QoS Error need to parse QOS_PARAMETER IE\n");
 			break;
-			
+			/* 802.11h */
 		case WLAN_EID_PWR_CONSTRAINT:
 			network->power_constraint = info_element->data[0];
 			network->flags |= NETWORK_HAS_POWER_CONSTRAINT;
@@ -1239,7 +1349,7 @@ static int libipw_handle_assoc_resp(struct libipw_device *ieee, struct libipw_as
 	network->qos_data.param_count = 0;
 	network->qos_data.old_param_count = 0;
 
-	
+	//network->atim_window = le16_to_cpu(frame->aid) & (0x3FFF);
 	network->atim_window = le16_to_cpu(frame->aid);
 	network->listen_interval = le16_to_cpu(frame->status);
 	memcpy(network->bssid, frame->header.addr3, ETH_ALEN);
@@ -1252,7 +1362,7 @@ static int libipw_handle_assoc_resp(struct libipw_device *ieee, struct libipw_as
 	    (network->capability & WLAN_CAPABILITY_IBSS) ? 0x3 : 0x0;
 
 	if (stats->freq == LIBIPW_52GHZ_BAND) {
-		
+		/* for A band (No DS info) */
 		network->channel = stats->received_channel;
 	} else
 		network->flags |= NETWORK_HAS_CCK;
@@ -1282,6 +1392,7 @@ static int libipw_handle_assoc_resp(struct libipw_device *ieee, struct libipw_as
 	return 0;
 }
 
+/***************************************************/
 
 static int libipw_network_init(struct libipw_device *ieee, struct libipw_probe_response
 					 *beacon,
@@ -1295,14 +1406,14 @@ static int libipw_network_init(struct libipw_device *ieee, struct libipw_probe_r
 	network->qos_data.param_count = 0;
 	network->qos_data.old_param_count = 0;
 
-	
+	/* Pull out fixed field data */
 	memcpy(network->bssid, beacon->header.addr3, ETH_ALEN);
 	network->capability = le16_to_cpu(beacon->capability);
 	network->last_scanned = jiffies;
 	network->time_stamp[0] = le32_to_cpu(beacon->time_stamp[0]);
 	network->time_stamp[1] = le32_to_cpu(beacon->time_stamp[1]);
 	network->beacon_interval = le16_to_cpu(beacon->beacon_interval);
-	
+	/* Where to pull this? beacon->listen_interval; */
 	network->listen_interval = 0x0A;
 	network->rates_len = network->rates_ex_len = 0;
 	network->last_associate = 0;
@@ -1313,7 +1424,7 @@ static int libipw_network_init(struct libipw_device *ieee, struct libipw_probe_r
 	    0x3 : 0x0;
 
 	if (stats->freq == LIBIPW_52GHZ_BAND) {
-		
+		/* for A band (No DS info) */
 		network->channel = stats->received_channel;
 	} else
 		network->flags |= NETWORK_HAS_CCK;
@@ -1352,6 +1463,9 @@ static int libipw_network_init(struct libipw_device *ieee, struct libipw_probe_r
 static inline int is_same_network(struct libipw_network *src,
 				  struct libipw_network *dst)
 {
+	/* A network is only a duplicate if the channel, BSSID, and ESSID
+	 * all match.  We treat all <hidden> with the same BSSID and channel
+	 * as one network */
 	return ((src->ssid_len == dst->ssid_len) &&
 		(src->channel == dst->channel) &&
 		!compare_ether_addr(src->bssid, dst->bssid) &&
@@ -1367,6 +1481,11 @@ static void update_network(struct libipw_network *dst,
 	libipw_network_reset(dst);
 	dst->ibss_dfs = src->ibss_dfs;
 
+	/* We only update the statistics if they were created by receiving
+	 * the network information on the actual channel the network is on.
+	 *
+	 * This keeps beacons received on neighbor channels from bringing
+	 * down the signal level of an AP. */
 	if (dst->channel == src->stats.received_channel)
 		memcpy(&dst->stats, &src->stats,
 		       sizeof(struct libipw_rx_stats));
@@ -1477,7 +1596,15 @@ static void libipw_process_probe_response(struct libipw_device
 		return;
 	}
 
+	/* The network parsed correctly -- so now we scan our known networks
+	 * to see if we can find it in our list.
+	 *
+	 * NOTE:  This search is definitely not optimized.  Once its doing
+	 *        the "right thing" we'll optimize it for efficiency if
+	 *        necessary */
 
+	/* Search for this entry in the list and update it if it is
+	 * already there. */
 
 	spin_lock_irqsave(&ieee->lock, flags);
 
@@ -1490,9 +1617,11 @@ static void libipw_process_probe_response(struct libipw_device
 			oldest = target;
 	}
 
+	/* If we didn't find a match, then get a new network slot to initialize
+	 * with this beacon's information */
 	if (&target->list == &ieee->network_list) {
 		if (list_empty(&ieee->network_free_list)) {
-			
+			/* If there are no more slots, expire the oldest */
 			list_del(&oldest->list);
 			target = oldest;
 			LIBIPW_DEBUG_SCAN("Expired '%s' (%pM) from "
@@ -1502,7 +1631,7 @@ static void libipw_process_probe_response(struct libipw_device
 					     target->bssid);
 			libipw_network_reset(target);
 		} else {
-			
+			/* Otherwise just pull from the free list */
 			target = list_entry(ieee->network_free_list.next,
 					    struct libipw_network, list);
 			list_del(ieee->network_free_list.next);

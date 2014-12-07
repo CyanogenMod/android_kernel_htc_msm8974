@@ -77,6 +77,7 @@ int viafb_ioctl_get_viafb_info(u_long arg)
 	return 0;
 }
 
+/* Hot-Plug Priority: DVI > CRT*/
 int viafb_ioctl_hotplug(int hres, int vres, int bpp)
 {
 	int DVIsense, status = 0;

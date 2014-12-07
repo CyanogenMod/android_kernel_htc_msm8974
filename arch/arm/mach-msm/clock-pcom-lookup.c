@@ -309,6 +309,7 @@ struct clock_init_data msm7x27_clock_init_data __initdata = {
 	.pre_init = msm_shared_pll_control_init,
 };
 
+/* Clock table for common clocks between 7627a and 7625a */
 static struct clk_lookup msm_cmn_clk_7625a_7627a[] __initdata = {
 	CLK_LOOKUP("core_clk",		adm_clk.c,	"msm_dmov"),
 	CLK_LOOKUP("adsp_clk",		adsp_clk.c,	NULL),
@@ -405,6 +406,7 @@ static struct clk_lookup msm_cmn_clk_7625a_7627a[] __initdata = {
 
 };
 
+/* PLL 4 clock is available for 7627a target. */
 static struct clk_lookup msm_clk_7627a[] __initdata = {
 	CLK_LOOKUP("pll4_clk",		pll4_clk.c,	"acpu"),
 };
@@ -416,7 +418,7 @@ static void __init msm7627a_clock_pre_init(void)
 {
 	int size = ARRAY_SIZE(msm_cmn_clk_7625a_7627a);
 
-	
+	/* Intialize shared PLL control structure */
 	msm_shared_pll_control_init();
 
 	memcpy(&msm_clk_7627a_7625a, &msm_cmn_clk_7625a_7627a,

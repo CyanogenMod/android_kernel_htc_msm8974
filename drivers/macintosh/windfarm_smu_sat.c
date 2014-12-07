@@ -30,13 +30,14 @@
 #define DBG(args...)	do { } while(0)
 #endif
 
+/* If the cache is older than 800ms we'll refetch it */
 #define MAX_AGE		msecs_to_jiffies(800)
 
 struct wf_sat {
 	int			nr;
 	atomic_t		refcnt;
 	struct mutex		mutex;
-	unsigned long		last_read; 
+	unsigned long		last_read; /* jiffies when cache last updated */
 	u8			cache[16];
 	struct i2c_client	*i2c;
 	struct device_node	*node;
@@ -46,7 +47,7 @@ static struct wf_sat *sats[2];
 
 struct wf_sat_sensor {
 	int		index;
-	int		index2;		
+	int		index2;		/* used for power sensors */
 	int		shift;
 	struct wf_sat	*sat;
 	struct wf_sensor sens;
@@ -63,7 +64,7 @@ struct smu_sdbp_header *smu_sat_get_sdb_partition(unsigned int sat_id, int id,
 	u8 *buf;
 	u8 data[4];
 
-	
+	/* TODO: Add the resulting partition to the device-tree */
 
 	if (sat_id > 1 || (sat = sats[sat_id]) == NULL)
 		return NULL;
@@ -120,6 +121,7 @@ struct smu_sdbp_header *smu_sat_get_sdb_partition(unsigned int sat_id, int id,
 }
 EXPORT_SYMBOL_GPL(smu_sat_get_sdb_partition);
 
+/* refresh the cache */
 static int wf_sat_read_cache(struct wf_sat *sat)
 {
 	int err;
@@ -161,7 +163,7 @@ static int wf_sat_get(struct wf_sensor *sr, s32 *value)
 	val = ((sat->cache[i] << 8) + sat->cache[i+1]) << sens->shift;
 	if (sens->index2 >= 0) {
 		i = sens->index2 * 2;
-		
+		/* 4.12 * 8.8 -> 12.20; shift right 4 to get 16.16 */
 		val = (val * ((sat->cache[i] << 8) + sat->cache[i+1])) >> 4;
 	}
 
@@ -218,6 +220,10 @@ static void wf_sat_create(struct i2c_adapter *adapter, struct device_node *dev)
 		return;
 	}
 
+	/*
+	 * Let i2c-core delete that device on driver removal.
+	 * This is safe because i2c-core holds the core_lock mutex for us.
+	 */
 	list_add_tail(&client->detected, &wf_sat_driver.clients);
 }
 
@@ -255,12 +261,12 @@ static int wf_sat_probe(struct i2c_client *client,
 		if (reg == NULL || loc == NULL)
 			continue;
 
-		
+		/* the cooked sensors are between 0x30 and 0x37 */
 		if (*reg < 0x30 || *reg > 0x37)
 			continue;
 		index = *reg - 0x30;
 
-		
+		/* expect location to be CPU [AB][01] ... */
 		if (strncmp(loc, "CPU ", 4) != 0)
 			continue;
 		chip = loc[4] - 'A';
@@ -291,9 +297,9 @@ static int wf_sat_probe(struct i2c_client *client,
 			name = "cpu-temp";
 			shift = 10;
 		} else
-			continue;	
+			continue;	/* hmmm shouldn't happen */
 
-		
+		/* the +16 is enough for "cpu-voltage-n" */
 		sens = kzalloc(sizeof(struct wf_sat_sensor) + 16, GFP_KERNEL);
 		if (sens == NULL) {
 			printk(KERN_ERR "wf_sat_create: couldn't create "
@@ -315,7 +321,7 @@ static int wf_sat_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* make the power sensors */
 	for (core = 0; core < 2; ++core) {
 		if (vsens[core] < 0 || isens[core] < 0)
 			continue;
@@ -367,7 +373,7 @@ static int wf_sat_remove(struct i2c_client *client)
 {
 	struct wf_sat *sat = i2c_get_clientdata(client);
 
-	
+	/* XXX TODO */
 
 	sat->i2c = NULL;
 	return 0;
@@ -393,7 +399,7 @@ static int __init sat_sensors_init(void)
 	return i2c_add_driver(&wf_sat_driver);
 }
 
-#if 0	
+#if 0	/* uncomment when module_exit() below is uncommented */
 static void __exit sat_sensors_exit(void)
 {
 	i2c_del_driver(&wf_sat_driver);
@@ -401,6 +407,7 @@ static void __exit sat_sensors_exit(void)
 #endif
 
 module_init(sat_sensors_init);
+/*module_exit(sat_sensors_exit); Uncomment when cleanup is implemented */
 
 MODULE_AUTHOR("Paul Mackerras <paulus@samba.org>");
 MODULE_DESCRIPTION("SMU satellite sensors for PowerMac thermal control");

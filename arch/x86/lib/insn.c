@@ -22,6 +22,7 @@
 #include <asm/inat.h>
 #include <asm/insn.h>
 
+/* Verify next sizeof(t) bytes can be on the same instruction */
 #define validate_next(t, insn, n)	\
 	((insn)->next_byte + sizeof(t) + n - (insn)->kaddr <= MAX_INSN_SIZE)
 
@@ -39,6 +40,12 @@
 
 #define peek_next(t, insn)	peek_nbyte_next(t, insn, 0)
 
+/**
+ * insn_init() - initialize struct insn
+ * @insn:	&struct insn to be initialized
+ * @kaddr:	address (in kernel memory) of instruction (or copy thereof)
+ * @x86_64:	!0 for 64-bit kernel or 64-bit app
+ */
 void insn_init(struct insn *insn, const void *kaddr, int x86_64)
 {
 	memset(insn, 0, sizeof(*insn));
@@ -52,6 +59,14 @@ void insn_init(struct insn *insn, const void *kaddr, int x86_64)
 		insn->addr_bytes = 4;
 }
 
+/**
+ * insn_get_prefixes - scan x86 instruction prefix bytes
+ * @insn:	&struct insn containing instruction
+ *
+ * Populates the @insn->prefixes bitmap, and updates @insn->next_byte
+ * to point to the (first) opcode.  No effect if @insn->prefixes.got
+ * is already set.
+ */
 void insn_get_prefixes(struct insn *insn)
 {
 	struct insn_field *prefixes = &insn->prefixes;
@@ -67,22 +82,22 @@ void insn_get_prefixes(struct insn *insn)
 	b = peek_next(insn_byte_t, insn);
 	attr = inat_get_opcode_attribute(b);
 	while (inat_is_legacy_prefix(attr)) {
-		
+		/* Skip if same prefix */
 		for (i = 0; i < nb; i++)
 			if (prefixes->bytes[i] == b)
 				goto found;
 		if (nb == 4)
-			
+			/* Invalid instruction */
 			break;
 		prefixes->bytes[nb++] = b;
 		if (inat_is_address_size_prefix(attr)) {
-			
+			/* address size switches 2/4 or 4/8 */
 			if (insn->x86_64)
 				insn->addr_bytes ^= 12;
 			else
 				insn->addr_bytes ^= 6;
 		} else if (inat_is_operand_size_prefix(attr)) {
-			
+			/* oprand size switches 2/4 */
 			insn->opnd_bytes ^= 6;
 		}
 found:
@@ -92,10 +107,10 @@ found:
 		b = peek_next(insn_byte_t, insn);
 		attr = inat_get_opcode_attribute(b);
 	}
-	
+	/* Set the last prefix */
 	if (lb && lb != insn->prefixes.bytes[3]) {
 		if (unlikely(insn->prefixes.bytes[3])) {
-			
+			/* Swap the last prefix */
 			b = insn->prefixes.bytes[3];
 			for (i = 0; i < nb; i++)
 				if (prefixes->bytes[i] == lb)
@@ -104,7 +119,7 @@ found:
 		insn->prefixes.bytes[3] = lb;
 	}
 
-	
+	/* Decode REX prefix */
 	if (insn->x86_64) {
 		b = peek_next(insn_byte_t, insn);
 		attr = inat_get_opcode_attribute(b);
@@ -113,18 +128,23 @@ found:
 			insn->rex_prefix.nbytes = 1;
 			insn->next_byte++;
 			if (X86_REX_W(b))
-				
+				/* REX.W overrides opnd_size */
 				insn->opnd_bytes = 8;
 		}
 	}
 	insn->rex_prefix.got = 1;
 
-	
+	/* Decode VEX prefix */
 	b = peek_next(insn_byte_t, insn);
 	attr = inat_get_opcode_attribute(b);
 	if (inat_is_vex_prefix(attr)) {
 		insn_byte_t b2 = peek_nbyte_next(insn_byte_t, insn, 1);
 		if (!insn->x86_64) {
+			/*
+			 * In 32-bits mode, if the [7:6] bits (mod bits of
+			 * ModRM) on the second byte are not 11b, it is
+			 * LDS or LES.
+			 */
 			if (X86_MODRM_MOD(b2) != 3)
 				goto vex_end;
 		}
@@ -136,7 +156,7 @@ found:
 			insn->vex_prefix.nbytes = 3;
 			insn->next_byte += 3;
 			if (insn->x86_64 && X86_VEX_W(b2))
-				
+				/* VEX.W overrides opnd_size */
 				insn->opnd_bytes = 8;
 		} else {
 			insn->vex_prefix.nbytes = 2;
@@ -152,6 +172,16 @@ err_out:
 	return;
 }
 
+/**
+ * insn_get_opcode - collect opcode(s)
+ * @insn:	&struct insn containing instruction
+ *
+ * Populates @insn->opcode, updates @insn->next_byte to point past the
+ * opcode byte(s), and set @insn->attr (except for groups).
+ * If necessary, first collects any preceding (prefix) bytes.
+ * Sets @insn->opcode.value = opcode1.  No effect if @insn->opcode.got
+ * is already 1.
+ */
 void insn_get_opcode(struct insn *insn)
 {
 	struct insn_field *opcode = &insn->opcode;
@@ -162,32 +192,32 @@ void insn_get_opcode(struct insn *insn)
 	if (!insn->prefixes.got)
 		insn_get_prefixes(insn);
 
-	
+	/* Get first opcode */
 	op = get_next(insn_byte_t, insn);
 	opcode->bytes[0] = op;
 	opcode->nbytes = 1;
 
-	
+	/* Check if there is VEX prefix or not */
 	if (insn_is_avx(insn)) {
 		insn_byte_t m, p;
 		m = insn_vex_m_bits(insn);
 		p = insn_vex_p_bits(insn);
 		insn->attr = inat_get_avx_attribute(op, m, p);
 		if (!inat_accept_vex(insn->attr) && !inat_is_group(insn->attr))
-			insn->attr = 0;	
-		goto end;	
+			insn->attr = 0;	/* This instruction is bad */
+		goto end;	/* VEX has only 1 byte for opcode */
 	}
 
 	insn->attr = inat_get_opcode_attribute(op);
 	while (inat_is_escape(insn->attr)) {
-		
+		/* Get escaped opcode */
 		op = get_next(insn_byte_t, insn);
 		opcode->bytes[opcode->nbytes++] = op;
 		pfx_id = insn_last_prefix_id(insn);
 		insn->attr = inat_get_escape_attribute(op, pfx_id, insn->attr);
 	}
 	if (inat_must_vex(insn->attr))
-		insn->attr = 0;	
+		insn->attr = 0;	/* This instruction is bad */
 end:
 	opcode->got = 1;
 
@@ -195,6 +225,14 @@ err_out:
 	return;
 }
 
+/**
+ * insn_get_modrm - collect ModRM byte, if any
+ * @insn:	&struct insn containing instruction
+ *
+ * Populates @insn->modrm and updates @insn->next_byte to point past the
+ * ModRM byte, if any.  If necessary, first collects the preceding bytes
+ * (prefixes and opcode(s)).  No effect if @insn->modrm.got is already 1.
+ */
 void insn_get_modrm(struct insn *insn)
 {
 	struct insn_field *modrm = &insn->modrm;
@@ -213,7 +251,7 @@ void insn_get_modrm(struct insn *insn)
 			insn->attr = inat_get_group_attribute(mod, pfx_id,
 							      insn->attr);
 			if (insn_is_avx(insn) && !inat_accept_vex(insn->attr))
-				insn->attr = 0;	
+				insn->attr = 0;	/* This is bad */
 		}
 	}
 
@@ -226,6 +264,13 @@ err_out:
 }
 
 
+/**
+ * insn_rip_relative() - Does instruction use RIP-relative addressing mode?
+ * @insn:	&struct insn containing instruction
+ *
+ * If necessary, first collects the instruction up to and including the
+ * ModRM byte.  No effect if @insn->x86_64 is 0.
+ */
 int insn_rip_relative(struct insn *insn)
 {
 	struct insn_field *modrm = &insn->modrm;
@@ -234,9 +279,20 @@ int insn_rip_relative(struct insn *insn)
 		return 0;
 	if (!modrm->got)
 		insn_get_modrm(insn);
+	/*
+	 * For rip-relative instructions, the mod field (top 2 bits)
+	 * is zero and the r/m field (bottom 3 bits) is 0x5.
+	 */
 	return (modrm->nbytes && (modrm->value & 0xc7) == 0x5);
 }
 
+/**
+ * insn_get_sib() - Get the SIB byte of instruction
+ * @insn:	&struct insn containing instruction
+ *
+ * If necessary, first collects the instruction up to and including the
+ * ModRM byte.
+ */
 void insn_get_sib(struct insn *insn)
 {
 	insn_byte_t modrm;
@@ -260,6 +316,14 @@ err_out:
 }
 
 
+/**
+ * insn_get_displacement() - Get the displacement of instruction
+ * @insn:	&struct insn containing instruction
+ *
+ * If necessary, first collects the instruction up to and including the
+ * SIB byte.
+ * Displacement value is sign-expanded.
+ */
 void insn_get_displacement(struct insn *insn)
 {
 	insn_byte_t mod, rm, base;
@@ -269,6 +333,23 @@ void insn_get_displacement(struct insn *insn)
 	if (!insn->sib.got)
 		insn_get_sib(insn);
 	if (insn->modrm.nbytes) {
+		/*
+		 * Interpreting the modrm byte:
+		 * mod = 00 - no displacement fields (exceptions below)
+		 * mod = 01 - 1-byte displacement field
+		 * mod = 10 - displacement field is 4 bytes, or 2 bytes if
+		 * 	address size = 2 (0x67 prefix in 32-bit mode)
+		 * mod = 11 - no memory operand
+		 *
+		 * If address size = 2...
+		 * mod = 00, r/m = 110 - displacement field is 2 bytes
+		 *
+		 * If address size != 2...
+		 * mod != 11, r/m = 100 - SIB byte exists
+		 * mod = 00, SIB base = 101 - displacement field is 4 bytes
+		 * mod = 00, r/m = 101 - rip-relative addressing, displacement
+		 * 	field is 4 bytes
+		 */
 		mod = X86_MODRM_MOD(insn->modrm.value);
 		rm = X86_MODRM_RM(insn->modrm.value);
 		base = X86_SIB_BASE(insn->sib.value);
@@ -298,6 +379,7 @@ err_out:
 	return;
 }
 
+/* Decode moffset16/32/64. Return 0 if failed */
 static int __get_moffset(struct insn *insn)
 {
 	switch (insn->addr_bytes) {
@@ -315,7 +397,7 @@ static int __get_moffset(struct insn *insn)
 		insn->moffset2.value = get_next(int, insn);
 		insn->moffset2.nbytes = 4;
 		break;
-	default:	
+	default:	/* opnd_bytes must be modified manually */
 		goto err_out;
 	}
 	insn->moffset1.got = insn->moffset2.got = 1;
@@ -326,6 +408,7 @@ err_out:
 	return 0;
 }
 
+/* Decode imm v32(Iz). Return 0 if failed */
 static int __get_immv32(struct insn *insn)
 {
 	switch (insn->opnd_bytes) {
@@ -338,7 +421,7 @@ static int __get_immv32(struct insn *insn)
 		insn->immediate.value = get_next(int, insn);
 		insn->immediate.nbytes = 4;
 		break;
-	default:	
+	default:	/* opnd_bytes must be modified manually */
 		goto err_out;
 	}
 
@@ -348,6 +431,7 @@ err_out:
 	return 0;
 }
 
+/* Decode imm v64(Iv/Ov), Return 0 if failed */
 static int __get_immv(struct insn *insn)
 {
 	switch (insn->opnd_bytes) {
@@ -365,7 +449,7 @@ static int __get_immv(struct insn *insn)
 		insn->immediate2.value = get_next(int, insn);
 		insn->immediate2.nbytes = 4;
 		break;
-	default:	
+	default:	/* opnd_bytes must be modified manually */
 		goto err_out;
 	}
 	insn->immediate1.got = insn->immediate2.got = 1;
@@ -375,6 +459,7 @@ err_out:
 	return 0;
 }
 
+/* Decode ptr16:16/32(Ap) */
 static int __get_immptr(struct insn *insn)
 {
 	switch (insn->opnd_bytes) {
@@ -387,9 +472,9 @@ static int __get_immptr(struct insn *insn)
 		insn->immediate1.nbytes = 4;
 		break;
 	case 8:
-		
+		/* ptr16:64 is not exist (no segment) */
 		return 0;
-	default:	
+	default:	/* opnd_bytes must be modified manually */
 		goto err_out;
 	}
 	insn->immediate2.value = get_next(unsigned short, insn);
@@ -401,6 +486,15 @@ err_out:
 	return 0;
 }
 
+/**
+ * insn_get_immediate() - Get the immediates of instruction
+ * @insn:	&struct insn containing instruction
+ *
+ * If necessary, first collects the instruction up to and including the
+ * displacement bytes.
+ * Basically, most of immediates are sign-expanded. Unsigned-value can be
+ * get by bit masking with ((1 << (nbytes * 8)) - 1)
+ */
 void insn_get_immediate(struct insn *insn)
 {
 	if (insn->immediate.got)
@@ -415,7 +509,7 @@ void insn_get_immediate(struct insn *insn)
 	}
 
 	if (!inat_has_immediate(insn->attr))
-		
+		/* no immediates */
 		goto done;
 
 	switch (inat_immediate_size(insn->attr)) {
@@ -450,7 +544,7 @@ void insn_get_immediate(struct insn *insn)
 			goto err_out;
 		break;
 	default:
-		
+		/* Here, insn must have an immediate, but failed */
 		goto err_out;
 	}
 	if (inat_has_second_immediate(insn->attr)) {
@@ -464,6 +558,13 @@ err_out:
 	return;
 }
 
+/**
+ * insn_get_length() - Get the length of instruction
+ * @insn:	&struct insn containing instruction
+ *
+ * If necessary, first collects the instruction up to and including the
+ * immediates bytes.
+ */
 void insn_get_length(struct insn *insn)
 {
 	if (insn->length)

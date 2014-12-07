@@ -21,7 +21,7 @@ struct bbc_cpu_temperature {
 	struct bbc_i2c_client		*client;
 	int				index;
 
-	
+	/* Current readings, and history. */
 	s8				curr_cpu_temp;
 	s8				curr_amb_temp;
 	s8				prev_cpu_temp;
@@ -71,13 +71,15 @@ struct bbc_i2c_bus {
 	} devs[NUM_CHILDREN];
 };
 
+/* Probing and attachment. */
 extern struct platform_device *bbc_i2c_getdev(struct bbc_i2c_bus *, int);
 extern struct bbc_i2c_client *bbc_i2c_attach(struct bbc_i2c_bus *bp, struct platform_device *);
 extern void bbc_i2c_detach(struct bbc_i2c_client *);
 
+/* Register read/write.  NOTE: Blocking! */
 extern int bbc_i2c_writeb(struct bbc_i2c_client *, unsigned char val, int off);
 extern int bbc_i2c_readb(struct bbc_i2c_client *, unsigned char *byte, int off);
 extern int bbc_i2c_write_buf(struct bbc_i2c_client *, char *buf, int len, int off);
 extern int bbc_i2c_read_buf(struct bbc_i2c_client *, char *buf, int len, int off);
 
-#endif 
+#endif /* _BBC_I2C_H */

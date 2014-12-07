@@ -45,6 +45,12 @@ void cfg80211_send_rx_assoc(struct net_device *dev, struct cfg80211_bss *bss,
 
 	status_code = le16_to_cpu(mgmt->u.assoc_resp.status_code);
 
+	/*
+	 * This is a bit of a hack, we don't notify userspace of
+	 * a (re-)association reply if we tried to send a reassoc
+	 * and got a reject -- we only try again with an assoc
+	 * frame instead of reassoc.
+	 */
 	if (status_code != WLAN_STATUS_SUCCESS && wdev->conn &&
 	    cfg80211_sme_failed_reassoc(wdev)) {
 		cfg80211_put_bss(bss);
@@ -55,15 +61,24 @@ void cfg80211_send_rx_assoc(struct net_device *dev, struct cfg80211_bss *bss,
 
 	if (status_code != WLAN_STATUS_SUCCESS && wdev->conn) {
 		cfg80211_sme_failed_assoc(wdev);
+		/*
+		 * do not call connect_result() now because the
+		 * sme will schedule work that does it later.
+		 */
 		cfg80211_put_bss(bss);
 		goto out;
 	}
 
 	if (!wdev->conn && wdev->sme_state == CFG80211_SME_IDLE) {
+		/*
+		 * This is for the userspace SME, the CONNECTING
+		 * state will be changed to CONNECTED by
+		 * __cfg80211_connect_result() below.
+		 */
 		wdev->sme_state = CFG80211_SME_CONNECTING;
 	}
 
-	
+	/* this consumes the bss reference */
 	__cfg80211_connect_result(dev, mgmt->bssid, NULL, 0, ie, len - ieoffs,
 				  status_code,
 				  status_code == WLAN_STATUS_SUCCESS, bss);
@@ -249,6 +264,7 @@ void cfg80211_michael_mic_failure(struct net_device *dev, const u8 *addr,
 }
 EXPORT_SYMBOL(cfg80211_michael_mic_failure);
 
+/* some MLME handling for userspace SME */
 int __cfg80211_mlme_auth(struct cfg80211_registered_device *rdev,
 			 struct net_device *dev,
 			 struct ieee80211_channel *chan,
@@ -309,6 +325,7 @@ int cfg80211_mlme_auth(struct cfg80211_registered_device *rdev,
 	return err;
 }
 
+/*  Do a logical ht_capa &= ht_capa_mask.  */
 void cfg80211_oper_and_ht_capa(struct ieee80211_ht_cap *ht_capa,
 			       const struct ieee80211_ht_cap *ht_capa_mask)
 {
@@ -346,6 +363,10 @@ int __cfg80211_mlme_assoc(struct cfg80211_registered_device *rdev,
 
 	if (wdev->current_bss && prev_bssid &&
 	    memcmp(wdev->current_bss->pub.bssid, prev_bssid, ETH_ALEN) == 0) {
+		/*
+		 * Trying to reassociate: Allow this to proceed and let the old
+		 * association to be dropped when the new one is completed.
+		 */
 		if (wdev->sme_state == CFG80211_SME_CONNECTED) {
 			was_connected = true;
 			wdev->sme_state = CFG80211_SME_CONNECTING;
@@ -743,10 +764,14 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 				break;
 			}
 
+			/*
+			 * check for IBSS DA must be done by driver as
+			 * cfg80211 doesn't track the stations
+			 */
 			if (wdev->iftype == NL80211_IFTYPE_ADHOC)
 				break;
 
-			
+			/* for station, check that DA is the AP */
 			if (memcmp(wdev->current_bss->pub.bssid,
 				   mgmt->da, ETH_ALEN)) {
 				err = -ENOTCONN;
@@ -764,6 +789,10 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 				err = -EINVAL;
 				break;
 			}
+			/*
+			 * check for mesh DA must be done by driver as
+			 * cfg80211 doesn't track the stations
+			 */
 			break;
 		default:
 			err = -EOPNOTSUPP;
@@ -778,7 +807,7 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 	if (memcmp(mgmt->sa, dev->dev_addr, ETH_ALEN) != 0)
 		return -EINVAL;
 
-	
+	/* Transmit the Action frame as requested by user space */
 	return rdev->ops->mgmt_tx(&rdev->wiphy, dev, chan, offchan,
 				  channel_type, channel_type_valid,
 				  wait, buf, len, no_cck, dont_wait_for_ack,
@@ -822,9 +851,9 @@ bool cfg80211_rx_mgmt(struct net_device *dev, int freq, int sig_mbm,
 		if (memcmp(reg->match, data, reg->match_len))
 			continue;
 
-		
+		/* found match! */
 
-		
+		/* Indicate the received Action frame to user space */
 		if (nl80211_send_mgmt(rdev, dev, reg->nlpid,
 				      freq, sig_mbm,
 				      buf, len, gfp))
@@ -847,7 +876,7 @@ void cfg80211_mgmt_tx_status(struct net_device *dev, u64 cookie,
 	struct wiphy *wiphy = wdev->wiphy;
 	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
 
-	
+	/* Indicate TX status of the Action frame to user space */
 	nl80211_send_mgmt_tx_status(rdev, dev, cookie, buf, len, ack, gfp);
 }
 EXPORT_SYMBOL(cfg80211_mgmt_tx_status);
@@ -860,7 +889,7 @@ void cfg80211_cqm_rssi_notify(struct net_device *dev,
 	struct wiphy *wiphy = wdev->wiphy;
 	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
 
-	
+	/* Indicate roaming trigger event to user space */
 	nl80211_send_cqm_rssi_notify(rdev, dev, rssi_event, gfp);
 }
 EXPORT_SYMBOL(cfg80211_cqm_rssi_notify);
@@ -872,7 +901,7 @@ void cfg80211_cqm_pktloss_notify(struct net_device *dev,
 	struct wiphy *wiphy = wdev->wiphy;
 	struct cfg80211_registered_device *rdev = wiphy_to_dev(wiphy);
 
-	
+	/* Indicate roaming trigger event to user space */
 	nl80211_send_cqm_pktloss_notify(rdev, dev, peer, num_packets, gfp);
 }
 EXPORT_SYMBOL(cfg80211_cqm_pktloss_notify);

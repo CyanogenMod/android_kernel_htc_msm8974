@@ -67,7 +67,7 @@
 #define IPHETH_USBINTF_PROTO    1
 
 #define IPHETH_BUF_SIZE         1516
-#define IPHETH_IP_ALIGN		2	
+#define IPHETH_IP_ALIGN		2	/* padding at front of URB */
 #define IPHETH_TX_TIMEOUT       (5 * HZ)
 
 #define IPHETH_INTFNUM          2
@@ -264,10 +264,10 @@ static int ipheth_carrier_set(struct ipheth_device *dev)
 
 	retval = usb_control_msg(udev,
 			usb_rcvctrlpipe(udev, IPHETH_CTRL_ENDP),
-			IPHETH_CMD_CARRIER_CHECK, 
-			0xc0, 
-			0x00, 
-			0x02, 
+			IPHETH_CMD_CARRIER_CHECK, /* request */
+			0xc0, /* request type */
+			0x00, /* value */
+			0x02, /* index */
 			dev->ctrl_buf, IPHETH_CTRL_BUF_SIZE,
 			IPHETH_CTRL_TIMEOUT);
 	if (retval < 0) {
@@ -300,10 +300,10 @@ static int ipheth_get_macaddr(struct ipheth_device *dev)
 
 	retval = usb_control_msg(udev,
 				 usb_rcvctrlpipe(udev, IPHETH_CTRL_ENDP),
-				 IPHETH_CMD_GET_MACADDR, 
-				 0xc0, 
-				 0x00, 
-				 0x02, 
+				 IPHETH_CMD_GET_MACADDR, /* request */
+				 0xc0, /* request type */
+				 0x00, /* value */
+				 0x02, /* index */
 				 dev->ctrl_buf,
 				 IPHETH_CTRL_BUF_SIZE,
 				 IPHETH_CTRL_TIMEOUT);
@@ -375,7 +375,7 @@ static int ipheth_tx(struct sk_buff *skb, struct net_device *net)
 	struct usb_device *udev = dev->udev;
 	int retval;
 
-	
+	/* Paranoid */
 	if (skb->len > IPHETH_BUF_SIZE) {
 		WARN(1, "%s: skb too large: %d bytes\n", __func__, skb->len);
 		dev->net->stats.tx_dropped++;
@@ -460,7 +460,7 @@ static int ipheth_probe(struct usb_interface *intf,
 	dev->net = netdev;
 	dev->intf = intf;
 
-	
+	/* Set up endpoints */
 	hintf = usb_altnum_to_altsetting(intf, IPHETH_ALT_INTFNUM);
 	if (hintf == NULL) {
 		retval = -ENODEV;

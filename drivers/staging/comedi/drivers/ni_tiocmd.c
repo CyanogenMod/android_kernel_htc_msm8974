@@ -19,6 +19,34 @@
   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+Driver: ni_tiocmd
+Description: National Instruments general purpose counters command support
+Devices:
+Author: J.P. Mellor <jpmellor@rose-hulman.edu>,
+	Herman.Bruyninckx@mech.kuleuven.ac.be,
+	Wim.Meeussen@mech.kuleuven.ac.be,
+	Klaas.Gadeyne@mech.kuleuven.ac.be,
+	Frank Mori Hess <fmhess@users.sourceforge.net>
+Updated: Fri, 11 Apr 2008 12:32:35 +0100
+Status: works
+
+This module is not used directly by end-users.  Rather, it
+is used by other drivers (for example ni_660x and ni_pcimio)
+to provide command support for NI's general purpose counters.
+It was originally split out of ni_tio.c to stop the 'ni_tio'
+module depending on the 'mite' module.
+
+References:
+DAQ 660x Register-Level Programmer Manual  (NI 370505A-01)
+DAQ 6601/6602 User Manual (NI 322137B-01)
+340934b.pdf  DAQ-STC reference manual
+
+*/
+/*
+TODO:
+	Support use of both banks X and Y
+*/
 
 #include "ni_tio_internal.h"
 #include "mite.h"
@@ -99,7 +127,7 @@ static int ni_tio_input_cmd(struct ni_gpct *counter, struct comedi_async *async)
 	struct comedi_cmd *cmd = &async->cmd;
 	int retval = 0;
 
-	
+	/* write alloc the entire buffer */
 	comedi_buf_write_alloc(async, async->prealloc_bufsz);
 	counter->mite_chan->dir = COMEDI_INPUT;
 	switch (counter_dev->variant) {
@@ -212,7 +240,7 @@ int ni_tio_cmdtest(struct ni_gpct *counter, struct comedi_cmd *cmd)
 	int tmp;
 	int sources;
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	sources = TRIG_NOW | TRIG_INT | TRIG_OTHER;
@@ -246,7 +274,7 @@ int ni_tio_cmdtest(struct ni_gpct *counter, struct comedi_cmd *cmd)
 	if (err)
 		return 1;
 
-	
+	/* step 2: make sure trigger sources are unique... */
 
 	if (cmd->start_src != TRIG_NOW &&
 	    cmd->start_src != TRIG_INT &&
@@ -261,14 +289,14 @@ int ni_tio_cmdtest(struct ni_gpct *counter, struct comedi_cmd *cmd)
 		err++;
 	if (cmd->stop_src != TRIG_NONE)
 		err++;
-	
+	/* ... and mutually compatible */
 	if (cmd->convert_src != TRIG_NOW && cmd->scan_begin_src != TRIG_FOLLOW)
 		err++;
 
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 	if (cmd->start_src != TRIG_EXT) {
 		if (cmd->start_arg != 0) {
 			cmd->start_arg = 0;
@@ -303,7 +331,7 @@ int ni_tio_cmdtest(struct ni_gpct *counter, struct comedi_cmd *cmd)
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	if (err)
 		return 4;
@@ -331,6 +359,9 @@ int ni_tio_cancel(struct ni_gpct *counter)
 }
 EXPORT_SYMBOL_GPL(ni_tio_cancel);
 
+	/* During buffered input counter operation for e-series, the gate
+	   interrupt is acked automatically by the dma controller, due to the
+	   Gi_Read/Write_Acknowledges_IRQ bits in the input select register.  */
 static int should_ack_gate(struct ni_gpct *counter)
 {
 	unsigned long flags;
@@ -338,6 +369,9 @@ static int should_ack_gate(struct ni_gpct *counter)
 
 	switch (counter->counter_dev->variant) {
 	case ni_gpct_variant_m_series:
+	/*  not sure if 660x really supports gate
+	    interrupts (the bits are not listed
+	    in register-level manual) */
 	case ni_gpct_variant_660x:
 		return 1;
 		break;
@@ -382,6 +416,9 @@ void ni_tio_acknowledge_and_confirm(struct ni_gpct *counter, int *gate_error,
 	if (gxx_status & Gi_Gate_Error_Bit(counter->counter_index)) {
 		ack |= Gi_Gate_Error_Confirm_Bit(counter->counter_index);
 		if (gate_error) {
+			/*660x don't support automatic acknowledgement
+			  of gate interrupt via dma read/write
+			   and report bogus gate errors */
 			if (counter->counter_dev->variant !=
 			    ni_gpct_variant_660x) {
 				*gate_error = 1;

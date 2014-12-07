@@ -38,6 +38,9 @@
 #define CAFE_VERSION 0x000002
 
 
+/*
+ * Parameters.
+ */
 MODULE_AUTHOR("Jonathan Corbet <corbet@lwn.net>");
 MODULE_DESCRIPTION("Marvell 88ALP01 CMOS Camera Controller driver");
 MODULE_LICENSE("GPL");
@@ -47,61 +50,97 @@ MODULE_SUPPORTED_DEVICE("Video");
 
 
 struct cafe_camera {
-	int registered;			
+	int registered;			/* Fully initialized? */
 	struct mcam_camera mcam;
 	struct pci_dev *pdev;
-	wait_queue_head_t smbus_wait;	
+	wait_queue_head_t smbus_wait;	/* Waiting on i2c events */
 };
 
+/*
+ * Most of the camera controller registers are defined in mcam-core.h,
+ * but the Cafe platform has some additional registers of its own;
+ * they are described here.
+ */
 
+/*
+ * "General purpose register" has a couple of GPIOs used for sensor
+ * power and reset on OLPC XO 1.0 systems.
+ */
 #define REG_GPR		0xb4
-#define	  GPR_C1EN	  0x00000020	
-#define	  GPR_C0EN	  0x00000010	
-#define	  GPR_C1	  0x00000002	
-#define	  GPR_C0	  0x00000001	
+#define	  GPR_C1EN	  0x00000020	/* Pad 1 (power down) enable */
+#define	  GPR_C0EN	  0x00000010	/* Pad 0 (reset) enable */
+#define	  GPR_C1	  0x00000002	/* Control 1 value */
+/*
+ * Control 0 is wired to reset on OLPC machines.  For ov7x sensors,
+ * it is active low.
+ */
+#define	  GPR_C0	  0x00000001	/* Control 0 value */
 
-#define REG_TWSIC0	0xb8	
-#define	  TWSIC0_EN	  0x00000001	
-#define	  TWSIC0_MODE	  0x00000002	
-#define	  TWSIC0_SID	  0x000003fc	
+/*
+ * These registers control the SMBUS module for communicating
+ * with the sensor.
+ */
+#define REG_TWSIC0	0xb8	/* TWSI (smbus) control 0 */
+#define	  TWSIC0_EN	  0x00000001	/* TWSI enable */
+#define	  TWSIC0_MODE	  0x00000002	/* 1 = 16-bit, 0 = 8-bit */
+#define	  TWSIC0_SID	  0x000003fc	/* Slave ID */
+/*
+ * Subtle trickery: the slave ID field starts with bit 2.  But the
+ * Linux i2c stack wants to treat the bottommost bit as a separate
+ * read/write bit, which is why slave ID's are usually presented
+ * >>1.  For consistency with that behavior, we shift over three
+ * bits instead of two.
+ */
 #define	  TWSIC0_SID_SHIFT 3
-#define	  TWSIC0_CLKDIV	  0x0007fc00	
-#define	  TWSIC0_MASKACK  0x00400000	
-#define	  TWSIC0_OVMAGIC  0x00800000	
+#define	  TWSIC0_CLKDIV	  0x0007fc00	/* Clock divider */
+#define	  TWSIC0_MASKACK  0x00400000	/* Mask ack from sensor */
+#define	  TWSIC0_OVMAGIC  0x00800000	/* Make it work on OV sensors */
 
-#define REG_TWSIC1	0xbc	
-#define	  TWSIC1_DATA	  0x0000ffff	
-#define	  TWSIC1_ADDR	  0x00ff0000	
+#define REG_TWSIC1	0xbc	/* TWSI control 1 */
+#define	  TWSIC1_DATA	  0x0000ffff	/* Data to/from camchip */
+#define	  TWSIC1_ADDR	  0x00ff0000	/* Address (register) */
 #define	  TWSIC1_ADDR_SHIFT 16
-#define	  TWSIC1_READ	  0x01000000	
-#define	  TWSIC1_WSTAT	  0x02000000	
-#define	  TWSIC1_RVALID	  0x04000000	
-#define	  TWSIC1_ERROR	  0x08000000	
+#define	  TWSIC1_READ	  0x01000000	/* Set for read op */
+#define	  TWSIC1_WSTAT	  0x02000000	/* Write status */
+#define	  TWSIC1_RVALID	  0x04000000	/* Read data valid */
+#define	  TWSIC1_ERROR	  0x08000000	/* Something screwed up */
 
-#define REG_GL_CSR     0x3004  
-#define	  GCSR_SRS	 0x00000001	
-#define	  GCSR_SRC	 0x00000002	
-#define	  GCSR_MRS	 0x00000004	
-#define	  GCSR_MRC	 0x00000008	
-#define	  GCSR_CCIC_EN	 0x00004000    
-#define REG_GL_IMASK   0x300c  
-#define	  GIMSK_CCIC_EN		 0x00000004    
+/*
+ * Here's the weird global control registers
+ */
+#define REG_GL_CSR     0x3004  /* Control/status register */
+#define	  GCSR_SRS	 0x00000001	/* SW Reset set */
+#define	  GCSR_SRC	 0x00000002	/* SW Reset clear */
+#define	  GCSR_MRS	 0x00000004	/* Master reset set */
+#define	  GCSR_MRC	 0x00000008	/* HW Reset clear */
+#define	  GCSR_CCIC_EN	 0x00004000    /* CCIC Clock enable */
+#define REG_GL_IMASK   0x300c  /* Interrupt mask register */
+#define	  GIMSK_CCIC_EN		 0x00000004    /* CCIC Interrupt enable */
 
-#define REG_GL_FCR	0x3038	
-#define	  GFCR_GPIO_ON	  0x08		
-#define REG_GL_GPIOR	0x315c	
-#define	  GGPIO_OUT		0x80000	
-#define	  GGPIO_VAL		0x00008	
+#define REG_GL_FCR	0x3038	/* GPIO functional control register */
+#define	  GFCR_GPIO_ON	  0x08		/* Camera GPIO enabled */
+#define REG_GL_GPIOR	0x315c	/* GPIO register */
+#define	  GGPIO_OUT		0x80000	/* GPIO output */
+#define	  GGPIO_VAL		0x00008	/* Output pin value */
 
 #define REG_LEN		       (REG_GL_IMASK + 4)
 
 
+/*
+ * Debugging and related.
+ */
 #define cam_err(cam, fmt, arg...) \
 	dev_err(&(cam)->pdev->dev, fmt, ##arg);
 #define cam_warn(cam, fmt, arg...) \
 	dev_warn(&(cam)->pdev->dev, fmt, ##arg);
 
-#define CAFE_SMBUS_TIMEOUT (HZ)  
+/* -------------------------------------------------------------------- */
+/*
+ * The I2C/SMBUS interface to the camera itself starts here.  The
+ * controller handles SMBUS itself, presenting a relatively simple register
+ * interface; all we have to do is to tell it where to route the data.
+ */
+#define CAFE_SMBUS_TIMEOUT (HZ)  /* generous */
 
 static inline struct cafe_camera *to_cam(struct v4l2_device *dev)
 {
@@ -115,6 +154,11 @@ static int cafe_smbus_write_done(struct mcam_camera *mcam)
 	unsigned long flags;
 	int c1;
 
+	/*
+	 * We must delay after the interrupt, or the controller gets confused
+	 * and never does give us good status.  Fortunately, we don't do this
+	 * often.
+	 */
 	udelay(20);
 	spin_lock_irqsave(&mcam->dev_lock, flags);
 	c1 = mcam_reg_read(mcam, REG_TWSIC1);
@@ -131,16 +175,35 @@ static int cafe_smbus_write_data(struct cafe_camera *cam,
 
 	spin_lock_irqsave(&mcam->dev_lock, flags);
 	rval = TWSIC0_EN | ((addr << TWSIC0_SID_SHIFT) & TWSIC0_SID);
-	rval |= TWSIC0_OVMAGIC;  
+	rval |= TWSIC0_OVMAGIC;  /* Make OV sensors work */
+	/*
+	 * Marvell sez set clkdiv to all 1's for now.
+	 */
 	rval |= TWSIC0_CLKDIV;
 	mcam_reg_write(mcam, REG_TWSIC0, rval);
-	(void) mcam_reg_read(mcam, REG_TWSIC1); 
+	(void) mcam_reg_read(mcam, REG_TWSIC1); /* force write */
 	rval = value | ((command << TWSIC1_ADDR_SHIFT) & TWSIC1_ADDR);
 	mcam_reg_write(mcam, REG_TWSIC1, rval);
 	spin_unlock_irqrestore(&mcam->dev_lock, flags);
 
+	/* Unfortunately, reading TWSIC1 too soon after sending a command
+	 * causes the device to die.
+	 * Use a busy-wait because we often send a large quantity of small
+	 * commands at-once; using msleep() would cause a lot of context
+	 * switches which take longer than 2ms, resulting in a noticeable
+	 * boot-time and capture-start delays.
+	 */
 	mdelay(2);
 
+	/*
+	 * Another sad fact is that sometimes, commands silently complete but
+	 * cafe_smbus_write_done() never becomes aware of this.
+	 * This happens at random and appears to possible occur with any
+	 * command.
+	 * We don't understand why this is. We work around this issue
+	 * with the timeout in the wait below, assuming that all commands
+	 * complete within the timeout.
+	 */
 	wait_event_timeout(cam->smbus_wait, cafe_smbus_write_done(mcam),
 			CAFE_SMBUS_TIMEOUT);
 
@@ -168,6 +231,11 @@ static int cafe_smbus_read_done(struct mcam_camera *mcam)
 	unsigned long flags;
 	int c1;
 
+	/*
+	 * We must delay after the interrupt, or the controller gets confused
+	 * and never does give us good status.  Fortunately, we don't do this
+	 * often.
+	 */
 	udelay(20);
 	spin_lock_irqsave(&mcam->dev_lock, flags);
 	c1 = mcam_reg_read(mcam, REG_TWSIC1);
@@ -186,10 +254,13 @@ static int cafe_smbus_read_data(struct cafe_camera *cam,
 
 	spin_lock_irqsave(&mcam->dev_lock, flags);
 	rval = TWSIC0_EN | ((addr << TWSIC0_SID_SHIFT) & TWSIC0_SID);
-	rval |= TWSIC0_OVMAGIC; 
+	rval |= TWSIC0_OVMAGIC; /* Make OV sensors work */
+	/*
+	 * Marvel sez set clkdiv to all 1's for now.
+	 */
 	rval |= TWSIC0_CLKDIV;
 	mcam_reg_write(mcam, REG_TWSIC0, rval);
-	(void) mcam_reg_read(mcam, REG_TWSIC1); 
+	(void) mcam_reg_read(mcam, REG_TWSIC1); /* force write */
 	rval = TWSIC1_READ | ((command << TWSIC1_ADDR_SHIFT) & TWSIC1_ADDR);
 	mcam_reg_write(mcam, REG_TWSIC1, rval);
 	spin_unlock_irqrestore(&mcam->dev_lock, flags);
@@ -213,6 +284,10 @@ static int cafe_smbus_read_data(struct cafe_camera *cam,
 	return 0;
 }
 
+/*
+ * Perform a transfer over SMBUS.  This thing is called under
+ * the i2c bus lock, so we shouldn't race with ourselves...
+ */
 static int cafe_smbus_xfer(struct i2c_adapter *adapter, u16 addr,
 		unsigned short flags, char rw, u8 command,
 		int size, union i2c_smbus_data *data)
@@ -220,6 +295,10 @@ static int cafe_smbus_xfer(struct i2c_adapter *adapter, u16 addr,
 	struct cafe_camera *cam = i2c_get_adapdata(adapter);
 	int ret = -EINVAL;
 
+	/*
+	 * This interface would appear to only do byte data ops.  OK
+	 * it can do word too, but the cam chip has no use for that.
+	 */
 	if (size != I2C_SMBUS_BYTE_DATA) {
 		cam_err(cam, "funky xfer size %d\n", size);
 		return -EINVAL;
@@ -281,23 +360,41 @@ static void cafe_smbus_shutdown(struct cafe_camera *cam)
 }
 
 
+/*
+ * Controller-level stuff
+ */
 
 static void cafe_ctlr_init(struct mcam_camera *mcam)
 {
 	unsigned long flags;
 
 	spin_lock_irqsave(&mcam->dev_lock, flags);
+	/*
+	 * Added magic to bring up the hardware on the B-Test board
+	 */
 	mcam_reg_write(mcam, 0x3038, 0x8);
 	mcam_reg_write(mcam, 0x315c, 0x80008);
-	mcam_reg_write(mcam, REG_GL_CSR, GCSR_SRS|GCSR_MRS); 
+	/*
+	 * Go through the dance needed to wake the device up.
+	 * Note that these registers are global and shared
+	 * with the NAND and SD devices.  Interaction between the
+	 * three still needs to be examined.
+	 */
+	mcam_reg_write(mcam, REG_GL_CSR, GCSR_SRS|GCSR_MRS); /* Needed? */
 	mcam_reg_write(mcam, REG_GL_CSR, GCSR_SRC|GCSR_MRC);
 	mcam_reg_write(mcam, REG_GL_CSR, GCSR_SRC|GCSR_MRS);
+	/*
+	 * Here we must wait a bit for the controller to come around.
+	 */
 	spin_unlock_irqrestore(&mcam->dev_lock, flags);
 	msleep(5);
 	spin_lock_irqsave(&mcam->dev_lock, flags);
 
 	mcam_reg_write(mcam, REG_GL_CSR, GCSR_CCIC_EN|GCSR_SRC|GCSR_MRC);
 	mcam_reg_set_bit(mcam, REG_GL_IMASK, GIMSK_CCIC_EN);
+	/*
+	 * Mask all interrupts.
+	 */
 	mcam_reg_write(mcam, REG_IRQMASK, 0);
 	spin_unlock_irqrestore(&mcam->dev_lock, flags);
 }
@@ -305,9 +402,18 @@ static void cafe_ctlr_init(struct mcam_camera *mcam)
 
 static void cafe_ctlr_power_up(struct mcam_camera *mcam)
 {
+	/*
+	 * Part one of the sensor dance: turn the global
+	 * GPIO signal on.
+	 */
 	mcam_reg_write(mcam, REG_GL_FCR, GFCR_GPIO_ON);
 	mcam_reg_write(mcam, REG_GL_GPIOR, GGPIO_OUT|GGPIO_VAL);
-	mcam_reg_write(mcam, REG_GPR, GPR_C1EN|GPR_C0EN); 
+	/*
+	 * Put the sensor into operational mode (assumes OLPC-style
+	 * wiring).  Control 0 is reset - set to 1 to operate.
+	 * Control 1 is power down, set to 0 to operate.
+	 */
+	mcam_reg_write(mcam, REG_GPR, GPR_C1EN|GPR_C0EN); /* pwr up, reset */
 	mcam_reg_write(mcam, REG_GPR, GPR_C1EN|GPR_C0EN|GPR_C0);
 }
 
@@ -320,6 +426,9 @@ static void cafe_ctlr_power_down(struct mcam_camera *mcam)
 
 
 
+/*
+ * The platform interrupt handler.
+ */
 static irqreturn_t cafe_irq(int irq, void *data)
 {
 	struct cafe_camera *cam = data;
@@ -339,6 +448,10 @@ static irqreturn_t cafe_irq(int irq, void *data)
 }
 
 
+/* -------------------------------------------------------------------------- */
+/*
+ * PCI interface stuff.
+ */
 
 static int cafe_pci_probe(struct pci_dev *pdev,
 		const struct pci_device_id *id)
@@ -347,6 +460,9 @@ static int cafe_pci_probe(struct pci_dev *pdev,
 	struct cafe_camera *cam;
 	struct mcam_camera *mcam;
 
+	/*
+	 * Start putting together one of our big camera structures.
+	 */
 	ret = -ENOMEM;
 	cam = kzalloc(sizeof(struct cafe_camera), GFP_KERNEL);
 	if (cam == NULL)
@@ -359,9 +475,21 @@ static int cafe_pci_probe(struct pci_dev *pdev,
 	mcam->plat_power_up = cafe_ctlr_power_up;
 	mcam->plat_power_down = cafe_ctlr_power_down;
 	mcam->dev = &pdev->dev;
+	/*
+	 * Set the clock speed for the XO 1; I don't believe this
+	 * driver has ever run anywhere else.
+	 */
 	mcam->clock_speed = 45;
 	mcam->use_smbus = 1;
+	/*
+	 * Vmalloc mode for buffers is traditional with this driver.
+	 * We *might* be able to run DMA_contig, especially on a system
+	 * with CMA in it.
+	 */
 	mcam->buffer_mode = B_vmalloc;
+	/*
+	 * Get set up on the PCI bus.
+	 */
 	ret = pci_enable_device(pdev);
 	if (ret)
 		goto out_free;
@@ -377,8 +505,17 @@ static int cafe_pci_probe(struct pci_dev *pdev,
 	if (ret)
 		goto out_iounmap;
 
+	/*
+	 * Initialize the controller and leave it powered up.  It will
+	 * stay that way until the sensor driver shows up.
+	 */
 	cafe_ctlr_init(mcam);
 	cafe_ctlr_power_up(mcam);
+	/*
+	 * Set up I2C/SMBUS communications.  We have to drop the mutex here
+	 * because the sensor could attach in this call chain, leading to
+	 * unsightly deadlocks.
+	 */
 	ret = cafe_smbus_setup(cam);
 	if (ret)
 		goto out_pdown;
@@ -404,6 +541,9 @@ out:
 }
 
 
+/*
+ * Shut down an initialized device
+ */
 static void cafe_shutdown(struct cafe_camera *cam)
 {
 	mccic_shutdown(&cam->mcam);
@@ -428,6 +568,9 @@ static void cafe_pci_remove(struct pci_dev *pdev)
 
 
 #ifdef CONFIG_PM
+/*
+ * Basic power management.
+ */
 static int cafe_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 {
 	struct v4l2_device *v4l2_dev = dev_get_drvdata(&pdev->dev);
@@ -460,7 +603,7 @@ static int cafe_pci_resume(struct pci_dev *pdev)
 	return mccic_resume(&cam->mcam);
 }
 
-#endif  
+#endif  /* CONFIG_PM */
 
 static struct pci_device_id cafe_ids[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_MARVELL,

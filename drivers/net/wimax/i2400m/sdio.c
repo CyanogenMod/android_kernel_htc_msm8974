@@ -60,6 +60,7 @@
 #define D_SUBMODULE main
 #include "sdio-debug-levels.h"
 
+/* IOE WiMAX function timeout in seconds */
 static int ioe_timeout = 2;
 module_param(ioe_timeout, int, 0);
 
@@ -71,6 +72,7 @@ MODULE_PARM_DESC(debug,
 		 "are the different debug submodules and VALUE are the "
 		 "initial debug value to set.");
 
+/* Our firmware file name list */
 static const char *i2400ms_bus_fw_names[] = {
 #define I2400MS_FW_FILE_NAME "i2400m-fw-sdio-1.3.sbcf"
 	I2400MS_FW_FILE_NAME,
@@ -82,9 +84,28 @@ static const struct i2400m_poke_table i2400ms_pokes[] = {
 	I2400M_FW_POKE(0x6BE260, 0x00000088),
 	I2400M_FW_POKE(0x080550, 0x00000005),
 	I2400M_FW_POKE(0xAE0000, 0x00000000),
-	I2400M_FW_POKE(0x000000, 0x00000000), 
+	I2400M_FW_POKE(0x000000, 0x00000000), /* MUST be 0 terminated or bad
+					       * things will happen */
 };
 
+/*
+ * Enable the SDIO function
+ *
+ * Tries to enable the SDIO function; might fail if it is still not
+ * ready (in some hardware, the SDIO WiMAX function is only enabled
+ * when we ask it to explicitly doing). Tries until a timeout is
+ * reached.
+ *
+ * The @maxtries argument indicates how many times (at most) it should
+ * be tried to enable the function. 0 means forever. This acts along
+ * with the timeout (ie: it'll stop trying as soon as the maximum
+ * number of tries is reached _or_ as soon as the timeout is reached).
+ *
+ * The reverse of this is...sdio_disable_function()
+ *
+ * Returns: 0 if the SDIO function was enabled, < 0 errno code on
+ *     error (-ENODEV when it was unable to enable the function).
+ */
 static
 int i2400ms_enable_function(struct i2400ms *i2400ms, unsigned maxtries)
 {
@@ -95,10 +116,19 @@ int i2400ms_enable_function(struct i2400ms *i2400ms, unsigned maxtries)
 	unsigned tries = 0;
 
 	d_fnstart(3, dev, "(func %p)\n", func);
+	/* Setup timeout (FIXME: This needs to read the CIS table to
+	 * get a real timeout) and then wait for the device to signal
+	 * it is ready */
 	timeout = get_jiffies_64() + ioe_timeout * HZ;
 	err = -ENODEV;
 	while (err != 0 && time_before64(get_jiffies_64(), timeout)) {
 		sdio_claim_host(func);
+		/*
+		 * There is a sillicon bug on the IWMC3200, where the
+		 * IOE timeout will cause problems on Moorestown
+		 * platforms (system hang). We explicitly overwrite
+		 * func->enable_timeout here to work around the issue.
+		 */
 		if (i2400ms->iwmc3200)
 			func->enable_timeout = IWMC3200_IOR_TIMEOUT;
 		err = sdio_enable_func(func);
@@ -115,6 +145,8 @@ int i2400ms_enable_function(struct i2400ms *i2400ms, unsigned maxtries)
 		}
 		msleep(I2400MS_INIT_SLEEP_INTERVAL);
 	}
+	/* If timed out, device is not there yet -- get -ENODEV so
+	 * the device driver core will retry later on. */
 	if (err == -ETIME) {
 		dev_err(dev, "Can't enable WiMAX function; "
 			" has the function been enabled?\n");
@@ -126,6 +158,14 @@ function_enabled:
 }
 
 
+/*
+ * Setup minimal device communication infrastructure needed to at
+ * least be able to update the firmware.
+ *
+ * Note the ugly trick: if we are in the probe path
+ * (i2400ms->debugfs_dentry == NULL), we only retry function
+ * enablement one, to avoid racing with the iwmc3200 top controller.
+ */
 static
 int i2400ms_bus_setup(struct i2400m *i2400m)
 {
@@ -174,6 +214,10 @@ error_set_blk_size:
 }
 
 
+/*
+ * Tear down minimal device communication infrastructure needed to at
+ * least be able to update the firmware.
+ */
 static
 void i2400ms_bus_release(struct i2400m *i2400m)
 {
@@ -189,6 +233,14 @@ void i2400ms_bus_release(struct i2400m *i2400m)
 }
 
 
+/*
+ * Setup driver resources needed to communicate with the device
+ *
+ * The fw needs some time to settle, and it was just uploaded,
+ * so give it a break first. I'd prefer to just wait for the device to
+ * send something, but seems the poking we do to enable SDIO stuff
+ * interferes with it, so just give it a break before starting...
+ */
 static
 int i2400ms_bus_dev_start(struct i2400m *i2400m)
 {
@@ -203,6 +255,15 @@ int i2400ms_bus_dev_start(struct i2400m *i2400m)
 }
 
 
+/*
+ * Sends a barker buffer to the device
+ *
+ * This helper will allocate a kmalloced buffer and use it to transmit
+ * (then free it). Reason for this is that the SDIO host controller
+ * expects alignment (unknown exactly which) which the stack won't
+ * really provide and certain arches/host-controller combinations
+ * cannot use stack/vmalloc/text areas for DMA transfers.
+ */
 static
 int __i2400ms_send_barker(struct i2400ms *i2400ms,
 			  const __le32 *barker, size_t barker_size)
@@ -231,6 +292,40 @@ error_kzalloc:
 }
 
 
+/*
+ * Reset a device at different levels (warm, cold or bus)
+ *
+ * @i2400ms: device descriptor
+ * @reset_type: soft, warm or bus reset (I2400M_RT_WARM/SOFT/BUS)
+ *
+ * FIXME: not tested -- need to confirm expected effects
+ *
+ * Warm and cold resets get an SDIO reset if they fail (unimplemented)
+ *
+ * Warm reset:
+ *
+ * The device will be fully reset internally, but won't be
+ * disconnected from the bus (so no reenumeration will
+ * happen). Firmware upload will be necessary.
+ *
+ * The device will send a reboot barker that will trigger the driver
+ * to reinitialize the state via __i2400m_dev_reset_handle.
+ *
+ *
+ * Cold and bus reset:
+ *
+ * The device will be fully reset internally, disconnected from the
+ * bus an a reenumeration will happen. Firmware upload will be
+ * necessary. Thus, we don't do any locking or struct
+ * reinitialization, as we are going to be fully disconnected and
+ * reenumerated.
+ *
+ * Note we need to return -ENODEV if a warm reset was requested and we
+ * had to resort to a bus reset. See i2400m_op_reset(), wimax_reset()
+ * and wimax_dev->op_reset.
+ *
+ * WARNING: no driver state saved/fixed
+ */
 static
 int i2400ms_bus_reset(struct i2400m *i2400m, enum i2400m_reset_type rt)
 {
@@ -262,7 +357,7 @@ do_bus_reset:
 
 		i2400ms_bus_release(i2400m);
 
-		
+		/* Wait for the device to settle */
 		msleep(40);
 
 		result =  i2400ms_bus_setup(i2400m);
@@ -288,6 +383,9 @@ void i2400ms_netdev_setup(struct net_device *net_dev)
 }
 
 
+/*
+ * Debug levels control; see debug.h
+ */
 struct d_level D_LEVEL[] = {
 	D_SUBMODULE_DEFINE(main),
 	D_SUBMODULE_DEFINE(tx),
@@ -315,7 +413,7 @@ int i2400ms_debugfs_add(struct i2400ms *i2400ms)
 	result = PTR_ERR(dentry);
 	if (IS_ERR(dentry)) {
 		if (result == -ENODEV)
-			result = 0;	
+			result = 0;	/* No debugfs support */
 		goto error;
 	}
 	i2400ms->debugfs_dentry = dentry;
@@ -337,6 +435,28 @@ static struct device_type i2400ms_type = {
 	.name	= "wimax",
 };
 
+/*
+ * Probe a i2400m interface and register it
+ *
+ * @func:    SDIO function
+ * @id:      SDIO device ID
+ * @returns: 0 if ok, < 0 errno code on error.
+ *
+ * Alloc a net device, initialize the bus-specific details and then
+ * calls the bus-generic initialization routine. That will register
+ * the wimax and netdev devices, upload the firmware [using
+ * _bus_bm_*()], call _bus_dev_start() to finalize the setup of the
+ * communication with the device and then will start to talk to it to
+ * finnish setting it up.
+ *
+ * Initialization is tricky; some instances of the hw are packed with
+ * others in a way that requires a third driver that enables the WiMAX
+ * function. In those cases, we can't enable the SDIO function and
+ * we'll return with -ENODEV. When the driver that enables the WiMAX
+ * function does its thing, it has to do a bus_rescan_devices() on the
+ * SDIO bus so this driver is called again to enumerate the WiMAX
+ * function.
+ */
 static
 int i2400ms_probe(struct sdio_func *func,
 		  const struct sdio_device_id *id)
@@ -347,7 +467,7 @@ int i2400ms_probe(struct sdio_func *func,
 	struct i2400m *i2400m;
 	struct i2400ms *i2400ms;
 
-	
+	/* Allocate instance [calls i2400m_netdev_setup() on it]. */
 	result = -ENOMEM;
 	net_dev = alloc_netdev(sizeof(*i2400ms), "wmx%d",
 			       i2400ms_netdev_setup);
@@ -364,6 +484,12 @@ int i2400ms_probe(struct sdio_func *func,
 	sdio_set_drvdata(func, i2400ms);
 
 	i2400m->bus_tx_block_size = I2400MS_BLK_SIZE;
+	/*
+	 * Room required in the TX queue for SDIO message to accommodate
+	 * a smallest payload while allocating header space is 224 bytes,
+	 * which is the smallest message size(the block size 256 bytes)
+	 * minus the smallest message header size(32 bytes).
+	 */
 	i2400m->bus_tx_room_min = I2400MS_BLK_SIZE - I2400M_PL_ALIGN * 2;
 	i2400m->bus_pl_size_max = I2400MS_PL_SIZE_MAX;
 	i2400m->bus_setup = i2400ms_bus_setup;
@@ -372,6 +498,8 @@ int i2400ms_probe(struct sdio_func *func,
 	i2400m->bus_release = i2400ms_bus_release;
 	i2400m->bus_tx_kick = i2400ms_bus_tx_kick;
 	i2400m->bus_reset = i2400ms_bus_reset;
+	/* The iwmc3200-wimax sometimes requires the driver to try
+	 * hard when we paint it into a corner. */
 	i2400m->bus_bm_retries = I2400M_SDIO_BOOT_RETRIES;
 	i2400m->bus_bm_cmd_send = i2400ms_bus_bm_cmd_send;
 	i2400m->bus_bm_wait_for_ack = i2400ms_bus_bm_wait_for_ack;
@@ -431,12 +559,12 @@ void i2400ms_remove(struct sdio_func *func)
 
 static
 const struct sdio_device_id i2400ms_sdio_ids[] = {
-	
+	/* Intel: i2400m WiMAX (iwmc3200) over SDIO */
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_INTEL,
 		      SDIO_DEVICE_ID_INTEL_IWMC3200WIMAX) },
 	{ SDIO_DEVICE(SDIO_VENDOR_ID_INTEL,
 		      SDIO_DEVICE_ID_INTEL_IWMC3200WIMAX_2G5) },
-	{  },
+	{ /* end: all zeroes */ },
 };
 MODULE_DEVICE_TABLE(sdio, i2400ms_sdio_ids);
 

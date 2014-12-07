@@ -95,6 +95,10 @@ static const struct nla_policy ifa_ipv4_policy[IFA_MAX+1] = {
 	[IFA_LABEL]     	= { .type = NLA_STRING, .len = IFNAMSIZ - 1 },
 };
 
+/* inet_addr_hash's shifting is dependent upon this IN4_ADDR_HSIZE
+ * value.  So if you change this define, make appropriate changes to
+ * inet_addr_hash as well.
+ */
 #define IN4_ADDR_HSIZE	256
 static struct hlist_head inet_addr_lst[IN4_ADDR_HSIZE];
 static DEFINE_SPINLOCK(inet_addr_hash_lock);
@@ -123,6 +127,14 @@ static void inet_hash_remove(struct in_ifaddr *ifa)
 	spin_unlock(&inet_addr_hash_lock);
 }
 
+/**
+ * __ip_dev_find - find the first device with a given source address.
+ * @net: the net namespace
+ * @addr: the source address
+ * @devref: if true, take a reference on the found device
+ *
+ * If a caller uses devref=false, it should be protected by RCU, or RTNL
+ */
 struct net_device *__ip_dev_find(struct net *net, __be32 addr, bool devref)
 {
 	unsigned int hash = inet_addr_hash(net, addr);
@@ -146,6 +158,9 @@ struct net_device *__ip_dev_find(struct net *net, __be32 addr, bool devref)
 		struct fib_result res = { 0 };
 		struct fib_table *local;
 
+		/* Fallback to FIB local table so that communication
+		 * over loopback subnets work.
+		 */
 		local = fib_get_table(net, RT_TABLE_LOCAL);
 		if (local &&
 		    !fib_table_lookup(local, &fl4, &res, FIB_LOOKUP_NOREF) &&
@@ -176,6 +191,7 @@ static inline void devinet_sysctl_unregister(struct in_device *idev)
 }
 #endif
 
+/* Locks all the inet devices. */
 
 static struct in_ifaddr *inet_alloc_ifa(void)
 {
@@ -231,9 +247,9 @@ static struct in_device *inetdev_init(struct net_device *dev)
 		goto out_kfree;
 	if (IPV4_DEVCONF(in_dev->cnf, FORWARDING))
 		dev_disable_lro(dev);
-	
+	/* Reference in_dev->dev */
 	dev_hold(dev);
-	
+	/* Account for reference dev->ip_ptr (below) */
 	in_dev_hold(in_dev);
 
 	devinet_sysctl_register(in_dev);
@@ -241,7 +257,7 @@ static struct in_device *inetdev_init(struct net_device *dev)
 	if (dev->flags & IFF_UP)
 		ip_mc_up(in_dev);
 
-	
+	/* we can receive as soon as ip_ptr is set -- do this last */
 	rcu_assign_pointer(dev->ip_ptr, in_dev);
 out:
 	return in_dev;
@@ -310,6 +326,9 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 
 	ASSERT_RTNL();
 
+	/* 1. Deleting primary ifaddr forces deletion all secondaries
+	 * unless alias promotion is set
+	 **/
 
 	if (!(ifa1->ifa_flags & IFA_F_SECONDARY)) {
 		struct in_ifaddr **ifap1 = &ifa1->ifa_next;
@@ -342,19 +361,32 @@ static void __inet_del_ifa(struct in_device *in_dev, struct in_ifaddr **ifap,
 		}
 	}
 
+	/* On promotion all secondaries from subnet are changing
+	 * the primary IP, we must remove all their routes silently
+	 * and later to add them back with new prefsrc. Do this
+	 * while all addresses are on the device list.
+	 */
 	for (ifa = promote; ifa; ifa = ifa->ifa_next) {
 		if (ifa1->ifa_mask == ifa->ifa_mask &&
 		    inet_ifa_match(ifa1->ifa_address, ifa))
 			fib_del_ifaddr(ifa, ifa1);
 	}
 
-	
+	/* 2. Unlink it */
 
 	*ifap = ifa1->ifa_next;
 	inet_hash_remove(ifa1);
 
-	
+	/* 3. Announce address deletion */
 
+	/* Send message first, then call notifier.
+	   At first sight, FIB update triggered by notifier
+	   will refer to already deleted ifaddr, that could confuse
+	   netlink listeners. It is not true: look, gated sees
+	   that route deleted and if it still thinks that ifaddr
+	   is valid, it will try to restore deleted routes... Grr.
+	   So that, this order is correct.
+	 */
 	rtmsg_ifa(RTM_DELADDR, ifa1, nlh, pid);
 	blocking_notifier_call_chain(&inetaddr_chain, NETDEV_DOWN, ifa1);
 
@@ -434,6 +466,9 @@ static int __inet_insert_ifa(struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 
 	inet_hash_insert(dev_net(in_dev->dev), ifa);
 
+	/* Send message first, then call notifier.
+	   Notifier will trigger FIB update, so that
+	   listeners of netlink will know about new ifaddr */
 	rtmsg_ifa(RTM_NEWADDR, ifa, nlh, pid);
 	blocking_notifier_call_chain(&inetaddr_chain, NETDEV_UP, ifa);
 
@@ -466,6 +501,9 @@ static int inet_set_ifa(struct net_device *dev, struct in_ifaddr *ifa)
 	return inet_insert_ifa(ifa);
 }
 
+/* Caller must hold RCU or RTNL :
+ * We dont take a reference on found in_device
+ */
 struct in_device *inetdev_by_index(struct net *net, int ifindex)
 {
 	struct net_device *dev;
@@ -480,6 +518,7 @@ struct in_device *inetdev_by_index(struct net *net, int ifindex)
 }
 EXPORT_SYMBOL(inetdev_by_index);
 
+/* Called only from RTNL semaphored context. No locks. */
 
 struct in_ifaddr *inet_ifa_byprefix(struct in_device *in_dev, __be32 prefix,
 				    __be32 mask)
@@ -568,6 +607,10 @@ static struct in_ifaddr *rtm_to_ifaddr(struct net *net, struct nlmsghdr *nlh)
 
 	ifa = inet_alloc_ifa();
 	if (ifa == NULL)
+		/*
+		 * A potential indev allocation can be left alive, it stays
+		 * assigned to its device and is destroy with it.
+		 */
 		goto errout;
 
 	ipv4_devconf_setall(in_dev);
@@ -614,10 +657,13 @@ static int inet_rtm_newaddr(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg
 	return __inet_insert_ifa(ifa, nlh, NETLINK_CB(skb).pid);
 }
 
+/*
+ *	Determine a default network mask, based on the IP address.
+ */
 
 static inline int inet_abc_len(__be32 addr)
 {
-	int rc = -1;	
+	int rc = -1;	/* Something else, probably a multicast. */
 
 	if (ipv4_is_zeronet(addr))
 		rc = 0;
@@ -649,12 +695,15 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	int ret = -EFAULT;
 	int tryaddrmatch = 0;
 
+	/*
+	 *	Fetch the caller's info block into kernel space
+	 */
 
 	if (copy_from_user(&ifr, arg, sizeof(struct ifreq)))
 		goto out;
 	ifr.ifr_name[IFNAMSIZ - 1] = 0;
 
-	
+	/* save original address for comparison */
 	memcpy(&sin_orig, sin, sizeof(*sin));
 
 	colon = strchr(ifr.ifr_name, ':');
@@ -664,10 +713,14 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	dev_load(net, ifr.ifr_name);
 
 	switch (cmd) {
-	case SIOCGIFADDR:	
-	case SIOCGIFBRDADDR:	
-	case SIOCGIFDSTADDR:	
-	case SIOCGIFNETMASK:	
+	case SIOCGIFADDR:	/* Get interface address */
+	case SIOCGIFBRDADDR:	/* Get the broadcast address */
+	case SIOCGIFDSTADDR:	/* Get the destination address */
+	case SIOCGIFNETMASK:	/* Get the netmask for the interface */
+		/* Note that these ioctls will not sleep,
+		   so that we do not impose a lock.
+		   One day we will be forced to put shlock here (I mean SMP)
+		 */
 		tryaddrmatch = (sin_orig.sin_family == AF_INET);
 		memset(sin, 0, sizeof(*sin));
 		sin->sin_family = AF_INET;
@@ -678,11 +731,11 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		if (!capable(CAP_NET_ADMIN))
 			goto out;
 		break;
-	case SIOCSIFADDR:	
-	case SIOCSIFBRDADDR:	
-	case SIOCSIFDSTADDR:	
-	case SIOCSIFNETMASK: 	
-	case SIOCKILLADDR:	
+	case SIOCSIFADDR:	/* Set interface address (and family) */
+	case SIOCSIFBRDADDR:	/* Set the broadcast address */
+	case SIOCSIFDSTADDR:	/* Set the destination address */
+	case SIOCSIFNETMASK: 	/* Set the netmask for the interface */
+	case SIOCKILLADDR:	/* Nuke all sockets on this address */
 		ret = -EACCES;
 		if (!capable(CAP_NET_ADMIN))
 			goto out;
@@ -708,17 +761,23 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	in_dev = __in_dev_get_rtnl(dev);
 	if (in_dev) {
 		if (tryaddrmatch) {
-			
-			
+			/* Matthias Andree */
+			/* compare label and address (4.4BSD style) */
+			/* note: we only do this for a limited set of ioctls
+			   and only if the original address family was AF_INET.
+			   This is checked above. */
 			for (ifap = &in_dev->ifa_list; (ifa = *ifap) != NULL;
 			     ifap = &ifa->ifa_next) {
 				if (!strcmp(ifr.ifr_name, ifa->ifa_label) &&
 				    sin_orig.sin_addr.s_addr ==
 							ifa->ifa_local) {
-					break; 
+					break; /* found */
 				}
 			}
 		}
+		/* we didn't get a match, maybe the application is
+		   4.3BSD-style and passed in junk so we fall back to
+		   comparing just the label */
 		if (!ifa) {
 			for (ifap = &in_dev->ifa_list; (ifa = *ifap) != NULL;
 			     ifap = &ifa->ifa_next)
@@ -733,19 +792,19 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		goto done;
 
 	switch (cmd) {
-	case SIOCGIFADDR:	
+	case SIOCGIFADDR:	/* Get interface address */
 		sin->sin_addr.s_addr = ifa->ifa_local;
 		goto rarok;
 
-	case SIOCGIFBRDADDR:	
+	case SIOCGIFBRDADDR:	/* Get the broadcast address */
 		sin->sin_addr.s_addr = ifa->ifa_broadcast;
 		goto rarok;
 
-	case SIOCGIFDSTADDR:	
+	case SIOCGIFDSTADDR:	/* Get the destination address */
 		sin->sin_addr.s_addr = ifa->ifa_address;
 		goto rarok;
 
-	case SIOCGIFNETMASK:	
+	case SIOCGIFNETMASK:	/* Get the netmask for the interface */
 		sin->sin_addr.s_addr = ifa->ifa_mask;
 		goto rarok;
 
@@ -762,7 +821,7 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		ret = dev_change_flags(dev, ifr.ifr_flags);
 		break;
 
-	case SIOCSIFADDR:	
+	case SIOCSIFADDR:	/* Set interface address (and family) */
 		ret = -EINVAL;
 		if (inet_abc_len(sin->sin_addr.s_addr) < 0)
 			break;
@@ -802,7 +861,7 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		ret = inet_set_ifa(dev, ifa);
 		break;
 
-	case SIOCSIFBRDADDR:	
+	case SIOCSIFBRDADDR:	/* Set the broadcast address */
 		ret = 0;
 		if (ifa->ifa_broadcast != sin->sin_addr.s_addr) {
 			inet_del_ifa(in_dev, ifap, 0);
@@ -811,7 +870,7 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		}
 		break;
 
-	case SIOCSIFDSTADDR:	
+	case SIOCSIFDSTADDR:	/* Set the destination address */
 		ret = 0;
 		if (ifa->ifa_address == sin->sin_addr.s_addr)
 			break;
@@ -824,8 +883,11 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		inet_insert_ifa(ifa);
 		break;
 
-	case SIOCSIFNETMASK: 	
+	case SIOCSIFNETMASK: 	/* Set the netmask for the interface */
 
+		/*
+		 *	The mask we set must be legal.
+		 */
 		ret = -EINVAL;
 		if (bad_mask(sin->sin_addr.s_addr, 0))
 			break;
@@ -836,6 +898,12 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 			ifa->ifa_mask = sin->sin_addr.s_addr;
 			ifa->ifa_prefixlen = inet_mask_len(ifa->ifa_mask);
 
+			/* See if current broadcast address matches
+			 * with current netmask, then recalculate
+			 * the broadcast address. Otherwise it's a
+			 * funny address, so don't touch it since
+			 * the user seems to know what (s)he's doing...
+			 */
 			if ((dev->flags & IFF_BROADCAST) &&
 			    (ifa->ifa_prefixlen < 31) &&
 			    (ifa->ifa_broadcast ==
@@ -846,7 +914,7 @@ int devinet_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 			inet_insert_ifa(ifa);
 		}
 		break;
-	case SIOCKILLADDR:	
+	case SIOCKILLADDR:	/* Nuke all connections on this address */
 		ret = tcp_nuke_addr(net, (struct sockaddr *) sin);
 		break;
 	}
@@ -925,6 +993,10 @@ __be32 inet_select_addr(const struct net_device *dev, __be32 dst, int scope)
 		goto out_unlock;
 no_in_dev:
 
+	/* Not loopback addresses on loopback should be preferred
+	   in this case. It is importnat that lo is the first interface
+	   in dev_base list.
+	 */
 	for_each_netdev_rcu(net, dev) {
 		in_dev = __in_dev_get_rcu(dev);
 		if (!in_dev)
@@ -964,15 +1036,15 @@ static __be32 confirm_addr_indev(struct in_device *in_dev, __be32 dst,
 			if (same && addr) {
 				if (local || !dst)
 					break;
-				
+				/* Is the selected addr into dst subnet? */
 				if (inet_ifa_match(addr, ifa))
 					break;
-				
+				/* No, then can we use new local src? */
 				if (ifa->ifa_scope <= scope) {
 					addr = ifa->ifa_local;
 					break;
 				}
-				
+				/* search for large dst subnet for addr */
 				same = 0;
 			}
 		}
@@ -981,6 +1053,13 @@ static __be32 confirm_addr_indev(struct in_device *in_dev, __be32 dst,
 	return same ? addr : 0;
 }
 
+/*
+ * Confirm that local IP address exists using wildcards:
+ * - in_dev: only on this interface, 0=any interface
+ * - dst: only in the same subnet as dst, 0=any dst
+ * - local: address, 0=autoselect the local address
+ * - scope: maximum allowed scope value for the local address
+ */
 __be32 inet_confirm_addr(struct in_device *in_dev,
 			 __be32 dst, __be32 local, int scope)
 {
@@ -1007,6 +1086,9 @@ __be32 inet_confirm_addr(struct in_device *in_dev,
 }
 EXPORT_SYMBOL(inet_confirm_addr);
 
+/*
+ *	Device notifier
+ */
 
 int register_inetaddr_notifier(struct notifier_block *nb)
 {
@@ -1020,6 +1102,9 @@ int unregister_inetaddr_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL(unregister_inetaddr_notifier);
 
+/* Rename ifa_labels for a device name change. Make some effort to preserve
+ * existing alias numbering and to create unique labels if possible.
+*/
 static void inetdev_changename(struct net_device *dev, struct in_device *in_dev)
 {
 	struct in_ifaddr *ifa;
@@ -1066,6 +1151,7 @@ static void inetdev_send_gratuitous_arp(struct net_device *dev,
 	}
 }
 
+/* Called only under RTNL semaphore */
 
 static int inetdev_event(struct notifier_block *this, unsigned long event,
 			 void *ptr)
@@ -1085,7 +1171,7 @@ static int inetdev_event(struct notifier_block *this, unsigned long event,
 				IN_DEV_CONF_SET(in_dev, NOPOLICY, 1);
 			}
 		} else if (event == NETDEV_CHANGEMTU) {
-			
+			/* Re-enabling IP */
 			if (inetdev_valid_mtu(dev->mtu))
 				in_dev = inetdev_init(dev);
 		}
@@ -1117,13 +1203,13 @@ static int inetdev_event(struct notifier_block *this, unsigned long event,
 			}
 		}
 		ip_mc_up(in_dev);
-		
+		/* fall through */
 	case NETDEV_CHANGEADDR:
 		if (!IN_DEV_ARP_NOTIFY(in_dev))
 			break;
-		
+		/* fall through */
 	case NETDEV_NOTIFY_PEERS:
-		
+		/* Send gratuitous ARP to notify of link change */
 		inetdev_send_gratuitous_arp(dev, in_dev);
 		break;
 	case NETDEV_DOWN:
@@ -1138,11 +1224,14 @@ static int inetdev_event(struct notifier_block *this, unsigned long event,
 	case NETDEV_CHANGEMTU:
 		if (inetdev_valid_mtu(dev->mtu))
 			break;
-		
+		/* disable IP when MTU is not enough */
 	case NETDEV_UNREGISTER:
 		inetdev_destroy(in_dev);
 		break;
 	case NETDEV_CHANGENAME:
+		/* Do not notify about label change, this event is
+		 * not interesting to applications using netlink.
+		 */
 		inetdev_changename(dev, in_dev);
 
 		devinet_sysctl_unregister(in_dev);
@@ -1160,10 +1249,10 @@ static struct notifier_block ip_netdev_notifier = {
 static inline size_t inet_nlmsg_size(void)
 {
 	return NLMSG_ALIGN(sizeof(struct ifaddrmsg))
-	       + nla_total_size(4) 
-	       + nla_total_size(4) 
-	       + nla_total_size(4) 
-	       + nla_total_size(IFNAMSIZ); 
+	       + nla_total_size(4) /* IFA_ADDRESS */
+	       + nla_total_size(4) /* IFA_LOCAL */
+	       + nla_total_size(4) /* IFA_BROADCAST */
+	       + nla_total_size(IFNAMSIZ); /* IFA_LABEL */
 }
 
 static int inet_fill_ifaddr(struct sk_buff *skb, struct in_ifaddr *ifa,
@@ -1272,7 +1361,7 @@ static void rtmsg_ifa(int event, struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 
 	err = inet_fill_ifaddr(skb, ifa, pid, seq, event, 0);
 	if (err < 0) {
-		
+		/* -EMSGSIZE implies BUG in inet_nlmsg_size() */
 		WARN_ON(err == -EMSGSIZE);
 		kfree_skb(skb);
 		goto errout;
@@ -1291,7 +1380,7 @@ static size_t inet_get_link_af_size(const struct net_device *dev)
 	if (!in_dev)
 		return 0;
 
-	return nla_total_size(IPV4_DEVCONF_MAX * 4); 
+	return nla_total_size(IPV4_DEVCONF_MAX * 4); /* IFLA_INET_CONF */
 }
 
 static int inet_fill_link_af(struct sk_buff *skb, const struct net_device *dev)
@@ -1382,6 +1471,7 @@ static void devinet_copy_dflt_conf(struct net *net, int i)
 	rcu_read_unlock();
 }
 
+/* called with RTNL locked */
 static void inet_forward_change(struct net *net)
 {
 	struct net_device *dev;
@@ -1441,7 +1531,7 @@ static int devinet_sysctl_forward(ctl_table *ctl, int write,
 
 		if (valp != &IPV4_DEVCONF_DFLT(net, FORWARDING)) {
 			if (!rtnl_trylock()) {
-				
+				/* Restore the original values before restarting */
 				*valp = val;
 				*ppos = pos;
 				return restart_syscall();
@@ -1552,7 +1642,7 @@ static int __devinet_sysctl_register(struct net *net, char *dev_name,
 		{ .procname = "net",  },
 		{ .procname = "ipv4", },
 		{ .procname = "conf", },
-		{  },
+		{ /* to be set */ },
 		{ },
 	};
 
@@ -1566,6 +1656,11 @@ static int __devinet_sysctl_register(struct net *net, char *dev_name,
 		t->devinet_vars[i].extra2 = net;
 	}
 
+	/*
+	 * Make a copy of dev_name, because '.procname' is regarded as const
+	 * by sysctl and we wouldn't want anyone to change it under our feet
+	 * (see SIOCSIFNAME).
+	 */
 	t->dev_name = kstrdup(dev_name, GFP_KERNEL);
 	if (!t->dev_name)
 		goto free;

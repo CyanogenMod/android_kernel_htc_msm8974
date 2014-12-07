@@ -16,7 +16,11 @@
 #include <linux/crc-ccitt.h>
 #include <linux/bitrev.h>
 
+/* access methods for isowbuf_t */
+/* ============================ */
 
+/* initialize buffer structure
+ */
 void gigaset_isowbuf_init(struct isowbuf_t *iwb, unsigned char idle)
 {
 	iwb->read = 0;
@@ -28,6 +32,9 @@ void gigaset_isowbuf_init(struct isowbuf_t *iwb, unsigned char idle)
 	memset(iwb->data + BAS_OUTBUFSIZE, idle, BAS_OUTBUFPAD);
 }
 
+/* compute number of bytes which can be appended to buffer
+ * so that there is still room to append a maximum frame of flags
+ */
 static inline int isowbuf_freebytes(struct isowbuf_t *iwb)
 {
 	int read, write, freebytes;
@@ -36,17 +43,21 @@ static inline int isowbuf_freebytes(struct isowbuf_t *iwb)
 	write = iwb->write;
 	freebytes = read - write;
 	if (freebytes > 0) {
-		
+		/* no wraparound: need padding space within regular area */
 		return freebytes - BAS_OUTBUFPAD;
 	} else if (read < BAS_OUTBUFPAD) {
-		
+		/* wraparound: can use space up to end of regular area */
 		return BAS_OUTBUFSIZE - write;
 	} else {
-		
+		/* following the wraparound yields more space */
 		return freebytes + BAS_OUTBUFSIZE - BAS_OUTBUFPAD;
 	}
 }
 
+/* start writing
+ * acquire the write semaphore
+ * return true if acquired, false if busy
+ */
 static inline int isowbuf_startwrite(struct isowbuf_t *iwb)
 {
 	if (!atomic_dec_and_test(&iwb->writesem)) {
@@ -61,6 +72,10 @@ static inline int isowbuf_startwrite(struct isowbuf_t *iwb)
 	return 1;
 }
 
+/* finish writing
+ * release the write semaphore
+ * returns the current write position
+ */
 static inline int isowbuf_donewrite(struct isowbuf_t *iwb)
 {
 	int write = iwb->write;
@@ -68,6 +83,13 @@ static inline int isowbuf_donewrite(struct isowbuf_t *iwb)
 	return write;
 }
 
+/* append bits to buffer without any checks
+ * - data contains bits to append, starting at LSB
+ * - nbits is number of bits to append (0..24)
+ * must be called with the write semaphore held
+ * If more than nbits bits are set in data, the extraneous bits are set in the
+ * buffer too, but the write position is only advanced by nbits.
+ */
 static inline void isowbuf_putbits(struct isowbuf_t *iwb, u32 data, int nbits)
 {
 	int write = iwb->write;
@@ -85,20 +107,30 @@ static inline void isowbuf_putbits(struct isowbuf_t *iwb, u32 data, int nbits)
 	iwb->write = write;
 }
 
+/* put final flag on HDLC bitstream
+ * also sets the idle fill byte to the correspondingly shifted flag pattern
+ * must be called with the write semaphore held
+ */
 static inline void isowbuf_putflag(struct isowbuf_t *iwb)
 {
 	int write;
 
-	
+	/* add two flags, thus reliably covering one byte */
 	isowbuf_putbits(iwb, 0x7e7e, 8);
-	
+	/* recover the idle flag byte */
 	write = iwb->write;
 	iwb->idle = iwb->data[write];
 	gig_dbg(DEBUG_ISO, "idle fill byte %02x", iwb->idle);
-	
+	/* mask extraneous bits in buffer */
 	iwb->data[write] &= (1 << iwb->wbits) - 1;
 }
 
+/* retrieve a block of bytes for sending
+ * The requested number of bytes is provided as a contiguous block.
+ * If necessary, the frame is filled to the requested number of bytes
+ * with the idle value.
+ * returns offset to frame, < 0 on busy or error
+ */
 int gigaset_isowbuf_getbytes(struct isowbuf_t *iwb, int size)
 {
 	int read, write, limit, src, dst;
@@ -107,7 +139,7 @@ int gigaset_isowbuf_getbytes(struct isowbuf_t *iwb, int size)
 	read = iwb->nextread;
 	write = iwb->write;
 	if (likely(read == write)) {
-		
+		/* return idle frame */
 		return read < BAS_OUTBUFPAD ?
 			BAS_OUTBUFSIZE : read - BAS_OUTBUFPAD;
 	}
@@ -123,15 +155,16 @@ int gigaset_isowbuf_getbytes(struct isowbuf_t *iwb, int size)
 #endif
 
 	if (read < write) {
-		
+		/* no wraparound in valid data */
 		if (limit >= write) {
-			
+			/* append idle frame */
 			if (!isowbuf_startwrite(iwb))
 				return -EBUSY;
-			
+			/* write position could have changed */
 			write = iwb->write;
 			if (limit >= write) {
-				pbyte = iwb->data[write]; 
+				pbyte = iwb->data[write]; /* save
+							     partial byte */
 				limit = write + BAS_OUTBUFPAD;
 				gig_dbg(DEBUG_STREAM,
 					"%s: filling %d->%d with %02x",
@@ -140,7 +173,7 @@ int gigaset_isowbuf_getbytes(struct isowbuf_t *iwb, int size)
 					memset(iwb->data + write, iwb->idle,
 					       BAS_OUTBUFPAD);
 				else {
-					
+					/* wraparound, fill entire pad area */
 					memset(iwb->data + write, iwb->idle,
 					       BAS_OUTBUFSIZE + BAS_OUTBUFPAD
 					       - write);
@@ -149,21 +182,22 @@ int gigaset_isowbuf_getbytes(struct isowbuf_t *iwb, int size)
 				gig_dbg(DEBUG_STREAM,
 					"%s: restoring %02x at %d",
 					__func__, pbyte, limit);
-				iwb->data[limit] = pbyte; 
+				iwb->data[limit] = pbyte; /* restore
+							     partial byte */
 				iwb->write = limit;
 			}
 			isowbuf_donewrite(iwb);
 		}
 	} else {
-		
+		/* valid data wraparound */
 		if (limit >= BAS_OUTBUFSIZE) {
-			
+			/* copy wrapped part into pad area */
 			src = 0;
 			dst = BAS_OUTBUFSIZE;
 			while (dst < limit && src < write)
 				iwb->data[dst++] = iwb->data[src++];
 			if (dst <= limit) {
-				
+				/* fill pad area with idle byte */
 				memset(iwb->data + dst, iwb->idle,
 				       BAS_OUTBUFSIZE + BAS_OUTBUFPAD - dst);
 			}
@@ -174,6 +208,9 @@ int gigaset_isowbuf_getbytes(struct isowbuf_t *iwb, int size)
 	return read;
 }
 
+/* dump_bytes
+ * write hex bytes to syslog for debugging
+ */
 static inline void dump_bytes(enum debuglevel level, const char *tag,
 			      unsigned char *bytes, int count)
 {
@@ -202,8 +239,17 @@ static inline void dump_bytes(enum debuglevel level, const char *tag,
 #endif
 }
 
+/*============================================================================*/
 
+/* bytewise HDLC bitstuffing via table lookup
+ * lookup table: 5 subtables for 0..4 preceding consecutive '1' bits
+ * index: 256*(number of preceding '1' bits) + (next byte to stuff)
+ * value: bit  9.. 0 = result bits
+ *        bit 12..10 = number of trailing '1' bits in result
+ *        bit 14..13 = number of bits added by stuffing
+ */
 static const u16 stufftab[5 * 256] = {
+/* previous 1s = 0: */
 	0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x0008, 0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x000e, 0x000f,
 	0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0018, 0x0019, 0x001a, 0x001b, 0x001c, 0x001d, 0x001e, 0x201f,
 	0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027, 0x0028, 0x0029, 0x002a, 0x002b, 0x002c, 0x002d, 0x002e, 0x002f,
@@ -221,6 +267,7 @@ static const u16 stufftab[5 * 256] = {
 	0x0ce0, 0x0ce1, 0x0ce2, 0x0ce3, 0x0ce4, 0x0ce5, 0x0ce6, 0x0ce7, 0x0ce8, 0x0ce9, 0x0cea, 0x0ceb, 0x0cec, 0x0ced, 0x0cee, 0x0cef,
 	0x10f0, 0x10f1, 0x10f2, 0x10f3, 0x10f4, 0x10f5, 0x10f6, 0x10f7, 0x20f8, 0x20f9, 0x20fa, 0x20fb, 0x257c, 0x257d, 0x29be, 0x2ddf,
 
+/* previous 1s = 1: */
 	0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007, 0x0008, 0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x000e, 0x200f,
 	0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x0017, 0x0018, 0x0019, 0x001a, 0x001b, 0x001c, 0x001d, 0x001e, 0x202f,
 	0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027, 0x0028, 0x0029, 0x002a, 0x002b, 0x002c, 0x002d, 0x002e, 0x204f,
@@ -238,6 +285,7 @@ static const u16 stufftab[5 * 256] = {
 	0x0ce0, 0x0ce1, 0x0ce2, 0x0ce3, 0x0ce4, 0x0ce5, 0x0ce6, 0x0ce7, 0x0ce8, 0x0ce9, 0x0cea, 0x0ceb, 0x0cec, 0x0ced, 0x0cee, 0x2dcf,
 	0x10f0, 0x10f1, 0x10f2, 0x10f3, 0x10f4, 0x10f5, 0x10f6, 0x10f7, 0x20f8, 0x20f9, 0x20fa, 0x20fb, 0x257c, 0x257d, 0x29be, 0x31ef,
 
+/* previous 1s = 2: */
 	0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x2007, 0x0008, 0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x000e, 0x2017,
 	0x0010, 0x0011, 0x0012, 0x0013, 0x0014, 0x0015, 0x0016, 0x2027, 0x0018, 0x0019, 0x001a, 0x001b, 0x001c, 0x001d, 0x001e, 0x2037,
 	0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x2047, 0x0028, 0x0029, 0x002a, 0x002b, 0x002c, 0x002d, 0x002e, 0x2057,
@@ -255,6 +303,7 @@ static const u16 stufftab[5 * 256] = {
 	0x0ce0, 0x0ce1, 0x0ce2, 0x0ce3, 0x0ce4, 0x0ce5, 0x0ce6, 0x2dc7, 0x0ce8, 0x0ce9, 0x0cea, 0x0ceb, 0x0cec, 0x0ced, 0x0cee, 0x2dd7,
 	0x10f0, 0x10f1, 0x10f2, 0x10f3, 0x10f4, 0x10f5, 0x10f6, 0x31e7, 0x20f8, 0x20f9, 0x20fa, 0x20fb, 0x257c, 0x257d, 0x29be, 0x41f7,
 
+/* previous 1s = 3: */
 	0x0000, 0x0001, 0x0002, 0x2003, 0x0004, 0x0005, 0x0006, 0x200b, 0x0008, 0x0009, 0x000a, 0x2013, 0x000c, 0x000d, 0x000e, 0x201b,
 	0x0010, 0x0011, 0x0012, 0x2023, 0x0014, 0x0015, 0x0016, 0x202b, 0x0018, 0x0019, 0x001a, 0x2033, 0x001c, 0x001d, 0x001e, 0x203b,
 	0x0020, 0x0021, 0x0022, 0x2043, 0x0024, 0x0025, 0x0026, 0x204b, 0x0028, 0x0029, 0x002a, 0x2053, 0x002c, 0x002d, 0x002e, 0x205b,
@@ -272,6 +321,7 @@ static const u16 stufftab[5 * 256] = {
 	0x0ce0, 0x0ce1, 0x0ce2, 0x2dc3, 0x0ce4, 0x0ce5, 0x0ce6, 0x2dcb, 0x0ce8, 0x0ce9, 0x0cea, 0x2dd3, 0x0cec, 0x0ced, 0x0cee, 0x2ddb,
 	0x10f0, 0x10f1, 0x10f2, 0x31e3, 0x10f4, 0x10f5, 0x10f6, 0x31eb, 0x20f8, 0x20f9, 0x20fa, 0x41f3, 0x257c, 0x257d, 0x29be, 0x46fb,
 
+/* previous 1s = 4: */
 	0x0000, 0x2001, 0x0002, 0x2005, 0x0004, 0x2009, 0x0006, 0x200d, 0x0008, 0x2011, 0x000a, 0x2015, 0x000c, 0x2019, 0x000e, 0x201d,
 	0x0010, 0x2021, 0x0012, 0x2025, 0x0014, 0x2029, 0x0016, 0x202d, 0x0018, 0x2031, 0x001a, 0x2035, 0x001c, 0x2039, 0x001e, 0x203d,
 	0x0020, 0x2041, 0x0022, 0x2045, 0x0024, 0x2049, 0x0026, 0x204d, 0x0028, 0x2051, 0x002a, 0x2055, 0x002c, 0x2059, 0x002e, 0x205d,
@@ -290,6 +340,16 @@ static const u16 stufftab[5 * 256] = {
 	0x10f0, 0x31e1, 0x10f2, 0x31e5, 0x10f4, 0x31e9, 0x10f6, 0x31ed, 0x20f8, 0x41f1, 0x20fa, 0x41f5, 0x257c, 0x46f9, 0x29be, 0x4b7d
 };
 
+/* hdlc_bitstuff_byte
+ * perform HDLC bitstuffing for one input byte (8 bits, LSB first)
+ * parameters:
+ *	cin	input byte
+ *	ones	number of trailing '1' bits in result before this step
+ *	iwb	pointer to output buffer structure
+ *		(write semaphore must be held)
+ * return value:
+ *	number of trailing '1' bits in result after this step
+ */
 
 static inline int hdlc_bitstuff_byte(struct isowbuf_t *iwb, unsigned char cin,
 				     int ones)
@@ -297,16 +357,42 @@ static inline int hdlc_bitstuff_byte(struct isowbuf_t *iwb, unsigned char cin,
 	u16 stuff;
 	int shiftinc, newones;
 
+	/* get stuffing information for input byte
+	 * value: bit  9.. 0 = result bits
+	 *        bit 12..10 = number of trailing '1' bits in result
+	 *        bit 14..13 = number of bits added by stuffing
+	 */
 	stuff = stufftab[256 * ones + cin];
 	shiftinc = (stuff >> 13) & 3;
 	newones = (stuff >> 10) & 7;
 	stuff &= 0x3ff;
 
-	
+	/* append stuffed byte to output stream */
 	isowbuf_putbits(iwb, stuff, 8 + shiftinc);
 	return newones;
 }
 
+/* hdlc_buildframe
+ * Perform HDLC framing with bitstuffing on a byte buffer
+ * The input buffer is regarded as a sequence of bits, starting with the least
+ * significant bit of the first byte and ending with the most significant bit
+ * of the last byte. A 16 bit FCS is appended as defined by RFC 1662.
+ * Whenever five consecutive '1' bits appear in the resulting bit sequence, a
+ * '0' bit is inserted after them.
+ * The resulting bit string and a closing flag pattern (PPP_FLAG, '01111110')
+ * are appended to the output buffer starting at the given bit position, which
+ * is assumed to already contain a leading flag.
+ * The output buffer must have sufficient length; count + count/5 + 6 bytes
+ * starting at *out are safe and are verified to be present.
+ * parameters:
+ *	in	input buffer
+ *	count	number of bytes in input buffer
+ *	iwb	pointer to output buffer structure
+ *		(write semaphore must be held)
+ * return value:
+ *	position of end of packet in output buffer on success,
+ *	-EAGAIN if write semaphore busy or buffer full
+ */
 
 static inline int hdlc_buildframe(struct isowbuf_t *iwb,
 				  unsigned char *in, int count)
@@ -325,7 +411,7 @@ static inline int hdlc_buildframe(struct isowbuf_t *iwb,
 
 	dump_bytes(DEBUG_STREAM_DUMP, "snd data", in, count);
 
-	
+	/* bitstuff and checksum input data */
 	fcs = PPP_INITFCS;
 	ones = 0;
 	while (count-- > 0) {
@@ -334,16 +420,32 @@ static inline int hdlc_buildframe(struct isowbuf_t *iwb,
 		fcs = crc_ccitt_byte(fcs, c);
 	}
 
+	/* bitstuff and append FCS
+	 * (complemented, least significant byte first) */
 	fcs ^= 0xffff;
 	ones = hdlc_bitstuff_byte(iwb, fcs & 0x00ff, ones);
 	ones = hdlc_bitstuff_byte(iwb, (fcs >> 8) & 0x00ff, ones);
 
-	
+	/* put closing flag and repeat byte for flag idle */
 	isowbuf_putflag(iwb);
 	end = isowbuf_donewrite(iwb);
 	return end;
 }
 
+/* trans_buildframe
+ * Append a block of 'transparent' data to the output buffer,
+ * inverting the bytes.
+ * The output buffer must have sufficient length; count bytes
+ * starting at *out are safe and are verified to be present.
+ * parameters:
+ *	in	input buffer
+ *	count	number of bytes in input buffer
+ *	iwb	pointer to output buffer structure
+ *		(write semaphore must be held)
+ * return value:
+ *	position of end of packet in output buffer on success,
+ *	-EAGAIN if write semaphore busy or buffer full
+ */
 
 static inline int trans_buildframe(struct isowbuf_t *iwb,
 				   unsigned char *in, int count)
@@ -385,7 +487,7 @@ int gigaset_isoc_buildframe(struct bc_state *bcs, unsigned char *in, int len)
 		gig_dbg(DEBUG_ISO, "%s: %d bytes HDLC -> %d",
 			__func__, len, result);
 		break;
-	default:			
+	default:			/* assume transparent */
 		result = trans_buildframe(bcs->hw.bas->isooutbuf, in, len);
 		gig_dbg(DEBUG_ISO, "%s: %d bytes trans -> %d",
 			__func__, len, result);
@@ -393,11 +495,14 @@ int gigaset_isoc_buildframe(struct bc_state *bcs, unsigned char *in, int len)
 	return result;
 }
 
+/* hdlc_putbyte
+ * append byte c to current skb of B channel structure *bcs, updating fcs
+ */
 static inline void hdlc_putbyte(unsigned char c, struct bc_state *bcs)
 {
 	bcs->rx_fcs = crc_ccitt_byte(bcs->rx_fcs, c);
 	if (bcs->rx_skb == NULL)
-		
+		/* skipping */
 		return;
 	if (bcs->rx_skb->len >= bcs->rx_bufsize) {
 		dev_warn(bcs->cs->dev, "received oversized packet discarded\n");
@@ -409,18 +514,24 @@ static inline void hdlc_putbyte(unsigned char c, struct bc_state *bcs)
 	*__skb_put(bcs->rx_skb, 1) = c;
 }
 
+/* hdlc_flush
+ * drop partial HDLC data packet
+ */
 static inline void hdlc_flush(struct bc_state *bcs)
 {
-	
+	/* clear skb or allocate new if not skipping */
 	if (bcs->rx_skb != NULL)
 		skb_trim(bcs->rx_skb, 0);
 	else
 		gigaset_new_rx_skb(bcs);
 
-	
+	/* reset packet state */
 	bcs->rx_fcs = PPP_INITFCS;
 }
 
+/* hdlc_done
+ * process completed HDLC data packet
+ */
 static inline void hdlc_done(struct bc_state *bcs)
 {
 	struct cardstate *cs = bcs->cs;
@@ -434,7 +545,7 @@ static inline void hdlc_done(struct bc_state *bcs)
 	}
 	procskb = bcs->rx_skb;
 	if (procskb == NULL) {
-		
+		/* previous error */
 		gig_dbg(DEBUG_ISO, "%s: skb=NULL", __func__);
 		gigaset_isdn_rcv_err(bcs);
 	} else if (procskb->len < 2) {
@@ -450,7 +561,7 @@ static inline void hdlc_done(struct bc_state *bcs)
 		gigaset_isdn_rcv_err(bcs);
 	} else {
 		len = procskb->len;
-		__skb_trim(procskb, len -= 2);	
+		__skb_trim(procskb, len -= 2);	/* subtract FCS */
 		gig_dbg(DEBUG_ISO, "%s: good frame (%d octets)", __func__, len);
 		dump_bytes(DEBUG_STREAM_DUMP,
 			   "rcv data", procskb->data, len);
@@ -461,6 +572,9 @@ static inline void hdlc_done(struct bc_state *bcs)
 	bcs->rx_fcs = PPP_INITFCS;
 }
 
+/* hdlc_frag
+ * drop HDLC data packet with non-integral last byte
+ */
 static inline void hdlc_frag(struct bc_state *bcs, unsigned inbits)
 {
 	if (unlikely(bcs->ignore)) {
@@ -476,6 +590,13 @@ static inline void hdlc_frag(struct bc_state *bcs, unsigned inbits)
 	bcs->rx_fcs = PPP_INITFCS;
 }
 
+/* bit counts lookup table for HDLC bit unstuffing
+ * index: input byte
+ * value: bit 0..3 = number of consecutive '1' bits starting from LSB
+ *        bit 4..6 = number of consecutive '1' bits starting from MSB
+ *		     (replacing 8 by 7 to make it fit; the algorithm won't care)
+ *        bit 7 set if there are 5 or more "interior" consecutive '1' bits
+ */
 static const unsigned char bitcounts[256] = {
 	0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x04,
 	0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x00, 0x05,
@@ -495,6 +616,17 @@ static const unsigned char bitcounts[256] = {
 	0x40, 0x41, 0x40, 0x42, 0x40, 0x41, 0x40, 0x43, 0x50, 0x51, 0x50, 0x52, 0x60, 0x61, 0x70, 0x78
 };
 
+/* hdlc_unpack
+ * perform HDLC frame processing (bit unstuffing, flag detection, FCS
+ * calculation) on a sequence of received data bytes (8 bits each, LSB first)
+ * pass on successfully received, complete frames as SKBs via gigaset_skb_rcvd
+ * notify of errors via gigaset_isdn_rcv_err
+ * tally frames, errors etc. in BC structure counters
+ * parameters:
+ *	src	received data
+ *	count	number of received bytes
+ *	bcs	receiving B channel structure
+ */
 static inline void hdlc_unpack(unsigned char *src, unsigned count,
 			       struct bc_state *bcs)
 {
@@ -502,11 +634,27 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 	int inputstate;
 	unsigned seqlen, inbyte, inbits;
 
+	/* load previous state:
+	 * inputstate = set of flag bits:
+	 * - INS_flag_hunt: no complete opening flag received since connection
+	 *                  setup or last abort
+	 * - INS_have_data: at least one complete data byte received since last
+	 *                  flag
+	 * seqlen = number of consecutive '1' bits in last 7 input stream bits
+	 *          (0..7)
+	 * inbyte = accumulated partial data byte (if !INS_flag_hunt)
+	 * inbits = number of valid bits in inbyte, starting at LSB (0..6)
+	 */
 	inputstate = bcs->inputstate;
 	seqlen = ubc->seqlen;
 	inbyte = ubc->inbyte;
 	inbits = ubc->inbits;
 
+	/* bit unstuffing a byte a time
+	 * Take your time to understand this; it's straightforward but tedious.
+	 * The "bitcounts" lookup table is used to speed up the counting of
+	 * leading and trailing '1' bits.
+	 */
 	while (count--) {
 		unsigned char c = *src++;
 		unsigned char tabentry = bitcounts[c];
@@ -517,16 +665,20 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 
 		if (unlikely(inputstate & INS_flag_hunt)) {
 			if (c == PPP_FLAG) {
-				
+				/* flag-in-one */
 				inputstate &= ~(INS_flag_hunt | INS_have_data);
 				inbyte = 0;
 				inbits = 0;
 			} else if (seqlen == 6 && trail1 != 7) {
-				
+				/* flag completed & not followed by abort */
 				inputstate &= ~(INS_flag_hunt | INS_have_data);
 				inbyte = c >> (lead1 + 1);
 				inbits = 7 - lead1;
 				if (trail1 >= 8) {
+					/* interior stuffing:
+					 * omitting the MSB handles most cases,
+					 * correct the incorrectly handled
+					 * cases individually */
 					inbits--;
 					switch (c) {
 					case 0xbe:
@@ -535,24 +687,26 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 					}
 				}
 			}
-			
+			/* else: continue flag-hunting */
 		} else if (likely(seqlen < 5 && trail1 < 7)) {
-			
+			/* streamlined case: 8 data bits, no stuffing */
 			inbyte |= c << inbits;
 			hdlc_putbyte(inbyte & 0xff, bcs);
 			inputstate |= INS_have_data;
 			inbyte >>= 8;
-			
+			/* inbits unchanged */
 		} else if (likely(seqlen == 6 && inbits == 7 - lead1 &&
 				  trail1 + 1 == inbits &&
 				  !(inputstate & INS_have_data))) {
-			
+			/* streamlined case: flag idle - state unchanged */
 		} else if (unlikely(seqlen > 6)) {
-			
+			/* abort sequence */
 			ubc->aborts++;
 			hdlc_flush(bcs);
 			inputstate |= INS_flag_hunt;
 		} else if (seqlen == 6) {
+			/* closing flag, including (6 - lead1) '1's
+			 * and one '0' from inbits */
 			if (inbits > 7 - lead1) {
 				hdlc_frag(bcs, inbits + lead1 - 7);
 				inputstate &= ~INS_have_data;
@@ -566,15 +720,19 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 			}
 
 			if (c == PPP_FLAG) {
-				
+				/* complete flag, LSB overlaps preceding flag */
 				ubc->shared0s++;
 				inbits = 0;
 				inbyte = 0;
 			} else if (trail1 != 7) {
-				
+				/* remaining bits */
 				inbyte = c >> (lead1 + 1);
 				inbits = 7 - lead1;
 				if (trail1 >= 8) {
+					/* interior stuffing:
+					 * omitting the MSB handles most cases,
+					 * correct the incorrectly handled
+					 * cases individually */
 					inbits--;
 					switch (c) {
 					case 0xbe:
@@ -583,13 +741,15 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 					}
 				}
 			} else {
+				/* abort sequence follows,
+				 * skb already empty anyway */
 				ubc->aborts++;
 				inputstate |= INS_flag_hunt;
 			}
-		} else { 
+		} else { /* (seqlen < 6) && (seqlen == 5 || trail1 >= 7) */
 
 			if (c == PPP_FLAG) {
-				
+				/* complete flag */
 				if (seqlen == 5)
 					ubc->stolen0s++;
 				if (inbits) {
@@ -600,18 +760,24 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 					hdlc_done(bcs);
 				inputstate &= ~INS_have_data;
 			} else if (trail1 == 7) {
-				
+				/* abort sequence */
 				ubc->aborts++;
 				hdlc_flush(bcs);
 				inputstate |= INS_flag_hunt;
 			} else {
-				
-				if (trail1 < 7) { 
+				/* stuffed data */
+				if (trail1 < 7) { /* => seqlen == 5 */
+					/* stuff bit at position lead1,
+					 * no interior stuffing */
 					unsigned char mask = (1 << lead1) - 1;
 					c = (c & mask) | ((c & ~mask) >> 1);
 					inbyte |= c << inbits;
 					inbits += 7;
-				} else if (seqlen < 5) { 
+				} else if (seqlen < 5) { /* trail1 >= 8 */
+					/* interior stuffing:
+					 * omitting the MSB handles most cases,
+					 * correct the incorrectly handled
+					 * cases individually */
 					switch (c) {
 					case 0xbe:
 						c = 0x7e;
@@ -619,8 +785,10 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 					}
 					inbyte |= c << inbits;
 					inbits += 7;
-				} else { 
+				} else { /* seqlen == 5 && trail1 >= 8 */
 
+					/* stuff bit at lead1 *and* interior
+					 * stuffing -- unstuff individually */
 					switch (c) {
 					case 0x7d:
 						c = 0x3f;
@@ -649,13 +817,22 @@ static inline void hdlc_unpack(unsigned char *src, unsigned count,
 		seqlen = trail1 & 7;
 	}
 
-	
+	/* save new state */
 	bcs->inputstate = inputstate;
 	ubc->seqlen = seqlen;
 	ubc->inbyte = inbyte;
 	ubc->inbits = inbits;
 }
 
+/* trans_receive
+ * pass on received USB frame transparently as SKB via gigaset_skb_rcvd
+ * invert bytes
+ * tally frames, errors etc. in BC structure counters
+ * parameters:
+ *	src	received data
+ *	count	number of received bytes
+ *	bcs	receiving B channel structure
+ */
 static inline void trans_receive(unsigned char *src, unsigned count,
 				 struct bc_state *bcs)
 {
@@ -701,12 +878,19 @@ void gigaset_isoc_receive(unsigned char *src, unsigned count,
 	case L2_HDLC:
 		hdlc_unpack(src, count, bcs);
 		break;
-	default:		
+	default:		/* assume transparent */
 		trans_receive(src, count, bcs);
 	}
 }
 
+/* == data input =========================================================== */
 
+/* process a block of received bytes in command mode (mstate != MS_LOCKED)
+ * Append received bytes to the command response buffer and forward them
+ * line by line to the response handler.
+ * Note: Received lines may be terminated by CR, LF, or CR LF, which will be
+ * removed before passing the line to the response handler.
+ */
 static void cmd_loop(unsigned char *src, int numbytes, struct inbuf_t *inbuf)
 {
 	struct cardstate *cs = inbuf->cs;
@@ -718,13 +902,13 @@ static void cmd_loop(unsigned char *src, int numbytes, struct inbuf_t *inbuf)
 		switch (c) {
 		case '\n':
 			if (cbytes == 0 && cs->respdata[0] == '\r') {
-				
+				/* collapse LF with preceding CR */
 				cs->respdata[0] = 0;
 				break;
 			}
-			
+			/* --v-- fall through --v-- */
 		case '\r':
-			
+			/* end of message line, pass to response handler */
 			if (cbytes >= MAX_RESP_SIZE) {
 				dev_warn(cs->dev, "response too large (%d)\n",
 					 cbytes);
@@ -736,22 +920,24 @@ static void cmd_loop(unsigned char *src, int numbytes, struct inbuf_t *inbuf)
 			gigaset_handle_modem_response(cs);
 			cbytes = 0;
 
-			
+			/* store EOL byte for CRLF collapsing */
 			cs->respdata[0] = c;
 			break;
 		default:
-			
+			/* append to line buffer if possible */
 			if (cbytes < MAX_RESP_SIZE)
 				cs->respdata[cbytes] = c;
 			cbytes++;
 		}
 	}
 
-	
+	/* save state */
 	cs->cbytes = cbytes;
 }
 
 
+/* process a block of data received through the control channel
+ */
 void gigaset_isoc_input(struct inbuf_t *inbuf)
 {
 	struct cardstate *cs = inbuf->cs;
@@ -784,7 +970,22 @@ void gigaset_isoc_input(struct inbuf_t *inbuf)
 }
 
 
+/* == data output ========================================================== */
 
+/**
+ * gigaset_isoc_send_skb() - queue an skb for sending
+ * @bcs:	B channel descriptor structure.
+ * @skb:	data to send.
+ *
+ * Called by LL to queue an skb for sending, and start transmission if
+ * necessary.
+ * Once the payload data has been transmitted completely, gigaset_skb_sent()
+ * will be called with the skb's link layer header preserved.
+ *
+ * Return value:
+ *	number of bytes accepted for sending (skb->len) if ok,
+ *	error code < 0 (eg. -ENODEV) on error
+ */
 int gigaset_isoc_send_skb(struct bc_state *bcs, struct sk_buff *skb)
 {
 	int len = skb->len;
@@ -800,9 +1001,9 @@ int gigaset_isoc_send_skb(struct bc_state *bcs, struct sk_buff *skb)
 	gig_dbg(DEBUG_ISO, "%s: skb queued, qlen=%d",
 		__func__, skb_queue_len(&bcs->squeue));
 
-	
+	/* tasklet submits URB if necessary */
 	tasklet_schedule(&bcs->hw.bas->sent_tasklet);
 	spin_unlock_irqrestore(&bcs->cs->lock, flags);
 
-	return len;	
+	return len;	/* ok so far */
 }

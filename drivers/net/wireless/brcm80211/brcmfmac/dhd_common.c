@@ -33,7 +33,7 @@
 #define DOT11_OUI_LEN			3
 #define BCMILCP_BCM_SUBTYPE_EVENT	1
 #define PKTFILTER_BUF_SIZE		2048
-#define BRCMF_ARPOL_MODE		0xb	
+#define BRCMF_ARPOL_MODE		0xb	/* agent|snoop|peer_autoreply */
 
 #define MSGTRACE_VERSION	1
 
@@ -50,13 +50,20 @@ static const char brcmf_version[] =
 	"Dongle Host Driver, version " BRCMF_VERSION_STR;
 #endif
 
+/* Message trace header */
 struct msgtrace_hdr {
 	u8 version;
 	u8 spare;
-	__be16 len;		
-	__be32 seqnum;		
-	__be32 discarded_bytes;	
-	__be32 discarded_printf;	
+	__be16 len;		/* Len of the trace */
+	__be32 seqnum;		/* Sequence number of message. Useful
+				 * if the messsage has been lost
+				 * because of DMA error or a bus reset
+				 * (ex: SDIO Func2)
+				 */
+	__be32 discarded_bytes;	/* Number of discarded bytes because of
+				 trace overflow  */
+	__be32 discarded_printf;	/* Number of discarded printf
+				 because of trace overflow */
 } __packed;
 
 
@@ -72,7 +79,7 @@ brcmf_c_mkiovar(char *name, char *data, uint datalen, char *buf, uint buflen)
 
 	strncpy(buf, name, buflen);
 
-	
+	/* append data onto the end of the name string */
 	memcpy(&buf[len], data, datalen);
 	len += datalen;
 
@@ -83,17 +90,20 @@ bool brcmf_c_prec_enq(struct device *dev, struct pktq *q,
 		      struct sk_buff *pkt, int prec)
 {
 	struct sk_buff *p;
-	int eprec = -1;		
+	int eprec = -1;		/* precedence to evict from */
 	bool discard_oldest;
 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
 	struct brcmf_pub *drvr = bus_if->drvr;
 
+	/* Fast case, precedence queue is not full and we are also not
+	 * exceeding total queue length
+	 */
 	if (!pktq_pfull(q, prec) && !pktq_full(q)) {
 		brcmu_pktq_penq(q, prec, pkt);
 		return true;
 	}
 
-	
+	/* Determine precedence from which to evict packet, if any */
 	if (pktq_pfull(q, prec))
 		eprec = prec;
 	else if (pktq_full(q)) {
@@ -102,13 +112,13 @@ bool brcmf_c_prec_enq(struct device *dev, struct pktq *q,
 			return false;
 	}
 
-	
+	/* Evict if needed */
 	if (eprec >= 0) {
-		
+		/* Detect queueing to unconfigured precedence */
 		discard_oldest = ac_bitmap_tst(drvr->wme_dp, eprec);
 		if (eprec == prec && !discard_oldest)
-			return false;	
-		
+			return false;	/* refuse newer (incoming) packet */
+		/* Evict packet according to discard policy */
 		p = discard_oldest ? brcmu_pktq_pdeq(q, eprec) :
 			brcmu_pktq_pdeq_tail(q, eprec);
 		if (p == NULL)
@@ -118,7 +128,7 @@ bool brcmf_c_prec_enq(struct device *dev, struct pktq *q,
 		brcmu_pkt_buf_free_skb(p);
 	}
 
-	
+	/* Enqueue */
 	p = brcmu_pktq_penq(q, prec, pkt);
 	if (p == NULL)
 		brcmf_dbg(ERROR, "brcmu_pktq_penq() failed\n");
@@ -209,7 +219,7 @@ brcmf_c_show_host_event(struct brcmf_event_msg *event, void *event_data)
 	reason = be32_to_cpu(event->reason);
 	auth_type = be32_to_cpu(event->auth_type);
 	datalen = be32_to_cpu(event->datalen);
-	
+	/* debug dump of event messages */
 	sprintf(eabuf, "%pM", event->addr);
 
 	event_name = "UNKNOWN";
@@ -361,12 +371,12 @@ brcmf_c_show_host_event(struct brcmf_event_msg *event, void *event_data)
 				  "MACEVENT: %s [unsupported version --> brcmf"
 				  " version:%d dongle version:%d]\n",
 				  event_name, MSGTRACE_VERSION, hdr.version);
-			
+			/* Reset datalen to avoid display below */
 			datalen = 0;
 			break;
 		}
 
-		
+		/* There are 2 bytes available at the end of data */
 		*(buf + sizeof(struct msgtrace_hdr)
 			 + be16_to_cpu(hdr.len)) = '\0';
 
@@ -385,6 +395,10 @@ brcmf_c_show_host_event(struct brcmf_event_msg *event, void *event_data)
 				  nblost);
 		seqnum_prev = be32_to_cpu(hdr.seqnum);
 
+		/* Display the trace buffer. Advance from \n to \n to
+		 * avoid display big
+		 * printf (issue with Linux printk )
+		 */
 		p = (char *)&buf[sizeof(struct msgtrace_hdr)];
 		while ((s = strstr(p, "\n")) != NULL) {
 			*s = '\0';
@@ -393,7 +407,7 @@ brcmf_c_show_host_event(struct brcmf_event_msg *event, void *event_data)
 		}
 		pr_debug("%s\n", p);
 
-		
+		/* Reset datalen to avoid display below */
 		datalen = 0;
 		break;
 
@@ -410,7 +424,7 @@ brcmf_c_show_host_event(struct brcmf_event_msg *event, void *event_data)
 		break;
 	}
 
-	
+	/* show any appended data */
 	if (datalen) {
 		buf = (unsigned char *) event_data;
 		brcmf_dbg(EVENT, " data (%d) : ", datalen);
@@ -419,13 +433,13 @@ brcmf_c_show_host_event(struct brcmf_event_msg *event, void *event_data)
 		brcmf_dbg(EVENT, "\n");
 	}
 }
-#endif				
+#endif				/* DEBUG */
 
 int
 brcmf_c_host_event(struct brcmf_pub *drvr, int *ifidx, void *pktdata,
 		   struct brcmf_event_msg *event, void **data_ptr)
 {
-	
+	/* check whether packet is a BRCM event pkt */
 	struct brcmf_event *pvt_data = (struct brcmf_event *) pktdata;
 	struct brcmf_if_event *ifevent;
 	char *event_data;
@@ -438,7 +452,7 @@ brcmf_c_host_event(struct brcmf_pub *drvr, int *ifidx, void *pktdata,
 		return -EBADE;
 	}
 
-	
+	/* BRCM event pkt may be unaligned - use xxx_ua to load user_subtype. */
 	if (get_unaligned_be16(&pvt_data->hdr.usr_subtype) !=
 	    BCMILCP_BCM_SUBTYPE_EVENT) {
 		brcmf_dbg(ERROR, "mismatched subtype, bailing\n");
@@ -448,7 +462,7 @@ brcmf_c_host_event(struct brcmf_pub *drvr, int *ifidx, void *pktdata,
 	*data_ptr = &pvt_data[1];
 	event_data = *data_ptr;
 
-	
+	/* memcpy since BRCM event pkt may be unaligned. */
 	memcpy(event, &pvt_data->msg, sizeof(struct brcmf_event_msg));
 
 	type = get_unaligned_be32(&event->event_type);
@@ -474,24 +488,24 @@ brcmf_c_host_event(struct brcmf_pub *drvr, int *ifidx, void *pktdata,
 				  ifevent->ifidx, event->ifname);
 		}
 
-		
+		/* send up the if event: btamp user needs it */
 		*ifidx = brcmf_ifname2idx(drvr, event->ifname);
 		break;
 
-		
+		/* These are what external supplicant/authenticator wants */
 	case BRCMF_E_LINK:
 	case BRCMF_E_ASSOC_IND:
 	case BRCMF_E_REASSOC_IND:
 	case BRCMF_E_DISASSOC_IND:
 	case BRCMF_E_MIC_ERROR:
 	default:
-		
+		/* Fall through: this should get _everything_  */
 
 		*ifidx = brcmf_ifname2idx(drvr, event->ifname);
 		brcmf_dbg(TRACE, "MAC event %d, flags %x, status %x\n",
 			  type, flags, status);
 
-		
+		/* put it back to BRCMF_E_NDIS_LINK */
 		if (type == BRCMF_E_NDIS_LINK) {
 			u32 temp1;
 			__be32 temp2;
@@ -509,11 +523,12 @@ brcmf_c_host_event(struct brcmf_pub *drvr, int *ifidx, void *pktdata,
 
 #ifdef DEBUG
 	brcmf_c_show_host_event(event, event_data);
-#endif				
+#endif				/* DEBUG */
 
 	return 0;
 }
 
+/* Convert user's input in hex pattern to byte-size mask */
 static int brcmf_c_pattern_atoh(char *src, char *dst)
 {
 	int i;
@@ -521,7 +536,7 @@ static int brcmf_c_pattern_atoh(char *src, char *dst)
 		brcmf_dbg(ERROR, "Mask invalid format. Needs to start with 0x\n");
 		return -EINVAL;
 	}
-	src = src + 2;		
+	src = src + 2;		/* Skip past 0x */
 	if (strlen(src) % 2 != 0) {
 		brcmf_dbg(ERROR, "Mask invalid format. Length must be even.\n");
 		return -EINVAL;
@@ -579,18 +594,18 @@ brcmf_c_pktfilter_offload_enable(struct brcmf_pub *drvr, char *arg, int enable,
 
 	pkt_filterp = (struct brcmf_pkt_filter_enable_le *) (buf + str_len + 1);
 
-	
+	/* Parse packet filter id. */
 	enable_parm.id = 0;
 	if (!kstrtoul(argv[i], 0, &res))
 		enable_parm.id = cpu_to_le32((u32)res);
 
-	
+	/* Parse enable/disable value. */
 	enable_parm.enable = cpu_to_le32(enable);
 
 	buf_len += sizeof(enable_parm);
 	memcpy((char *)pkt_filterp, &enable_parm, sizeof(enable_parm));
 
-	
+	/* Enable/disable the specified filter. */
 	rc = brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_VAR, buf, buf_len);
 	rc = rc >= 0 ? 0 : rc;
 	if (rc)
@@ -599,7 +614,7 @@ brcmf_c_pktfilter_offload_enable(struct brcmf_pub *drvr, char *arg, int enable,
 	else
 		brcmf_dbg(TRACE, "successfully added pktfilter %s\n", arg);
 
-	
+	/* Contorl the master mode */
 	mmode_le = cpu_to_le32(master_mode);
 	brcmf_c_mkiovar("pkt_filter_mode", (char *)&mmode_le, 4, buf,
 		    sizeof(buf));
@@ -656,7 +671,7 @@ void brcmf_c_pktfilter_offload_set(struct brcmf_pub *drvr, char *arg)
 
 	pkt_filterp = (struct brcmf_pkt_filter_le *) (buf + str_len + 1);
 
-	
+	/* Parse packet filter id. */
 	pkt_filter.id = 0;
 	if (!kstrtoul(argv[i], 0, &res))
 		pkt_filter.id = cpu_to_le32((u32)res);
@@ -666,7 +681,7 @@ void brcmf_c_pktfilter_offload_set(struct brcmf_pub *drvr, char *arg)
 		goto fail;
 	}
 
-	
+	/* Parse filter polarity. */
 	pkt_filter.negate_match = 0;
 	if (!kstrtoul(argv[i], 0, &res))
 		pkt_filter.negate_match = cpu_to_le32((u32)res);
@@ -676,7 +691,7 @@ void brcmf_c_pktfilter_offload_set(struct brcmf_pub *drvr, char *arg)
 		goto fail;
 	}
 
-	
+	/* Parse filter type. */
 	pkt_filter.type = 0;
 	if (!kstrtoul(argv[i], 0, &res))
 		pkt_filter.type = cpu_to_le32((u32)res);
@@ -686,7 +701,7 @@ void brcmf_c_pktfilter_offload_set(struct brcmf_pub *drvr, char *arg)
 		goto fail;
 	}
 
-	
+	/* Parse pattern filter offset. */
 	pkt_filter.u.pattern.offset = 0;
 	if (!kstrtoul(argv[i], 0, &res))
 		pkt_filter.u.pattern.offset = cpu_to_le32((u32)res);
@@ -696,7 +711,7 @@ void brcmf_c_pktfilter_offload_set(struct brcmf_pub *drvr, char *arg)
 		goto fail;
 	}
 
-	
+	/* Parse pattern filter mask. */
 	mask_size =
 	    brcmf_c_pattern_atoh
 		   (argv[i], (char *)pkt_filterp->u.pattern.mask_and_pattern);
@@ -706,7 +721,7 @@ void brcmf_c_pktfilter_offload_set(struct brcmf_pub *drvr, char *arg)
 		goto fail;
 	}
 
-	
+	/* Parse pattern filter pattern. */
 	pattern_size =
 	    brcmf_c_pattern_atoh(argv[i],
 				   (char *)&pkt_filterp->u.pattern.
@@ -721,6 +736,11 @@ void brcmf_c_pktfilter_offload_set(struct brcmf_pub *drvr, char *arg)
 	buf_len += BRCMF_PKT_FILTER_FIXED_LEN;
 	buf_len += (BRCMF_PKT_FILTER_PATTERN_FIXED_LEN + 2 * mask_size);
 
+	/* Keep-alive attributes are set in local
+	 * variable (keep_alive_pkt), and
+	 ** then memcpy'ed into buffer (keep_alive_pktp) since there is no
+	 ** guarantee that the buffer is properly aligned.
+	 */
 	memcpy((char *)pkt_filterp,
 	       &pkt_filter,
 	       BRCMF_PKT_FILTER_FIXED_LEN + BRCMF_PKT_FILTER_PATTERN_FIXED_LEN);
@@ -777,7 +797,8 @@ static void brcmf_c_arp_offload_enable(struct brcmf_pub *drvr, int arp_enable)
 
 int brcmf_c_preinit_dcmds(struct brcmf_pub *drvr)
 {
-	char iovbuf[BRCMF_EVENTING_MASK_LEN + 12];	
+	char iovbuf[BRCMF_EVENTING_MASK_LEN + 12];	/*  Room for
+				 "event_msgs" + '\0' + bitvec  */
 	uint up = 0;
 	char buf[128], *ptr;
 	u32 dongle_align = drvr->bus_if->align;
@@ -790,7 +811,7 @@ int brcmf_c_preinit_dcmds(struct brcmf_pub *drvr)
 
 	mutex_lock(&drvr->proto_block);
 
-	
+	/* Set Country code */
 	if (drvr->country_code[0] != 0) {
 		if (brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_COUNTRY,
 					      drvr->country_code,
@@ -798,40 +819,44 @@ int brcmf_c_preinit_dcmds(struct brcmf_pub *drvr)
 			brcmf_dbg(ERROR, "country code setting failed\n");
 	}
 
-	
+	/* query for 'ver' to get version info from firmware */
 	memset(buf, 0, sizeof(buf));
 	ptr = buf;
 	brcmf_c_mkiovar("ver", NULL, 0, buf, sizeof(buf));
 	brcmf_proto_cdc_query_dcmd(drvr, 0, BRCMF_C_GET_VAR, buf, sizeof(buf));
 	strsep(&ptr, "\n");
-	
+	/* Print fw version info */
 	brcmf_dbg(ERROR, "Firmware version = %s\n", buf);
 
-	
+	/* Match Host and Dongle rx alignment */
 	brcmf_c_mkiovar("bus:txglomalign", (char *)&dongle_align, 4, iovbuf,
 		    sizeof(iovbuf));
 	brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_VAR, iovbuf,
 				  sizeof(iovbuf));
 
-	
+	/* disable glom option per default */
 	brcmf_c_mkiovar("bus:txglom", (char *)&glom, 4, iovbuf, sizeof(iovbuf));
 	brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_VAR, iovbuf,
 				  sizeof(iovbuf));
 
+	/* Setup timeout if Beacons are lost and roam is off to report
+		 link down */
 	brcmf_c_mkiovar("bcn_timeout", (char *)&bcn_timeout, 4, iovbuf,
 		    sizeof(iovbuf));
 	brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_VAR, iovbuf,
 				  sizeof(iovbuf));
 
+	/* Enable/Disable build-in roaming to allowed ext supplicant to take
+		 of romaing */
 	brcmf_c_mkiovar("roam_off", (char *)&roaming, 4,
 		      iovbuf, sizeof(iovbuf));
 	brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_VAR, iovbuf,
 				  sizeof(iovbuf));
 
-	
+	/* Force STA UP */
 	brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_UP, (char *)&up, sizeof(up));
 
-	
+	/* Setup event_msgs */
 	brcmf_c_mkiovar("event_msgs", drvr->eventmask, BRCMF_EVENTING_MASK_LEN,
 		      iovbuf, sizeof(iovbuf));
 	brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_VAR, iovbuf,
@@ -842,11 +867,11 @@ int brcmf_c_preinit_dcmds(struct brcmf_pub *drvr)
 	brcmf_proto_cdc_set_dcmd(drvr, 0, BRCMF_C_SET_SCAN_UNASSOC_TIME,
 			 (char *)&scan_unassoc_time, sizeof(scan_unassoc_time));
 
-	
+	/* Set and enable ARP offload feature */
 	brcmf_c_arp_offload_set(drvr, BRCMF_ARPOL_MODE);
 	brcmf_c_arp_offload_enable(drvr, true);
 
-	
+	/* Set up pkt filter */
 	for (i = 0; i < drvr->pktfilter_count; i++) {
 		brcmf_c_pktfilter_offload_set(drvr, drvr->pktfilter[i]);
 		brcmf_c_pktfilter_offload_enable(drvr, drvr->pktfilter[i],

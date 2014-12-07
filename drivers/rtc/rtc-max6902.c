@@ -35,7 +35,7 @@ static int max6902_set_reg(struct device *dev, unsigned char address,
 	struct spi_device *spi = to_spi_device(dev);
 	unsigned char buf[2];
 
-	
+	/* MSB must be '0' to write */
 	buf[0] = address & 0x7f;
 	buf[1] = data;
 
@@ -47,7 +47,7 @@ static int max6902_get_reg(struct device *dev, unsigned char address,
 {
 	struct spi_device *spi = to_spi_device(dev);
 
-	
+	/* Set MSB to indicate read */
 	*data = address | 0x80;
 
 	return spi_write_then_read(spi, data, 1, data, 1);
@@ -59,12 +59,14 @@ static int max6902_read_time(struct device *dev, struct rtc_time *dt)
 	struct spi_device *spi = to_spi_device(dev);
 	unsigned char buf[8];
 
-	buf[0] = 0xbf;	
+	buf[0] = 0xbf;	/* Burst read */
 
 	err = spi_write_then_read(spi, buf, 1, buf, 8);
 	if (err != 0)
 		return err;
 
+	/* The chip sends data in this order:
+	 * Seconds, Minutes, Hours, Date, Month, Day, Year */
 	dt->tm_sec	= bcd2bin(buf[0]);
 	dt->tm_min	= bcd2bin(buf[1]);
 	dt->tm_hour	= bcd2bin(buf[2]);
@@ -73,7 +75,7 @@ static int max6902_read_time(struct device *dev, struct rtc_time *dt)
 	dt->tm_wday	= bcd2bin(buf[5]);
 	dt->tm_year	= bcd2bin(buf[6]);
 
-	
+	/* Read century */
 	err = max6902_get_reg(dev, MAX6902_REG_CENTURY, &buf[0]);
 	if (err != 0)
 		return err;
@@ -90,7 +92,7 @@ static int max6902_set_time(struct device *dev, struct rtc_time *dt)
 {
 	dt->tm_year = dt->tm_year + 1900;
 
-	
+	/* Remove write protection */
 	max6902_set_reg(dev, 0xF, 0);
 
 	max6902_set_reg(dev, 0x01, bin2bcd(dt->tm_sec));
@@ -103,9 +105,11 @@ static int max6902_set_time(struct device *dev, struct rtc_time *dt)
 	max6902_set_reg(dev, 0x0D, bin2bcd(dt->tm_year % 100));
 	max6902_set_reg(dev, 0x13, bin2bcd(dt->tm_year / 100));
 
-	
+	/* Compulab used a delay here. However, the datasheet
+	 * does not mention a delay being required anywhere... */
+	/* delay(2000); */
 
-	
+	/* Write protect */
 	max6902_set_reg(dev, 0xF, 0x80);
 
 	return 0;

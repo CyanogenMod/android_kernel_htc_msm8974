@@ -15,6 +15,10 @@
 
 #define TRKID_MAX	0xffff
 
+/**
+ * struct input_mt_slot - represents the state of an input MT slot
+ * @abs: holds current values of ABS_MT axes for this slot
+ */
 struct input_mt_slot {
 	int abs[ABS_MT_LAST - ABS_MT_FIRST + 1];
 };

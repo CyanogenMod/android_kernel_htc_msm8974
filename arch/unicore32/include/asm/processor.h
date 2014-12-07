@@ -13,6 +13,10 @@
 #ifndef __UNICORE_PROCESSOR_H__
 #define __UNICORE_PROCESSOR_H__
 
+/*
+ * Default implementation of macro that returns current
+ * instruction pointer ("program counter").
+ */
 #define current_text_addr() ({ __label__ _l; _l: &&_l; })
 
 #ifdef __KERNEL__
@@ -36,11 +40,11 @@ struct debug_info {
 };
 
 struct thread_struct {
-							
+							/* fault info	  */
 	unsigned long		address;
 	unsigned long		trap_no;
 	unsigned long		error_code;
-							
+							/* debugging	  */
 	struct debug_info	debug;
 };
 
@@ -51,23 +55,29 @@ struct thread_struct {
 	unsigned long *stack = (unsigned long *)sp;			\
 	memset(regs->uregs, 0, sizeof(regs->uregs));			\
 	regs->UCreg_asr = USER_MODE;					\
-	regs->UCreg_pc = pc & ~1;	                        \
-	regs->UCreg_sp = sp;		                        \
-	regs->UCreg_02 = stack[2];	                 \
-	regs->UCreg_01 = stack[1];	                 \
-	regs->UCreg_00 = stack[0];	                 \
+	regs->UCreg_pc = pc & ~1;	/* pc */                        \
+	regs->UCreg_sp = sp;		/* sp */                        \
+	regs->UCreg_02 = stack[2];	/* r2 (envp) */                 \
+	regs->UCreg_01 = stack[1];	/* r1 (argv) */                 \
+	regs->UCreg_00 = stack[0];	/* r0 (argc) */                 \
 })
 
+/* Forward declaration, a strange C thing */
 struct task_struct;
 
+/* Free all resources held by a thread. */
 extern void release_thread(struct task_struct *);
 
+/* Prepare to copy thread state - unlazy all lazy status */
 #define prepare_to_copy(tsk)	do { } while (0)
 
 unsigned long get_wchan(struct task_struct *p);
 
 #define cpu_relax()			barrier()
 
+/*
+ * Create a new kernel thread
+ */
 extern int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags);
 
 #define task_pt_regs(p) \
@@ -78,4 +88,4 @@ extern int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags);
 
 #endif
 
-#endif 
+#endif /* __UNICORE_PROCESSOR_H__ */

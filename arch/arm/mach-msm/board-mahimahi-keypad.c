@@ -44,6 +44,7 @@ static unsigned int mahimahi_row_gpios[] = { 42, 41, 40 };
 #define KEYMAP_SIZE		(ARRAY_SIZE(mahimahi_col_gpios) * \
 				 ARRAY_SIZE(mahimahi_row_gpios))
 
+/* keypad */
 static const unsigned short mahimahi_keymap[KEYMAP_SIZE] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_VOLUMEUP,
 	[KEYMAP_INDEX(0, 1)] = KEY_VOLUMEDOWN,
@@ -55,6 +56,11 @@ static const unsigned short mahimahi_cdma_keymap[KEYMAP_SIZE] = {
 	[KEYMAP_INDEX(0, 1)] = KEY_VOLUMEDOWN,
 	[KEYMAP_INDEX(1, 1)] = MATRIX_KEY(1, BTN_MOUSE),
 
+	/* Key (2, 2) is not a physical key on mahimahi. The purpose of
+	 * registering the unused matrix key as a dummy <end> key is to make
+	 * userland able to send/receive the key event for some requested tests
+	 * in lab. of some CDMA carriers (e.g. Verizon).
+	 */
 	[KEYMAP_INDEX(2, 2)] = KEY_END,
 };
 
@@ -89,6 +95,7 @@ static struct gpio_event_input_info mahimahi_keypad_key_info = {
 	.keymap_size = ARRAY_SIZE(mahimahi_keypad_key_map)
 };
 
+/* jogball */
 static uint16_t jogball_axis_map(struct gpio_event_axis_info *info, uint16_t in)
 {
 	struct jog_axis_info *ai =
@@ -233,7 +240,7 @@ static int __init mahimahi_init_keypad_jogball(void)
 
 	if (is_cdma_version(system_rev)) {
 		mahimahi_keypad_matrix_info.keymap = mahimahi_cdma_keymap;
-		
+		/* In the CDMA version, jogball power is supplied by a gpio. */
 		ret = gpio_request(MAHIMAHI_CDMA_JOG_2V6_EN, "jog_en");
 		if (ret < 0) {
 			pr_err("%s: gpio_request(%d) failed: %d\n", __func__,
@@ -242,7 +249,7 @@ static int __init mahimahi_init_keypad_jogball(void)
 		}
 		mahimahi_input_data.power = jogball_power_cdma;
 	} else {
-		
+		/* in UMTS version, jogball power is supplied by pmic */
 		jog_vreg = vreg_get(&mahimahi_input_device.dev, "gp2");
 		if (jog_vreg == NULL)
 			return -ENOENT;

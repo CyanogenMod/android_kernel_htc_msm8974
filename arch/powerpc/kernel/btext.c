@@ -1,3 +1,8 @@
+/*
+ * Procedures for drawing on the screen early on in the boot process.
+ *
+ * Benjamin Herrenschmidt <benh@kernel.crashing.org>
+ */
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/init.h>
@@ -48,6 +53,21 @@ int boot_text_mapped __force_data = 0;
 int force_printk_to_btext = 0;
 
 #ifdef CONFIG_PPC32
+/* Calc BAT values for mapping the display and store them
+ * in disp_BAT.  Those values are then used from head.S to map
+ * the display during identify_machine() and MMU_Init()
+ *
+ * The display is mapped to virtual address 0xD0000000, rather
+ * than 1:1, because some some CHRP machines put the frame buffer
+ * in the region starting at 0xC0000000 (PAGE_OFFSET).
+ * This mapping is temporary and will disappear as soon as the
+ * setup done by MMU_Init() is applied.
+ *
+ * For now, we align the BAT and then map 8Mb on 601 and 16Mb
+ * on other PPCs. This may cause trouble if the framebuffer
+ * is really badly aligned, but I didn't encounter this case
+ * yet.
+ */
 void __init btext_prepare_BAT(void)
 {
 	unsigned long vaddr = PAGE_OFFSET + 0x10000000;
@@ -60,13 +80,13 @@ void __init btext_prepare_BAT(void)
 		return;
 	}
 	if (PVR_VER(mfspr(SPRN_PVR)) != 1) {
-		
+		/* 603, 604, G3, G4, ... */
 		lowbits = addr & ~0xFF000000UL;
 		addr &= 0xFF000000UL;
 		disp_BAT[0] = vaddr | (BL_16M<<2) | 2;
 		disp_BAT[1] = addr | (_PAGE_NO_CACHE | _PAGE_GUARDED | BPP_RW);	
 	} else {
-		
+		/* 601 */
 		lowbits = addr & ~0xFF800000UL;
 		addr &= 0xFF800000UL;
 		disp_BAT[0] = vaddr | (_PAGE_NO_CACHE | PP_RWXX) | 4;
@@ -77,6 +97,10 @@ void __init btext_prepare_BAT(void)
 #endif
 
 
+/* This function can be used to enable the early boot text when doing
+ * OF booting or within bootx init. It must be followed by a btext_unmap()
+ * call before the logical address becomes unusable
+ */
 void __init btext_setup_display(int width, int height, int depth, int pitch,
 				unsigned long address)
 {
@@ -99,13 +123,23 @@ void __init btext_unmap(void)
 	boot_text_mapped = 0;
 }
 
+/* Here's a small text engine to use during early boot
+ * or for debugging purposes
+ *
+ * todo:
+ *
+ *  - build some kind of vgacon with it to enable early printk
+ *  - move to a separate file
+ *  - add a few video driver hooks to keep in sync with display
+ *    changes.
+ */
 
 static void map_boot_text(void)
 {
 	unsigned long base, offset, size;
 	unsigned char *vbase;
 
-	
+	/* By default, we are no longer mapped */
 	boot_text_mapped = 0;
 	if (dispDeviceBase == 0)
 		return;
@@ -158,6 +192,9 @@ int btext_initialize(struct device_node *np)
 	if (prop)
 		address = *prop;
 
+	/* FIXME: Add support for PCI reg properties. Right now, only
+	 * reliable on macs
+	 */
 	if (address == 0)
 		return -EINVAL;
 
@@ -211,6 +248,7 @@ int __init btext_find_display(int allow_nonstdout)
 	return rc;
 }
 
+/* Calc the base address of a given point (x,y) */
 static unsigned char * calc_base(int x, int y)
 {
 	unsigned char *base;
@@ -223,13 +261,14 @@ static unsigned char * calc_base(int x, int y)
 	return base;
 }
 
+/* Adjust the display to a new resolution */
 void btext_update_display(unsigned long phys, int width, int height,
 			  int depth, int pitch)
 {
 	if (dispDeviceBase == 0)
 		return;
 
-	
+	/* check it's the same frame buffer (within 256MB) */
 	if ((phys ^ (unsigned long)dispDeviceBase) & 0xf0000000)
 		return;
 
@@ -333,7 +372,7 @@ static void scrollscreen(void)
 		dst += (dispDeviceRowBytes >> 2);
 	}
 }
-#endif 
+#endif /* ndef NO_SCROLL */
 
 void btext_drawchar(char c)
 {
@@ -374,6 +413,8 @@ void btext_drawchar(char c)
 		g_loc_Y--;
 	}
 #else
+	/* wrap around from bottom to top of screen so we don't
+	   waste time scrolling each line.  -- paulus. */
 	if (g_loc_Y >= g_max_loc_Y)
 		g_loc_Y = 0;
 	if (cline) {
@@ -874,5 +915,8 @@ static unsigned char vga_font[cmapsz] = {
 
 void __init udbg_init_btext(void)
 {
+	/* If btext is enabled, we might have a BAT setup for early display,
+	 * thus we do enable some very basic udbg output
+	 */
 	udbg_putc = btext_drawchar;
 }

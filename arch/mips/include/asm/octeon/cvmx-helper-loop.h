@@ -24,12 +24,37 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/**
+ * @file
+ *
+ * Functions for LOOP initialization, configuration,
+ * and monitoring.
+ *
+ */
 #ifndef __CVMX_HELPER_LOOP_H__
 #define __CVMX_HELPER_LOOP_H__
 
+/**
+ * Probe a LOOP interface and determine the number of ports
+ * connected to it. The LOOP interface should still be down after
+ * this call.
+ *
+ * @interface: Interface to probe
+ *
+ * Returns Number of ports on the interface. Zero to disable.
+ */
 extern int __cvmx_helper_loop_probe(int interface);
 static inline int __cvmx_helper_loop_enumerate(int interface) {return 4; }
 
+/**
+ * Bringup and enable a LOOP interface. After this call packet
+ * I/O should be fully functional. This is called with IPD
+ * enabled but PKO disabled.
+ *
+ * @interface: Interface to bring up
+ *
+ * Returns Zero on success, negative on failure
+ */
 extern int __cvmx_helper_loop_enable(int interface);
 
 #endif

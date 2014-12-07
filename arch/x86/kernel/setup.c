@@ -17,6 +17,9 @@
  *
  */
 
+/*
+ * This file handles the architecture-dependent parts of initialization
+ */
 
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -112,6 +115,11 @@
 #include <asm/alternative.h>
 #include <asm/prom.h>
 
+/*
+ * end_pfn only includes RAM, while max_pfn_mapped includes all e820 entries.
+ * The direct mapping extends to max_pfn_mapped, so that we can directly access
+ * apertures, ACPI and other tables without having to play with fixmaps.
+ */
 unsigned long max_low_pfn_mapped;
 unsigned long max_pfn_mapped;
 
@@ -141,6 +149,9 @@ struct boot_params __initdata boot_params;
 struct boot_params boot_params;
 #endif
 
+/*
+ * Machine setup..
+ */
 static struct resource data_resource = {
 	.name	= "Kernel data",
 	.start	= 0,
@@ -164,7 +175,9 @@ static struct resource bss_resource = {
 
 
 #ifdef CONFIG_X86_32
+/* cpu data as detected by the assembly code in head.S */
 struct cpuinfo_x86 new_cpu_data __cpuinitdata = {0, 0, 0, 0, -1, 1, 0, 0, -1};
+/* common cpu data for all cpus */
 struct cpuinfo_x86 boot_cpu_data __read_mostly = {0, 0, 0, 0, -1, 1, 0, 0, -1};
 EXPORT_SYMBOL(boot_cpu_data);
 static void set_mca_bus(int x)
@@ -176,6 +189,7 @@ static void set_mca_bus(int x)
 
 unsigned int def_to_bigsmp;
 
+/* for MCA, but anyone else can use it if they want */
 unsigned int machine_id;
 unsigned int machine_submodel_id;
 unsigned int BIOS_revision;
@@ -205,8 +219,12 @@ unsigned long mmu_cr4_features;
 unsigned long mmu_cr4_features = X86_CR4_PAE;
 #endif
 
+/* Boot loader ID and version as integers, for the benefit of proc_dointvec */
 int bootloader_type, bootloader_version;
 
+/*
+ * Setup options
+ */
 struct screen_info screen_info;
 EXPORT_SYMBOL(screen_info);
 struct edid_info edid_info;
@@ -230,6 +248,11 @@ struct edd edd;
 #ifdef CONFIG_EDD_MODULE
 EXPORT_SYMBOL(edd);
 #endif
+/**
+ * copy_edd() - Copy the BIOS EDD information
+ *              from boot_params into a safe place.
+ *
+ */
 static inline void __init copy_edd(void)
 {
      memcpy(edd.mbr_signature, boot_params.edd_mbr_sig_buffer,
@@ -286,6 +309,8 @@ static void __init reserve_brk(void)
 		memblock_reserve(__pa(_brk_start),
 				 __pa(_brk_end) - __pa(_brk_start));
 
+	/* Mark brk area as locked down and no longer taking any
+	   new allocations */
 	_brk_start = 0;
 }
 
@@ -294,7 +319,7 @@ static void __init reserve_brk(void)
 #define MAX_MAP_CHUNK	(NR_FIX_BTMAPS << PAGE_SHIFT)
 static void __init relocate_initrd(void)
 {
-	
+	/* Assume only end is not page aligned */
 	u64 ramdisk_image = boot_params.hdr.ramdisk_image;
 	u64 ramdisk_size  = boot_params.hdr.ramdisk_size;
 	u64 area_size     = PAGE_ALIGN(ramdisk_size);
@@ -303,7 +328,7 @@ static void __init relocate_initrd(void)
 	unsigned long slop, clen, mapaddr;
 	char *p, *q;
 
-	
+	/* We need to move the initrd down into lowmem */
 	ramdisk_here = memblock_find_in_range(0, end_of_lowmem, area_size,
 					 PAGE_SIZE);
 
@@ -311,6 +336,8 @@ static void __init relocate_initrd(void)
 		panic("Cannot find place for new RAMDISK of size %lld\n",
 			 ramdisk_size);
 
+	/* Note: this includes all the lowmem currently occupied by
+	   the initrd, we rely on that fact to keep the data intact. */
 	memblock_reserve(ramdisk_here, area_size);
 	initrd_start = ramdisk_here + PAGE_OFFSET;
 	initrd_end   = initrd_start + ramdisk_size;
@@ -319,7 +346,7 @@ static void __init relocate_initrd(void)
 
 	q = (char *)initrd_start;
 
-	
+	/* Copy any lowmem portion of the initrd */
 	if (ramdisk_image < end_of_lowmem) {
 		clen = end_of_lowmem - ramdisk_image;
 		p = (char *)__va(ramdisk_image);
@@ -329,7 +356,7 @@ static void __init relocate_initrd(void)
 		ramdisk_size  -= clen;
 	}
 
-	
+	/* Copy the highmem portion of the initrd */
 	while (ramdisk_size) {
 		slop = ramdisk_image & ~PAGE_MASK;
 		clen = ramdisk_size;
@@ -343,7 +370,7 @@ static void __init relocate_initrd(void)
 		ramdisk_image += clen;
 		ramdisk_size  -= clen;
 	}
-	
+	/* high pages is not converted by early_res_to_bootmem */
 	ramdisk_image = boot_params.hdr.ramdisk_image;
 	ramdisk_size  = boot_params.hdr.ramdisk_size;
 	printk(KERN_INFO "Move RAMDISK from %016llx - %016llx to"
@@ -354,7 +381,7 @@ static void __init relocate_initrd(void)
 
 static void __init reserve_initrd(void)
 {
-	
+	/* Assume only end is not page aligned */
 	u64 ramdisk_image = boot_params.hdr.ramdisk_image;
 	u64 ramdisk_size  = boot_params.hdr.ramdisk_size;
 	u64 ramdisk_end   = PAGE_ALIGN(ramdisk_image + ramdisk_size);
@@ -362,7 +389,7 @@ static void __init reserve_initrd(void)
 
 	if (!boot_params.hdr.type_of_loader ||
 	    !ramdisk_image || !ramdisk_size)
-		return;		
+		return;		/* No initrd provided by bootloader */
 
 	initrd_start = 0;
 
@@ -378,7 +405,11 @@ static void __init reserve_initrd(void)
 
 
 	if (ramdisk_end <= end_of_lowmem) {
-		
+		/* All in lowmem, easy case */
+		/*
+		 * don't need to reserve again, already reserved early
+		 * in i386_start_kernel
+		 */
 		initrd_start = ramdisk_image + PAGE_OFFSET;
 		initrd_end = initrd_start + ramdisk_size;
 		return;
@@ -392,7 +423,7 @@ static void __init reserve_initrd(void)
 static void __init reserve_initrd(void)
 {
 }
-#endif 
+#endif /* CONFIG_BLK_DEV_INITRD */
 
 static void __init parse_setup_data(void)
 {
@@ -472,9 +503,18 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 	}
 }
 
+/*
+ * --------- Crashkernel reservation ------------------------------
+ */
 
 #ifdef CONFIG_KEXEC
 
+/*
+ * Keep the crash kernel below this limit.  On 32 bits earlier kernels
+ * would limit the kernel to the low 512 MiB due to mapping restrictions.
+ * On 64 bits, kexec-tools currently limits us to 896 MiB; increase this
+ * limit once kexec-tools are fixed.
+ */
 #ifdef CONFIG_X86_32
 # define CRASH_KERNEL_ADDR_MAX	(512 << 20)
 #else
@@ -494,10 +534,13 @@ static void __init reserve_crashkernel(void)
 	if (ret != 0 || crash_size <= 0)
 		return;
 
-	
+	/* 0 means: find the address automatically */
 	if (crash_base <= 0) {
-		const unsigned long long alignment = 16<<20;	
+		const unsigned long long alignment = 16<<20;	/* 16M */
 
+		/*
+		 *  kexec want bzImage is below CRASH_KERNEL_ADDR_MAX
+		 */
 		crash_base = memblock_find_in_range(alignment,
 			       CRASH_KERNEL_ADDR_MAX, crash_size, alignment);
 
@@ -560,7 +603,7 @@ void __init reserve_standard_io_resources(void)
 {
 	int i;
 
-	
+	/* request I/O space for devices used on all i[345]86 PCs */
 	for (i = 0; i < ARRAY_SIZE(standard_io_resources); i++)
 		request_resource(&ioport_resource, &standard_io_resources[i]);
 
@@ -580,9 +623,23 @@ static unsigned reserve_low = CONFIG_X86_RESERVE_LOW << 10;
 
 static void __init trim_bios_range(void)
 {
+	/*
+	 * A special case is the first 4Kb of memory;
+	 * This is a BIOS owned area, not kernel ram, but generally
+	 * not listed as such in the E820 table.
+	 *
+	 * This typically reserves additional memory (64KiB by default)
+	 * since some BIOSes are known to corrupt low memory.  See the
+	 * Kconfig help text for X86_RESERVE_LOW.
+	 */
 	e820_update_range(0, ALIGN(reserve_low, PAGE_SIZE),
 			  E820_RAM, E820_RESERVED);
 
+	/*
+	 * special case: Some BIOSen report the PC BIOS
+	 * area (640->1Mb) as ram even though it is not.
+	 * take them out.
+	 */
 	e820_remove_range(BIOS_BEGIN, BIOS_END - BIOS_BEGIN, E820_RAM, 1);
 	sanitize_e820_map(e820.map, ARRAY_SIZE(e820.map), &e820.nr_map);
 }
@@ -609,6 +666,18 @@ static int __init parse_reservelow(char *p)
 
 early_param("reservelow", parse_reservelow);
 
+/*
+ * Determine if we were loaded by an EFI loader.  If so, then we have also been
+ * passed the efi memmap, systab, etc., so we should use these data structures
+ * for initialization.  Note, the efi init code path is determined by the
+ * global efi_enabled. This allows the same kernel image to be used on existing
+ * systems (with a traditional BIOS) as well as on EFI systems.
+ */
+/*
+ * setup_arch - architecture-specific boot-time initializations
+ *
+ * Note: On x86_64, fixmaps are ready for use even before this is called.
+ */
 
 void __init setup_arch(char **cmdline_p)
 {
@@ -616,6 +685,10 @@ void __init setup_arch(char **cmdline_p)
 	memcpy(&boot_cpu_data, &new_cpu_data, sizeof(new_cpu_data));
 	visws_early_detect();
 
+	/*
+	 * copy kernel address range established so far and switch
+	 * to the proper swapper page table
+	 */
 	clone_pgd_range(swapper_pg_dir     + KERNEL_PGD_BOUNDARY,
 			initial_page_table + KERNEL_PGD_BOUNDARY,
 			KERNEL_PGD_PTRS);
@@ -626,6 +699,10 @@ void __init setup_arch(char **cmdline_p)
 	printk(KERN_INFO "Command line: %s\n", boot_command_line);
 #endif
 
+	/*
+	 * If we have OLPC OFW, we might end up relocating the fixmap due to
+	 * reserve_top(), so do this before touching the ioremap area.
+	 */
 	olpc_ofw_detect();
 
 	early_trap_init();
@@ -680,7 +757,7 @@ void __init setup_arch(char **cmdline_p)
 	iomem_resource.end = (1ULL << boot_cpu_data.x86_phys_bits) - 1;
 	setup_memory_map();
 	parse_setup_data();
-	
+	/* update the e820_saved too */
 	e820_reserve_setup_data();
 
 	copy_edd();
@@ -704,7 +781,7 @@ void __init setup_arch(char **cmdline_p)
 	strlcpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
 #else
 	if (builtin_cmdline[0]) {
-		
+		/* append boot loader cmdline to builtin */
 		strlcat(builtin_cmdline, " ", COMMAND_LINE_SIZE);
 		strlcat(builtin_cmdline, boot_command_line, COMMAND_LINE_SIZE);
 		strlcpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
@@ -715,13 +792,20 @@ void __init setup_arch(char **cmdline_p)
 	strlcpy(command_line, boot_command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = command_line;
 
+	/*
+	 * x86_configure_nx() is called before parse_early_param() to detect
+	 * whether hardware doesn't support NX (so that the early EHCI debug
+	 * console setup can safely call set_fixmap()). It may then be called
+	 * again from within noexec_setup() during parsing early parameters
+	 * to honor the respective command line option.
+	 */
 	x86_configure_nx();
 
 	parse_early_param();
 
 	x86_report_nx();
 
-	
+	/* after early param, so could get panic from serial */
 	memblock_x86_reserve_range_setup_data();
 
 	if (acpi_mps_check()) {
@@ -743,11 +827,15 @@ void __init setup_arch(char **cmdline_p)
 
 	dmi_scan_machine();
 
+	/*
+	 * VMware detection requires dmi to be available, so this
+	 * needs to be done after dmi_scan_machine, for the BP.
+	 */
 	init_hypervisor_platform();
 
 	x86_init.resources.probe_roms();
 
-	
+	/* after parse_early_param, so could debug it */
 	insert_resource(&iomem_resource, &code_resource);
 	insert_resource(&iomem_resource, &data_resource);
 	insert_resource(&iomem_resource, &bss_resource);
@@ -765,23 +853,27 @@ void __init setup_arch(char **cmdline_p)
 	early_gart_iommu_check();
 #endif
 
+	/*
+	 * partially used pages are not usable - thus
+	 * we are rounding upwards:
+	 */
 	max_pfn = e820_end_of_ram_pfn();
 
-	
+	/* update e820 for memory not covered by WB MTRRs */
 	mtrr_bp_init();
 	if (mtrr_trim_uncached_memory(max_pfn))
 		max_pfn = e820_end_of_ram_pfn();
 
 #ifdef CONFIG_X86_32
-	
+	/* max_low_pfn get updated here */
 	find_low_pfn_range();
 #else
 	num_physpages = max_pfn;
 
 	check_x2apic();
 
-	
-	
+	/* How many end-of-memory variables you have, grandma! */
+	/* need this before calling reserve_initrd */
 	if (max_pfn > (1UL<<(32 - PAGE_SHIFT)))
 		max_low_pfn = e820_end_of_low_ram_pfn();
 	else
@@ -790,10 +882,18 @@ void __init setup_arch(char **cmdline_p)
 	high_memory = (void *)__va(max_pfn * PAGE_SIZE - 1) + 1;
 #endif
 
+	/*
+	 * Find and reserve possible boot-time SMP configuration:
+	 */
 	find_smp_config();
 
 	reserve_ibft_region();
 
+	/*
+	 * Need to conclude brk, before memblock_x86_fill()
+	 *  it could use memblock_find_in_range, could overlap with
+	 *  brk area.
+	 */
 	reserve_brk();
 
 	cleanup_highmap();
@@ -801,10 +901,14 @@ void __init setup_arch(char **cmdline_p)
 	memblock.current_limit = get_max_mapped();
 	memblock_x86_fill();
 
+	/*
+	 * The EFI specification says that boot service code won't be called
+	 * after ExitBootServices(). This is, in fact, a lie.
+	 */
 	if (efi_enabled)
 		efi_reserve_boot_services();
 
-	
+	/* preallocate 4k for mptable mpc */
 	early_reserve_e820_mpc_new();
 
 #ifdef CONFIG_X86_CHECK_BIOS_CORRUPTION
@@ -818,7 +922,7 @@ void __init setup_arch(char **cmdline_p)
 
 	init_gbpages();
 
-	
+	/* max_pfn_mapped is updated here */
 	max_low_pfn_mapped = init_memory_mapping(0, max_low_pfn<<PAGE_SHIFT);
 	max_pfn_mapped = max_low_pfn_mapped;
 
@@ -826,19 +930,22 @@ void __init setup_arch(char **cmdline_p)
 	if (max_pfn > max_low_pfn) {
 		max_pfn_mapped = init_memory_mapping(1UL<<32,
 						     max_pfn<<PAGE_SHIFT);
-		
+		/* can we preseve max_low_pfn ?*/
 		max_low_pfn = max_pfn;
 	}
 #endif
 	memblock.current_limit = get_max_mapped();
 	dma_contiguous_reserve(0);
 
+	/*
+	 * NOTE: On x86-32, only from this point on, fixmaps are ready for use.
+	 */
 
 #ifdef CONFIG_PROVIDE_OHCI1394_DMA_INIT
 	if (init_ohci1394_dma_early)
 		init_ohci1394_dma_on_all_controllers();
 #endif
-	
+	/* Allocate bigger log buffer */
 	setup_log_buf(1);
 
 	reserve_initrd();
@@ -849,6 +956,9 @@ void __init setup_arch(char **cmdline_p)
 
 	io_delay_init();
 
+	/*
+	 * Parse the ACPI tables for possible boot-time SMP configuration.
+	 */
 	acpi_boot_table_init();
 
 	early_acpi_boot_init();
@@ -865,12 +975,12 @@ void __init setup_arch(char **cmdline_p)
 	x86_init.paging.pagetable_setup_done(swapper_pg_dir);
 
 	if (boot_cpu_data.cpuid_level >= 0) {
-		
+		/* A CPU has %cr4 if and only if it has CPUID */
 		mmu_cr4_features = read_cr4();
 	}
 
 #ifdef CONFIG_X86_32
-	
+	/* sync back kernel address range */
 	clone_pgd_range(initial_page_table + KERNEL_PGD_BOUNDARY,
 			swapper_pg_dir     + KERNEL_PGD_BOUNDARY,
 			KERNEL_PGD_PTRS);
@@ -886,10 +996,16 @@ void __init setup_arch(char **cmdline_p)
 
 	early_quirks();
 
+	/*
+	 * Read APIC and some other early information from ACPI tables.
+	 */
 	acpi_boot_init();
 	sfi_init();
 	x86_dtb_init();
 
+	/*
+	 * get boot-time SMP configuration:
+	 */
 	if (smp_found_config)
 		get_smp_config();
 
@@ -943,4 +1059,4 @@ void __init i386_reserve_resources(void)
 	reserve_standard_io_resources();
 }
 
-#endif 
+#endif /* CONFIG_X86_32 */

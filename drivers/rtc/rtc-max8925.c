@@ -75,7 +75,7 @@ static irqreturn_t rtc_update_handler(int irq, void *data)
 {
 	struct max8925_rtc_info *info = (struct max8925_rtc_info *)data;
 
-	
+	/* disable ALARM0 except for 1SEC alarm */
 	max8925_set_bits(info->rtc, MAX8925_ALARM0_CNTL, 0x7f, 0);
 	rtc_update_irq(info->rtc_dev, 1, RTC_IRQF | RTC_AF);
 	return IRQ_HANDLED;
@@ -229,7 +229,7 @@ static int max8925_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	if (ret < 0)
 		goto out;
 	if (alrm->enabled)
-		
+		/* only enable alarm on year/month/day/hour/min/sec */
 		ret = max8925_reg_write(info->rtc, MAX8925_ALARM0_CNTL, 0x77);
 	else
 		ret = max8925_reg_write(info->rtc, MAX8925_ALARM0_CNTL, 0x0);
@@ -269,7 +269,7 @@ static int __devinit max8925_rtc_probe(struct platform_device *pdev)
 	}
 
 	dev_set_drvdata(&pdev->dev, info);
-	
+	/* XXX - isn't this redundant? */
 	platform_set_drvdata(pdev, info);
 
 	device_init_wakeup(&pdev->dev, 1);

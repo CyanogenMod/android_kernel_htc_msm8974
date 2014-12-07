@@ -31,6 +31,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define RPCDBG_FACILITY	RPCDBG_TRANS
 #endif
 
+/*
+ * Helper routines that track the number of preallocation elements
+ * on the transport.
+ */
 static inline int xprt_need_to_requeue(struct rpc_xprt *xprt)
 {
 	return xprt->bc_alloc_count > 0;
@@ -46,6 +50,10 @@ static inline int xprt_dec_alloc_count(struct rpc_xprt *xprt, unsigned int n)
 	return xprt->bc_alloc_count -= n;
 }
 
+/*
+ * Free the preallocated rpc_rqst structure and the memory
+ * buffers hanging off of it.
+ */
 static void xprt_free_allocation(struct rpc_rqst *req)
 {
 	struct xdr_buf *xbufp;
@@ -60,6 +68,24 @@ static void xprt_free_allocation(struct rpc_rqst *req)
 	kfree(req);
 }
 
+/*
+ * Preallocate up to min_reqs structures and related buffers for use
+ * by the backchannel.  This function can be called multiple times
+ * when creating new sessions that use the same rpc_xprt.  The
+ * preallocated buffers are added to the pool of resources used by
+ * the rpc_xprt.  Anyone of these resources may be used used by an
+ * incoming callback request.  It's up to the higher levels in the
+ * stack to enforce that the maximum number of session slots is not
+ * being exceeded.
+ *
+ * Some callback arguments can be large.  For example, a pNFS server
+ * using multiple deviceids.  The list can be unbound, but the client
+ * has the ability to tell the server the maximum size of the callback
+ * requests.  Each deviceID is 16 bytes, so allocate one page
+ * for the arguments to have enough room to receive a number of these
+ * deviceIDs.  The NFS client indicates to the pNFS server that its
+ * callback requests can be up to 4096 bytes in size.
+ */
 int xprt_setup_backchannel(struct rpc_xprt *xprt, unsigned int min_reqs)
 {
 	struct page *page_rcv = NULL, *page_snd = NULL;
@@ -70,16 +96,24 @@ int xprt_setup_backchannel(struct rpc_xprt *xprt, unsigned int min_reqs)
 
 	dprintk("RPC:       setup backchannel transport\n");
 
+	/*
+	 * We use a temporary list to keep track of the preallocated
+	 * buffers.  Once we're done building the list we splice it
+	 * into the backchannel preallocation list off of the rpc_xprt
+	 * struct.  This helps minimize the amount of time the list
+	 * lock is held on the rpc_xprt struct.  It also makes cleanup
+	 * easier in case of memory allocation errors.
+	 */
 	INIT_LIST_HEAD(&tmp_list);
 	for (i = 0; i < min_reqs; i++) {
-		
+		/* Pre-allocate one backchannel rpc_rqst */
 		req = kzalloc(sizeof(struct rpc_rqst), GFP_KERNEL);
 		if (req == NULL) {
 			printk(KERN_ERR "Failed to create bc rpc_rqst\n");
 			goto out_free;
 		}
 
-		
+		/* Add the allocated buffer to the tmp list */
 		dprintk("RPC:       adding req= %p\n", req);
 		list_add(&req->rq_bc_pa_list, &tmp_list);
 
@@ -87,7 +121,7 @@ int xprt_setup_backchannel(struct rpc_xprt *xprt, unsigned int min_reqs)
 		INIT_LIST_HEAD(&req->rq_list);
 		INIT_LIST_HEAD(&req->rq_bc_list);
 
-		
+		/* Preallocate one XDR receive buffer */
 		page_rcv = alloc_page(GFP_KERNEL);
 		if (page_rcv == NULL) {
 			printk(KERN_ERR "Failed to create bc receive xbuf\n");
@@ -102,7 +136,7 @@ int xprt_setup_backchannel(struct rpc_xprt *xprt, unsigned int min_reqs)
 		xbufp->len = PAGE_SIZE;
 		xbufp->buflen = PAGE_SIZE;
 
-		
+		/* Preallocate one XDR send buffer */
 		page_snd = alloc_page(GFP_KERNEL);
 		if (page_snd == NULL) {
 			printk(KERN_ERR "Failed to create bc snd xbuf\n");
@@ -119,6 +153,9 @@ int xprt_setup_backchannel(struct rpc_xprt *xprt, unsigned int min_reqs)
 		xbufp->buflen = PAGE_SIZE;
 	}
 
+	/*
+	 * Add the temporary list to the backchannel preallocation list
+	 */
 	spin_lock_bh(&xprt->bc_pa_lock);
 	list_splice(&tmp_list, &xprt->bc_pa_list);
 	xprt_inc_alloc_count(xprt, min_reqs);
@@ -128,6 +165,9 @@ int xprt_setup_backchannel(struct rpc_xprt *xprt, unsigned int min_reqs)
 	return 0;
 
 out_free:
+	/*
+	 * Memory allocation failed, free the temporary list
+	 */
 	list_for_each_entry_safe(req, tmp, &tmp_list, rq_bc_pa_list)
 		xprt_free_allocation(req);
 
@@ -136,6 +176,14 @@ out_free:
 }
 EXPORT_SYMBOL_GPL(xprt_setup_backchannel);
 
+/*
+ * Destroys the backchannel preallocated structures.
+ * Since these structures may have been allocated by multiple calls
+ * to xprt_setup_backchannel, we only destroy up to the maximum number
+ * of reqs specified by the caller.
+ * @xprt:	the transport holding the preallocated strucures
+ * @max_reqs	the maximum number of preallocated structures to destroy
+ */
 void xprt_destroy_backchannel(struct rpc_xprt *xprt, unsigned int max_reqs)
 {
 	struct rpc_rqst *req = NULL, *tmp = NULL;
@@ -158,6 +206,17 @@ void xprt_destroy_backchannel(struct rpc_xprt *xprt, unsigned int max_reqs)
 }
 EXPORT_SYMBOL_GPL(xprt_destroy_backchannel);
 
+/*
+ * One or more rpc_rqst structure have been preallocated during the
+ * backchannel setup.  Buffer space for the send and private XDR buffers
+ * has been preallocated as well.  Use xprt_alloc_bc_request to allocate
+ * to this request.  Use xprt_free_bc_request to return it.
+ *
+ * We know that we're called in soft interrupt context, grab the spin_lock
+ * since there is no need to grab the bottom half spin_lock.
+ *
+ * Return an available rpc_rqst, otherwise NULL if non are available.
+ */
 struct rpc_rqst *xprt_alloc_bc_request(struct rpc_xprt *xprt)
 {
 	struct rpc_rqst *req;
@@ -184,6 +243,10 @@ struct rpc_rqst *xprt_alloc_bc_request(struct rpc_xprt *xprt)
 	return req;
 }
 
+/*
+ * Return the preallocated rpc_rqst structure and XDR buffers
+ * associated with this rpc_task.
+ */
 void xprt_free_bc_request(struct rpc_rqst *req)
 {
 	struct rpc_xprt *xprt = req->rq_xprt;
@@ -196,11 +259,21 @@ void xprt_free_bc_request(struct rpc_rqst *req)
 	smp_mb__after_clear_bit();
 
 	if (!xprt_need_to_requeue(xprt)) {
+		/*
+		 * The last remaining session was destroyed while this
+		 * entry was in use.  Free the entry and don't attempt
+		 * to add back to the list because there is no need to
+		 * have anymore preallocated entries.
+		 */
 		dprintk("RPC:       Last session removed req=%p\n", req);
 		xprt_free_allocation(req);
 		return;
 	}
 
+	/*
+	 * Return it to the list of preallocations so that it
+	 * may be reused by a new callback request.
+	 */
 	spin_lock_bh(&xprt->bc_pa_lock);
 	list_add(&req->rq_bc_pa_list, &xprt->bc_pa_list);
 	spin_unlock_bh(&xprt->bc_pa_lock);

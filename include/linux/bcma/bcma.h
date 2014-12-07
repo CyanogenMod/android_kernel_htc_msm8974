@@ -7,7 +7,7 @@
 #include <linux/bcma/bcma_driver_chipcommon.h>
 #include <linux/bcma/bcma_driver_pci.h>
 #include <linux/bcma/bcma_driver_mips.h>
-#include <linux/ssb/ssb.h> 
+#include <linux/ssb/ssb.h> /* SPROM sharing */
 
 #include "bcma_regs.h"
 
@@ -44,15 +44,17 @@ struct bcma_host_ops {
 	void (*block_write)(struct bcma_device *core, const void *buffer,
 			    size_t count, u16 offset, u8 reg_width);
 #endif
-	
+	/* Agent ops */
 	u32 (*aread32)(struct bcma_device *core, u16 offset);
 	void (*awrite32)(struct bcma_device *core, u16 offset, u32 value);
 };
 
+/* Core manufacturers */
 #define BCMA_MANUF_ARM			0x43B
 #define BCMA_MANUF_MIPS			0x4A7
 #define BCMA_MANUF_BCM			0x4BF
 
+/* Core class values. */
 #define BCMA_CL_SIM			0x0
 #define BCMA_CL_EROM			0x1
 #define BCMA_CL_CORESIGHT		0x9
@@ -61,7 +63,8 @@ struct bcma_host_ops {
 #define BCMA_CL_GEN			0xE
 #define BCMA_CL_PRIMECELL		0xF
 
-#define BCMA_CORE_OOB_ROUTER		0x367	
+/* Core-ID values. */
+#define BCMA_CORE_OOB_ROUTER		0x367	/* Out of band */
 #define BCMA_CORE_INVALID		0x700
 #define BCMA_CORE_CHIPCOMMON		0x800
 #define BCMA_CORE_ILINE20		0x801
@@ -110,14 +113,14 @@ struct bcma_host_ops {
 #define BCMA_CORE_MIPS_74K		0x82C
 #define BCMA_CORE_MAC_GBIT		0x82D
 #define BCMA_CORE_DDR12_MEM_CTL		0x82E
-#define BCMA_CORE_PCIE_RC		0x82F	
+#define BCMA_CORE_PCIE_RC		0x82F	/* PCIe Root Complex */
 #define BCMA_CORE_OCP_OCP_BRIDGE	0x830
 #define BCMA_CORE_SHARED_COMMON		0x831
 #define BCMA_CORE_OCP_AHB_BRIDGE	0x832
 #define BCMA_CORE_SPI_HOST		0x833
 #define BCMA_CORE_I2S			0x834
-#define BCMA_CORE_SDR_DDR1_MEM_CTL	0x835	
-#define BCMA_CORE_SHIM			0x837	
+#define BCMA_CORE_SDR_DDR1_MEM_CTL	0x835	/* SDR/DDR1 memory controller core */
+#define BCMA_CORE_SHIM			0x837	/* SHIM component in ubus/6362 */
 #define BCMA_CORE_DEFAULT		0xFFF
 
 #define BCMA_MAX_NR_CORES		16
@@ -173,21 +176,23 @@ int __bcma_driver_register(struct bcma_driver *drv, struct module *owner);
 
 extern void bcma_driver_unregister(struct bcma_driver *drv);
 
+/* Set a fallback SPROM.
+ * See kdoc at the function definition for complete documentation. */
 extern int bcma_arch_register_fallback_sprom(
 		int (*sprom_callback)(struct bcma_bus *bus,
 		struct ssb_sprom *out));
 
 struct bcma_bus {
-	
+	/* The MMIO area. */
 	void __iomem *mmio;
 
 	const struct bcma_host_ops *ops;
 
 	enum bcma_hosttype hosttype;
 	union {
-		
+		/* Pointer to the PCI bus (only for BCMA_HOSTTYPE_PCI) */
 		struct pci_dev *host_pci;
-		
+		/* Pointer to the SDIO device (only for BCMA_HOSTTYPE_SDIO) */
 		struct sdio_func *host_sdio;
 	};
 
@@ -203,6 +208,8 @@ struct bcma_bus {
 	struct bcma_drv_pci drv_pci;
 	struct bcma_drv_mips drv_mips;
 
+	/* We decided to share SPROM struct with SSB as long as we do not need
+	 * any hacks for BCMA. This simplifies drivers code. */
 	struct ssb_sprom sprom;
 };
 
@@ -293,8 +300,8 @@ extern void bcma_core_pll_ctl(struct bcma_device *core, u32 req, u32 status,
 			      bool on);
 #define BCMA_DMA_TRANSLATION_MASK	0xC0000000
 #define  BCMA_DMA_TRANSLATION_NONE	0x00000000
-#define  BCMA_DMA_TRANSLATION_DMA32_CMT	0x40000000 
-#define  BCMA_DMA_TRANSLATION_DMA64_CMT	0x80000000 
+#define  BCMA_DMA_TRANSLATION_DMA32_CMT	0x40000000 /* Client Mode Translation for 32-bit DMA */
+#define  BCMA_DMA_TRANSLATION_DMA64_CMT	0x80000000 /* Client Mode Translation for 64-bit DMA */
 extern u32 bcma_core_dma_translation(struct bcma_device *core);
 
-#endif 
+#endif /* LINUX_BCMA_H_ */

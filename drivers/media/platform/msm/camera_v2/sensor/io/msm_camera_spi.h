@@ -17,10 +17,16 @@
 #include <media/msm_cam_sensor.h>
 #include "msm_camera_i2c.h"
 
+/**
+  * Common SPI communication scheme
+  * tx: <opcode>[addr][wait][write buffer]
+  * rx: [read buffer]
+  * Some inst require polling busy reg until it's done
+  */
 struct msm_camera_spi_inst {
-	uint8_t opcode;		
-	uint8_t addr_len;	
-	uint8_t dummy_len;	
+	uint8_t opcode;		/* one-byte opcode */
+	uint8_t addr_len;	/* addr len in bytes */
+	uint8_t dummy_len;	/* setup cycles */
 };
 
 struct msm_camera_spi_inst_tbl {
@@ -34,8 +40,8 @@ struct msm_camera_spi_client {
 	struct msm_camera_spi_inst_tbl cmd_tbl;
 	uint8_t device_id;
 	uint8_t mfr_id;
-	uint8_t retry_delay;	
-	uint8_t retries;	
+	uint8_t retry_delay;	/* ms */
+	uint8_t retries;	/* retry times upon failure */
 };
 
 static __always_inline

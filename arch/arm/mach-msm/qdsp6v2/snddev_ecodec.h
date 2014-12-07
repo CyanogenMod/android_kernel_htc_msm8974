@@ -15,9 +15,9 @@
 #include <mach/qdsp5v2/audio_def.h>
 
 struct snddev_ecodec_data {
-	u32 capability; 
+	u32 capability; /* RX or TX */
 	const char *name;
-	u32 copp_id; 
+	u32 copp_id; /* audpp routing */
 	u8 channel_mode;
 	u32 conf_pcm_ctl_val;
 	u32 conf_aux_codec_intf;

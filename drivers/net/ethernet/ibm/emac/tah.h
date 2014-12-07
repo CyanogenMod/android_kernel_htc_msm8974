@@ -22,6 +22,7 @@
 #ifndef __IBM_NEWEMAC_TAH_H
 #define __IBM_NEWEMAC_TAH_H
 
+/* TAH */
 struct tah_regs {
 	u32 revid;
 	u32 pad[3];
@@ -36,20 +37,22 @@ struct tah_regs {
 };
 
 
+/* TAH device */
 struct tah_instance {
 	struct tah_regs __iomem		*base;
 
-	
+	/* Only one EMAC whacks us at a time */
 	struct mutex			lock;
 
-	
+	/* number of EMACs using this TAH */
 	int				users;
 
-	
+	/* OF device instance */
 	struct platform_device		*ofdev;
 };
 
 
+/* TAH engine */
 #define TAH_MR_CVR		0x80000000
 #define TAH_MR_SR		0x40000000
 #define TAH_MR_ST_256		0x01000000
@@ -87,6 +90,6 @@ extern void *tah_dump_regs(struct platform_device *ofdev, void *buf);
 # define tah_get_regs_len(x)	0
 # define tah_dump_regs(x,buf)	(buf)
 
-#endif				
+#endif				/* !CONFIG_IBM_EMAC_TAH */
 
-#endif 
+#endif /* __IBM_NEWEMAC_TAH_H */

@@ -26,6 +26,13 @@
 #include "11n.h"
 #include "cfg80211.h"
 
+/*
+ * Copies the multicast address list from device to driver.
+ *
+ * This function does not validate the destination memory for
+ * size, and the calling function must ensure enough memory is
+ * available.
+ */
 int mwifiex_copy_mcast_addr(struct mwifiex_multicast_list *mlist,
 			    struct net_device *dev)
 {
@@ -38,6 +45,12 @@ int mwifiex_copy_mcast_addr(struct mwifiex_multicast_list *mlist,
 	return i;
 }
 
+/*
+ * Wait queue completion handler.
+ *
+ * This function waits on a cmd wait queue. It also cancels the pending
+ * request after waking up, in case of errors.
+ */
 int mwifiex_wait_queue_complete(struct mwifiex_adapter *adapter)
 {
 	bool cancel_flag = false;
@@ -53,10 +66,10 @@ int mwifiex_wait_queue_complete(struct mwifiex_adapter *adapter)
 	dev_dbg(adapter->dev, "cmd pending\n");
 	atomic_inc(&adapter->cmd_pending);
 
-	
+	/* Status pending, wake up main process */
 	queue_work(adapter->workqueue, &adapter->main_work);
 
-	
+	/* Wait for completion */
 	wait_event_interruptible(adapter->cmd_wait_q.wait,
 				 *(cmd_queued->condition));
 	if (!*(cmd_queued->condition))
@@ -73,6 +86,13 @@ int mwifiex_wait_queue_complete(struct mwifiex_adapter *adapter)
 	return status;
 }
 
+/*
+ * This function prepares the correct firmware command and
+ * issues it to set the multicast list.
+ *
+ * This function can be used to enable promiscuous mode, or enable all
+ * multicast packets, or to enable selective multicast.
+ */
 int mwifiex_request_set_multicast_list(struct mwifiex_private *priv,
 				struct mwifiex_multicast_list *mcast_list)
 {
@@ -87,7 +107,7 @@ int mwifiex_request_set_multicast_list(struct mwifiex_private *priv,
 		priv->curr_pkt_filter &=
 			~HostCmd_ACT_MAC_ALL_MULTICAST_ENABLE;
 	} else {
-		
+		/* Multicast */
 		priv->curr_pkt_filter &= ~HostCmd_ACT_MAC_PROMISCUOUS_ENABLE;
 		if (mcast_list->mode == MWIFIEX_MULTICAST_MODE) {
 			dev_dbg(priv->adapter->dev,
@@ -101,15 +121,15 @@ int mwifiex_request_set_multicast_list(struct mwifiex_private *priv,
 				dev_dbg(priv->adapter->dev,
 					"info: Set multicast list=%d\n",
 				       mcast_list->num_multicast_addr);
-				
+				/* Set multicast addresses to firmware */
 				if (old_pkt_filter == priv->curr_pkt_filter) {
-					
+					/* Send request to firmware */
 					ret = mwifiex_send_cmd_async(priv,
 						HostCmd_CMD_MAC_MULTICAST_ADR,
 						HostCmd_ACT_GEN_SET, 0,
 						mcast_list);
 				} else {
-					
+					/* Send request to firmware */
 					ret = mwifiex_send_cmd_async(priv,
 						HostCmd_CMD_MAC_MULTICAST_ADR,
 						HostCmd_ACT_GEN_SET, 0,
@@ -130,6 +150,10 @@ int mwifiex_request_set_multicast_list(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * This function fills bss descriptor structure using provided
+ * information.
+ */
 int mwifiex_fill_new_bss_desc(struct mwifiex_private *priv,
 			      u8 *bssid, s32 rssi, u8 *ie_buf,
 			      size_t ie_len, u16 beacon_period,
@@ -162,6 +186,11 @@ int mwifiex_fill_new_bss_desc(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * In Ad-Hoc mode, the IBSS is created if not found in scan list.
+ * In both Ad-Hoc and infra mode, an deauthentication is performed
+ * first.
+ */
 int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 		      struct cfg80211_ssid *req_ssid)
 {
@@ -173,7 +202,7 @@ int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 	priv->scan_block = false;
 
 	if (bss) {
-		
+		/* Allocate and fill new bss descriptor */
 		bss_desc = kzalloc(sizeof(struct mwifiex_bssdescriptor),
 				GFP_KERNEL);
 		if (!bss_desc) {
@@ -199,7 +228,7 @@ int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 	}
 
 	if (priv->bss_mode == NL80211_IFTYPE_STATION) {
-		
+		/* Infra mode */
 		ret = mwifiex_deauthenticate(priv, NULL);
 		if (ret)
 			goto done;
@@ -216,9 +245,13 @@ int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 		if (netif_carrier_ok(priv->netdev))
 			netif_carrier_off(priv->netdev);
 
+		/* Clear any past association response stored for
+		 * application retrieval */
 		priv->assoc_rsp_size = 0;
 		ret = mwifiex_associate(priv, bss_desc);
 
+		/* If auth type is auto and association fails using open mode,
+		 * try to connect using shared mode */
 		if (ret == WLAN_STATUS_NOT_SUPPORTED_AUTH_ALG &&
 		    priv->sec_info.is_authtype_auto &&
 		    priv->sec_info.wep_enabled) {
@@ -230,8 +263,8 @@ int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 		if (bss)
 			cfg80211_put_bss(bss);
 	} else {
-		
-		
+		/* Adhoc mode */
+		/* If the requested SSID matches current SSID, return */
 		if (bss_desc && bss_desc->ssid.ssid_len &&
 		    (!mwifiex_ssid_cmp(&priv->curr_bss_params.bss_descriptor.
 				       ssid, &bss_desc->ssid))) {
@@ -240,7 +273,7 @@ int mwifiex_bss_start(struct mwifiex_private *priv, struct cfg80211_bss *bss,
 			return 0;
 		}
 
-		
+		/* Exit Adhoc mode first */
 		dev_dbg(adapter->dev, "info: Sending Adhoc Stop\n");
 		ret = mwifiex_deauthenticate(priv, NULL);
 		if (ret)
@@ -275,6 +308,12 @@ done:
 	return ret;
 }
 
+/*
+ * IOCTL request handler to set host sleep configuration.
+ *
+ * This function prepares the correct firmware command and
+ * issues it.
+ */
 static int mwifiex_set_hs_params(struct mwifiex_private *priv, u16 action,
 				 int cmd_type, struct mwifiex_ds_hs_cfg *hs_cfg)
 
@@ -297,9 +336,9 @@ static int mwifiex_set_hs_params(struct mwifiex_private *priv, u16 action,
 		if (hs_cfg->is_invoke_hostcmd) {
 			if (hs_cfg->conditions == HOST_SLEEP_CFG_CANCEL) {
 				if (!adapter->is_hs_configured)
-					
+					/* Already cancelled */
 					break;
-				
+				/* Save previous condition */
 				prev_cond = le32_to_cpu(adapter->hs_cfg
 							.conditions);
 				adapter->hs_cfg.conditions =
@@ -312,6 +351,8 @@ static int mwifiex_set_hs_params(struct mwifiex_private *priv, u16 action,
 					adapter->hs_cfg.gap = (u8)hs_cfg->gap;
 			} else if (adapter->hs_cfg.conditions
 				   == cpu_to_le32(HOST_SLEEP_CFG_CANCEL)) {
+				/* Return failure if no parameters for HS
+				   enable */
 				status = -1;
 				break;
 			}
@@ -326,7 +367,7 @@ static int mwifiex_set_hs_params(struct mwifiex_private *priv, u16 action,
 						HostCmd_ACT_GEN_SET, 0,
 						&adapter->hs_cfg);
 			if (hs_cfg->conditions == HOST_SLEEP_CFG_CANCEL)
-				
+				/* Restore previous condition */
 				adapter->hs_cfg.conditions =
 						cpu_to_le32(prev_cond);
 		} else {
@@ -349,6 +390,12 @@ static int mwifiex_set_hs_params(struct mwifiex_private *priv, u16 action,
 	return status;
 }
 
+/*
+ * Sends IOCTL request to cancel the existing Host Sleep configuration.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int mwifiex_cancel_hs(struct mwifiex_private *priv, int cmd_type)
 {
 	struct mwifiex_ds_hs_cfg hscfg;
@@ -361,6 +408,12 @@ int mwifiex_cancel_hs(struct mwifiex_private *priv, int cmd_type)
 }
 EXPORT_SYMBOL_GPL(mwifiex_cancel_hs);
 
+/*
+ * Sends IOCTL request to cancel the existing Host Sleep configuration.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int mwifiex_enable_hs(struct mwifiex_adapter *adapter)
 {
 	struct mwifiex_ds_hs_cfg hscfg;
@@ -390,6 +443,12 @@ int mwifiex_enable_hs(struct mwifiex_adapter *adapter)
 }
 EXPORT_SYMBOL_GPL(mwifiex_enable_hs);
 
+/*
+ * IOCTL request handler to get BSS information.
+ *
+ * This function collates the information from different driver structures
+ * to send to the user.
+ */
 int mwifiex_get_bss_info(struct mwifiex_private *priv,
 			 struct mwifiex_bss_info *info)
 {
@@ -431,6 +490,9 @@ int mwifiex_get_bss_info(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * The function disables auto deep sleep mode.
+ */
 int mwifiex_disable_auto_ds(struct mwifiex_private *priv)
 {
 	struct mwifiex_ds_auto_ds auto_ds;
@@ -442,6 +504,12 @@ int mwifiex_disable_auto_ds(struct mwifiex_private *priv)
 }
 EXPORT_SYMBOL_GPL(mwifiex_disable_auto_ds);
 
+/*
+ * IOCTL request handler to set/get active channel.
+ *
+ * This function performs validity checking on channel/frequency
+ * compatibility and returns failure if not valid.
+ */
 int mwifiex_bss_set_channel(struct mwifiex_private *priv,
 			    struct mwifiex_chan_freq_power *chan)
 {
@@ -496,6 +564,12 @@ int mwifiex_bss_set_channel(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * IOCTL request handler to set/get Ad-Hoc channel.
+ *
+ * This function prepares the correct firmware command and
+ * issues it to set or get the ad-hoc channel.
+ */
 static int mwifiex_bss_ioctl_ibss_channel(struct mwifiex_private *priv,
 					  u16 action, u16 *channel)
 {
@@ -512,6 +586,23 @@ static int mwifiex_bss_ioctl_ibss_channel(struct mwifiex_private *priv,
 				     action, 0, channel);
 }
 
+/*
+ * IOCTL request handler to change Ad-Hoc channel.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ *
+ * The function follows the following steps to perform the change -
+ *      - Get current IBSS information
+ *      - Get current channel
+ *      - If no change is required, return
+ *      - If not connected, change channel and return
+ *      - If connected,
+ *          - Disconnect
+ *          - Change channel
+ *          - Perform specific SSID scan with same SSID
+ *          - Start/Join the IBSS
+ */
 int
 mwifiex_drv_change_adhoc_chan(struct mwifiex_private *priv, u16 channel)
 {
@@ -525,11 +616,11 @@ mwifiex_drv_change_adhoc_chan(struct mwifiex_private *priv, u16 channel)
 
 	memset(&bss_info, 0, sizeof(bss_info));
 
-	
+	/* Get BSS information */
 	if (mwifiex_get_bss_info(priv, &bss_info))
 		return -1;
 
-	
+	/* Get current channel */
 	ret = mwifiex_bss_ioctl_ibss_channel(priv, HostCmd_ACT_GEN_GET,
 					     &curr_chan);
 
@@ -545,14 +636,14 @@ mwifiex_drv_change_adhoc_chan(struct mwifiex_private *priv, u16 channel)
 		goto done;
 	}
 
-	
+	/* Do disonnect */
 	memset(&ssid_bssid, 0, ETH_ALEN);
 	ret = mwifiex_deauthenticate(priv, ssid_bssid.bssid);
 
 	ret = mwifiex_bss_ioctl_ibss_channel(priv, HostCmd_ACT_GEN_SET,
 					     &channel);
 
-	
+	/* Do specific SSID scanning */
 	if (mwifiex_request_scan(priv, &bss_info.ssid)) {
 		ret = -1;
 		goto done;
@@ -563,7 +654,7 @@ mwifiex_drv_change_adhoc_chan(struct mwifiex_private *priv, u16 channel)
 				       ieee80211_channel_to_frequency(channel,
 								      band));
 
-	
+	/* Find the BSS we want using available scan results */
 	bss = cfg80211_get_bss(priv->wdev->wiphy, chan, bss_info.bssid,
 			       bss_info.ssid.ssid, bss_info.ssid.ssid_len,
 			       WLAN_CAPABILITY_ESS, WLAN_CAPABILITY_ESS);
@@ -576,6 +667,14 @@ done:
 	return ret;
 }
 
+/*
+ * IOCTL request handler to get rate.
+ *
+ * This function prepares the correct firmware command and
+ * issues it to get the current rate if it is connected,
+ * otherwise, the function returns the lowest supported rate
+ * for the band.
+ */
 static int mwifiex_rate_ioctl_get_rate_value(struct mwifiex_private *priv,
 					     struct mwifiex_rate_cfg *rate_cfg)
 {
@@ -584,6 +683,14 @@ static int mwifiex_rate_ioctl_get_rate_value(struct mwifiex_private *priv,
 				     HostCmd_ACT_GEN_GET, 0, NULL);
 }
 
+/*
+ * IOCTL request handler to set rate.
+ *
+ * This function prepares the correct firmware command and
+ * issues it to set the current rate.
+ *
+ * The function also performs validation checking on the supplied value.
+ */
 static int mwifiex_rate_ioctl_set_rate_value(struct mwifiex_private *priv,
 					     struct mwifiex_rate_cfg *rate_cfg)
 {
@@ -596,11 +703,11 @@ static int mwifiex_rate_ioctl_set_rate_value(struct mwifiex_private *priv,
 
 	if (rate_cfg->is_rate_auto) {
 		memset(bitmap_rates, 0, sizeof(bitmap_rates));
-		
+		/* Support all HR/DSSS rates */
 		bitmap_rates[0] = 0x000F;
-		
+		/* Support all OFDM rates */
 		bitmap_rates[1] = 0x00FF;
-		
+		/* Support all HT-MCSs rate */
 		for (i = 0; i < ARRAY_SIZE(priv->bitmap_rates) - 3; i++)
 			bitmap_rates[i + 2] = 0xFFFF;
 		bitmap_rates[9] = 0x3FFF;
@@ -623,12 +730,12 @@ static int mwifiex_rate_ioctl_set_rate_value(struct mwifiex_private *priv,
 
 		rate_index = mwifiex_data_rate_to_index(rate_cfg->rate);
 
-		
+		/* Only allow b/g rates to be set */
 		if (rate_index >= MWIFIEX_RATE_INDEX_HRDSSS0 &&
 		    rate_index <= MWIFIEX_RATE_INDEX_HRDSSS3) {
 			bitmap_rates[0] = 1 << rate_index;
 		} else {
-			rate_index -= 1; 
+			rate_index -= 1; /* There is a 0x00 in the table */
 			if (rate_index >= MWIFIEX_RATE_INDEX_OFDM0 &&
 			    rate_index <= MWIFIEX_RATE_INDEX_OFDM7)
 				bitmap_rates[1] = 1 << (rate_index -
@@ -642,6 +749,12 @@ static int mwifiex_rate_ioctl_set_rate_value(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * IOCTL request handler to set/get rate.
+ *
+ * This function can be used to set/get either the rate value or the
+ * rate index.
+ */
 static int mwifiex_rate_ioctl_cfg(struct mwifiex_private *priv,
 				  struct mwifiex_rate_cfg *rate_cfg)
 {
@@ -658,6 +771,12 @@ static int mwifiex_rate_ioctl_cfg(struct mwifiex_private *priv,
 	return status;
 }
 
+/*
+ * Sends IOCTL request to get the data rate.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int mwifiex_drv_get_data_rate(struct mwifiex_private *priv,
 			      struct mwifiex_rate_cfg *rate)
 {
@@ -682,6 +801,18 @@ int mwifiex_drv_get_data_rate(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * IOCTL request handler to set tx power configuration.
+ *
+ * This function prepares the correct firmware command and
+ * issues it.
+ *
+ * For non-auto power mode, all the following power groups are set -
+ *      - Modulation class HR/DSSS
+ *      - Modulation class OFDM
+ *      - Modulation class HTBW20
+ *      - Modulation class HTBW40
+ */
 int mwifiex_set_tx_power(struct mwifiex_private *priv,
 			 struct mwifiex_power_cfg *power_cfg)
 {
@@ -721,7 +852,7 @@ int mwifiex_set_tx_power(struct mwifiex_private *priv,
 		pg = (struct mwifiex_power_group *)
 		     (buf + sizeof(struct host_cmd_ds_txpwr_cfg)
 		      + sizeof(struct mwifiex_types_power_group));
-		
+		/* Power group for modulation class HR/DSSS */
 		pg->first_rate_code = 0x00;
 		pg->last_rate_code = 0x03;
 		pg->modulation_class = MOD_CLASS_HR_DSSS;
@@ -729,7 +860,7 @@ int mwifiex_set_tx_power(struct mwifiex_private *priv,
 		pg->power_min = (s8) dbm;
 		pg->power_max = (s8) dbm;
 		pg++;
-		
+		/* Power group for modulation class OFDM */
 		pg->first_rate_code = 0x00;
 		pg->last_rate_code = 0x07;
 		pg->modulation_class = MOD_CLASS_OFDM;
@@ -737,7 +868,7 @@ int mwifiex_set_tx_power(struct mwifiex_private *priv,
 		pg->power_min = (s8) dbm;
 		pg->power_max = (s8) dbm;
 		pg++;
-		
+		/* Power group for modulation class HTBW20 */
 		pg->first_rate_code = 0x00;
 		pg->last_rate_code = 0x20;
 		pg->modulation_class = MOD_CLASS_HT;
@@ -746,7 +877,7 @@ int mwifiex_set_tx_power(struct mwifiex_private *priv,
 		pg->power_max = (s8) dbm;
 		pg->ht_bandwidth = HT_BW_20;
 		pg++;
-		
+		/* Power group for modulation class HTBW40 */
 		pg->first_rate_code = 0x00;
 		pg->last_rate_code = 0x20;
 		pg->modulation_class = MOD_CLASS_HT;
@@ -762,6 +893,12 @@ int mwifiex_set_tx_power(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * IOCTL request handler to get power save mode.
+ *
+ * This function prepares the correct firmware command and
+ * issues it.
+ */
 int mwifiex_drv_set_power(struct mwifiex_private *priv, u32 *ps_mode)
 {
 	int ret;
@@ -783,6 +920,13 @@ int mwifiex_drv_set_power(struct mwifiex_private *priv, u32 *ps_mode)
 	return ret;
 }
 
+/*
+ * IOCTL request handler to set/reset WPA IE.
+ *
+ * The supplied WPA IE is treated as a opaque buffer. Only the first field
+ * is checked to determine WPA version. If buffer length is zero, the existing
+ * WPA IE is reset.
+ */
 static int mwifiex_set_wpa_ie_helper(struct mwifiex_private *priv,
 				     u8 *ie_data_ptr, u16 ie_len)
 {
@@ -817,6 +961,13 @@ static int mwifiex_set_wpa_ie_helper(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * IOCTL request handler to set/reset WAPI IE.
+ *
+ * The supplied WAPI IE is treated as a opaque buffer. Only the first field
+ * is checked to internally enable WAPI. If buffer length is zero, the existing
+ * WAPI IE is reset.
+ */
 static int mwifiex_set_wapi_ie(struct mwifiex_private *priv,
 			       u8 *ie_data_ptr, u16 ie_len)
 {
@@ -844,6 +995,12 @@ static int mwifiex_set_wapi_ie(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * IOCTL request handler to set WAPI key.
+ *
+ * This function prepares the correct firmware command and
+ * issues it.
+ */
 static int mwifiex_sec_ioctl_set_wapi_key(struct mwifiex_private *priv,
 			       struct mwifiex_ds_encrypt_key *encrypt_key)
 {
@@ -853,6 +1010,12 @@ static int mwifiex_sec_ioctl_set_wapi_key(struct mwifiex_private *priv,
 				     encrypt_key);
 }
 
+/*
+ * IOCTL request handler to set WEP network key.
+ *
+ * This function prepares the correct firmware command and
+ * issues it, after validation checks.
+ */
 static int mwifiex_sec_ioctl_set_wep_key(struct mwifiex_private *priv,
 			      struct mwifiex_ds_encrypt_key *encrypt_key)
 {
@@ -867,7 +1030,7 @@ static int mwifiex_sec_ioctl_set_wep_key(struct mwifiex_private *priv,
 	if (encrypt_key->key_disable) {
 		priv->sec_info.wep_enabled = 0;
 	} else if (!encrypt_key->key_len) {
-		
+		/* Copy the required key as the current key */
 		wep_key = &priv->wep_key[index];
 		if (!wep_key->key_length) {
 			dev_err(priv->adapter->dev,
@@ -879,7 +1042,7 @@ static int mwifiex_sec_ioctl_set_wep_key(struct mwifiex_private *priv,
 	} else {
 		wep_key = &priv->wep_key[index];
 		memset(wep_key, 0, sizeof(struct mwifiex_wep_key));
-		
+		/* Copy the key in the driver */
 		memcpy(wep_key->key_material,
 		       encrypt_key->key_material,
 		       encrypt_key->key_len);
@@ -888,7 +1051,7 @@ static int mwifiex_sec_ioctl_set_wep_key(struct mwifiex_private *priv,
 		priv->sec_info.wep_enabled = 1;
 	}
 	if (wep_key->key_length) {
-		
+		/* Send request to firmware */
 		ret = mwifiex_send_cmd_async(priv,
 					     HostCmd_CMD_802_11_KEY_MATERIAL,
 					     HostCmd_ACT_GEN_SET, 0, NULL);
@@ -907,6 +1070,16 @@ static int mwifiex_sec_ioctl_set_wep_key(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * IOCTL request handler to set WPA key.
+ *
+ * This function prepares the correct firmware command and
+ * issues it, after validation checks.
+ *
+ * Current driver only supports key length of up to 32 bytes.
+ *
+ * This function can also be used to disable a currently set key.
+ */
 static int mwifiex_sec_ioctl_set_wpa_key(struct mwifiex_private *priv,
 			      struct mwifiex_ds_encrypt_key *encrypt_key)
 {
@@ -914,14 +1087,18 @@ static int mwifiex_sec_ioctl_set_wpa_key(struct mwifiex_private *priv,
 	u8 remove_key = false;
 	struct host_cmd_ds_802_11_key_material *ibss_key;
 
-	
+	/* Current driver only supports key length of up to 32 bytes */
 	if (encrypt_key->key_len > WLAN_MAX_KEY_LEN) {
 		dev_err(priv->adapter->dev, "key length too long\n");
 		return -1;
 	}
 
 	if (priv->bss_mode == NL80211_IFTYPE_ADHOC) {
-		
+		/*
+		 * IBSS/WPA-None uses only one key (Group) for both receiving
+		 * and sending unicast and multicast packets.
+		 */
+		/* Send the key as PTK to firmware */
 		encrypt_key->key_index = MWIFIEX_KEY_INDEX_UNICAST;
 		ret = mwifiex_send_cmd_async(priv,
 					     HostCmd_CMD_802_11_KEY_MATERIAL,
@@ -933,7 +1110,7 @@ static int mwifiex_sec_ioctl_set_wpa_key(struct mwifiex_private *priv,
 		ibss_key = &priv->aes_key;
 		memset(ibss_key, 0,
 		       sizeof(struct host_cmd_ds_802_11_key_material));
-		
+		/* Copy the key in the driver */
 		memcpy(ibss_key->key_param_set.key, encrypt_key->key_material,
 		       encrypt_key->key_len);
 		memcpy(&ibss_key->key_param_set.key_len, &encrypt_key->key_len,
@@ -942,7 +1119,7 @@ static int mwifiex_sec_ioctl_set_wpa_key(struct mwifiex_private *priv,
 			= cpu_to_le16(KEY_TYPE_ID_TKIP);
 		ibss_key->key_param_set.key_info = cpu_to_le16(KEY_ENABLED);
 
-		
+		/* Send the key as GTK to firmware */
 		encrypt_key->key_index = ~MWIFIEX_KEY_INDEX_UNICAST;
 	}
 
@@ -963,6 +1140,12 @@ static int mwifiex_sec_ioctl_set_wpa_key(struct mwifiex_private *priv,
 	return ret;
 }
 
+/*
+ * IOCTL request handler to set/get network keys.
+ *
+ * This is a generic key handling function which supports WEP, WPA
+ * and WAPI.
+ */
 static int
 mwifiex_sec_ioctl_encrypt_key(struct mwifiex_private *priv,
 			      struct mwifiex_ds_encrypt_key *encrypt_key)
@@ -978,6 +1161,9 @@ mwifiex_sec_ioctl_encrypt_key(struct mwifiex_private *priv,
 	return status;
 }
 
+/*
+ * This function returns the driver version.
+ */
 int
 mwifiex_drv_get_driver_version(struct mwifiex_adapter *adapter, char *version,
 			       int max_len)
@@ -998,6 +1184,12 @@ mwifiex_drv_get_driver_version(struct mwifiex_adapter *adapter, char *version,
 	return 0;
 }
 
+/*
+ * Sends IOCTL request to get signal information.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int mwifiex_get_signal_info(struct mwifiex_private *priv,
 			    struct mwifiex_ds_get_signal *signal)
 {
@@ -1005,7 +1197,7 @@ int mwifiex_get_signal_info(struct mwifiex_private *priv,
 
 	signal->selector = ALL_RSSI_INFO_MASK;
 
-	
+	/* Signal info can be obtained only if connected */
 	if (!priv->media_connected) {
 		dev_dbg(priv->adapter->dev,
 			"info: Can not get signal in disconnected state\n");
@@ -1025,6 +1217,12 @@ int mwifiex_get_signal_info(struct mwifiex_private *priv,
 	return status;
 }
 
+/*
+ * Sends IOCTL request to set encoding parameters.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int mwifiex_set_encode(struct mwifiex_private *priv, const u8 *key,
 			int key_len, u8 key_index, int disable)
 {
@@ -1043,6 +1241,12 @@ int mwifiex_set_encode(struct mwifiex_private *priv, const u8 *key,
 	return mwifiex_sec_ioctl_encrypt_key(priv, &encrypt_key);
 }
 
+/*
+ * Sends IOCTL request to get extended version.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int
 mwifiex_get_ver_ext(struct mwifiex_private *priv)
 {
@@ -1056,6 +1260,12 @@ mwifiex_get_ver_ext(struct mwifiex_private *priv)
 	return 0;
 }
 
+/*
+ * Sends IOCTL request to get statistics information.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int
 mwifiex_get_stats_info(struct mwifiex_private *priv,
 		       struct mwifiex_ds_get_stats *log)
@@ -1064,6 +1274,19 @@ mwifiex_get_stats_info(struct mwifiex_private *priv,
 				     HostCmd_ACT_GEN_GET, 0, log);
 }
 
+/*
+ * IOCTL request handler to read/write register.
+ *
+ * This function prepares the correct firmware command and
+ * issues it.
+ *
+ * Access to the following registers are supported -
+ *      - MAC
+ *      - BBP
+ *      - RF
+ *      - PMIC
+ *      - CAU
+ */
 static int mwifiex_reg_mem_ioctl_reg_rw(struct mwifiex_private *priv,
 					struct mwifiex_ds_reg_rw *reg_rw,
 					u16 action)
@@ -1094,6 +1317,12 @@ static int mwifiex_reg_mem_ioctl_reg_rw(struct mwifiex_private *priv,
 
 }
 
+/*
+ * Sends IOCTL request to write to a register.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int
 mwifiex_reg_write(struct mwifiex_private *priv, u32 reg_type,
 		  u32 reg_offset, u32 reg_value)
@@ -1107,6 +1336,12 @@ mwifiex_reg_write(struct mwifiex_private *priv, u32 reg_type,
 	return mwifiex_reg_mem_ioctl_reg_rw(priv, &reg_rw, HostCmd_ACT_GEN_SET);
 }
 
+/*
+ * Sends IOCTL request to read from a register.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int
 mwifiex_reg_read(struct mwifiex_private *priv, u32 reg_type,
 		 u32 reg_offset, u32 *value)
@@ -1127,6 +1362,12 @@ done:
 	return ret;
 }
 
+/*
+ * Sends IOCTL request to read from EEPROM.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int
 mwifiex_eeprom_read(struct mwifiex_private *priv, u16 offset, u16 bytes,
 		    u8 *value)
@@ -1137,7 +1378,7 @@ mwifiex_eeprom_read(struct mwifiex_private *priv, u16 offset, u16 bytes,
 	rd_eeprom.offset = cpu_to_le16((u16) offset);
 	rd_eeprom.byte_count = cpu_to_le16((u16) bytes);
 
-	
+	/* Send request to firmware */
 	ret = mwifiex_send_cmd_sync(priv, HostCmd_CMD_802_11_EEPROM_ACCESS,
 				    HostCmd_ACT_GEN_GET, 0, &rd_eeprom);
 
@@ -1146,6 +1387,10 @@ mwifiex_eeprom_read(struct mwifiex_private *priv, u16 offset, u16 bytes,
 	return ret;
 }
 
+/*
+ * This function sets a generic IE. In addition to generic IE, it can
+ * also handle WPA, WPA2 and WAPI IEs.
+ */
 static int
 mwifiex_set_gen_ie_helper(struct mwifiex_private *priv, u8 *ie_data_ptr,
 			  u16 ie_len)
@@ -1155,7 +1400,7 @@ mwifiex_set_gen_ie_helper(struct mwifiex_private *priv, u8 *ie_data_ptr,
 	const u8 wpa_oui[] = { 0x00, 0x50, 0xf2, 0x01 };
 	const u8 wps_oui[] = { 0x00, 0x50, 0xf2, 0x04 };
 
-	
+	/* If the passed length is zero, reset the buffer */
 	if (!ie_len) {
 		priv->gen_ie_buf_len = 0;
 		priv->wps.session_enable = false;
@@ -1165,24 +1410,31 @@ mwifiex_set_gen_ie_helper(struct mwifiex_private *priv, u8 *ie_data_ptr,
 		return -1;
 	}
 	pvendor_ie = (struct ieee_types_vendor_header *) ie_data_ptr;
-	
+	/* Test to see if it is a WPA IE, if not, then it is a gen IE */
 	if (((pvendor_ie->element_id == WLAN_EID_WPA) &&
 	     (!memcmp(pvendor_ie->oui, wpa_oui, sizeof(wpa_oui)))) ||
 	    (pvendor_ie->element_id == WLAN_EID_RSN)) {
 
-		
+		/* IE is a WPA/WPA2 IE so call set_wpa function */
 		ret = mwifiex_set_wpa_ie_helper(priv, ie_data_ptr, ie_len);
 		priv->wps.session_enable = false;
 
 		return ret;
 	} else if (pvendor_ie->element_id == WLAN_EID_BSS_AC_ACCESS_DELAY) {
-		
+		/* IE is a WAPI IE so call set_wapi function */
 		ret = mwifiex_set_wapi_ie(priv, ie_data_ptr, ie_len);
 
 		return ret;
 	}
+	/*
+	 * Verify that the passed length is not larger than the
+	 * available space remaining in the buffer
+	 */
 	if (ie_len < (sizeof(priv->gen_ie_buf) - priv->gen_ie_buf_len)) {
 
+		/* Test to see if it is a WPS IE, if so, enable
+		 * wps session flag
+		 */
 		pvendor_ie = (struct ieee_types_vendor_header *) ie_data_ptr;
 		if ((pvendor_ie->element_id == WLAN_EID_VENDOR_SPECIFIC) &&
 		    (!memcmp(pvendor_ie->oui, wps_oui, sizeof(wps_oui)))) {
@@ -1191,17 +1443,29 @@ mwifiex_set_gen_ie_helper(struct mwifiex_private *priv, u8 *ie_data_ptr,
 				"info: WPS Session Enabled.\n");
 		}
 
+		/* Append the passed data to the end of the
+		   genIeBuffer */
 		memcpy(priv->gen_ie_buf + priv->gen_ie_buf_len, ie_data_ptr,
 		       ie_len);
+		/* Increment the stored buffer length by the
+		   size passed */
 		priv->gen_ie_buf_len += ie_len;
 	} else {
+		/* Passed data does not fit in the remaining
+		   buffer space */
 		ret = -1;
 	}
 
-	
+	/* Return 0, or -1 for error case */
 	return ret;
 }
 
+/*
+ * IOCTL request handler to set/get generic IE.
+ *
+ * In addition to various generic IEs, this function can also be
+ * used to set the ARP filter.
+ */
 static int mwifiex_misc_ioctl_gen_ie(struct mwifiex_private *priv,
 				     struct mwifiex_ds_misc_gen_ie *gen_ie,
 				     u16 action)
@@ -1237,6 +1501,12 @@ static int mwifiex_misc_ioctl_gen_ie(struct mwifiex_private *priv,
 	return 0;
 }
 
+/*
+ * Sends IOCTL request to set a generic IE.
+ *
+ * This function allocates the IOCTL request buffer, fills it
+ * with requisite parameters and calls the IOCTL handler.
+ */
 int
 mwifiex_set_gen_ie(struct mwifiex_private *priv, u8 *ie, int ie_len)
 {

@@ -2,6 +2,16 @@
  *  Copyright (C) 1995-1998  Linus Torvalds & author (see below)
  */
 
+/*
+ *  Principal Author:  mlord@pobox.com (Mark Lord)
+ *
+ *  See linux/MAINTAINERS for address of current maintainer.
+ *
+ *  This file provides support for disabling the buggy read-ahead
+ *  mode of the RZ1000 IDE chipset, commonly used on Intel motherboards.
+ *
+ *  Dunno if this fixes both ports, or only the primary port (?).
+ */
 
 #include <linux/types.h>
 #include <linux/module.h>

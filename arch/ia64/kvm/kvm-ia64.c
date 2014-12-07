@@ -110,7 +110,7 @@ static void kvm_flush_tlb_all(void)
 		addr += stride0;
 	}
 	local_irq_restore(flags);
-	ia64_srlz_i();			
+	ia64_srlz_i();			/* srlz.i implies srlz.d */
 }
 
 long ia64_pal_vp_create(u64 *vpd, u64 *host_iva, u64 *opt_handler)
@@ -299,6 +299,10 @@ static int __apic_accept_irq(struct kvm_vcpu *vcpu, uint64_t vector)
 	return 0;
 }
 
+/*
+ *  offset: address offset to IPI space.
+ *  value:  deliver value.
+ */
 static void vcpu_deliver_ipi(struct kvm_vcpu *vcpu, uint64_t dm,
 				uint64_t vector)
 {
@@ -535,6 +539,10 @@ static uint32_t kvm_get_exit_reason(struct kvm_vcpu *vcpu)
 	return p_exit_data->exit_reason;
 }
 
+/*
+ * The guest has exited.  See if we can fix it or if we need userspace
+ * assistance.
+ */
 static int kvm_handle_exit(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 {
 	u32 exit_reason = kvm_get_exit_reason(vcpu);
@@ -562,13 +570,13 @@ static int kvm_insert_vmm_mapping(struct kvm_vcpu *vcpu)
 	struct kvm *kvm = vcpu->kvm;
 	int r;
 
-	
+	/*Insert a pair of tr to map vmm*/
 	pte = pte_val(mk_pte_phys(__pa(kvm_vmm_base), PAGE_KERNEL));
 	r = ia64_itr_entry(0x3, KVM_VMM_BASE, pte, KVM_VMM_SHIFT);
 	if (r < 0)
 		goto out;
 	vcpu->arch.vmm_tr_slot = r;
-	
+	/*Insert a pairt of tr to map data of vm*/
 	pte = pte_val(mk_pte_phys(__pa(kvm->arch.vm_base), PAGE_KERNEL));
 	r = ia64_itr_entry(0x3, KVM_VM_DATA_BASE,
 					pte, KVM_VM_DATA_SHIFT);
@@ -644,7 +652,7 @@ again:
 	preempt_disable();
 	local_irq_disable();
 
-	
+	/*Get host and guest context with guest address space.*/
 	host_ctx = kvm_get_host_context(vcpu);
 	guest_ctx = kvm_get_guest_context(vcpu);
 
@@ -658,6 +666,9 @@ again:
 	vcpu->mode = IN_GUEST_MODE;
 	kvm_guest_enter();
 
+	/*
+	 * Transition to the guest
+	 */
 	kvm_vmm_info->tramp_entry(host_ctx, guest_ctx);
 
 	kvm_vcpu_post_transition(vcpu);
@@ -666,6 +677,12 @@ again:
 	set_bit(KVM_REQ_KICK, &vcpu->requests);
 	local_irq_enable();
 
+	/*
+	 * We must have an instruction between local_irq_enable() and
+	 * kvm_guest_exit(), so the timer interrupt isn't delayed by
+	 * the interrupt shadow.  The stat.exits increment will do nicely.
+	 * But we need to prevent reordering, hence this barrier():
+	 */
 	barrier();
 	kvm_guest_exit();
 	vcpu->mode = OUTSIDE_GUEST_MODE;
@@ -775,7 +792,7 @@ static void kvm_build_io_pmt(struct kvm *kvm)
 {
 	unsigned long i, j;
 
-	
+	/* Mark I/O ranges */
 	for (i = 0; i < (sizeof(io_ranges) / sizeof(struct kvm_io_range));
 							i++) {
 		for (j = io_ranges[i].start;
@@ -787,6 +804,7 @@ static void kvm_build_io_pmt(struct kvm *kvm)
 
 }
 
+/*Use unused rids to virtualize guest rid.*/
 #define GUEST_PHYSICAL_RR0	0x1739
 #define GUEST_PHYSICAL_RR4	0x2739
 #define VMM_INIT_RR		0x1660
@@ -804,11 +822,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	kvm->arch.metaphysical_rr4 = GUEST_PHYSICAL_RR4;
 	kvm->arch.vmm_init_rr = VMM_INIT_RR;
 
+	/*
+	 *Fill P2M entries for MMIO/IO ranges
+	 */
 	kvm_build_io_pmt(kvm);
 
 	INIT_LIST_HEAD(&kvm->arch.assigned_dev_head);
 
-	
+	/* Reserve bit 0 of irq_sources_bitmap for userspace irq source */
 	set_bit(KVM_USERSPACE_IRQ_SOURCE_ID, &kvm->arch.irq_sources_bitmap);
 
 	return 0;
@@ -966,7 +987,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		break;
 		}
 	case KVM_GET_IRQCHIP: {
-		
+		/* 0: PIC master, 1: PIC slave, 2: IOAPIC */
 		struct kvm_irqchip chip;
 
 		r = -EFAULT;
@@ -985,7 +1006,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 		break;
 		}
 	case KVM_SET_IRQCHIP: {
-		
+		/* 0: PIC master, 1: PIC slave, 2: IOAPIC */
 		struct kvm_irqchip chip;
 
 		r = -EFAULT;
@@ -1047,7 +1068,7 @@ static int kvm_alloc_vmm_area(void)
 static void kvm_free_vmm_area(void)
 {
 	if (kvm_vmm_base) {
-		
+		/*Zero this area before free to avoid bits leak!!*/
 		memset((void *)kvm_vmm_base, 0, KVM_VMM_SIZE);
 		free_pages(kvm_vmm_base, get_order(KVM_VMM_SIZE));
 		kvm_vmm_base  = 0;
@@ -1065,16 +1086,16 @@ static int vti_init_vpd(struct kvm_vcpu *vcpu)
 	if (IS_ERR(vpd))
 		return PTR_ERR(vpd);
 
-	
+	/* CPUID init */
 	for (i = 0; i < 5; i++)
 		vpd->vcpuid[i] = ia64_get_cpuid(i);
 
-	
+	/* Limit the CPUID number to 5 */
 	cpuid3.value = vpd->vcpuid[3];
-	cpuid3.number = 4;	
+	cpuid3.number = 4;	/* 5 - 1 */
 	vpd->vcpuid[3] = cpuid3.value;
 
-	
+	/*Set vac and vdc fields*/
 	vpd->vac.a_from_int_cr = 1;
 	vpd->vac.a_to_int_cr = 1;
 	vpd->vac.a_from_psr = 1;
@@ -1084,7 +1105,7 @@ static int vti_init_vpd(struct kvm_vcpu *vcpu)
 	vpd->vac.a_int = 1;
 	vpd->vdc.d_vmsw = 1;
 
-	
+	/*Set virtual buffer*/
 	vpd->virt_env_vaddr = KVM_VM_BUFFER_BASE;
 
 	return 0;
@@ -1168,17 +1189,17 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	union context *p_ctx = &vcpu->arch.guest;
 	struct kvm_vcpu *vmm_vcpu = to_guest(vcpu->kvm, vcpu);
 
-	
+	/*Init vcpu context for first run.*/
 	if (IS_ERR(vmm_vcpu))
 		return PTR_ERR(vmm_vcpu);
 
 	if (kvm_vcpu_is_bsp(vcpu)) {
 		vcpu->arch.mp_state = KVM_MP_STATE_RUNNABLE;
 
-		
+		/*Set entry address for first run.*/
 		regs->cr_iip = PALE_RESET_ENTRY;
 
-		
+		/*Initialize itc offset for vcpus*/
 		itc_offset = 0UL - kvm_get_itc(vcpu);
 		for (i = 0; i < KVM_MAX_VCPUS; i++) {
 			v = (struct kvm_vcpu *)((char *)vcpu +
@@ -1199,19 +1220,19 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	p_ctx->gr[12] = (unsigned long)((char *)vmm_vcpu + KVM_STK_OFFSET);
 	p_ctx->gr[13] = (unsigned long)vmm_vcpu;
 	p_ctx->psr = 0x1008522000UL;
-	p_ctx->ar[40] = FPSR_DEFAULT; 
+	p_ctx->ar[40] = FPSR_DEFAULT; /*fpsr*/
 	p_ctx->caller_unat = 0;
 	p_ctx->pr = 0x0;
-	p_ctx->ar[36] = 0x0; 
-	p_ctx->ar[19] = 0x0; 
+	p_ctx->ar[36] = 0x0; /*unat*/
+	p_ctx->ar[19] = 0x0; /*rnat*/
 	p_ctx->ar[18] = (unsigned long)vmm_vcpu +
 				((sizeof(struct kvm_vcpu)+15) & ~15);
-	p_ctx->ar[64] = 0x0; 
+	p_ctx->ar[64] = 0x0; /*pfs*/
 	p_ctx->cr[0] = 0x7e04UL;
 	p_ctx->cr[2] = (unsigned long)kvm_vmm_info->vmm_ivt;
 	p_ctx->cr[8] = 0x3c;
 
-	
+	/*Initialize region register*/
 	p_ctx->rr[0] = 0x30;
 	p_ctx->rr[1] = 0x30;
 	p_ctx->rr[2] = 0x30;
@@ -1220,7 +1241,7 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 	p_ctx->rr[5] = 0x30;
 	p_ctx->rr[7] = 0x30;
 
-	
+	/*Initialize branch register 0*/
 	p_ctx->br[0] = *(unsigned long *)kvm_vmm_info->vmm_entry;
 
 	vcpu->arch.vmm_rr = kvm->arch.vmm_init_rr;
@@ -1651,6 +1672,10 @@ out:
 }
 
 
+/*
+ * On SN2, the ITC isn't stable, so copy in fast path code to use the
+ * SN2 RTC, replacing the ITC based default verion.
+ */
 static void kvm_patch_vmm(struct kvm_vmm_info *vmm_info,
 			  struct module *module)
 {
@@ -1668,6 +1693,10 @@ static void kvm_patch_vmm(struct kvm_vmm_info *vmm_info,
 	printk(KERN_INFO "kvm: Patching ITC emulation to use SGI SN2 RTC "
 	       "as source\n");
 
+	/*
+	 * Copy the SN2 version of mov_ar into place. They are both
+	 * the same size, so 6 bundles is sufficient (6 * 0x10).
+	 */
 	memcpy((void *)new_ar, (void *)new_ar_sn2, 0x60);
 }
 
@@ -1687,7 +1716,7 @@ static int kvm_relocate_vmm(struct kvm_vmm_info *vmm_info,
 		return -EFAULT;
 	}
 
-	
+	/*Calculate new position of relocated vmm module.*/
 	module_base = (unsigned long)module->module_core;
 	vmm_size = module->core_size;
 	if (unlikely(vmm_size > KVM_VMM_SIZE))
@@ -1697,7 +1726,7 @@ static int kvm_relocate_vmm(struct kvm_vmm_info *vmm_info,
 	kvm_patch_vmm(vmm_info, module);
 	kvm_flush_icache(kvm_vmm_base, vmm_size);
 
-	
+	/*Recalculate kvm_vmm_info based on new VMM*/
 	vmm_offset = vmm_info->vmm_ivt - module_base;
 	kvm_vmm_info->vmm_ivt = KVM_VMM_BASE + vmm_offset;
 	printk(KERN_DEBUG"kvm: Relocated VMM's IVT Base Addr:%lx\n",
@@ -1822,7 +1851,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 	if (r)
 		goto out;
 
-	
+	/* If nothing is dirty, don't bother messing with page tables. */
 	if (is_dirty) {
 		kvm_flush_remote_tlbs(kvm);
 		n = kvm_dirty_bitmap_bytes(memslot);
@@ -1892,7 +1921,7 @@ static int find_highest_bits(int *dat)
 	u32  bits, bitnum;
 	int i;
 
-	
+	/* loop for all 256 bits */
 	for (i = 7; i >= 0 ; i--) {
 		bits = dat[i];
 		if (bits) {

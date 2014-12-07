@@ -1,3 +1,9 @@
+/*
+ * SHA1 routine optimized to do word accesses rather than byte accesses,
+ * and to avoid unnecessary copies into the context array.
+ *
+ * This was based on the git SHA1 implementation.
+ */
 
 #include <linux/kernel.h>
 #include <linux/export.h>
@@ -5,6 +11,27 @@
 #include <linux/cryptohash.h>
 #include <asm/unaligned.h>
 
+/*
+ * If you have 32 registers or more, the compiler can (and should)
+ * try to change the array[] accesses into registers. However, on
+ * machines with less than ~25 registers, that won't really work,
+ * and at least gcc will make an unholy mess of it.
+ *
+ * So to avoid that mess which just slows things down, we force
+ * the stores to memory to actually happen (we might be better off
+ * with a 'W(t)=(val);asm("":"+m" (W(t))' there instead, as
+ * suggested by Artur Skawina - that will also make gcc unable to
+ * try to do the silly "optimize away loads" part because it won't
+ * see what the value will be).
+ *
+ * Ben Herrenschmidt reports that on PPC, the C version comes close
+ * to the optimized asm with this (ie on PPC you don't want that
+ * 'volatile', since there are lots of registers).
+ *
+ * On ARM we get the best code generation by forcing a full memory barrier
+ * between each SHA_ROUND, otherwise gcc happily get wild with spilling and
+ * the stack frame size simply explode and performance goes down the drain.
+ */
 
 #ifdef CONFIG_X86
   #define setW(x, val) (*(volatile __u32 *)&W(x) = (val))
@@ -14,8 +41,13 @@
   #define setW(x, val) (W(x) = (val))
 #endif
 
+/* This "rolls" over the 512-bit array */
 #define W(x) (array[(x)&15])
 
+/*
+ * Where do we get the source from? The first 16 iterations get it from
+ * the input data, the next mix it from the 512-bit array.
+ */
 #define SHA_SRC(t) get_unaligned_be32((__u32 *)data + t)
 #define SHA_MIX(t) rol32(W(t+13) ^ W(t+8) ^ W(t+2) ^ W(t), 1)
 
@@ -30,6 +62,22 @@
 #define T_40_59(t, A, B, C, D, E) SHA_ROUND(t, SHA_MIX, ((B&C)+(D&(B^C))) , 0x8f1bbcdc, A, B, C, D, E )
 #define T_60_79(t, A, B, C, D, E) SHA_ROUND(t, SHA_MIX, (B^C^D) ,  0xca62c1d6, A, B, C, D, E )
 
+/**
+ * sha_transform - single block SHA1 transform
+ *
+ * @digest: 160 bit digest to update
+ * @data:   512 bits of data to hash
+ * @array:  16 words of workspace (see note)
+ *
+ * This function generates a SHA1 digest for a single 512-bit block.
+ * Be warned, it does not handle padding and message digest, do not
+ * confuse it with the full FIPS 180-1 digest algorithm for variable
+ * length messages.
+ *
+ * Note: If the hash is security sensitive, the caller should be sure
+ * to clear the workspace. This is left to the caller to avoid
+ * unnecessary clears between chained hashing operations.
+ */
 void sha_transform(__u32 *digest, const char *data, __u32 *array)
 {
 	__u32 A, B, C, D, E;
@@ -40,7 +88,7 @@ void sha_transform(__u32 *digest, const char *data, __u32 *array)
 	D = digest[3];
 	E = digest[4];
 
-	
+	/* Round 1 - iterations 0-16 take their input from 'data' */
 	T_0_15( 0, A, B, C, D, E);
 	T_0_15( 1, E, A, B, C, D);
 	T_0_15( 2, D, E, A, B, C);
@@ -58,13 +106,13 @@ void sha_transform(__u32 *digest, const char *data, __u32 *array)
 	T_0_15(14, B, C, D, E, A);
 	T_0_15(15, A, B, C, D, E);
 
-	
+	/* Round 1 - tail. Input from 512-bit mixing array */
 	T_16_19(16, E, A, B, C, D);
 	T_16_19(17, D, E, A, B, C);
 	T_16_19(18, C, D, E, A, B);
 	T_16_19(19, B, C, D, E, A);
 
-	
+	/* Round 2 */
 	T_20_39(20, A, B, C, D, E);
 	T_20_39(21, E, A, B, C, D);
 	T_20_39(22, D, E, A, B, C);
@@ -86,7 +134,7 @@ void sha_transform(__u32 *digest, const char *data, __u32 *array)
 	T_20_39(38, C, D, E, A, B);
 	T_20_39(39, B, C, D, E, A);
 
-	
+	/* Round 3 */
 	T_40_59(40, A, B, C, D, E);
 	T_40_59(41, E, A, B, C, D);
 	T_40_59(42, D, E, A, B, C);
@@ -108,7 +156,7 @@ void sha_transform(__u32 *digest, const char *data, __u32 *array)
 	T_40_59(58, C, D, E, A, B);
 	T_40_59(59, B, C, D, E, A);
 
-	
+	/* Round 4 */
 	T_60_79(60, A, B, C, D, E);
 	T_60_79(61, E, A, B, C, D);
 	T_60_79(62, D, E, A, B, C);
@@ -138,6 +186,10 @@ void sha_transform(__u32 *digest, const char *data, __u32 *array)
 }
 EXPORT_SYMBOL(sha_transform);
 
+/**
+ * sha_init - initialize the vectors for a SHA1 digest
+ * @buf: vector to initialize
+ */
 void sha_init(__u32 *buf)
 {
 	buf[0] = 0x67452301;

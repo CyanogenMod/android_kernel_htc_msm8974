@@ -19,6 +19,17 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * [Memo]
+ *
+ * Outbound:
+ *  The compression of IP datagram MUST be done before AH/ESP processing,
+ *  fragmentation, and the addition of Hop-by-Hop/Routing header.
+ *
+ * Inbound:
+ *  The decompression of IP datagram MUST be done after the reassembly,
+ *  AH/ESP processing.
+ */
 #include <linux/module.h>
 #include <net/ip.h>
 #include <net/xfrm.h>

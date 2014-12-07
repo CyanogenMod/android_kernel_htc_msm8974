@@ -18,6 +18,24 @@
     along with this program; if not, write to the Free Software
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
+/*
+Driver: poc
+Description: Generic driver for very simple devices
+Author: ds
+Devices: [Keithley Metrabyte] DAC-02 (dac02), [Advantech] PCL-733 (pcl733),
+  PCL-734 (pcl734)
+Updated: Sat, 16 Mar 2002 17:34:48 -0800
+Status: unknown
+
+This driver is indended to support very simple ISA-based devices,
+including:
+  dac02 - Keithley DAC-02 analog output board
+  pcl733 - Advantech PCL-733
+  pcl734 - Advantech PCL-734
+
+Configuration options:
+  [0] - I/O port base
+*/
 
 #include "../comedidev.h"
 
@@ -56,7 +74,7 @@ static const struct boarddef_struct boards[] = {
 	{
 	 .name = "dac02",
 	 .iosize = 8,
-	 
+	 /*      .setup = dac02_setup, */
 	 .type = COMEDI_SUBD_AO,
 	 .n_chan = 2,
 	 .n_bits = 12,
@@ -115,7 +133,7 @@ static int poc_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	iosize = this_board->iosize;
-	
+	/* check if io addresses are available */
 	if (!request_region(iobase, iosize, "dac02")) {
 		printk(KERN_ERR "I/O port conflict: failed to allocate ports "
 			"0x%lx to 0x%lx\n", iobase, iobase + iosize - 1);
@@ -128,7 +146,7 @@ static int poc_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	if (alloc_private(dev, sizeof(unsigned int) * this_board->n_chan) < 0)
 		return -ENOMEM;
 
-	
+	/* analog output subdevice */
 	s = dev->subdevices + 0;
 	s->type = this_board->type;
 	s->n_chan = this_board->n_chan;
@@ -145,7 +163,7 @@ static int poc_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 static int poc_detach(struct comedi_device *dev)
 {
-	
+	/* only free stuff if it has been allocated by _attach */
 	if (dev->iobase)
 		release_region(dev->iobase, this_board->iosize);
 
@@ -165,6 +183,7 @@ static int readback_insn(struct comedi_device *dev, struct comedi_subdevice *s,
 	return 1;
 }
 
+/* DAC-02 registers */
 #define DAC02_LSB(a)	(2 * a)
 #define DAC02_MSB(a)	(2 * a + 1)
 
@@ -179,7 +198,7 @@ static int dac02_ao_winsn(struct comedi_device *dev, struct comedi_subdevice *s,
 	((unsigned int *)dev->private)[chan] = data[0];
 	output = data[0];
 #ifdef wrong
-	
+	/*  convert to complementary binary if range is bipolar */
 	if ((CR_RANGE(insn->chanspec) & 0x2) == 0)
 		output = ~output;
 #endif

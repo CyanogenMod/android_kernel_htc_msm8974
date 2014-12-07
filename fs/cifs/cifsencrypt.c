@@ -30,6 +30,13 @@
 #include <linux/ctype.h>
 #include <linux/random.h>
 
+/*
+ * Calculate and return the CIFS signature based on the mac key and SMB PDU.
+ * The 16 byte signature must be allocated by the caller. Note we only use the
+ * 1st eight bytes and that the smb header signature field on input contains
+ * the sequence number before this function is called. Also, this function
+ * should be called with the server->srv_mutex held.
+ */
 static int cifs_calc_signature(const struct kvec *iov, int n_vec,
 			struct TCP_Server_Info *server, char *signature)
 {
@@ -64,9 +71,11 @@ static int cifs_calc_signature(const struct kvec *iov, int n_vec,
 			cERROR(1, "null iovec entry");
 			return -EIO;
 		}
+		/* The first entry includes a length field (which does not get
+		   signed that occupies the first 4 bytes before the header */
 		if (i == 0) {
-			if (iov[0].iov_len <= 8) 
-				break; 
+			if (iov[0].iov_len <= 8) /* cmd field at offset 9 */
+				break; /* nothing to sign or corrupt header */
 			rc =
 			crypto_shash_update(&server->secmech.sdescmd5->shash,
 				iov[i].iov_base + 4, iov[i].iov_len - 4);
@@ -89,6 +98,7 @@ static int cifs_calc_signature(const struct kvec *iov, int n_vec,
 	return rc;
 }
 
+/* must be called with server->srv_mutex held */
 int cifs_sign_smb2(struct kvec *iov, int n_vec, struct TCP_Server_Info *server,
 		   __u32 *pexpected_response_sequence_number)
 {
@@ -124,6 +134,7 @@ int cifs_sign_smb2(struct kvec *iov, int n_vec, struct TCP_Server_Info *server,
 	return rc;
 }
 
+/* must be called with server->srv_mutex held */
 int cifs_sign_smb(struct smb_hdr *cifs_pdu, struct TCP_Server_Info *server,
 		  __u32 *pexpected_response_sequence_number)
 {
@@ -158,12 +169,16 @@ int cifs_verify_signature(struct kvec *iov, unsigned int nr_iov,
 			return 0;
 	}
 
+	/* BB what if signatures are supposed to be on for session but
+	   server does not send one? BB */
 
-	
+	/* Do not need to verify session setups with signature "BSRSPYL "  */
 	if (memcmp(cifs_pdu->Signature.SecuritySignature, "BSRSPYL ", 8) == 0)
 		cFYI(1, "dummy signature received for smb command 0x%x",
 			cifs_pdu->Command);
 
+	/* save off the origiginal signature so we can modify the smb and check
+		its signature against what the server sent */
 	memcpy(server_response_sig, cifs_pdu->Signature.SecuritySignature, 8);
 
 	cifs_pdu->Signature.Sequence.SequenceNumber =
@@ -178,6 +193,8 @@ int cifs_verify_signature(struct kvec *iov, unsigned int nr_iov,
 	if (rc)
 		return rc;
 
+/*	cifs_dump_mem("what we think it should be: ",
+		      what_we_think_sig_should_be, 16); */
 
 	if (memcmp(server_response_sig, what_we_think_sig_should_be, 8))
 		return -EACCES;
@@ -186,6 +203,7 @@ int cifs_verify_signature(struct kvec *iov, unsigned int nr_iov,
 
 }
 
+/* first calculate 24 bytes ntlm response and then 16 byte session key */
 int setup_ntlm_response(struct cifs_ses *ses, const struct nls_table *nls_cp)
 {
 	int rc = 0;
@@ -243,7 +261,16 @@ int calc_lanman_hash(const char *password, const char *cryptkey, bool encrypt,
 		return 0;
 	}
 
-	
+	/* calculate old style session key */
+	/* calling toupper is less broken than repeatedly
+	calling nls_toupper would be since that will never
+	work for UTF8, but neither handles multibyte code pages
+	but the only alternative would be converting to UCS-16 (Unicode)
+	(using a routine something like UniStrupr) then
+	uppercasing and then converting back from Unicode - which
+	would only worth doing it if we knew it were utf8. Basically
+	utf8 and other multibyte codepages each need their own strupper
+	function since a byte at a time will ont work. */
 
 	for (i = 0; i < CIFS_ENCPWD_SIZE; i++)
 		password_with_pad[i] = toupper(password_with_pad[i]);
@@ -252,8 +279,13 @@ int calc_lanman_hash(const char *password, const char *cryptkey, bool encrypt,
 
 	return rc;
 }
-#endif 
+#endif /* CIFS_WEAK_PW_HASH */
 
+/* Build a proper attribute value/target info pairs blob.
+ * Fill in netbios and dns domain name and workstation name
+ * and client time (total five av pairs and + one end of fields indicator.
+ * Allocate domain name which gets freed when session struct is deallocated.
+ */
 static int
 build_avpair_blob(struct cifs_ses *ses, const struct nls_table *nls_cp)
 {
@@ -271,6 +303,12 @@ build_avpair_blob(struct cifs_ses *ses, const struct nls_table *nls_cp)
 
 	dlen = strlen(ses->domainName);
 
+	/*
+	 * The length of this blob is two times the size of a
+	 * structure (av pair) which holds name/size
+	 * ( for NTLMSSP_AV_NB_DOMAIN_NAME followed by NTLMSSP_AV_EOL ) +
+	 * unicode length of a netbios domain name
+	 */
 	ses->auth_key.len = size + 2 * dlen;
 	ses->auth_key.response = kzalloc(ses->auth_key.len, GFP_KERNEL);
 	if (!ses->auth_key.response) {
@@ -282,6 +320,10 @@ build_avpair_blob(struct cifs_ses *ses, const struct nls_table *nls_cp)
 	blobptr = ses->auth_key.response;
 	attrptr = (struct ntlmssp2_name *) blobptr;
 
+	/*
+	 * As defined in MS-NTLM 3.3.2, just this av pair field
+	 * is sufficient as part of the temp
+	 */
 	attrptr->type = cpu_to_le16(NTLMSSP_AV_NB_DOMAIN_NAME);
 	attrptr->length = cpu_to_le16(2 * dlen);
 	blobptr = (unsigned char *)attrptr + sizeof(struct ntlmssp2_name);
@@ -290,6 +332,16 @@ build_avpair_blob(struct cifs_ses *ses, const struct nls_table *nls_cp)
 	return 0;
 }
 
+/* Server has provided av pairs/target info in the type 2 challenge
+ * packet and we have plucked it and stored within smb session.
+ * We parse that blob here to find netbios domain name to be used
+ * as part of ntlmv2 authentication (in Target String), if not already
+ * specified on the command line.
+ * If this function returns without any error but without fetching
+ * domain name, authentication may fail against some server but
+ * may not fail against other (those who are not very particular
+ * about target string i.e. for some, just user name might suffice.
+ */
 static int
 find_domain_name(struct cifs_ses *ses, const struct nls_table *nls_cp)
 {
@@ -311,9 +363,9 @@ find_domain_name(struct cifs_ses *ses, const struct nls_table *nls_cp)
 		type = le16_to_cpu(attrptr->type);
 		if (type == NTLMSSP_AV_EOL)
 			break;
-		blobptr += 2; 
+		blobptr += 2; /* advance attr type */
 		attrsize = le16_to_cpu(attrptr->length);
-		blobptr += 2; 
+		blobptr += 2; /* advance attr size */
 		if (blobptr + attrsize > blobend)
 			break;
 		if (type == NTLMSSP_AV_NB_DOMAIN_NAME) {
@@ -330,7 +382,7 @@ find_domain_name(struct cifs_ses *ses, const struct nls_table *nls_cp)
 				break;
 			}
 		}
-		blobptr += attrsize; 
+		blobptr += attrsize; /* advance attr  value */
 	}
 
 	return 0;
@@ -351,7 +403,7 @@ static int calc_ntlmv2_hash(struct cifs_ses *ses, char *ntlmv2_hash,
 		return -1;
 	}
 
-	
+	/* calculate md4 hash of password */
 	E_md4hash(ses->password, nt_hash, nls_cp);
 
 	rc = crypto_shash_setkey(ses->server->secmech.hmacmd5, nt_hash,
@@ -367,7 +419,7 @@ static int calc_ntlmv2_hash(struct cifs_ses *ses, char *ntlmv2_hash,
 		return rc;
 	}
 
-	
+	/* convert ses->user_name to unicode and uppercase */
 	len = ses->user_name ? strlen(ses->user_name) : 0;
 	user = kmalloc(2 + (len * 2), GFP_KERNEL);
 	if (user == NULL) {
@@ -391,7 +443,7 @@ static int calc_ntlmv2_hash(struct cifs_ses *ses, char *ntlmv2_hash,
 		return rc;
 	}
 
-	
+	/* convert ses->domainName to unicode and uppercase */
 	if (ses->domainName) {
 		len = strlen(ses->domainName);
 
@@ -496,7 +548,7 @@ setup_ntlmv2_rsp(struct cifs_ses *ses, const struct nls_table *nls_cp)
 	unsigned int tilen;
 	struct ntlmv2_resp *buf;
 	char ntlmv2_hash[16];
-	unsigned char *tiblob = NULL; 
+	unsigned char *tiblob = NULL; /* target info blob */
 
 	if (ses->server->secType == RawNTLMSSP) {
 		if (!ses->domainName) {
@@ -537,21 +589,21 @@ setup_ntlmv2_rsp(struct cifs_ses *ses, const struct nls_table *nls_cp)
 
 	memcpy(ses->auth_key.response + baselen, tiblob, tilen);
 
-	
+	/* calculate ntlmv2_hash */
 	rc = calc_ntlmv2_hash(ses, ntlmv2_hash, nls_cp);
 	if (rc) {
 		cERROR(1, "could not get v2 hash rc %d", rc);
 		goto setup_ntlmv2_rsp_ret;
 	}
 
-	
+	/* calculate first part of the client response (CR1) */
 	rc = CalcNTLMv2_response(ses, ntlmv2_hash);
 	if (rc) {
 		cERROR(1, "Could not calculate CR1  rc: %d", rc);
 		goto setup_ntlmv2_rsp_ret;
 	}
 
-	
+	/* now calculate the session key for NTLMv2 */
 	rc = crypto_shash_setkey(ses->server->secmech.hmacmd5,
 		ntlmv2_hash, CIFS_HMAC_MD5_HASH_SIZE);
 	if (rc) {
@@ -591,7 +643,7 @@ calc_seckey(struct cifs_ses *ses)
 	struct crypto_blkcipher *tfm_arc4;
 	struct scatterlist sgin, sgout;
 	struct blkcipher_desc desc;
-	unsigned char sec_key[CIFS_SESS_KEY_SIZE]; 
+	unsigned char sec_key[CIFS_SESS_KEY_SIZE]; /* a nonce */
 
 	get_random_bytes(sec_key, CIFS_SESS_KEY_SIZE);
 
@@ -621,9 +673,9 @@ calc_seckey(struct cifs_ses *ses)
 		return rc;
 	}
 
-	
+	/* make secondary_key/nonce as session key */
 	memcpy(ses->auth_key.response, sec_key, CIFS_SESS_KEY_SIZE);
-	
+	/* and make len as that of session key only */
 	ses->auth_key.len = CIFS_SESS_KEY_SIZE;
 
 	crypto_free_blkcipher(tfm_arc4);

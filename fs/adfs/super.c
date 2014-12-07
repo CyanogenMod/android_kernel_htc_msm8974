@@ -40,24 +40,28 @@ static int adfs_checkdiscrecord(struct adfs_discrecord *dr)
 {
 	int i;
 
-	
+	/* sector size must be 256, 512 or 1024 bytes */
 	if (dr->log2secsize != 8 &&
 	    dr->log2secsize != 9 &&
 	    dr->log2secsize != 10)
 		return 1;
 
-	
+	/* idlen must be at least log2secsize + 3 */
 	if (dr->idlen < dr->log2secsize + 3)
 		return 1;
 
+	/* we cannot have such a large disc that we
+	 * are unable to represent sector offsets in
+	 * 32 bits.  This works out at 2.0 TB.
+	 */
 	if (le32_to_cpu(dr->disc_size_high) >> dr->log2secsize)
 		return 1;
 
-	
+	/* idlen must be no greater than 19 v2 [1.0] */
 	if (dr->idlen > 19)
 		return 1;
 
-	
+	/* reserved bytes should be zero */
 	for (i = 0; i < sizeof(dr->unused52); i++)
 		if (dr->unused52[i] != 0)
 			return 1;
@@ -318,7 +322,7 @@ static struct adfs_discmap *adfs_read_map(struct super_block *sb, struct adfs_di
 		}
 	}
 
-	
+	/* adjust the limits for the first and last map zones */
 	i = zone - 1;
 	dm[0].dm_startblk = 0;
 	dm[0].dm_startbit = ADFS_DR_SIZE_BITS;
@@ -365,7 +369,7 @@ static int adfs_fill_super(struct super_block *sb, void *data, int silent)
 		return -ENOMEM;
 	sb->s_fs_info = asb;
 
-	
+	/* set default options */
 	asb->s_uid = 0;
 	asb->s_gid = 0;
 	asb->s_owner_mask = ADFS_DEFAULT_OWNER_MASK;
@@ -392,6 +396,9 @@ static int adfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	dr = (struct adfs_discrecord *)(b_data + ADFS_DR_OFFSET);
 
+	/*
+	 * Do some sanity checks on the ADFS disc record
+	 */
 	if (adfs_checkdiscrecord(dr)) {
 		if (!silent)
 			printk("VPS: Can't find an adfs filesystem on dev "
@@ -420,6 +427,9 @@ static int adfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto error;
 	}
 
+	/*
+	 * blocksize on this device should now be set to the ADFS log2secsize
+	 */
 
 	sb->s_magic		= ADFS_SUPER_MAGIC;
 	asb->s_idlen		= dr->idlen;
@@ -435,13 +445,16 @@ static int adfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	brelse(bh);
 
+	/*
+	 * set up enough so that we can read an inode
+	 */
 	sb->s_op = &adfs_sops;
 
 	dr = (struct adfs_discrecord *)(asb->s_map[0].dm_bh->b_data + 4);
 
 	root_obj.parent_id = root_obj.file_id = le32_to_cpu(dr->root);
 	root_obj.name_len  = 0;
-	
+	/* Set root object date as 01 Jan 1987 00:00:00 */
 	root_obj.loadaddr  = 0xfff0003f;
 	root_obj.execaddr  = 0xec22c000;
 	root_obj.size	   = ADFS_NEWDIR_SIZE;
@@ -449,6 +462,10 @@ static int adfs_fill_super(struct super_block *sb, void *data, int silent)
 			     ADFS_NDA_OWNER_WRITE | ADFS_NDA_PUBLIC_READ;
 	root_obj.filetype  = -1;
 
+	/*
+	 * If this is a F+ disk with variable length directories,
+	 * get the root_size from the disc record.
+	 */
 	if (asb->s_version) {
 		root_obj.size = le32_to_cpu(dr->root_size);
 		asb->s_dir     = &adfs_fplus_dir_ops;
@@ -457,6 +474,10 @@ static int adfs_fill_super(struct super_block *sb, void *data, int silent)
 		asb->s_dir     = &adfs_f_dir_ops;
 		asb->s_namelen = ADFS_F_NAME_LEN;
 	}
+	/*
+	 * ,xyz hex filetype suffix may be added by driver
+	 * to files that have valid RISC OS filetype
+	 */
 	if (asb->s_ftsuffix)
 		asb->s_namelen += 4;
 

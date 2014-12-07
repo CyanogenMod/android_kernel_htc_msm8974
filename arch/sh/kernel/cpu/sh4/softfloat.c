@@ -65,8 +65,8 @@ typedef signed long long int int64;
 typedef unsigned long int float32;
 typedef unsigned long long float64;
 
-extern void float_raise(unsigned int flags);	
-extern int float_rounding_mode(void);	
+extern void float_raise(unsigned int flags);	/* in fpu.c */
+extern int float_rounding_mode(void);	/* in fpu.c */
 
 bits64 extractFloat64Frac(float64 a);
 flag extractFloat64Sign(float64 a);
@@ -363,7 +363,7 @@ static float32 roundAndPackFloat32(flag zSign, int16 zExp, bits32 zSig)
 	int8 roundIncrement, roundBits;
 	flag isTiny;
 
-	
+	/* SH4 has only 2 rounding modes - round to nearest and round to zero */
 	roundNearestEven = (float_rounding_mode() == FPSCR_RM_NEAREST);
 	roundIncrement = 0x40;
 	if (!roundNearestEven) {
@@ -414,7 +414,7 @@ static float64 roundAndPackFloat64(flag zSign, int16 zExp, bits64 zSig)
 	int16 roundIncrement, roundBits;
 	flag isTiny;
 
-	
+	/* SH4 has only 2 rounding modes - round to nearest and round to zero */
 	roundNearestEven = (float_rounding_mode() == FPSCR_RM_NEAREST);
 	roundIncrement = 0x200;
 	if (!roundNearestEven) {
@@ -901,6 +901,14 @@ float64 float64_mul(float64 a, float64 b)
 	return roundAndPackFloat64(zSign, zExp, zSig0);
 }
 
+/*
+ * -------------------------------------------------------------------------------
+ *  Returns the result of converting the double-precision floating-point value
+ *  `a' to the single-precision floating-point format.  The conversion is
+ *  performed according to the IEC/IEEE Standard for Binary Floating-point
+ *  Arithmetic.
+ *  -------------------------------------------------------------------------------
+ *  */
 float32 float64_to_float32(float64 a)
 {
     flag aSign;

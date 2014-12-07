@@ -187,6 +187,7 @@ static const struct i2c_device_id max8688_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, max8688_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver max8688_driver = {
 	.driver = {
 		   .name = "max8688",

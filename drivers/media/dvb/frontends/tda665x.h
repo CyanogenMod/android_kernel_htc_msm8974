@@ -47,6 +47,6 @@ static inline struct dvb_frontend *tda665x_attach(struct dvb_frontend *fe,
 	return NULL;
 }
 
-#endif 
+#endif /* CONFIG_DVB_TDA665x */
 
-#endif 
+#endif /* __TDA665x_H */

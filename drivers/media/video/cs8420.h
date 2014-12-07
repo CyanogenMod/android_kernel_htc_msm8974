@@ -19,6 +19,7 @@
 #ifndef __CS8420_H__
 #define __CS8420_H__
 
+/* Initialization Sequence */
 
 static __u8 init8420[] = {
 	1, 0x01,	2, 0x02,	3, 0x00,	4, 0x46,
@@ -27,7 +28,7 @@ static __u8 init8420[] = {
 
 #define INIT8420LEN	(sizeof(init8420)/2)
 
-static __u8 mode8420pro[] = {	
+static __u8 mode8420pro[] = {	/* professional output mode */
 	32, 0xa1,	33, 0x00,	34, 0x00,	35, 0x00,
 	36, 0x00,	37, 0x00,	38, 0x00,	39, 0x00,
 	40, 0x00,	41, 0x00,	42, 0x00,	43, 0x00,
@@ -37,7 +38,7 @@ static __u8 mode8420pro[] = {
 };
 #define MODE8420LEN	(sizeof(mode8420pro)/2)
 
-static __u8 mode8420con[] = {	
+static __u8 mode8420con[] = {	/* consumer output mode */
 	32, 0x20,	33, 0x00,	34, 0x00,	35, 0x48,
 	36, 0x00,	37, 0x00,	38, 0x00,	39, 0x00,
 	40, 0x00,	41, 0x00,	42, 0x00,	43, 0x00,

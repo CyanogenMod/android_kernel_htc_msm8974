@@ -12,6 +12,13 @@
 #include "stub-data.h"
 #include "sysdep/stub.h"
 
+/*
+ * This is in a separate file because it needs to be compiled with any
+ * extraneous gcc flags (-pg, -fprofile-arcs, -ftest-coverage) disabled
+ *
+ * Use UM_KERN_PAGE_SIZE instead of PAGE_SIZE because that calls getpagesize
+ * on some systems.
+ */
 
 void __attribute__ ((__section__ (".__syscall_stub")))
 stub_clone_handler(void)
@@ -37,6 +44,12 @@ stub_clone_handler(void)
 	goto done;
 
  out:
+	/*
+	 * save current result.
+	 * Parent: pid;
+	 * child: retcode of mmap already saved and it jumps around this
+	 * assignment
+	 */
 	data->err = err;
  done:
 	trap_myself();

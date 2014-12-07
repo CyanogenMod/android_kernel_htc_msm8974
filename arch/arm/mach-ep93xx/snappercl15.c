@@ -39,11 +39,11 @@
 
 #define SNAPPERCL15_NAND_BASE	(EP93XX_CS7_PHYS_BASE + SZ_16M)
 
-#define SNAPPERCL15_NAND_WPN	(1 << 8)  
-#define SNAPPERCL15_NAND_ALE	(1 << 9)  
-#define SNAPPERCL15_NAND_CLE	(1 << 10) 
-#define SNAPPERCL15_NAND_CEN	(1 << 11) 
-#define SNAPPERCL15_NAND_RDY	(1 << 14) 
+#define SNAPPERCL15_NAND_WPN	(1 << 8)  /* Write protect (active low) */
+#define SNAPPERCL15_NAND_ALE	(1 << 9)  /* Address latch */
+#define SNAPPERCL15_NAND_CLE	(1 << 10) /* Command latch */
+#define SNAPPERCL15_NAND_CEN	(1 << 11) /* Chip enable (active low) */
+#define SNAPPERCL15_NAND_RDY	(1 << 14) /* Device ready */
 
 #define NAND_CTRL_ADDR(chip) 	(chip->IO_ADDR_W + 0x40)
 
@@ -143,7 +143,7 @@ static struct i2c_gpio_platform_data __initdata snappercl15_i2c_gpio_data = {
 
 static struct i2c_board_info __initdata snappercl15_i2c_data[] = {
 	{
-		
+		/* Audio codec */
 		I2C_BOARD_INFO("tlv320aic23", 0x1a),
 	},
 };
@@ -176,7 +176,7 @@ static void __init snappercl15_init_machine(void)
 }
 
 MACHINE_START(SNAPPER_CL15, "Bluewater Systems Snapper CL15")
-	
+	/* Maintainer: Ryan Mallon */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,

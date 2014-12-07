@@ -175,5 +175,5 @@ extern int ct_sip_get_sdp_header(const struct nf_conn *ct, const char *dptr,
 				 enum sdp_header_types term,
 				 unsigned int *matchoff, unsigned int *matchlen);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __NF_CONNTRACK_SIP_H__ */

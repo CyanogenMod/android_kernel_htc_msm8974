@@ -55,6 +55,10 @@
 
 static unsigned long no_fiq_insn;
 
+/* Default reacquire function
+ * - we always relinquish FIQ control
+ * - we always reacquire FIQ control
+ */
 static int fiq_def_op(void *ref, int relinquish)
 {
 	if (!relinquish)
@@ -142,8 +146,8 @@ void fiq_set_type(int fiq, unsigned int type)
 }
 
 EXPORT_SYMBOL(set_fiq_handler);
-EXPORT_SYMBOL(__set_fiq_regs);	
-EXPORT_SYMBOL(__get_fiq_regs);	
+EXPORT_SYMBOL(__set_fiq_regs);	/* defined in fiqasm.S */
+EXPORT_SYMBOL(__get_fiq_regs);	/* defined in fiqasm.S */
 EXPORT_SYMBOL(claim_fiq);
 EXPORT_SYMBOL(release_fiq);
 EXPORT_SYMBOL(enable_fiq);

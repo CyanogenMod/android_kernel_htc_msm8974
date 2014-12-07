@@ -20,6 +20,12 @@
  *          Adrian Hunter
  */
 
+/*
+ * This file is a part of UBIFS journal implementation and contains various
+ * functions which manipulate the log. The log is a fixed area on the flash
+ * which does not contain any data but refers to buds. The log is a part of the
+ * journal.
+ */
 
 #include "ubifs.h"
 
@@ -29,6 +35,14 @@ static int dbg_check_bud_bytes(struct ubifs_info *c);
 #define dbg_check_bud_bytes(c) 0
 #endif
 
+/**
+ * ubifs_search_bud - search bud LEB.
+ * @c: UBIFS file-system description object
+ * @lnum: logical eraseblock number to search
+ *
+ * This function searches bud LEB @lnum. Returns bud description object in case
+ * of success and %NULL if there is no bud with this LEB number.
+ */
 struct ubifs_bud *ubifs_search_bud(struct ubifs_info *c, int lnum)
 {
 	struct rb_node *p;
@@ -51,6 +65,13 @@ struct ubifs_bud *ubifs_search_bud(struct ubifs_info *c, int lnum)
 	return NULL;
 }
 
+/**
+ * ubifs_get_wbuf - get the wbuf associated with a LEB, if there is one.
+ * @c: UBIFS file-system description object
+ * @lnum: logical eraseblock number to search
+ *
+ * This functions returns the wbuf for @lnum or %NULL if there is not one.
+ */
 struct ubifs_wbuf *ubifs_get_wbuf(struct ubifs_info *c, int lnum)
 {
 	struct rb_node *p;
@@ -78,6 +99,10 @@ struct ubifs_wbuf *ubifs_get_wbuf(struct ubifs_info *c, int lnum)
 	return NULL;
 }
 
+/**
+ * empty_log_bytes - calculate amount of empty space in the log.
+ * @c: UBIFS file-system description object
+ */
 static inline long long empty_log_bytes(const struct ubifs_info *c)
 {
 	long long h, t;
@@ -91,6 +116,11 @@ static inline long long empty_log_bytes(const struct ubifs_info *c)
 		return t - h;
 }
 
+/**
+ * ubifs_add_bud - add bud LEB to the tree of buds and its journal head list.
+ * @c: UBIFS file-system description object
+ * @bud: the bud to add
+ */
 void ubifs_add_bud(struct ubifs_info *c, struct ubifs_bud *bud)
 {
 	struct rb_node **p, *parent = NULL;
@@ -130,6 +160,19 @@ void ubifs_add_bud(struct ubifs_info *c, struct ubifs_bud *bud)
 	spin_unlock(&c->buds_lock);
 }
 
+/**
+ * ubifs_add_bud_to_log - add a new bud to the log.
+ * @c: UBIFS file-system description object
+ * @jhead: journal head the bud belongs to
+ * @lnum: LEB number of the bud
+ * @offs: starting offset of the bud
+ *
+ * This function writes reference node for the new bud LEB @lnum it to the log,
+ * and adds it to the buds tress. It also makes sure that log size does not
+ * exceed the 'c->max_bud_bytes' limit. Returns zero in case of success,
+ * %-EAGAIN if commit is required, and a negative error codes in case of
+ * failure.
+ */
 int ubifs_add_bud_to_log(struct ubifs_info *c, int jhead, int lnum, int offs)
 {
 	int err;
@@ -152,7 +195,7 @@ int ubifs_add_bud_to_log(struct ubifs_info *c, int jhead, int lnum, int offs)
 		goto out_unlock;
 	}
 
-	
+	/* Make sure we have enough space in the log */
 	if (empty_log_bytes(c) - c->ref_node_alsz < c->min_log_bytes) {
 		dbg_log("not enough log space - %lld, required %d",
 			empty_log_bytes(c), c->min_log_bytes);
@@ -161,6 +204,15 @@ int ubifs_add_bud_to_log(struct ubifs_info *c, int jhead, int lnum, int offs)
 		goto out_unlock;
 	}
 
+	/*
+	 * Make sure the amount of space in buds will not exceed the
+	 * 'c->max_bud_bytes' limit, because we want to guarantee mount time
+	 * limits.
+	 *
+	 * It is not necessary to hold @c->buds_lock when reading @c->bud_bytes
+	 * because we are holding @c->log_mutex. All @c->bud_bytes take place
+	 * when both @c->log_mutex and @c->bud_bytes are locked.
+	 */
 	if (c->bud_bytes + c->leb_size - offs > c->max_bud_bytes) {
 		dbg_log("bud bytes %lld (%lld max), require commit",
 			c->bud_bytes, c->max_bud_bytes);
@@ -169,6 +221,11 @@ int ubifs_add_bud_to_log(struct ubifs_info *c, int jhead, int lnum, int offs)
 		goto out_unlock;
 	}
 
+	/*
+	 * If the journal is full enough - start background commit. Note, it is
+	 * OK to read 'c->cmt_state' without spinlock because integer reads
+	 * are atomic in the kernel.
+	 */
 	if (c->bud_bytes >= c->bg_bud_bytes &&
 	    c->cmt_state == COMMIT_RESTING) {
 		dbg_log("bud bytes %lld (%lld max), initiate BG commit",
@@ -191,13 +248,20 @@ int ubifs_add_bud_to_log(struct ubifs_info *c, int jhead, int lnum, int offs)
 	}
 
 	if (c->lhead_offs == 0) {
-		
+		/* Must ensure next log LEB has been unmapped */
 		err = ubifs_leb_unmap(c, c->lhead_lnum);
 		if (err)
 			goto out_unlock;
 	}
 
 	if (bud->start == 0) {
+		/*
+		 * Before writing the LEB reference which refers an empty LEB
+		 * to the log, we have to make sure it is mapped, because
+		 * otherwise we'd risk to refer an LEB with garbage in case of
+		 * an unclean reboot, because the target LEB might have been
+		 * unmapped, but not yet physically erased.
+		 */
 		err = ubifs_leb_map(c, bud->lnum, UBI_SHORTTERM);
 		if (err)
 			goto out_unlock;
@@ -225,6 +289,13 @@ out_unlock:
 	return err;
 }
 
+/**
+ * remove_buds - remove used buds.
+ * @c: UBIFS file-system description object
+ *
+ * This function removes use buds from the buds tree. It does not remove the
+ * buds which are pointed to by journal heads.
+ */
 static void remove_buds(struct ubifs_info *c)
 {
 	struct rb_node *p;
@@ -243,6 +314,10 @@ static void remove_buds(struct ubifs_info *c)
 		wbuf = &c->jheads[bud->jhead].wbuf;
 
 		if (wbuf->lnum == bud->lnum) {
+			/*
+			 * Do not remove buds which are pointed to by journal
+			 * heads (non-closed buds).
+			 */
 			c->cmt_bud_bytes += wbuf->offs - bud->start;
 			dbg_log("preserve %d:%d, jhead %s, bud bytes %d, "
 				"cmt_bud_bytes %lld", bud->lnum, bud->start,
@@ -256,6 +331,13 @@ static void remove_buds(struct ubifs_info *c)
 				dbg_jhead(bud->jhead), c->leb_size - bud->start,
 				c->cmt_bud_bytes);
 			rb_erase(p1, &c->buds);
+			/*
+			 * If the commit does not finish, the recovery will need
+			 * to replay the journal, in which case the old buds
+			 * must be unchanged. Do not release them until post
+			 * commit i.e. do not allow them to be garbage
+			 * collected.
+			 */
 			list_move(&bud->list, &c->old_buds);
 		}
 	}
@@ -296,6 +378,12 @@ int ubifs_log_start_commit(struct ubifs_info *c, int *ltail_lnum)
 	cs->cmt_no = cpu_to_le64(c->cmt_no);
 	ubifs_prepare_node(c, cs, UBIFS_CS_NODE_SZ, 0);
 
+	/*
+	 * Note, we do not lock 'c->log_mutex' because this is the commit start
+	 * phase and we are exclusively using the log. And we do not lock
+	 * write-buffer because nobody can write to the file-system at this
+	 * phase.
+	 */
 
 	len = UBIFS_CS_NODE_SZ;
 	for (i = 0; i < c->jhead_cnt; i++) {
@@ -319,14 +407,14 @@ int ubifs_log_start_commit(struct ubifs_info *c, int *ltail_lnum)
 
 	ubifs_pad(c, buf + len, ALIGN(len, c->min_io_size) - len);
 
-	
+	/* Switch to the next log LEB */
 	if (c->lhead_offs) {
 		c->lhead_lnum = ubifs_next_log_lnum(c, c->lhead_lnum);
 		c->lhead_offs = 0;
 	}
 
 	if (c->lhead_offs == 0) {
-		
+		/* Must ensure next LEB has been unmapped */
 		err = ubifs_leb_unmap(c, c->lhead_lnum);
 		if (err)
 			goto out;
@@ -348,6 +436,10 @@ int ubifs_log_start_commit(struct ubifs_info *c, int *ltail_lnum)
 
 	remove_buds(c);
 
+	/*
+	 * We have started the commit and now users may use the rest of the log
+	 * for new writes.
+	 */
 	c->min_log_bytes = 0;
 
 out:
@@ -355,16 +447,35 @@ out:
 	return err;
 }
 
+/**
+ * ubifs_log_end_commit - end commit.
+ * @c: UBIFS file-system description object
+ * @ltail_lnum: new log tail LEB number
+ *
+ * This function is called on when the commit operation was finished. It
+ * moves log tail to new position and unmaps LEBs which contain obsolete data.
+ * Returns zero in case of success and a negative error code in case of
+ * failure.
+ */
 int ubifs_log_end_commit(struct ubifs_info *c, int ltail_lnum)
 {
 	int err;
 
+	/*
+	 * At this phase we have to lock 'c->log_mutex' because UBIFS allows FS
+	 * writes during commit. Its only short "commit" start phase when
+	 * writers are blocked.
+	 */
 	mutex_lock(&c->log_mutex);
 
 	dbg_log("old tail was LEB %d:0, new tail is LEB %d:0",
 		c->ltail_lnum, ltail_lnum);
 
 	c->ltail_lnum = ltail_lnum;
+	/*
+	 * The commit is finished and from now on it must be guaranteed that
+	 * there is always enough space for the next commit.
+	 */
 	c->min_log_bytes = c->leb_size;
 
 	spin_lock(&c->buds_lock);
@@ -377,6 +488,19 @@ int ubifs_log_end_commit(struct ubifs_info *c, int ltail_lnum)
 	return err;
 }
 
+/**
+ * ubifs_log_post_commit - things to do after commit is completed.
+ * @c: UBIFS file-system description object
+ * @old_ltail_lnum: old log tail LEB number
+ *
+ * Release buds only after commit is completed, because they must be unchanged
+ * if recovery is needed.
+ *
+ * Unmap log LEBs only after commit is completed, because they may be needed for
+ * recovery.
+ *
+ * This function returns %0 on success and a negative error code on failure.
+ */
 int ubifs_log_post_commit(struct ubifs_info *c, int old_ltail_lnum)
 {
 	int lnum, err = 0;
@@ -404,11 +528,24 @@ out:
 	return err;
 }
 
+/**
+ * struct done_ref - references that have been done.
+ * @rb: rb-tree node
+ * @lnum: LEB number
+ */
 struct done_ref {
 	struct rb_node rb;
 	int lnum;
 };
 
+/**
+ * done_already - determine if a reference has been done already.
+ * @done_tree: rb-tree to store references that have been done
+ * @lnum: LEB number of reference
+ *
+ * This function returns %1 if the reference has been done, %0 if not, otherwise
+ * a negative error code is returned.
+ */
 static int done_already(struct rb_root *done_tree, int lnum)
 {
 	struct rb_node **p = &done_tree->rb_node, *parent = NULL;
@@ -437,6 +574,10 @@ static int done_already(struct rb_root *done_tree, int lnum)
 	return 0;
 }
 
+/**
+ * destroy_done_tree - destroy the done tree.
+ * @done_tree: done tree to destroy
+ */
 static void destroy_done_tree(struct rb_root *done_tree)
 {
 	struct rb_node *this = done_tree->rb_node;
@@ -462,6 +603,16 @@ static void destroy_done_tree(struct rb_root *done_tree)
 	}
 }
 
+/**
+ * add_node - add a node to the consolidated log.
+ * @c: UBIFS file-system description object
+ * @buf: buffer to which to add
+ * @lnum: LEB number to which to write is passed and returned here
+ * @offs: offset to where to write is passed and returned here
+ * @node: node to add
+ *
+ * This function returns %0 on success and a negative error code on failure.
+ */
 static int add_node(struct ubifs_info *c, void *buf, int *lnum, int *offs,
 		    void *node)
 {
@@ -483,6 +634,16 @@ static int add_node(struct ubifs_info *c, void *buf, int *lnum, int *offs,
 	return 0;
 }
 
+/**
+ * ubifs_consolidate_log - consolidate the log.
+ * @c: UBIFS file-system description object
+ *
+ * Repeated failed commits could cause the log to be full, but at least 1 LEB is
+ * needed for commit. This function rewrites the reference nodes in the log
+ * omitting duplicates, and failed CS nodes, and leaving no gaps.
+ *
+ * This function returns %0 on success and a negative error code on failure.
+ */
 int ubifs_consolidate_log(struct ubifs_info *c)
 {
 	struct ubifs_scan_leb *sleb;
@@ -552,7 +713,7 @@ int ubifs_consolidate_log(struct ubifs_info *c)
 		ubifs_err("log is too full");
 		return -EINVAL;
 	}
-	
+	/* Unmap remaining LEBs */
 	lnum = write_lnum;
 	do {
 		lnum = ubifs_next_log_lnum(c, lnum);
@@ -575,6 +736,14 @@ out_free:
 
 #ifdef CONFIG_UBIFS_FS_DEBUG
 
+/**
+ * dbg_check_bud_bytes - make sure bud bytes calculation are all right.
+ * @c: UBIFS file-system description object
+ *
+ * This function makes sure the amount of flash space used by closed buds
+ * ('c->bud_bytes' is correct). Returns zero in case of success and %-EINVAL in
+ * case of failure.
+ */
 static int dbg_check_bud_bytes(struct ubifs_info *c)
 {
 	int i, err = 0;
@@ -599,4 +768,4 @@ static int dbg_check_bud_bytes(struct ubifs_info *c)
 	return err;
 }
 
-#endif 
+#endif /* CONFIG_UBIFS_FS_DEBUG */

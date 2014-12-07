@@ -21,6 +21,20 @@
 #ifndef __MACH_MXS_IOMUX_H__
 #define __MACH_MXS_IOMUX_H__
 
+/*
+ * IOMUX/PAD Bit field definitions
+ *
+ * PAD_BANK:		 0..2	(3)
+ * PAD_PIN:		 3..7	(5)
+ * PAD_MUXSEL:		 8..9	(2)
+ * PAD_MA:		10..11	(2)
+ * PAD_MA_VALID:	12	(1)
+ * PAD_VOL:		13	(1)
+ * PAD_VOL_VALID:	14	(1)
+ * PAD_PULL:		15	(1)
+ * PAD_PULL_VALID:	16	(1)
+ * RESERVED:		17..31	(15)
+ */
 typedef u32 iomux_cfg_t;
 
 #define MXS_PAD_BANK_SHIFT	0
@@ -77,6 +91,7 @@ typedef u32 iomux_cfg_t;
 #define MXS_PAD_PULLUP	((PAD_PULLUP << MXS_PAD_PULL_SHIFT) | \
 					MXS_PAD_PULL_VALID_MASK)
 
+/* generic pad control used in most cases */
 #define MXS_PAD_CTRL	(MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL)
 
 #define MXS_IOMUX_PAD(_bank, _pin, _muxsel, _ma, _vol, _pull)		\
@@ -87,6 +102,10 @@ typedef u32 iomux_cfg_t;
 		((iomux_cfg_t)(_vol) << MXS_PAD_VOL_SHIFT) |		\
 		((iomux_cfg_t)(_pull) << MXS_PAD_PULL_SHIFT))
 
+/*
+ * A pad becomes naked, when none of mA, vol or pull
+ * validity bits is set.
+ */
 #define MXS_IOMUX_PAD_NAKED(_bank, _pin, _muxsel) \
 		MXS_IOMUX_PAD(_bank, _pin, _muxsel, 0, 0, 0)
 
@@ -135,8 +154,15 @@ static inline unsigned int PAD_PULL_VALID(iomux_cfg_t pad)
 	return (pad & MXS_PAD_PULL_VALID_MASK) >> MXS_PAD_PULL_VALID_SHIFT;
 }
 
+/*
+ * configures a single pad in the iomuxer
+ */
 int mxs_iomux_setup_pad(iomux_cfg_t pad);
 
+/*
+ * configures multiple pads
+ * convenient way to call the above function with tables
+ */
 int mxs_iomux_setup_multiple_pads(const iomux_cfg_t *pad_list, unsigned count);
 
-#endif 
+#endif /* __MACH_MXS_IOMUX_H__*/

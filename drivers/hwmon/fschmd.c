@@ -49,8 +49,10 @@
 #include <linux/uaccess.h>
 #include <linux/kref.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x73, I2C_CLIENT_END };
 
+/* Insmod parameters */
 static bool nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
@@ -58,17 +60,23 @@ MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 
 enum chips { fscpos, fscher, fscscy, fschrc, fschmd, fschds, fscsyl };
 
+/*
+ * The FSCHMD registers and other defines
+ */
 
+/* chip identification */
 #define FSCHMD_REG_IDENT_0		0x00
 #define FSCHMD_REG_IDENT_1		0x01
 #define FSCHMD_REG_IDENT_2		0x02
 #define FSCHMD_REG_REVISION		0x03
 
+/* global control and status */
 #define FSCHMD_REG_EVENT_STATE		0x04
 #define FSCHMD_REG_CONTROL		0x05
 
 #define FSCHMD_CONTROL_ALERT_LED	0x01
 
+/* watchdog */
 static const u8 FSCHMD_REG_WDOG_CONTROL[7] = {
 	0x21, 0x21, 0x21, 0x21, 0x21, 0x28, 0x28 };
 static const u8 FSCHMD_REG_WDOG_STATE[7] = {
@@ -77,113 +85,147 @@ static const u8 FSCHMD_REG_WDOG_PRESET[7] = {
 	0x28, 0x28, 0x28, 0x28, 0x28, 0x2a, 0x2a };
 
 #define FSCHMD_WDOG_CONTROL_TRIGGER	0x10
-#define FSCHMD_WDOG_CONTROL_STARTED	0x10 
+#define FSCHMD_WDOG_CONTROL_STARTED	0x10 /* the same as trigger */
 #define FSCHMD_WDOG_CONTROL_STOP	0x20
 #define FSCHMD_WDOG_CONTROL_RESOLUTION	0x40
 
 #define FSCHMD_WDOG_STATE_CARDRESET	0x02
 
+/* voltages, weird order is to keep the same order as the old drivers */
 static const u8 FSCHMD_REG_VOLT[7][6] = {
-	{ 0x45, 0x42, 0x48 },				
-	{ 0x45, 0x42, 0x48 },				
-	{ 0x45, 0x42, 0x48 },				
-	{ 0x45, 0x42, 0x48 },				
-	{ 0x45, 0x42, 0x48 },				
-	{ 0x21, 0x20, 0x22 },				
-	{ 0x21, 0x20, 0x22, 0x23, 0x24, 0x25 },		
+	{ 0x45, 0x42, 0x48 },				/* pos */
+	{ 0x45, 0x42, 0x48 },				/* her */
+	{ 0x45, 0x42, 0x48 },				/* scy */
+	{ 0x45, 0x42, 0x48 },				/* hrc */
+	{ 0x45, 0x42, 0x48 },				/* hmd */
+	{ 0x21, 0x20, 0x22 },				/* hds */
+	{ 0x21, 0x20, 0x22, 0x23, 0x24, 0x25 },		/* syl */
 };
 
 static const int FSCHMD_NO_VOLT_SENSORS[7] = { 3, 3, 3, 3, 3, 3, 6 };
 
+/*
+ * minimum pwm at which the fan is driven (pwm can by increased depending on
+ * the temp. Notice that for the scy some fans share there minimum speed.
+ * Also notice that with the scy the sensor order is different than with the
+ * other chips, this order was in the 2.4 driver and kept for consistency.
+ */
 static const u8 FSCHMD_REG_FAN_MIN[7][7] = {
-	{ 0x55, 0x65 },					
-	{ 0x55, 0x65, 0xb5 },				
-	{ 0x65, 0x65, 0x55, 0xa5, 0x55, 0xa5 },		
-	{ 0x55, 0x65, 0xa5, 0xb5 },			
-	{ 0x55, 0x65, 0xa5, 0xb5, 0xc5 },		
-	{ 0x55, 0x65, 0xa5, 0xb5, 0xc5 },		
-	{ 0x54, 0x64, 0x74, 0x84, 0x94, 0xa4, 0xb4 },	
+	{ 0x55, 0x65 },					/* pos */
+	{ 0x55, 0x65, 0xb5 },				/* her */
+	{ 0x65, 0x65, 0x55, 0xa5, 0x55, 0xa5 },		/* scy */
+	{ 0x55, 0x65, 0xa5, 0xb5 },			/* hrc */
+	{ 0x55, 0x65, 0xa5, 0xb5, 0xc5 },		/* hmd */
+	{ 0x55, 0x65, 0xa5, 0xb5, 0xc5 },		/* hds */
+	{ 0x54, 0x64, 0x74, 0x84, 0x94, 0xa4, 0xb4 },	/* syl */
 };
 
+/* actual fan speed */
 static const u8 FSCHMD_REG_FAN_ACT[7][7] = {
-	{ 0x0e, 0x6b, 0xab },				
-	{ 0x0e, 0x6b, 0xbb },				
-	{ 0x6b, 0x6c, 0x0e, 0xab, 0x5c, 0xbb },		
-	{ 0x0e, 0x6b, 0xab, 0xbb },			
-	{ 0x5b, 0x6b, 0xab, 0xbb, 0xcb },		
-	{ 0x5b, 0x6b, 0xab, 0xbb, 0xcb },		
-	{ 0x57, 0x67, 0x77, 0x87, 0x97, 0xa7, 0xb7 },	
+	{ 0x0e, 0x6b, 0xab },				/* pos */
+	{ 0x0e, 0x6b, 0xbb },				/* her */
+	{ 0x6b, 0x6c, 0x0e, 0xab, 0x5c, 0xbb },		/* scy */
+	{ 0x0e, 0x6b, 0xab, 0xbb },			/* hrc */
+	{ 0x5b, 0x6b, 0xab, 0xbb, 0xcb },		/* hmd */
+	{ 0x5b, 0x6b, 0xab, 0xbb, 0xcb },		/* hds */
+	{ 0x57, 0x67, 0x77, 0x87, 0x97, 0xa7, 0xb7 },	/* syl */
 };
 
+/* fan status registers */
 static const u8 FSCHMD_REG_FAN_STATE[7][7] = {
-	{ 0x0d, 0x62, 0xa2 },				
-	{ 0x0d, 0x62, 0xb2 },				
-	{ 0x62, 0x61, 0x0d, 0xa2, 0x52, 0xb2 },		
-	{ 0x0d, 0x62, 0xa2, 0xb2 },			
-	{ 0x52, 0x62, 0xa2, 0xb2, 0xc2 },		
-	{ 0x52, 0x62, 0xa2, 0xb2, 0xc2 },		
-	{ 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0 },	
+	{ 0x0d, 0x62, 0xa2 },				/* pos */
+	{ 0x0d, 0x62, 0xb2 },				/* her */
+	{ 0x62, 0x61, 0x0d, 0xa2, 0x52, 0xb2 },		/* scy */
+	{ 0x0d, 0x62, 0xa2, 0xb2 },			/* hrc */
+	{ 0x52, 0x62, 0xa2, 0xb2, 0xc2 },		/* hmd */
+	{ 0x52, 0x62, 0xa2, 0xb2, 0xc2 },		/* hds */
+	{ 0x50, 0x60, 0x70, 0x80, 0x90, 0xa0, 0xb0 },	/* syl */
 };
 
+/* fan ripple / divider registers */
 static const u8 FSCHMD_REG_FAN_RIPPLE[7][7] = {
-	{ 0x0f, 0x6f, 0xaf },				
-	{ 0x0f, 0x6f, 0xbf },				
-	{ 0x6f, 0x6f, 0x0f, 0xaf, 0x0f, 0xbf },		
-	{ 0x0f, 0x6f, 0xaf, 0xbf },			
-	{ 0x5f, 0x6f, 0xaf, 0xbf, 0xcf },		
-	{ 0x5f, 0x6f, 0xaf, 0xbf, 0xcf },		
-	{ 0x56, 0x66, 0x76, 0x86, 0x96, 0xa6, 0xb6 },	
+	{ 0x0f, 0x6f, 0xaf },				/* pos */
+	{ 0x0f, 0x6f, 0xbf },				/* her */
+	{ 0x6f, 0x6f, 0x0f, 0xaf, 0x0f, 0xbf },		/* scy */
+	{ 0x0f, 0x6f, 0xaf, 0xbf },			/* hrc */
+	{ 0x5f, 0x6f, 0xaf, 0xbf, 0xcf },		/* hmd */
+	{ 0x5f, 0x6f, 0xaf, 0xbf, 0xcf },		/* hds */
+	{ 0x56, 0x66, 0x76, 0x86, 0x96, 0xa6, 0xb6 },	/* syl */
 };
 
 static const int FSCHMD_NO_FAN_SENSORS[7] = { 3, 3, 6, 4, 5, 5, 7 };
 
-#define FSCHMD_FAN_ALARM	0x04 
+/* Fan status register bitmasks */
+#define FSCHMD_FAN_ALARM	0x04 /* called fault by FSC! */
 #define FSCHMD_FAN_NOT_PRESENT	0x08
 #define FSCHMD_FAN_DISABLED	0x80
 
 
+/* actual temperature registers */
 static const u8 FSCHMD_REG_TEMP_ACT[7][11] = {
-	{ 0x64, 0x32, 0x35 },				
-	{ 0x64, 0x32, 0x35 },				
-	{ 0x64, 0xD0, 0x32, 0x35 },			
-	{ 0x64, 0x32, 0x35 },				
-	{ 0x70, 0x80, 0x90, 0xd0, 0xe0 },		
-	{ 0x70, 0x80, 0x90, 0xd0, 0xe0 },		
-	{ 0x58, 0x68, 0x78, 0x88, 0x98, 0xa8,		
+	{ 0x64, 0x32, 0x35 },				/* pos */
+	{ 0x64, 0x32, 0x35 },				/* her */
+	{ 0x64, 0xD0, 0x32, 0x35 },			/* scy */
+	{ 0x64, 0x32, 0x35 },				/* hrc */
+	{ 0x70, 0x80, 0x90, 0xd0, 0xe0 },		/* hmd */
+	{ 0x70, 0x80, 0x90, 0xd0, 0xe0 },		/* hds */
+	{ 0x58, 0x68, 0x78, 0x88, 0x98, 0xa8,		/* syl */
 	  0xb8, 0xc8, 0xd8, 0xe8, 0xf8 },
 };
 
+/* temperature state registers */
 static const u8 FSCHMD_REG_TEMP_STATE[7][11] = {
-	{ 0x71, 0x81, 0x91 },				
-	{ 0x71, 0x81, 0x91 },				
-	{ 0x71, 0xd1, 0x81, 0x91 },			
-	{ 0x71, 0x81, 0x91 },				
-	{ 0x71, 0x81, 0x91, 0xd1, 0xe1 },		
-	{ 0x71, 0x81, 0x91, 0xd1, 0xe1 },		
-	{ 0x59, 0x69, 0x79, 0x89, 0x99, 0xa9,		
+	{ 0x71, 0x81, 0x91 },				/* pos */
+	{ 0x71, 0x81, 0x91 },				/* her */
+	{ 0x71, 0xd1, 0x81, 0x91 },			/* scy */
+	{ 0x71, 0x81, 0x91 },				/* hrc */
+	{ 0x71, 0x81, 0x91, 0xd1, 0xe1 },		/* hmd */
+	{ 0x71, 0x81, 0x91, 0xd1, 0xe1 },		/* hds */
+	{ 0x59, 0x69, 0x79, 0x89, 0x99, 0xa9,		/* syl */
 	  0xb9, 0xc9, 0xd9, 0xe9, 0xf9 },
 };
 
+/*
+ * temperature high limit registers, FSC does not document these. Proven to be
+ * there with field testing on the fscher and fschrc, already supported / used
+ * in the fscscy 2.4 driver. FSC has confirmed that the fschmd has registers
+ * at these addresses, but doesn't want to confirm they are the same as with
+ * the fscher??
+ */
 static const u8 FSCHMD_REG_TEMP_LIMIT[7][11] = {
-	{ 0, 0, 0 },					
-	{ 0x76, 0x86, 0x96 },				
-	{ 0x76, 0xd6, 0x86, 0x96 },			
-	{ 0x76, 0x86, 0x96 },				
-	{ 0x76, 0x86, 0x96, 0xd6, 0xe6 },		
-	{ 0x76, 0x86, 0x96, 0xd6, 0xe6 },		
-	{ 0x5a, 0x6a, 0x7a, 0x8a, 0x9a, 0xaa,		
+	{ 0, 0, 0 },					/* pos */
+	{ 0x76, 0x86, 0x96 },				/* her */
+	{ 0x76, 0xd6, 0x86, 0x96 },			/* scy */
+	{ 0x76, 0x86, 0x96 },				/* hrc */
+	{ 0x76, 0x86, 0x96, 0xd6, 0xe6 },		/* hmd */
+	{ 0x76, 0x86, 0x96, 0xd6, 0xe6 },		/* hds */
+	{ 0x5a, 0x6a, 0x7a, 0x8a, 0x9a, 0xaa,		/* syl */
 	  0xba, 0xca, 0xda, 0xea, 0xfa },
 };
 
+/*
+ * These were found through experimenting with an fscher, currently they are
+ * not used, but we keep them around for future reference.
+ * On the fscsyl AUTOP1 lives at 0x#c (so 0x5c for fan1, 0x6c for fan2, etc),
+ * AUTOP2 lives at 0x#e, and 0x#1 is a bitmask defining which temps influence
+ * the fan speed.
+ * static const u8 FSCHER_REG_TEMP_AUTOP1[] =	{ 0x73, 0x83, 0x93 };
+ * static const u8 FSCHER_REG_TEMP_AUTOP2[] =	{ 0x75, 0x85, 0x95 };
+ */
 
 static const int FSCHMD_NO_TEMP_SENSORS[7] = { 3, 3, 4, 3, 5, 5, 11 };
 
+/* temp status register bitmasks */
 #define FSCHMD_TEMP_WORKING	0x01
 #define FSCHMD_TEMP_ALERT	0x02
 #define FSCHMD_TEMP_DISABLED	0x80
+/* there only really is an alarm if the sensor is working and alert == 1 */
 #define FSCHMD_TEMP_ALARM_MASK \
 	(FSCHMD_TEMP_WORKING | FSCHMD_TEMP_ALERT)
 
+/*
+ * Functions declarations
+ */
 
 static int fschmd_probe(struct i2c_client *client,
 			const struct i2c_device_id *id);
@@ -192,6 +234,9 @@ static int fschmd_detect(struct i2c_client *client,
 static int fschmd_remove(struct i2c_client *client);
 static struct fschmd_data *fschmd_update_device(struct device *dev);
 
+/*
+ * Driver data (common to all clients)
+ */
 
 static const struct i2c_device_id fschmd_id[] = {
 	{ "fscpos", fscpos },
@@ -217,51 +262,74 @@ static struct i2c_driver fschmd_driver = {
 	.address_list	= normal_i2c,
 };
 
+/*
+ * Client data (each client gets its own)
+ */
 
 struct fschmd_data {
 	struct i2c_client *client;
 	struct device *hwmon_dev;
 	struct mutex update_lock;
 	struct mutex watchdog_lock;
-	struct list_head list; 
+	struct list_head list; /* member of the watchdog_data_list */
 	struct kref kref;
 	struct miscdevice watchdog_miscdev;
 	enum chips kind;
 	unsigned long watchdog_is_open;
 	char watchdog_expect_close;
-	char watchdog_name[10]; 
-	char valid; 
-	unsigned long last_updated; 
+	char watchdog_name[10]; /* must be unique to avoid sysfs conflict */
+	char valid; /* zero until following fields are valid */
+	unsigned long last_updated; /* in jiffies */
 
-	
-	u8 revision;            
-	u8 global_control;	
-	u8 watchdog_control;    
-	u8 watchdog_state;      
-	u8 watchdog_preset;     
-	u8 volt[6];		
-	u8 temp_act[11];	
-	u8 temp_status[11];	
-	u8 temp_max[11];	
-	u8 fan_act[7];		
-	u8 fan_status[7];	
-	u8 fan_min[7];		
-	u8 fan_ripple[7];	
+	/* register values */
+	u8 revision;            /* chip revision */
+	u8 global_control;	/* global control register */
+	u8 watchdog_control;    /* watchdog control register */
+	u8 watchdog_state;      /* watchdog status register */
+	u8 watchdog_preset;     /* watchdog counter preset on trigger val */
+	u8 volt[6];		/* voltage */
+	u8 temp_act[11];	/* temperature */
+	u8 temp_status[11];	/* status of sensor */
+	u8 temp_max[11];	/* high temp limit, notice: undocumented! */
+	u8 fan_act[7];		/* fans revolutions per second */
+	u8 fan_status[7];	/* fan status */
+	u8 fan_min[7];		/* fan min value for rps */
+	u8 fan_ripple[7];	/* divider for rps */
 };
 
+/*
+ * Global variables to hold information read from special DMI tables, which are
+ * available on FSC machines with an fscher or later chip. There is no need to
+ * protect these with a lock as they are only modified from our attach function
+ * which always gets called with the i2c-core lock held and never accessed
+ * before the attach function is done with them.
+ */
 static int dmi_mult[6] = { 490, 200, 100, 100, 200, 100 };
 static int dmi_offset[6] = { 0, 0, 0, 0, 0, 0 };
 static int dmi_vref = -1;
 
+/*
+ * Somewhat ugly :( global data pointer list with all fschmd devices, so that
+ * we can find our device data as when using misc_register there is no other
+ * method to get to ones device data from the open fop.
+ */
 static LIST_HEAD(watchdog_data_list);
+/* Note this lock not only protect list access, but also data.kref access */
 static DEFINE_MUTEX(watchdog_data_mutex);
 
+/*
+ * Release our data struct when we're detached from the i2c client *and* all
+ * references to our watchdog device are released
+ */
 static void fschmd_release_resources(struct kref *ref)
 {
 	struct fschmd_data *data = container_of(ref, struct fschmd_data, kref);
 	kfree(data);
 }
 
+/*
+ * Sysfs attr show / store functions
+ */
 
 static ssize_t show_in_value(struct device *dev,
 	struct device_attribute *devattr, char *buf)
@@ -328,7 +396,7 @@ static ssize_t show_temp_fault(struct device *dev,
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
 
-	
+	/* bit 0 set means sensor working ok, so no fault! */
 	if (data->temp_status[index] & FSCHMD_TEMP_WORKING)
 		return sprintf(buf, "0\n");
 	else
@@ -366,7 +434,7 @@ static ssize_t show_fan_div(struct device *dev,
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = fschmd_update_device(dev);
 
-	
+	/* bits 2..7 reserved => mask with 3 */
 	return sprintf(buf, "%d\n", 1 << (data->fan_ripple[index] & 3));
 }
 
@@ -376,7 +444,7 @@ static ssize_t store_fan_div(struct device *dev, struct device_attribute
 	u8 reg;
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct fschmd_data *data = dev_get_drvdata(dev);
-	
+	/* supported values: 2, 4, 8 */
 	unsigned long v;
 	int err;
 
@@ -405,7 +473,7 @@ static ssize_t store_fan_div(struct device *dev, struct device_attribute
 	reg = i2c_smbus_read_byte_data(to_i2c_client(dev),
 		FSCHMD_REG_FAN_RIPPLE[data->kind][index]);
 
-	
+	/* bits 2..7 reserved => mask with 0x03 */
 	reg &= ~0x03;
 	reg |= v;
 
@@ -451,7 +519,7 @@ static ssize_t show_pwm_auto_point1_pwm(struct device *dev,
 	struct fschmd_data *data = fschmd_update_device(dev);
 	int val = data->fan_min[index];
 
-	
+	/* 0 = allow turning off (except on the syl), 1-255 = 50-100% */
 	if (val || data->kind == fscsyl)
 		val = val / 2 + 128;
 
@@ -470,7 +538,7 @@ static ssize_t store_pwm_auto_point1_pwm(struct device *dev,
 	if (err)
 		return err;
 
-	
+	/* reg: 0 = allow turning off (except on the syl), 1-255 = 50-100% */
 	if (v || data->kind == fscsyl) {
 		v = SENSORS_LIMIT(v, 128, 255);
 		v = (v - 128) * 2 + 1;
@@ -488,6 +556,10 @@ static ssize_t store_pwm_auto_point1_pwm(struct device *dev,
 }
 
 
+/*
+ * The FSC hwmon family has the ability to force an attached alert led to flash
+ * from software, we export this as an alert_led sysfs attr
+ */
 static ssize_t show_alert_led(struct device *dev,
 	struct device_attribute *devattr, char *buf)
 {
@@ -633,13 +705,16 @@ static struct sensor_device_attribute fschmd_fan_attr[] = {
 };
 
 
+/*
+ * Watchdog routines
+ */
 
 static int watchdog_set_timeout(struct fschmd_data *data, int timeout)
 {
 	int ret, resolution;
-	int kind = data->kind + 1; 
+	int kind = data->kind + 1; /* 0-x array index -> 1-x module param */
 
-	
+	/* 2 second or 60 second resolution? */
 	if (timeout <= 510 || kind == fscpos || kind == fscscy)
 		resolution = 2;
 	else
@@ -661,10 +736,10 @@ static int watchdog_set_timeout(struct fschmd_data *data, int timeout)
 
 	data->watchdog_preset = DIV_ROUND_UP(timeout, resolution);
 
-	
+	/* Write new timeout value */
 	i2c_smbus_write_byte_data(data->client,
 		FSCHMD_REG_WDOG_PRESET[data->kind], data->watchdog_preset);
-	
+	/* Write new control register, do not trigger! */
 	i2c_smbus_write_byte_data(data->client,
 		FSCHMD_REG_WDOG_CONTROL[data->kind],
 		data->watchdog_control & ~FSCHMD_WDOG_CONTROL_TRIGGER);
@@ -720,6 +795,10 @@ static int watchdog_stop(struct fschmd_data *data)
 	}
 
 	data->watchdog_control &= ~FSCHMD_WDOG_CONTROL_STARTED;
+	/*
+	 * Don't store the stop flag in our watchdog control register copy, as
+	 * its a write only bit (read always returns 0)
+	 */
 	i2c_smbus_write_byte_data(data->client,
 		FSCHMD_REG_WDOG_CONTROL[data->kind],
 		data->watchdog_control | FSCHMD_WDOG_CONTROL_STOP);
@@ -733,6 +812,12 @@ static int watchdog_open(struct inode *inode, struct file *filp)
 	struct fschmd_data *pos, *data = NULL;
 	int watchdog_is_open;
 
+	/*
+	 * We get called from drivers/char/misc.c with misc_mtx hold, and we
+	 * call misc_register() from fschmd_probe() with watchdog_data_mutex
+	 * hold, as misc_register() takes the misc_mtx lock, this is a possible
+	 * deadlock, so we use mutex_trylock here.
+	 */
 	if (!mutex_trylock(&watchdog_data_mutex))
 		return -ERESTARTSYS;
 	list_for_each_entry(pos, &watchdog_data_list, list) {
@@ -741,7 +826,7 @@ static int watchdog_open(struct inode *inode, struct file *filp)
 			break;
 		}
 	}
-	
+	/* Note we can never not have found data, so we don't check for this */
 	watchdog_is_open = test_and_set_bit(0, &data->watchdog_is_open);
 	if (!watchdog_is_open)
 		kref_get(&data->kref);
@@ -750,7 +835,7 @@ static int watchdog_open(struct inode *inode, struct file *filp)
 	if (watchdog_is_open)
 		return -EBUSY;
 
-	
+	/* Start the watchdog */
 	watchdog_trigger(data);
 	filp->private_data = data;
 
@@ -789,7 +874,7 @@ static ssize_t watchdog_write(struct file *filp, const char __user *buf,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* Clear it in case it was set with a previous write */
 			data->watchdog_expect_close = 0;
 
 			for (i = 0; i != count; i++) {
@@ -887,28 +972,50 @@ static const struct file_operations watchdog_fops = {
 };
 
 
+/*
+ * Detect, register, unregister and update device functions
+ */
 
+/*
+ * DMI decode routine to read voltage scaling factors from special DMI tables,
+ * which are available on FSC machines with an fscher or later chip.
+ */
 static void fschmd_dmi_decode(const struct dmi_header *header, void *dummy)
 {
 	int i, mult[3] = { 0 }, offset[3] = { 0 }, vref = 0, found = 0;
 
+	/*
+	 * dmi code ugliness, we get passed the address of the contents of
+	 * a complete DMI record, but in the form of a dmi_header pointer, in
+	 * reality this address holds header->length bytes of which the header
+	 * are the first 4 bytes
+	 */
 	u8 *dmi_data = (u8 *)header;
 
-	
+	/* We are looking for OEM-specific type 185 */
 	if (header->type != 185)
 		return;
 
+	/*
+	 * we are looking for what Siemens calls "subtype" 19, the subtype
+	 * is stored in byte 5 of the dmi block
+	 */
 	if (header->length < 5 || dmi_data[4] != 19)
 		return;
 
+	/*
+	 * After the subtype comes 1 unknown byte and then blocks of 5 bytes,
+	 * consisting of what Siemens calls an "Entity" number, followed by
+	 * 2 16-bit words in LSB first order
+	 */
 	for (i = 6; (i + 4) < header->length; i += 5) {
-		
+		/* entity 1 - 3: voltage multiplier and offset */
 		if (dmi_data[i] >= 1 && dmi_data[i] <= 3) {
-			
+			/* Our in sensors order and the DMI order differ */
 			const int shuffle[3] = { 1, 0, 2 };
 			int in = shuffle[dmi_data[i] - 1];
 
-			
+			/* Check for twice the same entity */
 			if (found & (1 << in))
 				return;
 
@@ -918,9 +1025,9 @@ static void fschmd_dmi_decode(const struct dmi_header *header, void *dummy)
 			found |= 1 << in;
 		}
 
-		
+		/* entity 7: reference voltage */
 		if (dmi_data[i] == 7) {
-			
+			/* Check for twice the same entity */
 			if (found & 0x08)
 				return;
 
@@ -935,6 +1042,11 @@ static void fschmd_dmi_decode(const struct dmi_header *header, void *dummy)
 			dmi_mult[i] = mult[i] * 10;
 			dmi_offset[i] = offset[i] * 10;
 		}
+		/*
+		 * According to the docs there should be separate dmi entries
+		 * for the mult's and offsets of in3-5 of the syl, but on
+		 * my test machine these are not present
+		 */
 		dmi_mult[3] = dmi_mult[2];
 		dmi_mult[4] = dmi_mult[1];
 		dmi_mult[5] = dmi_mult[2];
@@ -955,7 +1067,7 @@ static int fschmd_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* Detect & Identify the chip */
 	id[0] = i2c_smbus_read_byte_data(client, FSCHMD_REG_IDENT_0);
 	id[1] = i2c_smbus_read_byte_data(client, FSCHMD_REG_IDENT_1);
 	id[2] = i2c_smbus_read_byte_data(client, FSCHMD_REG_IDENT_2);
@@ -1002,16 +1114,25 @@ static int fschmd_probe(struct i2c_client *client,
 	mutex_init(&data->watchdog_lock);
 	INIT_LIST_HEAD(&data->list);
 	kref_init(&data->kref);
+	/*
+	 * Store client pointer in our data struct for watchdog usage
+	 * (where the client is found through a data ptr instead of the
+	 * otherway around)
+	 */
 	data->client = client;
 	data->kind = kind;
 
 	if (kind == fscpos) {
+		/*
+		 * The Poseidon has hardwired temp limits, fill these
+		 * in for the alarm resetting code
+		 */
 		data->temp_max[0] = 70 + 128;
 		data->temp_max[1] = 50 + 128;
 		data->temp_max[2] = 50 + 128;
 	}
 
-	
+	/* Read the special DMI table for fscher and newer chips */
 	if ((kind == fscher || kind >= fschrc) && dmi_vref == -1) {
 		dmi_walk(fschmd_dmi_decode, NULL);
 		if (dmi_vref == -1) {
@@ -1022,7 +1143,7 @@ static int fschmd_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* Read in some never changing registers */
 	data->revision = i2c_smbus_read_byte_data(client, FSCHMD_REG_REVISION);
 	data->global_control = i2c_smbus_read_byte_data(client,
 					FSCHMD_REG_CONTROL);
@@ -1045,7 +1166,7 @@ static int fschmd_probe(struct i2c_client *client,
 	}
 
 	for (i = 0; i < (FSCHMD_NO_TEMP_SENSORS[data->kind] * 4); i++) {
-		
+		/* Poseidon doesn't have TEMP_LIMIT registers */
 		if (kind == fscpos && fschmd_temp_attr[i].dev_attr.show ==
 				show_temp_max)
 			continue;
@@ -1067,7 +1188,7 @@ static int fschmd_probe(struct i2c_client *client,
 	}
 
 	for (i = 0; i < (FSCHMD_NO_FAN_SENSORS[data->kind] * 5); i++) {
-		
+		/* Poseidon doesn't have a FAN_MIN register for its 3rd fan */
 		if (kind == fscpos &&
 				!strcmp(fschmd_fan_attr[i].dev_attr.attr.name,
 					"pwm3_auto_point1_pwm"))
@@ -1096,9 +1217,14 @@ static int fschmd_probe(struct i2c_client *client,
 		goto exit_detach;
 	}
 
+	/*
+	 * We take the data_mutex lock early so that watchdog_open() cannot
+	 * run when misc_register() has completed, but we've not yet added
+	 * our data to the watchdog_data_list (and set the default timeout)
+	 */
 	mutex_lock(&watchdog_data_mutex);
 	for (i = 0; i < ARRAY_SIZE(watchdog_minors); i++) {
-		
+		/* Register our watchdog part */
 		snprintf(data->watchdog_name, sizeof(data->watchdog_name),
 			"watchdog%c", (i == 0) ? '\0' : ('0' + i));
 		data->watchdog_miscdev.name = data->watchdog_name;
@@ -1134,7 +1260,7 @@ static int fschmd_probe(struct i2c_client *client,
 	return 0;
 
 exit_detach:
-	fschmd_remove(client); 
+	fschmd_remove(client); /* will also free data for us */
 	return err;
 }
 
@@ -1143,7 +1269,7 @@ static int fschmd_remove(struct i2c_client *client)
 	struct fschmd_data *data = i2c_get_clientdata(client);
 	int i;
 
-	
+	/* Unregister the watchdog (if registered) */
 	if (data->watchdog_miscdev.minor) {
 		misc_deregister(&data->watchdog_miscdev);
 		if (data->watchdog_is_open) {
@@ -1155,12 +1281,16 @@ static int fschmd_remove(struct i2c_client *client)
 		mutex_lock(&watchdog_data_mutex);
 		list_del(&data->list);
 		mutex_unlock(&watchdog_data_mutex);
-		
+		/* Tell the watchdog code the client is gone */
 		mutex_lock(&data->watchdog_lock);
 		data->client = NULL;
 		mutex_unlock(&data->watchdog_lock);
 	}
 
+	/*
+	 * Check if registered in case we're called from fschmd_detect
+	 * to cleanup after an error
+	 */
 	if (data->hwmon_dev)
 		hwmon_device_unregister(data->hwmon_dev);
 
@@ -1197,12 +1327,16 @@ static struct fschmd_data *fschmd_update_device(struct device *dev)
 			data->temp_status[i] = i2c_smbus_read_byte_data(client,
 					FSCHMD_REG_TEMP_STATE[data->kind][i]);
 
-			
+			/* The fscpos doesn't have TEMP_LIMIT registers */
 			if (FSCHMD_REG_TEMP_LIMIT[data->kind][i])
 				data->temp_max[i] = i2c_smbus_read_byte_data(
 					client,
 					FSCHMD_REG_TEMP_LIMIT[data->kind][i]);
 
+			/*
+			 * reset alarm if the alarm condition is gone,
+			 * the chip doesn't do this itself
+			 */
 			if ((data->temp_status[i] & FSCHMD_TEMP_ALARM_MASK) ==
 					FSCHMD_TEMP_ALARM_MASK &&
 					data->temp_act[i] < data->temp_max[i])
@@ -1219,13 +1353,13 @@ static struct fschmd_data *fschmd_update_device(struct device *dev)
 			data->fan_ripple[i] = i2c_smbus_read_byte_data(client,
 					FSCHMD_REG_FAN_RIPPLE[data->kind][i]);
 
-			
+			/* The fscpos third fan doesn't have a fan_min */
 			if (FSCHMD_REG_FAN_MIN[data->kind][i])
 				data->fan_min[i] = i2c_smbus_read_byte_data(
 					client,
 					FSCHMD_REG_FAN_MIN[data->kind][i]);
 
-			
+			/* reset fan status if speed is back to > 0 */
 			if ((data->fan_status[i] & FSCHMD_FAN_ALARM) &&
 					data->fan_act[i])
 				i2c_smbus_write_byte_data(client,

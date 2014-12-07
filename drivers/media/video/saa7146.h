@@ -47,6 +47,7 @@ struct saa7146_window
 	ushort depth;
 };
 
+/*  Per-open data for handling multiple opens on one device */
 struct device_open
 {
 	int	     isopen;
@@ -64,20 +65,20 @@ struct saa7146
 	int user;
 	int cap;
 	int capuser;
-	int irqstate;		
+	int irqstate;		/* irq routine is state driven */
 	int writemode;
 	int playmode;
 	unsigned int nr;
-	unsigned long irq;          
+	unsigned long irq;          /* IRQ used by SAA7146 card */
 	unsigned short id;
 	unsigned char revision;
-	unsigned char boardcfg[64];	
-	unsigned long saa7146_adr;   
+	unsigned char boardcfg[64];	/* 64 bytes of config from eeprom */
+	unsigned long saa7146_adr;   /* bus address of IO mem from PCI BIOS */
 	struct saa7146_window win;
-	unsigned char __iomem *saa7146_mem; 
+	unsigned char __iomem *saa7146_mem; /* pointer to mapped IO memory */
 	struct device_open open_data[MAX_OPENS];
 #define MAX_MARKS 16
-	
+	/* for a/v sync */
 	int endmark[MAX_MARKS], endmarkhead, endmarktail;
 	u32 *dmaRPS1, *pageRPS1, *dmaRPS2, *pageRPS2, *dmavid1, *dmavid2,
 		*dmavid3, *dmaa1in, *dmaa1out, *dmaa2in, *dmaa2out,
@@ -86,7 +87,7 @@ struct saa7146
 	wait_queue_head_t i2cq, debiq, audq, vidq;
 	u8  *vidbuf, *audbuf, *osdbuf, *dmadebi;
 	int audhead, vidhead, osdhead, audtail, vidtail, osdtail;
-	spinlock_t lock;	
+	spinlock_t lock;	/* the device lock */
 };
 #endif
 
@@ -102,6 +103,7 @@ struct saa7146
 #define saaor(dat,adr)       saawrite((dat) | saaread(adr), adr)
 #define saaaor(dat,mask,adr) saawrite((dat) | ((mask) & saaread(adr)), adr)
 
+/* bitmask of attached hardware found */
 #define SAA7146_UNKNOWN		0x00000000
 #define SAA7146_SAA7111		0x00000001
 #define SAA7146_SAA7121		0x00000002

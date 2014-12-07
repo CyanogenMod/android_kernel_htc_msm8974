@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 
+/* Needed for AOP_TRUNCATED_PAGE in mlog_errno() */
 #include <linux/fs.h>
 
 #include "cluster/masklog.h"
@@ -37,6 +38,7 @@ struct o2dlm_private {
 
 static struct ocfs2_stack_plugin o2cb_stack;
 
+/* These should be identical */
 #if (DLM_LOCK_IV != LKM_IVMODE)
 # error Lock modes do not match
 #endif
@@ -84,15 +86,31 @@ static int flags_to_o2dlm(u32 flags)
 	map_flag(DLM_LKF_TIMEOUT, LKM_TIMEOUT);
 	map_flag(DLM_LKF_LOCAL, LKM_LOCAL);
 
-	
+	/* map_flag() should have cleared every flag passed in */
 	BUG_ON(flags != 0);
 
 	return o2dlm_flags;
 }
 #undef map_flag
 
+/*
+ * Map an o2dlm status to standard errno values.
+ *
+ * o2dlm only uses a handful of these, and returns even fewer to the
+ * caller. Still, we try to assign sane values to each error.
+ *
+ * The following value pairs have special meanings to dlmglue, thus
+ * the right hand side needs to stay unique - never duplicate the
+ * mapping elsewhere in the table!
+ *
+ * DLM_NORMAL:		0
+ * DLM_NOTQUEUED:	-EAGAIN
+ * DLM_CANCELGRANT:	-EBUSY
+ * DLM_CANCEL:		-DLM_ECANCEL
+ */
+/* Keep in sync with dlmapi.h */
 static int status_map[] = {
-	[DLM_NORMAL]			= 0,		
+	[DLM_NORMAL]			= 0,		/* Success */
 	[DLM_GRANTED]			= -EINVAL,
 	[DLM_DENIED]			= -EACCES,
 	[DLM_DENIED_NOLOCKS]		= -EACCES,
@@ -100,9 +118,9 @@ static int status_map[] = {
 	[DLM_BLOCKED]			= -EINVAL,
 	[DLM_BLOCKED_ORPHAN]		= -EINVAL,
 	[DLM_DENIED_GRACE_PERIOD]	= -EACCES,
-	[DLM_SYSERR]			= -ENOMEM,	
+	[DLM_SYSERR]			= -ENOMEM,	/* It is what it is */
 	[DLM_NOSUPPORT]			= -EPROTO,
-	[DLM_CANCELGRANT]		= -EBUSY,	
+	[DLM_CANCELGRANT]		= -EBUSY,	/* Cancel after grant */
 	[DLM_IVLOCKID]			= -EINVAL,
 	[DLM_SYNC]			= -EINVAL,
 	[DLM_BADTYPE]			= -EINVAL,
@@ -113,14 +131,14 @@ static int status_map[] = {
 	[DLM_NOPURGED]			= -EINVAL,
 	[DLM_BADARGS]			= -EINVAL,
 	[DLM_VOID]			= -EINVAL,
-	[DLM_NOTQUEUED]			= -EAGAIN,	
+	[DLM_NOTQUEUED]			= -EAGAIN,	/* Trylock failed */
 	[DLM_IVBUFLEN]			= -EINVAL,
 	[DLM_CVTUNGRANT]		= -EPERM,
 	[DLM_BADPARAM]			= -EINVAL,
 	[DLM_VALNOTVALID]		= -EINVAL,
 	[DLM_REJECTED]			= -EPERM,
 	[DLM_ABORT]			= -EINVAL,
-	[DLM_CANCEL]			= -DLM_ECANCEL,	
+	[DLM_CANCEL]			= -DLM_ECANCEL,	/* Successful cancel */
 	[DLM_IVRESHANDLE]		= -EINVAL,
 	[DLM_DEADLOCK]			= -EDEADLK,
 	[DLM_DENIED_NOASTS]		= -EINVAL,
@@ -162,6 +180,17 @@ static void o2dlm_unlock_ast_wrapper(void *astarg, enum dlm_status status)
 	struct ocfs2_dlm_lksb *lksb = astarg;
 	int error = dlm_status_to_errno(status);
 
+	/*
+	 * In o2dlm, you can get both the lock_ast() for the lock being
+	 * granted and the unlock_ast() for the CANCEL failing.  A
+	 * successful cancel sends DLM_NORMAL here.  If the
+	 * lock grant happened before the cancel arrived, you get
+	 * DLM_CANCELGRANT.
+	 *
+	 * There's no need for the double-ast.  If we see DLM_CANCELGRANT,
+	 * we just ignore it.  We expect the lock_ast() to handle the
+	 * granted lock.
+	 */
 	if (status == DLM_CANCELGRANT)
 		return;
 
@@ -207,6 +236,11 @@ static int o2cb_dlm_lock_status(struct ocfs2_dlm_lksb *lksb)
 	return dlm_status_to_errno(lksb->lksb_o2dlm.status);
 }
 
+/*
+ * o2dlm aways has a "valid" LVB. If the dlm loses track of the LVB
+ * contents, it will zero out the LVB.  Thus the caller can always trust
+ * the contents.
+ */
 static int o2cb_dlm_lvb_valid(struct ocfs2_dlm_lksb *lksb)
 {
 	return 1;
@@ -222,6 +256,10 @@ static void o2cb_dump_lksb(struct ocfs2_dlm_lksb *lksb)
 	dlm_print_one_lock(lksb->lksb_o2dlm.lockid);
 }
 
+/*
+ * Check if this node is heartbeating and is connected to all other
+ * heartbeating nodes.
+ */
 static int o2cb_cluster_check(void)
 {
 	u8 node_num;
@@ -235,6 +273,14 @@ static int o2cb_cluster_check(void)
 		return -EINVAL;
 	}
 
+	/*
+	 * o2dlm expects o2net sockets to be created. If not, then
+	 * dlm_join_domain() fails with a stack of errors which are both cryptic
+	 * and incomplete. The idea here is to detect upfront whether we have
+	 * managed to connect to all nodes or not. If not, then list the nodes
+	 * to allow the user to check the configuration (incorrect IP, firewall,
+	 * etc.) Yes, this is racy. But its not the end of the world.
+	 */
 #define	O2CB_MAP_STABILIZE_COUNT	60
 	for (i = 0; i < O2CB_MAP_STABILIZE_COUNT; ++i) {
 		o2hb_fill_node_map(hbmap, sizeof(hbmap));
@@ -245,7 +291,7 @@ static int o2cb_cluster_check(void)
 			return -EINVAL;
 		}
 		o2net_fill_node_map(netmap, sizeof(netmap));
-		
+		/* Force set the current node to allow easy compare */
 		set_bit(node_num, netmap);
 		if (!memcmp(hbmap, netmap, sizeof(hbmap)))
 			return 0;
@@ -265,6 +311,10 @@ static int o2cb_cluster_check(void)
 	return -ENOTCONN;
 }
 
+/*
+ * Called from the dlm when it's about to evict a node. This is how the
+ * classic stack signals node death.
+ */
 static void o2dlm_eviction_cb(int node_num, void *data)
 {
 	struct ocfs2_cluster_connection *conn = data;
@@ -286,7 +336,7 @@ static int o2cb_cluster_connect(struct ocfs2_cluster_connection *conn)
 	BUG_ON(conn == NULL);
 	BUG_ON(conn->cc_proto == NULL);
 
-	
+	/* Ensure cluster stack is up and all nodes are connected */
 	rc = o2cb_cluster_check();
 	if (rc) {
 		printk(KERN_ERR "o2cb: Cluster check failed. Fix errors "
@@ -300,12 +350,14 @@ static int o2cb_cluster_connect(struct ocfs2_cluster_connection *conn)
 		goto out_free;
 	}
 
-	
+	/* This just fills the structure in.  It is safe to pass conn. */
 	dlm_setup_eviction_cb(&priv->op_eviction_cb, o2dlm_eviction_cb,
 			      conn);
 
 	conn->cc_private = priv;
 
+	/* used by the dlm code to make message headers unique, each
+	 * node in this domain must agree on this. */
 	dlm_key = crc32_le(0, conn->cc_name, conn->cc_namelen);
 	fs_version.pv_major = conn->cc_version.pv_major;
 	fs_version.pv_minor = conn->cc_version.pv_minor;

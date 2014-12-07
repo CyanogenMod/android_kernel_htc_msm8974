@@ -61,12 +61,17 @@ void __init m68k_setup_node(int node)
 }
 
 
+/*
+ * ZERO_PAGE is a special page that is used for zero-initialized
+ * data and COW.
+ */
 
 void *empty_zero_page;
 EXPORT_SYMBOL(empty_zero_page);
 
 extern void init_pointer_table(unsigned long ptable);
 
+/* References to section boundaries */
 
 extern pmd_t *zero_pgtable;
 
@@ -110,7 +115,7 @@ void __init mem_init(void)
 	int initpages = 0;
 	int i;
 
-	
+	/* this will put all memory onto the freelists */
 	totalram_pages = num_physpages = 0;
 	for_each_online_pgdat(pgdat) {
 		num_physpages += pgdat->node_present_pages;
@@ -134,14 +139,14 @@ void __init mem_init(void)
 	}
 
 #if !defined(CONFIG_SUN3) && !defined(CONFIG_COLDFIRE)
-	
+	/* insert pointer tables allocated so far into the tablelist */
 	init_pointer_table((unsigned long)kernel_pg_dir);
 	for (i = 0; i < PTRS_PER_PGD; i++) {
 		if (pgd_present(kernel_pg_dir[i]))
 			init_pointer_table(__pgd_page(kernel_pg_dir[i]));
 	}
 
-	
+	/* insert also pointer table that we used to unmap the zero page */
 	if (zero_pgtable)
 		init_pointer_table((unsigned long)zero_pgtable);
 #endif

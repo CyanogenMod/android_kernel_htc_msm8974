@@ -41,6 +41,10 @@
 
 struct xfs_name xfs_name_dotdot = { (unsigned char *)"..", 2};
 
+/*
+ * ASCII case-insensitive (ie. A-Z) support for directories that was
+ * used in IRIX.
+ */
 STATIC xfs_dahash_t
 xfs_ascii_ci_hashname(
 	struct xfs_name	*name)
@@ -108,6 +112,9 @@ xfs_dir_mount(
 		mp->m_dirnameops = &xfs_default_nameops;
 }
 
+/*
+ * Return 1 if directory contains only "." and "..".
+ */
 int
 xfs_dir_isempty(
 	xfs_inode_t	*dp)
@@ -115,7 +122,7 @@ xfs_dir_isempty(
 	xfs_dir2_sf_hdr_t	*sfp;
 
 	ASSERT(S_ISDIR(dp->i_d.di_mode));
-	if (dp->i_d.di_size == 0)	
+	if (dp->i_d.di_size == 0)	/* might happen during shutdown. */
 		return 1;
 	if (dp->i_d.di_size > XFS_IFORK_DSIZE(dp))
 		return 0;
@@ -123,6 +130,9 @@ xfs_dir_isempty(
 	return !sfp->count;
 }
 
+/*
+ * Validate a given inode number.
+ */
 int
 xfs_dir_ino_validate(
 	xfs_mount_t	*mp,
@@ -154,6 +164,9 @@ xfs_dir_ino_validate(
 	return 0;
 }
 
+/*
+ * Initialize a directory with its "." and ".." entries.
+ */
 int
 xfs_dir_init(
 	xfs_trans_t	*tp,
@@ -172,19 +185,22 @@ xfs_dir_init(
 	return xfs_dir2_sf_create(&args, pdp->i_ino);
 }
 
+/*
+  Enter a name in a directory.
+ */
 int
 xfs_dir_createname(
 	xfs_trans_t		*tp,
 	xfs_inode_t		*dp,
 	struct xfs_name		*name,
-	xfs_ino_t		inum,		
-	xfs_fsblock_t		*first,		
-	xfs_bmap_free_t		*flist,		
-	xfs_extlen_t		total)		
+	xfs_ino_t		inum,		/* new entry inode number */
+	xfs_fsblock_t		*first,		/* bmap's firstblock */
+	xfs_bmap_free_t		*flist,		/* bmap's freeblock list */
+	xfs_extlen_t		total)		/* bmap's total block count */
 {
 	xfs_da_args_t		args;
 	int			rval;
-	int			v;		
+	int			v;		/* type-checking value */
 
 	ASSERT(S_ISDIR(dp->i_d.di_mode));
 	if ((rval = xfs_dir_ino_validate(tp->t_mountp, inum)))
@@ -219,6 +235,10 @@ xfs_dir_createname(
 	return rval;
 }
 
+/*
+ * If doing a CI lookup and case-insensitive match, dup actual name into
+ * args.value. Return EEXIST for success (ie. name found) or an error.
+ */
 int
 xfs_dir_cilookup_result(
 	struct xfs_da_args *args,
@@ -240,18 +260,23 @@ xfs_dir_cilookup_result(
 	return EEXIST;
 }
 
+/*
+ * Lookup a name in a directory, give back the inode number.
+ * If ci_name is not NULL, returns the actual name in ci_name if it differs
+ * to name, or ci_name->name is set to NULL for an exact match.
+ */
 
 int
 xfs_dir_lookup(
 	xfs_trans_t	*tp,
 	xfs_inode_t	*dp,
 	struct xfs_name	*name,
-	xfs_ino_t	*inum,		
-	struct xfs_name *ci_name)	
+	xfs_ino_t	*inum,		/* out: inode number */
+	struct xfs_name *ci_name)	/* out: actual name if CI match */
 {
 	xfs_da_args_t	args;
 	int		rval;
-	int		v;		
+	int		v;		/* type-checking value */
 
 	ASSERT(S_ISDIR(dp->i_d.di_mode));
 	XFS_STATS_INC(xs_dir_lookup);
@@ -291,19 +316,22 @@ xfs_dir_lookup(
 	return rval;
 }
 
+/*
+ * Remove an entry from a directory.
+ */
 int
 xfs_dir_removename(
 	xfs_trans_t	*tp,
 	xfs_inode_t	*dp,
 	struct xfs_name	*name,
 	xfs_ino_t	ino,
-	xfs_fsblock_t	*first,		
-	xfs_bmap_free_t	*flist,		
-	xfs_extlen_t	total)		
+	xfs_fsblock_t	*first,		/* bmap's firstblock */
+	xfs_bmap_free_t	*flist,		/* bmap's freeblock list */
+	xfs_extlen_t	total)		/* bmap's total block count */
 {
 	xfs_da_args_t	args;
 	int		rval;
-	int		v;		
+	int		v;		/* type-checking value */
 
 	ASSERT(S_ISDIR(dp->i_d.di_mode));
 	XFS_STATS_INC(xs_dir_remove);
@@ -335,6 +363,9 @@ xfs_dir_removename(
 	return rval;
 }
 
+/*
+ * Read a directory.
+ */
 int
 xfs_readdir(
 	xfs_inode_t	*dp,
@@ -343,8 +374,8 @@ xfs_readdir(
 	xfs_off_t	*offset,
 	filldir_t	filldir)
 {
-	int		rval;		
-	int		v;		
+	int		rval;		/* return value */
+	int		v;		/* type-checking value */
 
 	trace_xfs_readdir(dp);
 
@@ -366,19 +397,22 @@ xfs_readdir(
 	return rval;
 }
 
+/*
+ * Replace the inode number of a directory entry.
+ */
 int
 xfs_dir_replace(
 	xfs_trans_t	*tp,
 	xfs_inode_t	*dp,
-	struct xfs_name	*name,		
-	xfs_ino_t	inum,		
-	xfs_fsblock_t	*first,		
-	xfs_bmap_free_t	*flist,		
-	xfs_extlen_t	total)		
+	struct xfs_name	*name,		/* name of entry to replace */
+	xfs_ino_t	inum,		/* new inode number */
+	xfs_fsblock_t	*first,		/* bmap's firstblock */
+	xfs_bmap_free_t	*flist,		/* bmap's freeblock list */
+	xfs_extlen_t	total)		/* bmap's total block count */
 {
 	xfs_da_args_t	args;
 	int		rval;
-	int		v;		
+	int		v;		/* type-checking value */
 
 	ASSERT(S_ISDIR(dp->i_d.di_mode));
 
@@ -412,16 +446,20 @@ xfs_dir_replace(
 	return rval;
 }
 
+/*
+ * See if this entry can be added to the directory without allocating space.
+ * First checks that the caller couldn't reserve enough space (resblks = 0).
+ */
 int
 xfs_dir_canenter(
 	xfs_trans_t	*tp,
 	xfs_inode_t	*dp,
-	struct xfs_name	*name,		
+	struct xfs_name	*name,		/* name of entry to add */
 	uint		resblks)
 {
 	xfs_da_args_t	args;
 	int		rval;
-	int		v;		
+	int		v;		/* type-checking value */
 
 	if (resblks)
 		return 0;
@@ -453,21 +491,33 @@ xfs_dir_canenter(
 	return rval;
 }
 
+/*
+ * Utility routines.
+ */
 
+/*
+ * Add a block to the directory.
+ *
+ * This routine is for data and free blocks, not leaf/node blocks which are
+ * handled by xfs_da_grow_inode.
+ */
 int
 xfs_dir2_grow_inode(
 	struct xfs_da_args	*args,
-	int			space,	
-	xfs_dir2_db_t		*dbp)	
+	int			space,	/* v2 dir's space XFS_DIR2_xxx_SPACE */
+	xfs_dir2_db_t		*dbp)	/* out: block number added */
 {
 	struct xfs_inode	*dp = args->dp;
 	struct xfs_mount	*mp = dp->i_mount;
-	xfs_fileoff_t		bno;	
-	int			count;	
+	xfs_fileoff_t		bno;	/* directory offset of new block */
+	int			count;	/* count of filesystem blocks */
 	int			error;
 
 	trace_xfs_dir2_grow_inode(args, space);
 
+	/*
+	 * Set lowest possible block in the space requested.
+	 */
 	bno = XFS_B_TO_FSBT(mp, space * XFS_DIR2_SPACE_SIZE);
 	count = mp->m_dirblkfsbs;
 
@@ -477,8 +527,11 @@ xfs_dir2_grow_inode(
 
 	*dbp = xfs_dir2_da_to_db(mp, (xfs_dablk_t)bno);
 
+	/*
+	 * Update file's size if this is the data space and it grew.
+	 */
 	if (space == XFS_DIR2_DATA_SPACE) {
-		xfs_fsize_t	size;		
+		xfs_fsize_t	size;		/* directory file (data) size */
 
 		size = XFS_FSB_TO_B(mp, bno + count);
 		if (size > dp->i_d.di_size) {
@@ -489,13 +542,16 @@ xfs_dir2_grow_inode(
 	return 0;
 }
 
+/*
+ * See if the directory is a single-block form directory.
+ */
 int
 xfs_dir2_isblock(
 	xfs_trans_t	*tp,
 	xfs_inode_t	*dp,
-	int		*vp)		
+	int		*vp)		/* out: 1 is block, 0 is not block */
 {
-	xfs_fileoff_t	last;		
+	xfs_fileoff_t	last;		/* last file offset */
 	xfs_mount_t	*mp;
 	int		rval;
 
@@ -508,13 +564,16 @@ xfs_dir2_isblock(
 	return 0;
 }
 
+/*
+ * See if the directory is a single-leaf form directory.
+ */
 int
 xfs_dir2_isleaf(
 	xfs_trans_t	*tp,
 	xfs_inode_t	*dp,
-	int		*vp)		
+	int		*vp)		/* out: 1 is leaf, 0 is not leaf */
 {
-	xfs_fileoff_t	last;		
+	xfs_fileoff_t	last;		/* last file offset */
 	xfs_mount_t	*mp;
 	int		rval;
 
@@ -525,15 +584,20 @@ xfs_dir2_isleaf(
 	return 0;
 }
 
+/*
+ * Remove the given block from the directory.
+ * This routine is used for data and free blocks, leaf/node are done
+ * by xfs_da_shrink_inode.
+ */
 int
 xfs_dir2_shrink_inode(
 	xfs_da_args_t	*args,
 	xfs_dir2_db_t	db,
 	xfs_dabuf_t	*bp)
 {
-	xfs_fileoff_t	bno;		
-	xfs_dablk_t	da;		
-	int		done;		
+	xfs_fileoff_t	bno;		/* directory file offset */
+	xfs_dablk_t	da;		/* directory file offset */
+	int		done;		/* bunmap is finished */
 	xfs_inode_t	*dp;
 	int		error;
 	xfs_mount_t	*mp;
@@ -545,25 +609,57 @@ xfs_dir2_shrink_inode(
 	mp = dp->i_mount;
 	tp = args->trans;
 	da = xfs_dir2_db_to_da(mp, db);
+	/*
+	 * Unmap the fsblock(s).
+	 */
 	if ((error = xfs_bunmapi(tp, dp, da, mp->m_dirblkfsbs,
 			XFS_BMAPI_METADATA, 0, args->firstblock, args->flist,
 			&done))) {
+		/*
+		 * ENOSPC actually can happen if we're in a removename with
+		 * no space reservation, and the resulting block removal
+		 * would cause a bmap btree split or conversion from extents
+		 * to btree.  This can only happen for un-fragmented
+		 * directory blocks, since you need to be punching out
+		 * the middle of an extent.
+		 * In this case we need to leave the block in the file,
+		 * and not binval it.
+		 * So the block has to be in a consistent empty state
+		 * and appropriately logged.
+		 * We don't free up the buffer, the caller can tell it
+		 * hasn't happened since it got an error back.
+		 */
 		return error;
 	}
 	ASSERT(done);
+	/*
+	 * Invalidate the buffer from the transaction.
+	 */
 	xfs_da_binval(tp, bp);
+	/*
+	 * If it's not a data block, we're done.
+	 */
 	if (db >= XFS_DIR2_LEAF_FIRSTDB(mp))
 		return 0;
+	/*
+	 * If the block isn't the last one in the directory, we're done.
+	 */
 	if (dp->i_d.di_size > xfs_dir2_db_off_to_byte(mp, db + 1, 0))
 		return 0;
 	bno = da;
 	if ((error = xfs_bmap_last_before(tp, dp, &bno, XFS_DATA_FORK))) {
+		/*
+		 * This can't really happen unless there's kernel corruption.
+		 */
 		return error;
 	}
 	if (db == mp->m_dirdatablk)
 		ASSERT(bno == 0);
 	else
 		ASSERT(bno > 0);
+	/*
+	 * Set the size to the new last block.
+	 */
 	dp->i_d.di_size = XFS_FSB_TO_B(mp, bno);
 	xfs_trans_log_inode(tp, dp, XFS_ILOG_CORE);
 	return 0;

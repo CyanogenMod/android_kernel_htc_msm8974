@@ -327,7 +327,7 @@ struct vcd_property_vop_timing {
 };
 
 struct vcd_property_vop_timing_constant_delta {
-	u32 constant_delta; 
+	u32 constant_delta; /*In usecs */
 };
 
 struct vcd_property_short_header {

@@ -33,23 +33,23 @@ static unsigned short keycode_rk3[] =  { KEY_1, KEY_2, KEY_3, KEY_4,
 					 KEY_5, KEY_6, KEY_7, KEY_8, KEY_9 };
 
 static unsigned short keycode_kore[] = {
-	KEY_FN_F1,      
-	KEY_FN_F7,      
-	KEY_FN_F2,      
-	KEY_FN_F3,      
-	KEY_FN_F4,      
-	KEY_FN_F5,      
-	KEY_FN_F6,      
-	KEY_FN_F8,      
+	KEY_FN_F1,      /* "menu"               */
+	KEY_FN_F7,      /* "lcd backlight       */
+	KEY_FN_F2,      /* "control"            */
+	KEY_FN_F3,      /* "enter"              */
+	KEY_FN_F4,      /* "view"               */
+	KEY_FN_F5,      /* "esc"                */
+	KEY_FN_F6,      /* "sound"              */
+	KEY_FN_F8,      /* array spacer, never triggered. */
 	KEY_RIGHT,
 	KEY_DOWN,
 	KEY_UP,
 	KEY_LEFT,
-	KEY_SOUND,      
+	KEY_SOUND,      /* "listen"             */
 	KEY_RECORD,
 	KEY_PLAYPAUSE,
 	KEY_STOP,
-	BTN_4,          
+	BTN_4,          /* 8 softkeys */
 	BTN_3,
 	BTN_2,
 	BTN_1,
@@ -57,7 +57,7 @@ static unsigned short keycode_kore[] = {
 	BTN_7,
 	BTN_6,
 	BTN_5,
-	KEY_BRL_DOT4,   
+	KEY_BRL_DOT4,   /* touch sensitive knobs */
 	KEY_BRL_DOT3,
 	KEY_BRL_DOT2,
 	KEY_BRL_DOT1,
@@ -73,43 +73,43 @@ static unsigned short keycode_kore[] = {
 #define MASCHINE_PAD(X)    ((X) + ABS_PRESSURE)
 
 static unsigned short keycode_maschine[] = {
-	MASCHINE_BUTTON(40), 
-	MASCHINE_BUTTON(39), 
-	MASCHINE_BUTTON(38), 
-	MASCHINE_BUTTON(37), 
-	MASCHINE_BUTTON(36), 
-	MASCHINE_BUTTON(35), 
-	MASCHINE_BUTTON(34), 
-	MASCHINE_BUTTON(33), 
-	KEY_RESERVED, 
+	MASCHINE_BUTTON(40), /* mute       */
+	MASCHINE_BUTTON(39), /* solo       */
+	MASCHINE_BUTTON(38), /* select     */
+	MASCHINE_BUTTON(37), /* duplicate  */
+	MASCHINE_BUTTON(36), /* navigate   */
+	MASCHINE_BUTTON(35), /* pad mode   */
+	MASCHINE_BUTTON(34), /* pattern    */
+	MASCHINE_BUTTON(33), /* scene      */
+	KEY_RESERVED, /* spacer */
 
-	MASCHINE_BUTTON(30), 
-	MASCHINE_BUTTON(31), 
-	MASCHINE_BUTTON(32), 
-	MASCHINE_BUTTON(28), 
-	MASCHINE_BUTTON(27), 
-	MASCHINE_BUTTON(26), 
-	MASCHINE_BUTTON(25), 
+	MASCHINE_BUTTON(30), /* rec        */
+	MASCHINE_BUTTON(31), /* erase      */
+	MASCHINE_BUTTON(32), /* shift      */
+	MASCHINE_BUTTON(28), /* grid       */
+	MASCHINE_BUTTON(27), /* >          */
+	MASCHINE_BUTTON(26), /* <          */
+	MASCHINE_BUTTON(25), /* restart    */
 
-	MASCHINE_BUTTON(21), 
-	MASCHINE_BUTTON(22), 
-	MASCHINE_BUTTON(23), 
-	MASCHINE_BUTTON(24), 
-	MASCHINE_BUTTON(20), 
-	MASCHINE_BUTTON(19), 
-	MASCHINE_BUTTON(18), 
-	MASCHINE_BUTTON(17), 
+	MASCHINE_BUTTON(21), /* E          */
+	MASCHINE_BUTTON(22), /* F          */
+	MASCHINE_BUTTON(23), /* G          */
+	MASCHINE_BUTTON(24), /* H          */
+	MASCHINE_BUTTON(20), /* D          */
+	MASCHINE_BUTTON(19), /* C          */
+	MASCHINE_BUTTON(18), /* B          */
+	MASCHINE_BUTTON(17), /* A          */
 
-	MASCHINE_BUTTON(0),  
-	MASCHINE_BUTTON(2),  
-	MASCHINE_BUTTON(4),  
-	MASCHINE_BUTTON(6),  
-	MASCHINE_BUTTON(7),  
-	MASCHINE_BUTTON(5),  
-	MASCHINE_BUTTON(3),  
-	MASCHINE_BUTTON(1),  
+	MASCHINE_BUTTON(0),  /* control    */
+	MASCHINE_BUTTON(2),  /* browse     */
+	MASCHINE_BUTTON(4),  /* <          */
+	MASCHINE_BUTTON(6),  /* snap       */
+	MASCHINE_BUTTON(7),  /* autowrite  */
+	MASCHINE_BUTTON(5),  /* >          */
+	MASCHINE_BUTTON(3),  /* sampling   */
+	MASCHINE_BUTTON(1),  /* step       */
 
-	MASCHINE_BUTTON(15), 
+	MASCHINE_BUTTON(15), /* 8 softkeys */
 	MASCHINE_BUTTON(14),
 	MASCHINE_BUTTON(13),
 	MASCHINE_BUTTON(12),
@@ -118,8 +118,8 @@ static unsigned short keycode_maschine[] = {
 	MASCHINE_BUTTON(9),
 	MASCHINE_BUTTON(8),
 
-	MASCHINE_BUTTON(16), 
-	MASCHINE_BUTTON(29)  
+	MASCHINE_BUTTON(16), /* note repeat */
+	MASCHINE_BUTTON(29)  /* play        */
 };
 
 #define KONTROLX1_INPUTS	(40)
@@ -136,6 +136,10 @@ static unsigned short keycode_maschine[] = {
 #define HIGH_PEAK	(268)
 #define LOW_PEAK	(-7)
 
+/* some of these devices have endless rotation potentiometers
+ * built in which use two tapers, 90 degrees phase shifted.
+ * this algorithm decodes them to one single value, ranging
+ * from 0 to 999 */
 static unsigned int decode_erp(unsigned char a, unsigned char b)
 {
 	int weight_a, weight_b;
@@ -155,27 +159,27 @@ static unsigned int decode_erp(unsigned char a, unsigned char b)
 	weight_a = 100 - weight_b;
 
 	if (a < mid_value) {
-		
+		/* 0..90 and 270..360 degrees */
 		pos_b = b - LOW_PEAK + DEG270;
 		if (pos_b >= DEG360)
 			pos_b -= DEG360;
 	} else
-		
+		/* 90..270 degrees */
 		pos_b = HIGH_PEAK - b + DEG90;
 
 
 	if (b > mid_value)
-		
+		/* 0..180 degrees */
 		pos_a = a - LOW_PEAK;
 	else
-		
+		/* 180..360 degrees */
 		pos_a = HIGH_PEAK - a + DEG180;
 
-	
-	
+	/* interpolate both slider values, depending on weight factors */
+	/* 0..99 x DEG360 */
 	ret = pos_a * weight_a + pos_b * weight_b;
 
-	
+	/* normalize to 0..999 */
 	ret *= 10;
 	ret /= DEG360;
 
@@ -271,23 +275,23 @@ static void snd_caiaq_input_read_erp(struct snd_usb_caiaqdev *dev,
 		break;
 
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_MASCHINECONTROLLER):
-		
+		/* 4 under the left screen */
 		input_report_abs(input_dev, ABS_HAT0X, decode_erp(buf[21], buf[20]));
 		input_report_abs(input_dev, ABS_HAT0Y, decode_erp(buf[15], buf[14]));
 		input_report_abs(input_dev, ABS_HAT1X, decode_erp(buf[9],  buf[8]));
 		input_report_abs(input_dev, ABS_HAT1Y, decode_erp(buf[3],  buf[2]));
 
-		
+		/* 4 under the right screen */
 		input_report_abs(input_dev, ABS_HAT2X, decode_erp(buf[19], buf[18]));
 		input_report_abs(input_dev, ABS_HAT2Y, decode_erp(buf[13], buf[12]));
 		input_report_abs(input_dev, ABS_HAT3X, decode_erp(buf[7],  buf[6]));
 		input_report_abs(input_dev, ABS_HAT3Y, decode_erp(buf[1],  buf[0]));
 
-		
+		/* volume */
 		input_report_abs(input_dev, ABS_RX, decode_erp(buf[17], buf[16]));
-		
+		/* tempo */
 		input_report_abs(input_dev, ABS_RY, decode_erp(buf[11], buf[10]));
-		
+		/* swing */
 		input_report_abs(input_dev, ABS_RZ, decode_erp(buf[5],  buf[4]));
 
 		input_sync(input_dev);
@@ -319,7 +323,7 @@ static void snd_caiaq_input_read_io(struct snd_usb_caiaqdev *dev,
 		input_report_abs(dev->input_dev, ABS_MISC, 255 - buf[4]);
 		break;
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_TRAKTORKONTROLX1):
-		
+		/* rotary encoders */
 		input_report_abs(dev->input_dev, ABS_X, buf[5] & 0xf);
 		input_report_abs(dev->input_dev, ABS_Y, buf[5] >> 4);
 		input_report_abs(dev->input_dev, ABS_Z, buf[6] & 0xf);
@@ -341,19 +345,19 @@ static void snd_usb_caiaq_tks4_dispatch(struct snd_usb_caiaqdev *dev,
 
 		switch (block_id) {
 		case 0:
-			
+			/* buttons */
 			for (i = 0; i < KONTROLS4_BUTTONS; i++)
 				input_report_key(dev->input_dev, KONTROLS4_BUTTON(i),
 						 (buf[4 + (i / 8)] >> (i % 8)) & 1);
 			break;
 
 		case 1:
-			
+			/* left wheel */
 			input_report_abs(dev->input_dev, KONTROLS4_ABS(36), buf[9] | ((buf[8] & 0x3) << 8));
-			
+			/* right wheel */
 			input_report_abs(dev->input_dev, KONTROLS4_ABS(37), buf[13] | ((buf[12] & 0x3) << 8));
 
-			
+			/* rotary encoders */
 			input_report_abs(dev->input_dev, KONTROLS4_ABS(38), buf[3] & 0xf);
 			input_report_abs(dev->input_dev, KONTROLS4_ABS(39), buf[4] >> 4);
 			input_report_abs(dev->input_dev, KONTROLS4_ABS(40), buf[4] & 0xf);
@@ -366,97 +370,97 @@ static void snd_usb_caiaq_tks4_dispatch(struct snd_usb_caiaqdev *dev,
 
 			break;
 		case 2:
-			
+			/* Volume Fader Channel D */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(0), buf, 1);
-			
+			/* Volume Fader Channel B */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(1), buf, 2);
-			
+			/* Volume Fader Channel A */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(2), buf, 3);
-			
+			/* Volume Fader Channel C */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(3), buf, 4);
-			
+			/* Loop Volume */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(4), buf, 6);
-			
+			/* Crossfader */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(7), buf, 7);
 
 			break;
 
 		case 3:
-			
+			/* Tempo Fader R */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(6), buf, 3);
-			
+			/* Tempo Fader L */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(5), buf, 4);
-			
+			/* Mic Volume */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(8), buf, 6);
-			
+			/* Cue Mix */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(9), buf, 7);
 
 			break;
 
 		case 4:
-			
+			/* Wheel distance sensor L */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(10), buf, 1);
-			
+			/* Wheel distance sensor R */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(11), buf, 2);
-			
+			/* Channel D EQ - Filter */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(12), buf, 3);
-			
+			/* Channel D EQ - Low */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(13), buf, 4);
-			
+			/* Channel D EQ - Mid */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(14), buf, 5);
-			
+			/* Channel D EQ - Hi */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(15), buf, 6);
-			
+			/* FX2 - dry/wet */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(16), buf, 7);
 
 			break;
 
 		case 5:
-			
+			/* FX2 - 1 */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(17), buf, 1);
-			
+			/* FX2 - 2 */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(18), buf, 2);
-			
+			/* FX2 - 3 */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(19), buf, 3);
-			
+			/* Channel B EQ - Filter */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(20), buf, 4);
-			
+			/* Channel B EQ - Low */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(21), buf, 5);
-			
+			/* Channel B EQ - Mid */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(22), buf, 6);
-			
+			/* Channel B EQ - Hi */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(23), buf, 7);
 
 			break;
 
 		case 6:
-			
+			/* Channel A EQ - Filter */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(24), buf, 1);
-			
+			/* Channel A EQ - Low */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(25), buf, 2);
-			
+			/* Channel A EQ - Mid */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(26), buf, 3);
-			
+			/* Channel A EQ - Hi */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(27), buf, 4);
-			
+			/* Channel C EQ - Filter */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(28), buf, 5);
-			
+			/* Channel C EQ - Low */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(29), buf, 6);
-			
+			/* Channel C EQ - Mid */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(30), buf, 7);
 
 			break;
 
 		case 7:
-			
+			/* Channel C EQ - Hi */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(31), buf, 1);
-			
+			/* FX1 - wet/dry */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(32), buf, 2);
-			
+			/* FX1 - 1 */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(33), buf, 3);
-			
+			/* FX1 - 2 */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(34), buf, 4);
-			
+			/* FX1 - 3 */
 			snd_caiaq_input_report_abs(dev, KONTROLS4_ABS(35), buf, 5);
 
 			break;
@@ -684,7 +688,7 @@ int snd_usb_caiaq_input_init(struct snd_usb_caiaqdev *dev)
 			dev->keycode[i] = BTN_MISC + i;
 		input->keycodemax = KONTROLX1_INPUTS;
 
-		
+		/* analog potentiometers */
 		input_set_abs_params(input, ABS_HAT0X, 0, 4096, 0, 10);
 		input_set_abs_params(input, ABS_HAT0Y, 0, 4096, 0, 10);
 		input_set_abs_params(input, ABS_HAT1X, 0, 4096, 0, 10);
@@ -694,7 +698,7 @@ int snd_usb_caiaq_input_init(struct snd_usb_caiaqdev *dev)
 		input_set_abs_params(input, ABS_HAT3X, 0, 4096, 0, 10);
 		input_set_abs_params(input, ABS_HAT3Y, 0, 4096, 0, 10);
 
-		
+		/* rotary encoders */
 		input_set_abs_params(input, ABS_X, 0, 0xf, 0, 1);
 		input_set_abs_params(input, ABS_Y, 0, 0xf, 0, 1);
 		input_set_abs_params(input, ABS_Z, 0, 0xf, 0, 1);
@@ -727,15 +731,15 @@ int snd_usb_caiaq_input_init(struct snd_usb_caiaqdev *dev)
 			input->absbit[BIT_WORD(axis)] |= BIT_MASK(axis);
 		}
 
-		
+		/* 36 analog potentiometers and faders */
 		for (i = 0; i < 36; i++)
 			input_set_abs_params(input, KONTROLS4_ABS(i), 0, 0xfff, 0, 10);
 
-		
+		/* 2 encoder wheels */
 		input_set_abs_params(input, KONTROLS4_ABS(36), 0, 0x3ff, 0, 1);
 		input_set_abs_params(input, KONTROLS4_ABS(37), 0, 0x3ff, 0, 1);
 
-		
+		/* 9 rotary encoders */
 		for (i = 0; i < 9; i++)
 			input_set_abs_params(input, KONTROLS4_ABS(38+i), 0, 0xf, 0, 1);
 
@@ -799,7 +803,7 @@ int snd_usb_caiaq_input_init(struct snd_usb_caiaqdev *dev)
 		break;
 
 	default:
-		
+		/* no input methods supported on this device */
 		goto exit_free_idev;
 	}
 

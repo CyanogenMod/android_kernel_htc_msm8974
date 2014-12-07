@@ -17,7 +17,7 @@
 #define DEBUG_CACHE_DIR ".debug"
 
 
-char buildid_dir[MAXPATHLEN]; 
+char buildid_dir[MAXPATHLEN]; /* root dir for buildid, binary cache */
 
 static FILE *config_file;
 static const char *config_file_name;
@@ -35,7 +35,7 @@ static int get_next_char(void)
 	if ((f = config_file) != NULL) {
 		c = fgetc(f);
 		if (c == '\r') {
-			
+			/* DOS like systems */
 			c = fgetc(f);
 			if (c != '\n') {
 				ungetc(c, f);
@@ -100,10 +100,10 @@ static char *parse_value(void)
 			case 'n':
 				c = '\n';
 				break;
-			
+			/* Some characters escape as themselves */
 			case '\\': case '"':
 				break;
-			
+			/* Reject unknown escape sequences */
 			default:
 				return NULL;
 			}
@@ -128,7 +128,7 @@ static int get_value(config_fn_t fn, void *data, char *name, unsigned int len)
 	int c;
 	char *value;
 
-	
+	/* Get the full name */
 	for (;;) {
 		c = get_next_char();
 		if (config_file_eof)
@@ -162,7 +162,7 @@ static int get_extended_base_var(char *name, int baselen, int c)
 		c = get_next_char();
 	} while (isspace(c));
 
-	
+	/* We require the format to be '[base "extension"]' */
 	if (c != '"')
 		return -1;
 	name[baselen++] = '.';
@@ -184,7 +184,7 @@ static int get_extended_base_var(char *name, int baselen, int c)
 			return -1;
 	}
 
-	
+	/* Final ']' */
 	if (get_next_char() != ']')
 		return -1;
 	return baselen;
@@ -216,21 +216,24 @@ static int perf_parse_file(config_fn_t fn, void *data)
 	int baselen = 0;
 	static char var[MAXNAME];
 
-	
+	/* U+FEFF Byte Order Mark in UTF8 */
 	static const unsigned char *utf8_bom = (unsigned char *) "\xef\xbb\xbf";
 	const unsigned char *bomptr = utf8_bom;
 
 	for (;;) {
 		int c = get_next_char();
 		if (bomptr && *bomptr) {
+			/* We are at the file beginning; skip UTF8-encoded BOM
+			 * if present. Sane editors won't put this in on their
+			 * own, but e.g. Windows Notepad will do it happily. */
 			if ((unsigned char) c == *bomptr) {
 				bomptr++;
 				continue;
 			} else {
-				
+				/* Do not tolerate partial BOM. */
 				if (bomptr != utf8_bom)
 					break;
-				
+				/* No BOM at file beginning. Cool. */
 				bomptr = NULL;
 			}
 		}
@@ -341,7 +344,7 @@ const char *perf_config_dirname(const char *name, const char *value)
 
 static int perf_default_core_config(const char *var __used, const char *value __used)
 {
-	
+	/* Add other config variables here. */
 	return 0;
 }
 
@@ -350,7 +353,7 @@ int perf_default_config(const char *var, const char *value, void *dummy __used)
 	if (!prefixcmp(var, "core."))
 		return perf_default_core_config(var, value);
 
-	
+	/* Add other config variables here. */
 	return 0;
 }
 
@@ -401,7 +404,7 @@ int perf_config(config_fn_t fn, void *data)
 	int ret = 0, found = 0;
 	const char *home = NULL;
 
-	
+	/* Setting $PERF_CONFIG makes perf read _only_ the given config file. */
 	if (config_exclusive_filename)
 		return perf_config_from_file(fn, config_exclusive_filename, data);
 	if (perf_config_system() && !access(perf_etc_perfconfig(), R_OK)) {
@@ -444,6 +447,10 @@ out:
 	return ret;
 }
 
+/*
+ * Call this to report error for your variable that should not
+ * get a boolean value (i.e. "[my] var" means "true").
+ */
 int config_error_nonbool(const char *var)
 {
 	return error("Missing value for '%s'", var);
@@ -459,7 +466,7 @@ static int buildid_dir_command_config(const char *var, const char *value,
 	struct buildid_dir_config *c = data;
 	const char *v;
 
-	
+	/* same dir for all commands */
 	if (!prefixcmp(var, "buildid.") && !strcmp(var + 8, "dir")) {
 		v = perf_config_dirname(var, value);
 		if (!v)
@@ -481,10 +488,10 @@ void set_buildid_dir(void)
 {
 	buildid_dir[0] = '\0';
 
-	
+	/* try config file */
 	check_buildid_dir_config();
 
-	
+	/* default to $HOME/.debug */
 	if (buildid_dir[0] == '\0') {
 		char *v = getenv("HOME");
 		if (v) {
@@ -495,6 +502,6 @@ void set_buildid_dir(void)
 		}
 		buildid_dir[MAXPATHLEN-1] = '\0';
 	}
-	
+	/* for communicating with external commands */
 	setenv("PERF_BUILDID_DIR", buildid_dir, 1);
 }

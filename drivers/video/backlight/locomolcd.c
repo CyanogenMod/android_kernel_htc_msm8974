@@ -10,6 +10,7 @@
  * old PDA.
  */
 
+/* LCD power functions */
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -47,13 +48,13 @@ static void locomolcd_on(int comadj)
 	locomo_gpio_write(locomolcd_dev->dev.parent, LOCOMO_GPIO_LCD_VEE_ON, 1);
 	mdelay(10);
 
-	
+	/* TFTCRST | CPSOUT=0 | CPSEN */
 	locomo_writel(0x01, locomolcd_dev->mapbase + LOCOMO_TC);
 
-	
+	/* Set CPSD */
 	locomo_writel(6, locomolcd_dev->mapbase + LOCOMO_CPSD);
 
-	
+	/* TFTCRST | CPSOUT=0 | CPSEN */
 	locomo_writel((0x04 | 0x01), locomolcd_dev->mapbase + LOCOMO_TC);
 	mdelay(10);
 
@@ -63,7 +64,7 @@ static void locomolcd_on(int comadj)
 
 static void locomolcd_off(int comadj)
 {
-	
+	/* TFTCRST=1 | CPSOUT=1 | CPSEN = 0 */
 	locomo_writel(0x06, locomolcd_dev->mapbase + LOCOMO_TC);
 	mdelay(1);
 
@@ -73,7 +74,7 @@ static void locomolcd_off(int comadj)
 	locomo_gpio_write(locomolcd_dev->dev.parent, LOCOMO_GPIO_LCD_VEE_ON, 0);
 	mdelay(700);
 
-	
+	/* TFTCRST=0 | CPSOUT=0 | CPSEN = 0 */
 	locomo_writel(0, locomolcd_dev->mapbase + LOCOMO_TC);
 	locomo_gpio_write(locomolcd_dev->dev.parent, LOCOMO_GPIO_LCD_MOD, 0);
 	locomo_gpio_write(locomolcd_dev->dev.parent, LOCOMO_GPIO_LCD_VSHD_ON, 0);
@@ -91,7 +92,7 @@ void locomolcd_power(int on)
 		return;
 	}
 
-	
+	/* read comadj */
 	if (comadj == -1 && machine_is_collie())
 		comadj = 128;
 	if (comadj == -1 && machine_is_poodle())
@@ -121,7 +122,7 @@ static int locomolcd_set_intensity(struct backlight_device *bd)
 		intensity = 0;
 
 	switch (intensity) {
-	
+	/* AC and non-AC are handled differently, but produce same results in sharp code? */
 	case 0: locomo_frontlight_set(locomolcd_dev, 0, 0, 161); break;
 	case 1: locomo_frontlight_set(locomolcd_dev, 117, 0, 161); break;
 	case 2: locomo_frontlight_set(locomolcd_dev, 163, 0, 148); break;
@@ -174,6 +175,9 @@ static int locomolcd_probe(struct locomo_dev *ldev)
 
 	locomo_gpio_set_dir(ldev->dev.parent, LOCOMO_GPIO_FL_VR, 0);
 
+	/* the poodle_lcd_power function is called for the first time
+	 * from fs_initcall, which is before locomo is activated.
+	 * We need to recall poodle_lcd_power here*/
 	if (machine_is_poodle())
 		locomolcd_power(1);
 
@@ -189,7 +193,7 @@ static int locomolcd_probe(struct locomo_dev *ldev)
 	if (IS_ERR (locomolcd_bl_device))
 		return PTR_ERR (locomolcd_bl_device);
 
-	
+	/* Set up frontlight so that screen is readable */
 	locomolcd_bl_device->props.brightness = 2;
 	locomolcd_set_intensity(locomolcd_bl_device);
 

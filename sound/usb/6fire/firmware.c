@@ -29,10 +29,17 @@ enum {
 	FPGA_BUFSIZE = 512, FPGA_EP = 2
 };
 
+/*
+ * wMaxPacketSize of pcm endpoints.
+ * keep synced with rates_in_packet_size and rates_out_packet_size in pcm.c
+ * fpp: frames per isopacket
+ *
+ * CAUTION: keep sizeof <= buffer[] in usb6fire_fw_init
+ */
 static const u8 ep_w_max_packet_size[] = {
-	0xe4, 0x00, 0xe4, 0x00, 
-	0xa4, 0x01, 0xa4, 0x01, 
-	0x94, 0x01, 0x5c, 0x02  
+	0xe4, 0x00, 0xe4, 0x00, /* alt 1: 228 EP2 and EP6 (7 fpp) */
+	0xa4, 0x01, 0xa4, 0x01, /* alt 2: 420 EP2 and EP6 (13 fpp)*/
+	0x94, 0x01, 0x5c, 0x02  /* alt 3: 404 EP2 and 604 EP6 (25 fpp) */
 };
 
 static const u8 known_fw_versions[][4] = {
@@ -43,14 +50,14 @@ struct ihex_record {
 	u16 address;
 	u8 len;
 	u8 data[256];
-	char error; 
+	char error; /* true if an error occurred parsing this record */
 
-	u8 max_len; 
+	u8 max_len; /* maximum record length in whole ihex */
 
-	
+	/* private */
 	const char *txt_data;
 	unsigned int txt_length;
-	unsigned int txt_offset; 
+	unsigned int txt_offset; /* current position in txt_data */
 };
 
 static u8 usb6fire_fw_ihex_hex(const u8 *data, u8 *crc)
@@ -70,6 +77,10 @@ static u8 usb6fire_fw_ihex_hex(const u8 *data, u8 *crc)
 	return val;
 }
 
+/*
+ * returns true if record is available, false otherwise.
+ * iff an error occurred, false will be returned and record->error will be true.
+ */
 static bool usb6fire_fw_ihex_next_record(struct ihex_record *record)
 {
 	u8 crc = 0;
@@ -78,14 +89,14 @@ static bool usb6fire_fw_ihex_next_record(struct ihex_record *record)
 
 	record->error = false;
 
-	
+	/* find begin of record (marked by a colon) */
 	while (record->txt_offset < record->txt_length
 			&& record->txt_data[record->txt_offset] != ':')
 		record->txt_offset++;
 	if (record->txt_offset == record->txt_length)
 		return false;
 
-	
+	/* number of characters needed for len, addr and type entries */
 	record->txt_offset++;
 	if (record->txt_offset + 8 > record->txt_length) {
 		record->error = true;
@@ -105,7 +116,7 @@ static bool usb6fire_fw_ihex_next_record(struct ihex_record *record)
 			record->txt_offset, &crc);
 	record->txt_offset += 2;
 
-	
+	/* number of characters needed for data and crc entries */
 	if (record->txt_offset + 2 * (record->len + 1) > record->txt_length) {
 		record->error = true;
 		return false;
@@ -121,7 +132,7 @@ static bool usb6fire_fw_ihex_next_record(struct ihex_record *record)
 		return false;
 	}
 
-	if (type == 1 || !record->len) 
+	if (type == 1 || !record->len) /* eof */
 		return false;
 	else if (type == 0)
 		return true;
@@ -138,6 +149,8 @@ static int usb6fire_fw_ihex_init(const struct firmware *fw,
 	record->txt_length = fw->size;
 	record->txt_offset = 0;
 	record->max_len = 0;
+	/* read all records, if loop ends, record->error indicates,
+	 * whether ihex is valid. */
 	while (usb6fire_fw_ihex_next_record(record))
 		record->max_len = max(record->len, record->max_len);
 	if (record->error)
@@ -218,8 +231,8 @@ static int usb6fire_fw_ezusb_upload(
 				"firmware %s.\n", fwname);
 		return ret;
 	}
-	
-	data = 0x01; 
+	/* upload firmware image */
+	data = 0x01; /* stop ezusb cpu */
 	ret = usb6fire_fw_ezusb_write(device, 0xa0, 0xe600, &data, 1);
 	if (ret < 0) {
 		kfree(rec);
@@ -229,7 +242,7 @@ static int usb6fire_fw_ezusb_upload(
 		return ret;
 	}
 
-	while (usb6fire_fw_ihex_next_record(rec)) { 
+	while (usb6fire_fw_ihex_next_record(rec)) { /* write firmware */
 		ret = usb6fire_fw_ezusb_write(device, 0xa0, rec->address,
 				rec->data, rec->len);
 		if (ret < 0) {
@@ -243,7 +256,7 @@ static int usb6fire_fw_ezusb_upload(
 
 	release_firmware(fw);
 	kfree(rec);
-	if (postdata) { 
+	if (postdata) { /* write data after firmware has been uploaded */
 		ret = usb6fire_fw_ezusb_write(device, 0xa0, postaddr,
 				postdata, postlen);
 		if (ret < 0) {
@@ -253,7 +266,7 @@ static int usb6fire_fw_ezusb_upload(
 		}
 	}
 
-	data = 0x00; 
+	data = 0x00; /* resume ezusb cpu */
 	ret = usb6fire_fw_ezusb_write(device, 0xa0, 0xe600, &data, 1);
 	if (ret < 0) {
 		snd_printk(KERN_ERR PREFIX "unable to upload ezusb "
@@ -322,6 +335,9 @@ static int usb6fire_fw_fpga_upload(
 	return 0;
 }
 
+/* check, if the firmware version the devices has currently loaded
+ * is known by this driver. 'version' needs to have 4 bytes version
+ * info data. */
 static int usb6fire_fw_check(u8 *version)
 {
 	int i;
@@ -343,6 +359,8 @@ int usb6fire_fw_init(struct usb_interface *intf)
 	int i;
 	int ret;
 	struct usb_device *device = interface_to_usbdev(intf);
+	/* buffer: 8 receiving bytes from device and
+	 * sizeof(EP_W_MAX_PACKET_SIZE) bytes for non-const copy */
 	u8 buffer[12];
 
 	ret = usb6fire_fw_ezusb_read(device, 1, 0, buffer, 8);
@@ -359,7 +377,7 @@ int usb6fire_fw_init(struct usb_interface *intf)
 		snd_printk("\n");
 		return -EIO;
 	}
-	
+	/* do we need fpga loader ezusb firmware? */
 	if (buffer[3] == 0x01) {
 		ret = usb6fire_fw_ezusb_upload(intf,
 				"6fire/dmx6firel2.ihx", 0, NULL, 0);
@@ -367,7 +385,7 @@ int usb6fire_fw_init(struct usb_interface *intf)
 			return ret;
 		return FW_NOT_READY;
 	}
-	
+	/* do we need fpga firmware and application ezusb firmware? */
 	else if (buffer[3] == 0x02) {
 		ret = usb6fire_fw_check(buffer + 4);
 		if (ret < 0)
@@ -383,10 +401,10 @@ int usb6fire_fw_init(struct usb_interface *intf)
 			return ret;
 		return FW_NOT_READY;
 	}
-	
+	/* all fw loaded? */
 	else if (buffer[3] == 0x03)
 		return usb6fire_fw_check(buffer + 4);
-	
+	/* unknown data? */
 	else {
 		snd_printk(KERN_ERR PREFIX "unknown device firmware state "
 				"received from device: ");

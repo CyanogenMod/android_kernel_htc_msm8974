@@ -52,6 +52,11 @@ static inline struct pcie_port *bus_to_port(struct pci_bus *bus)
 
 static int pcie_valid_config(struct pcie_port *pp, int bus, int dev)
 {
+	/*
+	 * Don't go out when trying to access --
+	 * 1. nonexisting device on local bus
+	 * 2. where there's no device connected (no link)
+	 */
 	if (bus == pp->root_bus_nr && dev == 0)
 		return 1;
 
@@ -65,6 +70,11 @@ static int pcie_valid_config(struct pcie_port *pp, int bus, int dev)
 }
 
 
+/*
+ * PCIe config cycles are done by programming the PCIE_CONF_ADDR register
+ * and then reading the PCIE_CONF_DATA register. Need to make sure these
+ * transactions are atomic.
+ */
 
 static int pcie_rd_conf(struct pci_bus *bus, u32 devfn, int where,
 			int size, u32 *val)
@@ -112,11 +122,17 @@ static void __init pcie0_ioresources_init(struct pcie_port *pp)
 	pp->base = (void __iomem *)PCIE_VIRT_BASE;
 	pp->irq	= IRQ_KIRKWOOD_PCIE;
 
+	/*
+	 * IORESOURCE_IO
+	 */
 	pp->res[0].name = "PCIe 0 I/O Space";
 	pp->res[0].start = KIRKWOOD_PCIE_IO_BUS_BASE;
 	pp->res[0].end = pp->res[0].start + KIRKWOOD_PCIE_IO_SIZE - 1;
 	pp->res[0].flags = IORESOURCE_IO;
 
+	/*
+	 * IORESOURCE_MEM
+	 */
 	pp->res[1].name = "PCIe 0 MEM";
 	pp->res[1].start = KIRKWOOD_PCIE_MEM_PHYS_BASE;
 	pp->res[1].end = pp->res[1].start + KIRKWOOD_PCIE_MEM_SIZE - 1;
@@ -128,11 +144,17 @@ static void __init pcie1_ioresources_init(struct pcie_port *pp)
 	pp->base = (void __iomem *)PCIE1_VIRT_BASE;
 	pp->irq	= IRQ_KIRKWOOD_PCIE1;
 
+	/*
+	 * IORESOURCE_IO
+	 */
 	pp->res[0].name = "PCIe 1 I/O Space";
 	pp->res[0].start = KIRKWOOD_PCIE1_IO_BUS_BASE;
 	pp->res[0].end = pp->res[0].start + KIRKWOOD_PCIE1_IO_SIZE - 1;
 	pp->res[0].flags = IORESOURCE_IO;
 
+	/*
+	 * IORESOURCE_MEM
+	 */
 	pp->res[1].name = "PCIe 1 MEM";
 	pp->res[1].start = KIRKWOOD_PCIE1_MEM_PHYS_BASE;
 	pp->res[1].end = pp->res[1].start + KIRKWOOD_PCIE1_MEM_SIZE - 1;
@@ -180,6 +202,9 @@ static int __init kirkwood_pcie_setup(int nr, struct pci_sys_data *sys)
 	pci_add_resource_offset(&sys->resources, &pp->res[0], sys->io_offset);
 	pci_add_resource_offset(&sys->resources, &pp->res[1], sys->mem_offset);
 
+	/*
+	 * Generic PCIe unit setup.
+	 */
 	orion_pcie_set_local_bus_nr(pp->base, sys->busnr);
 
 	orion_pcie_setup(pp->base);
@@ -189,6 +214,9 @@ static int __init kirkwood_pcie_setup(int nr, struct pci_sys_data *sys)
 
 static void __devinit rc_pci_fixup(struct pci_dev *dev)
 {
+	/*
+	 * Prevent enumeration of root complex.
+	 */
 	if (dev->bus->parent == NULL && dev->devfn == 0) {
 		int i;
 

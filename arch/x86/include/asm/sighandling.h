@@ -21,4 +21,4 @@ int restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc,
 int setup_sigcontext(struct sigcontext __user *sc, void __user *fpstate,
 		     struct pt_regs *regs, unsigned long mask);
 
-#endif 
+#endif /* _ASM_X86_SIGHANDLING_H */

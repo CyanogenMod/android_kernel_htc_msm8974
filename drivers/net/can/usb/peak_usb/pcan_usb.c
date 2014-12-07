@@ -28,11 +28,13 @@
 
 MODULE_SUPPORTED_DEVICE("PEAK-System PCAN-USB adapter");
 
+/* PCAN-USB Endpoints */
 #define PCAN_USB_EP_CMDOUT		1
 #define PCAN_USB_EP_CMDIN		(PCAN_USB_EP_CMDOUT | USB_DIR_IN)
 #define PCAN_USB_EP_MSGOUT		2
 #define PCAN_USB_EP_MSGIN		(PCAN_USB_EP_MSGOUT | USB_DIR_IN)
 
+/* PCAN-USB command struct */
 #define PCAN_USB_CMD_FUNC		0
 #define PCAN_USB_CMD_NUM		1
 #define PCAN_USB_CMD_ARGS		2
@@ -40,23 +42,29 @@ MODULE_SUPPORTED_DEVICE("PEAK-System PCAN-USB adapter");
 #define PCAN_USB_CMD_LEN		(PCAN_USB_CMD_ARGS + \
 					 PCAN_USB_CMD_ARGS_LEN)
 
+/* PCAN-USB command timeout (ms.) */
 #define PCAN_USB_COMMAND_TIMEOUT	1000
 
+/* PCAN-USB startup timeout (ms.) */
 #define PCAN_USB_STARTUP_TIMEOUT	10
 
+/* PCAN-USB rx/tx buffers size */
 #define PCAN_USB_RX_BUFFER_SIZE		64
 #define PCAN_USB_TX_BUFFER_SIZE		64
 
 #define PCAN_USB_MSG_HEADER_LEN		2
 
+/* PCAN-USB adapter internal clock (MHz) */
 #define PCAN_USB_CRYSTAL_HZ		16000000
 
+/* PCAN-USB USB message record status/len field */
 #define PCAN_USB_STATUSLEN_TIMESTAMP	(1 << 7)
 #define PCAN_USB_STATUSLEN_INTERNAL	(1 << 6)
 #define PCAN_USB_STATUSLEN_EXT_ID	(1 << 5)
 #define PCAN_USB_STATUSLEN_RTR		(1 << 4)
 #define PCAN_USB_STATUSLEN_DLC		(0xf)
 
+/* PCAN-USB error flags */
 #define PCAN_USB_ERROR_TXFULL		0x01
 #define PCAN_USB_ERROR_RXQOVR		0x02
 #define PCAN_USB_ERROR_BUS_LIGHT	0x04
@@ -66,24 +74,33 @@ MODULE_SUPPORTED_DEVICE("PEAK-System PCAN-USB adapter");
 #define PCAN_USB_ERROR_QOVR		0x40
 #define PCAN_USB_ERROR_TXQFULL		0x80
 
+/* SJA1000 modes */
 #define SJA1000_MODE_NORMAL		0x00
 #define SJA1000_MODE_INIT		0x01
 
+/*
+ * tick duration = 42.666 us =>
+ * (tick_number * 44739243) >> 20 ~ (tick_number * 42666) / 1000
+ * accuracy = 10^-7
+ */
 #define PCAN_USB_TS_DIV_SHIFTER		20
 #define PCAN_USB_TS_US_PER_TICK		44739243
 
+/* PCAN-USB messages record types */
 #define PCAN_USB_REC_ERROR		1
 #define PCAN_USB_REC_ANALOG		2
 #define PCAN_USB_REC_BUSLOAD		3
 #define PCAN_USB_REC_TS			4
 #define PCAN_USB_REC_BUSEVT		5
 
+/* private to PCAN-USB adapter */
 struct pcan_usb {
 	struct peak_usb_device dev;
 	struct peak_time_ref time_ref;
 	struct timer_list restart_timer;
 };
 
+/* incoming message context for decoding */
 struct pcan_usb_msg_context {
 	u16 ts16;
 	u8 prev_ts8;
@@ -96,12 +113,15 @@ struct pcan_usb_msg_context {
 	struct pcan_usb *pdev;
 };
 
+/*
+ * send a command
+ */
 static int pcan_usb_send_cmd(struct peak_usb_device *dev, u8 f, u8 n, u8 *p)
 {
 	int err;
 	int actual_length;
 
-	
+	/* usb device unregistered? */
 	if (!(dev->state & PCAN_USB_STATE_CONNECTED))
 		return 0;
 
@@ -123,16 +143,19 @@ static int pcan_usb_send_cmd(struct peak_usb_device *dev, u8 f, u8 n, u8 *p)
 	return err;
 }
 
+/*
+ * send a command then wait for its response
+ */
 static int pcan_usb_wait_rsp(struct peak_usb_device *dev, u8 f, u8 n, u8 *p)
 {
 	int err;
 	int actual_length;
 
-	
+	/* usb device unregistered? */
 	if (!(dev->state & PCAN_USB_STATE_CONNECTED))
 		return 0;
 
-	
+	/* first, send command */
 	err = pcan_usb_send_cmd(dev, f, n, NULL);
 	if (err)
 		return err;
@@ -187,6 +210,9 @@ static int pcan_usb_set_ext_vcc(struct peak_usb_device *dev, u8 onoff)
 	return pcan_usb_send_cmd(dev, 10, 2, args);
 }
 
+/*
+ * set bittiming value to can
+ */
 static int pcan_usb_set_bittiming(struct peak_usb_device *dev,
 				  struct can_bittiming *bt)
 {
@@ -208,6 +234,9 @@ static int pcan_usb_set_bittiming(struct peak_usb_device *dev,
 	return pcan_usb_send_cmd(dev, 1, 2, args);
 }
 
+/*
+ * init/reset can
+ */
 static int pcan_usb_write_mode(struct peak_usb_device *dev, u8 onoff)
 {
 	int err;
@@ -219,7 +248,7 @@ static int pcan_usb_write_mode(struct peak_usb_device *dev, u8 onoff)
 	if (!onoff) {
 		err = pcan_usb_set_sja1000(dev, SJA1000_MODE_INIT);
 	} else {
-		
+		/* the PCAN-USB needs time to init */
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule_timeout(msecs_to_jiffies(PCAN_USB_STARTUP_TIMEOUT));
 	}
@@ -227,24 +256,33 @@ static int pcan_usb_write_mode(struct peak_usb_device *dev, u8 onoff)
 	return err;
 }
 
+/*
+ * handle end of waiting for the device to reset
+ */
 static void pcan_usb_restart(unsigned long arg)
 {
-	
+	/* notify candev and netdev */
 	peak_usb_restart_complete((struct peak_usb_device *)arg);
 }
 
+/*
+ * handle the submission of the restart urb
+ */
 static void pcan_usb_restart_pending(struct urb *urb)
 {
 	struct pcan_usb *pdev = urb->context;
 
-	
+	/* the PCAN-USB needs time to restart */
 	mod_timer(&pdev->restart_timer,
 			jiffies + msecs_to_jiffies(PCAN_USB_STARTUP_TIMEOUT));
 
-	
+	/* can delete usb resources */
 	peak_usb_async_complete(urb);
 }
 
+/*
+ * handle asynchronous restart
+ */
 static int pcan_usb_restart_async(struct peak_usb_device *dev, struct urb *urb,
 				  u8 *buf)
 {
@@ -253,7 +291,7 @@ static int pcan_usb_restart_async(struct peak_usb_device *dev, struct urb *urb,
 	if (timer_pending(&pdev->restart_timer))
 		return -EBUSY;
 
-	
+	/* set bus on */
 	buf[PCAN_USB_CMD_FUNC] = 3;
 	buf[PCAN_USB_CMD_NUM] = 2;
 	buf[PCAN_USB_CMD_ARGS] = 1;
@@ -266,6 +304,9 @@ static int pcan_usb_restart_async(struct peak_usb_device *dev, struct urb *urb,
 	return usb_submit_urb(urb, GFP_ATOMIC);
 }
 
+/*
+ * read serial number from device
+ */
 static int pcan_usb_get_serial(struct peak_usb_device *dev, u32 *serial_number)
 {
 	u8 args[PCAN_USB_CMD_ARGS_LEN];
@@ -284,6 +325,9 @@ static int pcan_usb_get_serial(struct peak_usb_device *dev, u32 *serial_number)
 	return err;
 }
 
+/*
+ * read device id from device
+ */
 static int pcan_usb_get_device_id(struct peak_usb_device *dev, u32 *device_id)
 {
 	u8 args[PCAN_USB_CMD_ARGS_LEN];
@@ -298,6 +342,9 @@ static int pcan_usb_get_device_id(struct peak_usb_device *dev, u32 *device_id)
 	return err;
 }
 
+/*
+ * update current time ref with received timestamp
+ */
 static int pcan_usb_update_ts(struct pcan_usb_msg_context *mc)
 {
 	u16 tmp16;
@@ -317,9 +364,12 @@ static int pcan_usb_update_ts(struct pcan_usb_msg_context *mc)
 	return 0;
 }
 
+/*
+ * decode received timestamp
+ */
 static int pcan_usb_decode_ts(struct pcan_usb_msg_context *mc, u8 first_packet)
 {
-	
+	/* only 1st packet supplies a word timestamp */
 	if (first_packet) {
 		u16 tmp16;
 
@@ -358,7 +408,7 @@ static int pcan_usb_decode_error(struct pcan_usb_msg_context *mc, u8 n,
 	struct timeval tv;
 	enum can_state new_state;
 
-	
+	/* ignore this error until 1st ts received */
 	if (n == PCAN_USB_ERROR_QOVR)
 		if (!mc->pdev->time_ref.tick_count)
 			return 0;
@@ -382,11 +432,15 @@ static int pcan_usb_decode_error(struct pcan_usb_msg_context *mc, u8 n,
 			break;
 		}
 		if (n & (PCAN_USB_ERROR_RXQOVR | PCAN_USB_ERROR_QOVR)) {
+			/*
+			 * trick to bypass next comparison and process other
+			 * errors
+			 */
 			new_state = CAN_STATE_MAX;
 			break;
 		}
 		if ((n & PCAN_USB_ERROR_BUS_LIGHT) == 0) {
-			
+			/* no error (back to active state) */
 			mc->pdev->dev.can.state = CAN_STATE_ERROR_ACTIVE;
 			return 0;
 		}
@@ -402,27 +456,31 @@ static int pcan_usb_decode_error(struct pcan_usb_msg_context *mc, u8 n,
 			break;
 		}
 		if (n & (PCAN_USB_ERROR_RXQOVR | PCAN_USB_ERROR_QOVR)) {
+			/*
+			 * trick to bypass next comparison and process other
+			 * errors
+			 */
 			new_state = CAN_STATE_MAX;
 			break;
 		}
 
 		if ((n & PCAN_USB_ERROR_BUS_HEAVY) == 0) {
-			
+			/* no error (back to active state) */
 			mc->pdev->dev.can.state = CAN_STATE_ERROR_ACTIVE;
 			return 0;
 		}
 		break;
 
 	default:
-		
+		/* do nothing waiting for restart */
 		return 0;
 	}
 
-	
+	/* donot post any error if current state didn't change */
 	if (mc->pdev->dev.can.state == new_state)
 		return 0;
 
-	
+	/* allocate an skb to store the error frame */
 	skb = alloc_can_err_skb(mc->netdev, &cf);
 	if (!skb)
 		return -ENOMEM;
@@ -448,7 +506,7 @@ static int pcan_usb_decode_error(struct pcan_usb_msg_context *mc, u8 n,
 		break;
 
 	default:
-		
+		/* CAN_STATE_MAX (trick to handle other errors) */
 		cf->can_id |= CAN_ERR_CRTL;
 		cf->data[1] |= CAN_ERR_CRTL_RX_OVERFLOW;
 		mc->netdev->stats.rx_over_errors++;
@@ -472,6 +530,9 @@ static int pcan_usb_decode_error(struct pcan_usb_msg_context *mc, u8 n,
 	return 0;
 }
 
+/*
+ * decode non-data usb message
+ */
 static int pcan_usb_decode_status(struct pcan_usb_msg_context *mc,
 				  u8 status_len)
 {
@@ -479,7 +540,7 @@ static int pcan_usb_decode_status(struct pcan_usb_msg_context *mc,
 	u8 f, n;
 	int err;
 
-	
+	/* check whether function and number can be read */
 	if ((mc->ptr + 2) > mc->end)
 		return -EINVAL;
 
@@ -502,23 +563,23 @@ static int pcan_usb_decode_status(struct pcan_usb_msg_context *mc,
 		break;
 
 	case PCAN_USB_REC_ANALOG:
-		
+		/* analog values (ignored) */
 		rec_len = 2;
 		break;
 
 	case PCAN_USB_REC_BUSLOAD:
-		
+		/* bus load (ignored) */
 		rec_len = 1;
 		break;
 
 	case PCAN_USB_REC_TS:
-		
+		/* only timestamp */
 		if (pcan_usb_update_ts(mc))
 			return -EINVAL;
 		break;
 
 	case PCAN_USB_REC_BUSEVT:
-		
+		/* error frame/bus event */
 		if (n & PCAN_USB_ERROR_TXQFULL)
 			netdev_dbg(mc->netdev, "device Tx queue full)\n");
 		break;
@@ -535,6 +596,9 @@ static int pcan_usb_decode_status(struct pcan_usb_msg_context *mc,
 	return 0;
 }
 
+/*
+ * decode data usb message
+ */
 static int pcan_usb_decode_data(struct pcan_usb_msg_context *mc, u8 status_len)
 {
 	u8 rec_len = status_len & PCAN_USB_STATUSLEN_DLC;
@@ -570,11 +634,11 @@ static int pcan_usb_decode_data(struct pcan_usb_msg_context *mc, u8 status_len)
 
 	cf->can_dlc = get_can_dlc(rec_len);
 
-	
+	/* first data packet timestamp is a word */
 	if (pcan_usb_decode_ts(mc, !mc->rec_data_idx))
 		goto decode_failed;
 
-	
+	/* read data */
 	memset(cf->data, 0x0, sizeof(cf->data));
 	if (status_len & PCAN_USB_STATUSLEN_RTR) {
 		cf->can_id |= CAN_RTR_FLAG;
@@ -586,14 +650,14 @@ static int pcan_usb_decode_data(struct pcan_usb_msg_context *mc, u8 status_len)
 		mc->ptr += rec_len;
 	}
 
-	
+	/* convert timestamp into kernel time */
 	peak_usb_get_ts_tv(&mc->pdev->time_ref, mc->ts16, &tv);
 	skb->tstamp = timeval_to_ktime(tv);
 
-	
+	/* push the skb */
 	netif_rx(skb);
 
-	
+	/* update statistics */
 	mc->netdev->stats.rx_packets++;
 	mc->netdev->stats.rx_bytes += cf->can_dlc;
 
@@ -604,6 +668,9 @@ decode_failed:
 	return -EINVAL;
 }
 
+/*
+ * process incoming message
+ */
 static int pcan_usb_decode_msg(struct peak_usb_device *dev, u8 *ibuf, u32 lbuf)
 {
 	struct pcan_usb_msg_context mc = {
@@ -618,10 +685,10 @@ static int pcan_usb_decode_msg(struct peak_usb_device *dev, u8 *ibuf, u32 lbuf)
 	for (err = 0; mc.rec_idx < mc.rec_cnt && !err; mc.rec_idx++) {
 		u8 sl = *mc.ptr++;
 
-		
+		/* handle status and error frames here */
 		if (sl & PCAN_USB_STATUSLEN_INTERNAL) {
 			err = pcan_usb_decode_status(&mc, sl);
-		
+		/* handle normal can frames here */
 		} else {
 			err = pcan_usb_decode_data(&mc, sl);
 			mc.rec_data_idx++;
@@ -631,6 +698,9 @@ static int pcan_usb_decode_msg(struct peak_usb_device *dev, u8 *ibuf, u32 lbuf)
 	return err;
 }
 
+/*
+ * process any incoming buffer
+ */
 static int pcan_usb_decode_buf(struct peak_usb_device *dev, struct urb *urb)
 {
 	int err = 0;
@@ -648,6 +718,9 @@ static int pcan_usb_decode_buf(struct peak_usb_device *dev, struct urb *urb)
 	return err;
 }
 
+/*
+ * process outgoing packet
+ */
 static int pcan_usb_encode_msg(struct peak_usb_device *dev, struct sk_buff *skb,
 			       u8 *obuf, size_t *size)
 {
@@ -661,12 +734,12 @@ static int pcan_usb_encode_msg(struct peak_usb_device *dev, struct sk_buff *skb,
 
 	pc = obuf + PCAN_USB_MSG_HEADER_LEN;
 
-	
+	/* status/len byte */
 	*pc = cf->can_dlc;
 	if (cf->can_id & CAN_RTR_FLAG)
 		*pc |= PCAN_USB_STATUSLEN_RTR;
 
-	
+	/* can id */
 	if (cf->can_id & CAN_EFF_FLAG) {
 		__le32 tmp32 = cpu_to_le32((cf->can_id & CAN_ERR_MASK) << 3);
 
@@ -680,7 +753,7 @@ static int pcan_usb_encode_msg(struct peak_usb_device *dev, struct sk_buff *skb,
 		pc += 2;
 	}
 
-	
+	/* can data */
 	if (!(cf->can_id & CAN_RTR_FLAG)) {
 		memcpy(pc, cf->data, cf->can_dlc);
 		pc += cf->can_dlc;
@@ -691,14 +764,17 @@ static int pcan_usb_encode_msg(struct peak_usb_device *dev, struct sk_buff *skb,
 	return 0;
 }
 
+/*
+ * start interface
+ */
 static int pcan_usb_start(struct peak_usb_device *dev)
 {
 	struct pcan_usb *pdev = container_of(dev, struct pcan_usb, dev);
 
-	
+	/* number of bits used in timestamps read from adapter struct */
 	peak_usb_init_time_ref(&pdev->time_ref, &pcan_usb);
 
-	
+	/* if revision greater than 3, can put silent mode on/off */
 	if (dev->device_rev > 3) {
 		int err;
 
@@ -717,11 +793,16 @@ static int pcan_usb_init(struct peak_usb_device *dev)
 	u32 serial_number;
 	int err;
 
-	
+	/* initialize a timer needed to wait for hardware restart */
 	init_timer(&pdev->restart_timer);
 	pdev->restart_timer.function = pcan_usb_restart;
 	pdev->restart_timer.data = (unsigned long)dev;
 
+	/*
+	 * explicit use of dev_xxx() instead of netdev_xxx() here:
+	 * information displayed are related to the device itself, not
+	 * to the canx netdevice.
+	 */
 	err = pcan_usb_get_serial(dev, &serial_number);
 	if (err) {
 		dev_err(dev->netdev->dev.parent,
@@ -738,6 +819,9 @@ static int pcan_usb_init(struct peak_usb_device *dev)
 	return 0;
 }
 
+/*
+ * probe function for new PCAN-USB usb interface
+ */
 static int pcan_usb_probe(struct usb_interface *intf)
 {
 	struct usb_host_interface *if_desc;
@@ -745,7 +829,7 @@ static int pcan_usb_probe(struct usb_interface *intf)
 
 	if_desc = intf->altsetting;
 
-	
+	/* check interface endpoint addresses */
 	for (i = 0; i < if_desc->desc.bNumEndpoints; i++) {
 		struct usb_endpoint_descriptor *ep = &if_desc->endpoint[i].desc;
 
@@ -763,6 +847,9 @@ static int pcan_usb_probe(struct usb_interface *intf)
 	return 0;
 }
 
+/*
+ * describe the PCAN-USB adapter
+ */
 struct peak_usb_adapter pcan_usb = {
 	.name = "PCAN-USB",
 	.device_id = PCAN_USB_PRODUCT_ID,
@@ -782,24 +869,24 @@ struct peak_usb_adapter pcan_usb = {
 		.brp_inc = 1,
 	},
 
-	
+	/* size of device private data */
 	.sizeof_dev_private = sizeof(struct pcan_usb),
 
-	
+	/* timestamps usage */
 	.ts_used_bits = 16,
-	.ts_period = 24575, 
-	.us_per_ts_scale = PCAN_USB_TS_US_PER_TICK, 
-	.us_per_ts_shift = PCAN_USB_TS_DIV_SHIFTER, 
+	.ts_period = 24575, /* calibration period in ts. */
+	.us_per_ts_scale = PCAN_USB_TS_US_PER_TICK, /* us=(ts*scale) */
+	.us_per_ts_shift = PCAN_USB_TS_DIV_SHIFTER, /*  >> shift     */
 
-	
+	/* give here messages in/out endpoints */
 	.ep_msg_in = PCAN_USB_EP_MSGIN,
 	.ep_msg_out = {PCAN_USB_EP_MSGOUT},
 
-	
+	/* size of rx/tx usb buffers */
 	.rx_buffer_size = PCAN_USB_RX_BUFFER_SIZE,
 	.tx_buffer_size = PCAN_USB_TX_BUFFER_SIZE,
 
-	
+	/* device callbacks */
 	.intf_probe = pcan_usb_probe,
 	.dev_init = pcan_usb_init,
 	.dev_set_bus = pcan_usb_write_mode,

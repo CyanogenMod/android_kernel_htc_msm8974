@@ -28,14 +28,30 @@
 static pteval_t shared_pte_mask = L_PTE_MT_BUFFERABLE;
 
 #if __LINUX_ARM_ARCH__ < 6
+/*
+ * We take the easy way out of this problem - we make the
+ * PTE uncacheable.  However, we leave the write buffer on.
+ *
+ * Note that the pte lock held when calling update_mmu_cache must also
+ * guard the pte (somewhere else in the same mm) that we modify here.
+ * Therefore those configurations which might call adjust_pte (those
+ * without CONFIG_CPU_CACHE_VIPT) cannot support split page_table_lock.
+ */
 static int do_adjust_pte(struct vm_area_struct *vma, unsigned long address,
 	unsigned long pfn, pte_t *ptep)
 {
 	pte_t entry = *ptep;
 	int ret;
 
+	/*
+	 * If this page is present, it's actually being shared.
+	 */
 	ret = pte_present(entry);
 
+	/*
+	 * If this page isn't present, or is already setup to
+	 * fault (ie, is old), we can safely ignore any issues.
+	 */
 	if (ret && (pte_val(entry) & L_PTE_MT_MASK) != shared_pte_mask) {
 		flush_cache_page(vma, address, pfn);
 		outer_flush_range((pfn << PAGE_SHIFT),
@@ -50,8 +66,17 @@ static int do_adjust_pte(struct vm_area_struct *vma, unsigned long address,
 }
 
 #if USE_SPLIT_PTLOCKS
+/*
+ * If we are using split PTE locks, then we need to take the page
+ * lock here.  Otherwise we are using shared mm->page_table_lock
+ * which is already locked, thus cannot take it.
+ */
 static inline void do_pte_lock(spinlock_t *ptl)
 {
+	/*
+	 * Use nested version here to indicate that we are already
+	 * holding one similar spinlock.
+	 */
 	spin_lock_nested(ptl, SINGLE_DEPTH_NESTING);
 }
 
@@ -59,10 +84,10 @@ static inline void do_pte_unlock(spinlock_t *ptl)
 {
 	spin_unlock(ptl);
 }
-#else 
+#else /* !USE_SPLIT_PTLOCKS */
 static inline void do_pte_lock(spinlock_t *ptl) {}
 static inline void do_pte_unlock(spinlock_t *ptl) {}
-#endif 
+#endif /* USE_SPLIT_PTLOCKS */
 
 static int adjust_pte(struct vm_area_struct *vma, unsigned long address,
 	unsigned long pfn)
@@ -86,6 +111,11 @@ static int adjust_pte(struct vm_area_struct *vma, unsigned long address,
 	if (pmd_none_or_clear_bad(pmd))
 		return 0;
 
+	/*
+	 * This is called while another page table is mapped, so we
+	 * must use the nested version.  This also means we need to
+	 * open-code the spin-locking.
+	 */
 	ptl = pte_lockptr(vma->vm_mm, pmd);
 	pte = pte_offset_map(pmd, address);
 	do_pte_lock(ptl);
@@ -111,8 +141,18 @@ make_coherent(struct address_space *mapping, struct vm_area_struct *vma,
 
 	pgoff = vma->vm_pgoff + ((addr - vma->vm_start) >> PAGE_SHIFT);
 
+	/*
+	 * If we have any shared mappings that are in the same mm
+	 * space, then we need to handle them specially to maintain
+	 * cache coherency.
+	 */
 	flush_dcache_mmap_lock(mapping);
 	vma_prio_tree_foreach(mpnt, &iter, &mapping->i_mmap, pgoff, pgoff) {
+		/*
+		 * If this VMA is not in our MM, we can ignore it.
+		 * Note that we intentionally mask out the VMA
+		 * that we are fixing up.
+		 */
 		if (mpnt->vm_mm != mm || mpnt == vma)
 			continue;
 		if (!(mpnt->vm_flags & VM_MAYSHARE))
@@ -166,8 +206,14 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long addr,
 			__flush_icache_all();
 	}
 }
-#endif	
+#endif	/* __LINUX_ARM_ARCH__ < 6 */
 
+/*
+ * Check whether the write buffer has physical address aliasing
+ * issues.  If it has, we need to avoid them for the case where
+ * we have several shared mappings of the same object in user
+ * space.
+ */
 static int __init check_writebuffer(unsigned long *p1, unsigned long *p2)
 {
 	register unsigned long zero = 0, one = 1, val;

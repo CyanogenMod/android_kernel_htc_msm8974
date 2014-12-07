@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011, 2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -57,7 +57,7 @@ void __diag_sdio_send_req(void)
 				if (((!driver->usb_connected) && (driver->
 					logging_mode == USB_MODE)) || (driver->
 					logging_mode == NO_LOGGING_MODE)) {
-					
+					/* Drop the diag payload */
 					driver->in_busy_sdio = 0;
 					return;
 				}
@@ -98,7 +98,7 @@ static void diag_close_sdio_work_fn(struct work_struct *work)
 	if (sdio_close(driver->sdio_ch))
 		pr_err("diag: could not close SDIO channel\n");
 	else
-		driver->sdio_ch = NULL; 
+		driver->sdio_ch = NULL; /* channel successfully closed */
 }
 
 int diagfwd_connect_sdio(void)
@@ -122,16 +122,15 @@ int diagfwd_connect_sdio(void)
 		pr_info("diag: SDIO channel already open\n");
 	}
 
-	
+	/* Poll USB channel to check for data*/
 	queue_work(driver->diag_sdio_wq, &(driver->diag_read_mdm_work));
-	
+	/* Poll SDIO channel to check for data*/
 	queue_work(driver->diag_sdio_wq, &(driver->diag_read_sdio_work));
 	return 0;
 }
 
 int diagfwd_disconnect_sdio(void)
 {
-	usb_diag_free_req(driver->mdm_ch);
 	if (driver->sdio_ch && (driver->logging_mode == USB_MODE)) {
 		driver->in_busy_sdio = 1;
 		diag_sdio_close();
@@ -194,7 +193,7 @@ static int diag_sdio_probe(struct platform_device *pdev)
 static int diag_sdio_remove(struct platform_device *pdev)
 {
 	pr_debug("\n diag: sdio remove called");
-	
+	/* Disable SDIO channel to prevent further read/write */
 	driver->sdio_ch = NULL;
 	return 0;
 }
@@ -280,10 +279,6 @@ err:
 
 void diagfwd_sdio_exit(void)
 {
-#ifdef CONFIG_DIAG_OVER_USB
-	if (driver->usb_connected)
-		usb_diag_free_req(driver->mdm_ch);
-#endif
 	platform_driver_unregister(&msm_sdio_ch_driver);
 #ifdef CONFIG_DIAG_OVER_USB
 	usb_diag_close(driver->mdm_ch);

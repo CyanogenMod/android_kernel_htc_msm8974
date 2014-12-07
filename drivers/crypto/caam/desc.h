@@ -8,10 +8,16 @@
 #ifndef DESC_H
 #define DESC_H
 
+/* Max size of any CAAM descriptor in 32-bit words, inclusive of header */
 #define MAX_CAAM_DESCSIZE	64
 
+/* Block size of any entity covered/uncovered with a KEK/TKEK */
 #define KEK_BLOCKSIZE		16
 
+/*
+ * Supported descriptor command types as they show up
+ * inside a descriptor command word.
+ */
 #define CMD_SHIFT		27
 #define CMD_MASK		0xf8000000
 
@@ -36,6 +42,7 @@
 #define CMD_SEQ_IN_PTR		(0x1e << CMD_SHIFT)
 #define CMD_SEQ_OUT_PTR		(0x1f << CMD_SHIFT)
 
+/* General-purpose class selector for all commands */
 #define CLASS_SHIFT		25
 #define CLASS_MASK		(0x03 << CLASS_SHIFT)
 
@@ -44,31 +51,56 @@
 #define CLASS_2			(0x02 << CLASS_SHIFT)
 #define CLASS_BOTH		(0x03 << CLASS_SHIFT)
 
+/*
+ * Descriptor header command constructs
+ * Covers shared, job, and trusted descriptor headers
+ */
 
+/*
+ * Do Not Run - marks a descriptor inexecutable if there was
+ * a preceding error somewhere
+ */
 #define HDR_DNR			0x01000000
 
+/*
+ * ONE - should always be set. Combination of ONE (always
+ * set) and ZRO (always clear) forms an endianness sanity check
+ */
 #define HDR_ONE			0x00800000
 #define HDR_ZRO			0x00008000
 
+/* Start Index or SharedDesc Length */
 #define HDR_START_IDX_MASK	0x3f
 #define HDR_START_IDX_SHIFT	16
 
+/* If shared descriptor header, 6-bit length */
 #define HDR_DESCLEN_SHR_MASK	0x3f
 
+/* If non-shared header, 7-bit length */
 #define HDR_DESCLEN_MASK	0x7f
 
+/* This is a TrustedDesc (if not SharedDesc) */
 #define HDR_TRUSTED		0x00004000
 
+/* Make into TrustedDesc (if not SharedDesc) */
 #define HDR_MAKE_TRUSTED	0x00002000
 
+/* Save context if self-shared (if SharedDesc) */
 #define HDR_SAVECTX		0x00001000
 
+/* Next item points to SharedDesc */
 #define HDR_SHARED		0x00001000
 
+/*
+ * Reverse Execution Order - execute JobDesc first, then
+ * execute SharedDesc (normally SharedDesc goes first).
+ */
 #define HDR_REVERSE		0x00000800
 
+/* Propogate DNR property to SharedDesc */
 #define HDR_PROP_DNR		0x00000800
 
+/* JobDesc/SharedDesc share property */
 #define HDR_SD_SHARE_MASK	0x03
 #define HDR_SD_SHARE_SHIFT	8
 #define HDR_JD_SHARE_MASK	0x07
@@ -80,26 +112,50 @@
 #define HDR_SHARE_ALWAYS	(0x03 << HDR_SD_SHARE_SHIFT)
 #define HDR_SHARE_DEFER		(0x04 << HDR_SD_SHARE_SHIFT)
 
+/* JobDesc/SharedDesc descriptor length */
 #define HDR_JD_LENGTH_MASK	0x7f
 #define HDR_SD_LENGTH_MASK	0x3f
 
+/*
+ * KEY/SEQ_KEY Command Constructs
+ */
 
-#define KEY_DEST_CLASS_SHIFT	25	
+/* Key Destination Class: 01 = Class 1, 02 - Class 2 */
+#define KEY_DEST_CLASS_SHIFT	25	/* use CLASS_1 or CLASS_2 */
 #define KEY_DEST_CLASS_MASK	(0x03 << KEY_DEST_CLASS_SHIFT)
 
+/* Scatter-Gather Table/Variable Length Field */
 #define KEY_SGF			0x01000000
 #define KEY_VLF			0x01000000
 
+/* Immediate - Key follows command in the descriptor */
 #define KEY_IMM			0x00800000
 
+/*
+ * Encrypted - Key is encrypted either with the KEK, or
+ * with the TDKEK if TK is set
+ */
 #define KEY_ENC			0x00400000
 
+/*
+ * No Write Back - Do not allow key to be FIFO STOREd
+ */
 #define KEY_NWB			0x00200000
 
+/*
+ * Enhanced Encryption of Key
+ */
 #define KEY_EKT			0x00100000
 
+/*
+ * Encrypted with Trusted Key
+ */
 #define KEY_TK			0x00008000
 
+/*
+ * KDEST - Key Destination: 0 - class key register,
+ * 1 - PKHA 'e', 2 - AFHA Sbox, 3 - MDHA split-key
+ */
 #define KEY_DEST_SHIFT		16
 #define KEY_DEST_MASK		(0x03 << KEY_DEST_SHIFT)
 
@@ -108,9 +164,17 @@
 #define KEY_DEST_AFHA_SBOX	(0x02 << KEY_DEST_SHIFT)
 #define KEY_DEST_MDHA_SPLIT	(0x03 << KEY_DEST_SHIFT)
 
+/* Length in bytes */
 #define KEY_LENGTH_MASK		0x000003ff
 
+/*
+ * LOAD/SEQ_LOAD/STORE/SEQ_STORE Command Constructs
+ */
 
+/*
+ * Load/Store Destination: 0 = class independent CCB,
+ * 1 = class 1 CCB, 2 = class 2 CCB, 3 = DECO
+ */
 #define LDST_CLASS_SHIFT	25
 #define LDST_CLASS_MASK		(0x03 << LDST_CLASS_SHIFT)
 #define LDST_CLASS_IND_CCB	(0x00 << LDST_CLASS_SHIFT)
@@ -118,13 +182,16 @@
 #define LDST_CLASS_2_CCB	(0x02 << LDST_CLASS_SHIFT)
 #define LDST_CLASS_DECO		(0x03 << LDST_CLASS_SHIFT)
 
+/* Scatter-Gather Table/Variable Length Field */
 #define LDST_SGF		0x01000000
 #define LDST_VLF		LDST_SGF
 
+/* Immediate - Key follows this command in descriptor */
 #define LDST_IMM_MASK		1
 #define LDST_IMM_SHIFT		23
 #define LDST_IMM		(LDST_IMM_MASK << LDST_IMM_SHIFT)
 
+/* SRC/DST - Destination for LOAD, Source for STORE */
 #define LDST_SRCDST_SHIFT	16
 #define LDST_SRCDST_MASK	(0x7f << LDST_SRCDST_SHIFT)
 
@@ -157,9 +224,12 @@
 #define LDST_SRCDST_WORD_DESCBUF	(0x40 << LDST_SRCDST_SHIFT)
 #define LDST_SRCDST_WORD_INFO_FIFO	(0x7a << LDST_SRCDST_SHIFT)
 
+/* Offset in source/destination */
 #define LDST_OFFSET_SHIFT	8
 #define LDST_OFFSET_MASK	(0xff << LDST_OFFSET_SHIFT)
 
+/* LDOFF definitions used when DST = LDST_SRCDST_WORD_DECOCTRL */
+/* These could also be shifted by LDST_OFFSET_SHIFT - this reads better */
 #define LDOFF_CHG_SHARE_SHIFT		0
 #define LDOFF_CHG_SHARE_MASK		(0x3 << LDOFF_CHG_SHARE_SHIFT)
 #define LDOFF_CHG_SHARE_NEVER		(0x1 << LDOFF_CHG_SHARE_SHIFT)
@@ -181,9 +251,11 @@
 #define LDOFF_CHG_SEQLIODN_NON_SEQ	(0x2 << LDOFF_CHG_SEQLIODN_SHIFT)
 #define LDOFF_CHG_SEQLIODN_TRUSTED	(0x3 << LDOFF_CHG_SEQLIODN_SHIFT)
 
+/* Data length in bytes	*/
 #define LDST_LEN_SHIFT		0
 #define LDST_LEN_MASK		(0xff << LDST_LEN_SHIFT)
 
+/* Special Length definitions when dst=deco-ctrl */
 #define LDLEN_ENABLE_OSL_COUNT		(1 << 7)
 #define LDLEN_RST_CHA_OFIFO_PTR		(1 << 6)
 #define LDLEN_RST_OFIFO			(1 << 5)
@@ -192,7 +264,16 @@
 #define LDLEN_SET_OFIFO_OFFSET_SHIFT	0
 #define LDLEN_SET_OFIFO_OFFSET_MASK	(3 << LDLEN_SET_OFIFO_OFFSET_SHIFT)
 
+/*
+ * FIFO_LOAD/FIFO_STORE/SEQ_FIFO_LOAD/SEQ_FIFO_STORE
+ * Command Constructs
+ */
 
+/*
+ * Load Destination: 0 = skip (SEQ_FIFO_LOAD only),
+ * 1 = Load for Class1, 2 = Load for Class2, 3 = Load both
+ * Store Source: 0 = normal, 1 = Class1key, 2 = Class2key
+ */
 #define FIFOLD_CLASS_SHIFT	25
 #define FIFOLD_CLASS_MASK	(0x03 << FIFOLD_CLASS_SHIFT)
 #define FIFOLD_CLASS_SKIP	(0x00 << FIFOLD_CLASS_SHIFT)
@@ -206,28 +287,41 @@
 #define FIFOST_CLASS_CLASS1KEY	(0x01 << FIFOST_CLASS_SHIFT)
 #define FIFOST_CLASS_CLASS2KEY	(0x02 << FIFOST_CLASS_SHIFT)
 
+/*
+ * Scatter-Gather Table/Variable Length Field
+ * If set for FIFO_LOAD, refers to a SG table. Within
+ * SEQ_FIFO_LOAD, is variable input sequence
+ */
 #define FIFOLDST_SGF_SHIFT	24
 #define FIFOLDST_SGF_MASK	(1 << FIFOLDST_SGF_SHIFT)
 #define FIFOLDST_VLF_MASK	(1 << FIFOLDST_SGF_SHIFT)
 #define FIFOLDST_SGF		(1 << FIFOLDST_SGF_SHIFT)
 #define FIFOLDST_VLF		(1 << FIFOLDST_SGF_SHIFT)
 
+/* Immediate - Data follows command in descriptor */
 #define FIFOLD_IMM_SHIFT	23
 #define FIFOLD_IMM_MASK		(1 << FIFOLD_IMM_SHIFT)
 #define FIFOLD_IMM		(1 << FIFOLD_IMM_SHIFT)
 
+/* Continue - Not the last FIFO store to come */
 #define FIFOST_CONT_SHIFT	23
 #define FIFOST_CONT_MASK	(1 << FIFOST_CONT_SHIFT)
 #define FIFOST_CONT_MASK	(1 << FIFOST_CONT_SHIFT)
 
+/*
+ * Extended Length - use 32-bit extended length that
+ * follows the pointer field. Illegal with IMM set
+ */
 #define FIFOLDST_EXT_SHIFT	22
 #define FIFOLDST_EXT_MASK	(1 << FIFOLDST_EXT_SHIFT)
 #define FIFOLDST_EXT		(1 << FIFOLDST_EXT_SHIFT)
 
+/* Input data type.*/
 #define FIFOLD_TYPE_SHIFT	16
-#define FIFOLD_CONT_TYPE_SHIFT	19 
+#define FIFOLD_CONT_TYPE_SHIFT	19 /* shift past last-flush bits */
 #define FIFOLD_TYPE_MASK	(0x3f << FIFOLD_TYPE_SHIFT)
 
+/* PK types */
 #define FIFOLD_TYPE_PK		(0x00 << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_PK_MASK	(0x30 << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_PK_TYPEMASK (0x0f << FIFOLD_TYPE_SHIFT)
@@ -243,6 +337,7 @@
 #define FIFOLD_TYPE_PK_A	(0x0c << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_PK_B	(0x0d << FIFOLD_TYPE_SHIFT)
 
+/* Other types. Need to OR in last/flush bits as desired */
 #define FIFOLD_TYPE_MSG_MASK	(0x38 << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_MSG		(0x10 << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_MSG1OUT2	(0x18 << FIFOLD_TYPE_SHIFT)
@@ -251,6 +346,7 @@
 #define FIFOLD_TYPE_AAD		(0x30 << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_ICV		(0x38 << FIFOLD_TYPE_SHIFT)
 
+/* Last/Flush bits for use with "other" types above */
 #define FIFOLD_TYPE_ACT_MASK	(0x07 << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_NOACTION	(0x00 << FIFOLD_TYPE_SHIFT)
 #define FIFOLD_TYPE_FLUSH1	(0x01 << FIFOLD_TYPE_SHIFT)
@@ -264,6 +360,7 @@
 #define FIFOLDST_LEN_MASK	0xffff
 #define FIFOLDST_EXT_LEN_MASK	0xffffffff
 
+/* Output data types */
 #define FIFOST_TYPE_SHIFT	16
 #define FIFOST_TYPE_MASK	(0x3f << FIFOST_TYPE_SHIFT)
 
@@ -293,7 +390,11 @@
 #define FIFOST_TYPE_RNGFIFO	 (0x35 << FIFOST_TYPE_SHIFT)
 #define FIFOST_TYPE_SKIP	 (0x3f << FIFOST_TYPE_SHIFT)
 
+/*
+ * OPERATION Command Constructs
+ */
 
+/* Operation type selectors - OP TYPE */
 #define OP_TYPE_SHIFT		24
 #define OP_TYPE_MASK		(0x07 << OP_TYPE_SHIFT)
 
@@ -304,9 +405,11 @@
 #define OP_TYPE_DECAP_PROTOCOL	(0x06 << OP_TYPE_SHIFT)
 #define OP_TYPE_ENCAP_PROTOCOL	(0x07 << OP_TYPE_SHIFT)
 
+/* ProtocolID selectors - PROTID */
 #define OP_PCLID_SHIFT		16
 #define OP_PCLID_MASK		(0xff << 16)
 
+/* Assuming OP_TYPE = OP_TYPE_UNI_PROTOCOL */
 #define OP_PCLID_IKEV1_PRF	(0x01 << OP_PCLID_SHIFT)
 #define OP_PCLID_IKEV2_PRF	(0x02 << OP_PCLID_SHIFT)
 #define OP_PCLID_SSL30_PRF	(0x08 << OP_PCLID_SHIFT)
@@ -320,6 +423,7 @@
 #define OP_PCLID_DSASIGN	(0x15 << OP_PCLID_SHIFT)
 #define OP_PCLID_DSAVERIFY	(0x16 << OP_PCLID_SHIFT)
 
+/* Assuming OP_TYPE = OP_TYPE_DECAP_PROTOCOL/ENCAP_PROTOCOL */
 #define OP_PCLID_IPSEC		(0x01 << OP_PCLID_SHIFT)
 #define OP_PCLID_SRTP		(0x02 << OP_PCLID_SHIFT)
 #define OP_PCLID_MACSEC		(0x03 << OP_PCLID_SHIFT)
@@ -331,8 +435,12 @@
 #define OP_PCLID_TLS12		(0x0b << OP_PCLID_SHIFT)
 #define OP_PCLID_DTLS		(0x0c << OP_PCLID_SHIFT)
 
+/*
+ * ProtocolInfo selectors
+ */
 #define OP_PCLINFO_MASK				 0xffff
 
+/* for OP_PCLID_IPSEC */
 #define OP_PCL_IPSEC_CIPHER_MASK		 0xff00
 #define OP_PCL_IPSEC_AUTH_MASK			 0x00ff
 
@@ -359,6 +467,7 @@
 #define OP_PCL_IPSEC_HMAC_SHA2_384_192		 0x000d
 #define OP_PCL_IPSEC_HMAC_SHA2_512_256		 0x000e
 
+/* For SRTP - OP_PCLID_SRTP */
 #define OP_PCL_SRTP_CIPHER_MASK			 0xff00
 #define OP_PCL_SRTP_AUTH_MASK			 0x00ff
 
@@ -366,6 +475,7 @@
 
 #define OP_PCL_SRTP_HMAC_SHA1_160		 0x0007
 
+/* For SSL 3.0 - OP_PCLID_SSL30 */
 #define OP_PCL_SSL30_AES_128_CBC_SHA		 0x002f
 #define OP_PCL_SSL30_AES_128_CBC_SHA_2		 0x0030
 #define OP_PCL_SSL30_AES_128_CBC_SHA_3		 0x0031
@@ -465,6 +575,7 @@
 #define OP_PCL_SSL30_RC4_40_SHA			 0x0028
 
 
+/* For TLS 1.0 - OP_PCLID_TLS10 */
 #define OP_PCL_TLS10_AES_128_CBC_SHA		 0x002f
 #define OP_PCL_TLS10_AES_128_CBC_SHA_2		 0x0030
 #define OP_PCL_TLS10_AES_128_CBC_SHA_3		 0x0031
@@ -501,6 +612,7 @@
 #define OP_PCL_TLS10_AES_256_CBC_SHA_16		 0xc021
 #define OP_PCL_TLS10_AES_256_CBC_SHA_17		 0xc022
 
+/* #define OP_PCL_TLS10_3DES_EDE_CBC_MD5	0x0023 */
 
 #define OP_PCL_TLS10_3DES_EDE_CBC_SHA		 0x001f
 #define OP_PCL_TLS10_3DES_EDE_CBC_SHA_2		 0x008b
@@ -587,6 +699,7 @@
 
 
 
+/* For TLS 1.1 - OP_PCLID_TLS11 */
 #define OP_PCL_TLS11_AES_128_CBC_SHA		 0x002f
 #define OP_PCL_TLS11_AES_128_CBC_SHA_2		 0x0030
 #define OP_PCL_TLS11_AES_128_CBC_SHA_3		 0x0031
@@ -623,6 +736,7 @@
 #define OP_PCL_TLS11_AES_256_CBC_SHA_16		 0xc021
 #define OP_PCL_TLS11_AES_256_CBC_SHA_17		 0xc022
 
+/* #define OP_PCL_TLS11_3DES_EDE_CBC_MD5	0x0023 */
 
 #define OP_PCL_TLS11_3DES_EDE_CBC_SHA		 0x001f
 #define OP_PCL_TLS11_3DES_EDE_CBC_SHA_2		 0x008b
@@ -707,6 +821,7 @@
 #define OP_PCL_TLS11_AES_256_CBC_SHA512		 0xff65
 
 
+/* For TLS 1.2 - OP_PCLID_TLS12 */
 #define OP_PCL_TLS12_AES_128_CBC_SHA		 0x002f
 #define OP_PCL_TLS12_AES_128_CBC_SHA_2		 0x0030
 #define OP_PCL_TLS12_AES_128_CBC_SHA_3		 0x0031
@@ -743,6 +858,7 @@
 #define OP_PCL_TLS12_AES_256_CBC_SHA_16		 0xc021
 #define OP_PCL_TLS12_AES_256_CBC_SHA_17		 0xc022
 
+/* #define OP_PCL_TLS12_3DES_EDE_CBC_MD5	0x0023 */
 
 #define OP_PCL_TLS12_3DES_EDE_CBC_SHA		 0x001f
 #define OP_PCL_TLS12_3DES_EDE_CBC_SHA_2		 0x008b
@@ -804,18 +920,21 @@
 
 #define OP_PCL_TLS12_RC4_40_SHA			 0x0028
 
+/* #define OP_PCL_TLS12_AES_128_CBC_SHA256	0x003c */
 #define OP_PCL_TLS12_AES_128_CBC_SHA256_2	 0x003e
 #define OP_PCL_TLS12_AES_128_CBC_SHA256_3	 0x003f
 #define OP_PCL_TLS12_AES_128_CBC_SHA256_4	 0x0040
 #define OP_PCL_TLS12_AES_128_CBC_SHA256_5	 0x0067
 #define OP_PCL_TLS12_AES_128_CBC_SHA256_6	 0x006c
 
+/* #define OP_PCL_TLS12_AES_256_CBC_SHA256	0x003d */
 #define OP_PCL_TLS12_AES_256_CBC_SHA256_2	 0x0068
 #define OP_PCL_TLS12_AES_256_CBC_SHA256_3	 0x0069
 #define OP_PCL_TLS12_AES_256_CBC_SHA256_4	 0x006a
 #define OP_PCL_TLS12_AES_256_CBC_SHA256_5	 0x006b
 #define OP_PCL_TLS12_AES_256_CBC_SHA256_6	 0x006d
 
+/* AEAD_AES_xxx_CCM/GCM remain to be defined... */
 
 #define OP_PCL_TLS12_3DES_EDE_CBC_MD5		 0xff23
 #define OP_PCL_TLS12_3DES_EDE_CBC_SHA160	 0xff30
@@ -839,6 +958,7 @@
 #define OP_PCL_TLS12_AES_256_CBC_SHA384		 0xff63
 #define OP_PCL_TLS12_AES_256_CBC_SHA512		 0xff65
 
+/* For DTLS - OP_PCLID_DTLS */
 
 #define OP_PCL_DTLS_AES_128_CBC_SHA		 0x002f
 #define OP_PCL_DTLS_AES_128_CBC_SHA_2		 0x0030
@@ -876,6 +996,7 @@
 #define OP_PCL_DTLS_AES_256_CBC_SHA_16		 0xc021
 #define OP_PCL_DTLS_AES_256_CBC_SHA_17		 0xc022
 
+/* #define OP_PCL_DTLS_3DES_EDE_CBC_MD5		0x0023 */
 
 #define OP_PCL_DTLS_3DES_EDE_CBC_SHA		 0x001f
 #define OP_PCL_DTLS_3DES_EDE_CBC_SHA_2		 0x008b
@@ -940,18 +1061,23 @@
 #define OP_PCL_DTLS_AES_256_CBC_SHA384		 0xff63
 #define OP_PCL_DTLS_AES_256_CBC_SHA512		 0xff65
 
+/* 802.16 WiMAX protinfos */
 #define OP_PCL_WIMAX_OFDM			 0x0201
 #define OP_PCL_WIMAX_OFDMA			 0x0231
 
+/* 802.11 WiFi protinfos */
 #define OP_PCL_WIFI				 0xac04
 
+/* MacSec protinfos */
 #define OP_PCL_MACSEC				 0x0001
 
+/* PKI unidirectional protocol protinfo bits */
 #define OP_PCL_PKPROT_TEST			 0x0008
 #define OP_PCL_PKPROT_DECRYPT			 0x0004
 #define OP_PCL_PKPROT_ECC			 0x0002
 #define OP_PCL_PKPROT_F2M			 0x0001
 
+/* For non-protocol/alg-only op commands */
 #define OP_ALG_TYPE_SHIFT	24
 #define OP_ALG_TYPE_MASK	(0x7 << OP_ALG_TYPE_SHIFT)
 #define OP_ALG_TYPE_CLASS1	2
@@ -980,6 +1106,7 @@
 #define OP_ALG_AAI_SHIFT	4
 #define OP_ALG_AAI_MASK		(0x1ff << OP_ALG_AAI_SHIFT)
 
+/* blockcipher AAI set */
 #define OP_ALG_AAI_CTR_MOD128	(0x00 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_CTR_MOD8	(0x01 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_CTR_MOD16	(0x02 << OP_ALG_AAI_SHIFT)
@@ -1010,15 +1137,18 @@
 #define OP_ALG_AAI_CHECKODD	(0x80 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_DK		(0x100 << OP_ALG_AAI_SHIFT)
 
+/* randomizer AAI set */
 #define OP_ALG_AAI_RNG		(0x00 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_RNG_NOZERO	(0x10 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_RNG_ODD	(0x20 << OP_ALG_AAI_SHIFT)
 
+/* hmac/smac AAI set */
 #define OP_ALG_AAI_HASH		(0x00 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_HMAC		(0x01 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_SMAC		(0x02 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_HMAC_PRECOMP	(0x04 << OP_ALG_AAI_SHIFT)
 
+/* CRC AAI set*/
 #define OP_ALG_AAI_802		(0x01 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_3385		(0x02 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_CUST_POLY	(0x04 << OP_ALG_AAI_SHIFT)
@@ -1026,6 +1156,7 @@
 #define OP_ALG_AAI_DOS		(0x20 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_DOC		(0x40 << OP_ALG_AAI_SHIFT)
 
+/* Kasumi/SNOW AAI set */
 #define OP_ALG_AAI_F8		(0xc0 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_F9		(0xc8 << OP_ALG_AAI_SHIFT)
 #define OP_ALG_AAI_GSM		(0x10 << OP_ALG_AAI_SHIFT)
@@ -1049,15 +1180,18 @@
 #define OP_ALG_DECRYPT		0
 #define OP_ALG_ENCRYPT		1
 
+/* PKHA algorithm type set */
 #define OP_ALG_PK		0x00800000
-#define OP_ALG_PK_FUN_MASK	0x3f 
+#define OP_ALG_PK_FUN_MASK	0x3f /* clrmem, modmath, or cpymem */
 
+/* PKHA mode clear memory functions */
 #define OP_ALG_PKMODE_A_RAM	0x80000
 #define OP_ALG_PKMODE_B_RAM	0x40000
 #define OP_ALG_PKMODE_E_RAM	0x20000
 #define OP_ALG_PKMODE_N_RAM	0x10000
 #define OP_ALG_PKMODE_CLEARMEM	0x00001
 
+/* PKHA mode modular-arithmetic functions */
 #define OP_ALG_PKMODE_MOD_IN_MONTY	0x80000
 #define OP_ALG_PKMODE_MOD_OUT_MONTY	0x40000
 #define OP_ALG_PKMODE_MOD_F2M		0x20000
@@ -1081,6 +1215,7 @@
 #define OP_ALG_PKMODE_MOD_GCD		0x00e
 #define OP_ALG_PKMODE_MOD_PRIMALITY	0x00f
 
+/* PKHA mode copy-memory functions */
 #define OP_ALG_PKMODE_SRC_REG_SHIFT	13
 #define OP_ALG_PKMODE_SRC_REG_MASK	(7 << OP_ALG_PKMODE_SRC_REG_SHIFT)
 #define OP_ALG_PKMODE_DST_REG_SHIFT	10
@@ -1108,38 +1243,59 @@
 #define OP_ALG_PKMODE_CPYMEM_N_SZ	0x80
 #define OP_ALG_PKMODE_CPYMEM_SRC_SZ	0x81
 
+/*
+ * SEQ_IN_PTR Command Constructs
+ */
 
+/* Release Buffers */
 #define SQIN_RBS	0x04000000
 
+/* Sequence pointer is really a descriptor */
 #define SQIN_INL	0x02000000
 
+/* Sequence pointer is a scatter-gather table */
 #define SQIN_SGF	0x01000000
 
+/* Appends to a previous pointer */
 #define SQIN_PRE	0x00800000
 
+/* Use extended length following pointer */
 #define SQIN_EXT	0x00400000
 
+/* Restore sequence with pointer/length */
 #define SQIN_RTO	0x00200000
 
+/* Replace job descriptor */
 #define SQIN_RJD	0x00100000
 
 #define SQIN_LEN_SHIFT		 0
 #define SQIN_LEN_MASK		(0xffff << SQIN_LEN_SHIFT)
 
+/*
+ * SEQ_OUT_PTR Command Constructs
+ */
 
+/* Sequence pointer is a scatter-gather table */
 #define SQOUT_SGF	0x01000000
 
+/* Appends to a previous pointer */
 #define SQOUT_PRE	0x00800000
 
+/* Restore sequence with pointer/length */
 #define SQOUT_RTO	0x00200000
 
+/* Use extended length following pointer */
 #define SQOUT_EXT	0x00400000
 
 #define SQOUT_LEN_SHIFT		0
 #define SQOUT_LEN_MASK		(0xffff << SQOUT_LEN_SHIFT)
 
 
+/*
+ * SIGNATURE Command Constructs
+ */
 
+/* TYPE field is all that's relevant */
 #define SIGN_TYPE_SHIFT		16
 #define SIGN_TYPE_MASK		(0x0f << SIGN_TYPE_SHIFT)
 
@@ -1150,6 +1306,9 @@
 #define SIGN_TYPE_IMM_3		(0x0b << SIGN_TYPE_SHIFT)
 #define SIGN_TYPE_IMM_4		(0x0c << SIGN_TYPE_SHIFT)
 
+/*
+ * MOVE Command Constructs
+ */
 
 #define MOVE_AUX_SHIFT		25
 #define MOVE_AUX_MASK		(3 << MOVE_AUX_SHIFT)
@@ -1198,6 +1357,9 @@
 #define MOVELEN_MRSEL_SHIFT	0
 #define MOVELEN_MRSEL_MASK	(0x3 << MOVE_LEN_SHIFT)
 
+/*
+ * MATH Command Constructs
+ */
 
 #define MATH_IFB_SHIFT		26
 #define MATH_IFB_MASK		(1 << MATH_IFB_SHIFT)
@@ -1211,6 +1373,7 @@
 #define MATH_STL_MASK		(1 << MATH_STL_SHIFT)
 #define MATH_STL		(1 << MATH_STL_SHIFT)
 
+/* Function selectors */
 #define MATH_FUN_SHIFT		20
 #define MATH_FUN_MASK		(0x0f << MATH_FUN_SHIFT)
 #define MATH_FUN_ADD		(0x00 << MATH_FUN_SHIFT)
@@ -1225,6 +1388,7 @@
 #define MATH_FUN_SHLD		(0x09 << MATH_FUN_SHIFT)
 #define MATH_FUN_ZBYT		(0x0a << MATH_FUN_SHIFT)
 
+/* Source 0 selectors */
 #define MATH_SRC0_SHIFT		16
 #define MATH_SRC0_MASK		(0x0f << MATH_SRC0_SHIFT)
 #define MATH_SRC0_REG0		(0x00 << MATH_SRC0_SHIFT)
@@ -1238,6 +1402,7 @@
 #define MATH_SRC0_VARSEQOUTLEN	(0x0b << MATH_SRC0_SHIFT)
 #define MATH_SRC0_ZERO		(0x0c << MATH_SRC0_SHIFT)
 
+/* Source 1 selectors */
 #define MATH_SRC1_SHIFT		12
 #define MATH_SRC1_MASK		(0x0f << MATH_SRC1_SHIFT)
 #define MATH_SRC1_REG0		(0x00 << MATH_SRC1_SHIFT)
@@ -1249,6 +1414,7 @@
 #define MATH_SRC1_OUTFIFO	(0x0b << MATH_SRC1_SHIFT)
 #define MATH_SRC1_ONE		(0x0c << MATH_SRC1_SHIFT)
 
+/* Destination selectors */
 #define MATH_DEST_SHIFT		8
 #define MATH_DEST_MASK		(0x0f << MATH_DEST_SHIFT)
 #define MATH_DEST_REG0		(0x00 << MATH_DEST_SHIFT)
@@ -1261,6 +1427,7 @@
 #define MATH_DEST_VARSEQOUTLEN	(0x0b << MATH_DEST_SHIFT)
 #define MATH_DEST_NONE		(0x0f << MATH_DEST_SHIFT)
 
+/* Length selectors */
 #define MATH_LEN_SHIFT		0
 #define MATH_LEN_MASK		(0x0f << MATH_LEN_SHIFT)
 #define MATH_LEN_1BYTE		0x01
@@ -1268,6 +1435,9 @@
 #define MATH_LEN_4BYTE		0x04
 #define MATH_LEN_8BYTE		0x08
 
+/*
+ * JUMP Command Constructs
+ */
 
 #define JUMP_CLASS_SHIFT	25
 #define JUMP_CLASS_MASK		(3 << JUMP_CLASS_SHIFT)
@@ -1294,6 +1464,7 @@
 #define JUMP_TEST_ANY		(0x02 << JUMP_TEST_SHIFT)
 #define JUMP_TEST_INVANY	(0x03 << JUMP_TEST_SHIFT)
 
+/* Condition codes. JSL bit is factored in */
 #define JUMP_COND_SHIFT		8
 #define JUMP_COND_MASK		(0x100ff << JUMP_COND_SHIFT)
 #define JUMP_COND_PK_0		(0x80 << JUMP_COND_SHIFT)
@@ -1316,6 +1487,11 @@
 #define JUMP_OFFSET_SHIFT	0
 #define JUMP_OFFSET_MASK	(0xff << JUMP_OFFSET_SHIFT)
 
+/*
+ * NFIFO ENTRY
+ * Data Constructs
+ *
+ */
 #define NFIFOENTRY_DEST_SHIFT	30
 #define NFIFOENTRY_DEST_MASK	(3 << NFIFOENTRY_DEST_SHIFT)
 #define NFIFOENTRY_DEST_DECO	(0 << NFIFOENTRY_DEST_SHIFT)
@@ -1409,16 +1585,20 @@
 #define NFIFOENTRY_PLEN_SHIFT	0
 #define NFIFOENTRY_PLEN_MASK	(0xFF << NFIFOENTRY_PLEN_SHIFT)
 
+/*
+ * PDB internal definitions
+ */
 
-#define PDBOPTS_ESPCBC_ARSNONE	0x00	
-#define PDBOPTS_ESPCBC_ARS32	0x40	
-#define PDBOPTS_ESPCBC_ARS64	0xc0	
-#define PDBOPTS_ESPCBC_IVSRC	0x20	
-#define PDBOPTS_ESPCBC_ESN	0x10	
-#define PDBOPTS_ESPCBC_OUTFMT	0x08	
-#define PDBOPTS_ESPCBC_IPHDRSRC 0x08	
-#define PDBOPTS_ESPCBC_INCIPHDR 0x04	
-#define PDBOPTS_ESPCBC_IPVSN	0x02	
-#define PDBOPTS_ESPCBC_TUNNEL	0x01	
+/* IPSec ESP CBC Encap/Decap Options */
+#define PDBOPTS_ESPCBC_ARSNONE	0x00	/* no antireplay window	*/
+#define PDBOPTS_ESPCBC_ARS32	0x40	/* 32-entry antireplay window */
+#define PDBOPTS_ESPCBC_ARS64	0xc0	/* 64-entry antireplay window */
+#define PDBOPTS_ESPCBC_IVSRC	0x20	/* IV comes from internal random gen */
+#define PDBOPTS_ESPCBC_ESN	0x10	/* extended sequence included */
+#define PDBOPTS_ESPCBC_OUTFMT	0x08	/* output only decapsulation (decap) */
+#define PDBOPTS_ESPCBC_IPHDRSRC 0x08	/* IP header comes from PDB (encap) */
+#define PDBOPTS_ESPCBC_INCIPHDR 0x04	/* Prepend IP header to output frame */
+#define PDBOPTS_ESPCBC_IPVSN	0x02	/* process IPv6 header */
+#define PDBOPTS_ESPCBC_TUNNEL	0x01	/* tunnel mode next-header byte */
 
-#endif 
+#endif /* DESC_H */

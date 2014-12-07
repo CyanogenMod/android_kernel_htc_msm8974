@@ -27,6 +27,12 @@
 
 #include "iforce.h"
 
+/*
+ * Set the magnitude of a constant force effect
+ * Return error code
+ *
+ * Note: caller must ensure exclusive access to device
+ */
 
 static int make_magnitude_modifier(struct iforce* iforce,
 	struct resource* mod_chunk, int no_alloc, __s16 level)
@@ -54,6 +60,9 @@ static int make_magnitude_modifier(struct iforce* iforce,
 	return 0;
 }
 
+/*
+ * Upload the component of an effect dealing with the period, phase and magnitude
+ */
 
 static int make_period_modifier(struct iforce* iforce,
 	struct resource* mod_chunk, int no_alloc,
@@ -89,6 +98,9 @@ static int make_period_modifier(struct iforce* iforce,
 	return 0;
 }
 
+/*
+ * Uploads the part of an effect setting the envelope of the force
+ */
 
 static int make_envelope_modifier(struct iforce* iforce,
 	struct resource* mod_chunk, int no_alloc,
@@ -127,6 +139,9 @@ static int make_envelope_modifier(struct iforce* iforce,
 	return 0;
 }
 
+/*
+ * Component of spring, friction, inertia... effects
+ */
 
 static int make_condition_modifier(struct iforce* iforce,
 	struct resource* mod_chunk, int no_alloc,
@@ -148,8 +163,8 @@ static int make_condition_modifier(struct iforce* iforce,
 	data[0] = LO(mod_chunk->start);
 	data[1] = HI(mod_chunk->start);
 
-	data[2] = (100 * rk) >> 15;	
-	data[3] = (100 * lk) >> 15; 
+	data[2] = (100 * rk) >> 15;	/* Dangerous: the sign is extended by gcc on plateforms providing an arith shift */
+	data[3] = (100 * lk) >> 15; /* This code is incorrect on cpus lacking arith shift */
 
 	center = (500 * center) >> 15;
 	data[4] = LO(center);
@@ -178,6 +193,10 @@ static unsigned char find_button(struct iforce *iforce, signed short button)
 	return 0;
 }
 
+/*
+ * Analyse the changes in an effect, and tell if we need to send an condition
+ * parameter packet
+ */
 static int need_condition_modifier(struct iforce *iforce,
 				   struct ff_effect *old,
 				   struct ff_effect *new)
@@ -202,6 +221,10 @@ static int need_condition_modifier(struct iforce *iforce,
 	return ret;
 }
 
+/*
+ * Analyse the changes in an effect, and tell if we need to send a magnitude
+ * parameter packet
+ */
 static int need_magnitude_modifier(struct iforce *iforce,
 				   struct ff_effect *old,
 				   struct ff_effect *effect)
@@ -215,6 +238,10 @@ static int need_magnitude_modifier(struct iforce *iforce,
 	return old->u.constant.level != effect->u.constant.level;
 }
 
+/*
+ * Analyse the changes in an effect, and tell if we need to send an envelope
+ * parameter packet
+ */
 static int need_envelope_modifier(struct iforce *iforce, struct ff_effect *old,
 				  struct ff_effect *effect)
 {
@@ -243,6 +270,10 @@ static int need_envelope_modifier(struct iforce *iforce, struct ff_effect *old,
 	return 0;
 }
 
+/*
+ * Analyse the changes in an effect, and tell if we need to send a periodic
+ * parameter effect
+ */
 static int need_period_modifier(struct iforce *iforce, struct ff_effect *old,
 				struct ff_effect *new)
 {
@@ -257,6 +288,10 @@ static int need_period_modifier(struct iforce *iforce, struct ff_effect *old,
 		|| old->u.periodic.phase != new->u.periodic.phase);
 }
 
+/*
+ * Analyse the changes in an effect, and tell if we need to send an effect
+ * packet
+ */
 static int need_core(struct ff_effect *old, struct ff_effect *new)
 {
 	if (old->direction != new->direction
@@ -268,6 +303,9 @@ static int need_core(struct ff_effect *old, struct ff_effect *new)
 
 	return 0;
 }
+/*
+ * Send the part common to all effects to the device
+ */
 static int make_core(struct iforce* iforce, u16 id, u16 mod_id1, u16 mod_id2,
 	u8 effect_type, u8 axes, u16 duration, u16 delay, u16 button,
 	u16 interval, u16 direction)
@@ -298,19 +336,24 @@ static int make_core(struct iforce* iforce, u16 id, u16 mod_id1, u16 mod_id2,
 	data[12] = LO(delay);
 	data[13] = HI(delay);
 
-	
+	/* Stop effect */
+/*	iforce_control_playback(iforce, id, 0);*/
 
 	iforce_send_packet(iforce, FF_CMD_EFFECT, data);
 
-	
+	/* If needed, restart effect */
 	if (test_bit(FF_CORE_SHOULD_PLAY, iforce->core_effects[id].flags)) {
-		
+		/* BUG: perhaps we should replay n times, instead of 1. But we do not know n */
 		iforce_control_playback(iforce, id, 1);
 	}
 
 	return 0;
 }
 
+/*
+ * Upload a periodic effect to the device
+ * See also iforce_upload_constant.
+ */
 int iforce_upload_periodic(struct iforce *iforce, struct ff_effect *effect, struct ff_effect *old)
 {
 	u8 wave_code;
@@ -366,9 +409,22 @@ int iforce_upload_periodic(struct iforce *iforce, struct ff_effect *effect, stru
 			effect->direction);
 	}
 
+	/* If one of the parameter creation failed, we already returned an
+	 * error code.
+	 * If the core creation failed, we return its error code.
+	 * Else: if one parameter at least was created, we return 0
+	 *       else we return 1;
+	 */
 	return core_err < 0 ? core_err : (param1_err && param2_err);
 }
 
+/*
+ * Upload a constant force effect
+ * Return value:
+ *  <0 Error code
+ *  0 Ok, effect created or updated
+ *  1 effect did not change since last upload, and no packet was therefore sent
+ */
 int iforce_upload_constant(struct iforce *iforce, struct ff_effect *effect, struct ff_effect *old)
 {
 	int core_id = effect->id;
@@ -413,9 +469,18 @@ int iforce_upload_constant(struct iforce *iforce, struct ff_effect *effect, stru
 			effect->direction);
 	}
 
+	/* If one of the parameter creation failed, we already returned an
+	 * error code.
+	 * If the core creation failed, we return its error code.
+	 * Else: if one parameter at least was created, we return 0
+	 *       else we return 1;
+	 */
 	return core_err < 0 ? core_err : (param1_err && param2_err);
 }
 
+/*
+ * Upload an condition effect. Those are for example friction, inertia, springs...
+ */
 int iforce_upload_condition(struct iforce *iforce, struct ff_effect *effect, struct ff_effect *old)
 {
 	int core_id = effect->id;
@@ -468,5 +533,11 @@ int iforce_upload_condition(struct iforce *iforce, struct ff_effect *effect, str
 			effect->direction);
 	}
 
+	/* If the parameter creation failed, we already returned an
+	 * error code.
+	 * If the core creation failed, we return its error code.
+	 * Else: if a parameter  was created, we return 0
+	 *       else we return 1;
+	 */
 	return core_err < 0 ? core_err : param_err;
 }

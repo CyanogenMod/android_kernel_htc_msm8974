@@ -19,6 +19,44 @@
 
 #include "hid-ids.h"
 
+/*	Remote control key layout + listing:
+ *
+ * 	Full Screen                              Power
+ *	KEY_SCREEN                          KEY_POWER2
+ *
+ *	1                     2                      3
+ *	KEY_NUMERIC_1   KEY_NUMERIC_2    KEY_NUMERIC_3
+ *
+ *	4                     5                      6
+ *	KEY_NUMERIC_4   KEY_NUMERIC_5    KEY_NUMERIC_6
+ *
+ *	7                     8                      9
+ *	KEY_NUMERIC_7   KEY_NUMERIC_8    KEY_NUMERIC_9
+ *
+ *	REC                   0               Favorite
+ *	KEY_RECORD      KEY_NUMERIC_0    KEY_FAVORITES
+ *
+ *	Rewind                                 Forward
+ *	KEY_REWIND           CH+           KEY_FORWARD
+ *	               KEY_CHANNELUP
+ *
+ *	VOL-                  >                   VOL+
+ *	KEY_VOLUMEDOWN    KEY_PLAY        KEY_VOLUMEUP
+ *
+ *	                     CH-
+ *	              KEY_CHANNELDOWN
+ *	Recall                                    Stop
+ *	KEY_RESTART                           KEY_STOP
+ *
+ *	Timeshift/Pause     Mute                Cancel
+ *	KEY_PAUSE         KEY_MUTE          KEY_CANCEL
+ *
+ *	Capture            Preview                 EPG
+ *	KEY_PRINT        KEY_PROGRAM           KEY_EPG
+ *
+ *	Record List          Tab              Teletext
+ *	KEY_LIST            KEY_TAB           KEY_TEXT
+ */
 
 #define th_map_key_clear(c)	hid_map_usage_clear(hi, usage, bit, max, \
 					EV_KEY, (c))
@@ -30,7 +68,7 @@ static int twinhan_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		return 0;
 
 	switch (usage->hid & HID_USAGE) {
-	
+	/* Map all keys from Twinhan Remote */
 	case 0x004: th_map_key_clear(KEY_TEXT);         break;
 	case 0x006: th_map_key_clear(KEY_RESTART);      break;
 	case 0x008: th_map_key_clear(KEY_EPG);          break;
@@ -56,16 +94,18 @@ static int twinhan_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 	case 0x028: th_map_key_clear(KEY_PLAY);         break;
 	case 0x029: th_map_key_clear(KEY_CANCEL);       break;
 	case 0x02b: th_map_key_clear(KEY_TAB);          break;
-	
+	/* Power       = 0x0e0 + 0x0e1 + 0x0e2 + 0x03f */
 	case 0x03f: th_map_key_clear(KEY_POWER2);       break;
 	case 0x04a: th_map_key_clear(KEY_RECORD);       break;
 	case 0x04b: th_map_key_clear(KEY_CHANNELUP);    break;
 	case 0x04d: th_map_key_clear(KEY_STOP);         break;
 	case 0x04e: th_map_key_clear(KEY_CHANNELDOWN);  break;
-	
+	/* Volume down = 0x0e1 + 0x051                 */
 	case 0x051: th_map_key_clear(KEY_VOLUMEDOWN);   break;
-	
+	/* Volume up   = 0x0e1 + 0x052                 */
 	case 0x052: th_map_key_clear(KEY_VOLUMEUP);     break;
+	/* Kill the extra keys used for multi-key "power" and "volume" keys
+	 * as well as continuously to release CTRL,ALT,META,... keys */
 	case 0x0e0:
 	case 0x0e1:
 	case 0x0e2:

@@ -8,6 +8,7 @@
  *  any later verion, incorporated herein by reference.
  */
 
+/* Memory Access Commands */
 #define IO_BYTE_READ 0x28 << 24
 #define IO_BYTE_WRITE 0x18 << 24 
 #define IO_WORD_READ 0x20 << 24
@@ -55,6 +56,7 @@
 #define MISR_ASBFR (1<<2)
 #define MISR_ARBF (1<<1) 
 
+/* MISR Flags memory locations */
 #define MF_SSBF 0xDFFE0 
 #define MF_ARBF 0xDFFE1
 #define MF_ASBFR 0xDFFE2
@@ -82,15 +84,38 @@
 #define MMIO_TXSTARTTHRESH 0x58
 #define MMIO_INTERRUPTENABLE 0x5A
 #define MMIO_INDICATIONENABLE 0x5C
-#define MMIO_COMMAND 0x5E  
-#define MMIO_INTSTATUS 0x5E 
+#define MMIO_COMMAND 0x5E  /* These two are meant to be the same */
+#define MMIO_INTSTATUS 0x5E /* Makes the code more readable this way */
 #define INTSTAT_CMD_IN_PROGRESS (1<<12) 
 #define INTSTAT_SRB (1<<14)
 #define INTSTAT_INTLATCH (1<<0)
 
+/* Indication / Interrupt Mask 
+ * Annoyingly the bits to be set in the indication and interrupt enable
+ * do not match with the actual bits received in the interrupt, although
+ * they are in the same order. 
+ * The mapping for the indication / interrupt are:
+ * Bit	Indication / Interrupt
+ *   0	HostError
+ *   1	txcomplete
+ *   2	updneeded
+ *   3	rxcomplete
+ *   4	intrequested
+ *   5	macerror
+ *   6  dncomplete
+ *   7	upcomplete
+ *   8	txunderrun
+ *   9	asbf
+ *  10	srbr
+ *  11	arbc
+ *
+ *  The only ones we don't want to receive are txcomplete and rxcomplete
+ *  we use dncomplete and upcomplete instead.
+ */
 
 #define INT_MASK 0xFF5
 
+/* Note the subtle difference here, IND and INT */
 
 #define SETINDENABLE (8<<12)
 #define SETINTENABLE (7<<12)
@@ -103,8 +128,8 @@
 #define ARB 0xD0000
 #define SCRATCH 0xDFEF0
 
-#define INT_REQUEST 0x6000 
-#define ACK_INTERRUPT 0x6800 
+#define INT_REQUEST 0x6000 /* (6 << 12) */
+#define ACK_INTERRUPT 0x6800 /* (13 <<11) */
 #define GLOBAL_RESET 0x00 
 #define DNDISABLE 0x5000 
 #define DNENABLE 0x4800 
@@ -117,6 +142,7 @@
 #define SETCONFIG 0x4000
 #define SETTXSTARTTHRESH 0x9800 
 
+/* Received Interrupts */
 #define ASBFINT (1<<13)
 #define SRBRINT (1<<14)
 #define ARBCINT (1<<15)
@@ -129,6 +155,7 @@
 #define TXCOMPINT (1<<2)
 #define HOSTERRINT (1<<1)
 
+/* Receive descriptor bits */
 #define RXOVERRUN cpu_to_le32(1<<19)
 #define RXFC cpu_to_le32(1<<21)
 #define RXAR cpu_to_le32(1<<22)
@@ -136,12 +163,14 @@
 #define RXUPDFULL cpu_to_le32(1<<24)
 #define RXUPLASTFRAG cpu_to_le32(1<<31)
 
+/* Transmit descriptor bits */
 #define TXDNCOMPLETE cpu_to_le32(1<<16)
 #define TXTXINDICATE cpu_to_le32(1<<27)
 #define TXDPDEMPTY cpu_to_le32(1<<29)
 #define TXDNINDICATE cpu_to_le32(1<<31)
 #define TXDNFRAGLAST cpu_to_le32(1<<31)
 
+/* Interrupts to Acknowledge */
 #define LATCH_ACK 1 
 #define TXCOMPACK (1<<1)
 #define INTREQACK (1<<2)
@@ -154,6 +183,7 @@
 #define XL_IO_SPACE 128
 #define SRB_COMMAND_SIZE 50
 
+/* Adapter Commands */
 #define REQUEST_INT 0x00
 #define MODIFY_OPEN_PARMS 0x01
 #define RESTORE_OPEN_PARMS 0x02
@@ -168,11 +198,14 @@
 #define GET_STATISTICS 0x13
 #define SET_RECEIVE_MODE 0x1F
 
+/* ARB Commands */
 #define RECEIVE_DATA 0x81
 #define RING_STATUS_CHANGE 0x84
 
+/* ASB Commands */
 #define ASB_RECEIVE_DATE 0x81 
 
+/* Defines for LAN STATUS CHANGE reports */
 #define LSC_SIG_LOSS 0x8000
 #define LSC_HARD_ERR 0x4000
 #define LSC_SOFT_ERR 0x2000
@@ -187,14 +220,16 @@
 #define LSC_SR_CO    0x0010
 #define LSC_FDX_MODE 0x0004
 
-#define XL_MAX_ADAPTERS 8 
+#define XL_MAX_ADAPTERS 8 /* 0x08 __MODULE_STRING can't hand 0xnn */
 
+/* 3c359 defaults for buffers */
  
-#define XL_RX_RING_SIZE 16 
-#define XL_TX_RING_SIZE 16 
+#define XL_RX_RING_SIZE 16 /* must be a power of 2 */
+#define XL_TX_RING_SIZE 16 /* must be a power of 2 */
 
-#define PKT_BUF_SZ 4096 
+#define PKT_BUF_SZ 4096 /* Default packet size */
 
+/* 3c359 data structures */
 
 struct xl_tx_desc {
 	__le32 dnnextptr;
@@ -213,10 +248,10 @@ struct xl_rx_desc {
 struct xl_private {
 	
 
-	
+	/* These two structures must be aligned on 8 byte boundaries */
 
-	
-	
+	/* struct xl_rx_desc xl_rx_ring[XL_RX_RING_SIZE]; */
+	/* struct xl_tx_desc xl_tx_ring[XL_TX_RING_SIZE]; */
 	struct xl_rx_desc *xl_rx_ring ; 
 	struct xl_tx_desc *xl_tx_ring ; 
 	struct sk_buff *tx_ring_skb[XL_TX_RING_SIZE], *rx_ring_skb[XL_RX_RING_SIZE];	
@@ -250,7 +285,7 @@ struct xl_private {
 	u32 rx_ring_dma_addr ; 
 	u32 tx_ring_dma_addr ; 
 
-	
+	/* firmware section */
 	const struct firmware *fw;
 };
 

@@ -8,6 +8,9 @@
 #include <linux/module.h>
 #include <asm/diag.h>
 
+/*
+ * Diagnose 14: Input spool file manipulation
+ */
 int diag14(unsigned long rx, unsigned long ry1, unsigned long subcode)
 {
 	register unsigned long _ry1 asm("2") = ry1;
@@ -32,8 +35,15 @@ int diag14(unsigned long rx, unsigned long ry1, unsigned long subcode)
 }
 EXPORT_SYMBOL(diag14);
 
+/*
+ * Diagnose 210: Get information about a virtual device
+ */
 int diag210(struct diag210 *addr)
 {
+	/*
+	 * diag 210 needs its data below the 2GB border, so we
+	 * use a static data area to be sure
+	 */
 	static struct diag210 diag210_tmp;
 	static DEFINE_SPINLOCK(diag210_lock);
 	unsigned long flags;

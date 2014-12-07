@@ -72,12 +72,12 @@ enum {
 	MAX8660_MDTV2,
 	MAX8660_L12VCR,
 	MAX8660_FPWM,
-	MAX8660_N_REGS,	
+	MAX8660_N_REGS,	/* not a real register */
 };
 
 struct max8660 {
 	struct i2c_client *client;
-	u8 shadow_regs[MAX8660_N_REGS];		
+	u8 shadow_regs[MAX8660_N_REGS];		/* as chip is write only */
 	struct regulator_dev *rdev[];
 };
 
@@ -100,6 +100,9 @@ static int max8660_write(struct max8660 *max8660, u8 reg, u8 mask, u8 val)
 }
 
 
+/*
+ * DCDC functions
+ */
 
 static int max8660_dcdc_is_enabled(struct regulator_dev *rdev)
 {
@@ -164,7 +167,7 @@ static int max8660_dcdc_set(struct regulator_dev *rdev, int min_uV, int max_uV,
 	if (ret)
 		return ret;
 
-	
+	/* Select target voltage register and activate regulation */
 	bits = (rdev_get_id(rdev) == MAX8660_V3) ? 0x03 : 0x30;
 	return max8660_write(max8660, MAX8660_VCC1, 0xff, bits);
 }
@@ -177,6 +180,9 @@ static struct regulator_ops max8660_dcdc_ops = {
 };
 
 
+/*
+ * LDO5 functions
+ */
 
 static int max8660_ldo5_list(struct regulator_dev *rdev, unsigned selector)
 {
@@ -218,7 +224,7 @@ static int max8660_ldo5_set(struct regulator_dev *rdev, int min_uV, int max_uV,
 	if (ret)
 		return ret;
 
-	
+	/* Select target voltage register and activate regulation */
 	return max8660_write(max8660, MAX8660_VCC1, 0xff, 0xc0);
 }
 
@@ -229,6 +235,9 @@ static struct regulator_ops max8660_ldo5_ops = {
 };
 
 
+/*
+ * LDO67 functions
+ */
 
 static int max8660_ldo67_is_enabled(struct regulator_dev *rdev)
 {
@@ -372,14 +381,19 @@ static int __devinit max8660_probe(struct i2c_client *client,
 	rdev = max8660->rdev;
 
 	if (pdata->en34_is_high) {
-		
+		/* Simulate always on */
 		max8660->shadow_regs[MAX8660_OVER1] = 5;
 	} else {
-		
+		/* Otherwise devices can be toggled via software */
 		max8660_dcdc_ops.enable = max8660_dcdc_enable;
 		max8660_dcdc_ops.disable = max8660_dcdc_disable;
 	}
 
+	/*
+	 * First, set up shadow registers to prevent glitches. As some
+	 * registers are shared between regulators, everything must be properly
+	 * set up for all regulators in advance.
+	 */
 	max8660->shadow_regs[MAX8660_ADTV1] =
 		max8660->shadow_regs[MAX8660_ADTV2] =
 		max8660->shadow_regs[MAX8660_SDTV1] =
@@ -430,7 +444,7 @@ static int __devinit max8660_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* Finally register devices */
 	for (i = 0; i < pdata->num_subdevs; i++) {
 
 		id = pdata->subdevs[i].id;
@@ -501,6 +515,7 @@ static void __exit max8660_exit(void)
 }
 module_exit(max8660_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("MAXIM 8660/8661 voltage regulator driver");
 MODULE_AUTHOR("Wolfram Sang");
 MODULE_LICENSE("GPL v2");

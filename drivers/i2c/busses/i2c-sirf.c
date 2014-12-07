@@ -34,6 +34,7 @@
 
 #define SIRFSOC_I2C_DIV_MASK		(0xFFFF)
 
+/* I2C status flags */
 #define SIRFSOC_I2C_STAT_BUSY		BIT(0)
 #define SIRFSOC_I2C_STAT_TIP		BIT(1)
 #define SIRFSOC_I2C_STAT_NACK		BIT(2)
@@ -43,6 +44,7 @@
 #define SIRFSOC_I2C_STAT_ERR		BIT(9)
 #define SIRFSOC_I2C_CMD_INDEX		(0x1F<<16)
 
+/* I2C control flags */
 #define SIRFSOC_I2C_RESET		BIT(0)
 #define SIRFSOC_I2C_CORE_EN		BIT(1)
 #define SIRFSOC_I2C_MASTER_MODE		BIT(2)
@@ -66,19 +68,19 @@
 struct sirfsoc_i2c {
 	void __iomem *base;
 	struct clk *clk;
-	u32 cmd_ptr;		
-	u8 *buf;		
-	u32 msg_len;		
+	u32 cmd_ptr;		/* Current position in CMD buffer */
+	u8 *buf;		/* Buffer passed by user */
+	u32 msg_len;		/* Message length */
 	u32 finished_len;	/* number of bytes read/written */
-	u32 read_cmd_len;	
-	int msg_read;		
-	int err_status;		
+	u32 read_cmd_len;	/* number of read cmd sent */
+	int msg_read;		/* 1 indicates a read message */
+	int err_status;		/* 1 indicates an error on bus */
 
-	u32 sda_delay;		
+	u32 sda_delay;		/* For suspend/resume */
 	u32 clk_div;
-	int last;		
+	int last;		/* Last message in transfer, STOP cmd can be sent */
 
-	struct completion done;	
+	struct completion done;	/* indicates completion of message transfer */
 	struct i2c_adapter adapter;
 };
 
@@ -129,7 +131,7 @@ static void i2c_sirfsoc_queue_cmd(struct sirfsoc_i2c *siic)
 	}
 	siic->cmd_ptr = 0;
 
-	
+	/* Trigger the transfer */
 	writel(SIRFSOC_I2C_START_CMD, siic->base + SIRFSOC_I2C_CMD_START);
 }
 
@@ -139,7 +141,7 @@ static irqreturn_t i2c_sirfsoc_irq(int irq, void *dev_id)
 	u32 i2c_stat = readl(siic->base + SIRFSOC_I2C_STATUS);
 
 	if (i2c_stat & SIRFSOC_I2C_STAT_ERR) {
-		
+		/* Error conditions */
 		siic->err_status = 1;
 		writel(SIRFSOC_I2C_STAT_ERR, siic->base + SIRFSOC_I2C_STATUS);
 
@@ -150,12 +152,12 @@ static irqreturn_t i2c_sirfsoc_irq(int irq, void *dev_id)
 
 		complete(&siic->done);
 	} else if (i2c_stat & SIRFSOC_I2C_STAT_CMD_DONE) {
-		
+		/* CMD buffer execution complete */
 		if (siic->msg_read)
 			i2c_sirfsoc_read_data(siic);
 		if (siic->finished_len == siic->msg_len)
 			complete(&siic->done);
-		else 
+		else /* Fill a new CMD buffer for left data */
 			i2c_sirfsoc_queue_cmd(siic);
 
 		writel(SIRFSOC_I2C_STAT_CMD_DONE, siic->base + SIRFSOC_I2C_STATUS);
@@ -170,13 +172,13 @@ static void i2c_sirfsoc_set_address(struct sirfsoc_i2c *siic,
 	unsigned char addr;
 	u32 regval = SIRFSOC_I2C_START | SIRFSOC_I2C_CMD_RP(0) | SIRFSOC_I2C_WRITE;
 
-	
+	/* no data and last message -> add STOP */
 	if (siic->last && (msg->len == 0))
 		regval |= SIRFSOC_I2C_STOP;
 
 	writel(regval, siic->base + SIRFSOC_I2C_CMD(siic->cmd_ptr++));
 
-	addr = msg->addr << 1;	
+	addr = msg->addr << 1;	/* Generate address */
 	if (msg->flags & I2C_M_RD)
 		addr |= 1;
 
@@ -186,7 +188,7 @@ static void i2c_sirfsoc_set_address(struct sirfsoc_i2c *siic,
 static int i2c_sirfsoc_xfer_msg(struct sirfsoc_i2c *siic, struct i2c_msg *msg)
 {
 	u32 regval = readl(siic->base + SIRFSOC_I2C_CTRL);
-	
+	/* timeout waiting for the xfer to finish or fail */
 	int timeout = msecs_to_jiffies((msg->len + 1) * 50);
 	int ret = 0;
 
@@ -250,6 +252,7 @@ static int i2c_sirfsoc_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	return num;
 }
 
+/* I2C algorithms associated with this master controller driver */
 static const struct i2c_algorithm i2c_sirfsoc_algo = {
 	.master_xfer = i2c_sirfsoc_xfer,
 	.functionality = i2c_sirfsoc_func,
@@ -333,7 +336,7 @@ static int __devinit i2c_sirfsoc_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, adap);
 	init_completion(&siic->done);
 
-	
+	/* Controller Initalisation */
 
 	writel(SIRFSOC_I2C_RESET, siic->base + SIRFSOC_I2C_CTRL);
 	while (readl(siic->base + SIRFSOC_I2C_CTRL) & SIRFSOC_I2C_RESET)

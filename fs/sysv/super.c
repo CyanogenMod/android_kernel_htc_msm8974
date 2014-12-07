@@ -26,6 +26,19 @@
 #include <linux/buffer_head.h>
 #include "sysv.h"
 
+/*
+ * The following functions try to recognize specific filesystems.
+ *
+ * We recognize:
+ * - Xenix FS by its magic number.
+ * - SystemV FS by its magic number.
+ * - Coherent FS by its funny fname/fpack field.
+ * - SCO AFS by s_nfree == 0xffff
+ * - V7 FS has no distinguishing features.
+ *
+ * We discriminate among SystemV4 and SystemV2 FS by the assumption that
+ * the time stamp is not < 01-01-1980.
+ */
 
 enum {
 	JAN_1_1980 = (10*365 + 2) * 24 * 60 * 60
@@ -41,7 +54,7 @@ static void detected_xenix(struct sysv_sb_info *sbi, unsigned *max_links)
 	if (bh1 != bh2)
 		sbd1 = sbd2 = (struct xenix_super_block *) bh1->b_data;
 	else {
-		
+		/* block size = 512, so bh1 != bh2 */
 		sbd1 = (struct xenix_super_block *) bh1->b_data;
 		sbd2 = (struct xenix_super_block *) (bh2->b_data - 512);
 	}
@@ -186,7 +199,7 @@ static int detect_xenix(struct sysv_sb_info *sbi, struct buffer_head *bh)
 static int detect_sysv(struct sysv_sb_info *sbi, struct buffer_head *bh)
 {
 	struct super_block *sb = sbi->s_sb;
-	
+	/* All relevant fields are at the same offsets in R2 and R4 */
 	struct sysv4_super_block * sbd;
 	u32 type;
 
@@ -212,7 +225,7 @@ static int detect_sysv(struct sysv_sb_info *sbi, struct buffer_head *bh)
  	}
  
 	if (fs32_to_cpu(sbi, sbd->s_time) < JAN_1_1980) {
-		
+		/* this is likely to happen on SystemV2 FS */
 		if (type > 3 || type < 1)
 			return 0;
 		sbi->s_type = FSTYPE_SYSV2;
@@ -221,6 +234,10 @@ static int detect_sysv(struct sysv_sb_info *sbi, struct buffer_head *bh)
 	if ((type > 3 || type < 1) && (type > 0x30 || type < 0x10))
 		return 0;
 
+	/* On Interactive Unix (ISC) Version 4.0/3.x s_type field = 0x10,
+	   0x20 or 0x30 indicates that symbolic links and the 14-character
+	   filename limit is gone. Due to lack of information about this
+           feature read-only mode seems to be a reasonable approach... -KGB */
 
 	if (type >= 0x10) {
 		printk("SysV FS: can't handle long file names on %s, "
@@ -313,7 +330,7 @@ static int complete_read_super(struct super_block *sb, int silent, int size)
 		       found, sb->s_blocksize, sb->s_id);
 
 	sb->s_magic = SYSV_MAGIC_BASE + sbi->s_type;
-	
+	/* set up enough so that it can read an inode */
 	sb->s_op = &sysv_sops;
 	if (sbi->s_forced_ro)
 		sb->s_flags |= MS_RDONLY;
@@ -425,13 +442,15 @@ static int v7_sanity_check(struct super_block *sb, struct buffer_head *bh)
 
 	sbi = sb->s_fs_info;
 
-	
+	/* plausibility check on superblock */
 	v7sb = (struct v7_super_block *) bh->b_data;
 	if (fs16_to_cpu(sbi, v7sb->s_nfree) > V7_NICFREE ||
 	    fs16_to_cpu(sbi, v7sb->s_ninode) > V7_NICINOD ||
 	    fs32_to_cpu(sbi, v7sb->s_fsize) > V7_MAXSIZE)
 		return 0;
 
+	/* plausibility check on root inode: it is a directory,
+	   with a nonzero size that is a multiple of 16 */
 	bh2 = sb_bread(sb, 2);
 	if (bh2 == NULL)
 		return 0;
@@ -478,12 +497,12 @@ static int v7_fill_super(struct super_block *sb, void *data, int silent)
 		goto failed;
 	}
 
-	
+	/* Try PDP-11 UNIX */
 	sbi->s_bytesex = BYTESEX_PDP;
 	if (v7_sanity_check(sb, bh))
 		goto detected;
 
-	
+	/* Try PC/IX, v7/x86 */
 	sbi->s_bytesex = BYTESEX_LE;
 	if (v7_sanity_check(sb, bh))
 		goto detected;
@@ -504,6 +523,7 @@ failed:
 	return -EINVAL;
 }
 
+/* Every kernel module contains stuff like this. */
 
 static struct dentry *sysv_mount(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data)

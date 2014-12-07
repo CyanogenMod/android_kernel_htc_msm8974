@@ -26,11 +26,15 @@
 #include "pmcc4_private.h"
 #include "sbeproc.h"
 
+/* forwards */
 void        sbecom_get_brdinfo (ci_t *, struct sbe_brd_info *, u_int8_t *);
 extern struct s_hdw_info hdw_info[MAX_BOARDS];
 
 #ifdef CONFIG_PROC_FS
 
+/********************************************************************/
+/* procfs stuff                                                     */
+/********************************************************************/
 
 
 void
@@ -61,7 +65,7 @@ sbecom_proc_get_sbe_info (char *buffer, char **start, off_t offset,
         return -ENOMEM;
     }
 #if 0
-    
+    /** RLD DEBUG **/
     pr_info(">> sbecom_proc_get_sbe_info: entered, offset %d. length %d.\n",
             (int) offset, (int) length);
 #endif
@@ -85,7 +89,7 @@ sbecom_proc_get_sbe_info (char *buffer, char **start, off_t offset,
     }
 
 #if 0
-    
+    /** RLD DEBUG **/
     pr_info(">> sbecom_get_brdinfo: returned, first_if %p <%s> last_if %p <%s>\n",
             (char *) &bip->first_iname, (char *) &bip->first_iname,
             (char *) &bip->last_iname, (char *) &bip->last_iname);
@@ -184,15 +188,68 @@ sbecom_proc_get_sbe_info (char *buffer, char **start, off_t offset,
     }
 #endif
 
-    OS_kfree (bip);                 
+    OS_kfree (bip);                 /* cleanup */
 
+    /***
+     * How to be a proc read function
+     * ------------------------------
+     * Prototype:
+     *    int f(char *buffer, char **start, off_t offset,
+     *          int count, int *peof, void *dat)
+     *
+     * Assume that the buffer is "count" bytes in size.
+     *
+     * If you know you have supplied all the data you
+     * have, set *peof.
+     *
+     * You have three ways to return data:
+     * 0) Leave *start = NULL.  (This is the default.)
+     *    Put the data of the requested offset at that
+     *    offset within the buffer.  Return the number (n)
+     *    of bytes there are from the beginning of the
+     *    buffer up to the last byte of data.  If the
+     *    number of supplied bytes (= n - offset) is
+     *    greater than zero and you didn't signal eof
+     *    and the reader is prepared to take more data
+     *    you will be called again with the requested
+     *    offset advanced by the number of bytes
+     *    absorbed.  This interface is useful for files
+     *    no larger than the buffer.
+     * 1) Set *start = an unsigned long value less than
+     *    the buffer address but greater than zero.
+     *    Put the data of the requested offset at the
+     *    beginning of the buffer.  Return the number of
+     *    bytes of data placed there.  If this number is
+     *    greater than zero and you didn't signal eof
+     *    and the reader is prepared to take more data
+     *    you will be called again with the requested
+     *    offset advanced by *start.  This interface is
+     *    useful when you have a large file consisting
+     *    of a series of blocks which you want to count
+     *    and return as wholes.
+     *    (Hack by Paul.Russell@rustcorp.com.au)
+     * 2) Set *start = an address within the buffer.
+     *    Put the data of the requested offset at *start.
+     *    Return the number of bytes of data placed there.
+     *    If this number is greater than zero and you
+     *    didn't signal eof and the reader is prepared to
+     *    take more data you will be called again with the
+     *    requested offset advanced by the number of bytes
+     *    absorbed.
+     */
 
 #if 1
-    
+    /* #4 - interpretation of above = set EOF, return len */
     *eof = 1;
 #endif
 
 #if 0
+    /*
+     * #1 - from net/wireless/atmel.c RLD NOTE -there's something wrong with
+     * this plagarized code which results in this routine being called TWICE.
+     * The second call returns ZERO, resulting in hidden failure, but at
+     * least only a single message set is being displayed.
+     */
     if (len <= offset + length)
         *eof = 1;
     *start = buffer + offset;
@@ -203,7 +260,8 @@ sbecom_proc_get_sbe_info (char *buffer, char **start, off_t offset,
         len = 0;
 #endif
 
-#if 0                               
+#if 0                               /* #2 from net/tokenring/olympic.c +
+                                     * lanstreamer.c */
     {
         off_t       begin = 0;
         int         size = 0;
@@ -216,14 +274,15 @@ sbecom_proc_get_sbe_info (char *buffer, char **start, off_t offset,
             len = 0;
             begin = pos;
         }
-        *start = buffer + (offset - begin);     
-        len -= (offset - begin);    
+        *start = buffer + (offset - begin);     /* Start of wanted data */
+        len -= (offset - begin);    /* Start slop */
         if (len > length)
-            len = length;           
+            len = length;           /* Ending slop */
     }
 #endif
 
-#if 0                               
+#if 0                               /* #3 from
+                                     * char/ftape/lowlevel/ftape-proc.c */
     len = strlen (buffer);
     *start = NULL;
     if (offset + length >= len)
@@ -233,13 +292,21 @@ sbecom_proc_get_sbe_info (char *buffer, char **start, off_t offset,
 #endif
 
 #if 0
-    pr_info(">> proc_fs: returned len = %d., start %p\n", len, start);  
+    pr_info(">> proc_fs: returned len = %d., start %p\n", len, start);  /* RLD DEBUG */
 #endif
 
+/***
+   using NONE: returns = 314.314.314.
+   using #1  : returns = 314, 0.
+   using #2  : returns = 314, 0, 0.
+   using #3  : returns = 314, 314.
+   using #4  : returns = 314, 314.
+***/
 
     return len;
 }
 
+/* initialize the /proc subsystem for the specific SBE driver */
 
 int         __init
 sbecom_proc_brd_init (ci_t * ci)
@@ -247,7 +314,7 @@ sbecom_proc_brd_init (ci_t * ci)
     struct proc_dir_entry *e;
     char dir[7 + SBE_IFACETMPL_SIZE + 1];
 
-    
+    /* create a directory in the root procfs */
     snprintf(dir, sizeof(dir), "driver/%s", ci->devname);
     ci->dir_dev = proc_mkdir(dir, NULL);
     if (!ci->dir_dev)
@@ -269,8 +336,9 @@ fail:
     return 1;
 }
 
-#else                           
+#else                           /*** ! CONFIG_PROC_FS ***/
 
+/* stubbed off dummy routines */
 
 void
 sbecom_proc_brd_cleanup (ci_t * ci)
@@ -283,6 +351,7 @@ sbecom_proc_brd_init (ci_t * ci)
     return 0;
 }
 
-#endif                          
+#endif                          /*** CONFIG_PROC_FS ***/
 
 
+/*** End-of-File ***/

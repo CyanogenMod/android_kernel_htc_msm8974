@@ -44,7 +44,7 @@ static struct sleep_save exynos4210_clock_save[] = {
 #endif
 
 static struct clksrc_clk *sysclks[] = {
-	
+	/* nothing here yet */
 };
 
 static int exynos4_clksrc_mask_lcd1_ctrl(struct clk *clk, int enable)

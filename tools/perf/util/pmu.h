@@ -38,4 +38,4 @@ int perf_pmu__new_format(struct list_head *list, char *name,
 void perf_pmu__set_format(unsigned long *bits, long from, long to);
 
 int perf_pmu__test(void);
-#endif 
+#endif /* __PMU_H */

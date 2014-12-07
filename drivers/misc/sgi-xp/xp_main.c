@@ -6,23 +6,32 @@
  * Copyright (c) 2004-2008 Silicon Graphics, Inc.  All Rights Reserved.
  */
 
+/*
+ * Cross Partition (XP) base.
+ *
+ *	XP provides a base from which its users can interact
+ *	with XPC, yet not be dependent on XPC.
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/device.h>
 #include "xp.h"
 
+/* define the XP debug device structures to be used with dev_dbg() et al */
 
 struct device_driver xp_dbg_name = {
 	.name = "xp"
 };
 
 struct device xp_dbg_subname = {
-	.init_name = "",		
+	.init_name = "",		/* set to "" */
 	.driver = &xp_dbg_name
 };
 
 struct device *xp = &xp_dbg_subname;
 
+/* max #of partitions possible */
 short xp_max_npartitions;
 EXPORT_SYMBOL_GPL(xp_max_npartitions);
 
@@ -52,9 +61,16 @@ enum xp_retval (*xp_restrict_memprotect) (unsigned long phys_addr,
 					  unsigned long size);
 EXPORT_SYMBOL_GPL(xp_restrict_memprotect);
 
+/*
+ * xpc_registrations[] keeps track of xpc_connect()'s done by the kernel-level
+ * users of XPC.
+ */
 struct xpc_registration xpc_registrations[XPC_MAX_NCHANNELS];
 EXPORT_SYMBOL_GPL(xpc_registrations);
 
+/*
+ * Initialize the XPC interface to indicate that XPC isn't loaded.
+ */
 static enum xp_retval
 xpc_notloaded(void)
 {
@@ -72,6 +88,9 @@ struct xpc_interface xpc_interface = {
 };
 EXPORT_SYMBOL_GPL(xpc_interface);
 
+/*
+ * XPC calls this when it (the XPC module) has been loaded.
+ */
 void
 xpc_set_interface(void (*connect) (int),
 		  void (*disconnect) (int),
@@ -90,6 +109,9 @@ xpc_set_interface(void (*connect) (int),
 }
 EXPORT_SYMBOL_GPL(xpc_set_interface);
 
+/*
+ * XPC calls this when it (the XPC module) is being unloaded.
+ */
 void
 xpc_clear_interface(void)
 {
@@ -107,6 +129,30 @@ xpc_clear_interface(void)
 }
 EXPORT_SYMBOL_GPL(xpc_clear_interface);
 
+/*
+ * Register for automatic establishment of a channel connection whenever
+ * a partition comes up.
+ *
+ * Arguments:
+ *
+ *	ch_number - channel # to register for connection.
+ *	func - function to call for asynchronous notification of channel
+ *	       state changes (i.e., connection, disconnection, error) and
+ *	       the arrival of incoming messages.
+ *      key - pointer to optional user-defined value that gets passed back
+ *	      to the user on any callouts made to func.
+ *	payload_size - size in bytes of the XPC message's payload area which
+ *		       contains a user-defined message. The user should make
+ *		       this large enough to hold their largest message.
+ *	nentries - max #of XPC message entries a message queue can contain.
+ *		   The actual number, which is determined when a connection
+ * 		   is established and may be less then requested, will be
+ *		   passed to the user via the xpConnected callout.
+ *	assigned_limit - max number of kthreads allowed to be processing
+ * 			 messages (per connection) at any given instant.
+ *	idle_limit - max number of kthreads allowed to be idle at any given
+ * 		     instant.
+ */
 enum xp_retval
 xpc_connect(int ch_number, xpc_channel_func func, void *key, u16 payload_size,
 	    u16 nentries, u32 assigned_limit, u32 idle_limit)
@@ -126,13 +172,13 @@ xpc_connect(int ch_number, xpc_channel_func func, void *key, u16 payload_size,
 	if (mutex_lock_interruptible(&registration->mutex) != 0)
 		return xpInterrupted;
 
-	
+	/* if XPC_CHANNEL_REGISTERED(ch_number) */
 	if (registration->func != NULL) {
 		mutex_unlock(&registration->mutex);
 		return xpAlreadyRegistered;
 	}
 
-	
+	/* register the channel for connection */
 	registration->entry_size = XPC_MSG_SIZE(payload_size);
 	registration->nentries = nentries;
 	registration->assigned_limit = assigned_limit;
@@ -148,6 +194,19 @@ xpc_connect(int ch_number, xpc_channel_func func, void *key, u16 payload_size,
 }
 EXPORT_SYMBOL_GPL(xpc_connect);
 
+/*
+ * Remove the registration for automatic connection of the specified channel
+ * when a partition comes up.
+ *
+ * Before returning this xpc_disconnect() will wait for all connections on the
+ * specified channel have been closed/torndown. So the caller can be assured
+ * that they will not be receiving any more callouts from XPC to their
+ * function registered via xpc_connect().
+ *
+ * Arguments:
+ *
+ *	ch_number - channel # to unregister.
+ */
 void
 xpc_disconnect(int ch_number)
 {
@@ -157,15 +216,20 @@ xpc_disconnect(int ch_number)
 
 	registration = &xpc_registrations[ch_number];
 
+	/*
+	 * We've decided not to make this a down_interruptible(), since we
+	 * figured XPC's users will just turn around and call xpc_disconnect()
+	 * again anyways, so we might as well wait, if need be.
+	 */
 	mutex_lock(&registration->mutex);
 
-	
+	/* if !XPC_CHANNEL_REGISTERED(ch_number) */
 	if (registration->func == NULL) {
 		mutex_unlock(&registration->mutex);
 		return;
 	}
 
-	
+	/* remove the connection registration for the specified channel */
 	registration->func = NULL;
 	registration->key = NULL;
 	registration->nentries = 0;
@@ -187,7 +251,7 @@ xp_init(void)
 	enum xp_retval ret;
 	int ch_number;
 
-	
+	/* initialize the connection registration mutex */
 	for (ch_number = 0; ch_number < XPC_MAX_NCHANNELS; ch_number++)
 		mutex_init(&xpc_registrations[ch_number].mutex);
 

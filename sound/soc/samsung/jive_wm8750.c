@@ -61,21 +61,21 @@ static int jive_hw_params(struct snd_pcm_substream *substream,
 	s3c_i2sv2_iis_calc_rate(&div, NULL, params_rate(params),
 				s3c_i2sv2_get_clock(cpu_dai));
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
 				  SND_SOC_DAIFMT_NB_NF |
 				  SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S |
 				  SND_SOC_DAIFMT_NB_NF |
 				  SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8750_SYSCLK, clk,
 				     SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -102,7 +102,7 @@ static int jive_wm8750_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* These endpoints are not being used. */
 	snd_soc_dapm_nc_pin(dapm, "LINPUT2");
 	snd_soc_dapm_nc_pin(dapm, "RINPUT2");
 	snd_soc_dapm_nc_pin(dapm, "LINPUT3");
@@ -124,6 +124,7 @@ static struct snd_soc_dai_link jive_dai = {
 	.ops		= &jive_ops,
 };
 
+/* jive audio machine driver */
 static struct snd_soc_card snd_soc_machine_jive = {
 	.name		= "Jive",
 	.owner		= THIS_MODULE,

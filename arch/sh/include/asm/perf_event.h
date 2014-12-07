@@ -21,8 +21,9 @@ struct sh_pmu {
 				       [PERF_COUNT_HW_CACHE_RESULT_MAX];
 };
 
+/* arch/sh/kernel/perf_event.c */
 extern int register_sh_pmu(struct sh_pmu *);
 extern int reserve_pmc_hardware(void);
 extern void release_pmc_hardware(void);
 
-#endif 
+#endif /* __ASM_SH_PERF_EVENT_H */

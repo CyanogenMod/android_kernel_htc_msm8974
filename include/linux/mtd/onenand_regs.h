@@ -14,12 +14,19 @@
 #ifndef __ONENAND_REG_H
 #define __ONENAND_REG_H
 
+/* Memory Address Map Translation (Word order) */
 #define ONENAND_MEMORY_MAP(x)		((x) << 1)
 
+/*
+ * External BufferRAM area
+ */
 #define	ONENAND_BOOTRAM			ONENAND_MEMORY_MAP(0x0000)
 #define	ONENAND_DATARAM			ONENAND_MEMORY_MAP(0x0200)
 #define	ONENAND_SPARERAM		ONENAND_MEMORY_MAP(0x8010)
 
+/*
+ * OneNAND Registers
+ */
 #define ONENAND_REG_MANUFACTURER_ID	ONENAND_MEMORY_MAP(0xF000)
 #define ONENAND_REG_DEVICE_ID		ONENAND_MEMORY_MAP(0xF001)
 #define ONENAND_REG_VERSION_ID		ONENAND_MEMORY_MAP(0xF002)
@@ -57,6 +64,9 @@
 #define ONENAND_REG_ECC_M3		ONENAND_MEMORY_MAP(0xFF07)
 #define ONENAND_REG_ECC_S3		ONENAND_MEMORY_MAP(0xFF08)
 
+/*
+ * Device ID Register F001h (R)
+ */
 #define DEVICE_IS_FLEXONENAND		(1 << 9)
 #define FLEXONENAND_PI_MASK		(0x3ff)
 #define FLEXONENAND_PI_UNLOCK_SHIFT	(14)
@@ -71,25 +81,45 @@
 #define ONENAND_DEVICE_DENSITY_2Gb	(0x004)
 #define ONENAND_DEVICE_DENSITY_4Gb	(0x005)
 
+/*
+ * Version ID Register F002h (R)
+ */
 #define ONENAND_VERSION_PROCESS_SHIFT	(8)
 
+/*
+ * Technology Register F006h (R)
+ */
 #define ONENAND_TECHNOLOGY_IS_MLC	(1 << 0)
 
+/*
+ * Start Address 1 F100h (R/W) & Start Address 2 F101h (R/W)
+ */
 #define ONENAND_DDP_SHIFT		(15)
 #define ONENAND_DDP_CHIP0		(0)
 #define ONENAND_DDP_CHIP1		(1 << ONENAND_DDP_SHIFT)
 
+/*
+ * Start Address 8 F107h (R/W)
+ */
+/* Note: It's actually 0x3f in case of SLC */
 #define ONENAND_FPA_MASK		(0x7f)
 #define ONENAND_FPA_SHIFT		(2)
 #define ONENAND_FSA_MASK		(0x03)
 
+/*
+ * Start Buffer Register F200h (R/W)
+ */
 #define ONENAND_BSA_MASK		(0x03)
 #define ONENAND_BSA_SHIFT		(8)
 #define ONENAND_BSA_BOOTRAM		(0 << 2)
 #define ONENAND_BSA_DATARAM0		(2 << 2)
 #define ONENAND_BSA_DATARAM1		(3 << 2)
+/* Note: It's actually 0x03 in case of SLC */
 #define ONENAND_BSC_MASK		(0x07)
 
+/*
+ * Command Register F220h (R/W)
+ */
 #define ONENAND_CMD_READ		(0x00)
 #define ONENAND_CMD_READOOB		(0x13)
 #define ONENAND_CMD_PROG		(0x80)
@@ -110,9 +140,13 @@
 #define FLEXONENAND_CMD_PI_ACCESS	(0x66)
 #define FLEXONENAND_CMD_RECOVER_LSB	(0x05)
 
+/* NOTE: Those are not *REAL* commands */
 #define ONENAND_CMD_BUFFERRAM		(0x1978)
 #define FLEXONENAND_CMD_READ_PI		(0x1985)
 
+/*
+ * System Configuration 1 Register F221h (R, R/W)
+ */
 #define ONENAND_SYS_CFG1_SYNC_READ	(1 << 15)
 #define ONENAND_SYS_CFG1_BRL_7		(7 << 12)
 #define ONENAND_SYS_CFG1_BRL_6		(6 << 12)
@@ -138,6 +172,9 @@
 #define ONENAND_SYS_CFG1_HF		(1 << 2)
 #define ONENAND_SYS_CFG1_SYNC_WRITE	(1 << 1)
 
+/*
+ * Controller Status Register F240h (R)
+ */
 #define ONENAND_CTRL_ONGO		(1 << 15)
 #define ONENAND_CTRL_LOCK		(1 << 14)
 #define ONENAND_CTRL_LOAD		(1 << 13)
@@ -148,6 +185,9 @@
 #define ONENAND_CTRL_OTP_L		(1 << 6)
 #define ONENAND_CTRL_OTP_BL		(1 << 5)
 
+/*
+ * Interrupt Status Register F241h (R)
+ */
 #define ONENAND_INT_MASTER		(1 << 15)
 #define ONENAND_INT_READ		(1 << 7)
 #define ONENAND_INT_WRITE		(1 << 6)
@@ -155,10 +195,16 @@
 #define ONENAND_INT_RESET		(1 << 4)
 #define ONENAND_INT_CLEAR		(0 << 0)
 
+/*
+ * NAND Flash Write Protection Status Register F24Eh (R)
+ */
 #define ONENAND_WP_US			(1 << 2)
 #define ONENAND_WP_LS			(1 << 1)
 #define ONENAND_WP_LTS			(1 << 0)
 
+/*
+ * ECC Status Reigser FF00h (R)
+ */
 #define ONENAND_ECC_1BIT		(1 << 0)
 #define ONENAND_ECC_1BIT_ALL		(0x5555)
 #define ONENAND_ECC_2BIT		(1 << 1)
@@ -168,7 +214,10 @@
 #define ONENAND_ECC_4BIT		(1 << 3)
 #define ONENAND_ECC_4BIT_UNCORRECTABLE	(0x1010)
 
+/*
+ * One-Time Programmable (OTP)
+ */
 #define FLEXONENAND_OTP_LOCK_OFFSET		(2048)
 #define ONENAND_OTP_LOCK_OFFSET		(14)
 
-#endif	
+#endif	/* __ONENAND_REG_H */

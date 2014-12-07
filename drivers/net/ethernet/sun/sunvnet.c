@@ -32,6 +32,7 @@ MODULE_DESCRIPTION("Sun LDOM virtual network driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_MODULE_VERSION);
 
+/* Ordered from largest major to lowest */
 static struct vio_version vnet_versions[] = {
 	{ .major = 1, .minor = 0 },
 };
@@ -161,6 +162,21 @@ static void vnet_handshake_complete(struct vio_driver_state *vio)
 	dr->snd_nxt = dr->rcv_nxt = 1;
 }
 
+/* The hypervisor interface that implements copying to/from imported
+ * memory from another domain requires that copies are done to 8-byte
+ * aligned buffers, and that the lengths of such copies are also 8-byte
+ * multiples.
+ *
+ * So we align skb->data to an 8-byte multiple and pad-out the data
+ * area so we can round the copy length up to the next multiple of
+ * 8 for the copy.
+ *
+ * The transmitter puts the actual start of the packet 6 bytes into
+ * the buffer it sends over, so that the IP headers after the ethernet
+ * header are aligned properly.  These 6 bytes are not in the descriptor
+ * length, they are simply implied.  This offset is represented using
+ * the VNET_PACKET_SKIP macro.
+ */
 static struct sk_buff *alloc_and_align_skb(struct net_device *dev,
 					   unsigned int len)
 {
@@ -392,7 +408,7 @@ static int vnet_rx(struct vnet_port *port, void *msgbuf)
 
 	dr->rcv_nxt++;
 
-	
+	/* XXX Validate pkt->start_idx and pkt->end_idx XXX */
 
 	return vnet_walk_rx(port, dr, pkt->start_idx, pkt->end_idx);
 }
@@ -440,7 +456,7 @@ static int vnet_ack(struct vnet_port *port, void *msgbuf)
 
 static int vnet_nack(struct vnet_port *port, void *msgbuf)
 {
-	
+	/* XXX just reset or similar XXX */
 	return 0;
 }
 
@@ -645,7 +661,7 @@ static int vnet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		if (!netif_queue_stopped(dev)) {
 			netif_stop_queue(dev);
 
-			
+			/* This is a hard error, log it. */
 			netdev_err(dev, "BUG! Tx Ring full when queue awake!\n");
 			dev->stats.tx_errors++;
 		}
@@ -670,6 +686,9 @@ static int vnet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	for (i = 0; i < d->ncookies; i++)
 		d->cookies[i] = port->tx_bufs[dr->prod].cookies[i];
 
+	/* This has to be a non-SMP write barrier because we are writing
+	 * to memory which is shared with the peer LDOM.
+	 */
 	wmb();
 
 	d->hdr.state = VIO_DESC_READY;
@@ -709,7 +728,7 @@ out_dropped:
 
 static void vnet_tx_timeout(struct net_device *dev)
 {
-	
+	/* XXX Implement me XXX */
 }
 
 static int vnet_open(struct net_device *dev)

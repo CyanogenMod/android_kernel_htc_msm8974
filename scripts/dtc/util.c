@@ -74,11 +74,11 @@ int util_is_printable_string(const void *data, int len)
 	const char *s = data;
 	const char *ss;
 
-	
+	/* zero length is not */
 	if (len == 0)
 		return 0;
 
-	
+	/* must terminate with zero */
 	if (s[len - 1] != '\0')
 		return 0;
 
@@ -86,13 +86,19 @@ int util_is_printable_string(const void *data, int len)
 	while (*s && isprint(*s))
 		s++;
 
-	
+	/* not zero, or not done yet */
 	if (*s != '\0' || (s + 1 - ss) < len)
 		return 0;
 
 	return 1;
 }
 
+/*
+ * Parse a octal encoded character starting at index i in string s.  The
+ * resulting character will be returned and the index i will be updated to
+ * point at the character directly after the end of the encoding, this may be
+ * the '\0' terminator of the string.
+ */
 static char get_oct_char(const char *s, int *i)
 {
 	char x[4];
@@ -110,6 +116,12 @@ static char get_oct_char(const char *s, int *i)
 	return val;
 }
 
+/*
+ * Parse a hexadecimal encoded character starting at index i in string s.  The
+ * resulting character will be returned and the index i will be updated to
+ * point at the character directly after the end of the encoding, this may be
+ * the '\0' terminator of the string.
+ */
 static char get_hex_char(const char *s, int *i)
 {
 	char x[3];
@@ -164,7 +176,8 @@ char get_escape_char(const char *s, int *i)
 	case '5':
 	case '6':
 	case '7':
-		j--; 
+		j--; /* need to re-read the first digit as
+		      * part of the octal value */
 		val = get_oct_char(s, &j);
 		break;
 	case 'x':
@@ -180,7 +193,7 @@ char get_escape_char(const char *s, int *i)
 
 int utilfdt_read_err(const char *filename, char **buffp)
 {
-	int fd = 0;	
+	int fd = 0;	/* assume stdin */
 	char *buf = NULL;
 	off_t bufsize = 1024, offset = 0;
 	int ret = 0;
@@ -192,10 +205,10 @@ int utilfdt_read_err(const char *filename, char **buffp)
 			return errno;
 	}
 
-	
+	/* Loop until we have read everything */
 	buf = malloc(bufsize);
 	do {
-		
+		/* Expand the buffer to hold the next chunk */
 		if (offset == bufsize) {
 			bufsize *= 2;
 			buf = realloc(buf, bufsize);
@@ -213,7 +226,7 @@ int utilfdt_read_err(const char *filename, char **buffp)
 		offset += ret;
 	} while (ret != 0);
 
-	
+	/* Clean up, including closing stdin; return errno on error */
 	close(fd);
 	if (ret)
 		free(buf);
@@ -232,13 +245,13 @@ char *utilfdt_read(const char *filename)
 			strerror(ret));
 		return NULL;
 	}
-	
+	/* Successful read */
 	return buff;
 }
 
 int utilfdt_write_err(const char *filename, const void *blob)
 {
-	int fd = 1;	
+	int fd = 1;	/* assume stdout */
 	int totalsize;
 	int offset;
 	int ret = 0;
@@ -261,7 +274,7 @@ int utilfdt_write_err(const char *filename, const void *blob)
 		}
 		offset += ret;
 	}
-	
+	/* Close the file/stdin; return errno on error */
 	if (fd != 1)
 		close(fd);
 	return ret < 0 ? -ret : 0;
@@ -286,12 +299,13 @@ int utilfdt_decode_type(const char *fmt, int *type, int *size)
 	if (!*fmt)
 		return -1;
 
-	
+	/* get the conversion qualifier */
 	*size = -1;
 	if (strchr("hlLb", *fmt)) {
 		qualifier = *fmt++;
 		if (qualifier == *fmt) {
 			switch (*fmt++) {
+/* TODO:		case 'l': qualifier = 'L'; break;*/
 			case 'h':
 				qualifier = 'b';
 				break;
@@ -299,18 +313,18 @@ int utilfdt_decode_type(const char *fmt, int *type, int *size)
 		}
 	}
 
-	
+	/* we should now have a type */
 	if ((*fmt == '\0') || !strchr("iuxs", *fmt))
 		return -1;
 
-	
+	/* convert qualifier (bhL) to byte size */
 	if (*fmt != 's')
 		*size = qualifier == 'b' ? 1 :
 				qualifier == 'h' ? 2 :
 				qualifier == 'l' ? 4 : -1;
 	*type = *fmt++;
 
-	
+	/* that should be it! */
 	if (*fmt)
 		return -1;
 	return 0;

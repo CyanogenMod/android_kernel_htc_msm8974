@@ -24,6 +24,9 @@
 
 #include <mach/hardware.h>
 
+/*
+ * Very simple clock implementation
+ */
 struct clk {
 	struct list_head	node;
 	unsigned long		rate;
@@ -136,7 +139,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 		unsigned long pll_vgacfg, pll_vgadiv;
 		int ret, i;
 
-		
+		/* lookup vga_clk_table */
 		ret = -EINVAL;
 		for (i = 0; i < ARRAY_SIZE(vga_clk_table); i++) {
 			if (rate == vga_clk_table[i].rate) {
@@ -153,15 +156,15 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 		if (readl(PM_PLLVGACFG) == pll_vgacfg)
 			return 0;
 
-		
+		/* set pll vga cfg reg. */
 		writel(pll_vgacfg, PM_PLLVGACFG);
 
 		writel(PM_PMCR_CFBVGA, PM_PMCR);
 		while ((readl(PM_PLLDFCDONE) & PM_PLLDFCDONE_VGADFC)
 				!= PM_PLLDFCDONE_VGADFC)
-			udelay(100); 
+			udelay(100); /* about 1ms */
 
-		
+		/* set div cfg reg. */
 		writel(readl(PM_PCGR) | PM_PCGR_VGACLK, PM_PCGR);
 
 		writel((readl(PM_DIVCFG) & ~PM_DIVCFG_VGACLK_MASK)
@@ -170,7 +173,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 		writel(readl(PM_SWRESET) | PM_SWRESET_VGADIV, PM_SWRESET);
 		while ((readl(PM_SWRESET) & PM_SWRESET_VGADIV)
 				== PM_SWRESET_VGADIV)
-			udelay(100); 
+			udelay(100); /* 65536 bclk32, about 320us */
 
 		writel(readl(PM_PCGR) & ~PM_PCGR_VGACLK, PM_PCGR);
 	}
@@ -179,7 +182,7 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 		u32 pll_rate, divstatus = PM_DIVSTATUS;
 		int ret, i;
 
-		
+		/* lookup mclk_clk_table */
 		ret = -EINVAL;
 		for (i = 0; i < ARRAY_SIZE(mclk_clk_table); i++) {
 			if (rate == mclk_clk_table[i].mrate) {
@@ -197,14 +200,14 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 			clk_bclk32_clk.rate = clk_mclk_clk.rate
 				/ (((divstatus & 0x0000f000) >> 12) + 1);
 
-		
+		/* set pll sys cfg reg. */
 		PM_PLLSYSCFG = pll_rate;
 
 		PM_PMCR = PM_PMCR_CFBSYS;
 		while ((PM_PLLDFCDONE & PM_PLLDFCDONE_SYSDFC)
 				!= PM_PLLDFCDONE_SYSDFC)
 			udelay(100);
-			
+			/* about 1ms */
 	}
 #endif
 	return 0;
@@ -332,7 +335,7 @@ static int __init clk_init(void)
 
 	pllrate = readl(PM_PLLSYSSTATUS);
 
-	
+	/* lookup pmclk_table */
 	clk_mclk_clk.rate = 0;
 	for (i = 0; i < ARRAY_SIZE(pllrate_table); i++) {
 		if (pllrate == pllrate_table[i].prate) {
@@ -347,7 +350,7 @@ static int __init clk_init(void)
 
 	pllrate = readl(PM_PLLDDRSTATUS);
 
-	
+	/* lookup pddr_table */
 	clk_ddr_clk.rate = 0;
 	for (i = 0; i < ARRAY_SIZE(pddr_table); i++) {
 		if (pllrate == pddr_table[i].prate) {
@@ -358,7 +361,7 @@ static int __init clk_init(void)
 
 	pllrate = readl(PM_PLLVGASTATUS);
 
-	
+	/* lookup pvga_table */
 	clk_vga_clk.rate = 0;
 	for (i = 0; i < ARRAY_SIZE(pllrate_table); i++) {
 		if (pllrate == pllrate_table[i].prate) {

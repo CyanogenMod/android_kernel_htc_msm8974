@@ -23,12 +23,20 @@
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
 
+/*
+ * General memory allocation interfaces
+ */
 
 #define KM_SLEEP	0x0001u
 #define KM_NOSLEEP	0x0002u
 #define KM_NOFS		0x0004u
 #define KM_MAYFAIL	0x0008u
 
+/*
+ * We use a special process flag to avoid recursive callbacks into
+ * the filesystem during transactions.  We will also issue our own
+ * warnings, so we explicitly skip any generic ones (silly of us).
+ */
 static inline gfp_t
 kmem_flags_convert(unsigned int __nocast flags)
 {
@@ -62,6 +70,9 @@ static inline void kmem_free_large(void *ptr)
 
 extern void *kmem_zalloc_greedy(size_t *, size_t, size_t);
 
+/*
+ * Zone interfaces
+ */
 
 #define KM_ZONE_HWALIGN	SLAB_HWCACHE_ALIGN
 #define KM_ZONE_RECLAIM	SLAB_RECLAIM_ACCOUNT
@@ -99,4 +110,4 @@ kmem_zone_destroy(kmem_zone_t *zone)
 extern void *kmem_zone_alloc(kmem_zone_t *, unsigned int __nocast);
 extern void *kmem_zone_zalloc(kmem_zone_t *, unsigned int __nocast);
 
-#endif 
+#endif /* __XFS_SUPPORT_KMEM_H__ */

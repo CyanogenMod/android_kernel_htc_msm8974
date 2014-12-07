@@ -27,6 +27,7 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/* Addresses scanned */
 static const unsigned short normal_i2c[] = { 0x2E, I2C_CLIENT_END };
 
 static const u8 REG_TEMP[4] = { 0x00, 0x02, 0x04, 0x06 };
@@ -44,27 +45,36 @@ static const u8 REG_TEMP_MAX[4] = { 0x34, 0x30, 0x31, 0x32 };
 #define REG_PRODUCT_ID		0xfd
 #define REG_MFG_ID		0xfe
 
+/* equation 4 from datasheet: rpm = (3932160 * multipler) / count */
 #define FAN_RPM_FACTOR		3932160
 
+/*
+ * 2103-2 and 2103-4's 3rd temperature sensor can be connected to two diodes
+ * in anti-parallel mode, and in this configuration both can be read
+ * independently (so we have 4 temperature inputs).  The device can't
+ * detect if it's connected in this mode, so we have to manually enable
+ * it.  Default is to leave the device in the state it's already in (-1).
+ * This parameter allows APD mode to be optionally forced on or off
+ */
 static int apd = -1;
 module_param(apd, bint, 0);
 MODULE_PARM_DESC(init, "Set to zero to disable anti-parallel diode mode");
 
 struct temperature {
 	s8	degrees;
-	u8	fraction;	
+	u8	fraction;	/* 0-7 multiples of 0.125 */
 };
 
 struct emc2103_data {
 	struct device		*hwmon_dev;
 	struct mutex		update_lock;
-	bool			valid;		
+	bool			valid;		/* registers are valid */
 	bool			fan_rpm_control;
-	int			temp_count;	
-	unsigned long		last_updated;	
-	struct temperature	temp[4];	
-	s8			temp_min[4];	
-	s8			temp_max[4];    
+	int			temp_count;	/* num of temp sensors */
+	unsigned long		last_updated;	/* in jiffies */
+	struct temperature	temp[4];	/* internal + 3 external */
+	s8			temp_min[4];	/* no fractional part */
+	s8			temp_max[4];    /* no fractional part */
 	u8			temp_min_alarm;
 	u8			temp_max_alarm;
 	u8			fan_multiplier;
@@ -294,6 +304,12 @@ show_fan_div(struct device *dev, struct device_attribute *da, char *buf)
 	return sprintf(buf, "%d\n", fan_div);
 }
 
+/*
+ * Note: we also update the fan target here, because its value is
+ * determined in part by the fan clock divider.  This follows the principle
+ * of least surprise; the user doesn't expect the fan target to change just
+ * because the divider changed.
+ */
 static ssize_t set_fan_div(struct device *dev, struct device_attribute *da,
 			   const char *buf, size_t count)
 {
@@ -306,7 +322,7 @@ static ssize_t set_fan_div(struct device *dev, struct device_attribute *da,
 	if (status < 0)
 		return -EINVAL;
 
-	if (new_div == old_div) 
+	if (new_div == old_div) /* No change */
 		return count;
 
 	switch (new_div) {
@@ -341,14 +357,14 @@ static ssize_t set_fan_div(struct device *dev, struct device_attribute *da,
 
 	data->fan_multiplier = 8 / new_div;
 
-	
+	/* update fan target if high byte is not disabled */
 	if ((data->fan_target & 0x1fe0) != 0x1fe0) {
 		u16 new_target = (data->fan_target * old_div) / new_div;
 		data->fan_target = min(new_target, (u16)0x1fff);
 		write_fan_target_to_i2c(client, data->fan_target);
 	}
 
-	
+	/* invalidate data to force re-read from hardware */
 	data->valid = false;
 
 	mutex_unlock(&data->update_lock);
@@ -361,7 +377,7 @@ show_fan_target(struct device *dev, struct device_attribute *da, char *buf)
 	struct emc2103_data *data = emc2103_update_device(dev);
 	int rpm = 0;
 
-	
+	/* high byte of 0xff indicates disabled so return 0 */
 	if ((data->fan_target != 0) && ((data->fan_target & 0x1fe0) != 0x1fe0))
 		rpm = (FAN_RPM_FACTOR * data->fan_multiplier)
 			/ data->fan_target;
@@ -380,7 +396,7 @@ static ssize_t set_fan_target(struct device *dev, struct device_attribute *da,
 	if (result < 0)
 		return -EINVAL;
 
-	
+	/* Datasheet states 16384 as maximum RPM target (table 3.2) */
 	if ((rpm_target < 0) || (rpm_target > 16384))
 		return -EINVAL;
 
@@ -505,6 +521,7 @@ static DEVICE_ATTR(fan1_fault, S_IRUGO, show_fan_fault, NULL);
 static DEVICE_ATTR(pwm1_enable, S_IRUGO | S_IWUSR, show_pwm_enable,
 	set_pwm_enable);
 
+/* sensors present on all models */
 static struct attribute *emc2103_attributes[] = {
 	&sensor_dev_attr_temp1_input.dev_attr.attr,
 	&sensor_dev_attr_temp1_min.dev_attr.attr,
@@ -526,6 +543,7 @@ static struct attribute *emc2103_attributes[] = {
 	NULL
 };
 
+/* extra temperature sensors only present on 2103-2 and 2103-4 */
 static struct attribute *emc2103_attributes_temp3[] = {
 	&sensor_dev_attr_temp3_input.dev_attr.attr,
 	&sensor_dev_attr_temp3_min.dev_attr.attr,
@@ -536,6 +554,7 @@ static struct attribute *emc2103_attributes_temp3[] = {
 	NULL
 };
 
+/* extra temperature sensors only present on 2103-2 and 2103-4 in APD mode */
 static struct attribute *emc2103_attributes_temp4[] = {
 	&sensor_dev_attr_temp4_input.dev_attr.attr,
 	&sensor_dev_attr_temp4_min.dev_attr.attr,
@@ -574,13 +593,13 @@ emc2103_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* 2103-2 and 2103-4 have 3 external diodes, 2103-1 has 1 */
 	status = i2c_smbus_read_byte_data(client, REG_PRODUCT_ID);
 	if (status == 0x24) {
-		
+		/* 2103-1 only has 1 external diode */
 		data->temp_count = 2;
 	} else {
-		
+		/* 2103-2 and 2103-4 have 3 or 4 external diodes */
 		status = i2c_smbus_read_byte_data(client, REG_CONF1);
 		if (status < 0) {
 			dev_dbg(&client->dev, "reg 0x%02x, err %d\n", REG_CONF1,
@@ -588,24 +607,24 @@ emc2103_probe(struct i2c_client *client, const struct i2c_device_id *id)
 			goto exit_free;
 		}
 
-		
+		/* detect current state of hardware */
 		data->temp_count = (status & 0x01) ? 4 : 3;
 
-		
+		/* force APD state if module parameter is set */
 		if (apd == 0) {
-			
+			/* force APD mode off */
 			data->temp_count = 3;
 			status &= ~(0x01);
 			i2c_smbus_write_byte_data(client, REG_CONF1, status);
 		} else if (apd == 1) {
-			
+			/* force APD mode on */
 			data->temp_count = 4;
 			status |= 0x01;
 			i2c_smbus_write_byte_data(client, REG_CONF1, status);
 		}
 	}
 
-	
+	/* Register sysfs hooks */
 	status = sysfs_create_group(&client->dev.kobj, &emc2103_group);
 	if (status)
 		goto exit_free;
@@ -668,10 +687,11 @@ static int emc2103_remove(struct i2c_client *client)
 
 static const struct i2c_device_id emc2103_ids[] = {
 	{ "emc2103", 0, },
-	{  }
+	{ /* LIST END */ }
 };
 MODULE_DEVICE_TABLE(i2c, emc2103_ids);
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int
 emc2103_detect(struct i2c_client *new_client, struct i2c_board_info *info)
 {

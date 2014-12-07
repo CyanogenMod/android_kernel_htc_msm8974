@@ -30,6 +30,13 @@
 #define DEBUGP(fmt , ...)
 #endif
 
+/*
+ * module_frob_arch_sections - tweak got/plt sections.
+ * @hdr - pointer to elf header
+ * @sechdrs - pointer to elf load section headers
+ * @secstrings - symbol names
+ * @mod - pointer to module
+ */
 int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 				char *secstrings,
 				struct module *mod)
@@ -37,7 +44,7 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 	unsigned int i;
 	int found = 0;
 
-	
+	/* Look for .plt and/or .got.plt and/or .init.plt sections */
 	for (i = 0; i < hdr->e_shnum; i++) {
 		DEBUGP("Section %d is %s\n", i,
 		       secstrings + sechdrs[i].sh_name);
@@ -49,17 +56,27 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 			found = i+1;
 	}
 
-	
+	/* At this time, we don't support modules comiled with -shared */
 	if (found) {
 		printk(KERN_WARNING
 			"Module '%s' contains unexpected .plt/.got sections.\n",
 			mod->name);
-		
+		/*  return -ENOEXEC;  */
 	}
 
 	return 0;
 }
 
+/*
+ * apply_relocate_add - perform rela relocations.
+ * @sechdrs - pointer to section headers
+ * @strtab - some sort of start address?
+ * @symindex - symbol index offset or something?
+ * @relsec - address to relocate to?
+ * @module - pointer to module
+ *
+ * Perform rela relocations.
+ */
 int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 			unsigned int symindex, unsigned int relsec,
 			struct module *module)
@@ -79,13 +96,13 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 
 	for (i = 0; i < nrelocs; i++) {
 
-		
+		/* Symbol to relocate */
 		sym = sym_base + ELF32_R_SYM(rela[i].r_info);
 
-		
+		/* Where to make the change */
 		location = loc_base + rela[i].r_offset;
 
-		
+		/* `Everything is relative'. */
 		value = sym->st_value + rela[i].r_addend;
 
 		DEBUGP("%d: value=%08x loc=%p reloc=%d symbol=%s\n",
@@ -116,7 +133,7 @@ int apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 		}
 		case R_HEXAGON_HI16:
 			value = (value>>16) & 0xffff;
-			
+			/* fallthrough */
 		case R_HEXAGON_LO16:
 			*location &= ~0x00c03fff;
 			*location |= value & 0x3fff;

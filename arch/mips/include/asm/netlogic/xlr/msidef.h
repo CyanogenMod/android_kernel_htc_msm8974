@@ -35,7 +35,14 @@
 #ifndef ASM_RMI_MSIDEF_H
 #define ASM_RMI_MSIDEF_H
 
+/*
+ * Constants for Intel APIC based MSI messages.
+ * Adapted for the RMI XLR using identical defines
+ */
 
+/*
+ * Shifts for MSI data
+ */
 
 #define MSI_DATA_VECTOR_SHIFT		0
 #define  MSI_DATA_VECTOR_MASK		0x000000ff
@@ -54,6 +61,9 @@
 #define  MSI_DATA_TRIGGER_EDGE		(0 << MSI_DATA_TRIGGER_SHIFT)
 #define  MSI_DATA_TRIGGER_LEVEL		(1 << MSI_DATA_TRIGGER_SHIFT)
 
+/*
+ * Shift/mask fields for msi address
+ */
 
 #define MSI_ADDR_BASE_HI		0
 #define MSI_ADDR_BASE_LO		0xfee00000
@@ -71,4 +81,4 @@
 #define  MSI_ADDR_DEST_ID(dest)		(((dest) << MSI_ADDR_DEST_ID_SHIFT) & \
 						 MSI_ADDR_DEST_ID_MASK)
 
-#endif 
+#endif /* ASM_RMI_MSIDEF_H */

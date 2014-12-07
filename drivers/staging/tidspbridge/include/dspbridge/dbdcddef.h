@@ -20,21 +20,30 @@
 #define DBDCDDEF_
 
 #include <dspbridge/dbdefs.h>
-#include <dspbridge/mgrpriv.h>	
+#include <dspbridge/mgrpriv.h>	/* for mgr_processorextinfo */
 
+/*
+ *  The following defines are critical elements for the DCD module:
+ *
+ * - DCD_REGKEY enables DCD functions to locate registered DCD objects.
+ * - DCD_REGISTER_SECTION identifies the COFF section where the UUID of
+ *   registered DCD objects are stored.
+ */
 #define DCD_REGKEY              "Software\\TexasInstruments\\DspBridge\\DCD"
 #define DCD_REGISTER_SECTION    ".dcd_register"
 
 #define DCD_MAXPATHLENGTH    255
 
+/* DCD Manager Object */
 struct dcd_manager;
 
 struct dcd_key_elem {
-	struct list_head link;	
-	char name[DCD_MAXPATHLENGTH];	
-	char *path;		
+	struct list_head link;	/* Make it linked to a list */
+	char name[DCD_MAXPATHLENGTH];	/*  Name of a given value entry */
+	char *path;		/*  Pointer to the actual data */
 };
 
+/* DCD Node Properties */
 struct dcd_nodeprops {
 	struct dsp_ndbprops ndb_props;
 	u32 msg_segid;
@@ -44,24 +53,26 @@ struct dcd_nodeprops {
 	char *str_execute_phase_fxn;
 	char *str_i_alg_name;
 
-	
-	u16 load_type;	
-	u32 data_mem_seg_mask;		
-	u32 code_mem_seg_mask;		
+	/* Dynamic load properties */
+	u16 load_type;	/* Static, dynamic, overlay */
+	u32 data_mem_seg_mask;		/* Data memory requirements */
+	u32 code_mem_seg_mask;		/* Code memory requirements */
 };
 
+/* DCD Generic Object Type */
 struct dcd_genericobj {
 	union dcd_obj {
-		struct dcd_nodeprops node_obj;	
-		
+		struct dcd_nodeprops node_obj;	/* node object. */
+		/* processor object. */
 		struct dsp_processorinfo proc_info;
-		
+		/* extended proc object (private) */
 		struct mgr_processorextinfo ext_proc_obj;
 	} obj_data;
 };
 
+/* DCD Internal Callback Type */
 typedef int(*dcd_registerfxn) (struct dsp_uuid *uuid_obj,
 				      enum dsp_dcdobjtype obj_type,
 				      void *handle);
 
-#endif 
+#endif /* DBDCDDEF_ */

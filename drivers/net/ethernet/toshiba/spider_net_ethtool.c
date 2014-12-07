@@ -71,7 +71,7 @@ spider_net_ethtool_get_drvinfo(struct net_device *netdev,
 	struct spider_net_card *card;
 	card = netdev_priv(netdev);
 
-	
+	/* clear and fill out info */
 	memset(drvinfo, 0, sizeof(struct ethtool_drvinfo));
 	strncpy(drvinfo->driver, spider_net_driver_name, 32);
 	strncpy(drvinfo->version, VERSION, 32);
@@ -83,7 +83,7 @@ static void
 spider_net_ethtool_get_wol(struct net_device *netdev,
 			   struct ethtool_wolinfo *wolinfo)
 {
-	
+	/* no support for wol */
 	wolinfo->supported = 0;
 	wolinfo->wolopts = 0;
 }

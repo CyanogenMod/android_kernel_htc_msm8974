@@ -102,11 +102,17 @@ static void proc_cpuidle_cpu_output(unsigned int cpu)
 
 	cstates = sysfs_get_idlestate_count(cpu);
 	if (cstates == 0) {
+		/*
+		 * Go on and print same useless info as you'd see with
+		 * cat /proc/acpi/processor/../power
+		 *	printf(_("CPU %u: No C-states available\n"), cpu);
+		 *	return;
+		 */
 	} else if (cstates <= 0) {
 		printf(_("CPU %u: Can't read C-state info\n"), cpu);
 		return;
 	}
-	
+	/* printf("Cstates: %d\n", cstates); */
 
 	printf(_("active state:            C0\n"));
 	printf(_("max_cstate:              C%u\n"), cstates-1);
@@ -179,7 +185,7 @@ int cmd_idle_info(int argc, char **argv)
 		cpuidle_exit(EXIT_FAILURE);
 	}
 
-	
+	/* Default is: show output of CPU 0 only */
 	if (bitmask_isallclear(cpus_chosen))
 		bitmask_setbit(cpus_chosen, 0);
 

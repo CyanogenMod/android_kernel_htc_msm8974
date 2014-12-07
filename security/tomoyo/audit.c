@@ -7,6 +7,17 @@
 #include "common.h"
 #include <linux/slab.h>
 
+/**
+ * tomoyo_print_bprm - Print "struct linux_binprm" for auditing.
+ *
+ * @bprm: Pointer to "struct linux_binprm".
+ * @dump: Pointer to "struct tomoyo_page_dump".
+ *
+ * Returns the contents of @bprm on success, NULL otherwise.
+ *
+ * This function uses kzalloc(), so caller must kfree() if this function
+ * didn't return NULL.
+ */
 static char *tomoyo_print_bprm(struct linux_binprm *bprm,
 			       struct tomoyo_page_dump *dump)
 {
@@ -33,14 +44,14 @@ static char *tomoyo_print_bprm(struct linux_binprm *bprm,
 		if (!tomoyo_dump_page(bprm, pos, dump))
 			goto out;
 		pos += PAGE_SIZE - offset;
-		
+		/* Read. */
 		while (offset < PAGE_SIZE) {
 			const char *kaddr = dump->data;
 			const unsigned char c = kaddr[offset++];
 			if (cp == last_start)
 				*cp++ = '"';
 			if (cp >= buffer + tomoyo_buffer_len - 32) {
-				
+				/* Reserve some room for "..." string. */
 				truncated = true;
 			} else if (c == '\\') {
 				*cp++ = '\\';
@@ -94,6 +105,13 @@ out:
 	return buffer;
 }
 
+/**
+ * tomoyo_filetype - Get string representation of file type.
+ *
+ * @mode: Mode value for stat().
+ *
+ * Returns file type string.
+ */
 static inline const char *tomoyo_filetype(const umode_t mode)
 {
 	switch (mode & S_IFMT) {
@@ -113,9 +131,19 @@ static inline const char *tomoyo_filetype(const umode_t mode)
 	case S_IFCHR:
 		return tomoyo_condition_keyword[TOMOYO_TYPE_IS_CHAR_DEV];
 	}
-	return "unknown"; 
+	return "unknown"; /* This should not happen. */
 }
 
+/**
+ * tomoyo_print_header - Get header line of audit log.
+ *
+ * @r: Pointer to "struct tomoyo_request_info".
+ *
+ * Returns string representation.
+ *
+ * This function uses kmalloc(), so caller must kfree() if this function
+ * didn't return NULL.
+ */
 static char *tomoyo_print_header(struct tomoyo_request_info *r)
 {
 	struct tomoyo_time stamp;
@@ -190,6 +218,19 @@ no_obj_info:
 	return NULL;
 }
 
+/**
+ * tomoyo_init_log - Allocate buffer for audit logs.
+ *
+ * @r:    Pointer to "struct tomoyo_request_info".
+ * @len:  Buffer size needed for @fmt and @args.
+ * @fmt:  The printf()'s format string.
+ * @args: va_list structure for @fmt.
+ *
+ * Returns pointer to allocated memory.
+ *
+ * This function uses kzalloc(), so caller must kfree() if this function
+ * didn't return NULL.
+ */
 char *tomoyo_init_log(struct tomoyo_request_info *r, int len, const char *fmt,
 		      va_list args)
 {
@@ -203,7 +244,7 @@ char *tomoyo_init_log(struct tomoyo_request_info *r, int len, const char *fmt,
 	header = tomoyo_print_header(r);
 	if (!header)
 		return NULL;
-	
+	/* +10 is for '\n' etc. and '\0'. */
 	len += strlen(domainname) + strlen(header) + 10;
 	if (r->ee) {
 		struct file *file = r->ee->bprm->file;
@@ -211,11 +252,11 @@ char *tomoyo_init_log(struct tomoyo_request_info *r, int len, const char *fmt,
 		bprm_info = tomoyo_print_bprm(r->ee->bprm, &r->ee->dump);
 		if (!realpath || !bprm_info)
 			goto out;
-		
+		/* +80 is for " exec={ realpath=\"%s\" argc=%d envc=%d %s }" */
 		len += strlen(realpath) + 80 + strlen(bprm_info);
 	} else if (r->obj && r->obj->symlink_target) {
 		symlink = r->obj->symlink_target->name;
-		
+		/* +18 is for " symlink.target=\"%s\"" */
 		len += 18 + strlen(symlink);
 	}
 	len = tomoyo_round2(len);
@@ -241,20 +282,35 @@ out:
 	return buf;
 }
 
+/* Wait queue for /sys/kernel/security/tomoyo/audit. */
 static DECLARE_WAIT_QUEUE_HEAD(tomoyo_log_wait);
 
+/* Structure for audit log. */
 struct tomoyo_log {
 	struct list_head list;
 	char *log;
 	int size;
 };
 
+/* The list for "struct tomoyo_log". */
 static LIST_HEAD(tomoyo_log);
 
+/* Lock for "struct list_head tomoyo_log". */
 static DEFINE_SPINLOCK(tomoyo_log_lock);
 
+/* Length of "stuct list_head tomoyo_log". */
 static unsigned int tomoyo_log_count;
 
+/**
+ * tomoyo_get_audit - Get audit mode.
+ *
+ * @ns:          Pointer to "struct tomoyo_policy_namespace".
+ * @profile:     Profile number.
+ * @index:       Index number of functionality.
+ * @is_granted:  True if granted log, false otherwise.
+ *
+ * Returns true if this request should be audited, false otherwise.
+ */
 static bool tomoyo_get_audit(const struct tomoyo_policy_namespace *ns,
 			     const u8 profile, const u8 index,
 			     const struct tomoyo_acl_info *matched_acl,
@@ -282,6 +338,16 @@ static bool tomoyo_get_audit(const struct tomoyo_policy_namespace *ns,
 	return mode & TOMOYO_CONFIG_WANT_REJECT_LOG;
 }
 
+/**
+ * tomoyo_write_log2 - Write an audit log.
+ *
+ * @r:    Pointer to "struct tomoyo_request_info".
+ * @len:  Buffer size needed for @fmt and @args.
+ * @fmt:  The printf()'s format string.
+ * @args: va_list structure for @fmt.
+ *
+ * Returns nothing.
+ */
 void tomoyo_write_log2(struct tomoyo_request_info *r, int len, const char *fmt,
 		       va_list args)
 {
@@ -301,6 +367,10 @@ void tomoyo_write_log2(struct tomoyo_request_info *r, int len, const char *fmt,
 	}
 	entry->log = buf;
 	len = tomoyo_round2(strlen(buf) + 1);
+	/*
+	 * The entry->size is used for memory quota checks.
+	 * Don't go beyond strlen(entry->log).
+	 */
 	entry->size = len + tomoyo_round2(sizeof(*entry));
 	spin_lock(&tomoyo_log_lock);
 	if (tomoyo_memory_quota[TOMOYO_MEMORY_AUDIT] &&
@@ -323,6 +393,14 @@ out:
 	return;
 }
 
+/**
+ * tomoyo_write_log - Write an audit log.
+ *
+ * @r:   Pointer to "struct tomoyo_request_info".
+ * @fmt: The printf()'s format string, followed by parameters.
+ *
+ * Returns nothing.
+ */
 void tomoyo_write_log(struct tomoyo_request_info *r, const char *fmt, ...)
 {
 	va_list args;
@@ -335,6 +413,13 @@ void tomoyo_write_log(struct tomoyo_request_info *r, const char *fmt, ...)
 	va_end(args);
 }
 
+/**
+ * tomoyo_read_log - Read an audit log.
+ *
+ * @head: Pointer to "struct tomoyo_io_buffer".
+ *
+ * Returns nothing.
+ */
 void tomoyo_read_log(struct tomoyo_io_buffer *head)
 {
 	struct tomoyo_log *ptr = NULL;
@@ -357,6 +442,14 @@ void tomoyo_read_log(struct tomoyo_io_buffer *head)
 	}
 }
 
+/**
+ * tomoyo_poll_log - Wait for an audit log.
+ *
+ * @file: Pointer to "struct file".
+ * @wait: Pointer to "poll_table". Maybe NULL.
+ *
+ * Returns POLLIN | POLLRDNORM when ready to read an audit log.
+ */
 unsigned int tomoyo_poll_log(struct file *file, poll_table *wait)
 {
 	if (tomoyo_log_count)

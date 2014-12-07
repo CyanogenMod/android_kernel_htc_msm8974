@@ -68,4 +68,4 @@ static inline void nfs_free_iostats(struct nfs_iostats __percpu *stats)
 		free_percpu(stats);
 }
 
-#endif 
+#endif /* _NFS_IOSTAT */

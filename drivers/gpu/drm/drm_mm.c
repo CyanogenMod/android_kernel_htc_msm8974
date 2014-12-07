@@ -26,6 +26,20 @@
  *
  **************************************************************************/
 
+/*
+ * Generic simple memory manager implementation. Intended to be used as a base
+ * class implementation for more advanced memory managers.
+ *
+ * Note that the algorithm used is quite simple and there might be substantial
+ * performance gains if a smarter free list is implemented. Currently it is just an
+ * unordered stack of free regions. This could easily be improved if an RB-tree
+ * is used instead. At least if we expect heavy fragmentation.
+ *
+ * Aligned allocations can also see improvement.
+ *
+ * Authors:
+ * Thomas Hellström <thomas-at-tungstengraphics-dot-com>
+ */
 
 #include "drmP.h"
 #include "drm_mm.h"
@@ -60,6 +74,11 @@ static struct drm_mm_node *drm_mm_kmalloc(struct drm_mm *mm, int atomic)
 	return child;
 }
 
+/* drm_mm_pre_get() - pre allocate drm_mm_node structure
+ * drm_mm:	memory manager struct we are pre-allocating for
+ *
+ * Returns 0 on success or -ENOMEM if allocation fails.
+ */
 int drm_mm_pre_get(struct drm_mm *mm)
 {
 	struct drm_mm_node *node;
@@ -152,6 +171,11 @@ struct drm_mm_node *drm_mm_get_block_generic(struct drm_mm_node *hole_node,
 }
 EXPORT_SYMBOL(drm_mm_get_block_generic);
 
+/**
+ * Search for free space and insert a preallocated memory node. Returns
+ * -ENOSPC if no suitable free area is available. The preallocated memory node
+ * must be cleared.
+ */
 int drm_mm_insert_node(struct drm_mm *mm, struct drm_mm_node *node,
 		       unsigned long size, unsigned alignment)
 {
@@ -231,6 +255,11 @@ struct drm_mm_node *drm_mm_get_block_range_generic(struct drm_mm_node *hole_node
 }
 EXPORT_SYMBOL(drm_mm_get_block_range_generic);
 
+/**
+ * Search for free space and insert a preallocated memory node. Returns
+ * -ENOSPC if no suitable free area is available. This is for range
+ * restricted allocations. The preallocated memory node must be cleared.
+ */
 int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node,
 				unsigned long size, unsigned alignment,
 				unsigned long start, unsigned long end)
@@ -249,6 +278,9 @@ int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node,
 }
 EXPORT_SYMBOL(drm_mm_insert_node_in_range);
 
+/**
+ * Remove a memory node from the allocator.
+ */
 void drm_mm_remove_node(struct drm_mm_node *node)
 {
 	struct drm_mm *mm = node->mm;
@@ -279,6 +311,11 @@ void drm_mm_remove_node(struct drm_mm_node *node)
 }
 EXPORT_SYMBOL(drm_mm_remove_node);
 
+/*
+ * Remove a memory node from the allocator and free the allocated struct
+ * drm_mm_node. Only to be used on a struct drm_mm_node obtained by one of the
+ * drm_mm_get_block functions.
+ */
 void drm_mm_put_block(struct drm_mm_node *node)
 {
 
@@ -389,6 +426,9 @@ struct drm_mm_node *drm_mm_search_free_in_range(const struct drm_mm *mm,
 }
 EXPORT_SYMBOL(drm_mm_search_free_in_range);
 
+/**
+ * Moves an allocation. To be used with embedded struct drm_mm_node.
+ */
 void drm_mm_replace_node(struct drm_mm_node *old, struct drm_mm_node *new)
 {
 	list_replace(&old->node_list, &new->node_list);
@@ -403,6 +443,15 @@ void drm_mm_replace_node(struct drm_mm_node *old, struct drm_mm_node *new)
 }
 EXPORT_SYMBOL(drm_mm_replace_node);
 
+/**
+ * Initializa lru scanning.
+ *
+ * This simply sets up the scanning routines with the parameters for the desired
+ * hole.
+ *
+ * Warning: As long as the scan list is non-empty, no other operations than
+ * adding/removing nodes to/from the scan list are allowed.
+ */
 void drm_mm_init_scan(struct drm_mm *mm, unsigned long size,
 		      unsigned alignment)
 {
@@ -416,6 +465,15 @@ void drm_mm_init_scan(struct drm_mm *mm, unsigned long size,
 }
 EXPORT_SYMBOL(drm_mm_init_scan);
 
+/**
+ * Initializa lru scanning.
+ *
+ * This simply sets up the scanning routines with the parameters for the desired
+ * hole. This version is for range-restricted scans.
+ *
+ * Warning: As long as the scan list is non-empty, no other operations than
+ * adding/removing nodes to/from the scan list are allowed.
+ */
 void drm_mm_init_scan_with_range(struct drm_mm *mm, unsigned long size,
 				 unsigned alignment,
 				 unsigned long start,
@@ -433,6 +491,12 @@ void drm_mm_init_scan_with_range(struct drm_mm *mm, unsigned long size,
 }
 EXPORT_SYMBOL(drm_mm_init_scan_with_range);
 
+/**
+ * Add a node to the scan list that might be freed to make space for the desired
+ * hole.
+ *
+ * Returns non-zero, if a hole has been found, zero otherwise.
+ */
 int drm_mm_scan_add_block(struct drm_mm_node *node)
 {
 	struct drm_mm *mm = node->mm;
@@ -480,6 +544,20 @@ int drm_mm_scan_add_block(struct drm_mm_node *node)
 }
 EXPORT_SYMBOL(drm_mm_scan_add_block);
 
+/**
+ * Remove a node from the scan list.
+ *
+ * Nodes _must_ be removed in the exact same order from the scan list as they
+ * have been added, otherwise the internal state of the memory manager will be
+ * corrupted.
+ *
+ * When the scan list is empty, the selected memory nodes can be freed. An
+ * immediately following drm_mm_search_free with best_match = 0 will then return
+ * the just freed block (because its at the top of the free_stack list).
+ *
+ * Returns one if this block should be evicted, zero otherwise. Will always
+ * return zero when no hole has been found.
+ */
 int drm_mm_scan_remove_block(struct drm_mm_node *node)
 {
 	struct drm_mm *mm = node->mm;
@@ -497,6 +575,9 @@ int drm_mm_scan_remove_block(struct drm_mm_node *node)
 	INIT_LIST_HEAD(&node->node_list);
 	list_add(&node->node_list, &prev_node->node_list);
 
+	/* Only need to check for containement because start&size for the
+	 * complete resulting free block (not just the desired part) is
+	 * stored. */
 	if (node->start >= mm->scan_hit_start &&
 	    node->start + node->size
 	    		<= mm->scan_hit_start + mm->scan_hit_size) {
@@ -523,7 +604,7 @@ int drm_mm_init(struct drm_mm * mm, unsigned long start, unsigned long size)
 	mm->scanned_blocks = 0;
 	spin_lock_init(&mm->unused_lock);
 
-	
+	/* Clever trick to avoid a special case in the free hole tracking. */
 	INIT_LIST_HEAD(&mm->head_node.node_list);
 	INIT_LIST_HEAD(&mm->head_node.hole_stack);
 	mm->head_node.hole_follows = 1;

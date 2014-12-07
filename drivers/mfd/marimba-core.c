@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Qualcomm Marimba Core Driver
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -60,6 +63,11 @@ static struct adie_dbg_device *bahama_dbg_device;
 #endif
 
 
+/**
+ * marimba_read_bahama_ver - Reads Bahama version.
+ * @param marimba: marimba structure pointer passed by client
+ * @returns result of the operation.
+ */
 int marimba_read_bahama_ver(struct marimba *marimba)
 {
 	int rc;
@@ -70,14 +78,14 @@ int marimba_read_bahama_ver(struct marimba *marimba)
 		return rc;
 	pr_debug("%s: Bahama version: 0x%x\n", __func__, bahama_version);
 	switch (bahama_version) {
-	case 0x08: 
+	case 0x08: /* varient of bahama v1 */
 	case 0x10:
 	case 0x00:
 		return BAHAMA_VER_1_0;
-	case 0x09: 
-	case 0x0a: 
-	
-	
+	case 0x09: /* variant of bahama v2 */
+	case 0x0a: /* variant of bahama v2.1 */
+	/* Falling through because initialization */
+	/* and configuration for 2.0 and 2.1 are same */
 		return BAHAMA_VER_2_0;
 	default:
 		return BAHAMA_VER_UNSUPPORTED;
@@ -115,6 +123,15 @@ int marimba_ssbi_write(struct marimba *marimba, u16 reg , u8 *value, int len)
 }
 EXPORT_SYMBOL(marimba_ssbi_write);
 
+/**
+ * marimba_ssbi_read - Reads a n bit TSADC register in Marimba
+ * @param marimba: marimba structure pointer passed by client
+ * @param reg: register address
+ * @param value: ssbi read of the register to be stored
+ * @param len: num of bytes
+ *
+ * @returns result of the operation.
+*/
 int marimba_ssbi_read(struct marimba *marimba, u16 reg, u8 *value, int len)
 {
 	struct i2c_msg *msg;
@@ -186,7 +203,7 @@ int marimba_write_bit_mask(struct marimba *marimba, u8 reg, u8 *value,
 
 	ret = i2c_transfer(marimba->client->adapter, marimba->xfer_msg, 1);
 
-	
+	/* Try again if the write fails */
 	if (ret != 1)
 		ret = i2c_transfer(marimba->client->adapter,
 						marimba->xfer_msg, 1);
@@ -222,6 +239,16 @@ int marimba_write(struct marimba *marimba, u8 reg, u8 *value,
 }
 EXPORT_SYMBOL(marimba_write);
 
+/**
+ * marimba_read_bit_mask - Reads a n bit register based on bit mask
+ * @param marimba: marimba structure pointer passed by client
+ * @param reg: register address
+ * @param value: i2c read of the register to be stored
+ * @param num_bytes: n bytes to be read.
+ * @param mask: bit mask concerning its register
+ *
+ * @returns result of the operation.
+*/
 int marimba_read_bit_mask(struct marimba *marimba, u8 reg, u8 *value,
 						unsigned num_bytes, u8 mask)
 {
@@ -247,7 +274,7 @@ int marimba_read_bit_mask(struct marimba *marimba, u8 reg, u8 *value,
 
 	ret = i2c_transfer(marimba->client->adapter, marimba->xfer_msg, 2);
 
-	
+	/* Try again if read fails first time */
 	if (ret != 2)
 		ret = i2c_transfer(marimba->client->adapter,
 						marimba->xfer_msg, 2);
@@ -268,6 +295,16 @@ int marimba_read_bit_mask(struct marimba *marimba, u8 reg, u8 *value,
 }
 EXPORT_SYMBOL(marimba_read_bit_mask);
 
+/**
+ * marimba_read - Reads n bit registers in Marimba
+ * @param marimba: marimba structure pointer passed by client
+ * @param reg: register address
+ * @param value: i2c read of the register to be stored
+ * @param num_bytes: n bytes to read.
+ * @param mask: bit mask concerning its register
+ *
+ * @returns result of the operation.
+*/
 int marimba_read(struct marimba *marimba, u8 reg, u8 *value, unsigned num_bytes)
 {
 	return marimba_read_bit_mask(marimba, reg, value, num_bytes, 0xff);
@@ -367,7 +404,7 @@ static int marimba_add_child(struct marimba_platform_data *pdata,
 			return PTR_ERR(child);
 	}
 
-	
+	/* Add Codec for Marimba and Timpani */
 	if (cur_adie_type == MARIMBA_ID) {
 		child = add_child(MARIMBA_SLAVE_ID_CDC, "marimba_codec",
 			driver_data, pdata->codec, sizeof(*pdata->codec));
@@ -397,7 +434,7 @@ int marimba_gpio_config(int gpio_value)
 	struct marimba_platform_data *pdata = marimba_pdata;
 	int rc = 0;
 
-	
+	/* Clients BT/FM need to manage GPIO 34 on Fusion for its clocks */
 
 	mutex_lock(&marimba->xfer_lock);
 
@@ -679,7 +716,7 @@ static int get_adie_type(void)
 	struct marimba *marimba = &marimba_modules[ADIE_ARRY_SIZE - 1];
 
 	marimba->mod_id = ADIE_ARRY_SIZE - 1;
-	
+	/* Enable the Mode for Marimba/Timpani */
 	ret = marimba_read(marimba, MARIMBA_MODE_REG, &rd_val, 1);
 
 	if (ret >= 0) {
@@ -714,15 +751,15 @@ static void marimba_init_reg(struct i2c_client *client, u8 driver_data)
 
 	if (cur_adie_type != BAHAMA_ID) {
 		marimba->mod_id = MARIMBA_SLAVE_ID_MARIMBA + adie_arry_idx;
-		
+		/* Enable the Mode for Marimba/Timpani */
 		marimba_write(marimba, MARIMBA_MODE, buf, 1);
 	} else if ((cur_adie_type == BAHAMA_ID) &&
 				(cur_connv_type == BAHAMA_ID)) {
 		marimba->mod_id = MARIMBA_SLAVE_ID_MARIMBA + adie_arry_idx;
 		marimba_write(marimba, BAHAMA_SLAVE_ID_FM_ID,
 				&pdata->slave_id[SLAVE_ID_BAHAMA_FM], 1);
-		
-		
+		/* Configure Bahama core registers (AREG & DREG) */
+		/* with optimal values to eliminate power leakage */
 		if (pdata->bahama_core_config != NULL)
 			pdata->bahama_core_config(cur_adie_type);
 	}
@@ -755,7 +792,7 @@ static int __devinit marimba_probe(struct i2c_client *client,
 		}
 		mutex_initialized = 1;
 	}
-	
+	/* First, identify the codec type */
 	if (pdata->marimba_setup != NULL) {
 		rc_marimba = pdata->marimba_setup();
 		if (rc_marimba)
@@ -805,7 +842,7 @@ static int __devinit marimba_probe(struct i2c_client *client,
 	marimba->client = client;
 
 	for (i = 1; i <= (NUM_ADD - client_loop); i++) {
-		
+		/* Skip adding BT/FM for Timpani */
 		if (i == 1 && rc >= 1)
 			i++;
 		marimba = &marimba_modules[i + adie_arry_idx];

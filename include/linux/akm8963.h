@@ -1,3 +1,6 @@
+/*
+ * Definitions for akm8963 compass chip.
+ */
 #ifndef AKM8963_H
 #define AKM8963_H
 
@@ -18,14 +21,26 @@
 #define MAG_DATA_READY		(1<<(MAG_DATA_FLAG))
 #define ORI_DATA_READY		(1<<(ORI_DATA_FLAG))
 
+/*! \name AK8963 constant definition
+ \anchor AK8963_Def
+ Constant definitions of the AK8963.*/
 #define AK8963_MEASUREMENT_TIME_US	10000
 
+/*! \name AK8963 operation mode
+ \anchor AK8963_Mode
+ Defines an operation mode of the AK8963.*/
+/*! @{*/
 #define AK8963_MODE_SNG_MEASURE	0x01
 #define	AK8963_MODE_SELF_TEST	0x08
 #define	AK8963_MODE_FUSE_ACCESS	0x0F
 #define	AK8963_MODE_POWERDOWN	0x00
 
+/*! @}*/
 
+/*! \name AK8963 register address
+\anchor AK8963_REG
+Defines a register address of the AK8963.*/
+/*! @{*/
 #define AK8963_REG_WIA		0x00
 #define AK8963_REG_INFO		0x01
 #define AK8963_REG_ST1		0x02
@@ -42,13 +57,20 @@
 #define AK8963_REG_TS1		0x0D
 #define AK8963_REG_TS2		0x0E
 #define AK8963_REG_I2CDIS	0x0F
+/*! @}*/
 
+/*! \name AK8963 fuse-rom address
+\anchor AK8963_FUSE
+Defines a read-only address of the fuse ROM of the AK8963.*/
+/*! @{*/
 #define AK8963_FUSE_ASAX	0x10
 #define AK8963_FUSE_ASAY	0x11
 #define AK8963_FUSE_ASAZ	0x12
+/*! @}*/
 
 #define AKMIO                   0xA1
 
+/* IOCTLs for AKM library */
 #define ECS_IOCTL_READ              _IOWR(AKMIO, 0x01, char*)
 #define ECS_IOCTL_WRITE             _IOW(AKMIO, 0x02, char*)
 #define ECS_IOCTL_SET_MODE          _IOW(AKMIO, 0x03, short)

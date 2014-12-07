@@ -41,9 +41,20 @@
 #include "xfs_trace.h"
 
 
+/*
+ * Define xfs inode iolock lockdep classes. We need to ensure that all active
+ * inodes are considered the same for lockdep purposes, including inodes that
+ * are recycled through the XFS_IRECLAIMABLE state. This is the the only way to
+ * guarantee the locks are considered the same when there are multiple lock
+ * initialisation siteѕ. Also, define a reclaimable inode class so it is
+ * obvious in lockdep reports which class the report is against.
+ */
 static struct lock_class_key xfs_iolock_active;
 struct lock_class_key xfs_iolock_reclaimable;
 
+/*
+ * Allocate and initialise an xfs_inode.
+ */
 STATIC struct xfs_inode *
 xfs_inode_alloc(
 	struct xfs_mount	*mp,
@@ -51,6 +62,11 @@ xfs_inode_alloc(
 {
 	struct xfs_inode	*ip;
 
+	/*
+	 * if this didn't occur in transactions, we could use
+	 * KM_MAYFAIL and return NULL here on ENOMEM. Set the
+	 * code up to do this anyway.
+	 */
 	ip = kmem_zone_alloc(xfs_inode_zone, KM_SLEEP);
 	if (!ip)
 		return NULL;
@@ -68,7 +84,7 @@ xfs_inode_alloc(
 	lockdep_set_class_and_name(&ip->i_iolock.mr_lock,
 			&xfs_iolock_active, "xfs_iolock_active");
 
-	
+	/* initialise the xfs inode */
 	ip->i_ino = ino;
 	ip->i_mount = mp;
 	memset(&ip->i_imap, 0, sizeof(struct xfs_imap));
@@ -107,6 +123,11 @@ xfs_inode_free(
 		xfs_idestroy_fork(ip, XFS_ATTR_FORK);
 
 	if (ip->i_itemp) {
+		/*
+		 * Only if we are shutting down the fs will we see an
+		 * inode still in the AIL. If it is there, we should remove
+		 * it to prevent a use-after-free from occurring.
+		 */
 		xfs_log_item_t	*lip = &ip->i_itemp->ili_item;
 		struct xfs_ail	*ailp = lip->li_ailp;
 
@@ -123,11 +144,17 @@ xfs_inode_free(
 		ip->i_itemp = NULL;
 	}
 
-	
+	/* asserts to verify all state is correct here */
 	ASSERT(atomic_read(&ip->i_pincount) == 0);
 	ASSERT(!spin_is_locked(&ip->i_flags_lock));
 	ASSERT(!xfs_isiflocked(ip));
 
+	/*
+	 * Because we use RCU freeing we need to ensure the inode always
+	 * appears to be reclaimed with an invalid inode number when in the
+	 * free state. The ip->i_flags_lock provides the barrier against lookup
+	 * races.
+	 */
 	spin_lock(&ip->i_flags_lock);
 	ip->i_flags = XFS_IRECLAIM;
 	ip->i_ino = 0;
@@ -136,6 +163,9 @@ xfs_inode_free(
 	call_rcu(&VFS_I(ip)->i_rcu, xfs_inode_free_callback);
 }
 
+/*
+ * Check the validity of the inode we just found it the cache
+ */
 static int
 xfs_iget_cache_hit(
 	struct xfs_perag	*pag,
@@ -148,6 +178,13 @@ xfs_iget_cache_hit(
 	struct xfs_mount	*mp = ip->i_mount;
 	int			error;
 
+	/*
+	 * check for re-use of an inode within an RCU grace period due to the
+	 * radix tree nodes not being updated yet. We monitor for this by
+	 * setting the inode number to zero before freeing the inode structure.
+	 * If the inode has been reallocated and set up, then the inode number
+	 * will not match, so check for that, too.
+	 */
 	spin_lock(&ip->i_flags_lock);
 	if (ip->i_ino != ino) {
 		trace_xfs_iget_skip(ip);
@@ -157,6 +194,16 @@ xfs_iget_cache_hit(
 	}
 
 
+	/*
+	 * If we are racing with another cache hit that is currently
+	 * instantiating this inode or currently recycling it out of
+	 * reclaimabe state, wait for the initialisation to complete
+	 * before continuing.
+	 *
+	 * XXX(hch): eventually we should do something equivalent to
+	 *	     wait_on_inode to wait for these flags to be cleared
+	 *	     instead of polling for it.
+	 */
 	if (ip->i_flags & (XFS_INEW|XFS_IRECLAIM)) {
 		trace_xfs_iget_skip(ip);
 		XFS_STATS_INC(xs_ig_frecycle);
@@ -164,14 +211,27 @@ xfs_iget_cache_hit(
 		goto out_error;
 	}
 
+	/*
+	 * If lookup is racing with unlink return an error immediately.
+	 */
 	if (ip->i_d.di_mode == 0 && !(flags & XFS_IGET_CREATE)) {
 		error = ENOENT;
 		goto out_error;
 	}
 
+	/*
+	 * If IRECLAIMABLE is set, we've torn down the VFS inode already.
+	 * Need to carefully get it back into useable state.
+	 */
 	if (ip->i_flags & XFS_IRECLAIMABLE) {
 		trace_xfs_iget_reclaim(ip);
 
+		/*
+		 * We need to set XFS_IRECLAIM to prevent xfs_reclaim_inode
+		 * from stomping over us while we recycle the inode.  We can't
+		 * clear the radix tree reclaimable tag yet as it requires
+		 * pag_ici_lock to be held exclusive.
+		 */
 		ip->i_flags |= XFS_IRECLAIM;
 
 		spin_unlock(&ip->i_flags_lock);
@@ -179,6 +239,10 @@ xfs_iget_cache_hit(
 
 		error = -inode_init_always(mp->m_super, inode);
 		if (error) {
+			/*
+			 * Re-initializing the inode failed, and we are in deep
+			 * trouble.  Try to re-add it to the reclaim list.
+			 */
 			rcu_read_lock();
 			spin_lock(&ip->i_flags_lock);
 
@@ -191,6 +255,11 @@ xfs_iget_cache_hit(
 		spin_lock(&pag->pag_ici_lock);
 		spin_lock(&ip->i_flags_lock);
 
+		/*
+		 * Clear the per-lifetime state in the inode as we are now
+		 * effectively a new inode and need to return to the initial
+		 * state before reuse occurs.
+		 */
 		ip->i_flags &= ~XFS_IRECLAIM_RESET_FLAGS;
 		ip->i_flags |= XFS_INEW;
 		__xfs_inode_clear_reclaim_tag(mp, pag, ip);
@@ -204,14 +273,14 @@ xfs_iget_cache_hit(
 		spin_unlock(&ip->i_flags_lock);
 		spin_unlock(&pag->pag_ici_lock);
 	} else {
-		
+		/* If the VFS inode is being torn down, pause and try again. */
 		if (!igrab(inode)) {
 			trace_xfs_iget_skip(ip);
 			error = EAGAIN;
 			goto out_error;
 		}
 
-		
+		/* We've got a live one. */
 		spin_unlock(&ip->i_flags_lock);
 		rcu_read_unlock();
 		trace_xfs_iget_hit(ip);
@@ -262,23 +331,41 @@ xfs_iget_cache_miss(
 		goto out_destroy;
 	}
 
+	/*
+	 * Preload the radix tree so we can insert safely under the
+	 * write spinlock. Note that we cannot sleep inside the preload
+	 * region.
+	 */
 	if (radix_tree_preload(GFP_KERNEL)) {
 		error = EAGAIN;
 		goto out_destroy;
 	}
 
+	/*
+	 * Because the inode hasn't been added to the radix-tree yet it can't
+	 * be found by another thread, so we can do the non-sleeping lock here.
+	 */
 	if (lock_flags) {
 		if (!xfs_ilock_nowait(ip, lock_flags))
 			BUG();
 	}
 
+	/*
+	 * These values must be set before inserting the inode into the radix
+	 * tree as the moment it is inserted a concurrent lookup (allowed by the
+	 * RCU locking mechanism) can find it and that lookup must see that this
+	 * is an inode currently under construction (i.e. that XFS_INEW is set).
+	 * The ip->i_flags_lock that protects the XFS_INEW flag forms the
+	 * memory barrier that ensures this detection works correctly at lookup
+	 * time.
+	 */
 	iflags = XFS_INEW;
 	if (flags & XFS_IGET_DONTCACHE)
 		iflags |= XFS_IDONTCACHE;
 	ip->i_udquot = ip->i_gdquot = NULL;
 	xfs_iflags_set(ip, iflags);
 
-	
+	/* insert the new inode */
 	spin_lock(&pag->pag_ici_lock);
 	error = radix_tree_insert(&pag->pag_ici_root, agino, ip);
 	if (unlikely(error)) {
@@ -304,6 +391,28 @@ out_destroy:
 	return error;
 }
 
+/*
+ * Look up an inode by number in the given file system.
+ * The inode is looked up in the cache held in each AG.
+ * If the inode is found in the cache, initialise the vfs inode
+ * if necessary.
+ *
+ * If it is not in core, read it in from the file system's device,
+ * add it to the cache and initialise the vfs inode.
+ *
+ * The inode is locked according to the value of the lock_flags parameter.
+ * This flag parameter indicates how and if the inode's IO lock and inode lock
+ * should be taken.
+ *
+ * mp -- the mount point structure for the current file system.  It points
+ *       to the inode hash table.
+ * tp -- a pointer to the current transaction if there is one.  This is
+ *       simply passed through to the xfs_iread() call.
+ * ino -- the number of the inode desired.  This is the unique identifier
+ *        within the file system for the inode being requested.
+ * lock_flags -- flags indicating how to lock the inode.  See the comment
+ *		 for xfs_ilock() for a list of valid values.
+ */
 int
 xfs_iget(
 	xfs_mount_t	*mp,
@@ -318,13 +427,20 @@ xfs_iget(
 	xfs_perag_t	*pag;
 	xfs_agino_t	agino;
 
+	/*
+	 * xfs_reclaim_inode() uses the ILOCK to ensure an inode
+	 * doesn't get freed while it's being referenced during a
+	 * radix tree traversal here.  It assumes this function
+	 * aqcuires only the ILOCK (and therefore it has no need to
+	 * involve the IOLOCK in this synchronization).
+	 */
 	ASSERT((lock_flags & (XFS_IOLOCK_EXCL | XFS_IOLOCK_SHARED)) == 0);
 
-	
+	/* reject inode numbers outside existing AGs */
 	if (!ino || XFS_INO_TO_AGNO(mp, ino) >= mp->m_sb.sb_agcount)
 		return EINVAL;
 
-	
+	/* get the perag structure and ensure that it's inode capable */
 	pag = xfs_perag_get(mp, XFS_INO_TO_AGNO(mp, ino));
 	agino = XFS_INO_TO_AGINO(mp, ino);
 
@@ -350,6 +466,10 @@ again:
 
 	*ipp = ip;
 
+	/*
+	 * If we have a real type for an on-disk inode, we can set ops(&unlock)
+	 * now.	 If it's a new inode being created, xfs_ialloc will handle it.
+	 */
 	if (xfs_iflags_test(ip, XFS_INEW) && ip->i_d.di_mode != 0)
 		xfs_setup_inode(ip);
 	return 0;
@@ -363,6 +483,24 @@ out_error_or_again:
 	return error;
 }
 
+/*
+ * This is a wrapper routine around the xfs_ilock() routine
+ * used to centralize some grungy code.  It is used in places
+ * that wish to lock the inode solely for reading the extents.
+ * The reason these places can't just call xfs_ilock(SHARED)
+ * is that the inode lock also guards to bringing in of the
+ * extents from disk for a file in b-tree format.  If the inode
+ * is in b-tree format, then we need to lock the inode exclusively
+ * until the extents are read in.  Locking it exclusively all
+ * the time would limit our parallelism unnecessarily, though.
+ * What we do instead is check to see if the extents have been
+ * read in yet, and only lock the inode exclusively if they
+ * have not.
+ *
+ * The function returns a value which should be given to the
+ * corresponding xfs_iunlock_map_shared().  This value is
+ * the mode in which the lock was actually taken.
+ */
 uint
 xfs_ilock_map_shared(
 	xfs_inode_t	*ip)
@@ -381,6 +519,10 @@ xfs_ilock_map_shared(
 	return lock_mode;
 }
 
+/*
+ * This is simply the unlock routine to go with xfs_ilock_map_shared().
+ * All it does is call xfs_iunlock() with the given lock_mode.
+ */
 void
 xfs_iunlock_map_shared(
 	xfs_inode_t	*ip,
@@ -389,11 +531,36 @@ xfs_iunlock_map_shared(
 	xfs_iunlock(ip, lock_mode);
 }
 
+/*
+ * The xfs inode contains 2 locks: a multi-reader lock called the
+ * i_iolock and a multi-reader lock called the i_lock.  This routine
+ * allows either or both of the locks to be obtained.
+ *
+ * The 2 locks should always be ordered so that the IO lock is
+ * obtained first in order to prevent deadlock.
+ *
+ * ip -- the inode being locked
+ * lock_flags -- this parameter indicates the inode's locks
+ *       to be locked.  It can be:
+ *		XFS_IOLOCK_SHARED,
+ *		XFS_IOLOCK_EXCL,
+ *		XFS_ILOCK_SHARED,
+ *		XFS_ILOCK_EXCL,
+ *		XFS_IOLOCK_SHARED | XFS_ILOCK_SHARED,
+ *		XFS_IOLOCK_SHARED | XFS_ILOCK_EXCL,
+ *		XFS_IOLOCK_EXCL | XFS_ILOCK_SHARED,
+ *		XFS_IOLOCK_EXCL | XFS_ILOCK_EXCL
+ */
 void
 xfs_ilock(
 	xfs_inode_t		*ip,
 	uint			lock_flags)
 {
+	/*
+	 * You can't set both SHARED and EXCL for the same lock,
+	 * and only XFS_IOLOCK_SHARED, XFS_IOLOCK_EXCL, XFS_ILOCK_SHARED,
+	 * and XFS_ILOCK_EXCL are valid values to set in lock_flags.
+	 */
 	ASSERT((lock_flags & (XFS_IOLOCK_SHARED | XFS_IOLOCK_EXCL)) !=
 	       (XFS_IOLOCK_SHARED | XFS_IOLOCK_EXCL));
 	ASSERT((lock_flags & (XFS_ILOCK_SHARED | XFS_ILOCK_EXCL)) !=
@@ -413,11 +580,28 @@ xfs_ilock(
 	trace_xfs_ilock(ip, lock_flags, _RET_IP_);
 }
 
+/*
+ * This is just like xfs_ilock(), except that the caller
+ * is guaranteed not to sleep.  It returns 1 if it gets
+ * the requested locks and 0 otherwise.  If the IO lock is
+ * obtained but the inode lock cannot be, then the IO lock
+ * is dropped before returning.
+ *
+ * ip -- the inode being locked
+ * lock_flags -- this parameter indicates the inode's locks to be
+ *       to be locked.  See the comment for xfs_ilock() for a list
+ *	 of valid values.
+ */
 int
 xfs_ilock_nowait(
 	xfs_inode_t		*ip,
 	uint			lock_flags)
 {
+	/*
+	 * You can't set both SHARED and EXCL for the same lock,
+	 * and only XFS_IOLOCK_SHARED, XFS_IOLOCK_EXCL, XFS_ILOCK_SHARED,
+	 * and XFS_ILOCK_EXCL are valid values to set in lock_flags.
+	 */
 	ASSERT((lock_flags & (XFS_IOLOCK_SHARED | XFS_IOLOCK_EXCL)) !=
 	       (XFS_IOLOCK_SHARED | XFS_IOLOCK_EXCL));
 	ASSERT((lock_flags & (XFS_ILOCK_SHARED | XFS_ILOCK_EXCL)) !=
@@ -450,11 +634,28 @@ xfs_ilock_nowait(
 	return 0;
 }
 
+/*
+ * xfs_iunlock() is used to drop the inode locks acquired with
+ * xfs_ilock() and xfs_ilock_nowait().  The caller must pass
+ * in the flags given to xfs_ilock() or xfs_ilock_nowait() so
+ * that we know which locks to drop.
+ *
+ * ip -- the inode being unlocked
+ * lock_flags -- this parameter indicates the inode's locks to be
+ *       to be unlocked.  See the comment for xfs_ilock() for a list
+ *	 of valid values for this parameter.
+ *
+ */
 void
 xfs_iunlock(
 	xfs_inode_t		*ip,
 	uint			lock_flags)
 {
+	/*
+	 * You can't set both SHARED and EXCL for the same lock,
+	 * and only XFS_IOLOCK_SHARED, XFS_IOLOCK_EXCL, XFS_ILOCK_SHARED,
+	 * and XFS_ILOCK_EXCL are valid values to set in lock_flags.
+	 */
 	ASSERT((lock_flags & (XFS_IOLOCK_SHARED | XFS_IOLOCK_EXCL)) !=
 	       (XFS_IOLOCK_SHARED | XFS_IOLOCK_EXCL));
 	ASSERT((lock_flags & (XFS_ILOCK_SHARED | XFS_ILOCK_EXCL)) !=
@@ -475,6 +676,10 @@ xfs_iunlock(
 	trace_xfs_iunlock(ip, lock_flags, _RET_IP_);
 }
 
+/*
+ * give up write locks.  the i/o lock cannot be held nested
+ * if it is being demoted.
+ */
 void
 xfs_ilock_demote(
 	xfs_inode_t		*ip,

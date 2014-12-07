@@ -122,4 +122,4 @@
 #define ID_AIC7810			0x1078900400000000ull
 #define ID_AIC7815			0x7815900400000000ull
 
-#endif 
+#endif /* _AIC7XXX_PCI_H_ */

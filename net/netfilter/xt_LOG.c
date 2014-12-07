@@ -1,3 +1,6 @@
+/*
+ * This is a module which is used for logging packets.
+ */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2004 Netfilter Core Team <coreteam@netfilter.org>
@@ -43,15 +46,15 @@ static int dump_udp_header(struct sbuff *m, const struct sk_buff *skb,
 	const struct udphdr *uh;
 
 	if (proto == IPPROTO_UDP)
-		
+		/* Max length: 10 "PROTO=UDP "     */
 		sb_add(m, "PROTO=UDP ");
-	else	
+	else	/* Max length: 14 "PROTO=UDPLITE " */
 		sb_add(m, "PROTO=UDPLITE ");
 
 	if (fragment)
 		goto out;
 
-	
+	/* Max length: 25 "INCOMPLETE [65535 bytes] " */
 	uh = skb_header_pointer(skb, offset, sizeof(_udph), &_udph);
 	if (uh == NULL) {
 		sb_add(m, "INCOMPLETE [%u bytes] ", skb->len - offset);
@@ -59,7 +62,7 @@ static int dump_udp_header(struct sbuff *m, const struct sk_buff *skb,
 		return 1;
 	}
 
-	
+	/* Max length: 20 "SPT=65535 DPT=65535 " */
 	sb_add(m, "SPT=%u DPT=%u LEN=%u ", ntohs(uh->source), ntohs(uh->dest),
 		ntohs(uh->len));
 
@@ -74,31 +77,31 @@ static int dump_tcp_header(struct sbuff *m, const struct sk_buff *skb,
 	struct tcphdr _tcph;
 	const struct tcphdr *th;
 
-	
+	/* Max length: 10 "PROTO=TCP " */
 	sb_add(m, "PROTO=TCP ");
 
 	if (fragment)
 		return 0;
 
-	
+	/* Max length: 25 "INCOMPLETE [65535 bytes] " */
 	th = skb_header_pointer(skb, offset, sizeof(_tcph), &_tcph);
 	if (th == NULL) {
 		sb_add(m, "INCOMPLETE [%u bytes] ", skb->len - offset);
 		return 1;
 	}
 
-	
+	/* Max length: 20 "SPT=65535 DPT=65535 " */
 	sb_add(m, "SPT=%u DPT=%u ", ntohs(th->source), ntohs(th->dest));
-	
+	/* Max length: 30 "SEQ=4294967295 ACK=4294967295 " */
 	if (logflags & XT_LOG_TCPSEQ)
 		sb_add(m, "SEQ=%u ACK=%u ", ntohl(th->seq), ntohl(th->ack_seq));
 
-	
+	/* Max length: 13 "WINDOW=65535 " */
 	sb_add(m, "WINDOW=%u ", ntohs(th->window));
-	
+	/* Max length: 9 "RES=0x3C " */
 	sb_add(m, "RES=0x%02x ", (u_int8_t)(ntohl(tcp_flag_word(th) &
 					    TCP_RESERVED_BITS) >> 22));
-	
+	/* Max length: 32 "CWR ECE URG ACK PSH RST SYN FIN " */
 	if (th->cwr)
 		sb_add(m, "CWR ");
 	if (th->ece)
@@ -115,7 +118,7 @@ static int dump_tcp_header(struct sbuff *m, const struct sk_buff *skb,
 		sb_add(m, "SYN ");
 	if (th->fin)
 		sb_add(m, "FIN ");
-	
+	/* Max length: 11 "URGP=65535 " */
 	sb_add(m, "URGP=%u ", ntohs(th->urg_ptr));
 
 	if ((logflags & XT_LOG_TCPOPT) && th->doff*4 > sizeof(struct tcphdr)) {
@@ -131,7 +134,7 @@ static int dump_tcp_header(struct sbuff *m, const struct sk_buff *skb,
 			return 1;
 		}
 
-		
+		/* Max length: 127 "OPT (" 15*4*2chars ") " */
 		sb_add(m, "OPT (");
 		for (i = 0; i < optsize; i++)
 			sb_add(m, "%02X", op[i]);
@@ -142,6 +145,7 @@ static int dump_tcp_header(struct sbuff *m, const struct sk_buff *skb,
 	return 0;
 }
 
+/* One level of recursion won't kill us */
 static void dump_ipv4_packet(struct sbuff *m,
 			const struct nf_loginfo *info,
 			const struct sk_buff *skb,
@@ -162,16 +166,18 @@ static void dump_ipv4_packet(struct sbuff *m,
 		return;
 	}
 
-	
+	/* Important fields:
+	 * TOS, len, DF/MF, fragment offset, TTL, src, dst, options. */
+	/* Max length: 40 "SRC=255.255.255.255 DST=255.255.255.255 " */
 	sb_add(m, "SRC=%pI4 DST=%pI4 ",
 	       &ih->saddr, &ih->daddr);
 
-	
+	/* Max length: 46 "LEN=65535 TOS=0xFF PREC=0xFF TTL=255 ID=65535 " */
 	sb_add(m, "LEN=%u TOS=0x%02X PREC=0x%02X TTL=%u ID=%u ",
 	       ntohs(ih->tot_len), ih->tos & IPTOS_TOS_MASK,
 	       ih->tos & IPTOS_PREC_MASK, ih->ttl, ntohs(ih->id));
 
-	
+	/* Max length: 6 "CE DF MF " */
 	if (ntohs(ih->frag_off) & IP_CE)
 		sb_add(m, "CE ");
 	if (ntohs(ih->frag_off) & IP_DF)
@@ -179,7 +185,7 @@ static void dump_ipv4_packet(struct sbuff *m,
 	if (ntohs(ih->frag_off) & IP_MF)
 		sb_add(m, "MF ");
 
-	
+	/* Max length: 11 "FRAG:65535 " */
 	if (ntohs(ih->frag_off) & IP_OFFSET)
 		sb_add(m, "FRAG:%u ", ntohs(ih->frag_off) & IP_OFFSET);
 
@@ -197,7 +203,7 @@ static void dump_ipv4_packet(struct sbuff *m,
 			return;
 		}
 
-		
+		/* Max length: 127 "OPT (" 15*4*2chars ") " */
 		sb_add(m, "OPT (");
 		for (i = 0; i < optsize; i++)
 			sb_add(m, "%02X", op[i]);
@@ -239,13 +245,13 @@ static void dump_ipv4_packet(struct sbuff *m,
 			    [ICMP_ADDRESS] = 12,
 			    [ICMP_ADDRESSREPLY] = 12 };
 
-		
+		/* Max length: 11 "PROTO=ICMP " */
 		sb_add(m, "PROTO=ICMP ");
 
 		if (ntohs(ih->frag_off) & IP_OFFSET)
 			break;
 
-		
+		/* Max length: 25 "INCOMPLETE [65535 bytes] " */
 		ich = skb_header_pointer(skb, iphoff + ih->ihl * 4,
 					 sizeof(_icmph), &_icmph);
 		if (ich == NULL) {
@@ -254,10 +260,10 @@ static void dump_ipv4_packet(struct sbuff *m,
 			break;
 		}
 
-		
+		/* Max length: 18 "TYPE=255 CODE=255 " */
 		sb_add(m, "TYPE=%u CODE=%u ", ich->type, ich->code);
 
-		
+		/* Max length: 25 "INCOMPLETE [65535 bytes] " */
 		if (ich->type <= NR_ICMP_TYPES &&
 		    required_len[ich->type] &&
 		    skb->len-iphoff-ih->ihl*4 < required_len[ich->type]) {
@@ -269,40 +275,40 @@ static void dump_ipv4_packet(struct sbuff *m,
 		switch (ich->type) {
 		case ICMP_ECHOREPLY:
 		case ICMP_ECHO:
-			
+			/* Max length: 19 "ID=65535 SEQ=65535 " */
 			sb_add(m, "ID=%u SEQ=%u ",
 			       ntohs(ich->un.echo.id),
 			       ntohs(ich->un.echo.sequence));
 			break;
 
 		case ICMP_PARAMETERPROB:
-			
+			/* Max length: 14 "PARAMETER=255 " */
 			sb_add(m, "PARAMETER=%u ",
 			       ntohl(ich->un.gateway) >> 24);
 			break;
 		case ICMP_REDIRECT:
-			
+			/* Max length: 24 "GATEWAY=255.255.255.255 " */
 			sb_add(m, "GATEWAY=%pI4 ", &ich->un.gateway);
-			
+			/* Fall through */
 		case ICMP_DEST_UNREACH:
 		case ICMP_SOURCE_QUENCH:
 		case ICMP_TIME_EXCEEDED:
-			
-			if (!iphoff) { 
+			/* Max length: 3+maxlen */
+			if (!iphoff) { /* Only recurse once. */
 				sb_add(m, "[");
 				dump_ipv4_packet(m, info, skb,
 					    iphoff + ih->ihl*4+sizeof(_icmph));
 				sb_add(m, "] ");
 			}
 
-			
+			/* Max length: 10 "MTU=65535 " */
 			if (ich->type == ICMP_DEST_UNREACH &&
 			    ich->code == ICMP_FRAG_NEEDED)
 				sb_add(m, "MTU=%u ", ntohs(ich->un.frag.mtu));
 		}
 		break;
 	}
-	
+	/* Max Length */
 	case IPPROTO_AH: {
 		struct ip_auth_hdr _ahdr;
 		const struct ip_auth_hdr *ah;
@@ -310,10 +316,10 @@ static void dump_ipv4_packet(struct sbuff *m,
 		if (ntohs(ih->frag_off) & IP_OFFSET)
 			break;
 
-		
+		/* Max length: 9 "PROTO=AH " */
 		sb_add(m, "PROTO=AH ");
 
-		
+		/* Max length: 25 "INCOMPLETE [65535 bytes] " */
 		ah = skb_header_pointer(skb, iphoff+ih->ihl*4,
 					sizeof(_ahdr), &_ahdr);
 		if (ah == NULL) {
@@ -322,7 +328,7 @@ static void dump_ipv4_packet(struct sbuff *m,
 			break;
 		}
 
-		
+		/* Length: 15 "SPI=0xF1234567 " */
 		sb_add(m, "SPI=0x%x ", ntohl(ah->spi));
 		break;
 	}
@@ -330,13 +336,13 @@ static void dump_ipv4_packet(struct sbuff *m,
 		struct ip_esp_hdr _esph;
 		const struct ip_esp_hdr *eh;
 
-		
+		/* Max length: 10 "PROTO=ESP " */
 		sb_add(m, "PROTO=ESP ");
 
 		if (ntohs(ih->frag_off) & IP_OFFSET)
 			break;
 
-		
+		/* Max length: 25 "INCOMPLETE [65535 bytes] " */
 		eh = skb_header_pointer(skb, iphoff+ih->ihl*4,
 					sizeof(_esph), &_esph);
 		if (eh == NULL) {
@@ -345,16 +351,16 @@ static void dump_ipv4_packet(struct sbuff *m,
 			break;
 		}
 
-		
+		/* Length: 15 "SPI=0xF1234567 " */
 		sb_add(m, "SPI=0x%x ", ntohl(eh->spi));
 		break;
 	}
-	
+	/* Max length: 10 "PROTO 255 " */
 	default:
 		sb_add(m, "PROTO=%u ", ih->protocol);
 	}
 
-	
+	/* Max length: 15 "UID=4294967295 " */
 	if ((logflags & XT_LOG_UID) && !iphoff && skb->sk) {
 		read_lock_bh(&skb->sk->sk_callback_lock);
 		if (skb->sk->sk_socket && skb->sk->sk_socket->file)
@@ -364,23 +370,23 @@ static void dump_ipv4_packet(struct sbuff *m,
 		read_unlock_bh(&skb->sk->sk_callback_lock);
 	}
 
-	
+	/* Max length: 16 "MARK=0xFFFFFFFF " */
 	if (!iphoff && skb->mark)
 		sb_add(m, "MARK=0x%x ", skb->mark);
 
-	
-	
-	
-	
-	
-	
-	
-	
-	
+	/* Proto    Max log string length */
+	/* IP:      40+46+6+11+127 = 230 */
+	/* TCP:     10+max(25,20+30+13+9+32+11+127) = 252 */
+	/* UDP:     10+max(25,20) = 35 */
+	/* UDPLITE: 14+max(25,20) = 39 */
+	/* ICMP:    11+max(25, 18+25+max(19,14,24+3+n+10,3+n+10)) = 91+n */
+	/* ESP:     10+max(25)+15 = 50 */
+	/* AH:      9+max(25)+15 = 49 */
+	/* unknown: 10 */
 
-	
-	
-	
+	/* (ICMP allows recursion one level deep) */
+	/* maxlen =  IP + ICMP +  IP + max(TCP,UDP,ICMP,unknown) */
+	/* maxlen = 230+   91  + 230 + 252 = 803 */
 }
 
 static void dump_ipv4_mac_header(struct sbuff *m,
@@ -475,6 +481,7 @@ ipt_log_packet(u_int8_t pf,
 }
 
 #if IS_ENABLED(CONFIG_IP6_NF_IPTABLES)
+/* One level of recursion won't kill us */
 static void dump_ipv6_packet(struct sbuff *m,
 			const struct nf_loginfo *info,
 			const struct sk_buff *skb, unsigned int ip6hoff,
@@ -499,10 +506,10 @@ static void dump_ipv6_packet(struct sbuff *m,
 		return;
 	}
 
-	
+	/* Max length: 88 "SRC=0000.0000.0000.0000.0000.0000.0000.0000 DST=0000.0000.0000.0000.0000.0000.0000.0000 " */
 	sb_add(m, "SRC=%pI6 DST=%pI6 ", &ih->saddr, &ih->daddr);
 
-	
+	/* Max length: 44 "LEN=65535 TC=255 HOPLIMIT=255 FLOWLBL=FFFFF " */
 	sb_add(m, "LEN=%Zu TC=%u HOPLIMIT=%u FLOWLBL=%u ",
 	       ntohs(ih->payload_len) + sizeof(struct ipv6hdr),
 	       (ntohl(*(__be32 *)ih) & 0x0ff00000) >> 20,
@@ -522,7 +529,7 @@ static void dump_ipv6_packet(struct sbuff *m,
 			return;
 		}
 
-		
+		/* Max length: 48 "OPT (...) " */
 		if (logflags & XT_LOG_IPOPT)
 			sb_add(m, "OPT ( ");
 
@@ -539,10 +546,10 @@ static void dump_ipv6_packet(struct sbuff *m,
 				return;
 			}
 
-			
+			/* Max length: 6 "65535 " */
 			sb_add(m, "%u ", ntohs(fh->frag_off) & 0xFFF8);
 
-			
+			/* Max length: 11 "INCOMPLETE " */
 			if (fh->frag_off & htons(0x0001))
 				sb_add(m, "INCOMPLETE ");
 
@@ -565,13 +572,13 @@ static void dump_ipv6_packet(struct sbuff *m,
 			}
 			hdrlen = ipv6_optlen(hp);
 			break;
-		
+		/* Max Length */
 		case IPPROTO_AH:
 			if (logflags & XT_LOG_IPOPT) {
 				struct ip_auth_hdr _ahdr;
 				const struct ip_auth_hdr *ah;
 
-				
+				/* Max length: 3 "AH " */
 				sb_add(m, "AH ");
 
 				if (fragment) {
@@ -582,12 +589,16 @@ static void dump_ipv6_packet(struct sbuff *m,
 				ah = skb_header_pointer(skb, ptr, sizeof(_ahdr),
 							&_ahdr);
 				if (ah == NULL) {
+					/*
+					 * Max length: 26 "INCOMPLETE [65535
+					 *  bytes] )"
+					 */
 					sb_add(m, "INCOMPLETE [%u bytes] )",
 					       skb->len - ptr);
 					return;
 				}
 
-				
+				/* Length: 15 "SPI=0xF1234567 */
 				sb_add(m, "SPI=0x%x ", ntohl(ah->spi));
 
 			}
@@ -599,7 +610,7 @@ static void dump_ipv6_packet(struct sbuff *m,
 				struct ip_esp_hdr _esph;
 				const struct ip_esp_hdr *eh;
 
-				
+				/* Max length: 4 "ESP " */
 				sb_add(m, "ESP ");
 
 				if (fragment) {
@@ -607,6 +618,9 @@ static void dump_ipv6_packet(struct sbuff *m,
 					return;
 				}
 
+				/*
+				 * Max length: 26 "INCOMPLETE [65535 bytes] )"
+				 */
 				eh = skb_header_pointer(skb, ptr, sizeof(_esph),
 							&_esph);
 				if (eh == NULL) {
@@ -615,13 +629,13 @@ static void dump_ipv6_packet(struct sbuff *m,
 					return;
 				}
 
-				
+				/* Length: 16 "SPI=0xF1234567 )" */
 				sb_add(m, "SPI=0x%x )", ntohl(eh->spi));
 
 			}
 			return;
 		default:
-			
+			/* Max length: 20 "Unknown Ext Hdr 255" */
 			sb_add(m, "Unknown Ext Hdr %u", currenthdr);
 			return;
 		}
@@ -647,26 +661,26 @@ static void dump_ipv6_packet(struct sbuff *m,
 		struct icmp6hdr _icmp6h;
 		const struct icmp6hdr *ic;
 
-		
+		/* Max length: 13 "PROTO=ICMPv6 " */
 		sb_add(m, "PROTO=ICMPv6 ");
 
 		if (fragment)
 			break;
 
-		
+		/* Max length: 25 "INCOMPLETE [65535 bytes] " */
 		ic = skb_header_pointer(skb, ptr, sizeof(_icmp6h), &_icmp6h);
 		if (ic == NULL) {
 			sb_add(m, "INCOMPLETE [%u bytes] ", skb->len - ptr);
 			return;
 		}
 
-		
+		/* Max length: 18 "TYPE=255 CODE=255 " */
 		sb_add(m, "TYPE=%u CODE=%u ", ic->icmp6_type, ic->icmp6_code);
 
 		switch (ic->icmp6_type) {
 		case ICMPV6_ECHO_REQUEST:
 		case ICMPV6_ECHO_REPLY:
-			
+			/* Max length: 19 "ID=65535 SEQ=65535 " */
 			sb_add(m, "ID=%u SEQ=%u ",
 				ntohs(ic->icmp6_identifier),
 				ntohs(ic->icmp6_sequence));
@@ -677,13 +691,13 @@ static void dump_ipv6_packet(struct sbuff *m,
 			break;
 
 		case ICMPV6_PARAMPROB:
-			
+			/* Max length: 17 "POINTER=ffffffff " */
 			sb_add(m, "POINTER=%08x ", ntohl(ic->icmp6_pointer));
-			
+			/* Fall through */
 		case ICMPV6_DEST_UNREACH:
 		case ICMPV6_PKT_TOOBIG:
 		case ICMPV6_TIME_EXCEED:
-			
+			/* Max length: 3+maxlen */
 			if (recurse) {
 				sb_add(m, "[");
 				dump_ipv6_packet(m, info, skb,
@@ -691,18 +705,18 @@ static void dump_ipv6_packet(struct sbuff *m,
 				sb_add(m, "] ");
 			}
 
-			
+			/* Max length: 10 "MTU=65535 " */
 			if (ic->icmp6_type == ICMPV6_PKT_TOOBIG)
 				sb_add(m, "MTU=%u ", ntohl(ic->icmp6_mtu));
 		}
 		break;
 	}
-	
+	/* Max length: 10 "PROTO=255 " */
 	default:
 		sb_add(m, "PROTO=%u ", currenthdr);
 	}
 
-	
+	/* Max length: 15 "UID=4294967295 " */
 	if ((logflags & XT_LOG_UID) && recurse && skb->sk) {
 		read_lock_bh(&skb->sk->sk_callback_lock);
 		if (skb->sk->sk_socket && skb->sk->sk_socket->file)
@@ -712,7 +726,7 @@ static void dump_ipv6_packet(struct sbuff *m,
 		read_unlock_bh(&skb->sk->sk_callback_lock);
 	}
 
-	
+	/* Max length: 16 "MARK=0xFFFFFFFF " */
 	if (!recurse && skb->mark)
 		sb_add(m, "MARK=0x%x ", skb->mark);
 }

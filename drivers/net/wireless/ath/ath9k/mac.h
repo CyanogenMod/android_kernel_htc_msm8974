@@ -87,8 +87,14 @@
 #define ATH9K_TX_DELIM_UNDERRUN    0x10
 #define ATH9K_TX_SW_FILTERED       0x80
 
+/* 64 bytes */
 #define MIN_TX_FIFO_THRESHOLD   0x1
 
+/*
+ * Single stream device AR9285 and AR9271 require 2 KB
+ * to work around a hardware issue, all other devices
+ * have can use the max 4 KB limit.
+ */
 #define MAX_TX_FIFO_THRESHOLD   ((4096 / 64) - 1)
 
 struct ath_tx_status {
@@ -190,14 +196,14 @@ struct ath_htc_rx_status {
 #define ATH9K_TXKEYIX_INVALID	((u8)-1)
 
 enum ath9k_phyerr {
-	ATH9K_PHYERR_UNDERRUN             = 0,  
-	ATH9K_PHYERR_TIMING               = 1,  
-	ATH9K_PHYERR_PARITY               = 2,  
-	ATH9K_PHYERR_RATE                 = 3,  
-	ATH9K_PHYERR_LENGTH               = 4,  
-	ATH9K_PHYERR_RADAR                = 5,  
-	ATH9K_PHYERR_SERVICE              = 6,  
-	ATH9K_PHYERR_TOR                  = 7,  
+	ATH9K_PHYERR_UNDERRUN             = 0,  /* Transmit underrun */
+	ATH9K_PHYERR_TIMING               = 1,  /* Timing error */
+	ATH9K_PHYERR_PARITY               = 2,  /* Illegal parity */
+	ATH9K_PHYERR_RATE                 = 3,  /* Illegal rate */
+	ATH9K_PHYERR_LENGTH               = 4,  /* Illegal length */
+	ATH9K_PHYERR_RADAR                = 5,  /* Radar detect */
+	ATH9K_PHYERR_SERVICE              = 6,  /* Illegal service */
+	ATH9K_PHYERR_TOR                  = 7,  /* Transmit override receive */
 
 	ATH9K_PHYERR_OFDM_TIMING          = 17,
 	ATH9K_PHYERR_OFDM_SIGNAL_PARITY   = 18,
@@ -235,6 +241,19 @@ struct ath_desc {
 #define ATH9K_TXDESC_NOACK		0x0002
 #define ATH9K_TXDESC_RTSENA		0x0004
 #define ATH9K_TXDESC_CTSENA		0x0008
+/* ATH9K_TXDESC_INTREQ forces a tx interrupt to be generated for
+ * the descriptor its marked on.  We take a tx interrupt to reap
+ * descriptors when the h/w hits an EOL condition or
+ * when the descriptor is specifically marked to generate
+ * an interrupt with this flag. Descriptors should be
+ * marked periodically to insure timely replenishing of the
+ * supply needed for sending frames. Defering interrupts
+ * reduces system load and potentially allows more concurrent
+ * work to be done but if done to aggressively can cause
+ * senders to backup. When the hardware queue is left too
+ * large rate control information may also be too out of
+ * date. An Alternative for this is TX interrupt mitigation
+ * but this needs more testing. */
 #define ATH9K_TXDESC_INTREQ		0x0010
 #define ATH9K_TXDESC_VEOL		0x0020
 #define ATH9K_TXDESC_EXT_ONLY		0x0040
@@ -431,6 +450,11 @@ struct ar5416_desc {
 #define AR_TxBaStatus       0x40000000
 #define AR_TxStatusRsvd01   0x80000000
 
+/*
+ * AR_FrmXmitOK - Frame transmission success flag. If set, the frame was
+ * transmitted successfully. If clear, no ACK or BA was received to indicate
+ * successful transmission when we were expecting an ACK or BA.
+ */
 #define AR_FrmXmitOK            0x00000001
 #define AR_ExcessiveRetries     0x00000002
 #define AR_FIFOUnderrun         0x00000004
@@ -555,6 +579,7 @@ enum ath9k_tx_queue {
 
 #define	ATH9K_NUM_TX_QUEUES 10
 
+/* Used as a queue subtype instead of a WMM AC */
 #define ATH9K_WME_UPSD	4
 
 enum ath9k_tx_queue_flags {
@@ -707,6 +732,7 @@ void ath9k_hw_abortpcurecv(struct ath_hw *ah);
 bool ath9k_hw_stopdmarecv(struct ath_hw *ah, bool *reset);
 int ath9k_hw_beaconq_setup(struct ath_hw *ah);
 
+/* Interrupt Handling */
 bool ath9k_hw_intrpend(struct ath_hw *ah);
 void ath9k_hw_set_interrupts(struct ath_hw *ah);
 void ath9k_hw_enable_interrupts(struct ath_hw *ah);
@@ -714,4 +740,4 @@ void ath9k_hw_disable_interrupts(struct ath_hw *ah);
 
 void ar9002_hw_attach_mac_ops(struct ath_hw *ah);
 
-#endif 
+#endif /* MAC_H */

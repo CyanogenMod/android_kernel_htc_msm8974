@@ -19,7 +19,7 @@
 #include <asm/uaccess.h>
 #include <mach/board.h>
 
-#define MSM_MAX_PARTITIONS 48
+#define MSM_MAX_PARTITIONS 52
 
 static int emmc_partition_update;
 struct htc_emmc_partition {
@@ -65,6 +65,26 @@ int get_partition_num_by_name(char *name)
 }
 EXPORT_SYMBOL(get_partition_num_by_name);
 
+void add_emmc_part_entry(unsigned int dev_num, unsigned int part_size, char *name)
+{
+	struct htc_emmc_partition *ptn = emmc_partitions;
+	int i;
+	if (emmc_partition_update < 0 || emmc_partition_update >= MSM_MAX_PARTITIONS)
+		return;
+
+	for (i = 0; i < MSM_MAX_PARTITIONS; i++, ptn++) {
+		if (ptn->dev_num == dev_num) {
+			pr_debug("%s: partition exists.\n", __func__);
+			return;
+		}
+	}
+	strncpy(emmc_partitions[emmc_partition_update].partition_name, name, sizeof(emmc_partitions[emmc_partition_update].partition_name)-1);
+	emmc_partitions[emmc_partition_update].dev_num = dev_num;
+	emmc_partitions[emmc_partition_update].partition_size = part_size;
+
+	emmc_partition_update ++;
+}
+
 int htc_emmc_partition_write(struct file *file, const char *buffer,
 				unsigned long count, void *data)
 {
@@ -74,6 +94,7 @@ int htc_emmc_partition_write(struct file *file, const char *buffer,
 	unsigned int dev_num, partition_size;
 	char partition_name[16];
 	int ret;
+	return count;
 
 	if (emmc_partition_update < 0 || emmc_partition_update >= MSM_MAX_PARTITIONS)
 		return 0;
@@ -123,7 +144,7 @@ static int __init sysinfo_proc_init(void)
 	emmc_partition_update = 0;
 	pr_info("%s: Init HTC system info proc interface.\r\n", __func__);
 
-	entry = create_proc_entry("emmc", 0664, NULL);
+	entry = create_proc_entry("emmc", 0444, NULL);
 	if (entry == NULL) {
 		pr_err("%s: unable to create /proc entry\n", __func__);
         } else {

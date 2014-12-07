@@ -37,9 +37,11 @@
 
 #include "cpu-8815.h"
 
+/* Initial value for SRC control register: all timers use MXTAL/8 source */
 #define SRC_CR_INIT_MASK	0x00007fff
 #define SRC_CR_INIT_VAL		0x2aaa8000
 
+/* These addresses span 16MB, so use three individual pages */
 static struct resource nhk8815_nand_resources[] = {
 	{
 		.name = "nand_addr",
@@ -61,17 +63,22 @@ static struct resource nhk8815_nand_resources[] = {
 
 static int nhk8815_nand_init(void)
 {
-	
+	/* FSMC setup for nand chip select (8-bit nand in 8815NHK) */
 	writel(0x0000000E, FSMC_PCR(0));
 	writel(0x000D0A00, FSMC_PMEM(0));
 	writel(0x00100A00, FSMC_PATT(0));
 
-	
+	/* enable access to the chip select area */
 	writel(readl(FSMC_PCR(0)) | 0x04, FSMC_PCR(0));
 
 	return 0;
 }
 
+/*
+ * These partitions are the same as those used in the 2.6.20 release
+ * shipped by the vendor; the first two partitions are mandated
+ * by the boot ROM, and the bootloader area is somehow oversized...
+ */
 static struct mtd_partition nhk8815_partitions[] = {
 	{
 		.name	= "X-Loader(NAND)",
@@ -117,6 +124,7 @@ static struct platform_device nhk8815_nand_device = {
 	.num_resources	= ARRAY_SIZE(nhk8815_nand_resources),
 };
 
+/* These are the partitions for the OneNand device, different from above */
 static struct mtd_partition nhk8815_onenand_partitions[] = {
 	{
 		.name	= "X-Loader(OneNAND)",
@@ -171,7 +179,7 @@ static struct platform_device nhk8815_onenand_device = {
 static void __init nhk8815_onenand_init(void)
 {
 #ifdef CONFIG_MTD_ONENAND
-       
+       /* Set up SMCS0 for OneNand */
 	writel(0x000030db, FSMC_BCR(0));
 	writel(0x02100551, FSMC_BTR(0));
 #endif
@@ -209,7 +217,7 @@ static struct platform_device nhk8815_eth_device = {
 
 static int __init nhk8815_eth_init(void)
 {
-	int gpio_nr = 115; 
+	int gpio_nr = 115; /* hardwired in the board */
 	int err;
 
 	err = gpio_request(gpio_nr, "eth_irq");
@@ -225,14 +233,14 @@ static struct platform_device *nhk8815_platform_devices[] __initdata = {
 	&nhk8815_nand_device,
 	&nhk8815_onenand_device,
 	&nhk8815_eth_device,
-	
+	/* will add more devices */
 };
 
 static void __init nomadik_timer_init(void)
 {
 	u32 src_cr;
 
-	
+	/* Configure timer sources in "system reset controller" ctrl reg */
 	src_cr = readl(io_p2v(NOMADIK_SRC_BASE));
 	src_cr &= SRC_CR_INIT_MASK;
 	src_cr |= SRC_CR_INIT_VAL;
@@ -259,7 +267,7 @@ static void __init nhk8815_platform_init(void)
 }
 
 MACHINE_START(NOMADIK, "NHK8815")
-	
+	/* Maintainer: ST MicroElectronics */
 	.atag_offset	= 0x100,
 	.map_io		= cpu8815_map_io,
 	.init_irq	= cpu8815_init_irq,

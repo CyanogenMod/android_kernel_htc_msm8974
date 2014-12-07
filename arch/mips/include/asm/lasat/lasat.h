@@ -39,6 +39,11 @@ enum lasat_mtdparts {
 	LASAT_MTD_LAST
 };
 
+/*
+ * The format of the data record in the EEPROM.
+ * See the LASAT Hardware Configuration field specification for a detailed
+ * description of the config field.
+ */
 #include <linux/types.h>
 
 #define LASAT_EEPROM_VERSION 7
@@ -93,6 +98,7 @@ struct lasat_eeprom_struct_pre7 {
 	unsigned int  crc32;
 };
 
+/* Configuration descriptor encoding - see the doc for details */
 
 #define LASAT_W0_DSCTYPE(v)		(((v))         & 0xf)
 #define LASAT_W0_BMID(v)		(((v) >> 0x04) & 0xf)
@@ -117,6 +123,7 @@ struct lasat_eeprom_struct_pre7 {
 #define LASAT_W1_PCI2OPT(v)		(((v) >> 0x18) & 0xf)
 #define LASAT_W1_PCI3OPT(v)		(((v) >> 0x1c) & 0xf)
 
+/* Routines specific to LASAT boards */
 
 #define LASAT_BMID_MASQUERADE2		0
 #define LASAT_BMID_MASQUERADEPRO	1
@@ -132,7 +139,7 @@ struct lasat_eeprom_struct_pre7 {
 #define LASAT_BMID_SAFEPIPE7100		9
 #endif
 #define LASAT_BMID_UNKNOWN		0xf
-#define LASAT_MAX_BMID_NAMES		9   
+#define LASAT_MAX_BMID_NAMES		9   /* no larger than 15! */
 
 #define LASAT_HAS_EDHAC			(1 << 0)
 #define LASAT_EDHAC_FAST		(1 << 1)
@@ -177,7 +184,7 @@ struct lasat_info {
 	unsigned char li_bmstr[16];
 	unsigned char li_namestr[32];
 	unsigned char li_typestr[16];
-	
+	/* Info on the Flash layout */
 	unsigned int  li_flash_base;
 	unsigned long li_flashpart_base[LASAT_MTD_LAST];
 	unsigned long li_flashpart_size[LASAT_MTD_LAST];
@@ -204,17 +211,25 @@ static inline unsigned long lasat_flash_partition_size(int partno)
 	return lasat_board_info.li_flashpart_size[partno];
 }
 
+/* Called from setup() to initialize the global board_info struct */
 extern int lasat_init_board_info(void);
 
+/* Write the modified EEPROM info struct */
 extern void lasat_write_eeprom_info(void);
 
 #define N_MACHTYPES		2
+/* for calibration of delays */
 
+/* the lasat_ndelay function is necessary because it is used at an
+ * early stage of the boot process where ndelay is not calibrated.
+ * It is used for the bit-banging rtc and eeprom drivers */
 
 #include <linux/delay.h>
 #include <linux/smp.h>
 
+/* calculating with the slowest board with 100 MHz clock */
 #define LASAT_100_DIVIDER 20
+/* All 200's run at 250 MHz clock */
 #define LASAT_200_DIVIDER 8
 
 extern unsigned int lasat_ndelay_divider;
@@ -226,15 +241,17 @@ static inline void lasat_ndelay(unsigned int ns)
 
 #define IS_LASAT_200()     (current_cpu_data.cputype == CPU_R5000)
 
-#endif 
+#endif /* !defined (_LANGUAGE_ASSEMBLY) */
 
 #define LASAT_SERVICEMODE_MAGIC_1     0xdeadbeef
 #define LASAT_SERVICEMODE_MAGIC_2     0xfedeabba
 
+/* Lasat 100 boards */
 #define LASAT_GT_BASE           (KSEG1ADDR(0x14000000))
 
+/* Lasat 200 boards */
 #define Vrc5074_PHYS_BASE       0x1fa00000
 #define Vrc5074_BASE            (KSEG1ADDR(Vrc5074_PHYS_BASE))
 #define PCI_WINDOW1             0x1a000000
 
-#endif 
+#endif /* _LASAT_H */

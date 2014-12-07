@@ -76,7 +76,7 @@ static ssize_t show_chip_temp(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Degrees celsius = (512.18-ret) / 1.0983 */
 	ret = 512180 - (ret * 1000);
 	ret = DIV_ROUND_CLOSEST(ret * 10000, 10983);
 
@@ -117,6 +117,10 @@ static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, show_chip_temp, NULL,
 			  WM831X_AUX_CHIP_TEMP);
 static SENSOR_DEVICE_ATTR(temp1_label, S_IRUGO, show_label, NULL,
 			  WM831X_AUX_CHIP_TEMP);
+/*
+ * Report as a voltage since conversion depends on external components
+ * and that's what the ABI wants.
+ */
 static SENSOR_DEVICE_ATTR(temp2_input, S_IRUGO, show_voltage, NULL,
 			  WM831X_AUX_BATT_TEMP);
 static SENSOR_DEVICE_ATTR(temp2_label, S_IRUGO, show_label, NULL,

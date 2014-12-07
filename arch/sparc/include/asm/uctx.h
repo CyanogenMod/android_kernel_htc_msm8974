@@ -68,4 +68,4 @@ struct ucontext {
 };
 typedef struct ucontext ucontext_t;
 
-#endif 
+#endif /* __SPARC64_UCTX_H */

@@ -20,24 +20,59 @@
 #include "mlsl.h"
 #include "mpu-i2c.h"
 
+/* ------------ */
+/* - Defines. - */
+/* ------------ */
 
+/* ---------------------- */
+/* - Types definitions. - */
+/* ---------------------- */
 
+/* --------------------- */
+/* - Function p-types. - */
+/* --------------------- */
 
+/**
+ *  @brief  used to open the I2C or SPI serial port.
+ *          This port is used to send and receive data to the MPU device.
+ *  @param  portNum
+ *              The COM port number associated with the device in use.
+ *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
+ */
 tMLError MLSLSerialOpen(char const *port, void **sl_handle)
 {
 	return ML_SUCCESS;
 }
 
+/**
+ *  @brief  used to reset any buffering the driver may be doing
+ *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
+ */
 tMLError MLSLSerialReset(void *sl_handle)
 {
 	return ML_SUCCESS;
 }
 
+/**
+ *  @brief  used to close the I2C or SPI serial port.
+ *          This port is used to send and receive data to the MPU device.
+ *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
+ */
 tMLError MLSLSerialClose(void *sl_handle)
 {
 	return ML_SUCCESS;
 }
 
+/**
+ *  @brief  used to read a single byte of data.
+ *          This should be sent by I2C or SPI.
+ *
+ *  @param  slaveAddr       I2C slave address of device.
+ *  @param  registerAddr    Register address to read.
+ *  @param  data            Single byte of data to read.
+ *
+ *  @return ML_SUCCESS if the command is successful, an error code otherwise.
+ */
 tMLError MLSLSerialWriteSingle(void *sl_handle,
 			       unsigned char slaveAddr,
 			       unsigned char registerAddr,
@@ -48,6 +83,17 @@ tMLError MLSLSerialWriteSingle(void *sl_handle,
 }
 
 
+/**
+ *  @brief  used to write multiple bytes of data from registers.
+ *          This should be sent by I2C.
+ *
+ *  @param  slaveAddr       I2C slave address of device.
+ *  @param  registerAddr    Register address to write.
+ *  @param  length          Length of burst of data.
+ *  @param  data            Pointer to block of data.
+ *
+ *  @return ML_SUCCESS if successful, a non-zero error code otherwise.
+ */
 tMLError MLSLSerialWrite(void *sl_handle,
 			 unsigned char slaveAddr,
 			 unsigned short length, unsigned char const *data)
@@ -66,7 +112,7 @@ tMLError MLSLSerialWrite(void *sl_handle,
 						  sl_handle, slaveAddr,
 						  1 + thisLen, data);
 		} else {
-			
+			/* manually increment register addr between chunks */
 			i2cWrite[0] = startRegAddr + bytesWritten;
 			memcpy(&i2cWrite[1], &data[1 + bytesWritten],
 			       thisLen);
@@ -82,6 +128,17 @@ tMLError MLSLSerialWrite(void *sl_handle,
 }
 
 
+/**
+ *  @brief  used to read multiple bytes of data from registers.
+ *          This should be sent by I2C.
+ *
+ *  @param  slaveAddr       I2C slave address of device.
+ *  @param  registerAddr    Register address to read.
+ *  @param  length          Length of burst of data.
+ *  @param  data            Pointer to block of data.
+ *
+ *  @return Zero if successful; an error code otherwise
+ */
 tMLError MLSLSerialRead(void *sl_handle,
 			unsigned char slaveAddr,
 			unsigned char registerAddr,
@@ -109,6 +166,17 @@ tMLError MLSLSerialRead(void *sl_handle,
 }
 
 
+/**
+ *  @brief  used to write multiple bytes of data to the memory.
+ *          This should be sent by I2C.
+ *
+ *  @param  slaveAddr       I2C slave address of device.
+ *  @param  memAddr         The location in the memory to write to.
+ *  @param  length          Length of burst data.
+ *  @param  data            Pointer to block of data.
+ *
+ *  @return Zero if successful; an error code otherwise
+ */
 tMLError MLSLSerialWriteMem(void *sl_handle,
 			    unsigned char slaveAddr,
 			    unsigned short memAddr,
@@ -140,6 +208,17 @@ tMLError MLSLSerialWriteMem(void *sl_handle,
 }
 
 
+/**
+ *  @brief  used to read multiple bytes of data from the memory.
+ *          This should be sent by I2C.
+ *
+ *  @param  slaveAddr       I2C slave address of device.
+ *  @param  memAddr         The location in the memory to read from.
+ *  @param  length          Length of burst data.
+ *  @param  data            Pointer to block of data.
+ *
+ *  @return Zero if successful; an error code otherwise
+ */
 tMLError MLSLSerialReadMem(void *sl_handle,
 			   unsigned char slaveAddr,
 			   unsigned short memAddr,
@@ -170,6 +249,16 @@ tMLError MLSLSerialReadMem(void *sl_handle,
 }
 
 
+/**
+ *  @brief  used to write multiple bytes of data to the fifo.
+ *          This should be sent by I2C.
+ *
+ *  @param  slaveAddr       I2C slave address of device.
+ *  @param  length          Length of burst of data.
+ *  @param  data            Pointer to block of data.
+ *
+ *  @return Zero if successful; an error code otherwise
+ */
 tMLError MLSLSerialWriteFifo(void *sl_handle,
 			     unsigned char slaveAddr,
 			     unsigned short length,
@@ -200,6 +289,16 @@ tMLError MLSLSerialWriteFifo(void *sl_handle,
 }
 
 
+/**
+ *  @brief  used to read multiple bytes of data from the fifo.
+ *          This should be sent by I2C.
+ *
+ *  @param  slaveAddr       I2C slave address of device.
+ *  @param  length          Length of burst of data.
+ *  @param  data            Pointer to block of data.
+ *
+ *  @return Zero if successful; an error code otherwise
+ */
 tMLError MLSLSerialReadFifo(void *sl_handle,
 			    unsigned char slaveAddr,
 			    unsigned short length, unsigned char *data)
@@ -227,3 +326,6 @@ tMLError MLSLSerialReadFifo(void *sl_handle,
 	return ML_SUCCESS;
 }
 
+/**
+ *  @}
+ */

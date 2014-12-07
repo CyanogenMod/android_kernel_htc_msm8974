@@ -27,16 +27,21 @@
 #include "card.h"
 #include "proc.h"
 
+/* convert our full speed USB rate into sampling rate in Hz */
 static inline unsigned get_full_speed_hz(unsigned int usb_rate)
 {
 	return (usb_rate * 125 + (1 << 12)) >> 13;
 }
 
+/* convert our high speed USB rate into sampling rate in Hz */
 static inline unsigned get_high_speed_hz(unsigned int usb_rate)
 {
 	return (usb_rate * 125 + (1 << 9)) >> 10;
 }
 
+/*
+ * common proc files to show the usb device info
+ */
 static void proc_audio_usbbus_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
 {
 	struct snd_usb_audio *chip = entry->private_data;
@@ -62,6 +67,9 @@ void snd_usb_audio_create_proc(struct snd_usb_audio *chip)
 		snd_info_set_text_ops(entry, chip, proc_audio_usbid_read);
 }
 
+/*
+ * proc interface for list the supported pcm formats
+ */
 static void proc_dump_substream_formats(struct snd_usb_substream *subs, struct snd_info_buffer *buffer)
 {
 	struct list_head *p;
@@ -102,8 +110,8 @@ static void proc_dump_substream_formats(struct snd_usb_substream *subs, struct s
 		if (snd_usb_get_speed(subs->dev) != USB_SPEED_FULL)
 			snd_iprintf(buffer, "    Data packet interval: %d us\n",
 				    125 * (1 << fp->datainterval));
-		
-		
+		// snd_iprintf(buffer, "    Max Packet Size = %d\n", fp->maxpacksize);
+		// snd_iprintf(buffer, "    EP Attribute = %#x\n", fp->attributes);
 	}
 }
 

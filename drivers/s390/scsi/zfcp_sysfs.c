@@ -217,7 +217,7 @@ static ssize_t zfcp_sysfs_port_rescan_store(struct device *dev,
 	if (!adapter)
 		return -ENODEV;
 
-	
+	/* sync the user-space- with the kernel-invocation of scan_work */
 	queue_work(adapter->work_queue, &adapter->scan_work);
 	flush_work(&adapter->scan_work);
 	zfcp_ccw_adapter_put(adapter);
@@ -327,6 +327,9 @@ static struct attribute *zfcp_port_attrs[] = {
 	NULL
 };
 
+/**
+ * zfcp_sysfs_port_attrs - sysfs attributes for all other ports
+ */
 struct attribute_group zfcp_sysfs_port_attrs = {
 	.attrs = zfcp_port_attrs,
 };

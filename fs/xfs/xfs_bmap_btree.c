@@ -38,18 +38,25 @@
 #include "xfs_error.h"
 #include "xfs_quota.h"
 
+/*
+ * Determine the extent state.
+ */
+/* ARGSUSED */
 STATIC xfs_exntst_t
 xfs_extent_state(
 	xfs_filblks_t		blks,
 	int			extent_flag)
 {
 	if (extent_flag) {
-		ASSERT(blks != 0);	
+		ASSERT(blks != 0);	/* saved for DMIG */
 		return XFS_EXT_UNWRITTEN;
 	}
 	return XFS_EXT_NORM;
 }
 
+/*
+ * Convert on-disk form of btree root to in-memory form.
+ */
 void
 xfs_bmdr_to_bmbt(
 	struct xfs_mount	*mp,
@@ -80,6 +87,11 @@ xfs_bmdr_to_bmbt(
 	memcpy(tpp, fpp, sizeof(*fpp) * dmxr);
 }
 
+/*
+ * Convert a compressed bmap extent record to an uncompressed form.
+ * This code must be in sync with the routines xfs_bmbt_get_startoff,
+ * xfs_bmbt_get_startblock, xfs_bmbt_get_blockcount and xfs_bmbt_get_state.
+ */
 STATIC void
 __xfs_bmbt_get_all(
 		__uint64_t l0,
@@ -105,14 +117,14 @@ __xfs_bmbt_get_all(
 		ASSERT((b >> 32) == 0 || isnulldstartblock(b));
 		s->br_startblock = (xfs_fsblock_t)b;
 	}
-#else	
+#else	/* !DEBUG */
 	s->br_startblock = (xfs_fsblock_t)(((xfs_dfsbno_t)l1) >> 21);
-#endif	
-#endif	
+#endif	/* DEBUG */
+#endif	/* XFS_BIG_BLKNOS */
 	s->br_blockcount = (xfs_filblks_t)(l1 & xfs_mask64lo(21));
-	
+	/* This is xfs_extent_state() in-line */
 	if (ext_flag) {
-		ASSERT(s->br_blockcount != 0);	
+		ASSERT(s->br_blockcount != 0);	/* saved for DMIG */
 		st = XFS_EXT_UNWRITTEN;
 	} else
 		st = XFS_EXT_NORM;
@@ -127,6 +139,9 @@ xfs_bmbt_get_all(
 	__xfs_bmbt_get_all(r->l0, r->l1, s);
 }
 
+/*
+ * Extract the blockcount field from an in memory bmap extent record.
+ */
 xfs_filblks_t
 xfs_bmbt_get_blockcount(
 	xfs_bmbt_rec_host_t	*r)
@@ -134,6 +149,9 @@ xfs_bmbt_get_blockcount(
 	return (xfs_filblks_t)(r->l1 & xfs_mask64lo(21));
 }
 
+/*
+ * Extract the startblock field from an in memory bmap extent record.
+ */
 xfs_fsblock_t
 xfs_bmbt_get_startblock(
 	xfs_bmbt_rec_host_t	*r)
@@ -149,12 +167,15 @@ xfs_bmbt_get_startblock(
 	    (((xfs_dfsbno_t)r->l1) >> 21);
 	ASSERT((b >> 32) == 0 || isnulldstartblock(b));
 	return (xfs_fsblock_t)b;
-#else	
+#else	/* !DEBUG */
 	return (xfs_fsblock_t)(((xfs_dfsbno_t)r->l1) >> 21);
-#endif	
-#endif	
+#endif	/* DEBUG */
+#endif	/* XFS_BIG_BLKNOS */
 }
 
+/*
+ * Extract the startoff field from an in memory bmap extent record.
+ */
 xfs_fileoff_t
 xfs_bmbt_get_startoff(
 	xfs_bmbt_rec_host_t	*r)
@@ -174,6 +195,9 @@ xfs_bmbt_get_state(
 				ext_flag);
 }
 
+/*
+ * Extract the blockcount field from an on disk bmap extent record.
+ */
 xfs_filblks_t
 xfs_bmbt_disk_get_blockcount(
 	xfs_bmbt_rec_t	*r)
@@ -181,6 +205,9 @@ xfs_bmbt_disk_get_blockcount(
 	return (xfs_filblks_t)(be64_to_cpu(r->l1) & xfs_mask64lo(21));
 }
 
+/*
+ * Extract the startoff field from a disk format bmap extent record.
+ */
 xfs_fileoff_t
 xfs_bmbt_disk_get_startoff(
 	xfs_bmbt_rec_t	*r)
@@ -190,6 +217,9 @@ xfs_bmbt_disk_get_startoff(
 }
 
 
+/*
+ * Set all the fields in a bmap extent record from the arguments.
+ */
 void
 xfs_bmbt_set_allf(
 	xfs_bmbt_rec_host_t	*r,
@@ -213,7 +243,7 @@ xfs_bmbt_set_allf(
 	r->l1 = ((xfs_bmbt_rec_base_t)startblock << 21) |
 		((xfs_bmbt_rec_base_t)blockcount &
 		(xfs_bmbt_rec_base_t)xfs_mask64lo(21));
-#else	
+#else	/* !XFS_BIG_BLKNOS */
 	if (isnullstartblock(startblock)) {
 		r->l0 = ((xfs_bmbt_rec_base_t)extent_flag << 63) |
 			((xfs_bmbt_rec_base_t)startoff << 9) |
@@ -229,9 +259,12 @@ xfs_bmbt_set_allf(
 			 ((xfs_bmbt_rec_base_t)blockcount &
 			 (xfs_bmbt_rec_base_t)xfs_mask64lo(21));
 	}
-#endif	
+#endif	/* XFS_BIG_BLKNOS */
 }
 
+/*
+ * Set all the fields in a bmap extent record from the uncompressed form.
+ */
 void
 xfs_bmbt_set_all(
 	xfs_bmbt_rec_host_t *r,
@@ -242,6 +275,9 @@ xfs_bmbt_set_all(
 }
 
 
+/*
+ * Set all the fields in a disk format bmap extent record from the arguments.
+ */
 void
 xfs_bmbt_disk_set_allf(
 	xfs_bmbt_rec_t		*r,
@@ -267,7 +303,7 @@ xfs_bmbt_disk_set_allf(
 		((xfs_bmbt_rec_base_t)startblock << 21) |
 		 ((xfs_bmbt_rec_base_t)blockcount &
 		  (xfs_bmbt_rec_base_t)xfs_mask64lo(21)));
-#else	
+#else	/* !XFS_BIG_BLKNOS */
 	if (isnullstartblock(startblock)) {
 		r->l0 = cpu_to_be64(
 			((xfs_bmbt_rec_base_t)extent_flag << 63) |
@@ -286,9 +322,12 @@ xfs_bmbt_disk_set_allf(
 			 ((xfs_bmbt_rec_base_t)blockcount &
 			  (xfs_bmbt_rec_base_t)xfs_mask64lo(21)));
 	}
-#endif	
+#endif	/* XFS_BIG_BLKNOS */
 }
 
+/*
+ * Set all the fields in a bmap extent record from the uncompressed form.
+ */
 STATIC void
 xfs_bmbt_disk_set_all(
 	xfs_bmbt_rec_t	*r,
@@ -298,6 +337,9 @@ xfs_bmbt_disk_set_all(
 				  s->br_blockcount, s->br_state);
 }
 
+/*
+ * Set the blockcount field in a bmap extent record.
+ */
 void
 xfs_bmbt_set_blockcount(
 	xfs_bmbt_rec_host_t *r,
@@ -308,6 +350,9 @@ xfs_bmbt_set_blockcount(
 		  (xfs_bmbt_rec_base_t)(v & xfs_mask64lo(21));
 }
 
+/*
+ * Set the startblock field in a bmap extent record.
+ */
 void
 xfs_bmbt_set_startblock(
 	xfs_bmbt_rec_host_t *r,
@@ -319,7 +364,7 @@ xfs_bmbt_set_startblock(
 		  (xfs_bmbt_rec_base_t)(v >> 43);
 	r->l1 = (r->l1 & (xfs_bmbt_rec_base_t)xfs_mask64lo(21)) |
 		  (xfs_bmbt_rec_base_t)(v << 21);
-#else	
+#else	/* !XFS_BIG_BLKNOS */
 	if (isnullstartblock(v)) {
 		r->l0 |= (xfs_bmbt_rec_base_t)xfs_mask64lo(9);
 		r->l1 = (xfs_bmbt_rec_base_t)xfs_mask64hi(11) |
@@ -330,9 +375,12 @@ xfs_bmbt_set_startblock(
 		r->l1 = ((xfs_bmbt_rec_base_t)v << 21) |
 			  (r->l1 & (xfs_bmbt_rec_base_t)xfs_mask64lo(21));
 	}
-#endif	
+#endif	/* XFS_BIG_BLKNOS */
 }
 
+/*
+ * Set the startoff field in a bmap extent record.
+ */
 void
 xfs_bmbt_set_startoff(
 	xfs_bmbt_rec_host_t *r,
@@ -344,6 +392,9 @@ xfs_bmbt_set_startoff(
 		  (r->l0 & (xfs_bmbt_rec_base_t)xfs_mask64lo(9));
 }
 
+/*
+ * Set the extent state field in a bmap extent record.
+ */
 void
 xfs_bmbt_set_state(
 	xfs_bmbt_rec_host_t *r,
@@ -356,6 +407,9 @@ xfs_bmbt_set_state(
 		r->l0 |= xfs_mask64hi(BMBT_EXNTFLAG_BITLEN);
 }
 
+/*
+ * Convert in-memory form of btree root to on-disk form.
+ */
 void
 xfs_bmbt_to_bmdr(
 	struct xfs_mount	*mp,
@@ -386,6 +440,13 @@ xfs_bmbt_to_bmdr(
 	memcpy(tpp, fpp, sizeof(*fpp) * dmxr);
 }
 
+/*
+ * Check extent records, which have just been read, for
+ * any bit in the extent flag field. ASSERT on debug
+ * kernels, as this condition should not occur.
+ * Return an error condition (1) if any flags found,
+ * otherwise return 0.
+ */
 
 int
 xfs_check_nostate_extents(
@@ -414,6 +475,10 @@ xfs_bmbt_dup_cursor(
 	new = xfs_bmbt_init_cursor(cur->bc_mp, cur->bc_tp,
 			cur->bc_private.b.ip, cur->bc_private.b.whichfork);
 
+	/*
+	 * Copy the firstblock, flist, and flags values,
+	 * since init cursor doesn't get them.
+	 */
 	new->bc_private.b.firstblock = cur->bc_private.b.firstblock;
 	new->bc_private.b.flist = cur->bc_private.b.flist;
 	new->bc_private.b.flags = cur->bc_private.b.flags;
@@ -444,8 +509,8 @@ xfs_bmbt_alloc_block(
 	int			length,
 	int			*stat)
 {
-	xfs_alloc_arg_t		args;		
-	int			error;		
+	xfs_alloc_arg_t		args;		/* block allocation args */
+	int			error;		/* error return value */
 
 	memset(&args, 0, sizeof(args));
 	args.tp = cur->bc_tp;
@@ -456,6 +521,17 @@ xfs_bmbt_alloc_block(
 	if (args.fsbno == NULLFSBLOCK) {
 		args.fsbno = be64_to_cpu(start->l);
 		args.type = XFS_ALLOCTYPE_START_BNO;
+		/*
+		 * Make sure there is sufficient room left in the AG to
+		 * complete a full tree split for an extent insert.  If
+		 * we are converting the middle part of an extent then
+		 * we may need space for two tree splits.
+		 *
+		 * We are relying on the caller to make the correct block
+		 * reservation for this operation to succeed.  If the
+		 * reservation amount is insufficient then we may fail a
+		 * block allocation here and corrupt the filesystem.
+		 */
 		args.minleft = xfs_trans_get_block_res(args.tp);
 	} else if (cur->bc_private.b.flist->xbf_low) {
 		args.type = XFS_ALLOCTYPE_START_BNO;
@@ -474,6 +550,11 @@ xfs_bmbt_alloc_block(
 		goto error0;
 
 	if (args.fsbno == NULLFSBLOCK && args.minleft) {
+		/*
+		 * Could not find an AG with enough free space to satisfy
+		 * a full btree split.  Try again without minleft and if
+		 * successful activate the lowspace algorithm.
+		 */
 		args.fsbno = 0;
 		args.type = XFS_ALLOCTYPE_FIRST_AG;
 		args.minleft = 0;
@@ -562,6 +643,15 @@ xfs_bmbt_get_maxrecs(
 
 }
 
+/*
+ * Get the maximum records we could store in the on-disk format.
+ *
+ * For non-root nodes this is equivalent to xfs_bmbt_get_maxrecs, but
+ * for the root node this checks the available space in the dinode fork
+ * so that we can resize the in-memory buffer to match it.  After a
+ * resize to the maximum size this function returns the same value
+ * as xfs_bmbt_get_maxrecs for the root node, too.
+ */
 STATIC int
 xfs_bmbt_get_dmaxrecs(
 	struct xfs_btree_cur	*cur,
@@ -639,7 +729,7 @@ xfs_bmbt_recs_inorder(
 		xfs_bmbt_disk_get_blockcount(&r1->bmbt) <=
 		xfs_bmbt_disk_get_startoff(&r2->bmbt);
 }
-#endif	
+#endif	/* DEBUG */
 
 static const struct xfs_btree_ops xfs_bmbt_ops = {
 	.rec_len		= sizeof(xfs_bmbt_rec_t),
@@ -663,12 +753,15 @@ static const struct xfs_btree_ops xfs_bmbt_ops = {
 #endif
 };
 
-struct xfs_btree_cur *				
+/*
+ * Allocate a new bmap btree cursor.
+ */
+struct xfs_btree_cur *				/* new bmap btree cursor */
 xfs_bmbt_init_cursor(
-	struct xfs_mount	*mp,		
-	struct xfs_trans	*tp,		
-	struct xfs_inode	*ip,		
-	int			whichfork)	
+	struct xfs_mount	*mp,		/* file system mount point */
+	struct xfs_trans	*tp,		/* transaction pointer */
+	struct xfs_inode	*ip,		/* inode owning the btree */
+	int			whichfork)	/* data or attr fork */
 {
 	struct xfs_ifork	*ifp = XFS_IFORK_PTR(ip, whichfork);
 	struct xfs_btree_cur	*cur;
@@ -695,6 +788,9 @@ xfs_bmbt_init_cursor(
 	return cur;
 }
 
+/*
+ * Calculate number of records in a bmap btree block.
+ */
 int
 xfs_bmbt_maxrecs(
 	struct xfs_mount	*mp,
@@ -708,6 +804,9 @@ xfs_bmbt_maxrecs(
 	return blocklen / (sizeof(xfs_bmbt_key_t) + sizeof(xfs_bmbt_ptr_t));
 }
 
+/*
+ * Calculate number of records in a bmap btree inode root.
+ */
 int
 xfs_bmdr_maxrecs(
 	struct xfs_mount	*mp,

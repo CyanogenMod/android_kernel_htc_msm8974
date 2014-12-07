@@ -1,3 +1,9 @@
+/*
+ *	linux/arch/alpha/kernel/srmcons.c
+ *
+ * Callback based driver for SRM Console console device.
+ * (TTY driver and console driver)
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -18,7 +24,10 @@
 static DEFINE_SPINLOCK(srmcons_callback_lock);
 static int srm_is_registered_console = 0;
 
-#define MAX_SRM_CONSOLE_DEVICES 1	
+/* 
+ * The TTY driver
+ */
+#define MAX_SRM_CONSOLE_DEVICES 1	/* only support 1 console device */
 
 struct srmcons_private {
 	struct tty_port port;
@@ -33,6 +42,7 @@ typedef union _srmcons_result {
 	long as_long;
 } srmcons_result;
 
+/* called with callback_lock held */
 static int
 srmcons_do_receive_chars(struct tty_struct *tty)
 {
@@ -76,6 +86,7 @@ srmcons_receive_chars(unsigned long data)
 	local_irq_restore(flags);
 }
 
+/* called with callback_lock held */
 static int
 srmcons_do_write(struct tty_struct *tty, const char *buf, int count)
 {
@@ -87,6 +98,10 @@ srmcons_do_write(struct tty_struct *tty, const char *buf, int count)
 
 	for (cur = (char *)buf; remaining > 0; ) {
 		need_cr = 0;
+		/* 
+		 * Break it up into reasonable size chunks to allow a chance
+		 * for input to get in
+		 */
 		for (c = 0; c < min_t(long, 128L, remaining) && !need_cr; c++)
 			if (cur[c] == '\n')
 				need_cr = 1;
@@ -97,6 +112,9 @@ srmcons_do_write(struct tty_struct *tty, const char *buf, int count)
 			remaining -= result.bits.c;
 			cur += result.bits.c;
 
+			/*
+			 * Check for pending input iff a tty was provided
+			 */
 			if (tty)
 				srmcons_do_receive_chars(tty);
 		}
@@ -147,7 +165,7 @@ srmcons_open(struct tty_struct *tty, struct file *filp)
 	if (!port->tty) {
 		tty->driver_data = srmconsp;
 		tty->port = port;
-		port->tty = tty; 
+		port->tty = tty; /* XXX proper refcounting */
 		mod_timer(&srmconsp->timer, jiffies + 10);
 	}
 
@@ -199,7 +217,7 @@ srmcons_init(void)
 			return -ENOMEM;
 		driver->driver_name = "srm";
 		driver->name = "srm";
-		driver->major = 0; 	
+		driver->major = 0; 	/* dynamic */
 		driver->minor_start = 0;
 		driver->type = TTY_DRIVER_TYPE_SYSTEM;
 		driver->subtype = SYSTEM_TYPE_SYSCONS;
@@ -219,6 +237,9 @@ srmcons_init(void)
 module_init(srmcons_init);
 
 
+/*
+ * The console driver
+ */
 static void
 srm_console_write(struct console *co, const char *s, unsigned count)
 {

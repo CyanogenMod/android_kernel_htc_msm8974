@@ -27,6 +27,8 @@
 #include <linux/bst_sensor_common.h>
 #endif
 
+/*#include "bmg160.h"*/
+/*#include "bs_log.h"*/
 #include <linux/bmg160.h>
 #include <linux/bs_log.h>
 
@@ -34,6 +36,7 @@
 #define I(x...) printk(KERN_INFO "[GYRO][BMG160_BOSCH] " x)
 #define E(x...) printk(KERN_ERR "[GYRO][BMG160_BOSCH] " x)
 
+/* sensor specific */
 #define SENSOR_NAME "bmg160"
 
 #define SENSOR_CHIP_ID_BMG (0x0f)
@@ -44,6 +47,7 @@
 
 #define BMG_I2C_WRITE_DELAY_TIME 1
 
+/* generic */
 #define BMG_MAX_RETRY_I2C_XFER (100)
 #define BMG_MAX_RETRY_WAKEUP (5)
 #define BMG_MAX_RETRY_WAIT_DRDY (100)
@@ -97,7 +101,7 @@ struct bmg_client_data {
 	struct bmg160_data_t value;
 	u8 enable:1;
 
-	
+	/* controls not only reg, but also workqueue */
 	struct mutex mutex_op_mode;
 	struct mutex mutex_enable;
 	struct mutex mutex_value;
@@ -119,6 +123,7 @@ struct bmg_client_data {
 };
 
 static struct i2c_client *bmg_client;
+/* i2c operation for API */
 static void bmg_i2c_delay(BMG160_S32 msec);
 static char bmg_i2c_read(struct i2c_client *client, u8 reg_addr,
 		u8 *data, u8 len);
@@ -204,6 +209,7 @@ static void bmg_dump_reg(struct i2c_client *client)
 	PDEBUG("%s\n", dbg_buf_str);
 }
 
+/*	i2c read routine for API*/
 static char bmg_i2c_read(struct i2c_client *client, u8 reg_addr,
 		u8 *data, u8 len)
 {
@@ -306,6 +312,7 @@ static char bmg_i2c_burst_read(struct i2c_client *client, u8 reg_addr,
 }
 #endif
 
+/*	i2c write routine for */
 static char bmg_i2c_write(struct i2c_client *client, u8 reg_addr,
 		u8 *data, u8 len)
 {
@@ -564,7 +571,7 @@ static ssize_t attr_cali_data_store(struct device *dev,
 
 	return count;
 }
-#endif 
+#endif /* HTC_CALIBRATION */
 
 static ssize_t bmg_show_range(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -1190,7 +1197,7 @@ static int bmg_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		goto exit_err_clean;
 	}
 
-	
+	/* check chip id */
 	err = bmg_check_chip_id(client);
 	if (!err) {
 		PNOTICE("Bosch Sensortec Device %s detected", SENSOR_NAME);
@@ -1214,12 +1221,12 @@ static int bmg_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	mutex_init(&client_data->mutex_enable);
 	mutex_init(&client_data->mutex_value);
 
-	
+	/* input device init */
 	err = bmg_input_init(client_data);
 	if (err < 0)
 		goto exit_err_clean;
 
-	
+	/* sysfs node creation */
 	err = sysfs_create_group(&client_data->input->dev.kobj,
 			&bmg_attribute_group);
 
@@ -1249,11 +1256,11 @@ static int bmg_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		}
 	}
 #endif
-	
+	/* workqueue init */
 	INIT_DELAYED_WORK(&client_data->work, bmg_work_func);
 	atomic_set(&client_data->delay, BMG_DELAY_DEFAULT);
 
-	
+	/* h/w init */
 	client_data->device.bus_read = bmg_i2c_read_wrapper;
 	client_data->device.bus_write = bmg_i2c_write_wrapper;
 	client_data->device.delay_msec = bmg_i2c_delay;
@@ -1262,7 +1269,7 @@ static int bmg_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	bmg_dump_reg(client);
 
 	client_data->enable = 0;
-	
+	/* now it's power on which is considered as resuming from suspend */
 	err = BMG_CALL_API(set_mode)(
 			BMG_VAL_NAME(MODE_SUSPEND));
 
@@ -1381,7 +1388,7 @@ static void bmg_late_resume(struct early_suspend *handler)
 
 	err = BMG_CALL_API(set_mode)(BMG_VAL_NAME(MODE_NORMAL));
 
-	
+	/* post resume operation */
 	bmg_post_resume(client);
 
 	mutex_unlock(&client_data->mutex_op_mode);
@@ -1420,7 +1427,7 @@ static int bmg_resume(struct i2c_client *client)
 
 	err = BMG_CALL_API(set_mode)(BMG_VAL_NAME(MODE_NORMAL));
 
-	
+	/* post resume operation */
 	bmg_post_resume(client);
 
 	mutex_unlock(&client_data->mutex_op_mode);

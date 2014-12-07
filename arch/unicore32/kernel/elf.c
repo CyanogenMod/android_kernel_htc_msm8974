@@ -17,11 +17,11 @@
 
 int elf_check_arch(const struct elf32_hdr *x)
 {
-	
+	/* Make sure it's an UniCore executable */
 	if (x->e_machine != EM_UNICORE)
 		return 0;
 
-	
+	/* Make sure the entry address is reasonable */
 	if (x->e_entry & 3)
 		return 0;
 

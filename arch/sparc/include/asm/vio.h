@@ -76,9 +76,10 @@ struct vio_dring_unregister {
 	u64			resv[5];
 };
 
-#define VIO_PKT_MODE		0x01 
-#define VIO_DESC_MODE		0x02 
-#define VIO_DRING_MODE		0x03 
+/* Data transfer modes */
+#define VIO_PKT_MODE		0x01 /* Packet based transfer	*/
+#define VIO_DESC_MODE		0x02 /* In-band descriptors	*/
+#define VIO_DRING_MODE		0x03 /* Descriptor rings	*/
 
 struct vio_dring_data {
 	struct vio_msg_tag	tag;
@@ -110,12 +111,13 @@ struct vio_dring_hdr {
 	u32			__pad2;
 };
 
+/* VIO disk specific structures and defines */
 struct vio_disk_attr_info {
 	struct vio_msg_tag	tag;
 	u8			xfer_mode;
 	u8			vdisk_type;
-#define VD_DISK_TYPE_SLICE	0x01 
-#define VD_DISK_TYPE_DISK	0x02 
+#define VD_DISK_TYPE_SLICE	0x01 /* Slice in block device	*/
+#define VD_DISK_TYPE_DISK	0x02 /* Entire block device	*/
 	u16			resv1;
 	u32			vdisk_block_size;
 	u64			operations;
@@ -128,19 +130,19 @@ struct vio_disk_desc {
 	struct vio_dring_hdr	hdr;
 	u64			req_id;
 	u8			operation;
-#define VD_OP_BREAD		0x01 
-#define VD_OP_BWRITE		0x02 
-#define VD_OP_FLUSH		0x03 
-#define VD_OP_GET_WCE		0x04 
-#define VD_OP_SET_WCE		0x05 
-#define VD_OP_GET_VTOC		0x06 
-#define VD_OP_SET_VTOC		0x07 
-#define VD_OP_GET_DISKGEOM	0x08 
-#define VD_OP_SET_DISKGEOM	0x09 
-#define VD_OP_SCSICMD		0x0a 
-#define VD_OP_GET_DEVID		0x0b 
-#define VD_OP_GET_EFI		0x0c 
-#define VD_OP_SET_EFI		0x0d 
+#define VD_OP_BREAD		0x01 /* Block read			*/
+#define VD_OP_BWRITE		0x02 /* Block write			*/
+#define VD_OP_FLUSH		0x03 /* Flush disk contents		*/
+#define VD_OP_GET_WCE		0x04 /* Get write-cache status		*/
+#define VD_OP_SET_WCE		0x05 /* Enable/disable write-cache	*/
+#define VD_OP_GET_VTOC		0x06 /* Get VTOC			*/
+#define VD_OP_SET_VTOC		0x07 /* Set VTOC			*/
+#define VD_OP_GET_DISKGEOM	0x08 /* Get disk geometry		*/
+#define VD_OP_SET_DISKGEOM	0x09 /* Set disk geometry		*/
+#define VD_OP_SCSICMD		0x0a /* SCSI control command		*/
+#define VD_OP_GET_DEVID		0x0b /* Get device ID			*/
+#define VD_OP_GET_EFI		0x0c /* Get EFI				*/
+#define VD_OP_SET_EFI		0x0d /* Set EFI				*/
 	u8			slice;
 	u16			resv1;
 	u32			status;
@@ -170,17 +172,17 @@ struct vio_disk_vtoc {
 };
 
 struct vio_disk_geom {
-	u16			num_cyl; 
-	u16			alt_cyl; 
-	u16			beg_cyl; 
-	u16			num_hd;  
-	u16			num_sec; 
-	u16			ifact;   
-	u16			apc;     
-	u16			rpm;	 
-	u16			phy_cyl; 
-	u16			wr_skip; 
-	u16			rd_skip; 
+	u16			num_cyl; /* Num data cylinders		*/
+	u16			alt_cyl; /* Num alternate cylinders	*/
+	u16			beg_cyl; /* Cyl off of fixed head area	*/
+	u16			num_hd;  /* Num heads			*/
+	u16			num_sec; /* Num sectors			*/
+	u16			ifact;   /* Interleave factor		*/
+	u16			apc;     /* Alts per cylinder (SCSI)	*/
+	u16			rpm;	 /* Revolutions per minute	*/
+	u16			phy_cyl; /* Num physical cylinders	*/
+	u16			wr_skip; /* Num sects to skip, writes	*/
+	u16			rd_skip; /* Num sects to skip, writes	*/
 };
 
 struct vio_disk_devid {
@@ -196,6 +198,7 @@ struct vio_disk_efi {
 	char			data[0];
 };
 
+/* VIO net specific structures and defines */
 struct vio_net_attr_info {
 	struct vio_msg_tag	tag;
 	u8			xfer_mode;
@@ -310,7 +313,7 @@ struct vio_completion {
 };
 
 struct vio_driver_state {
-	
+	/* Protects VIO handshake and, optionally, driver private state.  */
 	spinlock_t		lock;
 
 	struct ldc_channel	*lp;
@@ -371,6 +374,9 @@ do {	if (vio->debug & VIO_DEBUG_##TYPE) \
 
 extern int __vio_register_driver(struct vio_driver *drv, struct module *owner,
 				 const char *mod_name);
+/*
+ * vio_register_driver must be a macro so that KBUILD_MODNAME can be expanded
+ */
 #define vio_register_driver(driver)		\
 	__vio_register_driver(driver, THIS_MODULE, KBUILD_MODNAME)
 extern void vio_unregister_driver(struct vio_driver *drv);
@@ -402,4 +408,4 @@ extern int vio_driver_init(struct vio_driver_state *vio, struct vio_dev *vdev,
 
 extern void vio_port_up(struct vio_driver_state *vio);
 
-#endif 
+#endif /* _SPARC64_VIO_H */

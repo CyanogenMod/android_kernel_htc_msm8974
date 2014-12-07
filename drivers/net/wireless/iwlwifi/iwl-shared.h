@@ -71,6 +71,27 @@
 #include "iwl-commands.h"
 #include "iwl-fw.h"
 
+/**
+ * DOC: shared area - role and goal
+ *
+ * The shared area contains all the data exported by the upper layer to the
+ * other layers. Since the bus and transport layer shouldn't dereference
+ * iwl_priv, all the data needed by the upper layer and the transport / bus
+ * layer must be here.
+ * The shared area also holds pointer to all the other layers. This allows a
+ * layer to call a function from another layer.
+ *
+ * NOTE: All the layers hold a pointer to the shared area which must be shrd.
+ *	A few macros assume that (_m)->shrd points to the shared area no matter
+ *	what _m is.
+ *
+ * gets notifications about enumeration, suspend, resume.
+ * For the moment, the bus layer is not a linux kernel module as itself, and
+ * the module_init function of the driver must call the bus specific
+ * registration functions. These functions are listed at the end of this file.
+ * For the moment, there is only one implementation of this interface: PCI-e.
+ * This implementation is iwl-pci.c
+ */
 
 struct iwl_priv;
 struct iwl_trans;
@@ -88,6 +109,31 @@ extern struct iwl_mod_params iwlagn_mod_params;
 #define IWL_DISABLE_HT_TXAGG	BIT(1)
 #define IWL_DISABLE_HT_RXAGG	BIT(2)
 
+/**
+ * struct iwl_mod_params
+ *
+ * Holds the module parameters
+ *
+ * @sw_crypto: using hardware encryption, default = 0
+ * @disable_11n: disable 11n capabilities, default = 0,
+ *	use IWL_DISABLE_HT_* constants
+ * @amsdu_size_8K: enable 8K amsdu size, default = 1
+ * @antenna: both antennas (use diversity), default = 0
+ * @restart_fw: restart firmware, default = 1
+ * @plcp_check: enable plcp health check, default = true
+ * @ack_check: disable ack health check, default = false
+ * @wd_disable: enable stuck queue check, default = 0
+ * @bt_coex_active: enable bt coex, default = true
+ * @led_mode: system default, default = 0
+ * @no_sleep_autoadjust: disable autoadjust, default = true
+ * @power_save: disable power save, default = false
+ * @power_level: power level, default = 1
+ * @debug_level: levels are IWL_DL_*
+ * @ant_coupling: antenna coupling in dB, default = 0
+ * @bt_ch_announce: BT channel inhibition, default = enable
+ * @wanted_ucode_alternative: ucode alternative to use, default = 1
+ * @auto_agg: enable agg. without check, default = true
+ */
 struct iwl_mod_params {
 	int sw_crypto;
 	unsigned int disable_11n;
@@ -109,6 +155,26 @@ struct iwl_mod_params {
 	bool auto_agg;
 };
 
+/**
+ * struct iwl_hw_params
+ *
+ * Holds the module parameters
+ *
+ * @num_ampdu_queues: num of ampdu queues
+ * @tx_chains_num: Number of TX chains
+ * @rx_chains_num: Number of RX chains
+ * @valid_tx_ant: usable antennas for TX
+ * @valid_rx_ant: usable antennas for RX
+ * @ht40_channel: is 40MHz width possible: BIT(IEEE80211_BAND_XXX)
+ * @sku: sku read from EEPROM
+ * @rx_page_order: Rx buffer page order
+ * @ct_kill_threshold: temperature threshold - in hw dependent unit
+ * @ct_kill_exit_threshold: when to reeable the device - in hw dependent unit
+ *	relevant for 1000, 6000 and up
+ * @wd_timeout: TX queues watchdog timeout
+ * @struct iwl_sensitivity_ranges: range of sensitivity values
+ * @use_rts_for_aggregation: use rts/cts protection for HT traffic
+ */
 struct iwl_hw_params {
 	u8  num_ampdu_queues;
 	u8  tx_chains_num;
@@ -126,6 +192,15 @@ struct iwl_hw_params {
 	const struct iwl_sensitivity_ranges *sens;
 };
 
+/*
+ * LED mode
+ *    IWL_LED_DEFAULT:  use device default
+ *    IWL_LED_RF_STATE: turn LED on/off based on RF state
+ *			LED ON  = RF ON
+ *			LED OFF = RF OFF
+ *    IWL_LED_BLINK:    adjust led blink rate based on blink table
+ *    IWL_LED_DISABLE:	led disabled
+ */
 enum iwl_led_mode {
 	IWL_LED_DEFAULT,
 	IWL_LED_RF_STATE,
@@ -133,11 +208,31 @@ enum iwl_led_mode {
 	IWL_LED_DISABLE,
 };
 
+/*
+ * @max_ll_items: max number of OTP blocks
+ * @shadow_ram_support: shadow support for OTP memory
+ * @led_compensation: compensate on the led on/off time per HW according
+ *	to the deviation to achieve the desired led frequency.
+ *	The detail algorithm is described in iwl-led.c
+ * @chain_noise_num_beacons: number of beacons used to compute chain noise
+ * @adv_thermal_throttle: support advance thermal throttle
+ * @support_ct_kill_exit: support ct kill exit condition
+ * @support_wimax_coexist: support wimax/wifi co-exist
+ * @plcp_delta_threshold: plcp error rate threshold used to trigger
+ *	radio tuning when there is a high receiving plcp error rate
+ * @chain_noise_scale: default chain noise scale used for gain computation
+ * @wd_timeout: TX queues watchdog timeout
+ * @max_event_log_size: size of event log buffer size for ucode event logging
+ * @shadow_reg_enable: HW shadhow register bit
+ * @hd_v2: v2 of enhanced sensitivity value, used for 2000 series and up
+ * @no_idle_support: do not support idle mode
+ * wd_disable: disable watchdog timer
+ */
 struct iwl_base_params {
 	int eeprom_size;
-	int num_of_queues;	
-	int num_of_ampdu_queues;
-	
+	int num_of_queues;	/* def: HW dependent */
+	int num_of_ampdu_queues;/* def: HW dependent */
+	/* for iwl_apm_init() */
 	u32 pll_cfg_val;
 
 	const u16 max_ll_items;
@@ -156,6 +251,13 @@ struct iwl_base_params {
 	const bool wd_disable;
 };
 
+/*
+ * @advanced_bt_coexist: support advanced bt coexist
+ * @bt_init_traffic_load: specify initial bt traffic load
+ * @bt_prio_boost: default bt priority boost value
+ * @agg_time_limit: maximum number of uSec in aggregation
+ * @bt_sco_disable: uCode should not response to BT in SCO/ESCO mode
+ */
 struct iwl_bt_params {
 	bool advanced_bt_coexist;
 	u8 bt_init_traffic_load;
@@ -164,14 +266,57 @@ struct iwl_bt_params {
 	bool bt_sco_disable;
 	bool bt_session_2;
 };
+/*
+ * @use_rts_for_aggregation: use rts/cts protection for HT traffic
+ */
 struct iwl_ht_params {
-	const bool ht_greenfield_support; 
+	const bool ht_greenfield_support; /* if used set to true */
 	bool use_rts_for_aggregation;
 	enum ieee80211_smps_mode smps_mode;
 };
 
+/**
+ * struct iwl_cfg
+ * @name: Offical name of the device
+ * @fw_name_pre: Firmware filename prefix. The api version and extension
+ *	(.ucode) will be added to filename before loading from disk. The
+ *	filename is constructed as fw_name_pre<api>.ucode.
+ * @ucode_api_max: Highest version of uCode API supported by driver.
+ * @ucode_api_ok: oldest version of the uCode API that is OK to load
+ *	without a warning, for use in transitions
+ * @ucode_api_min: Lowest version of uCode API supported by driver.
+ * @max_inst_size: The maximal length of the fw inst section
+ * @max_data_size: The maximal length of the fw data section
+ * @valid_tx_ant: valid transmit antenna
+ * @valid_rx_ant: valid receive antenna
+ * @eeprom_ver: EEPROM version
+ * @eeprom_calib_ver: EEPROM calibration version
+ * @lib: pointer to the lib ops
+ * @additional_nic_config: additional nic configuration
+ * @base_params: pointer to basic parameters
+ * @ht_params: point to ht patameters
+ * @bt_params: pointer to bt parameters
+ * @need_temp_offset_calib: need to perform temperature offset calibration
+ * @no_xtal_calib: some devices do not need crystal calibration data,
+ *	don't send it to those
+ * @scan_rx_antennas: available antenna for scan operation
+ * @led_mode: 0=blinking, 1=On(RF On)/Off(RF Off)
+ * @adv_pm: advance power management
+ * @rx_with_siso_diversity: 1x1 device with rx antenna diversity
+ * @internal_wimax_coex: internal wifi/wimax combo device
+ * @iq_invert: I/Q inversion
+ * @temp_offset_v2: support v2 of temperature offset calibration
+ *
+ * We enable the driver to be backward compatible wrt API version. The
+ * driver specifies which APIs it supports (with @ucode_api_max being the
+ * highest and @ucode_api_min the lowest). Firmware will only be loaded if
+ * it has a supported API version.
+ *
+ * The ideal usage of this infrastructure is to treat a new ucode API
+ * release as a new hardware revision.
+ */
 struct iwl_cfg {
-	
+	/* params specific to an individual device within a device family */
 	const char *name;
 	const char *fw_name_pre;
 	const unsigned int ucode_api_max;
@@ -185,12 +330,12 @@ struct iwl_cfg {
 	u16  eeprom_calib_ver;
 	const struct iwl_lib_ops *lib;
 	void (*additional_nic_config)(struct iwl_priv *priv);
-	
+	/* params not likely to change within a device family */
 	const struct iwl_base_params *base_params;
-	
+	/* params likely to change within a device family */
 	const struct iwl_ht_params *ht_params;
 	const struct iwl_bt_params *bt_params;
-	const bool need_temp_offset_calib; 
+	const bool need_temp_offset_calib; /* if used set to true */
 	const bool no_xtal_calib;
 	u8 scan_rx_antennas[IEEE80211_NUM_BANDS];
 	enum iwl_led_mode led_mode;
@@ -201,6 +346,23 @@ struct iwl_cfg {
 	const bool temp_offset_v2;
 };
 
+/**
+ * struct iwl_shared - shared fields for all the layers of the driver
+ *
+ * @status: STATUS_*
+ * @wowlan: are we running wowlan uCode
+ * @valid_contexts: microcode/device supports multiple contexts
+ * @bus: pointer to the bus layer data
+ * @cfg: see struct iwl_cfg
+ * @priv: pointer to the upper layer data
+ * @trans: pointer to the transport layer data
+ * @nic: pointer to the nic data
+ * @hw_params: see struct iwl_hw_params
+ * @lock: protect general shared data
+ * @eeprom: pointer to the eeprom/OTP image
+ * @ucode_type: indicator of loaded ucode image
+ * @device_pointers: pointers to ucode event tables
+ */
 struct iwl_shared {
 	unsigned long status;
 	u8 valid_contexts;
@@ -211,10 +373,10 @@ struct iwl_shared {
 	struct iwl_hw_params hw_params;
 	const struct iwl_fw *fw;
 
-	
+	/* eeprom -- this is in the card's little endian byte order */
 	u8 *eeprom;
 
-	
+	/* ucode related variables */
 	enum iwl_ucode_type ucode_type;
 
 	struct {
@@ -224,6 +386,7 @@ struct iwl_shared {
 
 };
 
+/*Whatever _m is (iwl_trans, iwl_priv, these macros will work */
 #define cfg(_m)		((_m)->shrd->cfg)
 #define trans(_m)	((_m)->shrd->trans)
 #define hw_params(_m)	((_m)->shrd->hw_params)
@@ -245,7 +408,11 @@ const char *get_cmd_string(u8 cmd);
 
 #define IWL_CMD(x) case x: return #x
 
-#define STATUS_HCMD_ACTIVE	0	
+/*****************************************************
+* DRIVER STATUS FUNCTIONS
+******************************************************/
+#define STATUS_HCMD_ACTIVE	0	/* host command in progress */
+/* 1 is unused (used to be STATUS_HCMD_SYNC_ACTIVE) */
 #define STATUS_INT_ENABLED	2
 #define STATUS_RF_KILL_HW	3
 #define STATUS_CT_KILL		4
@@ -265,4 +432,4 @@ const char *get_cmd_string(u8 cmd);
 #define STATUS_CHANNEL_SWITCH_PENDING 19
 #define STATUS_SCAN_COMPLETE	20
 
-#endif 
+#endif /* #__iwl_shared_h__ */

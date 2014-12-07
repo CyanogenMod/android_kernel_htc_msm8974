@@ -15,6 +15,10 @@
 #include <linux/pinctrl/consumer.h>
 #include <linux/slab.h>
 
+/**
+ * pinctrl_bind_pins() - called by the device core before probe
+ * @dev: the device that is just about to probe
+ */
 int pinctrl_bind_pins(struct device *dev)
 {
 	int ret;
@@ -46,13 +50,18 @@ int pinctrl_bind_pins(struct device *dev)
 
 	return 0;
 
+	/*
+	 * If no pinctrl handle or default state was found for this device,
+	 * let's explicitly free the pin container in the device, there is
+	 * no point in keeping it around.
+	 */
 cleanup_get:
 	devm_pinctrl_put(dev->pins->p);
 cleanup_alloc:
 	devm_kfree(dev, dev->pins);
 	dev->pins = NULL;
 
-	
+	/* Only return deferrals */
 	if (ret != -EPROBE_DEFER)
 		ret = 0;
 

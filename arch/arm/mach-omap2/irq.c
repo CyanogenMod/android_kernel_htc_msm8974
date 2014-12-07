@@ -26,6 +26,7 @@
 
 #include "iomap.h"
 
+/* selected INTC register offsets */
 
 #define INTC_REVISION		0x0000
 #define INTC_SYSCONFIG		0x0010
@@ -39,25 +40,33 @@
 #define INTC_MIR_CLEAR0		0x0088
 #define INTC_MIR_SET0		0x008c
 #define INTC_PENDING_IRQ0	0x0098
+/* Number of IRQ state bits in each MIR register */
 #define IRQ_BITS_PER_REG	32
 
 #define OMAP2_IRQ_BASE		OMAP2_L4_IO_ADDRESS(OMAP24XX_IC_BASE)
 #define OMAP3_IRQ_BASE		OMAP2_L4_IO_ADDRESS(OMAP34XX_IC_BASE)
-#define INTCPS_SIR_IRQ_OFFSET	0x0040	
-#define ACTIVEIRQ_MASK		0x7f	
+#define INTCPS_SIR_IRQ_OFFSET	0x0040	/* omap2/3 active interrupt offset */
+#define ACTIVEIRQ_MASK		0x7f	/* omap2/3 active interrupt bits */
 
+/*
+ * OMAP2 has a number of different interrupt controllers, each interrupt
+ * controller is identified as its own "bank". Register definitions are
+ * fairly consistent for each bank, but not all registers are implemented
+ * for each bank.. when in doubt, consult the TRM.
+ */
 static struct omap_irq_bank {
 	void __iomem *base_reg;
 	unsigned int nr_irqs;
 } __attribute__ ((aligned(4))) irq_banks[] = {
 	{
-		
+		/* MPU INTC */
 		.nr_irqs	= 96,
 	},
 };
 
 static struct irq_domain *domain;
 
+/* Structure to save interrupt controller context */
 struct omap3_intc_regs {
 	u32 sysconfig;
 	u32 protection;
@@ -67,6 +76,7 @@ struct omap3_intc_regs {
 	u32 mir[INTCPS_NR_MIR_REGS];
 };
 
+/* INTC bank register get/set */
 
 static void intc_bank_write_reg(u32 val, struct omap_irq_bank *bank, u16 reg)
 {
@@ -78,6 +88,7 @@ static u32 intc_bank_read_reg(struct omap_irq_bank *bank, u16 reg)
 	return __raw_readl(bank->base_reg + reg);
 }
 
+/* XXX: FIQ and additional INTC support (only MPU at the moment) */
 static void omap_ack_irq(struct irq_data *d)
 {
 	intc_bank_write_reg(0x1, &irq_banks[0], INTC_CONTROL);
@@ -99,13 +110,13 @@ static void __init omap_irq_bank_init_one(struct omap_irq_bank *bank)
 			 bank->base_reg, tmp >> 4, tmp & 0xf, bank->nr_irqs);
 
 	tmp = intc_bank_read_reg(bank, INTC_SYSCONFIG);
-	tmp |= 1 << 1;	
+	tmp |= 1 << 1;	/* soft reset */
 	intc_bank_write_reg(tmp, bank, INTC_SYSCONFIG);
 
 	while (!(intc_bank_read_reg(bank, INTC_SYSSTATUS) & 0x1))
-		;
+		/* Wait for reset to complete */;
 
-	
+	/* Enable autoidle */
 	intc_bank_write_reg(1 << 0, bank, INTC_SYSCONFIG);
 }
 
@@ -171,7 +182,7 @@ static void __init omap_init_irq(u32 base, int nr_irqs,
 
 		bank->nr_irqs = nr_irqs;
 
-		
+		/* Static mapping, never released */
 		bank->base_reg = ioremap(base, SZ_4K);
 		if (!bank->base_reg) {
 			pr_err("Could not ioremap irq bank%i\n", i);
@@ -317,23 +328,27 @@ void omap_intc_restore_context(void)
 			intc_bank_write_reg(intc_context[ind].mir[i],
 				 &irq_banks[0], INTC_MIR0 + (0x20 * i));
 	}
-	
+	/* MIRs are saved and restore with other PRCM registers */
 }
 
 void omap3_intc_suspend(void)
 {
-	
+	/* A pending interrupt would prevent OMAP from entering suspend */
 	omap_ack_irq(0);
 }
 
 void omap3_intc_prepare_idle(void)
 {
+	/*
+	 * Disable autoidle as it can stall interrupt controller,
+	 * cf. errata ID i540 for 3430 (all revisions up to 3.1.x)
+	 */
 	intc_bank_write_reg(0, &irq_banks[0], INTC_SYSCONFIG);
 }
 
 void omap3_intc_resume_idle(void)
 {
-	
+	/* Re-enable autoidle */
 	intc_bank_write_reg(1, &irq_banks[0], INTC_SYSCONFIG);
 }
 
@@ -342,4 +357,4 @@ asmlinkage void __exception_irq_entry omap3_intc_handle_irq(struct pt_regs *regs
 	void __iomem *base_addr = OMAP3_IRQ_BASE;
 	omap_intc_handle_irq(base_addr, regs);
 }
-#endif 
+#endif /* CONFIG_ARCH_OMAP3 */

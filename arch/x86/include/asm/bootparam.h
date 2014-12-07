@@ -9,10 +9,12 @@
 #include <asm/ist.h>
 #include <video/edid.h>
 
+/* setup data types */
 #define SETUP_NONE			0
 #define SETUP_E820_EXT			1
 #define SETUP_DTB			2
 
+/* extensible setup data list node */
 struct setup_data {
 	__u64 next;
 	__u32 type;
@@ -71,10 +73,11 @@ struct sys_desc_table {
 	__u8  table[14];
 };
 
+/* Gleaned from OFW's set-parameters in cpu/x86/pc/linux.fth */
 struct olpc_ofw_header {
-	__u32 ofw_magic;	
+	__u32 ofw_magic;	/* OFW signature */
 	__u32 ofw_version;
-	__u32 cif_handler;	
+	__u32 cif_handler;	/* callback into OFW */
 	__u32 irq_desc_table;
 } __attribute__((packed));
 
@@ -89,33 +92,34 @@ struct efi_info {
 	__u32 efi_memmap_hi;
 };
 
+/* The so-called "zeropage" */
 struct boot_params {
-	struct screen_info screen_info;			
-	struct apm_bios_info apm_bios_info;		
-	__u8  _pad2[4];					
-	__u64  tboot_addr;				
-	struct ist_info ist_info;			
-	__u8  _pad3[16];				
-	__u8  hd0_info[16];			
-	__u8  hd1_info[16];			
-	struct sys_desc_table sys_desc_table;		
-	struct olpc_ofw_header olpc_ofw_header;		
-	__u8  _pad4[128];				
-	struct edid_info edid_info;			
-	struct efi_info efi_info;			
-	__u32 alt_mem_k;				
-	__u32 scratch;			
-	__u8  e820_entries;				
-	__u8  eddbuf_entries;				
-	__u8  edd_mbr_sig_buf_entries;			
-	__u8  _pad6[6];					
-	struct setup_header hdr;    	
+	struct screen_info screen_info;			/* 0x000 */
+	struct apm_bios_info apm_bios_info;		/* 0x040 */
+	__u8  _pad2[4];					/* 0x054 */
+	__u64  tboot_addr;				/* 0x058 */
+	struct ist_info ist_info;			/* 0x060 */
+	__u8  _pad3[16];				/* 0x070 */
+	__u8  hd0_info[16];	/* obsolete! */		/* 0x080 */
+	__u8  hd1_info[16];	/* obsolete! */		/* 0x090 */
+	struct sys_desc_table sys_desc_table;		/* 0x0a0 */
+	struct olpc_ofw_header olpc_ofw_header;		/* 0x0b0 */
+	__u8  _pad4[128];				/* 0x0c0 */
+	struct edid_info edid_info;			/* 0x140 */
+	struct efi_info efi_info;			/* 0x1c0 */
+	__u32 alt_mem_k;				/* 0x1e0 */
+	__u32 scratch;		/* Scratch field! */	/* 0x1e4 */
+	__u8  e820_entries;				/* 0x1e8 */
+	__u8  eddbuf_entries;				/* 0x1e9 */
+	__u8  edd_mbr_sig_buf_entries;			/* 0x1ea */
+	__u8  _pad6[6];					/* 0x1eb */
+	struct setup_header hdr;    /* setup header */	/* 0x1f1 */
 	__u8  _pad7[0x290-0x1f1-sizeof(struct setup_header)];
-	__u32 edd_mbr_sig_buffer[EDD_MBR_SIG_MAX];	
-	struct e820entry e820_map[E820MAX];		
-	__u8  _pad8[48];				
-	struct edd_info eddbuf[EDDMAXNR];		
-	__u8  _pad9[276];				
+	__u32 edd_mbr_sig_buffer[EDD_MBR_SIG_MAX];	/* 0x290 */
+	struct e820entry e820_map[E820MAX];		/* 0x2d0 */
+	__u8  _pad8[48];				/* 0xcd0 */
+	struct edd_info eddbuf[EDDMAXNR];		/* 0xd00 */
+	__u8  _pad9[276];				/* 0xeec */
 } __attribute__((packed));
 
 enum {
@@ -129,4 +133,4 @@ enum {
 
 
 
-#endif 
+#endif /* _ASM_X86_BOOTPARAM_H */

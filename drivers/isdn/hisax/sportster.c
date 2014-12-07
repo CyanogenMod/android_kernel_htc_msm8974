@@ -48,6 +48,7 @@ write_fifo(unsigned int adr, u_char *data, int size)
 	outsb(adr, data, size);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -85,6 +86,9 @@ WriteHSCX(struct IsdnCardState *cs, int hscx, u_char offset, u_char value)
 	byteout(calc_off(cs->hw.spt.hscx[hscx], offset), value);
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) bytein(calc_off(cs->hw.spt.hscx[nr], reg))
 #define WRITEHSCX(cs, nr, reg, data) byteout(calc_off(cs->hw.spt.hscx[nr], reg), data)
@@ -121,7 +125,7 @@ Start_ISAC:
 			debugl1(cs, "ISAC IntStat after IntRoutine");
 		goto Start_ISAC;
 	}
-	
+	/* get a new irq impulse if there any pending */
 	bytein(cs->hw.spt.cfg_reg + SPORTSTER_RES_IRQ + 1);
 	spin_unlock_irqrestore(&cs->lock, flags);
 	return IRQ_HANDLED;
@@ -142,10 +146,10 @@ release_io_sportster(struct IsdnCardState *cs)
 static void
 reset_sportster(struct IsdnCardState *cs)
 {
-	cs->hw.spt.res_irq |= SPORTSTER_RESET; 
+	cs->hw.spt.res_irq |= SPORTSTER_RESET; /* Reset On */
 	byteout(cs->hw.spt.cfg_reg + SPORTSTER_RES_IRQ, cs->hw.spt.res_irq);
 	mdelay(10);
-	cs->hw.spt.res_irq &= ~SPORTSTER_RESET; 
+	cs->hw.spt.res_irq &= ~SPORTSTER_RESET; /* Reset Off */
 	byteout(cs->hw.spt.cfg_reg + SPORTSTER_RES_IRQ, cs->hw.spt.res_irq);
 	mdelay(10);
 }
@@ -168,7 +172,7 @@ Sportster_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		spin_lock_irqsave(&cs->lock, flags);
 		reset_sportster(cs);
 		inithscxisac(cs, 1);
-		cs->hw.spt.res_irq |= SPORTSTER_INTE; 
+		cs->hw.spt.res_irq |= SPORTSTER_INTE; /* IRQ On */
 		byteout(cs->hw.spt.cfg_reg + SPORTSTER_RES_IRQ, cs->hw.spt.res_irq);
 		inithscxisac(cs, 2);
 		spin_unlock_irqrestore(&cs->lock, flags);

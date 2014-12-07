@@ -62,7 +62,7 @@ static struct resource smc91x_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= -1,	
+		.start	= -1,	/* for run-time assignment */
 		.end	= -1,
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHEDGE,
 	}
@@ -212,6 +212,9 @@ static void __init zylonite_init_lcd(void)
 		return;
 	}
 
+	/* legacy LCD panels, it would be handy here if LCD panel type can
+	 * be decided at run-time
+	 */
 	if (1)
 		zylonite_toshiba_lcd_info.modes = &toshiba_ltm035a776c_mode;
 	else
@@ -261,7 +264,7 @@ static inline void zylonite_init_mmc(void) {}
 
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int zylonite_matrix_key_map[] = {
-	
+	/* KEY(row, col, key_code) */
 	KEY(0, 0, KEY_A), KEY(0, 1, KEY_B), KEY(0, 2, KEY_C), KEY(0, 5, KEY_D),
 	KEY(1, 0, KEY_E), KEY(1, 1, KEY_F), KEY(1, 2, KEY_G), KEY(1, 5, KEY_H),
 	KEY(2, 0, KEY_I), KEY(2, 1, KEY_J), KEY(2, 2, KEY_K), KEY(2, 5, KEY_L),
@@ -275,8 +278,8 @@ static unsigned int zylonite_matrix_key_map[] = {
 	KEY(4, 3, KEY_8), KEY(3, 4, KEY_9),
 
 	KEY(4, 5, KEY_SPACE),
-	KEY(5, 3, KEY_KPASTERISK), 	
-	KEY(5, 4, KEY_KPDOT), 		
+	KEY(5, 3, KEY_KPASTERISK), 	/* * */
+	KEY(5, 4, KEY_KPDOT), 		/* #" */
 
 	KEY(0, 7, KEY_UP),
 	KEY(1, 7, KEY_DOWN),
@@ -286,10 +289,10 @@ static unsigned int zylonite_matrix_key_map[] = {
 	KEY(3, 6, KEY_END),
 	KEY(6, 4, KEY_DELETE),
 	KEY(6, 6, KEY_BACK),
-	KEY(6, 3, KEY_CAPSLOCK),	
+	KEY(6, 3, KEY_CAPSLOCK),	/* KEY_LEFTSHIFT), */
 
-	KEY(4, 6, KEY_ENTER),		
-	KEY(5, 7, KEY_ENTER),		
+	KEY(4, 6, KEY_ENTER),		/* scroll push */
+	KEY(5, 7, KEY_ENTER),		/* keypad action */
 
 	KEY(0, 4, KEY_EMAIL),
 	KEY(5, 6, KEY_SEND),
@@ -298,9 +301,9 @@ static unsigned int zylonite_matrix_key_map[] = {
 	KEY(6, 7, KEY_VOLUMEUP),
 	KEY(7, 7, KEY_VOLUMEDOWN),
 
-	KEY(0, 6, KEY_F22),	
-	KEY(1, 6, KEY_F23),	
-	KEY(0, 3, KEY_AUX),	
+	KEY(0, 6, KEY_F22),	/* soft1 */
+	KEY(1, 6, KEY_F23),	/* soft2 */
+	KEY(0, 3, KEY_AUX),	/* contact */
 };
 
 static struct pxa27x_keypad_platform_data zylonite_keypad_info = {
@@ -330,18 +333,18 @@ static struct mtd_partition zylonite_nand_partitions[] = {
 		.name        = "Bootloader",
 		.offset      = 0,
 		.size        = 0x060000,
-		.mask_flags  = MTD_WRITEABLE, 
+		.mask_flags  = MTD_WRITEABLE, /* force read-only */
 	},
 	[1] = {
 		.name        = "Kernel",
 		.offset      = 0x060000,
 		.size        = 0x200000,
-		.mask_flags  = MTD_WRITEABLE, 
+		.mask_flags  = MTD_WRITEABLE, /* force read-only */
 	},
 	[2] = {
 		.name        = "Filesystem",
 		.offset      = 0x0260000,
-		.size        = 0x3000000,     
+		.size        = 0x3000000,     /* 48M - rootfs */
 	},
 	[3] = {
 		.name        = "MassStorage",
@@ -352,8 +355,13 @@ static struct mtd_partition zylonite_nand_partitions[] = {
 		.name        = "BBT",
 		.offset      = 0x6FA0000,
 		.size        = 0x80000,
-		.mask_flags  = MTD_WRITEABLE,  
+		.mask_flags  = MTD_WRITEABLE,  /* force read-only */
 	},
+	/* NOTE: we reserve some blocks at the end of the NAND flash for
+	 * bad block management, and the max number of relocation blocks
+	 * differs on different platforms. Please take care with it when
+	 * defining the partition table.
+	 */
 };
 
 static struct pxa3xx_nand_platform_data zylonite_nand_info = {
@@ -369,7 +377,7 @@ static void __init zylonite_init_nand(void)
 }
 #else
 static inline void zylonite_init_nand(void) {}
-#endif 
+#endif /* CONFIG_MTD_NAND_PXA3xx || CONFIG_MTD_NAND_PXA3xx_MODULE */
 
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static struct pxaohci_platform_data zylonite_ohci_info = {
@@ -384,7 +392,7 @@ static void __init zylonite_init_ohci(void)
 }
 #else
 static inline void zylonite_init_ohci(void) {}
-#endif 
+#endif /* CONFIG_USB_OHCI_HCD || CONFIG_USB_OHCI_HCD_MODULE */
 
 static void __init zylonite_init(void)
 {
@@ -392,10 +400,14 @@ static void __init zylonite_init(void)
 	pxa_set_btuart_info(NULL);
 	pxa_set_stuart_info(NULL);
 
-	
+	/* board-processor specific initialization */
 	zylonite_pxa300_init();
 	zylonite_pxa320_init();
 
+	/*
+	 * Note: We depend that the bootloader set
+	 * the correct value to MSC register for SMC91x.
+	 */
 	smc91x_resources[1].start = PXA_GPIO_TO_IRQ(gpio_eth_irq);
 	smc91x_resources[1].end   = PXA_GPIO_TO_IRQ(gpio_eth_irq);
 	platform_device_register(&smc91x_device);

@@ -1,3 +1,6 @@
+/************************************
+* 	Protocol.h
+*************************************/
 #ifndef	__PROTOCOL_H__
 #define	__PROTOCOL_H__
 
@@ -8,11 +11,11 @@
 
 struct ArpHeader {
     struct arphdr       arp;
-    unsigned char       ar_sha[ETH_ALEN];   
-    unsigned char       ar_sip[4];      
-    unsigned char       ar_tha[ETH_ALEN];   
-    unsigned char       ar_tip[4];      
-};
+    unsigned char       ar_sha[ETH_ALEN];   /* sender hardware address  */
+    unsigned char       ar_sip[4];      /* sender IP address        */
+    unsigned char       ar_tha[ETH_ALEN];   /* target hardware address  */
+    unsigned char       ar_tip[4];      /* target IP address        */
+}/*__attribute__((packed))*/;
 
 
 struct TransportHeaderT
@@ -86,6 +89,7 @@ typedef struct _ETH_CS_ETH2_FRAME
 #define ETHERNET_FRAMETYPE_IPV6 	ntohs(0x86dd)
 #define ETHERNET_FRAMETYPE_802QVLAN 	ntohs(0x8100)
 
+//Per SF CS Specification Encodings
 typedef enum _E_SERVICEFLOW_CS_SPEC_
 {
 	eCSSpecUnspecified =0,
@@ -126,6 +130,7 @@ typedef enum _E_SERVICEFLOW_CS_SPEC_
 #define	ARP_OP_REPLY			0x02
 #define	ARP_PKT_SIZE			60
 
+// This is the format for the TCP packet header
 typedef struct _TCP_HEADER
 {
 	USHORT usSrcPort;
@@ -139,8 +144,8 @@ typedef struct _TCP_HEADER
 	USHORT usUrgetPtr;
 } TCP_HEADER,*PTCP_HEADER;
 #define TCP_HEADER_LEN  	sizeof(TCP_HEADER)
-#define TCP_ACK             0x10  
+#define TCP_ACK             0x10  //Bit 4 in tcpflags field.
 #define GET_TCP_HEADER_LEN(byte) ((byte&0xF0)>>4)
 
 
-#endif 
+#endif //__PROTOCOL_H__

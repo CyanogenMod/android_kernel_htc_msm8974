@@ -1,3 +1,6 @@
+/*
+ * adummy.c: a dummy ATM driver
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -19,6 +22,7 @@
 #include <linux/atm.h>
 #include <linux/sonet.h>
 
+/* version definition */
 
 #define DRV_VERSION "1.0"
 
@@ -32,6 +36,7 @@ struct adummy_dev {
 	struct list_head entry;
 };
 
+/* globals */
 
 static LIST_HEAD(adummy_devs);
 
@@ -67,7 +72,7 @@ static struct attribute *adummy_attrs[] = {
 };
 
 static struct attribute_group adummy_group_attrs = {
-	.name = NULL, 
+	.name = NULL, /* We want them in dev's root folder */
 	.attrs = adummy_attrs
 };
 

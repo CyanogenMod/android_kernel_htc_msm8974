@@ -77,8 +77,10 @@
 
 #define BT878_ARISC_PC		0x120
 
+/* BT878 FUNCTION 0 REGISTERS */
 #define BT878_GPIO_DMA_CTL	0x10c
 
+/* Interrupt register */
 #define BT878_INT_STAT		0x100
 #define BT878_INT_MASK		0x104
 #define BT878_I2CRACK		(1<<25)
@@ -112,7 +114,7 @@ struct bt878 {
 	unsigned char revision;
 	unsigned int irq;
 	unsigned long bt878_adr;
-	volatile void __iomem *bt878_mem; 
+	volatile void __iomem *bt878_mem; /* function 1 */
 
 	volatile u32 finished_block;
 	volatile u32 last_block;
@@ -140,7 +142,7 @@ void bt878_start(struct bt878 *bt, u32 controlreg, u32 op_sync_orin,
 		u32 irq_err_ignore);
 void bt878_stop(struct bt878 *bt);
 
-#if defined(__powerpc__)	
+#if defined(__powerpc__)	/* big-endian */
 static inline void io_st_le32(volatile unsigned __iomem *addr, unsigned val)
 {
 	st_le32(addr, val);

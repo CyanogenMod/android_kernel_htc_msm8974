@@ -73,8 +73,8 @@ static struct gpio_chip gpiochip = {
 	.to_irq = to_irq,
 	.base = 0,
 	.ngpio = 24,
-	.can_sleep = 0, 
-	.exported = 0, 
+	.can_sleep = 0, /* no blocking io needed */
+	.exported = 0, /* no exporting to userspace */
 };
 
 int s6_gpio_init(u32 afsel)

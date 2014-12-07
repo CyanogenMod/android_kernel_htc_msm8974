@@ -12,7 +12,15 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*   @file   dma.c
+*
+*   @brief  Implements the DMA interface.
+*/
+/****************************************************************************/
 
+/* ---- Include Files ---------------------------------------------------- */
 
 #include <linux/module.h>
 #include <linux/device.h>
@@ -29,7 +37,9 @@
 #include <linux/atomic.h>
 #include <mach/dma.h>
 
+/* ---- Public Variables ------------------------------------------------- */
 
+/* ---- Private Constants and Types -------------------------------------- */
 
 #define MAKE_HANDLE(controllerIdx, channelIdx)    (((controllerIdx) << 4) | (channelIdx))
 
@@ -37,14 +47,22 @@
 #define CHANNEL_FROM_HANDLE(handle)       ((handle) & 0x0f)
 
 
+/* ---- Private Variables ------------------------------------------------ */
 
 static DMA_Global_t gDMA;
 static struct proc_dir_entry *gDmaDir;
 
 #include "dma_device.c"
 
+/* ---- Private Function Prototypes -------------------------------------- */
 
+/* ---- Functions  ------------------------------------------------------- */
 
+/****************************************************************************/
+/**
+*   Displays information for /proc/dma/channels
+*/
+/****************************************************************************/
 
 static int dma_proc_read_channels(char *buf, char **start, off_t offset,
 				  int count, int *eof, void *data)
@@ -126,6 +144,11 @@ static int dma_proc_read_channels(char *buf, char **start, off_t offset,
 	return len;
 }
 
+/****************************************************************************/
+/**
+*   Displays information for /proc/dma/devices
+*/
+/****************************************************************************/
 
 static int dma_proc_read_devices(char *buf, char **start, off_t offset,
 				 int count, int *eof, void *data)
@@ -188,12 +211,30 @@ static int dma_proc_read_devices(char *buf, char **start, off_t offset,
 	return len;
 }
 
+/****************************************************************************/
+/**
+*   Determines if a DMA_Device_t is "valid".
+*
+*   @return
+*       TRUE        - dma device is valid
+*       FALSE       - dma device isn't valid
+*/
+/****************************************************************************/
 
 static inline int IsDeviceValid(DMA_Device_t device)
 {
 	return (device >= 0) && (device < DMA_NUM_DEVICE_ENTRIES);
 }
 
+/****************************************************************************/
+/**
+*   Translates a DMA handle into a pointer to a channel.
+*
+*   @return
+*       non-NULL    - pointer to DMA_Channel_t
+*       NULL        - DMA Handle was invalid
+*/
+/****************************************************************************/
 
 static inline DMA_Channel_t *HandleToChannel(DMA_Handle_t handle)
 {
@@ -210,6 +251,11 @@ static inline DMA_Channel_t *HandleToChannel(DMA_Handle_t handle)
 	return &gDMA.controller[controllerIdx].channel[channelIdx];
 }
 
+/****************************************************************************/
+/**
+*   Interrupt handler which is called to process DMA interrupts.
+*/
+/****************************************************************************/
 
 static irqreturn_t dma_interrupt_handler(int irq, void *dev_id)
 {
@@ -219,7 +265,7 @@ static irqreturn_t dma_interrupt_handler(int irq, void *dev_id)
 
 	channel = (DMA_Channel_t *) dev_id;
 
-	
+	/* Figure out why we were called, and knock down the interrupt */
 
 	irqStatus = dmacHw_getInterruptStatus(channel->dmacHwHandle);
 	dmacHw_clearInterrupt(channel->dmacHwHandle);
@@ -232,7 +278,7 @@ static irqreturn_t dma_interrupt_handler(int irq, void *dev_id)
 	}
 	devAttr = &DMA_gDeviceAttribute[channel->devType];
 
-	
+	/* Update stats */
 
 	if ((irqStatus & dmacHw_INTERRUPT_STATUS_TRANS) != 0) {
 		devAttr->transferTicks +=
@@ -248,7 +294,7 @@ static irqreturn_t dma_interrupt_handler(int irq, void *dev_id)
 		devAttr->transferBytes += devAttr->numBytes;
 	}
 
-	
+	/* Call any installed handler */
 
 	if (devAttr->devHandler != NULL) {
 		devAttr->devHandler(channel->devType, irqStatus,
@@ -258,9 +304,23 @@ static irqreturn_t dma_interrupt_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/****************************************************************************/
+/**
+*   Allocates memory to hold a descriptor ring. The descriptor ring then
+*   needs to be populated by making one or more calls to
+*   dna_add_descriptors.
+*
+*   The returned descriptor ring will be automatically initialized.
+*
+*   @return
+*       0           Descriptor ring was allocated successfully
+*       -EINVAL     Invalid parameters passed in
+*       -ENOMEM     Unable to allocate memory for the desired number of descriptors.
+*/
+/****************************************************************************/
 
-int dma_alloc_descriptor_ring(DMA_DescriptorRing_t *ring,	
-			      int numDescriptors	
+int dma_alloc_descriptor_ring(DMA_DescriptorRing_t *ring,	/* Descriptor ring to populate */
+			      int numDescriptors	/* Number of descriptors that need to be allocated. */
     ) {
 	size_t bytesToAlloc = dmacHw_descriptorLen(numDescriptors);
 
@@ -288,8 +348,13 @@ int dma_alloc_descriptor_ring(DMA_DescriptorRing_t *ring,
 
 EXPORT_SYMBOL(dma_alloc_descriptor_ring);
 
+/****************************************************************************/
+/**
+*   Releases the memory which was previously allocated for a descriptor ring.
+*/
+/****************************************************************************/
 
-void dma_free_descriptor_ring(DMA_DescriptorRing_t *ring	
+void dma_free_descriptor_ring(DMA_DescriptorRing_t *ring	/* Descriptor to release */
     ) {
 	if (ring->virtAddr != NULL) {
 		dma_free_writecombine(NULL,
@@ -305,9 +370,26 @@ void dma_free_descriptor_ring(DMA_DescriptorRing_t *ring
 
 EXPORT_SYMBOL(dma_free_descriptor_ring);
 
+/****************************************************************************/
+/**
+*   Initializes a descriptor ring, so that descriptors can be added to it.
+*   Once a descriptor ring has been allocated, it may be reinitialized for
+*   use with additional/different regions of memory.
+*
+*   Note that if 7 descriptors are allocated, it's perfectly acceptable to
+*   initialize the ring with a smaller number of descriptors. The amount
+*   of memory allocated for the descriptor ring will not be reduced, and
+*   the descriptor ring may be reinitialized later
+*
+*   @return
+*       0           Descriptor ring was initialized successfully
+*       -ENOMEM     The descriptor which was passed in has insufficient space
+*                   to hold the desired number of descriptors.
+*/
+/****************************************************************************/
 
-int dma_init_descriptor_ring(DMA_DescriptorRing_t *ring,	
-			     int numDescriptors	
+int dma_init_descriptor_ring(DMA_DescriptorRing_t *ring,	/* Descriptor ring to initialize */
+			     int numDescriptors	/* Number of descriptors to initialize. */
     ) {
 	if (ring->virtAddr == NULL) {
 		return -EINVAL;
@@ -325,11 +407,29 @@ int dma_init_descriptor_ring(DMA_DescriptorRing_t *ring,
 
 EXPORT_SYMBOL(dma_init_descriptor_ring);
 
+/****************************************************************************/
+/**
+*   Determines the number of descriptors which would be required for a
+*   transfer of the indicated memory region.
+*
+*   This function also needs to know which DMA device this transfer will
+*   be destined for, so that the appropriate DMA configuration can be retrieved.
+*   DMA parameters such as transfer width, and whether this is a memory-to-memory
+*   or memory-to-peripheral, etc can all affect the actual number of descriptors
+*   required.
+*
+*   @return
+*       > 0     Returns the number of descriptors required for the indicated transfer
+*       -ENODEV - Device handed in is invalid.
+*       -EINVAL Invalid parameters
+*       -ENOMEM Memory exhausted
+*/
+/****************************************************************************/
 
-int dma_calculate_descriptor_count(DMA_Device_t device,	
-				   dma_addr_t srcData,	
-				   dma_addr_t dstData,	
-				   size_t numBytes	
+int dma_calculate_descriptor_count(DMA_Device_t device,	/* DMA Device that this will be associated with */
+				   dma_addr_t srcData,	/* Place to get data to write to device */
+				   dma_addr_t dstData,	/* Pointer to device data address */
+				   size_t numBytes	/* Number of bytes to transfer to the device */
     ) {
 	int numDescriptors;
 	DMA_DeviceAttribute_t *devAttr;
@@ -354,12 +454,25 @@ int dma_calculate_descriptor_count(DMA_Device_t device,
 
 EXPORT_SYMBOL(dma_calculate_descriptor_count);
 
+/****************************************************************************/
+/**
+*   Adds a region of memory to the descriptor ring. Note that it may take
+*   multiple descriptors for each region of memory. It is the callers
+*   responsibility to allocate a sufficiently large descriptor ring.
+*
+*   @return
+*       0       Descriptors were added successfully
+*       -ENODEV Device handed in is invalid.
+*       -EINVAL Invalid parameters
+*       -ENOMEM Memory exhausted
+*/
+/****************************************************************************/
 
-int dma_add_descriptors(DMA_DescriptorRing_t *ring,	
-			DMA_Device_t device,	
-			dma_addr_t srcData,	
-			dma_addr_t dstData,	
-			size_t numBytes	
+int dma_add_descriptors(DMA_DescriptorRing_t *ring,	/* Descriptor ring to add descriptors to */
+			DMA_Device_t device,	/* DMA Device that descriptors are for */
+			dma_addr_t srcData,	/* Place to get data (memory or device) */
+			dma_addr_t dstData,	/* Place to put data (memory or device) */
+			size_t numBytes	/* Number of bytes to transfer to the device */
     ) {
 	int rc;
 	DMA_DeviceAttribute_t *devAttr;
@@ -385,9 +498,28 @@ int dma_add_descriptors(DMA_DescriptorRing_t *ring,
 
 EXPORT_SYMBOL(dma_add_descriptors);
 
+/****************************************************************************/
+/**
+*   Sets the descriptor ring associated with a device.
+*
+*   Once set, the descriptor ring will be associated with the device, even
+*   across channel request/free calls. Passing in a NULL descriptor ring
+*   will release any descriptor ring currently associated with the device.
+*
+*   Note: If you call dma_transfer, or one of the other dma_alloc_ functions
+*         the descriptor ring may be released and reallocated.
+*
+*   Note: This function will release the descriptor memory for any current
+*         descriptor ring associated with this device.
+*
+*   @return
+*       0       Descriptors were added successfully
+*       -ENODEV Device handed in is invalid.
+*/
+/****************************************************************************/
 
-int dma_set_device_descriptor_ring(DMA_Device_t device,	
-				   DMA_DescriptorRing_t *ring	
+int dma_set_device_descriptor_ring(DMA_Device_t device,	/* Device to update the descriptor ring for. */
+				   DMA_DescriptorRing_t *ring	/* Descriptor ring to add descriptors to */
     ) {
 	DMA_DeviceAttribute_t *devAttr;
 
@@ -396,18 +528,18 @@ int dma_set_device_descriptor_ring(DMA_Device_t device,
 	}
 	devAttr = &DMA_gDeviceAttribute[device];
 
-	
+	/* Free the previously allocated descriptor ring */
 
 	dma_free_descriptor_ring(&devAttr->ring);
 
 	if (ring != NULL) {
-		
+		/* Copy in the new one */
 
 		devAttr->ring = *ring;
 	}
 
-	
-	
+	/* Set things up so that if dma_transfer is called then this descriptor */
+	/* ring will get freed. */
 
 	devAttr->prevSrcData = 0;
 	devAttr->prevDstData = 0;
@@ -418,9 +550,18 @@ int dma_set_device_descriptor_ring(DMA_Device_t device,
 
 EXPORT_SYMBOL(dma_set_device_descriptor_ring);
 
+/****************************************************************************/
+/**
+*   Retrieves the descriptor ring associated with a device.
+*
+*   @return
+*       0       Descriptors were added successfully
+*       -ENODEV Device handed in is invalid.
+*/
+/****************************************************************************/
 
-int dma_get_device_descriptor_ring(DMA_Device_t device,	
-				   DMA_DescriptorRing_t *ring	
+int dma_get_device_descriptor_ring(DMA_Device_t device,	/* Device to retrieve the descriptor ring for. */
+				   DMA_DescriptorRing_t *ring	/* Place to store retrieved ring */
     ) {
 	DMA_DeviceAttribute_t *devAttr;
 
@@ -438,6 +579,17 @@ int dma_get_device_descriptor_ring(DMA_Device_t device,
 
 EXPORT_SYMBOL(dma_get_device_descriptor_ring);
 
+/****************************************************************************/
+/**
+*   Configures a DMA channel.
+*
+*   @return
+*       >= 0    - Initialization was successful.
+*
+*       -EBUSY  - Device is currently being used.
+*       -ENODEV - Device handed in is invalid.
+*/
+/****************************************************************************/
 
 static int ConfigChannel(DMA_Handle_t handle)
 {
@@ -472,6 +624,16 @@ static int ConfigChannel(DMA_Handle_t handle)
 	return 0;
 }
 
+/****************************************************************************/
+/**
+*   Initializes all of the data structures associated with the DMA.
+*   @return
+*       >= 0    - Initialization was successful.
+*
+*       -EBUSY  - Device is currently being used.
+*       -ENODEV - Device handed in is invalid.
+*/
+/****************************************************************************/
 
 int dma_init(void)
 {
@@ -487,11 +649,11 @@ int dma_init(void)
 	sema_init(&gDMA.lock, 0);
 	init_waitqueue_head(&gDMA.freeChannelQ);
 
-	
+	/* Initialize the Hardware */
 
 	dmacHw_initDma();
 
-	
+	/* Start off by marking all of the DMA channels as shared. */
 
 	for (controllerIdx = 0; controllerIdx < DMA_NUM_CONTROLLERS;
 	     controllerIdx++) {
@@ -517,14 +679,14 @@ int dma_init(void)
 		}
 	}
 
-	
+	/* Record any special attributes that channels may have */
 
 	gDMA.controller[0].channel[0].flags |= DMA_CHANNEL_FLAG_LARGE_FIFO;
 	gDMA.controller[0].channel[1].flags |= DMA_CHANNEL_FLAG_LARGE_FIFO;
 	gDMA.controller[1].channel[0].flags |= DMA_CHANNEL_FLAG_LARGE_FIFO;
 	gDMA.controller[1].channel[1].flags |= DMA_CHANNEL_FLAG_LARGE_FIFO;
 
-	
+	/* Now walk through and record the dedicated channels. */
 
 	for (devIdx = 0; devIdx < DMA_NUM_DEVICE_ENTRIES; devIdx++) {
 		DMA_DeviceAttribute_t *devAttr = &DMA_gDeviceAttribute[devIdx];
@@ -539,7 +701,7 @@ int dma_init(void)
 		}
 
 		if ((devAttr->flags & DMA_DEVICE_FLAG_IS_DEDICATED) != 0) {
-			
+			/* This is a dedicated device. Mark the channel as being reserved. */
 
 			if (devAttr->dedicatedController >= DMA_NUM_CONTROLLERS) {
 				printk(KERN_ERR
@@ -584,14 +746,14 @@ int dma_init(void)
 				channel->flags |= DMA_CHANNEL_FLAG_NO_ISR;
 			}
 
-			
-			
+			/* For dedicated channels, we can go ahead and configure the DMA channel now */
+			/* as well. */
 
 			ConfigChannel(dedicatedHandle);
 		}
 	}
 
-	
+	/* Go through and register the interrupt handlers */
 
 	for (controllerIdx = 0; controllerIdx < DMA_NUM_CONTROLLERS;
 	     controllerIdx++) {
@@ -626,7 +788,7 @@ int dma_init(void)
 		}
 	}
 
-	
+	/* Create /proc/dma/channels and /proc/dma/devices */
 
 	gDmaDir = proc_mkdir("dma", NULL);
 
@@ -646,6 +808,18 @@ out:
 	return rc;
 }
 
+/****************************************************************************/
+/**
+*   Reserves a channel for use with @a dev. If the device is setup to use
+*   a shared channel, then this function will block until a free channel
+*   becomes available.
+*
+*   @return
+*       >= 0    - A valid DMA Handle.
+*       -EBUSY  - Device is currently being used.
+*       -ENODEV - Device handed in is invalid.
+*/
+/****************************************************************************/
 
 #if (DMA_DEBUG_TRACK_RESERVATION)
 DMA_Handle_t dma_request_channel_dbg
@@ -682,7 +856,7 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 	}
 #endif
 	if ((devAttr->flags & DMA_DEVICE_FLAG_IN_USE) != 0) {
-		
+		/* This device has already been requested and not been freed */
 
 		printk(KERN_ERR "%s: device %s is already requested\n",
 		       __func__, devAttr->name);
@@ -691,7 +865,7 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 	}
 
 	if ((devAttr->flags & DMA_DEVICE_FLAG_IS_DEDICATED) != 0) {
-		
+		/* This device has a dedicated channel. */
 
 		channel =
 		    &gDMA.controller[devAttr->dedicatedController].
@@ -714,15 +888,15 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 		goto out;
 	}
 
-	
+	/* This device needs to use one of the shared channels. */
 
 	handle = DMA_INVALID_HANDLE;
 	while (handle == DMA_INVALID_HANDLE) {
-		
+		/* Scan through the shared channels and see if one is available */
 
 		for (controllerIdx2 = 0; controllerIdx2 < DMA_NUM_CONTROLLERS;
 		     controllerIdx2++) {
-			
+			/* Check to see if we should try on controller 1 first. */
 
 			controllerIdx = controllerIdx2;
 			if ((devAttr->
@@ -730,7 +904,7 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 				controllerIdx = 1 - controllerIdx;
 			}
 
-			
+			/* See if the device is available on the controller being tested */
 
 			if ((devAttr->
 			     flags & (DMA_DEVICE_FLAG_ON_DMA0 << controllerIdx))
@@ -759,8 +933,8 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 						      flags &
 						      DMA_DEVICE_FLAG_ALLOW_LARGE_FIFO)
 						     == 0)) {
-							
-							
+							/* This channel is a large fifo - don't tie it up */
+							/* with devices that we don't want using it. */
 
 							continue;
 						}
@@ -779,7 +953,7 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 						    MAKE_HANDLE(controllerIdx,
 								channelIdx);
 
-						
+						/* Now that we've reserved the channel - we can go ahead and configure it */
 
 						if (ConfigChannel(handle) != 0) {
 							handle = -EIO;
@@ -792,7 +966,7 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 			}
 		}
 
-		
+		/* No channels are currently available. Let's wait for one to free up. */
 
 		{
 			DEFINE_WAIT(wait);
@@ -804,7 +978,7 @@ DMA_Handle_t dma_request_channel(DMA_Device_t dev)
 			finish_wait(&gDMA.freeChannelQ, &wait);
 
 			if (signal_pending(current)) {
-				
+				/* We don't currently hold gDMA.lock, so we return directly */
 
 				return -ERESTARTSYS;
 			}
@@ -821,6 +995,7 @@ out:
 	return handle;
 }
 
+/* Create both _dbg and non _dbg functions for modules. */
 
 #if (DMA_DEBUG_TRACK_RESERVATION)
 #undef dma_request_channel
@@ -833,8 +1008,13 @@ EXPORT_SYMBOL(dma_request_channel_dbg);
 #endif
 EXPORT_SYMBOL(dma_request_channel);
 
+/****************************************************************************/
+/**
+*   Frees a previously allocated DMA Handle.
+*/
+/****************************************************************************/
 
-int dma_free_channel(DMA_Handle_t handle	
+int dma_free_channel(DMA_Handle_t handle	/* DMA handle. */
     ) {
 	int rc = 0;
 	DMA_Channel_t *channel;
@@ -869,8 +1049,19 @@ out:
 
 EXPORT_SYMBOL(dma_free_channel);
 
+/****************************************************************************/
+/**
+*   Determines if a given device has been configured as using a shared
+*   channel.
+*
+*   @return
+*       0           Device uses a dedicated channel
+*       > zero      Device uses a shared channel
+*       < zero      Error code
+*/
+/****************************************************************************/
 
-int dma_device_is_channel_shared(DMA_Device_t device	
+int dma_device_is_channel_shared(DMA_Device_t device	/* Device to check. */
     ) {
 	DMA_DeviceAttribute_t *devAttr;
 
@@ -884,12 +1075,25 @@ int dma_device_is_channel_shared(DMA_Device_t device
 
 EXPORT_SYMBOL(dma_device_is_channel_shared);
 
+/****************************************************************************/
+/**
+*   Allocates buffers for the descriptors. This is normally done automatically
+*   but needs to be done explicitly when initiating a dma from interrupt
+*   context.
+*
+*   @return
+*       0       Descriptors were allocated successfully
+*       -EINVAL Invalid device type for this kind of transfer
+*               (i.e. the device is _MEM_TO_DEV and not _DEV_TO_MEM)
+*       -ENOMEM Memory exhausted
+*/
+/****************************************************************************/
 
-int dma_alloc_descriptors(DMA_Handle_t handle,	
-			  dmacHw_TRANSFER_TYPE_e transferType,	
-			  dma_addr_t srcData,	
-			  dma_addr_t dstData,	
-			  size_t numBytes	
+int dma_alloc_descriptors(DMA_Handle_t handle,	/* DMA Handle */
+			  dmacHw_TRANSFER_TYPE_e transferType,	/* Type of transfer being performed */
+			  dma_addr_t srcData,	/* Place to get data to write to device */
+			  dma_addr_t dstData,	/* Pointer to device data address */
+			  size_t numBytes	/* Number of bytes to transfer to the device */
     ) {
 	DMA_Channel_t *channel;
 	DMA_DeviceAttribute_t *devAttr;
@@ -908,10 +1112,10 @@ int dma_alloc_descriptors(DMA_Handle_t handle,
 		return -EINVAL;
 	}
 
-	
+	/* Figure out how many descriptors we need. */
 
-	
-	
+	/* printk("srcData: 0x%08x dstData: 0x%08x, numBytes: %d\n", */
+	/*        srcData, dstData, numBytes); */
 
 	numDescriptors = dmacHw_calculateDescriptorCount(&devAttr->config,
 							      (void *)srcData,
@@ -923,25 +1127,25 @@ int dma_alloc_descriptors(DMA_Handle_t handle,
 		return -EINVAL;
 	}
 
-	
-	
+	/* Check to see if we can reuse the existing descriptor ring, or if we need to allocate */
+	/* a new one. */
 
 	ringBytesRequired = dmacHw_descriptorLen(numDescriptors);
 
-	
+	/* printk("ringBytesRequired: %d\n", ringBytesRequired); */
 
 	if (ringBytesRequired > devAttr->ring.bytesAllocated) {
-		
-		
-		
+		/* Make sure that this code path is never taken from interrupt context. */
+		/* It's OK for an interrupt to initiate a DMA transfer, but the descriptor */
+		/* allocation needs to have already been done. */
 
 		might_sleep();
 
-		
+		/* Free the old descriptor ring and allocate a new one. */
 
 		dma_free_descriptor_ring(&devAttr->ring);
 
-		
+		/* And allocate a new one. */
 
 		rc =
 		     dma_alloc_descriptor_ring(&devAttr->ring,
@@ -952,7 +1156,7 @@ int dma_alloc_descriptors(DMA_Handle_t handle,
 			       __func__, numDescriptors);
 			return rc;
 		}
-		
+		/* Setup the descriptor for this transfer */
 
 		if (dmacHw_initDescriptor(devAttr->ring.virtAddr,
 					  devAttr->ring.physAddr,
@@ -963,14 +1167,14 @@ int dma_alloc_descriptors(DMA_Handle_t handle,
 			return -EINVAL;
 		}
 	} else {
-		
-		
+		/* We've already got enough ring buffer allocated. All we need to do is reset */
+		/* any control information, just in case the previous DMA was stopped. */
 
 		dmacHw_resetDescriptorControl(devAttr->ring.virtAddr);
 	}
 
-	
-	
+	/* dma_alloc/free both set the prevSrc/DstData to 0. If they happen to be the same */
+	/* as last time, then we don't need to call setDataDescriptor again. */
 
 	if (dmacHw_setDataDescriptor(&devAttr->config,
 				     devAttr->ring.virtAddr,
@@ -981,8 +1185,8 @@ int dma_alloc_descriptors(DMA_Handle_t handle,
 		return -EINVAL;
 	}
 
-	
-	
+	/* Remember the critical information for this transfer so that we can eliminate */
+	/* another call to dma_alloc_descriptors if the caller reuses the same buffers */
 
 	devAttr->prevSrcData = srcData;
 	devAttr->prevDstData = dstData;
@@ -993,12 +1197,26 @@ int dma_alloc_descriptors(DMA_Handle_t handle,
 
 EXPORT_SYMBOL(dma_alloc_descriptors);
 
+/****************************************************************************/
+/**
+*   Allocates and sets up descriptors for a double buffered circular buffer.
+*
+*   This is primarily intended to be used for things like the ingress samples
+*   from a microphone.
+*
+*   @return
+*       > 0     Number of descriptors actually allocated.
+*       -EINVAL Invalid device type for this kind of transfer
+*               (i.e. the device is _MEM_TO_DEV and not _DEV_TO_MEM)
+*       -ENOMEM Memory exhausted
+*/
+/****************************************************************************/
 
-int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,	
-				     dma_addr_t srcData,	
-				     dma_addr_t dstData1,	
-				     dma_addr_t dstData2,	
-				     size_t numBytes	
+int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,	/* DMA Handle */
+				     dma_addr_t srcData,	/* Physical address of source data */
+				     dma_addr_t dstData1,	/* Physical address of first destination buffer */
+				     dma_addr_t dstData2,	/* Physical address of second destination buffer */
+				     size_t numBytes	/* Number of bytes in each destination buffer */
     ) {
 	DMA_Channel_t *channel;
 	DMA_DeviceAttribute_t *devAttr;
@@ -1015,10 +1233,10 @@ int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,
 
 	devAttr = &DMA_gDeviceAttribute[channel->devType];
 
-	
+	/* Figure out how many descriptors we need. */
 
-	
-	
+	/* printk("srcData: 0x%08x dstData: 0x%08x, numBytes: %d\n", */
+	/*        srcData, dstData, numBytes); */
 
 	numDst1Descriptors =
 	     dmacHw_calculateDescriptorCount(&devAttr->config, (void *)srcData,
@@ -1033,27 +1251,27 @@ int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,
 		return -EINVAL;
 	}
 	numDescriptors = numDst1Descriptors + numDst2Descriptors;
-	
+	/* printk("numDescriptors: %d\n", numDescriptors); */
 
-	
-	
+	/* Check to see if we can reuse the existing descriptor ring, or if we need to allocate */
+	/* a new one. */
 
 	ringBytesRequired = dmacHw_descriptorLen(numDescriptors);
 
-	
+	/* printk("ringBytesRequired: %d\n", ringBytesRequired); */
 
 	if (ringBytesRequired > devAttr->ring.bytesAllocated) {
-		
-		
-		
+		/* Make sure that this code path is never taken from interrupt context. */
+		/* It's OK for an interrupt to initiate a DMA transfer, but the descriptor */
+		/* allocation needs to have already been done. */
 
 		might_sleep();
 
-		
+		/* Free the old descriptor ring and allocate a new one. */
 
 		dma_free_descriptor_ring(&devAttr->ring);
 
-		
+		/* And allocate a new one. */
 
 		rc =
 		     dma_alloc_descriptor_ring(&devAttr->ring,
@@ -1066,9 +1284,9 @@ int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,
 		}
 	}
 
-	
-	
-	
+	/* Setup the descriptor for this transfer. Since this function is used with */
+	/* CONTINUOUS DMA operations, we need to reinitialize every time, otherwise */
+	/* setDataDescriptor will keep trying to append onto the end. */
 
 	if (dmacHw_initDescriptor(devAttr->ring.virtAddr,
 				  devAttr->ring.physAddr,
@@ -1078,8 +1296,8 @@ int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,
 		return -EINVAL;
 	}
 
-	
-	
+	/* dma_alloc/free both set the prevSrc/DstData to 0. If they happen to be the same */
+	/* as last time, then we don't need to call setDataDescriptor again. */
 
 	if (dmacHw_setDataDescriptor(&devAttr->config,
 				     devAttr->ring.virtAddr,
@@ -1098,8 +1316,8 @@ int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,
 		return -EINVAL;
 	}
 
-	
-	
+	/* You should use dma_start_transfer rather than dma_transfer_xxx so we don't */
+	/* try to make the 'prev' variables right. */
 
 	devAttr->prevSrcData = 0;
 	devAttr->prevDstData = 0;
@@ -1110,6 +1328,18 @@ int dma_alloc_double_dst_descriptors(DMA_Handle_t handle,
 
 EXPORT_SYMBOL(dma_alloc_double_dst_descriptors);
 
+/****************************************************************************/
+/**
+*   Initiates a transfer when the descriptors have already been setup.
+*
+*   This is a special case, and normally, the dma_transfer_xxx functions should
+*   be used.
+*
+*   @return
+*       0       Transfer was started successfully
+*       -ENODEV Invalid handle
+*/
+/****************************************************************************/
 
 int dma_start_transfer(DMA_Handle_t handle)
 {
@@ -1125,13 +1355,22 @@ int dma_start_transfer(DMA_Handle_t handle)
 	dmacHw_initiateTransfer(channel->dmacHwHandle, &devAttr->config,
 				devAttr->ring.virtAddr);
 
-	
+	/* Since we got this far, everything went successfully */
 
 	return 0;
 }
 
 EXPORT_SYMBOL(dma_start_transfer);
 
+/****************************************************************************/
+/**
+*   Stops a previously started DMA transfer.
+*
+*   @return
+*       0       Transfer was stopped successfully
+*       -ENODEV Invalid handle
+*/
+/****************************************************************************/
 
 int dma_stop_transfer(DMA_Handle_t handle)
 {
@@ -1149,6 +1388,12 @@ int dma_stop_transfer(DMA_Handle_t handle)
 
 EXPORT_SYMBOL(dma_stop_transfer);
 
+/****************************************************************************/
+/**
+*   Waits for a DMA to complete by polling. This function is only intended
+*   to be used for testing. Interrupts should be used for most DMA operations.
+*/
+/****************************************************************************/
 
 int dma_wait_transfer_done(DMA_Handle_t handle)
 {
@@ -1175,12 +1420,22 @@ int dma_wait_transfer_done(DMA_Handle_t handle)
 
 EXPORT_SYMBOL(dma_wait_transfer_done);
 
+/****************************************************************************/
+/**
+*   Initiates a DMA, allocating the descriptors as required.
+*
+*   @return
+*       0       Transfer was started successfully
+*       -EINVAL Invalid device type for this kind of transfer
+*               (i.e. the device is _DEV_TO_MEM and not _MEM_TO_DEV)
+*/
+/****************************************************************************/
 
-int dma_transfer(DMA_Handle_t handle,	
-		 dmacHw_TRANSFER_TYPE_e transferType,	
-		 dma_addr_t srcData,	
-		 dma_addr_t dstData,	
-		 size_t numBytes	
+int dma_transfer(DMA_Handle_t handle,	/* DMA Handle */
+		 dmacHw_TRANSFER_TYPE_e transferType,	/* Type of transfer being performed */
+		 dma_addr_t srcData,	/* Place to get data to write to device */
+		 dma_addr_t dstData,	/* Pointer to device data address */
+		 size_t numBytes	/* Number of bytes to transfer to the device */
     ) {
 	DMA_Channel_t *channel;
 	DMA_DeviceAttribute_t *devAttr;
@@ -1197,9 +1452,9 @@ int dma_transfer(DMA_Handle_t handle,
 		return -EINVAL;
 	}
 
-	
-	
-	
+	/* We keep track of the information about the previous request for this */
+	/* device, and if the attributes match, then we can use the descriptors we setup */
+	/* the last time, and not have to reinitialize everything. */
 
 	{
 		rc =
@@ -1210,7 +1465,7 @@ int dma_transfer(DMA_Handle_t handle,
 		}
 	}
 
-	
+	/* And kick off the transfer */
 
 	devAttr->numBytes = numBytes;
 	devAttr->transferStartTime = timer_get_tick_count();
@@ -1218,17 +1473,29 @@ int dma_transfer(DMA_Handle_t handle,
 	dmacHw_initiateTransfer(channel->dmacHwHandle, &devAttr->config,
 				devAttr->ring.virtAddr);
 
-	
+	/* Since we got this far, everything went successfully */
 
 	return 0;
 }
 
 EXPORT_SYMBOL(dma_transfer);
 
+/****************************************************************************/
+/**
+*   Set the callback function which will be called when a transfer completes.
+*   If a NULL callback function is set, then no callback will occur.
+*
+*   @note   @a devHandler will be called from IRQ context.
+*
+*   @return
+*       0       - Success
+*       -ENODEV - Device handed in is invalid.
+*/
+/****************************************************************************/
 
-int dma_set_device_handler(DMA_Device_t dev,	
-			   DMA_DeviceHandler_t devHandler,	
-			   void *userData	
+int dma_set_device_handler(DMA_Device_t dev,	/* Device to set the callback for. */
+			   DMA_DeviceHandler_t devHandler,	/* Function to call when the DMA completes */
+			   void *userData	/* Pointer which will be passed to devHandler. */
     ) {
 	DMA_DeviceAttribute_t *devAttr;
 	unsigned long flags;

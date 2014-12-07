@@ -5,6 +5,9 @@
 
 #define MFPR_BASE	(0x40e10000)
 
+/* PXA3xx common MFP configurations - processor specific ones defined
+ * in mfp-pxa300.h and mfp-pxa320.h
+ */
 #define GPIO0_GPIO		MFP_CFG(GPIO0, AF0)
 #define GPIO1_GPIO		MFP_CFG(GPIO1, AF0)
 #define GPIO2_GPIO		MFP_CFG(GPIO2, AF0)
@@ -135,6 +138,9 @@
 #define GPIO5_2_GPIO		MFP_CFG(GPIO5_2, AF0)
 #define GPIO6_2_GPIO		MFP_CFG(GPIO6_2, AF0)
 
+/* NOTE: usage of these two functions is not recommended,
+ * use pxa3xx_mfp_config() instead.
+ */
 static inline unsigned long pxa3xx_mfp_read(int mfp)
 {
 	return mfp_read(mfp);
@@ -149,4 +155,4 @@ static inline void pxa3xx_mfp_config(unsigned long *mfp_cfg, int num)
 {
 	mfp_config(mfp_cfg, num);
 }
-#endif 
+#endif /* __ASM_ARCH_MFP_PXA3XX_H */

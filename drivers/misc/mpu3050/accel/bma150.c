@@ -17,7 +17,19 @@
   $
  */
 
+/**
+ *  @defgroup   ACCELDL (Motion Library - Accelerometer Driver Layer)
+ *  @brief      Provides the interface to setup and handle an accelerometers
+ *              connected to the secondary I2C interface of the gyroscope.
+ *
+ *  @{
+ *      @file   bma150.c
+ *      @brief  Accelerometer setup and handling methods.
+ */
 
+/* ------------------ */
+/* - Include Files. - */
+/* ------------------ */
 
 #ifdef __KERNEL__
 #include <linux/module.h>
@@ -31,6 +43,7 @@
 #undef MPL_LOG_TAG
 #define MPL_LOG_TAG "MPL-acc"
 
+/* full scale setting - register and mask */
 #define BOSCH_CTRL_REG      (0x14)
 #define BOSCH_INT_REG       (0x15)
 #define BOSCH_PWR_REG       (0x0A)
@@ -48,10 +61,13 @@
 	if (debug_flag) \
 		printk(KERN_DEBUG "[GSNR][BMA150 DEBUG] " x)
 
+/* --------------------- */
+/* -    Variables.     - */
+/* --------------------- */
 
 struct bma150_config {
-	unsigned int odr; 
-	unsigned int fsr; 
+	unsigned int odr; /* Output data rate mHz */
+	unsigned int fsr; /* full scale range mg */
 	unsigned int irq_type;
 	unsigned int power_mode;
 	unsigned char ctrl_reg;
@@ -65,7 +81,21 @@ struct bma150_private_data {
 };
 
 
+/*********************************************
+    Accelerometer Initialization Functions
+**********************************************/
 
+/**
+ * Sets the IRQ to fire when one of the IRQ events occur.  Threshold and
+ * duration will not be used uless the type is MOT or NMOT.
+ *
+ * @param config configuration to apply to, suspend or resume
+ * @param irq_type The type of IRQ.  Valid values are
+ * - MPU_SLAVE_IRQ_TYPE_NONE
+ * - MPU_SLAVE_IRQ_TYPE_MOTION
+ * - MPU_SLAVE_IRQ_TYPE_DATA_READY
+ *
+ */
 static int bma150_set_irq(void *mlsl_handle,
 			struct ext_slave_platform_data *pdata,
 			struct bma150_config *config,
@@ -118,6 +148,12 @@ static int bma150_set_irq(void *mlsl_handle,
 	return result;
 }
 
+/**
+ * Set the Output data rate for the particular configuration
+ *
+ * @param config Config to modify with new ODR
+ * @param odr Output data rate in units of 1/1000Hz
+ */
 static int bma150_set_odr(void *mlsl_handle,
 			struct ext_slave_platform_data *pdata,
 			struct bma150_config *config,
@@ -128,7 +164,28 @@ static int bma150_set_odr(void *mlsl_handle,
 	unsigned char wup_bits = 0;
 	int result = ML_SUCCESS;
 
-	
+	/* TO DO use dynamic bandwidth when stability safe */
+	/*if (odr > 100000) {
+		config->odr = 190000;
+		odr_bits = 0x03;
+		config->power_mode = 1;
+	} else if (odr > 50000) {
+		config->odr = 100000;
+		odr_bits = 0x02;
+		config->power_mode = 1;
+	} else if (odr > 25000) {
+		config->odr = 50000;
+		odr_bits = 0x01;
+		config->power_mode = 1;
+	} else if (odr > 0) {
+		config->odr = 25000;
+		odr_bits = 0x00;
+		config->power_mode = 1;
+	} else {
+		config->odr = 0;
+		wup_bits = 0x00;
+		config->power_mode = 0;
+	}*/
 	if (odr > 100000) {
 		config->odr = 25000;
 		odr_bits = 0x00;
@@ -195,6 +252,12 @@ static int bma150_set_odr(void *mlsl_handle,
 	return result;
 }
 
+/**
+ * Set the full scale range of the accels
+ *
+ * @param config pointer to configuration
+ * @param fsr requested full scale range
+ */
 static int bma150_set_fsr(void *mlsl_handle,
 			struct ext_slave_platform_data *pdata,
 			struct bma150_config *config,
@@ -204,7 +267,17 @@ static int bma150_set_fsr(void *mlsl_handle,
 	unsigned char fsr_bits;
 	int result = ML_SUCCESS;
 
-	
+	/* TO DO use dynamic range when stability safe */
+	/*if (fsr <= 2048) {
+		fsr_bits = 0x00;
+		config->fsr = 2048;
+	} else if (fsr <= 4096) {
+		fsr_bits = 0x08;
+		config->fsr = 4096;
+	} else {
+		fsr_bits = 0x10;
+		config->fsr = 8192;
+	}*/
 	if (fsr <= 2048) {
 		fsr_bits = 0x00;
 		config->fsr = 2048;
@@ -263,7 +336,19 @@ static int bma150_suspend(void *mlsl_handle,
 
 	private_data->state = 1;
 
-	
+	/* TO DO sync from bma150 of MPL3.3.0, comment follows */
+	/*result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BOSCH_PWR_REG, 0x02);
+	ERROR_CHECK(result);
+	MLOSSleep(1);
+
+	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BOSCH_CTRL_REG, ctrl_reg);
+	ERROR_CHECK(result);
+
+	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BOSCH_INT_REG, int_reg);
+	ERROR_CHECK(result);*/
 
 	if (!private_data->suspend.power_mode) {
 		result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
@@ -299,7 +384,10 @@ static int bma150_resume(void *mlsl_handle,
 		BOSCH_CTRL_REG, ctrl_reg);
 	ERROR_CHECK(result);
 
-	
+	/* TO DO sync from bma150 of MPL3.3.0, comment follows */
+	/*result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BOSCH_INT_REG, int_reg);
+	ERROR_CHECK(result);*/
 
 	if (!private_data->resume.power_mode) {
 		result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
@@ -486,20 +574,20 @@ static int bma150_get_config(void *mlsl_handle,
 }
 
 static struct ext_slave_descr bma150_descr = {
-	 bma150_init,
-	 bma150_exit,
-	 bma150_suspend,
-	 bma150_resume,
-	 bma150_read,
-	 bma150_config,
-	 bma150_get_config,
-	 "bma150",
-	 EXT_SLAVE_TYPE_ACCELEROMETER,
-	 ACCEL_ID_BMA150,
-	 0x02,
-	 6,
-	 EXT_SLAVE_LITTLE_ENDIAN,
-	 {2, 0},
+	/*.init             = */ bma150_init,
+	/*.exit             = */ bma150_exit,
+	/*.suspend          = */ bma150_suspend,
+	/*.resume           = */ bma150_resume,
+	/*.read             = */ bma150_read,
+	/*.config           = */ bma150_config,
+	/*.get_config       = */ bma150_get_config,
+	/*.name             = */ "bma150",
+	/*.type             = */ EXT_SLAVE_TYPE_ACCELEROMETER,
+	/*.id               = */ ACCEL_ID_BMA150,
+	/*.reg              = */ 0x02,
+	/*.len              = */ 6,
+	/*.endian           = */ EXT_SLAVE_LITTLE_ENDIAN,
+	/*.range            = */ {2, 0},
 };
 
 struct ext_slave_descr *bma150_get_slave_descr(void)
@@ -515,3 +603,6 @@ MODULE_LICENSE("GPL");
 MODULE_ALIAS("bma");
 #endif
 
+/**
+ *  @}
+ */

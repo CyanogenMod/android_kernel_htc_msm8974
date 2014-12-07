@@ -49,7 +49,7 @@ int wimax_debugfs_add(struct wimax_dev *wimax_dev)
 	result = PTR_ERR(dentry);
 	if (IS_ERR(dentry)) {
 		if (result == -ENODEV)
-			result = 0;	
+			result = 0;	/* No debugfs support */
 		else
 			dev_err(dev, "Can't create debugfs dentry: %d\n",
 				result);

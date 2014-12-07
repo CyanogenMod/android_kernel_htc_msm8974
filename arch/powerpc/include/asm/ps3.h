@@ -39,6 +39,7 @@ union ps3_firmware_version {
 void ps3_get_firmware_version(union ps3_firmware_version *v);
 int ps3_compare_firmware_version(u16 major, u16 minor, u16 rev);
 
+/* 'Other OS' area */
 
 enum ps3_param_av_multi_out {
 	PS3_PARAM_AV_MULTI_OUT_NTSC = 0,
@@ -59,6 +60,7 @@ struct ps3_os_area_flash_ops {
 
 extern void ps3_os_area_flash_register(const struct ps3_os_area_flash_ops *ops);
 
+/* dma routines */
 
 enum ps3_dma_page_size {
 	PS3_DMA_4K = 12U,
@@ -74,10 +76,22 @@ enum ps3_dma_region_type {
 
 struct ps3_dma_region_ops;
 
+/**
+ * struct ps3_dma_region - A per device dma state variables structure
+ * @did: The HV device id.
+ * @page_size: The ioc pagesize.
+ * @region_type: The HV region type.
+ * @bus_addr: The 'translated' bus address of the region.
+ * @len: The length in bytes of the region.
+ * @offset: The offset from the start of memory of the region.
+ * @ioid: The IOID of the device who owns this region
+ * @chunk_list: Opaque variable used by the ioc page manager.
+ * @region_ops: struct ps3_dma_region_ops - dma region operations
+ */
 
 struct ps3_dma_region {
 	struct ps3_system_bus_device *dev;
-	
+	/* device variables */
 	const struct ps3_dma_region_ops *region_ops;
 	unsigned char ioid;
 	enum ps3_dma_page_size page_size;
@@ -85,7 +99,7 @@ struct ps3_dma_region {
 	unsigned long len;
 	unsigned long offset;
 
-	
+	/* driver variables  (set by ps3_dma_region_create) */
 	unsigned long bus_addr;
 	struct {
 		spinlock_t lock;
@@ -105,6 +119,12 @@ struct ps3_dma_region_ops {
 		     dma_addr_t bus_addr,
 		     unsigned long len);
 };
+/**
+ * struct ps3_dma_region_init - Helper to initialize structure variables
+ *
+ * Helper to properly initialize variables prior to calling
+ * ps3_system_bus_device_register.
+ */
 
 struct ps3_system_bus_device;
 
@@ -119,6 +139,7 @@ int ps3_dma_map(struct ps3_dma_region *r, unsigned long virt_addr,
 int ps3_dma_unmap(struct ps3_dma_region *r, dma_addr_t bus_addr,
 	unsigned long len);
 
+/* mmio routines */
 
 enum ps3_mmio_page_size {
 	PS3_MMIO_4K = 12U,
@@ -126,6 +147,11 @@ enum ps3_mmio_page_size {
 };
 
 struct ps3_mmio_region_ops;
+/**
+ * struct ps3_mmio_region - a per device mmio state variables structure
+ *
+ * Current systems can be supported with a single region per device.
+ */
 
 struct ps3_mmio_region {
 	struct ps3_system_bus_device *dev;
@@ -140,6 +166,12 @@ struct ps3_mmio_region_ops {
 	int (*create)(struct ps3_mmio_region *);
 	int (*free)(struct ps3_mmio_region *);
 };
+/**
+ * struct ps3_mmio_region_init - Helper to initialize structure variables
+ *
+ * Helper to properly initialize variables prior to calling
+ * ps3_system_bus_device_register.
+ */
 
 int ps3_mmio_region_init(struct ps3_system_bus_device *dev,
 	struct ps3_mmio_region *r, unsigned long bus_addr, unsigned long len,
@@ -148,6 +180,7 @@ int ps3_mmio_region_create(struct ps3_mmio_region *r);
 int ps3_free_mmio_region(struct ps3_mmio_region *r);
 unsigned long ps3_mm_phys_to_lpar(unsigned long phys_addr);
 
+/* inrerrupt routines */
 
 enum ps3_cpu_binding {
 	PS3_BINDING_CPU_ANY = -1,
@@ -177,10 +210,11 @@ int ps3_sb_event_receive_port_setup(struct ps3_system_bus_device *dev,
 int ps3_sb_event_receive_port_destroy(struct ps3_system_bus_device *dev,
 	unsigned int virq);
 
+/* lv1 result codes */
 
 enum lv1_result {
 	LV1_SUCCESS                     = 0,
-	
+	/* not used                       -1 */
 	LV1_RESOURCE_SHORTAGE           = -2,
 	LV1_NO_PRIVILEGE                = -3,
 	LV1_DENIED_BY_POLICY            = -4,
@@ -191,7 +225,7 @@ enum lv1_result {
 	LV1_BUSY                        = -9,
 	LV1_EMPTY                       = -10,
 	LV1_WRONG_STATE                 = -11,
-	
+	/* not used                       -12 */
 	LV1_NO_MATCH                    = -13,
 	LV1_ALREADY_CONNECTED           = -14,
 	LV1_UNSUPPORTED_PARAMETER_VALUE = -15,
@@ -278,6 +312,7 @@ static inline const char* ps3_result(int result)
 #endif
 }
 
+/* system bus routines */
 
 enum ps3_match_id {
 	PS3_MATCH_ID_EHCI		= 1,
@@ -318,31 +353,38 @@ enum ps3_system_bus_device_type {
 	PS3_DEVICE_TYPE_LPM,
 };
 
+/**
+ * struct ps3_system_bus_device - a device on the system bus
+ */
 
 struct ps3_system_bus_device {
 	enum ps3_match_id match_id;
 	enum ps3_match_sub_id match_sub_id;
 	enum ps3_system_bus_device_type dev_type;
 
-	u64 bus_id;                       
-	u64 dev_id;                       
-	unsigned int interrupt_id;        
-	struct ps3_dma_region *d_region;  
-	struct ps3_mmio_region *m_region; 
-	unsigned int port_number;         
-	struct {                          
+	u64 bus_id;                       /* SB */
+	u64 dev_id;                       /* SB */
+	unsigned int interrupt_id;        /* SB */
+	struct ps3_dma_region *d_region;  /* SB, IOC0 */
+	struct ps3_mmio_region *m_region; /* SB, IOC0*/
+	unsigned int port_number;         /* VUART */
+	struct {                          /* LPM */
 		u64 node_id;
 		u64 pu_id;
 		u64 rights;
 	} lpm;
 
+/*	struct iommu_table *iommu_table; -- waiting for BenH's cleanups */
 	struct device core;
-	void *driver_priv; 
+	void *driver_priv; /* private driver variables */
 };
 
 int ps3_open_hv_device(struct ps3_system_bus_device *dev);
 int ps3_close_hv_device(struct ps3_system_bus_device *dev);
 
+/**
+ * struct ps3_system_bus_driver - a driver for a device on the system bus
+ */
 
 struct ps3_system_bus_driver {
 	enum ps3_match_id match_id;
@@ -351,6 +393,8 @@ struct ps3_system_bus_driver {
 	int (*probe)(struct ps3_system_bus_device *);
 	int (*remove)(struct ps3_system_bus_device *);
 	int (*shutdown)(struct ps3_system_bus_device *);
+/*	int (*suspend)(struct ps3_system_bus_device *, pm_message_t); */
+/*	int (*resume)(struct ps3_system_bus_device *); */
 };
 
 int ps3_system_bus_device_register(struct ps3_system_bus_device *dev);
@@ -375,6 +419,11 @@ static inline struct ps3_system_bus_driver *
 	return ps3_drv_to_system_bus_drv(_dev->core.driver);
 }
 
+/**
+ * ps3_system_bus_set_drvdata -
+ * @dev: device structure
+ * @data: Data to set
+ */
 
 static inline void ps3_system_bus_set_drvdata(
 	struct ps3_system_bus_device *dev, void *data)
@@ -387,9 +436,11 @@ static inline void *ps3_system_bus_get_drvdata(
 	return dev_get_drvdata(&dev->core);
 }
 
+/* These two need global scope for get_dma_ops(). */
 
 extern struct bus_type ps3_system_bus_type;
 
+/* system manager */
 
 struct ps3_sys_manager_ops {
 	struct ps3_system_bus_device *dev;
@@ -414,13 +465,27 @@ struct ps3_prealloc {
 extern struct ps3_prealloc ps3fb_videomemory;
 extern struct ps3_prealloc ps3flash_bounce_buffer;
 
+/* logical performance monitor */
 
+/**
+ * enum ps3_lpm_rights - Rigths granted by the system policy module.
+ *
+ * @PS3_LPM_RIGHTS_USE_LPM: The right to use the lpm.
+ * @PS3_LPM_RIGHTS_USE_TB: The right to use the internal trace buffer.
+ */
 
 enum ps3_lpm_rights {
 	PS3_LPM_RIGHTS_USE_LPM = 0x001,
 	PS3_LPM_RIGHTS_USE_TB = 0x100,
 };
 
+/**
+ * enum ps3_lpm_tb_type - Type of trace buffer lv1 should use.
+ *
+ * @PS3_LPM_TB_TYPE_NONE: Do not use a trace buffer.
+ * @PS3_LPM_RIGHTS_USE_TB: Use the lv1 internal trace buffer.  Must have
+ *  rights @PS3_LPM_RIGHTS_USE_TB.
+ */
 
 enum ps3_lpm_tb_type {
 	PS3_LPM_TB_TYPE_NONE = 0,

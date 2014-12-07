@@ -25,7 +25,7 @@ static irqreturn_t puv3_ost0_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *c = dev_id;
 
-	
+	/* Disarm the compare/match, signal the event. */
 	writel(readl(OST_OIER) & ~OST_OIER_E0, OST_OIER);
 	writel(readl(OST_OSSR) & ~OST_OSSR_M0, OST_OSSR);
 	c->event_handler(c);
@@ -93,8 +93,8 @@ static struct irqaction puv3_timer_irq = {
 
 void __init time_init(void)
 {
-	writel(0, OST_OIER);		
-	writel(0, OST_OSSR);		
+	writel(0, OST_OIER);		/* disable any timer interrupts */
+	writel(0, OST_OSSR);		/* clear status on all timers */
 
 	clockevents_calc_mult_shift(&ckevt_puv3_osmr0, CLOCK_TICK_RATE, 5);
 
@@ -131,6 +131,9 @@ void puv3_timer_resume(void)
 	writel(osmr[3], OST_OSMR3);
 	writel(oier, OST_OIER);
 
+	/*
+	 * OSMR0 is the system timer: make sure OSCR is sufficiently behind
+	 */
 	writel(readl(OST_OSMR0) - LATCH, OST_OSCR);
 }
 #else

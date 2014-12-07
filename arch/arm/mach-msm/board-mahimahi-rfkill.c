@@ -45,7 +45,7 @@ static struct rfkill_ops mahimahi_rfkill_ops = {
 static int mahimahi_rfkill_probe(struct platform_device *pdev)
 {
 	int rc = 0;
-	bool default_state = true;  
+	bool default_state = true;  /* off */
 
 	rc = gpio_request(MAHIMAHI_GPIO_BT_RESET_N, "bt_reset");
 	if (rc)
@@ -65,7 +65,7 @@ static int mahimahi_rfkill_probe(struct platform_device *pdev)
 
 	rfkill_set_states(bt_rfk, default_state, false);
 
-	
+	/* userspace cannot take exclusive control */
 
 	rc = rfkill_register(bt_rfk);
 	if (rc)

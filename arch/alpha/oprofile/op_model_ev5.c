@@ -15,6 +15,12 @@
 #include "op_impl.h"
 
 
+/* Compute all of the registers in preparation for enabling profiling.
+
+   The 21164 (EV5) and 21164PC (PCA65) vary in the bit placement and
+   meaning of the "CBOX" events.  Given that we don't care about meaning
+   at this point, arrange for the difference in bit placement to be
+   handled by common code.  */
 
 static void
 common_reg_setup(struct op_register_config *reg,
@@ -24,6 +30,18 @@ common_reg_setup(struct op_register_config *reg,
 {
 	int i, ctl, reset, need_reset;
 
+	/* Select desired events.  The event numbers are selected such
+	   that they map directly into the event selection fields:
+
+		PCSEL0:	0, 1
+		PCSEL1:	24-39
+		 CBOX1: 40-47
+		PCSEL2: 48-63
+		 CBOX2: 64-71
+
+	   There are two special cases, in that CYCLES can be measured
+	   on PCSEL[02], and SCACHE_WRITE can be measured on CBOX[12].
+	   These event numbers are canonicalizes to their first appearance.  */
 
 	ctl = 0;
 	for (i = 0; i < 3; ++i) {
@@ -31,7 +49,7 @@ common_reg_setup(struct op_register_config *reg,
 		if (!ctr[i].enabled)
 			continue;
 
-		
+		/* Remap the duplicate events, as described above.  */
 		if (i == 2) {
 			if (event == 0)
 				event = 12+48;
@@ -39,11 +57,11 @@ common_reg_setup(struct op_register_config *reg,
 				event = 4+65;
 		}
 
-		
+		/* Convert the event numbers onto mux_select bit mask.  */
 		if (event < 2)
 			ctl |= event << 31;
 		else if (event < 24)
-			;
+			/* error */;
 		else if (event < 40)
 			ctl |= (event - 24) << 4;
 		else if (event < 48)
@@ -55,13 +73,19 @@ common_reg_setup(struct op_register_config *reg,
 	}
 	reg->mux_select = ctl;
 
-	
+	/* Select processor mode.  */
+	/* ??? Need to come up with some mechanism to trace only selected
+	   processes.  For now select from pal, kernel and user mode.  */
 	ctl = 0;
 	ctl |= !sys->enable_pal << 9;
 	ctl |= !sys->enable_kernel << 8;
 	ctl |= !sys->enable_user << 30;
 	reg->proc_mode = ctl;
 
+	/* Select interrupt frequencies.  Take the interrupt count selected
+	   by the user, and map it onto one of the possible counter widths.
+	   If the user value is in between, compute a value to which the
+	   counter is reset at each interrupt.  */
 
 	ctl = reset = need_reset = 0;
 	for (i = 0; i < 3; ++i) {
@@ -105,6 +129,7 @@ pca56_reg_setup(struct op_register_config *reg,
 	common_reg_setup(reg, ctr, sys, 8, 11);
 }
 
+/* Program all of the registers in preparation for enabling profiling.  */
 
 static void
 ev5_cpu_setup (void *x)
@@ -117,6 +142,17 @@ ev5_cpu_setup (void *x)
 	wrperfmon(6, reg->reset_values);
 }
 
+/* CTR is a counter for which the user has requested an interrupt count
+   in between one of the widths selectable in hardware.  Reset the count
+   for CTR to the value stored in REG->RESET_VALUES.
+
+   For EV5, this means disabling profiling, reading the current values,
+   masking in the value for the desired register, writing, then turning
+   profiling back on.
+
+   This can be streamlined if profiling is only enabled for user mode.
+   In that case we know that the counters are not currently incrementing
+   (due to being in kernel mode).  */
 
 static void
 ev5_reset_ctr(struct op_register_config *reg, unsigned long ctr)
@@ -148,7 +184,7 @@ static void
 ev5_handle_interrupt(unsigned long which, struct pt_regs *regs,
 		     struct op_counter_config *ctr)
 {
-	
+	/* Record the sample.  */
 	oprofile_add_sample(regs, which);
 }
 

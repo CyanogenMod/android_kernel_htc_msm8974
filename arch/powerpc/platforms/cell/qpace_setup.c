@@ -77,9 +77,12 @@ static int __init qpace_publish_devices(void)
 {
 	int node;
 
-	
+	/* Publish OF platform devices for southbridge IOs */
 	of_platform_bus_probe(NULL, qpace_bus_ids, NULL);
 
+	/* There is no device for the MIC memory controller, thus we create
+	 * a platform device for it to attach the EDAC driver to.
+	 */
 	for_each_online_node(node) {
 		if (cbe_get_cpu_mic_tm_regs(cbe_node_to_cpu(node)) == NULL)
 			continue;
@@ -107,7 +110,7 @@ static void __init qpace_setup_arch(void)
 	smp_init_cell();
 #endif
 
-	
+	/* init to some ~sane value until calibrate_delay() runs */
 	loops_per_jiffy = 50000000;
 
 	cbe_pervasive_init();

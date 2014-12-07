@@ -1,3 +1,5 @@
+/* internal Peripherals Register address define */
+/* CPU: H8/306x                                 */
 
 #if !defined(__REGS_H8S267x__)
 #define __REGS_H8S267x__ 
@@ -330,5 +332,5 @@
 #define RSTCSRW 0xFFFFBE
 #define RSTCSRR 0xFFFFBF
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __REGS_H8S267x__ */

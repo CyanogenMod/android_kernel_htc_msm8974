@@ -46,17 +46,33 @@ void __cpuinit calibrate_delay(void)
 	loops_per_jiffy = thread_freq_mhz * 1000000 / HZ;
 }
 
+/*
+ * setup_arch -  high level architectural setup routine
+ * @cmdline_p: pointer to pointer to command-line arguments
+ */
 
 void __init setup_arch(char **cmdline_p)
 {
 	char *p = &external_cmdline_buffer;
 
+	/*
+	 * These will eventually be pulled in via either some hypervisor
+	 * or devicetree description.  Hardwiring for now.
+	 */
 	pcycle_freq_mhz = 600;
 	thread_freq_mhz = 100;
 	sleep_clk_freq = 32000;
 
+	/*
+	 * Set up event bindings to handle exceptions and interrupts.
+	 */
 	__vmsetvec(_K_VM_event_vector);
 
+	/*
+	 * Simulator has a few differences from the hardware.
+	 * For now, check uninitialized-but-mapped memory
+	 * prior to invoking setup_arch_memory().
+	 */
 	if (*(int *)((unsigned long)_end + 8) == 0x1f1f1f1f)
 		on_simulator = 1;
 	else
@@ -68,6 +84,11 @@ void __init setup_arch(char **cmdline_p)
 		strlcpy(boot_command_line, default_command_line,
 			COMMAND_LINE_SIZE);
 
+	/*
+	 * boot_command_line and the value set up by setup_arch
+	 * are both picked up by the init code. If no reason to
+	 * make them different, pass the same pointer back.
+	 */
 	strlcpy(cmd_line, boot_command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = cmd_line;
 
@@ -80,6 +101,10 @@ void __init setup_arch(char **cmdline_p)
 #endif
 }
 
+/*
+ * Functions for dumping CPU info via /proc
+ * Probably should move to kernel/proc.c or something.
+ */
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
 	return *pos < nr_cpu_ids ? (void *)((unsigned long) *pos + 1) : NULL;
@@ -95,6 +120,10 @@ static void c_stop(struct seq_file *m, void *v)
 {
 }
 
+/*
+ * Eventually this will dump information about
+ * CPU properties like ISA level, TLB size, etc.
+ */
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	int cpu = (unsigned long) v - 1;

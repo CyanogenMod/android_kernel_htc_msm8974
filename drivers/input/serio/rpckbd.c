@@ -3,6 +3,9 @@
  *  Copyright (c) 2002 Russell King
  */
 
+/*
+ * Acorn RiscPC PS/2 keyboard controller driver for Linux/ARM
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -80,7 +83,7 @@ static int rpckbd_open(struct serio *port)
 {
 	struct rpckbd_data *rpckbd = port->port_data;
 
-	
+	/* Reset the keyboard state machine. */
 	iomd_writeb(0, IOMD_KCTRL);
 	iomd_writeb(8, IOMD_KCTRL);
 	iomd_readb(IOMD_KARTRX);
@@ -107,6 +110,10 @@ static void rpckbd_close(struct serio *port)
 	free_irq(rpckbd->tx_irq, port);
 }
 
+/*
+ * Allocate and initialize serio structure for subsequent registration
+ * with serio core.
+ */
 static int __devinit rpckbd_probe(struct platform_device *dev)
 {
 	struct rpckbd_data *rpckbd;

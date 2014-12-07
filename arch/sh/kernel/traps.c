@@ -21,7 +21,7 @@ static void handle_BUG(struct pt_regs *regs)
 
 	bug = find_bug(bugaddr);
 
-	
+	/* Switch unwinders when unwind_stack() is called */
 	if (bug->flags & BUGFLAG_UNWINDER)
 		unwinder_faulted = 1;
 
@@ -50,11 +50,14 @@ int is_valid_bugaddr(unsigned long addr)
 }
 #endif
 
+/*
+ * Generic trap handler.
+ */
 BUILD_TRAP_HANDLER(debug)
 {
 	TRAP_HANDLER_DECL;
 
-	
+	/* Rewind */
 	regs->pc -= instruction_size(__raw_readw(regs->pc - 4));
 
 	if (notify_die(DIE_TRAP, "debug trap", regs, 0, vec & 0xff,
@@ -64,11 +67,14 @@ BUILD_TRAP_HANDLER(debug)
 	force_sig(SIGTRAP, current);
 }
 
+/*
+ * Special handler for BUG() traps.
+ */
 BUILD_TRAP_HANDLER(bug)
 {
 	TRAP_HANDLER_DECL;
 
-	
+	/* Rewind */
 	regs->pc -= instruction_size(__raw_readw(regs->pc - 4));
 
 	if (notify_die(DIE_TRAP, "bug trap", regs, 0, TRAPA_BUG_OPCODE & 0xff,

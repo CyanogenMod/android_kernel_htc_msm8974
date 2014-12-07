@@ -7,4 +7,4 @@ struct sh_msiof_spi_info {
 	u16 num_chipselect;
 };
 
-#endif 
+#endif /* __SPI_SH_MSIOF_H__ */

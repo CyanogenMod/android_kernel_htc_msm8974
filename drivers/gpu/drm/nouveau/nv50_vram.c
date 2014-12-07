@@ -187,8 +187,8 @@ nv50_vram_init(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct nouveau_vram_engine *vram = &dev_priv->engine.vram;
-	const u32 rsvd_head = ( 256 * 1024) >> 12; 
-	const u32 rsvd_tail = (1024 * 1024) >> 12; 
+	const u32 rsvd_head = ( 256 * 1024) >> 12; /* vga memory */
+	const u32 rsvd_tail = (1024 * 1024) >> 12; /* vbios etc */
 	u32 pfb714 = nv_rd32(dev, 0x100714);
 	u32 rblock, length;
 
@@ -212,7 +212,7 @@ nv50_vram_init(struct drm_device *dev)
 	dev_priv->vram_size |= (dev_priv->vram_size & 0xff) << 32;
 	dev_priv->vram_size &= 0xffffffff00ULL;
 
-	
+	/* IGPs, no funky reordering happens here, they don't have VRAM */
 	if (dev_priv->chipset == 0xaa ||
 	    dev_priv->chipset == 0xac ||
 	    dev_priv->chipset == 0xaf) {

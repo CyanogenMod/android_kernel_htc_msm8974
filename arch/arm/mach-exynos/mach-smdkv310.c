@@ -46,6 +46,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define SMDKV310_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -130,7 +131,7 @@ static void lcd_lte480wv_set_power(struct plat_lcd_data *pd,
 		gpio_request_one(EXYNOS4_GPD0(1), GPIOF_OUT_INIT_HIGH, "GPD0");
 		gpio_free(EXYNOS4_GPD0(1));
 #endif
-		
+		/* fire nRESET on power up */
 		gpio_request_one(EXYNOS4_GPX0(6), GPIOF_OUT_INIT_HIGH, "GPX0");
 		mdelay(100);
 
@@ -213,7 +214,7 @@ static struct platform_device smdkv310_smsc911x = {
 };
 
 static uint32_t smdkv310_keymap[] __initdata = {
-	
+	/* KEY(row, col, keycode) */
 	KEY(0, 3, KEY_1), KEY(0, 4, KEY_2), KEY(0, 5, KEY_3),
 	KEY(0, 6, KEY_4), KEY(0, 7, KEY_5),
 	KEY(1, 3, KEY_A), KEY(1, 4, KEY_B), KEY(1, 5, KEY_C),
@@ -235,6 +236,7 @@ static struct i2c_board_info i2c_devs1[] __initdata = {
 	{I2C_BOARD_INFO("wm8994", 0x1a),},
 };
 
+/* USB EHCI */
 static struct s5p_ehci_platdata smdkv310_ehci_pdata;
 
 static void __init smdkv310_ehci_init(void)
@@ -244,6 +246,7 @@ static void __init smdkv310_ehci_init(void)
 	s5p_ehci_set_platdata(pdata);
 }
 
+/* USB OHCI */
 static struct exynos4_ohci_platdata smdkv310_ohci_pdata;
 
 static void __init smdkv310_ohci_init(void)
@@ -293,7 +296,7 @@ static void __init smdkv310_smsc911x_init(void)
 {
 	u32 cs1;
 
-	
+	/* configure nCS1 width to 16 bits */
 	cs1 = __raw_readl(S5P_SROM_BW) &
 		~(S5P_SROM_BW__CS_MASK << S5P_SROM_BW__NCS1__SHIFT);
 	cs1 |= ((1 << S5P_SROM_BW__DATAWIDTH__SHIFT) |
@@ -302,7 +305,7 @@ static void __init smdkv310_smsc911x_init(void)
 		S5P_SROM_BW__NCS1__SHIFT;
 	__raw_writel(cs1, S5P_SROM_BW);
 
-	
+	/* set timing for nCS1 suitable for ethernet chip */
 	__raw_writel((0x1 << S5P_SROM_BCX__PMC__SHIFT) |
 		     (0x9 << S5P_SROM_BCX__TACP__SHIFT) |
 		     (0xc << S5P_SROM_BCX__TCAH__SHIFT) |
@@ -312,6 +315,7 @@ static void __init smdkv310_smsc911x_init(void)
 		     (0x1 << S5P_SROM_BCX__TACS__SHIFT), S5P_SROM_BC1);
 }
 
+/* LCD Backlight data */
 static struct samsung_bl_gpio_info smdkv310_bl_gpio_info = {
 	.no = EXYNOS4_GPD0(1),
 	.func = S3C_GPIO_SFN(2),
@@ -324,7 +328,7 @@ static struct platform_pwm_backlight_data smdkv310_bl_data = {
 
 static void s5p_tv_setup(void)
 {
-	
+	/* direct HPD to HDMI chip */
 	WARN_ON(gpio_request_one(EXYNOS4_GPX3(7), GPIOF_IN, "hpd-plug"));
 	s3c_gpio_cfgpin(EXYNOS4_GPX3(7), S3C_GPIO_SFN(0x3));
 	s3c_gpio_setpull(EXYNOS4_GPX3(7), S3C_GPIO_PULL_NONE);
@@ -370,8 +374,8 @@ static void __init smdkv310_machine_init(void)
 }
 
 MACHINE_START(SMDKV310, "SMDKV310")
-	
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
+	/* Maintainer: Changhwan Youn <chaos.youn@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= smdkv310_map_io,
@@ -383,7 +387,7 @@ MACHINE_START(SMDKV310, "SMDKV310")
 MACHINE_END
 
 MACHINE_START(SMDKC210, "SMDKC210")
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= smdkv310_map_io,

@@ -46,4 +46,4 @@ extern unsigned short secureedge5410_ioport;
 #define SECUREEDGE_READ_IOPORT() \
 	 ((*SECUREEDGE_IOPORT_ADDR&0x0817) | (secureedge5410_ioport&~0x0817))
 
-#endif 
+#endif /* _ASM_SH_IO_SNAPGEAR_H */

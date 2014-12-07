@@ -78,14 +78,20 @@
  * This is 47 characters.
  */
 
+/*
+ * Whether or not the client has done the handshake.
+ * For now, we have just one protocol version.
+ */
 #define OCFS2_CONTROL_PROTO			"T01\n"
 #define OCFS2_CONTROL_PROTO_LEN			4
 
+/* Handshake states */
 #define OCFS2_CONTROL_HANDSHAKE_INVALID		(0)
 #define OCFS2_CONTROL_HANDSHAKE_READ		(1)
 #define OCFS2_CONTROL_HANDSHAKE_PROTOCOL	(2)
 #define OCFS2_CONTROL_HANDSHAKE_VALID		(3)
 
+/* Messages */
 #define OCFS2_CONTROL_MESSAGE_OP_LEN		4
 #define OCFS2_CONTROL_MESSAGE_SETNODE_OP	"SETN"
 #define OCFS2_CONTROL_MESSAGE_SETNODE_TOTAL_LEN	14
@@ -97,6 +103,10 @@
 #define OCFS2_CONTROL_MESSAGE_VERNUM_LEN	2
 #define OCFS2_CONTROL_MESSAGE_NODENUM_LEN	8
 
+/*
+ * ocfs2_live_connection is refcounted because the filesystem and
+ * miscdevice sides can detach in different order.  Let's just be safe.
+ */
 struct ocfs2_live_connection {
 	struct list_head		oc_list;
 	struct ocfs2_cluster_connection	*oc_conn;
@@ -109,6 +119,7 @@ struct ocfs2_control_private {
 	struct ocfs2_protocol_version op_proto;
 };
 
+/* SETN<space><8-char-hex-nodenum><newline> */
 struct ocfs2_control_message_setn {
 	char	tag[OCFS2_CONTROL_MESSAGE_OP_LEN];
 	char	space;
@@ -116,6 +127,7 @@ struct ocfs2_control_message_setn {
 	char	newline;
 };
 
+/* SETV<space><2-char-hex-major><space><2-char-hex-minor><newline> */
 struct ocfs2_control_message_setv {
 	char	tag[OCFS2_CONTROL_MESSAGE_OP_LEN];
 	char	space1;
@@ -125,6 +137,7 @@ struct ocfs2_control_message_setv {
 	char	newline;
 };
 
+/* DOWN<space><32-char-cap-hex-uuid><space><8-char-hex-nodenum><newline> */
 struct ocfs2_control_message_down {
 	char	tag[OCFS2_CONTROL_MESSAGE_OP_LEN];
 	char	space1;
@@ -180,6 +193,11 @@ static struct ocfs2_live_connection *ocfs2_connection_find(const char *name)
 	return NULL;
 }
 
+/*
+ * ocfs2_live_connection structures are created underneath the ocfs2
+ * mount path.  Since the VFS prevents multiple calls to
+ * fill_super(), we can't get dupes here.
+ */
 static int ocfs2_live_connection_new(struct ocfs2_cluster_connection *conn,
 				     struct ocfs2_live_connection **c_ret)
 {
@@ -211,6 +229,10 @@ static int ocfs2_live_connection_new(struct ocfs2_cluster_connection *conn,
 	return rc;
 }
 
+/*
+ * This function disconnects the cluster connection from ocfs2_control.
+ * Afterwards, userspace can't affect the cluster connection.
+ */
 static void ocfs2_live_connection_drop(struct ocfs2_live_connection *c)
 {
 	mutex_lock(&ocfs2_control_lock);
@@ -224,7 +246,7 @@ static void ocfs2_live_connection_drop(struct ocfs2_live_connection *c)
 static int ocfs2_control_cfu(void *target, size_t target_len,
 			     const char __user *buf, size_t count)
 {
-	
+	/* The T01 expects write(2) calls to have exactly one command */
 	if ((count != target_len) ||
 	    (count > sizeof(union ocfs2_control_message)))
 		return -EINVAL;
@@ -273,6 +295,13 @@ static void ocfs2_control_send_down(const char *uuid,
 	mutex_unlock(&ocfs2_control_lock);
 }
 
+/*
+ * Called whenever configuration elements are sent to /dev/ocfs2_control.
+ * If all configuration elements are present, try to set the global
+ * values.  If there is a problem, return an error.  Skip any missing
+ * elements, and only bump ocfs2_control_opened when we have all elements
+ * and are successful.
+ */
 static int ocfs2_control_install_private(struct file *file)
 {
 	int rc = 0;
@@ -310,7 +339,7 @@ out_unlock:
 	mutex_unlock(&ocfs2_control_lock);
 
 	if (!rc && set_p) {
-		
+		/* We set the global values successfully */
 		atomic_inc(&ocfs2_control_opened);
 		ocfs2_control_set_handshake_state(file,
 					OCFS2_CONTROL_HANDSHAKE_VALID);
@@ -393,6 +422,11 @@ static int ocfs2_control_do_setversion_msg(struct file *file,
 	if (!ptr || *ptr)
 		return -EINVAL;
 
+	/*
+	 * The major must be between 1 and 255, inclusive.  The minor
+	 * must be between 0 and 255, inclusive.  The version passed in
+	 * must be within the maximum version supported by the filesystem.
+	 */
 	if ((major == LONG_MIN) || (major == LONG_MAX) ||
 	    (major > (u8)-1) || (major < 1))
 		return -ERANGE;
@@ -448,7 +482,7 @@ static ssize_t ocfs2_control_message(struct file *file,
 	ssize_t ret;
 	union ocfs2_control_message msg;
 
-	
+	/* Try to catch padding issues */
 	WARN_ON(offsetof(struct ocfs2_control_message_down, uuid) !=
 		(sizeof(msg.u_down.tag) + sizeof(msg.u_down.space1)));
 
@@ -507,6 +541,10 @@ static ssize_t ocfs2_control_write(struct file *file,
 	return ret;
 }
 
+/*
+ * This is a naive version.  If we ever have a new protocol, we'll expand
+ * it.  Probably using seq_file.
+ */
 static ssize_t ocfs2_control_read(struct file *file,
 				  char __user *buf,
 				  size_t count,
@@ -517,7 +555,7 @@ static ssize_t ocfs2_control_read(struct file *file,
 	ret = simple_read_from_buffer(buf, count, ppos,
 			OCFS2_CONTROL_PROTO, OCFS2_CONTROL_PROTO_LEN);
 
-	
+	/* Have we read the whole protocol list? */
 	if (ret > 0 && *ppos >= OCFS2_CONTROL_PROTO_LEN)
 		ocfs2_control_set_handshake_state(file,
 						  OCFS2_CONTROL_HANDSHAKE_READ);
@@ -537,13 +575,17 @@ static int ocfs2_control_release(struct inode *inode, struct file *file)
 
 	if (atomic_dec_and_test(&ocfs2_control_opened)) {
 		if (!list_empty(&ocfs2_live_connection_list)) {
-			
+			/* XXX: Do bad things! */
 			printk(KERN_ERR
 			       "ocfs2: Unexpected release of ocfs2_control!\n"
 			       "       Loss of cluster connection requires "
 			       "an emergency restart!\n");
 			emergency_restart();
 		}
+		/*
+		 * Last valid close clears the node number and resets
+		 * the locking protocol version
+		 */
 		ocfs2_control_this_node = -1;
 		running_proto.pv_major = 0;
 		running_proto.pv_major = 0;
@@ -625,6 +667,15 @@ static void fsdlm_lock_ast_wrapper(void *astarg)
 	struct ocfs2_dlm_lksb *lksb = astarg;
 	int status = lksb->lksb_fsdlm.sb_status;
 
+	/*
+	 * For now we're punting on the issue of other non-standard errors
+	 * where we can't tell if the unlock_ast or lock_ast should be called.
+	 * The main "other error" that's possible is EINVAL which means the
+	 * function was called with invalid args, which shouldn't be possible
+	 * since the caller here is under our control.  Other non-standard
+	 * errors probably fall into the same category, or otherwise are fatal
+	 * which means we can't carry on anyway.
+	 */
 
 	if (status == -DLM_EUNLOCK || status == -DLM_ECANCEL)
 		lksb->lksb_conn->cc_proto->lp_unlock_ast(lksb, 0);
@@ -700,6 +751,17 @@ static int user_plock(struct ocfs2_cluster_connection *conn,
 		      int cmd,
 		      struct file_lock *fl)
 {
+	/*
+	 * This more or less just demuxes the plock request into any
+	 * one of three dlm calls.
+	 *
+	 * Internally, fs/dlm will pass these to a misc device, which
+	 * a userspace daemon will read and write to.
+	 *
+	 * For now, cancel requests (which happen internally only),
+	 * are turned into unlocks. Most of this function taken from
+	 * gfs2_lock.
+	 */
 
 	if (cmd == F_CANCELLK) {
 		cmd = F_SETLK;
@@ -714,6 +776,14 @@ static int user_plock(struct ocfs2_cluster_connection *conn,
 		return dlm_posix_lock(conn->cc_lockspace, ino, file, cmd, fl);
 }
 
+/*
+ * Compare a requested locking protocol version against the current one.
+ *
+ * If the major numbers are different, they are incompatible.
+ * If the current minor is greater than the request, they are incompatible.
+ * If the current minor is less than or equal to the request, they are
+ * compatible, and the requester should run at the current minor version.
+ */
 static int fs_protocol_compare(struct ocfs2_protocol_version *existing,
 			       struct ocfs2_protocol_version *request)
 {
@@ -741,6 +811,10 @@ static int user_cluster_connect(struct ocfs2_cluster_connection *conn)
 	if (rc)
 		goto out;
 
+	/*
+	 * running_proto must have been set before we allowed any mounts
+	 * to proceed.
+	 */
 	if (fs_protocol_compare(&running_proto, &conn->cc_version)) {
 		printk(KERN_ERR
 		       "Unable to mount with fs locking protocol version "

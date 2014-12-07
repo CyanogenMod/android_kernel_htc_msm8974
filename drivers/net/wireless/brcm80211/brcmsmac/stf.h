@@ -39,4 +39,4 @@ extern u16 brcms_c_stf_phytxchain_sel(struct brcms_c_info *wlc,
 extern u16 brcms_c_stf_d11hdrs_phyctl_txant(struct brcms_c_info *wlc,
 					u32 rspec);
 
-#endif				
+#endif				/* _BRCM_STF_H_ */

@@ -76,6 +76,9 @@
 #define READ  1
 
 
+/* use PIO for small transfers, avoiding DMA setup/teardown overhead and
+ * cache operations; better heuristics consider wordsize and bitrate.
+ */
 #define DMA_MIN_BYTES                   8
 
 #define SPI_RUNNING	0
@@ -84,17 +87,17 @@
 struct omap1_spi100k {
 	struct work_struct      work;
 
-	
+	/* lock protects queue and registers */
 	spinlock_t              lock;
 	struct list_head        msg_queue;
 	struct spi_master       *master;
 	struct clk              *ick;
 	struct clk              *fck;
 
-	
+	/* Virtual base address of the controller */
 	void __iomem            *base;
 
-	
+	/* State of the SPI */
 	unsigned int		state;
 };
 
@@ -117,7 +120,7 @@ static void spi100k_enable_clock(struct spi_master *master)
 	unsigned int val;
 	struct omap1_spi100k *spi100k = spi_master_get_devdata(master);
 
-	
+	/* enable SPI */
 	val = readw(spi100k->base + SPI_SETUP1);
 	val |= SPI_SETUP1_CLOCK_ENABLE;
 	writew(val, spi100k->base + SPI_SETUP1);
@@ -128,7 +131,7 @@ static void spi100k_disable_clock(struct spi_master *master)
 	unsigned int val;
 	struct omap1_spi100k *spi100k = spi_master_get_devdata(master);
 
-	
+	/* disable SPI */
 	val = readw(spi100k->base + SPI_SETUP1);
 	val &= ~SPI_SETUP1_CLOCK_ENABLE;
 	writew(val, spi100k->base + SPI_SETUP1);
@@ -138,7 +141,7 @@ static void spi100k_write_data(struct spi_master *master, int len, int data)
 {
 	struct omap1_spi100k *spi100k = spi_master_get_devdata(master);
 
-	
+	/* write 16-bit word, shifting 8-bit data if necessary */
 	if (len <= 8) {
 		data <<= 8;
 		len = 16;
@@ -152,7 +155,7 @@ static void spi100k_write_data(struct spi_master *master, int len, int data)
 	       SPI_CTRL_WR,
 	       spi100k->base + SPI_CTRL);
 
-	
+	/* Wait for bit ack send change */
 	while((readw(spi100k->base + SPI_STATUS) & SPI_STATUS_WE) != SPI_STATUS_WE);
 	udelay(1000);
 
@@ -164,7 +167,7 @@ static int spi100k_read_data(struct spi_master *master, int len)
 	int dataH,dataL;
 	struct omap1_spi100k *spi100k = spi_master_get_devdata(master);
 
-	
+	/* Always do at least 16 bits */
 	if (len <= 8)
 		len = 16;
 
@@ -186,14 +189,14 @@ static int spi100k_read_data(struct spi_master *master, int len)
 
 static void spi100k_open(struct spi_master *master)
 {
-	
+	/* get control of SPI */
 	struct omap1_spi100k *spi100k = spi_master_get_devdata(master);
 
 	writew(SPI_SETUP1_INT_READ_ENABLE |
 	       SPI_SETUP1_INT_WRITE_ENABLE |
 	       SPI_SETUP1_CLOCK_DIVISOR(0), spi100k->base + SPI_SETUP1);
 
-	
+	/* configure clock and interrupts */
 	writew(SPI_SETUP2_ACTIVE_EDGE_FALLING |
 	       SPI_SETUP2_NEGATIVE_LEVEL |
 	       SPI_SETUP2_LEVEL_TRIGGER, spi100k->base + SPI_SETUP2);
@@ -263,6 +266,7 @@ omap1_spi100k_txrx_pio(struct spi_device *spi, struct spi_transfer *xfer)
 	return count - c;
 }
 
+/* called only when no transfer is active to this device */
 static int omap1_spi100k_setup_transfer(struct spi_device *spi,
 		struct spi_transfer *t)
 {
@@ -279,7 +283,7 @@ static int omap1_spi100k_setup_transfer(struct spi_device *spi,
 		return -EINVAL;
 	cs->word_len = word_len;
 
-	
+	/* SPI init before transfer */
 	writew(0x3e , spi100k->base + SPI_SETUP1);
 	writew(0x00 , spi100k->base + SPI_STATUS);
 	writew(0x3e , spi100k->base + SPI_CTRL);
@@ -287,6 +291,7 @@ static int omap1_spi100k_setup_transfer(struct spi_device *spi,
 	return 0;
 }
 
+/* the spi->mode bits understood by this driver: */
 #define MODEBITS (SPI_CPOL | SPI_CPHA | SPI_CS_HIGH)
 
 static int omap1_spi100k_setup(struct spi_device *spi)
@@ -335,6 +340,12 @@ static void omap1_spi100k_work(struct work_struct *work)
 	clk_enable(spi100k->ick);
 	clk_enable(spi100k->fck);
 
+	/* We only enable one channel at a time -- the one whose message is
+	 * at the head of the queue -- although this controller would gladly
+	 * arbitrate among multiple channels.  This corresponds to "single
+	 * channel" master mode.  As a side effect, we need to manage the
+	 * chipselect with the FORCE bit ... CS != channel enable.
+	 */
 	 while (!list_empty(&spi100k->msg_queue)) {
 		struct spi_message              *m;
 		struct spi_device               *spi;
@@ -386,7 +397,7 @@ static void omap1_spi100k_work(struct work_struct *work)
 			if (t->delay_usecs)
 				udelay(t->delay_usecs);
 
-			
+			/* ignore the "leave it on after last xfer" hint */
 
 			if (t->cs_change) {
 				omap1_spi100k_force_cs(spi100k, 0);
@@ -394,7 +405,7 @@ static void omap1_spi100k_work(struct work_struct *work)
 			}
 		}
 
-		
+		/* Restore defaults if they were overriden */
 		if (par_override) {
 			par_override = 0;
 			status = omap1_spi100k_setup_transfer(spi, NULL);
@@ -428,11 +439,11 @@ static int omap1_spi100k_transfer(struct spi_device *spi, struct spi_message *m)
 
 	spi100k = spi_master_get_devdata(spi->master);
 
-	
+	/* Don't accept new work if we're shutting down */
 	if (spi100k->state == SPI_SHUTDOWN)
 		return -ESHUTDOWN;
 
-	
+	/* reject invalid messages and transfers */
 	if (list_empty(&m->transfers) || !m->complete)
 		return -EINVAL;
 
@@ -506,6 +517,11 @@ static int __devinit omap1_spi100k_probe(struct platform_device *pdev)
 	spi100k = spi_master_get_devdata(master);
 	spi100k->master = master;
 
+	/*
+	 * The memory region base address is taken as the platform_data.
+	 * You should allocate this with ioremap() before initializing
+	 * the SPI.
+	 */
 	spi100k->base = (void __iomem *) pdev->dev.platform_data;
 
 	INIT_WORK(&spi100k->work, omap1_spi100k_work);

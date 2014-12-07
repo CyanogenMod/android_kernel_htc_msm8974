@@ -29,9 +29,10 @@
 #include <linux/tpm.h>
 
 enum tpm_timeout {
-	TPM_TIMEOUT = 5,	
+	TPM_TIMEOUT = 5,	/* msecs */
 };
 
+/* TPM addresses */
 enum tpm_addr {
 	TPM_SUPERIO_ADDR = 0x2E,
 	TPM_ADDR = 0x4E,
@@ -71,8 +72,8 @@ struct tpm_vendor_specific {
 	const u8 req_complete_mask;
 	const u8 req_complete_val;
 	const u8 req_canceled;
-	void __iomem *iobase;		
-	unsigned long base;		
+	void __iomem *iobase;		/* ioremapped address */
+	unsigned long base;		/* TPM base address */
 
 	int irq;
 	int probed_irq;
@@ -89,9 +90,9 @@ struct tpm_vendor_specific {
 	struct attribute_group *attr_group;
 	struct list_head list;
 	int locality;
-	unsigned long timeout_a, timeout_b, timeout_c, timeout_d; 
+	unsigned long timeout_a, timeout_b, timeout_c, timeout_d; /* jiffies */
 	bool timeout_adjusted;
-	unsigned long duration[3]; 
+	unsigned long duration[3]; /* jiffies */
 	bool duration_adjusted;
 
 	wait_queue_head_t read_queue;
@@ -101,20 +102,20 @@ struct tpm_vendor_specific {
 #define TPM_VID_INTEL    0x8086
 
 struct tpm_chip {
-	struct device *dev;	
+	struct device *dev;	/* Device stuff */
 
-	int dev_num;		
-	unsigned long is_open;	
+	int dev_num;		/* /dev/tpm# */
+	unsigned long is_open;	/* only one allowed */
 	int time_expired;
 
-	
+	/* Data passed to and from the tpm via the read/write calls */
 	u8 *data_buffer;
 	atomic_t data_pending;
 	struct mutex buffer_mutex;
 
-	struct timer_list user_read_timer;	
+	struct timer_list user_read_timer;	/* user needs to claim result */
 	struct work_struct work;
-	struct mutex tpm_mutex;	
+	struct mutex tpm_mutex;	/* tpm is processing */
 
 	struct tpm_vendor_specific vendor;
 
@@ -243,7 +244,7 @@ struct	tpm_readpubek_params_out {
 	u8	encscheme[2];
 	u8	sigscheme[2];
 	__be32	paramsize;
-	u8	parameters[12]; 
+	u8	parameters[12]; /*assuming RSA*/
 	__be32	keysize;
 	u8	modulus[256];
 	u8	checksum[20];

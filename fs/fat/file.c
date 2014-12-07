@@ -114,6 +114,8 @@ long fat_generic_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return fat_ioctl_get_attributes(inode, user_attr);
 	case FAT_IOCTL_SET_ATTRIBUTES:
 		return fat_ioctl_set_attributes(filp, user_attr);
+	case FAT_IOCTL_MOVE_CLUSTERS:
+		return fat_ioctl_move_cluster(filp, (u32 __user *)arg);
 	default:
 		return -ENOTTY;	
 	}

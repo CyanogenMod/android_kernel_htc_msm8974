@@ -14,12 +14,21 @@
 #include <asm/mmu_context.h>
 #include <asm/r4kcache.h>
 
+/*
+ * MIPS32/MIPS64 L2 cache handling
+ */
 
+/*
+ * Writeback and invalidate the secondary cache before DMA.
+ */
 static void mips_sc_wback_inv(unsigned long addr, unsigned long size)
 {
 	blast_scache_range(addr, addr + size);
 }
 
+/*
+ * Invalidate the secondary cache before DMA.
+ */
 static void mips_sc_inv(unsigned long addr, unsigned long size)
 {
 	unsigned long lsize = cpu_scache_line_size();
@@ -32,12 +41,12 @@ static void mips_sc_inv(unsigned long addr, unsigned long size)
 
 static void mips_sc_enable(void)
 {
-	
+	/* L2 cache is permanently enabled */
 }
 
 static void mips_sc_disable(void)
 {
-	
+	/* L2 cache is permanently enabled */
 }
 
 static struct bcache_ops mips_sc_ops = {
@@ -47,12 +56,21 @@ static struct bcache_ops mips_sc_ops = {
 	.bc_inv = mips_sc_inv
 };
 
+/*
+ * Check if the L2 cache controller is activated on a particular platform.
+ * MTI's L2 controller and the L2 cache controller of Broadcom's BMIPS
+ * cores both use c0_config2's bit 12 as "L2 Bypass" bit, that is the
+ * cache being disabled.  However there is no guarantee for this to be
+ * true on all platforms.  In an act of stupidity the spec defined bits
+ * 12..15 as implementation defined so below function will eventually have
+ * to be replaced by a platform specific probe.
+ */
 static inline int mips_sc_is_activated(struct cpuinfo_mips *c)
 {
 	unsigned int config2 = read_c0_config2();
 	unsigned int tmp;
 
-	
+	/* Check the bypass bit (L2B) */
 	switch (c->cputype) {
 	case CPU_34K:
 	case CPU_74K:
@@ -76,17 +94,17 @@ static inline int __init mips_sc_probe(void)
 	unsigned int config1, config2;
 	unsigned int tmp;
 
-	
+	/* Mark as not present until probe completed */
 	c->scache.flags |= MIPS_CACHE_NOT_PRESENT;
 
-	
+	/* Ignore anything but MIPSxx processors */
 	if (c->isa_level != MIPS_CPU_ISA_M32R1 &&
 	    c->isa_level != MIPS_CPU_ISA_M32R2 &&
 	    c->isa_level != MIPS_CPU_ISA_M64R1 &&
 	    c->isa_level != MIPS_CPU_ISA_M64R2)
 		return 0;
 
-	
+	/* Does this MIPS32/MIPS64 CPU have a config2 register? */
 	config1 = read_c0_config1();
 	if (!(config1 & MIPS_CONF_M))
 		return 0;

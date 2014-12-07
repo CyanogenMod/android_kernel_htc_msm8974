@@ -17,7 +17,7 @@ static int flexcop_i2c_operation(struct flexcop_device *fc,
 	deb_i2c("r100 before: %08x\n",r100->raw);
 
 	fc->write_ibi_reg(fc, tw_sm_c_100, ibi_zero);
-	fc->write_ibi_reg(fc, tw_sm_c_100, *r100); 
+	fc->write_ibi_reg(fc, tw_sm_c_100, *r100); /* initiating i2c operation */
 
 	for (i = 0; i < FC_MAX_I2C_RETRIES; i++) {
 		r = fc->read_ibi_reg(fc, tw_sm_c_100);
@@ -43,9 +43,18 @@ static int flexcop_i2c_read4(struct flexcop_i2c_adapter *i2c,
 {
 	flexcop_ibi_value r104;
 	int len = r100.tw_sm_c_100.total_bytes,
-		
+		/* remember total_bytes is buflen-1 */
 		ret;
 
+	/* work-around to have CableStar2 and SkyStar2 rev 2.7 work
+	 * correctly:
+	 *
+	 * the ITD1000 is behind an i2c-gate which closes automatically
+	 * after an i2c-transaction the STV0297 needs 2 consecutive reads
+	 * one with no_base_addr = 0 and one with 1
+	 *
+	 * those two work-arounds are conflictin: we check for the card
+	 * type, it is set when probing the ITD1000 */
 	if (i2c->fc->dev_type == FC_SKY_REV27)
 		r100.tw_sm_c_100.no_base_addr_ack_error = i2c->no_base_addr;
 
@@ -66,7 +75,7 @@ static int flexcop_i2c_read4(struct flexcop_i2c_adapter *i2c,
 		r104 = i2c->fc->read_ibi_reg(i2c->fc, tw_sm_c_104);
 		deb_i2c("read: r100: %08x, r104: %08x\n", r100.raw, r104.raw);
 
-		
+		/* there is at least one more byte, otherwise we wouldn't be here */
 		buf[1] = r104.tw_sm_c_104.data2_reg;
 		if (len > 1) buf[2] = r104.tw_sm_c_104.data3_reg;
 		if (len > 2) buf[3] = r104.tw_sm_c_104.data4_reg;
@@ -78,10 +87,10 @@ static int flexcop_i2c_write4(struct flexcop_device *fc,
 		flexcop_ibi_value r100, u8 *buf)
 {
 	flexcop_ibi_value r104;
-	int len = r100.tw_sm_c_100.total_bytes; 
+	int len = r100.tw_sm_c_100.total_bytes; /* remember total_bytes is buflen-1 */
 	r104.raw = 0;
 
-	
+	/* there is at least one byte, otherwise we wouldn't be here */
 	r100.tw_sm_c_100.data1_reg = buf[0];
 	r104.tw_sm_c_104.data2_reg = len > 0 ? buf[1] : 0;
 	r104.tw_sm_c_104.data3_reg = len > 1 ? buf[2] : 0;
@@ -89,7 +98,7 @@ static int flexcop_i2c_write4(struct flexcop_device *fc,
 
 	deb_i2c("write: r100: %08x, r104: %08x\n", r100.raw, r104.raw);
 
-	
+	/* write the additional i2c data before doing the actual i2c operation */
 	fc->write_ibi_reg(fc, tw_sm_c_104, r104);
 	return flexcop_i2c_operation(fc, &r100);
 }
@@ -121,6 +130,9 @@ int flexcop_i2c_request(struct flexcop_i2c_adapter *i2c,
 	printk("%02x): %02x ", chipaddr, addr);
 #endif
 
+	/* in that case addr is the only value ->
+	 * we write it twice as baseaddr and val0
+	 * BBTI is doing it like that for ISL6421 at least */
 	if (i2c->no_base_addr && len == 0 && op == FC_WRITE) {
 		buf = &addr;
 		len = 1;
@@ -156,14 +168,20 @@ int flexcop_i2c_request(struct flexcop_i2c_adapter *i2c,
 
 	return 0;
 }
+/* exported for PCI i2c */
 EXPORT_SYMBOL(flexcop_i2c_request);
 
+/* master xfer callback for demodulator */
 static int flexcop_master_xfer(struct i2c_adapter *i2c_adap,
 		struct i2c_msg msgs[], int num)
 {
 	struct flexcop_i2c_adapter *i2c = i2c_get_adapdata(i2c_adap);
 	int i, ret = 0;
 
+	/* Some drivers use 1 byte or 0 byte reads as probes, which this
+	 * driver doesn't support.  These probes will always fail, so this
+	 * hack makes them always succeed.  If one knew how, it would of
+	 * course be better to actually do the read.  */
 	if (num == 1 && msgs[0].flags == I2C_M_RD && msgs[0].len <= 1)
 		return 1;
 
@@ -171,13 +189,13 @@ static int flexcop_master_xfer(struct i2c_adapter *i2c_adap,
 		return -ERESTARTSYS;
 
 	for (i = 0; i < num; i++) {
-		
+		/* reading */
 		if (i+1 < num && (msgs[i+1].flags == I2C_M_RD)) {
 			ret = i2c->fc->i2c_request(i2c, FC_READ, msgs[i].addr,
 					msgs[i].buf[0], msgs[i+1].buf,
 					msgs[i+1].len);
-			i++; 
-		} else 
+			i++; /* skip the following message */
+		} else /* writing */
 			ret = i2c->fc->i2c_request(i2c, FC_WRITE, msgs[i].addr,
 					msgs[i].buf[0], &msgs[i].buf[1],
 					msgs[i].len - 1);

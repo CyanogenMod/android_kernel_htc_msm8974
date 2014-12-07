@@ -15,8 +15,8 @@
 
 static struct resource shared_res[] = {
 	{
-		.start		= -1, 
-		.end		= -1, 
+		.start		= -1, /* filled at runtime */
+		.end		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 };
@@ -32,20 +32,20 @@ static int shared_device_registered;
 
 static struct resource enet0_res[] = {
 	{
-		.start		= -1, 
-		.end		= -1, 
+		.start		= -1, /* filled at runtime */
+		.end		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 	{
-		.start		= -1, 
+		.start		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 	{
-		.start		= -1, 
+		.start		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 	{
-		.start		= -1, 
+		.start		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 };
@@ -64,20 +64,20 @@ static struct platform_device bcm63xx_enet0_device = {
 
 static struct resource enet1_res[] = {
 	{
-		.start		= -1, 
-		.end		= -1, 
+		.start		= -1, /* filled at runtime */
+		.end		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 	{
-		.start		= -1, 
+		.start		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 	{
-		.start		= -1, 
+		.start		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 	{
-		.start		= -1, 
+		.start		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 };
@@ -139,14 +139,14 @@ int __init bcm63xx_enet_register(int unit,
 		pdev = &bcm63xx_enet1_device;
 	}
 
-	
+	/* copy given platform data */
 	dpd = pdev->dev.platform_data;
 	memcpy(dpd, pd, sizeof(*pd));
 
-	
+	/* adjust them in case internal phy is used */
 	if (dpd->use_internal_phy) {
 
-		
+		/* internal phy only exists for enet0 */
 		if (unit == 1)
 			return -ENODEV;
 

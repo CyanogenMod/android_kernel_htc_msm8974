@@ -14,17 +14,21 @@
 #include <asm/futex.h>
 #include <asm/errno.h>
 
+/*
+ * the various futex operations; MMU fault checking is ignored under no-MMU
+ * conditions
+ */
 static inline int atomic_futex_op_xchg_set(int oparg, u32 __user *uaddr, int *_oldval)
 {
 	int oldval, ret;
 
 	asm("0:						\n"
-	    "	orcc		gr0,gr0,gr0,icc3	\n"	
+	    "	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 	    "	ckeq		icc3,cc7		\n"
-	    "1:	ld.p		%M0,%1			\n"	
-	    "	orcr		cc7,cc7,cc3		\n"	
+	    "1:	ld.p		%M0,%1			\n"	/* LD.P/ORCR must be atomic */
+	    "	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 	    "2:	cst.p		%3,%M0		,cc3,#1	\n"
-	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* clear ICC3.Z if store happens */
 	    "	beq		icc3,#0,0b		\n"
 	    "	setlos		0,%2			\n"
 	    "3:						\n"
@@ -51,13 +55,13 @@ static inline int atomic_futex_op_xchg_add(int oparg, u32 __user *uaddr, int *_o
 	int oldval, ret;
 
 	asm("0:						\n"
-	    "	orcc		gr0,gr0,gr0,icc3	\n"	
+	    "	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 	    "	ckeq		icc3,cc7		\n"
-	    "1:	ld.p		%M0,%1			\n"	
-	    "	orcr		cc7,cc7,cc3		\n"	
+	    "1:	ld.p		%M0,%1			\n"	/* LD.P/ORCR must be atomic */
+	    "	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 	    "	add		%1,%3,%3		\n"
 	    "2:	cst.p		%3,%M0		,cc3,#1	\n"
-	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* clear ICC3.Z if store happens */
 	    "	beq		icc3,#0,0b		\n"
 	    "	setlos		0,%2			\n"
 	    "3:						\n"
@@ -84,13 +88,13 @@ static inline int atomic_futex_op_xchg_or(int oparg, u32 __user *uaddr, int *_ol
 	int oldval, ret;
 
 	asm("0:						\n"
-	    "	orcc		gr0,gr0,gr0,icc3	\n"	
+	    "	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 	    "	ckeq		icc3,cc7		\n"
-	    "1:	ld.p		%M0,%1			\n"	
-	    "	orcr		cc7,cc7,cc3		\n"	
+	    "1:	ld.p		%M0,%1			\n"	/* LD.P/ORCR must be atomic */
+	    "	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 	    "	or		%1,%3,%3		\n"
 	    "2:	cst.p		%3,%M0		,cc3,#1	\n"
-	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* clear ICC3.Z if store happens */
 	    "	beq		icc3,#0,0b		\n"
 	    "	setlos		0,%2			\n"
 	    "3:						\n"
@@ -117,13 +121,13 @@ static inline int atomic_futex_op_xchg_and(int oparg, u32 __user *uaddr, int *_o
 	int oldval, ret;
 
 	asm("0:						\n"
-	    "	orcc		gr0,gr0,gr0,icc3	\n"	
+	    "	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 	    "	ckeq		icc3,cc7		\n"
-	    "1:	ld.p		%M0,%1			\n"	
-	    "	orcr		cc7,cc7,cc3		\n"	
+	    "1:	ld.p		%M0,%1			\n"	/* LD.P/ORCR must be atomic */
+	    "	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 	    "	and		%1,%3,%3		\n"
 	    "2:	cst.p		%3,%M0		,cc3,#1	\n"
-	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* clear ICC3.Z if store happens */
 	    "	beq		icc3,#0,0b		\n"
 	    "	setlos		0,%2			\n"
 	    "3:						\n"
@@ -150,13 +154,13 @@ static inline int atomic_futex_op_xchg_xor(int oparg, u32 __user *uaddr, int *_o
 	int oldval, ret;
 
 	asm("0:						\n"
-	    "	orcc		gr0,gr0,gr0,icc3	\n"	
+	    "	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 	    "	ckeq		icc3,cc7		\n"
-	    "1:	ld.p		%M0,%1			\n"	
-	    "	orcr		cc7,cc7,cc3		\n"	
+	    "1:	ld.p		%M0,%1			\n"	/* LD.P/ORCR must be atomic */
+	    "	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 	    "	xor		%1,%3,%3		\n"
 	    "2:	cst.p		%3,%M0		,cc3,#1	\n"
-	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+	    "	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* clear ICC3.Z if store happens */
 	    "	beq		icc3,#0,0b		\n"
 	    "	setlos		0,%2			\n"
 	    "3:						\n"
@@ -178,6 +182,10 @@ static inline int atomic_futex_op_xchg_xor(int oparg, u32 __user *uaddr, int *_o
 	return ret;
 }
 
+/*****************************************************************************/
+/*
+ * do the futex operations
+ */
 int futex_atomic_op_inuser(int encoded_op, u32 __user *uaddr)
 {
 	int op = (encoded_op >> 28) & 7;
@@ -231,4 +239,4 @@ int futex_atomic_op_inuser(int encoded_op, u32 __user *uaddr)
 
 	return ret;
 
-} 
+} /* end futex_atomic_op_inuser() */

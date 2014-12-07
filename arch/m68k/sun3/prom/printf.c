@@ -4,6 +4,9 @@
  * Copyright (C) 1995 David S. Miller (davem@caip.rutgers.edu)
  */
 
+/* This routine is internal to the prom library, no one else should know
+ * about or use it!  It's simple and smelly anyway....
+ */
 
 #include <linux/kernel.h>
 

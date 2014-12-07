@@ -36,6 +36,11 @@ void bfin_pm_suspend_standby_enter(void)
 #ifdef SIC_IWR0
 	bfin_write_SIC_IWR0(IWR_DISABLE_ALL);
 # ifdef SIC_IWR1
+	/* BF52x system reset does not properly reset SIC_IWR1 which
+	 * will screw up the bootrom as it relies on MDMA0/1 waking it
+	 * up from IDLE instructions.  See this report for more info:
+	 * http://blackfin.uclinux.org/gf/tracker/4323
+	 */
 	if (ANOMALY_05000435)
 		bfin_write_SIC_IWR1(IWR_ENABLE(10) | IWR_ENABLE(11));
 	else
@@ -101,14 +106,14 @@ static void flushinv_all_dcache(void)
 					CSYNC();
 					status = bfin_read_DTEST_DATA0();
 
-					
+					/* only worry about valid/dirty entries */
 					if ((status & 0x3) != 0x3)
 						continue;
 
-					
+					/* construct the address using the tag */
 					addr = (status & 0xFFFFC800) | (subbank << 12) | (set << 5);
 
-					
+					/* flush it */
 					__asm__ __volatile__("FLUSHINV[%0];" : : "a"(addr));
 				}
 	}
@@ -154,7 +159,7 @@ int bfin_pm_suspend_mem_enter(void)
 	_disable_icplb();
 	bf53x_suspend_l1_mem(memptr);
 
-	do_hibernate(wakeup | vr_wakeup);	
+	do_hibernate(wakeup | vr_wakeup);	/* See you later! */
 
 	bf53x_resume_l1_mem(memptr);
 
@@ -169,15 +174,39 @@ int bfin_pm_suspend_mem_enter(void)
 	return 0;
 }
 
+/*
+ *	bfin_pm_valid - Tell the PM core that we only support the standby sleep
+ *			state
+ *	@state:		suspend state we're checking.
+ *
+ */
 static int bfin_pm_valid(suspend_state_t state)
 {
 	return (state == PM_SUSPEND_STANDBY
 #if !(defined(BF533_FAMILY) || defined(CONFIG_BF561))
+	/*
+	 * On BF533/2/1:
+	 * If we enter Hibernate the SCKE Pin is driven Low,
+	 * so that the SDRAM enters Self Refresh Mode.
+	 * However when the reset sequence that follows hibernate
+	 * state is executed, SCKE is driven High, taking the
+	 * SDRAM out of Self Refresh.
+	 *
+	 * If you reconfigure and access the SDRAM "very quickly",
+	 * you are likely to avoid errors, otherwise the SDRAM
+	 * start losing its contents.
+	 * An external HW workaround is possible using logic gates.
+	 */
 	|| state == PM_SUSPEND_MEM
 #endif
 	);
 }
 
+/*
+ *	bfin_pm_enter - Actually enter a sleep state.
+ *	@state:		State we're entering.
+ *
+ */
 static int bfin_pm_enter(suspend_state_t state)
 {
 	switch (state) {

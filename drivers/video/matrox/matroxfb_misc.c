@@ -108,7 +108,7 @@ void matroxfb_var2my(struct fb_var_screeninfo* var, struct my_timming* mt) {
 
 	DBG(__func__)
 
-	if (!pixclock) pixclock = 10000;	
+	if (!pixclock) pixclock = 10000;	/* 10ns = 100MHz */
 	mt->pixclock = 1000000000 / pixclock;
 	if (mt->pixclock < 1) mt->pixclock = 1;
 	mt->mnp = -1;
@@ -198,11 +198,11 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 	DBG(__func__)
 
 	hw->SEQ[0] = 0x00;
-	hw->SEQ[1] = 0x01;	
-	hw->SEQ[2] = 0x0F;	
+	hw->SEQ[1] = 0x01;	/* or 0x09 */
+	hw->SEQ[2] = 0x0F;	/* bitplanes */
 	hw->SEQ[3] = 0x00;
 	hw->SEQ[4] = 0x0E;
-	
+	/* CRTC 0..7, 9, 16..19, 21, 22 are reprogrammed by Matrox Millennium code... Hope that by MGA1064 too */
 	if (m->dblscan) {
 		m->VTotal <<= 1;
 		m->VDisplay <<= 1;
@@ -216,7 +216,7 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 		m->VSyncEnd >>= 1;
 	}
 
-	
+	/* GCTL is ignored when not using 0xA0000 aperture */
 	hw->GCTL[0] = 0x00;
 	hw->GCTL[1] = 0x00;
 	hw->GCTL[2] = 0x00;
@@ -227,7 +227,7 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 	hw->GCTL[7] = 0x0F;
 	hw->GCTL[8] = 0xFF;
 
-	
+	/* Whole ATTR is ignored in PowerGraphics mode */
 	for (i = 0; i < 16; i++)
 		hw->ATTR[i] = i;
 	hw->ATTR[16] = 0x41;
@@ -240,9 +240,9 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 	hs = m->HSyncStart >> 3;
 	he = m->HSyncEnd >> 3;
 	ht = m->HTotal >> 3;
-	
-	
-	
+	/* standard timmings are in 8pixels, but for interleaved we cannot */
+	/* do it for 4bpp (because of (4bpp >> 1(interleaved))/4 == 0) */
+	/* using 16 or more pixels per unit can save us */
 	divider = minfo->curr.final_bppShift;
 	while (divider & 3) {
 		hd >>= 1;
@@ -252,7 +252,7 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 		divider <<= 1;
 	}
 	divider = divider / 4;
-	
+	/* divider can be from 1 to 8 */
 	while (divider > 8) {
 		hd <<= 1;
 		hs <<= 1;
@@ -269,7 +269,7 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 	ve = m->VSyncEnd - 1;
 	vt = m->VTotal - 2;
 	lc = vd;
-	
+	/* G200 cannot work with (ht & 7) == 6 */
 	if (((ht & 0x07) == 0x06) || ((ht & 0x0F) == 0x04))
 		ht++;
 	hbe = ht;
@@ -286,15 +286,15 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 	}
 	hw->CRTCEXT[0] |=  (wd & 0x300) >> 4;
 	hw->CRTCEXT[1] = (((ht - 4) & 0x100) >> 8) |
-			  ((hd      & 0x100) >> 7) | 
-			  ((hs      & 0x100) >> 6) | 
-			   (hbe     & 0x040);	 
-	
+			  ((hd      & 0x100) >> 7) | /* blanking */
+			  ((hs      & 0x100) >> 6) | /* sync start */
+			   (hbe     & 0x040);	 /* end hor. blanking */
+	/* FIXME: Enable vidrst only on G400, and only if TV-out is used */
 	if (minfo->outputs[1].src == MATROXFB_SRC_CRTC1)
-		hw->CRTCEXT[1] |= 0x88;		
+		hw->CRTCEXT[1] |= 0x88;		/* enable horizontal and vertical vidrst */
 	hw->CRTCEXT[2] =  ((vt & 0xC00) >> 10) |
-			  ((vd & 0x400) >>  8) |	
-			  ((vd & 0xC00) >>  7) |	
+			  ((vd & 0x400) >>  8) |	/* disp end */
+			  ((vd & 0xC00) >>  7) |	/* vblanking start */
 			  ((vs & 0xC00) >>  5) |
 			  ((lc & 0x400) >>  3);
 	hw->CRTCEXT[3] = (divider - 1) | 0x80;
@@ -322,13 +322,13 @@ int matroxfb_vgaHWinit(struct matrox_fb_info *minfo, struct my_timming *m)
 		hw->CRTC[9] |= 0x80;
 	for (i = 10; i < 16; i++)
 		hw->CRTC[i] = 0x00;
-	hw->CRTC[16] = vs ;
+	hw->CRTC[16] = vs /* & 0xFF */;
 	hw->CRTC[17] = (ve & 0x0F) | 0x20;
-	hw->CRTC[18] = vd ;
-	hw->CRTC[19] = wd ;
+	hw->CRTC[18] = vd /* & 0xFF */;
+	hw->CRTC[19] = wd /* & 0xFF */;
 	hw->CRTC[20] = 0x00;
-	hw->CRTC[21] = vd ;
-	hw->CRTC[22] = (vt + 1) ;
+	hw->CRTC[21] = vd /* & 0xFF */;
+	hw->CRTC[22] = (vt + 1) /* & 0xFF */;
 	hw->CRTC[23] = 0xC3;
 	hw->CRTC[24] = lc;
 	return 0;
@@ -461,7 +461,7 @@ static void get_bios_output(unsigned char __iomem* vbios, struct matrox_bios* bd
 static void get_bios_tvout(unsigned char __iomem* vbios, struct matrox_bios* bd) {
 	unsigned int i;
 	
-	
+	/* Check for 'IBM .*(V....TVO' string - it means TVO BIOS */
 	bd->output.tvout = 0;
 	if (readb(vbios + 0x1D) != 'I' ||
 	    readb(vbios + 0x1E) != 'B' ||
@@ -496,6 +496,14 @@ static void parse_bios(unsigned char __iomem* vbios, struct matrox_bios* bd) {
 	get_bios_output(vbios, bd);
 	get_bios_tvout(vbios, bd);
 #if defined(__powerpc__)
+	/* On PowerPC cards, the PInS offset isn't stored at the end of the
+	 * BIOS image.  Instead, you must search the entire BIOS image for
+	 * the magic PInS signature.
+	 *
+	 * This actually applies to all OpenFirmware base cards.  Since these
+	 * cards could be put in a MIPS or SPARC system, should the condition
+	 * be something different?
+	 */
 	for ( pins_offset = 0 ; pins_offset <= 0xFF80 ; pins_offset++ ) {
 		unsigned char header[3];
 
@@ -534,7 +542,7 @@ static int parse_pins1(struct matrox_fb_info *minfo,
 	minfo->limits.pixel.vcomax = maxdac;
 	minfo->values.pll.system = get_unaligned_le16(bd->pins + 28) ?
 		get_unaligned_le16(bd->pins + 28) * 10 : 50000;
-	
+	/* ignore 4MB, 8MB, module clocks */
 	minfo->features.pll.ref_freq = 14318;
 	minfo->values.reg.mctlwtst	= 0x00030101;
 	return 0;
@@ -542,7 +550,7 @@ static int parse_pins1(struct matrox_fb_info *minfo,
 
 static void default_pins1(struct matrox_fb_info *minfo)
 {
-	
+	/* Millennium */
 	minfo->limits.pixel.vcomax	= 220000;
 	minfo->values.pll.system	=  50000;
 	minfo->features.pll.ref_freq	=  14318;
@@ -565,7 +573,7 @@ static int parse_pins2(struct matrox_fb_info *minfo,
 
 static void default_pins2(struct matrox_fb_info *minfo)
 {
-	
+	/* Millennium II, Mystique */
 	minfo->limits.pixel.vcomax	=
 	minfo->limits.system.vcomax	= 230000;
 	minfo->values.reg.mctlwtst	= 0x00030101;
@@ -580,7 +588,7 @@ static int parse_pins3(struct matrox_fb_info *minfo,
 	minfo->limits.system.vcomax	= (bd->pins[36] == 0xFF) ? 230000			: ((bd->pins[36] + 100) * 1000);
 	minfo->values.reg.mctlwtst	= get_unaligned_le32(bd->pins + 48) == 0xFFFFFFFF ?
 		0x01250A21 : get_unaligned_le32(bd->pins + 48);
-	
+	/* memory config */
 	minfo->values.reg.memrdbk	= ((bd->pins[57] << 21) & 0x1E000000) |
 					  ((bd->pins[57] << 22) & 0x00C00000) |
 					  ((bd->pins[56] <<  1) & 0x000001E0) |
@@ -593,7 +601,7 @@ static int parse_pins3(struct matrox_fb_info *minfo,
 
 static void default_pins3(struct matrox_fb_info *minfo)
 {
-	
+	/* G100, G200 */
 	minfo->limits.pixel.vcomax	=
 	minfo->limits.system.vcomax	= 230000;
 	minfo->values.reg.mctlwtst	= 0x01250A21;
@@ -624,7 +632,7 @@ static int parse_pins4(struct matrox_fb_info *minfo,
 
 static void default_pins4(struct matrox_fb_info *minfo)
 {
-	
+	/* G400 */
 	minfo->limits.pixel.vcomax	=
 	minfo->limits.system.vcomax	= 252000;
 	minfo->values.reg.mctlwtst	= 0x04A450A1;
@@ -674,7 +682,7 @@ static int parse_pins5(struct matrox_fb_info *minfo,
 
 static void default_pins5(struct matrox_fb_info *minfo)
 {
-	
+	/* Mine 16MB G450 with SDRAM DDR */
 	minfo->limits.pixel.vcomax	=
 	minfo->limits.system.vcomax	=
 	minfo->limits.video.vcomax	= 600000;
@@ -798,8 +806,8 @@ EXPORT_SYMBOL(matroxfb_DAC_in);
 EXPORT_SYMBOL(matroxfb_DAC_out);
 EXPORT_SYMBOL(matroxfb_var2my);
 EXPORT_SYMBOL(matroxfb_PLL_calcclock);
-EXPORT_SYMBOL(matroxfb_vgaHWinit);		
-EXPORT_SYMBOL(matroxfb_vgaHWrestore);		
+EXPORT_SYMBOL(matroxfb_vgaHWinit);		/* DAC1064, Ti3026 */
+EXPORT_SYMBOL(matroxfb_vgaHWrestore);		/* DAC1064, Ti3026 */
 EXPORT_SYMBOL(matroxfb_read_pins);
 
 MODULE_AUTHOR("(c) 1999-2002 Petr Vandrovec <vandrove@vc.cvut.cz>");

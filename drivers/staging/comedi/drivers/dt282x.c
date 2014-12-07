@@ -20,6 +20,41 @@
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
  */
+/*
+Driver: dt282x
+Description: Data Translation DT2821 series (including DT-EZ)
+Author: ds
+Devices: [Data Translation] DT2821 (dt2821),
+  DT2821-F-16SE (dt2821-f), DT2821-F-8DI (dt2821-f),
+  DT2821-G-16SE (dt2821-f), DT2821-G-8DI (dt2821-g),
+  DT2823 (dt2823),
+  DT2824-PGH (dt2824-pgh), DT2824-PGL (dt2824-pgl), DT2825 (dt2825),
+  DT2827 (dt2827), DT2828 (dt2828), DT21-EZ (dt21-ez), DT23-EZ (dt23-ez),
+  DT24-EZ (dt24-ez), DT24-EZ-PGL (dt24-ez-pgl)
+Status: complete
+Updated: Wed, 22 Aug 2001 17:11:34 -0700
+
+Configuration options:
+  [0] - I/O port base address
+  [1] - IRQ
+  [2] - DMA 1
+  [3] - DMA 2
+  [4] - AI jumpered for 0=single ended, 1=differential
+  [5] - AI jumpered for 0=straight binary, 1=2's complement
+  [6] - AO 0 jumpered for 0=straight binary, 1=2's complement
+  [7] - AO 1 jumpered for 0=straight binary, 1=2's complement
+  [8] - AI jumpered for 0=[-10,10]V, 1=[0,10], 2=[-5,5], 3=[0,5]
+  [9] - AO 0 jumpered for 0=[-10,10]V, 1=[0,10], 2=[-5,5], 3=[0,5],
+	4=[-2.5,2.5]
+  [10]- A0 1 jumpered for 0=[-10,10]V, 1=[0,10], 2=[-5,5], 3=[0,5],
+	4=[-2.5,2.5]
+
+Notes:
+  - AO commands might be broken.
+  - If you try to run a command on both the AI and AO subdevices
+    simultaneously, bad things will happen.  The driver needs to
+    be fixed to check for this situation and return an error.
+*/
 
 #include "../comedidev.h"
 
@@ -32,19 +67,26 @@
 
 #define DEBUG
 
-#define DT2821_TIMEOUT		100	
+#define DT2821_TIMEOUT		100	/* 500 us */
 #define DT2821_SIZE 0x10
 
+/*
+ *    Registers in the DT282x
+ */
 
-#define DT2821_ADCSR	0x00	
-#define DT2821_CHANCSR	0x02	
-#define DT2821_ADDAT	0x04	
-#define DT2821_DACSR	0x06	
-#define DT2821_DADAT	0x08	
-#define DT2821_DIODAT	0x0a	
-#define DT2821_SUPCSR	0x0c	
-#define DT2821_TMRCTR	0x0e	
+#define DT2821_ADCSR	0x00	/* A/D Control/Status             */
+#define DT2821_CHANCSR	0x02	/* Channel Control/Status */
+#define DT2821_ADDAT	0x04	/* A/D data                       */
+#define DT2821_DACSR	0x06	/* D/A Control/Status             */
+#define DT2821_DADAT	0x08	/* D/A data                       */
+#define DT2821_DIODAT	0x0a	/* digital data                   */
+#define DT2821_SUPCSR	0x0c	/* Supervisor Control/Status      */
+#define DT2821_TMRCTR	0x0e	/* Timer/Counter          */
 
+/*
+ *  At power up, some registers are in a well-known state.  The
+ *  masks and values are as follows:
+ */
 
 #define DT2821_ADCSR_MASK 0xfff0
 #define DT2821_ADCSR_VAL 0x7c00
@@ -61,51 +103,58 @@
 #define DT2821_TMRCTR_MASK 0xff00
 #define DT2821_TMRCTR_VAL 0xf000
 
+/*
+ *    Bit fields of each register
+ */
 
+/* ADCSR */
 
-#define DT2821_ADERR	0x8000	
-#define DT2821_ADCLK	0x0200	
-		
-#define DT2821_MUXBUSY	0x0100	
-#define DT2821_ADDONE	0x0080	
-#define DT2821_IADDONE	0x0040	
-		
-		
+#define DT2821_ADERR	0x8000	/* (R)   1 for A/D error  */
+#define DT2821_ADCLK	0x0200	/* (R/W) A/D clock enable */
+		/*      0x7c00           read as 1's            */
+#define DT2821_MUXBUSY	0x0100	/* (R)   multiplexer busy */
+#define DT2821_ADDONE	0x0080	/* (R)   A/D done         */
+#define DT2821_IADDONE	0x0040	/* (R/W) interrupt on A/D done    */
+		/*      0x0030           gain select            */
+		/*      0x000f           channel select         */
 
+/* CHANCSR */
 
-#define DT2821_LLE	0x8000	
-		
-		
-		
-		
+#define DT2821_LLE	0x8000	/* (R/W) Load List Enable */
+		/*      0x7000           read as 1's            */
+		/*      0x0f00     (R)   present address        */
+		/*      0x00f0           read as 1's            */
+		/*      0x000f     (R)   number of entries - 1  */
 
+/* DACSR */
 
-#define DT2821_DAERR	0x8000	
-#define DT2821_YSEL	0x0200	
-#define DT2821_SSEL	0x0100	
-#define DT2821_DACRDY	0x0080	
-#define DT2821_IDARDY	0x0040	
-#define DT2821_DACLK	0x0020	
-#define DT2821_HBOE	0x0002	
-#define DT2821_LBOE	0x0001	
+#define DT2821_DAERR	0x8000	/* (R)   D/A error                */
+#define DT2821_YSEL	0x0200	/* (R/W) DAC 1 select             */
+#define DT2821_SSEL	0x0100	/* (R/W) single channel select    */
+#define DT2821_DACRDY	0x0080	/* (R)   DAC ready                */
+#define DT2821_IDARDY	0x0040	/* (R/W) interrupt on DAC ready   */
+#define DT2821_DACLK	0x0020	/* (R/W) D/A clock enable */
+#define DT2821_HBOE	0x0002	/* (R/W) DIO high byte output enable      */
+#define DT2821_LBOE	0x0001	/* (R/W) DIO low byte output enable       */
 
+/* SUPCSR */
 
-#define DT2821_DMAD	0x8000	
-#define DT2821_ERRINTEN	0x4000	
-#define DT2821_CLRDMADNE 0x2000	
-#define DT2821_DDMA	0x1000	
-#define DT2821_DS1	0x0800	
-#define DT2821_DS0	0x0400	
-#define DT2821_BUFFB	0x0200	
-#define DT2821_SCDN	0x0100	
-#define DT2821_DACON	0x0080	
-#define DT2821_ADCINIT	0x0040	
-#define DT2821_DACINIT	0x0020	
-#define DT2821_PRLD	0x0010	
-#define DT2821_STRIG	0x0008	
-#define DT2821_XTRIG	0x0004	
-#define DT2821_XCLK	0x0002	
-#define DT2821_BDINIT	0x0001	
+#define DT2821_DMAD	0x8000	/* (R)   DMA done                 */
+#define DT2821_ERRINTEN	0x4000	/* (R/W) interrupt on error               */
+#define DT2821_CLRDMADNE 0x2000	/* (W)   clear DMA done                   */
+#define DT2821_DDMA	0x1000	/* (R/W) dual DMA                 */
+#define DT2821_DS1	0x0800	/* (R/W) DMA select 1                     */
+#define DT2821_DS0	0x0400	/* (R/W) DMA select 0                     */
+#define DT2821_BUFFB	0x0200	/* (R/W) buffer B selected                */
+#define DT2821_SCDN	0x0100	/* (R)   scan done                        */
+#define DT2821_DACON	0x0080	/* (W)   DAC single conversion            */
+#define DT2821_ADCINIT	0x0040	/* (W)   A/D initialize                   */
+#define DT2821_DACINIT	0x0020	/* (W)   D/A initialize                   */
+#define DT2821_PRLD	0x0010	/* (W)   preload multiplexer              */
+#define DT2821_STRIG	0x0008	/* (W)   software trigger         */
+#define DT2821_XTRIG	0x0004	/* (R/W) external trigger enable  */
+#define DT2821_XCLK	0x0002	/* (R/W) external clock enable            */
+#define DT2821_BDINIT	0x0001	/* (W)   initialize board         */
 
 static const struct comedi_lrange range_dt282x_ai_lo_bipolar = {
 	4, {
@@ -305,15 +354,15 @@ static const struct dt282x_board boardtypes[] = {
 #define this_board ((const struct dt282x_board *)dev->board_ptr)
 
 struct dt282x_private {
-	int ad_2scomp;		
-	int da0_2scomp;		
-	int da1_2scomp;		
+	int ad_2scomp;		/* we have 2's comp jumper set  */
+	int da0_2scomp;		/* same, for DAC0               */
+	int da1_2scomp;		/* same, for DAC1               */
 
 	const struct comedi_lrange *darangelist[2];
 
 	short ao[2];
 
-	volatile int dacsr;	
+	volatile int dacsr;	/* software copies of registers */
 	volatile int adcsr;
 	volatile int supcsr;
 
@@ -322,11 +371,11 @@ struct dt282x_private {
 
 	struct {
 		int chan;
-		short *buf;	
-		volatile int size;	
+		short *buf;	/* DMA buffer */
+		volatile int size;	/* size of current transfer */
 	} dma[2];
-	int dma_maxsize;	
-	int usedma;		
+	int dma_maxsize;	/* max size of DMA transfer (in bytes) */
+	int usedma;		/* driver uses DMA              */
 	volatile int current_dma_index;
 	int dma_dir;
 };
@@ -334,6 +383,9 @@ struct dt282x_private {
 #define devpriv ((struct dt282x_private *)dev->private)
 #define boardtype (*(const struct dt282x_board *)dev->board_ptr)
 
+/*
+ *    Some useless abstractions
+ */
 #define chan_to_DAC(a)	((a)&1)
 #define update_dacsr(a)	outw(devpriv->dacsr|(a), dev->iobase+DT2821_DACSR)
 #define update_adcsr(a)	outw(devpriv->adcsr|(a), dev->iobase+DT2821_ADCSR)
@@ -341,6 +393,10 @@ struct dt282x_private {
 #define ad_done() (inw(dev->iobase+DT2821_ADCSR)&DT2821_ADDONE)
 #define update_supcsr(a) outw(devpriv->supcsr|(a), dev->iobase+DT2821_SUPCSR)
 
+/*
+ *    danger! macro abuse... a is the expression to wait on, and b is
+ *      the statement(s) to execute if it doesn't happen.
+ */
 #define wait_for(a, b)						\
 	do {							\
 		int _i;						\
@@ -486,14 +542,14 @@ static void dt282x_ai_dma_interrupt(struct comedi_device *dev)
 		return;
 	}
 #if 0
-	
-	
+	/* clear the dual dma flag, making this the last dma segment */
+	/* XXX probably wrong */
 	if (!devpriv->ntrig) {
 		devpriv->supcsr &= ~(DT2821_DDMA);
 		update_supcsr(0);
 	}
 #endif
-	
+	/* restart the channel */
 	prep_ai_dma(dev, i, 0);
 }
 
@@ -622,6 +678,8 @@ static irqreturn_t dt282x_interrupt(int irq, void *d)
 	}
 #endif
 	comedi_event(dev, s);
+	/* printk("adcsr=0x%02x dacsr-0x%02x supcsr=0x%02x\n",
+		adcsr, dacsr, supcsr); */
 	return IRQ_RETVAL(handled);
 }
 
@@ -640,13 +698,19 @@ static void dt282x_load_changain(struct comedi_device *dev, int n,
 	outw(n - 1, dev->iobase + DT2821_CHANCSR);
 }
 
+/*
+ *    Performs a single A/D conversion.
+ *      - Put channel/gain into channel-gain list
+ *      - preload multiplexer
+ *      - trigger conversion and wait for it to finish
+ */
 static int dt282x_ai_insn_read(struct comedi_device *dev,
 			       struct comedi_subdevice *s,
 			       struct comedi_insn *insn, unsigned int *data)
 {
 	int i;
 
-	
+	/* XXX should we really be enabling the ad clock here? */
 	devpriv->adcsr = DT2821_ADCLK;
 	update_adcsr(0);
 
@@ -676,7 +740,7 @@ static int dt282x_ai_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -706,8 +770,12 @@ static int dt282x_ai_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
+	/*
+	 * step 2: make sure trigger sources are unique
+	 * and mutually compatible
+	 */
 
-	
+	/* note that mutual compatibility is not an issue here */
 	if (cmd->scan_begin_src != TRIG_FOLLOW &&
 	    cmd->scan_begin_src != TRIG_EXT)
 		err++;
@@ -717,28 +785,28 @@ static int dt282x_ai_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
 		err++;
 	}
 	if (cmd->scan_begin_src == TRIG_FOLLOW) {
-		
+		/* internal trigger */
 		if (cmd->scan_begin_arg != 0) {
 			cmd->scan_begin_arg = 0;
 			err++;
 		}
 	} else {
-		
-		
+		/* external trigger */
+		/* should be level/edge, hi/lo specification here */
 		if (cmd->scan_begin_arg != 0) {
 			cmd->scan_begin_arg = 0;
 			err++;
 		}
 	}
 	if (cmd->convert_arg < 4000) {
-		
+		/* XXX board dependent */
 		cmd->convert_arg = 4000;
 		err++;
 	}
@@ -756,9 +824,9 @@ static int dt282x_ai_cmdtest(struct comedi_device *dev,
 		err++;
 	}
 	if (cmd->stop_src == TRIG_COUNT) {
-		
+		/* any count is allowed */
 	} else {
-		
+		/* TRIG_NONE */
 		if (cmd->stop_arg != 0) {
 			cmd->stop_arg = 0;
 			err++;
@@ -768,7 +836,7 @@ static int dt282x_ai_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	tmp = cmd->convert_arg;
 	dt282x_ns_to_timer(&cmd->convert_arg, cmd->flags & TRIG_ROUND_MASK);
@@ -801,10 +869,10 @@ static int dt282x_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	outw(timer, dev->iobase + DT2821_TMRCTR);
 
 	if (cmd->scan_begin_src == TRIG_FOLLOW) {
-		
+		/* internal trigger */
 		devpriv->supcsr = DT2821_ERRINTEN | DT2821_DS0;
 	} else {
-		
+		/* external trigger */
 		devpriv->supcsr = DT2821_ERRINTEN | DT2821_DS0 | DT2821_DS1;
 	}
 	update_supcsr(DT2821_CLRDMADNE | DT2821_BUFFB | DT2821_ADCINIT);
@@ -894,6 +962,12 @@ static int dt282x_ns_to_timer(int *nanosec, int round_mode)
 	return (15 << 8) | (255 - divider);
 }
 
+/*
+ *    Analog output routine.  Selects single channel conversion,
+ *      selects correct channel, converts from 2's compliment to
+ *      offset binary if necessary, loads the data into the DAC
+ *      data register, and performs the conversion.
+ */
 static int dt282x_ao_insn_read(struct comedi_device *dev,
 			       struct comedi_subdevice *s,
 			       struct comedi_insn *insn, unsigned int *data)
@@ -918,7 +992,7 @@ static int dt282x_ao_insn_write(struct comedi_device *dev,
 	devpriv->dacsr |= DT2821_SSEL;
 
 	if (chan) {
-		
+		/* select channel */
 		devpriv->dacsr |= DT2821_YSEL;
 		if (devpriv->da0_2scomp)
 			d ^= (1 << (boardtype.dabits - 1));
@@ -943,7 +1017,7 @@ static int dt282x_ao_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_INT;
@@ -973,21 +1047,25 @@ static int dt282x_ao_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
+	/*
+	 * step 2: make sure trigger sources are unique
+	 * and mutually compatible
+	 */
 
-	
+	/* note that mutual compatibility is not an issue here */
 	if (cmd->stop_src != TRIG_COUNT && cmd->stop_src != TRIG_NONE)
 		err++;
 
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
 		err++;
 	}
-	if (cmd->scan_begin_arg < 5000 ) {
+	if (cmd->scan_begin_arg < 5000 /* XXX unknown */) {
 		cmd->scan_begin_arg = 5000;
 		err++;
 	}
@@ -996,14 +1074,14 @@ static int dt282x_ao_cmdtest(struct comedi_device *dev,
 		err++;
 	}
 	if (cmd->scan_end_arg > 2) {
-		
+		/* XXX chanlist stuff? */
 		cmd->scan_end_arg = 2;
 		err++;
 	}
 	if (cmd->stop_src == TRIG_COUNT) {
-		
+		/* any count is allowed */
 	} else {
-		
+		/* TRIG_NONE */
 		if (cmd->stop_arg != 0) {
 			cmd->stop_arg = 0;
 			err++;
@@ -1013,7 +1091,7 @@ static int dt282x_ao_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	tmp = cmd->scan_begin_arg;
 	dt282x_ns_to_timer(&cmd->scan_begin_arg, cmd->flags & TRIG_ROUND_MASK);
@@ -1186,13 +1264,27 @@ static const struct comedi_lrange *opt_ao_range_lkup(int x)
 	return ao_range_table[x];
 }
 
-enum {  
+enum {  /* i/o base, irq, dma channels */
 	opt_iobase = 0, opt_irq, opt_dma1, opt_dma2,
-	opt_diff,		
-	opt_ai_twos, opt_ao0_twos, opt_ao1_twos,	
-	opt_ai_range, opt_ao0_range, opt_ao1_range,	
+	opt_diff,		/* differential */
+	opt_ai_twos, opt_ao0_twos, opt_ao1_twos,	/* twos comp */
+	opt_ai_range, opt_ao0_range, opt_ao1_range,	/* range */
 };
 
+/*
+   options:
+   0	i/o base
+   1	irq
+   2	dma1
+   3	dma2
+   4	0=single ended, 1=differential
+   5	ai 0=straight binary, 1=2's comp
+   6	ao0 0=straight binary, 1=2's comp
+   7	ao1 0=straight binary, 1=2's comp
+   8	ai 0=±10 V, 1=0-10 V, 2=±5 V, 3=0-5 V
+   9	ao0 0=±10 V, 1=0-10 V, 2=±5 V, 3=0-5 V, 4=±2.5 V
+   10	ao1 0=±10 V, 1=0-10 V, 2=±5 V, 3=0-5 V, 4=±2.5 V
+ */
 static int dt282x_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 {
 	int i, irq;
@@ -1237,7 +1329,7 @@ static int dt282x_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		printk(KERN_ERR " board not found");
 		return -EIO;
 	}
-	
+	/* should do board test */
 
 	irq = it->options[opt_irq];
 #if 0
@@ -1249,13 +1341,13 @@ static int dt282x_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		sti();
 		irqs = probe_irq_on();
 
-		
+		/* trigger interrupt */
 
 		udelay(100);
 
 		irq = probe_irq_off(irqs);
 		restore_flags(flags);
-		if (0 )
+		if (0 /* error */)
 			printk(KERN_ERR " error probing irq (bad)");
 	}
 #endif
@@ -1293,7 +1385,7 @@ static int dt282x_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s = dev->subdevices + 0;
 
 	dev->read_subdev = s;
-	
+	/* ai subdevice */
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_CMD_READ |
 	    ((it->options[opt_diff]) ? SDF_DIFF : SDF_COMMON);
@@ -1313,7 +1405,7 @@ static int dt282x_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 	s->n_chan = boardtype.dachan;
 	if (s->n_chan) {
-		
+		/* ao subsystem */
 		s->type = COMEDI_SUBD_AO;
 		dev->write_subdev = s;
 		s->subdev_flags = SDF_WRITABLE | SDF_CMD_WRITE;
@@ -1336,7 +1428,7 @@ static int dt282x_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s++;
-	
+	/* dio subsystem */
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
 	s->n_chan = 16;

@@ -37,7 +37,7 @@
 #define SPITZ_SPK_ON    0
 #define SPITZ_SPK_OFF   1
 
- 
+ /* audio clock in Hz - rounded from 12.235MHz */
 #define SPITZ_AUDIO_CLOCK 12288000
 
 static int spitz_jack_func;
@@ -51,10 +51,10 @@ static void spitz_ext_control(struct snd_soc_dapm_context *dapm)
 	else
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk");
 
-	
+	/* set up jack connection */
 	switch (spitz_jack_func) {
 	case SPITZ_HP:
-		
+		/* enable and unmute hp jack, disable mic bias */
 		snd_soc_dapm_disable_pin(dapm, "Headset Jack");
 		snd_soc_dapm_disable_pin(dapm, "Mic Jack");
 		snd_soc_dapm_disable_pin(dapm, "Line Jack");
@@ -63,7 +63,7 @@ static void spitz_ext_control(struct snd_soc_dapm_context *dapm)
 		gpio_set_value(SPITZ_GPIO_MUTE_R, 1);
 		break;
 	case SPITZ_MIC:
-		
+		/* enable mic jack and bias, mute hp */
 		snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
 		snd_soc_dapm_disable_pin(dapm, "Headset Jack");
 		snd_soc_dapm_disable_pin(dapm, "Line Jack");
@@ -72,7 +72,7 @@ static void spitz_ext_control(struct snd_soc_dapm_context *dapm)
 		gpio_set_value(SPITZ_GPIO_MUTE_R, 0);
 		break;
 	case SPITZ_LINE:
-		
+		/* enable line jack, disable mic bias and mute hp */
 		snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
 		snd_soc_dapm_disable_pin(dapm, "Headset Jack");
 		snd_soc_dapm_disable_pin(dapm, "Mic Jack");
@@ -81,7 +81,7 @@ static void spitz_ext_control(struct snd_soc_dapm_context *dapm)
 		gpio_set_value(SPITZ_GPIO_MUTE_R, 0);
 		break;
 	case SPITZ_HEADSET:
-		
+		/* enable and unmute headset jack enable mic bias, mute L hp */
 		snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
 		snd_soc_dapm_enable_pin(dapm, "Mic Jack");
 		snd_soc_dapm_disable_pin(dapm, "Line Jack");
@@ -91,7 +91,7 @@ static void spitz_ext_control(struct snd_soc_dapm_context *dapm)
 		break;
 	case SPITZ_HP_OFF:
 
-		
+		/* jack removed, everything off */
 		snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
 		snd_soc_dapm_disable_pin(dapm, "Headset Jack");
 		snd_soc_dapm_disable_pin(dapm, "Mic Jack");
@@ -110,7 +110,7 @@ static int spitz_startup(struct snd_pcm_substream *substream)
 
 	mutex_lock(&codec->mutex);
 
-	
+	/* check the jack status at stream startup */
 	spitz_ext_control(&codec->dapm);
 
 	mutex_unlock(&codec->mutex);
@@ -141,13 +141,13 @@ static int spitz_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8750_SYSCLK, clk,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the I2S system clock as input (unused) */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, PXA2XX_I2S_SYSCLK, 0,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -208,34 +208,36 @@ static int spitz_mic_bias(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* spitz machine dapm widgets */
 static const struct snd_soc_dapm_widget wm8750_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone Jack", NULL),
 	SND_SOC_DAPM_MIC("Mic Jack", spitz_mic_bias),
 	SND_SOC_DAPM_SPK("Ext Spk", NULL),
 	SND_SOC_DAPM_LINE("Line Jack", NULL),
 
-	
+	/* headset is a mic and mono headphone */
 	SND_SOC_DAPM_HP("Headset Jack", NULL),
 };
 
+/* Spitz machine audio_map */
 static const struct snd_soc_dapm_route spitz_audio_map[] = {
 
-	
+	/* headphone connected to LOUT1, ROUT1 */
 	{"Headphone Jack", NULL, "LOUT1"},
 	{"Headphone Jack", NULL, "ROUT1"},
 
-	
+	/* headset connected to ROUT1 and LINPUT1 with bias (def below) */
 	{"Headset Jack", NULL, "ROUT1"},
 
-	
+	/* ext speaker connected to LOUT2, ROUT2  */
 	{"Ext Spk", NULL , "ROUT2"},
 	{"Ext Spk", NULL , "LOUT2"},
 
-	
+	/* mic is connected to input 1 - with bias */
 	{"LINPUT1", NULL, "Mic Bias"},
 	{"Mic Bias", NULL, "Mic Jack"},
 
-	
+	/* line is connected to input 1 - no bias */
 	{"LINPUT1", NULL, "Line Jack"},
 };
 
@@ -254,12 +256,15 @@ static const struct snd_kcontrol_new wm8750_spitz_controls[] = {
 		spitz_set_spk),
 };
 
+/*
+ * Logic for a wm8750 as connected on a Sharp SL-Cxx00 Device
+ */
 static int spitz_wm8750_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* NC codec pins */
 	snd_soc_dapm_nc_pin(dapm, "RINPUT1");
 	snd_soc_dapm_nc_pin(dapm, "LINPUT2");
 	snd_soc_dapm_nc_pin(dapm, "RINPUT2");
@@ -271,6 +276,7 @@ static int spitz_wm8750_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* spitz digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link spitz_dai = {
 	.name = "wm8750",
 	.stream_name = "WM8750",
@@ -284,6 +290,7 @@ static struct snd_soc_dai_link spitz_dai = {
 	.ops = &spitz_ops,
 };
 
+/* spitz audio machine driver */
 static struct snd_soc_card snd_soc_spitz = {
 	.name = "Spitz",
 	.owner = THIS_MODULE,

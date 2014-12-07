@@ -10,20 +10,23 @@
 #ifndef __UNICORE_HWDEF_COPRO_H__
 #define __UNICORE_HWDEF_COPRO_H__
 
-#define CR_M	(1 << 0)	
-#define CR_A	(1 << 1)	
-#define CR_D	(1 << 2)	
-#define CR_I	(1 << 3)	
-#define CR_B	(1 << 4)	
-#define CR_T	(1 << 5)	
-#define CR_V	(1 << 13)	
+/*
+ * Control Register bits (CP#0 CR1)
+ */
+#define CR_M	(1 << 0)	/* MMU enable				*/
+#define CR_A	(1 << 1)	/* Alignment abort enable		*/
+#define CR_D	(1 << 2)	/* Dcache enable			*/
+#define CR_I	(1 << 3)	/* Icache enable			*/
+#define CR_B	(1 << 4)	/* Dcache write mechanism: write back	*/
+#define CR_T	(1 << 5)	/* Burst enable				*/
+#define CR_V	(1 << 13)	/* Vectors relocated to 0xffff0000	*/
 
 #ifndef __ASSEMBLY__
 
 #define vectors_high()		(cr_alignment & CR_V)
 
-extern unsigned long cr_no_alignment;	
-extern unsigned long cr_alignment;	
+extern unsigned long cr_no_alignment;	/* defined in entry.S */
+extern unsigned long cr_alignment;	/* defined in entry.S */
 
 static inline unsigned int get_cr(void)
 {
@@ -40,6 +43,6 @@ static inline void set_cr(unsigned int val)
 
 extern void adjust_cr(unsigned long mask, unsigned long set);
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __UNICORE_HWDEF_COPRO_H__ */

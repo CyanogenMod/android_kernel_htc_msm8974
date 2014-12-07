@@ -30,6 +30,7 @@
 #include "aic94xx_sas.h"
 #include "aic94xx_hwi.h"
 
+/* ---------- Internal enqueue ---------- */
 
 static int asd_enqueue_internal(struct asd_ascb *ascb,
 		void (*tasklet_complete)(struct asd_ascb *,
@@ -53,6 +54,7 @@ static int asd_enqueue_internal(struct asd_ascb *ascb,
 	return res;
 }
 
+/* ---------- CLEAR NEXUS ---------- */
 
 struct tasklet_completion_status {
 	int	dl_opcode;
@@ -180,18 +182,20 @@ int asd_I_T_nexus_reset(struct domain_device *dev)
 {
 	int res, tmp_res, i;
 	struct sas_phy *phy = sas_get_local_phy(dev);
+	/* Standard mandates link reset for ATA  (type 0) and
+	 * hard reset for SSP (type 1) */
 	int reset_type = (dev->dev_type == SATA_DEV ||
 			  (dev->tproto & SAS_PROTOCOL_STP)) ? 0 : 1;
 
 	asd_clear_nexus_I_T(dev, NEXUS_PHASE_PRE);
-	
+	/* send a hard reset */
 	ASD_DPRINTK("sending %s reset to %s\n",
 		    reset_type ? "hard" : "soft", dev_name(&phy->dev));
 	res = sas_phy_reset(phy, reset_type);
 	if (res == TMF_RESP_FUNC_COMPLETE || res == -ENODEV) {
-		
+		/* wait for the maximum settle time */
 		msleep(500);
-		
+		/* clear all outstanding commands (keep nexus suspended) */
 		asd_clear_nexus_I_T(dev, NEXUS_PHASE_POST);
 	}
 	for (i = 0 ; i < 3; i++) {
@@ -201,6 +205,9 @@ int asd_I_T_nexus_reset(struct domain_device *dev)
 		msleep(500);
 	}
 
+	/* This is a bit of a problem:  the sequencer is still suspended
+	 * and is refusing to resume.  Hope it will resume on a bigger hammer
+	 * or the disk is lost */
 	dev_printk(KERN_ERR, &phy->dev,
 		   "Failed to resume nexus after reset 0x%x\n", tmp_res);
 
@@ -252,6 +259,7 @@ static int asd_clear_nexus_index(struct sas_task *task)
 	CLEAR_NEXUS_POST;
 }
 
+/* ---------- TMFs ---------- */
 
 static void asd_tmf_timedout(unsigned long data)
 {
@@ -298,7 +306,7 @@ static int asd_get_tmf_resp_tasklet(struct asd_ascb *ascb,
 	fh = edb->vaddr + 16;
 	ru = edb->vaddr + 16 + sizeof(*fh);
 	res = ru->status;
-	if (ru->datapres == 1)	  
+	if (ru->datapres == 1)	  /* Response data present */
 		res = ru->resp_data[3];
 #if 0
 	ascb->tag = fh->tag;
@@ -361,6 +369,39 @@ static int asd_clear_nexus(struct sas_task *task)
 	return res;
 }
 
+/**
+ * asd_abort_task -- ABORT TASK TMF
+ * @task: the task to be aborted
+ *
+ * Before calling ABORT TASK the task state flags should be ORed with
+ * SAS_TASK_STATE_ABORTED (unless SAS_TASK_STATE_DONE is set) under
+ * the task_state_lock IRQ spinlock, then ABORT TASK *must* be called.
+ *
+ * Implements the ABORT TASK TMF, I_T_L_Q nexus.
+ * Returns: SAS TMF responses (see sas_task.h),
+ *          -ENOMEM,
+ *          -SAS_QUEUE_FULL.
+ *
+ * When ABORT TASK returns, the caller of ABORT TASK checks first the
+ * task->task_state_flags, and then the return value of ABORT TASK.
+ *
+ * If the task has task state bit SAS_TASK_STATE_DONE set, then the
+ * task was completed successfully prior to it being aborted.  The
+ * caller of ABORT TASK has responsibility to call task->task_done()
+ * xor free the task, depending on their framework.  The return code
+ * is TMF_RESP_FUNC_FAILED in this case.
+ *
+ * Else the SAS_TASK_STATE_DONE bit is not set,
+ * 	If the return code is TMF_RESP_FUNC_COMPLETE, then
+ * 		the task was aborted successfully.  The caller of
+ * 		ABORT TASK has responsibility to call task->task_done()
+ *              to finish the task, xor free the task depending on their
+ *		framework.
+ *	else
+ * 		the ABORT TASK returned some kind of error. The task
+ *              was _not_ cancelled.  Nothing can be assumed.
+ *		The caller of ABORT TASK may wish to retry.
+ */
 int asd_abort_task(struct sas_task *task)
 {
 	struct asd_ascb *tascb = task->lldd_task;
@@ -397,10 +438,10 @@ int asd_abort_task(struct sas_task *task)
 	switch (task->task_proto) {
 	case SAS_PROTOCOL_SATA:
 	case SAS_PROTOCOL_STP:
-		scb->abort_task.proto_conn_rate = (1 << 5); 
+		scb->abort_task.proto_conn_rate = (1 << 5); /* STP */
 		break;
 	case SAS_PROTOCOL_SSP:
-		scb->abort_task.proto_conn_rate  = (1 << 4); 
+		scb->abort_task.proto_conn_rate  = (1 << 4); /* SSP */
 		scb->abort_task.proto_conn_rate |= task->dev->linkrate;
 		break;
 	case SAS_PROTOCOL_SMP:
@@ -450,25 +491,35 @@ int asd_abort_task(struct sas_task *task)
 	spin_unlock_irqrestore(&task->task_state_lock, flags);
 
 	if (tcs.dl_opcode == TC_SSP_RESP) {
+		/* The task to be aborted has been sent to the device.
+		 * We got a Response IU for the ABORT TASK TMF. */
 		if (tcs.tmf_state == TMF_RESP_FUNC_COMPLETE)
 			res = asd_clear_nexus(task);
 		else
 			res = tcs.tmf_state;
 	} else if (tcs.dl_opcode == TC_NO_ERROR &&
 		   tcs.tmf_state == TMF_RESP_FUNC_FAILED) {
-		
+		/* timeout */
 		res = TMF_RESP_FUNC_FAILED;
 	} else {
+		/* In the following we assume that the managing layer
+		 * will _never_ make a mistake, when issuing ABORT
+		 * TASK.
+		 */
 		switch (tcs.dl_opcode) {
 		default:
 			res = asd_clear_nexus(task);
-			
+			/* fallthrough */
 		case TC_NO_ERROR:
 			break;
+			/* The task hasn't been sent to the device xor
+			 * we never got a (sane) Response IU for the
+			 * ABORT TASK TMF.
+			 */
 		case TF_NAK_RECV:
 			res = TMF_RESP_INVALID_FRAME;
 			break;
-		case TF_TMF_TASK_DONE:	
+		case TF_TMF_TASK_DONE:	/* done but not reported yet */
 			res = TMF_RESP_FUNC_FAILED;
 			leftover =
 				wait_for_completion_timeout(&tascb_completion,
@@ -481,11 +532,11 @@ int asd_abort_task(struct sas_task *task)
 			spin_unlock_irqrestore(&task->task_state_lock, flags);
 			break;
 		case TF_TMF_NO_TAG:
-		case TF_TMF_TAG_FREE: 
-		case TF_TMF_NO_CONN_HANDLE: 
+		case TF_TMF_TAG_FREE: /* the tag is in the free list */
+		case TF_TMF_NO_CONN_HANDLE: /* no such device */
 			res = TMF_RESP_FUNC_COMPLETE;
 			break;
-		case TF_TMF_NO_CTX: 
+		case TF_TMF_NO_CTX: /* not in seq, or proto != SSP */
 			res = TMF_RESP_FUNC_ESUPP;
 			break;
 		}
@@ -506,6 +557,21 @@ int asd_abort_task(struct sas_task *task)
 	return res;
 }
 
+/**
+ * asd_initiate_ssp_tmf -- send a TMF to an I_T_L or I_T_L_Q nexus
+ * @dev: pointer to struct domain_device of interest
+ * @lun: pointer to u8[8] which is the LUN
+ * @tmf: the TMF to be performed (see sas_task.h or the SAS spec)
+ * @index: the transaction context of the task to be queried if QT TMF
+ *
+ * This function is used to send ABORT TASK SET, CLEAR ACA,
+ * CLEAR TASK SET, LU RESET and QUERY TASK TMFs.
+ *
+ * No SCBs should be queued to the I_T_L nexus when this SCB is
+ * pending.
+ *
+ * Returns: TMF response code (see sas_task.h or the SAS spec)
+ */
 static int asd_initiate_ssp_tmf(struct domain_device *dev, u8 *lun,
 				int tmf, int index)
 {
@@ -532,16 +598,16 @@ static int asd_initiate_ssp_tmf(struct domain_device *dev, u8 *lun,
 	else
 		scb->header.opcode = INITIATE_SSP_TMF;
 
-	scb->ssp_tmf.proto_conn_rate  = (1 << 4); 
+	scb->ssp_tmf.proto_conn_rate  = (1 << 4); /* SSP */
 	scb->ssp_tmf.proto_conn_rate |= dev->linkrate;
-	
+	/* SSP frame header */
 	scb->ssp_tmf.ssp_frame.frame_type = SSP_TASK;
 	memcpy(scb->ssp_tmf.ssp_frame.hashed_dest_addr,
 	       dev->hashed_sas_addr, HASHED_SAS_ADDR_SIZE);
 	memcpy(scb->ssp_tmf.ssp_frame.hashed_src_addr,
 	       dev->port->ha->hashed_sas_addr, HASHED_SAS_ADDR_SIZE);
 	scb->ssp_tmf.ssp_frame.tptt = cpu_to_be16(0xFFFF);
-	
+	/* SSP Task IU */
 	memcpy(scb->ssp_tmf.ssp_task.lun, lun, 8);
 	scb->ssp_tmf.ssp_task.tmf = tmf;
 
@@ -570,15 +636,15 @@ static int asd_initiate_ssp_tmf(struct domain_device *dev, u8 *lun,
 		res = TMF_RESP_FUNC_FAILED;
 		break;
 	case TF_TMF_NO_TAG:
-	case TF_TMF_TAG_FREE: 
-	case TF_TMF_NO_CONN_HANDLE: 
+	case TF_TMF_TAG_FREE: /* the tag is in the free list */
+	case TF_TMF_NO_CONN_HANDLE: /* no such device */
 		res = TMF_RESP_FUNC_COMPLETE;
 		break;
-	case TF_TMF_NO_CTX: 
+	case TF_TMF_NO_CTX: /* not in seq, or proto != SSP */
 		res = TMF_RESP_FUNC_ESUPP;
 		break;
 	default:
-		
+		/* Allow TMF response codes to propagate upwards */
 		res = tcs.dl_opcode;
 		break;
 	}
@@ -624,6 +690,16 @@ int asd_lu_reset(struct domain_device *dev, u8 *lun)
 	return res;
 }
 
+/**
+ * asd_query_task -- send a QUERY TASK TMF to an I_T_L_Q nexus
+ * task: pointer to sas_task struct of interest
+ *
+ * Returns: TMF_RESP_FUNC_COMPLETE if the task is not in the task set,
+ * or TMF_RESP_FUNC_SUCC if the task is in the task set.
+ *
+ * Normally the management layer sets the task to aborted state,
+ * and then calls query task and then abort task.
+ */
 int asd_query_task(struct sas_task *task)
 {
 	struct asd_ascb *ascb = task->lldd_task;

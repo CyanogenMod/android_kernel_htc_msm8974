@@ -46,14 +46,14 @@
 
 static const char speedtch_driver_name[] = "speedtch";
 
-#define CTRL_TIMEOUT 2000	
-#define DATA_TIMEOUT 2000	
+#define CTRL_TIMEOUT 2000	/* milliseconds */
+#define DATA_TIMEOUT 2000	/* milliseconds */
 
-#define OFFSET_7	0		
-#define OFFSET_b	1		
-#define OFFSET_d	9		
-#define OFFSET_e	13		
-#define OFFSET_f	14		
+#define OFFSET_7	0		/* size 1 */
+#define OFFSET_b	1		/* size 8 */
+#define OFFSET_d	9		/* size 4 */
+#define OFFSET_e	13		/* size 1 */
+#define OFFSET_f	14		/* size 1 */
 
 #define SIZE_7		1
 #define SIZE_b		8
@@ -61,10 +61,10 @@ static const char speedtch_driver_name[] = "speedtch";
 #define SIZE_e		1
 #define SIZE_f		1
 
-#define MIN_POLL_DELAY		5000	
-#define MAX_POLL_DELAY		60000	
+#define MIN_POLL_DELAY		5000	/* milliseconds */
+#define MAX_POLL_DELAY		60000	/* milliseconds */
 
-#define RESUBMIT_DELAY		1000	
+#define RESUBMIT_DELAY		1000	/* milliseconds */
 
 #define DEFAULT_BULK_ALTSETTING	1
 #define DEFAULT_ISOC_ALTSETTING	3
@@ -72,7 +72,7 @@ static const char speedtch_driver_name[] = "speedtch";
 #define DEFAULT_ENABLE_ISOC	0
 #define DEFAULT_SW_BUFFERING	0
 
-static unsigned int altsetting = 0; 
+static unsigned int altsetting = 0; /* zero means: use the default */
 static bool dl_512_first = DEFAULT_DL_512_FIRST;
 static bool enable_isoc = DEFAULT_ENABLE_ISOC;
 static bool sw_buffering = DEFAULT_SW_BUFFERING;
@@ -137,14 +137,14 @@ struct speedtch_params {
 struct speedtch_instance_data {
 	struct usbatm_data *usbatm;
 
-	struct speedtch_params params; 
+	struct speedtch_params params; /* set in probe, constant afterwards */
 
 	struct timer_list status_check_timer;
 	struct work_struct status_check_work;
 
 	unsigned char last_status;
 
-	int poll_delay; 
+	int poll_delay; /* milliseconds */
 
 	struct timer_list resubmit_timer;
 	struct urb *int_urb;
@@ -153,6 +153,9 @@ struct speedtch_instance_data {
 	unsigned char scratch_buffer[16];
 };
 
+/***************
+**  firmware  **
+***************/
 
 static void speedtch_set_swbuff(struct speedtch_instance_data *instance, int state)
 {
@@ -177,7 +180,7 @@ static void speedtch_test_sequence(struct speedtch_instance_data *instance)
 	unsigned char *buf = instance->scratch_buffer;
 	int ret;
 
-	
+	/* URB 147 */
 	buf[0] = 0x1c;
 	buf[1] = 0x50;
 	ret = usb_control_msg(usb_dev, usb_sndctrlpipe(usb_dev, 0),
@@ -185,7 +188,7 @@ static void speedtch_test_sequence(struct speedtch_instance_data *instance)
 	if (ret < 0)
 		usb_warn(usbatm, "%s failed on URB147: %d\n", __func__, ret);
 
-	
+	/* URB 148 */
 	buf[0] = 0x32;
 	buf[1] = 0x00;
 	ret = usb_control_msg(usb_dev, usb_sndctrlpipe(usb_dev, 0),
@@ -193,7 +196,7 @@ static void speedtch_test_sequence(struct speedtch_instance_data *instance)
 	if (ret < 0)
 		usb_warn(usbatm, "%s failed on URB148: %d\n", __func__, ret);
 
-	
+	/* URB 149 */
 	buf[0] = 0x01;
 	buf[1] = 0x00;
 	buf[2] = 0x01;
@@ -202,7 +205,7 @@ static void speedtch_test_sequence(struct speedtch_instance_data *instance)
 	if (ret < 0)
 		usb_warn(usbatm, "%s failed on URB149: %d\n", __func__, ret);
 
-	
+	/* URB 150 */
 	buf[0] = 0x01;
 	buf[1] = 0x00;
 	buf[2] = 0x01;
@@ -211,16 +214,19 @@ static void speedtch_test_sequence(struct speedtch_instance_data *instance)
 	if (ret < 0)
 		usb_warn(usbatm, "%s failed on URB150: %d\n", __func__, ret);
 
-	
+	/* Extra initialisation in recent drivers - gives higher speeds */
 
-	
+	/* URBext1 */
 	buf[0] = instance->params.ModemMode;
 	ret = usb_control_msg(usb_dev, usb_sndctrlpipe(usb_dev, 0),
 			      0x01, 0x40, 0x11, 0x00, buf, 1, CTRL_TIMEOUT);
 	if (ret < 0)
 		usb_warn(usbatm, "%s failed on URBext1: %d\n", __func__, ret);
 
-	
+	/* URBext2 */
+	/* This seems to be the one which actually triggers the higher sync
+	   rate -- it does require the new firmware too, although it works OK
+	   with older firmware */
 	ret = usb_control_msg(usb_dev, usb_sndctrlpipe(usb_dev, 0),
 			      0x01, 0x40, 0x14, 0x00,
 			      instance->params.ModemOption,
@@ -228,7 +234,7 @@ static void speedtch_test_sequence(struct speedtch_instance_data *instance)
 	if (ret < 0)
 		usb_warn(usbatm, "%s failed on URBext2: %d\n", __func__, ret);
 
-	
+	/* URBext3 */
 	buf[0] = instance->params.BMaxDSL & 0xff;
 	buf[1] = instance->params.BMaxDSL >> 8;
 	ret = usb_control_msg(usb_dev, usb_sndctrlpipe(usb_dev, 0),
@@ -262,8 +268,8 @@ static int speedtch_upload_firmware(struct speedtch_instance_data *instance,
 		goto out_free;
 	}
 
-	
-	if (dl_512_first) {	
+	/* URB 7 */
+	if (dl_512_first) {	/* some modems need a read before writing the firmware */
 		ret = usb_bulk_msg(usb_dev, usb_rcvbulkpipe(usb_dev, ENDPOINT_FIRMWARE),
 				   buffer, 0x200, &actual_length, 2000);
 
@@ -273,7 +279,7 @@ static int speedtch_upload_firmware(struct speedtch_instance_data *instance,
 			usb_dbg(usbatm, "%s: BLOCK0 downloaded (%d bytes)\n", __func__, ret);
 	}
 
-	
+	/* URB 8 : both leds are static green */
 	for (offset = 0; offset < fw1->size; offset += PAGE_SIZE) {
 		int thislen = min_t(int, PAGE_SIZE, fw1->size - offset);
 		memcpy(buffer, fw1->data + offset, thislen);
@@ -288,9 +294,9 @@ static int speedtch_upload_firmware(struct speedtch_instance_data *instance,
 		usb_dbg(usbatm, "%s: BLOCK1 uploaded (%zu bytes)\n", __func__, fw1->size);
 	}
 
-	
+	/* USB led blinking green, ADSL led off */
 
-	
+	/* URB 11 */
 	ret = usb_bulk_msg(usb_dev, usb_rcvbulkpipe(usb_dev, ENDPOINT_FIRMWARE),
 			   buffer, 0x200, &actual_length, DATA_TIMEOUT);
 
@@ -300,7 +306,7 @@ static int speedtch_upload_firmware(struct speedtch_instance_data *instance,
 	}
 	usb_dbg(usbatm, "%s: BLOCK2 downloaded (%d bytes)\n", __func__, actual_length);
 
-	
+	/* URBs 12 to 139 - USB led blinking green, ADSL led off */
 	for (offset = 0; offset < fw2->size; offset += PAGE_SIZE) {
 		int thislen = min_t(int, PAGE_SIZE, fw2->size - offset);
 		memcpy(buffer, fw2->data + offset, thislen);
@@ -315,9 +321,9 @@ static int speedtch_upload_firmware(struct speedtch_instance_data *instance,
 	}
 	usb_dbg(usbatm, "%s: BLOCK3 uploaded (%zu bytes)\n", __func__, fw2->size);
 
-	
+	/* USB led static green, ADSL led static red */
 
-	
+	/* URB 142 */
 	ret = usb_bulk_msg(usb_dev, usb_rcvbulkpipe(usb_dev, ENDPOINT_FIRMWARE),
 			   buffer, 0x200, &actual_length, DATA_TIMEOUT);
 
@@ -326,9 +332,11 @@ static int speedtch_upload_firmware(struct speedtch_instance_data *instance,
 		goto out_free;
 	}
 
-	
+	/* success */
 	usb_dbg(usbatm, "%s: BLOCK4 downloaded (%d bytes)\n", __func__, actual_length);
 
+	/* Delay to allow firmware to start up. We can do this here
+	   because we're in our own kernel thread anyway. */
 	msleep_interruptible(1000);
 
 	if ((ret = usb_set_interface(usb_dev, INTERFACE_DATA, instance->params.altsetting)) < 0) {
@@ -336,11 +344,11 @@ static int speedtch_upload_firmware(struct speedtch_instance_data *instance,
 		goto out_free;
 	}
 
-	
+	/* Enable software buffering, if requested */
 	if (sw_buffering)
 		speedtch_set_swbuff(instance, 1);
 
-	
+	/* Magic spell; don't ask us what this does */
 	speedtch_test_sequence(instance);
 
 	ret = 0;
@@ -407,6 +415,9 @@ static int speedtch_heavy_init(struct usbatm_data *usbatm, struct usb_interface 
 }
 
 
+/**********
+**  ATM  **
+**********/
 
 static int speedtch_read_status(struct speedtch_instance_data *instance)
 {
@@ -518,7 +529,7 @@ static void speedtch_check_status(struct work_struct *work)
 			atm_dev_signal_change(atm_dev, ATM_PHY_SIG_LOST);
 			if (instance->last_status)
 				atm_info(usbatm, "ADSL line is down\n");
-			
+			/* It may never resync again unless we ask it to... */
 			ret = speedtch_start_synchro(instance);
 			break;
 
@@ -567,7 +578,7 @@ static void speedtch_status_poll(unsigned long data)
 
 	schedule_work(&instance->status_check_work);
 
-	
+	/* The following check is racy, but the race is harmless */
 	if (instance->poll_delay < MAX_POLL_DELAY)
 		mod_timer(&instance->status_check_timer, jiffies + msecs_to_jiffies(instance->poll_delay));
 	else
@@ -601,9 +612,9 @@ static void speedtch_handle_int(struct urb *int_urb)
 	int status = int_urb->status;
 	int ret;
 
-	
+	/* The magic interrupt for "up state" */
 	static const unsigned char up_int[6]   = { 0xa1, 0x00, 0x01, 0x00, 0x00, 0x00 };
-	
+	/* The magic interrupt for "down state" */
 	static const unsigned char down_int[6] = { 0xa1, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
 	atm_dbg(usbatm, "%s entered\n", __func__);
@@ -653,7 +664,7 @@ static int speedtch_atm_start(struct usbatm_data *usbatm, struct atm_dev *atm_de
 
 	atm_dbg(usbatm, "%s entered\n", __func__);
 
-	
+	/* Set MAC address, it is stored in the serial number */
 	memset(atm_dev->esi, 0, sizeof(atm_dev->esi));
 	if (usb_string(usb_dev, usb_dev->descriptor.iSerialNumber, mac_str, sizeof(mac_str)) == 12) {
 		for (i = 0; i < 6; i++)
@@ -661,21 +672,21 @@ static int speedtch_atm_start(struct usbatm_data *usbatm, struct atm_dev *atm_de
 				hex_to_bin(mac_str[i * 2 + 1]);
 	}
 
-	
+	/* Start modem synchronisation */
 	ret = speedtch_start_synchro(instance);
 
-	
+	/* Set up interrupt endpoint */
 	if (instance->int_urb) {
 		ret = usb_submit_urb(instance->int_urb, GFP_KERNEL);
 		if (ret < 0) {
-			
+			/* Doesn't matter; we'll poll anyway */
 			atm_dbg(usbatm, "%s: submission of interrupt URB failed (%d)!\n", __func__, ret);
 			usb_free_urb(instance->int_urb);
 			instance->int_urb = NULL;
 		}
 	}
 
-	
+	/* Start status polling */
 	mod_timer(&instance->status_check_timer, jiffies + msecs_to_jiffies(1000));
 
 	return 0;
@@ -690,10 +701,19 @@ static void speedtch_atm_stop(struct usbatm_data *usbatm, struct atm_dev *atm_de
 
 	del_timer_sync(&instance->status_check_timer);
 
-	instance->int_urb = NULL; 
+	/*
+	 * Since resubmit_timer and int_urb can schedule themselves and
+	 * each other, shutting them down correctly takes some care
+	 */
+	instance->int_urb = NULL; /* signal shutdown */
 	mb();
 	usb_kill_urb(int_urb);
 	del_timer_sync(&instance->resubmit_timer);
+	/*
+	 * At this point, speedtch_handle_int and speedtch_resubmit_int
+	 * can run or be running, but instance->int_urb == NULL means that
+	 * they will not reschedule
+	 */
 	usb_kill_urb(int_urb);
 	del_timer_sync(&instance->resubmit_timer);
 	usb_free_urb(int_urb);
@@ -712,6 +732,9 @@ static int speedtch_post_reset(struct usb_interface *intf)
 }
 
 
+/**********
+**  USB  **
+**********/
 
 static struct usb_device_id speedtch_usb_ids[] = {
 	{USB_DEVICE(0x06b9, 0x4061)},
@@ -758,7 +781,7 @@ static int speedtch_bind(struct usbatm_data *usbatm,
 
 	usb_dbg(usbatm, "%s entered\n", __func__);
 
-	
+	/* sanity checks */
 
 	if (usb_dev->descriptor.bDeviceClass != USB_CLASS_VENDOR_SPEC) {
 		usb_err(usbatm, "%s: wrong device class %d\n", __func__, usb_dev->descriptor.bDeviceClass);
@@ -770,7 +793,7 @@ static int speedtch_bind(struct usbatm_data *usbatm,
 		return -ENODEV;
 	}
 
-	
+	/* claim all interfaces */
 
 	for (i = 0; i < num_interfaces; i++) {
 		cur_intf = usb_ifnum_to_if(usb_dev, i);
@@ -796,7 +819,7 @@ static int speedtch_bind(struct usbatm_data *usbatm,
 
 	instance->usbatm = usbatm;
 
-	
+	/* module parameters may change at any moment, so take a snapshot */
 	instance->params.altsetting = altsetting;
 	instance->params.BMaxDSL = BMaxDSL;
 	instance->params.ModemMode = ModemMode;
@@ -807,20 +830,20 @@ static int speedtch_bind(struct usbatm_data *usbatm,
 	if (instance->params.altsetting)
 		if ((ret = usb_set_interface(usb_dev, INTERFACE_DATA, instance->params.altsetting)) < 0) {
 			usb_err(usbatm, "%s: setting interface to %2d failed (%d)!\n", __func__, instance->params.altsetting, ret);
-			instance->params.altsetting = 0; 
+			instance->params.altsetting = 0; /* fall back to default */
 		}
 
 	if (!instance->params.altsetting && use_isoc)
 		if ((ret = usb_set_interface(usb_dev, INTERFACE_DATA, DEFAULT_ISOC_ALTSETTING)) < 0) {
 			usb_dbg(usbatm, "%s: setting interface to %2d failed (%d)!\n", __func__, DEFAULT_ISOC_ALTSETTING, ret);
-			use_isoc = 0; 
+			use_isoc = 0; /* fall back to bulk */
 		}
 
 	if (use_isoc) {
 		const struct usb_host_interface *desc = data_intf->cur_altsetting;
 		const __u8 target_address = USB_DIR_IN | usbatm->driver->isoc_in;
 
-		use_isoc = 0; 
+		use_isoc = 0; /* fall back to bulk if endpoint not found */
 
 		for (i = 0; i < desc->desc.bNumEndpoints; i++) {
 			const struct usb_endpoint_descriptor *endpoint_desc = &desc->endpoint[i].desc;
@@ -869,7 +892,7 @@ static int speedtch_bind(struct usbatm_data *usbatm,
 	else
 		usb_dbg(usbatm, "%s: no memory for interrupt urb!\n", __func__);
 
-	
+	/* check whether the modem already seems to be alive */
 	ret = usb_control_msg(usb_dev, usb_rcvctrlpipe(usb_dev, 0),
 			      0x12, 0xc0, 0x07, 0x00,
 			      instance->scratch_buffer + OFFSET_7, SIZE_7, 500);
@@ -909,6 +932,9 @@ static void speedtch_unbind(struct usbatm_data *usbatm, struct usb_interface *in
 }
 
 
+/***********
+**  init  **
+***********/
 
 static struct usbatm_driver speedtch_usbatm_driver = {
 	.driver_name	= speedtch_driver_name,

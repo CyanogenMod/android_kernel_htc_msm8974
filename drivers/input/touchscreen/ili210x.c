@@ -11,6 +11,7 @@
 #define MAX_TOUCHES		2
 #define DEFAULT_POLL_PERIOD	20
 
+/* Touchscreen commands */
 #define REG_TOUCHDATA		0x10
 #define REG_PANEL_INFO		0x20
 #define REG_FIRMWARE_VERSION	0x40
@@ -203,7 +204,7 @@ static int __devinit ili210x_i2c_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	
+	/* Get firmware version */
 	error = ili210x_read_reg(client, REG_FIRMWARE_VERSION,
 				 &firmware, sizeof(firmware));
 	if (error) {
@@ -212,7 +213,7 @@ static int __devinit ili210x_i2c_probe(struct i2c_client *client,
 		return error;
 	}
 
-	
+	/* get panel info */
 	error = ili210x_read_reg(client, REG_PANEL_INFO, &panel, sizeof(panel));
 	if (error) {
 		dev_err(dev, "Failed to get panel informations, err: %d\n",
@@ -236,7 +237,7 @@ static int __devinit ili210x_i2c_probe(struct i2c_client *client,
 	priv->poll_period = pdata->poll_period ? : DEFAULT_POLL_PERIOD;
 	INIT_DELAYED_WORK(&priv->dwork, ili210x_work);
 
-	
+	/* Setup input device */
 	input->name = "ILI210x Touchscreen";
 	input->id.bustype = BUS_I2C;
 	input->dev.parent = dev;
@@ -246,11 +247,11 @@ static int __devinit ili210x_i2c_probe(struct i2c_client *client,
 	__set_bit(EV_ABS, input->evbit);
 	__set_bit(BTN_TOUCH, input->keybit);
 
-	
+	/* Single touch */
 	input_set_abs_params(input, ABS_X, 0, xmax, 0, 0);
 	input_set_abs_params(input, ABS_Y, 0, ymax, 0, 0);
 
-	
+	/* Multi touch */
 	input_mt_init_slots(input, MAX_TOUCHES);
 	input_set_abs_params(input, ABS_MT_POSITION_X, 0, xmax, 0, 0);
 	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, ymax, 0, 0);

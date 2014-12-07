@@ -1,3 +1,4 @@
+/* L3/L4 protocol support for nf_conntrack. */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2006 Netfilter Core Team <coreteam@netfilter.org>
@@ -70,6 +71,8 @@ __nf_ct_l4proto_find(u_int16_t l3proto, u_int8_t l4proto)
 }
 EXPORT_SYMBOL_GPL(__nf_ct_l4proto_find);
 
+/* this is guaranteed to always return a valid protocol helper, since
+ * it falls back to generic_protocol */
 struct nf_conntrack_l3proto *
 nf_ct_l3proto_find_get(u_int16_t l3proto)
 {
@@ -114,6 +117,9 @@ void nf_ct_l3proto_module_put(unsigned short l3proto)
 {
 	struct nf_conntrack_l3proto *p;
 
+	/* rcu_read_lock not necessary since the caller holds a reference, but
+	 * taken anyways to avoid lockdep warnings in __nf_ct_l3proto_find()
+	 */
 	rcu_read_lock();
 	p = __nf_ct_l3proto_find(l3proto);
 	module_put(p->me);
@@ -229,7 +235,7 @@ void nf_conntrack_l3proto_unregister(struct nf_conntrack_l3proto *proto)
 
 	synchronize_rcu();
 
-	
+	/* Remove all contrack entries for this protocol */
 	rtnl_lock();
 	for_each_net(net)
 		nf_ct_iterate_cleanup(net, kill_l3proto, proto);
@@ -261,9 +267,9 @@ static int nf_ct_l4proto_register_sysctl(struct nf_conntrack_l4proto *l4proto)
 					l4proto->ctl_table,
 					l4proto->ctl_table_users);
 	}
-#endif 
+#endif /* CONFIG_NF_CONNTRACK_PROC_COMPAT */
 out:
-#endif 
+#endif /* CONFIG_SYSCTL */
 	return err;
 }
 
@@ -279,10 +285,12 @@ static void nf_ct_l4proto_unregister_sysctl(struct nf_conntrack_l4proto *l4proto
 	if (l4proto->ctl_compat_table_header != NULL)
 		nf_ct_unregister_sysctl(&l4proto->ctl_compat_table_header,
 					l4proto->ctl_compat_table, NULL);
-#endif 
-#endif 
+#endif /* CONFIG_NF_CONNTRACK_PROC_COMPAT */
+#endif /* CONFIG_SYSCTL */
 }
 
+/* FIXME: Allow NULL functions and sub in pointers to generic for
+   them. --RR */
 int nf_conntrack_l4proto_register(struct nf_conntrack_l4proto *l4proto)
 {
 	int ret = 0;
@@ -296,7 +304,7 @@ int nf_conntrack_l4proto_register(struct nf_conntrack_l4proto *l4proto)
 
 	mutex_lock(&nf_ct_proto_mutex);
 	if (!nf_ct_protos[l4proto->l3proto]) {
-		
+		/* l3proto may be loaded latter. */
 		struct nf_conntrack_l4proto __rcu **proto_array;
 		int i;
 
@@ -311,6 +319,9 @@ int nf_conntrack_l4proto_register(struct nf_conntrack_l4proto *l4proto)
 		for (i = 0; i < MAX_NF_CT_PROTO; i++)
 			RCU_INIT_POINTER(proto_array[i], &nf_conntrack_l4proto_generic);
 
+		/* Before making proto_array visible to lockless readers,
+		 * we must make sure its content is committed to memory.
+		 */
 		smp_wmb();
 
 		nf_ct_protos[l4proto->l3proto] = proto_array;
@@ -359,7 +370,7 @@ void nf_conntrack_l4proto_unregister(struct nf_conntrack_l4proto *l4proto)
 
 	synchronize_rcu();
 
-	
+	/* Remove all contrack entries for this protocol */
 	rtnl_lock();
 	for_each_net(net)
 		nf_ct_iterate_cleanup(net, kill_l4proto, l4proto);
@@ -388,7 +399,7 @@ void nf_conntrack_proto_fini(void)
 
 	nf_ct_l4proto_unregister_sysctl(&nf_conntrack_l4proto_generic);
 
-	
+	/* free l3proto protocol tables */
 	for (i = 0; i < PF_MAX; i++)
 		kfree(nf_ct_protos[i]);
 }

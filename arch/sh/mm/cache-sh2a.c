@@ -15,6 +15,11 @@
 #include <asm/cacheflush.h>
 #include <asm/io.h>
 
+/*
+ * The maximum number of pages we support up to when doing ranged dcache
+ * flushing. Anything exceeding this will simply flush the dcache in its
+ * entirety.
+ */
 #define MAX_OCACHE_PAGES	32
 #define MAX_ICACHE_PAGES	32
 
@@ -34,11 +39,14 @@ static void sh2a_flush_oc_line(unsigned long v, int way)
 
 static void sh2a_invalidate_line(unsigned long cache_addr, unsigned long v)
 {
-	
+	/* Set associative bit to hit all ways */
 	unsigned long addr = (v & 0x000007f0) | SH_CACHE_ASSOC;
 	__raw_writel((addr & CACHE_PHYSADDR_MASK), cache_addr | addr);
 }
 
+/*
+ * Write back the dirty D-caches, but not invalidate them.
+ */
 static void sh2a__flush_wback_region(void *start, int size)
 {
 #ifdef CONFIG_CACHE_WRITEBACK
@@ -55,7 +63,7 @@ static void sh2a__flush_wback_region(void *start, int size)
 	local_irq_save(flags);
 	jump_to_uncached();
 
-	
+	/* If there are too many pages then flush the entire cache */
 	if (((end - begin) >> PAGE_SHIFT) >= MAX_OCACHE_PAGES) {
 		begin = CACHE_OC_ADDRESS_ARRAY;
 		end = begin + (nr_ways * current_cpu_data.dcache.way_size);
@@ -78,6 +86,9 @@ static void sh2a__flush_wback_region(void *start, int size)
 #endif
 }
 
+/*
+ * Write back the dirty D-caches and invalidate them.
+ */
 static void sh2a__flush_purge_region(void *start, int size)
 {
 	unsigned long v;
@@ -105,6 +116,9 @@ static void sh2a__flush_purge_region(void *start, int size)
 	local_irq_restore(flags);
 }
 
+/*
+ * Invalidate the D-caches, but no write back please
+ */
 static void sh2a__flush_invalidate_region(void *start, int size)
 {
 	unsigned long v;
@@ -118,7 +132,7 @@ static void sh2a__flush_invalidate_region(void *start, int size)
 	local_irq_save(flags);
 	jump_to_uncached();
 
-	
+	/* If there are too many pages then just blow the cache */
 	if (((end - begin) >> PAGE_SHIFT) >= MAX_OCACHE_PAGES) {
 		__raw_writel(__raw_readl(CCR) | CCR_OCACHE_INVALIDATE, CCR);
 	} else {
@@ -130,6 +144,9 @@ static void sh2a__flush_invalidate_region(void *start, int size)
 	local_irq_restore(flags);
 }
 
+/*
+ * Write back the range of D-cache, and purge the I-cache.
+ */
 static void sh2a_flush_icache_range(void *args)
 {
 	struct flusher_data *data = args;
@@ -147,8 +164,8 @@ static void sh2a_flush_icache_range(void *args)
 	local_irq_save(flags);
 	jump_to_uncached();
 
-	
-	
+	/* I-Cache invalidate */
+	/* If there are too many pages then just blow the cache */
 	if (((end - start) >> PAGE_SHIFT) >= MAX_ICACHE_PAGES) {
 		__raw_writel(__raw_readl(CCR) | CCR_ICACHE_INVALIDATE, CCR);
 	} else {

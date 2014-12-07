@@ -46,7 +46,7 @@ static const void *carl9170_fw_find_desc(struct ar9170 *ar, const u8 descid[4],
 			return (void *)iter;
 	}
 
-	
+	/* needed to find the LAST desc */
 	if (carl9170fw_desc_cmp(iter, descid, len,
 				compatible_revision))
 		return (void *)iter;

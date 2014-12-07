@@ -36,9 +36,11 @@
 #include <linux/input.h>
 #include <linux/input/tca8418_keypad.h>
 
+/* TCA8418 hardware limits */
 #define TCA8418_MAX_ROWS	8
 #define TCA8418_MAX_COLS	10
 
+/* TCA8418 register offsets */
 #define REG_CFG			0x01
 #define REG_INT_STAT		0x02
 #define REG_KEY_LCK_EC		0x03
@@ -86,6 +88,7 @@
 #define REG_GPIO_PULL2		0x2D
 #define REG_GPIO_PULL3		0x2E
 
+/* TCA8418 bit definitions */
 #define CFG_AI			BIT(7)
 #define CFG_GPI_E_CFG		BIT(6)
 #define CFG_OVR_FLOW_M		BIT(5)
@@ -101,6 +104,7 @@
 #define INT_STAT_GPI_INT	BIT(1)
 #define INT_STAT_K_INT		BIT(0)
 
+/* TCA8418 register masks */
 #define KEY_LCK_EC_KEC		0x7
 #define KEY_EVENT_CODE		0x7f
 #define KEY_EVENT_VALUE		0x80
@@ -115,17 +119,20 @@ MODULE_DEVICE_TABLE(i2c, tca8418_id);
 struct tca8418_keypad {
 	unsigned int rows;
 	unsigned int cols;
-	unsigned int keypad_mask; 
+	unsigned int keypad_mask; /* Mask for keypad col/rol regs */
 	unsigned int irq;
 	unsigned int row_shift;
 
 	struct i2c_client *client;
 	struct input_dev *input;
 
-	
+	/* Flexible array member, must be at end of struct */
 	unsigned short keymap[];
 };
 
+/*
+ * Write a byte to the TCA8418
+ */
 static int tca8418_write_byte(struct tca8418_keypad *keypad_data,
 			      int reg, u8 val)
 {
@@ -142,6 +149,9 @@ static int tca8418_write_byte(struct tca8418_keypad *keypad_data,
 	return 0;
 }
 
+/*
+ * Read a byte from the TCA8418
+ */
 static int tca8418_read_byte(struct tca8418_keypad *keypad_data,
 			     int reg, u8 *val)
 {
@@ -165,10 +175,10 @@ static void tca8418_read_keypad(struct tca8418_keypad *keypad_data)
 	int error, col, row;
 	u8 reg, state, code;
 
-	
+	/* Initial read of the key event FIFO */
 	error = tca8418_read_byte(keypad_data, REG_KEY_EVENT_A, &reg);
 
-	
+	/* Assume that key code 0 signifies empty FIFO */
 	while (error >= 0 && reg > 0) {
 		state = reg & KEY_EVENT_VALUE;
 		code  = reg & KEY_EVENT_CODE;
@@ -184,7 +194,7 @@ static void tca8418_read_keypad(struct tca8418_keypad *keypad_data)
 		input_report_key(keypad_data->input,
 				keypad_data->keymap[code], state);
 
-		
+		/* Read for next loop */
 		error = tca8418_read_byte(keypad_data, REG_KEY_EVENT_A, &reg);
 	}
 
@@ -195,6 +205,9 @@ static void tca8418_read_keypad(struct tca8418_keypad *keypad_data)
 	input_sync(keypad_data->input);
 }
 
+/*
+ * Threaded IRQ handler and this can (and will) sleep.
+ */
 static irqreturn_t tca8418_irq_handler(int irq, void *dev_id)
 {
 	struct tca8418_keypad *keypad_data = dev_id;
@@ -215,7 +228,7 @@ static irqreturn_t tca8418_irq_handler(int irq, void *dev_id)
 		tca8418_read_keypad(keypad_data);
 
 exit:
-	
+	/* Clear all interrupts, even IRQs we didn't check (GPI, CAD, LCK) */
 	reg = 0xff;
 	error = tca8418_write_byte(keypad_data, REG_INT_STAT, reg);
 	if (error)
@@ -225,28 +238,31 @@ exit:
 	return IRQ_HANDLED;
 }
 
+/*
+ * Configure the TCA8418 for keypad operation
+ */
 static int __devinit tca8418_configure(struct tca8418_keypad *keypad_data)
 {
 	int reg, error;
 
-	
+	/* Write config register, if this fails assume device not present */
 	error = tca8418_write_byte(keypad_data, REG_CFG,
 				CFG_INT_CFG | CFG_OVR_FLOW_IEN | CFG_KE_IEN);
 	if (error < 0)
 		return -ENODEV;
 
 
-	
+	/* Assemble a mask for row and column registers */
 	reg  =  ~(~0 << keypad_data->rows);
 	reg += (~(~0 << keypad_data->cols)) << 8;
 	keypad_data->keypad_mask = reg;
 
-	
+	/* Set registers to keypad mode */
 	error |= tca8418_write_byte(keypad_data, REG_KP_GPIO1, reg);
 	error |= tca8418_write_byte(keypad_data, REG_KP_GPIO2, reg >> 8);
 	error |= tca8418_write_byte(keypad_data, REG_KP_GPIO3, reg >> 16);
 
-	
+	/* Enable column debouncing */
 	error |= tca8418_write_byte(keypad_data, REG_DEBOUNCE_DIS1, reg);
 	error |= tca8418_write_byte(keypad_data, REG_DEBOUNCE_DIS2, reg >> 8);
 	error |= tca8418_write_byte(keypad_data, REG_DEBOUNCE_DIS3, reg >> 16);
@@ -263,7 +279,7 @@ static int __devinit tca8418_keypad_probe(struct i2c_client *client,
 	struct input_dev *input;
 	int error, row_shift, max_keys;
 
-	
+	/* Copy the platform data */
 	if (!pdata) {
 		dev_dbg(&client->dev, "no platform data\n");
 		return -EINVAL;
@@ -284,7 +300,7 @@ static int __devinit tca8418_keypad_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	
+	/* Check i2c driver capabilities */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE)) {
 		dev_err(&client->dev, "%s adapter not supported\n",
 			dev_driver_string(&client->adapter->dev));
@@ -294,7 +310,7 @@ static int __devinit tca8418_keypad_probe(struct i2c_client *client,
 	row_shift = get_count_order(pdata->cols);
 	max_keys = pdata->rows << row_shift;
 
-	
+	/* Allocate memory for keypad_data, keymap and input device */
 	keypad_data = kzalloc(sizeof(*keypad_data) +
 			max_keys * sizeof(keypad_data->keymap[0]), GFP_KERNEL);
 	if (!keypad_data)
@@ -305,12 +321,12 @@ static int __devinit tca8418_keypad_probe(struct i2c_client *client,
 	keypad_data->client = client;
 	keypad_data->row_shift = row_shift;
 
-	
+	/* Initialize the chip or fail if chip isn't present */
 	error = tca8418_configure(keypad_data);
 	if (error < 0)
 		goto fail1;
 
-	
+	/* Configure input device */
 	input = input_allocate_device();
 	if (!input) {
 		error = -ENOMEM;

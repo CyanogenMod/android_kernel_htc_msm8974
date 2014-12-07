@@ -14,12 +14,16 @@
 #define MPP_NUM(x)	((x) & 0xff)
 #define MPP_SEL(x)	(((x) >> 8) & 0xf)
 
+/* This is the generic MPP macro, without any variant information.
+   Each machine architecture is expected to extend this with further
+   bit fields indicating which MPP configurations are valid for a
+   specific variant. */
 
 #define GENERIC_MPP(_num, _sel, _in, _out) ( \
-			((_num) & 0xff) | \
-			(((_sel) & 0xf) << 8) | \
-		((!!(_in)) << 12) | \
-		((!!(_out)) << 13))
+	/* MPP number */		((_num) & 0xff) | \
+	/* MPP select value */		(((_sel) & 0xf) << 8) | \
+	/* may be input signal */	((!!(_in)) << 12) | \
+	/* may be output signal */	((!!(_out)) << 13))
 
 #define MPP_INPUT_MASK		GENERIC_MPP(0, 0x0, 1, 0)
 #define MPP_OUTPUT_MASK		GENERIC_MPP(0, 0x0, 0, 1)

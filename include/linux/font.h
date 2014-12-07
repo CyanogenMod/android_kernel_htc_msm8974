@@ -43,13 +43,16 @@ extern const struct font_desc	font_vga_8x8,
 			font_acorn_8x8,
 			font_mini_4x6;
 
+/* Find a font with a specific name */
 
 extern const struct font_desc *find_font(const char *name);
 
+/* Get the default font for a specific screen size */
 
 extern const struct font_desc *get_default_font(int xres, int yres,
 						u32 font_w, u32 font_h);
 
+/* Max. length for the name of a predefined font */
 #define MAX_FONT_NAME	32
 
-#endif 
+#endif /* _VIDEO_FONT_H */

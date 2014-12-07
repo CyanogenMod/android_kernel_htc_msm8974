@@ -8,11 +8,19 @@
 #ifndef	_ASM_CACHECTL
 #define	_ASM_CACHECTL
 
-#define	ICACHE	(1<<0)		
-#define	DCACHE	(1<<1)		
-#define	BCACHE	(ICACHE|DCACHE)	
+/*
+ * Options for cacheflush system call
+ */
+#define	ICACHE	(1<<0)		/* flush instruction cache        */
+#define	DCACHE	(1<<1)		/* writeback and flush data cache */
+#define	BCACHE	(ICACHE|DCACHE)	/* flush both caches              */
 
-#define CACHEABLE	0	
-#define UNCACHEABLE	1	
+/*
+ * Caching modes for the cachectl(2) call
+ *
+ * cachectl(2) is currently not supported and returns ENOSYS.
+ */
+#define CACHEABLE	0	/* make pages cacheable */
+#define UNCACHEABLE	1	/* make pages uncacheable */
 
-#endif	
+#endif	/* _ASM_CACHECTL */

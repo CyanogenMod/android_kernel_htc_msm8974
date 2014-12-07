@@ -339,11 +339,13 @@ DEFINE_BUF_EVENT(xfs_buf_error_relse);
 DEFINE_BUF_EVENT(xfs_trans_read_buf_io);
 DEFINE_BUF_EVENT(xfs_trans_read_buf_shut);
 
+/* not really buffer traces, but the buf provides useful information */
 DEFINE_BUF_EVENT(xfs_btree_corrupt);
 DEFINE_BUF_EVENT(xfs_da_btree_corrupt);
 DEFINE_BUF_EVENT(xfs_reset_dqcounts);
 DEFINE_BUF_EVENT(xfs_inode_item_push);
 
+/* pass flags explicitly */
 DECLARE_EVENT_CLASS(xfs_buf_flags_class,
 	TP_PROTO(struct xfs_buf *bp, unsigned flags, unsigned long caller_ip),
 	TP_ARGS(bp, flags, caller_ip),
@@ -1815,7 +1817,7 @@ DEFINE_DISCARD_EVENT(xfs_discard_toosmall);
 DEFINE_DISCARD_EVENT(xfs_discard_exclude);
 DEFINE_DISCARD_EVENT(xfs_discard_busy);
 
-#endif 
+#endif /* _TRACE_XFS_H */
 
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .

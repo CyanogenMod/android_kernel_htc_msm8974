@@ -57,13 +57,25 @@ xfs_trim_extents(
 
 	cur = xfs_allocbt_init_cursor(mp, NULL, agbp, agno, XFS_BTNUM_CNT);
 
+	/*
+	 * Force out the log.  This means any transactions that might have freed
+	 * space before we took the AGF buffer lock are now on disk, and the
+	 * volatile disk cache is flushed.
+	 */
 	xfs_log_force(mp, XFS_LOG_SYNC);
 
+	/*
+	 * Look up the longest btree in the AGF and start with it.
+	 */
 	error = xfs_alloc_lookup_ge(cur, 0,
 			    be32_to_cpu(XFS_BUF_TO_AGF(agbp)->agf_longest), &i);
 	if (error)
 		goto out_del_cursor;
 
+	/*
+	 * Loop until we are done with all extents that are large
+	 * enough to be worth discarding.
+	 */
 	while (i) {
 		xfs_agblock_t	fbno;
 		xfs_extlen_t	flen;
@@ -76,19 +88,36 @@ xfs_trim_extents(
 		XFS_WANT_CORRUPTED_GOTO(i == 1, out_del_cursor);
 		ASSERT(flen <= be32_to_cpu(XFS_BUF_TO_AGF(agbp)->agf_longest));
 
+		/*
+		 * use daddr format for all range/len calculations as that is
+		 * the format the range/len variables are supplied in by
+		 * userspace.
+		 */
 		dbno = XFS_AGB_TO_DADDR(mp, agno, fbno);
 		dlen = XFS_FSB_TO_BB(mp, flen);
 
+		/*
+		 * Too small?  Give up.
+		 */
 		if (dlen < minlen) {
 			trace_xfs_discard_toosmall(mp, agno, fbno, flen);
 			goto out_del_cursor;
 		}
 
+		/*
+		 * If the extent is entirely outside of the range we are
+		 * supposed to discard skip it.  Do not bother to trim
+		 * down partially overlapping ranges for now.
+		 */
 		if (dbno + dlen < start || dbno > end) {
 			trace_xfs_discard_exclude(mp, agno, fbno, flen);
 			goto next_extent;
 		}
 
+		/*
+		 * If any blocks in the range are still busy, skip the
+		 * discard and try again the next time.
+		 */
 		if (xfs_alloc_busy_search(mp, agno, fbno, flen)) {
 			trace_xfs_discard_busy(mp, agno, fbno, flen);
 			goto next_extent;
@@ -114,6 +143,15 @@ out_put_perag:
 	return error;
 }
 
+/*
+ * trim a range of the filesystem.
+ *
+ * Note: the parameters passed from userspace are byte ranges into the
+ * filesystem which does not match to the format we use for filesystem block
+ * addressing. FSB addressing is sparse (AGNO|AGBNO), while the incoming format
+ * is a linear address range. Hence we need to use DADDR based conversions and
+ * comparisons for determining the correct offset and regions to trim.
+ */
 int
 xfs_ioc_trim(
 	struct xfs_mount		*mp,
@@ -134,6 +172,13 @@ xfs_ioc_trim(
 	if (copy_from_user(&range, urange, sizeof(range)))
 		return -XFS_ERROR(EFAULT);
 
+	/*
+	 * Truncating down the len isn't actually quite correct, but using
+	 * BBTOB would mean we trivially get overflows for values
+	 * of ULLONG_MAX or slightly lower.  And ULLONG_MAX is the default
+	 * used by the fstrim application.  In the end it really doesn't
+	 * matter as trimming blocks is an advisory interface.
+	 */
 	start = BTOBB(range.start);
 	end = start + BTOBBT(range.len) - 1;
 	minlen = BTOBB(max_t(u64, granularity, range.minlen));

@@ -40,7 +40,7 @@ xfs_stats_clear_proc_handler(
 		xfs_notice(NULL, "Clearing xfsstats");
 		for_each_possible_cpu(c) {
 			preempt_disable();
-			
+			/* save vn_active, it's a universal truth! */
 			vn_active = per_cpu(xfsstats, c).vn_active;
 			memset(&per_cpu(xfsstats, c), 0,
 			       sizeof(struct xfsstats));
@@ -72,7 +72,7 @@ xfs_panic_mask_proc_handler(
 	}
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 static ctl_table xfs_table[] = {
 	{
@@ -202,7 +202,7 @@ static ctl_table xfs_table[] = {
 		.extra1		= &xfs_params.fstrm_timer.min,
 		.extra2		= &xfs_params.fstrm_timer.max,
 	},
-	
+	/* please keep this the last entry */
 #ifdef CONFIG_PROC_FS
 	{
 		.procname	= "stats_clear",
@@ -213,7 +213,7 @@ static ctl_table xfs_table[] = {
 		.extra1		= &xfs_params.stats_clear.min,
 		.extra2		= &xfs_params.stats_clear.max
 	},
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 	{}
 };

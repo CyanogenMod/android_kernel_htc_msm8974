@@ -33,8 +33,11 @@
 #include "irq_xen.h"
 #include "time.h"
 
+/***************************************************************************
+ * general info
+ */
 static struct pv_info xen_info __initdata = {
-	.kernel_rpl = 2,	
+	.kernel_rpl = 2,	/* or 1: determin at runtime */
 	.paravirt_enabled = 1,
 	.name = "Xen/ia64",
 };
@@ -47,30 +50,36 @@ static struct pv_info xen_info __initdata = {
 static void __init
 xen_info_init(void)
 {
+	/* Xenified Linux/ia64 may run on pl = 1 or 2.
+	 * determin at run time. */
 	unsigned long rsc = ia64_getreg(_IA64_REG_AR_RSC);
 	unsigned int rpl = (rsc & IA64_RSC_PL_MASK) >> IA64_RSC_PL_SHIFT;
 	xen_info.kernel_rpl = rpl;
 }
 
+/***************************************************************************
+ * pv_init_ops
+ * initialization hooks.
+ */
 
 static void
 xen_panic_hypercall(struct unw_frame_info *info, void *arg)
 {
 	current->thread.ksp = (__u64)info->sw - 16;
 	HYPERVISOR_shutdown(SHUTDOWN_crash);
-	
+	/* we're never actually going to get here... */
 }
 
 static int
 xen_panic_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
 	unw_init_running(xen_panic_hypercall, NULL);
-	
+	/* we're never actually going to get here... */
 	return NOTIFY_DONE;
 }
 
 static struct notifier_block xen_panic_block = {
-	xen_panic_event, NULL, 0 
+	xen_panic_event, NULL, 0 /* try to go last */
 };
 
 static void xen_pm_power_off(void)
@@ -108,11 +117,11 @@ xen_arch_setup_early(void)
 	s = HYPERVISOR_shared_info;
 	xen_start_info = __va(s->arch.start_info_pfn << PAGE_SHIFT);
 
-	
+	/* Must be done before any hypercall.  */
 	xencomm_initialize();
 
 	xen_setup_features();
-	
+	/* Register a call for panic conditions. */
 	atomic_notifier_chain_register(&panic_notifier_list,
 				       &xen_panic_block);
 	pm_power_off = xen_pm_power_off;
@@ -125,7 +134,7 @@ xen_arch_setup_console(char **cmdline_p)
 {
 	add_preferred_console("xenboot", 0, NULL);
 	add_preferred_console("tty", 0, NULL);
-	
+	/* use hvc_xen */
 	add_preferred_console("hvc", 0, NULL);
 
 #if !defined(CONFIG_VT) || !defined(CONFIG_DUMMY_CONSOLE)
@@ -168,6 +177,10 @@ static const struct pv_init_ops xen_init_ops __initconst = {
 	.patch_branch = xen_patch_branch,
 };
 
+/***************************************************************************
+ * pv_fsys_data
+ * addresses for fsys
+ */
 
 extern unsigned long xen_fsyscall_table[NR_syscalls];
 extern char xen_fsys_bubble_down[];
@@ -176,6 +189,10 @@ struct pv_fsys_data xen_fsys_data __initdata = {
 	.fsys_bubble_down = (void *)xen_fsys_bubble_down,
 };
 
+/***************************************************************************
+ * pv_patchdata
+ * patchdata addresses
+ */
 
 #define DECLARE(name)							\
 	extern unsigned long __xen_start_gate_##name##_patchlist[];	\
@@ -203,20 +220,24 @@ static struct pv_patchdata xen_patchdata __initdata = {
 	.gate_section = (void*)__xen_start_gate_section,
 };
 
+/***************************************************************************
+ * pv_cpu_ops
+ * intrinsics hooks.
+ */
 
 #ifndef ASM_SUPPORTED
 static void
 xen_set_itm_with_offset(unsigned long val)
 {
-	
-	
+	/* ia64_cpu_local_tick() calls this with interrupt enabled. */
+	/* WARN_ON(!irqs_disabled()); */
 	xen_set_itm(val - XEN_MAPPEDREGS->itc_offset);
 }
 
 static unsigned long
 xen_get_itm_with_offset(void)
 {
-	
+	/* unused at this moment */
 	printk(KERN_DEBUG "%s is called.\n", __func__);
 
 	WARN_ON(!irqs_disabled());
@@ -224,6 +245,10 @@ xen_get_itm_with_offset(void)
 		XEN_MAPPEDREGS->itc_offset;
 }
 
+/* ia64_set_itc() is only called by
+ * cpu_init() with ia64_set_itc(0) and ia64_sync_itc().
+ * So XEN_MAPPEDRESG->itc_offset cal be considered as almost constant.
+ */
 static void
 xen_set_itc(unsigned long val)
 {
@@ -256,6 +281,8 @@ xen_get_itc(void)
 	return res;
 
 #if 0
+	/* ia64_itc_udelay() calls ia64_get_itc() with interrupt enabled.
+	   Should it be paravirtualized instead? */
 	WARN_ON(!irqs_disabled());
 	itc_offset = XEN_MAPPEDREGS->itc_offset;
 	itc_last = XEN_MAPPEDREGS->itc_last;
@@ -319,6 +346,10 @@ static unsigned long xen_getreg(int regnum)
 	return res;
 }
 
+/* turning on interrupts is a bit more complicated.. write to the
+ * memory-mapped virtual psr.i bit first (to avoid race condition),
+ * then if any interrupts were pending, we have to execute a hyperprivop
+ * to ensure the pending interrupt gets delivered; else we're done! */
 static void
 xen_ssm_i(void)
 {
@@ -329,6 +360,8 @@ xen_ssm_i(void)
 		xen_hyper_ssm_i();
 }
 
+/* turning off interrupts can be paravirtualized simply by writing
+ * to a memory-mapped virtual psr.i bit (implemented as a 16-bit bool) */
 static void
 xen_rsm_i(void)
 {
@@ -396,6 +429,11 @@ xen_intrin_local_irq_restore(unsigned long mask)
 
 #define XEN_PSR_I_ADDR_ADDR     (XSI_BASE + XSI_PSR_I_ADDR_OFS)
 
+/*
+ * static void xen_set_itm_with_offset(unsigned long val)
+ *        xen_set_itm(val - XEN_MAPPEDREGS->itc_offset);
+ */
+/* 2 bundles */
 DEFINE_VOID_FUNC1(set_itm_with_offset,
 		  "mov r2 = " __stringify(XSI_BASE) " + "
 		  __stringify(XSI_ITC_OFFSET_OFS) "\n"
@@ -405,6 +443,11 @@ DEFINE_VOID_FUNC1(set_itm_with_offset,
 		  "sub r8 = r8, r3\n"
 		  "break " __stringify(HYPERPRIVOP_SET_ITM) "\n");
 
+/*
+ * static unsigned long xen_get_itm_with_offset(void)
+ *    return ia64_native_getreg(_IA64_REG_CR_ITM) + XEN_MAPPEDREGS->itc_offset;
+ */
+/* 2 bundles */
 DEFINE_FUNC0(get_itm_with_offset,
 	     "mov r2 = " __stringify(XSI_BASE) " + "
 	     __stringify(XSI_ITC_OFFSET_OFS) "\n"
@@ -414,6 +457,16 @@ DEFINE_FUNC0(get_itm_with_offset,
 	     ";;\n"
 	     "add r8 = r8, r2\n");
 
+/*
+ * static void xen_set_itc(unsigned long val)
+ *	unsigned long mitc;
+ *
+ *	WARN_ON(!irqs_disabled());
+ *	mitc = ia64_native_getreg(_IA64_REG_AR_ITC);
+ *	XEN_MAPPEDREGS->itc_offset = val - mitc;
+ *	XEN_MAPPEDREGS->itc_last = val;
+ */
+/* 2 bundles */
 DEFINE_VOID_FUNC1(set_itc,
 		  "mov r2 = " __stringify(XSI_BASE) " + "
 		  __stringify(XSI_ITC_LAST_OFS) "\n"
@@ -426,23 +479,43 @@ DEFINE_VOID_FUNC1(set_itc,
 		  ";;\n"
 		  "st8 [r2] = r3\n");
 
+/*
+ * static unsigned long xen_get_itc(void)
+ *	unsigned long res;
+ *	unsigned long itc_offset;
+ *	unsigned long itc_last;
+ *	unsigned long ret_itc_last;
+ *
+ *	itc_offset = XEN_MAPPEDREGS->itc_offset;
+ *	do {
+ *		itc_last = XEN_MAPPEDREGS->itc_last;
+ *		res = ia64_native_getreg(_IA64_REG_AR_ITC);
+ *		res += itc_offset;
+ *		if (itc_last >= res)
+ *			res = itc_last + 1;
+ *		ret_itc_last = cmpxchg(&XEN_MAPPEDREGS->itc_last,
+ *				       itc_last, res);
+ *	} while (unlikely(ret_itc_last != itc_last));
+ *	return res;
+ */
+/* 5 bundles */
 DEFINE_FUNC0(get_itc,
 	     "mov r2 = " __stringify(XSI_BASE) " + "
 	     __stringify(XSI_ITC_OFFSET_OFS) "\n"
 	     ";;\n"
 	     "ld8 r9 = [r2], " __stringify(XSI_ITC_LAST_OFS) " - "
 	     __stringify(XSI_ITC_OFFSET_OFS) "\n"
-					
-					
+					/* r9 = itc_offset */
+					/* r2 = XSI_ITC_OFFSET */
 	     "888:\n"
-	     "mov r8 = ar.itc\n"	
+	     "mov r8 = ar.itc\n"	/* res = ar.itc */
 	     ";;\n"
-	     "ld8 r3 = [r2]\n"		
-	     "add r8 = r8, r9\n"	
+	     "ld8 r3 = [r2]\n"		/* r3 = itc_last */
+	     "add r8 = r8, r9\n"	/* res = ar.itc + itc_offset */
 	     ";;\n"
 	     "cmp.gtu p6, p0 = r3, r8\n"
 	     ";;\n"
-	     "(p6) add r8 = 1, r3\n"	
+	     "(p6) add r8 = 1, r3\n"	/* if (itc_last > res) itc_last + 1 */
 	     ";;\n"
 	     "mov ar.ccv = r8\n"
 	     ";;\n"
@@ -455,38 +528,66 @@ DEFINE_FUNC0(get_itc,
 DEFINE_VOID_FUNC1_VOID(fc,
 		       "break " __stringify(HYPERPRIVOP_FC) "\n");
 
+/*
+ * psr_i_addr_addr = XEN_PSR_I_ADDR_ADDR
+ * masked_addr = *psr_i_addr_addr
+ * pending_intr_addr = masked_addr - 1
+ * if (val & IA64_PSR_I) {
+ *   masked = *masked_addr
+ *   *masked_addr = 0:xen_set_virtual_psr_i(1)
+ *   compiler barrier
+ *   if (masked) {
+ *      uint8_t pending = *pending_intr_addr;
+ *      if (pending)
+ *              XEN_HYPER_SSM_I
+ *   }
+ * } else {
+ *   *masked_addr = 1:xen_set_virtual_psr_i(0)
+ * }
+ */
+/* 6 bundles */
 DEFINE_VOID_FUNC1(intrin_local_irq_restore,
+		  /* r8 = input value: 0 or IA64_PSR_I
+		   * p6 =  (flags & IA64_PSR_I)
+		   *    = if clause
+		   * p7 = !(flags & IA64_PSR_I)
+		   *    = else clause
+		   */
 		  "cmp.ne p6, p7 = r8, r0\n"
 		  "mov r9 = " __stringify(XEN_PSR_I_ADDR_ADDR) "\n"
 		  ";;\n"
-		  
+		  /* r9 = XEN_PSR_I_ADDR */
 		  "ld8 r9 = [r9]\n"
 		  ";;\n"
 
-		  
+		  /* r10 = masked previous value */
 		  "(p6)	ld1.acq r10 = [r9]\n"
 		  ";;\n"
 
-		  
+		  /* p8 = !masked interrupt masked previously? */
 		  "(p6)	cmp.ne.unc p8, p0 = r10, r0\n"
 
-		  
+		  /* p7 = else clause */
 		  "(p7)	mov r11 = 1\n"
 		  ";;\n"
-		  
+		  /* masked = 1 */
 		  "(p7)	st1.rel [r9] = r11\n"
 
-		  
+		  /* p6 = if clause */
+		  /* masked = 0
+		   * r9 = masked_addr - 1
+		   *    = pending_intr_addr
+		   */
 		  "(p8)	st1.rel [r9] = r0, -1\n"
 		  ";;\n"
-		  
+		  /* r8 = pending_intr */
 		  "(p8)	ld1.acq r11 = [r9]\n"
 		  ";;\n"
-		  
+		  /* p9 = interrupt pending? */
 		  "(p8)	cmp.ne.unc p9, p10 = r11, r0\n"
 		  ";;\n"
 		  "(p10) mf\n"
-		  
+		  /* issue hypercall to trigger interrupt */
 		  "(p9)	break " __stringify(HYPERPRIVOP_SSM_I) "\n");
 
 DEFINE_VOID_FUNC2(ptcga,
@@ -494,15 +595,22 @@ DEFINE_VOID_FUNC2(ptcga,
 DEFINE_VOID_FUNC2(set_rr,
 		  "break " __stringify(HYPERPRIVOP_SET_RR) "\n");
 
+/*
+ * tmp = XEN_MAPPEDREGS->interrupt_mask_addr = XEN_PSR_I_ADDR_ADDR;
+ * tmp = *tmp
+ * tmp = *tmp;
+ * psr_i = tmp? 0: IA64_PSR_I;
+ */
+/* 4 bundles */
 DEFINE_FUNC0(get_psr_i,
 	     "mov r9 = " __stringify(XEN_PSR_I_ADDR_ADDR) "\n"
 	     ";;\n"
-	     "ld8 r9 = [r9]\n"			
-	     "mov r8 = 0\n"			
+	     "ld8 r9 = [r9]\n"			/* r9 = XEN_PSR_I_ADDR */
+	     "mov r8 = 0\n"			/* psr_i = 0 */
 	     ";;\n"
-	     "ld1.acq r9 = [r9]\n"		
+	     "ld1.acq r9 = [r9]\n"		/* r9 = XEN_PSR_I */
 	     ";;\n"
-	     "cmp.eq.unc p6, p0 = r9, r0\n"	
+	     "cmp.eq.unc p6, p0 = r9, r0\n"	/* p6 = (XEN_PSR_I != 0) */
 	     ";;\n"
 	     "(p6) mov r8 = " __stringify(1 << IA64_PSR_I_BIT) "\n");
 
@@ -515,32 +623,62 @@ DEFINE_FUNC1(get_pmd, int,
 DEFINE_FUNC1(get_rr, unsigned long,
 	     "break " __stringify(HYPERPRIVOP_GET_RR) "\n");
 
+/*
+ * void xen_privop_ssm_i(void)
+ *
+ * int masked = !xen_get_virtual_psr_i();
+ *	// masked = *(*XEN_MAPPEDREGS->interrupt_mask_addr)
+ * xen_set_virtual_psr_i(1)
+ *	// *(*XEN_MAPPEDREGS->interrupt_mask_addr) = 0
+ * // compiler barrier
+ * if (masked) {
+ *	uint8_t* pend_int_addr =
+ *		(uint8_t*)(*XEN_MAPPEDREGS->interrupt_mask_addr) - 1;
+ *	uint8_t pending = *pend_int_addr;
+ *	if (pending)
+ *		XEN_HYPER_SSM_I
+ * }
+ */
+/* 4 bundles */
 DEFINE_VOID_FUNC0(ssm_i,
 		  "mov r8 = " __stringify(XEN_PSR_I_ADDR_ADDR) "\n"
 		  ";;\n"
-		  "ld8 r8 = [r8]\n"		
+		  "ld8 r8 = [r8]\n"		/* r8 = XEN_PSR_I_ADDR */
 		  ";;\n"
-		  "ld1.acq r9 = [r8]\n"		
+		  "ld1.acq r9 = [r8]\n"		/* r9 = XEN_PSR_I */
 		  ";;\n"
-		  "st1.rel [r8] = r0, -1\n"	
-		  "cmp.eq.unc p0, p6 = r9, r0\n"
+		  "st1.rel [r8] = r0, -1\n"	/* psr_i = 0. enable interrupt
+						 * r8 = XEN_PSR_I_ADDR - 1
+						 *    = pend_int_addr
+						 */
+		  "cmp.eq.unc p0, p6 = r9, r0\n"/* p6 = !XEN_PSR_I
+						 * previously interrupt
+						 * masked?
+						 */
 		  ";;\n"
-		  "(p6) ld1.acq r8 = [r8]\n"	
+		  "(p6) ld1.acq r8 = [r8]\n"	/* r8 = xen_pend_int */
 		  ";;\n"
-		  "(p6) cmp.eq.unc p6, p7 = r8, r0\n"	
+		  "(p6) cmp.eq.unc p6, p7 = r8, r0\n"	/*interrupt pending?*/
 		  ";;\n"
-		  
+		  /* issue hypercall to get interrupt */
 		  "(p7) break " __stringify(HYPERPRIVOP_SSM_I) "\n"
 		  ";;\n");
 
+/*
+ * psr_i_addr_addr = XEN_MAPPEDREGS->interrupt_mask_addr
+ *		   = XEN_PSR_I_ADDR_ADDR;
+ * psr_i_addr = *psr_i_addr_addr;
+ * *psr_i_addr = 1;
+ */
+/* 2 bundles */
 DEFINE_VOID_FUNC0(rsm_i,
 		  "mov r8 = " __stringify(XEN_PSR_I_ADDR_ADDR) "\n"
-						
+						/* r8 = XEN_PSR_I_ADDR */
 		  "mov r9 = 1\n"
 		  ";;\n"
-		  "ld8 r8 = [r8]\n"		
+		  "ld8 r8 = [r8]\n"		/* r8 = XEN_PSR_I */
 		  ";;\n"
-		  "st1.rel [r8] = r9\n");	
+		  "st1.rel [r8] = r9\n");	/* XEN_PSR_I = 1 */
 
 extern void
 xen_set_rr0_to_rr4(unsigned long val0, unsigned long val1,
@@ -563,7 +701,7 @@ extern unsigned long xen_getreg(int regnum);
 __DEFINE_FUNC(getreg,
 	      __DEFINE_GET_REG(PSR, PSR)
 
-	      
+	      /* get_itc */
 	      "mov r2 = " __stringify(_IA64_REG_AR_ITC) "\n"
 	      ";;\n"
 	      "cmp.eq p6, p0 = r2, r8\n"
@@ -571,7 +709,7 @@ __DEFINE_FUNC(getreg,
 	      "(p6) br.cond.spnt xen_get_itc\n"
 	      ";;\n"
 
-	      
+	      /* get itm */
 	      "mov r2 = " __stringify(_IA64_REG_CR_ITM) "\n"
 	      ";;\n"
 	      "cmp.eq p6, p0 = r2, r8\n"
@@ -582,7 +720,7 @@ __DEFINE_FUNC(getreg,
 	      __DEFINE_GET_REG(CR_IVR, IVR)
 	      __DEFINE_GET_REG(CR_TPR, TPR)
 
-	      
+	      /* fall back */
 	      "movl r2 = ia64_native_getreg_func\n"
 	      ";;\n"
 	      "mov b7 = r2\n"
@@ -600,7 +738,15 @@ extern void xen_setreg(int regnum, unsigned long val);
 	";;\n"
 
 __DEFINE_FUNC(setreg,
-	      
+	      /* kr0 .. kr 7*/
+	      /*
+	       * if (_IA64_REG_AR_KR0 <= regnum &&
+	       *     regnum <= _IA64_REG_AR_KR7) {
+	       *     register __index asm ("r8") = regnum - _IA64_REG_AR_KR0
+	       *     register __val asm ("r9") = val
+	       *    "break HYPERPRIVOP_SET_KR"
+	       * }
+	       */
 	      "mov r17 = r9\n"
 	      "mov r2 = " __stringify(_IA64_REG_AR_KR0) "\n"
 	      ";;\n"
@@ -616,14 +762,14 @@ __DEFINE_FUNC(setreg,
 	      "(p7) mov r8 = r17\n"
 	      "(p7) break " __stringify(HYPERPRIVOP_SET_KR) "\n"
 
-	      
+	      /* set itm */
 	      "mov r2 = " __stringify(_IA64_REG_CR_ITM) "\n"
 	      ";;\n"
 	      "cmp.eq p6, p0 = r2, r8\n"
 	      ";;\n"
 	      "(p6) br.cond.spnt xen_set_itm_with_offset\n"
 
-	      
+	      /* set itc */
 	      "mov r2 = " __stringify(_IA64_REG_AR_ITC) "\n"
 	      ";;\n"
 	      "cmp.eq p6, p0 = r2, r8\n"
@@ -633,7 +779,7 @@ __DEFINE_FUNC(setreg,
 	      __DEFINE_SET_REG(CR_TPR, SET_TPR)
 	      __DEFINE_SET_REG(CR_EOI, EOI)
 
-	      
+	      /* fall back */
 	      "movl r2 = ia64_native_setreg_func\n"
 	      ";;\n"
 	      "mov b7 = r2\n"
@@ -675,10 +821,14 @@ const struct pv_cpu_asm_switch xen_cpu_asm_switch = {
 	.leave_kernel		= (unsigned long)&xen_leave_kernel,
 };
 
+/***************************************************************************
+ * pv_iosapic_ops
+ * iosapic read/write hooks.
+ */
 static void
 xen_pcat_compat_init(void)
 {
-	
+	/* nothing */
 }
 
 static struct irq_chip*
@@ -722,6 +872,9 @@ static struct pv_iosapic_ops xen_iosapic_ops __initdata = {
 	.__write = xen_iosapic_write,
 };
 
+/***************************************************************************
+ * pv_ops initialization
+ */
 
 void __init
 xen_setup_pv_ops(void)
@@ -740,6 +893,10 @@ xen_setup_pv_ops(void)
 }
 
 #ifdef ASM_SUPPORTED
+/***************************************************************************
+ * binary pacthing
+ * pv_init_ops.patch_bundle
+ */
 
 #define DEFINE_FUNC_GETREG(name, privop)				\
 	DEFINE_FUNC0(get_ ## name,					\
@@ -786,16 +943,20 @@ asm (
 	".align 32\n"
 	".proc xen_check_events\n"
 	"xen_check_events:\n"
+	/* masked = 0
+	 * r9 = masked_addr - 1
+	 *    = pending_intr_addr
+	 */
 	"st1.rel [r9] = r0, -1\n"
 	";;\n"
-	
+	/* r8 = pending_intr */
 	"ld1.acq r11 = [r9]\n"
 	";;\n"
-	
+	/* p9 = interrupt pending? */
 	"cmp.ne p9, p10 = r11, r0\n"
 	";;\n"
 	"(p10) mf\n"
-	
+	/* issue hypercall to trigger interrupt */
 	"(p9) break " __stringify(HYPERPRIVOP_SSM_I) "\n"
 	"br.cond.sptk.many b6\n"
 	".endp xen_check_events\n"
@@ -807,36 +968,36 @@ asm (
 	"1:\n"
 	"{\n"
 	"cmp.ne p6, p7 = r8, r0\n"
-	"mov r17 = ip\n" 
+	"mov r17 = ip\n" /* get ip to calc return address */
 	"mov r9 = "__stringify(XEN_PSR_I_ADDR_ADDR) "\n"
 	";;\n"
 	"}\n"
 	"{\n"
-	
+	/* r9 = XEN_PSR_I_ADDR */
 	"ld8 r9 = [r9]\n"
 	";;\n"
-	
+	/* r10 = masked previous value */
 	"(p6) ld1.acq r10 = [r9]\n"
-	"adds r17 =  1f - 1b, r17\n" 
+	"adds r17 =  1f - 1b, r17\n" /* calculate return address */
 	";;\n"
 	"}\n"
 	"{\n"
-	
+	/* p8 = !masked interrupt masked previously? */
 	"(p6) cmp.ne.unc p8, p0 = r10, r0\n"
 	"\n"
-	
+	/* p7 = else clause */
 	"(p7) mov r11 = 1\n"
 	";;\n"
-	"(p8) mov b6 = r17\n" 
+	"(p8) mov b6 = r17\n" /* set return address */
 	"}\n"
 	"{\n"
-	
+	/* masked = 1 */
 	"(p7) st1.rel [r9] = r11\n"
 	"\n"
 	"[99:]\n"
 	"(p8) brl.cond.dptk.few xen_check_events\n"
 	"}\n"
-	
+	/* pv calling stub is 5 bundles. fill nop to adjust return address */
 	"{\n"
 	"nop 0\n"
 	"nop 0\n"
@@ -935,12 +1096,12 @@ xen_patch_bundle(void *sbundle, void *ebundle, unsigned long type)
 					     &found);
 
 	if (found == NULL)
-		
+		/* fallback */
 		return ia64_native_patch_bundle(sbundle, ebundle, type);
 	if (used == 0)
 		return used;
 
-	
+	/* relocation */
 	switch (type) {
 	case PARAVIRT_PATCH_TYPE_INTRIN_LOCAL_IRQ_RESTORE: {
 		unsigned long reloc =
@@ -952,12 +1113,12 @@ xen_patch_bundle(void *sbundle, void *ebundle, unsigned long type)
 		break;
 	}
 	default:
-		
+		/* nothing */
 		break;
 	}
 	return used;
 }
-#endif 
+#endif /* ASM_SUPPOTED */
 
 const struct paravirt_patch_branch_target xen_branch_target[]
 __initconst = {

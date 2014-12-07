@@ -83,7 +83,7 @@ static void ar71xx_misc_irq_unmask(struct irq_data *d)
 	t = __raw_readl(base + AR71XX_RESET_REG_MISC_INT_ENABLE);
 	__raw_writel(t | (1 << irq), base + AR71XX_RESET_REG_MISC_INT_ENABLE);
 
-	
+	/* flush write */
 	__raw_readl(base + AR71XX_RESET_REG_MISC_INT_ENABLE);
 }
 
@@ -96,7 +96,7 @@ static void ar71xx_misc_irq_mask(struct irq_data *d)
 	t = __raw_readl(base + AR71XX_RESET_REG_MISC_INT_ENABLE);
 	__raw_writel(t & ~(1 << irq), base + AR71XX_RESET_REG_MISC_INT_ENABLE);
 
-	
+	/* flush write */
 	__raw_readl(base + AR71XX_RESET_REG_MISC_INT_ENABLE);
 }
 
@@ -109,7 +109,7 @@ static void ar724x_misc_irq_ack(struct irq_data *d)
 	t = __raw_readl(base + AR71XX_RESET_REG_MISC_INT_STATUS);
 	__raw_writel(t & ~(1 << irq), base + AR71XX_RESET_REG_MISC_INT_STATUS);
 
-	
+	/* flush write */
 	__raw_readl(base + AR71XX_RESET_REG_MISC_INT_STATUS);
 }
 

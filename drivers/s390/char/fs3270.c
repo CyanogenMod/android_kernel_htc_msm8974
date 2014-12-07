@@ -30,15 +30,15 @@ static struct raw3270_fn fs3270_fn;
 
 struct fs3270 {
 	struct raw3270_view view;
-	struct pid *fs_pid;		
-	int read_command;		
-	int write_command;		
-	int attention;			
-	int active;			
-	struct raw3270_request *init;	
-	wait_queue_head_t wait;		
-	struct idal_buffer *rdbuf;	
-	size_t rdbuf_size;		
+	struct pid *fs_pid;		/* Pid of controlling program. */
+	int read_command;		/* ccw command to use for reads. */
+	int write_command;		/* ccw command to use for writes. */
+	int attention;			/* Got attention. */
+	int active;			/* Fullscreen view is active. */
+	struct raw3270_request *init;	/* single init request. */
+	wait_queue_head_t wait;		/* Init & attention wait queue. */
+	struct idal_buffer *rdbuf;	/* full-screen-deactivate buffer */
+	size_t rdbuf_size;		/* size of data returned by RDBUF */
 };
 
 static DEFINE_MUTEX(fs3270_mutex);
@@ -52,6 +52,10 @@ fs3270_wake_up(struct raw3270_request *rq, void *data)
 static inline int
 fs3270_working(struct fs3270 *fp)
 {
+	/*
+	 * The fullscreen view is in working order if the view
+	 * has been activated AND the initial request is finished.
+	 */
 	return fp->active && raw3270_request_final(fp->init);
 }
 
@@ -67,7 +71,7 @@ fs3270_do_io(struct raw3270_view *view, struct raw3270_request *rq)
 
 	do {
 		if (!fs3270_working(fp)) {
-			
+			/* Fullscreen view isn't ready yet. */
 			rc = wait_event_interruptible(fp->wait,
 						      fs3270_working(fp));
 			if (rc != 0)
@@ -75,13 +79,16 @@ fs3270_do_io(struct raw3270_view *view, struct raw3270_request *rq)
 		}
 		rc = raw3270_start(view, rq);
 		if (rc == 0) {
-			
+			/* Started successfully. Now wait for completion. */
 			wait_event(fp->wait, raw3270_request_final(rq));
 		}
 	} while (rc == -EACCES);
 	return rc;
 }
 
+/*
+ * Switch to the fullscreen view.
+ */
 static void
 fs3270_reset_callback(struct raw3270_request *rq, void *data)
 {
@@ -116,16 +123,16 @@ fs3270_activate(struct raw3270_view *view)
 
 	fp = (struct fs3270 *) view;
 
-	
+	/* If an old init command is still running just return. */
 	if (!raw3270_request_final(fp->init))
 		return 0;
 
 	if (fp->rdbuf_size == 0) {
-		
+		/* No saved buffer. Just clear the screen. */
 		raw3270_request_set_cmd(fp->init, TC_EWRITEA);
 		fp->init->callback = fs3270_reset_callback;
 	} else {
-		
+		/* Restore fullscreen buffer saved by fs3270_deactivate. */
 		raw3270_request_set_cmd(fp->init, TC_EWRITEA);
 		raw3270_request_set_idal(fp->init, fp->rdbuf);
 		fp->init->ccw.count = fp->rdbuf_size;
@@ -149,6 +156,9 @@ fs3270_activate(struct raw3270_view *view)
 	return rc;
 }
 
+/*
+ * Shutdown fullscreen view.
+ */
 static void
 fs3270_save_callback(struct raw3270_request *rq, void *data)
 {
@@ -156,10 +166,16 @@ fs3270_save_callback(struct raw3270_request *rq, void *data)
 
 	fp = (struct fs3270 *) rq->view;
 
-	
+	/* Correct idal buffer element 0 address. */
 	fp->rdbuf->data[0] -= 5;
 	fp->rdbuf->size += 5;
 
+	/*
+	 * If the rdbuf command failed or the idal buffer is
+	 * to small for the amount of data returned by the
+	 * rdbuf command, then we have no choice but to send
+	 * a SIGHUP to the application.
+	 */
 	if (rq->rc != 0 || rq->rescnt == 0) {
 		if (fp->fs_pid)
 			kill_pid(fp->fs_pid, SIGHUP, 1);
@@ -178,19 +194,24 @@ fs3270_deactivate(struct raw3270_view *view)
 	fp = (struct fs3270 *) view;
 	fp->active = 0;
 
-	
+	/* If an old init command is still running just return. */
 	if (!raw3270_request_final(fp->init))
 		return;
 
-	
+	/* Prepare read-buffer request. */
 	raw3270_request_set_cmd(fp->init, TC_RDBUF);
+	/*
+	 * Hackish: skip first 5 bytes of the idal buffer to make
+	 * room for the TW_KR/TO_SBA/<address>/<address>/TO_IC sequence
+	 * in the activation command.
+	 */
 	fp->rdbuf->data[0] += 5;
 	fp->rdbuf->size -= 5;
 	raw3270_request_set_idal(fp->init, fp->rdbuf);
 	fp->init->rescnt = 0;
 	fp->init->callback = fs3270_save_callback;
 
-	
+	/* Start I/O to read in the 3270 buffer. */
 	fp->init->rc = raw3270_start_locked(view, fp->init);
 	if (fp->init->rc)
 		fp->init->callback(fp->init, NULL);
@@ -199,7 +220,7 @@ fs3270_deactivate(struct raw3270_view *view)
 static int
 fs3270_irq(struct fs3270 *fp, struct raw3270_request *rq, struct irb *irb)
 {
-	
+	/* Handle ATTN. Set indication and wake waiters for attention. */
 	if (irb->scsw.cmd.dstat & DEV_STAT_ATTENTION) {
 		fp->attention = 1;
 		wake_up(&fp->wait);
@@ -209,12 +230,15 @@ fs3270_irq(struct fs3270 *fp, struct raw3270_request *rq, struct irb *irb)
 		if (irb->scsw.cmd.dstat & DEV_STAT_UNIT_CHECK)
 			rq->rc = -EIO;
 		else
-			
+			/* Normal end. Copy residual count. */
 			rq->rescnt = irb->scsw.cmd.count;
 	}
 	return RAW3270_IO_DONE;
 }
 
+/*
+ * Process reads from fullscreen 3270.
+ */
 static ssize_t
 fs3270_read(struct file *filp, char __user *data, size_t count, loff_t *off)
 {
@@ -257,6 +281,9 @@ fs3270_read(struct file *filp, char __user *data, size_t count, loff_t *off)
 	return rc;
 }
 
+/*
+ * Process writes to fullscreen 3270.
+ */
 static ssize_t
 fs3270_write(struct file *filp, const char __user *data, size_t count, loff_t *off)
 {
@@ -292,6 +319,9 @@ fs3270_write(struct file *filp, const char __user *data, size_t count, loff_t *o
 	return rc;
 }
 
+/*
+ * process ioctl commands for the tube driver
+ */
 static long
 fs3270_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -337,6 +367,9 @@ fs3270_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return rc;
 }
 
+/*
+ * Allocate fs3270 structure.
+ */
 static struct fs3270 *
 fs3270_alloc_view(void)
 {
@@ -353,6 +386,9 @@ fs3270_alloc_view(void)
 	return fp;
 }
 
+/*
+ * Free fs3270 structure.
+ */
 static void
 fs3270_free_view(struct raw3270_view *view)
 {
@@ -365,6 +401,9 @@ fs3270_free_view(struct raw3270_view *view)
 	kfree(view);
 }
 
+/*
+ * Unlink fs3270 data structure from filp.
+ */
 static void
 fs3270_release(struct raw3270_view *view)
 {
@@ -375,6 +414,7 @@ fs3270_release(struct raw3270_view *view)
 		kill_pid(fp->fs_pid, SIGHUP, 1);
 }
 
+/* View to a 3270 device. Can be console, tty or fullscreen. */
 static struct raw3270_fn fs3270_fn = {
 	.activate = fs3270_activate,
 	.deactivate = fs3270_deactivate,
@@ -383,6 +423,9 @@ static struct raw3270_fn fs3270_fn = {
 	.free = fs3270_free_view
 };
 
+/*
+ * This routine is called whenever a 3270 fullscreen device is opened.
+ */
 static int
 fs3270_open(struct inode *inode, struct file *filp)
 {
@@ -393,7 +436,7 @@ fs3270_open(struct inode *inode, struct file *filp)
 	if (imajor(filp->f_path.dentry->d_inode) != IBM_FS3270_MAJOR)
 		return -ENODEV;
 	minor = iminor(filp->f_path.dentry->d_inode);
-	
+	/* Check for minor 0 multiplexer. */
 	if (minor == 0) {
 		struct tty_struct *tty = get_current_tty();
 		if (!tty || tty->driver->major != IBM_TTY3270_MAJOR) {
@@ -404,14 +447,14 @@ fs3270_open(struct inode *inode, struct file *filp)
 		tty_kref_put(tty);
 	}
 	mutex_lock(&fs3270_mutex);
-	
+	/* Check if some other program is already using fullscreen mode. */
 	fp = (struct fs3270 *) raw3270_find_view(&fs3270_fn, minor);
 	if (!IS_ERR(fp)) {
 		raw3270_put_view(&fp->view);
 		rc = -EBUSY;
 		goto out;
 	}
-	
+	/* Allocate fullscreen view structure. */
 	fp = fs3270_alloc_view();
 	if (IS_ERR(fp)) {
 		rc = PTR_ERR(fp);
@@ -426,7 +469,7 @@ fs3270_open(struct inode *inode, struct file *filp)
 		goto out;
 	}
 
-	
+	/* Allocate idal-buffer. */
 	ib = idal_buffer_alloc(2*fp->view.rows*fp->view.cols + 5, 0);
 	if (IS_ERR(ib)) {
 		raw3270_put_view(&fp->view);
@@ -449,6 +492,10 @@ out:
 	return rc;
 }
 
+/*
+ * This routine is called when the 3270 tty is closed. We wait
+ * for the remaining request to be completed. Then we clean up.
+ */
 static int
 fs3270_close(struct inode *inode, struct file *filp)
 {
@@ -467,16 +514,19 @@ fs3270_close(struct inode *inode, struct file *filp)
 }
 
 static const struct file_operations fs3270_fops = {
-	.owner		 = THIS_MODULE,		
-	.read		 = fs3270_read,		
-	.write		 = fs3270_write,	
-	.unlocked_ioctl	 = fs3270_ioctl,	
-	.compat_ioctl	 = fs3270_ioctl,	
-	.open		 = fs3270_open,		
-	.release	 = fs3270_close,	
+	.owner		 = THIS_MODULE,		/* owner */
+	.read		 = fs3270_read,		/* read */
+	.write		 = fs3270_write,	/* write */
+	.unlocked_ioctl	 = fs3270_ioctl,	/* ioctl */
+	.compat_ioctl	 = fs3270_ioctl,	/* ioctl */
+	.open		 = fs3270_open,		/* open */
+	.release	 = fs3270_close,	/* release */
 	.llseek		= no_llseek,
 };
 
+/*
+ * 3270 fullscreen driver initialization.
+ */
 static int __init
 fs3270_init(void)
 {

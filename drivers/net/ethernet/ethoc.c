@@ -25,10 +25,11 @@
 #include <linux/module.h>
 #include <net/ethoc.h>
 
-static int buffer_size = 0x8000; 
+static int buffer_size = 0x8000; /* 32 KBytes */
 module_param(buffer_size, int, 0);
 MODULE_PARM_DESC(buffer_size, "DMA buffer allocation size");
 
+/* register offsets */
 #define	MODER		0x00
 #define	INT_SOURCE	0x04
 #define	INT_MASK	0x08
@@ -51,31 +52,33 @@ MODULE_PARM_DESC(buffer_size, "DMA buffer allocation size");
 #define	ETH_HASH1	0x4c
 #define	ETH_TXCTRL	0x50
 
-#define	MODER_RXEN	(1 <<  0) 
-#define	MODER_TXEN	(1 <<  1) 
-#define	MODER_NOPRE	(1 <<  2) 
-#define	MODER_BRO	(1 <<  3) 
-#define	MODER_IAM	(1 <<  4) 
-#define	MODER_PRO	(1 <<  5) 
-#define	MODER_IFG	(1 <<  6) 
-#define	MODER_LOOP	(1 <<  7) 
-#define	MODER_NBO	(1 <<  8) 
-#define	MODER_EDE	(1 <<  9) 
-#define	MODER_FULLD	(1 << 10) 
-#define	MODER_RESET	(1 << 11) 
-#define	MODER_DCRC	(1 << 12) 
-#define	MODER_CRC	(1 << 13) 
-#define	MODER_HUGE	(1 << 14) 
-#define	MODER_PAD	(1 << 15) 
-#define	MODER_RSM	(1 << 16) 
+/* mode register */
+#define	MODER_RXEN	(1 <<  0) /* receive enable */
+#define	MODER_TXEN	(1 <<  1) /* transmit enable */
+#define	MODER_NOPRE	(1 <<  2) /* no preamble */
+#define	MODER_BRO	(1 <<  3) /* broadcast address */
+#define	MODER_IAM	(1 <<  4) /* individual address mode */
+#define	MODER_PRO	(1 <<  5) /* promiscuous mode */
+#define	MODER_IFG	(1 <<  6) /* interframe gap for incoming frames */
+#define	MODER_LOOP	(1 <<  7) /* loopback */
+#define	MODER_NBO	(1 <<  8) /* no back-off */
+#define	MODER_EDE	(1 <<  9) /* excess defer enable */
+#define	MODER_FULLD	(1 << 10) /* full duplex */
+#define	MODER_RESET	(1 << 11) /* FIXME: reset (undocumented) */
+#define	MODER_DCRC	(1 << 12) /* delayed CRC enable */
+#define	MODER_CRC	(1 << 13) /* CRC enable */
+#define	MODER_HUGE	(1 << 14) /* huge packets enable */
+#define	MODER_PAD	(1 << 15) /* padding enabled */
+#define	MODER_RSM	(1 << 16) /* receive small packets */
 
-#define	INT_MASK_TXF	(1 << 0) 
-#define	INT_MASK_TXE	(1 << 1) 
-#define	INT_MASK_RXF	(1 << 2) 
-#define	INT_MASK_RXE	(1 << 3) 
+/* interrupt source and mask registers */
+#define	INT_MASK_TXF	(1 << 0) /* transmit frame */
+#define	INT_MASK_TXE	(1 << 1) /* transmit error */
+#define	INT_MASK_RXF	(1 << 2) /* receive frame */
+#define	INT_MASK_RXE	(1 << 3) /* receive error */
 #define	INT_MASK_BUSY	(1 << 4)
-#define	INT_MASK_TXC	(1 << 5) 
-#define	INT_MASK_RXC	(1 << 6) 
+#define	INT_MASK_TXC	(1 << 5) /* transmit control frame */
+#define	INT_MASK_RXC	(1 << 6) /* receive control frame */
 
 #define	INT_MASK_TX	(INT_MASK_TXF | INT_MASK_TXE)
 #define	INT_MASK_RX	(INT_MASK_RXF | INT_MASK_RXE)
@@ -87,66 +90,77 @@ MODULE_PARM_DESC(buffer_size, "DMA buffer allocation size");
 		INT_MASK_BUSY \
 	)
 
+/* packet length register */
 #define	PACKETLEN_MIN(min)		(((min) & 0xffff) << 16)
 #define	PACKETLEN_MAX(max)		(((max) & 0xffff) <<  0)
 #define	PACKETLEN_MIN_MAX(min, max)	(PACKETLEN_MIN(min) | \
 					PACKETLEN_MAX(max))
 
+/* transmit buffer number register */
 #define	TX_BD_NUM_VAL(x)	(((x) <= 0x80) ? (x) : 0x80)
 
-#define	CTRLMODER_PASSALL	(1 << 0) 
-#define	CTRLMODER_RXFLOW	(1 << 1) 
-#define	CTRLMODER_TXFLOW	(1 << 2) 
+/* control module mode register */
+#define	CTRLMODER_PASSALL	(1 << 0) /* pass all receive frames */
+#define	CTRLMODER_RXFLOW	(1 << 1) /* receive control flow */
+#define	CTRLMODER_TXFLOW	(1 << 2) /* transmit control flow */
 
-#define	MIIMODER_CLKDIV(x)	((x) & 0xfe) 
-#define	MIIMODER_NOPRE		(1 << 8) 
+/* MII mode register */
+#define	MIIMODER_CLKDIV(x)	((x) & 0xfe) /* needs to be an even number */
+#define	MIIMODER_NOPRE		(1 << 8) /* no preamble */
 
-#define	MIICOMMAND_SCAN		(1 << 0) 
-#define	MIICOMMAND_READ		(1 << 1) 
-#define	MIICOMMAND_WRITE	(1 << 2) 
+/* MII command register */
+#define	MIICOMMAND_SCAN		(1 << 0) /* scan status */
+#define	MIICOMMAND_READ		(1 << 1) /* read status */
+#define	MIICOMMAND_WRITE	(1 << 2) /* write control data */
 
+/* MII address register */
 #define	MIIADDRESS_FIAD(x)		(((x) & 0x1f) << 0)
 #define	MIIADDRESS_RGAD(x)		(((x) & 0x1f) << 8)
 #define	MIIADDRESS_ADDR(phy, reg)	(MIIADDRESS_FIAD(phy) | \
 					MIIADDRESS_RGAD(reg))
 
+/* MII transmit data register */
 #define	MIITX_DATA_VAL(x)	((x) & 0xffff)
 
+/* MII receive data register */
 #define	MIIRX_DATA_VAL(x)	((x) & 0xffff)
 
+/* MII status register */
 #define	MIISTATUS_LINKFAIL	(1 << 0)
 #define	MIISTATUS_BUSY		(1 << 1)
 #define	MIISTATUS_INVALID	(1 << 2)
 
-#define	TX_BD_CS		(1 <<  0) 
-#define	TX_BD_DF		(1 <<  1) 
-#define	TX_BD_LC		(1 <<  2) 
-#define	TX_BD_RL		(1 <<  3) 
+/* TX buffer descriptor */
+#define	TX_BD_CS		(1 <<  0) /* carrier sense lost */
+#define	TX_BD_DF		(1 <<  1) /* defer indication */
+#define	TX_BD_LC		(1 <<  2) /* late collision */
+#define	TX_BD_RL		(1 <<  3) /* retransmission limit */
 #define	TX_BD_RETRY_MASK	(0x00f0)
 #define	TX_BD_RETRY(x)		(((x) & 0x00f0) >>  4)
-#define	TX_BD_UR		(1 <<  8) 
-#define	TX_BD_CRC		(1 << 11) 
-#define	TX_BD_PAD		(1 << 12) 
+#define	TX_BD_UR		(1 <<  8) /* transmitter underrun */
+#define	TX_BD_CRC		(1 << 11) /* TX CRC enable */
+#define	TX_BD_PAD		(1 << 12) /* pad enable for short packets */
 #define	TX_BD_WRAP		(1 << 13)
-#define	TX_BD_IRQ		(1 << 14) 
-#define	TX_BD_READY		(1 << 15) 
+#define	TX_BD_IRQ		(1 << 14) /* interrupt request enable */
+#define	TX_BD_READY		(1 << 15) /* TX buffer ready */
 #define	TX_BD_LEN(x)		(((x) & 0xffff) << 16)
 #define	TX_BD_LEN_MASK		(0xffff << 16)
 
 #define	TX_BD_STATS		(TX_BD_CS | TX_BD_DF | TX_BD_LC | \
 				TX_BD_RL | TX_BD_RETRY_MASK | TX_BD_UR)
 
-#define	RX_BD_LC	(1 <<  0) 
-#define	RX_BD_CRC	(1 <<  1) 
-#define	RX_BD_SF	(1 <<  2) 
-#define	RX_BD_TL	(1 <<  3) 
-#define	RX_BD_DN	(1 <<  4) 
-#define	RX_BD_IS	(1 <<  5) 
-#define	RX_BD_OR	(1 <<  6) 
+/* RX buffer descriptor */
+#define	RX_BD_LC	(1 <<  0) /* late collision */
+#define	RX_BD_CRC	(1 <<  1) /* RX CRC error */
+#define	RX_BD_SF	(1 <<  2) /* short frame */
+#define	RX_BD_TL	(1 <<  3) /* too long */
+#define	RX_BD_DN	(1 <<  4) /* dribble nibble */
+#define	RX_BD_IS	(1 <<  5) /* invalid symbol */
+#define	RX_BD_OR	(1 <<  6) /* receiver overrun */
 #define	RX_BD_MISS	(1 <<  7)
-#define	RX_BD_CF	(1 <<  8) 
+#define	RX_BD_CF	(1 <<  8) /* control frame */
 #define	RX_BD_WRAP	(1 << 13)
-#define	RX_BD_IRQ	(1 << 14) 
+#define	RX_BD_IRQ	(1 << 14) /* interrupt request enable */
 #define	RX_BD_EMPTY	(1 << 15)
 #define	RX_BD_LEN(x)	(((x) & 0xffff) << 16)
 
@@ -205,6 +219,11 @@ struct ethoc {
 	s8 phy_id;
 };
 
+/**
+ * struct ethoc_bd - buffer descriptor
+ * @stat:	buffer statistics
+ * @addr:	physical memory address
+ */
 struct ethoc_bd {
 	u32 stat;
 	u32 addr;
@@ -281,7 +300,7 @@ static int ethoc_init_ring(struct ethoc *dev, unsigned long mem_start)
 
 	ethoc_write(dev, TX_BD_NUM, dev->num_tx);
 
-	
+	/* setup transmission buffers */
 	bd.addr = mem_start;
 	bd.stat = TX_BD_IRQ | TX_BD_CRC;
 	vma = dev->membase;
@@ -317,18 +336,18 @@ static int ethoc_reset(struct ethoc *dev)
 {
 	u32 mode;
 
-	
+	/* TODO: reset controller? */
 
 	ethoc_disable_rx_and_tx(dev);
 
-	
+	/* TODO: setup registers */
 
-	
+	/* enable FCS generation and automatic padding */
 	mode = ethoc_read(dev, MODER);
 	mode |= MODER_CRC | MODER_PAD;
 	ethoc_write(dev, MODER, mode);
 
-	
+	/* set full-duplex mode */
 	mode = ethoc_read(dev, MODER);
 	mode |= MODER_FULLD;
 	ethoc_write(dev, MODER, mode);
@@ -400,6 +419,13 @@ static int ethoc_rx(struct net_device *dev, int limit)
 		ethoc_read_bd(priv, entry, &bd);
 		if (bd.stat & RX_BD_EMPTY) {
 			ethoc_ack_irq(priv, INT_MASK_RX);
+			/* If packet (interrupt) came in between checking
+			 * BD_EMTPY and clearing the interrupt source, then we
+			 * risk missing the packet as the RX interrupt won't
+			 * trigger right away when we reenable it; hence, check
+			 * BD_EMTPY here again to make sure there isn't such a
+			 * packet waiting for us...
+			 */
 			ethoc_read_bd(priv, entry, &bd);
 			if (bd.stat & RX_BD_EMPTY)
 				break;
@@ -409,7 +435,7 @@ static int ethoc_rx(struct net_device *dev, int limit)
 			int size = bd.stat >> 16;
 			struct sk_buff *skb;
 
-			size -= 4; 
+			size -= 4; /* strip the CRC */
 			skb = netdev_alloc_skb_ip_align(dev, size);
 
 			if (likely(skb)) {
@@ -429,7 +455,7 @@ static int ethoc_rx(struct net_device *dev, int limit)
 			}
 		}
 
-		
+		/* clear the buffer descriptor so it can be reused */
 		bd.stat &= ~RX_BD_STATS;
 		bd.stat |=  RX_BD_EMPTY;
 		ethoc_write_bd(priv, entry, &bd);
@@ -487,6 +513,13 @@ static int ethoc_tx(struct net_device *dev, int limit)
 
 		if (bd.stat & TX_BD_READY || (priv->dty_tx == priv->cur_tx)) {
 			ethoc_ack_irq(priv, INT_MASK_TX);
+			/* If interrupt came in between reading in the BD
+			 * and clearing the interrupt source, then we risk
+			 * missing the event as the TX interrupt won't trigger
+			 * right away when we reenable it; hence, check
+			 * BD_EMPTY here again to make sure there isn't such an
+			 * event pending...
+			 */
 			ethoc_read_bd(priv, entry, &bd);
 			if (bd.stat & TX_BD_READY ||
 			    (priv->dty_tx == priv->cur_tx))
@@ -510,6 +543,14 @@ static irqreturn_t ethoc_interrupt(int irq, void *dev_id)
 	u32 pending;
 	u32 mask;
 
+	/* Figure out what triggered the interrupt...
+	 * The tricky bit here is that the interrupt source bits get
+	 * set in INT_SOURCE for an event regardless of whether that
+	 * event is masked or not.  Thus, in order to figure out what
+	 * triggered the interrupt, we need to remove the sources
+	 * for all events that are currently masked.  This behaviour
+	 * is not particularly well documented but reasonable...
+	 */
 	mask = ethoc_read(priv, INT_MASK);
 	pending = ethoc_read(priv, INT_SOURCE);
 	pending &= mask;
@@ -520,13 +561,13 @@ static irqreturn_t ethoc_interrupt(int irq, void *dev_id)
 
 	ethoc_ack_irq(priv, pending);
 
-	
+	/* We always handle the dropped packet interrupt */
 	if (pending & INT_MASK_BUSY) {
 		dev_err(&dev->dev, "packet dropped\n");
 		dev->stats.rx_dropped++;
 	}
 
-	
+	/* Handle receive/transmit event by switching to polling */
 	if (pending & (INT_MASK_TX | INT_MASK_RX)) {
 		ethoc_disable_irq(priv, INT_MASK_TX | INT_MASK_RX);
 		napi_schedule(&priv->napi);
@@ -583,7 +624,7 @@ static int ethoc_mdio_read(struct mii_bus *bus, int phy, int reg)
 		u32 status = ethoc_read(priv, MIISTATUS);
 		if (!(status & MIISTATUS_BUSY)) {
 			u32 data = ethoc_read(priv, MIIRX_DATA);
-			
+			/* reset MII command register */
 			ethoc_write(priv, MIICOMMAND, 0);
 			return data;
 		}
@@ -605,7 +646,7 @@ static int ethoc_mdio_write(struct mii_bus *bus, int phy, int reg, u16 val)
 	for (i=0; i < 5; i++) {
 		u32 stat = ethoc_read(priv, MIISTATUS);
 		if (!(stat & MIISTATUS_BUSY)) {
-			
+			/* reset MII command register */
 			ethoc_write(priv, MIICOMMAND, 0);
 			return 0;
 		}
@@ -755,19 +796,19 @@ static void ethoc_set_multicast_list(struct net_device *dev)
 	struct netdev_hw_addr *ha;
 	u32 hash[2] = { 0, 0 };
 
-	
+	/* set loopback mode if requested */
 	if (dev->flags & IFF_LOOPBACK)
 		mode |=  MODER_LOOP;
 	else
 		mode &= ~MODER_LOOP;
 
-	
+	/* receive broadcast frames if requested */
 	if (dev->flags & IFF_BROADCAST)
 		mode &= ~MODER_BRO;
 	else
 		mode |=  MODER_BRO;
 
-	
+	/* enable promiscuous mode if requested */
 	if (dev->flags & IFF_PROMISC)
 		mode |=  MODER_PRO;
 	else
@@ -775,7 +816,7 @@ static void ethoc_set_multicast_list(struct net_device *dev)
 
 	ethoc_write(priv, MODER, mode);
 
-	
+	/* receive multicast frames */
 	if (dev->flags & IFF_ALLMULTI) {
 		hash[0] = 0xffffffff;
 		hash[1] = 0xffffffff;
@@ -860,6 +901,10 @@ static const struct net_device_ops ethoc_netdev_ops = {
 	.ndo_start_xmit = ethoc_start_xmit,
 };
 
+/**
+ * ethoc_probe() - initialize OpenCores ethernet MAC
+ * pdev:	platform device
+ */
 static int __devinit ethoc_probe(struct platform_device *pdev)
 {
 	struct net_device *netdev = NULL;
@@ -872,7 +917,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 	int ret = 0;
 	bool random_mac = false;
 
-	
+	/* allocate networking device */
 	netdev = alloc_etherdev(sizeof(struct ethoc));
 	if (!netdev) {
 		ret = -ENOMEM;
@@ -882,7 +927,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 	SET_NETDEV_DEV(netdev, &pdev->dev);
 	platform_set_drvdata(pdev, netdev);
 
-	
+	/* obtain I/O memory space */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "cannot obtain I/O memory space\n");
@@ -900,7 +945,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 
 	netdev->base_addr = mmio->start;
 
-	
+	/* obtain buffer memory space */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (res) {
 		mem = devm_request_mem_region(&pdev->dev, res->start,
@@ -916,7 +961,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 	}
 
 
-	
+	/* obtain device IRQ number */
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "cannot obtain IRQ\n");
@@ -926,7 +971,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 
 	netdev->irq = res->start;
 
-	
+	/* setup driver-private data */
 	priv = netdev_priv(netdev);
 	priv->netdev = netdev;
 	priv->dma_alloc = 0;
@@ -949,7 +994,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 			goto error;
 		}
 	} else {
-		
+		/* Allocate buffer memory */
 		priv->membase = dmam_alloc_coherent(&pdev->dev,
 			buffer_size, (void *)&netdev->mem_start,
 			GFP_KERNEL);
@@ -963,14 +1008,14 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 		priv->dma_alloc = buffer_size;
 	}
 
-	
+	/* calculate the number of TX/RX buffers, maximum 128 supported */
 	num_bd = min_t(unsigned int,
 		128, (netdev->mem_end - netdev->mem_start + 1) / ETHOC_BUFSIZ);
 	if (num_bd < 4) {
 		ret = -ENODEV;
 		goto error;
 	}
-	
+	/* num_tx must be a power of two */
 	priv->num_tx = rounddown_pow_of_two(num_bd >> 1);
 	priv->num_rx = num_bd - priv->num_tx;
 
@@ -983,7 +1028,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 		goto error;
 	}
 
-	
+	/* Allow the platform setup code to pass in a MAC address. */
 	if (pdev->dev.platform_data) {
 		struct ethoc_platform_data *pdata = pdev->dev.platform_data;
 		memcpy(netdev->dev_addr, pdata->hwaddr, IFHWADDRLEN);
@@ -1004,9 +1049,13 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 #endif
 	}
 
+	/* Check that the given MAC address is valid. If it isn't, read the
+	 * current MAC from the controller. */
 	if (!is_valid_ether_addr(netdev->dev_addr))
 		ethoc_get_mac_address(netdev, netdev->dev_addr);
 
+	/* Check the MAC again for validity, if it still isn't choose and
+	 * program a random one. */
 	if (!is_valid_ether_addr(netdev->dev_addr)) {
 		random_ether_addr(netdev->dev_addr);
 		random_mac = true;
@@ -1021,7 +1070,7 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 	if (random_mac)
 		netdev->addr_assign_type |= NET_ADDR_RANDOM;
 
-	
+	/* register MII bus */
 	priv->mdio = mdiobus_alloc();
 	if (!priv->mdio) {
 		ret = -ENOMEM;
@@ -1059,12 +1108,12 @@ static int __devinit ethoc_probe(struct platform_device *pdev)
 
 	ether_setup(netdev);
 
-	
+	/* setup the net_device structure */
 	netdev->netdev_ops = &ethoc_netdev_ops;
 	netdev->watchdog_timeo = ETHOC_TIMEOUT;
 	netdev->features |= 0;
 
-	
+	/* setup NAPI */
 	netif_napi_add(netdev, &priv->napi, ethoc_poll, 64);
 
 	spin_lock_init(&priv->lock);
@@ -1090,6 +1139,10 @@ out:
 	return ret;
 }
 
+/**
+ * ethoc_remove() - shutdown OpenCores ethernet MAC
+ * @pdev:	platform device
+ */
 static int __devexit ethoc_remove(struct platform_device *pdev)
 {
 	struct net_device *netdev = platform_get_drvdata(pdev);

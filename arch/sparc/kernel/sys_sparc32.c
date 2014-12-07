@@ -54,56 +54,56 @@ asmlinkage long compat_sys_ipc(u32 call, u32 first, u32 second, u32 third, compa
 {
 	int version;
 
-	version = call >> 16; 
+	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
 
 	switch (call) {
 	case SEMTIMEDOP:
 		if (fifth)
-			
+			/* sign extend semid */
 			return compat_sys_semtimedop((int)first,
 						     compat_ptr(ptr), second,
 						     compat_ptr(fifth));
-		
+		/* else fall through for normal semop() */
 	case SEMOP:
-		
-		
+		/* struct sembuf is the same on 32 and 64bit :)) */
+		/* sign extend semid */
 		return sys_semtimedop((int)first, compat_ptr(ptr), second,
 				      NULL);
 	case SEMGET:
-		
+		/* sign extend key, nsems */
 		return sys_semget((int)first, (int)second, third);
 	case SEMCTL:
-		
+		/* sign extend semid, semnum */
 		return compat_sys_semctl((int)first, (int)second, third,
 					 compat_ptr(ptr));
 
 	case MSGSND:
-		
+		/* sign extend msqid */
 		return compat_sys_msgsnd((int)first, (int)second, third,
 					 compat_ptr(ptr));
 	case MSGRCV:
-		
+		/* sign extend msqid, msgtyp */
 		return compat_sys_msgrcv((int)first, second, (int)fifth,
 					 third, version, compat_ptr(ptr));
 	case MSGGET:
-		
+		/* sign extend key */
 		return sys_msgget((int)first, second);
 	case MSGCTL:
-		
+		/* sign extend msqid */
 		return compat_sys_msgctl((int)first, second, compat_ptr(ptr));
 
 	case SHMAT:
-		
+		/* sign extend shmid */
 		return compat_sys_shmat((int)first, second, third, version,
 					compat_ptr(ptr));
 	case SHMDT:
 		return sys_shmdt(compat_ptr(ptr));
 	case SHMGET:
-		
+		/* sign extend key_t */
 		return sys_shmget((int)first, second, third);
 	case SHMCTL:
-		
+		/* sign extend shmid */
 		return compat_sys_shmctl((int)first, second, compat_ptr(ptr));
 
 	default:
@@ -352,7 +352,7 @@ asmlinkage long compat_sys_rt_sigaction(int sig,
         int ret;
 	compat_sigset_t set32;
 
-        
+        /* XXX: Don't preclude handling different sized sigset_t's.  */
         if (sigsetsize != sizeof(compat_sigset_t))
                 return -EINVAL;
 
@@ -396,14 +396,18 @@ asmlinkage long compat_sys_rt_sigaction(int sig,
         return ret;
 }
 
+/*
+ * sparc32_execve() executes a new program after the asm stub has set
+ * things up for us.  This should basically do what I want it to.
+ */
 asmlinkage long sparc32_execve(struct pt_regs *regs)
 {
 	int error, base = 0;
 	char *filename;
 
-	
+	/* User register window flush is done by entry.S */
 
-	
+	/* Check for indirect call. */
 	if ((u32)regs->u_regs[UREG_G1] == 0)
 		base = 1;
 
@@ -442,7 +446,7 @@ asmlinkage long sys32_delete_module(const char __user *name_user,
 	return sys_delete_module(name_user, flags);
 }
 
-#else 
+#else /* CONFIG_MODULES */
 
 asmlinkage long sys32_init_module(const char __user *name_user,
 				  struct module __user *mod_user)
@@ -455,7 +459,7 @@ asmlinkage long sys32_delete_module(const char __user *name_user)
 	return -ENOSYS;
 }
 
-#endif  
+#endif  /* CONFIG_MODULES */
 
 asmlinkage compat_ssize_t sys32_pread64(unsigned int fd,
 					char __user *ubuf,
@@ -548,6 +552,9 @@ asmlinkage long compat_sys_sendfile64(int out_fd, int in_fd,
 	return ret;
 }
 
+/* This is just a version for 32-bit applications which does
+ * not force O_LARGEFILE on.
+ */
 
 asmlinkage long sparc32_open(const char __user *filename,
 			     int flags, int mode)

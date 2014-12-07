@@ -26,17 +26,19 @@
 
 #include "ad5933.h"
 
-#define AD5933_REG_CONTROL_HB		0x80	
-#define AD5933_REG_CONTROL_LB		0x81	
-#define AD5933_REG_FREQ_START		0x82	
-#define AD5933_REG_FREQ_INC		0x85	
-#define AD5933_REG_INC_NUM		0x88	
-#define AD5933_REG_SETTLING_CYCLES	0x8A	
-#define AD5933_REG_STATUS		0x8F	
-#define AD5933_REG_TEMP_DATA		0x92	
-#define AD5933_REG_REAL_DATA		0x94	
-#define AD5933_REG_IMAG_DATA		0x96	
+/* AD5933/AD5934 Registers */
+#define AD5933_REG_CONTROL_HB		0x80	/* R/W, 2 bytes */
+#define AD5933_REG_CONTROL_LB		0x81	/* R/W, 2 bytes */
+#define AD5933_REG_FREQ_START		0x82	/* R/W, 3 bytes */
+#define AD5933_REG_FREQ_INC		0x85	/* R/W, 3 bytes */
+#define AD5933_REG_INC_NUM		0x88	/* R/W, 2 bytes, 9 bit */
+#define AD5933_REG_SETTLING_CYCLES	0x8A	/* R/W, 2 bytes */
+#define AD5933_REG_STATUS		0x8F	/* R, 1 byte */
+#define AD5933_REG_TEMP_DATA		0x92	/* R, 2 bytes*/
+#define AD5933_REG_REAL_DATA		0x94	/* R, 2 bytes*/
+#define AD5933_REG_IMAG_DATA		0x96	/* R, 2 bytes*/
 
+/* AD5933_REG_CONTROL_HB Bits */
 #define AD5933_CTRL_INIT_START_FREQ	(0x1 << 4)
 #define AD5933_CTRL_START_SWEEP		(0x2 << 4)
 #define AD5933_CTRL_INC_FREQ		(0x3 << 4)
@@ -54,18 +56,22 @@
 #define AD5933_CTRL_PGA_GAIN_1		(0x1 << 0)
 #define AD5933_CTRL_PGA_GAIN_5		(0x0 << 0)
 
+/* AD5933_REG_CONTROL_LB Bits */
 #define AD5933_CTRL_RESET		(0x1 << 4)
 #define AD5933_CTRL_INT_SYSCLK		(0x0 << 3)
 #define AD5933_CTRL_EXT_SYSCLK		(0x1 << 3)
 
+/* AD5933_REG_STATUS Bits */
 #define AD5933_STAT_TEMP_VALID		(0x1 << 0)
 #define AD5933_STAT_DATA_VALID		(0x1 << 1)
 #define AD5933_STAT_SWEEP_DONE		(0x1 << 2)
 
+/* I2C Block Commands */
 #define AD5933_I2C_BLOCK_WRITE		0xA0
 #define AD5933_I2C_BLOCK_READ		0xA1
 #define AD5933_I2C_ADDR_POINTER		0xB0
 
+/* Device Specs */
 #define AD5933_INT_OSC_FREQ_Hz		16776000
 #define AD5933_MAX_OUTPUT_FREQ_Hz	100000
 #define AD5933_MAX_RETRIES		100
@@ -105,7 +111,7 @@ static struct ad5933_platform_data ad5933_default_pdata  = {
 static struct iio_chan_spec ad5933_channels[] = {
 	IIO_CHAN(IIO_TEMP, 0, 1, 1, NULL, 0, 0, 0,
 		 0, AD5933_REG_TEMP_DATA, IIO_ST('s', 14, 16, 0), 0),
-	
+	/* Ring Channels */
 	IIO_CHAN(IIO_VOLTAGE, 0, 1, 0, "real_raw", 0, 0,
 		 IIO_CHAN_INFO_SCALE_SEPARATE_BIT,
 		 AD5933_REG_REAL_DATA, 0, IIO_ST('s', 16, 16, 0), 0),
@@ -246,6 +252,9 @@ static void ad5933_calc_out_ranges(struct ad5933_state *st)
 
 }
 
+/*
+ * handles: AD5933_REG_FREQ_START and AD5933_REG_FREQ_INC
+ */
 
 static ssize_t ad5933_show_frequency(struct device *dev,
 					struct device_attribute *attr,
@@ -397,7 +406,7 @@ static ssize_t ad5933_store(struct device *dev,
 		val = clamp(val, 0L, 0x7FFL);
 		st->settling_cycles = val;
 
-		
+		/* 2x, 4x handling, see datasheet */
 		if (val > 511)
 			val = (val >> 1) | (1 << 9);
 		else if (val > 1022)
@@ -453,6 +462,11 @@ static IIO_DEVICE_ATTR(out_voltage0_settling_cycles, S_IRUGO | S_IWUSR,
 			ad5933_store,
 			AD5933_OUT_SETTLING_CYCLES);
 
+/* note:
+ * ideally we would handle the scale attributes via the iio_info
+ * (read|write)_raw methods, however this part is a untypical since we
+ * don't create dedicated sysfs channel attributes for out0 and in0.
+ */
 static struct attribute *ad5933_attributes[] = {
 	&iio_dev_attr_out_voltage0_scale.dev_attr.attr,
 	&iio_dev_attr_out_voltage0_scale_available.dev_attr.attr,
@@ -500,7 +514,7 @@ static int ad5933_read_raw(struct iio_dev *indio_dev,
 			goto out;
 		mutex_unlock(&indio_dev->mlock);
 		ret = be16_to_cpu(dat);
-		
+		/* Temp in Milli degrees Celsius */
 		if (ret < 8192)
 			*val = ret * 1000 / 32;
 		else
@@ -558,6 +572,15 @@ static int ad5933_ring_postenable(struct iio_dev *indio_dev)
 {
 	struct ad5933_state *st = iio_priv(indio_dev);
 
+	/* AD5933_CTRL_INIT_START_FREQ:
+	 * High Q complex circuits require a long time to reach steady state.
+	 * To facilitate the measurement of such impedances, this mode allows
+	 * the user full control of the settling time requirement before
+	 * entering start frequency sweep mode where the impedance measurement
+	 * takes place. In this mode the impedance is excited with the
+	 * programmed start frequency (ad5933_ring_preenable),
+	 * but no measurement takes place.
+	 */
 
 	schedule_delayed_work(&st->work,
 			      msecs_to_jiffies(AD5933_INIT_EXCITATION_TIME_ms));
@@ -584,7 +607,7 @@ static int ad5933_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 	if (!indio_dev->buffer)
 		return -ENOMEM;
 
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &ad5933_ring_setup_ops;
 
 	indio_dev->modes |= INDIO_BUFFER_HARDWARE;
@@ -603,7 +626,7 @@ static void ad5933_work(struct work_struct *work)
 
 	mutex_lock(&indio_dev->mlock);
 	if (st->state == AD5933_CTRL_INIT_START_FREQ) {
-		
+		/* start sweep */
 		ad5933_cmd(st, AD5933_CTRL_START_SWEEP);
 		st->state = AD5933_CTRL_START_SWEEP;
 		schedule_delayed_work(&st->work, st->poll_time_jiffies);
@@ -627,19 +650,21 @@ static void ad5933_work(struct work_struct *work)
 		} else {
 			buf[0] = be16_to_cpu(buf[0]);
 		}
-		
+		/* save datum to the ring */
 		ring->access->store_to(ring, (u8 *)buf, iio_get_time_ns());
 	} else {
-		
+		/* no data available - try again later */
 		schedule_delayed_work(&st->work, st->poll_time_jiffies);
 		mutex_unlock(&indio_dev->mlock);
 		return;
 	}
 
 	if (status & AD5933_STAT_SWEEP_DONE) {
+		/* last sample received - power down do nothing until
+		 * the ring enable is toggled */
 		ad5933_cmd(st, AD5933_CTRL_POWER_DOWN);
 	} else {
-		
+		/* we just received a valid datum, move on to the next */
 		ad5933_cmd(st, AD5933_CTRL_INC_FREQ);
 		schedule_delayed_work(&st->work, st->poll_time_jiffies);
 	}
@@ -696,18 +721,18 @@ static int __devinit ad5933_probe(struct i2c_client *client,
 	indio_dev->name = id->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = ad5933_channels;
-	indio_dev->num_channels = 1; 
+	indio_dev->num_channels = 1; /* only register temp0_input */
 
 	ret = ad5933_register_ring_funcs_and_init(indio_dev);
 	if (ret)
 		goto error_disable_reg;
 
-	
+	/* skip temp0_input, register in0_(real|imag)_raw */
 	ret = iio_buffer_register(indio_dev, &ad5933_channels[1], 2);
 	if (ret)
 		goto error_unreg_ring;
 
-	
+	/* enable both REAL and IMAG channels by default */
 	iio_scan_mask_set(indio_dev, indio_dev->buffer, 0);
 	iio_scan_mask_set(indio_dev, indio_dev->buffer, 1);
 

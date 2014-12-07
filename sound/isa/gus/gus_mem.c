@@ -77,7 +77,7 @@ static struct snd_gf1_mem_block *snd_gf1_mem_xalloc(struct snd_gf1_mem * alloc,
 
 int snd_gf1_mem_xfree(struct snd_gf1_mem * alloc, struct snd_gf1_mem_block * block)
 {
-	if (block->share) {	
+	if (block->share) {	/* ok.. shared block */
 		block->share--;
 		mutex_unlock(&alloc->memory_mutex);
 		return 0;
@@ -176,7 +176,7 @@ static int snd_gf1_mem_find(struct snd_gf1_mem * alloc,
 	}
 	while (++idx < 4) {
 		if (size <= info[idx].size) {
-			
+			/* I assume that bank address is already aligned.. */
 			block->ptr = info[idx].address;
 			block->size = size;
 			return 0;
@@ -196,7 +196,7 @@ struct snd_gf1_mem_block *snd_gf1_mem_alloc(struct snd_gf1_mem * alloc, int owne
 		nblock = snd_gf1_mem_share(alloc, share_id);
 		if (nblock != NULL) {
 			if (size != (int)nblock->size) {
-				
+				/* TODO: remove in the future */
 				snd_printk(KERN_ERR "snd_gf1_mem_alloc - share: sizes differ\n");
 				goto __std;
 			}

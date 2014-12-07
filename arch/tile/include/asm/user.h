@@ -16,5 +16,6 @@
 #ifndef _ASM_TILE_USER_H
 #define _ASM_TILE_USER_H
 
+/* This header is for a.out file formats, which TILE does not support. */
 
-#endif 
+#endif /* _ASM_TILE_USER_H */

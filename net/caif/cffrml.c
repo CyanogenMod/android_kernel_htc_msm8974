@@ -21,7 +21,7 @@
 
 struct cffrml {
 	struct cflayer layer;
-	bool dofcs;		
+	bool dofcs;		/* !< FCS active */
 	int __percpu		*pcpu_refcnt;
 };
 
@@ -73,6 +73,9 @@ void cffrml_set_dnlayer(struct cflayer *this, struct cflayer *dn)
 
 static u16 cffrml_checksum(u16 chks, void *buf, u16 len)
 {
+	/* FIXME: FCS should be moved to glue in order to use OS-Specific
+	 * solutions
+	 */
 	return crc_ccitt(chks, buf, len);
 }
 
@@ -88,7 +91,7 @@ static int cffrml_receive(struct cflayer *layr, struct cfpkt *pkt)
 	cfpkt_extr_head(pkt, &tmp, 2);
 	len = le16_to_cpu(tmp);
 
-	
+	/* Subtract for FCS on length if FCS is not used. */
 	if (!this->dofcs)
 		len -= 2;
 
@@ -98,6 +101,10 @@ static int cffrml_receive(struct cflayer *layr, struct cfpkt *pkt)
 		cfpkt_destroy(pkt);
 		return -EPROTO;
 	}
+	/*
+	 * Don't do extract if FCS is false, rather do setlen - then we don't
+	 * get a cache-miss.
+	 */
 	if (this->dofcs) {
 		cfpkt_extr_trail(pkt, &tmp, 2);
 		hdrchks = le16_to_cpu(tmp);

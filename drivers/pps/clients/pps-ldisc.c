@@ -35,7 +35,7 @@ static void pps_tty_dcd_change(struct tty_struct *tty, unsigned int status,
 
 	BUG_ON(pps == NULL);
 
-	
+	/* Now do the PPS event report */
 	pps_event(pps, ts, status ? PPS_CAPTUREASSERT :
 			PPS_CAPTURECLEAR, NULL);
 
@@ -69,7 +69,7 @@ static int pps_tty_open(struct tty_struct *tty)
 	}
 	tty->disc_data = pps;
 
-	
+	/* Should open N_TTY ldisc too */
 	ret = alias_n_tty_open(tty);
 	if (ret < 0) {
 		pr_err("cannot open tty ldisc \"%s\"\n", info.path);
@@ -101,19 +101,22 @@ static void pps_tty_close(struct tty_struct *tty)
 
 static struct tty_ldisc_ops pps_ldisc_ops;
 
+/*
+ * Module stuff
+ */
 
 static int __init pps_tty_init(void)
 {
 	int err;
 
-	
+	/* Inherit the N_TTY's ops */
 	n_tty_inherit_ops(&pps_ldisc_ops);
 
-	
+	/* Save N_TTY's open()/close() methods */
 	alias_n_tty_open = pps_ldisc_ops.open;
 	alias_n_tty_close = pps_ldisc_ops.close;
 
-	
+	/* Init PPS_TTY data */
 	pps_ldisc_ops.owner = THIS_MODULE;
 	pps_ldisc_ops.magic = PPS_TTY_MAGIC;
 	pps_ldisc_ops.name = "pps_tty";

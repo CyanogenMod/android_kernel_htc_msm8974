@@ -43,17 +43,26 @@
 #include <asm/x86_init.h>
 #include <asm/iommu_table.h>
 
-static unsigned long iommu_bus_base;	
-static unsigned long iommu_size;	
-static unsigned long iommu_pages;	
+static unsigned long iommu_bus_base;	/* GART remapping area (physical) */
+static unsigned long iommu_size;	/* size of remapping area bytes */
+static unsigned long iommu_pages;	/* .. and in pages */
 
-static u32 *iommu_gatt_base;		
+static u32 *iommu_gatt_base;		/* Remapping table */
 
 static dma_addr_t bad_dma_addr;
 
+/*
+ * If this is disabled the IOMMU will use an optimized flushing strategy
+ * of only flushing when an mapping is reused. With it true the GART is
+ * flushed for every mapping. Problem is that doing the lazy flush seems
+ * to trigger bugs with some popular PCI cards, in particular 3ware (but
+ * has been also also seen with Qlogic at least).
+ */
 static int iommu_fullflush = 1;
 
+/* Allocation bitmap for the remapping area: */
 static DEFINE_SPINLOCK(iommu_bitmap_lock);
+/* Guarded by iommu_bitmap_lock: */
 static unsigned long *iommu_gart_bitmap;
 
 static u32 gart_unmapped_entry;
@@ -64,7 +73,7 @@ static u32 gart_unmapped_entry;
 	(((x) & 0xfffff000) | (((x) >> 32) << 4) | GPTE_VALID | GPTE_COHERENT)
 #define GPTE_DECODE(x) (((x) & 0xfffff000) | (((u64)(x) & 0xff0) << 28))
 
-#define EMERGENCY_PAGES 32 
+#define EMERGENCY_PAGES 32 /* = 128KB */
 
 #ifdef CONFIG_AGP
 #define AGPEXTERN extern
@@ -72,13 +81,15 @@ static u32 gart_unmapped_entry;
 #define AGPEXTERN
 #endif
 
+/* GART can only remap to physical addresses < 1TB */
 #define GART_MAX_PHYS_ADDR	(1ULL << 40)
 
+/* backdoor interface to AGP driver */
 AGPEXTERN int agp_memory_reserved;
 AGPEXTERN __u32 *agp_gatt_table;
 
-static unsigned long next_bit;  
-static bool need_flush;		
+static unsigned long next_bit;  /* protected by iommu_bitmap_lock */
+static bool need_flush;		/* global flush state. set for each gart wrap */
 
 static unsigned long alloc_iommu(struct device *dev, int size,
 				 unsigned long align_mask)
@@ -126,6 +137,9 @@ static void free_iommu(unsigned long offset, int size)
 	spin_unlock_irqrestore(&iommu_bitmap_lock, flags);
 }
 
+/*
+ * Use global flush state to avoid races with multiple flushers.
+ */
 static void flush_gart(void)
 {
 	unsigned long flags;
@@ -139,6 +153,7 @@ static void flush_gart(void)
 }
 
 #ifdef CONFIG_IOMMU_LEAK
+/* Debugging aid for drivers that don't free their IOMMU tables */
 static int leak_trace;
 static int iommu_leak_pages = 20;
 
@@ -157,6 +172,15 @@ static void dump_leak(void)
 
 static void iommu_full(struct device *dev, size_t size, int dir)
 {
+	/*
+	 * Ran out of IOMMU space for this operation. This is very bad.
+	 * Unfortunately the drivers cannot handle this operation properly.
+	 * Return some non mapped prereserved space in the aperture and
+	 * let the Northbridge deal with it. This will result in garbage
+	 * in the IO operation. When the size exceeds the prereserved space
+	 * memory corruption will occur or random memory will be DMAed
+	 * out. Hopefully no network devices use single mappings that big.
+	 */
 
 	dev_err(dev, "PCI-DMA: Out of IOMMU space for %lu bytes\n", size);
 
@@ -184,6 +208,9 @@ nonforced_iommu(struct device *dev, unsigned long addr, size_t size)
 	return !dma_capable(dev, addr, size);
 }
 
+/* Map a single continuous physical area into the IOMMU.
+ * Caller needs to check if the iommu is needed and flush.
+ */
 static dma_addr_t dma_map_area(struct device *dev, dma_addr_t phys_mem,
 				size_t size, int dir, unsigned long align_mask)
 {
@@ -211,6 +238,7 @@ static dma_addr_t dma_map_area(struct device *dev, dma_addr_t phys_mem,
 	return iommu_bus_base + iommu_page*PAGE_SIZE + (phys_mem & ~PAGE_MASK);
 }
 
+/* Map a single area into the IOMMU */
 static dma_addr_t gart_map_page(struct device *dev, struct page *page,
 				unsigned long offset, size_t size,
 				enum dma_data_direction dir,
@@ -231,6 +259,9 @@ static dma_addr_t gart_map_page(struct device *dev, struct page *page,
 	return bus;
 }
 
+/*
+ * Free a DMA mapping.
+ */
 static void gart_unmap_page(struct device *dev, dma_addr_t dma_addr,
 			    size_t size, enum dma_data_direction dir,
 			    struct dma_attrs *attrs)
@@ -251,6 +282,9 @@ static void gart_unmap_page(struct device *dev, dma_addr_t dma_addr,
 	free_iommu(iommu_page, npages);
 }
 
+/*
+ * Wrapper for pci_unmap_single working with scatterlists.
+ */
 static void gart_unmap_sg(struct device *dev, struct scatterlist *sg, int nents,
 			  enum dma_data_direction dir, struct dma_attrs *attrs)
 {
@@ -264,6 +298,7 @@ static void gart_unmap_sg(struct device *dev, struct scatterlist *sg, int nents,
 	}
 }
 
+/* Fallback for dma_map_sg in case of overflow */
 static int dma_map_sg_nonforce(struct device *dev, struct scatterlist *sg,
 			       int nents, int dir)
 {
@@ -295,6 +330,7 @@ static int dma_map_sg_nonforce(struct device *dev, struct scatterlist *sg,
 	return nents;
 }
 
+/* Map multiple scatterlist entries continuous into the first. */
 static int __dma_map_cont(struct device *dev, struct scatterlist *start,
 			  int nelems, struct scatterlist *sout,
 			  unsigned long pages)
@@ -346,6 +382,10 @@ dma_map_cont(struct device *dev, struct scatterlist *start, int nelems,
 	return __dma_map_cont(dev, start, nelems, sout, pages);
 }
 
+/*
+ * DMA map all entries in a scatterlist.
+ * Merge chunks that have page aligned sizes into a continuous mapping.
+ */
 static int gart_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 		       enum dma_data_direction dir, struct dma_attrs *attrs)
 {
@@ -367,7 +407,7 @@ static int gart_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 	sgmap		= sg;
 	seg_size	= 0;
 	max_seg_size	= dma_get_max_seg_size(dev);
-	ps		= NULL; 
+	ps		= NULL; /* shut up gcc */
 
 	for_each_sg(sg, s, nents, i) {
 		dma_addr_t addr = sg_phys(s);
@@ -377,8 +417,13 @@ static int gart_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 
 		nextneed = need_iommu(dev, addr, s->length);
 
-		
+		/* Handle the previous not yet processed entries */
 		if (i > start) {
+			/*
+			 * Can only merge when the last chunk ends on a
+			 * page boundary and the new one doesn't have an
+			 * offset.
+			 */
 			if (!iommu_merge || !nextneed || !need || s->offset ||
 			    (s->length + seg_size > max_seg_size) ||
 			    (ps->offset + ps->length) % PAGE_SIZE) {
@@ -414,7 +459,7 @@ error:
 	flush_gart();
 	gart_unmap_sg(dev, sg, out, dir, NULL);
 
-	
+	/* When it was forced or merged try again in a dumb way */
 	if (force_iommu || iommu_merge) {
 		out = dma_map_sg_nonforce(dev, sg, nents, dir);
 		if (out > 0)
@@ -429,6 +474,7 @@ error:
 	return 0;
 }
 
+/* allocate and map a coherent mapping */
 static void *
 gart_alloc_coherent(struct device *dev, size_t size, dma_addr_t *dma_addr,
 		    gfp_t flag, struct dma_attrs *attrs)
@@ -460,6 +506,7 @@ gart_alloc_coherent(struct device *dev, size_t size, dma_addr_t *dma_addr,
 	return NULL;
 }
 
+/* free a coherent mapping */
 static void
 gart_free_coherent(struct device *dev, size_t size, void *vaddr,
 		   dma_addr_t dma_addr, struct dma_attrs *attrs)
@@ -531,10 +578,14 @@ static void enable_gart_translations(void)
 		enable_gart_translation(dev, __pa(agp_gatt_table));
 	}
 
-	
+	/* Flush the GART-TLB to remove stale entries */
 	amd_flush_garts();
 }
 
+/*
+ * If fix_up_north_bridges is set, the north bridges have to be fixed up on
+ * resume in the same way as they are handled in gart_iommu_hole_init().
+ */
 static bool fix_up_north_bridges;
 static u32 aperture_order;
 static u32 aperture_alloc;
@@ -561,6 +612,10 @@ static void gart_fixup_northbridges(void)
 	for (i = 0; i < amd_nb_num(); i++) {
 		struct pci_dev *dev = node_to_amd_nb(i)->misc;
 
+		/*
+		 * Don't enable translations just yet.  That is the next
+		 * step.  Restore the pre-suspend aperture settings.
+		 */
 		gart_set_size_and_enable(dev, aperture_order);
 		pci_write_config_dword(dev, AMD64_GARTAPERTUREBASE, aperture_alloc >> 25);
 	}
@@ -580,6 +635,10 @@ static struct syscore_ops gart_syscore_ops = {
 
 };
 
+/*
+ * Private Northbridge GATT initialization in case we cannot use the
+ * AGP driver for some reason.
+ */
 static __init int init_amd_gatt(struct agp_kern_info *info)
 {
 	unsigned aper_size, gatt_size, new_aper_size;
@@ -631,7 +690,7 @@ static __init int init_amd_gatt(struct agp_kern_info *info)
 	return 0;
 
  nommu:
-	
+	/* Should not happen anymore */
 	pr_warning("PCI-DMA: More than 4GB of RAM and no IOMMU\n"
 	       "falling back to iommu=soft.\n");
 	return -1;
@@ -652,7 +711,7 @@ static void gart_iommu_shutdown(void)
 	struct pci_dev *dev;
 	int i;
 
-	
+	/* don't shutdown it if there is AGP installed */
 	if (!no_agp)
 		return;
 
@@ -686,8 +745,8 @@ int __init gart_iommu_init(void)
 #ifndef CONFIG_AGP_AMD64
 	no_agp = 1;
 #else
-	
-	
+	/* Makefile puts PCI initialization via subsys_initcall first. */
+	/* Add other AMD AGP bridge drivers here */
 	no_agp = no_agp ||
 		(agp_amd64_init() < 0) ||
 		(agp_copy_info(agp_bridge, &info) < 0);
@@ -704,7 +763,7 @@ int __init gart_iommu_init(void)
 		return 0;
 	}
 
-	
+	/* need to map that range */
 	aper_size	= info.aper_size << 20;
 	aper_base	= info.aper_base;
 	end_pfn		= (aper_base>>PAGE_SHIFT) + (aper_size>>PAGE_SHIFT);
@@ -733,6 +792,10 @@ int __init gart_iommu_init(void)
 	}
 #endif
 
+	/*
+	 * Out of IOMMU space handling.
+	 * Reserve some invalid pages at the beginning of the GART.
+	 */
 	bitmap_set(iommu_gart_bitmap, 0, EMERGENCY_PAGES);
 
 	pr_info("PCI-DMA: Reserving %luMB of IOMMU area in the AGP aperture\n",
@@ -744,12 +807,41 @@ int __init gart_iommu_init(void)
 	bad_dma_addr		= iommu_bus_base;
 	iommu_gatt_base		= agp_gatt_table + (iommu_start>>PAGE_SHIFT);
 
+	/*
+	 * Unmap the IOMMU part of the GART. The alias of the page is
+	 * always mapped with cache enabled and there is no full cache
+	 * coherency across the GART remapping. The unmapping avoids
+	 * automatic prefetches from the CPU allocating cache lines in
+	 * there. All CPU accesses are done via the direct mapping to
+	 * the backing memory. The GART address is only used by PCI
+	 * devices.
+	 */
 	set_memory_np((unsigned long)__va(iommu_bus_base),
 				iommu_size >> PAGE_SHIFT);
+	/*
+	 * Tricky. The GART table remaps the physical memory range,
+	 * so the CPU wont notice potential aliases and if the memory
+	 * is remapped to UC later on, we might surprise the PCI devices
+	 * with a stray writeout of a cacheline. So play it sure and
+	 * do an explicit, full-scale wbinvd() _after_ having marked all
+	 * the pages as Not-Present:
+	 */
 	wbinvd();
 
+	/*
+	 * Now all caches are flushed and we can safely enable
+	 * GART hardware.  Doing it early leaves the possibility
+	 * of stale cache entries that can lead to GART PTE
+	 * errors.
+	 */
 	enable_gart_translations();
 
+	/*
+	 * Try to workaround a bug (thanks to BenH):
+	 * Set unmapped entries to a scratch page instead of 0.
+	 * Any prefetches that hit unmapped entries won't get an bus abort
+	 * then. (P2P bridge may be prefetching on DMA reads).
+	 */
 	scratch = get_zeroed_page(GFP_KERNEL);
 	if (!scratch)
 		panic("Cannot allocate iommu scratch page");
@@ -789,7 +881,7 @@ void __init gart_parse_options(char *p)
 		no_agp = 1;
 	if (!strncmp(p, "noaperture", 10))
 		fix_aperture = 0;
-	
+	/* duplicated from pci-dma.c */
 	if (!strncmp(p, "force", 5))
 		gart_iommu_aperture_allowed = 1;
 	if (!strncmp(p, "allowed", 7))

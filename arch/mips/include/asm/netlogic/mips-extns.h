@@ -35,10 +35,18 @@
 #ifndef _ASM_NLM_MIPS_EXTS_H
 #define _ASM_NLM_MIPS_EXTS_H
 
+/*
+ * XLR and XLP interrupt request and interrupt mask registers
+ */
 #define read_c0_eirr()		__read_64bit_c0_register($9, 6)
 #define read_c0_eimr()		__read_64bit_c0_register($9, 7)
 #define write_c0_eirr(val)	__write_64bit_c0_register($9, 6, val)
 
+/*
+ * Writing EIMR in 32 bit is a special case, the lower 8 bit of the
+ * EIMR is shadowed in the status register, so we cannot save and
+ * restore status register for split read.
+ */
 #define write_c0_eimr(val)						\
 do {									\
 	if (sizeof(unsigned long) == 4)	{				\
@@ -65,4 +73,4 @@ static inline int hard_smp_processor_id(void)
 	return __read_32bit_c0_register($15, 1) & 0x3ff;
 }
 
-#endif 
+#endif /*_ASM_NLM_MIPS_EXTS_H */

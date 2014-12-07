@@ -40,7 +40,7 @@
 
 
 struct ps3disk_private {
-	spinlock_t lock;		
+	spinlock_t lock;		/* Request queue spinlock */
 	struct request_queue *queue;
 	struct gendisk *gendisk;
 	unsigned int blocking_factor;
@@ -77,8 +77,8 @@ enum lv1_ata_proto {
 };
 
 enum lv1_ata_in_out {
-	DIR_WRITE = 0,			
-	DIR_READ = 1			
+	DIR_WRITE = 0,			/* memory -> device */
+	DIR_READ = 1			/* device -> memory */
 };
 
 static int ps3disk_major;
@@ -301,6 +301,7 @@ static int ps3disk_sync_cache(struct ps3_storage_device *dev)
 }
 
 
+/* ATA helpers copied from drivers/ata/libata-core.c */
 
 static void swap_buf_le16(u16 *buf, unsigned int buf_words)
 {
@@ -309,7 +310,7 @@ static void swap_buf_le16(u16 *buf, unsigned int buf_words)
 
 	for (i = 0; i < buf_words; i++)
 		buf[i] = le16_to_cpu(buf[i]);
-#endif 
+#endif /* __BIG_ENDIAN */
 }
 
 static u64 ata_id_n_sectors(const u16 *id)
@@ -390,7 +391,7 @@ static int ps3disk_identify(struct ps3_storage_device *dev)
 
 	swap_buf_le16(id, ATA_ID_WORDS);
 
-	
+	/* All we're interested in are raw capacity and model name */
 	priv->raw_capacity = ata_id_n_sectors(id);
 	ata_id_c_string(id, priv->model, ATA_ID_PROD, sizeof(priv->model));
 	return 0;

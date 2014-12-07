@@ -135,7 +135,7 @@ struct usb_ep_ops {
 
 struct usb_ep {
 	void			*driver_data;
-
+	bool			is_ncm;
 	const char		*name;
 	const struct usb_ep_ops	*ops;
 	struct list_head	ep_list;
@@ -347,6 +347,7 @@ struct usb_gadget {
 	int             miMaxMtu;
 	bool				l1_supported;
 	bool				streaming_enabled;
+	unsigned		ats_reset_irq_count;
 };
 
 static inline void set_gadget_data(struct usb_gadget *gadget, void *data)
@@ -454,7 +455,7 @@ struct usb_gadget_driver {
 	void			(*mute_disconnect)(struct usb_gadget *);
 	void			(*suspend)(struct usb_gadget *);
 	void			(*resume)(struct usb_gadget *);
-
+	void			(*broadcast_abnormal_usb_reset)(void);
 	
 	struct device_driver	driver;
 

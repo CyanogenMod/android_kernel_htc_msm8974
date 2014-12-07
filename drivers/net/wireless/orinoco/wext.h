@@ -7,6 +7,7 @@
 
 #include <net/iw_handler.h>
 
+/* Structure defining all our WEXT handlers */
 extern const struct iw_handler_def orinoco_handler_def;
 
-#endif 
+#endif /* _ORINOCO_WEXT_H_ */

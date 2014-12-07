@@ -25,6 +25,9 @@ DEFINE_RWLOCK(rxrpc_connection_lock);
 static unsigned long rxrpc_connection_timeout = 10 * 60;
 static DECLARE_DELAYED_WORK(rxrpc_connection_reap, rxrpc_connection_reaper);
 
+/*
+ * allocate a new client connection bundle
+ */
 static struct rxrpc_conn_bundle *rxrpc_alloc_bundle(gfp_t gfp)
 {
 	struct rxrpc_conn_bundle *bundle;
@@ -44,6 +47,10 @@ static struct rxrpc_conn_bundle *rxrpc_alloc_bundle(gfp_t gfp)
 	return bundle;
 }
 
+/*
+ * compare bundle parameters with what we're looking for
+ * - return -ve, 0 or +ve
+ */
 static inline
 int rxrpc_cmp_bundle(const struct rxrpc_conn_bundle *bundle,
 		     struct key *key, __be16 service_id)
@@ -52,6 +59,9 @@ int rxrpc_cmp_bundle(const struct rxrpc_conn_bundle *bundle,
 		((unsigned long) bundle->key - (unsigned long) key);
 }
 
+/*
+ * get bundle of client connections that a client socket can make use of
+ */
 struct rxrpc_conn_bundle *rxrpc_get_bundle(struct rxrpc_sock *rx,
 					   struct rxrpc_transport *trans,
 					   struct key *key,
@@ -69,6 +79,8 @@ struct rxrpc_conn_bundle *rxrpc_get_bundle(struct rxrpc_sock *rx,
 		return rx->bundle;
 	}
 
+	/* search the extant bundles first for one that matches the specified
+	 * user ID */
 	spin_lock(&trans->client_lock);
 
 	p = trans->bundles.rb_node;
@@ -85,6 +97,8 @@ struct rxrpc_conn_bundle *rxrpc_get_bundle(struct rxrpc_sock *rx,
 
 	spin_unlock(&trans->client_lock);
 
+	/* not yet present - create a candidate for a new record and then
+	 * redo the search */
 	candidate = rxrpc_alloc_bundle(gfp);
 	if (!candidate) {
 		_leave(" = -ENOMEM");
@@ -110,7 +124,7 @@ struct rxrpc_conn_bundle *rxrpc_get_bundle(struct rxrpc_sock *rx,
 			goto found_extant_second;
 	}
 
-	
+	/* second search also failed; add the new bundle */
 	bundle = candidate;
 	candidate = NULL;
 
@@ -125,7 +139,7 @@ struct rxrpc_conn_bundle *rxrpc_get_bundle(struct rxrpc_sock *rx,
 	_leave(" = %p [new]", bundle);
 	return bundle;
 
-	
+	/* we found the bundle in the list immediately */
 found_extant_bundle:
 	atomic_inc(&bundle->usage);
 	spin_unlock(&trans->client_lock);
@@ -137,7 +151,7 @@ found_extant_bundle:
 	_leave(" = %p [extant %d]", bundle, atomic_read(&bundle->usage));
 	return bundle;
 
-	
+	/* we found the bundle on the second time through the list */
 found_extant_second:
 	atomic_inc(&bundle->usage);
 	spin_unlock(&trans->client_lock);
@@ -151,6 +165,9 @@ found_extant_second:
 	return bundle;
 }
 
+/*
+ * release a bundle
+ */
 void rxrpc_put_bundle(struct rxrpc_transport *trans,
 		      struct rxrpc_conn_bundle *bundle)
 {
@@ -171,6 +188,9 @@ void rxrpc_put_bundle(struct rxrpc_transport *trans,
 	_leave("");
 }
 
+/*
+ * allocate a new connection
+ */
 static struct rxrpc_connection *rxrpc_alloc_connection(gfp_t gfp)
 {
 	struct rxrpc_connection *conn;
@@ -196,6 +216,11 @@ static struct rxrpc_connection *rxrpc_alloc_connection(gfp_t gfp)
 	return conn;
 }
 
+/*
+ * assign a connection ID to a connection and add it to the transport's
+ * connection lookup tree
+ * - called with transport client lock held
+ */
 static void rxrpc_assign_connection_id(struct rxrpc_connection *conn)
 {
 	struct rxrpc_connection *xconn;
@@ -234,6 +259,8 @@ attempt_insertion:
 			goto id_exists;
 	}
 
+	/* we've found a suitable hole - arrange for this connection to occupy
+	 * it */
 	rb_link_node(&conn->node, parent, p);
 	rb_insert_color(&conn->node, &conn->trans->client_conns);
 
@@ -243,6 +270,8 @@ attempt_insertion:
 	_leave(" [CONNID %x CID %x]", real_conn_id, ntohl(conn->cid));
 	return;
 
+	/* we found a connection with the proposed ID - walk the tree from that
+	 * point looking for the next unused ID */
 id_exists:
 	for (;;) {
 		real_conn_id += RXRPC_CID_INC;
@@ -263,6 +292,9 @@ id_exists:
 	}
 }
 
+/*
+ * add a call to a connection's call-by-ID tree
+ */
 static void rxrpc_add_call_ID_to_conn(struct rxrpc_connection *conn,
 				      struct rxrpc_call *call)
 {
@@ -293,6 +325,9 @@ static void rxrpc_add_call_ID_to_conn(struct rxrpc_connection *conn,
 	write_unlock_bh(&conn->lock);
 }
 
+/*
+ * connect a call on an exclusive connection
+ */
 static int rxrpc_connect_exclusive(struct rxrpc_sock *rx,
 				   struct rxrpc_transport *trans,
 				   __be16 service_id,
@@ -306,6 +341,8 @@ static int rxrpc_connect_exclusive(struct rxrpc_sock *rx,
 
 	conn = rx->conn;
 	if (!conn) {
+		/* not yet present - create a candidate for a new connection
+		 * and then redo the check */
 		conn = rxrpc_alloc_connection(gfp);
 		if (!conn) {
 			_leave(" = -ENOMEM");
@@ -346,6 +383,11 @@ static int rxrpc_connect_exclusive(struct rxrpc_sock *rx,
 		rx->conn = conn;
 	}
 
+	/* we've got a connection with a free channel and we can now attach the
+	 * call to it
+	 * - we're holding the transport's client lock
+	 * - we're holding a reference on the connection
+	 */
 	for (chan = 0; chan < RXRPC_MAXCALLS; chan++)
 		if (!conn->channels[chan])
 			goto found_channel;
@@ -374,6 +416,10 @@ no_free_channels:
 	return -ENOSR;
 }
 
+/*
+ * find a connection for a call
+ * - called in process context with IRQs enabled
+ */
 int rxrpc_connect_call(struct rxrpc_sock *rx,
 		       struct rxrpc_transport *trans,
 		       struct rxrpc_conn_bundle *bundle,
@@ -393,7 +439,7 @@ int rxrpc_connect_call(struct rxrpc_sock *rx,
 
 	spin_lock(&trans->client_lock);
 	for (;;) {
-		
+		/* see if the bundle has a call slot available */
 		if (!list_empty(&bundle->avail_conns)) {
 			_debug("avail");
 			conn = list_entry(bundle->avail_conns.next,
@@ -437,7 +483,7 @@ int rxrpc_connect_call(struct rxrpc_sock *rx,
 			break;
 		}
 
-		
+		/* need to allocate a new connection */
 		_debug("get new conn [%d]", bundle->num_conns);
 
 		spin_unlock(&trans->client_lock);
@@ -470,6 +516,8 @@ int rxrpc_connect_call(struct rxrpc_sock *rx,
 			continue;
 		}
 
+		/* not yet present - create a candidate for a new connection and then
+		 * redo the check */
 		candidate = rxrpc_alloc_connection(gfp);
 		if (!candidate) {
 			_leave(" = -ENOMEM");
@@ -514,10 +562,18 @@ int rxrpc_connect_call(struct rxrpc_sock *rx,
 		if (candidate->security)
 			candidate->security->prime_packet_security(candidate);
 
+		/* leave the candidate lurking in zombie mode attached to the
+		 * bundle until we're ready for it */
 		rxrpc_put_connection(candidate);
 		candidate = NULL;
 	}
 
+	/* we've got a connection with a free channel and we can now attach the
+	 * call to it
+	 * - we're holding the transport's client lock
+	 * - we're holding a reference on the connection
+	 * - we're holding a reference on the bundle
+	 */
 	for (chan = 0; chan < RXRPC_MAXCALLS; chan++)
 		if (!conn->channels[chan])
 			goto found_channel;
@@ -553,6 +609,9 @@ interrupted:
 	return -ERESTARTSYS;
 }
 
+/*
+ * get a record of an incoming connection
+ */
 struct rxrpc_connection *
 rxrpc_incoming_connection(struct rxrpc_transport *trans,
 			  struct rxrpc_header *hdr,
@@ -571,7 +630,7 @@ rxrpc_incoming_connection(struct rxrpc_transport *trans,
 	epoch = hdr->epoch;
 	conn_id = ntohl(hdr->cid) & RXRPC_CIDMASK;
 
-	
+	/* search the connection list first */
 	read_lock_bh(&trans->conn_lock);
 
 	p = trans->server_conns.rb_node;
@@ -593,6 +652,8 @@ rxrpc_incoming_connection(struct rxrpc_transport *trans,
 	}
 	read_unlock_bh(&trans->conn_lock);
 
+	/* not yet present - create a candidate for a new record and then
+	 * redo the search */
 	candidate = rxrpc_alloc_connection(gfp);
 	if (!candidate) {
 		_leave(" = -ENOMEM");
@@ -631,7 +692,7 @@ rxrpc_incoming_connection(struct rxrpc_transport *trans,
 			goto found_extant_second;
 	}
 
-	
+	/* we can now add the new candidate to the list */
 	conn = candidate;
 	candidate = NULL;
 	rb_link_node(&conn->node, p, pp);
@@ -652,7 +713,7 @@ success:
 	_leave(" = %p {u=%d}", conn, atomic_read(&conn->usage));
 	return conn;
 
-	
+	/* we found the connection in the list immediately */
 found_extant_connection:
 	if (hdr->securityIndex != conn->security_ix) {
 		read_unlock_bh(&trans->conn_lock);
@@ -662,7 +723,7 @@ found_extant_connection:
 	read_unlock_bh(&trans->conn_lock);
 	goto success;
 
-	
+	/* we found the connection on the second time through the list */
 found_extant_second:
 	if (hdr->securityIndex != conn->security_ix) {
 		write_unlock_bh(&trans->conn_lock);
@@ -679,6 +740,10 @@ security_mismatch:
 	return ERR_PTR(-EKEYREJECTED);
 }
 
+/*
+ * find a connection based on transport and RxRPC connection ID for an incoming
+ * packet
+ */
 struct rxrpc_connection *rxrpc_find_connection(struct rxrpc_transport *trans,
 					       struct rxrpc_header *hdr)
 {
@@ -727,6 +792,9 @@ found:
 	return conn;
 }
 
+/*
+ * release a virtual connection
+ */
 void rxrpc_put_connection(struct rxrpc_connection *conn)
 {
 	_enter("%p{u=%d,d=%d}",
@@ -743,6 +811,9 @@ void rxrpc_put_connection(struct rxrpc_connection *conn)
 	_leave("");
 }
 
+/*
+ * destroy a virtual connection
+ */
 static void rxrpc_destroy_connection(struct rxrpc_connection *conn)
 {
 	_enter("%p{%d}", conn, atomic_read(&conn->usage));
@@ -763,6 +834,9 @@ static void rxrpc_destroy_connection(struct rxrpc_connection *conn)
 	_leave("");
 }
 
+/*
+ * reap dead connections
+ */
 static void rxrpc_connection_reaper(struct work_struct *work)
 {
 	struct rxrpc_connection *conn, *_p;
@@ -819,7 +893,7 @@ static void rxrpc_connection_reaper(struct work_struct *work)
 					 (earliest - now) * HZ);
 	}
 
-	
+	/* then destroy all those pulled out */
 	while (!list_empty(&graveyard)) {
 		conn = list_entry(graveyard.next, struct rxrpc_connection,
 				  link);
@@ -832,6 +906,10 @@ static void rxrpc_connection_reaper(struct work_struct *work)
 	_leave("");
 }
 
+/*
+ * preemptively destroy all the connection records rather than waiting for them
+ * to time out
+ */
 void __exit rxrpc_destroy_all_connections(void)
 {
 	_enter("");

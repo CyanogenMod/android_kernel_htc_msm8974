@@ -24,4 +24,4 @@ int cpufreq_has_boost_support(unsigned int cpu, int *support, int *active,
 		*support = *active = 1;
 	return 0;
 }
-#endif 
+#endif /* #if defined(__i386__) || defined(__x86_64__) */

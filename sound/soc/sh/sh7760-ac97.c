@@ -19,7 +19,7 @@
 static struct snd_soc_dai_link sh7760_ac97_dai = {
 	.name = "AC97",
 	.stream_name = "AC97 HiFi",
-	.cpu_dai_name = "hac-dai.0",	
+	.cpu_dai_name = "hac-dai.0",	/* HAC0 */
 	.codec_dai_name = "ac97-hifi",
 	.platform_name = "sh7760-pcm-audio",
 	.codec_name = "ac97-codec",
@@ -40,7 +40,7 @@ static int __init sh7760_ac97_init(void)
 	int ret;
 	unsigned short ipsel;
 
-	
+	/* enable both AC97 controllers in pinmux reg */
 	ipsel = __raw_readw(IPSEL);
 	__raw_writew(ipsel | (3 << 10), IPSEL);
 

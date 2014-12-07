@@ -32,31 +32,50 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/module.h>	
-#include <linux/types.h>	
-#include <linux/errno.h>	
-#include <linux/kernel.h>	
-#include <linux/fs.h>		
-#include <linux/watchdog.h>	
-#include <linux/miscdevice.h>	
-#include <linux/init.h>		
-#include <linux/uaccess.h>	
+#include <linux/module.h>	/* For module stuff/... */
+#include <linux/types.h>	/* For standard types (like size_t) */
+#include <linux/errno.h>	/* For the -ENODEV/... values */
+#include <linux/kernel.h>	/* For printk/panic/... */
+#include <linux/fs.h>		/* For file operations */
+#include <linux/watchdog.h>	/* For watchdog specific items */
+#include <linux/miscdevice.h>	/* For handling misc devices */
+#include <linux/init.h>		/* For __init/__exit/... */
+#include <linux/uaccess.h>	/* For copy_to_user/put_user/... */
 
+/* make sure we only register one /dev/watchdog device */
 static unsigned long watchdog_dev_busy;
+/* the watchdog device behind /dev/watchdog */
 static struct watchdog_device *wdd;
 
+/*
+ *	watchdog_ping: ping the watchdog.
+ *	@wddev: the watchdog device to ping
+ *
+ *	If the watchdog has no own ping operation then it needs to be
+ *	restarted via the start operation. This wrapper function does
+ *	exactly that.
+ *	We only ping when the watchdog device is running.
+ */
 
 static int watchdog_ping(struct watchdog_device *wddev)
 {
 	if (test_bit(WDOG_ACTIVE, &wddev->status)) {
 		if (wddev->ops->ping)
-			return wddev->ops->ping(wddev);  
+			return wddev->ops->ping(wddev);  /* ping the watchdog */
 		else
-			return wddev->ops->start(wddev); 
+			return wddev->ops->start(wddev); /* restart watchdog */
 	}
 	return 0;
 }
 
+/*
+ *	watchdog_start: wrapper to start the watchdog.
+ *	@wddev: the watchdog device to start
+ *
+ *	Start the watchdog if it is not active and mark it active.
+ *	This function returns zero on success or a negative errno code for
+ *	failure.
+ */
 
 static int watchdog_start(struct watchdog_device *wddev)
 {
@@ -72,6 +91,15 @@ static int watchdog_start(struct watchdog_device *wddev)
 	return 0;
 }
 
+/*
+ *	watchdog_stop: wrapper to stop the watchdog.
+ *	@wddev: the watchdog device to stop
+ *
+ *	Stop the watchdog if it is still active and unmark it active.
+ *	This function returns zero on success or a negative errno code for
+ *	failure.
+ *	If the 'nowayout' feature was set, the watchdog cannot be stopped.
+ */
 
 static int watchdog_stop(struct watchdog_device *wddev)
 {
@@ -93,6 +121,17 @@ static int watchdog_stop(struct watchdog_device *wddev)
 	return 0;
 }
 
+/*
+ *	watchdog_write: writes to the watchdog.
+ *	@file: file from VFS
+ *	@data: user address of data
+ *	@len: length of data
+ *	@ppos: pointer to the file offset
+ *
+ *	A write to a watchdog device is defined as a keepalive ping.
+ *	Writing the magic 'V' sequence allows the next close to turn
+ *	off the watchdog (if 'nowayout' is not set).
+ */
 
 static ssize_t watchdog_write(struct file *file, const char __user *data,
 						size_t len, loff_t *ppos)
@@ -103,9 +142,13 @@ static ssize_t watchdog_write(struct file *file, const char __user *data,
 	if (len == 0)
 		return 0;
 
+	/*
+	 * Note: just in case someone wrote the magic character
+	 * five months ago...
+	 */
 	clear_bit(WDOG_ALLOW_RELEASE, &wdd->status);
 
-	
+	/* scan to see whether or not we got the magic character */
 	for (i = 0; i != len; i++) {
 		if (get_user(c, data + i))
 			return -EFAULT;
@@ -113,12 +156,21 @@ static ssize_t watchdog_write(struct file *file, const char __user *data,
 			set_bit(WDOG_ALLOW_RELEASE, &wdd->status);
 	}
 
-	
+	/* someone wrote to us, so we send the watchdog a keepalive ping */
 	watchdog_ping(wdd);
 
 	return len;
 }
 
+/*
+ *	watchdog_ioctl: handle the different ioctl's for the watchdog device.
+ *	@file: file handle to the device
+ *	@cmd: watchdog command
+ *	@arg: argument pointer
+ *
+ *	The watchdog API defines a common set of functions for all watchdogs
+ *	according to their available features.
+ */
 
 static long watchdog_ioctl(struct file *file, unsigned int cmd,
 							unsigned long arg)
@@ -174,10 +226,13 @@ static long watchdog_ioctl(struct file *file, unsigned int cmd,
 		err = wdd->ops->set_timeout(wdd, val);
 		if (err < 0)
 			return err;
+		/* If the watchdog is active then we send a keepalive ping
+		 * to make sure that the watchdog keep's running (and if
+		 * possible that it takes the new timeout) */
 		watchdog_ping(wdd);
-		
+		/* Fall */
 	case WDIOC_GETTIMEOUT:
-		
+		/* timeout == 0 means that we don't know the timeout */
 		if (wdd->timeout == 0)
 			return -EOPNOTSUPP;
 		return put_user(wdd->timeout, p);
@@ -191,15 +246,28 @@ static long watchdog_ioctl(struct file *file, unsigned int cmd,
 	}
 }
 
+/*
+ *	watchdog_open: open the /dev/watchdog device.
+ *	@inode: inode of device
+ *	@file: file handle to device
+ *
+ *	When the /dev/watchdog device gets opened, we start the watchdog.
+ *	Watch out: the /dev/watchdog device is single open, so we make sure
+ *	it can only be opened once.
+ */
 
 static int watchdog_open(struct inode *inode, struct file *file)
 {
 	int err = -EBUSY;
 
-	
+	/* the watchdog is single open! */
 	if (test_and_set_bit(WDOG_DEV_OPEN, &wdd->status))
 		return -EBUSY;
 
+	/*
+	 * If the /dev/watchdog device is open, we don't want the module
+	 * to be unloaded.
+	 */
 	if (!try_module_get(wdd->ops->owner))
 		goto out;
 
@@ -207,7 +275,7 @@ static int watchdog_open(struct inode *inode, struct file *file)
 	if (err < 0)
 		goto out_mod;
 
-	
+	/* dev/watchdog is a virtual (and thus non-seekable) filesystem */
 	return nonseekable_open(inode, file);
 
 out_mod:
@@ -217,25 +285,39 @@ out:
 	return err;
 }
 
+/*
+ *      watchdog_release: release the /dev/watchdog device.
+ *      @inode: inode of device
+ *      @file: file handle to device
+ *
+ *	This is the code for when /dev/watchdog gets closed. We will only
+ *	stop the watchdog when we have received the magic char (and nowayout
+ *	was not set), else the watchdog will keep running.
+ */
 
 static int watchdog_release(struct inode *inode, struct file *file)
 {
 	int err = -EBUSY;
 
+	/*
+	 * We only stop the watchdog if we received the magic character
+	 * or if WDIOF_MAGICCLOSE is not set. If nowayout was set then
+	 * watchdog_stop will fail.
+	 */
 	if (test_and_clear_bit(WDOG_ALLOW_RELEASE, &wdd->status) ||
 	    !(wdd->info->options & WDIOF_MAGICCLOSE))
 		err = watchdog_stop(wdd);
 
-	
+	/* If the watchdog was not stopped, send a keepalive ping */
 	if (err < 0) {
 		pr_crit("%s: watchdog did not stop!\n", wdd->info->identity);
 		watchdog_ping(wdd);
 	}
 
-	
+	/* Allow the owner module to be unloaded again */
 	module_put(wdd->ops->owner);
 
-	
+	/* make sure that /dev/watchdog can be re-opened */
 	clear_bit(WDOG_DEV_OPEN, &wdd->status);
 
 	return 0;
@@ -255,12 +337,19 @@ static struct miscdevice watchdog_miscdev = {
 	.fops		= &watchdog_fops,
 };
 
+/*
+ *	watchdog_dev_register:
+ *	@watchdog: watchdog device
+ *
+ *	Register a watchdog device as /dev/watchdog. /dev/watchdog
+ *	is actually a miscdevice and thus we set it up like that.
+ */
 
 int watchdog_dev_register(struct watchdog_device *watchdog)
 {
 	int err;
 
-	
+	/* Only one device can register for /dev/watchdog */
 	if (test_and_set_bit(0, &watchdog_dev_busy)) {
 		pr_err("only one watchdog can use /dev/watchdog\n");
 		return -EBUSY;
@@ -283,14 +372,20 @@ out:
 	return err;
 }
 
+/*
+ *	watchdog_dev_unregister:
+ *	@watchdog: watchdog device
+ *
+ *	Deregister the /dev/watchdog device.
+ */
 
 int watchdog_dev_unregister(struct watchdog_device *watchdog)
 {
-	
+	/* Check that a watchdog device was registered in the past */
 	if (!test_bit(0, &watchdog_dev_busy) || !wdd)
 		return -ENODEV;
 
-	
+	/* We can only unregister the watchdog device that was registered */
 	if (watchdog != wdd) {
 		pr_err("%s: watchdog was not registered as /dev/watchdog\n",
 		       watchdog->info->identity);

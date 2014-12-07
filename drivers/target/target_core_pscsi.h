@@ -3,10 +3,12 @@
 
 #define PSCSI_VERSION		"v4.0"
 
+/* used in pscsi_find_alloc_len() */
 #ifndef INQUIRY_DATA_SIZE
 #define INQUIRY_DATA_SIZE	0x24
 #endif
 
+/* used in pscsi_add_device_to_list() */
 #define PSCSI_DEFAULT_QUEUEDEPTH	1
 
 #define PS_RETRY		5
@@ -57,4 +59,4 @@ struct pscsi_hba_virt {
 	struct Scsi_Host	*phv_lld_host;
 } ____cacheline_aligned;
 
-#endif   
+#endif   /*** TARGET_CORE_PSCSI_H ***/

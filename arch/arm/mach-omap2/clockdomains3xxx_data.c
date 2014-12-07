@@ -24,6 +24,11 @@
  * XXX encode hardware fixed wakeup dependencies -- esp. for 3430 CORE
  */
 
+/*
+ * To-Do List
+ * -> Port the Sleep/Wakeup dependencies for the domains
+ *    from the Power domain framework
+ */
 
 #include <linux/kernel.h>
 #include <linux/io.h>
@@ -34,8 +39,19 @@
 #include "cm-regbits-34xx.h"
 #include "prm-regbits-34xx.h"
 
+/*
+ * Clockdomain dependencies for wkdeps/sleepdeps
+ *
+ * XXX Hardware dependencies (e.g., dependencies that cannot be
+ * changed in software) are not included here yet, but should be.
+ */
 
+/* OMAP3-specific possible dependencies */
 
+/*
+ * 3430ES1 PM_WKDEP_GFX: adds IVA2, removes CORE
+ * 3430ES2 PM_WKDEP_SGX: adds IVA2, removes CORE
+ */
 static struct clkdm_dep gfx_sgx_3xxx_wkdeps[] = {
 	{ .clkdm_name = "iva2_clkdm", },
 	{ .clkdm_name = "mpu_clkdm", },
@@ -43,6 +59,7 @@ static struct clkdm_dep gfx_sgx_3xxx_wkdeps[] = {
 	{ NULL },
 };
 
+/* 3430: PM_WKDEP_PER: CORE, IVA2, MPU, WKUP */
 static struct clkdm_dep per_wkdeps[] = {
 	{ .clkdm_name = "core_l3_clkdm" },
 	{ .clkdm_name = "core_l4_clkdm" },
@@ -52,6 +69,7 @@ static struct clkdm_dep per_wkdeps[] = {
 	{ NULL },
 };
 
+/* 3430ES2: PM_WKDEP_USBHOST: CORE, IVA2, MPU, WKUP */
 static struct clkdm_dep usbhost_wkdeps[] = {
 	{ .clkdm_name = "core_l3_clkdm" },
 	{ .clkdm_name = "core_l4_clkdm" },
@@ -61,6 +79,7 @@ static struct clkdm_dep usbhost_wkdeps[] = {
 	{ NULL },
 };
 
+/* 3430 PM_WKDEP_MPU: CORE, IVA2, DSS, PER */
 static struct clkdm_dep mpu_3xxx_wkdeps[] = {
 	{ .clkdm_name = "core_l3_clkdm" },
 	{ .clkdm_name = "core_l4_clkdm" },
@@ -70,6 +89,7 @@ static struct clkdm_dep mpu_3xxx_wkdeps[] = {
 	{ NULL },
 };
 
+/* 3430 PM_WKDEP_IVA2: CORE, MPU, WKUP, DSS, PER */
 static struct clkdm_dep iva2_wkdeps[] = {
 	{ .clkdm_name = "core_l3_clkdm" },
 	{ .clkdm_name = "core_l4_clkdm" },
@@ -80,6 +100,7 @@ static struct clkdm_dep iva2_wkdeps[] = {
 	{ NULL },
 };
 
+/* 3430 PM_WKDEP_CAM: IVA2, MPU, WKUP */
 static struct clkdm_dep cam_wkdeps[] = {
 	{ .clkdm_name = "iva2_clkdm" },
 	{ .clkdm_name = "mpu_clkdm" },
@@ -87,6 +108,7 @@ static struct clkdm_dep cam_wkdeps[] = {
 	{ NULL },
 };
 
+/* 3430 PM_WKDEP_DSS: IVA2, MPU, WKUP */
 static struct clkdm_dep dss_wkdeps[] = {
 	{ .clkdm_name = "iva2_clkdm" },
 	{ .clkdm_name = "mpu_clkdm" },
@@ -94,40 +116,55 @@ static struct clkdm_dep dss_wkdeps[] = {
 	{ NULL },
 };
 
+/* 3430: PM_WKDEP_NEON: MPU */
 static struct clkdm_dep neon_wkdeps[] = {
 	{ .clkdm_name = "mpu_clkdm" },
 	{ NULL },
 };
 
+/* Sleep dependency source arrays for OMAP3-specific clkdms */
 
+/* 3430: CM_SLEEPDEP_DSS: MPU, IVA */
 static struct clkdm_dep dss_sleepdeps[] = {
 	{ .clkdm_name = "mpu_clkdm" },
 	{ .clkdm_name = "iva2_clkdm" },
 	{ NULL },
 };
 
+/* 3430: CM_SLEEPDEP_PER: MPU, IVA */
 static struct clkdm_dep per_sleepdeps[] = {
 	{ .clkdm_name = "mpu_clkdm" },
 	{ .clkdm_name = "iva2_clkdm" },
 	{ NULL },
 };
 
+/* 3430ES2: CM_SLEEPDEP_USBHOST: MPU, IVA */
 static struct clkdm_dep usbhost_sleepdeps[] = {
 	{ .clkdm_name = "mpu_clkdm" },
 	{ .clkdm_name = "iva2_clkdm" },
 	{ NULL },
 };
 
+/* 3430: CM_SLEEPDEP_CAM: MPU */
 static struct clkdm_dep cam_sleepdeps[] = {
 	{ .clkdm_name = "mpu_clkdm" },
 	{ NULL },
 };
 
+/*
+ * 3430ES1: CM_SLEEPDEP_GFX: MPU
+ * 3430ES2: CM_SLEEPDEP_SGX: MPU
+ * These can share data since they will never be present simultaneously
+ * on the same device.
+ */
 static struct clkdm_dep gfx_sgx_sleepdeps[] = {
 	{ .clkdm_name = "mpu_clkdm" },
 	{ NULL },
 };
 
+/*
+ * OMAP3 clockdomains
+ */
 
 static struct clockdomain mpu_3xxx_clkdm = {
 	.name		= "mpu_clkdm",
@@ -173,6 +210,13 @@ static struct clockdomain sgx_clkdm = {
 	.clktrctrl_mask = OMAP3430ES2_CLKTRCTRL_SGX_MASK,
 };
 
+/*
+ * The die-to-die clockdomain was documented in the 34xx ES1 TRM, but
+ * then that information was removed from the 34xx ES2+ TRM.  It is
+ * unclear whether the core is still there, but the clockdomain logic
+ * is there, and must be programmed to an appropriate state if the
+ * CORE clockdomain is to become inactive.
+ */
 static struct clockdomain d2d_clkdm = {
 	.name		= "d2d_clkdm",
 	.pwrdm		= { .name = "core_pwrdm" },
@@ -180,6 +224,11 @@ static struct clockdomain d2d_clkdm = {
 	.clktrctrl_mask = OMAP3430ES1_CLKTRCTRL_D2D_MASK,
 };
 
+/*
+ * XXX add usecounting for clkdm dependencies, otherwise the presence
+ * of a single dep bit for core_l3_3xxx_clkdm and core_l4_3xxx_clkdm
+ * could cause trouble
+ */
 static struct clockdomain core_l3_3xxx_clkdm = {
 	.name		= "core_l3_clkdm",
 	.pwrdm		= { .name = "core_pwrdm" },
@@ -188,6 +237,11 @@ static struct clockdomain core_l3_3xxx_clkdm = {
 	.clktrctrl_mask = OMAP3430_CLKTRCTRL_L3_MASK,
 };
 
+/*
+ * XXX add usecounting for clkdm dependencies, otherwise the presence
+ * of a single dep bit for core_l3_3xxx_clkdm and core_l4_3xxx_clkdm
+ * could cause trouble
+ */
 static struct clockdomain core_l4_3xxx_clkdm = {
 	.name		= "core_l4_clkdm",
 	.pwrdm		= { .name = "core_pwrdm" },
@@ -196,6 +250,7 @@ static struct clockdomain core_l4_3xxx_clkdm = {
 	.clktrctrl_mask = OMAP3430_CLKTRCTRL_L4_MASK,
 };
 
+/* Another case of bit name collisions between several registers: EN_DSS */
 static struct clockdomain dss_3xxx_clkdm = {
 	.name		= "dss_clkdm",
 	.pwrdm		= { .name = "dss_pwrdm" },
@@ -234,10 +289,14 @@ static struct clockdomain per_clkdm = {
 	.clktrctrl_mask = OMAP3430_CLKTRCTRL_PER_MASK,
 };
 
+/*
+ * Disable hw supervised mode for emu_clkdm, because emu_pwrdm is
+ * switched of even if sdti is in use
+ */
 static struct clockdomain emu_clkdm = {
 	.name		= "emu_clkdm",
 	.pwrdm		= { .name = "emu_pwrdm" },
-	.flags		= CLKDM_CAN_SWSUP,
+	.flags		= /* CLKDM_CAN_ENABLE_AUTO |  */CLKDM_CAN_SWSUP,
 	.clktrctrl_mask = OMAP3430_CLKTRCTRL_EMU_MASK,
 };
 
@@ -266,6 +325,9 @@ static struct clockdomain dpll5_clkdm = {
 	.pwrdm		= { .name = "dpll5_pwrdm" },
 };
 
+/*
+ * Clockdomain hwsup dependencies
+ */
 
 static struct clkdm_autodep clkdm_autodeps[] = {
 	{
@@ -279,6 +341,9 @@ static struct clkdm_autodep clkdm_autodeps[] = {
 	}
 };
 
+/*
+ *
+ */
 
 static struct clockdomain *clockdomains_omap3430_common[] __initdata = {
 	&wkup_common_clkdm,

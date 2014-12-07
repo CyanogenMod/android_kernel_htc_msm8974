@@ -15,5 +15,6 @@
 #ifndef _ASM_TILE_FTRACE_H
 #define _ASM_TILE_FTRACE_H
 
+/* empty */
 
-#endif 
+#endif /* _ASM_TILE_FTRACE_H */

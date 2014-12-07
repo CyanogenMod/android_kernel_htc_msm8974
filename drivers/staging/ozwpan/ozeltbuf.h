@@ -8,6 +8,8 @@
 
 #include "ozprotocol.h"
 
+/*-----------------------------------------------------------------------------
+ */
 struct oz_pd;
 typedef void (*oz_elt_callback_t)(struct oz_pd *pd, long context);
 
@@ -34,6 +36,7 @@ struct oz_elt_info {
 	int length;
 	unsigned magic;
 };
+/* Flags values */
 #define OZ_EI_F_MARKED		0x1
 
 struct oz_elt_buf {
@@ -63,5 +66,5 @@ int oz_select_elts_for_tx(struct oz_elt_buf *buf, u8 isoc, unsigned *len,
 int oz_are_elts_available(struct oz_elt_buf *buf);
 void oz_trim_elt_pool(struct oz_elt_buf *buf);
 
-#endif 
+#endif /* _OZELTBUF_H */
 

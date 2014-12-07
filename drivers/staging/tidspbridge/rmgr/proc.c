@@ -17,79 +17,96 @@
  */
 
 #include <linux/types.h>
+/* ------------------------------------ Host OS */
 #include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
 #include <dspbridge/host_os.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/*  ----------------------------------- OS Adaptation Layer */
 #include <dspbridge/ntfy.h>
 #include <dspbridge/sync.h>
+/*  ----------------------------------- Bridge Driver */
 #include <dspbridge/dspdefs.h>
 #include <dspbridge/dspdeh.h>
+/*  ----------------------------------- Platform Manager */
 #include <dspbridge/cod.h>
 #include <dspbridge/dev.h>
 #include <dspbridge/procpriv.h>
 #include <dspbridge/dmm.h>
 
+/*  ----------------------------------- Resource Manager */
 #include <dspbridge/mgr.h>
 #include <dspbridge/node.h>
 #include <dspbridge/nldr.h>
 #include <dspbridge/rmm.h>
 
+/*  ----------------------------------- Others */
 #include <dspbridge/dbdcd.h>
 #include <dspbridge/msg.h>
 #include <dspbridge/dspioctl.h>
 #include <dspbridge/drv.h>
 
+/*  ----------------------------------- This */
 #include <dspbridge/proc.h>
 #include <dspbridge/pwr.h>
 
 #include <dspbridge/resourcecleanup.h>
+/*  ----------------------------------- Defines, Data Structures, Typedefs */
 #define MAXCMDLINELEN       255
 #define PROC_ENVPROCID      "PROC_ID=%d"
 #define MAXPROCIDLEN	(8 + 5)
-#define PROC_DFLT_TIMEOUT   10000	
-#define PWR_TIMEOUT	 500	
-#define EXTEND	      "_EXT_END"	
+#define PROC_DFLT_TIMEOUT   10000	/* Time out in milliseconds */
+#define PWR_TIMEOUT	 500	/* Sleep/wake timout in msec */
+#define EXTEND	      "_EXT_END"	/* Extmem end addr in DSP binary */
 
 #define DSP_CACHE_LINE 128
 
 #define BUFMODE_MASK	(3 << 14)
 
-#define RBUF		0x4000		
-#define WBUF		0x8000		
+/* Buffer modes from DSP perspective */
+#define RBUF		0x4000		/* Input buffer */
+#define WBUF		0x8000		/* Output Buffer */
 
 extern struct device *bridge;
 
+/*  ----------------------------------- Globals */
 
+/* The proc_object structure. */
 struct proc_object {
-	struct list_head link;	
-	struct dev_object *dev_obj;	
-	u32 process;		
-	struct mgr_object *mgr_obj;	
-	u32 attach_count;	
-	u32 processor_id;	
-	u32 timeout;		
-	enum dsp_procstate proc_state;	
-	u32 unit;		
-	bool is_already_attached;	
-	struct ntfy_object *ntfy_obj;	
-	
+	struct list_head link;	/* Link to next proc_object */
+	struct dev_object *dev_obj;	/* Device this PROC represents */
+	u32 process;		/* Process owning this Processor */
+	struct mgr_object *mgr_obj;	/* Manager Object Handle */
+	u32 attach_count;	/* Processor attach count */
+	u32 processor_id;	/* Processor number */
+	u32 timeout;		/* Time out count */
+	enum dsp_procstate proc_state;	/* Processor state */
+	u32 unit;		/* DDSP unit number */
+	bool is_already_attached;	/*
+					 * True if the Device below has
+					 * GPP Client attached
+					 */
+	struct ntfy_object *ntfy_obj;	/* Manages  notifications */
+	/* Bridge Context Handle */
 	struct bridge_dev_context *bridge_context;
-	
+	/* Function interface to Bridge driver */
 	struct bridge_drv_interface *intf_fxns;
 	char *last_coff;
 	struct list_head proc_list;
 };
 
-DEFINE_MUTEX(proc_lock);	
+DEFINE_MUTEX(proc_lock);	/* For critical sections */
 
+/*  ----------------------------------- Function Prototypes */
 static int proc_monitor(struct proc_object *proc_obj);
 static s32 get_envp_count(char **envp);
 static char **prepend_envp(char **new_envp, char **envp, s32 envp_elems,
 			   s32 cnew_envp, char *sz_var);
 
+/* remember mapping information */
 static struct dmm_map_object *add_mapping_info(struct process_context *pr_ctxt,
 				u32 mpu_addr, u32 dsp_addr, u32 size)
 {
@@ -240,6 +257,12 @@ static inline struct page *get_mapping_page(struct dmm_map_object *map_obj,
 	return map_obj->pages[pg_i];
 }
 
+/*
+ *  ======== proc_attach ========
+ *  Purpose:
+ *      Prepare for communication with a particular DSP processor, and return
+ *      a handle to the processor object.
+ */
 int
 proc_attach(u32 processor_id,
 	    const struct dsp_processorattrin *attr_in,
@@ -258,7 +281,7 @@ proc_attach(u32 processor_id,
 		return status;
 	}
 
-	
+	/* Get the Driver and Manager Object Handles */
 	if (!drv_datap || !drv_datap->drv_object || !drv_datap->mgr_object) {
 		status = -ENODATA;
 		pr_err("%s: Failed to get object handles\n", __func__);
@@ -268,7 +291,7 @@ proc_attach(u32 processor_id,
 	}
 
 	if (!status) {
-		
+		/* Get the Device Object */
 		status = drv_get_dev_object(processor_id, hdrv_obj, &hdev_obj);
 	}
 	if (!status)
@@ -277,9 +300,9 @@ proc_attach(u32 processor_id,
 	if (status)
 		goto func_end;
 
-	
+	/* If we made it this far, create the Proceesor object: */
 	p_proc_object = kzalloc(sizeof(struct proc_object), GFP_KERNEL);
-	
+	/* Fill out the Processor Object: */
 	if (p_proc_object == NULL) {
 		status = -ENOMEM;
 		goto func_end;
@@ -287,7 +310,7 @@ proc_attach(u32 processor_id,
 	p_proc_object->dev_obj = hdev_obj;
 	p_proc_object->mgr_obj = hmgr_obj;
 	p_proc_object->processor_id = dev_type;
-	
+	/* Store TGID instead of process handle */
 	p_proc_object->process = current->tgid;
 
 	INIT_LIST_HEAD(&p_proc_object->proc_list);
@@ -309,7 +332,10 @@ proc_attach(u32 processor_id,
 	if (status)
 		goto func_end;
 
-	
+	/* Create the Notification Object */
+	/* This is created with no event mask, no notify mask
+	 * and no valid handle to the notification. They all get
+	 * filled up when proc_register_notify is called */
 	p_proc_object->ntfy_obj = kmalloc(sizeof(struct ntfy_object),
 							GFP_KERNEL);
 	if (p_proc_object->ntfy_obj)
@@ -318,6 +344,10 @@ proc_attach(u32 processor_id,
 		status = -ENOMEM;
 
 	if (!status) {
+		/* Insert the Processor Object into the DEV List.
+		 * Return handle to this Processor Object:
+		 * Find out if the Device is already attached to a
+		 * Processor. If so, return AlreadyAttached status */
 		status = dev_insert_proc_object(p_proc_object->dev_obj,
 						(u32) p_proc_object,
 						&p_proc_object->
@@ -340,7 +370,7 @@ proc_attach(u32 processor_id,
 						  DSP_PROCESSORATTACH);
 		}
 	} else {
-		
+		/* Don't leak memory if status is failed */
 		kfree(p_proc_object);
 	}
 func_end:
@@ -378,6 +408,20 @@ static int get_exec_file(struct cfg_devnode *dev_node_obj,
 	return 0;
 }
 
+/*
+ *  ======== proc_auto_start ======== =
+ *  Purpose:
+ *      A Particular device gets loaded with the default image
+ *      if the AutoStart flag is set.
+ *  Parameters:
+ *      hdev_obj:     Handle to the Device
+ *  Returns:
+ *      0:   On Successful Loading
+ *      -EPERM  General Failure
+ *  Requires:
+ *      hdev_obj != NULL
+ *  Ensures:
+ */
 int proc_auto_start(struct cfg_devnode *dev_node_obj,
 			   struct dev_object *hdev_obj)
 {
@@ -389,7 +433,7 @@ int proc_auto_start(struct cfg_devnode *dev_node_obj,
 	struct drv_data *drv_datap = dev_get_drvdata(bridge);
 	u8 dev_type;
 
-	
+	/* Create a Dummy PROC Object */
 	if (!drv_datap || !drv_datap->mgr_object) {
 		status = -ENODATA;
 		pr_err("%s: Failed to retrieve the object handle\n", __func__);
@@ -412,13 +456,13 @@ int proc_auto_start(struct cfg_devnode *dev_node_obj,
 	if (status)
 		goto func_cont;
 
-	
+	/* Stop the Device, put it into standby mode */
 	status = proc_stop(p_proc_object);
 
 	if (status)
 		goto func_cont;
 
-	
+	/* Get the default executable for this board... */
 	dev_get_dev_type(hdev_obj, (u8 *) &dev_type);
 	p_proc_object->processor_id = dev_type;
 	status = get_exec_file(dev_node_obj, hdev_obj, sizeof(sz_exec_file),
@@ -426,7 +470,7 @@ int proc_auto_start(struct cfg_devnode *dev_node_obj,
 	if (!status) {
 		argv[0] = sz_exec_file;
 		argv[1] = NULL;
-		
+		/* ...and try to load it: */
 		status = proc_load(p_proc_object, 1, (const char **)argv, NULL);
 		if (!status)
 			status = proc_start(p_proc_object);
@@ -439,6 +483,17 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_ctrl ========
+ *  Purpose:
+ *      Pass control information to the GPP device driver managing the
+ *      DSP processor.
+ *
+ *      This will be an OEM-only function, and not part of the DSP/BIOS Bridge
+ *      application developer's API.
+ *      Call the bridge_dev_ctrl fxn with the Argument. This is a Synchronous
+ *      Operation. arg can be null.
+ */
 int proc_ctrl(void *hprocessor, u32 dw_cmd, struct dsp_cbdata * arg)
 {
 	int status = 0;
@@ -446,25 +501,25 @@ int proc_ctrl(void *hprocessor, u32 dw_cmd, struct dsp_cbdata * arg)
 	u32 timeout = 0;
 
 	if (p_proc_object) {
-		
+		/* intercept PWR deep sleep command */
 		if (dw_cmd == BRDIOCTL_DEEPSLEEP) {
 			timeout = arg->cb_data;
 			status = pwr_sleep_dsp(PWR_DEEPSLEEP, timeout);
 		}
-		
+		/* intercept PWR emergency sleep command */
 		else if (dw_cmd == BRDIOCTL_EMERGENCYSLEEP) {
 			timeout = arg->cb_data;
 			status = pwr_sleep_dsp(PWR_EMERGENCYDEEPSLEEP, timeout);
 		} else if (dw_cmd == PWR_DEEPSLEEP) {
-			
+			/* timeout = arg->cb_data; */
 			status = pwr_sleep_dsp(PWR_DEEPSLEEP, timeout);
 		}
-		
+		/* intercept PWR wake commands */
 		else if (dw_cmd == BRDIOCTL_WAKEUP) {
 			timeout = arg->cb_data;
 			status = pwr_wake_dsp(timeout);
 		} else if (dw_cmd == PWR_WAKEUP) {
-			
+			/* timeout = arg->cb_data; */
 			status = pwr_wake_dsp(timeout);
 		} else
 		    if (!((*p_proc_object->intf_fxns->dev_cntrl)
@@ -481,6 +536,12 @@ int proc_ctrl(void *hprocessor, u32 dw_cmd, struct dsp_cbdata * arg)
 	return status;
 }
 
+/*
+ *  ======== proc_detach ========
+ *  Purpose:
+ *      Destroys the  Processor Object. Removes the notification from the Dev
+ *      List.
+ */
 int proc_detach(struct process_context *pr_ctxt)
 {
 	int status = 0;
@@ -489,9 +550,9 @@ int proc_detach(struct process_context *pr_ctxt)
 	p_proc_object = (struct proc_object *)pr_ctxt->processor;
 
 	if (p_proc_object) {
-		
+		/* Notify the Client */
 		ntfy_notify(p_proc_object->ntfy_obj, DSP_PROCESSORDETACH);
-		
+		/* Remove the notification memory */
 		if (p_proc_object->ntfy_obj) {
 			ntfy_delete(p_proc_object->ntfy_obj);
 			kfree(p_proc_object->ntfy_obj);
@@ -499,10 +560,10 @@ int proc_detach(struct process_context *pr_ctxt)
 
 		kfree(p_proc_object->last_coff);
 		p_proc_object->last_coff = NULL;
-		
+		/* Remove the Proc from the DEV List */
 		(void)dev_remove_proc_object(p_proc_object->dev_obj,
 					     (u32) p_proc_object);
-		
+		/* Free the Processor Object */
 		kfree(p_proc_object);
 		pr_ctxt->processor = NULL;
 	} else {
@@ -512,6 +573,12 @@ int proc_detach(struct process_context *pr_ctxt)
 	return status;
 }
 
+/*
+ *  ======== proc_enum_nodes ========
+ *  Purpose:
+ *      Enumerate and get configuration information about nodes allocated
+ *      on a DSP processor.
+ */
 int proc_enum_nodes(void *hprocessor, void **node_tab,
 			   u32 node_tab_size, u32 *pu_num_nodes,
 			   u32 *pu_allocated)
@@ -537,6 +604,7 @@ int proc_enum_nodes(void *hprocessor, void **node_tab,
 	return status;
 }
 
+/* Cache operation against kernel address instead of users */
 static int build_dma_sg(struct dmm_map_object *map_obj, unsigned long start,
 						ssize_t len, int pg_i)
 {
@@ -585,7 +653,7 @@ static int memory_regain_ownership(struct dmm_map_object *map_obj,
 	int ret = 0;
 	unsigned long first_data_page = start >> PAGE_SHIFT;
 	unsigned long last_data_page = ((u32)(start + len - 1) >> PAGE_SHIFT);
-	
+	/* calculating the number of pages this area spans */
 	unsigned long num_pages = last_data_page - first_data_page + 1;
 	struct bridge_dma_map_info *dma_info = &map_obj->dma_info;
 
@@ -609,6 +677,7 @@ out:
 	return ret;
 }
 
+/* Cache operation against kernel address instead of users */
 static int memory_give_ownership(struct dmm_map_object *map_obj,
 		unsigned long start, ssize_t len, enum dma_data_direction dir)
 {
@@ -616,7 +685,7 @@ static int memory_give_ownership(struct dmm_map_object *map_obj,
 	struct scatterlist *sg;
 	unsigned long first_data_page = start >> PAGE_SHIFT;
 	unsigned long last_data_page = ((u32)(start + len - 1) >> PAGE_SHIFT);
-	
+	/* calculating the number of pages this area spans */
 	unsigned long num_pages = last_data_page - first_data_page + 1;
 
 	pg_i = find_first_page_in_cache(map_obj, start);
@@ -635,8 +704,8 @@ static int memory_give_ownership(struct dmm_map_object *map_obj,
 
 	sg_init_table(sg, num_pages);
 
-	
-	
+	/* cleanup a previous sg allocation */
+	/* this may happen if application doesn't signal for e/o DMA */
 	kfree(map_obj->dma_info.sg);
 
 	map_obj->dma_info.sg = sg;
@@ -669,7 +738,7 @@ out:
 int proc_begin_dma(void *hprocessor, void *pmpu_addr, u32 ul_size,
 				enum dma_data_direction dir)
 {
-	
+	/* Keep STATUS here for future additions to this function */
 	int status = 0;
 	struct process_context *pr_ctxt = (struct process_context *) hprocessor;
 	struct dmm_map_object *map_obj;
@@ -685,7 +754,7 @@ int proc_begin_dma(void *hprocessor, void *pmpu_addr, u32 ul_size,
 
 	mutex_lock(&proc_lock);
 
-	
+	/* find requested memory are in cached mapping information */
 	map_obj = find_containing_mapping(pr_ctxt, (u32) pmpu_addr, ul_size);
 	if (!map_obj) {
 		pr_err("%s: find_containing_mapping failed\n", __func__);
@@ -709,7 +778,7 @@ err_out:
 int proc_end_dma(void *hprocessor, void *pmpu_addr, u32 ul_size,
 			enum dma_data_direction dir)
 {
-	
+	/* Keep STATUS here for future additions to this function */
 	int status = 0;
 	struct process_context *pr_ctxt = (struct process_context *) hprocessor;
 	struct dmm_map_object *map_obj;
@@ -725,7 +794,7 @@ int proc_end_dma(void *hprocessor, void *pmpu_addr, u32 ul_size,
 
 	mutex_lock(&proc_lock);
 
-	
+	/* find requested memory are in cached mapping information */
 	map_obj = find_containing_mapping(pr_ctxt, (u32) pmpu_addr, ul_size);
 	if (!map_obj) {
 		pr_err("%s: find_containing_mapping failed\n", __func__);
@@ -745,6 +814,11 @@ err_out:
 	return status;
 }
 
+/*
+ *  ======== proc_flush_memory ========
+ *  Purpose:
+ *     Flush cache
+ */
 int proc_flush_memory(void *hprocessor, void *pmpu_addr,
 			     u32 ul_size, u32 ul_flags)
 {
@@ -753,6 +827,11 @@ int proc_flush_memory(void *hprocessor, void *pmpu_addr,
 	return proc_begin_dma(hprocessor, pmpu_addr, ul_size, dir);
 }
 
+/*
+ *  ======== proc_invalidate_memory ========
+ *  Purpose:
+ *     Invalidates the memory specified
+ */
 int proc_invalidate_memory(void *hprocessor, void *pmpu_addr, u32 size)
 {
 	enum dma_data_direction dir = DMA_FROM_DEVICE;
@@ -760,6 +839,11 @@ int proc_invalidate_memory(void *hprocessor, void *pmpu_addr, u32 size)
 	return proc_begin_dma(hprocessor, pmpu_addr, size, dir);
 }
 
+/*
+ *  ======== proc_get_resource_info ========
+ *  Purpose:
+ *      Enumerate the resources currently available on a processor.
+ */
 int proc_get_resource_info(void *hprocessor, u32 resource_type,
 				  struct dsp_resourceinfo *resource_info,
 				  u32 resource_info_size)
@@ -769,7 +853,7 @@ int proc_get_resource_info(void *hprocessor, u32 resource_type,
 	struct node_mgr *hnode_mgr = NULL;
 	struct nldr_object *nldr_obj = NULL;
 	struct rmm_target_obj *rmm = NULL;
-	struct io_mgr *hio_mgr = NULL;	
+	struct io_mgr *hio_mgr = NULL;	/* IO manager handle */
 
 	if (!p_proc_object) {
 		status = -EFAULT;
@@ -822,6 +906,12 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_get_dev_object ========
+ *  Purpose:
+ *      Return the Dev Object handle for a given Processor.
+ *
+ */
 int proc_get_dev_object(void *hprocessor,
 			       struct dev_object **device_obj)
 {
@@ -839,6 +929,11 @@ int proc_get_dev_object(void *hprocessor,
 	return status;
 }
 
+/*
+ *  ======== proc_get_state ========
+ *  Purpose:
+ *      Report the state of the specified DSP processor.
+ */
 int proc_get_state(void *hprocessor,
 			  struct dsp_processorstate *proc_state_obj,
 			  u32 state_info_size)
@@ -848,7 +943,7 @@ int proc_get_state(void *hprocessor,
 	int brd_status;
 
 	if (p_proc_object) {
-		
+		/* First, retrieve BRD state information */
 		status = (*p_proc_object->intf_fxns->brd_status)
 		    (p_proc_object->bridge_context, &brd_status);
 		if (!status) {
@@ -858,7 +953,7 @@ int proc_get_state(void *hprocessor,
 				break;
 			case BRD_SLEEP_TRANSITION:
 			case BRD_DSP_HIBERNATION:
-				
+				/* Fall through */
 			case BRD_RUNNING:
 				proc_state_obj->proc_state = PROC_RUNNING;
 				break;
@@ -882,6 +977,18 @@ int proc_get_state(void *hprocessor,
 	return status;
 }
 
+/*
+ *  ======== proc_get_trace ========
+ *  Purpose:
+ *      Retrieve the current contents of the trace buffer, located on the
+ *      Processor.  Predefined symbols for the trace buffer must have been
+ *      configured into the DSP executable.
+ *  Details:
+ *      We support using the symbols SYS_PUTCBEG and SYS_PUTCEND to define a
+ *      trace buffer, only.  Treat it as an undocumented feature.
+ *      This call is destructive, meaning the processor is placed in the monitor
+ *      state as a result of this function.
+ */
 int proc_get_trace(void *hprocessor, u8 * pbuf, u32 max_size)
 {
 	int status;
@@ -889,20 +996,27 @@ int proc_get_trace(void *hprocessor, u8 * pbuf, u32 max_size)
 	return status;
 }
 
+/*
+ *  ======== proc_load ========
+ *  Purpose:
+ *      Reset a processor and load a new base program image.
+ *      This will be an OEM-only function, and not part of the DSP/BIOS Bridge
+ *      application developer's API.
+ */
 int proc_load(void *hprocessor, const s32 argc_index,
 		     const char **user_args, const char **user_envp)
 {
 	int status = 0;
 	struct proc_object *p_proc_object = (struct proc_object *)hprocessor;
-	struct io_mgr *hio_mgr;	
+	struct io_mgr *hio_mgr;	/* IO manager handle */
 	struct msg_mgr *hmsg_mgr;
-	struct cod_manager *cod_mgr;	
-	char *pargv0;		
-	char **new_envp;	
-	char sz_proc_id[MAXPROCIDLEN];	
-	s32 envp_elems;		
-	s32 cnew_envp;		
-	s32 nproc_id = 0;	
+	struct cod_manager *cod_mgr;	/* Code manager handle */
+	char *pargv0;		/* temp argv[0] ptr */
+	char **new_envp;	/* Updated envp[] array. */
+	char sz_proc_id[MAXPROCIDLEN];	/* Size of "PROC_ID=<n>" */
+	s32 envp_elems;		/* Num elements in envp[]. */
+	s32 cnew_envp;		/* "  " in new_envp[] */
+	s32 nproc_id = 0;	/* Anticipate MP version. */
 	struct dcd_manager *hdcd_handle;
 	struct dmm_object *dmm_mgr;
 	u32 dw_ext_end;
@@ -936,14 +1050,14 @@ int proc_load(void *hprocessor, const s32 argc_index,
 	if (status)
 		goto func_end;
 
-	
+	/* Place the board in the monitor state. */
 	status = proc_monitor(hprocessor);
 	if (status)
 		goto func_end;
 
-	
+	/* Save ptr to  original argv[0]. */
 	pargv0 = (char *)user_args[0];
-	
+	/*Prepend "PROC_ID=<nproc_id>"to envp array for target. */
 	envp_elems = get_envp_count((char **)user_envp);
 	cnew_envp = (envp_elems ? (envp_elems + 1) : (envp_elems + 2));
 	new_envp = kzalloc(cnew_envp * sizeof(char **), GFP_KERNEL);
@@ -958,20 +1072,29 @@ int proc_load(void *hprocessor, const s32 argc_index,
 			new_envp =
 			    prepend_envp(new_envp, (char **)user_envp,
 					 envp_elems, cnew_envp, sz_proc_id);
-			
+			/* Get the DCD Handle */
 			status = mgr_get_dcd_handle(p_proc_object->mgr_obj,
 						    (u32 *) &hdcd_handle);
 			if (!status) {
+				/*  Before proceeding with new load,
+				 *  check if a previously registered COFF
+				 *  exists.
+				 *  If yes, unregister nodes in previously
+				 *  registered COFF.  If any error occurred,
+				 *  set previously registered COFF to NULL. */
 				if (p_proc_object->last_coff != NULL) {
 					status =
 					    dcd_auto_unregister(hdcd_handle,
 								p_proc_object->
 								last_coff);
+					/* Regardless of auto unregister status,
+					 *  free previously allocated
+					 *  memory. */
 					kfree(p_proc_object->last_coff);
 					p_proc_object->last_coff = NULL;
 				}
 			}
-			
+			/* On success, do cod_open_base() */
 			status = cod_open_base(cod_mgr, (char *)user_args[0],
 					       COD_SYMB);
 		}
@@ -979,11 +1102,16 @@ int proc_load(void *hprocessor, const s32 argc_index,
 		status = -ENOMEM;
 	}
 	if (!status) {
-		
-		
+		/* Auto-register data base */
+		/* Get the DCD Handle */
 		status = mgr_get_dcd_handle(p_proc_object->mgr_obj,
 					    (u32 *) &hdcd_handle);
 		if (!status) {
+			/*  Auto register nodes in specified COFF
+			 *  file.  If registration did not fail,
+			 *  (status = 0 or -EACCES)
+			 *  save the name of the COFF file for
+			 *  de-registration in the future. */
 			status =
 			    dcd_auto_register(hdcd_handle,
 					      (char *)user_args[0]);
@@ -993,11 +1121,11 @@ int proc_load(void *hprocessor, const s32 argc_index,
 			if (status) {
 				status = -EPERM;
 			} else {
-				
+				/* Allocate memory for pszLastCoff */
 				p_proc_object->last_coff =
 						kzalloc((strlen(user_args[0]) +
 						1), GFP_KERNEL);
-				
+				/* If memory allocated, save COFF file name */
 				if (p_proc_object->last_coff) {
 					strncpy(p_proc_object->last_coff,
 						(char *)user_args[0],
@@ -1007,8 +1135,10 @@ int proc_load(void *hprocessor, const s32 argc_index,
 			}
 		}
 	}
-	
+	/* Update shared memory address and size */
 	if (!status) {
+		/*  Create the message manager. This must be done
+		 *  before calling the IOOnLoaded function. */
 		dev_get_msg_mgr(p_proc_object->dev_obj, &hmsg_mgr);
 		if (!hmsg_mgr) {
 			status = msg_create(&hmsg_mgr, p_proc_object->dev_obj,
@@ -1017,7 +1147,7 @@ int proc_load(void *hprocessor, const s32 argc_index,
 		}
 	}
 	if (!status) {
-		
+		/* Set the Device object's message manager */
 		status = dev_get_io_mgr(p_proc_object->dev_obj, &hio_mgr);
 		if (hio_mgr)
 			status = (*p_proc_object->intf_fxns->io_on_loaded)
@@ -1026,9 +1156,9 @@ int proc_load(void *hprocessor, const s32 argc_index,
 			status = -EFAULT;
 	}
 	if (!status) {
-		
+		/* Now, attempt to load an exec: */
 
-		
+		/* Boost the OPP level to Maximum level supported by baseport */
 #if defined(CONFIG_TIDSPBRIDGE_DVFS) && !defined(CONFIG_CPU_FREQ)
 		if (pdata->cpu_set_freq)
 			(*pdata->cpu_set_freq) (pdata->mpu_speed[VDD1_OPP5]);
@@ -1046,7 +1176,7 @@ int proc_load(void *hprocessor, const s32 argc_index,
 				       __func__);
 			}
 		}
-		
+		/* Requesting the lowest opp supported */
 #if defined(CONFIG_TIDSPBRIDGE_DVFS) && !defined(CONFIG_CPU_FREQ)
 		if (pdata->cpu_set_freq)
 			(*pdata->cpu_set_freq) (pdata->mpu_speed[VDD1_OPP1]);
@@ -1054,7 +1184,7 @@ int proc_load(void *hprocessor, const s32 argc_index,
 
 	}
 	if (!status) {
-		
+		/* Update the Processor status to loaded */
 		status = (*p_proc_object->intf_fxns->brd_set_state)
 		    (p_proc_object->bridge_context, BRD_LOADED);
 		if (!status) {
@@ -1067,19 +1197,23 @@ int proc_load(void *hprocessor, const s32 argc_index,
 	if (!status) {
 		status = proc_get_processor_id(hprocessor, &proc_id);
 		if (proc_id == DSP_UNIT) {
+			/* Use all available DSP address space after EXTMEM
+			 * for DMM */
 			if (!status)
 				status = cod_get_sym_value(cod_mgr, EXTEND,
 							   &dw_ext_end);
 
-			
+			/* Reset DMM structs and add an initial free chunk */
 			if (!status) {
 				status =
 				    dev_get_dmm_mgr(p_proc_object->dev_obj,
 						    &dmm_mgr);
 				if (dmm_mgr) {
+					/* Set dw_ext_end to DMM START u8
+					 * address */
 					dw_ext_end =
 					    (dw_ext_end + 1) * DSPWORDSIZE;
-					
+					/* DMM memory is from EXT_END */
 					status = dmm_create_tables(dmm_mgr,
 								   dw_ext_end,
 								   DMMPOOLSIZE);
@@ -1089,7 +1223,7 @@ int proc_load(void *hprocessor, const s32 argc_index,
 			}
 		}
 	}
-	
+	/* Restore the original argv[0] */
 	kfree(new_envp);
 	user_args[0] = pargv0;
 	if (!status) {
@@ -1124,6 +1258,11 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_map ========
+ *  Purpose:
+ *      Maps a MPU buffer to DSP address space.
+ */
 int proc_map(void *hprocessor, void *pmpu_addr, u32 ul_size,
 		    void *req_addr, void **pp_map_addr, u32 ul_map_attr,
 		    struct process_context *pr_ctxt)
@@ -1148,7 +1287,7 @@ int proc_map(void *hprocessor, void *pmpu_addr, u32 ul_size,
 	}
 #endif
 
-	
+	/* Calculate the page-aligned PA, VA and size */
 	va_align = PG_ALIGN_LOW((u32) req_addr, PG_SIZE4K);
 	pa_align = PG_ALIGN_LOW((u32) pmpu_addr, PG_SIZE4K);
 	size_align = PG_ALIGN_HIGH(ul_size + (u32) pmpu_addr - pa_align,
@@ -1158,7 +1297,7 @@ int proc_map(void *hprocessor, void *pmpu_addr, u32 ul_size,
 		status = -EFAULT;
 		goto func_end;
 	}
-	
+	/* Critical section */
 	mutex_lock(&proc_lock);
 	dmm_get_handle(p_proc_object, &dmm_mgr);
 	if (dmm_mgr)
@@ -1166,12 +1305,12 @@ int proc_map(void *hprocessor, void *pmpu_addr, u32 ul_size,
 	else
 		status = -EFAULT;
 
-	
+	/* Add mapping to the page tables. */
 	if (!status) {
 
-		
+		/* Mapped address = MSB of VA | LSB of PA */
 		tmp_addr = (va_align | ((u32) pmpu_addr & (PG_SIZE4K - 1)));
-		
+		/* mapped memory resource tracking */
 		map_obj = add_mapping_info(pr_ctxt, pa_align, tmp_addr,
 						size_align);
 		if (!map_obj)
@@ -1182,7 +1321,7 @@ int proc_map(void *hprocessor, void *pmpu_addr, u32 ul_size,
 			     size_align, ul_map_attr, map_obj->pages);
 	}
 	if (!status) {
-		
+		/* Mapped address = MSB of VA | LSB of PA */
 		*pp_map_addr = (void *) tmp_addr;
 	} else {
 		remove_mapping_information(pr_ctxt, tmp_addr, size_align);
@@ -1203,6 +1342,11 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_register_notify ========
+ *  Purpose:
+ *      Register to be notified of specific processor events.
+ */
 int proc_register_notify(void *hprocessor, u32 event_mask,
 				u32 notify_type, struct dsp_notification
 				* hnotification)
@@ -1211,29 +1355,40 @@ int proc_register_notify(void *hprocessor, u32 event_mask,
 	struct proc_object *p_proc_object = (struct proc_object *)hprocessor;
 	struct deh_mgr *hdeh_mgr;
 
-	
+	/* Check processor handle */
 	if (!p_proc_object) {
 		status = -EFAULT;
 		goto func_end;
 	}
-	
+	/* Check if event mask is a valid processor related event */
 	if (event_mask & ~(DSP_PROCESSORSTATECHANGE | DSP_PROCESSORATTACH |
 			DSP_PROCESSORDETACH | DSP_PROCESSORRESTART |
 			DSP_MMUFAULT | DSP_SYSERROR | DSP_PWRERROR |
 			DSP_WDTOVERFLOW))
 		status = -EINVAL;
 
-	
+	/* Check if notify type is valid */
 	if (notify_type != DSP_SIGNALEVENT)
 		status = -EINVAL;
 
 	if (!status) {
+		/* If event mask is not DSP_SYSERROR, DSP_MMUFAULT,
+		 * or DSP_PWRERROR then register event immediately. */
 		if (event_mask &
 		    ~(DSP_SYSERROR | DSP_MMUFAULT | DSP_PWRERROR |
 				DSP_WDTOVERFLOW)) {
 			status = ntfy_register(p_proc_object->ntfy_obj,
 					       hnotification, event_mask,
 					       notify_type);
+			/* Special case alert, special case alert!
+			 * If we're trying to *deregister* (i.e. event_mask
+			 * is 0), a DSP_SYSERROR or DSP_MMUFAULT notification,
+			 * we have to deregister with the DEH manager.
+			 * There's no way to know, based on event_mask which
+			 * manager the notification event was registered with,
+			 * so if we're trying to deregister and ntfy_register
+			 * failed, we'll give the deh manager a shot.
+			 */
 			if ((event_mask == 0) && status) {
 				status =
 				    dev_get_deh_mgr(p_proc_object->dev_obj,
@@ -1259,6 +1414,11 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_reserve_memory ========
+ *  Purpose:
+ *      Reserve a virtually contiguous region of DSP address space.
+ */
 int proc_reserve_memory(void *hprocessor, u32 ul_size,
 			       void **pp_rsv_addr,
 			       struct process_context *pr_ctxt)
@@ -1283,6 +1443,11 @@ int proc_reserve_memory(void *hprocessor, u32 ul_size,
 	if (status != 0)
 		goto func_end;
 
+	/*
+	 * A successful reserve should be followed by insertion of rsv_obj
+	 * into dmm_rsv_list, so that reserved memory resource tracking
+	 * remains uptodate
+	 */
 	rsv_obj = kmalloc(sizeof(struct dmm_rsv_object), GFP_KERNEL);
 	if (rsv_obj) {
 		rsv_obj->dsp_reserved_addr = (u32) *pp_rsv_addr;
@@ -1298,19 +1463,24 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_start ========
+ *  Purpose:
+ *      Start a processor running.
+ */
 int proc_start(void *hprocessor)
 {
 	int status = 0;
 	struct proc_object *p_proc_object = (struct proc_object *)hprocessor;
-	struct cod_manager *cod_mgr;	
-	u32 dw_dsp_addr;	
+	struct cod_manager *cod_mgr;	/* Code manager handle */
+	u32 dw_dsp_addr;	/* Loaded code's entry point. */
 	int brd_state;
 
 	if (!p_proc_object) {
 		status = -EFAULT;
 		goto func_end;
 	}
-	
+	/* Call the bridge_brd_start */
 	if (p_proc_object->proc_state != PROC_LOADED) {
 		status = -EBADR;
 		goto func_end;
@@ -1330,16 +1500,21 @@ int proc_start(void *hprocessor)
 	if (status)
 		goto func_cont;
 
-	
+	/* Call dev_create2 */
 	status = dev_create2(p_proc_object->dev_obj);
 	if (!status) {
 		p_proc_object->proc_state = PROC_RUNNING;
+		/* Deep sleep switces off the peripheral clocks.
+		 * we just put the DSP CPU in idle in the idle loop.
+		 * so there is no need to send a command to DSP */
 
 		if (p_proc_object->ntfy_obj) {
 			proc_notify_clients(p_proc_object,
 					    DSP_PROCESSORSTATECHANGE);
 		}
 	} else {
+		/* Failed to Create Node Manager and DISP Object
+		 * Stop the Processor from running. Put it in STOPPED State */
 		(void)(*p_proc_object->intf_fxns->
 		       brd_stop) (p_proc_object->bridge_context);
 		p_proc_object->proc_state = PROC_STOPPED;
@@ -1359,6 +1534,11 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_stop ========
+ *  Purpose:
+ *      Stop a processor running.
+ */
 int proc_stop(void *hprocessor)
 {
 	int status = 0;
@@ -1374,7 +1554,7 @@ int proc_stop(void *hprocessor)
 		status = -EFAULT;
 		goto func_end;
 	}
-	
+	/* check if there are any running nodes */
 	status = dev_get_node_manager(p_proc_object->dev_obj, &hnode_mgr);
 	if (!status && hnode_mgr) {
 		status = node_enum_nodes(hnode_mgr, &hnode, node_tab_size,
@@ -1385,17 +1565,17 @@ int proc_stop(void *hprocessor)
 			return -EBADR;
 		}
 	}
-	
-	
+	/* Call the bridge_brd_stop */
+	/* It is OK to stop a device that does n't have nodes OR not started */
 	status =
 	    (*p_proc_object->intf_fxns->
 	     brd_stop) (p_proc_object->bridge_context);
 	if (!status) {
 		dev_dbg(bridge, "%s: processor in standby mode\n", __func__);
 		p_proc_object->proc_state = PROC_STOPPED;
-		
+		/* Destroy the Node Manager, msg_ctrl Manager */
 		if (!(dev_destroy2(p_proc_object->dev_obj))) {
-			
+			/* Destroy the msg_ctrl by calling msg_delete */
 			dev_get_msg_mgr(p_proc_object->dev_obj, &hmsg_mgr);
 			if (hmsg_mgr) {
 				msg_delete(hmsg_mgr);
@@ -1410,6 +1590,11 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_un_map ========
+ *  Purpose:
+ *      Removes a MPU buffer mapping from the DSP address space.
+ */
 int proc_un_map(void *hprocessor, void *map_addr,
 		       struct process_context *pr_ctxt)
 {
@@ -1431,10 +1616,14 @@ int proc_un_map(void *hprocessor, void *map_addr,
 		goto func_end;
 	}
 
-	
+	/* Critical section */
 	mutex_lock(&proc_lock);
+	/*
+	 * Update DMM structures. Get the size to unmap.
+	 * This function returns error if the VA is not mapped
+	 */
 	status = dmm_un_map_memory(dmm_mgr, (u32) va_align, &size_align);
-	
+	/* Remove mapping from the page tables. */
 	if (!status) {
 		status = (*p_proc_object->intf_fxns->brd_mem_un_map)
 		    (p_proc_object->bridge_context, va_align, size_align);
@@ -1443,6 +1632,11 @@ int proc_un_map(void *hprocessor, void *map_addr,
 	if (status)
 		goto unmap_failed;
 
+	/*
+	 * A successful unmap should be followed by removal of map_obj
+	 * from dmm_map_list, so that mapped memory resource tracking
+	 * remains uptodate
+	 */
 	remove_mapping_information(pr_ctxt, (u32) map_addr, size_align);
 
 unmap_failed:
@@ -1454,6 +1648,11 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_un_reserve_memory ========
+ *  Purpose:
+ *      Frees a previously reserved region of DSP address space.
+ */
 int proc_un_reserve_memory(void *hprocessor, void *prsv_addr,
 				  struct process_context *pr_ctxt)
 {
@@ -1477,6 +1676,11 @@ int proc_un_reserve_memory(void *hprocessor, void *prsv_addr,
 	if (status != 0)
 		goto func_end;
 
+	/*
+	 * A successful unreserve should be followed by removal of rsv_obj
+	 * from dmm_rsv_list, so that reserved memory resource tracking
+	 * remains uptodate
+	 */
 	spin_lock(&pr_ctxt->dmm_rsv_lock);
 	list_for_each_entry(rsv_obj, &pr_ctxt->dmm_rsv_list, link) {
 		if (rsv_obj->dsp_reserved_addr == (u32) prsv_addr) {
@@ -1493,21 +1697,40 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== = proc_monitor ======== ==
+ *  Purpose:
+ *      Place the Processor in Monitor State. This is an internal
+ *      function and a requirement before Processor is loaded.
+ *      This does a bridge_brd_stop, dev_destroy2 and bridge_brd_monitor.
+ *      In dev_destroy2 we delete the node manager.
+ *  Parameters:
+ *      p_proc_object:    Pointer to Processor Object
+ *  Returns:
+ *      0:	Processor placed in monitor mode.
+ *      !0:       Failed to place processor in monitor mode.
+ *  Requires:
+ *      Valid Processor Handle
+ *  Ensures:
+ *      Success:	ProcObject state is PROC_IDLE
+ */
 static int proc_monitor(struct proc_object *proc_obj)
 {
 	int status = -EPERM;
 	struct msg_mgr *hmsg_mgr;
 
-	
+	/* This is needed only when Device is loaded when it is
+	 * already 'ACTIVE' */
+	/* Destroy the Node Manager, msg_ctrl Manager */
 	if (!dev_destroy2(proc_obj->dev_obj)) {
-		
+		/* Destroy the msg_ctrl by calling msg_delete */
 		dev_get_msg_mgr(proc_obj->dev_obj, &hmsg_mgr);
 		if (hmsg_mgr) {
 			msg_delete(hmsg_mgr);
 			dev_set_msg_mgr(proc_obj->dev_obj, NULL);
 		}
 	}
-	
+	/* Place the Board in the Monitor State */
 	if (!((*proc_obj->intf_fxns->brd_monitor)
 			  (proc_obj->bridge_context))) {
 		status = 0;
@@ -1516,6 +1739,12 @@ static int proc_monitor(struct proc_object *proc_obj)
 	return status;
 }
 
+/*
+ *  ======== get_envp_count ========
+ *  Purpose:
+ *      Return the number of elements in the envp array, including the
+ *      terminating NULL element.
+ */
 static s32 get_envp_count(char **envp)
 {
 	s32 ret = 0;
@@ -1523,31 +1752,42 @@ static s32 get_envp_count(char **envp)
 		while (*envp++)
 			ret++;
 
-		ret += 1;	
+		ret += 1;	/* Include the terminating NULL in the count. */
 	}
 
 	return ret;
 }
 
+/*
+ *  ======== prepend_envp ========
+ *  Purpose:
+ *      Prepend an environment variable=value pair to the new envp array, and
+ *      copy in the existing var=value pairs in the old envp array.
+ */
 static char **prepend_envp(char **new_envp, char **envp, s32 envp_elems,
 			   s32 cnew_envp, char *sz_var)
 {
 	char **pp_envp = new_envp;
 
-	
+	/* Prepend new environ var=value string */
 	*new_envp++ = sz_var;
 
-	
+	/* Copy user's environment into our own. */
 	while (envp_elems--)
 		*new_envp++ = *envp++;
 
-	
+	/* Ensure NULL terminates the new environment strings array. */
 	if (envp_elems == 0)
 		*new_envp = NULL;
 
 	return pp_envp;
 }
 
+/*
+ *  ======== proc_notify_clients ========
+ *  Purpose:
+ *      Notify the processor the events.
+ */
 int proc_notify_clients(void *proc, u32 events)
 {
 	int status = 0;
@@ -1563,6 +1803,12 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_notify_all_clients ========
+ *  Purpose:
+ *      Notify the processor the events. This includes notifying all clients
+ *      attached to a particulat DSP.
+ */
 int proc_notify_all_clients(void *proc, u32 events)
 {
 	int status = 0;
@@ -1579,6 +1825,11 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== proc_get_processor_id ========
+ *  Purpose:
+ *      Retrieves the processor ID.
+ */
 int proc_get_processor_id(void *proc, u32 * proc_id)
 {
 	int status = 0;

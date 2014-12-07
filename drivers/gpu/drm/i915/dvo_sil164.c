@@ -59,7 +59,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define SIL164_REGC 0x0c
 
 struct sil164_priv {
-	
+	//I2CDevRec d;
 	bool quiet;
 };
 
@@ -128,10 +128,11 @@ static bool sil164_writeb(struct intel_dvo_device *dvo, int addr, uint8_t ch)
 	return false;
 }
 
+/* Silicon Image 164 driver for chip on i2c bus */
 static bool sil164_init(struct intel_dvo_device *dvo,
 			struct i2c_adapter *adapter)
 {
-	
+	/* this will detect the SIL164 chip on the specified i2c bus */
 	struct sil164_priv *sil;
 	unsigned char ch;
 
@@ -192,11 +193,21 @@ static void sil164_mode_set(struct intel_dvo_device *dvo,
 			    struct drm_display_mode *mode,
 			    struct drm_display_mode *adjusted_mode)
 {
-	
-	
+	/* As long as the basics are set up, since we don't have clock
+	 * dependencies in the mode setup, we can just leave the
+	 * registers alone and everything will work fine.
+	 */
+	/* recommended programming sequence from doc */
+	/*sil164_writeb(sil, 0x08, 0x30);
+	  sil164_writeb(sil, 0x09, 0x00);
+	  sil164_writeb(sil, 0x0a, 0x90);
+	  sil164_writeb(sil, 0x0c, 0x89);
+	  sil164_writeb(sil, 0x08, 0x31);*/
+	/* don't do much */
 	return;
 }
 
+/* set the SIL164 power state */
 static void sil164_dpms(struct intel_dvo_device *dvo, int mode)
 {
 	int ret;

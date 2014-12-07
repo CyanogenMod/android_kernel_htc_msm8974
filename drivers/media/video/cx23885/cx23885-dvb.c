@@ -71,6 +71,7 @@ static unsigned int debug;
 		printk(KERN_DEBUG "%s/0: " fmt, dev->name, ## arg);\
 	} while (0)
 
+/* ------------------------------------------------------------------ */
 
 static unsigned int alt_tuner;
 module_param(alt_tuner, int, 0644);
@@ -78,6 +79,7 @@ MODULE_PARM_DESC(alt_tuner, "Enable alternate tuner configuration");
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+/* ------------------------------------------------------------------ */
 
 static int dvb_buf_setup(struct videobuf_queue *q,
 			 unsigned int *count, unsigned int *size)
@@ -120,7 +122,7 @@ static void cx23885_dvb_gate_ctrl(struct cx23885_tsport  *port, int open)
 
 	f = &port->frontends;
 
-	if (f->gate <= 1) 
+	if (f->gate <= 1) /* undefined or fe0 */
 		fe = videobuf_dvb_get_frontend(f, 1);
 	else
 		fe = videobuf_dvb_get_frontend(f, f->gate);
@@ -128,6 +130,10 @@ static void cx23885_dvb_gate_ctrl(struct cx23885_tsport  *port, int open)
 	if (fe && fe->dvb.frontend && fe->dvb.frontend->ops.i2c_gate_ctrl)
 		fe->dvb.frontend->ops.i2c_gate_ctrl(fe->dvb.frontend, open);
 
+	/*
+	 * FIXME: Improve this path to avoid calling the
+	 * cx23885_dvb_set_frontend() every time it passes here.
+	 */
 	cx23885_dvb_set_frontend(fe->dvb.frontend);
 }
 
@@ -320,61 +326,68 @@ static struct lgdt3305_config hauppauge_lgdt3305_config = {
 };
 
 static struct dibx000_agc_config xc3028_agc_config = {
-	BAND_VHF | BAND_UHF,	
+	BAND_VHF | BAND_UHF,	/* band_caps */
 
+	/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=0,
+	 * P_agc_inv_pwm1=0, P_agc_inv_pwm2=0,
+	 * P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0,
+	 * P_agc_nb_est=2, P_agc_write=0
+	 */
 	(0 << 15) | (0 << 14) | (0 << 11) | (0 << 10) | (0 << 9) | (0 << 8) |
-		(3 << 5) | (0 << 4) | (2 << 1) | (0 << 0), 
+		(3 << 5) | (0 << 4) | (2 << 1) | (0 << 0), /* setup */
 
-	712,	
-	21,	
+	712,	/* inv_gain */
+	21,	/* time_stabiliz */
 
-	0,	
-	118,	
+	0,	/* alpha_level */
+	118,	/* thlock */
 
-	0,	
-	2867,	
-	0,	
-	2,	
+	0,	/* wbd_inv */
+	2867,	/* wbd_ref */
+	0,	/* wbd_sel */
+	2,	/* wbd_alpha */
 
-	0,	
-	0,	
-	39718,	
-	9930,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	128,	
-	29,	
-	29,	
+	0,	/* agc1_max */
+	0,	/* agc1_min */
+	39718,	/* agc2_max */
+	9930,	/* agc2_min */
+	0,	/* agc1_pt1 */
+	0,	/* agc1_pt2 */
+	0,	/* agc1_pt3 */
+	0,	/* agc1_slope1 */
+	0,	/* agc1_slope2 */
+	0,	/* agc2_pt1 */
+	128,	/* agc2_pt2 */
+	29,	/* agc2_slope1 */
+	29,	/* agc2_slope2 */
 
-	17,	
-	27,	
-	23,	
-	51,	
+	17,	/* alpha_mant */
+	27,	/* alpha_exp */
+	23,	/* beta_mant */
+	51,	/* beta_exp */
 
-	1,	
+	1,	/* perform_agc_softsplit */
 };
 
+/* PLL Configuration for COFDM BW_MHz = 8.000000
+ * With external clock = 30.000000 */
 static struct dibx000_bandwidth_config xc3028_bw_config = {
-	60000,	
-	30000,	
-	1,	
-	8,	
-	3,	
-	1,	
-	0,	
-	0,	
-	0,	
-	1,	
-	1,	
-	0,	
-	(3 << 14) | (1 << 12) | (524 << 0), 
-	(1 << 25) | 5816102, 
-	20452225, 
-	30000000  
+	60000,	/* internal */
+	30000,	/* sampling */
+	1,	/* pll_cfg: prediv */
+	8,	/* pll_cfg: ratio */
+	3,	/* pll_cfg: range */
+	1,	/* pll_cfg: reset */
+	0,	/* pll_cfg: bypass */
+	0,	/* misc: refdiv */
+	0,	/* misc: bypclk_div */
+	1,	/* misc: IO_CLK_en_core */
+	1,	/* misc: ADClkSrc */
+	0,	/* misc: modulo */
+	(3 << 14) | (1 << 12) | (524 << 0), /* sad_cfg: refsel, sel, freq_15k */
+	(1 << 25) | 5816102, /* ifreq = 5.200000 MHz */
+	20452225, /* timf */
+	30000000  /* xtal_hz */
 };
 
 static struct dib7000p_config hauppauge_hvr1400_dib7000_config = {
@@ -415,34 +428,34 @@ static struct stv0900_reg stv0900_ts_regs[] = {
 	{ R0900_P2_TSCFGH, 0xe0 },
 	{ R0900_P1_TSCFGL, 0x20 },
 	{ R0900_P2_TSCFGL, 0x20 },
-	{ 0xffff, 0xff }, 
+	{ 0xffff, 0xff }, /* terminate */
 };
 
 static struct stv0900_config netup_stv0900_config = {
 	.demod_address = 0x68,
-	.demod_mode = 1, 
+	.demod_mode = 1, /* dual */
 	.xtal = 8000000,
-	.clkmode = 3,
-	.diseqc_mode = 2,
+	.clkmode = 3,/* 0-CLKI, 2-XTALI, else AUTO */
+	.diseqc_mode = 2,/* 2/3 PWM */
 	.ts_config_regs = stv0900_ts_regs,
-	.tun1_maddress = 0,
-	.tun2_maddress = 3,
-	.tun1_adc = 1,
-	.tun2_adc = 1,
+	.tun1_maddress = 0,/* 0x60 */
+	.tun2_maddress = 3,/* 0x63 */
+	.tun1_adc = 1,/* 1 Vpp */
+	.tun2_adc = 1,/* 1 Vpp */
 };
 
 static struct stv6110_config netup_stv6110_tunerconfig_a = {
 	.i2c_address = 0x60,
 	.mclk = 16000000,
 	.clk_div = 1,
-	.gain = 8, 
+	.gain = 8, /* +16 dB  - maximum gain */
 };
 
 static struct stv6110_config netup_stv6110_tunerconfig_b = {
 	.i2c_address = 0x63,
 	.mclk = 16000000,
 	.clk_div = 1,
-	.gain = 8, 
+	.gain = 8, /* +16 dB  - maximum gain */
 };
 
 static struct cx24116_config tbs_cx24116_config = {
@@ -463,8 +476,8 @@ static struct lgs8gxx_config mygica_x8506_lgs8gl5_config = {
 	.serial_ts = 0,
 	.ts_clk_pol = 1,
 	.ts_clk_gated = 1,
-	.if_clk_freq = 30400, 
-	.if_freq = 5380, 
+	.if_clk_freq = 30400, /* 30.4 MHz */
+	.if_freq = 5380, /* 5.38 MHz */
 	.if_neg_center = 1,
 	.ext_adc = 0,
 	.adc_signed = 0,
@@ -497,7 +510,7 @@ static int cx23885_dvb_set_frontend(struct dvb_frontend *fe)
 		break;
 	case CX23885_BOARD_MYGICA_X8506:
 	case CX23885_BOARD_MAGICPRO_PROHDTVE2:
-		
+		/* Select Digital TV */
 		cx23885_gpio_set(dev, GPIO_0);
 		break;
 	}
@@ -510,12 +523,12 @@ static struct lgs8gxx_config magicpro_prohdtve2_lgs8g75_config = {
 	.serial_ts = 0,
 	.ts_clk_pol = 1,
 	.ts_clk_gated = 1,
-	.if_clk_freq = 30400, 
-	.if_freq = 6500, 
+	.if_clk_freq = 30400, /* 30.4 MHz */
+	.if_freq = 6500, /* 6.50 MHz */
 	.if_neg_center = 1,
 	.ext_adc = 0,
 	.adc_signed = 1,
-	.adc_vpp = 2, 
+	.adc_vpp = 2, /* 1.6 Vpp */
 	.if_neg_edge = 1,
 };
 
@@ -530,8 +543,8 @@ static struct atbm8830_config mygica_x8558pro_atbm8830_cfg1 = {
 	.serial_ts = 0,
 	.ts_sampling_edge = 1,
 	.ts_clk_gated = 0,
-	.osc_clk_freq = 30400, 
-	.if_freq = 0, 
+	.osc_clk_freq = 30400, /* in kHz */
+	.if_freq = 0, /* zero IF */
 	.zif_swap_iq = 1,
 	.agc_min = 0x2E,
 	.agc_max = 0xFF,
@@ -549,8 +562,8 @@ static struct atbm8830_config mygica_x8558pro_atbm8830_cfg2 = {
 	.serial_ts = 1,
 	.ts_sampling_edge = 1,
 	.ts_clk_gated = 0,
-	.osc_clk_freq = 30400, 
-	.if_freq = 0, 
+	.osc_clk_freq = 30400, /* in kHz */
+	.if_freq = 0, /* zero IF */
 	.zif_swap_iq = 1,
 	.agc_min = 0x2E,
 	.agc_max = 0xFF,
@@ -617,7 +630,7 @@ int netup_altera_fpga_rw(void *device, int flag, int data, int read)
 	if (read)
 		cx_set(MC417_OEN, ALT_DATA);
 	else {
-		cx_clear(MC417_OEN, ALT_DATA);
+		cx_clear(MC417_OEN, ALT_DATA);/* D0-D7 out */
 		mem &= ~ALT_DATA;
 		mem |= (data & ALT_DATA);
 	}
@@ -633,7 +646,7 @@ int netup_altera_fpga_rw(void *device, int flag, int data, int read)
 	else
 		mem = (mem & ~ALT_WR) | ALT_RD;
 
-	cx_write(MC417_RWD, mem);  
+	cx_write(MC417_RWD, mem);  /* start RW cycle */
 
 	for (;;) {
 		mem = cx_read(MC417_RWD);
@@ -656,24 +669,24 @@ static int dvb_register(struct cx23885_tsport *port)
 	struct cx23885_dev *dev = port->dev;
 	struct cx23885_i2c *i2c_bus = NULL, *i2c_bus2 = NULL;
 	struct videobuf_dvb_frontend *fe0, *fe1 = NULL;
-	int mfe_shared = 0; 
+	int mfe_shared = 0; /* bus not shared by default */
 	int ret;
 
-	
+	/* Get the first frontend */
 	fe0 = videobuf_dvb_get_frontend(&port->frontends, 1);
 	if (!fe0)
 		return -EINVAL;
 
-	
+	/* init struct videobuf_dvb */
 	fe0->dvb.name = dev->name;
 
-	
+	/* multi-frontend gate control is undefined or defaults to fe0 */
 	port->frontends.gate = 0;
 
-	
+	/* Sets the gate control callback to be used by i2c command calls */
 	port->gate_ctrl = cx23885_dvb_gate_ctrl;
 
-	
+	/* init frontend */
 	switch (dev->board) {
 	case CX23885_BOARD_HAUPPAUGE_HVR1250:
 		i2c_bus = &dev->i2c_bus[0];
@@ -835,6 +848,8 @@ static int dvb_register(struct cx23885_tsport *port)
 				.fname   = XC3028L_DEFAULT_FIRMWARE,
 				.max_len = 64,
 				.demod   = XC3028_FE_DIBCOM52,
+				/* This is true for all demods with
+					v36 firmware? */
 				.type    = XC2028_D2633,
 			};
 
@@ -965,7 +980,7 @@ static int dvb_register(struct cx23885_tsport *port)
 	case CX23885_BOARD_NETUP_DUAL_DVBS2_CI:
 		i2c_bus = &dev->i2c_bus[0];
 		switch (port->nr) {
-		
+		/* port B */
 		case 1:
 			fe0->dvb.frontend = dvb_attach(stv0900_attach,
 							&netup_stv0900_config,
@@ -986,7 +1001,7 @@ static int dvb_register(struct cx23885_tsport *port)
 				}
 			}
 			break;
-		
+		/* port C */
 		case 2:
 			fe0->dvb.frontend = dvb_attach(stv0900_attach,
 							&netup_stv0900_config,
@@ -1062,7 +1077,7 @@ static int dvb_register(struct cx23885_tsport *port)
 		break;
 	case CX23885_BOARD_MYGICA_X8558PRO:
 		switch (port->nr) {
-		
+		/* port B */
 		case 1:
 			i2c_bus = &dev->i2c_bus[0];
 			fe0->dvb.frontend = dvb_attach(atbm8830_attach,
@@ -1075,7 +1090,7 @@ static int dvb_register(struct cx23885_tsport *port)
 					&mygic_x8558pro_max2165_cfg1);
 			}
 			break;
-		
+		/* port C */
 		case 2:
 			i2c_bus = &dev->i2c_bus[1];
 			fe0->dvb.frontend = dvb_attach(atbm8830_attach,
@@ -1092,10 +1107,10 @@ static int dvb_register(struct cx23885_tsport *port)
 		break;
 	case CX23885_BOARD_NETUP_DUAL_DVB_T_C_CI_RF:
 		i2c_bus = &dev->i2c_bus[0];
-		mfe_shared = 1;
-		port->frontends.gate = 0;
-		
-		
+		mfe_shared = 1;/* MFE */
+		port->frontends.gate = 0;/* not clear for me yet */
+		/* ports B, C */
+		/* MFE frontend 1 DVB-T */
 		fe0->dvb.frontend = dvb_attach(stv0367ter_attach,
 					&netup_stv0367_config[port->nr - 1],
 					&i2c_bus->i2c_adap);
@@ -1105,14 +1120,14 @@ static int dvb_register(struct cx23885_tsport *port)
 					&i2c_bus->i2c_adap,
 					&netup_xc5000_config[port->nr - 1]))
 				goto frontend_detach;
-			
+			/* load xc5000 firmware */
 			fe0->dvb.frontend->ops.tuner_ops.init(fe0->dvb.frontend);
 		}
-		
+		/* MFE frontend 2 */
 		fe1 = videobuf_dvb_get_frontend(&port->frontends, 2);
 		if (fe1 == NULL)
 			goto frontend_detach;
-		
+		/* DVB-C init */
 		fe1->dvb.frontend = dvb_attach(stv0367cab_attach,
 					&netup_stv0367_config[port->nr - 1],
 					&i2c_bus->i2c_adap);
@@ -1130,7 +1145,7 @@ static int dvb_register(struct cx23885_tsport *port)
 		i2c_bus2 = &dev->i2c_bus[1];
 
 		switch (port->nr) {
-		
+		/* port b */
 		case 1:
 			fe0->dvb.frontend = dvb_attach(drxk_attach,
 					&terratec_drxk_config[0],
@@ -1143,7 +1158,7 @@ static int dvb_register(struct cx23885_tsport *port)
 					goto frontend_detach;
 			}
 			break;
-		
+		/* port c */
 		case 2:
 			fe0->dvb.frontend = dvb_attach(drxk_attach,
 					&terratec_drxk_config[1],
@@ -1171,31 +1186,31 @@ static int dvb_register(struct cx23885_tsport *port)
 		goto frontend_detach;
 	}
 
-	
+	/* define general-purpose callback pointer */
 	fe0->dvb.frontend->callback = cx23885_tuner_callback;
 	if (fe1)
 		fe1->dvb.frontend->callback = cx23885_tuner_callback;
 #if 0
-	
+	/* Ensure all frontends negotiate bus access */
 	fe0->dvb.frontend->ops.ts_bus_ctrl = cx23885_dvb_bus_ctrl;
 	if (fe1)
 		fe1->dvb.frontend->ops.ts_bus_ctrl = cx23885_dvb_bus_ctrl;
 #endif
 
-	
+	/* Put the analog decoder in standby to keep it quiet */
 	call_all(dev, core, s_power, 0);
 
 	if (fe0->dvb.frontend->ops.analog_ops.standby)
 		fe0->dvb.frontend->ops.analog_ops.standby(fe0->dvb.frontend);
 
-	
+	/* register everything */
 	ret = videobuf_dvb_register_bus(&port->frontends, THIS_MODULE, port,
 					&dev->pci->dev, adapter_nr, mfe_shared,
 					NULL);
 	if (ret)
 		goto frontend_detach;
 
-	
+	/* init CI & MAC */
 	switch (dev->board) {
 	case CX23885_BOARD_NETUP_DUAL_DVBS2_CI: {
 		static struct netup_card_info cinfo;
@@ -1211,9 +1226,9 @@ static int dvb_register(struct cx23885_tsport *port)
 		}
 	case CX23885_BOARD_NETUP_DUAL_DVB_T_C_CI_RF: {
 		struct altera_ci_config netup_ci_cfg = {
-			.dev = dev,
-			.adapter = &port->frontends.adapter,
-			.demux = &fe0->dvb.demux,
+			.dev = dev,/* magic number to identify*/
+			.adapter = &port->frontends.adapter,/* for CI */
+			.demux = &fe0->dvb.demux,/* for hw pid filter */
 			.fpga_rw = netup_altera_fpga_rw,
 		};
 
@@ -1221,12 +1236,12 @@ static int dvb_register(struct cx23885_tsport *port)
 		break;
 		}
 	case CX23885_BOARD_TEVII_S470: {
-		u8 eeprom[256]; 
+		u8 eeprom[256]; /* 24C02 i2c eeprom */
 
 		if (port->nr != 1)
 			break;
 
-		
+		/* Read entire EEPROM */
 		dev->i2c_bus[0].i2c_client.addr = 0xa0 >> 1;
 		tveeprom_read(&dev->i2c_bus[0].i2c_client, eeprom, sizeof(eeprom));
 		printk(KERN_INFO "TeVii S470 MAC= %pM\n", eeprom + 0xa0);
@@ -1250,6 +1265,15 @@ int cx23885_dvb_register(struct cx23885_tsport *port)
 	struct cx23885_dev *dev = port->dev;
 	int err, i;
 
+	/* Here we need to allocate the correct number of frontends,
+	 * as reflected in the cards struct. The reality is that currently
+	 * no cx23885 boards support this - yet. But, if we don't modify this
+	 * code then the second frontend would never be allocated (later)
+	 * and fail with error before the attach in dvb_register().
+	 * Without these changes we risk an OOPS later. The changes here
+	 * are for safety, and should provide a good foundation for the
+	 * future addition of any multi-frontend cx23885 based boards.
+	 */
 	printk(KERN_INFO "%s() allocating %d frontend(s)\n", __func__,
 		port->num_frontends);
 
@@ -1273,8 +1297,8 @@ int cx23885_dvb_register(struct cx23885_tsport *port)
 
 		err = -ENODEV;
 
-		
-		
+		/* dvb stuff */
+		/* We have to init the queue for each frontend on a port. */
 		printk(KERN_INFO "%s: cx23885 based dvb card\n", dev->name);
 		videobuf_queue_sg_init(&fe0->dvb.dvbq, &dvb_qops,
 			    &dev->pci->dev, &port->slock,
@@ -1293,6 +1317,13 @@ int cx23885_dvb_unregister(struct cx23885_tsport *port)
 {
 	struct videobuf_dvb_frontend *fe0;
 
+	/* FIXME: in an error condition where the we have
+	 * an expected number of frontends (attach problem)
+	 * then this might not clean up correctly, if 1
+	 * is invalid.
+	 * This comment only applies to future boards IF they
+	 * implement MFE support.
+	 */
 	fe0 = videobuf_dvb_get_frontend(&port->frontends, 1);
 	if (fe0 && fe0->dvb.frontend)
 		videobuf_dvb_unregister_bus(&port->frontends);

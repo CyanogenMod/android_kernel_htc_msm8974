@@ -67,7 +67,7 @@ void pm_dbg_update_time(struct powerdomain *pwrdm, int prev)
 	if (!pm_dbg_init_done)
 		return ;
 
-	
+	/* Update timer for previous state */
 	t = sched_clock();
 
 	pwrdm->state_timer[prev] += t - pwrdm->timer;

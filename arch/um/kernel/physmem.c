@@ -16,6 +16,7 @@
 
 static int physmem_fd = -1;
 
+/* Changed during early boot */
 unsigned long high_physmem;
 EXPORT_SYMBOL(high_physmem);
 
@@ -160,8 +161,14 @@ __uml_setup("iomem=", parse_iomem,
 "    Configure <file> as an IO memory region named <name>.\n\n"
 );
 
+/*
+ * This list is constructed in parse_iomem and addresses filled in in
+ * setup_iomem, both of which run during early boot.  Afterwards, it's
+ * unchanged.
+ */
 struct iomem_region *iomem_regions;
 
+/* Initialized in parse_iomem and unchanged thereafter */
 int iomem_size;
 
 unsigned long find_iomem(char *driver, unsigned long *len_out)

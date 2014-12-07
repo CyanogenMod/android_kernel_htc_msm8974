@@ -38,7 +38,7 @@ static int mpc837xmds_usb_cfg(void)
 	ret = mpc837x_usb_cfg();
 	if (ret)
 		return ret;
-	
+	/* Map BCSR area */
 	np = of_find_compatible_node(NULL, NULL, "fsl,mpc837xmds-bcsr");
 	if (np) {
 		bcsr_regs = of_iomap(np, 0);
@@ -72,6 +72,11 @@ out:
 	return ret;
 }
 
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 static void __init mpc837x_mds_setup_arch(void)
 {
 	if (ppc_md.progress)
@@ -83,6 +88,9 @@ static void __init mpc837x_mds_setup_arch(void)
 
 machine_device_initcall(mpc837x_mds, mpc83xx_declare_of_platform_devices);
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc837x_mds_probe(void)
 {
         unsigned long root = of_get_flat_dt_root();

@@ -19,6 +19,7 @@
 #include <asm/compat.h>
 #include <asm/ia32.h>
 
+/* ia32/sys_ia32.c */
 asmlinkage long sys32_truncate64(const char __user *, unsigned long, unsigned long);
 asmlinkage long sys32_ftruncate64(unsigned int, unsigned long, unsigned long);
 
@@ -70,17 +71,19 @@ asmlinkage long sys32_fadvise64(int, unsigned, unsigned, size_t, int);
 asmlinkage long sys32_fallocate(int, int, unsigned,
 				unsigned, unsigned, unsigned);
 
+/* ia32/ia32_signal.c */
 asmlinkage long sys32_sigsuspend(int, int, old_sigset_t);
 asmlinkage long sys32_sigaltstack(const stack_ia32_t __user *,
 				  stack_ia32_t __user *, struct pt_regs *);
 asmlinkage long sys32_sigreturn(struct pt_regs *);
 asmlinkage long sys32_rt_sigreturn(struct pt_regs *);
 
+/* ia32/ipc32.c */
 asmlinkage long sys32_ipc(u32, int, int, int, compat_uptr_t, u32);
 
 asmlinkage long sys32_fanotify_mark(int, unsigned int, u32, u32, int,
 				    const char __user *);
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
-#endif 
+#endif /* _ASM_X86_SYS_IA32_H */

@@ -23,11 +23,22 @@
 
 #include "ad799x.h"
 
+/**
+ * ad799x_ring_preenable() setup the parameters of the ring before enabling
+ *
+ * The complex nature of the setting of the number of bytes per datum is due
+ * to this driver currently ensuring that the timestamp is stored at an 8
+ * byte boundary.
+ **/
 static int ad799x_ring_preenable(struct iio_dev *indio_dev)
 {
 	struct iio_buffer *ring = indio_dev->buffer;
 	struct ad799x_state *st = iio_priv(indio_dev);
 
+	/*
+	 * Need to figure out the current mode based upon the requested
+	 * scan mask in iio_dev
+	 */
 
 	if (st->id == ad7997 || st->id == ad7998)
 		ad7997_8_set_scan_mode(st, *indio_dev->active_scan_mask);
@@ -49,6 +60,12 @@ static int ad799x_ring_preenable(struct iio_dev *indio_dev)
 	return 0;
 }
 
+/**
+ * ad799x_trigger_handler() bh of trigger launched polling to ring buffer
+ *
+ * Currently there is no option in this driver to disable the saving of
+ * timestamps within the ring.
+ **/
 
 static irqreturn_t ad799x_trigger_handler(int irq, void *p)
 {
@@ -136,11 +153,11 @@ int ad799x_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		goto error_deallocate_sw_rb;
 	}
 
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &ad799x_buf_setup_ops;
 	indio_dev->buffer->scan_timestamp = true;
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 	return 0;
 

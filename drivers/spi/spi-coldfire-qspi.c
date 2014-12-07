@@ -162,7 +162,7 @@ static irqreturn_t mcfqspi_irq_handler(int this_irq, void *dev_id)
 {
 	struct mcfqspi *mcfqspi = dev_id;
 
-	
+	/* clear interrupt */
 	mcfqspi_wr_qir(mcfqspi, MCFQSPI_QIR_SPIFE | MCFQSPI_QIR_SPIF);
 	wake_up(&mcfqspi->waitq);
 
@@ -570,7 +570,7 @@ static int __devexit mcfqspi_remove(struct platform_device *pdev)
 	struct mcfqspi *mcfqspi = spi_master_get_devdata(master);
 	struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
-	
+	/* disable the hardware (set the baud rate to 0) */
 	mcfqspi_wr_qmr(mcfqspi, MCFQSPI_QMR_MSTR);
 
 	platform_set_drvdata(pdev, NULL);

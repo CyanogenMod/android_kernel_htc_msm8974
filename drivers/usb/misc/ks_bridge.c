@@ -11,6 +11,7 @@
  * GNU General Public License for more details.
  */
 
+/* add additional information to our printk's */
 #define pr_fmt(fmt) "%s: " fmt "\n", __func__
 
 #include <linux/kernel.h>
@@ -81,7 +82,7 @@ struct ks_bridge {
 	atomic_t		tx_pending_cnt;
 	atomic_t		rx_pending_cnt;
 
-	
+	/* usb specific */
 	struct usb_device	*udev;
 	struct usb_interface	*ifc;
 	__u8			in_epAddr;
@@ -96,10 +97,11 @@ struct ks_bridge {
 #define DBG_MAX_MSG   500
 	unsigned int	dbg_idx;
 	rwlock_t	dbg_lock;
-	char     (dbgbuf[DBG_MAX_MSG])[DBG_MSG_LEN];   
+	char     (dbgbuf[DBG_MAX_MSG])[DBG_MSG_LEN];   /* buffer */
 };
 struct ks_bridge *__ksb[NO_BRIDGE_INSTANCES];
 
+/* by default debugging is enabled */
 static unsigned int enable_dbg = 1;
 module_param(enable_dbg, uint, S_IRUGO | S_IWUSR);
 
@@ -207,6 +209,10 @@ read_start:
 		copied += len;
 
 		if (pkt->n_read == pkt->len) {
+			/*
+			 * re-init the packet and queue it
+			 * for more data.
+			 */
 			pkt->n_read = 0;
 			pkt->len = MAX_DATA_PKT_SIZE;
 			submit_one_urb(ksb, GFP_KERNEL, pkt);
@@ -215,7 +221,7 @@ read_start:
 		spin_lock_irqsave(&ksb->lock, flags);
 	}
 
-	
+	/* put the partial packet back in the list */
 	if (!space && pkt && pkt->n_read != pkt->len) {
 		if (test_bit(USB_DEV_CONNECTED, &ksb->flags))
 			list_add(&pkt->list, &ksb->to_ks_list);
@@ -436,7 +442,7 @@ static const struct usb_device_id ksb_usb_ids[] = {
 	{ USB_DEVICE(0x5c6, 0x9079),
 	.driver_info = (unsigned long)&ksb_efs_usb_dev, },
 
-	{} 
+	{} /* terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, ksb_usb_ids);
 
@@ -493,8 +499,13 @@ static void ksb_rx_cb(struct urb *urb)
 	dev_dbg(&ksb->udev->dev, "status:%d actual:%d", urb->status,
 			urb->actual_length);
 
-	
+	/*non zero len of data received while unlinking urb*/
 	if (urb->status == -ENOENT && (urb->actual_length > 0)) {
+		/*
+		 * If we wakeup the reader process now, it may
+		 * queue the URB before its reject flag gets
+		 * cleared.
+		 */
 		wakeup = false;
 		goto add_to_list;
 	}
@@ -518,7 +529,7 @@ add_to_list:
 	pkt->len = urb->actual_length;
 	list_add_tail(&pkt->list, &ksb->to_ks_list);
 	spin_unlock(&ksb->lock);
-	
+	/* wake up read thread */
 	if (wakeup)
 		wake_up(&ksb->ks_wait_q);
 done:
@@ -674,7 +685,7 @@ ksb_usb_probe(struct usb_interface *ifc, const struct usb_device_id *id)
 
 	dbg_log_event(ksb, "PID-ATT", id->idProduct, 0);
 
-	
+	/*free up stale buffers if any from previous disconnect*/
 	spin_lock_irqsave(&ksb->lock, flags);
 	while (!list_empty(&ksb->to_ks_list)) {
 		pkt = list_first_entry(&ksb->to_ks_list,
@@ -716,6 +727,10 @@ static int ksb_usb_suspend(struct usb_interface *ifc, pm_message_t message)
 	if (!list_empty(&ksb->to_ks_list)) {
 		spin_unlock_irqrestore(&ksb->lock, flags);
 		dbg_log_event(ksb, "SUSPEND ABORT", 0, 0);
+		/*
+		 * Now wakeup the reader process and queue
+		 * Rx URBs for more data.
+		 */
 		wake_up(&ksb->ks_wait_q);
 		queue_work(ksb->wq, &ksb->start_rx_work);
 		return -EBUSY;

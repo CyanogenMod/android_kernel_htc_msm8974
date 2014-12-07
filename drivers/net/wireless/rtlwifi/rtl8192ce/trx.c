@@ -587,9 +587,9 @@ bool rtl92ce_rx_query_desc(struct ieee80211_hw *hw,
 						   p_drvinfo);
 	}
 
-	
+	/*rx_status->qual = stats->signal; */
 	rx_status->signal = stats->rssi + 10;
-	
+	/*rx_status->noise = -stats->noise; */
 
 	return true;
 }

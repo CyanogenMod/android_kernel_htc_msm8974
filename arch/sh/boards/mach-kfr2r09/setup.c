@@ -40,7 +40,7 @@ static struct mtd_partition kfr2r09_nor_flash_partitions[] =
 		.name = "boot",
 		.offset = 0,
 		.size = (4 * 1024 * 1024),
-		.mask_flags = MTD_WRITEABLE,	
+		.mask_flags = MTD_WRITEABLE,	/* Read-only */
 	},
 	{
 		.name = "other",
@@ -89,7 +89,7 @@ static struct platform_device kfr2r09_nand_flash_device = {
 };
 
 static struct sh_keysc_info kfr2r09_sh_keysc_info = {
-	.mode = SH_KEYSC_MODE_1, 
+	.mode = SH_KEYSC_MODE_1, /* KEYOUT0->4, KEYIN0->4 */
 	.scan_timing = 3,
 	.delay = 10,
 	.keycodes = {
@@ -117,7 +117,7 @@ static struct resource kfr2r09_sh_keysc_resources[] = {
 
 static struct platform_device kfr2r09_sh_keysc_device = {
 	.name           = "sh_keysc",
-	.id             = 0, 
+	.id             = 0, /* "keysc0" clock */
 	.num_resources  = ARRAY_SIZE(kfr2r09_sh_keysc_resources),
 	.resource       = kfr2r09_sh_keysc_resources,
 	.dev	= {
@@ -161,7 +161,7 @@ static struct sh_mobile_lcdc_info kfr2r09_sh_lcdc_info = {
 		.sys_bus_cfg = {
 			.ldmt2r = 0x07010904,
 			.ldmt3r = 0x14012914,
-			
+			/* set 1s delay to encourage fsync() */
 			.deferred_io_msec = 1000,
 		},
 	}
@@ -170,7 +170,7 @@ static struct sh_mobile_lcdc_info kfr2r09_sh_lcdc_info = {
 static struct resource kfr2r09_sh_lcdc_resources[] = {
 	[0] = {
 		.name	= "LCDC",
-		.start	= 0xfe940000, 
+		.start	= 0xfe940000, /* P4-only space */
 		.end	= 0xfe942fff,
 		.flags	= IORESOURCE_MEM,
 	},
@@ -210,7 +210,7 @@ static struct platform_device kfr2r09_usb0_gadget_device = {
 	.name		= "r8a66597_udc",
 	.id		= 0,
 	.dev = {
-		.dma_mask		= NULL,         
+		.dma_mask		= NULL,         /*  not use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data	= &kfr2r09_usb0_gadget_data,
 	},
@@ -235,13 +235,13 @@ static struct resource kfr2r09_ceu_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
 static struct platform_device kfr2r09_ceu_device = {
 	.name		= "sh_mobile_ceu",
-	.id             = 0, 
+	.id             = 0, /* "ceu0" clock */
 	.num_resources	= ARRAY_SIZE(kfr2r09_ceu_resources),
 	.resource	= kfr2r09_ceu_resources,
 	.dev	= {
@@ -255,6 +255,7 @@ static struct i2c_board_info kfr2r09_i2c_camera = {
 
 static struct clk *camera_clk;
 
+/* set VIO_CKO clock to 25MHz */
 #define CEU_MCLK_FREQ 25000000
 
 #define DRVCRB 0xA405018C
@@ -274,9 +275,14 @@ static int camera_power(struct device *dev, int mode)
 		if (ret < 0)
 			goto eclkrate;
 
+		/* set DRVCRB
+		 *
+		 * use 1.8 V for VccQ_VIO
+		 * use 2.85V for VccQ_SR
+		 */
 		__raw_writew((__raw_readw(DRVCRB) & ~0x0003) | 0x0001, DRVCRB);
 
-		
+		/* reset clear */
 		ret = gpio_request(GPIO_PTB4, NULL);
 		if (ret < 0)
 			goto eptb4;
@@ -291,7 +297,7 @@ static int camera_power(struct device *dev, int mode)
 			goto egpioout;
 		msleep(1);
 
-		ret = clk_enable(camera_clk);	
+		ret = clk_enable(camera_clk);	/* start VIO_CKO */
 		if (ret < 0)
 			goto eclkon;
 
@@ -391,7 +397,7 @@ static int kfr2r09_usb0_gadget_i2c_setup(void)
 	if (!a)
 		return -ENODEV;
 
-	
+	/* set bit 1 (the second bit) of chip at 0x09, register 0x13 */
 	buf[0] = 0x13;
 	msg.addr = 0x09;
 	msg.buf = buf;
@@ -434,7 +440,7 @@ static int kfr2r09_serial_i2c_setup(void)
 	if (!a)
 		return -ENODEV;
 
-	
+	/* set bit 6 (the 7th bit) of chip at 0x09, register 0x13 */
 	buf[0] = 0x13;
 	msg.addr = 0x09;
 	msg.buf = buf;
@@ -481,20 +487,20 @@ static int kfr2r09_usb0_gadget_setup(void)
 {
 	int plugged_in;
 
-	gpio_request(GPIO_PTN4, NULL); 
+	gpio_request(GPIO_PTN4, NULL); /* USB_DET */
 	gpio_direction_input(GPIO_PTN4);
 	plugged_in = gpio_get_value(GPIO_PTN4);
 	if (!plugged_in)
-		return -ENODEV; 
+		return -ENODEV; /* no cable plugged in */
 
 	if (kfr2r09_usb0_gadget_i2c_setup() != 0)
-		return -ENODEV; 
+		return -ENODEV; /* unable to configure using i2c */
 
 	__raw_writew((__raw_readw(PORT_MSELCRB) & ~0xc000) | 0x8000, PORT_MSELCRB);
-	gpio_request(GPIO_FN_PDSTATUS, NULL); 
-	gpio_request(GPIO_PTV6, NULL); 
-	gpio_direction_output(GPIO_PTV6, 1); 
-	msleep(20); 
+	gpio_request(GPIO_FN_PDSTATUS, NULL); /* R-standby disables USB clock */
+	gpio_request(GPIO_PTV6, NULL); /* USBCLK_ON */
+	gpio_direction_output(GPIO_PTV6, 1); /* USBCLK_ON = H */
+	msleep(20); /* wait 20ms to let the clock settle */
 	clk_enable(clk_get(NULL, "usb0"));
 	__raw_writew(0x0600, 0xa40501d4);
 
@@ -508,7 +514,7 @@ extern char kfr2r09_sdram_leave_end;
 
 static int __init kfr2r09_devices_setup(void)
 {
-	
+	/* register board specific self-refresh code */
 	sh_mobile_register_self_refresh(SUSP_SH_STANDBY | SUSP_SH_SF |
 					SUSP_SH_RSTANDBY,
 					&kfr2r09_sdram_enter_start,
@@ -516,22 +522,22 @@ static int __init kfr2r09_devices_setup(void)
 					&kfr2r09_sdram_leave_start,
 					&kfr2r09_sdram_leave_end);
 
-	
+	/* enable SCIF1 serial port for YC401 console support */
 	gpio_request(GPIO_FN_SCIF1_RXD, NULL);
 	gpio_request(GPIO_FN_SCIF1_TXD, NULL);
-	kfr2r09_serial_i2c_setup(); 
-	gpio_request(GPIO_PTG3, NULL); 
-	gpio_direction_output(GPIO_PTG3, 1); 
+	kfr2r09_serial_i2c_setup(); /* ECONTMSK(bit6=L10ONEN) set 1 */
+	gpio_request(GPIO_PTG3, NULL); /* HPON_ON */
+	gpio_direction_output(GPIO_PTG3, 1); /* HPON_ON = H */
 
-	
+	/* setup NOR flash at CS0 */
 	__raw_writel(0x36db0400, BSC_CS0BCR);
 	__raw_writel(0x00000500, BSC_CS0WCR);
 
-	
+	/* setup NAND flash at CS4 */
 	__raw_writel(0x36db0400, BSC_CS4BCR);
 	__raw_writel(0x00000500, BSC_CS4WCR);
 
-	
+	/* setup KEYSC pins */
 	gpio_request(GPIO_FN_KEYOUT0, NULL);
 	gpio_request(GPIO_FN_KEYOUT1, NULL);
 	gpio_request(GPIO_FN_KEYOUT2, NULL);
@@ -544,7 +550,7 @@ static int __init kfr2r09_devices_setup(void)
 	gpio_request(GPIO_FN_KEYIN4, NULL);
 	gpio_request(GPIO_FN_KEYOUT5_IN5, NULL);
 
-	
+	/* setup LCDC pins for SYS panel */
 	gpio_request(GPIO_FN_LCDD17, NULL);
 	gpio_request(GPIO_FN_LCDD16, NULL);
 	gpio_request(GPIO_FN_LCDD15, NULL);
@@ -563,23 +569,23 @@ static int __init kfr2r09_devices_setup(void)
 	gpio_request(GPIO_FN_LCDD2, NULL);
 	gpio_request(GPIO_FN_LCDD1, NULL);
 	gpio_request(GPIO_FN_LCDD0, NULL);
-	gpio_request(GPIO_FN_LCDRS, NULL); 
-	gpio_request(GPIO_FN_LCDCS, NULL); 
-	gpio_request(GPIO_FN_LCDRD, NULL); 
-	gpio_request(GPIO_FN_LCDWR, NULL); 
-	gpio_request(GPIO_FN_LCDVSYN, NULL); 
-	gpio_request(GPIO_PTE4, NULL); 
+	gpio_request(GPIO_FN_LCDRS, NULL); /* LCD_RS */
+	gpio_request(GPIO_FN_LCDCS, NULL); /* LCD_CS/ */
+	gpio_request(GPIO_FN_LCDRD, NULL); /* LCD_RD/ */
+	gpio_request(GPIO_FN_LCDWR, NULL); /* LCD_WR/ */
+	gpio_request(GPIO_FN_LCDVSYN, NULL); /* LCD_VSYNC */
+	gpio_request(GPIO_PTE4, NULL); /* LCD_RST/ */
 	gpio_direction_output(GPIO_PTE4, 1);
-	gpio_request(GPIO_PTF4, NULL); 
+	gpio_request(GPIO_PTF4, NULL); /* PROTECT/ */
 	gpio_direction_output(GPIO_PTF4, 1);
-	gpio_request(GPIO_PTU0, NULL); 
+	gpio_request(GPIO_PTU0, NULL); /* LEDSTDBY/ */
 	gpio_direction_output(GPIO_PTU0, 1);
 
-	
+	/* setup USB function */
 	if (kfr2r09_usb0_gadget_setup() == 0)
 		platform_device_register(&kfr2r09_usb0_gadget_device);
 
-	
+	/* CEU */
 	gpio_request(GPIO_FN_VIO_CKO, NULL);
 	gpio_request(GPIO_FN_VIO0_CLK, NULL);
 	gpio_request(GPIO_FN_VIO0_VD, NULL);
@@ -596,7 +602,7 @@ static int __init kfr2r09_devices_setup(void)
 
 	platform_resource_setup_memory(&kfr2r09_ceu_device, "ceu", 4 << 20);
 
-	
+	/* SDHI0 connected to yc304 */
 	gpio_request(GPIO_FN_SDHI0CD, NULL);
 	gpio_request(GPIO_FN_SDHI0D3, NULL);
 	gpio_request(GPIO_FN_SDHI0D2, NULL);
@@ -610,11 +616,20 @@ static int __init kfr2r09_devices_setup(void)
 }
 device_initcall(kfr2r09_devices_setup);
 
+/* Return the board specific boot mode pin configuration */
 static int kfr2r09_mode_pins(void)
 {
+	/* MD0=1, MD1=1, MD2=0: Clock Mode 3
+	 * MD3=0: 16-bit Area0 Bus Width
+	 * MD5=1: Little Endian
+	 * MD8=1: Test Mode Disabled
+	 */
 	return MODE_PIN0 | MODE_PIN1 | MODE_PIN5 | MODE_PIN8;
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_kfr2r09 __initmv = {
 	.mv_name		= "kfr2r09",
 	.mv_mode_pins		= kfr2r09_mode_pins,

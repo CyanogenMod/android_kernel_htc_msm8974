@@ -43,18 +43,18 @@ struct keychord_device {
 	struct input_handler	input_handler;
 	int			registered;
 
-	
+	/* list of keychords to monitor */
 	struct input_keychord	*keychords;
 	int			keychord_count;
 
-	
+	/* bitmask of keys contained in our keychords */
 	unsigned long keybit[BITS_TO_LONGS(KEY_CNT)];
-	
+	/* current state of the keys */
 	unsigned long keystate[BITS_TO_LONGS(KEY_CNT)];
-	
+	/* number of keys that are currently pressed */
 	int key_down;
 
-	
+	/* second input_device_id is needed for null termination */
 	struct input_device_id  device_ids[2];
 
 	spinlock_t		lock;
@@ -123,7 +123,7 @@ static void keychord_check_work(struct work_struct *work)
 			printk(KERN_INFO "[KEY]%s: Keychord get triggered!\n", __func__);
 			break;
 		}
-		
+		/* skip to next keychord */
 		keychord = NEXT_KEYCHORD(keychord);
 	}
 
@@ -143,7 +143,7 @@ static void keychord_event(struct input_handle *handle, unsigned int type,
 		return;
 
 	spin_lock_irqsave(&kdev->lock, flags);
-	
+	/* do nothing if key state did not change */
 	if (!test_bit(code, kdev->keystate) == !value)
 		goto done;
 	__change_bit(code, kdev->keystate);
@@ -152,10 +152,10 @@ static void keychord_event(struct input_handle *handle, unsigned int type,
 	else
 		kdev->key_down--;
 
-	
+	/* don't notify on key up */
 	if (!value)
 		goto done;
-	
+	/* ignore this event if it is not one of the keys we are monitoring */
 	if (!test_bit(code, kdev->keybit))
 		goto done;
 
@@ -164,8 +164,8 @@ static void keychord_event(struct input_handle *handle, unsigned int type,
 	if (!keychord)
 		goto done;
 
-#if 0	
-	
+#if 0	/* move to queue for timer checking */
+	/* check to see if the keyboard state matches any keychords */
 	for (i = 0; i < kdev->keychord_count; i++) {
 		if (check_keychord(kdev, keychord)) {
 			kdev->buff[kdev->head] = keychord->id;
@@ -174,7 +174,7 @@ static void keychord_event(struct input_handle *handle, unsigned int type,
 			printk(KERN_INFO "[KEY] Keychord get triggered!\n");
 			break;
 		}
-		
+		/* skip to next keychord */
 		keychord = NEXT_KEYCHORD(keychord);
 	}
 #endif
@@ -183,7 +183,7 @@ static void keychord_event(struct input_handle *handle, unsigned int type,
 done:
 	spin_unlock_irqrestore(&kdev->lock, flags);
 
-#if 0 
+#if 0 /* move to queue for timer checking */
 	if (got_chord) {
 		wake_up_interruptible(&kdev->waitq);
 		printk(KERN_INFO "[KEY] wakeup!\n");
@@ -200,6 +200,10 @@ static int keychord_connect(struct input_handler *handler,
 	struct keychord_device *kdev =
 		container_of(handler, struct keychord_device, input_handler);
 
+	/*
+	 * ignore this input device if it does not contain any keycodes
+	 * that we are monitoring
+	 */
 	for (i = 0; i < KEY_MAX; i++) {
 		if (test_bit(i, kdev->keybit) && test_bit(i, dev->keybit))
 			break;
@@ -242,6 +246,9 @@ static void keychord_disconnect(struct input_handle *handle)
 	kfree(handle);
 }
 
+/*
+ * keychord_read is used to read keychord events from the driver
+ */
 static ssize_t keychord_read(struct file *file, char __user *buffer,
 		size_t count, loff_t *ppos)
 {
@@ -263,7 +270,7 @@ static ssize_t keychord_read(struct file *file, char __user *buffer,
 		return retval;
 
 	spin_lock_irqsave(&kdev->lock, flags);
-	
+	/* pop a keychord ID off the queue */
 	id = kdev->buff[kdev->tail];
 	kdev->tail = (kdev->tail + 1) % BUFFER_SIZE;
 	spin_unlock_irqrestore(&kdev->lock, flags);
@@ -274,6 +281,9 @@ static ssize_t keychord_read(struct file *file, char __user *buffer,
 	return count;
 }
 
+/*
+ * keychord_write is used to configure the driver
+ */
 static ssize_t keychord_write(struct file *file, const char __user *buffer,
 		size_t count, loff_t *ppos)
 {
@@ -289,20 +299,20 @@ static ssize_t keychord_write(struct file *file, const char __user *buffer,
 	if (!keychords)
 		return -ENOMEM;
 
-	
+	/* read list of keychords from userspace */
 	if (copy_from_user(keychords, buffer, count)) {
 		kfree(keychords);
 		return -EFAULT;
 	}
 
-	
+	/* unregister handler before changing configuration */
 	if (kdev->registered) {
 		input_unregister_handler(&kdev->input_handler);
 		kdev->registered = 0;
 	}
 
 	spin_lock_irqsave(&kdev->lock, flags);
-	
+	/* clear any existing configuration */
 	kfree(kdev->keychords);
 	kdev->keychords = 0;
 	kdev->keychord_count = 0;
@@ -327,7 +337,7 @@ static ssize_t keychord_write(struct file *file, const char __user *buffer,
 			goto err_unlock_return;
 		}
 
-		
+		/* keep track of the keys we are monitoring in keybit */
 		for (i = 0; i < keychord->count; i++) {
 			key = keychord->keycodes[i];
 			if (key < 0 || key >= KEY_CNT) {

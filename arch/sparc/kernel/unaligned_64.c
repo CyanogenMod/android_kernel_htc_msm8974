@@ -26,9 +26,9 @@
 #include <asm/cacheflush.h>
 
 enum direction {
-	load,    
-	store,   
-	both,    
+	load,    /* ld, ldd, ldh, ldsh */
+	store,   /* st, std, sth, stsh */
+	both,    /* Swap, ldstub, cas, ... */
 	fpld,
 	fpst,
 	invalid,
@@ -42,7 +42,7 @@ static inline enum direction decode_direction(unsigned int insn)
 		return load;
 	else {
 		switch ((insn>>19)&0xf) {
-		case 15: 
+		case 15: /* swap* */
 			return both;
 		default:
 			return store;
@@ -50,24 +50,30 @@ static inline enum direction decode_direction(unsigned int insn)
 	}
 }
 
+/* 16 = double-word, 8 = extra-word, 4 = word, 2 = half-word */
 static inline int decode_access_size(struct pt_regs *regs, unsigned int insn)
 {
 	unsigned int tmp;
 
 	tmp = ((insn >> 19) & 0xf);
-	if (tmp == 11 || tmp == 14) 
+	if (tmp == 11 || tmp == 14) /* ldx/stx */
 		return 8;
 	tmp &= 3;
 	if (!tmp)
 		return 4;
 	else if (tmp == 3)
-		return 16;	
+		return 16;	/* ldd/std - Although it is actually 8 */
 	else if (tmp == 2)
 		return 2;
 	else {
 		printk("Impossible unaligned trap. insn=%08x\n", insn);
 		die_if_kernel("Byte sized unaligned access?!?!", regs);
 
+		/* GCC should never warn that control reaches the end
+		 * of this function without returning a value because
+		 * die_if_kernel() is marked with attribute 'noreturn'.
+		 * Alas, some versions do...
+		 */
 
 		return 0;
 	}
@@ -77,13 +83,14 @@ static inline int decode_asi(unsigned int insn, struct pt_regs *regs)
 {
 	if (insn & 0x800000) {
 		if (insn & 0x2000)
-			return (unsigned char)(regs->tstate >> 24);	
+			return (unsigned char)(regs->tstate >> 24);	/* %asi */
 		else
-			return (unsigned char)(insn >> 5);		
+			return (unsigned char)(insn >> 5);		/* imm_asi */
 	} else
 		return ASI_P;
 }
 
+/* 0x400000 = signed, 0 = unsigned */
 static inline int decode_signedness(unsigned int insn)
 {
 	return (insn & 0x400000);
@@ -162,6 +169,7 @@ unsigned long compute_effective_address(struct pt_regs *regs,
 	}
 }
 
+/* This is just to make gcc think die_if_kernel does return... */
 static void __used unaligned_panic(char *str, struct pt_regs *regs)
 {
 	die_if_kernel(str, regs);
@@ -255,7 +263,7 @@ static void kernel_mna_trap_fault(int fixup_tstate_asi)
 			(current->mm ? (unsigned long) current->mm->pgd :
 			(unsigned long) current->active_mm->pgd));
 	        die_if_kernel("Oops", regs);
-		
+		/* Not reached */
 	}
 	regs->tpc = entry->fixup;
 	regs->tnpc = regs->tpc + 4;
@@ -287,6 +295,9 @@ asmlinkage void kernel_unaligned_trap(struct pt_regs *regs, unsigned int insn)
 
 	orig_asi = asi = decode_asi(insn, regs);
 
+	/* If this is a {get,put}_user() on an unaligned userspace pointer,
+	 * just signal a fault and do not log the event.
+	 */
 	if (asi == ASI_AIUS) {
 		kernel_mna_trap_fault(0);
 		return;
@@ -354,7 +365,7 @@ asmlinkage void kernel_unaligned_trap(struct pt_regs *regs, unsigned int insn)
 
 		default:
 			panic("Impossible kernel unaligned trap.");
-			
+			/* Not reached... */
 		}
 		if (unlikely(err))
 			kernel_mna_trap_fault(1);
@@ -418,12 +429,12 @@ int handle_ldf_stq(u32 insn, struct pt_regs *regs)
 	save_and_clear_fpu();
 	current_thread_info()->xfsr[0] &= ~0x1c000;
 	if (freg & 3) {
-		current_thread_info()->xfsr[0] |= (6 << 14) ;
+		current_thread_info()->xfsr[0] |= (6 << 14) /* invalid_fp_register */;
 		do_fpother(regs);
 		return 0;
 	}
 	if (insn & 0x200000) {
-		
+		/* STQ */
 		u64 first = 0, second = 0;
 		
 		if (current_thread_info()->fpsaved[0] & flag) {
@@ -440,7 +451,7 @@ int handle_ldf_stq(u32 insn, struct pt_regs *regs)
 		case ASI_PL:
 		case ASI_SL: 
 			{
-				
+				/* Need to convert endians */
 				u64 tmp = __swab64p(&first);
 				
 				first = __swab64p(&second);
@@ -465,7 +476,7 @@ int handle_ldf_stq(u32 insn, struct pt_regs *regs)
 		    	return 1;
 		}
 	} else {
-		
+		/* LDF, LDDF, LDQF */
 		u32 data[4] __attribute__ ((aligned(8)));
 		int size, i;
 		int err;
@@ -493,14 +504,14 @@ int handle_ldf_stq(u32 insn, struct pt_regs *regs)
 			for (i = 1; i < size; i++)
 				err |= __get_user (data[i], (u32 __user *)(addr + 4*i));
 		}
-		if (err && !(asi & 0x2 )) {
+		if (err && !(asi & 0x2 /* NF */)) {
 			if (tlb_type == hypervisor)
 				sun4v_data_access_exception(regs, addr, 0);
 			else
 				spitfire_data_access_exception(regs, 0, addr);
 			return 1;
 		}
-		if (asi & 0x8)  {
+		if (asi & 0x8) /* Little */ {
 			u64 tmp;
 
 			switch (size) {
@@ -591,7 +602,7 @@ void handle_lddfmna(struct pt_regs *regs, unsigned long sfar, unsigned long sfsr
 		save_and_clear_fpu();
 		freg = ((insn >> 25) & 0x1e) | ((insn >> 20) & 0x20);
 		value = (((u64)first) << 32) | second;
-		if (asi & 0x8) 
+		if (asi & 0x8) /* Little */
 			value = __swab64p(&value);
 		flag = (freg < 32) ? FPRS_DL : FPRS_DU;
 		if (!(current_thread_info()->fpsaved[0] & FPRS_FEF)) {

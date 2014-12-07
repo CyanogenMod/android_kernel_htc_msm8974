@@ -31,16 +31,50 @@
 #define DRV_NAME "pata_at32"
 #define DRV_VERSION "0.0.3"
 
+/*
+ * CompactFlash controller memory layout relative to the base address:
+ *
+ *	Attribute memory:  0000 0000 -> 003f ffff
+ *	Common memory:	   0040 0000 -> 007f ffff
+ *	I/O memory:	   0080 0000 -> 00bf ffff
+ *	True IDE Mode:	   00c0 0000 -> 00df ffff
+ *	Alt IDE Mode:	   00e0 0000 -> 00ff ffff
+ *
+ * Only True IDE and Alt True IDE mode are needed for this driver.
+ *
+ *	True IDE mode	  => CS0 = 0, CS1 = 1 (cmd, error, stat, etc)
+ *	Alt True IDE mode => CS0 = 1, CS1 = 0 (ctl, alt_stat)
+ */
 #define CF_IDE_OFFSET	  0x00c00000
 #define CF_ALT_IDE_OFFSET 0x00e00000
 #define CF_RES_SIZE	  2048
 
+/*
+ * Define DEBUG_BUS if you are doing debugging of your own EBI -> PATA
+ * adaptor with a logic analyzer or similar.
+ */
 #undef DEBUG_BUS
 
+/*
+ * ATA PIO modes
+ *
+ *	Name	| Mb/s	| Min cycle time | Mask
+ *	--------+-------+----------------+--------
+ *	Mode 0	| 3.3	| 600 ns	 | 0x01
+ *	Mode 1	| 5.2	| 383 ns	 | 0x03
+ *	Mode 2	| 8.3	| 240 ns	 | 0x07
+ *	Mode 3	| 11.1	| 180 ns	 | 0x0f
+ *	Mode 4	| 16.7	| 120 ns	 | 0x1f
+ *
+ * Alter PIO_MASK below according to table to set maximal PIO mode.
+ */
 enum {
   PIO_MASK = ATA_PIO4,
 };
 
+/*
+ * Struct containing private information about device.
+ */
 struct at32_ide_info {
 	unsigned int		irq;
 	struct resource		res_ide;
@@ -51,6 +85,9 @@ struct at32_ide_info {
 	struct smc_config	smc;
 };
 
+/*
+ * Setup SMC for the given ATA timing.
+ */
 static int pata_at32_setup_timing(struct device *dev,
 				  struct at32_ide_info *info,
 				  const struct ata_timing *ata)
@@ -63,39 +100,39 @@ static int pata_at32_setup_timing(struct device *dev,
 
 	memset(&timing, 0, sizeof(struct smc_timing));
 
-	
+	/* Total cycle time */
 	timing.read_cycle  = ata->cyc8b;
 
-	
+	/* DIOR <= CFIOR timings */
 	timing.nrd_setup   = ata->setup;
 	timing.nrd_pulse   = ata->act8b;
 	timing.nrd_recover = ata->rec8b;
 
-	
+	/* Convert nanosecond timing to clock cycles */
 	smc_set_timing(smc, &timing);
 
-	
+	/* Add one extra cycle setup due to signal ring */
 	smc->nrd_setup = smc->nrd_setup + 1;
 
 	active  = smc->nrd_setup + smc->nrd_pulse;
 	recover = smc->read_cycle - active;
 
-	
+	/* Need at least two cycles recovery */
 	if (recover < 2)
 	  smc->read_cycle = active + 2;
 
-	
+	/* (CS0, CS1, DIR, OE) <= (CFCE1, CFCE2, CFRNW, NCSX) timings */
 	smc->ncs_read_setup = 1;
 	smc->ncs_read_pulse = smc->read_cycle - 2;
 
-	
+	/* Write timings same as read timings */
 	smc->write_cycle = smc->read_cycle;
 	smc->nwe_setup = smc->nrd_setup;
 	smc->nwe_pulse = smc->nrd_pulse;
 	smc->ncs_write_setup = smc->ncs_read_setup;
 	smc->ncs_write_pulse = smc->ncs_read_pulse;
 
-	
+	/* Do some debugging output of ATA and SMC timings */
 	dev_dbg(dev, "ATA: C=%d S=%d P=%d R=%d\n",
 		ata->cyc8b, ata->setup, ata->act8b, ata->rec8b);
 
@@ -103,10 +140,13 @@ static int pata_at32_setup_timing(struct device *dev,
 		smc->read_cycle, smc->nrd_setup, smc->nrd_pulse,
 		smc->ncs_read_setup, smc->ncs_read_pulse);
 
-	
+	/* Finally, configure the SMC */
 	return smc_set_configuration(info->cs, smc);
 }
 
+/*
+ * Procedures for libATA.
+ */
 static void pata_at32_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
 	struct ata_timing timing;
@@ -114,14 +154,14 @@ static void pata_at32_set_piomode(struct ata_port *ap, struct ata_device *adev)
 
 	int ret;
 
-	
+	/* Compute ATA timing */
 	ret = ata_timing_compute(adev, adev->pio_mode, &timing, 1000, 0);
 	if (ret) {
 		dev_warn(ap->dev, "Failed to compute ATA timing %d\n", ret);
 		return;
 	}
 
-	
+	/* Setup SMC to ATA timing */
 	ret = pata_at32_setup_timing(ap->dev, info, &timing);
 	if (ret) {
 		dev_warn(ap->dev, "Failed to setup ATA timing %d\n", ret);
@@ -151,11 +191,23 @@ static int __init pata_at32_init_one(struct device *dev,
 
 	ap = host->ports[0];
 
-	
+	/* Setup ATA bindings */
 	ap->ops	     = &at32_port_ops;
 	ap->pio_mask = PIO_MASK;
 	ap->flags   |= ATA_FLAG_SLAVE_POSS;
 
+	/*
+	 * Since all 8-bit taskfile transfers has to go on the lower
+	 * byte of the data bus and there is a bug in the SMC that
+	 * makes it impossible to alter the bus width during runtime,
+	 * we need to hardwire the address signals as follows:
+	 *
+	 *	A_IDE(2:0) <= A_EBI(3:1)
+	 *
+	 * This makes all addresses on the EBI even, thus all data
+	 * will be on the lower byte of the data bus.  All addresses
+	 * used by libATA need to be altered according to this.
+	 */
 	ap->ioaddr.altstatus_addr = info->alt_addr + (0x06 << 1);
 	ap->ioaddr.ctl_addr	  = info->alt_addr + (0x06 << 1);
 
@@ -170,15 +222,19 @@ static int __init pata_at32_init_one(struct device *dev,
 	ap->ioaddr.status_addr	  = info->ide_addr + (ATA_REG_STATUS << 1);
 	ap->ioaddr.command_addr	  = info->ide_addr + (ATA_REG_CMD << 1);
 
-	
+	/* Set info as private data of ATA host */
 	host->private_data = info;
 
-	
+	/* Register ATA device and return */
 	return ata_host_activate(host, info->irq, ata_sff_interrupt,
 				 IRQF_SHARED | IRQF_TRIGGER_RISING,
 				 &at32_sht);
 }
 
+/*
+ * This function may come in handy for people analyzing their own
+ * EBI -> PATA adaptors.
+ */
 #ifdef DEBUG_BUS
 
 static void __init pata_at32_debug_bus(struct device *dev,
@@ -189,7 +245,7 @@ static void __init pata_at32_debug_bus(struct device *dev,
 
 	int i;
 
-	
+	/* Write 8-bit values (registers) */
 	iowrite8(d1, info->alt_addr + (0x06 << 1));
 	iowrite8(d2, info->alt_addr + (0x06 << 1));
 
@@ -198,7 +254,7 @@ static void __init pata_at32_debug_bus(struct device *dev,
 		iowrite8(d2, info->ide_addr + (i << 1));
 	}
 
-	
+	/* Write 16 bit values (data) */
 	iowrite16(d1,	   info->ide_addr);
 	iowrite16(d1 << 8, info->ide_addr);
 
@@ -228,12 +284,12 @@ static int __init pata_at32_probe(struct platform_device *pdev)
 	if (!res)
 		return -ENXIO;
 
-	
+	/* Retrive IRQ */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;
 
-	
+	/* Setup struct containing private information */
 	info = kzalloc(sizeof(struct at32_ide_info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
@@ -241,7 +297,7 @@ static int __init pata_at32_probe(struct platform_device *pdev)
 	info->irq = irq;
 	info->cs  = board->cs;
 
-	
+	/* Request memory resources */
 	info->res_ide.start = res->start + CF_IDE_OFFSET;
 	info->res_ide.end   = info->res_ide.start + CF_RES_SIZE - 1;
 	info->res_ide.name  = "ide";
@@ -260,21 +316,21 @@ static int __init pata_at32_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_req_res_alt;
 
-	
-	info->smc.bus_width	 = 2; 
-	info->smc.nrd_controlled = 1; 
-	info->smc.nwe_controlled = 0; 
-	info->smc.nwait_mode	 = 3; 
-	info->smc.byte_write	 = 0; 
-	info->smc.tdf_mode	 = 0; 
-	info->smc.tdf_cycles	 = 0; 
+	/* Setup non-timing elements of SMC */
+	info->smc.bus_width	 = 2; /* 16 bit data bus */
+	info->smc.nrd_controlled = 1; /* Sample data on rising edge of NRD */
+	info->smc.nwe_controlled = 0; /* Drive data on falling edge of NCS */
+	info->smc.nwait_mode	 = 3; /* NWAIT is in READY mode */
+	info->smc.byte_write	 = 0; /* Byte select access type */
+	info->smc.tdf_mode	 = 0; /* TDF optimization disabled */
+	info->smc.tdf_cycles	 = 0; /* No TDF wait cycles */
 
-	
+	/* Setup SMC to ATA timing */
 	ret = pata_at32_setup_timing(dev, info, &initial_timing);
 	if (ret)
 		goto err_setup_timing;
 
-	
+	/* Map ATA address space */
 	ret = -ENOMEM;
 	info->ide_addr = devm_ioremap(dev, info->res_ide.start, 16);
 	info->alt_addr = devm_ioremap(dev, info->res_alt.start, 16);
@@ -285,7 +341,7 @@ static int __init pata_at32_probe(struct platform_device *pdev)
 	pata_at32_debug_bus(dev, info);
 #endif
 
-	
+	/* Setup and register ATA device */
 	ret = pata_at32_init_one(dev, info);
 	if (ret)
 		goto err_ata_device;
@@ -326,6 +382,7 @@ static int __exit pata_at32_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:at32_ide");
 
 static struct platform_driver pata_at32_driver = {

@@ -72,6 +72,29 @@ static inline int iwm_rx_resp_size(struct iwm_udma_in_hdr *hdr)
 		     16);
 }
 
+/*
+ * Notification handlers:
+ *
+ * For every possible notification we can receive from the
+ * target, we have a handler.
+ * When we get a target notification, and there is no one
+ * waiting for it, it's just processed through the rx code
+ * path:
+ *
+ * iwm_rx_handle()
+ *  -> iwm_rx_handle_umac()
+ *      -> iwm_rx_handle_wifi()
+ *          -> iwm_rx_handle_resp()
+ *              -> iwm_ntf_*()
+ *
+ *      OR
+ *
+ *      -> iwm_rx_handle_non_wifi()
+ *
+ * If there are processes waiting for this notification, then
+ * iwm_rx_handle_wifi() just wakes those processes up and they
+ * grab the pending notification.
+ */
 static int iwm_ntf_error(struct iwm_priv *iwm, u8 *buf,
 			 unsigned long buf_size, struct iwm_wifi_cmd *cmd)
 {
@@ -402,7 +425,7 @@ static int iwm_ntf_rx_ticket(struct iwm_priv *iwm, u8 *buf,
 		switch (le16_to_cpu(ticket->action)) {
 		case IWM_RX_TICKET_RELEASE:
 		case IWM_RX_TICKET_DROP:
-			
+			/* We can push the packet to the stack */
 			ticket_node = iwm_rx_ticket_node_alloc(iwm, ticket);
 			if (IS_ERR(ticket_node))
 				return PTR_ERR(ticket_node);
@@ -416,6 +439,12 @@ static int iwm_ntf_rx_ticket(struct iwm_priv *iwm, u8 *buf,
 			list_add_tail(&ticket_node->node, &iwm->rx_tickets);
 			spin_unlock(&iwm->ticket_lock);
 
+			/*
+			 * We received an Rx ticket, most likely there's
+			 * a packet pending for it, it's not worth going
+			 * through the packet hash list to double check.
+			 * Let's just fire the rx worker..
+			 */
 			schedule_rx = 1;
 
 			break;
@@ -464,12 +493,13 @@ static int iwm_ntf_rx_packet(struct iwm_priv *iwm, u8 *buf,
 	list_add_tail(&packet->node, &iwm->rx_packets[id_hash]);
 	spin_unlock(&iwm->packet_lock[id_hash]);
 
-	
+	/* We might (unlikely) have received the packet _after_ the ticket */
 	queue_work(iwm->rx_wq, &iwm->rx_worker);
 
 	return 0;
 }
 
+/* MLME handlers */
 static int iwm_mlme_assoc_start(struct iwm_priv *iwm, u8 *buf,
 				unsigned long buf_size,
 				struct iwm_wifi_cmd *cmd)
@@ -518,7 +548,7 @@ static int iwm_mlme_assoc_complete(struct iwm_priv *iwm, u8 *buf,
 					IEEE80211_BAND_2GHZ :
 					IEEE80211_BAND_5GHZ));
 		if (!chan || chan->flags & IEEE80211_CHAN_DISABLED) {
-			
+			/* Associated to a unallowed channel, disassociate. */
 			__iwm_invalidate_mlme_profile(iwm);
 			IWM_WARN(iwm, "Couldn't associate with %pM due to "
 				 "channel %d is disabled. Check your local "
@@ -531,7 +561,7 @@ static int iwm_mlme_assoc_complete(struct iwm_priv *iwm, u8 *buf,
 		memcpy(iwm->bssid, complete->bssid, ETH_ALEN);
 		iwm->channel = complete->channel;
 
-		
+		/* Internal roaming state, avoid notifying SME. */
 		if (!test_and_clear_bit(IWM_STATUS_SME_CONNECTING, &iwm->status)
 		    && iwm->conf.mode == UMAC_MODE_BSS) {
 			cancel_delayed_work(&iwm->disconnect);
@@ -568,7 +598,7 @@ static int iwm_mlme_assoc_complete(struct iwm_priv *iwm, u8 *buf,
 		memset(iwm->bssid, 0, ETH_ALEN);
 		iwm->channel = 0;
 
-		
+		/* Internal roaming state, avoid notifying SME. */
 		if (!test_and_clear_bit(IWM_STATUS_SME_CONNECTING, &iwm->status)
 		    && iwm->conf.mode == UMAC_MODE_BSS) {
 			cancel_delayed_work(&iwm->disconnect);
@@ -588,7 +618,7 @@ static int iwm_mlme_assoc_complete(struct iwm_priv *iwm, u8 *buf,
 					       WLAN_STATUS_UNSPECIFIED_FAILURE,
 					       GFP_KERNEL);
 			} else {
-				
+				/* Let's try shared WEP auth */
 				IWM_ERR(iwm, "Trying WEP shared auth\n");
 				schedule_work(&iwm->auth_retry_worker);
 			}
@@ -782,11 +812,11 @@ static int iwm_mlme_update_bss_table(struct iwm_priv *iwm, u8 *buf,
 			break;
 
 	if (&bss->node != &iwm->bss_list) {
-		
+		/* Remove the old BSS entry, we will add it back later. */
 		list_del(&bss->node);
 		kfree(bss->bss);
 	} else {
-		
+		/* New BSS entry */
 
 		bss = kzalloc(sizeof(struct iwm_bss_info), GFP_KERNEL);
 		if (!bss) {
@@ -980,7 +1010,7 @@ static int iwm_ntf_statistics(struct iwm_priv *iwm, u8 *buf,
 					 max(le16_to_cpu(stats->tx_rate[i]),
 					     le16_to_cpu(stats->rx_rate[i])));
 		}
-		
+		/* UMAC passes rate info multiplies by 2 */
 		iwm->rate = max_rate >> 1;
 	}
 	iwm->txpower = le32_to_cpu(stats->tx_power);
@@ -994,7 +1024,7 @@ static int iwm_ntf_statistics(struct iwm_priv *iwm, u8 *buf,
 
 	wstats->miss.beacon = le32_to_cpu(stats->missed_beacons);
 
-	
+	/* according to cfg80211 */
 	if (stats->rssi_dbm < -110)
 		wstats->qual.qual = 0;
 	else if (stats->rssi_dbm > -40)
@@ -1132,6 +1162,10 @@ static int iwm_ntf_stop_resume_tx(struct iwm_priv *iwm, u8 *buf,
 				continue;
 
 			txq = &iwm->txq[queue];
+			/*
+			 * If we resume, we have to move our SKBs
+			 * back to the tx queue and queue some work.
+			 */
 			spin_lock_bh(&txq->lock);
 			skb_queue_splice_init(&txq->queue, &txq->stopped_queue);
 			spin_unlock_bh(&txq->lock);
@@ -1141,7 +1175,7 @@ static int iwm_ntf_stop_resume_tx(struct iwm_priv *iwm, u8 *buf,
 
 	}
 
-	
+	/* We send an ACK only for the stop case */
 	if (stop)
 		ret = iwm_send_umac_stop_resume_tx(iwm, stp_res_tx);
 
@@ -1192,6 +1226,12 @@ static int iwm_ntf_card_state(struct iwm_priv *iwm, u8 *buf,
 		 flags & IWM_CARD_STATE_CTKILL_DISABLED ? "ON" : "OFF");
 
 	if (flags & IWM_CARD_STATE_CTKILL_DISABLED) {
+		/*
+		 * We got a CTKILL event: We bring the interface down in
+		 * oder to cool the device down, and try to bring it up
+		 * 30 seconds later. If it's still too hot, we'll go through
+		 * this code path again.
+		 */
 		cancel_delayed_work_sync(&iwm->ct_kill_delay);
 		schedule_delayed_work(&iwm->ct_kill_delay, CT_KILL_DELAY);
 	}
@@ -1241,9 +1281,13 @@ static int iwm_rx_handle_wifi(struct iwm_priv *iwm, u8 *buf,
 	IWM_DBG_RX(iwm, DBG, "CMD:0x%x, source: 0x%x, seqnum: %d\n",
 		   cmd_id, source, seq_num);
 
+	/*
+	 * If this is a response to a previously sent command, there must
+	 * be a pending command for this sequence number.
+	 */
 	cmd = iwm_get_pending_wifi_cmd(iwm, seq_num);
 
-	
+	/* Notify the caller only for sync commands. */
 	switch (source) {
 	case UMAC_HDI_IN_SOURCE_FHRX:
 		if (iwm->lmac_handlers[cmd_id] &&
@@ -1309,6 +1353,14 @@ static int iwm_rx_handle_nonwifi(struct iwm_priv *iwm, u8 *buf,
 	trace_iwm_rx_nonwifi_cmd(iwm, buf, buf_size);
 	seq_num = GET_VAL32(hdr->cmd, UDMA_HDI_IN_CMD_NON_WIFI_HW_SEQ_NUM);
 
+	/*
+	 * We received a non wifi answer.
+	 * Let's check if there's a pending command for it, and if so
+	 * replace the command payload with the buffer, and then wake the
+	 * callers up.
+	 * That means we only support synchronised non wifi command response
+	 * schemes.
+	 */
 	list_for_each_entry(cmd, &iwm->nonwifi_pending_cmd, pending)
 		if (cmd->seq_num == seq_num) {
 			cmd->resp_received = true;
@@ -1328,6 +1380,16 @@ static int iwm_rx_handle_umac(struct iwm_priv *iwm, u8 *buf,
 	unsigned long buf_offset = 0;
 	struct iwm_udma_in_hdr *hdr;
 
+	/*
+	 * To allow for a more efficient bus usage, UMAC
+	 * messages are encapsulated into UDMA ones. This
+	 * way we can have several UMAC messages in one bus
+	 * transfer.
+	 * A UDMA frame size is always aligned on 16 bytes,
+	 * and a UDMA frame must not start with a UMAC_PAD_TERMINAL
+	 * word. This is how we parse a bus frame into several
+	 * UDMA ones.
+	 */
 	while (buf_offset < buf_size) {
 
 		hdr = (struct iwm_udma_in_hdr *)(buf + buf_offset);
@@ -1457,7 +1519,7 @@ static void iwm_rx_adjust_packet(struct iwm_priv *iwm,
 
 	mpdu_hdr = (struct iwm_rx_mpdu_hdr *)packet->skb->data;
 	payload_offset += sizeof(struct iwm_rx_mpdu_hdr);
-	
+	/* Padding is 0 or 2 bytes */
 	payload_len = le16_to_cpu(mpdu_hdr->len) +
 		(le16_to_cpu(ticket->flags) & IWM_RX_TICKET_PAD_SIZE_MSK);
 	payload_len -= ticket->tail_len;
@@ -1476,6 +1538,8 @@ static void iwm_rx_adjust_packet(struct iwm_priv *iwm,
 
 	hdr = (struct ieee80211_hdr *) packet->skb->data;
 	if (ieee80211_is_data_qos(hdr->frame_control)) {
+		/* UMAC handed QOS_DATA frame with 2 padding bytes appended
+		 * to the qos_ctl field in IEEE 802.11 headers. */
 		memmove(packet->skb->data + IEEE80211_QOS_CTL_LEN + 2,
 			packet->skb->data,
 			ieee80211_hdrlen(hdr->frame_control) -
@@ -1495,7 +1559,7 @@ static void classify8023(struct sk_buff *skb)
 
 	if (ieee80211_is_data_qos(hdr->frame_control)) {
 		u8 *qc = ieee80211_get_qos_ctl(hdr);
-		
+		/* frame has qos control */
 		skb->priority = *qc & IEEE80211_QOS_CTL_TID_MASK;
 	} else {
 		skb->priority = 0;
@@ -1592,6 +1656,18 @@ static void iwm_rx_process_packet(struct iwm_priv *iwm,
 	iwm_rx_ticket_node_free(ticket_node);
 }
 
+/*
+ * Rx data processing:
+ *
+ * We're receiving Rx packet from the LMAC, and Rx ticket from
+ * the UMAC.
+ * To forward a target data packet upstream (i.e. to the
+ * kernel network stack), we must have received an Rx ticket
+ * that tells us we're allowed to release this packet (ticket
+ * action is IWM_RX_TICKET_RELEASE). The Rx ticket also indicates,
+ * among other things, where valid data actually starts in the Rx
+ * packet.
+ */
 void iwm_rx_worker(struct work_struct *work)
 {
 	struct iwm_priv *iwm;
@@ -1599,6 +1675,12 @@ void iwm_rx_worker(struct work_struct *work)
 
 	iwm = container_of(work, struct iwm_priv, rx_worker);
 
+	/*
+	 * We go through the tickets list and if there is a pending
+	 * packet for it, we push it upstream.
+	 * We stop whenever a ticket is missing its packet, as we're
+	 * supposed to send the packets in order.
+	 */
 	spin_lock(&iwm->ticket_lock);
 	list_for_each_entry_safe(ticket, next, &iwm->rx_tickets, node) {
 		struct iwm_rx_packet *packet =

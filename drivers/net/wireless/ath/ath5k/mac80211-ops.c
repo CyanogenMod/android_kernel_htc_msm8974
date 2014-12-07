@@ -48,6 +48,9 @@
 #include "base.h"
 #include "reg.h"
 
+/********************\
+* Mac80211 functions *
+\********************/
 
 static void
 ath5k_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
@@ -80,6 +83,11 @@ ath5k_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 		goto end;
 	}
 
+	/* Don't allow other interfaces if one ad-hoc is configured.
+	 * TODO: Fix the problems with ad-hoc and multiple other interfaces.
+	 * We would need to operate the HW in ad-hoc mode to allow TSF updates
+	 * for the IBSS, but this breaks with additional AP or STA interfaces
+	 * at the moment. */
 	if (ah->num_adhoc_vifs ||
 	    (ah->nvifs && vif->type == NL80211_IFTYPE_ADHOC)) {
 		ATH5K_ERR(ah, "Only one single ad-hoc interface is allowed.\n");
@@ -102,7 +110,7 @@ ath5k_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 	ah->nvifs++;
 	ATH5K_DBG(ah, ATH5K_DEBUG_MODE, "add interface mode %d\n", avf->opmode);
 
-	
+	/* Assign the vap/adhoc to a beacon xmit slot. */
 	if ((avf->opmode == NL80211_IFTYPE_AP) ||
 	    (avf->opmode == NL80211_IFTYPE_ADHOC) ||
 	    (avf->opmode == NL80211_IFTYPE_MESH_POINT)) {
@@ -130,6 +138,9 @@ ath5k_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 			ah->num_mesh_vifs++;
 	}
 
+	/* Any MAC address is fine, all others are included through the
+	 * filter.
+	 */
 	ath5k_hw_set_lladdr(ah, vif->addr);
 
 	ath5k_update_bssid_mask_and_opmode(ah, vif);
@@ -174,6 +185,9 @@ ath5k_remove_interface(struct ieee80211_hw *hw,
 }
 
 
+/*
+ * TODO: Phy disable/diversity etc
+ */
 static int
 ath5k_config(struct ieee80211_hw *hw, u32 changed)
 {
@@ -194,7 +208,7 @@ ath5k_config(struct ieee80211_hw *hw, u32 changed)
 	(ah->power_level != conf->power_level)) {
 		ah->power_level = conf->power_level;
 
-		
+		/* Half dB steps */
 		ath5k_hw_set_txpower_limit(ah, (conf->power_level * 2));
 	}
 
@@ -206,6 +220,23 @@ ath5k_config(struct ieee80211_hw *hw, u32 changed)
 			ath5k_hw_set_tx_retry_limits(ah, i);
 	}
 
+	/* TODO:
+	 * 1) Move this on config_interface and handle each case
+	 * separately eg. when we have only one STA vif, use
+	 * AR5K_ANTMODE_SINGLE_AP
+	 *
+	 * 2) Allow the user to change antenna mode eg. when only
+	 * one antenna is present
+	 *
+	 * 3) Allow the user to set default/tx antenna when possible
+	 *
+	 * 4) Default mode should handle 90% of the cases, together
+	 * with fixed a/b and single AP modes we should be able to
+	 * handle 99%. Sectored modes are extreme cases and i still
+	 * haven't found a usage for them. If we decide to support them,
+	 * then we must allow the user to set how many tx antennas we
+	 * have available
+	 */
 	ath5k_hw_set_antenna_mode(ah, ah->ah_ant_mode);
 
 unlock:
@@ -226,7 +257,7 @@ ath5k_bss_info_changed(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	mutex_lock(&ah->lock);
 
 	if (changes & BSS_CHANGED_BSSID) {
-		
+		/* Cache for later use during resets */
 		memcpy(common->curbssid, bss_conf->bssid, ETH_ALEN);
 		common->curaid = 0;
 		ath5k_hw_set_bssid(ah);
@@ -262,7 +293,7 @@ ath5k_bss_info_changed(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 				  bss_conf->aid, common->curbssid);
 			common->curaid = bss_conf->aid;
 			ath5k_hw_set_bssid(ah);
-			
+			/* Once ANI is available you would start it here */
 		}
 	}
 
@@ -295,19 +326,42 @@ ath5k_prepare_multicast(struct ieee80211_hw *hw,
 	mfilt[1] = 1;
 
 	netdev_hw_addr_list_for_each(ha, mc_list) {
-		
+		/* calculate XOR of eight 6-bit values */
 		val = get_unaligned_le32(ha->addr + 0);
 		pos = (val >> 18) ^ (val >> 12) ^ (val >> 6) ^ val;
 		val = get_unaligned_le32(ha->addr + 3);
 		pos ^= (val >> 18) ^ (val >> 12) ^ (val >> 6) ^ val;
 		pos &= 0x3f;
 		mfilt[pos / 32] |= (1 << (pos % 32));
+		/* XXX: we might be able to just do this instead,
+		* but not sure, needs testing, if we do use this we'd
+		* need to inform below not to reset the mcast */
+		/* ath5k_hw_set_mcast_filterindex(ah,
+		 *      ha->addr[5]); */
 	}
 
 	return ((u64)(mfilt[1]) << 32) | mfilt[0];
 }
 
 
+/*
+ * o always accept unicast, broadcast, and multicast traffic
+ * o multicast traffic for all BSSIDs will be enabled if mac80211
+ *   says it should be
+ * o maintain current state of phy ofdm or phy cck error reception.
+ *   If the hardware detects any of these type of errors then
+ *   ath5k_hw_get_rx_filter() will pass to us the respective
+ *   hardware filters to be able to receive these type of frames.
+ * o probe request frames are accepted only when operating in
+ *   hostap, adhoc, or monitor modes
+ * o enable promiscuous mode according to the interface state
+ * o accept beacons:
+ *   - when operating in adhoc mode so the 802.11 layer creates
+ *     node table entries for peers,
+ *   - when operating in station mode for collecting rssi data when
+ *     the station is otherwise quiet, or
+ *   - when scanning
+ */
 static void
 ath5k_configure_filter(struct ieee80211_hw *hw, unsigned int changed_flags,
 		       unsigned int *new_flags, u64 multicast)
@@ -319,17 +373,20 @@ ath5k_configure_filter(struct ieee80211_hw *hw, unsigned int changed_flags,
 
 	struct ath5k_hw *ah = hw->priv;
 	u32 mfilt[2], rfilt;
-	struct ath5k_vif_iter_data iter_data; 
+	struct ath5k_vif_iter_data iter_data; /* to count STA interfaces */
 
 	mutex_lock(&ah->lock);
 
 	mfilt[0] = multicast;
 	mfilt[1] = multicast >> 32;
 
-	
+	/* Only deal with supported flags */
 	changed_flags &= SUPPORTED_FIF_FLAGS;
 	*new_flags &= SUPPORTED_FIF_FLAGS;
 
+	/* If HW detects any phy or radar errors, leave those filters on.
+	 * Also, always enable Unicast, Broadcasts and Multicast
+	 * XXX: move unicast, bssid broadcasts and multicast to mac80211 */
 	rfilt = (ath5k_hw_get_rx_filter(ah) & (AR5K_RX_FILTER_PHYERR)) |
 		(AR5K_RX_FILTER_UCAST | AR5K_RX_FILTER_BCAST |
 		AR5K_RX_FILTER_MCAST);
@@ -344,25 +401,32 @@ ath5k_configure_filter(struct ieee80211_hw *hw, unsigned int changed_flags,
 	if (test_bit(ATH_STAT_PROMISC, ah->status))
 		rfilt |= AR5K_RX_FILTER_PROM;
 
-	
+	/* Note, AR5K_RX_FILTER_MCAST is already enabled */
 	if (*new_flags & FIF_ALLMULTI) {
 		mfilt[0] =  ~0;
 		mfilt[1] =  ~0;
 	}
 
-	
+	/* This is the best we can do */
 	if (*new_flags & (FIF_FCSFAIL | FIF_PLCPFAIL))
 		rfilt |= AR5K_RX_FILTER_PHYERR;
 
+	/* FIF_BCN_PRBRESP_PROMISC really means to enable beacons
+	* and probes for any BSSID */
 	if ((*new_flags & FIF_BCN_PRBRESP_PROMISC) || (ah->nvifs > 1))
 		rfilt |= AR5K_RX_FILTER_BEACON;
 
+	/* FIF_CONTROL doc says that if FIF_PROMISC_IN_BSS is not
+	 * set we should only pass on control frames for this
+	 * station. This needs testing. I believe right now this
+	 * enables *all* control frames, which is OK.. but
+	 * but we should see if we can improve on granularity */
 	if (*new_flags & FIF_CONTROL)
 		rfilt |= AR5K_RX_FILTER_CONTROL;
 
-	
+	/* Additional settings per mode -- this is per ath5k */
 
-	
+	/* XXX move these to mac80211, and add a beacon IFF flag to mac80211 */
 
 	switch (ah->opmode) {
 	case NL80211_IFTYPE_MESH_POINT:
@@ -389,16 +453,22 @@ ath5k_configure_filter(struct ieee80211_hw *hw, unsigned int changed_flags,
 	ieee80211_iterate_active_interfaces_atomic(ah->hw, ath5k_vif_iter,
 						   &iter_data);
 
-	
+	/* Set up RX Filter */
 	if (iter_data.n_stas > 1) {
+		/* If you have multiple STA interfaces connected to
+		 * different APs, ARPs are not received (most of the time?)
+		 * Enabling PROMISC appears to fix that problem.
+		 */
 		rfilt |= AR5K_RX_FILTER_PROM;
 	}
 
-	
+	/* Set filters */
 	ath5k_hw_set_rx_filter(ah, rfilt);
 
-	
+	/* Set multicast bits */
 	ath5k_hw_set_mcast_filter(ah, mfilt[0], mfilt[1]);
+	/* Set the cached hw filter flags, this will later actually
+	 * be set in HW */
 	ah->filter_flags = rfilt;
 
 	mutex_unlock(&ah->lock);
@@ -421,7 +491,7 @@ ath5k_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	    (key->cipher == WLAN_CIPHER_SUITE_TKIP ||
 	     key->cipher == WLAN_CIPHER_SUITE_CCMP) &&
 	    !(key->flags & IEEE80211_KEY_FLAG_PAIRWISE)) {
-		
+		/* don't program group keys when using IBSS_RSN */
 		return -EOPNOTSUPP;
 	}
 
@@ -446,7 +516,7 @@ ath5k_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		ret = ath_key_config(common, vif, sta, key);
 		if (ret >= 0) {
 			key->hw_key_idx = ret;
-			
+			/* push IV and Michael MIC generation to stack */
 			key->flags |= IEEE80211_KEY_FLAG_GENERATE_IV;
 			if (key->cipher == WLAN_CIPHER_SUITE_TKIP)
 				key->flags |= IEEE80211_KEY_FLAG_GENERATE_MMIC;
@@ -492,7 +562,7 @@ ath5k_get_stats(struct ieee80211_hw *hw,
 {
 	struct ath5k_hw *ah = hw->priv;
 
-	
+	/* Force update */
 	ath5k_hw_update_mib_counters(ah);
 
 	stats->dot11ACKFailureCount = ah->stats.ack_fail;
@@ -566,6 +636,10 @@ ath5k_reset_tsf(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 {
 	struct ath5k_hw *ah = hw->priv;
 
+	/*
+	 * in IBSS mode we need to update the beacon timers too.
+	 * this will also reset the TSF if we call it with 0
+	 */
 	if (ah->opmode == NL80211_IFTYPE_ADHOC)
 		ath5k_beacon_update_timers(ah, 0);
 	else
@@ -610,6 +684,16 @@ ath5k_get_survey(struct ieee80211_hw *hw, int idx, struct survey_info *survey)
 }
 
 
+/**
+ * ath5k_set_coverage_class - Set IEEE 802.11 coverage class
+ *
+ * @hw: struct ieee80211_hw pointer
+ * @coverage_class: IEEE 802.11 coverage class number
+ *
+ * Mac80211 callback. Sets slot time, ACK timeout and CTS timeout for given
+ * coverage class. The values are persistent, they are restored after device
+ * reset.
+ */
 static void
 ath5k_set_coverage_class(struct ieee80211_hw *hw, u8 coverage_class)
 {
@@ -672,11 +756,11 @@ static int ath5k_set_ringparam(struct ieee80211_hw *hw, u32 tx, u32 rx)
 	struct ath5k_hw *ah = hw->priv;
 	u16 qnum;
 
-	
+	/* only support setting tx ring size for now */
 	if (rx != ATH_RXBUF)
 		return -EINVAL;
 
-	
+	/* restrict tx ring size min/max */
 	if (!tx || tx > ATH5K_TXQ_LEN_MAX)
 		return -EINVAL;
 
@@ -701,37 +785,37 @@ const struct ieee80211_ops ath5k_hw_ops = {
 	.start			= ath5k_start,
 	.stop			= ath5k_stop,
 	.add_interface		= ath5k_add_interface,
-	
+	/* .change_interface	= not implemented */
 	.remove_interface	= ath5k_remove_interface,
 	.config			= ath5k_config,
 	.bss_info_changed	= ath5k_bss_info_changed,
 	.prepare_multicast	= ath5k_prepare_multicast,
 	.configure_filter	= ath5k_configure_filter,
-	
+	/* .set_tim		= not implemented */
 	.set_key		= ath5k_set_key,
-	
-	
+	/* .update_tkip_key	= not implemented */
+	/* .hw_scan		= not implemented */
 	.sw_scan_start		= ath5k_sw_scan_start,
 	.sw_scan_complete	= ath5k_sw_scan_complete,
 	.get_stats		= ath5k_get_stats,
-	
-	
-	
-	
-	
-	
+	/* .get_tkip_seq	= not implemented */
+	/* .set_frag_threshold	= not implemented */
+	/* .set_rts_threshold	= not implemented */
+	/* .sta_add		= not implemented */
+	/* .sta_remove		= not implemented */
+	/* .sta_notify		= not implemented */
 	.conf_tx		= ath5k_conf_tx,
 	.get_tsf		= ath5k_get_tsf,
 	.set_tsf		= ath5k_set_tsf,
 	.reset_tsf		= ath5k_reset_tsf,
-	
-	
+	/* .tx_last_beacon	= not implemented */
+	/* .ampdu_action	= not needed */
 	.get_survey		= ath5k_get_survey,
 	.set_coverage_class	= ath5k_set_coverage_class,
-	
-	
-	
-	
+	/* .rfkill_poll		= not implemented */
+	/* .flush		= not implemented */
+	/* .channel_switch	= not implemented */
+	/* .napi_poll		= not implemented */
 	.set_antenna		= ath5k_set_antenna,
 	.get_antenna		= ath5k_get_antenna,
 	.set_ringparam		= ath5k_set_ringparam,

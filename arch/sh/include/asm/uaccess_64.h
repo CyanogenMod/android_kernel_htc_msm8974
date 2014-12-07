@@ -88,4 +88,4 @@ extern long __strnlen_user(const char *__s, long __n);
 extern int __strncpy_from_user(unsigned long __dest,
 	       unsigned long __user __src, int __count);
 
-#endif 
+#endif /* __ASM_SH_UACCESS_64_H */

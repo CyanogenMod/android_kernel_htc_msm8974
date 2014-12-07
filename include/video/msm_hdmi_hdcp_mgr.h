@@ -13,7 +13,7 @@
 #ifndef MSM_HDMI_HDCP_MGR_H
 #define MSM_HDMI_HDCP_MGR_H
 
-enum DS_TYPE {  
+enum DS_TYPE {  /* type of downstream device */
 	DS_UNKNOWN,
 	DS_RECEIVER,
 	DS_REPEATER,
@@ -31,7 +31,7 @@ enum RET_CODE {
 	HDCP_DISABLE,
 };
 
-enum MSG_ID { 
+enum MSG_ID { /* List of functions expected to be called after it */
 	DOWN_CHECK_TOPOLOGY,
 	UP_REQUEST_TOPOLOGY,
 	UP_SEND_TOPOLOGY,
@@ -47,9 +47,13 @@ enum SOURCE_ID {
 	SRC_NUM,
 };
 
+/*
+ * how to parse sysfs params buffer
+ * from hdcp_tx driver.
+ */
 
 struct HDCP_V2V1_MSG_TOPOLOGY {
-	
+	/* indicates downstream's type */
 	uint32_t ds_type;
 	uint8_t bksv[5];
 	uint8_t dev_count;
@@ -59,4 +63,4 @@ struct HDCP_V2V1_MSG_TOPOLOGY {
 	uint32_t max_dev_exceeded;
 };
 
-#endif 
+#endif /* MSM_HDMI_HDCP_MGR_H */

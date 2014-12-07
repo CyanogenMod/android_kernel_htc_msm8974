@@ -28,14 +28,14 @@
 
 struct s5h1420_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* does the inversion require inversion? */
 	u8 invert:1;
 
 	u8 repeated_start_workaround:1;
-	u8 cdclk_polarity:1; 
+	u8 cdclk_polarity:1; /* 1 == falling edge, 0 == raising edge */
 
 	u8 serial_mpeg:1;
 };
@@ -56,6 +56,6 @@ static inline struct i2c_adapter *s5h1420_get_tuner_i2c_adapter(struct dvb_front
 {
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_S5H1420
 
-#endif 
+#endif // S5H1420_H

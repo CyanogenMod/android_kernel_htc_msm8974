@@ -1,6 +1,7 @@
 #ifndef __UM_PROCESSOR_H
 #define __UM_PROCESSOR_H
 
+/* include faultinfo structure */
 #include <sysdep/faultinfo.h>
 
 #ifdef CONFIG_X86_32
@@ -18,6 +19,7 @@
 
 #include <asm/user.h>
 
+/* REP NOP (PAUSE) is a good thing to insert into busy-wait loops. */
 static inline void rep_nop(void)
 {
 	__asm__ __volatile__("rep;nop": : :"memory");

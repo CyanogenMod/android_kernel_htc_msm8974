@@ -39,7 +39,11 @@ MODULE_AUTHOR("samuel.thibault@ens-lyon.org");
 MODULE_DESCRIPTION("braille device");
 MODULE_LICENSE("GPL");
 
+/*
+ * Braille device support part.
+ */
 
+/* Emit various sounds */
 static bool sound;
 module_param(sound, bool, 0);
 MODULE_PARM_DESC(sound, "emit sounds");
@@ -50,19 +54,24 @@ static void beep(unsigned int freq)
 		kd_mksound(freq, HZ/10);
 }
 
+/* mini console */
 #define WIDTH 40
 #define BRAILLE_KEY KEY_INSERT
 static u16 console_buf[WIDTH];
 static int console_cursor;
 
+/* mini view of VC */
 static int vc_x, vc_y, lastvc_x, lastvc_y;
 
+/* show console ? (or show VC) */
 static int console_show = 1;
+/* pending newline ? */
 static int console_newline = 1;
 static int lastVC = -1;
 
 static struct console *braille_co;
 
+/* Very VisioBraille-specific */
 static void braille_write(u16 *buf)
 {
 	static u16 lastwrite[WIDTH];
@@ -110,6 +119,7 @@ static void braille_write(u16 *buf)
 	braille_co->write(braille_co, data, c - data);
 }
 
+/* Follow the VC cursor*/
 static void vc_follow_cursor(struct vc_data *vc)
 {
 	vc_x = vc->vc_x - (vc->vc_x % WIDTH);
@@ -118,12 +128,14 @@ static void vc_follow_cursor(struct vc_data *vc)
 	lastvc_y = vc->vc_y;
 }
 
+/* Maybe the VC cursor moved, if so follow it */
 static void vc_maybe_cursor_moved(struct vc_data *vc)
 {
 	if (vc->vc_x != lastvc_x || vc->vc_y != lastvc_y)
 		vc_follow_cursor(vc);
 }
 
+/* Show portion of VC at vc_x, vc_y */
 static void vc_refresh(struct vc_data *vc)
 {
 	u16 buf[WIDTH];
@@ -137,6 +149,9 @@ static void vc_refresh(struct vc_data *vc)
 	braille_write(buf);
 }
 
+/*
+ * Link to keyboard
+ */
 
 static int keyboard_notifier_call(struct notifier_block *blk,
 				  unsigned long code, void *_param)
@@ -247,7 +262,7 @@ static int keyboard_notifier_call(struct notifier_block *blk,
 	case KBD_UNBOUND_KEYCODE:
 	case KBD_UNICODE:
 	case KBD_KEYSYM:
-		
+		/* Unused */
 		break;
 	}
 	return ret;
@@ -288,10 +303,10 @@ static int vt_notifier_call(struct notifier_block *blk,
 			break;
 		case '\t':
 			c = ' ';
-			
+			/* Fallthrough */
 		default:
 			if (c < 32)
-				
+				/* Ignore other control sequences */
 				break;
 			if (console_newline) {
 				memset(console_buf, 0, sizeof(console_buf));
@@ -315,7 +330,7 @@ static int vt_notifier_call(struct notifier_block *blk,
 		break;
 	}
 	case VT_UPDATE:
-		
+		/* Maybe a VT switch, flush */
 		if (console_show) {
 			if (vc->vc_num != lastVC) {
 				lastVC = vc->vc_num;
@@ -336,13 +351,16 @@ static struct notifier_block vt_notifier_block = {
 	.notifier_call = vt_notifier_call,
 };
 
+/*
+ * Called from printk.c when console=brl is given
+ */
 
 int braille_register_console(struct console *console, int index,
 		char *console_options, char *braille_options)
 {
 	int ret;
 	if (!console_options)
-		
+		/* Only support VisioBraille for now */
 		console_options = "57600o8";
 	if (braille_co)
 		return -ENODEV;

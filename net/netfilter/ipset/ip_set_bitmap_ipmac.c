@@ -8,6 +8,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the bitmap:ip,mac type */
 
 #include <linux/module.h>
 #include <linux/ip.h>
@@ -31,25 +32,28 @@ MODULE_DESCRIPTION("bitmap:ip,mac type of IP sets");
 MODULE_ALIAS("ip_set_bitmap:ip,mac");
 
 enum {
-	MAC_EMPTY,		
-	MAC_FILLED,		
-	MAC_UNSET,		
+	MAC_EMPTY,		/* element is not set */
+	MAC_FILLED,		/* element is set with MAC */
+	MAC_UNSET,		/* element is set, without MAC */
 };
 
+/* Type structure */
 struct bitmap_ipmac {
-	void *members;		
-	u32 first_ip;		
-	u32 last_ip;		
-	u32 timeout;		
-	struct timer_list gc;	
-	size_t dsize;		
+	void *members;		/* the set members */
+	u32 first_ip;		/* host byte order, included in range */
+	u32 last_ip;		/* host byte order, included in range */
+	u32 timeout;		/* timeout value */
+	struct timer_list gc;	/* garbage collector */
+	size_t dsize;		/* size of element */
 };
 
+/* ADT structure for generic function args */
 struct ipmac {
-	u32 id;			
-	unsigned char *ether;	
+	u32 id;			/* id in array */
+	unsigned char *ether;	/* ethernet address */
 };
 
+/* Member element without and with timeout */
 
 struct ipmac_elem {
 	unsigned char ether[ETH_ALEN];
@@ -92,6 +96,7 @@ bitmap_ipmac_exist(const struct ipmac_telem *elem)
 		!ip_set_timeout_expired(elem->timeout));
 }
 
+/* Base variant */
 
 static int
 bitmap_ipmac_test(struct ip_set *set, void *value, u32 timeout, u32 flags)
@@ -102,7 +107,7 @@ bitmap_ipmac_test(struct ip_set *set, void *value, u32 timeout, u32 flags)
 
 	switch (elem->match) {
 	case MAC_UNSET:
-		
+		/* Trigger kernel to fill out the ethernet address */
 		return -EAGAIN;
 	case MAC_FILLED:
 		return data->ether == NULL ||
@@ -121,9 +126,9 @@ bitmap_ipmac_add(struct ip_set *set, void *value, u32 timeout, u32 flags)
 	switch (elem->match) {
 	case MAC_UNSET:
 		if (!data->ether)
-			
+			/* Already added without ethernet address */
 			return -IPSET_ERR_EXIST;
-		
+		/* Fill the MAC address */
 		memcpy(elem->ether, data->ether, ETH_ALEN);
 		elem->match = MAC_FILLED;
 		break;
@@ -189,7 +194,7 @@ bitmap_ipmac_list(const struct ip_set *set,
 		ipset_nest_end(skb, nested);
 	}
 	ipset_nest_end(skb, atd);
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 
 	return 0;
@@ -204,6 +209,7 @@ nla_put_failure:
 	return 0;
 }
 
+/* Timeout variant */
 
 static int
 bitmap_ipmac_ttest(struct ip_set *set, void *value, u32 timeout, u32 flags)
@@ -214,7 +220,7 @@ bitmap_ipmac_ttest(struct ip_set *set, void *value, u32 timeout, u32 flags)
 
 	switch (elem->match) {
 	case MAC_UNSET:
-		
+		/* Trigger kernel to fill out the ethernet address */
 		return -EAGAIN;
 	case MAC_FILLED:
 		return (data->ether == NULL ||
@@ -235,26 +241,30 @@ bitmap_ipmac_tadd(struct ip_set *set, void *value, u32 timeout, u32 flags)
 	switch (elem->match) {
 	case MAC_UNSET:
 		if (!(data->ether || flag_exist))
-			
+			/* Already added without ethernet address */
 			return -IPSET_ERR_EXIST;
-		
+		/* Fill the MAC address and activate the timer */
 		memcpy(elem->ether, data->ether, ETH_ALEN);
 		elem->match = MAC_FILLED;
 		if (timeout == map->timeout)
-			
+			/* Timeout was not specified, get stored one */
 			timeout = elem->timeout;
 		elem->timeout = ip_set_timeout_set(timeout);
 		break;
 	case MAC_FILLED:
 		if (!(bitmap_expired(map, data->id) || flag_exist))
 			return -IPSET_ERR_EXIST;
-		
+		/* Fall through */
 	case MAC_EMPTY:
 		if (data->ether) {
 			memcpy(elem->ether, data->ether, ETH_ALEN);
 			elem->match = MAC_FILLED;
 		} else
 			elem->match = MAC_UNSET;
+		/* If MAC is unset yet, we store plain timeout value
+		 * because the timer is not activated yet
+		 * and we can reuse it later when MAC is filled out,
+		 * possibly by the kernel */
 		elem->timeout = data->ether ? ip_set_timeout_set(timeout)
 					    : timeout;
 		break;
@@ -315,7 +325,7 @@ bitmap_ipmac_tlist(const struct ip_set *set,
 		ipset_nest_end(skb, nested);
 	}
 	ipset_nest_end(skb, atd);
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 
 	return 0;
@@ -335,7 +345,7 @@ bitmap_ipmac_kadt(struct ip_set *set, const struct sk_buff *skb,
 	ipset_adtfn adtfn = set->variant->adt[adt];
 	struct ipmac data;
 
-	
+	/* MAC can be src only */
 	if (!(opt->flags & IPSET_DIM_TWO_SRC))
 		return 0;
 
@@ -343,7 +353,7 @@ bitmap_ipmac_kadt(struct ip_set *set, const struct sk_buff *skb,
 	if (data.id < map->first_ip || data.id > map->last_ip)
 		return -IPSET_ERR_BITMAP_RANGE;
 
-	
+	/* Backward compatibility: we don't check the second flag */
 	if (skb_mac_header(skb) < skb->head ||
 	    (skb_mac_header(skb) + ETH_HLEN) > skb->data)
 		return -EINVAL;
@@ -492,6 +502,8 @@ bitmap_ipmac_gc(unsigned long ul_set)
 	struct ipmac_telem *elem;
 	u32 id, last = map->last_ip - map->first_ip;
 
+	/* We run parallel with other readers (test element)
+	 * but adding/deleting new entries is locked out */
 	read_lock_bh(&set->lock);
 	for (id = 0; id <= last; id++) {
 		elem = bitmap_ipmac_elem(map, id);
@@ -517,6 +529,7 @@ bitmap_ipmac_gc_init(struct ip_set *set)
 	add_timer(&map->gc);
 }
 
+/* Create bitmap:ip,mac type of sets */
 
 static bool
 init_map_ipmac(struct ip_set *set, struct bitmap_ipmac *map,

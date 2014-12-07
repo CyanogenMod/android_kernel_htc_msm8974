@@ -18,6 +18,16 @@
 # define DPRINTK(args...)
 #endif
 
+/*
+ * O2 has up to 5 PCI devices connected into the MACE bridge.  The device
+ * map looks like this:
+ *
+ * 0  aic7xxx 0
+ * 1  aic7xxx 1
+ * 2  expansion slot
+ * 3  N/C
+ * 4  N/C
+ */
 
 static inline int mkaddr(struct pci_bus *bus, unsigned int devfn,
 	unsigned int reg)
@@ -34,7 +44,7 @@ mace_pci_read_config(struct pci_bus *bus, unsigned int devfn,
 {
 	u32 control = mace->pci.control;
 
-	
+	/* disable master aborts interrupts during config read */
 	mace->pci.control = control & ~MACEPCI_CONTROL_MAR_INT;
 	mace->pci.config_addr = mkaddr(bus, devfn, reg);
 	switch (size) {
@@ -48,9 +58,13 @@ mace_pci_read_config(struct pci_bus *bus, unsigned int devfn,
 		*val = mace->pci.config_data.l;
 		break;
 	}
-	
+	/* ack possible master abort */
 	mace->pci.error &= ~MACEPCI_ERROR_MASTER_ABORT;
 	mace->pci.control = control;
+	/*
+	 * someone forgot to set the ultra bit for the onboard
+	 * scsi chips; we fake it here
+	 */
 	if (bus->number == 0 && reg == 0x40 && size == 4 &&
 	    (devfn == (1 << 3) || devfn == (2 << 3)))
 		*val |= 0x1000;

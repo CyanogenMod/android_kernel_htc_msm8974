@@ -15,9 +15,28 @@
 
 #include <mach/ep93xx-regs.h>
 
+/*
+ * EP93xx Physical Memory Map:
+ *
+ * The ASDO pin is sampled at system reset to select a synchronous or
+ * asynchronous boot configuration.  When ASDO is "1" (i.e. pulled-up)
+ * the synchronous boot mode is selected.  When ASDO is "0" (i.e
+ * pulled-down) the asynchronous boot mode is selected.
+ *
+ * In synchronous boot mode nSDCE3 is decoded starting at physical address
+ * 0x00000000 and nCS0 is decoded starting at 0xf0000000.  For asynchronous
+ * boot mode they are swapped with nCS0 decoded at 0x00000000 ann nSDCE3
+ * decoded at 0xf0000000.
+ *
+ * There is known errata for the EP93xx dealing with External Memory
+ * Configurations.  Please refer to "AN273: EP93xx Silicon Rev E Design
+ * Guidelines" for more information.  This document can be found at:
+ *
+ *	http://www.cirrus.com/en/pubs/appNote/AN273REV4.pdf
+ */
 
-#define EP93XX_CS0_PHYS_BASE_ASYNC	0x00000000	
-#define EP93XX_SDCE3_PHYS_BASE_SYNC	0x00000000	
+#define EP93XX_CS0_PHYS_BASE_ASYNC	0x00000000	/* ASDO Pin = 0 */
+#define EP93XX_SDCE3_PHYS_BASE_SYNC	0x00000000	/* ASDO Pin = 1 */
 #define EP93XX_CS1_PHYS_BASE		0x10000000
 #define EP93XX_CS2_PHYS_BASE		0x20000000
 #define EP93XX_CS3_PHYS_BASE		0x30000000
@@ -27,9 +46,10 @@
 #define EP93XX_SDCE0_PHYS_BASE		0xc0000000
 #define EP93XX_SDCE1_PHYS_BASE		0xd0000000
 #define EP93XX_SDCE2_PHYS_BASE		0xe0000000
-#define EP93XX_SDCE3_PHYS_BASE_ASYNC	0xf0000000	
-#define EP93XX_CS0_PHYS_BASE_SYNC	0xf0000000	
+#define EP93XX_SDCE3_PHYS_BASE_ASYNC	0xf0000000	/* ASDO Pin = 0 */
+#define EP93XX_CS0_PHYS_BASE_SYNC	0xf0000000	/* ASDO Pin = 1 */
 
+/* AHB peripherals */
 #define EP93XX_DMA_BASE			EP93XX_AHB_IOMEM(0x00000000)
 
 #define EP93XX_ETHERNET_PHYS_BASE	EP93XX_AHB_PHYS(0x00010000)
@@ -55,6 +75,7 @@
 
 #define EP93XX_VIC2_BASE		EP93XX_AHB_IOMEM(0x000c0000)
 
+/* APB peripherals */
 #define EP93XX_TIMER_BASE		EP93XX_APB_IOMEM(0x00010000)
 
 #define EP93XX_I2S_PHYS_BASE		EP93XX_APB_PHYS(0x00020000)
@@ -85,6 +106,7 @@
 #define EP93XX_WATCHDOG_PHYS_BASE	EP93XX_APB_PHYS(0x00140000)
 #define EP93XX_WATCHDOG_BASE		EP93XX_APB_IOMEM(0x00140000)
 
+/* System controller */
 #define EP93XX_SYSCON_BASE		EP93XX_APB_IOMEM(0x00130000)
 #define EP93XX_SYSCON_REG(x)		(EP93XX_SYSCON_BASE + (x))
 #define EP93XX_SYSCON_POWER_STATE	EP93XX_SYSCON_REG(0x00)
@@ -174,6 +196,7 @@
 #define EP93XX_SYSCON_SYSCFG_LCSN1	(1<<0)
 #define EP93XX_SYSCON_SWLOCK		EP93XX_SYSCON_REG(0xc0)
 
+/* EP93xx System Controller software locked register write */
 void ep93xx_syscon_swlocked_write(unsigned int val, void __iomem *reg);
 void ep93xx_devcfg_set_clear(unsigned int set_bits, unsigned int clear_bits);
 
@@ -187,4 +210,4 @@ static inline void ep93xx_devcfg_clear_bits(unsigned int bits)
 	ep93xx_devcfg_set_clear(0x00, bits);
 }
 
-#endif 
+#endif /* _EP93XX_SOC_H */

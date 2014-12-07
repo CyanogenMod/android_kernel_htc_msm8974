@@ -13,6 +13,12 @@
  *
  */
 
+/*
+ *
+ *  The Driver with I/O communications via the I2C Interface for ST15 platform.
+ *  And it is only working on the nuvoTon WPCE775x Embedded Controller.
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/err.h>
@@ -26,11 +32,12 @@
 
 #include "qci_battery.h"
 
-#define QCIBAT_DEFAULT_CHARGE_FULL_CAPACITY 2200 
+#define QCIBAT_DEFAULT_CHARGE_FULL_CAPACITY 2200 /* 2200 mAh */
 #define QCIBAT_DEFAULT_CHARGE_FULL_DESIGN   2200
-#define QCIBAT_DEFAULT_VOLTAGE_DESIGN      10800 
+#define QCIBAT_DEFAULT_VOLTAGE_DESIGN      10800 /* 10.8 V */
 #define QCIBAT_STRING_SIZE 16
 
+/* General structure to hold the driver data */
 struct i2cbat_drv_data {
 	struct i2c_client *bi2c_client;
 	struct work_struct work;
@@ -49,6 +56,9 @@ struct i2cbat_drv_data {
 static struct i2cbat_drv_data context;
 static struct mutex qci_i2c_lock;
 static struct mutex qci_transaction_lock;
+/*********************************************************************
+ *		Power
+ *********************************************************************/
 
 static int get_bat_info(u8 ec_data)
 {
@@ -428,7 +438,7 @@ static void init_battery_stats(void)
 	context.battery_state = get_bat_info(ECRAM_BATTERY_STATUS);
 	if (!(context.battery_state & MAIN_BATTERY_STATUS_BAT_IN))
 		return;
-	
+	/* EC bug? needs some initial priming */
 	for (i = 0; i < 5; i++) {
 		read_data_from_battery(BATTERY_DESIGN_CAPACITY,
 				       SMBUS_READ_WORD_PRTCL);
@@ -445,6 +455,9 @@ static void init_battery_stats(void)
 	qbat_init_get_manufacturer_name();
 }
 
+/*********************************************************************
+ *		Battery properties
+ *********************************************************************/
 static int qbat_get_property(struct power_supply *psy,
 			     enum power_supply_property psp,
 			     union power_supply_propval *val)
@@ -517,6 +530,9 @@ static int qbat_get_property(struct power_supply *psy,
 	return ret;
 }
 
+/*********************************************************************
+ *		Initialisation
+ *********************************************************************/
 
 static struct power_supply qci_ac = {
 	.name = "ac",
@@ -576,7 +592,7 @@ static int __init qbat_init(void)
 	i2c_set_clientdata(context.bi2c_client, &context);
 	context.qcibat_gpio = context.bi2c_client->irq;
 
-	
+	/*battery device register*/
 	bat_pdev = platform_device_register_simple("battery", 0, NULL, 0);
 	if (IS_ERR(bat_pdev))
 		return PTR_ERR(bat_pdev);
@@ -590,7 +606,7 @@ static int __init qbat_init(void)
 	if (err)
 		goto battery_failed;
 
-	
+	/*battery irq configure*/
 	INIT_WORK(&context.work, qbat_work);
 	err = gpio_request(context.qcibat_gpio, "qci-bat");
 	if (err) {

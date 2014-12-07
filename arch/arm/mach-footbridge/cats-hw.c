@@ -27,14 +27,16 @@
 static int __init cats_hw_init(void)
 {
 	if (machine_is_cats()) {
-		
+		/* Set Aladdin to CONFIGURE mode */
 		outb(0x51, CFG_PORT);
 		outb(0x23, CFG_PORT);
 
-		
+		/* Select logical device 3 */
 		outb(0x07, INDEX_PORT);
 		outb(0x03, DATA_PORT);
 
+		/* Set parallel port to DMA channel 3, ECP+EPP1.9, 
+		   enable EPP timeout */
 		outb(0x74, INDEX_PORT);
 		outb(0x03, DATA_PORT);
 	
@@ -44,23 +46,23 @@ static int __init cats_hw_init(void)
 		outb(0xf1, INDEX_PORT);
 		outb(0x07, DATA_PORT);
 
-		
+		/* Select logical device 4 */
 		outb(0x07, INDEX_PORT);
 		outb(0x04, DATA_PORT);
 
-		
+		/* UART1 high speed mode */
 		outb(0xf0, INDEX_PORT);
 		outb(0x02, DATA_PORT);
 
-		
+		/* Select logical device 5 */
 		outb(0x07, INDEX_PORT);
 		outb(0x05, DATA_PORT);
 
-		
+		/* UART2 high speed mode */
 		outb(0xf0, INDEX_PORT);
 		outb(0x02, DATA_PORT);
 
-		
+		/* Set Aladdin to RUN mode */
 		outb(0xbb, CFG_PORT);
 	}
 
@@ -69,6 +71,10 @@ static int __init cats_hw_init(void)
 
 __initcall(cats_hw_init);
 
+/*
+ * CATS uses soft-reboot by default, since
+ * hard reboots fail on early boards.
+ */
 static void __init
 fixup_cats(struct tag *tags, char **cmdline, struct meminfo *mi)
 {
@@ -78,7 +84,7 @@ fixup_cats(struct tag *tags, char **cmdline, struct meminfo *mi)
 }
 
 MACHINE_START(CATS, "Chalice-CATS")
-	
+	/* Maintainer: Philip Blundell */
 	.atag_offset	= 0x100,
 	.restart_mode	= 's',
 	.fixup		= fixup_cats,

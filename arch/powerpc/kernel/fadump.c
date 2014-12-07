@@ -51,6 +51,7 @@ static DEFINE_MUTEX(fadump_mutex);
 struct fad_crash_memory_ranges crash_memory_ranges[INIT_CRASHMEM_RANGES];
 int crash_mem_ranges;
 
+/* Scan the Firmware Assisted dump configuration details. */
 int __init early_init_dt_scan_fw_dump(unsigned long node,
 			const char *uname, int depth, void *data)
 {
@@ -62,6 +63,10 @@ int __init early_init_dt_scan_fw_dump(unsigned long node,
 	if (depth != 1 || strcmp(uname, "rtas") != 0)
 		return 0;
 
+	/*
+	 * Check if Firmware Assisted dump is supported. if yes, check
+	 * if dump has been initiated on last reboot.
+	 */
 	token = of_get_flat_dt_prop(node, "ibm,configure-kernel-dump", NULL);
 	if (!token)
 		return 0;
@@ -69,10 +74,20 @@ int __init early_init_dt_scan_fw_dump(unsigned long node,
 	fw_dump.fadump_supported = 1;
 	fw_dump.ibm_configure_kernel_dump = *token;
 
+	/*
+	 * The 'ibm,kernel-dump' rtas node is present only if there is
+	 * dump data waiting for us.
+	 */
 	fdm_active = of_get_flat_dt_prop(node, "ibm,kernel-dump", NULL);
 	if (fdm_active)
 		fw_dump.dump_active = 1;
 
+	/* Get the sizes required to store dump data for the firmware provided
+	 * dump sections.
+	 * For each dump section type supported, a 32bit cell which defines
+	 * the ID of a supported section followed by two 32 bit cells which
+	 * gives teh size of the section in bytes.
+	 */
 	sections = of_get_flat_dt_prop(node, "ibm,configure-kernel-dump-sizes",
 					&size);
 
@@ -103,6 +118,7 @@ int is_fadump_active(void)
 	return fw_dump.dump_active;
 }
 
+/* Print firmware assisted dump configurations for debugging purpose. */
 static void fadump_show_config(void)
 {
 	pr_debug("Support for firmware-assisted dump (fadump): %s\n",
@@ -136,16 +152,20 @@ static unsigned long init_fadump_mem_struct(struct fadump_mem_struct *fdm,
 	fdm->header.offset_first_dump_section =
 		(u32)offsetof(struct fadump_mem_struct, cpu_state_data);
 
+	/*
+	 * Fields for disk dump option.
+	 * We are not using disk dump option, hence set these fields to 0.
+	 */
 	fdm->header.dd_block_size = 0;
 	fdm->header.dd_block_offset = 0;
 	fdm->header.dd_num_blocks = 0;
 	fdm->header.dd_offset_disk_path = 0;
 
-	
+	/* set 0 to disable an automatic dump-reboot. */
 	fdm->header.max_time_auto = 0;
 
-	
-	
+	/* Kernel dump sections */
+	/* cpu state data section. */
 	fdm->cpu_state_data.request_flag = FADUMP_REQUEST_FLAG;
 	fdm->cpu_state_data.source_data_type = FADUMP_CPU_STATE_DATA;
 	fdm->cpu_state_data.source_address = 0;
@@ -153,7 +173,7 @@ static unsigned long init_fadump_mem_struct(struct fadump_mem_struct *fdm,
 	fdm->cpu_state_data.destination_address = addr;
 	addr += fw_dump.cpu_state_data_size;
 
-	
+	/* hpte region section */
 	fdm->hpte_region.request_flag = FADUMP_REQUEST_FLAG;
 	fdm->hpte_region.source_data_type = FADUMP_HPTE_REGION;
 	fdm->hpte_region.source_address = 0;
@@ -161,7 +181,7 @@ static unsigned long init_fadump_mem_struct(struct fadump_mem_struct *fdm,
 	fdm->hpte_region.destination_address = addr;
 	addr += fw_dump.hpte_region_size;
 
-	
+	/* RMA region section */
 	fdm->rmr_region.request_flag = FADUMP_REQUEST_FLAG;
 	fdm->rmr_region.source_data_type = FADUMP_REAL_MODE_REGION;
 	fdm->rmr_region.source_address = RMA_START;
@@ -172,26 +192,49 @@ static unsigned long init_fadump_mem_struct(struct fadump_mem_struct *fdm,
 	return addr;
 }
 
+/**
+ * fadump_calculate_reserve_size(): reserve variable boot area 5% of System RAM
+ *
+ * Function to find the largest memory size we need to reserve during early
+ * boot process. This will be the size of the memory that is required for a
+ * kernel to boot successfully.
+ *
+ * This function has been taken from phyp-assisted dump feature implementation.
+ *
+ * returns larger of 256MB or 5% rounded down to multiples of 256MB.
+ *
+ * TODO: Come up with better approach to find out more accurate memory size
+ * that is required for a kernel to boot successfully.
+ *
+ */
 static inline unsigned long fadump_calculate_reserve_size(void)
 {
 	unsigned long size;
 
+	/*
+	 * Check if the size is specified through fadump_reserve_mem= cmdline
+	 * option. If yes, then use that.
+	 */
 	if (fw_dump.reserve_bootvar)
 		return fw_dump.reserve_bootvar;
 
-	
+	/* divide by 20 to get 5% of value */
 	size = memblock_end_of_DRAM() / 20;
 
-	
+	/* round it down in multiples of 256 */
 	size = size & ~0x0FFFFFFFUL;
 
-	
+	/* Truncate to memory_limit. We don't want to over reserve the memory.*/
 	if (memory_limit && size > memory_limit)
 		size = memory_limit;
 
 	return (size > MIN_BOOT_MEM ? size : MIN_BOOT_MEM);
 }
 
+/*
+ * Calculate the total memory size required to be reserved for
+ * firmware-assisted dump registration.
+ */
 static unsigned long get_fadump_area_size(void)
 {
 	unsigned long size = 0;
@@ -200,9 +243,9 @@ static unsigned long get_fadump_area_size(void)
 	size += fw_dump.hpte_region_size;
 	size += fw_dump.boot_memory_size;
 	size += sizeof(struct fadump_crash_info_header);
-	size += sizeof(struct elfhdr); 
-	size += sizeof(struct elf_phdr); 
-	
+	size += sizeof(struct elfhdr); /* ELF core header.*/
+	size += sizeof(struct elf_phdr); /* place holder for cpu notes */
+	/* Program headers for crash memory regions. */
 	size += sizeof(struct elf_phdr) * (memblock_num_regions(memory) + 2);
 
 	size = PAGE_ALIGN(size);
@@ -222,11 +265,23 @@ int __init fadump_reserve_mem(void)
 		fw_dump.fadump_enabled = 0;
 		return 0;
 	}
+	/*
+	 * Initialize boot memory size
+	 * If dump is active then we have already calculated the size during
+	 * first kernel.
+	 */
 	if (fdm_active)
 		fw_dump.boot_memory_size = fdm_active->rmr_region.source_len;
 	else
 		fw_dump.boot_memory_size = fadump_calculate_reserve_size();
 
+	/*
+	 * Calculate the memory boundary.
+	 * If memory_limit is less than actual memory boundary then reserve
+	 * the memory for fadump beyond the memory_limit and adjust the
+	 * memory_limit accordingly, so that the running kernel can run with
+	 * specified memory_limit.
+	 */
 	if (memory_limit && memory_limit < memblock_end_of_DRAM()) {
 		size = get_fadump_area_size();
 		if ((memory_limit + size) < memblock_end_of_DRAM())
@@ -264,7 +319,7 @@ int __init fadump_reserve_mem(void)
 		pr_debug("fadumphdr_addr = %p\n",
 				(void *) fw_dump.fadumphdr_addr);
 	} else {
-		
+		/* Reserve the memory at the top of memory. */
 		size = get_fadump_area_size();
 		base = memory_boundary - size;
 		memblock_reserve(base, size);
@@ -278,6 +333,7 @@ int __init fadump_reserve_mem(void)
 	return 1;
 }
 
+/* Look for fadump= cmdline option. */
 static int __init early_fadump_param(char *p)
 {
 	if (!p)
@@ -292,6 +348,7 @@ static int __init early_fadump_param(char *p)
 }
 early_param("fadump", early_fadump_param);
 
+/* Look for fadump_reserve_mem= cmdline option */
 static int __init early_fadump_reserve_mem(char *p)
 {
 	if (p)
@@ -307,7 +364,7 @@ static void register_fw_dump(struct fadump_mem_struct *fdm)
 
 	pr_debug("Registering for firmware-assisted kernel dump...\n");
 
-	
+	/* TODO: Add upper time limit for the delay */
 	do {
 		rc = rtas_call(fw_dump.ibm_configure_kernel_dump, 3, 1, NULL,
 			FADUMP_REGISTER, fdm,
@@ -360,7 +417,7 @@ void crash_fadump(struct pt_regs *regs, const char *str)
 
 	fdh->cpu_online_mask = *cpu_online_mask;
 
-	
+	/* Call ibm,os-term rtas call to trigger firmware assisted dump */
 	rtas_os_term((char *)str);
 }
 
@@ -371,7 +428,7 @@ static inline int fadump_gpr_index(u64 id)
 	char str[3];
 
 	if ((id & GPR_MASK) == REG_ID("GPR")) {
-		
+		/* get the digits at the end */
 		id &= ~GPR_MASK;
 		id >>= 24;
 		str[2] = '\0';
@@ -457,6 +514,10 @@ static u32 *fadump_regs_to_elf_notes(u32 *buf, struct pt_regs *regs)
 	struct elf_prstatus prstatus;
 
 	memset(&prstatus, 0, sizeof(prstatus));
+	/*
+	 * FIXME: How do i get PID? Do I really need it?
+	 * prstatus.pr_pid = ????
+	 */
 	elf_core_copy_kernel_regs(&prstatus.pr_reg, regs);
 	buf = fadump_append_elf_note(buf, KEXEC_CORE_NOTE_NAME, NT_PRSTATUS,
 				&prstatus, sizeof(prstatus));
@@ -471,7 +532,7 @@ static void fadump_update_elfcore_header(char *bufp)
 	elf = (struct elfhdr *)bufp;
 	bufp += sizeof(struct elfhdr);
 
-	
+	/* First note is a place holder for cpu notes info. */
 	phdr = (struct elf_phdr *)bufp;
 
 	if (phdr->p_type == PT_NOTE) {
@@ -514,6 +575,20 @@ static void fadump_cpu_notes_buf_free(unsigned long vaddr, unsigned long size)
 	__free_pages(page, order);
 }
 
+/*
+ * Read CPU state dump data and convert it into ELF notes.
+ * The CPU dump starts with magic number "REGSAVE". NumCpusOffset should be
+ * used to access the data to allow for additional fields to be added without
+ * affecting compatibility. Each list of registers for a CPU starts with
+ * "CPUSTRT" and ends with "CPUEND". Each register entry is of 16 bytes,
+ * 8 Byte ASCII identifier and 8 Byte register value. The register entry
+ * with identifier "CPUSTRT" and "CPUEND" contains 4 byte cpu id as part
+ * of register value. For more details refer to PAPR document.
+ *
+ * Only for the crashing cpu we ignore the CPU dump data and get exact
+ * state from fadump crash info structure populated by first kernel at the
+ * time of crash.
+ */
 static int __init fadump_build_cpu_notes(const struct fadump_mem_struct *fdm)
 {
 	struct fadump_reg_save_area_header *reg_header;
@@ -546,7 +621,7 @@ static int __init fadump_build_cpu_notes(const struct fadump_mem_struct *fdm)
 	vaddr += sizeof(u32);
 	reg_entry = (struct fadump_reg_entry *)vaddr;
 
-	
+	/* Allocate buffer to hold cpu crash notes. */
 	fw_dump.cpu_notes_buf_size = num_cpus * sizeof(note_buf_t);
 	fw_dump.cpu_notes_buf_size = PAGE_ALIGN(fw_dump.cpu_notes_buf_size);
 	note_buf = fadump_cpu_notes_buf_alloc(fw_dump.cpu_notes_buf_size);
@@ -569,7 +644,7 @@ static int __init fadump_build_cpu_notes(const struct fadump_mem_struct *fdm)
 			rc = -ENOENT;
 			goto error_out;
 		}
-		
+		/* Lower 4 bytes of reg_value contains logical cpu id */
 		cpu = reg_entry->reg_value & FADUMP_CPU_ID_MASK;
 		if (!cpumask_test_cpu(cpu, &fdh->cpu_online_mask)) {
 			SKIP_TO_NEXT_CPU(reg_entry);
@@ -602,6 +677,10 @@ error_out:
 
 }
 
+/*
+ * Validate and process the dump data stored by firmware before exporting
+ * it through '/proc/vmcore'.
+ */
 static int __init process_fadump(const struct fadump_mem_struct *fdm_active)
 {
 	struct fadump_crash_info_header *fdh;
@@ -610,7 +689,7 @@ static int __init process_fadump(const struct fadump_mem_struct *fdm_active)
 	if (!fdm_active || !fw_dump.fadumphdr_addr)
 		return -EINVAL;
 
-	
+	/* Check if the dump data is valid. */
 	if ((fdm_active->header.dump_status_flag == FADUMP_ERROR_FLAG) ||
 			(fdm_active->cpu_state_data.error_flags != 0) ||
 			(fdm_active->rmr_region.error_flags != 0)) {
@@ -624,7 +703,7 @@ static int __init process_fadump(const struct fadump_mem_struct *fdm_active)
 		return -EINVAL;
 	}
 
-	
+	/* Validate the fadump crash info header */
 	fdh = __va(fw_dump.fadumphdr_addr);
 	if (fdh->magic_number != FADUMP_CRASH_INFO_MAGIC) {
 		printk(KERN_ERR "Crash info header is not valid.\n");
@@ -635,6 +714,11 @@ static int __init process_fadump(const struct fadump_mem_struct *fdm_active)
 	if (rc)
 		return rc;
 
+	/*
+	 * We are done validating dump info and elfcore header is now ready
+	 * to be exported. set elfcorehdr_addr so that vmcore module will
+	 * export the elfcore header through '/proc/vmcore'.
+	 */
 	elfcorehdr_addr = fdh->elfcorehdr_addr;
 
 	return 0;
@@ -703,6 +787,10 @@ static int fadump_init_elfcore_header(char *bufp)
 	return 0;
 }
 
+/*
+ * Traverse through memblock structure and setup crash memory ranges. These
+ * ranges will be used create PT_LOAD program headers in elfcore header.
+ */
 static void fadump_setup_crash_memory_ranges(void)
 {
 	struct memblock_region *reg;
@@ -710,6 +798,13 @@ static void fadump_setup_crash_memory_ranges(void)
 
 	pr_debug("Setup crash memory ranges.\n");
 	crash_mem_ranges = 0;
+	/*
+	 * add the first memory chunk (RMA_START through boot_memory_size) as
+	 * a separate memory chunk. The reason is, at the time crash firmware
+	 * will move the content of this memory chunk to different location
+	 * specified during fadump registration. We need to create a separate
+	 * program header for this chunk with the correct offset.
+	 */
 	fadump_add_crash_memory(RMA_START, fw_dump.boot_memory_size);
 
 	for_each_memblock(memory, reg) {
@@ -718,11 +813,16 @@ static void fadump_setup_crash_memory_ranges(void)
 		if (start == RMA_START && end >= fw_dump.boot_memory_size)
 			start = fw_dump.boot_memory_size;
 
-		
+		/* add this range excluding the reserved dump area. */
 		fadump_exclude_reserved_area(start, end);
 	}
 }
 
+/*
+ * If the given physical address falls within the boot memory region then
+ * return the relocated address that points to the dump region reserved
+ * for saving initial boot memory contents.
+ */
 static inline unsigned long fadump_relocate(unsigned long paddr)
 {
 	if (paddr > RMA_START && paddr < fw_dump.boot_memory_size)
@@ -741,6 +841,13 @@ static int fadump_create_elfcore_headers(char *bufp)
 	elf = (struct elfhdr *)bufp;
 	bufp += sizeof(struct elfhdr);
 
+	/*
+	 * setup ELF PT_NOTE, place holder for cpu notes info. The notes info
+	 * will be populated during second kernel boot after crash. Hence
+	 * this PT_NOTE will always be the first elf note.
+	 *
+	 * NOTE: Any new ELF note addition should be placed after this note.
+	 */
 	phdr = (struct elf_phdr *)bufp;
 	bufp += sizeof(struct elf_phdr);
 	phdr->p_type = PT_NOTE;
@@ -755,7 +862,7 @@ static int fadump_create_elfcore_headers(char *bufp)
 
 	(elf->e_phnum)++;
 
-	
+	/* setup ELF PT_NOTE for vmcoreinfo */
 	phdr = (struct elf_phdr *)bufp;
 	bufp += sizeof(struct elf_phdr);
 	phdr->p_type	= PT_NOTE;
@@ -768,10 +875,10 @@ static int fadump_create_elfcore_headers(char *bufp)
 	phdr->p_memsz	= vmcoreinfo_max_size;
 	phdr->p_filesz	= vmcoreinfo_max_size;
 
-	
+	/* Increment number of program headers. */
 	(elf->e_phnum)++;
 
-	
+	/* setup PT_LOAD sections. */
 
 	for (i = 0; i < crash_mem_ranges; i++) {
 		unsigned long long mbase, msize;
@@ -788,6 +895,11 @@ static int fadump_create_elfcore_headers(char *bufp)
 		phdr->p_offset	= mbase;
 
 		if (mbase == RMA_START) {
+			/*
+			 * The entire RMA region will be moved by firmware
+			 * to the specified destination_address. Hence set
+			 * the correct offset.
+			 */
 			phdr->p_offset = fdm.rmr_region.destination_address;
 		}
 
@@ -797,7 +909,7 @@ static int fadump_create_elfcore_headers(char *bufp)
 		phdr->p_memsz = msize;
 		phdr->p_align = 0;
 
-		
+		/* Increment number of program headers. */
 		(elf->e_phnum)++;
 	}
 	return 0;
@@ -817,7 +929,7 @@ static unsigned long init_fadump_header(unsigned long addr)
 	memset(fdh, 0, sizeof(struct fadump_crash_info_header));
 	fdh->magic_number = FADUMP_CRASH_INFO_MAGIC;
 	fdh->elfcorehdr_addr = addr;
-	
+	/* We will set the crashing cpu id in crash_fadump() during crash. */
 	fdh->crashing_cpu = CPU_UNKNOWN;
 
 	return addr;
@@ -828,20 +940,24 @@ static void register_fadump(void)
 	unsigned long addr;
 	void *vaddr;
 
+	/*
+	 * If no memory is reserved then we can not register for firmware-
+	 * assisted dump.
+	 */
 	if (!fw_dump.reserve_dump_area_size)
 		return;
 
 	fadump_setup_crash_memory_ranges();
 
 	addr = fdm.rmr_region.destination_address + fdm.rmr_region.source_len;
-	
+	/* Initialize fadump crash info header. */
 	addr = init_fadump_header(addr);
 	vaddr = __va(addr);
 
 	pr_debug("Creating ELF core headers at %#016lx\n", addr);
 	fadump_create_elfcore_headers(vaddr);
 
-	
+	/* register the future kernel dump with firmware. */
 	register_fw_dump(&fdm);
 }
 
@@ -852,7 +968,7 @@ static int fadump_unregister_dump(struct fadump_mem_struct *fdm)
 
 	pr_debug("Un-register firmware-assisted dump\n");
 
-	
+	/* TODO: Add upper time limit for the delay */
 	do {
 		rc = rtas_call(fw_dump.ibm_configure_kernel_dump, 3, 1, NULL,
 			FADUMP_UNREGISTER, fdm,
@@ -879,7 +995,7 @@ static int fadump_invalidate_dump(struct fadump_mem_struct *fdm)
 
 	pr_debug("Invalidating firmware-assisted dump registration\n");
 
-	
+	/* TODO: Add upper time limit for the delay */
 	do {
 		rc = rtas_call(fw_dump.ibm_configure_kernel_dump, 3, 1, NULL,
 			FADUMP_INVALIDATE, fdm,
@@ -902,7 +1018,7 @@ static int fadump_invalidate_dump(struct fadump_mem_struct *fdm)
 
 void fadump_cleanup(void)
 {
-	
+	/* Invalidate the registration only if dump is active. */
 	if (fw_dump.dump_active) {
 		init_fadump_mem_struct(&fdm,
 			fdm_active->cpu_state_data.destination_address);
@@ -910,6 +1026,10 @@ void fadump_cleanup(void)
 	}
 }
 
+/*
+ * Release the memory that was reserved in early boot to preserve the memory
+ * contents. The released memory will be available for general use.
+ */
 static void fadump_release_memory(unsigned long begin, unsigned long end)
 {
 	unsigned long addr;
@@ -919,6 +1039,10 @@ static void fadump_release_memory(unsigned long begin, unsigned long end)
 	ra_end = ra_start + fw_dump.reserve_dump_area_size;
 
 	for (addr = begin; addr < end; addr += PAGE_SIZE) {
+		/*
+		 * exclude the dump reserve area. Will reuse it for next
+		 * fadump registration.
+		 */
 		if (addr <= ra_end && ((addr + PAGE_SIZE) > ra_start))
 			continue;
 
@@ -944,9 +1068,17 @@ static void fadump_invalidate_release_mem(void)
 	fadump_cleanup();
 	mutex_unlock(&fadump_mutex);
 
+	/*
+	 * Save the current reserved memory bounds we will require them
+	 * later for releasing the memory for general use.
+	 */
 	reserved_area_start = fw_dump.reserve_dump_area_start;
 	reserved_area_end = reserved_area_start +
 			fw_dump.reserve_dump_area_size;
+	/*
+	 * Setup reserve_dump_area_start and its size so that we can
+	 * reuse this reserved memory for Re-registration.
+	 */
 	fw_dump.reserve_dump_area_start = destination_address;
 	fw_dump.reserve_dump_area_size = get_fadump_area_size();
 
@@ -958,7 +1090,7 @@ static void fadump_invalidate_release_mem(void)
 		fw_dump.cpu_notes_buf = 0;
 		fw_dump.cpu_notes_buf_size = 0;
 	}
-	
+	/* Initialize the kernel dump memory structure for FAD registration. */
 	init_fadump_mem_struct(&fdm, fw_dump.reserve_dump_area_start);
 }
 
@@ -970,6 +1102,10 @@ static ssize_t fadump_release_memory_store(struct kobject *kobj,
 		return -EPERM;
 
 	if (buf[0] == '1') {
+		/*
+		 * Take away the '/proc/vmcore'. We are releasing the dump
+		 * memory, hence it will not be valid anymore.
+		 */
 		vmcore_cleanup();
 		fadump_invalidate_release_mem();
 
@@ -1009,7 +1145,7 @@ static ssize_t fadump_register_store(struct kobject *kobj,
 			ret = -EINVAL;
 			goto unlock_out;
 		}
-		
+		/* Un-register Firmware-assisted dump */
 		fadump_unregister_dump(&fdm);
 		break;
 	case '1':
@@ -1017,7 +1153,7 @@ static ssize_t fadump_register_store(struct kobject *kobj,
 			ret = -EINVAL;
 			goto unlock_out;
 		}
-		
+		/* Register Firmware-assisted dump */
 		register_fadump();
 		break;
 	default:
@@ -1075,7 +1211,7 @@ static int fadump_region_show(struct seq_file *m, void *private)
 		fdm_ptr->cpu_state_data.destination_address))
 		goto out;
 
-	
+	/* Dump is active. Show reserved memory region. */
 	seq_printf(m,
 			"    : [%#016llx-%#016llx] %#llx bytes, "
 			"Dumped: %#llx\n",
@@ -1144,6 +1280,9 @@ static void fadump_init_files(void)
 	return;
 }
 
+/*
+ * Prepare for firmware-assisted dump.
+ */
 int __init setup_fadump(void)
 {
 	if (!fw_dump.fadump_enabled)
@@ -1156,11 +1295,19 @@ int __init setup_fadump(void)
 	}
 
 	fadump_show_config();
+	/*
+	 * If dump data is available then see if it is valid and prepare for
+	 * saving it to the disk.
+	 */
 	if (fw_dump.dump_active) {
+		/*
+		 * if dump process fails then invalidate the registration
+		 * and release memory before proceeding for re-registration.
+		 */
 		if (process_fadump(fdm_active) < 0)
 			fadump_invalidate_release_mem();
 	}
-	
+	/* Initialize the kernel dump memory structure for FAD registration. */
 	else if (fw_dump.reserve_dump_area_size)
 		init_fadump_mem_struct(&fdm, fw_dump.reserve_dump_area_start);
 	fadump_init_files();

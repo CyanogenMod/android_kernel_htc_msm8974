@@ -39,10 +39,11 @@
 })
 #define iommu_write(__reg, __val) \
 	__asm__ __volatile__("stxa %0, [%1] %2" \
-			     :  \
+			     : /* no outputs */ \
 			     : "r" (__val), "r" (__reg), \
 			       "i" (ASI_PHYS_BYPASS_EC_E))
 
+/* Must be invoked under the IOMMU lock. */
 static void iommu_flushall(struct iommu *iommu)
 {
 	if (iommu->iommu_flushinv) {
@@ -57,7 +58,7 @@ static void iommu_flushall(struct iommu *iommu)
 			tag += 8;
 		}
 
-		
+		/* Ensure completion of previous PIO writes. */
 		(void) iommu_read(iommu->write_complete_reg);
 	}
 }
@@ -69,6 +70,9 @@ static void iommu_flushall(struct iommu *iommu)
 #define IOPTE_STREAMING(CTX) \
 	(IOPTE_CONSISTENT(CTX) | IOPTE_STBUF)
 
+/* Existing mappings are never marked invalid, instead they
+ * are pointed to a dummy page.
+ */
 #define IOPTE_IS_DUMMY(iommu, iopte)	\
 	((iopte_val(*iopte) & IOPTE_PAGE) == (iommu)->dummy_page_pa)
 
@@ -82,6 +86,13 @@ static inline void iopte_make_dummy(struct iommu *iommu, iopte_t *iopte)
 	iopte_val(*iopte) = val;
 }
 
+/* Based almost entirely upon the ppc64 iommu allocator.  If you use the 'handle'
+ * facility it must all be done in one pass while under the iommu lock.
+ *
+ * On sun4u platforms, we only flush the IOMMU once every time we've passed
+ * over the entire page table doing allocations.  Therefore we only ever advance
+ * the hint and cannot backtrack it.
+ */
 unsigned long iommu_range_alloc(struct device *dev,
 				struct iommu *iommu,
 				unsigned long npages,
@@ -91,9 +102,9 @@ unsigned long iommu_range_alloc(struct device *dev,
 	struct iommu_arena *arena = &iommu->arena;
 	int pass = 0;
 
-	
+	/* This allocator was derived from x86_64's bit string search */
 
-	
+	/* Sanity check */
 	if (unlikely(npages == 0)) {
 		if (printk_ratelimit())
 			WARN_ON(1);
@@ -107,6 +118,10 @@ unsigned long iommu_range_alloc(struct device *dev,
 
 	limit = arena->limit;
 
+	/* The case below can happen if we have a small segment appended
+	 * to a large, or when the previous alloc was at the very end of
+	 * the available space. If so, go back to the beginning and flush.
+	 */
 	if (start >= limit) {
 		start = 0;
 		if (iommu->flush_all)
@@ -126,14 +141,14 @@ unsigned long iommu_range_alloc(struct device *dev,
 			     boundary_size >> IO_PAGE_SHIFT, 0);
 	if (n == -1) {
 		if (likely(pass < 1)) {
-			
+			/* First failure, rescan from the beginning.  */
 			start = 0;
 			if (iommu->flush_all)
 				iommu->flush_all(iommu);
 			pass++;
 			goto again;
 		} else {
-			
+			/* Second failure, give up */
 			return DMA_ERROR_CODE;
 		}
 	}
@@ -142,7 +157,7 @@ unsigned long iommu_range_alloc(struct device *dev,
 
 	arena->hint = end;
 
-	
+	/* Update handle for SG allocations */
 	if (handle)
 		*handle = end;
 
@@ -168,13 +183,13 @@ int iommu_table_init(struct iommu *iommu, int tsbsize,
 
 	num_tsb_entries = tsbsize / sizeof(iopte_t);
 
-	
+	/* Setup initial software IOMMU state. */
 	spin_lock_init(&iommu->lock);
 	iommu->ctx_lowest_free = 1;
 	iommu->page_table_map_base = dma_offset;
 	iommu->dma_addr_mask = dma_addr_mask;
 
-	
+	/* Allocate and initialize the free area map.  */
 	sz = num_tsb_entries / 8;
 	sz = (sz + 7UL) & ~7UL;
 	iommu->arena.map = kmalloc_node(sz, GFP_KERNEL, numa_node);
@@ -188,6 +203,9 @@ int iommu_table_init(struct iommu *iommu, int tsbsize,
 	if (tlb_type != hypervisor)
 		iommu->flush_all = iommu_flushall;
 
+	/* Allocate and initialize the dummy page which we
+	 * set inactive IO PTEs to point to.
+	 */
 	page = alloc_pages_node(numa_node, GFP_KERNEL, 0);
 	if (!page) {
 		printk(KERN_ERR "IOMMU: Error, gfp(dummy_page) failed.\n");
@@ -197,7 +215,7 @@ int iommu_table_init(struct iommu *iommu, int tsbsize,
 	memset((void *)iommu->dummy_page, 0, PAGE_SIZE);
 	iommu->dummy_page_pa = (unsigned long) __pa(iommu->dummy_page);
 
-	
+	/* Now allocate and setup the IOMMU page table itself.  */
 	order = get_order(tsbsize);
 	page = alloc_pages_node(numa_node, GFP_KERNEL, order);
 	if (!page) {
@@ -431,6 +449,10 @@ static void strbuf_flush(struct strbuf *strbuf, struct iommu *iommu,
 	}
 
 do_flush_sync:
+	/* If the device could not have possibly put dirty data into
+	 * the streaming cache, no flush-flag synchronization needs
+	 * to be performed.
+	 */
 	if (direction == DMA_TO_DEVICE)
 		return;
 
@@ -478,17 +500,17 @@ static void dma_4u_unmap_page(struct device *dev, dma_addr_t bus_addr,
 
 	spin_lock_irqsave(&iommu->lock, flags);
 
-	
+	/* Record the context, if any. */
 	ctx = 0;
 	if (iommu->iommu_ctxflush)
 		ctx = (iopte_val(*base) & IOPTE_CONTEXT) >> 47UL;
 
-	
+	/* Step 1: Kick data out of streaming buffers if necessary. */
 	if (strbuf->strbuf_enabled)
 		strbuf_flush(strbuf, iommu, bus_addr, ctx,
 			     npages, direction);
 
-	
+	/* Step 2: Clear out TSB entries. */
 	for (i = 0; i < npages; i++)
 		iopte_make_dummy(iommu, base + i);
 
@@ -538,7 +560,7 @@ static int dma_4u_map_sg(struct device *dev, struct scatterlist *sglist,
 	incount = nelems;
 	handle = 0;
 
-	
+	/* Init first segment length for backout at failure */
 	outs->dma_length = 0;
 
 	max_seg_size = dma_get_max_seg_size(dev);
@@ -550,17 +572,17 @@ static int dma_4u_map_sg(struct device *dev, struct scatterlist *sglist,
 		iopte_t *base;
 
 		slen = s->length;
-		
+		/* Sanity check */
 		if (slen == 0) {
 			dma_next = 0;
 			continue;
 		}
-		
+		/* Allocate iommu entries for that segment */
 		paddr = (unsigned long) SG_ENT_PHYS_ADDRESS(s);
 		npages = iommu_num_pages(paddr, slen, IO_PAGE_SIZE);
 		entry = iommu_range_alloc(dev, iommu, npages, &handle);
 
-		
+		/* Handle failure */
 		if (unlikely(entry == DMA_ERROR_CODE)) {
 			if (printk_ratelimit())
 				printk(KERN_INFO "iommu_alloc failed, iommu %p paddr %lx"
@@ -570,12 +592,12 @@ static int dma_4u_map_sg(struct device *dev, struct scatterlist *sglist,
 
 		base = iommu->page_table + entry;
 
-		
+		/* Convert entry to a dma_addr_t */
 		dma_addr = iommu->page_table_map_base +
 			(entry << IO_PAGE_SHIFT);
 		dma_addr |= (s->offset & ~IO_PAGE_MASK);
 
-		
+		/* Insert into HW table */
 		paddr &= IO_PAGE_MASK;
 		while (npages--) {
 			iopte_val(*base) = prot | paddr;
@@ -583,13 +605,16 @@ static int dma_4u_map_sg(struct device *dev, struct scatterlist *sglist,
 			paddr += IO_PAGE_SIZE;
 		}
 
-		
+		/* If we are in an open segment, try merging */
 		if (segstart != s) {
+			/* We cannot merge if:
+			 * - allocated dma_addr isn't contiguous to previous allocation
+			 */
 			if ((dma_addr != dma_next) ||
 			    (outs->dma_length + s->length > max_seg_size) ||
 			    (is_span_boundary(out_entry, base_shift,
 					      seg_boundary_size, outs, s))) {
-				
+				/* Can't merge: create a new segment */
 				segstart = s;
 				outcount++;
 				outs = sg_next(outs);
@@ -599,13 +624,13 @@ static int dma_4u_map_sg(struct device *dev, struct scatterlist *sglist,
 		}
 
 		if (segstart == s) {
-			
+			/* This is a new segment, fill entries */
 			outs->dma_address = dma_addr;
 			outs->dma_length = slen;
 			out_entry = entry;
 		}
 
-		
+		/* Calculate next page pointer for contiguous check */
 		dma_next = dma_addr + slen;
 	}
 
@@ -648,6 +673,9 @@ iommu_map_failed:
 	return 0;
 }
 
+/* If contexts are being used, they are the same in all of the mappings
+ * we make for a particular SG.
+ */
 static unsigned long fetch_sg_ctx(struct iommu *iommu, struct scatterlist *sg)
 {
 	unsigned long ctx = 0;
@@ -736,7 +764,7 @@ static void dma_4u_sync_single_for_cpu(struct device *dev,
 	npages >>= IO_PAGE_SHIFT;
 	bus_addr &= IO_PAGE_MASK;
 
-	
+	/* Step 1: Record the context, if any. */
 	ctx = 0;
 	if (iommu->iommu_ctxflush &&
 	    strbuf->strbuf_ctxflush) {
@@ -747,7 +775,7 @@ static void dma_4u_sync_single_for_cpu(struct device *dev,
 		ctx = (iopte_val(*iopte) & IOPTE_CONTEXT) >> 47UL;
 	}
 
-	
+	/* Step 2: Kick data out of streaming buffers. */
 	strbuf_flush(strbuf, iommu, bus_addr, ctx, npages, direction);
 
 	spin_unlock_irqrestore(&iommu->lock, flags);
@@ -771,7 +799,7 @@ static void dma_4u_sync_sg_for_cpu(struct device *dev,
 
 	spin_lock_irqsave(&iommu->lock, flags);
 
-	
+	/* Step 1: Record the context, if any. */
 	ctx = 0;
 	if (iommu->iommu_ctxflush &&
 	    strbuf->strbuf_ctxflush) {
@@ -782,7 +810,7 @@ static void dma_4u_sync_sg_for_cpu(struct device *dev,
 		ctx = (iopte_val(*iopte) & IOPTE_CONTEXT) >> 47UL;
 	}
 
-	
+	/* Step 2: Kick data out of streaming buffers. */
 	bus_addr = sglist[0].dma_address & IO_PAGE_MASK;
 	sgprv = NULL;
 	for_each_sg(sglist, sg, nelems, i) {

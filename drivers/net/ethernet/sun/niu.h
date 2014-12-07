@@ -126,6 +126,7 @@
 #define BMAC_PORT2_OFF			(FZC_MAC + 0x00c000)
 #define BMAC_PORT3_OFF			(FZC_MAC + 0x010000)
 
+/* XMAC registers, offset from np->mac_regs  */
 
 #define XTXMAC_SW_RST			0x00000UL
 #define  XTXMAC_SW_RST_REG_RS		0x0000000000000002ULL
@@ -410,6 +411,7 @@
 #define XMAC_INTER2			0x001b8UL
 #define  XMAC_INTERN2_SIGNALS2		0x00000000ffffffffULL
 
+/* BMAC registers, offset from np->mac_regs  */
 
 #define BTXMAC_SW_RST			0x00000UL
 #define  BTXMAC_SW_RST_RESET		0x0000000000000001ULL
@@ -585,6 +587,7 @@
 #define HOST_INFO_MPR			0x0000000000000100ULL
 #define HOST_INFO_MACRDCTBLN		0x0000000000000007ULL
 
+/* XPCS registers, offset from np->regs + np->xpcs_off  */
 
 #define XPCS_CONTROL1			(FZC_MAC + 0x00000UL)
 #define  XPCS_CONTROL1_RESET		0x0000000000008000ULL
@@ -681,6 +684,7 @@
 #define XPCS_TRAINING_VECTOR		(FZC_MAC + 0x00090UL)
 #define  XPCS_TRAINING_VECTOR_VAL	0x00000000ffffffffULL
 
+/* PCS registers, offset from np->regs + np->pcs_off  */
 
 #define PCS_MII_CTL			(FZC_MAC + 0x00000UL)
 #define  PCS_MII_CTL_RST		0x0000000000008000ULL
@@ -952,6 +956,7 @@
 #define ESR_DEBUG_SEL			(FZC_MAC + 0x14808UL)
 #define  ESR_DEBUG_SEL_VAL		0x000000000000003fULL
 
+/* SerDes registers behind MIF */
 #define NIU_ESR_DEV_ADDR		0x1e
 #define ESR_BASE			0x0000
 
@@ -1192,28 +1197,28 @@
 #define  TCAM_KEY_IPADDR		0x0000000000000001ULL
 
 #define TCAM_KEY_0			(FZC_FFLP + 0x20090UL)
-#define  TCAM_KEY_0_KEY			0x00000000000000ffULL 
+#define  TCAM_KEY_0_KEY			0x00000000000000ffULL /* bits 192-199 */
 
 #define TCAM_KEY_1			(FZC_FFLP + 0x20098UL)
-#define  TCAM_KEY_1_KEY			0xffffffffffffffffULL 
+#define  TCAM_KEY_1_KEY			0xffffffffffffffffULL /* bits 128-191 */
 
 #define TCAM_KEY_2			(FZC_FFLP + 0x200a0UL)
-#define  TCAM_KEY_2_KEY			0xffffffffffffffffULL 
+#define  TCAM_KEY_2_KEY			0xffffffffffffffffULL /* bits 64-127 */
 
 #define TCAM_KEY_3			(FZC_FFLP + 0x200a8UL)
-#define  TCAM_KEY_3_KEY			0xffffffffffffffffULL 
+#define  TCAM_KEY_3_KEY			0xffffffffffffffffULL /* bits 0-63 */
 
 #define TCAM_KEY_MASK_0			(FZC_FFLP + 0x200b0UL)
-#define  TCAM_KEY_MASK_0_KEY_SEL	0x00000000000000ffULL 
+#define  TCAM_KEY_MASK_0_KEY_SEL	0x00000000000000ffULL /* bits 192-199 */
 
 #define TCAM_KEY_MASK_1			(FZC_FFLP + 0x200b8UL)
-#define  TCAM_KEY_MASK_1_KEY_SEL	0xffffffffffffffffULL 
+#define  TCAM_KEY_MASK_1_KEY_SEL	0xffffffffffffffffULL /* bits 128-191 */
 
 #define TCAM_KEY_MASK_2			(FZC_FFLP + 0x200c0UL)
-#define  TCAM_KEY_MASK_2_KEY_SEL	0xffffffffffffffffULL 
+#define  TCAM_KEY_MASK_2_KEY_SEL	0xffffffffffffffffULL /* bits 64-127 */
 
 #define TCAM_KEY_MASK_3			(FZC_FFLP + 0x200c8UL)
-#define  TCAM_KEY_MASK_3_KEY_SEL	0xffffffffffffffffULL 
+#define  TCAM_KEY_MASK_3_KEY_SEL	0xffffffffffffffffULL /* bits 0-63 */
 
 #define TCAM_CTL			(FZC_FFLP + 0x200d0UL)
 #define  TCAM_CTL_RWC			0x00000000001c0000ULL
@@ -1308,6 +1313,7 @@
 #define FCRAM_PHY_RD_LAT		(FZC_FFLP + 0x20150UL)
 #define  FCRAM_PHY_RD_LAT_LAT		0x00000000000000ffULL
 
+/* Ethernet TCAM format */
 #define TCAM_ETHKEY0_RESV1		0xffffffffffffff00ULL
 #define TCAM_ETHKEY0_CLASS_CODE		0x00000000000000f8ULL
 #define TCAM_ETHKEY0_CLASS_CODE_SHIFT	3
@@ -1322,6 +1328,7 @@
 #define TCAM_ETHKEY2_FRAME_RESV		0x000000ffffffffffULL
 #define TCAM_ETHKEY3_FRAME_RESV		0xffffffffffffffffULL
 
+/* IPV4 TCAM format */
 #define TCAM_V4KEY0_RESV1		0xffffffffffffff00ULL
 #define TCAM_V4KEY0_CLASS_CODE		0x00000000000000f8ULL
 #define TCAM_V4KEY0_CLASS_CODE_SHIFT	3
@@ -1342,6 +1349,7 @@
 #define TCAM_V4KEY3_DADDR		0x00000000ffffffffULL
 #define TCAM_V4KEY3_DADDR_SHIFT		0
 
+/* IPV6 TCAM format */
 #define TCAM_V6KEY0_RESV1		0xffffffffffffff00ULL
 #define TCAM_V6KEY0_CLASS_CODE		0x00000000000000f8ULL
 #define TCAM_V6KEY0_CLASS_CODE_SHIFT	3
@@ -1414,9 +1422,18 @@
 #define HASH_TBL_DATA(IDX)		(FFLP + 0x00008UL + (IDX) * 8192UL)
 #define  HASH_TBL_DATA_DATA		0xffffffffffffffffULL
 
+/* FCRAM hash table entries are up to 8 64-bit words in size.
+ * The layout of each entry is determined by the settings in the
+ * first word, which is the header.
+ *
+ * The indexing is controllable per partition (there is one partition
+ * per RDC group, thus a total of eight) using the BASE and MASK fields
+ * of FLW_PRT_SEL above.
+ */
 #define FCRAM_SIZE			0x800000
 #define FCRAM_NUM_PARTITIONS		8
 
+/* Generic HASH entry header, used for all non-optimized formats.  */
 #define HASH_HEADER_FMT			0x8000000000000000ULL
 #define HASH_HEADER_EXT			0x4000000000000000ULL
 #define HASH_HEADER_VALID		0x2000000000000000ULL
@@ -1426,6 +1443,9 @@
 #define HASH_HEADER_VLAN		0x0000000000000fffULL
 #define HASH_HEADER_VLAN_SHIFT		0
 
+/* Optimized format, just a header with a special layout defined below.
+ * Set FMT and EXT both to zero to indicate this layout is being used.
+ */
 #define HASH_OPT_HEADER_FMT		0x8000000000000000ULL
 #define HASH_OPT_HEADER_EXT		0x4000000000000000ULL
 #define HASH_OPT_HEADER_VALID		0x2000000000000000ULL
@@ -1437,6 +1457,7 @@
 #define HASH_OPT_HEADER_USERINFO	0x00000000ffffffffULL
 #define HASH_OPT_HEADER_USERINFO_SHIFT	0
 
+/* Port and protocol word used for ipv4 and ipv6 layouts.  */
 #define HASH_PORT_DPORT			0xffff000000000000ULL
 #define HASH_PORT_DPORT_SHIFT		48
 #define HASH_PORT_SPORT			0x0000ffff00000000ULL
@@ -1447,6 +1468,7 @@
 #define HASH_PORT_PORT_OFF_SHIFT	22
 #define HASH_PORT_PORT_RESV		0x00000000003fffffULL
 
+/* Action word used for ipv4 and ipv6 layouts.  */
 #define HASH_ACTION_RESV1		0xe000000000000000ULL
 #define HASH_ACTION_RDCOFF		0x1f00000000000000ULL
 #define HASH_ACTION_RDCOFF_SHIFT	56
@@ -1458,16 +1480,21 @@
 #define HASH_ACTION_USERINFO		0x00000000ffffffffULL
 #define HASH_ACTION_USERINFO_SHIFT	0
 
+/* IPV4 address word.  Addresses are in network endian. */
 #define HASH_IP4ADDR_SADDR		0xffffffff00000000ULL
 #define HASH_IP4ADDR_SADDR_SHIFT	32
 #define HASH_IP4ADDR_DADDR		0x00000000ffffffffULL
 #define HASH_IP4ADDR_DADDR_SHIFT	0
 
+/* IPV6 address layout is 4 words, first two are saddr, next two
+ * are daddr.  Addresses are in network endian.
+ */
 
 struct fcram_hash_opt {
 	u64	header;
 };
 
+/* EXT=1, FMT=0 */
 struct fcram_hash_ipv4 {
 	u64	header;
 	u64	addrs;
@@ -1475,6 +1502,7 @@ struct fcram_hash_ipv4 {
 	u64	action;
 };
 
+/* EXT=1, FMT=1 */
 struct fcram_hash_ipv6 {
 	u64	header;
 	u64	addrs[4];
@@ -1526,19 +1554,19 @@ struct fcram_hash_ipv6 {
 #define  RDMC_MEM_ADDR_ADDR		0x00000000000000ffULL
 
 #define RDMC_MEM_DAT0			(FZC_DMC + 0x00090UL)
-#define  RDMC_MEM_DAT0_DATA		0x00000000ffffffffULL 
+#define  RDMC_MEM_DAT0_DATA		0x00000000ffffffffULL /* bits 31:0 */
 
 #define RDMC_MEM_DAT1			(FZC_DMC + 0x00098UL)
-#define  RDMC_MEM_DAT1_DATA		0x00000000ffffffffULL 
+#define  RDMC_MEM_DAT1_DATA		0x00000000ffffffffULL /* bits 63:32 */
 
 #define RDMC_MEM_DAT2			(FZC_DMC + 0x000a0UL)
-#define  RDMC_MEM_DAT2_DATA		0x00000000ffffffffULL 
+#define  RDMC_MEM_DAT2_DATA		0x00000000ffffffffULL /* bits 95:64 */
 
 #define RDMC_MEM_DAT3			(FZC_DMC + 0x000a8UL)
-#define  RDMC_MEM_DAT3_DATA		0x00000000ffffffffULL 
+#define  RDMC_MEM_DAT3_DATA		0x00000000ffffffffULL /* bits 127:96 */
 
 #define RDMC_MEM_DAT4			(FZC_DMC + 0x000b0UL)
-#define  RDMC_MEM_DAT4_DATA		0x00000000000fffffULL 
+#define  RDMC_MEM_DAT4_DATA		0x00000000000fffffULL /* bits 147:128 */
 
 #define RX_CTL_DAT_FIFO_STAT			(FZC_DMC + 0x000b8UL)
 #define  RX_CTL_DAT_FIFO_STAT_ID_MISMATCH	0x0000000000000100ULL
@@ -1684,34 +1712,34 @@ struct fcram_hash_ipv6 {
 #define  IPP_MSK_ALL			0x00000000000000ffULL
 
 #define IPP_PFIFO_RD0			(FZC_IPP + 0x00060UL)
-#define  IPP_PFIFO_RD0_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_RD0_DATA		0x00000000ffffffffULL /* bits 31:0 */
 
 #define IPP_PFIFO_RD1			(FZC_IPP + 0x00068UL)
-#define  IPP_PFIFO_RD1_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_RD1_DATA		0x00000000ffffffffULL /* bits 63:32 */
 
 #define IPP_PFIFO_RD2			(FZC_IPP + 0x00070UL)
-#define  IPP_PFIFO_RD2_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_RD2_DATA		0x00000000ffffffffULL /* bits 95:64 */
 
 #define IPP_PFIFO_RD3			(FZC_IPP + 0x00078UL)
-#define  IPP_PFIFO_RD3_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_RD3_DATA		0x00000000ffffffffULL /* bits 127:96 */
 
 #define IPP_PFIFO_RD4			(FZC_IPP + 0x00080UL)
-#define  IPP_PFIFO_RD4_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_RD4_DATA		0x00000000ffffffffULL /* bits 145:128 */
 
 #define IPP_PFIFO_WR0			(FZC_IPP + 0x00088UL)
-#define  IPP_PFIFO_WR0_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_WR0_DATA		0x00000000ffffffffULL /* bits 31:0 */
 
 #define IPP_PFIFO_WR1			(FZC_IPP + 0x00090UL)
-#define  IPP_PFIFO_WR1_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_WR1_DATA		0x00000000ffffffffULL /* bits 63:32 */
 
 #define IPP_PFIFO_WR2			(FZC_IPP + 0x00098UL)
-#define  IPP_PFIFO_WR2_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_WR2_DATA		0x00000000ffffffffULL /* bits 95:64 */
 
 #define IPP_PFIFO_WR3			(FZC_IPP + 0x000a0UL)
-#define  IPP_PFIFO_WR3_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_WR3_DATA		0x00000000ffffffffULL /* bits 127:96 */
 
 #define IPP_PFIFO_WR4			(FZC_IPP + 0x000a8UL)
-#define  IPP_PFIFO_WR4_DATA		0x00000000ffffffffULL 
+#define  IPP_PFIFO_WR4_DATA		0x00000000ffffffffULL /* bits 145:128 */
 
 #define IPP_PFIFO_RD_PTR		(FZC_IPP + 0x000b0UL)
 #define  IPP_PFIFO_RD_PTR_PTR		0x000000000000003fULL
@@ -1720,34 +1748,34 @@ struct fcram_hash_ipv6 {
 #define  IPP_PFIFO_WR_PTR_PTR		0x000000000000007fULL
 
 #define IPP_DFIFO_RD0			(FZC_IPP + 0x000c0UL)
-#define  IPP_DFIFO_RD0_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_RD0_DATA		0x00000000ffffffffULL /* bits 31:0 */
 
 #define IPP_DFIFO_RD1			(FZC_IPP + 0x000c8UL)
-#define  IPP_DFIFO_RD1_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_RD1_DATA		0x00000000ffffffffULL /* bits 63:32 */
 
 #define IPP_DFIFO_RD2			(FZC_IPP + 0x000d0UL)
-#define  IPP_DFIFO_RD2_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_RD2_DATA		0x00000000ffffffffULL /* bits 95:64 */
 
 #define IPP_DFIFO_RD3			(FZC_IPP + 0x000d8UL)
-#define  IPP_DFIFO_RD3_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_RD3_DATA		0x00000000ffffffffULL /* bits 127:96 */
 
 #define IPP_DFIFO_RD4			(FZC_IPP + 0x000e0UL)
-#define  IPP_DFIFO_RD4_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_RD4_DATA		0x00000000ffffffffULL /* bits 145:128 */
 
 #define IPP_DFIFO_WR0			(FZC_IPP + 0x000e8UL)
-#define  IPP_DFIFO_WR0_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_WR0_DATA		0x00000000ffffffffULL /* bits 31:0 */
 
 #define IPP_DFIFO_WR1			(FZC_IPP + 0x000f0UL)
-#define  IPP_DFIFO_WR1_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_WR1_DATA		0x00000000ffffffffULL /* bits 63:32 */
 
 #define IPP_DFIFO_WR2			(FZC_IPP + 0x000f8UL)
-#define  IPP_DFIFO_WR2_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_WR2_DATA		0x00000000ffffffffULL /* bits 95:64 */
 
 #define IPP_DFIFO_WR3			(FZC_IPP + 0x00100UL)
-#define  IPP_DFIFO_WR3_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_WR3_DATA		0x00000000ffffffffULL /* bits 127:96 */
 
 #define IPP_DFIFO_WR4			(FZC_IPP + 0x00108UL)
-#define  IPP_DFIFO_WR4_DATA		0x00000000ffffffffULL 
+#define  IPP_DFIFO_WR4_DATA		0x00000000ffffffffULL /* bits 145:128 */
 
 #define IPP_DFIFO_RD_PTR		(FZC_IPP + 0x00110UL)
 #define  IPP_DFIFO_RD_PTR_PTR		0x0000000000000fffULL
@@ -1943,16 +1971,17 @@ struct fcram_hash_ipv6 {
 #define ZCP_STATE_MACHINE		(FZC_ZCP + 0x000c8UL)
 #define  ZCP_STATE_MACHINE_SM		0x00000000ffffffffULL
 
+/* Same bits as ZCP_INT_STAT */
 #define ZCP_INT_STAT_TEST		(FZC_ZCP + 0x00108UL)
 
 #define RXDMA_CFIG1(IDX)		(DMC + 0x00000UL + (IDX) * 0x200UL)
 #define  RXDMA_CFIG1_EN			0x0000000080000000ULL
 #define  RXDMA_CFIG1_RST		0x0000000040000000ULL
 #define  RXDMA_CFIG1_QST		0x0000000020000000ULL
-#define  RXDMA_CFIG1_MBADDR_H		0x0000000000000fffULL 
+#define  RXDMA_CFIG1_MBADDR_H		0x0000000000000fffULL /* mboxaddr 43:32 */
 
 #define RXDMA_CFIG2(IDX)		(DMC + 0x00008UL + (IDX) * 0x200UL)
-#define  RXDMA_CFIG2_MBADDR_L		0x00000000ffffffc0ULL 
+#define  RXDMA_CFIG2_MBADDR_L		0x00000000ffffffc0ULL /* mboxaddr 31:6 */
 #define  RXDMA_CFIG2_OFFSET		0x0000000000000006ULL
 #define  RXDMA_CFIG2_OFFSET_SHIFT	1
 #define  RXDMA_CFIG2_FULL_HDR		0x0000000000000001ULL
@@ -2273,19 +2302,19 @@ struct fcram_hash_ipv6 {
 #define  TXC_ROECC_ST_ECC_ADDR		0x00000000000003ffULL
 
 #define TXC_RO_DATA0(PORT)		(FZC_TXC + 0x20050UL + (PORT)*0x100UL)
-#define  TXC_RO_DATA0_DATA0		0x00000000ffffffffULL 
+#define  TXC_RO_DATA0_DATA0		0x00000000ffffffffULL /* bits 31:0 */
 
 #define TXC_RO_DATA1(PORT)		(FZC_TXC + 0x20058UL + (PORT)*0x100UL)
-#define  TXC_RO_DATA1_DATA1		0x00000000ffffffffULL 
+#define  TXC_RO_DATA1_DATA1		0x00000000ffffffffULL /* bits 63:32 */
 
 #define TXC_RO_DATA2(PORT)		(FZC_TXC + 0x20060UL + (PORT)*0x100UL)
-#define  TXC_RO_DATA2_DATA2		0x00000000ffffffffULL 
+#define  TXC_RO_DATA2_DATA2		0x00000000ffffffffULL /* bits 95:64 */
 
 #define TXC_RO_DATA3(PORT)		(FZC_TXC + 0x20068UL + (PORT)*0x100UL)
-#define  TXC_RO_DATA3_DATA3		0x00000000ffffffffULL 
+#define  TXC_RO_DATA3_DATA3		0x00000000ffffffffULL /* bits 127:96 */
 
 #define TXC_RO_DATA4(PORT)		(FZC_TXC + 0x20070UL + (PORT)*0x100UL)
-#define  TXC_RO_DATA4_DATA4		0x0000000000ffffffULL 
+#define  TXC_RO_DATA4_DATA4		0x0000000000ffffffULL /* bits 151:128 */
 
 #define TXC_SFECC_CTL(PORT)		(FZC_TXC + 0x20078UL + (PORT)*0x100UL)
 #define  TXC_SFECC_CTL_DISABLE_UE	0x0000000080000000ULL
@@ -2305,19 +2334,19 @@ struct fcram_hash_ipv6 {
 #define  TXC_SFECC_ST_ECC_ADDR		0x00000000000003ffULL
 
 #define TXC_SF_DATA0(PORT)		(FZC_TXC + 0x20088UL + (PORT)*0x100UL)
-#define  TXC_SF_DATA0_DATA0		0x00000000ffffffffULL 
+#define  TXC_SF_DATA0_DATA0		0x00000000ffffffffULL /* bits 31:0 */
 
 #define TXC_SF_DATA1(PORT)		(FZC_TXC + 0x20090UL + (PORT)*0x100UL)
-#define  TXC_SF_DATA1_DATA1		0x00000000ffffffffULL 
+#define  TXC_SF_DATA1_DATA1		0x00000000ffffffffULL /* bits 63:32 */
 
 #define TXC_SF_DATA2(PORT)		(FZC_TXC + 0x20098UL + (PORT)*0x100UL)
-#define  TXC_SF_DATA2_DATA2		0x00000000ffffffffULL 
+#define  TXC_SF_DATA2_DATA2		0x00000000ffffffffULL /* bits 95:64 */
 
 #define TXC_SF_DATA3(PORT)		(FZC_TXC + 0x200a0UL + (PORT)*0x100UL)
-#define  TXC_SF_DATA3_DATA3		0x00000000ffffffffULL 
+#define  TXC_SF_DATA3_DATA3		0x00000000ffffffffULL /* bits 127:96 */
 
 #define TXC_SF_DATA4(PORT)		(FZC_TXC + 0x200a8UL + (PORT)*0x100UL)
-#define  TXC_SF_DATA4_DATA4		0x0000000000ffffffULL 
+#define  TXC_SF_DATA4_DATA4		0x0000000000ffffffULL /* bits 151:128 */
 
 #define TXC_RO_TIDS(PORT)		(FZC_TXC + 0x200b0UL + (PORT)*0x100UL)
 #define  TXC_RO_TIDS_IN_USE		0x00000000ffffffffULL
@@ -2371,7 +2400,7 @@ struct fcram_hash_ipv6 {
 #define  TXC_PORT_PACKET_REQ_PKT_REQ	0x000000000fff0000ULL
 #define  TXC_PORT_PACKET_REQ_PERR_ABRT	0x000000000000ffffULL
 
-	
+	/* bits are same as TXC_INT_STAT */
 #define TXC_INT_STAT_DBG		(FZC_TXC + 0x20420UL)
 
 #define TXC_INT_STAT			(FZC_TXC + 0x20428UL)
@@ -2500,6 +2529,7 @@ struct fcram_hash_ipv6 {
 #define CLASS_CODE_DUMMY14		0x1e
 #define CLASS_CODE_DUMMY15		0x1f
 
+/* Logical devices and device groups */
 #define LDN_RXDMA(CHAN)			(0 + (CHAN))
 #define LDN_RESV1(OFF)			(16 + (OFF))
 #define LDN_TXDMA(CHAN)			(32 + (CHAN))
@@ -2514,6 +2544,7 @@ struct fcram_hash_ipv6 {
 #define NIU_NUM_LDG			64
 #define LDG_INVALID			0xff
 
+/* PHY stuff */
 #define NIU_PMA_PMD_DEV_ADDR		1
 #define NIU_PCS_DEV_ADDR		3
 
@@ -2523,6 +2554,7 @@ struct fcram_hash_ipv6 {
 #define NIU_PHY_ID_BCM5464R		0x002060b0
 #define NIU_PHY_ID_MRVL88X2011		0x01410020
 
+/* MRVL88X2011 register addresses */
 #define MRVL88X2011_USER_DEV1_ADDR	1
 #define MRVL88X2011_USER_DEV2_ADDR	2
 #define MRVL88X2011_USER_DEV3_ADDR	3
@@ -2536,6 +2568,7 @@ struct fcram_hash_ipv6 {
 #define MRVL88X2011_LED_BLINK_CTL	0x8303
 #define MRVL88X2011_LED_8_TO_11_CTL	0x8306
 
+/* MRVL88X2011 register control */
 #define MRVL88X2011_ENA_XFPREFCLK	0x0001
 #define MRVL88X2011_ENA_PMDTX		0x0000
 #define MRVL88X2011_LOOPBACK            0x1
@@ -2659,7 +2692,7 @@ struct fcram_hash_ipv6 {
 #define RCR_ENTRY_L2_LEN_SHIFT		40
 #define RCR_ENTRY_PKTBUFSZ		0x000000c000000000ULL
 #define RCR_ENTRY_PKTBUFSZ_SHIFT	38
-#define RCR_ENTRY_PKT_BUF_ADDR		0x0000003fffffffffULL 
+#define RCR_ENTRY_PKT_BUF_ADDR		0x0000003fffffffffULL /* bits 43:6 */
 #define RCR_ENTRY_PKT_BUF_ADDR_SHIFT	6
 
 #define RCR_PKT_TYPE_OTHER		0x0
@@ -2713,43 +2746,43 @@ struct rx_pkt_hdr1 {
 #endif
 	u8	zcrsvd;
 
-	
+	/* Bits 11:8 of zero copy flow ID.  */
 #if defined(__LITTLE_ENDIAN_BITFIELD)
 	u8	hwrsvd3:4, zflowid0:4;
 #elif defined(__BIG_ENDIAN_BITFIELD)
 	u8	zflowid0:4, hwrsvd3:4;
 #endif
 
-	
+	/* Bits 7:0 of zero copy flow ID.  */
 	u8	zflowid1;
 
-	
+	/* Bits 15:8 of hash value, H2.  */
 	u8	hashval2_0;
 
-	
+	/* Bits 7:0 of hash value, H2.  */
 	u8	hashval2_1;
 
-	
+	/* Bits 19:16 of hash value, H1.  */
 #if defined(__LITTLE_ENDIAN_BITFIELD)
 	u8	hwrsvd4:4, hashval1_0:4;
 #elif defined(__BIG_ENDIAN_BITFIELD)
 	u8	hashval1_0:4, hwrsvd4:4;
 #endif
 
-	
+	/* Bits 15:8 of hash value, H1.  */
 	u8	hashval1_1;
 
-	
+	/* Bits 7:0 of hash value, H1.  */
 	u8	hashval1_2;
 
 	u8	hwrsvd5;
 	u8	hwrsvd6;
 
-	u8	usrdata_0;	
-	u8	usrdata_1;	
-	u8	usrdata_2;	
-	u8	usrdata_3;	
-	u8	usrdata_4;	
+	u8	usrdata_0;	/* Bits 39:32 of user data.  */
+	u8	usrdata_1;	/* Bits 31:24 of user data.  */
+	u8	usrdata_2;	/* Bits 23:16 of user data.  */
+	u8	usrdata_3;	/* Bits 15:8 of user data.  */
+	u8	usrdata_4;	/* Bits 7:0 of user data.  */
 };
 
 struct tx_dma_mbox {
@@ -2898,13 +2931,13 @@ struct rx_ring_info {
 	u64			rcr_dma;
 	u64			rbr_dma;
 
-	
+	/* WRED */
 	int			nonsyn_window;
 	int			nonsyn_threshold;
 	int			syn_window;
 	int			syn_threshold;
 
-	
+	/* interrupt mitigation */
 	int			rcr_pkt_threshold;
 	int			rcr_timeout;
 };
@@ -2921,6 +2954,7 @@ struct rx_ring_info {
 
 #define NIU_MAX_MTU		9216
 
+/* VPD strings */
 #define	NIU_QGC_LP_BM_STR	"501-7606"
 #define	NIU_2XGF_LP_BM_STR	"501-7283"
 #define	NIU_QGC_PEM_BM_STR	"501-7765"
@@ -3110,13 +3144,13 @@ struct niu_ops {
 struct niu_link_config {
 	u32				supported;
 
-	
+	/* Describes what we're trying to get. */
 	u32				advertising;
 	u16				speed;
 	u8				duplex;
 	u8				autoneg;
 
-	
+	/* Describes what we actually have. */
 	u32				active_advertising;
 	u16				active_speed;
 	u8				active_duplex;
@@ -3211,21 +3245,21 @@ struct niu {
 	struct niu_parent		*parent;
 
 	u32				flags;
-#define NIU_FLAGS_HOTPLUG_PHY_PRESENT	0x02000000 
-#define NIU_FLAGS_HOTPLUG_PHY		0x01000000 
-#define NIU_FLAGS_VPD_VALID		0x00800000 
-#define NIU_FLAGS_MSIX			0x00400000 
-#define NIU_FLAGS_MCAST			0x00200000 
-#define NIU_FLAGS_PROMISC		0x00100000 
-#define NIU_FLAGS_XCVR_SERDES		0x00080000 
-#define NIU_FLAGS_10G			0x00040000 
-#define NIU_FLAGS_FIBER			0x00020000 
-#define NIU_FLAGS_XMAC			0x00010000 
+#define NIU_FLAGS_HOTPLUG_PHY_PRESENT	0x02000000 /* Removeable PHY detected*/
+#define NIU_FLAGS_HOTPLUG_PHY		0x01000000 /* Removeable PHY */
+#define NIU_FLAGS_VPD_VALID		0x00800000 /* VPD has valid version */
+#define NIU_FLAGS_MSIX			0x00400000 /* MSI-X in use */
+#define NIU_FLAGS_MCAST			0x00200000 /* multicast filter enabled */
+#define NIU_FLAGS_PROMISC		0x00100000 /* PROMISC enabled */
+#define NIU_FLAGS_XCVR_SERDES		0x00080000 /* 0=PHY 1=SERDES */
+#define NIU_FLAGS_10G			0x00040000 /* 0=1G 1=10G */
+#define NIU_FLAGS_FIBER			0x00020000 /* 0=COPPER 1=FIBER */
+#define NIU_FLAGS_XMAC			0x00010000 /* 0=BMAC 1=XMAC */
 
 	u32				msg_enable;
 	char                            irq_name[NIU_NUM_RXCHAN+NIU_NUM_TXCHAN+3][IFNAMSIZ + 6];
 
-	
+	/* Protects hw programming, and ring state.  */
 	spinlock_t			lock;
 
 	const struct niu_ops		*ops;
@@ -3269,4 +3303,4 @@ struct niu {
 	void __iomem			*vir_regs_2;
 };
 
-#endif 
+#endif /* _NIU_H */

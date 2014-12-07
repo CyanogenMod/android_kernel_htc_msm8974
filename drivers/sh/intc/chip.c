@@ -60,6 +60,11 @@ static void intc_disable(struct irq_data *data)
 }
 
 #ifdef CONFIG_SMP
+/*
+ * This is held with the irq desc lock held, so we don't require any
+ * additional locking here at the intc desc level. The affinity mask is
+ * later tested in the enable/disable paths.
+ */
 static int intc_set_affinity(struct irq_data *data,
 			     const struct cpumask *cpumask,
 			     bool force)
@@ -82,7 +87,7 @@ static void intc_mask_ack(struct irq_data *data)
 
 	intc_disable(data);
 
-	
+	/* read register and write zero only to the associated bit */
 	if (handle) {
 		unsigned int value;
 
@@ -90,15 +95,15 @@ static void intc_mask_ack(struct irq_data *data)
 		value = intc_set_field_from_handle(0, 1, handle);
 
 		switch (_INTC_FN(handle)) {
-		case REG_FN_MODIFY_BASE + 0:	
+		case REG_FN_MODIFY_BASE + 0:	/* 8bit */
 			__raw_readb(addr);
 			__raw_writeb(0xff ^ value, addr);
 			break;
-		case REG_FN_MODIFY_BASE + 1:	
+		case REG_FN_MODIFY_BASE + 1:	/* 16bit */
 			__raw_readw(addr);
 			__raw_writew(0xffff ^ value, addr);
 			break;
-		case REG_FN_MODIFY_BASE + 3:	
+		case REG_FN_MODIFY_BASE + 3:	/* 32bit */
 			__raw_readl(addr);
 			__raw_writel(0xffffffff ^ value, addr);
 			break;
@@ -137,6 +142,11 @@ int intc_set_priority(unsigned int irq, unsigned int prio)
 
 		intc_set_prio_level(irq, prio);
 
+		/*
+		 * only set secondary masking method directly
+		 * primary masking method is using intc_prio_level[irq]
+		 * priority level will be set during next enable()
+		 */
 		if (_INTC_FN(ihp->handle) != REG_FN_ERR)
 			_intc_enable(data, ihp->handle);
 	}
@@ -150,13 +160,13 @@ static unsigned char intc_irq_sense_table[IRQ_TYPE_SENSE_MASK + 1] = {
 	[IRQ_TYPE_EDGE_FALLING] = VALID(0),
 	[IRQ_TYPE_EDGE_RISING] = VALID(1),
 	[IRQ_TYPE_LEVEL_LOW] = VALID(2),
-	
+	/* SH7706, SH7707 and SH7709 do not support high level triggered */
 #if !defined(CONFIG_CPU_SUBTYPE_SH7706) && \
     !defined(CONFIG_CPU_SUBTYPE_SH7707) && \
     !defined(CONFIG_CPU_SUBTYPE_SH7709)
 	[IRQ_TYPE_LEVEL_HIGH] = VALID(3),
 #endif
-#if defined(CONFIG_ARM) 
+#if defined(CONFIG_ARM) /* all recent SH-Mobile / R-Mobile ARM support this */
 	[IRQ_TYPE_EDGE_BOTH] = VALID(4),
 #endif
 };
@@ -176,7 +186,7 @@ static int intc_set_type(struct irq_data *data, unsigned int type)
 
 	ihp = intc_find_irq(d->sense, d->nr_sense, irq);
 	if (ihp) {
-		
+		/* PINT has 2-bit sense registers, should fail on EDGE_BOTH */
 		if (value >= (1 << _INTC_WIDTH(ihp->handle)))
 			return -EINVAL;
 

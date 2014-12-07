@@ -36,6 +36,11 @@ static inline void plat_unmap_dma_mem(struct device *dev, dma_addr_t dma_addr,
 
 static inline int plat_dma_supported(struct device *dev, u64 mask)
 {
+	/*
+	 * we fall back to GFP_DMA when the mask isn't all 1s,
+	 * so we can't guarantee allocations that must be
+	 * within a tighter range than GFP_DMA..
+	 */
 	if (mask < DMA_BIT_MASK(24))
 		return 0;
 
@@ -62,4 +67,4 @@ static inline int plat_device_is_coherent(struct device *dev)
 #endif
 }
 
-#endif 
+#endif /* __ASM_MACH_GENERIC_DMA_COHERENCE_H */

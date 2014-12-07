@@ -32,15 +32,15 @@
 #define FM3130_ALARM_MONTHS	(0xd)
 #define FM3130_ALARM_WP_CONTROL	(0xe)
 
-#define FM3130_CAL_CONTROL_BIT_nOSCEN (1 << 7) 
-#define FM3130_RTC_CONTROL_BIT_LB (1 << 7) 
-#define FM3130_RTC_CONTROL_BIT_AF (1 << 6) 
-#define FM3130_RTC_CONTROL_BIT_CF (1 << 5) 
-#define FM3130_RTC_CONTROL_BIT_POR (1 << 4) 
-#define FM3130_RTC_CONTROL_BIT_AEN (1 << 3) 
-#define FM3130_RTC_CONTROL_BIT_CAL (1 << 2) 
-#define FM3130_RTC_CONTROL_BIT_WRITE (1 << 1) 
-#define FM3130_RTC_CONTROL_BIT_READ (1 << 0) 
+#define FM3130_CAL_CONTROL_BIT_nOSCEN (1 << 7) /* Osciallator enabled */
+#define FM3130_RTC_CONTROL_BIT_LB (1 << 7) /* Low battery */
+#define FM3130_RTC_CONTROL_BIT_AF (1 << 6) /* Alarm flag */
+#define FM3130_RTC_CONTROL_BIT_CF (1 << 5) /* Century overflow */
+#define FM3130_RTC_CONTROL_BIT_POR (1 << 4) /* Power on reset */
+#define FM3130_RTC_CONTROL_BIT_AEN (1 << 3) /* Alarm enable */
+#define FM3130_RTC_CONTROL_BIT_CAL (1 << 2) /* Calibration mode */
+#define FM3130_RTC_CONTROL_BIT_WRITE (1 << 1) /* W=1 -> write mode W=0 normal */
+#define FM3130_RTC_CONTROL_BIT_READ (1 << 0) /* R=1 -> read mode R=0 normal */
 
 #define FM3130_CLOCK_REGS 7
 #define FM3130_ALARM_REGS 5
@@ -98,11 +98,15 @@ static int fm3130_get_time(struct device *dev, struct rtc_time *t)
 	int		tmp;
 
 	if (!fm3130->data_valid) {
+		/* We have invalid data in RTC, probably due
+		to battery faults or other problems. Return EIO
+		for now, it will allow us to set data later instead
+		of error during probing which disables device */
 		return -EIO;
 	}
 	fm3130_rtc_mode(dev, FM3130_MODE_READ);
 
-	
+	/* read the RTC date and time registers all at once */
 	tmp = i2c_transfer(to_i2c_adapter(fm3130->client->dev.parent),
 			fm3130->msg, 2);
 	if (tmp != 2) {
@@ -133,7 +137,7 @@ static int fm3130_get_time(struct device *dev, struct rtc_time *t)
 	tmp = fm3130->regs[FM3130_RTC_MONTHS] & 0x1f;
 	t->tm_mon = bcd2bin(tmp) - 1;
 
-	
+	/* assume 20YY not 19YY, and ignore CF bit */
 	t->tm_year = bcd2bin(fm3130->regs[FM3130_RTC_YEARS]) + 100;
 
 	dev_dbg(dev, "%s secs=%d, mins=%d, "
@@ -142,7 +146,7 @@ static int fm3130_get_time(struct device *dev, struct rtc_time *t)
 		t->tm_hour, t->tm_mday,
 		t->tm_mon, t->tm_year, t->tm_wday);
 
-	
+	/* initial clock setting can be undefined */
 	return rtc_valid_tm(t);
 }
 
@@ -159,7 +163,7 @@ static int fm3130_set_time(struct device *dev, struct rtc_time *t)
 		t->tm_hour, t->tm_mday,
 		t->tm_mon, t->tm_year, t->tm_wday);
 
-	
+	/* first register addr */
 	buf[FM3130_RTC_SECONDS] = bin2bcd(t->tm_sec);
 	buf[FM3130_RTC_MINUTES] = bin2bcd(t->tm_min);
 	buf[FM3130_RTC_HOURS] = bin2bcd(t->tm_hour);
@@ -167,7 +171,7 @@ static int fm3130_set_time(struct device *dev, struct rtc_time *t)
 	buf[FM3130_RTC_DATE] = bin2bcd(t->tm_mday);
 	buf[FM3130_RTC_MONTHS] = bin2bcd(t->tm_mon + 1);
 
-	
+	/* assume 20YY not 19YY */
 	tmp = t->tm_year - 100;
 	buf[FM3130_RTC_YEARS] = bin2bcd(tmp);
 
@@ -180,7 +184,7 @@ static int fm3130_set_time(struct device *dev, struct rtc_time *t)
 
 	fm3130_rtc_mode(dev, FM3130_MODE_WRITE);
 
-	
+	/* Writing time registers, we don't support multibyte transfers */
 	for (i = 0; i < FM3130_CLOCK_REGS; i++) {
 		i2c_smbus_write_byte_data(fm3130->client,
 					FM3130_RTC_SECONDS + i,
@@ -202,10 +206,16 @@ static int fm3130_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	struct rtc_time *tm = &alrm->time;
 
 	if (!fm3130->alarm_valid) {
+		/*
+		 * We have invalid alarm in RTC, probably due to battery faults
+		 * or other problems. Return EIO for now, it will allow us to
+		 * set alarm value later instead of error during probing which
+		 * disables device
+		 */
 		return -EIO;
 	}
 
-	
+	/* read the RTC alarm registers all at once */
 	tmp = i2c_transfer(to_i2c_adapter(fm3130->client->dev.parent),
 			&fm3130->msg[2], 2);
 	if (tmp != 2) {
@@ -226,7 +236,7 @@ static int fm3130_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	tm->tm_mon	= bcd2bin(fm3130->regs[FM3130_ALARM_MONTHS] & 0x1F);
 
 	if (tm->tm_mon > 0)
-		tm->tm_mon -= 1; 
+		tm->tm_mon -= 1; /* RTC is 1-12, tm_mon is 0-11 */
 
 	dev_dbg(dev, "%s secs=%d, mins=%d, "
 		"hours=%d, mday=%d, mon=%d, year=%d, wday=%d\n",
@@ -234,7 +244,7 @@ static int fm3130_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 		tm->tm_hour, tm->tm_mday,
 		tm->tm_mon, tm->tm_year, tm->tm_wday);
 
-	
+	/* check if alarm enabled */
 	fm3130->regs[FM3130_RTC_CONTROL] =
 		i2c_smbus_read_byte_data(fm3130->client, FM3130_RTC_CONTROL);
 
@@ -280,7 +290,7 @@ static int fm3130_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 			fm3130->regs[FM3130_ALARM_HOURS],
 			fm3130->regs[FM3130_ALARM_DATE],
 			fm3130->regs[FM3130_ALARM_MONTHS]);
-	
+	/* Writing time registers, we don't support multibyte transfers */
 	for (i = 0; i < FM3130_ALARM_REGS; i++) {
 		i2c_smbus_write_byte_data(fm3130->client,
 					FM3130_ALARM_SECONDS + i,
@@ -289,7 +299,7 @@ static int fm3130_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	fm3130->regs[FM3130_RTC_CONTROL] =
 		i2c_smbus_read_byte_data(fm3130->client, FM3130_RTC_CONTROL);
 
-	
+	/* enable or disable alarm */
 	if (alrm->enabled) {
 		i2c_smbus_write_byte_data(fm3130->client, FM3130_RTC_CONTROL,
 			(fm3130->regs[FM3130_RTC_CONTROL] &
@@ -321,13 +331,13 @@ static int fm3130_alarm_irq_enable(struct device *dev, unsigned int enabled)
 		enabled, fm3130->regs[FM3130_RTC_CONTROL]);
 
 	switch (enabled) {
-	case 0:		
+	case 0:		/* alarm off */
 		ret = i2c_smbus_write_byte_data(fm3130->client,
 			FM3130_RTC_CONTROL, fm3130->regs[FM3130_RTC_CONTROL] &
 				~(FM3130_RTC_CONTROL_BIT_CAL) &
 					~(FM3130_RTC_CONTROL_BIT_AEN));
 		break;
-	case 1:		
+	case 1:		/* alarm on */
 		ret = i2c_smbus_write_byte_data(fm3130->client,
 			FM3130_RTC_CONTROL, (fm3130->regs[FM3130_RTC_CONTROL] &
 				~(FM3130_RTC_CONTROL_BIT_CAL)) |
@@ -373,7 +383,7 @@ static int __devinit fm3130_probe(struct i2c_client *client,
 	fm3130->reg_addr_time = FM3130_RTC_SECONDS;
 	fm3130->reg_addr_alarm = FM3130_ALARM_SECONDS;
 
-	
+	/* Messages to read time */
 	fm3130->msg[0].addr = client->addr;
 	fm3130->msg[0].flags = 0;
 	fm3130->msg[0].len = 1;
@@ -384,7 +394,7 @@ static int __devinit fm3130_probe(struct i2c_client *client,
 	fm3130->msg[1].len = FM3130_CLOCK_REGS;
 	fm3130->msg[1].buf = &fm3130->regs[FM3130_RTC_SECONDS];
 
-	
+	/* Messages to read alarm */
 	fm3130->msg[2].addr = client->addr;
 	fm3130->msg[2].flags = 0;
 	fm3130->msg[2].len = 1;
@@ -410,7 +420,7 @@ static int __devinit fm3130_probe(struct i2c_client *client,
 	fm3130->regs[FM3130_CAL_CONTROL] =
 		i2c_smbus_read_byte_data(client, FM3130_CAL_CONTROL);
 
-	
+	/* Disabling calibration mode */
 	if (fm3130->regs[FM3130_RTC_CONTROL] & FM3130_RTC_CONTROL_BIT_CAL) {
 		i2c_smbus_write_byte_data(client, FM3130_RTC_CONTROL,
 			fm3130->regs[FM3130_RTC_CONTROL] &
@@ -418,7 +428,7 @@ static int __devinit fm3130_probe(struct i2c_client *client,
 		dev_warn(&client->dev, "Disabling calibration mode!\n");
 	}
 
-	
+	/* Disabling read and write modes */
 	if (fm3130->regs[FM3130_RTC_CONTROL] & FM3130_RTC_CONTROL_BIT_WRITE ||
 	    fm3130->regs[FM3130_RTC_CONTROL] & FM3130_RTC_CONTROL_BIT_READ) {
 		i2c_smbus_write_byte_data(client, FM3130_RTC_CONTROL,
@@ -428,13 +438,13 @@ static int __devinit fm3130_probe(struct i2c_client *client,
 		dev_warn(&client->dev, "Disabling READ or WRITE mode!\n");
 	}
 
-	
+	/* oscillator off?  turn it on, so clock can tick. */
 	if (fm3130->regs[FM3130_CAL_CONTROL] & FM3130_CAL_CONTROL_BIT_nOSCEN)
 		i2c_smbus_write_byte_data(client, FM3130_CAL_CONTROL,
 			fm3130->regs[FM3130_CAL_CONTROL] &
 				~(FM3130_CAL_CONTROL_BIT_nOSCEN));
 
-	
+	/* low battery?  clear flag, and warn */
 	if (fm3130->regs[FM3130_RTC_CONTROL] & FM3130_RTC_CONTROL_BIT_LB) {
 		i2c_smbus_write_byte_data(client, FM3130_RTC_CONTROL,
 			fm3130->regs[FM3130_RTC_CONTROL] &
@@ -442,17 +452,17 @@ static int __devinit fm3130_probe(struct i2c_client *client,
 		dev_warn(&client->dev, "Low battery!\n");
 	}
 
-	
+	/* check if Power On Reset bit is set */
 	if (fm3130->regs[FM3130_RTC_CONTROL] & FM3130_RTC_CONTROL_BIT_POR) {
 		i2c_smbus_write_byte_data(client, FM3130_RTC_CONTROL,
 			fm3130->regs[FM3130_RTC_CONTROL] &
 				~FM3130_RTC_CONTROL_BIT_POR);
 		dev_dbg(&client->dev, "POR bit is set\n");
 	}
-	
+	/* ACS is controlled by alarm */
 	i2c_smbus_write_byte_data(client, FM3130_ALARM_WP_CONTROL, 0x80);
 
-	
+	/* alarm registers sanity check */
 	tmp = bcd2bin(fm3130->regs[FM3130_RTC_SECONDS] & 0x7f);
 	if (tmp > 59)
 		goto bad_alarm;
@@ -477,7 +487,7 @@ static int __devinit fm3130_probe(struct i2c_client *client,
 
 bad_alarm:
 
-	
+	/* clock registers sanity chek */
 	tmp = bcd2bin(fm3130->regs[FM3130_RTC_SECONDS] & 0x7f);
 	if (tmp > 59)
 		goto bad_clock;
@@ -520,6 +530,8 @@ bad_clock:
 			fm3130->regs[0xc], fm3130->regs[0xd],
 			fm3130->regs[0xe]);
 
+	/* We won't bail out here because we just got invalid data.
+	   Time setting from u-boot doesn't work anyway */
 	fm3130->rtc = rtc_device_register(client->name, &client->dev,
 				&fm3130_rtc_ops, THIS_MODULE);
 	if (IS_ERR(fm3130->rtc)) {

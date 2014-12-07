@@ -33,7 +33,9 @@
 
 struct lx6464es;
 
+/* low-level register access */
 
+/* dsp register access */
 enum {
 	eReg_BASE,
 	eReg_CSM,
@@ -72,6 +74,7 @@ enum {
 unsigned long lx_dsp_reg_read(struct lx6464es *chip, int port);
 void lx_dsp_reg_write(struct lx6464es *chip, int port, unsigned data);
 
+/* plx register access */
 enum {
     ePLX_PCICR,
 
@@ -94,16 +97,18 @@ enum {
 unsigned long lx_plx_reg_read(struct lx6464es *chip, int port);
 void lx_plx_reg_write(struct lx6464es *chip, int port, u32 data);
 
+/* rhm */
 struct lx_rmh {
-	u16	cmd_len;	
-	u16	stat_len;	
-	u16	dsp_stat;	
-	u16	cmd_idx;	
+	u16	cmd_len;	/* length of the command to send (WORDs) */
+	u16	stat_len;	/* length of the status received (WORDs) */
+	u16	dsp_stat;	/* status type, RMP_SSIZE_XXX */
+	u16	cmd_idx;	/* index of the command */
 	u32	cmd[REG_CRM_NUMBER];
 	u32	stat[REG_CRM_NUMBER];
 };
 
 
+/* low-level dsp access */
 int __devinit lx_dsp_get_version(struct lx6464es *chip, u32 *rdsp_version);
 int lx_dsp_get_clock_frequency(struct lx6464es *chip, u32 *rfreq);
 int lx_dsp_set_granularity(struct lx6464es *chip, u32 gran);
@@ -111,6 +116,7 @@ int lx_dsp_read_async_events(struct lx6464es *chip, u32 *data);
 int lx_dsp_get_mac(struct lx6464es *chip);
 
 
+/* low-level pipe handling */
 int lx_pipe_allocate(struct lx6464es *chip, u32 pipe, int is_capture,
 		     int channels);
 int lx_pipe_release(struct lx6464es *chip, u32 pipe, int is_capture);
@@ -124,6 +130,7 @@ int lx_pipe_pause(struct lx6464es *chip, u32 pipe, int is_capture);
 int lx_pipe_wait_for_start(struct lx6464es *chip, u32 pipe, int is_capture);
 int lx_pipe_wait_for_idle(struct lx6464es *chip, u32 pipe, int is_capture);
 
+/* low-level stream handling */
 int lx_stream_set_format(struct lx6464es *chip, struct snd_pcm_runtime *runtime,
 			 u32 pipe, int is_capture);
 int lx_stream_state(struct lx6464es *chip, u32 pipe, int is_capture,
@@ -155,6 +162,7 @@ static inline int lx_stream_stop(struct lx6464es *chip, u32 pipe,
 	return lx_stream_set_state(chip, pipe, is_capture, SSTATE_STOP);
 }
 
+/* low-level buffer handling */
 int lx_buffer_ask(struct lx6464es *chip, u32 pipe, int is_capture,
 		  u32 *r_needed, u32 *r_freed, u32 *size_array);
 int lx_buffer_give(struct lx6464es *chip, u32 pipe, int is_capture,
@@ -165,11 +173,13 @@ int lx_buffer_free(struct lx6464es *chip, u32 pipe, int is_capture,
 int lx_buffer_cancel(struct lx6464es *chip, u32 pipe, int is_capture,
 		     u32 buffer_index);
 
+/* low-level gain/peak handling */
 int lx_level_unmute(struct lx6464es *chip, int is_capture, int unmute);
 int lx_level_peaks(struct lx6464es *chip, int is_capture, int channels,
 		   u32 *r_levels);
 
 
+/* interrupt handling */
 irqreturn_t lx_interrupt(int irq, void *dev_id);
 void lx_irq_enable(struct lx6464es *chip);
 void lx_irq_disable(struct lx6464es *chip);
@@ -178,15 +188,20 @@ void lx_tasklet_capture(unsigned long data);
 void lx_tasklet_playback(unsigned long data);
 
 
+/* Stream Format Header Defines (for LIN and IEEE754) */
 #define HEADER_FMT_BASE		HEADER_FMT_BASE_LIN
 #define HEADER_FMT_BASE_LIN	0xFED00000
 #define HEADER_FMT_BASE_FLOAT	0xFAD00000
-#define HEADER_FMT_MONO		0x00000080 
+#define HEADER_FMT_MONO		0x00000080 /* bit 23 in header_lo. WARNING: old
+					    * bit 22 is ignored in float
+					    * format */
 #define HEADER_FMT_INTEL	0x00008000
 #define HEADER_FMT_16BITS	0x00002000
 #define HEADER_FMT_24BITS	0x00004000
-#define HEADER_FMT_UPTO11	0x00000200 
-#define HEADER_FMT_UPTO32	0x00000100 
+#define HEADER_FMT_UPTO11	0x00000200 /* frequency is less or equ. to 11k.
+					    * */
+#define HEADER_FMT_UPTO32	0x00000100 /* frequency is over 11k and less
+					    * then 32k.*/
 
 
 #define BIT_FMP_HEADER          23
@@ -200,11 +215,14 @@ void lx_tasklet_playback(unsigned long data);
 
 
 
+/* from PcxAll_e.h */
+/* Start/Pause condition for pipes (PCXStartPipe, PCXPausePipe) */
 #define START_PAUSE_IMMEDIATE           0
 #define START_PAUSE_ON_SYNCHRO          1
 #define START_PAUSE_ON_TIME_CODE        2
 
 
+/* Pipe / Stream state */
 #define START_STATE             1
 #define PAUSE_STATE             0
 
@@ -218,4 +236,4 @@ static inline void unpack_pointer(dma_addr_t ptr, u32 *r_low, u32 *r_high)
 #endif
 }
 
-#endif 
+#endif /* LX_CORE_H */

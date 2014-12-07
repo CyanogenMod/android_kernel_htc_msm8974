@@ -74,6 +74,14 @@ static void _dump_node(unsigned int lpar_id, u64 n1, u64 n2, u64 n3, u64 n4,
 	pr_devel("%s:%d: v2: %016llx\n", func, line, v2);
 }
 
+/**
+ * make_first_field - Make the first field of a repository node name.
+ * @text: Text portion of the field.
+ * @index: Numeric index portion of the field.  Use zero for 'don't care'.
+ *
+ * This routine sets the vendor id to zero (non-vendor specific).
+ * Returns field value.
+ */
 
 static u64 make_first_field(const char *text, u64 index)
 {
@@ -83,6 +91,13 @@ static u64 make_first_field(const char *text, u64 index)
 	return PS3_VENDOR_ID_NONE + (n >> 32) + index;
 }
 
+/**
+ * make_field - Make subsequent fields of a repository node name.
+ * @text: Text portion of the field.  Use "" for 'don't care'.
+ * @index: Numeric index portion of the field.  Use zero for 'don't care'.
+ *
+ * Returns field value.
+ */
 
 static u64 make_field(const char *text, u64 index)
 {
@@ -92,6 +107,16 @@ static u64 make_field(const char *text, u64 index)
 	return n + index;
 }
 
+/**
+ * read_node - Read a repository node from raw fields.
+ * @n1: First field of node name.
+ * @n2: Second field of node name.  Use zero for 'don't care'.
+ * @n3: Third field of node name.  Use zero for 'don't care'.
+ * @n4: Fourth field of node name.  Use zero for 'don't care'.
+ * @v1: First repository value (high word).
+ * @v2: Second repository value (low word).  Optional parameter, use zero
+ *      for 'don't care'.
+ */
 
 static int read_node(unsigned int lpar_id, u64 n1, u64 n2, u64 n3, u64 n4,
 	u64 *_v1, u64 *_v2)
@@ -686,6 +711,9 @@ int ps3_repository_read_stor_dev_region(unsigned int bus_index,
 	return result;
 }
 
+/**
+ * ps3_repository_read_num_pu - Number of logical PU processors for this lpar.
+ */
 
 int ps3_repository_read_num_pu(u64 *num_pu)
 {
@@ -697,6 +725,11 @@ int ps3_repository_read_num_pu(u64 *num_pu)
 			   num_pu, NULL);
 }
 
+/**
+ * ps3_repository_read_pu_id - Read the logical PU id.
+ * @pu_index: Zero based index.
+ * @pu_id: The logical PU id.
+ */
 
 int ps3_repository_read_pu_id(unsigned int pu_index, u64 *pu_id)
 {
@@ -726,6 +759,12 @@ int ps3_repository_read_region_total(u64 *region_total)
 		region_total, NULL);
 }
 
+/**
+ * ps3_repository_read_mm_info - Read mm info for single pu system.
+ * @rm_base: Real mode memory base address.
+ * @rm_size: Real mode memory size.
+ * @region_total: Maximum memory region size.
+ */
 
 int ps3_repository_read_mm_info(u64 *rm_base, u64 *rm_size, u64 *region_total)
 {
@@ -739,6 +778,10 @@ int ps3_repository_read_mm_info(u64 *rm_base, u64 *rm_size, u64 *region_total)
 		: ps3_repository_read_region_total(region_total);
 }
 
+/**
+ * ps3_repository_read_num_spu_reserved - Number of physical spus reserved.
+ * @num_spu: Number of physical spus.
+ */
 
 int ps3_repository_read_num_spu_reserved(unsigned int *num_spu_reserved)
 {
@@ -754,6 +797,10 @@ int ps3_repository_read_num_spu_reserved(unsigned int *num_spu_reserved)
 	return result;
 }
 
+/**
+ * ps3_repository_read_num_spu_resource_id - Number of spu resource reservations.
+ * @num_resource_id: Number of spu resource ids.
+ */
 
 int ps3_repository_read_num_spu_resource_id(unsigned int *num_resource_id)
 {
@@ -769,6 +816,12 @@ int ps3_repository_read_num_spu_resource_id(unsigned int *num_resource_id)
 	return result;
 }
 
+/**
+ * ps3_repository_read_spu_resource_id - spu resource reservation id value.
+ * @res_index: Resource reservation index.
+ * @resource_type: Resource reservation type.
+ * @resource_id: Resource reservation id.
+ */
 
 int ps3_repository_read_spu_resource_id(unsigned int res_index,
 	enum ps3_spu_resource_type *resource_type, unsigned int *resource_id)
@@ -843,6 +896,11 @@ int ps3_repository_read_vuart_sysmgr_port(unsigned int *port)
 	return result;
 }
 
+/**
+  * ps3_repository_read_boot_dat_info - Get address and size of cell_ext_os_area.
+  * address: lpar address of cell_ext_os_area
+  * @size: size of cell_ext_os_area
+  */
 
 int ps3_repository_read_boot_dat_info(u64 *lpar_addr, unsigned int *size)
 {
@@ -854,6 +912,9 @@ int ps3_repository_read_boot_dat_info(u64 *lpar_addr, unsigned int *size)
 		: ps3_repository_read_boot_dat_size(size);
 }
 
+/**
+ * ps3_repository_read_num_be - Number of physical BE processors in the system.
+ */
 
 int ps3_repository_read_num_be(unsigned int *num_be)
 {
@@ -870,6 +931,11 @@ int ps3_repository_read_num_be(unsigned int *num_be)
 	return result;
 }
 
+/**
+ * ps3_repository_read_be_node_id - Read the physical BE processor node id.
+ * @be_index: Zero based index.
+ * @node_id: The BE processor node id.
+ */
 
 int ps3_repository_read_be_node_id(unsigned int be_index, u64 *node_id)
 {
@@ -881,6 +947,11 @@ int ps3_repository_read_be_node_id(unsigned int be_index, u64 *node_id)
 		node_id, NULL);
 }
 
+/**
+ * ps3_repository_read_be_id - Read the physical BE processor id.
+ * @node_id: The BE processor node id.
+ * @be_id: The BE processor id.
+ */
 
 int ps3_repository_read_be_id(u64 node_id, u64 *be_id)
 {
@@ -1132,4 +1203,4 @@ int ps3_repository_dump_bus_info(void)
 	return result;
 }
 
-#endif 
+#endif /* defined(DEBUG) */

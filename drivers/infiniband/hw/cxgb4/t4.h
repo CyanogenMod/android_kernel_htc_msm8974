@@ -48,19 +48,19 @@
 #define T4_MAX_CQ_DEPTH (T4_MAX_IQ_SIZE - 1)
 #define T4_MAX_NUM_STAG (1<<15)
 #define T4_MAX_MR_SIZE (~0ULL - 1)
-#define T4_PAGESIZE_MASK 0xffff000  
+#define T4_PAGESIZE_MASK 0xffff000  /* 4KB-128MB */
 #define T4_STAG_UNSET 0xffffffff
 #define T4_FW_MAJ 0
 #define T4_EQ_STATUS_ENTRIES (L1_CACHE_BYTES > 64 ? 2 : 1)
 #define A_PCIE_MA_SYNC 0x30b4
 
 struct t4_status_page {
-	__be32 rsvd1;	
+	__be32 rsvd1;	/* flit 0 - hw owns */
 	__be16 rsvd2;
 	__be16 qid;
 	__be16 cidx;
 	__be16 pidx;
-	u8 qp_err;	
+	u8 qp_err;	/* flit 1 - sw owns */
 	u8 db_off;
 };
 
@@ -117,45 +117,49 @@ static inline void init_wr_hdr(union t4_wr *wqe, u16 wrid,
 	wqe->send.len16 = len16;
 }
 
+/* CQE/AE status codes */
 #define T4_ERR_SUCCESS                     0x0
-#define T4_ERR_STAG                        0x1	
-						
-						
-#define T4_ERR_PDID                        0x2	
-#define T4_ERR_QPID                        0x3	
-#define T4_ERR_ACCESS                      0x4	
-#define T4_ERR_WRAP                        0x5	
-#define T4_ERR_BOUND                       0x6	
-#define T4_ERR_INVALIDATE_SHARED_MR        0x7	
-						
-#define T4_ERR_INVALIDATE_MR_WITH_MW_BOUND 0x8	
-						
-#define T4_ERR_ECC                         0x9	
-#define T4_ERR_ECC_PSTAG                   0xA	
-						
-						
-#define T4_ERR_PBL_ADDR_BOUND              0xB	
-						
-#define T4_ERR_SWFLUSH			   0xC	
-#define T4_ERR_CRC                         0x10 
-#define T4_ERR_MARKER                      0x11 
-#define T4_ERR_PDU_LEN_ERR                 0x12 
-#define T4_ERR_OUT_OF_RQE                  0x13 
-#define T4_ERR_DDP_VERSION                 0x14 
-#define T4_ERR_RDMA_VERSION                0x15 
-#define T4_ERR_OPCODE                      0x16 
-#define T4_ERR_DDP_QUEUE_NUM               0x17 
-#define T4_ERR_MSN                         0x18 
-#define T4_ERR_TBIT                        0x19 
-#define T4_ERR_MO                          0x1A 
-						
+#define T4_ERR_STAG                        0x1	/* STAG invalid: either the */
+						/* STAG is offlimt, being 0, */
+						/* or STAG_key mismatch */
+#define T4_ERR_PDID                        0x2	/* PDID mismatch */
+#define T4_ERR_QPID                        0x3	/* QPID mismatch */
+#define T4_ERR_ACCESS                      0x4	/* Invalid access right */
+#define T4_ERR_WRAP                        0x5	/* Wrap error */
+#define T4_ERR_BOUND                       0x6	/* base and bounds voilation */
+#define T4_ERR_INVALIDATE_SHARED_MR        0x7	/* attempt to invalidate a  */
+						/* shared memory region */
+#define T4_ERR_INVALIDATE_MR_WITH_MW_BOUND 0x8	/* attempt to invalidate a  */
+						/* shared memory region */
+#define T4_ERR_ECC                         0x9	/* ECC error detected */
+#define T4_ERR_ECC_PSTAG                   0xA	/* ECC error detected when  */
+						/* reading PSTAG for a MW  */
+						/* Invalidate */
+#define T4_ERR_PBL_ADDR_BOUND              0xB	/* pbl addr out of bounds:  */
+						/* software error */
+#define T4_ERR_SWFLUSH			   0xC	/* SW FLUSHED */
+#define T4_ERR_CRC                         0x10 /* CRC error */
+#define T4_ERR_MARKER                      0x11 /* Marker error */
+#define T4_ERR_PDU_LEN_ERR                 0x12 /* invalid PDU length */
+#define T4_ERR_OUT_OF_RQE                  0x13 /* out of RQE */
+#define T4_ERR_DDP_VERSION                 0x14 /* wrong DDP version */
+#define T4_ERR_RDMA_VERSION                0x15 /* wrong RDMA version */
+#define T4_ERR_OPCODE                      0x16 /* invalid rdma opcode */
+#define T4_ERR_DDP_QUEUE_NUM               0x17 /* invalid ddp queue number */
+#define T4_ERR_MSN                         0x18 /* MSN error */
+#define T4_ERR_TBIT                        0x19 /* tag bit not set correctly */
+#define T4_ERR_MO                          0x1A /* MO not 0 for TERMINATE  */
+						/* or READ_REQ */
 #define T4_ERR_MSN_GAP                     0x1B
 #define T4_ERR_MSN_RANGE                   0x1C
 #define T4_ERR_IRD_OVERFLOW                0x1D
-#define T4_ERR_RQE_ADDR_BOUND              0x1E 
-						
-#define T4_ERR_INTERNAL_ERR                0x1F 
-						
+#define T4_ERR_RQE_ADDR_BOUND              0x1E /* RQE addr out of bounds:  */
+						/* software error */
+#define T4_ERR_INTERNAL_ERR                0x1F /* internal error (opcode  */
+						/* mismatch) */
+/*
+ * CQE defs
+ */
 struct t4_cqe {
 	__be32 header;
 	__be32 len;
@@ -178,6 +182,7 @@ struct t4_cqe {
 	__be64 bits_type_ts;
 };
 
+/* macros for flit 0 of the cqe */
 
 #define S_CQE_QPID        12
 #define M_CQE_QPID        0xFFFFF
@@ -220,14 +225,18 @@ struct t4_cqe {
 
 #define CQE_LEN(x)        (be32_to_cpu((x)->len))
 
+/* used for RQ completion processing */
 #define CQE_WRID_STAG(x)  (be32_to_cpu((x)->u.rcqe.stag))
 #define CQE_WRID_MSN(x)   (be32_to_cpu((x)->u.rcqe.msn))
 
+/* used for SQ completion processing */
 #define CQE_WRID_SQ_IDX(x)	((x)->u.scqe.cidx)
 
+/* generic accessor macros */
 #define CQE_WRID_HI(x)		((x)->u.gen.wrid_hi)
 #define CQE_WRID_LOW(x)		((x)->u.gen.wrid_low)
 
+/* macros for flit 3 of the cqe */
 #define S_CQE_GENBIT	63
 #define M_CQE_GENBIT	0x1
 #define G_CQE_GENBIT(x)	(((x) >> S_CQE_GENBIT) & M_CQE_GENBIT)
@@ -451,7 +460,7 @@ struct t4_cq {
 	size_t memsize;
 	__be64 bits_type_ts;
 	u32 cqid;
-	u16 size; 
+	u16 size; /* including status page */
 	u16 cidx;
 	u16 sw_pidx;
 	u16 sw_cidx;

@@ -17,6 +17,10 @@
 
 #define DMAOR_INIT	DMAOR_DME
 
+/*
+ * The SuperH DMAC supports a number of transmit sizes, we list them here,
+ * with their respective values as they appear in the CHCR registers.
+ */
 enum {
 	XMIT_SZ_8BIT,
 	XMIT_SZ_16BIT,
@@ -24,6 +28,7 @@ enum {
 	XMIT_SZ_128BIT,
 };
 
+/* log2(size / 8) - used to calculate number of transfers */
 #define TS_SHIFT {			\
 	[XMIT_SZ_8BIT]		= 0,	\
 	[XMIT_SZ_16BIT]		= 1,	\

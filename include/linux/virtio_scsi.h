@@ -6,24 +6,27 @@
 #define VIRTIO_SCSI_CDB_SIZE   32
 #define VIRTIO_SCSI_SENSE_SIZE 96
 
+/* SCSI command request, followed by data-out */
 struct virtio_scsi_cmd_req {
-	u8 lun[8];		
-	u64 tag;		
-	u8 task_attr;		
+	u8 lun[8];		/* Logical Unit Number */
+	u64 tag;		/* Command identifier */
+	u8 task_attr;		/* Task attribute */
 	u8 prio;
 	u8 crn;
 	u8 cdb[VIRTIO_SCSI_CDB_SIZE];
 } __packed;
 
+/* Response, followed by sense data and data-in */
 struct virtio_scsi_cmd_resp {
-	u32 sense_len;		
-	u32 resid;		
-	u16 status_qualifier;	
-	u8 status;		
-	u8 response;		
+	u32 sense_len;		/* Sense data length */
+	u32 resid;		/* Residual bytes in data buffer */
+	u16 status_qualifier;	/* Status qualifier */
+	u8 status;		/* Command completion status */
+	u8 response;		/* Response values */
 	u8 sense[VIRTIO_SCSI_SENSE_SIZE];
 } __packed;
 
+/* Task Management Request */
 struct virtio_scsi_ctrl_tmf_req {
 	u32 type;
 	u32 subtype;
@@ -35,6 +38,7 @@ struct virtio_scsi_ctrl_tmf_resp {
 	u8 response;
 } __packed;
 
+/* Asynchronous notification query/subscription */
 struct virtio_scsi_ctrl_an_req {
 	u32 type;
 	u8 lun[8];
@@ -65,6 +69,7 @@ struct virtio_scsi_config {
 	u32 max_lun;
 } __packed;
 
+/* Response codes */
 #define VIRTIO_SCSI_S_OK                       0
 #define VIRTIO_SCSI_S_OVERRUN                  1
 #define VIRTIO_SCSI_S_ABORTED                  2
@@ -79,10 +84,12 @@ struct virtio_scsi_config {
 #define VIRTIO_SCSI_S_FUNCTION_REJECTED        11
 #define VIRTIO_SCSI_S_INCORRECT_LUN            12
 
+/* Controlq type codes.  */
 #define VIRTIO_SCSI_T_TMF                      0
 #define VIRTIO_SCSI_T_AN_QUERY                 1
 #define VIRTIO_SCSI_T_AN_SUBSCRIBE             2
 
+/* Valid TMF subtypes.  */
 #define VIRTIO_SCSI_T_TMF_ABORT_TASK           0
 #define VIRTIO_SCSI_T_TMF_ABORT_TASK_SET       1
 #define VIRTIO_SCSI_T_TMF_CLEAR_ACA            2
@@ -92,6 +99,7 @@ struct virtio_scsi_config {
 #define VIRTIO_SCSI_T_TMF_QUERY_TASK           6
 #define VIRTIO_SCSI_T_TMF_QUERY_TASK_SET       7
 
+/* Events.  */
 #define VIRTIO_SCSI_T_EVENTS_MISSED            0x80000000
 #define VIRTIO_SCSI_T_NO_EVENT                 0
 #define VIRTIO_SCSI_T_TRANSPORT_RESET          1
@@ -103,4 +111,4 @@ struct virtio_scsi_config {
 #define VIRTIO_SCSI_S_ACA                      3
 
 
-#endif 
+#endif /* _LINUX_VIRTIO_SCSI_H */

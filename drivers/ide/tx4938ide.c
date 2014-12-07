@@ -31,18 +31,18 @@ static void tx4938ide_tune_ebusc(unsigned int ebus_ch,
 	unsigned int shwt;
 	int wt;
 
-	
+	/* Minimum DIOx- active time */
 	wt = DIV_ROUND_UP(t->act8b, cycle) - 2;
-	
+	/* IORDY setup time: 35ns */
 	wt = max_t(int, wt, DIV_ROUND_UP(35, cycle));
-	
+	/* actual wait-cycle is max(wt & ~1, 1) */
 	if (wt > 2 && (wt & 1))
 		wt++;
 	wt &= ~1;
-	
+	/* Address-valid to DIOR/DIOW setup */
 	shwt = DIV_ROUND_UP(t->setup, cycle);
 
-	
+	/* -DIOx recovery time (SHWT * 4) and cycle time requirement */
 	while ((shwt * 4 + wt + (wt ? 2 : 3)) * cycle < t->cycle)
 		shwt++;
 	if (shwt > 7) {
@@ -70,6 +70,7 @@ static void tx4938ide_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 
 #ifdef __BIG_ENDIAN
 
+/* custom iops (independent from SWAP_IO_SPACE) */
 static void tx4938ide_input_data_swap(ide_drive_t *drive, struct ide_cmd *cmd,
 				void *buf, unsigned int len)
 {
@@ -110,7 +111,7 @@ static const struct ide_tp_ops tx4938ide_tp_ops = {
 	.output_data		= tx4938ide_output_data_swap,
 };
 
-#endif	
+#endif	/* __BIG_ENDIAN */
 
 static const struct ide_port_ops tx4938ide_port_ops = {
 	.set_pio_mode		= tx4938ide_set_pio_mode,

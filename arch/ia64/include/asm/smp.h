@@ -68,6 +68,10 @@ extern volatile int ia64_cpu_to_sapicid[];
 
 extern unsigned long ap_wakeup_vector;
 
+/*
+ * Function to map hard smp processor id to logical id.  Slow, so don't use this in
+ * performance-critical code.
+ */
 static inline int
 cpu_logical_id (int cpuid)
 {
@@ -79,28 +83,35 @@ cpu_logical_id (int cpuid)
 	return i;
 }
 
+/*
+ * XTP control functions:
+ *	min_xtp   : route all interrupts to this CPU
+ *	normal_xtp: nominal XTP value
+ *	max_xtp   : never deliver interrupts to this CPU.
+ */
 
 static inline void
 min_xtp (void)
 {
 	if (smp_int_redirect & SMP_IRQ_REDIRECTION)
-		writeb(0x00, ipi_base_addr + XTP_OFFSET); 
+		writeb(0x00, ipi_base_addr + XTP_OFFSET); /* XTP to min */
 }
 
 static inline void
 normal_xtp (void)
 {
 	if (smp_int_redirect & SMP_IRQ_REDIRECTION)
-		writeb(0x08, ipi_base_addr + XTP_OFFSET); 
+		writeb(0x08, ipi_base_addr + XTP_OFFSET); /* XTP normal */
 }
 
 static inline void
 max_xtp (void)
 {
 	if (smp_int_redirect & SMP_IRQ_REDIRECTION)
-		writeb(0x0f, ipi_base_addr + XTP_OFFSET); 
+		writeb(0x0f, ipi_base_addr + XTP_OFFSET); /* Set XTP to max */
 }
 
+/* Upping and downing of CPUs */
 extern int __cpu_disable (void);
 extern void __cpu_die (unsigned int cpu);
 extern void cpu_die (void) __attribute__ ((noreturn));
@@ -117,10 +128,10 @@ extern int is_multithreading_enabled(void);
 extern void arch_send_call_function_single_ipi(int cpu);
 extern void arch_send_call_function_ipi_mask(const struct cpumask *mask);
 
-#else 
+#else /* CONFIG_SMP */
 
 #define cpu_logical_id(i)		0
 #define cpu_physical_id(i)		ia64_get_lid()
 
-#endif 
-#endif 
+#endif /* CONFIG_SMP */
+#endif /* _ASM_IA64_SMP_H */

@@ -14,6 +14,9 @@
 #include <mach/global_reg.h>
 #include <asm/mach/time.h>
 
+/*
+ * Register definitions for the timers
+ */
 #define TIMER_COUNT(BASE_ADDR)		(BASE_ADDR  + 0x00)
 #define TIMER_LOAD(BASE_ADDR)		(BASE_ADDR  + 0x04)
 #define TIMER_MATCH1(BASE_ADDR)		(BASE_ADDR  + 0x08)
@@ -30,6 +33,9 @@
 #define TIMER_3_CR_CLOCK		(1 << 7)
 #define TIMER_3_CR_INT			(1 << 8)
 
+/*
+ * IRQ handler for the timer
+ */
 static irqreturn_t gemini_timer_interrupt(int irq, void *dev_id)
 {
 	timer_tick();
@@ -43,6 +49,9 @@ static struct irqaction gemini_timer_irq = {
 	.handler	= gemini_timer_interrupt,
 };
 
+/*
+ * Set up timer interrupt, and return the current time in seconds.
+ */
 void __init gemini_timer_init(void)
 {
 	unsigned int tick_rate, reg_v;
@@ -52,7 +61,7 @@ void __init gemini_timer_init(void)
 
 	printk(KERN_INFO "Bus: %dMHz", tick_rate / 1000000);
 
-	tick_rate /= 6;		
+	tick_rate /= 6;		/* APB bus run AHB*(1/6) */
 
 	switch(reg_v & CPU_AHB_RATIO_MASK) {
 	case CPU_AHB_1_1:
@@ -69,8 +78,11 @@ void __init gemini_timer_init(void)
 		break;
 	}
 
+	/*
+	 * Make irqs happen for the system timer
+	 */
 	setup_irq(IRQ_TIMER2, &gemini_timer_irq);
-	
+	/* Start the timer */
 	__raw_writel(tick_rate / HZ, TIMER_COUNT(IO_ADDRESS(GEMINI_TIMER2_BASE)));
 	__raw_writel(tick_rate / HZ, TIMER_LOAD(IO_ADDRESS(GEMINI_TIMER2_BASE)));
 	__raw_writel(TIMER_2_CR_ENABLE | TIMER_2_CR_INT, TIMER_CR(IO_ADDRESS(GEMINI_TIMER_BASE)));

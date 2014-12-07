@@ -10,4 +10,4 @@
 #define CFG_GLOBAL_RAM_BASE                     0x00000000
 #define CFG_GLOBAL_RAM_RESERVED_SIZE            0x000000
 
-#endif 
+#endif /* _CFG_GLOBAL_H_ */

@@ -28,23 +28,23 @@ MODULE_AUTHOR("Vivien Chappelier <vivien.chappelier@linux-mips.org");
 MODULE_DESCRIPTION("SGI O2 MACE PS2 controller driver");
 MODULE_LICENSE("GPL");
 
-#define MACE_PS2_TIMEOUT 10000 
+#define MACE_PS2_TIMEOUT 10000 /* in 50us unit */
 
-#define PS2_STATUS_CLOCK_SIGNAL  BIT(0) 
-#define PS2_STATUS_CLOCK_INHIBIT BIT(1) 
-#define PS2_STATUS_TX_INPROGRESS BIT(2) 
-#define PS2_STATUS_TX_EMPTY      BIT(3) 
-#define PS2_STATUS_RX_FULL       BIT(4) 
-#define PS2_STATUS_RX_INPROGRESS BIT(5) 
-#define PS2_STATUS_ERROR_PARITY  BIT(6) 
-#define PS2_STATUS_ERROR_FRAMING BIT(7) 
+#define PS2_STATUS_CLOCK_SIGNAL  BIT(0) /* external clock signal */
+#define PS2_STATUS_CLOCK_INHIBIT BIT(1) /* clken output signal */
+#define PS2_STATUS_TX_INPROGRESS BIT(2) /* transmission in progress */
+#define PS2_STATUS_TX_EMPTY      BIT(3) /* empty transmit buffer */
+#define PS2_STATUS_RX_FULL       BIT(4) /* full receive buffer */
+#define PS2_STATUS_RX_INPROGRESS BIT(5) /* reception in progress */
+#define PS2_STATUS_ERROR_PARITY  BIT(6) /* parity error */
+#define PS2_STATUS_ERROR_FRAMING BIT(7) /* framing error */
 
-#define PS2_CONTROL_TX_CLOCK_DISABLE BIT(0) 
-#define PS2_CONTROL_TX_ENABLE        BIT(1) 
-#define PS2_CONTROL_TX_INT_ENABLE    BIT(2) 
-#define PS2_CONTROL_RX_INT_ENABLE    BIT(3) 
-#define PS2_CONTROL_RX_CLOCK_ENABLE  BIT(4) 
-#define PS2_CONTROL_RESET            BIT(5) 
+#define PS2_CONTROL_TX_CLOCK_DISABLE BIT(0) /* inhibit clock signal after TX */
+#define PS2_CONTROL_TX_ENABLE        BIT(1) /* transmit enable */
+#define PS2_CONTROL_TX_INT_ENABLE    BIT(2) /* enable transmit interrupt */
+#define PS2_CONTROL_RX_INT_ENABLE    BIT(3) /* enable receive interrupt */
+#define PS2_CONTROL_RX_CLOCK_ENABLE  BIT(4) /* pause reception if set to 0 */
+#define PS2_CONTROL_RESET            BIT(5) /* reset */
 
 struct maceps2_data {
 	struct mace_ps2port *port;
@@ -94,11 +94,11 @@ static int maceps2_open(struct serio *dev)
 		return -EBUSY;
 	}
 
-	
+	/* Reset port */
 	data->port->control = PS2_CONTROL_TX_CLOCK_DISABLE | PS2_CONTROL_RESET;
 	udelay(100);
 
-        
+        /* Enable interrupts */
 	data->port->control = PS2_CONTROL_RX_CLOCK_ENABLE |
 			      PS2_CONTROL_TX_ENABLE |
 			      PS2_CONTROL_RX_INT_ENABLE;

@@ -27,4 +27,4 @@ extern void brcms_c_ampdu_dotxstatus(struct ampdu_info *ampdu, struct scb *scb,
 extern void brcms_c_ampdu_macaddr_upd(struct brcms_c_info *wlc);
 extern void brcms_c_ampdu_shm_upd(struct ampdu_info *ampdu);
 
-#endif				
+#endif				/* _BRCM_AMPDU_H_ */

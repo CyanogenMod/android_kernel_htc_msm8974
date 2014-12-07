@@ -52,6 +52,7 @@
 #define wait_for(COND, MS) _wait_for(COND, MS, 1)
 #define wait_for_atomic(COND, MS) _wait_for(COND, MS, 0)
 
+/* Intel GPIO access functions */
 
 #define I2C_RISEFALL_TIME 20
 
@@ -76,7 +77,23 @@ gma_intel_i2c_reset(struct drm_device *dev)
 
 static void intel_i2c_quirk_set(struct drm_psb_private *dev_priv, bool enable)
 {
-	
+	/* When using bit bashing for I2C, this bit needs to be set to 1 */
+	/* FIXME: We are never Pineview, right?
+
+	u32 val;
+
+	if (!IS_PINEVIEW(dev_priv->dev))
+		return;
+
+	val = REG_READ(DSPCLK_GATE_D);
+	if (enable)
+		val |= DPCUNIT_CLOCK_GATE_DISABLE;
+	else
+		val &= ~DPCUNIT_CLOCK_GATE_DISABLE;
+	REG_WRITE(DSPCLK_GATE_D, val);
+
+	return;
+	*/
 }
 
 static u32 get_reserved(struct intel_gpio *gpio)
@@ -85,7 +102,7 @@ static u32 get_reserved(struct intel_gpio *gpio)
 	struct drm_device *dev = dev_priv->dev;
 	u32 reserved = 0;
 
-	
+	/* On most chips, these bits must be preserved in software. */
 	reserved = REG_READ(gpio->reg) &
 				     (GPIO_DATA_PULLUP_DISABLE |
 				      GPIO_CLOCK_PULLUP_DISABLE);
@@ -130,7 +147,7 @@ static void set_clock(void *data, int state_high)
 			GPIO_CLOCK_VAL_MASK;
 
 	REG_WRITE(gpio->reg, reserved | clock_bits);
-	REG_READ(gpio->reg); 
+	REG_READ(gpio->reg); /* Posting */
 }
 
 static void set_data(void *data, int state_high)
@@ -312,10 +329,17 @@ gmbus_xfer(struct i2c_adapter *adapter,
 	goto done;
 
 clear_err:
+	/* Toggle the Software Clear Interrupt bit. This has the effect
+	 * of resetting the GMBUS controller and so clearing the
+	 * BUS_ERROR raised by the slave's NAK.
+	 */
 	REG_WRITE(GMBUS1 + reg_offset, GMBUS_SW_CLR_INT);
 	REG_WRITE(GMBUS1 + reg_offset, 0);
 
 done:
+	/* Mark the GMBUS interface as disabled. We will re-enable it at the
+	 * start of the next xfer, till then let it sleep.
+	 */
 	REG_WRITE(GMBUS0 + reg_offset, 0);
 	return i;
 
@@ -324,7 +348,7 @@ timeout:
 		 bus->reg0 & 0xff, bus->adapter.name);
 	REG_WRITE(GMBUS0 + reg_offset, 0);
 
-	
+	/* Hardware may not support GMBUS over these pins? Try GPIO bitbanging instead. */
 	bus->force_bit = intel_gpio_create(dev_priv, bus->reg0 & 0xff);
 	if (!bus->force_bit)
 		return -ENOMEM;
@@ -342,7 +366,7 @@ static u32 gmbus_func(struct i2c_adapter *adapter)
 		bus->force_bit->algo->functionality(bus->force_bit);
 
 	return (I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL |
-		
+		/* I2C_FUNC_10BIT_ADDR | */
 		I2C_FUNC_SMBUS_READ_BLOCK_DATA |
 		I2C_FUNC_SMBUS_BLOCK_PROC_CALL);
 }
@@ -352,6 +376,10 @@ static const struct i2c_algorithm gmbus_algorithm = {
 	.functionality	= gmbus_func
 };
 
+/**
+ * intel_gmbus_setup - instantiate all Intel i2c GMBuses
+ * @dev: DRM device
+ */
 int gma_intel_setup_gmbus(struct drm_device *dev)
 {
 	static const char *names[GMBUS_NUM_PORTS] = {
@@ -390,10 +418,10 @@ int gma_intel_setup_gmbus(struct drm_device *dev)
 		if (ret)
 			goto err;
 
-		
+		/* By default use a conservative clock rate */
 		bus->reg0 = i | GMBUS_RATE_100KHZ;
 
-		
+		/* XXX force bit banging until GMBUS is fully debugged */
 		bus->force_bit = intel_gpio_create(dev_priv, i);
 	}
 
@@ -415,6 +443,12 @@ void gma_intel_gmbus_set_speed(struct i2c_adapter *adapter, int speed)
 {
 	struct intel_gmbus *bus = to_intel_gmbus(adapter);
 
+	/* speed:
+	 * 0x0 = 100 KHz
+	 * 0x1 = 50 KHz
+	 * 0x2 = 400 KHz
+	 * 0x3 = 1000 Khz
+	 */
 	bus->reg0 = (bus->reg0 & ~(0x3 << 8)) | (speed << 8);
 }
 

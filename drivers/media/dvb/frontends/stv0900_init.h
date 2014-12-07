@@ -28,84 +28,86 @@
 
 #include "stv0900_priv.h"
 
+/* DVBS2 C/N Look-Up table */
 static const struct stv0900_table stv0900_s2_cn = {
 	55,
 	{
-		{ -30,	13348 }, 
-		{ -20,	12640 }, 
-		{ -10,	11883 }, 
-		{ 0,	11101 }, 
-		{ 5,	10718 }, 
-		{ 10,	10339 }, 
-		{ 15,	9947 }, 
-		{ 20,	9552 }, 
-		{ 25,	9183 }, 
-		{ 30,	8799 }, 
-		{ 35,	8422 }, 
-		{ 40,	8062 }, 
-		{ 45,	7707 }, 
-		{ 50,	7353 }, 
-		{ 55,	7025 }, 
-		{ 60,	6684 }, 
-		{ 65,	6331 }, 
-		{ 70,	6036 }, 
-		{ 75,	5727 }, 
-		{ 80,	5437 }, 
-		{ 85,	5164 }, 
-		{ 90,	4902 }, 
-		{ 95,	4653 }, 
-		{ 100,	4408 }, 
-		{ 105,	4187 }, 
-		{ 110,	3961 }, 
-		{ 115,	3751 }, 
-		{ 120,	3558 }, 
-		{ 125,	3368 }, 
-		{ 130,	3191 }, 
-		{ 135,	3017 }, 
-		{ 140,	2862 }, 
-		{ 145,	2710 }, 
-		{ 150,	2565 }, 
-		{ 160,	2300 }, 
-		{ 170,	2058 }, 
-		{ 180,	1849 }, 
-		{ 190,	1663 }, 
-		{ 200,	1495 }, 
-		{ 210,	1349 }, 
-		{ 220,	1222 }, 
-		{ 230,	1110 }, 
-		{ 240,	1011 }, 
-		{ 250,	925 }, 
-		{ 260,	853 }, 
-		{ 270,	789 }, 
-		{ 280,	734 }, 
-		{ 290,	690 }, 
-		{ 300,	650 }, 
-		{ 310,	619 }, 
-		{ 320,	593 }, 
-		{ 330,	571 }, 
-		{ 400,	498 }, 
-		{ 450,	484 }, 
-		{ 500,	481 }  
+		{ -30,	13348 }, /*C/N=-3dB*/
+		{ -20,	12640 }, /*C/N=-2dB*/
+		{ -10,	11883 }, /*C/N=-1dB*/
+		{ 0,	11101 }, /*C/N=-0dB*/
+		{ 5,	10718 }, /*C/N=0.5dB*/
+		{ 10,	10339 }, /*C/N=1.0dB*/
+		{ 15,	9947 }, /*C/N=1.5dB*/
+		{ 20,	9552 }, /*C/N=2.0dB*/
+		{ 25,	9183 }, /*C/N=2.5dB*/
+		{ 30,	8799 }, /*C/N=3.0dB*/
+		{ 35,	8422 }, /*C/N=3.5dB*/
+		{ 40,	8062 }, /*C/N=4.0dB*/
+		{ 45,	7707 }, /*C/N=4.5dB*/
+		{ 50,	7353 }, /*C/N=5.0dB*/
+		{ 55,	7025 }, /*C/N=5.5dB*/
+		{ 60,	6684 }, /*C/N=6.0dB*/
+		{ 65,	6331 }, /*C/N=6.5dB*/
+		{ 70,	6036 }, /*C/N=7.0dB*/
+		{ 75,	5727 }, /*C/N=7.5dB*/
+		{ 80,	5437 }, /*C/N=8.0dB*/
+		{ 85,	5164 }, /*C/N=8.5dB*/
+		{ 90,	4902 }, /*C/N=9.0dB*/
+		{ 95,	4653 }, /*C/N=9.5dB*/
+		{ 100,	4408 }, /*C/N=10.0dB*/
+		{ 105,	4187 }, /*C/N=10.5dB*/
+		{ 110,	3961 }, /*C/N=11.0dB*/
+		{ 115,	3751 }, /*C/N=11.5dB*/
+		{ 120,	3558 }, /*C/N=12.0dB*/
+		{ 125,	3368 }, /*C/N=12.5dB*/
+		{ 130,	3191 }, /*C/N=13.0dB*/
+		{ 135,	3017 }, /*C/N=13.5dB*/
+		{ 140,	2862 }, /*C/N=14.0dB*/
+		{ 145,	2710 }, /*C/N=14.5dB*/
+		{ 150,	2565 }, /*C/N=15.0dB*/
+		{ 160,	2300 }, /*C/N=16.0dB*/
+		{ 170,	2058 }, /*C/N=17.0dB*/
+		{ 180,	1849 }, /*C/N=18.0dB*/
+		{ 190,	1663 }, /*C/N=19.0dB*/
+		{ 200,	1495 }, /*C/N=20.0dB*/
+		{ 210,	1349 }, /*C/N=21.0dB*/
+		{ 220,	1222 }, /*C/N=22.0dB*/
+		{ 230,	1110 }, /*C/N=23.0dB*/
+		{ 240,	1011 }, /*C/N=24.0dB*/
+		{ 250,	925 }, /*C/N=25.0dB*/
+		{ 260,	853 }, /*C/N=26.0dB*/
+		{ 270,	789 }, /*C/N=27.0dB*/
+		{ 280,	734 }, /*C/N=28.0dB*/
+		{ 290,	690 }, /*C/N=29.0dB*/
+		{ 300,	650 }, /*C/N=30.0dB*/
+		{ 310,	619 }, /*C/N=31.0dB*/
+		{ 320,	593 }, /*C/N=32.0dB*/
+		{ 330,	571 }, /*C/N=33.0dB*/
+		{ 400,	498 }, /*C/N=40.0dB*/
+		{ 450,	484 }, /*C/N=45.0dB*/
+		{ 500,	481 }  /*C/N=50.0dB*/
 	}
 };
 
+/* RF level C/N Look-Up table */
 static const struct stv0900_table stv0900_rf = {
 	14,
 	{
-		{ -5, 0xCAA1 }, 
-		{ -10, 0xC229 }, 
-		{ -15, 0xBB08 }, 
-		{ -20, 0xB4BC }, 
-		{ -25, 0xAD5A }, 
-		{ -30, 0xA298 }, 
-		{ -35, 0x98A8 }, 
-		{ -40, 0x8389 }, 
-		{ -45, 0x59BE }, 
-		{ -50, 0x3A14 }, 
-		{ -55, 0x2D11 }, 
-		{ -60, 0x210D }, 
-		{ -65, 0xA14F }, 
-		{ -70, 0x7AA }	
+		{ -5, 0xCAA1 }, /*-5dBm*/
+		{ -10, 0xC229 }, /*-10dBm*/
+		{ -15, 0xBB08 }, /*-15dBm*/
+		{ -20, 0xB4BC }, /*-20dBm*/
+		{ -25, 0xAD5A }, /*-25dBm*/
+		{ -30, 0xA298 }, /*-30dBm*/
+		{ -35, 0x98A8 }, /*-35dBm*/
+		{ -40, 0x8389 }, /*-40dBm*/
+		{ -45, 0x59BE }, /*-45dBm*/
+		{ -50, 0x3A14 }, /*-50dBm*/
+		{ -55, 0x2D11 }, /*-55dBm*/
+		{ -60, 0x210D }, /*-60dBm*/
+		{ -65, 0xA14F }, /*-65dBm*/
+		{ -70, 0x7AA }	/*-70dBm*/
 	}
 };
 
@@ -126,29 +128,32 @@ struct stv0900_car_loop_optim {
 
 struct stv0900_short_frames_car_loop_optim {
 	enum fe_stv0900_modulation modulation;
-	u8 car_loop_cut12_2;    
-	u8 car_loop_cut20_2;    
-	u8 car_loop_cut12_5;    
-	u8 car_loop_cut20_5;    
-	u8 car_loop_cut12_10;   
-	u8 car_loop_cut20_10;   
-	u8 car_loop_cut12_20;   
-	u8 car_loop_cut20_20;   
-	u8 car_loop_cut12_30;   
-	u8 car_loop_cut20_30;   
+	u8 car_loop_cut12_2;    /* Cut 1.2,   SR<=3msps     */
+	u8 car_loop_cut20_2;    /* Cut 2.0,   SR<3msps      */
+	u8 car_loop_cut12_5;    /* Cut 1.2,   3<SR<=7msps   */
+	u8 car_loop_cut20_5;    /* Cut 2.0,   3<SR<=7msps   */
+	u8 car_loop_cut12_10;   /* Cut 1.2,   7<SR<=15msps  */
+	u8 car_loop_cut20_10;   /* Cut 2.0,   7<SR<=15msps  */
+	u8 car_loop_cut12_20;   /* Cut 1.2,   10<SR<=25msps */
+	u8 car_loop_cut20_20;   /* Cut 2.0,   10<SR<=25msps */
+	u8 car_loop_cut12_30;   /* Cut 1.2,   25<SR<=45msps */
+	u8 car_loop_cut20_30;   /* Cut 2.0,   10<SR<=45msps */
 
 };
 
 struct stv0900_short_frames_car_loop_optim_vs_mod {
 	enum fe_stv0900_modulation modulation;
-	u8 car_loop_2;	  
-	u8 car_loop_5;	  
-	u8 car_loop_10;   
-	u8 car_loop_20;   
-	u8 car_loop_30;   
+	u8 car_loop_2;	  /* SR<3msps      */
+	u8 car_loop_5;	  /* 3<SR<=7msps   */
+	u8 car_loop_10;   /* 7<SR<=15msps  */
+	u8 car_loop_20;   /* 10<SR<=25msps */
+	u8 car_loop_30;   /* 10<SR<=45msps */
 };
 
+/* Cut 1.x Tracking carrier loop carrier QPSK 1/2 to 8PSK 9/10 long Frame */
 static const struct stv0900_car_loop_optim FE_STV0900_S2CarLoop[14] = {
+	/*Modcod		2MPon 	2MPoff	5MPon 	5MPoff	10MPon
+				10MPoff	20MPon 	20MPoff	30MPon 	30MPoff */
 	{ STV0900_QPSK_12,	0x1C,	0x0D,	0x1B,	0x2C,	0x3A,
 				0x1C,	0x2A,	0x3B,	0x2A,	0x1B },
 	{ STV0900_QPSK_35,	0x2C,	0x0D,	0x2B,	0x2C,	0x3A,
@@ -180,7 +185,10 @@ static const struct stv0900_car_loop_optim FE_STV0900_S2CarLoop[14] = {
 };
 
 
+/* Cut 2.0 Tracking carrier loop carrier QPSK 1/2 to 8PSK 9/10 long Frame */
 static const struct stv0900_car_loop_optim FE_STV0900_S2CarLoopCut20[14] = {
+	/* Modcod		2MPon 	2MPoff	5MPon 	5MPoff	10MPon
+				10MPoff	20MPon 	20MPoff	30MPon 	30MPoff */
 	{ STV0900_QPSK_12,	0x1F,	0x3F,	0x1E,	0x3F,	0x3D,
 				0x1F,	0x3D,	0x3E,	0x3D,	0x1E },
 	{ STV0900_QPSK_35,	0x2F,	0x3F,	0x2E,	0x2F,	0x3D,
@@ -213,7 +221,10 @@ static const struct stv0900_car_loop_optim FE_STV0900_S2CarLoopCut20[14] = {
 
 
 
+/* Cut 2.0 Tracking carrier loop carrier 16APSK 2/3 to 32APSK 9/10 long Frame */
 static const struct stv0900_car_loop_optim FE_STV0900_S2APSKCarLoopCut20[11] = {
+	/* Modcod		2MPon 	2MPoff	5MPon 	5MPoff	10MPon
+				10MPoff	20MPon 	20MPoff	30MPon 	30MPoff */
 	{ STV0900_16APSK_23,	0x0C,	0x0C,	0x0C,	0x0C,	0x1D,
 				0x0C,	0x3C,	0x0C,	0x2C,	0x0C },
 	{ STV0900_16APSK_34,	0x0C,	0x0C,	0x0C,	0x0C,	0x0E,
@@ -239,7 +250,10 @@ static const struct stv0900_car_loop_optim FE_STV0900_S2APSKCarLoopCut20[11] = {
 };
 
 
+/* Cut 2.0 Tracking carrier loop carrier QPSK 1/4 to QPSK 2/5 long Frame */
 static const struct stv0900_car_loop_optim FE_STV0900_S2LowQPCarLoopCut20[3] = {
+	/* Modcod		2MPon 	2MPoff	5MPon 	5MPoff	10MPon
+				10MPoff	20MPon 	20MPoff	30MPon 	30MPoff */
 	{ STV0900_QPSK_14,	0x0F,	0x3F,	0x0E,	0x3F,	0x2D,
 				0x2F,	0x2D,	0x1F,	0x3D,	0x3E },
 	{ STV0900_QPSK_13,	0x0F,	0x3F,	0x0E,	0x3F,	0x2D,
@@ -249,8 +263,11 @@ static const struct stv0900_car_loop_optim FE_STV0900_S2LowQPCarLoopCut20[3] = {
 };
 
 
+/* Cut 2.0 Tracking carrier loop carrier  short Frame, cut 1.2 and 2.0 */
 static const
 struct stv0900_short_frames_car_loop_optim FE_STV0900_S2ShortCarLoop[4] = {
+	/*Mod		2Mcut1.2 2Mcut2.0 5Mcut1.2 5Mcut2.0 10Mcut1.2
+			10Mcut2.0 20Mcut1.2 20M_cut2.0 30Mcut1.2 30Mcut2.0*/
 	{ STV0900_QPSK,		0x3C,	0x2F,	0x2B,	0x2E,	0x0B,
 				0x0E,	0x3A,	0x0E,	0x2A,	0x3D },
 	{ STV0900_8PSK,		0x0B,	0x3E,	0x2A,	0x0E,	0x0A,
@@ -262,6 +279,8 @@ struct stv0900_short_frames_car_loop_optim FE_STV0900_S2ShortCarLoop[4] = {
 };
 
 static	const struct stv0900_car_loop_optim FE_STV0900_S2CarLoopCut30[14] = {
+	/*Modcod		2MPon 	2MPoff	5MPon 	5MPoff	10MPon
+				10MPoff	20MPon 	20MPoff	30MPon 	30MPoff	*/
 	{ STV0900_QPSK_12,	0x3C,	0x2C,	0x0C,	0x2C,	0x1B,
 				0x2C,	0x1B,	0x1C,	0x0B, 	0x3B },
 	{ STV0900_QPSK_35,	0x0D,	0x0D,	0x0C,	0x0D,	0x1B,
@@ -294,6 +313,8 @@ static	const struct stv0900_car_loop_optim FE_STV0900_S2CarLoopCut30[14] = {
 
 static	const
 struct stv0900_car_loop_optim FE_STV0900_S2APSKCarLoopCut30[11] = {
+	/*Modcod		2MPon 	2MPoff	5MPon 	5MPoff	10MPon
+				10MPoff	20MPon 	20MPoff	30MPon 	30MPoff	*/
 	{ STV0900_16APSK_23,	0x0A,	0x0A,	0x0A,	0x0A,	0x1A,
 				0x0A,	0x3A,	0x0A,	0x2A,	0x0A },
 	{ STV0900_16APSK_34,	0x0A,	0x0A,	0x0A,	0x0A,	0x0B,
@@ -320,6 +341,8 @@ struct stv0900_car_loop_optim FE_STV0900_S2APSKCarLoopCut30[11] = {
 
 static	const
 struct stv0900_car_loop_optim FE_STV0900_S2LowQPCarLoopCut30[3] = {
+	/*Modcod		2MPon 	2MPoff	5MPon 	5MPoff	10MPon
+				10MPoff	20MPon 	20MPoff	30MPon 	30MPoff*/
 	{ STV0900_QPSK_14,	0x0C,	0x3C,	0x0B,	0x3C,	0x2A,
 				0x2C,	0x2A,	0x1C,	0x3A,	0x3B },
 	{ STV0900_QPSK_13,	0x0C,	0x3C,	0x0B,	0x3C,	0x2A,
@@ -330,7 +353,7 @@ struct stv0900_car_loop_optim FE_STV0900_S2LowQPCarLoopCut30[3] = {
 
 static	const struct stv0900_short_frames_car_loop_optim_vs_mod
 FE_STV0900_S2ShortCarLoopCut30[4] = {
-	
+	/*Mod		2Mcut3.0 5Mcut3.0 10Mcut3.0 20Mcut3.0 30Mcut3.0*/
 	{ STV0900_QPSK,		0x2C,	0x2B,	0x0B,	0x0B,	0x3A },
 	{ STV0900_8PSK,		0x3B,	0x0B,	0x2A,	0x0A,	0x39 },
 	{ STV0900_16APSK,	0x1B,	0x1B,	0x1B,	0x3A,	0x2A },
@@ -502,10 +525,10 @@ static const u16 STV0900_InitVal[181][2] = {
 	{ R0900_GAINLLR_NF16	, 0x1F	},
 	{ R0900_GAINLLR_NF17	, 0x21	},
 	{ R0900_RCCFG2		, 0x20	},
-	{ R0900_P1_FECM		, 0x01	}, 
-	{ R0900_P2_FECM		, 0x01	}, 
-	{ R0900_P1_PRVIT	, 0x2F	}, 
-	{ R0900_P2_PRVIT	, 0x2F	}, 
+	{ R0900_P1_FECM		, 0x01	}, /*disable DSS modes*/
+	{ R0900_P2_FECM		, 0x01	}, /*disable DSS modes*/
+	{ R0900_P1_PRVIT	, 0x2F	}, /*disable puncture rate 6/7*/
+	{ R0900_P2_PRVIT	, 0x2F	}, /*disable puncture rate 6/7*/
 	{ R0900_STROUT1CFG	, 0x4c	},
 	{ R0900_STROUT2CFG	, 0x4c	},
 	{ R0900_CLKOUT1CFG	, 0x50	},
@@ -516,8 +539,8 @@ static const u16 STV0900_InitVal[181][2] = {
 	{ R0900_DATA72CFG	, 0x52	},
 	{ R0900_P1_TSCFGM	, 0xc0	},
 	{ R0900_P2_TSCFGM	, 0xc0	},
-	{ R0900_P1_TSCFGH	, 0xe0	}, 
-	{ R0900_P2_TSCFGH	, 0xe0	}, 
+	{ R0900_P1_TSCFGH	, 0xe0	}, /* DVB-CI timings */
+	{ R0900_P2_TSCFGH	, 0xe0	}, /* DVB-CI timings */
 	{ R0900_P1_TSSPEED	, 0x40	},
 	{ R0900_P2_TSSPEED	, 0x40	},
 };

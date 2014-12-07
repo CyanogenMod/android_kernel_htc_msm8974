@@ -25,13 +25,26 @@
 #include "buffer.h"
 #include "iio_simple_dummy.h"
 
+/*
+ * A few elements needed to fake a bus for this driver
+ * Note instances parmeter controls how many of these
+ * dummy devices are registered.
+ */
 static unsigned instances = 1;
 module_param(instances, int, 0);
 
+/* Pointer array used to fake bus elements */
 static struct iio_dev **iio_dummy_devs;
 
+/* Fake a name for the part number, usually obtained from the id table */
 static const char *iio_dummy_part_number = "iio_dummy_part_no";
 
+/**
+ * struct iio_dummy_accel_calibscale - realworld to register mapping
+ * @val: first value in read_raw - here integer part.
+ * @val2: second value in read_raw etc - here micro part.
+ * @regval: register value - magic device specific numbers.
+ */
 struct iio_dummy_accel_calibscale {
 	int val;
 	int val2;
@@ -39,53 +52,82 @@ struct iio_dummy_accel_calibscale {
 };
 
 static const struct iio_dummy_accel_calibscale dummy_scales[] = {
-	{ 0, 100, 0x8 }, 
-	{ 0, 133, 0x7 }, 
-	{ 733, 13, 0x9 }, 
+	{ 0, 100, 0x8 }, /* 0.000100 */
+	{ 0, 133, 0x7 }, /* 0.000133 */
+	{ 733, 13, 0x9 }, /* 733.00013 */
 };
 
+/*
+ * iio_dummy_channels - Description of available channels
+ *
+ * This array of structures tells the IIO core about what the device
+ * actually provides for a given channel.
+ */
 static struct iio_chan_spec iio_dummy_channels[] = {
-	
+	/* indexed ADC channel in_voltage0_raw etc */
 	{
 		.type = IIO_VOLTAGE,
-		
+		/* Channel has a numeric index of 0 */
 		.indexed = 1,
 		.channel = 0,
-		
+		/* What other information is available? */
 		.info_mask =
+		/*
+		 * in_voltage0_offset
+		 * Offset for userspace to apply prior to scale
+		 * when converting to standard units (microvolts)
+		 */
 		IIO_CHAN_INFO_OFFSET_SEPARATE_BIT |
+		/*
+		 * in_voltage0_scale
+		 * Multipler for userspace to apply post offset
+		 * when converting to standard units (microvolts)
+		 */
 		IIO_CHAN_INFO_SCALE_SEPARATE_BIT,
-		
+		/* The ordering of elements in the buffer via an enum */
 		.scan_index = voltage0,
-		.scan_type = { 
-			.sign = 'u', 
-			.realbits = 13, 
-			.storagebits = 16, 
-			.shift = 0, 
+		.scan_type = { /* Description of storage in buffer */
+			.sign = 'u', /* unsigned */
+			.realbits = 13, /* 13 bits */
+			.storagebits = 16, /* 16 bits used for storage */
+			.shift = 0, /* zero shift */
 		},
 #ifdef CONFIG_IIO_SIMPLE_DUMMY_EVENTS
+		/*
+		 * simple event - triggered when value rises above
+		 * a threshold
+		 */
 		.event_mask = IIO_EV_BIT(IIO_EV_TYPE_THRESH,
 					 IIO_EV_DIR_RISING),
-#endif 
+#endif /* CONFIG_IIO_SIMPLE_DUMMY_EVENTS */
 	},
-	
+	/* Differential ADC channel in_voltage1-voltage2_raw etc*/
 	{
 		.type = IIO_VOLTAGE,
 		.differential = 1,
+		/*
+		 * Indexing for differential channels uses channel
+		 * for the positive part, channel2 for the negative.
+		 */
 		.indexed = 1,
 		.channel = 1,
 		.channel2 = 2,
 		.info_mask =
+		/*
+		 * in_voltage-voltage_scale
+		 * Shared version of scale - shared by differential
+		 * input channels of type IIO_VOLTAGE.
+		 */
 		IIO_CHAN_INFO_SCALE_SHARED_BIT,
 		.scan_index = diffvoltage1m2,
-		.scan_type = { 
-			.sign = 's', 
-			.realbits = 12, 
-			.storagebits = 16, 
-			.shift = 0, 
+		.scan_type = { /* Description of storage in buffer */
+			.sign = 's', /* signed */
+			.realbits = 12, /* 12 bits */
+			.storagebits = 16, /* 16 bits used for storage */
+			.shift = 0, /* zero shift */
 		},
 	},
-	
+	/* Differential ADC channel in_voltage3-voltage4_raw etc*/
 	{
 		.type = IIO_VOLTAGE,
 		.differential = 1,
@@ -102,23 +144,37 @@ static struct iio_chan_spec iio_dummy_channels[] = {
 			.shift = 0,
 		},
 	},
+	/*
+	 * 'modified' (i.e. axis specified) acceleration channel
+	 * in_accel_z_raw
+	 */
 	{
 		.type = IIO_ACCEL,
 		.modified = 1,
-		
+		/* Channel 2 is use for modifiers */
 		.channel2 = IIO_MOD_X,
 		.info_mask =
+		/*
+		 * Internal bias correction value. Applied
+		 * by the hardware or driver prior to userspace
+		 * seeing the readings. Typically part of hardware
+		 * calibration.
+		 */
 		IIO_CHAN_INFO_CALIBBIAS_SEPARATE_BIT,
 		.scan_index = accelx,
-		.scan_type = { 
-			.sign = 's', 
-			.realbits = 16, 
-			.storagebits = 16, 
-			.shift = 0, 
+		.scan_type = { /* Description of storage in buffer */
+			.sign = 's', /* signed */
+			.realbits = 16, /* 12 bits */
+			.storagebits = 16, /* 16 bits used for storage */
+			.shift = 0, /* zero shift */
 		},
 	},
+	/*
+	 * Convenience macro for timestamps. 4 is the index in
+	 * the buffer.
+	 */
 	IIO_CHAN_SOFT_TIMESTAMP(4),
-	
+	/* DAC channel out_voltage0_raw */
 	{
 		.type = IIO_VOLTAGE,
 		.output = 1,
@@ -127,6 +183,15 @@ static struct iio_chan_spec iio_dummy_channels[] = {
 	},
 };
 
+/**
+ * iio_dummy_read_raw() - data read function.
+ * @indio_dev:	the struct iio_dev associated with this device instance
+ * @chan:	the channel whose data is to be read
+ * @val:	first element of returned value (typically INT)
+ * @val2:	second element of returned value (typically MICRO)
+ * @mask:	what we actually want to read. 0 is the channel, everything else
+ *		is as per the info_mask in iio_chan_spec.
+ */
 static int iio_dummy_read_raw(struct iio_dev *indio_dev,
 			      struct iio_chan_spec const *chan,
 			      int *val,
@@ -138,11 +203,11 @@ static int iio_dummy_read_raw(struct iio_dev *indio_dev,
 
 	mutex_lock(&st->lock);
 	switch (mask) {
-	case 0: 
+	case 0: /* magic value - channel value read */
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if (chan->output) {
-				
+				/* Set integer part to cached value */
 				*val = st->dac_val;
 				ret = IIO_VAL_INT;
 			} else if (chan->differential) {
@@ -165,27 +230,27 @@ static int iio_dummy_read_raw(struct iio_dev *indio_dev,
 		}
 		break;
 	case IIO_CHAN_INFO_OFFSET:
-		
+		/* only single ended adc -> 7 */
 		*val = 7;
 		ret = IIO_VAL_INT;
 		break;
 	case IIO_CHAN_INFO_SCALE:
 		switch (chan->differential) {
 		case 0:
-			
+			/* only single ended adc -> 0.001333 */
 			*val = 0;
 			*val2 = 1333;
 			ret = IIO_VAL_INT_PLUS_MICRO;
 			break;
 		case 1:
-			
+			/* all differential adc channels -> 0.000001344 */
 			*val = 0;
 			*val2 = 1344;
 			ret = IIO_VAL_INT_PLUS_NANO;
 		}
 		break;
 	case IIO_CHAN_INFO_CALIBBIAS:
-		
+		/* only the acceleration axis - read from cache */
 		*val = st->accel_calibbias;
 		ret = IIO_VAL_INT;
 		break;
@@ -201,6 +266,19 @@ static int iio_dummy_read_raw(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * iio_dummy_write_raw() - data write function.
+ * @indio_dev:	the struct iio_dev associated with this device instance
+ * @chan:	the channel whose data is to be read
+ * @val:	first element of returned value (typically INT)
+ * @val2:	second element of returned value (typically MICRO)
+ * @mask:	what we actually want to read. 0 is the channel, everything else
+ *		is as per the info_mask in iio_chan_spec.
+ *
+ * Note that all raw writes are assumed IIO_VAL_INT and info mask elements
+ * are assumed to be IIO_INT_PLUS_MICRO unless the callback write_raw_get_fmt
+ * in struct iio_info is provided by the driver.
+ */
 static int iio_dummy_write_raw(struct iio_dev *indio_dev,
 			       struct iio_chan_spec const *chan,
 			       int val,
@@ -216,14 +294,14 @@ static int iio_dummy_write_raw(struct iio_dev *indio_dev,
 		if (chan->output == 0)
 			return -EINVAL;
 
-		
+		/* Locking not required as writing single value */
 		mutex_lock(&st->lock);
 		st->dac_val = val;
 		mutex_unlock(&st->lock);
 		return 0;
 	case IIO_CHAN_INFO_CALIBBIAS:
 		mutex_lock(&st->lock);
-		
+		/* Compare against table - hard matching here */
 		for (i = 0; i < ARRAY_SIZE(dummy_scales); i++)
 			if (val == dummy_scales[i].val &&
 			    val2 == dummy_scales[i].val2)
@@ -239,6 +317,9 @@ static int iio_dummy_write_raw(struct iio_dev *indio_dev,
 	}
 }
 
+/*
+ * Device type specific information.
+ */
 static const struct iio_info iio_dummy_info = {
 	.driver_module = THIS_MODULE,
 	.read_raw = &iio_dummy_read_raw,
@@ -248,9 +329,16 @@ static const struct iio_info iio_dummy_info = {
 	.write_event_config = &iio_simple_dummy_write_event_config,
 	.read_event_value = &iio_simple_dummy_read_event_value,
 	.write_event_value = &iio_simple_dummy_write_event_value,
-#endif 
+#endif /* CONFIG_IIO_SIMPLE_DUMMY_EVENTS */
 };
 
+/**
+ * iio_dummy_init_device() - device instance specific init
+ * @indio_dev: the iio device structure
+ *
+ * Most drivers have one of these to set up default values,
+ * reset the device to known state etc.
+ */
 static int iio_dummy_init_device(struct iio_dev *indio_dev)
 {
 	struct iio_dummy_state *st = iio_priv(indio_dev);
@@ -266,12 +354,29 @@ static int iio_dummy_init_device(struct iio_dev *indio_dev)
 	return 0;
 }
 
+/**
+ * iio_dummy_probe() - device instance probe
+ * @index: an id number for this instance.
+ *
+ * Arguments are bus type specific.
+ * I2C: iio_dummy_probe(struct i2c_client *client,
+ *                      const struct i2c_device_id *id)
+ * SPI: iio_dummy_probe(struct spi_device *spi)
+ */
 static int __devinit iio_dummy_probe(int index)
 {
 	int ret;
 	struct iio_dev *indio_dev;
 	struct iio_dummy_state *st;
 
+	/*
+	 * Allocate an IIO device.
+	 *
+	 * This structure contains all generic state
+	 * information about the device instance.
+	 * It also has a region (accessed by iio_priv()
+	 * for chip specific state information.
+	 */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
@@ -282,30 +387,58 @@ static int __devinit iio_dummy_probe(int index)
 	mutex_init(&st->lock);
 
 	iio_dummy_init_device(indio_dev);
+	/*
+	 * With hardware: Set the parent device.
+	 * indio_dev->dev.parent = &spi->dev;
+	 * indio_dev->dev.parent = &client->dev;
+	 */
 
+	 /*
+	 * Make the iio_dev struct available to remove function.
+	 * Bus equivalents
+	 * i2c_set_clientdata(client, indio_dev);
+	 * spi_set_drvdata(spi, indio_dev);
+	 */
 	iio_dummy_devs[index] = indio_dev;
 
 
+	/*
+	 * Set the device name.
+	 *
+	 * This is typically a part number and obtained from the module
+	 * id table.
+	 * e.g. for i2c and spi:
+	 *    indio_dev->name = id->name;
+	 *    indio_dev->name = spi_get_device_id(spi)->name;
+	 */
 	indio_dev->name = iio_dummy_part_number;
 
-	
+	/* Provide description of available channels */
 	indio_dev->channels = iio_dummy_channels;
 	indio_dev->num_channels = ARRAY_SIZE(iio_dummy_channels);
 
+	/*
+	 * Provide device type specific interface functions and
+	 * constant data.
+	 */
 	indio_dev->info = &iio_dummy_info;
 
-	
+	/* Specify that device provides sysfs type interfaces */
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
 	ret = iio_simple_dummy_events_register(indio_dev);
 	if (ret < 0)
 		goto error_free_device;
 
-	
+	/* Configure buffered capture support. */
 	ret = iio_simple_dummy_configure_buffer(indio_dev);
 	if (ret < 0)
 		goto error_unregister_events;
 
+	/*
+	 * Register the channels with the buffer, but avoid the output
+	 * channel being registered by reducing the number of channels by 1.
+	 */
 	ret = iio_buffer_register(indio_dev, iio_dummy_channels, 5);
 	if (ret < 0)
 		goto error_unconfigure_buffer;
@@ -322,23 +455,37 @@ error_unconfigure_buffer:
 error_unregister_events:
 	iio_simple_dummy_events_unregister(indio_dev);
 error_free_device:
+	/* Note free device should only be called, before registration
+	 * has succeeded. */
 	iio_free_device(indio_dev);
 error_ret:
 	return ret;
 }
 
+/**
+ * iio_dummy_remove() - device instance removal function
+ * @index: device index.
+ *
+ * Parameters follow those of iio_dummy_probe for buses.
+ */
 static int iio_dummy_remove(int index)
 {
 	int ret;
+	/*
+	 * Get a pointer to the device instance iio_dev structure
+	 * from the bus subsystem. E.g.
+	 * struct iio_dev *indio_dev = i2c_get_clientdata(client);
+	 * struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	 */
 	struct iio_dev *indio_dev = iio_dummy_devs[index];
 
 
-	
+	/* Unregister the device */
 	iio_device_unregister(indio_dev);
 
-	
+	/* Device specific code to power down etc */
 
-	
+	/* Buffered capture related cleanup */
 	iio_buffer_unregister(indio_dev);
 	iio_simple_dummy_unconfigure_buffer(indio_dev);
 
@@ -346,13 +493,23 @@ static int iio_dummy_remove(int index)
 	if (ret)
 		goto error_ret;
 
-	
+	/* Free all structures */
 	iio_free_device(indio_dev);
 
 error_ret:
 	return ret;
 }
 
+/**
+ * iio_dummy_init() -  device driver registration
+ *
+ * Varies depending on bus type of the device. As there is no device
+ * here, call probe directly. For information on device registration
+ * i2c:
+ * Documentation/i2c/writing-clients
+ * spi:
+ * Documentation/spi/spi-summary
+ */
 static __init int iio_dummy_init(void)
 {
 	int i, ret;
@@ -360,10 +517,10 @@ static __init int iio_dummy_init(void)
 		instances = 1;
 		return -EINVAL;
 	}
-	
+	/* Fake a bus */
 	iio_dummy_devs = kcalloc(instances, sizeof(*iio_dummy_devs),
 				 GFP_KERNEL);
-	
+	/* Here we have no actual device so call probe */
 	for (i = 0; i < instances; i++) {
 		ret = iio_dummy_probe(i);
 		if (ret < 0)
@@ -373,6 +530,12 @@ static __init int iio_dummy_init(void)
 }
 module_init(iio_dummy_init);
 
+/**
+ * iio_dummy_exit() - device driver removal
+ *
+ * Varies depending on bus type of the device.
+ * As there is no device here, call remove directly.
+ */
 static __exit void iio_dummy_exit(void)
 {
 	int i;

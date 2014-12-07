@@ -41,6 +41,9 @@
 #define EFI_RTC_VERSION		"0.4"
 
 #define EFI_ISDST (EFI_TIME_ADJUST_DAYLIGHT|EFI_TIME_IN_DAYLIGHT)
+/*
+ * EFI Epoch is 1/1/1998
+ */
 #define EFI_RTC_EPOCH		1998
 
 static DEFINE_SPINLOCK(efi_rtc_lock);
@@ -53,18 +56,26 @@ static long efi_rtc_ioctl(struct file *file, unsigned int cmd,
 
 static const unsigned short int __mon_yday[2][13] =
 {
-	
+	/* Normal years.  */
 	{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365 },
-	  
+	/* Leap years.  */  
 	{ 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366 }
 };
 
+/*
+ * returns day of the year [0-365]
+ */
 static inline int
 compute_yday(efi_time_t *eft)
 {
-	
+	/* efi_time_t.month is in the [1-12] so, we need -1 */
 	return  __mon_yday[is_leap(eft->year)][eft->month-1]+ eft->day -1;
 }
+/*
+ * returns day of the week [0-6] 0=Sunday
+ *
+ * Don't try to provide a year that's before 1998, please !
+ */
 static int
 compute_wday(efi_time_t *eft)
 {
@@ -81,6 +92,9 @@ compute_wday(efi_time_t *eft)
 	}
 	ndays += compute_yday(eft);
 
+	/*
+	 * 4=1/1/1998 was a Thursday
+	 */
 	return (ndays + 4) % 7;
 }
 
@@ -110,10 +124,10 @@ convert_from_efi_time(efi_time_t *eft, struct rtc_time *wtime)
 	wtime->tm_mon  = eft->month - 1;
 	wtime->tm_year = eft->year - 1900;
 
-	
+	/* day of the week [0-6], Sunday=0 */
 	wtime->tm_wday = compute_wday(eft);
 
-	
+	/* day in the year [1-365]*/
 	wtime->tm_yday = compute_yday(eft);
 
 
@@ -164,7 +178,7 @@ static long efi_rtc_ioctl(struct file *file, unsigned int cmd,
 			spin_unlock_irqrestore(&efi_rtc_lock,flags);
 
 			if (status != EFI_SUCCESS) {
-				
+				/* should never happen */
 				printk(KERN_ERR "efitime: can't read time\n");
 				return -EINVAL;
 			}
@@ -205,6 +219,12 @@ static long efi_rtc_ioctl(struct file *file, unsigned int cmd,
 			convert_to_efi_time(&wtime, &eft);
 
 			spin_lock_irqsave(&efi_rtc_lock, flags);
+			/*
+			 * XXX Fixme:
+			 * As of EFI 0.92 with the firmware I have on my
+			 * machine this call does not seem to work quite
+			 * right
+			 */
 			status = efi.set_wakeup_time((efi_bool_t)enabled, &eft);
 
 			spin_unlock_irqrestore(&efi_rtc_lock,flags);
@@ -234,9 +254,19 @@ static long efi_rtc_ioctl(struct file *file, unsigned int cmd,
 	return -ENOTTY;
 }
 
+/*
+ *	We enforce only one user at a time here with the open/close.
+ *	Also clear the previous interrupt data on an open, and clean
+ *	up things on a close.
+ */
 
 static int efi_rtc_open(struct inode *inode, struct file *file)
 {
+	/*
+	 * nothing special to do here
+	 * We do accept multiple open files at the same time as we
+	 * synchronize on the per call operation.
+	 */
 	return 0;
 }
 
@@ -245,6 +275,9 @@ static int efi_rtc_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *	The various file operations we support.
+ */
 
 static const struct file_operations efi_rtc_fops = {
 	.owner		= THIS_MODULE,
@@ -260,6 +293,9 @@ static struct miscdevice efi_rtc_dev= {
 	&efi_rtc_fops
 };
 
+/*
+ *	We export RAW EFI information to /proc/driver/efirtc
+ */
 static int
 efi_rtc_get_status(char *buf)
 {
@@ -291,7 +327,7 @@ efi_rtc_get_status(char *buf)
 	if (eft.timezone == EFI_UNSPECIFIED_TIMEZONE)
 		p += sprintf(p, "Timezone       : unspecified\n");
 	else
-		
+		/* XXX fixme: convert to string? */
 		p += sprintf(p, "Timezone       : %u\n", eft.timezone);
 		
 
@@ -310,9 +346,12 @@ efi_rtc_get_status(char *buf)
 	if (eft.timezone == EFI_UNSPECIFIED_TIMEZONE)
 		p += sprintf(p, "Timezone       : unspecified\n");
 	else
-		
+		/* XXX fixme: convert to string? */
 		p += sprintf(p, "Timezone       : %u\n", alm.timezone);
 
+	/*
+	 * now prints the capabilities
+	 */
 	p += sprintf(p,
 		     "Resolution     : %u\n"
 		     "Accuracy       : %u\n"
@@ -363,7 +402,7 @@ efi_rtc_init(void)
 static void __exit
 efi_rtc_exit(void)
 {
-	
+	/* not yet used */
 }
 
 module_init(efi_rtc_init);

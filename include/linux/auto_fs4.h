@@ -11,9 +11,11 @@
 #ifndef _LINUX_AUTO_FS4_H
 #define _LINUX_AUTO_FS4_H
 
+/* Include common v3 definitions */
 #include <linux/types.h>
 #include <linux/auto_fs.h>
 
+/* autofs v4 definitions */
 #undef AUTOFS_PROTO_VERSION
 #undef AUTOFS_MIN_PROTO_VERSION
 #undef AUTOFS_MAX_PROTO_VERSION
@@ -24,6 +26,7 @@
 
 #define AUTOFS_PROTO_SUBVERSION		2
 
+/* Mask for expire behaviour */
 #define AUTOFS_EXP_IMMEDIATE		1
 #define AUTOFS_EXP_LEAVES		2
 
@@ -70,6 +73,11 @@ static inline unsigned int autofs_type_trigger(unsigned int type)
 	return (type == AUTOFS_TYPE_DIRECT || type == AUTOFS_TYPE_OFFSET);
 }
 
+/*
+ * This isn't really a type as we use it to say "no type set" to
+ * indicate we want to search for "any" mount in the
+ * autofs_dev_ioctl_ismountpoint() device ioctl function.
+ */
 static inline void set_autofs_type_any(unsigned int *type)
 {
 	*type = AUTOFS_TYPE_ANY;
@@ -81,22 +89,29 @@ static inline unsigned int autofs_type_any(unsigned int type)
 	return (type == AUTOFS_TYPE_ANY);
 }
 
+/* Daemon notification packet types */
 enum autofs_notify {
 	NFY_NONE,
 	NFY_MOUNT,
 	NFY_EXPIRE
 };
 
+/* Kernel protocol version 4 packet types */
 
+/* Expire entry (umount request) */
 #define autofs_ptype_expire_multi	2
 
+/* Kernel protocol version 5 packet types */
 
+/* Indirect mount missing and expire requests. */
 #define autofs_ptype_missing_indirect	3
 #define autofs_ptype_expire_indirect	4
 
+/* Direct mount missing and expire requests */
 #define autofs_ptype_missing_direct	5
 #define autofs_ptype_expire_direct	6
 
+/* v4 multi expire (via pipe) */
 struct autofs_packet_expire_multi {
 	struct autofs_packet_hdr hdr;
         autofs_wqt_t wait_queue_token;
@@ -111,6 +126,7 @@ union autofs_packet_union {
 	struct autofs_packet_expire_multi expire_multi;
 };
 
+/* autofs v5 common packet struct */
 struct autofs_v5_packet {
 	struct autofs_packet_hdr hdr;
 	autofs_wqt_t wait_queue_token;
@@ -145,4 +161,4 @@ union autofs_v5_packet_union {
 #define AUTOFS_IOC_ASKUMOUNT		_IOR(0x93,0x70,int)
 
 
-#endif 
+#endif /* _LINUX_AUTO_FS4_H */

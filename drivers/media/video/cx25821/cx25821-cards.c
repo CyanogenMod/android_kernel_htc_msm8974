@@ -32,11 +32,12 @@
 #include "cx25821.h"
 #include "tuner-xc2028.h"
 
+/* board config info */
 
 struct cx25821_board cx25821_boards[] = {
 	[UNKNOWN_BOARD] = {
 		.name = "UNKNOWN/GENERIC",
-		
+		/* Ensure safe default for unknown boards */
 		.clk_freq = 0,
 	},
 

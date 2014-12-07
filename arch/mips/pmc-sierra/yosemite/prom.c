@@ -45,26 +45,32 @@ static void prom_cpu0_exit(void *arg)
 {
 	void *nvram = (void *) YOSEMITE_RTC_BASE;
 
-	
+	/* Ask the NVRAM/RTC/watchdog chip to assert reset in 1/16 second */
 	writeb(0x84, nvram + 0xff7);
 
-	
+	/* wait for the watchdog to go off */
 	mdelay(100 + (1000 / 16));
 
-	
+	/* if the watchdog fails for some reason, let people know */
 	printk(KERN_NOTICE "Watchdog reset failed\n");
 }
 
+/*
+ * Reset the NVRAM over the local bus
+ */
 static void prom_exit(void)
 {
 #ifdef CONFIG_SMP
 	if (smp_processor_id())
-		
+		/* CPU 1 */
 		smp_call_function(prom_cpu0_exit, NULL, 1);
 #endif
 	prom_cpu0_exit(NULL);
 }
 
+/*
+ * Halt the system
+ */
 static void prom_halt(void)
 {
 	printk(KERN_NOTICE "\n** You can safely turn off the power\n");
@@ -74,6 +80,9 @@ static void prom_halt(void)
 
 extern struct plat_smp_ops yos_smp_ops;
 
+/*
+ * Init routine which accepts the variables from PMON
+ */
 void __init prom_init(void)
 {
 	int argc = fw_arg0;
@@ -82,7 +91,7 @@ void __init prom_init(void)
 	struct callvectors *cv = (struct callvectors *) fw_arg3;
 	int i = 0;
 
-	
+	/* Callbacks for halt, restart */
 	_machine_restart = (void (*)(char *)) prom_exit;
 	_machine_halt = prom_halt;
 	pm_power_off = prom_halt;
@@ -90,7 +99,7 @@ void __init prom_init(void)
 	debug_vectors = cv;
 	arcs_cmdline[0] = '\0';
 
-	
+	/* Get the boot parameters */
 	for (i = 1; i < argc; i++) {
 		if (strlen(arcs_cmdline) + strlen(arg[i]) + 1 >=
 		    sizeof(arcs_cmdline))

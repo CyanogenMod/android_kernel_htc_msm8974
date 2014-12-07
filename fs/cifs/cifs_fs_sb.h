@@ -22,29 +22,29 @@
 
 #include <linux/backing-dev.h>
 
-#define CIFS_MOUNT_NO_PERM      1 
-#define CIFS_MOUNT_SET_UID      2 
-#define CIFS_MOUNT_SERVER_INUM  4 
-#define CIFS_MOUNT_DIRECT_IO    8 
-#define CIFS_MOUNT_NO_XATTR     0x10  
-#define CIFS_MOUNT_MAP_SPECIAL_CHR 0x20 
-#define CIFS_MOUNT_POSIX_PATHS  0x40  
-#define CIFS_MOUNT_UNX_EMUL     0x80  
-#define CIFS_MOUNT_NO_BRL       0x100 
-#define CIFS_MOUNT_CIFS_ACL     0x200 
-#define CIFS_MOUNT_OVERR_UID    0x400 
-#define CIFS_MOUNT_OVERR_GID    0x800 
-#define CIFS_MOUNT_DYNPERM      0x1000 
-#define CIFS_MOUNT_NOPOSIXBRL   0x2000 
-#define CIFS_MOUNT_NOSSYNC      0x4000 
-#define CIFS_MOUNT_FSCACHE	0x8000 
-#define CIFS_MOUNT_MF_SYMLINKS	0x10000 
-#define CIFS_MOUNT_MULTIUSER	0x20000 
-#define CIFS_MOUNT_STRICT_IO	0x40000 
-#define CIFS_MOUNT_RWPIDFORWARD	0x80000 
-#define CIFS_MOUNT_POSIXACL	0x100000 
-#define CIFS_MOUNT_CIFS_BACKUPUID 0x200000 
-#define CIFS_MOUNT_CIFS_BACKUPGID 0x400000 
+#define CIFS_MOUNT_NO_PERM      1 /* do not do client vfs_perm check */
+#define CIFS_MOUNT_SET_UID      2 /* set current's euid in create etc. */
+#define CIFS_MOUNT_SERVER_INUM  4 /* inode numbers from uniqueid from server  */
+#define CIFS_MOUNT_DIRECT_IO    8 /* do not write nor read through page cache */
+#define CIFS_MOUNT_NO_XATTR     0x10  /* if set - disable xattr support       */
+#define CIFS_MOUNT_MAP_SPECIAL_CHR 0x20 /* remap illegal chars in filenames   */
+#define CIFS_MOUNT_POSIX_PATHS  0x40  /* Negotiate posix pathnames if possible*/
+#define CIFS_MOUNT_UNX_EMUL     0x80  /* Network compat with SFUnix emulation */
+#define CIFS_MOUNT_NO_BRL       0x100 /* No sending byte range locks to srv   */
+#define CIFS_MOUNT_CIFS_ACL     0x200 /* send ACL requests to non-POSIX srv   */
+#define CIFS_MOUNT_OVERR_UID    0x400 /* override uid returned from server    */
+#define CIFS_MOUNT_OVERR_GID    0x800 /* override gid returned from server    */
+#define CIFS_MOUNT_DYNPERM      0x1000 /* allow in-memory only mode setting   */
+#define CIFS_MOUNT_NOPOSIXBRL   0x2000 /* mandatory not posix byte range lock */
+#define CIFS_MOUNT_NOSSYNC      0x4000 /* don't do slow SMBflush on every sync*/
+#define CIFS_MOUNT_FSCACHE	0x8000 /* local caching enabled */
+#define CIFS_MOUNT_MF_SYMLINKS	0x10000 /* Minshall+French Symlinks enabled */
+#define CIFS_MOUNT_MULTIUSER	0x20000 /* multiuser mount */
+#define CIFS_MOUNT_STRICT_IO	0x40000 /* strict cache mode */
+#define CIFS_MOUNT_RWPIDFORWARD	0x80000 /* use pid forwarding for rw */
+#define CIFS_MOUNT_POSIXACL	0x100000 /* mirror of MS_POSIXACL in mnt_cifs_flags */
+#define CIFS_MOUNT_CIFS_BACKUPUID 0x200000 /* backup intent bit for a user */
+#define CIFS_MOUNT_CIFS_BACKUPGID 0x400000 /* backup intent bit for a group */
 
 struct cifs_sb_info {
 	struct rb_root tlink_tree;
@@ -53,7 +53,7 @@ struct cifs_sb_info {
 	struct nls_table *local_nls;
 	unsigned int rsize;
 	unsigned int wsize;
-	unsigned long actimeo; 
+	unsigned long actimeo; /* attribute cache timeout (jiffies) */
 	atomic_t active;
 	uid_t	mnt_uid;
 	gid_t	mnt_gid;
@@ -62,8 +62,8 @@ struct cifs_sb_info {
 	umode_t	mnt_file_mode;
 	umode_t	mnt_dir_mode;
 	unsigned int mnt_cifs_flags;
-	char   *mountdata; 
+	char   *mountdata; /* options received at mount time or via DFS refs */
 	struct backing_dev_info bdi;
 	struct delayed_work prune_tlinks;
 };
-#endif				
+#endif				/* _CIFS_FS_SB_H */

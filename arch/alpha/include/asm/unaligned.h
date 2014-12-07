@@ -8,4 +8,4 @@
 #define get_unaligned __get_unaligned_le
 #define put_unaligned __put_unaligned_le
 
-#endif 
+#endif /* _ASM_ALPHA_UNALIGNED_H */

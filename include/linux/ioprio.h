@@ -3,8 +3,11 @@
 #ifdef __KERNEL__
 #include <linux/sched.h>
 #include <linux/iocontext.h>
-#endif 
+#endif /* __KERNEL__ */
 
+/*
+ * Gives us 8 prio classes with 13-bits of data for each class
+ */
 #define IOPRIO_BITS		(16)
 #define IOPRIO_CLASS_SHIFT	(13)
 #ifdef __KERNEL__
@@ -15,8 +18,14 @@
 #define IOPRIO_PRIO_VALUE(class, data)	(((class) << IOPRIO_CLASS_SHIFT) | data)
 
 #define ioprio_valid(mask)	(IOPRIO_PRIO_CLASS((mask)) != IOPRIO_CLASS_NONE)
-#endif 
+#endif /* __KERNEL__ */
 
+/*
+ * These are the io priority groups as implemented by CFQ. RT is the realtime
+ * class, it always gets premium service. BE is the best-effort scheduling
+ * class, the default for any process. IDLE is the idle scheduling class, it
+ * is only served when no one else is using the disk.
+ */
 enum {
 	IOPRIO_CLASS_NONE,
 	IOPRIO_CLASS_RT,
@@ -24,6 +33,9 @@ enum {
 	IOPRIO_CLASS_IDLE,
 };
 
+/*
+ * 8 best effort priority levels are supported
+ */
 #define IOPRIO_BE_NR	(8)
 
 enum {
@@ -33,6 +45,10 @@ enum {
 };
 
 #ifdef __KERNEL__
+/*
+ * if process has set io priority explicitly, use that. if not, convert
+ * the cpu scheduler nice value to an io priority
+ */
 #define IOPRIO_NORM	(4)
 static inline int task_ioprio(struct io_context *ioc)
 {
@@ -55,6 +71,10 @@ static inline int task_nice_ioprio(struct task_struct *task)
 	return (task_nice(task) + 20) / 5;
 }
 
+/*
+ * This is for the case where the task hasn't asked for a specific IO class.
+ * Check for idle and rt task process, and return appropriate IO class.
+ */
 static inline int task_nice_ioclass(struct task_struct *task)
 {
 	if (task->policy == SCHED_IDLE)
@@ -65,9 +85,12 @@ static inline int task_nice_ioclass(struct task_struct *task)
 		return IOPRIO_CLASS_BE;
 }
 
+/*
+ * For inheritance, return the highest of the two given priorities
+ */
 extern int ioprio_best(unsigned short aprio, unsigned short bprio);
 
 extern int set_task_ioprio(struct task_struct *task, int ioprio);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* IOPRIO_H */

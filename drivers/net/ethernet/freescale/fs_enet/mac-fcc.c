@@ -45,8 +45,11 @@
 
 #include "fs_enet.h"
 
+/*************************************************/
 
+/* FCC access macros */
 
+/* write, read, set bits, clear bits */
 #define W32(_p, _m, _v)	out_be32(&(_p)->_m, (_v))
 #define R32(_p, _m)	in_be32(&(_p)->_m)
 #define S32(_p, _m, _v)	W32(_p, _m, R32(_p, _m) | (_v))
@@ -62,6 +65,7 @@
 #define S8(_p, _m, _v)	W8(_p, _m, R8(_p, _m) | (_v))
 #define C8(_p, _m, _v)	W8(_p, _m, R8(_p, _m) & ~(_v))
 
+/*************************************************/
 
 #define FCC_MAX_MULTICAST_ADDRS	64
 
@@ -167,7 +171,7 @@ static void free_bd(struct net_device *dev)
 
 static void cleanup_data(struct net_device *dev)
 {
-	
+	/* nothing */
 }
 
 static void set_promiscuous_mode(struct net_device *dev)
@@ -209,10 +213,10 @@ static void set_multicast_finish(struct net_device *dev)
 	fcc_t __iomem *fccp = fep->fcc.fccp;
 	fcc_enet_t __iomem *ep = fep->fcc.ep;
 
-	
+	/* clear promiscuous always */
 	C32(fccp, fcc_fpsmr, FCC_PSMR_PRO);
 
-	
+	/* if all multi or too many multicasts; just enable all */
 	if ((dev->flags & IFF_ALLMULTI) != 0 ||
 	    netdev_mc_count(dev) > FCC_MAX_MULTICAST_ADDRS) {
 
@@ -220,7 +224,7 @@ static void set_multicast_finish(struct net_device *dev)
 		W32(ep, fen_gaddrl, 0xffffffff);
 	}
 
-	
+	/* read back */
 	fep->fcc.gaddrh = R32(ep, fen_gaddrh);
 	fep->fcc.gaddrl = R32(ep, fen_gaddrl);
 }
@@ -252,30 +256,38 @@ static void restart(struct net_device *dev)
 
 	C32(fccp, fcc_gfmr, FCC_GFMR_ENR | FCC_GFMR_ENT);
 
-	
+	/* clear everything (slow & steady does it) */
 	for (i = 0; i < sizeof(*ep); i++)
 		out_8((u8 __iomem *)ep + i, 0);
 
-	
+	/* get physical address */
 	rx_bd_base_phys = fep->ring_mem_addr;
 	tx_bd_base_phys = rx_bd_base_phys + sizeof(cbd_t) * fpi->rx_ring;
 
-	
+	/* point to bds */
 	W32(ep, fen_genfcc.fcc_rbase, rx_bd_base_phys);
 	W32(ep, fen_genfcc.fcc_tbase, tx_bd_base_phys);
 
+	/* Set maximum bytes per receive buffer.
+	 * It must be a multiple of 32.
+	 */
 	W16(ep, fen_genfcc.fcc_mrblr, PKT_MAXBLR_SIZE);
 
 	W32(ep, fen_genfcc.fcc_rstate, (CPMFCR_GBL | CPMFCR_EB) << 24);
 	W32(ep, fen_genfcc.fcc_tstate, (CPMFCR_GBL | CPMFCR_EB) << 24);
 
+	/* Allocate space in the reserved FCC area of DPRAM for the
+	 * internal buffers.  No one uses this space (yet), so we
+	 * can do this.  Later, we will add resource management for
+	 * this area.
+	 */
 
 	W16(ep, fen_genfcc.fcc_riptr, fpi->dpram_offset);
 	W16(ep, fen_genfcc.fcc_tiptr, fpi->dpram_offset + 32);
 
 	W16(ep, fen_padptr, fpi->dpram_offset + 64);
 
-	
+	/* fill with special symbol...  */
 	memset_io(fep->fcc.mem + fpi->dpram_offset + 64, 0x88, 32);
 
 	W32(ep, fen_genfcc.fcc_rbptr, 0);
@@ -285,36 +297,36 @@ static void restart(struct net_device *dev)
 	W16(ep, fen_genfcc.fcc_res1, 0);
 	W32(ep, fen_genfcc.fcc_res2, 0);
 
-	
+	/* no CAM */
 	W32(ep, fen_camptr, 0);
 
-	
+	/* Set CRC preset and mask */
 	W32(ep, fen_cmask, 0xdebb20e3);
 	W32(ep, fen_cpres, 0xffffffff);
 
-	W32(ep, fen_crcec, 0);		
-	W32(ep, fen_alec, 0);		
-	W32(ep, fen_disfc, 0);		
-	W16(ep, fen_retlim, 15);	
-	W16(ep, fen_pper, 0);		
+	W32(ep, fen_crcec, 0);		/* CRC Error counter       */
+	W32(ep, fen_alec, 0);		/* alignment error counter */
+	W32(ep, fen_disfc, 0);		/* discard frame counter   */
+	W16(ep, fen_retlim, 15);	/* Retry limit threshold   */
+	W16(ep, fen_pper, 0);		/* Normal persistence      */
 
-	
+	/* set group address */
 	W32(ep, fen_gaddrh, fep->fcc.gaddrh);
 	W32(ep, fen_gaddrl, fep->fcc.gaddrh);
 
-	
+	/* Clear hash filter tables */
 	W32(ep, fen_iaddrh, 0);
 	W32(ep, fen_iaddrl, 0);
 
-	
+	/* Clear the Out-of-sequence TxBD  */
 	W16(ep, fen_tfcstat, 0);
 	W16(ep, fen_tfclen, 0);
 	W32(ep, fen_tfcptr, 0);
 
-	W16(ep, fen_mflr, PKT_MAXBUF_SIZE);	
-	W16(ep, fen_minflr, PKT_MINBUF_SIZE);	
+	W16(ep, fen_mflr, PKT_MAXBUF_SIZE);	/* maximum frame length register */
+	W16(ep, fen_minflr, PKT_MINBUF_SIZE);	/* minimum frame length register */
 
-	
+	/* set address */
 	mac = dev->dev_addr;
 	paddrh = ((u16)mac[5] << 8) | mac[4];
 	paddrm = ((u16)mac[3] << 8) | mac[2];
@@ -328,10 +340,10 @@ static void restart(struct net_device *dev)
 	W16(ep, fen_taddrm, 0);
 	W16(ep, fen_taddrl, 0);
 
-	W16(ep, fen_maxd1, 1520);	
-	W16(ep, fen_maxd2, 1520);	
+	W16(ep, fen_maxd1, 1520);	/* maximum DMA1 length */
+	W16(ep, fen_maxd2, 1520);	/* maximum DMA2 length */
 
-	
+	/* Clear stat counters, in case we ever enable RMON */
 	W32(ep, fen_octc, 0);
 	W32(ep, fen_colc, 0);
 	W32(ep, fen_broc, 0);
@@ -347,13 +359,13 @@ static void restart(struct net_device *dev)
 	W32(ep, fen_p512c, 0);
 	W32(ep, fen_p1024c, 0);
 
-	W16(ep, fen_rfthr, 0);	
+	W16(ep, fen_rfthr, 0);	/* Suggested by manual */
 	W16(ep, fen_rfcnt, 0);
 	W16(ep, fen_cftype, 0);
 
 	fs_init_bds(dev);
 
-	
+	/* adjust to speed (for RMII mode) */
 	if (fpi->use_rmii) {
 		if (fep->phydev->speed == 100)
 			C8(fcccp, fcc_gfemr, 0x20);
@@ -363,16 +375,16 @@ static void restart(struct net_device *dev)
 
 	fcc_cr_cmd(fep, CPM_CR_INIT_TRX);
 
-	
+	/* clear events */
 	W16(fccp, fcc_fcce, 0xffff);
 
-	
+	/* Enable interrupts we wish to service */
 	W16(fccp, fcc_fccm, FCC_ENET_TXE | FCC_ENET_RXF | FCC_ENET_TXB);
 
-	
+	/* Set GFMR to enable Ethernet operating mode */
 	W32(fccp, fcc_gfmr, FCC_GFMR_TCI | FCC_GFMR_MODE_ENET);
 
-	
+	/* set sync/delimiters */
 	W16(fccp, fcc_fdsr, 0xd555);
 
 	W32(fccp, fcc_fpsmr, FCC_PSMR_ENCRC);
@@ -380,13 +392,13 @@ static void restart(struct net_device *dev)
 	if (fpi->use_rmii)
 		S32(fccp, fcc_fpsmr, FCC_PSMR_RMII);
 
-	
+	/* adjust to duplex mode */
 	if (fep->phydev->duplex)
 		S32(fccp, fcc_fpsmr, FCC_PSMR_FDE | FCC_PSMR_LPB);
 	else
 		C32(fccp, fcc_fpsmr, FCC_PSMR_FDE | FCC_PSMR_LPB);
 
-	
+	/* Restore multicast and promiscuous settings */
 	set_multicast_list(dev);
 
 	S32(fccp, fcc_gfmr, FCC_GFMR_ENR | FCC_GFMR_ENT);
@@ -397,13 +409,13 @@ static void stop(struct net_device *dev)
 	struct fs_enet_private *fep = netdev_priv(dev);
 	fcc_t __iomem *fccp = fep->fcc.fccp;
 
-	
+	/* stop ethernet */
 	C32(fccp, fcc_gfmr, FCC_GFMR_ENR | FCC_GFMR_ENT);
 
-	
+	/* clear events */
 	W16(fccp, fcc_fcce, 0xffff);
 
-	
+	/* clear interrupt mask */
 	W16(fccp, fcc_fccm, 0);
 
 	fs_cleanup_bds(dev);
@@ -435,7 +447,7 @@ static void napi_disable_rx(struct net_device *dev)
 
 static void rx_bd_done(struct net_device *dev)
 {
-	
+	/* nothing */
 }
 
 static void tx_kickstart(struct net_device *dev)
@@ -491,6 +503,17 @@ static int get_regs_len(struct net_device *dev)
 	return sizeof(fcc_t) + sizeof(fcc_enet_t) + 1;
 }
 
+/* Some transmit errors cause the transmitter to shut
+ * down.  We now issue a restart transmit.
+ * Also, to workaround 8260 device erratum CPM37, we must
+ * disable and then re-enable the transmitterfollowing a
+ * Late Collision, Underrun, or Retry Limit error.
+ * In addition, tbptr may point beyond BDs beyond still marked
+ * as ready due to internal pipelining, so we need to look back
+ * through the BDs and adjust tbptr to point to the last BD
+ * marked as ready.  This may result in some buffers being
+ * retransmitted.
+ */
 static void tx_restart(struct net_device *dev)
 {
 	struct fs_enet_private *fep = netdev_priv(dev);
@@ -504,25 +527,27 @@ static void tx_restart(struct net_device *dev)
 
 	last_tx_bd = fep->tx_bd_base + (fpi->tx_ring * sizeof(cbd_t));
 
-	
+	/* get the current bd held in TBPTR  and scan back from this point */
 	recheck_bd = curr_tbptr = (cbd_t __iomem *)
 		((R32(ep, fen_genfcc.fcc_tbptr) - fep->ring_mem_addr) +
 		fep->ring_base);
 
 	prev_bd = (recheck_bd == fep->tx_bd_base) ? last_tx_bd : recheck_bd - 1;
 
+	/* Move through the bds in reverse, look for the earliest buffer
+	 * that is not ready.  Adjust TBPTR to the following buffer */
 	while ((CBDR_SC(prev_bd) & BD_ENET_TX_READY) != 0) {
-		
+		/* Go back one buffer */
 		recheck_bd = prev_bd;
 
-		
+		/* update the previous buffer */
 		prev_bd = (prev_bd == fep->tx_bd_base) ? last_tx_bd : prev_bd - 1;
 
-		
+		/* We should never see all bds marked as ready, check anyway */
 		if (recheck_bd == curr_tbptr)
 			break;
 	}
-	
+	/* Now update the TBPTR and dirty flag to the current buffer */
 	W32(ep, fen_genfcc.fcc_tbptr,
 		(uint) (((void *)recheck_bd - fep->ring_base) +
 		fep->ring_mem_addr));
@@ -535,6 +560,7 @@ static void tx_restart(struct net_device *dev)
 	fcc_cr_cmd(fep, CPM_CR_RESTART_TX);
 }
 
+/*************************************************************************/
 
 const struct fs_ops fs_fcc_ops = {
 	.setup_data		= setup_data,

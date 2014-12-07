@@ -1,3 +1,8 @@
+/*
+ * Generate definitions needed by assembly language modules.
+ * This code generates raw asm output which is post-processed
+ * to extract and format the required data.
+ */
 
 #define ASM_OFFSETS_C 1
 
@@ -197,7 +202,7 @@ void foo(void)
 	DEFINE(IA64_SIGFRAME_HANDLER_OFFSET, offsetof (struct sigframe, handler));
 	DEFINE(IA64_SIGFRAME_SIGCONTEXT_OFFSET, offsetof (struct sigframe, sc));
 	BLANK();
-    
+    /* for assembly files which can't include sched.h: */
 	DEFINE(IA64_CLONE_VFORK, CLONE_VFORK);
 	DEFINE(IA64_CLONE_VM, CLONE_VM);
 
@@ -263,7 +268,7 @@ void foo(void)
 	       offsetof (struct pal_min_state_area_s, pmsa_xip));
 	BLANK();
 
-	
+	/* used by fsys_gettimeofday in arch/ia64/kernel/fsys.S */
 	DEFINE(IA64_GTOD_SEQ_OFFSET,
 	       offsetof (struct fsyscall_gtod_data_t, seq));
 	DEFINE(IA64_GTOD_WALL_TIME_OFFSET,
@@ -313,5 +318,5 @@ void foo(void)
 	DEFINE_MAPPED_REG_OFS(XSI_B1NATS_OFS, vnat);
 	DEFINE_MAPPED_REG_OFS(XSI_ITC_OFFSET_OFS, itc_offset);
 	DEFINE_MAPPED_REG_OFS(XSI_ITC_LAST_OFS, itc_last);
-#endif 
+#endif /* CONFIG_XEN */
 }

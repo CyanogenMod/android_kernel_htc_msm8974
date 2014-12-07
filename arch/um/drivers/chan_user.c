@@ -33,6 +33,7 @@ int generic_read(int fd, char *c_out, void *unused)
 	return -errno;
 }
 
+/* XXX Trivial wrapper around write */
 
 int generic_write(int fd, const char *buf, int n, void *unused)
 {
@@ -86,12 +87,21 @@ int generic_console_write(int fd, const char *buf, int n)
 		if (err)
 			goto error;
 		new = save;
+		/*
+		 * The terminal becomes a bit less raw, to handle \n also as
+		 * "Carriage Return", not only as "New Line". Otherwise, the new
+		 * line won't start at the first column.
+		 */
 		new.c_oflag |= OPOST;
 		CATCH_EINTR(err = tcsetattr(fd, TCSAFLUSH, &new));
 		if (err)
 			goto error;
 	}
 	err = generic_write(fd, buf, n, NULL);
+	/*
+	 * Restore raw mode, in any case; we *must* ignore any error apart
+	 * EINTR, except for debug.
+	 */
 	if (isatty(fd)) {
 		CATCH_EINTR(tcsetattr(fd, TCSAFLUSH, &save));
 		sigprocmask(SIG_SETMASK, &old, NULL);
@@ -102,6 +112,25 @@ error:
 	return -errno;
 }
 
+/*
+ * UML SIGWINCH handling
+ *
+ * The point of this is to handle SIGWINCH on consoles which have host
+ * ttys and relay them inside UML to whatever might be running on the
+ * console and cares about the window size (since SIGWINCH notifies
+ * about terminal size changes).
+ *
+ * So, we have a separate thread for each host tty attached to a UML
+ * device (side-issue - I'm annoyed that one thread can't have
+ * multiple controlling ttys for the purpose of handling SIGWINCH, but
+ * I imagine there are other reasons that doesn't make any sense).
+ *
+ * SIGWINCH can't be received synchronously, so you have to set up to
+ * receive it as a signal.  That being the case, if you are going to
+ * wait for it, it is convenient to sit in sigsuspend() and wait for
+ * the signal to bounce you out of it (see below for how we make sure
+ * to exit only on SIGWINCH).
+ */
 
 static void winch_handler(int sig)
 {
@@ -127,16 +156,21 @@ static int winch_thread(void *arg)
 		printk(UM_KERN_ERR "winch_thread : failed to write "
 		       "synchronization byte, err = %d\n", -count);
 
+	/*
+	 * We are not using SIG_IGN on purpose, so don't fix it as I thought to
+	 * do! If using SIG_IGN, the sigsuspend() call below would not stop on
+	 * SIGWINCH.
+	 */
 
 	signal(SIGWINCH, winch_handler);
 	sigfillset(&sigs);
-	
+	/* Block all signals possible. */
 	if (sigprocmask(SIG_SETMASK, &sigs, NULL) < 0) {
 		printk(UM_KERN_ERR "winch_thread : sigprocmask failed, "
 		       "errno = %d\n", errno);
 		exit(1);
 	}
-	
+	/* In sigsuspend(), block anything else than SIGWINCH. */
 	sigdelset(&sigs, SIGWINCH);
 
 	if (setsid() < 0) {
@@ -157,12 +191,22 @@ static int winch_thread(void *arg)
 		exit(1);
 	}
 
+	/*
+	 * These are synchronization calls between various UML threads on the
+	 * host - since they are not different kernel threads, we cannot use
+	 * kernel semaphores. We don't use SysV semaphores because they are
+	 * persistent.
+	 */
 	count = read(pipe_fd, &c, sizeof(c));
 	if (count != sizeof(c))
 		printk(UM_KERN_ERR "winch_thread : failed to read "
 		       "synchronization byte, err = %d\n", errno);
 
 	while(1) {
+		/*
+		 * This will be interrupted by SIGWINCH only, since
+		 * other signals are blocked.
+		 */
 		sigsuspend(&sigs);
 
 		count = write(pipe_fd, &c, sizeof(c));
@@ -188,6 +232,12 @@ static int winch_tramp(int fd, struct tty_struct *tty, int *fd_out,
 
 	data = ((struct winch_data) { .pty_fd 		= fd,
 				      .pipe_fd 		= fds[1] } );
+	/*
+	 * CLONE_FILES so this thread doesn't hold open files which are open
+	 * now, but later closed in a different thread.  This is a
+	 * problem with /dev/net/tun, which if held open by this
+	 * thread, prevents the TUN/TAP device from being reused.
+	 */
 	err = run_helper_thread(winch_thread, &data, CLONE_FILES, stack_out);
 	if (err < 0) {
 		printk(UM_KERN_ERR "fork of winch_thread failed - errno = %d\n",

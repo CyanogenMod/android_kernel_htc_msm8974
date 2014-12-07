@@ -66,6 +66,6 @@ static inline void clear_fpu(struct task_struct *tsk, struct pt_regs *regs)
 	preempt_enable();
 }
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __ASM_SH_FPU_H */

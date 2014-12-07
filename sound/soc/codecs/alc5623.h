@@ -17,6 +17,10 @@
 #define _ALC5623_H
 
 #define ALC5623_RESET				0x00
+/*				5621 5622 5623  */
+/* speaker output vol		   2    2       */
+/* line output vol                      4    2  */
+/* HP output vol		   4    0    4  */
 #define ALC5623_SPK_OUT_VOL			0x02
 #define ALC5623_HP_OUT_VOL			0x04
 #define ALC5623_MONO_AUX_OUT_VOL		0x06
@@ -28,6 +32,8 @@
 #define ALC5623_ADC_REC_GAIN			0x12
 #define ALC5623_ADC_REC_MIXER			0x14
 #define ALC5623_SOFT_VOL_CTRL_TIME		0x16
+/* ALC5623_OUTPUT_MIXER_CTRL :			*/
+/* same remark as for reg 2 line vs speaker	*/
 #define ALC5623_OUTPUT_MIXER_CTRL		0x1C
 #define ALC5623_MIC_CTRL			0x22
 
@@ -56,18 +62,18 @@
 #define ALC5623_PWR_ADD1_ZC_DET_PD_EN		(1 << 14)
 #define ALC5623_PWR_ADD1_MIC1_BIAS_EN		(1 << 11)
 #define ALC5623_PWR_ADD1_SHORT_CURR_DET_EN	(1 << 10)
-#define ALC5623_PWR_ADD1_SOFTGEN_EN		(1 <<  8) 
-#define	ALC5623_PWR_ADD1_DEPOP_BUF_HP		(1 <<  6) 
+#define ALC5623_PWR_ADD1_SOFTGEN_EN		(1 <<  8) /* rsvd on 5622 */
+#define	ALC5623_PWR_ADD1_DEPOP_BUF_HP		(1 <<  6) /* rsvd on 5622 */
 #define	ALC5623_PWR_ADD1_HP_OUT_AMP		(1 <<  5)
-#define	ALC5623_PWR_ADD1_HP_OUT_ENH_AMP		(1 <<  4) 
+#define	ALC5623_PWR_ADD1_HP_OUT_ENH_AMP		(1 <<  4) /* rsvd on 5622 */
 #define ALC5623_PWR_ADD1_DEPOP_BUF_AUX		(1 <<  2)
 #define ALC5623_PWR_ADD1_AUX_OUT_AMP		(1 <<  1)
-#define ALC5623_PWR_ADD1_AUX_OUT_ENH_AMP	(1 <<  0) 
+#define ALC5623_PWR_ADD1_AUX_OUT_ENH_AMP	(1 <<  0) /* rsvd on 5622 */
 
 #define ALC5623_PWR_MANAG_ADD2			0x3C
-#define ALC5623_PWR_ADD2_LINEOUT		(1 << 15) 
-#define ALC5623_PWR_ADD2_CLASS_AB		(1 << 15) 
-#define ALC5623_PWR_ADD2_CLASS_D		(1 << 14) 
+#define ALC5623_PWR_ADD2_LINEOUT		(1 << 15) /* rt5623 */
+#define ALC5623_PWR_ADD2_CLASS_AB		(1 << 15) /* rt5621 */
+#define ALC5623_PWR_ADD2_CLASS_D		(1 << 14) /* rt5621 */
 #define ALC5623_PWR_ADD2_VREF			(1 << 13)
 #define ALC5623_PWR_ADD2_PLL			(1 << 12)
 #define ALC5623_PWR_ADD2_DAC_REF_CIR		(1 << 10)
@@ -129,8 +135,8 @@
 
 #define ALC5623_MISC_CTRL			0x5E
 #define ALC5623_MISC_DISABLE_FAST_VREG		(1 << 15)
-#define ALC5623_MISC_SPK_CLASS_AB_OC_PD		(1 << 13) 
-#define ALC5623_MISC_SPK_CLASS_AB_OC_DET	(1 << 12) 
+#define ALC5623_MISC_SPK_CLASS_AB_OC_PD		(1 << 13) /* 5621 */
+#define ALC5623_MISC_SPK_CLASS_AB_OC_DET	(1 << 12) /* 5621 */
 #define ALC5623_MISC_HP_DEPOP_MODE3_EN		(1 << 10)
 #define ALC5623_MISC_HP_DEPOP_MODE2_EN		(1 <<  9)
 #define ALC5623_MISC_HP_DEPOP_MODE1_EN		(1 <<  8)

@@ -38,7 +38,7 @@ static inline __kprobes int notify_page_fault(struct pt_regs *regs)
 {
 	int ret = 0;
 
-	
+	/* kprobe_running() needs smp_processor_id() */
 	if (kprobes_built_in() && !user_mode(regs)) {
 		preempt_disable();
 		if (kprobe_running() && kprobe_fault_handler(regs, 0))
@@ -80,6 +80,13 @@ static void __kprobes bad_kernel_pc(struct pt_regs *regs, unsigned long vaddr)
 	unhandled_fault(regs->tpc, current, regs);
 }
 
+/*
+ * We now make sure that mmap_sem is held in all paths that call 
+ * this. Additionally, to prevent kswapd from ripping ptes from
+ * under us, raise interrupts around the time that we look at the
+ * pte, kswapd will have to wait to get his smp ipi response from
+ * us. vmtruncate likewise. This saves us having to get pte lock.
+ */
 static unsigned int get_user_insn(unsigned long tpc)
 {
 	pgd_t *pgdp = pgd_offset(current->mm, tpc);
@@ -99,7 +106,7 @@ static unsigned int get_user_insn(unsigned long tpc)
 	if (pmd_none(*pmdp))
 		goto outret;
 
-	
+	/* This disables preemption for us as well. */
 	__asm__ __volatile__("rdpr %%pstate, %0" : "=r" (pstate));
 	__asm__ __volatile__("wrpr %0, %1, %%pstate"
 				: : "r" (pstate), "i" (PSTATE_IE));
@@ -111,7 +118,7 @@ static unsigned int get_user_insn(unsigned long tpc)
 	pa  = (pte_pfn(pte) << PAGE_SHIFT);
 	pa += (tpc & ~PAGE_MASK);
 
-	
+	/* Use phys bypass so we don't pollute dtlb/dcache. */
 	__asm__ __volatile__("lduwa [%1] %2, %0"
 			     : "=r" (insn)
 			     : "r" (pa), "i" (ASI_PHYS_USE_EC));
@@ -194,6 +201,10 @@ static void __kprobes do_kernel_fault(struct pt_regs *regs, int si_code,
 	if ((!insn) && (regs->tstate & TSTATE_PRIV))
 		goto cannot_handle;
 
+	/* If user insn could be read (thus insn is zero), that
+	 * is fine.  We will just gun down the process with a signal
+	 * in that case.
+	 */
 
 	if (!(fault_code & (FAULT_CODE_WRITE|FAULT_CODE_ITLB)) &&
 	    (insn & 0xc0800000) == 0xc0800000) {
@@ -205,13 +216,17 @@ static void __kprobes do_kernel_fault(struct pt_regs *regs, int si_code,
 			if (insn & 0x1000000) {
 				handle_ldf_stq(insn, regs);
 			} else {
+				/* This was a non-faulting load. Just clear the
+				 * destination register(s) and continue with the next
+				 * instruction. -jj
+				 */
 				handle_ld_nf(insn, regs);
 			}
 			return;
 		}
 	}
 		
-	
+	/* Is this in ex_table? */
 	if (regs->tstate & TSTATE_PRIV) {
 		const struct exception_table_entry *entry;
 
@@ -222,6 +237,9 @@ static void __kprobes do_kernel_fault(struct pt_regs *regs, int si_code,
 			return;
 		}
 	} else {
+		/* The si_code was set to make clear whether
+		 * this was a SEGV_MAPERR or SEGV_ACCERR fault.
+		 */
 		do_fault_siginfo(si_code, SIGSEGV, regs, insn, fault_code);
 		return;
 	}
@@ -291,16 +309,20 @@ asmlinkage void __kprobes do_sparc64_fault(struct pt_regs *regs)
 	if (regs->tstate & TSTATE_PRIV) {
 		unsigned long tpc = regs->tpc;
 
-		
+		/* Sanity check the PC. */
 		if ((tpc >= KERNBASE && tpc < (unsigned long) __init_end) ||
 		    (tpc >= MODULES_VADDR && tpc < MODULES_END)) {
-			
+			/* Valid, no problems... */
 		} else {
 			bad_kernel_pc(regs, address);
 			return;
 		}
 	}
 
+	/*
+	 * If we're in an interrupt or have no user
+	 * context, we must not take the fault..
+	 */
 	if (in_atomic() || !mm)
 		goto intr_or_no_mm;
 
@@ -321,14 +343,30 @@ retry:
 	if (!vma)
 		goto bad_area;
 
+	/* Pure DTLB misses do not tell us whether the fault causing
+	 * load/store/atomic was a write or not, it only says that there
+	 * was no match.  So in such a case we (carefully) read the
+	 * instruction to try and figure this out.  It's an optimization
+	 * so it's ok if we can't do this.
+	 *
+	 * Special hack, window spill/fill knows the exact fault type.
+	 */
 	if (((fault_code &
 	      (FAULT_CODE_DTLB | FAULT_CODE_WRITE | FAULT_CODE_WINFIXUP)) == FAULT_CODE_DTLB) &&
 	    (vma->vm_flags & VM_WRITE) != 0) {
 		insn = get_fault_insn(regs, 0);
 		if (!insn)
 			goto continue_fault;
+		/* All loads, stores and atomics have bits 30 and 31 both set
+		 * in the instruction.  Bit 21 is set in all stores, but we
+		 * have to avoid prefetches which also have bit 21 set.
+		 */
 		if ((insn & 0xc0200000) == 0xc0200000 &&
 		    (insn & 0x01780000) != 0x01680000) {
+			/* Don't bother updating thread struct value,
+			 * because update_mmu_cache only cares which tlb
+			 * the access came from.
+			 */
 			fault_code |= FAULT_CODE_WRITE;
 		}
 	}
@@ -339,7 +377,7 @@ continue_fault:
 	if (!(vma->vm_flags & VM_GROWSDOWN))
 		goto bad_area;
 	if (!(fault_code & FAULT_CODE_WRITE)) {
-		
+		/* Non-faulting loads shouldn't expand stack. */
 		insn = get_fault_insn(regs, insn);
 		if ((insn & 0xc0800000) == 0xc0800000) {
 			unsigned char asi;
@@ -354,9 +392,16 @@ continue_fault:
 	}
 	if (expand_stack(vma, address))
 		goto bad_area;
+	/*
+	 * Ok, we have a good vm_area for this memory access, so
+	 * we can handle it..
+	 */
 good_area:
 	si_code = SEGV_ACCERR;
 
+	/* If we took a ITLB miss on a non-executable page, catch
+	 * that here.
+	 */
 	if ((fault_code & FAULT_CODE_ITLB) && !(vma->vm_flags & VM_EXEC)) {
 		BUG_ON(address != regs->tpc);
 		BUG_ON(regs->tstate & TSTATE_PRIV);
@@ -367,13 +412,16 @@ good_area:
 		if (!(vma->vm_flags & VM_WRITE))
 			goto bad_area;
 
+		/* Spitfire has an icache which does not snoop
+		 * processor stores.  Later processors do...
+		 */
 		if (tlb_type == spitfire &&
 		    (vma->vm_flags & VM_EXEC) != 0 &&
 		    vma->vm_file != NULL)
 			set_thread_fault_code(fault_code |
 					      FAULT_CODE_BLKCOMMIT);
 	} else {
-		
+		/* Allow reads even for write-only mappings */
 		if (!(vma->vm_flags & (VM_READ | VM_EXEC)))
 			goto bad_area;
 	}
@@ -405,6 +453,10 @@ good_area:
 		if (fault & VM_FAULT_RETRY) {
 			flags &= ~FAULT_FLAG_ALLOW_RETRY;
 
+			/* No need to up_read(&mm->mmap_sem) as we would
+			 * have already released it in __lock_page_or_retry
+			 * in mm/filemap.c.
+			 */
 
 			goto retry;
 		}
@@ -426,6 +478,10 @@ good_area:
 #endif
 	return;
 
+	/*
+	 * Something tried to access memory that isn't in our memory map..
+	 * Fix it, but check if it's kernel or user first..
+	 */
 bad_area:
 	insn = get_fault_insn(regs, insn);
 	up_read(&mm->mmap_sem);
@@ -434,6 +490,10 @@ handle_kernel_fault:
 	do_kernel_fault(regs, si_code, fault_code, insn, address);
 	return;
 
+/*
+ * We ran out of memory, or some other thing happened to us that made
+ * us unable to handle the page fault gracefully.
+ */
 out_of_memory:
 	insn = get_fault_insn(regs, insn);
 	up_read(&mm->mmap_sem);
@@ -451,9 +511,13 @@ do_sigbus:
 	insn = get_fault_insn(regs, insn);
 	up_read(&mm->mmap_sem);
 
+	/*
+	 * Send a sigbus, regardless of whether we were in kernel
+	 * or user mode.
+	 */
 	do_fault_siginfo(BUS_ADRERR, SIGBUS, regs, insn, fault_code);
 
-	
+	/* Kernel mode? Handle exceptions or die */
 	if (regs->tstate & TSTATE_PRIV)
 		goto handle_kernel_fault;
 }

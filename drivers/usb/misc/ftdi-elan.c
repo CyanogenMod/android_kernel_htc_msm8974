@@ -61,23 +61,48 @@ extern struct platform_driver u132_platform_driver;
 static struct workqueue_struct *status_queue;
 static struct workqueue_struct *command_queue;
 static struct workqueue_struct *respond_queue;
+/*
+* ftdi_module_lock exists to protect access to global variables
+*
+*/
 static struct mutex ftdi_module_lock;
 static int ftdi_instances = 0;
 static struct list_head ftdi_static_list;
+/*
+* end of the global variables protected by ftdi_module_lock
+*/
 #include "usb_u132.h"
 #include <asm/io.h>
 #include <linux/usb/hcd.h>
 
+	/* FIXME ohci.h is ONLY for internal use by the OHCI driver.
+	 * If you're going to try stuff like this, you need to split
+	 * out shareable stuff (register declarations?) into its own
+	 * file, maybe name <linux/usb/ohci.h>
+	 */
 
 #include "../host/ohci.h"
+/* Define these values to match your devices*/
 #define USB_FTDI_ELAN_VENDOR_ID 0x0403
 #define USB_FTDI_ELAN_PRODUCT_ID 0xd6ea
+/* table of devices that work with this driver*/
 static const struct usb_device_id ftdi_elan_table[] = {
         {USB_DEVICE(USB_FTDI_ELAN_VENDOR_ID, USB_FTDI_ELAN_PRODUCT_ID)},
-        {  }
+        { /* Terminating entry */ }
 };
 
 MODULE_DEVICE_TABLE(usb, ftdi_elan_table);
+/* only the jtag(firmware upgrade device) interface requires
+* a device file and corresponding minor number, but the
+* interface is created unconditionally - I suppose it could
+* be configured or not according to a module parameter.
+* But since we(now) require one interface per device,
+* and since it unlikely that a normal installation would
+* require more than a couple of elan-ftdi devices, 8 seems
+* like a reasonable limit to have here, and if someone
+* really requires more than 8 devices, then they can frig the
+* code and recompile
+*/
 #define USB_FTDI_ELAN_MINOR_BASE 192
 #define COMMAND_BITS 5
 #define COMMAND_SIZE (1<<COMMAND_BITS)
@@ -119,6 +144,7 @@ struct u132_target {
                 int repeat_number, int halted, int skipped, int actual,
                 int non_null);
 };
+/* Structure to hold all of our device specific stuff*/
 struct usb_ftdi {
         struct list_head ftdi_list;
         struct mutex u132_lock;
@@ -488,6 +514,11 @@ static void ftdi_elan_respond_work(struct work_struct *work)
 }
 
 
+/*
+* the sw_lock is initially held and will be freed
+* after the FTDI has been synchronized
+*
+*/
 static void ftdi_elan_status_work(struct work_struct *work)
 {
         struct usb_ftdi *ftdi =
@@ -582,6 +613,12 @@ static void ftdi_elan_status_work(struct work_struct *work)
 }
 
 
+/*
+* file_operations for the jtag interface
+*
+* the usage count for the device is incremented on open()
+* and decremented on release()
+*/
 static int ftdi_elan_open(struct inode *inode, struct file *file)
 {
 	int subminor;
@@ -614,12 +651,17 @@ static int ftdi_elan_release(struct inode *inode, struct file *file)
         struct usb_ftdi *ftdi = file->private_data;
         if (ftdi == NULL)
                 return -ENODEV;
-        up(&ftdi->sw_lock);        
+        up(&ftdi->sw_lock);        /* decrement the count on our device */
         ftdi_elan_put_kref(ftdi);
         return 0;
 }
 
 
+/*
+*
+* blocking bulk reads are used to get data from the device
+*
+*/
 static ssize_t ftdi_elan_read(struct file *file, char __user *buffer,
 			      size_t count, loff_t *ppos)
 {
@@ -789,7 +831,8 @@ static int ftdi_elan_command_engine(struct usb_ftdi *ftdi)
                 usb_free_urb(urb);
                 return retval;
         }
-        usb_free_urb(urb);        
+        usb_free_urb(urb);        /* release our reference to this urb,
+                the USB core will eventually free it entirely */
         ftdi->command_head += command_size;
         ftdi_elan_kick_respond_queue(ftdi);
         return 0;
@@ -898,6 +941,14 @@ static char *have_ed_get_response(struct usb_ftdi *ftdi,
 }
 
 
+/*
+* The engine tries to empty the FTDI fifo
+*
+* all responses found in the fifo data are dispatched thus
+* the response buffer can only ever hold a maximum sized
+* response from the Uxxx.
+*
+*/
 static int ftdi_elan_respond_engine(struct usb_ftdi *ftdi)
 {
         u8 *b = ftdi->response + ftdi->received;
@@ -1090,6 +1141,10 @@ static int ftdi_elan_respond_engine(struct usb_ftdi *ftdi)
 }
 
 
+/*
+* create a urb, and a buffer for it, and copy the data to the urb
+*
+*/
 static ssize_t ftdi_elan_write(struct file *file,
 			       const char __user *user_buffer, size_t count,
 			       loff_t *ppos)
@@ -1151,12 +1206,21 @@ static const struct file_operations ftdi_elan_fops = {
         .release = ftdi_elan_release,
 };
 
+/*
+* usb class driver info in order to get a minor number from the usb core,
+* and to have the device registered with the driver core
+*/
 static struct usb_class_driver ftdi_elan_jtag_class = {
         .name = "ftdi-%d-jtag",
         .fops = &ftdi_elan_fops,
         .minor_base = USB_FTDI_ELAN_MINOR_BASE,
 };
 
+/*
+* the following definitions are for the
+* ELAN FPGA state machgine processor that
+* lies on the other side of the FTDI chip
+*/
 #define cPCIu132rd 0x0
 #define cPCIu132wr 0x1
 #define cPCIiord 0x2
@@ -1885,6 +1949,10 @@ static int ftdi_elan_flush_input_fifo(struct usb_ftdi *ftdi)
 }
 
 
+/*
+* send the long flush sequence
+*
+*/
 static int ftdi_elan_synchronize_flush(struct usb_ftdi *ftdi)
 {
         int retval;
@@ -1924,6 +1992,10 @@ static int ftdi_elan_synchronize_flush(struct usb_ftdi *ftdi)
 }
 
 
+/*
+* send the reset sequence
+*
+*/
 static int ftdi_elan_synchronize_reset(struct usb_ftdi *ftdi)
 {
         int retval;
@@ -2235,7 +2307,7 @@ static int ftdi_elan_check_controller(struct usb_ftdi *ftdi, int quirk)
         u32 roothub_a;
         int mask = OHCI_INTR_INIT;
         int sleep_time = 0;
-        int reset_timeout = 30;        
+        int reset_timeout = 30;        /* ... allow extra time */
         int temp;
         retval = ftdi_write_pcimem(ftdi, intrdisable, OHCI_INTR_MIE);
         if (retval)
@@ -2283,7 +2355,7 @@ static int ftdi_elan_check_controller(struct usb_ftdi *ftdi, int quirk)
         retval = ftdi_read_pcimem(ftdi, roothub.a, &roothub_a);
         if (retval)
                 return retval;
-        if (!(roothub_a & RH_A_NPS)) {        
+        if (!(roothub_a & RH_A_NPS)) {        /* power down each port */
                 for (temp = 0; temp < num_ports; temp++) {
                         retval = ftdi_write_pcimem(ftdi,
                                 roothub.portstatus[temp], RH_PS_LSDA);
@@ -2356,7 +2428,7 @@ static int ftdi_elan_check_controller(struct usb_ftdi *ftdi, int quirk)
                 } else
                         dev_err(&ftdi->udev->dev, "init err(%08x %04x)\n",
                                 fminterval, periodicstart);
-        }                        
+        }                        /* start controller operations */
         hc_control &= OHCI_CTRL_RWC;
         hc_control |= OHCI_CONTROL_INIT | OHCI_CTRL_BLE | OHCI_USB_OPER;
         retval = ftdi_write_pcimem(ftdi, control, hc_control);
@@ -2382,7 +2454,7 @@ static int ftdi_elan_check_controller(struct usb_ftdi *ftdi, int quirk)
                 OHCI_INTR_UE | OHCI_INTR_RD | OHCI_INTR_SF | OHCI_INTR_WDH |
                 OHCI_INTR_SO);
         if (retval)
-                return retval;        
+                return retval;        /* handle root hub init quirks ... */
         retval = ftdi_read_pcimem(ftdi, roothub.a, &roothub_a);
         if (retval)
                 return retval;
@@ -2671,6 +2743,9 @@ static int ftdi_elan_setupOHCI(struct usb_ftdi *ftdi)
 }
 
 
+/*
+* we use only the first bulk-in and bulk-out endpoints
+*/
 static int ftdi_elan_probe(struct usb_interface *interface,
         const struct usb_device_id *id)
 {

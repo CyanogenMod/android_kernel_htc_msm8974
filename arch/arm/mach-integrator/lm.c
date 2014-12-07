@@ -45,6 +45,8 @@ static struct bus_type lm_bustype = {
 	.match		= lm_match,
 	.probe		= lm_bus_probe,
 	.remove		= lm_bus_remove,
+//	.suspend	= lm_bus_suspend,
+//	.resume		= lm_bus_resume,
 };
 
 static int __init lm_init(void)

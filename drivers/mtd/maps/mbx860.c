@@ -23,6 +23,7 @@
 #define WINDOW_ADDR 0xfe000000
 #define WINDOW_SIZE 0x00200000
 
+/* Flash / Partition sizing */
 #define MAX_SIZE_KiB              8192
 #define BOOT_PARTITION_SIZE_KiB    512
 #define KERNEL_PARTITION_SIZE_KiB 5632
@@ -30,6 +31,9 @@
 
 #define NUM_PARTITIONS 3
 
+/* partition_info gives details on the logical partitions that the split the
+ * single flash device into. If the size if zero we use up to the end of the
+ * device. */
 static struct mtd_partition partition_info[]={
 	{ .name = "MBX flash BOOT partition",
 	.offset = 0,

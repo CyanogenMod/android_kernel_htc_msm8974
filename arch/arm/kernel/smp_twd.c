@@ -27,6 +27,7 @@
 #include <asm/localtimer.h>
 #include <asm/hardware/gic.h>
 
+/* set up by the platform code */
 static void __iomem *twd_base;
 
 static struct clk *twd_clk;
@@ -42,13 +43,13 @@ static void twd_set_mode(enum clock_event_mode mode,
 
 	switch (mode) {
 	case CLOCK_EVT_MODE_PERIODIC:
-		
+		/* timer load already set up */
 		ctrl = TWD_TIMER_CONTROL_ENABLE | TWD_TIMER_CONTROL_IT_ENABLE
 			| TWD_TIMER_CONTROL_PERIODIC;
 		__raw_writel(twd_timer_rate / HZ, twd_base + TWD_TIMER_LOAD);
 		break;
 	case CLOCK_EVT_MODE_ONESHOT:
-		
+		/* period set, and timer enabled in 'next_event' hook */
 		ctrl = TWD_TIMER_CONTROL_IT_ENABLE | TWD_TIMER_CONTROL_ONESHOT;
 		break;
 	case CLOCK_EVT_MODE_UNUSED:
@@ -73,6 +74,12 @@ static int twd_set_next_event(unsigned long evt,
 	return 0;
 }
 
+/*
+ * local_timer_ack: checks for a local timer interrupt.
+ *
+ * If a local timer interrupt has occurred, acknowledge and return 1.
+ * Otherwise, return 0.
+ */
 static int twd_timer_ack(void)
 {
 	if (__raw_readl(twd_base + TWD_TIMER_INTSTAT)) {
@@ -91,6 +98,10 @@ static void twd_timer_stop(struct clock_event_device *clk)
 
 #ifdef CONFIG_CPU_FREQ
 
+/*
+ * Updates clockevent frequency when the cpu frequency changes.
+ * Called on the cpu that is changing frequency with interrupts disabled.
+ */
 static void twd_update_frequency(void *data)
 {
 	twd_timer_rate = clk_get_rate(twd_clk);
@@ -103,6 +114,11 @@ static int twd_cpufreq_transition(struct notifier_block *nb,
 {
 	struct cpufreq_freqs *freqs = data;
 
+	/*
+	 * The twd clock events must be reprogrammed to account for the new
+	 * frequency.  The timer is local to a cpu, so cross-call to the
+	 * changing cpu.
+	 */
 	if (state == CPUFREQ_POSTCHANGE || state == CPUFREQ_RESUMECHANGE)
 		smp_call_function_single(freqs->cpu, twd_update_frequency,
 			NULL, 1);
@@ -131,22 +147,26 @@ static void __cpuinit twd_calibrate_rate(void)
 	unsigned long count;
 	u64 waitjiffies;
 
+	/*
+	 * If this is the first time round, we need to work out how fast
+	 * the timer ticks
+	 */
 	if (twd_timer_rate == 0) {
 		printk(KERN_INFO "Calibrating local timer... ");
 
-		
+		/* Wait for a tick to start */
 		waitjiffies = get_jiffies_64() + 1;
 
 		while (get_jiffies_64() < waitjiffies)
 			udelay(10);
 
-		
+		/* OK, now the tick has started, let's get the timer going */
 		waitjiffies += 5;
 
-				 
+				 /* enable, no interrupt or reload */
 		__raw_writel(0x1, twd_base + TWD_TIMER_CONTROL);
 
-				 
+				 /* maximum value */
 		__raw_writel(0xFFFFFFFFU, twd_base + TWD_TIMER_COUNTER);
 
 		while (get_jiffies_64() < waitjiffies)
@@ -202,6 +222,9 @@ static struct clk *twd_get_clock(void)
 	return clk;
 }
 
+/*
+ * Setup the local clock events for a CPU.
+ */
 static int __cpuinit twd_timer_setup(struct clock_event_device *clk)
 {
 	struct clock_event_device **this_cpu_clk;

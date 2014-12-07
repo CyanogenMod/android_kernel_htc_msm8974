@@ -110,38 +110,38 @@ static struct platform_device *ezx_devices[] __initdata = {
 };
 
 static unsigned long ezx_pin_config[] __initdata = {
-	
+	/* PWM backlight */
 	GPIO16_PWM0_OUT,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
+	/* PCAP SSP */
 	GPIO29_SSP1_SCLK,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
-	GPIO24_GPIO,				
-	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,	
-	GPIO4_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO55_GPIO | MFP_LPM_DRIVE_HIGH,	
+	GPIO24_GPIO,				/* pcap chip select */
+	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,	/* pcap interrupt */
+	GPIO4_GPIO | MFP_LPM_DRIVE_HIGH,	/* WDI_AP */
+	GPIO55_GPIO | MFP_LPM_DRIVE_HIGH,	/* SYS_RESTART */
 
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 	GPIO112_MMC_CMD,
-	GPIO11_GPIO,				
+	GPIO11_GPIO,				/* mmc detect */
 
-	
+	/* usb to external transceiver */
 	GPIO34_USB_P2_2,
 	GPIO35_USB_P2_1,
 	GPIO36_USB_P2_4,
@@ -149,7 +149,7 @@ static unsigned long ezx_pin_config[] __initdata = {
 	GPIO40_USB_P2_5,
 	GPIO53_USB_P2_3,
 
-	
+	/* usb to Neptune GSM chip */
 	GPIO30_USB_P3_2,
 	GPIO31_USB_P3_6,
 	GPIO90_USB_P3_5,
@@ -160,35 +160,35 @@ static unsigned long ezx_pin_config[] __initdata = {
 
 #if defined(CONFIG_MACH_EZX_A780) || defined(CONFIG_MACH_EZX_E680)
 static unsigned long gen1_pin_config[] __initdata = {
-	
+	/* flip / lockswitch */
 	GPIO12_GPIO | WAKEUP_ON_EDGE_BOTH,
 
-	
-	GPIO14_GPIO | WAKEUP_ON_EDGE_RISE,	
-	GPIO48_GPIO,				
-	GPIO28_GPIO,				
+	/* bluetooth (bcm2035) */
+	GPIO14_GPIO | WAKEUP_ON_EDGE_RISE,	/* HOSTWAKE */
+	GPIO48_GPIO,				/* RESET */
+	GPIO28_GPIO,				/* WAKEUP */
 
-	
-	GPIO0_GPIO | WAKEUP_ON_EDGE_FALL,	
-	GPIO57_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO13_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO3_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO82_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO99_GPIO | MFP_LPM_DRIVE_HIGH,	
+	/* Neptune handshake */
+	GPIO0_GPIO | WAKEUP_ON_EDGE_FALL,	/* BP_RDY */
+	GPIO57_GPIO | MFP_LPM_DRIVE_HIGH,	/* AP_RDY */
+	GPIO13_GPIO | WAKEUP_ON_EDGE_BOTH,	/* WDI */
+	GPIO3_GPIO | WAKEUP_ON_EDGE_BOTH,	/* WDI2 */
+	GPIO82_GPIO | MFP_LPM_DRIVE_HIGH,	/* RESET */
+	GPIO99_GPIO | MFP_LPM_DRIVE_HIGH,	/* TC_MM_EN */
 
-	
+	/* sound */
 	GPIO52_SSP3_SCLK,
 	GPIO83_SSP3_SFRM,
 	GPIO81_SSP3_TXD,
 	GPIO89_SSP3_RXD,
 
-	
-	GPIO22_GPIO,				
-	GPIO37_GPIO,				
-	GPIO38_GPIO,				
-	GPIO88_GPIO,				
+	/* ssp2 pins to in */
+	GPIO22_GPIO,				/* SSP2_SCLK */
+	GPIO37_GPIO,				/* SSP2_SFRM */
+	GPIO38_GPIO,				/* SSP2_TXD */
+	GPIO88_GPIO,				/* SSP2_RXD */
 
-	
+	/* camera */
 	GPIO23_CIF_MCLK,
 	GPIO54_CIF_PCLK,
 	GPIO85_CIF_LV,
@@ -201,51 +201,51 @@ static unsigned long gen1_pin_config[] __initdata = {
 	GPIO94_CIF_DD_5,
 	GPIO17_CIF_DD_6,
 	GPIO108_CIF_DD_7,
-	GPIO50_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO19_GPIO | MFP_LPM_DRIVE_HIGH,	
+	GPIO50_GPIO | MFP_LPM_DRIVE_HIGH,	/* CAM_EN */
+	GPIO19_GPIO | MFP_LPM_DRIVE_HIGH,	/* CAM_RST */
 
-	
-	GPIO120_GPIO,				
-	GPIO119_GPIO,				
-	GPIO86_GPIO,				
-	GPIO87_GPIO,				
+	/* EMU */
+	GPIO120_GPIO,				/* EMU_MUX1 */
+	GPIO119_GPIO,				/* EMU_MUX2 */
+	GPIO86_GPIO,				/* SNP_INT_CTL */
+	GPIO87_GPIO,				/* SNP_INT_IN */
 };
 #endif
 
 #if defined(CONFIG_MACH_EZX_A1200) || defined(CONFIG_MACH_EZX_A910) || \
 	defined(CONFIG_MACH_EZX_E2) || defined(CONFIG_MACH_EZX_E6)
 static unsigned long gen2_pin_config[] __initdata = {
-	
+	/* flip / lockswitch */
 	GPIO15_GPIO | WAKEUP_ON_EDGE_BOTH,
 
-	
+	/* EOC */
 	GPIO10_GPIO | WAKEUP_ON_EDGE_RISE,
 
-	
-	GPIO13_GPIO | WAKEUP_ON_EDGE_RISE,	
-	GPIO37_GPIO,				
-	GPIO57_GPIO,				
+	/* bluetooth (bcm2045) */
+	GPIO13_GPIO | WAKEUP_ON_EDGE_RISE,	/* HOSTWAKE */
+	GPIO37_GPIO,				/* RESET */
+	GPIO57_GPIO,				/* WAKEUP */
 
-	
-	GPIO0_GPIO | WAKEUP_ON_EDGE_FALL,	
-	GPIO96_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO3_GPIO | WAKEUP_ON_EDGE_FALL,	
-	GPIO116_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO41_GPIO,				
+	/* Neptune handshake */
+	GPIO0_GPIO | WAKEUP_ON_EDGE_FALL,	/* BP_RDY */
+	GPIO96_GPIO | MFP_LPM_DRIVE_HIGH,	/* AP_RDY */
+	GPIO3_GPIO | WAKEUP_ON_EDGE_FALL,	/* WDI */
+	GPIO116_GPIO | MFP_LPM_DRIVE_HIGH,	/* RESET */
+	GPIO41_GPIO,				/* BP_FLASH */
 
-	
+	/* sound */
 	GPIO52_SSP3_SCLK,
 	GPIO83_SSP3_SFRM,
 	GPIO81_SSP3_TXD,
 	GPIO82_SSP3_RXD,
 
-	
-	GPIO22_GPIO,				
-	GPIO14_GPIO,				
-	GPIO38_GPIO,				
-	GPIO88_GPIO,				
+	/* ssp2 pins to in */
+	GPIO22_GPIO,				/* SSP2_SCLK */
+	GPIO14_GPIO,				/* SSP2_SFRM */
+	GPIO38_GPIO,				/* SSP2_TXD */
+	GPIO88_GPIO,				/* SSP2_RXD */
 
-	
+	/* camera */
 	GPIO23_CIF_MCLK,
 	GPIO54_CIF_PCLK,
 	GPIO85_CIF_LV,
@@ -258,15 +258,15 @@ static unsigned long gen2_pin_config[] __initdata = {
 	GPIO48_CIF_DD_5,
 	GPIO93_CIF_DD_6,
 	GPIO12_CIF_DD_7,
-	GPIO50_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO28_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO17_GPIO,				
+	GPIO50_GPIO | MFP_LPM_DRIVE_HIGH,	/* CAM_EN */
+	GPIO28_GPIO | MFP_LPM_DRIVE_HIGH,	/* CAM_RST */
+	GPIO17_GPIO,				/* CAM_FLASH */
 };
 #endif
 
 #ifdef CONFIG_MACH_EZX_A780
 static unsigned long a780_pin_config[] __initdata = {
-	
+	/* keypad */
 	GPIO93_KP_DKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
@@ -279,14 +279,14 @@ static unsigned long a780_pin_config[] __initdata = {
 	GPIO106_KP_MKOUT_3,
 	GPIO107_KP_MKOUT_4,
 
-	
+	/* attenuate sound */
 	GPIO96_GPIO,
 };
 #endif
 
 #ifdef CONFIG_MACH_EZX_E680
 static unsigned long e680_pin_config[] __initdata = {
-	
+	/* keypad */
 	GPIO93_KP_DKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO96_KP_DKIN_3 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO97_KP_DKIN_4 | WAKEUP_ON_LEVEL_HIGH,
@@ -299,16 +299,16 @@ static unsigned long e680_pin_config[] __initdata = {
 	GPIO105_KP_MKOUT_2,
 	GPIO106_KP_MKOUT_3,
 
-	
-	GPIO79_GPIO,				
-	GPIO80_GPIO,				
-	GPIO78_GPIO,				
-	GPIO33_GPIO,				
-	GPIO15_GPIO,				
-	GPIO49_GPIO,				
-	GPIO18_GPIO,				
+	/* MIDI */
+	GPIO79_GPIO,				/* VA_SEL_BUL */
+	GPIO80_GPIO,				/* FLT_SEL_BUL */
+	GPIO78_GPIO,				/* MIDI_RESET */
+	GPIO33_GPIO,				/* MIDI_CS */
+	GPIO15_GPIO,				/* MIDI_IRQ */
+	GPIO49_GPIO,				/* MIDI_NPWE */
+	GPIO18_GPIO,				/* MIDI_RDY */
 
-	
+	/* leds */
 	GPIO46_GPIO,
 	GPIO47_GPIO,
 };
@@ -316,7 +316,7 @@ static unsigned long e680_pin_config[] __initdata = {
 
 #ifdef CONFIG_MACH_EZX_A1200
 static unsigned long a1200_pin_config[] __initdata = {
-	
+	/* keypad */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
@@ -333,7 +333,7 @@ static unsigned long a1200_pin_config[] __initdata = {
 
 #ifdef CONFIG_MACH_EZX_A910
 static unsigned long a910_pin_config[] __initdata = {
-	
+	/* keypad */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
@@ -346,19 +346,19 @@ static unsigned long a910_pin_config[] __initdata = {
 	GPIO107_KP_MKOUT_4,
 	GPIO108_KP_MKOUT_5,
 
-	
-	GPIO89_GPIO,				
-	GPIO33_GPIO,				
-	GPIO94_GPIO | WAKEUP_ON_LEVEL_HIGH,	
+	/* WLAN */
+	GPIO89_GPIO,				/* RESET */
+	GPIO33_GPIO,				/* WAKEUP */
+	GPIO94_GPIO | WAKEUP_ON_LEVEL_HIGH,	/* HOSTWAKE */
 
-	
+	/* MMC CS */
 	GPIO20_GPIO,
 };
 #endif
 
 #ifdef CONFIG_MACH_EZX_E2
 static unsigned long e2_pin_config[] __initdata = {
-	
+	/* keypad */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
@@ -375,7 +375,7 @@ static unsigned long e2_pin_config[] __initdata = {
 
 #ifdef CONFIG_MACH_EZX_E6
 static unsigned long e6_pin_config[] __initdata = {
-	
+	/* keypad */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
@@ -390,6 +390,7 @@ static unsigned long e6_pin_config[] __initdata = {
 };
 #endif
 
+/* KEYPAD */
 #ifdef CONFIG_MACH_EZX_A780
 static unsigned int a780_key_map[] = {
 	KEY(0, 0, KEY_SEND),
@@ -434,7 +435,7 @@ static struct pxa27x_keypad_platform_data a780_keypad_platform_data = {
 
 	.debounce_interval = 30,
 };
-#endif 
+#endif /* CONFIG_MACH_EZX_A780 */
 
 #ifdef CONFIG_MACH_EZX_E680
 static unsigned int e680_key_map[] = {
@@ -472,7 +473,7 @@ static struct pxa27x_keypad_platform_data e680_keypad_platform_data = {
 
 	.debounce_interval = 30,
 };
-#endif 
+#endif /* CONFIG_MACH_EZX_E680 */
 
 #ifdef CONFIG_MACH_EZX_A1200
 static unsigned int a1200_key_map[] = {
@@ -520,7 +521,7 @@ static struct pxa27x_keypad_platform_data a1200_keypad_platform_data = {
 
 	.debounce_interval = 30,
 };
-#endif 
+#endif /* CONFIG_MACH_EZX_A1200 */
 
 #ifdef CONFIG_MACH_EZX_E6
 static unsigned int e6_key_map[] = {
@@ -568,7 +569,7 @@ static struct pxa27x_keypad_platform_data e6_keypad_platform_data = {
 
 	.debounce_interval = 30,
 };
-#endif 
+#endif /* CONFIG_MACH_EZX_E6 */
 
 #ifdef CONFIG_MACH_EZX_A910
 static unsigned int a910_key_map[] = {
@@ -582,14 +583,14 @@ static unsigned int a910_key_map[] = {
 	KEY(1, 0, KEY_NUMERIC_8),
 	KEY(1, 1, KEY_DOWN),
 	KEY(1, 2, KEY_RESERVED),
-	KEY(1, 3, KEY_F1), 
+	KEY(1, 3, KEY_F1), /* Left SoftKey */
 	KEY(1, 4, KEY_NUMERIC_STAR),
 	KEY(1, 5, KEY_RESERVED),
 
 	KEY(2, 0, KEY_NUMERIC_7),
 	KEY(2, 1, KEY_NUMERIC_9),
 	KEY(2, 2, KEY_RECORD),
-	KEY(2, 3, KEY_F2), 
+	KEY(2, 3, KEY_F2), /* Right SoftKey */
 	KEY(2, 4, KEY_BACK),
 	KEY(2, 5, KEY_SELECT),
 
@@ -616,7 +617,7 @@ static struct pxa27x_keypad_platform_data a910_keypad_platform_data = {
 
 	.debounce_interval = 30,
 };
-#endif 
+#endif /* CONFIG_MACH_EZX_A910 */
 
 #ifdef CONFIG_MACH_EZX_E2
 static unsigned int e2_key_map[] = {
@@ -625,14 +626,14 @@ static unsigned int e2_key_map[] = {
 	KEY(0, 2, KEY_NUMERIC_9),
 	KEY(0, 3, KEY_NEXTSONG),
 	KEY(0, 4, KEY_NUMERIC_5),
-	KEY(0, 5, KEY_F1), 
+	KEY(0, 5, KEY_F1), /* Left SoftKey */
 
 	KEY(1, 0, KEY_NUMERIC_8),
 	KEY(1, 1, KEY_DOWN),
 	KEY(1, 2, KEY_RESERVED),
 	KEY(1, 3, KEY_PAGEUP),
 	KEY(1, 4, KEY_NUMERIC_STAR),
-	KEY(1, 5, KEY_F2), 
+	KEY(1, 5, KEY_F2), /* Right SoftKey */
 
 	KEY(2, 0, KEY_NUMERIC_7),
 	KEY(2, 1, KEY_KPENTER),
@@ -646,7 +647,7 @@ static unsigned int e2_key_map[] = {
 	KEY(3, 2, KEY_SEND),
 	KEY(3, 3, KEY_PLAYPAUSE),
 	KEY(3, 4, KEY_NUMERIC_1),
-	KEY(3, 5, KEY_SOUND), 
+	KEY(3, 5, KEY_SOUND), /* Music SoftKey */
 
 	KEY(4, 0, KEY_NUMERIC_4),
 	KEY(4, 1, KEY_LEFT),
@@ -664,9 +665,10 @@ static struct pxa27x_keypad_platform_data e2_keypad_platform_data = {
 
 	.debounce_interval = 30,
 };
-#endif 
+#endif /* CONFIG_MACH_EZX_E2 */
 
 #ifdef CONFIG_MACH_EZX_A780
+/* gpio_keys */
 static struct gpio_keys_button a780_buttons[] = {
 	[0] = {
 		.code       = SW_LID,
@@ -691,10 +693,15 @@ static struct platform_device a780_gpio_keys = {
 	},
 };
 
+/* camera */
 static int a780_camera_init(void)
 {
 	int err;
 
+	/*
+	 * GPIO50_nCAM_EN is active low
+	 * GPIO19_GEN1_CAM_RST is active on rising edge
+	 */
 	err = gpio_request(GPIO50_nCAM_EN, "nCAM_EN");
 	if (err) {
 		pr_err("%s: Failed to request nCAM_EN\n", __func__);
@@ -802,6 +809,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_EZX_E680
+/* gpio_keys */
 static struct gpio_keys_button e680_buttons[] = {
 	[0] = {
 		.code       = KEY_SCREENLOCK,
@@ -868,6 +876,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_EZX_A1200
+/* gpio_keys */
 static struct gpio_keys_button a1200_buttons[] = {
 	[0] = {
 		.code       = SW_LID,
@@ -934,6 +943,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_EZX_A910
+/* gpio_keys */
 static struct gpio_keys_button a910_buttons[] = {
 	[0] = {
 		.code       = SW_LID,
@@ -958,10 +968,15 @@ static struct platform_device a910_gpio_keys = {
 	},
 };
 
+/* camera */
 static int a910_camera_init(void)
 {
 	int err;
 
+	/*
+	 * GPIO50_nCAM_EN is active low
+	 * GPIO28_GEN2_CAM_RST is active on rising edge
+	 */
 	err = gpio_request(GPIO50_nCAM_EN, "nCAM_EN");
 	if (err) {
 		pr_err("%s: Failed to request nCAM_EN\n", __func__);
@@ -1026,6 +1041,7 @@ static struct platform_device a910_camera = {
 	},
 };
 
+/* leds-lp3944 */
 static struct lp3944_platform_data a910_lp3944_leds = {
 	.leds_size = LP3944_LEDS_MAX,
 	.leds = {
@@ -1044,7 +1060,7 @@ static struct lp3944_platform_data a910_lp3944_leds = {
 			.status = LP3944_LED_STATUS_OFF,
 			.type = LP3944_LED_TYPE_LED,
 		},
-		
+		/* Leds 3 and 4 are used as display power switches */
 		[3] = {
 			.name = "a910::cli_display",
 			.status = LP3944_LED_STATUS_OFF,
@@ -1119,6 +1135,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_EZX_E6
+/* gpio_keys */
 static struct gpio_keys_button e6_buttons[] = {
 	[0] = {
 		.code       = KEY_SCREENLOCK,

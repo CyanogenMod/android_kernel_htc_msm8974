@@ -26,6 +26,18 @@
 #ifndef	__CUSTOM_OID_H
 #define __CUSTOM_OID_H
 
+/* 0xFF818000 - 0xFF81802F		RTL8180 Mass Production Kit
+ * 0xFF818500 - 0xFF81850F		RTL8185 Setup Utility
+ * 0xFF818580 - 0xFF81858F		RTL8185 Phy Status Utility
+ *
+ * by Owen for Production Kit
+ * For Production Kit with Agilent Equipments
+ * in order to make our custom oids hopefully somewhat unique
+ * we will use 0xFF (indicating implementation specific OID)
+ *	 81(first byte of non zero Realtek unique identifier)
+ *	 80 (second byte of non zero Realtek unique identifier)
+ *	 XX (the custom OID number - providing 255 possible custom oids)
+ */
 #define OID_RT_PRO_RESET_DUT				0xFF818000
 #define OID_RT_PRO_SET_DATA_RATE			0xFF818001
 #define OID_RT_PRO_START_TEST				0xFF818002
@@ -196,6 +208,7 @@
 #define OID_RT_PRO8711_PKT_LOSS				0xFF87110B
 #define OID_RT_RD_ATTRIB_MEM				0xFF87110C
 #define OID_RT_WR_ATTRIB_MEM				0xFF87110D
+/*Method 2 for H2C/C2H*/
 #define OID_RT_PRO_H2C_CMD_MODE				0xFF871110
 #define OID_RT_PRO_H2C_CMD_RSP_MODE			0xFF871111
 #define OID_RT_PRO_H2C_CMD_EVENT_MODE			0xFF871112
@@ -219,6 +232,7 @@
 #define OID_RT_PRO_SET_POWER_TRACKING			0xFF871124
 #define OID_RT_PRO_QRY_PWRSTATE				0xFF871150
 #define OID_RT_PRO_SET_PWRSTATE				0xFF871151
+/*Method 2 , using workitem */
 #define OID_RT_SET_READ_REG				0xFF871181
 #define OID_RT_SET_WRITE_REG				0xFF871182
 #define OID_RT_SET_BURST_READ_REG			0xFF871183
@@ -228,9 +242,11 @@
 #define OID_RT_SET_WRITE16_EEPROM			0xFF871187
 #define OID_RT_QRY_POLL_WKITEM				0xFF871188
 
+/*For SDIO INTERFACE only*/
 #define OID_RT_PRO_SYNCPAGERW_SRAM			0xFF8711A0
 #define OID_RT_PRO_871X_DRV_EXT				0xFF8711A1
 
+/*For USB INTERFACE only*/
 #define OID_RT_PRO_USB_VENDOR_REQ			0xFF8711B0
 #define OID_RT_PRO_SCSI_AUTO_TEST			0xFF8711B1
 #define OID_RT_PRO_USB_MAC_AC_FIFO_WRITE		0xFF8711B2
@@ -279,5 +295,5 @@
 #define OID_RT_PRO_EFUSE				0xFF871216
 #define OID_RT_PRO_EFUSE_MAP				0xFF871217
 
-#endif 
+#endif /*#ifndef __CUSTOM_OID_H */
 

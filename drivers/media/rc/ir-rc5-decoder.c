@@ -12,6 +12,13 @@
  *  GNU General Public License for more details.
  */
 
+/*
+ * This code handles 14 bits RC5 protocols and 20 bits RC5x protocols.
+ * There are other variants that use a different number of bits.
+ * This is currently unsupported.
+ * It considers a carrier of 36 kHz, with a total of 14/20 bits, where
+ * the first two bits are start bits, and a third one is a filing bit
+ */
 
 #include "rc-core-priv.h"
 #include <linux/module.h>
@@ -19,7 +26,7 @@
 #define RC5_NBITS		14
 #define RC5X_NBITS		20
 #define CHECK_RC5X_NBITS	8
-#define RC5_UNIT		888888 
+#define RC5_UNIT		888888 /* ns */
 #define RC5_BIT_START		(1 * RC5_UNIT)
 #define RC5_BIT_END		(1 * RC5_UNIT)
 #define RC5X_SPACE		(4 * RC5_UNIT)
@@ -32,6 +39,13 @@ enum rc5_state {
 	STATE_FINISHED,
 };
 
+/**
+ * ir_rc5_decode() - Decode one RC-5 pulse or space
+ * @dev:	the struct rc_dev descriptor of the device
+ * @ev:		the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This function returns -EINVAL if the pulse violates the state machine
+ */
 static int ir_rc5_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct rc5_dec *data = &dev->raw->rc5;
@@ -65,7 +79,7 @@ again:
 
 		data->state = STATE_BIT_START;
 		data->count = 1;
-		
+		/* We just need enough bits to get to STATE_CHECK_RC5X */
 		data->wanted_bits = RC5X_NBITS;
 		decrease_duration(&ev, RC5_BIT_START);
 		goto again;
@@ -97,11 +111,11 @@ again:
 
 	case STATE_CHECK_RC5X:
 		if (!ev.pulse && geq_margin(ev.duration, RC5X_SPACE, RC5_UNIT / 2)) {
-			
+			/* RC5X */
 			data->wanted_bits = RC5X_NBITS;
 			decrease_duration(&ev, RC5X_SPACE);
 		} else {
-			
+			/* RC5 */
 			data->wanted_bits = RC5_NBITS;
 		}
 		data->state = STATE_BIT_START;
@@ -112,7 +126,7 @@ again:
 			break;
 
 		if (data->wanted_bits == RC5X_NBITS) {
-			
+			/* RC5X */
 			u8 xdata, command, system;
 			xdata    = (data->bits & 0x0003F) >> 0;
 			command  = (data->bits & 0x00FC0) >> 6;
@@ -125,7 +139,7 @@ again:
 				   scancode, toggle);
 
 		} else {
-			
+			/* RC5 */
 			u8 command, system;
 			command  = (data->bits & 0x0003F) >> 0;
 			system   = (data->bits & 0x007C0) >> 6;

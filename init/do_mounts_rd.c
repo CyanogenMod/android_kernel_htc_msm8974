@@ -15,7 +15,7 @@
 #include <linux/decompress/generic.h>
 
 
-int __initdata rd_prompt = 1;
+int __initdata rd_prompt = 1;/* 1 = prompt for RAM disk, 0 = don't prompt */
 
 static int __init prompt_ramdisk(char *str)
 {
@@ -24,7 +24,7 @@ static int __init prompt_ramdisk(char *str)
 }
 __setup("prompt_ramdisk=", prompt_ramdisk);
 
-int __initdata rd_image_start;		
+int __initdata rd_image_start;		/* starting block # of image */
 
 static int __init ramdisk_start_setup(char *str)
 {
@@ -35,6 +35,20 @@ __setup("ramdisk_start=", ramdisk_start_setup);
 
 static int __init crd_load(int in_fd, int out_fd, decompress_fn deco);
 
+/*
+ * This routine tries to find a RAM disk image to load, and returns the
+ * number of blocks to read for a non-compressed image, 0 if the image
+ * is a compressed image, and -1 if an image with the right magic
+ * numbers could not be found.
+ *
+ * We currently check for the following magic numbers:
+ *	minix
+ *	ext2
+ *	romfs
+ *	cramfs
+ *	squashfs
+ *	gzip
+ */
 static int __init
 identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 {
@@ -58,6 +72,9 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 	squashfsb = (struct squashfs_super_block *) buf;
 	memset(buf, 0xe5, size);
 
+	/*
+	 * Read block 0 to test for compressed kernel
+	 */
 	sys_lseek(fd, start_block * BLOCK_SIZE, 0);
 	sys_read(fd, buf, size);
 
@@ -73,7 +90,7 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 		goto done;
 	}
 
-	
+	/* romfs is at block zero too */
 	if (romfsb->word0 == ROMSB_WORD0 &&
 	    romfsb->word1 == ROMSB_WORD1) {
 		printk(KERN_NOTICE
@@ -91,7 +108,7 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 		goto done;
 	}
 
-	
+	/* squashfs is at block zero too */
 	if (le32_to_cpu(squashfsb->s_magic) == SQUASHFS_MAGIC) {
 		printk(KERN_NOTICE
 		       "RAMDISK: squashfs filesystem found at block %d\n",
@@ -101,6 +118,9 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 		goto done;
 	}
 
+	/*
+	 * Read 512 bytes further to check if cramfs is padded
+	 */
 	sys_lseek(fd, start_block * BLOCK_SIZE + 0x200, 0);
 	sys_read(fd, buf, size);
 
@@ -112,10 +132,13 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 		goto done;
 	}
 
+	/*
+	 * Read block 1 to test for minix and ext2 superblock
+	 */
 	sys_lseek(fd, (start_block+1) * BLOCK_SIZE, 0);
 	sys_read(fd, buf, size);
 
-	
+	/* Try minix */
 	if (minixsb->s_magic == MINIX_SUPER_MAGIC ||
 	    minixsb->s_magic == MINIX_SUPER_MAGIC2) {
 		printk(KERN_NOTICE
@@ -125,7 +148,7 @@ identify_ramdisk_image(int fd, int start_block, decompress_fn *decompressor)
 		goto done;
 	}
 
-	
+	/* Try ext2 */
 	n = ext2_image_size(buf);
 	if (n) {
 		printk(KERN_NOTICE
@@ -176,6 +199,17 @@ int __init rd_load_image(char *from)
 		goto done;
 	}
 
+	/*
+	 * NOTE NOTE: nblocks is not actually blocks but
+	 * the number of kibibytes of data to load into a ramdisk.
+	 * So any ramdisk block size that is a multiple of 1KiB should
+	 * work when the appropriate ramdisk_blocksize is specified
+	 * on the command line.
+	 *
+	 * The default ramdisk_blocksize is 1KiB and it is generally
+	 * silly to use anything else, so make sure to use 1KiB
+	 * blocksize while generating ext2fs ramdisk-images.
+	 */
 	if (sys_ioctl(out_fd, BLKGETSIZE, (unsigned long)&rd_blocks) < 0)
 		rd_blocks = 0;
 	else
@@ -187,6 +221,9 @@ int __init rd_load_image(char *from)
 		goto done;
 	}
 
+	/*
+	 * OK, time to copy in the data
+	 */
 	if (sys_ioctl(in_fd, BLKGETSIZE, (unsigned long)&devblocks) < 0)
 		devblocks = 0;
 	else

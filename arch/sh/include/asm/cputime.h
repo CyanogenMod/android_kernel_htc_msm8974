@@ -3,4 +3,4 @@
 
 #include <asm-generic/cputime.h>
 
-#endif 
+#endif /* __SH_CPUTIME_H */

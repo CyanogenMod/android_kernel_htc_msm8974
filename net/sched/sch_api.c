@@ -42,15 +42,100 @@ static int tclass_notify(struct net *net, struct sk_buff *oskb,
 			 struct nlmsghdr *n, struct Qdisc *q,
 			 unsigned long cl, int event);
 
+/*
 
+   Short review.
+   -------------
+
+   This file consists of two interrelated parts:
+
+   1. queueing disciplines manager frontend.
+   2. traffic classes manager frontend.
+
+   Generally, queueing discipline ("qdisc") is a black box,
+   which is able to enqueue packets and to dequeue them (when
+   device is ready to send something) in order and at times
+   determined by algorithm hidden in it.
+
+   qdisc's are divided to two categories:
+   - "queues", which have no internal structure visible from outside.
+   - "schedulers", which split all the packets to "traffic classes",
+     using "packet classifiers" (look at cls_api.c)
+
+   In turn, classes may have child qdiscs (as rule, queues)
+   attached to them etc. etc. etc.
+
+   The goal of the routines in this file is to translate
+   information supplied by user in the form of handles
+   to more intelligible for kernel form, to make some sanity
+   checks and part of work, which is common to all qdiscs
+   and to provide rtnetlink notifications.
+
+   All real intelligent work is done inside qdisc modules.
+
+
+
+   Every discipline has two major routines: enqueue and dequeue.
+
+   ---dequeue
+
+   dequeue usually returns a skb to send. It is allowed to return NULL,
+   but it does not mean that queue is empty, it just means that
+   discipline does not want to send anything this time.
+   Queue is really empty if q->q.qlen == 0.
+   For complicated disciplines with multiple queues q->q is not
+   real packet queue, but however q->q.qlen must be valid.
+
+   ---enqueue
+
+   enqueue returns 0, if packet was enqueued successfully.
+   If packet (this one or another one) was dropped, it returns
+   not zero error code.
+   NET_XMIT_DROP 	- this packet dropped
+     Expected action: do not backoff, but wait until queue will clear.
+   NET_XMIT_CN	 	- probably this packet enqueued, but another one dropped.
+     Expected action: backoff or ignore
+   NET_XMIT_POLICED	- dropped by police.
+     Expected action: backoff or error to real-time apps.
+
+   Auxiliary routines:
+
+   ---peek
+
+   like dequeue but without removing a packet from the queue
+
+   ---reset
+
+   returns qdisc to initial state: purge all buffers, clear all
+   timers, counters (except for statistics) etc.
+
+   ---init
+
+   initializes newly created qdisc.
+
+   ---destroy
+
+   destroys resources allocated by init and during lifetime of qdisc.
+
+   ---change
+
+   changes qdisc parameters.
+ */
+
+/* Protects list of registered TC modules. It is pure SMP lock. */
 static DEFINE_RWLOCK(qdisc_mod_lock);
 
 
+/************************************************
+ *	Queueing disciplines manipulation.	*
+ ************************************************/
 
 
+/* The list of all installed queueing disciplines. */
 
 static struct Qdisc_ops *qdisc_base;
 
+/* Register/uregister queueing discipline */
 
 int register_qdisc(struct Qdisc_ops *qops)
 {
@@ -115,6 +200,9 @@ int unregister_qdisc(struct Qdisc_ops *qops)
 }
 EXPORT_SYMBOL(unregister_qdisc);
 
+/* We know handle. Find qdisc among all qdisc's attached to device
+   (root qdisc, all its children, children of children etc.)
+ */
 
 static struct Qdisc *qdisc_match_from_root(struct Qdisc *root, u32 handle)
 {
@@ -177,6 +265,7 @@ static struct Qdisc *qdisc_leaf(struct Qdisc *p, u32 classid)
 	return leaf;
 }
 
+/* Find queueing discipline by name */
 
 static struct Qdisc_ops *qdisc_lookup_ops(struct nlattr *kind)
 {
@@ -461,7 +550,7 @@ void qdisc_class_hash_grow(struct Qdisc *sch, struct Qdisc_class_hash *clhash)
 	unsigned int nsize, nmask, osize;
 	unsigned int i, h;
 
-	
+	/* Rehash when load factor exceeds 0.75 */
 	if (clhash->hashelems * 4 <= clhash->hashsize * 3)
 		return;
 	nsize = clhash->hashsize * 2;
@@ -529,6 +618,9 @@ void qdisc_class_hash_remove(struct Qdisc_class_hash *clhash,
 }
 EXPORT_SYMBOL(qdisc_class_hash_remove);
 
+/* Allocate an unique handle from space managed by kernel
+ * Possible range is [8000-FFFF]:0000 (0x8000 values)
+ */
 static u32 qdisc_alloc_handle(struct net_device *dev)
 {
 	int i = 0x8000;
@@ -585,6 +677,14 @@ static void notify_and_destroy(struct net *net, struct sk_buff *skb,
 		qdisc_destroy(old);
 }
 
+/* Graft qdisc "new" to class "classid" of qdisc "parent" or
+ * to device "dev".
+ *
+ * When appropriate send a netlink notification using 'skb'
+ * and "n".
+ *
+ * On success, destroy old qdisc.
+ */
 
 static int qdisc_graft(struct net_device *dev, struct Qdisc *parent,
 		       struct sk_buff *skb, struct nlmsghdr *n, u32 classid,
@@ -659,9 +759,15 @@ static int qdisc_graft(struct net_device *dev, struct Qdisc *parent,
 	return err;
 }
 
+/* lockdep annotation is needed for ingress; egress gets it only for name */
 static struct lock_class_key qdisc_tx_lock;
 static struct lock_class_key qdisc_rx_lock;
 
+/*
+   Allocate and initialize new qdisc.
+
+   Parameters are passed via opt.
+ */
 
 static struct Qdisc *
 qdisc_create(struct net_device *dev, struct netdev_queue *dev_queue,
@@ -679,11 +785,22 @@ qdisc_create(struct net_device *dev, struct netdev_queue *dev_queue,
 	if (ops == NULL && kind != NULL) {
 		char name[IFNAMSIZ];
 		if (nla_strlcpy(name, kind, IFNAMSIZ) < IFNAMSIZ) {
+			/* We dropped the RTNL semaphore in order to
+			 * perform the module load.  So, even if we
+			 * succeeded in loading the module we have to
+			 * tell the caller to replay the request.  We
+			 * indicate this using -EAGAIN.
+			 * We replay the request because the device may
+			 * go away in the mean time.
+			 */
 			rtnl_unlock();
 			request_module("sch_%s", name);
 			rtnl_lock();
 			ops = qdisc_lookup_ops(kind);
 			if (ops != NULL) {
+				/* We will try again qdisc_lookup_ops,
+				 * so don't keep a reference.
+				 */
 				module_put(ops->owner);
 				err = -EAGAIN;
 				goto err_out;
@@ -763,6 +880,10 @@ err_out:
 	return NULL;
 
 err_out4:
+	/*
+	 * Any broken qdiscs that would require a ops->reset() here?
+	 * The qdisc was never in action so it shouldn't be necessary.
+	 */
 	qdisc_put_stab(rtnl_dereference(sch->stab));
 	if (ops->destroy)
 		ops->destroy(sch);
@@ -793,6 +914,8 @@ static int qdisc_change(struct Qdisc *sch, struct nlattr **tca)
 	qdisc_put_stab(ostab);
 
 	if (tca[TCA_RATE]) {
+		/* NB: ignores errors from replace_estimator
+		   because change can't be undone. */
 		if (sch->flags & TCQ_F_MQROOT)
 			goto out;
 		gen_replace_estimator(&sch->bstats, &sch->rate_est,
@@ -842,6 +965,9 @@ check_loop_fn(struct Qdisc *q, unsigned long cl, struct qdisc_walker *w)
 	return 0;
 }
 
+/*
+ * Delete/get qdisc.
+ */
 
 static int tc_get_qdisc(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 {
@@ -903,6 +1029,9 @@ static int tc_get_qdisc(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	return 0;
 }
 
+/*
+ * enable/disable flow on qdisc.
+ */
 void
 tc_qdisc_flow_control(struct net_device *dev, u32 tcm_handle, int enable_flow)
 {
@@ -915,13 +1044,13 @@ tc_qdisc_flow_control(struct net_device *dev, u32 tcm_handle, int enable_flow)
 		.data = {3, {1, 2, 2, 2, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1}, 1}
 		};
 
-	
+	/* override flow bit */
 	req.data.enable_flow = enable_flow;
 
-	
+	/* look up using tcm handle */
 	q = qdisc_lookup(dev, tcm_handle);
 
-	
+	/* call registered change function */
 	if (q) {
 		if (q->ops->change(q, &(req.attr)) != 0)
 			pr_err("tc_qdisc_flow_control: qdisc change failed");
@@ -929,6 +1058,9 @@ tc_qdisc_flow_control(struct net_device *dev, u32 tcm_handle, int enable_flow)
 }
 EXPORT_SYMBOL(tc_qdisc_flow_control);
 
+/*
+ * Create/change qdisc.
+ */
 
 static int tc_modify_qdisc(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 {
@@ -941,7 +1073,7 @@ static int tc_modify_qdisc(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	int err;
 
 replay:
-	
+	/* Reinit, just in case something touches this. */
 	tcm = NLMSG_DATA(n);
 	clid = tcm->tcm_parent;
 	q = p = NULL;
@@ -968,7 +1100,7 @@ replay:
 			q = dev->qdisc;
 		}
 
-		
+		/* It may be default qdisc, ignore it */
 		if (q && q->handle == 0)
 			q = NULL;
 
@@ -994,6 +1126,25 @@ replay:
 				if (!q)
 					goto create_n_graft;
 
+				/* This magic test requires explanation.
+				 *
+				 *   We know, that some child q is already
+				 *   attached to this parent and have choice:
+				 *   either to change it or to create/graft new one.
+				 *
+				 *   1. We are allowed to create/graft only
+				 *   if CREATE and REPLACE flags are set.
+				 *
+				 *   2. If EXCL is set, requestor wanted to say,
+				 *   that qdisc tcm_handle is not expected
+				 *   to exist, so that we choose create/graft too.
+				 *
+				 *   3. The last case is when no flags are set.
+				 *   Alas, it is sort of hole in API, we
+				 *   cannot decide what to do unambiguously.
+				 *   For now we select create/graft, if
+				 *   user gave KIND, which does not match existing.
+				 */
 				if ((n->nlmsg_flags & NLM_F_CREATE) &&
 				    (n->nlmsg_flags & NLM_F_REPLACE) &&
 				    ((n->nlmsg_flags & NLM_F_EXCL) ||
@@ -1008,7 +1159,7 @@ replay:
 		q = qdisc_lookup(dev, tcm->tcm_handle);
 	}
 
-	
+	/* Change qdisc parameters */
 	if (q == NULL)
 		return -ENOENT;
 	if (n->nlmsg_flags & NLM_F_EXCL)
@@ -1233,6 +1384,9 @@ done:
 
 
 
+/************************************************
+ *	Traffic classes manipulation.		*
+ ************************************************/
 
 
 
@@ -1259,14 +1413,26 @@ static int tc_ctl_tclass(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	if (err < 0)
 		return err;
 
+	/*
+	   parent == TC_H_UNSPEC - unspecified parent.
+	   parent == TC_H_ROOT   - class is root, which has no parent.
+	   parent == X:0	 - parent is root class.
+	   parent == X:Y	 - parent is a node in hierarchy.
+	   parent == 0:Y	 - parent is X:Y, where X:0 is qdisc.
 
-	
+	   handle == 0:0	 - generate handle from kernel pool.
+	   handle == 0:Y	 - class is X:Y, where X:0 is qdisc.
+	   handle == X:Y	 - clear.
+	   handle == X:0	 - root class.
+	 */
+
+	/* Step 1. Determine qdisc handle X:0 */
 
 	if (pid != TC_H_ROOT) {
 		u32 qid1 = TC_H_MAJ(pid);
 
 		if (qid && qid1) {
-			
+			/* If both majors are known, they must be identical. */
 			if (qid != qid1)
 				return -EINVAL;
 		} else if (qid1) {
@@ -1274,6 +1440,11 @@ static int tc_ctl_tclass(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 		} else if (qid == 0)
 			qid = dev->qdisc->handle;
 
+		/* Now qid is genuine qdisc handle consistent
+		 * both with parent and child.
+		 *
+		 * TC_H_MAJ(pid) still may be unspecified, complete it now.
+		 */
 		if (pid)
 			pid = TC_H_MAKE(qid, pid);
 	} else {
@@ -1281,17 +1452,17 @@ static int tc_ctl_tclass(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 			qid = dev->qdisc->handle;
 	}
 
-	
+	/* OK. Locate qdisc */
 	q = qdisc_lookup(dev, qid);
 	if (!q)
 		return -ENOENT;
 
-	
+	/* An check that it supports classes */
 	cops = q->ops->cl_ops;
 	if (cops == NULL)
 		return -EINVAL;
 
-	
+	/* Now try to get class */
 	if (clid == 0) {
 		if (pid == TC_H_ROOT)
 			clid = qid;
@@ -1502,6 +1673,10 @@ done:
 	return skb->len;
 }
 
+/* Main classifier routine: scans classifier chain attached
+ * to this qdisc, (optionally) tests for protocol and asks
+ * specific classifiers.
+ */
 int tc_classify_compat(struct sk_buff *skb, const struct tcf_proto *tp,
 		       struct tcf_result *res)
 {

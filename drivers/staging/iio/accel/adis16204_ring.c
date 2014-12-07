@@ -10,6 +10,11 @@
 #include "../trigger_consumer.h"
 #include "adis16204.h"
 
+/**
+ * adis16204_read_ring_data() read data registers which will be placed into ring
+ * @dev: device associated with child of actual device (iio_dev or iio_trig)
+ * @rx: somewhere to pass back the value read
+ **/
 static int adis16204_read_ring_data(struct device *dev, u8 *rx)
 {
 	struct spi_message msg;
@@ -47,6 +52,9 @@ static int adis16204_read_ring_data(struct device *dev, u8 *rx)
 	return ret;
 }
 
+/* Whilst this makes a lot of calls to iio_sw_ring functions - it is to device
+ * specific to be rolled into the core.
+ */
 static irqreturn_t adis16204_trigger_handler(int irq, void *p)
 {
 	struct iio_poll_func *pf = p;
@@ -69,7 +77,7 @@ static irqreturn_t adis16204_trigger_handler(int irq, void *p)
 					 indio_dev->masklength); i++)
 			data[i] = be16_to_cpup((__be16 *)&(st->rx[i*2]));
 
-	
+	/* Guaranteed to be aligned with 8 byte boundary */
 	if (ring->scan_timestamp)
 		*((s64 *)(data + ((i + 3)/4)*4)) = pf->timestamp;
 

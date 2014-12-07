@@ -32,4 +32,4 @@ __asm__ __volatile__("mb": : :"memory")
 #define set_mb(var, value) \
 do { var = value; mb(); } while (0)
 
-#endif		
+#endif		/* __BARRIER_H */

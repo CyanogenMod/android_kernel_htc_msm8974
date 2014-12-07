@@ -11,10 +11,10 @@
 
 #include <linux/types.h>
 
-#define XT_CHECKSUM_OP_FILL	0x01	
+#define XT_CHECKSUM_OP_FILL	0x01	/* fill in checksum in IP header */
 
 struct xt_CHECKSUM_info {
-	__u8 operation;	
+	__u8 operation;	/* bitset of operations */
 };
 
-#endif 
+#endif /* _XT_CHECKSUM_TARGET_H */

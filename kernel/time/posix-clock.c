@@ -27,6 +27,9 @@
 
 static void delete_clock(struct kref *kref);
 
+/*
+ * Returns NULL if the posix_clock instance attached to 'fp' is old and stale.
+ */
 static struct posix_clock *get_posix_clock(struct file *fp)
 {
 	struct posix_clock *clk = fp->private_data;

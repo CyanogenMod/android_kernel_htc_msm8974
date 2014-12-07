@@ -22,6 +22,10 @@
 static const char cachefiles_xattr_cache[] =
 	XATTR_USER_PREFIX "CacheFiles.cache";
 
+/*
+ * check the type label on an object
+ * - done using xattrs
+ */
 int cachefiles_check_object_type(struct cachefiles_object *object)
 {
 	struct dentry *dentry = object->dentry;
@@ -38,11 +42,11 @@ int cachefiles_check_object_type(struct cachefiles_object *object)
 
 	_enter("%p{%s}", object, type);
 
-	
+	/* attempt to install a type label directly */
 	ret = vfs_setxattr(dentry, cachefiles_xattr_cache, type, 2,
 			   XATTR_CREATE);
 	if (ret == 0) {
-		_debug("SET"); 
+		_debug("SET"); /* we succeeded */
 		goto error;
 	}
 
@@ -54,7 +58,7 @@ int cachefiles_check_object_type(struct cachefiles_object *object)
 		goto error;
 	}
 
-	
+	/* read the current type label */
 	ret = vfs_getxattr(dentry, cachefiles_xattr_cache, xtype, 3);
 	if (ret < 0) {
 		if (ret == -ERANGE)
@@ -67,7 +71,7 @@ int cachefiles_check_object_type(struct cachefiles_object *object)
 		goto error;
 	}
 
-	
+	/* check the type is what we're expecting */
 	if (ret != 2)
 		goto bad_type_length;
 
@@ -96,6 +100,9 @@ bad_type:
 	goto error;
 }
 
+/*
+ * set the state xattr on a cache file
+ */
 int cachefiles_set_object_xattr(struct cachefiles_object *object,
 				struct cachefiles_xattr *auxdata)
 {
@@ -107,7 +114,7 @@ int cachefiles_set_object_xattr(struct cachefiles_object *object,
 
 	_enter("%p,#%d", object, auxdata->len);
 
-	
+	/* attempt to install the cache metadata directly */
 	_debug("SET %s #%u", object->fscache.cookie->def->name, auxdata->len);
 
 	ret = vfs_setxattr(dentry, cachefiles_xattr_cache,
@@ -122,6 +129,9 @@ int cachefiles_set_object_xattr(struct cachefiles_object *object,
 	return ret;
 }
 
+/*
+ * update the state xattr on a cache file
+ */
 int cachefiles_update_object_xattr(struct cachefiles_object *object,
 				   struct cachefiles_xattr *auxdata)
 {
@@ -133,7 +143,7 @@ int cachefiles_update_object_xattr(struct cachefiles_object *object,
 
 	_enter("%p,#%d", object, auxdata->len);
 
-	
+	/* attempt to install the cache metadata directly */
 	_debug("SET %s #%u", object->fscache.cookie->def->name, auxdata->len);
 
 	ret = vfs_setxattr(dentry, cachefiles_xattr_cache,
@@ -148,6 +158,10 @@ int cachefiles_update_object_xattr(struct cachefiles_object *object,
 	return ret;
 }
 
+/*
+ * check the state xattr on a cache file
+ * - return -ESTALE if the object should be deleted
+ */
 int cachefiles_check_object_xattr(struct cachefiles_object *object,
 				  struct cachefiles_xattr *auxdata)
 {
@@ -166,12 +180,13 @@ int cachefiles_check_object_xattr(struct cachefiles_object *object,
 		return -ENOMEM;
 	}
 
-	
+	/* read the current type label */
 	ret = vfs_getxattr(dentry, cachefiles_xattr_cache,
 			   &auxbuf->type, 512 + 1);
 	if (ret < 0) {
 		if (ret == -ENODATA)
-			goto stale; 
+			goto stale; /* no attribute - power went off
+				     * mid-cull? */
 
 		if (ret == -ERANGE)
 			goto bad_type_length;
@@ -182,7 +197,7 @@ int cachefiles_check_object_xattr(struct cachefiles_object *object,
 		goto error;
 	}
 
-	
+	/* check the on-disk object */
 	if (ret < 1)
 		goto bad_type_length;
 
@@ -191,7 +206,7 @@ int cachefiles_check_object_xattr(struct cachefiles_object *object,
 
 	auxbuf->len = ret;
 
-	
+	/* consult the netfs */
 	if (object->fscache.cookie->def->check_aux) {
 		enum fscache_checkaux result;
 		unsigned int dlen;
@@ -205,15 +220,15 @@ int cachefiles_check_object_xattr(struct cachefiles_object *object,
 					   &auxbuf->data, dlen);
 
 		switch (result) {
-			
+			/* entry okay as is */
 		case FSCACHE_CHECKAUX_OKAY:
 			goto okay;
 
-			
+			/* entry requires update */
 		case FSCACHE_CHECKAUX_NEEDS_UPDATE:
 			break;
 
-			
+			/* entry requires deletion */
 		case FSCACHE_CHECKAUX_OBSOLETE:
 			goto stale;
 
@@ -221,7 +236,7 @@ int cachefiles_check_object_xattr(struct cachefiles_object *object,
 			BUG();
 		}
 
-		
+		/* update the current label */
 		ret = vfs_setxattr(dentry, cachefiles_xattr_cache,
 				   &auxdata->type, auxdata->len,
 				   XATTR_REPLACE);
@@ -253,6 +268,9 @@ stale:
 	goto error;
 }
 
+/*
+ * remove the object's xattr to mark it stale
+ */
 int cachefiles_remove_object_xattr(struct cachefiles_cache *cache,
 				   struct dentry *dentry)
 {

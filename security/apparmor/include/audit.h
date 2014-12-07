@@ -29,11 +29,11 @@ extern const char *const audit_mode_names[];
 #define AUDIT_MAX_INDEX 5
 
 enum audit_mode {
-	AUDIT_NORMAL,		
-	AUDIT_QUIET_DENIED,	
-	AUDIT_QUIET,		
-	AUDIT_NOQUIET,		
-	AUDIT_ALL		
+	AUDIT_NORMAL,		/* follow normal auditing of accesses */
+	AUDIT_QUIET_DENIED,	/* quiet all denied access messages */
+	AUDIT_QUIET,		/* quiet all messages */
+	AUDIT_NOQUIET,		/* do not quiet audit messages */
+	AUDIT_ALL		/* audit all accesses */
 };
 
 enum audit_type {
@@ -129,6 +129,7 @@ struct apparmor_audit_data {
 	};
 };
 
+/* define a short hand for apparmor_audit_data structure */
 #define aad apparmor_audit_data
 
 void aa_audit_msg(int type, struct common_audit_data *sa,
@@ -144,4 +145,4 @@ static inline int complain_error(int error)
 	return error;
 }
 
-#endif 
+#endif /* __AA_AUDIT_H */

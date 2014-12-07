@@ -39,6 +39,9 @@ struct vmbus_connection vmbus_connection = {
 	.next_gpadl_handle	= ATOMIC_INIT(0xE1E10),
 };
 
+/*
+ * vmbus_connect - Sends a connect request on the partition service connection
+ */
 int vmbus_connect(void)
 {
 	int ret = 0;
@@ -47,7 +50,7 @@ int vmbus_connect(void)
 	struct vmbus_channel_initiate_contact *msg;
 	unsigned long flags;
 
-	
+	/* Initialize the vmbus connection */
 	vmbus_connection.conn_state = CONNECTING;
 	vmbus_connection.work_queue = create_workqueue("hv_vmbus_con");
 	if (!vmbus_connection.work_queue) {
@@ -61,6 +64,10 @@ int vmbus_connect(void)
 	INIT_LIST_HEAD(&vmbus_connection.chn_list);
 	spin_lock_init(&vmbus_connection.channel_lock);
 
+	/*
+	 * Setup the vmbus event connection for channel interrupt
+	 * abstraction stuff
+	 */
 	vmbus_connection.int_page =
 	(void *)__get_free_pages(GFP_KERNEL|__GFP_ZERO, 0);
 	if (vmbus_connection.int_page == NULL) {
@@ -73,6 +80,10 @@ int vmbus_connect(void)
 		(void *)((unsigned long)vmbus_connection.int_page +
 			(PAGE_SIZE >> 1));
 
+	/*
+	 * Setup the monitor notification facility. The 1st page for
+	 * parent->child and the 2nd page for child->parent
+	 */
 	vmbus_connection.monitor_pages =
 	(void *)__get_free_pages((GFP_KERNEL|__GFP_ZERO), 1);
 	if (vmbus_connection.monitor_pages == NULL) {
@@ -100,6 +111,10 @@ int vmbus_connect(void)
 			(void *)((unsigned long)vmbus_connection.monitor_pages +
 				 PAGE_SIZE));
 
+	/*
+	 * Add to list before we send the request since we may
+	 * receive the response before returning from this routine
+	 */
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
 	list_add_tail(&msginfo->msglistentry,
 		      &vmbus_connection.chn_msg_list);
@@ -116,7 +131,7 @@ int vmbus_connect(void)
 		goto cleanup;
 	}
 
-	
+	/* Wait for the connection response */
 	t =  wait_for_completion_timeout(&msginfo->waitevent, 5*HZ);
 	if (t == 0) {
 		spin_lock_irqsave(&vmbus_connection.channelmsg_lock,
@@ -132,7 +147,7 @@ int vmbus_connect(void)
 	list_del(&msginfo->msglistentry);
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
 
-	
+	/* Check if successful */
 	if (msginfo->response.version_response.version_supported) {
 		vmbus_connection.conn_state = CONNECTED;
 	} else {
@@ -168,6 +183,10 @@ cleanup:
 }
 
 
+/*
+ * relid2channel - Get the channel object given its
+ * child relative id (ie channel id)
+ */
 struct vmbus_channel *relid2channel(u32 relid)
 {
 	struct vmbus_channel *channel;
@@ -186,11 +205,18 @@ struct vmbus_channel *relid2channel(u32 relid)
 	return found_channel;
 }
 
+/*
+ * process_chn_event - Process a channel event notification
+ */
 static void process_chn_event(u32 relid)
 {
 	struct vmbus_channel *channel;
 	unsigned long flags;
 
+	/*
+	 * Find the channel based on this relid and invokes the
+	 * channel callback to process the event
+	 */
 	channel = relid2channel(relid);
 
 	if (!channel) {
@@ -198,6 +224,14 @@ static void process_chn_event(u32 relid)
 		return;
 	}
 
+	/*
+	 * A channel once created is persistent even when there
+	 * is no driver handling the device. An unloading driver
+	 * sets the onchannel_callback to NULL under the
+	 * protection of the channel inbound_lock. Thus, checking
+	 * and invoking the driver specific callback takes care of
+	 * orderly unloading of the driver.
+	 */
 
 	spin_lock_irqsave(&channel->inbound_lock, flags);
 	if (channel->onchannel_callback != NULL)
@@ -208,6 +242,9 @@ static void process_chn_event(u32 relid)
 	spin_unlock_irqrestore(&channel->inbound_lock, flags);
 }
 
+/*
+ * vmbus_on_event - Handler for events
+ */
 void vmbus_on_event(unsigned long data)
 {
 	u32 dword;
@@ -216,7 +253,7 @@ void vmbus_on_event(unsigned long data)
 	u32 relid;
 	u32 *recv_int_page = vmbus_connection.recv_int_page;
 
-	
+	/* Check events */
 	if (!recv_int_page)
 		return;
 	for (dword = 0; dword < maxdword; dword++) {
@@ -228,6 +265,10 @@ void vmbus_on_event(unsigned long data)
 				relid = (dword << 5) + bit;
 
 				if (relid == 0)
+					/*
+					 * Special case - vmbus
+					 * channel protocol msg
+					 */
 					continue;
 
 				process_chn_event(relid);
@@ -236,6 +277,9 @@ void vmbus_on_event(unsigned long data)
 	}
 }
 
+/*
+ * vmbus_post_msg - Send a msg on the vmbus's message connection
+ */
 int vmbus_post_msg(void *buffer, size_t buflen)
 {
 	union hv_connection_id conn_id;
@@ -245,6 +289,11 @@ int vmbus_post_msg(void *buffer, size_t buflen)
 	conn_id.asu32 = 0;
 	conn_id.u.id = VMBUS_MESSAGE_CONNECTION_ID;
 
+	/*
+	 * hv_post_message() can have transient failures because of
+	 * insufficient resources. Retry the operation a couple of
+	 * times before giving up.
+	 */
 	while (retries < 3) {
 		ret =  hv_post_message(conn_id, 1, buffer, buflen);
 		if (ret != HV_STATUS_INSUFFICIENT_BUFFERS)
@@ -255,9 +304,12 @@ int vmbus_post_msg(void *buffer, size_t buflen)
 	return ret;
 }
 
+/*
+ * vmbus_set_event - Send an event notification to the parent
+ */
 int vmbus_set_event(u32 child_relid)
 {
-	
+	/* Each u32 represents 32 channels */
 	sync_set_bit(child_relid & 31,
 		(unsigned long *)vmbus_connection.send_int_page +
 		(child_relid >> 5));

@@ -19,6 +19,17 @@
 
 #define IO_SPACE_LIMIT		0xffffffff
 
+/*
+ * The A? revisions of the IXP2000s assert byte lanes for PCI I/O
+ * transactions the other way round (MEM transactions don't have this
+ * issue), so if we want to support those models, we need to override
+ * the standard I/O functions.
+ *
+ * B0 and later have a bit that can be set to 1 to get the proper
+ * behavior for I/O transactions, which then allows us to use the
+ * standard I/O functions.  This is what we do if the user does not
+ * explicitly ask for support for pre-B0.
+ */
 #ifdef CONFIG_IXP2000_SUPPORT_BROKEN_PCI_IO
 #define ___io(p)		((void __iomem *)((p)+IXP2000_PCI_IO_VIRT_BASE))
 

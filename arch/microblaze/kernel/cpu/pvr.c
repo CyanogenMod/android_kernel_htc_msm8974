@@ -15,17 +15,32 @@
 #include <asm/exceptions.h>
 #include <asm/pvr.h>
 
+/*
+ * Until we get an assembler that knows about the pvr registers,
+ * this horrible cruft will have to do.
+ * That hardcoded opcode is mfs r3, rpvrNN
+ */
 
 #define get_single_pvr(pvrid, val)				\
 {								\
 	register unsigned tmp __asm__("r3");			\
-	tmp = 0x0;		\
+	tmp = 0x0;	/* Prevent warning about unused */	\
 	__asm__ __volatile__ (					\
 			"mfs	%0, rpvr" #pvrid ";"		\
 			: "=r" (tmp) : : "memory"); 		\
 	val = tmp;						\
 }
 
+/*
+ * Does the CPU support the PVR register?
+ * return value:
+ * 0: no PVR
+ * 1: simple PVR
+ * 2: full PVR
+ *
+ * This must work on all CPU versions, including those before the
+ * PVR was even an option.
+ */
 
 int cpu_has_pvr(void)
 {
@@ -34,7 +49,7 @@ int cpu_has_pvr(void)
 
 	local_save_flags(flags);
 
-	
+	/* PVR bit in MSR tells us if there is any support */
 	if (!(flags & PVR_MSR_BIT))
 		return 0;
 
@@ -44,7 +59,7 @@ int cpu_has_pvr(void)
 	if (pvr0 & PVR0_PVR_FULL_MASK)
 		return 1;
 
-	
+	/* for partial PVR use static cpuinfo */
 	return 2;
 }
 

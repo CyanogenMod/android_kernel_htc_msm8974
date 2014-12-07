@@ -15,6 +15,9 @@
 
 #include "pci-bcm63xx.h"
 
+/*
+ * swizzle 32bits data to return only the needed part
+ */
 static int postprocess_read(u32 data, int where, unsigned int size)
 {
 	u32 ret;
@@ -56,6 +59,9 @@ static int preprocess_write(u32 orig_data, u32 val, int where,
 	return ret;
 }
 
+/*
+ * setup hardware for a configuration cycle with given parameters
+ */
 static int bcm63xx_setup_cfg_access(int type, unsigned int busn,
 				    unsigned int devfn, int where)
 {
@@ -66,7 +72,7 @@ static int bcm63xx_setup_cfg_access(int type, unsigned int busn,
 	func = PCI_FUNC(devfn);
 	reg = where >> 2;
 
-	
+	/* sanity check */
 	if (slot > (MPI_L2PCFG_DEVNUM_MASK >> MPI_L2PCFG_DEVNUM_SHIFT))
 		return 1;
 
@@ -76,15 +82,15 @@ static int bcm63xx_setup_cfg_access(int type, unsigned int busn,
 	if (reg > (MPI_L2PCFG_REG_MASK >> MPI_L2PCFG_REG_SHIFT))
 		return 1;
 
-	
+	/* ok, setup config access */
 	val = (reg << MPI_L2PCFG_REG_SHIFT);
 	val |= (func << MPI_L2PCFG_FUNC_SHIFT);
 	val |= (slot << MPI_L2PCFG_DEVNUM_SHIFT);
 	val |= MPI_L2PCFG_CFG_USEREG_MASK;
 	val |= MPI_L2PCFG_CFG_SEL_MASK;
-	
+	/* type 0 cycle for local bus, type 1 cycle for anything else */
 	if (type != 0) {
-		
+		/* FIXME: how to specify bus ??? */
 		val |= (1 << MPI_L2PCFG_CFG_TYPE_SHIFT);
 	}
 	bcm_mpi_writel(val, MPI_L2PCFG_REG);
@@ -98,11 +104,14 @@ static int bcm63xx_do_cfg_read(int type, unsigned int busn,
 {
 	u32 data;
 
+	/* two phase cycle, first we write address, then read data at
+	 * another location, caller already has a spinlock so no need
+	 * to add one here  */
 	if (bcm63xx_setup_cfg_access(type, busn, devfn, where))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	iob();
 	data = le32_to_cpu(__raw_readl(pci_iospace_start));
-	
+	/* restore IO space normal behaviour */
 	bcm_mpi_writel(0, MPI_L2PCFG_REG);
 
 	*val = postprocess_read(data, where, size);
@@ -116,6 +125,9 @@ static int bcm63xx_do_cfg_write(int type, unsigned int busn,
 {
 	u32 data;
 
+	/* two phase cycle, first we write address, then write data to
+	 * another location, caller already has a spinlock so no need
+	 * to add one here  */
 	if (bcm63xx_setup_cfg_access(type, busn, devfn, where))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	iob();
@@ -125,9 +137,9 @@ static int bcm63xx_do_cfg_write(int type, unsigned int busn,
 
 	__raw_writel(cpu_to_le32(data), pci_iospace_start);
 	wmb();
-	
+	/* no way to know the access is done, we have to wait */
 	udelay(500);
-	
+	/* restore IO space normal behaviour */
 	bcm_mpi_writel(0, MPI_L2PCFG_REG);
 
 	return PCIBIOS_SUCCESSFUL;
@@ -167,6 +179,9 @@ struct pci_ops bcm63xx_pci_ops = {
 };
 
 #ifdef CONFIG_CARDBUS
+/*
+ * emulate configuration read access on a cardbus bridge
+ */
 #define FAKE_CB_BRIDGE_SLOT	0x1e
 
 static int fake_cb_bridge_bus_number = -1;
@@ -201,7 +216,7 @@ static int fake_cb_bridge_read(int where, int size, u32 *val)
 	switch (reg) {
 	case (PCI_VENDOR_ID >> 2):
 	case (PCI_CB_SUBSYSTEM_VENDOR_ID >> 2):
-		
+		/* create dummy vendor/device id from our cpu id */
 		data = (bcm63xx_get_cpu_id() << 16) | PCI_VENDOR_ID_BROADCOM;
 		break;
 
@@ -219,9 +234,9 @@ static int fake_cb_bridge_read(int where, int size, u32 *val)
 		break;
 
 	case (PCI_INTERRUPT_LINE >> 2):
-		
+		/* bridge control */
 		data = (fake_cb_bridge_regs.bridge_control << 16);
-		
+		/* pin:intA line:0xff */
 		data |= (0x1 << 8) | 0xff;
 		break;
 
@@ -249,7 +264,7 @@ static int fake_cb_bridge_read(int where, int size, u32 *val)
 		break;
 
 	case (PCI_CB_IO_BASE_0 >> 2):
-		
+		/* | 1 for 32bits io support */
 		data = fake_cb_bridge_regs.io_base0 | 0x1;
 		break;
 
@@ -258,7 +273,7 @@ static int fake_cb_bridge_read(int where, int size, u32 *val)
 		break;
 
 	case (PCI_CB_IO_BASE_1 >> 2):
-		
+		/* | 1 for 32bits io support */
 		data = fake_cb_bridge_regs.io_base1 | 0x1;
 		break;
 
@@ -271,6 +286,9 @@ static int fake_cb_bridge_read(int where, int size, u32 *val)
 	return PCIBIOS_SUCCESSFUL;
 }
 
+/*
+ * emulate configuration write access on a cardbus bridge
+ */
 static int fake_cb_bridge_write(int where, int size, u32 val)
 {
 	unsigned int reg;
@@ -300,7 +318,7 @@ static int fake_cb_bridge_write(int where, int size, u32 val)
 
 	case (PCI_INTERRUPT_LINE >> 2):
 		tmp = (data >> 16) & 0xffff;
-		
+		/* disable memory prefetch support */
 		tmp &= ~PCI_CB_BRIDGE_CTL_PREFETCH_MEM0;
 		tmp &= ~PCI_CB_BRIDGE_CTL_PREFETCH_MEM1;
 		fake_cb_bridge_regs.bridge_control = tmp;
@@ -345,11 +363,17 @@ static int fake_cb_bridge_write(int where, int size, u32 val)
 static int bcm63xx_cb_read(struct pci_bus *bus, unsigned int devfn,
 			   int where, int size, u32 *val)
 {
+	/* snoop access to slot 0x1e on root bus, we fake a cardbus
+	 * bridge at this location */
 	if (!bus->parent && PCI_SLOT(devfn) == FAKE_CB_BRIDGE_SLOT) {
 		fake_cb_bridge_bus_number = bus->number;
 		return fake_cb_bridge_read(where, size, val);
 	}
 
+	/* a  configuration  cycle for  the  device  behind the  cardbus
+	 * bridge is  actually done as a  type 0 cycle  on the primary
+	 * bus. This means that only  one device can be on the cardbus
+	 * bus */
 	if (fake_cb_bridge_regs.bus_assigned &&
 	    bus->number == fake_cb_bridge_regs.cardbus_busn &&
 	    PCI_SLOT(devfn) == 0)
@@ -383,13 +407,17 @@ struct pci_ops bcm63xx_cb_ops = {
 	.write   = bcm63xx_cb_write,
 };
 
+/*
+ * only one IO window, so it  cannot be shared by PCI and cardbus, use
+ * fixup to choose and detect unhandled configuration
+ */
 static void bcm63xx_fixup(struct pci_dev *dev)
 {
 	static int io_window = -1;
 	int i, found, new_io_window;
 	u32 val;
 
-	
+	/* look for any io resource */
 	found = 0;
 	for (i = 0; i < DEVICE_COUNT_RESOURCE; i++) {
 		if (pci_resource_flags(dev, i) & IORESOURCE_IO) {
@@ -401,11 +429,11 @@ static void bcm63xx_fixup(struct pci_dev *dev)
 	if (!found)
 		return;
 
-	
+	/* skip our fake bus with only cardbus bridge on it */
 	if (dev->bus->number == fake_cb_bridge_bus_number)
 		return;
 
-	
+	/* find on which bus the device is */
 	if (fake_cb_bridge_regs.bus_assigned &&
 	    dev->bus->number == fake_cb_bridge_regs.cardbus_busn &&
 	    PCI_SLOT(dev->devfn) == 0)

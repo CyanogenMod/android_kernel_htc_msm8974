@@ -24,12 +24,12 @@ struct task_struct *kthreadd_task;
 
 struct kthread_create_info
 {
-	
+	/* Information passed to kthread() from kthreadd. */
 	int (*threadfn)(void *data);
 	void *data;
 	int node;
 
-	
+	/* Result passed back to kthread_create() from kthreadd. */
 	struct task_struct *result;
 	struct completion done;
 
@@ -45,12 +45,28 @@ struct kthread {
 #define to_kthread(tsk)	\
 	container_of((tsk)->vfork_done, struct kthread, exited)
 
+/**
+ * kthread_should_stop - should this kthread return now?
+ *
+ * When someone calls kthread_stop() on your kthread, it will be woken
+ * and this will return true.  You should then return, and your return
+ * value will be passed through to kthread_stop().
+ */
 int kthread_should_stop(void)
 {
 	return to_kthread(current)->should_stop;
 }
 EXPORT_SYMBOL(kthread_should_stop);
 
+/**
+ * kthread_freezable_should_stop - should this freezable kthread return now?
+ * @was_frozen: optional out parameter, indicates whether %current was frozen
+ *
+ * kthread_should_stop() for freezable kthreads, which will enter
+ * refrigerator if necessary.  This function is safe from kthread_stop() /
+ * freezer deadlock and freezable kthreads should use this function instead
+ * of calling try_to_freeze() directly.
+ */
 bool kthread_freezable_should_stop(bool *was_frozen)
 {
 	bool frozen = false;
@@ -67,6 +83,14 @@ bool kthread_freezable_should_stop(bool *was_frozen)
 }
 EXPORT_SYMBOL_GPL(kthread_freezable_should_stop);
 
+/**
+ * kthread_data - return data value specified on kthread creation
+ * @task: kthread task in question
+ *
+ * Return the data value specified when kthread @task was created.
+ * The caller is responsible for ensuring the validity of @task when
+ * calling this function.
+ */
 void *kthread_data(struct task_struct *task)
 {
 	return to_kthread(task)->data;
@@ -74,7 +98,7 @@ void *kthread_data(struct task_struct *task)
 
 static int kthread(void *_create)
 {
-	
+	/* Copy data: it's on kthread's stack */
 	struct kthread_create_info *create = _create;
 	int (*threadfn)(void *data) = create->threadfn;
 	void *data = create->data;
@@ -86,7 +110,7 @@ static int kthread(void *_create)
 	init_completion(&self.exited);
 	current->vfork_done = &self.exited;
 
-	
+	/* OK, tell user we're spawned, wait for stop or wakeup */
 	__set_current_state(TASK_UNINTERRUPTIBLE);
 	create->result = current;
 	complete(&create->done);
@@ -96,10 +120,11 @@ static int kthread(void *_create)
 	if (!self.should_stop)
 		ret = threadfn(data);
 
-	
+	/* we can't just return, we must preserve "self" on stack */
 	do_exit(ret);
 }
 
+/* called from do_fork() to get node information for about to be created task */
 int tsk_fork_get_node(struct task_struct *tsk)
 {
 #ifdef CONFIG_NUMA
@@ -116,7 +141,7 @@ static void create_kthread(struct kthread_create_info *create)
 #ifdef CONFIG_NUMA
 	current->pref_node_fork = create->node;
 #endif
-	
+	/* We want our own signal handler (we take no signals by default). */
 	pid = kernel_thread(kthread, create, CLONE_FS | CLONE_FILES | SIGCHLD);
 	if (pid < 0) {
 		create->result = ERR_PTR(pid);
@@ -124,6 +149,28 @@ static void create_kthread(struct kthread_create_info *create)
 	}
 }
 
+/**
+ * kthread_create_on_node - create a kthread.
+ * @threadfn: the function to run until signal_pending(current).
+ * @data: data ptr for @threadfn.
+ * @node: memory node number.
+ * @namefmt: printf-style name for the thread.
+ *
+ * Description: This helper function creates and names a kernel
+ * thread.  The thread will be stopped: use wake_up_process() to start
+ * it.  See also kthread_run().
+ *
+ * If thread is going to be bound on a particular cpu, give its node
+ * in @node, to get NUMA affinity for kthread stack, or else give -1.
+ * When woken, the thread will run @threadfn() with @data as its
+ * argument. @threadfn() can either call do_exit() directly if it is a
+ * standalone thread for which no one will call kthread_stop(), or
+ * return when 'kthread_should_stop()' is true (which means
+ * kthread_stop() has been called).  The return value should be zero
+ * or a negative error number; it will be passed to kthread_stop().
+ *
+ * Returns a task_struct or ERR_PTR(-ENOMEM).
+ */
 struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
 					   void *data,
 					   int node,
@@ -152,6 +199,10 @@ struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
 		vsnprintf(create.result->comm, sizeof(create.result->comm),
 			  namefmt, args);
 		va_end(args);
+		/*
+		 * root may have changed our (kthreadd's) priority or CPU mask.
+		 * The kernel thread should not inherit these properties.
+		 */
 		sched_setscheduler_nocheck(create.result, SCHED_NORMAL, &param);
 		set_cpus_allowed_ptr(create.result, cpu_all_mask);
 	}
@@ -159,20 +210,44 @@ struct task_struct *kthread_create_on_node(int (*threadfn)(void *data),
 }
 EXPORT_SYMBOL(kthread_create_on_node);
 
+/**
+ * kthread_bind - bind a just-created kthread to a cpu.
+ * @p: thread created by kthread_create().
+ * @cpu: cpu (might not be online, must be possible) for @k to run on.
+ *
+ * Description: This function is equivalent to set_cpus_allowed(),
+ * except that @cpu doesn't need to be online, and the thread must be
+ * stopped (i.e., just returned from kthread_create()).
+ */
 void kthread_bind(struct task_struct *p, unsigned int cpu)
 {
-	
+	/* Must have done schedule() in kthread() before we set_task_cpu */
 	if (!wait_task_inactive(p, TASK_UNINTERRUPTIBLE)) {
 		WARN_ON(1);
 		return;
 	}
 
-	
+	/* It's safe because the task is inactive. */
 	do_set_cpus_allowed(p, cpumask_of(cpu));
 	p->flags |= PF_THREAD_BOUND;
 }
 EXPORT_SYMBOL(kthread_bind);
 
+/**
+ * kthread_stop - stop a thread created by kthread_create().
+ * @k: thread created by kthread_create().
+ *
+ * Sets kthread_should_stop() for @k to return true, wakes it, and
+ * waits for it to exit. This can also be called after kthread_create()
+ * instead of calling wake_up_process(): the thread will exit without
+ * calling threadfn().
+ *
+ * If threadfn() may call do_exit() itself, the caller must ensure
+ * task_struct can't go away.
+ *
+ * Returns the result of threadfn(), or %-EINTR if wake_up_process()
+ * was never called.
+ */
 int kthread_stop(struct task_struct *k)
 {
 	struct kthread *kthread;
@@ -182,7 +257,7 @@ int kthread_stop(struct task_struct *k)
 	get_task_struct(k);
 
 	kthread = to_kthread(k);
-	barrier(); 
+	barrier(); /* it might have exited */
 	if (k->vfork_done != NULL) {
 		kthread->should_stop = 1;
 		wake_up_process(k);
@@ -201,7 +276,7 @@ int kthreadd(void *unused)
 {
 	struct task_struct *tsk = current;
 
-	
+	/* Setup a clean context for our children to inherit. */
 	set_task_comm(tsk, "kthreadd");
 	ignore_signals(tsk);
 	set_cpus_allowed_ptr(tsk, cpu_all_mask);
@@ -245,6 +320,21 @@ void __init_kthread_worker(struct kthread_worker *worker,
 }
 EXPORT_SYMBOL_GPL(__init_kthread_worker);
 
+/**
+ * kthread_worker_fn - kthread function to process kthread_worker
+ * @worker_ptr: pointer to initialized kthread_worker
+ *
+ * This function can be used as @threadfn to kthread_create() or
+ * kthread_run() with @worker_ptr argument pointing to an initialized
+ * kthread_worker.  The started kthread will process work_list until
+ * the it is stopped with kthread_stop().  A kthread can also call
+ * this function directly after extra initialization.
+ *
+ * Different kthreads can be used for the same kthread_worker as long
+ * as there's only one kthread attached to it at any given time.  A
+ * kthread_worker without an attached kthread simply collects queued
+ * kthread_works.
+ */
 int kthread_worker_fn(void *worker_ptr)
 {
 	struct kthread_worker *worker = worker_ptr;
@@ -253,7 +343,7 @@ int kthread_worker_fn(void *worker_ptr)
 	WARN_ON(worker->task);
 	worker->task = current;
 repeat:
-	set_current_state(TASK_INTERRUPTIBLE);	
+	set_current_state(TASK_INTERRUPTIBLE);	/* mb paired w/ kthread_stop */
 
 	if (kthread_should_stop()) {
 		__set_current_state(TASK_RUNNING);
@@ -275,9 +365,9 @@ repeat:
 	if (work) {
 		__set_current_state(TASK_RUNNING);
 		work->func(work);
-		smp_wmb();	
+		smp_wmb();	/* wmb worker-b0 paired with flush-b1 */
 		work->done_seq = work->queue_seq;
-		smp_mb();	
+		smp_mb();	/* mb worker-b1 paired with flush-b0 */
 		if (atomic_read(&work->flushing))
 			wake_up_all(&work->done);
 	} else if (!freezing(current))
@@ -288,6 +378,15 @@ repeat:
 }
 EXPORT_SYMBOL_GPL(kthread_worker_fn);
 
+/**
+ * queue_kthread_work - queue a kthread_work
+ * @worker: target kthread_worker
+ * @work: kthread_work to queue
+ *
+ * Queue @work to work processor @task for async execution.  @task
+ * must have been created with kthread_worker_create().  Returns %true
+ * if @work was successfully queued, %false if it was already pending.
+ */
 bool queue_kthread_work(struct kthread_worker *worker,
 			struct kthread_work *work)
 {
@@ -307,18 +406,32 @@ bool queue_kthread_work(struct kthread_worker *worker,
 }
 EXPORT_SYMBOL_GPL(queue_kthread_work);
 
+/**
+ * flush_kthread_work - flush a kthread_work
+ * @work: work to flush
+ *
+ * If @work is queued or executing, wait for it to finish execution.
+ */
 void flush_kthread_work(struct kthread_work *work)
 {
 	int seq = work->queue_seq;
 
 	atomic_inc(&work->flushing);
 
+	/*
+	 * mb flush-b0 paired with worker-b1, to make sure either
+	 * worker sees the above increment or we see done_seq update.
+	 */
 	smp_mb__after_atomic_inc();
 
-	
+	/* A - B <= 0 tests whether B is in front of A regardless of overflow */
 	wait_event(work->done, seq - work->done_seq <= 0);
 	atomic_dec(&work->flushing);
 
+	/*
+	 * rmb flush-b1 paired with worker-b0, to make sure our caller
+	 * sees every change made by work->func().
+	 */
 	smp_mb__after_atomic_dec();
 }
 EXPORT_SYMBOL_GPL(flush_kthread_work);
@@ -335,6 +448,13 @@ static void kthread_flush_work_fn(struct kthread_work *work)
 	complete(&fwork->done);
 }
 
+/**
+ * flush_kthread_worker - flush all current works on a kthread_worker
+ * @worker: worker to flush
+ *
+ * Wait until all currently executing or pending works on @worker are
+ * finished.
+ */
 void flush_kthread_worker(struct kthread_worker *worker)
 {
 	struct kthread_flush_work fwork = {

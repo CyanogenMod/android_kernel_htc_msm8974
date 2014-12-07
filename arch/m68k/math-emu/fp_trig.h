@@ -20,5 +20,13 @@
 
 #include "fp_emu.h"
 
+/* floating point trigonometric instructions:
 
-#endif 
+   the arguments to these are in the "internal" extended format, that
+   is, an "exploded" version of the 96-bit extended fp format used by
+   the 68881.
+
+   they return a status code, which should end up in %d0, if all goes
+   well.  */
+
+#endif /* FP_TRIG__H */

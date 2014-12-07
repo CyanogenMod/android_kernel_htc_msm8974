@@ -32,19 +32,21 @@
 #include <arch/abi.h>
 #include <arch/interrupts.h>
 
-#define KBT_ONGOING	0  
-#define KBT_DONE	1  
-#define KBT_RUNNING	2  
-#define KBT_LOOP	3  
+#define KBT_ONGOING	0  /* Backtrace still ongoing */
+#define KBT_DONE	1  /* Backtrace cleanly completed */
+#define KBT_RUNNING	2  /* Can't run backtrace on a running task */
+#define KBT_LOOP	3  /* Backtrace entered a loop */
 
+/* Is address on the specified kernel stack? */
 static int in_kernel_stack(struct KBacktraceIterator *kbt, unsigned long sp)
 {
 	ulong kstack_base = (ulong) kbt->task->stack;
-	if (kstack_base == 0)  
+	if (kstack_base == 0)  /* corrupt task pointer; just follow stack... */
 		return sp >= PAGE_OFFSET && sp < (unsigned long)high_memory;
 	return sp >= kstack_base && sp < kstack_base + THREAD_SIZE;
 }
 
+/* Callback for backtracer; basically a glorified memcpy */
 static bool read_memory_func(void *result, unsigned long address,
 			     unsigned int size, void *vkbt)
 {
@@ -54,13 +56,13 @@ static bool read_memory_func(void *result, unsigned long address,
 	if (address == 0)
 		return 0;
 	if (__kernel_text_address(address)) {
-		
+		/* OK to read kernel code. */
 	} else if (address >= PAGE_OFFSET) {
-		
+		/* We only tolerate kernel-space reads of this task's stack */
 		if (!in_kernel_stack(kbt, address))
 			return 0;
 	} else if (!kbt->is_current) {
-		return 0;	
+		return 0;	/* can't read from other user address spaces */
 	}
 	pagefault_disable();
 	retval = __copy_from_user_inatomic(result,
@@ -70,9 +72,10 @@ static bool read_memory_func(void *result, unsigned long address,
 	return (retval == 0);
 }
 
+/* Return a pt_regs pointer for a valid fault handler frame */
 static struct pt_regs *valid_fault_handler(struct KBacktraceIterator* kbt)
 {
-	const char *fault = NULL;  
+	const char *fault = NULL;  /* happy compiler */
 	char fault_buf[64];
 	unsigned long sp = kbt->it.sp;
 	struct pt_regs *p;
@@ -87,7 +90,7 @@ static struct pt_regs *valid_fault_handler(struct KBacktraceIterator* kbt)
 	if (p->faultnum == INT_SWINT_1 || p->faultnum == INT_SWINT_1_SIGRETURN)
 		fault = "syscall";
 	else {
-		if (kbt->verbose) {     
+		if (kbt->verbose) {     /* else we aren't going to use it */
 			snprintf(fault_buf, sizeof(fault_buf),
 				 "interrupt %ld", p->faultnum);
 			fault = fault_buf;
@@ -114,11 +117,13 @@ static struct pt_regs *valid_fault_handler(struct KBacktraceIterator* kbt)
 	return NULL;
 }
 
+/* Is the pc pointing to a sigreturn trampoline? */
 static int is_sigreturn(unsigned long pc)
 {
 	return (pc == VDSO_BASE);
 }
 
+/* Return a pt_regs pointer for a valid signal handler frame */
 static struct pt_regs *valid_sigframe(struct KBacktraceIterator* kbt,
 				      struct rt_sigframe* kframe)
 {
@@ -165,6 +170,7 @@ static int KBacktraceIterator_restart(struct KBacktraceIterator *kbt)
 	return 1;
 }
 
+/* Find a frame that isn't a sigreturn, if there is one. */
 static int KBacktraceIterator_next_item_inclusive(
 	struct KBacktraceIterator *kbt)
 {
@@ -179,6 +185,14 @@ static int KBacktraceIterator_next_item_inclusive(
 	}
 }
 
+/*
+ * If the current sp is on a page different than what we recorded
+ * as the top-of-kernel-stack last time we context switched, we have
+ * probably blown the stack, and nothing is going to work out well.
+ * If we can at least get out a warning, that may help the debug,
+ * though we probably won't be able to backtrace into the code that
+ * actually did the recursive damage.
+ */
 static void validate_stack(struct pt_regs *regs)
 {
 	int cpu = smp_processor_id();
@@ -205,13 +219,17 @@ void KBacktraceIterator_init(struct KBacktraceIterator *kbt,
 	unsigned long pc, lr, sp, r52;
 	int is_current;
 
+	/*
+	 * Set up callback information.  We grab the kernel stack base
+	 * so we will allow reads of that address range.
+	 */
 	is_current = (t == NULL || t == current);
 	kbt->is_current = is_current;
 	if (is_current)
 		t = validate_current();
 	kbt->task = t;
-	kbt->verbose = 0;   
-	kbt->profile = 0;   
+	kbt->verbose = 0;   /* override in caller if desired */
+	kbt->profile = 0;   /* override in caller if desired */
 	kbt->end = KBT_ONGOING;
 	kbt->new_context = 1;
 	if (is_current)
@@ -219,7 +237,7 @@ void KBacktraceIterator_init(struct KBacktraceIterator *kbt,
 
 	if (regs == NULL) {
 		if (is_current || t->state == TASK_RUNNING) {
-			
+			/* Can't do this; we need registers */
 			kbt->end = KBT_RUNNING;
 			return;
 		}
@@ -255,7 +273,7 @@ void KBacktraceIterator_next(struct KBacktraceIterator *kbt)
 	}
 	kbt->end = KBacktraceIterator_next_item_inclusive(kbt);
 	if (old_pc == kbt->it.pc && old_sp == kbt->it.sp) {
-		
+		/* Trapped in a loop; give up. */
 		kbt->end = KBT_LOOP;
 	}
 }
@@ -272,11 +290,17 @@ static void describe_addr(struct KBacktraceIterator *kbt,
 	const char *name;
 	int rc;
 
+	/*
+	 * Look one byte back for every caller frame (i.e. those that
+	 * aren't a new context) so we look up symbol data for the
+	 * call itself, not the following instruction, which may be on
+	 * a different line (or in a different function).
+	 */
 	adjust = !kbt->new_context;
 	address -= adjust;
 
 	if (address >= PAGE_OFFSET) {
-		
+		/* Handle kernel symbols. */
 		BUG_ON(bufsize < KSYM_NAME_LEN);
 		name = kallsyms_lookup(address, &size, &offset,
 				       &modname, buf);
@@ -295,12 +319,12 @@ static void describe_addr(struct KBacktraceIterator *kbt,
 		return;
 	}
 
-	
+	/* If we don't have the mmap_sem, we can't show any more info. */
 	buf[0] = '\0';
 	if (!have_mmap_sem)
 		return;
 
-	
+	/* Find vma info. */
 	vma = find_vma(kbt->task->mm, address);
 	if (vma == NULL || address < vma->vm_start) {
 		snprintf(buf, bufsize, "[unmapped address] ");
@@ -319,7 +343,7 @@ static void describe_addr(struct KBacktraceIterator *kbt,
 		p = "anon";
 	}
 
-	
+	/* Generate a string description of the vma info. */
 	namelen = strlen(p);
 	remaining = (bufsize - 1) - namelen;
 	memmove(buf, p, namelen);
@@ -327,12 +351,22 @@ static void describe_addr(struct KBacktraceIterator *kbt,
 		 vma->vm_start, vma->vm_end - vma->vm_start);
 }
 
+/*
+ * This method wraps the backtracer's more generic support.
+ * It is only invoked from the architecture-specific code; show_stack()
+ * and dump_stack() (in entry.S) are architecture-independent entry points.
+ */
 void tile_show_stack(struct KBacktraceIterator *kbt, int headers)
 {
 	int i;
 	int have_mmap_sem = 0;
 
 	if (headers) {
+		/*
+		 * Add a blank line since if we are called from panic(),
+		 * then bust_spinlocks() spit out a space in front of us
+		 * and it will mess up our KERN_ERR.
+		 */
 		pr_err("\n");
 		pr_err("Starting stack dump of tid %d, pid %d (%s)"
 		       " on cpu %d at cycle %lld\n",
@@ -345,7 +379,7 @@ void tile_show_stack(struct KBacktraceIterator *kbt, int headers)
 		char namebuf[KSYM_NAME_LEN+100];
 		unsigned long address = kbt->it.pc;
 
-		
+		/* Try to acquire the mmap_sem as we pass into userspace. */
 		if (address < PAGE_OFFSET && !have_mmap_sem && kbt->task->mm)
 			have_mmap_sem =
 				down_read_trylock(&kbt->task->mm->mmap_sem);
@@ -372,6 +406,7 @@ void tile_show_stack(struct KBacktraceIterator *kbt, int headers)
 EXPORT_SYMBOL(tile_show_stack);
 
 
+/* This is called from show_regs() and _dump_stack() */
 void dump_stack_regs(struct pt_regs *regs)
 {
 	struct KBacktraceIterator kbt;
@@ -391,12 +426,14 @@ static struct pt_regs *regs_to_pt_regs(struct pt_regs *regs,
 	return regs;
 }
 
+/* This is called from dump_stack() and just converts to pt_regs */
 void _dump_stack(int dummy, ulong pc, ulong lr, ulong sp, ulong r52)
 {
 	struct pt_regs regs;
 	dump_stack_regs(regs_to_pt_regs(&regs, pc, lr, sp, r52));
 }
 
+/* This is called from KBacktraceIterator_init_current() */
 void _KBacktraceIterator_init_current(struct KBacktraceIterator *kbt, ulong pc,
 				      ulong lr, ulong sp, ulong r52)
 {
@@ -405,6 +442,7 @@ void _KBacktraceIterator_init_current(struct KBacktraceIterator *kbt, ulong pc,
 				regs_to_pt_regs(&regs, pc, lr, sp, r52));
 }
 
+/* This is called only from kernel/sched.c, with esp == NULL */
 void show_stack(struct task_struct *task, unsigned long *esp)
 {
 	struct KBacktraceIterator kbt;
@@ -417,6 +455,7 @@ void show_stack(struct task_struct *task, unsigned long *esp)
 
 #ifdef CONFIG_STACKTRACE
 
+/* Support generic Linux stack API too */
 
 void save_stack_trace_tsk(struct task_struct *task, struct stack_trace *trace)
 {
@@ -448,4 +487,5 @@ void save_stack_trace(struct stack_trace *trace)
 
 #endif
 
+/* In entry.S */
 EXPORT_SYMBOL(KBacktraceIterator_init_current);

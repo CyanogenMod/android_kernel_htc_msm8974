@@ -27,8 +27,31 @@
 #define OCFS2_ALLOC_H
 
 
+/*
+ * For xattr tree leaf, we limit the leaf byte size to be 64K.
+ */
 #define OCFS2_MAX_XATTR_TREE_LEAF_SIZE 65536
 
+/*
+ * ocfs2_extent_tree and ocfs2_extent_tree_operations are used to abstract
+ * the b-tree operations in ocfs2. Now all the b-tree operations are not
+ * limited to ocfs2_dinode only. Any data which need to allocate clusters
+ * to store can use b-tree. And it only needs to implement its ocfs2_extent_tree
+ * and operation.
+ *
+ * ocfs2_extent_tree becomes the first-class object for extent tree
+ * manipulation.  Callers of the alloc.c code need to fill it via one of
+ * the ocfs2_init_*_extent_tree() operations below.
+ *
+ * ocfs2_extent_tree contains info for the root of the b-tree, it must have a
+ * root ocfs2_extent_list and a root_bh so that they can be used in the b-tree
+ * functions.  It needs the ocfs2_caching_info structure associated with
+ * I/O on the tree.  With metadata ecc, we now call different journal_access
+ * functions for each type of metadata, so it must have the
+ * root_journal_access function.
+ * ocfs2_extent_tree_operations abstract the normal operations we do for
+ * the root of extent b-tree.
+ */
 struct ocfs2_extent_tree_operations;
 struct ocfs2_extent_tree {
 	struct ocfs2_extent_tree_operations	*et_ops;
@@ -40,6 +63,10 @@ struct ocfs2_extent_tree {
 	unsigned int				et_max_leaf_clusters;
 };
 
+/*
+ * ocfs2_init_*_extent_tree() will fill an ocfs2_extent_tree from the
+ * specified object buffer.
+ */
 void ocfs2_init_dinode_extent_tree(struct ocfs2_extent_tree *et,
 				   struct ocfs2_caching_info *ci,
 				   struct buffer_head *bh);
@@ -57,6 +84,11 @@ void ocfs2_init_refcount_extent_tree(struct ocfs2_extent_tree *et,
 				     struct ocfs2_caching_info *ci,
 				     struct buffer_head *bh);
 
+/*
+ * Read an extent block into *bh.  If *bh is NULL, a bh will be
+ * allocated.  This is a cached read.  The extent block will be validated
+ * with ocfs2_validate_extent_block().
+ */
 int ocfs2_read_extent_block(struct ocfs2_caching_info *ci, u64 eb_blkno,
 			    struct buffer_head **bh);
 
@@ -115,8 +147,23 @@ int ocfs2_remove_btree_range(struct inode *inode,
 int ocfs2_num_free_extents(struct ocfs2_super *osb,
 			   struct ocfs2_extent_tree *et);
 
+/*
+ * how many new metadata chunks would an allocation need at maximum?
+ *
+ * Please note that the caller must make sure that root_el is the root
+ * of extent tree. So for an inode, it should be &fe->id2.i_list. Otherwise
+ * the result may be wrong.
+ */
 static inline int ocfs2_extend_meta_needed(struct ocfs2_extent_list *root_el)
 {
+	/*
+	 * Rather than do all the work of determining how much we need
+	 * (involves a ton of reads and locks), just ask for the
+	 * maximal limit.  That's a tree depth shift.  So, one block for
+	 * level of the tree (current l_tree_depth), one block for the
+	 * new tree_depth==0 extent_block, and one block at the new
+	 * top-of-the tree.
+	 */
 	return le16_to_cpu(root_el->l_tree_depth) + 2;
 }
 
@@ -142,6 +189,15 @@ int ocfs2_truncate_log_append(struct ocfs2_super *osb,
 			      unsigned int num_clusters);
 int __ocfs2_flush_truncate_log(struct ocfs2_super *osb);
 
+/*
+ * Process local structure which describes the block unlinks done
+ * during an operation. This is populated via
+ * ocfs2_cache_block_dealloc().
+ *
+ * ocfs2_run_deallocs() should be called after the potentially
+ * de-allocating routines. No journal handles should be open, and most
+ * locks should have been dropped.
+ */
 struct ocfs2_cached_dealloc_ctxt {
 	struct ocfs2_per_slot_free_list		*c_first_suballocator;
 	struct ocfs2_cached_block_free 		*c_global_allocator;
@@ -165,8 +221,8 @@ int ocfs2_run_deallocs(struct ocfs2_super *osb,
 
 struct ocfs2_truncate_context {
 	struct ocfs2_cached_dealloc_ctxt tc_dealloc;
-	int tc_ext_alloc_locked; 
-	
+	int tc_ext_alloc_locked; /* is it cluster locked? */
+	/* these get destroyed once it's passed to ocfs2_commit_truncate. */
 	struct buffer_head *tc_last_eb_bh;
 };
 
@@ -184,6 +240,9 @@ int ocfs2_find_leaf(struct ocfs2_caching_info *ci,
 int ocfs2_search_extent_list(struct ocfs2_extent_list *el, u32 v_cluster);
 
 int ocfs2_trim_fs(struct super_block *sb, struct fstrim_range *range);
+/*
+ * Helper function to look at the # of clusters in an extent record.
+ */
 static inline unsigned int ocfs2_rec_clusters(struct ocfs2_extent_list *el,
 					      struct ocfs2_extent_rec *rec)
 {
@@ -200,6 +259,10 @@ static inline unsigned int ocfs2_rec_clusters(struct ocfs2_extent_list *el,
 		return le16_to_cpu(rec->e_leaf_clusters);
 }
 
+/*
+ * This is only valid for leaf nodes, which are the only ones that can
+ * have empty extents anyway.
+ */
 static inline int ocfs2_is_empty_extent(struct ocfs2_extent_rec *rec)
 {
 	return !rec->e_leaf_clusters;
@@ -210,6 +273,13 @@ int ocfs2_grab_pages(struct inode *inode, loff_t start, loff_t end,
 void ocfs2_map_and_dirty_page(struct inode *inode, handle_t *handle,
 			      unsigned int from, unsigned int to,
 			      struct page *page, int zero, u64 *phys);
+/*
+ * Structures which describe a path through a btree, and functions to
+ * manipulate them.
+ *
+ * The idea here is to be as generic as possible with the tree
+ * manipulation code.
+ */
 struct ocfs2_path_item {
 	struct buffer_head		*bh;
 	struct ocfs2_extent_list	*el;
@@ -251,4 +321,4 @@ int ocfs2_find_cpos_for_left_leaf(struct super_block *sb,
 int ocfs2_find_subtree_root(struct ocfs2_extent_tree *et,
 			    struct ocfs2_path *left,
 			    struct ocfs2_path *right);
-#endif 
+#endif /* OCFS2_ALLOC_H */

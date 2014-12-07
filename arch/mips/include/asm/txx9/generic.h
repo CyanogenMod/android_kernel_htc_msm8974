@@ -9,7 +9,7 @@
 #define __ASM_TXX9_GENERIC_H
 
 #include <linux/init.h>
-#include <linux/ioport.h>	
+#include <linux/ioport.h>	/* for struct resource */
 
 extern struct resource txx9_ce_res[];
 #define TXX9_CE(n)	(unsigned long)(txx9_ce_res[(n)].start)
@@ -63,6 +63,7 @@ struct physmap_flash_data;
 void txx9_physmap_flash_init(int no, unsigned long addr, unsigned long size,
 			     const struct physmap_flash_data *pdata);
 
+/* 8 bit version of __fls(): find first bit set (returns 0..7) */
 static inline unsigned int __fls8(unsigned char x)
 {
 	int r = 7;
@@ -84,6 +85,7 @@ void txx9_iocled_init(unsigned long baseaddr,
 		      int basenum, unsigned int num, int lowactive,
 		      const char *color, char **deftriggers);
 
+/* 7SEG LED */
 void txx9_7segled_init(unsigned int num,
 		       void (*putc)(unsigned int pos, unsigned char val));
 int txx9_7segled_putc(unsigned int pos, char c);
@@ -94,4 +96,4 @@ void __init txx9_aclc_init(unsigned long baseaddr, int irq,
 			   unsigned int dma_chan_in);
 void __init txx9_sramc_init(struct resource *r);
 
-#endif 
+#endif /* __ASM_TXX9_GENERIC_H */

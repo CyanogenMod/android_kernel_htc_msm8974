@@ -31,6 +31,10 @@
 
 #define ACPI_MAX_STRING			80
 
+/*
+ * Please update drivers/acpi/debug.c and Documentation/acpi/debug.txt
+ * if you add to this list.
+ */
 #define ACPI_BUS_COMPONENT		0x00010000
 #define ACPI_AC_COMPONENT		0x00020000
 #define ACPI_BATTERY_COMPONENT		0x00040000
@@ -46,6 +50,11 @@
 #define ACPI_VIDEO_COMPONENT		0x10000000
 #define ACPI_PROCESSOR_COMPONENT	0x20000000
 
+/*
+ * _HID definitions
+ * HIDs must conform to ACPI spec(6.1.4)
+ * Linux specific HIDs do not apply to this and begin with LNX:
+ */
 
 #define ACPI_POWER_HID			"LNXPOWER"
 #define ACPI_PROCESSOR_OBJECT_HID	"LNXCPU"
@@ -56,37 +65,59 @@
 #define ACPI_VIDEO_HID			"LNXVIDEO"
 #define ACPI_BAY_HID			"LNXIOBAY"
 #define ACPI_DOCK_HID			"LNXDOCK"
+/* Quirk for broken IBM BIOSes */
 #define ACPI_SMBUS_IBM_HID		"SMBUSIBM"
 
+/*
+ * For fixed hardware buttons, we fabricate acpi_devices with HID
+ * ACPI_BUTTON_HID_POWERF or ACPI_BUTTON_HID_SLEEPF.  Fixed hardware
+ * signals only an event; it doesn't supply a notification value.
+ * To allow drivers to treat notifications from fixed hardware the
+ * same as those from real devices, we turn the events into this
+ * notification value.
+ */
 #define ACPI_FIXED_HARDWARE_EVENT	0x100
 
+/* --------------------------------------------------------------------------
+                                       PCI
+   -------------------------------------------------------------------------- */
 
 
+/* ACPI PCI Interrupt Link (pci_link.c) */
 
 int acpi_irq_penalty_init(void);
 int acpi_pci_link_allocate_irq(acpi_handle handle, int index, int *triggering,
 			       int *polarity, char **name);
 int acpi_pci_link_free_irq(acpi_handle handle);
 
+/* ACPI PCI Interrupt Routing (pci_irq.c) */
 
 int acpi_pci_irq_add_prt(acpi_handle handle, struct pci_bus *bus);
 void acpi_pci_irq_del_prt(struct pci_bus *bus);
 
+/* ACPI PCI Device Binding (pci_bind.c) */
 
 struct pci_bus;
 
 struct pci_dev *acpi_get_pci_dev(acpi_handle);
 int acpi_pci_bind_root(struct acpi_device *device);
 
+/* Arch-defined function to add a bus to the system */
 
 struct pci_bus *pci_acpi_scan_root(struct acpi_pci_root *root);
 void pci_acpi_crs_quirks(void);
 
+/* --------------------------------------------------------------------------
+                                    Processor
+   -------------------------------------------------------------------------- */
 
 #define ACPI_PROCESSOR_LIMIT_NONE	0x00
 #define ACPI_PROCESSOR_LIMIT_INCREMENT	0x01
 #define ACPI_PROCESSOR_LIMIT_DECREMENT	0x02
 
+/*--------------------------------------------------------------------------
+                                  Dock Station
+  -------------------------------------------------------------------------- */
 struct acpi_dock_ops {
 	acpi_notify_handler handler;
 	acpi_notify_handler uevent;
@@ -123,4 +154,4 @@ static inline void unregister_hotplug_dock_device(acpi_handle handle)
 }
 #endif
 
-#endif 
+#endif /*__ACPI_DRIVERS_H__*/

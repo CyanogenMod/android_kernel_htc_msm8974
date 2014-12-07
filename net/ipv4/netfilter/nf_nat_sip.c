@@ -59,7 +59,7 @@ static unsigned int mangle_packet(struct sk_buff *skb, unsigned int dataoff,
 			return 0;
 	}
 
-	
+	/* Reload data pointer and adjust datalen value */
 	*dptr = skb->data + dataoff;
 	*datalen += buflen - matchlen;
 	return 1;
@@ -127,7 +127,7 @@ static unsigned int ip_nat_sip(struct sk_buff *skb, unsigned int dataoff,
 	__be16 port;
 	int request, in_header;
 
-	
+	/* Basic rules: requests and responses. */
 	if (strnicmp(*dptr, "SIP/2.0", strlen("SIP/2.0")) != 0) {
 		if (ct_sip_parse_request(ct, *dptr, *datalen,
 					 &matchoff, &matchlen,
@@ -144,13 +144,15 @@ static unsigned int ip_nat_sip(struct sk_buff *skb, unsigned int dataoff,
 	else
 		hdr = SIP_HDR_VIA_UDP;
 
-	
+	/* Translate topmost Via header and parameters */
 	if (ct_sip_parse_header_uri(ct, *dptr, NULL, *datalen,
 				    hdr, NULL, &matchoff, &matchlen,
 				    &addr, &port) > 0) {
 		unsigned int matchend, poff, plen, buflen, n;
 		char buffer[sizeof("nnn.nnn.nnn.nnn:nnnnn")];
 
+		/* We're only interested in headers related to this
+		 * connection */
 		if (request) {
 			if (addr.ip != ct->tuplehash[dir].tuple.src.u3.ip ||
 			    port != ct->tuplehash[dir].tuple.src.u.udp.port)
@@ -167,6 +169,8 @@ static unsigned int ip_nat_sip(struct sk_buff *skb, unsigned int dataoff,
 
 		matchend = matchoff + matchlen;
 
+		/* The maddr= parameter (RFC 2361) specifies where to send
+		 * the reply. */
 		if (ct_sip_parse_address_param(ct, *dptr, matchend, *datalen,
 					       "maddr=", &poff, &plen,
 					       &addr) > 0 &&
@@ -179,6 +183,8 @@ static unsigned int ip_nat_sip(struct sk_buff *skb, unsigned int dataoff,
 				return NF_DROP;
 		}
 
+		/* The received= parameter (RFC 2361) contains the address
+		 * from which the server received the request. */
 		if (ct_sip_parse_address_param(ct, *dptr, matchend, *datalen,
 					       "received=", &poff, &plen,
 					       &addr) > 0 &&
@@ -191,6 +197,8 @@ static unsigned int ip_nat_sip(struct sk_buff *skb, unsigned int dataoff,
 				return NF_DROP;
 		}
 
+		/* The rport= parameter (RFC 3581) contains the port number
+		 * from which the server received the request. */
 		if (ct_sip_parse_numerical_param(ct, *dptr, matchend, *datalen,
 						 "rport=", &poff, &plen,
 						 &n) > 0 &&
@@ -205,7 +213,7 @@ static unsigned int ip_nat_sip(struct sk_buff *skb, unsigned int dataoff,
 	}
 
 next:
-	
+	/* Translate Contact headers */
 	coff = 0;
 	in_header = 0;
 	while (ct_sip_parse_header_uri(ct, *dptr, &coff, *datalen,
@@ -237,20 +245,23 @@ static void ip_nat_sip_seq_adjust(struct sk_buff *skb, s16 off)
 	nf_nat_set_seq_adjust(ct, ctinfo, th->seq, off);
 }
 
+/* Handles expected signalling connections and media streams */
 static void ip_nat_sip_expected(struct nf_conn *ct,
 				struct nf_conntrack_expect *exp)
 {
 	struct nf_nat_ipv4_range range;
 
-	
+	/* This must be a fresh one. */
 	BUG_ON(ct->status & IPS_NAT_DONE_MASK);
 
-	
+	/* For DST manip, map port here to where it's expected. */
 	range.flags = (NF_NAT_RANGE_MAP_IPS | NF_NAT_RANGE_PROTO_SPECIFIED);
 	range.min = range.max = exp->saved_proto;
 	range.min_ip = range.max_ip = exp->saved_ip;
 	nf_nat_setup_info(ct, &range, NF_NAT_MANIP_DST);
 
+	/* Change src to where master sends to, but only if the connection
+	 * actually came from the same source. */
 	if (ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.src.u3.ip ==
 	    ct->master->tuplehash[exp->dir].tuple.src.u3.ip) {
 		range.flags = NF_NAT_RANGE_MAP_IPS;
@@ -274,12 +285,15 @@ static unsigned int ip_nat_sip_expect(struct sk_buff *skb, unsigned int dataoff,
 	char buffer[sizeof("nnn.nnn.nnn.nnn:nnnnn")];
 	unsigned buflen;
 
-	
+	/* Connection will come from reply */
 	if (ct->tuplehash[dir].tuple.src.u3.ip == ct->tuplehash[!dir].tuple.dst.u3.ip)
 		newip = exp->tuple.dst.u3.ip;
 	else
 		newip = ct->tuplehash[!dir].tuple.dst.u3.ip;
 
+	/* If the signalling port matches the connection's source port in the
+	 * original direction, try to use the destination port in the opposite
+	 * direction. */
 	if (exp->tuple.dst.u.udp.port ==
 	    ct->tuplehash[dir].tuple.src.u.udp.port)
 		port = ntohs(ct->tuplehash[!dir].tuple.dst.u.udp.port);
@@ -331,14 +345,14 @@ static int mangle_content_len(struct sk_buff *skb, unsigned int dataoff,
 	char buffer[sizeof("65536")];
 	int buflen, c_len;
 
-	
+	/* Get actual SDP length */
 	if (ct_sip_get_sdp_header(ct, *dptr, 0, *datalen,
 				  SDP_HDR_VERSION, SDP_HDR_UNSPEC,
 				  &matchoff, &matchlen) <= 0)
 		return 0;
 	c_len = *datalen - matchoff + strlen("v=");
 
-	
+	/* Now, update SDP length */
 	if (ct_sip_get_header(ct, *dptr, 0, *datalen, SIP_HDR_CONTENT_LENGTH,
 			      &matchoff, &matchlen) <= 0)
 		return 0;
@@ -409,7 +423,7 @@ static unsigned int ip_nat_sdp_session(struct sk_buff *skb, unsigned int dataoff
 	char buffer[sizeof("nnn.nnn.nnn.nnn")];
 	unsigned int buflen;
 
-	
+	/* Mangle session description owner and contact addresses */
 	buflen = sprintf(buffer, "%pI4", &addr->ip);
 	if (mangle_sdp_packet(skb, dataoff, dptr, datalen, sdpoff,
 			       SDP_HDR_OWNER_IP4, SDP_HDR_MEDIA,
@@ -420,6 +434,13 @@ static unsigned int ip_nat_sdp_session(struct sk_buff *skb, unsigned int dataoff
 				  SDP_HDR_CONNECTION_IP4, SDP_HDR_MEDIA,
 				  buffer, buflen)) {
 	case 0:
+	/*
+	 * RFC 2327:
+	 *
+	 * Session description
+	 *
+	 * c=* (connection information - not required if included in all media)
+	 */
 	case -ENOENT:
 		break;
 	default:
@@ -429,6 +450,8 @@ static unsigned int ip_nat_sdp_session(struct sk_buff *skb, unsigned int dataoff
 	return mangle_content_len(skb, dataoff, dptr, datalen);
 }
 
+/* So, this packet has hit the connection tracking matching code.
+   Mangle it, and change the expectation to match the new version. */
 static unsigned int ip_nat_sdp_media(struct sk_buff *skb, unsigned int dataoff,
 				     const char **dptr, unsigned int *datalen,
 				     struct nf_conntrack_expect *rtp_exp,
@@ -442,7 +465,7 @@ static unsigned int ip_nat_sdp_media(struct sk_buff *skb, unsigned int dataoff,
 	enum ip_conntrack_dir dir = CTINFO2DIR(ctinfo);
 	u_int16_t port;
 
-	
+	/* Connection will come from reply */
 	if (ct->tuplehash[dir].tuple.src.u3.ip ==
 	    ct->tuplehash[!dir].tuple.dst.u3.ip)
 		rtp_addr->ip = rtp_exp->tuple.dst.u3.ip;
@@ -461,7 +484,7 @@ static unsigned int ip_nat_sdp_media(struct sk_buff *skb, unsigned int dataoff,
 	rtcp_exp->dir = !dir;
 	rtcp_exp->expectfn = ip_nat_sip_expected;
 
-	
+	/* Try to get same pair of ports: if not, try to change them. */
 	for (port = ntohs(rtp_exp->tuple.dst.u.udp.port);
 	     port != 0; port += 2) {
 		int ret;
@@ -488,7 +511,7 @@ static unsigned int ip_nat_sdp_media(struct sk_buff *skb, unsigned int dataoff,
 	if (port == 0)
 		goto err1;
 
-	
+	/* Update media port. */
 	if (rtp_exp->tuple.dst.u.udp.port != rtp_exp->saved_proto.udp.port &&
 	    !ip_nat_sdp_port(skb, dataoff, dptr, datalen,
 			     mediaoff, medialen, port))

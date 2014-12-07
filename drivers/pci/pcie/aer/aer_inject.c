@@ -27,6 +27,7 @@
 #include <linux/stddef.h>
 #include "aerdrv.h"
 
+/* Override the existing corrected and uncorrected error masks */
 static bool aer_mask_override;
 module_param(aer_mask_override, bool, 0);
 
@@ -70,6 +71,7 @@ static LIST_HEAD(einjected);
 
 static LIST_HEAD(pci_bus_ops_list);
 
+/* Protect einjected and pci_bus_ops_list */
 static DEFINE_SPINLOCK(inject_lock);
 
 static void aer_error_init(struct aer_error *err, u16 domain,
@@ -83,6 +85,7 @@ static void aer_error_init(struct aer_error *err, u16 domain,
 	err->pos_cap_err = pos_cap_err;
 }
 
+/* inject_lock must be held before calling */
 static struct aer_error *__find_aer_error(u16 domain, unsigned int bus,
 					  unsigned int devfn)
 {
@@ -97,6 +100,7 @@ static struct aer_error *__find_aer_error(u16 domain, unsigned int bus,
 	return NULL;
 }
 
+/* inject_lock must be held before calling */
 static struct aer_error *__find_aer_error_by_dev(struct pci_dev *dev)
 {
 	int domain = pci_domain_nr(dev->bus);
@@ -105,6 +109,7 @@ static struct aer_error *__find_aer_error_by_dev(struct pci_dev *dev)
 	return __find_aer_error((u16)domain, dev->bus->number, dev->devfn);
 }
 
+/* inject_lock must be held before calling */
 static struct pci_ops *__find_pci_bus_ops(struct pci_bus *bus)
 {
 	struct pci_bus_ops *bus_ops;

@@ -17,6 +17,7 @@
 #include <asm/mmu_context.h>
 #include <asm/tlb.h>
 
+/* Heavily inspired by the ppc64 code.  */
 
 static DEFINE_PER_CPU(struct tlb_batch, tlb_batch);
 
@@ -65,7 +66,7 @@ void tlb_batch_add(struct mm_struct *mm, unsigned long vaddr,
 		if (PageReserved(page))
 			goto no_cache_flush;
 
-		
+		/* A real file page? */
 		mapping = page_mapping(page);
 		if (!mapping)
 			goto no_cache_flush;

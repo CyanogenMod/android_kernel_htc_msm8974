@@ -22,6 +22,11 @@ File Name:		ilp0100_ST_register_map.h
 Author:			author name
 Description:	List of Ilp0100 register
 ********************************************************************************/
+/*!
+ * \file	ilp0100_ST_register_map.h
+ * \brief	List of Ilp0100 register
+ * \author	sheena jain
+ */
 
 #ifndef ILP0100_ST_REGISTER_MAP_H_
 #define ILP0100_ST_REGISTER_MAP_H_
@@ -100,4 +105,4 @@ Description:	List of Ilp0100 register
 
 #define ILP0100_CSI2TX_FRAME_NO_0						0x801430
 
-#endif 
+#endif /* ILP0100_ST_REGISTER_MAP_H_ */

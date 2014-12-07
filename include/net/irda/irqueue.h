@@ -35,9 +35,16 @@
 
 #define NAME_SIZE      32
 
-#define HB_NOLOCK	0	
-#define HB_LOCK		1	
+/*
+ * Hash types (some flags can be xored)
+ * See comments in irqueue.c for which one to use...
+ */
+#define HB_NOLOCK	0	/* No concurent access prevention */
+#define HB_LOCK		1	/* Prevent concurent write with global lock */
 
+/*
+ * Hash defines
+ */
 #define HASHBIN_SIZE   8
 #define HASHBIN_MASK   0x7
 
@@ -54,7 +61,7 @@ struct irda_queue {
 	struct irda_queue *q_prev;
 
 	char   q_name[NAME_SIZE];
-	long   q_hash;			
+	long   q_hash;			/* Must be able to cast a (void *) */
 };
 typedef struct irda_queue irda_queue_t;
 
@@ -62,7 +69,7 @@ typedef struct hashbin_t {
 	__u32      magic;
 	int        hb_type;
 	int        hb_size;
-	spinlock_t hb_spinlock;		
+	spinlock_t hb_spinlock;		/* HB_LOCK - Can be used by the user */
 
 	irda_queue_t* hb_queue[HASHBIN_SIZE] IRDA_ALIGN;
 

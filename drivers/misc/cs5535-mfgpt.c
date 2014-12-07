@@ -52,8 +52,17 @@ int cs5535_mfgpt_toggle_event(struct cs5535_mfgpt_timer *timer, int cmp,
 		return -EIO;
 	}
 
+	/*
+	 * The register maps for these are described in sections 6.17.1.x of
+	 * the AMD Geode CS5536 Companion Device Data Book.
+	 */
 	switch (event) {
 	case MFGPT_EVENT_RESET:
+		/*
+		 * XXX: According to the docs, we cannot reset timers above
+		 * 6; that is, resets for 7 and 8 will be ignored.  Is this
+		 * a problem?   -dilinger
+		 */
 		msr = MSR_MFGPT_NR;
 		mask = 1 << (timer->nr + 24);
 		break;
@@ -95,25 +104,33 @@ int cs5535_mfgpt_set_irq(struct cs5535_mfgpt_timer *timer, int cmp, int *irq,
 		return -EIO;
 	}
 
+	/*
+	 * Unfortunately, MFGPTs come in pairs sharing their IRQ lines. If VSA
+	 * is using the same CMP of the timer's Siamese twin, the IRQ is set to
+	 * 2, and we mustn't use nor change it.
+	 * XXX: Likewise, 2 Linux drivers might clash if the 2nd overwrites the
+	 * IRQ of the 1st. This can only happen if forcing an IRQ, calling this
+	 * with *irq==0 is safe. Currently there _are_ no 2 drivers.
+	 */
 	rdmsr(MSR_PIC_ZSEL_LOW, zsel, dummy);
 	shift = ((cmp == MFGPT_CMP1 ? 0 : 4) + timer->nr % 4) * 4;
 	if (((zsel >> shift) & 0xF) == 2)
 		return -EIO;
 
-	
+	/* Choose IRQ: if none supplied, keep IRQ already set or use default */
 	if (!*irq)
 		*irq = (zsel >> shift) & 0xF;
 	if (!*irq)
 		*irq = CONFIG_CS5535_MFGPT_DEFAULT_IRQ;
 
-	
+	/* Can't use IRQ if it's 0 (=disabled), 2, or routed to LPC */
 	if (*irq < 1 || *irq == 2 || *irq > 15)
 		return -EIO;
 	rdmsr(MSR_PIC_IRQM_LPC, lpc, dummy);
 	if (lpc & (1 << *irq))
 		return -EIO;
 
-	
+	/* All chosen and checked - go for it */
 	if (cs5535_mfgpt_toggle_event(timer, cmp, MFGPT_EVENT_IRQ, enable))
 		return -EIO;
 	if (enable) {
@@ -135,14 +152,14 @@ struct cs5535_mfgpt_timer *cs5535_mfgpt_alloc_timer(int timer_nr, int domain)
 	if (!mfgpt->initialized)
 		goto done;
 
-	
+	/* only allocate timers from the working domain if requested */
 	if (domain == MFGPT_DOMAIN_WORKING)
 		max = 6;
 	else
 		max = MFGPT_MAX_TIMERS;
 
 	if (timer_nr >= max) {
-		
+		/* programmer error.  silly programmers! */
 		WARN_ON(1);
 		goto done;
 	}
@@ -151,18 +168,18 @@ struct cs5535_mfgpt_timer *cs5535_mfgpt_alloc_timer(int timer_nr, int domain)
 	if (timer_nr < 0) {
 		unsigned long t;
 
-		
+		/* try to find any available timer */
 		t = find_first_bit(mfgpt->avail, max);
-		
+		/* set timer_nr to -1 if no timers available */
 		timer_nr = t < max ? (int) t : -1;
 	} else {
-		
+		/* check if the requested timer's available */
 		if (!test_bit(timer_nr, mfgpt->avail))
 			timer_nr = -1;
 	}
 
 	if (timer_nr >= 0)
-		
+		/* if timer_nr is not -1, it's an available timer */
 		__clear_bit(timer_nr, mfgpt->avail);
 	spin_unlock_irqrestore(&mfgpt->lock, flags);
 
@@ -171,7 +188,7 @@ struct cs5535_mfgpt_timer *cs5535_mfgpt_alloc_timer(int timer_nr, int domain)
 
 	timer = kmalloc(sizeof(*timer), GFP_KERNEL);
 	if (!timer) {
-		
+		/* aw hell */
 		spin_lock_irqsave(&mfgpt->lock, flags);
 		__set_bit(timer_nr, mfgpt->avail);
 		spin_unlock_irqrestore(&mfgpt->lock, flags);
@@ -186,12 +203,17 @@ done:
 }
 EXPORT_SYMBOL_GPL(cs5535_mfgpt_alloc_timer);
 
+/*
+ * XXX: This frees the timer memory, but never resets the actual hardware
+ * timer.  The old geode_mfgpt code did this; it would be good to figure
+ * out a way to actually release the hardware timer.  See comments below.
+ */
 void cs5535_mfgpt_free_timer(struct cs5535_mfgpt_timer *timer)
 {
 	unsigned long flags;
 	uint16_t val;
 
-	
+	/* timer can be made available again only if never set up */
 	val = cs5535_mfgpt_read(timer, MFGPT_REG_SETUP);
 	if (!(val & MFGPT_SETUP_SETUP)) {
 		spin_lock_irqsave(&timer->chip->lock, flags);
@@ -216,15 +238,30 @@ void cs5535_mfgpt_write(struct cs5535_mfgpt_timer *timer, uint16_t reg,
 }
 EXPORT_SYMBOL_GPL(cs5535_mfgpt_write);
 
+/*
+ * This is a sledgehammer that resets all MFGPT timers. This is required by
+ * some broken BIOSes which leave the system in an unstable state
+ * (TinyBIOS 0.98, for example; fixed in 0.99).  It's uncertain as to
+ * whether or not this secret MSR can be used to release individual timers.
+ * Jordan tells me that he and Mitch once played w/ it, but it's unclear
+ * what the results of that were (and they experienced some instability).
+ */
 static void __devinit reset_all_timers(void)
 {
 	uint32_t val, dummy;
 
-	
+	/* The following undocumented bit resets the MFGPT timers */
 	val = 0xFF; dummy = 0;
 	wrmsr(MSR_MFGPT_SETUP, val, dummy);
 }
 
+/*
+ * Check whether any MFGPTs are available for the kernel to use.  In most
+ * cases, firmware that uses AMD's VSA code will claim all timers during
+ * bootup; we certainly don't want to take them if they're already in use.
+ * In other cases (such as with VSAless OpenFirmware), the system firmware
+ * leaves timers available for us to use.
+ */
 static int __devinit scan_timers(struct cs5535_mfgpt_chip *mfgpt)
 {
 	struct cs5535_mfgpt_timer timer = { .chip = mfgpt };
@@ -233,11 +270,11 @@ static int __devinit scan_timers(struct cs5535_mfgpt_chip *mfgpt)
 	uint16_t val;
 	int i;
 
-	
+	/* bios workaround */
 	if (mfgpt_reset_timers)
 		reset_all_timers();
 
-	
+	/* just to be safe, protect this section w/ lock */
 	spin_lock_irqsave(&mfgpt->lock, flags);
 	for (i = 0; i < MFGPT_MAX_TIMERS; i++) {
 		timer.nr = i;
@@ -257,6 +294,12 @@ static int __devinit cs5535_mfgpt_probe(struct platform_device *pdev)
 	struct resource *res;
 	int err = -EIO, t;
 
+	/* There are two ways to get the MFGPT base address; one is by
+	 * fetching it from MSR_LBAR_MFGPT, the other is by reading the
+	 * PCI BAR info.  The latter method is easier (especially across
+	 * different architectures), so we'll stick with that for now.  If
+	 * it turns out to be unreliable in the face of crappy BIOSes, we
+	 * can always go back to using MSRs.. */
 
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
 	if (!res) {
@@ -269,14 +312,14 @@ static int __devinit cs5535_mfgpt_probe(struct platform_device *pdev)
 		goto done;
 	}
 
-	
+	/* set up the driver-specific struct */
 	cs5535_mfgpt_chip.base = res->start;
 	cs5535_mfgpt_chip.pdev = pdev;
 	spin_lock_init(&cs5535_mfgpt_chip.lock);
 
 	dev_info(&pdev->dev, "reserved resource region %pR\n", res);
 
-	
+	/* detect the available timers */
 	t = scan_timers(&cs5535_mfgpt_chip);
 	dev_info(&pdev->dev, "%d MFGPT timers available\n", t);
 	cs5535_mfgpt_chip.initialized = 1;

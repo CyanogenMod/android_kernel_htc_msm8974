@@ -24,6 +24,11 @@
 
 #include <linux/rtc.h>
 
+/*
+ * Values for the BIOS calls.  It is passed as the first * argument in the
+ * BIOS call.  Passing any other value in the first argument will result
+ * in a BIOS_STATUS_UNIMPLEMENTED return status.
+ */
 enum uv_bios_cmd {
 	UV_BIOS_COMMON,
 	UV_BIOS_GET_SN_INFO,
@@ -35,6 +40,9 @@ enum uv_bios_cmd {
 	UV_BIOS_SET_LEGACY_VGA_TARGET
 };
 
+/*
+ * Status values returned from a BIOS call.
+ */
 enum {
 	BIOS_STATUS_MORE_PASSES		=  1,
 	BIOS_STATUS_SUCCESS		=  0,
@@ -43,10 +51,14 @@ enum {
 	BIOS_STATUS_UNAVAIL		= -EBUSY
 };
 
+/*
+ * The UV system table describes specific firmware
+ * capabilities available to the Linux kernel at runtime.
+ */
 struct uv_systab {
-	char signature[4];	
-	u32 revision;		
-	u64 function;		
+	char signature[4];	/* must be "UVST" */
+	u32 revision;		/* distinguish different firmware revs */
+	u64 function;		/* BIOS runtime callback function ptr */
 };
 
 enum {
@@ -71,6 +83,9 @@ enum uv_memprotect {
 	UV_MEMPROT_ALLOW_RW
 };
 
+/*
+ * bios calls have 6 parameters
+ */
 extern s64 uv_bios_call(enum uv_bios_cmd, u64, u64, u64, u64, u64);
 extern s64 uv_bios_call_irqsave(enum uv_bios_cmd, u64, u64, u64, u64, u64);
 extern s64 uv_bios_call_reentrant(enum uv_bios_cmd, u64, u64, u64, u64, u64);
@@ -94,6 +109,6 @@ extern long sn_region_size;
 extern long system_serial_number;
 #define partition_coherence_id()	(sn_coherency_id)
 
-extern struct kobject *sgi_uv_kobj;	
+extern struct kobject *sgi_uv_kobj;	/* /sys/firmware/sgi_uv */
 
-#endif 
+#endif /* _ASM_X86_UV_BIOS_H */

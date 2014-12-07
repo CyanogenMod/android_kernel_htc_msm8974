@@ -36,7 +36,7 @@ static int omap4_hdmi_dai_hw_params(struct snd_pcm_substream *substream,
 	struct omap_overlay_manager *mgr = NULL;
 	struct device *dev = substream->pcm->card->dev;
 
-	
+	/* Find DSS HDMI device */
 	for (i = 0; i < omap_dss_get_num_overlay_managers(); i++) {
 		mgr = omap_dss_get_overlay_manager(i);
 		if (mgr && mgr->device
@@ -49,7 +49,7 @@ static int omap4_hdmi_dai_hw_params(struct snd_pcm_substream *substream,
 		return -ENODEV;
 	}
 
-	
+	/* Make sure HDMI is power-on to avoid L3 interconnect errors */
 	if (mgr->device->state != OMAP_DSS_DISPLAY_ACTIVE) {
 		dev_err(dev, "HDMI display is not active!\n");
 		return -EIO;

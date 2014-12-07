@@ -49,15 +49,18 @@
 #include <media/rc-core.h>
 #include <media/ir-kbd-i2c.h>
 
+/* ----------------------------------------------------------------------- */
+/* insmod parameters                                                       */
 
 static int debug;
-module_param(debug, int, 0644);    
+module_param(debug, int, 0644);    /* debug level (0,1,2) */
 
 
 #define MODULE_NAME "ir-kbd-i2c"
 #define dprintk(level, fmt, arg...)	if (debug >= level) \
 	printk(KERN_DEBUG MODULE_NAME ": " fmt , ## arg)
 
+/* ----------------------------------------------------------------------- */
 
 static int get_key_haup_common(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw,
 			       int size, int offset)
@@ -65,23 +68,37 @@ static int get_key_haup_common(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw,
 	unsigned char buf[6];
 	int start, range, toggle, dev, code, ircode;
 
-	
+	/* poll IR chip */
 	if (size != i2c_master_recv(ir->c, buf, size))
 		return -EIO;
 
-	
+	/* split rc5 data block ... */
 	start  = (buf[offset] >> 7) &    1;
 	range  = (buf[offset] >> 6) &    1;
 	toggle = (buf[offset] >> 5) &    1;
 	dev    =  buf[offset]       & 0x1f;
 	code   = (buf[offset+1] >> 2) & 0x3f;
 
+	/* rc5 has two start bits
+	 * the first bit must be one
+	 * the second bit defines the command range (1 = 0-63, 0 = 64 - 127)
+	 */
 	if (!start)
-		
+		/* no key pressed */
 		return 0;
+	/*
+	 * Hauppauge remotes (black/silver) always use
+	 * specific device ids. If we do not filter the
+	 * device ids then messages destined for devices
+	 * such as TVs (id=0) will get through causing
+	 * mis-fired events.
+	 *
+	 * We also filter out invalid key presses which
+	 * produce annoying debug log entries.
+	 */
 	ircode= (start << 12) | (toggle << 11) | (dev << 6) | code;
 	if ((ircode & 0x1fff)==0x1fff)
-		
+		/* invalid key press */
 		return 0;
 
 	if (!range)
@@ -90,7 +107,7 @@ static int get_key_haup_common(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw,
 	dprintk(1,"ir hauppauge (rc5): s%d r%d t%d dev=%d code=%d\n",
 		start, range, toggle, dev, code);
 
-	
+	/* return key */
 	*ir_key = (dev << 8) | code;
 	*ir_raw = ircode;
 	return 1;
@@ -106,6 +123,12 @@ static int get_key_haup_xvr(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 	int ret;
 	unsigned char buf[1] = { 0 };
 
+	/*
+	 * This is the same apparent "are you ready?" poll command observed
+	 * watching Windows driver traffic and implemented in lirc_zilog. With
+	 * this added, we get far saner remote behavior with z8 chips on usb
+	 * connected devices, even with the default polling interval of 100ms.
+	 */
 	ret = i2c_master_send(ir->c, buf, 1);
 	if (ret != 1)
 		return (ret < 0) ? ret : -EINVAL;
@@ -117,7 +140,7 @@ static int get_key_pixelview(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 {
 	unsigned char b;
 
-	
+	/* poll IR chip */
 	if (1 != i2c_master_recv(ir->c, &b, 1)) {
 		dprintk(1,"read error\n");
 		return -EIO;
@@ -131,7 +154,7 @@ static int get_key_fusionhdtv(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 {
 	unsigned char buf[4];
 
-	
+	/* poll IR chip */
 	if (4 != i2c_master_recv(ir->c, buf, 4)) {
 		dprintk(1,"read error\n");
 		return -EIO;
@@ -141,7 +164,7 @@ static int get_key_fusionhdtv(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 		dprintk(2, "%s: 0x%2x 0x%2x 0x%2x 0x%2x\n", __func__,
 			buf[0], buf[1], buf[2], buf[3]);
 
-	
+	/* no key pressed or signal from other ir remote */
 	if(buf[0] != 0x1 ||  buf[1] != 0xfe)
 		return 0;
 
@@ -155,12 +178,15 @@ static int get_key_knc1(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 {
 	unsigned char b;
 
-	
+	/* poll IR chip */
 	if (1 != i2c_master_recv(ir->c, &b, 1)) {
 		dprintk(1,"read error\n");
 		return -EIO;
 	}
 
+	/* it seems that 0xFE indicates that a button is still hold
+	   down, while 0xff indicates that no button is hold
+	   down. 0xfe sequences are sometimes interrupted by 0xFF */
 
 	dprintk(2,"key %02x\n", b);
 
@@ -168,7 +194,7 @@ static int get_key_knc1(struct IR_i2c *ir, u32 *ir_key, u32 *ir_raw)
 		return 0;
 
 	if (b == 0xfe)
-		
+		/* keep old data */
 		return 1;
 
 	*ir_key = b;
@@ -205,7 +231,7 @@ static int get_key_avermedia_cardbus(struct IR_i2c *ir,
 
 	dprintk(1, "read key 0x%02x/0x%02x\n", key, keygroup);
 	if (keygroup < 2 || keygroup > 3) {
-		
+		/* Only a warning */
 		dprintk(1, "warning: invalid key group 0x%02x for key 0x%02x\n",
 								keygroup, key);
 	}
@@ -216,6 +242,7 @@ static int get_key_avermedia_cardbus(struct IR_i2c *ir,
 	return 1;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int ir_key_poll(struct IR_i2c *ir)
 {
@@ -251,6 +278,7 @@ static void ir_work(struct work_struct *work)
 	schedule_delayed_work(&ir->work, msecs_to_jiffies(ir->polling_interval));
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
@@ -312,7 +340,7 @@ static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		break;
 	}
 
-	
+	/* Let the caller override settings */
 	if (client->dev.platform_data) {
 		const struct IR_i2c_init_data *init_data =
 						client->dev.platform_data;
@@ -329,7 +357,7 @@ static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 		switch (init_data->internal_get_key_func) {
 		case IR_KBD_GET_KEY_CUSTOM:
-			
+			/* The bridge driver provided us its own function */
 			ir->get_key = init_data->get_key;
 			break;
 		case IR_KBD_GET_KEY_PIXELVIEW:
@@ -354,6 +382,10 @@ static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 
 	if (!rc) {
+		/*
+		 * If platform_data doesn't specify rc_dev, initilize it
+		 * internally
+		 */
 		rc = rc_allocate_device();
 		if (!rc) {
 			err = -ENOMEM;
@@ -362,7 +394,7 @@ static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 	ir->rc = rc;
 
-	
+	/* Make sure we are all setup before going on */
 	if (!name || !ir->get_key || !rc_type || !ir_codes) {
 		dprintk(1, ": Unsupported device at address 0x%02x\n",
 			addr);
@@ -370,7 +402,7 @@ static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		goto err_out_free;
 	}
 
-	
+	/* Sets name */
 	snprintf(ir->name, sizeof(ir->name), "i2c IR (%s)", name);
 	ir->ir_codes = ir_codes;
 
@@ -378,10 +410,17 @@ static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		 dev_name(&adap->dev),
 		 dev_name(&client->dev));
 
+	/*
+	 * Initialize input_dev fields
+	 * It doesn't make sense to allow overriding them via platform_data
+	 */
 	rc->input_id.bustype = BUS_I2C;
 	rc->input_phys       = ir->phys;
 	rc->input_name	     = ir->name;
 
+	/*
+	 * Initialize the other fields of rc_dev
+	 */
 	rc->map_name       = ir->ir_codes;
 	rc->allowed_protos = rc_type;
 	if (!rc->driver_name)
@@ -394,14 +433,14 @@ static int ir_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	printk(MODULE_NAME ": %s detected at %s [%s]\n",
 	       ir->name, ir->phys, adap->name);
 
-	
+	/* start polling via eventd */
 	INIT_DELAYED_WORK(&ir->work, ir_work);
 	schedule_delayed_work(&ir->work, 0);
 
 	return 0;
 
  err_out_free:
-	
+	/* Only frees rc if it were allocated internally */
 	rc_free_device(rc);
 	kfree(ir);
 	return err;
@@ -411,22 +450,22 @@ static int ir_remove(struct i2c_client *client)
 {
 	struct IR_i2c *ir = i2c_get_clientdata(client);
 
-	
+	/* kill outstanding polls */
 	cancel_delayed_work_sync(&ir->work);
 
-	
+	/* unregister device */
 	if (ir->rc)
 		rc_unregister_device(ir->rc);
 
-	
+	/* free memory */
 	kfree(ir);
 	return 0;
 }
 
 static const struct i2c_device_id ir_kbd_id[] = {
-	
+	/* Generic entry for any IR receiver */
 	{ "ir_video", 0 },
-	
+	/* IR device specific entries should be added here */
 	{ "ir_rx_z8f0811_haup", 0 },
 	{ "ir_rx_z8f0811_hdpvr", 0 },
 	{ }
@@ -443,6 +482,7 @@ static struct i2c_driver ir_kbd_driver = {
 
 module_i2c_driver(ir_kbd_driver);
 
+/* ----------------------------------------------------------------------- */
 
 MODULE_AUTHOR("Gerd Knorr, Michal Kochanowicz, Christoph Bartelmus, Ulrich Mueller");
 MODULE_DESCRIPTION("input driver for i2c IR remote controls");

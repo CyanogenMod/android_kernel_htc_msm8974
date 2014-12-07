@@ -1,3 +1,17 @@
+/*
+ * QNX4 file system, Linux implementation.
+ *
+ * Version : 0.2.1
+ *
+ * Using parts of the xiafs filesystem.
+ *
+ * History :
+ *
+ * 28-05-1998 by Richard Frowijn : first release.
+ * 20-06-1998 by Frank Denis : basic optimisations.
+ * 25-06-1998 by Frank Denis : qnx4_is_free, qnx4_set_bitmap, qnx4_bmap .
+ * 28-06-1998 by Frank Denis : qnx4_free_inode (to be fixed) .
+ */
 
 #include <linux/buffer_head.h>
 #include <linux/bitops.h>

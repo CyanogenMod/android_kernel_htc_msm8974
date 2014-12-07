@@ -15,6 +15,13 @@
 	.value		= (mux_value),					\
 }
 
+/*
+ * OMAP2420 CONTROL_PADCONF* register offsets for pin-muxing
+ *
+ * Extracted from the TRM.  Add 0x48000030 to these values to get the
+ * absolute addresses.  The name in the macro is the mode-0 name of
+ * the pin.  NOTE: These registers are 8-bits wide.
+ */
 #define OMAP2420_CONTROL_PADCONF_SDRC_A14_OFFSET			0x000
 #define OMAP2420_CONTROL_PADCONF_SDRC_A13_OFFSET			0x001
 #define OMAP2420_CONTROL_PADCONF_SDRC_A12_OFFSET			0x002

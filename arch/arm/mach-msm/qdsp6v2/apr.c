@@ -41,6 +41,7 @@ static struct apr_client client[APR_DEST_MAX][APR_CLIENT_MAX];
 
 static wait_queue_head_t dsp_wait;
 static wait_queue_head_t modem_wait;
+/* Subsystem restart: QDSP6 data, functions */
 static struct workqueue_struct *apr_reset_workqueue;
 static void apr_reset_deregister(struct work_struct *work);
 struct apr_reset_work {
@@ -225,7 +226,7 @@ int apr_wait_for_device_up(int dest_id)
 				    (1 * HZ));
 	else
 		pr_err("%s: unknown dest_id %d\n", __func__, dest_id);
-	
+	/* returns left time */
 	return rc;
 }
 
@@ -435,7 +436,7 @@ void apr_cb_func(void *buf, int len, void *priv)
 	if (data.payload_size > 0)
 		data.payload = (char *)hdr + hdr_size;
 
-	temp_port = ((data.src_port >> 8) * 8) + (data.src_port & 0xFF);
+	temp_port = ((data.dest_port >> 8) * 8) + (data.dest_port & 0xFF);
 	pr_debug("port = %d t_port = %d\n", data.src_port, temp_port);
 	if (c_svc->port_cnt && c_svc->port_fn[temp_port])
 		c_svc->port_fn[temp_port](&data,  c_svc->port_priv[temp_port]);
@@ -574,6 +575,7 @@ static int adsp_state(int state)
 	return 0;
 }
 
+/* Dispatch the Reset events to Modem and audio clients */
 void dispatch_event(unsigned long code, unsigned short proc)
 {
 	struct apr_client *apr_client;

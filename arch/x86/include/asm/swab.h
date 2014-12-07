@@ -10,14 +10,14 @@ static inline __attribute_const__ __u32 __arch_swab32(__u32 val)
 # ifdef CONFIG_X86_BSWAP
 	asm("bswap %0" : "=r" (val) : "0" (val));
 # else
-	asm("xchgb %b0,%h0\n\t"	
-	    "rorl $16,%0\n\t"	
-	    "xchgb %b0,%h0"	
+	asm("xchgb %b0,%h0\n\t"	/* swap lower bytes	*/
+	    "rorl $16,%0\n\t"	/* swap words		*/
+	    "xchgb %b0,%h0"	/* swap higher bytes	*/
 	    : "=q" (val)
 	    : "0" (val));
 # endif
 
-#else 
+#else /* __i386__ */
 	asm("bswapl %0"
 	    : "=r" (val)
 	    : "0" (val));
@@ -49,7 +49,7 @@ static inline __attribute_const__ __u64 __arch_swab64(__u64 val)
 	    : "0" (v.s.a), "1" (v.s.b));
 # endif
 	return v.u;
-#else 
+#else /* __i386__ */
 	asm("bswapq %0"
 	    : "=r" (val)
 	    : "0" (val));
@@ -58,4 +58,4 @@ static inline __attribute_const__ __u64 __arch_swab64(__u64 val)
 }
 #define __arch_swab64 __arch_swab64
 
-#endif 
+#endif /* _ASM_X86_SWAB_H */

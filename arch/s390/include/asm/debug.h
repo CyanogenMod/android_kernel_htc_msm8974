@@ -11,6 +11,10 @@
 
 #include <linux/fs.h>
 
+/* Note:
+ * struct __debug_entry must be defined outside of #ifdef __KERNEL__ 
+ * in order to allow a user program to analyze the 'raw'-view.
+ */
 
 struct __debug_entry{
         union {
@@ -27,7 +31,7 @@ struct __debug_entry{
 } __attribute__((packed));
 
 
-#define __DEBUG_FEATURE_VERSION      2  
+#define __DEBUG_FEATURE_VERSION      2  /* version of debug feature */
 
 #ifdef __KERNEL__
 #include <linux/string.h>
@@ -35,17 +39,17 @@ struct __debug_entry{
 #include <linux/kernel.h>
 #include <linux/time.h>
 
-#define DEBUG_MAX_LEVEL            6  
-#define DEBUG_OFF_LEVEL            -1 
-#define DEBUG_FLUSH_ALL            -1 
-#define DEBUG_MAX_VIEWS            10 
-#define DEBUG_MAX_NAME_LEN         64 
-#define DEBUG_DEFAULT_LEVEL        3  
+#define DEBUG_MAX_LEVEL            6  /* debug levels range from 0 to 6 */
+#define DEBUG_OFF_LEVEL            -1 /* level where debug is switched off */
+#define DEBUG_FLUSH_ALL            -1 /* parameter to flush all areas */
+#define DEBUG_MAX_VIEWS            10 /* max number of views in proc fs */
+#define DEBUG_MAX_NAME_LEN         64 /* max length for a debugfs file name */
+#define DEBUG_DEFAULT_LEVEL        3  /* initial debug level */
 
-#define DEBUG_DIR_ROOT "s390dbf" 
+#define DEBUG_DIR_ROOT "s390dbf" /* name of debug root directory in proc fs */
 
-#define DEBUG_DATA(entry) (char*)(entry + 1) 
-                                             
+#define DEBUG_DATA(entry) (char*)(entry + 1) /* data is stored behind */
+                                             /* the entry information */
 
 typedef struct __debug_entry debug_entry_t;
 
@@ -106,6 +110,7 @@ extern struct debug_view debug_hex_ascii_view;
 extern struct debug_view debug_raw_view;
 extern struct debug_view debug_sprintf_view;
 
+/* do NOT use the _common functions */
 
 debug_entry_t* debug_event_common(debug_info_t* id, int level, 
                                   const void* data, int length);
@@ -113,6 +118,7 @@ debug_entry_t* debug_event_common(debug_info_t* id, int level,
 debug_entry_t* debug_exception_common(debug_info_t* id, int level, 
                                       const void* data, int length);
 
+/* Debug Feature API: */
 
 debug_info_t *debug_register(const char *name, int pages, int nr_areas,
                              int buf_size);
@@ -162,6 +168,10 @@ debug_text_event(debug_info_t* id, int level, const char* txt)
         return debug_event_common(id,level,txt,strlen(txt));
 }
 
+/*
+ * IMPORTANT: Use "%s" in sprintf format strings with care! Only pointers are
+ * stored in the s390dbf. See Documentation/s390/s390dbf.txt for more details!
+ */
 extern debug_entry_t *
 debug_sprintf_event(debug_info_t* id,int level,char *string,...)
 	__attribute__ ((format(printf, 3, 4)));
@@ -201,6 +211,10 @@ debug_text_exception(debug_info_t* id, int level, const char* txt)
         return debug_exception_common(id,level,txt,strlen(txt));
 }
 
+/*
+ * IMPORTANT: Use "%s" in sprintf format strings with care! Only pointers are
+ * stored in the s390dbf. See Documentation/s390/s390dbf.txt for more details!
+ */
 extern debug_entry_t *
 debug_sprintf_exception(debug_info_t* id,int level,char *string,...)
 	__attribute__ ((format(printf, 3, 4)));
@@ -208,6 +222,16 @@ debug_sprintf_exception(debug_info_t* id,int level,char *string,...)
 int debug_register_view(debug_info_t* id, struct debug_view* view);
 int debug_unregister_view(debug_info_t* id, struct debug_view* view);
 
+/*
+   define the debug levels:
+   - 0 No debugging output to console or syslog
+   - 1 Log internal errors to syslog, ignore check conditions 
+   - 2 Log internal errors and check conditions to syslog
+   - 3 Log internal errors to console, log check conditions to syslog
+   - 4 Log internal errors and check conditions to console
+   - 5 panic on internal errors, log check conditions to console
+   - 6 panic on both, internal errors and check conditions
+ */
 
 #ifndef DEBUG_LEVEL
 #define DEBUG_LEVEL 4
@@ -230,7 +254,7 @@ int debug_unregister_view(debug_info_t* id, struct debug_view* view);
 #define PRINT_WARN(x...) printk ( KERN_DEBUG PRINTK_HEADER x )
 #define PRINT_ERR(x...) printk ( KERN_DEBUG PRINTK_HEADER x )
 #define PRINT_FATAL(x...) printk ( KERN_DEBUG PRINTK_HEADER x )
-#endif				
+#endif				/* DASD_DEBUG */
 
-#endif				
-#endif				
+#endif				/* __KERNEL__ */
+#endif				/* DEBUG_H */

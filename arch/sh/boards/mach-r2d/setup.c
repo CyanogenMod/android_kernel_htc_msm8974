@@ -37,7 +37,7 @@ static struct resource cf_ide_resources[] = {
 		.end	= PA_AREA5_IO + 0x80c,
 		.flags	= IORESOURCE_MEM,
 	},
-#ifndef CONFIG_RTS7751R2D_1 
+#ifndef CONFIG_RTS7751R2D_1 /* For R2D-1 polling is preferred */
 	[2] = {
 		.start	= IRQ_CF_IDE,
 		.flags	= IORESOURCE_IRQ,
@@ -69,7 +69,7 @@ static struct spi_board_info spi_bus[] = {
 
 static void r2d_chip_select(struct sh_spi_info *spi, int cs, int state)
 {
-	BUG_ON(cs != 0);  
+	BUG_ON(cs != 0);  /* Single Epson RTC-9701JE attached on CS0 */
 	__raw_writew(state == BITBANG_CS_ACTIVE, PA_RTCCE);
 }
 
@@ -234,6 +234,11 @@ static struct platform_device *rts7751r2d_devices[] __initdata = {
 	&spi_sh_sci_device,
 };
 
+/*
+ * The CF is connected with a 16-bit bus where 8-bit operations are
+ * unsupported. The linux ata driver is however using 8-bit operations, so
+ * insert a trapped io filter to convert 8-bit operations into 16-bit.
+ */
 static struct trapped_io cf_trapped_io = {
 	.resource		= cf_ide_resources,
 	.num_resources		= 2,
@@ -260,6 +265,9 @@ static void rts7751r2d_power_off(void)
 	__raw_writew(0x0001, PA_POWOFF);
 }
 
+/*
+ * Initialize the board
+ */
 static void __init rts7751r2d_setup(char **cmdline_p)
 {
 	void __iomem *sm501_reg;
@@ -273,11 +281,25 @@ static void __init rts7751r2d_setup(char **cmdline_p)
 	__raw_writew(0x0000, PA_OUTPORT);
 	pm_power_off = rts7751r2d_power_off;
 
+	/* sm501 dram configuration:
+	 * ColSizeX = 11 - External Memory Column Size: 256 words.
+	 * APX = 1 - External Memory Active to Pre-Charge Delay: 7 clocks.
+	 * RstX = 1 - External Memory Reset: Normal.
+	 * Rfsh = 1 - Local Memory Refresh to Command Delay: 12 clocks.
+	 * BwC =  1 - Local Memory Block Write Cycle Time: 2 clocks.
+	 * BwP =  1 - Local Memory Block Write to Pre-Charge Delay: 1 clock.
+	 * AP = 1 - Internal Memory Active to Pre-Charge Delay: 7 clocks.
+	 * Rst = 1 - Internal Memory Reset: Normal.
+	 * RA = 1 - Internal Memory Remain in Active State: Do not remain.
+	 */
 
 	sm501_reg = (void __iomem *)0xb3e00000 + SM501_DRAM_CONTROL;
 	writel(readl(sm501_reg) | 0x00f107c0, sm501_reg);
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_rts7751r2d __initmv = {
 	.mv_name		= "RTS7751R2D",
 	.mv_setup		= rts7751r2d_setup,

@@ -3,10 +3,18 @@
 
 #include <linux/types.h>
 
+/*
+ * OSF/1 ECOFF header structs.  ECOFF files consist of:
+ * 	- a file header (struct filehdr),
+ *	- an a.out header (struct aouthdr),
+ *	- one or more section headers (struct scnhdr). 
+ *	  The filhdr's "f_nscns" field contains the
+ *	  number of section headers.
+ */
 
 struct filehdr
 {
-	
+	/* OSF/1 "file" header */
 	__u16 f_magic, f_nscns;
 	__u32 f_timdat;
 	__u64 f_symptr;
@@ -16,15 +24,15 @@ struct filehdr
 
 struct aouthdr
 {
-	__u64 info;		
+	__u64 info;		/* after that it looks quite normal.. */
 	__u64 tsize;
 	__u64 dsize;
 	__u64 bsize;
 	__u64 entry;
-	__u64 text_start;	
+	__u64 text_start;	/* with a few additions that actually make sense */
 	__u64 data_start;
 	__u64 bss_start;
-	__u32 gprmask, fprmask;	
+	__u32 gprmask, fprmask;	/* bitmask of general & floating point regs used in binary */
 	__u64 gpvalue;
 };
 
@@ -44,11 +52,15 @@ struct scnhdr
 
 struct exec
 {
-	
+	/* OSF/1 "file" header */
 	struct filehdr		fh;
 	struct aouthdr		ah;
 };
 
+/*
+ * Define's so that the kernel exec code can access the a.out header
+ * fields...
+ */
 #define	a_info		ah.info
 #define	a_text		ah.tsize
 #define a_data		ah.dsize
@@ -78,9 +90,13 @@ struct exec
 
 #ifdef __KERNEL__
 
+/* Assume that start addresses below 4G belong to a TASO application.
+   Unfortunately, there is no proper bit in the exec header to check.
+   Worse, we have to notice the start address before swapping to use
+   /sbin/loader, which of course is _not_ a TASO application.  */
 #define SET_AOUT_PERSONALITY(BFPM, EX) \
 	set_personality (((BFPM->taso || EX.ah.entry < 0x100000000L \
 			   ? ADDR_LIMIT_32BIT : 0) | PER_OSF4))
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __A_OUT_GNU_H__ */

@@ -17,6 +17,15 @@
  *    Phone: 1-703-847-0040 ext 103
  */
 
+/*
+ * Sources:
+ *   skeleton.c by Donald Becker.
+ * Inspirations:
+ *   The Harried and Overworked Alan Cox
+ * Conspiracies:
+ *   The Alan Cox and Mike McLagan plot to get someone else to do the code,
+ *   which turned out to be me.
+ */
 
 /*
  * $Log: eql.c,v $
@@ -180,12 +189,16 @@ static void __init eql_setup(struct net_device *dev)
 
 	dev->netdev_ops		= &eql_netdev_ops;
 
+	/*
+	 *	Now we undo some of the things that eth_setup does
+	 * 	that we don't like
+	 */
 
-	dev->mtu        	= EQL_DEFAULT_MTU;	
+	dev->mtu        	= EQL_DEFAULT_MTU;	/* set to 576 in if_eql.h */
 	dev->flags      	= IFF_MASTER;
 
 	dev->type       	= ARPHRD_SLIP;
-	dev->tx_queue_len 	= 5;		
+	dev->tx_queue_len 	= 5;		/* Hands them off fast */
 	dev->priv_flags	       &= ~IFF_XMIT_DST_RELEASE;
 }
 
@@ -193,14 +206,14 @@ static int eql_open(struct net_device *dev)
 {
 	equalizer_t *eql = netdev_priv(dev);
 
-	
+	/* XXX We should force this off automatically for the user. */
 	netdev_info(dev,
 		    "remember to turn off Van-Jacobson compression on your slave devices\n");
 
 	BUG_ON(!list_empty(&eql->queue.all_slaves));
 
 	eql->min_slaves = 1;
-	eql->max_slaves = EQL_DEFAULT_MAX_SLAVES; 
+	eql->max_slaves = EQL_DEFAULT_MAX_SLAVES; /* 4 usually... */
 
 	add_timer(&eql->timer);
 
@@ -236,6 +249,10 @@ static int eql_close(struct net_device *dev)
 {
 	equalizer_t *eql = netdev_priv(dev);
 
+	/*
+	 *	The timer has to be stopped first before we start hacking away
+	 *	at the data structure it scans every so often...
+	 */
 
 	del_timer_sync(&eql->timer);
 
@@ -277,6 +294,7 @@ static int eql_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	}
 }
 
+/* queue->lock must be held */
 static slave_t *__eql_schedule_slaves(slave_queue_t *queue)
 {
 	unsigned long best_load = ~0UL;
@@ -285,12 +303,15 @@ static slave_t *__eql_schedule_slaves(slave_queue_t *queue)
 
 	best_slave = NULL;
 
-	
+	/* Make a pass to set the best slave. */
 	head = &queue->all_slaves;
 	list_for_each_safe(this, tmp, head) {
 		slave_t *slave = list_entry(this, slave_t, list);
 		unsigned long slave_load, bytes_queued, priority_Bps;
 
+		/* Go through the slave list once, updating best_slave
+		 * whenever a new best_load is found.
+		 */
 		bytes_queued = slave->bytes_queued;
 		priority_Bps = slave->priority_Bps;
 		if ((slave->dev->flags & IFF_UP) == IFF_UP) {
@@ -302,7 +323,7 @@ static slave_t *__eql_schedule_slaves(slave_queue_t *queue)
 				best_slave = slave;
 			}
 		} else {
-			
+			/* We found a dead slave, kill it. */
 			eql_kill_one_slave(queue, slave);
 		}
 	}
@@ -335,7 +356,11 @@ static netdev_tx_t eql_slave_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 }
 
+/*
+ *	Private ioctl functions
+ */
 
+/* queue->lock must be held */
 static slave_t *__eql_find_slave_dev(slave_queue_t *queue, struct net_device *dev)
 {
 	struct list_head *this, *head;
@@ -360,6 +385,7 @@ static inline int eql_is_full(slave_queue_t *queue)
 	return 0;
 }
 
+/* queue->lock must be held */
 static int __eql_insert_slave(slave_queue_t *queue, slave_t *slave)
 {
 	if (!eql_is_full(queue)) {
@@ -390,7 +416,7 @@ static int eql_enslave(struct net_device *master_dev, slaving_request_t __user *
 	slave_dev  = dev_get_by_name(&init_net, srq.slave_name);
 	if (slave_dev) {
 		if ((master_dev->flags & IFF_UP) == IFF_UP) {
-			
+			/* slave is not a master & not already a slave: */
 			if (!eql_is_master(slave_dev) &&
 			    !eql_is_slave(slave_dev)) {
 				slave_t *s = kmalloc(sizeof(*s), GFP_KERNEL);

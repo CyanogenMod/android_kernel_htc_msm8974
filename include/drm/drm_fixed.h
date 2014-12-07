@@ -29,7 +29,7 @@ typedef union dfixed {
 } fixed20_12;
 
 
-#define dfixed_const(A) (u32)(((A) << 12))
+#define dfixed_const(A) (u32)(((A) << 12))/*  + ((B + 0.000122)*4096)) */
 #define dfixed_const_half(A) (u32)(((A) << 12) + 2048)
 #define dfixed_const_666(A) (u32)(((A) << 12) + 2731)
 #define dfixed_const_8(A) (u32)(((A) << 12) + 3277)

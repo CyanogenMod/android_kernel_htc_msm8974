@@ -13,13 +13,13 @@ struct mbxfb_val {
 struct fb_info;
 
 struct mbxfb_platform_data {
-		
+		/* Screen info */
 		struct mbxfb_val xres;
 		struct mbxfb_val yres;
 		struct mbxfb_val bpp;
 
-		
-		unsigned long memsize; 
+		/* Memory info */
+		unsigned long memsize; /* if 0 use ODFB? */
 		unsigned long timings1;
 		unsigned long timings2;
 		unsigned long timings3;
@@ -28,9 +28,11 @@ struct mbxfb_platform_data {
 		int (*remove)(struct fb_info *fb);
 };
 
+/* planar */
 #define MBXFB_FMT_YUV16		0
 #define MBXFB_FMT_YUV12		1
 
+/* packed */
 #define MBXFB_FMT_UY0VY1	2
 #define MBXFB_FMT_VY0UY1	3
 #define MBXFB_FMT_Y0UY1V	4
@@ -44,7 +46,7 @@ struct mbxfb_overlaySetup {
 	__u32 scaled_width;
 	__u32 scaled_height;
 
-	
+	/* Filled by the driver */
 	__u32 U_offset;
 	__u32 V_offset;
 
@@ -81,9 +83,9 @@ struct mbxfb_planeorder {
 };
 
 struct mbxfb_reg {
-	__u32 addr; 	
-	__u32 val;		
-	__u32 mask;		
+	__u32 addr; 	/* offset from 0x03fe 0000 */
+	__u32 val;		/* value */
+	__u32 mask;		/* which bits to touch (for write) */
 };
 
 #define MBXFB_IOCX_OVERLAY		_IOWR(0xF4, 0x00,struct mbxfb_overlaySetup)
@@ -93,4 +95,4 @@ struct mbxfb_reg {
 #define MBXFB_IOCS_REG			_IOW(0xF4, 0x04,struct mbxfb_reg)
 #define MBXFB_IOCX_REG			_IOWR(0xF4, 0x05,struct mbxfb_reg)
 
-#endif 
+#endif /* __MBX_FB_H */

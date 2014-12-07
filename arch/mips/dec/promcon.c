@@ -18,6 +18,9 @@ static void prom_console_write(struct console *co, const char *s,
 {
 	unsigned i;
 
+	/*
+	 *    Now, do each character
+	 */
 	for (i = 0; i < count; i++) {
 		if (*s == 10)
 			prom_printf("%c", 13);
@@ -38,6 +41,9 @@ static struct console sercons = {
 	.index	= -1,
 };
 
+/*
+ *    Register console.
+ */
 
 static int __init prom_console_init(void)
 {

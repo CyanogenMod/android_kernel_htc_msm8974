@@ -13,6 +13,7 @@
 
 #ifndef __ASSEMBLY__
 
+/* SSYNC implementation for C file */
 static inline void SSYNC(void)
 {
 	int _tmp;
@@ -30,6 +31,7 @@ static inline void SSYNC(void)
 		__asm__ __volatile__("ssync;");
 }
 
+/* CSYNC implementation for C file */
 static inline void CSYNC(void)
 {
 	int _tmp;
@@ -47,13 +49,14 @@ static inline void CSYNC(void)
 		__asm__ __volatile__("csync;");
 }
 
-#else  
+#else  /* __ASSEMBLY__ */
 
 #define LO(con32) ((con32) & 0xFFFF)
 #define lo(con32) ((con32) & 0xFFFF)
 #define HI(con32) (((con32) >> 16) & 0xFFFF)
 #define hi(con32) (((con32) >> 16) & 0xFFFF)
 
+/* SSYNC & CSYNC implementations for assembly files */
 
 #define ssync(x) SSYNC(x)
 #define csync(x) CSYNC(x)
@@ -78,12 +81,12 @@ do {			\
 #else
 #define SSYNC(scratch) SSYNC;
 #define CSYNC(scratch) CSYNC;
-#endif 
+#endif /* ANOMALY_05000312 & ANOMALY_05000244 handling */
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #include <asm/mem_map.h>
 #include <mach/blackfin.h>
 #include <asm/bfin-global.h>
 
-#endif				
+#endif				/* _BLACKFIN_H_ */

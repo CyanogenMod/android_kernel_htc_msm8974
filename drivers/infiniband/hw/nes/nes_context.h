@@ -80,6 +80,7 @@ struct nes_qp_context {
 	__le32   aeq_token_high;
 };
 
+/* QP Context Misc Field */
 
 #define NES_QPCONTEXT_MISC_IWARP_VER_MASK    0x00000003
 #define NES_QPCONTEXT_MISC_IWARP_VER_SHIFT   0
@@ -119,6 +120,7 @@ enum nes_qp_acc_wq_sizes {
 	HCONTEXT_TSA_WQ_SIZE_512 = 3
 };
 
+/* QP Context Misc2 Fields */
 #define NES_QPCONTEXT_MISC2_TTL_MASK            0x000000ff
 #define NES_QPCONTEXT_MISC2_TTL_SHIFT           0
 #define NES_QPCONTEXT_MISC2_HOP_LIMIT_MASK      0x000000ff
@@ -134,6 +136,7 @@ enum nes_qp_acc_wq_sizes {
 #define NES_QPCONTEXT_MISC2_TRAFFIC_CLASS_MASK  0xff000000
 #define NES_QPCONTEXT_MISC2_TRAFFIC_CLASS_SHIFT 24
 
+/* QP Context Tcp State/Flow Label Fields */
 #define NES_QPCONTEXT_TCPFLOW_FLOW_LABEL_MASK   0x000fffff
 #define NES_QPCONTEXT_TCPFLOW_FLOW_LABEL_SHIFT  0
 #define NES_QPCONTEXT_TCPFLOW_TCP_STATE_MASK    0xf0000000
@@ -145,6 +148,7 @@ enum nes_qp_tcp_state {
 	NES_QPCONTEXT_TCPSTATE_TIME_WAIT = 11,
 };
 
+/* QP Context PD Index/wscale Fields */
 #define NES_QPCONTEXT_PDWSCALE_RCV_WSCALE_MASK  0x0000000f
 #define NES_QPCONTEXT_PDWSCALE_RCV_WSCALE_SHIFT 0
 #define NES_QPCONTEXT_PDWSCALE_SND_WSCALE_MASK  0x00000f00
@@ -152,6 +156,7 @@ enum nes_qp_tcp_state {
 #define NES_QPCONTEXT_PDWSCALE_PDINDEX_MASK     0xffff0000
 #define NES_QPCONTEXT_PDWSCALE_PDINDEX_SHIFT    16
 
+/* QP Context Keepalive Fields */
 #define NES_QPCONTEXT_KEEPALIVE_DELTA_MASK      0x0000ffff
 #define NES_QPCONTEXT_KEEPALIVE_DELTA_SHIFT     0
 #define NES_QPCONTEXT_KEEPALIVE_PROBE_CNT_MASK  0x00ff0000
@@ -159,6 +164,7 @@ enum nes_qp_tcp_state {
 #define NES_QPCONTEXT_KEEPALIVE_INTV_MASK       0xff000000
 #define NES_QPCONTEXT_KEEPALIVE_INTV_SHIFT      24
 
+/* QP Context ORD/IRD Fields */
 #define NES_QPCONTEXT_ORDIRD_ORDSIZE_MASK       0x0000007f
 #define NES_QPCONTEXT_ORDIRD_ORDSIZE_SHIFT      0
 #define NES_QPCONTEXT_ORDIRD_IRDSIZE_MASK       0x00030000
@@ -184,4 +190,4 @@ enum nes_iwarp_qp_state {
 };
 
 
-#endif		
+#endif		/* NES_CONTEXT_H */

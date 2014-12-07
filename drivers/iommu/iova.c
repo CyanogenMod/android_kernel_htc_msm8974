@@ -67,7 +67,7 @@ __cached_rbnode_delete_update(struct iova_domain *iovad, struct iova *free)
 		struct rb_node *node = rb_next(&free->node);
 		struct iova *iova = container_of(node, struct iova, node);
 
-		
+		/* only cache if it's below 32bit pfn */
 		if (node && iova->pfn_lo < iovad->dma_32bit_pfn)
 			iovad->cached32_node = node;
 		else
@@ -75,6 +75,9 @@ __cached_rbnode_delete_update(struct iova_domain *iovad, struct iova *free)
 	}
 }
 
+/* Computes the padding size required, to make the
+ * the start address naturally aligned on its size
+ */
 static int
 iova_get_pad_size(int size, unsigned int limit_pfn)
 {
@@ -96,7 +99,7 @@ static int __alloc_and_insert_iova_range(struct iova_domain *iovad,
 	unsigned long saved_pfn;
 	unsigned int pad_size = 0;
 
-	
+	/* Walk the tree backwards */
 	spin_lock_irqsave(&iovad->iova_rbtree_lock, flags);
 	saved_pfn = limit_pfn;
 	curr = __get_cached_rbnode(iovad, &limit_pfn);
@@ -112,7 +115,7 @@ static int __alloc_and_insert_iova_range(struct iova_domain *iovad,
 			if (size_aligned)
 				pad_size = iova_get_pad_size(size, limit_pfn);
 			if ((curr_iova->pfn_hi + size + pad_size) <= limit_pfn)
-				break;	
+				break;	/* found a free slot */
 		}
 adjust_limit_pfn:
 		limit_pfn = curr_iova->pfn_lo - 1;
@@ -130,21 +133,23 @@ move_left:
 		}
 	}
 
-	
+	/* pfn_lo will point to size aligned address if size_aligned is set */
 	new->pfn_lo = limit_pfn - (size + pad_size) + 1;
 	new->pfn_hi = new->pfn_lo + size - 1;
 
-	
-	
+	/* Insert the new_iova into domain rbtree by holding writer lock */
+	/* Add new node and rebalance tree. */
 	{
 		struct rb_node **entry, *parent = NULL;
 
+		/* If we have 'prev', it's a valid place to start the
+		   insertion. Otherwise, start from the root. */
 		if (prev)
 			entry = &prev;
 		else
 			entry = &iovad->rbroot.rb_node;
 
-		
+		/* Figure out where to put new node */
 		while (*entry) {
 			struct iova *this = container_of(*entry,
 							struct iova, node);
@@ -155,10 +160,10 @@ move_left:
 			else if (new->pfn_lo > this->pfn_lo)
 				entry = &((*entry)->rb_right);
 			else
-				BUG(); 
+				BUG(); /* this should not happen */
 		}
 
-		
+		/* Add new node and rebalance tree. */
 		rb_link_node(&new->node, parent, entry);
 		rb_insert_color(&new->node, &iovad->rbroot);
 	}
@@ -174,7 +179,7 @@ static void
 iova_insert_rbtree(struct rb_root *root, struct iova *iova)
 {
 	struct rb_node **new = &(root->rb_node), *parent = NULL;
-	
+	/* Figure out where to put new node */
 	while (*new) {
 		struct iova *this = container_of(*new, struct iova, node);
 		parent = *new;
@@ -184,13 +189,24 @@ iova_insert_rbtree(struct rb_root *root, struct iova *iova)
 		else if (iova->pfn_lo > this->pfn_lo)
 			new = &((*new)->rb_right);
 		else
-			BUG(); 
+			BUG(); /* this should not happen */
 	}
-	
+	/* Add new node and rebalance tree. */
 	rb_link_node(&iova->node, parent, new);
 	rb_insert_color(&iova->node, root);
 }
 
+/**
+ * alloc_iova - allocates an iova
+ * @iovad - iova domain in question
+ * @size - size of page frames to allocate
+ * @limit_pfn - max limit address
+ * @size_aligned - set if size_aligned address range is required
+ * This function allocates an iova in the range limit_pfn to IOVA_START_PFN
+ * looking from limit_pfn instead from IOVA_START_PFN. If the size_aligned
+ * flag is set then the allocated address iova->pfn_lo will be naturally
+ * aligned on roundup_power_of_two(size).
+ */
 struct iova *
 alloc_iova(struct iova_domain *iovad, unsigned long size,
 	unsigned long limit_pfn,
@@ -203,6 +219,9 @@ alloc_iova(struct iova_domain *iovad, unsigned long size,
 	if (!new_iova)
 		return NULL;
 
+	/* If size aligned is set then round the size to
+	 * to next power of two.
+	 */
 	if (size_aligned)
 		size = __roundup_pow_of_two(size);
 
@@ -217,20 +236,33 @@ alloc_iova(struct iova_domain *iovad, unsigned long size,
 	return new_iova;
 }
 
+/**
+ * find_iova - find's an iova for a given pfn
+ * @iovad - iova domain in question.
+ * pfn - page frame number
+ * This function finds and returns an iova belonging to the
+ * given doamin which matches the given pfn.
+ */
 struct iova *find_iova(struct iova_domain *iovad, unsigned long pfn)
 {
 	unsigned long flags;
 	struct rb_node *node;
 
-	
+	/* Take the lock so that no other thread is manipulating the rbtree */
 	spin_lock_irqsave(&iovad->iova_rbtree_lock, flags);
 	node = iovad->rbroot.rb_node;
 	while (node) {
 		struct iova *iova = container_of(node, struct iova, node);
 
-		
+		/* If pfn falls within iova's range, return iova */
 		if ((pfn >= iova->pfn_lo) && (pfn <= iova->pfn_hi)) {
 			spin_unlock_irqrestore(&iovad->iova_rbtree_lock, flags);
+			/* We are not holding the lock while this iova
+			 * is referenced by the caller as the same thread
+			 * which called this function also calls __free_iova()
+			 * and it is by desing that only one thread can possibly
+			 * reference a particular iova and hence no conflict.
+			 */
 			return iova;
 		}
 
@@ -244,6 +276,12 @@ struct iova *find_iova(struct iova_domain *iovad, unsigned long pfn)
 	return NULL;
 }
 
+/**
+ * __free_iova - frees the given iova
+ * @iovad: iova domain in question.
+ * @iova: iova in question.
+ * Frees the given iova belonging to the giving domain
+ */
 void
 __free_iova(struct iova_domain *iovad, struct iova *iova)
 {
@@ -256,6 +294,13 @@ __free_iova(struct iova_domain *iovad, struct iova *iova)
 	free_iova_mem(iova);
 }
 
+/**
+ * free_iova - finds and frees the iova for a given pfn
+ * @iovad: - iova domain in question.
+ * @pfn: - pfn that is allocated previously
+ * This functions finds an iova for a given pfn and then
+ * frees the iova from that domain.
+ */
 void
 free_iova(struct iova_domain *iovad, unsigned long pfn)
 {
@@ -265,6 +310,11 @@ free_iova(struct iova_domain *iovad, unsigned long pfn)
 
 }
 
+/**
+ * put_iova_domain - destroys the iova doamin
+ * @iovad: - iova domain in question.
+ * All the iova's in that domain are destroyed.
+ */
 void put_iova_domain(struct iova_domain *iovad)
 {
 	struct rb_node *node;
@@ -318,6 +368,14 @@ __adjust_overlap_range(struct iova *iova,
 		*pfn_lo = iova->pfn_hi + 1;
 }
 
+/**
+ * reserve_iova - reserves an iova in the given range
+ * @iovad: - iova domain pointer
+ * @pfn_lo: - lower page frame address
+ * @pfn_hi:- higher pfn adderss
+ * This function allocates reserves the address range from pfn_lo to pfn_hi so
+ * that this address is not dished out as part of alloc_iova.
+ */
 struct iova *
 reserve_iova(struct iova_domain *iovad,
 	unsigned long pfn_lo, unsigned long pfn_hi)
@@ -341,6 +399,9 @@ reserve_iova(struct iova_domain *iovad,
 				break;
 	}
 
+	/* We are here either because this is the first reserver node
+	 * or need to insert remaining non overlap addr range
+	 */
 	iova = __insert_new_range(iovad, pfn_lo, pfn_hi);
 finish:
 
@@ -348,6 +409,13 @@ finish:
 	return iova;
 }
 
+/**
+ * copy_reserved_iova - copies the reserved between domains
+ * @from: - source doamin from where to copy
+ * @to: - destination domin where to copy
+ * This function copies reserved iova's from one doamin to
+ * other.
+ */
 void
 copy_reserved_iova(struct iova_domain *from, struct iova_domain *to)
 {

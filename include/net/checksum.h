@@ -53,7 +53,7 @@ static __inline__ __wsum csum_and_copy_to_user
 	if (len)
 		*err_ptr = -EFAULT;
 
-	return (__force __wsum)-1; 
+	return (__force __wsum)-1; /* invalid checksum */
 }
 #endif
 

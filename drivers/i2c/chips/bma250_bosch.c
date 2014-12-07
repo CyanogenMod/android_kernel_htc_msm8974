@@ -1847,7 +1847,11 @@ static int bma250_sr_ldo_init(int init)
 
 	if (!init) {
 		regulator_set_voltage(bma250->sr_1v8, 0, 1800000);
-		regulator_set_voltage(bma250->sr_2v85, 0, 2850000);
+		
+		if(bma250->pdata->SR_3v_used)
+			regulator_set_voltage(bma250->sr_2v85, 0, 3000000);
+		else
+			regulator_set_voltage(bma250->sr_2v85, 0, 2850000);
 		return 0;
 	}
 
@@ -1860,7 +1864,11 @@ static int bma250_sr_ldo_init(int init)
 	}
 	I("%s: bma250->sr_2v85 = 0x%p\n", __func__, bma250->sr_2v85);
 
-	rc = regulator_set_voltage(bma250->sr_2v85, 2850000, 2850000);
+	
+	if(bma250->pdata->SR_3v_used)
+		rc = regulator_set_voltage(bma250->sr_2v85, 3000000, 3000000);
+	else
+		rc = regulator_set_voltage(bma250->sr_2v85, 2850000, 2850000);
 	if (rc) {
 		E("%s: unable to set voltage for sr 2v85\n", __func__);
 		return rc;
@@ -3272,6 +3280,14 @@ static int bma250_parse_dt(struct device *dev, struct bma250_platform_data *pdat
 	} else
 		I("%s: g_sensor_bma250,negate_z not found", __func__);
 
+	prop = of_find_property(dt, "g_sensor_bma250,SR_3v_used", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "g_sensor_bma250,SR_3v_used", &buf);
+		pdata->SR_3v_used = buf;
+		I("%s: SR_3v_used = %d", __func__, pdata->SR_3v_used);
+	} else
+		I("%s: g_sensor_bma250,SR_3v_used not found", __func__);
+
 	pdata->intr = of_get_named_gpio_flags(dt,
 					      "g_sensor_bma250,intr",
 					      0,
@@ -3349,6 +3365,8 @@ static int __devinit bma250_probe(struct i2c_client *client,
 			"failed to allocate memory for pdata: %d\n", err);
 		goto pdata_kmalloc_fail;
 	}
+
+	data->pdata->SR_3v_used = 0;
 
 	if (client->dev.of_node) {
 		I("Device Tree parsing.");

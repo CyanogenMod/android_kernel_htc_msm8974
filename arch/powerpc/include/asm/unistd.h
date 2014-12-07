@@ -147,7 +147,7 @@
 #define __NR_bdflush		134
 #define __NR_sysfs		135
 #define __NR_personality	136
-#define __NR_afs_syscall	137 
+#define __NR_afs_syscall	137 /* Syscall for Andrew File System */
 #define __NR_setfsuid		138
 #define __NR_setfsgid		139
 #define __NR__llseek		140
@@ -197,12 +197,12 @@
 #define __NR_capset		184
 #define __NR_sigaltstack	185
 #define __NR_sendfile		186
-#define __NR_getpmsg		187	
-#define __NR_putpmsg		188	
+#define __NR_getpmsg		187	/* some people actually want streams */
+#define __NR_putpmsg		188	/* some people actually want streams */
 #define __NR_vfork		189
-#define __NR_ugetrlimit		190	
+#define __NR_ugetrlimit		190	/* SuS compliant getrlimit */
 #define __NR_readahead		191
-#ifndef __powerpc64__			
+#ifndef __powerpc64__			/* these are 32-bit only */
 #define __NR_mmap2		192
 #define __NR_truncate64		193
 #define __NR_ftruncate64	194
@@ -238,6 +238,7 @@
 #define __NR_futex		221
 #define __NR_sched_setaffinity	222
 #define __NR_sched_getaffinity	223
+/* 224 currently unused */
 #define __NR_tuxcall		225
 #ifndef __powerpc64__
 #define __NR_sendfile64		226
@@ -274,6 +275,7 @@
 #endif
 #define __NR_rtas		255
 #define __NR_sys_debug_setcontext 256
+/* Number 257 is reserved for vserver */
 #define __NR_migrate_pages	258
 #define __NR_mbind		259
 #define __NR_get_mempolicy	260
@@ -420,10 +422,13 @@
 #define __ARCH_WANT_SYS_NEWFSTATAT
 #endif
 
+/*
+ * "Conditional" syscalls
+ */
 #define cond_syscall(x) \
 	asmlinkage long x (void) __attribute__((weak,alias("sys_ni_syscall")))
 
-#endif		
-#endif		
+#endif		/* __ASSEMBLY__ */
+#endif		/* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_POWERPC_UNISTD_H_ */

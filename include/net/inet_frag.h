@@ -6,7 +6,7 @@ struct netns_frags {
 	atomic_t		mem;
 	struct list_head	lru_list;
 
-	
+	/* sysctls */
 	int			timeout;
 	int			high_thresh;
 	int			low_thresh;
@@ -15,16 +15,16 @@ struct netns_frags {
 struct inet_frag_queue {
 	struct hlist_node	list;
 	struct netns_frags	*net;
-	struct list_head	lru_list;   
+	struct list_head	lru_list;   /* lru list member */
 	spinlock_t		lock;
 	atomic_t		refcnt;
-	struct timer_list	timer;      
-	struct sk_buff		*fragments; 
+	struct timer_list	timer;      /* when will this queue expire? */
+	struct sk_buff		*fragments; /* list of received fragments */
 	struct sk_buff		*fragments_tail;
 	ktime_t			stamp;
-	int			len;        
+	int			len;        /* total length of orig datagram */
 	int			meat;
-	__u8			last_in;    
+	__u8			last_in;    /* first/last segment arrived? */
 
 #define INET_FRAG_COMPLETE	4
 #define INET_FRAG_FIRST_IN	2

@@ -104,6 +104,7 @@ static struct platform_driver openrd_driver = {
 
 module_platform_driver(openrd_driver);
 
+/* Module information */
 MODULE_AUTHOR("Arnaud Patard <arnaud.patard@rtp-net.org>");
 MODULE_DESCRIPTION("ALSA SoC OpenRD Client");
 MODULE_LICENSE("GPL");

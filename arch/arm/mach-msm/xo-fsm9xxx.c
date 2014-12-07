@@ -29,12 +29,18 @@
 #define FSM_XO_DEVICE_READY	0x01
 #define FSM_XO_DEVICE_OFF	0x00
 
+/* enum for TCXO clock output buffer definition */
 enum clk_buffer_type {
 	XO_BUFFER_A0 = 0,
 	XO_BUFFER_A1 = 1,
 	XO_BUFFER_LAST
 };
 
+/*
+ * This user request structure is used to exchange the pmic device data
+ * requested to user space applications.  The pointer to this structure is
+ * passed to the the ioctl function.
+*/
 struct fsm_xo_req {
 	enum clk_buffer_type   clkBuffer;
 	u8                     clkBufEnable;
@@ -128,11 +134,11 @@ fsm_xo_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	int err = 0;
 	struct fsm_xo_req req;
 
-	
+	/* Verify user arguments. */
 	if (_IOC_TYPE(cmd) != FSM_XO_IOC_MAGIC)
 		return -ENOTTY;
 
-	
+	/* Lock for access */
 	if (mutex_lock_interruptible(&fsm_xo_priv->lock))
 		return -ERESTARTSYS;
 
@@ -193,7 +199,7 @@ static int fsm_xo_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 
-	
+	/* Initialize */
 	fsm_xo_priv = kzalloc(sizeof(struct fsm_xo_priv_t), GFP_KERNEL);
 
 	if (fsm_xo_priv == NULL) {
@@ -219,7 +225,7 @@ static int fsm_xo_probe(struct platform_device *pdev)
 	fsm_xo_priv->a0_enabled = 0;
 	fsm_xo_priv->a1_enabled = 0;
 
-	
+	/* Enable the clock buffers. AMSS depends on this on the FSM. */
 	fsm_xo_enable_a0();
 	fsm_xo_enable_a1();
 

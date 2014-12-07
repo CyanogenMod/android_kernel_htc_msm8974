@@ -3,7 +3,7 @@
 #include <linux/fsnotify_backend.h>
 #include <linux/init.h>
 #include <linux/jiffies.h>
-#include <linux/kernel.h> 
+#include <linux/kernel.h> /* UINT_MAX */
 #include <linux/mount.h>
 #include <linux/sched.h>
 #include <linux/types.h>
@@ -30,6 +30,7 @@ static bool should_merge(struct fsnotify_event *old, struct fsnotify_event *new)
 	return false;
 }
 
+/* and the list better be locked by something too! */
 static struct fsnotify_event *fanotify_merge(struct list_head *list,
 					     struct fsnotify_event *event)
 {
@@ -52,10 +53,15 @@ static struct fsnotify_event *fanotify_merge(struct list_head *list,
 
 	fsnotify_get_event(test_event);
 
-	
+	/* if they are exactly the same we are done */
 	if (test_event->mask == event->mask)
 		return test_event;
 
+	/*
+	 * if the refcnt == 2 this is the only queue
+	 * for this event and so we can update the mask
+	 * in place.
+	 */
 	if (atomic_read(&test_event->refcnt) == 2) {
 		test_event->mask |= event->mask;
 		return test_event;
@@ -63,18 +69,18 @@ static struct fsnotify_event *fanotify_merge(struct list_head *list,
 
 	new_event = fsnotify_clone_event(test_event);
 
-	
+	/* done with test_event */
 	fsnotify_put_event(test_event);
 
-	
+	/* couldn't allocate memory, merge was not possible */
 	if (unlikely(!new_event))
 		return ERR_PTR(-ENOMEM);
 
-	
+	/* build new event and replace it on the list */
 	new_event->mask = (test_event->mask | event->mask);
 	fsnotify_replace_event(test_holder, new_event);
 
-	
+	/* we hold a reference on new_event from clone_event */
 	return new_event;
 }
 
@@ -89,10 +95,10 @@ static int fanotify_get_response_from_access(struct fsnotify_group *group,
 	wait_event(group->fanotify_data.access_waitq, event->response ||
 				atomic_read(&group->fanotify_data.bypass_perm));
 
-	if (!event->response) 
+	if (!event->response) /* bypass_perm set */
 		return 0;
 
-	
+	/* userspace responded, convert to something usable */
 	spin_lock(&event->lock);
 	switch (event->response) {
 	case FAN_ALLOW:
@@ -139,7 +145,7 @@ static int fanotify_handle_event(struct fsnotify_group *group,
 
 #ifdef CONFIG_FANOTIFY_ACCESS_PERMISSIONS
 	if (event->mask & FAN_ALL_PERM_EVENTS) {
-		
+		/* if we merged we need to wait on the new event */
 		if (notify_event)
 			event = notify_event;
 		ret = fanotify_get_response_from_access(group, event);
@@ -165,11 +171,11 @@ static bool fanotify_should_send_event(struct fsnotify_group *group,
 		 "mask=%x data=%p data_type=%d\n", __func__, group, to_tell,
 		 inode_mark, vfsmnt_mark, event_mask, data, data_type);
 
-	
+	/* if we don't have enough info to send an event to userspace say no */
 	if (data_type != FSNOTIFY_EVENT_PATH)
 		return false;
 
-	
+	/* sorry, fanotify only gives a damn about files and dirs */
 	if (!S_ISREG(path->dentry->d_inode->i_mode) &&
 	    !S_ISDIR(path->dentry->d_inode->i_mode))
 		return false;
@@ -178,6 +184,10 @@ static bool fanotify_should_send_event(struct fsnotify_group *group,
 		marks_mask = (vfsmnt_mark->mask | inode_mark->mask);
 		marks_ignored_mask = (vfsmnt_mark->ignored_mask | inode_mark->ignored_mask);
 	} else if (inode_mark) {
+		/*
+		 * if the event is for a child and this inode doesn't care about
+		 * events on the child, don't send it!
+		 */
 		if ((event_mask & FS_EVENT_ON_CHILD) &&
 		    !(inode_mark->mask & FS_EVENT_ON_CHILD))
 			return false;

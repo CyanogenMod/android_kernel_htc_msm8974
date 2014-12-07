@@ -81,6 +81,11 @@ struct buffer_head *nilfs_grab_buffer(struct inode *inode,
 	return bh;
 }
 
+/**
+ * nilfs_forget_buffer - discard dirty state
+ * @inode: owner inode of the buffer
+ * @bh: buffer head of the buffer to be discarded
+ */
 void nilfs_forget_buffer(struct buffer_head *bh)
 {
 	struct page *page = bh->b_page;
@@ -102,6 +107,11 @@ void nilfs_forget_buffer(struct buffer_head *bh)
 	brelse(bh);
 }
 
+/**
+ * nilfs_copy_buffer -- copy buffer data and flags
+ * @dbh: destination buffer
+ * @sbh: source buffer
+ */
 void nilfs_copy_buffer(struct buffer_head *dbh, struct buffer_head *sbh)
 {
 	void *kaddr0, *kaddr1;
@@ -136,6 +146,13 @@ void nilfs_copy_buffer(struct buffer_head *dbh, struct buffer_head *sbh)
 		ClearPageMappedToDisk(dpage);
 }
 
+/**
+ * nilfs_page_buffers_clean - check if a page has dirty buffers or not.
+ * @page: page to be checked
+ *
+ * nilfs_page_buffers_clean() returns zero if the page has dirty buffers.
+ * Otherwise, it returns non-zero value.
+ */
 int nilfs_page_buffers_clean(struct page *page)
 {
 	struct buffer_head *bh, *head;
@@ -182,6 +199,16 @@ void nilfs_page_bug(struct page *page)
 	}
 }
 
+/**
+ * nilfs_copy_page -- copy the page with buffers
+ * @dst: destination page
+ * @src: source page
+ * @copy_dirty: flag whether to copy dirty states on the page's buffer heads.
+ *
+ * This function is for both data pages and btnode pages.  The dirty flag
+ * should be treated by caller.  The page must not be under i/o.
+ * Both src and dst page must be locked
+ */
 static void nilfs_copy_page(struct page *dst, struct page *src, int copy_dirty)
 {
 	struct buffer_head *dbh, *dbufs, *sbh, *sbufs;
@@ -249,7 +276,7 @@ repeat:
 
 		dpage = grab_cache_page(dmap, page->index);
 		if (unlikely(!dpage)) {
-			
+			/* No empty page is added to the page cache */
 			err = -ENOMEM;
 			unlock_page(page);
 			break;
@@ -273,6 +300,14 @@ repeat:
 	return err;
 }
 
+/**
+ * nilfs_copy_back_pages -- copy back pages to original cache from shadow cache
+ * @dmap: destination page cache
+ * @smap: source page cache
+ *
+ * No pages must no be added to the cache during this process.
+ * This must be ensured by the caller.
+ */
 void nilfs_copy_back_pages(struct address_space *dmap,
 			   struct address_space *smap)
 {
@@ -295,7 +330,7 @@ repeat:
 		lock_page(page);
 		dpage = find_lock_page(dmap, offset);
 		if (dpage) {
-			
+			/* override existing page on the destination cache */
 			WARN_ON(PageDirty(dpage));
 			nilfs_copy_page(dpage, page, 0);
 			unlock_page(dpage);
@@ -303,7 +338,7 @@ repeat:
 		} else {
 			struct page *page2;
 
-			
+			/* move the page to the destination cache */
 			spin_lock_irq(&smap->tree_lock);
 			page2 = radix_tree_delete(&smap->page_tree, offset);
 			WARN_ON(page2 != page);
@@ -316,7 +351,7 @@ repeat:
 			if (unlikely(err < 0)) {
 				WARN_ON(err == -EEXIST);
 				page->mapping = NULL;
-				page_cache_release(page); 
+				page_cache_release(page); /* for cache */
 			} else {
 				page->mapping = dmap;
 				dmap->nrpages++;
@@ -401,6 +436,17 @@ void nilfs_mapping_init(struct address_space *mapping, struct inode *inode,
 	mapping->a_ops = &empty_aops;
 }
 
+/*
+ * NILFS2 needs clear_page_dirty() in the following two cases:
+ *
+ * 1) For B-tree node pages and data pages of the dat/gcdat, NILFS2 clears
+ *    page dirty flags when it copies back pages from the shadow cache
+ *    (gcdat->{i_mapping,i_btnode_cache}) to its original cache
+ *    (dat->{i_mapping,i_btnode_cache}).
+ *
+ * 2) Some B-tree operations like insertion or deletion may dispose buffers
+ *    in dirty state, and this needs to cancel the dirty state of their pages.
+ */
 int __nilfs_clear_page_dirty(struct page *page)
 {
 	struct address_space *mapping = page->mapping;
@@ -420,6 +466,18 @@ int __nilfs_clear_page_dirty(struct page *page)
 	return TestClearPageDirty(page);
 }
 
+/**
+ * nilfs_find_uncommitted_extent - find extent of uncommitted data
+ * @inode: inode
+ * @start_blk: start block offset (in)
+ * @blkoff: start offset of the found extent (out)
+ *
+ * This function searches an extent of buffers marked "delayed" which
+ * starts from a block offset equal to or larger than @start_blk.  If
+ * such an extent was found, this will store the start offset in
+ * @blkoff and return its length in blocks.  Otherwise, zero is
+ * returned.
+ */
 unsigned long nilfs_find_uncommitted_extent(struct inode *inode,
 					    sector_t start_blk,
 					    sector_t *blkoff)

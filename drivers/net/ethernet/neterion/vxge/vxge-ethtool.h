@@ -16,6 +16,7 @@
 
 #include "vxge-main.h"
 
+/* Ethtool related variables and Macros. */
 static int vxge_ethtool_get_sset_count(struct net_device *dev, int sset);
 
 static char ethtool_driver_stats_keys[][ETH_GSTRING_LEN] = {
@@ -53,7 +54,8 @@ static char ethtool_driver_stats_keys[][ETH_GSTRING_LEN] = {
 #define DRIVER_STAT_LEN (sizeof(ethtool_driver_stats_keys)/ETH_GSTRING_LEN)
 #define STAT_LEN (VXGE_HW_STATS_LEN + DRIVER_STAT_LEN + VXGE_SW_STATS_LEN)
 
-#define VXGE_MAX_FLICKER_TIME (60 * HZ) 
+/* Maximum flicker time of adapter LED */
+#define VXGE_MAX_FLICKER_TIME (60 * HZ) /* 60 seconds */
 #define VXGE_FLICKER_ON		1
 #define VXGE_FLICKER_OFF	0
 
@@ -62,4 +64,4 @@ static char ethtool_driver_stats_keys[][ETH_GSTRING_LEN] = {
 	*size += ETH_GSTRING_LEN; \
 }
 
-#endif 
+#endif /*_VXGE_ETHTOOL_H*/

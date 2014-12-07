@@ -67,7 +67,7 @@ static int tas5130d1b_set_crop(struct sn9c102_device* cam,
 	err += sn9c102_write_reg(cam, h_start, 0x12);
 	err += sn9c102_write_reg(cam, v_start, 0x13);
 
-	
+	/* Do NOT change! */
 	err += sn9c102_write_reg(cam, 0x1f, 0x1a);
 	err += sn9c102_write_reg(cam, 0x1a, 0x1b);
 	err += sn9c102_write_reg(cam, sn9c102_pread_reg(cam, 0x19), 0x19);
@@ -155,7 +155,7 @@ int sn9c102_probe_tas5130d1b(struct sn9c102_device* cam)
 		{ }
 	};
 
-	
+	/* Sensor detection is based on USB pid/vid */
 	if (!sn9c102_match_id(cam, tas5130d1b_id_table))
 		return -ENODEV;
 

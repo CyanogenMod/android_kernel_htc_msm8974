@@ -40,5 +40,5 @@ static int __devinit parport_pc_find_nonpci_ports (int autoirq, int autodma)
 	return count;
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* !(_ASM_POWERPC_PARPORT_H) */

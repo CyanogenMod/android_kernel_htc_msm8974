@@ -35,9 +35,19 @@
 #include <linux/workqueue.h>
 #include <linux/mutex.h>
 
+/*****************************************************************************/
+/*                                                                           */
+/* Makros                                                                    */
+/*                                                                           */
+/*****************************************************************************/
 #define VPCI2VC(card, vpi, vci) \
         (((vpi) << card->vcibits) | ((vci) & card->vcimask))
 
+/*****************************************************************************/
+/*                                                                           */
+/*   DEBUGGING definitions                                                   */
+/*                                                                           */
+/*****************************************************************************/
 
 #define DBG_RAW_CELL	0x00000400
 #define DBG_TINY	0x00000200
@@ -89,6 +99,11 @@
 
 #define SCQFULL_TIMEOUT		HZ
 
+/*****************************************************************************/
+/*                                                                           */
+/*   Free Buffer Queue Layout                                                */
+/*                                                                           */
+/*****************************************************************************/
 #define SAR_FB_SIZE_0		(2048 - 256)
 #define SAR_FB_SIZE_1		(4096 - 256)
 #define SAR_FB_SIZE_2		(8192 - 256)
@@ -104,9 +119,9 @@
 #define SAR_FBQ3_HIGH		2
 
 #if 0
-#define SAR_TST_RESERVED	44	
+#define SAR_TST_RESERVED	44	/* Num TST reserved for UBR/ABR/VBR */
 #else
-#define SAR_TST_RESERVED	0	
+#define SAR_TST_RESERVED	0	/* Num TST reserved for UBR/ABR/VBR */
 #endif
 
 #define TCT_CBR			0x00000000
@@ -124,6 +139,11 @@
 #define TCT_IDLE		0x40000000
 #define TCT_FLAG_UBR		0x80000000
 
+/*****************************************************************************/
+/*                                                                           */
+/*   Structure describing an IDT77252                                        */
+/*                                                                           */
+/*****************************************************************************/
 
 struct scqe
 {
@@ -191,7 +211,7 @@ struct vc_map {
 	struct atm_vcc		*tx_vcc;
 	struct atm_vcc		*rx_vcc;
 	struct idt77252_dev	*card;
-	struct scq_info		*scq;		
+	struct scq_info		*scq;		/* To keep track of the SCQ */
 	struct rate_estimator	*estimator;
 	int			scd_index;
 	union {
@@ -200,6 +220,11 @@ struct vc_map {
 	} rcv;
 };
 
+/*****************************************************************************/
+/*                                                                           */
+/*   RCTE - Receive Connection Table Entry                                   */
+/*                                                                           */
+/*****************************************************************************/
 
 struct rct_entry
 {
@@ -209,6 +234,11 @@ struct rct_entry
 	u32		aal5_crc32;
 };
 
+/*****************************************************************************/
+/*                                                                           */
+/*   RSQ - Receive Status Queue                                              */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_RSQE_VALID      0x80000000
 #define SAR_RSQE_IDLE       0x40000000
@@ -242,6 +272,11 @@ struct rsq_info {
 };
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   TSQ - Transmit Status Queue                                             */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_TSQE_INVALID         0x80000000
 #define SAR_TSQE_TIMESTAMP       0x00FFFFFF
@@ -308,74 +343,75 @@ struct sb_pool
 
 struct idt77252_dev
 {
-        struct tsq_info		tsq;		
-        struct rsq_info		rsq;		
+        struct tsq_info		tsq;		/* Transmit Status Queue */
+        struct rsq_info		rsq;		/* Receive Status Queue */
 
-	struct pci_dev		*pcidev;	
-	struct atm_dev		*atmdev;	
+	struct pci_dev		*pcidev;	/* PCI handle (desriptor) */
+	struct atm_dev		*atmdev;	/* ATM device desriptor */
 
-	void __iomem		*membase;	
-	unsigned long		srambase;	
-	void __iomem		*fbq[4];	
+	void __iomem		*membase;	/* SAR's memory base address */
+	unsigned long		srambase;	/* SAR's sram  base address */
+	void __iomem		*fbq[4];	/* FBQ fill addresses */
 
 	struct mutex		mutex;
-	spinlock_t		cmd_lock;	
+	spinlock_t		cmd_lock;	/* for r/w utility/sram */
 
 	unsigned long		softstat;
-	unsigned long		flags;		
+	unsigned long		flags;		/* see blow */
 
 	struct work_struct	tqueue;
 
-	unsigned long		tct_base;	
-        unsigned long		rct_base;	
-        unsigned long		rt_base;	
-        unsigned long		scd_base;	
-        unsigned long		tst[2];		
-	unsigned long		abrst_base;	
-        unsigned long		fifo_base;	
+	unsigned long		tct_base;	/* TCT base address in SRAM */
+        unsigned long		rct_base;	/* RCT base address in SRAM */
+        unsigned long		rt_base;	/* Rate Table base in SRAM */
+        unsigned long		scd_base;	/* SCD base address in SRAM */
+        unsigned long		tst[2];		/* TST base address in SRAM */
+	unsigned long		abrst_base;	/* ABRST base address in SRAM */
+        unsigned long		fifo_base;	/* RX FIFO base in SRAM */
 
 	unsigned long		irqstat[16];
 
-	unsigned int		sramsize;	
+	unsigned int		sramsize;	/* SAR's sram size */
 
-        unsigned int		tct_size;	
-        unsigned int		rct_size;	
-        unsigned int		scd_size;	
-        unsigned int		tst_size;	
-        unsigned int		tst_free;	
-        unsigned int		abrst_size;	
-        unsigned int		fifo_size;	
+        unsigned int		tct_size;	/* total TCT entries */
+        unsigned int		rct_size;	/* total RCT entries */
+        unsigned int		scd_size;	/* length of SCD */
+        unsigned int		tst_size;	/* total TST entries */
+        unsigned int		tst_free;	/* free TSTEs in TST */
+        unsigned int		abrst_size;	/* size of ABRST in words */
+        unsigned int		fifo_size;	/* size of RX FIFO in words */
 
-        unsigned int		vpibits;	
-        unsigned int		vcibits;	
-        unsigned int		vcimask;	
+        unsigned int		vpibits;	/* Bits used for VPI index */
+        unsigned int		vcibits;	/* Bits used for VCI index */
+        unsigned int		vcimask;	/* Mask for VCI index */
 
-	unsigned int		utopia_pcr;	
-	unsigned int		link_pcr;	
+	unsigned int		utopia_pcr;	/* Utopia Itf's Cell Rate */
+	unsigned int		link_pcr;	/* PHY's Peek Cell Rate */
 
-	struct vc_map		**vcs;		
-	struct vc_map		**scd2vc;	
+	struct vc_map		**vcs;		/* Open Connections */
+	struct vc_map		**scd2vc;	/* SCD to Connection map */
 
-	struct tst_info		*soft_tst;	
-	unsigned int		tst_index;	
+	struct tst_info		*soft_tst;	/* TST to Connection map */
+	unsigned int		tst_index;	/* Current TST in use */
 	struct timer_list	tst_timer;
 	spinlock_t		tst_lock;
 	unsigned long		tst_state;
 
-	struct sb_pool		sbpool[4];	
-	struct sk_buff		*raw_cell_head; 
-	u32			*raw_cell_hnd;	
+	struct sb_pool		sbpool[4];	/* Pool of RX skbuffs */
+	struct sk_buff		*raw_cell_head; /* Pointer to raw cell queue */
+	u32			*raw_cell_hnd;	/* Pointer to RCQ handle */
 	dma_addr_t		raw_cell_paddr;
 
-	int			index;		
-	int			revision;	
+	int			index;		/* SAR's ID */
+	int			revision;	/* chip revision */
 
-	char			name[16];	
+	char			name[16];	/* Device name */
 
 	struct idt77252_dev	*next;
 };
 
 
+/* definition for flag field above */
 #define IDT77252_BIT_INIT		1
 #define IDT77252_BIT_INTERRUPT		2
 
@@ -384,10 +420,20 @@ struct idt77252_dev
 
 #define FREEBUF_ALIGNMENT        16
 
+/*****************************************************************************/
+/*                                                                           */
+/* Makros                                                                    */
+/*                                                                           */
+/*****************************************************************************/
 #define ALIGN_ADDRESS(addr, alignment) \
         ((((u32)(addr)) + (((u32)(alignment))-1)) & ~(((u32)(alignment)) - 1))
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   ABR SAR Network operation Register                                      */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_REG_DR0	(card->membase + 0x00)
 #define SAR_REG_DR1	(card->membase + 0x04)
@@ -438,6 +484,11 @@ struct idt77252_dev
 #define SAR_REG_NOW	(card->membase + 0xB8)
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   Commands                                                                */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_CMD_NO_OPERATION         0x00000000
 #define SAR_CMD_OPENCLOSE_CONNECTION 0x20000000
@@ -450,93 +501,113 @@ struct idt77252_dev
 #define SAR_CMD_CLOSE_CONNECTION     SAR_CMD_OPENCLOSE_CONNECTION
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   Configuration Register bits                                             */
+/*                                                                           */
+/*****************************************************************************/
 
-#define SAR_CFG_SWRST          0x80000000  
-#define SAR_CFG_LOOP           0x40000000  
-#define SAR_CFG_RXPTH          0x20000000  
-#define SAR_CFG_IDLE_CLP       0x10000000  
-#define SAR_CFG_TX_FIFO_SIZE_1 0x04000000  
-#define SAR_CFG_TX_FIFO_SIZE_2 0x08000000  
-#define SAR_CFG_TX_FIFO_SIZE_4 0x0C000000  
-#define SAR_CFG_TX_FIFO_SIZE_9 0x00000000  
-#define SAR_CFG_NO_IDLE        0x02000000  
-#define SAR_CFG_RSVD1          0x01000000  
-#define SAR_CFG_RXSTQ_SIZE_2k  0x00000000  
-#define SAR_CFG_RXSTQ_SIZE_4k  0x00400000  
-#define SAR_CFG_RXSTQ_SIZE_8k  0x00800000  
-#define SAR_CFG_RXSTQ_SIZE_R   0x00C00000  
-#define SAR_CFG_ICAPT          0x00200000  
-#define SAR_CFG_IGGFC          0x00100000  
-#define SAR_CFG_VPVCS_0        0x00000000  
-#define SAR_CFG_VPVCS_1        0x00040000  
-#define SAR_CFG_VPVCS_2        0x00080000  
-#define SAR_CFG_VPVCS_8        0x000C0000  
-#define SAR_CFG_CNTBL_1k       0x00000000  
-#define SAR_CFG_CNTBL_4k       0x00010000  
-#define SAR_CFG_CNTBL_16k      0x00020000  
-#define SAR_CFG_CNTBL_512      0x00030000  
-#define SAR_CFG_VPECA          0x00008000  
-#define SAR_CFG_RXINT_NOINT    0x00000000  
-#define SAR_CFG_RXINT_NODELAY  0x00001000  
-#define SAR_CFG_RXINT_256US    0x00002000  
-#define SAR_CFG_RXINT_505US    0x00003000  
-#define SAR_CFG_RXINT_742US    0x00004000  
-#define SAR_CFG_RAWIE          0x00000800  
-#define SAR_CFG_RQFIE          0x00000400  
-#define SAR_CFG_RSVD2          0x00000200  
-#define SAR_CFG_CACHE          0x00000100  
-#define SAR_CFG_TMOIE          0x00000080  
-#define SAR_CFG_FBIE           0x00000040  
-#define SAR_CFG_TXEN           0x00000020  
-#define SAR_CFG_TXINT          0x00000010  
-#define SAR_CFG_TXUIE          0x00000008  
-#define SAR_CFG_UMODE          0x00000004  
-#define SAR_CFG_TXSFI          0x00000002  
-#define SAR_CFG_PHYIE          0x00000001  
+#define SAR_CFG_SWRST          0x80000000  /* Software reset                 */
+#define SAR_CFG_LOOP           0x40000000  /* Internal Loopback              */
+#define SAR_CFG_RXPTH          0x20000000  /* Receive Path Enable            */
+#define SAR_CFG_IDLE_CLP       0x10000000  /* SAR set CLP Bits of Null Cells */
+#define SAR_CFG_TX_FIFO_SIZE_1 0x04000000  /* TX FIFO Size = 1 cell          */
+#define SAR_CFG_TX_FIFO_SIZE_2 0x08000000  /* TX FIFO Size = 2 cells         */
+#define SAR_CFG_TX_FIFO_SIZE_4 0x0C000000  /* TX FIFO Size = 4 cells         */
+#define SAR_CFG_TX_FIFO_SIZE_9 0x00000000  /* TX FIFO Size = 9 cells (full)  */
+#define SAR_CFG_NO_IDLE        0x02000000  /* SAR sends no Null Cells        */
+#define SAR_CFG_RSVD1          0x01000000  /* Reserved                       */
+#define SAR_CFG_RXSTQ_SIZE_2k  0x00000000  /* RX Stat Queue Size = 2048 byte */
+#define SAR_CFG_RXSTQ_SIZE_4k  0x00400000  /* RX Stat Queue Size = 4096 byte */
+#define SAR_CFG_RXSTQ_SIZE_8k  0x00800000  /* RX Stat Queue Size = 8192 byte */
+#define SAR_CFG_RXSTQ_SIZE_R   0x00C00000  /* RX Stat Queue Size = reserved  */
+#define SAR_CFG_ICAPT          0x00200000  /* accept Invalid Cells           */
+#define SAR_CFG_IGGFC          0x00100000  /* Ignore GFC                     */
+#define SAR_CFG_VPVCS_0        0x00000000  /* VPI/VCI Select bit range       */
+#define SAR_CFG_VPVCS_1        0x00040000  /* VPI/VCI Select bit range       */
+#define SAR_CFG_VPVCS_2        0x00080000  /* VPI/VCI Select bit range       */
+#define SAR_CFG_VPVCS_8        0x000C0000  /* VPI/VCI Select bit range       */
+#define SAR_CFG_CNTBL_1k       0x00000000  /* Connection Table Size          */
+#define SAR_CFG_CNTBL_4k       0x00010000  /* Connection Table Size          */
+#define SAR_CFG_CNTBL_16k      0x00020000  /* Connection Table Size          */
+#define SAR_CFG_CNTBL_512      0x00030000  /* Connection Table Size          */
+#define SAR_CFG_VPECA          0x00008000  /* VPI/VCI Error Cell Accept      */
+#define SAR_CFG_RXINT_NOINT    0x00000000  /* No Interrupt on PDU received   */
+#define SAR_CFG_RXINT_NODELAY  0x00001000  /* Interrupt without delay to host*/
+#define SAR_CFG_RXINT_256US    0x00002000  /* Interrupt with delay 256 usec  */
+#define SAR_CFG_RXINT_505US    0x00003000  /* Interrupt with delay 505 usec  */
+#define SAR_CFG_RXINT_742US    0x00004000  /* Interrupt with delay 742 usec  */
+#define SAR_CFG_RAWIE          0x00000800  /* Raw Cell Queue Interrupt Enable*/
+#define SAR_CFG_RQFIE          0x00000400  /* RSQ Almost Full Int Enable     */
+#define SAR_CFG_RSVD2          0x00000200  /* Reserved                       */
+#define SAR_CFG_CACHE          0x00000100  /* DMA on Cache Line Boundary     */
+#define SAR_CFG_TMOIE          0x00000080  /* Timer Roll Over Int Enable     */
+#define SAR_CFG_FBIE           0x00000040  /* Free Buffer Queue Int Enable   */
+#define SAR_CFG_TXEN           0x00000020  /* Transmit Operation Enable      */
+#define SAR_CFG_TXINT          0x00000010  /* Transmit status Int Enable     */
+#define SAR_CFG_TXUIE          0x00000008  /* Transmit underrun Int Enable   */
+#define SAR_CFG_UMODE          0x00000004  /* Utopia Mode Select             */
+#define SAR_CFG_TXSFI          0x00000002  /* Transmit status Full Int Enable*/
+#define SAR_CFG_PHYIE          0x00000001  /* PHY Interrupt Enable           */
 
-#define SAR_CFG_TX_FIFO_SIZE_MASK 0x0C000000  
+#define SAR_CFG_TX_FIFO_SIZE_MASK 0x0C000000  /* TX FIFO Size Mask           */
 #define SAR_CFG_RXSTQSIZE_MASK 0x00C00000
 #define SAR_CFG_CNTBL_MASK     0x00030000
 #define SAR_CFG_RXINT_MASK     0x00007000
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   Status Register bits                                                    */
+/*                                                                           */
+/*****************************************************************************/
 
-#define SAR_STAT_FRAC_3     0xF0000000 
-#define SAR_STAT_FRAC_2     0x0F000000 
-#define SAR_STAT_FRAC_1     0x00F00000 
-#define SAR_STAT_FRAC_0     0x000F0000 
-#define SAR_STAT_TSIF       0x00008000 
-#define SAR_STAT_TXICP      0x00004000 
-#define SAR_STAT_RSVD1      0x00002000 
-#define SAR_STAT_TSQF       0x00001000 
-#define SAR_STAT_TMROF      0x00000800 
-#define SAR_STAT_PHYI       0x00000400 
-#define SAR_STAT_CMDBZ      0x00000200 
-#define SAR_STAT_FBQ3A      0x00000100 
-#define SAR_STAT_FBQ2A      0x00000080 
-#define SAR_STAT_RSQF       0x00000040 
-#define SAR_STAT_EPDU       0x00000020 
-#define SAR_STAT_RAWCF      0x00000010  
-#define SAR_STAT_FBQ1A      0x00000008 
-#define SAR_STAT_FBQ0A      0x00000004 
-#define SAR_STAT_RSQAF      0x00000002   
-#define SAR_STAT_RSVD2      0x00000001 
-
-
-
-#define SAR_GP_TXNCC_MASK   0xff000000  
-#define SAR_GP_EEDI         0x00010000  
-#define SAR_GP_BIGE         0x00008000  
-#define SAR_GP_RM_NORMAL    0x00000000  
-#define SAR_GP_RM_TO_RCQ    0x00002000  
-#define SAR_GP_RM_RSVD      0x00004000  
-#define SAR_GP_RM_INHIBIT   0x00006000  
-#define SAR_GP_PHY_RESET    0x00000008  
-#define SAR_GP_EESCLK	    0x00000004	
-#define SAR_GP_EECS	    0x00000002	
-#define SAR_GP_EEDO	    0x00000001	
+#define SAR_STAT_FRAC_3     0xF0000000 /* Fraction of Free Buffer Queue 3 */
+#define SAR_STAT_FRAC_2     0x0F000000 /* Fraction of Free Buffer Queue 2 */
+#define SAR_STAT_FRAC_1     0x00F00000 /* Fraction of Free Buffer Queue 1 */
+#define SAR_STAT_FRAC_0     0x000F0000 /* Fraction of Free Buffer Queue 0 */
+#define SAR_STAT_TSIF       0x00008000 /* Transmit Status Indicator       */
+#define SAR_STAT_TXICP      0x00004000 /* Transmit Status Indicator       */
+#define SAR_STAT_RSVD1      0x00002000 /* Reserved                        */
+#define SAR_STAT_TSQF       0x00001000 /* Transmit Status Queue full      */
+#define SAR_STAT_TMROF      0x00000800 /* Timer overflow                  */
+#define SAR_STAT_PHYI       0x00000400 /* PHY device Interrupt flag       */
+#define SAR_STAT_CMDBZ      0x00000200 /* ABR SAR Command Busy Flag       */
+#define SAR_STAT_FBQ3A      0x00000100 /* Free Buffer Queue 3 Attention   */
+#define SAR_STAT_FBQ2A      0x00000080 /* Free Buffer Queue 2 Attention   */
+#define SAR_STAT_RSQF       0x00000040 /* Receive Status Queue full       */
+#define SAR_STAT_EPDU       0x00000020 /* End Of PDU Flag                 */
+#define SAR_STAT_RAWCF      0x00000010 /* Raw Cell Flag                   */ 
+#define SAR_STAT_FBQ1A      0x00000008 /* Free Buffer Queue 1 Attention   */
+#define SAR_STAT_FBQ0A      0x00000004 /* Free Buffer Queue 0 Attention   */
+#define SAR_STAT_RSQAF      0x00000002 /* Receive Status Queue almost full*/  
+#define SAR_STAT_RSVD2      0x00000001 /* Reserved                        */
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   General Purpose Register bits                                           */
+/*                                                                           */
+/*****************************************************************************/
+
+#define SAR_GP_TXNCC_MASK   0xff000000  /* Transmit Negative Credit Count   */
+#define SAR_GP_EEDI         0x00010000  /* EEPROM Data In                   */
+#define SAR_GP_BIGE         0x00008000  /* Big Endian Operation             */
+#define SAR_GP_RM_NORMAL    0x00000000  /* Normal handling of RM cells      */
+#define SAR_GP_RM_TO_RCQ    0x00002000  /* put RM cells into Raw Cell Queue */
+#define SAR_GP_RM_RSVD      0x00004000  /* Reserved                         */
+#define SAR_GP_RM_INHIBIT   0x00006000  /* Inhibit update of Connection tab */
+#define SAR_GP_PHY_RESET    0x00000008  /* PHY Reset                        */
+#define SAR_GP_EESCLK	    0x00000004	/* EEPROM SCLK			    */
+#define SAR_GP_EECS	    0x00000002	/* EEPROM Chip Select		    */
+#define SAR_GP_EEDO	    0x00000001	/* EEPROM Data Out		    */
+
+
+/*****************************************************************************/
+/*                                                                           */
+/*   SAR local SRAM layout for 128k work SRAM                                */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_SRAM_SCD_SIZE        12
 #define SAR_SRAM_TCT_SIZE         8
@@ -569,6 +640,11 @@ struct idt77252_dev
 #define SAR_SRAM_FIFO_128_TOP    0x1ffff
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   SAR local SRAM layout for 32k work SRAM                                 */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_SRAM_TCT_32_BASE     0x00000
 #define SAR_SRAM_TCT_32_TOP      0x00fff
@@ -596,6 +672,11 @@ struct idt77252_dev
 #define SAR_SRAM_FIFO_32_TOP     0x07fff
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   TSR - Transmit Status Request                                           */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_TSR_TYPE_TSR  0x80000000
 #define SAR_TSR_TYPE_TBD  0x00000000
@@ -603,6 +684,11 @@ struct idt77252_dev
 #define SAR_TSR_TAG_MASK  0x01F00000
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   TBD - Transmit Buffer Descriptor                                        */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_TBD_EPDU      0x40000000
 #define SAR_TBD_TSIF      0x20000000
@@ -621,54 +707,69 @@ struct idt77252_dev
 #define SAR_TBD_VCI_SHIFT 4
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   RXFD - Receive FIFO Descriptor                                          */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_RXFD_SIZE_MASK     0x0F000000
-#define SAR_RXFD_SIZE_512      0x00000000  
-#define SAR_RXFD_SIZE_1K       0x01000000  
-#define SAR_RXFD_SIZE_2K       0x02000000  
-#define SAR_RXFD_SIZE_4K       0x03000000  
-#define SAR_RXFD_SIZE_8K       0x04000000  
-#define SAR_RXFD_SIZE_16K      0x05000000  
-#define SAR_RXFD_SIZE_32K      0x06000000  
-#define SAR_RXFD_SIZE_64K      0x07000000  
-#define SAR_RXFD_SIZE_128K     0x08000000  
-#define SAR_RXFD_SIZE_256K     0x09000000  
+#define SAR_RXFD_SIZE_512      0x00000000  /* 512 words                      */
+#define SAR_RXFD_SIZE_1K       0x01000000  /* 1k words                       */
+#define SAR_RXFD_SIZE_2K       0x02000000  /* 2k words                       */
+#define SAR_RXFD_SIZE_4K       0x03000000  /* 4k words                       */
+#define SAR_RXFD_SIZE_8K       0x04000000  /* 8k words                       */
+#define SAR_RXFD_SIZE_16K      0x05000000  /* 16k words                      */
+#define SAR_RXFD_SIZE_32K      0x06000000  /* 32k words                      */
+#define SAR_RXFD_SIZE_64K      0x07000000  /* 64k words                      */
+#define SAR_RXFD_SIZE_128K     0x08000000  /* 128k words                     */
+#define SAR_RXFD_SIZE_256K     0x09000000  /* 256k words                     */
 #define SAR_RXFD_ADDR_MASK     0x001ffc00
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   ABRSTD - ABR + VBR Schedule Tables                                      */
+/*                                                                           */
+/*****************************************************************************/
 
 #define SAR_ABRSTD_SIZE_MASK   0x07000000
-#define SAR_ABRSTD_SIZE_512    0x00000000  
-#define SAR_ABRSTD_SIZE_1K     0x01000000  
-#define SAR_ABRSTD_SIZE_2K     0x02000000  
-#define SAR_ABRSTD_SIZE_4K     0x03000000  
-#define SAR_ABRSTD_SIZE_8K     0x04000000  
-#define SAR_ABRSTD_SIZE_16K    0x05000000  
+#define SAR_ABRSTD_SIZE_512    0x00000000  /* 512 words                      */
+#define SAR_ABRSTD_SIZE_1K     0x01000000  /* 1k words                       */
+#define SAR_ABRSTD_SIZE_2K     0x02000000  /* 2k words                       */
+#define SAR_ABRSTD_SIZE_4K     0x03000000  /* 4k words                       */
+#define SAR_ABRSTD_SIZE_8K     0x04000000  /* 8k words                       */
+#define SAR_ABRSTD_SIZE_16K    0x05000000  /* 16k words                      */
 #define SAR_ABRSTD_ADDR_MASK   0x001ffc00
 
 
+/*****************************************************************************/
+/*                                                                           */
+/*   RCTE - Receive Connection Table Entry                                   */
+/*                                                                           */
+/*****************************************************************************/
 
-#define SAR_RCTE_IL_MASK       0xE0000000  
-#define SAR_RCTE_IC_MASK       0x1C000000  
-#define SAR_RCTE_RSVD          0x02000000  
-#define SAR_RCTE_LCD           0x01000000  
-#define SAR_RCTE_CI_VC         0x00800000  
-#define SAR_RCTE_FBP_01        0x00000000  
-#define SAR_RCTE_FBP_1         0x00200000  
-#define SAR_RCTE_FBP_2         0x00400000  
-#define SAR_RCTE_FBP_3         0x00600000  
-#define SAR_RCTE_NZ_GFC        0x00100000  
-#define SAR_RCTE_CONNECTOPEN   0x00080000  
-#define SAR_RCTE_AAL_MASK      0x00070000  
-#define SAR_RCTE_RAWCELLINTEN  0x00008000  
-#define SAR_RCTE_RXCONCELLADDR 0x00004000  
-#define SAR_RCTE_BUFFSTAT_MASK 0x00003000  
-#define SAR_RCTE_EFCI          0x00000800  
-#define SAR_RCTE_CLP           0x00000400  
-#define SAR_RCTE_CRC           0x00000200  
-#define SAR_RCTE_CELLCNT_MASK  0x000001FF  
+#define SAR_RCTE_IL_MASK       0xE0000000  /* inactivity limit               */
+#define SAR_RCTE_IC_MASK       0x1C000000  /* inactivity count               */
+#define SAR_RCTE_RSVD          0x02000000  /* reserved                       */
+#define SAR_RCTE_LCD           0x01000000  /* last cell data                 */
+#define SAR_RCTE_CI_VC         0x00800000  /* EFCI in previous cell of VC    */
+#define SAR_RCTE_FBP_01        0x00000000  /* 1. cell->FBQ0, others->FBQ1    */
+#define SAR_RCTE_FBP_1         0x00200000  /* use FBQ 1 for all cells        */
+#define SAR_RCTE_FBP_2         0x00400000  /* use FBQ 2 for all cells        */
+#define SAR_RCTE_FBP_3         0x00600000  /* use FBQ 3 for all cells        */
+#define SAR_RCTE_NZ_GFC        0x00100000  /* non zero GFC in all cell of VC */
+#define SAR_RCTE_CONNECTOPEN   0x00080000  /* VC is open                     */
+#define SAR_RCTE_AAL_MASK      0x00070000  /* mask for AAL type field s.b.   */
+#define SAR_RCTE_RAWCELLINTEN  0x00008000  /* raw cell interrupt enable      */
+#define SAR_RCTE_RXCONCELLADDR 0x00004000  /* RX constant cell address       */
+#define SAR_RCTE_BUFFSTAT_MASK 0x00003000  /* buffer status                  */
+#define SAR_RCTE_EFCI          0x00000800  /* EFCI Congestion flag           */
+#define SAR_RCTE_CLP           0x00000400  /* Cell Loss Priority flag        */
+#define SAR_RCTE_CRC           0x00000200  /* Received CRC Error             */
+#define SAR_RCTE_CELLCNT_MASK  0x000001FF  /* cell Count                     */
 
-#define SAR_RCTE_AAL0          0x00000000  
+#define SAR_RCTE_AAL0          0x00000000  /* AAL types for ALL field        */
 #define SAR_RCTE_AAL34         0x00010000
 #define SAR_RCTE_AAL5          0x00020000
 #define SAR_RCTE_RCQ           0x00030000
@@ -682,9 +783,9 @@ struct idt77252_dev
 
 
 struct idt77252_skb_prv {
-	struct scqe	tbd;	
-	dma_addr_t	paddr;	
-	u32		pool;	
+	struct scqe	tbd;	/* Transmit Buffer Descriptor */
+	dma_addr_t	paddr;	/* DMA handle */
+	u32		pool;	/* sb_pool handle */
 };
 
 #define IDT77252_PRV_TBD(skb)	\
@@ -694,14 +795,19 @@ struct idt77252_skb_prv {
 #define IDT77252_PRV_POOL(skb)	\
 	(((struct idt77252_skb_prv *)(ATM_SKB(skb)+1))->pool)
 
+/*****************************************************************************/
+/*                                                                           */
+/*   PCI related items                                                       */
+/*                                                                           */
+/*****************************************************************************/
 
 #ifndef PCI_VENDOR_ID_IDT
 #define PCI_VENDOR_ID_IDT 0x111D
-#endif 
+#endif /* PCI_VENDOR_ID_IDT */
 
 #ifndef PCI_DEVICE_ID_IDT_IDT77252
 #define PCI_DEVICE_ID_IDT_IDT77252 0x0003
-#endif 
+#endif /* PCI_DEVICE_ID_IDT_IDT772052 */
 
 
-#endif 
+#endif /* !(_IDT77252_H) */

@@ -48,8 +48,16 @@ int nv04_dac_output_offset(struct drm_encoder *encoder)
 	return offset;
 }
 
+/*
+ * arbitrary limit to number of sense oscillations tolerated in one sample
+ * period (observed to be at least 13 in "nvidia")
+ */
 #define MAX_HBLANK_OSC 20
 
+/*
+ * arbitrary limit to number of conflicting sample pairs to tolerate at a
+ * voltage step (observed to be at least 5 in "nvidia")
+ */
 #define MAX_SAMPLE_PAIRS 10
 
 static int sample_load_twice(struct drm_device *dev, bool sense[2])
@@ -60,6 +68,13 @@ static int sample_load_twice(struct drm_device *dev, bool sense[2])
 		bool sense_a, sense_b, sense_b_prime;
 		int j = 0;
 
+		/*
+		 * wait for bit 0 clear -- out of hblank -- (say reg value 0x4),
+		 * then wait for transition 0x4->0x5->0x4: enter hblank, leave
+		 * hblank again
+		 * use a 10ms timeout (guards against crtc being inactive, in
+		 * which case blank state would never change)
+		 */
 		if (!nouveau_wait_eq(dev, 10000000, NV_PRMCIO_INP0__COLOR,
 				     0x00000001, 0x00000000))
 			return -EBUSY;
@@ -71,10 +86,10 @@ static int sample_load_twice(struct drm_device *dev, bool sense[2])
 			return -EBUSY;
 
 		udelay(100);
-		
+		/* when level triggers, sense is _LO_ */
 		sense_a = nv_rd08(dev, NV_PRMCIO_INP0) & 0x10;
 
-		
+		/* take another reading until it agrees with sense_a... */
 		do {
 			udelay(100);
 			sense_b = nv_rd08(dev, NV_PRMCIO_INP0) & 0x10;
@@ -82,15 +97,17 @@ static int sample_load_twice(struct drm_device *dev, bool sense[2])
 				sense_b_prime =
 					nv_rd08(dev, NV_PRMCIO_INP0) & 0x10;
 				if (sense_b == sense_b_prime) {
+					/* ... unless two consecutive subsequent
+					 * samples agree; sense_a is replaced */
 					sense_a = sense_b;
-					
+					/* force mis-match so we loop */
 					sense_b = !sense_a;
 				}
 			}
 		} while ((sense_a != sense_b) && ++j < MAX_HBLANK_OSC);
 
 		if (j == MAX_HBLANK_OSC)
-			
+			/* with so much oscillation, default to sense:LO */
 			sense[i] = false;
 		else
 			sense[i] = sense_a;
@@ -110,9 +127,13 @@ static enum drm_connector_status nv04_dac_detect(struct drm_encoder *encoder,
 	uint8_t blue;
 	bool sense = true;
 
+	/*
+	 * for this detection to work, there needs to be a mode set up on the
+	 * CRTC.  this is presumed to be the case
+	 */
 
 	if (nv_two_heads(dev))
-		
+		/* only implemented for head A for now */
 		NVSetOwner(dev, 0);
 
 	saved_cr_mode = NVReadVgaCrtc(dev, 0, NV_CIO_CR_MODE_INDEX);
@@ -145,7 +166,7 @@ static enum drm_connector_status nv04_dac_detect(struct drm_encoder *encoder,
 					   NV_PRAMDAC_GENERAL_CONTROL_TERMINATION_75OHM)) |
 		      NV_PRAMDAC_GENERAL_CONTROL_PIXMIX_ON);
 
-	blue = 8;	
+	blue = 8;	/* start of test range */
 
 	do {
 		bool sense_pair[2];
@@ -153,11 +174,11 @@ static enum drm_connector_status nv04_dac_detect(struct drm_encoder *encoder,
 		nv_wr08(dev, NV_PRMDIO_WRITE_MODE_ADDRESS, 0);
 		nv_wr08(dev, NV_PRMDIO_PALETTE_DATA, 0);
 		nv_wr08(dev, NV_PRMDIO_PALETTE_DATA, 0);
-		
+		/* testing blue won't find monochrome monitors.  I don't care */
 		nv_wr08(dev, NV_PRMDIO_PALETTE_DATA, blue);
 
 		i = 0;
-		
+		/* take sample pairs until both samples in the pair agree */
 		do {
 			if (sample_load_twice(dev, sense_pair))
 				goto out;
@@ -165,11 +186,15 @@ static enum drm_connector_status nv04_dac_detect(struct drm_encoder *encoder,
 							++i < MAX_SAMPLE_PAIRS);
 
 		if (i == MAX_SAMPLE_PAIRS)
-			
+			/* too much oscillation defaults to LO */
 			sense = false;
 		else
 			sense = sense_pair[0];
 
+	/*
+	 * if sense goes LO before blue ramps to 0x18, monitor is not connected.
+	 * ergo, if blue gets to 0x18, monitor must be connected
+	 */
 	} while (++blue < 0x18 && sense);
 
 out:
@@ -209,7 +234,7 @@ uint32_t nv17_dac_sample_load(struct drm_encoder *encoder)
 		if (dev_priv->vbios.tvdactestval)
 			testval = dev_priv->vbios.tvdactestval;
 	} else {
-		testval = RGB_TEST_DATA(0x140, 0x140, 0x140); 
+		testval = RGB_TEST_DATA(0x140, 0x140, 0x140); /* 0x94050140 */
 
 		if (dev_priv->vbios.dactestval)
 			testval = dev_priv->vbios.dactestval;
@@ -238,11 +263,11 @@ uint32_t nv17_dac_sample_load(struct drm_encoder *encoder)
 	saved_routput = NVReadRAMDAC(dev, 0, NV_PRAMDAC_DACCLK + regoffset);
 	head = (saved_routput & 0x100) >> 8;
 
-	
+	/* if there's a spare crtc, using it will minimise flicker */
 	if (!(NVReadVgaCrtc(dev, head, NV_CIO_CRE_RPC1_INDEX) & 0xC0))
 		head ^= 1;
 
-	
+	/* nv driver and nv31 use 0xfffffeee, nv34 and 6600 use 0xfffffece */
 	routput = (saved_routput & 0xfffffece) | head << 8;
 
 	if (dev_priv->card_type >= NV_40) {
@@ -266,7 +291,7 @@ uint32_t nv17_dac_sample_load(struct drm_encoder *encoder)
 	msleep(5);
 
 	sample = NVReadRAMDAC(dev, 0, NV_PRAMDAC_TEST_CONTROL + regoffset);
-	
+	/* do it again just in case it's a residual current */
 	sample &= NVReadRAMDAC(dev, 0, NV_PRAMDAC_TEST_CONTROL + regoffset);
 
 	temp = NVReadRAMDAC(dev, head, NV_PRAMDAC_TEST_CONTROL);
@@ -274,7 +299,7 @@ uint32_t nv17_dac_sample_load(struct drm_encoder *encoder)
 		      temp & ~NV_PRAMDAC_TEST_CONTROL_TP_INS_EN_ASSERTED);
 	NVWriteRAMDAC(dev, head, NV_PRAMDAC_TESTPOINT_DATA, 0);
 
-	
+	/* bios does something more complex for restoring, but I think this is good enough */
 	NVWriteRAMDAC(dev, 0, NV_PRAMDAC_DACCLK + regoffset, saved_routput);
 	NVWriteRAMDAC(dev, 0, NV_PRAMDAC_TEST_CONTROL + regoffset, saved_rtest_ctrl);
 	if (regoffset == 0x68)
@@ -340,9 +365,11 @@ static void nv04_dac_mode_set(struct drm_encoder *encoder,
 		uint32_t dac_offset = nv04_dac_output_offset(encoder);
 		uint32_t otherdac;
 
+		/* bit 16-19 are bits that are set on some G70 cards,
+		 * but don't seem to have much effect */
 		NVWriteRAMDAC(dev, 0, NV_PRAMDAC_DACCLK + dac_offset,
 			      head << 8 | NV_PRAMDAC_DACCLK_SEL_DACCLK);
-		
+		/* force any other vga encoders to bind to the other crtc */
 		list_for_each_entry(rebind, &dev->mode_config.encoder_list, head) {
 			if (rebind == encoder
 			    || nouveau_encoder(rebind)->dcb->type != OUTPUT_ANALOG)
@@ -355,7 +382,7 @@ static void nv04_dac_mode_set(struct drm_encoder *encoder,
 		}
 	}
 
-	
+	/* This could use refinement for flatpanels, but it should work this way */
 	if (dev_priv->chipset < 0x44)
 		NVWriteRAMDAC(dev, 0, NV_PRAMDAC_TEST_CONTROL + nv04_dac_output_offset(encoder), 0xf0000000);
 	else
@@ -400,6 +427,8 @@ void nv04_dac_update_dacclk(struct drm_encoder *encoder, bool enable)
 	}
 }
 
+/* Check if the DAC corresponding to 'encoder' is being used by
+ * someone else. */
 bool nv04_dac_in_use(struct drm_encoder *encoder)
 {
 	struct drm_nouveau_private *dev_priv = encoder->dev->dev_private;

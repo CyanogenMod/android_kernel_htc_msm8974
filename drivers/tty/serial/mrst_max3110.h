@@ -1,9 +1,10 @@
 #ifndef _MRST_MAX3110_H
 #define _MRST_MAX3110_H
 
-#define MAX3110_HIGH_CLK	0x1	
-#define MAX3110_LOW_CLK		0x0	
+#define MAX3110_HIGH_CLK	0x1	/* 3.6864 MHZ */
+#define MAX3110_LOW_CLK		0x0	/* 1.8432 MHZ */
 
+/* status bits for all 4 MAX3110 operate modes */
 #define MAX3110_READ_DATA_AVAILABLE	(1 << 15)
 #define MAX3110_WRITE_BUF_EMPTY		(1 << 14)
 #define MAX3110_BREAK			(1 << 10)
@@ -13,14 +14,15 @@
 #define WD_TAG			(2 << 14)
 #define RD_TAG			(0 << 14)
 
+/* bits def for write configuration */
 #define WC_FIFO_ENABLE_MASK	(1 << 13)
 #define WC_FIFO_ENABLE		(0 << 13)
 
 #define WC_SW_SHDI		(1 << 12)
 
 #define WC_IRQ_MASK		(0xF << 8)
-#define WC_TXE_IRQ_ENABLE	(1 << 11)	
-#define WC_RXA_IRQ_ENABLE	(1 << 10)	
+#define WC_TXE_IRQ_ENABLE	(1 << 11)	/* TX empty irq */
+#define WC_RXA_IRQ_ENABLE	(1 << 10)	/* RX available irq */
 #define WC_PAR_HIGH_IRQ_ENABLE	(1 << 9)
 #define WC_REC_ACT_IRQ_ENABLE	(1 << 8)
 

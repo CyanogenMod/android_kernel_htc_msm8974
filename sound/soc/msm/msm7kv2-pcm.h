@@ -40,18 +40,20 @@
 #define BUFSZ			(960 * 5)
 #define PLAYBACK_DMASZ 		(BUFSZ * 2)
 
-#define MSM_PLAYBACK_DEFAULT_VOLUME 0 
+#define MSM_PLAYBACK_DEFAULT_VOLUME 0 /* 0dB */
 #define MSM_PLAYBACK_DEFAULT_PAN 0
 
 #define USE_FORMATS             SNDRV_PCM_FMTBIT_S16_LE
 #define USE_CHANNELS_MIN        1
 #define USE_CHANNELS_MAX        2
+/* Support unconventional sample rates 12000, 24000 as well */
 #define USE_RATE                \
 			(SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_KNOT)
 #define USE_RATE_MIN            8000
 #define USE_RATE_MAX            48000
 #define MAX_BUFFER_PLAYBACK_SIZE \
 				PLAYBACK_DMASZ
+/* 2048 frames (Mono), 1024 frames (Stereo) */
 #define CAPTURE_SIZE		4096
 #define MAX_BUFFER_CAPTURE_SIZE (4096*4)
 #define MAX_PERIOD_SIZE         BUFSZ
@@ -63,10 +65,12 @@
 #define MIN_DB			(-50)
 #define PCMPLAYBACK_DECODERID   5
 
+/* 0xFFFFFFFF Indicates not to be used for audio data copy */
 #define	BUF_INVALID_LEN		0xFFFFFFFF
 #define EVENT_MSG_ID 		((uint16_t)~0)
 
 #define AUDDEC_DEC_PCM 		0
+/* Decoder status received from AUDPPTASK */
 #define  AUDPP_DEC_STATUS_SLEEP	0
 #define  AUDPP_DEC_STATUS_INIT  1
 #define  AUDPP_DEC_STATUS_CFG   2
@@ -106,6 +110,9 @@ struct audio_locks {
 extern struct audio_locks the_locks;
 
 struct msm_audio_event_callbacks {
+	/* event is called from interrupt context when a message
+	 * arrives from the DSP.
+	*/
 	void (*playback)(void *);
 	void (*capture)(void *);
 };
@@ -117,10 +124,10 @@ struct msm_audio {
 
 	uint8_t out_head;
 	uint8_t out_tail;
-	uint8_t out_needed; 
+	uint8_t out_needed; /* number of buffers the dsp is waiting for */
 	atomic_t out_bytes;
 
-	
+	/* configuration to use on next enable */
 	uint32_t out_sample_rate;
 	uint32_t out_channel_mode;
 	uint32_t out_weight;
@@ -128,41 +135,43 @@ struct msm_audio {
 
 	struct snd_pcm_substream *substream;
 
-	
+	/* data allocated for various buffers */
 	char *data;
 	dma_addr_t phys;
 
 	unsigned int pcm_size;
 	unsigned int pcm_count;
-	unsigned int pcm_irq_pos;       
-	unsigned int pcm_buf_pos;       
-	uint16_t source; 
+	unsigned int pcm_irq_pos;       /* IRQ position */
+	unsigned int pcm_buf_pos;       /* position in buffer */
+	uint16_t source; /* Encoding source bit mask */
 
 	struct msm_adsp_module *audpre;
 	struct msm_adsp_module *audrec;
 	struct msm_adsp_module *audplay;
-	enum msm_aud_decoder_state dec_state; 
+	enum msm_aud_decoder_state dec_state; /* Represents decoder state */
 
 	uint16_t session_id;
-	uint32_t out_bits; 
+	uint32_t out_bits; /* bits per sample */
 	const char *module_name;
 	unsigned queue_id;
 
-	
+	/* configuration to use on next enable */
 	uint32_t samp_rate;
 	uint32_t channel_mode;
-	uint32_t buffer_size; 
-	uint32_t type; 
+	uint32_t buffer_size; /* 2048 for mono, 4096 for stereo */
+	uint32_t type; /* 0 for PCM ,1 for AAC */
 	uint32_t dsp_cnt;
-	uint32_t in_head; 
-	uint32_t in_tail; 
-	uint32_t in_count; 
+	uint32_t in_head; /* next buffer dsp will write */
+	uint32_t in_tail; /* next buffer read() will read */
+	uint32_t in_count; /* number of buffers available to read() */
 
 	unsigned short samp_rate_index;
-	uint32_t device_events; 
-	int abort; 
+	uint32_t device_events; /* device events interested in */
+	int abort; /* set when error, like sample rate mismatch */
 
-	
+	/* audpre settings */
+	/* For different sample rate, the coeff might be different. *
+	* All the coeff should be passed from user space           */
 
 	struct  msm_audio_event_callbacks *ops;
 
@@ -170,7 +179,7 @@ struct msm_audio {
 	int opened;
 	int enabled;
 	int running;
-	int stopped; 
+	int stopped; /* set when stopped, cleared on flush */
 	int eos_ack;
 	int mmap_flag;
 	int period;
@@ -179,6 +188,7 @@ struct msm_audio {
 
 
 
+/* platform data */
 extern int alsa_dsp_send_buffer(struct msm_audio *prtd,
 			unsigned idx, unsigned len);
 extern int audio_dsp_out_enable(struct msm_audio *prtd, int yes);
@@ -194,4 +204,4 @@ ssize_t alsa_send_buffer(struct msm_audio *prtd, const char __user *buf,
 		size_t count, loff_t *pos);
 extern struct msm_adsp_ops alsa_audrec_adsp_ops;
 extern int alsa_in_record_config(struct msm_audio *prtd, int enable);
-#endif 
+#endif /*_MSM_PCM_H*/

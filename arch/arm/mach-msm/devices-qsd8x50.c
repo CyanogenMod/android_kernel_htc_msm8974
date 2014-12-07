@@ -807,6 +807,7 @@ struct platform_device qup_device_i2c = {
 	.resource	= resources_qup,
 };
 
+/* TSIF begin */
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 
 #define MSM_TSIF_PHYS        (0xa0100000)
@@ -844,7 +845,8 @@ struct platform_device msm_device_tsif = {
 		.release       = tsif_release,
 	},
 };
-#endif 
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 #define MSM_TSSC_PHYS         0xAA300000
 static struct resource resources_tssc[] = {

@@ -12,4 +12,4 @@ struct w90p910_keypad_platform_data {
 	unsigned int	debounce;
 };
 
-#endif 
+#endif /* __ASM_ARCH_W90P910_KEYPAD_H */

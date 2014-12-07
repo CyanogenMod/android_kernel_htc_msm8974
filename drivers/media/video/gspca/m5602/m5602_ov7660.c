@@ -154,10 +154,12 @@ int ov7660_probe(struct sd *sd)
 			pr_info("Forcing an %s sensor\n", ov7660.name);
 			goto sensor_found;
 		}
+		/* If we want to force another sensor,
+		don't try to probe this one */
 		return -ENODEV;
 	}
 
-	
+	/* Do the preinit */
 	for (i = 0; i < ARRAY_SIZE(preinit_ov7660) && !err; i++) {
 		u8 data[2];
 
@@ -211,7 +213,7 @@ int ov7660_init(struct sd *sd)
 	int i, err = 0;
 	s32 *sensor_settings = sd->sensor_priv;
 
-	
+	/* Init the sensor */
 	for (i = 0; i < ARRAY_SIZE(init_ov7660); i++) {
 		u8 data[2];
 
@@ -447,7 +449,7 @@ static int ov7660_set_vflip(struct gspca_dev *gspca_dev, __s32 val)
 	if (err < 0)
 		return err;
 
-	
+	/* When vflip is toggled we need to readjust the bridge hsync/vsync */
 	if (gspca_dev->streaming)
 		err = ov7660_start(sd);
 
@@ -480,7 +482,7 @@ static void ov7660_dump_registers(struct sd *sd)
 		else
 			pr_info("register 0x%x is read only\n", address);
 
-		
+		/* Restore original value */
 		m5602_write_sensor(sd, address, &old_value, 1);
 	}
 }

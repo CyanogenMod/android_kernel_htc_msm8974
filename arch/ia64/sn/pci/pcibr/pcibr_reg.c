@@ -20,6 +20,9 @@ union br_ptr {
 	struct pic pic;
 };
 
+/*
+ * Control Register Access -- Read/Write                            0000_0020
+ */
 void pcireg_control_bit_clr(struct pcibus_info *pcibus_info, u64 bits)
 {
 	union br_ptr __iomem *ptr = (union br_ptr __iomem *)pcibus_info->pbi_buscommon.bs_base;
@@ -60,6 +63,9 @@ void pcireg_control_bit_set(struct pcibus_info *pcibus_info, u64 bits)
 	}
 }
 
+/*
+ * PCI/PCIX Target Flush Register Access -- Read Only		    0000_0050
+ */
 u64 pcireg_tflush_get(struct pcibus_info *pcibus_info)
 {
 	union br_ptr __iomem *ptr = (union br_ptr __iomem *)pcibus_info->pbi_buscommon.bs_base;
@@ -80,13 +86,16 @@ u64 pcireg_tflush_get(struct pcibus_info *pcibus_info)
 		}
 	}
 
-	
+	/* Read of the Target Flush should always return zero */
 	if (ret != 0)
 		panic("pcireg_tflush_get:Target Flush failed\n");
 
 	return ret;
 }
 
+/*
+ * Interrupt Status Register Access -- Read Only		    0000_0100
+ */
 u64 pcireg_intr_status_get(struct pcibus_info * pcibus_info)
 {
 	union br_ptr __iomem *ptr = (union br_ptr __iomem *)pcibus_info->pbi_buscommon.bs_base;
@@ -109,6 +118,9 @@ u64 pcireg_intr_status_get(struct pcibus_info * pcibus_info)
 	return ret;
 }
 
+/*
+ * Interrupt Enable Register Access -- Read/Write                   0000_0108
+ */
 void pcireg_intr_enable_bit_clr(struct pcibus_info *pcibus_info, u64 bits)
 {
 	union br_ptr __iomem *ptr = (union br_ptr __iomem *)pcibus_info->pbi_buscommon.bs_base;
@@ -149,6 +161,9 @@ void pcireg_intr_enable_bit_set(struct pcibus_info *pcibus_info, u64 bits)
 	}
 }
 
+/*
+ * Intr Host Address Register (int_addr) -- Read/Write  0000_0130 - 0000_0168
+ */
 void pcireg_intr_addr_addr_set(struct pcibus_info *pcibus_info, int int_n,
 			       u64 addr)
 {
@@ -176,6 +191,9 @@ void pcireg_intr_addr_addr_set(struct pcibus_info *pcibus_info, int int_n,
 	}
 }
 
+/*
+ * Force Interrupt Register Access -- Write Only	0000_01C0 - 0000_01F8
+ */
 void pcireg_force_intr_set(struct pcibus_info *pcibus_info, int int_n)
 {
 	union br_ptr __iomem *ptr = (union br_ptr __iomem *)pcibus_info->pbi_buscommon.bs_base;
@@ -196,6 +214,9 @@ void pcireg_force_intr_set(struct pcibus_info *pcibus_info, int int_n)
 	}
 }
 
+/*
+ * Device(x) Write Buffer Flush Reg Access -- Read Only 0000_0240 - 0000_0258
+ */
 u64 pcireg_wrb_flush_get(struct pcibus_info *pcibus_info, int device)
 {
 	union br_ptr __iomem *ptr = (union br_ptr __iomem *)pcibus_info->pbi_buscommon.bs_base;
@@ -216,7 +237,7 @@ u64 pcireg_wrb_flush_get(struct pcibus_info *pcibus_info, int device)
 		}
 
 	}
-	
+	/* Read of the Write Buffer Flush should always return zero */
 	return ret;
 }
 

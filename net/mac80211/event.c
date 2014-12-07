@@ -10,6 +10,11 @@
 #include <net/cfg80211.h>
 #include "ieee80211_i.h"
 
+/*
+ * Indicate a failed Michael MIC to userspace. If the caller knows the TSC of
+ * the frame that generated the MIC failure (i.e., if it was provided by the
+ * driver or is still in the frame), it should provide that information.
+ */
 void mac80211_ev_michael_mic_failure(struct ieee80211_sub_if_data *sdata, int keyidx,
 				     struct ieee80211_hdr *hdr, const u8 *tsc,
 				     gfp_t gfp)

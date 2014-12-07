@@ -27,4 +27,4 @@ static inline void synchronise_count_slave(void)
 
 #endif
 
-#endif 
+#endif /* __ASM_R4K_TYPES_H */

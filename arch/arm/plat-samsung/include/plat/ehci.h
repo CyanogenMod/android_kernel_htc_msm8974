@@ -18,4 +18,4 @@ struct s5p_ehci_platdata {
 
 extern void s5p_ehci_set_platdata(struct s5p_ehci_platdata *pd);
 
-#endif 
+#endif /* __PLAT_SAMSUNG_EHCI_H */

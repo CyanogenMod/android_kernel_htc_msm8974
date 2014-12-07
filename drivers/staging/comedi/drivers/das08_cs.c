@@ -23,6 +23,21 @@
 *****************************************************************
 
 */
+/*
+Driver: das08_cs
+Description: DAS-08 PCMCIA boards
+Author: Warren Jasper, ds, Frank Hess
+Devices: [ComputerBoards] PCM-DAS08 (pcm-das08)
+Status: works
+
+This is the PCMCIA-specific support split off from the
+das08 driver.
+
+Options (for pcm-das08):
+	NONE
+
+Command support does not exist, but could be added for this board.
+*/
 
 #include "../comedidev.h"
 
@@ -32,6 +47,7 @@
 
 #include "das08.h"
 
+/* pcmcia includes */
 #include <pcmcia/cistpl.h>
 #include <pcmcia/ds.h>
 
@@ -57,14 +73,14 @@ static int das08_cs_attach(struct comedi_device *dev,
 {
 	int ret;
 	unsigned long iobase;
-	struct pcmcia_device *link = cur_dev;	
+	struct pcmcia_device *link = cur_dev;	/*  XXX hack */
 
 	ret = alloc_private(dev, sizeof(struct das08_private_struct));
 	if (ret < 0)
 		return ret;
 
 	dev_info(dev->hw_dev, "comedi%d: das08_cs:\n", dev->minor);
-	
+	/*  deal with a pci board */
 
 	if (thisboard->bustype == pcmcia) {
 		if (link == NULL) {
@@ -111,7 +127,7 @@ static int das08_pcmcia_attach(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "das08_pcmcia_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(struct local_info_t), GFP_KERNEL);
 	if (!local)
 		return -ENOMEM;
@@ -123,7 +139,7 @@ static int das08_pcmcia_attach(struct pcmcia_device *link)
 	das08_pcmcia_config(link);
 
 	return 0;
-}				
+}				/* das08_pcmcia_attach */
 
 static void das08_pcmcia_detach(struct pcmcia_device *link)
 {
@@ -133,10 +149,10 @@ static void das08_pcmcia_detach(struct pcmcia_device *link)
 	((struct local_info_t *)link->priv)->stop = 1;
 	das08_pcmcia_release(link);
 
-	
+	/* This points to the parent struct local_info_t struct */
 	kfree(link->priv);
 
-}				
+}				/* das08_pcmcia_detach */
 
 
 static int das08_pcmcia_config_loop(struct pcmcia_device *p_dev,
@@ -174,22 +190,22 @@ static void das08_pcmcia_config(struct pcmcia_device *link)
 failed:
 	das08_pcmcia_release(link);
 
-}				
+}				/* das08_pcmcia_config */
 
 static void das08_pcmcia_release(struct pcmcia_device *link)
 {
 	dev_dbg(&link->dev, "das08_pcmcia_release\n");
 	pcmcia_disable_device(link);
-}				
+}				/* das08_pcmcia_release */
 
 static int das08_pcmcia_suspend(struct pcmcia_device *link)
 {
 	struct local_info_t *local = link->priv;
-	
+	/* Mark the device as stopped, to block IO until later */
 	local->stop = 1;
 
 	return 0;
-}				
+}				/* das08_pcmcia_suspend */
 
 static int das08_pcmcia_resume(struct pcmcia_device *link)
 {
@@ -197,8 +213,9 @@ static int das08_pcmcia_resume(struct pcmcia_device *link)
 
 	local->stop = 0;
 	return 0;
-}				
+}				/* das08_pcmcia_resume */
 
+/*====================================================================*/
 
 static const struct pcmcia_device_id das08_cs_id_table[] = {
 	PCMCIA_DEVICE_MANF_CARD(0x01c5, 0x4001),

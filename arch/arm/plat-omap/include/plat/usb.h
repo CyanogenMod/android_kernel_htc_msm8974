@@ -1,3 +1,4 @@
+// include/asm-arm/mach-omap/usb.h
 
 #ifndef	__ASM_ARCH_OMAP_USB_H
 #define	__ASM_ARCH_OMAP_USB_H
@@ -28,14 +29,18 @@ enum usbhs_omap_port_mode {
 struct usbhs_omap_board_data {
 	enum usbhs_omap_port_mode	port_mode[OMAP3_HS_USB_PORTS];
 
-	
+	/* have to be valid if phy_reset is true and portx is in phy mode */
 	int	reset_gpio_port[OMAP3_HS_USB_PORTS];
 
-	
+	/* Set this to true for ES2.x silicon */
 	unsigned			es2_compatibility:1;
 
 	unsigned			phy_reset:1;
 
+	/*
+	 * Regulators for USB PHYs.
+	 * Each PHY can have a separate regulator.
+	 */
 	struct regulator		*regulator[OMAP3_HS_USB_PORTS];
 };
 
@@ -57,6 +62,7 @@ struct usbhs_omap_platform_data {
 	struct ehci_hcd_omap_platform_data	*ehci_data;
 	struct ohci_hcd_omap_platform_data	*ohci_data;
 };
+/*-------------------------------------------------------------------------*/
 
 #define OMAP1_OTG_BASE			0xfffb0400
 #define OMAP1_UDC_BASE			0xfffb4000
@@ -101,6 +107,9 @@ extern int omap4430_phy_init(struct device *dev);
 extern int omap4430_phy_exit(struct device *dev);
 extern int omap4430_phy_suspend(struct device *dev, int suspend);
 
+/*
+ * NOTE: Please update omap USB drivers to use ioremap + read/write
+ */
 
 #define OMAP2_L4_IO_OFFSET	0xb2000000
 #define OMAP2_L4_IO_ADDRESS(pa)	IOMEM((pa) + OMAP2_L4_IO_OFFSET)
@@ -144,6 +153,10 @@ extern void am35x_musb_clear_irq(void);
 extern void am35x_set_mode(u8 musb_mode);
 extern void ti81xx_musb_phy_power(u8 on);
 
+/*
+ * FIXME correct answer depends on hmc_mode,
+ * as does (on omap1) any nonzero value for config->otg port number
+ */
 #ifdef	CONFIG_USB_GADGET_OMAP
 #define	is_usb0_device(config)	1
 #else
@@ -168,7 +181,11 @@ static inline void omap2_usbfs_init(struct omap_usb_config *pdata)
 }
 #endif
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * OTG and transceiver registers, for OMAPs starting with ARM926
+ */
 #define OTG_REV				(OTG_BASE + 0x00)
 #define OTG_SYSCON_1			(OTG_BASE + 0x04)
 #	define	 USB2_TRX_MODE(w)	(((w)>>24)&0x07)
@@ -224,7 +241,7 @@ static inline void omap2_usbfs_init(struct omap_usb_config *pdata)
 #	define	 OTG_PD_VBUS		(1 << 2)
 #	define	 OTG_PU_VBUS		(1 << 1)
 #	define	 OTG_PU_ID		(1 << 0)
-#define OTG_IRQ_EN			(OTG_BASE + 0x10)	
+#define OTG_IRQ_EN			(OTG_BASE + 0x10)	/* 16-bit */
 #	define	 DRIVER_SWITCH		(1 << 15)
 #	define	 A_VBUS_ERR		(1 << 13)
 #	define	 A_REQ_TMROUT		(1 << 12)
@@ -234,9 +251,9 @@ static inline void omap2_usbfs_init(struct omap_usb_config *pdata)
 #	define	 B_SRP_DONE		(1 << 8)
 #	define	 B_SRP_STARTED		(1 << 7)
 #	define	 OPRT_CHG		(1 << 0)
-#define OTG_IRQ_SRC			(OTG_BASE + 0x14)	
-	
-#define OTG_OUTCTRL			(OTG_BASE + 0x18)	
+#define OTG_IRQ_SRC			(OTG_BASE + 0x14)	/* 16-bit */
+	// same bits as in IRQ_EN
+#define OTG_OUTCTRL			(OTG_BASE + 0x18)	/* 16-bit */
 #	define	 OTGVPD			(1 << 14)
 #	define	 OTGVPU			(1 << 13)
 #	define	 OTGPUID		(1 << 12)
@@ -249,10 +266,12 @@ static inline void omap2_usbfs_init(struct omap_usb_config *pdata)
 #	define	 USB0VDR		(1 << 2)
 #	define	 USB0PDEN		(1 << 1)
 #	define	 USB0PUEN		(1 << 0)
-#define OTG_TEST			(OTG_BASE + 0x20)	
-#define OTG_VENDOR_CODE			(OTG_BASE + 0xfc)	
+#define OTG_TEST			(OTG_BASE + 0x20)	/* 16-bit */
+#define OTG_VENDOR_CODE			(OTG_BASE + 0xfc)	/* 16-bit */
 
+/*-------------------------------------------------------------------------*/
 
+/* OMAP1 */
 #define	USB_TRANSCEIVER_CTRL		(0xfffe1000 + 0x0064)
 #	define	CONF_USB2_UNI_R		(1 << 8)
 #	define	CONF_USB1_UNI_R		(1 << 7)
@@ -261,6 +280,7 @@ static inline void omap2_usbfs_init(struct omap_usb_config *pdata)
 #	define	CONF_USB_PWRDN_DM_R	(1 << 2)
 #	define	CONF_USB_PWRDN_DP_R	(1 << 1)
 
+/* OMAP2 */
 #	define	USB_UNIDIR			0x0
 #	define	USB_UNIDIR_TLL			0x1
 #	define	USB_BIDIR			0x2
@@ -269,6 +289,8 @@ static inline void omap2_usbfs_init(struct omap_usb_config *pdata)
 #	define	USBT2TLL5PI		(1 << 17)
 #	define	USB0PUENACTLOI		(1 << 16)
 #	define	USBSTANDBYCTRL		(1 << 15)
+/* AM35x */
+/* USB 2.0 PHY Control */
 #define CONF2_PHY_GPIOMODE	(1 << 23)
 #define CONF2_OTGMODE		(3 << 14)
 #define CONF2_NO_OVERRIDE	(0 << 14)
@@ -289,12 +311,15 @@ static inline void omap2_usbfs_init(struct omap_usb_config *pdata)
 #define CONF2_OTGPWRDN		(1 << 2)
 #define CONF2_DATPOL		(1 << 1)
 
+/* TI81XX specific definitions */
 #define USBCTRL0	0x620
 #define USBSTAT0	0x624
 
+/* TI816X PHY controls bits */
 #define TI816X_USBPHY0_NORMAL_MODE	(1 << 0)
 #define TI816X_USBPHY_REFCLK_OSC	(1 << 8)
 
+/* TI814X PHY controls bits */
 #define USBPHY_CM_PWRDN		(1 << 0)
 #define USBPHY_OTG_PWRDN	(1 << 1)
 #define USBPHY_CHGDET_DIS	(1 << 2)
@@ -337,4 +362,4 @@ static inline u32 omap1_usb2_init(unsigned nwires, unsigned alt_pingroup)
 }
 #endif
 
-#endif	
+#endif	/* __ASM_ARCH_OMAP_USB_H */

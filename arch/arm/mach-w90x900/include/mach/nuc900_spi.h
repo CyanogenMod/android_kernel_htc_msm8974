@@ -32,4 +32,4 @@ struct nuc900_spi_chip {
 	unsigned char bits_per_word;
 };
 
-#endif 
+#endif /* __ASM_ARCH_SPI_H */

@@ -52,7 +52,7 @@ static void __init bootmem_init(void)
 	max_low_pfn = PFN_UP(MEMORY_START + MEMORY_SIZE);
 	max_mapnr = max_low_pfn - min_low_pfn;
 
-	
+	/* Initialize the boot-time allocator with low memory only. */
 	bootmap_size = init_bootmem_node(NODE_DATA(0), start_pfn,
 					 min_low_pfn, max_low_pfn);
 	memblock_add_node(PFN_PHYS(min_low_pfn),
@@ -62,7 +62,7 @@ static void __init bootmem_init(void)
 		     (max_low_pfn - start_pfn) << PAGE_SHIFT);
 	memory_present(0, start_pfn, max_low_pfn);
 
-	
+	/* Reserve space for the bootmem bitmap. */
 	reserve_bootmem(PFN_PHYS(start_pfn), bootmap_size, BOOTMEM_DEFAULT);
 
 	if (size == 0) {
@@ -75,7 +75,7 @@ static void __init bootmem_init(void)
 		goto disable;
 	}
 
-	
+	/* Reserve space for the initrd bitmap. */
 	reserve_bootmem(__pa(initrd_start), size, BOOTMEM_DEFAULT);
 	initrd_below_start_ok = 1;
 

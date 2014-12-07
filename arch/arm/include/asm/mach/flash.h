@@ -18,6 +18,19 @@ enum sw_version {
 	VERSION_2,
 };
 
+/*
+ * map_name:	the map probe function name
+ * name:	flash device name (eg, as used with mtdparts=)
+ * width:	width of mapped device
+ * interleave:  interleave mode feature support
+ * init:	method called at driver/device initialisation
+ * exit:	method called at driver/device removal
+ * set_vpp:	method called to enable or disable VPP
+ * mmcontrol:	method called to enable or disable Sync. Burst Read in OneNAND
+ * parts:	optional array of mtd_partitions for static partitioning
+ * nr_parts:	number of mtd_partitions for static partitoning
+ * version:	software register interface version
+ */
 struct flash_platform_data {
 	const char	*map_name;
 	const char	*name;

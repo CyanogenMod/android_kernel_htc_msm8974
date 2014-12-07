@@ -45,7 +45,7 @@ static char version[] __devinitdata =
 #define TMS_PCI_IO_EXTENT 32
 
 struct card_info {
-	unsigned char nselout[2]; 
+	unsigned char nselout[2]; /* NSELOUT vals for 4mb([0]) and 16mb([1]) */
 	char *name;
 };
 
@@ -61,7 +61,7 @@ static DEFINE_PCI_DEVICE_TABLE(tmspci_pci_tbl) = {
 	{ PCI_VENDOR_ID_SYSKONNECT, PCI_DEVICE_ID_SYSKONNECT_TR, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 1 },
 	{ PCI_VENDOR_ID_TCONRAD, PCI_DEVICE_ID_TCONRAD_TOKENRING, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 2 },
 	{ PCI_VENDOR_ID_3COM, PCI_DEVICE_ID_3COM_3C339, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 3 },
-	{ }			
+	{ }			/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(pci, tmspci_pci_tbl);
 
@@ -106,11 +106,11 @@ static int __devinit tms_pci_attach(struct pci_dev *pdev, const struct pci_devic
 	if (pci_enable_device(pdev))
 		return -EIO;
 
-	
+	/* Remove I/O space marker in bit 0. */
 	pci_irq_line = pdev->irq;
 	pci_ioaddr = pci_resource_start (pdev, 0);
 
-	
+	/* At this point we have found a valid card. */
 	dev = alloc_trdev(sizeof(struct net_local));
 	if (!dev)
 		return -ENOMEM;
@@ -177,15 +177,24 @@ err_out_trdev:
 	return ret;
 }
 
+/*
+ * Reads MAC address from adapter RAM, which should've read it from
+ * the onboard ROM.  
+ *
+ * Calling this on a board that does not support it can be a very
+ * dangerous thing.  The Madge board, for instance, will lock your
+ * machine hard when this is called.  Luckily, its supported in a
+ * separate driver.  --ASF
+ */
 static void tms_pci_read_eeprom(struct net_device *dev)
 {
 	int i;
 	
-	
+	/* Address: 0000:0000 */
 	tms_pci_sifwritew(dev, 0, SIFADX);
 	tms_pci_sifwritew(dev, 0, SIFADR);	
 	
-	
+	/* Read six byte MAC address data */
 	dev->addr_len = 6;
 	for(i = 0; i < 6; i++)
 		dev->dev_addr[i] = tms_pci_sifreadw(dev, SIFINC) >> 8;
@@ -198,9 +207,9 @@ static unsigned short tms_pci_setnselout_pins(struct net_device *dev)
 	struct card_info *cardinfo = tp->tmspriv;
   
 	if(tp->DataRate == SPEED_4)
-		val |= cardinfo->nselout[0];	
+		val |= cardinfo->nselout[0];	/* Set 4Mbps */
 	else
-		val |= cardinfo->nselout[1];	
+		val |= cardinfo->nselout[1];	/* Set 16Mbps */
 	return val;
 }
 

@@ -169,10 +169,10 @@ static irqreturn_t snd_msnd_interrupt(int irq, void *dev_id)
 	struct snd_msnd *chip = dev_id;
 	void *pwDSPQData = chip->mappedbase + DSPQ_DATA_BUFF;
 
-	
-	
+	/* Send ack to DSP */
+	/* inb(chip->io + HP_RXL); */
 
-	
+	/* Evaluate queued DSP messages */
 	while (readw(chip->DSPQ + JQS_wTail) != readw(chip->DSPQ + JQS_wHead)) {
 		u16 wTmp;
 
@@ -185,7 +185,7 @@ static irqreturn_t snd_msnd_interrupt(int irq, void *dev_id)
 		else
 			writew(wTmp, chip->DSPQ + JQS_wHead);
 	}
-	
+	/* Send ack to DSP */
 	inb(chip->io + HP_RXL);
 	return IRQ_HANDLED;
 }
@@ -319,7 +319,7 @@ static int snd_msnd_init_sma(struct snd_msnd *chip)
 	outb(chip->memid, chip->io + HP_MEMM);
 #endif
 	outb(HPBLKSEL_0, chip->io + HP_BLKS);
-	
+	/* Motorola 56k shared memory base */
 	chip->SMA = chip->mappedbase + SMA_STRUCT_START;
 
 	if (initted) {
@@ -329,34 +329,34 @@ static int snd_msnd_init_sma(struct snd_msnd *chip)
 		mastVolLeft = mastVolRight = 0;
 	memset_io(chip->mappedbase, 0, 0x8000);
 
-	
+	/* Critical section: bank 1 access */
 	spin_lock_irqsave(&chip->lock, flags);
 	outb(HPBLKSEL_1, chip->io + HP_BLKS);
 	memset_io(chip->mappedbase, 0, 0x8000);
 	outb(HPBLKSEL_0, chip->io + HP_BLKS);
 	spin_unlock_irqrestore(&chip->lock, flags);
 
-	
+	/* Digital audio play queue */
 	chip->DAPQ = chip->mappedbase + DAPQ_OFFSET;
 	snd_msnd_init_queue(chip->DAPQ, DAPQ_DATA_BUFF, DAPQ_BUFF_SIZE);
 
-	
+	/* Digital audio record queue */
 	chip->DARQ = chip->mappedbase + DARQ_OFFSET;
 	snd_msnd_init_queue(chip->DARQ, DARQ_DATA_BUFF, DARQ_BUFF_SIZE);
 
-	
+	/* MIDI out queue */
 	chip->MODQ = chip->mappedbase + MODQ_OFFSET;
 	snd_msnd_init_queue(chip->MODQ, MODQ_DATA_BUFF, MODQ_BUFF_SIZE);
 
-	
+	/* MIDI in queue */
 	chip->MIDQ = chip->mappedbase + MIDQ_OFFSET;
 	snd_msnd_init_queue(chip->MIDQ, MIDQ_DATA_BUFF, MIDQ_BUFF_SIZE);
 
-	
+	/* DSP -> host message queue */
 	chip->DSPQ = chip->mappedbase + DSPQ_OFFSET;
 	snd_msnd_init_queue(chip->DSPQ, DSPQ_DATA_BUFF, DSPQ_BUFF_SIZE);
 
-	
+	/* Setup some DSP values */
 #ifndef MSND_CLASSIC
 	writew(1, chip->SMA + SMA_wCurrPlayFormat);
 	writew(chip->play_sample_size, chip->SMA + SMA_wCurrPlaySampleSize);
@@ -473,7 +473,7 @@ static int snd_msnd_dsp_full_reset(struct snd_card *card)
 		return 0;
 
 	set_bit(F_RESETTING, &chip->flags);
-	snd_msnd_dsp_halt(chip, NULL);	
+	snd_msnd_dsp_halt(chip, NULL);	/* Unconditionally halt */
 
 	rv = snd_msnd_initialize(card);
 	if (rv)
@@ -516,6 +516,9 @@ static int __devinit snd_msnd_calibrate_adc(struct snd_msnd *chip, u16 srate)
 	return -EIO;
 }
 
+/*
+ * ALSA callback function, called when attempting to open the MIDI device.
+ */
 static int snd_msnd_mpu401_open(struct snd_mpu401 *mpu)
 {
 	snd_msnd_enable_irq(mpu->private_data);
@@ -572,7 +575,7 @@ static int __devinit snd_msnd_attach(struct snd_card *card)
 	if (err < 0)
 		goto err_release_region;
 
-	
+	/* Register device */
 	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops);
 	if (err < 0)
 		goto err_release_region;
@@ -644,6 +647,7 @@ static void __devexit snd_msnd_unload(struct snd_card *card)
 
 #ifndef MSND_CLASSIC
 
+/* Pinnacle/Fiji Logical Device Configuration */
 
 static int __devinit snd_msnd_write_cfg(int cfg, int reg, int value)
 {
@@ -738,7 +742,7 @@ static int __devinit snd_msnd_pinnacle_cfg_reset(int cfg)
 {
 	int i;
 
-	
+	/* Reset devices if told to */
 	printk(KERN_INFO LOGNAME ": Resetting all devices\n");
 	for (i = 0; i < 4; ++i)
 		if (snd_msnd_write_cfg_logical(cfg, i, 0, 0, 0, 0))
@@ -748,8 +752,8 @@ static int __devinit snd_msnd_pinnacle_cfg_reset(int cfg)
 }
 #endif
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
 
 module_param_array(index, int, NULL, S_IRUGO);
 MODULE_PARM_DESC(index, "Index value for msnd_pinnacle soundcard.");
@@ -763,13 +767,16 @@ static long mem[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 #ifndef MSND_CLASSIC
 static long cfg[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 
+/* Extra Peripheral Configuration (Default: Disable) */
 static long ide_io0[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 static long ide_io1[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 static int ide_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;
 
 static long joystick_io[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
+/* If we have the digital daugherboard... */
 static int digital[SNDRV_CARDS];
 
+/* Extra Peripheral Configuration */
 static int reset[SNDRV_CARDS];
 #endif
 
@@ -842,7 +849,7 @@ static int __devinit snd_msnd_isa_match(struct device *pdev, unsigned int i)
 			"to 0x3E0 and must be evenly divisible by 0x10\n");
 		return 0;
 	}
-#endif 
+#endif /* MSND_CLASSIC */
 
 	if (!(irq[i] == 5 ||
 	      irq[i] == 7 ||
@@ -876,7 +883,7 @@ static int __devinit snd_msnd_isa_match(struct device *pdev, unsigned int i)
 			"(or unspecified for PnP mode)\n");
 		return 0;
 	}
-#endif 
+#endif /* MSND_CLASSIC */
 
 	return 1;
 }
@@ -951,7 +958,7 @@ static int __devinit snd_msnd_isa_probe(struct device *pdev, unsigned int idx)
 			goto cfg_error;
 		}
 
-	
+	/* DSP */
 	err = snd_msnd_write_cfg_logical(cfg[idx], 0,
 					 io[idx], 0,
 					 irq[idx], mem[idx]);
@@ -959,9 +966,9 @@ static int __devinit snd_msnd_isa_probe(struct device *pdev, unsigned int idx)
 	if (err)
 		goto cfg_error;
 
-	
+	/* The following are Pinnacle specific */
 
-	
+	/* MPU */
 	if (mpu_io[idx] != SNDRV_AUTO_PORT
 	    && mpu_irq[idx] != SNDRV_AUTO_IRQ) {
 		printk(KERN_INFO LOGNAME
@@ -975,7 +982,7 @@ static int __devinit snd_msnd_isa_probe(struct device *pdev, unsigned int idx)
 			goto cfg_error;
 	}
 
-	
+	/* IDE */
 	if (ide_io0[idx] != SNDRV_AUTO_PORT
 	    && ide_io1[idx] != SNDRV_AUTO_PORT
 	    && ide_irq[idx] != SNDRV_AUTO_IRQ) {
@@ -990,7 +997,7 @@ static int __devinit snd_msnd_isa_probe(struct device *pdev, unsigned int idx)
 			goto cfg_error;
 	}
 
-	
+	/* Joystick */
 	if (joystick_io[idx] != SNDRV_AUTO_PORT) {
 		printk(KERN_INFO LOGNAME
 		       ": Configuring joystick to I/O 0x%lx\n",
@@ -1004,7 +1011,7 @@ static int __devinit snd_msnd_isa_probe(struct device *pdev, unsigned int idx)
 	}
 	release_region(cfg[idx], 2);
 
-#endif 
+#endif /* MSND_CLASSIC */
 
 	set_default_audio_parameters(chip);
 #ifdef MSND_CLASSIC
@@ -1067,7 +1074,7 @@ static struct isa_driver snd_msnd_driver = {
 	.match		= snd_msnd_isa_match,
 	.probe		= snd_msnd_isa_probe,
 	.remove		= __devexit_p(snd_msnd_isa_remove),
-	
+	/* FIXME: suspend, resume */
 	.driver		= {
 		.name	= DEV_NAME
 	},
@@ -1091,6 +1098,9 @@ static int __devinit snd_msnd_pnp_detect(struct pnp_card_link *pcard,
 	if (idx >= SNDRV_CARDS)
 		return -ENODEV;
 
+	/*
+	 * Check that we still have room for another sound card ...
+	 */
 	pnp_dev = pnp_request_card_device(pcard, pid->devs[0].id, NULL);
 	if (!pnp_dev)
 		return -ENODEV;
@@ -1109,6 +1119,10 @@ static int __devinit snd_msnd_pnp_detect(struct pnp_card_link *pcard,
 		return -EBUSY;
 	}
 
+	/*
+	 * Create a new ALSA sound card entry, in anticipation
+	 * of detecting our hardware ...
+	 */
 	ret = snd_card_create(index[idx], id[idx], THIS_MODULE,
 			      sizeof(struct snd_msnd), &card);
 	if (ret < 0)
@@ -1118,6 +1132,9 @@ static int __devinit snd_msnd_pnp_detect(struct pnp_card_link *pcard,
 	chip->card = card;
 	snd_card_set_dev(card, &pcard->card->dev);
 
+	/*
+	 * Read the correct parameters off the ISA PnP bus ...
+	 */
 	io[idx] = pnp_port_start(pnp_dev, 0);
 	irq[idx] = pnp_irq(pnp_dev, 0);
 	mem[idx] = pnp_mem_start(pnp_dev, 0);
@@ -1178,9 +1195,9 @@ static int isa_registered;
 static int pnp_registered;
 
 static struct pnp_card_device_id msnd_pnpids[] = {
-	
+	/* Pinnacle PnP */
 	{ .id = "BVJ0440", .devs = { { "TBS0000" }, { "TBS0001" } } },
-	{ .id = "" }	
+	{ .id = "" }	/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp_card, msnd_pnpids);
@@ -1192,7 +1209,7 @@ static struct pnp_card_driver msnd_pnpc_driver = {
 	.probe = snd_msnd_pnp_detect,
 	.remove = __devexit_p(snd_msnd_pnp_remove),
 };
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init snd_msnd_init(void)
 {

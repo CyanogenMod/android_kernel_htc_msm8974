@@ -74,6 +74,9 @@ static struct resource video_rom_resource = {
 	.flags	= IORESOURCE_BUSY | IORESOURCE_READONLY | IORESOURCE_MEM
 };
 
+/* does this oprom support the given pci device, or any of the devices
+ * that the driver supports?
+ */
 static bool match_id(struct pci_dev *pdev, unsigned short vendor, unsigned short device)
 {
 	struct pci_driver *drv = pdev->driver;
@@ -198,7 +201,7 @@ void __init probe_roms(void)
 	unsigned char c;
 	int i;
 
-	
+	/* video rom */
 	upper = adapter_rom_resources[0].start;
 	for (start = video_rom_resource.start; start < upper; start += 2048) {
 		rom = isa_bus_to_virt(start);
@@ -210,10 +213,10 @@ void __init probe_roms(void)
 		if (probe_kernel_address(rom + 2, c) != 0)
 			continue;
 
-		
+		/* 0 < length <= 0x7f * 512, historically */
 		length = c * 512;
 
-		
+		/* if checksum okay, trust length byte */
 		if (length && romchecksum(rom, length))
 			video_rom_resource.end = start + length - 1;
 
@@ -225,11 +228,11 @@ void __init probe_roms(void)
 	if (start < upper)
 		start = upper;
 
-	
+	/* system rom */
 	request_resource(&iomem_resource, &system_rom_resource);
 	upper = system_rom_resource.start;
 
-	
+	/* check for extension rom (ignore length byte!) */
 	rom = isa_bus_to_virt(extension_rom_resource.start);
 	if (romsignature(rom)) {
 		length = resource_size(&extension_rom_resource);
@@ -239,7 +242,7 @@ void __init probe_roms(void)
 		}
 	}
 
-	
+	/* check for adapter roms on 2k boundaries */
 	for (i = 0; i < ARRAY_SIZE(adapter_rom_resources) && start < upper; start += 2048) {
 		rom = isa_bus_to_virt(start);
 		if (!romsignature(rom))
@@ -248,10 +251,10 @@ void __init probe_roms(void)
 		if (probe_kernel_address(rom + 2, c) != 0)
 			continue;
 
-		
+		/* 0 < length <= 0x7f * 512, historically */
 		length = c * 512;
 
-		
+		/* but accept any length that fits if checksum okay */
 		if (!length || start + length > upper || !romchecksum(rom, length))
 			continue;
 

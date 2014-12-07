@@ -14,6 +14,10 @@
 #ifndef __UNICORE_CHECKSUM_H__
 #define __UNICORE_CHECKSUM_H__
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 16-bit checksum, already complemented
+ */
 
 static inline __wsum
 csum_tcpudp_nofold(__be32 saddr, __be32 daddr, unsigned short len,

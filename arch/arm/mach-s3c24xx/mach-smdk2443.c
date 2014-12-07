@@ -48,7 +48,7 @@
 #include <plat/common-smdk.h>
 
 static struct map_desc smdk2443_iodesc[] __initdata = {
-	
+	/* ISA IO Space map (memory space selected by A24) */
 
 	{
 		.virtual	= (u32)S3C24XX_VA_ISA_WORD,
@@ -92,7 +92,7 @@ static struct s3c2410_uartcfg smdk2443_uartcfgs[] __initdata = {
 		.ulcon	     = 0x03,
 		.ufcon	     = 0x51,
 	},
-	
+	/* IR port */
 	[2] = {
 		.hwport	     = 2,
 		.flags	     = 0,
@@ -138,7 +138,7 @@ static void __init smdk2443_machine_init(void)
 }
 
 MACHINE_START(SMDK2443, "SMDK2443")
-	
+	/* Maintainer: Ben Dooks <ben-linux@fluff.org> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s3c24xx_init_irq,

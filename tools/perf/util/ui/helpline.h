@@ -13,4 +13,4 @@ void ui_helpline__puts(const char *msg);
 
 extern char ui_helpline__current[];
 
-#endif 
+#endif /* _PERF_UI_HELPLINE_H_ */

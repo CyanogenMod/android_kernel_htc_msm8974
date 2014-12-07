@@ -34,7 +34,7 @@ static int lcdc_sharp_panel_off(struct platform_device *pdev);
 #ifdef CONFIG_PMIC8058_PWM
 static struct pwm_device *bl_pwm;
 
-#define PWM_PERIOD	1000	
+#define PWM_PERIOD	1000	/* us, period of 1Khz */
 #define DUTY_LEVEL	(PWM_PERIOD / BL_MAX)
 #endif
 
@@ -43,14 +43,14 @@ static int spi_cs;
 static int spi_sclk;
 static int spi_mosi;
 static int spi_miso;
-static unsigned char bit_shift[8] = { (1 << 7),	
+static unsigned char bit_shift[8] = { (1 << 7),	/* MSB */
 	(1 << 6),
 	(1 << 5),
 	(1 << 4),
 	(1 << 3),
 	(1 << 2),
 	(1 << 1),
-	(1 << 0)		               
+	(1 << 0)		               /* LSB */
 };
 #endif
 
@@ -132,15 +132,15 @@ static void sharp_spi_write_byte(u8 val)
 {
 	int i;
 
-	
+	/* Clock should be Low before entering */
 	for (i = 0; i < 8; i++) {
-		
+		/* #1: Drive the Data (High or Low) */
 		if (val & bit_shift[i])
 			gpio_set_value(spi_mosi, 1);
 		else
 			gpio_set_value(spi_mosi, 0);
 
-		
+		/* #2: Drive the Clk High and then Low */
 		gpio_set_value(spi_sclk, 1);
 		gpio_set_value(spi_sclk, 0);
 	}
@@ -173,14 +173,14 @@ static int serigo(u8 reg, u8 data)
 	rc = spi_sync(lcdc_spi_client, &m);
 	return rc;
 #else
-	
+	/* Enable the Chip Select - low */
 	gpio_set_value(spi_cs, 0);
 	udelay(1);
 
-	
+	/* Transmit register address first, then data */
 	sharp_spi_write_byte(reg);
 
-	
+	/* Idle state of MOSI is Low */
 	gpio_set_value(spi_mosi, 0);
 	udelay(1);
 	sharp_spi_write_byte(data);
@@ -199,11 +199,11 @@ static void sharp_spi_init(void)
 	spi_mosi = *(lcdc_sharp_pdata->gpio_num + 2);
 	spi_miso = *(lcdc_sharp_pdata->gpio_num + 3);
 
-	
+	/* Set the output so that we don't disturb the slave device */
 	gpio_set_value(spi_sclk, 0);
 	gpio_set_value(spi_mosi, 0);
 
-	
+	/* Set the Chip Select deasserted (active low) */
 	gpio_set_value(spi_cs, 1);
 }
 #endif

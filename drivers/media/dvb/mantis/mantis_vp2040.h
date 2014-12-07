@@ -29,4 +29,4 @@
 
 extern struct mantis_hwconfig vp2040_config;
 
-#endif 
+#endif /* __MANTIS_VP2040_H */

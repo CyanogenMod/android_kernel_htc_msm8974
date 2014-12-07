@@ -24,6 +24,12 @@
 #define SCL		0x02
 #define SDA		0x01
 
+/*
+ * We must preserve all non-i2c output bits in IOC_CONTROL.
+ * Note also that we need to preserve the value of SCL and
+ * SDA outputs as well (which may be different from the
+ * values read back from IOC_CONTROL).
+ */
 static u_int force_ones;
 
 static void ioc_setscl(void *data, int state)

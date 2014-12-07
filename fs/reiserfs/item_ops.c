@@ -5,8 +5,15 @@
 #include <linux/time.h>
 #include "reiserfs.h"
 
+// this contains item handlers for old item types: sd, direct,
+// indirect, directory
 
+/* and where are the comments? how about saying where we can find an
+   explanation of each item handler method? -Hans */
 
+//////////////////////////////////////////////////////////////////////////////
+// stat data functions
+//
 static int sd_bytes_number(struct item_head *ih, int block_size)
 {
 	return 0;
@@ -53,7 +60,7 @@ static void sd_print_item(struct item_head *ih, char *item)
 
 static void sd_check_item(struct item_head *ih, char *item)
 {
-	
+	// FIXME: type something here!
 }
 
 static int sd_create_vi(struct virtual_node *vn,
@@ -61,7 +68,7 @@ static int sd_create_vi(struct virtual_node *vn,
 			int is_affected, int insert_size)
 {
 	vi->vi_index = TYPE_STAT_DATA;
-	
+	//vi->vi_type |= VI_TYPE_STAT_DATA;// not needed?
 	return 0;
 }
 
@@ -110,11 +117,15 @@ static struct item_operations stat_data_ops = {
 	.print_vi = sd_print_vi
 };
 
+//////////////////////////////////////////////////////////////////////////////
+// direct item functions
+//
 static int direct_bytes_number(struct item_head *ih, int block_size)
 {
 	return ih_item_len(ih);
 }
 
+// FIXME: this should probably switch to indirect as well
 static void direct_decrement_key(struct cpu_key *key)
 {
 	cpu_key_k_offset_dec(key);
@@ -133,6 +144,7 @@ static void direct_print_item(struct item_head *ih, char *item)
 {
 	int j = 0;
 
+//    return;
 	printk("\"");
 	while (j < ih_item_len(ih))
 		printk("%c", item[j++]);
@@ -141,7 +153,7 @@ static void direct_print_item(struct item_head *ih, char *item)
 
 static void direct_check_item(struct item_head *ih, char *item)
 {
-	
+	// FIXME: type something here!
 }
 
 static int direct_create_vi(struct virtual_node *vn,
@@ -149,7 +161,7 @@ static int direct_create_vi(struct virtual_node *vn,
 			    int is_affected, int insert_size)
 {
 	vi->vi_index = TYPE_DIRECT;
-	
+	//vi->vi_type |= VI_TYPE_DIRECT;
 	return 0;
 }
 
@@ -199,12 +211,16 @@ static struct item_operations direct_ops = {
 	.print_vi = direct_print_vi
 };
 
+//////////////////////////////////////////////////////////////////////////////
+// indirect item functions
+//
 
 static int indirect_bytes_number(struct item_head *ih, int block_size)
 {
-	return ih_item_len(ih) / UNFM_P_SIZE * block_size;	
+	return ih_item_len(ih) / UNFM_P_SIZE * block_size;	//- get_ih_free_space (ih);
 }
 
+// decrease offset, if it becomes 0, change type to stat data
 static void indirect_decrement_key(struct cpu_key *key)
 {
 	cpu_key_k_offset_dec(key);
@@ -212,6 +228,7 @@ static void indirect_decrement_key(struct cpu_key *key)
 		set_cpu_key_k_type(key, TYPE_STAT_DATA);
 }
 
+// if it is not first item of the body, then it is mergeable
 static int indirect_is_left_mergeable(struct reiserfs_key *key,
 				      unsigned long bsize)
 {
@@ -219,6 +236,7 @@ static int indirect_is_left_mergeable(struct reiserfs_key *key,
 	return (le_key_k_offset(version, key) != 1);
 }
 
+// printing of indirect item
 static void start_new_sequence(__u32 * start, int *len, __u32 new)
 {
 	*start = new;
@@ -277,7 +295,7 @@ static void indirect_print_item(struct item_head *ih, char *item)
 
 static void indirect_check_item(struct item_head *ih, char *item)
 {
-	
+	// FIXME: type something here!
 }
 
 static int indirect_create_vi(struct virtual_node *vn,
@@ -285,7 +303,7 @@ static int indirect_create_vi(struct virtual_node *vn,
 			      int is_affected, int insert_size)
 {
 	vi->vi_index = TYPE_INDIRECT;
-	
+	//vi->vi_type |= VI_TYPE_INDIRECT;
 	return 0;
 }
 
@@ -303,15 +321,16 @@ static int indirect_check_right(struct virtual_item *vi, int free)
 	return indirect_check_left(vi, free, 0, 0);
 }
 
+// return size in bytes of 'units' units. If first == 0 - calculate from the head (left), otherwise - from tail (right)
 static int indirect_part_size(struct virtual_item *vi, int first, int units)
 {
-	
+	// unit of indirect item is byte (yet)
 	return units;
 }
 
 static int indirect_unit_num(struct virtual_item *vi)
 {
-	
+	// unit of indirect item is byte (yet)
 	return vi->vi_item_len - IH_SIZE;
 }
 
@@ -337,6 +356,9 @@ static struct item_operations indirect_ops = {
 	.print_vi = indirect_print_vi
 };
 
+//////////////////////////////////////////////////////////////////////////////
+// direntry functions
+//
 
 static int direntry_bytes_number(struct item_head *ih, int block_size)
 {
@@ -406,7 +428,7 @@ static void direntry_check_item(struct item_head *ih, char *item)
 	int i;
 	struct reiserfs_de_head *deh;
 
-	
+	// FIXME: type something here!
 	deh = (struct reiserfs_de_head *)item;
 	for (i = 0; i < I_ENTRY_COUNT(ih); i++, deh++) {
 		;
@@ -415,6 +437,9 @@ static void direntry_check_item(struct item_head *ih, char *item)
 
 #define DIRENTRY_VI_FIRST_DIRENTRY_ITEM 1
 
+/*
+ * function returns old entry number in directory item in real node
+ * using new entry number in virtual item in virtual node */
 static inline int old_entry_num(int is_affected, int virtual_entry_num,
 				int pos_in_item, int mode)
 {
@@ -422,7 +447,7 @@ static inline int old_entry_num(int is_affected, int virtual_entry_num,
 		return virtual_entry_num;
 
 	if (!is_affected)
-		
+		/* cut or paste is applied to another item */
 		return virtual_entry_num;
 
 	if (virtual_entry_num < pos_in_item)
@@ -438,6 +463,9 @@ static inline int old_entry_num(int is_affected, int virtual_entry_num,
 	return virtual_entry_num - 1;
 }
 
+/* Create an array of sizes of directory entries for virtual
+   item. Return space used by an item. FIXME: no control over
+   consuming of space used by this item handler */
 static int direntry_create_vi(struct virtual_node *vn,
 			      struct virtual_item *vi,
 			      int is_affected, int insert_size)
@@ -457,7 +485,7 @@ static int direntry_create_vi(struct virtual_node *vn,
 
 	deh = (struct reiserfs_de_head *)(vi->vi_item);
 
-	
+	/* virtual directory item have this amount of entry after */
 	dir_u->entry_count = ih_entry_count(vi->vi_ih) +
 	    ((is_affected) ? ((vn->vn_mode == M_CUT) ? -1 :
 			      (vn->vn_mode == M_PASTE ? 1 : 0)) : 0);
@@ -472,12 +500,12 @@ static int direntry_create_vi(struct virtual_node *vn,
 
 	size += (dir_u->entry_count * sizeof(short));
 
-	
+	/* set size of pasted entry */
 	if (is_affected && vn->vn_mode == M_PASTE)
 		dir_u->entry_sizes[vn->vn_pos_in_item] = insert_size;
 
 #ifdef CONFIG_REISERFS_CHECK
-	
+	/* compare total size of entries with item length */
 	{
 		int k, l;
 
@@ -501,6 +529,10 @@ static int direntry_create_vi(struct virtual_node *vn,
 
 }
 
+//
+// return number of entries which may fit into specified amount of
+// free space, or -1 if free space is not enough even for 1 entry
+//
 static int direntry_check_left(struct virtual_item *vi, int free,
 			       int start_skip, int end_skip)
 {
@@ -510,7 +542,7 @@ static int direntry_check_left(struct virtual_item *vi, int free,
 
 	for (i = start_skip; i < dir_u->entry_count - end_skip; i++) {
 		if (dir_u->entry_sizes[i] > free)
-			
+			/* i-th entry doesn't fit into the remaining free space */
 			break;
 
 		free -= dir_u->entry_sizes[i];
@@ -523,7 +555,7 @@ static int direntry_check_left(struct virtual_item *vi, int free,
 			       dir_u->entry_count);
 	}
 
-	
+	/* "." and ".." can not be separated from each other */
 	if (start_skip == 0 && (dir_u->flags & DIRENTRY_VI_FIRST_DIRENTRY_ITEM)
 	    && entries < 2)
 		entries = 0;
@@ -539,7 +571,7 @@ static int direntry_check_right(struct virtual_item *vi, int free)
 
 	for (i = dir_u->entry_count - 1; i >= 0; i--) {
 		if (dir_u->entry_sizes[i] > free)
-			
+			/* i-th entry doesn't fit into the remaining free space */
 			break;
 
 		free -= dir_u->entry_sizes[i];
@@ -547,7 +579,7 @@ static int direntry_check_right(struct virtual_item *vi, int free)
 	}
 	BUG_ON(entries == dir_u->entry_count);
 
-	
+	/* "." and ".." can not be separated from each other */
 	if ((dir_u->flags & DIRENTRY_VI_FIRST_DIRENTRY_ITEM)
 	    && entries > dir_u->entry_count - 2)
 		entries = dir_u->entry_count - 2;
@@ -555,6 +587,7 @@ static int direntry_check_right(struct virtual_item *vi, int free)
 	return entries ? : -1;
 }
 
+/* sum of entry sizes between from-th and to-th entries including both edges */
 static int direntry_part_size(struct virtual_item *vi, int first, int count)
 {
 	int i, retval;
@@ -610,6 +643,9 @@ static struct item_operations direntry_ops = {
 	.print_vi = direntry_print_vi
 };
 
+//////////////////////////////////////////////////////////////////////////////
+// Error catching functions to catch errors caused by incorrect item types.
+//
 static int errcatch_bytes_number(struct item_head *ih, int block_size)
 {
 	reiserfs_warning(NULL, "green-16001",
@@ -649,8 +685,8 @@ static int errcatch_create_vi(struct virtual_node *vn,
 {
 	reiserfs_warning(NULL, "green-16006",
 			 "Invalid item type observed, run fsck ASAP");
-	return 0;		
-	
+	return 0;		// We might return -1 here as well, but it won't help as create_virtual_node() from where
+	// this operation is called from is of return type void.
 }
 
 static int errcatch_check_left(struct virtual_item *vi, int free,
@@ -703,6 +739,9 @@ static struct item_operations errcatch_ops = {
 	errcatch_print_vi
 };
 
+//////////////////////////////////////////////////////////////////////////////
+//
+//
 #if ! (TYPE_STAT_DATA == 0 && TYPE_INDIRECT == 1 && TYPE_DIRECT == 2 && TYPE_DIRENTRY == 3)
 #error Item types must use disk-format assigned values.
 #endif
@@ -713,5 +752,5 @@ struct item_operations *item_ops[TYPE_ANY + 1] = {
 	&direct_ops,
 	&direntry_ops,
 	NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-	&errcatch_ops		
+	&errcatch_ops		/* This is to catch errors with invalid type (15th entry for TYPE_ANY) */
 };

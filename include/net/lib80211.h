@@ -30,6 +30,8 @@
 #include <linux/skbuff.h>
 #include <linux/ieee80211.h>
 #include <linux/timer.h>
+/* print_ssid() is intended to be used in debug (and possibly error)
+ * messages. It should never be used for passing ssid to user space. */
 const char *print_ssid(char *buf, const char *ssid, u8 ssid_len);
 #define DECLARE_SSID_BUF(var) char var[IEEE80211_MAX_SSID_LEN * 4 + 1] __maybe_unused
 
@@ -45,14 +47,25 @@ struct lib80211_crypto_ops {
 	const char *name;
 	struct list_head list;
 
+	/* init new crypto context (e.g., allocate private data space,
+	 * select IV, etc.); returns NULL on failure or pointer to allocated
+	 * private data on success */
 	void *(*init) (int keyidx);
 
-	
+	/* deinitialize crypto context and free allocated private data */
 	void (*deinit) (void *priv);
 
+	/* encrypt/decrypt return < 0 on error or >= 0 on success. The return
+	 * value from decrypt_mpdu is passed as the keyidx value for
+	 * decrypt_msdu. skb must have enough head and tail room for the
+	 * encryption; if not, error will be returned; these functions are
+	 * called for all MPDUs (i.e., fragments).
+	 */
 	int (*encrypt_mpdu) (struct sk_buff * skb, int hdr_len, void *priv);
 	int (*decrypt_mpdu) (struct sk_buff * skb, int hdr_len, void *priv);
 
+	/* These functions are called for full MSDUs, i.e. full frames.
+	 * These can be NULL if full MSDU operations are not needed. */
 	int (*encrypt_msdu) (struct sk_buff * skb, int hdr_len, void *priv);
 	int (*decrypt_msdu) (struct sk_buff * skb, int keyidx, int hdr_len,
 			     void *priv);
@@ -60,12 +73,19 @@ struct lib80211_crypto_ops {
 	int (*set_key) (void *key, int len, u8 * seq, void *priv);
 	int (*get_key) (void *key, int len, u8 * seq, void *priv);
 
+	/* procfs handler for printing out key information and possible
+	 * statistics */
 	char *(*print_stats) (char *p, void *priv);
 
-	
+	/* Crypto specific flag get/set for configuration settings */
 	unsigned long (*get_flags) (void *priv);
 	unsigned long (*set_flags) (unsigned long flags, void *priv);
 
+	/* maximum number of bytes added by encryption; encrypt buf is
+	 * allocated with extra_prefix_len bytes, copy of in_buf, and
+	 * extra_postfix_len; encrypt need not use all this space, but
+	 * the result must start at the beginning of the buffer and correct
+	 * length must be returned */
 	int extra_mpdu_prefix_len, extra_mpdu_postfix_len;
 	int extra_msdu_prefix_len, extra_msdu_postfix_len;
 
@@ -73,7 +93,7 @@ struct lib80211_crypto_ops {
 };
 
 struct lib80211_crypt_data {
-	struct list_head list;	
+	struct list_head list;	/* delayed deletion list */
 	struct lib80211_crypto_ops *ops;
 	void *priv;
 	atomic_t refcnt;
@@ -81,10 +101,12 @@ struct lib80211_crypt_data {
 
 struct lib80211_crypt_info {
 	char *name;
+	/* Most clients will already have a lock,
+	   so just point to that. */
 	spinlock_t *lock;
 
 	struct lib80211_crypt_data *crypt[NUM_WEP_KEYS];
-	int tx_keyidx;		
+	int tx_keyidx;		/* default TX key index (crypt[tx_keyidx]) */
 	struct list_head crypt_deinit_list;
 	struct timer_list crypt_deinit_timer;
 	int crypt_quiesced;
@@ -99,4 +121,4 @@ struct lib80211_crypto_ops *lib80211_get_crypto_ops(const char *name);
 void lib80211_crypt_delayed_deinit(struct lib80211_crypt_info *info,
 				    struct lib80211_crypt_data **crypt);
 
-#endif 
+#endif /* LIB80211_H */

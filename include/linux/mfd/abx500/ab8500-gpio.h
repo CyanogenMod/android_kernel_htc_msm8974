@@ -8,6 +8,11 @@
 #ifndef _AB8500_GPIO_H
 #define _AB8500_GPIO_H
 
+/*
+ * Platform data to register a block: only the initial gpio/irq number.
+ * Array sizes are large enough to contain all AB8500 and AB9540 GPIO
+ * registers.
+ */
 
 struct ab8500_gpio_platform_data {
 	int gpio_base;
@@ -15,4 +20,4 @@ struct ab8500_gpio_platform_data {
 	u8  config_reg[8];
 };
 
-#endif 
+#endif /* _AB8500_GPIO_H */

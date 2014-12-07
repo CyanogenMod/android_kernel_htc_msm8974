@@ -67,6 +67,8 @@
 #endif
 
 
+/* read_token is a mic token, and message_buffer is the data that the mic was
+ * supposedly taken over. */
 
 static u32
 gss_verify_mic_v1(struct krb5_ctx *ctx,
@@ -94,7 +96,7 @@ gss_verify_mic_v1(struct krb5_ctx *ctx,
 	    (ptr[1] !=  (KG_TOK_MIC_MSG & 0xff)))
 		return GSS_S_DEFECTIVE_TOKEN;
 
-	
+	/* XXX sanity-check bodysize?? */
 
 	signalg = ptr[2] + (ptr[3] << 8);
 	if (signalg != ctx->gk5e->signalg)
@@ -120,14 +122,14 @@ gss_verify_mic_v1(struct krb5_ctx *ctx,
 					ctx->gk5e->cksumlength))
 		return GSS_S_BAD_SIG;
 
-	
+	/* it got through unscathed.  Make sure the context is unexpired */
 
 	now = get_seconds();
 
 	if (now > ctx->endtime)
 		return GSS_S_CONTEXT_EXPIRED;
 
-	
+	/* do sequencing checks */
 
 	if (krb5_get_seq_num(ctx, ptr + GSS_KRB5_TOK_HDR_LEN, ptr + 8,
 			     &direction, &seqnum))
@@ -190,12 +192,12 @@ gss_verify_mic_v2(struct krb5_ctx *ctx,
 				ctx->gk5e->cksumlength))
 		return GSS_S_BAD_SIG;
 
-	
+	/* it got through unscathed.  Make sure the context is unexpired */
 	now = get_seconds();
 	if (now > ctx->endtime)
 		return GSS_S_CONTEXT_EXPIRED;
 
-	
+	/* do sequencing checks */
 
 	seqnum = be64_to_cpup((__be64 *)ptr + 8);
 

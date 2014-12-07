@@ -77,6 +77,7 @@ int yyparse(void);
 
 void error_with_pos(const char *, ...);
 
+/*----------------------------------------------------------------------*/
 #define xmalloc(size) ({ void *__ptr = malloc(size);		\
 	if(!__ptr && size != 0) {				\
 		fprintf(stderr, "out of memory\n");		\
@@ -90,4 +91,4 @@ void error_with_pos(const char *, ...);
 	}							\
 	__str; })
 
-#endif				
+#endif				/* genksyms.h */

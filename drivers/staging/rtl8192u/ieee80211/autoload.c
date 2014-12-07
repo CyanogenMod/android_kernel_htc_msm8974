@@ -14,11 +14,16 @@
 #include "kmap_types.h"
 
 #include <linux/kernel.h>
+//#include <linux/crypto.h>
 #include "rtl_crypto.h"
 #include <linux/string.h>
 #include <linux/kmod.h>
 #include "internal.h"
 
+/*
+ * A far more intelligent version of this is planned.  For now, just
+ * try an exact match on the name of the algorithm.
+ */
 void crypto_alg_autoload(const char *name)
 {
 	request_module(name);

@@ -14,19 +14,32 @@
 
 #include <asm/processor.h>
 
+/*
+ * low level task data that entry.S needs immediate access to
+ * - this struct should fit entirely inside of one cache line
+ * - this struct shares the supervisor stack pages
+ * - if the contents of this structure are changed, the assembly constants
+ *   must also be changed
+ */
 struct thread_info {
-	struct task_struct	*task;		
-	struct exec_domain	*exec_domain;	
-	unsigned long		flags;		
-	unsigned long		tp_value;	
-	__u32			cpu;		
-	int			preempt_count;	
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain	*exec_domain;	/* execution domain */
+	unsigned long		flags;		/* low level flags */
+	unsigned long		tp_value;	/* thread pointer */
+	__u32			cpu;		/* current CPU */
+	int			preempt_count;	/* 0 => preemptable, <0 => BUG */
 
-	mm_segment_t		addr_limit;	
+	mm_segment_t		addr_limit;	/* thread address space:
+						   0-0xBFFFFFFF for user-thead
+						   0-0xFFFFFFFF for kernel-thread
+						*/
 	struct restart_block	restart_block;
 	struct pt_regs		*regs;
 };
 
+/*
+ * macros/functions for gaining access to the thread information structure
+ */
 #define INIT_THREAD_INFO(tsk)			\
 {						\
 	.task		= &tsk,			\
@@ -43,9 +56,11 @@ struct thread_info {
 #define init_thread_info	(init_thread_union.thread_info)
 #define init_stack		(init_thread_union.stack)
 
+/* How to get the thread information struct from C.  */
 register struct thread_info *__current_thread_info __asm__("$28");
 #define current_thread_info()  __current_thread_info
 
+/* thread information allocation */
 #if defined(CONFIG_PAGE_SIZE_4KB) && defined(CONFIG_32BIT)
 #define THREAD_SIZE_ORDER (1)
 #endif
@@ -82,32 +97,39 @@ register struct thread_info *__current_thread_info __asm__("$28");
 
 #define free_thread_info(info) kfree(info)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define PREEMPT_ACTIVE		0x10000000
 
-#define TIF_SIGPENDING		1	
-#define TIF_NEED_RESCHED	2	
-#define TIF_SYSCALL_AUDIT	3	
-#define TIF_SECCOMP		4	
-#define TIF_NOTIFY_RESUME	5	
-#define TIF_RESTORE_SIGMASK	9	
-#define TIF_USEDFPU		16	
-#define TIF_POLLING_NRFLAG	17	
-#define TIF_MEMDIE		18	
-#define TIF_FIXADE		20	
-#define TIF_LOGADE		21	
-#define TIF_32BIT_REGS		22	
-#define TIF_32BIT_ADDR		23	
-#define TIF_FPUBOUND		24	
-#define TIF_LOAD_WATCH		25	
-#define TIF_SYSCALL_TRACE	31	
+/*
+ * thread information flags
+ * - these are process state flags that various assembly files may need to
+ *   access
+ * - pending work-to-be-done flags are in LSW
+ * - other flags in MSW
+ */
+#define TIF_SIGPENDING		1	/* signal pending */
+#define TIF_NEED_RESCHED	2	/* rescheduling necessary */
+#define TIF_SYSCALL_AUDIT	3	/* syscall auditing active */
+#define TIF_SECCOMP		4	/* secure computing */
+#define TIF_NOTIFY_RESUME	5	/* callback before returning to user */
+#define TIF_RESTORE_SIGMASK	9	/* restore signal mask in do_signal() */
+#define TIF_USEDFPU		16	/* FPU was used by this task this quantum (SMP) */
+#define TIF_POLLING_NRFLAG	17	/* true if poll_idle() is polling TIF_NEED_RESCHED */
+#define TIF_MEMDIE		18	/* is terminating due to OOM killer */
+#define TIF_FIXADE		20	/* Fix address errors in software */
+#define TIF_LOGADE		21	/* Log address errors to syslog */
+#define TIF_32BIT_REGS		22	/* also implies 16/32 fprs */
+#define TIF_32BIT_ADDR		23	/* 32-bit address space (o32/n32) */
+#define TIF_FPUBOUND		24	/* thread bound to FPU-full CPU set */
+#define TIF_LOAD_WATCH		25	/* If set, load watch registers */
+#define TIF_SYSCALL_TRACE	31	/* syscall trace active */
 
 #ifdef CONFIG_MIPS32_O32
 #define TIF_32BIT TIF_32BIT_REGS
 #elif defined(CONFIG_MIPS32_N32)
 #define TIF_32BIT _TIF_32BIT_ADDR
-#endif 
+#endif /* CONFIG_MIPS32_O32 */
 
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
 #define _TIF_SIGPENDING		(1<<TIF_SIGPENDING)
@@ -125,12 +147,15 @@ register struct thread_info *__current_thread_info __asm__("$28");
 #define _TIF_FPUBOUND		(1<<TIF_FPUBOUND)
 #define _TIF_LOAD_WATCH		(1<<TIF_LOAD_WATCH)
 
+/* work to do in syscall_trace_leave() */
 #define _TIF_WORK_SYSCALL_EXIT	(_TIF_SYSCALL_TRACE | _TIF_SYSCALL_AUDIT)
 
+/* work to do on interrupt/exception return */
 #define _TIF_WORK_MASK		(0x0000ffef &				\
 					~(_TIF_SECCOMP | _TIF_SYSCALL_AUDIT))
+/* work to do on any return to u-space */
 #define _TIF_ALLWORK_MASK	(0x8000ffff & ~_TIF_SECCOMP)
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_THREAD_INFO_H */

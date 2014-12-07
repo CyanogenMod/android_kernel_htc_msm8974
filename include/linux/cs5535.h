@@ -13,10 +13,12 @@
 
 #include <asm/msr.h>
 
+/* MSRs */
 #define MSR_GLIU_P2D_RO0	0x10000029
 
 #define MSR_LX_GLD_MSR_CONFIG	0x48002001
-#define MSR_LX_MSR_PADSEL	0x48002011	
+#define MSR_LX_MSR_PADSEL	0x48002011	/* NOT 0x48000011; the data
+						 * sheet has the wrong value */
 #define MSR_GLCP_SYS_RSTPLL	0x4C000014
 #define MSR_GLCP_DOTPLL		0x4C000015
 
@@ -42,7 +44,7 @@
 #define MSR_RTC_MONA_OFFSET	0x51400056
 #define MSR_RTC_CEN_OFFSET	0x51400057
 
-#define MSR_LX_SPARE_MSR	0x80000011	
+#define MSR_LX_SPARE_MSR	0x80000011	/* DC-specific */
 
 #define MSR_GX_GLD_MSR_CONFIG	0xC0002001
 #define MSR_GX_MSR_PADSEL	0xC0002011
@@ -59,45 +61,62 @@ static inline int cs5535_pic_unreqz_select_high(unsigned int group,
 	return 0;
 }
 
+/* PIC registers */
 #define CS5536_PIC_INT_SEL1	0x4d0
 #define CS5536_PIC_INT_SEL2	0x4d1
 
+/* resource sizes */
 #define LBAR_GPIO_SIZE		0xFF
 #define LBAR_MFGPT_SIZE		0x40
 #define LBAR_ACPI_SIZE		0x40
 #define LBAR_PMS_SIZE		0x80
 
+/*
+ * PMC registers (PMS block)
+ * It is only safe to access these registers as dword accesses.
+ * See CS5536 Specification Update erratas 17 & 18
+ */
 #define CS5536_PM_SCLK		0x10
 #define CS5536_PM_IN_SLPCTL	0x20
 #define CS5536_PM_WKXD		0x34
 #define CS5536_PM_WKD		0x30
 #define CS5536_PM_SSC		0x54
 
+/*
+ * PM registers (ACPI block)
+ * It is only safe to access these registers as dword accesses.
+ * See CS5536 Specification Update erratas 17 & 18
+ */
 #define CS5536_PM1_STS		0x00
 #define CS5536_PM1_EN		0x02
 #define CS5536_PM1_CNT		0x08
 #define CS5536_PM_GPE0_STS	0x18
 #define CS5536_PM_GPE0_EN	0x1c
 
+/* CS5536_PM1_STS bits */
 #define CS5536_WAK_FLAG		(1 << 15)
 #define CS5536_PWRBTN_FLAG	(1 << 8)
 
+/* CS5536_PM1_EN bits */
 #define CS5536_PM_PWRBTN	(1 << 8)
 #define CS5536_PM_RTC		(1 << 10)
 
+/* CS5536_PM_GPE0_STS bits */
 #define CS5536_GPIOM7_PME_FLAG	(1 << 31)
 #define CS5536_GPIOM6_PME_FLAG	(1 << 30)
 
+/* CS5536_PM_GPE0_EN bits */
 #define CS5536_GPIOM7_PME_EN	(1 << 31)
 #define CS5536_GPIOM6_PME_EN	(1 << 30)
 
+/* VSA2 magic values */
 #define VSA_VRC_INDEX		0xAC1C
 #define VSA_VRC_DATA		0xAC1E
-#define VSA_VR_UNLOCK		0xFC53  
+#define VSA_VR_UNLOCK		0xFC53  /* unlock virtual register */
 #define VSA_VR_SIGNATURE	0x0003
 #define VSA_VR_MEM_SIZE		0x0200
-#define AMD_VSA_SIG		0x4132  
-#define GSW_VSA_SIG		0x534d  
+#define AMD_VSA_SIG		0x4132  /* signature is ascii 'VSA2' */
+#define GSW_VSA_SIG		0x534d  /* General Software signature */
 
 #include <linux/io.h>
 
@@ -108,6 +127,10 @@ static inline int cs5535_has_vsa2(void)
 	if (has_vsa2 == -1) {
 		uint16_t val;
 
+		/*
+		 * The VSA has virtual registers that we can query for a
+		 * signature.
+		 */
 		outw(VSA_VR_UNLOCK, VSA_VRC_INDEX);
 		outw(VSA_VR_SIGNATURE, VSA_VRC_INDEX);
 
@@ -118,6 +141,7 @@ static inline int cs5535_has_vsa2(void)
 	return has_vsa2;
 }
 
+/* GPIOs */
 #define GPIO_OUTPUT_VAL		0x00
 #define GPIO_OUTPUT_ENABLE	0x04
 #define GPIO_OUTPUT_OPEN_DRAIN	0x08
@@ -154,6 +178,7 @@ int cs5535_gpio_isset(unsigned offset, unsigned int reg);
 int cs5535_gpio_set_irq(unsigned group, unsigned irq);
 void cs5535_gpio_setup_event(unsigned offset, int pair, int pme);
 
+/* MFGPTs */
 
 #define MFGPT_MAX_TIMERS	8
 #define MFGPT_TIMER_ANY		(-1)

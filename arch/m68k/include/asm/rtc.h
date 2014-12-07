@@ -17,18 +17,25 @@
 #include <asm/errno.h>
 #include <asm/machdep.h>
 
-#define RTC_PIE 0x40		
-#define RTC_AIE 0x20		
-#define RTC_UIE 0x10		
+#define RTC_PIE 0x40		/* periodic interrupt enable */
+#define RTC_AIE 0x20		/* alarm interrupt enable */
+#define RTC_UIE 0x10		/* update-finished interrupt enable */
 
-#define RTC_BATT_BAD 0x100	
-#define RTC_SQWE 0x08		
-#define RTC_DM_BINARY 0x04	
-#define RTC_24H 0x02		
-#define RTC_DST_EN 0x01	        
+/* some dummy definitions */
+#define RTC_BATT_BAD 0x100	/* battery bad */
+#define RTC_SQWE 0x08		/* enable square-wave output */
+#define RTC_DM_BINARY 0x04	/* all time/date values are BCD if clear */
+#define RTC_24H 0x02		/* 24 hour mode - else hours bit 7 means pm */
+#define RTC_DST_EN 0x01	        /* auto switch DST - works f. USA only */
 
 static inline unsigned int get_rtc_time(struct rtc_time *time)
 {
+	/*
+	 * Only the values that we read from the RTC are set. We leave
+	 * tm_wday, tm_yday and tm_isdst untouched. Even though the
+	 * RTC has RTC_DAY_OF_WEEK, we ignore it, as it is only updated
+	 * by the RTC when initially set to a non-zero value.
+	 */
 	if (mach_hwclk)
 		mach_hwclk(0, time);
 	return RTC_24H;
@@ -67,6 +74,6 @@ static inline int set_rtc_pll(struct rtc_pll_info *pll)
 	else
 		return -EINVAL;
 }
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM__RTC_H */

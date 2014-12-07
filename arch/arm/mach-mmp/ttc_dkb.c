@@ -33,14 +33,19 @@
 #define TTCDKB_GPIO_EXT1(x)	(MMP_NR_BUILTIN_GPIO + 16 + ((x < 0) ? 0 : \
 				((x < 16) ? x : 15)))
 
+/*
+ * 16 board interrupts -- MAX7312 GPIO expander
+ * 16 board interrupts -- PCA9575 GPIO expander
+ * 24 board interrupts -- 88PM860x PMIC
+ */
 #define TTCDKB_NR_IRQS		(MMP_NR_IRQS + 16 + 16 + 24)
 
 static unsigned long ttc_dkb_pin_config[] __initdata = {
-	
+	/* UART2 */
 	GPIO47_UART2_RXD,
 	GPIO48_UART2_TXD,
 
-	
+	/* DFI */
 	DF_IO0_ND_IO0,
 	DF_IO1_ND_IO1,
 	DF_IO2_ND_IO2,
@@ -143,10 +148,10 @@ static void __init ttc_dkb_init(void)
 {
 	mfp_config(ARRAY_AND_SIZE(ttc_dkb_pin_config));
 
-	
+	/* on-chip devices */
 	pxa910_add_uart(1);
 
-	
+	/* off-chip devices */
 	pxa910_add_twsi(0, NULL, ARRAY_AND_SIZE(ttc_dkb_i2c_info));
 	platform_add_devices(ARRAY_AND_SIZE(ttc_dkb_devices));
 }

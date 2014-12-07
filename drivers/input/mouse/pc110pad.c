@@ -5,6 +5,9 @@
  *	Alan Cox	Robin O'Leary
  */
 
+/*
+ * IBM PC110 touchpad driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -97,6 +100,12 @@ static int pc110pad_open(struct input_dev *dev)
 	return 0;
 }
 
+/*
+ * We try to avoid enabling the hardware if it's not
+ * there, but we don't know how to test. But we do know
+ * that the PC110 is not a PCI system. So if we find any
+ * PCI devices in the machine, we don't have a PC110.
+ */
 static int __init pc110pad_init(void)
 {
 	int err;

@@ -43,6 +43,7 @@
 
 #include "board.h"
 
+/* register definitions */
 #define AFI_OFFSET	0x3800
 #define PADS_OFFSET	0x3000
 #define RP0_OFFSET	0x0000
@@ -144,6 +145,7 @@
 #define  PADS_PLL_CTL_TXCLKREF_DIV10		(0 << 20)
 #define  PADS_PLL_CTL_TXCLKREF_DIV5		(1 << 20)
 
+/* PMC access is required for PCIE xclk (un)clamping */
 #define PMC_SCRATCH42		0x144
 #define PMC_SCRATCH42_PCX_CLAMP	(1 << 0)
 
@@ -154,6 +156,21 @@ static void __iomem *reg_pmc_base = IO_ADDRESS(TEGRA_PMC_BASE);
 #define pmc_readl(reg) \
 	__raw_readl(reg_pmc_base + (reg))
 
+/*
+ * Tegra2 defines 1GB in the AXI address map for PCIe.
+ *
+ * That address space is split into different regions, with sizes and
+ * offsets as follows:
+ *
+ * 0x80000000 - 0x80003fff - PCI controller registers
+ * 0x80004000 - 0x80103fff - PCI configuration space
+ * 0x80104000 - 0x80203fff - PCI extended configuration space
+ * 0x80203fff - 0x803fffff - unused
+ * 0x80400000 - 0x8040ffff - downstream IO
+ * 0x80410000 - 0x8fffffff - unused
+ * 0x90000000 - 0x9fffffff - non-prefetchable memory
+ * 0xa0000000 - 0xbfffffff - prefetchable memory
+ */
 #define TEGRA_PCIE_BASE		0x80000000
 
 #define PCIE_REGS_SZ		SZ_16K
@@ -339,6 +356,7 @@ static void __devinit tegra_pcie_fixup_bridge(struct pci_dev *dev)
 }
 DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID, tegra_pcie_fixup_bridge);
 
+/* Tegra PCIE root complex wrongly reports device class */
 static void __devinit tegra_pcie_fixup_class(struct pci_dev *dev)
 {
 	dev->class = PCI_CLASS_BRIDGE_PCI << 8;
@@ -346,6 +364,7 @@ static void __devinit tegra_pcie_fixup_class(struct pci_dev *dev)
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_NVIDIA, 0x0bf0, tegra_pcie_fixup_class);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_NVIDIA, 0x0bf1, tegra_pcie_fixup_class);
 
+/* Tegra PCIE requires relaxed ordering */
 static void __devinit tegra_pcie_relax_enable(struct pci_dev *dev)
 {
 	u16 val16;
@@ -372,6 +391,9 @@ static int tegra_pcie_setup(int nr, struct pci_sys_data *sys)
 	pp = tegra_pcie.port + nr;
 	pp->root_bus_nr = sys->busnr;
 
+	/*
+	 * IORESOURCE_IO
+	 */
 	snprintf(pp->io_space_name, sizeof(pp->io_space_name),
 		 "PCIe %d I/O", pp->index);
 	pp->io_space_name[sizeof(pp->io_space_name) - 1] = 0;
@@ -388,6 +410,9 @@ static int tegra_pcie_setup(int nr, struct pci_sys_data *sys)
 		panic("Request PCIe IO resource failed\n");
 	pci_add_resource_offset(&sys->resources, &pp->res[0], sys->io_offset);
 
+	/*
+	 * IORESOURCE_MEM
+	 */
 	snprintf(pp->mem_space_name, sizeof(pp->mem_space_name),
 		 "PCIe %d MEM", pp->index);
 	pp->mem_space_name[sizeof(pp->mem_space_name) - 1] = 0;
@@ -404,6 +429,9 @@ static int tegra_pcie_setup(int nr, struct pci_sys_data *sys)
 		panic("Request PCIe Memory resource failed\n");
 	pci_add_resource_offset(&sys->resources, &pp->res[1], sys->mem_offset);
 
+	/*
+	 * IORESOURCE_MEM | IORESOURCE_PREFETCH
+	 */
 	snprintf(pp->prefetch_space_name, sizeof(pp->prefetch_space_name),
 		 "PCIe %d PREFETCH MEM", pp->index);
 	pp->prefetch_space_name[sizeof(pp->prefetch_space_name) - 1] = 0;
@@ -478,6 +506,10 @@ static irqreturn_t tegra_pcie_isr(int irq, void *arg)
 	if (code >= ARRAY_SIZE(err_msg))
 		code = 0;
 
+	/*
+	 * do not pollute kernel log with master abort reports since they
+	 * happen a lot during enumeration
+	 */
 	if (code == AFI_INTR_MASTER_ABORT)
 		pr_debug("PCIE: %s, signature: %08x\n", err_msg[code], signature);
 	else
@@ -492,7 +524,7 @@ static void tegra_pcie_setup_translations(void)
 	u32 size;
 	u32 axi_address;
 
-	
+	/* Bar 0: config Bar */
 	fpci_bar = ((u32)0xfdff << 16);
 	size = PCIE_CFG_SZ;
 	axi_address = TEGRA_PCIE_BASE + PCIE_CFG_OFF;
@@ -500,7 +532,7 @@ static void tegra_pcie_setup_translations(void)
 	afi_writel(size >> 12, AFI_AXI_BAR0_SZ);
 	afi_writel(fpci_bar, AFI_FPCI_BAR0);
 
-	
+	/* Bar 1: extended config Bar */
 	fpci_bar = ((u32)0xfe1 << 20);
 	size = PCIE_EXT_CFG_SZ;
 	axi_address = TEGRA_PCIE_BASE + PCIE_EXT_CFG_OFF;
@@ -508,7 +540,7 @@ static void tegra_pcie_setup_translations(void)
 	afi_writel(size >> 12, AFI_AXI_BAR1_SZ);
 	afi_writel(fpci_bar, AFI_FPCI_BAR1);
 
-	
+	/* Bar 2: downstream IO bar */
 	fpci_bar = ((__u32)0xfdfc << 16);
 	size = MMIO_SIZE;
 	axi_address = MMIO_BASE;
@@ -516,7 +548,7 @@ static void tegra_pcie_setup_translations(void)
 	afi_writel(size >> 12, AFI_AXI_BAR2_SZ);
 	afi_writel(fpci_bar, AFI_FPCI_BAR2);
 
-	
+	/* Bar 3: prefetchable memory BAR */
 	fpci_bar = (((PREFETCH_MEM_BASE_0 >> 12) & 0x0fffffff) << 4) | 0x1;
 	size =  PREFETCH_MEM_SIZE_0 +  PREFETCH_MEM_SIZE_1;
 	axi_address = PREFETCH_MEM_BASE_0;
@@ -524,7 +556,7 @@ static void tegra_pcie_setup_translations(void)
 	afi_writel(size >> 12, AFI_AXI_BAR3_SZ);
 	afi_writel(fpci_bar, AFI_FPCI_BAR3);
 
-	
+	/* Bar 4: non prefetchable memory BAR */
 	fpci_bar = (((MEM_BASE_0 >> 12)	& 0x0FFFFFFF) << 4) | 0x1;
 	size = MEM_SIZE_0 + MEM_SIZE_1;
 	axi_address = MEM_BASE_0;
@@ -532,7 +564,7 @@ static void tegra_pcie_setup_translations(void)
 	afi_writel(size >> 12, AFI_AXI_BAR4_SZ);
 	afi_writel(fpci_bar, AFI_FPCI_BAR4);
 
-	
+	/* Bar 5: NULL out the remaining BAR as it is not used */
 	fpci_bar = 0;
 	size = 0;
 	axi_address = 0;
@@ -540,13 +572,13 @@ static void tegra_pcie_setup_translations(void)
 	afi_writel(size >> 12, AFI_AXI_BAR5_SZ);
 	afi_writel(fpci_bar, AFI_FPCI_BAR5);
 
-	
+	/* map all upstream transactions as uncached */
 	afi_writel(PHYS_OFFSET, AFI_CACHE_BAR0_ST);
 	afi_writel(0, AFI_CACHE_BAR0_SZ);
 	afi_writel(0, AFI_CACHE_BAR1_ST);
 	afi_writel(0, AFI_CACHE_BAR1_SZ);
 
-	
+	/* No MSI */
 	afi_writel(0, AFI_MSI_FPCI_BAR_ST);
 	afi_writel(0, AFI_MSI_BAR_SZ);
 	afi_writel(0, AFI_MSI_AXI_BAR_ST);
@@ -558,7 +590,7 @@ static int tegra_pcie_enable_controller(void)
 	u32 val, reg;
 	int i, timeout;
 
-	
+	/* Enable slot clock and pulse the reset signals */
 	for (i = 0, reg = AFI_PEX0_CTRL; i < 2; i++, reg += 0x8) {
 		val = afi_readl(reg) |  AFI_PEX_CTRL_REFCLK_EN;
 		afi_writel(val, reg);
@@ -569,7 +601,7 @@ static int tegra_pcie_enable_controller(void)
 		afi_writel(val, reg);
 	}
 
-	
+	/* Enable dual controller and both ports */
 	val = afi_readl(AFI_PCIE_CONFIG);
 	val &= ~(AFI_PCIE_CONFIG_PCIEC0_DISABLE_DEVICE |
 		 AFI_PCIE_CONFIG_PCIEC1_DISABLE_DEVICE |
@@ -580,25 +612,33 @@ static int tegra_pcie_enable_controller(void)
 	val = afi_readl(AFI_FUSE) & ~AFI_FUSE_PCIE_T0_GEN2_DIS;
 	afi_writel(val, AFI_FUSE);
 
-	
+	/* Initialze internal PHY, enable up to 16 PCIE lanes */
 	pads_writel(0x0, PADS_CTL_SEL);
 
-	
+	/* override IDDQ to 1 on all 4 lanes */
 	val = pads_readl(PADS_CTL) | PADS_CTL_IDDQ_1L;
 	pads_writel(val, PADS_CTL);
 
+	/*
+	 * set up PHY PLL inputs select PLLE output as refclock,
+	 * set TX ref sel to div10 (not div5)
+	 */
 	val = pads_readl(PADS_PLL_CTL);
 	val &= ~(PADS_PLL_CTL_REFCLK_MASK | PADS_PLL_CTL_TXCLKREF_MASK);
 	val |= (PADS_PLL_CTL_REFCLK_INTERNAL_CML | PADS_PLL_CTL_TXCLKREF_DIV10);
 	pads_writel(val, PADS_PLL_CTL);
 
-	
+	/* take PLL out of reset  */
 	val = pads_readl(PADS_PLL_CTL) | PADS_PLL_CTL_RST_B4SM;
 	pads_writel(val, PADS_PLL_CTL);
 
+	/*
+	 * Hack, set the clock voltage to the DEFAULT provided by hw folks.
+	 * This doesn't exist in the documentation
+	 */
 	pads_writel(0xfa5cfa5c, 0xc8);
 
-	
+	/* Wait for the PLL to lock */
 	timeout = 300;
 	do {
 		val = pads_readl(PADS_PLL_CTL);
@@ -609,19 +649,19 @@ static int tegra_pcie_enable_controller(void)
 		}
 	} while (!(val & PADS_PLL_CTL_LOCKDET));
 
-	
+	/* turn off IDDQ override */
 	val = pads_readl(PADS_CTL) & ~PADS_CTL_IDDQ_1L;
 	pads_writel(val, PADS_CTL);
 
-	
+	/* enable TX/RX data */
 	val = pads_readl(PADS_CTL);
 	val |= (PADS_CTL_TX_DATA_EN_1L | PADS_CTL_RX_DATA_EN_1L);
 	pads_writel(val, PADS_CTL);
 
-	
+	/* Take the PCIe interface module out of reset */
 	tegra_periph_reset_deassert(tegra_pcie.pcie_xclk);
 
-	
+	/* Finally enable PCIe */
 	val = afi_readl(AFI_CONFIGURATION) | AFI_CONFIGURATION_EN_FPCI;
 	afi_writel(val, AFI_CONFIGURATION);
 
@@ -631,10 +671,10 @@ static int tegra_pcie_enable_controller(void)
 	afi_writel(val, AFI_AFI_INTR_ENABLE);
 	afi_writel(0xffffffff, AFI_SM_INTR_ENABLE);
 
-	
+	/* FIXME: No MSI for now, only INT */
 	afi_writel(AFI_INTR_MASK_INT_MASK, AFI_INTR_MASK);
 
-	
+	/* Disable all execptions */
 	afi_writel(0, AFI_FPCI_ERROR_MASKS);
 
 	return 0;
@@ -797,7 +837,12 @@ err_pwr_on:
 	return err;
 }
 
-#define TEGRA_PCIE_LINKUP_TIMEOUT	200	
+/*
+ * FIXME: If there are no PCIe cards attached, then calling this function
+ * can result in the increase of the bootup time as there are big timeout
+ * loops.
+ */
+#define TEGRA_PCIE_LINKUP_TIMEOUT	200	/* up to 1.2 seconds */
 static bool tegra_pcie_check_link(struct tegra_pcie_port *pp, int idx,
 				  u32 reset_reg)
 {
@@ -834,7 +879,7 @@ static bool tegra_pcie_check_link(struct tegra_pcie_port *pp, int idx,
 		}
 
 retry:
-		
+		/* Pulse the PEX reset */
 		reg = afi_readl(reset_reg) | AFI_PEX_CTRL_RST;
 		afi_writel(reg, reset_reg);
 		mdelay(1);
@@ -886,7 +931,7 @@ int __init tegra_pcie_init(bool init_port0, bool init_port1)
 	if (err)
 		return err;
 
-	
+	/* setup the AFI address translations */
 	tegra_pcie_setup_translations();
 
 	if (init_port0)

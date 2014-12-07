@@ -49,16 +49,20 @@
 
 #include "dart.h"
 
-unsigned long dart_tablebase; 
+/* Physical base address and size of the DART table */
+unsigned long dart_tablebase; /* exported to htab_initialize */
 static unsigned long dart_tablesize;
 
+/* Virtual base address of the DART table */
 static u32 *dart_vbase;
 #ifdef CONFIG_PM
 static u32 *dart_copy;
 #endif
 
+/* Mapped base address for the dart */
 static unsigned int __iomem *dart;
 
+/* Dummy val that entries are set to when unused */
 static unsigned int dart_emptyval;
 
 static struct iommu_table iommu_table_dart;
@@ -78,6 +82,12 @@ static inline void dart_tlb_invalidate_all(void)
 
 	DBG("dart: flush\n");
 
+	/* To invalidate the DART, set the DARTCNTL_FLUSHTLB bit in the
+	 * control register and wait for it to clear.
+	 *
+	 * Gotcha: Sometimes, the DART won't detect that the bit gets
+	 * set. If so, clear it and set it again.
+	 */
 
 	limit = 0;
 
@@ -152,6 +162,9 @@ static int dart_build(struct iommu_table *tbl, long index,
 
 	dp = ((unsigned int*)tbl->it_base) + index;
 
+	/* On U3, all memory is contiguous, so we can move this
+	 * out of the loop.
+	 */
 	l = npages;
 	while (l--) {
 		rpn = virt_to_abs(uaddr) >> DART_PAGE_SHIFT;
@@ -161,7 +174,7 @@ static int dart_build(struct iommu_table *tbl, long index,
 		uaddr += DART_PAGE_SIZE;
 	}
 
-	
+	/* make sure all updates have reached memory */
 	mb();
 	in_be32((unsigned __iomem *)dp);
 	mb();
@@ -181,6 +194,10 @@ static void dart_free(struct iommu_table *tbl, long index, long npages)
 {
 	unsigned int *dp;
 
+	/* We don't worry about flushing the TLB cache. The only drawback of
+	 * not doing it is that we won't catch buggy device drivers doing
+	 * bad DMAs, but then no 32-bit architecture ever does either.
+	 */
 
 	DBG("dart: free at: %lx, %lx\n", index, npages);
 
@@ -206,26 +223,34 @@ static int __init dart_init(struct device_node *dart_node)
 	if (of_address_to_resource(dart_node, 0, &r))
 		panic("DART: can't get register base ! ");
 
+	/* Make sure nothing from the DART range remains in the CPU cache
+	 * from a previous mapping that existed before the kernel took
+	 * over
+	 */
 	flush_dcache_phys_range(dart_tablebase,
 				dart_tablebase + dart_tablesize);
 
+	/* Allocate a spare page to map all invalid DART pages. We need to do
+	 * that to work around what looks like a problem with the HT bridge
+	 * prefetching into invalid pages and corrupting data
+	 */
 	tmp = memblock_alloc(DART_PAGE_SIZE, DART_PAGE_SIZE);
 	dart_emptyval = DARTMAP_VALID | ((tmp >> DART_PAGE_SHIFT) &
 					 DARTMAP_RPNMASK);
 
-	
+	/* Map in DART registers */
 	dart = ioremap(r.start, resource_size(&r));
 	if (dart == NULL)
 		panic("DART: Cannot map registers!");
 
-	
+	/* Map in DART table */
 	dart_vbase = ioremap(virt_to_abs(dart_tablebase), dart_tablesize);
 
-	
+	/* Fill initial table */
 	for (i = 0; i < dart_tablesize/4; i++)
 		dart_vbase[i] = dart_emptyval;
 
-	
+	/* Initialize DART with table base and enable it. */
 	base = dart_tablebase >> DART_PAGE_SHIFT;
 	size = dart_tablesize >> DART_PAGE_SHIFT;
 	if (dart_is_u4) {
@@ -241,7 +266,7 @@ static int __init dart_init(struct device_node *dart_node)
 			 (size << DART_CNTL_U3_SIZE_SHIFT));
 	}
 
-	
+	/* Invalidate DART to get rid of possible stale TLBs */
 	dart_tlb_invalidate_all();
 
 	printk(KERN_INFO "DART IOMMU initialized for %s type chipset\n",
@@ -254,20 +279,26 @@ static void iommu_table_dart_setup(void)
 {
 	iommu_table_dart.it_busno = 0;
 	iommu_table_dart.it_offset = 0;
-	
+	/* it_size is in number of entries */
 	iommu_table_dart.it_size = dart_tablesize / sizeof(u32);
 
-	
+	/* Initialize the common IOMMU code */
 	iommu_table_dart.it_base = (unsigned long)dart_vbase;
 	iommu_table_dart.it_index = 0;
 	iommu_table_dart.it_blocksize = 1;
 	iommu_init_table(&iommu_table_dart, -1);
 
+	/* Reserve the last page of the DART to avoid possible prefetch
+	 * past the DART mapped area
+	 */
 	set_bit(iommu_table_dart.it_size - 1, iommu_table_dart.it_map);
 }
 
 static void dma_dev_setup_dart(struct device *dev)
 {
+	/* We only have one iommu table on the mac for now, which makes
+	 * things simple. Setup all PCI devices to point to this table
+	 */
 	if (get_dma_ops(dev) == &dma_direct_ops)
 		set_dma_offset(dev, DART_U4_BYPASS_BASE);
 	else
@@ -307,6 +338,12 @@ static int dart_dma_set_mask(struct device *dev, u64 dma_mask)
 	if (!dev->dma_mask || !dma_supported(dev, dma_mask))
 		return -EIO;
 
+	/* U4 supports a DART bypass, we use it for 64-bit capable
+	 * devices to improve performances. However, that only works
+	 * for devices connected to U4 own PCIe interface, not bridged
+	 * through hypertransport. We need the device to support at
+	 * least 40 bits of addresses.
+	 */
 	if (dart_device_on_pcie(dev) && dma_mask >= DMA_BIT_MASK(40)) {
 		dev_info(dev, "Using 64-bit DMA iommu bypass\n");
 		set_dma_ops(dev, &dma_direct_ops);
@@ -324,41 +361,41 @@ void __init iommu_init_early_dart(void)
 {
 	struct device_node *dn;
 
-	
+	/* Find the DART in the device-tree */
 	dn = of_find_compatible_node(NULL, "dart", "u3-dart");
 	if (dn == NULL) {
 		dn = of_find_compatible_node(NULL, "dart", "u4-dart");
 		if (dn == NULL)
-			return;	
+			return;	/* use default direct_dma_ops */
 		dart_is_u4 = 1;
 	}
 
-	
+	/* Initialize the DART HW */
 	if (dart_init(dn) != 0)
 		goto bail;
 
-	
+	/* Setup low level TCE operations for the core IOMMU code */
 	ppc_md.tce_build = dart_build;
 	ppc_md.tce_free  = dart_free;
 	ppc_md.tce_flush = dart_flush;
 
-	
+	/* Setup bypass if supported */
 	if (dart_is_u4)
 		ppc_md.dma_set_mask = dart_dma_set_mask;
 
 	ppc_md.pci_dma_dev_setup = pci_dma_dev_setup_dart;
 	ppc_md.pci_dma_bus_setup = pci_dma_bus_setup_dart;
 
-	
+	/* Setup pci_dma ops */
 	set_pci_dma_ops(&dma_iommu_ops);
 	return;
 
  bail:
-	
+	/* If init failed, use direct iommu and null setup functions */
 	ppc_md.pci_dma_dev_setup = NULL;
 	ppc_md.pci_dma_bus_setup = NULL;
 
-	
+	/* Setup pci_dma ops */
 	set_pci_dma_ops(&dma_direct_ops);
 }
 
@@ -379,6 +416,8 @@ static int __init iommu_init_late_dart(void)
 	unsigned long tbasepfn;
 	struct page *p;
 
+	/* if no dart table exists then we won't need to save it
+	 * and the area has also not been reserved */
 	if (!dart_tablebase)
 		return 0;
 
@@ -386,6 +425,10 @@ static int __init iommu_init_late_dart(void)
 	register_nosave_region_late(tbasepfn,
 				    tbasepfn + ((1<<24) >> PAGE_SHIFT));
 
+	/* For suspend we need to copy the dart contents because
+	 * it is not part of the regular mapping (see above) and
+	 * thus not saved automatically. The memory for this copy
+	 * must be allocated early because we need 2 MB. */
 	p = alloc_pages(GFP_KERNEL, 21 - PAGE_SHIFT);
 	BUG_ON(!p);
 	dart_copy = page_address(p);
@@ -401,6 +444,12 @@ late_initcall(iommu_init_late_dart);
 
 void __init alloc_dart_table(void)
 {
+	/* Only reserve DART space if machine has more than 1GB of RAM
+	 * or if requested with iommu=on on cmdline.
+	 *
+	 * 1GB of RAM is picked as limit because some default devices
+	 * (i.e. Airport Extreme) have 30 bit address range limits.
+	 */
 
 	if (iommu_is_off)
 		return;
@@ -408,8 +457,11 @@ void __init alloc_dart_table(void)
 	if (!iommu_force_on && memblock_end_of_DRAM() <= 0x40000000ull)
 		return;
 
-	
+	/* 512 pages (2MB) is max DART tablesize. */
 	dart_tablesize = 1UL << 21;
+	/* 16MB (1 << 24) alignment. We allocate a full 16Mb chuck since we
+	 * will blow up an entire large page anyway in the kernel mapping
+	 */
 	dart_tablebase = (unsigned long)
 		abs_to_virt(memblock_alloc_base(1UL<<24, 1UL<<24, 0x80000000L));
 

@@ -43,7 +43,7 @@
 
 void __init jmr3927_prom_init(void)
 {
-	
+	/* CCFG */
 	if ((tx3927_ccfgptr->ccfg & TX3927_CCFG_TLBOFF) == 0)
 		printk(KERN_ERR "TX3927 TLB off\n");
 

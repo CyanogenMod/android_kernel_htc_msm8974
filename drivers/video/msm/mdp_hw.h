@@ -28,13 +28,15 @@ struct mdp_out_interface {
 	uint32_t		registered:1;
 	void			*priv;
 
-	
+	/* If the interface client wants to get DMA_DONE events */
 	uint32_t		dma_mask;
 	mdp_dma_start_func_t	dma_start;
 
 	struct msmfb_callback	*dma_cb;
 	wait_queue_head_t	dma_waitqueue;
 
+	/* If the interface client wants to be notified of non-DMA irqs,
+	 * e.g. LCDC/TV-out frame start */
 	uint32_t		irq_mask;
 	struct msmfb_callback	*irq_cb;
 };
@@ -252,15 +254,17 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define MDP_PPP_SCALE_STATUS             (0x50000)
 #define MDP_PPP_BLEND_STATUS             (0x70000)
 
+/* MDP_SW_RESET */
 #define MDP_PPP_SW_RESET                (1<<4)
 
+/* MDP_INTR_ENABLE */
 #define DL0_ROI_DONE			(1<<0)
 #define TV_OUT_DMA3_DONE		(1<<6)
 #define TV_ENC_UNDERRUN			(1<<7)
 
 #ifdef CONFIG_MSM_MDP22
 #define MDP_DMA_P_DONE			(1 << 2)
-#else 
+#else /* CONFIG_MSM_MDP31 */
 #define MDP_DMA_P_DONE			(1 << 14)
 #define MDP_LCDC_UNDERFLOW		(1 << 16)
 #define MDP_LCDC_FRAME_START		(1 << 15)
@@ -284,19 +288,24 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define CLR_CB CLR_B
 #define CLR_CR CLR_R
 
+/* from lsb to msb */
 #define MDP_GET_PACK_PATTERN(a, x, y, z, bit) \
 	(((a)<<(bit*3))|((x)<<(bit*2))|((y)<<bit)|(z))
 
+/* MDP_SYNC_CONFIG_0/1/2 */
 #define MDP_SYNCFG_HGT_LOC 22
 #define MDP_SYNCFG_VSYNC_EXT_EN (1<<21)
 #define MDP_SYNCFG_VSYNC_INT_EN (1<<20)
 
+/* MDP_SYNC_THRESH_0 */
 #define MDP_PRIM_BELOW_LOC 0
 #define MDP_PRIM_ABOVE_LOC 8
 
+/* MDP_{PRIMARY,SECONDARY,EXTERNAL}_VSYNC_OUT_CRL */
 #define VSYNC_PULSE_EN (1<<31)
 #define VSYNC_PULSE_INV (1<<30)
 
+/* MDP_VSYNC_CTRL */
 #define DISP0_VSYNC_MAP_VSYNC0 0
 #define DISP0_VSYNC_MAP_VSYNC1 (1<<0)
 #define DISP0_VSYNC_MAP_VSYNC2 ((1<<0)|(1<<1))
@@ -314,12 +323,15 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define EXTERNAL_LCD_SYNC_EN (1<<6)
 #define EXTERNAL_LCD_SYNC_DISABLE 0
 
+/* MDP_VSYNC_THRESHOLD / MDP_FULL_BYPASS_WORD60 */
 #define VSYNC_THRESHOLD_ABOVE_LOC 0
 #define VSYNC_THRESHOLD_BELOW_LOC 16
 #define VSYNC_ANTI_TEAR_EN (1<<31)
 
+/* MDP_COMMAND_CONFIG / MDP_FULL_BYPASS_WORD1 */
 #define MDP_CMD_DBGBUS_EN (1<<0)
 
+/* MDP_PPP_SOURCE_CONFIG / MDP_FULL_BYPASS_WORD9&53 */
 #define PPP_SRC_C0G_8BIT ((1<<1)|(1<<0))
 #define PPP_SRC_C1B_8BIT ((1<<3)|(1<<2))
 #define PPP_SRC_C2R_8BIT ((1<<5)|(1<<4))
@@ -347,6 +359,11 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define PPP_SRC_INTERLVD_4COMPONENTS ((1<<14)|(1<<13))
 
 
+/* RGB666 unpack format
+** TIGHT means R6+G6+B6 together
+** LOOSE means R6+2 +G6+2+ B6+2 (with MSB)
+**          or 2+R6 +2+G6 +2+B6 (with LSB)
+*/
 #define PPP_SRC_PACK_TIGHT (1<<17)
 #define PPP_SRC_PACK_LOOSE 0
 #define PPP_SRC_PACK_ALIGN_LSB 0
@@ -357,6 +374,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 
 #define PPP_SRC_WMV9_MODE (1<<21)
 
+/* MDP_PPP_OPERATION_CONFIG / MDP_FULL_BYPASS_WORD14 */
 #define PPP_OP_SCALE_X_ON (1<<0)
 #define PPP_OP_SCALE_Y_ON (1<<1)
 
@@ -376,6 +394,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define PPP_OP_LUT_C1_ON (1<<6)
 #define PPP_OP_LUT_C2_ON (1<<7)
 
+/* rotate or blend enable */
 #define PPP_OP_ROT_ON (1<<8)
 
 #define PPP_OP_ROT_90 (1<<9)
@@ -427,6 +446,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define PPP_BLEND_BG_CONSTANT_ALPHA     (2 << 1)
 #define PPP_BLEND_BG_CONST_ALPHA_VAL(x) ((x) << 24)
 
+/* MDP_PPP_DESTINATION_CONFIG / MDP_FULL_BYPASS_WORD20 */
 #define PPP_DST_C0G_8BIT ((1<<0)|(1<<1))
 #define PPP_DST_C1B_8BIT ((1<<3)|(1<<2))
 #define PPP_DST_C2R_8BIT ((1<<5)|(1<<4))
@@ -470,6 +490,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define PPP_DST_MDDI_SECONDARY (1<<21)
 #define PPP_DST_MDDI_EXTERNAL (1<<22)
 
+/* image configurations by image type */
 #define PPP_CFG_MDP_RGB_565(dir)       (PPP_##dir##_C2R_5BIT | \
 					PPP_##dir##_C0G_6BIT | \
 					PPP_##dir##_C1B_5BIT | \
@@ -572,6 +593,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define PPP_CHROMA_SAMP_MDP_Y_CRCB_H2V2(dir) PPP_OP_##dir##_CHROMA_420
 #define PPP_CHROMA_SAMP_MDP_YCRYCB_H2V1(dir) PPP_OP_##dir##_CHROMA_H2V1
 
+/* Helpful array generation macros */
 #define PPP_ARRAY0(name) \
 	[MDP_RGB_565] = PPP_##name##_MDP_RGB_565,\
 	[MDP_RGB_888] = PPP_##name##_MDP_RGB_888,\
@@ -615,6 +637,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 			    (img == MDP_Y_CRCB_H2V1) | \
 			    (img == MDP_Y_CBCR_H2V1))
 
+/* Mappings from addr to purpose */
 #define PPP_ADDR_SRC_ROI		MDP_FULL_BYPASS_WORD2
 #define PPP_ADDR_SRC0			MDP_FULL_BYPASS_WORD3
 #define PPP_ADDR_SRC1			MDP_FULL_BYPASS_WORD4
@@ -640,6 +663,8 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define PPP_ADDR_BG_CFG			MDP_FULL_BYPASS_WORD53
 #define PPP_ADDR_BG_PACK_PATTERN	MDP_FULL_BYPASS_WORD54
 
+/* color conversion matrix configuration registers */
+/* pfmv is mv1, prmv is mv2 */
 #define MDP_CSC_PFMVn(n)		(0x40400 + (4 * (n)))
 #define MDP_CSC_PRMVn(n)		(0x40440 + (4 * (n)))
 
@@ -666,7 +691,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define MDP_PPP_SCALER_FIR		(0)
 #define MDP_PPP_SCALER_MN		(1)
 
-#else 
+#else /* !defined(CONFIG_MSM_MDP31) */
 
 #define MDP_CSC_PBVn(n)			(0x40500 + (4 * (n)))
 #define MDP_CSC_SBVn(n)			(0x40540 + (4 * (n)))
@@ -676,6 +701,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #endif
 
 
+/* MDP_DMA_CONFIG / MDP_FULL_BYPASS_WORD32 */
 #define DMA_DSTC0G_5BITS (1<<0)
 #define DMA_DSTC1B_5BITS (1<<2)
 #define DMA_DSTC2R_5BITS (1<<4)
@@ -717,7 +743,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define DMA_IBUF_FORMAT_MASK (1 << 20)
 #define DMA_IBUF_NONCONTIGUOUS (1<<21)
 
-#else 
+#else /* CONFIG_MSM_MDP31 */
 
 #define DMA_OUT_SEL_AHB				(0 << 19)
 #define DMA_OUT_SEL_MDDI			(1 << 19)
@@ -735,6 +761,7 @@ void mdp_ppp_dump_debug(const struct mdp_info *mdp);
 #define DMA_MDDI_DMAOUT_LCD_SEL_EXTERNAL	(0)
 #endif
 
+/* MDDI REGISTER ? */
 #define MDDI_VDO_PACKET_DESC  0x5666
 #define MDDI_VDO_PACKET_PRIM  0xC3
 #define MDDI_VDO_PACKET_SECD  0xC0

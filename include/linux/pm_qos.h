@@ -1,5 +1,9 @@
 #ifndef _LINUX_PM_QOS_H
 #define _LINUX_PM_QOS_H
+/* interface for the pm_qos_power infrastructure of the linux kernel.
+ *
+ * Mark Gross <mgross@linux.intel.com>
+ */
 #include <linux/plist.h>
 #include <linux/notifier.h>
 #include <linux/miscdevice.h>
@@ -12,7 +16,7 @@ enum {
 	PM_QOS_NETWORK_LATENCY,
 	PM_QOS_NETWORK_THROUGHPUT,
 
-	
+	/* insert new class ID */
 	PM_QOS_NUM_CLASSES,
 };
 
@@ -26,7 +30,7 @@ enum {
 struct pm_qos_request {
 	struct plist_node node;
 	int pm_qos_class;
-	struct delayed_work work; 
+	struct delayed_work work; /* for pm_qos_update_request_timeout */
 };
 
 struct dev_pm_qos_request {
@@ -36,22 +40,28 @@ struct dev_pm_qos_request {
 
 enum pm_qos_type {
 	PM_QOS_UNITIALIZED,
-	PM_QOS_MAX,		
-	PM_QOS_MIN		
+	PM_QOS_MAX,		/* return the largest value */
+	PM_QOS_MIN		/* return the smallest value */
 };
 
+/*
+ * Note: The lockless read path depends on the CPU accessing
+ * target_value atomically.  Atomic access is only guaranteed on all CPU
+ * types linux supports for 32 bit quantites
+ */
 struct pm_qos_constraints {
 	struct plist_head list;
-	s32 target_value;	
+	s32 target_value;	/* Do not change to 64 bit */
 	s32 default_value;
 	enum pm_qos_type type;
 	struct blocking_notifier_head *notifiers;
 };
 
+/* Action requested to pm_qos_update_target */
 enum pm_qos_req_action {
-	PM_QOS_ADD_REQ,		
-	PM_QOS_UPDATE_REQ,	
-	PM_QOS_REMOVE_REQ	
+	PM_QOS_ADD_REQ,		/* Add a new request */
+	PM_QOS_UPDATE_REQ,	/* Update an existing request */
+	PM_QOS_REMOVE_REQ	/* Remove an existing request */
 };
 
 static inline int dev_pm_qos_request_active(struct dev_pm_qos_request *req)

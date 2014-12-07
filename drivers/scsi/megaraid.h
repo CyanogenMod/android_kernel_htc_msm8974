@@ -7,13 +7,40 @@
 #define MEGARAID_VERSION	\
 	"v2.00.4 (Release Date: Thu Feb 9 08:51:30 EST 2006)\n"
 
+/*
+ * Driver features - change the values to enable or disable features in the
+ * driver.
+ */
 
+/*
+ * Command coalescing - This feature allows the driver to be able to combine
+ * two or more commands and issue as one command in order to boost I/O
+ * performance. Useful if the nature of the I/O is sequential. It is not very
+ * useful for random natured I/Os.
+ */
 #define MEGA_HAVE_COALESCING	0
 
+/*
+ * Clustering support - Set this flag if you are planning to use the
+ * clustering services provided by the megaraid controllers and planning to
+ * setup a cluster
+ */
 #define MEGA_HAVE_CLUSTERING	1
 
+/*
+ * Driver statistics - Set this flag if you are interested in statics about
+ * number of I/O completed on each logical drive and how many interrupts
+ * generated. If enabled, this information is available through /proc
+ * interface and through the private ioctl. Setting this flag has a
+ * performance penalty.
+ */
 #define MEGA_HAVE_STATS		0
 
+/*
+ * Enhanced /proc interface - This feature will allow you to have a more
+ * detailed /proc interface for megaraid driver. E.g., a real time update of
+ * the status of the logical drives, battery status, physical drives etc.
+ */
 #define MEGA_HAVE_ENH_PROC	1
 
 #define MAX_DEV_TYPE	32
@@ -50,6 +77,7 @@
 #define PCI_DEVICE_ID_PERC4_DI		0x000F
 #define PCI_DEVICE_ID_PERC4_QC_VERDE	0x0407
 
+/* Sub-System Vendor IDs */
 #define	AMI_SUBSYS_VID			0x101E
 #define DELL_SUBSYS_VID			0x1028
 #define	HP_SUBSYS_VID			0x103C
@@ -60,16 +88,19 @@
 #define HBA_SIGNATURE_471	  	0xCCCC
 #define HBA_SIGNATURE_64BIT		0x0299
 
-#define MBOX_BUSY_WAIT			10	
+#define MBOX_BUSY_WAIT			10	/* wait for up to 10 usec for
+						   mailbox to be free */
 #define DEFAULT_INITIATOR_ID	7
 
-#define MAX_SGLIST		64	
-#define MIN_SGLIST		26	
+#define MAX_SGLIST		64	/* max supported in f/w */
+#define MIN_SGLIST		26	/* guaranteed to support these many */
 #define MAX_COMMANDS		126
-#define CMDID_INT_CMDS		MAX_COMMANDS+1	
+#define CMDID_INT_CMDS		MAX_COMMANDS+1	/* make sure CMDID_INT_CMDS
+					 	is less than max commands
+						supported by any f/w */
 
 #define MAX_CDB_LEN	     	10
-#define MAX_EXT_CDB_LEN		16	
+#define MAX_EXT_CDB_LEN		16	/* we support cdb length up to 16 */
 
 #define DEF_CMD_PER_LUN		63
 #define MAX_CMD_PER_LUN		MAX_COMMANDS
@@ -87,23 +118,24 @@
 #define MAX_ROW_SIZE_8LD		8
 #define MAX_SPAN_DEPTH			8
 
-#define NVIRT_CHAN		4	
+#define NVIRT_CHAN		4	/* # of virtual channels to represent
+					   up to 60 logical drives */
 struct mbox_out {
-	 u8 cmd;
-	 u8 cmdid;
-	 u16 numsectors;
-	 u32 lba;
-	 u32 xferaddr;
-	 u8 logdrv;
-	 u8 numsgelements;
-	 u8 resvd;
+	/* 0x0 */ u8 cmd;
+	/* 0x1 */ u8 cmdid;
+	/* 0x2 */ u16 numsectors;
+	/* 0x4 */ u32 lba;
+	/* 0x8 */ u32 xferaddr;
+	/* 0xC */ u8 logdrv;
+	/* 0xD */ u8 numsgelements;
+	/* 0xE */ u8 resvd;
 } __attribute__ ((packed));
 
 struct mbox_in {
-	 volatile u8 busy;
-	 volatile u8 numstatus;
-	 volatile u8 status;
-	 volatile u8 completed[MAX_FIRMWARE_STATUS];
+	/* 0xF */ volatile u8 busy;
+	/* 0x10 */ volatile u8 numstatus;
+	/* 0x11 */ volatile u8 status;
+	/* 0x12 */ volatile u8 completed[MAX_FIRMWARE_STATUS];
 	volatile u8 poll;
 	volatile u8 ack;
 } __attribute__ ((packed));
@@ -120,18 +152,21 @@ typedef struct {
 } __attribute__ ((packed)) mbox64_t;
 
 
+/*
+ * Passthru definitions
+ */
 #define MAX_REQ_SENSE_LEN       0x20
 
 typedef struct {
-	u8 timeout:3;		
+	u8 timeout:3;		/* 0=6sec/1=60sec/2=10min/3=3hrs */
 	u8 ars:1;
 	u8 reserved:3;
 	u8 islogical:1;
-	u8 logdrv;		
-	u8 channel;		
-	u8 target;		
-	u8 queuetag;		
-	u8 queueaction;		
+	u8 logdrv;		/* if islogical == 1 */
+	u8 channel;		/* if islogical == 0 */
+	u8 target;		/* if islogical == 0 */
+	u8 queuetag;		/* unused */
+	u8 queueaction;		/* unused */
 	u8 cdb[MAX_CDB_LEN];
 	u8 cdblen;
 	u8 reqsenselen;
@@ -143,18 +178,21 @@ typedef struct {
 } __attribute__ ((packed)) mega_passthru;
 
 
+/*
+ * Extended passthru: support CDB > 10 bytes
+ */
 typedef struct {
-	u8 timeout:3;		
+	u8 timeout:3;		/* 0=6sec/1=60sec/2=10min/3=3hrs */
 	u8 ars:1;
 	u8 rsvd1:1;
 	u8 cd_rom:1;
 	u8 rsvd2:1;
 	u8 islogical:1;
-	u8 logdrv;		
-	u8 channel;		
-	u8 target;		
-	u8 queuetag;		
-	u8 queueaction;		
+	u8 logdrv;		/* if islogical == 1 */
+	u8 channel;		/* if islogical == 0 */
+	u8 target;		/* if islogical == 0 */
+	u8 queuetag;		/* unused */
+	u8 queueaction;		/* unused */
 	u8 cdblen;
 	u8 rsvd3;
 	u8 cdb[MAX_EXT_CDB_LEN];
@@ -178,6 +216,7 @@ typedef struct {
 } __attribute__ ((packed)) mega_sglist;
 
 
+/* Queued command data */
 typedef struct {
 	int	idx;
 	u32	state;
@@ -200,79 +239,90 @@ typedef struct {
 	dma_addr_t		epthru_dma_addr;
 } scb_t;
 
-#define SCB_FREE	0x0000	
-#define SCB_ACTIVE	0x0001	
-#define SCB_PENDQ	0x0002	
-#define SCB_ISSUED	0x0004	
-#define SCB_ABORT	0x0008	
-#define SCB_RESET	0x0010	
+/*
+ * Flags to follow the scb as it transitions between various stages
+ */
+#define SCB_FREE	0x0000	/* on the free list */
+#define SCB_ACTIVE	0x0001	/* off the free list */
+#define SCB_PENDQ	0x0002	/* on the pending queue */
+#define SCB_ISSUED	0x0004	/* issued - owner f/w */
+#define SCB_ABORT	0x0008	/* Got an abort for this one */
+#define SCB_RESET	0x0010	/* Got a reset for this one */
 
+/*
+ * Utilities declare this strcture size as 1024 bytes. So more fields can
+ * be added in future.
+ */
 typedef struct {
-	u32	data_size; 
+	u32	data_size; /* current size in bytes (not including resvd) */
 
 	u32	config_signature;
+		/* Current value is 0x00282008
+		 * 0x28=MAX_LOGICAL_DRIVES,
+		 * 0x20=Number of stripes and
+		 * 0x08=Number of spans */
 
-	u8	fw_version[16];		
-	u8	bios_version[16];	
-	u8	product_name[80];	
+	u8	fw_version[16];		/* printable ASCI string */
+	u8	bios_version[16];	/* printable ASCI string */
+	u8	product_name[80];	/* printable ASCI string */
 
-	u8	max_commands;		
-	u8	nchannels;		
-	u8	fc_loop_present;	
-	u8	mem_type;		
+	u8	max_commands;		/* Max. concurrent commands supported */
+	u8	nchannels;		/* Number of SCSI Channels detected */
+	u8	fc_loop_present;	/* Number of Fibre Loops detected */
+	u8	mem_type;		/* EDO, FPM, SDRAM etc */
 
 	u32	signature;
-	u16	dram_size;		
+	u16	dram_size;		/* In terms of MB */
 	u16	subsysid;
 
 	u16	subsysvid;
 	u8	notify_counters;
-	u8	pad1k[889];		
+	u8	pad1k[889];		/* 135 + 889 resvd = 1024 total size */
 } __attribute__ ((packed)) mega_product_info;
 
 struct notify {
-	u32 global_counter;	
+	u32 global_counter;	/* Any change increments this counter */
 
-	u8 param_counter;	
-	u8 param_id;		
-	u16 param_val;		
+	u8 param_counter;	/* Indicates any params changed  */
+	u8 param_id;		/* Param modified - defined below */
+	u16 param_val;		/* New val of last param modified */
 
-	u8 write_config_counter;	
+	u8 write_config_counter;	/* write config occurred */
 	u8 write_config_rsvd[3];
 
-	u8 ldrv_op_counter;	
-	u8 ldrv_opid;		
-	u8 ldrv_opcmd;		
-	u8 ldrv_opstatus;	
+	u8 ldrv_op_counter;	/* Indicates ldrv op started/completed */
+	u8 ldrv_opid;		/* ldrv num */
+	u8 ldrv_opcmd;		/* ldrv operation - defined below */
+	u8 ldrv_opstatus;	/* status of the operation */
 
-	u8 ldrv_state_counter;	
-	u8 ldrv_state_id;		
-	u8 ldrv_state_new;	
-	u8 ldrv_state_old;	
+	u8 ldrv_state_counter;	/* Indicates change of ldrv state */
+	u8 ldrv_state_id;		/* ldrv num */
+	u8 ldrv_state_new;	/* New state */
+	u8 ldrv_state_old;	/* old state */
 
-	u8 pdrv_state_counter;	
-	u8 pdrv_state_id;		
-	u8 pdrv_state_new;	
-	u8 pdrv_state_old;	
+	u8 pdrv_state_counter;	/* Indicates change of ldrv state */
+	u8 pdrv_state_id;		/* pdrv id */
+	u8 pdrv_state_new;	/* New state */
+	u8 pdrv_state_old;	/* old state */
 
-	u8 pdrv_fmt_counter;	
-	u8 pdrv_fmt_id;		
-	u8 pdrv_fmt_val;		
+	u8 pdrv_fmt_counter;	/* Indicates pdrv format started/over */
+	u8 pdrv_fmt_id;		/* pdrv id */
+	u8 pdrv_fmt_val;		/* format started/over */
 	u8 pdrv_fmt_rsvd;
 
-	u8 targ_xfer_counter;	
-	u8 targ_xfer_id;	
-	u8 targ_xfer_val;		
+	u8 targ_xfer_counter;	/* Indicates SCSI-2 Xfer rate change */
+	u8 targ_xfer_id;	/* pdrv Id  */
+	u8 targ_xfer_val;		/* new Xfer params of last pdrv */
 	u8 targ_xfer_rsvd;
 
-	u8 fcloop_id_chg_counter;	
-	u8 fcloopid_pdrvid;		
-	u8 fcloop_id0;			
-	u8 fcloop_id1;			
+	u8 fcloop_id_chg_counter;	/* Indicates loopid changed */
+	u8 fcloopid_pdrvid;		/* pdrv id */
+	u8 fcloop_id0;			/* loopid on fc loop 0 */
+	u8 fcloop_id1;			/* loopid on fc loop 1 */
 
-	u8 fcloop_state_counter;	
-	u8 fcloop_state0;		
-	u8 fcloop_state1;		
+	u8 fcloop_state_counter;	/* Indicates loop state changed */
+	u8 fcloop_state0;		/* state of fc loop 0 */
+	u8 fcloop_state1;		/* state of fc loop 1 */
 	u8 fcloop_state_rsvd;
 } __attribute__ ((packed));
 
@@ -280,56 +330,73 @@ struct notify {
 #define CUR_NOTIFY_SIZE     sizeof(struct notify)
 
 typedef struct {
-	u32	data_size; 
+	u32	data_size; /* current size in bytes (not including resvd) */
 
 	struct notify notify;
 
 	u8	notify_rsvd[MAX_NOTIFY_SIZE - CUR_NOTIFY_SIZE];
 
-	u8	rebuild_rate;		
-	u8	cache_flush_interval;	
+	u8	rebuild_rate;		/* Rebuild rate (0% - 100%) */
+	u8	cache_flush_interval;	/* In terms of Seconds */
 	u8	sense_alert;
-	u8	drive_insert_count;	
+	u8	drive_insert_count;	/* drive insertion count */
 
 	u8	battery_status;
-	u8	num_ldrv;		
-	u8	recon_state[MAX_LOGICAL_DRIVES_40LD / 8];	
-	u16	ldrv_op_status[MAX_LOGICAL_DRIVES_40LD / 8]; 
+	u8	num_ldrv;		/* No. of Log Drives configured */
+	u8	recon_state[MAX_LOGICAL_DRIVES_40LD / 8];	/* State of
+							   reconstruct */
+	u16	ldrv_op_status[MAX_LOGICAL_DRIVES_40LD / 8]; /* logdrv
+								 Status */
 
-	u32	ldrv_size[MAX_LOGICAL_DRIVES_40LD];
+	u32	ldrv_size[MAX_LOGICAL_DRIVES_40LD];/* Size of each log drv */
 	u8	ldrv_prop[MAX_LOGICAL_DRIVES_40LD];
-	u8	ldrv_state[MAX_LOGICAL_DRIVES_40LD];
-	u8	pdrv_state[FC_MAX_PHYSICAL_DEVICES];
+	u8	ldrv_state[MAX_LOGICAL_DRIVES_40LD];/* State of log drives */
+	u8	pdrv_state[FC_MAX_PHYSICAL_DEVICES];/* State of phys drvs. */
 	u16	pdrv_format[FC_MAX_PHYSICAL_DEVICES / 16];
 
-	u8	targ_xfer[80];	
-	u8	pad1k[263];	
+	u8	targ_xfer[80];	/* phys device transfer rate */
+	u8	pad1k[263];	/* 761 + 263reserved = 1024 bytes total size */
 } __attribute__ ((packed)) mega_inquiry3;
 
 
+/* Structures */
 typedef struct {
-	u8	max_commands;	
-	u8	rebuild_rate;	
-	u8	max_targ_per_chan;	
-	u8	nchannels;	
-	u8	fw_version[4];	
-	u16	age_of_flash;	
-	u8	chip_set_value;	
-	u8	dram_size;	
-	u8	cache_flush_interval;	
+	u8	max_commands;	/* Max concurrent commands supported */
+	u8	rebuild_rate;	/* Rebuild rate - 0% thru 100% */
+	u8	max_targ_per_chan;	/* Max targ per channel */
+	u8	nchannels;	/* Number of channels on HBA */
+	u8	fw_version[4];	/* Firmware version */
+	u16	age_of_flash;	/* Number of times FW has been flashed */
+	u8	chip_set_value;	/* Contents of 0xC0000832 */
+	u8	dram_size;	/* In MB */
+	u8	cache_flush_interval;	/* in seconds */
 	u8	bios_version[4];
 	u8	board_type;
 	u8	sense_alert;
-	u8	write_config_count;	
-	u8	drive_inserted_count;	
-	u8	inserted_drive;	
-	u8	battery_status;	
+	u8	write_config_count;	/* Increase with every configuration
+					   change */
+	u8	drive_inserted_count;	/* Increase with every drive inserted
+					 */
+	u8	inserted_drive;	/* Channel:Id of inserted drive */
+	u8	battery_status;	/*
+				 * BIT 0: battery module missing
+				 * BIT 1: VBAD
+				 * BIT 2: temperature high
+				 * BIT 3: battery pack missing
+				 * BIT 4,5:
+				 *   00 - charge complete
+				 *   01 - fast charge in progress
+				 *   10 - fast charge fail
+				 *   11 - undefined
+				 * Bit 6: counter > 1000
+				 * Bit 7: Undefined
+				 */
 	u8	dec_fault_bus_info;
 } __attribute__ ((packed)) mega_adp_info;
 
 
 typedef struct {
-	u8	num_ldrv;	
+	u8	num_ldrv;	/* Number of logical drives configured */
 	u8	rsvd[3];
 	u32	ldrv_size[MAX_LOGICAL_DRIVES_8LD];
 	u8	ldrv_prop[MAX_LOGICAL_DRIVES_8LD];
@@ -341,6 +408,7 @@ typedef struct {
 	u8	rsvd;
 } __attribute__ ((packed)) mega_pdrv_info;
 
+/* RAID inquiry: Mailbox command 0x05*/
 typedef struct {
 	mega_adp_info	adapter_info;
 	mega_ldrv_info	logdrv_info;
@@ -348,6 +416,7 @@ typedef struct {
 } __attribute__ ((packed)) mraid_inquiry;
 
 
+/* RAID extended inquiry: Mailbox command 0x04*/
 typedef struct {
 	mraid_inquiry	raid_inq;
 	u16	phys_drv_format[MAX_CHANNELS];
@@ -363,26 +432,27 @@ typedef struct {
 }__attribute__ ((packed)) adp_device;
 
 typedef struct {
-	u32		start_blk;	
-	u32		num_blks;	
+	u32		start_blk;	/* starting block */
+	u32		num_blks;	/* # of blocks */
 	adp_device	device[MAX_ROW_SIZE_40LD];
 }__attribute__ ((packed)) adp_span_40ld;
 
 typedef struct {
-	u32		start_blk;	
-	u32		num_blks;	
+	u32		start_blk;	/* starting block */
+	u32		num_blks;	/* # of blocks */
 	adp_device	device[MAX_ROW_SIZE_8LD];
 }__attribute__ ((packed)) adp_span_8ld;
 
 typedef struct {
-	u8	span_depth;	
-	u8	level;		
-	u8	read_ahead;	
-	u8	stripe_sz;	
-	u8	status;		
-	u8	write_mode;	
-	u8	direct_io;	
-	u8	row_size;	
+	u8	span_depth;	/* Total # of spans */
+	u8	level;		/* RAID level */
+	u8	read_ahead;	/* read ahead, no read ahead, adaptive read
+				   ahead */
+	u8	stripe_sz;	/* Encoded stripe size */
+	u8	status;		/* Status of the logical drive */
+	u8	write_mode;	/* write mode, write_through/write_back */
+	u8	direct_io;	/* direct io or through cache */
+	u8	row_size;	/* Number of stripes in a row */
 } __attribute__ ((packed)) logdrv_param;
 
 typedef struct {
@@ -396,28 +466,38 @@ typedef struct {
 }__attribute__ ((packed)) logdrv_8ld;
 
 typedef struct {
-	u8	type;		
-	u8	cur_status;	
-	u8	tag_depth;	
-	u8	sync_neg;	
-	u32	size;		
+	u8	type;		/* Type of the device */
+	u8	cur_status;	/* current status of the device */
+	u8	tag_depth;	/* Level of tagging */
+	u8	sync_neg;	/* sync negotiation - ENABLE or DISABLE */
+	u32	size;		/* configurable size in terms of 512 byte
+				   blocks */
 }__attribute__ ((packed)) phys_drv;
 
 typedef struct {
-	u8		nlog_drives;		
+	u8		nlog_drives;		/* number of logical drives */
 	u8		resvd[3];
 	logdrv_40ld	ldrv[MAX_LOGICAL_DRIVES_40LD];
 	phys_drv	pdrv[MAX_PHYSICAL_DRIVES];
 }__attribute__ ((packed)) disk_array_40ld;
 
 typedef struct {
-	u8		nlog_drives;	
+	u8		nlog_drives;	/* number of logical drives */
 	u8		resvd[3];
 	logdrv_8ld	ldrv[MAX_LOGICAL_DRIVES_8LD];
 	phys_drv	pdrv[MAX_PHYSICAL_DRIVES];
 }__attribute__ ((packed)) disk_array_8ld;
 
 
+/*
+ * User ioctl structure.
+ * This structure will be used for Traditional Method ioctl interface
+ * commands (0x80),Alternate Buffer Method (0x81) ioctl commands and the
+ * Driver ioctls.
+ * The Driver ioctl interface handles the commands at the driver level,
+ * without being sent to the card.
+ */
+/* system call imposed limit. Change accordingly */
 #define IOCTL_MAX_DATALEN       4096
 
 struct uioctl_t {
@@ -439,10 +519,10 @@ struct uioctl_t {
 			u32 length;
 		} __attribute__ ((packed)) fcs;
 	} __attribute__ ((packed)) ui;
-	u8 mbox[18];		
+	u8 mbox[18];		/* 16 bytes + 2 status bytes */
 	mega_passthru pthru;
 #if BITS_PER_LONG == 32
-	char __user *data;		
+	char __user *data;		/* buffer <= 4096 for 0x80 commands */
 	char pad[4];
 #endif
 #if BITS_PER_LONG == 64
@@ -450,6 +530,13 @@ struct uioctl_t {
 #endif
 } __attribute__ ((packed));
 
+/*
+ * struct mcontroller is used to pass information about the controllers in the
+ * system. Its up to the application how to use the information. We are passing
+ * as much info about the cards as possible and useful. Before issuing the
+ * call to find information about the cards, the application needs to issue a
+ * ioctl first to find out the number of controllers in the system.
+ */
 #define MAX_CONTROLLERS 32
 
 struct mcontroller {
@@ -465,6 +552,9 @@ struct mcontroller {
 	u32 uid;
 };
 
+/*
+ * mailbox structure used for internal commands
+ */
 typedef struct {
 	u8	cmd;
 	u8	cmdid;
@@ -478,38 +568,61 @@ typedef struct {
 	u8	status;
 } __attribute__ ((packed)) megacmd_t;
 
+/*
+ * Defines for Driver IOCTL interface
+ */
 #define MEGAIOC_MAGIC  	'm'
 
-#define MEGAIOC_QNADAP		'm'	
-#define MEGAIOC_QDRVRVER	'e'	
-#define MEGAIOC_QADAPINFO   	'g'	
+#define MEGAIOC_QNADAP		'm'	/* Query # of adapters */
+#define MEGAIOC_QDRVRVER	'e'	/* Query driver version */
+#define MEGAIOC_QADAPINFO   	'g'	/* Query adapter information */
 #define MKADAP(adapno)	  	(MEGAIOC_MAGIC << 8 | (adapno) )
 #define GETADAP(mkadap)	 	( (mkadap) ^ MEGAIOC_MAGIC << 8 )
 
+/*
+ * Definition for the new ioctl interface (NIT)
+ */
 
+/*
+ * Vendor specific Group-7 commands
+ */
 #define VENDOR_SPECIFIC_COMMANDS	0xE0
 #define MEGA_INTERNAL_CMD		VENDOR_SPECIFIC_COMMANDS + 0x01
 
+/*
+ * The ioctl command. No other command shall be used for this interface
+ */
 #define USCSICMD	VENDOR_SPECIFIC_COMMANDS
 
+/*
+ * Data direction flags
+ */
 #define UIOC_RD		0x00001
 #define UIOC_WR		0x00002
 
-#define MBOX_CMD	0x00000	
-#define GET_DRIVER_VER	0x10000	
-#define GET_N_ADAP	0x20000	
-#define GET_ADAP_INFO	0x30000	
-#define GET_CAP		0x40000	
-#define GET_STATS	0x50000	
+/*
+ * ioctl opcodes
+ */
+#define MBOX_CMD	0x00000	/* DCMD or passthru command */
+#define GET_DRIVER_VER	0x10000	/* Get driver version */
+#define GET_N_ADAP	0x20000	/* Get number of adapters */
+#define GET_ADAP_INFO	0x30000	/* Get information about a adapter */
+#define GET_CAP		0x40000	/* Get ioctl capabilities */
+#define GET_STATS	0x50000	/* Get statistics, including error info */
 
 
+/*
+ * The ioctl structure.
+ * MBOX macro converts a nitioctl_t structure to megacmd_t pointer and
+ * MBOX_P macro converts a nitioctl_t pointer to megacmd_t pointer.
+ */
 typedef struct {
-	char		signature[8];	
-	u32		opcode;		
-	u32		adapno;		
+	char		signature[8];	/* Must contain "MEGANIT" */
+	u32		opcode;		/* opcode for the command */
+	u32		adapno;		/* adapter number */
 	union {
 		u8	__raw_mbox[18];
-		void __user *__uaddr; 
+		void __user *__uaddr; /* xferaddr for non-mbox cmds */
 	}__ua;
 
 #define uioc_rmbox	__ua.__raw_mbox
@@ -517,33 +630,63 @@ typedef struct {
 #define MBOX_P(uioc)	((megacmd_t __user *)&((uioc)->__ua.__raw_mbox[0]))
 #define uioc_uaddr	__ua.__uaddr
 
-	u32		xferlen;	
-	u32		flags;		
+	u32		xferlen;	/* xferlen for DCMD and non-mbox
+					   commands */
+	u32		flags;		/* data direction flags */
 }nitioctl_t;
 
 
+/*
+ * I/O statistics for some applications like SNMP agent. The caller must
+ * provide the number of logical drives for which status should be reported.
+ */
 typedef struct {
-	int	num_ldrv;	
-	u32	nreads[MAX_LOGICAL_DRIVES_40LD];	
-	u32	nreadblocks[MAX_LOGICAL_DRIVES_40LD];	
-	u32	nwrites[MAX_LOGICAL_DRIVES_40LD];	
-	u32	nwriteblocks[MAX_LOGICAL_DRIVES_40LD];	
-	u32	rd_errors[MAX_LOGICAL_DRIVES_40LD];	
-	u32	wr_errors[MAX_LOGICAL_DRIVES_40LD];	
+	int	num_ldrv;	/* Number for logical drives for which the
+				   status should be reported. */
+	u32	nreads[MAX_LOGICAL_DRIVES_40LD];	/* number of reads for
+							each logical drive */
+	u32	nreadblocks[MAX_LOGICAL_DRIVES_40LD];	/* number of blocks
+							read for each logical
+							drive */
+	u32	nwrites[MAX_LOGICAL_DRIVES_40LD];	/* number of writes
+							for each logical
+							drive */
+	u32	nwriteblocks[MAX_LOGICAL_DRIVES_40LD];	/* number of blocks
+							writes for each
+							logical drive */
+	u32	rd_errors[MAX_LOGICAL_DRIVES_40LD];	/* number of read
+							   errors for each
+							   logical drive */
+	u32	wr_errors[MAX_LOGICAL_DRIVES_40LD];	/* number of write
+							   errors for each
+							   logical drive */
 }megastat_t;
 
 
 struct private_bios_data {
-	u8	geometry:4;	
-	u8	unused:4;	
-	u8	boot_drv;	
+	u8	geometry:4;	/*
+				 * bits 0-3 - BIOS geometry
+				 * 0x0001 - 1GB
+				 * 0x0010 - 2GB
+				 * 0x1000 - 8GB
+				 * Others values are invalid
+							 */
+	u8	unused:4;	/* bits 4-7 are unused */
+	u8	boot_drv;	/*
+				 * logical drive set as boot drive
+				 * 0..7 - for 8LD cards
+				 * 0..39 - for 40LD cards
+				 */
 	u8	rsvd[12];
-	u16	cksum;	
+	u16	cksum;	/* 0-(sum of first 13 bytes of this structure) */
 } __attribute__ ((packed));
 
 
 
 
+/*
+ * Mailbox and firmware commands and subopcodes used in this driver.
+ */
 
 #define MEGA_MBOXCMD_LREAD	0x01
 #define MEGA_MBOXCMD_LWRITE	0x02
@@ -555,8 +698,8 @@ struct private_bios_data {
 #define MEGA_MBOXCMD_PASSTHRU64	0xC3
 #define MEGA_MBOXCMD_EXTPTHRU	0xE3
 
-#define MAIN_MISC_OPCODE	0xA4	
-#define GET_MAX_SG_SUPPORT	0x01	
+#define MAIN_MISC_OPCODE	0xA4	/* f/w misc opcode */
+#define GET_MAX_SG_SUPPORT	0x01	/* get max sg len supported by f/w */
 
 #define FC_NEW_CONFIG		0xA1
 #define NC_SUBOP_PRODUCT_INFO	0x0E
@@ -568,11 +711,17 @@ struct private_bios_data {
 #define FLUSH_ADAPTER		0x0A
 #define FLUSH_SYSTEM		0xFE
 
-#define	FC_DEL_LOGDRV		0xA4	
-#define	OP_SUP_DEL_LOGDRV	0x2A	
-#define OP_GET_LDID_MAP		0x18	
-#define OP_DEL_LOGDRV		0x1C	
+/*
+ * Command for random deletion of logical drives
+ */
+#define	FC_DEL_LOGDRV		0xA4	/* f/w command */
+#define	OP_SUP_DEL_LOGDRV	0x2A	/* is feature supported */
+#define OP_GET_LDID_MAP		0x18	/* get ldid and logdrv number map */
+#define OP_DEL_LOGDRV		0x1C	/* delete logical drive */
 
+/*
+ * BIOS commands
+ */
 #define IS_BIOS_ENABLED		0x62
 #define GET_BIOS		0x01
 #define CHNL_CLASS		0xA9
@@ -584,6 +733,9 @@ struct private_bios_data {
 #define GET_BIOS_PVT_DATA	0x00
 
 
+/*
+ * Commands to support clustering
+ */
 #define MEGA_GET_TARGET_ID	0x7D
 #define MEGA_CLUSTER_OP		0x70
 #define MEGA_GET_CLUSTER_MODE	0x02
@@ -596,6 +748,9 @@ struct private_bios_data {
 #define MEGA_RELEASE_PD		0x06
 
 
+/*
+ * Module battery status
+ */
 #define MEGA_BATT_MODULE_MISSING	0x01
 #define MEGA_BATT_LOW_VOLTAGE		0x02
 #define MEGA_BATT_TEMP_HIGH		0x04
@@ -606,6 +761,9 @@ struct private_bios_data {
 #define MEGA_BATT_CHARGE_FAIL		0x20
 #define MEGA_BATT_CYCLES_EXCEEDED	0x40
 
+/*
+ * Physical drive states.
+ */
 #define PDRV_UNCNF	0
 #define PDRV_ONLINE	3
 #define PDRV_FAILED	4
@@ -613,11 +771,17 @@ struct private_bios_data {
 #define PDRV_HOTSPARE	6
 
 
+/*
+ * Raid logical drive states.
+ */
 #define RDRV_OFFLINE	0
 #define RDRV_DEGRADED	1
 #define RDRV_OPTIMAL	2
 #define RDRV_DELETED	3
 
+/*
+ * Read, write and cache policies
+ */
 #define NO_READ_AHEAD		0
 #define READ_AHEAD		1
 #define ADAP_READ_AHEAD		2
@@ -629,19 +793,23 @@ struct private_bios_data {
 
 #define SCSI_LIST(scp) ((struct list_head *)(&(scp)->SCp))
 
+/*
+ * Each controller's soft state
+ */
 typedef struct {
-	int	this_id;	
+	int	this_id;	/* our id, may set to different than 7 if
+				   clustering is available */
 	u32	flag;
 
 	unsigned long		base;
 	void __iomem		*mmio_base;
 
-	
+	/* mbox64 with mbox not aligned on 16-byte boundary */
 	mbox64_t	*una_mbox64;
 	dma_addr_t	una_mbox64_dma;
 
-	volatile mbox64_t	*mbox64;
-	volatile mbox_t		*mbox;	
+	volatile mbox64_t	*mbox64;/* ptr to 64-bit mailbox */
+	volatile mbox_t		*mbox;	/* ptr to standard mailbox */
 	dma_addr_t		mbox_dma;
 
 	struct pci_dev	*dev;
@@ -661,7 +829,8 @@ typedef struct {
 	u8		max_cmds;
 	scb_t		*scb_list;
 
-	atomic_t	pend_cmds;	
+	atomic_t	pend_cmds;	/* maintain a counter for pending
+					   commands in firmware */
 
 #if MEGA_HAVE_STATS
 	u32	nreads[MAX_LOGICAL_DRIVES_40LD];
@@ -672,7 +841,7 @@ typedef struct {
 	u32	wr_errors[MAX_LOGICAL_DRIVES_40LD];
 #endif
 
-	
+	/* Host adapter parameters */
 	u8	numldrv;
 	u8	fw_version[7];
 	u8	bios_version[7];
@@ -693,31 +862,40 @@ typedef struct {
 
 #endif
 
-	int	has_64bit_addr;		
+	int	has_64bit_addr;		/* are we using 64-bit addressing */
 	int	support_ext_cdb;
 	int	boot_ldrv_enabled;
 	int	boot_ldrv;
-	int	boot_pdrv_enabled;	
-	int	boot_pdrv_ch;		
-	int	boot_pdrv_tgt;		
+	int	boot_pdrv_enabled;	/* boot from physical drive */
+	int	boot_pdrv_ch;		/* boot physical drive channel */
+	int	boot_pdrv_tgt;		/* boot physical drive target */
 
 
-	int	support_random_del;	
-	int	read_ldidmap;	
-	atomic_t	quiescent;	
+	int	support_random_del;	/* Do we support random deletion of
+					   logdrvs */
+	int	read_ldidmap;	/* set after logical drive deltion. The
+				   logical drive number must be read from the
+				   map */
+	atomic_t	quiescent;	/* a stage reached when delete logical
+					   drive needs to be done. Stop
+					   sending requests to the hba till
+					   delete operation is completed */
 	spinlock_t	lock;
 
-	u8	logdrv_chan[MAX_CHANNELS+NVIRT_CHAN]; 
+	u8	logdrv_chan[MAX_CHANNELS+NVIRT_CHAN]; /* logical drive are on
+							what channels. */
 	int	mega_ch_class;
 
-	u8	sglen;	
+	u8	sglen;	/* f/w supported scatter-gather list length */
 
 	unsigned char int_cdb[MAX_COMMAND_SIZE];
 	scb_t			int_scb;
-	struct mutex		int_mtx;	
-	struct completion	int_waitq;	
+	struct mutex		int_mtx;	/* To synchronize the internal
+						commands */
+	struct completion	int_waitq;	/* wait queue for internal
+						 cmds */
 
-	int	has_cluster;	
+	int	has_cluster;	/* cluster support on this HBA */
 }adapter_t;
 
 
@@ -727,6 +905,10 @@ struct mega_hbas {
 };
 
 
+/*
+ * For state flag. Do not use LSB(8 bits) which are
+ * reserved for storing info about channels.
+ */
 #define IN_ABORT	0x80000000L
 #define IN_RESET	0x40000000L
 #define BOARD_MEMMAP	0x20000000L
@@ -744,7 +926,11 @@ struct mega_hbas {
 #define MEGA_BULK_DATA			0x0001
 #define MEGA_SGLIST			0x0002
 
+/*
+ * Parameters for the io-mapped controllers
+ */
 
+/* I/O Port offsets */
 #define CMD_PORT	 	0x00
 #define ACK_PORT	 	0x00
 #define TOGGLE_PORT		0x01
@@ -757,6 +943,7 @@ struct mega_hbas {
 #define MBOX_PORT3	 	0x07
 #define ENABLE_MBOX_REGION 	0x0B
 
+/* I/O Port Values */
 #define ISSUE_BYTE	 	0x10
 #define ACK_BYTE	   	0x08
 #define ENABLE_INTR_BYTE   	0xc0
@@ -766,6 +953,7 @@ struct mega_hbas {
 #define ENABLE_MBOX_BYTE   	0x00
 
 
+/* Setup some port macros here */
 #define issue_command(adapter)	\
 		outb_p(ISSUE_BYTE, (adapter)->base + CMD_PORT)
 
@@ -784,7 +972,14 @@ struct mega_hbas {
 	outb_p(DISABLE_INTR_BYTE, (adapter)->base + TOGGLE_PORT)
 
 
+/*
+ * This is our SYSDEP area. All kernel specific detail should be placed here -
+ * as much as possible
+ */
 
+/*
+ * End of SYSDEP area
+ */
 
 const char *megaraid_info (struct Scsi_Host *);
 
@@ -865,3 +1060,4 @@ static void mega_internal_done(Scsi_Cmnd *);
 static int mega_support_cluster(adapter_t *);
 #endif
 
+/* vi: set ts=8 sw=8 tw=78: */

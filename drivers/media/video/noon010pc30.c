@@ -33,12 +33,17 @@ MODULE_PARM_DESC(debug, "Enable module debug trace. Set to 1 to enable.");
 
 #define MODULE_NAME		"NOON010PC30"
 
+/*
+ * Register offsets within a page
+ * b15..b8 - page id, b7..b0 - register address
+ */
 #define POWER_CTRL_REG		0x0001
 #define PAGEMODE_REG		0x03
 #define DEVICE_ID_REG		0x0004
 #define NOON010PC30_ID		0x86
 #define VDO_CTL_REG(n)		(0x0010 + (n))
 #define SYNC_CTL_REG		0x0012
+/* Window size and position */
 #define WIN_ROWH_REG		0x0013
 #define WIN_ROWL_REG		0x0014
 #define WIN_COLH_REG		0x0015
@@ -51,13 +56,16 @@ MODULE_PARM_DESC(debug, "Enable module debug trace. Set to 1 to enable.");
 #define HBLANKL_REG		0x001C
 #define VSYNCH_REG		0x001D
 #define VSYNCL_REG		0x001E
+/* VSYNC control */
 #define VS_CTL_REG(n)		(0x00A1 + (n))
+/* page 1 */
 #define ISP_CTL_REG(n)		(0x0110 + (n))
 #define YOFS_REG		0x0119
 #define DARK_YOFS_REG		0x011A
 #define SAT_CTL_REG		0x0120
 #define BSAT_REG		0x0121
 #define RSAT_REG		0x0122
+/* Color correction */
 #define CMC_CTL_REG		0x0130
 #define CMC_OFSGH_REG		0x0133
 #define CMC_OFSGL_REG		0x0135
@@ -65,8 +73,10 @@ MODULE_PARM_DESC(debug, "Enable module debug trace. Set to 1 to enable.");
 #define CMC_GOFS_REG		0x0137
 #define CMC_COEF_REG(n)		(0x0138 + (n))
 #define CMC_OFS_REG(n)		(0x0141 + (n))
+/* Gamma correction */
 #define GMA_CTL_REG		0x0160
 #define GMA_COEF_REG(n)		(0x0161 + (n))
+/* Lens Shading */
 #define LENS_CTRL_REG		0x01D0
 #define LENS_XCEN_REG		0x01D1
 #define LENS_YCEN_REG		0x01D2
@@ -75,6 +85,7 @@ MODULE_PARM_DESC(debug, "Enable module debug trace. Set to 1 to enable.");
 #define LENS_BC_REG		0x01D5
 #define L_AGON_REG		0x01D6
 #define L_AGOFF_REG		0x01D7
+/* Page 3 - Auto Exposure */
 #define AE_CTL_REG(n)		(0x0310 + (n))
 #define AE_CTL9_REG		0x032C
 #define AE_CTL10_REG		0x032D
@@ -89,13 +100,16 @@ MODULE_PARM_DESC(debug, "Enable module debug trace. Set to 1 to enable.");
 #define EXP_MMAXH_REG		0x0338
 #define EXP_MMAXM_REG		0x0339
 #define EXP_MMAXL_REG		0x033A
+/* Page 4 - Auto White Balance */
 #define AWB_CTL_REG(n)		(0x0410 + (n))
 #define AWB_ENABE		0x80
 #define AWB_WGHT_REG		0x0419
 #define BGAIN_PAR_REG(n)	(0x044F + (n))
+/* Manual white balance, when AWB_CTL2[0]=1 */
 #define MWB_RGAIN_REG		0x0466
 #define MWB_BGAIN_REG		0x0467
 
+/* The token to mark an array end */
 #define REG_TERM		0xFFFF
 
 struct noon010_format {
@@ -124,7 +138,7 @@ struct noon010_info {
 	u32 gpio_nreset;
 	u32 gpio_nstby;
 
-	
+	/* Protects the struct members below */
 	struct mutex lock;
 
 	const struct noon010_format *curr_fmt;
@@ -142,6 +156,7 @@ struct i2c_regval {
 	u16 val;
 };
 
+/* Supported resolutions. */
 static const struct noon010_frmsize noon010_sizes[] = {
 	{
 		.width		= 352,
@@ -158,6 +173,7 @@ static const struct noon010_frmsize noon010_sizes[] = {
 	},
 };
 
+/* Supported pixel formats. */
 static const struct noon010_format noon010_formats[] = {
 	{
 		.code		= V4L2_MBUS_FMT_YUYV8_2X8,
@@ -184,7 +200,7 @@ static const struct noon010_format noon010_formats[] = {
 
 static const struct i2c_regval noon010_base_regs[] = {
 	{ WIN_COLL_REG,		0x06 },	{ HBLANKL_REG,		0x7C },
-	
+	/* Color corection and saturation */
 	{ ISP_CTL_REG(0),	0x30 }, { ISP_CTL_REG(2),	0x30 },
 	{ YOFS_REG,		0x80 }, { DARK_YOFS_REG,	0x04 },
 	{ SAT_CTL_REG,		0x1F }, { BSAT_REG,		0x90 },
@@ -199,10 +215,10 @@ static const struct i2c_regval noon010_base_regs[] = {
 	{ CMC_COEF_REG(6),	0x01 }, { CMC_OFS_REG(6),	0x9C },
 	{ CMC_COEF_REG(7),	0x33 }, { CMC_OFS_REG(7),	0x89 },
 	{ CMC_COEF_REG(8),	0x74 }, { CMC_OFS_REG(8),	0x25 },
-	
+	/* Automatic white balance */
 	{ AWB_CTL_REG(0),	0x78 }, { AWB_CTL_REG(1),	0x2E },
 	{ AWB_CTL_REG(2),	0x20 }, { AWB_CTL_REG(3),	0x85 },
-	
+	/* Auto exposure */
 	{ AE_CTL_REG(0),	0xDC }, { AE_CTL_REG(1),	0x81 },
 	{ AE_CTL_REG(2),	0x30 }, { AE_CTL_REG(3),	0xA5 },
 	{ AE_CTL_REG(4),	0x40 }, { AE_CTL_REG(5),	0x51 },
@@ -210,7 +226,7 @@ static const struct i2c_regval noon010_base_regs[] = {
 	{ AE_CTL9_REG,		0x00 }, { AE_CTL10_REG,		0x02 },
 	{ AE_YLVL_REG,		0x44 },	{ AE_YTH_REG(0),	0x34 },
 	{ AE_YTH_REG(1),	0x30 },	{ AE_WGT_REG,		0xD5 },
-	
+	/* Lens shading compensation */
 	{ LENS_CTRL_REG,	0x01 }, { LENS_XCEN_REG,	0x80 },
 	{ LENS_YCEN_REG,	0x70 }, { LENS_RC_REG,		0x53 },
 	{ LENS_GC_REG,		0x40 }, { LENS_BC_REG,		0x3E },
@@ -276,6 +292,7 @@ static inline int noon010_bulk_write_reg(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/* Device reset and sleep mode control */
 static int noon010_power_ctrl(struct v4l2_subdev *sd, bool reset, bool sleep)
 {
 	struct noon010_info *info = to_noon010(sd);
@@ -294,6 +311,7 @@ static int noon010_power_ctrl(struct v4l2_subdev *sd, bool reset, bool sleep)
 	return ret;
 }
 
+/* Automatic white balance control */
 static int noon010_enable_autowhitebalance(struct v4l2_subdev *sd, int on)
 {
 	int ret;
@@ -304,6 +322,7 @@ static int noon010_enable_autowhitebalance(struct v4l2_subdev *sd, int on)
 	return ret;
 }
 
+/* Called with struct noon010_info.lock mutex held */
 static int noon010_set_flip(struct v4l2_subdev *sd, int hflip, int vflip)
 {
 	struct noon010_info *info = to_noon010(sd);
@@ -327,6 +346,7 @@ static int noon010_set_flip(struct v4l2_subdev *sd, int hflip, int vflip)
 	return ret;
 }
 
+/* Configure resolution and color format */
 static int noon010_set_params(struct v4l2_subdev *sd)
 {
 	struct noon010_info *info = to_noon010(sd);
@@ -339,6 +359,7 @@ static int noon010_set_params(struct v4l2_subdev *sd)
 			     info->curr_fmt->ispctl1_reg);
 }
 
+/* Find nearest matching image pixel size. */
 static int noon010_try_frame_size(struct v4l2_mbus_framefmt *mf,
 				  const struct noon010_frmsize **size)
 {
@@ -367,6 +388,7 @@ static int noon010_try_frame_size(struct v4l2_mbus_framefmt *mf,
 	return -EINVAL;
 }
 
+/* Called with info.lock mutex held */
 static int power_enable(struct noon010_info *info)
 {
 	int ret;
@@ -407,6 +429,7 @@ static int power_enable(struct noon010_info *info)
 	return 0;
 }
 
+/* Called with info.lock mutex held */
 static int power_disable(struct noon010_info *info)
 {
 	int ret;
@@ -443,6 +466,11 @@ static int noon010_s_ctrl(struct v4l2_ctrl *ctrl)
 		 __func__, ctrl->id, ctrl->val);
 
 	mutex_lock(&info->lock);
+	/*
+	 * If the device is not powered up by the host driver do
+	 * not apply any controls to H/W at this time. Instead
+	 * the controls will be restored right after power-up.
+	 */
 	if (!info->power)
 		goto unlock;
 
@@ -501,6 +529,7 @@ static int noon010_get_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 	return 0;
 }
 
+/* Return nearest media bus frame format. */
 static const struct noon010_format *noon010_try_fmt(struct v4l2_subdev *sd,
 					    struct v4l2_mbus_framefmt *mf)
 {
@@ -546,6 +575,7 @@ static int noon010_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
 	return ret;
 }
 
+/* Called with struct noon010_info.lock mutex held */
 static int noon010_base_config(struct v4l2_subdev *sd)
 {
 	int ret = noon010_bulk_write_reg(sd, noon010_base_regs);
@@ -573,7 +603,7 @@ static int noon010_s_power(struct v4l2_subdev *sd, int on)
 	}
 	mutex_unlock(&info->lock);
 
-	
+	/* Restore the controls state */
 	if (!ret && on)
 		ret = v4l2_ctrl_handler_setup(&info->hdl);
 
@@ -656,6 +686,7 @@ static const struct v4l2_subdev_ops noon010_ops = {
 	.video	= &noon010_video_ops,
 };
 
+/* Return 0 if NOON010PC30L sensor type was detected or -ENODEV otherwise. */
 static int noon010_detect(struct i2c_client *client, struct noon010_info *info)
 {
 	int ret;

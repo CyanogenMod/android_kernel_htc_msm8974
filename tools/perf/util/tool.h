@@ -47,4 +47,4 @@ struct perf_tool {
 	bool		ordering_requires_timestamps;
 };
 
-#endif 
+#endif /* __PERF_TOOL_H */

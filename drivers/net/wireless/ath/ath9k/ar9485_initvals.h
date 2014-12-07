@@ -18,7 +18,7 @@
 #define INITVALS_9485_H
 
 static const u32 ar9485_1_1_mac_core[][2] = {
-	
+	/*  Addr       allmodes */
 	{0x00000008, 0x00000000},
 	{0x00000030, 0x00020085},
 	{0x00000034, 0x00000005},
@@ -180,7 +180,7 @@ static const u32 ar9485_1_1_mac_core[][2] = {
 };
 
 static const u32 ar9485_1_1_baseband_core[][2] = {
-	
+	/* Addr       allmodes */
 	{0x00009800, 0xafe68e30},
 	{0x00009804, 0xfd14e000},
 	{0x00009808, 0x9c0a8f6b},
@@ -317,7 +317,7 @@ static const u32 ar9485_1_1_baseband_core[][2] = {
 };
 
 static const u32 ar9485Common_1_1[][2] = {
-	
+	/*  Addr      allmodes */
 	{0x00007010, 0x00000022},
 	{0x00007020, 0x00000000},
 	{0x00007034, 0x00000002},
@@ -325,7 +325,7 @@ static const u32 ar9485Common_1_1[][2] = {
 };
 
 static const u32 ar9485_1_1_baseband_postamble[][5] = {
-	
+	/* Addr       5G_HT20        5G_HT40       2G_HT40       2G_HT20 */
 	{0x00009810, 0xd00a8005, 0xd00a8005, 0xd00a8005, 0xd00a8005},
 	{0x00009820, 0x206a002e, 0x206a002e, 0x206a002e, 0x206a002e},
 	{0x00009824, 0x5ac640d0, 0x5ac640d0, 0x5ac640d0, 0x5ac640d0},
@@ -370,7 +370,7 @@ static const u32 ar9485_1_1_baseband_postamble[][5] = {
 };
 
 static const u32 ar9485Modes_high_ob_db_tx_gain_1_1[][5] = {
-	
+	/* Addr        5G_HT20       5G_HT40       2G_HT40       2G_HT20 */
 	{0x000098bc, 0x00000002, 0x00000002, 0x00000002, 0x00000002},
 	{0x0000a410, 0x000050d9, 0x000050d9, 0x000050d8, 0x000050d8},
 	{0x0000a458, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
@@ -443,7 +443,7 @@ static const u32 ar9485Modes_high_ob_db_tx_gain_1_1[][5] = {
 };
 
 static const u32 ar9485_modes_lowest_ob_db_tx_gain_1_1[][5] = {
-	
+	/* Addr        5G_HT20       5G_HT40       2G_HT40       2G_HT20  */
 	{0x000098bc, 0x00000002, 0x00000002, 0x00000002, 0x00000002},
 	{0x0000a410, 0x000050d9, 0x000050d9, 0x000050d8, 0x000050d8},
 	{0x0000a458, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
@@ -516,7 +516,7 @@ static const u32 ar9485_modes_lowest_ob_db_tx_gain_1_1[][5] = {
 };
 
 static const u32 ar9485_1_1_radio_postamble[][2] = {
-	
+	/* Addr        allmodes */
 	{0x0001609c, 0x0b283f31},
 	{0x000160ac, 0x24611800},
 	{0x000160b0, 0x03284f3e},
@@ -525,7 +525,7 @@ static const u32 ar9485_1_1_radio_postamble[][2] = {
 };
 
 static const u32 ar9485_1_1_mac_postamble[][5] = {
-	
+	/* Addr        5G_HT20       5G_HT40       2G_HT40       2G_HT20 */
 	{0x00001030, 0x00000230, 0x00000460, 0x000002c0, 0x00000160},
 	{0x00001070, 0x00000168, 0x000002d0, 0x00000318, 0x0000018c},
 	{0x000010b0, 0x00000e60, 0x00001cc0, 0x00007c70, 0x00003e38},
@@ -537,7 +537,7 @@ static const u32 ar9485_1_1_mac_postamble[][5] = {
 };
 
 static const u32 ar9485_1_1_radio_core[][2] = {
-	
+	/* Addr        allmodes */
 	{0x00016000, 0x36db6db6},
 	{0x00016004, 0x6db6db40},
 	{0x00016008, 0x73800000},
@@ -602,14 +602,14 @@ static const u32 ar9485_1_1_radio_core[][2] = {
 };
 
 static const u32 ar9485_1_1_pcie_phy_pll_on_clkreq_enable_L1[][2] = {
-	
+	/* Addr        allmodes */
 	{0x00018c00, 0x18052e5e},
 	{0x00018c04, 0x000801d8},
 	{0x00018c08, 0x0000080c},
 };
 
 static const u32 ar9485Modes_high_power_tx_gain_1_1[][5] = {
-	
+	/* Addr        5G_HT20       5G_HT40       2G_HT40       2G_HT20 */
 	{0x000098bc, 0x00000002, 0x00000002, 0x00000002, 0x00000002},
 	{0x0000a410, 0x000050d9, 0x000050d9, 0x000050d8, 0x000050d8},
 	{0x0000a458, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
@@ -682,7 +682,7 @@ static const u32 ar9485Modes_high_power_tx_gain_1_1[][5] = {
 };
 
 static const u32 ar9485_1_1[][2] = {
-	
+	/* Addr        allmodes */
 	{0x0000a580, 0x00000000},
 	{0x0000a584, 0x00000000},
 	{0x0000a588, 0x00000000},
@@ -702,7 +702,7 @@ static const u32 ar9485_1_1[][2] = {
 };
 
 static const u32 ar9485_modes_green_ob_db_tx_gain_1_1[][5] = {
-	
+	/* Addr        5G_HT20       5G_HT40       2G_HT40       2G_HT20 */
 	{0x000098bc, 0x00000003, 0x00000003, 0x00000003, 0x00000003},
 	{0x0000a410, 0x000050d9, 0x000050d9, 0x000050d8, 0x000050d8},
 	{0x0000a458, 0x80000000, 0x80000000, 0x80000000, 0x80000000},
@@ -775,14 +775,14 @@ static const u32 ar9485_modes_green_ob_db_tx_gain_1_1[][5] = {
 };
 
 static const u32 ar9485_1_1_pcie_phy_clkreq_disable_L1[][2] = {
-	
+	/* Addr        allmodes */
 	{0x00018c00, 0x18013e5e},
 	{0x00018c04, 0x000801d8},
 	{0x00018c08, 0x0000080c},
 };
 
 static const u32 ar9485_1_1_soc_preamble[][2] = {
-	
+	/* Addr        allmodes */
 	{0x00004014, 0xba280400},
 	{0x00004090, 0x00aa10aa},
 	{0x000040a4, 0x00a0c9c9},
@@ -794,14 +794,14 @@ static const u32 ar9485_1_1_soc_preamble[][2] = {
 };
 
 static const u32 ar9485_1_1_baseband_core_txfir_coeff_japan_2484[][2] = {
-	
+	/* Addr        allmodes */
 	{0x0000a398, 0x00000000},
 	{0x0000a39c, 0x6f7f0301},
 	{0x0000a3a0, 0xca9228ee},
 };
 
 static const u32 ar9485Modes_low_ob_db_tx_gain_1_1[][5] = {
-	
+	/* Addr        5G_HT20       5G_HT40       2G_HT40       2G_HT20  */
 	{0x000098bc, 0x00000002, 0x00000002, 0x00000002, 0x00000002},
 	{0x0000a410, 0x000050d9, 0x000050d9, 0x000050d8, 0x000050d8},
 	{0x0000a458, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
@@ -874,21 +874,21 @@ static const u32 ar9485Modes_low_ob_db_tx_gain_1_1[][5] = {
 };
 
 static const u32 ar9485_fast_clock_1_1_baseband_postamble[][3] = {
-	
+	/* Addr        5G_HT2        5G_HT40  */
 	{0x00009e00, 0x03721821, 0x03721821},
 	{0x0000a230, 0x0000400b, 0x00004016},
 	{0x0000a254, 0x00000898, 0x00001130},
 };
 
 static const u32 ar9485_1_1_pcie_phy_pll_on_clkreq_disable_L1[][2] = {
-	
+	/* Addr        allmodes  */
 	{0x00018c00, 0x18012e5e},
 	{0x00018c04, 0x000801d8},
 	{0x00018c08, 0x0000080c},
 };
 
 static const u32 ar9485_common_rx_gain_1_1[][2] = {
-	
+	/* Addr        allmodes */
 	{0x0000a000, 0x00010000},
 	{0x0000a004, 0x00030002},
 	{0x0000a008, 0x00050004},
@@ -1020,14 +1020,14 @@ static const u32 ar9485_common_rx_gain_1_1[][2] = {
 };
 
 static const u32 ar9485_1_1_pcie_phy_clkreq_enable_L1[][2] = {
-	
+	/* Addr        allmodes */
 	{0x00018c00, 0x18053e5e},
 	{0x00018c04, 0x000801d8},
 	{0x00018c08, 0x0000080c},
 };
 
 static const u32 ar9485Common_wo_xlna_rx_gain_1_1[][2] = {
-	
+	/* Addr        allmodes */
 	{0x0000a000, 0x00060005},
 	{0x0000a004, 0x00810080},
 	{0x0000a008, 0x00830082},

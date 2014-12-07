@@ -20,6 +20,9 @@
 #ifndef __ASM_ARM_ARCH_IO_H
 #define __ASM_ARM_ARCH_IO_H
 
+/*
+ * WARNING: this has to mirror definitions in platform.h
+ */
 #define PCI_MEMORY_VADDR        0xe8000000
 #define PCI_CONFIG_VADDR        0xec000000
 #define PCI_V3_VADDR            0xed000000

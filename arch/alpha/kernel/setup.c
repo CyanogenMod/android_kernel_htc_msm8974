@@ -4,7 +4,11 @@
  *  Copyright (C) 1995  Linus Torvalds
  */
 
+/* 2.3.x bootmem, 1999 Andrea Arcangeli <andrea@suse.de> */
 
+/*
+ * Bootup setup stuff.
+ */
 
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -46,7 +50,7 @@ static int alpha_panic_event(struct notifier_block *, unsigned long, void *);
 static struct notifier_block alpha_panic_block = {
 	alpha_panic_event,
         NULL,
-        INT_MAX 
+        INT_MAX /* try to do it first */
 };
 
 #include <asm/uaccess.h>
@@ -70,6 +74,8 @@ int alpha_l2_cacheshape;
 int alpha_l3_cacheshape;
 
 #ifdef CONFIG_VERBOSE_MCHECK
+/* 0=minimum, 1=verbose, 2=all */
+/* These can be overridden via the command line, ie "verbose_mcheck=2") */
 unsigned long alpha_verbose_mcheck = CONFIG_VERBOSE_MCHECK_ON;
 #endif
 
@@ -78,12 +84,33 @@ struct cpumask node_to_cpumask_map[MAX_NUMNODES] __read_mostly;
 EXPORT_SYMBOL(node_to_cpumask_map);
 #endif
 
+/* Which processor we booted from.  */
 int boot_cpuid;
 
+/*
+ * Using SRM callbacks for initial console output. This works from
+ * setup_arch() time through the end of time_init(), as those places
+ * are under our (Alpha) control.
+
+ * "srmcons" specified in the boot command arguments allows us to
+ * see kernel messages during the period of time before the true
+ * console device is "registered" during console_init(). 
+ * As of this version (2.5.59), console_init() will call
+ * disable_early_printk() as the last action before initializing
+ * the console drivers. That's the last possible time srmcons can be 
+ * unregistered without interfering with console behavior.
+ *
+ * By default, OFF; set it with a bootcommand arg of "srmcons" or 
+ * "console=srm". The meaning of these two args is:
+ *     "srmcons"     - early callback prints 
+ *     "console=srm" - full callback based console, including early prints
+ */
 int srmcons_output = 0;
 
+/* Enforce a memory size limit; useful for testing. By default, none. */
 unsigned long mem_size_limit = 0;
 
+/* Set AGP GART window size (0 means disabled). */
 unsigned long alpha_agpgart_size = DEFAULT_AGP_APER_SIZE;
 
 #ifdef CONFIG_ALPHA_GENERIC
@@ -101,6 +128,11 @@ static void determine_cpu_caches (unsigned int);
 
 static char __initdata command_line[COMMAND_LINE_SIZE];
 
+/*
+ * The format of "screen_info" is strange, and due to early
+ * i386-setup code. This is just enough to make the console
+ * code think we're on a VGA color display.
+ */
 
 struct screen_info screen_info = {
 	.orig_x = 0,
@@ -113,13 +145,23 @@ struct screen_info screen_info = {
 
 EXPORT_SYMBOL(screen_info);
 
+/*
+ * The direct map I/O window, if any.  This should be the same
+ * for all busses, since it's used by virt_to_bus.
+ */
 
 unsigned long __direct_map_base;
 unsigned long __direct_map_size;
 EXPORT_SYMBOL(__direct_map_base);
 EXPORT_SYMBOL(__direct_map_size);
 
+/*
+ * Declare all of the machine vectors.
+ */
 
+/* GCC 2.7.2 (on alpha at least) is lame.  It does not support either 
+   __attribute__((weak)) or #pragma weak.  Bypass it and talk directly
+   to the assembler.  */
 
 #define WEAK(X) \
 	extern struct alpha_machine_vector X; \
@@ -167,6 +209,13 @@ WEAK(xlt_mv);
 
 #undef WEAK
 
+/*
+ * I/O resources inherited from PeeCees.  Except for perhaps the
+ * turbochannel alphas, everyone has these on some sort of SuperIO chip.
+ *
+ * ??? If this becomes less standard, move the struct out into the
+ * machine vector.
+ */
 
 static void __init
 reserve_std_resources(void)
@@ -194,7 +243,7 @@ reserve_std_resources(void)
 			}
 	}
 
-	
+	/* Fix up for the Jensen's queer RTC placement.  */
 	standard_io_resources[0].start = RTC_PORT(0);
 	standard_io_resources[0].end = RTC_PORT(0) + 0x10;
 
@@ -224,7 +273,7 @@ get_mem_size_limit(char *s)
                 end = end << 30;
                 from++;
         }
-        return end >> PAGE_SHIFT; 
+        return end >> PAGE_SHIFT; /* Return the PFN of the limit. */
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
@@ -259,7 +308,7 @@ setup_memory(void *kernel_end)
 	unsigned long start, end;
 	unsigned long i;
 
-	
+	/* Find free clusters, and init and free the bootmem accordingly.  */
 	memdesc = (struct memdesc_struct *)
 	  (hwrpb->mddt_offset + (unsigned long) hwrpb);
 
@@ -268,6 +317,9 @@ setup_memory(void *kernel_end)
 		       i, cluster->usage, cluster->start_pfn,
 		       cluster->start_pfn + cluster->numpages);
 
+		/* Bit 0 is console/PALcode reserved.  Bit 1 is
+		   non-volatile memory -- we might want to mark
+		   this for later.  */
 		if (cluster->usage & 3)
 			continue;
 
@@ -276,6 +328,21 @@ setup_memory(void *kernel_end)
 			max_low_pfn = end;
 	}
 
+	/*
+	 * Except for the NUMA systems (wildfire, marvel) all of the 
+	 * Alpha systems we run on support 32GB of memory or less.
+	 * Since the NUMA systems introduce large holes in memory addressing,
+	 * we can get into a situation where there is not enough contiguous
+	 * memory for the memory map. 
+	 *
+	 * Limit memory to the first 32GB to limit the NUMA systems to 
+	 * memory on their first node (wildfire) or 2 (marvel) to avoid 
+	 * not being able to produce the memory map. In order to access 
+	 * all of the memory on the NUMA systems, build with discontiguous
+	 * memory support.
+	 *
+	 * If the user specified a memory limit, let that memory limit stand.
+	 */
 	if (!mem_size_limit) 
 		mem_size_limit = (32ul * 1024 * 1024 * 1024) >> PAGE_SHIFT;
 
@@ -287,7 +354,7 @@ setup_memory(void *kernel_end)
 		max_low_pfn = mem_size_limit;
 	}
 
-	
+	/* Find the bounds of kernel memory.  */
 	start_kernel_pfn = PFN_DOWN(KERNEL_START_PHYS);
 	end_kernel_pfn = PFN_UP(virt_to_phys(kernel_end));
 	bootmap_start = -1;
@@ -296,9 +363,11 @@ setup_memory(void *kernel_end)
 	if (max_low_pfn <= end_kernel_pfn)
 		panic("not enough memory to boot");
 
+	/* We need to know how many physically contiguous pages
+	   we'll need for the bootmap.  */
 	bootmap_pages = bootmem_bootmap_pages(max_low_pfn);
 
-	
+	/* Now find a good region where to allocate the bootmap.  */
 	for_each_mem_cluster(memdesc, cluster, i) {
 		if (cluster->usage & 3)
 			continue;
@@ -329,10 +398,10 @@ setup_memory(void *kernel_end)
 		goto try_again;
 	}
 
-	
+	/* Allocate the bootmap and mark the whole MM as reserved.  */
 	bootmap_size = init_bootmem(bootmap_start, max_low_pfn);
 
-	
+	/* Mark the free regions.  */
 	for_each_mem_cluster(memdesc, cluster, i) {
 		if (cluster->usage & 3)
 			continue;
@@ -362,7 +431,7 @@ setup_memory(void *kernel_end)
 		printk("freeing pages %ld:%ld\n", start, end);
 	}
 
-	
+	/* Reserve the bootmap memory.  */
 	reserve_bootmem(PFN_PHYS(bootmap_start), bootmap_size,
 			BOOTMEM_DEFAULT);
 	printk("reserving pages %ld:%ld\n", bootmap_start, bootmap_start+PFN_UP(bootmap_size));
@@ -385,11 +454,11 @@ setup_memory(void *kernel_end)
 					INITRD_SIZE, BOOTMEM_DEFAULT);
 		}
 	}
-#endif 
+#endif /* CONFIG_BLK_DEV_INITRD */
 }
 #else
 extern void setup_memory(void *);
-#endif 
+#endif /* !CONFIG_DISCONTIGMEM */
 
 int __init
 page_is_ram(unsigned long pfn)
@@ -435,27 +504,49 @@ setup_arch(char **cmdline_p)
 	struct alpha_machine_vector *vec = NULL;
 	struct percpu_struct *cpu;
 	char *type_name, *var_name, *p;
-	void *kernel_end = _end; 
+	void *kernel_end = _end; /* end of kernel */
 	char *args = command_line;
 
 	hwrpb = (struct hwrpb_struct*) __va(INIT_HWRPB->phys_addr);
 	boot_cpuid = hard_smp_processor_id();
 
+        /*
+	 * Pre-process the system type to make sure it will be valid.
+	 *
+	 * This may restore real CABRIO and EB66+ family names, ie
+	 * EB64+ and EB66.
+	 *
+	 * Oh, and "white box" AS800 (aka DIGITAL Server 3000 series)
+	 * and AS1200 (DIGITAL Server 5000 series) have the type as
+	 * the negative of the real one.
+	 */
         if ((long)hwrpb->sys_type < 0) {
 		hwrpb->sys_type = -((long)hwrpb->sys_type);
 		hwrpb_update_checksum(hwrpb);
 	}
 
-	
+	/* Register a call for panic conditions. */
 	atomic_notifier_chain_register(&panic_notifier_list,
 			&alpha_panic_block);
 
 #ifdef CONFIG_ALPHA_GENERIC
+	/* Assume that we've booted from SRM if we haven't booted from MILO.
+	   Detect the later by looking for "MILO" in the system serial nr.  */
 	alpha_using_srm = strncmp((const char *)hwrpb->ssn, "MILO", 4) != 0;
 #endif
 
+	/* If we are using SRM, we want to allow callbacks
+	   as early as possible, so do this NOW, and then
+	   they should work immediately thereafter.
+	*/
 	kernel_end = callback_init(kernel_end);
 
+	/* 
+	 * Locate the command line.
+	 */
+	/* Hack for Jensen... since we're restricted to 8 or 16 chars for
+	   boot flags depending on the boot mode, we need some shorthand.
+	   This should do for installation.  */
 	if (strcmp(COMMAND_LINE, "INSTALL") == 0) {
 		strlcpy(command_line, "root=/dev/fd0 load_ramdisk=1", sizeof command_line);
 	} else {
@@ -464,6 +555,9 @@ setup_arch(char **cmdline_p)
 	strcpy(boot_command_line, command_line);
 	*cmdline_p = command_line;
 
+	/* 
+	 * Process command-line arguments.
+	 */
 	while ((p = strsep(&args, " \t")) != NULL) {
 		if (!*p) continue;
 		if (strncmp(p, "alpha_mv=", 9) == 0) {
@@ -499,24 +593,33 @@ setup_arch(char **cmdline_p)
 #endif
 	}
 
-	
+	/* Replace the command line, now that we've killed it with strsep.  */
 	strcpy(command_line, boot_command_line);
 
-	
+	/* If we want SRM console printk echoing early, do it now. */
 	if (alpha_using_srm && srmcons_output) {
 		register_srm_console();
 
+		/*
+		 * If "console=srm" was specified, clear the srmcons_output
+		 * flag now so that time.c won't unregister_srm_console
+		 */
 		if (srmcons_output & 2)
 			srmcons_output = 0;
 	}
 
 #ifdef CONFIG_MAGIC_SYSRQ
+	/* If we're using SRM, make sysrq-b halt back to the prom,
+	   not auto-reboot.  */
 	if (alpha_using_srm) {
 		struct sysrq_key_op *op = __sysrq_get_key_op('b');
 		op->handler = (void *) machine_halt;
 	}
 #endif
 
+	/*
+	 * Identify and reconfigure for the current system.
+	 */
 	cpu = (struct percpu_struct*)((char*)hwrpb + hwrpb->processor_offset);
 
 	get_sysnames(hwrpb->sys_type, hwrpb->sys_variation,
@@ -581,24 +684,34 @@ setup_arch(char **cmdline_p)
 
 	printk("Command line: %s\n", command_line);
 
+	/* 
+	 * Sync up the HAE.
+	 * Save the SRM's current value for restoration.
+	 */
 	srm_hae = *alpha_mv.hae_register;
 	__set_hae(alpha_mv.hae_cache);
 
-	
+	/* Reset enable correctable error reports.  */
 	wrmces(0x7);
 
-	
+	/* Find our memory.  */
 	setup_memory(kernel_end);
 
-	
+	/* First guess at cpu cache sizes.  Do this before init_arch.  */
 	determine_cpu_caches(cpu->type);
 
+	/* Initialize the machine.  Usually has to do with setting up
+	   DMA windows and the like.  */
 	if (alpha_mv.init_arch)
 		alpha_mv.init_arch();
 
-	
+	/* Reserve standard resources.  */
 	reserve_std_resources();
 
+	/* 
+	 * Give us a default console.  TGA users will see nothing until
+	 * chr_dev_init is called, rather late in the boot sequence.
+	 */
 
 #ifdef CONFIG_VT
 #if defined(CONFIG_VGA_CONSOLE)
@@ -608,19 +721,27 @@ setup_arch(char **cmdline_p)
 #endif
 #endif
 
-	
+	/* Default root filesystem to sda2.  */
 	ROOT_DEV = Root_SDA2;
 
 #ifdef CONFIG_EISA
-	
+	/* FIXME:  only set this when we actually have EISA in this box? */
 	EISA_bus = 1;
 #endif
 
+ 	/*
+	 * Check ASN in HWRPB for validity, report if bad.
+	 * FIXME: how was this failing?  Should we trust it instead,
+	 * and copy the value into alpha_mv.max_asn?
+ 	 */
 
  	if (hwrpb->max_asn != MAX_ASN) {
 		printk("Max ASN from HWRPB is bad (0x%lx)\n", hwrpb->max_asn);
  	}
 
+	/*
+	 * Identify the flock of penguins.
+	 */
 
 #ifdef CONFIG_SMP
 	setup_smp();
@@ -683,57 +804,57 @@ get_sysvec(unsigned long type, unsigned long variation, unsigned long cpu)
 {
 	static struct alpha_machine_vector *systype_vecs[] __initdata =
 	{
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
+		NULL,		/* 0 */
+		NULL,		/* ADU */
+		NULL,		/* Cobra */
+		NULL,		/* Ruby */
+		NULL,		/* Flamingo */
+		NULL,		/* Mannequin */
 		&jensen_mv,
-		NULL, 		
-		NULL,		
-		NULL,		
-		NULL,		
+		NULL, 		/* Pelican */
+		NULL,		/* Morgan */
+		NULL,		/* Sable -- see below.  */
+		NULL,		/* Medulla */
 		&noname_mv,
-		NULL,		
+		NULL,		/* Turbolaser */
 		&avanti_mv,
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
+		NULL,		/* Mustang */
+		NULL,		/* Alcor, Bret, Maverick. HWRPB inaccurate? */
+		NULL,		/* Tradewind */
+		NULL,		/* Mikasa -- see below.  */
+		NULL,		/* EB64 */
+		NULL,		/* EB66 -- see variation.  */
+		NULL,		/* EB64+ -- see variation.  */
 		&alphabook1_mv,
 		&rawhide_mv,
-		NULL,		
-		&lynx_mv,	
+		NULL,		/* K2 */
+		&lynx_mv,	/* Lynx */
 		&xl_mv,
-		NULL,		
-		NULL,		
-		NULL,		
-		NULL,		
+		NULL,		/* EB164 -- see variation.  */
+		NULL,		/* Noritake -- see below.  */
+		NULL,		/* Cortex */
+		NULL,		/* 29 */
 		&miata_mv,
-		NULL,		
+		NULL,		/* XXM */
 		&takara_mv,
-		NULL,		
-		NULL,		
-		&wildfire_mv,	
-		NULL,		
-		&eiger_mv,	
-		NULL,		
-		NULL,		
+		NULL,		/* Yukon */
+		NULL,		/* Tsunami -- see variation.  */
+		&wildfire_mv,	/* Wildfire */
+		NULL,		/* CUSCO */
+		&eiger_mv,	/* Eiger */
+		NULL,		/* Titan */
+		NULL,		/* Marvel */
 	};
 
 	static struct alpha_machine_vector *unofficial_vecs[] __initdata =
 	{
-		NULL,		
+		NULL,		/* 100 */
 		&ruffian_mv,
 	};
 
 	static struct alpha_machine_vector *api_vecs[] __initdata =
 	{
-		NULL,		
+		NULL,		/* 200 */
 		&nautilus_mv,
 	};
 
@@ -751,7 +872,7 @@ get_sysvec(unsigned long type, unsigned long variation, unsigned long cpu)
 	{
 		&eb64p_mv,
 		&cabriolet_mv,
-		&cabriolet_mv		
+		&cabriolet_mv		/* AlphaPCI64 */
 	};
 
 	static struct alpha_machine_vector *eb66_vecs[] __initdata =
@@ -767,34 +888,34 @@ get_sysvec(unsigned long type, unsigned long variation, unsigned long cpu)
 
 	static struct alpha_machine_vector *titan_vecs[] __initdata =
 	{
-		&titan_mv,		
-		&privateer_mv,		
-		&titan_mv,		
-		&privateer_mv,		
+		&titan_mv,		/* default   */
+		&privateer_mv,		/* privateer */
+		&titan_mv,		/* falcon    */
+		&privateer_mv,		/* granite   */
 	};
 
 	static struct alpha_machine_vector *tsunami_vecs[]  __initdata =
 	{
 		NULL,
-		&dp264_mv,		
-		&dp264_mv,		
-		&dp264_mv,		
-		&monet_mv,		
-		&clipper_mv,		
-		&dp264_mv,		
-		&webbrick_mv,		
-		&dp264_mv,		
-		NULL,			
-		NULL,			
-		NULL,			
-		&shark_mv,		
+		&dp264_mv,		/* dp264 */
+		&dp264_mv,		/* warhol */
+		&dp264_mv,		/* windjammer */
+		&monet_mv,		/* monet */
+		&clipper_mv,		/* clipper */
+		&dp264_mv,		/* goldrush */
+		&webbrick_mv,		/* webbrick */
+		&dp264_mv,		/* catamaran */
+		NULL,			/* brisbane? */
+		NULL,			/* melbourne? */
+		NULL,			/* flying clipper? */
+		&shark_mv,		/* shark */
 	};
 
-	
+	/* ??? Do we need to distinguish between Rawhides?  */
 
 	struct alpha_machine_vector *vec;
 
-	
+	/* Search the system tables first... */
 	vec = NULL;
 	if (type < ARRAY_SIZE(systype_vecs)) {
 		vec = systype_vecs[type];
@@ -806,13 +927,13 @@ get_sysvec(unsigned long type, unsigned long variation, unsigned long cpu)
 		vec = unofficial_vecs[type - ST_UNOFFICIAL_BIAS];
 	}
 
-	
+	/* If we've not found one, try for a variation.  */
 
 	if (!vec) {
-		
+		/* Member ID is a bit-field. */
 		unsigned long member = (variation >> 10) & 0x3f;
 
-		cpu &= 0xffffffff; 
+		cpu &= 0xffffffff; /* make it usable */
 
 		switch (type) {
 		case ST_DEC_ALCOR:
@@ -822,6 +943,8 @@ get_sysvec(unsigned long type, unsigned long variation, unsigned long cpu)
 		case ST_DEC_EB164:
 			if (member < ARRAY_SIZE(eb164_indices))
 				vec = eb164_vecs[eb164_indices[member]];
+			/* PC164 may show as EB164 variation with EV56 CPU,
+			   but, since no true EB164 had anything but EV5... */
 			if (vec == &eb164_mv && cpu == EV56_CPU)
 				vec = &pc164_mv;
 			break;
@@ -838,7 +961,7 @@ get_sysvec(unsigned long type, unsigned long variation, unsigned long cpu)
 				vec = marvel_vecs[marvel_indices[member]];
 			break;
 		case ST_DEC_TITAN:
-			vec = titan_vecs[0];	
+			vec = titan_vecs[0];	/* default */
 			if (member < ARRAY_SIZE(titan_indices))
 				vec = titan_vecs[titan_indices[member]];
 			break;
@@ -929,6 +1052,8 @@ get_sysnames(unsigned long type, unsigned long variation, unsigned long cpu,
 {
 	unsigned long member;
 
+	/* If not in the tables, make it UNKNOWN,
+	   else set type name to family */
 	if (type < ARRAY_SIZE(systype_names)) {
 		*type_name = systype_names[type];
 	} else if ((type > ST_API_BIAS) &&
@@ -943,24 +1068,26 @@ get_sysnames(unsigned long type, unsigned long variation, unsigned long cpu,
 		return;
 	}
 
-	
+	/* Set variation to "0"; if variation is zero, done.  */
 	*variation_name = systype_names[0];
 	if (variation == 0) {
 		return;
 	}
 
-	member = (variation >> 10) & 0x3f; 
+	member = (variation >> 10) & 0x3f; /* member ID is a bit-field */
 
-	cpu &= 0xffffffff; 
+	cpu &= 0xffffffff; /* make it usable */
 
-	switch (type) { 
-	default: 
+	switch (type) { /* select by family */
+	default: /* default to variation "0" for now */
 		break;
 	case ST_DEC_EB164:
 		if (member < ARRAY_SIZE(eb164_indices))
 			*variation_name = eb164_names[eb164_indices[member]];
+		/* PC164 may show as EB164 variation, but with EV56 CPU,
+		   so, since no true EB164 had anything but EV5... */
 		if (eb164_indices[member] == 0 && cpu == EV56_CPU)
-			*variation_name = eb164_names[1]; 
+			*variation_name = eb164_names[1]; /* make it PC164 */
 		break;
 	case ST_DEC_ALCOR:
 		if (member < ARRAY_SIZE(alcor_indices))
@@ -983,7 +1110,7 @@ get_sysnames(unsigned long type, unsigned long variation, unsigned long cpu,
 			*variation_name = rawhide_names[rawhide_indices[member]];
 		break;
 	case ST_DEC_TITAN:
-		*variation_name = titan_names[0];	
+		*variation_name = titan_names[0];	/* default */
 		if (member < ARRAY_SIZE(titan_indices))
 			*variation_name = titan_names[titan_indices[member]];
 		break;
@@ -994,6 +1121,19 @@ get_sysnames(unsigned long type, unsigned long variation, unsigned long cpu,
 	}
 }
 
+/*
+ * A change was made to the HWRPB via an ECO and the following code
+ * tracks a part of the ECO.  In HWRPB versions less than 5, the ECO
+ * was not implemented in the console firmware.  If it's revision 5 or
+ * greater we can get the name of the platform as an ASCII string from
+ * the HWRPB.  That's what this function does.  It checks the revision
+ * level and if the string is in the HWRPB it returns the address of
+ * the string--a pointer to the name of the platform.
+ *
+ * Returns:
+ *      - Pointer to a ASCII string if it's in the HWRPB
+ *      - Pointer to a blank string if the data is not in the HWRPB.
+ */
 
 static char *
 platform_string(void)
@@ -1001,9 +1141,17 @@ platform_string(void)
 	struct dsr_struct *dsr;
 	static char unk_system_string[] = "N/A";
 
+	/* Go to the console for the string pointer.
+	 * If the rpb_vers is not 5 or greater the rpb
+	 * is old and does not have this data in it.
+	 */
 	if (hwrpb->revision < 5)
 		return (unk_system_string);
 	else {
+		/* The Dynamic System Recognition struct
+		 * has the system platform name starting
+		 * after the character count of the string.
+		 */
 		dsr =  ((struct dsr_struct *)
 			((char *)hwrpb + hwrpb->dsr_offset));
 		return ((char *)dsr + (dsr->sysname_off +
@@ -1129,6 +1277,9 @@ read_mem_block(int *addr, int stride, int size)
 	"	rpcc    %0\n"
 	"1:	ldl	%3,0(%2)\n"
 	"	subq	%1,1,%1\n"
+	/* Next two XORs introduce an explicit data dependency between
+	   consecutive loads in the loop, which will give us true load
+	   latency. */
 	"	xor	%3,%2,%2\n"
 	"	xor	%3,%2,%2\n"
 	"	addq	%2,%4,%2\n"
@@ -1144,8 +1295,11 @@ read_mem_block(int *addr, int stride, int size)
 #define CSHAPE(totalsize, linesize, assoc) \
   ((totalsize & ~0xff) | (linesize << 4) | assoc)
 
+/* ??? EV5 supports up to 64M, but did the systems with more than
+   16M of BCACHE ever exist? */
 #define MAX_BCACHE_SIZE	16*1024*1024
 
+/* Note that the offchip caches are direct mapped on all Alphas. */
 static int __init
 external_cache_probe(int minsize, int width)
 {
@@ -1156,25 +1310,25 @@ external_cache_probe(int minsize, int width)
 	if (maxsize > (max_low_pfn + 1) << PAGE_SHIFT)
 		maxsize = 1 << (ilog2(max_low_pfn + 1) + PAGE_SHIFT);
 
-	
+	/* Get the first block cached. */
 	read_mem_block(__va(0), stride, size);
 
 	while (size < maxsize) {
-		
+		/* Get an average load latency in cycles. */
 		cycles = read_mem_block(__va(0), stride, size);
 		if (cycles > prev_cycles * 2) {
-			
+			/* Fine, we exceed the cache. */
 			printk("%ldK Bcache detected; load hit latency %d "
 			       "cycles, load miss latency %d cycles\n",
 			       size >> 11, prev_cycles, cycles);
 			return CSHAPE(size >> 1, width, 1);
 		}
-		
+		/* Try to get the next block cached. */
 		read_mem_block(__va(size), stride, size);
 		prev_cycles = cycles;
 		size <<= 1;
 	}
-	return -1;	
+	return -1;	/* No BCACHE found. */
 }
 
 static void __init
@@ -1193,6 +1347,16 @@ determine_cpu_caches (unsigned int cpu_type)
 		L1D = L1I;
 		L3 = -1;
 	
+		/* BIU_CTL is a write-only Abox register.  PALcode has a
+		   shadow copy, and may be available from some versions
+		   of the CSERVE PALcall.  If we can get it, then
+
+			unsigned long biu_ctl, size;
+			size = 128*1024 * (1 << ((biu_ctl >> 28) & 7));
+			L2 = CSHAPE (size, 5, 1);
+
+		   Unfortunately, we can't rely on that.
+		*/
 		L2 = external_cache_probe(128*1024, 5);
 		break;
 	  }
@@ -1206,7 +1370,7 @@ determine_cpu_caches (unsigned int cpu_type)
 
 		car = *(vuip) phys_to_virt (0x120000078UL);
 		size = 64*1024 * (1 << ((car >> 5) & 7));
-		
+		/* No typo -- 8 byte cacheline size.  Whodathunk.  */
 		L2 = (car & 1 ? CSHAPE (size, 3, 1) : -1);
 		break;
 	  }
@@ -1218,11 +1382,21 @@ determine_cpu_caches (unsigned int cpu_type)
 
 		L1I = L1D = CSHAPE(8*1024, 5, 1);
 
-		
+		/* Check the line size of the Scache.  */
 		sc_ctl = *(vulp) phys_to_virt (0xfffff000a8UL);
 		width = sc_ctl & 0x1000 ? 6 : 5;
 		L2 = CSHAPE (96*1024, width, 3);
 
+		/* BC_CONTROL and BC_CONFIG are write-only IPRs.  PALcode
+		   has a shadow copy, and may be available from some versions
+		   of the CSERVE PALcall.  If we can get it, then
+
+			unsigned long bc_control, bc_config, size;
+			size = 1024*1024 * (1 << ((bc_config & 7) - 1));
+			L3 = (bc_control & 1 ? CSHAPE (size, width, 1) : -1);
+
+		   Unfortunately, we can't rely on that.
+		*/
 		L3 = external_cache_probe(1024*1024, width);
 		break;
 	  }
@@ -1271,7 +1445,7 @@ determine_cpu_caches (unsigned int cpu_type)
 		break;
 
 	default:
-		
+		/* Nothing known about this cpu type.  */
 		L1I = L1D = L2 = L3 = 0;
 		break;
 	}
@@ -1282,6 +1456,9 @@ determine_cpu_caches (unsigned int cpu_type)
 	alpha_l3_cacheshape = L3;
 }
 
+/*
+ * We show only CPU #0 info.
+ */
 static void *
 c_start(struct seq_file *f, loff_t *pos)
 {
@@ -1311,8 +1488,8 @@ static int
 alpha_panic_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
 #if 1
-	
-	
+	/* FIXME FIXME FIXME */
+	/* If we are using SRM and serial console, just hard halt here. */
 	if (alpha_using_srm && srmcons_output)
 		__halt();
 #endif

@@ -108,7 +108,7 @@ static void __init coyote_init(void)
 
 #ifdef CONFIG_ARCH_ADI_COYOTE
 MACHINE_START(ADI_COYOTE, "ADI Engineering Coyote")
-	
+	/* Maintainer: MontaVista Software, Inc. */
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,
@@ -122,9 +122,13 @@ MACHINE_START(ADI_COYOTE, "ADI Engineering Coyote")
 MACHINE_END
 #endif
 
+/*
+ * IXDPG425 is identical to Coyote except for which serial port
+ * is connected.
+ */
 #ifdef CONFIG_MACH_IXDPG425
 MACHINE_START(IXDPG425, "Intel IXDPG425")
-	
+	/* Maintainer: MontaVista Software, Inc. */
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,

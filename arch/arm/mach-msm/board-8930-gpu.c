@@ -87,7 +87,7 @@ static struct msm_bus_scale_pdata grp3d_bus_scale_pdata = {
 static struct resource kgsl_3d0_resources[] = {
 	{
 		.name = KGSL_3D0_REG_MEMORY,
-		.start = 0x04300000, 
+		.start = 0x04300000, /* GFX3D address */
 		.end = 0x0430ffff,
 		.flags = IORESOURCE_MEM,
 	},
@@ -168,7 +168,7 @@ void __init msm8930_init_gpu(void)
 {
 	unsigned int version = socinfo_get_version();
 
-	
+	/* Set the turbo speed for the AA and AB respectively */
 
 	if (cpu_is_msm8930aa())
 		kgsl_3d0_pdata.pwrlevel[0].gpu_freq = 450000000;
@@ -177,7 +177,7 @@ void __init msm8930_init_gpu(void)
 		grp3d_max_vectors[0].ib = KGSL_CONVERT_TO_MBPS(4800);
 	}
 
-	
+	/* Set up the chip ID based on the SoC version */
 
 	if (cpu_is_msm8930ab())
 		kgsl_3d0_pdata.chipid = ADRENO_CHIPID(3, 0, 5, 3);

@@ -33,14 +33,14 @@
 
 struct mpc8xxx_wdt {
 	__be32 res0;
-	__be32 swcrr; 
-#define SWCRR_SWTC 0xFFFF0000 
-#define SWCRR_SWEN 0x00000004 
-#define SWCRR_SWRI 0x00000002 
-#define SWCRR_SWPR 0x00000001 
-	__be32 swcnr; 
+	__be32 swcrr; /* System watchdog control register */
+#define SWCRR_SWTC 0xFFFF0000 /* Software Watchdog Time Count. */
+#define SWCRR_SWEN 0x00000004 /* Watchdog Enable bit. */
+#define SWCRR_SWRI 0x00000002 /* Software Watchdog Reset/Interrupt Select bit.*/
+#define SWCRR_SWPR 0x00000001 /* Software Watchdog Counter Prescale bit. */
+	__be32 swcnr; /* System watchdog count register */
 	u8 res1[2];
-	__be16 swsrr; 
+	__be16 swsrr; /* System watchdog service register */
 	u8 res2[0xF0];
 };
 
@@ -67,6 +67,10 @@ module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started "
 		 "(default=" __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+/*
+ * We always prescale, but if someone really doesn't want to they can set this
+ * to 0
+ */
 static int prescale = 1;
 static unsigned int timeout_sec;
 
@@ -75,7 +79,7 @@ static DEFINE_SPINLOCK(wdt_spinlock);
 
 static void mpc8xxx_wdt_keepalive(void)
 {
-	
+	/* Ping the WDT */
 	spin_lock(&wdt_spinlock);
 	out_be16(&wd_base->swsrr, 0x556c);
 	out_be16(&wd_base->swsrr, 0xaa39);
@@ -88,7 +92,7 @@ static DEFINE_TIMER(wdt_timer, mpc8xxx_wdt_timer_ping, 0, 0);
 static void mpc8xxx_wdt_timer_ping(unsigned long arg)
 {
 	mpc8xxx_wdt_keepalive();
-	
+	/* We're pinging it twice faster than needed, just to be sure. */
 	mod_timer(&wdt_timer, jiffies + HZ * timeout_sec / 2);
 }
 
@@ -112,11 +116,11 @@ static int mpc8xxx_wdt_open(struct inode *inode, struct file *file)
 	if (test_and_set_bit(0, &wdt_is_open))
 		return -EBUSY;
 
-	
+	/* Once we start the watchdog we can't stop it */
 	if (nowayout)
 		__module_get(THIS_MODULE);
 
-	
+	/* Good, fire up the show */
 	if (prescale)
 		tmp |= SWCRR_SWPR;
 	if (reset)
@@ -212,7 +216,7 @@ static int __devinit mpc8xxx_wdt_probe(struct platform_device *ofdev)
 		goto err_unmap;
 	}
 
-	
+	/* Calculate the timeout in seconds */
 	if (prescale)
 		timeout_sec = (timeout * wdt_type->prescaler) / freq;
 	else
@@ -227,6 +231,11 @@ static int __devinit mpc8xxx_wdt_probe(struct platform_device *ofdev)
 	pr_info("WDT driver for MPC8xxx initialized. mode:%s timeout=%d (%d seconds)\n",
 		reset ? "reset" : "interrupt", timeout, timeout_sec);
 
+	/*
+	 * If the watchdog was previously enabled or we're running on
+	 * MPC8xxx, we should ping the wdt from the kernel until the
+	 * userspace handles it.
+	 */
 	if (enabled)
 		mpc8xxx_wdt_timer_ping(0);
 	return 0;
@@ -280,6 +289,11 @@ static struct platform_driver mpc8xxx_wdt_driver = {
 	},
 };
 
+/*
+ * We do wdt initialization in two steps: arch_initcall probes the wdt
+ * very early to start pinging the watchdog (misc devices are not yet
+ * available), and later module_init() just registers the misc device.
+ */
 static int mpc8xxx_wdt_init_late(void)
 {
 	int ret;

@@ -24,12 +24,28 @@
 #include <asm/ptrace.h>
 #include <asm/traps.h>
 
+/*
+ * Stores the breakpoints currently in use on each breakpoint address
+ * register for each cpus
+ */
 static DEFINE_PER_CPU(struct perf_event *, bp_per_reg[HBP_NUM]);
 
+/*
+ * A dummy placeholder for early accesses until the CPUs get a chance to
+ * register their UBCs later in the boot process.
+ */
 static struct sh_ubc ubc_dummy = { .num_events = 0 };
 
 static struct sh_ubc *sh_ubc __read_mostly = &ubc_dummy;
 
+/*
+ * Install a perf counter breakpoint.
+ *
+ * We seek a free UBC channel and use it for this breakpoint.
+ *
+ * Atomic: we hold the counter->ctx->lock and we only handle variables
+ * and registers local to this cpu.
+ */
 int arch_install_hw_breakpoint(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
@@ -53,6 +69,15 @@ int arch_install_hw_breakpoint(struct perf_event *bp)
 	return 0;
 }
 
+/*
+ * Uninstall the breakpoint contained in the given counter.
+ *
+ * First we search the debug address register it uses and then we disable
+ * it.
+ *
+ * Atomic: we hold the counter->ctx->lock and we only handle variables
+ * and registers local to this cpu.
+ */
 void arch_uninstall_hw_breakpoint(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
@@ -95,6 +120,9 @@ static int get_hbp_len(u16 hbp_len)
 	return len_in_bytes;
 }
 
+/*
+ * Check for virtual address in kernel space.
+ */
 int arch_check_bp_in_kernelspace(struct perf_event *bp)
 {
 	unsigned int len;
@@ -110,7 +138,7 @@ int arch_check_bp_in_kernelspace(struct perf_event *bp)
 int arch_bp_generic_fields(int sh_len, int sh_type,
 			   int *gen_len, int *gen_type)
 {
-	
+	/* Len */
 	switch (sh_len) {
 	case SH_BREAKPOINT_LEN_1:
 		*gen_len = HW_BREAKPOINT_LEN_1;
@@ -128,7 +156,7 @@ int arch_bp_generic_fields(int sh_len, int sh_type,
 		return -EINVAL;
 	}
 
-	
+	/* Type */
 	switch (sh_type) {
 	case SH_BREAKPOINT_READ:
 		*gen_type = HW_BREAKPOINT_R;
@@ -151,7 +179,7 @@ static int arch_build_bp_info(struct perf_event *bp)
 
 	info->address = bp->attr.bp_addr;
 
-	
+	/* Len */
 	switch (bp->attr.bp_len) {
 	case HW_BREAKPOINT_LEN_1:
 		info->len = SH_BREAKPOINT_LEN_1;
@@ -169,7 +197,7 @@ static int arch_build_bp_info(struct perf_event *bp)
 		return -EINVAL;
 	}
 
-	
+	/* Type */
 	switch (bp->attr.bp_type) {
 	case HW_BREAKPOINT_R:
 		info->type = SH_BREAKPOINT_READ;
@@ -187,6 +215,9 @@ static int arch_build_bp_info(struct perf_event *bp)
 	return 0;
 }
 
+/*
+ * Validate the arch-specific HW Breakpoint register settings
+ */
 int arch_validate_hwbkpt_settings(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
@@ -216,15 +247,26 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 		return ret;
 	}
 
+	/*
+	 * For kernel-addresses, either the address or symbol name can be
+	 * specified.
+	 */
 	if (info->name)
 		info->address = (unsigned long)kallsyms_lookup_name(info->name);
 
+	/*
+	 * Check that the low-order bits of the address are appropriate
+	 * for the alignment implied by len.
+	 */
 	if (info->address & align)
 		return -EINVAL;
 
 	return 0;
 }
 
+/*
+ * Release the user breakpoints used by ptrace
+ */
 void flush_ptrace_hw_breakpoint(struct task_struct *tsk)
 {
 	int i;
@@ -242,12 +284,21 @@ static int __kprobes hw_breakpoint_handler(struct die_args *args)
 	struct perf_event *bp;
 	unsigned int cmf, resume_mask;
 
+	/*
+	 * Do an early return if none of the channels triggered.
+	 */
 	cmf = sh_ubc->triggered_mask();
 	if (unlikely(!cmf))
 		return NOTIFY_DONE;
 
+	/*
+	 * By default, resume all of the active channels.
+	 */
 	resume_mask = sh_ubc->active_mask();
 
+	/*
+	 * Disable breakpoints during exception handling.
+	 */
 	sh_ubc->disable_all();
 
 	cpu = get_cpu();
@@ -257,25 +308,43 @@ static int __kprobes hw_breakpoint_handler(struct die_args *args)
 		if (likely(!(cmf & event_mask)))
 			continue;
 
+		/*
+		 * The counter may be concurrently released but that can only
+		 * occur from a call_rcu() path. We can then safely fetch
+		 * the breakpoint, use its callback, touch its counter
+		 * while we are in an rcu_read_lock() path.
+		 */
 		rcu_read_lock();
 
 		bp = per_cpu(bp_per_reg[i], cpu);
 		if (bp)
 			rc = NOTIFY_DONE;
 
+		/*
+		 * Reset the condition match flag to denote completion of
+		 * exception handling.
+		 */
 		sh_ubc->clear_triggered_mask(event_mask);
 
+		/*
+		 * bp can be NULL due to concurrent perf counter
+		 * removing.
+		 */
 		if (!bp) {
 			rcu_read_unlock();
 			break;
 		}
 
+		/*
+		 * Don't restore the channel if the breakpoint is from
+		 * ptrace, as it always operates in one-shot mode.
+		 */
 		if (bp->overflow_handler == ptrace_triggered)
 			resume_mask &= ~(1 << i);
 
 		perf_bp_event(bp, args->regs);
 
-		
+		/* Deliver the signal to userspace */
 		if (!arch_check_bp_in_kernelspace(bp)) {
 			siginfo_t info;
 
@@ -307,6 +376,9 @@ BUILD_TRAP_HANDLER(breakpoint)
 	notify_die(DIE_BREAKPOINT, "breakpoint", regs, 0, ex, SIGTRAP);
 }
 
+/*
+ * Handle debug exception notifications.
+ */
 int __kprobes hw_breakpoint_exceptions_notify(struct notifier_block *unused,
 				    unsigned long val, void *data)
 {
@@ -315,6 +387,14 @@ int __kprobes hw_breakpoint_exceptions_notify(struct notifier_block *unused,
 	if (val != DIE_BREAKPOINT)
 		return NOTIFY_DONE;
 
+	/*
+	 * If the breakpoint hasn't been triggered by the UBC, it's
+	 * probably from a debugger, so don't do anything more here.
+	 *
+	 * This also permits the UBC interface clock to remain off for
+	 * non-UBC breakpoints, as we don't need to check the triggered
+	 * or active channel masks.
+	 */
 	if (args->trapnr != sh_ubc->trap_nr)
 		return NOTIFY_DONE;
 
@@ -323,12 +403,12 @@ int __kprobes hw_breakpoint_exceptions_notify(struct notifier_block *unused,
 
 void hw_breakpoint_pmu_read(struct perf_event *bp)
 {
-	
+	/* TODO */
 }
 
 int register_sh_ubc(struct sh_ubc *ubc)
 {
-	
+	/* Bail if it's already assigned */
 	if (sh_ubc != &ubc_dummy)
 		return -EBUSY;
 	sh_ubc = ubc;

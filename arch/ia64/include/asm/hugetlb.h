@@ -77,4 +77,4 @@ static inline void arch_release_hugepage(struct page *page)
 {
 }
 
-#endif 
+#endif /* _ASM_IA64_HUGETLB_H */

@@ -33,6 +33,7 @@
 #include <scsi/sas_ata.h>
 #include "../scsi_sas_internal.h"
 
+/* ---------- Basic task processing for discovery purposes ---------- */
 
 void sas_init_dev(struct domain_device *dev)
 {
@@ -55,7 +56,17 @@ void sas_init_dev(struct domain_device *dev)
 	}
 }
 
+/* ---------- Domain device discovery ---------- */
 
+/**
+ * sas_get_port_device -- Discover devices which caused port creation
+ * @port: pointer to struct sas_port of interest
+ *
+ * Devices directly attached to a HA port, have no parent.  This is
+ * how we know they are (domain) "root" devices.  All other devices
+ * do, and should have their "parent" pointer set appropriately as
+ * soon as a child device is discovered.
+ */
 static int sas_get_port_device(struct asd_sas_port *port)
 {
 	struct asd_sas_phy *phy;
@@ -108,7 +119,7 @@ static int sas_get_port_device(struct asd_sas_port *port)
 			rphy = NULL;
 			break;
 		}
-		
+		/* fall through */
 	case SAS_END_DEV:
 		rphy = sas_end_device_alloc(port->port);
 		break;
@@ -165,6 +176,7 @@ static int sas_get_port_device(struct asd_sas_port *port)
 	return 0;
 }
 
+/* ---------- Discover and Revalidate ---------- */
 
 int sas_notify_lldd_dev_found(struct domain_device *dev)
 {
@@ -207,7 +219,7 @@ static void sas_probe_devices(struct work_struct *work)
 
 	clear_bit(DISCE_PROBE, &port->disc.pending);
 
-	
+	/* devices must be domain members before link recovery and probe */
 	list_for_each_entry(dev, &port->disco_list, disco_list_node) {
 		spin_lock_irq(&port->dev_list_lock);
 		list_add_tail(&dev->dev_list_node, &port->dev_list);
@@ -227,6 +239,12 @@ static void sas_probe_devices(struct work_struct *work)
 	}
 }
 
+/**
+ * sas_discover_end_dev -- discover an end device (SSP, etc)
+ * @end: pointer to domain device of interest
+ *
+ * See comment in sas_discover_sata().
+ */
 int sas_discover_end_dev(struct domain_device *dev)
 {
 	int res;
@@ -239,6 +257,7 @@ int sas_discover_end_dev(struct domain_device *dev)
 	return 0;
 }
 
+/* ---------- Device registration and unregistration ---------- */
 
 void sas_free_device(struct kref *kref)
 {
@@ -253,7 +272,7 @@ void sas_free_device(struct kref *kref)
 	sas_port_put_phy(dev->phy);
 	dev->phy = NULL;
 
-	
+	/* remove the phys and ports, everything else should be gone */
 	if (dev->dev_type == EDGE_DEV || dev->dev_type == FANOUT_DEV)
 		kfree(dev->ex_dev.ex_phy);
 
@@ -301,7 +320,7 @@ void sas_unregister_dev(struct asd_sas_port *port, struct domain_device *dev)
 {
 	if (!test_bit(SAS_DEV_DESTROY, &dev->state) &&
 	    !list_empty(&dev->disco_list_node)) {
-		
+		/* this rphy never saw sas_rphy_add */
 		list_del_init(&dev->disco_list_node);
 		sas_rphy_free(dev->rphy);
 		sas_unregister_common_dev(port, dev);
@@ -343,7 +362,7 @@ void sas_device_set_phy(struct domain_device *dev, struct sas_port *port)
 	ha = dev->port->ha;
 	new_phy = sas_port_get_phy(port);
 
-	
+	/* pin and record last seen phy */
 	spin_lock_irq(&ha->phy_port_lock);
 	if (new_phy) {
 		sas_port_put_phy(dev->phy);
@@ -352,7 +371,17 @@ void sas_device_set_phy(struct domain_device *dev, struct sas_port *port)
 	spin_unlock_irq(&ha->phy_port_lock);
 }
 
+/* ---------- Discovery and Revalidation ---------- */
 
+/**
+ * sas_discover_domain -- discover the domain
+ * @port: port to the domain of interest
+ *
+ * NOTE: this process _must_ quit (return) as soon as any connection
+ * errors are encountered.  Connection recovery is done elsewhere.
+ * Discover process only interrogates devices in order to discover the
+ * domain.
+ */
 static void sas_discover_domain(struct work_struct *work)
 {
 	struct domain_device *dev;
@@ -388,7 +417,7 @@ static void sas_discover_domain(struct work_struct *work)
 		break;
 #else
 		SAS_DPRINTK("ATA device seen but CONFIG_SCSI_SAS_ATA=N so cannot attach\n");
-		
+		/* Fall through */
 #endif
 	default:
 		error = -ENXIO;
@@ -418,7 +447,7 @@ static void sas_revalidate_domain(struct work_struct *work)
 	struct asd_sas_port *port = ev->port;
 	struct sas_ha_struct *ha = port->ha;
 
-	
+	/* prevent revalidation from finding sata links in recovery */
 	mutex_lock(&ha->disco_mutex);
 	if (test_bit(SAS_HA_ATA_EH_ACTIVE, &ha->state)) {
 		SAS_DPRINTK("REVALIDATION DEFERRED on port %d, pid:%d\n",
@@ -440,9 +469,15 @@ static void sas_revalidate_domain(struct work_struct *work)
 	mutex_unlock(&ha->disco_mutex);
 }
 
+/* ---------- Events ---------- */
 
 static void sas_chain_work(struct sas_ha_struct *ha, struct sas_work *sw)
 {
+	/* chained work is not subject to SA_HA_DRAINING or
+	 * SAS_HA_REGISTERED, because it is either submitted in the
+	 * workqueue, or known to be submitted from a context that is
+	 * not racing against draining
+	 */
 	scsi_queue_work(ha->core.shost, &sw->work);
 }
 
@@ -474,6 +509,12 @@ int sas_discover_event(struct asd_sas_port *port, enum discover_event ev)
 	return 0;
 }
 
+/**
+ * sas_init_disc -- initialize the discovery struct in the port
+ * @port: pointer to struct port
+ *
+ * Called when the ports are being initialized.
+ */
 void sas_init_disc(struct sas_discovery *disc, struct asd_sas_port *port)
 {
 	int i;

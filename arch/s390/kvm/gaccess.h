@@ -159,7 +159,7 @@ static inline int __copy_to_guest_fast(struct kvm_vcpu *vcpu,
 	if (guestdest + n < guestdest)
 		return -EFAULT;
 
-	
+	/* simple case: all within one segment table entry? */
 	if ((guestdest & PMD_MASK) == ((guestdest+n) & PMD_MASK)) {
 		uptr = (void __user *) gmap_fault(guestdest, vcpu->arch.gmap);
 
@@ -174,7 +174,7 @@ static inline int __copy_to_guest_fast(struct kvm_vcpu *vcpu,
 		goto out;
 	}
 
-	
+	/* copy first segment */
 	uptr = (void __user *)gmap_fault(guestdest, vcpu->arch.gmap);
 
 	if (IS_ERR((void __force *) uptr))
@@ -192,7 +192,7 @@ static inline int __copy_to_guest_fast(struct kvm_vcpu *vcpu,
 	n -= size;
 	guestdest += size;
 
-	
+	/* copy full segments */
 	while (n >= PMD_SIZE) {
 		uptr = (void __user *)gmap_fault(guestdest, vcpu->arch.gmap);
 
@@ -210,7 +210,7 @@ static inline int __copy_to_guest_fast(struct kvm_vcpu *vcpu,
 		guestdest += PMD_SIZE;
 	}
 
-	
+	/* copy the tail segment */
 	if (n) {
 		uptr = (void __user *)gmap_fault(guestdest, vcpu->arch.gmap);
 
@@ -285,7 +285,7 @@ static inline int __copy_from_guest_fast(struct kvm_vcpu *vcpu, void *to,
 	if (guestsrc + n < guestsrc)
 		return -EFAULT;
 
-	
+	/* simple case: all within one segment table entry? */
 	if ((guestsrc & PMD_MASK) == ((guestsrc+n) & PMD_MASK)) {
 		uptr = (void __user *) gmap_fault(guestsrc, vcpu->arch.gmap);
 
@@ -300,7 +300,7 @@ static inline int __copy_from_guest_fast(struct kvm_vcpu *vcpu, void *to,
 		goto out;
 	}
 
-	
+	/* copy first segment */
 	uptr = (void __user *)gmap_fault(guestsrc, vcpu->arch.gmap);
 
 	if (IS_ERR((void __force *) uptr))
@@ -318,7 +318,7 @@ static inline int __copy_from_guest_fast(struct kvm_vcpu *vcpu, void *to,
 	n -= size;
 	guestsrc += size;
 
-	
+	/* copy full segments */
 	while (n >= PMD_SIZE) {
 		uptr = (void __user *)gmap_fault(guestsrc, vcpu->arch.gmap);
 
@@ -336,7 +336,7 @@ static inline int __copy_from_guest_fast(struct kvm_vcpu *vcpu, void *to,
 		guestsrc += PMD_SIZE;
 	}
 
-	
+	/* copy the tail segment */
 	if (n) {
 		uptr = (void __user *)gmap_fault(guestsrc, vcpu->arch.gmap);
 

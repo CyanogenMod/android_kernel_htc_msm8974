@@ -3,22 +3,26 @@
 
 #ifdef __KERNEL__
 
+/* Default link addresses for the vDSOs */
 #define VDSO32_LBASE	0x100000
 #define VDSO64_LBASE	0x100000
 
+/* Default map addresses for 32bit vDSO */
 #define VDSO32_MBASE	VDSO32_LBASE
 
 #define VDSO_VERSION_STRING	LINUX_2.6.15
 
+/* Define if 64 bits VDSO has procedure descriptors */
 #undef VDS64_HAS_DESCRIPTORS
 
 #ifndef __ASSEMBLY__
 
+/* Offsets relative to thread->vdso_base */
 extern unsigned long vdso64_rt_sigtramp;
 extern unsigned long vdso32_sigtramp;
 extern unsigned long vdso32_rt_sigtramp;
 
-#else 
+#else /* __ASSEMBLY__ */
 
 #ifdef __VDSO64__
 #ifdef VDS64_HAS_DESCRIPTORS
@@ -38,7 +42,7 @@ extern unsigned long vdso32_rt_sigtramp;
 
 #define V_LOCAL_FUNC(name) (.name)
 
-#else 
+#else /* VDS64_HAS_DESCRIPTORS */
 
 #define V_FUNCTION_BEGIN(name)		\
 	.globl name;			\
@@ -49,8 +53,8 @@ extern unsigned long vdso32_rt_sigtramp;
 
 #define V_LOCAL_FUNC(name) (name)
 
-#endif 
-#endif 
+#endif /* VDS64_HAS_DESCRIPTORS */
+#endif /* __VDSO64__ */
 
 #ifdef __VDSO32__
 
@@ -64,10 +68,10 @@ extern unsigned long vdso32_rt_sigtramp;
 
 #define V_LOCAL_FUNC(name) (name)
 
-#endif 
+#endif /* __VDSO32__ */
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __PPC64_VDSO_H__ */

@@ -33,6 +33,7 @@
 #include "pci_impl.h"
 #include "machvec_impl.h"
 
+/* Note mask bit is true for ENABLED irqs.  */
 static int cached_irq_mask;
 
 static inline void
@@ -71,15 +72,19 @@ noritake_device_interrupt(unsigned long vector)
 	unsigned long pld;
 	unsigned int i;
 
-	
+	/* Read the interrupt summary registers of NORITAKE */
 	pld = (((unsigned long) inw(0x54c) << 32)
 	       | ((unsigned long) inw(0x54a) << 16)
 	       | ((unsigned long) inb(0xa0) << 8)
 	       | inb(0x20));
 
+	/*
+	 * Now for every possible bit set, work through them and call
+	 * the appropriate interrupt handler.
+	 */
 	while (pld) {
 		i = ffz(~pld);
-		pld &= pld - 1; 
+		pld &= pld - 1; /* clear least bit set */
 		if (i < 16) {
 			isa_device_interrupt(vector);
 		} else {
@@ -95,6 +100,15 @@ noritake_srm_device_interrupt(unsigned long vector)
 
 	irq = (vector - 0x800) >> 4;
 
+	/*
+	 * I really hate to do this, too, but the NORITAKE SRM console also
+	 * reports PCI vectors *lower* than I expected from the bit numbers
+	 * in the documentation.
+	 * But I really don't want to change the fixup code for allocation
+	 * of IRQs, nor the alpha_irq_mask maintenance stuff, both of which
+	 * look nice and clean now.
+	 * So, here's this additional grotty hack... :-(
+	 */
 	if (irq >= 16)
 		irq = irq + 1;
 
@@ -123,28 +137,85 @@ noritake_init_irq(void)
 }
 
 
+/*
+ * PCI Fixup configuration.
+ *
+ * Summary @ 0x542, summary register #1:
+ * Bit      Meaning
+ * 0        All valid ints from summary regs 2 & 3
+ * 1        QLOGIC ISP1020A SCSI
+ * 2        Interrupt Line A from slot 0
+ * 3        Interrupt Line B from slot 0
+ * 4        Interrupt Line A from slot 1
+ * 5        Interrupt line B from slot 1
+ * 6        Interrupt Line A from slot 2
+ * 7        Interrupt Line B from slot 2
+ * 8        Interrupt Line A from slot 3
+ * 9        Interrupt Line B from slot 3
+ *10        Interrupt Line A from slot 4
+ *11        Interrupt Line B from slot 4
+ *12        Interrupt Line A from slot 5
+ *13        Interrupt Line B from slot 5
+ *14        Interrupt Line A from slot 6
+ *15        Interrupt Line B from slot 6
+ *
+ * Summary @ 0x544, summary register #2:
+ * Bit      Meaning
+ * 0        OR of all unmasked ints in SR #2
+ * 1        OR of secondary bus ints
+ * 2        Interrupt Line C from slot 0
+ * 3        Interrupt Line D from slot 0
+ * 4        Interrupt Line C from slot 1
+ * 5        Interrupt line D from slot 1
+ * 6        Interrupt Line C from slot 2
+ * 7        Interrupt Line D from slot 2
+ * 8        Interrupt Line C from slot 3
+ * 9        Interrupt Line D from slot 3
+ *10        Interrupt Line C from slot 4
+ *11        Interrupt Line D from slot 4
+ *12        Interrupt Line C from slot 5
+ *13        Interrupt Line D from slot 5
+ *14        Interrupt Line C from slot 6
+ *15        Interrupt Line D from slot 6
+ *
+ * The device to slot mapping looks like:
+ *
+ * Slot     Device
+ *  7       Intel PCI-EISA bridge chip
+ *  8       DEC PCI-PCI bridge chip
+ * 11       PCI on board slot 0
+ * 12       PCI on board slot 1
+ * 13       PCI on board slot 2
+ *   
+ *
+ * This two layered interrupt approach means that we allocate IRQ 16 and 
+ * above for PCI interrupts.  The IRQ relates to which bit the interrupt
+ * comes in on.  This makes interrupt processing much easier.
+ */
 
 static int __init
 noritake_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	static char irq_tab[15][5] __initdata = {
-		
-		
-		{ 16+1,  16+1,  16+1,  16+1,  16+1},  
-		{   -1,    -1,    -1,    -1,    -1},  
-		{   -1,    -1,    -1,    -1,    -1},  
-		{   -1,    -1,    -1,    -1,    -1},  
-		{   -1,    -1,    -1,    -1,    -1},  
-		{   -1,    -1,    -1,    -1,    -1},  
-		{ 16+2,  16+2,  16+3,  32+2,  32+3},  
-		{ 16+4,  16+4,  16+5,  32+4,  32+5},  
-		{ 16+6,  16+6,  16+7,  32+6,  32+7},  
-		{ 16+8,  16+8,  16+9,  32+8,  32+9},  
-		{ 16+1,  16+1,  16+1,  16+1,  16+1},  
-		{ 16+8,  16+8,  16+9,  32+8,  32+9},  
-		{16+10, 16+10, 16+11, 32+10, 32+11},  
-		{16+12, 16+12, 16+13, 32+12, 32+13},  
-		{16+14, 16+14, 16+15, 32+14, 32+15},  
+		/*INT    INTA   INTB   INTC   INTD */
+		/* note: IDSELs 16, 17, and 25 are CORELLE only */
+		{ 16+1,  16+1,  16+1,  16+1,  16+1},  /* IdSel 16,  QLOGIC */
+		{   -1,    -1,    -1,    -1,    -1},  /* IdSel 17, S3 Trio64 */
+		{   -1,    -1,    -1,    -1,    -1},  /* IdSel 18,  PCEB */
+		{   -1,    -1,    -1,    -1,    -1},  /* IdSel 19,  PPB  */
+		{   -1,    -1,    -1,    -1,    -1},  /* IdSel 20,  ???? */
+		{   -1,    -1,    -1,    -1,    -1},  /* IdSel 21,  ???? */
+		{ 16+2,  16+2,  16+3,  32+2,  32+3},  /* IdSel 22,  slot 0 */
+		{ 16+4,  16+4,  16+5,  32+4,  32+5},  /* IdSel 23,  slot 1 */
+		{ 16+6,  16+6,  16+7,  32+6,  32+7},  /* IdSel 24,  slot 2 */
+		{ 16+8,  16+8,  16+9,  32+8,  32+9},  /* IdSel 25,  slot 3 */
+		/* The following 5 are actually on PCI bus 1, which is 
+		   across the built-in bridge of the NORITAKE only.  */
+		{ 16+1,  16+1,  16+1,  16+1,  16+1},  /* IdSel 16,  QLOGIC */
+		{ 16+8,  16+8,  16+9,  32+8,  32+9},  /* IdSel 17,  slot 3 */
+		{16+10, 16+10, 16+11, 32+10, 32+11},  /* IdSel 18,  slot 4 */
+		{16+12, 16+12, 16+13, 32+12, 32+13},  /* IdSel 19,  slot 5 */
+		{16+14, 16+14, 16+15, 32+14, 32+15},  /* IdSel 20,  slot 6 */
 	};
 	const long min_idsel = 5, max_idsel = 19, irqs_per_slot = 5;
 	return COMMON_TABLE_LOOKUP;
@@ -158,13 +229,13 @@ noritake_swizzle(struct pci_dev *dev, u8 *pinp)
 	if (dev->bus->number == 0) {
 		slot = PCI_SLOT(dev->devfn);
 	}
-	
+	/* Check for the built-in bridge */
 	else if (PCI_SLOT(dev->bus->self->devfn) == 8) {
-		slot = PCI_SLOT(dev->devfn) + 15; 
+		slot = PCI_SLOT(dev->devfn) + 15; /* WAG! */
 	}
 	else
 	{
-		
+		/* Must be a card-based bridge.  */
 		do {
 			if (PCI_SLOT(dev->bus->self->devfn) == 8) {
 				slot = PCI_SLOT(dev->devfn) + 15;
@@ -172,9 +243,9 @@ noritake_swizzle(struct pci_dev *dev, u8 *pinp)
 			}
 			pin = pci_swizzle_interrupt_pin(dev, pin);
 
-			
+			/* Move up the chain of bridges.  */
 			dev = dev->bus->self;
-			
+			/* Slot of the next bridge.  */
 			slot = PCI_SLOT(dev->devfn);
 		} while (dev->bus->self);
 	}
@@ -194,9 +265,9 @@ noritake_apecs_machine_check(unsigned long vector, unsigned long la_ptr)
 
         mchk_header = (struct el_common *)la_ptr;
 
-        
+        /* Clear the error before any reporting.  */
         mb();
-        mb(); 
+        mb(); /* magic */
         draina();
         apecs_pci_clr_err();
         wrmces(0x7);
@@ -211,6 +282,9 @@ noritake_apecs_machine_check(unsigned long vector, unsigned long la_ptr)
 #endif
 
 
+/*
+ * The System Vectors
+ */
 
 #if defined(CONFIG_ALPHA_GENERIC) || !defined(CONFIG_ALPHA_PRIMO)
 struct alpha_machine_vector noritake_mv __initmv = {

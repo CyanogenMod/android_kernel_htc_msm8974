@@ -29,6 +29,7 @@
 #ifndef __REALTEK_92S_REG_H__
 #define __REALTEK_92S_REG_H__
 
+/* 1. System Configuration Registers  */
 #define	REG_SYS_ISO_CTRL			0x0000
 #define	REG_SYS_FUNC_EN				0x0002
 #define	PMC_FSM					0x0004
@@ -53,6 +54,7 @@
 #define	DPS_TIMER				0x003C
 #define	RCLK_MON				0x003E
 
+/* 2. Command Control Registers	  */
 #define	CMDR					0x0040
 #define	TXPAUSE					0x0042
 #define	LBKMD_SEL				0x0043
@@ -63,6 +65,7 @@
 #define	RX_PKY_LIMIT				0x004E
 #define	MBIDCTRL				0x004F
 
+/* 3. MACID Setting Registers	 */
 #define	MACIDR					0x0050
 #define	MACIDR0					0x0050
 #define	MACIDR4					0x0054
@@ -77,6 +80,7 @@
 #define	IDR0					MACIDR0
 #define	IDR4					MACIDR4
 
+/* 4. Timing Control Registers	 */
 #define	TSFR					0x0080
 #define	SLOT_TIME				0x0089
 #define	USTIME					0x008A
@@ -93,6 +97,7 @@
 #define	MLT					0x009D
 #define	RSVD_MAC_TUNE_US			0x009E
 
+/* 5. FIFO Control Registers	  */
 #define RQPN					0x00A0
 #define	RQPN1					0x00A0
 #define	RQPN2					0x00A1
@@ -161,6 +166,7 @@
 #define	TXFF_PG_NUM				0x0154
 #define	TRXDMA_STATUS				0x0156
 
+/* 6. Adaptive Control Registers   */
 #define	INIMCS_SEL				0x0160
 #define	TX_RATE_REG				INIMCS_SEL
 #define	INIRTSMCS_SEL				0x0180
@@ -180,6 +186,7 @@
 #define	MCS_TXAGC				0x01C0
 #define	CCK_TXAGC				0x01C8
 
+/* 7. EDCA Setting Registers */
 #define	EDCAPARA_VO				0x01D0
 #define	EDCAPARA_VI				0x01D4
 #define	EDCAPARA_BE				0x01D8
@@ -194,11 +201,13 @@
 #define	RETRY_LIMIT				0x01F4
 #define	SG_RATE					0x01F6
 
+/* 8. WMAC, BA and CCX related Register. */
 #define	NAV_CTRL				0x0200
 #define	BW_OPMODE				0x0203
 #define	BACAMCMD				0x0204
 #define	BACAMCONTENT				0x0208
 
+/* the 0x2xx register WMAC definition */
 #define	LBDLY					0x0210
 #define	FWDLY					0x0211
 #define	HWPC_RX_CTRL				0x0218
@@ -213,12 +222,14 @@
 #define	AMPDU_MIN_SPACE				0x0237
 #define	TXOP_STALL_CTRL				0x0238
 
+/* 9. Security Control Registers */
 #define	REG_RWCAM				0x0240
 #define	REG_WCAMI				0x0244
 #define	REG_RCAMO				0x0248
 #define	REG_CAMDBG				0x024C
 #define	REG_SECR				0x0250
 
+/* 10. Power Save Control Registers */
 #define	WOW_CTRL				0x0260
 #define	PSSTATUS				0x0261
 #define	PSSWITCH				0x0262
@@ -233,6 +244,7 @@
 #define	WFCRC					0x02D0
 #define	FW_RPT_REG				0x02c4
 
+/* 11. General Purpose Registers */
 #define	PSTIME					0x02E0
 #define	TIMER0					0x02E4
 #define	TIMER1					0x02E8
@@ -244,9 +256,11 @@
 #define	PHY_REG_DATA				0x02F4
 #define	REG_EFUSE_CLK				0x02F8
 
+/* 12. Host Interrupt Status Registers */
 #define	INTA_MASK				0x0300
 #define	ISR					0x0308
 
+/* 13. Test Mode and Debug Control Registers */
 #define	DBG_PORT_SWITCH				0x003A
 #define	BIST					0x0310
 #define	DBS					0x0314
@@ -276,7 +290,9 @@
 #define LBUS_MON_ADDR				0x0364
 #define LBUS_ADDR_MASK				0x0368
 
+/* Boundary is 0x37F */
 
+/* 14. PCIE config register */
 #define	TP_POLL					0x0500
 #define	PM_CTRL					0x0502
 #define	PCIF					0x0503
@@ -300,15 +316,19 @@
 #define	PCI_RPWM				0x0561
 #define	PCI_CPWM				0x0563
 
+/* Config register	(Offset 0x800-) */
 #define	PHY_CCA					0x803
 
+/* Min Spacing related settings. */
 #define	MAX_MSS_DENSITY_2T			0x13
 #define	MAX_MSS_DENSITY_1T			0x0A
 
+/* Rx DMA Control related settings */
 #define	RXDMA_AGG_EN				BIT(7)
 
 #define	RPWM					PCI_RPWM
 
+/* Regsiter Bit and Content definition  */
 
 #define	ISO_MD2PP				BIT(0)
 #define	ISO_PA2PCIE				BIT(3)

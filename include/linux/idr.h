@@ -20,10 +20,16 @@
 #if BITS_PER_LONG == 32
 # define IDR_BITS 5
 # define IDR_FULL 0xfffffffful
+/* We can only use two of the bits in the top level because there is
+   only one possible bit in the top level (5 bits * 7 levels = 35
+   bits, but you only use 31 bits in the id). */
 # define TOP_LEVEL_FULL (IDR_FULL >> 30)
 #elif BITS_PER_LONG == 64
 # define IDR_BITS 6
 # define IDR_FULL 0xfffffffffffffffful
+/* We can only use two of the bits in the top level because there is
+   only one possible bit in the top level (6 bits * 6 levels = 36
+   bits, but you only use 31 bits in the id). */
 # define TOP_LEVEL_FULL (IDR_FULL >> 62)
 #else
 # error "BITS_PER_LONG is not 32 or 64"
@@ -36,22 +42,24 @@
 #define MAX_ID_BIT (1U << MAX_ID_SHIFT)
 #define MAX_ID_MASK (MAX_ID_BIT - 1)
 
+/* Leave the possibility of an incomplete final layer */
 #define MAX_LEVEL (MAX_ID_SHIFT + IDR_BITS - 1) / IDR_BITS
 
+/* Number of id_layer structs to leave in free list */
 #define IDR_FREE_MAX MAX_LEVEL + MAX_LEVEL
 
 struct idr_layer {
-	unsigned long		 bitmap; 
+	unsigned long		 bitmap; /* A zero bit means "space here" */
 	struct idr_layer __rcu	*ary[1<<IDR_BITS];
-	int			 count;	 
-	int			 layer;	 
+	int			 count;	 /* When zero, we can release it */
+	int			 layer;	 /* distance from leaf */
 	struct rcu_head		 rcu_head;
 };
 
 struct idr {
 	struct idr_layer __rcu *top;
 	struct idr_layer *id_free;
-	int		  layers; 
+	int		  layers; /* only valid without concurrent changes */
 	int		  id_free_cnt;
 	spinlock_t	  lock;
 };
@@ -66,12 +74,32 @@ struct idr {
 }
 #define DEFINE_IDR(name)	struct idr name = IDR_INIT(name)
 
+/* Actions to be taken after a call to _idr_sub_alloc */
 #define IDR_NEED_TO_GROW -2
 #define IDR_NOMORE_SPACE -3
 
 #define _idr_rc_to_errno(rc) ((rc) == -1 ? -EAGAIN : -ENOSPC)
 
+/**
+ * DOC: idr sync
+ * idr synchronization (stolen from radix-tree.h)
+ *
+ * idr_find() is able to be called locklessly, using RCU. The caller must
+ * ensure calls to this function are made within rcu_read_lock() regions.
+ * Other readers (lock-free or otherwise) and modifications may be running
+ * concurrently.
+ *
+ * It is still required that the caller manage the synchronization and
+ * lifetimes of the items. So if RCU lock-free lookups are used, typically
+ * this would mean that the items have their own locks, or are amenable to
+ * lock-free access; and that the items are freed by RCU (or only freed after
+ * having been deleted from the idr tree *and* a synchronize_rcu() grace
+ * period).
+ */
 
+/*
+ * This is what we export.
+ */
 
 void *idr_find(struct idr *idp, int id);
 int idr_pre_get(struct idr *idp, gfp_t gfp_mask);
@@ -87,7 +115,14 @@ void idr_destroy(struct idr *idp);
 void idr_init(struct idr *idp);
 
 
-#define IDA_CHUNK_SIZE		128	
+/*
+ * IDA - IDR based id allocator, use when translation from id to
+ * pointer isn't necessary.
+ *
+ * IDA_BITMAP_LONGS is calculated to be one less to accommodate
+ * ida_bitmap->nr_busy so that the whole struct fits in 128 bytes.
+ */
+#define IDA_CHUNK_SIZE		128	/* 128 bytes per chunk */
 #define IDA_BITMAP_LONGS	(IDA_CHUNK_SIZE / sizeof(long) - 1)
 #define IDA_BITMAP_BITS 	(IDA_BITMAP_LONGS * sizeof(long) * 8)
 
@@ -117,4 +152,4 @@ void ida_simple_remove(struct ida *ida, unsigned int id);
 
 void __init idr_init_cache(void);
 
-#endif 
+#endif /* __IDR_H__ */

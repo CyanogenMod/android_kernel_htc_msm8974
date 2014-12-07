@@ -37,16 +37,25 @@
 #include "mpp.h"
 #include "lacie_v2-common.h"
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 
 static struct mv643xx_eth_platform_data d2net_v2_ge00_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(8),
 };
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 
 static struct mv_sata_platform_data d2net_v2_sata_data = {
 	.n_ports	= 2,
 };
 
+/*****************************************************************************
+ * GPIO keys
+ ****************************************************************************/
 
 #define D2NET_V2_GPIO_PUSH_BUTTON          34
 #define D2NET_V2_GPIO_POWER_SWITCH_ON      13
@@ -91,6 +100,9 @@ static struct platform_device d2net_v2_gpio_buttons = {
 	},
 };
 
+/*****************************************************************************
+ * GPIO LEDs
+ ****************************************************************************/
 
 #define D2NET_V2_GPIO_RED_LED		12
 
@@ -114,6 +126,9 @@ static struct platform_device d2net_v2_gpio_leds = {
 	},
 };
 
+/*****************************************************************************
+ * Dual-GPIO CPLD LEDs
+ ****************************************************************************/
 
 #define D2NET_V2_GPIO_BLUE_LED_SLOW	29
 #define D2NET_V2_GPIO_BLUE_LED_CMD	30
@@ -139,6 +154,9 @@ static struct platform_device d2net_v2_leds = {
 	},
 };
 
+/*****************************************************************************
+ * General Setup
+ ****************************************************************************/
 
 static unsigned int d2net_v2_mpp_config[] __initdata = {
 	MPP0_SPI_SCn,
@@ -146,24 +164,24 @@ static unsigned int d2net_v2_mpp_config[] __initdata = {
 	MPP2_SPI_SCK,
 	MPP3_SPI_MISO,
 	MPP6_SYSRST_OUTn,
-	MPP7_GPO,		
+	MPP7_GPO,		/* Request power-off */
 	MPP8_TW0_SDA,
 	MPP9_TW0_SCK,
 	MPP10_UART0_TXD,
 	MPP11_UART0_RXD,
-	MPP12_GPO,		
-	MPP13_GPIO,		
-	MPP14_GPIO,		
-	MPP15_GPIO,		
-	MPP16_GPIO,		
+	MPP12_GPO,		/* Red led */
+	MPP13_GPIO,		/* Rear power switch (on|auto) */
+	MPP14_GPIO,		/* USB fuse */
+	MPP15_GPIO,		/* Rear power switch (auto|off) */
+	MPP16_GPIO,		/* SATA 0 power */
 	MPP21_SATA0_ACTn,
-	MPP24_GPIO,		
-	MPP26_GPIO,		
-	MPP28_GPIO,		
-	MPP29_GPIO,		
-	MPP30_GPIO,		
-	MPP34_GPIO,		
-	MPP35_GPIO,		
+	MPP24_GPIO,		/* USB mode select */
+	MPP26_GPIO,		/* USB device vbus */
+	MPP28_GPIO,		/* USB enable host vbus */
+	MPP29_GPIO,		/* Blue led (slow register) */
+	MPP30_GPIO,		/* Blue led (command register) */
+	MPP34_GPIO,		/* Power button (1 = Released, 0 = Pushed) */
+	MPP35_GPIO,		/* Inhibit power-off */
 	0
 };
 
@@ -176,6 +194,9 @@ static void d2net_v2_power_off(void)
 
 static void __init d2net_v2_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(d2net_v2_mpp_config);
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,7 +21,6 @@
 #include "dsi_v2.h"
 
 static struct dsi_interface dsi_intf;
-static struct dsi_buf dsi_panel_tx_buf;
 
 static int dsi_off(struct mdss_panel_data *pdata)
 {
@@ -67,21 +66,15 @@ static int dsi_panel_handler(struct mdss_panel_data *pdata, int enable)
 	if (enable) {
 		dsi_ctrl_gpio_request(ctrl_pdata);
 		mdss_dsi_panel_reset(pdata, 1);
-
-		rc = dsi_cmds_tx_v2(pdata, &dsi_panel_tx_buf,
-					ctrl_pdata->on_cmds.cmds,
-					ctrl_pdata->on_cmds.cmd_cnt);
-
+		pdata->panel_info.panel_power_on = 1;
+		rc = ctrl_pdata->on(pdata);
 		if (rc)
 			pr_err("dsi_panel_handler panel on failed %d\n", rc);
 	} else {
 		if (dsi_intf.op_mode_config)
 			dsi_intf.op_mode_config(DSI_CMD_MODE, pdata);
-
-		dsi_cmds_tx_v2(pdata, &dsi_panel_tx_buf,
-					ctrl_pdata->off_cmds.cmds,
-					ctrl_pdata->off_cmds.cmd_cnt);
-
+		rc = ctrl_pdata->off(pdata);
+		pdata->panel_info.panel_power_on = 0;
 		mdss_dsi_panel_reset(pdata, 0);
 		dsi_ctrl_gpio_free(ctrl_pdata);
 	}
@@ -101,6 +94,18 @@ static int dsi_splash_on(struct mdss_panel_data *pdata)
 		pr_err("mdss_dsi_on DSI failed %d\n", rc);
 		return rc;
 	}
+	return rc;
+}
+
+static int dsi_clk_ctrl(struct mdss_panel_data *pdata, int enable)
+{
+	int rc = 0;
+
+	pr_debug("%s:\n", __func__);
+
+	if (dsi_intf.clk_ctrl)
+		rc = dsi_intf.clk_ctrl(pdata, enable);
+
 	return rc;
 }
 
@@ -129,6 +134,9 @@ static int dsi_event_handler(struct mdss_panel_data *pdata,
 		break;
 	case MDSS_EVENT_CONT_SPLASH_BEGIN:
 		rc = dsi_splash_on(pdata);
+		break;
+	case MDSS_EVENT_PANEL_CLK_CTRL:
+		rc = dsi_clk_ctrl(pdata, (int)arg);
 		break;
 	default:
 		pr_debug("%s: unhandled event=%d\n", __func__, event);
@@ -196,74 +204,22 @@ int dsi_ctrl_gpio_request(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
 	int rc = 0;
 
-	if (gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
-		rc = gpio_request(ctrl_pdata->disp_en_gpio, "disp_enable");
-		if (rc)
-			goto gpio_request_err4;
-
-		ctrl_pdata->disp_en_gpio_requested = 1;
-	}
-
-	if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
-		rc = gpio_request(ctrl_pdata->rst_gpio, "disp_rst_n");
-		if (rc)
-			goto gpio_request_err3;
-
-		ctrl_pdata->rst_gpio_requested = 1;
-	}
-
 	if (gpio_is_valid(ctrl_pdata->disp_te_gpio)) {
 		rc = gpio_request(ctrl_pdata->disp_te_gpio, "disp_te");
 		if (rc)
-			goto gpio_request_err2;
-
-		ctrl_pdata->disp_te_gpio_requested = 1;
+			ctrl_pdata->disp_te_gpio_requested = 0;
+		else
+			ctrl_pdata->disp_te_gpio_requested = 1;
 	}
 
-	if (gpio_is_valid(ctrl_pdata->mode_gpio)) {
-		rc = gpio_request(ctrl_pdata->mode_gpio, "panel_mode");
-		if (rc)
-			goto gpio_request_err1;
-
-		ctrl_pdata->mode_gpio_requested = 1;
-	}
-
-	return rc;
-
-gpio_request_err1:
-	if (gpio_is_valid(ctrl_pdata->disp_te_gpio))
-		gpio_free(ctrl_pdata->disp_te_gpio);
-gpio_request_err2:
-	if (gpio_is_valid(ctrl_pdata->rst_gpio))
-		gpio_free(ctrl_pdata->rst_gpio);
-gpio_request_err3:
-	if (gpio_is_valid(ctrl_pdata->disp_en_gpio))
-		gpio_free(ctrl_pdata->disp_en_gpio);
-gpio_request_err4:
-	ctrl_pdata->disp_en_gpio_requested = 0;
-	ctrl_pdata->rst_gpio_requested = 0;
-	ctrl_pdata->disp_te_gpio_requested = 0;
-	ctrl_pdata->mode_gpio_requested = 0;
 	return rc;
 }
 
 void dsi_ctrl_gpio_free(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
-	if (ctrl_pdata->disp_en_gpio_requested) {
-		gpio_free(ctrl_pdata->disp_en_gpio);
-		ctrl_pdata->disp_en_gpio_requested = 0;
-	}
-	if (ctrl_pdata->rst_gpio_requested) {
-		gpio_free(ctrl_pdata->rst_gpio);
-		ctrl_pdata->rst_gpio_requested = 0;
-	}
 	if (ctrl_pdata->disp_te_gpio_requested) {
 		gpio_free(ctrl_pdata->disp_te_gpio);
 		ctrl_pdata->disp_te_gpio_requested = 0;
-	}
-	if (ctrl_pdata->mode_gpio_requested) {
-		gpio_free(ctrl_pdata->mode_gpio);
-		ctrl_pdata->mode_gpio_requested = 0;
 	}
 }
 
@@ -276,7 +232,8 @@ static int dsi_parse_vreg(struct device *dev, struct dss_module_power *mp)
 
 	if (!dev || !mp) {
 		pr_err("%s: invalid input\n", __func__);
-		return -EINVAL;
+		rc = -EINVAL;
+		return rc;
 	}
 
 	np = dev->of_node;
@@ -556,16 +513,9 @@ int dsi_panel_device_register_v2(struct platform_device *dev,
 
 	ctrl_pdata->panel_data.event_handler = dsi_event_handler;
 
-	rc = dsi_buf_alloc(&dsi_panel_tx_buf,
-				ALIGN(DSI_BUF_SIZE,
-				SZ_4K));
-	if (rc)
-		return rc;
-
 	rc = mdss_register_panel(dev, &(ctrl_pdata->panel_data));
 	if (rc) {
 		dev_err(&dev->dev, "unable to register MIPI DSI panel\n");
-		kfree(dsi_panel_tx_buf.start);
 		return rc;
 	}
 
@@ -576,72 +526,6 @@ int dsi_panel_device_register_v2(struct platform_device *dev,
 void dsi_register_interface(struct dsi_interface *intf)
 {
 	dsi_intf = *intf;
-}
-
-int dsi_cmds_tx_v2(struct mdss_panel_data *pdata,
-			struct dsi_buf *tp, struct dsi_cmd_desc *cmds,
-			int cnt)
-{
-	int rc = 0;
-
-	if (!dsi_intf.tx)
-		return -EINVAL;
-
-	rc = dsi_intf.tx(pdata, tp, cmds, cnt);
-	return rc;
-}
-
-int dsi_cmds_rx_v2(struct mdss_panel_data *pdata,
-			struct dsi_buf *tp, struct dsi_buf *rp,
-			struct dsi_cmd_desc *cmds, int rlen)
-{
-	int rc = 0;
-
-	if (pdata == NULL) {
-		pr_err("%s: Invalid input data\n", __func__);
-		return -EINVAL;
-	}
-
-	if (!dsi_intf.rx)
-		return -EINVAL;
-
-	rc = dsi_intf.rx(pdata, tp, rp, cmds, rlen);
-	return rc;
-}
-
-static char *dsi_buf_reserve(struct dsi_buf *dp, int len)
-{
-	dp->data += len;
-	return dp->data;
-}
-
-
-static char *dsi_buf_push(struct dsi_buf *dp, int len)
-{
-	dp->data -= len;
-	dp->len += len;
-	return dp->data;
-}
-
-static char *dsi_buf_reserve_hdr(struct dsi_buf *dp, int hlen)
-{
-	dp->hdr = (u32 *)dp->data;
-	return dsi_buf_reserve(dp, hlen);
-}
-
-char *dsi_buf_init(struct dsi_buf *dp)
-{
-	int off;
-
-	dp->data = dp->start;
-	off = (int)dp->data;
-	
-	off &= 0x07;
-	if (off)
-		off = 8 - off;
-	dp->data += off;
-	dp->len = 0;
-	return dp->data;
 }
 
 int dsi_buf_alloc(struct dsi_buf *dp, int size)
@@ -665,473 +549,3 @@ int dsi_buf_alloc(struct dsi_buf *dp, int size)
 	return 0;
 }
 
-static int dsi_generic_lwrite(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	char *bp;
-	u32 *hp;
-	int i, len;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	bp = dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-
-	
-	if (cm->payload) {
-		len = dchdr->dlen;
-		len += 3;
-		len &= ~0x03; 
-		for (i = 0; i < dchdr->dlen; i++)
-			*bp++ = cm->payload[i];
-
-		
-		for (; i < len; i++)
-			*bp++ = 0xff;
-
-		dp->len += len;
-	}
-
-	
-	hp = dp->hdr;
-	*hp = 0;
-	*hp = DSI_HDR_WC(dchdr->dlen);
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_LONG_PKT;
-	*hp |= DSI_HDR_DTYPE(DTYPE_GEN_LWRITE);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len;
-}
-
-static int dsi_generic_swrite(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	int len;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	if (dchdr->dlen && cm->payload == 0) {
-		pr_err("%s: NO payload error\n", __func__);
-		return 0;
-	}
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	len = (dchdr->dlen > 2) ? 2 : dchdr->dlen;
-
-	if (len == 1) {
-		*hp |= DSI_HDR_DTYPE(DTYPE_GEN_WRITE1);
-		*hp |= DSI_HDR_DATA1(cm->payload[0]);
-		*hp |= DSI_HDR_DATA2(0);
-	} else if (len == 2) {
-		*hp |= DSI_HDR_DTYPE(DTYPE_GEN_WRITE2);
-		*hp |= DSI_HDR_DATA1(cm->payload[0]);
-		*hp |= DSI_HDR_DATA2(cm->payload[1]);
-	} else {
-		*hp |= DSI_HDR_DTYPE(DTYPE_GEN_WRITE);
-		*hp |= DSI_HDR_DATA1(0);
-		*hp |= DSI_HDR_DATA2(0);
-	}
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len;
-}
-
-static int dsi_generic_read(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	int len;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	if (dchdr->dlen && cm->payload == 0) {
-		pr_err("%s: NO payload error\n", __func__);
-		return 0;
-	}
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_BTA;
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	len = (dchdr->dlen > 2) ? 2 : dchdr->dlen;
-
-	if (len == 1) {
-		*hp |= DSI_HDR_DTYPE(DTYPE_GEN_READ1);
-		*hp |= DSI_HDR_DATA1(cm->payload[0]);
-		*hp |= DSI_HDR_DATA2(0);
-	} else if (len == 2) {
-		*hp |= DSI_HDR_DTYPE(DTYPE_GEN_READ2);
-		*hp |= DSI_HDR_DATA1(cm->payload[0]);
-		*hp |= DSI_HDR_DATA2(cm->payload[1]);
-	} else {
-		*hp |= DSI_HDR_DTYPE(DTYPE_GEN_READ);
-		*hp |= DSI_HDR_DATA1(0);
-		*hp |= DSI_HDR_DATA2(0);
-	}
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-	return dp->len;
-}
-
-static int dsi_dcs_lwrite(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	char *bp;
-	u32 *hp;
-	int i, len;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	bp = dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-
-	if (cm->payload) {
-		len = dchdr->dlen;
-		len += 3;
-		len &= ~0x03; 
-		for (i = 0; i < dchdr->dlen; i++)
-			*bp++ = cm->payload[i];
-
-		
-		for (; i < len; i++)
-			*bp++ = 0xff;
-
-		dp->len += len;
-	}
-
-	
-	hp = dp->hdr;
-	*hp = 0;
-	*hp = DSI_HDR_WC(dchdr->dlen);
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_LONG_PKT;
-	*hp |= DSI_HDR_DTYPE(DTYPE_DCS_LWRITE);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len;
-}
-
-static int dsi_dcs_swrite(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	int len;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	if (cm->payload == 0) {
-		pr_err("%s: NO payload error\n", __func__);
-		return -EINVAL;
-	}
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	if (dchdr->ack)
-		*hp |= DSI_HDR_BTA;
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	len = (dchdr->dlen > 1) ? 1 : dchdr->dlen;
-
-	*hp |= DSI_HDR_DTYPE(DTYPE_DCS_WRITE);
-	*hp |= DSI_HDR_DATA1(cm->payload[0]); 
-	*hp |= DSI_HDR_DATA2(0);
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-	return dp->len;
-}
-
-static int dsi_dcs_swrite1(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	if (dchdr->dlen < 2 || cm->payload == 0) {
-		pr_err("%s: NO payload error\n", __func__);
-		return -EINVAL;
-	}
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	if (dchdr->ack)
-		*hp |= DSI_HDR_BTA;
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	*hp |= DSI_HDR_DTYPE(DTYPE_DCS_WRITE1);
-	*hp |= DSI_HDR_DATA1(cm->payload[0]); 
-	*hp |= DSI_HDR_DATA2(cm->payload[1]); 
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len;
-}
-
-static int dsi_dcs_read(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	if (cm->payload == 0) {
-		pr_err("%s: NO payload error\n", __func__);
-		return -EINVAL;
-	}
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_BTA;
-	*hp |= DSI_HDR_DTYPE(DTYPE_DCS_READ);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	*hp |= DSI_HDR_DATA1(cm->payload[0]); 
-	*hp |= DSI_HDR_DATA2(0);
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-static int dsi_cm_on(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_DTYPE(DTYPE_CM_ON);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-static int dsi_cm_off(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_DTYPE(DTYPE_CM_OFF);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-static int dsi_peripheral_on(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_DTYPE(DTYPE_PERIPHERAL_ON);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-static int dsi_peripheral_off(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_DTYPE(DTYPE_PERIPHERAL_OFF);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-static int dsi_set_max_pktsize(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	if (cm->payload == 0) {
-		pr_err("%s: NO payload error\n", __func__);
-		return 0;
-	}
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_DTYPE(DTYPE_MAX_PKTSIZE);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	*hp |= DSI_HDR_DATA1(cm->payload[0]);
-	*hp |= DSI_HDR_DATA2(cm->payload[1]);
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-static int dsi_null_pkt(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp = DSI_HDR_WC(dchdr->dlen);
-	*hp |= DSI_HDR_LONG_PKT;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_DTYPE(DTYPE_NULL_PKT);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-static int dsi_blank_pkt(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	u32 *hp;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	dsi_buf_reserve_hdr(dp, DSI_HOST_HDR_SIZE);
-	hp = dp->hdr;
-	*hp = 0;
-	*hp = DSI_HDR_WC(dchdr->dlen);
-	*hp |= DSI_HDR_LONG_PKT;
-	*hp |= DSI_HDR_VC(dchdr->vc);
-	*hp |= DSI_HDR_DTYPE(DTYPE_BLANK_PKT);
-	if (dchdr->last)
-		*hp |= DSI_HDR_LAST;
-
-	dsi_buf_push(dp, DSI_HOST_HDR_SIZE);
-
-	return dp->len; 
-}
-
-int dsi_cmd_dma_add(struct dsi_buf *dp, struct dsi_cmd_desc *cm)
-{
-	int len = 0;
-	struct dsi_ctrl_hdr *dchdr = &cm->dchdr;
-
-	switch (dchdr->dtype) {
-	case DTYPE_GEN_WRITE:
-	case DTYPE_GEN_WRITE1:
-	case DTYPE_GEN_WRITE2:
-		len = dsi_generic_swrite(dp, cm);
-		break;
-	case DTYPE_GEN_LWRITE:
-		len = dsi_generic_lwrite(dp, cm);
-		break;
-	case DTYPE_GEN_READ:
-	case DTYPE_GEN_READ1:
-	case DTYPE_GEN_READ2:
-		len = dsi_generic_read(dp, cm);
-		break;
-	case DTYPE_DCS_LWRITE:
-		len = dsi_dcs_lwrite(dp, cm);
-		break;
-	case DTYPE_DCS_WRITE:
-		len = dsi_dcs_swrite(dp, cm);
-		break;
-	case DTYPE_DCS_WRITE1:
-		len = dsi_dcs_swrite1(dp, cm);
-		break;
-	case DTYPE_DCS_READ:
-		len = dsi_dcs_read(dp, cm);
-		break;
-	case DTYPE_MAX_PKTSIZE:
-		len = dsi_set_max_pktsize(dp, cm);
-		break;
-	case DTYPE_NULL_PKT:
-		len = dsi_null_pkt(dp, cm);
-		break;
-	case DTYPE_BLANK_PKT:
-		len = dsi_blank_pkt(dp, cm);
-		break;
-	case DTYPE_CM_ON:
-		len = dsi_cm_on(dp, cm);
-		break;
-	case DTYPE_CM_OFF:
-		len = dsi_cm_off(dp, cm);
-		break;
-	case DTYPE_PERIPHERAL_ON:
-		len = dsi_peripheral_on(dp, cm);
-		break;
-	case DTYPE_PERIPHERAL_OFF:
-		len = dsi_peripheral_off(dp, cm);
-		break;
-	default:
-		pr_debug("%s: dtype=%x NOT supported\n",
-					__func__, dchdr->dtype);
-		break;
-
-	}
-
-	return len;
-}
-
-int dsi_short_read1_resp(struct dsi_buf *rp)
-{
-	
-	rp->data++;
-	rp->len = 1;
-	return rp->len;
-}
-
-int dsi_short_read2_resp(struct dsi_buf *rp)
-{
-	
-	rp->data++;
-	rp->len = 2;
-	return rp->len;
-}
-
-int dsi_long_read_resp(struct dsi_buf *rp)
-{
-	short len;
-
-	len = rp->data[2];
-	len <<= 8;
-	len |= rp->data[1];
-	
-	rp->data += 4;
-	rp->len -= 4;
-	
-	rp->len -= 2;
-	return len;
-}

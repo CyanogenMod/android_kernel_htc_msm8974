@@ -277,6 +277,15 @@
 # define TEGRA_DEBUG_UART_BASE TEGRA_UARTE_BASE
 #endif
 
+/* On TEGRA, many peripherals are very closely packed in
+ * two 256MB io windows (that actually only use about 64KB
+ * at the start of each).
+ *
+ * We will just map the first 1MB of each window (to minimize
+ * pt entries needed) and provide a macro to transform physical
+ * io addresses to an appropriate void __iomem *.
+ *
+ */
 
 #define IO_IRAM_PHYS	0x40000000
 #define IO_IRAM_VIRT	IOMEM(0xFE400000)

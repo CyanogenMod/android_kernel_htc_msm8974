@@ -30,4 +30,4 @@ void debugfs_destroy(void);
 int debugfs_add_meshif(struct net_device *dev);
 void debugfs_del_meshif(struct net_device *dev);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_DEBUGFS_H_ */

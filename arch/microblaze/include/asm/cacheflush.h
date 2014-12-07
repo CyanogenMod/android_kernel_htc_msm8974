@@ -15,28 +15,41 @@
 #ifndef _ASM_MICROBLAZE_CACHEFLUSH_H
 #define _ASM_MICROBLAZE_CACHEFLUSH_H
 
+/* Somebody depends on this; sigh... */
 #include <linux/mm.h>
 #include <linux/io.h>
 
+/* Look at Documentation/cachetlb.txt */
 
+/*
+ * Cache handling functions.
+ * Microblaze has a write-through data cache, meaning that the data cache
+ * never needs to be flushed.  The only flushing operations that are
+ * implemented are to invalidate the instruction cache.  These are called
+ * after loading a user application into memory, we must invalidate the
+ * instruction cache to make sure we don't fetch old, bad code.
+ */
 
+/* struct cache, d=dcache, i=icache, fl = flush, iv = invalidate,
+ * suffix r = range */
 struct scache {
-	
-	void (*ie)(void); 
-	void (*id)(void); 
-	void (*ifl)(void); 
+	/* icache */
+	void (*ie)(void); /* enable */
+	void (*id)(void); /* disable */
+	void (*ifl)(void); /* flush */
 	void (*iflr)(unsigned long a, unsigned long b);
-	void (*iin)(void); 
+	void (*iin)(void); /* invalidate */
 	void (*iinr)(unsigned long a, unsigned long b);
-	
-	void (*de)(void); 
-	void (*dd)(void); 
-	void (*dfl)(void); 
+	/* dcache */
+	void (*de)(void); /* enable */
+	void (*dd)(void); /* disable */
+	void (*dfl)(void); /* flush */
 	void (*dflr)(unsigned long a, unsigned long b);
-	void (*din)(void); 
+	void (*din)(void); /* invalidate */
 	void (*dinr)(unsigned long a, unsigned long b);
 };
 
+/* microblaze cache */
 extern struct scache *mbc;
 
 void microblaze_cache_init(void);
@@ -53,15 +66,17 @@ void microblaze_cache_init(void);
 
 #define enable_dcache()					mbc->de();
 #define disable_dcache()				mbc->dd();
+/* FIXME for LL-temac driver */
 #define invalidate_dcache()				mbc->din();
 #define invalidate_dcache_range(start, end)		mbc->dinr(start, end);
 #define flush_dcache()					mbc->dfl();
 #define flush_dcache_range(start, end)			mbc->dflr(start, end);
 
 #define ARCH_IMPLEMENTS_FLUSH_DCACHE_PAGE 1
+/* MS: We have to implement it because of rootfs-jffs2 issue on WB */
 #define flush_dcache_page(page) \
 do { \
-	unsigned long addr = (unsigned long) page_address(page);  \
+	unsigned long addr = (unsigned long) page_address(page); /* virtual */ \
 	addr = (u32)virt_to_phys((void *)addr); \
 	flush_dcache_range((unsigned) (addr), (unsigned) (addr) + PAGE_SIZE); \
 } while (0);
@@ -77,6 +92,7 @@ do { \
 #define flush_cache_page(vma, vmaddr, pfn) \
 	flush_dcache_range(pfn << PAGE_SHIFT, (pfn << PAGE_SHIFT) + PAGE_SIZE);
 
+/* MS: kgdb code use this macro, wrong len with FLASH */
 #if 0
 #define flush_cache_range(vma, start, len)	{	\
 	flush_icache_range((unsigned) (start), (unsigned) (start) + (len)); \
@@ -103,4 +119,4 @@ do {									\
 	memcpy((dst), (src), (len));					\
 } while (0)
 
-#endif 
+#endif /* _ASM_MICROBLAZE_CACHEFLUSH_H */

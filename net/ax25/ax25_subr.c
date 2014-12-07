@@ -30,6 +30,9 @@
 #include <linux/mm.h>
 #include <linux/interrupt.h>
 
+/*
+ *	This routine purges all the queues of frames.
+ */
 void ax25_clear_queues(ax25_cb *ax25)
 {
 	skb_queue_purge(&ax25->write_queue);
@@ -38,10 +41,18 @@ void ax25_clear_queues(ax25_cb *ax25)
 	skb_queue_purge(&ax25->frag_queue);
 }
 
+/*
+ * This routine purges the input queue of those frames that have been
+ * acknowledged. This replaces the boxes labelled "V(a) <- N(r)" on the
+ * SDL diagram.
+ */
 void ax25_frames_acked(ax25_cb *ax25, unsigned short nr)
 {
 	struct sk_buff *skb;
 
+	/*
+	 * Remove all the ack-ed frames from the ack queue.
+	 */
 	if (ax25->va != nr) {
 		while (skb_peek(&ax25->ack_queue) != NULL && ax25->va != nr) {
 			skb = skb_dequeue(&ax25->ack_queue);
@@ -55,10 +66,19 @@ void ax25_requeue_frames(ax25_cb *ax25)
 {
 	struct sk_buff *skb;
 
+	/*
+	 * Requeue all the un-ack-ed frames on the output queue to be picked
+	 * up by ax25_kick called from the timer. This arrangement handles the
+	 * possibility of an empty output queue.
+	 */
 	while ((skb = skb_dequeue_tail(&ax25->ack_queue)) != NULL)
 		skb_queue_head(&ax25->write_queue, skb);
 }
 
+/*
+ *	Validate that the value of nr is between va and vs. Return true or
+ *	false for testing.
+ */
 int ax25_validate_nr(ax25_cb *ax25, unsigned short nr)
 {
 	unsigned short vc = ax25->va;
@@ -73,6 +93,10 @@ int ax25_validate_nr(ax25_cb *ax25, unsigned short nr)
 	return 0;
 }
 
+/*
+ *	This routine is the centralised routine for parsing the control
+ *	information for the different frame formats.
+ */
 int ax25_decode(ax25_cb *ax25, struct sk_buff *skb, int *ns, int *nr, int *pf)
 {
 	unsigned char *frame;
@@ -83,32 +107,32 @@ int ax25_decode(ax25_cb *ax25, struct sk_buff *skb, int *ns, int *nr, int *pf)
 
 	if (ax25->modulus == AX25_MODULUS) {
 		if ((frame[0] & AX25_S) == 0) {
-			frametype = AX25_I;			
+			frametype = AX25_I;			/* I frame - carries NR/NS/PF */
 			*ns = (frame[0] >> 1) & 0x07;
 			*nr = (frame[0] >> 5) & 0x07;
 			*pf = frame[0] & AX25_PF;
-		} else if ((frame[0] & AX25_U) == 1) { 	
+		} else if ((frame[0] & AX25_U) == 1) { 	/* S frame - take out PF/NR */
 			frametype = frame[0] & 0x0F;
 			*nr = (frame[0] >> 5) & 0x07;
 			*pf = frame[0] & AX25_PF;
-		} else if ((frame[0] & AX25_U) == 3) { 	
+		} else if ((frame[0] & AX25_U) == 3) { 	/* U frame - take out PF */
 			frametype = frame[0] & ~AX25_PF;
 			*pf = frame[0] & AX25_PF;
 		}
 		skb_pull(skb, 1);
 	} else {
 		if ((frame[0] & AX25_S) == 0) {
-			frametype = AX25_I;			
+			frametype = AX25_I;			/* I frame - carries NR/NS/PF */
 			*ns = (frame[0] >> 1) & 0x7F;
 			*nr = (frame[1] >> 1) & 0x7F;
 			*pf = frame[1] & AX25_EPF;
 			skb_pull(skb, 2);
-		} else if ((frame[0] & AX25_U) == 1) { 	
+		} else if ((frame[0] & AX25_U) == 1) { 	/* S frame - take out PF/NR */
 			frametype = frame[0] & 0x0F;
 			*nr = (frame[1] >> 1) & 0x7F;
 			*pf = frame[1] & AX25_EPF;
 			skb_pull(skb, 2);
-		} else if ((frame[0] & AX25_U) == 3) { 	
+		} else if ((frame[0] & AX25_U) == 3) { 	/* U frame - take out PF */
 			frametype = frame[0] & ~AX25_PF;
 			*pf = frame[0] & AX25_PF;
 			skb_pull(skb, 1);
@@ -118,6 +142,11 @@ int ax25_decode(ax25_cb *ax25, struct sk_buff *skb, int *ns, int *nr, int *pf)
 	return frametype;
 }
 
+/*
+ *	This routine is called when the HDLC layer internally  generates a
+ *	command or  response  for  the remote machine ( eg. RR, UA etc. ).
+ *	Only supervisory or unnumbered frames are processed.
+ */
 void ax25_send_control(ax25_cb *ax25, int frametype, int poll_bit, int type)
 {
 	struct sk_buff *skb;
@@ -130,12 +159,12 @@ void ax25_send_control(ax25_cb *ax25, int frametype, int poll_bit, int type)
 
 	skb_reset_network_header(skb);
 
-	
+	/* Assume a response - address structure for DTE */
 	if (ax25->modulus == AX25_MODULUS) {
 		dptr = skb_put(skb, 1);
 		*dptr = frametype;
 		*dptr |= (poll_bit) ? AX25_PF : 0;
-		if ((frametype & AX25_U) == AX25_S)		
+		if ((frametype & AX25_U) == AX25_S)		/* S frames carry NR */
 			*dptr |= (ax25->vr << 5);
 	} else {
 		if ((frametype & AX25_U) == AX25_U) {
@@ -153,6 +182,11 @@ void ax25_send_control(ax25_cb *ax25, int frametype, int poll_bit, int type)
 	ax25_transmit_buffer(ax25, skb, type);
 }
 
+/*
+ *	Send a 'DM' to an unknown connection attempt, or an invalid caller.
+ *
+ *	Note: src here is the sender, thus it's the target of the DM
+ */
 void ax25_return_dm(struct net_device *dev, ax25_address *src, ax25_address *dest, ax25_digi *digi)
 {
 	struct sk_buff *skb;
@@ -163,7 +197,7 @@ void ax25_return_dm(struct net_device *dev, ax25_address *src, ax25_address *des
 		return;
 
 	if ((skb = alloc_skb(dev->hard_header_len + 1, GFP_ATOMIC)) == NULL)
-		return;	
+		return;	/* Next SABM will get DM'd */
 
 	skb_reserve(skb, dev->hard_header_len);
 	skb_reset_network_header(skb);
@@ -174,12 +208,18 @@ void ax25_return_dm(struct net_device *dev, ax25_address *src, ax25_address *des
 
 	*dptr = AX25_DM | AX25_PF;
 
+	/*
+	 *	Do the address ourselves
+	 */
 	dptr  = skb_push(skb, ax25_addr_size(digi));
 	dptr += ax25_addr_build(dptr, dest, src, &retdigi, AX25_RESPONSE, AX25_MODULUS);
 
 	ax25_queue_xmit(skb, dev);
 }
 
+/*
+ *	Exponential backoff for AX.25
+ */
 void ax25_calculate_t1(ax25_cb *ax25)
 {
 	int n, t = 2;
@@ -202,6 +242,9 @@ void ax25_calculate_t1(ax25_cb *ax25)
 	ax25->t1 = t * ax25->rtt;
 }
 
+/*
+ *	Calculate the Round Trip Time
+ */
 void ax25_calculate_rtt(ax25_cb *ax25)
 {
 	if (ax25->backoff == 0)

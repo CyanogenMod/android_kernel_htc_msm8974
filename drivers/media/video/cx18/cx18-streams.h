@@ -39,6 +39,7 @@ static inline bool cx18_stream_enabled(struct cx18_stream *s)
 		s->cx->stream_buffers[CX18_ENC_STREAM_TYPE_IDX] != 0);
 }
 
+/* Related to submission of mdls to firmware */
 static inline void cx18_stream_load_fw_queue(struct cx18_stream *s)
 {
 	schedule_work(&s->out_work_order);
@@ -47,13 +48,14 @@ static inline void cx18_stream_load_fw_queue(struct cx18_stream *s)
 static inline void cx18_stream_put_mdl_fw(struct cx18_stream *s,
 					  struct cx18_mdl *mdl)
 {
-	
+	/* Put mdl on q_free; the out work handler will move mdl(s) to q_busy */
 	cx18_enqueue(s, mdl, &s->q_free);
 	cx18_stream_load_fw_queue(s);
 }
 
 void cx18_out_work_handler(struct work_struct *work);
 
+/* Capture related */
 int cx18_start_v4l2_encode_stream(struct cx18_stream *s);
 int cx18_stop_v4l2_encode_stream(struct cx18_stream *s, int gop_end);
 

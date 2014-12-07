@@ -28,13 +28,13 @@
 #define INITRD_SIZE       (*(unsigned long *)  (0x10414))
 #define OLDMEM_BASE	  (*(unsigned long *)  (0x1041C))
 #define OLDMEM_SIZE	  (*(unsigned long *)  (0x10424))
-#else 
+#else /* __s390x__ */
 #define IPL_DEVICE        (*(unsigned long *)  (0x10400))
 #define INITRD_START      (*(unsigned long *)  (0x10408))
 #define INITRD_SIZE       (*(unsigned long *)  (0x10410))
 #define OLDMEM_BASE	  (*(unsigned long *)  (0x10418))
 #define OLDMEM_SIZE	  (*(unsigned long *)  (0x10420))
-#endif 
+#endif /* __s390x__ */
 #define COMMAND_LINE      ((char *)            (0x10480))
 
 #define CHUNK_READ_WRITE 0
@@ -64,6 +64,9 @@ void create_mem_hole(struct mem_chunk memory_chunk[], unsigned long addr,
 
 extern unsigned int user_mode;
 
+/*
+ * Machine features detected in head.S
+ */
 
 #define MACHINE_FLAG_VM		(1UL << 0)
 #define MACHINE_FLAG_IEEE	(1UL << 1)
@@ -99,7 +102,7 @@ extern unsigned int user_mode;
 #define MACHINE_HAS_SPP		(0)
 #define MACHINE_HAS_TOPOLOGY	(0)
 #define MACHINE_HAS_STCKF	(0)
-#else 
+#else /* __s390x__ */
 #define MACHINE_HAS_IEEE	(1)
 #define MACHINE_HAS_CSP		(1)
 #define MACHINE_HAS_IDTE	(S390_lowcore.machine_flags & MACHINE_FLAG_IDTE)
@@ -111,11 +114,14 @@ extern unsigned int user_mode;
 #define MACHINE_HAS_SPP		(S390_lowcore.machine_flags & MACHINE_FLAG_SPP)
 #define MACHINE_HAS_TOPOLOGY	(S390_lowcore.machine_flags & MACHINE_FLAG_TOPOLOGY)
 #define MACHINE_HAS_STCKF	(S390_lowcore.machine_flags & MACHINE_FLAG_STCKF)
-#endif 
+#endif /* __s390x__ */
 
 #define ZFCPDUMP_HSA_SIZE	(32UL<<20)
 #define ZFCPDUMP_HSA_SIZE_MAX	(64UL<<20)
 
+/*
+ * Console mode. Override with conmode=
+ */
 extern unsigned int console_mode;
 extern unsigned int console_devno;
 extern unsigned int console_irq;
@@ -137,10 +143,10 @@ extern char kernel_nss_name[];
 #ifdef CONFIG_PFAULT
 extern int pfault_init(void);
 extern void pfault_fini(void);
-#else 
+#else /* CONFIG_PFAULT */
 #define pfault_init()		({-1;})
 #define pfault_fini()		do { } while (0)
-#endif 
+#endif /* CONFIG_PFAULT */
 
 extern void cmma_init(void);
 
@@ -148,7 +154,7 @@ extern void (*_machine_restart)(char *command);
 extern void (*_machine_halt)(void);
 extern void (*_machine_power_off)(void);
 
-#else 
+#else /* __ASSEMBLY__ */
 
 #ifndef __s390x__
 #define IPL_DEVICE        0x10404
@@ -156,15 +162,15 @@ extern void (*_machine_power_off)(void);
 #define INITRD_SIZE       0x10414
 #define OLDMEM_BASE	  0x1041C
 #define OLDMEM_SIZE	  0x10424
-#else 
+#else /* __s390x__ */
 #define IPL_DEVICE        0x10400
 #define INITRD_START      0x10408
 #define INITRD_SIZE       0x10410
 #define OLDMEM_BASE	  0x10418
 #define OLDMEM_SIZE	  0x10420
-#endif 
+#endif /* __s390x__ */
 #define COMMAND_LINE      0x10480
 
-#endif 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_S390_SETUP_H */

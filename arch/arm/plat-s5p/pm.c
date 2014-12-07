@@ -19,19 +19,23 @@
 
 #define PFX "s5p pm: "
 
+/* s3c_pm_configure_extint
+ *
+ * configure all external interrupt pins
+*/
 
 void s3c_pm_configure_extint(void)
 {
-	
+	/* nothing here yet */
 }
 
 void s3c_pm_restore_core(void)
 {
-	
+	/* nothing here yet */
 }
 
 void s3c_pm_save_core(void)
 {
-	
+	/* nothing here yet */
 }
 

@@ -30,31 +30,73 @@
 #define USB_PHY_IVREF_CTRL	0x440
 #define USB_PHY_TST_GRP_CTRL	0x450
 
+/*
+ * Implement Orion USB controller specification guidelines
+ */
 static void orion_usb_phy_v1_setup(struct usb_hcd *hcd)
 {
-	
+	/* The below GLs are according to the Orion Errata document */
+	/*
+	 * Clear interrupt cause and mask
+	 */
 	wrl(USB_CAUSE, 0);
 	wrl(USB_MASK, 0);
 
+	/*
+	 * Reset controller
+	 */
 	wrl(USB_CMD, rdl(USB_CMD) | 0x2);
 	while (rdl(USB_CMD) & 0x2);
 
+	/*
+	 * GL# USB-10: Set IPG for non start of frame packets
+	 * Bits[14:8]=0xc
+	 */
 	wrl(USB_IPG, (rdl(USB_IPG) & ~0x7f00) | 0xc00);
 
+	/*
+	 * GL# USB-9: USB 2.0 Power Control
+	 * BG_VSEL[7:6]=0x1
+	 */
 	wrl(USB_PHY_PWR_CTRL, (rdl(USB_PHY_PWR_CTRL) & ~0xc0)| 0x40);
 
+	/*
+	 * GL# USB-1: USB PHY Tx Control - force calibration to '8'
+	 * TXDATA_BLOCK_EN[21]=0x1, EXT_RCAL_EN[13]=0x1, IMP_CAL[6:3]=0x8
+	 */
 	wrl(USB_PHY_TX_CTRL, (rdl(USB_PHY_TX_CTRL) & ~0x78) | 0x202040);
 
+	/*
+	 * GL# USB-3 GL# USB-9: USB PHY Rx Control
+	 * RXDATA_BLOCK_LENGHT[31:30]=0x3, EDGE_DET_SEL[27:26]=0,
+	 * CDR_FASTLOCK_EN[21]=0, DISCON_THRESHOLD[9:8]=0, SQ_THRESH[7:4]=0x1
+	 */
 	wrl(USB_PHY_RX_CTRL, (rdl(USB_PHY_RX_CTRL) & ~0xc2003f0) | 0xc0000010);
 
+	/*
+	 * GL# USB-3 GL# USB-9: USB PHY IVREF Control
+	 * PLLVDD12[1:0]=0x2, RXVDD[5:4]=0x3, Reserved[19]=0
+	 */
 	wrl(USB_PHY_IVREF_CTRL, (rdl(USB_PHY_IVREF_CTRL) & ~0x80003 ) | 0x32);
 
+	/*
+	 * GL# USB-3 GL# USB-9: USB PHY Test Group Control
+	 * REG_FIFO_SQ_RST[15]=0
+	 */
 	wrl(USB_PHY_TST_GRP_CTRL, rdl(USB_PHY_TST_GRP_CTRL) & ~0x8000);
 
+	/*
+	 * Stop and reset controller
+	 */
 	wrl(USB_CMD, rdl(USB_CMD) & ~0x1);
 	wrl(USB_CMD, rdl(USB_CMD) | 0x2);
 	while (rdl(USB_CMD) & 0x2);
 
+	/*
+	 * GL# USB-5 Streaming disable REG_USB_MODE[4]=1
+	 * TBD: This need to be done after each reset!
+	 * GL# USB-4 Setup USB Host mode
+	 */
 	wrl(USB_MODE, 0x13);
 }
 
@@ -69,6 +111,9 @@ static int ehci_orion_setup(struct usb_hcd *hcd)
 	if (retval)
 		return retval;
 
+	/*
+	 * data structure init
+	 */
 	retval = ehci_init(hcd);
 	if (retval)
 		return retval;
@@ -85,21 +130,36 @@ static const struct hc_driver ehci_orion_hc_driver = {
 	.product_desc = "Marvell Orion EHCI",
 	.hcd_priv_size = sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq = ehci_irq,
 	.flags = HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset = ehci_orion_setup,
 	.start = ehci_run,
 	.stop = ehci_stop,
 	.shutdown = ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue = ehci_urb_enqueue,
 	.urb_dequeue = ehci_urb_dequeue,
 	.endpoint_disable = ehci_endpoint_disable,
 	.endpoint_reset = ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number = ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data = ehci_hub_status_data,
 	.hub_control = ehci_hub_control,
 	.bus_suspend = ehci_bus_suspend,
@@ -197,12 +257,18 @@ static int __devinit ehci_orion_drv_probe(struct platform_device *pdev)
 	hcd->has_tt = 1;
 	ehci->sbrn = 0x20;
 
+	/*
+	 * (Re-)program MBUS remapping windows if we are asked to.
+	 */
 	dram = mv_mbus_dram_info();
 	if (dram)
 		ehci_orion_conf_mbus_windows(hcd, dram);
 
+	/*
+	 * setup Orion USB controller.
+	 */
 	switch (pd->phy_version) {
-	case EHCI_PHY_NA:	
+	case EHCI_PHY_NA:	/* dont change USB phy settings */
 		break;
 	case EHCI_PHY_ORION:
 		orion_usb_phy_v1_setup(hcd);

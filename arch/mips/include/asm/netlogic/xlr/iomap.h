@@ -63,6 +63,7 @@
 #define NETLOGIC_IO_GMAC_2_OFFSET          0x0E000
 #define NETLOGIC_IO_GMAC_3_OFFSET          0x0F000
 
+/* XLS devices */
 #define NETLOGIC_IO_GMAC_4_OFFSET          0x20000
 #define NETLOGIC_IO_GMAC_5_OFFSET          0x21000
 #define NETLOGIC_IO_GMAC_6_OFFSET          0x22000
@@ -77,11 +78,14 @@
 #define NETLOGIC_IO_USB_1_OFFSET           0x25000
 
 #define NETLOGIC_IO_COMP_OFFSET            0x1D000
+/* end XLS devices */
 
+/* XLR devices */
 #define NETLOGIC_IO_SPI4_0_OFFSET          0x10000
 #define NETLOGIC_IO_XGMAC_0_OFFSET         0x11000
 #define NETLOGIC_IO_SPI4_1_OFFSET          0x12000
 #define NETLOGIC_IO_XGMAC_1_OFFSET         0x13000
+/* end XLR devices */
 
 #define NETLOGIC_IO_I2C_0_OFFSET           0x16000
 #define NETLOGIC_IO_I2C_1_OFFSET           0x17000
@@ -92,6 +96,12 @@
 
 #define NETLOGIC_CPLD_OFFSET               KSEG1ADDR(0x1d840000)
 
+/*
+ * Base Address (Virtual) of the PCI Config address space
+ * For now, choose 256M phys in kseg1 = 0xA0000000 + (1<<28)
+ * Config space spans 256 (num of buses) * 256 (num functions) * 256 bytes
+ * ie 1<<24 = 16M
+ */
 #define DEFAULT_PCI_CONFIG_BASE         0x18000000
 #define DEFAULT_HT_TYPE0_CFG_BASE       0x16000000
 #define DEFAULT_HT_TYPE1_CFG_BASE       0x17000000

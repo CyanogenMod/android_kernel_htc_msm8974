@@ -22,89 +22,153 @@ struct posix_acl;
 struct xfs_dinode;
 struct xfs_inode;
 
+/*
+ * Fork identifiers.
+ */
 #define	XFS_DATA_FORK	0
 #define	XFS_ATTR_FORK	1
 
+/*
+ * The following xfs_ext_irec_t struct introduces a second (top) level
+ * to the in-core extent allocation scheme. These structs are allocated
+ * in a contiguous block, creating an indirection array where each entry
+ * (irec) contains a pointer to a buffer of in-core extent records which
+ * it manages. Each extent buffer is 4k in size, since 4k is the system
+ * page size on Linux i386 and systems with larger page sizes don't seem
+ * to gain much, if anything, by using their native page size as the
+ * extent buffer size. Also, using 4k extent buffers everywhere provides
+ * a consistent interface for CXFS across different platforms.
+ *
+ * There is currently no limit on the number of irec's (extent lists)
+ * allowed, so heavily fragmented files may require an indirection array
+ * which spans multiple system pages of memory. The number of extents
+ * which would require this amount of contiguous memory is very large
+ * and should not cause problems in the foreseeable future. However,
+ * if the memory needed for the contiguous array ever becomes a problem,
+ * it is possible that a third level of indirection may be required.
+ */
 typedef struct xfs_ext_irec {
-	xfs_bmbt_rec_host_t *er_extbuf;	
-	xfs_extnum_t	er_extoff;	
-	xfs_extnum_t	er_extcount;	
+	xfs_bmbt_rec_host_t *er_extbuf;	/* block of extent records */
+	xfs_extnum_t	er_extoff;	/* extent offset in file */
+	xfs_extnum_t	er_extcount;	/* number of extents in page/block */
 } xfs_ext_irec_t;
 
+/*
+ * File incore extent information, present for each of data & attr forks.
+ */
 #define	XFS_IEXT_BUFSZ		4096
 #define	XFS_LINEAR_EXTS		(XFS_IEXT_BUFSZ / (uint)sizeof(xfs_bmbt_rec_t))
 #define	XFS_INLINE_EXTS		2
 #define	XFS_INLINE_DATA		32
 typedef struct xfs_ifork {
-	int			if_bytes;	
-	int			if_real_bytes;	
-	struct xfs_btree_block	*if_broot;	
-	short			if_broot_bytes;	
-	unsigned char		if_flags;	
+	int			if_bytes;	/* bytes in if_u1 */
+	int			if_real_bytes;	/* bytes allocated in if_u1 */
+	struct xfs_btree_block	*if_broot;	/* file's incore btree root */
+	short			if_broot_bytes;	/* bytes allocated for root */
+	unsigned char		if_flags;	/* per-fork flags */
 	union {
-		xfs_bmbt_rec_host_t *if_extents;
-		xfs_ext_irec_t	*if_ext_irec;	
-		char		*if_data;	
+		xfs_bmbt_rec_host_t *if_extents;/* linear map file exts */
+		xfs_ext_irec_t	*if_ext_irec;	/* irec map file exts */
+		char		*if_data;	/* inline file data */
 	} if_u1;
 	union {
 		xfs_bmbt_rec_host_t if_inline_ext[XFS_INLINE_EXTS];
-						
+						/* very small file extents */
 		char		if_inline_data[XFS_INLINE_DATA];
-						
-		xfs_dev_t	if_rdev;	
-		uuid_t		if_uuid;	
+						/* very small file data */
+		xfs_dev_t	if_rdev;	/* dev number if special */
+		uuid_t		if_uuid;	/* mount point value */
 	} if_u2;
 } xfs_ifork_t;
 
+/*
+ * Inode location information.  Stored in the inode and passed to
+ * xfs_imap_to_bp() to get a buffer and dinode for a given inode.
+ */
 struct xfs_imap {
-	xfs_daddr_t	im_blkno;	
-	ushort		im_len;		
-	ushort		im_boffset;	
+	xfs_daddr_t	im_blkno;	/* starting BB of inode chunk */
+	ushort		im_len;		/* length in BBs of inode chunk */
+	ushort		im_boffset;	/* inode offset in block in bytes */
 };
 
+/*
+ * This is the xfs in-core inode structure.
+ * Most of the on-disk inode is embedded in the i_d field.
+ *
+ * The extent pointers/inline file space, however, are managed
+ * separately.  The memory for this information is pointed to by
+ * the if_u1 unions depending on the type of the data.
+ * This is used to linearize the array of extents for fast in-core
+ * access.  This is used until the file's number of extents
+ * surpasses XFS_MAX_INCORE_EXTENTS, at which point all extent pointers
+ * are accessed through the buffer cache.
+ *
+ * Other state kept in the in-core inode is used for identification,
+ * locking, transactional updating, etc of the inode.
+ *
+ * Generally, we do not want to hold the i_rlock while holding the
+ * i_ilock. Hierarchy is i_iolock followed by i_rlock.
+ *
+ * xfs_iptr_t contains all the inode fields up to and including the
+ * i_mnext and i_mprev fields, it is used as a marker in the inode
+ * chain off the mount structure by xfs_sync calls.
+ */
 
 typedef struct xfs_ictimestamp {
-	__int32_t	t_sec;		
-	__int32_t	t_nsec;		
+	__int32_t	t_sec;		/* timestamp seconds */
+	__int32_t	t_nsec;		/* timestamp nanoseconds */
 } xfs_ictimestamp_t;
 
+/*
+ * NOTE:  This structure must be kept identical to struct xfs_dinode
+ * 	  in xfs_dinode.h except for the endianness annotations.
+ */
 typedef struct xfs_icdinode {
-	__uint16_t	di_magic;	
-	__uint16_t	di_mode;	
-	__int8_t	di_version;	
-	__int8_t	di_format;	
-	__uint16_t	di_onlink;	
-	__uint32_t	di_uid;		
-	__uint32_t	di_gid;		
-	__uint32_t	di_nlink;	
-	__uint16_t	di_projid_lo;	
-	__uint16_t	di_projid_hi;	
-	__uint8_t	di_pad[6];	
-	__uint16_t	di_flushiter;	
-	xfs_ictimestamp_t di_atime;	
-	xfs_ictimestamp_t di_mtime;	
-	xfs_ictimestamp_t di_ctime;	
-	xfs_fsize_t	di_size;	
-	xfs_drfsbno_t	di_nblocks;	
-	xfs_extlen_t	di_extsize;	
-	xfs_extnum_t	di_nextents;	
-	xfs_aextnum_t	di_anextents;	
-	__uint8_t	di_forkoff;	
-	__int8_t	di_aformat;	
-	__uint32_t	di_dmevmask;	
-	__uint16_t	di_dmstate;	
-	__uint16_t	di_flags;	
-	__uint32_t	di_gen;		
+	__uint16_t	di_magic;	/* inode magic # = XFS_DINODE_MAGIC */
+	__uint16_t	di_mode;	/* mode and type of file */
+	__int8_t	di_version;	/* inode version */
+	__int8_t	di_format;	/* format of di_c data */
+	__uint16_t	di_onlink;	/* old number of links to file */
+	__uint32_t	di_uid;		/* owner's user id */
+	__uint32_t	di_gid;		/* owner's group id */
+	__uint32_t	di_nlink;	/* number of links to file */
+	__uint16_t	di_projid_lo;	/* lower part of owner's project id */
+	__uint16_t	di_projid_hi;	/* higher part of owner's project id */
+	__uint8_t	di_pad[6];	/* unused, zeroed space */
+	__uint16_t	di_flushiter;	/* incremented on flush */
+	xfs_ictimestamp_t di_atime;	/* time last accessed */
+	xfs_ictimestamp_t di_mtime;	/* time last modified */
+	xfs_ictimestamp_t di_ctime;	/* time created/inode modified */
+	xfs_fsize_t	di_size;	/* number of bytes in file */
+	xfs_drfsbno_t	di_nblocks;	/* # of direct & btree blocks used */
+	xfs_extlen_t	di_extsize;	/* basic/minimum extent size for file */
+	xfs_extnum_t	di_nextents;	/* number of extents in data fork */
+	xfs_aextnum_t	di_anextents;	/* number of extents in attribute fork*/
+	__uint8_t	di_forkoff;	/* attr fork offs, <<3 for 64b align */
+	__int8_t	di_aformat;	/* format of attr fork's data */
+	__uint32_t	di_dmevmask;	/* DMIG event mask */
+	__uint16_t	di_dmstate;	/* DMIG state info */
+	__uint16_t	di_flags;	/* random flags, XFS_DIFLAG_... */
+	__uint32_t	di_gen;		/* generation number */
 } xfs_icdinode_t;
 
-#define	XFS_ICHGTIME_MOD	0x1	
-#define	XFS_ICHGTIME_CHG	0x2	
+/*
+ * Flags for xfs_ichgtime().
+ */
+#define	XFS_ICHGTIME_MOD	0x1	/* data fork modification timestamp */
+#define	XFS_ICHGTIME_CHG	0x2	/* inode field change timestamp */
 
-#define	XFS_IFINLINE	0x01	
-#define	XFS_IFEXTENTS	0x02	
-#define	XFS_IFBROOT	0x04	
-#define	XFS_IFEXTIREC	0x08	
+/*
+ * Per-fork incore inode flags.
+ */
+#define	XFS_IFINLINE	0x01	/* Inline data is read in */
+#define	XFS_IFEXTENTS	0x02	/* All extent pointers are read in */
+#define	XFS_IFBROOT	0x04	/* i_broot points to the bmap b-tree root */
+#define	XFS_IFEXTIREC	0x08	/* Indirection array of extent blocks */
 
+/*
+ * Fork handling.
+ */
 
 #define XFS_IFORK_Q(ip)			((ip)->i_d.di_forkoff != 0)
 #define XFS_IFORK_BOFF(ip)		((int)((ip)->i_d.di_forkoff << 3))
@@ -156,45 +220,52 @@ struct xfs_trans;
 struct xfs_dquot;
 
 typedef struct xfs_inode {
-	
-	struct xfs_mount	*i_mount;	
-	struct xfs_dquot	*i_udquot;	
-	struct xfs_dquot	*i_gdquot;	
+	/* Inode linking and identification information. */
+	struct xfs_mount	*i_mount;	/* fs mount struct ptr */
+	struct xfs_dquot	*i_udquot;	/* user dquot */
+	struct xfs_dquot	*i_gdquot;	/* group dquot */
 
-	
-	xfs_ino_t		i_ino;		
-	struct xfs_imap		i_imap;		
+	/* Inode location stuff */
+	xfs_ino_t		i_ino;		/* inode number (agno/agino)*/
+	struct xfs_imap		i_imap;		/* location for xfs_imap() */
 
-	
-	xfs_ifork_t		*i_afp;		
-	xfs_ifork_t		i_df;		
+	/* Extent information. */
+	xfs_ifork_t		*i_afp;		/* attribute fork pointer */
+	xfs_ifork_t		i_df;		/* data fork */
 
-	
-	struct xfs_inode_log_item *i_itemp;	
-	mrlock_t		i_lock;		
-	mrlock_t		i_iolock;	
-	atomic_t		i_pincount;	
-	spinlock_t		i_flags_lock;	
-	
-	unsigned long		i_flags;	
-	unsigned int		i_delayed_blks;	
+	/* Transaction and locking information. */
+	struct xfs_inode_log_item *i_itemp;	/* logging information */
+	mrlock_t		i_lock;		/* inode lock */
+	mrlock_t		i_iolock;	/* inode IO lock */
+	atomic_t		i_pincount;	/* inode pin count */
+	spinlock_t		i_flags_lock;	/* inode i_flags lock */
+	/* Miscellaneous state. */
+	unsigned long		i_flags;	/* see defined flags below */
+	unsigned int		i_delayed_blks;	/* count of delay alloc blks */
 
-	xfs_icdinode_t		i_d;		
+	xfs_icdinode_t		i_d;		/* most of ondisk inode */
 
-	
-	struct inode		i_vnode;	
+	/* VFS inode */
+	struct inode		i_vnode;	/* embedded VFS inode */
 } xfs_inode_t;
 
+/* Convert from vfs inode to xfs inode */
 static inline struct xfs_inode *XFS_I(struct inode *inode)
 {
 	return container_of(inode, struct xfs_inode, i_vnode);
 }
 
+/* convert from xfs inode to vfs inode */
 static inline struct inode *VFS_I(struct xfs_inode *ip)
 {
 	return &ip->i_vnode;
 }
 
+/*
+ * For regular files we only update the on-disk filesize when actually
+ * writing data back to disk.  Until then only the copy in the VFS inode
+ * is uptodate.
+ */
 static inline xfs_fsize_t XFS_ISIZE(struct xfs_inode *ip)
 {
 	if (S_ISREG(ip->i_d.di_mode))
@@ -202,6 +273,10 @@ static inline xfs_fsize_t XFS_ISIZE(struct xfs_inode *ip)
 	return ip->i_d.di_size;
 }
 
+/*
+ * If this I/O goes past the on-disk inode size update it unless it would
+ * be past the current in-core inode size.
+ */
 static inline xfs_fsize_t
 xfs_new_eof(struct xfs_inode *ip, xfs_fsize_t new_size)
 {
@@ -212,6 +287,9 @@ xfs_new_eof(struct xfs_inode *ip, xfs_fsize_t new_size)
 	return new_size > ip->i_d.di_size ? new_size : 0;
 }
 
+/*
+ * i_flags helper functions
+ */
 static inline void
 __xfs_iflags_set(xfs_inode_t *ip, unsigned short flags)
 {
@@ -276,6 +354,11 @@ xfs_iflags_test_and_set(xfs_inode_t *ip, unsigned short flags)
 	return ret;
 }
 
+/*
+ * Project quota id helpers (previously projid was 16bit only
+ * and using two 16bit values to hold new 32bit projid was chosen
+ * to retain compatibility with "old" filesystems).
+ */
 static inline prid_t
 xfs_get_projid(struct xfs_inode *ip)
 {
@@ -290,24 +373,35 @@ xfs_set_projid(struct xfs_inode *ip,
 	ip->i_d.di_projid_lo = (__uint16_t) (projid & 0xffff);
 }
 
-#define XFS_IRECLAIM		(1 << 0) 
-#define XFS_ISTALE		(1 << 1) 
-#define XFS_IRECLAIMABLE	(1 << 2) 
-#define XFS_INEW		(1 << 3) 
-#define XFS_IFILESTREAM		(1 << 4) 
-#define XFS_ITRUNCATED		(1 << 5) 
-#define XFS_IDIRTY_RELEASE	(1 << 6) 
-#define __XFS_IFLOCK_BIT	7	 
+/*
+ * In-core inode flags.
+ */
+#define XFS_IRECLAIM		(1 << 0) /* started reclaiming this inode */
+#define XFS_ISTALE		(1 << 1) /* inode has been staled */
+#define XFS_IRECLAIMABLE	(1 << 2) /* inode can be reclaimed */
+#define XFS_INEW		(1 << 3) /* inode has just been allocated */
+#define XFS_IFILESTREAM		(1 << 4) /* inode is in a filestream dir. */
+#define XFS_ITRUNCATED		(1 << 5) /* truncated down so flush-on-close */
+#define XFS_IDIRTY_RELEASE	(1 << 6) /* dirty release already seen */
+#define __XFS_IFLOCK_BIT	7	 /* inode is being flushed right now */
 #define XFS_IFLOCK		(1 << __XFS_IFLOCK_BIT)
-#define __XFS_IPINNED_BIT	8	 
+#define __XFS_IPINNED_BIT	8	 /* wakeup key for zero pin count */
 #define XFS_IPINNED		(1 << __XFS_IPINNED_BIT)
-#define XFS_IDONTCACHE		(1 << 9) 
+#define XFS_IDONTCACHE		(1 << 9) /* don't cache the inode long term */
 
+/*
+ * Per-lifetime flags need to be reset when re-using a reclaimable inode during
+ * inode lookup. This prevents unintended behaviour on the new inode from
+ * ocurring.
+ */
 #define XFS_IRECLAIM_RESET_FLAGS	\
 	(XFS_IRECLAIMABLE | XFS_IRECLAIM | \
 	 XFS_IDIRTY_RELEASE | XFS_ITRUNCATED | \
 	 XFS_IFILESTREAM);
 
+/*
+ * Synchronize processes attempting to flush the in-core inode back to disk.
+ */
 
 extern void __xfs_iflock(struct xfs_inode *ip);
 
@@ -333,6 +427,11 @@ static inline int xfs_isiflocked(struct xfs_inode *ip)
 	return xfs_iflags_test(ip, XFS_IFLOCK);
 }
 
+/*
+ * Flags for inode locking.
+ * Bit ranges:	1<<1  - 1<<16-1 -- iolock/ilock modes (bitfield)
+ *		1<<16 - 1<<32-1 -- lockdep annotation (integers)
+ */
 #define	XFS_IOLOCK_EXCL		(1<<0)
 #define	XFS_IOLOCK_SHARED	(1<<1)
 #define	XFS_ILOCK_EXCL		(1<<2)
@@ -348,6 +447,26 @@ static inline int xfs_isiflocked(struct xfs_inode *ip)
 	{ XFS_ILOCK_SHARED,	"ILOCK_SHARED" }
 
 
+/*
+ * Flags for lockdep annotations.
+ *
+ * XFS_LOCK_PARENT - for directory operations that require locking a
+ * parent directory inode and a child entry inode.  The parent gets locked
+ * with this flag so it gets a lockdep subclass of 1 and the child entry
+ * lock will have a lockdep subclass of 0.
+ *
+ * XFS_LOCK_RTBITMAP/XFS_LOCK_RTSUM - the realtime device bitmap and summary
+ * inodes do not participate in the normal lock order, and thus have their
+ * own subclasses.
+ *
+ * XFS_LOCK_INUMORDER - for locking several inodes at the some time
+ * with xfs_lock_inodes().  This flag is used as the starting subclass
+ * and each subsequent lock acquired will increment the subclass by one.
+ * So the first lock acquired will have a lockdep subclass of 4, the
+ * second lock will have a lockdep subclass of 5, and so on. It is
+ * the responsibility of the class builder to shift this to the correct
+ * portion of the lock_mode lockdep mask.
+ */
 #define XFS_LOCK_PARENT		1
 #define XFS_LOCK_RTBITMAP	2
 #define XFS_LOCK_RTSUM		3
@@ -370,10 +489,18 @@ static inline int xfs_isiflocked(struct xfs_inode *ip)
 
 extern struct lock_class_key xfs_iolock_reclaimable;
 
+/*
+ * For multiple groups support: if S_ISGID bit is set in the parent
+ * directory, group of new file is set to that of the parent, and
+ * new subdirectory gets S_ISGID bit from parent.
+ */
 #define XFS_INHERIT_GID(pip)	\
 	(((pip)->i_mount->m_flags & XFS_MOUNT_GRPID) || \
 	 ((pip)->i_d.di_mode & S_ISGID))
 
+/*
+ * xfs_iget.c prototypes.
+ */
 int		xfs_iget(struct xfs_mount *, struct xfs_trans *, xfs_ino_t,
 			 uint, uint, xfs_inode_t **);
 void		xfs_ilock(xfs_inode_t *, uint);
@@ -385,6 +512,9 @@ uint		xfs_ilock_map_shared(xfs_inode_t *);
 void		xfs_iunlock_map_shared(xfs_inode_t *, uint);
 void		xfs_inode_free(struct xfs_inode *ip);
 
+/*
+ * xfs_inode.c prototypes.
+ */
 int		xfs_ialloc(struct xfs_trans *, xfs_inode_t *, umode_t,
 			   xfs_nlink_t, xfs_dev_t, prid_t, int,
 			   struct xfs_buf **, boolean_t *, xfs_inode_t **);
@@ -417,8 +547,11 @@ do { \
 	iput(VFS_I(ip)); \
 } while (0)
 
-#endif 
+#endif /* __KERNEL__ */
 
+/*
+ * Flags for xfs_iget()
+ */
 #define XFS_IGET_CREATE		0x1
 #define XFS_IGET_UNTRUSTED	0x2
 #define XFS_IGET_DONTCACHE	0x4
@@ -469,10 +602,10 @@ void		xfs_iext_irec_update_extoffs(xfs_ifork_t *, int, int);
 void		xfs_inobp_check(struct xfs_mount *, struct xfs_buf *);
 #else
 #define	xfs_inobp_check(mp, bp)
-#endif 
+#endif /* DEBUG */
 
 extern struct kmem_zone	*xfs_ifork_zone;
 extern struct kmem_zone	*xfs_inode_zone;
 extern struct kmem_zone	*xfs_ili_zone;
 
-#endif	
+#endif	/* __XFS_INODE_H__ */

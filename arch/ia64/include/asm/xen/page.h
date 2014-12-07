@@ -47,6 +47,7 @@ static inline unsigned long virt_to_mfn(void *virt)
 	return __pa(virt) >> PAGE_SHIFT;
 }
 
+/* for tpmfront.c */
 static inline unsigned long virt_to_machine(void *virt)
 {
 	return __pa(virt);
@@ -54,11 +55,11 @@ static inline unsigned long virt_to_machine(void *virt)
 
 static inline void set_phys_to_machine(unsigned long pfn, unsigned long mfn)
 {
-	
+	/* nothing */
 }
 
 #define pte_mfn(_x)	pte_pfn(_x)
-#define mfn_pte(_x, _y)	__pte_ma(0)		
-#define __pte_ma(_x)	((pte_t) {(_x)})        
+#define mfn_pte(_x, _y)	__pte_ma(0)		/* unmodified use */
+#define __pte_ma(_x)	((pte_t) {(_x)})        /* unmodified use */
 
-#endif 
+#endif /* _ASM_IA64_XEN_PAGE_H */

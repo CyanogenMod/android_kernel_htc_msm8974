@@ -122,7 +122,7 @@ static struct pcap_regulator vreg_table[] = {
 	VREG_INFO(V2,    PCAP_REG_VREG1,   5,  6,  19, 22),
 	VREG_INFO(V3,    PCAP_REG_VREG1,   7,  8,  20, 23),
 	VREG_INFO(V4,    PCAP_REG_VREG1,   11, 12, 21, 24),
-	
+	/* V5 STBY and LOWPWR are on PCAP_REG_VREG2 */
 	VREG_INFO(V5,    PCAP_REG_VREG1,   15, 16, 12, 19),
 
 	VREG_INFO(V6,    PCAP_REG_VREG2,   1,  2,  14, 20),
@@ -132,7 +132,7 @@ static struct pcap_regulator vreg_table[] = {
 	VREG_INFO(V10,   PCAP_REG_VREG2,   10, NA, 18, 24),
 
 	VREG_INFO(VAUX1, PCAP_REG_AUXVREG, 1,  2,  22, 23),
-	
+	/* VAUX2 ... VSIM2 STBY and LOWPWR are on PCAP_REG_LOWPWR */
 	VREG_INFO(VAUX2, PCAP_REG_AUXVREG, 4,  5,  0,  1),
 	VREG_INFO(VAUX3, PCAP_REG_AUXVREG, 7,  8,  2,  3),
 	VREG_INFO(VAUX4, PCAP_REG_AUXVREG, 12, 13, 4,  5),
@@ -142,10 +142,12 @@ static struct pcap_regulator vreg_table[] = {
 
 	VREG_INFO(SW1,   PCAP_REG_SWCTRL,  1,  2,  NA, NA),
 	VREG_INFO(SW2,   PCAP_REG_SWCTRL,  6,  7,  NA, NA),
-	
+	/* SW3 STBY is on PCAP_REG_AUXVREG */
 	VREG_INFO(SW3,   PCAP_REG_SWCTRL,  11, 12, 24, NA),
 
-	
+	/* SWxS used to control SWx voltage on standby */
+/*	VREG_INFO(SW1S,  PCAP_REG_LOWPWR,  NA, 12, NA, NA),
+	VREG_INFO(SW2S,  PCAP_REG_LOWPWR,  NA, 20, NA, NA), */
 };
 
 static int pcap_regulator_set_voltage(struct regulator_dev *rdev,
@@ -157,12 +159,12 @@ static int pcap_regulator_set_voltage(struct regulator_dev *rdev,
 	int uV;
 	u8 i;
 
-	
+	/* the regulator doesn't support voltage switching */
 	if (vreg->n_voltages == 1)
 		return -EINVAL;
 
 	for (i = 0; i < vreg->n_voltages; i++) {
-		
+		/* For V1 the first is not the best match */
 		if (i == 0 && rdev_get_id(rdev) == V1)
 			i = 1;
 		else if (i + 1 == vreg->n_voltages && rdev_get_id(rdev) == V1)
@@ -180,7 +182,7 @@ static int pcap_regulator_set_voltage(struct regulator_dev *rdev,
 			i = vreg->n_voltages - 1;
 	}
 
-	
+	/* the requested voltage range is not supported by this regulator */
 	return -EINVAL;
 }
 

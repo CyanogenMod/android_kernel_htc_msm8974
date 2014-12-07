@@ -35,6 +35,7 @@
 
 #define WDT_VERSION	"0.4"
 
+/* default timeout (secs) */
 #define WDT_TIMEOUT 30
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
@@ -54,6 +55,7 @@ static unsigned long next_heartbeat;
 #define EP93XX_WATCHDOG		0x00
 #define EP93XX_WDSTATUS		0x04
 
+/* reset the wdt every ~200ms - the heartbeat of the device is 0.250 seconds*/
 #define WDT_INTERVAL (HZ/5)
 
 static void ep93xx_wdt_timer_ping(unsigned long data)
@@ -61,7 +63,7 @@ static void ep93xx_wdt_timer_ping(unsigned long data)
 	if (time_before(jiffies, next_heartbeat))
 		writel(0x5555, mmio_base + EP93XX_WATCHDOG);
 
-	
+	/* Re-set the timer interval */
 	mod_timer(&timer, jiffies + WDT_INTERVAL);
 }
 
@@ -85,7 +87,7 @@ static int ep93xx_wdt_stop(struct watchdog_device *wdd)
 
 static int ep93xx_wdt_keepalive(struct watchdog_device *wdd)
 {
-	
+	/* user land ping */
 	next_heartbeat = jiffies + (timeout * HZ);
 
 	return 0;

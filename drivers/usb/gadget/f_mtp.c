@@ -641,6 +641,11 @@ static ssize_t mtp_read(struct file *fp, char __user *buf,
 			dev->read_count = 0;
 			r = -EIO;
 			goto done;
+		}else if (unlikely(dev->state == STATE_ERROR)) {
+			printk(KERN_INFO "[USB][MTP] hit potential WDT issue.\n");
+			dev->read_count = 0;
+			r = -EIO;
+			goto done;
 		}
 
 		
@@ -657,6 +662,12 @@ requeue_req:
 				r = -EIO;
 				mtp_req_put(dev, &dev->rx_idle, req);
 				dev->read_count = 0;
+				goto done;
+			}
+			if (dev->state == STATE_OFFLINE || dev->state == STATE_ERROR) {
+				printk(KERN_INFO "[USB][MTP] hit potential WDT issue (%d)\n", dev->state);
+				dev->read_count = 0;
+				r = -EIO;
 				goto done;
 			}
 		}

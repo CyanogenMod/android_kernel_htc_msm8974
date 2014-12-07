@@ -39,16 +39,25 @@
 #include "mpp.h"
 #include "lacie_v2-common.h"
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 
 static struct mv643xx_eth_platform_data netspace_v2_ge00_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(8),
 };
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 
 static struct mv_sata_platform_data netspace_v2_sata_data = {
 	.n_ports	= 2,
 };
 
+/*****************************************************************************
+ * GPIO keys
+ ****************************************************************************/
 
 #define NETSPACE_V2_PUSH_BUTTON		32
 
@@ -74,6 +83,9 @@ static struct platform_device netspace_v2_gpio_buttons = {
 	},
 };
 
+/*****************************************************************************
+ * GPIO LEDs
+ ****************************************************************************/
 
 #define NETSPACE_V2_GPIO_RED_LED	12
 
@@ -97,6 +109,9 @@ static struct platform_device netspace_v2_gpio_leds = {
 	},
 };
 
+/*****************************************************************************
+ * Dual-GPIO CPLD LEDs
+ ****************************************************************************/
 
 #define NETSPACE_V2_GPIO_BLUE_LED_SLOW	29
 #define NETSPACE_V2_GPIO_BLUE_LED_CMD	30
@@ -122,7 +137,11 @@ static struct platform_device netspace_v2_leds = {
 	},
 };
 
+/*****************************************************************************
+ * GPIO fan
+ ****************************************************************************/
 
+/* Designed for fan 40x40x16: ADDA AD0412LB-D50 6000rpm@12v */
 static struct gpio_fan_speed netspace_max_v2_fan_speed[] = {
 	{    0,  0 },
 	{ 1500,	15 },
@@ -158,6 +177,9 @@ static struct platform_device netspace_max_v2_gpio_fan = {
 	},
 };
 
+/*****************************************************************************
+ * General Setup
+ ****************************************************************************/
 
 static unsigned int netspace_v2_mpp_config[] __initdata = {
 	MPP0_SPI_SCn,
@@ -167,30 +189,30 @@ static unsigned int netspace_v2_mpp_config[] __initdata = {
 	MPP4_NF_IO6,
 	MPP5_NF_IO7,
 	MPP6_SYSRST_OUTn,
-	MPP7_GPO,		
+	MPP7_GPO,		/* Fan speed (bit 1) */
 	MPP8_TW0_SDA,
 	MPP9_TW0_SCK,
 	MPP10_UART0_TXD,
 	MPP11_UART0_RXD,
-	MPP12_GPO,		
-	MPP14_GPIO,		
-	MPP16_GPIO,		
-	MPP17_GPIO,		
+	MPP12_GPO,		/* Red led */
+	MPP14_GPIO,		/* USB fuse */
+	MPP16_GPIO,		/* SATA 0 power */
+	MPP17_GPIO,		/* SATA 1 power */
 	MPP18_NF_IO0,
 	MPP19_NF_IO1,
 	MPP20_SATA1_ACTn,
 	MPP21_SATA0_ACTn,
-	MPP22_GPIO,		
-	MPP23_GPIO,		
-	MPP24_GPIO,		
-	MPP25_GPIO,		
-	MPP26_GPIO,		
-	MPP28_GPIO,		
-	MPP29_GPIO,		
-	MPP30_GPIO,		
-	MPP31_GPIO,		
-	MPP32_GPIO, 		
-	MPP33_GPO,		
+	MPP22_GPIO,		/* Fan speed (bit 0) */
+	MPP23_GPIO,		/* Fan power */
+	MPP24_GPIO,		/* USB mode select */
+	MPP25_GPIO,		/* Fan rotation fail */
+	MPP26_GPIO,		/* USB device vbus */
+	MPP28_GPIO,		/* USB enable host vbus */
+	MPP29_GPIO,		/* Blue led (slow register) */
+	MPP30_GPIO,		/* Blue led (command register) */
+	MPP31_GPIO,		/* Board power off */
+	MPP32_GPIO, 		/* Power button (0 = Released, 1 = Pushed) */
+	MPP33_GPO,		/* Fan speed (bit 2) */
 	0
 };
 
@@ -203,6 +225,9 @@ static void netspace_v2_power_off(void)
 
 static void __init netspace_v2_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(netspace_v2_mpp_config);
 

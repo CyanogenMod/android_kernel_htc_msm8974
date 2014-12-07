@@ -72,7 +72,7 @@ static void __iomem *pfc_phys_to_virt(struct pinmux_info *pip,
 	struct pfc_window *window;
 	int k;
 
-	
+	/* scan through physical windows and convert address */
 	for (k = 0; k < pip->num_resources; k++) {
 		window = pip->window + k;
 
@@ -85,7 +85,7 @@ static void __iomem *pfc_phys_to_virt(struct pinmux_info *pip,
 		return window->virt + (address - window->phys);
 	}
 
-	
+	/* no windows defined, register must be 1:1 mapped virt:phys */
 	return (void __iomem *)address;
 }
 
@@ -429,16 +429,37 @@ static int pinmux_config_gpio(struct pinmux_info *gpioc, unsigned gpio,
 		if (!enum_id)
 			break;
 
-		
+		/* first check if this is a function enum */
 		in_range = enum_in_range(enum_id, &gpioc->function);
 		if (!in_range) {
-			
+			/* not a function enum */
 			if (range) {
+				/*
+				 * other range exists, so this pin is
+				 * a regular GPIO pin that now is being
+				 * bound to a specific direction.
+				 *
+				 * for this case we only allow function enums
+				 * and the enums that match the other range.
+				 */
 				in_range = enum_in_range(enum_id, range);
 
+				/*
+				 * special case pass through for fixed
+				 * input-only or output-only pins without
+				 * function enum register association.
+				 */
 				if (in_range && enum_id == range->force)
 					continue;
 			} else {
+				/*
+				 * no other range exists, so this pin
+				 * must then be of the function type.
+				 *
+				 * allow function type pins to select
+				 * any combination of function/in/out
+				 * in their MARK lists.
+				 */
 				in_range = 1;
 			}
 		}
@@ -497,7 +518,7 @@ static int sh_gpio_request(struct gpio_chip *chip, unsigned offset)
 	if ((gpioc->gpios[offset].flags & PINMUX_FLAG_TYPE) != PINMUX_TYPE_NONE)
 		goto err_unlock;
 
-	
+	/* setup pin function here if no data is associated with pin */
 
 	if (get_data_reg(gpioc, offset, &dummy, &i) != 0)
 		pinmux_type = PINMUX_TYPE_FUNCTION;
@@ -696,7 +717,7 @@ int register_pinmux(struct pinmux_info *pip)
 	chip->set = sh_gpio_set;
 	chip->to_irq = sh_gpio_to_irq;
 
-	WARN_ON(pip->first_gpio != 0); 
+	WARN_ON(pip->first_gpio != 0); /* needs testing */
 
 	chip->label = pip->name;
 	chip->owner = THIS_MODULE;

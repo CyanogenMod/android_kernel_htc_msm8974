@@ -58,6 +58,9 @@
 	(e & AER_DATA_LINK_LAYER_ERROR_MASK(t)) ? AER_DATA_LINK_LAYER_ERROR : \
 	AER_TRANSACTION_LAYER_ERROR)
 
+/*
+ * AER error strings
+ */
 static const char *aer_error_severity_string[] = {
 	"Uncorrected (Non-Fatal)",
 	"Uncorrected (Fatal)",
@@ -71,20 +74,20 @@ static const char *aer_error_layer[] = {
 };
 
 static const char *aer_correctable_error_string[] = {
-	"Receiver Error",		
+	"Receiver Error",		/* Bit Position 0	*/
 	NULL,
 	NULL,
 	NULL,
 	NULL,
 	NULL,
-	"Bad TLP",			
-	"Bad DLLP",			
-	"RELAY_NUM Rollover",		
+	"Bad TLP",			/* Bit Position 6	*/
+	"Bad DLLP",			/* Bit Position 7	*/
+	"RELAY_NUM Rollover",		/* Bit Position 8	*/
 	NULL,
 	NULL,
 	NULL,
-	"Replay Timer Timeout",		
-	"Advisory Non-Fatal",		
+	"Replay Timer Timeout",		/* Bit Position 12	*/
+	"Advisory Non-Fatal",		/* Bit Position 13	*/
 };
 
 static const char *aer_uncorrectable_error_string[] = {
@@ -92,7 +95,7 @@ static const char *aer_uncorrectable_error_string[] = {
 	NULL,
 	NULL,
 	NULL,
-	"Data Link Protocol",		
+	"Data Link Protocol",		/* Bit Position 4	*/
 	NULL,
 	NULL,
 	NULL,
@@ -100,15 +103,15 @@ static const char *aer_uncorrectable_error_string[] = {
 	NULL,
 	NULL,
 	NULL,
-	"Poisoned TLP",			
-	"Flow Control Protocol",	
-	"Completion Timeout",		
-	"Completer Abort",		
-	"Unexpected Completion",	
-	"Receiver Overflow",		
-	"Malformed TLP",		
-	"ECRC",				
-	"Unsupported Request",		
+	"Poisoned TLP",			/* Bit Position 12	*/
+	"Flow Control Protocol",	/* Bit Position 13	*/
+	"Completion Timeout",		/* Bit Position 14	*/
+	"Completer Abort",		/* Bit Position 15	*/
+	"Unexpected Completion",	/* Bit Position 16	*/
+	"Receiver Overflow",		/* Bit Position 17	*/
+	"Malformed TLP",		/* Bit Position 18	*/
+	"ECRC",				/* Bit Position 19	*/
+	"Unsupported Request",		/* Bit Position 20	*/
 };
 
 static const char *aer_agent_string[] = {

@@ -100,7 +100,7 @@ int qpnp_vibrator_config(struct qpnp_vib_config *vib_cfg)
 		return -EINVAL;
 	}
 
-	
+	/* Configure the VTG CTL regiser */
 	reg = vib_dev->reg_vtg_ctl;
 	reg &= ~QPNP_VIB_VTG_SET_MASK;
 	reg |= (level & QPNP_VIB_VTG_SET_MASK);
@@ -109,7 +109,7 @@ int qpnp_vibrator_config(struct qpnp_vib_config *vib_cfg)
 		return rc;
 	vib_dev->reg_vtg_ctl = reg;
 
-	
+	/* Configure the VIB ENABLE regiser */
 	reg = vib_dev->reg_en_ctl;
 	reg |= (!!vib_cfg->active_low) << QPNP_VIB_LOGIC_SHIFT;
 	if (vib_cfg->enable_mode == QPNP_VIB_MANUAL)
@@ -215,7 +215,7 @@ static int qpnp_vibrator_suspend(struct device *dev)
 
 	hrtimer_cancel(&vib->vib_timer);
 	cancel_work_sync(&vib->work);
-	
+	/* turn-off vibrator */
 	qpnp_vib_set(vib, 0);
 
 	return 0;
@@ -267,7 +267,7 @@ static int __devinit qpnp_vibrator_probe(struct spmi_device *spmi)
 	}
 	vib->base = vib_resource->start;
 
-	
+	/* save the control registers values */
 	rc = qpnp_vib_read_u8(vib, &val, QPNP_VIB_VTG_CTL(vib->base));
 	if (rc < 0)
 		return rc;

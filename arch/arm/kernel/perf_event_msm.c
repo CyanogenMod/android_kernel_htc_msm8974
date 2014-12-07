@@ -136,6 +136,12 @@ static unsigned armv7_scorpion_perf_cache_map[PERF_COUNT_HW_CACHE_MAX]
 					  [PERF_COUNT_HW_CACHE_OP_MAX]
 					  [PERF_COUNT_HW_CACHE_RESULT_MAX] = {
 	[C(L1D)] = {
+		/*
+		 * The performance counters don't differentiate between read
+		 * and write accesses/misses so this isn't strictly correct,
+		 * but it's the best we can do. Writes and reads get
+		 * combined.
+		 */
 		[C(OP_READ)] = {
 			[C(RESULT_ACCESS)]
 					= ARMV7_PERFCTR_L1_DCACHE_ACCESS,
@@ -182,6 +188,11 @@ static unsigned armv7_scorpion_perf_cache_map[PERF_COUNT_HW_CACHE_MAX]
 		},
 	},
 	[C(DTLB)] = {
+		/*
+		 * Only ITLB misses and DTLB refills are supported.
+		 * If users want the DTLB refills misses a raw counter
+		 * must be used.
+		 */
 		[C(OP_READ)] = {
 			[C(RESULT_ACCESS)]	= SCORPION_DTLB_ACCESS,
 			[C(RESULT_MISS)]	= SCORPION_DTLB_MISS,
@@ -237,12 +248,30 @@ static int msm_scorpion_map_event(struct perf_event *event)
 
 
 struct scorpion_evt {
+	/*
+	 * The scorpion_evt_type field corresponds to the actual Scorpion
+	 * event codes. These map many-to-one to the armv7 defined codes
+	 */
 	u32 scorpion_evt_type;
 
+	/*
+	 * The group_setval field corresponds to the value that the group
+	 * register needs to be set to. This value is deduced from the row
+	 * and column that the event belongs to in the event table
+	 */
 	u32 group_setval;
 
+	/*
+	 * The groupcode corresponds to the group that the event belongs to.
+	 * Scorpion has 5 groups of events LPM0, LPM1, LPM2, L2LPM and VLPM
+	 * going from 0 to 4 in terms of the codes used
+	 */
 	u8 groupcode;
 
+	/*
+	 * The armv7_evt_type field corresponds to the armv7 defined event
+	 * code that the Scorpion events map to
+	 */
 	u32 armv7_evt_type;
 };
 
@@ -447,6 +476,13 @@ static void scorpion_write_vlpm(u32 val)
 	asm volatile("mcr p10, 7, %0, c11, c0, 0" : : "r" (val));
 }
 
+/*
+ * The Scorpion processor supports performance monitoring for Venum unit.
+ * In order to access the performance monitor registers corresponding to
+ * VFP, CPACR and FPEXC registers need to be set up beforehand.
+ * Also, they need to be recovered once the access is done.
+ * This is the reason for having pre and post functions
+ */
 
 static DEFINE_PER_CPU(u32, venum_orig_val);
 static DEFINE_PER_CPU(u32, fp_orig_val);
@@ -458,27 +494,27 @@ static void scorpion_pre_vlpm(void)
 	u32 v_orig_val;
 	u32 f_orig_val;
 
-	
+	/* CPACR Enable CP10 and CP11 access */
 	v_orig_val = get_copro_access();
 	venum_new_val = v_orig_val | CPACC_SVC(10) | CPACC_SVC(11);
 	set_copro_access(venum_new_val);
-	
+	/* Store orig venum val */
 	__get_cpu_var(venum_orig_val) = v_orig_val;
 
-	
+	/* Enable FPEXC */
 	f_orig_val = fmrx(FPEXC);
 	fp_new_val = f_orig_val | FPEXC_EN;
 	fmxr(FPEXC, fp_new_val);
-	
+	/* Store orig fp val */
 	__get_cpu_var(fp_orig_val) = f_orig_val;
 }
 
 static void scorpion_post_vlpm(void)
 {
-	
+	/* Restore FPEXC */
 	fmxr(FPEXC, __get_cpu_var(fp_orig_val));
 	isb();
-	
+	/* Restore CPACR */
 	set_copro_access(__get_cpu_var(venum_orig_val));
 }
 
@@ -489,6 +525,11 @@ struct scorpion_access_funcs {
 	void (*post) (void);
 };
 
+/*
+ * The scorpion_functions array is used to set up the event register codes
+ * based on the group to which an event belongs to.
+ * Having the following array modularizes the code for doing that.
+ */
 struct scorpion_access_funcs scorpion_functions[] = {
 	{scorpion_read_lpm0, scorpion_write_lpm0, NULL, NULL},
 	{scorpion_read_lpm1, scorpion_write_lpm1, NULL, NULL},
@@ -554,12 +595,16 @@ static void scorpion_pmu_disable_event(struct hw_perf_event *hwc, int idx)
 	struct pmu_hw_events *events = cpu_pmu->get_hw_events();
 
 
-	
+	/* Disable counter and interrupt */
 	raw_spin_lock_irqsave(&events->pmu_lock, flags);
 
-	
+	/* Disable counter */
 	armv7_pmnc_disable_counter(idx);
 
+	/*
+	 * Clear lpm code (if destined for PMNx counters)
+	 * We don't need to set the event if it's a cycle count
+	 */
 	if (idx != ARMV7_IDX_CYCLE_COUNTER) {
 		val = hwc->config_base;
 		val &= SCORPION_EVTYPE_EVENT;
@@ -573,7 +618,7 @@ static void scorpion_pmu_disable_event(struct hw_perf_event *hwc, int idx)
 			scorpion_clearpmu(gr, val, evtinfo.armv7_evt_type);
 		}
 	}
-	
+	/* Disable interrupt for this counter */
 	armv7_pmnc_disable_intens(idx);
 
 scorpion_dis_out:
@@ -591,11 +636,19 @@ static void scorpion_pmu_enable_event(struct hw_perf_event *hwc,
 	unsigned long long prev_count = local64_read(&hwc->prev_count);
 	struct pmu_hw_events *events = cpu_pmu->get_hw_events();
 
+	/*
+	 * Enable counter and interrupt, and set the counter to count
+	 * the event that we're interested in.
+	 */
 	raw_spin_lock_irqsave(&events->pmu_lock, flags);
 
-	
+	/* Disable counter */
 	armv7_pmnc_disable_counter(idx);
 
+	/*
+	 * Set event (if destined for PMNx counters)
+	 * We don't need to set the event if it's a cycle count
+	 */
 	if (idx != ARMV7_IDX_CYCLE_COUNTER) {
 		val = hwc->config_base;
 		val &= SCORPION_EVTYPE_EVENT;
@@ -607,6 +660,10 @@ static void scorpion_pmu_enable_event(struct hw_perf_event *hwc,
 
 			if (event == -EINVAL)
 				goto scorpion_out;
+			/*
+			 * Set event (if destined for PMNx counters)
+			 * We don't need to set the event if it's a cycle count
+			 */
 			armv7_pmnc_write_evtsel(idx, event);
 			val = 0x0;
 			asm volatile("mcr p15, 0, %0, c9, c15, 0" : :
@@ -617,13 +674,13 @@ static void scorpion_pmu_enable_event(struct hw_perf_event *hwc,
 		}
 	}
 
-	
+	/* Enable interrupt for this counter */
 	armv7_pmnc_enable_intens(idx);
 
-	
+	/* Restore prev val */
 	armv7pmu_write_counter(idx, prev_count & COUNT_MASK);
 
-	
+	/* Enable counter */
 	armv7_pmnc_enable_counter(idx);
 
 scorpion_out:
@@ -634,19 +691,19 @@ static void scorpion_pmu_reset(void *info)
 {
 	u32 idx, nb_cnt = cpu_pmu->num_events;
 
-	
+	/* Stop all counters and their interrupts */
 	for (idx = 1; idx < nb_cnt; ++idx) {
 		armv7_pmnc_disable_counter(idx);
 		armv7_pmnc_disable_intens(idx);
 	}
 
-	
+	/* Clear all pmresrs */
 	scorpion_clear_pmuregs();
 
-	
+	/* Reset irq stat reg */
 	armv7_pmnc_getreset_flags();
 
-	
+	/* Reset all ctrs to 0 */
 	armv7_pmnc_write(ARMV7_PMNC_P | ARMV7_PMNC_C);
 }
 
@@ -694,4 +751,4 @@ static struct arm_pmu *__init armv7_scorpionmp_pmu_init(void)
 {
 	return NULL;
 }
-#endif	
+#endif	/* CONFIG_CPU_V7 */

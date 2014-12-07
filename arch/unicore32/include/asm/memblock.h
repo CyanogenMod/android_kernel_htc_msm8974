@@ -13,6 +13,9 @@
 #ifndef __UNICORE_MEMBLOCK_H__
 #define __UNICORE_MEMBLOCK_H__
 
+/*
+ * Memory map description
+ */
 # define NR_BANKS 8
 
 struct membank {

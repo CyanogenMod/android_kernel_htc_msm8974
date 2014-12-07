@@ -22,7 +22,13 @@
 #include "clock.h"
 #include "sam9_smc.h"
 
+/* --------------------------------------------------------------------
+ *  Clocks
+ * -------------------------------------------------------------------- */
 
+/*
+ * The peripheral clocks.
+ */
 static struct clk pioAB_clk = {
 	.name		= "pioAB_clk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_PIOAB,
@@ -53,6 +59,7 @@ static struct clk usart2_clk = {
 	.pmc_mask	= 1 << AT91SAM9X5_ID_USART2,
 	.type		= CLK_TYPE_PERIPHERAL,
 };
+/* USART3 clock - Only for sam9g25/sam9x25 */
 static struct clk usart3_clk = {
 	.name		= "usart3_clk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_USART3,
@@ -133,16 +140,19 @@ static struct clk udphs_clk = {
 	.pmc_mask	= 1 << AT91SAM9X5_ID_UDPHS,
 	.type		= CLK_TYPE_PERIPHERAL,
 };
+/* emac0 clock - Only for sam9g25/sam9x25/sam9g35/sam9x35 */
 static struct clk macb0_clk = {
 	.name		= "pclk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_EMAC0,
 	.type		= CLK_TYPE_PERIPHERAL,
 };
+/* lcd clock - Only for sam9g15/sam9g35/sam9x35 */
 static struct clk lcdc_clk = {
 	.name		= "lcdc_clk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_LCDC,
 	.type		= CLK_TYPE_PERIPHERAL,
 };
+/* isi clock - Only for sam9g25 */
 static struct clk isi_clk = {
 	.name		= "isi_clk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_ISI,
@@ -153,6 +163,7 @@ static struct clk mmc1_clk = {
 	.pmc_mask	= 1 << AT91SAM9X5_ID_MCI1,
 	.type		= CLK_TYPE_PERIPHERAL,
 };
+/* emac1 clock - Only for sam9x25 */
 static struct clk macb1_clk = {
 	.name		= "pclk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_EMAC1,
@@ -163,11 +174,13 @@ static struct clk ssc_clk = {
 	.pmc_mask	= 1 << AT91SAM9X5_ID_SSC,
 	.type		= CLK_TYPE_PERIPHERAL,
 };
+/* can0 clock - Only for sam9x35 */
 static struct clk can0_clk = {
 	.name		= "can0_clk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_CAN0,
 	.type		= CLK_TYPE_PERIPHERAL,
 };
+/* can1 clock - Only for sam9x35 */
 static struct clk can1_clk = {
 	.name		= "can1_clk",
 	.pmc_mask	= 1 << AT91SAM9X5_ID_CAN1,
@@ -198,11 +211,11 @@ static struct clk *periph_clocks[] __initdata = {
 	&udphs_clk,
 	&mmc1_clk,
 	&ssc_clk,
-	
+	// irq0
 };
 
 static struct clk_lookup periph_clocks_lookups[] = {
-	
+	/* lookup table for DT entries */
 	CLKDEV_CON_DEV_ID("usart", "fffff200.serial", &mck),
 	CLKDEV_CON_DEV_ID("usart", "f801c000.serial", &usart0_clk),
 	CLKDEV_CON_DEV_ID("usart", "f8020000.serial", &usart1_clk),
@@ -216,7 +229,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_ID("pioB", &pioAB_clk),
 	CLKDEV_CON_ID("pioC", &pioCD_clk),
 	CLKDEV_CON_ID("pioD", &pioCD_clk),
-	
+	/* additional fake clock for macb_hclk */
 	CLKDEV_CON_DEV_ID("hclk", "f802c000.ethernet", &macb0_clk),
 	CLKDEV_CON_DEV_ID("hclk", "f8030000.ethernet", &macb1_clk),
 	CLKDEV_CON_DEV_ID("hclk", "600000.ohci", &uhphs_clk),
@@ -224,6 +237,10 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("ehci_clk", "700000.ehci", &uhphs_clk),
 };
 
+/*
+ * The two programmable clocks.
+ * You must configure pin multiplexing to bring these signals out.
+ */
 static struct clk pck0 = {
 	.name		= "pck0",
 	.pmc_mask	= AT91_PMC_PCK0,
@@ -278,6 +295,9 @@ static void __init at91sam9x5_register_clocks(void)
 	clk_register(&pck1);
 }
 
+/* --------------------------------------------------------------------
+ *  AT91SAM9x5 processor initialization
+ * -------------------------------------------------------------------- */
 
 static void __init at91sam9x5_map_io(void)
 {
@@ -288,43 +308,49 @@ void __init at91sam9x5_initialize(void)
 {
 	at91_extern_irq = (1 << AT91SAM9X5_ID_IRQ0);
 
-	
+	/* Register GPIO subsystem (using DT) */
 	at91_gpio_init(NULL, 0);
 }
 
+/* --------------------------------------------------------------------
+ *  Interrupt initialization
+ * -------------------------------------------------------------------- */
+/*
+ * The default interrupt priority levels (0 = lowest, 7 = highest).
+ */
 static unsigned int at91sam9x5_default_irq_priority[NR_AIC_IRQS] __initdata = {
-	7,	
-	7,	
-	1,	
-	1,	
-	4,	
-	5,	
-	5,	
-	5,	
-	5,	
-	6,	
-	6,	
-	6,	
-	0,	
-	5,	
-	5,	
-	5,	
-	5,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	2,	
-	2,	
-	3,	
-	3,	
-	0,	
-	3,	
-	4,	
-	4,	
-	4,	
-	0,	
+	7,	/* Advanced Interrupt Controller (FIQ) */
+	7,	/* System Peripherals */
+	1,	/* Parallel IO Controller A and B */
+	1,	/* Parallel IO Controller C and D */
+	4,	/* Soft Modem */
+	5,	/* USART 0 */
+	5,	/* USART 1 */
+	5,	/* USART 2 */
+	5,	/* USART 3 */
+	6,	/* Two-Wire Interface 0 */
+	6,	/* Two-Wire Interface 1 */
+	6,	/* Two-Wire Interface 2 */
+	0,	/* Multimedia Card Interface 0 */
+	5,	/* Serial Peripheral Interface 0 */
+	5,	/* Serial Peripheral Interface 1 */
+	5,	/* UART 0 */
+	5,	/* UART 1 */
+	0,	/* Timer Counter 0, 1, 2, 3, 4 and 5 */
+	0,	/* Pulse Width Modulation Controller */
+	0,	/* ADC Controller */
+	0,	/* DMA Controller 0 */
+	0,	/* DMA Controller 1 */
+	2,	/* USB Host High Speed port */
+	2,	/* USB Device High speed port */
+	3,	/* Ethernet MAC 0 */
+	3,	/* LDC Controller or Image Sensor Interface */
+	0,	/* Multimedia Card Interface 1 */
+	3,	/* Ethernet MAC 1 */
+	4,	/* Synchronous Serial Interface */
+	4,	/* CAN Controller 0 */
+	4,	/* CAN Controller 1 */
+	0,	/* Advanced Interrupt Controller (IRQ0) */
 };
 
 struct at91_init_soc __initdata at91sam9x5_soc = {

@@ -42,11 +42,14 @@ ixp2000_pci_config_addr(unsigned int bus_nr, unsigned int devfn, int where)
 	if (PCI_SLOT(devfn) > 7)
 		return 0;
 
-	
+	/* Must be dword aligned */
 	where &= ~3;
 
+	/*
+	 * For top bus, generate type 0, else type 1
+	 */
 	if (!bus_nr) {
-		
+		/* only bits[23:16] are used for IDSEL */
 		paddress = (u32 *) (IXP2000_PCI_CFG0_VIRT_BASE
 				    | (1 << (PCI_SLOT(devfn) + 16))
 				    | (PCI_FUNC(devfn) << 8) | where);
@@ -60,12 +63,16 @@ ixp2000_pci_config_addr(unsigned int bus_nr, unsigned int devfn, int where)
 	return paddress;
 }
 
+/*
+ * Mask table, bits to mask for quantity of size 1, 2 or 4 bytes.
+ * 0 and 3 are not valid indexes...
+ */
 static u32 bytemask[] = {
-		0,
-		0xff,
-		0xffff,
-		0,
-		0xffffffff,
+	/*0*/	0,
+	/*1*/	0xff,
+	/*2*/	0xffff,
+	/*3*/	0,
+	/*4*/	0xffffffff,
 };
 
 
@@ -92,6 +99,11 @@ int ixp2000_pci_read_config(struct pci_bus *bus, unsigned int devfn, int where,
 	return PCIBIOS_SUCCESSFUL;
 }
 
+/*
+ * We don't do error checks by calling clear_master_aborts() b/c the
+ * assumption is that the caller did a read first to make sure a device
+ * exists.
+ */
 int ixp2000_pci_write_config(struct pci_bus *bus, unsigned int devfn, int where,
 				int size, u32 value)
 {
@@ -147,6 +159,10 @@ int ixp2000_pci_abort_handler(unsigned long addr, unsigned int fsr, struct pt_re
 	}
 	local_irq_restore(flags);
 
+	/*
+	 * If it was an imprecise abort, then we need to correct the
+	 * return address to be _after_ the instruction.
+	 */
 	if (fsr & (1 << 10))
 		regs->ARM_pc += 4;
 
@@ -186,6 +202,10 @@ ixp2000_pci_preinit(void)
 	pcibios_min_mem = 0;
 
 #ifndef CONFIG_IXP2000_SUPPORT_BROKEN_PCI_IO
+	/*
+	 * Configure the PCI unit to properly byteswap I/O transactions,
+	 * and verify that it worked.
+	 */
 	ixp2000_reg_write(IXP2000_PCI_CONTROL,
 			  (*IXP2000_PCI_CONTROL | PCI_CONTROL_IEE));
 
@@ -199,6 +219,10 @@ ixp2000_pci_preinit(void)
 }
 
 
+/*
+ * IXP2000 systems often have large resource requirements, so we just
+ * use our own resource space.
+ */
 static struct resource ixp2000_pci_mem_space = {
 	.start	= 0xe0000000,
 	.end	= 0xffffffff,

@@ -45,6 +45,14 @@
 #include <plat/clock.h>
 #include <plat/cpu.h>
 
+/* We currently have to assume that the system is running
+ * from the XTPll input, and that all ***REFCLKs are being
+ * fed from it, as we cannot read the state of OM[4] from
+ * software.
+ *
+ * It would be possible for each board initialisation to
+ * set the correct muxing at initialisation
+*/
 
 static int s3c2412_clkcon_enable(struct clk *clk, int enable)
 {
@@ -75,7 +83,7 @@ static int s3c2412_upll_enable(struct clk *clk, int enable)
 
 	__raw_writel(upllcon, S3C2410_UPLLCON);
 
-	
+	/* allow ~150uS for the PLL to settle and lock */
 
 	if (enable && (orig & S3C2412_PLLCON_OFF))
 		udelay(150);
@@ -83,6 +91,7 @@ static int s3c2412_upll_enable(struct clk *clk, int enable)
 	return 0;
 }
 
+/* clock selections */
 
 static struct clk clk_erefclk = {
 	.name		= "erefclk",
@@ -224,7 +233,7 @@ static int s3c2412_setparent_armclk(struct clk *clk, struct clk *parent)
 	unsigned long clkdiv;
 	unsigned long dvs;
 
-	
+	/* Note, we current equate fclk andf msysclk for S3C2412 */
 
 	if (parent == &clk_msysclk || parent == &clk_f)
 		dvs = 0;
@@ -235,6 +244,8 @@ static int s3c2412_setparent_armclk(struct clk *clk, struct clk *parent)
 
 	clk->parent = parent;
 
+	/* update this under irq lockdown, clkdivn is not protected
+	 * by the clock system. */
 
 	local_irq_save(flags);
 
@@ -256,6 +267,10 @@ static struct clk clk_armclk = {
 	},
 };
 
+/* these next clocks have an divider immediately after them,
+ * so we can register them with their divider and leave out the
+ * intermediate clock stage
+*/
 static unsigned long s3c2412_roundrate_clksrc(struct clk *clk,
 					      unsigned long rate)
 {
@@ -265,7 +280,7 @@ static unsigned long s3c2412_roundrate_clksrc(struct clk *clk,
 	if (rate > parent_rate)
 		return parent_rate;
 
-	
+	/* note, we remove the +/- 1 calculations as they cancel out */
 
 	div = (rate / parent_rate);
 
@@ -423,7 +438,7 @@ static int s3c2412_setrate_cam(struct clk *clk, unsigned long rate)
 }
 
 static struct clk clk_cam = {
-	.name		= "camif-upll",	
+	.name		= "camif-upll",	/* same as 2440 name */
 	.ops		= &(struct clk_ops) {
 		.get_rate	= s3c2412_getrate_cam,
 		.set_rate	= s3c2412_setrate_cam,
@@ -432,6 +447,7 @@ static struct clk clk_cam = {
 	},
 };
 
+/* standard clock definitions */
 
 static struct clk init_clocks_disable[] = {
 	{
@@ -553,6 +569,7 @@ static struct clk init_clocks[] = {
 	}
 };
 
+/* clocks to add where we need to check their parentage */
 
 struct clk_init {
 	struct clk	*clk;
@@ -592,7 +609,7 @@ static struct clk_init clks_src[] __initdata = {
 		.bit	= S3C2412_CLKSRC_USBCLK_HCLK,
 		.src_0	= &clk_usysclk,
 		.src_1	= &clk_h,
-	
+	/* here we assume  OM[4] select xtal */
 	}, {
 		.clk	= &clk_erefclk,
 		.bit	= S3C2412_CLKSRC_EREFCLK_EXTCLK,
@@ -606,6 +623,10 @@ static struct clk_init clks_src[] __initdata = {
 	},
 };
 
+/* s3c2412_clk_initparents
+ *
+ * Initialise the parents for the clocks that we get at start-time
+*/
 
 static void __init s3c2412_clk_initparents(void)
 {
@@ -629,6 +650,7 @@ static void __init s3c2412_clk_initparents(void)
 	}
 }
 
+/* clocks to add straight away */
 
 static struct clk *clks[] __initdata = {
 	&clk_ext,
@@ -669,7 +691,7 @@ int __init s3c2412_baseclk_add(void)
 		}
 	}
 
-	
+	/* set the dvs state according to what we got at boot time */
 
 	dvs = __raw_readl(S3C2410_CLKDIVN) & S3C2412_CLKDIVN_DVSEN;
 
@@ -678,11 +700,13 @@ int __init s3c2412_baseclk_add(void)
 
 	printk(KERN_INFO "S3C2412: DVS is %s\n", dvs ? "on" : "off");
 
-	
+	/* ensure usb bus clock is within correct rate of 48MHz */
 
 	if (clk_get_rate(&clk_usb_bus) != (48 * 1000 * 1000)) {
 		printk(KERN_INFO "Warning: USB bus clock not at 48MHz\n");
 
+		/* for the moment, let's use the UPLL, and see if we can
+		 * get 48MHz */
 
 		clk_set_parent(&clk_usysclk, &clk_upll);
 		clk_set_parent(&clk_usbsrc, &clk_usysclk);
@@ -694,11 +718,11 @@ int __init s3c2412_baseclk_add(void)
 	       print_mhz(clk_get_rate(&clk_upll)),
 	       print_mhz(clk_get_rate(&clk_usb_bus)));
 
-	
+	/* register clocks from clock array */
 
 	clkp = init_clocks;
 	for (ptr = 0; ptr < ARRAY_SIZE(init_clocks); ptr++, clkp++) {
-		
+		/* ensure that we note the clock state */
 
 		clkp->usage = clkcon & clkp->ctrlbit ? 1 : 0;
 
@@ -709,8 +733,17 @@ int __init s3c2412_baseclk_add(void)
 		}
 	}
 
+	/* We must be careful disabling the clocks we are not intending to
+	 * be using at boot time, as subsystems such as the LCD which do
+	 * their own DMA requests to the bus can cause the system to lockup
+	 * if they where in the middle of requesting bus access.
+	 *
+	 * Disabling the LCD clock if the LCD is active is very dangerous,
+	 * and therefore the bootloader should be careful to not enable
+	 * the LCD clock if it is not needed.
+	*/
 
-	
+	/* install (and disable) the clocks we do not need immediately */
 
 	clkp = init_clocks_disable;
 	for (ptr = 0; ptr < ARRAY_SIZE(init_clocks_disable); ptr++, clkp++) {

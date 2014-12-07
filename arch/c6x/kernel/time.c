@@ -39,6 +39,9 @@ static struct clocksource clocksource_tsc = {
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
+/*
+ * scheduler clock - returns current time in nanoseconds.
+ */
 u64 sched_clock(void)
 {
 	u64 tsc = get_cycles();
@@ -55,9 +58,9 @@ void time_init(void)
 
 	clocksource_register_hz(&clocksource_tsc, c6x_core_freq);
 
-	
+	/* write anything into TSCL to enable counting */
 	set_creg(TSCL, 0);
 
-	
+	/* probe for timer64 event timer */
 	timer64_init();
 }

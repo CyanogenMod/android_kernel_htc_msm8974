@@ -22,22 +22,25 @@
 
 #define to_ov9740(sd)		container_of(sd, struct ov9740_priv, subdev)
 
+/* General Status Registers */
 #define OV9740_MODEL_ID_HI		0x0000
 #define OV9740_MODEL_ID_LO		0x0001
 #define OV9740_REVISION_NUMBER		0x0002
 #define OV9740_MANUFACTURER_ID		0x0003
 #define OV9740_SMIA_VERSION		0x0004
 
+/* General Setup Registers */
 #define OV9740_MODE_SELECT		0x0100
 #define OV9740_IMAGE_ORT		0x0101
 #define OV9740_SOFTWARE_RESET		0x0103
 #define OV9740_GRP_PARAM_HOLD		0x0104
 #define OV9740_MSK_CORRUP_FM		0x0105
 
-#define OV9740_FRM_LENGTH_LN_HI		0x0340 
-#define OV9740_FRM_LENGTH_LN_LO		0x0341 
-#define OV9740_LN_LENGTH_PCK_HI		0x0342 
-#define OV9740_LN_LENGTH_PCK_LO		0x0343 
+/* Timing Setting */
+#define OV9740_FRM_LENGTH_LN_HI		0x0340 /* VTS */
+#define OV9740_FRM_LENGTH_LN_LO		0x0341 /* VTS */
+#define OV9740_LN_LENGTH_PCK_HI		0x0342 /* HTS */
+#define OV9740_LN_LENGTH_PCK_LO		0x0343 /* HTS */
 #define OV9740_X_ADDR_START_HI		0x0344
 #define OV9740_X_ADDR_START_LO		0x0345
 #define OV9740_Y_ADDR_START_HI		0x0346
@@ -51,14 +54,17 @@
 #define OV9740_Y_OUTPUT_SIZE_HI		0x034e
 #define OV9740_Y_OUTPUT_SIZE_LO		0x034f
 
+/* IO Control Registers */
 #define OV9740_IO_CREL00		0x3002
 #define OV9740_IO_CREL01		0x3004
 #define OV9740_IO_CREL02		0x3005
 #define OV9740_IO_OUTPUT_SEL01		0x3026
 #define OV9740_IO_OUTPUT_SEL02		0x3027
 
+/* AWB Registers */
 #define OV9740_AWB_MANUAL_CTRL		0x3406
 
+/* Analog Control Registers */
 #define OV9740_ANALOG_CTRL01		0x3601
 #define OV9740_ANALOG_CTRL02		0x3602
 #define OV9740_ANALOG_CTRL03		0x3603
@@ -74,16 +80,19 @@
 #define OV9740_ANALOG_CTRL32		0x3632
 #define OV9740_ANALOG_CTRL33		0x3633
 
+/* Sensor Control */
 #define OV9740_SENSOR_CTRL03		0x3703
 #define OV9740_SENSOR_CTRL04		0x3704
 #define OV9740_SENSOR_CTRL05		0x3705
 #define OV9740_SENSOR_CTRL07		0x3707
 
+/* Timing Control */
 #define OV9740_TIMING_CTRL17		0x3817
 #define OV9740_TIMING_CTRL19		0x3819
 #define OV9740_TIMING_CTRL33		0x3833
 #define OV9740_TIMING_CTRL35		0x3835
 
+/* Banding Filter */
 #define OV9740_AEC_MAXEXPO_60_H		0x3a02
 #define OV9740_AEC_MAXEXPO_60_L		0x3a03
 #define OV9740_AEC_B50_STEP_HI		0x3a08
@@ -95,6 +104,7 @@
 #define OV9740_AEC_MAXEXPO_50_H		0x3a14
 #define OV9740_AEC_MAXEXPO_50_L		0x3a15
 
+/* AEC/AGC Control */
 #define OV9740_AEC_ENABLE		0x3503
 #define OV9740_GAIN_CEILING_01		0x3a18
 #define OV9740_GAIN_CEILING_02		0x3a19
@@ -106,16 +116,20 @@
 #define OV9740_AEC_CTRL1E_BPT2		0x3a1e
 #define OV9740_AEC_LO_THRESHOLD		0x3a1f
 
+/* BLC Control */
 #define OV9740_BLC_AUTO_ENABLE		0x4002
 #define OV9740_BLC_MODE			0x4005
 
+/* VFIFO */
 #define OV9740_VFIFO_READ_START_HI	0x4608
 #define OV9740_VFIFO_READ_START_LO	0x4609
 
+/* DVP Control */
 #define OV9740_DVP_VSYNC_CTRL02		0x4702
 #define OV9740_DVP_VSYNC_MODE		0x4704
 #define OV9740_DVP_VSYNC_CTRL06		0x4706
 
+/* PLL Setting */
 #define OV9740_PLL_MODE_CTRL01		0x3104
 #define OV9740_PRE_PLL_CLK_DIV		0x0305
 #define OV9740_PLL_MULTIPLIER		0x0307
@@ -124,6 +138,7 @@
 #define OV9740_PLL_CTRL3010		0x3010
 #define OV9740_VFIFO_CTRL00		0x460e
 
+/* ISP Control */
 #define OV9740_ISP_CTRL00		0x5000
 #define OV9740_ISP_CTRL01		0x5001
 #define OV9740_ISP_CTRL03		0x5003
@@ -136,6 +151,7 @@
 #define OV9740_ISP_CTRL20		0x5020
 #define OV9740_ISP_CTRL21		0x5021
 
+/* AWB */
 #define OV9740_AWB_CTRL00		0x5180
 #define OV9740_AWB_CTRL01		0x5181
 #define OV9740_AWB_CTRL02		0x5182
@@ -158,6 +174,7 @@
 #define OV9740_AWB_CTRL13		0x5193
 #define OV9740_AWB_CTRL14		0x5194
 
+/* MIPI Control */
 #define OV9740_MIPI_CTRL00		0x4800
 #define OV9740_MIPI_3837		0x3837
 #define OV9740_MIPI_CTRL01		0x4801
@@ -170,6 +187,7 @@
 #define OV9740_MAX_WIDTH		1280
 #define OV9740_MAX_HEIGHT		720
 
+/* Misc. structures */
 struct ov9740_reg {
 	u16				reg;
 	u8				val;
@@ -188,16 +206,16 @@ struct ov9740_priv {
 	bool				flag_vflip;
 	bool				flag_hflip;
 
-	
+	/* For suspend/resume. */
 	struct v4l2_mbus_framefmt	current_mf;
 	bool				current_enable;
 };
 
 static const struct ov9740_reg ov9740_defaults[] = {
-	
+	/* Software Reset */
 	{ OV9740_SOFTWARE_RESET,	0x01 },
 
-	
+	/* Banding Filter */
 	{ OV9740_AEC_B50_STEP_HI,	0x00 },
 	{ OV9740_AEC_B50_STEP_LO,	0xe8 },
 	{ OV9740_AEC_CTRL0E,		0x03 },
@@ -209,11 +227,11 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ OV9740_AEC_MAXEXPO_60_H,	0x18 },
 	{ OV9740_AEC_MAXEXPO_60_L,	0x20 },
 
-	
+	/* LC */
 	{ 0x5842, 0x02 }, { 0x5843, 0x5e }, { 0x5844, 0x04 }, { 0x5845, 0x32 },
 	{ 0x5846, 0x03 }, { 0x5847, 0x29 }, { 0x5848, 0x02 }, { 0x5849, 0xcc },
 
-	
+	/* Un-documented OV9740 registers */
 	{ 0x5800, 0x29 }, { 0x5801, 0x25 }, { 0x5802, 0x20 }, { 0x5803, 0x21 },
 	{ 0x5804, 0x26 }, { 0x5805, 0x2e }, { 0x5806, 0x11 }, { 0x5807, 0x0c },
 	{ 0x5808, 0x09 }, { 0x5809, 0x0a }, { 0x580a, 0x0e }, { 0x580b, 0x16 },
@@ -231,13 +249,13 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ 0x5838, 0x8f }, { 0x5839, 0x8f }, { 0x583a, 0x9f }, { 0x583b, 0x7f },
 	{ 0x583c, 0x5f },
 
-	
+	/* Y Gamma */
 	{ 0x5480, 0x07 }, { 0x5481, 0x18 }, { 0x5482, 0x2c }, { 0x5483, 0x4e },
 	{ 0x5484, 0x5e }, { 0x5485, 0x6b }, { 0x5486, 0x77 }, { 0x5487, 0x82 },
 	{ 0x5488, 0x8c }, { 0x5489, 0x95 }, { 0x548a, 0xa4 }, { 0x548b, 0xb1 },
 	{ 0x548c, 0xc6 }, { 0x548d, 0xd8 }, { 0x548e, 0xe9 },
 
-	
+	/* UV Gamma */
 	{ 0x5490, 0x0f }, { 0x5491, 0xff }, { 0x5492, 0x0d }, { 0x5493, 0x05 },
 	{ 0x5494, 0x07 }, { 0x5495, 0x1a }, { 0x5496, 0x04 }, { 0x5497, 0x01 },
 	{ 0x5498, 0x03 }, { 0x5499, 0x53 }, { 0x549a, 0x02 }, { 0x549b, 0xeb },
@@ -247,7 +265,7 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ 0x54a8, 0x01 }, { 0x54a9, 0x94 }, { 0x54aa, 0x01 }, { 0x54ab, 0x72 },
 	{ 0x54ac, 0x01 }, { 0x54ad, 0x57 },
 
-	
+	/* AWB */
 	{ OV9740_AWB_CTRL00,		0xf0 },
 	{ OV9740_AWB_CTRL01,		0x00 },
 	{ OV9740_AWB_CTRL02,		0x41 },
@@ -270,10 +288,10 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ OV9740_AWB_CTRL13,		0xff },
 	{ OV9740_AWB_CTRL14,		0x00 },
 
-	
+	/* CIP */
 	{ 0x530d, 0x12 },
 
-	
+	/* CMX */
 	{ 0x5380, 0x01 }, { 0x5381, 0x00 }, { 0x5382, 0x00 }, { 0x5383, 0x17 },
 	{ 0x5384, 0x00 }, { 0x5385, 0x01 }, { 0x5386, 0x00 }, { 0x5387, 0x00 },
 	{ 0x5388, 0x00 }, { 0x5389, 0xe0 }, { 0x538a, 0x00 }, { 0x538b, 0x20 },
@@ -281,20 +299,20 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ 0x5390, 0x00 }, { 0x5391, 0x9c }, { 0x5392, 0x00 }, { 0x5393, 0xa0 },
 	{ 0x5394, 0x18 },
 
-	
+	/* 50/60 Detection */
 	{ 0x3c0a, 0x9c }, { 0x3c0b, 0x3f },
 
-	
+	/* Output Select */
 	{ OV9740_IO_OUTPUT_SEL01,	0x00 },
 	{ OV9740_IO_OUTPUT_SEL02,	0x00 },
 	{ OV9740_IO_CREL00,		0x00 },
 	{ OV9740_IO_CREL01,		0x00 },
 	{ OV9740_IO_CREL02,		0x00 },
 
-	
+	/* AWB Control */
 	{ OV9740_AWB_MANUAL_CTRL,	0x00 },
 
-	
+	/* Analog Control */
 	{ OV9740_ANALOG_CTRL03,		0xaa },
 	{ OV9740_ANALOG_CTRL32,		0x2f },
 	{ OV9740_ANALOG_CTRL20,		0x66 },
@@ -310,19 +328,19 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ OV9740_ANALOG_CTRL22,		0x9f },
 	{ OV9740_ANALOG_CTRL15,		0xf0 },
 
-	
+	/* Sensor Control */
 	{ OV9740_SENSOR_CTRL03,		0x42 },
 	{ OV9740_SENSOR_CTRL04,		0x10 },
 	{ OV9740_SENSOR_CTRL05,		0x45 },
 	{ OV9740_SENSOR_CTRL07,		0x14 },
 
-	
+	/* Timing Control */
 	{ OV9740_TIMING_CTRL33,		0x04 },
 	{ OV9740_TIMING_CTRL35,		0x02 },
 	{ OV9740_TIMING_CTRL19,		0x6e },
 	{ OV9740_TIMING_CTRL17,		0x94 },
 
-	
+	/* AEC/AGC Control */
 	{ OV9740_AEC_ENABLE,		0x10 },
 	{ OV9740_GAIN_CEILING_01,	0x00 },
 	{ OV9740_GAIN_CEILING_02,	0x7f },
@@ -334,16 +352,16 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ OV9740_AEC_CTRL1E_BPT2,	0x4c },
 	{ OV9740_AEC_LO_THRESHOLD,	0x26 },
 
-	
+	/* BLC Control */
 	{ OV9740_BLC_AUTO_ENABLE,	0x45 },
 	{ OV9740_BLC_MODE,		0x18 },
 
-	
+	/* DVP Control */
 	{ OV9740_DVP_VSYNC_CTRL02,	0x04 },
 	{ OV9740_DVP_VSYNC_MODE,	0x00 },
 	{ OV9740_DVP_VSYNC_CTRL06,	0x08 },
 
-	
+	/* PLL Setting */
 	{ OV9740_PLL_MODE_CTRL01,	0x20 },
 	{ OV9740_PRE_PLL_CLK_DIV,	0x03 },
 	{ OV9740_PLL_MULTIPLIER,	0x4c },
@@ -352,16 +370,16 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ OV9740_PLL_CTRL3010,		0x01 },
 	{ OV9740_VFIFO_CTRL00,		0x82 },
 
-	
-	
+	/* Timing Setting */
+	/* VTS */
 	{ OV9740_FRM_LENGTH_LN_HI,	0x03 },
 	{ OV9740_FRM_LENGTH_LN_LO,	0x07 },
-	
+	/* HTS */
 	{ OV9740_LN_LENGTH_PCK_HI,	0x06 },
 	{ OV9740_LN_LENGTH_PCK_LO,	0x62 },
 
-	
-	{ OV9740_MIPI_CTRL00,		0x44 }, 
+	/* MIPI Control */
+	{ OV9740_MIPI_CTRL00,		0x44 }, /* 0x64 for discontinuous clk */
 	{ OV9740_MIPI_3837,		0x01 },
 	{ OV9740_MIPI_CTRL01,		0x0f },
 	{ OV9740_MIPI_CTRL03,		0x05 },
@@ -370,7 +388,7 @@ static const struct ov9740_reg ov9740_defaults[] = {
 	{ OV9740_MIPI_CTRL_3012,	0x70 },
 	{ OV9740_SC_CMMM_MIPI_CTR,	0x01 },
 
-	
+	/* YUYV order */
 	{ OV9740_ISP_CTRL19,		0x02 },
 };
 
@@ -378,6 +396,7 @@ static enum v4l2_mbus_pixelcode ov9740_codes[] = {
 	V4L2_MBUS_FMT_YUYV8_2X8,
 };
 
+/* read a register */
 static int ov9740_reg_read(struct i2c_client *client, u16 reg, u8 *val)
 {
 	int ret;
@@ -407,6 +426,7 @@ static int ov9740_reg_read(struct i2c_client *client, u16 reg, u8 *val)
 	return 0;
 }
 
+/* write a register */
 static int ov9740_reg_write(struct i2c_client *client, u16 reg, u8 val)
 {
 	struct i2c_msg msg;
@@ -436,6 +456,7 @@ static int ov9740_reg_write(struct i2c_client *client, u16 reg, u8 val)
 }
 
 
+/* Read a register, alter its bits, write it back */
 static int ov9740_reg_rmw(struct i2c_client *client, u16 reg, u8 set, u8 unset)
 {
 	u8 val;
@@ -480,13 +501,14 @@ static int ov9740_reg_write_array(struct i2c_client *client,
 	return 0;
 }
 
+/* Start/Stop streaming from the device */
 static int ov9740_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct ov9740_priv *priv = to_ov9740(sd);
 	int ret;
 
-	
+	/* Program orientation register. */
 	if (priv->flag_vflip)
 		ret = ov9740_reg_rmw(client, OV9740_IMAGE_ORT, 0x2, 0);
 	else
@@ -503,15 +525,15 @@ static int ov9740_s_stream(struct v4l2_subdev *sd, int enable)
 
 	if (enable) {
 		dev_dbg(&client->dev, "Enabling Streaming\n");
-		
+		/* Start Streaming */
 		ret = ov9740_reg_write(client, OV9740_MODE_SELECT, 0x01);
 
 	} else {
 		dev_dbg(&client->dev, "Disabling Streaming\n");
-		
+		/* Software Reset */
 		ret = ov9740_reg_write(client, OV9740_SOFTWARE_RESET, 0x01);
 		if (!ret)
-			
+			/* Setting Streaming to Standby */
 			ret = ov9740_reg_write(client, OV9740_MODE_SELECT,
 					       0x00);
 	}
@@ -521,12 +543,13 @@ static int ov9740_s_stream(struct v4l2_subdev *sd, int enable)
 	return ret;
 }
 
+/* select nearest higher resolution for capture */
 static void ov9740_res_roundup(u32 *width, u32 *height)
 {
-	
+	/* Width must be a multiple of 4 pixels. */
 	*width = ALIGN(*width, 4);
 
-	
+	/* Max resolution is 1280x720 (720p). */
 	if (*width > OV9740_MAX_WIDTH)
 		*width = OV9740_MAX_WIDTH;
 
@@ -534,6 +557,7 @@ static void ov9740_res_roundup(u32 *width, u32 *height)
 		*height = OV9740_MAX_HEIGHT;
 }
 
+/* Setup registers according to resolution and color encoding */
 static int ov9740_set_res(struct i2c_client *client, u32 width, u32 height)
 {
 	u32 x_start;
@@ -548,6 +572,13 @@ static int ov9740_set_res(struct i2c_client *client, u32 width, u32 height)
 	if ((width != OV9740_MAX_WIDTH) || (height != OV9740_MAX_HEIGHT))
 		scaling = 1;
 
+	/*
+	 * Try to use as much of the sensor area as possible when supporting
+	 * smaller resolutions.  Depending on the aspect ratio of the
+	 * chosen resolution, we can either use the full width of the sensor,
+	 * or the full height of the sensor (or both if the aspect ratio is
+	 * the same as 1280x720.
+	 */
 	if ((OV9740_MAX_WIDTH * height) > (OV9740_MAX_HEIGHT * width)) {
 		scale_input_x = (OV9740_MAX_HEIGHT * width) / height;
 		scale_input_y = OV9740_MAX_HEIGHT;
@@ -556,7 +587,7 @@ static int ov9740_set_res(struct i2c_client *client, u32 width, u32 height)
 		scale_input_y = (OV9740_MAX_WIDTH * height) / width;
 	}
 
-	
+	/* These describe the area of the sensor to use. */
 	x_start = (OV9740_MAX_WIDTH - scale_input_x) / 2;
 	y_start = (OV9740_MAX_HEIGHT - scale_input_y) / 2;
 	x_end = x_start + scale_input_x - 1;
@@ -636,6 +667,7 @@ done:
 	return ret;
 }
 
+/* set the format we will capture in */
 static int ov9740_s_fmt(struct v4l2_subdev *sd,
 			struct v4l2_mbus_framefmt *mf)
 {
@@ -720,6 +752,7 @@ static int ov9740_g_crop(struct v4l2_subdev *sd, struct v4l2_crop *a)
 	return 0;
 }
 
+/* Set status of additional camera capabilities */
 static int ov9740_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct ov9740_priv *priv =
@@ -739,6 +772,7 @@ static int ov9740_s_ctrl(struct v4l2_ctrl *ctrl)
 	return 0;
 }
 
+/* Get chip identification */
 static int ov9740_g_chip_ident(struct v4l2_subdev *sd,
 			       struct v4l2_dbg_chip_ident *id)
 {
@@ -809,6 +843,9 @@ static int ov9740_video_probe(struct i2c_client *client)
 	u8 modelhi, modello;
 	int ret;
 
+	/*
+	 * check and show product ID and manufacturer ID
+	 */
 	ret = ov9740_reg_read(client, OV9740_MODEL_ID_HI, &modelhi);
 	if (ret < 0)
 		goto err;
@@ -846,6 +883,7 @@ err:
 	return ret;
 }
 
+/* Request bus settings on camera side */
 static int ov9740_g_mbus_config(struct v4l2_subdev *sd,
 				struct v4l2_mbus_config *cfg)
 {
@@ -889,6 +927,9 @@ static const struct v4l2_ctrl_ops ov9740_ctrl_ops = {
 	.s_ctrl = ov9740_s_ctrl,
 };
 
+/*
+ * i2c_driver function
+ */
 static int ov9740_probe(struct i2c_client *client,
 			const struct i2c_device_id *did)
 {

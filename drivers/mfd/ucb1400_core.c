@@ -73,7 +73,7 @@ static int ucb1400_core_probe(struct device *dev)
 		goto err0;
 	}
 
-	
+	/* GPIO */
 	ucb_gpio.ac97 = ac97;
 	ucb->ucb1400_gpio = platform_device_alloc("ucb1400_gpio", -1);
 	if (!ucb->ucb1400_gpio) {
@@ -88,7 +88,7 @@ static int ucb1400_core_probe(struct device *dev)
 	if (err)
 		goto err1;
 
-	
+	/* TOUCHSCREEN */
 	ucb_ts.ac97 = ac97;
 
 	if (pdata != NULL && pdata->irq >= 0)

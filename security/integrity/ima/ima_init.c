@@ -20,9 +20,25 @@
 #include <linux/err.h>
 #include "ima.h"
 
+/* name for boot aggregate entry */
 static const char *boot_aggregate_name = "boot_aggregate";
 int ima_used_chip;
 
+/* Add the boot aggregate to the IMA measurement list and extend
+ * the PCR register.
+ *
+ * Calculate the boot aggregate, a SHA1 over tpm registers 0-7,
+ * assuming a TPM chip exists, and zeroes if the TPM chip does not
+ * exist.  Add the boot aggregate measurement to the measurement
+ * list and extend the PCR register.
+ *
+ * If a tpm chip does not exist, indicate the core root of trust is
+ * not hardware based by invalidating the aggregate PCR value.
+ * (The aggregate PCR value is invalidated by adding one value to
+ * the measurement list and extending the aggregate PCR value with
+ * a different value.) Violations add a zero entry to the measurement
+ * list and extend the aggregate PCR value with ff...ff's.
+ */
 static void __init ima_add_boot_aggregate(void)
 {
 	struct ima_template_entry *entry;
@@ -69,7 +85,7 @@ int __init ima_init(void)
 	if (!ima_used_chip)
 		pr_info("IMA: No TPM chip found, activating TPM-bypass!\n");
 
-	ima_add_boot_aggregate();	
+	ima_add_boot_aggregate();	/* boot aggregate must be first entry */
 	ima_init_policy();
 
 	return ima_fs_init();

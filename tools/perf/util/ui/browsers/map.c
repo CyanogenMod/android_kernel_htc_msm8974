@@ -68,6 +68,7 @@ static void map_browser__write(struct ui_browser *self, void *nd, int row)
 		slsmg_write_nstring(sym->name, width);
 }
 
+/* FIXME uber-kludgy, see comment on cmd_report... */
 static u32 *symbol__browser_index(struct symbol *self)
 {
 	return ((void *)self) - sizeof(struct rb_node) - sizeof(u32);

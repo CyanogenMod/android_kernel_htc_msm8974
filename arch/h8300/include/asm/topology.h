@@ -3,4 +3,4 @@
 
 #include <asm-generic/topology.h>
 
-#endif 
+#endif /* _ASM_H8300_TOPOLOGY_H */

@@ -29,6 +29,7 @@
 #include "sysfs.h"
 #include "events.h"
 
+/* IDA to assign each registered device a unique id*/
 static DEFINE_IDA(iio_ida);
 
 static dev_t iio_devt;
@@ -77,6 +78,7 @@ static const char * const iio_modifier_names[] = {
 	[IIO_MOD_LIGHT_IR] = "ir",
 };
 
+/* relies on pairs of these shared then separate */
 static const char * const iio_chan_info_postfix[] = {
 	[IIO_CHAN_INFO_SCALE] = "scale",
 	[IIO_CHAN_INFO_OFFSET] = "offset",
@@ -101,6 +103,7 @@ const struct iio_chan_spec
 	return NULL;
 }
 
+/* This turns up an awful lot */
 ssize_t iio_read_const_attr(struct device *dev,
 			    struct device_attribute *attr,
 			    char *buf)
@@ -113,7 +116,7 @@ static int __init iio_init(void)
 {
 	int ret;
 
-	
+	/* Register sysfs bus */
 	ret  = bus_register(&iio_bus_type);
 	if (ret < 0) {
 		printk(KERN_ERR
@@ -265,7 +268,7 @@ static int iio_device_register_debugfs(struct iio_dev *indio_dev)
 static void iio_device_unregister_debugfs(struct iio_dev *indio_dev)
 {
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static ssize_t iio_read_channel_ext_info(struct device *dev,
 				     struct device_attribute *attr,
@@ -333,7 +336,7 @@ static ssize_t iio_write_channel_info(struct device *dev,
 	int ret, integer = 0, fract = 0, fract_mult = 100000;
 	bool integer_part = true, negative = false;
 
-	
+	/* Assumes decimal - precision based on number of digits */
 	if (!indio_dev->info->write_raw)
 		return -EINVAL;
 
@@ -409,7 +412,7 @@ int __iio_device_attr_init(struct device_attribute *dev_attr,
 	char *name_format, *full_postfix;
 	sysfs_attr_init(&dev_attr->attr);
 
-	
+	/* Build up postfix of <extend_name>_<modifier>_postfix */
 	if (chan->modified && !generic) {
 		if (chan->extend_name)
 			full_postfix = kasprintf(GFP_KERNEL, "%s_%s_%s",
@@ -436,7 +439,7 @@ int __iio_device_attr_init(struct device_attribute *dev_attr,
 		goto error_ret;
 	}
 
-	if (chan->differential) { 
+	if (chan->differential) { /* Differential can not have modifier */
 		if (generic)
 			name_format
 				= kasprintf(GFP_KERNEL, "%s_%s-%s_%s",
@@ -458,7 +461,7 @@ int __iio_device_attr_init(struct device_attribute *dev_attr,
 			ret = -EINVAL;
 			goto error_free_full_postfix;
 		}
-	} else { 
+	} else { /* Single ended */
 		if (generic)
 			name_format
 				= kasprintf(GFP_KERNEL, "%s_%s_%s",
@@ -661,13 +664,17 @@ static int iio_device_register_sysfs(struct iio_dev *indio_dev)
 	struct iio_dev_attr *p, *n;
 	struct attribute **attr;
 
-	
+	/* First count elements in any existing group */
 	if (indio_dev->info->attrs) {
 		attr = indio_dev->info->attrs->attrs;
 		while (*attr++ != NULL)
 			attrcount_orig++;
 	}
 	attrcount = attrcount_orig;
+	/*
+	 * New channel registration method - relies on the fact a group does
+	 * not need to be initialized if it is name is NULL.
+	 */
 	INIT_LIST_HEAD(&indio_dev->channel_attr_list);
 	if (indio_dev->channels)
 		for (i = 0; i < indio_dev->num_channels; i++) {
@@ -689,14 +696,14 @@ static int iio_device_register_sysfs(struct iio_dev *indio_dev)
 		ret = -ENOMEM;
 		goto error_clear_attrs;
 	}
-	
+	/* Copy across original attributes */
 	if (indio_dev->info->attrs)
 		memcpy(indio_dev->chan_attr_group.attrs,
 		       indio_dev->info->attrs->attrs,
 		       sizeof(indio_dev->chan_attr_group.attrs[0])
 		       *attrcount_orig);
 	attrn = attrcount_orig;
-	
+	/* Add all elements from the list. */
 	list_for_each_entry(p, &indio_dev->channel_attr_list, l)
 		indio_dev->chan_attr_group.attrs[attrn++] = &p->dev_attr.attr;
 	if (indio_dev->name)
@@ -755,7 +762,7 @@ struct iio_dev *iio_allocate_device(int sizeof_priv)
 		alloc_size = ALIGN(alloc_size, IIO_ALIGN);
 		alloc_size += sizeof_priv;
 	}
-	
+	/* ensure 32-byte alignment of whole construct ? */
 	alloc_size += IIO_ALIGN - 1;
 
 	dev = kzalloc(alloc_size, GFP_KERNEL);
@@ -771,7 +778,7 @@ struct iio_dev *iio_allocate_device(int sizeof_priv)
 
 		dev->id = ida_simple_get(&iio_ida, 0, 0, GFP_KERNEL);
 		if (dev->id < 0) {
-			
+			/* cannot use a dev_err as the name isn't available */
 			printk(KERN_ERR "Failed to get id\n");
 			kfree(dev);
 			return NULL;
@@ -792,6 +799,9 @@ void iio_free_device(struct iio_dev *dev)
 }
 EXPORT_SYMBOL(iio_free_device);
 
+/**
+ * iio_chrdev_open() - chrdev file open for buffer access and ioctls
+ **/
 static int iio_chrdev_open(struct inode *inode, struct file *filp)
 {
 	struct iio_dev *indio_dev = container_of(inode->i_cdev,
@@ -805,6 +815,9 @@ static int iio_chrdev_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/**
+ * iio_chrdev_release() - chrdev file close buffer access and ioctls
+ **/
 static int iio_chrdev_release(struct inode *inode, struct file *filp)
 {
 	struct iio_dev *indio_dev = container_of(inode->i_cdev,
@@ -813,6 +826,8 @@ static int iio_chrdev_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/* Somewhat of a cross file organization violation - ioctls here are actually
+ * event related */
 static long iio_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct iio_dev *indio_dev = filp->private_data;
@@ -845,7 +860,7 @@ int iio_device_register(struct iio_dev *indio_dev)
 {
 	int ret;
 
-	
+	/* configure elements for the chrdev */
 	indio_dev->dev.devt = MKDEV(MAJOR(iio_devt), indio_dev->id);
 
 	ret = iio_device_register_debugfs(indio_dev);

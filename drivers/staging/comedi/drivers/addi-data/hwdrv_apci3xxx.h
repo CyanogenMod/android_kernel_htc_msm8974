@@ -16,7 +16,7 @@
  */
 
 #ifndef COMEDI_SUBD_TTLIO
-#define COMEDI_SUBD_TTLIO   11	
+#define COMEDI_SUBD_TTLIO   11	/* Digital Input Output But TTL */
 #endif
 
 #ifndef ADDIDATA_ENABLE

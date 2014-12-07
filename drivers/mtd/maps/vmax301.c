@@ -1,3 +1,19 @@
+/* ######################################################################
+
+   Tempustech VMAX SBC301 MTD Driver.
+
+   The VMAx 301 is a SBC based on . It
+   comes with three builtin AMD 29F016B flash chips and a socket for SRAM or
+   more flash. Each unit has it's own 8k mapping into a settable region
+   (0xD8000). There are two 8k mappings for each MTD, the first is always set
+   to the lower 8k of the device the second is paged. Writing a 16 bit page
+   value to anywhere in the first 8k will cause the second 8k to page around.
+
+   To boot the device a bios extension must be installed into the first 8k
+   of flash that is smart enough to copy itself down, page in the rest of
+   itself and begin executing.
+
+   ##################################################################### */
 
 #include <linux/module.h>
 #include <linux/ioport.h>
@@ -14,6 +30,12 @@
 #define WINDOW_SHIFT 25
 #define WINDOW_MASK 0x1FFF
 
+/* Actually we could use two spinlocks, but we'd have to have
+   more private space in the struct map_info. We lose a little
+   performance like this, but we'd probably lose more by having
+   the extra indirection from having one of the map->map_priv
+   fields pointing to yet another private struct.
+*/
 static DEFINE_SPINLOCK(vmax301_spin);
 
 static void __vmax301_page(struct map_info *map, unsigned long page)
@@ -127,7 +149,7 @@ static int __init init_vmax301(void)
 {
 	int i;
 	unsigned long iomapadr;
-	
+	// Print out our little header..
 	printk("Tempustech VMAX 301 MEM:0x%x-0x%x\n",WINDOW_START,
 	       WINDOW_START+4*WINDOW_LENGTH);
 
@@ -136,6 +158,11 @@ static int __init init_vmax301(void)
 		printk("Failed to ioremap memory region\n");
 		return -EIO;
 	}
+	/* Put the address in the map's private data area.
+	   We store the actual MTD IO address rather than the
+	   address of the first half, because it's used more
+	   often.
+	*/
 	vmax_map[0].map_priv_2 = iomapadr + WINDOW_START;
 	vmax_map[1].map_priv_2 = iomapadr + (3*WINDOW_START);
 

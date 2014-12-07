@@ -144,14 +144,14 @@ struct processor_specific_info {
 };
 
 static struct processor_specific_info proc_info[SMP2P_NUM_PROCS] = {
-		{0},	
-		{"rdbg_modem", 0, 0},	
-		{"rdbg_adsp", SMEM_LC_DEBUGGER, 16*1024},	
-		{0},	
-		{"rdbg_wcnss", 0, 0},		
-		{0},	
-		{0},	
-		{0}		
+		{0},	/*APPS*/
+		{"rdbg_modem", 0, 0},	/*MODEM*/
+		{"rdbg_adsp", SMEM_LC_DEBUGGER, 16*1024},	/*ADSP*/
+		{0},	/*SMP2P_RESERVED_PROC_1*/
+		{"rdbg_wcnss", 0, 0},		/*WCNSS*/
+		{0},	/*SMP2P_RESERVED_PROC_2*/
+		{0},	/*SMP2P_POWER_PROC*/
+		{0}		/*SMP2P_REMOTE_MOCK_PROC*/
 };
 
 static int smq_blockmap_get(struct smq_block_map *block_map,

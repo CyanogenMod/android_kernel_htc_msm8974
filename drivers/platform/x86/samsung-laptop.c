@@ -30,7 +30,17 @@
 #include <acpi/video.h>
 #endif
 
+/*
+ * This driver is needed because a number of Samsung laptops do not hook
+ * their control settings through ACPI.  So we have to poke around in the
+ * BIOS to do things like brightness values, and "special" key controls.
+ */
 
+/*
+ * We have 0 - 8 as valid brightness levels.  The specs say that level 0 should
+ * be reserved by the BIOS (which really doesn't make much sense), we tell
+ * userspace that the value is 0 - 7 and then just tell the hardware 1 - 8
+ */
 #define MAX_BRIGHT	0x07
 
 
@@ -42,6 +52,7 @@
 #define WL_STATUS_WLAN			0x0
 #define WL_STATUS_BT			0x2
 
+/* Structure get/set data using sabi */
 struct sabi_data {
 	union {
 		struct {
@@ -64,37 +75,62 @@ struct sabi_header_offsets {
 };
 
 struct sabi_commands {
+	/*
+	 * Brightness is 0 - 8, as described above.
+	 * Value 0 is for the BIOS to use
+	 */
 	u16 get_brightness;
 	u16 set_brightness;
 
+	/*
+	 * first byte:
+	 * 0x00 - wireless is off
+	 * 0x01 - wireless is on
+	 * second byte:
+	 * 0x02 - 3G is off
+	 * 0x03 - 3G is on
+	 * TODO, verify 3G is correct, that doesn't seem right...
+	 */
 	u16 get_wireless_button;
 	u16 set_wireless_button;
 
-	
+	/* 0 is off, 1 is on */
 	u16 get_backlight;
 	u16 set_backlight;
 
+	/*
+	 * 0x80 or 0x00 - no action
+	 * 0x81 - recovery key pressed
+	 */
 	u16 get_recovery_mode;
 	u16 set_recovery_mode;
 
+	/*
+	 * on seclinux: 0 is low, 1 is high,
+	 * on swsmi: 0 is normal, 1 is silent, 2 is turbo
+	 */
 	u16 get_performance_level;
 	u16 set_performance_level;
 
-	
+	/* 0x80 is off, 0x81 is on */
 	u16 get_battery_life_extender;
 	u16 set_battery_life_extender;
 
-	
+	/* 0x80 is off, 0x81 is on */
 	u16 get_usb_charge;
 	u16 set_usb_charge;
 
-	
+	/* the first byte is for bluetooth and the third one is for wlan */
 	u16 get_wireless_status;
 	u16 set_wireless_status;
 
-	
+	/* 0x81 to read, (0x82 | level << 8) to set, 0xaabb to enable */
 	u16 kbd_backlight;
 
+	/*
+	 * Tell the BIOS that Linux is running on this machine.
+	 * 81 is on, 80 is off
+	 */
 	u16 set_linux;
 };
 
@@ -116,6 +152,8 @@ struct sabi_config {
 
 static const struct sabi_config sabi_configs[] = {
 	{
+		/* I don't know if it is really 2, but it it is
+		 * less than 3 anyway */
 		.sabi_version = 2,
 
 		.test_string = "SECLINUX",
@@ -242,6 +280,25 @@ static const struct sabi_config sabi_configs[] = {
 	{ },
 };
 
+/*
+ * samsung-laptop/    - debugfs root directory
+ *   f0000_segment    - dump f0000 segment
+ *   command          - current command
+ *   data             - current data
+ *   d0, d1, d2, d3   - data fields
+ *   call             - call SABI using command and data
+ *
+ * This allow to call arbitrary sabi commands wihout
+ * modifying the driver at all.
+ * For example, setting the keyboard backlight brightness to 5
+ *
+ *  echo 0x78 > command
+ *  echo 0x0582 > d0
+ *  echo 0 > d1
+ *  echo 0 > d2
+ *  echo 0 > d3
+ *  cat call
+ */
 
 struct samsung_laptop_debug {
 	struct dentry *root;
@@ -329,10 +386,10 @@ static int sabi_command(struct samsung_laptop *samsung, u16 command,
 			pr_info("SABI command:0x%04x", command);
 	}
 
-	
+	/* enable memory to be able to write to it */
 	outb(readb(samsung->sabi + config->header_offsets.en_mem), port);
 
-	
+	/* write out the command */
 	writew(config->main_function, samsung->sabi_iface + SABI_IFACE_MAIN);
 	writew(command, samsung->sabi_iface + SABI_IFACE_SUB);
 	writeb(0, samsung->sabi_iface + SABI_IFACE_COMPLETE);
@@ -344,13 +401,17 @@ static int sabi_command(struct samsung_laptop *samsung, u16 command,
 	}
 	outb(readb(samsung->sabi + config->header_offsets.iface_func), port);
 
-	
+	/* write protect memory to make it safe */
 	outb(readb(samsung->sabi + config->header_offsets.re_mem), port);
 
-	
+	/* see if the command actually succeeded */
 	complete = readb(samsung->sabi_iface + SABI_IFACE_COMPLETE);
 	iface_data = readb(samsung->sabi_iface + SABI_IFACE_DATA);
 
+	/* iface_data = 0xFF happens when a command is not known
+	 * so we only add a warning in debug mode since we will
+	 * probably issue some unknown command at startup to find
+	 * out which features are supported */
 	if (complete != 0xaa || (iface_data == 0xff && debug))
 		pr_warn("SABI command 0x%04x failed with"
 			" completion flag 0x%02x and interface data 0x%02x",
@@ -378,6 +439,7 @@ exit:
 	return ret;
 }
 
+/* simple wrappers usable with most commands */
 static int sabi_set_commandb(struct samsung_laptop *samsung,
 			     u16 command, u8 data)
 {
@@ -416,6 +478,10 @@ static void set_brightness(struct samsung_laptop *samsung, u8 user_brightness)
 	u8 user_level = user_brightness + config->min_brightness;
 
 	if (samsung->has_stepping_quirk && user_level != 0) {
+		/*
+		 * short circuit if the specified level is what's already set
+		 * to prevent the screen from flickering needlessly
+		 */
 		if (user_brightness == read_brightness(samsung))
 			return;
 
@@ -438,6 +504,12 @@ static void check_for_stepping_quirk(struct samsung_laptop *samsung)
 	int check_level;
 	int orig_level = read_brightness(samsung);
 
+	/*
+	 * Some laptops exhibit the strange behaviour of stepping toward
+	 * (rather than setting) the brightness except when changing to/from
+	 * brightness level 0. This behaviour is checked for here and worked
+	 * around in set_brightness.
+	 */
 
 	if (orig_level == 0)
 		set_brightness(samsung, 1);
@@ -515,7 +587,7 @@ static int swsmi_rfkill_set(void *priv, bool blocked)
 	if (ret)
 		return ret;
 
-	
+	/* Don't set the state for non-present devices */
 	for (i = 0; i < 4; i++)
 		if (data.data[i] == 0x02)
 			data.data[1] = 0;
@@ -565,13 +637,13 @@ static ssize_t get_performance_level(struct device *dev,
 	int retval;
 	int i;
 
-	
+	/* Read the state */
 	retval = sabi_command(samsung, commands->get_performance_level,
 			      NULL, &sretval);
 	if (retval)
 		return retval;
 
-	
+	/* The logic is backwards, yeah, lots of fun... */
 	for (i = 0; config->performance_levels[i].name; ++i) {
 		if (sretval.data[0] == config->performance_levels[i].value)
 			return sprintf(buf, "%s\n", config->performance_levels[i].name);
@@ -832,12 +904,14 @@ static int __init samsung_rfkill_init_swsmi(struct samsung_laptop *samsung)
 
 	ret = swsmi_wireless_status(samsung, &data);
 	if (ret) {
+		/* Some swsmi laptops use the old seclinux way to control
+		 * wireless devices */
 		if (ret == -EINVAL)
 			ret = samsung_rfkill_init_seclinux(samsung);
 		return ret;
 	}
 
-	
+	/* 0x02 seems to mean that the device is no present/available */
 
 	if (data.data[WL_STATUS_WLAN] != 0x02)
 		ret = samsung_new_rfkill(samsung, &samsung->wlan,
@@ -1183,7 +1257,7 @@ static void samsung_sabi_exit(struct samsung_laptop *samsung)
 {
 	const struct sabi_config *config = samsung->config;
 
-	
+	/* Turn off "Linux" mode in the BIOS */
 	if (config && config->commands.set_linux != 0xff)
 		sabi_set_commandb(samsung, config->commands.set_linux, 0x80);
 
@@ -1232,6 +1306,12 @@ static void __init samsung_sabi_diag(struct samsung_laptop *samsung)
 	if (loca == 0xffff)
 		return ;
 
+	/* Example:
+	 * Ident: @SDiaG@686XX-N90X3A/966-SEC-07HL-S90X3A
+	 *
+	 * Product name: 90X3A
+	 * BIOS Version: 07HL
+	 */
 	loca += 1;
 	for (i = 0; loca < 0xffff && i < sizeof(samsung->sdiag) - 1; loca++) {
 		char temp = readb(samsung->f0000_segment + loca);
@@ -1265,7 +1345,7 @@ static int __init samsung_sabi_init(struct samsung_laptop *samsung)
 
 	samsung_sabi_diag(samsung);
 
-	
+	/* Try to find one of the signatures in memory to find the header */
 	for (i = 0; sabi_configs[i].test_string != 0; ++i) {
 		samsung->config = &sabi_configs[i];
 		loca = find_signature(samsung->f0000_segment,
@@ -1284,11 +1364,11 @@ static int __init samsung_sabi_init(struct samsung_laptop *samsung)
 	config = samsung->config;
 	commands = &config->commands;
 
-	
+	/* point to the SMI port Number */
 	loca += 1;
 	samsung->sabi = (samsung->f0000_segment + loca);
 
-	
+	/* Get a pointer to the SABI Interface */
 	ifaceP = (readw(samsung->sabi + config->header_offsets.data_segment) & 0x0ffff) << 4;
 	ifaceP += readw(samsung->sabi + config->header_offsets.data_offset) & 0x0ffff;
 
@@ -1302,7 +1382,7 @@ static int __init samsung_sabi_init(struct samsung_laptop *samsung)
 		goto exit;
 	}
 
-	
+	/* Turn on "Linux" mode in the BIOS */
 	if (commands->set_linux != 0xff) {
 		int retval = sabi_set_commandb(samsung,
 					       commands->set_linux, 0x81);
@@ -1313,7 +1393,7 @@ static int __init samsung_sabi_init(struct samsung_laptop *samsung)
 		}
 	}
 
-	
+	/* Check for stepping quirk */
 	if (samsung->handle_backlight)
 		check_for_stepping_quirk(samsung);
 
@@ -1361,31 +1441,31 @@ static struct dmi_system_id __initdata samsung_dmi_table[] = {
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR,
 					"SAMSUNG ELECTRONICS CO., LTD."),
-			DMI_MATCH(DMI_CHASSIS_TYPE, "8"), 
+			DMI_MATCH(DMI_CHASSIS_TYPE, "8"), /* Portable */
 		},
 	},
 	{
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR,
 					"SAMSUNG ELECTRONICS CO., LTD."),
-			DMI_MATCH(DMI_CHASSIS_TYPE, "9"), 
+			DMI_MATCH(DMI_CHASSIS_TYPE, "9"), /* Laptop */
 		},
 	},
 	{
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR,
 					"SAMSUNG ELECTRONICS CO., LTD."),
-			DMI_MATCH(DMI_CHASSIS_TYPE, "10"), 
+			DMI_MATCH(DMI_CHASSIS_TYPE, "10"), /* Notebook */
 		},
 	},
 	{
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR,
 					"SAMSUNG ELECTRONICS CO., LTD."),
-			DMI_MATCH(DMI_CHASSIS_TYPE, "14"), 
+			DMI_MATCH(DMI_CHASSIS_TYPE, "14"), /* Sub-Notebook */
 		},
 	},
-	
+	/* Specific DMI ids for laptop with quirks */
 	{
 	 .callback = samsung_dmi_matched,
 	 .ident = "N150P",
@@ -1451,7 +1531,7 @@ static int __init samsung_init(void)
 
 
 #if (defined CONFIG_ACPI_VIDEO || defined CONFIG_ACPI_VIDEO_MODULE)
-	
+	/* Don't handle backlight here if the acpi video already handle it */
 	if (acpi_video_backlight_support()) {
 		if (samsung->quirks->broken_acpi_video) {
 			pr_info("Disabling ACPI video driver\n");
@@ -1471,7 +1551,7 @@ static int __init samsung_init(void)
 		goto error_sabi;
 
 #ifdef CONFIG_ACPI
-	
+	/* Only log that if we are really on a sabi platform */
 	if (acpi_video_backlight_support() &&
 	    !samsung->quirks->broken_acpi_video)
 		pr_info("Backlight controlled by ACPI video driver\n");

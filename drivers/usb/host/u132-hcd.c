@@ -57,6 +57,11 @@
 #include <asm/irq.h>
 #include <asm/byteorder.h>
 
+	/* FIXME ohci.h is ONLY for internal use by the OHCI driver.
+	 * If you're going to try stuff like this, you need to split
+	 * out shareable stuff (register declarations?) into its own
+	 * file, maybe name <linux/usb/ohci.h>
+	 */
 
 #include "ohci.h"
 #define OHCI_CONTROL_INIT OHCI_CTRL_CBSR
@@ -67,15 +72,23 @@ MODULE_DESCRIPTION("U132 USB Host Controller Driver");
 MODULE_LICENSE("GPL");
 #define INT_MODULE_PARM(n, v) static int n = v;module_param(n, int, 0444)
 INT_MODULE_PARM(testing, 0);
+/* Some boards misreport power switching/overcurrent*/
 static bool distrust_firmware = 1;
 module_param(distrust_firmware, bool, 0);
 MODULE_PARM_DESC(distrust_firmware, "true to distrust firmware power/overcurren"
 	"t setup");
 static DECLARE_WAIT_QUEUE_HEAD(u132_hcd_wait);
+/*
+* u132_module_lock exists to protect access to global variables
+*
+*/
 static struct mutex u132_module_lock;
 static int u132_exiting;
 static int u132_instances;
 static struct list_head u132_static_list;
+/*
+* end of the global variables protected by u132_module_lock
+*/
 static struct workqueue_struct *workqueue;
 #define MAX_U132_PORTS 7
 #define MAX_U132_ADDRS 128
@@ -194,6 +207,10 @@ struct u132 {
 	struct u132_endp *endp[MAX_U132_ENDPS];
 };
 
+/*
+* these cannot be inlines because we need the structure offset!!
+* Does anyone have a better way?????
+*/
 #define ftdi_read_pcimem(pdev, member, data) usb_ftdi_elan_read_pcimem(pdev, \
 	offsetof(struct ohci_regs, member), 0, data);
 #define ftdi_write_pcimem(pdev, member, data) usb_ftdi_elan_write_pcimem(pdev, \
@@ -598,6 +615,10 @@ static inline int edset_output(struct u132 *u132, struct u132_ring *ring,
 }
 
 
+/*
+* must not LOCK sw_lock
+*
+*/
 static void u132_hcd_interrupt_recv(void *data, struct urb *urb, u8 *buf,
 	int len, int toggle_bits, int error_count, int condition_code,
 	int repeat_number, int halted, int skipped, int actual, int non_null)
@@ -1273,6 +1294,10 @@ static void u132_hcd_initial_setup_sent(void *data, struct urb *urb, u8 *buf,
 	}
 }
 
+/*
+* this work function is only executed from the work queue
+*
+*/
 static void u132_hcd_ring_work_scheduler(struct work_struct *work)
 {
 	struct u132_ring *ring =
@@ -1454,7 +1479,7 @@ static void u132_hcd_endp_work_scheduler(struct work_struct *work)
 						retval);
 				return;
 			}
-		} else {	
+		} else {	/* output pipe */
 			u8 address = u132->addr[endp->usb_addr].address;
 			if (ring->in_use) {
 				mutex_unlock(&u132->scheduler_lock);
@@ -1492,7 +1517,7 @@ static void port_power(struct u132 *u132, int pn, int is_on)
 static void u132_power(struct u132 *u132, int is_on)
 {
 	struct usb_hcd *hcd = u132_to_hcd(u132)
-		;	
+		;	/* hub is inactive unless the port is powered */
 	if (is_on) {
 		if (u132->power)
 			return;
@@ -1568,6 +1593,10 @@ static int u132_init(struct u132 *u132)
 }
 
 
+/* Start an OHCI controller, set the BUS operational
+* resets USB and controller
+* enable interrupts
+*/
 static int u132_run(struct u132 *u132)
 {
 	int retval;
@@ -1580,7 +1609,7 @@ static int u132_run(struct u132 *u132)
 	int mask = OHCI_INTR_INIT;
 	int first = u132->hc_fminterval == 0;
 	int sleep_time = 0;
-	int reset_timeout = 30;	
+	int reset_timeout = 30;	/* ... allow extra time */
 	u132_disable(u132);
 	if (first) {
 		u32 temp;
@@ -1623,7 +1652,7 @@ static int u132_run(struct u132 *u132)
 	if (retval)
 		return retval;
 	if (!(roothub_a & RH_A_NPS)) {
-		int temp;	
+		int temp;	/* power down each port */
 		for (temp = 0; temp < u132->num_ports; temp++) {
 			retval = u132_write_pcimem(u132,
 				roothub.portstatus[temp], RH_PS_LSDA);
@@ -1689,7 +1718,7 @@ extra:	{
 		} else
 			dev_err(&u132->platform_dev->dev, "init err(%08x %04x)"
 				"\n", fminterval, periodicstart);
-	}			
+	}			/* start controller operations */
 	u132->hc_control &= OHCI_CTRL_RWC;
 	u132->hc_control |= OHCI_CONTROL_INIT | OHCI_CTRL_BLE | OHCI_USB_OPER;
 	retval = u132_write_pcimem(u132, control, u132->hc_control);
@@ -1716,7 +1745,7 @@ extra:	{
 		OHCI_INTR_UE | OHCI_INTR_RD | OHCI_INTR_SF | OHCI_INTR_WDH |
 		OHCI_INTR_SO);
 	if (retval)
-		return retval;	
+		return retval;	/* handle root hub init quirks ... */
 	retval = u132_read_pcimem(u132, roothub.a, &roothub_a);
 	if (retval)
 		return retval;
@@ -2089,7 +2118,7 @@ static int create_endpoint_and_queue_control(struct u132 *u132,
 		spin_unlock_irqrestore(&endp->queue_lock.slock, irqs);
 		u132_endp_queue_work(u132, endp, 0);
 		return 0;
-	} else {		
+	} else {		/*(usb_addr > 0) */
 		u8 address = u132->addr[usb_addr].address;
 		struct u132_udev *udev = &u132->udev[address];
 		endp->udev_number = address;
@@ -2138,7 +2167,7 @@ static int queue_control_on_old_endpoint(struct u132 *u132,
 				}
 			}
 			return 0;
-		} else {	
+		} else {	/* usb_pipeout(urb->pipe) */
 			struct u132_addr *addr = &u132->addr[usb_dev->devnum];
 			int I = MAX_U132_UDEVS;
 			int i = 0;
@@ -2189,7 +2218,7 @@ static int queue_control_on_old_endpoint(struct u132 *u132,
 			}
 			return 0;
 		}
-	} else {		
+	} else {		/*(usb_addr > 0) */
 		u8 address = u132->addr[usb_addr].address;
 		struct u132_udev *udev = &u132->udev[address];
 		urb->hcpriv = u132;
@@ -2269,7 +2298,7 @@ static int u132_urb_enqueue(struct usb_hcd *hcd, struct urb *urb,
 				}
 			} else if (u132->num_endpoints == MAX_U132_ENDPS) {
 				return -EINVAL;
-			} else {	
+			} else {	/*(endp == NULL) */
 				return create_endpoint_and_queue_int(u132, udev,
 						urb, usb_dev, usb_addr,
 						usb_endp, address, mem_flags);
@@ -2612,8 +2641,10 @@ static int u132_roothub_portstatus(struct u132 *u132, __le32 *desc, u16 wIndex)
 }
 
 
+/* this timer value might be vendor-specific ... */
 #define PORT_RESET_HW_MSEC 10
 #define PORT_RESET_MSEC 10
+/* wrap-aware logic morphed from <linux/jiffies.h> */
 #define tick_before(t1, t2) ((s16)(((s16)(t1))-((s16)(t2))) < 0)
 static int u132_roothub_portreset(struct u132 *u132, int port_index)
 {
@@ -2649,7 +2680,8 @@ static int u132_roothub_portreset(struct u132 *u132, int port_index)
 					return retval;
 			}
 		} else
-			break;	
+			break;	/* start the next reset,
+				sleep till it's probably done */
 		retval = u132_write_pcimem(u132, roothub.portstatus[port_index],
 			 RH_PS_PRS);
 		if (retval)
@@ -2750,6 +2782,7 @@ static int u132_roothub_clearportfeature(struct u132 *u132, u16 wValue,
 }
 
 
+/* the virtual root hub timer IRQ checks for hub status*/
 static int u132_hub_status_data(struct usb_hcd *hcd, char *buf)
 {
 	struct u132 *u132 = hcd_to_u132(hcd);
@@ -2951,6 +2984,12 @@ static struct hc_driver u132_hc_driver = {
 	.start_port_reset = u132_start_port_reset,
 };
 
+/*
+* This function may be called by the USB core whilst the "usb_all_devices_rwsem"
+* is held for writing, thus this module must not call usb_remove_hcd()
+* synchronously - but instead should immediately stop activity to the
+* device and asynchronously call usb_remove_hcd()
+*/
 static int __devexit u132_remove(struct platform_device *pdev)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
@@ -3066,7 +3105,7 @@ static int __devinit u132_probe(struct platform_device *pdev)
 	retval = ftdi_read_pcimem(pdev, roothub.a, &rh_a);
 	if (retval)
 		return retval;
-	num_ports = rh_a & RH_A_NDP;	
+	num_ports = rh_a & RH_A_NDP;	/* refuse to confuse usbcore */
 	if (pdev->dev.dma_mask)
 		return -EINVAL;
 
@@ -3102,6 +3141,10 @@ static int __devinit u132_probe(struct platform_device *pdev)
 
 
 #ifdef CONFIG_PM
+/* for this device there's no useful distinction between the controller
+* and its root hub, except that the root hub only gets direct PM calls
+* when CONFIG_USB_SUSPEND is enabled.
+*/
 static int u132_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct usb_hcd *hcd = platform_get_drvdata(pdev);
@@ -3162,6 +3205,11 @@ static int u132_resume(struct platform_device *pdev)
 #define u132_suspend NULL
 #define u132_resume NULL
 #endif
+/*
+* this driver is loaded explicitly by ftdi_u132
+*
+* the platform_driver struct is static because it is per type of module
+*/
 static struct platform_driver u132_platform_driver = {
 	.probe = u132_probe,
 	.remove = __devexit_p(u132_remove),

@@ -37,6 +37,20 @@
 
 #include "uwb-internal.h"
 
+/*
+ * Debug interface
+ *
+ * Per radio controller debugfs files (in uwb/uwbN/):
+ *
+ * command: Flexible command interface (see <linux/uwb/debug-cmd.h>).
+ *
+ * reservations: information on reservations.
+ *
+ * accept: Set to true (Y or 1) to accept reservation requests from
+ * peers.
+ *
+ * drp_avail: DRP availability information.
+ */
 
 struct uwb_dbg {
 	struct uwb_pal pal;
@@ -292,6 +306,10 @@ static void uwb_dbg_new_rsv(struct uwb_pal *pal, struct uwb_rsv *rsv)
 	}
 }
 
+/**
+ * uwb_dbg_add_rc - add a debug interface for a radio controller
+ * @rc: the radio controller
+ */
 void uwb_dbg_add_rc(struct uwb_rc *rc)
 {
 	rc->dbg = kzalloc(sizeof(struct uwb_dbg), GFP_KERNEL);
@@ -325,6 +343,10 @@ void uwb_dbg_add_rc(struct uwb_rc *rc)
 	}
 }
 
+/**
+ * uwb_dbg_del_rc - remove a radio controller's debug interface
+ * @rc: the radio controller
+ */
 void uwb_dbg_del_rc(struct uwb_rc *rc)
 {
 	struct uwb_rsv *rsv, *t;
@@ -347,16 +369,26 @@ void uwb_dbg_del_rc(struct uwb_rc *rc)
 	}
 }
 
+/**
+ * uwb_dbg_exit - initialize the debug interface sub-module
+ */
 void uwb_dbg_init(void)
 {
 	root_dir = debugfs_create_dir("uwb", NULL);
 }
 
+/**
+ * uwb_dbg_exit - clean-up the debug interface sub-module
+ */
 void uwb_dbg_exit(void)
 {
 	debugfs_remove(root_dir);
 }
 
+/**
+ * uwb_dbg_create_pal_dir - create a debugfs directory for a PAL
+ * @pal: The PAL.
+ */
 struct dentry *uwb_dbg_create_pal_dir(struct uwb_pal *pal)
 {
 	struct uwb_rc *rc = pal->rc;

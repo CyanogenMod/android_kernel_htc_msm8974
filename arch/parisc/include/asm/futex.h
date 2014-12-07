@@ -8,6 +8,8 @@
 #include <asm/atomic.h>
 #include <asm/errno.h>
 
+/* The following has to match the LWS code in syscall.S.  We have
+   sixteen four-word locks. */
 
 static inline void
 _futex_spin_lock_irqsave(u32 __user *uaddr, unsigned long int *flags)
@@ -51,13 +53,13 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 
 	switch (op) {
 	case FUTEX_OP_SET:
-		
+		/* *(int *)UADDR2 = OPARG; */
 		ret = get_user(oldval, uaddr);
 		if (!ret)
 			ret = put_user(oparg, uaddr);
 		break;
 	case FUTEX_OP_ADD:
-		
+		/* *(int *)UADDR2 += OPARG; */
 		ret = get_user(oldval, uaddr);
 		if (!ret) {
 			val = oldval + oparg;
@@ -65,7 +67,7 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 		}
 		break;
 	case FUTEX_OP_OR:
-		
+		/* *(int *)UADDR2 |= OPARG; */
 		ret = get_user(oldval, uaddr);
 		if (!ret) {
 			val = oldval | oparg;
@@ -73,7 +75,7 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 		}
 		break;
 	case FUTEX_OP_ANDN:
-		
+		/* *(int *)UADDR2 &= ~OPARG; */
 		ret = get_user(oldval, uaddr);
 		if (!ret) {
 			val = oldval & ~oparg;
@@ -81,7 +83,7 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 		}
 		break;
 	case FUTEX_OP_XOR:
-		
+		/* *(int *)UADDR2 ^= OPARG; */
 		ret = get_user(oldval, uaddr);
 		if (!ret) {
 			val = oldval ^ oparg;
@@ -110,6 +112,7 @@ futex_atomic_op_inuser (int encoded_op, u32 __user *uaddr)
 	return ret;
 }
 
+/* Non-atomic version */
 static inline int
 futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 			      u32 oldval, u32 newval)
@@ -118,12 +121,20 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	u32 val;
 	unsigned long flags;
 
+	/* futex.c wants to do a cmpxchg_inatomic on kernel NULL, which is
+	 * our gateway page, and causes no end of trouble...
+	 */
 	if (segment_eq(KERNEL_DS, get_fs()) && !uaddr)
 		return -EFAULT;
 
 	if (!access_ok(VERIFY_WRITE, uaddr, sizeof(u32)))
 		return -EFAULT;
 
+	/* HPPA has no cmpxchg in hardware and therefore the
+	 * best we can do here is use an array of locks. The
+	 * lock selected is based on a hash of the userspace
+	 * address. This should scale to a couple of CPUs.
+	 */
 
 	_futex_spin_lock_irqsave(uaddr, &flags);
 
@@ -139,5 +150,5 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	return ret;
 }
 
-#endif 
-#endif 
+#endif /*__KERNEL__*/
+#endif /*_ASM_PARISC_FUTEX_H*/

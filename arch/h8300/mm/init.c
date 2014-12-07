@@ -39,6 +39,19 @@
 
 #undef DEBUG
 
+/*
+ * BAD_PAGE is the page that is used for page faults when linux
+ * is out-of-memory. Older versions of linux just did a
+ * do_exit(), but using this instead means there is less risk
+ * for a process dying in kernel mode, possibly leaving a inode
+ * unused etc..
+ *
+ * BAD_PAGETABLE is the accompanying page-table: it is initialized
+ * to point to BAD_PAGE entries.
+ *
+ * ZERO_PAGE is a special page that is used for zero-initialized
+ * data and COW.
+ */
 static unsigned long empty_bad_page_table;
 
 static unsigned long empty_bad_page;
@@ -50,8 +63,18 @@ extern unsigned long rom_length;
 extern unsigned long memory_start;
 extern unsigned long memory_end;
 
+/*
+ * paging_init() continues the virtual memory environment setup which
+ * was begun by the code in arch/head.S.
+ * The parameters are pointers to where to stick the starting and ending
+ * addresses of available kernel virtual memory.
+ */
 void __init paging_init(void)
 {
+	/*
+	 * Make sure start_mem is page aligned,  otherwise bootmem and
+	 * page_alloc get different views og the world.
+	 */
 #ifdef DEBUG
 	unsigned long start_mem = PAGE_ALIGN(memory_start);
 #endif
@@ -62,11 +85,18 @@ void __init paging_init(void)
 		start_mem, end_mem);
 #endif
 
+	/*
+	 * Initialize the bad page table and bad page to point
+	 * to a couple of allocated pages.
+	 */
 	empty_bad_page_table = (unsigned long)alloc_bootmem_pages(PAGE_SIZE);
 	empty_bad_page = (unsigned long)alloc_bootmem_pages(PAGE_SIZE);
 	empty_zero_page = (unsigned long)alloc_bootmem_pages(PAGE_SIZE);
 	memset((void *)empty_zero_page, 0, PAGE_SIZE);
 
+	/*
+	 * Set up SFC/DFC registers (user data space).
+	 */
 	set_fs (USER_DS);
 
 #ifdef DEBUG
@@ -91,13 +121,13 @@ void __init paging_init(void)
 void __init mem_init(void)
 {
 	int codek = 0, datak = 0, initk = 0;
-	
+	/* DAVIDM look at setup memory map generically with reserved area */
 	unsigned long tmp;
 	extern char _etext, _stext, _sdata, _ebss, __init_begin, __init_end;
 	extern unsigned long  _ramend, _ramstart;
 	unsigned long len = &_ramend - &_ramstart;
-	unsigned long start_mem = memory_start; 
-	unsigned long end_mem   = memory_end; 
+	unsigned long start_mem = memory_start; /* DAVIDM - these must start at end of kernel */
+	unsigned long end_mem   = memory_end; /* DAVIDM - this must not include kernel stack at top */
 
 #ifdef DEBUG
 	printk(KERN_DEBUG "Mem_init: start=%lx, end=%lx\n", start_mem, end_mem);
@@ -109,7 +139,7 @@ void __init mem_init(void)
 	start_mem = PAGE_ALIGN(start_mem);
 	max_mapnr = num_physpages = MAP_NR(high_memory);
 
-	
+	/* this will put all memory onto the freelists */
 	totalram_pages = free_all_bootmem();
 
 	codek = (&_etext - &_stext) >> 10;
@@ -149,8 +179,12 @@ free_initmem(void)
 #ifdef CONFIG_RAMKERNEL
 	unsigned long addr;
 	extern char __init_begin, __init_end;
+/*
+ *	the following code should be cool even if these sections
+ *	are not page aligned.
+ */
 	addr = PAGE_ALIGN((unsigned long)(&__init_begin));
-	
+	/* next to check that the page we free is not a partial page */
 	for (; addr + PAGE_SIZE < (unsigned long)(&__init_end); addr +=PAGE_SIZE) {
 		ClearPageReserved(virt_to_page(addr));
 		init_page_count(virt_to_page(addr));

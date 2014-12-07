@@ -55,4 +55,4 @@
 #define CCI_IRQ_STATUS_0_I2C_M1_ERROR_BMSK                          0x60EE6000
 #define CCI_IRQ_STATUS_0_I2C_M0_RD_DONE_BMSK                               0x1
 #define CCI_IRQ_GLOBAL_CLEAR_CMD_ADDR                               0x00000c00
-#endif 
+#endif /* __MSM_CAM_CCI_HWREG__ */

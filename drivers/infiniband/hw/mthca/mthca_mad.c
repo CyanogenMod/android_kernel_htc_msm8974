@@ -98,6 +98,10 @@ static void update_sm_ah(struct mthca_dev *dev,
 	spin_unlock_irqrestore(&dev->sm_lock, flags);
 }
 
+/*
+ * Snoop SM MADs for port info and P_Key table sets, so we can
+ * synthesize LID change and P_Key change events.
+ */
 static void smp_snoop(struct ib_device *ibdev,
 		      u8 port_num,
 		      struct ib_mad *mad,
@@ -169,6 +173,12 @@ static void forward_trap(struct mthca_dev *dev,
 					      IB_MGMT_MAD_DATA, GFP_ATOMIC);
 		if (IS_ERR(send_buf))
 			return;
+		/*
+		 * We rely here on the fact that MLX QPs don't use the
+		 * address handle after the send is posted (this is
+		 * wrong following the IB spec strictly, but we know
+		 * it's OK for our devices).
+		 */
 		spin_lock_irqsave(&dev->sm_lock, flags);
 		memcpy(send_buf->mad, mad, sizeof *mad);
 		if ((send_buf->ah = dev->sm_ah[port_num - 1]))
@@ -195,13 +205,19 @@ int mthca_process_mad(struct ib_device *ibdev,
 	u16 prev_lid = 0;
 	struct ib_port_attr pattr;
 
-	
+	/* Forward locally generated traps to the SM */
 	if (in_mad->mad_hdr.method == IB_MGMT_METHOD_TRAP &&
 	    slid == 0) {
 		forward_trap(to_mdev(ibdev), port_num, in_mad);
 		return IB_MAD_RESULT_SUCCESS | IB_MAD_RESULT_CONSUMED;
 	}
 
+	/*
+	 * Only handle SM gets, sets and trap represses for SM class
+	 *
+	 * Only handle PMA and Mellanox vendor-specific class gets and
+	 * sets for other classes.
+	 */
 	if (in_mad->mad_hdr.mgmt_class == IB_MGMT_CLASS_SUBN_LID_ROUTED ||
 	    in_mad->mad_hdr.mgmt_class == IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE) {
 		if (in_mad->mad_hdr.method   != IB_MGMT_METHOD_GET &&
@@ -209,6 +225,10 @@ int mthca_process_mad(struct ib_device *ibdev,
 		    in_mad->mad_hdr.method   != IB_MGMT_METHOD_TRAP_REPRESS)
 			return IB_MAD_RESULT_SUCCESS;
 
+		/*
+		 * Don't process SMInfo queries or vendor-specific
+		 * MADs -- the SMA can't handle them.
+		 */
 		if (in_mad->mad_hdr.attr_id == IB_SMP_ATTR_SM_INFO ||
 		    ((in_mad->mad_hdr.attr_id & IB_SMP_ATTR_VENDOR_MASK) ==
 		     IB_SMP_ATTR_VENDOR_MASK))
@@ -244,12 +264,12 @@ int mthca_process_mad(struct ib_device *ibdev,
 		node_desc_override(ibdev, out_mad);
 	}
 
-	
+	/* set return bit in status of directed route responses */
 	if (in_mad->mad_hdr.mgmt_class == IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE)
 		out_mad->mad_hdr.status |= cpu_to_be16(1 << 15);
 
 	if (in_mad->mad_hdr.method == IB_MGMT_METHOD_TRAP_REPRESS)
-		
+		/* no response for trap repress */
 		return IB_MAD_RESULT_SUCCESS | IB_MAD_RESULT_CONSUMED;
 
 	return IB_MAD_RESULT_SUCCESS | IB_MAD_RESULT_REPLY;

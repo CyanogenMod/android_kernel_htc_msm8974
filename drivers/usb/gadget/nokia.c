@@ -24,11 +24,20 @@
 #include "u_phonet.h"
 #include "gadget_chips.h"
 
+/* Defines */
 
 #define NOKIA_VERSION_NUM		0x0211
 #define NOKIA_LONG_NAME			"N900 (PC-Suite Mode)"
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
 #include "composite.c"
 #include "usbstring.c"
 #include "config.c"
@@ -42,10 +51,12 @@
 #include "f_phonet.c"
 #include "u_ether.c"
 
+/*-------------------------------------------------------------------------*/
 
-#define NOKIA_VENDOR_ID			0x0421	
-#define NOKIA_PRODUCT_ID		0x01c8	
+#define NOKIA_VENDOR_ID			0x0421	/* Nokia */
+#define NOKIA_PRODUCT_ID		0x01c8	/* Nokia Gadget */
 
+/* string IDs are assigned dynamically */
 
 #define STRING_MANUFACTURER_IDX		0
 #define STRING_PRODUCT_IDX		1
@@ -59,11 +70,11 @@ static struct usb_string strings_dev[] = {
 	[STRING_MANUFACTURER_IDX].s = manufacturer_nokia,
 	[STRING_PRODUCT_IDX].s = NOKIA_LONG_NAME,
 	[STRING_DESCRIPTION_IDX].s = description_nokia,
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings stringtab_dev = {
-	.language	= 0x0409,	
+	.language	= 0x0409,	/* en-us */
 	.strings	= strings_dev,
 };
 
@@ -79,16 +90,19 @@ static struct usb_device_descriptor device_desc = {
 	.bDeviceClass		= USB_CLASS_COMM,
 	.idVendor		= __constant_cpu_to_le16(NOKIA_VENDOR_ID),
 	.idProduct		= __constant_cpu_to_le16(NOKIA_PRODUCT_ID),
-	
-	
+	/* .iManufacturer = DYNAMIC */
+	/* .iProduct = DYNAMIC */
 	.bNumConfigurations =	1,
 };
 
+/*-------------------------------------------------------------------------*/
 
+/* Module */
 MODULE_DESCRIPTION("Nokia composite gadget driver for N900");
 MODULE_AUTHOR("Felipe Balbi");
 MODULE_LICENSE("GPL");
 
+/*-------------------------------------------------------------------------*/
 
 static u8 hostaddr[ETH_ALEN];
 
@@ -122,17 +136,17 @@ static int __init nokia_bind_config(struct usb_configuration *c)
 static struct usb_configuration nokia_config_500ma_driver = {
 	.label		= "Bus Powered",
 	.bConfigurationValue = 1,
-	
+	/* .iConfiguration = DYNAMIC */
 	.bmAttributes	= USB_CONFIG_ATT_ONE,
-	.bMaxPower	= 250, 
+	.bMaxPower	= 250, /* 500mA */
 };
 
 static struct usb_configuration nokia_config_100ma_driver = {
 	.label		= "Self Powered",
 	.bConfigurationValue = 2,
-	
+	/* .iConfiguration = DYNAMIC */
 	.bmAttributes	= USB_CONFIG_ATT_ONE | USB_CONFIG_ATT_SELFPOWER,
-	.bMaxPower	= 50, 
+	.bMaxPower	= 50, /* 100 mA */
 };
 
 static int __init nokia_bind(struct usb_composite_dev *cdev)
@@ -167,7 +181,7 @@ static int __init nokia_bind(struct usb_composite_dev *cdev)
 
 	device_desc.iProduct = status;
 
-	
+	/* config description */
 	status = usb_string_id(cdev);
 	if (status < 0)
 		goto err_usb;
@@ -176,17 +190,20 @@ static int __init nokia_bind(struct usb_composite_dev *cdev)
 	nokia_config_500ma_driver.iConfiguration = status;
 	nokia_config_100ma_driver.iConfiguration = status;
 
-	
+	/* set up other descriptors */
 	gcnum = usb_gadget_controller_number(gadget);
 	if (gcnum >= 0)
 		device_desc.bcdDevice = cpu_to_le16(NOKIA_VERSION_NUM);
 	else {
+		/* this should only work with hw that supports altsettings
+		 * and several endpoints, anything else, panic.
+		 */
 		pr_err("nokia_bind: controller '%s' not recognized\n",
 			gadget->name);
 		goto err_usb;
 	}
 
-	
+	/* finally register the configuration */
 	status = usb_add_config(cdev, &nokia_config_500ma_driver,
 			nokia_bind_config);
 	if (status < 0)

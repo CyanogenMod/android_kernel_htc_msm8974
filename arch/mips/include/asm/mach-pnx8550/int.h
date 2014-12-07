@@ -35,6 +35,7 @@
 #define PNX8550_GIC_REQ(x)	*(volatile unsigned long *)(PNX8550_GIC_BASE + 0x400 + (x)*4)
 #define PNX8550_GIC_MOD_ID	*(volatile unsigned long *)(PNX8550_GIC_BASE + 0xFFC)
 
+// cp0 is two software + six hw exceptions
 #define PNX8550_INT_CP0_TOTINT	8
 #define PNX8550_INT_CP0_MIN	0
 #define PNX8550_INT_CP0_MAX	(PNX8550_INT_CP0_MIN + PNX8550_INT_CP0_TOTINT - 1)
@@ -42,6 +43,7 @@
 #define MIPS_CPU_GIC_IRQ        2
 #define MIPS_CPU_TIMER_IRQ      7
 
+// GIC are 71 exceptions connected to cp0's first hardware exception
 #define PNX8550_INT_GIC_TOTINT	71
 #define PNX8550_INT_GIC_MIN	(PNX8550_INT_CP0_MAX+1)
 #define PNX8550_INT_GIC_MAX	(PNX8550_INT_GIC_MIN + PNX8550_INT_GIC_TOTINT - 1)
@@ -125,6 +127,7 @@
 
 #define PNX8550_INT_I2C4               (PNX8550_INT_GIC_MIN+70)
 
+// Timer are 3 exceptions connected to cp0's 7th hardware exception
 #define PNX8550_INT_TIMER_TOTINT       3
 #define PNX8550_INT_TIMER_MIN	       (PNX8550_INT_GIC_MAX+1)
 #define PNX8550_INT_TIMER_MAX          (PNX8550_INT_TIMER_MIN + PNX8550_INT_TIMER_TOTINT - 1)

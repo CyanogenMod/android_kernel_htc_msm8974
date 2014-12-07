@@ -26,12 +26,12 @@ static const u8 asb2364_led_hex_tbl[16] = {
 };
 
 static const u32 asb2364_led_chase_tbl[6] = {
-	~0x02020202,	
-	~0x04040404,	
-	~0x08080808,	
-	~0x10101010,	
-	~0x20202020,	
-	~0x40404040,	
+	~0x02020202,	/* top		- segA */
+	~0x04040404,	/* right top	- segB */
+	~0x08080808,	/* right bottom	- segC */
+	~0x10101010,	/* bottom	- segD */
+	~0x20202020,	/* left bottom	- segE */
+	~0x40404040,	/* left top	- segF */
 };
 
 static unsigned asb2364_led_chase;
@@ -68,6 +68,7 @@ void peripheral_leds7x4_display_hex(unsigned int val, unsigned int points)
 	ASB2364_7SEGLEDS = leds;
 }
 
+/* display triple horizontal bar and exception code */
 void peripheral_leds_display_exception(enum exception_code code)
 {
 	u32 leds;
@@ -89,9 +90,9 @@ void peripheral_leds_led_chase(void)
 	if (asb2364_led_chase >= 6)
 		asb2364_led_chase = 0;
 }
-#else  
+#else  /* MN10300_USE_7SEGLEDS */
 void peripheral_leds7x4_display_dec(unsigned int val, unsigned int points) { }
 void peripheral_leds7x4_display_hex(unsigned int val, unsigned int points) { }
 void peripheral_leds_display_exception(enum exception_code code) { }
 void peripheral_leds_led_chase(void) { }
-#endif 
+#endif /* MN10300_USE_7SEGLEDS */

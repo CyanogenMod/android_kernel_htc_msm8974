@@ -32,6 +32,10 @@ static const struct omap_vp_ops omap4_vp_ops = {
 	.clear_txdone = omap4_prm_vp_clear_txdone,
 };
 
+/*
+ * VP data common to 44xx chips
+ * XXX This stuff presumably belongs in the vp44xx.c or vp.c file.
+ */
 static const struct omap_vp_common omap4_vp_common = {
 	.vpconfig_erroroffset_mask = OMAP4430_ERROROFFSET_MASK,
 	.vpconfig_errorgain_mask = OMAP4430_ERRORGAIN_MASK,

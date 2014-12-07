@@ -53,7 +53,7 @@ static void prom_putchar_ar933x(unsigned char ch)
 
 static void prom_putchar_dummy(unsigned char ch)
 {
-	
+	/* nothing to do */
 }
 
 static void prom_putchar_init(void)

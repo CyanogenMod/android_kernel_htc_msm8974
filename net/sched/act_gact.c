@@ -51,7 +51,7 @@ static int gact_determ(struct tcf_gact *gact)
 
 typedef int (*g_rand)(struct tcf_gact *gact);
 static g_rand gact_rand[MAX_RAND] = { NULL, gact_net_rand, gact_determ };
-#endif 
+#endif /* CONFIG_GACT_PROB */
 
 static const struct nla_policy gact_policy[TCA_GACT_MAX + 1] = {
 	[TCA_GACT_PARMS]	= { .len = sizeof(struct tc_gact) },

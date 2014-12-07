@@ -21,8 +21,11 @@
 #include <linux/kdebug.h>
 #include <linux/kgdb.h>
 
+/* All registers are 4 bytes, for now */
 #define GDB_SIZEOF_REG 4
 
+/* The register names are used during printing of the regs;
+ * Keep these at three letters to pretty-print. */
 struct dbg_reg_def_t dbg_reg_def[DBG_MAX_REG_NUM] = {
 	{ " r0", GDB_SIZEOF_REG, offsetof(struct pt_regs, r00)},
 	{ " r1", GDB_SIZEOF_REG, offsetof(struct pt_regs, r01)},
@@ -76,7 +79,7 @@ struct dbg_reg_def_t dbg_reg_def[DBG_MAX_REG_NUM] = {
 };
 
 struct kgdb_arch arch_kgdb_ops = {
-	
+	/* trap0(#0xDB) 0x0cdb0054 */
 	.gdb_bpt_instr = {0x54, 0x00, 0xdb, 0x0c},
 };
 
@@ -109,6 +112,22 @@ void kgdb_arch_set_pc(struct pt_regs *regs, unsigned long pc)
 
 #ifdef CONFIG_SMP
 
+/**
+ * kgdb_roundup_cpus - Get other CPUs into a holding pattern
+ * @flags: Current IRQ state
+ *
+ * On SMP systems, we need to get the attention of the other CPUs
+ * and get them be in a known state.  This should do what is needed
+ * to get the other CPUs to call kgdb_wait(). Note that on some arches,
+ * the NMI approach is not used for rounding up all the CPUs. For example,
+ * in case of MIPS, smp_call_function() is used to roundup CPUs. In
+ * this case, we have to make sure that interrupts are enabled before
+ * calling smp_call_function(). The argument to this function is
+ * the flags that will be used when restoring the interrupts. There is
+ * local_irq_save() call before kgdb_roundup_cpus().
+ *
+ * On non-SMP systems, this is not called.
+ */
 
 static void hexagon_kgdb_nmi_hook(void *ignored)
 {
@@ -124,6 +143,7 @@ void kgdb_roundup_cpus(unsigned long flags)
 #endif
 
 
+/*  Not yet working  */
 void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs,
 				 struct task_struct *task)
 {
@@ -132,14 +152,32 @@ void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs,
 	if (task == NULL)
 		return;
 
-	
+	/* Initialize to zero */
 	memset(gdb_regs, 0, NUMREGBYTES);
 
-	
+	/* Otherwise, we have only some registers from switch_to() */
 	thread_regs = task_pt_regs(task);
 	gdb_regs[0] = thread_regs->r00;
 }
 
+/**
+ * kgdb_arch_handle_exception - Handle architecture specific GDB packets.
+ * @vector: The error vector of the exception that happened.
+ * @signo: The signal number of the exception that happened.
+ * @err_code: The error code of the exception that happened.
+ * @remcom_in_buffer: The buffer of the packet we have read.
+ * @remcom_out_buffer: The buffer of %BUFMAX bytes to write a packet into.
+ * @regs: The &struct pt_regs of the current process.
+ *
+ * This function MUST handle the 'c' and 's' command packets,
+ * as well packets to set / remove a hardware breakpoint, if used.
+ * If there are additional packets which the hardware needs to handle,
+ * they are handled here.  The code should return -1 if it wants to
+ * process more packets, and a %0 or %1 if it wants to exit from the
+ * kgdb callback.
+ *
+ * Not yet working.
+ */
 int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 			       char *remcom_in_buffer, char *remcom_out_buffer,
 			       struct pt_regs *linux_regs)
@@ -149,13 +187,13 @@ int kgdb_arch_handle_exception(int vector, int signo, int err_code,
 	case 'c':
 		return 0;
 	}
-	
+	/* Stay in the debugger. */
 	return -1;
 }
 
 static int __kgdb_notify(struct die_args *args, unsigned long cmd)
 {
-	
+	/* cpu roundup */
 	if (atomic_read(&kgdb_active) != -1) {
 		kgdb_nmicallback(smp_processor_id(), args->regs);
 		return NOTIFY_STOP;
@@ -187,14 +225,29 @@ kgdb_notify(struct notifier_block *self, unsigned long cmd, void *ptr)
 static struct notifier_block kgdb_notifier = {
 	.notifier_call = kgdb_notify,
 
+	/*
+	 * Lowest-prio notifier priority, we want to be notified last:
+	 */
 	.priority = -INT_MAX,
 };
 
+/**
+ * kgdb_arch_init - Perform any architecture specific initalization.
+ *
+ * This function will handle the initalization of any architecture
+ * specific callbacks.
+ */
 int kgdb_arch_init(void)
 {
 	return register_die_notifier(&kgdb_notifier);
 }
 
+/**
+ * kgdb_arch_exit - Perform any architecture specific uninitalization.
+ *
+ * This function will handle the uninitalization of any architecture
+ * specific callbacks, for dynamic registration and unregistration.
+ */
 void kgdb_arch_exit(void)
 {
 	unregister_die_notifier(&kgdb_notifier);

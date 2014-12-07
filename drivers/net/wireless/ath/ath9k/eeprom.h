@@ -79,9 +79,19 @@
 #define SUB_NUM_CTL_MODES_AT_5G_40 2
 #define SUB_NUM_CTL_MODES_AT_2G_40 3
 
-#define INCREASE_MAXPOW_BY_TWO_CHAIN     6  
-#define INCREASE_MAXPOW_BY_THREE_CHAIN   10 
+#define INCREASE_MAXPOW_BY_TWO_CHAIN     6  /* 10*log10(2)*2 */
+#define INCREASE_MAXPOW_BY_THREE_CHAIN   10 /* 10*log10(3)*2 */
 
+/*
+ * For AR9285 and later chipsets, the following bits are not being programmed
+ * in EEPROM and so need to be enabled always.
+ *
+ * Bit 0: en_fcc_mid
+ * Bit 1: en_jap_mid
+ * Bit 2: en_fcc_dfs_ht40
+ * Bit 3: en_jap_ht40
+ * Bit 4: en_jap_dfs_ht40
+ */
 #define AR9285_RDEXT_DEFAULT    0x1F
 
 #define ATH9K_POW_SM(_r, _s)	(((_r) & 0x3f) << (_s))
@@ -141,10 +151,12 @@
 #define AR9300_MAX_CHAINS		3
 #define AR5416_PWR_TABLE_OFFSET_DB     -5
 
+/* Rx gain type values */
 #define AR5416_EEP_RXGAIN_23DB_BACKOFF     0
 #define AR5416_EEP_RXGAIN_13DB_BACKOFF     1
 #define AR5416_EEP_RXGAIN_ORIG             2
 
+/* Tx gain type values */
 #define AR5416_EEP_TXGAIN_ORIGINAL         0
 #define AR5416_EEP_TXGAIN_HIGH_POWER       1
 
@@ -695,4 +707,4 @@ extern const struct eeprom_ops eep_ar9287_ops;
 extern const struct eeprom_ops eep_ar9287_ops;
 extern const struct eeprom_ops eep_ar9300_ops;
 
-#endif 
+#endif /* EEPROM_H */

@@ -44,8 +44,8 @@
 	cmp.eq pred_clob, p0 = r0, r0		\
 	;;
 #else
-# define CLOBBER(clob)			
-# define CLOBBER_PRED(pred_clob)	
+# define CLOBBER(clob)			/* nothing */
+# define CLOBBER_PRED(pred_clob)	/* nothing */
 #endif
 
 #define MOV_FROM_IFA(reg)	\
@@ -133,7 +133,7 @@
 	CLOBBER(clob0)							\
 	CLOBBER(clob1)							\
 	;;								\
-	srlz.i 	\
+	srlz.i /* guarantee that interruption collectin is on */	\
 	;;
 
 #define SSM_PSR_IC_AND_SRLZ_D(clob0, clob1)	\

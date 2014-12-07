@@ -41,8 +41,10 @@ static void snddev_hsed_config_modify_setting(int type);
 static void snddev_hsed_config_restore_setting(void);
 #endif
 
+/* GPIO_CLASS_D0_EN */
 #define SNDDEV_GPIO_CLASS_D0_EN 227
 
+/* GPIO_CLASS_D1_EN */
 #define SNDDEV_GPIO_CLASS_D1_EN 229
 
 #define SNDDEV_GPIO_MIC2_ANCR_SEL 294
@@ -158,6 +160,7 @@ static struct platform_device msm_mi2s_device = {
 	.resource	= msm_mi2s_gpio_resources,
 };
 
+/* Must be same size as msm_icodec_gpio_resources */
 static int msm_icodec_gpio_defaults[] = {
 	0,
 	0,
@@ -254,7 +257,7 @@ static void msm_snddev_disable_dmic_power(void)
 	}
 }
 
-#define PM8901_MPP_3 (2) 
+#define PM8901_MPP_3 (2) /* PM8901 MPP starts from 0 */
 
 static int config_class_d0_gpio(int enable)
 {
@@ -355,6 +358,7 @@ static void msm_snddev_poweramp_off(void)
 	}
 }
 
+/* Regulator 8058_l10 supplies regulator 8058_ncp. */
 static struct regulator *snddev_reg_ncp;
 static struct regulator *snddev_reg_l10;
 
@@ -1124,8 +1128,8 @@ static struct snddev_mi2s_data snddev_mi2s_fm_tx_data = {
 	.capability = SNDDEV_CAP_TX ,
 	.name = "fmradio_stereo_tx",
 	.copp_id = MI2S_TX,
-	.channel_mode = 2, 
-	.sd_lines = MI2S_SD3, 
+	.channel_mode = 2, /* stereo */
+	.sd_lines = MI2S_SD3, /* sd3 */
 	.sample_rate = 48000,
 };
 
@@ -1138,8 +1142,8 @@ static struct snddev_mi2s_data snddev_mi2s_fm_rx_data = {
 	.capability = SNDDEV_CAP_RX ,
 	.name = "fmradio_stereo_rx",
 	.copp_id = MI2S_RX,
-	.channel_mode = 2, 
-	.sd_lines = MI2S_SD3, 
+	.channel_mode = 2, /* stereo */
+	.sd_lines = MI2S_SD3, /* sd3 */
 	.sample_rate = 48000,
 };
 
@@ -1221,6 +1225,7 @@ static struct platform_device msm_ihs_stereo_speaker_stereo_rx_device = {
 	.dev = { .platform_data = &snddev_ihs_stereo_speaker_stereo_rx_data },
 };
 
+/* define the value for BT_SCO */
 
 static struct snddev_ecodec_data snddev_bt_sco_earpiece_data = {
 	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_VOICE),
@@ -2031,6 +2036,9 @@ static struct snddev_icodec_data ftm_handset_mic1_aux_in_data = {
 	.profile = &ftm_handset_mic1_aux_in_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
+	/* Assumption is that inputs are not tied to analog mic, so
+	 * no need to enable mic bias.
+	 */
 	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
@@ -2043,8 +2051,8 @@ static struct snddev_mi2s_data snddev_mi2s_sd0_rx_data = {
 	.capability = SNDDEV_CAP_RX ,
 	.name = "mi2s_sd0_rx",
 	.copp_id = MI2S_RX,
-	.channel_mode = 2, 
-	.sd_lines = MI2S_SD0, 
+	.channel_mode = 2, /* stereo */
+	.sd_lines = MI2S_SD0, /* sd0 */
 	.sample_rate = 48000,
 };
 
@@ -2057,8 +2065,8 @@ static struct snddev_mi2s_data snddev_mi2s_sd1_rx_data = {
 	.capability = SNDDEV_CAP_RX ,
 	.name = "mi2s_sd1_rx",
 	.copp_id = MI2S_RX,
-	.channel_mode = 2, 
-	.sd_lines = MI2S_SD1, 
+	.channel_mode = 2, /* stereo */
+	.sd_lines = MI2S_SD1, /* sd1 */
 	.sample_rate = 48000,
 };
 
@@ -2071,8 +2079,8 @@ static struct snddev_mi2s_data snddev_mi2s_sd2_rx_data = {
 	.capability = SNDDEV_CAP_RX ,
 	.name = "mi2s_sd2_rx",
 	.copp_id = MI2S_RX,
-	.channel_mode = 2, 
-	.sd_lines = MI2S_SD2, 
+	.channel_mode = 2, /* stereo */
+	.sd_lines = MI2S_SD2, /* sd2 */
 	.sample_rate = 48000,
 };
 
@@ -2081,6 +2089,7 @@ static struct platform_device ftm_mi2s_sd2_rx_device = {
 	.dev = { .platform_data = &snddev_mi2s_sd2_rx_data },
 };
 
+/* earpiece */
 static struct adie_codec_action_unit ftm_handset_adie_lp_rx_actions[] =
 	EAR_PRI_MONO_LB;
 
@@ -2393,7 +2402,7 @@ static struct platform_device ftm_headset_mic_adie_lp_tx_device = {
 	.name = "snddev_icodec",
 	.dev = { .platform_data = &ftm_headset_mic_adie_lp_tx_data },
 };
-#endif 
+#endif /* CONFIG_MSM8X60_FTM_AUDIO_DEVICES */
 
 static struct snddev_virtual_data snddev_uplink_rx_data = {
 	.capability = SNDDEV_CAP_RX,
@@ -2670,7 +2679,7 @@ void __init msm_snddev_init(void)
 	platform_add_devices(snd_devices_common,
 		ARRAY_SIZE(snd_devices_common));
 
-	
+	/* Auto detect device base on machine info */
 	if (machine_is_msm8x60_surf() || machine_is_msm8x60_fusion()) {
 		for (i = 0; i < ARRAY_SIZE(snd_devices_surf); i++)
 			snd_devices_surf[i]->id = dev_id++;

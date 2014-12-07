@@ -31,6 +31,10 @@
 #define __RTL_PCI_H__
 
 #include <linux/pci.h>
+/*
+1: MSDU packet queue,
+2: Rx Command Queue
+*/
 #define RTL_PCI_RX_MPDU_QUEUE			0
 #define RTL_PCI_RX_CMD_QUEUE			1
 #define RTL_PCI_MAX_RX_QUEUE			2
@@ -62,34 +66,35 @@
 #define PCI_MAX_DEVICES				32
 #define PCI_MAX_FUNCTION			8
 
-#define PCI_CONF_ADDRESS	0x0CF8	
-#define PCI_CONF_DATA		0x0CFC	
+#define PCI_CONF_ADDRESS	0x0CF8	/*PCI Configuration Space Address */
+#define PCI_CONF_DATA		0x0CFC	/*PCI Configuration Space Data */
 
 #define U1DONTCARE			0xFF
 #define U2DONTCARE			0xFFFF
 #define U4DONTCARE			0xFFFFFFFF
 
-#define RTL_PCI_8192_DID	0x8192	
-#define RTL_PCI_8192SE_DID	0x8192	
-#define RTL_PCI_8174_DID	0x8174	
-#define RTL_PCI_8173_DID	0x8173	
-#define RTL_PCI_8172_DID	0x8172	
-#define RTL_PCI_8171_DID	0x8171	
-#define RTL_PCI_0045_DID	0x0045	
-#define RTL_PCI_0046_DID	0x0046	
-#define RTL_PCI_0044_DID	0x0044	
-#define RTL_PCI_0047_DID	0x0047	
+#define RTL_PCI_8192_DID	0x8192	/*8192 PCI-E */
+#define RTL_PCI_8192SE_DID	0x8192	/*8192 SE */
+#define RTL_PCI_8174_DID	0x8174	/*8192 SE */
+#define RTL_PCI_8173_DID	0x8173	/*8191 SE Crab */
+#define RTL_PCI_8172_DID	0x8172	/*8191 SE RE */
+#define RTL_PCI_8171_DID	0x8171	/*8191 SE Unicron */
+#define RTL_PCI_0045_DID	0x0045	/*8190 PCI for Ceraga */
+#define RTL_PCI_0046_DID	0x0046	/*8190 Cardbus for Ceraga */
+#define RTL_PCI_0044_DID	0x0044	/*8192e PCIE for Ceraga */
+#define RTL_PCI_0047_DID	0x0047	/*8192e Express Card for Ceraga */
 #define RTL_PCI_700F_DID	0x700F
 #define RTL_PCI_701F_DID	0x701F
 #define RTL_PCI_DLINK_DID	0x3304
-#define RTL_PCI_8192CET_DID	0x8191	
-#define RTL_PCI_8192CE_DID	0x8178	
-#define RTL_PCI_8191CE_DID	0x8177	
-#define RTL_PCI_8188CE_DID	0x8176	
-#define RTL_PCI_8192CU_DID	0x8191	
-#define RTL_PCI_8192DE_DID	0x8193	
-#define RTL_PCI_8192DE_DID2	0x002B	
+#define RTL_PCI_8192CET_DID	0x8191	/*8192ce */
+#define RTL_PCI_8192CE_DID	0x8178	/*8192ce */
+#define RTL_PCI_8191CE_DID	0x8177	/*8192ce */
+#define RTL_PCI_8188CE_DID	0x8176	/*8192ce */
+#define RTL_PCI_8192CU_DID	0x8191	/*8192ce */
+#define RTL_PCI_8192DE_DID	0x8193	/*8192de */
+#define RTL_PCI_8192DE_DID2	0x002B	/*92DE*/
 
+/*8192 support 16 pages of IO registers*/
 #define RTL_MEM_MAPPED_IO_RANGE_8190PCI		0x1000
 #define RTL_MEM_MAPPED_IO_RANGE_8192PCIE	0x4000
 #define RTL_MEM_MAPPED_IO_RANGE_8192SE		0x4000
@@ -105,11 +110,11 @@
 #define RTL_DEFAULT_HARDWARE_TYPE	HARDWARE_TYPE_RTL8192CE
 
 enum pci_bridge_vendor {
-	PCI_BRIDGE_VENDOR_INTEL = 0x0,	
-	PCI_BRIDGE_VENDOR_ATI,		
-	PCI_BRIDGE_VENDOR_AMD,		
-	PCI_BRIDGE_VENDOR_SIS,		
-	PCI_BRIDGE_VENDOR_UNKNOWN,	
+	PCI_BRIDGE_VENDOR_INTEL = 0x0,	/*0b'0000,0001 */
+	PCI_BRIDGE_VENDOR_ATI,		/*0b'0000,0010*/
+	PCI_BRIDGE_VENDOR_AMD,		/*0b'0000,0100*/
+	PCI_BRIDGE_VENDOR_SIS,		/*0b'0000,1000*/
+	PCI_BRIDGE_VENDOR_UNKNOWN,	/*0b'0100,0000*/
 	PCI_BRIDGE_VENDOR_MAX,
 };
 
@@ -154,36 +159,38 @@ struct rtl_pci {
 	bool being_init_adapter;
 	bool init_ready;
 
-	
+	/*Tx */
 	struct rtl8192_tx_ring tx_ring[RTL_PCI_MAX_TX_QUEUE_COUNT];
 	int txringcount[RTL_PCI_MAX_TX_QUEUE_COUNT];
 	u32 transmit_config;
 
-	
+	/*Rx */
 	struct rtl8192_rx_ring rx_ring[RTL_PCI_MAX_RX_QUEUE];
 	int rxringcount;
 	u16 rxbuffersize;
 	u32 receive_config;
 
-	
+	/*irq */
 	u8 irq_alloc;
 	u32 irq_mask[2];
 
-	
+	/*Bcn control register setting */
 	u32 reg_bcn_ctrl_val;
 
-	  u8 const_pci_aspm;
+	 /*ASPM*/ u8 const_pci_aspm;
 	u8 const_amdpci_aspm;
 	u8 const_hwsw_rfoff_d3;
 	u8 const_support_pciaspm;
-	
+	/*pci-e bridge */
 	u8 const_hostpci_aspm_setting;
-	
+	/*pci-e device */
 	u8 const_devicepci_aspm_setting;
+	/*If it supports ASPM, Offset[560h] = 0x40,
+	   otherwise Offset[560h] = 0x00. */
 	bool support_aspm;
 	bool support_backdoor;
 
-	
+	/*QOS & EDCA */
 	enum acm_method acm_method;
 
 	u16 shortretry_limit;

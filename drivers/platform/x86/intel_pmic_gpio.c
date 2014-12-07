@@ -15,6 +15,9 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * Moorestown platform PMIC chip
+ */
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
@@ -35,6 +38,9 @@
 
 #define DRIVER_NAME "pmic_gpio"
 
+/* register offset that IPC driver should use
+ * 8 GPIO + 8 GPOSW (6 controllable) + 8GPO
+ */
 enum pmic_gpio_register {
 	GPIO0		= 0xE0,
 	GPIO7		= 0xE7,
@@ -44,6 +50,7 @@ enum pmic_gpio_register {
 	GPO		= 0xF4,
 };
 
+/* bits definition for GPIO & GPOSW */
 #define GPIO_DRV 0x01
 #define GPIO_DIR 0x02
 #define GPIO_DIN 0x04
@@ -86,7 +93,7 @@ static int pmic_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
 	if (offset > 8) {
 		pr_err("only pin 0-7 support input\n");
-		return -1;
+		return -1;/* we only have 8 GPIO can use as input */
 	}
 	return intel_scu_ipc_update_register(GPIO0 + offset,
 							GPIO_DIR, GPIO_DIR);
@@ -97,15 +104,15 @@ static int pmic_gpio_direction_output(struct gpio_chip *chip,
 {
 	int rc = 0;
 
-	if (offset < 8)
+	if (offset < 8)/* it is GPIO */
 		rc = intel_scu_ipc_update_register(GPIO0 + offset,
 				GPIO_DRV | (value ? GPIO_DOU : 0),
 				GPIO_DRV | GPIO_DOU | GPIO_DIR);
-	else if (offset < 16)
+	else if (offset < 16)/* it is GPOSW */
 		rc = intel_scu_ipc_update_register(GPOSWCTL0 + offset - 8,
 				GPOSW_DRV | (value ? GPOSW_DOU : 0),
 				GPOSW_DRV | GPOSW_DOU | GPOSW_RDRV);
-	else if (offset > 15 && offset < 24)
+	else if (offset > 15 && offset < 24)/* it is GPO */
 		rc = intel_scu_ipc_update_register(GPO,
 				value ? 1 << (offset - 16) : 0,
 				1 << (offset - 16));
@@ -122,7 +129,7 @@ static int pmic_gpio_get(struct gpio_chip *chip, unsigned offset)
 	u8 r;
 	int ret;
 
-	
+	/* we only have 8 GPIO pins we can use as input */
 	if (offset > 8)
 		return -EOPNOTSUPP;
 	ret = intel_scu_ipc_ioread8(GPIO0 + offset, &r);
@@ -133,20 +140,25 @@ static int pmic_gpio_get(struct gpio_chip *chip, unsigned offset)
 
 static void pmic_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 {
-	if (offset < 8)
+	if (offset < 8)/* it is GPIO */
 		intel_scu_ipc_update_register(GPIO0 + offset,
 			GPIO_DRV | (value ? GPIO_DOU : 0),
 			GPIO_DRV | GPIO_DOU);
-	else if (offset < 16)
+	else if (offset < 16)/* it is GPOSW */
 		intel_scu_ipc_update_register(GPOSWCTL0 + offset - 8,
 			GPOSW_DRV | (value ? GPOSW_DOU : 0),
 			GPOSW_DRV | GPOSW_DOU | GPOSW_RDRV);
-	else if (offset > 15 && offset < 24) 
+	else if (offset > 15 && offset < 24) /* it is GPO */
 		intel_scu_ipc_update_register(GPO,
 			value ? 1 << (offset - 16) : 0,
 			1 << (offset - 16));
 }
 
+/*
+ * This is called from genirq with pg->buslock locked and
+ * irq_desc->lock held. We can not access the scu bus here, so we
+ * store the change and update in the bus_sync_unlock() function below
+ */
 static int pmic_irq_type(struct irq_data *data, unsigned type)
 {
 	struct pmic_gpio *pg = irq_data_get_irq_chip_data(data);
@@ -187,6 +199,7 @@ static void pmic_bus_sync_unlock(struct irq_data *data)
 	mutex_unlock(&pg->buslock);
 }
 
+/* the gpiointr register is read-clear, so just do nothing. */
 static void pmic_irq_unmask(struct irq_data *data) { }
 
 static void pmic_irq_mask(struct irq_data *data) { }
@@ -244,7 +257,7 @@ static int __devinit platform_pmic_gpio_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, pg);
 
 	pg->irq = irq;
-	
+	/* setting up SRAM mapping for GPIOINT register */
 	pg->gpiointr = ioremap_nocache(pdata->gpiointr, 8);
 	if (!pg->gpiointr) {
 		pr_err("Can not map GPIOINT\n");
@@ -293,6 +306,8 @@ err2:
 	return retval;
 }
 
+/* at the same time, register a platform driver
+ * this supports the sfi 0.81 fw */
 static struct platform_driver platform_pmic_gpio_driver = {
 	.driver = {
 		.name		= DRIVER_NAME,

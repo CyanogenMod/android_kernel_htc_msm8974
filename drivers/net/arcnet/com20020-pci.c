@@ -44,9 +44,10 @@
 
 #define VERSION "arcnet: COM20020 PCI support\n"
 
+/* Module parameters */
 
 static int node;
-static char device[9];		
+static char device[9];		/* use eg. device="arc1" to change name */
 static int timeout = 3;
 static int backplane;
 static int clockp;
@@ -78,7 +79,7 @@ static int __devinit com20020pci_probe(struct pci_dev *pdev, const struct pci_de
 
 	pci_set_drvdata(pdev, dev);
 
-	
+	// SOHARD needs PCI base addr 4
 	if (pdev->vendor==0x10B5) {
 		BUGMSG(D_NORMAL, "SOHARD\n");
 		ioaddr = pci_resource_start(pdev, 4);
@@ -95,8 +96,8 @@ static int __devinit com20020pci_probe(struct pci_dev *pdev, const struct pci_de
 		goto out_dev;
 	}
 
-	
-	
+	// Dummy access after Reset
+	// ARCNET controller needs this access to detect bustype
 	outb(0x00,ioaddr+1);
 	inb(ioaddr+1);
 

@@ -22,18 +22,18 @@ extern int mem_init_done;
 
 #ifndef CONFIG_MMU
 
-#define pgd_present(pgd)	(1) 
+#define pgd_present(pgd)	(1) /* pages are always present on non MMU */
 #define pgd_none(pgd)		(0)
 #define pgd_bad(pgd)		(0)
 #define pgd_clear(pgdp)
 #define kern_addr_valid(addr)	(1)
 #define	pmd_offset(a, b)	((void *) 0)
 
-#define PAGE_NONE		__pgprot(0) 
-#define PAGE_SHARED		__pgprot(0) 
-#define PAGE_COPY		__pgprot(0) 
-#define PAGE_READONLY		__pgprot(0) 
-#define PAGE_KERNEL		__pgprot(0) 
+#define PAGE_NONE		__pgprot(0) /* these mean nothing to non MMU */
+#define PAGE_SHARED		__pgprot(0) /* these mean nothing to non MMU */
+#define PAGE_COPY		__pgprot(0) /* these mean nothing to non MMU */
+#define PAGE_READONLY		__pgprot(0) /* these mean nothing to non MMU */
+#define PAGE_KERNEL		__pgprot(0) /* these mean nothing to non MMU */
 
 #define pgprot_noncached(x)	(x)
 
@@ -45,7 +45,7 @@ extern int mem_init_done;
 
 #ifndef __ASSEMBLY__
 static inline int pte_file(pte_t pte) { return 0; }
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define ZERO_PAGE(vaddr)	({ BUG(); NULL; })
 
@@ -57,10 +57,14 @@ static inline int pte_file(pte_t pte) { return 0; }
 
 #define pgprot_noncached_wc(prot)	prot
 
+/*
+ * All 32bit addresses are effectively valid for vmalloc...
+ * Sort of meaningless for non-VM targets.
+ */
 #define	VMALLOC_START	0
 #define	VMALLOC_END	0xffffffff
 
-#else 
+#else /* CONFIG_MMU */
 
 #include <asm-generic/4level-fixup.h>
 
@@ -69,7 +73,7 @@ static inline int pte_file(pte_t pte) { return 0; }
 
 #include <linux/sched.h>
 #include <linux/threads.h>
-#include <asm/processor.h>		
+#include <asm/processor.h>		/* For TASK_SIZE */
 #include <asm/mmu.h>
 #include <asm/page.h>
 
@@ -78,16 +82,26 @@ static inline int pte_file(pte_t pte) { return 0; }
 extern unsigned long va_to_phys(unsigned long address);
 extern pte_t *va_to_pte(unsigned long address);
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 
 static inline int pte_special(pte_t pte)	{ return 0; }
 
 static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 
+/* Start and end of the vmalloc area. */
+/* Make sure to map the vmalloc area above the pinned kernel memory area
+   of 32Mb.  */
 #define VMALLOC_START	(CONFIG_KERNEL_START + CONFIG_LOWMEM_SIZE)
 #define VMALLOC_END	ioremap_bot
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/*
+ * Macro to mark a page protection value as "uncacheable".
+ */
 
 #define _PAGE_CACHE_CTL	(_PAGE_GUARDED | _PAGE_NO_CACHE | \
 							_PAGE_WRITETHRU)
@@ -100,17 +114,49 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 			 (__pgprot((pgprot_val(prot) & ~_PAGE_CACHE_CTL) | \
 							_PAGE_NO_CACHE))
 
+/*
+ * The MicroBlaze MMU is identical to the PPC-40x MMU, and uses a hash
+ * table containing PTEs, together with a set of 16 segment registers, to
+ * define the virtual to physical address mapping.
+ *
+ * We use the hash table as an extended TLB, i.e. a cache of currently
+ * active mappings.  We maintain a two-level page table tree, much
+ * like that used by the i386, for the sake of the Linux memory
+ * management code.  Low-level assembler code in hashtable.S
+ * (procedure hash_page) is responsible for extracting ptes from the
+ * tree and putting them into the hash table when necessary, and
+ * updating the accessed and modified bits in the page table tree.
+ */
 
+/*
+ * The MicroBlaze processor has a TLB architecture identical to PPC-40x. The
+ * instruction and data sides share a unified, 64-entry, semi-associative
+ * TLB which is maintained totally under software control. In addition, the
+ * instruction side has a hardware-managed, 2,4, or 8-entry, fully-associative
+ * TLB which serves as a first level to the shared TLB. These two TLBs are
+ * known as the UTLB and ITLB, respectively (see "mmu.h" for definitions).
+ */
 
+/*
+ * The normal case is that PTEs are 32-bits and we have a 1-page
+ * 1024-entry pgdir pointing to 1-page 1024-entry PTE pages.  -- paulus
+ *
+ */
 
+/* PMD_SHIFT determines the size of the area mapped by the PTE pages */
 #define PMD_SHIFT	(PAGE_SHIFT + PTE_SHIFT)
 #define PMD_SIZE	(1UL << PMD_SHIFT)
 #define PMD_MASK	(~(PMD_SIZE-1))
 
+/* PGDIR_SHIFT determines what a top-level page table entry can map */
 #define PGDIR_SHIFT	PMD_SHIFT
 #define PGDIR_SIZE	(1UL << PGDIR_SHIFT)
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
+/*
+ * entries per page directory level: our page-table tree is two-level, so
+ * we don't really have any PMD directory.
+ */
 #define PTRS_PER_PTE	(1 << PTE_SHIFT)
 #define PTRS_PER_PMD	1
 #define PTRS_PER_PGD	(1 << (32 - PGDIR_SHIFT))
@@ -131,21 +177,54 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 	printk(KERN_ERR "%s:%d: bad pgd %08lx.\n", \
 		__FILE__, __LINE__, pgd_val(e))
 
+/*
+ * Bits in a linux-style PTE.  These match the bits in the
+ * (hardware-defined) PTE as closely as possible.
+ */
 
+/* There are several potential gotchas here.  The hardware TLBLO
+ * field looks like this:
+ *
+ * 0  1  2  3  4  ... 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+ * RPN.....................  0  0 EX WR ZSEL.......  W  I  M  G
+ *
+ * Where possible we make the Linux PTE bits match up with this
+ *
+ * - bits 20 and 21 must be cleared, because we use 4k pages (4xx can
+ * support down to 1k pages), this is done in the TLBMiss exception
+ * handler.
+ * - We use only zones 0 (for kernel pages) and 1 (for user pages)
+ * of the 16 available.  Bit 24-26 of the TLB are cleared in the TLB
+ * miss handler.  Bit 27 is PAGE_USER, thus selecting the correct
+ * zone.
+ * - PRESENT *must* be in the bottom two bits because swap cache
+ * entries use the top 30 bits.  Because 4xx doesn't support SMP
+ * anyway, M is irrelevant so we borrow it for PAGE_PRESENT.  Bit 30
+ * is cleared in the TLB miss handler before the TLB entry is loaded.
+ * - All other bits of the PTE are loaded into TLBLO without
+ *  * modification, leaving us only the bits 20, 21, 24, 25, 26, 30 for
+ * software PTE bits.  We actually use use bits 21, 24, 25, and
+ * 30 respectively for the software bits: ACCESSED, DIRTY, RW, and
+ * PRESENT.
+ */
 
-#define	_PAGE_GUARDED	0x001	
-#define _PAGE_FILE	0x001	
-#define _PAGE_PRESENT	0x002	
-#define	_PAGE_NO_CACHE	0x004	
-#define	_PAGE_WRITETHRU	0x008	
-#define	_PAGE_USER	0x010	
-#define	_PAGE_RW	0x040	
-#define	_PAGE_DIRTY	0x080	
-#define _PAGE_HWWRITE	0x100	
-#define _PAGE_HWEXEC	0x200	
-#define _PAGE_ACCESSED	0x400	
+/* Definitions for MicroBlaze. */
+#define	_PAGE_GUARDED	0x001	/* G: page is guarded from prefetch */
+#define _PAGE_FILE	0x001	/* when !present: nonlinear file mapping */
+#define _PAGE_PRESENT	0x002	/* software: PTE contains a translation */
+#define	_PAGE_NO_CACHE	0x004	/* I: caching is inhibited */
+#define	_PAGE_WRITETHRU	0x008	/* W: caching is write-through */
+#define	_PAGE_USER	0x010	/* matches one of the zone permission bits */
+#define	_PAGE_RW	0x040	/* software: Writes permitted */
+#define	_PAGE_DIRTY	0x080	/* software: dirty page */
+#define _PAGE_HWWRITE	0x100	/* hardware: Dirty & RW, set in exception */
+#define _PAGE_HWEXEC	0x200	/* hardware: EX permission */
+#define _PAGE_ACCESSED	0x400	/* software: R: page referenced */
 #define _PMD_PRESENT	PAGE_MASK
 
+/*
+ * Some bits are unused...
+ */
 #ifndef _PAGE_HASHPTE
 #define _PAGE_HASHPTE	0
 #endif
@@ -167,6 +246,12 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 
 #define _PAGE_CHG_MASK	(PAGE_MASK | _PAGE_ACCESSED | _PAGE_DIRTY)
 
+/*
+ * Note: the _PAGE_COHERENT bit automatically gets set in the hardware
+ * PTE if CONFIG_SMP is defined (hash_page does this); there is no need
+ * to have it in the Linux PTE, and in fact the bit could be reused for
+ * another purpose.  -- paulus.
+ */
 #define _PAGE_BASE	(_PAGE_PRESENT | _PAGE_ACCESSED)
 #define _PAGE_WRENABLE	(_PAGE_RW | _PAGE_DIRTY | _PAGE_HWWRITE)
 
@@ -188,6 +273,10 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 #define PAGE_KERNEL_RO	__pgprot(_PAGE_BASE | _PAGE_SHARED)
 #define PAGE_KERNEL_CI	__pgprot(_PAGE_IO)
 
+/*
+ * We consider execute permission the same as read.
+ * Also, write permissions imply read permissions.
+ */
 #define __P000	PAGE_NONE
 #define __P001	PAGE_READONLY_X
 #define __P010	PAGE_COPY
@@ -207,10 +296,14 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 #define __S111	PAGE_SHARED_X
 
 #ifndef __ASSEMBLY__
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 extern unsigned long empty_zero_page[1024];
 #define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define pte_none(pte)		((pte_val(pte) & ~_PTE_NONE_MASK) == 0)
 #define pte_present(pte)	(pte_val(pte) & _PAGE_PRESENT)
@@ -232,6 +325,11 @@ extern unsigned long empty_zero_page[1024];
 	__pte(((pte_basic_t)(pfn) << PFN_SHIFT_OFFSET) | pgprot_val(prot))
 
 #ifndef __ASSEMBLY__
+/*
+ * The "pgd_xxx()" functions here are trivial for a folded two-level
+ * setup: the pgd is never bad, and a pmd always exists (as it's folded
+ * into the pgd entry)
+ */
 static inline int pgd_none(pgd_t pgd)		{ return 0; }
 static inline int pgd_bad(pgd_t pgd)		{ return 0; }
 static inline int pgd_present(pgd_t pgd)	{ return 1; }
@@ -239,6 +337,10 @@ static inline int pgd_present(pgd_t pgd)	{ return 1; }
 #define pgd_page(pgd) \
 	((unsigned long) __va(pgd_val(pgd) & PAGE_MASK))
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 static inline int pte_read(pte_t pte)  { return pte_val(pte) & _PAGE_USER; }
 static inline int pte_write(pte_t pte) { return pte_val(pte) & _PAGE_RW; }
 static inline int pte_exec(pte_t pte)  { return pte_val(pte) & _PAGE_EXEC; }
@@ -271,6 +373,10 @@ static inline pte_t pte_mkdirty(pte_t pte) \
 static inline pte_t pte_mkyoung(pte_t pte) \
 	{ pte_val(pte) |= _PAGE_ACCESSED; return pte; }
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 
 static inline pte_t mk_pte_phys(phys_addr_t physpage, pgprot_t pgprot)
 {
@@ -293,6 +399,14 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 	return pte;
 }
 
+/*
+ * Atomic PTE updates.
+ *
+ * pte_update clears and sets bit atomically, and returns
+ * the old pte value.
+ * The ((unsigned long)(p+1) - 4) hack is to get to the least-significant
+ * 32 bits of the PTE regardless of whether PTEs are 32 or 64 bits.
+ */
 static inline unsigned long pte_update(pte_t *p, unsigned long clr,
 				unsigned long set)
 {
@@ -313,6 +427,9 @@ static inline unsigned long pte_update(pte_t *p, unsigned long clr,
 	return old;
 }
 
+/*
+ * set_pte stores a linux PTE into the linux page table.
+ */
 static inline void set_pte(struct mm_struct *mm, unsigned long addr,
 		pte_t *ptep, pte_t pte)
 {
@@ -346,6 +463,11 @@ static inline pte_t ptep_get_and_clear(struct mm_struct *mm,
 	return __pte(pte_update(ptep, ~_PAGE_HASHPTE, 0));
 }
 
+/*static inline void ptep_set_wrprotect(struct mm_struct *mm,
+		unsigned long addr, pte_t *ptep)
+{
+	pte_update(ptep, (_PAGE_RW | _PAGE_HWWRITE), 0);
+}*/
 
 static inline void ptep_mkdirty(struct mm_struct *mm,
 		unsigned long addr, pte_t *ptep)
@@ -353,21 +475,30 @@ static inline void ptep_mkdirty(struct mm_struct *mm,
 	pte_update(ptep, 0, _PAGE_DIRTY);
 }
 
+/*#define pte_same(A,B)	(((pte_val(A) ^ pte_val(B)) & ~_PAGE_HASHPTE) == 0)*/
 
+/* Convert pmd entry to page */
+/* our pmd entry is an effective address of pte table*/
+/* returns effective address of the pmd entry*/
 #define pmd_page_kernel(pmd)	((unsigned long) (pmd_val(pmd) & PAGE_MASK))
 
+/* returns struct *page of the pmd entry*/
 #define pmd_page(pmd)	(pfn_to_page(__pa(pmd_val(pmd)) >> PAGE_SHIFT))
 
+/* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
 
+/* to find an entry in a page-table-directory */
 #define pgd_index(address)	 ((address) >> PGDIR_SHIFT)
 #define pgd_offset(mm, address)	 ((mm)->pgd + pgd_index(address))
 
+/* Find an entry in the second-level page table.. */
 static inline pmd_t *pmd_offset(pgd_t *dir, unsigned long address)
 {
 	return (pmd_t *) dir;
 }
 
+/* Find an entry in the third-level page table.. */
 #define pte_index(address)		\
 	(((address) >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
 #define pte_offset_kernel(dir, addr)	\
@@ -377,12 +508,19 @@ static inline pmd_t *pmd_offset(pgd_t *dir, unsigned long address)
 
 #define pte_unmap(pte)		kunmap_atomic(pte)
 
+/* Encode and decode a nonlinear file mapping entry */
 #define PTE_FILE_MAX_BITS	29
 #define pte_to_pgoff(pte)	(pte_val(pte) >> 3)
 #define pgoff_to_pte(off)	((pte_t) { ((off) << 3) | _PAGE_FILE })
 
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
+/*
+ * Encode and decode a swap entry.
+ * Note that the bits we use in a PTE for representing a swap entry
+ * must not include the _PAGE_PRESENT bit, or the _PAGE_HASHPTE bit
+ * (if used).  -- paulus
+ */
 #define __swp_type(entry)		((entry).val & 0x3f)
 #define __swp_offset(entry)	((entry).val >> 6)
 #define __swp_entry(type, offset) \
@@ -392,13 +530,21 @@ extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
 extern unsigned long iopa(unsigned long addr);
 
+/* Values for nocacheflag and cmode */
+/* These are not used by the APUS kernel_map, but prevents
+ * compilation errors.
+ */
 #define	IOMAP_FULL_CACHING	0
 #define	IOMAP_NOCACHE_SER	1
 #define	IOMAP_NOCACHE_NONSER	2
 #define	IOMAP_NO_COPYBACK	3
 
+/* Needs to be defined here and not in linux/mm.h, as it is arch dependent */
 #define kern_addr_valid(addr)	(1)
 
+/*
+ * No page table caches to initialise
+ */
 #define pgtable_cache_init()	do { } while (0)
 
 void do_page_fault(struct pt_regs *regs, unsigned long address,
@@ -413,10 +559,10 @@ asmlinkage void __init mmu_init(void);
 
 void __init *early_get_page(void);
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* CONFIG_MMU */
 
 #ifndef __ASSEMBLY__
 #include <asm-generic/pgtable.h>
@@ -430,6 +576,6 @@ void consistent_sync_page(struct page *page, unsigned long offset,
 	size_t size, int direction);
 
 void setup_memory(void);
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_MICROBLAZE_PGTABLE_H */

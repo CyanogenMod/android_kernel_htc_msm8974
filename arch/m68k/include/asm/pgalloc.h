@@ -18,4 +18,4 @@
 extern void m68k_setup_node(int node);
 #endif
 
-#endif 
+#endif /* M68K_PGALLOC_H */

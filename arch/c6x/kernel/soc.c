@@ -52,6 +52,14 @@ static int __init get_mac_addr_from_cmdline(char *str)
 }
 __setup("emac_addr=", get_mac_addr_from_cmdline);
 
+/*
+ * Setup the MAC address for SoC ethernet devices.
+ *
+ * Before calling this function, the ethernet driver will have
+ * initialized the addr with local-mac-address from the device
+ * tree (if found). Allow command line to override, but not
+ * the fused address.
+ */
 int soc_mac_addr(unsigned int index, u8 *addr)
 {
 	int i, have_dt_mac = 0, have_cmdline_mac = 0, have_fuse_mac = 0;
@@ -65,7 +73,7 @@ int soc_mac_addr(unsigned int index, u8 *addr)
 			have_dt_mac = 1;
 	}
 
-	
+	/* cmdline overrides all */
 	if (have_cmdline_mac)
 		memcpy(addr, cmdline_mac, 6);
 	else if (!have_dt_mac) {
@@ -75,7 +83,7 @@ int soc_mac_addr(unsigned int index, u8 *addr)
 			random_ether_addr(addr);
 	}
 
-	
+	/* adjust for specific EMAC device */
 	addr[5] += index * c6x_num_cores;
 	return 1;
 }

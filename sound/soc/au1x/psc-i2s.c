@@ -26,10 +26,12 @@
 
 #include "psc.h"
 
+/* supported I2S DAI hardware formats */
 #define AU1XPSC_I2S_DAIFMT \
 	(SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_LEFT_J |	\
 	 SND_SOC_DAIFMT_NB_NF)
 
+/* supported I2S direction */
 #define AU1XPSC_I2S_DIR \
 	(SND_SOC_DAIDIR_PLAYBACK | SND_SOC_DAIDIR_CAPTURE)
 
@@ -60,21 +62,21 @@ static int au1xpsc_i2s_set_fmt(struct snd_soc_dai *cpu_dai,
 
 	ct = pscdata->cfg;
 
-	ct &= ~(PSC_I2SCFG_XM | PSC_I2SCFG_MLJ);	
+	ct &= ~(PSC_I2SCFG_XM | PSC_I2SCFG_MLJ);	/* left-justified */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
-		ct |= PSC_I2SCFG_XM;	
+		ct |= PSC_I2SCFG_XM;	/* enable I2S mode */
 		break;
 	case SND_SOC_DAIFMT_MSB:
 		break;
 	case SND_SOC_DAIFMT_LSB:
-		ct |= PSC_I2SCFG_MLJ;	
+		ct |= PSC_I2SCFG_MLJ;	/* LSB (right-) justified */
 		break;
 	default:
 		goto out;
 	}
 
-	ct &= ~(PSC_I2SCFG_BI | PSC_I2SCFG_WI);		
+	ct &= ~(PSC_I2SCFG_BI | PSC_I2SCFG_WI);		/* IB-IF */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		ct |= PSC_I2SCFG_BI | PSC_I2SCFG_WI;
@@ -92,11 +94,11 @@ static int au1xpsc_i2s_set_fmt(struct snd_soc_dai *cpu_dai,
 	}
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBM_CFM:	
-		ct |= PSC_I2SCFG_MS;	
+	case SND_SOC_DAIFMT_CBM_CFM:	/* CODEC master */
+		ct |= PSC_I2SCFG_MS;	/* PSC I2S slave mode */
 		break;
-	case SND_SOC_DAIFMT_CBS_CFS:	
-		ct &= ~PSC_I2SCFG_MS;	
+	case SND_SOC_DAIFMT_CBS_CFS:	/* CODEC slave */
+		ct &= ~PSC_I2SCFG_MS;	/* PSC I2S Master mode */
 		break;
 	default:
 		goto out;
@@ -117,29 +119,36 @@ static int au1xpsc_i2s_hw_params(struct snd_pcm_substream *substream,
 	int cfgbits;
 	unsigned long stat;
 
-	
+	/* check if the PSC is already streaming data */
 	stat = au_readl(I2S_STAT(pscdata));
 	if (stat & (PSC_I2SSTAT_TB | PSC_I2SSTAT_RB)) {
-		
+		/* reject parameters not currently set up in hardware */
 		cfgbits = au_readl(I2S_CFG(pscdata));
 		if ((PSC_I2SCFG_GET_LEN(cfgbits) != params->msbits) ||
 		    (params_rate(params) != pscdata->rate))
 			return -EINVAL;
 	} else {
-		
+		/* set sample bitdepth */
 		pscdata->cfg &= ~(0x1f << 4);
 		pscdata->cfg |= PSC_I2SCFG_SET_LEN(params->msbits);
-		
+		/* remember current rate for other stream */
 		pscdata->rate = params_rate(params);
 	}
 	return 0;
 }
 
+/* Configure PSC late:  on my devel systems the codec  is I2S master and
+ * supplies the i2sbitclock __AND__ i2sMclk (!) to the PSC unit.  ASoC
+ * uses aggressive PM and  switches the codec off  when it is not in use
+ * which also means the PSC unit doesn't get any clocks and is therefore
+ * dead. That's why this chunk here gets called from the trigger callback
+ * because I can be reasonably certain the codec is driving the clocks.
+ */
 static int au1xpsc_i2s_configure(struct au1xpsc_audio_data *pscdata)
 {
 	unsigned long tmo;
 
-	
+	/* bring PSC out of sleep, and configure I2S unit */
 	au_writel(PSC_CTRL_ENABLE, PSC_CTRL(pscdata));
 	au_sync();
 
@@ -155,7 +164,7 @@ static int au1xpsc_i2s_configure(struct au1xpsc_audio_data *pscdata)
 	au_writel(pscdata->cfg | PSC_I2SCFG_DE_ENABLE, I2S_CFG(pscdata));
 	au_sync();
 
-	
+	/* wait for I2S controller to become ready */
 	tmo = 1000000;
 	while (!(au_readl(I2S_STAT(pscdata)) & PSC_I2SSTAT_DR) && tmo)
 		tmo--;
@@ -177,7 +186,7 @@ static int au1xpsc_i2s_start(struct au1xpsc_audio_data *pscdata, int stype)
 
 	ret = 0;
 
-	
+	/* if both TX and RX are idle, configure the PSC  */
 	stat = au_readl(I2S_STAT(pscdata));
 	if (!(stat & (PSC_I2SSTAT_TB | PSC_I2SSTAT_RB))) {
 		ret = au1xpsc_i2s_configure(pscdata);
@@ -190,7 +199,7 @@ static int au1xpsc_i2s_start(struct au1xpsc_audio_data *pscdata, int stype)
 	au_writel(I2SPCR_START(stype), I2S_PCR(pscdata));
 	au_sync();
 
-	
+	/* wait for start confirmation */
 	tmo = 1000000;
 	while (!(au_readl(I2S_STAT(pscdata)) & I2SSTAT_BUSY(stype)) && tmo)
 		tmo--;
@@ -211,12 +220,12 @@ static int au1xpsc_i2s_stop(struct au1xpsc_audio_data *pscdata, int stype)
 	au_writel(I2SPCR_STOP(stype), I2S_PCR(pscdata));
 	au_sync();
 
-	
+	/* wait for stop confirmation */
 	tmo = 1000000;
 	while ((au_readl(I2S_STAT(pscdata)) & I2SSTAT_BUSY(stype)) && tmo)
 		tmo--;
 
-	
+	/* if both TX and RX are idle, disable PSC */
 	stat = au_readl(I2S_STAT(pscdata));
 	if (!(stat & (PSC_I2SSTAT_TB | PSC_I2SSTAT_RB))) {
 		au_writel(0, I2S_CFG(pscdata));
@@ -268,13 +277,13 @@ static const struct snd_soc_dai_driver au1xpsc_i2s_dai_template = {
 		.rates		= AU1XPSC_I2S_RATES,
 		.formats	= AU1XPSC_I2S_FMTS,
 		.channels_min	= 2,
-		.channels_max	= 8,	
+		.channels_max	= 8,	/* 2 without external help */
 	},
 	.capture = {
 		.rates		= AU1XPSC_I2S_RATES,
 		.formats	= AU1XPSC_I2S_FMTS,
 		.channels_min	= 2,
-		.channels_max	= 8,	
+		.channels_max	= 8,	/* 2 without external help */
 	},
 	.ops = &au1xpsc_i2s_dai_ops,
 };
@@ -316,6 +325,9 @@ static int __devinit au1xpsc_i2s_drvprobe(struct platform_device *pdev)
 		return -EBUSY;
 	wd->dmaids[SNDRV_PCM_STREAM_CAPTURE] = dmares->start;
 
+	/* preserve PSC clock source set up by platform (dev.platform_data
+	 * is already occupied by soc layer)
+	 */
 	sel = au_readl(PSC_SEL(wd)) & PSC_SEL_CLK_MASK;
 	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(wd));
 	au_sync();
@@ -323,11 +335,15 @@ static int __devinit au1xpsc_i2s_drvprobe(struct platform_device *pdev)
 	au_writel(0, I2S_CFG(wd));
 	au_sync();
 
-	
+	/* preconfigure: set max rx/tx fifo depths */
 	wd->cfg |= PSC_I2SCFG_RT_FIFO8 | PSC_I2SCFG_TT_FIFO8;
 
+	/* don't wait for I2S core to become ready now; clocks may not
+	 * be running yet; depending on clock input for PSC a wait might
+	 * time out.
+	 */
 
-	
+	/* name the DAI like this device instance ("au1xpsc-i2s.PSCINDEX") */
 	memcpy(&wd->dai_drv, &au1xpsc_i2s_dai_template,
 	       sizeof(struct snd_soc_dai_driver));
 	wd->dai_drv.name = dev_name(&pdev->dev);
@@ -356,7 +372,7 @@ static int au1xpsc_i2s_drvsuspend(struct device *dev)
 {
 	struct au1xpsc_audio_data *wd = dev_get_drvdata(dev);
 
-	
+	/* save interesting register and disable PSC */
 	wd->pm[0] = au_readl(PSC_SEL(wd));
 
 	au_writel(0, I2S_CFG(wd));
@@ -371,7 +387,7 @@ static int au1xpsc_i2s_drvresume(struct device *dev)
 {
 	struct au1xpsc_audio_data *wd = dev_get_drvdata(dev);
 
-	
+	/* select I2S mode and PSC clock */
 	au_writel(PSC_CTRL_DISABLE, PSC_CTRL(wd));
 	au_sync();
 	au_writel(0, PSC_SEL(wd));

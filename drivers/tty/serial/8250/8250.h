@@ -15,19 +15,24 @@
 
 struct uart_8250_port {
 	struct uart_port	port;
-	struct timer_list	timer;		
-	struct list_head	list;		
-	unsigned short		capabilities;	
-	unsigned short		bugs;		
-	unsigned int		tx_loadsz;	
+	struct timer_list	timer;		/* "no irq" timer */
+	struct list_head	list;		/* ports on this IRQ */
+	unsigned short		capabilities;	/* port capabilities */
+	unsigned short		bugs;		/* port bugs */
+	unsigned int		tx_loadsz;	/* transmit fifo load size */
 	unsigned char		acr;
 	unsigned char		ier;
 	unsigned char		lcr;
 	unsigned char		mcr;
-	unsigned char		mcr_mask;	
-	unsigned char		mcr_force;	
-	unsigned char		cur_iotype;	
+	unsigned char		mcr_mask;	/* mask of user bits */
+	unsigned char		mcr_force;	/* mask of forced bits */
+	unsigned char		cur_iotype;	/* Running I/O type */
 
+	/*
+	 * Some bits in registers are cleared on a read, so they must
+	 * be saved whenever the register is read but the bits will not
+	 * be immediately processed.
+	 */
 #define LSR_SAVE_FLAGS UART_LSR_BRK_ERROR_BITS
 	unsigned char		lsr_saved_flags;
 #define MSR_SAVE_FLAGS UART_MSR_ANY_DELTA
@@ -47,6 +52,9 @@ struct old_serial_port {
 	unsigned long irqflags;
 };
 
+/*
+ * This replaces serial_uart_config in include/linux/serial.h
+ */
 struct serial8250_config {
 	const char	*name;
 	unsigned short	fifo_size;
@@ -55,17 +63,17 @@ struct serial8250_config {
 	unsigned int	flags;
 };
 
-#define UART_CAP_FIFO	(1 << 8)	
-#define UART_CAP_EFR	(1 << 9)	
-#define UART_CAP_SLEEP	(1 << 10)	
-#define UART_CAP_AFE	(1 << 11)	
-#define UART_CAP_UUE	(1 << 12)	
-#define UART_CAP_RTOIE	(1 << 13)	
+#define UART_CAP_FIFO	(1 << 8)	/* UART has FIFO */
+#define UART_CAP_EFR	(1 << 9)	/* UART has EFR */
+#define UART_CAP_SLEEP	(1 << 10)	/* UART has IER sleep */
+#define UART_CAP_AFE	(1 << 11)	/* MCR-based hw flow control */
+#define UART_CAP_UUE	(1 << 12)	/* UART needs IER bit 6 set (Xscale) */
+#define UART_CAP_RTOIE	(1 << 13)	/* UART needs IER bit 4 set (Xscale, Tegra) */
 
-#define UART_BUG_QUOT	(1 << 0)	
-#define UART_BUG_TXEN	(1 << 1)	
-#define UART_BUG_NOMSR	(1 << 2)	
-#define UART_BUG_THRE	(1 << 3)	
+#define UART_BUG_QUOT	(1 << 0)	/* UART has buggy quot LSB */
+#define UART_BUG_TXEN	(1 << 1)	/* UART has buggy TX IIR status */
+#define UART_BUG_NOMSR	(1 << 2)	/* UART has buggy MSR status bits (Au1x00) */
+#define UART_BUG_THRE	(1 << 3)	/* UART has buggy THRE reassertion */
 
 #define PROBE_RSA	(1 << 0)
 #define PROBE_ANY	(~0)
@@ -89,8 +97,18 @@ static inline void serial_out(struct uart_8250_port *up, int offset, int value)
 }
 
 #if defined(__alpha__) && !defined(CONFIG_PCI)
+/*
+ * Digital did something really horribly wrong with the OUT1 and OUT2
+ * lines on at least some ALPHA's.  The failure mode is that if either
+ * is cleared, the machine locks up with endless interrupts.
+ */
 #define ALPHA_KLUDGE_MCR  (UART_MCR_OUT2 | UART_MCR_OUT1)
 #elif defined(CONFIG_SBC8560)
+/*
+ * WindRiver did something similarly broken on their SBC8560 board. The
+ * UART tristates its IRQ output while OUT2 is clear, but they pulled
+ * the interrupt line _up_ instead of down, so if we register the IRQ
+ * while the UART is in that state, we die in an IRQ storm. */
 #define ALPHA_KLUDGE_MCR (UART_MCR_OUT2)
 #else
 #define ALPHA_KLUDGE_MCR 0

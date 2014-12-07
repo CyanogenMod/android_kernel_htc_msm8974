@@ -84,14 +84,28 @@ int cxio_hal_cq_op(struct cxio_rdev *rdev_p, struct t3_cq *cq,
 	if ((ret < 0) || (op == CQ_CREDIT_UPDATE))
 		return ret;
 
+	/*
+	 * If the rearm returned an index other than our current index,
+	 * then there might be CQE's in flight (being DMA'd).  We must wait
+	 * here for them to complete or the consumer can miss a notification.
+	 */
 	if (Q_PTR2IDX((cq->rptr), cq->size_log2) != ret) {
 		int i=0;
 
 		rptr = cq->rptr;
 
+		/*
+		 * Keep the generation correct by bumping rptr until it
+		 * matches the index returned by the rearm - 1.
+		 */
 		while (Q_PTR2IDX((rptr+1), cq->size_log2) != ret)
 			rptr++;
 
+		/*
+		 * Now rptr is the index for the (last) cqe that was
+		 * in-flight at the time the HW rearmed the CQ.  We
+		 * spin until that CQE is valid.
+		 */
 		cqe = cq->queue + Q_PTR2IDX(rptr, cq->size_log2);
 		while (!CQ_VLD_ENTRY(rptr, cq->size_log2, cqe)) {
 			udelay(1);
@@ -112,8 +126,8 @@ static int cxio_hal_clear_cq_ctx(struct cxio_rdev *rdev_p, u32 cqid)
 {
 	struct rdma_cq_setup setup;
 	setup.id = cqid;
-	setup.base_addr = 0;	
-	setup.size = 0;		
+	setup.base_addr = 0;	/* NULL address */
+	setup.size = 0;		/* disaable the CQ */
 	setup.credits = 0;
 	setup.credit_thres = 0;
 	setup.ovfl_mode = 0;
@@ -146,7 +160,7 @@ int cxio_create_cq(struct cxio_rdev *rdev_p, struct t3_cq *cq, int kernel)
 	struct rdma_cq_setup setup;
 	int size = (1UL << (cq->size_log2)) * sizeof(struct t3_cqe);
 
-	size += 1; 
+	size += 1; /* one extra page for storing cq-in-err state */
 	cq->cqid = cxio_hal_get_cqid(rdev_p->rscp);
 	if (!cq->cqid)
 		return -ENOMEM;
@@ -183,7 +197,7 @@ int cxio_resize_cq(struct cxio_rdev *rdev_p, struct t3_cq *cq)
 	setup.base_addr = (u64) (cq->dma_addr);
 	setup.size = 1UL << cq->size_log2;
 	setup.credits = setup.size;
-	setup.credit_thres = setup.size;	
+	setup.credit_thres = setup.size;	/* TBD: overflow recovery */
 	setup.ovfl_mode = 1;
 	return (rdev_p->t3cdev_p->ctl(rdev_p->t3cdev_p, RDMA_CQ_SETUP, &setup));
 }
@@ -358,7 +372,7 @@ int cxio_flush_rq(struct t3_wq *wq, struct t3_cq *cq, int count)
 
 	PDBG("%s wq %p cq %p\n", __func__, wq, cq);
 
-	
+	/* flush RQ */
 	PDBG("%s rq_rptr %u rq_wptr %u skip count %u\n", __func__,
 	    wq->rq_rptr, wq->rq_wptr, count);
 	ptr = wq->rq_rptr + count;
@@ -408,6 +422,9 @@ int cxio_flush_sq(struct t3_wq *wq, struct t3_cq *cq, int count)
 	return flushed;
 }
 
+/*
+ * Move all CQEs from the HWCQ into the SWCQ.
+ */
 void cxio_flush_hw_cq(struct t3_cq *cq)
 {
 	struct t3_cqe *cqe, *swcqe;
@@ -484,11 +501,11 @@ static int cxio_hal_init_ctrl_cq(struct cxio_rdev *rdev_p)
 {
 	struct rdma_cq_setup setup;
 	setup.id = 0;
-	setup.base_addr = 0;	
-	setup.size = 1;		
+	setup.base_addr = 0;	/* NULL address */
+	setup.size = 1;		/* enable the CQ */
 	setup.credits = 0;
 
-	
+	/* force SGE to redirect to RspQ and interrupt */
 	setup.credit_thres = 0;
 	setup.ovfl_mode = 1;
 	return (rdev_p->t3cdev_p->ctl(rdev_p->t3cdev_p, RDMA_CQ_SETUP, &setup));
@@ -532,7 +549,7 @@ static int cxio_hal_init_ctrl_qp(struct cxio_rdev *rdev_p)
 	mutex_init(&rdev_p->ctrl_qp.lock);
 	init_waitqueue_head(&rdev_p->ctrl_qp.waitq);
 
-	
+	/* update HW Ctrl QP context */
 	base_addr = rdev_p->ctrl_qp.dma_addr;
 	base_addr >>= 12;
 	ctx0 = (V_EC_SIZE((1 << T3_CTRL_QP_SIZE_LOG2)) |
@@ -573,21 +590,25 @@ static int cxio_hal_destroy_ctrl_qp(struct cxio_rdev *rdev_p)
 	return cxio_hal_clear_qp_ctx(rdev_p, T3_CTRL_QP_ID);
 }
 
+/* write len bytes of data into addr (32B aligned address)
+ * If data is NULL, clear len byte of memory to zero.
+ * caller acquires the ctrl_qp lock before the call
+ */
 static int cxio_hal_ctrl_qp_write_mem(struct cxio_rdev *rdev_p, u32 addr,
 				      u32 len, void *data)
 {
 	u32 i, nr_wqe, copy_len;
 	u8 *copy_data;
-	u8 wr_len, utx_len;	
+	u8 wr_len, utx_len;	/* length in 8 byte flit */
 	enum t3_wr_flags flag;
 	__be64 *wqe;
 	u64 utx_cmd;
 	addr &= 0x7FFFFFF;
-	nr_wqe = len % 96 ? len / 96 + 1 : len / 96;	
+	nr_wqe = len % 96 ? len / 96 + 1 : len / 96;	/* 96B max per WQE */
 	PDBG("%s wptr 0x%x rptr 0x%x len %d, nr_wqe %d data %p addr 0x%0x\n",
 	     __func__, rdev_p->ctrl_qp.wptr, rdev_p->ctrl_qp.rptr, len,
 	     nr_wqe, data, addr);
-	utx_len = 3;		
+	utx_len = 3;		/* in 32B unit */
 	for (i = 0; i < nr_wqe; i++) {
 		if (Q_FULL(rdev_p->ctrl_qp.rptr, rdev_p->ctrl_qp.wptr,
 		           T3_CTRL_QP_SIZE_LOG2)) {
@@ -609,7 +630,7 @@ static int cxio_hal_ctrl_qp_write_mem(struct cxio_rdev *rdev_p, u32 addr,
 						(1 << T3_CTRL_QP_SIZE_LOG2)));
 		flag = 0;
 		if (i == (nr_wqe - 1)) {
-			
+			/* last WQE */
 			flag = T3_COMPLETION_FLAG;
 			if (len % 32)
 				utx_len = len / 32 + 1;
@@ -617,13 +638,17 @@ static int cxio_hal_ctrl_qp_write_mem(struct cxio_rdev *rdev_p, u32 addr,
 				utx_len = len / 32;
 		}
 
+		/*
+		 * Force a CQE to return the credit to the workq in case
+		 * we posted more than half the max QP size of WRs
+		 */
 		if ((i != 0) &&
 		    (i % (((1 << T3_CTRL_QP_SIZE_LOG2)) >> 1) == 0)) {
 			flag = T3_COMPLETION_FLAG;
 			PDBG("%s force completion at i %d\n", __func__, i);
 		}
 
-		
+		/* build the utx mem command */
 		wqe += (sizeof(struct t3_bypass_wr) >> 3);
 		utx_cmd = (T3_UTX_MEM_WRITE << 28) | (addr + i * 3);
 		utx_cmd <<= 32;
@@ -633,7 +658,7 @@ static int cxio_hal_ctrl_qp_write_mem(struct cxio_rdev *rdev_p, u32 addr,
 		copy_data = (u8 *) data + i * 96;
 		copy_len = len > 96 ? 96 : len;
 
-		
+		/* clear memory content if data is NULL */
 		if (data)
 			memcpy(wqe, copy_data, copy_len);
 		else
@@ -646,9 +671,13 @@ static int cxio_hal_ctrl_qp_write_mem(struct cxio_rdev *rdev_p, u32 addr,
 		wqe = (__be64 *)(rdev_p->ctrl_qp.workq + (rdev_p->ctrl_qp.wptr %
 			      (1 << T3_CTRL_QP_SIZE_LOG2)));
 
-		
+		/* wptr in the WRID[31:0] */
 		((union t3_wrid *)(wqe+1))->id0.low = rdev_p->ctrl_qp.wptr;
 
+		/*
+		 * This must be the last write with a memory barrier
+		 * for the genbit
+		 */
 		build_fw_riwrh((struct fw_riwrh *) wqe, T3_WR_BP, flag,
 			       Q_GENBIT(rdev_p->ctrl_qp.wptr,
 					T3_CTRL_QP_SIZE_LOG2), T3_CTRL_QP_ID,
@@ -661,6 +690,10 @@ static int cxio_hal_ctrl_qp_write_mem(struct cxio_rdev *rdev_p, u32 addr,
 	return 0;
 }
 
+/* IN: stag key, pdid, perm, zbva, to, len, page_size, pbl_size and pbl_addr
+ * OUT: stag index
+ * TBD: shared memory region support
+ */
 static int __cxio_tpt_op(struct cxio_rdev *rdev_p, u32 reset_tpt_entry,
 			 u32 *stag, u8 stag_state, u32 pdid,
 			 enum tpt_mem_type type, enum tpt_mem_perm perm,
@@ -689,7 +722,7 @@ static int __cxio_tpt_op(struct cxio_rdev *rdev_p, u32 reset_tpt_entry,
 
 	mutex_lock(&rdev_p->ctrl_qp.lock);
 
-	
+	/* write TPT entry */
 	if (reset_tpt_entry)
 		memset(&tpt, 0, sizeof(tpt));
 	else {
@@ -716,7 +749,7 @@ static int __cxio_tpt_op(struct cxio_rdev *rdev_p, u32 reset_tpt_entry,
 				       (rdev_p->rnic_info.tpt_base >> 5),
 				       sizeof(tpt), &tpt);
 
-	
+	/* release the stag index to free pool */
 	if (reset_tpt_entry)
 		cxio_hal_put_stag(rdev_p->rscp, stag_idx);
 
@@ -830,7 +863,7 @@ int cxio_rdma_init(struct cxio_rdev *rdev_p, struct t3_rdma_init_attr *attr)
 	wqe->qp_dma_addr = cpu_to_be64(attr->qp_dma_addr);
 	wqe->qp_dma_size = cpu_to_be32(attr->qp_dma_size);
 	wqe->irs = cpu_to_be32(attr->irs);
-	skb->priority = 0;	
+	skb->priority = 0;	/* 0=>ToeQ; 1=>CtrlQ */
 	return iwch_cxgb3_ofld_send(rdev_p->t3cdev_p, skb);
 }
 
@@ -881,6 +914,7 @@ static int cxio_hal_ev_handler(struct t3cdev *t3cdev_p, struct sk_buff *skb)
 	return 0;
 }
 
+/* Caller takes care of locking if needed */
 int cxio_rdev_open(struct cxio_rdev *rdev_p)
 {
 	struct net_device *netdev_p = NULL;
@@ -945,6 +979,10 @@ int cxio_rdev_open(struct cxio_rdev *rdev_p)
 		goto err1;
 	}
 
+	/*
+	 * qpshift is the number of bits to shift the qpid left in order
+	 * to get the correct address of the doorbell for that qp.
+	 */
 	cxio_init_ucontext(rdev_p, &rdev_p->uctx);
 	rdev_p->qpshift = PAGE_SHIFT -
 			  ilog2(65536 >>
@@ -1047,6 +1085,9 @@ static void flush_completed_wrs(struct t3_wq *wq, struct t3_cq *cq)
 			sqp = wq->sq + Q_PTR2IDX(ptr,  wq->sq_size_log2);
 		} else if (sqp->complete) {
 
+			/*
+			 * Insert this completed cqe into the swcq.
+			 */
 			PDBG("%s moving cqe into swcq sq idx %ld cq idx %ld\n",
 			     __func__, Q_PTR2IDX(ptr,  wq->sq_size_log2),
 			     Q_PTR2IDX(cq->sw_wptr, cq->size_log2));
@@ -1071,6 +1112,9 @@ static void create_read_req_cqe(struct t3_wq *wq, struct t3_cqe *hw_cqe,
 				 V_CQE_TYPE(1));
 }
 
+/*
+ * Return a ptr to the next read wr in the SWSQ or NULL.
+ */
 static void advance_oldest_read(struct t3_wq *wq)
 {
 
@@ -1087,6 +1131,21 @@ static void advance_oldest_read(struct t3_wq *wq)
 	wq->oldest_read = NULL;
 }
 
+/*
+ * cxio_poll_cq
+ *
+ * Caller must:
+ *     check the validity of the first CQE,
+ *     supply the wq assicated with the qpid.
+ *
+ * credit: cq credit to return to sge.
+ * cqe_flushed: 1 iff the CQE is flushed.
+ * cqe: copy of the polled CQE.
+ *
+ * return value:
+ *     0       CQE returned,
+ *    -1       CQE skipped, try again.
+ */
 int cxio_poll_cq(struct t3_wq *wq, struct t3_cq *cq, struct t3_cqe *cqe,
 		     u8 *cqe_flushed, u64 *cookie, u32 *credit)
 {
@@ -1104,13 +1163,28 @@ int cxio_poll_cq(struct t3_wq *wq, struct t3_cq *cq, struct t3_cqe *cqe,
 	     CQE_OPCODE(*hw_cqe), CQE_LEN(*hw_cqe), CQE_WRID_HI(*hw_cqe),
 	     CQE_WRID_LOW(*hw_cqe));
 
+	/*
+	 * skip cqe's not affiliated with a QP.
+	 */
 	if (wq == NULL) {
 		ret = -1;
 		goto skip_cqe;
 	}
 
+	/*
+	 * Gotta tweak READ completions:
+	 *	1) the cqe doesn't contain the sq_wptr from the wr.
+	 *	2) opcode not reflected from the wr.
+	 *	3) read_len not reflected from the wr.
+	 *	4) cq_type is RQ_TYPE not SQ_TYPE.
+	 */
 	if (RQ_TYPE(*hw_cqe) && (CQE_OPCODE(*hw_cqe) == T3_READ_RESP)) {
 
+		/*
+		 * If this is an unsolicited read response, then the read
+		 * was generated by the kernel driver as part of peer-2-peer
+		 * connection setup.  So ignore the completion.
+		 */
 		if (!wq->oldest_read) {
 			if (CQE_STATUS(*hw_cqe))
 				wq->error = 1;
@@ -1118,11 +1192,18 @@ int cxio_poll_cq(struct t3_wq *wq, struct t3_cq *cq, struct t3_cqe *cqe,
 			goto skip_cqe;
 		}
 
+		/*
+		 * Don't write to the HWCQ, so create a new read req CQE
+		 * in local memory.
+		 */
 		create_read_req_cqe(wq, hw_cqe, &read_cqe);
 		hw_cqe = &read_cqe;
 		advance_oldest_read(wq);
 	}
 
+	/*
+	 * T3A: Discard TERMINATE CQEs.
+	 */
 	if (CQE_OPCODE(*hw_cqe) == T3_TERMINATE) {
 		ret = -1;
 		wq->error = 1;
@@ -1133,19 +1214,23 @@ int cxio_poll_cq(struct t3_wq *wq, struct t3_cq *cq, struct t3_cqe *cqe,
 		*cqe_flushed = wq->error;
 		wq->error = 1;
 
-		
+		/*
+		 * T3A inserts errors into the CQE.  We cannot return
+		 * these as work completions.
+		 */
+		/* incoming write failures */
 		if ((CQE_OPCODE(*hw_cqe) == T3_RDMA_WRITE)
 		     && RQ_TYPE(*hw_cqe)) {
 			ret = -1;
 			goto skip_cqe;
 		}
-		
+		/* incoming read request failures */
 		if ((CQE_OPCODE(*hw_cqe) == T3_READ_RESP) && SQ_TYPE(*hw_cqe)) {
 			ret = -1;
 			goto skip_cqe;
 		}
 
-		
+		/* incoming SEND with no receive posted failures */
 		if (CQE_SEND_OPCODE(*hw_cqe) && RQ_TYPE(*hw_cqe) &&
 		    Q_EMPTY(wq->rq_rptr, wq->rq_wptr)) {
 			ret = -1;
@@ -1155,8 +1240,17 @@ int cxio_poll_cq(struct t3_wq *wq, struct t3_cq *cq, struct t3_cqe *cqe,
 		goto proc_cqe;
 	}
 
+	/*
+	 * RECV completion.
+	 */
 	if (RQ_TYPE(*hw_cqe)) {
 
+		/*
+		 * HW only validates 4 bits of MSN.  So we must validate that
+		 * the MSN in the SEND is the next expected MSN.  If its not,
+		 * then we complete this with TPT_ERR_MSN and mark the wq in
+		 * error.
+		 */
 
 		if (Q_EMPTY(wq->rq_rptr, wq->rq_wptr)) {
 			wq->error = 1;
@@ -1172,6 +1266,17 @@ int cxio_poll_cq(struct t3_wq *wq, struct t3_cq *cq, struct t3_cqe *cqe,
 		goto proc_cqe;
 	}
 
+	/*
+	 * If we get here its a send completion.
+	 *
+	 * Handle out of order completion. These get stuffed
+	 * in the SW SQ. Then the SW SQ is walked to move any
+	 * now in-order completions into the SW CQ.  This handles
+	 * 2 cases:
+	 *	1) reaping unsignaled WRs when the first subsequent
+	 *	   signaled WR is completed.
+	 *	2) out of order read completions.
+	 */
 	if (!SW_CQE(*hw_cqe) && (CQE_WRID_SQ_WPTR(*hw_cqe) != wq->sq_rptr)) {
 		struct t3_swsq *sqp;
 
@@ -1189,6 +1294,10 @@ int cxio_poll_cq(struct t3_wq *wq, struct t3_cq *cq, struct t3_cqe *cqe,
 proc_cqe:
 	*cqe = *hw_cqe;
 
+	/*
+	 * Reap the associated WR(s) that are freed up with this
+	 * completion.
+	 */
 	if (SQ_TYPE(*hw_cqe)) {
 		wq->sq_rptr = CQE_WRID_SQ_WPTR(*hw_cqe);
 		PDBG("%s completing sq idx %ld\n", __func__,
@@ -1208,6 +1317,9 @@ proc_cqe:
 	}
 
 flush_wq:
+	/*
+	 * Flush any completed cqes that are now in-order.
+	 */
 	flush_completed_wrs(wq, cq);
 
 skip_cqe:
@@ -1220,6 +1332,9 @@ skip_cqe:
 		     __func__, cq, cq->cqid, cq->rptr);
 		++cq->rptr;
 
+		/*
+		 * T3A: compute credits.
+		 */
 		if (((cq->rptr - cq->wptr) > (1 << (cq->size_log2 - 1)))
 		    || ((cq->rptr - cq->wptr) >= 128)) {
 			*credit = cq->rptr - cq->wptr;

@@ -67,6 +67,7 @@
 
 #define ATH9K_NUM_CHANNELS	38
 
+/* Register read/write primitives */
 #define REG_WRITE(_ah, _reg, _val) \
 	(_ah)->reg_ops.write((_ah), (_val), (_reg))
 
@@ -151,8 +152,8 @@
 #define ATH9K_NUM_QUEUES            10
 
 #define MAX_RATE_POWER              63
-#define AH_WAIT_TIMEOUT             100000 
-#define AH_TSF_WRITE_TIMEOUT        100    
+#define AH_WAIT_TIMEOUT             100000 /* (us) */
+#define AH_TSF_WRITE_TIMEOUT        100    /* (us) */
 #define AH_TIME_QUANTUM             10
 #define AR_KEYTABLE_SIZE            128
 #define POWER_UP_TIME               10000
@@ -213,7 +214,7 @@ enum ath9k_hw_caps {
 };
 
 struct ath9k_hw_capabilities {
-	u32 hw_caps; 
+	u32 hw_caps; /* ATH9K_HW_CAP_* from ath9k_hw_caps */
 	u16 rts_aggr_limit;
 	u8 tx_chainmask;
 	u8 rx_chainmask;
@@ -261,7 +262,7 @@ struct ath9k_ops_config {
 	int spurmode;
 	u16 spurchans[AR_EEPROM_MODAL_SPURS][2];
 	u8 max_txtrig_level;
-	u16 ani_poll_interval; 
+	u16 ani_poll_interval; /* ANI poll interval in ms */
 };
 
 enum ath9k_int {
@@ -398,6 +399,7 @@ struct ath9k_channel {
 	((((_c)->channelFlags & CHANNEL_5GHZ) != 0) &&	\
 	 ((_ah)->caps.hw_caps & ATH9K_HW_CAP_FASTCLOCK))
 
+/* These macros check chanmode and not channelFlags */
 #define IS_CHAN_B(_c) ((_c)->chanmode == CHANNEL_B)
 #define IS_CHAN_HT20(_c) (((_c)->chanmode == CHANNEL_A_HT20) ||	\
 			  ((_c)->chanmode == CHANNEL_G_HT20))
@@ -430,7 +432,7 @@ struct ath9k_beacon_state {
 	u32 bs_nexttbtt;
 	u32 bs_nextdtim;
 	u32 bs_intval;
-#define ATH9K_TSFOOR_THRESHOLD    0x00004240 
+#define ATH9K_TSFOOR_THRESHOLD    0x00004240 /* 16k us */
 	u32 bs_dtimperiod;
 	u16 bs_cfpperiod;
 	u16 bs_cfpmaxduration;
@@ -465,11 +467,16 @@ struct ath9k_hw_version {
 	enum ath_usb_dev usbdev;
 };
 
+/* Generic TSF timer definitions */
 
 #define ATH_MAX_GEN_TIMER	16
 
 #define AR_GENTMR_BIT(_index)	(1 << (_index))
 
+/*
+ * Using de Bruijin sequence to look up 1's index in a 32 bit number
+ * debruijn32 = 0000 0111 0111 1100 1011 0101 0011 0001
+ */
 #define debruijn32 0x077CB531U
 
 struct ath_gen_timer_configuration {
@@ -505,6 +512,26 @@ struct ath_hw_antcomb_conf {
 	u8 div_group;
 };
 
+/**
+ * struct ath_hw_radar_conf - radar detection initialization parameters
+ *
+ * @pulse_inband: threshold for checking the ratio of in-band power
+ *	to total power for short radar pulses (half dB steps)
+ * @pulse_inband_step: threshold for checking an in-band power to total
+ *	power ratio increase for short radar pulses (half dB steps)
+ * @pulse_height: threshold for detecting the beginning of a short
+ *	radar pulse (dB step)
+ * @pulse_rssi: threshold for detecting if a short radar pulse is
+ *	gone (dB step)
+ * @pulse_maxlen: maximum pulse length (0.8 us steps)
+ *
+ * @radar_rssi: RSSI threshold for starting long radar detection (dB steps)
+ * @radar_inband: threshold for checking the ratio of in-band power
+ *	to total power for long radar pulses (half dB steps)
+ * @fir_power: threshold for detecting the end of a long radar pulse (dB)
+ *
+ * @ext_channel: enable extension channel radar detection
+ */
 struct ath_hw_radar_conf {
 	unsigned int pulse_inband;
 	unsigned int pulse_inband_step;
@@ -519,8 +546,33 @@ struct ath_hw_radar_conf {
 	bool ext_channel;
 };
 
+/**
+ * struct ath_hw_private_ops - callbacks used internally by hardware code
+ *
+ * This structure contains private callbacks designed to only be used internally
+ * by the hardware core.
+ *
+ * @init_cal_settings: setup types of calibrations supported
+ * @init_cal: starts actual calibration
+ *
+ * @init_mode_regs: Initializes mode registers
+ * @init_mode_gain_regs: Initialize TX/RX gain registers
+ *
+ * @rf_set_freq: change frequency
+ * @spur_mitigate_freq: spur mitigation
+ * @rf_alloc_ext_banks:
+ * @rf_free_ext_banks:
+ * @set_rf_regs:
+ * @compute_pll_control: compute the PLL control value to use for
+ *	AR_RTC_PLL_CONTROL for a given channel
+ * @setup_calibration: set up calibration
+ * @iscal_supported: used to query if a type of calibration is supported
+ *
+ * @ani_cache_ini_regs: cache the values for ANI from the initial
+ *	register settings through the register initialization.
+ */
 struct ath_hw_private_ops {
-	
+	/* Calibration ops */
 	void (*init_cal_settings)(struct ath_hw *ah);
 	bool (*init_cal)(struct ath_hw *ah, struct ath9k_channel *chan);
 
@@ -529,7 +581,7 @@ struct ath_hw_private_ops {
 	void (*setup_calibration)(struct ath_hw *ah,
 				  struct ath9k_cal_list *currCal);
 
-	
+	/* PHY ops */
 	int (*rf_set_freq)(struct ath_hw *ah,
 			   struct ath9k_channel *chan);
 	void (*spur_mitigate_freq)(struct ath_hw *ah,
@@ -560,10 +612,19 @@ struct ath_hw_private_ops {
 	int (*fast_chan_change)(struct ath_hw *ah, struct ath9k_channel *chan,
 				u8 *ini_reloaded);
 
-	
+	/* ANI */
 	void (*ani_cache_ini_regs)(struct ath_hw *ah);
 };
 
+/**
+ * struct ath_hw_ops - callbacks used by hardware code and driver code
+ *
+ * This structure contains callbacks designed to to be used internally by
+ * hardware code and also by the lower level driver.
+ *
+ * @config_pci_powersave:
+ * @calibrate: periodic calibration for NF, ANI, IQ, ADC gain, ADC-DC
+ */
 struct ath_hw_ops {
 	void (*config_pci_powersave)(struct ath_hw *ah,
 				     bool power_off);
@@ -597,8 +658,9 @@ enum ath_cal_list {
 	TX_CL_CAL         =	BIT(2),
 };
 
+/* ah_flags */
 #define AH_USE_EEPROM   0x1
-#define AH_UNPLUGGED    0x2 
+#define AH_UNPLUGGED    0x2 /* The card has been physically removed. */
 #define AH_FASTCC       0x4
 
 struct ath_hw {
@@ -659,7 +721,7 @@ struct ath_hw {
 	u32 atim_window;
 	u32 modes_index;
 
-	
+	/* Calibration */
 	u32 supp_cals;
 	struct ath9k_cal_list iq_caldata;
 	struct ath9k_cal_list adcgain_caldata;
@@ -706,12 +768,12 @@ struct ath_hw {
 		DONT_USE_32KHZ,
 	} enable_32kHz_clock;
 
-	
+	/* Private to hardware code */
 	struct ath_hw_private_ops private_ops;
-	
+	/* Accessed by the lower level driver */
 	struct ath_hw_ops ops;
 
-	
+	/* Used to program the radio on non single-chip devices */
 	u32 *analogBank0Data;
 	u32 *analogBank1Data;
 	u32 *analogBank2Data;
@@ -726,7 +788,7 @@ struct ath_hw {
 	u32 slottime;
 	u32 globaltxtimeout;
 
-	
+	/* ANI */
 	u32 proc_phyerr;
 	u32 aniperiod;
 	int totalSizeDesired[5];
@@ -793,8 +855,8 @@ struct ath_hw {
 	u16 ts_size;
 
 	u32 bb_watchdog_last_status;
-	u32 bb_watchdog_timeout_ms; 
-	u8 bb_hang_rx_ofdm; 
+	u32 bb_watchdog_timeout_ms; /* in ms, 0 to disable */
+	u8 bb_hang_rx_ofdm; /* true if bb hang due to rx_ofdm */
 
 	unsigned int paprd_target_power;
 	unsigned int paprd_training_power;
@@ -803,9 +865,14 @@ struct ath_hw {
 	bool paprd_table_write_done;
 	u32 paprd_gain_table_entries[PAPRD_GAIN_TABLE_ENTRIES];
 	u8 paprd_gain_table_index[PAPRD_GAIN_TABLE_ENTRIES];
+	/*
+	 * Store the permanent value of Reg 0x4004in WARegVal
+	 * so we dont have to R/M/W. We should not be reading
+	 * this register when in sleep states.
+	 */
 	u32 WARegVal;
 
-	
+	/* Enterprise mode cap */
 	u32 ent_mode;
 
 	bool is_clk_25mhz;
@@ -847,6 +914,7 @@ static inline u8 get_streams(int mask)
 	return !!(mask & BIT(0)) + !!(mask & BIT(1)) + !!(mask & BIT(2));
 }
 
+/* Initialization, Detach, Reset */
 const char *ath9k_hw_probe(u16 vendorid, u16 devid);
 void ath9k_hw_deinit(struct ath_hw *ah);
 int ath9k_hw_init(struct ath_hw *ah);
@@ -855,6 +923,7 @@ int ath9k_hw_reset(struct ath_hw *ah, struct ath9k_channel *chan,
 int ath9k_hw_fill_cap_info(struct ath_hw *ah);
 u32 ath9k_regd_get_ctl(struct ath_regulatory *reg, struct ath9k_channel *chan);
 
+/* GPIO / RFKILL / Antennae */
 void ath9k_hw_cfg_gpio_input(struct ath_hw *ah, u32 gpio);
 u32 ath9k_hw_gpio_get(struct ath_hw *ah, u32 gpio);
 void ath9k_hw_cfg_output(struct ath_hw *ah, u32 gpio,
@@ -862,6 +931,7 @@ void ath9k_hw_cfg_output(struct ath_hw *ah, u32 gpio,
 void ath9k_hw_set_gpio(struct ath_hw *ah, u32 gpio, u32 val);
 void ath9k_hw_setantenna(struct ath_hw *ah, u32 antenna);
 
+/* General Operation */
 bool ath9k_hw_wait(struct ath_hw *ah, u32 reg, u32 mask, u32 val, u32 timeout);
 void ath9k_hw_write_array(struct ath_hw *ah, struct ar5416IniArray *array,
 			  int column, unsigned int *writecnt);
@@ -895,6 +965,7 @@ bool ath9k_hw_check_alive(struct ath_hw *ah);
 
 bool ath9k_hw_setpower(struct ath_hw *ah, enum ath9k_power_mode mode);
 
+/* Generic hw timer primitives */
 struct ath_gen_timer *ath_gen_timer_alloc(struct ath_hw *ah,
 					  void (*trigger)(void *),
 					  void (*overflow)(void *),
@@ -911,14 +982,23 @@ void ath_gen_timer_isr(struct ath_hw *hw);
 
 void ath9k_hw_name(struct ath_hw *ah, char *hw_name, size_t len);
 
+/* PHY */
 void ath9k_hw_get_delta_slope_vals(struct ath_hw *ah, u32 coef_scaled,
 				   u32 *coef_mantissa, u32 *coef_exponent);
 void ath9k_hw_apply_txpower(struct ath_hw *ah, struct ath9k_channel *chan,
 			    bool test);
 
+/*
+ * Code Specific to AR5008, AR9001 or AR9002,
+ * we stuff these here to avoid callbacks for AR9003.
+ */
 int ar9002_hw_rf_claim(struct ath_hw *ah);
 void ar9002_hw_enable_async_fifo(struct ath_hw *ah);
 
+/*
+ * Code specific to AR9003, we stuff these here to avoid callbacks
+ * for older families
+ */
 void ar9003_hw_bb_watchdog_config(struct ath_hw *ah);
 void ar9003_hw_bb_watchdog_read(struct ath_hw *ah);
 void ar9003_hw_bb_watchdog_dbg_info(struct ath_hw *ah);
@@ -934,6 +1014,7 @@ int ar9003_paprd_init_table(struct ath_hw *ah);
 bool ar9003_paprd_is_done(struct ath_hw *ah);
 void ar9003_hw_set_paprd_txdesc(struct ath_hw *ah, void *ds, u8 chains);
 
+/* Hardware family op attach helpers */
 void ar5008_hw_attach_phy_ops(struct ath_hw *ah);
 void ar9002_hw_attach_phy_ops(struct ath_hw *ah);
 void ar9003_hw_attach_phy_ops(struct ath_hw *ah);
@@ -945,6 +1026,13 @@ void ar9002_hw_attach_ops(struct ath_hw *ah);
 void ar9003_hw_attach_ops(struct ath_hw *ah);
 
 void ar9002_hw_load_ani_reg(struct ath_hw *ah, struct ath9k_channel *chan);
+/*
+ * ANI work can be shared between all families but a next
+ * generation implementation of ANI will be used only for AR9003 only
+ * for now as the other families still need to be tested with the same
+ * next generation ANI. Feel free to start testing it though for the
+ * older families (AR5008, AR9001, AR9002) by using modparam_force_new_ani.
+ */
 extern int modparam_force_new_ani;
 void ath9k_ani_reset(struct ath_hw *ah, bool is_scanning);
 void ath9k_hw_proc_mib_event(struct ath_hw *ah);
@@ -974,7 +1062,7 @@ ath9k_hw_get_btcoex_scheme(struct ath_hw *ah)
 {
 	return ATH_BTCOEX_CFG_NONE;
 }
-#endif 
+#endif /* CONFIG_ATH9K_BTCOEX_SUPPORT */
 
 #define ATH9K_CLOCK_RATE_CCK		22
 #define ATH9K_CLOCK_RATE_5GHZ_OFDM	40

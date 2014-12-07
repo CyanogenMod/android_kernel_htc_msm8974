@@ -31,5 +31,5 @@ enum {
 
 extern void __init irq_fpga_init(void);
 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* _UNIT_IRQ_H */

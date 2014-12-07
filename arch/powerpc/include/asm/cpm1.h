@@ -22,24 +22,31 @@
 #include <asm/ptrace.h>
 #include <asm/cpm.h>
 
+/* CPM Command register.
+*/
 #define CPM_CR_RST	((ushort)0x8000)
 #define CPM_CR_OPCODE	((ushort)0x0f00)
 #define CPM_CR_CHAN	((ushort)0x00f0)
 #define CPM_CR_FLG	((ushort)0x0001)
 
+/* Channel numbers.
+*/
 #define CPM_CR_CH_SCC1		((ushort)0x0000)
-#define CPM_CR_CH_I2C		((ushort)0x0001)	
+#define CPM_CR_CH_I2C		((ushort)0x0001)	/* I2C and IDMA1 */
 #define CPM_CR_CH_SCC2		((ushort)0x0004)
-#define CPM_CR_CH_SPI		((ushort)0x0005)	
+#define CPM_CR_CH_SPI		((ushort)0x0005)	/* SPI / IDMA2 / Timers */
 #define CPM_CR_CH_TIMER		CPM_CR_CH_SPI
 #define CPM_CR_CH_SCC3		((ushort)0x0008)
-#define CPM_CR_CH_SMC1		((ushort)0x0009)	
+#define CPM_CR_CH_SMC1		((ushort)0x0009)	/* SMC1 / DSP1 */
 #define CPM_CR_CH_SCC4		((ushort)0x000c)
-#define CPM_CR_CH_SMC2		((ushort)0x000d)	
+#define CPM_CR_CH_SMC2		((ushort)0x000d)	/* SMC2 / DSP2 */
 
 #define mk_cr_cmd(CH, CMD)	((CMD << 8) | (CH << 4))
 
-extern cpm8xx_t __iomem *cpmp; 
+/* Export the base address of the communication processor registers
+ * and dual port ram.
+ */
+extern cpm8xx_t __iomem *cpmp; /* Pointer to comm processor */
 
 #define cpm_dpalloc cpm_muram_alloc
 #define cpm_dpfree cpm_muram_free
@@ -52,6 +59,8 @@ extern void __init cpm_load_patch(cpm8xx_t *cp);
 
 extern void cpm_reset(void);
 
+/* Parameter RAM offsets.
+*/
 #define PROFF_SCC1	((uint)0x0000)
 #define PROFF_IIC	((uint)0x0080)
 #define PROFF_SCC2	((uint)0x0100)
@@ -61,34 +70,41 @@ extern void cpm_reset(void);
 #define PROFF_SCC4	((uint)0x0300)
 #define PROFF_SMC2	((uint)0x0380)
 
+/* Define enough so I can at least use the serial port as a UART.
+ * The MBX uses SMC1 as the host serial port.
+ */
 typedef struct smc_uart {
-	ushort	smc_rbase;	
-	ushort	smc_tbase;	
-	u_char	smc_rfcr;	
-	u_char	smc_tfcr;	
-	ushort	smc_mrblr;	
-	uint	smc_rstate;	
-	uint	smc_idp;	
-	ushort	smc_rbptr;	
-	ushort	smc_ibc;	
-	uint	smc_rxtmp;	
-	uint	smc_tstate;	
-	uint	smc_tdp;	
-	ushort	smc_tbptr;	
-	ushort	smc_tbc;	
-	uint	smc_txtmp;	
-	ushort	smc_maxidl;	
-	ushort	smc_tmpidl;	
-	ushort	smc_brklen;	
-	ushort	smc_brkec;	
-	ushort	smc_brkcr;	
-	ushort	smc_rmask;	
-	char	res1[8];	
-	ushort	smc_rpbase;	
+	ushort	smc_rbase;	/* Rx Buffer descriptor base address */
+	ushort	smc_tbase;	/* Tx Buffer descriptor base address */
+	u_char	smc_rfcr;	/* Rx function code */
+	u_char	smc_tfcr;	/* Tx function code */
+	ushort	smc_mrblr;	/* Max receive buffer length */
+	uint	smc_rstate;	/* Internal */
+	uint	smc_idp;	/* Internal */
+	ushort	smc_rbptr;	/* Internal */
+	ushort	smc_ibc;	/* Internal */
+	uint	smc_rxtmp;	/* Internal */
+	uint	smc_tstate;	/* Internal */
+	uint	smc_tdp;	/* Internal */
+	ushort	smc_tbptr;	/* Internal */
+	ushort	smc_tbc;	/* Internal */
+	uint	smc_txtmp;	/* Internal */
+	ushort	smc_maxidl;	/* Maximum idle characters */
+	ushort	smc_tmpidl;	/* Temporary idle counter */
+	ushort	smc_brklen;	/* Last received break length */
+	ushort	smc_brkec;	/* rcv'd break condition counter */
+	ushort	smc_brkcr;	/* xmt break count register */
+	ushort	smc_rmask;	/* Temporary bit mask */
+	char	res1[8];	/* Reserved */
+	ushort	smc_rpbase;	/* Relocation pointer */
 } smc_uart_t;
 
-#define SMC_EB	((u_char)0x10)	
+/* Function code bits.
+*/
+#define SMC_EB	((u_char)0x10)	/* Set big endian byte order */
 
+/* SMC uart mode register.
+*/
 #define	SMCMR_REN	((ushort)0x0001)
 #define SMCMR_TEN	((ushort)0x0002)
 #define SMCMR_DM	((ushort)0x000c)
@@ -96,14 +112,19 @@ typedef struct smc_uart {
 #define SMCMR_SM_UART	((ushort)0x0020)
 #define SMCMR_SM_TRANS	((ushort)0x0030)
 #define SMCMR_SM_MASK	((ushort)0x0030)
-#define SMCMR_PM_EVEN	((ushort)0x0100)	
+#define SMCMR_PM_EVEN	((ushort)0x0100)	/* Even parity, else odd */
 #define SMCMR_REVD	SMCMR_PM_EVEN
-#define SMCMR_PEN	((ushort)0x0200)	
+#define SMCMR_PEN	((ushort)0x0200)	/* Parity enable */
 #define SMCMR_BS	SMCMR_PEN
-#define SMCMR_SL	((ushort)0x0400)	
-#define SMCR_CLEN_MASK	((ushort)0x7800)	
+#define SMCMR_SL	((ushort)0x0400)	/* Two stops, else one */
+#define SMCR_CLEN_MASK	((ushort)0x7800)	/* Character length */
 #define smcr_mk_clen(C)	(((C) << 11) & SMCR_CLEN_MASK)
 
+/* SMC2 as Centronics parallel printer.  It is half duplex, in that
+ * it can only receive or transmit.  The parameter ram values for
+ * each direction are either unique or properly overlap, so we can
+ * include them in one structure.
+ */
 typedef struct smc_centronics {
 	ushort	scent_rbase;
 	ushort	scent_tbase;
@@ -134,17 +155,23 @@ typedef struct smc_centronics {
 	ushort	scent_rccr;
 } smc_cent_t;
 
+/* Centronics Status Mask Register.
+*/
 #define SMC_CENT_F	((u_char)0x08)
 #define SMC_CENT_PE	((u_char)0x04)
 #define SMC_CENT_S	((u_char)0x02)
 
-#define	SMCM_BRKE	((unsigned char)0x40)	
-#define	SMCM_BRK	((unsigned char)0x10)	
-#define	SMCM_TXE	((unsigned char)0x10)	
+/* SMC Event and Mask register.
+*/
+#define	SMCM_BRKE	((unsigned char)0x40)	/* When in UART Mode */
+#define	SMCM_BRK	((unsigned char)0x10)	/* When in UART Mode */
+#define	SMCM_TXE	((unsigned char)0x10)	/* When in Transparent Mode */
 #define	SMCM_BSY	((unsigned char)0x04)
 #define	SMCM_TX		((unsigned char)0x02)
 #define	SMCM_RX		((unsigned char)0x01)
 
+/* Baud rate generators.
+*/
 #define CPM_BRG_RST		((uint)0x00020000)
 #define CPM_BRG_EN		((uint)0x00010000)
 #define CPM_BRG_EXTC_INT	((uint)0x00000000)
@@ -154,6 +181,8 @@ typedef struct smc_centronics {
 #define CPM_BRG_CD_MASK		((uint)0x00001ffe)
 #define CPM_BRG_DIV16		((uint)0x00000001)
 
+/* SI Clock Route Register
+*/
 #define SICR_RCLK_SCC1_BRG1	((uint)0x00000000)
 #define SICR_TCLK_SCC1_BRG1	((uint)0x00000000)
 #define SICR_RCLK_SCC2_BRG2	((uint)0x00000800)
@@ -163,6 +192,8 @@ typedef struct smc_centronics {
 #define SICR_RCLK_SCC4_BRG4	((uint)0x18000000)
 #define SICR_TCLK_SCC4_BRG4	((uint)0x03000000)
 
+/* SCCs.
+*/
 #define SCC_GSMRH_IRP		((uint)0x00040000)
 #define SCC_GSMRH_GDE		((uint)0x00010000)
 #define SCC_GSMRH_TCRC_CCITT	((uint)0x00008000)
@@ -184,7 +215,7 @@ typedef struct smc_centronics {
 #define SCC_GSMRH_RTSM		((uint)0x00000002)
 #define SCC_GSMRH_RSYN		((uint)0x00000001)
 
-#define SCC_GSMRL_SIR		((uint)0x80000000)	
+#define SCC_GSMRL_SIR		((uint)0x80000000)	/* SCC2 only */
 #define SCC_GSMRL_EDGE_NONE	((uint)0x60000000)
 #define SCC_GSMRL_EDGE_NEG	((uint)0x40000000)
 #define SCC_GSMRL_EDGE_POS	((uint)0x20000000)
@@ -226,7 +257,7 @@ typedef struct smc_centronics {
 #define SCC_GSMRL_TENC_FM0	((uint)0x00000200)
 #define SCC_GSMRL_TENC_NRZI	((uint)0x00000100)
 #define SCC_GSMRL_TENC_NRZ	((uint)0x00000000)
-#define SCC_GSMRL_DIAG_LE	((uint)0x000000c0)	
+#define SCC_GSMRL_DIAG_LE	((uint)0x000000c0)	/* Loop and echo */
 #define SCC_GSMRL_DIAG_ECHO	((uint)0x00000080)
 #define SCC_GSMRL_DIAG_LOOP	((uint)0x00000040)
 #define SCC_GSMRL_DIAG_NORM	((uint)0x00000000)
@@ -246,132 +277,149 @@ typedef struct smc_centronics {
 
 #define SCC_TODR_TOD		((ushort)0x8000)
 
+/* SCC Event and Mask register.
+*/
 #define	SCCM_TXE	((unsigned char)0x10)
 #define	SCCM_BSY	((unsigned char)0x04)
 #define	SCCM_TX		((unsigned char)0x02)
 #define	SCCM_RX		((unsigned char)0x01)
 
 typedef struct scc_param {
-	ushort	scc_rbase;	
-	ushort	scc_tbase;	
-	u_char	scc_rfcr;	
-	u_char	scc_tfcr;	
-	ushort	scc_mrblr;	
-	uint	scc_rstate;	
-	uint	scc_idp;	
-	ushort	scc_rbptr;	
-	ushort	scc_ibc;	
-	uint	scc_rxtmp;	
-	uint	scc_tstate;	
-	uint	scc_tdp;	
-	ushort	scc_tbptr;	
-	ushort	scc_tbc;	
-	uint	scc_txtmp;	
-	uint	scc_rcrc;	
-	uint	scc_tcrc;	
+	ushort	scc_rbase;	/* Rx Buffer descriptor base address */
+	ushort	scc_tbase;	/* Tx Buffer descriptor base address */
+	u_char	scc_rfcr;	/* Rx function code */
+	u_char	scc_tfcr;	/* Tx function code */
+	ushort	scc_mrblr;	/* Max receive buffer length */
+	uint	scc_rstate;	/* Internal */
+	uint	scc_idp;	/* Internal */
+	ushort	scc_rbptr;	/* Internal */
+	ushort	scc_ibc;	/* Internal */
+	uint	scc_rxtmp;	/* Internal */
+	uint	scc_tstate;	/* Internal */
+	uint	scc_tdp;	/* Internal */
+	ushort	scc_tbptr;	/* Internal */
+	ushort	scc_tbc;	/* Internal */
+	uint	scc_txtmp;	/* Internal */
+	uint	scc_rcrc;	/* Internal */
+	uint	scc_tcrc;	/* Internal */
 } sccp_t;
 
-#define SCC_EB	((u_char)0x10)	
+/* Function code bits.
+*/
+#define SCC_EB	((u_char)0x10)	/* Set big endian byte order */
 
+/* CPM Ethernet through SCCx.
+ */
 typedef struct scc_enet {
 	sccp_t	sen_genscc;
-	uint	sen_cpres;	
-	uint	sen_cmask;	
-	uint	sen_crcec;	
-	uint	sen_alec;	
-	uint	sen_disfc;	
-	ushort	sen_pads;	
-	ushort	sen_retlim;	
-	ushort	sen_retcnt;	
-	ushort	sen_maxflr;	
-	ushort	sen_minflr;	
-	ushort	sen_maxd1;	
-	ushort	sen_maxd2;	
-	ushort	sen_maxd;	
-	ushort	sen_dmacnt;	
-	ushort	sen_maxb;	
-	ushort	sen_gaddr1;	
+	uint	sen_cpres;	/* Preset CRC */
+	uint	sen_cmask;	/* Constant mask for CRC */
+	uint	sen_crcec;	/* CRC Error counter */
+	uint	sen_alec;	/* alignment error counter */
+	uint	sen_disfc;	/* discard frame counter */
+	ushort	sen_pads;	/* Tx short frame pad character */
+	ushort	sen_retlim;	/* Retry limit threshold */
+	ushort	sen_retcnt;	/* Retry limit counter */
+	ushort	sen_maxflr;	/* maximum frame length register */
+	ushort	sen_minflr;	/* minimum frame length register */
+	ushort	sen_maxd1;	/* maximum DMA1 length */
+	ushort	sen_maxd2;	/* maximum DMA2 length */
+	ushort	sen_maxd;	/* Rx max DMA */
+	ushort	sen_dmacnt;	/* Rx DMA counter */
+	ushort	sen_maxb;	/* Max BD byte count */
+	ushort	sen_gaddr1;	/* Group address filter */
 	ushort	sen_gaddr2;
 	ushort	sen_gaddr3;
 	ushort	sen_gaddr4;
-	uint	sen_tbuf0data0;	
-	uint	sen_tbuf0data1;	
-	uint	sen_tbuf0rba;	
-	uint	sen_tbuf0crc;	
-	ushort	sen_tbuf0bcnt;	
-	ushort	sen_paddrh;	
+	uint	sen_tbuf0data0;	/* Save area 0 - current frame */
+	uint	sen_tbuf0data1;	/* Save area 1 - current frame */
+	uint	sen_tbuf0rba;	/* Internal */
+	uint	sen_tbuf0crc;	/* Internal */
+	ushort	sen_tbuf0bcnt;	/* Internal */
+	ushort	sen_paddrh;	/* physical address (MSB) */
 	ushort	sen_paddrm;
-	ushort	sen_paddrl;	
-	ushort	sen_pper;	
-	ushort	sen_rfbdptr;	
-	ushort	sen_tfbdptr;	
-	ushort	sen_tlbdptr;	
-	uint	sen_tbuf1data0;	
-	uint	sen_tbuf1data1;	
-	uint	sen_tbuf1rba;	
-	uint	sen_tbuf1crc;	
-	ushort	sen_tbuf1bcnt;	
-	ushort	sen_txlen;	
-	ushort	sen_iaddr1;	
+	ushort	sen_paddrl;	/* physical address (LSB) */
+	ushort	sen_pper;	/* persistence */
+	ushort	sen_rfbdptr;	/* Rx first BD pointer */
+	ushort	sen_tfbdptr;	/* Tx first BD pointer */
+	ushort	sen_tlbdptr;	/* Tx last BD pointer */
+	uint	sen_tbuf1data0;	/* Save area 0 - current frame */
+	uint	sen_tbuf1data1;	/* Save area 1 - current frame */
+	uint	sen_tbuf1rba;	/* Internal */
+	uint	sen_tbuf1crc;	/* Internal */
+	ushort	sen_tbuf1bcnt;	/* Internal */
+	ushort	sen_txlen;	/* Tx Frame length counter */
+	ushort	sen_iaddr1;	/* Individual address filter */
 	ushort	sen_iaddr2;
 	ushort	sen_iaddr3;
 	ushort	sen_iaddr4;
-	ushort	sen_boffcnt;	
+	ushort	sen_boffcnt;	/* Backoff counter */
 
-	ushort	sen_taddrh;	
+	/* NOTE: Some versions of the manual have the following items
+	 * incorrectly documented.  Below is the proper order.
+	 */
+	ushort	sen_taddrh;	/* temp address (MSB) */
 	ushort	sen_taddrm;
-	ushort	sen_taddrl;	
+	ushort	sen_taddrl;	/* temp address (LSB) */
 } scc_enet_t;
 
-#define SCCE_ENET_GRA	((ushort)0x0080)	
-#define SCCE_ENET_TXE	((ushort)0x0010)	
-#define SCCE_ENET_RXF	((ushort)0x0008)	
-#define SCCE_ENET_BSY	((ushort)0x0004)	
-#define SCCE_ENET_TXB	((ushort)0x0002)	
-#define SCCE_ENET_RXB	((ushort)0x0001)	
+/* SCC Event register as used by Ethernet.
+*/
+#define SCCE_ENET_GRA	((ushort)0x0080)	/* Graceful stop complete */
+#define SCCE_ENET_TXE	((ushort)0x0010)	/* Transmit Error */
+#define SCCE_ENET_RXF	((ushort)0x0008)	/* Full frame received */
+#define SCCE_ENET_BSY	((ushort)0x0004)	/* All incoming buffers full */
+#define SCCE_ENET_TXB	((ushort)0x0002)	/* A buffer was transmitted */
+#define SCCE_ENET_RXB	((ushort)0x0001)	/* A buffer was received */
 
-#define SCC_PSMR_HBC	((ushort)0x8000)	
-#define SCC_PSMR_FC	((ushort)0x4000)	
-#define SCC_PSMR_RSH	((ushort)0x2000)	
-#define SCC_PSMR_IAM	((ushort)0x1000)	
-#define SCC_PSMR_ENCRC	((ushort)0x0800)	
-#define SCC_PSMR_PRO	((ushort)0x0200)	
-#define SCC_PSMR_BRO	((ushort)0x0100)	
-#define SCC_PSMR_SBT	((ushort)0x0080)	
-#define SCC_PSMR_LPB	((ushort)0x0040)	
-#define SCC_PSMR_SIP	((ushort)0x0020)	
-#define SCC_PSMR_LCW	((ushort)0x0010)	
-#define SCC_PSMR_NIB22	((ushort)0x000a)	
-#define SCC_PSMR_FDE	((ushort)0x0001)	
+/* SCC Mode Register (PMSR) as used by Ethernet.
+*/
+#define SCC_PSMR_HBC	((ushort)0x8000)	/* Enable heartbeat */
+#define SCC_PSMR_FC	((ushort)0x4000)	/* Force collision */
+#define SCC_PSMR_RSH	((ushort)0x2000)	/* Receive short frames */
+#define SCC_PSMR_IAM	((ushort)0x1000)	/* Check individual hash */
+#define SCC_PSMR_ENCRC	((ushort)0x0800)	/* Ethernet CRC mode */
+#define SCC_PSMR_PRO	((ushort)0x0200)	/* Promiscuous mode */
+#define SCC_PSMR_BRO	((ushort)0x0100)	/* Catch broadcast pkts */
+#define SCC_PSMR_SBT	((ushort)0x0080)	/* Special backoff timer */
+#define SCC_PSMR_LPB	((ushort)0x0040)	/* Set Loopback mode */
+#define SCC_PSMR_SIP	((ushort)0x0020)	/* Sample Input Pins */
+#define SCC_PSMR_LCW	((ushort)0x0010)	/* Late collision window */
+#define SCC_PSMR_NIB22	((ushort)0x000a)	/* Start frame search */
+#define SCC_PSMR_FDE	((ushort)0x0001)	/* Full duplex enable */
 
+/* SCC as UART
+*/
 typedef struct scc_uart {
 	sccp_t	scc_genscc;
-	char	res1[8];	
-	ushort	scc_maxidl;	
-	ushort	scc_idlc;	
-	ushort	scc_brkcr;	
-	ushort	scc_parec;	
-	ushort	scc_frmec;	
-	ushort	scc_nosec;	
-	ushort	scc_brkec;	
-	ushort	scc_brkln;	
-	ushort	scc_uaddr1;	
-	ushort	scc_uaddr2;	
-	ushort	scc_rtemp;	
-	ushort	scc_toseq;	
-	ushort	scc_char1;	
-	ushort	scc_char2;	
-	ushort	scc_char3;	
-	ushort	scc_char4;	
-	ushort	scc_char5;	
-	ushort	scc_char6;	
-	ushort	scc_char7;	
-	ushort	scc_char8;	
-	ushort	scc_rccm;	
-	ushort	scc_rccr;	
-	ushort	scc_rlbc;	
+	char	res1[8];	/* Reserved */
+	ushort	scc_maxidl;	/* Maximum idle chars */
+	ushort	scc_idlc;	/* temp idle counter */
+	ushort	scc_brkcr;	/* Break count register */
+	ushort	scc_parec;	/* receive parity error counter */
+	ushort	scc_frmec;	/* receive framing error counter */
+	ushort	scc_nosec;	/* receive noise counter */
+	ushort	scc_brkec;	/* receive break condition counter */
+	ushort	scc_brkln;	/* last received break length */
+	ushort	scc_uaddr1;	/* UART address character 1 */
+	ushort	scc_uaddr2;	/* UART address character 2 */
+	ushort	scc_rtemp;	/* Temp storage */
+	ushort	scc_toseq;	/* Transmit out of sequence char */
+	ushort	scc_char1;	/* control character 1 */
+	ushort	scc_char2;	/* control character 2 */
+	ushort	scc_char3;	/* control character 3 */
+	ushort	scc_char4;	/* control character 4 */
+	ushort	scc_char5;	/* control character 5 */
+	ushort	scc_char6;	/* control character 6 */
+	ushort	scc_char7;	/* control character 7 */
+	ushort	scc_char8;	/* control character 8 */
+	ushort	scc_rccm;	/* receive control character mask */
+	ushort	scc_rccr;	/* receive control character register */
+	ushort	scc_rlbc;	/* receive last break character */
 } scc_uart_t;
 
+/* SCC Event and Mask registers when it is used as a UART.
+*/
 #define UART_SCCM_GLR		((ushort)0x1000)
 #define UART_SCCM_GLT		((ushort)0x0800)
 #define UART_SCCM_AB		((ushort)0x0200)
@@ -384,6 +432,8 @@ typedef struct scc_uart {
 #define UART_SCCM_TX		((ushort)0x0002)
 #define UART_SCCM_RX		((ushort)0x0001)
 
+/* The SCC PMSR when used as a UART.
+*/
 #define SCU_PSMR_FLC		((ushort)0x8000)
 #define SCU_PSMR_SL		((ushort)0x4000)
 #define SCU_PSMR_CL		((ushort)0x3000)
@@ -398,54 +448,70 @@ typedef struct scc_uart {
 #define SCU_PSMR_TPM		((ushort)0x0003)
 #define SCU_PSMR_TEVP		((ushort)0x0002)
 
+/* CPM Transparent mode SCC.
+ */
 typedef struct scc_trans {
 	sccp_t	st_genscc;
-	uint	st_cpres;	
-	uint	st_cmask;	
+	uint	st_cpres;	/* Preset CRC */
+	uint	st_cmask;	/* Constant mask for CRC */
 } scc_trans_t;
 
+/* IIC parameter RAM.
+*/
 typedef struct iic {
-	ushort	iic_rbase;	
-	ushort	iic_tbase;	
-	u_char	iic_rfcr;	
-	u_char	iic_tfcr;	
-	ushort	iic_mrblr;	
-	uint	iic_rstate;	
-	uint	iic_rdp;	
-	ushort	iic_rbptr;	
-	ushort	iic_rbc;	
-	uint	iic_rxtmp;	
-	uint	iic_tstate;	
-	uint	iic_tdp;	
-	ushort	iic_tbptr;	
-	ushort	iic_tbc;	
-	uint	iic_txtmp;	
-	char	res1[4];	
-	ushort	iic_rpbase;	
-	char	res2[2];	
+	ushort	iic_rbase;	/* Rx Buffer descriptor base address */
+	ushort	iic_tbase;	/* Tx Buffer descriptor base address */
+	u_char	iic_rfcr;	/* Rx function code */
+	u_char	iic_tfcr;	/* Tx function code */
+	ushort	iic_mrblr;	/* Max receive buffer length */
+	uint	iic_rstate;	/* Internal */
+	uint	iic_rdp;	/* Internal */
+	ushort	iic_rbptr;	/* Internal */
+	ushort	iic_rbc;	/* Internal */
+	uint	iic_rxtmp;	/* Internal */
+	uint	iic_tstate;	/* Internal */
+	uint	iic_tdp;	/* Internal */
+	ushort	iic_tbptr;	/* Internal */
+	ushort	iic_tbc;	/* Internal */
+	uint	iic_txtmp;	/* Internal */
+	char	res1[4];	/* Reserved */
+	ushort	iic_rpbase;	/* Relocation pointer */
+	char	res2[2];	/* Reserved */
 } iic_t;
 
-#define RCCR_TIME	0x8000			
-#define RCCR_TIMEP(t)	(((t) & 0x3F)<<8)	
-#define RCCR_TIME_MASK	0x00FF			
+/*
+ * RISC Controller Configuration Register definitons
+ */
+#define RCCR_TIME	0x8000			/* RISC Timer Enable */
+#define RCCR_TIMEP(t)	(((t) & 0x3F)<<8)	/* RISC Timer Period */
+#define RCCR_TIME_MASK	0x00FF			/* not RISC Timer related bits */
 
+/* RISC Timer Parameter RAM offset */
 #define PROFF_RTMR	((uint)0x01B0)
 
 typedef struct risc_timer_pram {
-	unsigned short	tm_base;	
-	unsigned short	tm_ptr;		
-	unsigned short	r_tmr;		
-	unsigned short	r_tmv;		
-	unsigned long	tm_cmd;		
-	unsigned long	tm_cnt;		
+	unsigned short	tm_base;	/* RISC Timer Table Base Address */
+	unsigned short	tm_ptr;		/* RISC Timer Table Pointer (internal) */
+	unsigned short	r_tmr;		/* RISC Timer Mode Register */
+	unsigned short	r_tmv;		/* RISC Timer Valid Register */
+	unsigned long	tm_cmd;		/* RISC Timer Command Register */
+	unsigned long	tm_cnt;		/* RISC Timer Internal Count */
 } rt_pram_t;
 
-#define TM_CMD_VALID	0x80000000	
-#define TM_CMD_RESTART	0x40000000	
-#define TM_CMD_PWM	0x20000000	
-#define TM_CMD_NUM(n)	(((n)&0xF)<<16)	
-#define TM_CMD_PERIOD(p) ((p)&0xFFFF)	
+/* Bits in RISC Timer Command Register */
+#define TM_CMD_VALID	0x80000000	/* Valid - Enables the timer */
+#define TM_CMD_RESTART	0x40000000	/* Restart - for automatic restart */
+#define TM_CMD_PWM	0x20000000	/* Run in Pulse Width Modulation Mode */
+#define TM_CMD_NUM(n)	(((n)&0xF)<<16)	/* Timer Number */
+#define TM_CMD_PERIOD(p) ((p)&0xFFFF)	/* Timer Period */
 
+/* CPM interrupts.  There are nearly 32 interrupts generated by CPM
+ * channels or devices.  All of these are presented to the PPC core
+ * as a single interrupt.  The CPM interrupt handler dispatches its
+ * own handlers, in a similar fashion to the PPC core handler.  We
+ * use the table as defined in the manuals (i.e. no special high
+ * priority and SCC1 == SCCa, etc...).
+ */
 #define CPMVEC_NR		32
 #define	CPMVEC_PIO_PC15		((ushort)0x1f)
 #define	CPMVEC_SCC1		((ushort)0x1e)
@@ -477,14 +543,16 @@ typedef struct risc_timer_pram {
 #define	CPMVEC_PIO_PC4		((ushort)0x01)
 #define	CPMVEC_ERROR		((ushort)0x00)
 
-#define	CICR_SCD_SCC4		((uint)0x00c00000)	
-#define	CICR_SCC_SCC3		((uint)0x00200000)	
-#define	CICR_SCB_SCC2		((uint)0x00040000)	
-#define	CICR_SCA_SCC1		((uint)0x00000000)	
-#define CICR_IRL_MASK		((uint)0x0000e000)	
-#define CICR_HP_MASK		((uint)0x00001f00)	
-#define CICR_IEN		((uint)0x00000080)	
-#define CICR_SPS		((uint)0x00000001)	
+/* CPM interrupt configuration vector.
+*/
+#define	CICR_SCD_SCC4		((uint)0x00c00000)	/* SCC4 @ SCCd */
+#define	CICR_SCC_SCC3		((uint)0x00200000)	/* SCC3 @ SCCc */
+#define	CICR_SCB_SCC2		((uint)0x00040000)	/* SCC2 @ SCCb */
+#define	CICR_SCA_SCC1		((uint)0x00000000)	/* SCC1 @ SCCa */
+#define CICR_IRL_MASK		((uint)0x0000e000)	/* Core interrupt */
+#define CICR_HP_MASK		((uint)0x00001f00)	/* Hi-pri int. */
+#define CICR_IEN		((uint)0x00000080)	/* Int. enable */
+#define CICR_SPS		((uint)0x00000001)	/* SCC Spread */
 
 #define CPM_PIN_INPUT     0
 #define CPM_PIN_OUTPUT    1
@@ -519,20 +587,20 @@ enum cpm_clk_target {
 };
 
 enum cpm_clk {
-	CPM_BRG1,	
-	CPM_BRG2,	
-	CPM_BRG3,	
-	CPM_BRG4,	
-	CPM_CLK1,	
-	CPM_CLK2,	
-	CPM_CLK3,	
-	CPM_CLK4,	
-	CPM_CLK5,	
-	CPM_CLK6,	
-	CPM_CLK7,	
-	CPM_CLK8,	
+	CPM_BRG1,	/* Baud Rate Generator  1 */
+	CPM_BRG2,	/* Baud Rate Generator  2 */
+	CPM_BRG3,	/* Baud Rate Generator  3 */
+	CPM_BRG4,	/* Baud Rate Generator  4 */
+	CPM_CLK1,	/* Clock  1 */
+	CPM_CLK2,	/* Clock  2 */
+	CPM_CLK3,	/* Clock  3 */
+	CPM_CLK4,	/* Clock  4 */
+	CPM_CLK5,	/* Clock  5 */
+	CPM_CLK6,	/* Clock  6 */
+	CPM_CLK7,	/* Clock  7 */
+	CPM_CLK8,	/* Clock  8 */
 };
 
 int cpm1_clk_setup(enum cpm_clk_target target, int clock, int mode);
 
-#endif 
+#endif /* __CPM1__ */

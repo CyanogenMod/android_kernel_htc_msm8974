@@ -33,6 +33,7 @@
 
 enum wl1273_mode { WL1273_MODE_BT, WL1273_MODE_FM_RX, WL1273_MODE_FM_TX };
 
+/* codec private data */
 struct wl1273_priv {
 	enum wl1273_mode mode;
 	struct wl1273_core *core;
@@ -179,6 +180,11 @@ static int snd_wl1273_get_audio_route(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/*
+ * TODO: Implement the audio routing in the driver. Now this control
+ * only indicates the setting that has been done elsewhere (in the user
+ * space).
+ */
 static const char * const wl1273_audio_route[] = { "Bt", "FmRx", "FmTx" };
 
 static int snd_wl1273_set_audio_route(struct snd_kcontrol *kcontrol,
@@ -190,7 +196,7 @@ static int snd_wl1273_set_audio_route(struct snd_kcontrol *kcontrol,
 	if (wl1273->mode == ucontrol->value.integer.value[0])
 		return 0;
 
-	
+	/* Do not allow changes while stream is running */
 	if (codec->active)
 		return -EPERM;
 
@@ -402,6 +408,7 @@ static struct snd_soc_dai_driver wl1273_dai = {
 	.ops = &wl1273_dai_ops,
 };
 
+/* Audio interface format for the soc_card driver */
 int wl1273_get_format(struct snd_soc_codec *codec, unsigned int *fmt)
 {
 	struct wl1273_priv *wl1273;

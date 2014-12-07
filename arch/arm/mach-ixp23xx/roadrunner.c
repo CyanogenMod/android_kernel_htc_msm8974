@@ -44,6 +44,9 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/pci.h>
 
+/*
+ * Interrupt mapping
+ */
 #define INTA		IRQ_ROADRUNNER_PCI_INTA
 #define INTB		IRQ_ROADRUNNER_PCI_INTB
 #define INTC		IRQ_ROADRUNNER_PCI_INTC
@@ -64,15 +67,15 @@ static int __init roadrunner_map_irq(const struct pci_dev *dev, u8 idsel,
 	switch(dev->bus->number) {
 		case 0:
 			switch(dev->devfn) {
-			case 0x0: 
+			case 0x0: // PCI-PCI bridge
 				break;
-			case 0x8: 
+			case 0x8: // PCI Card Slot
 				return pci_card_slot_irq[pin - 1];
-			case 0x10: 
+			case 0x10: // PMC Slot
 				return pmc_card_slot_irq[pin - 1];
-			case 0x18: 
+			case 0x18: // PMC Slot Secondary Agent
 				break;
-			case 0x20: 
+			case 0x20: // IXP Processor
 				break;
 			default:
 				return NO_IRQ;
@@ -81,17 +84,17 @@ static int __init roadrunner_map_irq(const struct pci_dev *dev, u8 idsel,
 
 		case 1:
 			switch(dev->devfn) {
-			case 0x0: 
+			case 0x0: // IDE Controller
 				return (pin == 1) ? INTC : -1;
-			case 0x8: 
-			case 0x9: 
-			case 0xa: 
+			case 0x8: // USB fun 0
+			case 0x9: // USB fun 1
+			case 0xa: // USB fun 2
 				return usb_irq[pin - 1];
-			case 0x10: 
+			case 0x10: // Mini PCI 1
 				return mini_pci_1_irq[pin-1];
-			case 0x18: 
+			case 0x18: // Mini PCI 2
 				return mini_pci_2_irq[pin-1];
-			case 0x20: 
+			case 0x20: // MEM slot
 				return (pin == 1) ? INTA : -1;
 			default:
 				return NO_IRQ;
@@ -155,6 +158,9 @@ static void __init roadrunner_init(void)
 {
 	platform_device_register(&roadrunner_flash);
 
+	/*
+	 * Mark flash as writeable
+	 */
 	IXP23XX_EXP_CS0[0] |= IXP23XX_FLASH_WRITABLE;
 	IXP23XX_EXP_CS0[1] |= IXP23XX_FLASH_WRITABLE;
 	IXP23XX_EXP_CS0[2] |= IXP23XX_FLASH_WRITABLE;
@@ -164,7 +170,7 @@ static void __init roadrunner_init(void)
 }
 
 MACHINE_START(ROADRUNNER, "ADI Engineering RoadRunner Development Platform")
-	
+	/* Maintainer: Deepak Saxena */
 	.map_io		= ixp23xx_map_io,
 	.init_irq	= ixp23xx_init_irq,
 	.timer		= &ixp23xx_timer,

@@ -24,10 +24,13 @@
 #include <asm/ioctls.h>
 #include "audio_utils.h"
 
+/* Buffer with meta*/
 #define PCM_BUF_SIZE		(4096 + sizeof(struct meta_in))
 
+/* Maximum 10 frames in buffer with meta */
 #define FRAME_SIZE		(1 + ((35+sizeof(struct meta_out_dsp)) * 10))
 
+/* ------------------- device --------------------- */
 static long qcelp_in_ioctl(struct file *file,
 				unsigned int cmd, unsigned long arg)
 {
@@ -53,6 +56,8 @@ static long qcelp_in_ioctl(struct file *file,
 			break;
 		}
 
+		/* reduced_rate_level, rate_modulation_cmd set to zero
+			 currently not configurable from user space */
 		rc = q6asm_enc_cfg_blk_qcelp(audio->ac,
 			audio->buf_cfg.frames_per_buf,
 			enc_cfg->min_bit_rate,
@@ -86,7 +91,7 @@ static long qcelp_in_ioctl(struct file *file,
 			break;
 		}
 		while (cnt++ < audio->str_cfg.buffer_count)
-			q6asm_read(audio->ac); 
+			q6asm_read(audio->ac); /* Push buffer to DSP */
 		rc = 0;
 		pr_debug("%s:session id %d: AUDIO_START success enable[%d]\n",
 				__func__, audio->ac->session, audio->enabled);
@@ -161,7 +166,7 @@ static int qcelp_in_open(struct inode *inode, struct file *file)
 				__func__);
 		return -ENOMEM;
 	}
-	
+	/* Allocate memory for encoder config param */
 	audio->enc_cfg = kzalloc(sizeof(struct msm_audio_qcelp_enc_config),
 				GFP_KERNEL);
 	if (audio->enc_cfg == NULL) {
@@ -179,6 +184,9 @@ static int qcelp_in_open(struct inode *inode, struct file *file)
 	init_waitqueue_head(&audio->read_wait);
 	init_waitqueue_head(&audio->write_wait);
 
+	/* Settings will be re-config at AUDIO_SET_CONFIG,
+	* but at least we need to have initial config
+	*/
 	audio->str_cfg.buffer_size = FRAME_SIZE;
 	audio->str_cfg.buffer_count = FRAME_NUM;
 	audio->min_frame_size = 35;
@@ -204,7 +212,7 @@ static int qcelp_in_open(struct inode *inode, struct file *file)
 		return -ENOMEM;
 	}
 
-	
+	/* open qcelp encoder in T/NT mode */
 	if ((file->f_mode & FMODE_WRITE) &&
 		(file->f_mode & FMODE_READ)) {
 		audio->feedback = NON_TUNNEL_MODE;
@@ -228,7 +236,7 @@ static int qcelp_in_open(struct inode *inode, struct file *file)
 			rc = -ENODEV;
 			goto fail;
 		}
-		
+		/* register for tx overflow (valid for tunnel mode only) */
 		rc = q6asm_reg_tx_overflow(audio->ac, 0x01);
 		if (rc < 0) {
 			pr_err("%s:session id %d: TX Overflow registration failed rc=%d\n",

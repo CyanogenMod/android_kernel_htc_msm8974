@@ -13,6 +13,7 @@
 
 #undef FM_DEBUG
 
+/* constants */
 #define  RDS_BLOCKS_NUM             (4)
 #define BYTES_PER_BLOCK             (3)
 #define MAX_PS_LENGTH              (96)
@@ -51,16 +52,20 @@
 #define SRCH200KHZ_OFFSET             (7)
 #define SRCH_MASK                  (1 << SRCH200KHZ_OFFSET)
 
+/* Standard buffer size */
 #define STD_BUF_SIZE               (256)
+/* Search direction */
 #define SRCH_DIR_UP                 (0)
 #define SRCH_DIR_DOWN               (1)
 
+/* control options */
 #define CTRL_ON                     (1)
 #define CTRL_OFF                    (0)
 
 #define US_LOW_BAND                (87.5)
 #define US_HIGH_BAND               (108)
 
+/* constant for Tx */
 
 #define MASK_PI                    (0x0000FFFF)
 #define MASK_PI_MSB                (0x0000FF00)
@@ -85,6 +90,8 @@
   #define FMDBG_I2C(fmt, args...)
 #endif
 
+/* function declarations */
+/* FM Core audio paths. */
 #define TAVARUA_AUDIO_OUT_ANALOG_OFF	(0)
 #define TAVARUA_AUDIO_OUT_ANALOG_ON	(1)
 #define TAVARUA_AUDIO_OUT_DIGITAL_OFF	(0)
@@ -92,6 +99,7 @@
 
 int tavarua_set_audio_path(int digital_on, int analog_on);
 
+/* defines and enums*/
 
 #define MARIMBA_A0	0x01010013
 #define MARIMBA_2_1	0x02010204
@@ -101,6 +109,13 @@ int tavarua_set_audio_path(int digital_on, int analog_on);
 #define WAIT_TIMEOUT 2000
 #define RADIO_INIT_TIME 15
 #define TAVARUA_DELAY 10
+/*
+ * The frequency is set in units of 62.5 Hz when using V4L2_TUNER_CAP_LOW,
+ * 62.5 kHz otherwise.
+ * The tuner is able to have a channel spacing of 50, 100 or 200 kHz.
+ * tuner->capability is therefore set to V4L2_TUNER_CAP_LOW
+ * The FREQ_MUL is then: 1 MHz / 62.5 Hz = 16000
+ */
 #define FREQ_MUL (1000000 / 62.5)
 
 enum v4l2_cid_private_tavarua_t {
@@ -124,7 +139,7 @@ enum v4l2_cid_private_tavarua_t {
 	V4L2_CID_PRIVATE_TAVARUA_ANTENNA,
 	V4L2_CID_PRIVATE_TAVARUA_RDSD_BUF,
 	V4L2_CID_PRIVATE_TAVARUA_PSALL,
-	
+	/*v4l2 Tx controls*/
 	V4L2_CID_PRIVATE_TAVARUA_TX_SETPSREPEATCOUNT,
 	V4L2_CID_PRIVATE_TAVARUA_STOP_RDS_TX_PS_NAME,
 	V4L2_CID_PRIVATE_TAVARUA_STOP_RDS_TX_RT,
@@ -135,7 +150,11 @@ enum v4l2_cid_private_tavarua_t {
 	V4L2_CID_PRIVATE_TAVARUA_RSSI_DELTA,
 	V4L2_CID_PRIVATE_TAVARUA_HLSI,
 
-	V4L2_CID_PRIVATE_SOFT_MUTE,
+	/*
+	* Here we have IOCTl's that are specific to IRIS
+	* (V4L2_CID_PRIVATE_BASE + 0x1E to V4L2_CID_PRIVATE_BASE + 0x28)
+	*/
+	V4L2_CID_PRIVATE_SOFT_MUTE,/* 0x800001E*/
 	V4L2_CID_PRIVATE_RIVA_ACCS_ADDR,
 	V4L2_CID_PRIVATE_RIVA_ACCS_LEN,
 	V4L2_CID_PRIVATE_RIVA_PEEK,
@@ -145,16 +164,16 @@ enum v4l2_cid_private_tavarua_t {
 	V4L2_CID_PRIVATE_SSBI_POKE,
 	V4L2_CID_PRIVATE_TX_TONE,
 	V4L2_CID_PRIVATE_RDS_GRP_COUNTERS,
-	V4L2_CID_PRIVATE_SET_NOTCH_FILTER,
+	V4L2_CID_PRIVATE_SET_NOTCH_FILTER,/* 0x8000028 */
 
-	V4L2_CID_PRIVATE_TAVARUA_SET_AUDIO_PATH,
-	V4L2_CID_PRIVATE_TAVARUA_DO_CALIBRATION,
-	V4L2_CID_PRIVATE_TAVARUA_SRCH_ALGORITHM,
-	V4L2_CID_PRIVATE_IRIS_GET_SINR, 
-	V4L2_CID_PRIVATE_INTF_LOW_THRESHOLD, 
-	V4L2_CID_PRIVATE_INTF_HIGH_THRESHOLD, 
-	V4L2_CID_PRIVATE_SINR_THRESHOLD,  
-	V4L2_CID_PRIVATE_SINR_SAMPLES,  
+	V4L2_CID_PRIVATE_TAVARUA_SET_AUDIO_PATH,/* 0x8000029 */
+	V4L2_CID_PRIVATE_TAVARUA_DO_CALIBRATION,/* 0x800002A : IRIS */
+	V4L2_CID_PRIVATE_TAVARUA_SRCH_ALGORITHM,/* 0x800002B */
+	V4L2_CID_PRIVATE_IRIS_GET_SINR, /* 0x800002C : IRIS */
+	V4L2_CID_PRIVATE_INTF_LOW_THRESHOLD, /* 0x800002D */
+	V4L2_CID_PRIVATE_INTF_HIGH_THRESHOLD, /* 0x800002E */
+	V4L2_CID_PRIVATE_SINR_THRESHOLD,  /* 0x800002F : IRIS */
+	V4L2_CID_PRIVATE_SINR_SAMPLES,  /* 0x8000030 : IRIS */
 	V4L2_CID_PRIVATE_SPUR_FREQ,
 	V4L2_CID_PRIVATE_SPUR_FREQ_RMSSI,
 	V4L2_CID_PRIVATE_SPUR_SELECTION,
@@ -204,14 +223,17 @@ enum rds_std {
 	RDS_STD
 };
 
+/* offsets */
 #define RAW_RDS		0x0F
 #define RDS_BLOCK 	3
 
+/* registers*/
 #define MARIMBA_XO_BUFF_CNTRL 0x07
 #define RADIO_REGISTERS 0x30
 #define XFR_REG_NUM     16
 #define STATUS_REG_NUM 	3
 
+/* TX constants */
 #define HEADER_SIZE	4
 #define TX_ON		0x80
 #define TAVARUA_TX_RT	RDS_RT_0
@@ -246,6 +268,7 @@ enum register_t {
 #define BAHAMA_LDO_DREG_CTL0    0xF0
 #define BAHAMA_LDO_AREG_CTL0    0xF4
 
+/* Radio Control */
 #define RDCTRL_STATE_OFFSET	0
 #define RDCTRL_STATE_MASK	(3 << RDCTRL_STATE_OFFSET)
 #define RDCTRL_BAND_OFFSET	2
@@ -259,11 +282,13 @@ enum register_t {
 #define RDSAF_OFFSET		6
 #define RDSAF_MASK		(1 << RDSAF_OFFSET)
 
+/* Tune Control */
 #define TUNE_STATION	0x01
 #define ADD_OFFSET	(1 << 1)
 #define SIGSTATE	(1 << 5)
 #define MOSTSTATE	(1 << 6)
 #define RDSSYNC		(1 << 7)
+/* Search Control */
 #define SRCH_MODE_OFFSET	0
 #define SRCH_MODE_MASK		(7 << SRCH_MODE_OFFSET)
 #define SRCH_DIR_OFFSET		3
@@ -273,6 +298,7 @@ enum register_t {
 #define SRCH_STATE_OFFSET	7
 #define SRCH_STATE_MASK		(1 << SRCH_STATE_OFFSET)
 
+/* I/O Control */
 #define IOC_HRD_MUTE	0x03
 #define IOC_SFT_MUTE    (1 << 2)
 #define IOC_MON_STR     (1 << 3)
@@ -282,13 +308,16 @@ enum register_t {
 #define IOC_ANTENNA_OFFSET	6
 #define IOC_ANTENNA_MASK     	(1 << IOC_ANTENNA_OFFSET)
 
+/* RDS Control */
 #define RDS_ON		0x01
 #define RDSCTRL_STANDARD_OFFSET 1
 #define RDSCTRL_STANDARD_MASK	(1 << RDSCTRL_STANDARD_OFFSET)
 
+/* Advanced features controls */
 #define RDSRTEN		(1 << 3)
 #define RDSPSEN		(1 << 4)
 
+/* Audio path control */
 #define AUDIORX_ANALOG_OFFSET 	0
 #define AUDIORX_ANALOG_MASK 	(1 << AUDIORX_ANALOG_OFFSET)
 #define AUDIORX_DIGITAL_OFFSET 	1
@@ -298,6 +327,7 @@ enum register_t {
 #define I2SCTRL_OFFSET		3
 #define I2SCTRL_MASK		(1 << I2SCTRL_OFFSET)
 
+/* Search options */
 enum search_t {
 	SEEK,
 	SCAN,
@@ -309,6 +339,7 @@ enum search_t {
 	RDS_AF_JUMP,
 };
 
+/* Band limits */
 #define REGION_US_EU_BAND_LOW		87500
 #define REGION_US_EU_BAND_HIGH		108000
 #define REGION_JAPAN_STANDARD_BAND_LOW	76000
@@ -323,10 +354,11 @@ enum audio_path {
 	FM_ANALOG_PATH
 };
 #define SRCH_MODE	0x07
-#define SRCH_DIR	0x08 
+#define SRCH_DIR	0x08 /* 0-up 1-down */
 #define SCAN_DWELL	0x70
 #define SRCH_ON		0x80
 
+/* RDS CONFIG */
 #define RDS_CONFIG_PSALL 0x01
 
 #define FM_ENABLE	0x22
@@ -346,33 +378,38 @@ enum radio_state_t {
 
 #define XFRCTRL_WRITE   (1 << 7)
 
+/* Interrupt status */
 
-#define	READY		(1 << 0) 
-#define	TUNE		(1 << 1) 
-#define	SEARCH		(1 << 2) 
-#define	SCANNEXT	(1 << 3) 
-#define	SIGNAL		(1 << 4) 
-#define	INTF		(1 << 5) 
-#define	SYNC		(1 << 6) 
-#define	AUDIO		(1 << 7) 
+/* interrupt register 1 */
+#define	READY		(1 << 0) /* Radio ready after powerup or reset */
+#define	TUNE		(1 << 1) /* Tune completed */
+#define	SEARCH		(1 << 2) /* Search completed (read FREQ) */
+#define	SCANNEXT	(1 << 3) /* Scanning for next station */
+#define	SIGNAL		(1 << 4) /* Signal indicator change (read SIGSTATE) */
+#define	INTF		(1 << 5) /* Interference cnt has fallen outside range */
+#define	SYNC		(1 << 6) /* RDS sync state change (read RDSSYNC) */
+#define	AUDIO		(1 << 7) /* Audio Control indicator (read AUDIOIND) */
 
-#define	RDSDAT		(1 << 0) 
-#define	BLOCKB		(1 << 1) 
-#define	PROGID		(1 << 2) 
-#define	RDSPS		(1 << 3) 
-#define	RDSRT		(1 << 4) 
-#define	RDSAF		(1 << 5) 
-#define	TXRDSDAT	(1 << 6) 
-#define	TXRDSDONE	(1 << 7) 
+/* interrupt register 2 */
+#define	RDSDAT		(1 << 0) /* New unread RDS data group available */
+#define	BLOCKB		(1 << 1) /* Block-B match condition exists */
+#define	PROGID		(1 << 2) /* Block-A or Block-C matched stored PI value*/
+#define	RDSPS		(1 << 3) /* New RDS Program Service Table available */
+#define	RDSRT		(1 << 4) /* New RDS Radio Text available */
+#define	RDSAF		(1 << 5) /* New RDS AF List available */
+#define	TXRDSDAT	(1 << 6) /* Transmitted an RDS group */
+#define	TXRDSDONE	(1 << 7) /* RDS raw group one-shot transmit completed */
 
-#define	TRANSFER	(1 << 0) 
-#define	RDSPROC		(1 << 1) 
-#define	ERROR		(1 << 7) 
+/* interrupt register 3 */
+#define	TRANSFER	(1 << 0) /* Data transfer (XFR) completed */
+#define	RDSPROC		(1 << 1) /* Dynamic RDS Processing complete */
+#define	ERROR		(1 << 7) /* Err occurred.Read code to determine cause */
 
 
-#define	FM_TX_PWR_LVL_0		0 
-#define	FM_TX_PWR_LVL_MAX	7 
+#define	FM_TX_PWR_LVL_0		0 /* Lowest power lvl that can be set for Tx */
+#define	FM_TX_PWR_LVL_MAX	7 /* Max power lvl for Tx */
 
+/* Tone Generator control value */
 #define TONE_GEN_CTRL_BYTE		 0x00
 #define TONE_CHANNEL_EN_AND_SCALING_BYTE 0x01
 #define TONE_LEFT_FREQ_BYTE		 0x02
@@ -387,6 +424,7 @@ enum radio_state_t {
 
 #define TONE_SCALING_SHIFT		 0x02
 
+/* Transfer */
 enum tavarua_xfr_ctrl_t {
 	RDS_PS_0 = 0x01,
 	RDS_PS_1,
@@ -554,4 +592,4 @@ enum Tone_scaling_indexes {
 	TONE_SCALE_IND_12
 };
 
-#endif 
+#endif /* __LINUX_TAVARUA_H */

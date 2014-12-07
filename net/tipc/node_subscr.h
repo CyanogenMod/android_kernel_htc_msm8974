@@ -41,6 +41,13 @@
 
 typedef void (*net_ev_handler) (void *usr_handle);
 
+/**
+ * struct tipc_node_subscr - "node down" subscription entry
+ * @node: ptr to node structure of interest (or NULL, if none)
+ * @handle_node_down: routine to invoke when node fails
+ * @usr_handle: argument to pass to routine when node fails
+ * @nodesub_list: adjacent entries in list of subscriptions for the node
+ */
 
 struct tipc_node_subscr {
 	struct tipc_node *node;

@@ -32,7 +32,21 @@
 
 #define CYCLES_PER_MHZ			1000000
 
+/*
+ * CORE DPLL (DPLL3) M2 divider rate programming functions
+ *
+ * These call into SRAM code to do the actual CM writes, since the SDRAM
+ * is clocked from DPLL3.
+ */
 
+/**
+ * omap3_core_dpll_m2_set_rate - set CORE DPLL M2 divider
+ * @clk: struct clk * of DPLL to set
+ * @rate: rounded target rate
+ *
+ * Program the DPLL M2 divider with the rounded target rate.  Returns
+ * -EINVAL upon error, or 0 upon success.
+ */
 int omap3_core_dpll_m2_set_rate(struct clk *clk, unsigned long rate)
 {
 	u32 new_div = 0;
@@ -65,9 +79,12 @@ int omap3_core_dpll_m2_set_rate(struct clk *clk, unsigned long rate)
 		unlock_dll = 1;
 	}
 
+	/*
+	 * XXX This only needs to be done when the CPU frequency changes
+	 */
 	_mpurate = arm_fck_p->rate / CYCLES_PER_MHZ;
 	c = (_mpurate << SDRC_MPURATE_SCALE) >> SDRC_MPURATE_BASE_SHIFT;
-	c += 1;  
+	c += 1;  /* for safety */
 	c *= SDRC_MPURATE_LOOPS;
 	c >>= SDRC_MPURATE_SCALE;
 	if (c == 0)

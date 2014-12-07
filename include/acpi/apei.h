@@ -1,3 +1,6 @@
+/*
+ * apei.h - ACPI Platform Error Interface
+ */
 
 #ifndef ACPI_APEI_H
 #define ACPI_APEI_H

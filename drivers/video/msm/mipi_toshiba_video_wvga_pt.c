@@ -18,14 +18,14 @@
 static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
-	
-		{0x03, 0x01, 0x01, 0x00},	
-		
+	/* 480*854, RGB888, 2 Lane 60 fps video mode */
+		{0x03, 0x01, 0x01, 0x00},	/* regulator */
+		/* timing   */
 		{0x6a, 0x22, 0x0f, 0x00, 0x30, 0x38, 0x13, 0x26,
 		0x1b, 0x03, 0x04},
-		{0x7f, 0x00, 0x00, 0x00},	
-		{0xee, 0x03, 0x86, 0x03},	
-		
+		{0x7f, 0x00, 0x00, 0x00},	/* phy ctrl */
+		{0xee, 0x03, 0x86, 0x03},	/* strength */
+		/* pll control */
 
 #define DSI_BIT_CLK_380MHZ
 
@@ -41,7 +41,7 @@ static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
 		{0x41, 0x8f, 0xb1, 0xda, 0x00, 0x50, 0x48, 0x63,
 		0x31, 0x0f, 0x07,
 		0x05, 0x14, 0x03, 0x03, 0x03, 0x54, 0x06, 0x10, 0x04, 0x03 },
-#else		
+#else		/* 200 mhz */
 		{0x41, 0x8f, 0xb1, 0xda, 0x00, 0x50, 0x48, 0x63,
 		0x33, 0x1f, 0x0f,
 		0x05, 0x14, 0x03, 0x03, 0x03, 0x54, 0x06, 0x10, 0x04, 0x03 },
@@ -56,7 +56,7 @@ static int __init mipi_video_toshiba_wvga_pt_init(void)
 		return 0;
 
 	pinfo.xres = 480;
-	pinfo.yres = 864; 
+	pinfo.yres = 864; /* 856 for V1 surf */
 	pinfo.type = MIPI_VIDEO_PANEL;
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
@@ -67,8 +67,8 @@ static int __init mipi_video_toshiba_wvga_pt_init(void)
 	pinfo.lcdc.v_back_porch = 8;
 	pinfo.lcdc.v_front_porch = 4;
 	pinfo.lcdc.v_pulse_width = 1;
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = 15;
 	pinfo.bl_min = 1;
@@ -89,7 +89,7 @@ static int __init mipi_video_toshiba_wvga_pt_init(void)
 	pinfo.mipi.data_lane1 = TRUE;
 	pinfo.mipi.t_clk_post = 0x04;
 	pinfo.mipi.t_clk_pre = 0x17;
-	pinfo.mipi.stream = 0; 
+	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.frame_rate = 60;

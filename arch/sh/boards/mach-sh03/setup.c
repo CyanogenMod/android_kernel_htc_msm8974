@@ -21,6 +21,7 @@ static void __init init_sh03_IRQ(void)
 	plat_irq_setup_pins(IRQ_MODE_IRQ);
 }
 
+/* arch/sh/boards/sh03/rtc.c */
 void sh03_time_init(void);
 
 static void __init sh03_setup(char **cmdline_p)
@@ -78,7 +79,7 @@ static int __init sh03_devices_setup(void)
 	unsigned long paddrbase;
 	void *cf_ide_base;
 
-	
+	/* open I/O area window */
 	paddrbase = virt_to_phys((void *)PA_AREA5_IO);
 	prot = PAGE_KERNEL_PCC(1, _PAGE_PCC_IO16);
 	cf_ide_base = ioremap_prot(paddrbase, PAGE_SIZE, pgprot_val(prot));
@@ -87,7 +88,7 @@ static int __init sh03_devices_setup(void)
 		return -ENOMEM;
 	}
 
-	
+	/* IDE cmd address : 0x1f0-0x1f7 and 0x3f6 */
 	cf_ide_resources[0].start += (unsigned long)cf_ide_base;
 	cf_ide_resources[0].end   += (unsigned long)cf_ide_base;
 	cf_ide_resources[1].start += (unsigned long)cf_ide_base;

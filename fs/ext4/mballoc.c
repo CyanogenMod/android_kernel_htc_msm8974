@@ -1992,11 +1992,12 @@ static void ext4_free_data_callback(struct super_block *sb,
 	struct ext4_buddy e4b;
 	struct ext4_group_info *db;
 	int err, count = 0, count2 = 0;
+	journal_t *journal = EXT4_SB(sb)->s_journal;
 
 	mb_debug(1, "gonna free %u blocks in group %u (0x%p):",
 		 entry->efd_count, entry->efd_group, entry);
 
-	if (test_opt(sb, DISCARD))
+	if (test_opt(sb, DISCARD) && (atomic_read(&journal->j_log_wait) == 0))
 		ext4_issue_discard(sb, entry->efd_group,
 				   entry->efd_start_cluster, entry->efd_count);
 

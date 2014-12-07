@@ -19,9 +19,13 @@
 #include <linux/ktime.h>
 #include <linux/device.h>
 
+/* A wake_lock prevents the system from entering suspend or other low power
+ * states when active. If the type is set to WAKE_LOCK_SUSPEND, the wake_lock
+ * prevents a full system suspend.
+ */
 
 enum {
-	WAKE_LOCK_SUSPEND, 
+	WAKE_LOCK_SUSPEND, /* Prevent suspend */
 	WAKE_LOCK_TYPE_COUNT
 };
 

@@ -36,6 +36,14 @@ static int setprop_cell(void *fdt, const char *node_path,
 	return fdt_setprop_cell(fdt, offset, property, val);
 }
 
+/*
+ * Convert and fold provided ATAGs into the provided FDT.
+ *
+ * REturn values:
+ *    = 0 -> pretend success
+ *    = 1 -> bad ATAG (may retry with another possible ATAG pointer)
+ *    < 0 -> error from libfdt
+ */
 int atags_to_fdt(void *atag_list, void *fdt, int total_space)
 {
 	struct tag *atag = atag_list;
@@ -43,21 +51,21 @@ int atags_to_fdt(void *atag_list, void *fdt, int total_space)
 	int memcount = 0;
 	int ret;
 
-	
+	/* make sure we've got an aligned pointer */
 	if ((u32)atag_list & 0x3)
 		return 1;
 
-	
+	/* if we get a DTB here we're done already */
 	if (*(u32 *)atag_list == fdt32_to_cpu(FDT_MAGIC))
 	       return 0;
 
-	
+	/* validate the ATAG */
 	if (atag->hdr.tag != ATAG_CORE ||
 	    (atag->hdr.size != tag_size(tag_core) &&
 	     atag->hdr.size != 2))
 		return 1;
 
-	
+	/* let's give it all the room it could need */
 	ret = fdt_open_into(fdt, fdt, total_space);
 	if (ret < 0)
 		return ret;

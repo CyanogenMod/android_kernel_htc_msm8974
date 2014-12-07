@@ -57,6 +57,9 @@ struct daio_rsc_idx idx_20k2[NUM_DAIOTYP] = {
 
 static int daio_master(struct rsc *rsc)
 {
+	/* Actually, this is not the resource index of DAIO.
+	 * For DAO, it is the input mapper index. And, for DAI,
+	 * it is the output time-slot index. */
 	return rsc->conj = rsc->idx;
 }
 
@@ -165,7 +168,7 @@ static int dao_set_left_input(struct dao *dao, struct rsc *input)
 		return -ENOMEM;
 
 	dao->ops->clear_left_input(dao);
-	
+	/* Program master and conjugate resources */
 	input->ops->master(input);
 	daio->rscl.ops->master(&daio->rscl);
 	for (i = 0; i < daio->rscl.msr; i++, entry++) {
@@ -194,7 +197,7 @@ static int dao_set_right_input(struct dao *dao, struct rsc *input)
 		return -ENOMEM;
 
 	dao->ops->clear_right_input(dao);
-	
+	/* Program master and conjugate resources */
 	input->ops->master(input);
 	daio->rscr.ops->master(&daio->rscr);
 	for (i = 0; i < daio->rscr.msr; i++, entry++) {
@@ -223,7 +226,7 @@ static int dao_clear_left_input(struct dao *dao)
 
 	entry = dao->imappers[0];
 	dao->mgr->imap_delete(dao->mgr, entry);
-	
+	/* Program conjugate resources */
 	for (i = 1; i < daio->rscl.msr; i++) {
 		entry = dao->imappers[i];
 		dao->mgr->imap_delete(dao->mgr, entry);
@@ -247,7 +250,7 @@ static int dao_clear_right_input(struct dao *dao)
 
 	entry = dao->imappers[daio->rscl.msr];
 	dao->mgr->imap_delete(dao->mgr, entry);
-	
+	/* Program conjugate resources */
 	for (i = 1; i < daio->rscr.msr; i++) {
 		entry = dao->imappers[daio->rscl.msr + i];
 		dao->mgr->imap_delete(dao->mgr, entry);
@@ -353,7 +356,7 @@ static int daio_rsc_init(struct daio *daio,
 	if (err)
 		goto error1;
 
-	
+	/* Set daio->rscl/r->ops to daio specific ones */
 	if (desc->type <= DAIO_OUT_MAX) {
 		daio->rscl.ops = daio->rscr.ops = &daio_out_rsc_ops;
 	} else {
@@ -484,9 +487,9 @@ static int dai_rsc_init(struct dai *dai,
 
 	hw->dai_srt_set_rsr(dai->ctrl_blk, rsr);
 	hw->dai_srt_set_drat(dai->ctrl_blk, 0);
-	
+	/* default to disabling control of a SRC */
 	hw->dai_srt_set_ec(dai->ctrl_blk, 0);
-	hw->dai_srt_set_et(dai->ctrl_blk, 0); 
+	hw->dai_srt_set_et(dai->ctrl_blk, 0); /* default to disabling SRT */
 	hw->dai_commit_write(hw,
 		daio_device_index(dai->daio.type, dai->hw), dai->ctrl_blk);
 
@@ -533,7 +536,7 @@ static int get_daio_rsc(struct daio_mgr *mgr,
 
 	*rdaio = NULL;
 
-	
+	/* Check whether there are sufficient daio resources to meet request. */
 	spin_lock_irqsave(&mgr->mgr_lock, flags);
 	err = daio_mgr_get_rsc(&mgr->mgr, desc->type);
 	spin_unlock_irqrestore(&mgr->mgr_lock, flags);
@@ -542,7 +545,7 @@ static int get_daio_rsc(struct daio_mgr *mgr,
 		return err;
 	}
 
-	
+	/* Allocate mem for daio resource */
 	if (desc->type <= DAIO_OUT_MAX) {
 		dao = kzalloc(sizeof(*dao), GFP_KERNEL);
 		if (!dao) {
@@ -746,7 +749,7 @@ int daio_mgr_destroy(struct daio_mgr *daio_mgr)
 {
 	unsigned long flags;
 
-	
+	/* free daio input mapper list */
 	spin_lock_irqsave(&daio_mgr->imap_lock, flags);
 	free_input_mapper_list(&daio_mgr->imappers);
 	spin_unlock_irqrestore(&daio_mgr->imap_lock, flags);

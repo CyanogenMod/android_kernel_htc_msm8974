@@ -32,16 +32,22 @@ static int begin_reached, end_reached, page_length;
 static const char *buf;
 static const char *page;
 
+/*
+ * refresh window content
+ */
 static void refresh_text_box(WINDOW *dialog, WINDOW *box, int boxh, int boxw,
 							  int cur_y, int cur_x)
 {
 	print_page(box, boxh, boxw);
 	print_position(dialog);
-	wmove(dialog, cur_y, cur_x);	
+	wmove(dialog, cur_y, cur_x);	/* Restore cursor position */
 	wrefresh(dialog);
 }
 
 
+/*
+ * Display text from a file in a dialog box.
+ */
 int dialog_textbox(const char *title, const char *tbuf,
 		   int initial_height, int initial_width)
 {
@@ -55,7 +61,7 @@ int dialog_textbox(const char *title, const char *tbuf,
 	page_length = 0;
 	hscroll = 0;
 	buf = tbuf;
-	page = buf;	
+	page = buf;	/* page is pointer to start of page to be displayed */
 
 do_resize:
 	getmaxyx(stdscr, height, width);
@@ -76,7 +82,7 @@ do_resize:
 		else
 			width = 0;
 
-	
+	/* center dialog box on screen */
 	x = (COLS - width) / 2;
 	y = (LINES - height) / 2;
 
@@ -85,7 +91,7 @@ do_resize:
 	dialog = newwin(height, width, y, x);
 	keypad(dialog, TRUE);
 
-	
+	/* Create window for box region, used for scrolling text */
 	boxh = height - 4;
 	boxw = width - 2;
 	box = subwin(dialog, boxh, boxw, y + 1, x + 1);
@@ -94,7 +100,7 @@ do_resize:
 
 	keypad(box, TRUE);
 
-	
+	/* register the new window, along with its borders */
 	draw_box(dialog, 0, 0, height, width,
 		 dlg.dialog.atr, dlg.border.atr);
 
@@ -110,23 +116,23 @@ do_resize:
 
 	print_button(dialog, gettext(" Exit "), height - 2, width / 2 - 4, TRUE);
 	wnoutrefresh(dialog);
-	getyx(dialog, cur_y, cur_x);	
+	getyx(dialog, cur_y, cur_x);	/* Save cursor position */
 
-	
+	/* Print first page of text */
 	attr_clear(box, boxh, boxw, dlg.dialog.atr);
 	refresh_text_box(dialog, box, boxh, boxw, cur_y, cur_x);
 
 	while ((key != KEY_ESC) && (key != '\n')) {
 		key = wgetch(dialog);
 		switch (key) {
-		case 'E':	
+		case 'E':	/* Exit */
 		case 'e':
 		case 'X':
 		case 'x':
 			delwin(box);
 			delwin(dialog);
 			return 0;
-		case 'g':	
+		case 'g':	/* First page */
 		case KEY_HOME:
 			if (!begin_reached) {
 				begin_reached = 1;
@@ -135,34 +141,41 @@ do_resize:
 						 cur_y, cur_x);
 			}
 			break;
-		case 'G':	
+		case 'G':	/* Last page */
 		case KEY_END:
 
 			end_reached = 1;
-			
+			/* point to last char in buf */
 			page = buf + strlen(buf);
 			back_lines(boxh);
 			refresh_text_box(dialog, box, boxh, boxw,
 					 cur_y, cur_x);
 			break;
-		case 'K':	
+		case 'K':	/* Previous line */
 		case 'k':
 		case KEY_UP:
 			if (!begin_reached) {
 				back_lines(page_length + 1);
 
+				/* We don't call print_page() here but use
+				 * scrolling to ensure faster screen update.
+				 * However, 'end_reached' and 'page_length'
+				 * should still be updated, and 'page' should
+				 * point to start of next page. This is done
+				 * by calling get_line() in the following
+				 * 'for' loop. */
 				scrollok(box, TRUE);
-				wscrl(box, -1);	
+				wscrl(box, -1);	/* Scroll box region down one line */
 				scrollok(box, FALSE);
 				page_length = 0;
 				passed_end = 0;
 				for (i = 0; i < boxh; i++) {
 					if (!i) {
-						
+						/* print first line of page */
 						print_line(box, 0, boxw);
 						wnoutrefresh(box);
 					} else
-						
+						/* Called to update 'end_reached' and 'page' */
 						get_line();
 					if (!passed_end)
 						page_length++;
@@ -171,11 +184,11 @@ do_resize:
 				}
 
 				print_position(dialog);
-				wmove(dialog, cur_y, cur_x);	
+				wmove(dialog, cur_y, cur_x);	/* Restore cursor position */
 				wrefresh(dialog);
 			}
 			break;
-		case 'B':	
+		case 'B':	/* Previous page */
 		case 'b':
 		case KEY_PPAGE:
 			if (begin_reached)
@@ -184,22 +197,22 @@ do_resize:
 			refresh_text_box(dialog, box, boxh, boxw,
 					 cur_y, cur_x);
 			break;
-		case 'J':	
+		case 'J':	/* Next line */
 		case 'j':
 		case KEY_DOWN:
 			if (!end_reached) {
 				begin_reached = 0;
 				scrollok(box, TRUE);
-				scroll(box);	
+				scroll(box);	/* Scroll box region up one line */
 				scrollok(box, FALSE);
 				print_line(box, boxh - 1, boxw);
 				wnoutrefresh(box);
 				print_position(dialog);
-				wmove(dialog, cur_y, cur_x);	
+				wmove(dialog, cur_y, cur_x);	/* Restore cursor position */
 				wrefresh(dialog);
 			}
 			break;
-		case KEY_NPAGE:	
+		case KEY_NPAGE:	/* Next page */
 		case ' ':
 			if (end_reached)
 				break;
@@ -208,8 +221,8 @@ do_resize:
 			refresh_text_box(dialog, box, boxh, boxw,
 					 cur_y, cur_x);
 			break;
-		case '0':	
-		case 'H':	
+		case '0':	/* Beginning of line */
+		case 'H':	/* Scroll left */
 		case 'h':
 		case KEY_LEFT:
 			if (hscroll <= 0)
@@ -219,18 +232,18 @@ do_resize:
 				hscroll = 0;
 			else
 				hscroll--;
-			
+			/* Reprint current page to scroll horizontally */
 			back_lines(page_length);
 			refresh_text_box(dialog, box, boxh, boxw,
 					 cur_y, cur_x);
 			break;
-		case 'L':	
+		case 'L':	/* Scroll right */
 		case 'l':
 		case KEY_RIGHT:
 			if (hscroll >= MAX_LEN)
 				break;
 			hscroll++;
-			
+			/* Reprint current page to scroll horizontally */
 			back_lines(page_length);
 			refresh_text_box(dialog, box, boxh, boxw,
 					 cur_y, cur_x);
@@ -248,15 +261,19 @@ do_resize:
 	}
 	delwin(box);
 	delwin(dialog);
-	return key;		
+	return key;		/* ESC pressed */
 }
 
+/*
+ * Go back 'n' lines in text. Called by dialog_textbox().
+ * 'page' will be updated to point to the desired line in 'buf'.
+ */
 static void back_lines(int n)
 {
 	int i;
 
 	begin_reached = 0;
-	
+	/* Go back 'n' lines */
 	for (i = 0; i < n; i++) {
 		if (*page == '\0') {
 			if (end_reached) {
@@ -280,6 +297,9 @@ static void back_lines(int n)
 	}
 }
 
+/*
+ * Print a new page of text. Called by dialog_textbox().
+ */
 static void print_page(WINDOW * win, int height, int width)
 {
 	int i, passed_end = 0;
@@ -295,17 +315,20 @@ static void print_page(WINDOW * win, int height, int width)
 	wnoutrefresh(win);
 }
 
+/*
+ * Print a new line of text. Called by dialog_textbox() and print_page().
+ */
 static void print_line(WINDOW * win, int row, int width)
 {
 	char *line;
 
 	line = get_line();
-	line += MIN(strlen(line), hscroll);	
-	wmove(win, row, 0);	
+	line += MIN(strlen(line), hscroll);	/* Scroll horizontally */
+	wmove(win, row, 0);	/* move cursor to correct line */
 	waddch(win, ' ');
 	waddnstr(win, line, MIN(strlen(line), width - 2));
 
-	
+	/* Clear 'residue' of previous line */
 #if OLD_NCURSES
 	{
 		int x = getcurx(win);
@@ -318,6 +341,11 @@ static void print_line(WINDOW * win, int row, int width)
 #endif
 }
 
+/*
+ * Return current line of text. Called by dialog_textbox() and print_line().
+ * 'page' should point to start of current line before calling, and will be
+ * updated to point to start of next line.
+ */
 static char *get_line(void)
 {
 	int i = 0;
@@ -333,7 +361,7 @@ static char *get_line(void)
 		} else if (i < MAX_LEN)
 			line[i++] = *(page++);
 		else {
-			
+			/* Truncate lines longer than MAX_LEN characters */
 			if (i == MAX_LEN)
 				line[i++] = '\0';
 			page++;
@@ -342,11 +370,14 @@ static char *get_line(void)
 	if (i <= MAX_LEN)
 		line[i] = '\0';
 	if (!end_reached)
-		page++;		
+		page++;		/* move pass '\n' */
 
 	return line;
 }
 
+/*
+ * Print current position
+ */
 static void print_position(WINDOW * win)
 {
 	int percent;

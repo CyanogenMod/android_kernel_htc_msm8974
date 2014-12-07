@@ -50,8 +50,8 @@ typedef struct _edid_parse_data_t
     P_3D_mask_t p_3d_mask;
     P_3D_structure_and_detail_entry_u    p_three_d;
     uint8_t    *p_3d_limit;
-    uint8_t     num_video_data_blocks; 
-    uint8_t     video_data_block_index; 
+    uint8_t     num_video_data_blocks; /* counter for initial EDID parsing, persists afterwards */
+    uint8_t     video_data_block_index; /* counter for 3D write burst parsing. */
     uint8_t     burst_entry_count_3d_vic;
     uint8_t     vic_2d_index;
     uint8_t     vic_3d_index;
@@ -59,17 +59,17 @@ typedef struct _edid_parse_data_t
     uint8_t     vesa_dtd_index;
     uint8_t     cea_861_dtd_index;
 
-	CEA_short_audio_descriptor_t audio_descriptors[MAX_A_DESCRIPTORS];	
-	uint8_t speaker_alloc[MAX_SPEAKER_CONFIGURATIONS];	
-	bool	underscan;								
-	bool	basic_audio;								
-	bool	YCbCr_4_4_4;							
-	bool	YCbCr_4_2_2;							
-	bool	HDMI_sink;								
-	uint8_t CEC_A_B;								
+	CEA_short_audio_descriptor_t audio_descriptors[MAX_A_DESCRIPTORS];	/* maximum number of audio descriptors */
+	uint8_t speaker_alloc[MAX_SPEAKER_CONFIGURATIONS];	/* maximum number of speaker configurations */
+	bool	underscan;								/* "1" if DTV monitor underscans IT video formats by default */
+	bool	basic_audio;								/* Sink supports Basic Audio */
+	bool	YCbCr_4_4_4;							/* Sink supports YCbCr 4:4:4 */
+	bool	YCbCr_4_2_2;							/* Sink supports YCbCr 4:2:2 */
+	bool	HDMI_sink;								/* "1" if HDMI signature found */
+	uint8_t CEC_A_B;								/* CEC Physical address. See HDMI 1.3 Table 8-6 */
 	uint8_t CEC_C_D;
 	uint8_t video_capability_flags;
-	uint8_t colorimetry_support_flags;				
+	uint8_t colorimetry_support_flags;				/* IEC 61966-2-4 colorimetry support: 1 - xvYCC601; 2 - xvYCC709 */
 	uint8_t meta_data_profile;
 	bool	_3D_supported;
 	uint8_t	num_EDID_extensions;
@@ -88,6 +88,7 @@ typedef struct
 void *si_edid_create_context(void *dev_context,void *drv_context);
 void si_edid_destroy_context(void *context);
 void si_mhl_tx_initiate_edid_sequence(void *context);
+//void si_mhl_tx_send_3d_req(void *context);
 void si_mhl_tx_process_3d_vic_burst(void *context, PMHL2_video_format_data_t pWriteBurstData );
 void si_mhl_tx_process_3d_dtd_burst(void *context,PMHL2_video_format_data_t pWriteBurstData);
 uint32_t si_mhl_tx_find_timings_from_totals(edid_3d_data_p mhl_edid_3d_data);

@@ -41,4 +41,4 @@
 #define TMR_CCR_CS_1(x)	(((x) & 0x7) << 2)
 #define TMR_CCR_CS_2(x)	(((x) & 0x3) << 5)
 
-#endif 
+#endif /* __ASM_MACH_REGS_TIMERS_H */

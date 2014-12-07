@@ -72,6 +72,7 @@ void cx23885_ir_tx_work_handler(struct work_struct *work)
 
 }
 
+/* Possibly called in an IRQ context */
 void cx23885_ir_rx_v4l2_dev_notify(struct v4l2_subdev *sd, u32 events)
 {
 	struct cx23885_dev *dev = to_cx23885(sd->v4l2_dev);
@@ -86,12 +87,17 @@ void cx23885_ir_rx_v4l2_dev_notify(struct v4l2_subdev *sd, u32 events)
 	if (events & V4L2_SUBDEV_IR_RX_SW_FIFO_OVERRUN)
 		set_bit(CX23885_IR_RX_SW_FIFO_OVERRUN, notifications);
 
+	/*
+	 * For the integrated AV core, we are already in a workqueue context.
+	 * For the CX23888 integrated IR, we are in an interrupt context.
+	 */
 	if (sd == dev->sd_cx25840)
 		cx23885_ir_rx_work_handler(&dev->ir_rx_work);
 	else
 		schedule_work(&dev->ir_rx_work);
 }
 
+/* Possibly called in an IRQ context */
 void cx23885_ir_tx_v4l2_dev_notify(struct v4l2_subdev *sd, u32 events)
 {
 	struct cx23885_dev *dev = to_cx23885(sd->v4l2_dev);
@@ -100,6 +106,10 @@ void cx23885_ir_tx_v4l2_dev_notify(struct v4l2_subdev *sd, u32 events)
 	if (events & V4L2_SUBDEV_IR_TX_FIFO_SERVICE_REQ)
 		set_bit(CX23885_IR_TX_FIFO_SERVICE_REQ, notifications);
 
+	/*
+	 * For the integrated AV core, we are already in a workqueue context.
+	 * For the CX23888 integrated IR, we are in an interrupt context.
+	 */
 	if (sd == dev->sd_cx25840)
 		cx23885_ir_tx_work_handler(&dev->ir_tx_work);
 	else

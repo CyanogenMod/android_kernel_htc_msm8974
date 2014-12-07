@@ -29,20 +29,26 @@
 #include <linux/list.h>
 #include <dspbridge/ntfy.h>
 
+/*
+ *  These target side symbols define the beginning and ending addresses
+ *  of shared memory buffer. They are defined in the *cfg.cmd file by
+ *  cdb code.
+ */
 #define CHNL_SHARED_BUFFER_BASE_SYM "_SHM_BEG"
 #define CHNL_SHARED_BUFFER_LIMIT_SYM "_SHM_END"
 #define BRIDGEINIT_BIOSGPTIMER "_BRIDGEINIT_BIOSGPTIMER"
 #define BRIDGEINIT_LOADMON_GPTIMER "_BRIDGEINIT_LOADMON_GPTIMER"
 
 #ifndef _CHNL_WORDSIZE
-#define _CHNL_WORDSIZE 4	
+#define _CHNL_WORDSIZE 4	/* default _CHNL_WORDSIZE is 2 bytes/word */
 #endif
 
 #define MAXOPPS 16
 
-#define SHM_CURROPP	0	
-#define SHM_OPPINFO	1	
-#define SHM_GETOPP	2	
+/* Shared memory config options */
+#define SHM_CURROPP	0	/* Set current OPP in shm */
+#define SHM_OPPINFO	1	/* Set dsp voltage and freq table values */
+#define SHM_GETOPP	2	/* Get opp requested by DSP */
 
 struct opp_table_entry {
 	u32 voltage;
@@ -57,11 +63,13 @@ struct opp_struct {
 	struct opp_table_entry opp_point[MAXOPPS];
 };
 
+/* Request to MPU */
 struct opp_rqst_struct {
 	u32 rqst_dsp_freq;
 	u32 rqst_opp_pt;
 };
 
+/* Info to MPU */
 struct load_mon_struct {
 	u32 curr_dsp_load;
 	u32 curr_dsp_freq;
@@ -69,95 +77,101 @@ struct load_mon_struct {
 	u32 pred_dsp_freq;
 };
 
+/* Structure in shared between DSP and PC for communication. */
 struct shm {
 	u32 dsp_free_mask;	/* Written by DSP, read by PC. */
 	u32 host_free_mask;	/* Written by PC, read by DSP */
 
-	u32 input_full;		
-	u32 input_id;		
-	u32 input_size;		
+	u32 input_full;		/* Input channel has unread data. */
+	u32 input_id;		/* Channel for which input is available. */
+	u32 input_size;		/* Size of data block (in DSP words). */
 
-	u32 output_full;	
-	u32 output_id;		
-	u32 output_size;	
+	u32 output_full;	/* Output channel has unread data. */
+	u32 output_id;		/* Channel for which output is available. */
+	u32 output_size;	/* Size of data block (in DSP words). */
 
-	u32 arg;		
-	u32 resvd;		
+	u32 arg;		/* Arg for Issue/Reclaim (23 bits for 55x). */
+	u32 resvd;		/* Keep structure size even for 32-bit DSPs */
 
-	
+	/* Operating Point structure */
 	struct opp_struct opp_table_struct;
-	
+	/* Operating Point Request structure */
 	struct opp_rqst_struct opp_request;
-	
+	/* load monitor information structure */
 	struct load_mon_struct load_mon_info;
-	
+	/* Flag for WDT enable/disable F/I clocks */
 	u32 wdt_setclocks;
-	u32 wdt_overflow;	
-	char dummy[176];	
-	u32 shm_dbg_var[64];	
+	u32 wdt_overflow;	/* WDT overflow time */
+	char dummy[176];	/* padding to 256 byte boundary */
+	u32 shm_dbg_var[64];	/* shared memory debug variables */
 };
 
-	
+	/* Channel Manager: only one created per board: */
 struct chnl_mgr {
-	
+	/* Function interface to Bridge driver */
 	struct bridge_drv_interface *intf_fxns;
-	struct io_mgr *iomgr;	
-	
+	struct io_mgr *iomgr;	/* IO manager */
+	/* Device this board represents */
 	struct dev_object *dev_obj;
 
-	
-	u32 output_mask;	
-	u32 last_output;	
-	
+	/* These fields initialized in bridge_chnl_create(): */
+	u32 output_mask;	/* Host output channels w/ full buffers */
+	u32 last_output;	/* Last output channel fired from DPC */
+	/* Critical section object handle */
 	spinlock_t chnl_mgr_lock;
-	u32 word_size;		
-	u8 max_channels;	
-	u8 open_channels;	
-	struct chnl_object **channels;		
-	u8 type;		
-	
+	u32 word_size;		/* Size in bytes of DSP word */
+	u8 max_channels;	/* Total number of channels */
+	u8 open_channels;	/* Total number of open channels */
+	struct chnl_object **channels;		/* Array of channels */
+	u8 type;		/* Type of channel class library */
+	/* If no shm syms, return for CHNL_Open */
 	int chnl_open_status;
 };
 
+/*
+ *  Channel: up to CHNL_MAXCHANNELS per board or if DSP-DMA supported then
+ *     up to CHNL_MAXCHANNELS + CHNL_MAXDDMACHNLS per board.
+ */
 struct chnl_object {
-	
+	/* Pointer back to channel manager */
 	struct chnl_mgr *chnl_mgr_obj;
-	u32 chnl_id;		
-	u8 state;		
-	s8 chnl_mode;		
-	
+	u32 chnl_id;		/* Channel id */
+	u8 state;		/* Current channel state */
+	s8 chnl_mode;		/* Chnl mode and attributes */
+	/* Chnl I/O completion event (user mode) */
 	void *user_event;
-	
+	/* Abstract synchronization object */
 	struct sync_object *sync_event;
-	u32 process;		
-	u32 cb_arg;		
-	struct list_head io_requests;	
-	s32 cio_cs;		
-	s32 cio_reqs;		
-	s32 chnl_packets;	
-	
+	u32 process;		/* Process which created this channel */
+	u32 cb_arg;		/* Argument to use with callback */
+	struct list_head io_requests;	/* List of IOR's to driver */
+	s32 cio_cs;		/* Number of IOC's in queue */
+	s32 cio_reqs;		/* Number of IORequests in queue */
+	s32 chnl_packets;	/* Initial number of free Irps */
+	/* List of IOC's from driver */
 	struct list_head io_completions;
-	struct list_head free_packets_list;	
+	struct list_head free_packets_list;	/* List of free Irps */
 	struct ntfy_object *ntfy_obj;
-	u32 bytes_moved;	
+	u32 bytes_moved;	/* Total number of bytes transferred */
 
-	
+	/* For DSP-DMA */
 
-	
+	/* Type of chnl transport:CHNL_[PCPY][DDMA] */
 	u32 chnl_type;
 };
 
+/* I/O Request/completion packet: */
 struct chnl_irp {
-	struct list_head link;	
-	
+	struct list_head link;	/* Link to next CHIRP in queue. */
+	/* Buffer to be filled/emptied. (User) */
 	u8 *host_user_buf;
-	
+	/* Buffer to be filled/emptied. (System) */
 	u8 *host_sys_buf;
-	u32 arg;		
-	u32 dsp_tx_addr;	
-	u32 byte_size;		
-	u32 buf_size;		
-	u32 status;		
+	u32 arg;		/* Issue/Reclaim argument. */
+	u32 dsp_tx_addr;	/* Transfer address on DSP side. */
+	u32 byte_size;		/* Bytes transferred. */
+	u32 buf_size;		/* Actual buffer size when allocated. */
+	u32 status;		/* Status of IO completion. */
 };
 
-#endif 
+#endif /* _CHNL_SM_ */

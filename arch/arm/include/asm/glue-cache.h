@@ -12,6 +12,10 @@
 
 #include <asm/glue.h>
 
+/*
+ *	Cache Model
+ *	===========
+ */
 #undef _CACHE
 #undef MULTI_CACHE
 
@@ -106,11 +110,19 @@
 #endif
 
 #if defined(CONFIG_CPU_V6) || defined(CONFIG_CPU_V6K)
+//# ifdef _CACHE
 #  define MULTI_CACHE 1
+//# else
+//#  define _CACHE v6
+//# endif
 #endif
 
 #if defined(CONFIG_CPU_V7)
+//# ifdef _CACHE
 #  define MULTI_CACHE 1
+//# else
+//#  define _CACHE v7
+//# endif
 #endif
 
 #if !defined(_CACHE) && !defined(MULTI_CACHE)

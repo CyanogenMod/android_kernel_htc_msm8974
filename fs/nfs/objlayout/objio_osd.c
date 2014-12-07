@@ -119,14 +119,16 @@ OBJIO_LSEG(struct pnfs_layout_segment *lseg)
 }
 
 struct objio_state {
-	
+	/* Generic layer */
 	struct objlayout_io_res oir;
 
 	bool sync;
-	
+	/*FIXME: Support for extra_bytes at ore_get_rw_state() */
 	struct ore_io_state *ios;
 };
 
+/* Send and wait for a get_device_info of devices in the layout,
+   then look them up with the osd_initiator library */
 static int objio_devices_lookup(struct pnfs_layout_hdr *pnfslay,
 	struct objio_segment *objio_seg, unsigned c, struct nfs4_deviceid *d_id,
 	gfp_t gfp_flags)
@@ -140,7 +142,7 @@ static int objio_devices_lookup(struct pnfs_layout_hdr *pnfslay,
 
 	ode = _dev_list_find(NFS_SERVER(pnfslay->plh_inode), d_id);
 	if (ode) {
-		objio_seg->oc.ods[c] = &ode->od; 
+		objio_seg->oc.ods[c] = &ode->od; /* must use container_of */
 		return 0;
 	}
 
@@ -187,7 +189,7 @@ retry_lookup:
 
 	ode = _dev_list_add(NFS_SERVER(pnfslay->plh_inode), d_id, od,
 			    gfp_flags);
-	objio_seg->oc.ods[c] = &ode->od; 
+	objio_seg->oc.ods[c] = &ode->od; /* must use container_of */
 	dprintk("Adding new dev_id(%llx:%llx)\n",
 		_DEVID_LO(d_id), _DEVID_HI(d_id));
 out:
@@ -200,7 +202,7 @@ static void copy_single_comp(struct ore_components *oc, unsigned c,
 {
 	struct ore_comp *ocomp = &oc->comps[c];
 
-	WARN_ON(src_comp->oc_cap_key.cred_len > 0); 
+	WARN_ON(src_comp->oc_cap_key.cred_len > 0); /* libosd is NO_SEC only */
 	WARN_ON(src_comp->oc_cap.cred_len > sizeof(ocomp->cred));
 
 	ocomp->obj.partition = src_comp->oc_object_id.oid_partition_id;
@@ -212,6 +214,18 @@ static void copy_single_comp(struct ore_components *oc, unsigned c,
 int __alloc_objio_seg(unsigned numdevs, gfp_t gfp_flags,
 		       struct objio_segment **pseg)
 {
+/*	This is the in memory structure of the objio_segment
+ *
+ *	struct __alloc_objio_segment {
+ *		struct objio_segment olseg;
+ *		struct ore_dev *ods[numdevs];
+ *		struct ore_comp	comps[numdevs];
+ *	} *aolseg;
+ *	NOTE: The code as above compiles and runs perfectly. It is elegant,
+ *	type safe and compact. At some Past time Linus has decided he does not
+ *	like variable length arrays, For the sake of this principal we uglify
+ *	the code as below.
+ */
 	struct objio_segment *lseg;
 	size_t lseg_size = sizeof(*lseg) +
 			numdevs * sizeof(lseg->oc.ods[0]) +
@@ -276,7 +290,7 @@ int objio_alloc_lseg(struct pnfs_layout_segment **outp,
 			goto err;
 		++cur_comp;
 	}
-	
+	/* pnfs_osd_xdr_decode_layout_comp returns false on error */
 	if (unlikely(err))
 		goto err;
 
@@ -378,7 +392,7 @@ enum pnfs_osd_errno osd_pri_2_pnfs_err(enum osd_err_priority oep)
 		return PNFS_OSD_ERR_NO_SPACE;
 	default:
 		WARN_ON(1);
-		
+		/* fallthrough */
 	case OSD_ERR_PRI_EIO:
 		return PNFS_OSD_ERR_EIO;
 	}
@@ -391,6 +405,9 @@ static void __on_dev_error(struct ore_io_state *ios,
 	struct objio_state *objios = ios->private;
 	struct pnfs_osd_objid pooid;
 	struct objio_dev_ent *ode = container_of(od, typeof(*ode), od);
+	/* FIXME: what to do with more-then-one-group layouts. We need to
+	 * translate from ore_io_state index to oc->comps index
+	 */
 	unsigned comp = dev_index;
 
 	pooid.oid_device_id = ode->id_node.deviceid;
@@ -402,13 +419,16 @@ static void __on_dev_error(struct ore_io_state *ios,
 				dev_offset, dev_len, !ios->reading);
 }
 
+/*
+ * read
+ */
 static void _read_done(struct ore_io_state *ios, void *private)
 {
 	struct objio_state *objios = private;
 	ssize_t status;
 	int ret = ore_check_io(ios, &__on_dev_error);
 
-	
+	/* FIXME: _io_free(ios) can we dealocate the libosd resources; */
 
 	if (likely(!ret))
 		status = ios->length;
@@ -436,15 +456,20 @@ int objio_read_pagelist(struct nfs_read_data *rdata)
 	return ore_read(objios->ios);
 }
 
+/*
+ * write
+ */
 static void _write_done(struct ore_io_state *ios, void *private)
 {
 	struct objio_state *objios = private;
 	ssize_t status;
 	int ret = ore_check_io(ios, &__on_dev_error);
 
-	
+	/* FIXME: _io_free(ios) can we dealocate the libosd resources; */
 
 	if (likely(!ret)) {
+		/* FIXME: should be based on the OSD's persistence model
+		 * See OSD2r05 Section 4.13 Data persistence model */
 		objios->oir.committed = NFS_FILE_SYNC;
 		status = ios->length;
 	} else {

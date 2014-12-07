@@ -16,6 +16,7 @@
 #include <linux/sunrpc/xdr.h>
 #include <linux/uio.h>
 
+/* The mechanism-independent gss-api context: */
 struct gss_ctx {
 	struct gss_api_mech	*mech_type;
 	void			*internal_ctx_id;
@@ -25,8 +26,11 @@ struct gss_ctx {
 #define GSS_C_NO_CONTEXT	((struct gss_ctx *) 0)
 #define GSS_C_NULL_OID		((struct xdr_netobj) 0)
 
+/*XXX  arbitrary length - is this set somewhere? */
 #define GSS_OID_MAX_LEN 32
 
+/* gss-api prototypes; note that these are somewhat simplified versions of
+ * the prototypes specified in RFC 2744. */
 int gss_import_sec_context(
 		const void*		input_token,
 		size_t			bufsize,
@@ -64,20 +68,24 @@ struct pf_desc {
 	char	*auth_domain_name;
 };
 
+/* Different mechanisms (e.g., krb5 or spkm3) may implement gss-api, and
+ * mechanisms may be dynamically registered or unregistered by modules. */
 
+/* Each mechanism is described by the following struct: */
 struct gss_api_mech {
 	struct list_head	gm_list;
 	struct module		*gm_owner;
 	struct xdr_netobj	gm_oid;
 	char			*gm_name;
 	const struct gss_api_ops *gm_ops;
-	
+	/* pseudoflavors supported by this mechanism: */
 	int			gm_pf_num;
 	struct pf_desc *	gm_pfs;
-	
+	/* Should the following be a callback operation instead? */
 	const char		*gm_upcall_enctypes;
 };
 
+/* and must provide the following operations: */
 struct gss_api_ops {
 	int (*gss_import_sec_context)(
 			const void		*input_token,
@@ -108,18 +116,26 @@ struct gss_api_ops {
 int gss_mech_register(struct gss_api_mech *);
 void gss_mech_unregister(struct gss_api_mech *);
 
+/* returns a mechanism descriptor given an OID, and increments the mechanism's
+ * reference count. */
 struct gss_api_mech * gss_mech_get_by_OID(struct xdr_netobj *);
 
+/* Returns a reference to a mechanism, given a name like "krb5" etc. */
 struct gss_api_mech *gss_mech_get_by_name(const char *);
 
+/* Similar, but get by pseudoflavor. */
 struct gss_api_mech *gss_mech_get_by_pseudoflavor(u32);
 
+/* Fill in an array with a list of supported pseudoflavors */
 int gss_mech_list_pseudoflavors(u32 *);
 
+/* Just increments the mechanism's reference count and returns its input: */
 struct gss_api_mech * gss_mech_get(struct gss_api_mech *);
 
+/* For every successful gss_mech_get or gss_mech_get_by_* call there must be a
+ * corresponding call to gss_mech_put. */
 void gss_mech_put(struct gss_api_mech *);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _LINUX_SUNRPC_GSS_API_H */
 

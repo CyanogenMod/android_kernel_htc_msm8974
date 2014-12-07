@@ -66,7 +66,7 @@ static int s3c64xx_pd_on(struct generic_pm_domain *domain)
 	val |= pd->ena;
 	__raw_writel(val, S3C64XX_NORMAL_CFG);
 
-	
+	/* Not all domains provide power status readback */
 	if (pd->pwr_stat) {
 		do {
 			cpu_relax();
@@ -258,26 +258,32 @@ void s3c_pm_save_core(void)
 	s3c_pm_do_save(core_save, ARRAY_SIZE(core_save));
 }
 
+/* since both s3c6400 and s3c6410 share the same sleep pm calls, we
+ * put the per-cpu code in here until any new cpu comes along and changes
+ * this.
+ */
 
 static int s3c64xx_cpu_suspend(unsigned long arg)
 {
 	unsigned long tmp;
 
-	
+	/* set our standby method to sleep */
 
 	tmp = __raw_readl(S3C64XX_PWR_CFG);
 	tmp &= ~S3C64XX_PWRCFG_CFG_WFI_MASK;
 	tmp |= S3C64XX_PWRCFG_CFG_WFI_SLEEP;
 	__raw_writel(tmp, S3C64XX_PWR_CFG);
 
-	
+	/* clear any old wakeup */
 
 	__raw_writel(__raw_readl(S3C64XX_WAKEUP_STAT),
 		     S3C64XX_WAKEUP_STAT);
 
-	
+	/* set the LED state to 0110 over sleep */
 	s3c_pm_debug_smdkled(3 << 1, 0xf);
 
+	/* issue the standby signal into the pm unit. Note, we
+	 * issue a write-buffer drain just in case */
 
 	tmp = 0;
 
@@ -288,11 +294,12 @@ static int s3c64xx_cpu_suspend(unsigned long arg)
 	    "mcr p15, 0, %0, c7, c10, 4\n\t"
 	    "mcr p15, 0, %0, c7, c0, 4" :: "r" (tmp));
 
-	
+	/* we should never get past here */
 
 	panic("sleep resumed to originator?");
 }
 
+/* mapping of interrupts to parts of the wakeup mask */
 static struct samsung_wakeup_mask wake_irqs[] = {
 	{ .irq = IRQ_RTC_ALARM,	.bit = S3C64XX_PWRCFG_RTC_ALARM_DISABLE, },
 	{ .irq = IRQ_RTC_TIC,	.bit = S3C64XX_PWRCFG_RTC_TICK_DISABLE, },
@@ -311,10 +318,10 @@ static void s3c64xx_pm_prepare(void)
 	samsung_sync_wakemask(S3C64XX_PWR_CFG,
 			      wake_irqs, ARRAY_SIZE(wake_irqs));
 
-	
+	/* store address of resume. */
 	__raw_writel(virt_to_phys(s3c_cpu_resume), S3C64XX_INFORM0);
 
-	
+	/* ensure previous wakeup state is cleared before sleeping */
 	__raw_writel(__raw_readl(S3C64XX_WAKEUP_STAT), S3C64XX_WAKEUP_STAT);
 }
 

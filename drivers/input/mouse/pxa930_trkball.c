@@ -22,6 +22,7 @@
 #include <mach/hardware.h>
 #include <mach/pxa930_trkball.h>
 
+/* Trackball Controller Register Definitions */
 #define TBCR		(0x000C)
 #define TBCNTR		(0x0010)
 #define TBSBC		(0x0014)
@@ -42,7 +43,7 @@
 struct pxa930_trkball {
 	struct pxa930_trkball_platform_data *pdata;
 
-	
+	/* Memory Mapped Register */
 	struct resource *mem;
 	void __iomem *mmio_base;
 
@@ -55,6 +56,9 @@ static irqreturn_t pxa930_trkball_interrupt(int irq, void *dev_id)
 	struct input_dev *input = trkball->input;
 	int tbcntr, x, y;
 
+	/* According to the spec software must read TBCNTR twice:
+	 * if the read value is the same, the reading is valid
+	 */
 	tbcntr = __raw_readl(trkball->mmio_base + TBCNTR);
 
 	if (tbcntr == __raw_readl(trkball->mmio_base + TBCNTR)) {
@@ -72,6 +76,7 @@ static irqreturn_t pxa930_trkball_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* For TBCR, we need to wait for a while to make sure it has been modified. */
 static int write_tbcr(struct pxa930_trkball *trkball, int v)
 {
 	int i = 100;
@@ -96,13 +101,13 @@ static void pxa930_trkball_config(struct pxa930_trkball *trkball)
 {
 	uint32_t tbcr;
 
-	
+	/* According to spec, need to write the filters of x,y to 0xf first! */
 	tbcr = __raw_readl(trkball->mmio_base + TBCR);
 	write_tbcr(trkball, tbcr | TBCR_X_FLT(0xf) | TBCR_Y_FLT(0xf));
 	write_tbcr(trkball, TBCR_X_FLT(trkball->pdata->x_filter) |
 			    TBCR_Y_FLT(trkball->pdata->y_filter));
 
-	
+	/* According to spec, set TBCR_TBRST first, before clearing it! */
 	tbcr = __raw_readl(trkball->mmio_base + TBCR);
 	write_tbcr(trkball, tbcr | TBCR_TBRST);
 	write_tbcr(trkball, tbcr & ~TBCR_TBRST);
@@ -127,7 +132,7 @@ static void pxa930_trkball_disable(struct pxa930_trkball *trkball)
 {
 	uint32_t tbcr = __raw_readl(trkball->mmio_base + TBCR);
 
-	
+	/* Held in reset, gate the 32-KHz input clock off */
 	write_tbcr(trkball, tbcr | TBCR_TBRST);
 }
 
@@ -175,7 +180,7 @@ static int __devinit pxa930_trkball_probe(struct platform_device *pdev)
 		goto failed;
 	}
 
-	
+	/* held the module in reset, will be enabled in open() */
 	pxa930_trkball_disable(trkball);
 
 	error = request_irq(irq, pxa930_trkball_interrupt, 0,

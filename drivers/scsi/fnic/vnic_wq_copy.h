@@ -27,7 +27,7 @@
 struct vnic_wq_copy {
 	unsigned int index;
 	struct vnic_dev *vdev;
-	struct vnic_wq_ctrl __iomem *ctrl;	
+	struct vnic_wq_ctrl __iomem *ctrl;	/* memory-mapped */
 	struct vnic_dev_ring ring;
 	unsigned to_use_index;
 	unsigned to_clean_index;
@@ -56,6 +56,11 @@ static inline void vnic_wq_copy_post(struct vnic_wq_copy *wq)
 		(wq->to_use_index = 0) : (wq->to_use_index++);
 	wq->ring.desc_avail--;
 
+	/* Adding write memory barrier prevents compiler and/or CPU
+	 * reordering, thus avoiding descriptor posting before
+	 * descriptor is initialized. Otherwise, hardware can read
+	 * stale descriptor fields.
+	 */
 	wmb();
 
 	iowrite32(wq->to_use_index, &wq->ctrl->posted_index);
@@ -92,13 +97,16 @@ static inline void vnic_wq_copy_service(struct vnic_wq_copy *wq,
 
 		curr_index = wq->to_clean_index;
 
+		/* increment the to-clean index so that we start
+		 * with an unprocessed index next time we enter the loop
+		 */
 		((wq->to_clean_index + 1) == wq->ring.desc_count) ?
 			(wq->to_clean_index = 0) : (wq->to_clean_index++);
 
 		if (curr_index == completed_index)
 			break;
 
-		
+		/* we have cleaned all the entries */
 		if ((completed_index == (u16)-1) &&
 		    (wq->to_clean_index == wq->to_use_index))
 			break;
@@ -117,4 +125,4 @@ void vnic_wq_copy_clean(struct vnic_wq_copy *wq,
 	void (*q_clean)(struct vnic_wq_copy *wq,
 	struct fcpio_host_req *wq_desc));
 
-#endif 
+#endif /* _VNIC_WQ_COPY_H_ */

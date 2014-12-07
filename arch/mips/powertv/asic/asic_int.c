@@ -64,7 +64,7 @@ static void asic_irqdispatch(void)
 
 	irq = get_int();
 	if (irq < 0)
-		return;  
+		return;  /* interrupt has already been cleared */
 
 	do_IRQ(irq);
 }
@@ -82,11 +82,17 @@ static inline int clz(unsigned long x)
 	return x;
 }
 
+/*
+ * Version of ffs that only looks at bits 12..15.
+ */
 static inline unsigned int irq_ffs(unsigned int pending)
 {
 	return fls(pending) - 1 + CAUSEB_IP;
 }
 
+/*
+ * TODO: check how it works under EIC mode.
+ */
 asmlinkage void plat_irq_dispatch(void)
 {
 	unsigned int pending = read_c0_cause() & read_c0_status() & ST0_IM;
@@ -108,6 +114,9 @@ void __init arch_init_irq(void)
 
 	asic_irq_init();
 
+	/*
+	 * Initialize interrupt exception vectors.
+	 */
 	if (cpu_has_veic || cpu_has_vint) {
 		int nvec = cpu_has_veic ? 64 : 8;
 		for (i = 0; i < nvec; i++)

@@ -12,6 +12,7 @@
  * Copyright (C) 1997, 1998, 1999, 2000 Ingo Molnar
  */
 
+/* I/O Unit Redirection Table */
 #define IO_APIC_REDIR_VECTOR_MASK	0x000FF
 #define IO_APIC_REDIR_DEST_LOGICAL	0x00800
 #define IO_APIC_REDIR_DEST_PHYSICAL	0x00000
@@ -29,6 +30,9 @@ struct io_apic_ops {
 
 void __init set_io_apic_ops(const struct io_apic_ops *);
 
+/*
+ * The structure of the IO-APIC:
+ */
 union IO_APIC_reg_00 {
 	u32	raw;
 	struct {
@@ -70,13 +74,16 @@ union IO_APIC_reg_03 {
 
 struct IO_APIC_route_entry {
 	__u32	vector		:  8,
-		delivery_mode	:  3,	
-		dest_mode	:  1,	
+		delivery_mode	:  3,	/* 000: FIXED
+					 * 001: lowest prio
+					 * 111: ExtINT
+					 */
+		dest_mode	:  1,	/* 0: physical, 1: logical */
 		delivery_status	:  1,
 		polarity	:  1,
 		irr		:  1,
-		trigger		:  1,	
-		mask		:  1,	
+		trigger		:  1,	/* 0: edge, 1: level */
+		mask		:  1,	/* 0: enabled, 1: disabled */
 		__reserved_2	: 15;
 
 	__u32	__reserved_3	: 24,
@@ -103,6 +110,9 @@ struct IR_IO_APIC_route_entry {
 
 #ifdef CONFIG_X86_IO_APIC
 
+/*
+ * # of IO-APICs and # of IRQ routing registers
+ */
 extern int nr_ioapics;
 
 extern int mpc_ioapic_id(int ioapic);
@@ -111,22 +121,34 @@ extern struct mp_ioapic_gsi *mp_ioapic_gsi_routing(int ioapic);
 
 #define MP_MAX_IOAPIC_PIN 127
 
+/* # of MP IRQ source entries */
 extern int mp_irq_entries;
 
+/* MP IRQ source entries */
 extern struct mpc_intsrc mp_irqs[MAX_IRQ_SOURCES];
 
+/* non-0 if default (table-less) MP configuration */
 extern int mpc_default_type;
 
+/* Older SiS APIC requires we rewrite the index register */
 extern int sis_apic_bug;
 
+/* 1 if "noapic" boot option passed */
 extern int skip_ioapic_setup;
 
+/* 1 if "noapic" boot option passed */
 extern int noioapicquirk;
 
+/* -1 if "noapic" boot option passed */
 extern int noioapicreroute;
 
+/* 1 if the timer IRQ uses the '8259A Virtual Wire' mode */
 extern int timer_through_8259;
 
+/*
+ * If we use the IO-APIC for IRQ routing, disable automatic
+ * assignment of PCI IRQ's.
+ */
 #define io_apic_assign_pci_irqs \
 	(mp_irq_entries && !skip_ioapic_setup && io_apic_irqs)
 
@@ -163,7 +185,7 @@ extern void mp_save_irq(struct mpc_intsrc *m);
 
 extern void disable_ioapic_support(void);
 
-#else  
+#else  /* !CONFIG_X86_IO_APIC */
 
 #define io_apic_assign_pci_irqs 0
 #define setup_ioapic_ids_from_mpc x86_init_noop
@@ -192,4 +214,4 @@ static inline void mp_save_irq(struct mpc_intsrc *m) { };
 static inline void disable_ioapic_support(void) { }
 #endif
 
-#endif 
+#endif /* _ASM_X86_IO_APIC_H */

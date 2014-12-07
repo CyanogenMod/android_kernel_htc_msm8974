@@ -63,4 +63,4 @@ int ib_sa_mcmember_rec_query(struct ib_sa_client *client,
 int mcast_init(void);
 void mcast_cleanup(void);
 
-#endif 
+#endif /* SA_H */

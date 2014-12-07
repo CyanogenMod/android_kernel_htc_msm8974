@@ -62,11 +62,11 @@ static struct clksrc_clk *sysclks[] = {
 };
 
 static struct clksrc_clk clksrcs[] = {
-	
+	/* nothing here yet */
 };
 
 static struct clk init_clocks_off[] = {
-	
+	/* nothing here yet */
 };
 
 #ifdef CONFIG_PM_SLEEP
@@ -96,10 +96,10 @@ void __init exynos4212_register_clocks(void)
 {
 	int ptr;
 
-	
+	/* usbphy1 is removed */
 	exynos4_clkset_group_list[4] = NULL;
 
-	
+	/* mout_mpll_user is used */
 	exynos4_clkset_group_list[6] = &clk_mout_mpll_user.clk;
 	exynos4_clkset_aclk_top_list[0] = &clk_mout_mpll_user.clk;
 

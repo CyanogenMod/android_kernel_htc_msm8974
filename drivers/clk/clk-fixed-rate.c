@@ -15,6 +15,15 @@
 #include <linux/io.h>
 #include <linux/err.h>
 
+/*
+ * DOC: basic fixed-rate clock that cannot gate
+ *
+ * Traits of this clock:
+ * prepare - clk_(un)prepare only ensures parents are prepared
+ * enable - clk_enable only ensures parents are enabled
+ * rate - rate is always a fixed value.  No clk_set_rate support
+ * parent - fixed parent.  No clk_set_parent support
+ */
 
 #define to_clk_fixed_rate(_hw) container_of(_hw, struct clk_fixed_rate, hw)
 
@@ -45,7 +54,7 @@ struct clk *clk_register_fixed_rate(struct device *dev, const char *name,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	
+	/* struct clk_fixed_rate assignments */
 	fixed->fixed_rate = fixed_rate;
 
 	if (parent_name) {

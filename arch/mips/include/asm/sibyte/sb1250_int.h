@@ -35,7 +35,15 @@
 
 #include "sb1250_defs.h"
 
+/*  *********************************************************************
+    *  Interrupt Mapper Constants
+    ********************************************************************* */
 
+/*
+ * Interrupt sources (Table 4-8, UM 0.2)
+ *
+ * First, the interrupt numbers.
+ */
 
 #define K_INT_SOURCES               64
 
@@ -72,7 +80,7 @@
 #if SIBYTE_HDR_FEATURE(1250, PASS2) || SIBYTE_HDR_FEATURE(112x, PASS1)
 #define K_INT_CYCLE_CP0_INT	    30
 #define K_INT_CYCLE_CP1_INT	    31
-#endif 
+#endif /* 1250 PASS2 || 112x PASS1 */
 #define K_INT_GPIO_0                32
 #define K_INT_GPIO_1                33
 #define K_INT_GPIO_2                34
@@ -106,8 +114,11 @@
 #define K_INT_MAC_0_CH1		    61
 #define K_INT_MAC_1_CH1		    62
 #define K_INT_MAC_2_CH1		    63
-#endif 
+#endif /* 1250 PASS2 || 112x PASS1 */
 
+/*
+ * Mask values for each interrupt
+ */
 
 #define M_INT_WATCHDOG_TIMER_0      _SB_MAKEMASK1(K_INT_WATCHDOG_TIMER_0)
 #define M_INT_WATCHDOG_TIMER_1      _SB_MAKEMASK1(K_INT_WATCHDOG_TIMER_1)
@@ -143,7 +154,7 @@
 #if SIBYTE_HDR_FEATURE(1250, PASS2) || SIBYTE_HDR_FEATURE(112x, PASS1)
 #define M_INT_CYCLE_CP0_INT	    _SB_MAKEMASK1(K_INT_CYCLE_CP0_INT)
 #define M_INT_CYCLE_CP1_INT	    _SB_MAKEMASK1(K_INT_CYCLE_CP1_INT)
-#endif 
+#endif /* 1250 PASS2 || 112x PASS1 */
 #define M_INT_GPIO_0                _SB_MAKEMASK1(K_INT_GPIO_0)
 #define M_INT_GPIO_1                _SB_MAKEMASK1(K_INT_GPIO_1)
 #define M_INT_GPIO_2                _SB_MAKEMASK1(K_INT_GPIO_2)
@@ -177,18 +188,24 @@
 #define M_INT_MAC_0_CH1		    _SB_MAKEMASK1(K_INT_MAC_0_CH1)
 #define M_INT_MAC_1_CH1		    _SB_MAKEMASK1(K_INT_MAC_1_CH1)
 #define M_INT_MAC_2_CH1		    _SB_MAKEMASK1(K_INT_MAC_2_CH1)
-#endif 
+#endif /* 1250 PASS2 || 112x PASS1 */
 
+/*
+ * Interrupt mappings
+ */
 
-#define K_INT_MAP_I0	0		
+#define K_INT_MAP_I0	0		/* interrupt pins on processor */
 #define K_INT_MAP_I1	1
 #define K_INT_MAP_I2	2
 #define K_INT_MAP_I3	3
 #define K_INT_MAP_I4	4
 #define K_INT_MAP_I5	5
-#define K_INT_MAP_NMI	6		
-#define K_INT_MAP_DINT	7		
+#define K_INT_MAP_NMI	6		/* nonmaskable */
+#define K_INT_MAP_DINT	7		/* debug interrupt */
 
+/*
+ * LDT Interrupt Set Register (table 4-5)
+ */
 
 #define S_INT_LDT_INTMSG	      0
 #define M_INT_LDT_INTMSG              _SB_MAKEMASK(3, S_INT_LDT_INTMSG)
@@ -220,9 +237,12 @@
 #define V_INT_LDT_VECTOR(x)           _SB_MAKEVALUE(x, S_INT_LDT_VECTOR)
 #define G_INT_LDT_VECTOR(x)           _SB_GETVALUE(x, S_INT_LDT_VECTOR, M_INT_LDT_VECTOR)
 
+/*
+ * Vector format (Table 4-6)
+ */
 
 #define M_LDTVECT_RAISEINT		0x00
 #define M_LDTVECT_RAISEMBOX             0x40
 
 
-#endif	
+#endif	/* 1250/112x */

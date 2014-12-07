@@ -62,6 +62,10 @@ filelayout_get_dense_offset(struct nfs4_filelayout_segment *flseg,
 	return stripe_no * flseg->stripe_unit + rem;
 }
 
+/* This function is used by the layout driver to calculate the
+ * offset of the file on the dserver based on whether the
+ * layout type is STRIPE_DENSE or STRIPE_SPARSE
+ */
 static loff_t
 filelayout_get_dserver_offset(struct pnfs_layout_segment *lseg, loff_t offset)
 {
@@ -91,7 +95,7 @@ static int filelayout_async_handle_error(struct rpc_task *task,
 	*reset = 0;
 
 	switch (task->tk_status) {
-	
+	/* MDS state errors */
 	case -NFS4ERR_DELEG_REVOKED:
 	case -NFS4ERR_ADMIN_REVOKED:
 	case -NFS4ERR_BAD_STATEID:
@@ -103,7 +107,7 @@ static int filelayout_async_handle_error(struct rpc_task *task,
 		nfs4_schedule_stateid_recovery(mds_server, state);
 		nfs4_schedule_lease_recovery(mds_client);
 		goto wait_on_recovery;
-	
+	/* DS session errors */
 	case -NFS4ERR_BADSESSION:
 	case -NFS4ERR_BADSLOT:
 	case -NFS4ERR_BAD_HIGH_SLOT:
@@ -139,6 +143,7 @@ wait_on_recovery:
 	goto out;
 }
 
+/* NFS_PROTO call done callback routines */
 
 static int filelayout_read_done_cb(struct rpc_task *task,
 				struct nfs_read_data *data)
@@ -162,6 +167,11 @@ static int filelayout_read_done_cb(struct rpc_task *task,
 	return 0;
 }
 
+/*
+ * We reference the rpc_cred of the first WRITE that triggers the need for
+ * a LAYOUTCOMMIT, and use it to send the layoutcommit compound.
+ * rfc5661 is not clear about which credential should be used.
+ */
 static void
 filelayout_set_layoutcommit(struct nfs_write_data *wdata)
 {
@@ -174,6 +184,11 @@ filelayout_set_layoutcommit(struct nfs_write_data *wdata)
 		(unsigned long) NFS_I(wdata->inode)->layout->plh_lwb);
 }
 
+/*
+ * Call ops for the async read/write cases
+ * In the case of dense layouts, the offset needs to be reset to its
+ * original value.
+ */
 static void filelayout_read_prepare(struct rpc_task *task, void *data)
 {
 	struct nfs_read_data *rdata = (struct nfs_read_data *)data;
@@ -194,7 +209,7 @@ static void filelayout_read_call_done(struct rpc_task *task, void *data)
 
 	dprintk("--> %s task->tk_status %d\n", __func__, task->tk_status);
 
-	
+	/* Note this may cause RPC to be resent */
 	rdata->mds_ops->rpc_call_done(task, data);
 }
 
@@ -234,6 +249,7 @@ static int filelayout_write_done_cb(struct rpc_task *task,
 	return 0;
 }
 
+/* Fake up some data that will cause nfs_commit_release to retry the writes. */
 static void prepare_to_resend_writes(struct nfs_write_data *data)
 {
 	struct nfs_page *first = nfs_list_entry(data->pages.next);
@@ -241,7 +257,7 @@ static void prepare_to_resend_writes(struct nfs_write_data *data)
 	data->task.tk_status = 0;
 	memcpy(data->verf.verifier, first->wb_verf.verifier,
 	       sizeof(first->wb_verf.verifier));
-	data->verf.verifier[0]++; 
+	data->verf.verifier[0]++; /* ensure verifier mismatch */
 }
 
 static int filelayout_commit_done_cb(struct rpc_task *task,
@@ -280,7 +296,7 @@ static void filelayout_write_call_done(struct rpc_task *task, void *data)
 {
 	struct nfs_write_data *wdata = (struct nfs_write_data *)data;
 
-	
+	/* Note this may cause RPC to be resent */
 	wdata->mds_ops->rpc_call_done(task, data);
 }
 
@@ -348,19 +364,19 @@ filelayout_read_pagelist(struct nfs_read_data *data)
 	if (test_bit(NFS_DEVICEID_INVALID, &FILELAYOUT_DEVID_NODE(lseg)->flags))
 		return PNFS_NOT_ATTEMPTED;
 
-	
+	/* Retrieve the correct rpc_client for the byte range */
 	j = nfs4_fl_calc_j_index(lseg, offset);
 	idx = nfs4_fl_calc_ds_index(lseg, j);
 	ds = nfs4_fl_prepare_ds(lseg, idx);
 	if (!ds) {
-		
+		/* Either layout fh index faulty, or ds connect failed */
 		set_bit(lo_fail_bit(IOMODE_RW), &lseg->pls_layout->plh_flags);
 		set_bit(lo_fail_bit(IOMODE_READ), &lseg->pls_layout->plh_flags);
 		return PNFS_NOT_ATTEMPTED;
 	}
 	dprintk("%s USE DS: %s\n", __func__, ds->ds_remotestr);
 
-	
+	/* No multipath support. Use first DS */
 	data->ds_clp = ds->ds_clp;
 	fh = nfs4_fl_select_ds_fh(lseg, j);
 	if (fh)
@@ -369,13 +385,14 @@ filelayout_read_pagelist(struct nfs_read_data *data)
 	data->args.offset = filelayout_get_dserver_offset(lseg, offset);
 	data->mds_offset = offset;
 
-	
+	/* Perform an asynchronous read to ds */
 	status = nfs_initiate_read(data, ds->ds_clp->cl_rpcclient,
 				   &filelayout_read_call_ops);
 	BUG_ON(status != 0);
 	return PNFS_ATTEMPTED;
 }
 
+/* Perform async writes. */
 static enum pnfs_try_status
 filelayout_write_pagelist(struct nfs_write_data *data, int sync)
 {
@@ -389,7 +406,7 @@ filelayout_write_pagelist(struct nfs_write_data *data, int sync)
 	if (test_bit(NFS_DEVICEID_INVALID, &FILELAYOUT_DEVID_NODE(lseg)->flags))
 		return PNFS_NOT_ATTEMPTED;
 
-	
+	/* Retrieve the correct rpc_client for the byte range */
 	j = nfs4_fl_calc_j_index(lseg, offset);
 	idx = nfs4_fl_calc_ds_index(lseg, j);
 	ds = nfs4_fl_prepare_ds(lseg, idx);
@@ -409,15 +426,27 @@ filelayout_write_pagelist(struct nfs_write_data *data, int sync)
 	fh = nfs4_fl_select_ds_fh(lseg, j);
 	if (fh)
 		data->args.fh = fh;
+	/*
+	 * Get the file offset on the dserver. Set the write offset to
+	 * this offset and save the original offset.
+	 */
 	data->args.offset = filelayout_get_dserver_offset(lseg, offset);
 
-	
+	/* Perform an asynchronous write */
 	status = nfs_initiate_write(data, ds->ds_clp->cl_rpcclient,
 				    &filelayout_write_call_ops, sync);
 	BUG_ON(status != 0);
 	return PNFS_ATTEMPTED;
 }
 
+/*
+ * filelayout_check_layout()
+ *
+ * Make sure layout segment parameters are sane WRT the device.
+ * At this point no generic layer initialization of the lseg has occurred,
+ * and nothing has been added to the layout_hdr cache.
+ *
+ */
 static int
 filelayout_check_layout(struct pnfs_layout_hdr *lo,
 			struct nfs4_filelayout_segment *fl,
@@ -432,7 +461,7 @@ filelayout_check_layout(struct pnfs_layout_hdr *lo,
 
 	dprintk("--> %s\n", __func__);
 
-	
+	/* FIXME: remove this check when layout segment support is added */
 	if (lgr->range.offset != 0 ||
 	    lgr->range.length != NFS4_MAX_UINT64) {
 		dprintk("%s Only whole file layouts supported. Use MDS i/o\n",
@@ -452,7 +481,7 @@ filelayout_check_layout(struct pnfs_layout_hdr *lo,
 		goto out;
 	}
 
-	
+	/* find and reference the deviceid */
 	d = nfs4_find_get_deviceid(NFS_SERVER(lo->plh_inode)->pnfs_curr_ld,
 				   NFS_SERVER(lo->plh_inode)->nfs_client, id);
 	if (d == NULL) {
@@ -461,7 +490,7 @@ filelayout_check_layout(struct pnfs_layout_hdr *lo,
 			goto out;
 	} else
 		dsaddr = container_of(d, struct nfs4_file_layout_dsaddr, id_node);
-	
+	/* Found deviceid is being reaped */
 	if (test_bit(NFS_DEVICEID_INVALID, &dsaddr->id_node.flags))
 			goto out_put;
 
@@ -540,6 +569,8 @@ filelayout_decode_layout(struct pnfs_layout_hdr *flo,
 	xdr_init_decode_pages(&stream, &buf, lgr->layoutp->pages, lgr->layoutp->len);
 	xdr_set_scratch_buffer(&stream, page_address(scratch), PAGE_SIZE);
 
+	/* 20 = ufl_util (4), first_stripe_index (4), pattern_offset (8),
+	 * num_fh (4) */
 	p = xdr_inline_decode(&stream, NFS4_DEVICEID4_SIZE + 20);
 	if (unlikely(!p))
 		goto out_err;
@@ -565,6 +596,8 @@ filelayout_decode_layout(struct pnfs_layout_hdr *flo,
 		__func__, nfl_util, fl->num_fh, fl->first_stripe_index,
 		fl->pattern_offset);
 
+	/* Note that a zero value for num_fh is legal for STRIPE_SPARSE.
+	 * Futher checking is done in filelayout_check_layout */
 	if (fl->num_fh >
 	    max(NFS4_PNFS_MAX_STRIPE_CNT, NFS4_PNFS_MAX_MULTI_CNT))
 		goto out_err;
@@ -577,7 +610,7 @@ filelayout_decode_layout(struct pnfs_layout_hdr *flo,
 	}
 
 	for (i = 0; i < fl->num_fh; i++) {
-		
+		/* Do we want to use a mempool here? */
 		fl->fh_array[i] = kmalloc(sizeof(struct nfs_fh), gfp_flags);
 		if (!fl->fh_array[i])
 			goto out_err_free;
@@ -641,6 +674,12 @@ filelayout_alloc_lseg(struct pnfs_layout_hdr *layoutid,
 		return NULL;
 	}
 
+	/* This assumes there is only one IOMODE_RW lseg.  What
+	 * we really want to do is have a layout_hdr level
+	 * dictionary of <multipath_list4, fh> keys, each
+	 * associated with a struct list_head, populated by calls
+	 * to filelayout_write_pagelist().
+	 * */
 	if ((!fl->commit_through_mds) && (lgr->range.iomode == IOMODE_RW)) {
 		int i;
 		int size = (fl->stripe_type == STRIPE_SPARSE) ?
@@ -660,6 +699,12 @@ filelayout_alloc_lseg(struct pnfs_layout_hdr *layoutid,
 	return &fl->generic_hdr;
 }
 
+/*
+ * filelayout_pg_test(). Called by nfs_can_coalesce_requests()
+ *
+ * return true  : coalesce page
+ * return false : don't coalesce page
+ */
 static bool
 filelayout_pg_test(struct nfs_pageio_descriptor *pgio, struct nfs_page *prev,
 		   struct nfs_page *req)
@@ -693,7 +738,7 @@ filelayout_pg_init_read(struct nfs_pageio_descriptor *pgio,
 					   NFS4_MAX_UINT64,
 					   IOMODE_READ,
 					   GFP_KERNEL);
-	
+	/* If no lseg, fall back to read through mds */
 	if (pgio->pg_lseg == NULL)
 		nfs_pageio_reset_read_mds(pgio);
 }
@@ -710,7 +755,7 @@ filelayout_pg_init_write(struct nfs_pageio_descriptor *pgio,
 					   NFS4_MAX_UINT64,
 					   IOMODE_RW,
 					   GFP_NOFS);
-	
+	/* If no lseg, fall back to write through mds */
 	if (pgio->pg_lseg == NULL)
 		nfs_pageio_reset_write_mds(pgio);
 }
@@ -735,6 +780,9 @@ static u32 select_bucket_index(struct nfs4_filelayout_segment *fl, u32 j)
 		return j;
 }
 
+/* The generic layer is about to remove the req from the commit list.
+ * If this will make the bucket empty, it will need to put the lseg reference.
+ */
 static void
 filelayout_clear_request_commit(struct nfs_page *req)
 {
@@ -747,6 +795,9 @@ filelayout_clear_request_commit(struct nfs_page *req)
 	if (list_is_singular(&req->wb_list)) {
 		struct pnfs_layout_segment *lseg;
 
+		/* From here we can find the bucket, but for the moment,
+		 * since there is only one relevant lseg...
+		 */
 		list_for_each_entry(lseg, &NFS_I(inode)->layout->plh_segs, pls_list) {
 			if (lseg->pls_range.iomode == IOMODE_RW) {
 				freeme = lseg;
@@ -771,11 +822,23 @@ filelayout_choose_commit_list(struct nfs_page *req,
 	if (fl->commit_through_mds)
 		return &NFS_I(req->wb_context->dentry->d_inode)->commit_list;
 
+	/* Note that we are calling nfs4_fl_calc_j_index on each page
+	 * that ends up being committed to a data server.  An attractive
+	 * alternative is to add a field to nfs_write_data and nfs_page
+	 * to store the value calculated in filelayout_write_pagelist
+	 * and just use that here.
+	 */
 	j = nfs4_fl_calc_j_index(lseg,
 				 (loff_t)req->wb_index << PAGE_CACHE_SHIFT);
 	i = select_bucket_index(fl, j);
 	list = &fl->commit_buckets[i].written;
 	if (list_empty(list)) {
+		/* Non-empty buckets hold a reference on the lseg.  That ref
+		 * is normally transferred to the COMMIT call and released
+		 * there.  It could also be released if the last req is pulled
+		 * off due to a rewrite, in which case it will be done in
+		 * filelayout_remove_commit_req
+		 */
 		get_lseg(lseg);
 	}
 	set_bit(PG_COMMIT_TO_DS, &req->wb_flags);
@@ -811,7 +874,7 @@ select_ds_fh_from_commit(struct pnfs_layout_segment *lseg, u32 i)
 		if (flseg->num_fh == 1)
 			i = 0;
 		else if (flseg->num_fh == 0)
-			
+			/* Use the MDS OPEN fh set in nfs_read_rpcsetup */
 			return NULL;
 	}
 	return flseg->fh_array[i];
@@ -845,6 +908,9 @@ static int filelayout_initiate_commit(struct nfs_write_data *data, int how)
 				   &filelayout_commit_call_ops, how);
 }
 
+/*
+ * This is only useful while we are using whole file layouts.
+ */
 static struct pnfs_layout_segment *
 find_only_write_lseg_locked(struct inode *inode)
 {
@@ -927,6 +993,8 @@ alloc_ds_commits(struct inode *inode, struct list_head *list)
 	int i, j;
 	unsigned int nreq = 0;
 
+	/* Won't need this when non-whole file layout segments are supported
+	 * instead we will use a pnfs_layout_hdr structure */
 	lseg = find_only_write_lseg(inode);
 	if (!lseg)
 		return 0;
@@ -943,18 +1011,19 @@ alloc_ds_commits(struct inode *inode, struct list_head *list)
 		nreq++;
 	}
 
-	
+	/* Clean up on error */
 	for (j = i; j < fl->number_of_buckets; j++) {
 		if (list_empty(&fl->commit_buckets[i].committing))
 			continue;
 		nfs_retry_commit(&fl->commit_buckets[i].committing, lseg);
-		put_lseg(lseg);  
+		put_lseg(lseg);  /* associated with emptying bucket */
 	}
 	put_lseg(lseg);
-	
+	/* Caller will clean up entries put on list */
 	return nreq;
 }
 
+/* This follows nfs_commit_list pretty closely */
 static int
 filelayout_commit_pagelist(struct inode *inode, struct list_head *mds_pages,
 			   int how)

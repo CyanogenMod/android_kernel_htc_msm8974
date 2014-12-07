@@ -39,6 +39,13 @@ static bool phy_is_wideport_member(struct asd_sas_port *port, struct asd_sas_phy
 	return true;
 }
 
+/**
+ * sas_form_port -- add this phy to a port
+ * @phy: the phy of interest
+ *
+ * This function adds this phy to an existing port, thus creating a wide
+ * port, or it creates a port and adds the phy to the port.
+ */
 static void sas_form_port(struct asd_sas_phy *phy)
 {
 	int i;
@@ -59,21 +66,21 @@ static void sas_form_port(struct asd_sas_phy *phy)
 		}
 	}
 
-	
+	/* see if the phy should be part of a wide port */
 	spin_lock_irqsave(&sas_ha->phy_port_lock, flags);
 	for (i = 0; i < sas_ha->num_phys; i++) {
 		port = sas_ha->sas_port[i];
 		spin_lock(&port->phy_list_lock);
 		if (*(u64 *) port->sas_addr &&
 		    phy_is_wideport_member(port, phy) && port->num_phys > 0) {
-			
+			/* wide port */
 			SAS_DPRINTK("phy%d matched wide port%d\n", phy->id,
 				    port->id);
 			break;
 		}
 		spin_unlock(&port->phy_list_lock);
 	}
-	
+	/* The phy does not match any existing port, create a new one */
 	if (i == sas_ha->num_phys) {
 		for (i = 0; i < sas_ha->num_phys; i++) {
 			port = sas_ha->sas_port[i];
@@ -95,7 +102,7 @@ static void sas_form_port(struct asd_sas_phy *phy)
 		return;
 	}
 
-	
+	/* add the phy to the port */
 	list_add_tail(&phy->port_phy_el, &port->phy_list);
 	sas_phy_set_target(phy, port->port_dev);
 	phy->port = port;
@@ -130,13 +137,20 @@ static void sas_form_port(struct asd_sas_phy *phy)
 	if (port->port_dev)
 		port->port_dev->pathways = port->num_phys;
 
-	
+	/* Tell the LLDD about this port formation. */
 	if (si->dft->lldd_port_formed)
 		si->dft->lldd_port_formed(phy);
 
 	sas_discover_event(phy->port, DISCE_DISCOVER_DOMAIN);
 }
 
+/**
+ * sas_deform_port -- remove this phy from the port it belongs to
+ * @phy: the phy of interest
+ *
+ * This is called when the physical link to the other phy has been
+ * lost (on this phy), in Event thread context. We cannot delay here.
+ */
 void sas_deform_port(struct asd_sas_phy *phy, int gone)
 {
 	struct sas_ha_struct *sas_ha = phy->ha;
@@ -147,7 +161,7 @@ void sas_deform_port(struct asd_sas_phy *phy, int gone)
 	unsigned long flags;
 
 	if (!port)
-		return;		  
+		return;		  /* done by a phy event */
 
 	dev = port->port_dev;
 	if (dev)
@@ -190,6 +204,7 @@ void sas_deform_port(struct asd_sas_phy *phy, int gone)
 	return;
 }
 
+/* ---------- SAS port events ---------- */
 
 void sas_porte_bytes_dmaed(struct work_struct *work)
 {
@@ -248,6 +263,7 @@ void sas_porte_hard_reset(struct work_struct *work)
 	sas_deform_port(phy, 1);
 }
 
+/* ---------- SAS port registration ---------- */
 
 static void sas_init_port(struct asd_sas_port *port,
 			  struct sas_ha_struct *sas_ha, int i)
@@ -268,7 +284,7 @@ int sas_register_ports(struct sas_ha_struct *sas_ha)
 {
 	int i;
 
-	
+	/* initialize the ports and discovery */
 	for (i = 0; i < sas_ha->num_phys; i++) {
 		struct asd_sas_port *port = sas_ha->sas_port[i];
 

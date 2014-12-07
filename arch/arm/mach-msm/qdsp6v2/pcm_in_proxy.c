@@ -378,7 +378,7 @@ static int afe_start(struct pcm *pcm)
 	pr_debug("%s: channel %d entered,port: %d,rate: %d\n", __func__,
 	port_config.rtproxy.num_ch, RT_PROXY_DAI_001_TX, pcm->sample_rate);
 
-	port_config.rtproxy.bitwidth = 16; 
+	port_config.rtproxy.bitwidth = 16; /* Q6 only supports 16 */
 	port_config.rtproxy.interleaved = 1;
 	port_config.rtproxy.frame_sz = pcm->buffer_size;
 	port_config.rtproxy.jitter =
@@ -517,7 +517,7 @@ static int pcm_in_release(struct inode *inode, struct file *file)
 	mutex_lock(&pcm->lock);
 
 
-	
+	/* remove this session from topology list */
 	auddev_cfg_tx_copp_topology(pcm->ac->session,
 				DEFAULT_COPP_TOPOLOGY);
 

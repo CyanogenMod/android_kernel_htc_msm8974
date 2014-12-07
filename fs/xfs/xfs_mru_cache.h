@@ -19,21 +19,22 @@
 #define __XFS_MRU_CACHE_H__
 
 
+/* Function pointer type for callback to free a client's data pointer. */
 typedef void (*xfs_mru_cache_free_func_t)(unsigned long, void*);
 
 typedef struct xfs_mru_cache
 {
-	struct radix_tree_root	store;     
-	struct list_head	*lists;    
-	struct list_head	reap_list; 
-	spinlock_t		lock;      
-	unsigned int		grp_count; 
-	unsigned int		grp_time;  
-	unsigned int		lru_grp;   
-	unsigned long		time_zero; 
-	xfs_mru_cache_free_func_t free_func; 
-	struct delayed_work	work;      
-	unsigned int		queued;	   
+	struct radix_tree_root	store;     /* Core storage data structure.  */
+	struct list_head	*lists;    /* Array of lists, one per grp.  */
+	struct list_head	reap_list; /* Elements overdue for reaping. */
+	spinlock_t		lock;      /* Lock to protect this struct.  */
+	unsigned int		grp_count; /* Number of discrete groups.    */
+	unsigned int		grp_time;  /* Time period spanned by grps.  */
+	unsigned int		lru_grp;   /* Group containing time zero.   */
+	unsigned long		time_zero; /* Time first element was added. */
+	xfs_mru_cache_free_func_t free_func; /* Function pointer for freeing. */
+	struct delayed_work	work;      /* Workqueue data for reaping.   */
+	unsigned int		queued;	   /* work has been queued */
 } xfs_mru_cache_t;
 
 int xfs_mru_cache_init(void);
@@ -49,4 +50,4 @@ void xfs_mru_cache_delete(struct xfs_mru_cache *mru, unsigned long key);
 void *xfs_mru_cache_lookup(struct xfs_mru_cache *mru, unsigned long key);
 void xfs_mru_cache_done(struct xfs_mru_cache *mru);
 
-#endif 
+#endif /* __XFS_MRU_CACHE_H__ */

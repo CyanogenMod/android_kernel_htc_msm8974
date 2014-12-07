@@ -101,14 +101,30 @@ static int oxygen_ac97_wait(struct oxygen *chip, unsigned int mask)
 {
 	u8 status = 0;
 
+	/*
+	 * Reading the status register also clears the bits, so we have to save
+	 * the read bits in status.
+	 */
 	wait_event_timeout(chip->ac97_waitqueue,
 			   ({ status |= oxygen_read8(chip, OXYGEN_AC97_INTERRUPT_STATUS);
 			      status & mask; }),
 			   msecs_to_jiffies(1) + 1);
+	/*
+	 * Check even after a timeout because this function should not require
+	 * the AC'97 interrupt to be enabled.
+	 */
 	status |= oxygen_read8(chip, OXYGEN_AC97_INTERRUPT_STATUS);
 	return status & mask ? 0 : -EIO;
 }
 
+/*
+ * About 10% of AC'97 register reads or writes fail to complete, but even those
+ * where the controller indicates completion aren't guaranteed to have actually
+ * happened.
+ *
+ * It's hard to assign blame to either the controller or the codec because both
+ * were made by C-Media ...
+ */
 
 void oxygen_write_ac97(struct oxygen *chip, unsigned int codec,
 		       unsigned int index, u16 data)
@@ -124,7 +140,7 @@ void oxygen_write_ac97(struct oxygen *chip, unsigned int codec,
 	for (count = 5; count > 0; --count) {
 		udelay(5);
 		oxygen_write32(chip, OXYGEN_AC97_REGS, reg);
-		
+		/* require two "completed" writes, just to be sure */
 		if (oxygen_ac97_wait(chip, OXYGEN_AC97_INT_WRITE_DONE) >= 0 &&
 		    ++succeeded >= 2) {
 			chip->saved_ac97_registers[codec][index / 2] = data;
@@ -151,10 +167,15 @@ u16 oxygen_read_ac97(struct oxygen *chip, unsigned int codec,
 		udelay(10);
 		if (oxygen_ac97_wait(chip, OXYGEN_AC97_INT_READ_DONE) >= 0) {
 			u16 value = oxygen_read16(chip, OXYGEN_AC97_REGS);
-			
+			/* we require two consecutive reads of the same value */
 			if (value == last_read)
 				return value;
 			last_read = value;
+			/*
+			 * Invert the register value bits to make sure that two
+			 * consecutive unsuccessful reads do not return the same
+			 * value.
+			 */
 			reg ^= 0xffff;
 		}
 	}
@@ -177,7 +198,7 @@ void oxygen_write_spi(struct oxygen *chip, u8 control, unsigned int data)
 {
 	unsigned int count;
 
-	
+	/* should not need more than 30.72 us (24 * 1.28 us) */
 	count = 10;
 	while ((oxygen_read8(chip, OXYGEN_SPI_CONTROL) & OXYGEN_SPI_BUSY)
 	       && count > 0) {
@@ -195,7 +216,7 @@ EXPORT_SYMBOL(oxygen_write_spi);
 
 void oxygen_write_i2c(struct oxygen *chip, u8 device, u8 map, u8 data)
 {
-	
+	/* should not need more than about 300 us */
 	msleep(1);
 
 	oxygen_write8(chip, OXYGEN_2WIRE_MAP, map);
@@ -215,7 +236,7 @@ static void _write_uart(struct oxygen *chip, unsigned int port, u8 data)
 void oxygen_reset_uart(struct oxygen *chip)
 {
 	_write_uart(chip, 1, MPU401_RESET);
-	msleep(1); 
+	msleep(1); /* wait for ACK */
 	_write_uart(chip, 1, MPU401_ENTER_UART);
 }
 EXPORT_SYMBOL(oxygen_reset_uart);

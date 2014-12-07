@@ -18,18 +18,18 @@
 static void copy_stat(struct uml_stat *dst, const struct stat64 *src)
 {
 	*dst = ((struct uml_stat) {
-		.ust_dev     = src->st_dev,     
-		.ust_ino     = src->st_ino,     
-		.ust_mode    = src->st_mode,    
-		.ust_nlink   = src->st_nlink,   
-		.ust_uid     = src->st_uid,     
-		.ust_gid     = src->st_gid,     
-		.ust_size    = src->st_size,    
-		.ust_blksize = src->st_blksize, 
-		.ust_blocks  = src->st_blocks,  
-		.ust_atime   = src->st_atime,   
-		.ust_mtime   = src->st_mtime,   
-		.ust_ctime   = src->st_ctime,   
+		.ust_dev     = src->st_dev,     /* device */
+		.ust_ino     = src->st_ino,     /* inode */
+		.ust_mode    = src->st_mode,    /* protection */
+		.ust_nlink   = src->st_nlink,   /* number of hard links */
+		.ust_uid     = src->st_uid,     /* user ID of owner */
+		.ust_gid     = src->st_gid,     /* group ID of owner */
+		.ust_size    = src->st_size,    /* total size, in bytes */
+		.ust_blksize = src->st_blksize, /* blocksize for filesys I/O */
+		.ust_blocks  = src->st_blocks,  /* number of blocks allocated */
+		.ust_atime   = src->st_atime,   /* time of last access */
+		.ust_mtime   = src->st_mtime,   /* time of last modification */
+		.ust_ctime   = src->st_ctime,   /* time of last change */
 	});
 }
 
@@ -77,6 +77,7 @@ int os_access(const char *file, int mode)
 	return 0;
 }
 
+/* FIXME? required only by hostaudio (because it passes ioctls verbatim) */
 int os_ioctl_generic(int fd, unsigned int cmd, unsigned long arg)
 {
 	int err;
@@ -88,6 +89,7 @@ int os_ioctl_generic(int fd, unsigned int cmd, unsigned long arg)
 	return err;
 }
 
+/* FIXME: ensure namebuf in os_get_if_name is big enough */
 int os_get_ifname(int fd, char* namebuf)
 {
 	if (ioctl(fd, SIOCGIFNAME, namebuf) < 0)

@@ -44,6 +44,7 @@
 #define IWM_BARKER_REBOOT_NOTIFICATION	0xF
 #define IWM_ACK_BARKER_NOTIFICATION	0x10
 
+/* UMAC commands */
 #define UMAC_RST_CTRL_FLG_LARC_CLK_EN	0x0001
 #define UMAC_RST_CTRL_FLG_LARC_RESET	0x0002
 #define UMAC_RST_CTRL_FLG_FUNC_RESET	0x0004
@@ -67,15 +68,17 @@ struct iwm_umac_cmd_reset {
 #define UMAC_PARAM_TBL_CHN        0x7
 #define UMAC_PARAM_TBL_STATISTICS 0x8
 
+/* fast access table */
 enum {
 	CFG_FRAG_THRESHOLD = 0,
 	CFG_FRAME_RETRY_LIMIT,
 	CFG_OS_QUEUE_UTIL_TH,
 	CFG_RX_FILTER,
-	
+	/* <-- LAST --> */
 	FAST_ACCESS_CFG_TBL_FIX_LAST
 };
 
+/* fixed size table */
 enum {
 	CFG_POWER_INDEX = 0,
 	CFG_PM_LEGACY_RX_TIMEOUT,
@@ -139,10 +142,10 @@ enum {
 	CFG_RLC_CHAIN_CTRL,
 	CFG_TRK_TABLE_OP_MODE,
 	CFG_TRK_TABLE_RSSI_THRESHOLD,
-	CFG_TX_PWR_TARGET, 
+	CFG_TX_PWR_TARGET, /* Used By xVT */
 	CFG_TX_PWR_LIMIT_USR,
-	CFG_TX_PWR_LIMIT_BSS, 
-	CFG_TX_PWR_LIMIT_BSS_CONSTRAINT, 
+	CFG_TX_PWR_LIMIT_BSS, /* 11d limit */
+	CFG_TX_PWR_LIMIT_BSS_CONSTRAINT, /* 11h constraint */
 	CFG_TX_PWR_MODE,
 	CFG_MLME_DBG_NOTIF_BLOCK,
 	CFG_BT_OFF_BECONS_INTERVALS,
@@ -200,15 +203,16 @@ enum {
 	CFG_11D_ENABLED,
 	CFG_11H_FEATURE_FLAGS,
 
-	
+	/* <-- LAST --> */
 	CFG_TBL_FIX_LAST
 };
 
+/* variable size table */
 enum {
 	CFG_NET_ADDR = 0,
 	CFG_LED_PATTERN_TABLE,
 
-	
+	/* <-- LAST --> */
 	CFG_TBL_VAR_LAST
 };
 
@@ -272,12 +276,15 @@ struct iwm_umac_cmd_get_channel_list {
 } __packed;
 
 
+/* UMAC WiFi interface commands */
 
+/* Coexistence mode */
 #define COEX_MODE_SA  0x1
 #define COEX_MODE_XOR 0x2
 #define COEX_MODE_CM  0x3
 #define COEX_MODE_MAX 0x4
 
+/* Wireless mode */
 #define WIRELESS_MODE_11A  0x1
 #define WIRELESS_MODE_11G  0x2
 #define WIRELESS_MODE_11N  0x4
@@ -285,6 +292,7 @@ struct iwm_umac_cmd_get_channel_list {
 #define UMAC_PROFILE_EX_IE_REQUIRED	0x1
 #define UMAC_PROFILE_QOS_ALLOWED	0x2
 
+/* Scanning */
 #define UMAC_WIFI_IF_PROBE_OPTION_MAX        10
 
 #define UMAC_WIFI_IF_SCAN_TYPE_USER          0x0
@@ -300,10 +308,10 @@ struct iwm_umac_ssid {
 
 struct iwm_umac_cmd_scan_request {
 	struct iwm_umac_wifi_if hdr;
-	__le32 type; 
+	__le32 type; /* UMAC_WIFI_IF_SCAN_TYPE_* */
 	u8 ssid_num;
 	u8 seq_num;
-	u8 timeout; 
+	u8 timeout; /* In seconds */
 	u8 reserved;
 	struct iwm_umac_ssid ssids[UMAC_WIFI_IF_PROBE_OPTION_MAX];
 } __packed;
@@ -315,27 +323,33 @@ struct iwm_umac_cmd_scan_request {
 #define UMAC_CIPHER_TYPE_TKIP		0x04
 #define UMAC_CIPHER_TYPE_CCMP		0x08
 
+/* Supported authentication types - bitmap */
 #define UMAC_AUTH_TYPE_OPEN		0x00
 #define UMAC_AUTH_TYPE_LEGACY_PSK	0x01
 #define UMAC_AUTH_TYPE_8021X		0x02
 #define UMAC_AUTH_TYPE_RSNA_PSK		0x04
 
+/* iwm_umac_security.flag is WPA supported -- bits[0:0] */
 #define UMAC_SEC_FLG_WPA_ON_POS		0
 #define UMAC_SEC_FLG_WPA_ON_SEED	1
 #define UMAC_SEC_FLG_WPA_ON_MSK (UMAC_SEC_FLG_WPA_ON_SEED << \
 				 UMAC_SEC_FLG_WPA_ON_POS)
 
+/* iwm_umac_security.flag is WPA2 supported -- bits [1:1] */
 #define UMAC_SEC_FLG_RSNA_ON_POS	1
 #define UMAC_SEC_FLG_RSNA_ON_SEED	1
 #define UMAC_SEC_FLG_RSNA_ON_MSK        (UMAC_SEC_FLG_RSNA_ON_SEED << \
 					 UMAC_SEC_FLG_RSNA_ON_POS)
 
+/* iwm_umac_security.flag is WSC mode on -- bits [2:2] */
 #define UMAC_SEC_FLG_WSC_ON_POS		2
 #define UMAC_SEC_FLG_WSC_ON_SEED	1
 #define UMAC_SEC_FLG_WSC_ON_MSK         (UMAC_SEC_FLG_WSC_ON_SEED << \
 					 UMAC_SEC_FLG_WSC_ON_POS)
 
 
+/* Legacy profile can use only WEP40 and WEP104 for encryption and
+ * OPEN or PSK for authentication */
 #define UMAC_SEC_FLG_LEGACY_PROFILE	0
 
 struct iwm_umac_security {
@@ -346,8 +360,8 @@ struct iwm_umac_security {
 } __packed;
 
 struct iwm_umac_ibss {
-	u8 beacon_interval;	
-	u8 atim;		
+	u8 beacon_interval;	/* in millisecond */
+	u8 atim;		/* in millisecond */
 	s8 join_only;
 	u8 band;
 	u8 channel;
@@ -379,6 +393,7 @@ struct iwm_umac_invalidate_profile {
 	u8 reserved[3];
 } __packed;
 
+/* Encryption key commands */
 struct iwm_umac_key_wep40 {
 	struct iwm_umac_wifi_if hdr;
 	struct iwm_umac_key_hdr key_hdr;
@@ -455,6 +470,7 @@ struct iwm_umac_pmkid_update {
 	u8 pmkid[WLAN_PMKID_LEN];
 } __packed;
 
+/* LMAC commands */
 int iwm_read_mac(struct iwm_priv *iwm, u8 *mac);
 int iwm_send_prio_table(struct iwm_priv *iwm);
 int iwm_send_init_calib_cfg(struct iwm_priv *iwm, u8 calib_requested);
@@ -463,6 +479,7 @@ int iwm_send_calib_results(struct iwm_priv *iwm);
 int iwm_store_rxiq_calib_result(struct iwm_priv *iwm);
 int iwm_send_ct_kill_cfg(struct iwm_priv *iwm, u8 entry, u8 exit);
 
+/* UMAC commands */
 int iwm_send_wifi_if_cmd(struct iwm_priv *iwm, void *payload, u16 payload_size,
 			 bool resp);
 int iwm_send_umac_reset(struct iwm_priv *iwm, __le32 reset_flags, bool resp);
@@ -487,5 +504,6 @@ int iwm_send_umac_stop_resume_tx(struct iwm_priv *iwm,
 int iwm_send_pmkid_update(struct iwm_priv *iwm,
 			  struct cfg80211_pmksa *pmksa, u32 command);
 
+/* UDMA commands */
 int iwm_target_reset(struct iwm_priv *iwm);
 #endif

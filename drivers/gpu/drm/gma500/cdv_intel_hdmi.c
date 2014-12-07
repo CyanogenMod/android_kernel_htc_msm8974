@@ -37,11 +37,13 @@
 #include "cdv_device.h"
 #include <linux/pm_runtime.h>
 
+/* hdmi control bits */
 #define HDMI_NULL_PACKETS_DURING_VSYNC	(1 << 9)
 #define HDMI_BORDER_ENABLE		(1 << 7)
 #define HDMI_AUDIO_ENABLE		(1 << 6)
 #define HDMI_VSYNC_ACTIVE_HIGH		(1 << 4)
 #define HDMI_HSYNC_ACTIVE_HIGH		(1 << 3)
+/* hdmi-b control bits */
 #define	HDMIB_PIPE_B_SELECT		(1 << 30)
 
 
@@ -50,10 +52,10 @@ struct mid_intel_hdmi_priv {
 	u32 save_HDMIB;
 	bool has_hdmi_sink;
 	bool has_hdmi_audio;
-	
+	/* Should set this when detect hotplug */
 	bool hdmi_device_connected;
 	struct mdfld_hdmi_i2c *i2c_bus;
-	struct i2c_adapter *hdmi_i2c_adapter;	
+	struct i2c_adapter *hdmi_i2c_adapter;	/* for control functions */
 	struct drm_device *dev;
 };
 
@@ -218,6 +220,9 @@ static int cdv_hdmi_set_property(struct drm_connector *connector,
 	return 0;
 }
 
+/*
+ * Return the list of HDMI DDC modes if available.
+ */
 static int cdv_hdmi_get_modes(struct drm_connector *connector)
 {
 	struct psb_intel_encoder *psb_intel_encoder =
@@ -244,15 +249,15 @@ static int cdv_hdmi_mode_valid(struct drm_connector *connector,
 	if (mode->clock < 20000)
 		return MODE_CLOCK_HIGH;
 
-	
+	/* just in case */
 	if (mode->flags & DRM_MODE_FLAG_DBLSCAN)
 		return MODE_NO_DBLESCAN;
 
-	
+	/* just in case */
 	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
 		return MODE_NO_INTERLACE;
 
-	
+	/* We assume worst case scenario of 32 bpp here, since we don't know */
 	if ((ALIGN(mode->hdisplay * 4, 64) * mode->vdisplay) >
 	    dev_priv->vram_stolen_size)
 		return MODE_MEM;

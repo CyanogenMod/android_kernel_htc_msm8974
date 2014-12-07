@@ -3,4 +3,4 @@
 
 #include <asm-generic/kmap_types.h>
 
-#endif	
+#endif	/* __ASM_M68K_KMAP_TYPES_H */

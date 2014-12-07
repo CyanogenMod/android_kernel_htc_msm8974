@@ -22,9 +22,9 @@
 
 #include "drm_fb_helper.h"
 
-#define DL_DEFIO_WRITE_DELAY    5 
+#define DL_DEFIO_WRITE_DELAY    5 /* fb_deferred_io.delay in jiffies */
 
-static int fb_defio = 1;  
+static int fb_defio = 1;  /* Optionally enable experimental fb_defio mmap support */
 static int fb_bpp = 16;
 
 module_param(fb_bpp, int, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP);
@@ -40,16 +40,22 @@ struct udl_fbdev {
 #define DL_ALIGN_UP(x, a) ALIGN(x, a)
 #define DL_ALIGN_DOWN(x, a) ALIGN(x-(a-1), a)
 
+/** Read the red component (0..255) of a 32 bpp colour. */
 #define DLO_RGB_GETRED(col) (uint8_t)((col) & 0xFF)
 
+/** Read the green component (0..255) of a 32 bpp colour. */
 #define DLO_RGB_GETGRN(col) (uint8_t)(((col) >> 8) & 0xFF)
 
+/** Read the blue component (0..255) of a 32 bpp colour. */
 #define DLO_RGB_GETBLU(col) (uint8_t)(((col) >> 16) & 0xFF)
 
+/** Return red/green component of a 16 bpp colour number. */
 #define DLO_RG16(red, grn) (uint8_t)((((red) & 0xF8) | ((grn) >> 5)) & 0xFF)
 
+/** Return green/blue component of a 16 bpp colour number. */
 #define DLO_GB16(grn, blu) (uint8_t)(((((grn) & 0x1C) << 3) | ((blu) >> 3)) & 0xFF)
 
+/** Return 8 bpp colour number from red, green and blue components. */
 #define DLO_RGB8(red, grn, blu) ((((red) << 5) | (((grn) & 3) << 3) | ((blu) & 7)) & 0xFF)
 
 #if 0
@@ -72,6 +78,12 @@ static uint16_t rgb16(uint32_t col)
 }
 #endif
 
+/*
+ * NOTE: fb_defio.c is holding info->fbdefio.mutex
+ *   Touching ANY framebuffer memory that triggers a page fault
+ *   in fb_defio will cause a deadlock, when it also tries to
+ *   grab the same mutex.
+ */
 static void udlfb_dpy_deferred_io(struct fb_info *info,
 				  struct list_head *pagelist)
 {
@@ -110,7 +122,7 @@ static void udlfb_dpy_deferred_io(struct fb_info *info,
 	}
 
 	if (cmd > (char *) urb->transfer_buffer) {
-		
+		/* Send partial buffer remaining before exiting */
 		int len = cmd - (char *) urb->transfer_buffer;
 		udl_submit_urb(dev, urb, len);
 		bytes_sent += len;
@@ -123,7 +135,7 @@ error:
 	atomic_add(bytes_rendered, &udl->bytes_rendered);
 	end_cycles = get_cycles();
 	atomic_add(((unsigned int) ((end_cycles - start_cycles)
-		    >> 10)), 
+		    >> 10)), /* Kcycles */
 		   &udl->cpu_kcycles_used);
 }
 
@@ -175,7 +187,7 @@ int udl_handle_damage(struct udl_framebuffer *fb, int x, int y,
 	}
 
 	if (cmd > (char *) urb->transfer_buffer) {
-		
+		/* Send partial buffer remaining before exiting */
 		int len = cmd - (char *) urb->transfer_buffer;
 		ret = udl_submit_urb(dev, urb, len);
 		bytes_sent += len;
@@ -188,7 +200,7 @@ error:
 	atomic_add(width*height*bpp, &udl->bytes_rendered);
 	end_cycles = get_cycles();
 	atomic_add(((unsigned int) ((end_cycles - start_cycles)
-		    >> 10)), 
+		    >> 10)), /* Kcycles */
 		   &udl->cpu_kcycles_used);
 
 	return 0;
@@ -222,7 +234,7 @@ static int udl_fb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 			size = 0;
 	}
 
-	vma->vm_flags |= VM_RESERVED;	
+	vma->vm_flags |= VM_RESERVED;	/* avoid to swap out this VMA */
 	return 0;
 }
 
@@ -256,20 +268,25 @@ static void udl_fb_imageblit(struct fb_info *info, const struct fb_image *image)
 			  image->height);
 }
 
+/*
+ * It's common for several clients to have framebuffer open simultaneously.
+ * e.g. both fbcon and X. Makes things interesting.
+ * Assumes caller is holding info->lock (for open and release at least)
+ */
 static int udl_fb_open(struct fb_info *info, int user)
 {
 	struct udl_fbdev *ufbdev = info->par;
 	struct drm_device *dev = ufbdev->ufb.base.dev;
 	struct udl_device *udl = dev->dev_private;
 
-	
+	/* If the USB device is gone, we don't accept new opens */
 	if (drm_device_is_unplugged(udl->ddev))
 		return -ENODEV;
 
 	ufbdev->fb_count++;
 
 	if (fb_defio && (info->fbdefio == NULL)) {
-		
+		/* enable defio at last moment if not disabled by client */
 
 		struct fb_deferred_io *fbdefio;
 
@@ -291,6 +308,9 @@ static int udl_fb_open(struct fb_info *info, int user)
 }
 
 
+/*
+ * Assumes caller is holding info->lock mutex (for open and release at least)
+ */
 static int udl_fb_release(struct fb_info *info, int user)
 {
 	struct udl_fbdev *ufbdev = info->par;

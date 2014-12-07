@@ -38,6 +38,7 @@ static unsigned long __initdata bootx_node_chosen;
 static boot_infos_t * __initdata bootx_info;
 static char __initdata bootx_disp_path[256];
 
+/* Is boot-info compatible ? */
 #define BOOT_INFO_IS_COMPATIBLE(bi) \
 	((bi)->compatible_version <= BOOT_INFO_VERSION)
 #define BOOT_INFO_IS_V2_COMPATIBLE(bi)	((bi)->version >= 2)
@@ -84,9 +85,9 @@ static void __init bootx_printf(const char *format, ...)
 		}
 	}
 }
-#else 
+#else /* CONFIG_BOOTX_TEXT */
 static void __init bootx_printf(const char *format, ...) {}
-#endif 
+#endif /* CONFIG_BOOTX_TEXT */
 
 static void * __init bootx_early_getprop(unsigned long base,
 					 unsigned long node,
@@ -149,7 +150,7 @@ static void __init bootx_dt_add_prop(char *name, void *data, int size,
 	dt_push_token(size, mem_end);
 	dt_push_token(soff, mem_end);
 
-	
+	/* push property content */
 	if (size && data) {
 		memcpy((void *)*mem_end, data, size);
 		*mem_end = _ALIGN_UP(*mem_end + size, 4);
@@ -224,7 +225,7 @@ static void __init bootx_scan_dt_build_strings(unsigned long base,
 	unsigned long soff;
 	char *namep;
 
-	
+	/* Keep refs to known nodes */
 	namep = np->full_name ? (char *)(base + np->full_name) : NULL;
        	if (namep == NULL) {
 		bootx_printf("Node without a full name !\n");
@@ -248,7 +249,7 @@ static void __init bootx_scan_dt_build_strings(unsigned long base,
 		strncpy(bootx_disp_path, namep, 255);
 	}
 
-	
+	/* get and store all property names */
 	while (*ppp) {
 		struct bootx_dt_prop *pp =
 			(struct bootx_dt_prop *)(base + *ppp);
@@ -256,7 +257,7 @@ static void __init bootx_scan_dt_build_strings(unsigned long base,
 		namep = pp->name ? (char *)(base + pp->name) : NULL;
  		if (namep == NULL || strcmp(namep, "name") == 0)
  			goto next;
-		
+		/* get/create string entry */
 		soff = bootx_dt_find_string(namep);
 		if (soff == 0)
 			bootx_dt_add_string(namep, mem_end);
@@ -264,7 +265,7 @@ static void __init bootx_scan_dt_build_strings(unsigned long base,
 		ppp = &pp->next;
 	}
 
-	
+	/* do all our children */
 	cpp = &np->child;
 	while(*cpp) {
 		np = (struct bootx_dt_node *)(base + *cpp);
@@ -284,7 +285,7 @@ static void __init bootx_scan_dt_build_struct(unsigned long base,
 
 	dt_push_token(OF_DT_BEGIN_NODE, mem_end);
 
-	
+	/* get the node's full name */
 	namep = np->full_name ? (char *)(base + np->full_name) : NULL;
 	if (namep == NULL)
 		namep = "";
@@ -292,6 +293,10 @@ static void __init bootx_scan_dt_build_struct(unsigned long base,
 
 	DBG("* struct: %s\n", namep);
 
+	/* Fixup an Apple bug where they have bogus \0 chars in the
+	 * middle of the path in some properties, and extract
+	 * the unit name (everything after the last '/').
+	 */
 	memcpy((void *)*mem_end, namep, l + 1);
 	namep = (char *)*mem_end;
 	for (lp = p = namep, ep = namep + l; p < ep; p++) {
@@ -303,20 +308,20 @@ static void __init bootx_scan_dt_build_struct(unsigned long base,
 	*lp = 0;
 	*mem_end = _ALIGN_UP((unsigned long)lp + 1, 4);
 
-	
+	/* get and store all properties */
 	while (*ppp) {
 		struct bootx_dt_prop *pp =
 			(struct bootx_dt_prop *)(base + *ppp);
 
 		namep = pp->name ? (char *)(base + pp->name) : NULL;
-		
+		/* Skip "name" */
  		if (namep == NULL || !strcmp(namep, "name"))
  			goto next;
-		
+		/* Skip "bootargs" in /chosen too as we replace it */
 		if (node == bootx_node_chosen && !strcmp(namep, "bootargs"))
 			goto next;
 
-		
+		/* push property head */
 		bootx_dt_add_prop(namep,
 				  pp->value ? (void *)(base + pp->value): NULL,
 				  pp->length, mem_end);
@@ -332,7 +337,7 @@ static void __init bootx_scan_dt_build_struct(unsigned long base,
 	else if (node == bootx_info->dispDeviceRegEntryOffset)
 		bootx_add_display_props(base, mem_end, 1);
 
-	
+	/* do all our children */
 	cpp = &np->child;
 	while(*cpp) {
 		np = (struct bootx_dt_node *)(base + *cpp);
@@ -351,6 +356,9 @@ static unsigned long __init bootx_flatten_dt(unsigned long start)
 	unsigned long base;
 	u64 *rsvmap;
 
+	/* Start using memory after the big blob passed by BootX, get
+	 * some space for the header
+	 */
 	mem_start = mem_end = _ALIGN_UP(((unsigned long)bi) + start, 4);
 	DBG("Boot params header at: %x\n", mem_start);
 	hdr = (struct boot_param_header *)mem_start;
@@ -359,42 +367,46 @@ static unsigned long __init bootx_flatten_dt(unsigned long start)
 	hdr->off_mem_rsvmap = ((unsigned long)rsvmap) - mem_start;
 	mem_end = ((unsigned long)rsvmap) + 8 * sizeof(u64);
 
-	
+	/* Get base of tree */
 	base = ((unsigned long)bi) + bi->deviceTreeOffset;
 
-	
+	/* Build string array */
 	DBG("Building string array at: %x\n", mem_end);
 	DBG("Device Tree Base=%x\n", base);
 	bootx_dt_strbase = mem_end;
 	mem_end += 4;
 	bootx_dt_strend = mem_end;
 	bootx_scan_dt_build_strings(base, 4, &mem_end);
-	
+	/* Add some strings */
 	bootx_dt_add_string("linux,bootx-noscreen", &mem_end);
 	bootx_dt_add_string("linux,bootx-depth", &mem_end);
 	bootx_dt_add_string("linux,bootx-width", &mem_end);
 	bootx_dt_add_string("linux,bootx-height", &mem_end);
 	bootx_dt_add_string("linux,bootx-linebytes", &mem_end);
 	bootx_dt_add_string("linux,bootx-addr", &mem_end);
-	
+	/* Wrap up strings */
 	hdr->off_dt_strings = bootx_dt_strbase - mem_start;
 	hdr->dt_strings_size = bootx_dt_strend - bootx_dt_strbase;
 
-	
+	/* Build structure */
 	mem_end = _ALIGN(mem_end, 16);
 	DBG("Building device tree structure at: %x\n", mem_end);
 	hdr->off_dt_struct = mem_end - mem_start;
 	bootx_scan_dt_build_struct(base, 4, &mem_end);
 	dt_push_token(OF_DT_END, &mem_end);
 
-	
+	/* Finish header */
 	hdr->boot_cpuid_phys = 0;
 	hdr->magic = OF_DT_HEADER;
 	hdr->totalsize = mem_end - mem_start;
 	hdr->version = OF_DT_VERSION;
-	
+	/* Version 16 is not backward compatible */
 	hdr->last_comp_version = 0x10;
 
+	/* Reserve the whole thing and copy the reserve map in, we
+	 * also bump mem_reserve_cnt to cause further reservations to
+	 * fail since it's too late.
+	 */
 	mem_end = _ALIGN(mem_end, PAGE_SIZE);
 	DBG("End of boot params: %x\n", mem_end);
 	rsvmap[0] = mem_start;
@@ -448,7 +460,7 @@ static void __init btext_welcome(boot_infos_t *bi)
 #endif
 	bootx_printf("\n\n");
 }
-#endif 
+#endif /* CONFIG_BOOTX_TEXT */
 
 void __init bootx_init(unsigned long r3, unsigned long r4)
 {
@@ -463,6 +475,9 @@ void __init bootx_init(unsigned long r3, unsigned long r4)
 
 	bootx_info = bi;
 
+	/* We haven't cleared any bss at this point, make sure
+	 * what we need is initialized
+	 */
 	bootx_dt_strbase = bootx_dt_strend = 0;
 	bootx_node_chosen = 0;
 	bootx_disp_path[0] = 0;
@@ -470,7 +485,7 @@ void __init bootx_init(unsigned long r3, unsigned long r4)
 	if (!BOOT_INFO_IS_V2_COMPATIBLE(bi))
 		bi->logicalDisplayBase = bi->dispDeviceBase;
 
-	
+	/* Fixup depth 16 -> 15 as that's what MacOS calls 16bpp */
 	if (bi->dispDeviceDepth == 16)
 		bi->dispDeviceDepth = 15;
 
@@ -485,8 +500,17 @@ void __init bootx_init(unsigned long r3, unsigned long r4)
 			    (unsigned long)bi->logicalDisplayBase);
 	btext_clearscreen();
 	btext_flushscreen();
-#endif 
+#endif /* CONFIG_BOOTX_TEXT */
 
+	/*
+	 * Test if boot-info is compatible.  Done only in config
+	 * CONFIG_BOOTX_TEXT since there is nothing much we can do
+	 * with an incompatible version, except display a message
+	 * and eventually hang the processor...
+	 *
+	 * I'll try to keep enough of boot-info compatible in the
+	 * future to always allow display of this message;
+	 */
 	if (!BOOT_INFO_IS_COMPATIBLE(bi)) {
 		bootx_printf(" !!! WARNING - Incompatible version"
 			     " of BootX !!!\n\n\n");
@@ -504,17 +528,26 @@ void __init bootx_init(unsigned long r3, unsigned long r4)
 	btext_welcome(bi);
 #endif
 
+	/* New BootX enters kernel with MMU off, i/os are not allowed
+	 * here. This hack will have been done by the boostrap anyway.
+	 */
 	if (bi->version < 4) {
+		/*
+		 * XXX If this is an iMac, turn off the USB controller.
+		 */
 		model = (char *) bootx_early_getprop(r4 + bi->deviceTreeOffset,
 						     4, "model");
 		if (model
 		    && (strcmp(model, "iMac,1") == 0
 			|| strcmp(model, "PowerMac1,1") == 0)) {
 			bootx_printf("iMac,1 detected, shutting down USB\n");
-			out_le32((unsigned __iomem *)0x80880008, 1);	
+			out_le32((unsigned __iomem *)0x80880008, 1);	/* XXX */
 		}
 	}
 
+	/* Get a pointer that points above the device tree, args, ramdisk,
+	 * etc... to use for generating the flattened tree
+	 */
 	if (bi->version < 5) {
 		space = bi->deviceTreeOffset + bi->deviceTreeSize;
 		if (bi->ramDisk >= space)
@@ -524,14 +557,25 @@ void __init bootx_init(unsigned long r3, unsigned long r4)
 
 	bootx_printf("Total space used by parameters & ramdisk: 0x%x\n", space);
 
+	/* New BootX will have flushed all TLBs and enters kernel with
+	 * MMU switched OFF, so this should not be useful anymore.
+	 */
 	if (bi->version < 4) {
 		bootx_printf("Touching pages...\n");
 
+		/*
+		 * Touch each page to make sure the PTEs for them
+		 * are in the hash table - the aim is to try to avoid
+		 * getting DSI exceptions while copying the kernel image.
+		 */
 		for (ptr = ((unsigned long) &_stext) & PAGE_MASK;
 		     ptr < (unsigned long)bi + space; ptr += PAGE_SIZE)
 			x = *(volatile unsigned long *)ptr;
 	}
 
+	/* Ok, now we need to generate a flattened device-tree to pass
+	 * to the kernel
+	 */
 	bootx_printf("Preparing boot params...\n");
 
 	hdr = bootx_flatten_dt(space);

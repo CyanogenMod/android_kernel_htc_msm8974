@@ -35,6 +35,10 @@
 
 static inline int pa_pxp_offset_valid(u8 bus, u8 devfn, int offset)
 {
+	/* Device 0 Function 0 is special: It's config space spans function 1 as
+	 * well, so allow larger offset. It's really a two-function device but the
+	 * second function does not probe.
+	 */
 	if (bus == 0 && devfn == 0)
 		return offset < 8192;
 	else
@@ -75,6 +79,10 @@ static int workaround_5945(struct pci_bus *bus, unsigned int devfn,
 	addr = pa_pxp_cfg_addr(hose, bus->number, devfn, offset & ~0x3);
 	byte = offset & 0x3;
 
+	/* Workaround bug 5945: write 0 to a dummy register before reading,
+	 * and write back what we read. We must read/write the full 32-bit
+	 * contents so we need to shift and mask by hand.
+	 */
 	dummy = pa_pxp_cfg_addr(hose, bus->number, devfn, 0x10);
 	out_le32(dummy, 0);
 	tmp = in_le32(addr);
@@ -116,6 +124,10 @@ static int pa_pxp_read_config(struct pci_bus *bus, unsigned int devfn,
 
 	addr = pa_pxp_cfg_addr(hose, bus->number, devfn, offset);
 
+	/*
+	 * Note: the caller has already checked that offset is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 	switch (len) {
 	case 1:
 		*val = in_8(addr);
@@ -146,6 +158,10 @@ static int pa_pxp_write_config(struct pci_bus *bus, unsigned int devfn,
 
 	addr = pa_pxp_cfg_addr(hose, bus->number, devfn, offset);
 
+	/*
+	 * Note: the caller has already checked that offset is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 	switch (len) {
 	case 1:
 		out_8(addr, val);
@@ -188,7 +204,7 @@ static int __init pas_add_bridge(struct device_node *dev)
 
 	printk(KERN_INFO "Found PA-PXP PCI host bridge.\n");
 
-	
+	/* Interpret the "ranges" property */
 	pci_process_bridge_OF_ranges(hose, dev, 1);
 
 	return 0;
@@ -211,7 +227,7 @@ void __init pas_pci_init(void)
 
 	of_node_put(root);
 
-	
+	/* Setup the linkage between OF nodes and PHBs */
 	pci_devs_phb_init();
 }
 

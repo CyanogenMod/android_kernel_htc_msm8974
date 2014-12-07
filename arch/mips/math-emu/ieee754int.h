@@ -1,4 +1,8 @@
 /*
+ * IEEE754 floating point
+ * common internal header file
+ */
+/*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
  *

@@ -40,6 +40,11 @@ unsigned long bfin_get_addr_from_rp(unsigned long *ptr,
 		return 0;
 	}
 
+	/*
+	 * Stack-relative relocs contain the offset into the stack, we
+	 * have to add the stack's start address here and return 1 from
+	 * flat_addr_absolute to prevent the normal address calculations
+	 */
 	if (relval & (1 << 29))
 		return val + current->mm->context.end_brk;
 
@@ -49,6 +54,10 @@ unsigned long bfin_get_addr_from_rp(unsigned long *ptr,
 }
 EXPORT_SYMBOL(bfin_get_addr_from_rp);
 
+/*
+ * Insert the address ADDR into the symbol reference at RP;
+ * RELVAL is the raw relocation-table entry from which RP is derived
+ */
 void bfin_put_addr_at_rp(unsigned long *ptr, unsigned long addr,
 		unsigned long relval)
 {

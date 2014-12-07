@@ -43,7 +43,7 @@ int radeon_cs_parser_relocs(struct radeon_cs_parser *p)
 		return 0;
 	}
 	chunk = &p->chunks[p->chunk_relocs_idx];
-	
+	/* FIXME: we assume that each relocs use 4 dwords */
 	p->nrelocs = chunk->length_dw / 4;
 	p->relocs_ptr = kcalloc(p->nrelocs, sizeof(void *), GFP_KERNEL);
 	if (p->relocs_ptr == NULL) {
@@ -133,7 +133,7 @@ static int radeon_cs_sync_rings(struct radeon_cs_parser *p)
 	}
 
 	for (i = 0; i < RADEON_NUM_RINGS; ++i) {
-		
+		/* no need to sync to our own or unused rings */
 		if (i == p->ring || !sync_to_ring[i] || !p->rdev->ring[i].ready)
 			continue;
 
@@ -169,7 +169,7 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 	if (!cs->num_chunks) {
 		return 0;
 	}
-	
+	/* get chunks */
 	INIT_LIST_HEAD(&p->validated);
 	p->idx = 0;
 	p->chunk_ib_idx = -1;
@@ -210,19 +210,19 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 		}
 		if (p->chunks[i].chunk_id == RADEON_CHUNK_ID_IB) {
 			p->chunk_ib_idx = i;
-			
+			/* zero length IB isn't useful */
 			if (p->chunks[i].length_dw == 0)
 				return -EINVAL;
 		}
 		if (p->chunks[i].chunk_id == RADEON_CHUNK_ID_CONST_IB) {
 			p->chunk_const_ib_idx = i;
-			
+			/* zero length CONST IB isn't useful */
 			if (p->chunks[i].length_dw == 0)
 				return -EINVAL;
 		}
 		if (p->chunks[i].chunk_id == RADEON_CHUNK_ID_FLAGS) {
 			p->chunk_flags_idx = i;
-			
+			/* zero length flags aren't useful */
 			if (p->chunks[i].length_dw == 0)
 				return -EINVAL;
 		}
@@ -258,7 +258,7 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 		return -EINVAL;
 	}
 
-	
+	/* we only support VM on SI+ */
 	if ((p->rdev->family >= CHIP_TAHITI) &&
 	    ((p->cs_flags & RADEON_CS_USE_VM) == 0)) {
 		DRM_ERROR("VM required on SI+!\n");
@@ -269,7 +269,7 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 		return -EINVAL;
 
 
-	
+	/* deal with non-vm */
 	if ((p->chunk_ib_idx != -1) &&
 	    ((p->cs_flags & RADEON_CS_USE_VM) == 0) &&
 	    (p->chunks[p->chunk_ib_idx].chunk_id == RADEON_CHUNK_ID_IB)) {
@@ -293,6 +293,14 @@ int radeon_cs_parser_init(struct radeon_cs_parser *p, void *data)
 	return 0;
 }
 
+/**
+ * cs_parser_fini() - clean parser states
+ * @parser:	parser structure holding parsing context.
+ * @error:	error number
+ *
+ * If error is set than unvalidate buffer, otherwise just free memory
+ * used by parsing context.
+ **/
 static void radeon_cs_parser_fini(struct radeon_cs_parser *parser, int error)
 {
 	unsigned i;
@@ -336,6 +344,10 @@ static int radeon_cs_ib_chunk(struct radeon_device *rdev,
 		return 0;
 
 	ib_chunk = &parser->chunks[parser->chunk_ib_idx];
+	/* Copy the packet into the IB, the parser will read from the
+	 * input memory (cached) and write to the IB (which can be
+	 * uncached).
+	 */
 	r =  radeon_ib_get(rdev, parser->ring, &parser->ib,
 			   ib_chunk->length_dw * 4);
 	if (r) {
@@ -411,7 +423,7 @@ static int radeon_cs_ib_vm_chunk(struct radeon_device *rdev,
 		}
 		parser->const_ib->is_const_ib = true;
 		parser->const_ib->length_dw = ib_chunk->length_dw;
-		
+		/* Copy the packet into the IB */
 		if (DRM_COPY_FROM_USER(parser->const_ib->ptr, ib_chunk->user_ptr,
 				       ib_chunk->length_dw * 4)) {
 			return -EFAULT;
@@ -434,7 +446,7 @@ static int radeon_cs_ib_vm_chunk(struct radeon_device *rdev,
 		return r;
 	}
 	parser->ib->length_dw = ib_chunk->length_dw;
-	
+	/* Copy the packet into the IB */
 	if (DRM_COPY_FROM_USER(parser->ib->ptr, ib_chunk->user_ptr,
 			       ib_chunk->length_dw * 4)) {
 		return -EFAULT;
@@ -461,6 +473,9 @@ static int radeon_cs_ib_vm_chunk(struct radeon_device *rdev,
 	if ((rdev->family >= CHIP_TAHITI) &&
 	    (parser->chunk_const_ib_idx != -1)) {
 		parser->const_ib->vm_id = vm->id;
+		/* ib pool is bind at 0 in virtual address space to gpu_addr is the
+		 * offset inside the pool bo
+		 */
 		parser->const_ib->gpu_addr = parser->const_ib->sa_bo.offset;
 		r = radeon_ib_schedule(rdev, parser->const_ib);
 		if (r)
@@ -468,6 +483,9 @@ static int radeon_cs_ib_vm_chunk(struct radeon_device *rdev,
 	}
 
 	parser->ib->vm_id = vm->id;
+	/* ib pool is bind at 0 in virtual address space to gpu_addr is the
+	 * offset inside the pool bo
+	 */
 	parser->ib->gpu_addr = parser->ib->sa_bo.offset;
 	parser->ib->is_const_ib = false;
 	r = radeon_ib_schedule(rdev, parser->ib);
@@ -493,7 +511,7 @@ int radeon_cs_ioctl(struct drm_device *dev, void *data, struct drm_file *filp)
 		radeon_mutex_unlock(&rdev->cs_mutex);
 		return -EBUSY;
 	}
-	
+	/* initialize parser */
 	memset(&parser, 0, sizeof(struct radeon_cs_parser));
 	parser.filp = filp;
 	parser.rdev = rdev;
@@ -580,7 +598,7 @@ int radeon_cs_update_pages(struct radeon_cs_parser *p, int pg_idx)
 		return 0;
 	}
 
-	
+	/* copy to IB here */
 	memcpy((void *)(p->ib->ptr+(pg_idx*(PAGE_SIZE/4))), ibc->kpage[new_page], size);
 
 	ibc->last_copied_page = pg_idx;

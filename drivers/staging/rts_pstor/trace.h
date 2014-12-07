@@ -114,4 +114,4 @@ static inline void rtsx_dump(u8 *buf, int buf_len)
 #define RTSX_DUMP(buf, buf_len)
 #endif
 
-#endif  
+#endif  /* __REALTEK_RTSX_TRACE_H */

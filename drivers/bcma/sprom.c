@@ -18,6 +18,24 @@
 
 static int(*get_fallback_sprom)(struct bcma_bus *dev, struct ssb_sprom *out);
 
+/**
+ * bcma_arch_register_fallback_sprom - Registers a method providing a
+ * fallback SPROM if no SPROM is found.
+ *
+ * @sprom_callback: The callback function.
+ *
+ * With this function the architecture implementation may register a
+ * callback handler which fills the SPROM data structure. The fallback is
+ * used for PCI based BCMA devices, where no valid SPROM can be found
+ * in the shadow registers and to provide the SPROM for SoCs where BCMA is
+ * to controll the system bus.
+ *
+ * This function is useful for weird architectures that have a half-assed
+ * BCMA device hardwired to their PCI bus.
+ *
+ * This function is available for architecture code, only. So it is not
+ * exported.
+ */
 int bcma_arch_register_fallback_sprom(int (*sprom_callback)(struct bcma_bus *bus,
 				     struct ssb_sprom *out))
 {
@@ -50,6 +68,9 @@ fail:
 	return err;
 }
 
+/**************************************************
+ * R/W ops.
+ **************************************************/
 
 static void bcma_sprom_read(struct bcma_bus *bus, u16 offset, u16 *sprom)
 {
@@ -59,10 +80,13 @@ static void bcma_sprom_read(struct bcma_bus *bus, u16 offset, u16 *sprom)
 				       offset + (i * 2));
 }
 
+/**************************************************
+ * Validation.
+ **************************************************/
 
 static inline u8 bcma_crc8(u8 crc, u8 data)
 {
-	
+	/* Polynomial:   x^8 + x^7 + x^6 + x^4 + x^2 + 1   */
 	static const u8 t[] = {
 		0x00, 0xF7, 0xB9, 0x4E, 0x25, 0xD2, 0x9C, 0x6B,
 		0x4A, 0xBD, 0xF3, 0x04, 0x6F, 0x98, 0xD6, 0x21,
@@ -148,6 +172,9 @@ static int bcma_sprom_valid(const u16 *sprom)
 	return 0;
 }
 
+/**************************************************
+ * SPROM extraction.
+ **************************************************/
 
 #define SPOFF(offset)	((offset) / sizeof(u16))
 
@@ -218,7 +245,7 @@ static void bcma_sprom_extract_r8(struct bcma_bus *bus, const u16 *sprom)
 
 	SPEX(country_code, SSB_SPROM8_CCODE, ~0, 0);
 
-	
+	/* Extract cores power info info */
 	for (i = 0; i < ARRAY_SIZE(pwr_info_offset); i++) {
 		o = pwr_info_offset[i];
 		SPEX(core_pwr_info[i].itssi_2g, o + SSB_SROM8_2G_MAXP_ITSSI,
@@ -273,6 +300,9 @@ static void bcma_sprom_extract_r8(struct bcma_bus *bus, const u16 *sprom)
 	     SSB_SROM8_FEM_ANTSWLUT_SHIFT);
 }
 
+/*
+ * Indicates the presence of external SPROM.
+ */
 static bool bcma_sprom_ext_available(struct bcma_bus *bus)
 {
 	u32 chip_status;
@@ -288,7 +318,7 @@ static bool bcma_sprom_ext_available(struct bcma_bus *bus)
 		return srom_control & BCMA_CC_SROM_CONTROL_PRESENT;
 	}
 
-	
+	/* older chipcommon revisions use chip status register */
 	chip_status = bcma_read32(bus->drv_cc.core, BCMA_CC_CHIPSTAT);
 	switch (bus->chipinfo.id) {
 	case 0x4313:
@@ -306,6 +336,9 @@ static bool bcma_sprom_ext_available(struct bcma_bus *bus)
 	return chip_status & present_mask;
 }
 
+/*
+ * Indicates that on-chip OTP memory is present and enabled.
+ */
 static bool bcma_sprom_onchip_available(struct bcma_bus *bus)
 {
 	u32 chip_status;
@@ -324,7 +357,7 @@ static bool bcma_sprom_onchip_available(struct bcma_bus *bus)
 
 	case 43224:
 	case 43225:
-		
+		/* for these chips OTP is always available */
 		present = true;
 		break;
 
@@ -341,16 +374,22 @@ static bool bcma_sprom_onchip_available(struct bcma_bus *bus)
 	return otpsize != 0;
 }
 
+/*
+ * Verify OTP is filled and determine the byte
+ * offset where SPROM data is located.
+ *
+ * On error, returns 0; byte offset otherwise.
+ */
 static int bcma_sprom_onchip_offset(struct bcma_bus *bus)
 {
 	struct bcma_device *cc = bus->drv_cc.core;
 	u32 offset;
 
-	
+	/* verify OTP status */
 	if ((bcma_read32(cc, BCMA_CC_OTPS) & BCMA_CC_OTPS_GU_PROG_HW) == 0)
 		return 0;
 
-	
+	/* obtain bit offset from otplayout register */
 	offset = (bcma_read32(cc, BCMA_CC_OTPL) & BCMA_CC_OTPL_GURGN_OFFSET);
 	return BCMA_CC_SPROM + (offset >> 3);
 }
@@ -367,12 +406,22 @@ int bcma_sprom_get(struct bcma_bus *bus)
 	if (!bcma_sprom_ext_available(bus)) {
 		bool sprom_onchip;
 
+		/*
+		 * External SPROM takes precedence so check
+		 * on-chip OTP only when no external SPROM
+		 * is present.
+		 */
 		sprom_onchip = bcma_sprom_onchip_available(bus);
 		if (sprom_onchip) {
-			
+			/* determine offset */
 			offset = bcma_sprom_onchip_offset(bus);
 		}
 		if (!offset || !sprom_onchip) {
+			/*
+			 * Maybe there is no SPROM on the device?
+			 * Now we ask the arch code if there is some sprom
+			 * available for this device in some other storage.
+			 */
 			err = bcma_fill_sprom_with_fallback(bus, &bus->sprom);
 			return err;
 		}

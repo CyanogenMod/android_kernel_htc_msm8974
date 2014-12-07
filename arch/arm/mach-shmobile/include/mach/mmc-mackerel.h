@@ -11,6 +11,10 @@
 
 static inline void mmc_init_progress(void)
 {
+       /* Initialise LEDS0-3
+        * registers: PORT0CR-PORT2CR,PORT159CR (LED0-LED3 Control)
+        * value:     0x10 - enable output
+        */
        __raw_writeb(0x10, PORT0CR);
        __raw_writeb(0x10, PORT1CR);
        __raw_writeb(0x10, PORT2CR);
@@ -31,4 +35,4 @@ static inline void mmc_update_progress(int n)
 	__raw_writel((__raw_readl(PORTL159_128DR) & ~(1 << 31)) | b,
 		     PORTL159_128DR);
 }
-#endif 
+#endif /* MMC_MACKEREL_H */

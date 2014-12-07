@@ -60,7 +60,7 @@ struct ceph_msg *ceph_msgpool_get(struct ceph_msgpool *pool,
 		       pool->name, front_len, pool->front_len);
 		WARN_ON(1);
 
-		
+		/* try to alloc a fresh message */
 		return ceph_msg_new(0, front_len, GFP_NOFS, false);
 	}
 
@@ -73,10 +73,10 @@ void ceph_msgpool_put(struct ceph_msgpool *pool, struct ceph_msg *msg)
 {
 	dout("msgpool_put %s %p\n", pool->name, msg);
 
-	
+	/* reset msg front_len; user may have changed it */
 	msg->front.iov_len = pool->front_len;
 	msg->hdr.front_len = cpu_to_le32(pool->front_len);
 
-	kref_init(&msg->kref);  
+	kref_init(&msg->kref);  /* retake single ref */
 	mempool_free(msg, pool->pool);
 }

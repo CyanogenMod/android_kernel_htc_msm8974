@@ -20,4 +20,4 @@ void cns3xxx_pwr_power_down(unsigned int block);
 
 extern atomic_t usb_pwr_ref;
 
-#endif 
+#endif /* __CNS3XXX_PM_H */

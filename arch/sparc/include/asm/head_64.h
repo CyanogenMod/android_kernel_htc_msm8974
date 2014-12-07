@@ -3,11 +3,11 @@
 
 #include <asm/pstate.h>
 
-	
+	/* wrpr	%g0, val, %gl */
 #define SET_GL(val)	\
 	.word	0xa1902000 | val
 
-	
+	/* rdpr %gl, %gN */
 #define GET_GL_GLOBAL(N)	\
 	.word	0x81540000 | (N << 25)
 
@@ -20,12 +20,12 @@
 #define __SERRANO_ID	0x003e0022
 
 #define CHEETAH_MANUF		0x003e
-#define CHEETAH_IMPL		0x0014 
-#define CHEETAH_PLUS_IMPL	0x0015 
-#define JALAPENO_IMPL		0x0016 
-#define JAGUAR_IMPL		0x0018 
-#define PANTHER_IMPL		0x0019 
-#define SERRANO_IMPL		0x0022 
+#define CHEETAH_IMPL		0x0014 /* Ultra-III   */
+#define CHEETAH_PLUS_IMPL	0x0015 /* Ultra-III+  */
+#define JALAPENO_IMPL		0x0016 /* Ultra-IIIi  */
+#define JAGUAR_IMPL		0x0018 /* Ultra-IV    */
+#define PANTHER_IMPL		0x0019 /* Ultra-IV+   */
+#define SERRANO_IMPL		0x0022 /* Ultra-IIIi+ */
 
 #define BRANCH_IF_SUN4V(tmp1,label)		\
 	sethi	%hi(is_sun4v), %tmp1;		\
@@ -73,4 +73,4 @@
 	bgeu,pt	%xcc, label;			\
 99:	 nop;
 
-#endif 
+#endif /* !(_SPARC64_HEAD_H) */

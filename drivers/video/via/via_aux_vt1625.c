@@ -17,6 +17,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * driver for VIA VT1625(M) HDTV Encoder
+ */
 
 #include <linux/slab.h>
 #include "via_aux.h"

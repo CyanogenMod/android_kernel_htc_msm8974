@@ -76,6 +76,7 @@ struct nouveau_vm {
 	void (*flush)(struct nouveau_vm *);
 };
 
+/* nouveau_vm.c */
 int  nouveau_vm_new(struct drm_device *, u64 offset, u64 length, u64 mm_offset,
 		    struct nouveau_vm **);
 int  nouveau_vm_ref(struct nouveau_vm *, struct nouveau_vm **,
@@ -90,6 +91,7 @@ void nouveau_vm_unmap_at(struct nouveau_vma *, u64 offset, u64 length);
 void nouveau_vm_map_sg(struct nouveau_vma *, u64 offset, u64 length,
 		       struct nouveau_mem *);
 
+/* nv50_vm.c */
 void nv50_vm_map_pgt(struct nouveau_gpuobj *pgd, u32 pde,
 		     struct nouveau_gpuobj *pgt[2]);
 void nv50_vm_map(struct nouveau_vma *, struct nouveau_gpuobj *,
@@ -100,6 +102,7 @@ void nv50_vm_unmap(struct nouveau_gpuobj *, u32 pte, u32 cnt);
 void nv50_vm_flush(struct nouveau_vm *);
 void nv50_vm_flush_engine(struct drm_device *, int engine);
 
+/* nvc0_vm.c */
 void nvc0_vm_map_pgt(struct nouveau_gpuobj *pgd, u32 pde,
 		     struct nouveau_gpuobj *pgt[2]);
 void nvc0_vm_map(struct nouveau_vma *, struct nouveau_gpuobj *,

@@ -38,6 +38,12 @@
 #include "qib.h"
 #include "qib_common.h"
 
+/**
+ * qib_format_hwmsg - format a single hwerror message
+ * @msg message buffer
+ * @msgl length of message buffer
+ * @hwmsg message to add to message buffer
+ */
 static void qib_format_hwmsg(char *msg, size_t msgl, const char *hwmsg)
 {
 	strlcat(msg, "[", msgl);
@@ -45,6 +51,14 @@ static void qib_format_hwmsg(char *msg, size_t msgl, const char *hwmsg)
 	strlcat(msg, "]", msgl);
 }
 
+/**
+ * qib_format_hwerrors - format hardware error messages for display
+ * @hwerrs hardware errors bit vector
+ * @hwerrmsgs hardware error descriptions
+ * @nhwerrmsgs number of hwerrmsgs
+ * @msg message buffer
+ * @msgl message buffer length
+ */
 void qib_format_hwerrors(u64 hwerrs, const struct qib_hwerror_msgs *hwerrmsgs,
 			 size_t nhwerrmsgs, char *msg, size_t msgl)
 {
@@ -74,26 +88,35 @@ void qib_handle_e_ibstatuschanged(struct qib_pportdata *ppd, u64 ibcs)
 	u8 ltstate;
 	enum ib_event_type ev = 0;
 
-	lstate = dd->f_iblink_state(ibcs); 
+	lstate = dd->f_iblink_state(ibcs); /* linkstate */
 	ltstate = dd->f_ibphys_portstate(ibcs);
 
+	/*
+	 * If linkstate transitions into INIT from any of the various down
+	 * states, or if it transitions from any of the up (INIT or better)
+	 * states into any of the down states (except link recovery), then
+	 * call the chip-specific code to take appropriate actions.
+	 *
+	 * ppd->lflags could be 0 if this is the first time the interrupt
+	 * handlers has been called but the link is already up.
+	 */
 	if (lstate >= IB_PORT_INIT &&
 	    (!ppd->lflags || (ppd->lflags & QIBL_LINKDOWN)) &&
 	    ltstate == IB_PHYSPORTSTATE_LINKUP) {
-		
+		/* transitioned to UP */
 		if (dd->f_ib_updown(ppd, 1, ibcs))
-			goto skip_ibchange; 
+			goto skip_ibchange; /* chip-code handled */
 	} else if (ppd->lflags & (QIBL_LINKINIT | QIBL_LINKARMED |
 		   QIBL_LINKACTIVE | QIBL_IB_FORCE_NOTIFY)) {
 		if (ltstate != IB_PHYSPORTSTATE_LINKUP &&
 		    ltstate <= IB_PHYSPORTSTATE_CFG_TRAIN &&
 		    dd->f_ib_updown(ppd, 0, ibcs))
-			goto skip_ibchange; 
+			goto skip_ibchange; /* chip-code handled */
 		qib_set_uevent_bits(ppd, _QIB_EVENT_LINKDOWN_BIT);
 	}
 
 	if (lstate != IB_PORT_DOWN) {
-		
+		/* lstate is INIT, ARMED, or ACTIVE */
 		if (lstate != IB_PORT_ACTIVE) {
 			*ppd->statusp &= ~QIB_STATUS_IB_READY;
 			if (ppd->lflags & QIBL_LINKACTIVE)
@@ -109,13 +132,13 @@ void qib_handle_e_ibstatuschanged(struct qib_pportdata *ppd, u64 ibcs)
 					QIBL_LINKDOWN | QIBL_LINKACTIVE);
 			}
 			spin_unlock_irqrestore(&ppd->lflags_lock, flags);
-			
+			/* start a 75msec timer to clear symbol errors */
 			mod_timer(&ppd->symerr_clear_timer,
 				  msecs_to_jiffies(75));
 		} else if (ltstate == IB_PHYSPORTSTATE_LINKUP &&
 			   !(ppd->lflags & QIBL_LINKACTIVE)) {
-			
-			qib_hol_up(ppd); 
+			/* active, but not active defered */
+			qib_hol_up(ppd); /* useful only for 6120 now */
 			*ppd->statusp |=
 				QIB_STATUS_IB_READY | QIB_STATUS_IB_CONF;
 			qib_clear_symerror_on_linkup((unsigned long)ppd);
@@ -130,7 +153,7 @@ void qib_handle_e_ibstatuschanged(struct qib_pportdata *ppd, u64 ibcs)
 			ev = IB_EVENT_PORT_ACTIVE;
 			dd->f_setextled(ppd, 1);
 		}
-	} else { 
+	} else { /* down */
 		if (ppd->lflags & QIBL_LINKACTIVE)
 			ev = IB_EVENT_PORT_ERR;
 		spin_lock_irqsave(&ppd->lflags_lock, flags);
@@ -159,6 +182,11 @@ void qib_clear_symerror_on_linkup(unsigned long opaque)
 		ppd->dd->f_portcntr(ppd, QIBPORTCNTR_IBSYMBOLERR);
 }
 
+/*
+ * Handle receive interrupts for user ctxts; this means a user
+ * process was waiting for a packet to arrive, and didn't want
+ * to poll.
+ */
 void qib_handle_urcv(struct qib_devdata *dd, u64 ctxtr)
 {
 	struct qib_ctxtdata *rcd;
@@ -190,12 +218,16 @@ void qib_bad_intrstatus(struct qib_devdata *dd)
 {
 	static int allbits;
 
-	
+	/* separate routine, for better optimization of qib_intr() */
 
+	/*
+	 * We print the message and disable interrupts, in hope of
+	 * having a better chance of debugging the problem.
+	 */
 	qib_dev_err(dd, "Read of chip interrupt status failed"
 		    " disabling interrupts\n");
 	if (allbits++) {
-		
+		/* disable interrupt delivery, something is very wrong */
 		if (allbits == 2)
 			dd->f_set_intr_state(dd, 0);
 		if (allbits == 3) {

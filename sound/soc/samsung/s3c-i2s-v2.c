@@ -82,6 +82,7 @@ static inline void dbg_showcon(const char *fn, u32 con)
 #endif
 
 
+/* Turn on or off the transmission path. */
 static void s3c2412_snd_txctrl(struct s3c_i2sv2_info *i2s, int on)
 {
 	void __iomem *regs = i2s->regs;
@@ -103,7 +104,7 @@ static void s3c2412_snd_txctrl(struct s3c_i2sv2_info *i2s, int on)
 		switch (mod & S3C2412_IISMOD_MODE_MASK) {
 		case S3C2412_IISMOD_MODE_TXONLY:
 		case S3C2412_IISMOD_MODE_TXRX:
-			
+			/* do nothing, we are in the right mode */
 			break;
 
 		case S3C2412_IISMOD_MODE_RXONLY:
@@ -120,6 +121,10 @@ static void s3c2412_snd_txctrl(struct s3c_i2sv2_info *i2s, int on)
 		writel(con, regs + S3C2412_IISCON);
 		writel(mod, regs + S3C2412_IISMOD);
 	} else {
+		/* Note, we do not have any indication that the FIFO problems
+		 * tha the S3C2410/2440 had apply here, so we should be able
+		 * to disable the DMA and TX without resetting the FIFOS.
+		 */
 
 		con |=  S3C2412_IISCON_TXDMA_PAUSE;
 		con |=  S3C2412_IISCON_TXCH_PAUSE;
@@ -172,7 +177,7 @@ static void s3c2412_snd_rxctrl(struct s3c_i2sv2_info *i2s, int on)
 		switch (mod & S3C2412_IISMOD_MODE_MASK) {
 		case S3C2412_IISMOD_MODE_TXRX:
 		case S3C2412_IISMOD_MODE_RXONLY:
-			
+			/* do nothing, we are in the right mode */
 			break;
 
 		case S3C2412_IISMOD_MODE_TXONLY:
@@ -188,7 +193,7 @@ static void s3c2412_snd_rxctrl(struct s3c_i2sv2_info *i2s, int on)
 		writel(mod, regs + S3C2412_IISMOD);
 		writel(con, regs + S3C2412_IISCON);
 	} else {
-		
+		/* See txctrl notes on FIFOs. */
 
 		con &= ~S3C2412_IISCON_RXDMA_ACTIVE;
 		con |=  S3C2412_IISCON_RXDMA_PAUSE;
@@ -220,6 +225,10 @@ static void s3c2412_snd_rxctrl(struct s3c_i2sv2_info *i2s, int on)
 
 #define msecs_to_loops(t) (loops_per_jiffy / 1000 * HZ * t)
 
+/*
+ * Wait for the LR signal to allow synchronisation to the L/R clock
+ * from the codec. May only be needed for slave mode.
+ */
 static int s3c2412_snd_lrsync(struct s3c_i2sv2_info *i2s)
 {
 	u32 iiscon;
@@ -243,6 +252,9 @@ static int s3c2412_snd_lrsync(struct s3c_i2sv2_info *i2s)
 	return 0;
 }
 
+/*
+ * Set S3C2412 I2S DAI format
+ */
 static int s3c2412_i2s_set_fmt(struct snd_soc_dai *cpu_dai,
 			       unsigned int fmt)
 {
@@ -310,12 +322,12 @@ static int s3c_i2sv2_hw_params(struct snd_pcm_substream *substream,
 
 	snd_soc_dai_set_dma_data(dai, substream, dma_data);
 
-	
+	/* Working copies of register */
 	iismod = readl(i2s->regs + S3C2412_IISMOD);
 	pr_debug("%s: r: IISMOD: %x\n", __func__, iismod);
 
 	iismod &= ~S3C64XX_IISMOD_BLC_MASK;
-	
+	/* Sample size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S8:
 		iismod |= S3C64XX_IISMOD_BLC_8BIT;
@@ -352,7 +364,7 @@ static int s3c_i2sv2_set_sysclk(struct snd_soc_dai *cpu_dai,
 		break;
 
 	case S3C_I2SV2_CLKSRC_CDCLK:
-		
+		/* Error if controller doesn't have the CDCLKCON bit */
 		if (!(i2s->feature & S3C_FEATURE_CDCLKCON))
 			return -EINVAL;
 
@@ -393,12 +405,12 @@ static int s3c2412_i2s_trigger(struct snd_pcm_substream *substream, int cmd,
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
-		
+		/* On start, ensure that the FIFOs are cleared and reset. */
 
 		writel(capture ? S3C2412_IISFIC_RXFLUSH : S3C2412_IISFIC_TXFLUSH,
 		       i2s->regs + S3C2412_IISFIC);
 
-		
+		/* clear again, just in case */
 		writel(0x0, i2s->regs + S3C2412_IISFIC);
 
 	case SNDRV_PCM_TRIGGER_RESUME:
@@ -418,6 +430,11 @@ static int s3c2412_i2s_trigger(struct snd_pcm_substream *substream, int cmd,
 
 		local_irq_restore(irqs);
 
+		/*
+		 * Load the next buffer to DMA to meet the reqirement
+		 * of the auto reload mechanism of S3C24XX.
+		 * This call won't bother S3C64XX.
+		 */
 		s3c2410_dma_ctrl(dma_data->channel, S3C2410_DMAOP_STARTED);
 
 		break;
@@ -443,6 +460,9 @@ exit_err:
 	return ret;
 }
 
+/*
+ * Set S3C2412 Clock dividers
+ */
 static int s3c2412_i2s_set_clkdiv(struct snd_soc_dai *cpu_dai,
 				  int div_id, int div)
 {
@@ -553,6 +573,7 @@ struct clk *s3c_i2sv2_get_clock(struct snd_soc_dai *cpu_dai)
 }
 EXPORT_SYMBOL_GPL(s3c_i2sv2_get_clock);
 
+/* default table of all avaialable root fs divisors */
 static unsigned int iis_fs_tab[] = { 256, 512, 384, 768 };
 
 int s3c_i2sv2_iis_calc_rate(struct s3c_i2sv2_rate_calc *info,
@@ -626,7 +647,7 @@ int s3c_i2sv2_probe(struct snd_soc_dai *dai,
 
 	i2s->dev = dev;
 
-	
+	/* record our i2s structure for later use in the callbacks */
 	snd_soc_dai_set_drvdata(dai, i2s);
 
 	i2s->regs = ioremap(base, 0x100);
@@ -644,6 +665,8 @@ int s3c_i2sv2_probe(struct snd_soc_dai *dai,
 
 	clk_enable(i2s->iis_pclk);
 
+	/* Mark ourselves as in TXRX mode so we can run through our cleanup
+	 * process without warnings. */
 	iismod = readl(i2s->regs + S3C2412_IISMOD);
 	iismod |= S3C2412_IISMOD_MODE_TXRX;
 	writel(iismod, i2s->regs + S3C2412_IISMOD);
@@ -665,7 +688,7 @@ static int s3c2412_i2s_suspend(struct snd_soc_dai *dai)
 		i2s->suspend_iiscon = readl(i2s->regs + S3C2412_IISCON);
 		i2s->suspend_iispsr = readl(i2s->regs + S3C2412_IISPSR);
 
-		
+		/* some basic suspend checks */
 
 		iismod = readl(i2s->regs + S3C2412_IISMOD);
 
@@ -720,7 +743,7 @@ int s3c_i2sv2_register_dai(struct device *dev, int id,
 	ops->set_clkdiv = s3c2412_i2s_set_clkdiv;
 	ops->set_sysclk = s3c_i2sv2_set_sysclk;
 
-	
+	/* Allow overriding by (for example) IISv4 */
 	if (!ops->delay)
 		ops->delay = s3c2412_i2s_delay;
 

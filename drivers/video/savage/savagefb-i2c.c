@@ -25,10 +25,11 @@
 #define VGA_CR_IX	0x3d4
 #define VGA_CR_DATA	0x3d5
 
-#define CR_SERIAL1	0xa0	
+#define CR_SERIAL1	0xa0	/* I2C serial communications interface */
 #define MM_SERIAL1	0xff20
-#define CR_SERIAL2	0xb1	
+#define CR_SERIAL2	0xb1	/* DDC2 monitor communications interface */
 
+/* based on vt8365 documentation */
 #define PROSAVAGE_I2C_ENAB	0x10
 #define PROSAVAGE_I2C_SCL_OUT	0x01
 #define PROSAVAGE_I2C_SDA_OUT	0x02
@@ -52,7 +53,7 @@ static void savage4_gpio_setscl(void *data, int val)
 	else
 		r &= ~SAVAGE4_I2C_SCL_OUT;
 	writel(r, chan->ioaddr + chan->reg);
-	readl(chan->ioaddr + chan->reg);	
+	readl(chan->ioaddr + chan->reg);	/* flush posted write */
 }
 
 static void savage4_gpio_setsda(void *data, int val)
@@ -66,7 +67,7 @@ static void savage4_gpio_setsda(void *data, int val)
 	else
 		r &= ~SAVAGE4_I2C_SDA_OUT;
 	writel(r, chan->ioaddr + chan->reg);
-	readl(chan->ioaddr + chan->reg);	
+	readl(chan->ioaddr + chan->reg);	/* flush posted write */
 }
 
 static int savage4_gpio_getscl(void *data)
@@ -145,7 +146,7 @@ static int savage_setup_i2c_bus(struct savagefb_i2c_chan *chan,
 
 		i2c_set_adapdata(&chan->adapter, chan);
 
-		
+		/* Raise SCL and SDA */
 		chan->algo.setsda(chan, 1);
 		chan->algo.setscl(chan, 1);
 		udelay(20);
@@ -225,7 +226,7 @@ int savagefb_probe_i2c_connector(struct fb_info *info, u8 **out_edid)
 		edid = NULL;
 
 	if (!edid) {
-		
+		/* try to get from firmware */
 		const u8 *e = fb_firmware_edid(info->device);
 
 		if (e)

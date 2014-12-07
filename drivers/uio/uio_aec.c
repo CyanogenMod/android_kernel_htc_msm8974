@@ -58,7 +58,7 @@ static irqreturn_t aectc_irq(int irq, struct uio_info *dev_info)
 
 
 	if ((status & INTA_ENABLED_FLAG) && (status & INTA_FLAG)) {
-		
+		/* application writes 0x00 to 0x2F to get next interrupt */
 		status = ioread8(dev_info->priv + MAILBOX);
 		return IRQ_HANDLED;
 	}
@@ -138,10 +138,10 @@ static void remove(struct pci_dev *pdev)
 {
 	struct uio_info *info = pci_get_drvdata(pdev);
 
-	
+	/* disable interrupts */
 	iowrite8(INT_DISABLE, info->priv + INT_MASK_ADDR);
 	iowrite32(INT_DISABLE, info->priv + INT_ENABLE_ADDR);
-	
+	/* read mailbox to ensure board drops irq */
 	ioread8(info->priv + MAILBOX);
 
 	uio_unregister_device(info);

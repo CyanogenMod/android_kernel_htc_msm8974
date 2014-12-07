@@ -1,3 +1,7 @@
+/*
+ * Builtin evlist command: Show the list of event selectors present
+ * in a perf.data file.
+ */
 #include "builtin.h"
 
 #include "util/util.h"

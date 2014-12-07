@@ -137,13 +137,13 @@ static int __devinit s5p_ehci_probe(struct platform_device *pdev)
 	ehci->regs = hcd->regs +
 		HC_LENGTH(ehci, readl(&ehci->caps->hc_capbase));
 
-	
+	/* DMA burst Enable */
 	writel(EHCI_INSNREG00_ENABLE_DMA_BURST, EHCI_INSNREG00(hcd->regs));
 
 	dbg_hcs_params(ehci, "reset");
 	dbg_hcc_params(ehci, "reset");
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = readl(&ehci->caps->hcs_params);
 
 	ehci_reset(ehci);
@@ -216,6 +216,11 @@ static int s5p_ehci_suspend(struct device *dev)
 	if (time_before(jiffies, ehci->next_statechange))
 		msleep(20);
 
+	/*
+	 * Root hub was already suspended. Disable irq emission and
+	 * mark HW unaccessible.  The PM and USB cores make sure that
+	 * the root hub is either suspended or stopped.
+	 */
 	ehci_prepare_ports_for_controller_suspend(ehci, device_may_wakeup(dev));
 	spin_lock_irqsave(&ehci->lock, flags);
 	ehci_writel(ehci, 0, &ehci->regs->intr_enable);
@@ -241,13 +246,13 @@ static int s5p_ehci_resume(struct device *dev)
 	if (pdata && pdata->phy_init)
 		pdata->phy_init(pdev, S5P_USB_PHY_HOST);
 
-	
+	/* DMA burst Enable */
 	writel(EHCI_INSNREG00_ENABLE_DMA_BURST, EHCI_INSNREG00(hcd->regs));
 
 	if (time_before(jiffies, ehci->next_statechange))
 		msleep(100);
 
-	
+	/* Mark hardware accessible again as we are out of D3 state by now */
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 
 	if (ehci_readl(ehci, &ehci->regs->configured_flag) == FLAG_CF) {
@@ -266,7 +271,7 @@ static int s5p_ehci_resume(struct device *dev)
 	(void) ehci_halt(ehci);
 	(void) ehci_reset(ehci);
 
-	
+	/* emptying the schedule aborts any urbs */
 	spin_lock_irq(&ehci->lock);
 	if (ehci->reclaim)
 		end_unlink_async(ehci);
@@ -275,9 +280,9 @@ static int s5p_ehci_resume(struct device *dev)
 
 	ehci_writel(ehci, ehci->command, &ehci->regs->command);
 	ehci_writel(ehci, FLAG_CF, &ehci->regs->configured_flag);
-	ehci_readl(ehci, &ehci->regs->command);	
+	ehci_readl(ehci, &ehci->regs->command);	/* unblock posted writes */
 
-	
+	/* here we "know" root ports should always stay powered */
 	ehci_port_power(ehci, 1);
 
 	ehci->rh_state = EHCI_RH_SUSPENDED;

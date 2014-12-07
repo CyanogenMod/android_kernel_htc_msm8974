@@ -57,9 +57,18 @@ EXPORT_SYMBOL(rtas_data_buf);
 
 unsigned long rtas_rmo_buf;
 
+/*
+ * If non-NULL, this gets called when the kernel terminates.
+ * This is done like this so rtas_flash can be a module.
+ */
 void (*rtas_flash_term_hook)(int);
 EXPORT_SYMBOL(rtas_flash_term_hook);
 
+/* RTAS use home made raw locking instead of spin_lock_irqsave
+ * because those can be called from within really nasty contexts
+ * such as having the timebase stopped which would lockup with
+ * normal locks and spinlock debugging enabled
+ */
 static unsigned long lock_rtas(void)
 {
 	unsigned long flags;
@@ -77,6 +86,11 @@ static void unlock_rtas(unsigned long flags)
 	preempt_enable();
 }
 
+/*
+ * call_rtas_display_status and call_rtas_display_status_delay
+ * are designed only for very early low-level debugging, which
+ * is why the token is hard-coded to 10.
+ */
 static void call_rtas_display_status(char c)
 {
 	struct rtas_args *args = &rtas.args;
@@ -99,7 +113,7 @@ static void call_rtas_display_status(char c)
 
 static void call_rtas_display_status_delay(char c)
 {
-	static int pending_newline = 0;  
+	static int pending_newline = 0;  /* did last write end with unprinted newline? */
 	static int width = 16;
 
 	if (c == '\n') {	
@@ -128,6 +142,10 @@ void __init udbg_init_rtas_panel(void)
 
 #ifdef CONFIG_UDBG_RTAS_CONSOLE
 
+/* If you think you're dying before early_init_dt_scan_rtas() does its
+ * work, you can hard code the token values for your firmware here and
+ * hardcode rtas.base/entry etc.
+ */
 static unsigned int rtas_putchar_token = RTAS_UNKNOWN_SERVICE;
 static unsigned int rtas_getchar_token = RTAS_UNKNOWN_SERVICE;
 
@@ -138,11 +156,11 @@ static void udbg_rtascon_putc(char c)
 	if (!rtas.base)
 		return;
 
-	
+	/* Add CRs before LFs */
 	if (c == '\n')
 		udbg_rtascon_putc('\r');
 
-	
+	/* if there is more than one character to be displayed, wait a bit */
 	for (tries = 0; tries < 16; tries++) {
 		if (rtas_call(rtas_putchar_token, 1, 1, NULL, c) == 0)
 			break;
@@ -180,7 +198,7 @@ void __init udbg_init_rtas_console(void)
 	udbg_getc = udbg_rtascon_getc;
 	udbg_getc_poll = udbg_rtascon_getc_poll;
 }
-#endif 
+#endif /* CONFIG_UDBG_RTAS_CONSOLE */
 
 void rtas_progress(char *s, unsigned short hex)
 {
@@ -193,7 +211,7 @@ void rtas_progress(char *s, unsigned short hex)
 	static const int *row_width;
 	static DEFINE_SPINLOCK(progress_lock);
 	static int current_line;
-	static int pending_newline = 0;  
+	static int pending_newline = 0;  /* did last write end with unprinted newline? */
 
 	if (!rtas.base)
 		return;
@@ -219,7 +237,7 @@ void rtas_progress(char *s, unsigned short hex)
 	}
 
 	if (display_character == RTAS_UNKNOWN_SERVICE) {
-		
+		/* use hex display if available */
 		if (set_indicator != RTAS_UNKNOWN_SERVICE)
 			rtas_call(set_indicator, 3, 1, NULL, 6, 0, hex);
 		return;
@@ -227,6 +245,15 @@ void rtas_progress(char *s, unsigned short hex)
 
 	spin_lock(&progress_lock);
 
+	/*
+	 * Last write ended with newline, but we didn't print it since
+	 * it would just clear the bottom line of output. Print it now
+	 * instead.
+	 *
+	 * If no newline is pending and form feed is supported, clear the
+	 * display with a form feed; otherwise, print a CR to start output
+	 * at the beginning of the line.
+	 */
 	if (pending_newline) {
 		rtas_call(display_character, 1, 1, NULL, '\r');
 		rtas_call(display_character, 1, 1, NULL, '\n');
@@ -247,6 +274,10 @@ void rtas_progress(char *s, unsigned short hex)
 	os = s;
 	while (*os) {
 		if (*os == '\n' || *os == '\r') {
+			/* If newline is the last character, save it
+			 * until next call to avoid bumping up the
+			 * display output.
+			 */
 			if (*os == '\n' && !os[1]) {
 				pending_newline = 1;
 				current_line++;
@@ -256,12 +287,15 @@ void rtas_progress(char *s, unsigned short hex)
 				return;
 			}
  
-			
+			/* RTAS wants CR-LF, not just LF */
  
 			if (*os == '\n') {
 				rtas_call(display_character, 1, 1, NULL, '\r');
 				rtas_call(display_character, 1, 1, NULL, '\n');
 			} else {
+				/* CR might be used to re-draw a line, so we'll
+				 * leave it alone and not add LF.
+				 */
 				rtas_call(display_character, 1, 1, NULL, *os);
 			}
  
@@ -276,7 +310,7 @@ void rtas_progress(char *s, unsigned short hex)
  
 		os++;
  
-		
+		/* if we overwrite the screen length */
 		if (width <= 0)
 			while ((*os != 0) && (*os != '\n') && (*os != '\r'))
 				os++;
@@ -284,7 +318,7 @@ void rtas_progress(char *s, unsigned short hex)
  
 	spin_unlock(&progress_lock);
 }
-EXPORT_SYMBOL(rtas_progress);		
+EXPORT_SYMBOL(rtas_progress);		/* needed by rtas_flash module */
 
 int rtas_token(const char *service)
 {
@@ -303,6 +337,11 @@ int rtas_service_present(const char *service)
 EXPORT_SYMBOL(rtas_service_present);
 
 #ifdef CONFIG_RTAS_ERROR_LOGGING
+/*
+ * Return the firmware-specified size of the error log buffer
+ *  for all rtas calls that require an error buffer argument.
+ *  This includes 'check-exception' and 'rtas-last-error'.
+ */
 int rtas_get_error_log_max(void)
 {
 	static int rtas_error_log_max;
@@ -324,6 +363,12 @@ EXPORT_SYMBOL(rtas_get_error_log_max);
 static char rtas_err_buf[RTAS_ERROR_LOG_MAX];
 static int rtas_last_error_token;
 
+/** Return a copy of the detailed error text associated with the
+ *  most recent failed call to rtas.  Because the error text
+ *  might go stale if there are any other intervening rtas calls,
+ *  this routine must be called atomically with whatever produced
+ *  the error (i.e. with rtas.lock still held from the previous call).
+ */
 static char *__fetch_rtas_last_error(char *altbuf)
 {
 	struct rtas_args err_args, save_args;
@@ -350,7 +395,7 @@ static char *__fetch_rtas_last_error(char *altbuf)
 	err_args = rtas.args;
 	rtas.args = save_args;
 
-	
+	/* Log the error in the unlikely case that there was one. */
 	if (unlikely(err_args.args[2] == 0)) {
 		if (altbuf) {
 			buf = altbuf;
@@ -368,7 +413,7 @@ static char *__fetch_rtas_last_error(char *altbuf)
 
 #define get_errorlog_buffer()	kmalloc(RTAS_ERROR_LOG_MAX, GFP_KERNEL)
 
-#else 
+#else /* CONFIG_RTAS_ERROR_LOGGING */
 #define __fetch_rtas_last_error(x)	NULL
 #define get_errorlog_buffer()		NULL
 #endif
@@ -402,6 +447,8 @@ int rtas_call(int token, int nargs, int nret, int *outputs, ...)
 
 	enter_rtas(__pa(rtas_args));
 
+	/* A -1 return code indicates that the last command couldn't
+	   be completed due to a hardware error. */
 	if (rtas_args->rets[0] == -1)
 		buff_copy = __fetch_rtas_last_error(NULL);
 
@@ -421,6 +468,9 @@ int rtas_call(int token, int nargs, int nret, int *outputs, ...)
 }
 EXPORT_SYMBOL(rtas_call);
 
+/* For RTAS_BUSY (-2), delay for 1 millisecond.  For an extended busy status
+ * code of 990n, perform the hinted delay of 10^n (last digit) milliseconds.
+ */
 unsigned int rtas_busy_delay_time(int status)
 {
 	int order;
@@ -438,6 +488,7 @@ unsigned int rtas_busy_delay_time(int status)
 }
 EXPORT_SYMBOL(rtas_busy_delay_time);
 
+/* For an RTAS busy status code, perform the hinted delay. */
 unsigned int rtas_busy_delay(int status)
 {
 	unsigned int ms;
@@ -456,19 +507,19 @@ static int rtas_error_rc(int rtas_rc)
 	int rc;
 
 	switch (rtas_rc) {
-		case -1: 		
+		case -1: 		/* Hardware Error */
 			rc = -EIO;
 			break;
-		case -3:		
+		case -3:		/* Bad indicator/domain/etc */
 			rc = -EINVAL;
 			break;
-		case -9000:		
+		case -9000:		/* Isolation error */
 			rc = -EFAULT;
 			break;
-		case -9001:		
+		case -9001:		/* Outstanding TCE/PTE */
 			rc = -EEXIST;
 			break;
-		case -9002:		
+		case -9002:		/* No usable slot */
 			rc = -ENODEV;
 			break;
 		default:
@@ -577,6 +628,9 @@ int rtas_set_indicator(int indicator, int index, int new_value)
 }
 EXPORT_SYMBOL(rtas_set_indicator);
 
+/*
+ * Ignoring RTAS extended delay
+ */
 int rtas_set_indicator_fast(int indicator, int index, int new_value)
 {
 	int rc;
@@ -608,7 +662,7 @@ void rtas_power_off(void)
 {
 	if (rtas_flash_term_hook)
 		rtas_flash_term_hook(SYS_POWER_OFF);
-	
+	/* allow power on only with power button press */
 	printk("RTAS power-off returned %d\n",
 	       rtas_call(rtas_token("power-off"), 2, 1, NULL, -1, -1));
 	for (;;);
@@ -618,18 +672,25 @@ void rtas_halt(void)
 {
 	if (rtas_flash_term_hook)
 		rtas_flash_term_hook(SYS_HALT);
-	
+	/* allow power on only with power button press */
 	printk("RTAS power-off returned %d\n",
 	       rtas_call(rtas_token("power-off"), 2, 1, NULL, -1, -1));
 	for (;;);
 }
 
+/* Must be in the RMO region, so we place it here */
 static char rtas_os_term_buf[2048];
 
 void rtas_os_term(char *str)
 {
 	int status;
 
+	/*
+	 * Firmware with the ibm,extended-os-term property is guaranteed
+	 * to always return from an ibm,os-term call. Earlier versions without
+	 * this property may terminate the partition which we want to avoid
+	 * since it interferes with panic_timeout.
+	 */
 	if (RTAS_UNKNOWN_SERVICE == rtas_token("ibm,os-term") ||
 	    RTAS_UNKNOWN_SERVICE == rtas_token("ibm,extended-os-term"))
 		return;
@@ -698,7 +759,7 @@ static int __rtas_suspend_cpu(struct rtas_suspend_me_data *data, int wake_when_d
 
 	atomic_inc(&data->working);
 
-	
+	/* really need to ensure MSR.EE is off for H_JOIN */
 	msr_save = mfmsr();
 	mtmsr(msr_save & ~(MSR_EE));
 
@@ -708,9 +769,12 @@ static int __rtas_suspend_cpu(struct rtas_suspend_me_data *data, int wake_when_d
 	mtmsr(msr_save);
 
 	if (rc == H_SUCCESS) {
-		
+		/* This cpu was prodded and the suspend is complete. */
 		goto out;
 	} else if (rc == H_CONTINUE) {
+		/* All other cpus are in H_JOIN, this cpu does
+		 * the suspend.
+		 */
 		return __rtas_suspend_last_cpu(data, wake_when_done);
 	} else {
 		printk(KERN_ERR "H_JOIN on cpu %i failed with rc = %ld\n",
@@ -721,6 +785,10 @@ static int __rtas_suspend_cpu(struct rtas_suspend_me_data *data, int wake_when_d
 	if (wake_when_done) {
 		atomic_set(&data->done, 1);
 
+		/* This cpu did the suspend or got an error; in either case,
+		 * we need to prod all other other cpus out of join state.
+		 * Extra prods are harmless.
+		 */
 		for_each_online_cpu(cpu)
 			plpar_hcall_norets(H_PROD, get_hard_smp_processor_id(cpu));
 	}
@@ -751,7 +819,7 @@ int rtas_ibm_suspend_me(struct rtas_args *args)
 	if (!rtas_service_present("ibm,suspend-me"))
 		return -ENOSYS;
 
-	
+	/* Make sure the state is valid */
 	rc = plpar_hcall(H_VASI_STATE, retbuf,
 			 ((u64)args->args[0] << 32) | args->args[1]);
 
@@ -777,6 +845,9 @@ int rtas_ibm_suspend_me(struct rtas_args *args)
 	data.complete = &done;
 	stop_topology_update();
 
+	/* Call function on all CPUs.  One of us will make the
+	 * rtas call
+	 */
 	if (on_each_cpu(rtas_percpu_suspend_me, &data, 0))
 		atomic_set(&data.error, -EINVAL);
 
@@ -789,13 +860,20 @@ int rtas_ibm_suspend_me(struct rtas_args *args)
 
 	return atomic_read(&data.error);
 }
-#else 
+#else /* CONFIG_PPC_PSERIES */
 int rtas_ibm_suspend_me(struct rtas_args *args)
 {
 	return -ENOSYS;
 }
 #endif
 
+/**
+ * Find a specific pseries error log in an RTAS extended event log.
+ * @log: RTAS error/event log
+ * @section_id: two character section identifier
+ *
+ * Returns a pointer to the specified errorlog or NULL if not found.
+ */
 struct pseries_errorlog *get_pseries_errorlog(struct rtas_error_log *log,
 					      uint16_t section_id)
 {
@@ -804,7 +882,7 @@ struct pseries_errorlog *get_pseries_errorlog(struct rtas_error_log *log,
 	struct pseries_errorlog *sect;
 	unsigned char *p, *log_end;
 
-	
+	/* Check that we understand the format */
 	if (log->extended_log_length < sizeof(struct rtas_ext_event_log_v6) ||
 	    ext_log->log_format != RTAS_V6EXT_LOG_FORMAT_EVENT_LOG ||
 	    ext_log->company_id != RTAS_V6EXT_COMPANY_ID_IBM)
@@ -843,7 +921,7 @@ asmlinkage int ppc_rtas(struct rtas_args __user *uargs)
 	    || nargs + args.nret > ARRAY_SIZE(args.args))
 		return -EINVAL;
 
-	
+	/* Copy in args. */
 	if (copy_from_user(args.args, uargs->args,
 			   nargs * sizeof(rtas_arg_t)) != 0)
 		return -EFAULT;
@@ -854,7 +932,7 @@ asmlinkage int ppc_rtas(struct rtas_args __user *uargs)
 	args.rets = &args.args[nargs];
 	memset(args.rets, 0, args.nret * sizeof(rtas_arg_t));
 
-	
+	/* Need to handle ibm,suspend_me call specially */
 	if (args.token == ibm_suspend_me_token) {
 		rc = rtas_ibm_suspend_me(&args);
 		if (rc)
@@ -870,6 +948,8 @@ asmlinkage int ppc_rtas(struct rtas_args __user *uargs)
 	enter_rtas(__pa(&rtas.args));
 	args = rtas.args;
 
+	/* A -1 return code indicates that the last command couldn't
+	   be completed due to a hardware error. */
 	if (args.rets[0] == -1)
 		errbuf = __fetch_rtas_last_error(buff_copy);
 
@@ -882,7 +962,7 @@ asmlinkage int ppc_rtas(struct rtas_args __user *uargs)
 	}
 
  copy_return:
-	
+	/* Copy out args. */
 	if (copy_to_user(uargs->args + nargs,
 			 args.args + nargs,
 			 args.nret * sizeof(rtas_arg_t)) != 0)
@@ -891,10 +971,18 @@ asmlinkage int ppc_rtas(struct rtas_args __user *uargs)
 	return 0;
 }
 
+/*
+ * Call early during boot, before mem init or bootmem, to retrieve the RTAS
+ * informations from the device-tree and allocate the RMO buffer for userland
+ * accesses.
+ */
 void __init rtas_initialize(void)
 {
 	unsigned long rtas_region = RTAS_INSTANTIATE_MAX;
 
+	/* Get RTAS dev node and fill up our "rtas" structure with infos
+	 * about it.
+	 */
 	rtas.dev = of_find_node_by_name(NULL, "rtas");
 	if (rtas.dev) {
 		const u32 *basep, *entryp, *sizep;
@@ -906,7 +994,7 @@ void __init rtas_initialize(void)
 			rtas.size = *sizep;
 			entryp = of_get_property(rtas.dev,
 					"linux,rtas-entry", NULL);
-			if (entryp == NULL) 
+			if (entryp == NULL) /* Ugh */
 				rtas.entry = rtas.base;
 			else
 				rtas.entry = *entryp;
@@ -916,6 +1004,9 @@ void __init rtas_initialize(void)
 	if (!rtas.dev)
 		return;
 
+	/* If RTAS was found, allocate the RMO buffer for it and look for
+	 * the stop-self token if any
+	 */
 #ifdef CONFIG_PPC64
 	if (machine_is(pseries) && firmware_has_feature(FW_FEATURE_LPAR)) {
 		rtas_region = min(ppc64_rma_size, RTAS_INSTANTIATE_MAX);
@@ -962,7 +1053,7 @@ int __init early_init_dt_scan_rtas(unsigned long node,
 
 #endif
 
-	
+	/* break now */
 	return 1;
 }
 

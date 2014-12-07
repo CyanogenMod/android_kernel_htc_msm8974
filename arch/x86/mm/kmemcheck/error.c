@@ -21,11 +21,11 @@ struct kmemcheck_error {
 	enum kmemcheck_error_type type;
 
 	union {
-		
+		/* KMEMCHECK_ERROR_INVALID_ACCESS */
 		struct {
-			
+			/* Kind of access that caused the error */
 			enum kmemcheck_shadow state;
-			
+			/* Address and size of the erroneous read */
 			unsigned long	address;
 			unsigned int	size;
 		};
@@ -35,11 +35,16 @@ struct kmemcheck_error {
 	struct stack_trace	trace;
 	unsigned long		trace_entries[32];
 
-	
+	/* We compress it to a char. */
 	unsigned char		shadow_copy[SHADOW_COPY_SIZE];
 	unsigned char		memory_copy[SHADOW_COPY_SIZE];
 };
 
+/*
+ * Create a ring queue of errors to output. We can't call printk() directly
+ * from the kmemcheck traps, since this may call the console drivers and
+ * result in a recursive fault.
+ */
 static struct kmemcheck_error error_fifo[CONFIG_KMEMCHECK_QUEUE_SIZE];
 static unsigned int error_count;
 static unsigned int error_rd;
@@ -145,6 +150,9 @@ static void do_wakeup(unsigned long data)
 
 static DECLARE_TASKLET(kmemcheck_tasklet, &do_wakeup, 0);
 
+/*
+ * Save the context of an error report.
+ */
 void kmemcheck_error_save(enum kmemcheck_shadow state,
 	unsigned long address, unsigned int size, struct pt_regs *regs)
 {
@@ -154,7 +162,7 @@ void kmemcheck_error_save(enum kmemcheck_shadow state,
 	void *shadow_copy;
 	void *memory_copy;
 
-	
+	/* Don't report several adjacent errors from the same EIP. */
 	if (regs->ip == prev_ip)
 		return;
 	prev_ip = regs->ip;
@@ -169,17 +177,17 @@ void kmemcheck_error_save(enum kmemcheck_shadow state,
 	e->address = address;
 	e->size = size;
 
-	
+	/* Save regs */
 	memcpy(&e->regs, regs, sizeof(*regs));
 
-	
+	/* Save stack trace */
 	e->trace.nr_entries = 0;
 	e->trace.entries = e->trace_entries;
 	e->trace.max_entries = ARRAY_SIZE(e->trace_entries);
 	e->trace.skip = 0;
 	save_stack_trace_regs(regs, &e->trace);
 
-	
+	/* Round address down to nearest 16 bytes */
 	shadow_copy = kmemcheck_shadow_lookup(address
 		& ~(SHADOW_COPY_SIZE - 1));
 	BUG_ON(!shadow_copy);
@@ -194,6 +202,9 @@ void kmemcheck_error_save(enum kmemcheck_shadow state,
 	tasklet_hi_schedule_first(&kmemcheck_tasklet);
 }
 
+/*
+ * Save the context of a kmemcheck bug.
+ */
 void kmemcheck_error_save_bug(struct pt_regs *regs)
 {
 	struct kmemcheck_error *e;

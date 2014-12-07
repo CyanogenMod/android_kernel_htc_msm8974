@@ -40,54 +40,80 @@
 
 #ifndef PCI_DEVICE_ID_INTEL_7205_0
 #define PCI_DEVICE_ID_INTEL_7205_0	0x255d
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7205_0 */
 
 #ifndef PCI_DEVICE_ID_INTEL_7205_1_ERR
 #define PCI_DEVICE_ID_INTEL_7205_1_ERR	0x2551
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7205_1_ERR */
 
 #ifndef PCI_DEVICE_ID_INTEL_7500_0
 #define PCI_DEVICE_ID_INTEL_7500_0	0x2540
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7500_0 */
 
 #ifndef PCI_DEVICE_ID_INTEL_7500_1_ERR
 #define PCI_DEVICE_ID_INTEL_7500_1_ERR	0x2541
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7500_1_ERR */
 
 #ifndef PCI_DEVICE_ID_INTEL_7501_0
 #define PCI_DEVICE_ID_INTEL_7501_0	0x254c
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7501_0 */
 
 #ifndef PCI_DEVICE_ID_INTEL_7501_1_ERR
 #define PCI_DEVICE_ID_INTEL_7501_1_ERR	0x2541
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7501_1_ERR */
 
 #ifndef PCI_DEVICE_ID_INTEL_7505_0
 #define PCI_DEVICE_ID_INTEL_7505_0	0x2550
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7505_0 */
 
 #ifndef PCI_DEVICE_ID_INTEL_7505_1_ERR
 #define PCI_DEVICE_ID_INTEL_7505_1_ERR	0x2551
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_7505_1_ERR */
 
-#define E7XXX_NR_CSROWS		8	
-#define E7XXX_NR_DIMMS		8	
+#define E7XXX_NR_CSROWS		8	/* number of csrows */
+#define E7XXX_NR_DIMMS		8	/* FIXME - is this correct? */
 
-#define E7XXX_DRB		0x60	
-#define E7XXX_DRA		0x70	
-#define E7XXX_DRC		0x7C	
-#define E7XXX_TOLM		0xC4	
-#define E7XXX_REMAPBASE		0xC6	
-#define E7XXX_REMAPLIMIT	0xC8	
+/* E7XXX register addresses - device 0 function 0 */
+#define E7XXX_DRB		0x60	/* DRAM row boundary register (8b) */
+#define E7XXX_DRA		0x70	/* DRAM row attribute register (8b) */
+					/*
+					 * 31   Device width row 7 0=x8 1=x4
+					 * 27   Device width row 6
+					 * 23   Device width row 5
+					 * 19   Device width row 4
+					 * 15   Device width row 3
+					 * 11   Device width row 2
+					 *  7   Device width row 1
+					 *  3   Device width row 0
+					 */
+#define E7XXX_DRC		0x7C	/* DRAM controller mode reg (32b) */
+					/*
+					 * 22    Number channels 0=1,1=2
+					 * 19:18 DRB Granularity 32/64MB
+					 */
+#define E7XXX_TOLM		0xC4	/* DRAM top of low memory reg (16b) */
+#define E7XXX_REMAPBASE		0xC6	/* DRAM remap base address reg (16b) */
+#define E7XXX_REMAPLIMIT	0xC8	/* DRAM remap limit address reg (16b) */
 
-#define E7XXX_DRAM_FERR		0x80	
-#define E7XXX_DRAM_NERR		0x82	
-#define E7XXX_DRAM_CELOG_ADD	0xA0	
-					
-#define E7XXX_DRAM_UELOG_ADD	0xB0	
-					
-#define E7XXX_DRAM_CELOG_SYNDROME 0xD0	
-					
+/* E7XXX register addresses - device 0 function 1 */
+#define E7XXX_DRAM_FERR		0x80	/* DRAM first error register (8b) */
+#define E7XXX_DRAM_NERR		0x82	/* DRAM next error register (8b) */
+#define E7XXX_DRAM_CELOG_ADD	0xA0	/* DRAM first correctable memory */
+					/*     error address register (32b) */
+					/*
+					 * 31:28 Reserved
+					 * 27:6  CE address (4k block 33:12)
+					 *  5:0  Reserved
+					 */
+#define E7XXX_DRAM_UELOG_ADD	0xB0	/* DRAM first uncorrectable memory */
+					/*     error address register (32b) */
+					/*
+					 * 31:28 Reserved
+					 * 27:6  CE address (4k block 33:12)
+					 *  5:0  Reserved
+					 */
+#define E7XXX_DRAM_CELOG_SYNDROME 0xD0	/* DRAM first correctable memory */
+					/*     error syndrome register (16b) */
 
 enum e7xxx_chips {
 	E7500 = 0,
@@ -134,6 +160,7 @@ static const struct e7xxx_dev_info e7xxx_devs[] = {
 		.ctl_name = "E7205"},
 };
 
+/* FIXME - is this valid for both SECDED and S4ECD4ED? */
 static inline int e7xxx_find_channel(u16 syndrome)
 {
 	debugf3("%s()\n", __func__);
@@ -179,15 +206,15 @@ static void process_ce(struct mem_ctl_info *mci, struct e7xxx_error_info *info)
 	int channel;
 
 	debugf3("%s()\n", __func__);
-	
+	/* read the error address */
 	error_1b = info->dram_celog_add;
-	
-	page = error_1b >> 6;	
-	
+	/* FIXME - should use PAGE_SHIFT */
+	page = error_1b >> 6;	/* convert the address to 4k page */
+	/* read the syndrome */
 	syndrome = info->dram_celog_syndrome;
-	
+	/* FIXME - check for -1 */
 	row = edac_mc_find_csrow_by_page(mci, page);
-	
+	/* convert syndrome to channel */
 	channel = e7xxx_find_channel(syndrome);
 	edac_mc_handle_ce(mci, page, 0, syndrome, row, channel, "e7xxx CE");
 }
@@ -204,10 +231,10 @@ static void process_ue(struct mem_ctl_info *mci, struct e7xxx_error_info *info)
 	int row;
 
 	debugf3("%s()\n", __func__);
-	
+	/* read the error address */
 	error_2b = info->dram_uelog_add;
-	
-	block_page = error_2b >> 6;	
+	/* FIXME - should use PAGE_SHIFT */
+	block_page = error_2b >> 6;	/* convert to 4k address */
 	row = edac_mc_find_csrow_by_page(mci, block_page);
 	edac_mc_handle_ue(mci, block_page, 0, row, "e7xxx UE");
 }
@@ -254,22 +281,22 @@ static int e7xxx_process_error_info(struct mem_ctl_info *mci,
 
 	error_found = 0;
 
-	
-	if (info->dram_ferr & 1) {	
+	/* decode and report errors */
+	if (info->dram_ferr & 1) {	/* check first error correctable */
 		error_found = 1;
 
 		if (handle_errors)
 			process_ce(mci, info);
 	}
 
-	if (info->dram_ferr & 2) {	
+	if (info->dram_ferr & 2) {	/* check first error uncorrectable */
 		error_found = 1;
 
 		if (handle_errors)
 			process_ue(mci, info);
 	}
 
-	if (info->dram_nerr & 1) {	
+	if (info->dram_nerr & 1) {	/* check next error correctable */
 		error_found = 1;
 
 		if (handle_errors) {
@@ -280,7 +307,7 @@ static int e7xxx_process_error_info(struct mem_ctl_info *mci,
 		}
 	}
 
-	if (info->dram_nerr & 2) {	
+	if (info->dram_nerr & 2) {	/* check next error uncorrectable */
 		error_found = 1;
 
 		if (handle_errors) {
@@ -303,14 +330,16 @@ static void e7xxx_check(struct mem_ctl_info *mci)
 	e7xxx_process_error_info(mci, &info, 1);
 }
 
+/* Return 1 if dual channel mode is active.  Else return 0. */
 static inline int dual_channel_active(u32 drc, int dev_idx)
 {
 	return (dev_idx == E7501) ? ((drc >> 22) & 0x1) : 1;
 }
 
+/* Return DRB granularity (0=32mb, 1=64mb). */
 static inline int drb_granularity(u32 drc, int dev_idx)
 {
-	
+	/* only e7501 can be single channel */
 	return (dev_idx == E7501) ? ((drc >> 18) & 0x3) : 1;
 }
 
@@ -330,27 +359,36 @@ static void e7xxx_init_csrows(struct mem_ctl_info *mci, struct pci_dev *pdev,
 	drc_ddim = (drc >> 20) & 0x3;
 	last_cumul_size = 0;
 
+	/* The dram row boundary (DRB) reg values are boundary address
+	 * for each DRAM row with a granularity of 32 or 64MB (single/dual
+	 * channel operation).  DRB regs are cumulative; therefore DRB7 will
+	 * contain the total memory contained in all eight rows.
+	 */
 	for (index = 0; index < mci->nr_csrows; index++) {
-		
+		/* mem_dev 0=x8, 1=x4 */
 		mem_dev = (dra >> (index * 4 + 3)) & 0x1;
 		csrow = &mci->csrows[index];
 
 		pci_read_config_byte(pdev, E7XXX_DRB + index, &value);
-		
+		/* convert a 64 or 32 MiB DRB to a page size. */
 		cumul_size = value << (25 + drc_drbg - PAGE_SHIFT);
 		debugf3("%s(): (%d) cumul_size 0x%x\n", __func__, index,
 			cumul_size);
 		if (cumul_size == last_cumul_size)
-			continue;	
+			continue;	/* not populated */
 
 		csrow->first_page = last_cumul_size;
 		csrow->last_page = cumul_size - 1;
 		csrow->nr_pages = cumul_size - last_cumul_size;
 		last_cumul_size = cumul_size;
-		csrow->grain = 1 << 12;	
-		csrow->mtype = MEM_RDDR;	
+		csrow->grain = 1 << 12;	/* 4KiB - resolution of CELOG */
+		csrow->mtype = MEM_RDDR;	/* only one type supported */
 		csrow->dtype = mem_dev ? DEV_X4 : DEV_X8;
 
+		/*
+		 * if single channel or x8 devices then SECDED
+		 * if dual channel and x4 then S4ECD4ED
+		 */
 		if (drc_ddim) {
 			if (drc_chan && mem_dev) {
 				csrow->edac_mode = EDAC_S4ECD4ED;
@@ -387,7 +425,7 @@ static int e7xxx_probe1(struct pci_dev *pdev, int dev_idx)
 	mci->mtype_cap = MEM_FLAG_RDDR;
 	mci->edac_ctl_cap = EDAC_FLAG_NONE | EDAC_FLAG_SECDED |
 		EDAC_FLAG_S4ECD4ED;
-	
+	/* FIXME - what if different memory types are in different csrows? */
 	mci->mod_name = EDAC_MOD_STR;
 	mci->mod_ver = E7XXX_REVISION;
 	mci->dev = &pdev->dev;
@@ -412,7 +450,7 @@ static int e7xxx_probe1(struct pci_dev *pdev, int dev_idx)
 	e7xxx_init_csrows(mci, pdev, dev_idx, drc);
 	mci->edac_cap |= EDAC_FLAG_NONE;
 	debugf3("%s(): tolm, remapbase, remaplimit\n", __func__);
-	
+	/* load the top of low memory, remap base, and remap limit vars */
 	pci_read_config_word(pdev, E7XXX_TOLM, &pci_data);
 	pvt->tolm = ((u32) pci_data) << 4;
 	pci_read_config_word(pdev, E7XXX_REMAPBASE, &pci_data);
@@ -423,15 +461,18 @@ static int e7xxx_probe1(struct pci_dev *pdev, int dev_idx)
 		"tolm = %x, remapbase = %x, remaplimit = %x\n", pvt->tolm,
 		pvt->remapbase, pvt->remaplimit);
 
-	
+	/* clear any pending errors, or initial state bits */
 	e7xxx_get_error_info(mci, &discard);
 
+	/* Here we assume that we will never see multiple instances of this
+	 * type of memory controller.  The ID is therefore hardcoded to 0.
+	 */
 	if (edac_mc_add_mc(mci)) {
 		debugf3("%s(): failed edac_mc_add_mc()\n", __func__);
 		goto fail1;
 	}
 
-	
+	/* allocating generic PCI control info */
 	e7xxx_pci = edac_pci_create_generic_ctl(&pdev->dev, EDAC_MOD_STR);
 	if (!e7xxx_pci) {
 		printk(KERN_WARNING
@@ -442,7 +483,7 @@ static int e7xxx_probe1(struct pci_dev *pdev, int dev_idx)
 			__func__);
 	}
 
-	
+	/* get this far and it's successful */
 	debugf3("%s(): success\n", __func__);
 	return 0;
 
@@ -455,12 +496,13 @@ fail0:
 	return -ENODEV;
 }
 
+/* returns count (>= 0), or negative on error */
 static int __devinit e7xxx_init_one(struct pci_dev *pdev,
 				const struct pci_device_id *ent)
 {
 	debugf0("%s()\n", __func__);
 
-	
+	/* wake up and enable device */
 	return pci_enable_device(pdev) ?
 		-EIO : e7xxx_probe1(pdev, ent->driver_data);
 }
@@ -498,7 +540,7 @@ static DEFINE_PCI_DEVICE_TABLE(e7xxx_pci_tbl) = {
 	 E7505},
 	{
 	 0,
-	 }			
+	 }			/* 0 terminated list. */
 };
 
 MODULE_DEVICE_TABLE(pci, e7xxx_pci_tbl);
@@ -512,7 +554,7 @@ static struct pci_driver e7xxx_driver = {
 
 static int __init e7xxx_init(void)
 {
-       
+       /* Ensure that the OPSTATE is set correctly for POLL or NMI */
        opstate_init();
 
 	return pci_register_driver(&e7xxx_driver);

@@ -25,6 +25,28 @@
 #include "aes_cmac.h"
 
 
+/**
+ * DOC: Key handling basics
+ *
+ * Key handling in mac80211 is done based on per-interface (sub_if_data)
+ * keys and per-station keys. Since each station belongs to an interface,
+ * each station key also belongs to that interface.
+ *
+ * Hardware acceleration is done on a best-effort basis for algorithms
+ * that are implemented in software,  for each key the hardware is asked
+ * to enable that key for offloading but if it cannot do that the key is
+ * simply kept for software encryption (unless it is for an algorithm
+ * that isn't implemented in software).
+ * There is currently no way of knowing whether a key is handled in SW
+ * or HW except by looking into debugfs.
+ *
+ * All key management is internally protected by a mutex. Within all
+ * other parts of mac80211, key references are, just as STA structure
+ * references, protected by RCU. Note, however, that some things are
+ * unprotected, namely the key->sta dereferences within the hardware
+ * acceleration functions. This means that sta_info_destroy() must
+ * remove the key which waits for an RCU grace period.
+ */
 
 static const u8 bcast_addr[ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
@@ -35,8 +57,30 @@ static void assert_key_lock(struct ieee80211_local *local)
 
 static void increment_tailroom_need_count(struct ieee80211_sub_if_data *sdata)
 {
+	/*
+	 * When this count is zero, SKB resizing for allocating tailroom
+	 * for IV or MMIC is skipped. But, this check has created two race
+	 * cases in xmit path while transiting from zero count to one:
+	 *
+	 * 1. SKB resize was skipped because no key was added but just before
+	 * the xmit key is added and SW encryption kicks off.
+	 *
+	 * 2. SKB resize was skipped because all the keys were hw planted but
+	 * just before xmit one of the key is deleted and SW encryption kicks
+	 * off.
+	 *
+	 * In both the above case SW encryption will find not enough space for
+	 * tailroom and exits with WARN_ON. (See WARN_ONs at wpa.c)
+	 *
+	 * Solution has been explained at
+	 * http://mid.gmane.org/1308590980.4322.19.camel@jlt3.sipsolutions.net
+	 */
 
 	if (!sdata->crypto_tx_tailroom_needed_cnt++) {
+		/*
+		 * Flush all XMIT packets currently using HW encryption or no
+		 * encryption at all if the count transition is from 0 -> 1.
+		 */
 		synchronize_net();
 	}
 }
@@ -56,6 +100,10 @@ static int ieee80211_key_enable_hw_accel(struct ieee80211_key *key)
 
 	sta = key->sta;
 
+	/*
+	 * If this is a per-STA GTK, check if it
+	 * is supported; if not, return.
+	 */
 	if (sta && !(key->conf.flags & IEEE80211_KEY_FLAG_PAIRWISE) &&
 	    !(key->local->hw.flags & IEEE80211_HW_SUPPORTS_PER_STA_GTK))
 		goto out_unsupported;
@@ -65,6 +113,10 @@ static int ieee80211_key_enable_hw_accel(struct ieee80211_key *key)
 
 	sdata = key->sdata;
 	if (sdata->vif.type == NL80211_IFTYPE_AP_VLAN) {
+		/*
+		 * The driver doesn't know anything about VLAN interfaces.
+		 * Hence, don't send GTKs for VLAN interfaces to the driver.
+		 */
 		if (!(key->conf.flags & IEEE80211_KEY_FLAG_PAIRWISE))
 			goto out_unsupported;
 	}
@@ -99,7 +151,7 @@ static int ieee80211_key_enable_hw_accel(struct ieee80211_key *key)
 	case WLAN_CIPHER_SUITE_TKIP:
 	case WLAN_CIPHER_SUITE_CCMP:
 	case WLAN_CIPHER_SUITE_AES_CMAC:
-		
+		/* all of these we can do in software */
 		return 0;
 	default:
 		return -EINVAL;
@@ -153,6 +205,11 @@ void ieee80211_key_removed(struct ieee80211_key_conf *key_conf)
 
 	key->flags &= ~KEY_FLAG_UPLOADED_TO_HARDWARE;
 
+	/*
+	 * Flush TX path to avoid attempts to use this key
+	 * after this function returns. Until then, drivers
+	 * must be prepared to handle the key.
+	 */
 	synchronize_rcu();
 }
 EXPORT_SYMBOL_GPL(ieee80211_key_removed);
@@ -282,6 +339,10 @@ struct ieee80211_key *ieee80211_key_alloc(u32 cipher, int idx, size_t key_len,
 	if (!key)
 		return ERR_PTR(-ENOMEM);
 
+	/*
+	 * Default to software encryption; we'll later upload the
+	 * key to the hardware if possible.
+	 */
 	key->conf.flags = 0;
 	key->flags = 0;
 
@@ -316,6 +377,10 @@ struct ieee80211_key *ieee80211_key_alloc(u32 cipher, int idx, size_t key_len,
 					key->u.ccmp.rx_pn[i][j] =
 						seq[CCMP_PN_LEN - j - 1];
 		}
+		/*
+		 * Initialize AES key state here as an optimization so that
+		 * it does not need to be initialized for every packet.
+		 */
 		key->u.ccmp.tfm = ieee80211_aes_key_setup_encrypt(key_data);
 		if (IS_ERR(key->u.ccmp.tfm)) {
 			err = PTR_ERR(key->u.ccmp.tfm);
@@ -329,6 +394,10 @@ struct ieee80211_key *ieee80211_key_alloc(u32 cipher, int idx, size_t key_len,
 		if (seq)
 			for (j = 0; j < 6; j++)
 				key->u.aes_cmac.rx_pn[j] = seq[6 - j - 1];
+		/*
+		 * Initialize AES key state here as an optimization so that
+		 * it does not need to be initialized for every packet.
+		 */
 		key->u.aes_cmac.tfm =
 			ieee80211_aes_cmac_key_setup(key_data);
 		if (IS_ERR(key->u.aes_cmac.tfm)) {
@@ -349,6 +418,10 @@ static void __ieee80211_key_destroy(struct ieee80211_key *key)
 	if (!key)
 		return;
 
+	/*
+	 * Synchronize so the TX path can no longer be using
+	 * this key before we free/remove it.
+	 */
 	synchronize_rcu();
 
 	if (key->local)
@@ -384,14 +457,22 @@ int ieee80211_key_link(struct ieee80211_key *key,
 	key->sta = sta;
 
 	if (sta) {
+		/*
+		 * some hardware cannot handle TKIP with QoS, so
+		 * we indicate whether QoS could be in use.
+		 */
 		if (test_sta_flag(sta, WLAN_STA_WME))
 			key->conf.flags |= IEEE80211_KEY_FLAG_WMM_STA;
 	} else {
 		if (sdata->vif.type == NL80211_IFTYPE_STATION) {
 			struct sta_info *ap;
 
+			/*
+			 * We're getting a sta pointer in, so must be under
+			 * appropriate locking for sta_info_get().
+			 */
 
-			
+			/* same here, the AP could be using QoS */
 			ap = sta_info_get(key->sdata, key->sdata->u.mgd.bssid);
 			if (ap) {
 				if (test_sta_flag(ap, WLAN_STA_WME))
@@ -429,6 +510,9 @@ void __ieee80211_key_free(struct ieee80211_key *key)
 	if (!key)
 		return;
 
+	/*
+	 * Replace key with nothingness if it was ever used.
+	 */
 	if (key->sdata)
 		__ieee80211_key_replace(key->sdata, key->sta,
 				key->conf.flags & IEEE80211_KEY_FLAG_PAIRWISE,

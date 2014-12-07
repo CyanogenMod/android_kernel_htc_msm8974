@@ -53,6 +53,7 @@
 #define I2C_SCL			IMX_GPIO_NR(4, 16)
 #define I2C_SDA			IMX_GPIO_NR(4, 17)
 
+/* USB_CTRL_1 */
 #define MX51_USB_CTRL_1_OFFSET		0x10
 #define MX51_USB_CTRL_UH1_EXT_CLK_EN	(1 << 25)
 
@@ -61,13 +62,13 @@
 #define	MX51_USB_PLL_DIV_24_MHZ		0x02
 
 static iomux_v3_cfg_t eukrea_cpuimx51sd_pads[] = {
-	
+	/* UART1 */
 	MX51_PAD_UART1_RXD__UART1_RXD,
 	MX51_PAD_UART1_TXD__UART1_TXD,
 	MX51_PAD_UART1_RTS__UART1_RTS,
 	MX51_PAD_UART1_CTS__UART1_CTS,
 
-	
+	/* USB HOST1 */
 	MX51_PAD_USBH1_CLK__USBH1_CLK,
 	MX51_PAD_USBH1_DIR__USBH1_DIR,
 	MX51_PAD_USBH1_NXT__USBH1_NXT,
@@ -80,30 +81,30 @@ static iomux_v3_cfg_t eukrea_cpuimx51sd_pads[] = {
 	MX51_PAD_USBH1_DATA6__USBH1_DATA6,
 	MX51_PAD_USBH1_DATA7__USBH1_DATA7,
 	MX51_PAD_USBH1_STP__USBH1_STP,
-	MX51_PAD_EIM_CS3__GPIO2_28,		
+	MX51_PAD_EIM_CS3__GPIO2_28,		/* PHY nRESET */
 
-	
-	MX51_PAD_EIM_DTACK__GPIO2_31,		
+	/* FEC */
+	MX51_PAD_EIM_DTACK__GPIO2_31,		/* PHY nRESET */
 
-	
+	/* HSI2C */
 	MX51_PAD_I2C1_CLK__GPIO4_16,
 	MX51_PAD_I2C1_DAT__GPIO4_17,
 
-	
+	/* CAN */
 	MX51_PAD_CSPI1_MOSI__ECSPI1_MOSI,
 	MX51_PAD_CSPI1_MISO__ECSPI1_MISO,
 	MX51_PAD_CSPI1_SCLK__ECSPI1_SCLK,
-	MX51_PAD_CSPI1_SS0__GPIO4_24,		
-	MX51_PAD_CSI2_PIXCLK__GPIO4_15,		
-	MX51_PAD_GPIO1_1__GPIO1_1,		
-	MX51_PAD_GPIO1_4__GPIO1_4,		
+	MX51_PAD_CSPI1_SS0__GPIO4_24,		/* nCS */
+	MX51_PAD_CSI2_PIXCLK__GPIO4_15,		/* nReset */
+	MX51_PAD_GPIO1_1__GPIO1_1,		/* IRQ */
+	MX51_PAD_GPIO1_4__GPIO1_4,		/* Control signals */
 	MX51_PAD_GPIO1_6__GPIO1_6,
 	MX51_PAD_GPIO1_7__GPIO1_7,
 	MX51_PAD_GPIO1_8__GPIO1_8,
 	MX51_PAD_GPIO1_9__GPIO1_9,
 
-	
-	
+	/* Touchscreen */
+	/* IRQ */
 	NEW_PAD_CTRL(MX51_PAD_GPIO_NAND__GPIO_NAND, PAD_CTL_PUS_22K_UP |
 			PAD_CTL_PKE | PAD_CTL_SRE_FAST |
 			PAD_CTL_DSE_HIGH | PAD_CTL_PUE | PAD_CTL_HYS),
@@ -136,6 +137,9 @@ static const struct mxc_nand_platform_data
 	.flash_bbt	= 1,
 };
 
+/* This function is board specific as the bit mask for the plldiv will also
+be different for other Freescale SoCs, thus a common bitmask is not
+possible and cannot get place in /plat-mxc/ehci.c.*/
 static int initialize_otg_port(struct platform_device *pdev)
 {
 	u32 v;
@@ -147,7 +151,7 @@ static int initialize_otg_port(struct platform_device *pdev)
 		return -ENOMEM;
 	usbother_base = usb_base + MX5_USBOTHER_REGS_OFFSET;
 
-	
+	/* Set the PHY clock to 19.2MHz */
 	v = __raw_readl(usbother_base + MXC_USB_PHY_CTR_FUNC2_OFFSET);
 	v &= ~MX5_USB_UTMI_PHYCTRL1_PLLDIV_MASK;
 	v |= MX51_USB_PLL_DIV_19_2_MHZ;
@@ -170,7 +174,7 @@ static int initialize_usbh1_port(struct platform_device *pdev)
 		return -ENOMEM;
 	usbother_base = usb_base + MX5_USBOTHER_REGS_OFFSET;
 
-	
+	/* The clock for the USBH1 ULPI port will come from the PHY. */
 	v = __raw_readl(usbother_base + MX51_USB_CTRL_1_OFFSET);
 	__raw_writel(v | MX51_USB_CTRL_UH1_EXT_CLK_EN,
 			usbother_base + MX51_USB_CTRL_1_OFFSET);
@@ -323,7 +327,7 @@ static struct sys_timer mxc_timer = {
 };
 
 MACHINE_START(EUKREA_CPUIMX51SD, "Eukrea CPUIMX51SD")
-	
+	/* Maintainer: Eric Bénard <eric@eukrea.com> */
 	.atag_offset = 0x100,
 	.map_io = mx51_map_io,
 	.init_early = imx51_init_early,

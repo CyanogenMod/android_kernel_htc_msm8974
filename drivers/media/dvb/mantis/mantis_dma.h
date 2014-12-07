@@ -27,4 +27,4 @@ extern void mantis_dma_start(struct mantis_pci *mantis);
 extern void mantis_dma_stop(struct mantis_pci *mantis);
 extern void mantis_dma_xfer(unsigned long data);
 
-#endif 
+#endif /* __MANTIS_DMA_H */

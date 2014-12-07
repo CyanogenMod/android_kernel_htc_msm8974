@@ -51,7 +51,7 @@ static int sysfs_fill_super(struct super_block *sb, void *data, int silent)
 	sb->s_op = &sysfs_ops;
 	sb->s_time_gran = 1;
 
-	
+	/* get root inode, initialize and unlock it */
 	mutex_lock(&sysfs_mutex);
 	inode = sysfs_get_inode(sb, &sysfs_root);
 	mutex_unlock(&sysfs_mutex);
@@ -60,7 +60,7 @@ static int sysfs_fill_super(struct super_block *sb, void *data, int silent)
 		return -ENOMEM;
 	}
 
-	
+	/* instantiate and link root dentry */
 	root = d_make_root(inode);
 	if (!root) {
 		pr_debug("%s: could not get root dentry!\n",__func__);
@@ -138,6 +138,9 @@ static struct dentry *sysfs_mount(struct file_system_type *fs_type,
 static void sysfs_kill_sb(struct super_block *sb)
 {
 	struct sysfs_super_info *info = sysfs_info(sb);
+	/* Remove the superblock from fs_supers/s_instances
+	 * so we can't find it, before freeing sysfs_super_info.
+	 */
 	kill_anon_super(sb);
 	free_sysfs_super_info(info);
 }

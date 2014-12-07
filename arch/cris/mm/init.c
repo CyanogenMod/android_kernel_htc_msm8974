@@ -15,7 +15,7 @@
 
 unsigned long empty_zero_page;
 
-extern char _stext, _edata, _etext; 
+extern char _stext, _edata, _etext; /* From linkerscript */
 extern char __init_begin, __init_end;
 
 void __init
@@ -26,14 +26,22 @@ mem_init(void)
 
 	BUG_ON(!mem_map);
 
+	/* max/min_low_pfn was set by setup.c
+	 * now we just copy it to some other necessary places...
+	 *
+	 * high_memory was also set in setup.c
+	 */
 
 	max_mapnr = num_physpages = max_low_pfn - min_low_pfn;
  
-	
+	/* this will put all memory onto the freelists */
         totalram_pages = free_all_bootmem();
 
 	reservedpages = 0;
 	for (tmp = 0; tmp < max_mapnr; tmp++) {
+		/*
+                 * Only count reserved RAM pages
+                 */
 		if (PageReserved(mem_map + tmp))
 			reservedpages++;
 	}
@@ -54,6 +62,7 @@ mem_init(void)
                );
 }
 
+/* free the pages occupied by initialization code */
 
 void 
 free_initmem(void)

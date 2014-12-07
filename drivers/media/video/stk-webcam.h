@@ -46,6 +46,7 @@ struct stk_iso_buf {
 	struct urb *urb;
 };
 
+/* Streaming IO buffers */
 struct stk_sio_buffer {
 	struct v4l2_buffer v4lbuf;
 	char *buffer;
@@ -98,7 +99,7 @@ struct stk_camera {
 
 	u8 isoc_ep;
 
-	
+	/* Not sure if this is right */
 	atomic_t urbs_used;
 
 	struct stk_video vsettings;
@@ -111,7 +112,7 @@ struct stk_camera {
 	struct stk_iso_buf *isobufs;
 
 	int frame_size;
-	
+	/* Streaming buffers */
 	unsigned int n_sbufs;
 	struct stk_sio_buffer *sio_bufs;
 	struct list_head sio_avail;

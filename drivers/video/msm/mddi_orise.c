@@ -25,6 +25,7 @@ static int mddi_orise_lcd_off(struct platform_device *pdev);
 static int __init mddi_orise_probe(struct platform_device *pdev);
 static int __init mddi_orise_init(void);
 
+/* function used to turn on the display */
 static void mddi_orise_prim_lcd_init(void)
 {
 	write_client_reg(0x00110000, 0, TRUE);

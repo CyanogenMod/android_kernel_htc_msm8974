@@ -14,6 +14,10 @@
 struct gpio;
 struct gpio_chip;
 
+/* with the current GPIC design, up to 128 GPIOs are possible.
+ * The only implementation so far is in the Au1300, which has 75 externally
+ * available GPIOs.
+ */
 #define AU1300_GPIO_BASE	0
 #define AU1300_GPIO_NUM		75
 #define AU1300_GPIO_MAX		(AU1300_GPIO_BASE + AU1300_GPIO_NUM - 1)
@@ -65,7 +69,7 @@ static inline int au1300_gpio_set_value(unsigned int gpio, int v)
 
 static inline int au1300_gpio_direction_output(unsigned int gpio, int v)
 {
-	
+	/* hw switches to output automatically */
 	return au1300_gpio_set_value(gpio, v);
 }
 
@@ -98,6 +102,7 @@ static inline int au1300_gpio_cansleep(unsigned int gpio)
 	return 0;
 }
 
+/* hardware remembers gpio 0-63 levels on powerup */
 static inline int au1300_gpio_getinitlvl(unsigned int gpio)
 {
 	void __iomem *roff = AU1300_GPIC_ADDR;
@@ -114,13 +119,37 @@ static inline int au1300_gpio_getinitlvl(unsigned int gpio)
 	return (v >> gpio) & 1;
 }
 
+/**********************************************************************/
 
+/* Linux gpio framework integration.
+*
+* 4 use cases of Alchemy GPIOS:
+*(1) GPIOLIB=y, ALCHEMY_GPIO_INDIRECT=y:
+*	Board must register gpiochips.
+*(2) GPIOLIB=y, ALCHEMY_GPIO_INDIRECT=n:
+*	A gpiochip for the 75 GPIOs is registered.
+*
+*(3) GPIOLIB=n, ALCHEMY_GPIO_INDIRECT=y:
+*	the boards' gpio.h must provide	the linux gpio wrapper functions,
+*
+*(4) GPIOLIB=n, ALCHEMY_GPIO_INDIRECT=n:
+*	inlinable gpio functions are provided which enable access to the
+*	Au1300 gpios only by using the numbers straight out of the data-
+*	sheets.
+
+* Cases 1 and 3 are intended for boards which want to provide their own
+* GPIO namespace and -operations (i.e. for example you have 8 GPIOs
+* which are in part provided by spare Au1300 GPIO pins and in part by
+* an external FPGA but you still want them to be accssible in linux
+* as gpio0-7. The board can of course use the alchemy_gpioX_* functions
+* as required).
+*/
 
 #ifndef CONFIG_GPIOLIB
 
 #ifdef CONFIG_ALCHEMY_GPIOINT_AU1300
 
-#ifndef CONFIG_ALCHEMY_GPIO_INDIRECT	
+#ifndef CONFIG_ALCHEMY_GPIO_INDIRECT	/* case (4) */
 
 static inline int gpio_direction_input(unsigned int gpio)
 {
@@ -221,10 +250,10 @@ static inline int gpio_export_link(struct device *dev, const char *name,
 	return -ENOSYS;
 }
 
-#endif	
+#endif	/* !CONFIG_ALCHEMY_GPIO_INDIRECT */
 
-#endif	
+#endif	/* CONFIG_ALCHEMY_GPIOINT_AU1300 */
 
-#endif	
+#endif	/* CONFIG GPIOLIB */
 
-#endif 
+#endif /* _GPIO_AU1300_H_ */

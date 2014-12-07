@@ -25,6 +25,7 @@
 #include "clock.h"
 #include "mux.h"
 
+/* Offsets of the 8 compare registers on the da830 */
 #define DA830_CMP12_0		0x60
 #define DA830_CMP12_1		0x64
 #define DA830_CMP12_2		0x68
@@ -425,6 +426,12 @@ static struct clk_lookup da830_clks[] = {
 	CLK(NULL,		NULL,		NULL),
 };
 
+/*
+ * Device specific mux setup
+ *
+ *	     soc      description	mux    mode    mode   mux	dbg
+ *					reg   offset   mask   mode
+ */
 static const struct mux_config da830_pins[] = {
 #ifdef CONFIG_DAVINCI_MUX
 	MUX_CFG(DA830, GPIO7_14,	0,	0,	0xf,	1,	false)
@@ -1006,6 +1013,7 @@ const short da830_eqep1_pins[] __initdata = {
 	-1
 };
 
+/* FIQ are pri 0-1; otherwise 2-7, with 7 lowest priority */
 static u8 da830_default_priorities[DA830_N_CP_INTC_IRQ] = {
 	[IRQ_DA8XX_COMMTX]		= 7,
 	[IRQ_DA8XX_COMMRX]		= 7,
@@ -1117,11 +1125,12 @@ static struct map_desc da830_io_desc[] = {
 
 static u32 da830_psc_bases[] = { DA8XX_PSC0_BASE, DA8XX_PSC1_BASE };
 
+/* Contents of JTAG ID register used to identify exact cpu type */
 static struct davinci_id da830_ids[] = {
 	{
 		.variant	= 0x0,
 		.part_no	= 0xb7df,
-		.manufacturer	= 0x017,	
+		.manufacturer	= 0x017,	/* 0x02f >> 1 */
 		.cpu_id		= DAVINCI_CPU_ID_DA830,
 		.name		= "da830/omap-l137 rev1.0",
 	},
@@ -1158,6 +1167,11 @@ static struct davinci_timer_instance da830_timer_instance[2] = {
 	},
 };
 
+/*
+ * T0_BOT: Timer 0, bottom		: Used for clock_event & clocksource
+ * T0_TOP: Timer 0, top			: Used by DSP
+ * T1_BOT, T1_TOP: Timer 1, bottom & top: Used for watchdog timer
+ */
 static struct davinci_timer_info da830_timer_info = {
 	.timers		= da830_timer_instance,
 	.clockevent_id	= T0_BOT,

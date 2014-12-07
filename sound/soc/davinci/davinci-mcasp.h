@@ -33,7 +33,7 @@ enum {
 	DAVINCI_AUDIO_WORD_20,
 	DAVINCI_AUDIO_WORD_24,
 	DAVINCI_AUDIO_WORD_32,
-	DAVINCI_AUDIO_WORD_28,  
+	DAVINCI_AUDIO_WORD_28,  /* This is only valid for McASP */
 };
 
 struct davinci_audio_dev {
@@ -44,16 +44,16 @@ struct davinci_audio_dev {
 	unsigned int codec_fmt;
 	u8 clk_active;
 
-	
+	/* McASP specific data */
 	int	tdm_slots;
 	u8	op_mode;
 	u8	num_serializer;
 	u8	*serial_dir;
 	u8	version;
 
-	
+	/* McASP FIFO related */
 	u8	txnumevt;
 	u8	rxnumevt;
 };
 
-#endif	
+#endif	/* DAVINCI_MCASP_H */

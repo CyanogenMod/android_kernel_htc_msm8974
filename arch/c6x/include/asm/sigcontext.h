@@ -13,8 +13,8 @@
 
 
 struct sigcontext {
-	unsigned long  sc_mask;		
-	unsigned long  sc_sp;		
+	unsigned long  sc_mask;		/* old sigmask */
+	unsigned long  sc_sp;		/* old user stack pointer */
 
 	unsigned long  sc_a4;
 	unsigned long  sc_b4;
@@ -77,4 +77,4 @@ struct sigcontext {
 	unsigned long  sc_pc;
 };
 
-#endif 
+#endif /* _ASM_C6X_SIGCONTEXT_H */

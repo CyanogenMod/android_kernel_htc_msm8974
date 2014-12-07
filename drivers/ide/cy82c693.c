@@ -18,10 +18,21 @@
 
 #define DRV_NAME "cy82c693"
 
+/*
+ *	NOTE: the value for busmaster timeout is tricky and I got it by
+ *	trial and error!  By using a to low value will cause DMA timeouts
+ *	and drop IDE performance, and by using a to high value will cause
+ *	audio playback to scatter.
+ *	If you know a better value or how to calc it, please let me know.
+ */
 
 /* twice the value written in cy82c693ub datasheet */
 #define BUSMASTER_TIMEOUT	0x50
+/*
+ * the value above was tested on my machine and it seems to work okay
+ */
 
+/* here are the offset definitions for the registers */
 #define CY82_IDE_CMDREG		0x04
 #define CY82_IDE_ADDRSETUP	0x48
 #define CY82_IDE_MASTER_IOR	0x4C
@@ -38,6 +49,9 @@
 #define CY82_INDEX_CHANNEL1	0x31
 #define CY82_INDEX_TIMEOUT	0x32
 
+/*
+ * set DMA mode a specific channel for CY82C693
+ */
 
 static void cy82c693_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -51,6 +65,15 @@ static void cy82c693_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	outb(index, CY82_INDEX_PORT);
 	outb(data, CY82_DATA_PORT);
 
+	/*
+	 * note: below we set the value for Bus Master IDE TimeOut Register
+	 * I'm not absolutely sure what this does, but it solved my problem
+	 * with IDE DMA and sound, so I now can play sound and work with
+	 * my IDE driver at the same time :-)
+	 *
+	 * If you know the correct (best) value for this register please
+	 * let me know - ASK
+	 */
 
 	data = BUSMASTER_TIMEOUT;
 	outb(CY82_INDEX_TIMEOUT, CY82_INDEX_PORT);
@@ -66,8 +89,8 @@ static void cy82c693_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	struct ide_timing t;
 	u8 time_16, time_8;
 
-	
-	if (drive->dn > 1) {  
+	/* select primary or secondary channel */
+	if (drive->dn > 1) {  /* drive is on the secondary channel */
 		dev = pci_get_slot(dev->bus, dev->devfn+1);
 		if (!dev) {
 			printk(KERN_ERR "%s: tune_drive: "
@@ -84,26 +107,36 @@ static void cy82c693_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	time_8 = clamp_val(t.act8b - 1, 0, 15) |
 		 (clamp_val(t.rec8b - 1, 0, 15) << 4);
 
-	
+	/* now let's write  the clocks registers */
 	if ((drive->dn & 1) == 0) {
+		/*
+		 * set master drive
+		 * address setup control register
+		 * is 32 bit !!!
+		 */
 		pci_read_config_dword(dev, CY82_IDE_ADDRSETUP, &addrCtrl);
 
 		addrCtrl &= (~0xF);
 		addrCtrl |= clamp_val(t.setup - 1, 0, 15);
 		pci_write_config_dword(dev, CY82_IDE_ADDRSETUP, addrCtrl);
 
-		
+		/* now let's set the remaining registers */
 		pci_write_config_byte(dev, CY82_IDE_MASTER_IOR, time_16);
 		pci_write_config_byte(dev, CY82_IDE_MASTER_IOW, time_16);
 		pci_write_config_byte(dev, CY82_IDE_MASTER_8BIT, time_8);
 	} else {
+		/*
+		 * set slave drive
+		 * address setup control register
+		 * is 32 bit !!!
+		 */
 		pci_read_config_dword(dev, CY82_IDE_ADDRSETUP, &addrCtrl);
 
 		addrCtrl &= (~0xF0);
 		addrCtrl |= (clamp_val(t.setup - 1, 0, 15) << 4);
 		pci_write_config_dword(dev, CY82_IDE_ADDRSETUP, addrCtrl);
 
-		
+		/* now let's set the remaining registers */
 		pci_write_config_byte(dev, CY82_IDE_SLAVE_IOR, time_16);
 		pci_write_config_byte(dev, CY82_IDE_SLAVE_IOW, time_16);
 		pci_write_config_byte(dev, CY82_IDE_SLAVE_8BIT, time_8);
@@ -145,6 +178,8 @@ static int __devinit cy82c693_init_one(struct pci_dev *dev, const struct pci_dev
 	struct pci_dev *dev2;
 	int ret = -ENODEV;
 
+	/* CY82C693 is more than only a IDE controller.
+	   Function 1 is primary IDE channel, function 2 - secondary. */
 	if ((dev->class >> 8) == PCI_CLASS_STORAGE_IDE &&
 	    PCI_FUNC(dev->devfn) == 1) {
 		dev2 = pci_get_slot(dev->bus, dev->devfn + 1);

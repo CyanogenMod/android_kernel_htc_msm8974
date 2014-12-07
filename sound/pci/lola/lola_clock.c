@@ -29,15 +29,15 @@ unsigned int lola_sample_rate_convert(unsigned int coded)
 {
 	unsigned int freq;
 
-	
+	/* base frequency */
 	switch (coded & 0x3) {
 	case 0:     freq = 48000; break;
 	case 1:     freq = 44100; break;
 	case 2:     freq = 32000; break;
-	default:    return 0;   
+	default:    return 0;   /* error */
 	}
 
-	
+	/* multiplier / devisor */
 	switch (coded & 0x1c) {
 	case (0 << 2):    break;
 	case (4 << 2):    break;
@@ -45,19 +45,22 @@ unsigned int lola_sample_rate_convert(unsigned int coded)
 	case (2 << 2):    freq *= 4; break;
 	case (5 << 2):    freq /= 2; break;
 	case (6 << 2):    freq /= 4; break;
-	default:        return 0;   
+	default:        return 0;   /* error */
 	}
 
-	
+	/* ajustement */
 	switch (coded & 0x60) {
 	case (0 << 5):    break;
 	case (1 << 5):    freq = (freq * 999) / 1000; break;
 	case (2 << 5):    freq = (freq * 1001) / 1000; break;
-	default:        return 0;   
+	default:        return 0;   /* error */
 	}
 	return freq;
 }
 
+/*
+ * Granualrity
+ */
 
 #define LOLA_MAXFREQ_AT_GRANULARITY_MIN         48000
 #define LOLA_MAXFREQ_AT_GRANULARITY_BELOW_MAX   96000
@@ -91,7 +94,7 @@ int lola_set_granularity(struct lola *chip, unsigned int val, bool force)
 		if (val == chip->granularity)
 			return 0;
 #if 0
-		
+		/* change Gran only if there are no streams allocated ! */
 		if (chip->audio_in_alloc_mask || chip->audio_out_alloc_mask)
 			return -EBUSY;
 #endif
@@ -103,16 +106,19 @@ int lola_set_granularity(struct lola *chip, unsigned int val, bool force)
 	chip->granularity = val;
 	val /= LOLA_GRANULARITY_STEP;
 
-	
+	/* audio function group */
 	err = lola_codec_write(chip, 1, LOLA_VERB_SET_GRANULARITY_STEPS,
 			       val, 0);
 	if (err < 0)
 		return err;
-	
+	/* this can be a very slow function !!! */
 	usleep_range(400 * val, 20000);
 	return lola_codec_flush(chip);
 }
 
+/*
+ * Clock widget handling
+ */
 
 int __devinit lola_init_clock_widget(struct lola *chip, int nid)
 {
@@ -126,7 +132,7 @@ int __devinit lola_init_clock_widget(struct lola *chip, int nid)
 		return err;
 	}
 
-	if ((val & 0xfff00000) != 0x01f00000) { 
+	if ((val & 0xfff00000) != 0x01f00000) { /* test SubType and Type */
 		snd_printdd("No valid clock widget\n");
 		return 0;
 	}
@@ -179,7 +185,7 @@ int __devinit lola_init_clock_widget(struct lola *chip, int nid)
 				freq = lola_sample_rate_convert(freq);
 				if (freq < chip->sample_rate_min)
 					add_clock = false;
-				
+				/* video clock has a format (0:NTSC, 1:PAL)*/
 				if (items[j] & 0x80)
 					format = LOLA_CLOCK_FORMAT_NTSC;
 				else
@@ -191,7 +197,7 @@ int __devinit lola_init_clock_widget(struct lola *chip, int nid)
 				sc->type = type;
 				sc->format = format;
 				sc->freq = freq;
-				
+				/* keep the index used with the board */
 				chip->clock.idx_lookup[idx_list] = idx;
 				idx_list++;
 			} else {
@@ -204,6 +210,7 @@ int __devinit lola_init_clock_widget(struct lola *chip, int nid)
 	return 0;
 }
 
+/* enable unsolicited events of the clock widget */
 int lola_enable_clock_events(struct lola *chip)
 {
 	unsigned int res;
@@ -245,13 +252,16 @@ bool lola_update_ext_clock_freq(struct lola *chip, unsigned int val)
 {
 	unsigned int tag;
 
+	/* the current EXTERNAL clock information gets updated by interrupt
+	 * with an unsolicited response
+	 */
 	if (!val)
 		return false;
 	tag = (val >> LOLA_UNSOL_RESP_TAG_OFFSET) & LOLA_UNSOLICITED_TAG_MASK;
 	if (tag != LOLA_UNSOLICITED_TAG)
 		return false;
 
-	
+	/* only for current = external clocks */
 	if (chip->clock.sample_clock[chip->clock.cur_index].type !=
 	    LOLA_CLOCK_TYPE_INTERNAL) {
 		chip->clock.cur_freq = lola_sample_rate_convert(val & 0x7f);
@@ -266,12 +276,12 @@ int lola_set_clock(struct lola *chip, int idx)
 	bool valid = false;
 
 	if (idx == chip->clock.cur_index) {
-		
+		/* current clock is allowed */
 		freq = chip->clock.cur_freq;
 		valid = chip->clock.cur_valid;
 	} else if (chip->clock.sample_clock[idx].type ==
 		   LOLA_CLOCK_TYPE_INTERNAL) {
-		
+		/* internal clocks allowed */
 		freq = chip->clock.sample_clock[idx].freq;
 		valid = true;
 	}
@@ -286,7 +296,7 @@ int lola_set_clock(struct lola *chip, int idx)
 		int err = lola_set_clock_index(chip, idx);
 		if (err < 0)
 			return err;
-		
+		/* update new settings */
 		chip->clock.cur_index = idx;
 		chip->clock.cur_freq = freq;
 		chip->clock.cur_valid = true;
@@ -300,7 +310,7 @@ int lola_set_sample_rate(struct lola *chip, int rate)
 
 	if (chip->clock.cur_freq == rate && chip->clock.cur_valid)
 		return 0;
-	
+	/* search for new dwClockIndex */
 	for (i = 0; i < chip->clock.items; i++) {
 		if (chip->clock.sample_clock[i].type == LOLA_CLOCK_TYPE_INTERNAL &&
 		    chip->clock.sample_clock[i].freq == rate)

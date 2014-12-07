@@ -11,4 +11,4 @@ int ui__question_window(const char *title, const char *text,
 			const char *exit_msg, int delay_secs);
 int __ui__warning(const char *title, const char *format, va_list args);
 
-#endif 
+#endif /* _PERF_UI_UTIL_H_ */

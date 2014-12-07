@@ -29,17 +29,25 @@
 #include <linux/ctype.h>
 #include <linux/dmi.h>
 
-#define PHUB_STATUS 0x00		
-#define PHUB_CONTROL 0x04		
-#define PHUB_TIMEOUT 0x05		
-#define PCH_PHUB_ROM_WRITE_ENABLE 0x01	
-#define PCH_PHUB_ROM_WRITE_DISABLE 0x00	
-#define PCH_PHUB_MAC_START_ADDR_EG20T 0x14  
-#define PCH_PHUB_MAC_START_ADDR_ML7223 0x20C  
-#define PCH_PHUB_ROM_START_ADDR_EG20T 0x80 
-#define PCH_PHUB_ROM_START_ADDR_ML7213 0x400 
-#define PCH_PHUB_ROM_START_ADDR_ML7223 0x400 
+#define PHUB_STATUS 0x00		/* Status Register offset */
+#define PHUB_CONTROL 0x04		/* Control Register offset */
+#define PHUB_TIMEOUT 0x05		/* Time out value for Status Register */
+#define PCH_PHUB_ROM_WRITE_ENABLE 0x01	/* Enabling for writing ROM */
+#define PCH_PHUB_ROM_WRITE_DISABLE 0x00	/* Disabling for writing ROM */
+#define PCH_PHUB_MAC_START_ADDR_EG20T 0x14  /* MAC data area start address
+					       offset */
+#define PCH_PHUB_MAC_START_ADDR_ML7223 0x20C  /* MAC data area start address
+						 offset */
+#define PCH_PHUB_ROM_START_ADDR_EG20T 0x80 /* ROM data area start address offset
+					      (Intel EG20T PCH)*/
+#define PCH_PHUB_ROM_START_ADDR_ML7213 0x400 /* ROM data area start address
+						offset(LAPIS Semicon ML7213)
+					      */
+#define PCH_PHUB_ROM_START_ADDR_ML7223 0x400 /* ROM data area start address
+						offset(LAPIS Semicon ML7223)
+					      */
 
+/* MAX number of INT_REDUCE_CONTROL registers */
 #define MAX_NUM_INT_REDUCE_CONTROL_REG 128
 #define PCI_DEVICE_ID_PCH1_PHUB 0x8801
 #define PCH_MINOR_NOS 1
@@ -47,24 +55,31 @@
 #define CLKCFG_CANCLK_MASK 0xFF000000
 #define CLKCFG_UART_MASK			0xFFFFFF
 
+/* CM-iTC */
 #define CLKCFG_UART_48MHZ			(1 << 16)
 #define CLKCFG_BAUDDIV				(2 << 20)
 #define CLKCFG_PLL2VCO				(8 << 9)
 #define CLKCFG_UARTCLKSEL			(1 << 18)
 
+/* Macros for ML7213 */
 #define PCI_VENDOR_ID_ROHM			0x10db
 #define PCI_DEVICE_ID_ROHM_ML7213_PHUB		0x801A
 
+/* Macros for ML7213 */
 #define PCI_VENDOR_ID_ROHM			0x10db
 #define PCI_DEVICE_ID_ROHM_ML7213_PHUB		0x801A
 
-#define PCI_DEVICE_ID_ROHM_ML7223_mPHUB	0x8012 
-#define PCI_DEVICE_ID_ROHM_ML7223_nPHUB	0x8002 
+/* Macros for ML7223 */
+#define PCI_DEVICE_ID_ROHM_ML7223_mPHUB	0x8012 /* for Bus-m */
+#define PCI_DEVICE_ID_ROHM_ML7223_nPHUB	0x8002 /* for Bus-n */
 
+/* Macros for ML7831 */
 #define PCI_DEVICE_ID_ROHM_ML7831_PHUB 0x8801
 
+/* SROM ACCESS Macro */
 #define PCH_WORD_ADDR_MASK (~((1 << 2) - 1))
 
+/* Registers address offset */
 #define PCH_PHUB_ID_REG				0x0000
 #define PCH_PHUB_QUEUE_PRI_VAL_REG		0x0004
 #define PCH_PHUB_RC_QUEUE_MAXSIZE_REG		0x0008
@@ -82,6 +97,29 @@
 
 #define PCH_PHUB_OROM_SIZE 15360
 
+/**
+ * struct pch_phub_reg - PHUB register structure
+ * @phub_id_reg:			PHUB_ID register val
+ * @q_pri_val_reg:			QUEUE_PRI_VAL register val
+ * @rc_q_maxsize_reg:			RC_QUEUE_MAXSIZE register val
+ * @bri_q_maxsize_reg:			BRI_QUEUE_MAXSIZE register val
+ * @comp_resp_timeout_reg:		COMP_RESP_TIMEOUT register val
+ * @bus_slave_control_reg:		BUS_SLAVE_CONTROL_REG register val
+ * @deadlock_avoid_type_reg:		DEADLOCK_AVOID_TYPE register val
+ * @intpin_reg_wpermit_reg0:		INTPIN_REG_WPERMIT register 0 val
+ * @intpin_reg_wpermit_reg1:		INTPIN_REG_WPERMIT register 1 val
+ * @intpin_reg_wpermit_reg2:		INTPIN_REG_WPERMIT register 2 val
+ * @intpin_reg_wpermit_reg3:		INTPIN_REG_WPERMIT register 3 val
+ * @int_reduce_control_reg:		INT_REDUCE_CONTROL registers val
+ * @clkcfg_reg:				CLK CFG register val
+ * @funcsel_reg:			Function select register value
+ * @pch_phub_base_address:		Register base address
+ * @pch_phub_extrom_base_address:	external rom base address
+ * @pch_mac_start_address:		MAC address area start address
+ * @pch_opt_rom_start_address:		Option ROM start address
+ * @ioh_type:				Save IOH type
+ * @pdev:				pointer to pci device struct
+ */
 struct pch_phub_reg {
 	u32 phub_id_reg;
 	u32 q_pri_val_reg;
@@ -105,10 +143,17 @@ struct pch_phub_reg {
 	struct pci_dev *pdev;
 };
 
+/* SROM SPEC for MAC address assignment offset */
 static const int pch_phub_mac_offset[ETH_ALEN] = {0x3, 0x2, 0x1, 0x0, 0xb, 0xa};
 
 static DEFINE_MUTEX(pch_phub_mutex);
 
+/**
+ * pch_phub_read_modify_write_reg() - Reading modifying and writing register
+ * @reg_addr_offset:	Register offset address value.
+ * @data:		Writing value.
+ * @mask:		Mask value.
+ */
 static void pch_phub_read_modify_write_reg(struct pch_phub_reg *chip,
 					   unsigned int reg_addr_offset,
 					   unsigned int data, unsigned int mask)
@@ -117,6 +162,7 @@ static void pch_phub_read_modify_write_reg(struct pch_phub_reg *chip,
 	iowrite32(((ioread32(reg_addr) & ~mask)) | data, reg_addr);
 }
 
+/* pch_phub_save_reg_conf - saves register configuration */
 static void pch_phub_save_reg_conf(struct pci_dev *pdev)
 {
 	unsigned int i;
@@ -177,6 +223,7 @@ static void pch_phub_save_reg_conf(struct pci_dev *pdev)
 		chip->funcsel_reg = ioread32(p + FUNCSEL_REG_OFFSET);
 }
 
+/* pch_phub_restore_reg_conf - restore register configuration */
 static void pch_phub_restore_reg_conf(struct pci_dev *pdev)
 {
 	unsigned int i;
@@ -238,6 +285,11 @@ static void pch_phub_restore_reg_conf(struct pci_dev *pdev)
 		iowrite32(chip->funcsel_reg, p + FUNCSEL_REG_OFFSET);
 }
 
+/**
+ * pch_phub_read_serial_rom() - Reading Serial ROM
+ * @offset_address:	Serial ROM offset address to read.
+ * @data:		Read buffer for specified Serial ROM value.
+ */
 static void pch_phub_read_serial_rom(struct pch_phub_reg *chip,
 				     unsigned int offset_address, u8 *data)
 {
@@ -247,6 +299,11 @@ static void pch_phub_read_serial_rom(struct pch_phub_reg *chip,
 	*data = ioread8(mem_addr);
 }
 
+/**
+ * pch_phub_write_serial_rom() - Writing Serial ROM
+ * @offset_address:	Serial ROM offset address.
+ * @data:		Serial ROM value to write.
+ */
 static int pch_phub_write_serial_rom(struct pch_phub_reg *chip,
 				     unsigned int offset_address, u8 data)
 {
@@ -280,6 +337,11 @@ static int pch_phub_write_serial_rom(struct pch_phub_reg *chip,
 	return 0;
 }
 
+/**
+ * pch_phub_read_serial_rom_val() - Read Serial ROM value
+ * @offset_address:	Serial ROM address offset value.
+ * @data:		Serial ROM value to read.
+ */
 static void pch_phub_read_serial_rom_val(struct pch_phub_reg *chip,
 					 unsigned int offset_address, u8 *data)
 {
@@ -291,6 +353,11 @@ static void pch_phub_read_serial_rom_val(struct pch_phub_reg *chip,
 	pch_phub_read_serial_rom(chip, mem_addr, data);
 }
 
+/**
+ * pch_phub_write_serial_rom_val() - writing Serial ROM value
+ * @offset_address:	Serial ROM address offset value.
+ * @data:		Serial ROM value.
+ */
 static int pch_phub_write_serial_rom_val(struct pch_phub_reg *chip,
 					 unsigned int offset_address, u8 data)
 {
@@ -305,6 +372,9 @@ static int pch_phub_write_serial_rom_val(struct pch_phub_reg *chip,
 	return retval;
 }
 
+/* pch_phub_gbe_serial_rom_conf - makes Serial ROM header format configuration
+ * for Gigabit Ethernet MAC address
+ */
 static int pch_phub_gbe_serial_rom_conf(struct pch_phub_reg *chip)
 {
 	int retval;
@@ -342,6 +412,9 @@ static int pch_phub_gbe_serial_rom_conf(struct pch_phub_reg *chip)
 	return retval;
 }
 
+/* pch_phub_gbe_serial_rom_conf_mp - makes SerialROM header format configuration
+ * for Gigabit Ethernet MAC address
+ */
 static int pch_phub_gbe_serial_rom_conf_mp(struct pch_phub_reg *chip)
 {
 	int retval;
@@ -381,6 +454,11 @@ static int pch_phub_gbe_serial_rom_conf_mp(struct pch_phub_reg *chip)
 	return retval;
 }
 
+/**
+ * pch_phub_read_gbe_mac_addr() - Read Gigabit Ethernet MAC address
+ * @offset_address:	Gigabit Ethernet MAC address offset value.
+ * @data:		Buffer of the Gigabit Ethernet MAC address value.
+ */
 static void pch_phub_read_gbe_mac_addr(struct pch_phub_reg *chip, u8 *data)
 {
 	int i;
@@ -388,14 +466,19 @@ static void pch_phub_read_gbe_mac_addr(struct pch_phub_reg *chip, u8 *data)
 		pch_phub_read_serial_rom_val(chip, i, &data[i]);
 }
 
+/**
+ * pch_phub_write_gbe_mac_addr() - Write MAC address
+ * @offset_address:	Gigabit Ethernet MAC address offset value.
+ * @data:		Gigabit Ethernet MAC address value.
+ */
 static int pch_phub_write_gbe_mac_addr(struct pch_phub_reg *chip, u8 *data)
 {
 	int retval;
 	int i;
 
-	if ((chip->ioh_type == 1) || (chip->ioh_type == 5)) 
+	if ((chip->ioh_type == 1) || (chip->ioh_type == 5)) /* EG20T or ML7831*/
 		retval = pch_phub_gbe_serial_rom_conf(chip);
-	else	
+	else	/* ML7223 */
 		retval = pch_phub_gbe_serial_rom_conf_mp(chip);
 	if (retval)
 		return retval;
@@ -431,7 +514,7 @@ static ssize_t pch_phub_bin_read(struct file *filp, struct kobject *kobj,
 		goto return_err_nomutex;
 	}
 
-	
+	/* Get Rom signature */
 	chip->pch_phub_extrom_base_address = pci_map_rom(chip->pdev, &rom_size);
 	if (!chip->pch_phub_extrom_base_address)
 		goto exrom_map_err;
@@ -629,9 +712,9 @@ static int __devinit pch_phub_probe(struct pci_dev *pdev,
 		"in pch_phub_base_address variable is %p\n", __func__,
 		chip->pch_phub_base_address);
 
-	chip->pdev = pdev; 
+	chip->pdev = pdev; /* Save pci device struct */
 
-	if (id->driver_data == 1) { 
+	if (id->driver_data == 1) { /* EG20T PCH */
 		const char *board_name;
 
 		retval = sysfs_create_file(&pdev->dev.kobj,
@@ -648,7 +731,7 @@ static int __devinit pch_phub_probe(struct pci_dev *pdev,
 					       CLKCFG_CAN_50MHZ,
 					       CLKCFG_CANCLK_MASK);
 
-		
+		/* quirk for CM-iTC board */
 		board_name = dmi_get_system_info(DMI_BOARD_NAME);
 		if (board_name && strstr(board_name, "CM-iTC"))
 			pch_phub_read_modify_write_reg(chip,
@@ -657,27 +740,36 @@ static int __devinit pch_phub_probe(struct pci_dev *pdev,
 						CLKCFG_PLL2VCO | CLKCFG_UARTCLKSEL,
 						CLKCFG_UART_MASK);
 
-		
+		/* set the prefech value */
 		iowrite32(0x000affaa, chip->pch_phub_base_address + 0x14);
-		
+		/* set the interrupt delay value */
 		iowrite32(0x25, chip->pch_phub_base_address + 0x44);
 		chip->pch_opt_rom_start_address = PCH_PHUB_ROM_START_ADDR_EG20T;
 		chip->pch_mac_start_address = PCH_PHUB_MAC_START_ADDR_EG20T;
-	} else if (id->driver_data == 2) { 
+	} else if (id->driver_data == 2) { /* ML7213 IOH */
 		retval = sysfs_create_bin_file(&pdev->dev.kobj, &pch_bin_attr);
 		if (retval)
 			goto err_sysfs_create;
+		/* set the prefech value
+		 * Device2(USB OHCI #1/ USB EHCI #1/ USB Device):a
+		 * Device4(SDIO #0,1,2):f
+		 * Device6(SATA 2):f
+		 * Device8(USB OHCI #0/ USB EHCI #0):a
+		 */
 		iowrite32(0x000affa0, chip->pch_phub_base_address + 0x14);
 		chip->pch_opt_rom_start_address =\
 						 PCH_PHUB_ROM_START_ADDR_ML7213;
-	} else if (id->driver_data == 3) { 
+	} else if (id->driver_data == 3) { /* ML7223 IOH Bus-m*/
+		/* set the prefech value
+		 * Device8(GbE)
+		 */
 		iowrite32(0x000a0000, chip->pch_phub_base_address + 0x14);
-		
+		/* set the interrupt delay value */
 		iowrite32(0x25, chip->pch_phub_base_address + 0x140);
 		chip->pch_opt_rom_start_address =\
 						 PCH_PHUB_ROM_START_ADDR_ML7223;
 		chip->pch_mac_start_address = PCH_PHUB_MAC_START_ADDR_ML7223;
-	} else if (id->driver_data == 4) { 
+	} else if (id->driver_data == 4) { /* ML7223 IOH Bus-n*/
 		retval = sysfs_create_file(&pdev->dev.kobj,
 					   &dev_attr_pch_mac.attr);
 		if (retval)
@@ -685,11 +777,16 @@ static int __devinit pch_phub_probe(struct pci_dev *pdev,
 		retval = sysfs_create_bin_file(&pdev->dev.kobj, &pch_bin_attr);
 		if (retval)
 			goto exit_bin_attr;
+		/* set the prefech value
+		 * Device2(USB OHCI #0,1,2,3/ USB EHCI #0):a
+		 * Device4(SDIO #0,1):f
+		 * Device6(SATA 2):f
+		 */
 		iowrite32(0x0000ffa0, chip->pch_phub_base_address + 0x14);
 		chip->pch_opt_rom_start_address =\
 						 PCH_PHUB_ROM_START_ADDR_ML7223;
 		chip->pch_mac_start_address = PCH_PHUB_MAC_START_ADDR_ML7223;
-	} else if (id->driver_data == 5) { 
+	} else if (id->driver_data == 5) { /* ML7831 */
 		retval = sysfs_create_file(&pdev->dev.kobj,
 					   &dev_attr_pch_mac.attr);
 		if (retval)
@@ -699,9 +796,9 @@ static int __devinit pch_phub_probe(struct pci_dev *pdev,
 		if (retval)
 			goto exit_bin_attr;
 
-		
+		/* set the prefech value */
 		iowrite32(0x000affaa, chip->pch_phub_base_address + 0x14);
-		
+		/* set the interrupt delay value */
 		iowrite32(0x25, chip->pch_phub_base_address + 0x44);
 		chip->pch_opt_rom_start_address = PCH_PHUB_ROM_START_ADDR_EG20T;
 		chip->pch_mac_start_address = PCH_PHUB_MAC_START_ADDR_EG20T;
@@ -779,7 +876,7 @@ static int pch_phub_resume(struct pci_dev *pdev)
 #else
 #define pch_phub_suspend NULL
 #define pch_phub_resume NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static struct pci_device_id pch_phub_pcidev_id[] = {
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_PCH1_PHUB),       1,  },

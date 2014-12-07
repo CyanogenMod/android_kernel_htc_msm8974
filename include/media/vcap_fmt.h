@@ -124,7 +124,7 @@ struct vcap_priv_fmt {
 	union {
 		struct v4l2_format_vc_ext timing;
 		struct v4l2_pix_format pix;
-		
+		/* Once VP is created there will be another type in here */
 	} u;
 };
 #endif

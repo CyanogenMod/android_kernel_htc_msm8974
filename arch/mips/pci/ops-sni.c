@@ -12,6 +12,15 @@
 #include <linux/types.h>
 #include <asm/sni.h>
 
+/*
+ * It seems that on the RM200 only lower 3 bits of the 5 bit PCI device
+ * address are decoded.  We therefore manually have to reject attempts at
+ * reading outside this range.  Being on the paranoid side we only do this
+ * test for bus 0 and hope forwarding and decoding work properly for any
+ * subordinated busses.
+ *
+ * ASIC PCI only supports type 1 config cycles.
+ */
 static int set_config_address(unsigned int busno, unsigned int devfn, int reg)
 {
 	if ((devfn > 255) || (reg > 255))
@@ -93,6 +102,11 @@ static int pcit_read(struct pci_bus *bus, unsigned int devfn, int reg,
 {
 	int res;
 
+	/*
+	 * on bus 0 we need to check, whether there is a device answering
+	 * for the devfn by doing a config write and checking the result. If
+	 * we don't do it, we will get a data bus error
+	 */
 	if (bus->number == 0) {
 		pcit_set_config_address(0, 0, 0x68);
 		outl(inl(0xcfc) | 0xc0000000, 0xcfc);

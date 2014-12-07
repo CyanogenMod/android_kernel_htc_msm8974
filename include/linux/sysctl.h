@@ -1,3 +1,23 @@
+/*
+ * sysctl.h: General linux system control interface
+ *
+ * Begun 24 March 1995, Stephen Tweedie
+ *
+ ****************************************************************
+ ****************************************************************
+ **
+ **  WARNING:
+ **  The values in this file are exported to user space via 
+ **  the sysctl() binary interface.  Do *NOT* change the
+ **  numbering of any existing values here, and do not change
+ **  any numbers within any one set of values.  If you have to
+ **  redefine an existing interface, use a new number for it.
+ **  The kernel will then return -ENOTDIR to any application using
+ **  the old binary interface.
+ **
+ ****************************************************************
+ ****************************************************************
+ */
 
 #ifndef _LINUX_SYSCTL_H
 #define _LINUX_SYSCTL_H
@@ -8,7 +28,10 @@
 
 struct completion;
 
-#define CTL_MAXNAME 10		
+#define CTL_MAXNAME 10		/* how many path components do we allow in a
+				   call to sysctl?   In other words, what is
+				   the largest acceptable value for the nlen
+				   member of a struct __sysctl_args to have? */
 
 struct __sysctl_args {
 	int __user *name;
@@ -20,157 +43,164 @@ struct __sysctl_args {
 	unsigned long __unused[4];
 };
 
+/* Define sysctl names first */
 
+/* Top-level names: */
 
 enum
 {
-	CTL_KERN=1,		
-	CTL_VM=2,		
-	CTL_NET=3,		
-	CTL_PROC=4,		
-	CTL_FS=5,		
-	CTL_DEBUG=6,		
-	CTL_DEV=7,		
-	CTL_BUS=8,		
-	CTL_ABI=9,		
-	CTL_CPU=10,		
-	CTL_ARLAN=254,		
-	CTL_S390DBF=5677,	
-	CTL_SUNRPC=7249,	
-	CTL_PM=9899,		
-	CTL_FRV=9898,		
+	CTL_KERN=1,		/* General kernel info and control */
+	CTL_VM=2,		/* VM management */
+	CTL_NET=3,		/* Networking */
+	CTL_PROC=4,		/* removal breaks strace(1) compilation */
+	CTL_FS=5,		/* Filesystems */
+	CTL_DEBUG=6,		/* Debugging */
+	CTL_DEV=7,		/* Devices */
+	CTL_BUS=8,		/* Busses */
+	CTL_ABI=9,		/* Binary emulation */
+	CTL_CPU=10,		/* CPU stuff (speed scaling, etc) */
+	CTL_ARLAN=254,		/* arlan wireless driver */
+	CTL_S390DBF=5677,	/* s390 debug */
+	CTL_SUNRPC=7249,	/* sunrpc debug */
+	CTL_PM=9899,		/* frv power management */
+	CTL_FRV=9898,		/* frv specific sysctls */
 };
 
+/* CTL_BUS names: */
 enum
 {
-	CTL_BUS_ISA=1		
+	CTL_BUS_ISA=1		/* ISA */
 };
 
+/* /proc/sys/fs/inotify/ */
 enum
 {
-	INOTIFY_MAX_USER_INSTANCES=1,	
-	INOTIFY_MAX_USER_WATCHES=2,	
-	INOTIFY_MAX_QUEUED_EVENTS=3	
+	INOTIFY_MAX_USER_INSTANCES=1,	/* max instances per user */
+	INOTIFY_MAX_USER_WATCHES=2,	/* max watches per user */
+	INOTIFY_MAX_QUEUED_EVENTS=3	/* max queued events per instance */
 };
 
+/* CTL_KERN names: */
 enum
 {
-	KERN_OSTYPE=1,		
-	KERN_OSRELEASE=2,	
-	KERN_OSREV=3,		
-	KERN_VERSION=4,		
-	KERN_SECUREMASK=5,	
-	KERN_PROF=6,		
-	KERN_NODENAME=7,	
-	KERN_DOMAINNAME=8,	
+	KERN_OSTYPE=1,		/* string: system version */
+	KERN_OSRELEASE=2,	/* string: system release */
+	KERN_OSREV=3,		/* int: system revision */
+	KERN_VERSION=4,		/* string: compile time info */
+	KERN_SECUREMASK=5,	/* struct: maximum rights mask */
+	KERN_PROF=6,		/* table: profiling information */
+	KERN_NODENAME=7,	/* string: hostname */
+	KERN_DOMAINNAME=8,	/* string: domainname */
 
-	KERN_PANIC=15,		
-	KERN_REALROOTDEV=16,	
+	KERN_PANIC=15,		/* int: panic timeout */
+	KERN_REALROOTDEV=16,	/* real root device to mount after initrd */
 
-	KERN_SPARC_REBOOT=21,	
-	KERN_CTLALTDEL=22,	
-	KERN_PRINTK=23,		
-	KERN_NAMETRANS=24,	
-	KERN_PPC_HTABRECLAIM=25, 
-	KERN_PPC_ZEROPAGED=26,	
-	KERN_PPC_POWERSAVE_NAP=27, 
-	KERN_MODPROBE=28,	
-	KERN_SG_BIG_BUFF=29,	
-	KERN_ACCT=30,		
-	KERN_PPC_L2CR=31,	
+	KERN_SPARC_REBOOT=21,	/* reboot command on Sparc */
+	KERN_CTLALTDEL=22,	/* int: allow ctl-alt-del to reboot */
+	KERN_PRINTK=23,		/* struct: control printk logging parameters */
+	KERN_NAMETRANS=24,	/* Name translation */
+	KERN_PPC_HTABRECLAIM=25, /* turn htab reclaimation on/off on PPC */
+	KERN_PPC_ZEROPAGED=26,	/* turn idle page zeroing on/off on PPC */
+	KERN_PPC_POWERSAVE_NAP=27, /* use nap mode for power saving */
+	KERN_MODPROBE=28,	/* string: modprobe path */
+	KERN_SG_BIG_BUFF=29,	/* int: sg driver reserved buffer size */
+	KERN_ACCT=30,		/* BSD process accounting parameters */
+	KERN_PPC_L2CR=31,	/* l2cr register on PPC */
 
-	KERN_RTSIGNR=32,	
-	KERN_RTSIGMAX=33,	
+	KERN_RTSIGNR=32,	/* Number of rt sigs queued */
+	KERN_RTSIGMAX=33,	/* Max queuable */
 	
-	KERN_SHMMAX=34,         
-	KERN_MSGMAX=35,         
-	KERN_MSGMNB=36,         
-	KERN_MSGPOOL=37,        
-	KERN_SYSRQ=38,		
-	KERN_MAX_THREADS=39,	
- 	KERN_RANDOM=40,		
- 	KERN_SHMALL=41,		
- 	KERN_MSGMNI=42,		
- 	KERN_SEM=43,		
- 	KERN_SPARC_STOP_A=44,	
- 	KERN_SHMMNI=45,		
-	KERN_OVERFLOWUID=46,	
-	KERN_OVERFLOWGID=47,	
-	KERN_SHMPATH=48,	
-	KERN_HOTPLUG=49,	
-	KERN_IEEE_EMULATION_WARNINGS=50, 
-	KERN_S390_USER_DEBUG_LOGGING=51,  
-	KERN_CORE_USES_PID=52,		
-	KERN_TAINTED=53,	
-	KERN_CADPID=54,		
-	KERN_PIDMAX=55,		
-  	KERN_CORE_PATTERN=56,	
-	KERN_PANIC_ON_OOPS=57,  
-	KERN_HPPA_PWRSW=58,	
-	KERN_HPPA_UNALIGNED=59,	
-	KERN_PRINTK_RATELIMIT=60, 
-	KERN_PRINTK_RATELIMIT_BURST=61,	
-	KERN_PTY=62,		
-	KERN_NGROUPS_MAX=63,	
-	KERN_SPARC_SCONS_PWROFF=64, 
-	KERN_HZ_TIMER=65,	
-	KERN_UNKNOWN_NMI_PANIC=66, 
-	KERN_BOOTLOADER_TYPE=67, 
-	KERN_RANDOMIZE=68, 
-	KERN_SETUID_DUMPABLE=69, 
-	KERN_SPIN_RETRY=70,	
-	KERN_ACPI_VIDEO_FLAGS=71, 
-	KERN_IA64_UNALIGNED=72, 
-	KERN_COMPAT_LOG=73,	
-	KERN_MAX_LOCK_DEPTH=74, 
-	KERN_NMI_WATCHDOG=75, 
-	KERN_PANIC_ON_NMI=76, 
-	KERN_BOOT_REASON = 77, 
-	KERN_COLD_BOOT = 78, 
+	KERN_SHMMAX=34,         /* long: Maximum shared memory segment */
+	KERN_MSGMAX=35,         /* int: Maximum size of a messege */
+	KERN_MSGMNB=36,         /* int: Maximum message queue size */
+	KERN_MSGPOOL=37,        /* int: Maximum system message pool size */
+	KERN_SYSRQ=38,		/* int: Sysreq enable */
+	KERN_MAX_THREADS=39,	/* int: Maximum nr of threads in the system */
+ 	KERN_RANDOM=40,		/* Random driver */
+ 	KERN_SHMALL=41,		/* int: Maximum size of shared memory */
+ 	KERN_MSGMNI=42,		/* int: msg queue identifiers */
+ 	KERN_SEM=43,		/* struct: sysv semaphore limits */
+ 	KERN_SPARC_STOP_A=44,	/* int: Sparc Stop-A enable */
+ 	KERN_SHMMNI=45,		/* int: shm array identifiers */
+	KERN_OVERFLOWUID=46,	/* int: overflow UID */
+	KERN_OVERFLOWGID=47,	/* int: overflow GID */
+	KERN_SHMPATH=48,	/* string: path to shm fs */
+	KERN_HOTPLUG=49,	/* string: path to uevent helper (deprecated) */
+	KERN_IEEE_EMULATION_WARNINGS=50, /* int: unimplemented ieee instructions */
+	KERN_S390_USER_DEBUG_LOGGING=51,  /* int: dumps of user faults */
+	KERN_CORE_USES_PID=52,		/* int: use core or core.%pid */
+	KERN_TAINTED=53,	/* int: various kernel tainted flags */
+	KERN_CADPID=54,		/* int: PID of the process to notify on CAD */
+	KERN_PIDMAX=55,		/* int: PID # limit */
+  	KERN_CORE_PATTERN=56,	/* string: pattern for core-file names */
+	KERN_PANIC_ON_OOPS=57,  /* int: whether we will panic on an oops */
+	KERN_HPPA_PWRSW=58,	/* int: hppa soft-power enable */
+	KERN_HPPA_UNALIGNED=59,	/* int: hppa unaligned-trap enable */
+	KERN_PRINTK_RATELIMIT=60, /* int: tune printk ratelimiting */
+	KERN_PRINTK_RATELIMIT_BURST=61,	/* int: tune printk ratelimiting */
+	KERN_PTY=62,		/* dir: pty driver */
+	KERN_NGROUPS_MAX=63,	/* int: NGROUPS_MAX */
+	KERN_SPARC_SCONS_PWROFF=64, /* int: serial console power-off halt */
+	KERN_HZ_TIMER=65,	/* int: hz timer on or off */
+	KERN_UNKNOWN_NMI_PANIC=66, /* int: unknown nmi panic flag */
+	KERN_BOOTLOADER_TYPE=67, /* int: boot loader type */
+	KERN_RANDOMIZE=68, /* int: randomize virtual address space */
+	KERN_SETUID_DUMPABLE=69, /* int: behaviour of dumps for setuid core */
+	KERN_SPIN_RETRY=70,	/* int: number of spinlock retries */
+	KERN_ACPI_VIDEO_FLAGS=71, /* int: flags for setting up video after ACPI sleep */
+	KERN_IA64_UNALIGNED=72, /* int: ia64 unaligned userland trap enable */
+	KERN_COMPAT_LOG=73,	/* int: print compat layer  messages */
+	KERN_MAX_LOCK_DEPTH=74, /* int: rtmutex's maximum lock depth */
+	KERN_NMI_WATCHDOG=75, /* int: enable/disable nmi watchdog */
+	KERN_PANIC_ON_NMI=76, /* int: whether we will panic on an unrecovered */
+	KERN_BOOT_REASON = 77, /* int: identify reason system was booted */
+	KERN_COLD_BOOT = 78, /* int: identify if system cold booted */
 };
 
 
 
+/* CTL_VM names: */
 enum
 {
-	VM_UNUSED1=1,		
-	VM_UNUSED2=2,		
-	VM_UNUSED3=3,		
-	VM_UNUSED4=4,		
-	VM_OVERCOMMIT_MEMORY=5,	
-	VM_UNUSED5=6,		
-	VM_UNUSED7=7,		
-	VM_UNUSED8=8,		
-	VM_UNUSED9=9,		
-	VM_PAGE_CLUSTER=10,	
-	VM_DIRTY_BACKGROUND=11,	
-	VM_DIRTY_RATIO=12,	
-	VM_DIRTY_WB_CS=13,	
-	VM_DIRTY_EXPIRE_CS=14,	
-	VM_NR_PDFLUSH_THREADS=15, 
-	VM_OVERCOMMIT_RATIO=16, 
-	VM_PAGEBUF=17,		
-	VM_HUGETLB_PAGES=18,	
-	VM_SWAPPINESS=19,	
-	VM_LOWMEM_RESERVE_RATIO=20,
-	VM_MIN_FREE_KBYTES=21,	
-	VM_MAX_MAP_COUNT=22,	
-	VM_LAPTOP_MODE=23,	
-	VM_BLOCK_DUMP=24,	
-	VM_HUGETLB_GROUP=25,	
-	VM_VFS_CACHE_PRESSURE=26, 
-	VM_LEGACY_VA_LAYOUT=27, 
-	VM_SWAP_TOKEN_TIMEOUT=28, 
-	VM_DROP_PAGECACHE=29,	
-	VM_PERCPU_PAGELIST_FRACTION=30,
-	VM_ZONE_RECLAIM_MODE=31, 
-	VM_MIN_UNMAPPED=32,	
-	VM_PANIC_ON_OOM=33,	
-	VM_VDSO_ENABLED=34,	
-	VM_MIN_SLAB=35,		 
+	VM_UNUSED1=1,		/* was: struct: Set vm swapping control */
+	VM_UNUSED2=2,		/* was; int: Linear or sqrt() swapout for hogs */
+	VM_UNUSED3=3,		/* was: struct: Set free page thresholds */
+	VM_UNUSED4=4,		/* Spare */
+	VM_OVERCOMMIT_MEMORY=5,	/* Turn off the virtual memory safety limit */
+	VM_UNUSED5=6,		/* was: struct: Set buffer memory thresholds */
+	VM_UNUSED7=7,		/* was: struct: Set cache memory thresholds */
+	VM_UNUSED8=8,		/* was: struct: Control kswapd behaviour */
+	VM_UNUSED9=9,		/* was: struct: Set page table cache parameters */
+	VM_PAGE_CLUSTER=10,	/* int: set number of pages to swap together */
+	VM_DIRTY_BACKGROUND=11,	/* dirty_background_ratio */
+	VM_DIRTY_RATIO=12,	/* dirty_ratio */
+	VM_DIRTY_WB_CS=13,	/* dirty_writeback_centisecs */
+	VM_DIRTY_EXPIRE_CS=14,	/* dirty_expire_centisecs */
+	VM_NR_PDFLUSH_THREADS=15, /* nr_pdflush_threads */
+	VM_OVERCOMMIT_RATIO=16, /* percent of RAM to allow overcommit in */
+	VM_PAGEBUF=17,		/* struct: Control pagebuf parameters */
+	VM_HUGETLB_PAGES=18,	/* int: Number of available Huge Pages */
+	VM_SWAPPINESS=19,	/* Tendency to steal mapped memory */
+	VM_LOWMEM_RESERVE_RATIO=20,/* reservation ratio for lower memory zones */
+	VM_MIN_FREE_KBYTES=21,	/* Minimum free kilobytes to maintain */
+	VM_MAX_MAP_COUNT=22,	/* int: Maximum number of mmaps/address-space */
+	VM_LAPTOP_MODE=23,	/* vm laptop mode */
+	VM_BLOCK_DUMP=24,	/* block dump mode */
+	VM_HUGETLB_GROUP=25,	/* permitted hugetlb group */
+	VM_VFS_CACHE_PRESSURE=26, /* dcache/icache reclaim pressure */
+	VM_LEGACY_VA_LAYOUT=27, /* legacy/compatibility virtual address space layout */
+	VM_SWAP_TOKEN_TIMEOUT=28, /* default time for token time out */
+	VM_DROP_PAGECACHE=29,	/* int: nuke lots of pagecache */
+	VM_PERCPU_PAGELIST_FRACTION=30,/* int: fraction of pages in each percpu_pagelist */
+	VM_ZONE_RECLAIM_MODE=31, /* reclaim local zone memory before going off node */
+	VM_MIN_UNMAPPED=32,	/* Set min percent of unmapped pages */
+	VM_PANIC_ON_OOM=33,	/* panic at out-of-memory */
+	VM_VDSO_ENABLED=34,	/* map VDSO into new processes? */
+	VM_MIN_SLAB=35,		 /* Percent pages ignored by zone reclaim */
 };
 
 
+/* CTL_NET names: */
 enum
 {
 	NET_CORE=1,
@@ -196,6 +226,7 @@ enum
 	NET_IRDA=412,
 };
 
+/* /proc/sys/kernel/random */
 enum
 {
 	RANDOM_POOLSIZE=1,
@@ -206,12 +237,14 @@ enum
 	RANDOM_UUID=6
 };
 
+/* /proc/sys/kernel/pty */
 enum
 {
 	PTY_MAX=1,
 	PTY_NR=2
 };
 
+/* /proc/sys/bus/isa */
 enum
 {
 	BUS_ISA_MEM_BASE=1,
@@ -219,12 +252,14 @@ enum
 	BUS_ISA_PORT_SHIFT=3
 };
 
+/* /proc/sys/net/core */
 enum
 {
 	NET_CORE_WMEM_MAX=1,
 	NET_CORE_RMEM_MAX=2,
 	NET_CORE_WMEM_DEFAULT=3,
 	NET_CORE_RMEM_DEFAULT=4,
+/* was	NET_CORE_DESTROY_DELAY */
 	NET_CORE_MAX_BACKLOG=6,
 	NET_CORE_FASTROUTE=7,
 	NET_CORE_MSG_COST=8,
@@ -244,8 +279,11 @@ enum
 	NET_CORE_WARNINGS=22,
 };
 
+/* /proc/sys/net/ethernet */
 
+/* /proc/sys/net/802 */
 
+/* /proc/sys/net/unix */
 
 enum
 {
@@ -254,6 +292,7 @@ enum
 	NET_UNIX_MAX_DGRAM_QLEN=3,
 };
 
+/* /proc/sys/net/netfilter */
 enum
 {
 	NET_NF_CONNTRACK_MAX=1,
@@ -290,9 +329,10 @@ enum
 	NET_NF_CONNTRACK_CHECKSUM=32,
 };
 
+/* /proc/sys/net/ipv4 */
 enum
 {
-	
+	/* v2.0 compatibile variables */
 	NET_IPV4_FORWARD=8,
 	NET_IPV4_DYNADDR=9,
 
@@ -391,13 +431,13 @@ enum
 
 enum {
 	NET_IPV4_ROUTE_FLUSH=1,
-	NET_IPV4_ROUTE_MIN_DELAY=2, 
-	NET_IPV4_ROUTE_MAX_DELAY=3, 
+	NET_IPV4_ROUTE_MIN_DELAY=2, /* obsolete since 2.6.25 */
+	NET_IPV4_ROUTE_MAX_DELAY=3, /* obsolete since 2.6.25 */
 	NET_IPV4_ROUTE_GC_THRESH=4,
 	NET_IPV4_ROUTE_MAX_SIZE=5,
 	NET_IPV4_ROUTE_GC_MIN_INTERVAL=6,
 	NET_IPV4_ROUTE_GC_TIMEOUT=7,
-	NET_IPV4_ROUTE_GC_INTERVAL=8, 
+	NET_IPV4_ROUTE_GC_INTERVAL=8, /* obsolete since 2.6.38 */
 	NET_IPV4_ROUTE_REDIRECT_LOAD=9,
 	NET_IPV4_ROUTE_REDIRECT_NUMBER=10,
 	NET_IPV4_ROUTE_REDIRECT_SILENCE=11,
@@ -416,7 +456,7 @@ enum
 	NET_PROTO_CONF_ALL=-2,
 	NET_PROTO_CONF_DEFAULT=-3
 
-	
+	/* And device ifindices ... */
 };
 
 enum
@@ -445,6 +485,7 @@ enum
 	NET_IPV4_CONF_ARP_NOTIFY=22,
 };
 
+/* /proc/sys/net/ipv4/netfilter */
 enum
 {
 	NET_IPV4_NF_CONNTRACK_MAX=1,
@@ -477,6 +518,7 @@ enum
 	NET_IPV4_NF_CONNTRACK_CHECKSUM=28,
 };
  
+/* /proc/sys/net/ipv6 */
 enum {
 	NET_IPV6_CONF=16,
 	NET_IPV6_NEIGH=17,
@@ -531,10 +573,12 @@ enum {
 	__NET_IPV6_MAX
 };
 
+/* /proc/sys/net/ipv6/icmp */
 enum {
 	NET_IPV6_ICMP_RATELIMIT=1
 };
 
+/* /proc/sys/net/<protocol>/neigh/<dev> */
 enum {
 	NET_NEIGH_MCAST_SOLICIT=1,
 	NET_NEIGH_UCAST_SOLICIT=2,
@@ -556,28 +600,34 @@ enum {
 	NET_NEIGH_REACHABLE_TIME_MS=18,
 };
 
+/* /proc/sys/net/dccp */
 enum {
 	NET_DCCP_DEFAULT=1,
 };
 
+/* /proc/sys/net/ipx */
 enum {
 	NET_IPX_PPROP_BROADCASTING=1,
 	NET_IPX_FORWARDING=2
 };
 
+/* /proc/sys/net/llc */
 enum {
 	NET_LLC2=1,
 	NET_LLC_STATION=2,
 };
 
+/* /proc/sys/net/llc/llc2 */
 enum {
 	NET_LLC2_TIMEOUT=1,
 };
 
+/* /proc/sys/net/llc/station */
 enum {
 	NET_LLC_STATION_ACK_TIMEOUT=1,
 };
 
+/* /proc/sys/net/llc/llc2/timeout */
 enum {
 	NET_LLC2_ACK_TIMEOUT=1,
 	NET_LLC2_P_TIMEOUT=2,
@@ -585,6 +635,7 @@ enum {
 	NET_LLC2_BUSY_TIMEOUT=4,
 };
 
+/* /proc/sys/net/appletalk */
 enum {
 	NET_ATALK_AARP_EXPIRY_TIME=1,
 	NET_ATALK_AARP_TICK_TIME=2,
@@ -593,6 +644,7 @@ enum {
 };
 
 
+/* /proc/sys/net/netrom */
 enum {
 	NET_NETROM_DEFAULT_PATH_QUALITY=1,
 	NET_NETROM_OBSOLESCENCE_COUNT_INITIALISER=2,
@@ -608,6 +660,7 @@ enum {
 	NET_NETROM_RESET=12
 };
 
+/* /proc/sys/net/ax25 */
 enum {
 	NET_AX25_IP_DEFAULT_MODE=1,
 	NET_AX25_DEFAULT_MODE=2,
@@ -625,6 +678,7 @@ enum {
 	NET_AX25_DAMA_SLAVE_TIMEOUT=14
 };
 
+/* /proc/sys/net/rose */
 enum {
 	NET_ROSE_RESTART_REQUEST_TIMEOUT=1,
 	NET_ROSE_CALL_REQUEST_TIMEOUT=2,
@@ -638,6 +692,7 @@ enum {
 	NET_ROSE_NO_ACTIVITY_TIMEOUT=10
 };
 
+/* /proc/sys/net/x25 */
 enum {
 	NET_X25_RESTART_REQUEST_TIMEOUT=1,
 	NET_X25_CALL_REQUEST_TIMEOUT=2,
@@ -647,11 +702,13 @@ enum {
 	NET_X25_FORWARD=6
 };
 
+/* /proc/sys/net/token-ring */
 enum
 {
 	NET_TR_RIF_TIMEOUT=1
 };
 
+/* /proc/sys/net/decnet/ */
 enum {
 	NET_DECNET_NODE_TYPE = 1,
 	NET_DECNET_NODE_ADDRESS = 2,
@@ -670,6 +727,7 @@ enum {
 	NET_DECNET_DEBUG_LEVEL = 255
 };
 
+/* /proc/sys/net/decnet/conf/<dev> */
 enum {
 	NET_DECNET_CONF_LOOPBACK = -2,
 	NET_DECNET_CONF_DDCMP = -3,
@@ -678,9 +736,10 @@ enum {
 	NET_DECNET_CONF_GRE = -6,
 	NET_DECNET_CONF_ETHER = -7
 
-	
+	/* ... and ifindex of devices */
 };
 
+/* /proc/sys/net/decnet/conf/<dev>/ */
 enum {
 	NET_DECNET_CONF_DEV_PRIORITY = 1,
 	NET_DECNET_CONF_DEV_T1 = 2,
@@ -691,6 +750,7 @@ enum {
 	NET_DECNET_CONF_DEV_STATE = 7
 };
 
+/* /proc/sys/net/sctp */
 enum {
 	NET_SCTP_RTO_INITIAL = 1,
 	NET_SCTP_RTO_MIN     = 2,
@@ -711,6 +771,7 @@ enum {
 	NET_SCTP_RCVBUF_POLICY		 = 17,
 };
 
+/* /proc/sys/net/bridge */
 enum {
 	NET_BRIDGE_NF_CALL_ARPTABLES = 1,
 	NET_BRIDGE_NF_CALL_IPTABLES = 2,
@@ -719,6 +780,7 @@ enum {
 	NET_BRIDGE_NF_FILTER_PPPOE_TAGGED = 5,
 };
 
+/* proc/sys/net/irda */
 enum {
 	NET_IRDA_DISCOVERY=1,
 	NET_IRDA_DEVNAME=2,
@@ -737,31 +799,33 @@ enum {
 };
 
 
+/* CTL_FS names: */
 enum
 {
-	FS_NRINODE=1,	
+	FS_NRINODE=1,	/* int:current number of allocated inodes */
 	FS_STATINODE=2,
-	FS_MAXINODE=3,	
-	FS_NRDQUOT=4,	
-	FS_MAXDQUOT=5,	
-	FS_NRFILE=6,	
-	FS_MAXFILE=7,	
+	FS_MAXINODE=3,	/* int:maximum number of inodes that can be allocated */
+	FS_NRDQUOT=4,	/* int:current number of allocated dquots */
+	FS_MAXDQUOT=5,	/* int:maximum number of dquots that can be allocated */
+	FS_NRFILE=6,	/* int:current number of allocated filedescriptors */
+	FS_MAXFILE=7,	/* int:maximum number of filedescriptors that can be allocated */
 	FS_DENTRY=8,
-	FS_NRSUPER=9,	
-	FS_MAXSUPER=10,	
-	FS_OVERFLOWUID=11,	
-	FS_OVERFLOWGID=12,	
-	FS_LEASES=13,	
-	FS_DIR_NOTIFY=14,	
-	FS_LEASE_TIME=15,	
-	FS_DQSTATS=16,	
-	FS_XFS=17,	
-	FS_AIO_NR=18,	
-	FS_AIO_MAX_NR=19,	
-	FS_INOTIFY=20,	
-	FS_OCFS2=988,	
+	FS_NRSUPER=9,	/* int:current number of allocated super_blocks */
+	FS_MAXSUPER=10,	/* int:maximum number of super_blocks that can be allocated */
+	FS_OVERFLOWUID=11,	/* int: overflow UID */
+	FS_OVERFLOWGID=12,	/* int: overflow GID */
+	FS_LEASES=13,	/* int: leases enabled */
+	FS_DIR_NOTIFY=14,	/* int: directory notification enabled */
+	FS_LEASE_TIME=15,	/* int: maximum time to wait for a lease break */
+	FS_DQSTATS=16,	/* disc quota usage statistics and control */
+	FS_XFS=17,	/* struct: control xfs parameters */
+	FS_AIO_NR=18,	/* current system-wide number of aio requests */
+	FS_AIO_MAX_NR=19,	/* system-wide maximum number of aio requests */
+	FS_INOTIFY=20,	/* inotify submenu */
+	FS_OCFS2=988,	/* ocfs2 */
 };
 
+/* /proc/sys/fs/quota/ */
 enum {
 	FS_DQ_LOOKUPS = 1,
 	FS_DQ_DROPS = 2,
@@ -774,7 +838,9 @@ enum {
 	FS_DQ_WARNINGS = 9,
 };
 
+/* CTL_DEBUG names: */
 
+/* CTL_DEV names: */
 enum {
 	DEV_CDROM=1,
 	DEV_HWMON=2,
@@ -785,6 +851,7 @@ enum {
 	DEV_IPMI=7,
 };
 
+/* /proc/sys/dev/cdrom */
 enum {
 	DEV_CDROM_INFO=1,
 	DEV_CDROM_AUTOCLOSE=2,
@@ -794,20 +861,24 @@ enum {
 	DEV_CDROM_CHECK_MEDIA=6
 };
 
+/* /proc/sys/dev/parport */
 enum {
 	DEV_PARPORT_DEFAULT=-3
 };
 
+/* /proc/sys/dev/raid */
 enum {
 	DEV_RAID_SPEED_LIMIT_MIN=1,
 	DEV_RAID_SPEED_LIMIT_MAX=2
 };
 
+/* /proc/sys/dev/parport/default */
 enum {
 	DEV_PARPORT_DEFAULT_TIMESLICE=1,
 	DEV_PARPORT_DEFAULT_SPINTIME=2
 };
 
+/* /proc/sys/dev/parport/parport n */
 enum {
 	DEV_PARPORT_SPINTIME=1,
 	DEV_PARPORT_BASE_ADDR=2,
@@ -818,14 +889,17 @@ enum {
 	DEV_PARPORT_AUTOPROBE=16
 };
 
+/* /proc/sys/dev/parport/parport n/devices/ */
 enum {
 	DEV_PARPORT_DEVICES_ACTIVE=-3,
 };
 
+/* /proc/sys/dev/parport/parport n/devices/device n */
 enum {
 	DEV_PARPORT_DEVICE_TIMESLICE=1,
 };
 
+/* /proc/sys/dev/mac_hid */
 enum {
 	DEV_MAC_HID_KEYBOARD_SENDS_LINUX_KEYCODES=1,
 	DEV_MAC_HID_KEYBOARD_LOCK_KEYCODES=2,
@@ -835,22 +909,25 @@ enum {
 	DEV_MAC_HID_ADB_MOUSE_SENDS_KEYCODES=6
 };
 
+/* /proc/sys/dev/scsi */
 enum {
 	DEV_SCSI_LOGGING_LEVEL=1,
 };
 
+/* /proc/sys/dev/ipmi */
 enum {
 	DEV_IPMI_POWEROFF_POWERCYCLE=1,
 };
 
+/* /proc/sys/abi */
 enum
 {
-	ABI_DEFHANDLER_COFF=1,	
-	ABI_DEFHANDLER_ELF=2, 	
-	ABI_DEFHANDLER_LCALL7=3,
-	ABI_DEFHANDLER_LIBCSO=4,
-	ABI_TRACE=5,		
-	ABI_FAKE_UTSNAME=6,	
+	ABI_DEFHANDLER_COFF=1,	/* default handler for coff binaries */
+	ABI_DEFHANDLER_ELF=2, 	/* default handler for ELF binaries */
+	ABI_DEFHANDLER_LCALL7=3,/* default handler for procs using lcall7 */
+	ABI_DEFHANDLER_LIBCSO=4,/* default handler for an libc.so ELF interp */
+	ABI_TRACE=5,		/* tracing flags */
+	ABI_FAKE_UTSNAME=6,	/* fake target utsname information */
 };
 
 #ifdef __KERNEL__
@@ -859,6 +936,7 @@ enum
 #include <linux/wait.h>
 #include <linux/rbtree.h>
 
+/* For the /proc/sys support */
 struct ctl_table;
 struct nsproxy;
 struct ctl_table_root;
@@ -916,6 +994,7 @@ extern int proc_do_large_bitmap(struct ctl_table *, int,
  * cover common cases.
  */
 
+/* Support for userspace poll() to watch for changes */
 struct ctl_table_poll {
 	atomic_t event;
 	wait_queue_head_t wait;
@@ -933,14 +1012,15 @@ static inline void *proc_sys_poll_event(struct ctl_table_poll *poll)
 #define DEFINE_CTL_TABLE_POLL(name)					\
 	struct ctl_table_poll name = __CTL_TABLE_POLL_INITIALIZER(name)
 
+/* A sysctl table is an array of struct ctl_table: */
 struct ctl_table 
 {
-	const char *procname;		
+	const char *procname;		/* Text ID for /proc/sys, or zero */
 	void *data;
 	int maxlen;
 	umode_t mode;
-	struct ctl_table *child;	
-	proc_handler *proc_handler;	
+	struct ctl_table *child;	/* Deprecated */
+	proc_handler *proc_handler;	/* Callback for text formatting */
 	struct ctl_table_poll *poll;
 	void *extra1;
 	void *extra2;
@@ -951,6 +1031,8 @@ struct ctl_node {
 	struct ctl_table_header *header;
 };
 
+/* struct ctl_table_header is used to maintain dynamic lists of
+   struct ctl_table trees. */
 struct ctl_table_header
 {
 	union {
@@ -971,7 +1053,7 @@ struct ctl_table_header
 };
 
 struct ctl_dir {
-	
+	/* Header must be at the start of ctl_dir */
 	struct ctl_table_header header;
 	struct rb_root root;
 };
@@ -989,6 +1071,7 @@ struct ctl_table_root {
 			struct nsproxy *namespaces, struct ctl_table *table);
 };
 
+/* struct ctl_path describes where in the hierarchy a table is added */
 struct ctl_path {
 	const char *procname;
 };
@@ -1017,7 +1100,7 @@ struct ctl_table_header *register_sysctl_paths(const struct ctl_path *path,
 void unregister_sysctl_table(struct ctl_table_header * table);
 
 extern int sysctl_init(void);
-#else 
+#else /* CONFIG_SYSCTL */
 static inline struct ctl_table_header *register_sysctl_table(struct ctl_table * table)
 {
 	return NULL;
@@ -1039,8 +1122,8 @@ static inline void setup_sysctl_set(struct ctl_table_set *p,
 {
 }
 
-#endif 
+#endif /* CONFIG_SYSCTL */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _LINUX_SYSCTL_H */

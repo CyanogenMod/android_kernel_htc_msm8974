@@ -53,7 +53,7 @@ enum {
 };
 
 struct cmac_statistics {
-	
+	/* Transmit */
 	u64 TxOctetsOK;
 	u64 TxOctetsBad;
 	u64 TxUnicastFramesOK;
@@ -72,7 +72,7 @@ struct cmac_statistics {
 	u64 TxJumboFramesOK;
 	u64 TxJumboOctetsOK;
 
-	
+	/* Receive */
 	u64 RxOctetsOK;
 	u64 RxOctetsBad;
 	u64 RxUnicastFramesOK;
@@ -139,4 +139,4 @@ struct gmac {
 extern const struct gmac t1_pm3393_ops;
 extern const struct gmac t1_vsc7326_ops;
 
-#endif 
+#endif /* _CXGB_GMAC_H_ */

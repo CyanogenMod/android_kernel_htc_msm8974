@@ -68,6 +68,8 @@ static int __init cbe_powerbutton_init(void)
 	dev->name = "Power Button";
 	dev->id.bustype = BUS_HOST;
 
+	/* this makes the button look like an acpi power button
+	 * no clue whether anyone relies on that though */
 	dev->id.product = 0x02;
 	dev->phys = "LNXPWRBN/button/input0";
 

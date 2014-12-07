@@ -111,7 +111,7 @@ static inline void dnrmg_receive_user_skb(struct sk_buff *skb)
 	if (!capable(CAP_NET_ADMIN))
 		RCV_SKB_FAIL(-EPERM);
 
-	
+	/* Eventually we might send routing messages too */
 
 	RCV_SKB_FAIL(-EINVAL);
 }

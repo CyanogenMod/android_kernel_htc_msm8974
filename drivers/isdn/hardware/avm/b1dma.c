@@ -34,6 +34,7 @@ static char *revision = "$Revision: 1.1.2.3 $";
 
 #undef AVM_B1DMA_DEBUG
 
+/* ------------------------------------------------------------- */
 
 MODULE_DESCRIPTION("CAPI4Linux: DMA support for active AVM cards");
 MODULE_AUTHOR("Carsten Paeth");
@@ -42,10 +43,13 @@ MODULE_LICENSE("GPL");
 static bool suppress_pollack = 0;
 module_param(suppress_pollack, bool, 0);
 
+/* ------------------------------------------------------------- */
 
 static void b1dma_dispatch_tx(avmcard *card);
 
+/* ------------------------------------------------------------- */
 
+/* S5933 */
 
 #define	AMCC_RXPTR	0x24
 #define	AMCC_RXLEN	0x28
@@ -77,6 +81,7 @@ static void b1dma_dispatch_tx(avmcard *card);
 #	define RESET_A2P_FLAGS		0x04000000L
 #	define RESET_P2A_FLAGS		0x02000000L
 
+/* ------------------------------------------------------------- */
 
 static inline void b1dma_writel(avmcard *card, u32 value, int off)
 {
@@ -88,6 +93,7 @@ static inline u32 b1dma_readl(avmcard *card, int off)
 	return readl(card->mbase + off);
 }
 
+/* ------------------------------------------------------------- */
 
 static inline int b1dma_tx_empty(unsigned int port)
 {
@@ -101,7 +107,7 @@ static inline int b1dma_rx_full(unsigned int port)
 
 static int b1dma_tolink(avmcard *card, void *buf, unsigned int len)
 {
-	unsigned long stop = jiffies + 1 * HZ;	
+	unsigned long stop = jiffies + 1 * HZ;	/* maximum wait time 1 sec */
 	unsigned char *s = (unsigned char *)buf;
 	while (len--) {
 		while (!b1dma_tx_empty(card->port)
@@ -115,7 +121,7 @@ static int b1dma_tolink(avmcard *card, void *buf, unsigned int len)
 
 static int b1dma_fromlink(avmcard *card, void *buf, unsigned int len)
 {
-	unsigned long stop = jiffies + 1 * HZ;	
+	unsigned long stop = jiffies + 1 * HZ;	/* maximum wait time 1 sec */
 	unsigned char *s = (unsigned char *)buf;
 	while (len--) {
 		while (!b1dma_rx_full(card->port)
@@ -150,6 +156,7 @@ static u8 ReadReg(avmcard *card, u32 reg)
 	return 0xff;
 }
 
+/* ------------------------------------------------------------- */
 
 static inline void _put_byte(void **pp, u8 val)
 {
@@ -206,6 +213,7 @@ static inline u32 _get_slice(void **pp, unsigned char *dp)
 	return len;
 }
 
+/* ------------------------------------------------------------- */
 
 void b1dma_reset(avmcard *card)
 {
@@ -220,7 +228,7 @@ void b1dma_reset(avmcard *card)
 
 	b1dma_writel(card, 0, AMCC_MCSR);
 	mdelay(10);
-	b1dma_writel(card, 0x0f000000, AMCC_MCSR); 
+	b1dma_writel(card, 0x0f000000, AMCC_MCSR); /* reset all */
 	mdelay(10);
 	b1dma_writel(card, 0, AMCC_MCSR);
 	if (card->cardtype == avm_t1pci)
@@ -229,12 +237,13 @@ void b1dma_reset(avmcard *card)
 		mdelay(10);
 }
 
+/* ------------------------------------------------------------- */
 
 static int b1dma_detect(avmcard *card)
 {
 	b1dma_writel(card, 0, AMCC_MCSR);
 	mdelay(10);
-	b1dma_writel(card, 0x0f000000, AMCC_MCSR); 
+	b1dma_writel(card, 0x0f000000, AMCC_MCSR); /* reset all */
 	mdelay(10);
 	b1dma_writel(card, 0, AMCC_MCSR);
 	mdelay(42);
@@ -286,7 +295,7 @@ int t1pci_detect(avmcard *card)
 	if ((ret = b1dma_detect(card)) != 0)
 		return ret;
 
-	
+	/* Transputer test */
 
 	if (WriteReg(card, 0x80001000, 0x11) != 0
 	    || WriteReg(card, 0x80101000, 0x22) != 0
@@ -354,6 +363,7 @@ static void b1dma_queue_tx(avmcard *card, struct sk_buff *skb)
 	spin_unlock_irqrestore(&card->lock, flags);
 }
 
+/* ------------------------------------------------------------- */
 
 static void b1dma_dispatch_tx(avmcard *card)
 {
@@ -410,6 +420,7 @@ static void b1dma_dispatch_tx(avmcard *card)
 	dev_kfree_skb_any(skb);
 }
 
+/* ------------------------------------------------------------- */
 
 static void queue_pollack(avmcard *card)
 {
@@ -431,6 +442,7 @@ static void queue_pollack(avmcard *card)
 	b1dma_queue_tx(card, skb);
 }
 
+/* ------------------------------------------------------------- */
 
 static void b1dma_handle_rx(avmcard *card)
 {
@@ -453,7 +465,7 @@ static void b1dma_handle_rx(avmcard *card)
 		MsgLen = _get_slice(&p, card->msgbuf);
 		DataB3Len = _get_slice(&p, card->databuf);
 
-		if (MsgLen < 30) { 
+		if (MsgLen < 30) { /* not CAPI 64Bit */
 			memset(card->msgbuf + MsgLen, 0, 30 - MsgLen);
 			MsgLen = 30;
 			CAPIMSG_SETLEN(card->msgbuf, 30);
@@ -567,6 +579,7 @@ static void b1dma_handle_rx(avmcard *card)
 	}
 }
 
+/* ------------------------------------------------------------- */
 
 static void b1dma_handle_interrupt(avmcard *card)
 {
@@ -631,6 +644,7 @@ irqreturn_t b1dma_interrupt(int interrupt, void *devptr)
 	return IRQ_HANDLED;
 }
 
+/* ------------------------------------------------------------- */
 
 static int b1dma_loaded(avmcard *card)
 {
@@ -662,6 +676,7 @@ static int b1dma_loaded(avmcard *card)
 	return 0;
 }
 
+/* ------------------------------------------------------------- */
 
 static void b1dma_send_init(avmcard *card)
 {
@@ -750,6 +765,7 @@ void b1dma_reset_ctr(struct capi_ctr *ctrl)
 	capi_ctr_down(ctrl);
 }
 
+/* ------------------------------------------------------------- */
 
 void b1dma_register_appl(struct capi_ctr *ctrl,
 			 u16 appl,
@@ -786,6 +802,7 @@ void b1dma_register_appl(struct capi_ctr *ctrl,
 	b1dma_queue_tx(card, skb);
 }
 
+/* ------------------------------------------------------------- */
 
 void b1dma_release_appl(struct capi_ctr *ctrl, u16 appl)
 {
@@ -816,6 +833,7 @@ void b1dma_release_appl(struct capi_ctr *ctrl, u16 appl)
 	b1dma_queue_tx(card, skb);
 }
 
+/* ------------------------------------------------------------- */
 
 u16 b1dma_send_message(struct capi_ctr *ctrl, struct sk_buff *skb)
 {
@@ -838,6 +856,7 @@ u16 b1dma_send_message(struct capi_ctr *ctrl, struct sk_buff *skb)
 	return retval;
 }
 
+/* ------------------------------------------------------------- */
 
 static int b1dmactl_proc_show(struct seq_file *m, void *v)
 {
@@ -937,6 +956,7 @@ const struct file_operations b1dmactl_proc_fops = {
 };
 EXPORT_SYMBOL(b1dmactl_proc_fops);
 
+/* ------------------------------------------------------------- */
 
 EXPORT_SYMBOL(b1dma_reset);
 EXPORT_SYMBOL(t1pci_detect);

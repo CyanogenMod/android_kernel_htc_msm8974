@@ -43,99 +43,99 @@ struct  cs42l73_private {
 };
 
 static const struct reg_default cs42l73_reg_defaults[] = {
-	{ 1, 0x42 },	
-	{ 2, 0xA7 },	
-	{ 3, 0x30 },	
-	{ 6, 0xF1 },	
-	{ 7, 0xDF },	
-	{ 8, 0x3F },	
-	{ 9, 0x50 },	
-	{ 10, 0x53 },	
-	{ 11, 0x00 },	
-	{ 12, 0x00 },	
-	{ 13, 0x15 },	
-	{ 14, 0x00 },	
-	{ 15, 0x15 },	
-	{ 16, 0x00 },	
-	{ 17, 0x15 },	
-	{ 18, 0x00 },	
-	{ 19, 0x06 },	
-	{ 20, 0x00 },	
-	{ 21, 0x00 },	
-	{ 22, 0x00 },	
-	{ 23, 0x00 },	
-	{ 24, 0x00 },	
-	{ 25, 0x00 },	
-	{ 26, 0x00 },	
-	{ 27, 0x00 },	
-	{ 28, 0x00 },	
-	{ 29, 0x00 },	
-	{ 30, 0x00 },	
-	{ 31, 0x00 },	
-	{ 32, 0x00 },	
-	{ 33, 0x00 },	
-	{ 34, 0x00 },	
-	{ 35, 0x00 },	
-	{ 36, 0x00 },	
-	{ 37, 0x00 },	
-	{ 38, 0x00 },	
-	{ 39, 0x7F },	
-	{ 40, 0x00 },	
-	{ 41, 0x00 },	
-	{ 42, 0x3F },	
-	{ 43, 0x00 },	
-	{ 44, 0x00 },	
-	{ 45, 0x3F },	
-	{ 46, 0x00 },	
-	{ 47, 0x00 },	
-	{ 48, 0x3F },	
-	{ 49, 0x00 },	
-	{ 50, 0x00 },	
-	{ 51, 0x00 },	
-	{ 52, 0x18 },	
-	{ 53, 0x3F },	
-	{ 54, 0x3F },	
-	{ 55, 0x3F },	
-	{ 56, 0x3F },	
-	{ 57, 0x3F },	
-	{ 58, 0x3F },	
-	{ 59, 0x3F },	
-	{ 60, 0x3F },	
-	{ 61, 0x3F },	
-	{ 62, 0x3F },	
-	{ 63, 0x3F },	
-	{ 64, 0x3F },	
-	{ 65, 0x3F },	
-	{ 66, 0x3F },	
-	{ 67, 0x3F },	
-	{ 68, 0x3F },	
-	{ 69, 0x3F },	
-	{ 70, 0x3F },	
-	{ 71, 0x3F },	
-	{ 72, 0x3F },	
-	{ 73, 0x3F },	
-	{ 74, 0x3F },	
-	{ 75, 0x3F },	
-	{ 76, 0x3F },	
-	{ 77, 0x3F },	
-	{ 78, 0x3F },	
-	{ 79, 0x3F },	
-	{ 80, 0x3F },	
-	{ 81, 0x3F },	
-	{ 82, 0x3F },	
-	{ 83, 0x3F },	
-	{ 84, 0x3F },	
-	{ 85, 0xAA },	
-	{ 86, 0x3F },	
-	{ 87, 0x3F },	
-	{ 88, 0x3F },	
-	{ 89, 0x3F },	
-	{ 90, 0x3F },	
-	{ 91, 0x3F },	
-	{ 92, 0x3F },	
-	{ 93, 0x3F },	
-	{ 94, 0x00 },	
-	{ 95, 0x00 },	
+	{ 1, 0x42 },	/* r01	- Device ID A&B */
+	{ 2, 0xA7 },	/* r02	- Device ID C&D */
+	{ 3, 0x30 },	/* r03	- Device ID E */
+	{ 6, 0xF1 },	/* r06	- Power Ctl 1 */
+	{ 7, 0xDF },	/* r07	- Power Ctl 2 */
+	{ 8, 0x3F },	/* r08	- Power Ctl 3 */
+	{ 9, 0x50 },	/* r09	- Charge Pump Freq */
+	{ 10, 0x53 },	/* r0A	- Output Load MicBias Short Detect */
+	{ 11, 0x00 },	/* r0B	- DMIC Master Clock Ctl */
+	{ 12, 0x00 },	/* r0C	- Aux PCM Ctl */
+	{ 13, 0x15 },	/* r0D	- Aux PCM Master Clock Ctl */
+	{ 14, 0x00 },	/* r0E	- Audio PCM Ctl */
+	{ 15, 0x15 },	/* r0F	- Audio PCM Master Clock Ctl */
+	{ 16, 0x00 },	/* r10	- Voice PCM Ctl */
+	{ 17, 0x15 },	/* r11	- Voice PCM Master Clock Ctl */
+	{ 18, 0x00 },	/* r12	- Voice/Aux Sample Rate */
+	{ 19, 0x06 },	/* r13	- Misc I/O Path Ctl */
+	{ 20, 0x00 },	/* r14	- ADC Input Path Ctl */
+	{ 21, 0x00 },	/* r15	- MICA Preamp, PGA Volume */
+	{ 22, 0x00 },	/* r16	- MICB Preamp, PGA Volume */
+	{ 23, 0x00 },	/* r17	- Input Path A Digital Volume */
+	{ 24, 0x00 },	/* r18	- Input Path B Digital Volume */
+	{ 25, 0x00 },	/* r19	- Playback Digital Ctl */
+	{ 26, 0x00 },	/* r1A	- HP/LO Left Digital Volume */
+	{ 27, 0x00 },	/* r1B	- HP/LO Right Digital Volume */
+	{ 28, 0x00 },	/* r1C	- Speakerphone Digital Volume */
+	{ 29, 0x00 },	/* r1D	- Ear/SPKLO Digital Volume */
+	{ 30, 0x00 },	/* r1E	- HP Left Analog Volume */
+	{ 31, 0x00 },	/* r1F	- HP Right Analog Volume */
+	{ 32, 0x00 },	/* r20	- LO Left Analog Volume */
+	{ 33, 0x00 },	/* r21	- LO Right Analog Volume */
+	{ 34, 0x00 },	/* r22	- Stereo Input Path Advisory Volume */
+	{ 35, 0x00 },	/* r23	- Aux PCM Input Advisory Volume */
+	{ 36, 0x00 },	/* r24	- Audio PCM Input Advisory Volume */
+	{ 37, 0x00 },	/* r25	- Voice PCM Input Advisory Volume */
+	{ 38, 0x00 },	/* r26	- Limiter Attack Rate HP/LO */
+	{ 39, 0x7F },	/* r27	- Limter Ctl, Release Rate HP/LO */
+	{ 40, 0x00 },	/* r28	- Limter Threshold HP/LO */
+	{ 41, 0x00 },	/* r29	- Limiter Attack Rate Speakerphone */
+	{ 42, 0x3F },	/* r2A	- Limter Ctl, Release Rate Speakerphone */
+	{ 43, 0x00 },	/* r2B	- Limter Threshold Speakerphone */
+	{ 44, 0x00 },	/* r2C	- Limiter Attack Rate Ear/SPKLO */
+	{ 45, 0x3F },	/* r2D	- Limter Ctl, Release Rate Ear/SPKLO */
+	{ 46, 0x00 },	/* r2E	- Limter Threshold Ear/SPKLO */
+	{ 47, 0x00 },	/* r2F	- ALC Enable, Attack Rate Left/Right */
+	{ 48, 0x3F },	/* r30	- ALC Release Rate Left/Right */
+	{ 49, 0x00 },	/* r31	- ALC Threshold Left/Right */
+	{ 50, 0x00 },	/* r32	- Noise Gate Ctl Left/Right */
+	{ 51, 0x00 },	/* r33	- ALC/NG Misc Ctl */
+	{ 52, 0x18 },	/* r34	- Mixer Ctl */
+	{ 53, 0x3F },	/* r35	- HP/LO Left Mixer Input Path Volume */
+	{ 54, 0x3F },	/* r36	- HP/LO Right Mixer Input Path Volume */
+	{ 55, 0x3F },	/* r37	- HP/LO Left Mixer Aux PCM Volume */
+	{ 56, 0x3F },	/* r38	- HP/LO Right Mixer Aux PCM Volume */
+	{ 57, 0x3F },	/* r39	- HP/LO Left Mixer Audio PCM Volume */
+	{ 58, 0x3F },	/* r3A	- HP/LO Right Mixer Audio PCM Volume */
+	{ 59, 0x3F },	/* r3B	- HP/LO Left Mixer Voice PCM Mono Volume */
+	{ 60, 0x3F },	/* r3C	- HP/LO Right Mixer Voice PCM Mono Volume */
+	{ 61, 0x3F },	/* r3D	- Aux PCM Left Mixer Input Path Volume */
+	{ 62, 0x3F },	/* r3E	- Aux PCM Right Mixer Input Path Volume */
+	{ 63, 0x3F },	/* r3F	- Aux PCM Left Mixer Volume */
+	{ 64, 0x3F },	/* r40	- Aux PCM Left Mixer Volume */
+	{ 65, 0x3F },	/* r41	- Aux PCM Left Mixer Audio PCM L Volume */
+	{ 66, 0x3F },	/* r42	- Aux PCM Right Mixer Audio PCM R Volume */
+	{ 67, 0x3F },	/* r43	- Aux PCM Left Mixer Voice PCM Volume */
+	{ 68, 0x3F },	/* r44	- Aux PCM Right Mixer Voice PCM Volume */
+	{ 69, 0x3F },	/* r45	- Audio PCM Left Input Path Volume */
+	{ 70, 0x3F },	/* r46	- Audio PCM Right Input Path Volume */
+	{ 71, 0x3F },	/* r47	- Audio PCM Left Mixer Aux PCM L Volume */
+	{ 72, 0x3F },	/* r48	- Audio PCM Right Mixer Aux PCM R Volume */
+	{ 73, 0x3F },	/* r49	- Audio PCM Left Mixer Volume */
+	{ 74, 0x3F },	/* r4A	- Audio PCM Right Mixer Volume */
+	{ 75, 0x3F },	/* r4B	- Audio PCM Left Mixer Voice PCM Volume */
+	{ 76, 0x3F },	/* r4C	- Audio PCM Right Mixer Voice PCM Volume */
+	{ 77, 0x3F },	/* r4D	- Voice PCM Left Input Path Volume */
+	{ 78, 0x3F },	/* r4E	- Voice PCM Right Input Path Volume */
+	{ 79, 0x3F },	/* r4F	- Voice PCM Left Mixer Aux PCM L Volume */
+	{ 80, 0x3F },	/* r50	- Voice PCM Right Mixer Aux PCM R Volume */
+	{ 81, 0x3F },	/* r51	- Voice PCM Left Mixer Audio PCM L Volume */
+	{ 82, 0x3F },	/* r52	- Voice PCM Right Mixer Audio PCM R Volume */
+	{ 83, 0x3F },	/* r53	- Voice PCM Left Mixer Voice PCM Volume */
+	{ 84, 0x3F },	/* r54	- Voice PCM Right Mixer Voice PCM Volume */
+	{ 85, 0xAA },	/* r55	- Mono Mixer Ctl */
+	{ 86, 0x3F },	/* r56	- SPK Mono Mixer Input Path Volume */
+	{ 87, 0x3F },	/* r57	- SPK Mono Mixer Aux PCM Mono/L/R Volume */
+	{ 88, 0x3F },	/* r58	- SPK Mono Mixer Audio PCM Mono/L/R Volume */
+	{ 89, 0x3F },	/* r59	- SPK Mono Mixer Voice PCM Mono Volume */
+	{ 90, 0x3F },	/* r5A	- SPKLO Mono Mixer Input Path Mono Volume */
+	{ 91, 0x3F },	/* r5B	- SPKLO Mono Mixer Aux Mono/L/R Volume */
+	{ 92, 0x3F },	/* r5C	- SPKLO Mono Mixer Audio Mono/L/R Volume */
+	{ 93, 0x3F },	/* r5D	- SPKLO Mono Mixer Voice Mono Volume */
+	{ 94, 0x00 },	/* r5E	- Interrupt Mask 1 */
+	{ 95, 0x00 },	/* r5F	- Interrupt Mask 2 */
 };
 
 static bool cs42l73_volatile_register(struct device *dev, unsigned int reg)
@@ -505,6 +505,11 @@ static const struct snd_kcontrol_new cs42l73_snd_controls[] = {
 
 	SOC_DOUBLE("NG Enable Switch", CS42L73_NGCAB, 6, 7, 1, 0),
 	SOC_SINGLE("NG Boost Switch", CS42L73_NGCAB, 5, 1, 0),
+	/*
+	    NG Threshold depends on NG_BOOTSAB, which selects
+	    between two threshold scales in decibels.
+	    Set linear values for now ..
+	*/
 	SOC_SINGLE("NG Threshold", CS42L73_NGCAB, 2, 7, 0),
 	SOC_ENUM("NG Delay", ng_delay_enum),
 
@@ -694,7 +699,7 @@ static const struct snd_soc_dapm_widget cs42l73_dapm_widgets[] = {
 
 static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 
-	
+	/* SPKLO EARSPK Paths */
 	{"EAROUT", NULL, "EAR Amp"},
 	{"SPKLINEOUT", NULL, "SPKLO Amp"},
 
@@ -704,7 +709,7 @@ static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 	{"ESL DAC", "ESL-ASP Mono Volume", "ESL Mixer"},
 	{"ESL DAC", "ESL-XSP Mono Volume", "ESL Mixer"},
 	{"ESL DAC", "ESL-VSP Mono Volume", "VSPIN"},
-	
+	/* Loopback */
 	{"ESL DAC", "ESL-IP Mono Volume", "Input Left Capture"},
 	{"ESL DAC", "ESL-IP Mono Volume", "Input Right Capture"},
 
@@ -719,14 +724,14 @@ static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 	{"ESL-XSP Mux", "Right", "XSPINR"},
 	{"ESL-XSP Mux", "Mono Mix", "XSPINM"},
 
-	
+	/* Speakerphone Paths */
 	{"SPKOUT", NULL, "SPK Amp"},
 	{"SPK Amp", "Switch", "SPK DAC"},
 
 	{"SPK DAC", "SPK-ASP Mono Volume", "SPK Mixer"},
 	{"SPK DAC", "SPK-XSP Mono Volume", "SPK Mixer"},
 	{"SPK DAC", "SPK-VSP Mono Volume", "VSPIN"},
-	
+	/* Loopback */
 	{"SPK DAC", "SPK-IP Mono Volume", "Input Left Capture"},
 	{"SPK DAC", "SPK-IP Mono Volume", "Input Right Capture"},
 
@@ -741,7 +746,7 @@ static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 	{"SPK-XSP Mux", "Mono Mix", "XSPINM"},
 	{"SPK-XSP Mux", "Right", "XSPINR"},
 
-	
+	/* HP LineOUT Paths */
 	{"HPOUTA", NULL, "HP Amp"},
 	{"HPOUTB", NULL, "HP Amp"},
 	{"LINEOUTA", NULL, "LO Amp"},
@@ -758,7 +763,7 @@ static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 	{"HL Right DAC", "HL-ASP Volume", "HL Right Mixer"},
 	{"HL Left DAC", "HL-VSP Volume", "HL Left Mixer"},
 	{"HL Right DAC", "HL-VSP Volume", "HL Right Mixer"},
-	
+	/* Loopback */
 	{"HL Left DAC", "HL-IP Volume", "HL Left Mixer"},
 	{"HL Right DAC", "HL-IP Volume", "HL Right Mixer"},
 	{"HL Left Mixer", NULL, "Input Left Capture"},
@@ -771,7 +776,7 @@ static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 	{"HL Left Mixer", NULL, "VSPIN"},
 	{"HL Right Mixer", NULL, "VSPIN"},
 
-	
+	/* Capture Paths */
 	{"MIC1", NULL, "MIC1 Bias"},
 	{"PGA Left Mux", "Mic 1", "MIC1"},
 	{"MIC2", NULL, "MIC2 Bias"},
@@ -791,14 +796,14 @@ static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 	{"Input Left Capture", "DMIC Left Input", "DMIC Left"},
 	{"Input Right Capture", "DMIC Right Input", "DMIC Right"},
 
-	
+	/* Audio Capture */
 	{"ASPL Output Mixer", NULL, "Input Left Capture"},
 	{"ASPR Output Mixer", NULL, "Input Right Capture"},
 
 	{"ASPOUTL", "ASP-IP Volume", "ASPL Output Mixer"},
 	{"ASPOUTR", "ASP-IP Volume", "ASPR Output Mixer"},
 
-	
+	/* Auxillary Capture */
 	{"XSPL Output Mixer", NULL, "Input Left Capture"},
 	{"XSPR Output Mixer", NULL, "Input Right Capture"},
 
@@ -808,7 +813,7 @@ static const struct snd_soc_dapm_route cs42l73_audio_map[] = {
 	{"XSPOUTL", NULL, "XSPL Output Mixer"},
 	{"XSPOUTR", NULL, "XSPR Output Mixer"},
 
-	
+	/* Voice Capture */
 	{"VSPL Output Mixer", NULL, "Input Left Capture"},
 	{"VSPR Output Mixer", NULL, "Input Left Capture"},
 
@@ -826,7 +831,7 @@ struct cs42l73_mclk_div {
 };
 
 static struct cs42l73_mclk_div cs42l73_mclk_coeffs[] = {
-	
+	/* MCLK, Sample Rate, xMMCC[5:0] */
 	{5644800, 11025, 0x30},
 	{5644800, 22050, 0x20},
 	{5644800, 44100, 0x10},
@@ -876,17 +881,17 @@ struct cs42l73_mclkx_div {
 };
 
 static struct cs42l73_mclkx_div cs42l73_mclkx_coeffs[] = {
-	{5644800,  1, 0},	
-	{6000000,  1, 0},	
-	{6144000,  1, 0},	
-	{11289600, 2, 2},	
-	{12288000, 2, 2},	
-	{12000000, 2, 2},	
-	{13000000, 2, 2},	
-	{19200000, 3, 3},	
-	{24000000, 4, 4},	
-	{26000000, 4, 4},	
-	{38400000, 6, 5}	
+	{5644800,  1, 0},	/* 5644800 */
+	{6000000,  1, 0},	/* 6000000 */
+	{6144000,  1, 0},	/* 6144000 */
+	{11289600, 2, 2},	/* 5644800 */
+	{12288000, 2, 2},	/* 6144000 */
+	{12000000, 2, 2},	/* 6000000 */
+	{13000000, 2, 2},	/* 6500000 */
+	{19200000, 3, 3},	/* 6400000 */
+	{24000000, 4, 4},	/* 6000000 */
+	{26000000, 4, 4},	/* 6500000 */
+	{38400000, 6, 5}	/* 6400000 */
 };
 
 static int cs42l73_get_mclkx_coeff(int mclkx)
@@ -922,7 +927,7 @@ static int cs42l73_set_mclk(struct snd_soc_dai *dai, unsigned int freq)
 	u32 mclk = 0;
 	u8 dmmcc = 0;
 
-	
+	/* MCLKX -> MCLK */
 	mclkx_coeff = cs42l73_get_mclkx_coeff(freq);
 	if (mclkx_coeff < 0)
 		return mclkx_coeff;
@@ -1021,7 +1026,7 @@ static int cs42l73_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 	}
 
 	if (spc & SPDIF_PCM) {
-		
+		/* Clear PCM mode, clear PCM_BIT_ORDER bit for MSB->LSB */
 		spc &= ~(PCM_MODE_MASK | PCM_BIT_ORDER);
 		switch (format) {
 		case SND_SOC_DAIFMT_DSP_B:
@@ -1057,7 +1062,7 @@ static unsigned int cs42l73_get_xspfs_coeff(u32 rate)
 		if (cs42l73_asrc_rates[i] == rate)
 			return i + 1;
 	}
-	return 0;		
+	return 0;		/* 0 = Don't know */
 }
 
 static void cs42l73_update_asrc(struct snd_soc_codec *codec, int id, int srate)
@@ -1094,8 +1099,8 @@ static int cs42l73_pcm_hw_params(struct snd_pcm_substream *substream,
 	int srate = params_rate(params);
 
 	if (priv->config[id].mmcc & MS_MASTER) {
-		
-		
+		/* CS42L73 Master */
+		/* MCLK -> srate */
 		mclk_coeff =
 		    cs42l73_get_mclk_coeff(priv->mclk, srate);
 
@@ -1112,11 +1117,11 @@ static int cs42l73_pcm_hw_params(struct snd_pcm_substream *substream,
 		priv->config[id].spc &= 0xFC;
 		priv->config[id].spc |= MCK_SCLK_MCLK;
 	} else {
-		
+		/* CS42L73 Slave */
 		priv->config[id].spc &= 0xFC;
 		priv->config[id].spc |= MCK_SCLK_64FS;
 	}
-	
+	/* Update ASRCs */
 	priv->config[id].srate = srate;
 
 	snd_soc_write(codec, CS42L73_SPC(id), priv->config[id].spc);
@@ -1181,6 +1186,7 @@ static int cs42l73_pcm_startup(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/* SNDRV_PCM_RATE_KNOT -> 12000, 24000 Hz, limit with constraint list */
 #define CS42L73_RATES (SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_KNOT)
 
 
@@ -1288,7 +1294,7 @@ static int cs42l73_probe(struct snd_soc_codec *codec)
 
 	cs42l73_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	cs42l73->mclksel = CS42L73_CLKID_MCLK1;	
+	cs42l73->mclksel = CS42L73_CLKID_MCLK1;	/* MCLK1 as master clk */
 	cs42l73->mclk = 0;
 
 	return ret;
@@ -1351,7 +1357,7 @@ static __devinit int cs42l73_i2c_probe(struct i2c_client *i2c_client,
 		dev_err(&i2c_client->dev, "regmap_init() failed: %d\n", ret);
 		goto err;
 	}
-	
+	/* initialize codec */
 	ret = regmap_read(cs42l73->regmap, CS42L73_DEVID_AB, &reg);
 	devid = (reg & 0xFF) << 12;
 

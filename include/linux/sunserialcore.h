@@ -13,6 +13,7 @@
 #ifndef _SERIAL_SUN_H
 #define _SERIAL_SUN_H
 
+/* Serial keyboard defines for L1-A processing... */
 #define SUNKBD_RESET		0xff
 #define SUNKBD_L1		0x01
 #define SUNKBD_UP		0x80
@@ -29,4 +30,4 @@ extern int sunserial_console_match(struct console *, struct device_node *,
 extern void sunserial_console_termios(struct console *,
 				      struct device_node *);
 
-#endif 
+#endif /* !(_SERIAL_SUN_H) */

@@ -18,6 +18,10 @@ extern void force_flush_all(void);
 
 static inline void activate_mm(struct mm_struct *old, struct mm_struct *new)
 {
+	/*
+	 * This is called by fs/exec.c and sys_unshare()
+	 * when the new ->mm is used for the first time.
+	 */
 	__switch_mm(&new->context.id);
 	down_write(&new->mmap_sem);
 	uml_setup_stubs(new);

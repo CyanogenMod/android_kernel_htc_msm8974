@@ -66,7 +66,7 @@ int __init early_init_dt_scan_chosen_serial(unsigned long node,
 				strcmp(uname, "chosen@0") == 0)) {
 		p = of_get_flat_dt_prop(node, "linux,stdout-path", &l);
 		if (p != NULL && l > 0)
-			stdout = p; 
+			stdout = p; /* store pointer to stdout-path */
 	}
 
 	if (stdout && strstr(stdout, uname)) {
@@ -82,7 +82,7 @@ int __init early_init_dt_scan_chosen_serial(unsigned long node,
 			addr = *(u32 *)of_get_flat_dt_prop(node, "reg", &l);
 			addr += *(u32 *)of_get_flat_dt_prop(node,
 							"reg-offset", &l);
-			
+			/* clear register offset */
 			return be32_to_cpu(addr) & ~3;
 		}
 		if ((strncmp(p, "xlnx,xps-uartlite", 17) == 0) ||
@@ -94,12 +94,13 @@ int __init early_init_dt_scan_chosen_serial(unsigned long node,
 			*(u32 *)data = UARTLITE;
 
 			addrp = of_get_flat_dt_prop(node, "reg", &l);
-			return be32_to_cpup(addrp); 
+			return be32_to_cpup(addrp); /* return address */
 		}
 	}
 	return 0;
 }
 
+/* this function is looking for early console - Microblaze specific */
 int __init of_early_console(void *version)
 {
 	return of_scan_flat_dt(early_init_dt_scan_chosen_serial, version);
@@ -110,16 +111,20 @@ void __init early_init_devtree(void *params)
 {
 	pr_debug(" -> early_init_devtree(%p)\n", params);
 
-	
+	/* Setup flat device-tree pointer */
 	initial_boot_params = params;
 
+	/* Retrieve various informations from the /chosen node of the
+	 * device-tree, including the platform type, initrd location and
+	 * size, TCE reserve, and more ...
+	 */
 	of_scan_flat_dt(early_init_dt_scan_chosen, cmd_line);
 
-	
+	/* Scan memory nodes and rebuild MEMBLOCKs */
 	of_scan_flat_dt(early_init_dt_scan_root, NULL);
 	of_scan_flat_dt(early_init_dt_scan_memory, NULL);
 
-	
+	/* Save command line for /proc/cmdline and then parse parameters */
 	strlcpy(boot_command_line, cmd_line, COMMAND_LINE_SIZE);
 	parse_early_param();
 
@@ -140,6 +145,16 @@ void __init early_init_dt_setup_initrd_arch(unsigned long start,
 }
 #endif
 
+/*******
+ *
+ * New implementation of the OF "find" APIs, return a refcounted
+ * object, call of_node_put() when done.  The device tree and list
+ * are protected by a rw_lock.
+ *
+ * Note that property management will need some locking as well,
+ * this isn't dealt with yet.
+ *
+ *******/
 
 #if defined(CONFIG_DEBUG_FS) && defined(DEBUG)
 static struct debugfs_blob_wrapper flat_dt_blob;

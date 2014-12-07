@@ -78,6 +78,7 @@ DEFINE_EVENT(net_dev_template, netif_rx,
 
 	TP_ARGS(skb)
 );
-#endif 
+#endif /* _TRACE_NET_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

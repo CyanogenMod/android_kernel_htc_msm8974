@@ -70,7 +70,7 @@ static int tlb_seq_show(struct seq_file *file, void *iter)
 
 	urb = (mmucr & MMUCR_URB) >> MMUCR_URB_SHIFT;
 
-	
+	/* Make the "entry >= urb" test fail. */
 	if (urb == 0)
 		urb = MMUCR_URB_NENTRIES + 1;
 

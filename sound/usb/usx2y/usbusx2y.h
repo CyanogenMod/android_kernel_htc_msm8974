@@ -55,7 +55,7 @@ struct snd_usX2Y_substream {
 	struct snd_pcm_substream *pcm_substream;
 
 	int			endpoint;		
-	unsigned int		maxpacksize;		
+	unsigned int		maxpacksize;		/* max packet size in bytes */
 
 	atomic_t		state;
 #define state_STOPPED	0
@@ -66,13 +66,13 @@ struct snd_usX2Y_substream {
 #define state_PRERUNNING  6
 #define state_RUNNING	8
 
-	int			hwptr;			
-	int			hwptr_done;		
-	int			transfer_done;		
+	int			hwptr;			/* free frame position in the buffer (only for playback) */
+	int			hwptr_done;		/* processed frame position in the buffer */
+	int			transfer_done;		/* processed frames since last period update */
 
-	struct urb		*urb[NRURBS];	
+	struct urb		*urb[NRURBS];	/* data urb table */
 	struct urb		*completed_urb;
-	char			*tmpbuf;			
+	char			*tmpbuf;			/* temporary buffer for playback */
 };
 
 

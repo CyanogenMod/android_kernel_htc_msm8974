@@ -50,11 +50,11 @@ MODULE_DESCRIPTION("MIDI serial u16550");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{ALSA, MIDI serial u16550}}");
 
-#define SNDRV_SERIAL_SOUNDCANVAS 0 
-#define SNDRV_SERIAL_MS124T 1      
-#define SNDRV_SERIAL_MS124W_SA 2   
-#define SNDRV_SERIAL_MS124W_MB 3   
-#define SNDRV_SERIAL_GENERIC 4     
+#define SNDRV_SERIAL_SOUNDCANVAS 0 /* Roland Soundcanvas; F5 NN selects part */
+#define SNDRV_SERIAL_MS124T 1      /* Midiator MS-124T */
+#define SNDRV_SERIAL_MS124W_SA 2   /* Midiator MS-124W in S/A mode */
+#define SNDRV_SERIAL_MS124W_MB 3   /* Midiator MS-124W in M/B mode */
+#define SNDRV_SERIAL_GENERIC 4     /* Generic Interface */
 #define SNDRV_SERIAL_MAX_ADAPTOR SNDRV_SERIAL_GENERIC
 static char *adaptor_names[] = {
 	"Soundcanvas",
@@ -64,18 +64,18 @@ static char *adaptor_names[] = {
 	"Generic"
 };
 
-#define SNDRV_SERIAL_NORMALBUFF 0 
-#define SNDRV_SERIAL_DROPBUFF   1 
+#define SNDRV_SERIAL_NORMALBUFF 0 /* Normal blocking buffer operation */
+#define SNDRV_SERIAL_DROPBUFF   1 /* Non-blocking discard operation */
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE; 
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT; 
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ; 	
-static int speed[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 38400}; 
-static int base[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 115200}; 
-static int outs[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};	 
-static int ins[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE; /* Enable this card */
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT; /* 0x3f8,0x2f8,0x3e8,0x2e8 */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ; 	/* 3,4,5,7,9,10,11,14,15 */
+static int speed[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 38400}; /* 9600,19200,38400,57600,115200 */
+static int base[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 115200}; /* baud base */
+static int outs[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};	 /* 1 to 16 */
+static int ins[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};	/* 1 to 16 */
 static int adaptor[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = SNDRV_SERIAL_SOUNDCANVAS};
 static bool droponfull[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS -1)] = SNDRV_SERIAL_NORMALBUFF };
 
@@ -103,12 +103,12 @@ MODULE_PARM_DESC(droponfull, "Flag to enable drop-on-full buffer mode");
 module_param_array(adaptor, int, NULL, 0444);
 MODULE_PARM_DESC(adaptor, "Type of adaptor.");
 
-  
+/*#define SNDRV_SERIAL_MS124W_MB_NOCOMBO 1*/  /* Address outs as 0-3 instead of bitmap */
 
-#define SNDRV_SERIAL_MAX_OUTS	16		
-#define SNDRV_SERIAL_MAX_INS	16		
+#define SNDRV_SERIAL_MAX_OUTS	16		/* max 64, min 16 */
+#define SNDRV_SERIAL_MAX_INS	16		/* max 64, min 16 */
 
-#define TX_BUFF_SIZE		(1<<15)		
+#define TX_BUFF_SIZE		(1<<15)		/* Must be 2^n */
 #define TX_BUFF_MASK		(TX_BUFF_SIZE - 1)
 
 #define SERIAL_MODE_NOT_OPENED 		(0)
@@ -123,7 +123,7 @@ struct snd_uart16550 {
 	struct snd_rawmidi_substream *midi_output[SNDRV_SERIAL_MAX_OUTS];
 	struct snd_rawmidi_substream *midi_input[SNDRV_SERIAL_MAX_INS];
 
-	int filemode;		
+	int filemode;		/* open status of file */
 
 	spinlock_t open_lock;
 
@@ -140,29 +140,29 @@ struct snd_uart16550 {
 	unsigned char old_divisor_msb;
 	unsigned char old_line_ctrl_reg;
 
-	
-	short int fifo_limit;	
-        short int fifo_count;	
+	/* parameter for using of write loop */
+	short int fifo_limit;	/* used in uart16550 */
+        short int fifo_count;	/* used in uart16550 */
 
-	
+	/* type of adaptor */
 	int adaptor;
 
-	
+	/* inputs */
 	int prev_in;
 	unsigned char rstatus;
 
-	
+	/* outputs */
 	int prev_out;
 	unsigned char prev_status[SNDRV_SERIAL_MAX_OUTS];
 
-	
+	/* write buffer and its writing/reading position */
 	unsigned char tx_buff[TX_BUFF_SIZE];
 	int buff_in_count;
         int buff_in;
         int buff_out;
         int drop_on_full;
 
-	
+	/* wait timer */
 	unsigned int timer_running:1;
 	struct timer_list buffer_timer;
 
@@ -173,7 +173,7 @@ static struct platform_device *devices[SNDRV_CARDS];
 static inline void snd_uart16550_add_timer(struct snd_uart16550 *uart)
 {
 	if (!uart->timer_running) {
-		
+		/* timer 38600bps * 10bit * 16byte */
 		uart->buffer_timer.expires = jiffies + (HZ+255)/256;
 		uart->timer_running = 1;
 		add_timer(&uart->buffer_timer);
@@ -188,6 +188,7 @@ static inline void snd_uart16550_del_timer(struct snd_uart16550 *uart)
 	}
 }
 
+/* This macro is only used in snd_uart16550_io_loop */
 static inline void snd_uart16550_buffer_output(struct snd_uart16550 *uart)
 {
 	unsigned short buff_out = uart->buff_out;
@@ -201,29 +202,35 @@ static inline void snd_uart16550_buffer_output(struct snd_uart16550 *uart)
 	}
 }
 
+/* This loop should be called with interrupts disabled
+ * We don't want to interrupt this, 
+ * as we're already handling an interrupt 
+ */
 static void snd_uart16550_io_loop(struct snd_uart16550 * uart)
 {
 	unsigned char c, status;
 	int substream;
 
-	
+	/* recall previous stream */
 	substream = uart->prev_in;
 
-	
+	/* Read Loop */
 	while ((status = inb(uart->base + UART_LSR)) & UART_LSR_DR) {
-		
+		/* while receive data ready */
 		c = inb(uart->base + UART_RX);
 
-		
+		/* keep track of last status byte */
 		if (c & 0x80)
 			uart->rstatus = c;
 
-		
+		/* handle stream switch */
 		if (uart->adaptor == SNDRV_SERIAL_GENERIC) {
 			if (uart->rstatus == 0xf5) {
 				if (c <= SNDRV_SERIAL_MAX_INS && c > 0)
 					substream = c - 1;
 				if (c != 0xf5)
+					/* prevent future bytes from being
+					   interpreted as streams */
 					uart->rstatus = 0;
 			} else if ((uart->filemode & SERIAL_MODE_INPUT_OPEN)
 				   && uart->midi_input[substream])
@@ -239,15 +246,17 @@ static void snd_uart16550_io_loop(struct snd_uart16550 * uart)
 			       uart->rmidi->name, uart->base);
 	}
 
-	
+	/* remember the last stream */
 	uart->prev_in = substream;
 
-	
+	/* no need of check SERIAL_MODE_OUTPUT_OPEN because if not,
+	   buffer is never filled. */
+	/* Check write status */
 	if (status & UART_LSR_THRE)
 		uart->fifo_count = 0;
 	if (uart->adaptor == SNDRV_SERIAL_MS124W_SA
 	   || uart->adaptor == SNDRV_SERIAL_GENERIC) {
-		
+		/* Can't use FIFO, must send only when CTS is true */
 		status = inb(uart->base + UART_MSR);
 		while (uart->fifo_count == 0 && (status & UART_MSR_CTS) &&
 		       uart->buff_in_count > 0) {
@@ -255,15 +264,35 @@ static void snd_uart16550_io_loop(struct snd_uart16550 * uart)
 		       status = inb(uart->base + UART_MSR);
 		}
 	} else {
-		
-		while (uart->fifo_count < uart->fifo_limit 
-		       && uart->buff_in_count > 0)	
+		/* Write loop */
+		while (uart->fifo_count < uart->fifo_limit /* Can we write ? */
+		       && uart->buff_in_count > 0)	/* Do we want to? */
 			snd_uart16550_buffer_output(uart);
 	}
 	if (uart->irq < 0 && uart->buff_in_count > 0)
 		snd_uart16550_add_timer(uart);
 }
 
+/* NOTES ON SERVICING INTERUPTS
+ * ---------------------------
+ * After receiving a interrupt, it is important to indicate to the UART that
+ * this has been done. 
+ * For a Rx interrupt, this is done by reading the received byte.
+ * For a Tx interrupt this is done by either:
+ * a) Writing a byte
+ * b) Reading the IIR
+ * It is particularly important to read the IIR if a Tx interrupt is received
+ * when there is no data in tx_buff[], as in this case there no other
+ * indication that the interrupt has been serviced, and it remains outstanding
+ * indefinitely. This has the curious side effect that and no further interrupts
+ * will be generated from this device AT ALL!!.
+ * It is also desirable to clear outstanding interrupts when the device is
+ * opened/closed.
+ *
+ *
+ * Note that some devices need OUT2 to be set before they will generate
+ * interrupts at all. (Possibly tied to an internal pull-up on CTS?)
+ */
 static irqreturn_t snd_uart16550_interrupt(int irq, void *dev_id)
 {
 	struct snd_uart16550 *uart;
@@ -274,13 +303,14 @@ static irqreturn_t snd_uart16550_interrupt(int irq, void *dev_id)
 		spin_unlock(&uart->open_lock);
 		return IRQ_NONE;
 	}
-	
+	/* indicate to the UART that the interrupt has been serviced */
 	inb(uart->base + UART_IIR);
 	snd_uart16550_io_loop(uart);
 	spin_unlock(&uart->open_lock);
 	return IRQ_HANDLED;
 }
 
+/* When the polling mode, this function calls snd_uart16550_io_loop. */
 static void snd_uart16550_buffer_timer(unsigned long data)
 {
 	unsigned long flags;
@@ -293,15 +323,20 @@ static void snd_uart16550_buffer_timer(unsigned long data)
 	spin_unlock_irqrestore(&uart->open_lock, flags);
 }
 
+/*
+ *  this method probes, if an uart sits on given port
+ *  return 0 if found
+ *  return negative error if not found
+ */
 static int __devinit snd_uart16550_detect(struct snd_uart16550 *uart)
 {
 	unsigned long io_base = uart->base;
 	int ok;
 	unsigned char c;
 
-	
+	/* Do some vague tests for the presence of the uart */
 	if (io_base == 0 || io_base == SNDRV_AUTO_PORT) {
-		return -ENODEV;	
+		return -ENODEV;	/* Not configured */
 	}
 
 	uart->res_base = request_region(io_base, 8, "Serial MIDI");
@@ -310,28 +345,28 @@ static int __devinit snd_uart16550_detect(struct snd_uart16550 *uart)
 		return -EBUSY;
 	}
 
-	
+	/* uart detected unless one of the following tests should fail */
 	ok = 1;
-	
-	outb(UART_LCR_WLEN8, io_base + UART_LCR); 
+	/* 8 data-bits, 1 stop-bit, parity off, DLAB = 0 */
+	outb(UART_LCR_WLEN8, io_base + UART_LCR); /* Line Control Register */
 	c = inb(io_base + UART_IER);
-	
+	/* The top four bits of the IER should always == 0 */
 	if ((c & 0xf0) != 0)
-		ok = 0;		
+		ok = 0;		/* failed */
 
 	outb(0xaa, io_base + UART_SCR);
-	
+	/* Write arbitrary data into the scratch reg */
 	c = inb(io_base + UART_SCR);
-	
+	/* If it comes back, it's OK */
 	if (c != 0xaa)
-		ok = 0;		
+		ok = 0;		/* failed */
 
 	outb(0x55, io_base + UART_SCR);
-	
+	/* Write arbitrary data into the scratch reg */
 	c = inb(io_base + UART_SCR);
-	
+	/* If it comes back, it's OK */
 	if (c != 0x55)
-		ok = 0;		
+		ok = 0;		/* failed */
 
 	return ok;
 }
@@ -340,7 +375,7 @@ static void snd_uart16550_do_open(struct snd_uart16550 * uart)
 {
 	char byte;
 
-	
+	/* Initialize basic variables */
 	uart->buff_in_count = 0;
 	uart->buff_in = 0;
 	uart->buff_out = 0;
@@ -348,76 +383,84 @@ static void snd_uart16550_do_open(struct snd_uart16550 * uart)
 	uart->fifo_count = 0;
 	uart->timer_running = 0;
 
-	outb(UART_FCR_ENABLE_FIFO	
-	     | UART_FCR_CLEAR_RCVR	
-	     | UART_FCR_CLEAR_XMIT	
-	     | UART_FCR_TRIGGER_4	
-	     ,uart->base + UART_FCR);	
+	outb(UART_FCR_ENABLE_FIFO	/* Enable FIFO's (if available) */
+	     | UART_FCR_CLEAR_RCVR	/* Clear receiver FIFO */
+	     | UART_FCR_CLEAR_XMIT	/* Clear transmitter FIFO */
+	     | UART_FCR_TRIGGER_4	/* Set FIFO trigger at 4-bytes */
+	/* NOTE: interrupt generated after T=(time)4-bytes
+	 * if less than UART_FCR_TRIGGER bytes received
+	 */
+	     ,uart->base + UART_FCR);	/* FIFO Control Register */
 
 	if ((inb(uart->base + UART_IIR) & 0xf0) == 0xc0)
 		uart->fifo_limit = 16;
 	if (uart->divisor != 0) {
 		uart->old_line_ctrl_reg = inb(uart->base + UART_LCR);
-		outb(UART_LCR_DLAB	
-		     ,uart->base + UART_LCR);	
+		outb(UART_LCR_DLAB	/* Divisor latch access bit */
+		     ,uart->base + UART_LCR);	/* Line Control Register */
 		uart->old_divisor_lsb = inb(uart->base + UART_DLL);
 		uart->old_divisor_msb = inb(uart->base + UART_DLM);
 
 		outb(uart->divisor
-		     ,uart->base + UART_DLL);	
+		     ,uart->base + UART_DLL);	/* Divisor Latch Low */
 		outb(0
-		     ,uart->base + UART_DLM);	
-		
+		     ,uart->base + UART_DLM);	/* Divisor Latch High */
+		/* DLAB is reset to 0 in next outb() */
 	}
-	
-	outb(UART_LCR_WLEN8	
-	     | 0		
-	     | 0		
-	     | 0		
-	     ,uart->base + UART_LCR);	
+	/* Set serial parameters (parity off, etc) */
+	outb(UART_LCR_WLEN8	/* 8 data-bits */
+	     | 0		/* 1 stop-bit */
+	     | 0		/* parity off */
+	     | 0		/* DLAB = 0 */
+	     ,uart->base + UART_LCR);	/* Line Control Register */
 
 	switch (uart->adaptor) {
 	default:
-		outb(UART_MCR_RTS	
-		     | UART_MCR_DTR	
-		     | UART_MCR_OUT2	
-		     ,uart->base + UART_MCR);	
+		outb(UART_MCR_RTS	/* Set Request-To-Send line active */
+		     | UART_MCR_DTR	/* Set Data-Terminal-Ready line active */
+		     | UART_MCR_OUT2	/* Set OUT2 - not always required, but when
+					 * it is, it is ESSENTIAL for enabling interrupts
+				 */
+		     ,uart->base + UART_MCR);	/* Modem Control Register */
 		break;
 	case SNDRV_SERIAL_MS124W_SA:
 	case SNDRV_SERIAL_MS124W_MB:
- 
+		/* MS-124W can draw power from RTS and DTR if they
+		   are in opposite states. */ 
 		outb(UART_MCR_RTS | (0&UART_MCR_DTR) | UART_MCR_OUT2,
 		     uart->base + UART_MCR);
 		break;
 	case SNDRV_SERIAL_MS124T:
+		/* MS-124T can draw power from RTS and/or DTR (preferably
+		   both) if they are both asserted. */
 		outb(UART_MCR_RTS | UART_MCR_DTR | UART_MCR_OUT2,
 		     uart->base + UART_MCR);
 		break;
 	}
 
 	if (uart->irq < 0) {
-		byte = (0 & UART_IER_RDI)	
-		    |(0 & UART_IER_THRI)	
+		byte = (0 & UART_IER_RDI)	/* Disable Receiver data interrupt */
+		    |(0 & UART_IER_THRI)	/* Disable Transmitter holding register empty interrupt */
 		    ;
 	} else if (uart->adaptor == SNDRV_SERIAL_MS124W_SA) {
-		byte = UART_IER_RDI	
-		    | UART_IER_MSI	
+		byte = UART_IER_RDI	/* Enable Receiver data interrupt */
+		    | UART_IER_MSI	/* Enable Modem status interrupt */
 		    ;
 	} else if (uart->adaptor == SNDRV_SERIAL_GENERIC) {
-		byte = UART_IER_RDI	
-		    | UART_IER_MSI	
-		    | UART_IER_THRI	
+		byte = UART_IER_RDI	/* Enable Receiver data interrupt */
+		    | UART_IER_MSI	/* Enable Modem status interrupt */
+		    | UART_IER_THRI	/* Enable Transmitter holding register empty interrupt */
 		    ;
 	} else {
-		byte = UART_IER_RDI	
-		    | UART_IER_THRI	
+		byte = UART_IER_RDI	/* Enable Receiver data interrupt */
+		    | UART_IER_THRI	/* Enable Transmitter holding register empty interrupt */
 		    ;
 	}
-	outb(byte, uart->base + UART_IER);	
+	outb(byte, uart->base + UART_IER);	/* Interrupt enable Register */
 
-	inb(uart->base + UART_LSR);	
-	inb(uart->base + UART_IIR);	
-	inb(uart->base + UART_RX);	
+	inb(uart->base + UART_LSR);	/* Clear any pre-existing overrun indication */
+	inb(uart->base + UART_IIR);	/* Clear any pre-existing transmit interrupt */
+	inb(uart->base + UART_RX);	/* Clear any pre-existing receive interrupt */
 }
 
 static void snd_uart16550_do_close(struct snd_uart16550 * uart)
@@ -425,43 +468,49 @@ static void snd_uart16550_do_close(struct snd_uart16550 * uart)
 	if (uart->irq < 0)
 		snd_uart16550_del_timer(uart);
 
+	/* NOTE: may need to disable interrupts before de-registering out handler.
+	 * For now, the consequences are harmless.
+	 */
 
-	outb((0 & UART_IER_RDI)		
-	     |(0 & UART_IER_THRI)	
-	     ,uart->base + UART_IER);	
+	outb((0 & UART_IER_RDI)		/* Disable Receiver data interrupt */
+	     |(0 & UART_IER_THRI)	/* Disable Transmitter holding register empty interrupt */
+	     ,uart->base + UART_IER);	/* Interrupt enable Register */
 
 	switch (uart->adaptor) {
 	default:
-		outb((0 & UART_MCR_RTS)		
-		     |(0 & UART_MCR_DTR)	
-		     |(0 & UART_MCR_OUT2)	
-		     ,uart->base + UART_MCR);	
+		outb((0 & UART_MCR_RTS)		/* Deactivate Request-To-Send line  */
+		     |(0 & UART_MCR_DTR)	/* Deactivate Data-Terminal-Ready line */
+		     |(0 & UART_MCR_OUT2)	/* Deactivate OUT2 */
+		     ,uart->base + UART_MCR);	/* Modem Control Register */
 	  break;
 	case SNDRV_SERIAL_MS124W_SA:
 	case SNDRV_SERIAL_MS124W_MB:
- 
+		/* MS-124W can draw power from RTS and DTR if they
+		   are in opposite states; leave it powered. */ 
 		outb(UART_MCR_RTS | (0&UART_MCR_DTR) | (0&UART_MCR_OUT2),
 		     uart->base + UART_MCR);
 		break;
 	case SNDRV_SERIAL_MS124T:
+		/* MS-124T can draw power from RTS and/or DTR (preferably
+		   both) if they are both asserted; leave it powered. */
 		outb(UART_MCR_RTS | UART_MCR_DTR | (0&UART_MCR_OUT2),
 		     uart->base + UART_MCR);
 		break;
 	}
 
-	inb(uart->base + UART_IIR);	
+	inb(uart->base + UART_IIR);	/* Clear any outstanding interrupts */
 
-	
+	/* Restore old divisor */
 	if (uart->divisor != 0) {
-		outb(UART_LCR_DLAB		
-		     ,uart->base + UART_LCR);	
+		outb(UART_LCR_DLAB		/* Divisor latch access bit */
+		     ,uart->base + UART_LCR);	/* Line Control Register */
 		outb(uart->old_divisor_lsb
-		     ,uart->base + UART_DLL);	
+		     ,uart->base + UART_DLL);	/* Divisor Latch Low */
 		outb(uart->old_divisor_msb
-		     ,uart->base + UART_DLM);	
-		
+		     ,uart->base + UART_DLM);	/* Divisor Latch High */
+		/* Restore old LCR (data bits, stop bits, parity, DLAB) */
 		outb(uart->old_line_ctrl_reg
-		     ,uart->base + UART_LCR);	
+		     ,uart->base + UART_LCR);	/* Line Control Register */
 	}
 }
 
@@ -554,7 +603,7 @@ static inline int snd_uart16550_write_buffer(struct snd_uart16550 *uart,
 		buff_in &= TX_BUFF_MASK;
 		uart->buff_in = buff_in;
 		uart->buff_in_count++;
-		if (uart->irq < 0) 
+		if (uart->irq < 0) /* polling mode */
 			snd_uart16550_add_timer(uart);
 		return 1;
 	} else
@@ -565,15 +614,15 @@ static int snd_uart16550_output_byte(struct snd_uart16550 *uart,
 				     struct snd_rawmidi_substream *substream,
 				     unsigned char midi_byte)
 {
-	if (uart->buff_in_count == 0                    
+	if (uart->buff_in_count == 0                    /* Buffer empty? */
 	    && ((uart->adaptor != SNDRV_SERIAL_MS124W_SA &&
 	    uart->adaptor != SNDRV_SERIAL_GENERIC) ||
-		(uart->fifo_count == 0                  
-		 && (inb(uart->base + UART_MSR) & UART_MSR_CTS)))) { 
+		(uart->fifo_count == 0                  /* FIFO empty? */
+		 && (inb(uart->base + UART_MSR) & UART_MSR_CTS)))) { /* CTS? */
 
-	        
+	        /* Tx Buffer Empty - try to write immediately */
 		if ((inb(uart->base + UART_LSR) & UART_LSR_THRE) != 0) {
-		        
+		        /* Transmitter holding register (and Tx FIFO) empty */
 		        uart->fifo_count = 1;
 			outb(midi_byte, uart->base + UART_TX);
 		} else {
@@ -581,6 +630,8 @@ static int snd_uart16550_output_byte(struct snd_uart16550 *uart,
 			        uart->fifo_count++;
 				outb(midi_byte, uart->base + UART_TX);
 			} else {
+			        /* Cannot write (buffer empty) -
+				 * put char in buffer */
 				snd_uart16550_write_buffer(uart, midi_byte);
 			}
 		}
@@ -604,37 +655,43 @@ static void snd_uart16550_output_write(struct snd_rawmidi_substream *substream)
 	char first;
 	static unsigned long lasttime = 0;
 	
+	/* Interrupts are disabled during the updating of the tx_buff,
+	 * since it is 'bad' to have two processes updating the same
+	 * variables (ie buff_in & buff_out)
+	 */
 
 	spin_lock_irqsave(&uart->open_lock, flags);
 
-	if (uart->irq < 0)	
+	if (uart->irq < 0)	/* polling */
 		snd_uart16550_io_loop(uart);
 
 	if (uart->adaptor == SNDRV_SERIAL_MS124W_MB) {
 		while (1) {
-			
-			
+			/* buffer full? */
+			/* in this mode we need two bytes of space */
 			if (uart->buff_in_count > TX_BUFF_SIZE - 2)
 				break;
 			if (snd_rawmidi_transmit(substream, &midi_byte, 1) != 1)
 				break;
 #ifdef SNDRV_SERIAL_MS124W_MB_NOCOMBO
-			
+			/* select exactly one of the four ports */
 			addr_byte = (1 << (substream->number + 4)) | 0x08;
 #else
-			
+			/* select any combination of the four ports */
 			addr_byte = (substream->number << 4) | 0x08;
-			
+			/* ...except none */
 			if (addr_byte == 0x08)
 				addr_byte = 0xf8;
 #endif
 			snd_uart16550_output_byte(uart, substream, addr_byte);
-			
+			/* send midi byte */
 			snd_uart16550_output_byte(uart, substream, midi_byte);
 		}
 	} else {
 		first = 0;
 		while (snd_rawmidi_transmit_peek(substream, &midi_byte, 1) == 1) {
+			/* Also send F5 after 3 seconds with no data
+			 * to handle device disconnect */
 			if (first == 0 &&
 			    (uart->adaptor == SNDRV_SERIAL_SOUNDCANVAS ||
 			     uart->adaptor == SNDRV_SERIAL_GENERIC) &&
@@ -642,14 +699,21 @@ static void snd_uart16550_output_write(struct snd_rawmidi_substream *substream)
 			     time_after(jiffies, lasttime + 3*HZ))) {
 
 				if (snd_uart16550_buffer_can_write(uart, 3)) {
-					
+					/* Roland Soundcanvas part selection */
+					/* If this substream of the data is
+					 * different previous substream
+					 * in this uart, send the change part
+					 * event
+					 */
 					uart->prev_out = substream->number;
-					
+					/* change part */
 					snd_uart16550_output_byte(uart, substream,
 								  0xf5);
-					
+					/* data */
 					snd_uart16550_output_byte(uart, substream,
 								  uart->prev_out + 1);
+					/* If midi_byte is a data byte,
+					 * send the previous status byte */
 					if (midi_byte < 0x80 &&
 					    uart->adaptor == SNDRV_SERIAL_SOUNDCANVAS)
 						snd_uart16550_output_byte(uart, substream, uart->prev_status[uart->prev_out]);
@@ -658,7 +722,7 @@ static void snd_uart16550_output_write(struct snd_rawmidi_substream *substream)
 
 			}
 
-			
+			/* send midi byte */
 			if (!snd_uart16550_output_byte(uart, substream, midi_byte) &&
 			    !uart->drop_on_full )
 				break;
@@ -771,7 +835,7 @@ static int __devinit snd_uart16550_create(struct snd_card *card,
 	uart->buffer_timer.data = (unsigned long)uart;
 	uart->timer_running = 0;
 
-	
+	/* Register device */
 	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, uart, &ops)) < 0) {
 		snd_uart16550_free(uart);
 		return err;
@@ -780,10 +844,13 @@ static int __devinit snd_uart16550_create(struct snd_card *card,
 	switch (uart->adaptor) {
 	case SNDRV_SERIAL_MS124W_SA:
 	case SNDRV_SERIAL_MS124W_MB:
- 
+		/* MS-124W can draw power from RTS and DTR if they
+		   are in opposite states. */ 
 		outb(UART_MCR_RTS | (0&UART_MCR_DTR), uart->base + UART_MCR);
 		break;
 	case SNDRV_SERIAL_MS124T:
+		/* MS-124T can draw power from RTS and/or DTR (preferably
+		   both) if they are asserted. */
 		outb(UART_MCR_RTS | UART_MCR_DTR, uart->base + UART_MCR);
 		break;
 	default:

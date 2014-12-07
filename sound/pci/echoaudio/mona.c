@@ -29,16 +29,18 @@
 #define ECHOCARD_HAS_ADAT	6
 #define ECHOCARD_HAS_STEREO_BIG_ENDIAN32
 
-#define PX_ANALOG_OUT	0	
-#define PX_DIGITAL_OUT	6	
-#define PX_ANALOG_IN	14	
-#define PX_DIGITAL_IN	18	
+/* Pipe indexes */
+#define PX_ANALOG_OUT	0	/* 6 */
+#define PX_DIGITAL_OUT	6	/* 8 */
+#define PX_ANALOG_IN	14	/* 4 */
+#define PX_DIGITAL_IN	18	/* 8 */
 #define PX_NUM		26
 
-#define BX_ANALOG_OUT	0	
-#define BX_DIGITAL_OUT	6	
-#define BX_ANALOG_IN	14	
-#define BX_DIGITAL_IN	18	
+/* Bus indexes */
+#define BX_ANALOG_OUT	0	/* 6 */
+#define BX_DIGITAL_OUT	6	/* 8 */
+#define BX_ANALOG_IN	14	/* 4 */
+#define BX_DIGITAL_IN	18	/* 8 */
 #define BX_NUM		26
 
 
@@ -91,12 +93,12 @@ static const struct firmware card_fw[] = {
 };
 
 static DEFINE_PCI_DEVICE_TABLE(snd_echo_ids) = {
-	{0x1057, 0x1801, 0xECC0, 0x0070, 0, 0, 0},	
-	{0x1057, 0x1801, 0xECC0, 0x0071, 0, 0, 0},	
-	{0x1057, 0x1801, 0xECC0, 0x0072, 0, 0, 0},	
-	{0x1057, 0x3410, 0xECC0, 0x0070, 0, 0, 0},	
-	{0x1057, 0x3410, 0xECC0, 0x0071, 0, 0, 0},	
-	{0x1057, 0x3410, 0xECC0, 0x0072, 0, 0, 0},	
+	{0x1057, 0x1801, 0xECC0, 0x0070, 0, 0, 0},	/* DSP 56301 Mona rev.0 */
+	{0x1057, 0x1801, 0xECC0, 0x0071, 0, 0, 0},	/* DSP 56301 Mona rev.1 */
+	{0x1057, 0x1801, 0xECC0, 0x0072, 0, 0, 0},	/* DSP 56301 Mona rev.2 */
+	{0x1057, 0x3410, 0xECC0, 0x0070, 0, 0, 0},	/* DSP 56361 Mona rev.0 */
+	{0x1057, 0x3410, 0xECC0, 0x0071, 0, 0, 0},	/* DSP 56361 Mona rev.1 */
+	{0x1057, 0x3410, 0xECC0, 0x0072, 0, 0, 0},	/* DSP 56361 Mona rev.2 */
 	{0,}
 };
 
@@ -124,6 +126,9 @@ static struct snd_pcm_hardware pcm_hardware_skel = {
 	.period_bytes_max = 131072,
 	.periods_min = 2,
 	.periods_max = 220,
+	/* One page (4k) contains 512 instructions. I don't know if the hw
+	supports lists longer than this. In this case periods_max=220 is a
+	safe limit to make sure the list never exceeds 512 instructions. */
 };
 
 

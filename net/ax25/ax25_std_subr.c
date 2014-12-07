@@ -25,6 +25,10 @@
 #include <linux/mm.h>
 #include <linux/interrupt.h>
 
+/*
+ * The following routines are taken from page 170 of the 7th ARRL Computer
+ * Networking Conference paper, as is the whole state machine.
+ */
 
 void ax25_std_nr_error_recovery(ax25_cb *ax25)
 {

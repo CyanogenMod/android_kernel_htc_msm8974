@@ -12,6 +12,7 @@
 #ifndef __STK3X1X_H__
 #define __STK3X1X_H__
 
+/* platform data */
 struct stk3x1x_platform_data {
 	uint8_t state_reg;
 	uint8_t psctrl_reg;
@@ -26,4 +27,4 @@ struct stk3x1x_platform_data {
 	bool use_fir;
 };
 
-#endif 
+#endif /* __STK3X1X_H__ */

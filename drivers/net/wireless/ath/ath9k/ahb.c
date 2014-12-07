@@ -38,6 +38,7 @@ static const struct platform_device_id ath9k_platform_id_table[] = {
 	{},
 };
 
+/* return bus cachesize in 4B word units */
 static void ath_ahb_read_cachesize(struct ath_common *common, int *csz)
 {
 	*csz = L1_CACHE_BYTES >> 2;
@@ -124,7 +125,7 @@ static int ath_ahb_probe(struct platform_device *pdev)
 	sc->mem = mem;
 	sc->irq = irq;
 
-	
+	/* Will be cleared in ath9k_start() */
 	sc->sc_flags |= SC_OP_INVALID;
 
 	ret = request_irq(irq, ath_isr, IRQF_SHARED, "ath9k", sc);

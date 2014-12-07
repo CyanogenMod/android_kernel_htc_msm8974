@@ -52,6 +52,7 @@ struct ibm_iic_private {
 	u8  clckdiv;
 };
 
+/* IICx_CNTL register */
 #define CNTL_HMT	0x80
 #define CNTL_AMD	0x40
 #define CNTL_TCT_MASK	0x30
@@ -61,6 +62,7 @@ struct ibm_iic_private {
 #define CNTL_RW		0x02
 #define CNTL_PT		0x01
 
+/* IICx_MDCNTL register */
 #define MDCNTL_FSDB	0x80
 #define MDCNTL_FMDB	0x40
 #define MDCNTL_EGC	0x20
@@ -70,6 +72,7 @@ struct ibm_iic_private {
 #define MDCNTL_EUBS	0x02
 #define MDCNTL_HSCL	0x01
 
+/* IICx_STS register */
 #define STS_SSS		0x80
 #define STS_SLPR	0x40
 #define STS_MDBS	0x20
@@ -79,6 +82,7 @@ struct ibm_iic_private {
 #define STS_IRQA	0x02
 #define STS_PT		0x01
 
+/* IICx_EXTSTS register */
 #define EXTSTS_IRQP	0x80
 #define EXTSTS_BCS_MASK	0x70
 #define   EXTSTS_BCS_FREE  0x40
@@ -87,6 +91,7 @@ struct ibm_iic_private {
 #define EXTSTS_ICT	0x02
 #define EXTSTS_XFRA	0x01
 
+/* IICx_INTRMSK register */
 #define INTRMSK_EIRC	0x80
 #define INTRMSK_EIRS	0x40
 #define INTRMSK_EIWC	0x20
@@ -96,19 +101,23 @@ struct ibm_iic_private {
 #define INTRMSK_EITA	0x02
 #define INTRMSK_EIMTC	0x01
 
+/* IICx_XFRCNT register */
 #define XFRCNT_MTC_MASK	0x07
 
+/* IICx_XTCNTLSS register */
 #define XTCNTLSS_SRC	0x80
 #define XTCNTLSS_SRS	0x40
 #define XTCNTLSS_SWC	0x20
 #define XTCNTLSS_SWS	0x10
 #define XTCNTLSS_SRST	0x01
 
+/* IICx_DIRECTCNTL register */
 #define DIRCNTL_SDAC	0x08
 #define DIRCNTL_SCC	0x04
 #define DIRCNTL_MSDA	0x02
 #define DIRCNTL_MSC	0x01
 
+/* Check if we really control the I2C bus and bus is free */
 #define DIRCTNL_FREE(v)	(((v) & 0x0f) == 0x0f)
 
-#endif 
+#endif /* __I2C_IBM_IIC_H_ */

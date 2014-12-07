@@ -30,15 +30,15 @@
 #define FLINT_NR_IRQS	(MMP_NR_IRQS + 48)
 
 static unsigned long flint_pin_config[] __initdata = {
-	
+	/* UART1 */
 	GPIO45_UART1_RXD,
 	GPIO46_UART1_TXD,
 
-	
+	/* UART2 */
 	GPIO47_UART2_RXD,
 	GPIO48_UART2_TXD,
 
-	
+	/* SMC */
 	GPIO151_SMC_SCLK,
 	GPIO145_SMC_nCS0,
 	GPIO146_SMC_nCS1,
@@ -47,10 +47,10 @@ static unsigned long flint_pin_config[] __initdata = {
 	GPIO154_SMC_IRQ,
 	GPIO113_SMC_RDY,
 
-	
+	/*Ethernet*/
 	GPIO155_GPIO,
 
-	
+	/* DFI */
 	GPIO168_DFI_D0,
 	GPIO167_DFI_D1,
 	GPIO166_DFI_D2,
@@ -108,12 +108,12 @@ static void __init flint_init(void)
 {
 	mfp_config(ARRAY_AND_SIZE(flint_pin_config));
 
-	
+	/* on-chip devices */
 	mmp2_add_uart(1);
 	mmp2_add_uart(2);
 	platform_device_register(&mmp2_device_gpio);
 
-	
+	/* off-chip devices */
 	platform_device_register(&smc91x_device);
 }
 

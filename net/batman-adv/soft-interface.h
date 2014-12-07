@@ -32,4 +32,4 @@ struct net_device *softif_create(const char *name);
 void softif_destroy(struct net_device *soft_iface);
 int softif_is_valid(const struct net_device *net_dev);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_SOFT_INTERFACE_H_ */

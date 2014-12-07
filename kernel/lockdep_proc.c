@@ -179,7 +179,7 @@ static const struct file_operations proc_lockdep_chains_operations = {
 	.llseek		= seq_lseek,
 	.release	= seq_release,
 };
-#endif 
+#endif /* CONFIG_PROVE_LOCKING */
 
 static void lockdep_stats_debug_show(struct seq_file *m)
 {
@@ -272,6 +272,12 @@ static int lockdep_stats_show(struct seq_file *m, void *v)
 	seq_printf(m, " indirect dependencies:         %11lu\n",
 			sum_forward_deps);
 
+	/*
+	 * Total number of dependencies:
+	 *
+	 * All irq-safe locks may nest inside irq-unsafe locks,
+	 * plus all the other known dependencies:
+	 */
 	seq_printf(m, " all direct dependencies:       %11lu\n",
 			nr_irq_unsafe * nr_irq_safe +
 			nr_hardirq_unsafe * nr_hardirq_safe +
@@ -366,6 +372,9 @@ struct lock_stat_seq {
 	struct lock_stat_data stats[MAX_LOCKDEP_KEYS];
 };
 
+/*
+ * sort on absolute number of contentions
+ */
 static int lock_stat_cmp(const void *l, const void *r)
 {
 	const struct lock_stat_data *dl = l, *dr = r;
@@ -393,7 +402,7 @@ static void snprint_time(char *buf, size_t bufsiz, s64 nr)
 	s64 div;
 	s32 rem;
 
-	nr += 5; 
+	nr += 5; /* for display rounding */
 	div = div_s64_rem(nr, 1000, &rem);
 	snprintf(buf, bufsiz, "%lld.%02d", (long long)div, (int)rem/10);
 }
@@ -426,7 +435,7 @@ static void seq_stats(struct seq_file *m, struct lock_stat_data *data)
 
 	namelen = 38;
 	if (class->name_version > 1)
-		namelen -= 2; 
+		namelen -= 2; /* XXX truncates versions > 9 */
 	if (class->subclass)
 		namelen -= 2;
 
@@ -647,7 +656,7 @@ static const struct file_operations proc_lock_stat_operations = {
 	.llseek		= seq_lseek,
 	.release	= lock_stat_release,
 };
-#endif 
+#endif /* CONFIG_LOCK_STAT */
 
 static int __init lockdep_proc_init(void)
 {

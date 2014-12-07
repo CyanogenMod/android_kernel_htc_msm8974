@@ -33,9 +33,15 @@
 #include "device.h"
 #include "80211hdr.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
+/*---------------------  Static Classes  ----------------------------*/
 
+/*---------------------  Static Variables  --------------------------*/
 
+/*
+ * SBOX Table
+ */
 
 BYTE sbox_table[256] = {
 	0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
@@ -94,8 +100,11 @@ BYTE dot3_table[256] = {
 	0x0b, 0x08, 0x0d, 0x0e, 0x07, 0x04, 0x01, 0x02, 0x13, 0x10, 0x15, 0x16, 0x1f, 0x1c, 0x19, 0x1a
 };
 
+/*---------------------  Static Functions  --------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 static void xor_128(BYTE *a, BYTE *b, BYTE *out)
 {
@@ -193,7 +202,7 @@ void AESv128(BYTE *key, BYTE *data, BYTE *ciphertext)
 			SubBytes(ciphertext, TmpdataA);
 			ShiftRows(TmpdataA, TmpdataB);
 			xor_128(TmpdataB, abyRoundKey, ciphertext);
-		} else { 
+		} else { /* round 1 ~ 9 */
 			SubBytes(ciphertext, TmpdataA);
 			ShiftRows(TmpdataA, TmpdataB);
 			MixColumns(&TmpdataB[0], &TmpdataA[0]);
@@ -207,6 +216,20 @@ void AESv128(BYTE *key, BYTE *data, BYTE *ciphertext)
 
 }
 
+/*
+ * Description: AES decryption
+ *
+ * Parameters:
+ *  In:
+ *      pbyRxKey            - The key used to decrypt
+ *      pbyFrame            - Starting address of packet header
+ *      wFrameSize          - Total packet size including CRC
+ *  Out:
+ *      none
+ *
+ * Return Value: MIC compare result
+ *
+ */
 
 BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 {
@@ -224,7 +247,7 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 	PBYTE           pbyIV;
 	PBYTE           pbyPayload;
 	WORD            wHLen = 22;
-	
+	/* 8 is IV, 8 is MIC, 4 is CRC */
 	WORD            wPayloadSize = wFrameSize - 8 - 8 - 4 - WLAN_HDR_ADDR3_LEN;
 	BOOL            bA4 = FALSE;
 	BYTE            byTmp;
@@ -235,13 +258,13 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 	if (WLAN_GET_FC_TODS(*(PWORD) pbyFrame) &&
 	    WLAN_GET_FC_FROMDS(*(PWORD) pbyFrame)) {
 		bA4 = TRUE;
-		pbyIV += 6;             
+		pbyIV += 6;             /* 6 is 802.11 address4 */
 		wHLen += 6;
 		wPayloadSize -= 6;
 	}
-	pbyPayload = pbyIV + 8; 
+	pbyPayload = pbyIV + 8; /* IV-length */
 
-	abyNonce[0]  = 0x00; 
+	abyNonce[0]  = 0x00; /* now is 0, if Qos here will be priority */
 	memcpy(&(abyNonce[1]), pMACHeader->abyAddr2, ETH_ALEN);
 	abyNonce[7]  = pbyIV[7];
 	abyNonce[8]  = pbyIV[6];
@@ -250,13 +273,13 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 	abyNonce[11] = pbyIV[1];
 	abyNonce[12] = pbyIV[0];
 
-	
+	/* MIC_IV */
 	MIC_IV[0] = 0x59;
 	memcpy(&(MIC_IV[1]), &(abyNonce[0]), 13);
 	MIC_IV[14] = (BYTE)(wPayloadSize >> 8);
 	MIC_IV[15] = (BYTE)(wPayloadSize & 0xff);
 
-	
+	/* MIC_HDR1 */
 	MIC_HDR1[0] = (BYTE)(wHLen >> 8);
 	MIC_HDR1[1] = (BYTE)(wHLen & 0xff);
 	byTmp = (BYTE)(pMACHeader->wFrameCtl & 0xff);
@@ -267,7 +290,7 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 	memcpy(&(MIC_HDR1[4]), pMACHeader->abyAddr1, ETH_ALEN);
 	memcpy(&(MIC_HDR1[10]), pMACHeader->abyAddr2, ETH_ALEN);
 
-	
+	/* MIC_HDR2 */
 	memcpy(&(MIC_HDR2[0]), pMACHeader->abyAddr3, ETH_ALEN);
 	byTmp = (BYTE)(pMACHeader->wSeqCtl & 0xff);
 	MIC_HDR2[6] = byTmp & 0x0f;
@@ -286,7 +309,7 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 	MIC_HDR2[14] = 0x00;
 	MIC_HDR2[15] = 0x00;
 
-	
+	/* CCMP */
 	AESv128(pbyRxKey, MIC_IV, abyMIC);
 	for (kk = 0; kk < 16; kk++)
 		abyTmp[kk] = MIC_HDR1[kk] ^ abyMIC[kk];
@@ -319,9 +342,9 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 		memcpy(pbyPayload, abyPlainText, 16);
 		wCnt++;
 		pbyPayload += 16;
-	} 
+	} /* for wPayloadSize */
 
-	
+	/* last payload */
 	memcpy(&(abyLastCipher[0]), pbyPayload, jj);
 	for (ii = jj; ii < 16; ii++)
 		abyLastCipher[ii] = 0x00;
@@ -336,7 +359,7 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 	memcpy(pbyPayload, abyPlainText, jj);
 	pbyPayload += jj;
 
-	
+	/* for MIC calculation */
 	for (ii = jj; ii < 16; ii++)
 		abyPlainText[ii] = 0x00;
 	for (kk = 0; kk < 16; kk++)
@@ -344,7 +367,7 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 
 	AESv128(pbyRxKey, abyTmp, abyMIC);
 
-	
+	/* => above is the calculated MIC */
 
 	wCnt = 0;
 	abyCTRPLD[14] = (BYTE) (wCnt >> 8);
@@ -354,7 +377,7 @@ BOOL AESbGenCCMP(PBYTE pbyRxKey, PBYTE pbyFrame, WORD wFrameSize)
 	for (kk = 0; kk < 8; kk++)
 		abyTmp[kk] = abyTmp[kk] ^ pbyPayload[kk];
 
-	
+	/* => above is the packet dec-MIC */
 
 	if (!memcmp(abyMIC, abyTmp, 8))
 		return TRUE;

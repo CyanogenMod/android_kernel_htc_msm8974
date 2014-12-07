@@ -24,6 +24,7 @@
 #include <linux/mfd/da9052/reg.h>
 #include <linux/mfd/da9052/pdata.h>
 
+/* Buck step size */
 #define DA9052_BUCK_PERI_3uV_STEP		100000
 #define DA9052_BUCK_PERI_REG_MAP_UPTO_3uV	24
 #define DA9052_CONST_3uV			3000000
@@ -32,13 +33,16 @@
 #define DA9052_MAX_UA		3
 #define DA9052_CURRENT_RANGE	4
 
+/* Bit masks */
 #define DA9052_BUCK_ILIM_MASK_EVEN	0x0c
 #define DA9052_BUCK_ILIM_MASK_ODD	0xc0
 
 static const u32 da9052_current_limits[3][4] = {
-	{700000, 800000, 1000000, 1200000},	
-	{1600000, 2000000, 2400000, 3000000},	
-	{800000, 1000000, 1200000, 1500000},	
+	{700000, 800000, 1000000, 1200000},	/* DA9052-BC BUCKs */
+	{1600000, 2000000, 2400000, 3000000},	/* DA9053-AA/Bx BUCK-CORE */
+	{800000, 1000000, 1200000, 1500000},	/* DA9053-AA/Bx BUCK-PRO,
+						 * BUCK-MEM and BUCK-PERI
+						*/
 };
 
 struct da9052_regulator_info {
@@ -112,12 +116,15 @@ static int da9052_dcdc_get_current_limit(struct regulator_dev *rdev)
 	if (ret < 0)
 		return ret;
 
+	/* Determine the even or odd position of the buck current limit
+	 * register field
+	*/
 	if (offset % 2 == 0)
 		ret = (ret & DA9052_BUCK_ILIM_MASK_EVEN) >> 2;
 	else
 		ret = (ret & DA9052_BUCK_ILIM_MASK_ODD) >> 6;
 
-	
+	/* Select the appropriate current limit range */
 	if (regulator->da9052->chip_id == DA9052)
 		row = 0;
 	else if (offset == 0)
@@ -134,7 +141,7 @@ static int da9052_dcdc_set_current_limit(struct regulator_dev *rdev, int min_uA,
 	int reg_val = 0;
 	int i, row = 2;
 
-	
+	/* Select the appropriate current limit range */
 	if (regulator->da9052->chip_id == DA9052)
 		row = 0;
 	else if (offset == 0)
@@ -151,6 +158,9 @@ static int da9052_dcdc_set_current_limit(struct regulator_dev *rdev, int min_uA,
 		}
 	}
 
+	/* Determine the even or odd position of the buck current limit
+	 * register field
+	*/
 	if (offset % 2 == 0)
 		return da9052_reg_update(regulator->da9052,
 					 DA9052_BUCKA_REG + offset/2,
@@ -246,6 +256,10 @@ static int da9052_set_ldo5_6_voltage(struct regulator_dev *rdev,
 	if (ret < 0)
 		return ret;
 
+	/* Some LDOs are DVC controlled which requires enabling of
+	 * the LDO activate bit to implment the changes on the
+	 * LDO output.
+	*/
 	return da9052_reg_update(regulator->da9052, DA9052_SUPPLY_REG,
 				 info->activate_bit, info->activate_bit);
 }
@@ -262,6 +276,10 @@ static int da9052_set_dcdc_voltage(struct regulator_dev *rdev,
 	if (ret < 0)
 		return ret;
 
+	/* Some DCDCs are DVC controlled which requires enabling of
+	 * the DCDC activate bit to implment the changes on the
+	 * DCDC output.
+	*/
 	return da9052_reg_update(regulator->da9052, DA9052_SUPPLY_REG,
 				 info->activate_bit, info->activate_bit);
 }
@@ -448,12 +466,12 @@ static struct regulator_ops da9052_ldo_ops = {
 }
 
 static struct da9052_regulator_info da9052_regulator_info[] = {
-	
+	/* Buck1 - 4 */
 	DA9052_DCDC(0, 25, 500, 2075, 6, 6, DA9052_SUPPLY_VBCOREGO),
 	DA9052_DCDC(1, 25, 500, 2075, 6, 6, DA9052_SUPPLY_VBPROGO),
 	DA9052_DCDC(2, 25, 925, 2500, 6, 6, DA9052_SUPPLY_VBMEMGO),
 	DA9052_BUCKPERI(3, 50, 1800, 3600, 5, 6, 0),
-	
+	/* LD01 - LDO10 */
 	DA9052_LDO(4, 50, 600, 1800, 5, 6, 0),
 	DA9052_LDO5_6(5, 25, 600, 1800, 6, 6, DA9052_SUPPLY_VLDO2GO),
 	DA9052_LDO5_6(6, 25, 1725, 3300, 6, 6, DA9052_SUPPLY_VLDO3GO),
@@ -467,12 +485,12 @@ static struct da9052_regulator_info da9052_regulator_info[] = {
 };
 
 static struct da9052_regulator_info da9053_regulator_info[] = {
-	
+	/* Buck1 - 4 */
 	DA9052_DCDC(0, 25, 500, 2075, 6, 6, DA9052_SUPPLY_VBCOREGO),
 	DA9052_DCDC(1, 25, 500, 2075, 6, 6, DA9052_SUPPLY_VBPROGO),
 	DA9052_DCDC(2, 25, 925, 2500, 6, 6, DA9052_SUPPLY_VBMEMGO),
 	DA9052_BUCKPERI(3, 25, 925, 2500, 6, 6, 0),
-	
+	/* LD01 - LDO10 */
 	DA9052_LDO(4, 50, 600, 1800, 5, 6, 0),
 	DA9052_LDO5_6(5, 25, 600, 1800, 6, 6, DA9052_SUPPLY_VLDO2GO),
 	DA9052_LDO5_6(6, 25, 1725, 3300, 6, 6, DA9052_SUPPLY_VLDO3GO),

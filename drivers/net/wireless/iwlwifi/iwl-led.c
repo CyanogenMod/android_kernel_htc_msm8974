@@ -42,6 +42,19 @@
 #include "iwl-trans.h"
 #include "iwl-shared.h"
 
+/* Throughput		OFF time(ms)	ON time (ms)
+ *	>300			25		25
+ *	>200 to 300		40		40
+ *	>100 to 200		55		55
+ *	>70 to 100		65		65
+ *	>50 to 70		75		75
+ *	>20 to 50		85		85
+ *	>10 to 20		95		95
+ *	>5 to 10		110		110
+ *	>1 to 5			130		130
+ *	>0 to 1			167		167
+ *	<=0					SOLID ON
+ */
 static const struct ieee80211_tpt_blink iwl_blink[] = {
 	{ .throughput = 0, .blink_time = 334 },
 	{ .throughput = 1 * 1024 - 1, .blink_time = 260 },
@@ -55,11 +68,23 @@ static const struct ieee80211_tpt_blink iwl_blink[] = {
 	{ .throughput = 300 * 1024 - 1, .blink_time = 50 },
 };
 
+/* Set led register off */
 void iwlagn_led_enable(struct iwl_priv *priv)
 {
 	iwl_write32(trans(priv), CSR_LED_REG, CSR_LED_REG_TRUN_ON);
 }
 
+/*
+ * Adjust led blink rate to compensate on a MAC Clock difference on every HW
+ * Led blink rate analysis showed an average deviation of 20% on 5000 series
+ * and up.
+ * Need to compensate on the led on/off time per HW according to the deviation
+ * to achieve the desired led frequency
+ * The calculation is: (100-averageDeviation)/100 * blinkTime
+ * For code efficiency the calculation will be:
+ *     compensation = (100 - averageDeviation) * 64 / 100
+ *     NewBlinkTime = (compensation * BlinkTime) / 64
+ */
 static inline u8 iwl_blink_compensation(struct iwl_priv *priv,
 				    u8 time, u16 compensation)
 {
@@ -90,6 +115,7 @@ static int iwl_send_led_cmd(struct iwl_priv *priv, struct iwl_led_cmd *led_cmd)
 	return iwl_dvm_send_cmd(priv, &cmd);
 }
 
+/* Set led pattern command */
 static int iwl_led_cmd(struct iwl_priv *priv,
 		       unsigned long on,
 		       unsigned long off)
@@ -107,7 +133,7 @@ static int iwl_led_cmd(struct iwl_priv *priv,
 		return 0;
 
 	if (off == 0) {
-		
+		/* led is SOLID_ON */
 		on = IWL_LED_SOLID;
 	}
 

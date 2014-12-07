@@ -20,6 +20,7 @@
 #include <asm/amigayle.h>
 #include <asm/amipcmcia.h>
 
+/* gayle config byte for program voltage and access speed */
 static unsigned char cfg_byte = GAYLE_CFG_0V|GAYLE_CFG_150NS;
 
 void pcmcia_reset(void)
@@ -34,6 +35,8 @@ void pcmcia_reset(void)
 EXPORT_SYMBOL(pcmcia_reset);
 
 
+/* copy a tuple, including tuple header. return nb bytes copied */
+/* be careful as this may trigger a GAYLE_IRQ_WR interrupt ! */
 
 int pcmcia_copy_tuple(unsigned char tuple_id, void *tuple, int max_len)
 {

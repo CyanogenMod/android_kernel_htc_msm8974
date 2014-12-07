@@ -29,6 +29,8 @@
 
 #include <linux/of.h>
 
+/* configuration tags specific to msm */
+//#define ATAG_MSM_WIFI	0x57494649 /* MSM WiFi */
 
 #define NVS_MAX_SIZE	0x800U
 #define NVS_LEN_OFFSET	0x0C
@@ -54,7 +56,7 @@ unsigned char *get_wifi_nvs_ram( void )
      p_size = 0;
      p_data = NULL;
      if (offset) {
-          
+          /* of_get_property 會回傳property的address，並把長度填入*p_size */
           p_data = (unsigned char*) of_get_property(offset, WIFI_FLASH_DATA, &p_size);
 #ifdef MSM_WIFI_DEBUG
           if (p_data) {
@@ -114,7 +116,7 @@ static unsigned wifi_get_nvs_size( void )
 	unsigned len;
 
 	ptr = get_wifi_nvs_ram();
-	
+	/* Size in format LE assumed */
 	memcpy(&len, ptr + NVS_LEN_OFFSET, sizeof(len));
 	len = min(len, (NVS_MAX_SIZE - NVS_DATA_OFFSET));
 	return len;

@@ -88,7 +88,7 @@ static ssize_t overlay_manager_store(struct omap_overlay *ovl, const char *buf,
 	if (r)
 		return r;
 
-	
+	/* detach old manager */
 	if (old_mgr) {
 		r = ovl->unset_manager(ovl);
 		if (r) {
@@ -520,6 +520,8 @@ void dss_init_overlays(struct platform_device *pdev)
 	}
 }
 
+/* connect overlays to the new device, if not already connected. if force
+ * selected, connect always. */
 void dss_recheck_connections(struct omap_dss_device *dssdev, bool force)
 {
 	int i;

@@ -9,12 +9,18 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * Standard video BIOS modes
+ *
+ * We have two options for this; silent and scanned.
+ */
 
 #include "boot.h"
 #include "video.h"
 
 static __videocard video_bios;
 
+/* Set a conventional BIOS mode */
 static int set_bios_mode(u8 mode);
 
 static int bios_set_mode(struct mode_info *mi)
@@ -28,22 +34,25 @@ static int set_bios_mode(u8 mode)
 	u8 new_mode;
 
 	initregs(&ireg);
-	ireg.al = mode;		
+	ireg.al = mode;		/* AH=0x00 Set Video Mode */
 	intcall(0x10, &ireg, NULL);
 
-	ireg.ah = 0x0f;		
+	ireg.ah = 0x0f;		/* Get Current Video Mode */
 	intcall(0x10, &ireg, &oreg);
 
-	do_restore = 1;		
+	do_restore = 1;		/* Assume video contents were lost */
 
-	
+	/* Not all BIOSes are clean with the top bit */
 	new_mode = oreg.al & 0x7f;
 
 	if (new_mode == mode)
-		return 0;	
+		return 0;	/* Mode change OK */
 
 #ifndef _WAKEUP
 	if (new_mode != boot_params.screen_info.orig_video_mode) {
+		/* Mode setting failed, but we didn't end up where we
+		   started.  That's bad.  Try to revert to the original
+		   video mode. */
 		ireg.ax = boot_params.screen_info.orig_video_mode;
 		intcall(0x10, &ireg, NULL);
 	}
@@ -81,23 +90,23 @@ static int bios_probe(void)
 		if (set_bios_mode(mode))
 			continue;
 
-		
+		/* Try to verify that it's a text mode. */
 
-		
+		/* Attribute Controller: make graphics controller disabled */
 		if (in_idx(0x3c0, 0x10) & 0x01)
 			continue;
 
-		
+		/* Graphics Controller: verify Alpha addressing enabled */
 		if (in_idx(0x3ce, 0x06) & 0x01)
 			continue;
 
-		
+		/* CRTC cursor location low should be zero(?) */
 		if (in_idx(crtc, 0x0f))
 			continue;
 
 		mi = GET_HEAP(struct mode_info, 1);
 		mi->mode = VIDEO_FIRST_BIOS+mode;
-		mi->depth = 0;	
+		mi->depth = 0;	/* text */
 		mi->x = rdfs16(0x44a);
 		mi->y = rdfs8(0x484)+1;
 		nmodes++;

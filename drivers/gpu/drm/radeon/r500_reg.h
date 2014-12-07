@@ -28,6 +28,7 @@
 #ifndef __R500_REG_H__
 #define __R500_REG_H__
 
+/* pipe config regs */
 #define R300_GA_POLY_MODE				0x4288
 #       define R300_FRONT_PTYPE_POINT                   (0 << 4)
 #       define R300_FRONT_PTYPE_LINE                    (1 << 4)
@@ -70,7 +71,7 @@
 #       define R300_ZC_FREE                             (1 << 1)
 #       define R300_ZC_FLUSH_ALL                        0x3
 #define R400_GB_PIPE_SELECT             0x402c
-#define R500_DYN_SCLK_PWMEM_PIPE        0x000d 
+#define R500_DYN_SCLK_PWMEM_PIPE        0x000d /* PLL */
 #define R500_SU_REG_DEST                0x42c8
 #define R300_GB_TILE_CONFIG             0x4018
 #       define R300_ENABLE_TILING       (1 << 0)
@@ -104,6 +105,9 @@
 #	define RS480_NB_MC_IND_WR_EN	(1 << 8)
 #define RS480_NB_MC_DATA                0x16c
 
+/*
+ * RS690
+ */
 #define RS690_MCCFG_FB_LOCATION		0x100
 #define		RS690_MC_FB_START_MASK		0x0000FFFF
 #define		RS690_MC_FB_START_SHIFT		0
@@ -140,7 +144,7 @@
 #	define RS480_PDC_EN	        (1 << 31)
 #define RS480_GART_BASE                 0x2c
 #define RS480_GART_CACHE_CNTRL          0x2e
-#	define RS480_GART_CACHE_INVALIDATE (1 << 0) 
+#	define RS480_GART_CACHE_INVALIDATE (1 << 0) /* wait for it to clear */
 #define RS480_AGP_ADDRESS_SPACE_SIZE    0x38
 #	define RS480_GART_EN	        (1 << 0)
 #	define RS480_VA_SIZE_32MB	(0 << 1)
@@ -161,6 +165,9 @@
 #define RS690_AIC_CTRL_SCRATCH		0x3A
 #	define RS690_DIS_OUT_OF_PCI_GART_ACCESS	(1 << 1)
 
+/*
+ * RS600
+ */
 #define RS600_MC_STATUS                         0x0
 #define RS600_MC_STATUS_IDLE                    (1 << 0)
 #define RS600_MC_INDEX                          0x70
@@ -219,8 +226,10 @@
 #       define RS600_ENABLE_FRAGMENT_PROCESSING (1 << 14)
 #       define RS600_EFFECTIVE_L1_QUEUE_SIZE(x) ((x) << 15)
 #       define RS600_INVALIDATE_L1_TLB          (1 << 20)
+/* rs600/rs690/rs740 */
 #	define RS600_BUS_MASTER_DIS		(1 << 14)
 #	define RS600_MSI_REARM		        (1 << 20)
+/* see RS400_MSI_REARM in AIC_CNTL for rs480 */
 
 
 
@@ -270,11 +279,11 @@
 #	define R520_MEM_NUM_CHANNELS_SHIFT  24
 #	define R520_MC_CHANNEL_SIZE  (1 << 23)
 
-#define AVIVO_CP_DYN_CNTL                              0x000f 
+#define AVIVO_CP_DYN_CNTL                              0x000f /* PLL */
 #       define AVIVO_CP_FORCEON                        (1 << 0)
-#define AVIVO_E2_DYN_CNTL                              0x0011 
+#define AVIVO_E2_DYN_CNTL                              0x0011 /* PLL */
 #       define AVIVO_E2_FORCEON                        (1 << 0)
-#define AVIVO_IDCT_DYN_CNTL                            0x0013 
+#define AVIVO_IDCT_DYN_CNTL                            0x0013 /* PLL */
 #       define AVIVO_IDCT_FORCEON                      (1 << 0)
 
 #define AVIVO_HDP_FB_LOCATION 0x134
@@ -350,6 +359,7 @@
 
 #define AVIVO_D1MODE_MASTER_UPDATE_MODE                         0x60e4
 
+/* master controls */
 #define AVIVO_DC_CRTC_MASTER_EN                                 0x60f8
 #define AVIVO_DC_CRTC_TV_CONTROL                                0x60fc
 
@@ -385,6 +395,9 @@
 #       define R600_D1GRPH_ARRAY_MODE_1D_TILED_THIN1            (2 << 20)
 #       define R600_D1GRPH_ARRAY_MODE_2D_TILED_THIN1            (4 << 20)
 
+/* The R7xx *_HIGH surface regs are backwards; the D1 regs are in the D2
+ * block and vice versa.  This applies to GRPH, CUR, etc.
+ */
 #define AVIVO_D1GRPH_LUT_SEL                                    0x6108
 #define AVIVO_D1GRPH_PRIMARY_SURFACE_ADDRESS                    0x6110
 #define R700_D1GRPH_PRIMARY_SURFACE_ADDRESS_HIGH                0x6914
@@ -469,6 +482,7 @@
 #define AVIVO_D1SCL_UPDATE                      0x65cc
 #       define AVIVO_D1SCL_UPDATE_LOCK          (1 << 16)
 
+/* second crtc */
 #define AVIVO_D2CRTC_H_TOTAL					0x6800
 #define AVIVO_D2CRTC_H_BLANK_START_END                          0x6804
 #define AVIVO_D2CRTC_H_SYNC_A                                   0x6808
@@ -569,6 +583,9 @@
 #   define AVIVO_TMDSA_CNTL_DUAL_LINK_ENABLE     (1 << 24)
 #   define AVIVO_TMDSA_CNTL_SWAP                 (1 << 28)
 #define AVIVO_TMDSA_SOURCE_SELECT				0x7884
+/* 78a8 appears to be some kind of (reasonably tolerant) clock?
+ * 78d0 definitely hits the transmitter, definitely clock. */
+/* MYSTERY1 This appears to control dithering? */
 #define AVIVO_TMDSA_BIT_DEPTH_CONTROL		0x7894
 #   define AVIVO_TMDS_BIT_DEPTH_CONTROL_TRUNCATE_EN           (1 << 0)
 #   define AVIVO_TMDS_BIT_DEPTH_CONTROL_TRUNCATE_DEPTH        (1 << 4)

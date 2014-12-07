@@ -34,9 +34,12 @@ struct ps3_vuart_stats {
 struct ps3_vuart_work {
 	struct work_struct work;
 	unsigned long trigger;
-	struct ps3_system_bus_device *dev; 
+	struct ps3_system_bus_device *dev; /* to convert work to device */
 };
 
+/**
+ * struct ps3_vuart_port_driver - a driver for a device on a vuart port
+ */
 
 struct ps3_vuart_port_driver {
 	struct ps3_system_bus_driver core;
@@ -44,11 +47,11 @@ struct ps3_vuart_port_driver {
 	int (*remove)(struct ps3_system_bus_device *);
 	void (*shutdown)(struct ps3_system_bus_device *);
 	void (*work)(struct ps3_system_bus_device *);
-	
-	
-	
-	
-	
+	/* int (*tx_event)(struct ps3_system_bus_device *dev); */
+	/* int (*rx_event)(struct ps3_system_bus_device *dev); */
+	/* int (*disconnect_event)(struct ps3_system_bus_device *dev); */
+	/* int (*suspend)(struct ps3_system_bus_device *, pm_message_t); */
+	/* int (*resume)(struct ps3_system_bus_device *); */
 };
 
 int ps3_vuart_port_driver_register(struct ps3_vuart_port_driver *drv);

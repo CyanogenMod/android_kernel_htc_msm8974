@@ -27,38 +27,70 @@
 
 #include <linux/dvb/frontend.h>
 
+/* AF9013/5 GPIOs (mostly guessed)
+   demod#1-gpio#0 - set demod#2 i2c-addr for dual devices
+   demod#1-gpio#1 - xtal setting (?)
+   demod#1-gpio#3 - tuner#1
+   demod#2-gpio#0 - tuner#2
+   demod#2-gpio#1 - xtal setting (?)
+*/
 
 struct af9013_config {
+	/*
+	 * I2C address
+	 */
 	u8 i2c_addr;
 
+	/*
+	 * clock
+	 * 20480000, 25000000, 28000000, 28800000
+	 */
 	u32 clock;
 
-#define AF9013_TUNER_MXL5003D      3 
-#define AF9013_TUNER_MXL5005D     13 
-#define AF9013_TUNER_MXL5005R     30 
-#define AF9013_TUNER_ENV77H11D5  129 
-#define AF9013_TUNER_MT2060      130 
-#define AF9013_TUNER_MC44S803    133 
-#define AF9013_TUNER_QT1010      134 
-#define AF9013_TUNER_UNKNOWN     140 
-#define AF9013_TUNER_MT2060_2    147 
-#define AF9013_TUNER_TDA18271    156 
-#define AF9013_TUNER_QT1010A     162 
-#define AF9013_TUNER_MXL5007T    177 
-#define AF9013_TUNER_TDA18218    179 
+	/*
+	 * tuner
+	 */
+#define AF9013_TUNER_MXL5003D      3 /* MaxLinear */
+#define AF9013_TUNER_MXL5005D     13 /* MaxLinear */
+#define AF9013_TUNER_MXL5005R     30 /* MaxLinear */
+#define AF9013_TUNER_ENV77H11D5  129 /* Panasonic */
+#define AF9013_TUNER_MT2060      130 /* Microtune */
+#define AF9013_TUNER_MC44S803    133 /* Freescale */
+#define AF9013_TUNER_QT1010      134 /* Quantek */
+#define AF9013_TUNER_UNKNOWN     140 /* for can tuners ? */
+#define AF9013_TUNER_MT2060_2    147 /* Microtune */
+#define AF9013_TUNER_TDA18271    156 /* NXP */
+#define AF9013_TUNER_QT1010A     162 /* Quantek */
+#define AF9013_TUNER_MXL5007T    177 /* MaxLinear */
+#define AF9013_TUNER_TDA18218    179 /* NXP */
 	u8 tuner;
 
+	/*
+	 * IF frequency
+	 */
 	u32 if_frequency;
 
+	/*
+	 * TS settings
+	 */
 #define AF9013_TS_USB       0
 #define AF9013_TS_PARALLEL  1
 #define AF9013_TS_SERIAL    2
 	u8 ts_mode:2;
 
+	/*
+	 * input spectrum inversion
+	 */
 	bool spec_inv;
 
+	/*
+	 * firmware API version
+	 */
 	u8 api_version[4];
 
+	/*
+	 * GPIOs
+	 */
 #define AF9013_GPIO_ON (1 << 0)
 #define AF9013_GPIO_EN (1 << 1)
 #define AF9013_GPIO_O  (1 << 2)
@@ -81,6 +113,6 @@ const struct af9013_config *config, struct i2c_adapter *i2c)
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_AF9013 */
 
-#endif 
+#endif /* AF9013_H */

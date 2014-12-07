@@ -20,6 +20,9 @@
 #ifndef __ASM_ARCH_MEMORY_H
 #define __ASM_ARCH_MEMORY_H
 
+/*
+ * Physical DRAM offset.
+ */
 #ifdef CONFIG_REALVIEW_HIGH_PHYS_OFFSET
 #define PLAT_PHYS_OFFSET		UL(0x70000000)
 #else
@@ -28,6 +31,20 @@
 
 #ifdef CONFIG_SPARSEMEM
 
+/*
+ * Sparsemem definitions for RealView PBX.
+ *
+ * The RealView PBX board has another block of 512MB of RAM at 0x20000000,
+ * however only the block at 0x70000000 (or the 256MB mirror at 0x00000000)
+ * may be used for DMA.
+ *
+ * The macros below define a section size of 256MB and a non-linear virtual to
+ * physical mapping:
+ *
+ * 256MB @ 0x00000000 -> PAGE_OFFSET
+ * 512MB @ 0x20000000 -> PAGE_OFFSET + 0x10000000
+ * 256MB @ 0x80000000 -> PAGE_OFFSET + 0x30000000
+ */
 #ifdef CONFIG_REALVIEW_HIGH_PHYS_OFFSET
 #error "SPARSEMEM not available with REALVIEW_HIGH_PHYS_OFFSET"
 #endif
@@ -35,6 +52,7 @@
 #define MAX_PHYSMEM_BITS	32
 #define SECTION_SIZE_BITS	28
 
+/* bank page offsets */
 #define PAGE_OFFSET1	(PAGE_OFFSET + 0x10000000)
 #define PAGE_OFFSET2	(PAGE_OFFSET + 0x30000000)
 
@@ -48,6 +66,6 @@
 	  (virt) >= PAGE_OFFSET1 ? (virt) - PAGE_OFFSET1 + 0x20000000 :	\
 	  (virt) - PAGE_OFFSET)
 
-#endif	
+#endif	/* CONFIG_SPARSEMEM */
 
 #endif

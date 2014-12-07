@@ -46,21 +46,28 @@
 #include <asm/mipsregs.h>
 #include <asm/titan_dep.h>
 
-#define IRQ_ACK_BITS            0x00000000	
+/* Hypertransport specific */
+#define IRQ_ACK_BITS            0x00000000	/* Ack bits */
 
-#define HYPERTRANSPORT_INTA     0x78		
-#define HYPERTRANSPORT_INTB     0x79		
-#define HYPERTRANSPORT_INTC     0x7a		
-#define HYPERTRANSPORT_INTD     0x7b		
+#define HYPERTRANSPORT_INTA     0x78		/* INTA# */
+#define HYPERTRANSPORT_INTB     0x79		/* INTB# */
+#define HYPERTRANSPORT_INTC     0x7a		/* INTC# */
+#define HYPERTRANSPORT_INTD     0x7b		/* INTD# */
 
 extern void titan_mailbox_irq(void);
 
 #ifdef CONFIG_HYPERTRANSPORT
+/*
+ * Handle hypertransport & SMP interrupts. The interrupt lines are scarce.
+ * For interprocessor interrupts, the best thing to do is to use the INTMSG
+ * register. We use the same external interrupt line, i.e. INTB3 and monitor
+ * another status bit
+ */
 static void ll_ht_smp_irq_handler(int irq)
 {
 	u32 status = OCD_READ(RM9000x2_OCD_INTP0STATUS4);
 
-	
+	/* Ack all the bits that correspond to the interrupt sources */
 	if (status != 0)
 		OCD_WRITE(RM9000x2_OCD_INTP0STATUS4, IRQ_ACK_BITS);
 
@@ -69,6 +76,9 @@ static void ll_ht_smp_irq_handler(int irq)
 		OCD_WRITE(RM9000x2_OCD_INTP1STATUS4, IRQ_ACK_BITS);
 
 #ifdef CONFIG_HT_LEVEL_TRIGGER
+	/*
+	 * Level Trigger Mode only. Send the HT EOI message back to the source.
+	 */
 	switch (status) {
 	case 0x1000000:
 		OCD_WRITE(RM9000x2_OCD_HTEOI, HYPERTRANSPORT_INTA);
@@ -83,7 +93,7 @@ static void ll_ht_smp_irq_handler(int irq)
 		OCD_WRITE(RM9000x2_OCD_HTEOI, HYPERTRANSPORT_INTD);
 		break;
 	case 0x0000001:
-		
+		/* PLX */
 		OCD_WRITE(RM9000x2_OCD_HTEOI, 0x20);
 		OCD_WRITE(IRQ_CLEAR_REG, IRQ_ACK_BITS);
 		break;
@@ -94,7 +104,7 @@ static void ll_ht_smp_irq_handler(int irq)
 		OCD_WRITE(RM9000x2_OCD_HTEOI, HYPERTRANSPORT_INTD);
 		break;
 	}
-#endif 
+#endif /* CONFIG_HT_LEVEL_TRIGGER */
 
 	do_IRQ(irq);
 }
@@ -129,6 +139,9 @@ asmlinkage void plat_irq_dispatch(void)
 	}
 }
 
+/*
+ * Initialize the next level interrupt handler
+ */
 void __init arch_init_irq(void)
 {
 	clear_c0_status(ST0_IM);

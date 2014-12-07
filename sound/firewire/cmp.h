@@ -7,9 +7,19 @@
 
 struct fw_unit;
 
+/**
+ * struct cmp_connection - manages an isochronous connection to a device
+ * @speed: the connection's actual speed
+ *
+ * This structure manages (using CMP) an isochronous stream from the local
+ * computer to a device's input plug (iPCR).
+ *
+ * There is no corresponding oPCR created on the local computer, so it is not
+ * possible to overlay connections on top of this one.
+ */
 struct cmp_connection {
 	int speed;
-	
+	/* private: */
 	bool connected;
 	struct mutex mutex;
 	struct fw_iso_resources resources;

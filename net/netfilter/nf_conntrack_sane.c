@@ -1,3 +1,8 @@
+/* SANE connection tracking helper
+ * (SANE = Scanner Access Now Easy)
+ * For documentation about the SANE network protocol see
+ * http://www.sane-project.org/html/doc015.html
+ */
 
 /* Copyright (C) 2007 Red Hat, Inc.
  * Author: Michal Schmidt <mschmidt@redhat.com>
@@ -39,7 +44,7 @@ module_param_array(ports, ushort, &ports_c, 0400);
 
 struct sane_request {
 	__be32 RPC_code;
-#define SANE_NET_START      7   
+#define SANE_NET_START      7   /* RPC code */
 
 	__be32 handle;
 };
@@ -50,7 +55,7 @@ struct sane_reply_net_start {
 
 	__be16 zero;
 	__be16 port;
-	
+	/* other fields aren't interesting for conntrack */
 };
 
 static int help(struct sk_buff *skb,
@@ -71,17 +76,17 @@ static int help(struct sk_buff *skb,
 	struct sane_reply_net_start *reply;
 
 	ct_sane_info = &nfct_help(ct)->help.ct_sane_info;
-	
+	/* Until there's been traffic both ways, don't look in packets. */
 	if (ctinfo != IP_CT_ESTABLISHED &&
 	    ctinfo != IP_CT_ESTABLISHED_REPLY)
 		return NF_ACCEPT;
 
-	
+	/* Not a full tcp header? */
 	th = skb_header_pointer(skb, protoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)
 		return NF_ACCEPT;
 
-	
+	/* No data? */
 	dataoff = protoff + th->doff * 4;
 	if (dataoff >= skb->len)
 		return NF_ACCEPT;
@@ -98,21 +103,21 @@ static int help(struct sk_buff *skb,
 
 		req = sb_ptr;
 		if (req->RPC_code != htonl(SANE_NET_START)) {
-			
+			/* Not an interesting command */
 			ct_sane_info->state = SANE_STATE_NORMAL;
 			goto out;
 		}
 
-		
+		/* We're interested in the next reply */
 		ct_sane_info->state = SANE_STATE_START_REQUESTED;
 		goto out;
 	}
 
-	
+	/* Is it a reply to an uninteresting command? */
 	if (ct_sane_info->state != SANE_STATE_START_REQUESTED)
 		goto out;
 
-	
+	/* It's a reply to SANE_NET_START. */
 	ct_sane_info->state = SANE_STATE_NORMAL;
 
 	if (datalen < sizeof(struct sane_reply_net_start)) {
@@ -122,13 +127,13 @@ static int help(struct sk_buff *skb,
 
 	reply = sb_ptr;
 	if (reply->status != htonl(SANE_STATUS_SUCCESS)) {
-		
+		/* saned refused the command */
 		pr_debug("nf_ct_sane: unsuccessful SANE_STATUS = %u\n",
 			 ntohl(reply->status));
 		goto out;
 	}
 
-	
+	/* Invalid saned reply? Ignore it. */
 	if (reply->zero != 0)
 		goto out;
 
@@ -146,7 +151,7 @@ static int help(struct sk_buff *skb,
 	pr_debug("nf_ct_sane: expect: ");
 	nf_ct_dump_tuple(&exp->tuple);
 
-	
+	/* Can't expect this?  Best to drop packet now. */
 	if (nf_ct_expect_related(exp) != 0)
 		ret = NF_DROP;
 
@@ -165,6 +170,7 @@ static const struct nf_conntrack_expect_policy sane_exp_policy = {
 	.timeout	= 5 * 60,
 };
 
+/* don't make this __exit, since it's called from __init ! */
 static void nf_conntrack_sane_fini(void)
 {
 	int i, j;
@@ -193,6 +199,8 @@ static int __init nf_conntrack_sane_init(void)
 	if (ports_c == 0)
 		ports[ports_c++] = SANE_PORT;
 
+	/* FIXME should be configurable whether IPv4 and IPv6 connections
+		 are tracked or not - YK */
 	for (i = 0; i < ports_c; i++) {
 		sane[i][0].tuple.src.l3num = PF_INET;
 		sane[i][1].tuple.src.l3num = PF_INET6;

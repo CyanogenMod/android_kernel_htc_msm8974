@@ -21,12 +21,19 @@
 #include <asm/mach/pci.h>
 #include <asm/mach-types.h>
 
+/* PCI controller GPIO to IRQ pin mappings */
 #define INTA	2
 #define INTB	3
 
 void __init vulcan_pci_preinit(void)
 {
 #ifndef CONFIG_IXP4XX_INDIRECT_PCI
+	/*
+	 * Cardbus bridge wants way more than the SoC can actually offer,
+	 * and leaves the whole PCI bus in a mess. Artificially limit it
+	 * to 8MB per region. Of course indirect mode doesn't have this
+	 * limitation...
+	 */
 	pci_cardbus_mem_size = SZ_8M;
 	pr_info("Vulcan PCI: limiting CardBus memory size to %dMB\n",
 		(int)(pci_cardbus_mem_size >> 20));

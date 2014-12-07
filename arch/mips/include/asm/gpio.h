@@ -3,4 +3,4 @@
 
 #include <gpio.h>
 
-#endif 
+#endif /* __ASM_MIPS_GPIO_H */

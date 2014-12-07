@@ -119,6 +119,9 @@ static int c2_query_gid(struct ib_device *ibdev, u8 port,
 	return 0;
 }
 
+/* Allocate the user context data structure. This keeps track
+ * of all objects associated with a particular user-mode client.
+ */
 static struct ib_ucontext *c2_alloc_ucontext(struct ib_device *ibdev,
 					     struct ib_udata *udata)
 {
@@ -247,14 +250,14 @@ static struct ib_qp *c2_create_qp(struct ib_pd *pd,
 		}
 		spin_lock_init(&qp->lock);
 		if (pd->uobject) {
-			
+			/* userspace specific */
 		}
 
 		err = c2_alloc_qp(to_c2dev(pd->device),
 				  to_c2pd(pd), init_attr, qp);
 
 		if (err && pd->uobject) {
-			
+			/* userspace specific */
 		}
 
 		break;
@@ -339,6 +342,10 @@ static struct ib_mr *c2_reg_phys_mr(struct ib_pd *ib_pd,
 	total_len = 0;
 
 	page_shift = PAGE_SHIFT;
+	/*
+	 * If there is only 1 buffer we assume this could
+	 * be a map of all phy mem...use a 32k page_shift.
+	 */
 	if (num_phys_buf == 1)
 		page_shift += 3;
 
@@ -412,7 +419,7 @@ static struct ib_mr *c2_get_dma_mr(struct ib_pd *pd, int acc)
 
 	pr_debug("%s:%u\n", __func__, __LINE__);
 
-	
+	/* AMSO1100 limit */
 	bl.size = 0xffffffff;
 	bl.addr = 0;
 	return c2_reg_phys_mr(pd, &bl, 1, acc, &kva);
@@ -592,7 +599,7 @@ static int c2_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *iw_param)
 {
 	pr_debug("%s:%u\n", __func__, __LINE__);
 
-	
+	/* Request a connection */
 	return c2_llp_connect(cm_id, iw_param);
 }
 
@@ -600,7 +607,7 @@ static int c2_accept(struct iw_cm_id *cm_id, struct iw_cm_conn_param *iw_param)
 {
 	pr_debug("%s:%u\n", __func__, __LINE__);
 
-	
+	/* Accept the new connection */
 	return c2_llp_accept(cm_id, iw_param);
 }
 
@@ -699,7 +706,7 @@ static int c2_pseudo_change_mtu(struct net_device *netdev, int new_mtu)
 
 	netdev->mtu = new_mtu;
 
-	
+	/* TODO: Tell rnic about new rmda interface mtu */
 	return 0;
 }
 
@@ -729,7 +736,7 @@ static struct net_device *c2_pseudo_netdev_init(struct c2_dev *c2dev)
 	char name[IFNAMSIZ];
 	struct net_device *netdev;
 
-	
+	/* change ethxxx to iwxxx */
 	strcpy(name, "iw");
 	strcat(name, &c2dev->netdev->name[3]);
 	netdev = alloc_netdev(0, name, setup);
@@ -745,11 +752,11 @@ static struct net_device *c2_pseudo_netdev_init(struct c2_dev *c2dev)
 
 	memcpy_fromio(netdev->dev_addr, c2dev->kva + C2_REGS_RDMA_ENADDR, 6);
 
-	
+	/* Print out the MAC address */
 	pr_debug("%s: MAC %pM\n", netdev->name, netdev->dev_addr);
 
 #if 0
-	
+	/* Disable network packets */
 	netif_stop_queue(netdev);
 #endif
 	return netdev;
@@ -760,7 +767,7 @@ int c2_register_device(struct c2_dev *dev)
 	int ret = -ENOMEM;
 	int i;
 
-	
+	/* Register pseudo network device */
 	dev->pseudo_netdev = c2_pseudo_netdev_init(dev);
 	if (!dev->pseudo_netdev)
 		goto out;

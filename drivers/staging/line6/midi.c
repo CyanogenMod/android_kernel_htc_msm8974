@@ -26,6 +26,9 @@
 static int send_midi_async(struct usb_line6 *line6, unsigned char *data,
 			   int length);
 
+/*
+	Pass data received via USB to MIDI.
+*/
 void line6_midi_receive(struct usb_line6 *line6, unsigned char *data,
 			int length)
 {
@@ -34,6 +37,9 @@ void line6_midi_receive(struct usb_line6 *line6, unsigned char *data,
 				    data, length);
 }
 
+/*
+	Read data from MIDI buffer and transmit them via USB.
+*/
 static void line6_midi_transmit(struct snd_rawmidi_substream *substream)
 {
 	struct usb_line6 *line6 =
@@ -76,6 +82,9 @@ static void line6_midi_transmit(struct snd_rawmidi_substream *substream)
 	spin_unlock_irqrestore(&line6->line6midi->midi_transmit_lock, flags);
 }
 
+/*
+	Notification of completion of MIDI transmission.
+*/
 static void midi_sent(struct urb *urb)
 {
 	unsigned long flags;
@@ -104,6 +113,11 @@ static void midi_sent(struct urb *urb)
 	spin_unlock_irqrestore(&line6->line6midi->send_urb_lock, flags);
 }
 
+/*
+	Send an asynchronous MIDI message.
+	Assumes that line6->line6midi->send_urb_lock is held
+	(i.e., this function is serialized).
+*/
 static int send_midi_async(struct usb_line6 *line6, unsigned char *data,
 			   int length)
 {
@@ -239,10 +253,14 @@ static struct snd_rawmidi_ops line6_midi_input_ops = {
 	.trigger = line6_midi_input_trigger,
 };
 
+/*
+	Cleanup the Line6 MIDI device.
+*/
 static void line6_cleanup_midi(struct snd_rawmidi *rmidi)
 {
 }
 
+/* Create a MIDI device */
 static int snd_line6_new_midi(struct snd_line6_midi *line6midi)
 {
 	struct snd_rawmidi *rmidi;
@@ -269,6 +287,9 @@ static int snd_line6_new_midi(struct snd_line6_midi *line6midi)
 	return 0;
 }
 
+/*
+	"read" request on "midi_mask_transmit" special file.
+*/
 static ssize_t midi_get_midi_mask_transmit(struct device *dev,
 					   struct device_attribute *attr,
 					   char *buf)
@@ -278,6 +299,9 @@ static ssize_t midi_get_midi_mask_transmit(struct device *dev,
 	return sprintf(buf, "%d\n", line6->line6midi->midi_mask_transmit);
 }
 
+/*
+	"write" request on "midi_mask" special file.
+*/
 static ssize_t midi_set_midi_mask_transmit(struct device *dev,
 					   struct device_attribute *attr,
 					   const char *buf, size_t count)
@@ -295,6 +319,9 @@ static ssize_t midi_set_midi_mask_transmit(struct device *dev,
 	return count;
 }
 
+/*
+	"read" request on "midi_mask_receive" special file.
+*/
 static ssize_t midi_get_midi_mask_receive(struct device *dev,
 					  struct device_attribute *attr,
 					  char *buf)
@@ -304,6 +331,9 @@ static ssize_t midi_get_midi_mask_receive(struct device *dev,
 	return sprintf(buf, "%d\n", line6->line6midi->midi_mask_receive);
 }
 
+/*
+	"write" request on "midi_mask" special file.
+*/
 static ssize_t midi_set_midi_mask_receive(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t count)
@@ -326,6 +356,7 @@ static DEVICE_ATTR(midi_mask_transmit, S_IWUSR | S_IRUGO,
 static DEVICE_ATTR(midi_mask_receive, S_IWUSR | S_IRUGO,
 		   midi_get_midi_mask_receive, midi_set_midi_mask_receive);
 
+/* MIDI device destructor */
 static int snd_line6_midi_free(struct snd_device *device)
 {
 	struct snd_line6_midi *line6midi = device->device_data;
@@ -338,6 +369,9 @@ static int snd_line6_midi_free(struct snd_device *device)
 	return 0;
 }
 
+/*
+	Initialize the Line6 MIDI subsystem.
+*/
 int line6_init_midi(struct usb_line6 *line6)
 {
 	static struct snd_device_ops midi_ops = {
@@ -348,7 +382,7 @@ int line6_init_midi(struct usb_line6 *line6)
 	struct snd_line6_midi *line6midi;
 
 	if (!(line6->properties->capabilities & LINE6_BIT_CONTROL)) {
-		
+		/* skip MIDI initialization and report success */
 		return 0;
 	}
 

@@ -45,6 +45,11 @@ static inline int hlt_works(void)
 	return !hlt_counter;
 }
 
+/*
+ * On SMP it's slightly faster (but much more power-consuming!)
+ * to poll the ->work.need_resched flag instead of waiting for the
+ * cross-CPU IPI to arrive. Use this option with caution.
+ */
 static void poll_idle(void)
 {
 	local_irq_enable();
@@ -71,13 +76,18 @@ void default_idle(void)
 		poll_idle();
 }
 
+/*
+ * The idle thread. There's no useful work to be done, so just try to conserve
+ * power and have a low exit latency (ie sit in a loop waiting for somebody to
+ * say that they'd like to reschedule)
+ */
 void cpu_idle(void)
 {
 	unsigned int cpu = smp_processor_id();
 
 	set_thread_flag(TIF_POLLING_NRFLAG);
 
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		tick_nohz_idle_enter();
 		rcu_idle_enter();
@@ -90,10 +100,14 @@ void cpu_idle(void)
 				play_dead();
 
 			local_irq_disable();
-			
+			/* Don't trace irqs off for idle */
 			stop_critical_timings();
 			if (cpuidle_idle_call())
 				pm_idle();
+			/*
+			 * Sanity check to ensure that pm_idle() returns
+			 * with IRQs enabled
+			 */
 			WARN_ON(irqs_disabled());
 			start_critical_timings();
 		}
@@ -106,6 +120,9 @@ void cpu_idle(void)
 
 void __init select_idle_routine(void)
 {
+	/*
+	 * If a platform has set its own idle routine, leave it alone.
+	 */
 	if (pm_idle)
 		return;
 
@@ -128,10 +145,18 @@ void stop_this_cpu(void *unused)
 		cpu_sleep();
 }
 
+/*
+ * cpu_idle_wait - Used to ensure that all the CPUs discard old value of
+ * pm_idle and update to new pm_idle value. Required while changing pm_idle
+ * handler on SMP systems.
+ *
+ * Caller must have changed pm_idle to the new value before the call. Old
+ * pm_idle value will not be used by any CPU after the return of this function.
+ */
 void cpu_idle_wait(void)
 {
 	smp_mb();
-	
+	/* kick all the CPUs so that they exit out of pm_idle */
 	smp_call_function(do_nothing, NULL, 1);
 }
 EXPORT_SYMBOL_GPL(cpu_idle_wait);

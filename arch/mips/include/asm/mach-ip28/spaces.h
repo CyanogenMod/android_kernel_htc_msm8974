@@ -19,4 +19,4 @@
 
 #include <asm/mach-generic/spaces.h>
 
-#endif 
+#endif /* _ASM_MACH_IP28_SPACES_H */

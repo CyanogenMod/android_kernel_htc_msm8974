@@ -19,7 +19,7 @@
 
 struct alps_model_info {
         unsigned char signature[3];
-	unsigned char command_mode_resp; 
+	unsigned char command_mode_resp; /* v3/v4 only */
 	unsigned char proto_version;
         unsigned char byte0, mask0;
         unsigned char flags;
@@ -31,19 +31,19 @@ struct alps_nibble_commands {
 };
 
 struct alps_data {
-	struct input_dev *dev2;		
-	char phys[32];			
-	const struct alps_model_info *i;
+	struct input_dev *dev2;		/* Relative device */
+	char phys[32];			/* Phys */
+	const struct alps_model_info *i;/* Info */
 	const struct alps_nibble_commands *nibble_commands;
-	int addr_command;		
-	int prev_fin;			
-	int multi_packet;		
-	unsigned char multi_data[6];	
+	int addr_command;		/* Command to set register address */
+	int prev_fin;			/* Finger bit from previous packet */
+	int multi_packet;		/* Multi-packet data in progress */
+	unsigned char multi_data[6];	/* Saved multi-packet data */
 	u8 quirks;
 	struct timer_list timer;
 };
 
-#define ALPS_QUIRK_TRACKSTICK_BUTTONS	1 
+#define ALPS_QUIRK_TRACKSTICK_BUTTONS	1 /* trakcstick buttons in trackstick packet */
 
 #ifdef CONFIG_MOUSE_PS2_ALPS
 int alps_detect(struct psmouse *psmouse, bool set_properties);
@@ -57,6 +57,6 @@ inline int alps_init(struct psmouse *psmouse)
 {
 	return -ENOSYS;
 }
-#endif 
+#endif /* CONFIG_MOUSE_PS2_ALPS */
 
 #endif

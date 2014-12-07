@@ -1,3 +1,6 @@
+/*
+ *  arch/arm/include/asm/mach/mmc.h
+ */
 #ifndef ASMARM_MACH_MMC_H
 #define ASMARM_MACH_MMC_H
 
@@ -16,7 +19,7 @@ struct msm_mmc_gpio_data {
 };
 
 struct msm_mmc_platform_data {
-	unsigned int ocr_mask;			
+	unsigned int ocr_mask;			/* available voltages */
 	u32 (*translate_vdd)(struct device *, unsigned int);
 	unsigned int (*status)(struct device *);
 	int (*register_status_notify)(void (*callback)(int card_present, void *dev_id), void *dev_id);

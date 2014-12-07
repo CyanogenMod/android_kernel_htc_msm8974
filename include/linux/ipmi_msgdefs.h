@@ -34,7 +34,10 @@
 #ifndef __LINUX_IPMI_MSGDEFS_H
 #define __LINUX_IPMI_MSGDEFS_H
 
+/* Various definitions for IPMI messages used by almost everything in
+   the IPMI stack. */
 
+/* NetFNs and commands used inside the IPMI stack. */
 
 #define IPMI_NETFN_SENSOR_EVENT_REQUEST		0x04
 #define IPMI_NETFN_SENSOR_EVENT_RESPONSE	0x05
@@ -55,6 +58,7 @@
 #define IPMI_READ_EVENT_MSG_BUFFER_CMD	0x35
 #define IPMI_GET_CHANNEL_INFO_CMD	0x42
 
+/* Bit for BMC global enables. */
 #define IPMI_BMC_RCV_MSG_INTR     0x01
 #define IPMI_BMC_EVT_MSG_INTR     0x02
 #define IPMI_BMC_EVT_MSG_BUFF     0x04
@@ -67,9 +71,15 @@
 #define IPMI_NETFN_FIRMWARE_REQUEST		0x08
 #define IPMI_NETFN_FIRMWARE_RESPONSE		0x09
 
+/* The default slave address */
 #define IPMI_BMC_SLAVE_ADDR	0x20
 
-#define IPMI_MAX_MSG_LENGTH	272	
+/* The BT interface on high-end HP systems supports up to 255 bytes in
+ * one transfer.  Its "virtual" BMC supports some commands that are longer
+ * than 128 bytes.  Use the full 256, plus NetFn/LUN, Cmd, cCode, plus
+ * some overhead; it's not worth the effort to dynamically size this based
+ * on the results of the "Get BT Capabilities" command. */
+#define IPMI_MAX_MSG_LENGTH	272	/* multiple of 16 */
 
 #define IPMI_CC_NO_ERROR		0x00
 #define IPMI_NODE_BUSY_ERR		0xc0
@@ -78,7 +88,7 @@
 #define IPMI_ERR_MSG_TRUNCATED		0xc6
 #define IPMI_REQ_LEN_INVALID_ERR	0xc7
 #define IPMI_REQ_LEN_EXCEEDED_ERR	0xc8
-#define IPMI_NOT_IN_MY_STATE_ERR	0xd5	
+#define IPMI_NOT_IN_MY_STATE_ERR	0xd5	/* IPMI 2.0 */
 #define IPMI_LOST_ARBITRATION_ERR	0x81
 #define IPMI_BUS_ERR			0x82
 #define IPMI_NAK_ON_WRITE_ERR		0x83
@@ -108,4 +118,4 @@
 #define IPMI_CHANNEL_MEDIUM_OEM_MIN	0x60
 #define IPMI_CHANNEL_MEDIUM_OEM_MAX	0x7f
 
-#endif 
+#endif /* __LINUX_IPMI_MSGDEFS_H */

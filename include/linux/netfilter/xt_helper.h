@@ -5,4 +5,4 @@ struct xt_helper_info {
 	int invert;
 	char name[30];
 };
-#endif 
+#endif /* _XT_HELPER_H */

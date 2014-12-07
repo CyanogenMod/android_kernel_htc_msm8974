@@ -48,22 +48,22 @@
 #include "common.h"
 
 static const unsigned int ams_delta_keymap[] = {
-	KEY(0, 0, KEY_F1),		
+	KEY(0, 0, KEY_F1),		/* Advert    */
 
-	KEY(0, 3, KEY_COFFEE),		
-	KEY(0, 2, KEY_QUESTION),	
-	KEY(2, 3, KEY_CONNECT),		
-	KEY(1, 2, KEY_SHOP),		
-	KEY(1, 1, KEY_PHONE),		
+	KEY(0, 3, KEY_COFFEE),		/* Games     */
+	KEY(0, 2, KEY_QUESTION),	/* Directory */
+	KEY(2, 3, KEY_CONNECT),		/* Internet  */
+	KEY(1, 2, KEY_SHOP),		/* Services  */
+	KEY(1, 1, KEY_PHONE),		/* VoiceMail */
 
-	KEY(0, 1, KEY_DELETE),		
-	KEY(2, 2, KEY_PLAY),		
-	KEY(1, 0, KEY_PAGEUP),		
-	KEY(1, 3, KEY_PAGEDOWN),	
-	KEY(2, 0, KEY_EMAIL),		
-	KEY(2, 1, KEY_STOP),		
+	KEY(0, 1, KEY_DELETE),		/* Delete    */
+	KEY(2, 2, KEY_PLAY),		/* Play      */
+	KEY(1, 0, KEY_PAGEUP),		/* Up        */
+	KEY(1, 3, KEY_PAGEDOWN),	/* Down      */
+	KEY(2, 0, KEY_EMAIL),		/* ReadEmail */
+	KEY(2, 1, KEY_STOP),		/* Stop      */
 
-	
+	/* Numeric keypad portion */
 	KEY(0, 7, KEY_KP1),
 	KEY(0, 6, KEY_KP2),
 	KEY(0, 5, KEY_KP3),
@@ -75,22 +75,22 @@ static const unsigned int ams_delta_keymap[] = {
 	KEY(2, 5, KEY_KP9),
 	KEY(3, 6, KEY_KP0),
 	KEY(3, 7, KEY_KPASTERISK),
-	KEY(3, 5, KEY_KPDOT),		
-	KEY(7, 2, KEY_NUMLOCK),		
-	KEY(7, 1, KEY_KPMINUS),		
-	KEY(6, 1, KEY_KPPLUS),		
-	KEY(7, 6, KEY_KPSLASH),		
-	KEY(6, 0, KEY_ENTER),		
+	KEY(3, 5, KEY_KPDOT),		/* # key     */
+	KEY(7, 2, KEY_NUMLOCK),		/* Mute      */
+	KEY(7, 1, KEY_KPMINUS),		/* Recall    */
+	KEY(6, 1, KEY_KPPLUS),		/* Redial    */
+	KEY(7, 6, KEY_KPSLASH),		/* Handsfree */
+	KEY(6, 0, KEY_ENTER),		/* Video     */
 
-	KEY(7, 4, KEY_CAMERA),		
+	KEY(7, 4, KEY_CAMERA),		/* Photo     */
 
-	KEY(0, 4, KEY_F2),		
-	KEY(1, 4, KEY_F3),		
-	KEY(2, 4, KEY_F4),		
-	KEY(7, 7, KEY_F5),		
-	KEY(7, 5, KEY_F6),		
+	KEY(0, 4, KEY_F2),		/* Home      */
+	KEY(1, 4, KEY_F3),		/* Office    */
+	KEY(2, 4, KEY_F4),		/* Mobile    */
+	KEY(7, 7, KEY_F5),		/* SMS       */
+	KEY(7, 5, KEY_F6),		/* Email     */
 
-	
+	/* QWERTY portion of keypad */
 	KEY(3, 4, KEY_Q),
 	KEY(3, 3, KEY_W),
 	KEY(3, 2, KEY_E),
@@ -121,8 +121,8 @@ static const unsigned int ams_delta_keymap[] = {
 	KEY(6, 3, KEY_M),
 	KEY(6, 2, KEY_SPACE),
 
-	KEY(7, 0, KEY_LEFTSHIFT),	
-	KEY(7, 3, KEY_LEFTCTRL),	
+	KEY(7, 0, KEY_LEFTSHIFT),	/* Vol up    */
+	KEY(7, 3, KEY_LEFTCTRL),	/* Vol down  */
 };
 
 #define LATCH1_PHYS	0x01000000
@@ -133,21 +133,21 @@ static const unsigned int ams_delta_keymap[] = {
 #define LATCH2_VIRT	0xEC000000
 
 static struct map_desc ams_delta_io_desc[] __initdata = {
-	
+	/* AMS_DELTA_LATCH1 */
 	{
 		.virtual	= LATCH1_VIRT,
 		.pfn		= __phys_to_pfn(LATCH1_PHYS),
 		.length		= 0x01000000,
 		.type		= MT_DEVICE
 	},
-	
+	/* AMS_DELTA_LATCH2 */
 	{
 		.virtual	= LATCH2_VIRT,
 		.pfn		= __phys_to_pfn(LATCH2_PHYS),
 		.length		= 0x01000000,
 		.type		= MT_DEVICE
 	},
-	
+	/* AMS_DELTA_MODEM */
 	{
 		.virtual	= MODEM_VIRT,
 		.pfn		= __phys_to_pfn(MODEM_PHYS),
@@ -410,6 +410,9 @@ DEFINE_LED_TRIGGER(ams_delta_camera_led_trigger);
 
 static int ams_delta_camera_power(struct device *dev, int power)
 {
+	/*
+	 * turn on camera LED
+	 */
 	if (power)
 		led_trigger_event(ams_delta_camera_led_trigger, LED_FULL);
 	else
@@ -421,7 +424,7 @@ static int ams_delta_camera_power(struct device *dev, int power)
 #endif
 
 static struct soc_camera_link ams_delta_iclink = {
-	.bus_id         = 0,	
+	.bus_id         = 0,	/* OMAP1 SoC camera bus */
 	.i2c_adapter_id = 1,
 	.board_info     = &ams_delta_camera_board_info[0],
 	.module_name    = "ov6650",
@@ -437,8 +440,8 @@ static struct platform_device ams_delta_camera_device = {
 };
 
 static struct omap1_cam_platform_data ams_delta_camera_platform_data = {
-	.camexclk_khz	= 12000,	
-	.lclk_khz_max	= 1334,		
+	.camexclk_khz	= 12000,	/* default 12MHz clock, no extra DPLL */
+	.lclk_khz_max	= 1334,		/* results in 5fps CIF, 10fps QCIF */
 };
 
 static struct platform_device *ams_delta_devices[] __initdata = {
@@ -455,11 +458,11 @@ static struct platform_device *late_devices[] __initdata = {
 
 static void __init ams_delta_init(void)
 {
-	
+	/* mux pins for uarts */
 	omap_cfg_reg(UART1_TX);
 	omap_cfg_reg(UART1_RTS);
 
-	
+	/* parallel camera interface */
 	omap_cfg_reg(H19_1610_CAM_EXCLK);
 	omap_cfg_reg(J15_1610_CAM_LCLK);
 	omap_cfg_reg(L18_1610_CAM_VS);
@@ -512,7 +515,7 @@ static struct plat_serial8250_port ams_delta_modem_ports[] = {
 	{
 		.membase	= IOMEM(MODEM_VIRT),
 		.mapbase	= MODEM_PHYS,
-		.irq		= -EINVAL, 
+		.irq		= -EINVAL, /* changed later */
 		.flags		= UPF_BOOT_AUTOCONF,
 		.irqflags	= IRQF_TRIGGER_RISING,
 		.iotype		= UPIO_MEM,
@@ -564,7 +567,7 @@ static int __init late_init(void)
 	}
 	gpio_direction_input(AMS_DELTA_GPIO_PIN_MODEM_IRQ);
 
-	
+	/* Initialize the modem_nreset regulator consumer before use */
 	modem_priv.regulator = ERR_PTR(-ENODEV);
 
 	ams_delta_latch2_write(AMS_DELTA_LATCH2_MODEM_CODEC,
@@ -574,6 +577,10 @@ static int __init late_init(void)
 	if (err)
 		goto gpio_free;
 
+	/*
+	 * Once the modem device is registered, the modem_nreset
+	 * regulator can be requested on behalf of that device.
+	 */
 	modem_priv.regulator = regulator_get(&ams_delta_modem_device.dev,
 			"RESET#");
 	if (IS_ERR(modem_priv.regulator)) {
@@ -597,7 +604,7 @@ static void __init ams_delta_map_io(void)
 }
 
 MACHINE_START(AMS_DELTA, "Amstrad E3 (Delta)")
-	
+	/* Maintainer: Jonathan McDowell <noodles@earth.li> */
 	.atag_offset	= 0x100,
 	.map_io		= ams_delta_map_io,
 	.init_early	= omap1_init_early,

@@ -15,32 +15,39 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
+/*
+ * The file comes from kernel/csrc-r4k.c
+ */
 #include <linux/clocksource.h>
 #include <linux/init.h>
 
-#include <asm/time.h>			
+#include <asm/time.h>			/* Not included in linux/time.h */
 
 #include <asm/mach-powertv/asic_regs.h>
 #include "powertv-clock.h"
 
+/* MIPS PLL Register Definitions */
 #define PLL_GET_M(x)		(((x) >> 8) & 0x000000FF)
 #define PLL_GET_N(x)		(((x) >> 16) & 0x000000FF)
 #define PLL_GET_P(x)		(((x) >> 24) & 0x00000007)
 
+/*
+ * returns:  Clock frequency in kHz
+ */
 unsigned int __init mips_get_pll_freq(void)
 {
 	unsigned int pll_reg, m, n, p;
-	unsigned int fin = 54000; 
+	unsigned int fin = 54000; /* Base frequency in kHz */
 	unsigned int fout;
 
-	
+	/* Read PLL register setting */
 	pll_reg = asic_read(mips_pll_setup);
 	m = PLL_GET_M(pll_reg);
 	n = PLL_GET_N(pll_reg);
 	p = PLL_GET_P(pll_reg);
 	pr_info("MIPS PLL Register:0x%x  M=%d  N=%d  P=%d\n", pll_reg, m, n, p);
 
-	
+	/* Calculate clock frequency = (2 * N * 54MHz) / (M * (2**P)) */
 	fout = ((2 * n * fin) / (m * (0x01 << p)));
 
 	pr_info("MIPS Clock Freq=%d kHz\n", fout);
@@ -74,6 +81,14 @@ static void __init powertv_c0_hpt_clocksource_init(void)
 	clocksource_register_hz(&clocksource_mips, mips_hpt_frequency);
 }
 
+/**
+ * struct tim_c - free running counter
+ * @hi:	High 16 bits of the counter
+ * @lo:	Low 32 bits of the counter
+ *
+ * Lays out the structure of the free running counter in memory. This counter
+ * increments at a rate of 27 MHz/8 on all platforms.
+ */
 struct tim_c {
 	unsigned int hi;
 	unsigned int lo;
@@ -101,7 +116,7 @@ pr_crit("%s: read %llx\n", __func__, ((u64) hi << 32) | lo);
 	return ((u64) hi << 32) | lo;
 }
 
-#define TIM_C_SIZE		48		
+#define TIM_C_SIZE		48		/* # bits in the timer */
 
 static struct clocksource clocksource_tim_c = {
 	.name		= "powertv-tim_c",
@@ -110,6 +125,12 @@ static struct clocksource clocksource_tim_c = {
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
+/**
+ * powertv_tim_c_clocksource_init - set up a clock source for the TIM_C clock
+ *
+ * We know that TIM_C counts at 27 MHz/8, so each cycle corresponds to
+ * 1 / (27,000,000/8) seconds.
+ */
 static void __init powertv_tim_c_clocksource_init(void)
 {
 	const unsigned long	counts_per_second = 27000000 / 8;
@@ -120,6 +141,9 @@ static void __init powertv_tim_c_clocksource_init(void)
 	tim_c = (struct tim_c *) asic_reg_addr(tim_ch);
 }
 
+/**
+ powertv_clocksource_init - initialize all clocksources
+ */
 void __init powertv_clocksource_init(void)
 {
 	powertv_c0_hpt_clocksource_init();

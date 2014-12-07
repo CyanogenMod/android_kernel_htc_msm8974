@@ -14,6 +14,13 @@
  * GNU General Public License for more details.
  */
 
+/* This driver handles PPTP data packets between a RAW socket and a PPP channel.
+ * The socket is created in the kernel space and connected to the same address
+ * of the control socket. Outgoing packets are always sent with sequences but
+ * without acknowledgements. Incoming packets with sequences are reordered
+ * within a sliding window of one second. Currently reordering only happens when
+ * a packet is received. It is done for simplicity since no additional locks or
+ * threads are required. This driver should work on both IPv4 and IPv6. */
 
 #include <linux/module.h>
 #include <linux/jiffies.h>
@@ -58,6 +65,7 @@ static inline struct meta *skb_meta(struct sk_buff *skb)
 	return (struct meta *)skb->cb;
 }
 
+/******************************************************************************/
 
 static int pppopns_recv_core(struct sock *sk_raw, struct sk_buff *skb)
 {
@@ -67,54 +75,54 @@ static int pppopns_recv_core(struct sock *sk_raw, struct sk_buff *skb)
 	__u32 now = jiffies;
 	struct header *hdr;
 
-	
+	/* Skip transport header */
 	skb_pull(skb, skb_transport_header(skb) - skb->data);
 
-	
+	/* Drop the packet if GRE header is missing. */
 	if (skb->len < GRE_HEADER_SIZE)
 		goto drop;
 	hdr = (struct header *)skb->data;
 
-	
+	/* Check the header. */
 	if (hdr->type != PPTP_GRE_TYPE || hdr->call != opt->local ||
 			(hdr->bits & PPTP_GRE_BITS_MASK) != PPTP_GRE_BITS)
 		goto drop;
 
-	
+	/* Skip all fields including optional ones. */
 	if (!skb_pull(skb, GRE_HEADER_SIZE +
 			(hdr->bits & PPTP_GRE_SEQ_BIT ? 4 : 0) +
 			(hdr->bits & PPTP_GRE_ACK_BIT ? 4 : 0)))
 		goto drop;
 
-	
+	/* Check the length. */
 	if (skb->len != ntohs(hdr->length))
 		goto drop;
 
-	
+	/* Check the sequence if it is present. */
 	if (hdr->bits & PPTP_GRE_SEQ_BIT) {
 		meta->sequence = ntohl(hdr->sequence);
 		if ((__s32)(meta->sequence - opt->recv_sequence) < 0)
 			goto drop;
 	}
 
-	
+	/* Skip PPP address and control if they are present. */
 	if (skb->len >= 2 && skb->data[0] == PPP_ADDR &&
 			skb->data[1] == PPP_CTRL)
 		skb_pull(skb, 2);
 
-	
+	/* Fix PPP protocol if it is compressed. */
 	if (skb->len >= 1 && skb->data[0] & 1)
 		skb_push(skb, 1)[0] = 0;
 
-	
+	/* Drop the packet if PPP protocol is missing. */
 	if (skb->len < 2)
 		goto drop;
 
-	
+	/* Perform reordering if sequencing is enabled. */
 	if (hdr->bits & PPTP_GRE_SEQ_BIT) {
 		struct sk_buff *skb1;
 
-		
+		/* Insert the packet into receive queue in order. */
 		skb_set_owner_r(skb, sk);
 		skb_queue_walk(&sk->sk_receive_queue, skb1) {
 			struct meta *meta1 = skb_meta(skb1);
@@ -133,6 +141,10 @@ static int pppopns_recv_core(struct sock *sk_raw, struct sk_buff *skb)
 			skb_queue_tail(&sk->sk_receive_queue, skb);
 		}
 
+		/* Remove packets from receive queue as long as
+		 * 1. the receive buffer is full,
+		 * 2. they are queued longer than one second, or
+		 * 3. there are no missing packets before them. */
 		skb_queue_walk_safe(&sk->sk_receive_queue, skb, skb1) {
 			meta = skb_meta(skb);
 			if (atomic_read(&sk->sk_rmem_alloc) < sk->sk_rcvbuf &&
@@ -147,7 +159,7 @@ static int pppopns_recv_core(struct sock *sk_raw, struct sk_buff *skb)
 		return NET_RX_SUCCESS;
 	}
 
-	
+	/* Flush receive queue if sequencing is disabled. */
 	skb_queue_purge(&sk->sk_receive_queue);
 	skb_orphan(skb);
 	ppp_input(&pppox_sk(sk)->chan, skb);
@@ -197,13 +209,13 @@ static int pppopns_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	struct header *hdr;
 	__u16 length;
 
-	
+	/* Install PPP address and control. */
 	skb_push(skb, 2);
 	skb->data[0] = PPP_ADDR;
 	skb->data[1] = PPP_CTRL;
 	length = skb->len;
 
-	
+	/* Install PPTP GRE header. */
 	hdr = (struct header *)skb_push(skb, 12);
 	hdr->bits = PPTP_GRE_BITS | PPTP_GRE_SEQ_BIT;
 	hdr->type = PPTP_GRE_TYPE;
@@ -212,13 +224,14 @@ static int pppopns_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	hdr->sequence = htonl(opt->xmit_sequence);
 	opt->xmit_sequence++;
 
-	
+	/* Now send the packet via the delivery queue. */
 	skb_set_owner_w(skb, sk_raw);
 	skb_queue_tail(&delivery_queue, skb);
 	schedule_work(&delivery_work);
 	return 1;
 }
 
+/******************************************************************************/
 
 static struct ppp_channel_ops pppopns_channel_ops = {
 	.start_xmit = pppopns_xmit,
@@ -334,6 +347,7 @@ static int pppopns_release(struct socket *sock)
 	return 0;
 }
 
+/******************************************************************************/
 
 static struct proto pppopns_proto = {
 	.name = "PPPOPNS",
@@ -377,6 +391,7 @@ static int pppopns_create(struct net *net, struct socket *sock)
 	return 0;
 }
 
+/******************************************************************************/
 
 static struct pppox_proto pppopns_pppox_proto = {
 	.create = pppopns_create,

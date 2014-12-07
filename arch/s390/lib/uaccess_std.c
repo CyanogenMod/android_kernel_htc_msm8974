@@ -43,18 +43,18 @@ size_t copy_from_user_std(size_t size, const void __user *ptr, void *x)
 		"2: mvcp  0(%0,%2),0(%1),%3\n"
 		"11:jnz   1b\n"
 		"   j     8f\n"
-		"3: la    %4,255(%1)\n"	
+		"3: la    %4,255(%1)\n"	/* %4 = ptr + 255 */
 		"  "LHI"  %3,-4096\n"
-		"   nr    %4,%3\n"	
+		"   nr    %4,%3\n"	/* %4 = (ptr + 255) & -4096 */
 		"  "SLR"  %4,%1\n"
-		"  "CLR"  %0,%4\n"	
+		"  "CLR"  %0,%4\n"	/* copy crosses next page boundary? */
 		"   jnh   5f\n"
 		"4: mvcp  0(%4,%2),0(%1),%3\n"
 		"12:"SLR"  %0,%4\n"
 		"  "ALR"  %2,%4\n"
 		"5:"LHI"  %4,-1\n"
-		"  "ALR"  %4,%0\n"	
-		"   bras  %3,7f\n"	
+		"  "ALR"  %4,%0\n"	/* copy remaining size, subtract 1 */
+		"   bras  %3,7f\n"	/* memset loop */
 		"   xc    0(1,%2),0(%2)\n"
 		"6: xc    0(256,%2),0(%2)\n"
 		"   la    %2,256(%2)\n"
@@ -93,11 +93,11 @@ size_t copy_to_user_std(size_t size, void __user *ptr, const void *x)
 		"2: mvcs  0(%0,%1),0(%2),%3\n"
 		"8: jnz   1b\n"
 		"   j     5f\n"
-		"3: la    %4,255(%1)\n" 
+		"3: la    %4,255(%1)\n" /* %4 = ptr + 255 */
 		"  "LHI"  %3,-4096\n"
-		"   nr    %4,%3\n"	
+		"   nr    %4,%3\n"	/* %4 = (ptr + 255) & -4096 */
 		"  "SLR"  %4,%1\n"
-		"  "CLR"  %0,%4\n"	
+		"  "CLR"  %0,%4\n"	/* copy crosses next page boundary? */
 		"   jnh   6f\n"
 		"4: mvcs  0(%4,%1),0(%2),%3\n"
 		"9:"SLR"  %0,%4\n"
@@ -161,11 +161,11 @@ static size_t clear_user_std(size_t size, void __user *to)
 		"   bras  %3,3f\n"
 		"   xc    0(1,%1),0(%1)\n"
 		"0:"AHI"  %0,257\n"
-		"   la    %2,255(%1)\n" 
+		"   la    %2,255(%1)\n" /* %2 = ptr + 255 */
 		"   srl   %2,12\n"
-		"   sll   %2,12\n"	
+		"   sll   %2,12\n"	/* %2 = (ptr + 255) & -4096 */
 		"  "SLR"  %2,%1\n"
-		"  "CLR"  %0,%2\n"	
+		"  "CLR"  %0,%2\n"	/* clear crosses next page boundary? */
 		"   jnh   5f\n"
 		"  "AHI"  %2,-1\n"
 		"1: ex    %2,0(%3)\n"
@@ -197,7 +197,7 @@ size_t strnlen_user_std(size_t size, const char __user *src)
 		"   sacf  256\n"
 		"0: srst  %3,%2\n"
 		"   jo    0b\n"
-		"   la    %0,1(%3)\n"	
+		"   la    %0,1(%3)\n"	/* strnlen_user results includes \0 */
 		"  "SLR"  %0,%1\n"
 		"1: sacf  0\n"
 		EX_TABLE(0b,1b)
@@ -219,10 +219,10 @@ size_t strncpy_from_user_std(size_t size, const char __user *src, char *dst)
 		"   jo    0b\n"
 		"   sacf  0\n"
 		"   la    %0,0(%4)\n"
-		"   jh    1f\n"		
-		"  "AHI"  %4,1\n"	
-		"1:"SLR"  %0,%1\n"	
-		"  "SLR"  %4,%1\n"	
+		"   jh    1f\n"		/* found \0 in string ? */
+		"  "AHI"  %4,1\n"	/* include \0 in copy */
+		"1:"SLR"  %0,%1\n"	/* %0 = return length (without \0) */
+		"  "SLR"  %4,%1\n"	/* %4 = copy length (including \0) */
 		"2: mvcp  0(%4,%2),0(%1),%5\n"
 		"   jz    9f\n"
 		"3:"AHI"  %4,-256\n"

@@ -12,7 +12,10 @@
 #ifndef __ASM_CRIME_H__
 #define __ASM_CRIME_H__
 
-#define CRIME_BASE	0x14000000	
+/*
+ * Address map
+ */
+#define CRIME_BASE	0x14000000	/* physical */
 
 struct sgi_crime {
 	volatile unsigned long id;
@@ -77,6 +80,7 @@ struct sgi_crime {
 #define CRIME_SOFT2_INT			BIT(30)
 #define CRIME_SYSCORERR_INT		CRIME_SOFT2_INT
 #define CRIME_VICE_INT			BIT(31)
+/* Masks for deciding who handles the interrupt */
 #define CRIME_MACE_INT_MASK		0x8f
 #define CRIME_MACEISA_INT_MASK		0x70
 #define CRIME_MACEPCI_INT_MASK		0xff00
@@ -89,14 +93,14 @@ struct sgi_crime {
 #define CRIME_DOG_VALUE			0x00007fff
 
 	volatile unsigned long timer;
-#define CRIME_MASTER_FREQ		66666500	
-#define CRIME_NS_PER_TICK		15		
+#define CRIME_MASTER_FREQ		66666500	/* Crime upcounter frequency */
+#define CRIME_NS_PER_TICK		15		/* for delay_calibrate */
 
 	volatile unsigned long cpu_error_addr;
 #define CRIME_CPU_ERROR_ADDR_MASK	0x3ffffffff
 
 	volatile unsigned long cpu_error_stat;
-#define CRIME_CPU_ERROR_MASK		0x7		
+#define CRIME_CPU_ERROR_MASK		0x7		/* cpu error stat is 3 bits */
 #define CRIME_CPU_ERROR_CPU_ILL_ADDR	0x4
 #define CRIME_CPU_ERROR_VICE_WRT_PRTY	0x2
 #define CRIME_CPU_ERROR_CPU_WRT_PRTY	0x1
@@ -105,16 +109,16 @@ struct sgi_crime {
 
 	volatile unsigned long mc_ctrl;
 	volatile unsigned long bank_ctrl[8];
-#define CRIME_MEM_BANK_CONTROL_MASK		0x11f	
+#define CRIME_MEM_BANK_CONTROL_MASK		0x11f	/* 9 bits 7:5 reserved */
 #define CRIME_MEM_BANK_CONTROL_ADDR		0x01f
 #define CRIME_MEM_BANK_CONTROL_SDRAM_SIZE	0x100
 #define CRIME_MAXBANKS				8
 
 	volatile unsigned long mem_ref_counter;
-#define CRIME_MEM_REF_COUNTER_MASK	0x3ff		
+#define CRIME_MEM_REF_COUNTER_MASK	0x3ff		/* 10bit */
 
 	volatile unsigned long mem_error_stat;
-#define CRIME_MEM_ERROR_STAT_MASK       0x0ff7ffff	
+#define CRIME_MEM_ERROR_STAT_MASK       0x0ff7ffff	/* 28-bit register */
 #define CRIME_MEM_ERROR_MACE_ID		0x0000007f
 #define CRIME_MEM_ERROR_MACE_ACCESS	0x00000080
 #define CRIME_MEM_ERROR_RE_ID		0x00007f00
@@ -149,6 +153,6 @@ struct sgi_crime {
 
 extern struct sgi_crime __iomem *crime;
 
-#define CRIME_HI_MEM_BASE	0x40000000	
+#define CRIME_HI_MEM_BASE	0x40000000	/* this is where whole 1G of RAM is mapped */
 
-#endif 
+#endif /* __ASM_CRIME_H__ */

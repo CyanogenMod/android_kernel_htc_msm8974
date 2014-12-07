@@ -27,6 +27,9 @@
  *  675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+ /*
+  * some definitions add by takuzo@sm.sony.co.jp and sato@sm.sony.co.jp
+  */
 
 #ifndef _AU1000_H_
 #define _AU1000_H_
@@ -40,6 +43,7 @@
 #include <linux/io.h>
 #include <linux/irq.h>
 
+/* cpu pipeline flush */
 void static inline au_sync(void)
 {
 	__asm__ volatile ("sync");
@@ -87,28 +91,40 @@ static inline u32 au_readl(unsigned long reg)
 	return *(volatile u32 *)reg;
 }
 
+/* Early Au1000 have a write-only SYS_CPUPLL register. */
 static inline int au1xxx_cpu_has_pll_wo(void)
 {
 	switch (read_c0_prid()) {
-	case 0x00030100:	
-	case 0x00030201:	
-	case 0x00030202:	
+	case 0x00030100:	/* Au1000 DA */
+	case 0x00030201:	/* Au1000 HA */
+	case 0x00030202:	/* Au1000 HB */
 		return 1;
 	}
 	return 0;
 }
 
+/* does CPU need CONFIG[OD] set to fix tons of errata? */
 static inline int au1xxx_cpu_needs_config_od(void)
 {
+	/*
+	 * c0_config.od (bit 19) was write only (and read as 0) on the
+	 * early revisions of Alchemy SOCs.  It disables the bus trans-
+	 * action overlapping and needs to be set to fix various errata.
+	 */
 	switch (read_c0_prid()) {
-	case 0x00030100: 
-	case 0x00030201: 
-	case 0x00030202: 
-	case 0x01030200: 
-	case 0x02030200: 
-	case 0x02030201: 
-	case 0x02030202: 
-	case 0x04030201: 
+	case 0x00030100: /* Au1000 DA */
+	case 0x00030201: /* Au1000 HA */
+	case 0x00030202: /* Au1000 HB */
+	case 0x01030200: /* Au1500 AB */
+	/*
+	 * Au1100/Au1200 errata actually keep silence about this bit,
+	 * so we set it just in case for those revisions that require
+	 * it to be set according to the (now gone) cpu_table.
+	 */
+	case 0x02030200: /* Au1100 AB */
+	case 0x02030201: /* Au1100 BA */
+	case 0x02030202: /* Au1100 BC */
+	case 0x04030201: /* Au1200 AC */
 		return 1;
 	}
 	return 0;
@@ -149,6 +165,7 @@ static inline int alchemy_get_cputype(void)
 	return ALCHEMY_CPU_UNKNOWN;
 }
 
+/* return number of uarts on a given cputype */
 static inline int alchemy_get_uarts(int type)
 {
 	switch (type) {
@@ -165,11 +182,12 @@ static inline int alchemy_get_uarts(int type)
 	return 0;
 }
 
+/* enable an UART block if it isn't already */
 static inline void alchemy_uart_enable(u32 uart_phys)
 {
 	void __iomem *addr = (void __iomem *)KSEG1ADDR(uart_phys);
 
-	
+	/* reset, enable clock, deassert reset */
 	if ((__raw_readl(addr + 0x100) & 3) != 3) {
 		__raw_writel(0, addr + 0x100);
 		wmb();
@@ -183,7 +201,7 @@ static inline void alchemy_uart_enable(u32 uart_phys)
 static inline void alchemy_uart_disable(u32 uart_phys)
 {
 	void __iomem *addr = (void __iomem *)KSEG1ADDR(uart_phys);
-	__raw_writel(0, addr + 0x100);	
+	__raw_writel(0, addr + 0x100);	/* UART_MOD_CNTRL */
 	wmb();
 }
 
@@ -192,20 +210,21 @@ static inline void alchemy_uart_putchar(u32 uart_phys, u8 c)
 	void __iomem *base = (void __iomem *)KSEG1ADDR(uart_phys);
 	int timeout, i;
 
-	
+	/* check LSR TX_EMPTY bit */
 	timeout = 0xffffff;
 	do {
 		if (__raw_readl(base + 0x1c) & 0x20)
 			break;
-		
+		/* slow down */
 		for (i = 10000; i; i--)
 			asm volatile ("nop");
 	} while (--timeout);
 
-	__raw_writel(c, base + 0x04);	
+	__raw_writel(c, base + 0x04);	/* tx */
 	wmb();
 }
 
+/* return number of ethernet MACs on a given cputype */
 static inline int alchemy_get_macs(int type)
 {
 	switch (type) {
@@ -219,17 +238,20 @@ static inline int alchemy_get_macs(int type)
 	return 0;
 }
 
+/* arch/mips/au1000/common/clocks.c */
 extern void set_au1x00_speed(unsigned int new_freq);
 extern unsigned int get_au1x00_speed(void);
 extern void set_au1x00_uart_baud_base(unsigned long new_baud_base);
 extern unsigned long get_au1x00_uart_baud_base(void);
 extern unsigned long au1xxx_calc_clock(void);
 
+/* PM: arch/mips/alchemy/common/sleeper.S, power.c, irq.c */
 void alchemy_sleep_au1000(void);
 void alchemy_sleep_au1550(void);
 void alchemy_sleep_au1300(void);
 void au_sleep(void);
 
+/* USB: drivers/usb/host/alchemy-common.c */
 enum alchemy_usb_block {
 	ALCHEMY_USB_OHCI0,
 	ALCHEMY_USB_UDC0,
@@ -239,47 +261,53 @@ enum alchemy_usb_block {
 };
 int alchemy_usb_control(int block, int enable);
 
+/* PCI controller platform data */
 struct alchemy_pci_platdata {
 	int (*board_map_irq)(const struct pci_dev *d, u8 slot, u8 pin);
 	int (*board_pci_idsel)(unsigned int devsel, int assert);
-	
+	/* bits to set/clear in PCI_CONFIG register */
 	unsigned long pci_cfg_set;
 	unsigned long pci_cfg_clr;
 };
 
+/* Multifunction pins: Each of these pins can either be assigned to the
+ * GPIO controller or a on-chip peripheral.
+ * Call "au1300_pinfunc_to_dev()" or "au1300_pinfunc_to_gpio()" to
+ * assign one of these to either the GPIO controller or the device.
+ */
 enum au1300_multifunc_pins {
-	
+	/* wake-from-str pins 0-3 */
 	AU1300_PIN_WAKE0 = 0, AU1300_PIN_WAKE1, AU1300_PIN_WAKE2,
 	AU1300_PIN_WAKE3,
-	
+	/* external clock sources for PSCs: 4-5 */
 	AU1300_PIN_EXTCLK0, AU1300_PIN_EXTCLK1,
-	
+	/* 8bit MMC interface on SD0: 6-9 */
 	AU1300_PIN_SD0DAT4, AU1300_PIN_SD0DAT5, AU1300_PIN_SD0DAT6,
 	AU1300_PIN_SD0DAT7,
-	
+	/* aux clk input for freqgen 3: 10 */
 	AU1300_PIN_FG3AUX,
-	
+	/* UART1 pins: 11-18 */
 	AU1300_PIN_U1RI, AU1300_PIN_U1DCD, AU1300_PIN_U1DSR,
 	AU1300_PIN_U1CTS, AU1300_PIN_U1RTS, AU1300_PIN_U1DTR,
 	AU1300_PIN_U1RX, AU1300_PIN_U1TX,
-	
+	/* UART0 pins: 19-24 */
 	AU1300_PIN_U0RI, AU1300_PIN_U0DCD, AU1300_PIN_U0DSR,
 	AU1300_PIN_U0CTS, AU1300_PIN_U0RTS, AU1300_PIN_U0DTR,
-	
+	/* UART2: 25-26 */
 	AU1300_PIN_U2RX, AU1300_PIN_U2TX,
-	
+	/* UART3: 27-28 */
 	AU1300_PIN_U3RX, AU1300_PIN_U3TX,
-	
+	/* LCD controller PWMs, ext pixclock: 29-31 */
 	AU1300_PIN_LCDPWM0, AU1300_PIN_LCDPWM1, AU1300_PIN_LCDCLKIN,
-	
+	/* SD1 interface: 32-37 */
 	AU1300_PIN_SD1DAT0, AU1300_PIN_SD1DAT1, AU1300_PIN_SD1DAT2,
 	AU1300_PIN_SD1DAT3, AU1300_PIN_SD1CMD, AU1300_PIN_SD1CLK,
-	
+	/* SD2 interface: 38-43 */
 	AU1300_PIN_SD2DAT0, AU1300_PIN_SD2DAT1, AU1300_PIN_SD2DAT2,
 	AU1300_PIN_SD2DAT3, AU1300_PIN_SD2CMD, AU1300_PIN_SD2CLK,
-	
+	/* PSC0/1 clocks: 44-45 */
 	AU1300_PIN_PSC0CLK, AU1300_PIN_PSC1CLK,
-	
+	/* PSCs: 46-49/50-53/54-57/58-61 */
 	AU1300_PIN_PSC0SYNC0, AU1300_PIN_PSC0SYNC1, AU1300_PIN_PSC0D0,
 	AU1300_PIN_PSC0D1,
 	AU1300_PIN_PSC1SYNC0, AU1300_PIN_PSC1SYNC1, AU1300_PIN_PSC1D0,
@@ -288,21 +316,23 @@ enum au1300_multifunc_pins {
 	AU1300_PIN_PSC2D1,
 	AU1300_PIN_PSC3SYNC0, AU1300_PIN_PSC3SYNC1, AU1300_PIN_PSC3D0,
 	AU1300_PIN_PSC3D1,
-	
+	/* PCMCIA interface: 62-70 */
 	AU1300_PIN_PCE2, AU1300_PIN_PCE1, AU1300_PIN_PIOS16,
 	AU1300_PIN_PIOR, AU1300_PIN_PWE, AU1300_PIN_PWAIT,
 	AU1300_PIN_PREG, AU1300_PIN_POE, AU1300_PIN_PIOW,
-	
+	/* camera interface H/V sync inputs: 71-72 */
 	AU1300_PIN_CIMLS, AU1300_PIN_CIMFS,
-	
+	/* PSC2/3 clocks: 73-74 */
 	AU1300_PIN_PSC2CLK, AU1300_PIN_PSC3CLK,
 };
 
+/* GPIC (Au1300) pin management: arch/mips/alchemy/common/gpioint.c */
 extern void au1300_pinfunc_to_gpio(enum au1300_multifunc_pins gpio);
 extern void au1300_pinfunc_to_dev(enum au1300_multifunc_pins gpio);
 extern void au1300_set_irq_priority(unsigned int irq, int p);
 extern void au1300_set_dbdma_gpio(int dchan, unsigned int gpio);
 
+/* Au1300 allows to disconnect certain blocks from internal power supply */
 enum au1300_vss_block {
 	AU1300_VSS_MPE = 0,
 	AU1300_VSS_BSA,
@@ -313,12 +343,15 @@ enum au1300_vss_block {
 extern void au1300_vss_block_control(int block, int enable);
 
 
+/* SOC Interrupt numbers */
+/* Au1000-style (IC0/1): 2 controllers with 32 sources each */
 #define AU1000_INTC0_INT_BASE	(MIPS_CPU_IRQ_BASE + 8)
 #define AU1000_INTC0_INT_LAST	(AU1000_INTC0_INT_BASE + 31)
 #define AU1000_INTC1_INT_BASE	(AU1000_INTC0_INT_LAST + 1)
 #define AU1000_INTC1_INT_LAST	(AU1000_INTC1_INT_BASE + 31)
 #define AU1000_MAX_INTR 	AU1000_INTC1_INT_LAST
 
+/* Au1300-style (GPIC): 1 controller with up to 128 sources */
 #define ALCHEMY_GPIC_INT_BASE	(MIPS_CPU_IRQ_BASE + 8)
 #define ALCHEMY_GPIC_INT_NUM	128
 #define ALCHEMY_GPIC_INT_LAST	(ALCHEMY_GPIC_INT_BASE + ALCHEMY_GPIC_INT_NUM - 1)
@@ -556,7 +589,7 @@ enum soc_au1550_ints {
 	AU1550_GPIO14_INT,
 	AU1550_GPIO15_INT,
 	AU1550_GPIO200_INT,
-	AU1550_GPIO201_205_INT,	
+	AU1550_GPIO201_205_INT,	/* Logical or of GPIO201:205 */
 	AU1550_GPIO16_INT,
 	AU1550_GPIO17_INT,
 	AU1550_GPIO20_INT,
@@ -570,7 +603,7 @@ enum soc_au1550_ints {
 	AU1550_GPIO28_INT,
 	AU1550_GPIO206_INT,
 	AU1550_GPIO207_INT,
-	AU1550_GPIO208_215_INT,	
+	AU1550_GPIO208_215_INT,	/* Logical or of GPIO208:215 */
 };
 
 enum soc_au1200_ints {
@@ -603,7 +636,7 @@ enum soc_au1200_ints {
 	AU1200_GPIO205_INT,
 	AU1200_GPIO206_INT,
 	AU1200_GPIO207_INT,
-	AU1200_GPIO208_215_INT,	
+	AU1200_GPIO208_215_INT,	/* Logical OR of 208:215 */
 	AU1200_USB_INT,
 	AU1200_LCD_INT,
 	AU1200_MAE_BOTH_INT,
@@ -641,8 +674,9 @@ enum soc_au1200_ints {
 	AU1200_GPIO31_INT,
 };
 
-#endif 
+#endif /* !defined (_LANGUAGE_ASSEMBLY) */
 
+/* Au1300 peripheral interrupt numbers */
 #define AU1300_FIRST_INT	(ALCHEMY_GPIC_INT_BASE)
 #define AU1300_UART1_INT	(AU1300_FIRST_INT + 17)
 #define AU1300_UART2_INT	(AU1300_FIRST_INT + 25)
@@ -677,102 +711,113 @@ enum soc_au1200_ints {
 #define AU1300_AES_INT		(AU1300_FIRST_INT + 95)
 #define AU1300_CIM_INT		(AU1300_FIRST_INT + 96)
 
+/**********************************************************************/
+
+/*
+ * Physical base addresses for integrated peripherals
+ * 0..au1000 1..au1500 2..au1100 3..au1550 4..au1200 5..au1300
+ */
+
+#define AU1000_AC97_PHYS_ADDR		0x10000000 /* 012 */
+#define AU1300_ROM_PHYS_ADDR		0x10000000 /* 5 */
+#define AU1300_OTP_PHYS_ADDR		0x10002000 /* 5 */
+#define AU1300_VSS_PHYS_ADDR		0x10003000 /* 5 */
+#define AU1300_UART0_PHYS_ADDR		0x10100000 /* 5 */
+#define AU1300_UART1_PHYS_ADDR		0x10101000 /* 5 */
+#define AU1300_UART2_PHYS_ADDR		0x10102000 /* 5 */
+#define AU1300_UART3_PHYS_ADDR		0x10103000 /* 5 */
+#define AU1000_USB_OHCI_PHYS_ADDR	0x10100000 /* 012 */
+#define AU1000_USB_UDC_PHYS_ADDR	0x10200000 /* 0123 */
+#define AU1300_GPIC_PHYS_ADDR		0x10200000 /* 5 */
+#define AU1000_IRDA_PHYS_ADDR		0x10300000 /* 02 */
+#define AU1200_AES_PHYS_ADDR		0x10300000 /* 45 */
+#define AU1000_IC0_PHYS_ADDR		0x10400000 /* 01234 */
+#define AU1300_GPU_PHYS_ADDR		0x10500000 /* 5 */
+#define AU1000_MAC0_PHYS_ADDR		0x10500000 /* 023 */
+#define AU1000_MAC1_PHYS_ADDR		0x10510000 /* 023 */
+#define AU1000_MACEN_PHYS_ADDR		0x10520000 /* 023 */
+#define AU1100_SD0_PHYS_ADDR		0x10600000 /* 245 */
+#define AU1300_SD1_PHYS_ADDR		0x10601000 /* 5 */
+#define AU1300_SD2_PHYS_ADDR		0x10602000 /* 5 */
+#define AU1100_SD1_PHYS_ADDR		0x10680000 /* 24 */
+#define AU1300_SYS_PHYS_ADDR		0x10900000 /* 5 */
+#define AU1550_PSC2_PHYS_ADDR		0x10A00000 /* 3 */
+#define AU1550_PSC3_PHYS_ADDR		0x10B00000 /* 3 */
+#define AU1300_PSC0_PHYS_ADDR		0x10A00000 /* 5 */
+#define AU1300_PSC1_PHYS_ADDR		0x10A01000 /* 5 */
+#define AU1300_PSC2_PHYS_ADDR		0x10A02000 /* 5 */
+#define AU1300_PSC3_PHYS_ADDR		0x10A03000 /* 5 */
+#define AU1000_I2S_PHYS_ADDR		0x11000000 /* 02 */
+#define AU1500_MAC0_PHYS_ADDR		0x11500000 /* 1 */
+#define AU1500_MAC1_PHYS_ADDR		0x11510000 /* 1 */
+#define AU1500_MACEN_PHYS_ADDR		0x11520000 /* 1 */
+#define AU1000_UART0_PHYS_ADDR		0x11100000 /* 01234 */
+#define AU1200_SWCNT_PHYS_ADDR		0x1110010C /* 4 */
+#define AU1000_UART1_PHYS_ADDR		0x11200000 /* 0234 */
+#define AU1000_UART2_PHYS_ADDR		0x11300000 /* 0 */
+#define AU1000_UART3_PHYS_ADDR		0x11400000 /* 0123 */
+#define AU1000_SSI0_PHYS_ADDR		0x11600000 /* 02 */
+#define AU1000_SSI1_PHYS_ADDR		0x11680000 /* 02 */
+#define AU1500_GPIO2_PHYS_ADDR		0x11700000 /* 1234 */
+#define AU1000_IC1_PHYS_ADDR		0x11800000 /* 01234 */
+#define AU1000_SYS_PHYS_ADDR		0x11900000 /* 012345 */
+#define AU1550_PSC0_PHYS_ADDR		0x11A00000 /* 34 */
+#define AU1550_PSC1_PHYS_ADDR		0x11B00000 /* 34 */
+#define AU1000_MEM_PHYS_ADDR		0x14000000 /* 01234 */
+#define AU1000_STATIC_MEM_PHYS_ADDR	0x14001000 /* 01234 */
+#define AU1300_UDMA_PHYS_ADDR		0x14001800 /* 5 */
+#define AU1000_DMA_PHYS_ADDR		0x14002000 /* 012 */
+#define AU1550_DBDMA_PHYS_ADDR		0x14002000 /* 345 */
+#define AU1550_DBDMA_CONF_PHYS_ADDR	0x14003000 /* 345 */
+#define AU1000_MACDMA0_PHYS_ADDR	0x14004000 /* 0123 */
+#define AU1000_MACDMA1_PHYS_ADDR	0x14004200 /* 0123 */
+#define AU1200_CIM_PHYS_ADDR		0x14004000 /* 45 */
+#define AU1500_PCI_PHYS_ADDR		0x14005000 /* 13 */
+#define AU1550_PE_PHYS_ADDR		0x14008000 /* 3 */
+#define AU1200_MAEBE_PHYS_ADDR		0x14010000 /* 4 */
+#define AU1200_MAEFE_PHYS_ADDR		0x14012000 /* 4 */
+#define AU1300_MAEITE_PHYS_ADDR		0x14010000 /* 5 */
+#define AU1300_MAEMPE_PHYS_ADDR		0x14014000 /* 5 */
+#define AU1550_USB_OHCI_PHYS_ADDR	0x14020000 /* 3 */
+#define AU1200_USB_CTL_PHYS_ADDR	0x14020000 /* 4 */
+#define AU1200_USB_OTG_PHYS_ADDR	0x14020020 /* 4 */
+#define AU1200_USB_OHCI_PHYS_ADDR	0x14020100 /* 4 */
+#define AU1200_USB_EHCI_PHYS_ADDR	0x14020200 /* 4 */
+#define AU1200_USB_UDC_PHYS_ADDR	0x14022000 /* 4 */
+#define AU1300_USB_EHCI_PHYS_ADDR	0x14020000 /* 5 */
+#define AU1300_USB_OHCI0_PHYS_ADDR	0x14020400 /* 5 */
+#define AU1300_USB_OHCI1_PHYS_ADDR	0x14020800 /* 5 */
+#define AU1300_USB_CTL_PHYS_ADDR	0x14021000 /* 5 */
+#define AU1300_USB_OTG_PHYS_ADDR	0x14022000 /* 5 */
+#define AU1300_MAEBSA_PHYS_ADDR		0x14030000 /* 5 */
+#define AU1100_LCD_PHYS_ADDR		0x15000000 /* 2 */
+#define AU1200_LCD_PHYS_ADDR		0x15000000 /* 45 */
+#define AU1500_PCI_MEM_PHYS_ADDR	0x400000000ULL /* 13 */
+#define AU1500_PCI_IO_PHYS_ADDR		0x500000000ULL /* 13 */
+#define AU1500_PCI_CONFIG0_PHYS_ADDR	0x600000000ULL /* 13 */
+#define AU1500_PCI_CONFIG1_PHYS_ADDR	0x680000000ULL /* 13 */
+#define AU1000_PCMCIA_IO_PHYS_ADDR	0xF00000000ULL /* 012345 */
+#define AU1000_PCMCIA_ATTR_PHYS_ADDR	0xF40000000ULL /* 012345 */
+#define AU1000_PCMCIA_MEM_PHYS_ADDR	0xF80000000ULL /* 012345 */
+
+/**********************************************************************/
 
 
-#define AU1000_AC97_PHYS_ADDR		0x10000000 
-#define AU1300_ROM_PHYS_ADDR		0x10000000 
-#define AU1300_OTP_PHYS_ADDR		0x10002000 
-#define AU1300_VSS_PHYS_ADDR		0x10003000 
-#define AU1300_UART0_PHYS_ADDR		0x10100000 
-#define AU1300_UART1_PHYS_ADDR		0x10101000 
-#define AU1300_UART2_PHYS_ADDR		0x10102000 
-#define AU1300_UART3_PHYS_ADDR		0x10103000 
-#define AU1000_USB_OHCI_PHYS_ADDR	0x10100000 
-#define AU1000_USB_UDC_PHYS_ADDR	0x10200000 
-#define AU1300_GPIC_PHYS_ADDR		0x10200000 
-#define AU1000_IRDA_PHYS_ADDR		0x10300000 
-#define AU1200_AES_PHYS_ADDR		0x10300000 
-#define AU1000_IC0_PHYS_ADDR		0x10400000 
-#define AU1300_GPU_PHYS_ADDR		0x10500000 
-#define AU1000_MAC0_PHYS_ADDR		0x10500000 
-#define AU1000_MAC1_PHYS_ADDR		0x10510000 
-#define AU1000_MACEN_PHYS_ADDR		0x10520000 
-#define AU1100_SD0_PHYS_ADDR		0x10600000 
-#define AU1300_SD1_PHYS_ADDR		0x10601000 
-#define AU1300_SD2_PHYS_ADDR		0x10602000 
-#define AU1100_SD1_PHYS_ADDR		0x10680000 
-#define AU1300_SYS_PHYS_ADDR		0x10900000 
-#define AU1550_PSC2_PHYS_ADDR		0x10A00000 
-#define AU1550_PSC3_PHYS_ADDR		0x10B00000 
-#define AU1300_PSC0_PHYS_ADDR		0x10A00000 
-#define AU1300_PSC1_PHYS_ADDR		0x10A01000 
-#define AU1300_PSC2_PHYS_ADDR		0x10A02000 
-#define AU1300_PSC3_PHYS_ADDR		0x10A03000 
-#define AU1000_I2S_PHYS_ADDR		0x11000000 
-#define AU1500_MAC0_PHYS_ADDR		0x11500000 
-#define AU1500_MAC1_PHYS_ADDR		0x11510000 
-#define AU1500_MACEN_PHYS_ADDR		0x11520000 
-#define AU1000_UART0_PHYS_ADDR		0x11100000 
-#define AU1200_SWCNT_PHYS_ADDR		0x1110010C 
-#define AU1000_UART1_PHYS_ADDR		0x11200000 
-#define AU1000_UART2_PHYS_ADDR		0x11300000 
-#define AU1000_UART3_PHYS_ADDR		0x11400000 
-#define AU1000_SSI0_PHYS_ADDR		0x11600000 
-#define AU1000_SSI1_PHYS_ADDR		0x11680000 
-#define AU1500_GPIO2_PHYS_ADDR		0x11700000 
-#define AU1000_IC1_PHYS_ADDR		0x11800000 
-#define AU1000_SYS_PHYS_ADDR		0x11900000 
-#define AU1550_PSC0_PHYS_ADDR		0x11A00000 
-#define AU1550_PSC1_PHYS_ADDR		0x11B00000 
-#define AU1000_MEM_PHYS_ADDR		0x14000000 
-#define AU1000_STATIC_MEM_PHYS_ADDR	0x14001000 
-#define AU1300_UDMA_PHYS_ADDR		0x14001800 
-#define AU1000_DMA_PHYS_ADDR		0x14002000 
-#define AU1550_DBDMA_PHYS_ADDR		0x14002000 
-#define AU1550_DBDMA_CONF_PHYS_ADDR	0x14003000 
-#define AU1000_MACDMA0_PHYS_ADDR	0x14004000 
-#define AU1000_MACDMA1_PHYS_ADDR	0x14004200 
-#define AU1200_CIM_PHYS_ADDR		0x14004000 
-#define AU1500_PCI_PHYS_ADDR		0x14005000 
-#define AU1550_PE_PHYS_ADDR		0x14008000 
-#define AU1200_MAEBE_PHYS_ADDR		0x14010000 
-#define AU1200_MAEFE_PHYS_ADDR		0x14012000 
-#define AU1300_MAEITE_PHYS_ADDR		0x14010000 
-#define AU1300_MAEMPE_PHYS_ADDR		0x14014000 
-#define AU1550_USB_OHCI_PHYS_ADDR	0x14020000 
-#define AU1200_USB_CTL_PHYS_ADDR	0x14020000 
-#define AU1200_USB_OTG_PHYS_ADDR	0x14020020 
-#define AU1200_USB_OHCI_PHYS_ADDR	0x14020100 
-#define AU1200_USB_EHCI_PHYS_ADDR	0x14020200 
-#define AU1200_USB_UDC_PHYS_ADDR	0x14022000 
-#define AU1300_USB_EHCI_PHYS_ADDR	0x14020000 
-#define AU1300_USB_OHCI0_PHYS_ADDR	0x14020400 
-#define AU1300_USB_OHCI1_PHYS_ADDR	0x14020800 
-#define AU1300_USB_CTL_PHYS_ADDR	0x14021000 
-#define AU1300_USB_OTG_PHYS_ADDR	0x14022000 
-#define AU1300_MAEBSA_PHYS_ADDR		0x14030000 
-#define AU1100_LCD_PHYS_ADDR		0x15000000 
-#define AU1200_LCD_PHYS_ADDR		0x15000000 
-#define AU1500_PCI_MEM_PHYS_ADDR	0x400000000ULL 
-#define AU1500_PCI_IO_PHYS_ADDR		0x500000000ULL 
-#define AU1500_PCI_CONFIG0_PHYS_ADDR	0x600000000ULL 
-#define AU1500_PCI_CONFIG1_PHYS_ADDR	0x680000000ULL 
-#define AU1000_PCMCIA_IO_PHYS_ADDR	0xF00000000ULL 
-#define AU1000_PCMCIA_ATTR_PHYS_ADDR	0xF40000000ULL 
-#define AU1000_PCMCIA_MEM_PHYS_ADDR	0xF80000000ULL 
-
-
-
+/*
+ * Au1300 GPIO+INT controller (GPIC) register offsets and bits
+ * Registers are 128bits (0x10 bytes), divided into 4 "banks".
+ */
 #define AU1300_GPIC_PINVAL	0x0000
 #define AU1300_GPIC_PINVALCLR	0x0010
 #define AU1300_GPIC_IPEND	0x0020
 #define AU1300_GPIC_PRIENC	0x0030
-#define AU1300_GPIC_IEN		0x0040	
-#define AU1300_GPIC_IDIS	0x0050	
+#define AU1300_GPIC_IEN		0x0040	/* int_mask in manual */
+#define AU1300_GPIC_IDIS	0x0050	/* int_maskclr in manual */
 #define AU1300_GPIC_DMASEL	0x0060
 #define AU1300_GPIC_DEVSEL	0x0080
 #define AU1300_GPIC_DEVCLR	0x0090
 #define AU1300_GPIC_RSTVAL	0x00a0
+/* pin configuration space. one 32bit register for up to 128 IRQs */
 #define AU1300_GPIC_PINCFG	0x1000
 
 #define GPIC_GPIO_TO_BIT(gpio)	\
@@ -781,15 +826,18 @@ enum soc_au1200_ints {
 #define GPIC_GPIO_BANKOFF(gpio)	\
 	(((gpio) >> 5) * 4)
 
+/* Pin Control bits: who owns the pin, what does it do */
 #define GPIC_CFG_PC_GPIN		0
 #define GPIC_CFG_PC_DEV			1
 #define GPIC_CFG_PC_GPOLOW		2
 #define GPIC_CFG_PC_GPOHIGH		3
 #define GPIC_CFG_PC_MASK		3
 
+/* assign pin to MIPS IRQ line */
 #define GPIC_CFG_IL_SET(x)	(((x) & 3) << 2)
 #define GPIC_CFG_IL_MASK	(3 << 2)
 
+/* pin interrupt type setup */
 #define GPIC_CFG_IC_OFF		(0 << 4)
 #define GPIC_CFG_IC_LEVEL_LOW	(1 << 4)
 #define GPIC_CFG_IC_LEVEL_HIGH	(2 << 4)
@@ -798,9 +846,12 @@ enum soc_au1200_ints {
 #define GPIC_CFG_IC_EDGE_BOTH	(7 << 4)
 #define GPIC_CFG_IC_MASK	(7 << 4)
 
+/* allow interrupt to wake cpu from 'wait' */
 #define GPIC_CFG_IDLEWAKE	(1 << 7)
 
+/***********************************************************************/
 
+/* Au1000 SDRAM memory controller register offsets */
 #define AU1000_MEM_SDMODE0		0x0000
 #define AU1000_MEM_SDMODE1		0x0004
 #define AU1000_MEM_SDMODE2		0x0008
@@ -816,6 +867,7 @@ enum soc_au1200_ints {
 #define AU1000_MEM_SDSLEEP		0x0030
 #define AU1000_MEM_SDSMCKE		0x0034
 
+/* MEM_SDMODE register content definitions */
 #define MEM_SDMODE_F		(1 << 22)
 #define MEM_SDMODE_SR		(1 << 21)
 #define MEM_SDMODE_BS		(1 << 20)
@@ -847,12 +899,14 @@ enum soc_au1200_ints {
 #define MEM_SDMODE_TRCD_N(N)	((N) << 3)
 #define MEM_SDMODE_TCL_N(N)	((N) << 0)
 
+/* MEM_SDADDR register contents definitions */
 #define MEM_SDADDR_E		(1 << 20)
 #define MEM_SDADDR_CSBA		(0x03FF << 10)
 #define MEM_SDADDR_CSMASK	(0x03FF << 0)
 #define MEM_SDADDR_CSBA_N(N)	((N) & (0x03FF << 22) >> 12)
 #define MEM_SDADDR_CSMASK_N(N)	((N)&(0x03FF << 22) >> 22)
 
+/* MEM_SDREFCFG register content definitions */
 #define MEM_SDREFCFG_TRC	(15 << 28)
 #define MEM_SDREFCFG_TRPM	(3 << 26)
 #define MEM_SDREFCFG_E		(1 << 25)
@@ -861,6 +915,7 @@ enum soc_au1200_ints {
 #define MEM_SDREFCFG_TRPM_N(N)	((N) << MEM_SDREFCFG_TRPM)
 #define MEM_SDREFCFG_REF_N(N)	(N)
 
+/* Au1550 SDRAM Register Offsets */
 #define AU1550_MEM_SDMODE0		0x0800
 #define AU1550_MEM_SDMODE1		0x0808
 #define AU1550_MEM_SDMODE2		0x0810
@@ -882,6 +937,7 @@ enum soc_au1200_ints {
 #define AU1550_MEM_SDSREF		0x08D0
 #define AU1550_MEM_SDSLEEP		MEM_SDSREF
 
+/* Static Bus Controller */
 #define MEM_STCFG0		0xB4001000
 #define MEM_STTIME0		0xB4001004
 #define MEM_STADDR0		0xB4001008
@@ -906,6 +962,7 @@ enum soc_au1200_ints {
 #define MEM_STNAND_DATA 	0x20
 
 
+/* Programmable Counters 0 and 1 */
 #define SYS_BASE		0xB1900000
 #define SYS_COUNTER_CNTRL	(SYS_BASE + 0x14)
 #  define SYS_CNTRL_E1S 	(1 << 23)
@@ -928,6 +985,7 @@ enum soc_au1200_ints {
 #  define SYS_CNTRL_M00 	(1 << 1)
 #  define SYS_CNTRL_C0S 	(1 << 0)
 
+/* Programmable Counter 0 Registers */
 #define SYS_TOYTRIM		(SYS_BASE + 0)
 #define SYS_TOYWRITE		(SYS_BASE + 4)
 #define SYS_TOYMATCH0		(SYS_BASE + 8)
@@ -935,6 +993,7 @@ enum soc_au1200_ints {
 #define SYS_TOYMATCH2		(SYS_BASE + 0x10)
 #define SYS_TOYREAD		(SYS_BASE + 0x40)
 
+/* Programmable Counter 1 Registers */
 #define SYS_RTCTRIM		(SYS_BASE + 0x44)
 #define SYS_RTCWRITE		(SYS_BASE + 0x48)
 #define SYS_RTCMATCH0		(SYS_BASE + 0x4C)
@@ -942,6 +1001,7 @@ enum soc_au1200_ints {
 #define SYS_RTCMATCH2		(SYS_BASE + 0x54)
 #define SYS_RTCREAD		(SYS_BASE + 0x58)
 
+/* I2S Controller */
 #define I2S_DATA		0xB1000000
 #  define I2S_DATA_MASK 	0xffffff
 #define I2S_CONFIG		0xB1000004
@@ -973,7 +1033,9 @@ enum soc_au1200_ints {
 #  define I2S_CONTROL_CE	(1 << 0)
 
 
+/* Ethernet Controllers  */
 
+/* 4 byte offsets from AU1000_ETH_BASE */
 #define MAC_CONTROL		0x0
 #  define MAC_RX_ENABLE 	(1 << 2)
 #  define MAC_TX_ENABLE 	(1 << 3)
@@ -1015,6 +1077,7 @@ enum soc_au1200_ints {
 #define MAC_VLAN1_TAG		0x20
 #define MAC_VLAN2_TAG		0x24
 
+/* Ethernet Controller Enable */
 
 #  define MAC_EN_CLOCK_ENABLE	(1 << 0)
 #  define MAC_EN_RESET0		(1 << 1)
@@ -1024,9 +1087,11 @@ enum soc_au1200_ints {
 #  define MAC_EN_RESET2 	(1 << 5)
 #  define MAC_DMA_RESET 	(1 << 6)
 
+/* Ethernet Controller DMA Channels */
 
 #define MAC0_TX_DMA_ADDR	0xB4004000
 #define MAC1_TX_DMA_ADDR	0xB4004200
+/* offsets from MAC_TX_RING_ADDR address */
 #define MAC_TX_BUFF0_STATUS	0x0
 #  define TX_FRAME_ABORTED	(1 << 0)
 #  define TX_JAB_TIMEOUT	(1 << 1)
@@ -1057,6 +1122,7 @@ enum soc_au1200_ints {
 
 #define MAC0_RX_DMA_ADDR	0xB4004100
 #define MAC1_RX_DMA_ADDR	0xB4004300
+/* offsets from MAC_RX_RING_ADDR */
 #define MAC_RX_BUFF0_STATUS	0x0
 #  define RX_FRAME_LEN_MASK	0x3fff
 #  define RX_WDOG_TIMER 	(1 << 14)
@@ -1093,18 +1159,19 @@ enum soc_au1200_ints {
 #define MAC_RX_BUFF3_STATUS	0x30
 #define MAC_RX_BUFF3_ADDR	0x34
 
-#define UART_RX		0	
-#define UART_TX		4	
-#define UART_IER	8	
-#define UART_IIR	0xC	
-#define UART_FCR	0x10	
-#define UART_LCR	0x14	
-#define UART_MCR	0x18	
-#define UART_LSR	0x1C	
-#define UART_MSR	0x20	
-#define UART_CLK	0x28	
-#define UART_MOD_CNTRL	0x100	
+#define UART_RX		0	/* Receive buffer */
+#define UART_TX		4	/* Transmit buffer */
+#define UART_IER	8	/* Interrupt Enable Register */
+#define UART_IIR	0xC	/* Interrupt ID Register */
+#define UART_FCR	0x10	/* FIFO Control Register */
+#define UART_LCR	0x14	/* Line Control Register */
+#define UART_MCR	0x18	/* Modem Control Register */
+#define UART_LSR	0x1C	/* Line Status Register */
+#define UART_MSR	0x20	/* Modem Status Register */
+#define UART_CLK	0x28	/* Baud Rate Clock Divider */
+#define UART_MOD_CNTRL	0x100	/* Module Control */
 
+/* SSIO */
 #define SSI0_STATUS		0xB1600000
 #  define SSI_STATUS_BF 	(1 << 4)
 #  define SSI_STATUS_OF 	(1 << 3)
@@ -1145,6 +1212,7 @@ enum soc_au1200_ints {
 #  define SSI_CONTROL_CD	(1 << 1)
 #  define SSI_CONTROL_E 	(1 << 0)
 
+/* SSI1 */
 #define SSI1_STATUS		0xB1680000
 #define SSI1_INT		0xB1680004
 #define SSI1_INT_ENABLE 	0xB1680008
@@ -1153,16 +1221,21 @@ enum soc_au1200_ints {
 #define SSI1_CLKDIV		0xB1680028
 #define SSI1_ENABLE		0xB1680100
 
+/*
+ * Register content definitions
+ */
 #define SSI_STATUS_BF		(1 << 4)
 #define SSI_STATUS_OF		(1 << 3)
 #define SSI_STATUS_UF		(1 << 2)
 #define SSI_STATUS_D		(1 << 1)
 #define SSI_STATUS_B		(1 << 0)
 
+/* SSI_INT */
 #define SSI_INT_OI		(1 << 3)
 #define SSI_INT_UI		(1 << 2)
 #define SSI_INT_DI		(1 << 1)
 
+/* SSI_INTEN */
 #define SSI_INTEN_OIE		(1 << 3)
 #define SSI_INTEN_UIE		(1 << 2)
 #define SSI_INTEN_DIE		(1 << 1)
@@ -1193,6 +1266,11 @@ enum soc_au1200_ints {
 #define SSI_ENABLE_E		(1 << 0)
 
 
+/*
+ * The IrDA peripheral has an IRFIRSEL pin, but on the DB/PB boards it's not
+ * used to select FIR/SIR mode on the transceiver but as a GPIO.  Instead a
+ * CPLD has to be told about the mode.
+ */
 #define AU1000_IRDA_PHY_MODE_OFF	0
 #define AU1000_IRDA_PHY_MODE_SIR	1
 #define AU1000_IRDA_PHY_MODE_FIR	2
@@ -1202,29 +1280,32 @@ struct au1k_irda_platform_data {
 };
 
 
+/* GPIO */
 #define SYS_PINFUNC		0xB190002C
-#  define SYS_PF_USB		(1 << 15)	
-#  define SYS_PF_U3		(1 << 14)	
-#  define SYS_PF_U2		(1 << 13)	
-#  define SYS_PF_U1		(1 << 12)	
-#  define SYS_PF_SRC		(1 << 11)	
-#  define SYS_PF_CK5		(1 << 10)	
-#  define SYS_PF_CK4		(1 << 9)	
-#  define SYS_PF_IRF		(1 << 8)	
-#  define SYS_PF_UR3		(1 << 7)	
-#  define SYS_PF_I2D		(1 << 6)	
-#  define SYS_PF_I2S		(1 << 5)	
-#  define SYS_PF_NI2		(1 << 4)	
-#  define SYS_PF_U0		(1 << 3)	
-#  define SYS_PF_RD		(1 << 2)	
-#  define SYS_PF_A97		(1 << 1)	
-#  define SYS_PF_S0		(1 << 0)	
+#  define SYS_PF_USB		(1 << 15)	/* 2nd USB device/host */
+#  define SYS_PF_U3		(1 << 14)	/* GPIO23/U3TXD */
+#  define SYS_PF_U2		(1 << 13)	/* GPIO22/U2TXD */
+#  define SYS_PF_U1		(1 << 12)	/* GPIO21/U1TXD */
+#  define SYS_PF_SRC		(1 << 11)	/* GPIO6/SROMCKE */
+#  define SYS_PF_CK5		(1 << 10)	/* GPIO3/CLK5 */
+#  define SYS_PF_CK4		(1 << 9)	/* GPIO2/CLK4 */
+#  define SYS_PF_IRF		(1 << 8)	/* GPIO15/IRFIRSEL */
+#  define SYS_PF_UR3		(1 << 7)	/* GPIO[14:9]/UART3 */
+#  define SYS_PF_I2D		(1 << 6)	/* GPIO8/I2SDI */
+#  define SYS_PF_I2S		(1 << 5)	/* I2S/GPIO[29:31] */
+#  define SYS_PF_NI2		(1 << 4)	/* NI2/GPIO[24:28] */
+#  define SYS_PF_U0		(1 << 3)	/* U0TXD/GPIO20 */
+#  define SYS_PF_RD		(1 << 2)	/* IRTXD/GPIO19 */
+#  define SYS_PF_A97		(1 << 1)	/* AC97/SSL1 */
+#  define SYS_PF_S0		(1 << 0)	/* SSI_0/GPIO[16:18] */
 
-#  define SYS_PF_PC		(1 << 18)	
-#  define SYS_PF_LCD		(1 << 17)	
-#  define SYS_PF_CS		(1 << 16)	
-#  define SYS_PF_EX0		(1 << 9)	
+/* Au1100 only */
+#  define SYS_PF_PC		(1 << 18)	/* PCMCIA/GPIO[207:204] */
+#  define SYS_PF_LCD		(1 << 17)	/* extern lcd/GPIO[203:200] */
+#  define SYS_PF_CS		(1 << 16)	/* EXTCLK0/32KHz to gpio2 */
+#  define SYS_PF_EX0		(1 << 9)	/* GPIO2/clock */
 
+/* Au1550 only.  Redefines lots of pins */
 #  define SYS_PF_PSC2_MASK	(7 << 17)
 #  define SYS_PF_PSC2_AC97	0
 #  define SYS_PF_PSC2_SPI	0
@@ -1240,6 +1321,7 @@ struct au1k_irda_platform_data {
 #  define SYS_PF_PSC1_S1	(1 << 1)
 #  define SYS_PF_MUST_BE_SET	((1 << 5) | (1 << 2))
 
+/* Au1200 only */
 #define SYS_PINFUNC_DMA 	(1 << 31)
 #define SYS_PINFUNC_S0A 	(1 << 30)
 #define SYS_PINFUNC_S1A 	(1 << 29)
@@ -1268,6 +1350,7 @@ struct au1k_irda_platform_data {
 #define SYS_PINFUNC_U0T 	(1 << 3)
 #define SYS_PINFUNC_S1B 	(1 << 2)
 
+/* Power Management */
 #define SYS_SCRATCH0		0xB1900018
 #define SYS_SCRATCH1		0xB190001C
 #define SYS_WAKEMSK		0xB1900034
@@ -1281,6 +1364,7 @@ struct au1k_irda_platform_data {
 #define SYS_WAKEMSK_M2		(1 << 8)
 #define SYS_WAKEMSK_GPIO(x)	(1 << (x))
 
+/* Clock Controller */
 #define SYS_FREQCTRL0		0xB1900020
 #  define SYS_FC_FRDIV2_BIT	22
 #  define SYS_FC_FRDIV2_MASK	(0xff << SYS_FC_FRDIV2_BIT)
@@ -1350,6 +1434,7 @@ struct au1k_irda_platform_data {
 #define SYS_CPUPLL		0xB1900060
 #define SYS_AUXPLL		0xB1900064
 
+/* AC97 Controller */
 #define AC97C_CONFIG		0xB0000000
 #  define AC97C_RECV_SLOTS_BIT	13
 #  define AC97C_RECV_SLOTS_MASK (0x3ff << AC97C_RECV_SLOTS_BIT)
@@ -1381,21 +1466,31 @@ struct au1k_irda_platform_data {
 #  define AC97C_CE		(1 << 0)
 
 
+/* The PCI chip selects are outside the 32bit space, and since we can't
+ * just program the 36bit addresses into BARs, we have to take a chunk
+ * out of the 32bit space and reserve it for PCI.  When these addresses
+ * are ioremap()ed, they'll be fixed up to the real 36bit address before
+ * being passed to the real ioremap function.
+ */
 #define ALCHEMY_PCI_MEMWIN_START	(AU1500_PCI_MEM_PHYS_ADDR >> 4)
 #define ALCHEMY_PCI_MEMWIN_END		(ALCHEMY_PCI_MEMWIN_START + 0x0FFFFFFF)
 
+/* for PCI IO it's simpler because we get to do the ioremap ourselves and then
+ * adjust the device's resources.
+ */
 #define ALCHEMY_PCI_IOWIN_START		0x00001000
 #define ALCHEMY_PCI_IOWIN_END		0x0000FFFF
 
 #ifdef CONFIG_PCI
 
-#define IOPORT_RESOURCE_START	0x00001000	
+#define IOPORT_RESOURCE_START	0x00001000	/* skip legacy probing */
 #define IOPORT_RESOURCE_END	0xffffffff
 #define IOMEM_RESOURCE_START	0x10000000
 #define IOMEM_RESOURCE_END	0xfffffffffULL
 
 #else
 
+/* Don't allow any legacy ports probing */
 #define IOPORT_RESOURCE_START	0x10000000
 #define IOPORT_RESOURCE_END	0xffffffff
 #define IOMEM_RESOURCE_START	0x10000000
@@ -1403,6 +1498,7 @@ struct au1k_irda_platform_data {
 
 #endif
 
+/* PCI controller block register offsets */
 #define PCI_REG_CMEM		0x0000
 #define PCI_REG_CONFIG		0x0004
 #define PCI_REG_B2BMASK_CCH	0x0008
@@ -1419,37 +1515,38 @@ struct au1k_irda_platform_data {
 #define PCI_REG_MBAR		0x0110
 #define PCI_REG_TIMEOUT		0x0140
 
-#define PCI_CMEM_E		(1 << 28)	
+/* PCI controller block register bits */
+#define PCI_CMEM_E		(1 << 28)	/* enable cacheable memory */
 #define PCI_CMEM_CMBASE(x)	(((x) & 0x3fff) << 14)
 #define PCI_CMEM_CMMASK(x)	((x) & 0x3fff)
-#define PCI_CONFIG_ERD		(1 << 27) 
-#define PCI_CONFIG_ET		(1 << 26) 
-#define PCI_CONFIG_EF		(1 << 25) 
-#define PCI_CONFIG_EP		(1 << 24) 
-#define PCI_CONFIG_EM		(1 << 23) 
-#define PCI_CONFIG_BM		(1 << 22) 
-#define PCI_CONFIG_PD		(1 << 20) 
-#define PCI_CONFIG_BME		(1 << 19) 
-#define PCI_CONFIG_NC		(1 << 16) 
-#define PCI_CONFIG_IA		(1 << 15) 
-#define PCI_CONFIG_IP		(1 << 13) 
-#define PCI_CONFIG_IS		(1 << 12) 
-#define PCI_CONFIG_IMM		(1 << 11) 
-#define PCI_CONFIG_ITM		(1 << 10) 
-#define PCI_CONFIG_ITT		(1 << 9)  
-#define PCI_CONFIG_IPB		(1 << 8)  
-#define PCI_CONFIG_SIC_NO	(0 << 6)  
-#define PCI_CONFIG_SIC_BA_ADR	(1 << 6)  
-#define PCI_CONFIG_SIC_HWA_DAT	(2 << 6)  
-#define PCI_CONFIG_SIC_ALL	(3 << 6)  
-#define PCI_CONFIG_ST		(1 << 5)  
-#define PCI_CONFIG_SM		(1 << 4)  
-#define PCI_CONFIG_AEN		(1 << 3)  
-#define PCI_CONFIG_R2H		(1 << 2)  
-#define PCI_CONFIG_R1H		(1 << 1)  
-#define PCI_CONFIG_CH		(1 << 0)  
+#define PCI_CONFIG_ERD		(1 << 27) /* pci error during R/W */
+#define PCI_CONFIG_ET		(1 << 26) /* error in target mode */
+#define PCI_CONFIG_EF		(1 << 25) /* fatal error */
+#define PCI_CONFIG_EP		(1 << 24) /* parity error */
+#define PCI_CONFIG_EM		(1 << 23) /* multiple errors */
+#define PCI_CONFIG_BM		(1 << 22) /* bad master error */
+#define PCI_CONFIG_PD		(1 << 20) /* PCI Disable */
+#define PCI_CONFIG_BME		(1 << 19) /* Byte Mask Enable for reads */
+#define PCI_CONFIG_NC		(1 << 16) /* mark mem access non-coherent */
+#define PCI_CONFIG_IA		(1 << 15) /* INTA# enabled (target mode) */
+#define PCI_CONFIG_IP		(1 << 13) /* int on PCI_PERR# */
+#define PCI_CONFIG_IS		(1 << 12) /* int on PCI_SERR# */
+#define PCI_CONFIG_IMM		(1 << 11) /* int on master abort */
+#define PCI_CONFIG_ITM		(1 << 10) /* int on target abort (as master) */
+#define PCI_CONFIG_ITT		(1 << 9)  /* int on target abort (as target) */
+#define PCI_CONFIG_IPB		(1 << 8)  /* int on PERR# in bus master acc */
+#define PCI_CONFIG_SIC_NO	(0 << 6)  /* no byte mask changes */
+#define PCI_CONFIG_SIC_BA_ADR	(1 << 6)  /* on byte/hw acc, invert adr bits */
+#define PCI_CONFIG_SIC_HWA_DAT	(2 << 6)  /* on halfword acc, swap data */
+#define PCI_CONFIG_SIC_ALL	(3 << 6)  /* swap data bytes on all accesses */
+#define PCI_CONFIG_ST		(1 << 5)  /* swap data by target transactions */
+#define PCI_CONFIG_SM		(1 << 4)  /* swap data from PCI ctl */
+#define PCI_CONFIG_AEN		(1 << 3)  /* enable internal arbiter */
+#define PCI_CONFIG_R2H		(1 << 2)  /* REQ2# to hi-prio arbiter */
+#define PCI_CONFIG_R1H		(1 << 1)  /* REQ1# to hi-prio arbiter */
+#define PCI_CONFIG_CH		(1 << 0)  /* PCI ctl to hi-prio arbiter */
 #define PCI_B2BMASK_B2BMASK(x)	(((x) & 0xffff) << 16)
-#define PCI_B2BMASK_CCH(x)	((x) & 0xffff) 
+#define PCI_B2BMASK_CCH(x)	((x) & 0xffff) /* 16 upper bits of class code */
 #define PCI_B2BBASE0_VID_B0(x)	(((x) & 0xffff) << 16)
 #define PCI_B2BBASE0_VID_SV(x)	((x) & 0xffff)
 #define PCI_B2BBASE1_SID_B1(x)	(((x) & 0xffff) << 16)
@@ -1469,7 +1566,7 @@ struct au1k_irda_platform_data {
 #define PCI_PARAM_HT(x)		(((x) & 0xff) << 16)
 #define PCI_PARAM_LT(x)		(((x) & 0xff) << 8)
 #define PCI_PARAM_CLS(x)	((x) & 0xff)
-#define PCI_TIMEOUT_RETRIES(x)	(((x) & 0xff) << 8)	
-#define PCI_TIMEOUT_TO(x)	((x) & 0xff)	
+#define PCI_TIMEOUT_RETRIES(x)	(((x) & 0xff) << 8)	/* max retries */
+#define PCI_TIMEOUT_TO(x)	((x) & 0xff)	/* target ready timeout */
 
 #endif

@@ -27,6 +27,12 @@
 
 #ifdef __KERNEL__
 
+/*
+ * Called to create a i2c bus on a multiplexed bus segment.
+ * The mux_dev and chan_id parameters are passed to the select
+ * and deselect callback functions to perform hardware-specific
+ * mux control.
+ */
 struct i2c_adapter *i2c_add_mux_adapter(struct i2c_adapter *parent,
 				void *mux_dev, u32 force_nr, u32 chan_id,
 				int (*select) (struct i2c_adapter *,
@@ -36,6 +42,6 @@ struct i2c_adapter *i2c_add_mux_adapter(struct i2c_adapter *parent,
 
 int i2c_del_mux_adapter(struct i2c_adapter *adap);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _LINUX_I2C_MUX_H */

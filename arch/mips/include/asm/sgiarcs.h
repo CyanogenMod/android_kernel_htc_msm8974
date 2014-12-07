@@ -15,6 +15,7 @@
 #include <asm/types.h>
 #include <asm/fw/arc/types.h>
 
+/* Various ARCS error codes. */
 #define PROM_ESUCCESS                   0x00
 #define PROM_E2BIG                      0x01
 #define PROM_EACCESS                    0x02
@@ -37,23 +38,27 @@
 #define PROM_ENOTTY                     0x13
 #define PROM_ENXIO                      0x14
 #define PROM_EROFS                      0x15
+/* SGI ARCS specific errno's. */
 #define PROM_EADDRNOTAVAIL              0x1f
 #define PROM_ETIMEDOUT                  0x20
 #define PROM_ECONNABORTED               0x21
 #define PROM_ENOCONNECT                 0x22
 
+/* Device classes, types, and identifiers for prom
+ * device inventory queries.
+ */
 enum linux_devclass {
 	system, processor, cache, adapter, controller, peripheral, memory
 };
 
 enum linux_devtypes {
-	
+	/* Generic stuff. */
 	Arc, Cpu, Fpu,
 
-	
+	/* Primary insn and data caches. */
 	picache, pdcache,
 
-	
+	/* Secondary insn, data, and combined caches. */
 	sicache, sdcache, sccache,
 
 	memdev, eisa_adapter, tc_adapter, scsi_adapter, dti_adapter,
@@ -70,17 +75,18 @@ enum linux_identifier {
 	bogus, ronly, removable, consin, consout, input, output
 };
 
+/* A prom device tree component. */
 struct linux_component {
-	enum linux_devclass     class;	
-	enum linux_devtypes     type;	
-	enum linux_identifier   iflags;	
-	USHORT 			vers;	
-	USHORT 			rev;	
-	ULONG 			key;	
-	ULONG 			amask;	
-	ULONG			cdsize;	
-	ULONG			ilen;	
-	_PULONG			iname;	
+	enum linux_devclass     class;	/* node class */
+	enum linux_devtypes     type;	/* node type */
+	enum linux_identifier   iflags;	/* node flags */
+	USHORT 			vers;	/* node version */
+	USHORT 			rev;	/* node revision */
+	ULONG 			key;	/* completely magic */
+	ULONG 			amask;	/* XXX affinity mask??? */
+	ULONG			cdsize;	/* size of configuration data */
+	ULONG			ilen;	/* length of string identifier */
+	_PULONG			iname;	/* string identifier */
 };
 typedef struct linux_component pcomponent;
 
@@ -88,26 +94,28 @@ struct linux_sysid {
 	char vend[8], prod[8];
 };
 
+/* ARCS prom memory descriptors. */
 enum arcs_memtypes {
-	arcs_eblock,  
-	arcs_rvpage,  
-	arcs_fcontig, 
-	arcs_free,    
-	arcs_bmem,    
-	arcs_prog,    
-	arcs_atmp,    
-	arcs_aperm,   
+	arcs_eblock,  /* exception block */
+	arcs_rvpage,  /* ARCS romvec page */
+	arcs_fcontig, /* Contiguous and free */
+	arcs_free,    /* Generic free memory */
+	arcs_bmem,    /* Borken memory, don't use */
+	arcs_prog,    /* A loaded program resides here */
+	arcs_atmp,    /* ARCS temporary storage area, wish Sparc OpenBoot told this */
+	arcs_aperm,   /* ARCS permanent storage... */
 };
 
+/* ARC has slightly different types than ARCS */
 enum arc_memtypes {
-	arc_eblock,  
-	arc_rvpage,  
-	arc_free,    
-	arc_bmem,    
-	arc_prog,    
-	arc_atmp,    
-	arc_aperm,   
-	arc_fcontig, 
+	arc_eblock,  /* exception block */
+	arc_rvpage,  /* romvec page */
+	arc_free,    /* Generic free memory */
+	arc_bmem,    /* Borken memory, don't use */
+	arc_prog,    /* A loaded program resides here */
+	arc_atmp,    /* temporary storage area */
+	arc_aperm,   /* permanent storage */
+	arc_fcontig, /* Contiguous and free */
 };
 
 union linux_memtypes {
@@ -121,6 +129,7 @@ struct linux_mdesc {
 	ULONG pages;
 };
 
+/* Time of day descriptor. */
 struct linux_tinfo {
 	unsigned short yr;
 	unsigned short mnth;
@@ -131,12 +140,14 @@ struct linux_tinfo {
 	unsigned short msec;
 };
 
+/* ARCS virtual dirents. */
 struct linux_vdirent {
 	ULONG namelen;
 	unsigned char attr;
-	char fname[32]; 
+	char fname[32]; /* XXX imperical, should be a define */
 };
 
+/* Other stuff for files. */
 enum linux_omode {
 	rdonly, wronly, rdwr, wronly_creat, rdwr_creat,
 	wronly_ssede, rdwr_ssede, dirent, dirent_creat
@@ -150,11 +161,12 @@ enum linux_mountops {
 	media_load, media_unload
 };
 
+/* This prom has a bolixed design. */
 struct linux_bigint {
 #ifdef __MIPSEL__
 	u32 lo;
 	s32 hi;
-#else 
+#else /* !(__MIPSEL__) */
 	s32 hi;
 	u32 lo;
 #endif
@@ -167,21 +179,24 @@ struct linux_finfo {
 	enum linux_devtypes   dtype;
 	unsigned long         namelen;
 	unsigned char         attr;
-	char                  name[32]; 
+	char                  name[32]; /* XXX imperical, should be define */
 };
 
+/* This describes the vector containing function pointers to the ARC
+   firmware functions.  */
 struct linux_romvec {
-	LONG	load;			
-	LONG	invoke;			
-	LONG	exec;			
-	LONG	halt;			
-	LONG	pdown;			
-	LONG	restart;		
-	LONG	reboot;			
-	LONG	imode;			
-	LONG	_unused1;		
+	LONG	load;			/* Load an executable image. */
+	LONG	invoke;			/* Invoke a standalong image. */
+	LONG	exec;			/* Load and begin execution of a
+					   standalone image. */
+	LONG	halt;			/* Halt the machine. */
+	LONG	pdown;			/* Power down the machine. */
+	LONG	restart;		/* XXX soft reset??? */
+	LONG	reboot;			/* Reboot the machine. */
+	LONG	imode;			/* Enter PROM interactive mode. */
+	LONG	_unused1;		/* Was ReturnFromMain(). */
 
-	
+	/* PROM device tree interface. */
 	LONG	next_component;
 	LONG	child_component;
 	LONG	parent_component;
@@ -190,18 +205,18 @@ struct linux_romvec {
 	LONG	comp_del;
 	LONG	component_by_path;
 
-	
+	/* Misc. stuff. */
 	LONG	cfg_save;
 	LONG	get_sysid;
 
-	
+	/* Probing for memory. */
 	LONG	get_mdesc;
-	LONG	_unused2;		
+	LONG	_unused2;		/* was Signal() */
 
 	LONG	get_tinfo;
 	LONG	get_rtime;
 
-	
+	/* File type operations. */
 	LONG	get_vdirent;
 	LONG	open;
 	LONG	close;
@@ -211,54 +226,58 @@ struct linux_romvec {
 	LONG	seek;
 	LONG	mount;
 
-	
+	/* Dealing with firmware environment variables. */
 	LONG	get_evar;
 	LONG	set_evar;
 
 	LONG	get_finfo;
 	LONG	set_finfo;
 
-	
+	/* Miscellaneous. */
 	LONG	cache_flush;
-	LONG	TestUnicodeCharacter;		
+	LONG	TestUnicodeCharacter;		/* ARC; not sure if ARCS too */
 	LONG	GetDisplayStatus;
 };
 
+/* The SGI ARCS parameter block is in a fixed location for standalone
+ * programs to access PROM facilities easily.
+ */
 typedef struct _SYSTEM_PARAMETER_BLOCK {
-	ULONG			magic;		
+	ULONG			magic;		/* magic cookie */
 #define PROMBLOCK_MAGIC      0x53435241
 
-	ULONG			len;		
-	USHORT			ver;		
-	USHORT			rev;		
-	_PLONG			rs_block;	
-	_PLONG			dbg_block;	
-	_PLONG			gevect;		
-	_PLONG			utlbvect;	
-	ULONG			rveclen;	
-	_PVOID			romvec;		
-	ULONG			pveclen;	
-	_PVOID			pvector;	
-	ULONG			adap_cnt;	
-	ULONG			adap_typ0;	
-	ULONG			adap_vcnt0;	
-	_PVOID			adap_vector;	
-	ULONG			adap_typ1;	
-	ULONG			adap_vcnt1;	
-	_PVOID			adap_vector1;	
-	
+	ULONG			len;		/* length of parm block */
+	USHORT			ver;		/* ARCS firmware version */
+	USHORT			rev;		/* ARCS firmware revision */
+	_PLONG			rs_block;	/* Restart block. */
+	_PLONG			dbg_block;	/* Debug block. */
+	_PLONG			gevect;		/* XXX General vector??? */
+	_PLONG			utlbvect;	/* XXX UTLB vector??? */
+	ULONG			rveclen;	/* Size of romvec struct. */
+	_PVOID			romvec;		/* Function interface. */
+	ULONG			pveclen;	/* Length of private vector. */
+	_PVOID			pvector;	/* Private vector. */
+	ULONG			adap_cnt;	/* Adapter count. */
+	ULONG			adap_typ0;	/* First adapter type. */
+	ULONG			adap_vcnt0;	/* Adapter 0 vector count. */
+	_PVOID			adap_vector;	/* Adapter 0 vector ptr. */
+	ULONG			adap_typ1;	/* Second adapter type. */
+	ULONG			adap_vcnt1;	/* Adapter 1 vector count. */
+	_PVOID			adap_vector1;	/* Adapter 1 vector ptr. */
+	/* More adapter vectors go here... */
 } SYSTEM_PARAMETER_BLOCK, *PSYSTEM_PARAMETER_BLOCK;
 
 #define PROMBLOCK ((PSYSTEM_PARAMETER_BLOCK) (int)0xA0001000)
 #define ROMVECTOR ((struct linux_romvec *) (long)(PROMBLOCK)->romvec)
 
+/* Cache layout parameter block. */
 union linux_cache_key {
 	struct param {
 #ifdef __MIPSEL__
 		unsigned short size;
 		unsigned char lsize;
 		unsigned char bsize;
-#else 
+#else /* !(__MIPSEL__) */
 		unsigned char bsize;
 		unsigned char lsize;
 		unsigned short size;
@@ -267,30 +286,34 @@ union linux_cache_key {
 	unsigned long allinfo;
 };
 
+/* Configuration data. */
 struct linux_cdata {
 	char *name;
 	int mlen;
 	enum linux_devtypes type;
 };
 
+/* Common SGI ARCS firmware file descriptors. */
 #define SGIPROM_STDIN     0
 #define SGIPROM_STDOUT    1
 
-#define SGIPROM_ROFILE    0x01  
-#define SGIPROM_HFILE     0x02  
-#define SGIPROM_SFILE     0x04  
-#define SGIPROM_AFILE     0x08  
-#define SGIPROM_DFILE     0x10  
-#define SGIPROM_DELFILE   0x20  
+/* Common SGI ARCS firmware file types. */
+#define SGIPROM_ROFILE    0x01  /* read-only file */
+#define SGIPROM_HFILE     0x02  /* hidden file */
+#define SGIPROM_SFILE     0x04  /* System file */
+#define SGIPROM_AFILE     0x08  /* Archive file */
+#define SGIPROM_DFILE     0x10  /* Directory file */
+#define SGIPROM_DELFILE   0x20  /* Deleted file */
 
+/* SGI ARCS boot record information. */
 struct sgi_partition {
 	unsigned char flag;
 #define SGIPART_UNUSED 0x00
 #define SGIPART_ACTIVE 0x80
 
-	unsigned char shead, ssect, scyl; 
-	unsigned char systype; 
-	unsigned char ehead, esect, ecyl; 
+	unsigned char shead, ssect, scyl; /* unused */
+	unsigned char systype; /* OS type, Irix or NT */
+	unsigned char ehead, esect, ecyl; /* unused */
 	unsigned char rsect0, rsect1, rsect2, rsect3;
 	unsigned char tsect0, tsect1, tsect2, tsect3;
 };
@@ -304,18 +327,19 @@ struct sgi_bootblock {
 	unsigned short magic;
 };
 
+/* BIOS parameter block. */
 struct sgi_bparm_block {
-	unsigned short bytes_sect;    
-	unsigned char  sect_clust;    
-	unsigned short sect_resv;     
-	unsigned char  nfats;         
-	unsigned short nroot_dirents; 
-	unsigned short sect_volume;   
-	unsigned char  media_type;    
-	unsigned short sect_fat;      
-	unsigned short sect_track;    
-	unsigned short nheads;        
-	unsigned short nhsects;       
+	unsigned short bytes_sect;    /* bytes per sector */
+	unsigned char  sect_clust;    /* sectors per cluster */
+	unsigned short sect_resv;     /* reserved sectors */
+	unsigned char  nfats;         /* # of allocation tables */
+	unsigned short nroot_dirents; /* # of root directory entries */
+	unsigned short sect_volume;   /* sectors in volume */
+	unsigned char  media_type;    /* media descriptor */
+	unsigned short sect_fat;      /* sectors per allocation table */
+	unsigned short sect_track;    /* sectors per track */
+	unsigned short nheads;        /* # of heads */
+	unsigned short nhsects;       /* # of hidden sectors */
 };
 
 struct sgi_bsector {
@@ -324,24 +348,28 @@ struct sgi_bsector {
 	struct sgi_bparm_block info;
 };
 
+/* Debugging block used with SGI symmon symbolic debugger. */
 #define SMB_DEBUG_MAGIC   0xfeeddead
 struct linux_smonblock {
 	unsigned long   magic;
-	void            (*handler)(void);  
-	unsigned long   dtable_base;       
+	void            (*handler)(void);  /* Breakpoint routine. */
+	unsigned long   dtable_base;       /* Base addr of dbg table. */
 	int             (*printf)(const char *fmt, ...);
-	unsigned long   btable_base;       
-	unsigned long   mpflushreqs;       
-	unsigned long   ntab;              
-	unsigned long   stab;              
-	int             smax;              
+	unsigned long   btable_base;       /* Breakpoint table. */
+	unsigned long   mpflushreqs;       /* SMP cache flush request list. */
+	unsigned long   ntab;              /* Name table. */
+	unsigned long   stab;              /* Symbol table. */
+	int             smax;              /* Max # of symbols. */
 };
 
+/*
+ * Macros for calling a 32-bit ARC implementation from 64-bit code
+ */
 
 #if defined(CONFIG_64BIT) && defined(CONFIG_ARC32)
 
 #define __arc_clobbers							\
-	"$2", "$3" , "$8", "$9", "$10", "$11", 			\
+	"$2", "$3" /* ... */, "$8", "$9", "$10", "$11", 			\
 	"$12", "$13", "$14", "$15", "$16", "$24", "$25", "$31"
 
 #define ARC_CALL0(dest)							\
@@ -447,7 +475,7 @@ struct linux_smonblock {
 	__res;								\
 })
 
-#endif 
+#endif /* defined(CONFIG_64BIT) && defined(CONFIG_ARC32) */
 
 #if (defined(CONFIG_32BIT) && defined(CONFIG_ARC32)) ||		\
     (defined(CONFIG_64BIT) && defined(CONFIG_ARC64))
@@ -515,6 +543,6 @@ struct linux_smonblock {
 	__res = __vec(__a1, __a2, __a3, __a4, __a5);			\
 	__res;								\
 })
-#endif 
+#endif /* both kernel and ARC either 32-bit or 64-bit */
 
-#endif 
+#endif /* _ASM_SGIARCS_H */

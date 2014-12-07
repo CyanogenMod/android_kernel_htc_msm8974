@@ -10,6 +10,9 @@
  * More details are in kernel/mutex-debug.c.
  */
 
+/*
+ * This must be called with lock->wait_lock held.
+ */
 extern void debug_mutex_lock_common(struct mutex *lock,
 				    struct mutex_waiter *waiter);
 extern void debug_mutex_wake_waiter(struct mutex *lock,

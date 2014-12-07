@@ -1,7 +1,16 @@
+/* New Hydra driver using generic 8390 core */
+/* Based on old hydra driver by Topi Kanerva (topi@susanna.oulu.fi) */
 
+/* This file is subject to the terms and conditions of the GNU General      */
 /* Public License.  See the file COPYING in the main directory of the       */
+/* Linux distribution for more details.                                     */
 
+/* Peter De Schrijver (p2@mind.be) */
+/* Oldenburg 2000 */
 
+/* The Amiganet is a Zorro-II board made by Hydra Systems. It contains a    */
+/* NS8390 NIC (network interface controller) clone, 16 or 64K on-board RAM  */
+/* and 10BASE-2 (thin coax) and AUI connectors.                             */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -34,8 +43,8 @@ static const char version[] =
 
 #define NE_EN0_DCFG     (0x0e*2)
 
-#define NESM_START_PG   0x0    
-#define NESM_STOP_PG    0x40    
+#define NESM_START_PG   0x0    /* First page of TX buffer */
+#define NESM_STOP_PG    0x40    /* Last page +1 of RX ring */
 
 #define HYDRA_NIC_BASE 0xffe1
 #define HYDRA_ADDRPROM 0xffc0
@@ -123,7 +132,7 @@ static int __devinit hydra_init(struct zorro_dev *z)
     for (j = 0; j < ETH_ALEN; j++)
 	dev->dev_addr[j] = *((u8 *)(board + HYDRA_ADDRPROM + 2*j));
 
-    
+    /* We must set the 8390 for word mode. */
     z_writeb(0x4b, ioaddr + NE_EN0_DCFG);
     start_page = NESM_START_PG;
     stop_page = NESM_STOP_PG;
@@ -131,7 +140,7 @@ static int __devinit hydra_init(struct zorro_dev *z)
     dev->base_addr = ioaddr;
     dev->irq = IRQ_AMIGA_PORTS;
 
-    
+    /* Install the Interrupt handler */
     if (request_irq(IRQ_AMIGA_PORTS, __ei_interrupt, IRQF_SHARED, "Hydra Ethernet",
 		    dev)) {
 	free_netdev(dev);

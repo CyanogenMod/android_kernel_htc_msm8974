@@ -34,7 +34,7 @@
 #include "t4fw_api.h"
 
 enum fw_ri_wr_opcode {
-	FW_RI_RDMA_WRITE		= 0x0,	
+	FW_RI_RDMA_WRITE		= 0x0,	/* IETF RDMAP v1.0 ... */
 	FW_RI_READ_REQ			= 0x1,
 	FW_RI_READ_RESP			= 0x2,
 	FW_RI_SEND			= 0x3,
@@ -42,7 +42,7 @@ enum fw_ri_wr_opcode {
 	FW_RI_SEND_WITH_SE		= 0x5,
 	FW_RI_SEND_WITH_SE_INV		= 0x6,
 	FW_RI_TERMINATE			= 0x7,
-	FW_RI_RDMA_INIT			= 0x8,	
+	FW_RI_RDMA_INIT			= 0x8,	/* CHELSIO RI specific ... */
 	FW_RI_BIND_MW			= 0x9,
 	FW_RI_FAST_REGISTER		= 0xa,
 	FW_RI_LOCAL_INV			= 0xb,
@@ -782,6 +782,7 @@ struct cpl_pass_accept_req {
 	struct tcp_options tcpopt;
 };
 
+/* cpl_pass_accept_req.hdr_len fields */
 #define S_SYN_RX_CHAN    0
 #define M_SYN_RX_CHAN    0xF
 #define V_SYN_RX_CHAN(x) ((x) << S_SYN_RX_CHAN)
@@ -802,6 +803,7 @@ struct cpl_pass_accept_req {
 #define V_ETH_HDR_LEN(x) ((x) << S_ETH_HDR_LEN)
 #define G_ETH_HDR_LEN(x) (((x) >> S_ETH_HDR_LEN) & M_ETH_HDR_LEN)
 
+/* cpl_pass_accept_req.l2info fields */
 #define S_SYN_MAC_IDX    0
 #define M_SYN_MAC_IDX    0x1FF
 #define V_SYN_MAC_IDX(x) ((x) << S_SYN_MAC_IDX)
@@ -834,4 +836,4 @@ struct ulptx_idata {
 #define V_RX_DACK_CHANGE(x) ((x) << S_RX_DACK_CHANGE)
 #define F_RX_DACK_CHANGE    V_RX_DACK_CHANGE(1U)
 
-#endif 
+#endif /* _T4FW_RI_API_H_ */

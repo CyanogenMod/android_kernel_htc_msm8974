@@ -281,6 +281,7 @@ DECLARE_EVENT_CLASS(file_write_op,
 	TP_ARGS(dentry, nr_bytes),
 
 	TP_STRUCT__entry(
+		__field(unsigned, pid)
 		__field(	dev_t,	dev		)
 		__field(	size_t,	nr_bytes		)
 		__array( char,		comm,	TASK_COMM_LEN	)
@@ -288,6 +289,7 @@ DECLARE_EVENT_CLASS(file_write_op,
 	),
 
 	TP_fast_assign(
+		__entry->pid		= current->pid;
 		__entry->dev		= dentry->d_inode->i_sb->s_dev;
 		__entry->nr_bytes	= nr_bytes;
 		memcpy(__entry->comm, current->comm, TASK_COMM_LEN);
@@ -295,14 +297,21 @@ DECLARE_EVENT_CLASS(file_write_op,
 			dentry->d_name.len + 1);
 	),
 
-	TP_printk("dev %d,%d %s nr_bytes %ld [%s]",
+	TP_printk("dev %d,%d %s nr_bytes %ld [%s:%d]",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		  __get_str(name),
 		  (unsigned long)__entry->nr_bytes,
-		  __entry->comm)
+		  __entry->comm, __entry->pid)
 );
 
 DEFINE_EVENT(file_write_op, ext4_file_write,
+
+	TP_PROTO(struct dentry *dentry, size_t nr_bytes),
+
+	TP_ARGS(dentry, nr_bytes)
+);
+
+DEFINE_EVENT(file_write_op, fuse_file_write,
 
 	TP_PROTO(struct dentry *dentry, size_t nr_bytes),
 

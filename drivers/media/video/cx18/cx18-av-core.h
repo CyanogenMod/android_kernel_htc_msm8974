@@ -31,7 +31,7 @@
 struct cx18;
 
 enum cx18_av_video_input {
-	
+	/* Composite video inputs In1-In8 */
 	CX18_AV_COMPOSITE1 = 1,
 	CX18_AV_COMPOSITE2,
 	CX18_AV_COMPOSITE3,
@@ -41,6 +41,8 @@ enum cx18_av_video_input {
 	CX18_AV_COMPOSITE7,
 	CX18_AV_COMPOSITE8,
 
+	/* S-Video inputs consist of one luma input (In1-In8) ORed with one
+	   chroma input (In5-In8) */
 	CX18_AV_SVIDEO_LUMA1 = 0x10,
 	CX18_AV_SVIDEO_LUMA2 = 0x20,
 	CX18_AV_SVIDEO_LUMA3 = 0x30,
@@ -55,12 +57,14 @@ enum cx18_av_video_input {
 	CX18_AV_SVIDEO_CHROMA7 = 0x700,
 	CX18_AV_SVIDEO_CHROMA8 = 0x800,
 
-	
+	/* S-Video aliases for common luma/chroma combinations */
 	CX18_AV_SVIDEO1 = 0x510,
 	CX18_AV_SVIDEO2 = 0x620,
 	CX18_AV_SVIDEO3 = 0x730,
 	CX18_AV_SVIDEO4 = 0x840,
 
+	/* Component Video inputs consist of one luma input (In1-In8) ORed
+	   with a red chroma (In4-In6) and blue chroma input (In7-In8) */
 	CX18_AV_COMPONENT_LUMA1 = 0x1000,
 	CX18_AV_COMPONENT_LUMA2 = 0x2000,
 	CX18_AV_COMPONENT_LUMA3 = 0x3000,
@@ -75,12 +79,12 @@ enum cx18_av_video_input {
 	CX18_AV_COMPONENT_B_CHROMA7 = 0x700000,
 	CX18_AV_COMPONENT_B_CHROMA8 = 0x800000,
 
-	
+	/* Component Video aliases for common combinations */
 	CX18_AV_COMPONENT1 = 0x861000,
 };
 
 enum cx18_av_audio_input {
-	
+	/* Audio inputs: serial or In4-In8 */
 	CX18_AV_AUDIO_SERIAL1,
 	CX18_AV_AUDIO_SERIAL2,
 	CX18_AV_AUDIO4 = 4,
@@ -104,11 +108,32 @@ struct cx18_av_state {
 	u32 rev;
 	int is_initialized;
 
+	/*
+	 * The VBI slicer starts operating and counting lines, beginning at
+	 * slicer line count of 1, at D lines after the deassertion of VRESET.
+	 * This staring field line, S, is 6 (& 319) or 10 (& 273) for 625 or 525
+	 * line systems respectively.  Sliced ancillary data captured on VBI
+	 * slicer line M is inserted after the VBI slicer is done with line M,
+	 * when VBI slicer line count is N = M+1.  Thus when the VBI slicer
+	 * reports a VBI slicer line number with ancillary data, the IDID0 byte
+	 * indicates VBI slicer line N.  The actual field line that the captured
+	 * data comes from is
+	 *
+	 * L = M+(S+D-1) = N-1+(S+D-1) = N + (S+D-2).
+	 *
+	 * L is the line in the field, not frame, from which the VBI data came.
+	 * N is the line reported by the slicer in the ancillary data.
+	 * D is the slicer_line_delay value programmed into register 0x47f.
+	 * S is 6 for 625 line systems or 10 for 525 line systems
+	 * (S+D-2) is the slicer_line_offset used to convert slicer reported
+	 * line counts to actual field lines.
+	 */
 	int slicer_line_delay;
 	int slicer_line_offset;
 };
 
 
+/* Registers */
 #define CXADEC_CHIP_TYPE_TIGER     0x837
 #define CXADEC_CHIP_TYPE_MAKO      0x843
 
@@ -141,6 +166,7 @@ struct cx18_av_state {
 #define CXADEC_DLL1_DIAG_CTRL      0x158
 #define CXADEC_DLL2_DIAG_CTRL      0x15C
 
+/* IR registers */
 #define CXADEC_IR_CTRL_REG         0x200
 #define CXADEC_IR_TXCLK_REG        0x204
 #define CXADEC_IR_RXCLK_REG        0x208
@@ -150,6 +176,7 @@ struct cx18_av_state {
 #define CXADEC_IR_FILTER_REG       0x218
 #define CXADEC_IR_FIFO_REG         0x21C
 
+/* Video Registers */
 #define CXADEC_MODE_CTRL           0x400
 #define CXADEC_OUT_CTRL1           0x404
 #define CXADEC_OUT_CTRL2           0x408
@@ -208,16 +235,16 @@ struct cx18_av_state {
 #define CXADEC_MISC_DIAG_CTRL      0x4B8
 
 #define CXADEC_DL_CTL              0x800
-#define CXADEC_DL_CTL_ADDRESS_LOW  0x800   
-#define CXADEC_DL_CTL_ADDRESS_HIGH 0x801   
-#define CXADEC_DL_CTL_DATA         0x802   
-#define CXADEC_DL_CTL_CONTROL      0x803   
+#define CXADEC_DL_CTL_ADDRESS_LOW  0x800   /* Byte 1 in DL_CTL */
+#define CXADEC_DL_CTL_ADDRESS_HIGH 0x801   /* Byte 2 in DL_CTL */
+#define CXADEC_DL_CTL_DATA         0x802   /* Byte 3 in DL_CTL */
+#define CXADEC_DL_CTL_CONTROL      0x803   /* Byte 4 in DL_CTL */
 
 #define CXADEC_STD_DET_STATUS      0x804
 
 #define CXADEC_STD_DET_CTL         0x808
-#define CXADEC_STD_DET_CTL_AUD_CTL   0x808 
-#define CXADEC_STD_DET_CTL_PREF_MODE 0x809 
+#define CXADEC_STD_DET_CTL_AUD_CTL   0x808 /* Byte 1 in STD_DET_CTL */
+#define CXADEC_STD_DET_CTL_PREF_MODE 0x809 /* Byte 2 in STD_DET_CTL */
 
 #define CXADEC_DW8051_INT          0x80C
 #define CXADEC_GENERAL_CTL         0x810
@@ -257,6 +284,7 @@ struct cx18_av_state {
 #define CXADEC_DBX2_STATUS         0x898
 #define CXADEC_AM_FM_DIFF          0x89C
 
+/* NICAM registers go here */
 #define CXADEC_NICAM_STATUS        0x8C8
 #define CXADEC_DEMATRIX_CTL        0x8CC
 
@@ -287,6 +315,7 @@ struct cx18_av_state {
 #define CXADEC_QAM_CONST_DEC       0x924
 #define CXADEC_QAM_ROTATOR_FREQ    0x948
 
+/* Bit definitions / settings used in Mako Audio */
 #define CXADEC_PREF_MODE_MONO_LANGA        0
 #define CXADEC_PREF_MODE_MONO_LANGB        1
 #define CXADEC_PREF_MODE_MONO_LANGC        2
@@ -303,17 +332,17 @@ struct cx18_av_state {
 #define CXADEC_DETECT_SAP                  0x10
 #define CXADEC_DETECT_NO_SIGNAL            0xFF
 
-#define CXADEC_SELECT_AUDIO_STANDARD_BG    0xF0  
-#define CXADEC_SELECT_AUDIO_STANDARD_DK1   0xF1  
+#define CXADEC_SELECT_AUDIO_STANDARD_BG    0xF0  /* NICAM BG and A2 BG */
+#define CXADEC_SELECT_AUDIO_STANDARD_DK1   0xF1  /* NICAM DK and A2 DK */
 #define CXADEC_SELECT_AUDIO_STANDARD_DK2   0xF2
 #define CXADEC_SELECT_AUDIO_STANDARD_DK3   0xF3
-#define CXADEC_SELECT_AUDIO_STANDARD_I     0xF4  
-#define CXADEC_SELECT_AUDIO_STANDARD_L     0xF5  
+#define CXADEC_SELECT_AUDIO_STANDARD_I     0xF4  /* NICAM I and A1 */
+#define CXADEC_SELECT_AUDIO_STANDARD_L     0xF5  /* NICAM L and System L AM */
 #define CXADEC_SELECT_AUDIO_STANDARD_BTSC  0xF6
 #define CXADEC_SELECT_AUDIO_STANDARD_EIAJ  0xF7
-#define CXADEC_SELECT_AUDIO_STANDARD_A2_M  0xF8  
-#define CXADEC_SELECT_AUDIO_STANDARD_FM    0xF9  
-#define CXADEC_SELECT_AUDIO_STANDARD_AUTO  0xFF  
+#define CXADEC_SELECT_AUDIO_STANDARD_A2_M  0xF8  /* A2 M */
+#define CXADEC_SELECT_AUDIO_STANDARD_FM    0xF9  /* FM radio */
+#define CXADEC_SELECT_AUDIO_STANDARD_AUTO  0xFF  /* Auto detect */
 
 static inline struct cx18_av_state *to_cx18_av_state(struct v4l2_subdev *sd)
 {
@@ -325,6 +354,8 @@ static inline struct v4l2_subdev *to_sd(struct v4l2_ctrl *ctrl)
 	return &container_of(ctrl->handler, struct cx18_av_state, hdl)->sd;
 }
 
+/* ----------------------------------------------------------------------- */
+/* cx18_av-core.c 							   */
 int cx18_av_write(struct cx18 *cx, u16 addr, u8 value);
 int cx18_av_write4(struct cx18 *cx, u16 addr, u32 value);
 int cx18_av_write4_noretry(struct cx18 *cx, u16 addr, u32 value);
@@ -339,12 +370,18 @@ void cx18_av_std_setup(struct cx18 *cx);
 
 int cx18_av_probe(struct cx18 *cx);
 
+/* ----------------------------------------------------------------------- */
+/* cx18_av-firmware.c                                                      */
 int cx18_av_loadfw(struct cx18 *cx);
 
+/* ----------------------------------------------------------------------- */
+/* cx18_av-audio.c                                                         */
 int cx18_av_s_clock_freq(struct v4l2_subdev *sd, u32 freq);
 void cx18_av_audio_set_path(struct cx18 *cx);
 extern const struct v4l2_ctrl_ops cx18_av_audio_ctrl_ops;
 
+/* ----------------------------------------------------------------------- */
+/* cx18_av-vbi.c                                                           */
 int cx18_av_decode_vbi_line(struct v4l2_subdev *sd,
 			   struct v4l2_decode_vbi_line *vbi);
 int cx18_av_s_raw_fmt(struct v4l2_subdev *sd, struct v4l2_vbi_format *fmt);

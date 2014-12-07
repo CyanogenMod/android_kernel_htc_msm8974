@@ -31,12 +31,24 @@ enum {
 	MAX8660_V_END,
 };
 
+/**
+ * max8660_subdev_data - regulator subdev data
+ * @id: regulator id
+ * @name: regulator name
+ * @platform_data: regulator init data
+ */
 struct max8660_subdev_data {
 	int				id;
 	char				*name;
 	struct regulator_init_data	*platform_data;
 };
 
+/**
+ * max8660_platform_data - platform data for max8660
+ * @num_subdevs: number of regulators used
+ * @subdevs: pointer to regulators used
+ * @en34_is_high: if EN34 is driven high, regulators cannot be en-/disabled.
+ */
 struct max8660_platform_data {
 	int num_subdevs;
 	struct max8660_subdev_data *subdevs;

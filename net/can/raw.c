@@ -65,6 +65,15 @@ MODULE_ALIAS("can-proto-1");
 
 #define MASK_ALL 0
 
+/*
+ * A raw socket has a list of can_filters attached to it, each receiving
+ * the CAN frames matching that filter.  If the filter list is empty,
+ * no CAN frames will be received by the socket.  The default after
+ * opening the socket, is to have one filter which receives all frames.
+ * The filter list is allocated dynamically with the exception of the
+ * list containing only one item.  This common case is optimized by
+ * storing the single filter in dfilter, to avoid using dynamic memory.
+ */
 
 struct raw_sock {
 	struct sock sk;
@@ -73,18 +82,23 @@ struct raw_sock {
 	struct notifier_block notifier;
 	int loopback;
 	int recv_own_msgs;
-	int count;                 
-	struct can_filter dfilter; 
-	struct can_filter *filter; 
+	int count;                 /* number of active filters */
+	struct can_filter dfilter; /* default/single filter */
+	struct can_filter *filter; /* pointer to filter(s) */
 	can_err_mask_t err_mask;
 };
 
+/*
+ * Return pointer to store the extra msg flags for raw_recvmsg().
+ * We use the space of one unsigned int beyond the 'struct sockaddr_can'
+ * in skb->cb.
+ */
 static inline unsigned int *raw_flags(struct sk_buff *skb)
 {
 	BUILD_BUG_ON(sizeof(skb->cb) <= (sizeof(struct sockaddr_can) +
 					 sizeof(unsigned int)));
 
-	
+	/* return pointer after struct sockaddr_can */
 	return (unsigned int *)(&((struct sockaddr_can *)skb->cb)[1]);
 }
 
@@ -101,15 +115,21 @@ static void raw_rcv(struct sk_buff *oskb, void *data)
 	struct sk_buff *skb;
 	unsigned int *pflags;
 
-	
+	/* check the received tx sock reference */
 	if (!ro->recv_own_msgs && oskb->sk == sk)
 		return;
 
-	
+	/* clone the given skb to be able to enqueue it into the rcv queue */
 	skb = skb_clone(oskb, GFP_ATOMIC);
 	if (!skb)
 		return;
 
+	/*
+	 *  Put the datagram to the queue so that raw_recvmsg() can
+	 *  get it from there.  We need to pass the interface index to
+	 *  raw_recvmsg().  We pass a whole struct sockaddr_can in skb->cb
+	 *  containing the interface index.
+	 */
 
 	BUILD_BUG_ON(sizeof(skb->cb) < sizeof(struct sockaddr_can));
 	addr = (struct sockaddr_can *)skb->cb;
@@ -117,7 +137,7 @@ static void raw_rcv(struct sk_buff *oskb, void *data)
 	addr->can_family  = AF_CAN;
 	addr->can_ifindex = skb->dev->ifindex;
 
-	
+	/* add CAN specific message flags for raw_recvmsg() */
 	pflags = raw_flags(skb);
 	*pflags = 0;
 	if (oskb->sk)
@@ -140,7 +160,7 @@ static int raw_enable_filters(struct net_device *dev, struct sock *sk,
 				      filter[i].can_mask,
 				      raw_rcv, sk, "raw");
 		if (err) {
-			
+			/* clean up successfully registered filters */
 			while (--i >= 0)
 				can_rx_unregister(dev, filter[i].can_id,
 						  filter[i].can_mask,
@@ -228,7 +248,7 @@ static int raw_notifier(struct notifier_block *nb,
 
 	case NETDEV_UNREGISTER:
 		lock_sock(sk);
-		
+		/* remove current filters & unregister */
 		if (ro->bound)
 			raw_disable_allfilters(dev, sk);
 
@@ -262,17 +282,17 @@ static int raw_init(struct sock *sk)
 	ro->bound            = 0;
 	ro->ifindex          = 0;
 
-	
+	/* set default filter to single entry dfilter */
 	ro->dfilter.can_id   = 0;
 	ro->dfilter.can_mask = MASK_ALL;
 	ro->filter           = &ro->dfilter;
 	ro->count            = 1;
 
-	
+	/* set default loopback behaviour */
 	ro->loopback         = 1;
 	ro->recv_own_msgs    = 0;
 
-	
+	/* set notifier */
 	ro->notifier.notifier_call = raw_notifier;
 
 	register_netdevice_notifier(&ro->notifier);
@@ -294,7 +314,7 @@ static int raw_release(struct socket *sock)
 
 	lock_sock(sk);
 
-	
+	/* remove current filters & unregister */
 	if (ro->bound) {
 		if (ro->ifindex) {
 			struct net_device *dev;
@@ -359,19 +379,19 @@ static int raw_bind(struct socket *sock, struct sockaddr *uaddr, int len)
 
 		ifindex = dev->ifindex;
 
-		
+		/* filters set by default/setsockopt */
 		err = raw_enable_allfilters(dev, sk);
 		dev_put(dev);
 	} else {
 		ifindex = 0;
 
-		
+		/* filters set by default/setsockopt */
 		err = raw_enable_allfilters(NULL, sk);
 	}
 
 	if (!err) {
 		if (ro->bound) {
-			
+			/* unregister old filters */
 			if (ro->ifindex) {
 				struct net_device *dev;
 
@@ -423,8 +443,8 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 {
 	struct sock *sk = sock->sk;
 	struct raw_sock *ro = raw_sk(sk);
-	struct can_filter *filter = NULL;  
-	struct can_filter sfilter;         
+	struct can_filter *filter = NULL;  /* dyn. alloc'ed filters */
+	struct can_filter sfilter;         /* single filter */
 	struct net_device *dev = NULL;
 	can_err_mask_t err_mask = 0;
 	int count = 0;
@@ -442,7 +462,7 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 		count = optlen / sizeof(struct can_filter);
 
 		if (count > 1) {
-			
+			/* filter does not fit into dfilter => alloc space */
 			filter = memdup_user(optval, optlen);
 			if (IS_ERR(filter))
 				return PTR_ERR(filter);
@@ -457,7 +477,7 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 			dev = dev_get_by_index(&init_net, ro->ifindex);
 
 		if (ro->bound) {
-			
+			/* (try to) register the new filters */
 			if (count == 1)
 				err = raw_enable_filters(dev, sk, &sfilter, 1);
 			else
@@ -469,17 +489,17 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 				goto out_fil;
 			}
 
-			
+			/* remove old filter registrations */
 			raw_disable_filters(dev, sk, ro->filter, ro->count);
 		}
 
-		
+		/* remove old filter space */
 		if (ro->count > 1)
 			kfree(ro->filter);
 
-		
+		/* link new filters to the socket */
 		if (count == 1) {
-			
+			/* copy filter data for single filter */
 			ro->dfilter = sfilter;
 			filter = &ro->dfilter;
 		}
@@ -508,19 +528,19 @@ static int raw_setsockopt(struct socket *sock, int level, int optname,
 		if (ro->bound && ro->ifindex)
 			dev = dev_get_by_index(&init_net, ro->ifindex);
 
-		
+		/* remove current error mask */
 		if (ro->bound) {
-			
+			/* (try to) register the new err_mask */
 			err = raw_enable_errfilter(dev, sk, err_mask);
 
 			if (err)
 				goto out_err;
 
-			
+			/* remove old err_mask registration */
 			raw_disable_errfilter(dev, sk, ro->err_mask);
 		}
 
-		
+		/* link new err_mask to the socket */
 		ro->err_mask = err_mask;
 
  out_err:
@@ -661,7 +681,7 @@ static int raw_sendmsg(struct kiocb *iocb, struct socket *sock,
 	if (err < 0)
 		goto free_skb;
 
-	
+	/* to be able to check the received tx sock reference in raw_rcv() */
 	skb_shinfo(skb)->tx_flags |= SKBTX_DRV_NEEDS_SK_REF;
 
 	skb->dev = dev;
@@ -717,7 +737,7 @@ static int raw_recvmsg(struct kiocb *iocb, struct socket *sock,
 		memcpy(msg->msg_name, skb->cb, msg->msg_namelen);
 	}
 
-	
+	/* assign the flags that have been recorded in raw_rcv() */
 	msg->msg_flags |= *(raw_flags(skb));
 
 	skb_free_datagram(sk, skb);
@@ -734,7 +754,7 @@ static const struct proto_ops raw_ops = {
 	.accept        = sock_no_accept,
 	.getname       = raw_getname,
 	.poll          = datagram_poll,
-	.ioctl         = can_ioctl,	
+	.ioctl         = can_ioctl,	/* use can_ioctl() from af_can.c */
 	.listen        = sock_no_listen,
 	.shutdown      = sock_no_shutdown,
 	.setsockopt    = raw_setsockopt,

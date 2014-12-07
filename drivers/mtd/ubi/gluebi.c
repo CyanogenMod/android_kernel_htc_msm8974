@@ -18,6 +18,16 @@
  * Author: Artem Bityutskiy (Битюцкий Артём), Joern Engel
  */
 
+/*
+ * This is a small driver which implements fake MTD devices on top of UBI
+ * volumes. This sounds strange, but it is in fact quite useful to make
+ * MTD-oriented software (including all the legacy software) work on top of
+ * UBI.
+ *
+ * Gluebi emulates MTD devices of "MTD_UBIVOLUME" type. Their minimal I/O unit
+ * size (@mtd->writesize) is equivalent to the UBI minimal I/O unit. The
+ * eraseblock size is equivalent to the logical eraseblock size of the volume.
+ */
 
 #include <linux/err.h>
 #include <linux/list.h>
@@ -34,6 +44,15 @@
 	printk(KERN_DEBUG "gluebi (pid %d): %s: " fmt "\n", \
 	       current->pid, __func__, ##__VA_ARGS__)
 
+/**
+ * struct gluebi_device - a gluebi device description data structure.
+ * @mtd: emulated MTD device description object
+ * @refcnt: gluebi device reference count
+ * @desc: UBI volume descriptor
+ * @ubi_num: UBI device number this gluebi device works on
+ * @vol_id: ID of UBI volume this gluebi device works on
+ * @list: link in a list of gluebi devices
+ */
 struct gluebi_device {
 	struct mtd_info mtd;
 	int refcnt;
@@ -43,9 +62,20 @@ struct gluebi_device {
 	struct list_head list;
 };
 
+/* List of all gluebi devices */
 static LIST_HEAD(gluebi_devices);
 static DEFINE_MUTEX(devices_mutex);
 
+/**
+ * find_gluebi_nolock - find a gluebi device.
+ * @ubi_num: UBI device number
+ * @vol_id: volume ID
+ *
+ * This function seraches for gluebi device corresponding to UBI device
+ * @ubi_num and UBI volume @vol_id. Returns the gluebi device description
+ * object in case of success and %NULL in case of failure. The caller has to
+ * have the &devices_mutex locked.
+ */
 static struct gluebi_device *find_gluebi_nolock(int ubi_num, int vol_id)
 {
 	struct gluebi_device *gluebi;
@@ -56,6 +86,14 @@ static struct gluebi_device *find_gluebi_nolock(int ubi_num, int vol_id)
 	return NULL;
 }
 
+/**
+ * gluebi_get_device - get MTD device reference.
+ * @mtd: the MTD device description object
+ *
+ * This function is called every time the MTD device is being opened and
+ * implements the MTD get_device() operation. Returns zero in case of success
+ * and a negative error code in case of failure.
+ */
 static int gluebi_get_device(struct mtd_info *mtd)
 {
 	struct gluebi_device *gluebi;
@@ -70,11 +108,23 @@ static int gluebi_get_device(struct mtd_info *mtd)
 	gluebi = container_of(mtd, struct gluebi_device, mtd);
 	mutex_lock(&devices_mutex);
 	if (gluebi->refcnt > 0) {
+		/*
+		 * The MTD device is already referenced and this is just one
+		 * more reference. MTD allows many users to open the same
+		 * volume simultaneously and do not distinguish between
+		 * readers/writers/exclusive openers as UBI does. So we do not
+		 * open the UBI volume again - just increase the reference
+		 * counter and return.
+		 */
 		gluebi->refcnt += 1;
 		mutex_unlock(&devices_mutex);
 		return 0;
 	}
 
+	/*
+	 * This is the first reference to this UBI volume via the MTD device
+	 * interface. Open the corresponding volume in read-write mode.
+	 */
 	gluebi->desc = ubi_open_volume(gluebi->ubi_num, gluebi->vol_id,
 				       ubi_mode);
 	if (IS_ERR(gluebi->desc)) {
@@ -87,6 +137,13 @@ static int gluebi_get_device(struct mtd_info *mtd)
 	return 0;
 }
 
+/**
+ * gluebi_put_device - put MTD device reference.
+ * @mtd: the MTD device description object
+ *
+ * This function is called every time the MTD device is being put. Returns
+ * zero in case of success and a negative error code in case of failure.
+ */
 static void gluebi_put_device(struct mtd_info *mtd)
 {
 	struct gluebi_device *gluebi;
@@ -100,6 +157,17 @@ static void gluebi_put_device(struct mtd_info *mtd)
 	mutex_unlock(&devices_mutex);
 }
 
+/**
+ * gluebi_read - read operation of emulated MTD devices.
+ * @mtd: MTD device description object
+ * @from: absolute offset from where to read
+ * @len: how many bytes to read
+ * @retlen: count of read bytes is returned here
+ * @buf: buffer to store the read data
+ *
+ * This function returns zero in case of success and a negative error code in
+ * case of failure.
+ */
 static int gluebi_read(struct mtd_info *mtd, loff_t from, size_t len,
 		       size_t *retlen, unsigned char *buf)
 {
@@ -173,6 +241,14 @@ static int gluebi_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return err;
 }
 
+/**
+ * gluebi_erase - erase operation of emulated MTD devices.
+ * @mtd: the MTD device description object
+ * @instr: the erase operation description
+ *
+ * This function calls the erase callback when finishes. Returns zero in case
+ * of success and a negative error code in case of failure.
+ */
 static int gluebi_erase(struct mtd_info *mtd, struct erase_info *instr)
 {
 	int err, i, lnum, count;
@@ -190,6 +266,13 @@ static int gluebi_erase(struct mtd_info *mtd, struct erase_info *instr)
 		if (err)
 			goto out_err;
 	}
+	/*
+	 * MTD erase operations are synchronous, so we have to make sure the
+	 * physical eraseblock is wiped out.
+	 *
+	 * Thus, perform leb_erase instead of leb_unmap operation - leb_erase
+	 * will wait for the end of operations
+	 */
 	err = ubi_leb_erase(gluebi->desc, lnum + i);
 	if (err)
 		goto out_err;
@@ -204,6 +287,15 @@ out_err:
 	return err;
 }
 
+/**
+ * gluebi_create - create a gluebi device for an UBI volume.
+ * @di: UBI device description object
+ * @vi: UBI volume description object
+ *
+ * This function is called when a new UBI volume is created in order to create
+ * corresponding fake MTD device. Returns zero in case of success and a
+ * negative error code in case of failure.
+ */
 static int gluebi_create(struct ubi_device_info *di,
 			 struct ubi_volume_info *vi)
 {
@@ -235,12 +327,17 @@ static int gluebi_create(struct ubi_device_info *di,
 	mtd->_get_device = gluebi_get_device;
 	mtd->_put_device = gluebi_put_device;
 
+	/*
+	 * In case of dynamic a volume, MTD device size is just volume size. In
+	 * case of a static volume the size is equivalent to the amount of data
+	 * bytes.
+	 */
 	if (vi->vol_type == UBI_DYNAMIC_VOLUME)
 		mtd->size = (unsigned long long)vi->usable_leb_size * vi->size;
 	else
 		mtd->size = vi->used_bytes;
 
-	
+	/* Just a sanity check - make sure this gluebi device does not exist */
 	mutex_lock(&devices_mutex);
 	g = find_gluebi_nolock(vi->ubi_num, vi->vol_id);
 	if (g)
@@ -262,6 +359,14 @@ static int gluebi_create(struct ubi_device_info *di,
 	return 0;
 }
 
+/**
+ * gluebi_remove - remove a gluebi device.
+ * @vi: UBI volume description object
+ *
+ * This function is called when an UBI volume is removed and it removes
+ * corresponding fake MTD device. Returns zero in case of success and a
+ * negative error code in case of failure.
+ */
 static int gluebi_remove(struct ubi_volume_info *vi)
 {
 	int err = 0;
@@ -299,6 +404,16 @@ static int gluebi_remove(struct ubi_volume_info *vi)
 	return 0;
 }
 
+/**
+ * gluebi_updated - UBI volume was updated notifier.
+ * @vi: volume info structure
+ *
+ * This function is called every time an UBI volume is updated. It does nothing
+ * if te volume @vol is dynamic, and changes MTD device size if the
+ * volume is static. This is needed because static volumes cannot be read past
+ * data they contain. This function returns zero in case of success and a
+ * negative error code in case of error.
+ */
 static int gluebi_updated(struct ubi_volume_info *vi)
 {
 	struct gluebi_device *gluebi;
@@ -318,6 +433,14 @@ static int gluebi_updated(struct ubi_volume_info *vi)
 	return 0;
 }
 
+/**
+ * gluebi_resized - UBI volume was re-sized notifier.
+ * @vi: volume info structure
+ *
+ * This function is called every time an UBI volume is re-size. It changes the
+ * corresponding fake MTD device size. This function returns zero in case of
+ * success and a negative error code in case of error.
+ */
 static int gluebi_resized(struct ubi_volume_info *vi)
 {
 	struct gluebi_device *gluebi;
@@ -335,6 +458,12 @@ static int gluebi_resized(struct ubi_volume_info *vi)
 	return 0;
 }
 
+/**
+ * gluebi_notify - UBI notification handler.
+ * @nb: registered notifier block
+ * @l: notification type
+ * @ptr: pointer to the &struct ubi_notification object
+ */
 static int gluebi_notify(struct notifier_block *nb, unsigned long l,
 			 void *ns_ptr)
 {

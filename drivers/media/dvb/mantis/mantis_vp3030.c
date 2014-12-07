@@ -45,8 +45,8 @@ struct tda665x_config env57h12d5_config = {
 	.frequency_min		=  47000000,
 	.frequency_max		= 862000000,
 	.frequency_offst	=   3616667,
-	.ref_multiplier		= 6, 
-	.ref_divider		= 100000, 
+	.ref_multiplier		= 6, /* 1/6 MHz */
+	.ref_divider		= 100000, /* 1/6 MHz */
 };
 
 #define MANTIS_MODEL_NAME	"VP-3030"

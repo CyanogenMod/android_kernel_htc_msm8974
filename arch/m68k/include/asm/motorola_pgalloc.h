@@ -106,4 +106,4 @@ static inline void pgd_populate(struct mm_struct *mm, pgd_t *pgd, pmd_t *pmd)
 	pgd_set(pgd, pmd);
 }
 
-#endif 
+#endif /* _MOTOROLA_PGALLOC_H */

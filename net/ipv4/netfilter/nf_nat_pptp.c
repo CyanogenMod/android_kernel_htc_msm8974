@@ -1,3 +1,21 @@
+/*
+ * nf_nat_pptp.c
+ *
+ * NAT support for PPTP (Point to Point Tunneling Protocol).
+ * PPTP is a a protocol for creating virtual private networks.
+ * It is a specification defined by Microsoft and some vendors
+ * working with Microsoft.  PPTP is built on top of a modified
+ * version of the Internet Generic Routing Encapsulation Protocol.
+ * GRE is defined in RFC 1701 and RFC 1702.  Documentation of
+ * PPTP can be found in RFC 2637
+ *
+ * (C) 2000-2005 by Harald Welte <laforge@gnumonks.org>
+ *
+ * Development of this code funded by Astaro AG (http://www.astaro.com/)
+ *
+ * TODO: - NAT to a unique tuple, not to TCP source port
+ * 	   (needs netfilter tuple reservation)
+ */
 
 #include <linux/module.h>
 #include <linux/tcp.h>
@@ -42,10 +60,10 @@ static void pptp_nat_expected(struct nf_conn *ct,
 		printk(KERN_ERR "[NET] nat_pptp_info is NULL in %s!\n", __func__);
 #endif
 
-	
+	/* And here goes the grand finale of corrosion... */
 	if (exp->dir == IP_CT_DIR_ORIGINAL) {
 		pr_debug("we are PNS->PAC\n");
-		
+		/* therefore, build tuple for PAC->PNS */
 		t.src.l3num = AF_INET;
 		t.src.u3.ip = master->tuplehash[!exp->dir].tuple.src.u3.ip;
 		t.src.u.gre.key = ct_pptp_info->pac_call_id;
@@ -54,7 +72,7 @@ static void pptp_nat_expected(struct nf_conn *ct,
 		t.dst.protonum = IPPROTO_GRE;
 	} else {
 		pr_debug("we are PAC->PNS\n");
-		
+		/* build tuple for PNS->PAC */
 		t.src.l3num = AF_INET;
 		t.src.u3.ip = master->tuplehash[!exp->dir].tuple.src.u3.ip;
 		t.src.u.gre.key = nat_pptp_info->pns_call_id;
@@ -74,10 +92,10 @@ static void pptp_nat_expected(struct nf_conn *ct,
 		pr_debug("not found!\n");
 	}
 
-	
+	/* This must be a fresh one. */
 	BUG_ON(ct->status & IPS_NAT_DONE_MASK);
 
-	
+	/* Change src to where master sends to */
 	range.flags = NF_NAT_RANGE_MAP_IPS;
 	range.min_ip = range.max_ip
 		= ct->master->tuplehash[!exp->dir].tuple.dst.u3.ip;
@@ -87,7 +105,7 @@ static void pptp_nat_expected(struct nf_conn *ct,
 	}
 	nf_nat_setup_info(ct, &range, NF_NAT_MANIP_SRC);
 
-	
+	/* For DST manip, map port here to where it's expected. */
 	range.flags = NF_NAT_RANGE_MAP_IPS;
 	range.min_ip = range.max_ip
 		= ct->master->tuplehash[!exp->dir].tuple.src.u3.ip;
@@ -98,6 +116,7 @@ static void pptp_nat_expected(struct nf_conn *ct,
 	nf_nat_setup_info(ct, &range, NF_NAT_MANIP_DST);
 }
 
+/* outbound packets == from PNS to PAC */
 static int
 pptp_outbound_pkt(struct sk_buff *skb,
 		  struct nf_conn *ct,
@@ -128,13 +147,19 @@ pptp_outbound_pkt(struct sk_buff *skb,
 	switch (msg = ntohs(ctlh->messageType)) {
 	case PPTP_OUT_CALL_REQUEST:
 		cid_off = offsetof(union pptp_ctrl_union, ocreq.callID);
+		/* FIXME: ideally we would want to reserve a call ID
+		 * here.  current netfilter NAT core is not able to do
+		 * this :( For now we use TCP source port. This breaks
+		 * multiple calls within one control session */
 
-		
+		/* save original call ID in nat_info */
 		nat_pptp_info->pns_call_id = ct_pptp_info->pns_call_id;
 
+		/* don't use tcph->source since we are at a DSTmanip
+		 * hook (e.g. PREROUTING) and pkt is not mangled yet */
 		new_callid = ct->tuplehash[IP_CT_DIR_REPLY].tuple.dst.u.tcp.port;
 
-		
+		/* save new call ID in ct info */
 		ct_pptp_info->pns_call_id = new_callid;
 		break;
 	case PPTP_IN_CALL_REPLY:
@@ -147,23 +172,25 @@ pptp_outbound_pkt(struct sk_buff *skb,
 		pr_debug("unknown outbound packet 0x%04x:%s\n", msg,
 			 msg <= PPTP_MSG_MAX ? pptp_msg_name[msg] :
 					       pptp_msg_name[0]);
-		
+		/* fall through */
 	case PPTP_SET_LINK_INFO:
-		
+		/* only need to NAT in case PAC is behind NAT box */
 	case PPTP_START_SESSION_REQUEST:
 	case PPTP_START_SESSION_REPLY:
 	case PPTP_STOP_SESSION_REQUEST:
 	case PPTP_STOP_SESSION_REPLY:
 	case PPTP_ECHO_REQUEST:
 	case PPTP_ECHO_REPLY:
-		
+		/* no need to alter packet */
 		return NF_ACCEPT;
 	}
 
+	/* only OUT_CALL_REQUEST, IN_CALL_REPLY, CALL_CLEAR_REQUEST pass
+	 * down to here */
 	pr_debug("altering call id from 0x%04x to 0x%04x\n",
 		 ntohs(REQ_CID(pptpReq, cid_off)), ntohs(new_callid));
 
-	
+	/* mangle packet */
 	if (nf_nat_mangle_tcp_packet(skb, ct, ctinfo,
 				     cid_off + sizeof(struct pptp_pkt_hdr) +
 				     sizeof(struct PptpControlHeader),
@@ -192,22 +219,23 @@ pptp_exp_gre(struct nf_conntrack_expect *expect_orig,
 		printk(KERN_ERR "[NET] nat_pptp_info is NULL in %s!\n", __func__);
 #endif
 
-	
+	/* save original PAC call ID in nat_info */
 	nat_pptp_info->pac_call_id = ct_pptp_info->pac_call_id;
 
-	
+	/* alter expectation for PNS->PAC direction */
 	expect_orig->saved_proto.gre.key = ct_pptp_info->pns_call_id;
 	expect_orig->tuple.src.u.gre.key = nat_pptp_info->pns_call_id;
 	expect_orig->tuple.dst.u.gre.key = ct_pptp_info->pac_call_id;
 	expect_orig->dir = IP_CT_DIR_ORIGINAL;
 
-	
+	/* alter expectation for PAC->PNS direction */
 	expect_reply->saved_proto.gre.key = nat_pptp_info->pns_call_id;
 	expect_reply->tuple.src.u.gre.key = nat_pptp_info->pac_call_id;
 	expect_reply->tuple.dst.u.gre.key = ct_pptp_info->pns_call_id;
 	expect_reply->dir = IP_CT_DIR_REPLY;
 }
 
+/* inbound packets == from PAC to PNS */
 static int
 pptp_inbound_pkt(struct sk_buff *skb,
 		 struct nf_conn *ct,
@@ -236,7 +264,7 @@ pptp_inbound_pkt(struct sk_buff *skb,
 		pcid_off = offsetof(union pptp_ctrl_union, iccon.peersCallID);
 		break;
 	case PPTP_IN_CALL_REQUEST:
-		
+		/* only need to nat in case PAC is behind NAT box */
 		return NF_ACCEPT;
 	case PPTP_WAN_ERROR_NOTIFY:
 		pcid_off = offsetof(union pptp_ctrl_union, wanerr.peersCallID);
@@ -251,19 +279,21 @@ pptp_inbound_pkt(struct sk_buff *skb,
 		pr_debug("unknown inbound packet %s\n",
 			 msg <= PPTP_MSG_MAX ? pptp_msg_name[msg] :
 					       pptp_msg_name[0]);
-		
+		/* fall through */
 	case PPTP_START_SESSION_REQUEST:
 	case PPTP_START_SESSION_REPLY:
 	case PPTP_STOP_SESSION_REQUEST:
 	case PPTP_STOP_SESSION_REPLY:
 	case PPTP_ECHO_REQUEST:
 	case PPTP_ECHO_REPLY:
-		
+		/* no need to alter packet */
 		return NF_ACCEPT;
 	}
 
+	/* only OUT_CALL_REPLY, IN_CALL_CONNECT, IN_CALL_REQUEST,
+	 * WAN_ERROR_NOTIFY, CALL_DISCONNECT_NOTIFY pass down here */
 
-	
+	/* mangle packet */
 	pr_debug("altering peer call id from 0x%04x to 0x%04x\n",
 		 ntohs(REQ_CID(pptpReq, pcid_off)), ntohs(new_pcid));
 

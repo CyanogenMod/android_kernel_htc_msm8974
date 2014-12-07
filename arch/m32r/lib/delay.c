@@ -11,7 +11,7 @@
 #include <linux/sched.h>
 #include <asm/current.h>
 #include <asm/smp.h>
-#endif  
+#endif  /* CONFIG_SMP */
 #include <asm/processor.h>
 
 void __delay(unsigned long loops)
@@ -59,6 +59,16 @@ void __delay(unsigned long loops)
 void __const_udelay(unsigned long xloops)
 {
 #if defined(CONFIG_ISA_M32R2) && defined(CONFIG_ISA_DSP_LEVEL2)
+	/*
+	 * loops [1] = (xloops >> 32) [sec] * loops_per_jiffy [1/jiffy]
+	 *            * HZ [jiffy/sec]
+	 *          = (xloops >> 32) [sec] * (loops_per_jiffy * HZ) [1/sec]
+	 *          = (((xloops * loops_per_jiffy) >> 32) * HZ) [1]
+	 *
+	 * NOTE:
+	 *   - '[]' depicts variable's dimension in the above equation.
+	 *   - "rac" instruction rounds the accumulator in word size.
+	 */
 	__asm__ __volatile__ (
 		"srli	%0, #1				\n\t"
 		"mulwhi	%0, %1	; a0			\n\t"
@@ -71,6 +81,11 @@ void __const_udelay(unsigned long xloops)
 		: "a0", "a1"
 	);
 #elif defined(CONFIG_ISA_M32R2) || defined(CONFIG_ISA_M32R)
+	/*
+	 * u64 ull;
+	 * ull = (u64)xloops * (u64)current_cpu_data.loops_per_jiffy;
+	 * xloops = (ull >> 32);
+	 */
 	__asm__ __volatile__ (
 		"and3	r4, %0, #0xffff		\n\t"
 		"and3	r5, %1, #0xffff		\n\t"
@@ -100,12 +115,12 @@ void __const_udelay(unsigned long xloops)
 
 void __udelay(unsigned long usecs)
 {
-	__const_udelay(usecs * 0x000010c7);  
+	__const_udelay(usecs * 0x000010c7);  /* 2**32 / 1000000 (rounded up) */
 }
 
 void __ndelay(unsigned long nsecs)
 {
-	__const_udelay(nsecs * 0x00005);  
+	__const_udelay(nsecs * 0x00005);  /* 2**32 / 1000000000 (rounded up) */
 }
 
 EXPORT_SYMBOL(__delay);

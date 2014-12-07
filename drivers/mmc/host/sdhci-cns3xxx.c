@@ -40,6 +40,10 @@ static void sdhci_cns3xxx_set_clock(struct sdhci_host *host, unsigned int clock)
 		goto out;
 
 	while (host->max_clk / div > clock) {
+		/*
+		 * On CNS3xxx divider grows linearly up to 4, and then
+		 * exponentially up to 256.
+		 */
 		if (div < 4)
 			div += 1;
 		else if (div < 256)
@@ -51,7 +55,7 @@ static void sdhci_cns3xxx_set_clock(struct sdhci_host *host, unsigned int clock)
 	dev_dbg(dev, "desired SD clock: %d, actual: %d\n",
 		clock, host->max_clk / div);
 
-	
+	/* Divide by 3 is special. */
 	if (div != 3)
 		div >>= 1;
 

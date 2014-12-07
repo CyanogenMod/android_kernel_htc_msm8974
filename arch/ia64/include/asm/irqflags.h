@@ -23,6 +23,13 @@ static inline void arch_maybe_save_ip(unsigned long flags)
 #define arch_maybe_save_ip(flags) do {} while (0)
 #endif
 
+/*
+ * - clearing psr.i is implicitly serialized (visible by next insn)
+ * - setting psr.i requires data serialization
+ * - we need a stop-bit before reading PSR because we sometimes
+ *   write a floating-point register right before reading the PSR
+ *   and that writes to PSR.mfl
+ */
 
 static inline unsigned long arch_local_save_flags(void)
 {
@@ -82,8 +89,8 @@ static inline bool arch_irqs_disabled(void)
 
 static inline void arch_safe_halt(void)
 {
-	ia64_pal_halt_light();	
+	ia64_pal_halt_light();	/* PAL_HALT_LIGHT */
 }
 
 
-#endif 
+#endif /* _ASM_IA64_IRQFLAGS_H */

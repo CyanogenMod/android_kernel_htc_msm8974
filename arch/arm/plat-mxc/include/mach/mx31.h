@@ -1,7 +1,10 @@
 #ifndef __MACH_MX31_H__
 #define __MACH_MX31_H__
 
-#define MX31_IRAM_BASE_ADDR		0x1ffc0000	
+/*
+ * IRAM
+ */
+#define MX31_IRAM_BASE_ADDR		0x1ffc0000	/* internal ram */
 #define MX31_IRAM_SIZE			SZ_16K
 
 #define MX31_L2CC_BASE_ADDR		0x30000000
@@ -184,6 +187,6 @@
 #define MX31_DMA_REQ_SSI1_RX0	28
 #define MX31_DMA_REQ_SSI1_TX0	29
 
-#define MX31_PROD_SIGNATURE		0x1	
+#define MX31_PROD_SIGNATURE		0x1	/* For MX31 */
 
-#endif 
+#endif /* ifndef __MACH_MX31_H__ */

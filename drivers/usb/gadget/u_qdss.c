@@ -45,7 +45,7 @@ int send_sps_req(struct usb_ep *data_ep)
 		sps_params = MSM_SPS_MODE | MSM_DISABLE_WB | MSM_INTERNAL_MEM |
 			bam_info.usb_bam_pipe_idx;
 	} else {
-		
+		/* non DWC3 BAM requires req->length to be 0 */
 		req->length = 0;
 		sps_params = (MSM_SPS_MODE | bam_info.usb_bam_pipe_idx |
 				MSM_VENDOR_ID) & ~MSM_IS_FINITE_TRANSFER;
@@ -67,7 +67,7 @@ static int set_qdss_data_connection(struct usb_gadget *gadget,
 
 	pr_debug("set_qdss_data_connection\n");
 
-	
+	/* There is only one qdss pipe, so the pipe number can be set to 0 */
 	idx = usb_bam_get_connection_idx(gadget->name, QDSS_P_BAM,
 		PEER_PERIPHERAL_TO_USB, 0);
 	if (idx < 0) {

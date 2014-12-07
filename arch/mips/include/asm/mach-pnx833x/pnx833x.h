@@ -22,14 +22,18 @@
 #ifndef __ASM_MIPS_MACH_PNX833X_PNX833X_H
 #define __ASM_MIPS_MACH_PNX833X_PNX833X_H
 
+/* All regs are accessed in KSEG1 */
 #define PNX833X_BASE		(0xa0000000ul + 0x17E00000ul)
 
 #define PNX833X_REG(offs)	(*((volatile unsigned long *)(PNX833X_BASE + offs)))
 
+/* Registers are named exactly as in PNX833X docs, just with PNX833X_ prefix */
 
+/* Read access to multibit fields */
 #define PNX833X_BIT(val, reg, field)	((val) & PNX833X_##reg##_##field)
 #define PNX833X_REGBIT(reg, field)	PNX833X_BIT(PNX833X_##reg, reg, field)
 
+/* Use PNX833X_FIELD to extract a field from val */
 #define PNX_FIELD(cpu, val, reg, field) \
 		(((val) & PNX##cpu##_##reg##_##field##_MASK) >> \
 			PNX##cpu##_##reg##_##field##_SHIFT)
@@ -37,6 +41,7 @@
 #define PNX8330_FIELD(val, reg, field)	PNX_FIELD(8330, val, reg, field)
 #define PNX8335_FIELD(val, reg, field)	PNX_FIELD(8335, val, reg, field)
 
+/* Use PNX833X_REGFIELD to extract a field from a register */
 #define PNX833X_REGFIELD(reg, field)	PNX833X_FIELD(PNX833X_##reg, reg, field)
 #define PNX8330_REGFIELD(reg, field)	PNX8330_FIELD(PNX8330_##reg, reg, field)
 #define PNX8335_REGFIELD(reg, field)	PNX8335_FIELD(PNX8335_##reg, reg, field)
@@ -53,6 +58,7 @@
 					PNX_WRITEFIELD(8335, val, reg, field)
 
 
+/* Macros to detect CPU type */
 
 #define PNX833X_CONFIG_MODULE_ID		PNX833X_REG(0x7FFC)
 #define PNX833X_CONFIG_MODULE_ID_MAJREV_MASK	0x0000f000
@@ -72,13 +78,13 @@
 #define PNX833X_PIC_REG(offs)		PNX833X_REG(0x01000 + (offs))
 #define PNX833X_PIC_INT_PRIORITY	PNX833X_PIC_REG(0x0)
 #define PNX833X_PIC_INT_SRC		PNX833X_PIC_REG(0x4)
-#define PNX833X_PIC_INT_SRC_INT_SRC_MASK	0x00000FF8ul	
+#define PNX833X_PIC_INT_SRC_INT_SRC_MASK	0x00000FF8ul	/* bits 11:3 */
 #define PNX833X_PIC_INT_SRC_INT_SRC_SHIFT	3
 #define PNX833X_PIC_INT_REG(irq)	PNX833X_PIC_REG(0x10 + 4*(irq))
 
 #define PNX833X_CLOCK_CPUCP_CTL	PNX833X_REG(0x9228)
-#define PNX833X_CLOCK_CPUCP_CTL_EXIT_RESET	0x00000002ul	
-#define PNX833X_CLOCK_CPUCP_CTL_DIV_CLOCK_MASK	0x00000018ul	
+#define PNX833X_CLOCK_CPUCP_CTL_EXIT_RESET	0x00000002ul	/* bit 1 */
+#define PNX833X_CLOCK_CPUCP_CTL_DIV_CLOCK_MASK	0x00000018ul	/* bits 4:3 */
 #define PNX833X_CLOCK_CPUCP_CTL_DIV_CLOCK_SHIFT	3
 
 #define PNX8335_CLOCK_PLL_CPU_CTL		PNX833X_REG(0x9020)
@@ -86,7 +92,7 @@
 #define PNX8335_CLOCK_PLL_CPU_CTL_FREQ_SHIFT	0
 
 #define PNX833X_CONFIG_MUX		PNX833X_REG(0x7004)
-#define PNX833X_CONFIG_MUX_IDE_MUX	0x00000080		
+#define PNX833X_CONFIG_MUX_IDE_MUX	0x00000080		/* bit 7 */
 
 #define PNX8330_CONFIG_POLYFUSE_7	PNX833X_REG(0x7040)
 #define PNX8330_CONFIG_POLYFUSE_7_BOOT_MODE_MASK	0x00180000
@@ -178,9 +184,11 @@
 #define PNX8335_IP3902_MODULE_ID_MODULE_ID_SHIFT	16
 #define PNX8335_IP3902_MODULE_ID_VALUE			0x3902
 
- 
+ /* I/O location(gets remapped)*/
 #define PNX8335_NAND_BASE	    0x18000000
+/* I/O location with CLE high */
 #define PNX8335_NAND_CLE_MASK	0x00100000
+/* I/O location with ALE high */
 #define PNX8335_NAND_ALE_MASK	0x00010000
 
 #define PNX8335_SATA_PORTS_START	(PNX833X_BASE + 0x2E000)

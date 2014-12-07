@@ -18,4 +18,4 @@ asmlinkage extern void *memcpy(void *to, const void *from, size_t n);
 
 #define __HAVE_ARCH_MEMCPY
 
-#endif 
+#endif /* _ASM_C6X_STRING_H */

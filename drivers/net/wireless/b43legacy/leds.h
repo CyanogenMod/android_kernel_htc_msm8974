@@ -13,17 +13,20 @@ struct b43legacy_wldev;
 
 struct b43legacy_led {
 	struct b43legacy_wldev *dev;
-	
+	/* The LED class device */
 	struct led_classdev led_dev;
-	
+	/* The index number of the LED. */
 	u8 index;
+	/* If activelow is true, the LED is ON if the
+	 * bit is switched off. */
 	bool activelow;
-	
+	/* The unique name string for this LED device. */
 	char name[B43legacy_LED_MAX_NAME_LEN + 1];
 };
 
 #define B43legacy_LED_BEHAVIOUR		0x7F
 #define B43legacy_LED_ACTIVELOW		0x80
+/* LED behaviour values */
 enum b43legacy_led_behaviour {
 	B43legacy_LED_OFF,
 	B43legacy_LED_ON,
@@ -42,10 +45,11 @@ enum b43legacy_led_behaviour {
 void b43legacy_leds_init(struct b43legacy_wldev *dev);
 void b43legacy_leds_exit(struct b43legacy_wldev *dev);
 
-#else 
+#else /* CONFIG_B43LEGACY_LEDS */
+/* LED support disabled */
 
 struct b43legacy_led {
-	
+	/* empty */
 };
 
 static inline void b43legacy_leds_init(struct b43legacy_wldev *dev)
@@ -54,6 +58,6 @@ static inline void b43legacy_leds_init(struct b43legacy_wldev *dev)
 static inline void b43legacy_leds_exit(struct b43legacy_wldev *dev)
 {
 }
-#endif 
+#endif /* CONFIG_B43LEGACY_LEDS */
 
-#endif 
+#endif /* B43legacy_LEDS_H_ */

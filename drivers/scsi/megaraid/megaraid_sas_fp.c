@@ -60,6 +60,7 @@
 #define FALSE 0
 #define TRUE 1
 
+/* Prototypes */
 void
 mr_update_load_balance_params(struct MR_FW_RAID_MAP_ALL *map,
 			      struct LD_LOAD_BALANCE_INFO *lbInfo);
@@ -76,6 +77,12 @@ u32 mega_mod64(u64 dividend, u32 divisor)
 	return remainder;
 }
 
+/**
+ * @param dividend    : Dividend
+ * @param divisor    : Divisor
+ *
+ * @return quotient
+ **/
 u64 mega_div64_32(uint64_t dividend, uint32_t divisor)
 {
 	u32 remainder;
@@ -138,6 +145,9 @@ static struct MR_LD_SPAN *MR_LdSpanPtrGet(u32 ld, u32 span,
 	return &map->raidMap.ldSpanMap[ld].spanBlock[span].span;
 }
 
+/*
+ * This function will validate Map info data provided by FW
+ */
 u8 MR_ValidateMapInfo(struct MR_FW_RAID_MAP_ALL *map,
 		      struct LD_LOAD_BALANCE_INFO *lbInfo)
 {
@@ -200,6 +210,23 @@ u32 MR_GetSpanBlock(u32 ld, u64 row, u64 *span_blk,
 	return span;
 }
 
+/*
+******************************************************************************
+*
+* This routine calculates the arm, span and block for the specified stripe and
+* reference in stripe.
+*
+* Inputs :
+*
+*    ld   - Logical drive number
+*    stripRow        - Stripe number
+*    stripRef    - Reference in stripe
+*
+* Outputs :
+*
+*    span          - Span number
+*    block         - Absolute Block number in the physical disk
+*/
 u8 MR_GetPhyParams(struct megasas_instance *instance, u32 ld, u64 stripRow,
 		   u16 stripRef, u64 *pdBlock, u16 *pDevHandle,
 		   struct RAID_CONTEXT *pRAID_Context,
@@ -215,17 +242,17 @@ u8 MR_GetPhyParams(struct megasas_instance *instance, u32 ld, u64 stripRow,
 	row =  mega_div64_32(stripRow, raid->rowDataSize);
 
 	if (raid->level == 6) {
-		
+		/* logical arm within row */
 		u32 logArm =  mega_mod64(stripRow, raid->rowDataSize);
 		u32 rowMod, armQ, arm;
 
 		if (raid->rowSize == 0)
 			return FALSE;
-		
+		/* get logical row mod */
 		rowMod = mega_mod64(row, raid->rowSize);
-		armQ = raid->rowSize-1-rowMod; 
-		arm = armQ+1+logArm; 
-		if (arm >= raid->rowSize) 
+		armQ = raid->rowSize-1-rowMod; /* index of Q drive */
+		arm = armQ+1+logArm; /* data always logically follows Q */
+		if (arm >= raid->rowSize) /* handle wrap condition */
 			arm -= raid->rowSize;
 		physArm = (u8)arm;
 	} else  {
@@ -245,25 +272,25 @@ u8 MR_GetPhyParams(struct megasas_instance *instance, u32 ld, u64 stripRow,
 			return FALSE;
 	}
 
-	
+	/* Get the array on which this span is present */
 	arRef       = MR_LdSpanArrayGet(ld, span, map);
-	pd          = MR_ArPdGet(arRef, physArm, map); 
+	pd          = MR_ArPdGet(arRef, physArm, map); /* Get the pd */
 
 	if (pd != MR_PD_INVALID)
-		
+		/* Get dev handle from Pd. */
 		*pDevHandle = MR_PdDevHandleGet(pd, map);
 	else {
-		*pDevHandle = MR_PD_INVALID; 
+		*pDevHandle = MR_PD_INVALID; /* set dev handle as invalid. */
 		if ((raid->level >= 5) &&
 		    ((instance->pdev->device != PCI_DEVICE_ID_LSI_INVADER) ||
 		     (instance->pdev->device == PCI_DEVICE_ID_LSI_INVADER &&
 		      raid->regTypeReqOnRead != REGION_TYPE_UNUSED)))
 			pRAID_Context->regLockFlags = REGION_TYPE_EXCLUSIVE;
 		else if (raid->level == 1) {
-			
+			/* Get alternate Pd. */
 			pd = MR_ArPdGet(arRef, physArm + 1, map);
 			if (pd != MR_PD_INVALID)
-				
+				/* Get dev handle from Pd */
 				*pDevHandle = MR_PdDevHandleGet(pd, map);
 		}
 	}
@@ -274,6 +301,15 @@ u8 MR_GetPhyParams(struct megasas_instance *instance, u32 ld, u64 stripRow,
 	return retval;
 }
 
+/*
+******************************************************************************
+*
+* MR_BuildRaidContext function
+*
+* This function will initiate command processing.  The start/end row and strip
+* information is calculated then the lock is acquired.
+* This function will return 0 if region lock was acquired OR return num strips
+*/
 u8
 MR_BuildRaidContext(struct megasas_instance *instance,
 		    struct IO_REQUEST_INFO *io_info,
@@ -302,24 +338,33 @@ MR_BuildRaidContext(struct megasas_instance *instance,
 
 	stripSize = 1 << raid->stripeShift;
 	stripe_mask = stripSize-1;
+	/*
+	 * calculate starting row and stripe, and number of strips and rows
+	 */
 	start_strip         = ldStartBlock >> raid->stripeShift;
 	ref_in_start_stripe = (u16)(ldStartBlock & stripe_mask);
 	endLba              = ldStartBlock + numBlocks - 1;
 	ref_in_end_stripe   = (u16)(endLba & stripe_mask);
 	endStrip            = endLba >> raid->stripeShift;
-	num_strips          = (u8)(endStrip - start_strip + 1); 
+	num_strips          = (u8)(endStrip - start_strip + 1); /* End strip */
 	if (raid->rowDataSize == 0)
 		return FALSE;
 	start_row           =  mega_div64_32(start_strip, raid->rowDataSize);
 	endRow              =  mega_div64_32(endStrip, raid->rowDataSize);
 	numRows             = (u8)(endRow - start_row + 1);
 
+	/*
+	 * calculate region info.
+	 */
 
-	
+	/* assume region is at the start of the first row */
 	regStart            = start_row << raid->stripeShift;
-	
+	/* assume this IO needs the full row - we'll adjust if not true */
 	regSize             = stripSize;
 
+	/* If IO spans more than 1 strip, fp is not possible
+	   FP is not possible for writes on non-0 raid levels
+	   FP is not possible if LD is not capable */
 	if (num_strips > 1 || (!isRead && raid->level != 0) ||
 	    !raid->capability.fpCapable) {
 		io_info->fpOkForIo = FALSE;
@@ -328,24 +373,26 @@ MR_BuildRaidContext(struct megasas_instance *instance,
 	}
 
 	if (numRows == 1) {
-		
+		/* single-strip IOs can always lock only the data needed */
 		if (num_strips == 1) {
 			regStart += ref_in_start_stripe;
 			regSize = numBlocks;
 		}
-		
+		/* multi-strip IOs always need to full stripe locked */
 	} else {
 		if (start_strip == (start_row + 1) * raid->rowDataSize - 1) {
-			
+			/* If the start strip is the last in the start row */
 			regStart += ref_in_start_stripe;
 			regSize = stripSize - ref_in_start_stripe;
+			/* initialize count to sectors from startref to end
+			   of strip */
 		}
 
 		if (numRows > 2)
-			
+			/* Add complete rows in the middle of the transfer */
 			regSize += (numRows-2) << raid->stripeShift;
 
-		
+		/* if IO ends within first strip of last row */
 		if (endStrip == endRow*raid->rowDataSize)
 			regSize += ref_in_end_stripe+1;
 		else
@@ -364,13 +411,15 @@ MR_BuildRaidContext(struct megasas_instance *instance,
 	pRAID_Context->regLockLength    = regSize;
 	pRAID_Context->configSeqNum	= raid->seqNum;
 
+	/*Get Phy Params only if FP capable, or else leave it to MR firmware
+	  to do the calculation.*/
 	if (io_info->fpOkForIo) {
 		retval = MR_GetPhyParams(instance, ld, start_strip,
 					 ref_in_start_stripe,
 					 &io_info->pdBlock,
 					 &io_info->devHandle, pRAID_Context,
 					 map);
-		
+		/* If IO on an invalid Pd, then FP i snot possible */
 		if (io_info->devHandle == MR_PD_INVALID)
 			io_info->fpOkForIo = FALSE;
 		return retval;
@@ -406,7 +455,7 @@ mr_update_load_balance_params(struct MR_FW_RAID_MAP_ALL *map,
 
 		raid = MR_LdRaidGet(ld, map);
 
-		
+		/* Two drive Optimal RAID 1 */
 		if ((raid->level == 1)  &&  (raid->rowSize == 2) &&
 		    (raid->spanDepth == 1) && raid->ldState ==
 		    MR_LD_STATE_OPTIMAL) {
@@ -414,18 +463,18 @@ mr_update_load_balance_params(struct MR_FW_RAID_MAP_ALL *map,
 
 			lbInfo[ldCount].loadBalanceFlag = 1;
 
-			
+			/* Get the array on which this span is present */
 			arRef = MR_LdSpanArrayGet(ld, 0, map);
 
-			
+			/* Get the Pd */
 			pd = MR_ArPdGet(arRef, 0, map);
-			
+			/* Get dev handle from Pd */
 			lbInfo[ldCount].raid1DevHandle[0] =
 				MR_PdDevHandleGet(pd, map);
-			
+			/* Get the Pd */
 			pd = MR_ArPdGet(arRef, 1, map);
 
-			
+			/* Get the dev handle from Pd */
 			lbInfo[ldCount].raid1DevHandle[1] =
 				MR_PdDevHandleGet(pd, map);
 		} else
@@ -440,11 +489,11 @@ u8 megasas_get_best_arm(struct LD_LOAD_BALANCE_INFO *lbInfo, u8 arm, u64 block,
 	u64     diff0, diff1;
 	u8      bestArm;
 
-	
+	/* get the pending cmds for the data and mirror arms */
 	pend0 = atomic_read(&lbInfo->scsi_pending_cmds[0]);
 	pend1 = atomic_read(&lbInfo->scsi_pending_cmds[1]);
 
-	
+	/* Determine the disk whose head is nearer to the req. block */
 	diff0 = ABS_DIFF(block, lbInfo->last_accessed_block[0]);
 	diff1 = ABS_DIFF(block, lbInfo->last_accessed_block[1]);
 	bestArm = (diff0 <= diff1 ? 0 : 1);
@@ -453,7 +502,7 @@ u8 megasas_get_best_arm(struct LD_LOAD_BALANCE_INFO *lbInfo, u8 arm, u64 block,
 	    (bestArm != arm && pend1 > pend0 + 16))
 		bestArm ^= 1;
 
-	
+	/* Update the last accessed block on the correct pd */
 	lbInfo->last_accessed_block[bestArm] = block + count - 1;
 
 	return bestArm;
@@ -467,7 +516,7 @@ u16 get_updated_dev_handle(struct LD_LOAD_BALANCE_INFO *lbInfo,
 
 	old_arm = lbInfo->raid1DevHandle[0] == io_info->devHandle ? 0 : 1;
 
-	
+	/* get best new arm */
 	arm  = megasas_get_best_arm(lbInfo, old_arm, io_info->ldStartBlock,
 				    io_info->numBlocks);
 	devHandle = lbInfo->raid1DevHandle[arm];

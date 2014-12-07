@@ -13,6 +13,7 @@
 
 static int qla24xx_vport_disable(struct fc_vport *, bool);
 
+/* SYSFS attributes --------------------------------------------------------- */
 
 static ssize_t
 qla2x00_sysfs_read_fw_dump(struct file *filp, struct kobject *kobj,
@@ -152,7 +153,7 @@ qla2x00_sysfs_write_nvram(struct file *filp, struct kobject *kobj,
 	    !ha->isp_ops->write_nvram)
 		return -EINVAL;
 
-	
+	/* Checksum NVRAM. */
 	if (IS_FWI2_CAPABLE(ha)) {
 		uint32_t *iter;
 		uint32_t chksum;
@@ -181,14 +182,14 @@ qla2x00_sysfs_write_nvram(struct file *filp, struct kobject *kobj,
 		return -EAGAIN;
 	}
 
-	
+	/* Write NVRAM. */
 	ha->isp_ops->write_nvram(vha, (uint8_t *)buf, ha->nvram_base, count);
 	ha->isp_ops->read_nvram(vha, (uint8_t *)ha->nvram, ha->nvram_base,
 	    count);
 
 	ql_dbg(ql_dbg_user, vha, 0x7060,
 	    "Setting ISP_ABORT_NEEDED\n");
-	
+	/* NVRAM settings take effect immediately. */
 	set_bit(ISP_ABORT_NEEDED, &vha->dpc_flags);
 	qla2xxx_wake_dpc(vha);
 	qla2x00_wait_for_chip_reset(vha);
@@ -329,6 +330,26 @@ qla2x00_sysfs_write_optrom_ctl(struct file *filp, struct kobject *kobj,
 		if (ha->optrom_state != QLA_SWAITING)
 			return -EINVAL;
 
+		/*
+		 * We need to be more restrictive on which FLASH regions are
+		 * allowed to be updated via user-space.  Regions accessible
+		 * via this method include:
+		 *
+		 * ISP21xx/ISP22xx/ISP23xx type boards:
+		 *
+		 * 	0x000000 -> 0x020000 -- Boot code.
+		 *
+		 * ISP2322/ISP24xx type boards:
+		 *
+		 * 	0x000000 -> 0x07ffff -- Boot code.
+		 * 	0x080000 -> 0x0fffff -- Firmware.
+		 *
+		 * ISP25xx type boards:
+		 *
+		 * 	0x000000 -> 0x07ffff -- Boot code.
+		 * 	0x080000 -> 0x0fffff -- Firmware.
+		 * 	0x120000 -> 0x12ffff -- VPD and HBA parameters.
+		 */
 		valid = 0;
 		if (ha->optrom_size == OPTROM_SIZE_2300 && start == 0)
 			valid = 1;
@@ -441,11 +462,11 @@ qla2x00_sysfs_write_vpd(struct file *filp, struct kobject *kobj,
 		return -EAGAIN;
 	}
 
-	
+	/* Write NVRAM. */
 	ha->isp_ops->write_nvram(vha, (uint8_t *)buf, ha->vpd_base, count);
 	ha->isp_ops->read_nvram(vha, (uint8_t *)ha->vpd, ha->vpd_base, count);
 
-	
+	/* Update flash version information for 4Gb & above. */
 	if (!IS_FWI2_CAPABLE(ha))
 		return -EINVAL;
 
@@ -502,7 +523,7 @@ do_read:
 	for (iter = 0, offset = 0; iter < (SFP_DEV_SIZE * 2) / SFP_BLOCK_SIZE;
 	    iter++, offset += SFP_BLOCK_SIZE) {
 		if (iter == 4) {
-			
+			/* Skip to next device address. */
 			addr = 0xa2;
 			offset = 0;
 		}
@@ -570,10 +591,10 @@ qla2x00_sysfs_write_reset(struct file *filp, struct kobject *kobj,
 		ql_log(ql_log_info, vha, 0x706f,
 		    "Issuing MPI reset.\n");
 
-		
+		/* Make sure FC side is not in reset */
 		qla2x00_wait_for_hba_online(vha);
 
-		
+		/* Issue MPI reset */
 		scsi_block_requests(vha->host);
 		if (qla81xx_restart_mpi_firmware(vha) != QLA_SUCCESS)
 			ql_log(ql_log_warn, vha, 0x7070,
@@ -777,6 +798,7 @@ qla2x00_free_sysfs_attr(scsi_qla_host_t *vha)
 		ha->isp_ops->beacon_off(vha);
 }
 
+/* Scsi_Host attributes. */
 
 static ssize_t
 qla2x00_drvr_version_show(struct device *dev,
@@ -940,7 +962,7 @@ qla2x00_zio_store(struct device *dev, struct device_attribute *attr,
 	else
 		zio_mode = QLA_ZIO_DISABLED;
 
-	
+	/* Update per-hba values and queue a reset. */
 	if (zio_mode != QLA_ZIO_DISABLED || ha->zio_mode != QLA_ZIO_DISABLED) {
 		ha->zio_mode = zio_mode;
 		set_bit(ISP_ABORT_NEEDED, &vha->dpc_flags);
@@ -1298,6 +1320,7 @@ struct device_attribute *qla2x00_host_attrs[] = {
 	NULL,
 };
 
+/* Host attributes. */
 
 static void
 qla2x00_get_host_port_id(struct Scsi_Host *shost)
@@ -1442,8 +1465,14 @@ qla2x00_dev_loss_tmo_callbk(struct fc_rport *rport)
 	if (!fcport)
 		return;
 
+	/* Now that the rport has been deleted, set the fcport state to
+	   FCS_DEVICE_DEAD */
 	qla2x00_set_fcport_state(fcport, FCS_DEVICE_DEAD);
 
+	/*
+	 * Transport has effectively 'deleted' the rport, clear
+	 * all local references.
+	 */
 	spin_lock_irqsave(host->host_lock, flags);
 	fcport->rport = fcport->drport = NULL;
 	*((fc_port_t **)rport->dd_data) = NULL;
@@ -1473,6 +1502,10 @@ qla2x00_terminate_rport_io(struct fc_rport *rport)
 		qla2x00_abort_all_cmds(fcport->vha, DID_NO_CONNECT << 16);
 		return;
 	}
+	/*
+	 * At this point all fcport's software-states are cleared.  Perform any
+	 * final cleanup of firmware resources (PCBs and XCBs).
+	 */
 	if (fcport->loop_id != FC_NO_LOOP_ID &&
 	    !test_bit(UNLOADING, &fcport->vha->dpc_flags)) {
 		if (IS_FWI2_CAPABLE(fcport->vha->hw))
@@ -1526,7 +1559,7 @@ qla2x00_get_fc_host_stats(struct Scsi_Host *shost)
 		rval = qla24xx_get_isp_stats(base_vha, stats, stats_dma);
 	} else if (atomic_read(&base_vha->loop_state) == LOOP_READY &&
 	    !qla2x00_reset_active(vha) && !ha->dpc_active) {
-		
+		/* Must be in a 'READY' state for statistics retrieval. */
 		rval = qla2x00_get_link_status(base_vha, base_vha->loop_id,
 						stats, stats_dma);
 	}
@@ -1649,18 +1682,18 @@ qla24xx_vport_create(struct fc_vport *fc_vport, bool disable)
 	} else
 		atomic_set(&vha->vp_state, VP_FAILED);
 
-	
+	/* ready to create vport */
 	ql_log(ql_log_info, vha, 0x7080,
 	    "VP entry id %d assigned.\n", vha->vp_idx);
 
-	
+	/* initialized vport states */
 	atomic_set(&vha->loop_state, LOOP_DOWN);
 	vha->vp_err_state=  VP_ERR_PORTDWN;
 	vha->vp_prev_err_state=  VP_ERR_UNKWN;
-	
+	/* Check if physical ha port is Up */
 	if (atomic_read(&base_vha->loop_state) == LOOP_DOWN ||
 	    atomic_read(&base_vha->loop_state) == LOOP_DEAD) {
-		
+		/* Don't retry or attempt login of this virtual port */
 		ql_dbg(ql_dbg_user, vha, 0x7081,
 		    "Vport loop state is not UP.\n");
 		atomic_set(&vha->loop_state, LOOP_DEAD);
@@ -1695,7 +1728,7 @@ qla24xx_vport_create(struct fc_vport *fc_vport, bool disable)
 		goto vport_create_failed_2;
 	}
 
-	
+	/* initialize attributes */
 	fc_host_dev_loss_tmo(vha->host) = ha->port_down_retry_count;
 	fc_host_node_name(vha->host) = wwn_to_u64(vha->node_name);
 	fc_host_port_name(vha->host) = wwn_to_u64(vha->port_name);
@@ -1715,7 +1748,7 @@ qla24xx_vport_create(struct fc_vport *fc_vport, bool disable)
 		goto vport_queue;
 	} else if (ql2xmaxqueues == 1 || !ha->npiv_info)
 		goto vport_queue;
-	
+	/* Create a request queue in QoS mode for the vport */
 	for (cnt = 0; cnt < ha->nvram_npiv_size; cnt++) {
 		if (memcmp(ha->npiv_info[cnt].port_name, vha->port_name, 8) == 0
 			&& memcmp(ha->npiv_info[cnt].node_name, vha->node_name,
@@ -1773,7 +1806,7 @@ qla24xx_vport_delete(struct fc_vport *fc_vport)
 
 	scsi_remove_host(vha->host);
 
-	
+	/* Allow timer to run to drain queued items, when removing vp */
 	qla24xx_deallocate_vp_id(vha);
 
 	if (vha->timer_active) {
@@ -1782,9 +1815,10 @@ qla24xx_vport_delete(struct fc_vport *fc_vport)
 		    "Timer for the VP[%d] has stopped\n", vha->vp_idx);
 	}
 
-	
+	/* No pending activities shall be there on the vha now */
 	if (ql2xextended_error_logging & ql_dbg_user)
-		msleep(random32()%10);  
+		msleep(random32()%10);  /* Just to see if something falls on
+					* the net we have placed below */
 
 	BUG_ON(atomic_read(&vha->vref_count));
 

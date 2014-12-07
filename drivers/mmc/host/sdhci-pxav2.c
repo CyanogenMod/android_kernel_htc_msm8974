@@ -32,9 +32,9 @@
 #include "sdhci-pltfm.h"
 
 #define SD_FIFO_PARAM		0xe0
-#define DIS_PAD_SD_CLK_GATE	0x0400 
-#define CLK_GATE_ON		0x0200 
-#define CLK_GATE_CTL		0x0100 
+#define DIS_PAD_SD_CLK_GATE	0x0400 /* Turn on/off Dynamic SD Clock Gating */
+#define CLK_GATE_ON		0x0200 /* Disable/enable Clock Gate */
+#define CLK_GATE_CTL		0x0100 /* Clock Gate Control */
 #define CLK_GATE_SETTING_BITS	(DIS_PAD_SD_CLK_GATE | \
 		CLK_GATE_ON | CLK_GATE_CTL)
 
@@ -56,6 +56,10 @@ static void pxav2_set_private_registers(struct sdhci_host *host, u8 mask)
 	if (mask == SDHCI_RESET_ALL) {
 		u16 tmp = 0;
 
+		/*
+		 * tune timing of read data/command when crc error happen
+		 * no performance impact
+		 */
 		if (pdata && pdata->clk_delay_sel == 1) {
 			tmp = readw(host->ioaddr + SD_CLOCK_BURST_SIZE_SETUP);
 
@@ -154,12 +158,12 @@ static int __devinit sdhci_pxav2_probe(struct platform_device *pdev)
 
 	if (pdata) {
 		if (pdata->flags & PXA_FLAG_CARD_PERMANENT) {
-			
+			/* on-chip device */
 			host->quirks |= SDHCI_QUIRK_BROKEN_CARD_DETECTION;
 			host->mmc->caps |= MMC_CAP_NONREMOVABLE;
 		}
 
-		
+		/* If slot design supports 8 bit data, indicate this to MMC. */
 		if (pdata->flags & PXA_FLAG_SD_8_BIT_CAPABLE_SLOT)
 			host->mmc->caps |= MMC_CAP_8_BIT_DATA;
 

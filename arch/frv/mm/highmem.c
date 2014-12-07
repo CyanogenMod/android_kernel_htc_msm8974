@@ -47,6 +47,9 @@ void *kmap_atomic(struct page *page)
 	paddr = page_to_phys(page);
 
 	switch (type) {
+	/*
+	 * The first 4 primary maps are reserved for architecture code
+	 */
 	case 0:		return __kmap_atomic_primary(4, paddr, 6);
 	case 1:		return __kmap_atomic_primary(5, paddr, 7);
 	case 2:		return __kmap_atomic_primary(6, paddr, 8);

@@ -13,9 +13,12 @@
 #ifndef __ASM_ARCH_IDLE_H
 #define __ASM_ARCH_IDLE_H __FILE__
 
+/* This allows the over-ride of the default idle code, in case there
+ * is any other things to be done over idle (like DVS)
+*/
 
 extern void (*s3c24xx_idle)(void);
 
 extern void s3c24xx_default_idle(void);
 
-#endif 
+#endif /* __ASM_ARCH_IDLE_H */

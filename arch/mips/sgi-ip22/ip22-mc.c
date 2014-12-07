@@ -45,6 +45,9 @@ struct mem {
 	unsigned long size;
 };
 
+/*
+ * Detect installed memory, do some sanity checks and notify kernel about it
+ */
 static void __init probe_memory(void)
 {
 	int i, j, found, cnt = 0;
@@ -64,7 +67,7 @@ static void __init probe_memory(void)
 		cnt++;
 	}
 
-	
+	/* And you thought bubble sort is dead algorithm... */
 	do {
 		unsigned long addr, size;
 
@@ -81,7 +84,7 @@ static void __init probe_memory(void)
 			}
 	} while (found);
 
-	
+	/* Figure out how are memory banks mapped into spaces */
 	for (i = 0; i < cnt; i++) {
 		found = 0;
 		for (j = 0; j < ARRAY_SIZE(space) && !found; j++)
@@ -89,7 +92,7 @@ static void __init probe_memory(void)
 				space[j].size += bank[i].size;
 				found = 1;
 			}
-		
+		/* There is either hole or overlapping memory */
 		if (!found)
 			printk(KERN_CRIT "MC: Memory configuration mismatch "
 					 "(%08lx), expect Bus Error soon\n",
@@ -106,21 +109,36 @@ void __init sgimc_init(void)
 {
 	u32 tmp;
 
-	
+	/* ioremap can't fail */
 	sgimc = (struct sgimc_regs *)
 		ioremap(SGIMC_BASE, sizeof(struct sgimc_regs));
 
 	printk(KERN_INFO "MC: SGI memory controller Revision %d\n",
 	       (int) sgimc->systemid & SGIMC_SYSID_MASKREV);
 
+	/* Place the MC into a known state.  This must be done before
+	 * interrupts are first enabled etc.
+	 */
 
+	/* Step 0: Make sure we turn off the watchdog in case it's
+	 *         still running (which might be the case after a
+	 *         soft reboot).
+	 */
 	tmp = sgimc->cpuctrl0;
 	tmp &= ~SGIMC_CCTRL0_WDOG;
 	sgimc->cpuctrl0 = tmp;
 
+	/* Step 1: The CPU/GIO error status registers will not latch
+	 *         up a new error status until the register has been
+	 *         cleared by the cpu.  These status registers are
+	 *         cleared by writing any value to them.
+	 */
 	sgimc->cstat = sgimc->gstat = 0;
 
-	
+	/* Step 2: Enable all parity checking in cpu control register
+	 *         zero.
+	 */
+	/* don't touch parity settings for IP28 */
 	tmp = sgimc->cpuctrl0;
 #ifndef CONFIG_SGI_IP28
 	tmp |= SGIMC_CCTRL0_EPERRGIO | SGIMC_CCTRL0_EPERRMEM;
@@ -128,38 +146,61 @@ void __init sgimc_init(void)
 	tmp |= SGIMC_CCTRL0_R4KNOCHKPARR;
 	sgimc->cpuctrl0 = tmp;
 
+	/* Step 3: Setup the MC write buffer depth, this is controlled
+	 *         in cpu control register 1 in the lower 4 bits.
+	 */
 	tmp = sgimc->cpuctrl1;
 	tmp &= ~0xf;
 	tmp |= 0xd;
 	sgimc->cpuctrl1 = tmp;
 
+	/* Step 4: Initialize the RPSS divider register to run as fast
+	 *         as it can correctly operate.  The register is laid
+	 *         out as follows:
+	 *
+	 *         ----------------------------------------
+	 *         |  RESERVED  |   INCREMENT   | DIVIDER |
+	 *         ----------------------------------------
+	 *          31        16 15            8 7       0
+	 *
+	 *         DIVIDER determines how often a 'tick' happens,
+	 *         INCREMENT determines by how the RPSS increment
+	 *         registers value increases at each 'tick'. Thus,
+	 *         for IP22 we get INCREMENT=1, DIVIDER=1 == 0x101
+	 */
 	sgimc->divider = 0x101;
 
+	/* Step 5: Initialize GIO64 arbitrator configuration register.
+	 *
+	 * NOTE: HPC init code in sgihpc_init() must run before us because
+	 *       we need to know Guiness vs. FullHouse and the board
+	 *       revision on this machine. You have been warned.
+	 */
 
-	
-	tmp = sgimc->giopar & SGIMC_GIOPAR_GFX64; 
-	tmp |= SGIMC_GIOPAR_HPC64;	
-	tmp |= SGIMC_GIOPAR_ONEBUS;	
+	/* First the basic invariants across all GIO64 implementations. */
+	tmp = sgimc->giopar & SGIMC_GIOPAR_GFX64; /* keep gfx 64bit settings */
+	tmp |= SGIMC_GIOPAR_HPC64;	/* All 1st HPC's interface at 64bits */
+	tmp |= SGIMC_GIOPAR_ONEBUS;	/* Only one physical GIO bus exists */
 
 	if (ip22_is_fullhouse()) {
-		
+		/* Fullhouse specific settings. */
 		if (SGIOC_SYSID_BOARDREV(sgioc->sysid) < 2) {
-			tmp |= SGIMC_GIOPAR_HPC264;	
-			tmp |= SGIMC_GIOPAR_PLINEEXP0;	
-			tmp |= SGIMC_GIOPAR_MASTEREXP1;	
-			tmp |= SGIMC_GIOPAR_RTIMEEXP0;	
+			tmp |= SGIMC_GIOPAR_HPC264;	/* 2nd HPC at 64bits */
+			tmp |= SGIMC_GIOPAR_PLINEEXP0;	/* exp0 pipelines */
+			tmp |= SGIMC_GIOPAR_MASTEREXP1;	/* exp1 masters */
+			tmp |= SGIMC_GIOPAR_RTIMEEXP0;	/* exp0 is realtime */
 		} else {
-			tmp |= SGIMC_GIOPAR_HPC264;	
-			tmp |= SGIMC_GIOPAR_PLINEEXP0;	
+			tmp |= SGIMC_GIOPAR_HPC264;	/* 2nd HPC 64bits */
+			tmp |= SGIMC_GIOPAR_PLINEEXP0;	/* exp[01] pipelined */
 			tmp |= SGIMC_GIOPAR_PLINEEXP1;
-			tmp |= SGIMC_GIOPAR_MASTEREISA;	
+			tmp |= SGIMC_GIOPAR_MASTEREISA;	/* EISA masters */
 		}
 	} else {
-		
-		tmp |= SGIMC_GIOPAR_EISA64;	
-		tmp |= SGIMC_GIOPAR_MASTEREISA;	
+		/* Guiness specific settings. */
+		tmp |= SGIMC_GIOPAR_EISA64;	/* MC talks to EISA at 64bits */
+		tmp |= SGIMC_GIOPAR_MASTEREISA;	/* EISA bus can act as master */
 	}
-	sgimc->giopar = tmp;	
+	sgimc->giopar = tmp;	/* poof */
 
 	probe_memory();
 }
@@ -172,18 +213,23 @@ void __init prom_free_prom_memory(void)
 	unsigned long flags;
 	spinlock_t lock;
 
+	/*
+	 * because ARCS accesses memory uncached we wait until ARCS
+	 * isn't needed any longer, before we switch from slow to
+	 * normal mode
+	 */
 	spin_lock_irqsave(&lock, flags);
 	mconfig1 = sgimc->mconfig1;
-	
+	/* map ECC register */
 	sgimc->mconfig1 = (mconfig1 & 0xffff0000) | 0x2060;
 	iob();
-	
+	/* switch to normal mode */
 	*(unsigned long *)PHYS_TO_XKSEG_UNCACHED(0x60000000) = 0;
 	iob();
-	
+	/* reduce WR_COL */
 	sgimc->cmacc = (sgimc->cmacc & ~0xf) | 4;
 	iob();
-	
+	/* restore old config */
 	sgimc->mconfig1 = mconfig1;
 	iob();
 	spin_unlock_irqrestore(&lock, flags);

@@ -47,12 +47,12 @@ void imx_src_prepare_restart(void)
 {
 	u32 val;
 
-	
+	/* clear enable bits of secondary cores */
 	val = readl_relaxed(src_base + SRC_SCR);
 	val &= ~(0x7 << BP_SRC_SCR_CORE1_ENABLE);
 	writel_relaxed(val, src_base + SRC_SCR);
 
-	
+	/* clear persistent entry register of primary core */
 	writel_relaxed(0, src_base + SRC_GPR1);
 }
 
@@ -65,6 +65,10 @@ void __init imx_src_init(void)
 	src_base = of_iomap(np, 0);
 	WARN_ON(!src_base);
 
+	/*
+	 * force warm reset sources to generate cold reset
+	 * for a more reliable restart
+	 */
 	val = readl_relaxed(src_base + SRC_SCR);
 	val &= ~(1 << BP_SRC_SCR_WARM_RESET_ENABLE);
 	writel_relaxed(val, src_base + SRC_SCR);

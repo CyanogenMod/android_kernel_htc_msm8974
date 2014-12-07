@@ -28,35 +28,46 @@
 
 #include "compat.h"
 
+/*
+ * Usage:
+ *  - do not go blindly adding fields, add them at the end
+ *  - when adding fields, don't rely on the address until
+ *    a patch from me has been released
+ *  - unused fields should be zero (for future expansion)
+ *  - this structure is relatively short-lived - only
+ *    guaranteed to contain useful data in setup_arch()
+ *
+ * This is the old deprecated way to pass parameters to the kernel
+ */
 struct param_struct {
     union {
 	struct {
-	    unsigned long page_size;		
-	    unsigned long nr_pages;		
-	    unsigned long ramdisk_size;		
-	    unsigned long flags;		
+	    unsigned long page_size;		/*  0 */
+	    unsigned long nr_pages;		/*  4 */
+	    unsigned long ramdisk_size;		/*  8 */
+	    unsigned long flags;		/* 12 */
 #define FLAG_READONLY	1
 #define FLAG_RDLOAD	4
 #define FLAG_RDPROMPT	8
-	    unsigned long rootdev;		
-	    unsigned long video_num_cols;	
-	    unsigned long video_num_rows;	
-	    unsigned long video_x;		
-	    unsigned long video_y;		
-	    unsigned long memc_control_reg;	
-	    unsigned char sounddefault;		
-	    unsigned char adfsdrives;		
-	    unsigned char bytes_per_char_h;	
-	    unsigned char bytes_per_char_v;	
-	    unsigned long pages_in_bank[4];	
-	    unsigned long pages_in_vram;	
-	    unsigned long initrd_start;		
-	    unsigned long initrd_size;		
-	    unsigned long rd_start;		
-	    unsigned long system_rev;		
-	    unsigned long system_serial_low;	
-	    unsigned long system_serial_high;	
-	    unsigned long mem_fclk_21285;       
+	    unsigned long rootdev;		/* 16 */
+	    unsigned long video_num_cols;	/* 20 */
+	    unsigned long video_num_rows;	/* 24 */
+	    unsigned long video_x;		/* 28 */
+	    unsigned long video_y;		/* 32 */
+	    unsigned long memc_control_reg;	/* 36 */
+	    unsigned char sounddefault;		/* 40 */
+	    unsigned char adfsdrives;		/* 41 */
+	    unsigned char bytes_per_char_h;	/* 42 */
+	    unsigned char bytes_per_char_v;	/* 43 */
+	    unsigned long pages_in_bank[4];	/* 44 */
+	    unsigned long pages_in_vram;	/* 60 */
+	    unsigned long initrd_start;		/* 64 */
+	    unsigned long initrd_size;		/* 68 */
+	    unsigned long rd_start;		/* 72 */
+	    unsigned long system_rev;		/* 76 */
+	    unsigned long system_serial_low;	/* 80 */
+	    unsigned long system_serial_high;	/* 84 */
+	    unsigned long mem_fclk_21285;       /* 88 */
 	} s;
 	char unused[256];
     } u1;
@@ -101,7 +112,7 @@ static void __init build_tag_list(struct param_struct *params, void *taglist)
 		printk(KERN_WARNING "Warning: bad NeTTrom parameters "
 		       "detected, using defaults\n");
 
-		params->u1.s.nr_pages = 0x1000;	
+		params->u1.s.nr_pages = 0x1000;	/* 16MB */
 		params->u1.s.ramdisk_size = 0;
 		params->u1.s.flags = FLAG_READONLY;
 		params->u1.s.initrd_start = 0;

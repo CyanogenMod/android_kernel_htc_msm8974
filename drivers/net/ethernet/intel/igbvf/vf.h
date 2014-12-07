@@ -49,64 +49,75 @@ struct e1000_hw;
 #define E1000_FUNC_0     0
 #define E1000_FUNC_1     1
 
+/*
+ * Receive Address Register Count
+ * Number of high/low register pairs in the RAR.  The RAR (Receive Address
+ * Registers) holds the directed and multicast addresses that we monitor.
+ * These entries are also used for MAC-based filtering.
+ */
 #define E1000_RAR_ENTRIES_VF      1
 
+/* Receive Descriptor - Advanced */
 union e1000_adv_rx_desc {
 	struct {
-		u64 pkt_addr;             
-		u64 hdr_addr;             
+		u64 pkt_addr;             /* Packet buffer address */
+		u64 hdr_addr;             /* Header buffer address */
 	} read;
 	struct {
 		struct {
 			union {
 				u32 data;
 				struct {
-					u16 pkt_info; 
-					u16 hdr_info; 
+					u16 pkt_info; /* RSS/Packet type */
+					u16 hdr_info; /* Split Header,
+					               * hdr buffer length */
 				} hs_rss;
 			} lo_dword;
 			union {
-				u32 rss;          
+				u32 rss;          /* RSS Hash */
 				struct {
-					u16 ip_id;    
-					u16 csum;     
+					u16 ip_id;    /* IP id */
+					u16 csum;     /* Packet Checksum */
 				} csum_ip;
 			} hi_dword;
 		} lower;
 		struct {
-			u32 status_error;     
-			u16 length;           
-			u16 vlan;             
+			u32 status_error;     /* ext status/error */
+			u16 length;           /* Packet length */
+			u16 vlan;             /* VLAN tag */
 		} upper;
-	} wb;  
+	} wb;  /* writeback */
 };
 
 #define E1000_RXDADV_HDRBUFLEN_MASK      0x7FE0
 #define E1000_RXDADV_HDRBUFLEN_SHIFT     5
 
+/* Transmit Descriptor - Advanced */
 union e1000_adv_tx_desc {
 	struct {
-		u64 buffer_addr;    
+		u64 buffer_addr;    /* Address of descriptor's data buf */
 		u32 cmd_type_len;
 		u32 olinfo_status;
 	} read;
 	struct {
-		u64 rsvd;       
+		u64 rsvd;       /* Reserved */
 		u32 nxtseq_seed;
 		u32 status;
 	} wb;
 };
 
-#define E1000_ADVTXD_DTYP_CTXT    0x00200000 
-#define E1000_ADVTXD_DTYP_DATA    0x00300000 
-#define E1000_ADVTXD_DCMD_EOP     0x01000000 
-#define E1000_ADVTXD_DCMD_IFCS    0x02000000 
-#define E1000_ADVTXD_DCMD_RS      0x08000000 
-#define E1000_ADVTXD_DCMD_DEXT    0x20000000 
-#define E1000_ADVTXD_DCMD_VLE     0x40000000 
-#define E1000_ADVTXD_DCMD_TSE     0x80000000 
-#define E1000_ADVTXD_PAYLEN_SHIFT    14 
+/* Adv Transmit Descriptor Config Masks */
+#define E1000_ADVTXD_DTYP_CTXT    0x00200000 /* Advanced Context Descriptor */
+#define E1000_ADVTXD_DTYP_DATA    0x00300000 /* Advanced Data Descriptor */
+#define E1000_ADVTXD_DCMD_EOP     0x01000000 /* End of Packet */
+#define E1000_ADVTXD_DCMD_IFCS    0x02000000 /* Insert FCS (Ethernet CRC) */
+#define E1000_ADVTXD_DCMD_RS      0x08000000 /* Report Status */
+#define E1000_ADVTXD_DCMD_DEXT    0x20000000 /* Descriptor extension (1=Adv) */
+#define E1000_ADVTXD_DCMD_VLE     0x40000000 /* VLAN pkt enable */
+#define E1000_ADVTXD_DCMD_TSE     0x80000000 /* TCP Seg enable */
+#define E1000_ADVTXD_PAYLEN_SHIFT    14 /* Adv desc PAYLEN shift */
 
+/* Context descriptors */
 struct e1000_adv_tx_context_desc {
 	u32 vlan_macip_lens;
 	u32 seqnum_seed;
@@ -114,17 +125,17 @@ struct e1000_adv_tx_context_desc {
 	u32 mss_l4len_idx;
 };
 
-#define E1000_ADVTXD_MACLEN_SHIFT    9  
-#define E1000_ADVTXD_TUCMD_IPV4    0x00000400  
-#define E1000_ADVTXD_TUCMD_L4T_TCP 0x00000800  
-#define E1000_ADVTXD_L4LEN_SHIFT     8  
-#define E1000_ADVTXD_MSS_SHIFT      16  
+#define E1000_ADVTXD_MACLEN_SHIFT    9  /* Adv ctxt desc mac len shift */
+#define E1000_ADVTXD_TUCMD_IPV4    0x00000400  /* IP Packet Type: 1=IPv4 */
+#define E1000_ADVTXD_TUCMD_L4T_TCP 0x00000800  /* L4 Packet TYPE of TCP */
+#define E1000_ADVTXD_L4LEN_SHIFT     8  /* Adv ctxt L4LEN shift */
+#define E1000_ADVTXD_MSS_SHIFT      16  /* Adv ctxt MSS shift */
 
 enum e1000_mac_type {
 	e1000_undefined = 0,
 	e1000_vfadapt,
 	e1000_vfadapt_i350,
-	e1000_num_macs  
+	e1000_num_macs  /* List is 1-based, so subtract 1 for true count. */
 };
 
 struct e1000_vf_stats {
@@ -162,7 +173,7 @@ struct e1000_vf_stats {
 #include "mbx.h"
 
 struct e1000_mac_operations {
-	
+	/* Function pointers for the MAC. */
 	s32  (*init_params)(struct e1000_hw *);
 	s32  (*check_for_link)(struct e1000_hw *);
 	void (*clear_vfta)(struct e1000_hw *);
@@ -247,8 +258,9 @@ struct e1000_hw {
 	u8  revision_id;
 };
 
+/* These functions must be implemented by drivers */
 void e1000_rlpml_set_vf(struct e1000_hw *, u16);
 void e1000_init_function_pointers_vf(struct e1000_hw *hw);
 
 
-#endif 
+#endif /* _E1000_VF_H_ */

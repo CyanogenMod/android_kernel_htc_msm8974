@@ -1,3 +1,4 @@
+/* sbuslib.h: SBUS fb helper library interfaces */
 #ifndef _SBUSLIB_H
 #define _SBUSLIB_H
 
@@ -23,4 +24,4 @@ int sbusfb_ioctl_helper(unsigned long cmd, unsigned long arg,
 int sbusfb_compat_ioctl(struct fb_info *info, unsigned int cmd,
 			unsigned long arg);
 
-#endif 
+#endif /* _SBUSLIB_H */

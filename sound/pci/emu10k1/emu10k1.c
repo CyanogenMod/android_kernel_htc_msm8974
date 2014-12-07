@@ -42,16 +42,16 @@ MODULE_SUPPORTED_DEVICE("{{Creative Labs,SB Live!/PCI512/E-mu APS},"
 #include <sound/emu10k1_synth.h>
 #endif
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
 static int extin[SNDRV_CARDS];
 static int extout[SNDRV_CARDS];
 static int seq_ports[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 4};
 static int max_synth_voices[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 64};
 static int max_buffer_size[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 128};
 static bool enable_ir[SNDRV_CARDS];
-static uint subsystem[SNDRV_CARDS]; 
+static uint subsystem[SNDRV_CARDS]; /* Force card subsystem model */
 static uint delay_pcm_irq[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 2};
 
 module_param_array(index, int, NULL, 0444);
@@ -76,13 +76,26 @@ module_param_array(subsystem, uint, NULL, 0444);
 MODULE_PARM_DESC(subsystem, "Force card subsystem model.");
 module_param_array(delay_pcm_irq, uint, NULL, 0444);
 MODULE_PARM_DESC(delay_pcm_irq, "Delay PCM interrupt by specified number of samples (default 0).");
+/*
+ * Class 0401: 1102:0008 (rev 00) Subsystem: 1102:1001 -> Audigy2 Value  Model:SB0400
+ */
 static DEFINE_PCI_DEVICE_TABLE(snd_emu10k1_ids) = {
-	{ PCI_VDEVICE(CREATIVE, 0x0002), 0 },	
-	{ PCI_VDEVICE(CREATIVE, 0x0004), 1 },	
-	{ PCI_VDEVICE(CREATIVE, 0x0008), 1 },	
+	{ PCI_VDEVICE(CREATIVE, 0x0002), 0 },	/* EMU10K1 */
+	{ PCI_VDEVICE(CREATIVE, 0x0004), 1 },	/* Audigy */
+	{ PCI_VDEVICE(CREATIVE, 0x0008), 1 },	/* Audigy 2 Value SB0400 */
 	{ 0, }
 };
 
+/*
+ * Audigy 2 Value notes:
+ * A_IOCFG Input (GPIO)
+ * 0x400  = Front analog jack plugged in. (Green socket)
+ * 0x1000 = Read analog jack plugged in. (Black socket)
+ * 0x2000 = Center/LFE analog jack plugged in. (Orange socket)
+ * A_IOCFG Output (GPIO)
+ * 0x60 = Sound out of front Left.
+ * Win sets it to 0xXX61
+ */
 
 MODULE_DEVICE_TABLE(pci, snd_emu10k1_ids);
 
@@ -124,8 +137,8 @@ static int __devinit snd_card_emu10k1_probe(struct pci_dev *pci,
 		goto error;
 	if ((err = snd_emu10k1_pcm_efx(emu, 2, NULL)) < 0)
 		goto error;
-	
-	if (emu->card_capabilities->ca0151_chip) { 	
+	/* This stores the periods table. */
+	if (emu->card_capabilities->ca0151_chip) { /* P16V */	
 		if ((err = snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV, snd_dma_pci_data(pci),
 					       1024, &emu->p16v_buffer)) < 0)
 			goto error;
@@ -139,7 +152,7 @@ static int __devinit snd_card_emu10k1_probe(struct pci_dev *pci,
 
 	if ((err = snd_emu10k1_pcm_multi(emu, 3, NULL)) < 0)
 		goto error;
-	if (emu->card_capabilities->ca0151_chip) { 
+	if (emu->card_capabilities->ca0151_chip) { /* P16V */
 		if ((err = snd_p16v_pcm(emu, 4, NULL)) < 0)
 			goto error;
 	}

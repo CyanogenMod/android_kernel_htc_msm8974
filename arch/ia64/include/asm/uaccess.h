@@ -42,8 +42,11 @@
 #include <asm/pgtable.h>
 #include <asm/io.h>
 
-#define KERNEL_DS	((mm_segment_t) { ~0UL })		
-#define USER_DS		((mm_segment_t) { TASK_SIZE-1 })	
+/*
+ * For historical reasons, the following macros are grossly misnamed:
+ */
+#define KERNEL_DS	((mm_segment_t) { ~0UL })		/* cf. access_ok() */
+#define USER_DS		((mm_segment_t) { TASK_SIZE-1 })	/* cf. access_ok() */
 
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
@@ -54,6 +57,12 @@
 
 #define segment_eq(a, b)	((a).seg == (b).seg)
 
+/*
+ * When accessing user memory, we need to make sure the entire area really is in
+ * user-level space.  In order to do this efficiently, we make sure that the page at
+ * address TASK_SIZE is never valid.  We also need to make sure that the address doesn't
+ * point inside the virtually mapped linear page table.
+ */
 #define __access_ok(addr, size, segment)						\
 ({											\
 	__chk_user_ptr(addr);								\
@@ -63,9 +72,22 @@
 })
 #define access_ok(type, addr, size)	__access_ok((addr), (size), get_fs())
 
+/*
+ * These are the main single-value transfer routines.  They automatically
+ * use the right size if we just have the right pointer type.
+ *
+ * Careful to not
+ * (a) re-use the arguments for side effects (sizeof/typeof is ok)
+ * (b) require any knowledge of processes at this stage
+ */
 #define put_user(x, ptr)	__put_user_check((__typeof__(*(ptr))) (x), (ptr), sizeof(*(ptr)), get_fs())
 #define get_user(x, ptr)	__get_user_check((x), (ptr), sizeof(*(ptr)), get_fs())
 
+/*
+ * The "__xxx" versions do not do address space checking, useful when
+ * doing multiple accesses to the same area (the programmer has to do the
+ * checks by hand with "access_ok()")
+ */
 #define __put_user(x, ptr)	__put_user_nocheck((__typeof__(*(ptr))) (x), (ptr), sizeof(*(ptr)))
 #define __get_user(x, ptr)	__get_user_nocheck((x), (ptr), sizeof(*(ptr)))
 
@@ -109,6 +131,7 @@ extern long __get_user_unaligned_unknown (void);
   struct __large_struct { unsigned long buf[100]; };
 # define __m(x) (*(struct __large_struct __user *)(x))
 
+/* We need to declare the __ex_table section before we can use it in .xdata.  */
 asm (".section \"__ex_table\", \"a\"\n\t.previous");
 
 # define __get_user_size(val, addr, n, err)							\
@@ -123,6 +146,11 @@ do {												\
 	(val) = __gu_r9;									\
 } while (0)
 
+/*
+ * The "__put_user_size()" macro tells gcc it reads from memory instead of writing it.  This
+ * is because they do not write to any memory gcc knows about, so there are no aliasing
+ * issues.
+ */
 # define __put_user_size(val, addr, n, err)							\
 do {												\
 	register long __pu_r8 asm ("r8") = 0;							\
@@ -133,8 +161,8 @@ do {												\
 	(err) = __pu_r8;									\
 } while (0)
 
-#else 
-# define RELOC_TYPE	2	
+#else /* !ASM_SUPPORTED */
+# define RELOC_TYPE	2	/* ip-rel */
 # define __get_user_size(val, addr, n, err)				\
 do {									\
 	__ld_user("__ex_table", (unsigned long) addr, n, RELOC_TYPE);	\
@@ -146,10 +174,15 @@ do {												\
 	__st_user("__ex_table", (unsigned long) addr, n, RELOC_TYPE, (unsigned long) (val));	\
 	(err) = ia64_getreg(_IA64_REG_R8);							\
 } while (0)
-#endif 
+#endif /* !ASM_SUPPORTED */
 
 extern void __get_user_unknown (void);
 
+/*
+ * Evaluating arguments X, PTR, SIZE, and SEGMENT may involve subroutine-calls, which
+ * could clobber r8 and r9 (among others).  Thus, be careful not to evaluate it while
+ * using r8/r9.
+ */
 #define __do_get_user(check, x, ptr, size, segment)					\
 ({											\
 	const __typeof__(*(ptr)) __user *__gu_ptr = (ptr);				\
@@ -173,6 +206,10 @@ extern void __get_user_unknown (void);
 
 extern void __put_user_unknown (void);
 
+/*
+ * Evaluating arguments X, PTR, SIZE, and SEGMENT may involve subroutine-calls, which
+ * could clobber r8 (among others).  Thus, be careful not to evaluate them while using r8.
+ */
 #define __do_put_user(check, x, ptr, size, segment)					\
 ({											\
 	__typeof__ (x) __pu_x = (x);							\
@@ -194,6 +231,9 @@ extern void __put_user_unknown (void);
 #define __put_user_nocheck(x, ptr, size)	__do_put_user(0, x, ptr, size, KERNEL_DS)
 #define __put_user_check(x, ptr, size, segment)	__do_put_user(1, x, ptr, size, segment)
 
+/*
+ * Complex access routines
+ */
 extern unsigned long __must_check __copy_user (void __user *to, const void __user *from,
 					       unsigned long count);
 
@@ -257,6 +297,10 @@ extern unsigned long __do_clear_user (void __user *, unsigned long);
 })
 
 
+/*
+ * Returns: -EFAULT if exception before terminator, N if the entire buffer filled, else
+ * strlen.
+ */
 extern long __must_check __strncpy_from_user (char *to, const char __user *from, long to_len);
 
 #define strncpy_from_user(to, from, n)					\
@@ -268,6 +312,7 @@ extern long __must_check __strncpy_from_user (char *to, const char __user *from,
 	__sfu_ret;							\
 })
 
+/* Returns: 0 if bad, string length+1 (memory size) of string if ok */
 extern unsigned long __strlen_user (const char __user *);
 
 #define strlen_user(str)				\
@@ -279,6 +324,11 @@ extern unsigned long __strlen_user (const char __user *);
 	__su_ret;					\
 })
 
+/*
+ * Returns: 0 if exception before NUL or reaching the supplied limit
+ * (N), a value greater than N if the limit would be exceeded, else
+ * strlen.
+ */
 extern unsigned long __strnlen_user (const char __user *, long);
 
 #define strnlen_user(str, len)					\
@@ -290,12 +340,13 @@ extern unsigned long __strnlen_user (const char __user *, long);
 	__su_ret;						\
 })
 
+/* Generic code can't deal with the location-relative format that we use for compactness.  */
 #define ARCH_HAS_SORT_EXTABLE
 #define ARCH_HAS_SEARCH_EXTABLE
 
 struct exception_table_entry {
-	int addr;	
-	int cont;	
+	int addr;	/* location-relative address of insn this fixup is for */
+	int cont;	/* location-relative continuation addr.; if bit 2 is set, r9 is set to 0 */
 };
 
 extern void ia64_handle_exception (struct pt_regs *regs, const struct exception_table_entry *e);
@@ -329,6 +380,9 @@ xlate_dev_mem_ptr (unsigned long p)
 	return ptr;
 }
 
+/*
+ * Convert a virtual cached kernel memory pointer to an uncached pointer
+ */
 static __inline__ char *
 xlate_dev_kmem_ptr (char * p)
 {
@@ -344,4 +398,4 @@ xlate_dev_kmem_ptr (char * p)
 	return ptr;
 }
 
-#endif 
+#endif /* _ASM_IA64_UACCESS_H */

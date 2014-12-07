@@ -27,12 +27,13 @@
 
 static struct radeon_atpx_priv {
 	bool atpx_detected;
-	
+	/* handle for device - and atpx */
 	acpi_handle dhandle;
 	acpi_handle atpx_handle;
 	acpi_handle atrm_handle;
 } radeon_atpx_priv;
 
+/* retrieve the ROM in 4k blocks */
 static int radeon_atrm_call(acpi_handle atrm_handle, uint8_t *bios,
 			    int offset, int len)
 {
@@ -65,7 +66,7 @@ static int radeon_atrm_call(acpi_handle atrm_handle, uint8_t *bios,
 
 bool radeon_atrm_supported(struct pci_dev *pdev)
 {
-	
+	/* get the discrete ROM only via ATRM */
 	if (!radeon_atpx_priv.atpx_detected)
 		return false;
 
@@ -187,7 +188,7 @@ static int radeon_atpx_switchto(enum vga_switcheroo_client_id id)
 static int radeon_atpx_power_state(enum vga_switcheroo_client_id id,
 				   enum vga_switcheroo_state state)
 {
-	
+	/* on w500 ACPI can't change intel gpu state */
 	if (id == VGA_SWITCHEROO_IGD)
 		return 0;
 
@@ -220,7 +221,7 @@ static bool radeon_atpx_pci_probe_handle(struct pci_dev *pdev)
 
 static int radeon_atpx_init(void)
 {
-	
+	/* set up the ATPX handle */
 
 	radeon_atpx_get_version(radeon_atpx_priv.atpx_handle);
 	return 0;
@@ -269,7 +270,7 @@ void radeon_register_atpx_handler(void)
 {
 	bool r;
 
-	
+	/* detect if we have any ATPX + 2 VGA in the system */
 	r = radeon_atpx_detect();
 	if (!r)
 		return;

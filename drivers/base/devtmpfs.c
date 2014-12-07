@@ -40,7 +40,7 @@ static struct req {
 	struct completion done;
 	int err;
 	const char *name;
-	umode_t mode;	
+	umode_t mode;	/* 0 => delete */
 	struct device *dev;
 } *requests;
 
@@ -154,7 +154,7 @@ static int dev_mkdir(const char *name, umode_t mode)
 
 	err = vfs_mkdir(path.dentry->d_inode, dentry, mode);
 	if (!err)
-		
+		/* mark as kernel-created inode */
 		dentry->d_inode->i_private = &thread;
 	dput(dentry);
 	mutex_unlock(&path.dentry->d_inode->i_mutex);
@@ -168,7 +168,7 @@ static int create_path(const char *nodepath)
 	char *s;
 	int err = 0;
 
-	
+	/* parent directories do not exist, create them */
 	path = kstrdup(nodepath, GFP_KERNEL);
 	if (!path)
 		return -ENOMEM;
@@ -208,14 +208,14 @@ static int handle_create(const char *nodename, umode_t mode, struct device *dev)
 	if (!err) {
 		struct iattr newattrs;
 
-		
+		/* fixup possibly umasked mode */
 		newattrs.ia_mode = mode;
 		newattrs.ia_valid = ATTR_MODE;
 		mutex_lock(&dentry->d_inode->i_mutex);
 		notify_change(dentry, &newattrs);
 		mutex_unlock(&dentry->d_inode->i_mutex);
 
-		
+		/* mark as kernel-created inode */
 		dentry->d_inode->i_private = &thread;
 	}
 	dput(dentry);
@@ -284,11 +284,11 @@ static int delete_path(const char *nodepath)
 
 static int dev_mynode(struct device *dev, struct inode *inode, struct kstat *stat)
 {
-	
+	/* did we create it */
 	if (inode->i_private != &thread)
 		return 0;
 
-	
+	/* does the dev_t match */
 	if (is_blockdev(dev)) {
 		if (!S_ISBLK(stat->mode))
 			return 0;
@@ -299,7 +299,7 @@ static int dev_mynode(struct device *dev, struct inode *inode, struct kstat *sta
 	if (stat->rdev != dev->devt)
 		return 0;
 
-	
+	/* ours */
 	return 1;
 }
 
@@ -322,6 +322,10 @@ static int handle_remove(const char *nodename, struct device *dev)
 			err = vfs_getattr(nd.path.mnt, dentry, &stat);
 			if (!err && dev_mynode(dev, dentry->d_inode, &stat)) {
 				struct iattr newattrs;
+				/*
+				 * before unlinking this node, reset permissions
+				 * of possible references like hardlinks
+				 */
 				newattrs.ia_uid = 0;
 				newattrs.ia_gid = 0;
 				newattrs.ia_mode = stat.mode & ~0777;
@@ -350,6 +354,10 @@ static int handle_remove(const char *nodename, struct device *dev)
 	return err;
 }
 
+/*
+ * If configured, or requested by the commandline, devtmpfs will be
+ * auto-mounted after the kernel mounted the root filesystem.
+ */
 int devtmpfs_mount(const char *mntdir)
 {
 	int err;
@@ -388,7 +396,7 @@ static int devtmpfsd(void *p)
 	*err = sys_mount("devtmpfs", "/", "devtmpfs", MS_SILENT, options);
 	if (*err)
 		goto out;
-	sys_chdir("/.."); 
+	sys_chdir("/.."); /* will traverse into overmounted root */
 	sys_chroot(".");
 	complete(&setup_done);
 	while (1) {
@@ -415,6 +423,10 @@ out:
 	return *err;
 }
 
+/*
+ * Create devtmpfs instance, driver-core devices will add their device
+ * nodes here.
+ */
 int __init devtmpfs_init(void)
 {
 	int err = register_filesystem(&dev_fs_type);

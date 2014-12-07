@@ -18,6 +18,8 @@
 
 #define HPET_MASK			CLOCKSOURCE_MASK(32)
 
+/* FSEC = 10^-15
+   NSEC = 10^-9 */
 #define FSEC_PER_NSEC			1000000L
 
 #define HPET_DEV_USED_BIT		2
@@ -29,8 +31,11 @@
 #define HPET_MIN_CYCLES			128
 #define HPET_MIN_PROG_DELTA		(HPET_MIN_CYCLES + (HPET_MIN_CYCLES >> 1))
 
+/*
+ * HPET address is set in acpi/boot.c, when an ACPI entry exists
+ */
 unsigned long				hpet_address;
-u8					hpet_blockid; 
+u8					hpet_blockid; /* OS timer block num */
 u8					hpet_msi_disable;
 
 #ifdef CONFIG_PCI_MSI
@@ -80,6 +85,9 @@ static inline void hpet_clear_mapping(void)
 	hpet_virt_address = NULL;
 }
 
+/*
+ * HPET command line enable / disable
+ */
 static int boot_hpet_disable;
 int hpet_force_user;
 static int hpet_verbose;
@@ -110,8 +118,14 @@ static inline int is_hpet_capable(void)
 	return !boot_hpet_disable && hpet_address;
 }
 
+/*
+ * HPET timer interrupt enable / disable
+ */
 static int hpet_legacy_int_enabled;
 
+/**
+ * is_hpet_enabled - check whether the hpet timer interrupt is enabled
+ */
 int is_hpet_enabled(void)
 {
 	return is_hpet_capable() && hpet_legacy_int_enabled;
@@ -155,6 +169,10 @@ do {								\
 		_hpet_print_config(__FUNCTION__, __LINE__);	\
 } while (0)
 
+/*
+ * When the hpet driver (/dev/hpet) is enabled, we need to reserve
+ * timer 0 and timer 1 in case of RTC emulation.
+ */
 #ifdef CONFIG_HPET
 
 static void hpet_reserve_msi_timers(struct hpet_data *hd);
@@ -178,6 +196,11 @@ static void hpet_reserve_platform_timers(unsigned int id)
 	hpet_reserve_timer(&hd, 1);
 #endif
 
+	/*
+	 * NOTE that hd_irq[] reflects IOAPIC input pins (LEGACY_8254
+	 * is wrong for i8259!) not the output IRQ.  Many BIOS writers
+	 * don't bother configuring *any* comparator interrupts.
+	 */
 	hd.hd_irq[0] = HPET_LEGACY_8254;
 	hd.hd_irq[1] = HPET_LEGACY_RTC;
 
@@ -195,6 +218,9 @@ static void hpet_reserve_platform_timers(unsigned int id)
 static void hpet_reserve_platform_timers(unsigned int id) { }
 #endif
 
+/*
+ * Common hpet info
+ */
 static unsigned long hpet_freq;
 
 static void hpet_legacy_set_mode(enum clock_event_mode mode,
@@ -202,6 +228,9 @@ static void hpet_legacy_set_mode(enum clock_event_mode mode,
 static int hpet_legacy_next_event(unsigned long delta,
 			   struct clock_event_device *evt);
 
+/*
+ * The hpet clock event device
+ */
 static struct clock_event_device hpet_clockevent = {
 	.name		= "hpet",
 	.features	= CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT,
@@ -260,9 +289,13 @@ static void hpet_enable_legacy_int(void)
 
 static void hpet_legacy_clockevent_register(void)
 {
-	
+	/* Start HPET legacy interrupts */
 	hpet_enable_legacy_int();
 
+	/*
+	 * Start hpet with the boot cpu mask and make it
+	 * global after the IO_APIC has been initialized.
+	 */
 	hpet_clockevent.cpumask = cpumask_of(smp_processor_id());
 	clockevents_config_and_register(&hpet_clockevent, hpet_freq,
 					HPET_MIN_PROG_DELTA, 0x7FFFFFFF);
@@ -286,13 +319,20 @@ static void hpet_set_mode(enum clock_event_mode mode,
 		now = hpet_readl(HPET_COUNTER);
 		cmp = now + (unsigned int) delta;
 		cfg = hpet_readl(HPET_Tn_CFG(timer));
-		
+		/* Make sure we use edge triggered interrupts */
 		cfg &= ~HPET_TN_LEVEL;
 		cfg |= HPET_TN_ENABLE | HPET_TN_PERIODIC |
 		       HPET_TN_SETVAL | HPET_TN_32BIT;
 		hpet_writel(cfg, HPET_Tn_CFG(timer));
 		hpet_writel(cmp, HPET_Tn_CMP(timer));
 		udelay(1);
+		/*
+		 * HPET on AMD 81xx needs a second write (with HPET_TN_SETVAL
+		 * cleared) to T0_CMP to set the period. The HPET_TN_SETVAL
+		 * bit is automatically cleared after the first write.
+		 * (See AMD-8111 HyperTransport I/O Hub Data Sheet,
+		 * Publication # 24674)
+		 */
 		hpet_writel((unsigned int) delta, HPET_Tn_CMP(timer));
 		hpet_start_counter();
 		hpet_print_config();
@@ -337,6 +377,28 @@ static int hpet_next_event(unsigned long delta,
 	cnt += (u32) delta;
 	hpet_writel(cnt, HPET_Tn_CMP(timer));
 
+	/*
+	 * HPETs are a complete disaster. The compare register is
+	 * based on a equal comparison and neither provides a less
+	 * than or equal functionality (which would require to take
+	 * the wraparound into account) nor a simple count down event
+	 * mode. Further the write to the comparator register is
+	 * delayed internally up to two HPET clock cycles in certain
+	 * chipsets (ATI, ICH9,10). Some newer AMD chipsets have even
+	 * longer delays. We worked around that by reading back the
+	 * compare register, but that required another workaround for
+	 * ICH9,10 chips where the first readout after write can
+	 * return the old stale value. We already had a minimum
+	 * programming delta of 5us enforced, but a NMI or SMI hitting
+	 * between the counter readout and the comparator write can
+	 * move us behind that point easily. Now instead of reading
+	 * the compare register back several times, we make the ETIME
+	 * decision based on the following: Return ETIME if the
+	 * counter value after the write is less than HPET_MIN_CYCLES
+	 * away from the event or if the counter is already ahead of
+	 * the event. The minimum programming delta for the generic
+	 * clockevents code is set to 1.5 * HPET_MIN_CYCLES.
+	 */
 	res = (s32)(cnt - hpet_readl(HPET_COUNTER));
 
 	return res < HPET_MIN_CYCLES ? -ETIME : 0;
@@ -354,6 +416,9 @@ static int hpet_legacy_next_event(unsigned long delta,
 	return hpet_next_event(delta, evt, 0);
 }
 
+/*
+ * HPET MSI Support
+ */
 #ifdef CONFIG_PCI_MSI
 
 static DEFINE_PER_CPU(struct hpet_dev *, cpu_hpet_dev);
@@ -364,7 +429,7 @@ void hpet_msi_unmask(struct irq_data *data)
 	struct hpet_dev *hdev = data->handler_data;
 	unsigned int cfg;
 
-	
+	/* unmask it */
 	cfg = hpet_readl(HPET_Tn_CFG(hdev->num));
 	cfg |= HPET_TN_FSB;
 	hpet_writel(cfg, HPET_Tn_CFG(hdev->num));
@@ -375,7 +440,7 @@ void hpet_msi_mask(struct irq_data *data)
 	struct hpet_dev *hdev = data->handler_data;
 	unsigned int cfg;
 
-	
+	/* mask it */
 	cfg = hpet_readl(HPET_Tn_CFG(hdev->num));
 	cfg &= ~HPET_TN_FSB;
 	hpet_writel(cfg, HPET_Tn_CFG(hdev->num));
@@ -467,6 +532,7 @@ static int hpet_setup_irq(struct hpet_dev *dev)
 	return 0;
 }
 
+/* This should be called in specific @cpu */
 static void init_one_hpet_msi_clockevent(struct hpet_dev *hdev, int cpu)
 {
 	struct clock_event_device *evt = &hdev->evt;
@@ -498,6 +564,7 @@ static void init_one_hpet_msi_clockevent(struct hpet_dev *hdev, int cpu)
 }
 
 #ifdef CONFIG_HPET
+/* Reserve at least one timer for userspace (/dev/hpet) */
 #define RESERVE_TIMERS 1
 #else
 #define RESERVE_TIMERS 0
@@ -518,7 +585,7 @@ static void hpet_msi_capability_lookup(unsigned int start_timer)
 	id = hpet_readl(HPET_ID);
 
 	num_timers = ((id & HPET_ID_NUMBER) >> HPET_ID_NUMBER_SHIFT);
-	num_timers++; 
+	num_timers++; /* Value read out starts from 0 */
 	hpet_print_config();
 
 	hpet_devs = kzalloc(sizeof(struct hpet_dev) * num_timers, GFP_KERNEL);
@@ -531,7 +598,7 @@ static void hpet_msi_capability_lookup(unsigned int start_timer)
 		struct hpet_dev *hdev = &hpet_devs[num_timers_used];
 		unsigned int cfg = hpet_readl(HPET_Tn_CFG(i));
 
-		
+		/* Only consider HPET timer with MSI support */
 		if (!(cfg & HPET_TN_FSB_CAP))
 			continue;
 
@@ -626,7 +693,7 @@ static int hpet_cpuhp_notify(struct notifier_block *n,
 	case CPU_ONLINE:
 		INIT_DELAYED_WORK_ONSTACK(&work.work, hpet_work);
 		init_completion(&work.complete);
-		
+		/* FIXME: add schedule_work_on() */
 		schedule_delayed_work_on(cpu, &work.work, 0);
 		wait_for_completion(&work.complete);
 		destroy_timer_on_stack(&work.work.timer);
@@ -667,6 +734,9 @@ static int hpet_cpuhp_notify(struct notifier_block *n,
 
 #endif
 
+/*
+ * Clock source related code
+ */
 static cycle_t read_hpet(struct clocksource *cs)
 {
 	return (cycle_t)hpet_readl(HPET_COUNTER);
@@ -689,13 +759,19 @@ static int hpet_clocksource_register(void)
 	u64 start, now;
 	cycle_t t1;
 
-	
+	/* Start the counter */
 	hpet_restart_counter();
 
-	
+	/* Verify whether hpet counter works */
 	t1 = hpet_readl(HPET_COUNTER);
 	rdtscll(start);
 
+	/*
+	 * We don't know the TSC frequency yet, but waiting for
+	 * 200000 TSC cycles is safe:
+	 * 4 GHz == 50us
+	 * 1 GHz == 200us
+	 */
 	do {
 		rep_nop();
 		rdtscll(now);
@@ -711,6 +787,9 @@ static int hpet_clocksource_register(void)
 	return 0;
 }
 
+/**
+ * hpet_enable - Try to setup the HPET timer. Returns 1 on success.
+ */
 int __init hpet_enable(void)
 {
 	unsigned long hpet_period;
@@ -723,8 +802,24 @@ int __init hpet_enable(void)
 
 	hpet_set_mapping();
 
+	/*
+	 * Read the period and check for a sane value:
+	 */
 	hpet_period = hpet_readl(HPET_PERIOD);
 
+	/*
+	 * AMD SB700 based systems with spread spectrum enabled use a
+	 * SMM based HPET emulation to provide proper frequency
+	 * setting. The SMM code is initialized with the first HPET
+	 * register access and takes some time to complete. During
+	 * this time the config register reads 0xffffffff. We check
+	 * for max. 1000 loops whether the config register reads a non
+	 * 0xffffffff value to make sure that HPET is up and running
+	 * before we go further. A counting loop is safe, as the HPET
+	 * access takes thousands of CPU cycles. On non SB700 based
+	 * machines this check is only done once and has no side
+	 * effects.
+	 */
 	for (i = 0; hpet_readl(HPET_CFG) == 0xFFFFFFFF; i++) {
 		if (i == 1000) {
 			printk(KERN_WARNING
@@ -737,14 +832,26 @@ int __init hpet_enable(void)
 	if (hpet_period < HPET_MIN_PERIOD || hpet_period > HPET_MAX_PERIOD)
 		goto out_nohpet;
 
+	/*
+	 * The period is a femto seconds value. Convert it to a
+	 * frequency.
+	 */
 	freq = FSEC_PER_SEC;
 	do_div(freq, hpet_period);
 	hpet_freq = freq;
 
+	/*
+	 * Read the HPET ID register to retrieve the IRQ routing
+	 * information and the number of channels
+	 */
 	id = hpet_readl(HPET_ID);
 	hpet_print_config();
 
 #ifdef CONFIG_HPET_EMULATE_RTC
+	/*
+	 * The legacy routing mode needs at least two channels, tick timer
+	 * and the rtc emulation channel.
+	 */
 	if (!(id & HPET_ID_NUMBER))
 		goto out_nohpet;
 #endif
@@ -764,6 +871,12 @@ out_nohpet:
 	return 0;
 }
 
+/*
+ * Needs to be late, as the reserve_timer code calls kalloc !
+ *
+ * Not a problem on i386 as hpet_enable is called from late_time_init,
+ * but on x86_64 it is necessary !
+ */
 static __init int hpet_late_init(void)
 {
 	int cpu;
@@ -800,7 +913,7 @@ static __init int hpet_late_init(void)
 		hpet_cpuhp_notify(NULL, CPU_ONLINE, (void *)(long)cpu);
 	}
 
-	
+	/* This notifier should be called after workqueue is ready */
 	hotcpu_notifier(hpet_cpuhp_notify, -20);
 
 	return 0;
@@ -823,6 +936,20 @@ void hpet_disable(void)
 
 #ifdef CONFIG_HPET_EMULATE_RTC
 
+/* HPET in LegacyReplacement Mode eats up RTC interrupt line. When, HPET
+ * is enabled, we support RTC interrupt functionality in software.
+ * RTC has 3 kinds of interrupts:
+ * 1) Update Interrupt - generate an interrupt, every sec, when RTC clock
+ *    is updated
+ * 2) Alarm Interrupt - generate an interrupt at a specific time of day
+ * 3) Periodic Interrupt - generate periodic interrupt, with frequencies
+ *    2Hz-8192Hz (2Hz-64Hz for non-root user) (all freqs in powers of 2)
+ * (1) and (2) above are implemented using polling at a frequency of
+ * 64 Hz. The exact frequency is a tradeoff between accuracy and interrupt
+ * overhead. (DEFAULT_RTC_INT_FREQ)
+ * For (3), we use interrupts at 64Hz or user specified periodic
+ * frequency, whichever is higher.
+ */
 #include <linux/mc146818rtc.h>
 #include <linux/rtc.h>
 #include <asm/rtc.h>
@@ -842,11 +969,17 @@ static unsigned long hpet_pie_limit;
 
 static rtc_irq_handler irq_handler;
 
+/*
+ * Check that the hpet counter c1 is ahead of the c2
+ */
 static inline int hpet_cnt_ahead(u32 c1, u32 c2)
 {
 	return (s32)(c2 - c1) < 0;
 }
 
+/*
+ * Registers a IRQ handler.
+ */
 int hpet_register_irq_handler(rtc_irq_handler handler)
 {
 	if (!is_hpet_enabled())
@@ -860,6 +993,10 @@ int hpet_register_irq_handler(rtc_irq_handler handler)
 }
 EXPORT_SYMBOL_GPL(hpet_register_irq_handler);
 
+/*
+ * Deregisters the IRQ handler registered with hpet_register_irq_handler()
+ * and does cleanup.
+ */
 void hpet_unregister_irq_handler(rtc_irq_handler handler)
 {
 	if (!is_hpet_enabled())
@@ -870,6 +1007,12 @@ void hpet_unregister_irq_handler(rtc_irq_handler handler)
 }
 EXPORT_SYMBOL_GPL(hpet_unregister_irq_handler);
 
+/*
+ * Timer 1 for RTC emulation. We use one shot mode, as periodic mode
+ * is not supported by all HPET implementations for timer 1.
+ *
+ * hpet_rtc_timer_init() is called when the rtc is initialized.
+ */
 int hpet_rtc_timer_init(void)
 {
 	unsigned int cfg, cnt, delta;
@@ -916,6 +1059,11 @@ static void hpet_disable_rtc_channel(void)
 	hpet_writel(cfg, HPET_T1_CFG);
 }
 
+/*
+ * The functions below are called from rtc driver.
+ * Return 0 if HPET is not being used.
+ * Otherwise do the necessary changes and return 1.
+ */
 int hpet_mask_rtc_irq_bit(unsigned long bit_mask)
 {
 	if (!is_hpet_enabled())
@@ -1001,6 +1149,10 @@ static void hpet_rtc_timer_reinit(void)
 	else
 		delta = hpet_pie_delta;
 
+	/*
+	 * Increment the comparator value until we are ahead of the
+	 * current count.
+	 */
 	do {
 		hpet_t1_cmp += delta;
 		hpet_writel(hpet_t1_cmp, HPET_T1_CMP);

@@ -36,8 +36,10 @@
 
 #include "cyttsp_core.h"
 
+/* Bootloader number of command keys */
 #define CY_NUM_BL_KEYS		8
 
+/* helpers */
 #define GET_NUM_TOUCHES(x)		((x) & 0x0F)
 #define IS_LARGE_AREA(x)		(((x) & 0x10) >> 4)
 #define IS_BAD_PKT(x)			((x) & 0x20)
@@ -52,24 +54,27 @@
 #define CY_REG_TCH_TMOUT		(CY_REG_ACT_INTRVL + 1)
 #define CY_REG_LP_INTRVL		(CY_REG_TCH_TMOUT + 1)
 #define CY_MAXZ				255
-#define CY_DELAY_DFLT			20 
+#define CY_DELAY_DFLT			20 /* ms */
 #define CY_DELAY_MAX			500
 #define CY_ACT_DIST_DFLT		0xF8
 #define CY_HNDSHK_BIT			0x80
+/* device mode bits */
 #define CY_OPERATE_MODE			0x00
 #define CY_SYSINFO_MODE			0x10
-#define CY_SOFT_RESET_MODE		0x01 
+/* power mode select bits */
+#define CY_SOFT_RESET_MODE		0x01 /* return to Bootloader mode */
 #define CY_DEEP_SLEEP_MODE		0x02
 #define CY_LOW_POWER_MODE		0x04
 
+/* Slots management */
 #define CY_MAX_FINGER			4
 #define CY_MAX_ID			16
 
 static const u8 bl_command[] = {
-	0x00,			
-	0xFF,			
-	0xA5,			
-	0, 1, 2, 3, 4, 5, 6, 7	
+	0x00,			/* file offset */
+	0xFF,			/* command */
+	0xA5,			/* exit bootloader command */
+	0, 1, 2, 3, 4, 5, 6, 7	/* default keys */
 };
 
 static int ttsp_read_block_data(struct cyttsp *ts, u8 command,
@@ -135,7 +140,7 @@ static int cyttsp_exit_bl_mode(struct cyttsp *ts)
 	if (error)
 		return error;
 
-	
+	/* wait for TTSP Device to complete the operation */
 	msleep(CY_DELAY_DFLT);
 
 	error = cyttsp_load_bl_regs(ts);
@@ -156,7 +161,7 @@ static int cyttsp_set_operational_mode(struct cyttsp *ts)
 	if (error)
 		return error;
 
-	
+	/* wait for TTSP Device to complete switch to Operational mode */
 	error = ttsp_read_block_data(ts, CY_REG_BASE,
 				     sizeof(ts->xy_data), &ts->xy_data);
 	if (error)
@@ -171,12 +176,12 @@ static int cyttsp_set_sysinfo_mode(struct cyttsp *ts)
 
 	memset(&ts->sysinfo_data, 0, sizeof(ts->sysinfo_data));
 
-	
+	/* switch to sysinfo mode */
 	error = ttsp_send_command(ts, CY_SYSINFO_MODE);
 	if (error)
 		return error;
 
-	
+	/* read sysinfo registers */
 	msleep(CY_DELAY_DFLT);
 	error = ttsp_read_block_data(ts, CY_REG_BASE, sizeof(ts->sysinfo_data),
 				      &ts->sysinfo_data);
@@ -203,7 +208,7 @@ static int cyttsp_set_sysinfo_regs(struct cyttsp *ts)
 			ts->pdata->lp_intrvl
 		};
 
-		
+		/* set intrvl registers */
 		retval = ttsp_write_block_data(ts, CY_REG_ACT_INTRVL,
 					sizeof(intrvl_ray), intrvl_ray);
 		msleep(CY_DELAY_DFLT);
@@ -217,7 +222,7 @@ static int cyttsp_soft_reset(struct cyttsp *ts)
 	unsigned long timeout;
 	int retval;
 
-	
+	/* wait for interrupt to set ready completion */
 	INIT_COMPLETION(ts->bl_ready);
 	ts->state = CY_BL_STATE;
 
@@ -241,7 +246,7 @@ static int cyttsp_act_dist_setup(struct cyttsp *ts)
 {
 	u8 act_dist_setup = ts->pdata->act_dist;
 
-	
+	/* Init gesture; active distance setup */
 	return ttsp_write_block_data(ts, CY_REG_ACT_DIST,
 				sizeof(act_dist_setup), &act_dist_setup);
 }
@@ -282,15 +287,15 @@ static void cyttsp_report_tchdata(struct cyttsp *ts)
 	DECLARE_BITMAP(used, CY_MAX_ID);
 
 	if (IS_LARGE_AREA(xy_data->tt_stat) == 1) {
-		
+		/* terminate all active tracks */
 		num_tch = 0;
 		dev_dbg(ts->dev, "%s: Large area detected\n", __func__);
 	} else if (num_tch > CY_MAX_FINGER) {
-		
+		/* terminate all active tracks */
 		num_tch = 0;
 		dev_dbg(ts->dev, "%s: Num touch error detected\n", __func__);
 	} else if (IS_BAD_PKT(xy_data->tt_mode)) {
-		
+		/* terminate all active tracks */
 		num_tch = 0;
 		dev_dbg(ts->dev, "%s: Invalid buffer detected\n", __func__);
 	}
@@ -332,13 +337,13 @@ static irqreturn_t cyttsp_irq(int irq, void *handle)
 		goto out;
 	}
 
-	
+	/* Get touch data from CYTTSP device */
 	error = ttsp_read_block_data(ts, CY_REG_BASE,
 				 sizeof(struct cyttsp_xydata), &ts->xy_data);
 	if (error)
 		goto out;
 
-	
+	/* provide flow control handshake */
 	if (ts->pdata->use_hndshk) {
 		error = ttsp_send_command(ts,
 				ts->xy_data.hst_mode ^ CY_HNDSHK_BIT);
@@ -350,6 +355,10 @@ static irqreturn_t cyttsp_irq(int irq, void *handle)
 		goto out;
 
 	if (GET_BOOTLOADERMODE(ts->xy_data.tt_mode)) {
+		/*
+		 * TTSP device has reset back to bootloader mode.
+		 * Restore to operational mode.
+		 */
 		error = cyttsp_exit_bl_mode(ts);
 		if (error) {
 			dev_err(ts->dev,
@@ -401,7 +410,7 @@ static int cyttsp_power_on(struct cyttsp *ts)
 	if (error)
 		return error;
 
-	
+	/* init active distance */
 	error = cyttsp_act_dist_setup(ts);
 	if (error)
 		return error;
@@ -415,6 +424,12 @@ static int cyttsp_enable(struct cyttsp *ts)
 {
 	int error;
 
+	/*
+	 * The device firmware can wake on an I2C or SPI memory slave
+	 * address match. So just reading a register is sufficient to
+	 * wake up the device. The first read attempt will fail but it
+	 * will wake it up making the second read attempt successful.
+	 */
 	error = ttsp_read_block_data(ts, CY_REG_BASE,
 				     sizeof(ts->xy_data), &ts->xy_data);
 	if (error)

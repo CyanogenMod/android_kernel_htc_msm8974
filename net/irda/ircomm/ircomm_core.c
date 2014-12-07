@@ -63,7 +63,7 @@ static const struct file_operations ircomm_proc_fops = {
 	.llseek         = seq_lseek,
 	.release	= seq_release,
 };
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 hashbin_t *ircomm = NULL;
 
@@ -83,7 +83,7 @@ static int __init ircomm_init(void)
 		return -ENODEV;
 	}
 	}
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 	IRDA_MESSAGE("IrCOMM protocol (Dag Brattli)\n");
 
@@ -98,9 +98,15 @@ static void __exit ircomm_cleanup(void)
 
 #ifdef CONFIG_PROC_FS
 	remove_proc_entry("ircomm", proc_irda);
-#endif 
+#endif /* CONFIG_PROC_FS */
 }
 
+/*
+ * Function ircomm_open (client_notify)
+ *
+ *    Start a new IrCOMM instance
+ *
+ */
 struct ircomm_cb *ircomm_open(notify_t *notify, __u8 service_type, int line)
 {
 	struct ircomm_cb *self = NULL;
@@ -118,7 +124,7 @@ struct ircomm_cb *ircomm_open(notify_t *notify, __u8 service_type, int line)
 	self->notify = *notify;
 	self->magic = IRCOMM_MAGIC;
 
-	
+	/* Check if we should use IrLMP or IrTTP */
 	if (service_type & IRCOMM_3_WIRE_RAW) {
 		self->flow_status = FLOW_START;
 		ret = ircomm_open_lsap(self);
@@ -142,20 +148,26 @@ struct ircomm_cb *ircomm_open(notify_t *notify, __u8 service_type, int line)
 
 EXPORT_SYMBOL(ircomm_open);
 
+/*
+ * Function ircomm_close_instance (self)
+ *
+ *    Remove IrCOMM instance
+ *
+ */
 static int __ircomm_close(struct ircomm_cb *self)
 {
 	IRDA_DEBUG(2, "%s()\n", __func__ );
 
-	
+	/* Disconnect link if any */
 	ircomm_do_event(self, IRCOMM_DISCONNECT_REQUEST, NULL, NULL);
 
-	
+	/* Remove TSAP */
 	if (self->tsap) {
 		irttp_close_tsap(self->tsap);
 		self->tsap = NULL;
 	}
 
-	
+	/* Remove LSAP */
 	if (self->lsap) {
 		irlmp_close_lsap(self->lsap);
 		self->lsap = NULL;
@@ -167,6 +179,12 @@ static int __ircomm_close(struct ircomm_cb *self)
 	return 0;
 }
 
+/*
+ * Function ircomm_close (self)
+ *
+ *    Closes and removes the specified IrCOMM instance
+ *
+ */
 int ircomm_close(struct ircomm_cb *self)
 {
 	struct ircomm_cb *entry;
@@ -185,6 +203,13 @@ int ircomm_close(struct ircomm_cb *self)
 
 EXPORT_SYMBOL(ircomm_close);
 
+/*
+ * Function ircomm_connect_request (self, service_type)
+ *
+ *    Impl. of this function is differ from one of the reference. This
+ *    function does discovery as well as sending connect request
+ *
+ */
 int ircomm_connect_request(struct ircomm_cb *self, __u8 dlsap_sel,
 			   __u32 saddr, __u32 daddr, struct sk_buff *skb,
 			   __u8 service_type)
@@ -210,11 +235,22 @@ int ircomm_connect_request(struct ircomm_cb *self, __u8 dlsap_sel,
 
 EXPORT_SYMBOL(ircomm_connect_request);
 
+/*
+ * Function ircomm_connect_indication (self, qos, skb)
+ *
+ *    Notify user layer about the incoming connection
+ *
+ */
 void ircomm_connect_indication(struct ircomm_cb *self, struct sk_buff *skb,
 			       struct ircomm_info *info)
 {
 	IRDA_DEBUG(2, "%s()\n", __func__ );
 
+	/*
+	 * If there are any data hiding in the control channel, we must
+	 * deliver it first. The side effect is that the control channel
+	 * will be removed from the skb
+	 */
 	if (self->notify.connect_indication)
 		self->notify.connect_indication(self->notify.instance, self,
 						info->qos, info->max_data_size,
@@ -224,6 +260,12 @@ void ircomm_connect_indication(struct ircomm_cb *self, struct sk_buff *skb,
 	}
 }
 
+/*
+ * Function ircomm_connect_response (self, userdata, max_sdu_size)
+ *
+ *    User accepts connection
+ *
+ */
 int ircomm_connect_response(struct ircomm_cb *self, struct sk_buff *userdata)
 {
 	int ret;
@@ -240,6 +282,12 @@ int ircomm_connect_response(struct ircomm_cb *self, struct sk_buff *userdata)
 
 EXPORT_SYMBOL(ircomm_connect_response);
 
+/*
+ * Function connect_confirm (self, skb)
+ *
+ *    Notify user layer that the link is now connected
+ *
+ */
 void ircomm_connect_confirm(struct ircomm_cb *self, struct sk_buff *skb,
 			    struct ircomm_info *info)
 {
@@ -255,6 +303,12 @@ void ircomm_connect_confirm(struct ircomm_cb *self, struct sk_buff *skb,
 	}
 }
 
+/*
+ * Function ircomm_data_request (self, userdata)
+ *
+ *    Send IrCOMM data to peer device
+ *
+ */
 int ircomm_data_request(struct ircomm_cb *self, struct sk_buff *skb)
 {
 	int ret;
@@ -272,6 +326,12 @@ int ircomm_data_request(struct ircomm_cb *self, struct sk_buff *skb)
 
 EXPORT_SYMBOL(ircomm_data_request);
 
+/*
+ * Function ircomm_data_indication (self, skb)
+ *
+ *    Data arrived, so deliver it to user
+ *
+ */
 void ircomm_data_indication(struct ircomm_cb *self, struct sk_buff *skb)
 {
 	IRDA_DEBUG(4, "%s()\n", __func__ );
@@ -285,6 +345,12 @@ void ircomm_data_indication(struct ircomm_cb *self, struct sk_buff *skb)
 	}
 }
 
+/*
+ * Function ircomm_process_data (self, skb)
+ *
+ *    Data arrived which may contain control channel data
+ *
+ */
 void ircomm_process_data(struct ircomm_cb *self, struct sk_buff *skb)
 {
 	int clen;
@@ -293,16 +359,27 @@ void ircomm_process_data(struct ircomm_cb *self, struct sk_buff *skb)
 
 	clen = skb->data[0];
 
+	/*
+	 * Input validation check: a stir4200/mcp2150 combinations sometimes
+	 * results in frames with clen > remaining packet size. These are
+	 * illegal; if we throw away just this frame then it seems to carry on
+	 * fine
+	 */
 	if (unlikely(skb->len < (clen + 1))) {
 		IRDA_DEBUG(2, "%s() throwing away illegal frame\n",
 			   __func__ );
 		return;
 	}
 
+	/*
+	 * If there are any data hiding in the control channel, we must
+	 * deliver it first. The side effect is that the control channel
+	 * will be removed from the skb
+	 */
 	if (clen > 0)
 		ircomm_control_indication(self, skb, clen);
 
-	
+	/* Remove control channel from data channel */
 	skb_pull(skb, clen+1);
 
 	if (skb->len)
@@ -313,6 +390,12 @@ void ircomm_process_data(struct ircomm_cb *self, struct sk_buff *skb)
 	}
 }
 
+/*
+ * Function ircomm_control_request (self, params)
+ *
+ *    Send control data to peer device
+ *
+ */
 int ircomm_control_request(struct ircomm_cb *self, struct sk_buff *skb)
 {
 	int ret;
@@ -330,32 +413,46 @@ int ircomm_control_request(struct ircomm_cb *self, struct sk_buff *skb)
 
 EXPORT_SYMBOL(ircomm_control_request);
 
+/*
+ * Function ircomm_control_indication (self, skb)
+ *
+ *    Data has arrived on the control channel
+ *
+ */
 static void ircomm_control_indication(struct ircomm_cb *self,
 				      struct sk_buff *skb, int clen)
 {
 	IRDA_DEBUG(2, "%s()\n", __func__ );
 
-	
+	/* Use udata for delivering data on the control channel */
 	if (self->notify.udata_indication) {
 		struct sk_buff *ctrl_skb;
 
-		
+		/* We don't own the skb, so clone it */
 		ctrl_skb = skb_clone(skb, GFP_ATOMIC);
 		if (!ctrl_skb)
 			return;
 
-		
+		/* Remove data channel from control channel */
 		skb_trim(ctrl_skb, clen+1);
 
 		self->notify.udata_indication(self->notify.instance, self,
 					      ctrl_skb);
 
+		/* Drop reference count -
+		 * see ircomm_tty_control_indication(). */
 		dev_kfree_skb(ctrl_skb);
 	} else {
 		IRDA_DEBUG(0, "%s(), missing handler\n", __func__ );
 	}
 }
 
+/*
+ * Function ircomm_disconnect_request (self, userdata, priority)
+ *
+ *    User layer wants to disconnect the IrCOMM connection
+ *
+ */
 int ircomm_disconnect_request(struct ircomm_cb *self, struct sk_buff *userdata)
 {
 	struct ircomm_info info;
@@ -373,6 +470,12 @@ int ircomm_disconnect_request(struct ircomm_cb *self, struct sk_buff *userdata)
 
 EXPORT_SYMBOL(ircomm_disconnect_request);
 
+/*
+ * Function disconnect_indication (self, skb)
+ *
+ *    Tell user that the link has been disconnected
+ *
+ */
 void ircomm_disconnect_indication(struct ircomm_cb *self, struct sk_buff *skb,
 				  struct ircomm_info *info)
 {
@@ -388,6 +491,12 @@ void ircomm_disconnect_indication(struct ircomm_cb *self, struct sk_buff *skb,
 	}
 }
 
+/*
+ * Function ircomm_flow_request (self, flow)
+ *
+ *
+ *
+ */
 void ircomm_flow_request(struct ircomm_cb *self, LOCAL_FLOW flow)
 {
 	IRDA_DEBUG(2, "%s()\n", __func__ );
@@ -473,7 +582,7 @@ static int ircomm_seq_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &ircomm_seq_ops);
 }
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 MODULE_AUTHOR("Dag Brattli <dag@brattli.net>");
 MODULE_DESCRIPTION("IrCOMM protocol");

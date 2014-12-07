@@ -7,16 +7,27 @@
  */
 #include "nconf.h"
 
+/* a list of all the different widgets we use */
 attributes_t attributes[ATTR_MAX+1] = {0};
 
+/* available colors:
+   COLOR_BLACK   0
+   COLOR_RED     1
+   COLOR_GREEN   2
+   COLOR_YELLOW  3
+   COLOR_BLUE    4
+   COLOR_MAGENTA 5
+   COLOR_CYAN    6
+   COLOR_WHITE   7
+   */
 static void set_normal_colors(void)
 {
 	init_pair(NORMAL, -1, -1);
 	init_pair(MAIN_HEADING, COLOR_MAGENTA, -1);
 
-	
+	/* FORE is for the selected item */
 	init_pair(MAIN_MENU_FORE, -1, -1);
-	
+	/* BACK for all the rest */
 	init_pair(MAIN_MENU_BACK, -1, -1);
 	init_pair(MAIN_MENU_GREY, -1, -1);
 	init_pair(MAIN_MENU_HEADING, COLOR_GREEN, -1);
@@ -40,9 +51,23 @@ static void set_normal_colors(void)
 	init_pair(FUNCTION_TEXT, COLOR_BLUE, -1);
 }
 
+/* available attributes:
+   A_NORMAL        Normal display (no highlight)
+   A_STANDOUT      Best highlighting mode of the terminal.
+   A_UNDERLINE     Underlining
+   A_REVERSE       Reverse video
+   A_BLINK         Blinking
+   A_DIM           Half bright
+   A_BOLD          Extra bright or bold
+   A_PROTECT       Protected mode
+   A_INVIS         Invisible or blank mode
+   A_ALTCHARSET    Alternate character set
+   A_CHARTEXT      Bit-mask to extract a character
+   COLOR_PAIR(n)   Color-pair number n
+   */
 static void normal_color_theme(void)
 {
-	
+	/* automatically add color... */
 #define mkattr(name, attr) do { \
 attributes[name] = attr | COLOR_PAIR(name); } while (0)
 	mkattr(NORMAL, NORMAL);
@@ -74,7 +99,7 @@ attributes[name] = attr | COLOR_PAIR(name); } while (0)
 
 static void no_colors_theme(void)
 {
-	
+	/* automatically add highlight, no color */
 #define mkattrn(name, attr) { attributes[name] = attr; }
 
 	mkattrn(NORMAL, NORMAL);
@@ -112,12 +137,13 @@ void set_colors()
 	if (has_colors()) {
 		normal_color_theme();
 	} else {
-		
+		/* give defaults */
 		no_colors_theme();
 	}
 }
 
 
+/* this changes the windows attributes !!! */
 void print_in_middle(WINDOW *win,
 		int starty,
 		int startx,
@@ -184,6 +210,7 @@ int get_line_length(const char *line)
 	return res;
 }
 
+/* print all lines to the window. */
 void fill_window(WINDOW *win, const char *text)
 {
 	int x, y;
@@ -191,7 +218,7 @@ void fill_window(WINDOW *win, const char *text)
 	int i;
 
 	getmaxyx(win, y, x);
-	
+	/* do not go over end of line */
 	total_lines = min(total_lines, y);
 	for (i = 0; i < total_lines; i++) {
 		char tmp[x+10];
@@ -203,6 +230,14 @@ void fill_window(WINDOW *win, const char *text)
 	}
 }
 
+/* get the message, and buttons.
+ * each button must be a char*
+ * return the selected button
+ *
+ * this dialog is used for 2 different things:
+ * 1) show a text box, no buttons.
+ * 2) show a dialog, with horizontal buttons
+ */
 int btn_dialog(WINDOW *main_window, const char *msg, int btn_num, ...)
 {
 	va_list ap;
@@ -230,7 +265,7 @@ int btn_dialog(WINDOW *main_window, const char *msg, int btn_num, ...)
 	va_end(ap);
 	btns[btn_num] = NULL;
 
-	
+	/* find the widest line of msg: */
 	msg_lines = get_line_no(msg);
 	for (i = 0; i < msg_lines; i++) {
 		const char *line = get_line(msg, i);
@@ -240,12 +275,12 @@ int btn_dialog(WINDOW *main_window, const char *msg, int btn_num, ...)
 	}
 
 	total_width = max(msg_width, btns_width);
-	
+	/* place dialog in middle of screen */
 	y = (LINES-(msg_lines+4))/2;
 	x = (COLS-(total_width+4))/2;
 
 
-	
+	/* create the windows */
 	if (btn_num > 0)
 		win_rows = msg_lines+4;
 	else
@@ -265,7 +300,7 @@ int btn_dialog(WINDOW *main_window, const char *msg, int btn_num, ...)
 	(void) wattrset(win, attributes[DIALOG_BOX]);
 	box(win, 0, 0);
 
-	
+	/* print message */
 	(void) wattrset(msg_win, attributes[DIALOG_TEXT]);
 	fill_window(msg_win, msg);
 
@@ -290,8 +325,8 @@ int btn_dialog(WINDOW *main_window, const char *msg, int btn_num, ...)
 		case KEY_RIGHT:
 			menu_driver(menu, REQ_RIGHT_ITEM);
 			break;
-		case 10: 
-		case 27: 
+		case 10: /* ENTER */
+		case 27: /* ESCAPE */
 		case ' ':
 		case KEY_F(F_BACK):
 		case KEY_F(F_EXIT):
@@ -340,7 +375,7 @@ int dialog_inputbox(WINDOW *main_window,
 		*resultp = result = realloc(result, *result_len);
 	}
 
-	
+	/* find the widest line of msg: */
 	prompt_lines = get_line_no(prompt);
 	for (i = 0; i < prompt_lines; i++) {
 		const char *line = get_line(prompt, i);
@@ -351,13 +386,13 @@ int dialog_inputbox(WINDOW *main_window,
 	if (title)
 		prompt_width = max(prompt_width, strlen(title));
 
-	
+	/* place dialog in middle of screen */
 	y = (LINES-(prompt_lines+4))/2;
 	x = (COLS-(prompt_width+4))/2;
 
 	strncpy(result, init, *result_len);
 
-	
+	/* create the windows */
 	win = newwin(prompt_lines+6, prompt_width+7, y, x);
 	prompt_win = derwin(win, prompt_lines+1, prompt_width, 2, 2);
 	form_win = derwin(win, 1, prompt_width, prompt_lines+3, 2);
@@ -371,7 +406,7 @@ int dialog_inputbox(WINDOW *main_window,
 	if (title)
 		mvwprintw(win, 0, 3, "%s", title);
 
-	
+	/* print message */
 	(void) wattrset(prompt_win, attributes[INPUT_TEXT]);
 	fill_window(prompt_win, prompt);
 
@@ -380,10 +415,10 @@ int dialog_inputbox(WINDOW *main_window,
 	mvwprintw(form_win, 0, 0, "%s",
 		  result + cursor_position-cursor_form_win);
 
-	
+	/* create panels */
 	panel = new_panel(win);
 
-	
+	/* show the cursor */
 	curs_set(1);
 
 	touchwin(win);
@@ -391,8 +426,8 @@ int dialog_inputbox(WINDOW *main_window,
 	while ((res = wgetch(form_win))) {
 		int len = strlen(result);
 		switch (res) {
-		case 10: 
-		case 27: 
+		case 10: /* ENTER */
+		case 27: /* ESCAPE */
 		case KEY_F(F_HELP):
 		case KEY_F(F_EXIT):
 		case KEY_F(F_BACK):
@@ -440,13 +475,13 @@ int dialog_inputbox(WINDOW *main_window,
 			break;
 		default:
 			if ((isgraph(res) || isspace(res))) {
-				
+				/* one for new char, one for '\0' */
 				if (len+2 > *result_len) {
 					*result_len = len+2;
 					*resultp = result = realloc(result,
 								*result_len);
 				}
-				
+				/* insert the char at the proper position */
 				memmove(&result[cursor_position+1],
 						&result[cursor_position],
 						len-cursor_position+1);
@@ -486,7 +521,7 @@ int dialog_inputbox(WINDOW *main_window,
 		}
 	}
 
-	
+	/* hide the cursor */
 	curs_set(0);
 	del_panel(panel);
 	delwin(prompt_win);
@@ -495,6 +530,7 @@ int dialog_inputbox(WINDOW *main_window,
 	return res;
 }
 
+/* refresh all windows in the correct order */
 void refresh_all_windows(WINDOW *main_window)
 {
 	update_panels();
@@ -502,6 +538,7 @@ void refresh_all_windows(WINDOW *main_window)
 	refresh();
 }
 
+/* layman's scrollable window... */
 void show_scroll_win(WINDOW *main_window,
 		const char *title,
 		const char *text)
@@ -519,7 +556,7 @@ void show_scroll_win(WINDOW *main_window,
 	WINDOW *pad;
 	PANEL *panel;
 
-	
+	/* find the widest line of msg: */
 	total_lines = get_line_no(text);
 	for (i = 0; i < total_lines; i++) {
 		const char *line = get_line(text, i);
@@ -527,7 +564,7 @@ void show_scroll_win(WINDOW *main_window,
 		total_cols = max(total_cols, len+2);
 	}
 
-	
+	/* create the pad */
 	pad = newpad(total_lines+10, total_cols+10);
 	(void) wattrset(pad, attributes[SCROLLWIN_TEXT]);
 	fill_window(pad, text);
@@ -537,20 +574,20 @@ void show_scroll_win(WINDOW *main_window,
 	text_lines = max(win_lines-4, 0);
 	text_cols = max(win_cols-2, 0);
 
-	
+	/* place window in middle of screen */
 	y = (LINES-win_lines)/2;
 	x = (COLS-win_cols)/2;
 
 	win = newwin(win_lines, win_cols, y, x);
 	keypad(win, TRUE);
-	
+	/* show the help in the help window, and show the help panel */
 	(void) wattrset(win, attributes[SCROLLWIN_BOX]);
 	box(win, 0, 0);
 	(void) wattrset(win, attributes[SCROLLWIN_HEADING]);
 	mvwprintw(win, 0, 3, " %s ", title);
 	panel = new_panel(win);
 
-	
+	/* handle scrolling */
 	do {
 
 		copywin(pad, win, start_y, start_x, 2, 2, text_lines,

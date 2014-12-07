@@ -34,6 +34,10 @@ static struct mv_sata_platform_data cm_a510_sata_data = {
 	.n_ports        = 1,
 };
 
+/*
+ * SPI Devices:
+ * SPI0: 1M Flash Winbond w25q32bv
+ */
 static const struct flash_platform_data cm_a510_spi_flash_data = {
 	.type		= "w25q32bv",
 };
@@ -59,8 +63,12 @@ static int __init cm_a510_pci_init(void)
 
 subsys_initcall(cm_a510_pci_init);
 
+/* Board Init */
 static void __init cm_a510_init(void)
 {
+	/*
+	 * Basic Dove setup. Needs to be called early.
+	 */
 	dove_init();
 
 	dove_ge00_init(&cm_a510_ge00_data);

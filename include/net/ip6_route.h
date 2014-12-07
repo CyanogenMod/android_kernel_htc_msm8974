@@ -18,7 +18,7 @@ struct route_info {
 				reserved_h:3;
 #endif
 	__be32			lifetime;
-	__u8			prefix[0];	
+	__u8			prefix[0];	/* 0,8 or 16 */
 };
 
 #include <net/flow.h>
@@ -34,9 +34,17 @@ struct route_info {
 #define RT6_LOOKUP_F_SRCPREF_PUBLIC	0x00000010
 #define RT6_LOOKUP_F_SRCPREF_COA	0x00000020
 
+/*
+ * rt6_srcprefs2flags() and rt6_flags2srcprefs() translate
+ * between IPV6_ADDR_PREFERENCES socket option values
+ *	IPV6_PREFER_SRC_TMP    = 0x1
+ *	IPV6_PREFER_SRC_PUBLIC = 0x2
+ *	IPV6_PREFER_SRC_COA    = 0x4
+ * and above RT6_LOOKUP_F_SRCPREF_xxx flags.
+ */
 static inline int rt6_srcprefs2flags(unsigned int srcprefs)
 {
-	
+	/* No need to bitmask because srcprefs have only 3 bits. */
 	return srcprefs << 3;
 }
 
@@ -100,6 +108,10 @@ extern struct rt6_info *addrconf_dst_alloc(struct inet6_dev *idev,
 
 extern int			ip6_dst_hoplimit(struct dst_entry *dst);
 
+/*
+ *	support functions for ND
+ *
+ */
 extern struct rt6_info *	rt6_get_dflt_router(const struct in6_addr *addr,
 						    struct net_device *dev);
 extern struct rt6_info *	rt6_add_dflt_router(const struct in6_addr *gwaddr,
@@ -138,6 +150,9 @@ extern void rt6_mtu_change(struct net_device *dev, unsigned mtu);
 extern void rt6_remove_prefsrc(struct inet6_ifaddr *ifp);
 
 
+/*
+ *	Store a destination cache entry in a socket
+ */
 static inline void __ip6_dst_store(struct sock *sk, struct dst_entry *dst,
 				   struct in6_addr *daddr, struct in6_addr *saddr)
 {

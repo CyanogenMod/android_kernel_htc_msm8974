@@ -41,6 +41,7 @@ static struct clk *tx_bit_clk;
 
 static int rx_hw_param_status;
 static int tx_hw_param_status;
+/* Platform specific logic */
 
 static int timpani_rx_route_enable(void)
 {
@@ -65,7 +66,7 @@ static int timpani_rx_route_disable(void)
 
 
 #define GPIO_CLASS_D1_EN (GPIO_EXPANDER_GPIO_BASE + 0)
-#define PM8901_MPP_3 (2) 
+#define PM8901_MPP_3 (2) /* PM8901 MPP starts from 0 */
 static void config_class_d1_gpio(int enable)
 {
 	int rc;
@@ -166,8 +167,8 @@ static int msm8660_startup(struct snd_pcm_substream *substream)
 			pr_debug("Failed to get i2s_spkr_osr_clk\n");
 			return PTR_ERR(rx_osr_clk);
 		}
-		
-		
+		/* Master clock OSR 256 */
+		/* Initially set to Lowest sample rate Needed */
 		clk_set_rate(rx_osr_clk, 8000 * 256);
 		ret = clk_prepare_enable(rx_osr_clk);
 		if (ret != 0) {
@@ -193,14 +194,14 @@ static int msm8660_startup(struct snd_pcm_substream *substream)
 		}
 		timpani_poweramp_on();
 		msleep(30);
-		
+		/* End of platform specific logic */
 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		tx_osr_clk = clk_get(NULL, "i2s_mic_osr_clk");
 		if (IS_ERR(tx_osr_clk)) {
 			pr_debug("Failed to get i2s_mic_osr_clk\n");
 			return PTR_ERR(tx_osr_clk);
 		}
-		
+		/* Master clock OSR 256 */
 		clk_set_rate(tx_osr_clk, 8000 * 256);
 		ret = clk_prepare_enable(tx_osr_clk);
 		if (ret != 0) {
@@ -230,6 +231,11 @@ static int msm8660_startup(struct snd_pcm_substream *substream)
 	return ret;
 }
 
+/*
+ * TODO: rx/tx_hw_param_status should be a counter in the below code
+ * when driver starts supporting mutisession else setting it to 0
+ * will stop audio in all sessions.
+ */
 static void msm8660_shutdown(struct snd_pcm_substream *substream)
 {
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -269,6 +275,7 @@ static struct snd_soc_ops machine_ops  = {
 	.hw_params	= msm8660_hw_params,
 };
 
+/* Digital audio interface glue - connects codec <---> CPU */
 static struct snd_soc_dai_link msm8660_dai[] = {
 	{
 		.name		= "Audio Rx",
@@ -293,6 +300,7 @@ struct snd_soc_card snd_soc_card_msm8660 = {
 	.platform = &msm8660_soc_platform,
 };
 
+/* msm_audio audio subsystem */
 static struct snd_soc_device msm_snd_devdata = {
 	.card = &snd_soc_card_msm8660,
 	.codec_dev = &soc_codec_dev_timpani,

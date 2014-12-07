@@ -30,15 +30,15 @@
 #define LTQ_WDT_PW1		0x00BE0000
 #define LTQ_WDT_PW2		0x00DC0000
 
-#define LTQ_WDT_CR		0x0	
-#define LTQ_WDT_SR		0x8	
+#define LTQ_WDT_CR		0x0	/* watchdog control register */
+#define LTQ_WDT_SR		0x8	/* watchdog status register */
 
-#define LTQ_WDT_SR_EN		(0x1 << 31)	
-#define LTQ_WDT_SR_PWD		(0x3 << 26)	
-#define LTQ_WDT_SR_CLKDIV	(0x3 << 24)	
-						
+#define LTQ_WDT_SR_EN		(0x1 << 31)	/* enable bit */
+#define LTQ_WDT_SR_PWD		(0x3 << 26)	/* turn on power */
+#define LTQ_WDT_SR_CLKDIV	(0x3 << 24)	/* turn on clock and set */
+						/* divider to 0x40000 */
 #define LTQ_WDT_DIVIDER		0x40000
-#define LTQ_MAX_TIMEOUT		((1 << 16) - 1)	
+#define LTQ_MAX_TIMEOUT		((1 << 16) - 1)	/* the reload field is 16 bit */
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
 
@@ -58,9 +58,9 @@ ltq_wdt_enable(void)
 	if (timeout > LTQ_MAX_TIMEOUT)
 		timeout = LTQ_MAX_TIMEOUT;
 
-	
+	/* write the first password magic */
 	ltq_w32(LTQ_WDT_PW1, ltq_wdt_membase + LTQ_WDT_CR);
-	
+	/* write the second magic plus the configuration and new timeout */
 	ltq_w32(LTQ_WDT_SR_EN | LTQ_WDT_SR_PWD | LTQ_WDT_SR_CLKDIV |
 		LTQ_WDT_PW2 | timeout, ltq_wdt_membase + LTQ_WDT_CR);
 }
@@ -68,8 +68,11 @@ ltq_wdt_enable(void)
 static void
 ltq_wdt_disable(void)
 {
-	
+	/* write the first password magic */
 	ltq_w32(LTQ_WDT_PW1, ltq_wdt_membase + LTQ_WDT_CR);
+	/* write the second password magic with no config
+	 * this turns the watchdog off
+	 */
 	ltq_w32(LTQ_WDT_PW2, ltq_wdt_membase + LTQ_WDT_CR);
 }
 
@@ -129,7 +132,7 @@ ltq_wdt_ioctl(struct file *file,
 		ret = get_user(ltq_wdt_timeout, (int __user *)arg);
 		if (!ret)
 			ltq_wdt_enable();
-		
+		/* intentional drop through */
 	case WDIOC_GETTIMEOUT:
 		ret = put_user(ltq_wdt_timeout, (int __user *)arg);
 		break;
@@ -204,7 +207,7 @@ ltq_wdt_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* we do not need to enable the clock as it is always running */
 	clk = clk_get(&pdev->dev, "io");
 	WARN_ON(!clk);
 	ltq_io_region_clk_rate = clk_get_rate(clk);

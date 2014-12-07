@@ -44,6 +44,20 @@ enum os_area_ldr_format {
 
 #define OS_AREA_HEADER_MAGIC_NUM "cell_ext_os_area"
 
+/**
+ * struct os_area_header - os area header segment.
+ * @magic_num: Always 'cell_ext_os_area'.
+ * @hdr_version: Header format version number.
+ * @db_area_offset: Starting segment number of other os database area.
+ * @ldr_area_offset: Starting segment number of bootloader image area.
+ * @ldr_format: HEADER_LDR_FORMAT flag.
+ * @ldr_size: Size of bootloader image in bytes.
+ *
+ * Note that the docs refer to area offsets.  These are offsets in units of
+ * segments from the start of the os area (top of the header).  These are
+ * better thought of as segment numbers.  The os area of the os area is
+ * reserved for the os image.
+ */
 
 struct os_area_header {
 	u8 magic_num[16];
@@ -66,23 +80,42 @@ enum os_area_ctrl_button {
 	PARAM_CTRL_BUTTON_X_IS_YES = 1,
 };
 
+/**
+ * struct os_area_params - os area params segment.
+ * @boot_flag: User preference of operating system, PARAM_BOOT_FLAG flag.
+ * @num_params: Number of params in this (params) segment.
+ * @rtc_diff: Difference in seconds between 1970 and the ps3 rtc value.
+ * @av_multi_out: User preference of AV output, PARAM_AV_MULTI_OUT flag.
+ * @ctrl_button: User preference of controller button config, PARAM_CTRL_BUTTON
+ *	flag.
+ * @static_ip_addr: User preference of static IP address.
+ * @network_mask: User preference of static network mask.
+ * @default_gateway: User preference of static default gateway.
+ * @dns_primary: User preference of static primary dns server.
+ * @dns_secondary: User preference of static secondary dns server.
+ *
+ * The ps3 rtc maintains a read-only value that approximates seconds since
+ * 2000-01-01 00:00:00 UTC.
+ *
+ * User preference of zero for static_ip_addr means use dhcp.
+ */
 
 struct os_area_params {
 	u32 boot_flag;
 	u32 _reserved_1[3];
 	u32 num_params;
 	u32 _reserved_2[3];
-	
+	/* param 0 */
 	s64 rtc_diff;
 	u8 av_multi_out;
 	u8 ctrl_button;
 	u8 _reserved_3[6];
-	
+	/* param 1 */
 	u8 static_ip_addr[4];
 	u8 network_mask[4];
 	u8 default_gateway[4];
 	u8 _reserved_4[4];
-	
+	/* param 2 */
 	u8 dns_primary[4];
 	u8 dns_secondary[4];
 	u8 _reserved_5[8];
@@ -90,6 +123,21 @@ struct os_area_params {
 
 #define OS_AREA_DB_MAGIC_NUM "-db-"
 
+/**
+ * struct os_area_db - Shared flash memory database.
+ * @magic_num: Always '-db-'.
+ * @version: os_area_db format version number.
+ * @index_64: byte offset of the database id index for 64 bit variables.
+ * @count_64: number of usable 64 bit index entries
+ * @index_32: byte offset of the database id index for 32 bit variables.
+ * @count_32: number of usable 32 bit index entries
+ * @index_16: byte offset of the database id index for 16 bit variables.
+ * @count_16: number of usable 16 bit index entries
+ *
+ * Flash rom storage for exclusive use by guests running in the other os lpar.
+ * The current system configuration allocates 1K (two segments) for other os
+ * use.
+ */
 
 struct os_area_db {
 	u8 magic_num[4];
@@ -105,6 +153,9 @@ struct os_area_db {
 	u8 _db_data[1000];
 };
 
+/**
+ * enum os_area_db_owner - Data owners.
+ */
 
 enum os_area_db_owner {
 	OS_AREA_DB_OWNER_ANY = -1,
@@ -150,6 +201,14 @@ static const struct os_area_db_id os_area_db_id_video_mode = {
 
 #define SECONDS_FROM_1970_TO_2000 946684800LL
 
+/**
+ * struct saved_params - Static working copies of data from the PS3 'os area'.
+ *
+ * The order of preference we use for the rtc_diff source:
+ *  1) The database value.
+ *  2) The game os value.
+ *  3) The number of seconds from 1970 to 2000.
+ */
 
 struct saved_params {
 	unsigned int valid;
@@ -207,6 +266,11 @@ static ssize_t os_area_flash_write(const void *buf, size_t count, loff_t pos)
 }
 
 
+/**
+ * os_area_set_property - Add or overwrite a saved_params value to the device tree.
+ *
+ * Overwrites an existing property.
+ */
 
 static void os_area_set_property(struct device_node *node,
 	struct property *prop)
@@ -226,6 +290,10 @@ static void os_area_set_property(struct device_node *node,
 			__LINE__);
 }
 
+/**
+ * os_area_get_property - Get a saved_params value from the device tree.
+ *
+ */
 
 static void __init os_area_get_property(struct device_node *node,
 	struct property *prop)
@@ -357,6 +425,12 @@ static unsigned int db_align_up(unsigned int val, unsigned int size)
 	return (val + (size - 1)) & (~(size - 1));
 }
 
+/**
+ * db_for_each_64 - Iterator for 64 bit entries.
+ *
+ * A NULL value for id can be used to match all entries.
+ * OS_AREA_DB_OWNER_ANY and OS_AREA_DB_KEY_ANY can be used to match all.
+ */
 
 static int db_for_each_64(const struct os_area_db *db,
 	const struct os_area_db_id *match_id, struct db_iterator *i)
@@ -519,7 +593,7 @@ static void os_area_db_init(struct os_area_db *db)
 			+ VALUES_32_COUNT * sizeof(u32);
 	db->count_16 = VALUES_16_COUNT;
 
-	
+	/* Rules to check db layout. */
 
 	BUILD_BUG_ON(sizeof(struct db_index) != 1);
 	BUILD_BUG_ON(sizeof(struct os_area_db) != 2 * OS_AREA_SEGMENT_SIZE);
@@ -539,6 +613,10 @@ static void os_area_db_init(struct os_area_db *db)
 			> sizeof(struct os_area_db));
 }
 
+/**
+ * update_flash_db - Helper for os_area_queue_work_handler.
+ *
+ */
 
 static int update_flash_db(void)
 {
@@ -549,7 +627,7 @@ static int update_flash_db(void)
 	loff_t pos;
 	struct os_area_db* db;
 
-	
+	/* Read in header and db from flash. */
 
 	header = kmalloc(buf_len, GFP_KERNEL);
 	if (!header) {
@@ -574,7 +652,7 @@ static int update_flash_db(void)
 		goto fail;
 	}
 
-	
+	/* Now got a good db offset and some maybe good db data. */
 
 	db = (void *)header + pos;
 
@@ -586,7 +664,7 @@ static int update_flash_db(void)
 		os_area_db_init(db);
 	}
 
-	
+	/* Now got good db data. */
 
 	db_set_64(db, &os_area_db_id_rtc_diff, saved_params.rtc_diff);
 
@@ -602,6 +680,12 @@ fail:
 	return error;
 }
 
+/**
+ * os_area_queue_work_handler - Asynchronous write handler.
+ *
+ * An asynchronous write for flash memory and the device tree.  Do not
+ * call directly, use os_area_queue_work().
+ */
 
 static void os_area_queue_work_handler(struct work_struct *work)
 {
@@ -633,6 +717,19 @@ static void os_area_queue_work(void)
 	schedule_work(&q);
 }
 
+/**
+ * ps3_os_area_save_params - Copy data from os area mirror to @saved_params.
+ *
+ * For the convenience of the guest the HV makes a copy of the os area in
+ * flash to a high address in the boot memory region and then puts that RAM
+ * address and the byte count into the repository for retrieval by the guest.
+ * We copy the data we want into a static variable and allow the memory setup
+ * by the HV to be claimed by the memblock manager.
+ *
+ * The os area mirror will not be available to a second stage kernel, and
+ * the header verify will fail.  In this case, the saved_params values will
+ * be set from flash memory or the passed in device tree in ps3_os_area_init().
+ */
 
 void __init ps3_os_area_save_params(void)
 {
@@ -660,7 +757,7 @@ void __init ps3_os_area_save_params(void)
 	result = verify_header(header);
 
 	if (result) {
-		
+		/* Second stage kernels exit here. */
 		pr_debug("%s:%d verify_header failed\n", __func__, __LINE__);
 		dump_header(header);
 		return;
@@ -685,6 +782,9 @@ void __init ps3_os_area_save_params(void)
 	pr_debug(" <- %s:%d\n", __func__, __LINE__);
 }
 
+/**
+ * ps3_os_area_init - Setup os area device tree properties as needed.
+ */
 
 void __init ps3_os_area_init(void)
 {
@@ -695,7 +795,7 @@ void __init ps3_os_area_init(void)
 	node = of_find_node_by_path("/");
 
 	if (!saved_params.valid && node) {
-		
+		/* Second stage kernels should have a dt entry. */
 		os_area_get_property(node, &property_rtc_diff);
 		os_area_get_property(node, &property_av_multi_out);
 	}
@@ -714,6 +814,9 @@ void __init ps3_os_area_init(void)
 	pr_debug(" <- %s:%d\n", __func__, __LINE__);
 }
 
+/**
+ * ps3_os_area_get_rtc_diff - Returns the rtc diff value.
+ */
 
 u64 ps3_os_area_get_rtc_diff(void)
 {
@@ -721,6 +824,12 @@ u64 ps3_os_area_get_rtc_diff(void)
 }
 EXPORT_SYMBOL_GPL(ps3_os_area_get_rtc_diff);
 
+/**
+ * ps3_os_area_set_rtc_diff - Set the rtc diff value.
+ *
+ * An asynchronous write is needed to support writing updates from
+ * the timer interrupt context.
+ */
 
 void ps3_os_area_set_rtc_diff(u64 rtc_diff)
 {
@@ -731,6 +840,9 @@ void ps3_os_area_set_rtc_diff(u64 rtc_diff)
 }
 EXPORT_SYMBOL_GPL(ps3_os_area_set_rtc_diff);
 
+/**
+ * ps3_os_area_get_av_multi_out - Returns the default video mode.
+ */
 
 enum ps3_param_av_multi_out ps3_os_area_get_av_multi_out(void)
 {

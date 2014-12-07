@@ -5,6 +5,10 @@
 
 #include <linux/dma-mapping.h>
 
+/* Can be used to override the logic in pci_scan_bus for skipping
+ * already-configured bus numbers - to be used for buggy BIOSes
+ * or architectures with incomplete PCI setup by the loader.
+ */
 #define pcibios_assign_all_busses()	0
 
 #define PCIBIOS_MIN_IO		0UL
@@ -14,12 +18,21 @@
 
 static inline void pcibios_penalize_isa_irq(int irq, int active)
 {
-	
+	/* We don't do dynamic PCI IRQ allocation */
 }
 
+/* The PCI address space does not equal the physical memory
+ * address space.  The networking and block device layers use
+ * this boolean for bounce buffer decisions.
+ */
 #define PCI_DMA_BUS_IS_PHYS	(0)
 
+/* PCI IOMMU mapping bypass support. */
 
+/* PCI 64-bit addressing works for all slots on all controller
+ * types on sparc64.  However, it requires that the device
+ * can drive enough of the 64 bits.
+ */
 #define PCI64_REQUIRED_MASK	(~(u64)0)
 #define PCI64_ADDR_BASE		0xfffc000000000000UL
 
@@ -42,6 +55,7 @@ static inline void pci_dma_burst_advice(struct pci_dev *pdev,
 }
 #endif
 
+/* Return the index of the PCI controller for device PDEV. */
 
 extern int pci_domain_nr(struct pci_bus *bus);
 static inline int pci_proc_domain(struct pci_bus *bus)
@@ -49,6 +63,7 @@ static inline int pci_proc_domain(struct pci_bus *bus)
 	return 1;
 }
 
+/* Platform support for /proc/bus/pci/X/Y mmap()s. */
 
 #define HAVE_PCI_MMAP
 #define HAVE_ARCH_PCI_GET_UNMAPPED_AREA
@@ -67,6 +82,6 @@ static inline int pci_get_legacy_ide_irq(struct pci_dev *dev, int channel)
 extern void pci_resource_to_user(const struct pci_dev *dev, int bar,
 				 const struct resource *rsrc,
 				 resource_size_t *start, resource_size_t *end);
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __SPARC64_PCI_H */

@@ -38,6 +38,9 @@
 
 #include <asm/io.h>
 
+// ----------------------------------------------------------------------------
+// Debug Stuff
+// ----------------------------------------------------------------------------
 #define K1212_DEBUG_LEVEL		0
 #if K1212_DEBUG_LEVEL > 0
 #define K1212_DEBUG_PRINTK(fmt,args...)	printk(KERN_DEBUG fmt,##args)
@@ -50,97 +53,120 @@
 #define K1212_DEBUG_PRINTK_VERBOSE(fmt,...)
 #endif
 
+// ----------------------------------------------------------------------------
+// Record/Play Buffer Allocation Method. If K1212_LARGEALLOC is defined all 
+// buffers are alocated as a large piece inside KorgSharedBuffer.
+// ----------------------------------------------------------------------------
+//#define K1212_LARGEALLOC		1
 
+// ----------------------------------------------------------------------------
+// Valid states of the Korg 1212 I/O card.
+// ----------------------------------------------------------------------------
 enum CardState {
-   K1212_STATE_NONEXISTENT,		
-   K1212_STATE_UNINITIALIZED,		
-   K1212_STATE_DSP_IN_PROCESS,		
-   K1212_STATE_DSP_COMPLETE,		
-   K1212_STATE_READY,			
-					
-					
-   K1212_STATE_OPEN,			
-   K1212_STATE_SETUP,			
-   K1212_STATE_PLAYING,			
-   K1212_STATE_MONITOR,			
-   K1212_STATE_CALIBRATING,		
-   K1212_STATE_ERRORSTOP,		
-					
-   K1212_STATE_MAX_STATE		
+   K1212_STATE_NONEXISTENT,		// there is no card here
+   K1212_STATE_UNINITIALIZED,		// the card is awaiting DSP download
+   K1212_STATE_DSP_IN_PROCESS,		// the card is currently downloading its DSP code
+   K1212_STATE_DSP_COMPLETE,		// the card has finished the DSP download
+   K1212_STATE_READY,			// the card can be opened by an application.  Any application
+					//    requests prior to this state should fail.  Only an open
+					//    request can be made at this state.
+   K1212_STATE_OPEN,			// an application has opened the card
+   K1212_STATE_SETUP,			// the card has been setup for play
+   K1212_STATE_PLAYING,			// the card is playing
+   K1212_STATE_MONITOR,			// the card is in the monitor mode
+   K1212_STATE_CALIBRATING,		// the card is currently calibrating
+   K1212_STATE_ERRORSTOP,		// the card has stopped itself because of an error and we
+					//    are in the process of cleaning things up.
+   K1212_STATE_MAX_STATE		// state values of this and beyond are invalid
 };
 
+// ----------------------------------------------------------------------------
 // The following enumeration defines the constants written to the card's
+// host-to-card doorbell to initiate a command.
+// ----------------------------------------------------------------------------
 enum korg1212_dbcnst {
-   K1212_DB_RequestForData        = 0,    
-   K1212_DB_TriggerPlay           = 1,    
-   K1212_DB_SelectPlayMode        = 2,    
-   K1212_DB_ConfigureBufferMemory = 3,    
-   K1212_DB_RequestAdatTimecode   = 4,    
-   K1212_DB_SetClockSourceRate    = 5,    
-   K1212_DB_ConfigureMiscMemory   = 6,    
-   K1212_DB_TriggerFromAdat       = 7,    
-                                          
-   K1212_DB_DMAERROR              = 0x80, 
-   K1212_DB_CARDSTOPPED           = 0x81, 
-   K1212_DB_RebootCard            = 0xA0, 
-   K1212_DB_BootFromDSPPage4      = 0xA4, 
-                                          
-   K1212_DB_DSPDownloadDone       = 0xAE, 
-                                          
-   K1212_DB_StartDSPDownload      = 0xAF  
+   K1212_DB_RequestForData        = 0,    // sent by the card to request a buffer fill.
+   K1212_DB_TriggerPlay           = 1,    // starts playback/record on the card.
+   K1212_DB_SelectPlayMode        = 2,    // select monitor, playback setup, or stop.
+   K1212_DB_ConfigureBufferMemory = 3,    // tells card where the host audio buffers are.
+   K1212_DB_RequestAdatTimecode   = 4,    // asks the card for the latest ADAT timecode value.
+   K1212_DB_SetClockSourceRate    = 5,    // sets the clock source and rate for the card.
+   K1212_DB_ConfigureMiscMemory   = 6,    // tells card where other buffers are.
+   K1212_DB_TriggerFromAdat       = 7,    // tells card to trigger from Adat at a specific
+                                          //    timecode value.
+   K1212_DB_DMAERROR              = 0x80, // DMA Error - the PCI bus is congestioned.
+   K1212_DB_CARDSTOPPED           = 0x81, // Card has stopped by user request.
+   K1212_DB_RebootCard            = 0xA0, // instructs the card to reboot.
+   K1212_DB_BootFromDSPPage4      = 0xA4, // instructs the card to boot from the DSP microcode
+                                          //    on page 4 (local page to card).
+   K1212_DB_DSPDownloadDone       = 0xAE, // sent by the card to indicate the download has
+                                          //    completed.
+   K1212_DB_StartDSPDownload      = 0xAF  // tells the card to download its DSP firmware.
 };
 
 
+// ----------------------------------------------------------------------------
+// The following enumeration defines return codes 
+// to the Korg 1212 I/O driver.
+// ----------------------------------------------------------------------------
 enum snd_korg1212rc {
-   K1212_CMDRET_Success         = 0,   
-   K1212_CMDRET_DIOCFailure,           
-   K1212_CMDRET_PMFailure,             
-   K1212_CMDRET_FailUnspecified,       
-   K1212_CMDRET_FailBadState,          
-                                       
-                                       
-   K1212_CMDRET_CardUninitialized,     
-   K1212_CMDRET_BadIndex,              
-   K1212_CMDRET_BadHandle,             
-   K1212_CMDRET_NoFillRoutine,         
-   K1212_CMDRET_FillRoutineInUse,      
-   K1212_CMDRET_NoAckFromCard,         
-   K1212_CMDRET_BadParams,             
+   K1212_CMDRET_Success         = 0,   // command was successfully placed
+   K1212_CMDRET_DIOCFailure,           // the DeviceIoControl call failed
+   K1212_CMDRET_PMFailure,             // the protected mode call failed
+   K1212_CMDRET_FailUnspecified,       // unspecified failure
+   K1212_CMDRET_FailBadState,          // the specified command can not be given in
+                                       //    the card's current state. (or the wave device's
+                                       //    state)
+   K1212_CMDRET_CardUninitialized,     // the card is uninitialized and cannot be used
+   K1212_CMDRET_BadIndex,              // an out of range card index was specified
+   K1212_CMDRET_BadHandle,             // an invalid card handle was specified
+   K1212_CMDRET_NoFillRoutine,         // a play request has been made before a fill routine set
+   K1212_CMDRET_FillRoutineInUse,      // can't set a new fill routine while one is in use
+   K1212_CMDRET_NoAckFromCard,         // the card never acknowledged a command
+   K1212_CMDRET_BadParams,             // bad parameters were provided by the caller
 
-   K1212_CMDRET_BadDevice,             
-   K1212_CMDRET_BadFormat              
+   K1212_CMDRET_BadDevice,             // the specified wave device was out of range
+   K1212_CMDRET_BadFormat              // the specified wave format is unsupported
 };
 
+// ----------------------------------------------------------------------------
+// The following enumeration defines the constants used to select the play
+// mode for the card in the SelectPlayMode command.
+// ----------------------------------------------------------------------------
 enum PlayModeSelector {
-   K1212_MODE_SetupPlay  = 0x00000001,     
-   K1212_MODE_MonitorOn  = 0x00000002,     
-   K1212_MODE_MonitorOff = 0x00000004,     
-   K1212_MODE_StopPlay   = 0x00000008      
+   K1212_MODE_SetupPlay  = 0x00000001,     // provides card with pre-play information
+   K1212_MODE_MonitorOn  = 0x00000002,     // tells card to turn on monitor mode
+   K1212_MODE_MonitorOff = 0x00000004,     // tells card to turn off monitor mode
+   K1212_MODE_StopPlay   = 0x00000008      // stops playback on the card
 };
 
+// ----------------------------------------------------------------------------
+// The following enumeration defines the constants used to select the monitor
+// mode for the card in the SetMonitorMode command.
+// ----------------------------------------------------------------------------
 enum MonitorModeSelector {
-   K1212_MONMODE_Off  = 0,     
-   K1212_MONMODE_On            
+   K1212_MONMODE_Off  = 0,     // tells card to turn off monitor mode
+   K1212_MONMODE_On            // tells card to turn on monitor mode
 };
 
-#define MAILBOX0_OFFSET      0x40	
-#define MAILBOX1_OFFSET      0x44	
-#define MAILBOX2_OFFSET      0x48	
-#define MAILBOX3_OFFSET      0x4c	
-#define OUT_DOORBELL_OFFSET  0x60	
-#define IN_DOORBELL_OFFSET   0x64	
-#define STATUS_REG_OFFSET    0x68	
-#define PCI_CONTROL_OFFSET   0x6c	
-					
-#define SENS_CONTROL_OFFSET  0x6e	
-					
-#define DEV_VEND_ID_OFFSET   0x70	
+#define MAILBOX0_OFFSET      0x40	// location of mailbox 0 relative to base address
+#define MAILBOX1_OFFSET      0x44	// location of mailbox 1 relative to base address
+#define MAILBOX2_OFFSET      0x48	// location of mailbox 2 relative to base address
+#define MAILBOX3_OFFSET      0x4c	// location of mailbox 3 relative to base address
+#define OUT_DOORBELL_OFFSET  0x60	// location of PCI to local doorbell
+#define IN_DOORBELL_OFFSET   0x64	// location of local to PCI doorbell
+#define STATUS_REG_OFFSET    0x68	// location of interrupt control/status register
+#define PCI_CONTROL_OFFSET   0x6c	// location of the EEPROM, PCI, User I/O, init control
+					//    register
+#define SENS_CONTROL_OFFSET  0x6e	// location of the input sensitivity setting register.
+					//    this is the upper word of the PCI control reg.
+#define DEV_VEND_ID_OFFSET   0x70	// location of the device and vendor ID register
 
-#define MAX_COMMAND_RETRIES  5         
-                                       
-#define COMMAND_ACK_MASK     0x8000    
-                                        
-#define DOORBELL_VAL_MASK    0x00FF    
+#define MAX_COMMAND_RETRIES  5         // maximum number of times the driver will attempt
+                                       //    to send a command before giving up.
+#define COMMAND_ACK_MASK     0x8000    // the MSB is set in the command acknowledgment from
+                                        //    the card.
+#define DOORBELL_VAL_MASK    0x00FF    // the doorbell value is one byte
 
 #define CARD_BOOT_DELAY_IN_MS  10
 #define CARD_BOOT_TIMEOUT      10
@@ -177,22 +203,36 @@ enum MonitorModeSelector {
 #define k1212MinVolume      0x0000
 #define k1212MaxVolInverted 0x8000
 
+// -----------------------------------------------------------------
+// the following bits are used for controlling interrupts in the
+// interrupt control/status reg
+// -----------------------------------------------------------------
 #define  PCI_INT_ENABLE_BIT               0x00000100
 #define  PCI_DOORBELL_INT_ENABLE_BIT      0x00000200
 #define  LOCAL_INT_ENABLE_BIT             0x00010000
 #define  LOCAL_DOORBELL_INT_ENABLE_BIT    0x00020000
 #define  LOCAL_DMA1_INT_ENABLE_BIT        0x00080000
 
+// -----------------------------------------------------------------
+// the following bits are defined for the PCI command register
+// -----------------------------------------------------------------
 #define  PCI_CMD_MEM_SPACE_ENABLE_BIT     0x0002
 #define  PCI_CMD_IO_SPACE_ENABLE_BIT      0x0001
 #define  PCI_CMD_BUS_MASTER_ENABLE_BIT    0x0004
 
+// -----------------------------------------------------------------
+// the following bits are defined for the PCI status register
+// -----------------------------------------------------------------
 #define  PCI_STAT_PARITY_ERROR_BIT        0x8000
 #define  PCI_STAT_SYSTEM_ERROR_BIT        0x4000
 #define  PCI_STAT_MASTER_ABORT_RCVD_BIT   0x2000
 #define  PCI_STAT_TARGET_ABORT_RCVD_BIT   0x1000
 #define  PCI_STAT_TARGET_ABORT_SENT_BIT   0x0800
 
+// ------------------------------------------------------------------------
+// the following constants are used in setting the 1212 I/O card's input
+// sensitivity.
+// ------------------------------------------------------------------------
 #define  SET_SENS_LOCALINIT_BITPOS        15
 #define  SET_SENS_DATA_BITPOS             10
 #define  SET_SENS_CLOCK_BITPOS            8
@@ -203,39 +243,47 @@ enum MonitorModeSelector {
 
 #define  K1212SENSUPDATE_DELAY_IN_MS      50
 
+// --------------------------------------------------------------------------
+// WaitRTCTicks
+//
+//    This function waits the specified number of real time clock ticks.
+//    According to the DDK, each tick is ~0.8 microseconds.
+//    The defines following the function declaration can be used for the
+//    numTicksToWait parameter.
+// --------------------------------------------------------------------------
 #define ONE_RTC_TICK         1
 #define SENSCLKPULSE_WIDTH   4
 #define LOADSHIFT_DELAY      4
 #define INTERCOMMAND_DELAY  40
-#define STOPCARD_DELAY      300        
-                                       
-#define COMMAND_ACK_DELAY   13         
-                                       
+#define STOPCARD_DELAY      300        // max # RTC ticks for the card to stop once we write
+                                       //    the command register.  (could be up to 180 us)
+#define COMMAND_ACK_DELAY   13         // number of RTC ticks to wait for an acknowledgement
+                                       //    from the card after sending a command.
 
 enum ClockSourceIndex {
-   K1212_CLKIDX_AdatAt44_1K = 0,    
-   K1212_CLKIDX_AdatAt48K,          
-   K1212_CLKIDX_WordAt44_1K,        
-   K1212_CLKIDX_WordAt48K,          
-   K1212_CLKIDX_LocalAt44_1K,       
-   K1212_CLKIDX_LocalAt48K,         
-   K1212_CLKIDX_Invalid             
+   K1212_CLKIDX_AdatAt44_1K = 0,    // selects source as ADAT at 44.1 kHz
+   K1212_CLKIDX_AdatAt48K,          // selects source as ADAT at 48 kHz
+   K1212_CLKIDX_WordAt44_1K,        // selects source as S/PDIF at 44.1 kHz
+   K1212_CLKIDX_WordAt48K,          // selects source as S/PDIF at 48 kHz
+   K1212_CLKIDX_LocalAt44_1K,       // selects source as local clock at 44.1 kHz
+   K1212_CLKIDX_LocalAt48K,         // selects source as local clock at 48 kHz
+   K1212_CLKIDX_Invalid             // used to check validity of the index
 };
 
 enum ClockSourceType {
-   K1212_CLKIDX_Adat = 0,    
-   K1212_CLKIDX_Word,        
-   K1212_CLKIDX_Local        
+   K1212_CLKIDX_Adat = 0,    // selects source as ADAT
+   K1212_CLKIDX_Word,        // selects source as S/PDIF
+   K1212_CLKIDX_Local        // selects source as local clock
 };
 
 struct KorgAudioFrame {
-	u16 frameData16[k16BitChannels]; 
-	u32 frameData32[k32BitChannels]; 
-	u32 timeCodeVal; 
+	u16 frameData16[k16BitChannels]; /* channels 0-9 use 16 bit samples */
+	u32 frameData32[k32BitChannels]; /* channels 10-11 use 32 bits - only 20 are sent across S/PDIF */
+	u32 timeCodeVal; /* holds the ADAT timecode value */
 };
 
 struct KorgAudioBuffer {
-	struct KorgAudioFrame  bufferData[kPlayBufferFrames];     
+	struct KorgAudioFrame  bufferData[kPlayBufferFrames];     /* buffer definition */
 };
 
 struct KorgSharedBuffer {
@@ -246,7 +294,7 @@ struct KorgSharedBuffer {
    short             volumeData[kAudioChannels];
    u32               cardCommand;
    u16               routeData [kAudioChannels];
-   u32               AdatTimeCode;                 
+   u32               AdatTimeCode;                 // ADAT timecode value
 };
 
 struct SensBits {
@@ -275,8 +323,8 @@ struct snd_korg1212 {
         spinlock_t    lock;
 	struct mutex open_mutex;
 
-	struct timer_list timer;	
-	int stop_pending_cnt;		
+	struct timer_list timer;	/* timer callback for checking ack of stop request */
+	int stop_pending_cnt;		/* counter for stop pending check */
 
         wait_queue_head_t wait;
 
@@ -306,16 +354,16 @@ struct snd_korg1212 {
 	u32 RoutingTablePhy;
 	u32 AdatTimeCodePhy;
 
-        u32 __iomem * statusRegPtr;	     
-        u32 __iomem * outDoorbellPtr;	     
-        u32 __iomem * inDoorbellPtr;	     
-        u32 __iomem * mailbox0Ptr;	     
-        u32 __iomem * mailbox1Ptr;	     
-        u32 __iomem * mailbox2Ptr;	     
-        u32 __iomem * mailbox3Ptr;	     
-        u32 __iomem * controlRegPtr;	     
-        u16 __iomem * sensRegPtr;	     
-        u32 __iomem * idRegPtr;		     
+        u32 __iomem * statusRegPtr;	     // address of the interrupt status/control register
+        u32 __iomem * outDoorbellPtr;	     // address of the host->card doorbell register
+        u32 __iomem * inDoorbellPtr;	     // address of the card->host doorbell register
+        u32 __iomem * mailbox0Ptr;	     // address of mailbox 0 on the card
+        u32 __iomem * mailbox1Ptr;	     // address of mailbox 1 on the card
+        u32 __iomem * mailbox2Ptr;	     // address of mailbox 2 on the card
+        u32 __iomem * mailbox3Ptr;	     // address of mailbox 3 on the card
+        u32 __iomem * controlRegPtr;	     // address of the EEPROM, PCI, I/O, Init ctrl reg
+        u16 __iomem * sensRegPtr;	     // address of the sensitivity setting register
+        u32 __iomem * idRegPtr;		     // address of the device and vendor ID registers
 
         size_t periodsize;
 	int channels;
@@ -329,24 +377,24 @@ struct snd_korg1212 {
 
  	enum CardState cardState;
         int running;
-        int idleMonitorOn;           
-        u32 cmdRetryCount;           
+        int idleMonitorOn;           // indicates whether the card is in idle monitor mode.
+        u32 cmdRetryCount;           // tracks how many times we have retried sending to the card.
 
-        enum ClockSourceIndex clkSrcRate; 
+        enum ClockSourceIndex clkSrcRate; // sample rate and clock source
 
-        enum ClockSourceType clkSource;   
-        int clkRate;                 
+        enum ClockSourceType clkSource;   // clock source
+        int clkRate;                 // clock rate
 
         int volumePhase[kAudioChannels];
 
-        u16 leftADCInSens;           
-        u16 rightADCInSens;          
+        u16 leftADCInSens;           // ADC left channel input sensitivity
+        u16 rightADCInSens;          // ADC right channel input sensitivity
 
-	int opencnt;		     
-	int setcnt;		     
-	int playcnt;		     
-	int errorcnt;		     
-	unsigned long totalerrorcnt; 
+	int opencnt;		     // Open/Close count
+	int setcnt;		     // SetupForPlay count
+	int playcnt;		     // TriggerPlay count
+	int errorcnt;		     // Error Count
+	unsigned long totalerrorcnt; // Total Error Count
 
 	int dsp_is_loaded;
 	int dsp_stop_is_processed;
@@ -358,9 +406,9 @@ MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{KORG,korg1212}}");
 MODULE_FIRMWARE("korg/k1212.dsp");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;     
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	   
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;     /* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	   /* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE; /* Enable this card */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for Korg 1212 soundcard.");
@@ -423,12 +471,12 @@ static char *channelName[] = {
 };
 
 static u16 ClockSourceSelector[] = {
-	0x8000,   
-	0x0000,   
-	0x8001,   
-	0x0001,   
-	0x8002,   
-	0x0002    
+	0x8000,   // selects source as ADAT at 44.1 kHz
+	0x0000,   // selects source as ADAT at 48 kHz
+	0x8001,   // selects source as S/PDIF at 44.1 kHz
+	0x0001,   // selects source as S/PDIF at 48 kHz
+	0x8002,   // selects source as local clock at 44.1 kHz
+	0x0002    // selects source as local clock at 48 kHz
 };
 
 union swap_u32 { unsigned char c[4]; u32 i; };
@@ -493,11 +541,11 @@ static int snd_korg1212_Send1212Command(struct snd_korg1212 *korg1212,
                 writel(mailBox2Val, korg1212->mailbox2Ptr);
                 writel(mailBox1Val, korg1212->mailbox1Ptr);
                 writel(mailBox0Val, korg1212->mailbox0Ptr);
-                writel(doorbellVal, korg1212->outDoorbellPtr);  
+                writel(doorbellVal, korg1212->outDoorbellPtr);  // interrupt the card
 
-                
-                
-                
+                // --------------------------------------------------------------
+                // the reboot command will not give an acknowledgement.
+                // --------------------------------------------------------------
                 if ( doorbellVal == K1212_DB_RebootCard ||
                 	doorbellVal == K1212_DB_BootFromDSPPage4 ||
                         doorbellVal == K1212_DB_StartDSPDownload ) {
@@ -505,11 +553,11 @@ static int snd_korg1212_Send1212Command(struct snd_korg1212 *korg1212,
                         break;
                 }
 
-                
-                
-                
-                
-                
+                // --------------------------------------------------------------
+                // See if the card acknowledged the command.  Wait a bit, then
+                // read in the low word of mailbox3.  If the MSB is set and the
+                // low byte is equal to the doorbell value, then it ack'd.
+                // --------------------------------------------------------------
                 udelay(COMMAND_ACK_DELAY);
                 mailBox3Lo = readl(korg1212->mailbox3Ptr);
                 if (mailBox3Lo & COMMAND_ACK_MASK) {
@@ -530,11 +578,12 @@ static int snd_korg1212_Send1212Command(struct snd_korg1212 *korg1212,
 	return rc;
 }
 
+/* spinlock already held */
 static void snd_korg1212_SendStop(struct snd_korg1212 *korg1212)
 {
 	if (! korg1212->stop_pending_cnt) {
 		korg1212->sharedBufferPtr->cardCommand = 0xffffffff;
-		
+		/* program the timer */
 		korg1212->stop_pending_cnt = HZ;
 		korg1212->timer.expires = jiffies + 1;
 		add_timer(&korg1212->timer);
@@ -551,6 +600,7 @@ static void snd_korg1212_SendStopAndWait(struct snd_korg1212 *korg1212)
 	wait_event_timeout(korg1212->wait, korg1212->dsp_stop_is_processed, (HZ * 3) / 2);
 }
 
+/* timer callback for checking the ack of stop request */
 static void snd_korg1212_timer_func(unsigned long data)
 {
         struct snd_korg1212 *korg1212 = (struct snd_korg1212 *) data;
@@ -558,7 +608,7 @@ static void snd_korg1212_timer_func(unsigned long data)
 	
 	spin_lock_irqsave(&korg1212->lock, flags);
 	if (korg1212->sharedBufferPtr->cardCommand == 0) {
-		
+		/* ack'ed */
 		korg1212->stop_pending_cnt = 0;
 		korg1212->dsp_stop_is_processed = 1;
 		wake_up(&korg1212->wait);
@@ -566,7 +616,7 @@ static void snd_korg1212_timer_func(unsigned long data)
 					   stateName[korg1212->cardState]);
 	} else {
 		if (--korg1212->stop_pending_cnt > 0) {
-			
+			/* reprogram timer */
 			korg1212->timer.expires = jiffies + 1;
 			add_timer(&korg1212->timer);
 		} else {
@@ -656,6 +706,7 @@ static int snd_korg1212_CloseCard(struct snd_korg1212 * korg1212)
         return 0;
 }
 
+/* spinlock already held */
 static int snd_korg1212_SetupForPlay(struct snd_korg1212 * korg1212)
 {
 	int rc;
@@ -678,6 +729,7 @@ static int snd_korg1212_SetupForPlay(struct snd_korg1212 * korg1212)
         return 0;
 }
 
+/* spinlock already held */
 static int snd_korg1212_TriggerPlay(struct snd_korg1212 * korg1212)
 {
 	int rc;
@@ -699,6 +751,7 @@ static int snd_korg1212_TriggerPlay(struct snd_korg1212 * korg1212)
         return 0;
 }
 
+/* spinlock already held */
 static int snd_korg1212_StopPlay(struct snd_korg1212 * korg1212)
 {
 	K1212_DEBUG_PRINTK("K1212_DEBUG: StopPlay [%s] %d\n",
@@ -726,7 +779,7 @@ static void snd_korg1212_EnableCardInterrupts(struct snd_korg1212 * korg1212)
 	       korg1212->statusRegPtr);
 }
 
-#if 0 
+#if 0 /* not used */
 
 static int snd_korg1212_SetMonitorMode(struct snd_korg1212 *korg1212,
 				       enum MonitorModeSelector mode)
@@ -764,7 +817,7 @@ static int snd_korg1212_SetMonitorMode(struct snd_korg1212 *korg1212,
         return 1;
 }
 
-#endif 
+#endif /* not used */
 
 static inline int snd_korg1212_use_is_exclusive(struct snd_korg1212 *korg1212)
 {
@@ -845,23 +898,23 @@ static int snd_korg1212_WriteADCSensitivity(struct snd_korg1212 *korg1212)
         int       clkIs48K;
         int       monModeSet;
         u16       controlValue;    // this keeps the current value to be written to
-                                   
+                                   //  the card's eeprom control register.
         u16       count;
 	unsigned long flags;
 
 	K1212_DEBUG_PRINTK("K1212_DEBUG: WriteADCSensivity [%s]\n",
 			   stateName[korg1212->cardState]);
 
-        
-        
-        
-        
+        // ----------------------------------------------------------------------------
+        // initialize things.  The local init bit is always set when writing to the
+        // card's control register.
+        // ----------------------------------------------------------------------------
         controlValue = 0;
-        SetBitInWord(&controlValue, SET_SENS_LOCALINIT_BITPOS);    
+        SetBitInWord(&controlValue, SET_SENS_LOCALINIT_BITPOS);    // init the control value
 
-        
-        
-        
+        // ----------------------------------------------------------------------------
+        // make sure the card is not in monitor mode when we do this update.
+        // ----------------------------------------------------------------------------
         if (korg1212->cardState == K1212_STATE_MONITOR || korg1212->idleMonitorOn) {
                 monModeSet = 1;
 		snd_korg1212_SendStopAndWait(korg1212);
@@ -870,17 +923,17 @@ static int snd_korg1212_WriteADCSensitivity(struct snd_korg1212 *korg1212)
 
 	spin_lock_irqsave(&korg1212->lock, flags);
 
-        
-        
-        
-        
+        // ----------------------------------------------------------------------------
+        // we are about to send new values to the card, so clear the new values queued
+        // flag.  Also, clear out mailbox 3, so we don't lockup.
+        // ----------------------------------------------------------------------------
         writel(0, korg1212->mailbox3Ptr);
         udelay(LOADSHIFT_DELAY);
 
-        
-        
-        
-        
+        // ----------------------------------------------------------------------------
+        // determine whether we are running a 48K or 44.1K clock.  This info is used
+        // later when setting the SPDIF FF after the volume has been shifted in.
+        // ----------------------------------------------------------------------------
         switch (korg1212->clkSrcRate) {
                 case K1212_CLKIDX_AdatAt44_1K:
                 case K1212_CLKIDX_WordAt44_1K:
@@ -896,76 +949,76 @@ static int snd_korg1212_WriteADCSensitivity(struct snd_korg1212 *korg1212)
                         break;
         }
 
-        
-        
-        
+        // ----------------------------------------------------------------------------
+        // start the update.  Setup the bit structure and then shift the bits.
+        // ----------------------------------------------------------------------------
         sensVals.l.v.leftChanId   = SET_SENS_LEFTCHANID;
         sensVals.r.v.rightChanId  = SET_SENS_RIGHTCHANID;
         sensVals.l.v.leftChanVal  = korg1212->leftADCInSens;
         sensVals.r.v.rightChanVal = korg1212->rightADCInSens;
 
-        
-        
-        
+        // ----------------------------------------------------------------------------
+        // now start shifting the bits in.  Start with the left channel then the right.
+        // ----------------------------------------------------------------------------
         for (channel = 0; channel < 2; channel++) {
 
-                
-                
-                
-                
+                // ----------------------------------------------------------------------------
+                // Bring the load/shift line low, then wait - the spec says >150ns from load/
+                // shift low to the first rising edge of the clock.
+                // ----------------------------------------------------------------------------
                 ClearBitInWord(&controlValue, SET_SENS_LOADSHIFT_BITPOS);
                 ClearBitInWord(&controlValue, SET_SENS_DATA_BITPOS);
-                writew(controlValue, korg1212->sensRegPtr);                          
+                writew(controlValue, korg1212->sensRegPtr);                          // load/shift goes low
                 udelay(LOADSHIFT_DELAY);
 
-                for (bitPosition = 15; bitPosition >= 0; bitPosition--) {       
+                for (bitPosition = 15; bitPosition >= 0; bitPosition--) {       // for all the bits
 			if (channel == 0) {
 				if (sensVals.l.leftSensBits & (0x0001 << bitPosition))
-                                        SetBitInWord(&controlValue, SET_SENS_DATA_BITPOS);     
+                                        SetBitInWord(&controlValue, SET_SENS_DATA_BITPOS);     // data bit set high
 				else
-					ClearBitInWord(&controlValue, SET_SENS_DATA_BITPOS);   
+					ClearBitInWord(&controlValue, SET_SENS_DATA_BITPOS);   // data bit set low
 			} else {
                                 if (sensVals.r.rightSensBits & (0x0001 << bitPosition))
-					SetBitInWord(&controlValue, SET_SENS_DATA_BITPOS);     
+					SetBitInWord(&controlValue, SET_SENS_DATA_BITPOS);     // data bit set high
 				else
-					ClearBitInWord(&controlValue, SET_SENS_DATA_BITPOS);   
+					ClearBitInWord(&controlValue, SET_SENS_DATA_BITPOS);   // data bit set low
 			}
 
                         ClearBitInWord(&controlValue, SET_SENS_CLOCK_BITPOS);
-                        writew(controlValue, korg1212->sensRegPtr);                       
+                        writew(controlValue, korg1212->sensRegPtr);                       // clock goes low
                         udelay(SENSCLKPULSE_WIDTH);
                         SetBitInWord(&controlValue, SET_SENS_CLOCK_BITPOS);
-                        writew(controlValue, korg1212->sensRegPtr);                       
+                        writew(controlValue, korg1212->sensRegPtr);                       // clock goes high
                         udelay(SENSCLKPULSE_WIDTH);
                 }
 
-                
-                
-                
-                
+                // ----------------------------------------------------------------------------
+                // finish up SPDIF for left.  Bring the load/shift line high, then write a one
+                // bit if the clock rate is 48K otherwise write 0.
+                // ----------------------------------------------------------------------------
                 ClearBitInWord(&controlValue, SET_SENS_DATA_BITPOS);
                 ClearBitInWord(&controlValue, SET_SENS_CLOCK_BITPOS);
                 SetBitInWord(&controlValue, SET_SENS_LOADSHIFT_BITPOS);
-                writew(controlValue, korg1212->sensRegPtr);                   
+                writew(controlValue, korg1212->sensRegPtr);                   // load shift goes high - clk low
                 udelay(SENSCLKPULSE_WIDTH);
 
                 if (clkIs48K)
                         SetBitInWord(&controlValue, SET_SENS_DATA_BITPOS);
 
-                writew(controlValue, korg1212->sensRegPtr);                   
+                writew(controlValue, korg1212->sensRegPtr);                   // set/clear data bit
                 udelay(ONE_RTC_TICK);
                 SetBitInWord(&controlValue, SET_SENS_CLOCK_BITPOS);
-                writew(controlValue, korg1212->sensRegPtr);                   
+                writew(controlValue, korg1212->sensRegPtr);                   // clock goes high
                 udelay(SENSCLKPULSE_WIDTH);
                 ClearBitInWord(&controlValue, SET_SENS_CLOCK_BITPOS);
-                writew(controlValue, korg1212->sensRegPtr);                   
+                writew(controlValue, korg1212->sensRegPtr);                   // clock goes low
                 udelay(SENSCLKPULSE_WIDTH);
         }
 
-        
-        
-        
-        
+        // ----------------------------------------------------------------------------
+        // The update is complete.  Set a timeout.  This is the inter-update delay.
+        // Also, if the card was in monitor mode, restore it.
+        // ----------------------------------------------------------------------------
         for (count = 0; count < 10; count++)
                 udelay(SENSCLKPULSE_WIDTH);
 
@@ -989,9 +1042,9 @@ static void snd_korg1212_OnDSPDownloadComplete(struct snd_korg1212 *korg1212)
         K1212_DEBUG_PRINTK("K1212_DEBUG: DSP download is complete. [%s]\n",
 			   stateName[korg1212->cardState]);
 
-        
-        
-        
+        // ----------------------------------------------------
+        // tell the card to boot
+        // ----------------------------------------------------
         rc = snd_korg1212_Send1212Command(korg1212, K1212_DB_BootFromDSPPage4, 0, 0, 0, 0);
 
 	if (rc)
@@ -999,15 +1052,15 @@ static void snd_korg1212_OnDSPDownloadComplete(struct snd_korg1212 *korg1212)
 				   rc, stateName[korg1212->cardState]);
 	msleep(DSP_BOOT_DELAY_IN_MS);
 
-        
-        
-        
+        // --------------------------------------------------------------------------------
+        // Let the card know where all the buffers are.
+        // --------------------------------------------------------------------------------
         rc = snd_korg1212_Send1212Command(korg1212,
                         K1212_DB_ConfigureBufferMemory,
                         LowerWordSwap(korg1212->PlayDataPhy),
                         LowerWordSwap(korg1212->RecDataPhy),
-                        ((kNumBuffers * kPlayBufferFrames) / 2),   
-                                                                   
+                        ((kNumBuffers * kPlayBufferFrames) / 2),   // size given to the card
+                                                                   // is based on 2 buffers
                         0
         );
 
@@ -1029,14 +1082,14 @@ static void snd_korg1212_OnDSPDownloadComplete(struct snd_korg1212 *korg1212)
 		K1212_DEBUG_PRINTK("K1212_DEBUG: Configure Misc Memory - RC = %d [%s]\n",
 				   rc, stateName[korg1212->cardState]);
 
-        
-        
-        
+        // --------------------------------------------------------------------------------
+        // Initialize the routing and volume tables, then update the card's state.
+        // --------------------------------------------------------------------------------
         udelay(INTERCOMMAND_DELAY);
 
         for (channel = 0; channel < kAudioChannels; channel++) {
                 korg1212->sharedBufferPtr->volumeData[channel] = k1212MaxVolume;
-                
+                //korg1212->sharedBufferPtr->routeData[channel] = channel;
                 korg1212->sharedBufferPtr->routeData[channel] = 8 + (channel & 1);
         }
 
@@ -1089,9 +1142,9 @@ static irqreturn_t snd_korg1212_interrupt(int irq, void *dev_id)
 			}
                         break;
 
-                
-                
-                
+                // ------------------------------------------------------------------------
+                // an error occurred - stop the card
+                // ------------------------------------------------------------------------
                 case K1212_DB_DMAERROR:
 			K1212_DEBUG_PRINTK_VERBOSE("K1212_DEBUG: IRQ DMAE count - %ld, %x, [%s].\n",
 						   korg1212->irqcount, doorbellValue,
@@ -1103,10 +1156,10 @@ static irqreturn_t snd_korg1212_interrupt(int irq, void *dev_id)
 			snd_korg1212_setCardState(korg1212, K1212_STATE_ERRORSTOP);
                         break;
 
-                
-                
-                
-                
+                // ------------------------------------------------------------------------
+                // the card has stopped by our request.  Clear the command word and signal
+                // the semaphore in case someone is waiting for this.
+                // ------------------------------------------------------------------------
                 case K1212_DB_CARDSTOPPED:
                         K1212_DEBUG_PRINTK_VERBOSE("K1212_DEBUG: IRQ CSTP count - %ld, %x, [%s].\n",
 						   korg1212->irqcount, doorbellValue,
@@ -1156,9 +1209,9 @@ static int snd_korg1212_downloadDSPCode(struct snd_korg1212 *korg1212)
         K1212_DEBUG_PRINTK("K1212_DEBUG: DSP download is starting... [%s]\n",
 			   stateName[korg1212->cardState]);
 
-        
-        
-        
+        // ---------------------------------------------------------------
+        // verify the state of the card before proceeding.
+        // ---------------------------------------------------------------
         if (korg1212->cardState >= K1212_STATE_DSP_IN_PROCESS)
                 return 1;
 
@@ -1174,7 +1227,7 @@ static int snd_korg1212_downloadDSPCode(struct snd_korg1212 *korg1212)
 	korg1212->dsp_is_loaded = 0;
 	wait_event_timeout(korg1212->wait, korg1212->dsp_is_loaded, HZ * CARD_BOOT_TIMEOUT);
 	if (! korg1212->dsp_is_loaded )
-		return -EBUSY; 
+		return -EBUSY; /* timeout */
 
 	snd_korg1212_OnDSPDownloadComplete(korg1212);
 
@@ -1460,6 +1513,10 @@ static int snd_korg1212_hw_params(struct snd_pcm_substream *substream,
 
 	if ((other_pid > 0) && (this_pid != other_pid)) {
 
+		/* The other stream is open, and not by the same
+		   task as this one. Make sure that the parameters
+		   that matter are the same.
+		 */
 
 		if ((int)params_rate(params) != korg1212->clkRate) {
 			spin_unlock_irqrestore(&korg1212->lock, flags);
@@ -1494,12 +1551,17 @@ static int snd_korg1212_prepare(struct snd_pcm_substream *substream)
 
 	spin_lock_irq(&korg1212->lock);
 
-	
+	/* FIXME: we should wait for ack! */
 	if (korg1212->stop_pending_cnt > 0) {
 		K1212_DEBUG_PRINTK("K1212_DEBUG: snd_korg1212_prepare - Stop is pending... [%s]\n",
 				   stateName[korg1212->cardState]);
         	spin_unlock_irq(&korg1212->lock);
 		return -EAGAIN;
+		/*
+		korg1212->sharedBufferPtr->cardCommand = 0;
+		del_timer(&korg1212->timer);
+		korg1212->stop_pending_cnt = 0;
+		*/
 	}
 
         rc = snd_korg1212_SetupForPlay(korg1212);
@@ -1523,11 +1585,23 @@ static int snd_korg1212_trigger(struct snd_pcm_substream *substream,
 	spin_lock(&korg1212->lock);
         switch (cmd) {
                 case SNDRV_PCM_TRIGGER_START:
+/*
+			if (korg1212->running) {
+				K1212_DEBUG_PRINTK_VERBOSE("K1212_DEBUG: snd_korg1212_trigger: Already running?\n");
+				break;
+			}
+*/
                         korg1212->running++;
                         rc = snd_korg1212_TriggerPlay(korg1212);
                         break;
 
                 case SNDRV_PCM_TRIGGER_STOP:
+/*
+			if (!korg1212->running) {
+				K1212_DEBUG_PRINTK_VERBOSE("K1212_DEBUG: snd_korg1212_trigger: Already stopped?\n");
+				break;
+			}
+*/
                         korg1212->running--;
                         rc = snd_korg1212_StopPlay(korg1212);
                         break;
@@ -1567,7 +1641,7 @@ static snd_pcm_uframes_t snd_korg1212_capture_pointer(struct snd_pcm_substream *
 }
 
 static int snd_korg1212_playback_copy(struct snd_pcm_substream *substream,
-                        int channel, 
+                        int channel, /* not used (interleaved data) */
                         snd_pcm_uframes_t pos,
                         void __user *src,
                         snd_pcm_uframes_t count)
@@ -1582,7 +1656,7 @@ static int snd_korg1212_playback_copy(struct snd_pcm_substream *substream,
 }
 
 static int snd_korg1212_playback_silence(struct snd_pcm_substream *substream,
-                           int channel, 
+                           int channel, /* not used (interleaved data) */
                            snd_pcm_uframes_t pos,
                            snd_pcm_uframes_t count)
 {
@@ -1595,7 +1669,7 @@ static int snd_korg1212_playback_silence(struct snd_pcm_substream *substream,
 }
 
 static int snd_korg1212_capture_copy(struct snd_pcm_substream *substream,
-                        int channel, 
+                        int channel, /* not used (interleaved data) */
                         snd_pcm_uframes_t pos,
                         void __user *dst,
                         snd_pcm_uframes_t count)
@@ -1631,6 +1705,9 @@ static struct snd_pcm_ops snd_korg1212_capture_ops = {
 	.copy =		snd_korg1212_capture_copy,
 };
 
+/*
+ * Control Interface
+ */
 
 static int snd_korg1212_control_phase_info(struct snd_kcontrol *kcontrol,
 					   struct snd_ctl_elem_info *uinfo)
@@ -1974,6 +2051,9 @@ static struct snd_kcontrol_new snd_korg1212_controls[] = {
         }
 };
 
+/*
+ * proc interface
+ */
 
 static void snd_korg1212_proc_read(struct snd_info_entry *entry,
 				   struct snd_info_buffer *buffer)
@@ -2029,9 +2109,9 @@ snd_korg1212_free(struct snd_korg1212 *korg1212)
         
 	pci_release_regions(korg1212->pci);
 
-        
-        
-        
+        // ----------------------------------------------------
+        // free up memory resources used for the DSP download.
+        // ----------------------------------------------------
         if (korg1212->dma_dsp.area) {
         	snd_dma_free_pages(&korg1212->dma_dsp);
         	korg1212->dma_dsp.area = NULL;
@@ -2039,9 +2119,9 @@ snd_korg1212_free(struct snd_korg1212 *korg1212)
 
 #ifndef K1212_LARGEALLOC
 
-        
-        
-        
+        // ------------------------------------------------------
+        // free up memory resources used for the Play/Rec Buffers
+        // ------------------------------------------------------
 	if (korg1212->dma_play.area) {
 		snd_dma_free_pages(&korg1212->dma_play);
 		korg1212->dma_play.area = NULL;
@@ -2054,9 +2134,9 @@ snd_korg1212_free(struct snd_korg1212 *korg1212)
 
 #endif
 
-        
-        
-        
+        // ----------------------------------------------------
+        // free up memory resources used for the Shared Buffers
+        // ----------------------------------------------------
 	if (korg1212->dma_shared.area) {
 		snd_dma_free_pages(&korg1212->dma_shared);
 		korg1212->dma_shared.area = NULL;
@@ -2247,14 +2327,14 @@ static int __devinit snd_korg1212_create(struct snd_card *card, struct pci_dev *
         K1212_DEBUG_PRINTK("K1212_DEBUG: Record Data Area = 0x%p (0x%08x), %d bytes\n",
 		korg1212->recordDataBufsPtr, korg1212->RecDataPhy, korg1212->DataBufsSize);
 
-#else 
+#else // K1212_LARGEALLOC
 
         korg1212->recordDataBufsPtr = korg1212->sharedBufferPtr->recordDataBufs;
         korg1212->playDataBufsPtr = korg1212->sharedBufferPtr->playDataBufs;
         korg1212->PlayDataPhy = (u32) &((struct KorgSharedBuffer *) korg1212->sharedBufferPhy)->playDataBufs;
         korg1212->RecDataPhy  = (u32) &((struct KorgSharedBuffer *) korg1212->sharedBufferPhy)->recordDataBufs;
 
-#endif 
+#endif // K1212_LARGEALLOC
 
         korg1212->VolumeTablePhy = korg1212->sharedBufferPhy +
 		offsetof(struct KorgSharedBuffer, volumeData);
@@ -2345,6 +2425,9 @@ static int __devinit snd_korg1212_create(struct snd_card *card, struct pci_dev *
 
 }
 
+/*
+ * Card initialisation
+ */
 
 static int __devinit
 snd_korg1212_probe(struct pci_dev *pci,

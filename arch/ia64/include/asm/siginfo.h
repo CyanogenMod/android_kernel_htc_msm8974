@@ -1,6 +1,12 @@
 #ifndef _ASM_IA64_SIGINFO_H
 #define _ASM_IA64_SIGINFO_H
 
+/*
+ * Based on <asm-i386/siginfo.h>.
+ *
+ * Modified 1998-2002
+ *	David Mosberger-Tang <davidm@hpl.hp.com>, Hewlett-Packard Co
+ */
 
 #define __ARCH_SI_PREAMBLE_SIZE	(4 * sizeof(int))
 
@@ -19,76 +25,92 @@ typedef struct siginfo {
 	union {
 		int _pad[SI_PAD_SIZE];
 
-		
+		/* kill() */
 		struct {
-			pid_t _pid;		
-			uid_t _uid;		
+			pid_t _pid;		/* sender's pid */
+			uid_t _uid;		/* sender's uid */
 		} _kill;
 
-		
+		/* POSIX.1b timers */
 		struct {
-			timer_t _tid;		
-			int _overrun;		
+			timer_t _tid;		/* timer id */
+			int _overrun;		/* overrun count */
 			char _pad[sizeof(__ARCH_SI_UID_T) - sizeof(int)];
-			sigval_t _sigval;	
-			int _sys_private;	
+			sigval_t _sigval;	/* must overlay ._rt._sigval! */
+			int _sys_private;	/* not to be passed to user */
 		} _timer;
 
-		
+		/* POSIX.1b signals */
 		struct {
-			pid_t _pid;		
-			uid_t _uid;		
+			pid_t _pid;		/* sender's pid */
+			uid_t _uid;		/* sender's uid */
 			sigval_t _sigval;
 		} _rt;
 
-		
+		/* SIGCHLD */
 		struct {
-			pid_t _pid;		
-			uid_t _uid;		
-			int _status;		
+			pid_t _pid;		/* which child */
+			uid_t _uid;		/* sender's uid */
+			int _status;		/* exit code */
 			clock_t _utime;
 			clock_t _stime;
 		} _sigchld;
 
-		
+		/* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
 		struct {
-			void __user *_addr;	
-			int _imm;		
-			unsigned int _flags;	
-			unsigned long _isr;	
-			short _addr_lsb;	
+			void __user *_addr;	/* faulting insn/memory ref. */
+			int _imm;		/* immediate value for "break" */
+			unsigned int _flags;	/* see below */
+			unsigned long _isr;	/* isr */
+			short _addr_lsb;	/* lsb of faulting address */
 		} _sigfault;
 
-		
+		/* SIGPOLL */
 		struct {
-			long _band;	
+			long _band;	/* POLL_IN, POLL_OUT, POLL_MSG (XPG requires a "long") */
 			int _fd;
 		} _sigpoll;
 	} _sifields;
 } siginfo_t;
 
-#define si_imm		_sifields._sigfault._imm	
+#define si_imm		_sifields._sigfault._imm	/* as per UNIX SysV ABI spec */
 #define si_flags	_sifields._sigfault._flags
+/*
+ * si_isr is valid for SIGILL, SIGFPE, SIGSEGV, SIGBUS, and SIGTRAP provided that
+ * si_code is non-zero and __ISR_VALID is set in si_flags.
+ */
 #define si_isr		_sifields._sigfault._isr
 
+/*
+ * Flag values for si_flags:
+ */
 #define __ISR_VALID_BIT	0
 #define __ISR_VALID	(1 << __ISR_VALID_BIT)
 
-#define ILL_BADIADDR	(__SI_FAULT|9)	
-#define __ILL_BREAK	(__SI_FAULT|10)	
-#define __ILL_BNDMOD	(__SI_FAULT|11)	
+/*
+ * SIGILL si_codes
+ */
+#define ILL_BADIADDR	(__SI_FAULT|9)	/* unimplemented instruction address */
+#define __ILL_BREAK	(__SI_FAULT|10)	/* illegal break */
+#define __ILL_BNDMOD	(__SI_FAULT|11)	/* bundle-update (modification) in progress */
 #undef NSIGILL
 #define NSIGILL		11
 
-#define __FPE_DECOVF	(__SI_FAULT|9)	
-#define __FPE_DECDIV	(__SI_FAULT|10)	
-#define __FPE_DECERR	(__SI_FAULT|11)	
-#define __FPE_INVASC	(__SI_FAULT|12)	
-#define __FPE_INVDEC	(__SI_FAULT|13)	
+/*
+ * SIGFPE si_codes
+ */
+#define __FPE_DECOVF	(__SI_FAULT|9)	/* decimal overflow */
+#define __FPE_DECDIV	(__SI_FAULT|10)	/* decimal division by zero */
+#define __FPE_DECERR	(__SI_FAULT|11)	/* packed decimal error */
+#define __FPE_INVASC	(__SI_FAULT|12)	/* invalid ASCII digit */
+#define __FPE_INVDEC	(__SI_FAULT|13)	/* invalid decimal digit */
 #undef NSIGFPE
 #define NSIGFPE		13
 
-#define __SEGV_PSTKOVF	(__SI_FAULT|3)	
+/*
+ * SIGSEGV si_codes
+ */
+#define __SEGV_PSTKOVF	(__SI_FAULT|3)	/* paragraph stack overflow */
 #undef NSIGSEGV
 #define NSIGSEGV	3
 
@@ -104,10 +126,10 @@ copy_siginfo (siginfo_t *to, siginfo_t *from)
 	if (from->si_code < 0)
 		memcpy(to, from, sizeof(siginfo_t));
 	else
-		
+		/* _sigchld is currently the largest know union member */
 		memcpy(to, from, 4*sizeof(int) + sizeof(from->_sifields._sigchld));
 }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_IA64_SIGINFO_H */

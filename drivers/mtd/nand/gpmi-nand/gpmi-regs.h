@@ -39,11 +39,17 @@
 #define BV_GPMI_CTRL0_WORD_LENGTH__16_BIT		0x0
 #define BV_GPMI_CTRL0_WORD_LENGTH__8_BIT		0x1
 
+/*
+ *  Difference in LOCK_CS between imx23 and imx28 :
+ *  This bit may impact the _POWER_ consumption. So some chips
+ *  do not set it.
+ */
 #define MX23_BP_GPMI_CTRL0_LOCK_CS			22
 #define MX28_BP_GPMI_CTRL0_LOCK_CS			27
 #define LOCK_CS_ENABLE					0x1
 #define BF_GPMI_CTRL0_LOCK_CS(v, x)			0x0
 
+/* Difference in CS between imx23 and imx28 */
 #define BP_GPMI_CTRL0_CS				20
 #define MX23_BM_GPMI_CTRL0_CS		(3 << BP_GPMI_CTRL0_CS)
 #define MX28_BM_GPMI_CTRL0_CS		(7 << BP_GPMI_CTRL0_CS)
@@ -152,12 +158,14 @@
 #define HW_GPMI_TIMING2					0x00000090
 #define HW_GPMI_DATA					0x000000a0
 
+/* MX28 uses this to detect READY. */
 #define HW_GPMI_STAT					0x000000b0
 #define MX28_BP_GPMI_STAT_READY_BUSY			24
 #define MX28_BM_GPMI_STAT_READY_BUSY	(0xff << MX28_BP_GPMI_STAT_READY_BUSY)
 #define MX28_BF_GPMI_STAT_READY_BUSY(v)		\
 	(((v) << MX28_BP_GPMI_STAT_READY_BUSY) & MX28_BM_GPMI_STAT_READY_BUSY)
 
+/* MX23 uses this to detect READY. */
 #define HW_GPMI_DEBUG					0x000000c0
 #define MX23_BP_GPMI_DEBUG_READY0			28
 #define MX23_BM_GPMI_DEBUG_READY0	(1 << MX23_BP_GPMI_DEBUG_READY0)

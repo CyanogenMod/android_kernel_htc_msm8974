@@ -18,6 +18,7 @@
 #include <linux/stringify.h>
 #include <linux/smp.h>
 
+/* waiting for a spinlock... */
 #if defined(CONFIG_PPC_SPLPAR)
 #include <asm/hvcall.h>
 #include <asm/smp.h>
@@ -33,14 +34,19 @@ void __spin_yield(arch_spinlock_t *lock)
 	BUG_ON(holder_cpu >= NR_CPUS);
 	yield_count = lppaca_of(holder_cpu).yield_count;
 	if ((yield_count & 1) == 0)
-		return;		
+		return;		/* virtual cpu is currently running */
 	rmb();
 	if (lock->slock != lock_value)
-		return;		
+		return;		/* something has changed */
 	plpar_hcall_norets(H_CONFER,
 		get_hard_smp_processor_id(holder_cpu), yield_count);
 }
 
+/*
+ * Waiting for a read lock or a write lock on a rwlock...
+ * This turns out to be the same for read and write locks, since
+ * we only know the holder if it is write-locked.
+ */
 void __rw_yield(arch_rwlock_t *rw)
 {
 	int lock_value;
@@ -48,15 +54,15 @@ void __rw_yield(arch_rwlock_t *rw)
 
 	lock_value = rw->lock;
 	if (lock_value >= 0)
-		return;		
+		return;		/* no write lock at present */
 	holder_cpu = lock_value & 0xffff;
 	BUG_ON(holder_cpu >= NR_CPUS);
 	yield_count = lppaca_of(holder_cpu).yield_count;
 	if ((yield_count & 1) == 0)
-		return;		
+		return;		/* virtual cpu is currently running */
 	rmb();
 	if (rw->lock != lock_value)
-		return;		
+		return;		/* something has changed */
 	plpar_hcall_norets(H_CONFER,
 		get_hard_smp_processor_id(holder_cpu), yield_count);
 }

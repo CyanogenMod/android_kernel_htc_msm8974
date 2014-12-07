@@ -7,4 +7,4 @@
 
 #define arch_align_stack(x) (x)
 
-#endif 
+#endif /* __ASM_SH_EXEC_H */

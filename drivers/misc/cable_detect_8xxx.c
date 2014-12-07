@@ -646,8 +646,10 @@ static int second_detect(struct cable_detect_info *pInfo)
 #endif
 	else if (adc_value >= 1021 && adc_value <= 1224)
 		type = DOCK_STATE_AUDIO_DOCK;
-	else
+	else if (adc_value <= 200)
 		type = DOCK_STATE_USB_HOST;
+	else
+		type = DOCK_STATE_UNDEFINED;
 
 	if (pInfo->config_usb_id_gpios)
 		pInfo->config_usb_id_gpios(0);

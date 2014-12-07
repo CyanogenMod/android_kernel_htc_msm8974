@@ -52,6 +52,13 @@ static struct sleep_save core_save[] = {
 	SAVE_ITEM(S3C2410_LOCKTIME),
 	SAVE_ITEM(S3C2410_CLKCON),
 
+	/* we restore the timings here, with the proviso that the board
+	 * brings the system up in an slower, or equal frequency setting
+	 * to the original system.
+	 *
+	 * if we cannot guarantee this, then things are going to go very
+	 * wrong here, as we modify the refresh and both pll settings.
+	 */
 
 	SAVE_ITEM(S3C2410_BWSCON),
 	SAVE_ITEM(S3C2410_BANKCON0),
@@ -74,6 +81,11 @@ static struct sleep_save misc_save[] = {
 	SAVE_ITEM(S3C2410_DCLKCON),
 };
 
+/* s3c_pm_check_resume_pin
+ *
+ * check to see if the pin is configured correctly for sleep mode, and
+ * make any necessary adjustments if it is not
+*/
 
 static void s3c_pm_check_resume_pin(unsigned int pin, unsigned int irqoffs)
 {
@@ -99,11 +111,19 @@ static void s3c_pm_check_resume_pin(unsigned int pin, unsigned int irqoffs)
 	}
 }
 
+/* s3c_pm_configure_extint
+ *
+ * configure all external interrupt pins
+*/
 
 void s3c_pm_configure_extint(void)
 {
 	int pin;
 
+	/* for each of the external interrupts (EINT0..EINT15) we
+	 * need to check wether it is an external interrupt source,
+	 * and then configure it as an input if it is not
+	*/
 
 	for (pin = S3C2410_GPF(0); pin <= S3C2410_GPF(7); pin++) {
 		s3c_pm_check_resume_pin(pin, pin - S3C2410_GPF(0));

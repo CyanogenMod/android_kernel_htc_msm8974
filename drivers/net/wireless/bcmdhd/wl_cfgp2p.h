@@ -32,14 +32,19 @@ struct wl_priv;
 extern u32 wl_dbg_level;
 
 typedef struct wifi_p2p_ie wifi_wfd_ie_t;
+/* Enumeration of the usages of the BSSCFGs used by the P2P Library.  Do not
+ * confuse this with a bsscfg index.  This value is an index into the
+ * saved_ie[] array of structures which in turn contains a bsscfg index field.
+ */
 typedef enum {
-	P2PAPI_BSSCFG_PRIMARY, 
-	P2PAPI_BSSCFG_DEVICE, 
-	P2PAPI_BSSCFG_CONNECTION, 
+	P2PAPI_BSSCFG_PRIMARY, /* maps to driver's primary bsscfg */
+	P2PAPI_BSSCFG_DEVICE, /* maps to driver's P2P device discovery bsscfg */
+	P2PAPI_BSSCFG_CONNECTION, /* maps to driver's P2P connection bsscfg */
 	P2PAPI_BSSCFG_MAX
 } p2p_bsscfg_type_t;
 
 #define IE_MAX_LEN 300
+/* Structure to hold all saved P2P and WPS IEs for a BSSCFG */
 struct p2p_saved_ie {
 	u8  p2p_probe_req_ie[IE_MAX_LEN];
 	u8  p2p_probe_res_ie[IE_MAX_LEN];
@@ -61,7 +66,7 @@ struct p2p_bss {
 };
 
 struct p2p_info {
-	bool on;    
+	bool on;    /* p2p on/off switch */
 	bool scan;
 	bool vif_created;
 	s8 vir_ifname[IFNAMSIZ];
@@ -76,6 +81,7 @@ struct p2p_info {
 	spinlock_t timer_lock;
 };
 
+/* dongle status */
 enum wl_cfgp2p_status {
 	WLP2P_STATUS_DISCOVERY_ON = 0,
 	WLP2P_STATUS_SEARCH_ENABLED,
@@ -108,6 +114,7 @@ enum wl_cfgp2p_status {
 #define p2p_scan(wl) ((wl)->p2p->scan)
 #define p2p_is_on(wl) ((wl)->p2p && (wl)->p2p->on)
 
+/* dword align allocation */
 #define WLC_IOCTL_MAXLEN 8192
 #define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 #define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
@@ -254,6 +261,7 @@ wl_cfgp2p_register_ndev(struct wl_priv *wl);
 extern s32
 wl_cfgp2p_unregister_ndev(struct wl_priv *wl);
 
+/* WiFi Direct */
 #define SOCIAL_CHAN_1 1
 #define SOCIAL_CHAN_2 6
 #define SOCIAL_CHAN_3 11
@@ -273,4 +281,4 @@ wl_cfgp2p_unregister_ndev(struct wl_priv *wl);
 						(frame->subtype == P2P_PAF_PROVDIS_REQ)))
 #define IS_P2P_SOCIAL(ch) ((ch == SOCIAL_CHAN_1) || (ch == SOCIAL_CHAN_2) || (ch == SOCIAL_CHAN_3))
 #define IS_P2P_SSID(ssid) (memcmp(ssid, WL_P2P_WILDCARD_SSID, WL_P2P_WILDCARD_SSID_LEN) == 0)
-#endif				
+#endif				/* _wl_cfgp2p_h_ */

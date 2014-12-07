@@ -96,6 +96,11 @@ static inline void __disable_dcache_nomsr(void)
 }
 
 
+/* Helper macro for computing the limits of cache range loops
+ *
+ * End address can be unaligned which is OK for C implementation.
+ * ASM implementation align it in ASM macros
+ */
 #define CACHE_LOOP_LIMITS(start, end, cache_line_length, cache_size)	\
 do {									\
 	int align = ~(cache_line_length - 1);				\
@@ -103,6 +108,10 @@ do {									\
 	start &= align;							\
 } while (0);
 
+/*
+ * Helper macro to loop over the specified cache_size/line_length and
+ * execute 'op' on that cacheline
+ */
 #define CACHE_ALL_LOOP(cache_size, line_length, op)			\
 do {									\
 	unsigned int len = cache_size - line_length;			\
@@ -116,6 +125,14 @@ do {									\
 					: "memory");			\
 } while (0);
 
+/* Used for wdc.flush/clear which can use rB for offset which is not possible
+ * to use for simple wdc or wic.
+ *
+ * start address is cache aligned
+ * end address is not aligned, if end is aligned then I have to subtract
+ * cacheline length because I can't flush/invalidate the next cacheline.
+ * If is not, I align it because I will flush/invalidate whole line.
+ */
 #define CACHE_RANGE_LOOP_2(start, end, line_length, op)			\
 do {									\
 	int step = -line_length;					\
@@ -132,6 +149,7 @@ do {									\
 					"r" (step) : "memory");		\
 } while (0);
 
+/* It is used only first parameter for OP - for wic, wdc */
 #define CACHE_RANGE_LOOP_1(start, end, line_length, op)			\
 do {									\
 	int volatile temp;						\
@@ -343,6 +361,12 @@ static void __invalidate_dcache_all_noirq_wt(void)
 #endif
 }
 
+/* FIXME It is blindly invalidation as is expected
+ * but can't be called on noMMU in microblaze_cache_init below
+ *
+ * MS: noMMU kernel won't boot if simple wdc is used
+ * The reason should be that there are discared data which kernel needs
+ */
 static void __invalidate_dcache_all_wb(void)
 {
 #ifndef ASM_LOOP
@@ -491,8 +515,10 @@ static void __flush_dcache_range_wb(unsigned long start, unsigned long end)
 #endif
 }
 
+/* struct for wb caches and for wt caches */
 struct scache *mbc;
 
+/* new wb cache model */
 static const struct scache wb_msr = {
 	.ie = __enable_icache_msr,
 	.id = __disable_icache_msr,
@@ -508,6 +534,7 @@ static const struct scache wb_msr = {
 	.dinr = __invalidate_dcache_range_wb,
 };
 
+/* There is only difference in ie, id, de, dd functions */
 static const struct scache wb_nomsr = {
 	.ie = __enable_icache_nomsr,
 	.id = __disable_icache_nomsr,
@@ -523,6 +550,7 @@ static const struct scache wb_nomsr = {
 	.dinr = __invalidate_dcache_range_wb,
 };
 
+/* Old wt cache model with disabling irq and turn off cache */
 static const struct scache wt_msr = {
 	.ie = __enable_icache_msr,
 	.id = __disable_icache_msr,
@@ -553,6 +581,7 @@ static const struct scache wt_nomsr = {
 	.dinr = __invalidate_dcache_range_nomsr_irq,
 };
 
+/* New wt cache model for newer Microblaze versions */
 static const struct scache wt_msr_noirq = {
 	.ie = __enable_icache_msr,
 	.id = __disable_icache_msr,
@@ -583,6 +612,7 @@ static const struct scache wt_nomsr_noirq = {
 	.dinr = __invalidate_dcache_range_nomsr_wt,
 };
 
+/* CPU version code for 7.20.c - see arch/microblaze/kernel/cpu/cpuinfo.c */
 #define CPUVER_7_20_A	0x0c
 #define CPUVER_7_20_D	0x0f
 
@@ -595,7 +625,7 @@ void microblaze_cache_init(void)
 			INFO("wb_msr");
 			mbc = (struct scache *)&wb_msr;
 			if (cpuinfo.ver_code <= CPUVER_7_20_D) {
-				
+				/* MS: problem with signal handling - hw bug */
 				INFO("WB won't work properly");
 			}
 		} else {
@@ -612,7 +642,7 @@ void microblaze_cache_init(void)
 			INFO("wb_nomsr");
 			mbc = (struct scache *)&wb_nomsr;
 			if (cpuinfo.ver_code <= CPUVER_7_20_D) {
-				
+				/* MS: problem with signal handling - hw bug */
 				INFO("WB won't work properly");
 			}
 		} else {
@@ -629,7 +659,7 @@ void microblaze_cache_init(void)
  * WT cache: Data is already written to main memory
  * WB cache: Discard data on noMMU which caused that kernel doesn't boot
  */
-	
+	/* invalidate_dcache(); */
 	enable_dcache();
 
 	invalidate_icache();

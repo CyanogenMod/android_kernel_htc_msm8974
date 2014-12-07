@@ -25,6 +25,7 @@
 
 static const char *hfcpci_revision = "$Revision: 1.48.2.4 $";
 
+/* table entry in the PCI devices list */
 typedef struct {
 	int vendor_id;
 	int device_id;
@@ -32,9 +33,9 @@ typedef struct {
 	char *card_name;
 } PCI_ENTRY;
 
-#define NT_T1_COUNT	20	
-#define CLKDEL_TE	0x0e	
-#define CLKDEL_NT	0x6c	
+#define NT_T1_COUNT	20	/* number of 3.125ms interrupts for G2 timeout */
+#define CLKDEL_TE	0x0e	/* CLKDEL in TE mode */
+#define CLKDEL_NT	0x6c	/* CLKDEL in NT mode */
 
 static const PCI_ENTRY id_list[] =
 {
@@ -65,19 +66,22 @@ static const PCI_ENTRY id_list[] =
 };
 
 
+/******************************************/
+/* free hardware resources used by driver */
+/******************************************/
 static void
 release_io_hfcpci(struct IsdnCardState *cs)
 {
 	printk(KERN_INFO "HiSax: release hfcpci at %p\n",
 	       cs->hw.hfcpci.pci_io);
-	cs->hw.hfcpci.int_m2 = 0;					
+	cs->hw.hfcpci.int_m2 = 0;					/* interrupt output off ! */
 	Write_hfc(cs, HFCPCI_INT_M2, cs->hw.hfcpci.int_m2);
-	Write_hfc(cs, HFCPCI_CIRM, HFCPCI_RESET);			
+	Write_hfc(cs, HFCPCI_CIRM, HFCPCI_RESET);			/* Reset On */
 	mdelay(10);
-	Write_hfc(cs, HFCPCI_CIRM, 0);					
+	Write_hfc(cs, HFCPCI_CIRM, 0);					/* Reset Off */
 	mdelay(10);
 	Write_hfc(cs, HFCPCI_INT_M2, cs->hw.hfcpci.int_m2);
-	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, 0);	
+	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, 0);	/* disable memory mapped ports + busmaster */
 	del_timer(&cs->hw.hfcpci.timer);
 	pci_free_consistent(cs->hw.hfcpci.dev, 0x8000,
 			    cs->hw.hfcpci.fifos, cs->hw.hfcpci.dma);
@@ -85,33 +89,37 @@ release_io_hfcpci(struct IsdnCardState *cs)
 	iounmap((void *)cs->hw.hfcpci.pci_io);
 }
 
+/********************************************************************************/
+/* function called to reset the HFC PCI chip. A complete software reset of chip */
+/* and fifos is done.                                                           */
+/********************************************************************************/
 static void
 reset_hfcpci(struct IsdnCardState *cs)
 {
-	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, PCI_ENA_MEMIO);	
-	cs->hw.hfcpci.int_m2 = 0;	
+	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, PCI_ENA_MEMIO);	/* enable memory mapped ports, disable busmaster */
+	cs->hw.hfcpci.int_m2 = 0;	/* interrupt output off ! */
 	Write_hfc(cs, HFCPCI_INT_M2, cs->hw.hfcpci.int_m2);
 
 	printk(KERN_INFO "HFC_PCI: resetting card\n");
-	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, PCI_ENA_MEMIO + PCI_ENA_MASTER);	
-	Write_hfc(cs, HFCPCI_CIRM, HFCPCI_RESET);	
+	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, PCI_ENA_MEMIO + PCI_ENA_MASTER);	/* enable memory ports + busmaster */
+	Write_hfc(cs, HFCPCI_CIRM, HFCPCI_RESET);	/* Reset On */
 	mdelay(10);
-	Write_hfc(cs, HFCPCI_CIRM, 0);	
+	Write_hfc(cs, HFCPCI_CIRM, 0);	/* Reset Off */
 	mdelay(10);
 	if (Read_hfc(cs, HFCPCI_STATUS) & 2)
 		printk(KERN_WARNING "HFC-PCI init bit busy\n");
 
-	cs->hw.hfcpci.fifo_en = 0x30;	
+	cs->hw.hfcpci.fifo_en = 0x30;	/* only D fifos enabled */
 	Write_hfc(cs, HFCPCI_FIFO_EN, cs->hw.hfcpci.fifo_en);
 
-	cs->hw.hfcpci.trm = 0 + HFCPCI_BTRANS_THRESMASK;	
+	cs->hw.hfcpci.trm = 0 + HFCPCI_BTRANS_THRESMASK;	/* no echo connect , threshold */
 	Write_hfc(cs, HFCPCI_TRM, cs->hw.hfcpci.trm);
 
-	Write_hfc(cs, HFCPCI_CLKDEL, CLKDEL_TE); 
+	Write_hfc(cs, HFCPCI_CLKDEL, CLKDEL_TE); /* ST-Bit delay for TE-Mode */
 	cs->hw.hfcpci.sctrl_e = HFCPCI_AUTO_AWAKE;
-	Write_hfc(cs, HFCPCI_SCTRL_E, cs->hw.hfcpci.sctrl_e);	
-	cs->hw.hfcpci.bswapped = 0;	
-	cs->hw.hfcpci.nt_mode = 0;	
+	Write_hfc(cs, HFCPCI_SCTRL_E, cs->hw.hfcpci.sctrl_e);	/* S/T Auto awake */
+	cs->hw.hfcpci.bswapped = 0;	/* no exchange */
+	cs->hw.hfcpci.nt_mode = 0;	/* we are in TE mode */
 	cs->hw.hfcpci.ctmt = HFCPCI_TIM3_125 | HFCPCI_AUTO_TIMER;
 	Write_hfc(cs, HFCPCI_CTMT, cs->hw.hfcpci.ctmt);
 
@@ -119,48 +127,57 @@ reset_hfcpci(struct IsdnCardState *cs)
 		HFCPCI_INTS_L1STATE | HFCPCI_INTS_TIMER;
 	Write_hfc(cs, HFCPCI_INT_M1, cs->hw.hfcpci.int_m1);
 
-	
+	/* Clear already pending ints */
 	if (Read_hfc(cs, HFCPCI_INT_S1));
 
-	Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 2);	
+	Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 2);	/* HFC ST 2 */
 	udelay(10);
-	Write_hfc(cs, HFCPCI_STATES, 2);	
-	cs->hw.hfcpci.mst_m = HFCPCI_MASTER;	
+	Write_hfc(cs, HFCPCI_STATES, 2);	/* HFC ST 2 */
+	cs->hw.hfcpci.mst_m = HFCPCI_MASTER;	/* HFC Master Mode */
 
 	Write_hfc(cs, HFCPCI_MST_MODE, cs->hw.hfcpci.mst_m);
-	cs->hw.hfcpci.sctrl = 0x40;	
+	cs->hw.hfcpci.sctrl = 0x40;	/* set tx_lo mode, error in datasheet ! */
 	Write_hfc(cs, HFCPCI_SCTRL, cs->hw.hfcpci.sctrl);
 	cs->hw.hfcpci.sctrl_r = 0;
 	Write_hfc(cs, HFCPCI_SCTRL_R, cs->hw.hfcpci.sctrl_r);
 
-	
-	
-	
-	
-	
-	
-	
-	cs->hw.hfcpci.conn = 0x36;	
+	/* Init GCI/IOM2 in master mode */
+	/* Slots 0 and 1 are set for B-chan 1 and 2 */
+	/* D- and monitor/CI channel are not enabled */
+	/* STIO1 is used as output for data, B1+B2 from ST->IOM+HFC */
+	/* STIO2 is used as data input, B1+B2 from IOM->ST */
+	/* ST B-channel send disabled -> continuous 1s */
+	/* The IOM slots are always enabled */
+	cs->hw.hfcpci.conn = 0x36;	/* set data flow directions */
 	Write_hfc(cs, HFCPCI_CONNECT, cs->hw.hfcpci.conn);
-	Write_hfc(cs, HFCPCI_B1_SSL, 0x80);	
-	Write_hfc(cs, HFCPCI_B2_SSL, 0x81);	
-	Write_hfc(cs, HFCPCI_B1_RSL, 0x80);	
-	Write_hfc(cs, HFCPCI_B2_RSL, 0x81);	
+	Write_hfc(cs, HFCPCI_B1_SSL, 0x80);	/* B1-Slot 0 STIO1 out enabled */
+	Write_hfc(cs, HFCPCI_B2_SSL, 0x81);	/* B2-Slot 1 STIO1 out enabled */
+	Write_hfc(cs, HFCPCI_B1_RSL, 0x80);	/* B1-Slot 0 STIO2 in enabled */
+	Write_hfc(cs, HFCPCI_B2_RSL, 0x81);	/* B2-Slot 1 STIO2 in enabled */
 
-	
+	/* Finally enable IRQ output */
 	cs->hw.hfcpci.int_m2 = HFCPCI_IRQ_ENABLE;
 	Write_hfc(cs, HFCPCI_INT_M2, cs->hw.hfcpci.int_m2);
 	if (Read_hfc(cs, HFCPCI_INT_S1));
 }
 
+/***************************************************/
+/* Timer function called when kernel timer expires */
+/***************************************************/
 static void
 hfcpci_Timer(struct IsdnCardState *cs)
 {
 	cs->hw.hfcpci.timer.expires = jiffies + 75;
-	
+	/* WD RESET */
+/*      WriteReg(cs, HFCD_DATA, HFCD_CTMT, cs->hw.hfcpci.ctmt | 0x80);
+	add_timer(&cs->hw.hfcpci.timer);
+*/
 }
 
 
+/*********************************/
+/* schedule a new D-channel task */
+/*********************************/
 static void
 sched_event_D_pci(struct IsdnCardState *cs, int event)
 {
@@ -168,6 +185,9 @@ sched_event_D_pci(struct IsdnCardState *cs, int event)
 	schedule_work(&cs->tqueue);
 }
 
+/*********************************/
+/* schedule a new b_channel task */
+/*********************************/
 static void
 hfcpci_sched_event(struct BCState *bcs, int event)
 {
@@ -175,6 +195,9 @@ hfcpci_sched_event(struct BCState *bcs, int event)
 	schedule_work(&bcs->tqueue);
 }
 
+/************************************************/
+/* select a b-channel entry matching and active */
+/************************************************/
 static
 struct BCState *
 Sel_BCS(struct IsdnCardState *cs, int channel)
@@ -187,6 +210,9 @@ Sel_BCS(struct IsdnCardState *cs, int channel)
 		return (NULL);
 }
 
+/***************************************/
+/* clear the desired B-channel rx fifo */
+/***************************************/
 static void hfcpci_clear_fifo_rx(struct IsdnCardState *cs, int fifo)
 {       u_char fifo_state;
 	bzfifo_type *bzr;
@@ -205,12 +231,15 @@ static void hfcpci_clear_fifo_rx(struct IsdnCardState *cs, int fifo)
 	bzr->za[MAX_B_FRAMES].z1 = B_FIFO_SIZE + B_SUB_VAL - 1;
 	bzr->za[MAX_B_FRAMES].z2 = bzr->za[MAX_B_FRAMES].z1;
 	bzr->f1 = MAX_B_FRAMES;
-	bzr->f2 = bzr->f1;	
+	bzr->f2 = bzr->f1;	/* init F pointers to remain constant */
 	if (fifo_state)
 		cs->hw.hfcpci.fifo_en |= fifo_state;
 	Write_hfc(cs, HFCPCI_FIFO_EN, cs->hw.hfcpci.fifo_en);
 }
 
+/***************************************/
+/* clear the desired B-channel tx fifo */
+/***************************************/
 static void hfcpci_clear_fifo_tx(struct IsdnCardState *cs, int fifo)
 {       u_char fifo_state;
 	bzfifo_type *bzt;
@@ -228,12 +257,15 @@ static void hfcpci_clear_fifo_tx(struct IsdnCardState *cs, int fifo)
 	bzt->za[MAX_B_FRAMES].z1 = B_FIFO_SIZE + B_SUB_VAL - 1;
 	bzt->za[MAX_B_FRAMES].z2 = bzt->za[MAX_B_FRAMES].z1;
 	bzt->f1 = MAX_B_FRAMES;
-	bzt->f2 = bzt->f1;	
+	bzt->f2 = bzt->f1;	/* init F pointers to remain constant */
 	if (fifo_state)
 		cs->hw.hfcpci.fifo_en |= fifo_state;
 	Write_hfc(cs, HFCPCI_FIFO_EN, cs->hw.hfcpci.fifo_en);
 }
 
+/*********************************************/
+/* read a complete B-frame out of the buffer */
+/*********************************************/
 static struct sk_buff
 *
 hfcpci_empty_fifo(struct BCState *bcs, bzfifo_type *bz, u_char *bdata, int count)
@@ -246,10 +278,10 @@ hfcpci_empty_fifo(struct BCState *bcs, bzfifo_type *bz, u_char *bdata, int count
 
 	if ((cs->debug & L1_DEB_HSCX) && !(cs->debug & L1_DEB_HSCX_FIFO))
 		debugl1(cs, "hfcpci_empty_fifo");
-	zp = &bz->za[bz->f2];	
-	new_z2 = zp->z2 + count;	
+	zp = &bz->za[bz->f2];	/* point to Z-Regs */
+	new_z2 = zp->z2 + count;	/* new position in fifo */
 	if (new_z2 >= (B_FIFO_SIZE + B_SUB_VAL))
-		new_z2 -= B_FIFO_SIZE;	
+		new_z2 -= B_FIFO_SIZE;	/* buffer wrap */
 	new_f2 = (bz->f2 + 1) & MAX_B_FRAMES;
 	if ((count > HSCX_BUFMAX + 3) || (count < 4) ||
 	    (*(bdata + (zp->z1 - B_SUB_VAL)))) {
@@ -259,7 +291,7 @@ hfcpci_empty_fifo(struct BCState *bcs, bzfifo_type *bz, u_char *bdata, int count
 		bcs->err_inv++;
 #endif
 		bz->za[new_f2].z2 = new_z2;
-		bz->f2 = new_f2;	
+		bz->f2 = new_f2;	/* next buffer */
 		skb = NULL;
 	} else if (!(skb = dev_alloc_skb(count - 3)))
 		printk(KERN_WARNING "HFCPCI: receive out of memory\n");
@@ -269,26 +301,29 @@ hfcpci_empty_fifo(struct BCState *bcs, bzfifo_type *bz, u_char *bdata, int count
 		ptr = skb_put(skb, count);
 
 		if (zp->z2 + count <= B_FIFO_SIZE + B_SUB_VAL)
-			maxlen = count;		
+			maxlen = count;		/* complete transfer */
 		else
-			maxlen = B_FIFO_SIZE + B_SUB_VAL - zp->z2;	
+			maxlen = B_FIFO_SIZE + B_SUB_VAL - zp->z2;	/* maximum */
 
-		ptr1 = bdata + (zp->z2 - B_SUB_VAL);	
-		memcpy(ptr, ptr1, maxlen);	
+		ptr1 = bdata + (zp->z2 - B_SUB_VAL);	/* start of data */
+		memcpy(ptr, ptr1, maxlen);	/* copy data */
 		count -= maxlen;
 
-		if (count) {	
+		if (count) {	/* rest remaining */
 			ptr += maxlen;
-			ptr1 = bdata;	
-			memcpy(ptr, ptr1, count);	
+			ptr1 = bdata;	/* start of buffer */
+			memcpy(ptr, ptr1, count);	/* rest */
 		}
 		bz->za[new_f2].z2 = new_z2;
-		bz->f2 = new_f2;	
+		bz->f2 = new_f2;	/* next buffer */
 
 	}
 	return (skb);
 }
 
+/*******************************/
+/* D-channel receive procedure */
+/*******************************/
 static
 int
 receive_dmsg(struct IsdnCardState *cs)
@@ -323,7 +358,7 @@ receive_dmsg(struct IsdnCardState *cs)
 #ifdef ERROR_STATISTIC
 			cs->err_rx++;
 #endif
-			df->f2 = ((df->f2 + 1) & MAX_D_FRAMES) | (MAX_D_FRAMES + 1);	
+			df->f2 = ((df->f2 + 1) & MAX_D_FRAMES) | (MAX_D_FRAMES + 1);	/* next buffer */
 			df->za[df->f2 & D_FREG_MASK].z2 = (zp->z2 + rcnt) & (D_FIFO_SIZE - 1);
 		} else if ((skb = dev_alloc_skb(rcnt - 3))) {
 			total = rcnt;
@@ -331,20 +366,20 @@ receive_dmsg(struct IsdnCardState *cs)
 			ptr = skb_put(skb, rcnt);
 
 			if (zp->z2 + rcnt <= D_FIFO_SIZE)
-				maxlen = rcnt;	
+				maxlen = rcnt;	/* complete transfer */
 			else
-				maxlen = D_FIFO_SIZE - zp->z2;	
+				maxlen = D_FIFO_SIZE - zp->z2;	/* maximum */
 
-			ptr1 = df->data + zp->z2;	
-			memcpy(ptr, ptr1, maxlen);	
+			ptr1 = df->data + zp->z2;	/* start of data */
+			memcpy(ptr, ptr1, maxlen);	/* copy data */
 			rcnt -= maxlen;
 
-			if (rcnt) {	
+			if (rcnt) {	/* rest remaining */
 				ptr += maxlen;
-				ptr1 = df->data;	
-				memcpy(ptr, ptr1, rcnt);	
+				ptr1 = df->data;	/* start of buffer */
+				memcpy(ptr, ptr1, rcnt);	/* rest */
 			}
-			df->f2 = ((df->f2 + 1) & MAX_D_FRAMES) | (MAX_D_FRAMES + 1);	
+			df->f2 = ((df->f2 + 1) & MAX_D_FRAMES) | (MAX_D_FRAMES + 1);	/* next buffer */
 			df->za[df->f2 & D_FREG_MASK].z2 = (zp->z2 + total) & (D_FIFO_SIZE - 1);
 
 			skb_queue_tail(&cs->rq, skb);
@@ -356,6 +391,9 @@ receive_dmsg(struct IsdnCardState *cs)
 	return (1);
 }
 
+/*******************************************************************************/
+/* check for transparent receive data and read max one threshold size if avail */
+/*******************************************************************************/
 static int
 hfcpci_empty_fifo_trans(struct BCState *bcs, bzfifo_type *bz, u_char *bdata)
 {
@@ -364,47 +402,50 @@ hfcpci_empty_fifo_trans(struct BCState *bcs, bzfifo_type *bz, u_char *bdata)
 	struct sk_buff *skb;
 	u_char *ptr, *ptr1;
 
-	z1r = &bz->za[MAX_B_FRAMES].z1;		
+	z1r = &bz->za[MAX_B_FRAMES].z1;		/* pointer to z reg */
 	z2r = z1r + 1;
 
 	if (!(fcnt = *z1r - *z2r))
-		return (0);	
+		return (0);	/* no data avail */
 
 	if (fcnt <= 0)
-		fcnt += B_FIFO_SIZE;	
+		fcnt += B_FIFO_SIZE;	/* bytes actually buffered */
 	if (fcnt > HFCPCI_BTRANS_THRESHOLD)
-		fcnt = HFCPCI_BTRANS_THRESHOLD;		
+		fcnt = HFCPCI_BTRANS_THRESHOLD;		/* limit size */
 
-	new_z2 = *z2r + fcnt;	
+	new_z2 = *z2r + fcnt;	/* new position in fifo */
 	if (new_z2 >= (B_FIFO_SIZE + B_SUB_VAL))
-		new_z2 -= B_FIFO_SIZE;	
+		new_z2 -= B_FIFO_SIZE;	/* buffer wrap */
 
 	if (!(skb = dev_alloc_skb(fcnt)))
 		printk(KERN_WARNING "HFCPCI: receive out of memory\n");
 	else {
 		ptr = skb_put(skb, fcnt);
 		if (*z2r + fcnt <= B_FIFO_SIZE + B_SUB_VAL)
-			maxlen = fcnt;	
+			maxlen = fcnt;	/* complete transfer */
 		else
-			maxlen = B_FIFO_SIZE + B_SUB_VAL - *z2r;	
+			maxlen = B_FIFO_SIZE + B_SUB_VAL - *z2r;	/* maximum */
 
-		ptr1 = bdata + (*z2r - B_SUB_VAL);	
-		memcpy(ptr, ptr1, maxlen);	
+		ptr1 = bdata + (*z2r - B_SUB_VAL);	/* start of data */
+		memcpy(ptr, ptr1, maxlen);	/* copy data */
 		fcnt -= maxlen;
 
-		if (fcnt) {	
+		if (fcnt) {	/* rest remaining */
 			ptr += maxlen;
-			ptr1 = bdata;	
-			memcpy(ptr, ptr1, fcnt);	
+			ptr1 = bdata;	/* start of buffer */
+			memcpy(ptr, ptr1, fcnt);	/* rest */
 		}
 		skb_queue_tail(&bcs->rqueue, skb);
 		hfcpci_sched_event(bcs, B_RCVBUFREADY);
 	}
 
-	*z2r = new_z2;		
+	*z2r = new_z2;		/* new position */
 	return (1);
-}				
+}				/* hfcpci_empty_fifo_trans */
 
+/**********************************/
+/* B-channel main receive routine */
+/**********************************/
 static void
 main_rec_hfcpci(struct BCState *bcs)
 {
@@ -470,6 +511,9 @@ Begin:
 		goto Begin;
 }
 
+/**************************/
+/* D-channel send routine */
+/**************************/
 static void
 hfcpci_fill_dfifo(struct IsdnCardState *cs)
 {
@@ -489,9 +533,9 @@ hfcpci_fill_dfifo(struct IsdnCardState *cs)
 		debugl1(cs, "hfcpci_fill_Dfifo f1(%d) f2(%d) z1(f1)(%x)",
 			df->f1, df->f2,
 			df->za[df->f1 & D_FREG_MASK].z1);
-	fcnt = df->f1 - df->f2;	
+	fcnt = df->f1 - df->f2;	/* frame count actually buffered */
 	if (fcnt < 0)
-		fcnt += (MAX_D_FRAMES + 1);	
+		fcnt += (MAX_D_FRAMES + 1);	/* if wrap around */
 	if (fcnt > (MAX_D_FRAMES - 1)) {
 		if (cs->debug & L1_DEB_ISAC)
 			debugl1(cs, "hfcpci_fill_Dfifo more as 14 frames");
@@ -500,10 +544,10 @@ hfcpci_fill_dfifo(struct IsdnCardState *cs)
 #endif
 		return;
 	}
-	
+	/* now determine free bytes in FIFO buffer */
 	count = df->za[df->f2 & D_FREG_MASK].z2 - df->za[df->f1 & D_FREG_MASK].z1 - 1;
 	if (count <= 0)
-		count += D_FIFO_SIZE;	
+		count += D_FIFO_SIZE;	/* count now contains available bytes */
 
 	if (cs->debug & L1_DEB_ISAC)
 		debugl1(cs, "hfcpci_fill_Dfifo count(%u/%d)",
@@ -513,30 +557,33 @@ hfcpci_fill_dfifo(struct IsdnCardState *cs)
 			debugl1(cs, "hfcpci_fill_Dfifo no fifo mem");
 		return;
 	}
-	count = cs->tx_skb->len;	
+	count = cs->tx_skb->len;	/* get frame len */
 	new_z1 = (df->za[df->f1 & D_FREG_MASK].z1 + count) & (D_FIFO_SIZE - 1);
 	new_f1 = ((df->f1 + 1) & D_FREG_MASK) | (D_FREG_MASK + 1);
-	src = cs->tx_skb->data;	
+	src = cs->tx_skb->data;	/* source pointer */
 	dst = df->data + df->za[df->f1 & D_FREG_MASK].z1;
-	maxlen = D_FIFO_SIZE - df->za[df->f1 & D_FREG_MASK].z1;		
+	maxlen = D_FIFO_SIZE - df->za[df->f1 & D_FREG_MASK].z1;		/* end fifo */
 	if (maxlen > count)
-		maxlen = count;	
-	memcpy(dst, src, maxlen);	
+		maxlen = count;	/* limit size */
+	memcpy(dst, src, maxlen);	/* first copy */
 
-	count -= maxlen;	
+	count -= maxlen;	/* remaining bytes */
 	if (count) {
-		dst = df->data;	
-		src += maxlen;	
+		dst = df->data;	/* start of buffer */
+		src += maxlen;	/* new position */
 		memcpy(dst, src, count);
 	}
-	df->za[new_f1 & D_FREG_MASK].z1 = new_z1;	
-	df->za[df->f1 & D_FREG_MASK].z1 = new_z1;	
-	df->f1 = new_f1;	
+	df->za[new_f1 & D_FREG_MASK].z1 = new_z1;	/* for next buffer */
+	df->za[df->f1 & D_FREG_MASK].z1 = new_z1;	/* new pos actual buffer */
+	df->f1 = new_f1;	/* next frame */
 
 	dev_kfree_skb_any(cs->tx_skb);
 	cs->tx_skb = NULL;
 }
 
+/**************************/
+/* B-channel send routine */
+/**************************/
 static void
 hfcpci_fill_fifo(struct BCState *bcs)
 {
@@ -569,33 +616,33 @@ hfcpci_fill_fifo(struct BCState *bcs)
 				bcs->channel, *z1t, *z2t);
 		fcnt = *z2t - *z1t;
 		if (fcnt <= 0)
-			fcnt += B_FIFO_SIZE;	
-		fcnt = B_FIFO_SIZE - fcnt;	
+			fcnt += B_FIFO_SIZE;	/* fcnt contains available bytes in fifo */
+		fcnt = B_FIFO_SIZE - fcnt;	/* remaining bytes to send */
 
 		while ((fcnt < 2 * HFCPCI_BTRANS_THRESHOLD) && (bcs->tx_skb)) {
 			if (bcs->tx_skb->len < B_FIFO_SIZE - fcnt) {
-				
+				/* data is suitable for fifo */
 				count = bcs->tx_skb->len;
 
-				new_z1 = *z1t + count;	
+				new_z1 = *z1t + count;	/* new buffer Position */
 				if (new_z1 >= (B_FIFO_SIZE + B_SUB_VAL))
-					new_z1 -= B_FIFO_SIZE;	
-				src = bcs->tx_skb->data;	
+					new_z1 -= B_FIFO_SIZE;	/* buffer wrap */
+				src = bcs->tx_skb->data;	/* source pointer */
 				dst = bdata + (*z1t - B_SUB_VAL);
-				maxlen = (B_FIFO_SIZE + B_SUB_VAL) - *z1t;	
+				maxlen = (B_FIFO_SIZE + B_SUB_VAL) - *z1t;	/* end of fifo */
 				if (maxlen > count)
-					maxlen = count;		
-				memcpy(dst, src, maxlen);	
+					maxlen = count;		/* limit size */
+				memcpy(dst, src, maxlen);	/* first copy */
 
-				count -= maxlen;	
+				count -= maxlen;	/* remaining bytes */
 				if (count) {
-					dst = bdata;	
-					src += maxlen;	
+					dst = bdata;	/* start of buffer */
+					src += maxlen;	/* new position */
 					memcpy(dst, src, count);
 				}
 				bcs->tx_cnt -= bcs->tx_skb->len;
 				fcnt += bcs->tx_skb->len;
-				*z1t = new_z1;	
+				*z1t = new_z1;	/* now send data */
 			} else if (cs->debug & L1_DEB_HSCX)
 				debugl1(cs, "hfcpci_fill_fifo_trans %d frame length %d discarded",
 					bcs->channel, bcs->tx_skb->len);
@@ -610,7 +657,7 @@ hfcpci_fill_fifo(struct BCState *bcs)
 			}
 
 			dev_kfree_skb_any(bcs->tx_skb);
-			bcs->tx_skb = skb_dequeue(&bcs->squeue);	
+			bcs->tx_skb = skb_dequeue(&bcs->squeue);	/* fetch next data */
 		}
 		test_and_clear_bit(BC_FLG_BUSY, &bcs->Flag);
 		return;
@@ -620,18 +667,18 @@ hfcpci_fill_fifo(struct BCState *bcs)
 			bcs->channel, bz->f1, bz->f2,
 			bz->za[bz->f1].z1);
 
-	fcnt = bz->f1 - bz->f2;	
+	fcnt = bz->f1 - bz->f2;	/* frame count actually buffered */
 	if (fcnt < 0)
-		fcnt += (MAX_B_FRAMES + 1);	
+		fcnt += (MAX_B_FRAMES + 1);	/* if wrap around */
 	if (fcnt > (MAX_B_FRAMES - 1)) {
 		if (cs->debug & L1_DEB_HSCX)
 			debugl1(cs, "hfcpci_fill_Bfifo more as 14 frames");
 		return;
 	}
-	
+	/* now determine free bytes in FIFO buffer */
 	count = bz->za[bz->f2].z2 - bz->za[bz->f1].z1 - 1;
 	if (count <= 0)
-		count += B_FIFO_SIZE;	
+		count += B_FIFO_SIZE;	/* count now contains available bytes */
 
 	if (cs->debug & L1_DEB_HSCX)
 		debugl1(cs, "hfcpci_fill_fifo %d count(%u/%d),%lx",
@@ -643,23 +690,23 @@ hfcpci_fill_fifo(struct BCState *bcs)
 			debugl1(cs, "hfcpci_fill_fifo no fifo mem");
 		return;
 	}
-	count = bcs->tx_skb->len;	
-	new_z1 = bz->za[bz->f1].z1 + count;	
+	count = bcs->tx_skb->len;	/* get frame len */
+	new_z1 = bz->za[bz->f1].z1 + count;	/* new buffer Position */
 	if (new_z1 >= (B_FIFO_SIZE + B_SUB_VAL))
-		new_z1 -= B_FIFO_SIZE;	
+		new_z1 -= B_FIFO_SIZE;	/* buffer wrap */
 
 	new_f1 = ((bz->f1 + 1) & MAX_B_FRAMES);
-	src = bcs->tx_skb->data;	
+	src = bcs->tx_skb->data;	/* source pointer */
 	dst = bdata + (bz->za[bz->f1].z1 - B_SUB_VAL);
-	maxlen = (B_FIFO_SIZE + B_SUB_VAL) - bz->za[bz->f1].z1;		
+	maxlen = (B_FIFO_SIZE + B_SUB_VAL) - bz->za[bz->f1].z1;		/* end fifo */
 	if (maxlen > count)
-		maxlen = count;	
-	memcpy(dst, src, maxlen);	
+		maxlen = count;	/* limit size */
+	memcpy(dst, src, maxlen);	/* first copy */
 
-	count -= maxlen;	
+	count -= maxlen;	/* remaining bytes */
 	if (count) {
-		dst = bdata;	
-		src += maxlen;	
+		dst = bdata;	/* start of buffer */
+		src += maxlen;	/* new position */
 		memcpy(dst, src, count);
 	}
 	bcs->tx_cnt -= bcs->tx_skb->len;
@@ -672,14 +719,17 @@ hfcpci_fill_fifo(struct BCState *bcs)
 		schedule_event(bcs, B_ACKPENDING);
 	}
 
-	bz->za[new_f1].z1 = new_z1;	
-	bz->f1 = new_f1;	
+	bz->za[new_f1].z1 = new_z1;	/* for next buffer */
+	bz->f1 = new_f1;	/* next frame */
 
 	dev_kfree_skb_any(bcs->tx_skb);
 	bcs->tx_skb = NULL;
 	test_and_clear_bit(BC_FLG_BUSY, &bcs->Flag);
 }
 
+/**********************************************/
+/* D-channel l1 state call for leased NT-mode */
+/**********************************************/
 static void
 dch_nt_l2l1(struct PStack *st, int pr, void *arg)
 {
@@ -712,6 +762,9 @@ dch_nt_l2l1(struct PStack *st, int pr, void *arg)
 
 
 
+/***********************/
+/* set/reset echo mode */
+/***********************/
 static int
 hfcpci_auxcmd(struct IsdnCardState *cs, isdn_ctrl *ic)
 {
@@ -721,13 +774,13 @@ hfcpci_auxcmd(struct IsdnCardState *cs, isdn_ctrl *ic)
 	if ((ic->arg == 98) &&
 	    (!(cs->hw.hfcpci.int_m1 & (HFCPCI_INTS_B2TRANS + HFCPCI_INTS_B2REC + HFCPCI_INTS_B1TRANS + HFCPCI_INTS_B1REC)))) {
 		spin_lock_irqsave(&cs->lock, flags);
-		Write_hfc(cs, HFCPCI_CLKDEL, CLKDEL_NT); 
-		Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 0);	
+		Write_hfc(cs, HFCPCI_CLKDEL, CLKDEL_NT); /* ST-Bit delay for NT-Mode */
+		Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 0);	/* HFC ST G0 */
 		udelay(10);
 		cs->hw.hfcpci.sctrl |= SCTRL_MODE_NT;
-		Write_hfc(cs, HFCPCI_SCTRL, cs->hw.hfcpci.sctrl);	
+		Write_hfc(cs, HFCPCI_SCTRL, cs->hw.hfcpci.sctrl);	/* set NT-mode */
 		udelay(10);
-		Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 1);	
+		Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 1);	/* HFC ST G1 */
 		udelay(10);
 		Write_hfc(cs, HFCPCI_STATES, 1 | HFCPCI_ACTIVATE | HFCPCI_DO_ACTION);
 		cs->dc.hfcpci.ph_state = 1;
@@ -745,18 +798,18 @@ hfcpci_auxcmd(struct IsdnCardState *cs, isdn_ctrl *ic)
 	spin_lock_irqsave(&cs->lock, flags);
 	if (i) {
 		cs->logecho = 1;
-		cs->hw.hfcpci.trm |= 0x20;	
+		cs->hw.hfcpci.trm |= 0x20;	/* enable echo chan */
 		cs->hw.hfcpci.int_m1 |= HFCPCI_INTS_B2REC;
 		cs->hw.hfcpci.fifo_en |= HFCPCI_FIFOEN_B2RX;
 	} else {
 		cs->logecho = 0;
-		cs->hw.hfcpci.trm &= ~0x20;	
+		cs->hw.hfcpci.trm &= ~0x20;	/* disable echo chan */
 		cs->hw.hfcpci.int_m1 &= ~HFCPCI_INTS_B2REC;
 		cs->hw.hfcpci.fifo_en &= ~HFCPCI_FIFOEN_B2RX;
 	}
 	cs->hw.hfcpci.sctrl_r &= ~SCTRL_B2_ENA;
 	cs->hw.hfcpci.sctrl &= ~SCTRL_B2_ENA;
-	cs->hw.hfcpci.conn |= 0x10;	
+	cs->hw.hfcpci.conn |= 0x10;	/* B2-IOM -> B2-ST */
 	cs->hw.hfcpci.ctmt &= ~2;
 	Write_hfc(cs, HFCPCI_CTMT, cs->hw.hfcpci.ctmt);
 	Write_hfc(cs, HFCPCI_SCTRL_R, cs->hw.hfcpci.sctrl_r);
@@ -767,8 +820,11 @@ hfcpci_auxcmd(struct IsdnCardState *cs, isdn_ctrl *ic)
 	Write_hfc(cs, HFCPCI_INT_M1, cs->hw.hfcpci.int_m1);
 	spin_unlock_irqrestore(&cs->lock, flags);
 	return (0);
-}				
+}				/* hfcpci_auxcmd */
 
+/*****************************/
+/* E-channel receive routine */
+/*****************************/
 static void
 receive_emsg(struct IsdnCardState *cs)
 {
@@ -802,37 +858,37 @@ Begin:
 		if (cs->debug & L1_DEB_ISAC)
 			debugl1(cs, "hfcpci e_rec z1(%x) z2(%x) cnt(%d)",
 				zp->z1, zp->z2, rcnt);
-		new_z2 = zp->z2 + rcnt;		
+		new_z2 = zp->z2 + rcnt;		/* new position in fifo */
 		if (new_z2 >= (B_FIFO_SIZE + B_SUB_VAL))
-			new_z2 -= B_FIFO_SIZE;	
+			new_z2 -= B_FIFO_SIZE;	/* buffer wrap */
 		new_f2 = (bz->f2 + 1) & MAX_B_FRAMES;
 		if ((rcnt > 256 + 3) || (count < 4) ||
 		    (*(bdata + (zp->z1 - B_SUB_VAL)))) {
 			if (cs->debug & L1_DEB_WARN)
 				debugl1(cs, "hfcpci_empty_echan: incoming packet invalid length %d or crc", rcnt);
 			bz->za[new_f2].z2 = new_z2;
-			bz->f2 = new_f2;	
+			bz->f2 = new_f2;	/* next buffer */
 		} else {
 			total = rcnt;
 			rcnt -= 3;
 			ptr = e_buffer;
 
 			if (zp->z2 <= B_FIFO_SIZE + B_SUB_VAL)
-				maxlen = rcnt;	
+				maxlen = rcnt;	/* complete transfer */
 			else
-				maxlen = B_FIFO_SIZE + B_SUB_VAL - zp->z2;	
+				maxlen = B_FIFO_SIZE + B_SUB_VAL - zp->z2;	/* maximum */
 
-			ptr1 = bdata + (zp->z2 - B_SUB_VAL);	
-			memcpy(ptr, ptr1, maxlen);	
+			ptr1 = bdata + (zp->z2 - B_SUB_VAL);	/* start of data */
+			memcpy(ptr, ptr1, maxlen);	/* copy data */
 			rcnt -= maxlen;
 
-			if (rcnt) {	
+			if (rcnt) {	/* rest remaining */
 				ptr += maxlen;
-				ptr1 = bdata;	
-				memcpy(ptr, ptr1, rcnt);	
+				ptr1 = bdata;	/* start of buffer */
+				memcpy(ptr, ptr1, rcnt);	/* rest */
 			}
 			bz->za[new_f2].z2 = new_z2;
-			bz->f2 = new_f2;	
+			bz->f2 = new_f2;	/* next buffer */
 			if (cs->debug & DEB_DLOG_HEX) {
 				ptr = cs->dlog;
 				if ((total - 3) < MAX_DLOG_SPACE / 3 - 10) {
@@ -863,8 +919,11 @@ Begin:
 	test_and_clear_bit(FLG_LOCK_ATOMIC, &cs->HW_Flags);
 	if (count && receive)
 		goto Begin;
-}				
+}				/* receive_emsg */
 
+/*********************/
+/* Interrupt handler */
+/*********************/
 static irqreturn_t
 hfcpci_interrupt(int intno, void *dev_id)
 {
@@ -877,7 +936,7 @@ hfcpci_interrupt(int intno, void *dev_id)
 
 	if (!(cs->hw.hfcpci.int_m2 & 0x08)) {
 		debugl1(cs, "HFC-PCI: int_m2 %x not initialised", cs->hw.hfcpci.int_m2);
-		return IRQ_NONE;	
+		return IRQ_NONE;	/* not initialised */
 	}
 	spin_lock_irqsave(&cs->lock, flags);
 	if (HFCPCI_ANYINT & (stat = Read_hfc(cs, HFCPCI_STATUS))) {
@@ -893,7 +952,7 @@ hfcpci_interrupt(int intno, void *dev_id)
 			test_bit(FLG_LOCK_ATOMIC, &cs->HW_Flags) ?
 			"locked" : "unlocked");
 	val &= cs->hw.hfcpci.int_m1;
-	if (val & 0x40) {	
+	if (val & 0x40) {	/* state machine irq */
 		exval = Read_hfc(cs, HFCPCI_STATES) & 0xf;
 		if (cs->debug & L1_DEB_ISAC)
 			debugl1(cs, "ph_state chg %d->%d", cs->dc.hfcpci.ph_state,
@@ -902,7 +961,7 @@ hfcpci_interrupt(int intno, void *dev_id)
 		sched_event_D_pci(cs, D_L1STATECHANGE);
 		val &= ~0x40;
 	}
-	if (val & 0x80) {	
+	if (val & 0x80) {	/* timer irq */
 		if (cs->hw.hfcpci.nt_mode) {
 			if ((--cs->hw.hfcpci.nt_timer) < 0)
 				sched_event_D_pci(cs, D_L1STATECHANGE);
@@ -985,10 +1044,10 @@ hfcpci_interrupt(int intno, void *dev_id)
 				}
 			}
 		}
-		if (val & 0x20) {	
+		if (val & 0x20) {	/* receive dframe */
 			receive_dmsg(cs);
 		}
-		if (val & 0x04) {	
+		if (val & 0x04) {	/* dframe transmitted */
 			if (test_and_clear_bit(FLG_DBUSY_TIMER, &cs->HW_Flags))
 				del_timer(&cs->dbusytimer);
 			if (test_and_clear_bit(FLG_L1_DBUSY, &cs->HW_Flags))
@@ -1032,11 +1091,17 @@ hfcpci_interrupt(int intno, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/********************************************************************/
+/* timer callback for D-chan busy resolution. Currently no function */
+/********************************************************************/
 static void
 hfcpci_dbusy_timer(struct IsdnCardState *cs)
 {
 }
 
+/*************************************/
+/* Layer 1 D-channel hardware access */
+/*************************************/
 static void
 HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 {
@@ -1053,14 +1118,14 @@ HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 		spin_lock_irqsave(&cs->lock, flags);
 		if (cs->tx_skb) {
 			skb_queue_tail(&cs->sq, skb);
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 			if (cs->debug & L1_DEB_LAPD)
 				Logl2Frame(cs, skb, "PH_DATA Queued", 0);
 #endif
 		} else {
 			cs->tx_skb = skb;
 			cs->tx_cnt = 0;
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 			if (cs->debug & L1_DEB_LAPD)
 				Logl2Frame(cs, skb, "PH_DATA", 0);
 #endif
@@ -1088,7 +1153,7 @@ HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 			dlogframe(cs, skb, 0);
 		cs->tx_skb = skb;
 		cs->tx_cnt = 0;
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 		if (cs->debug & L1_DEB_LAPD)
 			Logl2Frame(cs, skb, "PH_DATA_PULLED", 0);
 #endif
@@ -1100,7 +1165,7 @@ HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 		spin_unlock_irqrestore(&cs->lock, flags);
 		break;
 	case (PH_PULL | REQUEST):
-#ifdef L2FRAME_DEBUG		
+#ifdef L2FRAME_DEBUG		/* psa */
 		if (cs->debug & L1_DEB_LAPD)
 			debugl1(cs, "-> PH_REQUEST_PULL");
 #endif
@@ -1112,9 +1177,9 @@ HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 		break;
 	case (HW_RESET | REQUEST):
 		spin_lock_irqsave(&cs->lock, flags);
-		Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 3);	
+		Write_hfc(cs, HFCPCI_STATES, HFCPCI_LOAD_STATE | 3);	/* HFC ST 3 */
 		udelay(6);
-		Write_hfc(cs, HFCPCI_STATES, 3);	
+		Write_hfc(cs, HFCPCI_STATES, 3);	/* HFC ST 2 */
 		cs->hw.hfcpci.mst_m |= HFCPCI_MASTER;
 		Write_hfc(cs, HFCPCI_MST_MODE, cs->hw.hfcpci.mst_m);
 		Write_hfc(cs, HFCPCI_STATES, HFCPCI_ACTIVATE | HFCPCI_DO_ACTION);
@@ -1142,15 +1207,15 @@ HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 		spin_lock_irqsave(&cs->lock, flags);
 		switch ((long) arg) {
 		case (1):
-			Write_hfc(cs, HFCPCI_B1_SSL, 0x80);	
-			Write_hfc(cs, HFCPCI_B1_RSL, 0x80);	
+			Write_hfc(cs, HFCPCI_B1_SSL, 0x80);	/* tx slot */
+			Write_hfc(cs, HFCPCI_B1_RSL, 0x80);	/* rx slot */
 			cs->hw.hfcpci.conn = (cs->hw.hfcpci.conn & ~7) | 1;
 			Write_hfc(cs, HFCPCI_CONNECT, cs->hw.hfcpci.conn);
 			break;
 
 		case (2):
-			Write_hfc(cs, HFCPCI_B2_SSL, 0x81);	
-			Write_hfc(cs, HFCPCI_B2_RSL, 0x81);	
+			Write_hfc(cs, HFCPCI_B2_SSL, 0x81);	/* tx slot */
+			Write_hfc(cs, HFCPCI_B2_RSL, 0x81);	/* rx slot */
 			cs->hw.hfcpci.conn = (cs->hw.hfcpci.conn & ~0x38) | 0x08;
 			Write_hfc(cs, HFCPCI_CONNECT, cs->hw.hfcpci.conn);
 			break;
@@ -1161,7 +1226,7 @@ HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 				debugl1(cs, "hfcpci_l1hw loop invalid %4lx", (long) arg);
 			return;
 		}
-		cs->hw.hfcpci.trm |= 0x80;	
+		cs->hw.hfcpci.trm |= 0x80;	/* enable IOM-loop */
 		Write_hfc(cs, HFCPCI_TRM, cs->hw.hfcpci.trm);
 		spin_unlock_irqrestore(&cs->lock, flags);
 		break;
@@ -1172,12 +1237,18 @@ HFCPCI_l1hw(struct PStack *st, int pr, void *arg)
 	}
 }
 
+/***********************************************/
+/* called during init setting l1 stack pointer */
+/***********************************************/
 static void
 setstack_hfcpci(struct PStack *st, struct IsdnCardState *cs)
 {
 	st->l1.l1hw = HFCPCI_l1hw;
 }
 
+/**************************************/
+/* send B-channel data if not blocked */
+/**************************************/
 static void
 hfcpci_send_data(struct BCState *bcs)
 {
@@ -1190,6 +1261,9 @@ hfcpci_send_data(struct BCState *bcs)
 		debugl1(cs, "send_data %d blocked", bcs->channel);
 }
 
+/***************************************************************/
+/* activate/deactivate hardware for selected channels and mode */
+/***************************************************************/
 static void
 mode_hfcpci(struct BCState *bcs, int mode, int bc)
 {
@@ -1203,20 +1277,20 @@ mode_hfcpci(struct BCState *bcs, int mode, int bc)
 	bcs->channel = bc;
 	fifo2 = bc;
 	if (cs->chanlimit > 1) {
-		cs->hw.hfcpci.bswapped = 0;	
+		cs->hw.hfcpci.bswapped = 0;	/* B1 and B2 normal mode */
 		cs->hw.hfcpci.sctrl_e &= ~0x80;
 	} else {
 		if (bc) {
 			if (mode != L1_MODE_NULL) {
-				cs->hw.hfcpci.bswapped = 1;	
+				cs->hw.hfcpci.bswapped = 1;	/* B1 and B2 exchanged */
 				cs->hw.hfcpci.sctrl_e |= 0x80;
 			} else {
-				cs->hw.hfcpci.bswapped = 0;	
+				cs->hw.hfcpci.bswapped = 0;	/* B1 and B2 normal mode */
 				cs->hw.hfcpci.sctrl_e &= ~0x80;
 			}
 			fifo2 = 0;
 		} else {
-			cs->hw.hfcpci.bswapped = 0;	
+			cs->hw.hfcpci.bswapped = 0;	/* B1 and B2 normal mode */
 			cs->hw.hfcpci.sctrl_e &= ~0x80;
 		}
 	}
@@ -1308,6 +1382,9 @@ mode_hfcpci(struct BCState *bcs, int mode, int bc)
 	Write_hfc(cs, HFCPCI_CONNECT, cs->hw.hfcpci.conn);
 }
 
+/******************************/
+/* Layer2 -> Layer 1 Transfer */
+/******************************/
 static void
 hfcpci_l2l1(struct PStack *st, int pr, void *arg)
 {
@@ -1322,6 +1399,7 @@ hfcpci_l2l1(struct PStack *st, int pr, void *arg)
 			skb_queue_tail(&bcs->squeue, skb);
 		} else {
 			bcs->tx_skb = skb;
+//				test_and_set_bit(BC_FLG_BUSY, &bcs->Flag);
 			bcs->cs->BC_Send_Data(bcs);
 		}
 		spin_unlock_irqrestore(&bcs->cs->lock, flags);
@@ -1333,6 +1411,7 @@ hfcpci_l2l1(struct PStack *st, int pr, void *arg)
 			printk(KERN_WARNING "hfc_l2l1: this shouldn't happen\n");
 			break;
 		}
+//			test_and_set_bit(BC_FLG_BUSY, &bcs->Flag);
 		bcs->tx_skb = skb;
 		bcs->cs->BC_Send_Data(bcs);
 		spin_unlock_irqrestore(&bcs->cs->lock, flags);
@@ -1365,6 +1444,9 @@ hfcpci_l2l1(struct PStack *st, int pr, void *arg)
 	}
 }
 
+/******************************************/
+/* deactivate B-channel access and queues */
+/******************************************/
 static void
 close_hfcpci(struct BCState *bcs)
 {
@@ -1380,6 +1462,9 @@ close_hfcpci(struct BCState *bcs)
 	}
 }
 
+/*************************************/
+/* init B-channel queues and control */
+/*************************************/
 static int
 open_hfcpcistate(struct IsdnCardState *cs, struct BCState *bcs)
 {
@@ -1394,6 +1479,9 @@ open_hfcpcistate(struct IsdnCardState *cs, struct BCState *bcs)
 	return (0);
 }
 
+/*********************************/
+/* inits the stack for B-channel */
+/*********************************/
 static int
 setstack_2b(struct PStack *st, struct BCState *bcs)
 {
@@ -1408,12 +1496,16 @@ setstack_2b(struct PStack *st, struct BCState *bcs)
 	return (0);
 }
 
+/***************************/
+/* handle L1 state changes */
+/***************************/
 static void
 hfcpci_bh(struct work_struct *work)
 {
 	struct IsdnCardState *cs =
 		container_of(work, struct IsdnCardState, tqueue);
 	u_long	flags;
+//      struct PStack *stptr;
 
 	if (test_and_clear_bit(D_L1STATECHANGE, &cs->event)) {
 		if (!cs->hw.hfcpci.nt_mode)
@@ -1443,7 +1535,7 @@ hfcpci_bh(struct work_struct *work)
 					cs->hw.hfcpci.nt_timer = 0;
 					cs->hw.hfcpci.int_m1 &= ~HFCPCI_INTS_TIMER;
 					Write_hfc(cs, HFCPCI_INT_M1, cs->hw.hfcpci.int_m1);
-					
+					/* Clear already pending ints */
 					if (Read_hfc(cs, HFCPCI_INT_S1));
 					Write_hfc(cs, HFCPCI_STATES, 4 | HFCPCI_LOAD_STATE);
 					udelay(10);
@@ -1457,7 +1549,7 @@ hfcpci_bh(struct work_struct *work)
 					Write_hfc(cs, HFCPCI_CTMT, cs->hw.hfcpci.ctmt | HFCPCI_CLTIMER);
 					Write_hfc(cs, HFCPCI_CTMT, cs->hw.hfcpci.ctmt | HFCPCI_CLTIMER);
 					cs->hw.hfcpci.nt_timer = NT_T1_COUNT;
-					Write_hfc(cs, HFCPCI_STATES, 2 | HFCPCI_NT_G2_G3);	
+					Write_hfc(cs, HFCPCI_STATES, 2 | HFCPCI_NT_G2_G3);	/* allow G2 -> G3 transition */
 				}
 				break;
 			case (1):
@@ -1480,6 +1572,9 @@ hfcpci_bh(struct work_struct *work)
 }
 
 
+/********************************/
+/* called for card init message */
+/********************************/
 static void
 inithfcpci(struct IsdnCardState *cs)
 {
@@ -1496,6 +1591,9 @@ inithfcpci(struct IsdnCardState *cs)
 
 
 
+/*******************************************/
+/* handle card messages from control layer */
+/*******************************************/
 static int
 hfcpci_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 {
@@ -1517,12 +1615,12 @@ hfcpci_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		inithfcpci(cs);
 		reset_hfcpci(cs);
 		spin_unlock_irqrestore(&cs->lock, flags);
-		msleep(80);				
-		
+		msleep(80);				/* Timeout 80ms */
+		/* now switch timer interrupt off */
 		spin_lock_irqsave(&cs->lock, flags);
 		cs->hw.hfcpci.int_m1 &= ~HFCPCI_INTS_TIMER;
 		Write_hfc(cs, HFCPCI_INT_M1, cs->hw.hfcpci.int_m1);
-		
+		/* reinit mode reg */
 		Write_hfc(cs, HFCPCI_MST_MODE, cs->hw.hfcpci.mst_m);
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return (0);
@@ -1533,6 +1631,7 @@ hfcpci_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 }
 
 
+/* this variable is used as card index when more than one cards are present */
 static struct pci_dev *dev_hfcpci __devinitdata = NULL;
 
 int __devinit
@@ -1591,7 +1690,7 @@ setup_hfcpci(struct IsdnCard *card)
 	}
 
 	i--;
-	dev_hfcpci = tmp_hfcpci;	
+	dev_hfcpci = tmp_hfcpci;	/* old device */
 	cs->hw.hfcpci.dev = dev_hfcpci;
 	cs->irq = dev_hfcpci->irq;
 	if (!cs->irq) {
@@ -1606,7 +1705,7 @@ setup_hfcpci(struct IsdnCard *card)
 		return (0);
 	}
 
-	
+	/* Allocate memory for FIFOS */
 	cs->hw.hfcpci.fifos = pci_alloc_consistent(cs->hw.hfcpci.dev,
 						   0x8000, &cs->hw.hfcpci.dma);
 	if (!cs->hw.hfcpci.fifos) {
@@ -1632,13 +1731,13 @@ setup_hfcpci(struct IsdnCard *card)
 
 	spin_lock_irqsave(&cs->lock, flags);
 
-	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, PCI_ENA_MEMIO);	
-	cs->hw.hfcpci.int_m2 = 0;	
+	pci_write_config_word(cs->hw.hfcpci.dev, PCI_COMMAND, PCI_ENA_MEMIO);	/* enable memory mapped ports, disable busmaster */
+	cs->hw.hfcpci.int_m2 = 0;	/* disable alle interrupts */
 	cs->hw.hfcpci.int_m1 = 0;
 	Write_hfc(cs, HFCPCI_INT_M1, cs->hw.hfcpci.int_m1);
 	Write_hfc(cs, HFCPCI_INT_M2, cs->hw.hfcpci.int_m2);
-	
-	
+	/* At this point the needed PCI config is done */
+	/* fifos are still not enabled */
 
 	INIT_WORK(&cs->tqueue,  hfcpci_bh);
 	cs->setstack_d = setstack_hfcpci;

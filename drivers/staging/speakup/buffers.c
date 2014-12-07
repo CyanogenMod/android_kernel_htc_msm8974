@@ -5,13 +5,21 @@
 #include "speakup.h"
 #include "spk_priv.h"
 
-#define synthBufferSize 8192	
+#define synthBufferSize 8192	/* currently 8K bytes */
 
-static u_char synth_buffer[synthBufferSize];	
+static u_char synth_buffer[synthBufferSize];	/* guess what this is for! */
 static u_char *buff_in = synth_buffer;
 static u_char *buff_out = synth_buffer;
 static u_char *buffer_end = synth_buffer+synthBufferSize-1;
 
+/* These try to throttle applications by stopping the TTYs
+ * Note: we need to make sure that we will restart them eventually, which is
+ * usually not possible to do from the notifiers. TODO: it should be possible
+ * starting from linux 2.6.26.
+ *
+ * So we only stop when we know alive == 1 (else we discard the data anyway),
+ * and the alive synth will eventually call start_ttys from the thread context.
+ */
 void speakup_start_ttys(void)
 {
 	int i;
@@ -54,6 +62,8 @@ EXPORT_SYMBOL_GPL(synth_buffer_empty);
 void synth_buffer_add(char ch)
 {
 	if (!synth->alive) {
+		/* This makes sure that we won't stop TTYs if there is no synth
+		 * to restart them */
 		return;
 	}
 	if (synth_buffer_free() <= 100) {

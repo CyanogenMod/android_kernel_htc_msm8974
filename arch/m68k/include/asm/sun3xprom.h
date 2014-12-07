@@ -1,3 +1,4 @@
+/* Useful PROM locations */
 
 #ifndef SUN3X_PROM_H
 #define SUN3X_PROM_H
@@ -12,6 +13,7 @@ void sun3x_abort(void);
 void sun3x_prom_init(void);
 unsigned long sun3x_prom_ptov(unsigned long pa, unsigned long size);
 
+/* interesting hardware locations */
 #define SUN3X_IOMMU       0x60000000
 #define SUN3X_ENAREG      0x61000000
 #define SUN3X_INTREG      0x61001400
@@ -24,6 +26,7 @@ unsigned long sun3x_prom_ptov(unsigned long pa, unsigned long size);
 #define SUN3X_VIDEO_BASE  0x50400000
 #define SUN3X_VIDEO_REGS  0x50300000
 
+/* vector table */
 #define SUN3X_PROM_BASE   0xfefe0000
 #define SUN3X_P_GETCHAR   (SUN3X_PROM_BASE + 20)
 #define SUN3X_P_PUTCHAR   (SUN3X_PROM_BASE + 24)
@@ -33,6 +36,7 @@ unsigned long sun3x_prom_ptov(unsigned long pa, unsigned long size);
 #define SUN3X_P_SETLEDS   (SUN3X_PROM_BASE + 144)
 #define SUN3X_P_ABORT     (SUN3X_PROM_BASE + 152)
 
+/* mapped area */
 #define SUN3X_MAP_START   0xfee00000
 #define SUN3X_MAP_END     0xff000000
 

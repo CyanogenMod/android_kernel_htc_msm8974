@@ -45,9 +45,12 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long z2_pin_config[] = {
 
-	
+	/* LCD - 16bpp Active TFT */
 	GPIO58_LCD_LDD_0,
 	GPIO59_LCD_LDD_1,
 	GPIO60_LCD_LDD_2,
@@ -68,27 +71,27 @@ static unsigned long z2_pin_config[] = {
 	GPIO75_LCD_LCLK,
 	GPIO76_LCD_PCLK,
 	GPIO77_LCD_BIAS,
-	GPIO19_GPIO,		
-	GPIO88_GPIO,		
+	GPIO19_GPIO,		/* LCD reset */
+	GPIO88_GPIO,		/* LCD chipselect */
 
-	
-	GPIO115_PWM1_OUT,	
-	GPIO11_PWM2_OUT,	
+	/* PWM */
+	GPIO115_PWM1_OUT,	/* Keypad Backlight */
+	GPIO11_PWM2_OUT,	/* LCD Backlight */
 
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO112_MMC_CMD,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
-	GPIO96_GPIO,		
+	GPIO96_GPIO,		/* SD detect */
 
-	
+	/* STUART */
 	GPIO46_STUART_RXD,
 	GPIO47_STUART_TXD,
 
-	
+	/* Keypad */
 	GPIO100_KP_MKIN_0,
 	GPIO101_KP_MKIN_1,
 	GPIO102_KP_MKIN_2,
@@ -105,43 +108,46 @@ static unsigned long z2_pin_config[] = {
 	GPIO35_KP_MKOUT_6,
 	GPIO41_KP_MKOUT_7,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
-	GPIO23_SSP1_SCLK,	
-	GPIO25_SSP1_TXD,	
-	GPIO26_SSP1_RXD,	
+	/* SSP1 */
+	GPIO23_SSP1_SCLK,	/* SSP1_SCK */
+	GPIO25_SSP1_TXD,	/* SSP1_TXD */
+	GPIO26_SSP1_RXD,	/* SSP1_RXD */
 
-	
-	GPIO22_SSP2_SCLK,	
-	GPIO13_SSP2_TXD,	
-	GPIO40_SSP2_RXD,	
+	/* SSP2 */
+	GPIO22_SSP2_SCLK,	/* SSP2_SCK */
+	GPIO13_SSP2_TXD,	/* SSP2_TXD */
+	GPIO40_SSP2_RXD,	/* SSP2_RXD */
 
-	
-	GPIO10_GPIO,		
-	GPIO83_GPIO,		
-	GPIO85_GPIO,		
+	/* LEDs */
+	GPIO10_GPIO,		/* WiFi LED */
+	GPIO83_GPIO,		/* Charging LED */
+	GPIO85_GPIO,		/* Charged LED */
 
-	
+	/* I2S */
 	GPIO28_I2S_BITCLK_OUT,
 	GPIO29_I2S_SDATA_IN,
 	GPIO30_I2S_SDATA_OUT,
 	GPIO31_I2S_SYNC,
 	GPIO113_I2S_SYSCLK,
 
-	
-	GPIO0_GPIO,		
-	GPIO1_GPIO,		
-	GPIO37_GPIO,		
-	GPIO98_GPIO,		
-	GPIO14_GPIO,		
-	GPIO24_GPIO,		
-	GPIO36_GPIO,		
-	GPIO88_GPIO,		
+	/* MISC */
+	GPIO0_GPIO,		/* AC power detect */
+	GPIO1_GPIO,		/* Power button */
+	GPIO37_GPIO,		/* Headphone detect */
+	GPIO98_GPIO,		/* Lid switch */
+	GPIO14_GPIO,		/* WiFi Power */
+	GPIO24_GPIO,		/* WiFi CS */
+	GPIO36_GPIO,		/* WiFi IRQ */
+	GPIO88_GPIO,		/* LCD CS */
 };
 
+/******************************************************************************
+ * NOR Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_PHYSMAP) || defined(CONFIG_MTD_PHYSMAP_MODULE)
 static struct resource z2_flash_resource = {
 	.start	= PXA_CS0_PHYS,
@@ -189,17 +195,20 @@ static void __init z2_nor_init(void)
 static inline void z2_nor_init(void) {}
 #endif
 
+/******************************************************************************
+ * Backlight
+ ******************************************************************************/
 #if defined(CONFIG_BACKLIGHT_PWM) || defined(CONFIG_BACKLIGHT_PWM_MODULE)
 static struct platform_pwm_backlight_data z2_backlight_data[] = {
 	[0] = {
-		
+		/* Keypad Backlight */
 		.pwm_id		= 1,
 		.max_brightness	= 1023,
 		.dft_brightness	= 0,
 		.pwm_period_ns	= 1260320,
 	},
 	[1] = {
-		
+		/* LCD Backlight */
 		.pwm_id		= 2,
 		.max_brightness	= 1023,
 		.dft_brightness	= 512,
@@ -232,6 +241,9 @@ static void __init z2_pwm_init(void)
 static inline void z2_pwm_init(void) {}
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info z2_lcd_modes[] = {
 {
@@ -265,6 +277,9 @@ static void __init z2_lcd_init(void)
 static inline void z2_lcd_init(void) {}
 #endif
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 #if defined(CONFIG_MMC_PXA) || defined(CONFIG_MMC_PXA_MODULE)
 static struct pxamci_platform_data z2_mci_platform_data = {
 	.ocr_mask		= MMC_VDD_32_33 | MMC_VDD_33_34,
@@ -282,6 +297,9 @@ static void __init z2_mmc_init(void)
 static inline void z2_mmc_init(void) {}
 #endif
 
+/******************************************************************************
+ * LEDs
+ ******************************************************************************/
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 struct gpio_led z2_gpio_leds[] = {
 {
@@ -323,6 +341,9 @@ static void __init z2_leds_init(void)
 static inline void z2_leds_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keyboard
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int z2_matrix_keys[] = {
 	KEY(0, 0, KEY_OPTION),
@@ -401,6 +422,9 @@ static void __init z2_mkp_init(void)
 static inline void z2_mkp_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button z2_pxa_buttons[] = {
 	{
@@ -442,6 +466,9 @@ static void __init z2_keys_init(void)
 static inline void z2_keys_init(void) {}
 #endif
 
+/******************************************************************************
+ * Battery
+ ******************************************************************************/
 #if defined(CONFIG_I2C_PXA) || defined(CONFIG_I2C_PXA_MODULE)
 static struct z2_battery_info batt_chip_info = {
 	.batt_I2C_bus	= 0,
@@ -475,7 +502,11 @@ static void __init z2_i2c_init(void)
 static inline void z2_i2c_init(void) {}
 #endif
 
+/******************************************************************************
+ * SSP Devices - WiFi and LCD control
+ ******************************************************************************/
 #if defined(CONFIG_SPI_PXA2XX) || defined(CONFIG_SPI_PXA2XX_MODULE)
+/* WiFi */
 static int z2_lbs_spi_setup(struct spi_device *spi)
 {
 	int ret = 0;
@@ -488,7 +519,7 @@ static int z2_lbs_spi_setup(struct spi_device *spi)
 	if (ret)
 		goto err2;
 
-	
+	/* Wait until card is powered on */
 	mdelay(180);
 
 	spi->bits_per_word = 16;
@@ -525,6 +556,7 @@ static struct libertas_spi_platform_data z2_lbs_pdata = {
 	.teardown		= z2_lbs_spi_teardown,
 };
 
+/* LCD */
 static struct pxa2xx_spi_chip lms283_chip_info = {
 	.rx_threshold	= 1,
 	.tx_threshold	= 1,
@@ -577,6 +609,9 @@ static void __init z2_spi_init(void)
 static inline void z2_spi_init(void) {}
 #endif
 
+/******************************************************************************
+ * Core power regulator
+ ******************************************************************************/
 #if defined(CONFIG_REGULATOR_TPS65023) || \
 	defined(CONFIG_REGULATOR_TPS65023_MODULE)
 static struct regulator_consumer_supply z2_tps65021_consumers[] = {
@@ -646,6 +681,9 @@ static inline void z2_pmic_init(void) {}
 #ifdef CONFIG_PM
 static void z2_power_off(void)
 {
+	/* We're using deep sleep as poweroff, so clear PSPR to ensure that
+	 * bootloader will jump to its entry point in resume handler
+	 */
 	PSPR = 0x0;
 	local_irq_disable();
 	pxa27x_set_pwrmode(PWRMODE_DEEPSLEEP);
@@ -655,6 +693,9 @@ static void z2_power_off(void)
 #define z2_power_off   NULL
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static void __init z2_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(z2_pin_config));

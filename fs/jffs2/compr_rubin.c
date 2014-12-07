@@ -157,7 +157,7 @@ static void init_decode(struct rubin_state *rs, int div, int *bits)
 {
 	init_rubin(rs, div, bits);
 
-	
+	/* behalve lower */
 	rs->rec_q = 0;
 
 	for (rs->bit_number = 0; rs->bit_number++ < RUBIN_REG_SIZE;
@@ -172,6 +172,11 @@ static void __do_decode(struct rubin_state *rs, unsigned long p,
 	unsigned long rec_q;
 	int c, bits = 0;
 
+	/*
+	 * First, work out how many bits we need from the input stream.
+	 * Note that we have already done the initial check on this
+	 * loop prior to calling this function.
+	 */
 	do {
 		bits++;
 		q &= lower_bits_rubin;
@@ -184,6 +189,9 @@ static void __do_decode(struct rubin_state *rs, unsigned long p,
 
 	rs->bit_number += bits;
 
+	/*
+	 * Now get the bits.  We really want this to be "get n bits".
+	 */
 	rec_q = rs->rec_q;
 	do {
 		c = pullbit(&rs->pp);
@@ -234,7 +242,7 @@ static int out_byte(struct rubin_state *rs, unsigned char byte)
 		ret = encode(rs, rs->bit_divider-rs->bits[i],
 			     rs->bits[i], byte & 1);
 		if (ret) {
-			
+			/* Failed. Restore old state */
 			*rs = rs_copy;
 			return ret;
 		}
@@ -274,20 +282,23 @@ static int rubin_do_compress(int bit_divider, int *bits, unsigned char *data_in,
 	end_rubin(&rs);
 
 	if (outpos > pos) {
-		
+		/* We failed */
 		return -1;
 	}
 
+	/* Tell the caller how much we managed to compress,
+	 * and how much space it took */
 
 	outpos = (pushedbits(&rs.pp)+7)/8;
 
 	if (outpos >= pos)
-		return -1; 
+		return -1; /* We didn't actually compress */
 	*sourcelen = pos;
 	*dstlen = outpos;
 	return 0;
 }
 #if 0
+/* _compress returns the compressed size, -1 if bigger */
 int jffs2_rubinmips_compress(unsigned char *data_in, unsigned char *cpage_out,
 		   uint32_t *sourcelen, uint32_t *dstlen)
 {
@@ -346,11 +357,11 @@ static int jffs2_dynrubin_compress(unsigned char *data_in,
 	if (ret)
 		return ret;
 
-	
+	/* Add back the 8 bytes we took for the probabilities */
 	mydstlen += 8;
 
 	if (mysrclen <= mydstlen) {
-		
+		/* We compressed */
 		return -1;
 	}
 
@@ -403,7 +414,7 @@ static struct jffs2_compressor jffs2_rubinmips_comp = {
 	.priority = JFFS2_RUBINMIPS_PRIORITY,
 	.name = "rubinmips",
 	.compr = JFFS2_COMPR_DYNRUBIN,
-	.compress = NULL, 
+	.compress = NULL, /*&jffs2_rubinmips_compress,*/
 	.decompress = &jffs2_rubinmips_decompress,
 #ifdef JFFS2_RUBINMIPS_DISABLED
 	.disabled = 1,

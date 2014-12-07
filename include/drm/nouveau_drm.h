@@ -34,10 +34,10 @@ struct drm_nouveau_channel_alloc {
 	int          channel;
 	uint32_t     pushbuf_domains;
 
-	
+	/* Notifier memory */
 	uint32_t     notifier_handle;
 
-	
+	/* DRM-enforced subchannel assignments */
 	struct {
 		uint32_t handle;
 		uint32_t grclass;
@@ -67,6 +67,7 @@ struct drm_nouveau_gpuobj_free {
 	uint32_t handle;
 };
 
+/* FIXME : maybe unify {GET,SET}PARAMs */
 #define NOUVEAU_GETPARAM_PCI_VENDOR      3
 #define NOUVEAU_GETPARAM_PCI_DEVICE      4
 #define NOUVEAU_GETPARAM_BUS_TYPE        5
@@ -93,7 +94,7 @@ struct drm_nouveau_setparam {
 #define NOUVEAU_GEM_DOMAIN_GART      (1 << 2)
 #define NOUVEAU_GEM_DOMAIN_MAPPABLE  (1 << 3)
 
-#define NOUVEAU_GEM_TILE_COMP        0x00030000 
+#define NOUVEAU_GEM_TILE_COMP        0x00030000 /* nv50-only */
 #define NOUVEAU_GEM_TILE_LAYOUT_MASK 0x0000ff00
 #define NOUVEAU_GEM_TILE_16BPP       0x00000001
 #define NOUVEAU_GEM_TILE_32BPP       0x00000002
@@ -214,4 +215,4 @@ struct drm_nouveau_sarea {
 #define DRM_IOCTL_NOUVEAU_GEM_CPU_FINI       DRM_IOW (DRM_COMMAND_BASE + DRM_NOUVEAU_GEM_CPU_FINI, struct drm_nouveau_gem_cpu_fini)
 #define DRM_IOCTL_NOUVEAU_GEM_INFO           DRM_IOWR(DRM_COMMAND_BASE + DRM_NOUVEAU_GEM_INFO, struct drm_nouveau_gem_info)
 
-#endif 
+#endif /* __NOUVEAU_DRM_H__ */

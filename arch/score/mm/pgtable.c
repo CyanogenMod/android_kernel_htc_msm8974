@@ -47,6 +47,6 @@ void pgd_init(unsigned long page)
 
 void __init pagetable_init(void)
 {
-	
+	/* Initialize the entire pgd. */
 	pgd_init((unsigned long)swapper_pg_dir);
 }

@@ -1,3 +1,12 @@
+/*
+ *	Generate devlist.h from the Zorro ID file.
+ *
+ *	(c) 2000 Geert Uytterhoeven <geert@linux-m68k.org>
+ *
+ *	Based on the PCI version:
+ *
+ *	(c) 1999--2000 Martin Mares <mj@ucw.cz>
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -46,7 +55,7 @@ main(void)
 					while (*c == ' ')
 						*c++ = 0;
 					if (manuf_len + strlen(c) + 1 > MAX_NAME_SIZE) {
-						
+						/* Too long, try cutting off long description */
 						bra = strchr(c, '[');
 						if (bra && bra > c && bra[-1] == ' ')
 							bra[-1] = 0;

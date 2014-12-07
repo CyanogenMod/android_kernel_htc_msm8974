@@ -6,6 +6,7 @@
 #include "driver-ops.h"
 #include "led.h"
 
+/* return value indicates whether the driver should be further notified */
 static bool ieee80211_quiesce(struct ieee80211_sub_if_data *sdata)
 {
 	switch (sdata->vif.type) {
@@ -20,7 +21,7 @@ static bool ieee80211_quiesce(struct ieee80211_sub_if_data *sdata)
 		return true;
 	case NL80211_IFTYPE_AP_VLAN:
 	case NL80211_IFTYPE_MONITOR:
-		
+		/* don't tell driver about this */
 		return false;
 	default:
 		return true;
@@ -50,20 +51,24 @@ int __ieee80211_suspend(struct ieee80211_hw *hw, struct cfg80211_wowlan *wowlan)
 	ieee80211_stop_queues_by_reason(hw,
 			IEEE80211_QUEUE_STOP_REASON_SUSPEND);
 
-	
+	/* flush out all packets */
 	synchronize_net();
 
 	drv_flush(local, false);
 
 	local->quiescing = true;
-	
+	/* make quiescing visible to timers everywhere */
 	mb();
 
 	flush_workqueue(local->workqueue);
 
-	
+	/* Don't try to run timers while suspended. */
 	del_timer_sync(&local->sta_cleanup);
 
+	 /*
+	 * Note that this particular timer doesn't need to be
+	 * restarted at resume.
+	 */
 	cancel_work_sync(&local->dynamic_ps_enable_work);
 	del_timer_sync(&local->dynamic_ps_timer);
 
@@ -85,11 +90,11 @@ int __ieee80211_suspend(struct ieee80211_hw *hw, struct cfg80211_wowlan *wowlan)
 		}
 	}
 
-	
+	/* disable keys */
 	list_for_each_entry(sdata, &local->interfaces, list)
 		ieee80211_disable_keys(sdata);
 
-	
+	/* tear down aggregation sessions and remove STAs */
 	mutex_lock(&local->sta_mtx);
 	list_for_each_entry(sta, &local->sta_list, list) {
 		if (sta->uploaded) {
@@ -105,7 +110,7 @@ int __ieee80211_suspend(struct ieee80211_hw *hw, struct cfg80211_wowlan *wowlan)
 	}
 	mutex_unlock(&local->sta_mtx);
 
-	
+	/* remove all interfaces */
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		cancel_work_sync(&sdata->work);
 
@@ -115,23 +120,28 @@ int __ieee80211_suspend(struct ieee80211_hw *hw, struct cfg80211_wowlan *wowlan)
 		if (!ieee80211_sdata_running(sdata))
 			continue;
 
-		
+		/* disable beaconing */
 		ieee80211_bss_info_change_notify(sdata,
 			BSS_CHANGED_BEACON_ENABLED);
 
 		drv_remove_interface(local, sdata);
 	}
 
-	
+	/* stop hardware - this must stop RX */
 	if (local->open_count)
 		ieee80211_stop_device(local);
 
  suspend:
 	local->suspended = true;
-	
+	/* need suspended to be visible before quiescing is false */
 	barrier();
 	local->quiescing = false;
 
 	return 0;
 }
 
+/*
+ * __ieee80211_resume() is a static inline which just calls
+ * ieee80211_reconfig(), which is also needed for hardware
+ * hang/firmware failure/etc. recovery.
+ */

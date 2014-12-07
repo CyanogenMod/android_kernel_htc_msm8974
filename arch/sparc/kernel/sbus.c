@@ -29,29 +29,32 @@
 
 #define MAP_BASE	((u32)0xc0000000)
 
+/* Offsets from iommu_regs */
 #define SYSIO_IOMMUREG_BASE	0x2400UL
-#define IOMMU_CONTROL	(0x2400UL - 0x2400UL)	
-#define IOMMU_TSBBASE	(0x2408UL - 0x2400UL)	
-#define IOMMU_FLUSH	(0x2410UL - 0x2400UL)	
-#define IOMMU_VADIAG	(0x4400UL - 0x2400UL)	
-#define IOMMU_TAGCMP	(0x4408UL - 0x2400UL)	
-#define IOMMU_LRUDIAG	(0x4500UL - 0x2400UL)	
-#define IOMMU_TAGDIAG	(0x4580UL - 0x2400UL)	
-#define IOMMU_DRAMDIAG	(0x4600UL - 0x2400UL)	
+#define IOMMU_CONTROL	(0x2400UL - 0x2400UL)	/* IOMMU control register */
+#define IOMMU_TSBBASE	(0x2408UL - 0x2400UL)	/* TSB base address register */
+#define IOMMU_FLUSH	(0x2410UL - 0x2400UL)	/* IOMMU flush register */
+#define IOMMU_VADIAG	(0x4400UL - 0x2400UL)	/* SBUS virtual address diagnostic */
+#define IOMMU_TAGCMP	(0x4408UL - 0x2400UL)	/* TLB tag compare diagnostics */
+#define IOMMU_LRUDIAG	(0x4500UL - 0x2400UL)	/* IOMMU LRU queue diagnostics */
+#define IOMMU_TAGDIAG	(0x4580UL - 0x2400UL)	/* TLB tag diagnostics */
+#define IOMMU_DRAMDIAG	(0x4600UL - 0x2400UL)	/* TLB data RAM diagnostics */
 
 #define IOMMU_DRAM_VALID	(1UL << 30UL)
 
+/* Offsets from strbuf_regs */
 #define SYSIO_STRBUFREG_BASE	0x2800UL
-#define STRBUF_CONTROL	(0x2800UL - 0x2800UL)	
-#define STRBUF_PFLUSH	(0x2808UL - 0x2800UL)	
-#define STRBUF_FSYNC	(0x2810UL - 0x2800UL)	
-#define STRBUF_DRAMDIAG	(0x5000UL - 0x2800UL)	
-#define STRBUF_ERRDIAG	(0x5400UL - 0x2800UL)	
-#define STRBUF_PTAGDIAG	(0x5800UL - 0x2800UL)	
-#define STRBUF_LTAGDIAG	(0x5900UL - 0x2800UL)	
+#define STRBUF_CONTROL	(0x2800UL - 0x2800UL)	/* Control */
+#define STRBUF_PFLUSH	(0x2808UL - 0x2800UL)	/* Page flush/invalidate */
+#define STRBUF_FSYNC	(0x2810UL - 0x2800UL)	/* Flush synchronization */
+#define STRBUF_DRAMDIAG	(0x5000UL - 0x2800UL)	/* data RAM diagnostic */
+#define STRBUF_ERRDIAG	(0x5400UL - 0x2800UL)	/* error status diagnostics */
+#define STRBUF_PTAGDIAG	(0x5800UL - 0x2800UL)	/* Page tag diagnostics */
+#define STRBUF_LTAGDIAG	(0x5900UL - 0x2800UL)	/* Line tag diagnostics */
 
 #define STRBUF_TAG_VALID	0x02UL
 
+/* Enable 64-bit DVMA mode for the given device. */
 void sbus_set_sbus64(struct device *dev, int bursts)
 {
 	struct iommu *iommu = dev->archdata.iommu;
@@ -99,7 +102,7 @@ void sbus_set_sbus64(struct device *dev, int bursts)
 
 	val = upa_readq(cfg_reg);
 	if (val & (1UL << 14UL)) {
-		
+		/* Extended transfer mode already enabled. */
 		return;
 	}
 
@@ -117,6 +120,10 @@ void sbus_set_sbus64(struct device *dev, int bursts)
 }
 EXPORT_SYMBOL(sbus_set_sbus64);
 
+/* INO number to IMAP register offset for SYSIO external IRQ's.
+ * This should conform to both Sunfire/Wildfire server and Fusion
+ * desktop designs.
+ */
 #define SYSIO_IMAP_SLOT0	0x2c00UL
 #define SYSIO_IMAP_SLOT1	0x2c08UL
 #define SYSIO_IMAP_SLOT2	0x2c10UL
@@ -143,7 +150,7 @@ EXPORT_SYMBOL(sbus_set_sbus64);
 
 #define bogon     ((unsigned long) -1)
 static unsigned long sysio_irq_offsets[] = {
-	
+	/* SBUS Slot 0 --> 3, level 1 --> 7 */
 	SYSIO_IMAP_SLOT0, SYSIO_IMAP_SLOT0, SYSIO_IMAP_SLOT0, SYSIO_IMAP_SLOT0,
 	SYSIO_IMAP_SLOT0, SYSIO_IMAP_SLOT0, SYSIO_IMAP_SLOT0, SYSIO_IMAP_SLOT0,
 	SYSIO_IMAP_SLOT1, SYSIO_IMAP_SLOT1, SYSIO_IMAP_SLOT1, SYSIO_IMAP_SLOT1,
@@ -153,7 +160,7 @@ static unsigned long sysio_irq_offsets[] = {
 	SYSIO_IMAP_SLOT3, SYSIO_IMAP_SLOT3, SYSIO_IMAP_SLOT3, SYSIO_IMAP_SLOT3,
 	SYSIO_IMAP_SLOT3, SYSIO_IMAP_SLOT3, SYSIO_IMAP_SLOT3, SYSIO_IMAP_SLOT3,
 
-	
+	/* Onboard devices (not relevant/used on SunFire). */
 	SYSIO_IMAP_SCSI,
 	SYSIO_IMAP_ETH,
 	SYSIO_IMAP_BPP,
@@ -184,6 +191,9 @@ static unsigned long sysio_irq_offsets[] = {
 
 #define NUM_SYSIO_OFFSETS ARRAY_SIZE(sysio_irq_offsets)
 
+/* Convert Interrupt Mapping register pointer to associated
+ * Interrupt Clear register pointer, SYSIO specific version.
+ */
 #define SYSIO_ICLR_UNUSED0	0x3400UL
 #define SYSIO_ICLR_SLOT0	0x3408UL
 #define SYSIO_ICLR_SLOT1	0x3448UL
@@ -210,6 +220,10 @@ static unsigned int sbus_build_irq(struct platform_device *op, unsigned int ino)
 	}
 	imap += reg_base;
 
+	/* SYSIO inconsistency.  For external SLOTS, we have to select
+	 * the right ICLR register based upon the lower SBUS irq level
+	 * bits.
+	 */
 	if (ino >= 0x20) {
 		iclr = sysio_imap_to_iclr(imap);
 	} else {
@@ -238,19 +252,20 @@ static unsigned int sbus_build_irq(struct platform_device *op, unsigned int ino)
 	return build_irq(sbus_level, iclr, imap);
 }
 
+/* Error interrupt handling. */
 #define SYSIO_UE_AFSR	0x0030UL
 #define SYSIO_UE_AFAR	0x0038UL
-#define  SYSIO_UEAFSR_PPIO  0x8000000000000000UL 
-#define  SYSIO_UEAFSR_PDRD  0x4000000000000000UL 
-#define  SYSIO_UEAFSR_PDWR  0x2000000000000000UL 
-#define  SYSIO_UEAFSR_SPIO  0x1000000000000000UL 
-#define  SYSIO_UEAFSR_SDRD  0x0800000000000000UL 
-#define  SYSIO_UEAFSR_SDWR  0x0400000000000000UL 
-#define  SYSIO_UEAFSR_RESV1 0x03ff000000000000UL 
-#define  SYSIO_UEAFSR_DOFF  0x0000e00000000000UL 
-#define  SYSIO_UEAFSR_SIZE  0x00001c0000000000UL 
-#define  SYSIO_UEAFSR_MID   0x000003e000000000UL 
-#define  SYSIO_UEAFSR_RESV2 0x0000001fffffffffUL 
+#define  SYSIO_UEAFSR_PPIO  0x8000000000000000UL /* Primary PIO cause         */
+#define  SYSIO_UEAFSR_PDRD  0x4000000000000000UL /* Primary DVMA read cause   */
+#define  SYSIO_UEAFSR_PDWR  0x2000000000000000UL /* Primary DVMA write cause  */
+#define  SYSIO_UEAFSR_SPIO  0x1000000000000000UL /* Secondary PIO is cause    */
+#define  SYSIO_UEAFSR_SDRD  0x0800000000000000UL /* Secondary DVMA read cause */
+#define  SYSIO_UEAFSR_SDWR  0x0400000000000000UL /* Secondary DVMA write cause*/
+#define  SYSIO_UEAFSR_RESV1 0x03ff000000000000UL /* Reserved                  */
+#define  SYSIO_UEAFSR_DOFF  0x0000e00000000000UL /* Doubleword Offset         */
+#define  SYSIO_UEAFSR_SIZE  0x00001c0000000000UL /* Bad transfer size 2^SIZE  */
+#define  SYSIO_UEAFSR_MID   0x000003e000000000UL /* UPA MID causing the fault */
+#define  SYSIO_UEAFSR_RESV2 0x0000001fffffffffUL /* Reserved                  */
 static irqreturn_t sysio_ue_handler(int irq, void *dev_id)
 {
 	struct platform_device *op = dev_id;
@@ -263,11 +278,11 @@ static irqreturn_t sysio_ue_handler(int irq, void *dev_id)
 	afsr_reg = reg_base + SYSIO_UE_AFSR;
 	afar_reg = reg_base + SYSIO_UE_AFAR;
 
-	
+	/* Latch error status. */
 	afsr = upa_readq(afsr_reg);
 	afar = upa_readq(afar_reg);
 
-	
+	/* Clear primary/secondary error status bits. */
 	error_bits = afsr &
 		(SYSIO_UEAFSR_PPIO | SYSIO_UEAFSR_PDRD | SYSIO_UEAFSR_PDWR |
 		 SYSIO_UEAFSR_SPIO | SYSIO_UEAFSR_SDRD | SYSIO_UEAFSR_SDWR);
@@ -275,7 +290,7 @@ static irqreturn_t sysio_ue_handler(int irq, void *dev_id)
 
 	portid = of_getintprop_default(op->dev.of_node, "portid", -1);
 
-	
+	/* Log the error. */
 	printk("SYSIO[%x]: Uncorrectable ECC Error, primary error type[%s]\n",
 	       portid,
 	       (((error_bits & SYSIO_UEAFSR_PPIO) ?
@@ -313,18 +328,18 @@ static irqreturn_t sysio_ue_handler(int irq, void *dev_id)
 
 #define SYSIO_CE_AFSR	0x0040UL
 #define SYSIO_CE_AFAR	0x0048UL
-#define  SYSIO_CEAFSR_PPIO  0x8000000000000000UL 
-#define  SYSIO_CEAFSR_PDRD  0x4000000000000000UL 
-#define  SYSIO_CEAFSR_PDWR  0x2000000000000000UL 
-#define  SYSIO_CEAFSR_SPIO  0x1000000000000000UL 
-#define  SYSIO_CEAFSR_SDRD  0x0800000000000000UL 
-#define  SYSIO_CEAFSR_SDWR  0x0400000000000000UL 
-#define  SYSIO_CEAFSR_RESV1 0x0300000000000000UL 
-#define  SYSIO_CEAFSR_ESYND 0x00ff000000000000UL 
-#define  SYSIO_CEAFSR_DOFF  0x0000e00000000000UL 
-#define  SYSIO_CEAFSR_SIZE  0x00001c0000000000UL 
-#define  SYSIO_CEAFSR_MID   0x000003e000000000UL 
-#define  SYSIO_CEAFSR_RESV2 0x0000001fffffffffUL 
+#define  SYSIO_CEAFSR_PPIO  0x8000000000000000UL /* Primary PIO cause         */
+#define  SYSIO_CEAFSR_PDRD  0x4000000000000000UL /* Primary DVMA read cause   */
+#define  SYSIO_CEAFSR_PDWR  0x2000000000000000UL /* Primary DVMA write cause  */
+#define  SYSIO_CEAFSR_SPIO  0x1000000000000000UL /* Secondary PIO cause       */
+#define  SYSIO_CEAFSR_SDRD  0x0800000000000000UL /* Secondary DVMA read cause */
+#define  SYSIO_CEAFSR_SDWR  0x0400000000000000UL /* Secondary DVMA write cause*/
+#define  SYSIO_CEAFSR_RESV1 0x0300000000000000UL /* Reserved                  */
+#define  SYSIO_CEAFSR_ESYND 0x00ff000000000000UL /* Syndrome Bits             */
+#define  SYSIO_CEAFSR_DOFF  0x0000e00000000000UL /* Double Offset             */
+#define  SYSIO_CEAFSR_SIZE  0x00001c0000000000UL /* Bad transfer size 2^SIZE  */
+#define  SYSIO_CEAFSR_MID   0x000003e000000000UL /* UPA MID causing the fault */
+#define  SYSIO_CEAFSR_RESV2 0x0000001fffffffffUL /* Reserved                  */
 static irqreturn_t sysio_ce_handler(int irq, void *dev_id)
 {
 	struct platform_device *op = dev_id;
@@ -337,11 +352,11 @@ static irqreturn_t sysio_ce_handler(int irq, void *dev_id)
 	afsr_reg = reg_base + SYSIO_CE_AFSR;
 	afar_reg = reg_base + SYSIO_CE_AFAR;
 
-	
+	/* Latch error status. */
 	afsr = upa_readq(afsr_reg);
 	afar = upa_readq(afar_reg);
 
-	
+	/* Clear primary/secondary error status bits. */
 	error_bits = afsr &
 		(SYSIO_CEAFSR_PPIO | SYSIO_CEAFSR_PDRD | SYSIO_CEAFSR_PDWR |
 		 SYSIO_CEAFSR_SPIO | SYSIO_CEAFSR_SDRD | SYSIO_CEAFSR_SDWR);
@@ -358,6 +373,9 @@ static irqreturn_t sysio_ce_handler(int irq, void *dev_id)
 		  ((error_bits & SYSIO_CEAFSR_PDWR) ?
 		   "DVMA Write" : "???")))));
 
+	/* XXX Use syndrome and afar to print out module string just like
+	 * XXX UDB CE trap handler does... -DaveM
+	 */
 	printk("SYSIO[%x]: DOFF[%lx] ECC Syndrome[%lx] Size[%lx] MID[%lx]\n",
 	       portid,
 	       (afsr & SYSIO_CEAFSR_DOFF) >> 45UL,
@@ -389,18 +407,18 @@ static irqreturn_t sysio_ce_handler(int irq, void *dev_id)
 
 #define SYSIO_SBUS_AFSR		0x2010UL
 #define SYSIO_SBUS_AFAR		0x2018UL
-#define  SYSIO_SBAFSR_PLE   0x8000000000000000UL 
-#define  SYSIO_SBAFSR_PTO   0x4000000000000000UL 
-#define  SYSIO_SBAFSR_PBERR 0x2000000000000000UL 
-#define  SYSIO_SBAFSR_SLE   0x1000000000000000UL 
-#define  SYSIO_SBAFSR_STO   0x0800000000000000UL 
-#define  SYSIO_SBAFSR_SBERR 0x0400000000000000UL 
-#define  SYSIO_SBAFSR_RESV1 0x03ff000000000000UL 
-#define  SYSIO_SBAFSR_RD    0x0000800000000000UL 
-#define  SYSIO_SBAFSR_RESV2 0x0000600000000000UL 
-#define  SYSIO_SBAFSR_SIZE  0x00001c0000000000UL 
-#define  SYSIO_SBAFSR_MID   0x000003e000000000UL 
-#define  SYSIO_SBAFSR_RESV3 0x0000001fffffffffUL 
+#define  SYSIO_SBAFSR_PLE   0x8000000000000000UL /* Primary Late PIO Error    */
+#define  SYSIO_SBAFSR_PTO   0x4000000000000000UL /* Primary SBUS Timeout      */
+#define  SYSIO_SBAFSR_PBERR 0x2000000000000000UL /* Primary SBUS Error ACK    */
+#define  SYSIO_SBAFSR_SLE   0x1000000000000000UL /* Secondary Late PIO Error  */
+#define  SYSIO_SBAFSR_STO   0x0800000000000000UL /* Secondary SBUS Timeout    */
+#define  SYSIO_SBAFSR_SBERR 0x0400000000000000UL /* Secondary SBUS Error ACK  */
+#define  SYSIO_SBAFSR_RESV1 0x03ff000000000000UL /* Reserved                  */
+#define  SYSIO_SBAFSR_RD    0x0000800000000000UL /* Primary was late PIO read */
+#define  SYSIO_SBAFSR_RESV2 0x0000600000000000UL /* Reserved                  */
+#define  SYSIO_SBAFSR_SIZE  0x00001c0000000000UL /* Size of transfer          */
+#define  SYSIO_SBAFSR_MID   0x000003e000000000UL /* MID causing the error     */
+#define  SYSIO_SBAFSR_RESV3 0x0000001fffffffffUL /* Reserved                  */
 static irqreturn_t sysio_sbus_error_handler(int irq, void *dev_id)
 {
 	struct platform_device *op = dev_id;
@@ -416,7 +434,7 @@ static irqreturn_t sysio_sbus_error_handler(int irq, void *dev_id)
 	afsr = upa_readq(afsr_reg);
 	afar = upa_readq(afar_reg);
 
-	
+	/* Clear primary/secondary error status bits. */
 	error_bits = afsr &
 		(SYSIO_SBAFSR_PLE | SYSIO_SBAFSR_PTO | SYSIO_SBAFSR_PBERR |
 		 SYSIO_SBAFSR_SLE | SYSIO_SBAFSR_STO | SYSIO_SBAFSR_SBERR);
@@ -424,7 +442,7 @@ static irqreturn_t sysio_sbus_error_handler(int irq, void *dev_id)
 
 	portid = of_getintprop_default(op->dev.of_node, "portid", -1);
 
-	
+	/* Log the error. */
 	printk("SYSIO[%x]: SBUS Error, primary error type[%s] read(%d)\n",
 	       portid,
 	       (((error_bits & SYSIO_SBAFSR_PLE) ?
@@ -457,15 +475,15 @@ static irqreturn_t sysio_sbus_error_handler(int irq, void *dev_id)
 		printk("(none)");
 	printk("]\n");
 
-	
+	/* XXX check iommu/strbuf for further error status XXX */
 
 	return IRQ_HANDLED;
 }
 
 #define ECC_CONTROL	0x0020UL
-#define  SYSIO_ECNTRL_ECCEN	0x8000000000000000UL 
-#define  SYSIO_ECNTRL_UEEN	0x4000000000000000UL 
-#define  SYSIO_ECNTRL_CEEN	0x2000000000000000UL 
+#define  SYSIO_ECNTRL_ECCEN	0x8000000000000000UL /* Enable ECC Checking   */
+#define  SYSIO_ECNTRL_UEEN	0x4000000000000000UL /* Enable UE Interrupts  */
+#define  SYSIO_ECNTRL_CEEN	0x2000000000000000UL /* Enable CE Interrupts  */
 
 #define SYSIO_UE_INO		0x34
 #define SYSIO_CE_INO		0x35
@@ -505,17 +523,18 @@ static void __init sysio_register_error_handlers(struct platform_device *op)
 		prom_halt();
 	}
 
-	
+	/* Now turn the error interrupts on and also enable ECC checking. */
 	upa_writeq((SYSIO_ECNTRL_ECCEN |
 		    SYSIO_ECNTRL_UEEN  |
 		    SYSIO_ECNTRL_CEEN),
 		   reg_base + ECC_CONTROL);
 
 	control = upa_readq(iommu->write_complete_reg);
-	control |= 0x100UL; 
+	control |= 0x100UL; /* SBUS Error Interrupt Enable */
 	upa_writeq(control, iommu->write_complete_reg);
 }
 
+/* Boot time initialization. */
 static void __init sbus_iommu_init(struct platform_device *op)
 {
 	const struct linux_prom64_registers *pr;
@@ -566,13 +585,16 @@ static void __init sbus_iommu_init(struct platform_device *op)
 	strbuf->strbuf_flushflag_pa = (unsigned long)
 		__pa(strbuf->strbuf_flushflag);
 
+	/* The SYSIO SBUS control register is used for dummy reads
+	 * in order to ensure write completion.
+	 */
 	iommu->write_complete_reg = regs + 0x2000UL;
 
 	portid = of_getintprop_default(op->dev.of_node, "portid", -1);
 	printk(KERN_INFO "SYSIO: UPA portID %x, at %016lx\n",
 	       portid, regs);
 
-	
+	/* Setup for TSB_SIZE=7, TBW_SIZE=0, MMU_DE=1, MMU_EN=1 */
 	if (iommu_table_init(iommu, IO_TSB_SIZE, MAP_BASE, 0xffffffff, -1))
 		goto fatal_memory_error;
 
@@ -583,6 +605,9 @@ static void __init sbus_iommu_init(struct platform_device *op)
 		   (1UL << 0UL));
 	upa_writeq(control, iommu->iommu_control);
 
+	/* Clean out any cruft in the IOMMU using
+	 * diagnostic accesses.
+	 */
 	for (i = 0; i < 16; i++) {
 		unsigned long dram, tag;
 
@@ -596,14 +621,14 @@ static void __init sbus_iommu_init(struct platform_device *op)
 	}
 	upa_readq(iommu->write_complete_reg);
 
-	
+	/* Give the TSB to SYSIO. */
 	upa_writeq(__pa(iommu->page_table), iommu->iommu_tsbbase);
 
-	
+	/* Setup streaming buffer, DE=1 SB_EN=1 */
 	control = (1UL << 1UL) | (1UL << 0UL);
 	upa_writeq(control, strbuf->strbuf_control);
 
-	
+	/* Clear out the tags using diagnostics. */
 	for (i = 0; i < 16; i++) {
 		unsigned long ptag, ltag;
 
@@ -618,12 +643,12 @@ static void __init sbus_iommu_init(struct platform_device *op)
 		upa_writeq(0UL, ltag);
 	}
 
-	
+	/* Enable DVMA arbitration for all devices/slots. */
 	control = upa_readq(iommu->write_complete_reg);
 	control |= 0x3fUL;
 	upa_writeq(control, iommu->write_complete_reg);
 
-	
+	/* Now some Xfire specific grot... */
 	if (this_is_starfire)
 		starfire_hookup(portid);
 

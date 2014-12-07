@@ -41,19 +41,19 @@ static int check_data(int data)
 {
 	int i, parity = 0;
 
-	
+	/* check valid stop bit */
 	if (!(data & 0x400)) {
 		dev_warn(&ams_delta_serio->dev,
 				"invalid stop bit, data=0x%X\n",
 				data);
 		return SERIO_FRAME;
 	}
-	
+	/* calculate the parity */
 	for (i = 1; i < 10; i++) {
 		if (data & (1 << i))
 			parity++;
 	}
-	
+	/* it should be odd */
 	if (!(parity & 0x01)) {
 		dev_warn(&ams_delta_serio->dev,
 				"paritiy check failed, data=0x%X parity=0x%X\n",
@@ -71,6 +71,10 @@ static irqreturn_t ams_delta_serio_interrupt(int irq, void *dev_id)
 
 	fiq_buffer[FIQ_IRQ_PEND] = 0;
 
+	/*
+	 * Read data from the circular buffer, check it
+	 * and then pass it on the serio
+	 */
 	while (fiq_buffer[FIQ_KEYS_CNT] > 0) {
 
 		data = circ_buff[fiq_buffer[FIQ_HEAD_OFFSET]++];
@@ -87,7 +91,7 @@ static irqreturn_t ams_delta_serio_interrupt(int irq, void *dev_id)
 
 static int ams_delta_serio_open(struct serio *serio)
 {
-	
+	/* enable keyboard */
 	gpio_set_value(AMS_DELTA_GPIO_PIN_KEYBRD_PWR, 1);
 
 	return 0;
@@ -95,7 +99,7 @@ static int ams_delta_serio_open(struct serio *serio)
 
 static void ams_delta_serio_close(struct serio *serio)
 {
-	
+	/* disable keyboard */
 	gpio_set_value(AMS_DELTA_GPIO_PIN_KEYBRD_PWR, 0);
 }
 
@@ -156,6 +160,11 @@ static int __init ams_delta_serio_init(void)
 				gpio_to_irq(AMS_DELTA_GPIO_PIN_KEYBRD_CLK));
 		goto gpio;
 	}
+	/*
+	 * Since GPIO register handling for keyboard clock pin is performed
+	 * at FIQ level, switch back from edge to simple interrupt handler
+	 * to avoid bad interaction.
+	 */
 	irq_set_handler(gpio_to_irq(AMS_DELTA_GPIO_PIN_KEYBRD_CLK),
 			handle_simple_irq);
 

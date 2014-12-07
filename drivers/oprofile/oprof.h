@@ -48,4 +48,4 @@ static inline int op_nmi_timer_init(struct oprofile_operations *ops)
 int oprofile_set_ulong(unsigned long *addr, unsigned long val);
 int oprofile_set_timeout(unsigned long time);
 
-#endif 
+#endif /* OPROF_H */

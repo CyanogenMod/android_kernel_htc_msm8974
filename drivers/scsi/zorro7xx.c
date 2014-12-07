@@ -37,7 +37,7 @@ static struct scsi_host_template zorro7xx_scsi_driver_template = {
 static struct zorro_driver_data {
 	const char *name;
 	unsigned long offset;
-	int absolute;	
+	int absolute;	/* offset is absolute address */
 } zorro7xx_driver_data[] __devinitdata = {
 	{ .name = "PowerUP 603e+", .offset = 0xf40000, .absolute = 1 },
 	{ .name = "WarpEngine 40xx", .offset = 0x40000 },
@@ -100,7 +100,7 @@ static int __devinit zorro7xx_init_one(struct zorro_dev *z,
 		goto out_release;
 	}
 
-	
+	/* Fill in the required pieces of hostdata */
 	if (ioaddr > 0x01000000)
 		hostdata->base = ioremap(ioaddr, zorro_resource_len(z));
 	else
@@ -109,12 +109,12 @@ static int __devinit zorro7xx_init_one(struct zorro_dev *z,
 	hostdata->clock = 50;
 	hostdata->chip710 = 1;
 
-	
+	/* Settings for at least WarpEngine 40xx */
 	hostdata->ctest7_extra = CTEST7_TT1;
 
 	zorro7xx_scsi_driver_template.name = zdd->name;
 
-	
+	/* and register the chip */
 	host = NCR_700_detect(&zorro7xx_scsi_driver_template, hostdata,
 			      &z->dev);
 	if (!host) {

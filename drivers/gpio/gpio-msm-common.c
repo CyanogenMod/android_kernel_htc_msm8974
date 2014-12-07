@@ -41,8 +41,8 @@
 
 #ifdef CONFIG_GPIO_MSM_V3
 enum msm_tlmm_register {
-	SDC4_HDRV_PULL_CTL = 0x0, 
-	SDC3_HDRV_PULL_CTL = 0x0, 
+	SDC4_HDRV_PULL_CTL = 0x0, /* NOT USED */
+	SDC3_HDRV_PULL_CTL = 0x0, /* NOT USED */
 	SDC2_HDRV_PULL_CTL = 0x2048,
 	SDC1_HDRV_PULL_CTL = 0x2044,
 };
@@ -50,7 +50,7 @@ enum msm_tlmm_register {
 enum msm_tlmm_register {
 	SDC4_HDRV_PULL_CTL = 0x20a0,
 	SDC3_HDRV_PULL_CTL = 0x20a4,
-	SDC2_HDRV_PULL_CTL = 0x0, 
+	SDC2_HDRV_PULL_CTL = 0x0, /* NOT USED */
 	SDC1_HDRV_PULL_CTL = 0x20a0,
 };
 #endif
@@ -63,36 +63,40 @@ struct tlmm_field_cfg {
 };
 
 static const struct tlmm_field_cfg tlmm_hdrv_cfgs[] = {
-	{SDC4_HDRV_PULL_CTL, 6}, 
-	{SDC4_HDRV_PULL_CTL, 3}, 
-	{SDC4_HDRV_PULL_CTL, 0}, 
-	{SDC3_HDRV_PULL_CTL, 6}, 
-	{SDC3_HDRV_PULL_CTL, 3}, 
-	{SDC3_HDRV_PULL_CTL, 0}, 
-	{SDC2_HDRV_PULL_CTL, 6}, 
-	{SDC2_HDRV_PULL_CTL, 3}, 
-	{SDC2_HDRV_PULL_CTL, 0}, 
-	{SDC1_HDRV_PULL_CTL, 6}, 
-	{SDC1_HDRV_PULL_CTL, 3}, 
-	{SDC1_HDRV_PULL_CTL, 0}, 
+	{SDC4_HDRV_PULL_CTL, 6}, /* TLMM_HDRV_SDC4_CLK  */
+	{SDC4_HDRV_PULL_CTL, 3}, /* TLMM_HDRV_SDC4_CMD  */
+	{SDC4_HDRV_PULL_CTL, 0}, /* TLMM_HDRV_SDC4_DATA */
+	{SDC3_HDRV_PULL_CTL, 6}, /* TLMM_HDRV_SDC3_CLK  */
+	{SDC3_HDRV_PULL_CTL, 3}, /* TLMM_HDRV_SDC3_CMD  */
+	{SDC3_HDRV_PULL_CTL, 0}, /* TLMM_HDRV_SDC3_DATA */
+	{SDC2_HDRV_PULL_CTL, 6}, /* TLMM_HDRV_SDC2_CLK  */
+	{SDC2_HDRV_PULL_CTL, 3}, /* TLMM_HDRV_SDC2_CMD  */
+	{SDC2_HDRV_PULL_CTL, 0}, /* TLMM_HDRV_SDC2_DATA */
+	{SDC1_HDRV_PULL_CTL, 6}, /* TLMM_HDRV_SDC1_CLK  */
+	{SDC1_HDRV_PULL_CTL, 3}, /* TLMM_HDRV_SDC1_CMD  */
+	{SDC1_HDRV_PULL_CTL, 0}, /* TLMM_HDRV_SDC1_DATA */
 };
 
 static const struct tlmm_field_cfg tlmm_pull_cfgs[] = {
-	{SDC4_HDRV_PULL_CTL, 14}, 
-	{SDC4_HDRV_PULL_CTL, 11}, 
-	{SDC4_HDRV_PULL_CTL, 9},  
-	{SDC3_HDRV_PULL_CTL, 14}, 
-	{SDC3_HDRV_PULL_CTL, 11}, 
-	{SDC3_HDRV_PULL_CTL, 9},  
-	{SDC2_HDRV_PULL_CTL, 14}, 
-	{SDC2_HDRV_PULL_CTL, 11}, 
-	{SDC2_HDRV_PULL_CTL, 9},  
-	{SDC1_HDRV_PULL_CTL, 13}, 
-	{SDC1_HDRV_PULL_CTL, 11}, 
-	{SDC1_HDRV_PULL_CTL, 9},  
-	{SDC1_HDRV_PULL_CTL, 15}, 
+	{SDC4_HDRV_PULL_CTL, 14}, /* TLMM_PULL_SDC4_CLK */
+	{SDC4_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC4_CMD  */
+	{SDC4_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC4_DATA */
+	{SDC3_HDRV_PULL_CTL, 14}, /* TLMM_PULL_SDC3_CLK  */
+	{SDC3_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC3_CMD  */
+	{SDC3_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC3_DATA */
+	{SDC2_HDRV_PULL_CTL, 14}, /* TLMM_PULL_SDC2_CLK  */
+	{SDC2_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC2_CMD  */
+	{SDC2_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC2_DATA */
+	{SDC1_HDRV_PULL_CTL, 13}, /* TLMM_PULL_SDC1_CLK  */
+	{SDC1_HDRV_PULL_CTL, 11}, /* TLMM_PULL_SDC1_CMD  */
+	{SDC1_HDRV_PULL_CTL, 9},  /* TLMM_PULL_SDC1_DATA */
+	{SDC1_HDRV_PULL_CTL, 15}, /* TLMM_PULL_SDC1_RCLK  */
 };
 
+/*
+ * Supported arch specific irq extension.
+ * Default make them NULL.
+ */
 struct irq_chip msm_gpio_irq_extn = {
 	.irq_eoi	= NULL,
 	.irq_mask	= NULL,
@@ -103,6 +107,22 @@ struct irq_chip msm_gpio_irq_extn = {
 	.irq_disable	= NULL,
 };
 
+/**
+ * struct msm_gpio_dev: the MSM8660 SoC GPIO device structure
+ *
+ * @enabled_irqs: a bitmap used to optimize the summary-irq handler.  By
+ * keeping track of which gpios are unmasked as irq sources, we avoid
+ * having to do __raw_readl calls on hundreds of iomapped registers each time
+ * the summary interrupt fires in order to locate the active interrupts.
+ *
+ * @wake_irqs: a bitmap for tracking which interrupt lines are enabled
+ * as wakeup sources.  When the device is suspended, interrupts which are
+ * not wakeup sources are disabled.
+ *
+ * @dual_edge_irqs: a bitmap used to track which irqs are configured
+ * as dual-edge, as this is not supported by the hardware and requires
+ * some special handling in the driver.
+ */
 struct msm_gpio_dev {
 	struct gpio_chip gpio_chip;
 	unsigned long *enabled_irqs;
@@ -207,7 +227,7 @@ static struct msm_gpio_dev msm_gpio = {
 
 static void switch_mpm_config(struct irq_data *d, unsigned val)
 {
-	
+	/* switch the configuration in the mpm as well */
 	if (!msm_gpio_irq_extn.irq_set_type)
 		return;
 
@@ -217,6 +237,26 @@ static void switch_mpm_config(struct irq_data *d, unsigned val)
 		msm_gpio_irq_extn.irq_set_type(d, IRQF_TRIGGER_RISING);
 }
 
+/* For dual-edge interrupts in software, since the hardware has no
+ * such support:
+ *
+ * At appropriate moments, this function may be called to flip the polarity
+ * settings of both-edge irq lines to try and catch the next edge.
+ *
+ * The attempt is considered successful if:
+ * - the status bit goes high, indicating that an edge was caught, or
+ * - the input value of the gpio doesn't change during the attempt.
+ * If the value changes twice during the process, that would cause the first
+ * test to fail but would force the second, as two opposite
+ * transitions would cause a detection no matter the polarity setting.
+ *
+ * The do-loop tries to sledge-hammer closed the timing hole between
+ * the initial value-read and the polarity-write - if the line value changes
+ * during that window, an interrupt is lost, the new polarity setting is
+ * incorrect, and the first success test will fail, causing a retry.
+ *
+ * Algorithm comes from Google's msmgpio driver, see mach-msm/gpio.c.
+ */
 static void msm_gpio_update_dual_edge_pos(struct irq_data *d, unsigned gpio)
 {
 	int loop_limit = 100;
@@ -320,6 +360,12 @@ static int msm_gpio_irq_set_type(struct irq_data *d, unsigned int flow_type)
 	return 0;
 }
 
+/*
+ * When the summary IRQ is raised, any number of GPIO lines may be high.
+ * It is the job of the summary handler to find all those GPIO lines
+ * which have been set as summary IRQ lines and which are triggered,
+ * and to call their interrupt handlers.
+ */
 static irqreturn_t msm_summary_irq_handler(int irq, void *data)
 {
 	unsigned long i;
@@ -503,6 +549,10 @@ int msm_gpio_install_direct_irq(unsigned gpio, unsigned irq,
 }
 EXPORT_SYMBOL(msm_gpio_install_direct_irq);
 
+/*
+ * This lock class tells lockdep that GPIO irqs are in a different
+ * category than their parent, so it won't report false recursion.
+ */
 static struct lock_class_key msm_gpio_lock_class;
 
 static inline void msm_gpio_set_irq_handler(struct device *dev)
@@ -820,10 +870,10 @@ static int msm_gpio_irq_domain_xlate(struct irq_domain *d,
 	if (intsize != 2)
 		return -EINVAL;
 
-	
+	/* hwirq value */
 	*out_hwirq = intspec[0];
 
-	
+	/* irq flags */
 	*out_type = intspec[1] & IRQ_TYPE_SENSE_MASK;
 	return 0;
 }

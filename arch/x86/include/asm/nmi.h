@@ -44,4 +44,4 @@ void stop_nmi(void);
 void restart_nmi(void);
 void local_touch_nmi(void);
 
-#endif 
+#endif /* _ASM_X86_NMI_H */

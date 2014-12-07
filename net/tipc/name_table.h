@@ -42,10 +42,31 @@
 struct tipc_subscription;
 struct tipc_port_list;
 
+/*
+ * TIPC name types reserved for internal TIPC use (both current and planned)
+ */
 
-#define TIPC_ZM_SRV 3		
+#define TIPC_ZM_SRV 3		/* zone master service name type */
 
 
+/**
+ * struct publication - info about a published (name or) name sequence
+ * @type: name sequence type
+ * @lower: name sequence lower bound
+ * @upper: name sequence upper bound
+ * @scope: scope of publication
+ * @node: network address of publishing port's node
+ * @ref: publishing port
+ * @key: publication key
+ * @subscr: subscription to "node down" event (for off-node publications only)
+ * @local_list: adjacent entries in list of publications made by this node
+ * @pport_list: adjacent entries in list of publications made by this port
+ * @node_list: adjacent matching name seq publications with >= node scope
+ * @cluster_list: adjacent matching name seq publications with >= cluster scope
+ * @zone_list: adjacent matching name seq publications with >= zone scope
+ *
+ * Note that the node list, cluster list, and zone list are circular lists.
+ */
 
 struct publication {
 	u32 type;

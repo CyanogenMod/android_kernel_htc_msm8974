@@ -23,10 +23,10 @@ MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{PC-Speaker, pcsp}}");
 MODULE_ALIAS("platform:pcspkr");
 
-static int index = SNDRV_DEFAULT_IDX1;	
-static char *id = SNDRV_DEFAULT_STR1;	
-static bool enable = SNDRV_DEFAULT_ENABLE1;	
-static bool nopcm;	
+static int index = SNDRV_DEFAULT_IDX1;	/* Index 0-MAX */
+static char *id = SNDRV_DEFAULT_STR1;	/* ID for this card */
+static bool enable = SNDRV_DEFAULT_ENABLE1;	/* Enable this card */
+static bool nopcm;	/* Disable PCM capability of the driver */
 
 module_param(index, int, 0444);
 MODULE_PARM_DESC(index, "Index value for pcsp soundcard.");
@@ -85,7 +85,7 @@ static int __devinit snd_pcsp_create(struct snd_card *card)
 	pcsp_chip.irq = -1;
 	pcsp_chip.dma = -1;
 
-	
+	/* Register device */
 	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, &pcsp_chip, &ops);
 	if (err < 0)
 		return err;
@@ -153,7 +153,7 @@ static int __devinit alsa_card_pcsp_init(struct device *dev)
 	}
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
-	
+	/* Well, CONFIG_DEBUG_PAGEALLOC makes the sound horrible. Lets alert */
 	printk(KERN_WARNING "PCSP: CONFIG_DEBUG_PAGEALLOC is enabled, "
 	       "which may make the sound noisy.\n");
 #endif
@@ -209,7 +209,7 @@ static int pcsp_suspend(struct platform_device *dev, pm_message_t state)
 }
 #else
 #define pcsp_suspend NULL
-#endif	
+#endif	/* CONFIG_PM */
 
 static void pcsp_shutdown(struct platform_device *dev)
 {

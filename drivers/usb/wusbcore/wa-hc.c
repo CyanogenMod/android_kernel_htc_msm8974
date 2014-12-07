@@ -27,6 +27,12 @@
 #include "wusbhc.h"
 #include "wa-hc.h"
 
+/**
+ * Assumes
+ *
+ * wa->usb_dev and wa->usb_iface initialized and refcounted,
+ * wa->wa_descr initialized.
+ */
 int wa_create(struct wahc *wa, struct usb_interface *iface)
 {
 	int result;
@@ -35,7 +41,7 @@ int wa_create(struct wahc *wa, struct usb_interface *iface)
 	result = wa_rpipes_create(wa);
 	if (result < 0)
 		goto error_rpipes_create;
-	
+	/* Fill up Data Transfer EP pointers */
 	wa->dti_epd = &iface->cur_altsetting->endpoint[1].desc;
 	wa->dto_epd = &iface->cur_altsetting->endpoint[2].desc;
 	wa->xfer_result_size = usb_endpoint_maxp(wa->dti_epd);
@@ -74,9 +80,15 @@ void __wa_destroy(struct wahc *wa)
 }
 EXPORT_SYMBOL_GPL(__wa_destroy);
 
+/**
+ * wa_reset_all - reset the WA device
+ * @wa: the WA to be reset
+ *
+ * For HWAs the radio controller and all other PALs are also reset.
+ */
 void wa_reset_all(struct wahc *wa)
 {
-	
+	/* FIXME: assuming HWA. */
 	wusbhc_reset_all(wa->wusb);
 }
 

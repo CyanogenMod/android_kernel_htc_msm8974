@@ -45,12 +45,14 @@
 #include "z8530.h"
 
 
+/* Number of buffers per channel */
 
-#define NUM_TX_BUF      2	
-#define NUM_RX_BUF      6	
-#define BUF_SIZE        1576	
+#define NUM_TX_BUF      2	/* NUM_TX_BUF >= 1 (min. 2 recommended) */
+#define NUM_RX_BUF      6	/* NUM_RX_BUF >= 1 (min. 2 recommended) */
+#define BUF_SIZE        1576	/* BUF_SIZE >= mtu + hard_header_len */
 
 
+/* Cards supported */
 
 #define HW_PI           { "Ottawa PI", 0x300, 0x20, 0x10, 8, \
                             0, 8, 1843200, 3686400 }
@@ -63,7 +65,7 @@
 
 #define HARDWARE        { HW_PI, HW_PI2, HW_TWIN, HW_S5 }
 
-#define TMR_0_HZ        25600	
+#define TMR_0_HZ        25600	/* Frequency of timer 0 */
 
 #define TYPE_PI         0
 #define TYPE_PI2        1
@@ -74,6 +76,7 @@
 #define MAX_NUM_DEVS    32
 
 
+/* SCC chips supported */
 
 #define Z8530           0
 #define Z85C30          1
@@ -82,19 +85,24 @@
 #define CHIPNAMES       { "Z8530", "Z85C30", "Z85230" }
 
 
+/* I/O registers */
 
+/* 8530 registers relative to card base */
 #define SCCB_CMD        0x00
 #define SCCB_DATA       0x01
 #define SCCA_CMD        0x02
 #define SCCA_DATA       0x03
 
+/* 8253/8254 registers relative to card base */
 #define TMR_CNT0        0x00
 #define TMR_CNT1        0x01
 #define TMR_CNT2        0x02
 #define TMR_CTRL        0x03
 
+/* Additional PI/PI2 registers relative to card base */
 #define PI_DREQ_MASK    0x04
 
+/* Additional PackeTwin registers relative to card base */
 #define TWIN_INT_REG    0x08
 #define TWIN_CLR_TMR1   0x09
 #define TWIN_CLR_TMR2   0x0a
@@ -105,12 +113,15 @@
 #define TWIN_SPARE_2    0x0b
 
 
+/* PackeTwin I/O register values */
 
+/* INT_REG */
 #define TWIN_SCC_MSK       0x01
 #define TWIN_TMR1_MSK      0x02
 #define TWIN_TMR2_MSK      0x04
 #define TWIN_INT_MSK       0x07
 
+/* SERIAL_CFG */
 #define TWIN_DTRA_ON       0x01
 #define TWIN_DTRB_ON       0x02
 #define TWIN_EXTCLKA       0x04
@@ -119,6 +130,7 @@
 #define TWIN_LOOPB_ON      0x20
 #define TWIN_EI            0x80
 
+/* DMA_CFG */
 #define TWIN_DMA_HDX_T1    0x08
 #define TWIN_DMA_HDX_R1    0x0a
 #define TWIN_DMA_HDX_T3    0x14
@@ -127,6 +139,7 @@
 #define TWIN_DMA_FDX_T1R3  0x1d
 
 
+/* Status values */
 
 #define IDLE      0
 #define TX_HEAD   1
@@ -140,28 +153,30 @@
 #define DCD_OFF   9
 
 
+/* Ioctls */
 
 #define SIOCGSCCPARAM SIOCDEVPRIVATE
 #define SIOCSSCCPARAM (SIOCDEVPRIVATE+1)
 
 
+/* Data types */
 
 struct scc_param {
-	int pclk_hz;		
-	int brg_tc;		
-	int nrzi;		
-	int clocks;		
-	int txdelay;		
-	int txtimeout;		
-	int txtail;		
-	int waittime;		
-	int slottime;		
-	int persist;		
-	int dma;		
-	int txpause;		
-	int rtsoff;		
-	int dcdon;		
-	int dcdoff;		
+	int pclk_hz;		/* frequency of BRG input (don't change) */
+	int brg_tc;		/* BRG terminal count; BRG disabled if < 0 */
+	int nrzi;		/* 0 (nrz), 1 (nrzi) */
+	int clocks;		/* see dmascc_cfg documentation */
+	int txdelay;		/* [1/TMR_0_HZ] */
+	int txtimeout;		/* [1/HZ] */
+	int txtail;		/* [1/TMR_0_HZ] */
+	int waittime;		/* [1/TMR_0_HZ] */
+	int slottime;		/* [1/TMR_0_HZ] */
+	int persist;		/* 1 ... 256 */
+	int dma;		/* -1 (disable), 0, 1, 3 */
+	int txpause;		/* [1/TMR_0_HZ] */
+	int rtsoff;		/* [1/TMR_0_HZ] */
+	int dcdon;		/* [1/TMR_0_HZ] */
+	int dcdoff;		/* [1/TMR_0_HZ] */
 };
 
 struct scc_hardware {
@@ -199,7 +214,7 @@ struct scc_priv {
 	int state;
 	unsigned long tx_start;
 	int rr0;
-	spinlock_t *register_lock;	
+	spinlock_t *register_lock;	/* Per scc_info */
 	spinlock_t ring_lock;
 };
 
@@ -209,10 +224,11 @@ struct scc_info {
 	struct net_device *dev[2];
 	struct scc_priv priv[2];
 	struct scc_info *next;
-	spinlock_t register_lock;	
+	spinlock_t register_lock;	/* Per device register lock */
 };
 
 
+/* Function declarations */
 static int setup_adapter(int card_base, int type, int n) __init;
 
 static void write_scc(struct scc_priv *priv, int reg, int val);
@@ -242,12 +258,15 @@ static void es_isr(struct scc_priv *priv);
 static void tm_isr(struct scc_priv *priv);
 
 
+/* Initialization variables */
 
 static int io[MAX_NUM_DEVS] __initdata = { 0, };
 
+/* Beware! hw[] is also used in dmascc_exit(). */
 static struct scc_hardware hw[NUM_TYPES] = HARDWARE;
 
 
+/* Global variables */
 
 static struct scc_info *first;
 static unsigned long rand;
@@ -266,11 +285,11 @@ static void __exit dmascc_exit(void)
 	while (first) {
 		info = first;
 
-		
+		/* Unregister devices */
 		for (i = 0; i < 2; i++)
 			unregister_netdev(info->dev[i]);
 
-		
+		/* Reset board */
 		if (info->priv[0].type == TYPE_TWIN)
 			outb(0, info->dev[0]->base_addr + TWIN_SERIAL_CFG);
 		write_scc(&info->priv[0], R9, FHWRES);
@@ -280,7 +299,7 @@ static void __exit dmascc_exit(void)
 		for (i = 0; i < 2; i++)
 			free_netdev(info->dev[i]);
 
-		
+		/* Free memory */
 		first = info->next;
 		kfree(info);
 	}
@@ -295,19 +314,19 @@ static int __init dmascc_init(void)
 	unsigned long time, start[MAX_NUM_DEVS], delay[MAX_NUM_DEVS],
 	    counting[MAX_NUM_DEVS];
 
-	
+	/* Initialize random number generator */
 	rand = jiffies;
-	
+	/* Cards found = 0 */
 	n = 0;
-	
+	/* Warning message */
 	if (!io[0])
 		printk(KERN_INFO "dmascc: autoprobing (dangerous)\n");
 
-	
+	/* Run autodetection for each card type */
 	for (h = 0; h < NUM_TYPES; h++) {
 
 		if (io[0]) {
-			
+			/* User-specified I/O address regions */
 			for (i = 0; i < hw[h].num_devs; i++)
 				base[i] = 0;
 			for (i = 0; i < MAX_NUM_DEVS && io[i]; i++) {
@@ -320,14 +339,14 @@ static int __init dmascc_init(void)
 				}
 			}
 		} else {
-			
+			/* Default I/O address regions */
 			for (i = 0; i < hw[h].num_devs; i++) {
 				base[i] =
 				    hw[h].io_region + i * hw[h].io_delta;
 			}
 		}
 
-		
+		/* Check valid I/O address regions */
 		for (i = 0; i < hw[h].num_devs; i++)
 			if (base[i]) {
 				if (!request_region
@@ -346,38 +365,38 @@ static int __init dmascc_init(void)
 				}
 			}
 
-		
+		/* Start timers */
 		for (i = 0; i < hw[h].num_devs; i++)
 			if (base[i]) {
-				
+				/* Timer 0: LSB+MSB, Mode 3, TMR_0_HZ */
 				outb(0x36, tcmd[i]);
 				outb((hw[h].tmr_hz / TMR_0_HZ) & 0xFF,
 				     t0[i]);
 				outb((hw[h].tmr_hz / TMR_0_HZ) >> 8,
 				     t0[i]);
-				
+				/* Timer 1: LSB+MSB, Mode 0, HZ/10 */
 				outb(0x70, tcmd[i]);
 				outb((TMR_0_HZ / HZ * 10) & 0xFF, t1[i]);
 				outb((TMR_0_HZ / HZ * 10) >> 8, t1[i]);
 				start[i] = jiffies;
 				delay[i] = 0;
 				counting[i] = 1;
-				
+				/* Timer 2: LSB+MSB, Mode 0 */
 				outb(0xb0, tcmd[i]);
 			}
 		time = jiffies;
-		
+		/* Wait until counter registers are loaded */
 		udelay(2000000 / TMR_0_HZ);
 
-		
+		/* Timing loop */
 		while (jiffies - time < 13) {
 			for (i = 0; i < hw[h].num_devs; i++)
 				if (base[i] && counting[i]) {
-					
+					/* Read back Timer 1: latch; read LSB; read MSB */
 					outb(0x40, tcmd[i]);
 					t_val =
 					    inb(t1[i]) + (inb(t1[i]) << 8);
-					
+					/* Also check whether counter did wrap */
 					if (t_val == 0 ||
 					    t_val > TMR_0_HZ / HZ * 10)
 						counting[i] = 0;
@@ -385,11 +404,11 @@ static int __init dmascc_init(void)
 				}
 		}
 
-		
+		/* Evaluate measurements */
 		for (i = 0; i < hw[h].num_devs; i++)
 			if (base[i]) {
 				if ((delay[i] >= 9 && delay[i] <= 11) &&
-				    
+				    /* Ok, we have found an adapter */
 				    (setup_adapter(base[i], h, n) == 0))
 					n++;
 				else
@@ -397,13 +416,13 @@ static int __init dmascc_init(void)
 						       hw[h].io_size);
 			}
 
-	}			
+	}			/* NUM_TYPES */
 
-	
+	/* If any adapter was successfully initialized, return ok */
 	if (n)
 		return 0;
 
-	
+	/* If no adapter found, return error */
 	printk(KERN_INFO "dmascc: no adapters found\n");
 	return -EIO;
 }
@@ -442,7 +461,7 @@ static int __init setup_adapter(int card_base, int type, int n)
 	int scc_base = card_base + hw[type].scc_offset;
 	char *chipnames[] = CHIPNAMES;
 
-	
+	/* Initialize what is necessary for write_scc and write_scc_data */
 	info = kzalloc(sizeof(struct scc_info), GFP_KERNEL | GFP_DMA);
 	if (!info) {
 		printk(KERN_ERR "dmascc: "
@@ -476,31 +495,31 @@ static int __init setup_adapter(int card_base, int type, int n)
 	priv->scc_data = scc_base + SCCA_DATA;
 	priv->register_lock = &info->register_lock;
 
-	
+	/* Reset SCC */
 	write_scc(priv, R9, FHWRES | MIE | NV);
 
-	
+	/* Determine type of chip by enabling SDLC/HDLC enhancements */
 	write_scc(priv, R15, SHDLCE);
 	if (!read_scc(priv, R15)) {
-		
+		/* WR7' not present. This is an ordinary Z8530 SCC. */
 		chip = Z8530;
 	} else {
-		
+		/* Put one character in TX FIFO */
 		write_scc_data(priv, 0, 0);
 		if (read_scc(priv, R0) & Tx_BUF_EMP) {
-			
+			/* TX FIFO not full. This is a Z85230 ESCC with a 4-byte FIFO. */
 			chip = Z85230;
 		} else {
-			
+			/* TX FIFO full. This is a Z85C30 SCC with a 1-byte FIFO. */
 			chip = Z85C30;
 		}
 	}
 	write_scc(priv, R15, 0);
 
-	
+	/* Start IRQ auto-detection */
 	irqs = probe_irq_on();
 
-	
+	/* Enable interrupts */
 	if (type == TYPE_TWIN) {
 		outb(0, card_base + TWIN_DMA_CFG);
 		inb(card_base + TWIN_CLR_TMR1);
@@ -513,16 +532,16 @@ static int __init setup_adapter(int card_base, int type, int n)
 		write_scc(priv, R1, EXT_INT_ENAB);
 	}
 
-	
+	/* Start timer */
 	outb(1, tmr_base + TMR_CNT1);
 	outb(0, tmr_base + TMR_CNT1);
 
-	
+	/* Wait and detect IRQ */
 	time = jiffies;
 	while (jiffies - time < 2 + HZ / TMR_0_HZ);
 	irq = probe_irq_off(irqs);
 
-	
+	/* Clear pending interrupt, disable interrupts */
 	if (type == TYPE_TWIN) {
 		inb(card_base + TWIN_CLR_TMR1);
 	} else {
@@ -538,7 +557,7 @@ static int __init setup_adapter(int card_base, int type, int n)
 		goto out3;
 	}
 
-	
+	/* Set up data structures */
 	for (i = 0; i < 2; i++) {
 		dev = info->dev[i];
 		priv = &info->priv[i];
@@ -602,6 +621,7 @@ static int __init setup_adapter(int card_base, int type, int n)
 }
 
 
+/* Driver functions */
 
 static void write_scc(struct scc_priv *priv, int reg, int val)
 {
@@ -707,7 +727,7 @@ static int scc_open(struct net_device *dev)
 	struct scc_info *info = priv->info;
 	int card_base = priv->card_base;
 
-	
+	/* Request IRQ if not already used by other channel */
 	if (!info->irq_used) {
 		if (request_irq(dev->irq, scc_isr, 0, "dmascc", info)) {
 			return -EAGAIN;
@@ -715,7 +735,7 @@ static int scc_open(struct net_device *dev)
 	}
 	info->irq_used++;
 
-	
+	/* Request DMA if required */
 	if (priv->param.dma >= 0) {
 		if (request_dma(priv->param.dma, "dmascc")) {
 			if (--info->irq_used == 0)
@@ -728,7 +748,7 @@ static int scc_open(struct net_device *dev)
 		}
 	}
 
-	
+	/* Initialize local variables */
 	priv->rx_ptr = 0;
 	priv->rx_over = 0;
 	priv->rx_head = priv->rx_tail = priv->rx_count = 0;
@@ -736,31 +756,50 @@ static int scc_open(struct net_device *dev)
 	priv->tx_head = priv->tx_tail = priv->tx_count = 0;
 	priv->tx_ptr = 0;
 
-	
+	/* Reset channel */
 	write_scc(priv, R9, (priv->channel ? CHRB : CHRA) | MIE | NV);
-	
+	/* X1 clock, SDLC mode */
 	write_scc(priv, R4, SDLC | X1CLK);
-	
+	/* DMA */
 	write_scc(priv, R1, EXT_INT_ENAB | WT_FN_RDYFN);
-	
+	/* 8 bit RX char, RX disable */
 	write_scc(priv, R3, Rx8);
-	
+	/* 8 bit TX char, TX disable */
 	write_scc(priv, R5, Tx8);
-	
+	/* SDLC address field */
 	write_scc(priv, R6, 0);
-	
+	/* SDLC flag */
 	write_scc(priv, R7, FLAG);
 	switch (priv->chip) {
 	case Z85C30:
-		
+		/* Select WR7' */
 		write_scc(priv, R15, SHDLCE);
-		
+		/* Auto EOM reset */
 		write_scc(priv, R7, AUTOEOM);
 		write_scc(priv, R15, 0);
 		break;
 	case Z85230:
-		
+		/* Select WR7' */
 		write_scc(priv, R15, SHDLCE);
+		/* The following bits are set (see 2.5.2.1):
+		   - Automatic EOM reset
+		   - Interrupt request if RX FIFO is half full
+		   This bit should be ignored in DMA mode (according to the
+		   documentation), but actually isn't. The receiver doesn't work if
+		   it is set. Thus, we have to clear it in DMA mode.
+		   - Interrupt/DMA request if TX FIFO is completely empty
+		   a) If set, the ESCC behaves as if it had no TX FIFO (Z85C30
+		   compatibility).
+		   b) If cleared, DMA requests may follow each other very quickly,
+		   filling up the TX FIFO.
+		   Advantage: TX works even in case of high bus latency.
+		   Disadvantage: Edge-triggered DMA request circuitry may miss
+		   a request. No more data is delivered, resulting
+		   in a TX FIFO underrun.
+		   Both PI2 and S5SCC/DMA seem to work fine with TXFIFOE cleared.
+		   The PackeTwin doesn't. I don't know about the PI, but let's
+		   assume it behaves like the PI2.
+		 */
 		if (priv->param.dma >= 0) {
 			if (priv->type == TYPE_TWIN)
 				write_scc(priv, R7, AUTOEOM | TXFIFOE);
@@ -772,48 +811,50 @@ static int scc_open(struct net_device *dev)
 		write_scc(priv, R15, 0);
 		break;
 	}
-	
+	/* Preset CRC, NRZ(I) encoding */
 	write_scc(priv, R10, CRCPS | (priv->param.nrzi ? NRZI : NRZ));
 
-	
+	/* Configure baud rate generator */
 	if (priv->param.brg_tc >= 0) {
-		
+		/* Program BR generator */
 		write_scc(priv, R12, priv->param.brg_tc & 0xFF);
 		write_scc(priv, R13, (priv->param.brg_tc >> 8) & 0xFF);
+		/* BRG source = SYS CLK; enable BRG; DTR REQ function (required by
+		   PackeTwin, not connected on the PI2); set DPLL source to BRG */
 		write_scc(priv, R14, SSBR | DTRREQ | BRSRC | BRENABL);
-		
+		/* Enable DPLL */
 		write_scc(priv, R14, SEARCH | DTRREQ | BRSRC | BRENABL);
 	} else {
-		
+		/* Disable BR generator */
 		write_scc(priv, R14, DTRREQ | BRSRC);
 	}
 
-	
+	/* Configure clocks */
 	if (priv->type == TYPE_TWIN) {
-		
+		/* Disable external TX clock receiver */
 		outb((info->twin_serial_cfg &=
 		      ~(priv->channel ? TWIN_EXTCLKB : TWIN_EXTCLKA)),
 		     card_base + TWIN_SERIAL_CFG);
 	}
 	write_scc(priv, R11, priv->param.clocks);
 	if ((priv->type == TYPE_TWIN) && !(priv->param.clocks & TRxCOI)) {
-		
+		/* Enable external TX clock receiver */
 		outb((info->twin_serial_cfg |=
 		      (priv->channel ? TWIN_EXTCLKB : TWIN_EXTCLKA)),
 		     card_base + TWIN_SERIAL_CFG);
 	}
 
-	
+	/* Configure PackeTwin */
 	if (priv->type == TYPE_TWIN) {
-		
+		/* Assert DTR, enable interrupts */
 		outb((info->twin_serial_cfg |= TWIN_EI |
 		      (priv->channel ? TWIN_DTRB_ON : TWIN_DTRA_ON)),
 		     card_base + TWIN_SERIAL_CFG);
 	}
 
-	
+	/* Read current status */
 	priv->rr0 = read_scc(priv, R0);
-	
+	/* Enable DCD interrupt */
 	write_scc(priv, R15, DCDIE);
 
 	netif_start_queue(dev);
@@ -831,13 +872,13 @@ static int scc_close(struct net_device *dev)
 	netif_stop_queue(dev);
 
 	if (priv->type == TYPE_TWIN) {
-		
+		/* Drop DTR */
 		outb((info->twin_serial_cfg &=
 		      (priv->channel ? ~TWIN_DTRB_ON : ~TWIN_DTRA_ON)),
 		     card_base + TWIN_SERIAL_CFG);
 	}
 
-	
+	/* Reset channel, free DMA and IRQ */
 	write_scc(priv, R9, (priv->channel ? CHRB : CHRA) | MIE | NV);
 	if (priv->param.dma >= 0) {
 		if (priv->type == TYPE_TWIN)
@@ -884,27 +925,30 @@ static int scc_send_packet(struct sk_buff *skb, struct net_device *dev)
 	unsigned long flags;
 	int i;
 
-	
+	/* Temporarily stop the scheduler feeding us packets */
 	netif_stop_queue(dev);
 
-	
+	/* Transfer data to DMA buffer */
 	i = priv->tx_head;
 	skb_copy_from_linear_data_offset(skb, 1, priv->tx_buf[i], skb->len - 1);
 	priv->tx_len[i] = skb->len - 1;
 
-	
+	/* Clear interrupts while we touch our circular buffers */
 
 	spin_lock_irqsave(&priv->ring_lock, flags);
-	
+	/* Move the ring buffer's head */
 	priv->tx_head = (i + 1) % NUM_TX_BUF;
 	priv->tx_count++;
 
+	/* If we just filled up the last buffer, leave queue stopped.
+	   The higher layers must wait until we have a DMA buffer
+	   to accept the data. */
 	if (priv->tx_count < NUM_TX_BUF)
 		netif_wake_queue(dev);
 
-	
+	/* Set new TX state */
 	if (priv->state == IDLE) {
-		
+		/* Assert RTS, start timer */
 		priv->state = TX_HEAD;
 		priv->tx_start = jiffies;
 		write_scc(priv, R5, TxCRC_ENAB | RTS | TxENAB | Tx8);
@@ -912,7 +956,7 @@ static int scc_send_packet(struct sk_buff *skb, struct net_device *dev)
 		start_timer(priv, priv->param.txdelay, 0);
 	}
 
-	
+	/* Turn interrupts back on and free buffer */
 	spin_unlock_irqrestore(&priv->ring_lock, flags);
 	dev_kfree_skb(skb);
 
@@ -935,7 +979,7 @@ static inline void tx_on(struct scc_priv *priv)
 
 	if (priv->param.dma >= 0) {
 		n = (priv->chip == Z85230) ? 3 : 1;
-		
+		/* Program DMA controller */
 		flags = claim_dma_lock();
 		set_dma_mode(priv->param.dma, DMA_MODE_WRITE);
 		set_dma_addr(priv->param.dma,
@@ -943,9 +987,9 @@ static inline void tx_on(struct scc_priv *priv)
 		set_dma_count(priv->param.dma,
 			      priv->tx_len[priv->tx_tail] - n);
 		release_dma_lock(flags);
-		
+		/* Enable TX underrun interrupt */
 		write_scc(priv, R15, TxUIE);
-		
+		/* Configure DREQ */
 		if (priv->type == TYPE_TWIN)
 			outb((priv->param.dma ==
 			      1) ? TWIN_DMA_HDX_T1 : TWIN_DMA_HDX_T3,
@@ -954,7 +998,7 @@ static inline void tx_on(struct scc_priv *priv)
 			write_scc(priv, R1,
 				  EXT_INT_ENAB | WT_FN_RDYFN |
 				  WT_RDY_ENAB);
-		
+		/* Write first byte(s) */
 		spin_lock_irqsave(priv->register_lock, flags);
 		for (i = 0; i < n; i++)
 			write_scc_data(priv,
@@ -967,7 +1011,7 @@ static inline void tx_on(struct scc_priv *priv)
 			  EXT_INT_ENAB | WT_FN_RDYFN | TxINT_ENAB);
 		tx_isr(priv);
 	}
-	
+	/* Reset EOM latch if we do not have the AUTOEOM feature */
 	if (priv->chip == Z8530)
 		write_scc(priv, R0, RES_EOM_L);
 }
@@ -977,12 +1021,12 @@ static inline void rx_on(struct scc_priv *priv)
 {
 	unsigned long flags;
 
-	
+	/* Clear RX FIFO */
 	while (read_scc(priv, R0) & Rx_CH_AV)
 		read_scc_data(priv);
 	priv->rx_over = 0;
 	if (priv->param.dma >= 0) {
-		
+		/* Program DMA controller */
 		flags = claim_dma_lock();
 		set_dma_mode(priv->param.dma, DMA_MODE_READ);
 		set_dma_addr(priv->param.dma,
@@ -990,19 +1034,19 @@ static inline void rx_on(struct scc_priv *priv)
 		set_dma_count(priv->param.dma, BUF_SIZE);
 		release_dma_lock(flags);
 		enable_dma(priv->param.dma);
-		
+		/* Configure PackeTwin DMA */
 		if (priv->type == TYPE_TWIN) {
 			outb((priv->param.dma ==
 			      1) ? TWIN_DMA_HDX_R1 : TWIN_DMA_HDX_R3,
 			     priv->card_base + TWIN_DMA_CFG);
 		}
-		
+		/* Sp. cond. intr. only, ext int enable, RX DMA enable */
 		write_scc(priv, R1, EXT_INT_ENAB | INT_ERR_Rx |
 			  WT_RDY_RT | WT_FN_RDYFN | WT_RDY_ENAB);
 	} else {
-		
+		/* Reset current frame */
 		priv->rx_ptr = 0;
-		
+		/* Intr. on all Rx characters and Sp. cond., ext int enable */
 		write_scc(priv, R1, EXT_INT_ENAB | INT_ALL_Rx | WT_RDY_RT |
 			  WT_FN_RDYFN);
 	}
@@ -1013,14 +1057,14 @@ static inline void rx_on(struct scc_priv *priv)
 
 static inline void rx_off(struct scc_priv *priv)
 {
-	
+	/* Disable receiver */
 	write_scc(priv, R3, Rx8);
-	
+	/* Disable DREQ / RX interrupt */
 	if (priv->param.dma >= 0 && priv->type == TYPE_TWIN)
 		outb(0, priv->card_base + TWIN_DMA_CFG);
 	else
 		write_scc(priv, R1, EXT_INT_ENAB | WT_FN_RDYFN);
-	
+	/* Disable DMA */
 	if (priv->param.dma >= 0)
 		disable_dma(priv->param.dma);
 }
@@ -1044,7 +1088,7 @@ static void start_timer(struct scc_priv *priv, int t, int r15)
 
 static inline unsigned char random(void)
 {
-	
+	/* See "Numerical Recipes in C", second edition, p. 284 */
 	rand = rand * 1664525L + 1013904223L;
 	return (unsigned char) (rand >> 24);
 }
@@ -1074,6 +1118,8 @@ static inline void z8530_isr(struct scc_info *info)
 		printk(KERN_ERR "dmascc: stuck in ISR with RR3=0x%02x.\n",
 		       is);
 	}
+	/* Ok, no interrupts pending from this 8530. The INT line should
+	   be inactive now. */
 }
 
 
@@ -1082,6 +1128,17 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 	struct scc_info *info = dev_id;
 
 	spin_lock(info->priv[0].register_lock);
+	/* At this point interrupts are enabled, and the interrupt under service
+	   is already acknowledged, but masked off.
+
+	   Interrupt processing: We loop until we know that the IRQ line is
+	   low. If another positive edge occurs afterwards during the ISR,
+	   another interrupt will be triggered by the interrupt controller
+	   as soon as the IRQ level is enabled again (see asm/irq.h).
+
+	   Bottom-half handlers will be processed after scc_isr(). This is
+	   important, since we only have small ringbuffers and want new data
+	   to be fetched/delivered immediately. */
 
 	if (info->priv[0].type == TYPE_TWIN) {
 		int is, card_base = info->priv[0].card_base;
@@ -1107,10 +1164,12 @@ static irqreturn_t scc_isr(int irq, void *dev_id)
 static void rx_isr(struct scc_priv *priv)
 {
 	if (priv->param.dma >= 0) {
-		
+		/* Check special condition and perform error reset. See 2.4.7.5. */
 		special_condition(priv, read_scc(priv, R1));
 		write_scc(priv, R0, ERR_RES);
 	} else {
+		/* Check special condition for each character. Error reset not necessary.
+		   Same algorithm for SCC and ESCC. See 2.4.7.1 and 2.4.7.4. */
 		int rc;
 		while (read_scc(priv, R0) & Rx_CH_AV) {
 			rc = read_scc(priv, R1);
@@ -1133,15 +1192,15 @@ static void special_condition(struct scc_priv *priv, int rc)
 	int cb;
 	unsigned long flags;
 
-	
+	/* See Figure 2-15. Only overrun and EOF need to be checked. */
 
 	if (rc & Rx_OVR) {
-		
+		/* Receiver overrun */
 		priv->rx_over = 1;
 		if (priv->param.dma < 0)
 			write_scc(priv, R0, ERR_RES);
 	} else if (rc & END_FR) {
-		
+		/* End of frame. Get byte count */
 		if (priv->param.dma >= 0) {
 			flags = claim_dma_lock();
 			cb = BUF_SIZE - get_dma_residue(priv->param.dma) -
@@ -1151,7 +1210,7 @@ static void special_condition(struct scc_priv *priv, int rc)
 			cb = priv->rx_ptr - 2;
 		}
 		if (priv->rx_over) {
-			
+			/* We had an overrun */
 			priv->dev->stats.rx_errors++;
 			if (priv->rx_over == 2)
 				priv->dev->stats.rx_length_errors++;
@@ -1159,7 +1218,7 @@ static void special_condition(struct scc_priv *priv, int rc)
 				priv->dev->stats.rx_fifo_errors++;
 			priv->rx_over = 0;
 		} else if (rc & CRC_ERR) {
-			
+			/* Count invalid CRC only if packet length >= minimum */
 			if (cb >= 15) {
 				priv->dev->stats.rx_errors++;
 				priv->dev->stats.rx_crc_errors++;
@@ -1167,7 +1226,7 @@ static void special_condition(struct scc_priv *priv, int rc)
 		} else {
 			if (cb >= 15) {
 				if (priv->rx_count < NUM_RX_BUF - 1) {
-					
+					/* Put good frame in FIFO */
 					priv->rx_len[priv->rx_head] = cb;
 					priv->rx_head =
 					    (priv->rx_head +
@@ -1180,7 +1239,7 @@ static void special_condition(struct scc_priv *priv, int rc)
 				}
 			}
 		}
-		
+		/* Get ready for new frame */
 		if (priv->param.dma >= 0) {
 			flags = claim_dma_lock();
 			set_dma_addr(priv->param.dma,
@@ -1207,13 +1266,13 @@ static void rx_bh(struct work_struct *ugli_api)
 	while (priv->rx_count) {
 		spin_unlock_irqrestore(&priv->ring_lock, flags);
 		cb = priv->rx_len[i];
-		
+		/* Allocate buffer */
 		skb = dev_alloc_skb(cb + 1);
 		if (skb == NULL) {
-			
+			/* Drop packet */
 			priv->dev->stats.rx_dropped++;
 		} else {
-			
+			/* Fill buffer */
 			data = skb_put(skb, cb + 1);
 			data[0] = 0;
 			memcpy(&data[1], priv->rx_buf[i], cb);
@@ -1223,7 +1282,7 @@ static void rx_bh(struct work_struct *ugli_api)
 			priv->dev->stats.rx_bytes += cb;
 		}
 		spin_lock_irqsave(&priv->ring_lock, flags);
-		
+		/* Move tail */
 		priv->rx_tail = i = (i + 1) % NUM_RX_BUF;
 		priv->rx_count--;
 	}
@@ -1235,17 +1294,19 @@ static void tx_isr(struct scc_priv *priv)
 {
 	int i = priv->tx_tail, p = priv->tx_ptr;
 
+	/* Suspend TX interrupts if we don't want to send anything.
+	   See Figure 2-22. */
 	if (p == priv->tx_len[i]) {
 		write_scc(priv, R0, RES_Tx_P);
 		return;
 	}
 
-	
+	/* Write characters */
 	while ((read_scc(priv, R0) & Tx_BUF_EMP) && p < priv->tx_len[i]) {
 		write_scc_data(priv, priv->tx_buf[i][p++], 0);
 	}
 
-	
+	/* Reset EOM latch of Z8530 */
 	if (!priv->tx_ptr && p && priv->chip == Z8530)
 		write_scc(priv, R0, RES_EOM_L);
 
@@ -1258,14 +1319,16 @@ static void es_isr(struct scc_priv *priv)
 	int i, rr0, drr0, res;
 	unsigned long flags;
 
-	
+	/* Read status, reset interrupt bit (open latches) */
 	rr0 = read_scc(priv, R0);
 	write_scc(priv, R0, RES_EXT_INT);
 	drr0 = priv->rr0 ^ rr0;
 	priv->rr0 = rr0;
 
+	/* Transmit underrun (2.4.9.6). We can't check the TxEOM flag, since
+	   it might have already been cleared again by AUTOEOM. */
 	if (priv->state == TX_DATA) {
-		
+		/* Get remaining bytes */
 		i = priv->tx_tail;
 		if (priv->param.dma >= 0) {
 			disable_dma(priv->param.dma);
@@ -1276,29 +1339,29 @@ static void es_isr(struct scc_priv *priv)
 			res = priv->tx_len[i] - priv->tx_ptr;
 			priv->tx_ptr = 0;
 		}
-		
+		/* Disable DREQ / TX interrupt */
 		if (priv->param.dma >= 0 && priv->type == TYPE_TWIN)
 			outb(0, priv->card_base + TWIN_DMA_CFG);
 		else
 			write_scc(priv, R1, EXT_INT_ENAB | WT_FN_RDYFN);
 		if (res) {
-			
+			/* Update packet statistics */
 			priv->dev->stats.tx_errors++;
 			priv->dev->stats.tx_fifo_errors++;
-			
+			/* Other underrun interrupts may already be waiting */
 			write_scc(priv, R0, RES_EXT_INT);
 			write_scc(priv, R0, RES_EXT_INT);
 		} else {
-			
+			/* Update packet statistics */
 			priv->dev->stats.tx_packets++;
 			priv->dev->stats.tx_bytes += priv->tx_len[i];
-			
+			/* Remove frame from FIFO */
 			priv->tx_tail = (i + 1) % NUM_TX_BUF;
 			priv->tx_count--;
-			
+			/* Inform upper layers */
 			netif_wake_queue(priv->dev);
 		}
-		
+		/* Switch state */
 		write_scc(priv, R15, 0);
 		if (priv->tx_count &&
 		    (jiffies - priv->tx_start) < priv->param.txtimeout) {
@@ -1310,7 +1373,7 @@ static void es_isr(struct scc_priv *priv)
 		}
 	}
 
-	
+	/* DCD transition */
 	if (drr0 & DCD) {
 		if (rr0 & DCD) {
 			switch (priv->state) {
@@ -1331,7 +1394,7 @@ static void es_isr(struct scc_priv *priv)
 		}
 	}
 
-	
+	/* CTS transition */
 	if ((drr0 & CTS) && (~rr0 & CTS) && priv->type != TYPE_TWIN)
 		tm_isr(priv);
 

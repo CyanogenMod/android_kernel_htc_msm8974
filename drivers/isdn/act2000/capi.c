@@ -17,7 +17,7 @@
 #include "capi.h"
 
 static actcapi_msgdsc valid_msg[] = {
-	{{ 0x86, 0x02}, "DATA_B3_IND"},       
+	{{ 0x86, 0x02}, "DATA_B3_IND"},       /* DATA_B3_IND/CONF must be first because of speed!!! */
 	{{ 0x86, 0x01}, "DATA_B3_CONF"},
 	{{ 0x02, 0x01}, "CONNECT_CONF"},
 	{{ 0x02, 0x02}, "CONNECT_IND"},
@@ -42,11 +42,11 @@ static actcapi_msgdsc valid_msg[] = {
 	{{ 0x85, 0x01}, "GET_B3_PARAMS_CONF"},
 	{{ 0x01, 0x01}, "RESET_B3_CONF"},
 	{{ 0x01, 0x02}, "RESET_B3_IND"},
-	
+	/* {{ 0x87, 0x02, "HANDSET_IND"}, not implemented */
 	{{ 0xff, 0x01}, "MANUFACTURER_CONF"},
 	{{ 0xff, 0x02}, "MANUFACTURER_IND"},
 #ifdef DEBUG_MSG
-	
+	/* Requests */
 	{{ 0x01, 0x00}, "RESET_B3_REQ"},
 	{{ 0x02, 0x00}, "CONNECT_REQ"},
 	{{ 0x04, 0x00}, "DISCONNECT_REQ"},
@@ -63,7 +63,7 @@ static actcapi_msgdsc valid_msg[] = {
 	{{ 0x85, 0x00}, "GET_B3_PARAMS_REQ"},
 	{{ 0x86, 0x00}, "DATA_B3_REQ"},
 	{{ 0xff, 0x00}, "MANUFACTURER_REQ"},
-	
+	/* Responses */
 	{{ 0x01, 0x03}, "RESET_B3_RESP"},
 	{{ 0x02, 0x03}, "CONNECT_RESP"},
 	{{ 0x03, 0x03}, "CONNECT_ACTIVE_RESP"},
@@ -78,8 +78,15 @@ static actcapi_msgdsc valid_msg[] = {
 #endif
 	{{ 0x00, 0x00}, NULL},
 };
-#define num_valid_imsg 27 
+#define num_valid_imsg 27 /* MANUFACTURER_IND */
 
+/*
+ * Check for a valid incoming CAPI message.
+ * Return:
+ *   0 = Invalid message
+ *   1 = Valid message, no B-Channel-data
+ *   2 = Valid message, B-Channel-data
+ */
 int
 actcapi_chkhdr(act2000_card *card, actcapi_msghdr *hdr)
 {
@@ -136,9 +143,9 @@ actcapi_listen_req(act2000_card *card)
 		return -ENOMEM;
 	}
 	m->msg.listen_req.controller = 0;
-	m->msg.listen_req.infomask = 0x3f; 
+	m->msg.listen_req.infomask = 0x3f; /* All information */
 	m->msg.listen_req.eazmask = eazmask;
-	m->msg.listen_req.simask = (eazmask) ? 0x86 : 0; 
+	m->msg.listen_req.simask = (eazmask) ? 0x86 : 0; /* All SI's  */
 	ACTCAPI_QUEUE_TX;
 	return 0;
 }
@@ -186,6 +193,9 @@ actcapi_connect_b3_req(act2000_card *card, act2000_chan *chan)
 	ACTCAPI_QUEUE_TX;
 }
 
+/*
+ * Set net type (1TR6) or (EDSS1)
+ */
 int
 actcapi_manufacturer_req_net(act2000_card *card)
 {
@@ -210,6 +220,9 @@ actcapi_manufacturer_req_net(act2000_card *card)
 	return 0;
 }
 
+/*
+ * Switch V.42 on or off
+ */
 #if 0
 int
 actcapi_manufacturer_req_v42(act2000_card *card, ulong arg)
@@ -229,8 +242,11 @@ actcapi_manufacturer_req_v42(act2000_card *card, ulong arg)
 	ACTCAPI_QUEUE_TX;
 	return 0;
 }
-#endif  
+#endif  /*  0  */
 
+/*
+ * Set error-handler
+ */
 int
 actcapi_manufacturer_req_errh(act2000_card *card)
 {
@@ -249,6 +265,9 @@ actcapi_manufacturer_req_errh(act2000_card *card)
 	return 0;
 }
 
+/*
+ * Set MSN-Mapping.
+ */
 int
 actcapi_manufacturer_req_msn(act2000_card *card)
 {
@@ -560,6 +579,11 @@ actcapi_data_b3_ind(act2000_card *card, struct sk_buff *skb) {
 	return 1;
 }
 
+/*
+ * Walk over ackq, unlink DATA_B3_REQ from it, if
+ * ncci and blocknr are matching.
+ * Decrement queued-bytes counter.
+ */
 static int
 handle_ack(act2000_card *card, act2000_chan *chan, __u8 blocknr) {
 	unsigned long flags;
@@ -580,7 +604,7 @@ handle_ack(act2000_card *card, act2000_chan *chan, __u8 blocknr) {
 		m = (actcapi_msg *)tmp->data;
 		if ((((m->msg.data_b3_req.fakencci >> 8) & 0xff) == chan->ncci) &&
 		    (m->msg.data_b3_req.blocknr == blocknr)) {
-			
+			/* found corresponding DATA_B3_REQ */
 			skb_unlink(tmp, &card->ackq);
 			chan->queued -= m->msg.data_b3_req.datalen;
 			if (m->msg.data_b3_req.flags)
@@ -594,7 +618,7 @@ handle_ack(act2000_card *card, act2000_chan *chan, __u8 blocknr) {
 		tmp = skb_peek((struct sk_buff_head *)tmp);
 		spin_unlock_irqrestore(&card->lock, flags);
 		if ((tmp == skb) || (tmp == NULL)) {
-			
+			/* reached end of queue */
 			printk(KERN_WARNING "act2000: handle_ack nothing found!\n");
 			return 0;
 		}
@@ -621,12 +645,12 @@ actcapi_dispatch(struct work_struct *work)
 		ccmd = ((msg->hdr.cmd.cmd << 8) | msg->hdr.cmd.subcmd);
 		switch (ccmd) {
 		case 0x8602:
-			
+			/* DATA_B3_IND */
 			if (actcapi_data_b3_ind(card, skb))
 				return;
 			break;
 		case 0x8601:
-			
+			/* DATA_B3_CONF */
 			chan = find_ncci(card, msg->msg.data_b3_conf.ncci);
 			if ((chan >= 0) && (card->bch[chan].fsm_state == ACT2000_STATE_ACTIVE)) {
 				if (msg->msg.data_b3_conf.info != 0)
@@ -644,7 +668,7 @@ actcapi_dispatch(struct work_struct *work)
 			}
 			break;
 		case 0x0201:
-			
+			/* CONNECT_CONF */
 			chan = find_dialing(card, msg->hdr.msgnum);
 			if (chan >= 0) {
 				if (msg->msg.connect_conf.info) {
@@ -660,12 +684,12 @@ actcapi_dispatch(struct work_struct *work)
 			}
 			break;
 		case 0x0202:
-			
+			/* CONNECT_IND */
 			chan = new_plci(card, msg->msg.connect_ind.plci);
 			if (chan < 0) {
 				ctmp = (act2000_chan *)tmp;
 				ctmp->plci = msg->msg.connect_ind.plci;
-				actcapi_connect_resp(card, ctmp, 0x11); 
+				actcapi_connect_resp(card, ctmp, 0x11); /* All Card-Cannels busy */
 			} else {
 				card->bch[chan].fsm_state = ACT2000_STATE_ICALL;
 				cmd.driver = card->myid;
@@ -686,11 +710,11 @@ actcapi_dispatch(struct work_struct *work)
 				cmd.parm.setup.plan = msg->msg.connect_ind.addr.tnp;
 				cmd.parm.setup.screen = 0;
 				if (card->interface.statcallb(&cmd) == 2)
-					actcapi_connect_resp(card, &card->bch[chan], 0x15); 
+					actcapi_connect_resp(card, &card->bch[chan], 0x15); /* Reject Call */
 			}
 			break;
 		case 0x0302:
-			
+			/* CONNECT_ACTIVE_IND */
 			chan = find_plci(card, msg->msg.connect_active_ind.plci);
 			if (chan >= 0)
 				switch (card->bch[chan].fsm_state) {
@@ -704,7 +728,7 @@ actcapi_dispatch(struct work_struct *work)
 				}
 			break;
 		case 0x8202:
-			
+			/* CONNECT_B3_IND */
 			chan = find_plci(card, msg->msg.connect_b3_ind.plci);
 			if ((chan >= 0) && (card->bch[chan].fsm_state == ACT2000_STATE_IBWAIT)) {
 				card->bch[chan].ncci = msg->msg.connect_b3_ind.ncci;
@@ -712,11 +736,11 @@ actcapi_dispatch(struct work_struct *work)
 			} else {
 				ctmp = (act2000_chan *)tmp;
 				ctmp->ncci = msg->msg.connect_b3_ind.ncci;
-				actcapi_connect_b3_resp(card, ctmp, 0x11); 
+				actcapi_connect_b3_resp(card, ctmp, 0x11); /* All Card-Cannels busy */
 			}
 			break;
 		case 0x8302:
-			
+			/* CONNECT_B3_ACTIVE_IND */
 			chan = find_ncci(card, msg->msg.connect_b3_active_ind.ncci);
 			if ((chan >= 0) && (card->bch[chan].fsm_state == ACT2000_STATE_BWAIT)) {
 				actcapi_connect_b3_active_resp(card, &card->bch[chan]);
@@ -727,7 +751,7 @@ actcapi_dispatch(struct work_struct *work)
 			}
 			break;
 		case 0x8402:
-			
+			/* DISCONNECT_B3_IND */
 			chan = find_ncci(card, msg->msg.disconnect_b3_ind.ncci);
 			if (chan >= 0) {
 				ctmp = &card->bch[chan];
@@ -752,7 +776,7 @@ actcapi_dispatch(struct work_struct *work)
 			}
 			break;
 		case 0x0402:
-			
+			/* DISCONNECT_IND */
 			chan = find_plci(card, msg->msg.disconnect_ind.plci);
 			if (chan >= 0) {
 				ctmp = &card->bch[chan];
@@ -769,7 +793,7 @@ actcapi_dispatch(struct work_struct *work)
 			}
 			break;
 		case 0x4001:
-			
+			/* SELECT_B2_PROTOCOL_CONF */
 			chan = find_plci(card, msg->msg.select_b2_protocol_conf.plci);
 			if (chan >= 0)
 				switch (card->bch[chan].fsm_state) {
@@ -789,7 +813,7 @@ actcapi_dispatch(struct work_struct *work)
 				}
 			break;
 		case 0x8001:
-			
+			/* SELECT_B3_PROTOCOL_CONF */
 			chan = find_plci(card, msg->msg.select_b3_protocol_conf.plci);
 			if (chan >= 0)
 				switch (card->bch[chan].fsm_state) {
@@ -808,7 +832,7 @@ actcapi_dispatch(struct work_struct *work)
 				}
 			break;
 		case 0x8101:
-			
+			/* LISTEN_B3_CONF */
 			chan = find_plci(card, msg->msg.listen_b3_conf.plci);
 			if (chan >= 0)
 				switch (card->bch[chan].fsm_state) {
@@ -844,7 +868,7 @@ actcapi_dispatch(struct work_struct *work)
 				}
 			break;
 		case 0x8201:
-			
+			/* CONNECT_B3_CONF */
 			chan = find_plci(card, msg->msg.connect_b3_conf.plci);
 			if ((chan >= 0) && (card->bch[chan].fsm_state == ACT2000_STATE_OBWAIT)) {
 				ctmp = &card->bch[chan];
@@ -861,27 +885,27 @@ actcapi_dispatch(struct work_struct *work)
 			}
 			break;
 		case 0x8401:
-			
+			/* DISCONNECT_B3_CONF */
 			chan = find_ncci(card, msg->msg.disconnect_b3_conf.ncci);
 			if ((chan >= 0) && (card->bch[chan].fsm_state == ACT2000_STATE_BHWAIT))
 				card->bch[chan].fsm_state = ACT2000_STATE_BHWAIT2;
 			break;
 		case 0x0702:
-			
+			/* INFO_IND */
 			chan = find_plci(card, msg->msg.info_ind.plci);
 			if (chan >= 0)
-				
+				/* TODO: Eval Charging info / cause */
 				actcapi_info_resp(card, &card->bch[chan]);
 			break;
 		case 0x0401:
-			
+			/* LISTEN_CONF */
 		case 0x0501:
-			
+			/* LISTEN_CONF */
 		case 0xff01:
-			
+			/* MANUFACTURER_CONF */
 			break;
 		case 0xff02:
-			
+			/* MANUFACTURER_IND */
 			if (msg->msg.manuf_msg == 3) {
 				memset(tmp, 0, sizeof(tmp));
 				strncpy(tmp,
@@ -1014,19 +1038,19 @@ actcapi_debug_msg(struct sk_buff *skb, int direction)
 	printk(KERN_DEBUG " SubCmd = 0x%02x\n", msg->hdr.cmd.subcmd);
 	switch (i) {
 	case 0:
-		
+		/* DATA B3 IND */
 		printk(KERN_DEBUG " BLOCK = 0x%02x\n",
 		       msg->msg.data_b3_ind.blocknr);
 		break;
 	case 2:
-		
+		/* CONNECT CONF */
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
 		       msg->msg.connect_conf.plci);
 		printk(KERN_DEBUG " Info = 0x%04x\n",
 		       msg->msg.connect_conf.info);
 		break;
 	case 3:
-		
+		/* CONNECT IND */
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
 		       msg->msg.connect_ind.plci);
 		printk(KERN_DEBUG " Contr = %d\n",
@@ -1040,20 +1064,20 @@ actcapi_debug_msg(struct sk_buff *skb, int direction)
 		actcapi_debug_caddr(&msg->msg.connect_ind.addr);
 		break;
 	case 5:
-		
+		/* CONNECT ACTIVE IND */
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
 		       msg->msg.connect_active_ind.plci);
 		actcapi_debug_caddr(&msg->msg.connect_active_ind.addr);
 		break;
 	case 8:
-		
+		/* LISTEN CONF */
 		printk(KERN_DEBUG " Contr = %d\n",
 		       msg->msg.listen_conf.controller);
 		printk(KERN_DEBUG " Info = 0x%04x\n",
 		       msg->msg.listen_conf.info);
 		break;
 	case 11:
-		
+		/* INFO IND */
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
 		       msg->msg.info_ind.plci);
 		printk(KERN_DEBUG " Imsk = 0x%04x\n",
@@ -1068,28 +1092,28 @@ actcapi_debug_msg(struct sk_buff *skb, int direction)
 		}
 		break;
 	case 14:
-		
+		/* SELECT B2 PROTOCOL CONF */
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
 		       msg->msg.select_b2_protocol_conf.plci);
 		printk(KERN_DEBUG " Info = 0x%04x\n",
 		       msg->msg.select_b2_protocol_conf.info);
 		break;
 	case 15:
-		
+		/* SELECT B3 PROTOCOL CONF */
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
 		       msg->msg.select_b3_protocol_conf.plci);
 		printk(KERN_DEBUG " Info = 0x%04x\n",
 		       msg->msg.select_b3_protocol_conf.info);
 		break;
 	case 16:
-		
+		/* LISTEN B3 CONF */
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
 		       msg->msg.listen_b3_conf.plci);
 		printk(KERN_DEBUG " Info = 0x%04x\n",
 		       msg->msg.listen_b3_conf.info);
 		break;
 	case 18:
-		
+		/* CONNECT B3 IND */
 		printk(KERN_DEBUG " NCCI = 0x%04x\n",
 		       msg->msg.connect_b3_ind.ncci);
 		printk(KERN_DEBUG " PLCI = 0x%04x\n",
@@ -1097,13 +1121,13 @@ actcapi_debug_msg(struct sk_buff *skb, int direction)
 		actcapi_debug_ncpi(&msg->msg.connect_b3_ind.ncpi);
 		break;
 	case 19:
-		
+		/* CONNECT B3 ACTIVE IND */
 		printk(KERN_DEBUG " NCCI = 0x%04x\n",
 		       msg->msg.connect_b3_active_ind.ncci);
 		actcapi_debug_ncpi(&msg->msg.connect_b3_active_ind.ncpi);
 		break;
 	case 26:
-		
+		/* MANUFACTURER IND */
 		printk(KERN_DEBUG " Mmsg = 0x%02x\n",
 		       msg->msg.manufacturer_ind_err.manuf_msg);
 		switch (msg->msg.manufacturer_ind_err.manuf_msg) {
@@ -1120,7 +1144,7 @@ actcapi_debug_msg(struct sk_buff *skb, int direction)
 		}
 		break;
 	case 30:
-		
+		/* LISTEN REQ */
 		printk(KERN_DEBUG " Imsk = 0x%08x\n",
 		       msg->msg.listen_req.infomask);
 		printk(KERN_DEBUG " Emsk = 0x%04x\n",
@@ -1129,7 +1153,7 @@ actcapi_debug_msg(struct sk_buff *skb, int direction)
 		       msg->msg.listen_req.simask);
 		break;
 	case 35:
-		
+		/* SELECT_B2_PROTOCOL_REQ */
 		printk(KERN_DEBUG " PLCI  = 0x%04x\n",
 		       msg->msg.select_b2_protocol_req.plci);
 		printk(KERN_DEBUG " prot  = 0x%02x\n",
@@ -1140,14 +1164,14 @@ actcapi_debug_msg(struct sk_buff *skb, int direction)
 			actcapi_debug_dlpd(&msg->msg.select_b2_protocol_req.dlpd);
 		break;
 	case 44:
-		
+		/* CONNECT RESP */
 		printk(KERN_DEBUG " PLCI  = 0x%04x\n",
 		       msg->msg.connect_resp.plci);
 		printk(KERN_DEBUG " CAUSE = 0x%02x\n",
 		       msg->msg.connect_resp.rejectcause);
 		break;
 	case 45:
-		
+		/* CONNECT ACTIVE RESP */
 		printk(KERN_DEBUG " PLCI  = 0x%04x\n",
 		       msg->msg.connect_active_resp.plci);
 		break;

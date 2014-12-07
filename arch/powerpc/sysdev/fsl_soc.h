@@ -23,10 +23,11 @@ extern void fsl_rstcr_restart(char *cmd);
 
 #if defined(CONFIG_FB_FSL_DIU) || defined(CONFIG_FB_FSL_DIU_MODULE)
 
+/* The different ports that the DIU can be connected to */
 enum fsl_diu_monitor_port {
-	FSL_DIU_PORT_DVI,	
-	FSL_DIU_PORT_LVDS,	
-	FSL_DIU_PORT_DLVDS	
+	FSL_DIU_PORT_DVI,	/* DVI */
+	FSL_DIU_PORT_LVDS,	/* Single-link LVDS */
+	FSL_DIU_PORT_DLVDS	/* Dual-link LVDS */
 };
 
 struct platform_diu_data_ops {

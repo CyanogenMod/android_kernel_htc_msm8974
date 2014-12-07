@@ -42,6 +42,9 @@ static struct usb_driver debug_driver = {
 	.id_table =	id_table,
 };
 
+/* This HW really does not support a serial break, so one will be
+ * emulated when ever the break state is set to true.
+ */
 static void usb_debug_break_ctl(struct tty_struct *tty, int break_state)
 {
 	struct usb_serial_port *port = tty->driver_data;

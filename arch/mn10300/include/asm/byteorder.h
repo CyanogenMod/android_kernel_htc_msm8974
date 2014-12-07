@@ -3,4 +3,4 @@
 
 #include <linux/byteorder/little_endian.h>
 
-#endif 
+#endif /* _ASM_BYTEORDER_H */

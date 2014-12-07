@@ -47,6 +47,17 @@ void cifs_dfs_release_automount_timer(void)
 	cancel_delayed_work_sync(&cifs_dfs_automount_task);
 }
 
+/**
+ * cifs_get_share_name	-	extracts share name from UNC
+ * @node_name:	pointer to UNC string
+ *
+ * Extracts sharename form full UNC.
+ * i.e. strips from UNC trailing path that is not part of share
+ * name and fixup missing '\' in the beginning of DFS node refferal
+ * if necessary.
+ * Returns pointer to share name on success or ERR_PTR on error.
+ * Caller is responsible for freeing returned string.
+ */
 static char *cifs_get_share_name(const char *node_name)
 {
 	int len;
@@ -54,12 +65,12 @@ static char *cifs_get_share_name(const char *node_name)
 	char *pSep;
 
 	len = strlen(node_name);
-	UNC = kmalloc(len+2 ,
+	UNC = kmalloc(len+2 /*for term null and additional \ if it's missed */,
 			 GFP_KERNEL);
 	if (!UNC)
 		return ERR_PTR(-ENOMEM);
 
-	
+	/* get share name and server name */
 	if (node_name[1] != '\\') {
 		UNC[0] = '\\';
 		strncpy(UNC+1, node_name, len);
@@ -70,7 +81,7 @@ static char *cifs_get_share_name(const char *node_name)
 		UNC[len] = 0;
 	}
 
-	
+	/* find server name end */
 	pSep = memchr(UNC+2, '\\', len-2);
 	if (!pSep) {
 		cERROR(1, "%s: no server name end in node name: %s",
@@ -79,10 +90,12 @@ static char *cifs_get_share_name(const char *node_name)
 		return ERR_PTR(-EINVAL);
 	}
 
-	
+	/* find sharename end */
 	pSep++;
 	pSep = memchr(UNC+(pSep-UNC), '\\', len-(pSep-UNC));
 	if (pSep) {
+		/* trim path up to sharename end
+		 * now we have share name in UNC */
 		*pSep = 0;
 	}
 
@@ -90,6 +103,19 @@ static char *cifs_get_share_name(const char *node_name)
 }
 
 
+/**
+ * cifs_compose_mount_options	-	creates mount options for refferral
+ * @sb_mountdata:	parent/root DFS mount options (template)
+ * @fullpath:		full path in UNC format
+ * @ref:		server's referral
+ * @devname:		pointer for saving device name
+ *
+ * creates mount options for submount based on template options sb_mountdata
+ * and replacing unc,ip,prefixpath options with ones we've got form ref_unc.
+ *
+ * Returns: pointer to new mount options or ERR_PTR.
+ * Caller is responcible for freeing retunrned value if it is not error.
+ */
 char *cifs_compose_mount_options(const char *sb_mountdata,
 				   const char *fullpath,
 				   const struct dfs_info3_param *ref,
@@ -120,6 +146,10 @@ char *cifs_compose_mount_options(const char *sb_mountdata,
 		goto compose_mount_options_err;
 	}
 
+	/* md_len = strlen(...) + 12 for 'sep+prefixpath='
+	 * assuming that we have 'unc=' and 'ip=' in
+	 * the original sb_mountdata
+	 */
 	md_len = strlen(sb_mountdata) + rc + strlen(ref->node_name) + 12;
 	mountdata = kzalloc(md_len+1, GFP_KERNEL);
 	if (mountdata == NULL) {
@@ -127,7 +157,7 @@ char *cifs_compose_mount_options(const char *sb_mountdata,
 		goto compose_mount_options_err;
 	}
 
-	
+	/* copy all options except of unc,ip,prefixpath */
 	off = 0;
 	if (strncmp(sb_mountdata, "sep=", 4) == 0) {
 			sep = sb_mountdata[4];
@@ -160,7 +190,7 @@ char *cifs_compose_mount_options(const char *sb_mountdata,
 	strcat(mountdata, sb_mountdata + off);
 	mountdata[md_len] = '\0';
 
-	
+	/* copy new IP and ref share name */
 	if (mountdata[strlen(mountdata) - 1] != sep)
 		strncat(mountdata, &sep, 1);
 	strcat(mountdata, "ip=");
@@ -169,10 +199,10 @@ char *cifs_compose_mount_options(const char *sb_mountdata,
 	strcat(mountdata, "unc=");
 	strcat(mountdata, *devname);
 
-	
+	/* find & copy prefixpath */
 	tkn_e = strchr(ref->node_name + 2, '\\');
 	if (tkn_e == NULL) {
-		
+		/* invalid unc, missing share name*/
 		rc = -EINVAL;
 		goto compose_mount_options_err;
 	}
@@ -186,8 +216,8 @@ char *cifs_compose_mount_options(const char *sb_mountdata,
 		strcat(mountdata, fullpath + ref->path_consumed);
 	}
 
-	
-	
+	/*cFYI(1, "%s: parent mountdata: %s", __func__,sb_mountdata);*/
+	/*cFYI(1, "%s: submount mountdata: %s", __func__, mountdata );*/
 
 compose_mount_options_out:
 	kfree(srvIP);
@@ -199,6 +229,12 @@ compose_mount_options_err:
 	goto compose_mount_options_out;
 }
 
+/**
+ * cifs_dfs_do_refmount - mounts specified path using provided refferal
+ * @cifs_sb:		parent/root superblock
+ * @fullpath:		full path in UNC format
+ * @ref:		server's referral
+ */
 static struct vfsmount *cifs_dfs_do_refmount(struct cifs_sb_info *cifs_sb,
 		const char *fullpath, const struct dfs_info3_param *ref)
 {
@@ -206,7 +242,7 @@ static struct vfsmount *cifs_dfs_do_refmount(struct cifs_sb_info *cifs_sb,
 	char *mountdata;
 	char *devname = NULL;
 
-	
+	/* strip first '\' from fullpath */
 	mountdata = cifs_compose_mount_options(cifs_sb->mountdata,
 			fullpath + 1, ref, &devname);
 
@@ -229,6 +265,9 @@ static void dump_referral(const struct dfs_info3_param *ref)
 				ref->path_consumed);
 }
 
+/*
+ * Create a vfsmount that we can automount
+ */
 static struct vfsmount *cifs_dfs_do_automount(struct dentry *mntpt)
 {
 	struct dfs_info3_param *referrals = NULL;
@@ -244,6 +283,12 @@ static struct vfsmount *cifs_dfs_do_automount(struct dentry *mntpt)
 	cFYI(1, "in %s", __func__);
 	BUG_ON(IS_ROOT(mntpt));
 
+	/*
+	 * The MSDFS spec states that paths in DFS referral requests and
+	 * responses must be prefixed by a single '\' character instead of
+	 * the double backslashes usually used in the UNC. This function
+	 * gives us the latter, so we must adjust the result.
+	 */
 	mnt = ERR_PTR(-ENOMEM);
 	full_path = build_path_from_dentry(mntpt);
 	if (full_path == NULL)
@@ -269,7 +314,7 @@ static struct vfsmount *cifs_dfs_do_automount(struct dentry *mntpt)
 	for (i = 0; i < num_referrals; i++) {
 		int len;
 		dump_referral(referrals + i);
-		
+		/* connect to a node */
 		len = strlen(referrals[i].node_name);
 		if (len < 2) {
 			cERROR(1, "%s: Net Address path too short: %s",
@@ -285,6 +330,8 @@ static struct vfsmount *cifs_dfs_do_automount(struct dentry *mntpt)
 			goto success;
 	}
 
+	/* no valid submounts were found; return error from get_dfs_path() by
+	 * preference */
 	if (rc != 0)
 		mnt = ERR_PTR(rc);
 
@@ -297,6 +344,9 @@ cdda_exit:
 	return mnt;
 }
 
+/*
+ * Attempt to automount the referral
+ */
 struct vfsmount *cifs_dfs_d_automount(struct path *path)
 {
 	struct vfsmount *newmnt;
@@ -309,7 +359,7 @@ struct vfsmount *cifs_dfs_d_automount(struct path *path)
 		return newmnt;
 	}
 
-	mntget(newmnt); 
+	mntget(newmnt); /* prevent immediate expiration */
 	mnt_set_expiry(newmnt, &cifs_dfs_automount_list);
 	schedule_delayed_work(&cifs_dfs_automount_task,
 			      cifs_dfs_mountpoint_expiry_timeout);

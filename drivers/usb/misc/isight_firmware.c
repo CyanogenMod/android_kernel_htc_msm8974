@@ -72,7 +72,7 @@ static int isight_firmware_load(struct usb_interface *intf,
 		ptr += 4;
 
 		if (len == 0x8001)
-			break;	
+			break;	/* success */
 		else if (len == 0)
 			continue;
 

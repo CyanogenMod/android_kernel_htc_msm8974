@@ -18,6 +18,7 @@
 #include <linux/io.h>
 #include <linux/bcd.h>
 
+/* RTC Control Registers */
 #define REG_RTC_INIR		0x00
 #define REG_RTC_AER		0x04
 #define REG_RTC_FCR		0x08

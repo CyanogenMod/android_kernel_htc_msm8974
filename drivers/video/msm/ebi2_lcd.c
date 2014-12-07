@@ -169,11 +169,11 @@ static int ebi2_lcd_probe(struct platform_device *pdev)
 	if (!mdp_dev)
 		return -ENOMEM;
 
-	
+	/* link to the latest pdev */
 	mfd->pdev = mdp_dev;
 	mfd->dest = DISPLAY_LCD;
 
-	
+	/* add panel data */
 	if (platform_device_add_data
 	    (mdp_dev, pdev->dev.platform_data,
 	     sizeof(struct msm_fb_panel_data))) {
@@ -182,13 +182,13 @@ static int ebi2_lcd_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* data chain */
 	pdata = mdp_dev->dev.platform_data;
 	pdata->on = ebi2_lcd_on;
 	pdata->off = ebi2_lcd_off;
 	pdata->next = pdev;
 
-	
+	/* get/set panel specific fb info */
 	mfd->panel_info = pdata->panel_info;
 
 	hw_version = inp32((int)ebi2_base + 8);
@@ -200,11 +200,16 @@ static int ebi2_lcd_probe(struct platform_device *pdev)
 	else
 		mfd->fb_imgType = MDP_RGB_565;
 
-	
+	/* config msm ebi2 lcd register */
 	if (mfd->panel_info.pdest == DISPLAY_1) {
 		outp32(ebi2_base,
 		       (inp32(ebi2_base) & (~(EBI2_PRIM_LCD_CLR))) |
 		       EBI2_PRIM_LCD_SEL);
+		/*
+		 * current design has one set of cfg0/1 register to control
+		 * both EBI2 channels. so, we're using the PRIM channel to
+		 * configure both.
+		 */
 		outp32(ebi2_lcd_cfg0, mfd->panel_info.wait_cycle);
 		if (hw_version < 0x2020) {
 			if (mfd->panel_info.bpp == 18)
@@ -214,11 +219,18 @@ static int ebi2_lcd_probe(struct platform_device *pdev)
 		}
 	} else {
 #ifdef DEBUG_EBI2_LCD
+		/*
+		 * confliting with QCOM SURF FPGA CS.
+		 * OEM should enable below for their CS mapping
+		 */
 		 outp32(ebi2_base, (inp32(ebi2_base)&(~(EBI2_SECD_LCD_CLR)))
 					|EBI2_SECD_LCD_SEL);
 #endif
 	}
 
+	/*
+	 * map cs (chip select) address
+	 */
 	if (mfd->panel_info.pdest == DISPLAY_1) {
 		mfd->cmd_port = lcd01_base;
 		if (hw_version >= 0x2020) {
@@ -241,8 +253,14 @@ static int ebi2_lcd_probe(struct platform_device *pdev)
 		    (void *)(LCD_SECD_BASE_PHYS + EBI2_SECD_LCD_RS_PIN);
 	}
 
+	/*
+	 * set driver data
+	 */
 	platform_set_drvdata(mdp_dev, mfd);
 
+	/*
+	 * register in mdp driver
+	 */
 	rc = platform_device_add(mdp_dev);
 	if (rc) {
 		goto ebi2_lcd_probe_err;

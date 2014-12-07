@@ -26,4 +26,4 @@
 
 #include "xfs_linux.h"
 
-#endif	
+#endif	/* __XFS_H__ */

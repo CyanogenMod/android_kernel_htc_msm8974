@@ -42,6 +42,7 @@
 
 #define SIZEOF_INT 4
 
+/* from gssapi_err_generic.h */
 #define G_BAD_SERVICE_NAME                       (-2045022976L)
 #define G_BAD_STRING_UID                         (-2045022975L)
 #define G_NOUSER                                 (-2045022974L)

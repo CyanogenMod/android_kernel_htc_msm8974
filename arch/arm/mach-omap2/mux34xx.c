@@ -37,6 +37,9 @@
 	.balls		= { bb, bt },					\
 }
 
+/*
+ * Superset of all mux modes for omap3
+ */
 static struct omap_mux __initdata omap3_muxmodes[] = {
 	_OMAP3_MUXENTRY(CAM_D0, 99,
 		"cam_d0", NULL, NULL, NULL,
@@ -647,7 +650,7 @@ static struct omap_mux __initdata omap3_muxmodes[] = {
 		"uart3_tx_irtx", NULL, NULL, NULL,
 		"gpio_166", NULL, NULL, "safe_mode"),
 
-	
+	/* Only on 3630, see omap36xx_cbp_subset for the signals */
 	_OMAP3_MUXENTRY(GPMC_A11, 0,
 		NULL, NULL, NULL, NULL,
 		NULL, NULL, NULL, NULL),
@@ -696,6 +699,9 @@ static struct omap_mux __initdata omap3_muxmodes[] = {
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
 
+/*
+ * Signals different on CBC package compared to the superset
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_OMAP_PACKAGE_CBC)
 static struct omap_mux __initdata omap3_cbc_subset[] = {
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
@@ -704,6 +710,15 @@ static struct omap_mux __initdata omap3_cbc_subset[] = {
 #define omap3_cbc_subset	NULL
 #endif
 
+/*
+ * Balls for CBC package
+ * 515-pin s-PBGA Package, 0.65mm Ball Pitch (Top), 0.50mm Ball Pitch (Bottom)
+ *
+ * FIXME: What's up with the outdated TI documentation? See:
+ *
+ * http://wiki.davincidsp.com/index.php/Datasheet_Errata_for_OMAP35x_CBC_Package
+ * http://community.ti.com/forums/t/10982.aspx
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_DEBUG_FS)	\
 		&& defined(CONFIG_OMAP_PACKAGE_CBC)
 static struct omap_ball __initdata omap3_cbc_ball[] = {
@@ -912,6 +927,9 @@ static struct omap_ball __initdata omap3_cbc_ball[] = {
 #define omap3_cbc_ball	 NULL
 #endif
 
+/*
+ * Signals different on CUS package compared to superset
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_OMAP_PACKAGE_CUS)
 static struct omap_mux __initdata omap3_cus_subset[] = {
 	_OMAP3_MUXENTRY(CAM_D10, 109,
@@ -1053,6 +1071,10 @@ static struct omap_mux __initdata omap3_cus_subset[] = {
 #define omap3_cus_subset	NULL
 #endif
 
+/*
+ * Balls for CUS package
+ * 423-pin s-PBGA Package, 0.65mm Ball Pitch (Bottom)
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_DEBUG_FS)		\
 		&& defined(CONFIG_OMAP_PACKAGE_CUS)
 static struct omap_ball __initdata omap3_cus_ball[] = {
@@ -1243,6 +1265,9 @@ static struct omap_ball __initdata omap3_cus_ball[] = {
 #define omap3_cus_ball	 NULL
 #endif
 
+/*
+ * Signals different on CBB package comapared to superset
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_OMAP_PACKAGE_CBB)
 static struct omap_mux __initdata omap3_cbb_subset[] = {
 	_OMAP3_MUXENTRY(CAM_D10, 109,
@@ -1359,6 +1384,10 @@ static struct omap_mux __initdata omap3_cbb_subset[] = {
 #define omap3_cbb_subset	NULL
 #endif
 
+/*
+ * Balls for CBB package
+ * 515-pin s-PBGA Package, 0.50mm Ball Pitch (Top), 0.40mm Ball Pitch (Bottom)
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_DEBUG_FS)		\
 		&& defined(CONFIG_OMAP_PACKAGE_CBB)
 static struct omap_ball __initdata omap3_cbb_ball[] = {
@@ -1567,6 +1596,9 @@ static struct omap_ball __initdata omap3_cbb_ball[] = {
 #define omap3_cbb_ball	 NULL
 #endif
 
+/*
+ * Signals different on 36XX CBP package comapared to 34XX CBC package
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_OMAP_PACKAGE_CBP)
 static struct omap_mux __initdata omap36xx_cbp_subset[] = {
 	_OMAP3_MUXENTRY(CAM_D0, 99,
@@ -1780,6 +1812,10 @@ static struct omap_mux __initdata omap36xx_cbp_subset[] = {
 #define omap36xx_cbp_subset	NULL
 #endif
 
+/*
+ * Balls for 36XX CBP package
+ * 515-pin s-PBGA Package, 0.50mm Ball Pitch (Top), 0.40mm Ball Pitch (Bottom)
+ */
 #if defined(CONFIG_OMAP_MUX) && defined(CONFIG_DEBUG_FS)		\
 		&& defined (CONFIG_OMAP_PACKAGE_CBP)
 static struct omap_ball __initdata omap36xx_cbp_ball[] = {

@@ -5,6 +5,21 @@
  *
  */
 
+/* This is a fairly generic PCMCIA socket driver suitable for the
+ * following Alchemy Development boards:
+ *  Db1000, Db/Pb1500, Db/Pb1100, Db/Pb1550, Db/Pb1200, Db1300
+ *
+ * The Db1000 is used as a reference:  Per-socket card-, carddetect- and
+ *  statuschange IRQs connected to SoC GPIOs, control and status register
+ *  bits arranged in per-socket groups in an external PLD.  All boards
+ *  listed here use this layout, including bit positions and meanings.
+ *  Of course there are exceptions in later boards:
+ *
+ *	- Pb1100/Pb1500:  single socket only; voltage key bits VS are
+ *			  at STATUS[5:4] (instead of STATUS[1:0]).
+ *	- Au1200-based:	  additional card-eject irqs, irqs not gpios!
+ *	- Db1300:	  Db1200-like, no pwr ctrl, single socket (#1).
+ */
 
 #include <linux/delay.h>
 #include <linux/gpio.h>
@@ -26,26 +41,26 @@
 
 struct db1x_pcmcia_sock {
 	struct pcmcia_socket	socket;
-	int		nr;		
+	int		nr;		/* socket number */
 	void		*virt_io;
 
 	phys_addr_t	phys_io;
 	phys_addr_t	phys_attr;
 	phys_addr_t	phys_mem;
 
-	
+	/* previous flags for set_socket() */
 	unsigned int old_flags;
 
-	
-	int	insert_irq;	
-	int	stschg_irq;	
-	int	card_irq;	
-	int	eject_irq;	
+	/* interrupt sources: linux irq numbers! */
+	int	insert_irq;	/* default carddetect irq */
+	int	stschg_irq;	/* card-status-change irq */
+	int	card_irq;	/* card irq */
+	int	eject_irq;	/* db1200/pb1200 have these */
 
-#define BOARD_TYPE_DEFAULT	0	
-#define BOARD_TYPE_DB1200	1	
-#define BOARD_TYPE_PB1100	2	
-#define BOARD_TYPE_DB1300	3	
+#define BOARD_TYPE_DEFAULT	0	/* most boards */
+#define BOARD_TYPE_DB1200	1	/* IRQs aren't gpios */
+#define BOARD_TYPE_PB1100	2	/* VS bits slightly different */
+#define BOARD_TYPE_DB1300	3	/* no power control */
 	int	board_type;
 };
 
@@ -56,6 +71,7 @@ static int db1300_card_inserted(struct db1x_pcmcia_sock *sock)
 	return bcsr_read(BCSR_SIGSTAT) & (1 << 8);
 }
 
+/* DB/PB1200: check CPLD SIGSTATUS register bit 10/12 */
 static int db1200_card_inserted(struct db1x_pcmcia_sock *sock)
 {
 	unsigned short sigstat;
@@ -64,6 +80,7 @@ static int db1200_card_inserted(struct db1x_pcmcia_sock *sock)
 	return sigstat & 1 << (8 + 2 * sock->nr);
 }
 
+/* carddetect gpio: low-active */
 static int db1000_card_inserted(struct db1x_pcmcia_sock *sock)
 {
 	return !gpio_get_value(irq_to_gpio(sock->insert_irq));
@@ -81,6 +98,10 @@ static int db1x_card_inserted(struct db1x_pcmcia_sock *sock)
 	}
 }
 
+/* STSCHG tends to bounce heavily when cards are inserted/ejected.
+ * To avoid this, the interrupt is normally disabled and only enabled
+ * after reset to a card has been de-asserted.
+ */
 static inline void set_stschg(struct db1x_pcmcia_sock *sock, int en)
 {
 	if (sock->stschg_irq != -1) {
@@ -113,6 +134,11 @@ static irqreturn_t db1200_pcmcia_cdirq(int irq, void *data)
 {
 	struct db1x_pcmcia_sock *sock = data;
 
+	/* Db/Pb1200 have separate per-socket insertion and ejection
+	 * interrupts which stay asserted as long as the card is
+	 * inserted/missing.  The one which caused us to be called
+	 * needs to be disabled and the other one enabled.
+	 */
 	if (irq == sock->insert_irq) {
 		disable_irq_nosync(sock->insert_irq);
 		enable_irq(sock->eject_irq);
@@ -137,6 +163,12 @@ static int db1x_pcmcia_setup_irqs(struct db1x_pcmcia_sock *sock)
 			return ret;
 	}
 
+	/* Db/Pb1200 have separate per-socket insertion and ejection
+	 * interrupts, which should show edge behaviour but don't.
+	 * So interrupts are disabled until both insertion and
+	 * ejection handler have been registered and the currently
+	 * active one disabled.
+	 */
 	if ((sock->board_type == BOARD_TYPE_DB1200) ||
 	    (sock->board_type == BOARD_TYPE_DB1300)) {
 		ret = request_irq(sock->insert_irq, db1200_pcmcia_cdirq,
@@ -151,12 +183,15 @@ static int db1x_pcmcia_setup_irqs(struct db1x_pcmcia_sock *sock)
 			goto out1;
 		}
 
-		
+		/* enable the currently silent one */
 		if (db1x_card_inserted(sock))
 			enable_irq(sock->eject_irq);
 		else
 			enable_irq(sock->insert_irq);
 	} else {
+		/* all other (older) Db1x00 boards use a GPIO to show
+		 * card detection status:  use both-edge triggers.
+		 */
 		irq_set_irq_type(sock->insert_irq, IRQ_TYPE_EDGE_BOTH);
 		ret = request_irq(sock->insert_irq, db1000_pcmcia_cdirq,
 				  0, "pcmcia_carddetect", sock);
@@ -165,7 +200,7 @@ static int db1x_pcmcia_setup_irqs(struct db1x_pcmcia_sock *sock)
 			goto out1;
 	}
 
-	return 0;	
+	return 0;	/* all done */
 
 out1:
 	if (sock->stschg_irq != -1)
@@ -184,6 +219,19 @@ static void db1x_pcmcia_free_irqs(struct db1x_pcmcia_sock *sock)
 		free_irq(sock->eject_irq, sock);
 }
 
+/*
+ * configure a PCMCIA socket on the Db1x00 series of boards (and
+ * compatibles).
+ *
+ * 2 external registers are involved:
+ *   pcmcia_status (offset 0x04): bits [0:1/2:3]: read card voltage id
+ *   pcmcia_control(offset 0x10):
+ *	bits[0:1] set vcc for card
+ *	bits[2:3] set vpp for card
+ *	bit 4:	enable data buffers
+ *	bit 7:	reset# for card
+ *	add 8 for second socket.
+ */
 static int db1x_pcmcia_configure(struct pcmcia_socket *skt,
 				 struct socket_state_t *state)
 {
@@ -192,8 +240,8 @@ static int db1x_pcmcia_configure(struct pcmcia_socket *skt,
 	unsigned int changed;
 	int v, p, ret;
 
-	
-	cr_clr = (0xf << (sock->nr * 8)); 
+	/* card voltage setup */
+	cr_clr = (0xf << (sock->nr * 8)); /* clear voltage settings */
 	cr_set = 0;
 	v = p = ret = 0;
 
@@ -222,7 +270,7 @@ static int db1x_pcmcia_configure(struct pcmcia_socket *skt,
 			sock->nr, state->Vpp);
 	}
 
-	
+	/* sanity check: Vpp must be 0, 12, or Vcc */
 	if (((state->Vcc == 33) && (state->Vpp == 50)) ||
 	    ((state->Vcc == 50) && (state->Vpp == 33))) {
 		printk(KERN_INFO "pcmcia%d bad Vcc/Vpp combo (%d %d)\n",
@@ -231,7 +279,7 @@ static int db1x_pcmcia_configure(struct pcmcia_socket *skt,
 		ret = -EINVAL;
 	}
 
-	
+	/* create new voltage code */
 	if (sock->board_type != BOARD_TYPE_DB1300)
 		cr_set |= ((v << 2) | p) << (sock->nr * 8);
 
@@ -240,22 +288,22 @@ static int db1x_pcmcia_configure(struct pcmcia_socket *skt,
 	if (changed & SS_RESET) {
 		if (state->flags & SS_RESET) {
 			set_stschg(sock, 0);
-			
+			/* assert reset, disable io buffers */
 			cr_clr |= (1 << (7 + (sock->nr * 8)));
 			cr_clr |= (1 << (4 + (sock->nr * 8)));
 		} else {
-			
+			/* de-assert reset, enable io buffers */
 			cr_set |= 1 << (7 + (sock->nr * 8));
 			cr_set |= 1 << (4 + (sock->nr * 8));
 		}
 	}
 
-	
+	/* update PCMCIA configuration */
 	bcsr_mod(BCSR_PCMCIA, cr_clr, cr_set);
 
 	sock->old_flags = state->flags;
 
-	
+	/* reset was taken away: give card time to initialize properly */
 	if ((changed & SS_RESET) && !(state->flags & SS_RESET)) {
 		msleep(500);
 		set_stschg(sock, 1);
@@ -264,12 +312,15 @@ static int db1x_pcmcia_configure(struct pcmcia_socket *skt,
 	return ret;
 }
 
+/* VCC bits at [3:2]/[11:10] */
 #define GET_VCC(cr, socknr)		\
 	((((cr) >> 2) >> ((socknr) * 8)) & 3)
 
+/* VS bits at [0:1]/[3:2] */
 #define GET_VS(sr, socknr)		\
 	(((sr) >> (2 * (socknr))) & 3)
 
+/* reset bits at [7]/[15] */
 #define GET_RESET(cr, socknr)		\
 	((cr) & (1 << (7 + (8 * (socknr)))))
 
@@ -285,29 +336,29 @@ static int db1x_pcmcia_get_status(struct pcmcia_socket *skt,
 	cr = bcsr_read(BCSR_PCMCIA);
 	sr = bcsr_read(BCSR_STATUS);
 
-	
+	/* PB1100/PB1500: voltage key bits are at [5:4] */
 	if (sock->board_type == BOARD_TYPE_PB1100)
 		sr >>= 4;
 
-	
+	/* determine card type */
 	switch (GET_VS(sr, sock->nr)) {
 	case 0:
 	case 2:
-		status |= SS_3VCARD;	
+		status |= SS_3VCARD;	/* 3V card */
 	case 3:
-		break;			
+		break;			/* 5V card: set nothing */
 	default:
-		status |= SS_XVCARD;	
+		status |= SS_XVCARD;	/* treated as unsupported in core */
 	}
 
-	
+	/* if Vcc is not zero, we have applied power to a card */
 	status |= GET_VCC(cr, sock->nr) ? SS_POWERON : 0;
 
-	
+	/* DB1300: power always on, but don't tell when no card present */
 	if ((sock->board_type == BOARD_TYPE_DB1300) && (status & SS_DETECT))
 		status = SS_POWERON | SS_3VCARD | SS_DETECT;
 
-	
+	/* reset de-asserted? then we're ready */
 	status |= (GET_RESET(cr, sock->nr)) ? SS_READY : SS_RESET;
 
 	*value = status;
@@ -392,26 +443,35 @@ static int __devinit db1x_pcmcia_socket_probe(struct platform_device *pdev)
 		goto out0;
 	};
 
+	/*
+	 * gather resources necessary and optional nice-to-haves to
+	 * operate a socket:
+	 * This includes IRQs for Carddetection/ejection, the card
+	 *  itself and optional status change detection.
+	 * Also, the memory areas covered by a socket.  For these
+	 *  we require the real 36bit addresses (see the au1000.h
+	 *  header for more information).
+	 */
 
-	
+	/* card: irq assigned to the card itself. */
 	r = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "card");
 	sock->card_irq = r ? r->start : 0;
 
-	
+	/* insert: irq which triggers on card insertion/ejection */
 	r = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "insert");
 	sock->insert_irq = r ? r->start : -1;
 
-	
+	/* stschg: irq which trigger on card status change (optional) */
 	r = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "stschg");
 	sock->stschg_irq = r ? r->start : -1;
 
-	
+	/* eject: irq which triggers on ejection (DB1200/PB1200 only) */
 	r = platform_get_resource_byname(pdev, IORESOURCE_IRQ, "eject");
 	sock->eject_irq = r ? r->start : -1;
 
 	ret = -ENODEV;
 
-	
+	/* 36bit PCMCIA Attribute area address */
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pcmcia-attr");
 	if (!r) {
 		printk(KERN_ERR "pcmcia%d has no 'pseudo-attr' resource!\n",
@@ -420,7 +480,7 @@ static int __devinit db1x_pcmcia_socket_probe(struct platform_device *pdev)
 	}
 	sock->phys_attr = r->start;
 
-	
+	/* 36bit PCMCIA Memory area address */
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pcmcia-mem");
 	if (!r) {
 		printk(KERN_ERR "pcmcia%d has no 'pseudo-mem' resource!\n",
@@ -429,7 +489,7 @@ static int __devinit db1x_pcmcia_socket_probe(struct platform_device *pdev)
 	}
 	sock->phys_mem = r->start;
 
-	
+	/* 36bit PCMCIA IO area address */
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pcmcia-io");
 	if (!r) {
 		printk(KERN_ERR "pcmcia%d has no 'pseudo-io' resource!\n",
@@ -438,6 +498,14 @@ static int __devinit db1x_pcmcia_socket_probe(struct platform_device *pdev)
 	}
 	sock->phys_io = r->start;
 
+	/*
+	 * PCMCIA client drivers use the inb/outb macros to access
+	 * the IO registers.  Since mips_io_port_base is added
+	 * to the access address of the mips implementation of
+	 * inb/outb, we need to subtract it here because we want
+	 * to access the I/O or MEM address directly, without
+	 * going through this "mips_io_port_base" mechanism.
+	 */
 	sock->virt_io = (void *)(ioremap(sock->phys_io, IO_MAP_SIZE) -
 				 mips_io_port_base);
 

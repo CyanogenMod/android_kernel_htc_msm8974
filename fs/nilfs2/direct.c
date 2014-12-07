@@ -108,10 +108,10 @@ nilfs_direct_find_target_v(const struct nilfs_bmap *direct, __u64 key)
 
 	ptr = nilfs_bmap_find_target_seq(direct, key);
 	if (ptr != NILFS_BMAP_INVALID_PTR)
-		
+		/* sequential access */
 		return ptr;
 	else
-		
+		/* block group */
 		return nilfs_bmap_find_target_in_group(direct);
 }
 
@@ -133,7 +133,7 @@ static int nilfs_direct_insert(struct nilfs_bmap *bmap, __u64 key, __u64 ptr)
 	}
 	ret = nilfs_bmap_prepare_alloc_ptr(bmap, &req, dat);
 	if (!ret) {
-		
+		/* ptr must be a pointer to a buffer head. */
 		bh = (struct buffer_head *)((unsigned long)ptr);
 		set_buffer_nilfs_volatile(bh);
 
@@ -223,18 +223,18 @@ int nilfs_direct_delete_and_convert(struct nilfs_bmap *bmap,
 	__le64 *dptrs;
 	int ret, i, j;
 
-	
+	/* no need to allocate any resource for conversion */
 
-	
+	/* delete */
 	ret = bmap->b_ops->bop_delete(bmap, key);
 	if (ret < 0)
 		return ret;
 
-	
+	/* free resources */
 	if (bmap->b_ops->bop_clear != NULL)
 		bmap->b_ops->bop_clear(bmap);
 
-	
+	/* convert */
 	dptrs = nilfs_direct_dptrs(bmap);
 	for (i = 0, j = 0; i < NILFS_DIRECT_NBLOCKS; i++) {
 		if ((j < n) && (i == keys[j])) {

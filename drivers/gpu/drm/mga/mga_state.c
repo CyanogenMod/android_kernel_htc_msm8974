@@ -37,6 +37,9 @@
 #include "mga_drm.h"
 #include "mga_drv.h"
 
+/* ================================================================
+ * DMA hardware state programming functions
+ */
 
 static void mga_emit_clip_rect(drm_mga_private_t *dev_priv,
 			       struct drm_clip_rect *box)
@@ -48,6 +51,8 @@ static void mga_emit_clip_rect(drm_mga_private_t *dev_priv,
 
 	BEGIN_DMA(2);
 
+	/* Force reset of DWGCTL on G400 (eliminates clip disable bit).
+	 */
 	if (dev_priv->chipset >= MGA_CARD_TYPE_G400) {
 		DMA_BLOCK(MGA_DWGCTL, ctx->dwgctl,
 			  MGA_LEN + MGA_EXEC, 0x80000000,
@@ -145,6 +150,8 @@ static __inline__ void mga_g400_emit_tex0(drm_mga_private_t *dev_priv)
 	drm_mga_texture_regs_t *tex = &sarea_priv->tex_state[0];
 	DMA_LOCALS;
 
+/*	printk("mga_g400_emit_tex0 %x %x %x\n", tex->texorg, */
+/*	       tex->texctl, tex->texctl2); */
 
 	BEGIN_DMA(6);
 
@@ -183,6 +190,8 @@ static __inline__ void mga_g400_emit_tex1(drm_mga_private_t *dev_priv)
 	drm_mga_texture_regs_t *tex = &sarea_priv->tex_state[1];
 	DMA_LOCALS;
 
+/*	printk("mga_g400_emit_tex1 %x %x %x\n", tex->texorg,  */
+/*	       tex->texctl, tex->texctl2); */
 
 	BEGIN_DMA(5);
 
@@ -230,6 +239,8 @@ static __inline__ void mga_g200_emit_pipe(drm_mga_private_t *dev_priv)
 		  MGA_WR34, 0x00000000,
 		  MGA_WR42, 0x0000ffff, MGA_WR60, 0x0000ffff);
 
+	/* Padding required due to hardware bug.
+	 */
 	DMA_BLOCK(MGA_DMAPAD, 0xffffffff,
 		  MGA_DMAPAD, 0xffffffff,
 		  MGA_DMAPAD, 0xffffffff,
@@ -245,6 +256,7 @@ static __inline__ void mga_g400_emit_pipe(drm_mga_private_t *dev_priv)
 	unsigned int pipe = sarea_priv->warp_pipe;
 	DMA_LOCALS;
 
+/*	printk("mga_g400_emit_pipe %x\n", pipe); */
 
 	BEGIN_DMA(10);
 
@@ -263,7 +275,7 @@ static __inline__ void mga_g400_emit_pipe(drm_mga_private_t *dev_priv)
 			  MGA_WACCEPTSEQ, 0x1e000000);
 	} else {
 		if (dev_priv->warp_pipe & MGA_T2) {
-			
+			/* Flush the WARP pipe */
 			DMA_BLOCK(MGA_YDST, 0x00000000,
 				  MGA_FXLEFT, 0x00000000,
 				  MGA_FXRIGHT, 0x00000001,
@@ -295,17 +307,17 @@ static __inline__ void mga_g400_emit_pipe(drm_mga_private_t *dev_priv)
 		  MGA_WFLAG1, 0x00000000,
 		  MGA_WR56, MGA_G400_WR56_MAGIC, MGA_DMAPAD, 0x00000000);
 
-	DMA_BLOCK(MGA_WR49, 0x00000000,	
-		  MGA_WR57, 0x00000000,	
-		  MGA_WR53, 0x00000000,	
-		  MGA_WR61, 0x00000000);	
+	DMA_BLOCK(MGA_WR49, 0x00000000,	/* tex0              */
+		  MGA_WR57, 0x00000000,	/* tex0              */
+		  MGA_WR53, 0x00000000,	/* tex1              */
+		  MGA_WR61, 0x00000000);	/* tex1              */
 
-	DMA_BLOCK(MGA_WR54, MGA_G400_WR_MAGIC,	
-		  MGA_WR62, MGA_G400_WR_MAGIC,	
-		  MGA_WR52, MGA_G400_WR_MAGIC,	
-		  MGA_WR60, MGA_G400_WR_MAGIC);	
+	DMA_BLOCK(MGA_WR54, MGA_G400_WR_MAGIC,	/* tex0 width        */
+		  MGA_WR62, MGA_G400_WR_MAGIC,	/* tex0 height       */
+		  MGA_WR52, MGA_G400_WR_MAGIC,	/* tex1 width        */
+		  MGA_WR60, MGA_G400_WR_MAGIC);	/* tex1 height       */
 
-	
+	/* Padding required due to hardware bug */
 	DMA_BLOCK(MGA_DMAPAD, 0xffffffff,
 		  MGA_DMAPAD, 0xffffffff,
 		  MGA_DMAPAD, 0xffffffff,
@@ -363,7 +375,12 @@ static void mga_g400_emit_state(drm_mga_private_t *dev_priv)
 	}
 }
 
+/* ================================================================
+ * SAREA state verification
+ */
 
+/* Disallow all write destinations except the front and backbuffer.
+ */
 static int mga_verify_context(drm_mga_private_t *dev_priv)
 {
 	drm_mga_sarea_t *sarea_priv = dev_priv->sarea_priv;
@@ -381,6 +398,8 @@ static int mga_verify_context(drm_mga_private_t *dev_priv)
 	return 0;
 }
 
+/* Disallow texture reads from PCI space.
+ */
 static int mga_verify_tex(drm_mga_private_t *dev_priv, int unit)
 {
 	drm_mga_sarea_t *sarea_priv = dev_priv->sarea_priv;
@@ -457,6 +476,9 @@ static int mga_verify_blit(drm_mga_private_t *dev_priv,
 	return 0;
 }
 
+/* ================================================================
+ *
+ */
 
 static void mga_dma_dispatch_clear(struct drm_device *dev, drm_mga_clear_t *clear)
 {
@@ -536,7 +558,7 @@ static void mga_dma_dispatch_clear(struct drm_device *dev, drm_mga_clear_t *clea
 
 	BEGIN_DMA(1);
 
-	
+	/* Force reset of DWGCTL */
 	DMA_BLOCK(MGA_DMAPAD, 0x00000000,
 		  MGA_DMAPAD, 0x00000000,
 		  MGA_PLNWT, ctx->plnwt, MGA_DWGCTL, ctx->dwgctl);
@@ -693,6 +715,9 @@ static void mga_dma_dispatch_indices(struct drm_device *dev, struct drm_buf *buf
 	FLUSH_DMA();
 }
 
+/* This copies a 64 byte aligned agp region to the frambuffer with a
+ * standard blit, the ioctl needs to do checking.
+ */
 static void mga_dma_dispatch_iload(struct drm_device *dev, struct drm_buf *buf,
 				   unsigned int dstorg, unsigned int length)
 {
@@ -787,8 +812,10 @@ static void mga_dma_dispatch_blit(struct drm_device *dev, drm_mga_blit_t *blit)
 			  MGA_YDSTLEN + MGA_EXEC, (dsty << 16) | h);
 	}
 
+	/* Do something to flush AGP?
+	 */
 
-	
+	/* Force reset of DWGCTL */
 	DMA_BLOCK(MGA_DMAPAD, 0x00000000,
 		  MGA_PLNWT, ctx->plnwt,
 		  MGA_PITCH, dev_priv->front_pitch, MGA_DWGCTL, ctx->dwgctl);
@@ -796,6 +823,9 @@ static void mga_dma_dispatch_blit(struct drm_device *dev, drm_mga_blit_t *blit)
 	ADVANCE_DMA();
 }
 
+/* ================================================================
+ *
+ */
 
 static int mga_dma_clear(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -812,6 +842,8 @@ static int mga_dma_clear(struct drm_device *dev, void *data, struct drm_file *fi
 
 	mga_dma_dispatch_clear(dev, clear);
 
+	/* Make sure we restore the 3D state next time.
+	 */
 	dev_priv->sarea_priv->dirty |= MGA_UPLOAD_CONTEXT;
 
 	return 0;
@@ -831,6 +863,8 @@ static int mga_dma_swap(struct drm_device *dev, void *data, struct drm_file *fil
 
 	mga_dma_dispatch_swap(dev);
 
+	/* Make sure we restore the 3D state next time.
+	 */
 	dev_priv->sarea_priv->dirty |= MGA_UPLOAD_CONTEXT;
 
 	return 0;
@@ -939,6 +973,8 @@ static int mga_dma_iload(struct drm_device *dev, void *data, struct drm_file *fi
 
 	mga_dma_dispatch_iload(dev, buf, iload->dstorg, iload->length);
 
+	/* Make sure we restore the 3D state next time.
+	 */
 	dev_priv->sarea_priv->dirty |= MGA_UPLOAD_CONTEXT;
 
 	return 0;
@@ -963,6 +999,8 @@ static int mga_dma_blit(struct drm_device *dev, void *data, struct drm_file *fil
 
 	mga_dma_dispatch_blit(dev, blit);
 
+	/* Make sure we restore the 3D state next time.
+	 */
 	dev_priv->sarea_priv->dirty |= MGA_UPLOAD_CONTEXT;
 
 	return 0;
@@ -1013,6 +1051,9 @@ static int mga_set_fence(struct drm_device *dev, void *data, struct drm_file *fi
 
 	DRM_DEBUG("pid=%d\n", DRM_CURRENTPID);
 
+	/* I would normal do this assignment in the declaration of fence,
+	 * but dev_priv may be NULL.
+	 */
 
 	*fence = dev_priv->next_fence_to_post;
 	dev_priv->next_fence_to_post++;

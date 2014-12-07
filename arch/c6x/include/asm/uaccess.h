@@ -17,6 +17,11 @@
 #define __access_ok _access_ok
 #endif
 
+/*
+ * __copy_from_user/copy_to_user are based on ones in asm-generic/uaccess.h
+ *
+ * C6X supports unaligned 32 and 64 bit loads and stores.
+ */
 static inline __must_check long __copy_from_user(void *to,
 		const void __user *from, unsigned long n)
 {
@@ -99,4 +104,4 @@ extern int _access_ok(unsigned long addr, unsigned long size);
 
 #include <asm-generic/uaccess.h>
 
-#endif 
+#endif /* _ASM_C6X_UACCESS_H */

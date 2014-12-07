@@ -31,7 +31,7 @@
 #include <linux/pn544.h>
 #include <linux/poll.h>
 #include <linux/regulator/consumer.h>
-#include <linux/serial_core.h> 
+#include <linux/serial_core.h> /* for TCGETS */
 #include <linux/slab.h>
 
 #define DRIVER_CARD	"PN544 NFC"
@@ -66,8 +66,8 @@ struct pn544_info {
 	wait_queue_head_t read_wait;
 	loff_t read_offset;
 	enum pn544_irq read_irq;
-	struct mutex read_mutex; 
-	struct mutex mutex; 
+	struct mutex read_mutex; /* Serialize read_irq access */
+	struct mutex mutex; /* Serialize info struct access */
 	u8 *buf;
 	size_t buflen;
 };
@@ -76,6 +76,7 @@ static const char reg_vdd_io[]	= "Vdd_IO";
 static const char reg_vbat[]	= "VBat";
 static const char reg_vsim[]	= "VSim";
 
+/* sysfs interface */
 static ssize_t pn544_test(struct device *dev,
 			  struct device_attribute *attr, char *buf)
 {
@@ -179,7 +180,7 @@ static int pn544_i2c_write(struct i2c_client *client, u8 *buf, int len)
 	r = i2c_master_send(client, buf, len);
 	dev_dbg(&client->dev, "send: %d\n", r);
 
-	if (r == -EREMOTEIO) { 
+	if (r == -EREMOTEIO) { /* Retry, chip was in standby */
 		usleep_range(6000, 10000);
 		r = i2c_master_send(client, buf, len);
 		dev_dbg(&client->dev, "send2: %d\n", r);
@@ -196,6 +197,10 @@ static int pn544_i2c_read(struct i2c_client *client, u8 *buf, int buflen)
 	int r;
 	u8 len;
 
+	/*
+	 * You could read a packet in one go, but then you'd need to read
+	 * max size and rest would be 0xff fill, so we do split reads.
+	 */
 	r = i2c_master_recv(client, &len, 1);
 	dev_dbg(&client->dev, "recv1: %d\n", r);
 
@@ -207,7 +212,7 @@ static int pn544_i2c_read(struct i2c_client *client, u8 *buf, int buflen)
 	else if (len > (PN544_MSG_MAX_SIZE - 1))
 		len = PN544_MSG_MAX_SIZE - 1;
 
-	if (1 + len > buflen) 
+	if (1 + len > buflen) /* len+(data+crc16) */
 		return -EMSGSIZE;
 
 	buf[0] = len;
@@ -236,7 +241,7 @@ static int pn544_fw_write(struct i2c_client *client, u8 *buf, int len)
 	r = i2c_master_send(client, buf, len);
 	dev_dbg(&client->dev, "fw send: %d\n", r);
 
-	if (r == -EREMOTEIO) { 
+	if (r == -EREMOTEIO) { /* Retry, chip was in standby */
 		usleep_range(6000, 10000);
 		r = i2c_master_send(client, buf, len);
 		dev_dbg(&client->dev, "fw send2: %d\n", r);
@@ -265,7 +270,7 @@ static int pn544_fw_read(struct i2c_client *client, u8 *buf, int buflen)
 		return -EINVAL;
 
 	len = (buf[1] << 8) + buf[2];
-	if (len == 0) 
+	if (len == 0) /* just header, no additional data */
 		return r;
 
 	if (len > buflen - PN544_FW_HEADER_SIZE)
@@ -306,6 +311,10 @@ static enum pn544_irq pn544_irq_state(struct pn544_info *info)
 	mutex_lock(&info->read_mutex);
 	irq = info->read_irq;
 	mutex_unlock(&info->read_mutex);
+	/*
+	 * XXX: should we check GPIO-line status directly?
+	 * return pdata->irq_status() ? PN544_INT : PN544_NONE;
+	 */
 
 	return irq;
 }
@@ -440,6 +449,10 @@ static ssize_t pn544_write(struct file *file, const char __user *buf,
 		goto out;
 	}
 
+	/*
+	 * XXX: should we detect rset-writes and clean possible
+	 * read_irq state
+	 */
 	if (info->state == PN544_ST_FW_READY) {
 		size_t fw_len;
 
@@ -460,7 +473,7 @@ static ssize_t pn544_write(struct file *file, const char __user *buf,
 		fw_len = PN544_FW_HEADER_SIZE + (info->buf[1] << 8) +
 			info->buf[2];
 
-		if (len > fw_len) 
+		if (len > fw_len) /* 1 msg at a time */
 			len = fw_len;
 
 		r = pn544_fw_write(info->i2c_dev, info->buf, len);
@@ -479,7 +492,7 @@ static ssize_t pn544_write(struct file *file, const char __user *buf,
 		print_hex_dump(KERN_DEBUG, "write: ", DUMP_PREFIX_NONE,
 			       16, 2, info->buf, len, false);
 
-		if (len > (info->buf[0] + 1)) 
+		if (len > (info->buf[0] + 1)) /* 1 msg at a time */
 			len  = info->buf[0] + 1;
 
 		r = pn544_i2c_write(info->i2c_dev, info->buf, len);
@@ -579,6 +592,10 @@ static int pn544_open(struct inode *inode, struct file *file)
 
 	mutex_lock(&info->mutex);
 
+	/*
+	 * Only 1 at a time.
+	 * XXX: maybe user (counter) would work better
+	 */
 	if (info->state != PN544_ST_COLD) {
 		r = -EBUSY;
 		goto out;
@@ -636,11 +653,16 @@ static int pn544_suspend(struct device *dev)
 
 	switch (info->state) {
 	case PN544_ST_FW_READY:
-		
+		/* Do not suspend while upgrading FW, please! */
 		r = -EPERM;
 		break;
 
 	case PN544_ST_READY:
+		/*
+		 * CHECK: Device should be in standby-mode. No way to check?
+		 * Allowing low power mode for the regulator is potentially
+		 * dangerous if pn544 does not go to suspension.
+		 */
 		break;
 
 	case PN544_ST_COLD:
@@ -664,6 +686,11 @@ static int pn544_resume(struct device *dev)
 
 	switch (info->state) {
 	case PN544_ST_READY:
+		/*
+		 * CHECK: If regulator low power mode is allowed in
+		 * pn544_suspend, we should go back to normal mode
+		 * here.
+		 */
 		break;
 
 	case PN544_ST_COLD:
@@ -694,7 +721,7 @@ static int __devinit pn544_probe(struct i2c_client *client,
 	dev_dbg(&client->dev, "%s\n", __func__);
 	dev_dbg(&client->dev, "IRQ: %d\n", client->irq);
 
-	
+	/* private data allocation */
 	info = kzalloc(sizeof(struct pn544_info), GFP_KERNEL);
 	if (!info) {
 		dev_err(&client->dev,
@@ -754,7 +781,7 @@ static int __devinit pn544_probe(struct i2c_client *client,
 		goto err_res;
 	}
 
-	
+	/* If we don't have the test we don't need the sysfs file */
 	if (pdata->test) {
 		r = device_create_file(&client->dev, &pn544_attr);
 		if (r) {

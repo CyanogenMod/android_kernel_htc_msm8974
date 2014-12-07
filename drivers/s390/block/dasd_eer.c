@@ -29,9 +29,12 @@
 
 #ifdef PRINTK_HEADER
 #undef PRINTK_HEADER
-#endif				
+#endif				/* PRINTK_HEADER */
 #define PRINTK_HEADER "dasd(eer):"
 
+/*
+ * SECTION: the internal buffer
+ */
 
 /*
  * The internal buffer is meant to store obaque blobs of data, so it does
@@ -93,6 +96,10 @@ static LIST_HEAD(bufferlist);
 static DEFINE_SPINLOCK(bufferlock);
 static DECLARE_WAIT_QUEUE_HEAD(dasd_eer_read_wait_queue);
 
+/*
+ * How many free bytes are available on the buffer.
+ * Needs to be called with bufferlock held.
+ */
 static int dasd_eer_get_free_bytes(struct eerbuffer *eerb)
 {
 	if (eerb->head < eerb->tail)
@@ -100,6 +107,10 @@ static int dasd_eer_get_free_bytes(struct eerbuffer *eerb)
 	return eerb->buffersize - eerb->head + eerb->tail -1;
 }
 
+/*
+ * How many bytes of buffer space are used.
+ * Needs to be called with bufferlock held.
+ */
 static int dasd_eer_get_filled_bytes(struct eerbuffer *eerb)
 {
 
@@ -108,6 +119,12 @@ static int dasd_eer_get_filled_bytes(struct eerbuffer *eerb)
 	return eerb->buffersize - eerb->tail + eerb->head;
 }
 
+/*
+ * The dasd_eer_write_buffer function just copies count bytes of data
+ * to the buffer. Make sure to call dasd_eer_start_record first, to
+ * make sure that enough free space is available.
+ * Needs to be called with bufferlock held.
+ */
 static void dasd_eer_write_buffer(struct eerbuffer *eerb,
 				  char *data, int count)
 {
@@ -127,11 +144,14 @@ static void dasd_eer_write_buffer(struct eerbuffer *eerb,
 		rest -= len;
 		eerb->head += len;
 		if (eerb->head == eerb->buffersize)
-			eerb->head = 0; 
+			eerb->head = 0; /* wrap around */
 		BUG_ON(eerb->head > eerb->buffersize);
 	}
 }
 
+/*
+ * Needs to be called with bufferlock held.
+ */
 static int dasd_eer_read_buffer(struct eerbuffer *eerb, char *data, int count)
 {
 
@@ -151,7 +171,7 @@ static int dasd_eer_read_buffer(struct eerbuffer *eerb, char *data, int count)
 		rest -= len;
 		eerb->tail += len;
 		if (eerb->tail == eerb->buffersize)
-			eerb->tail = 0; 
+			eerb->tail = 0; /* wrap around */
 		BUG_ON(eerb->tail > eerb->buffersize);
 	}
 	return finalcount;
@@ -188,6 +208,9 @@ static int dasd_eer_start_record(struct eerbuffer *eerb, int count)
 	return 0;
 };
 
+/*
+ * Release pages that are not used anymore.
+ */
 static void dasd_eer_free_buffer_pages(char **buf, int no_pages)
 {
 	int i;
@@ -196,6 +219,9 @@ static void dasd_eer_free_buffer_pages(char **buf, int no_pages)
 		free_page((unsigned long) buf[i]);
 }
 
+/*
+ * Allocate a new set of memory pages.
+ */
 static int dasd_eer_allocate_buffer_pages(char **buf, int no_pages)
 {
 	int i;
@@ -210,6 +236,9 @@ static int dasd_eer_allocate_buffer_pages(char **buf, int no_pages)
 	return 0;
 }
 
+/*
+ * SECTION: The extended error reporting functionality
+ */
 
 /*
  * When a DASD device driver wants to report an error, it calls the
@@ -253,6 +282,13 @@ struct dasd_eer_header {
 	char busid[DASD_EER_BUSID_SIZE];
 } __attribute__ ((packed));
 
+/*
+ * The following function can be used for those triggers that have
+ * all necessary data available when the function is called.
+ * If the parameter cqr is not NULL, the chain of requests will be searched
+ * for valid sense data, and all valid sense data sets will be added to
+ * the triggers data.
+ */
 static void dasd_eer_write_standard_trigger(struct dasd_device *device,
 					    struct dasd_ccw_req *cqr,
 					    int trigger)
@@ -265,13 +301,13 @@ static void dasd_eer_write_standard_trigger(struct dasd_device *device,
 	struct eerbuffer *eerb;
 	char *sense;
 
-	
+	/* go through cqr chain and count the valid sense data sets */
 	data_size = 0;
 	for (temp_cqr = cqr; temp_cqr; temp_cqr = temp_cqr->refers)
 		if (dasd_get_sense(&temp_cqr->irb))
 			data_size += 32;
 
-	header.total_size = sizeof(header) + data_size + 4; 
+	header.total_size = sizeof(header) + data_size + 4; /* "EOR" */
 	header.trigger = trigger;
 	do_gettimeofday(&tv);
 	header.tv_sec = tv.tv_sec;
@@ -294,6 +330,9 @@ static void dasd_eer_write_standard_trigger(struct dasd_device *device,
 	wake_up_interruptible(&dasd_eer_read_wait_queue);
 }
 
+/*
+ * This function writes a DASD_EER_STATECHANGE trigger.
+ */
 static void dasd_eer_write_snss_trigger(struct dasd_device *device,
 					struct dasd_ccw_req *cqr,
 					int trigger)
@@ -311,7 +350,7 @@ static void dasd_eer_write_snss_trigger(struct dasd_device *device,
 	else
 		data_size = SNSS_DATA_SIZE;
 
-	header.total_size = sizeof(header) + data_size + 4; 
+	header.total_size = sizeof(header) + data_size + 4; /* "EOR" */
 	header.trigger = DASD_EER_STATECHANGE;
 	do_gettimeofday(&tv);
 	header.tv_sec = tv.tv_sec;
@@ -331,6 +370,10 @@ static void dasd_eer_write_snss_trigger(struct dasd_device *device,
 	wake_up_interruptible(&dasd_eer_read_wait_queue);
 }
 
+/*
+ * This function is called for all triggers. It calls the appropriate
+ * function that writes the actual trigger records.
+ */
 void dasd_eer_write(struct dasd_device *device, struct dasd_ccw_req *cqr,
 		    unsigned int id)
 {
@@ -347,32 +390,39 @@ void dasd_eer_write(struct dasd_device *device, struct dasd_ccw_req *cqr,
 	case DASD_EER_STATECHANGE:
 		dasd_eer_write_snss_trigger(device, cqr, id);
 		break;
-	default: 
+	default: /* unknown trigger, so we write it without any sense data */
 		dasd_eer_write_standard_trigger(device, NULL, id);
 		break;
 	}
 }
 EXPORT_SYMBOL(dasd_eer_write);
 
+/*
+ * Start a sense subsystem status request.
+ * Needs to be called with the device held.
+ */
 void dasd_eer_snss(struct dasd_device *device)
 {
 	struct dasd_ccw_req *cqr;
 
 	cqr = device->eer_cqr;
-	if (!cqr)	
+	if (!cqr)	/* Device not eer enabled. */
 		return;
 	if (test_and_set_bit(DASD_FLAG_EER_IN_USE, &device->flags)) {
-		
+		/* Sense subsystem status request in use. */
 		set_bit(DASD_FLAG_EER_SNSS, &device->flags);
 		return;
 	}
-	
+	/* cdev is already locked, can't use dasd_add_request_head */
 	clear_bit(DASD_FLAG_EER_SNSS, &device->flags);
 	cqr->status = DASD_CQR_QUEUED;
 	list_add(&cqr->devlist, &device->ccw_queue);
 	dasd_schedule_device_bh(device);
 }
 
+/*
+ * Callback function for use with sense subsystem status request.
+ */
 static void dasd_eer_snss_cb(struct dasd_ccw_req *cqr, void *data)
 {
 	struct dasd_device *device = cqr->startdev;
@@ -383,15 +433,25 @@ static void dasd_eer_snss_cb(struct dasd_ccw_req *cqr, void *data)
 	if (device->eer_cqr == cqr) {
 		clear_bit(DASD_FLAG_EER_IN_USE, &device->flags);
 		if (test_bit(DASD_FLAG_EER_SNSS, &device->flags))
-			
+			/* Another SNSS has been requested in the meantime. */
 			dasd_eer_snss(device);
 		cqr = NULL;
 	}
 	spin_unlock_irqrestore(get_ccwdev_lock(device->cdev), flags);
 	if (cqr)
+		/*
+		 * Extended error recovery has been switched off while
+		 * the SNSS request was running. It could even have
+		 * been switched off and on again in which case there
+		 * is a new ccw in device->eer_cqr. Free the "old"
+		 * snss request now.
+		 */
 		dasd_kfree_request(cqr, device);
 }
 
+/*
+ * Enable error reporting on a given device.
+ */
 int dasd_eer_enable(struct dasd_device *device)
 {
 	struct dasd_ccw_req *cqr;
@@ -402,9 +462,9 @@ int dasd_eer_enable(struct dasd_device *device)
 		return 0;
 
 	if (!device->discipline || strcmp(device->discipline->name, "ECKD"))
-		return -EPERM;	
+		return -EPERM;	/* FIXME: -EMEDIUMTYPE ? */
 
-	cqr = dasd_kmalloc_request(DASD_ECKD_MAGIC, 1 ,
+	cqr = dasd_kmalloc_request(DASD_ECKD_MAGIC, 1 /* SNSS */,
 				   SNSS_DATA_SIZE, device);
 	if (IS_ERR(cqr))
 		return -ENOMEM;
@@ -436,6 +496,9 @@ int dasd_eer_enable(struct dasd_device *device)
 	return 0;
 }
 
+/*
+ * Disable error reporting on a given device.
+ */
 void dasd_eer_disable(struct dasd_device *device)
 {
 	struct dasd_ccw_req *cqr;
@@ -454,7 +517,15 @@ void dasd_eer_disable(struct dasd_device *device)
 		dasd_kfree_request(cqr, device);
 }
 
+/*
+ * SECTION: the device operations
+ */
 
+/*
+ * On the one side we need a lock to access our internal buffer, on the
+ * other side a copy_to_user can sleep. So we need to copy the data we have
+ * to transfer in a readbuffer, which is protected by the readbuffer_mutex.
+ */
 static char readbuffer[PAGE_SIZE];
 static DEFINE_MUTEX(readbuffer_mutex);
 
@@ -526,14 +597,14 @@ static ssize_t dasd_eer_read(struct file *filp, char __user *buf,
 
 	spin_lock_irqsave(&bufferlock, flags);
 
-	if (eerb->residual < 0) { 
-		                  
+	if (eerb->residual < 0) { /* the remainder of this record */
+		                  /* has been deleted             */
 		eerb->residual = 0;
 		spin_unlock_irqrestore(&bufferlock, flags);
 		mutex_unlock(&readbuffer_mutex);
 		return -EIO;
 	} else if (eerb->residual > 0) {
-		
+		/* OK we still have a second half of a record to deliver */
 		effective_count = min(eerb->residual, (int) count);
 		eerb->residual -= effective_count;
 	} else {
@@ -542,7 +613,7 @@ static ssize_t dasd_eer_read(struct file *filp, char __user *buf,
 			tc = dasd_eer_read_buffer(eerb, (char *) &tailcount,
 						  sizeof(tailcount));
 			if (!tc) {
-				
+				/* no data available */
 				spin_unlock_irqrestore(&bufferlock, flags);
 				mutex_unlock(&readbuffer_mutex);
 				if (filp->f_flags & O_NONBLOCK)

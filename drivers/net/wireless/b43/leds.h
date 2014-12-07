@@ -15,16 +15,18 @@ struct b43_wldev;
 
 struct b43_led {
 	struct b43_wl *wl;
-	
+	/* The LED class device */
 	struct led_classdev led_dev;
-	
+	/* The index number of the LED. */
 	u8 index;
+	/* If activelow is true, the LED is ON if the
+	 * bit is switched off. */
 	bool activelow;
-	
+	/* The unique name string for this LED device. */
 	char name[B43_LED_MAX_NAME_LEN + 1];
-	
+	/* The current status of the LED. This is updated locklessly. */
 	atomic_t state;
-	
+	/* The active state in hardware. */
 	bool hw_state;
 };
 
@@ -42,6 +44,7 @@ struct b43_leds {
 
 #define B43_LED_BEHAVIOUR		0x7F
 #define B43_LED_ACTIVELOW		0x80
+/* LED behaviour values */
 enum b43_led_behaviour {
 	B43_LED_OFF,
 	B43_LED_ON,
@@ -52,7 +55,7 @@ enum b43_led_behaviour {
 	B43_LED_MODE_BG,
 	B43_LED_TRANSFER,
 	B43_LED_APTRANSFER,
-	B43_LED_WEIRD,		
+	B43_LED_WEIRD,		//FIXME
 	B43_LED_ASSOC,
 	B43_LED_INACTIVE,
 };
@@ -64,10 +67,11 @@ void b43_leds_exit(struct b43_wldev *dev);
 void b43_leds_stop(struct b43_wldev *dev);
 
 
-#else 
+#else /* CONFIG_B43_LEDS */
+/* LED support disabled */
 
 struct b43_leds {
-	
+	/* empty */
 };
 
 static inline void b43_leds_register(struct b43_wldev *dev)
@@ -85,6 +89,6 @@ static inline void b43_leds_exit(struct b43_wldev *dev)
 static inline void b43_leds_stop(struct b43_wldev *dev)
 {
 }
-#endif 
+#endif /* CONFIG_B43_LEDS */
 
-#endif 
+#endif /* B43_LEDS_H_ */

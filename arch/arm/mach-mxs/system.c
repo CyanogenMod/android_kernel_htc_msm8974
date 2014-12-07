@@ -37,21 +37,24 @@
 #define MXS_MODULE_CLKGATE		(1 << 30)
 #define MXS_MODULE_SFTRST		(1 << 31)
 
-#define CLKCTRL_TIMEOUT		10	
+#define CLKCTRL_TIMEOUT		10	/* 10 ms */
 
 static void __iomem *mxs_clkctrl_reset_addr;
 
+/*
+ * Reset the system. It is called by machine_restart().
+ */
 void mxs_restart(char mode, const char *cmd)
 {
-	
+	/* reset the chip */
 	__mxs_setl(MXS_CLKCTRL_RESET_CHIP, mxs_clkctrl_reset_addr);
 
 	pr_err("Failed to assert the chip reset\n");
 
-	
+	/* Delay to allow the serial port to show the message */
 	mdelay(50);
 
-	
+	/* We'll take a jump through zero as a poor second */
 	soft_restart(0);
 }
 
@@ -71,18 +74,27 @@ static int __init mxs_arch_reset_init(void)
 }
 core_initcall(mxs_arch_reset_init);
 
+/*
+ * Clear the bit and poll it cleared.  This is usually called with
+ * a reset address and mask being either SFTRST(bit 31) or CLKGATE
+ * (bit 30).
+ */
 static int clear_poll_bit(void __iomem *addr, u32 mask)
 {
 	int timeout = 0x400;
 
-	
+	/* clear the bit */
 	__mxs_clrl(mask, addr);
 
+	/*
+	 * SFTRST needs 3 GPMI clocks to settle, the reference manual
+	 * recommends to wait 1us.
+	 */
 	udelay(1);
 
-	
+	/* poll the bit becoming clear */
 	while ((__raw_readl(addr) & mask) && --timeout)
-		;
+		/* nothing */;
 
 	return !timeout;
 }
@@ -92,30 +104,30 @@ int mxs_reset_block(void __iomem *reset_addr)
 	int ret;
 	int timeout = 0x400;
 
-	
+	/* clear and poll SFTRST */
 	ret = clear_poll_bit(reset_addr, MXS_MODULE_SFTRST);
 	if (unlikely(ret))
 		goto error;
 
-	
+	/* clear CLKGATE */
 	__mxs_clrl(MXS_MODULE_CLKGATE, reset_addr);
 
-	
+	/* set SFTRST to reset the block */
 	__mxs_setl(MXS_MODULE_SFTRST, reset_addr);
 	udelay(1);
 
-	
+	/* poll CLKGATE becoming set */
 	while ((!(__raw_readl(reset_addr) & MXS_MODULE_CLKGATE)) && --timeout)
-		;
+		/* nothing */;
 	if (unlikely(!timeout))
 		goto error;
 
-	
+	/* clear and poll SFTRST */
 	ret = clear_poll_bit(reset_addr, MXS_MODULE_SFTRST);
 	if (unlikely(ret))
 		goto error;
 
-	
+	/* clear and poll CLKGATE */
 	ret = clear_poll_bit(reset_addr, MXS_MODULE_CLKGATE);
 	if (unlikely(ret))
 		goto error;

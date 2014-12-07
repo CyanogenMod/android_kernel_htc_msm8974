@@ -62,4 +62,4 @@ void bfa_nw_cee_attach(struct bfa_cee *cee, struct bfa_ioc *ioc, void *dev);
 enum bfa_status bfa_nw_cee_get_attr(struct bfa_cee *cee,
 				struct bfa_cee_attr *attr,
 				bfa_cee_get_attr_cbfn_t cbfn, void *cbarg);
-#endif 
+#endif /* __BFA_CEE_H__ */

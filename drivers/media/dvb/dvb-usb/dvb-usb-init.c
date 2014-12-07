@@ -13,6 +13,7 @@
  */
 #include "dvb-usb-common.h"
 
+/* debug */
 int dvb_usb_debug;
 module_param_named(debug, dvb_usb_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debugging level (1=info,xfer=2,pll=4,ts=8,err=16,rc=32,fw=64,mem=128,uxfer=256  (or-able))." DVB_USB_DEBUG_STATUS);
@@ -39,7 +40,7 @@ static int dvb_usb_adapter_init(struct dvb_usb_device *d, short *adapter_nrs)
 
 	for (o = 0; o < adap->props.num_frontends; o++) {
 		struct dvb_usb_adapter_fe_properties *props = &adap->props.fe[o];
-		
+		/* speed - when running at FULL speed we need a HW PID filter */
 		if (d->udev->speed == USB_SPEED_FULL && !(props->caps & DVB_USB_ADAP_HAS_PID_FILTER)) {
 			err("This USB2.0 device cannot be run on a USB1.1 port. (it lacks a hardware PID filter)");
 			return -ENODEV;
@@ -87,7 +88,7 @@ static int dvb_usb_adapter_init(struct dvb_usb_device *d, short *adapter_nrs)
 			return ret;
 		}
 
-		
+		/* use exclusive FE lock if there is multiple shared FEs */
 		if (adap->fe_adap[1].fe)
 			adap->dvb_adap.mfe_shared = 1;
 
@@ -95,6 +96,10 @@ static int dvb_usb_adapter_init(struct dvb_usb_device *d, short *adapter_nrs)
 		d->state |= DVB_USB_STATE_DVB;
 	}
 
+	/*
+	 * when reloading the driver w/o replugging the device
+	 * sometimes a timeout occures, this helps
+	 */
 	if (d->props.generic_bulk_ctrl_endpoint != 0) {
 		usb_clear_halt(d->udev, usb_sndbulkpipe(d->udev, d->props.generic_bulk_ctrl_endpoint));
 		usb_clear_halt(d->udev, usb_rcvbulkpipe(d->udev, d->props.generic_bulk_ctrl_endpoint));
@@ -119,6 +124,7 @@ static int dvb_usb_adapter_exit(struct dvb_usb_device *d)
 }
 
 
+/* general initialization functions */
 static int dvb_usb_exit(struct dvb_usb_device *d)
 {
 	deb_info("state before exiting everything: %x\n", d->state);
@@ -149,7 +155,7 @@ static int dvb_usb_init(struct dvb_usb_device *d, short *adapter_nums)
 		}
 	}
 
-	
+	/* check the capabilities and set appropriate variables */
 	dvb_usb_device_power_ctrl(d, 1);
 
 	if ((ret = dvb_usb_i2c_init(d)) ||
@@ -166,6 +172,7 @@ static int dvb_usb_init(struct dvb_usb_device *d, short *adapter_nums)
 	return 0;
 }
 
+/* determine the name and the state of the just found USB device */
 static struct dvb_usb_device_description *dvb_usb_find_device(struct usb_device *udev, struct dvb_usb_device_properties *props, int *cold)
 {
 	int i, j;
@@ -212,7 +219,7 @@ int dvb_usb_device_power_ctrl(struct dvb_usb_device *d, int onoff)
 	else
 		d->powered--;
 
-	if (d->powered == 0 || (onoff && d->powered == 1)) { 
+	if (d->powered == 0 || (onoff && d->powered == 1)) { /* when switching from 1 to 0 or from 0 to 1 */
 		deb_info("power control: %d\n", onoff);
 		if (d->props.power_ctrl)
 			return d->props.power_ctrl(d, onoff);
@@ -220,6 +227,9 @@ int dvb_usb_device_power_ctrl(struct dvb_usb_device *d, int onoff)
 	return 0;
 }
 
+/*
+ * USB
+ */
 int dvb_usb_device_init(struct usb_interface *intf,
 			struct dvb_usb_device_properties *props,
 			struct module *owner, struct dvb_usb_device **du,

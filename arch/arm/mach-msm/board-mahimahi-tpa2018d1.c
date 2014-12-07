@@ -15,6 +15,7 @@
  *
  */
 
+/* TODO: content validation in TPA2018_SET_CONFIG */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -35,7 +36,7 @@ static struct i2c_client *this_client;
 static struct tpa2018d1_platform_data *pdata;
 static int is_on;
 static char spk_amp_cfg[8];
-static const char spk_amp_on[8] = { 
+static const char spk_amp_on[8] = { /* same length as spk_amp_cfg */
 	0x01, 0xc3, 0x20, 0x01, 0x00, 0x08, 0x1a, 0x21
 };
 static const char spk_amp_off[] = {0x01, 0xa2};
@@ -128,7 +129,7 @@ static int tpa2018d1_read_config(void __user *argp)
 
 	if (!is_on) {
 		gpio_set_value(pdata->gpio_tpa2018_spk_en, 1);
-		msleep(5); 
+		msleep(5); /* According to TPA2018D1 Spec */
 	}
 
 	rc = tpa2018_i2c_write(&reg_idx, sizeof(reg_idx));
@@ -209,7 +210,7 @@ static int tpa2018d1_ioctl(struct inode *inode, struct file *file,
 			rc = -EINVAL;
 			break;
 		}
-		
+		/* Free the old data */
 		if (config_data)
 			kfree(config_data);
 		config_data = kmalloc(cfg.data_len, GFP_KERNEL);
@@ -225,7 +226,7 @@ static int tpa2018d1_ioctl(struct inode *inode, struct file *file,
 			rc = -EFAULT;
 			break;
 		}
-		
+		/* replace default setting with playback setting */
 		if (tpa2018d1_num_modes >= TPA2018_MODE_PLAYBACK) {
 			offset = TPA2018_MODE_PLAYBACK * TPA2018D1_CMD_LEN;
 			memcpy(spk_amp_cfg, config_data + offset,
@@ -264,7 +265,7 @@ void tpa2018d1_set_speaker_amp(int on)
 	mutex_lock(&spk_amp_lock);
 	if (on && !is_on) {
 		gpio_set_value(pdata->gpio_tpa2018_spk_en, 1);
-		msleep(5); 
+		msleep(5); /* According to TPA2018D1 Spec */
 
 		if (tpa2018_i2c_write(spk_amp_cfg, sizeof(spk_amp_cfg)) == 0) {
 			is_on = 1;
@@ -314,7 +315,7 @@ static int tpa2018d1_probe(struct i2c_client *client, const struct i2c_device_id
 		goto err_free_gpio;
 	}
 
-	gpio_set_value(pdata->gpio_tpa2018_spk_en, 0); 
+	gpio_set_value(pdata->gpio_tpa2018_spk_en, 0); /* Default Low */
 
 	ret = misc_register(&tpa2018d1_device);
 	if (ret) {

@@ -41,8 +41,11 @@ tcp_manip_pkt(struct sk_buff *skb,
 	unsigned int hdroff = iphdroff + iph->ihl*4;
 	__be32 oldip, newip;
 	__be16 *portptr, newport, oldport;
-	int hdrsize = 8; 
+	int hdrsize = 8; /* TCP connection tracking guarantees this much */
 
+	/* this could be a inner header returned in icmp packet; in such
+	   cases we cannot update the checksum field since it is outside of
+	   the 8 bytes of transport layer headers we are guaranteed */
 	if (skb->len >= hdroff + sizeof(struct tcphdr))
 		hdrsize = sizeof(struct tcphdr);
 
@@ -53,13 +56,13 @@ tcp_manip_pkt(struct sk_buff *skb,
 	hdr = (struct tcphdr *)(skb->data + hdroff);
 
 	if (maniptype == NF_NAT_MANIP_SRC) {
-		
+		/* Get rid of src ip and src pt */
 		oldip = iph->saddr;
 		newip = tuple->src.u3.ip;
 		newport = tuple->src.u.tcp.port;
 		portptr = &hdr->source;
 	} else {
-		
+		/* Get rid of dst ip and dst pt */
 		oldip = iph->daddr;
 		newip = tuple->dst.u3.ip;
 		newport = tuple->dst.u.tcp.port;

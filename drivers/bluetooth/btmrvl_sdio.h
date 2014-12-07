@@ -21,10 +21,14 @@
 
 #define SDIO_HEADER_LEN			4
 
+/* SD block size can not bigger than 64 due to buf size limit in firmware */
+/* define SD block size for data Tx/Rx */
 #define SDIO_BLOCK_SIZE			64
 
+/* Number of blocks for firmware transfer */
 #define FIRMWARE_TRANSFER_NBLOCK	2
 
+/* This is for firmware specific length */
 #define FW_EXTRA_LEN			36
 
 #define MRVDRV_SIZE_OF_CMD_BUFFER       (2 * 1024)
@@ -37,10 +41,13 @@
 			+ SDIO_BLOCK_SIZE - 1) / SDIO_BLOCK_SIZE) \
 			* SDIO_BLOCK_SIZE)
 
+/* The number of times to try when polling for status */
 #define MAX_POLL_TRIES			100
 
+/* Max retry number of CMD53 write */
 #define MAX_WRITE_IOMEM_RETRY		2
 
+/* register bitmasks */
 #define HOST_POWER_UP				BIT(1)
 #define HOST_CMD53_FIN				BIT(2)
 
@@ -92,11 +99,14 @@ struct btmrvl_sdio_device {
 };
 
 
+/* Platform specific DMA alignment */
 #define BTSDIO_DMA_ALIGN		8
 
+/* Macros for Data Alignment : size */
 #define ALIGN_SZ(p, a)	\
 	(((p) + ((a) - 1)) & ~((a) - 1))
 
+/* Macros for Data Alignment : address */
 #define ALIGN_ADDR(p, a)	\
 	((((unsigned long)(p)) + (((unsigned long)(a)) - 1)) & \
 					~(((unsigned long)(a)) - 1))

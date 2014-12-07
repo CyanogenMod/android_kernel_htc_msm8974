@@ -1,3 +1,10 @@
+/*
+ * builtin-annotate.c
+ *
+ * Builtin annotate command: Analyze the perf.data input file,
+ * look up and read DSOs and symbol information and display
+ * a histogram of results, along various sorting keys.
+ */
 #include "builtin.h"
 
 #include "util/util.h"
@@ -46,7 +53,7 @@ static int perf_evsel__add_sample(struct perf_evsel *evsel,
 	if (ann->sym_hist_filter != NULL &&
 	    (al->sym == NULL ||
 	     strcmp(ann->sym_hist_filter, al->sym->name) != 0)) {
-		
+		/* We're only interested in a symbol named sym_hist_filter */
 		if (al->sym != NULL) {
 			rb_erase(&al->sym->rb_node,
 				 &al->map->dso->symbols[al->map->type]);
@@ -149,6 +156,11 @@ find_next:
 		} else {
 			hist_entry__tty_annotate(he, evidx, ann);
 			nd = rb_next(nd);
+			/*
+			 * Since we have a hist_entry per IP for the same
+			 * symbol, free he->ms.sym->src to signal we already
+			 * processed this symbol.
+			 */
 			free(notes->src);
 			notes->src = NULL;
 		}
@@ -207,6 +219,18 @@ static int __cmd_annotate(struct perf_annotate *ann)
 		goto out_delete;
 	}
 out_delete:
+	/*
+	 * Speed up the exit process, for large files this can
+	 * take quite a while.
+	 *
+	 * XXX Enable this when using valgrind or if we ever
+	 * librarize this command.
+	 *
+	 * Also experiment with obstacks to see how much speed
+	 * up we'll get here.
+	 *
+	 * perf_session__delete(session);
+	 */
 	return ret;
 }
 
@@ -279,6 +303,10 @@ int cmd_annotate(int argc, const char **argv, const char *prefix __used)
 	setup_sorting(annotate_usage, options);
 
 	if (argc) {
+		/*
+		 * Special case: if there's an argument left then assume tha
+		 * it's a symbol filter:
+		 */
 		if (argc > 1)
 			usage_with_options(annotate_usage, options);
 

@@ -25,7 +25,7 @@
 struct crypto_async_request;
 
 struct alg_sock {
-	
+	/* struct sock must be the first member of struct alg_sock */
 	struct sock sk;
 
 	struct sock *parent;
@@ -90,4 +90,4 @@ static inline void af_alg_init_completion(struct af_alg_completion *completion)
 	init_completion(&completion->completion);
 }
 
-#endif	
+#endif	/* _CRYPTO_IF_ALG_H */

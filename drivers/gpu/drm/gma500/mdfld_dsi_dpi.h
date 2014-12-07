@@ -54,6 +54,7 @@ struct mdfld_dsi_dpi_output {
 #define MDFLD_DSI_DPI_OUTPUT(dsi_encoder)\
 	container_of(dsi_encoder, struct mdfld_dsi_dpi_output, base)
 
+/* Export functions */
 extern int mdfld_dsi_dpi_timing_calculation(struct drm_display_mode *mode,
 				struct mdfld_dsi_dpi_timing *dpi_timing,
 				int num_lane, int bpp);
@@ -61,6 +62,7 @@ extern struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 				struct mdfld_dsi_connector *dsi_connector,
 				const struct panel_funcs *p_funcs);
 
+/* MDFLD DPI helper functions */
 extern void mdfld_dsi_dpi_dpms(struct drm_encoder *encoder, int mode);
 extern bool mdfld_dsi_dpi_mode_fixup(struct drm_encoder *encoder,
 				struct drm_display_mode *mode,
@@ -74,4 +76,4 @@ extern void mdfld_dsi_dpi_turn_on(struct mdfld_dsi_dpi_output *output,
 				int pipe);
 extern void mdfld_dsi_dpi_controller_init(struct mdfld_dsi_config *dsi_config,
 				int pipe);
-#endif 
+#endif /*__MDFLD_DSI_DPI_H__*/

@@ -22,6 +22,7 @@
 #ifndef _AT76_USB_H
 #define _AT76_USB_H
 
+/* Board types */
 enum board_type {
 	BOARD_503_ISL3861 = 1,
 	BOARD_503_ISL3863 = 2,
@@ -43,6 +44,7 @@ enum board_type {
 #define CMD_STATUS_HOST_FAILURE			0xff
 #define CMD_STATUS_SCAN_FAILED			0xf0
 
+/* answers to get op mode */
 #define OPMODE_NONE				0x00
 #define OPMODE_NORMAL_NIC_WITH_FLASH		0x01
 #define OPMODE_HW_CONFIG_MODE			0x02
@@ -70,16 +72,19 @@ enum board_type {
 #define ADHOC_MODE		1
 #define INFRASTRUCTURE_MODE	2
 
+/* values for struct mib_local, field preamble_type */
 #define PREAMBLE_TYPE_LONG	0
 #define PREAMBLE_TYPE_SHORT	1
 #define PREAMBLE_TYPE_AUTO	2
 
+/* values for tx_rate */
 #define TX_RATE_1MBIT		0
 #define TX_RATE_2MBIT		1
 #define TX_RATE_5_5MBIT 	2
 #define TX_RATE_11MBIT		3
 #define TX_RATE_AUTO		4
 
+/* power management modes */
 #define AT76_PM_OFF		1
 #define AT76_PM_ON		2
 #define AT76_PM_SMART		3
@@ -133,12 +138,12 @@ struct at76_card_config {
 	u8 short_retry_limit;
 	u8 encryption_type;
 	__le16 rts_threshold;
-	__le16 fragmentation_threshold;	
+	__le16 fragmentation_threshold;	/* 256..2346 */
 	u8 basic_rate_set[4];
-	u8 auto_rate_fallback;	
+	u8 auto_rate_fallback;	/* 0,1 */
 	u8 channel;
 	u8 privacy_invoked;
-	u8 wep_default_key_id;	
+	u8 wep_default_key_id;	/* 0..3 */
 	u8 current_ssid[32];
 	u8 wep_default_key_value[4][WEP_LARGE_KEY_LEN];
 	u8 ssid_len;
@@ -153,6 +158,7 @@ struct at76_command {
 	u8 data[0];
 } __packed;
 
+/* Length of Atmel-specific Rx header before 802.11 frame */
 #define AT76_RX_HDRLEN offsetof(struct at76_rx_buffer, packet)
 
 struct at76_rx_buffer {
@@ -167,6 +173,7 @@ struct at76_rx_buffer {
 	u8 packet[IEEE80211_MAX_FRAG_THRESHOLD];
 } __packed;
 
+/* Length of Atmel-specific Tx header before 802.11 frame */
 #define AT76_TX_HDRLEN offsetof(struct at76_tx_buffer, packet)
 
 struct at76_tx_buffer {
@@ -177,6 +184,7 @@ struct at76_tx_buffer {
 	u8 packet[IEEE80211_MAX_FRAG_THRESHOLD];
 } __packed;
 
+/* defines for scan_type below */
 #define SCAN_TYPE_ACTIVE	0
 #define SCAN_TYPE_PASSIVE	1
 
@@ -237,7 +245,7 @@ struct mib_local {
 
 struct mib_mac_addr {
 	u8 mac_addr[ETH_ALEN];
-	u8 res[2];		
+	u8 res[2];		/* ??? */
 	u8 group_addr[4][ETH_ALEN];
 	u8 group_addr_status[4];
 } __packed;
@@ -251,15 +259,15 @@ struct mib_mac {
 	__le16 cwmax;
 	u8 short_retry_time;
 	u8 long_retry_time;
-	u8 scan_type;		
+	u8 scan_type;		/* active or passive */
 	u8 scan_channel;
-	__le16 probe_delay;	
+	__le16 probe_delay;	/* delay before ProbeReq in active scan, RO */
 	__le16 min_channel_time;
 	__le16 max_channel_time;
 	__le16 listen_interval;
 	u8 desired_ssid[32];
 	u8 desired_bssid[ETH_ALEN];
-	u8 desired_bsstype;	
+	u8 desired_bsstype;	/* ad-hoc or infrastructure */
 	u8 reserved2;
 } __packed;
 
@@ -267,7 +275,7 @@ struct mib_mac_mgmt {
 	__le16 beacon_period;
 	__le16 CFP_max_duration;
 	__le16 medium_occupancy_limit;
-	__le16 station_id;	
+	__le16 station_id;	/* assoc id */
 	__le16 ATIM_window;
 	u8 CFP_mode;
 	u8 privacy_option_implemented;
@@ -277,7 +285,7 @@ struct mib_mac_mgmt {
 	u8 current_essid[32];
 	u8 current_bss_type;
 	u8 power_mgmt_mode;
-	
+	/* rfmd and 505 */
 	u8 ibss_change;
 	u8 res;
 	u8 multi_domain_capability_implemented;
@@ -287,14 +295,14 @@ struct mib_mac_mgmt {
 } __packed;
 
 struct mib_mac_wep {
-	u8 privacy_invoked;	
+	u8 privacy_invoked;	/* 0 disable encr., 1 enable encr */
 	u8 wep_default_key_id;
 	u8 wep_key_mapping_len;
 	u8 exclude_unencrypted;
 	__le32 wep_icv_error_count;
 	__le32 wep_excluded_count;
 	u8 wep_default_keyvalue[WEP_KEYS][WEP_LARGE_KEY_LEN];
-	u8 encryption_level;	
+	u8 encryption_level;	/* 1 for 40bit, 2 for 104bit encryption */
 } __packed;
 
 struct mib_phy {
@@ -323,58 +331,60 @@ struct mib_fw_version {
 
 struct mib_mdomain {
 	u8 tx_powerlevel[14];
-	u8 channel_list[14];	
+	u8 channel_list[14];	/* 0 for invalid channels */
 } __packed;
 
 struct at76_fw_header {
-	__le32 crc;		
-	__le32 board_type;	
-	u8 build;		
-	u8 patch;		
-	u8 minor;		
-	u8 major;		
+	__le32 crc;		/* CRC32 of the whole image */
+	__le32 board_type;	/* firmware compatibility code */
+	u8 build;		/* firmware build number */
+	u8 patch;		/* firmware patch level */
+	u8 minor;		/* firmware minor version */
+	u8 major;		/* firmware major version */
 	__le32 str_offset;	/* offset of the copyright string */
-	__le32 int_fw_offset;	
-	__le32 int_fw_len;	
-	__le32 ext_fw_offset;	
-	__le32 ext_fw_len;	
+	__le32 int_fw_offset;	/* internal firmware image offset */
+	__le32 int_fw_len;	/* internal firmware image length */
+	__le32 ext_fw_offset;	/* external firmware image offset */
+	__le32 ext_fw_len;	/* external firmware image length */
 } __packed;
 
+/* a description of a regulatory domain and the allowed channels */
 struct reg_domain {
 	u16 code;
 	char const *name;
-	u32 channel_map;	
+	u32 channel_map;	/* if bit N is set, channel (N+1) is allowed */
 };
 
+/* Data for one loaded firmware file */
 struct fwentry {
 	const char *const fwname;
 	const struct firmware *fw;
 	int extfw_size;
 	int intfw_size;
-	
-	u8 *extfw;		
-	u8 *intfw;		
-	enum board_type board_type;	
+	/* pointer to loaded firmware, no need to free */
+	u8 *extfw;		/* external firmware, extfw_size bytes long */
+	u8 *intfw;		/* internal firmware, intfw_size bytes long */
+	enum board_type board_type;	/* board type */
 	struct mib_fw_version fw_version;
-	int loaded;		
+	int loaded;		/* Loaded and parsed successfully */
 };
 
 struct at76_priv {
-	struct usb_device *udev;	
+	struct usb_device *udev;	/* USB device pointer */
 
-	struct sk_buff *rx_skb;	
-	struct sk_buff *tx_skb;	
-	void *bulk_out_buffer;	
+	struct sk_buff *rx_skb;	/* skbuff for receiving data */
+	struct sk_buff *tx_skb;	/* skbuff for transmitting data */
+	void *bulk_out_buffer;	/* buffer for sending data */
 
-	struct urb *tx_urb;	
-	struct urb *rx_urb;	
+	struct urb *tx_urb;	/* URB for sending data */
+	struct urb *rx_urb;	/* URB for receiving data */
 
-	unsigned int tx_pipe;	
-	unsigned int rx_pipe;	
+	unsigned int tx_pipe;	/* bulk out pipe */
+	unsigned int rx_pipe;	/* bulk in pipe */
 
-	struct mutex mtx;	
+	struct mutex mtx;	/* locks this structure */
 
-	
+	/* work queues */
 	struct work_struct work_set_promisc;
 	struct work_struct work_submit_rx;
 	struct work_struct work_join_bssid;
@@ -382,11 +392,11 @@ struct at76_priv {
 
 	struct tasklet_struct rx_tasklet;
 
-	
-	int wep_enabled;	
-	int wep_key_id;		
-	u8 wep_keys[WEP_KEYS][WEP_LARGE_KEY_LEN];	
-	u8 wep_keys_len[WEP_KEYS];	
+	/* the WEP stuff */
+	int wep_enabled;	/* 1 if WEP is enabled */
+	int wep_key_id;		/* key id to be used */
+	u8 wep_keys[WEP_KEYS][WEP_LARGE_KEY_LEN];	/* WEP keys */
+	u8 wep_keys_len[WEP_KEYS];	/* length of WEP keys */
 
 	int channel;
 	int iw_mode;
@@ -396,25 +406,27 @@ struct at76_priv {
 	int radio_on;
 	int promisc;
 
-	int preamble_type;	
-	int auth_mode;		
-	int txrate;		
-	int frag_threshold;	
-	int rts_threshold;	
+	int preamble_type;	/* 0 - long, 1 - short, 2 - auto */
+	int auth_mode;		/* authentication type: 0 open, 1 shared key */
+	int txrate;		/* 0,1,2,3 = 1,2,5.5,11 Mbps, 4 is auto */
+	int frag_threshold;	/* threshold for fragmentation of tx packets */
+	int rts_threshold;	/* threshold for RTS mechanism */
 	int short_retry_limit;
 
-	int scan_min_time;	
-	int scan_max_time;	
-	int scan_mode;		
-	int scan_need_any;	
+	int scan_min_time;	/* scan min channel time */
+	int scan_max_time;	/* scan max channel time */
+	int scan_mode;		/* SCAN_TYPE_ACTIVE, SCAN_TYPE_PASSIVE */
+	int scan_need_any;	/* if set, need to scan for any ESSID */
 
-	u16 assoc_id;		
+	u16 assoc_id;		/* current association ID, if associated */
 
-	u8 pm_mode;		
-	u32 pm_period;		
+	u8 pm_mode;		/* power management mode */
+	u32 pm_period;		/* power management period in microseconds */
 
-	struct reg_domain const *domain;	
+	struct reg_domain const *domain;	/* reg domain description */
 
+	/* These fields contain HW config provided by the device (not all of
+	 * these fields are used by all board types) */
 	u8 mac_addr[ETH_ALEN];
 	u8 regulatory_domain;
 
@@ -425,9 +437,9 @@ struct at76_priv {
 
 	unsigned int device_unplugged:1;
 	unsigned int netdev_registered:1;
-	struct set_mib_buffer mib_buf;	
+	struct set_mib_buffer mib_buf;	/* global buffer for set_mib calls */
 
-	int beacon_period;	
+	int beacon_period;	/* period of mgmt beacons, Kus */
 
 	struct ieee80211_hw *hw;
 	int mac80211_registered;
@@ -446,6 +458,7 @@ struct at76_priv {
 #define DEF_SCAN_MIN_TIME	10
 #define DEF_SCAN_MAX_TIME	120
 
+/* the max padding size for tx in bytes (see calc_padding) */
 #define MAX_PADDING_SIZE	53
 
-#endif				
+#endif				/* _AT76_USB_H */

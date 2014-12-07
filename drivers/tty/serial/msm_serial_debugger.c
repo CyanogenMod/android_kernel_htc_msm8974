@@ -56,7 +56,7 @@ static inline unsigned int msm_read(unsigned int off)
 
 static void debug_port_init(void)
 {
-	
+	/* reset everything */
 	msm_write(UART_CR_CMD_RESET_RX, UART_CR);
 	msm_write(UART_CR_CMD_RESET_TX, UART_CR);
 	msm_write(UART_CR_CMD_RESET_ERR, UART_CR);
@@ -64,15 +64,15 @@ static void debug_port_init(void)
 	msm_write(UART_CR_CMD_RESET_CTS, UART_CR);
 	msm_write(UART_CR_CMD_SET_RFR, UART_CR);
 
-	
+	/* setup clock dividers */
 	if (clk_get_rate(debug_clk) == 19200000) {
-		
+		/* clock is TCXO (19.2MHz) */
 		msm_write(0x06, UART_MREG);
 		msm_write(0xF1, UART_NREG);
 		msm_write(0x0F, UART_DREG);
 		msm_write(0x1A, UART_MNDREG);
 	} else {
-		
+		/* clock must be TCXO/4 */
 		msm_write(0x18, UART_MREG);
 		msm_write(0xF6, UART_NREG);
 		msm_write(0x0F, UART_DREG);
@@ -81,13 +81,13 @@ static void debug_port_init(void)
 
 	msm_write(UART_CSR_115200, UART_CSR);
 
-	
+	/* rx interrupt on every character -- keep it simple */
 	msm_write(0, UART_RFWR);
 
-	
+	/* enable TX and RX */
 	msm_write(0x05, UART_CR);
 
-	
+	/* enable RX interrupt */
 	msm_write(UART_IMR_RXLEV, UART_IMR);
 }
 
@@ -134,6 +134,10 @@ static void dump_kernel_log(void)
 	int ret;
 	int saved_oip;
 
+	/* setting oops_in_progress prevents log_buf_copy()
+	 * from trying to take a spinlock which will make it
+	 * very unhappy in some cases...
+	 */
 	saved_oip = oops_in_progress;
 	oops_in_progress = 1;
 	for (;;) {
@@ -179,6 +183,7 @@ static int debug_printf(void *cookie, const char *fmt, ...)
 	return debug_abort;
 }
 
+/* Safe outside fiq context */
 static int debug_printf_nfiq(void *cookie, const char *fmt, ...)
 {
 	char buf[256];
@@ -320,7 +325,7 @@ static void debug_console_write(struct console *co,
 {
 	unsigned long irq_flags;
 
-	
+	/* disable irq's while TXing outside of FIQ context */
 	local_irq_save(irq_flags);
 	while (count--) {
 		if (*s == '\n')

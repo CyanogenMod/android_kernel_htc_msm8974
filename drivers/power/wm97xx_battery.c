@@ -165,7 +165,7 @@ static const struct dev_pm_ops wm97xx_bat_pm_ops = {
 static int __devinit wm97xx_bat_probe(struct platform_device *dev)
 {
 	int ret = 0;
-	int props = 1;	
+	int props = 1;	/* POWER_SUPPLY_PROP_PRESENT */
 	int i = 0;
 	struct wm97xx_pdata *wmdata = dev->dev.platform_data;
 	struct wm97xx_batt_pdata *pdata;
@@ -197,19 +197,19 @@ static int __devinit wm97xx_bat_probe(struct platform_device *dev)
 				"AC Detect", dev);
 		if (ret)
 			goto err2;
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_STATUS */
 	}
 
 	if (pdata->batt_tech >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_TECHNOLOGY */
 	if (pdata->temp_aux >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_TEMP */
 	if (pdata->batt_aux >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_VOLTAGE_NOW */
 	if (pdata->max_voltage >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_VOLTAGE_MAX */
 	if (pdata->min_voltage >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_VOLTAGE_MIN */
 
 	prop = kzalloc(props * sizeof(*prop), GFP_KERNEL);
 	if (!prop)

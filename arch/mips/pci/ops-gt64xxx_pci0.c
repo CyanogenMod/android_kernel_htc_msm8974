@@ -26,9 +26,14 @@
 #define PCI_ACCESS_READ  0
 #define PCI_ACCESS_WRITE 1
 
+/*
+ *  PCI configuration cycle AD bus definition
+ */
+/* Type 0 */
 #define PCI_CFG_TYPE0_REG_SHF           0
 #define PCI_CFG_TYPE0_FUNC_SHF          8
 
+/* Type 1 */
 #define PCI_CFG_TYPE1_REG_SHF           0
 #define PCI_CFG_TYPE1_FUNC_SHF          8
 #define PCI_CFG_TYPE1_DEV_SHF           11
@@ -41,13 +46,13 @@ static int gt64xxx_pci0_pcibios_config_access(unsigned char access_type,
 	u32 intr;
 
 	if ((busnum == 0) && (devfn >= PCI_DEVFN(31, 0)))
-		return -1;	
+		return -1;	/* Because of a bug in the galileo (for slot 31). */
 
-	
+	/* Clear cause register bits */
 	GT_WRITE(GT_INTRCAUSE_OFS, ~(GT_INTRCAUSE_MASABORT0_BIT |
 	                             GT_INTRCAUSE_TARABORT0_BIT));
 
-	
+	/* Setup address */
 	GT_WRITE(GT_PCI0_CFGADDR_OFS,
 		 (busnum << GT_PCI0_CFGADDR_BUSNUM_SHF) |
 		 (devfn << GT_PCI0_CFGADDR_FUNCTNUM_SHF) |
@@ -56,23 +61,31 @@ static int gt64xxx_pci0_pcibios_config_access(unsigned char access_type,
 
 	if (access_type == PCI_ACCESS_WRITE) {
 		if (busnum == 0 && PCI_SLOT(devfn) == 0) {
+			/*
+			 * The Galileo system controller is acting
+			 * differently than other devices.
+			 */
 			GT_WRITE(GT_PCI0_CFGDATA_OFS, *data);
 		} else
 			__GT_WRITE(GT_PCI0_CFGDATA_OFS, *data);
 	} else {
 		if (busnum == 0 && PCI_SLOT(devfn) == 0) {
+			/*
+			 * The Galileo system controller is acting
+			 * differently than other devices.
+			 */
 			*data = GT_READ(GT_PCI0_CFGDATA_OFS);
 		} else
 			*data = __GT_READ(GT_PCI0_CFGDATA_OFS);
 	}
 
-	
+	/* Check for master or target abort */
 	intr = GT_READ(GT_INTRCAUSE_OFS);
 
 	if (intr & (GT_INTRCAUSE_MASABORT0_BIT | GT_INTRCAUSE_TARABORT0_BIT)) {
-		
+		/* Error occurred */
 
-		
+		/* Clear bits */
 		GT_WRITE(GT_INTRCAUSE_OFS, ~(GT_INTRCAUSE_MASABORT0_BIT |
 		                             GT_INTRCAUSE_TARABORT0_BIT));
 
@@ -83,6 +96,10 @@ static int gt64xxx_pci0_pcibios_config_access(unsigned char access_type,
 }
 
 
+/*
+ * We can't address 8 and 16 bit words directly.  Instead we have to
+ * read/write a 32bit word and mask/modify the data we actually want.
+ */
 static int gt64xxx_pci0_pcibios_read(struct pci_bus *bus, unsigned int devfn,
 		int where, int size, u32 * val)
 {

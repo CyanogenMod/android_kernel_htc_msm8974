@@ -32,12 +32,14 @@
 #define ECHOCARD_HAS_MIDI
 #define ECHOCARD_HAS_PHANTOM_POWER
 
+/* Pipe indexes */
 #define PX_ANALOG_OUT	0
 #define PX_DIGITAL_OUT	chip->px_digital_out
 #define PX_ANALOG_IN	chip->px_analog_in
 #define PX_DIGITAL_IN	chip->px_digital_in
 #define PX_NUM		chip->px_num
 
+/* Bus indexes */
 #define BX_ANALOG_OUT	0
 #define BX_DIGITAL_OUT	chip->bx_digital_out
 #define BX_ANALOG_IN	chip->bx_analog_in
@@ -80,7 +82,7 @@ static const struct firmware card_fw[] = {
 };
 
 static DEFINE_PCI_DEVICE_TABLE(snd_echo_ids) = {
-	{0x1057, 0x3410, 0xECC0, 0x0100, 0, 0, 0},	
+	{0x1057, 0x3410, 0xECC0, 0x0100, 0, 0, 0},	/* Echo 3G */
 	{0,}
 };
 

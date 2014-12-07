@@ -31,7 +31,14 @@
 #include <asm/io.h>
 
 
+/*
+ * The ST-RAM allocator allocates memory from a pool of reserved ST-RAM of
+ * configurable size, set aside on ST-RAM init.
+ * As long as this pool is not exhausted, allocation of real ST-RAM can be
+ * guaranteed.
+ */
 
+/* set if kernel is in ST-RAM */
 static int kernel_in_stram;
 
 static struct resource stram_pool = {
@@ -53,11 +60,19 @@ static int __init atari_stram_setup(char *arg)
 early_param("stram_pool", atari_stram_setup);
 
 
+/*
+ * This init function is called very early by atari/config.c
+ * It initializes some internal variables needed for stram_alloc()
+ */
 void __init atari_stram_init(void)
 {
 	int i;
 	void *stram_start;
 
+	/*
+	 * determine whether kernel code resides in ST-RAM
+	 * (then ST-RAM is the first memory block at virtual 0x0)
+	 */
 	stram_start = phys_to_virt(0);
 	kernel_in_stram = (stram_start == 0);
 
@@ -67,13 +82,21 @@ void __init atari_stram_init(void)
 		}
 	}
 
-	
+	/* Should never come here! (There is always ST-Ram!) */
 	panic("atari_stram_init: no ST-RAM found!");
 }
 
 
+/*
+ * This function is called from setup_arch() to reserve the pages needed for
+ * ST-RAM management.
+ */
 void __init atari_stram_reserve_pages(void *start_mem)
 {
+	/*
+	 * always reserve first page of ST-RAM, the first 2 KiB are
+	 * supervisor-only!
+	 */
 	if (!kernel_in_stram)
 		reserve_bootmem(0, PAGE_SIZE, BOOTMEM_DEFAULT);
 
@@ -93,7 +116,7 @@ void *atari_stram_alloc(unsigned long size, const char *owner)
 
 	pr_debug("atari_stram_alloc: allocate %lu bytes\n", size);
 
-	
+	/* round up */
 	size = PAGE_ALIGN(size);
 
 	res = kzalloc(sizeof(struct resource), GFP_KERNEL);

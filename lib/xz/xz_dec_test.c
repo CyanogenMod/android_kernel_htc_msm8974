@@ -1,3 +1,11 @@
+/*
+ * XZ decoder tester
+ *
+ * Author: Lasse Collin <lasse.collin@tukaani.org>
+ *
+ * This file has been put into the public domain.
+ * You can do whatever you want with this file.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -6,27 +14,51 @@
 #include <linux/crc32.h>
 #include <linux/xz.h>
 
+/* Maximum supported dictionary size */
 #define DICT_MAX (1 << 20)
 
+/* Device name to pass to register_chrdev(). */
 #define DEVICE_NAME "xz_dec_test"
 
+/* Dynamically allocated device major number */
 static int device_major;
 
+/*
+ * We reuse the same decoder state, and thus can decode only one
+ * file at a time.
+ */
 static bool device_is_open;
 
+/* XZ decoder state */
 static struct xz_dec *state;
 
+/*
+ * Return value of xz_dec_run(). We need to avoid calling xz_dec_run() after
+ * it has returned XZ_STREAM_END, so we make this static.
+ */
 static enum xz_ret ret;
 
+/*
+ * Input and output buffers. The input buffer is used as a temporary safe
+ * place for the data coming from the userspace.
+ */
 static uint8_t buffer_in[1024];
 static uint8_t buffer_out[1024];
 
+/*
+ * Structure to pass the input and output buffers to the XZ decoder.
+ * A few of the fields are never modified so we initialize them here.
+ */
 static struct xz_buf buffers = {
 	.in = buffer_in,
 	.out = buffer_out,
 	.out_size = sizeof(buffer_out)
 };
 
+/*
+ * CRC32 of uncompressed data. This is used to give the user a simple way
+ * to check that the decoder produces correct output.
+ */
 static uint32_t crc;
 
 static int xz_dec_test_open(struct inode *i, struct file *f)
@@ -59,6 +91,14 @@ static int xz_dec_test_release(struct inode *i, struct file *f)
 	return 0;
 }
 
+/*
+ * Decode the data given to us from the userspace. CRC32 of the uncompressed
+ * data is calculated and is printed at the end of successful decoding. The
+ * uncompressed data isn't stored anywhere for further use.
+ *
+ * The .xz file must have exactly one Stream and no Stream Padding. The data
+ * after the first Stream is considered to be garbage.
+ */
 static ssize_t xz_dec_test_write(struct file *file, const char __user *buf,
 				 size_t size, loff_t *pos)
 {
@@ -132,6 +172,7 @@ static ssize_t xz_dec_test_write(struct file *file, const char __user *buf,
 	return -EIO;
 }
 
+/* Allocate the XZ decoder state and register the character device. */
 static int __init xz_dec_test_init(void)
 {
 	static const struct file_operations fileops = {

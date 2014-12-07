@@ -43,6 +43,12 @@ xfs_trans_inode_broot_debug(
 #define	xfs_trans_inode_broot_debug(ip)
 #endif
 
+/*
+ * Add a locked inode to the transaction.
+ *
+ * The inode must be locked, and it cannot be associated with any transaction.
+ * If lock_flags is non-zero the inode will be unlocked on transaction commit.
+ */
 void
 xfs_trans_ijoin(
 	struct xfs_trans	*tp,
@@ -59,11 +65,19 @@ xfs_trans_ijoin(
 	ASSERT(iip->ili_lock_flags == 0);
 	iip->ili_lock_flags = lock_flags;
 
+	/*
+	 * Get a log_item_desc to point at the new item.
+	 */
 	xfs_trans_add_item(tp, &iip->ili_item);
 
 	xfs_trans_inode_broot_debug(ip);
 }
 
+/*
+ * Transactional inode timestamp update. Requires the inode to be locked and
+ * joined to the transaction supplied. Relies on the transaction subsystem to
+ * track dirty state and update/writeback the inode accordingly.
+ */
 void
 xfs_trans_ichgtime(
 	struct xfs_trans	*tp,
@@ -92,6 +106,15 @@ xfs_trans_ichgtime(
 	}
 }
 
+/*
+ * This is called to mark the fields indicated in fieldmask as needing
+ * to be logged when the transaction is committed.  The inode must
+ * already be associated with the given transaction.
+ *
+ * The values for fieldmask are defined in xfs_inode_item.h.  We always
+ * log all of the core inode if any of it has changed, and we always log
+ * all of the inline data/extents/b-tree root if any of them has changed.
+ */
 void
 xfs_trans_log_inode(
 	xfs_trans_t	*tp,
@@ -104,11 +127,22 @@ xfs_trans_log_inode(
 	tp->t_flags |= XFS_TRANS_DIRTY;
 	ip->i_itemp->ili_item.li_desc->lid_flags |= XFS_LID_DIRTY;
 
+	/*
+	 * Always OR in the bits from the ili_last_fields field.
+	 * This is to coordinate with the xfs_iflush() and xfs_iflush_done()
+	 * routines in the eventual clearing of the ili_fields bits.
+	 * See the big comment in xfs_iflush() for an explanation of
+	 * this coordination mechanism.
+	 */
 	flags |= ip->i_itemp->ili_last_fields;
 	ip->i_itemp->ili_fields |= flags;
 }
 
 #ifdef XFS_TRANS_DEBUG
+/*
+ * Keep track of the state of the inode btree root to make sure we
+ * log it properly.
+ */
 STATIC void
 xfs_trans_inode_broot_debug(
 	xfs_inode_t	*ip)

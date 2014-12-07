@@ -12,6 +12,7 @@
  * the Free Software Foundation.
 */
 
+/* #define WK0701_DEBUG */
 
 #define RESERVE 20000
 #define SYNC_PULSE 1306000
@@ -41,6 +42,11 @@ module_param_named(port, walkera0701_pp_no, int, 0);
 MODULE_PARM_DESC(port,
 		 "Parallel port adapter for Walkera WK-0701 TX (default is 0)");
 
+/*
+ * For now, only one device is supported, if somebody need more devices, code
+ * can be expanded, one struct walkera_dev per device must be allocated and
+ * set up by walkera0701_connect (release of device by walkera0701_disconnect)
+ */
 
 struct walkera_dev {
 	unsigned char buf[25];
@@ -80,21 +86,21 @@ static inline void walkera0701_parse_frame(struct walkera_dev *w)
 	if (((w->buf[23] & 8) >> 3) != (((crc1 >> 3) + crc2) & 1))
 		return;
 	val1 = ((w->buf[0] & 7) * 256 + w->buf[1] * 16 + w->buf[2]) >> 2;
-	val1 *= ((w->buf[0] >> 2) & 2) - 1;	
+	val1 *= ((w->buf[0] >> 2) & 2) - 1;	/* sign */
 	val2 = (w->buf[2] & 1) << 8 | (w->buf[3] << 4) | w->buf[4];
-	val2 *= (w->buf[2] & 2) - 1;	
+	val2 *= (w->buf[2] & 2) - 1;	/* sign */
 	val3 = ((w->buf[5] & 7) * 256 + w->buf[6] * 16 + w->buf[7]) >> 2;
-	val3 *= ((w->buf[5] >> 2) & 2) - 1;	
+	val3 *= ((w->buf[5] >> 2) & 2) - 1;	/* sign */
 	val4 = (w->buf[7] & 1) << 8 | (w->buf[8] << 4) | w->buf[9];
-	val4 *= (w->buf[7] & 2) - 1;	
+	val4 *= (w->buf[7] & 2) - 1;	/* sign */
 	val5 = ((w->buf[11] & 7) * 256 + w->buf[12] * 16 + w->buf[13]) >> 2;
-	val5 *= ((w->buf[11] >> 2) & 2) - 1;	
+	val5 *= ((w->buf[11] >> 2) & 2) - 1;	/* sign */
 	val6 = (w->buf[13] & 1) << 8 | (w->buf[14] << 4) | w->buf[15];
-	val6 *= (w->buf[13] & 2) - 1;	
+	val6 *= (w->buf[13] & 2) - 1;	/* sign */
 	val7 = ((w->buf[16] & 7) * 256 + w->buf[17] * 16 + w->buf[18]) >> 2;
-	val7 *= ((w->buf[16] >> 2) & 2) - 1;	
+	val7 *= ((w->buf[16] >> 2) & 2) - 1;	/*sign */
 	val8 = (w->buf[18] & 1) << 8 | (w->buf[19] << 4) | w->buf[20];
-	val8 *= (w->buf[18] & 2) - 1;	
+	val8 *= (w->buf[18] & 2) - 1;	/*sign */
 
 #ifdef WK0701_DEBUG
 	{
@@ -121,6 +127,7 @@ static inline int read_ack(struct pardevice *p)
 	return parport_read_status(p->port) & 0x40;
 }
 
+/* falling edge, prepare to BIN value calculation */
 static void walkera0701_irq_handler(void *handler_data)
 {
 	u64 pulse_time;
@@ -130,7 +137,7 @@ static void walkera0701_irq_handler(void *handler_data)
 	pulse_time = w->irq_time - w->irq_lasttime;
 	w->irq_lasttime = w->irq_time;
 
-	
+	/* cancel timer, if in handler or active do resync */
 	if (unlikely(0 != hrtimer_try_to_cancel(&w->timer))) {
 		w->counter = NO_SYNC;
 		return;
@@ -144,22 +151,22 @@ static void walkera0701_irq_handler(void *handler_data)
 			pulse_time -= BIN0_PULSE;
 			w->buf[w->counter] = 0;
 		}
-		if (w->counter == 24) {	
+		if (w->counter == 24) {	/* full frame */
 			walkera0701_parse_frame(w);
 			w->counter = NO_SYNC;
-			if (abs(pulse_time - SYNC_PULSE) < RESERVE)	
+			if (abs(pulse_time - SYNC_PULSE) < RESERVE)	/* new frame sync */
 				w->counter = 0;
 		} else {
 			if ((pulse_time > (ANALOG_MIN_PULSE - RESERVE)
 			     && (pulse_time < (ANALOG_MAX_PULSE + RESERVE)))) {
 				pulse_time -= (ANALOG_MIN_PULSE - RESERVE);
-				pulse_time = (u32) pulse_time / ANALOG_DELTA;	
+				pulse_time = (u32) pulse_time / ANALOG_DELTA;	/* overtiping is safe, pulsetime < s32.. */
 				w->buf[w->counter++] |= (pulse_time & 7);
 			} else
 				w->counter = NO_SYNC;
 		}
 	} else if (abs(pulse_time - SYNC_PULSE - BIN0_PULSE) <
-				RESERVE + BIN1_PULSE - BIN0_PULSE)	
+				RESERVE + BIN1_PULSE - BIN0_PULSE)	/* frame sync .. */
 		w->counter = 0;
 
 	hrtimer_start(&w->timer, ktime_set(0, BIN_SAMPLE), HRTIMER_MODE_REL);
@@ -226,7 +233,7 @@ static int walkera0701_connect(struct walkera_dev *w, int parport)
 	w->input_dev->phys = w->parport->name;
 	w->input_dev->id.bustype = BUS_PARPORT;
 
-	
+	/* TODO what id vendor/product/version ? */
 	w->input_dev->id.vendor = 0x0001;
 	w->input_dev->id.product = 0x0001;
 	w->input_dev->id.version = 0x0100;

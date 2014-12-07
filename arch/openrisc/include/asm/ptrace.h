@@ -22,8 +22,11 @@
 #include <asm/spr_defs.h>
 
 #ifndef __ASSEMBLY__
+/*
+ * This is the layout of the regset returned by the GETREGSET ptrace call
+ */
 struct user_regs_struct {
-	
+	/* GPR R0-R31... */
 	unsigned long gpr[32];
 	unsigned long pc;
 	unsigned long sr;
@@ -34,33 +37,53 @@ struct user_regs_struct {
 
 #ifdef __KERNEL__
 
+/*
+ * Make kernel PTrace/register structures opaque to userspace... userspace can
+ * access thread state via the regset mechanism.  This allows us a bit of
+ * flexibility in how we order the registers on the stack, permitting some
+ * optimizations like packing call-clobbered registers together so that
+ * they share a cacheline (not done yet, though... future optimization).
+ */
 
 #ifndef __ASSEMBLY__
+/*
+ * This struct describes how the registers are laid out on the kernel stack
+ * during a syscall or other kernel entry.
+ *
+ * This structure should always be cacheline aligned on the stack.
+ * FIXME: I don't think that's the case right now.  The alignment is
+ * taken care of elsewhere... head.S, process.c, etc.
+ */
 
 struct pt_regs {
 	union {
 		struct {
-			
-			long  sr;	
-			long  sp;	
+			/* Named registers */
+			long  sr;	/* Stored in place of r0 */
+			long  sp;	/* r1 */
 		};
 		struct {
-			
+			/* Old style */
 			long offset[2];
 			long gprs[30];
 		};
 		struct {
-			
+			/* New style */
 			long gpr[32];
 		};
 	};
 	long  pc;
-	long  orig_gpr11;	
-	long dummy;		
-	long dummy2;		
+	/* For restarting system calls:
+	 * Set to syscall number for syscall exceptions,
+	 * -1 for all other exceptions.
+	 */
+	long  orig_gpr11;	/* For restarting system calls */
+	long dummy;		/* Cheap alignment fix */
+	long dummy2;		/* Cheap alignment fix */
 };
 
-#define STACK_FRAME_OVERHEAD  128  
+/* TODO: Rename this to REDZONE because that's what it is */
+#define STACK_FRAME_OVERHEAD  128  /* size of minimum stack frame */
 
 #define instruction_pointer(regs)	((regs)->pc)
 #define user_mode(regs)			(((regs)->sr & SPR_SR_SM) == 0)
@@ -72,8 +95,11 @@ static inline long regs_return_value(struct pt_regs *regs)
 	return regs->gpr[11];
 }
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/*
+ * Offsets used by 'ptrace' system call interface.
+ */
 #define PT_SR         0
 #define PT_SP         4
 #define PT_GPR2       8
@@ -110,6 +136,6 @@ static inline long regs_return_value(struct pt_regs *regs)
 #define PT_ORIG_GPR11 132
 #define PT_SYSCALLNO  136
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_OPENRISC_PTRACE_H */

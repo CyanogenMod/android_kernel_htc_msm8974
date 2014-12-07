@@ -21,9 +21,50 @@ You should also find the complete GPL in the COPYING file accompanying this sour
 
 @endverbatim
 */
+/*
+  +-----------------------------------------------------------------------+
+  | (C) ADDI-DATA GmbH          Dieselstraße 3       D-77833 Ottersweier  |
+  +-----------------------------------------------------------------------+
+  | Tel : +49 (0) 7223/9493-0     | email    : info@addi-data.com         |
+  | Fax : +49 (0) 7223/9493-92    | Internet : http://www.addi-data.com   |
+  +-------------------------------+---------------------------------------+
+  | Project : ADDI HEADER READ WRITER |     Compiler   : Visual C++       |
+  | Module name : S5920.cpp           |     Version    : 6.0              |
+  +-------------------------------+---------------------------------------+
+  | Author : E. LIBS                      Date : 02/05/2002               |
+  +-----------------------------------------------------------------------+
+  | Description   : DLL with the S5920 PCI Controller functions           |
+  +-----------------------------------------------------------------------+
+  |                             UPDATE'S                                  |
+  +-----------------------------------------------------------------------+
+  |   Date   |   Author  |          Description of updates                |
+  +----------+-----------+------------------------------------------------+
+  | 28/08/02 | LIBS Eric | Add return codes each time a function of the   |
+  |          |           | Addi Library is called                         |
+  +-----------------------------------------------------------------------+
+  | 31/07/03 | KRAUTH J. | Changes for the MSX-Box                        |
+  +-----------------------------------------------------------------------+
+*/
 
 #include "addi_amcc_S5920.h"
 
+/*+----------------------------------------------------------------------------+*/
+/*| Function   Name   : int i_AddiHeaderRW_ReadEeprom                          |*/
+/*|                               (int    i_NbOfWordsToRead,                   |*/
+/*|                                unsigned int dw_PCIBoardEepromAddress,             |*/
+/*|                                unsigned short   w_EepromStartAddress,                |*/
+/*|                                unsigned short * pw_DataRead)                          |*/
+/*+----------------------------------------------------------------------------+*/
+/*| Task              : Read word from the 5920 eeprom.                        |*/
+/*+----------------------------------------------------------------------------+*/
+/*| Input Parameters  : int    i_NbOfWordsToRead : Nbr. of word to read        |*/
+/*|                     unsigned int dw_PCIBoardEepromAddress : Address of the eeprom |*/
+/*|                     unsigned short   w_EepromStartAddress : Eeprom start address     |*/
+/*+----------------------------------------------------------------------------+*/
+/*| Output Parameters : unsigned short * pw_DataRead : Read data                          |*/
+/*+----------------------------------------------------------------------------+*/
+/*| Return Value      : -                                                      |*/
+/*+----------------------------------------------------------------------------+*/
 
 int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 	unsigned int dw_PCIBoardEepromAddress,
@@ -50,15 +91,15 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 		} while (dw_eeprom_busy == EEPROM_BUSY);
 
 		for (i_Counter = 0; i_Counter < 2; i_Counter++) {
-			b_SelectedAddressLow = (w_EepromStartAddress + i_Counter) % 256;	
-			b_SelectedAddressHigh = (w_EepromStartAddress + i_Counter) / 256;	
+			b_SelectedAddressLow = (w_EepromStartAddress + i_Counter) % 256;	/* Read the low 8 bit part */
+			b_SelectedAddressHigh = (w_EepromStartAddress + i_Counter) / 256;	/* Read the high 8 bit part */
 
-			
+			/* Select the load low address mode */
 			outb(NVCMD_LOAD_LOW,
 				dw_PCIBoardEepromAddress + AMCC_OP_REG_MCSR +
 				3);
 
-			
+			/* Wait on busy */
 			do {
 				dw_eeprom_busy =
 					inl(dw_PCIBoardEepromAddress +
@@ -66,12 +107,12 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 				dw_eeprom_busy = dw_eeprom_busy & EEPROM_BUSY;
 			} while (dw_eeprom_busy == EEPROM_BUSY);
 
-			
+			/* Load the low address */
 			outb(b_SelectedAddressLow,
 				dw_PCIBoardEepromAddress + AMCC_OP_REG_MCSR +
 				2);
 
-			
+			/* Wait on busy */
 			do {
 				dw_eeprom_busy =
 					inl(dw_PCIBoardEepromAddress +
@@ -79,12 +120,12 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 				dw_eeprom_busy = dw_eeprom_busy & EEPROM_BUSY;
 			} while (dw_eeprom_busy == EEPROM_BUSY);
 
-			
+			/* Select the load high address mode */
 			outb(NVCMD_LOAD_HIGH,
 				dw_PCIBoardEepromAddress + AMCC_OP_REG_MCSR +
 				3);
 
-			
+			/* Wait on busy */
 			do {
 				dw_eeprom_busy =
 					inl(dw_PCIBoardEepromAddress +
@@ -92,12 +133,12 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 				dw_eeprom_busy = dw_eeprom_busy & EEPROM_BUSY;
 			} while (dw_eeprom_busy == EEPROM_BUSY);
 
-			
+			/* Load the high address */
 			outb(b_SelectedAddressHigh,
 				dw_PCIBoardEepromAddress + AMCC_OP_REG_MCSR +
 				2);
 
-			
+			/* Wait on busy */
 			do {
 				dw_eeprom_busy =
 					inl(dw_PCIBoardEepromAddress +
@@ -105,12 +146,12 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 				dw_eeprom_busy = dw_eeprom_busy & EEPROM_BUSY;
 			} while (dw_eeprom_busy == EEPROM_BUSY);
 
-			
+			/* Select the READ mode */
 			outb(NVCMD_BEGIN_READ,
 				dw_PCIBoardEepromAddress + AMCC_OP_REG_MCSR +
 				3);
 
-			
+			/* Wait on busy */
 			do {
 				dw_eeprom_busy =
 					inl(dw_PCIBoardEepromAddress +
@@ -118,12 +159,12 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 				dw_eeprom_busy = dw_eeprom_busy & EEPROM_BUSY;
 			} while (dw_eeprom_busy == EEPROM_BUSY);
 
-			
+			/* Read data into the EEPROM */
 			*pb_ReadByte =
 				inb(dw_PCIBoardEepromAddress +
 				AMCC_OP_REG_MCSR + 2);
 
-			
+			/* Wait on busy */
 			do {
 				dw_eeprom_busy =
 					inl(dw_PCIBoardEepromAddress +
@@ -131,13 +172,13 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 				dw_eeprom_busy = dw_eeprom_busy & EEPROM_BUSY;
 			} while (dw_eeprom_busy == EEPROM_BUSY);
 
-			
+			/* Select the upper address part */
 			if (i_Counter == 0)
 				b_ReadLowByte = pb_ReadByte[0];
 			else
 				b_ReadHighByte = pb_ReadByte[0];
 
-			
+			/* Sleep */
 			msleep(1);
 
 		}
@@ -147,8 +188,8 @@ int i_AddiHeaderRW_ReadEeprom(int i_NbOfWordsToRead,
 
 		pw_DataRead[i_WordCounter] = w_ReadWord;
 
-		w_EepromStartAddress += 2;	
+		w_EepromStartAddress += 2;	/*  to read the next word */
 
-	}			
+	}			/*  for (...) i_NbOfWordsToRead */
 	return 0;
 }

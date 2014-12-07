@@ -13,4 +13,4 @@
 
 #include <asm-generic/cpumask.h>
 
-#endif 
+#endif /* _XTENSA_CPUMASK_H */

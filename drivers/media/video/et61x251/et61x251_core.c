@@ -44,6 +44,7 @@
 
 #include "et61x251.h"
 
+/*****************************************************************************/
 
 #define ET61X251_MODULE_NAME    "V4L2 driver for ET61X[12]51 "                \
 				"PC Camera Controllers"
@@ -52,6 +53,7 @@
 #define ET61X251_MODULE_LICENSE "GPL"
 #define ET61X251_MODULE_VERSION "1.1.10"
 
+/*****************************************************************************/
 
 MODULE_DEVICE_TABLE(usb, et61x251_id_table);
 
@@ -113,6 +115,7 @@ MODULE_PARM_DESC(debug,
 		 "\n");
 #endif
 
+/*****************************************************************************/
 
 static u32
 et61x251_request_buffers(struct et61x251_device* cam, u32 count,
@@ -205,6 +208,7 @@ static void et61x251_queue_unusedframes(struct et61x251_device* cam)
 		}
 }
 
+/*****************************************************************************/
 
 int et61x251_write_reg(struct et61x251_device* cam, u8 value, u16 index)
 {
@@ -260,7 +264,7 @@ et61x251_i2c_wait(struct et61x251_device* cam,
 		}
 		if (r < 0)
 			return -EIO;
-		udelay(8*8); 
+		udelay(8*8); /* minimum for sensors at 400kHz */
 	}
 
 	return -EBUSY;
@@ -296,7 +300,7 @@ et61x251_i2c_raw_write(struct et61x251_device* cam, u8 n, u8 data1, u8 data2,
 	if (res < 0)
 		err += res;
 
-	
+	/* Start writing through the serial interface */
 	data[0] = data1;
 	res = usb_control_msg(udev, usb_sndctrlpipe(udev, 0), 0x00, 0x41,
 			      0, 0x80, data, 1, ET61X251_CTRL_TIMEOUT);
@@ -319,6 +323,7 @@ et61x251_i2c_raw_write(struct et61x251_device* cam, u8 n, u8 data1, u8 data2,
 }
 
 
+/*****************************************************************************/
 
 static void et61x251_urb_complete(struct urb *urb)
 {
@@ -562,7 +567,7 @@ static int et61x251_stop_transfer(struct et61x251_device* cam)
 		kfree(cam->transfer_buffer[i]);
 	}
 
-	err = usb_set_interface(udev, 0, 0); 
+	err = usb_set_interface(udev, 0, 0); /* 0 Mb/s */
 	if (err)
 		DBG(3, "usb_set_interface() failed");
 
@@ -592,6 +597,7 @@ static int et61x251_stream_interrupt(struct et61x251_device* cam)
 	return 0;
 }
 
+/*****************************************************************************/
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 
@@ -696,6 +702,11 @@ static u8 et61x251_strtou8(const char* buff, size_t len, ssize_t* count)
 	return (u8)val;
 }
 
+/*
+   NOTE 1: being inside one of the following methods implies that the v4l
+	   device exists for sure (see kobjects and reference counters)
+   NOTE 2: buffers are PAGE_SIZE long
+*/
 
 static ssize_t et61x251_show_reg(struct device* cd,
 				 struct device_attribute *attr, char* buf)
@@ -1002,8 +1013,9 @@ err_reg:
 err_out:
 	return err;
 }
-#endif 
+#endif /* CONFIG_VIDEO_ADV_DEBUG */
 
+/*****************************************************************************/
 
 static int
 et61x251_set_pix_format(struct et61x251_device* cam,
@@ -1105,7 +1117,7 @@ static int et61x251_init(struct et61x251_device* cam)
 		qctrl = s->qctrl;
 		rect = &(s->cropcap.defrect);
 		cam->compression.quality = ET61X251_COMPRESSION_QUALITY;
-	} else { 
+	} else { /* use current values */
 		qctrl = s->_qctrl;
 		rect = &(s->_rect);
 	}
@@ -1175,6 +1187,7 @@ static int et61x251_init(struct et61x251_device* cam)
 	return 0;
 }
 
+/*****************************************************************************/
 
 static void et61x251_release_resources(struct kref *kref)
 {
@@ -1482,7 +1495,7 @@ static void et61x251_vm_open(struct vm_area_struct* vma)
 
 static void et61x251_vm_close(struct vm_area_struct* vma)
 {
-	
+	/* NOTE: buffers are not freed here */
 	struct et61x251_frame_t* f = vma->vm_private_data;
 	f->vma_use_count--;
 }
@@ -1542,7 +1555,7 @@ static int et61x251_mmap(struct file* filp, struct vm_area_struct *vma)
 	vma->vm_flags |= VM_RESERVED;
 
 	pos = cam->frame[i].bufmem;
-	while (size > 0) { 
+	while (size > 0) { /* size is page-aligned */
 		if (vm_insert_page(vma, start, vmalloc_to_page(pos))) {
 			mutex_unlock(&cam->fileop_mutex);
 			return -EAGAIN;
@@ -1561,6 +1574,7 @@ static int et61x251_mmap(struct file* filp, struct vm_area_struct *vma)
 	return 0;
 }
 
+/*****************************************************************************/
 
 static int
 et61x251_vidioc_querycap(struct et61x251_device* cam, void __user * arg)
@@ -1787,7 +1801,7 @@ et61x251_vidioc_s_crop(struct et61x251_device* cam, void __user * arg)
 				return -EBUSY;
 			}
 
-	
+	/* Preserve R,G or B origin */
 	rect->left = (s->_rect.left & 1L) ? rect->left | 1L : rect->left & ~1L;
 	rect->top = (s->_rect.top & 1L) ? rect->top | 1L : rect->top & ~1L;
 
@@ -1812,7 +1826,7 @@ et61x251_vidioc_s_crop(struct et61x251_device* cam, void __user * arg)
 	rect->height &= ~15L;
 
 	if (ET61X251_PRESERVE_IMGSCALE) {
-		
+		/* Calculate the actual scaling factor */
 		u32 a, b;
 		a = rect->width * rect->height;
 		b = pix_format->width * pix_format->height;
@@ -1837,7 +1851,7 @@ et61x251_vidioc_s_crop(struct et61x251_device* cam, void __user * arg)
 		err += s->set_crop(cam, rect);
 	err += et61x251_set_scale(cam, scale);
 
-	if (err) { 
+	if (err) { /* atomic, no rollback in ioctl() */
 		cam->state |= DEV_MISCONFIGURED;
 		DBG(1, "VIDIOC_S_CROP failed because of hardware problems. To "
 		       "use the camera, close and open %s again.",
@@ -1982,7 +1996,7 @@ et61x251_vidioc_try_s_fmt(struct et61x251_device* cam, unsigned int cmd,
 
 	memcpy(&rect, &(s->_rect), sizeof(rect));
 
-	{ 
+	{ /* calculate the actual scaling factor */
 		u32 a, b;
 		a = rect.width * rect.height;
 		b = pix->width * pix->height;
@@ -2004,7 +2018,7 @@ et61x251_vidioc_try_s_fmt(struct et61x251_device* cam, unsigned int cmd,
 	rect.width &= ~15L;
 	rect.height &= ~15L;
 
-	{ 
+	{ /* adjust the scaling factor */
 		u32 a, b;
 		a = rect.width * rect.height;
 		b = pix->width * pix->height;
@@ -2017,7 +2031,7 @@ et61x251_vidioc_try_s_fmt(struct et61x251_device* cam, unsigned int cmd,
 	if (pix->pixelformat != V4L2_PIX_FMT_ET61X251 &&
 	    pix->pixelformat != V4L2_PIX_FMT_SBGGR8)
 		pix->pixelformat = pfmt->pixelformat;
-	pix->priv = pfmt->priv; 
+	pix->priv = pfmt->priv; /* bpp */
 	pix->colorspace = (pix->pixelformat == V4L2_PIX_FMT_ET61X251) ?
 			  0 : V4L2_COLORSPACE_SRGB;
 	pix->colorspace = pfmt->colorspace;
@@ -2060,7 +2074,7 @@ et61x251_vidioc_try_s_fmt(struct et61x251_device* cam, unsigned int cmd,
 		err += s->set_crop(cam, &rect);
 	err += et61x251_set_scale(cam, scale);
 
-	if (err) { 
+	if (err) { /* atomic, no rollback in ioctl() */
 		cam->state |= DEV_MISCONFIGURED;
 		DBG(1, "VIDIOC_S_FMT failed because of hardware problems. To "
 		       "use the camera, close and open %s again.",
@@ -2120,7 +2134,7 @@ et61x251_vidioc_s_jpegcomp(struct et61x251_device* cam, void __user * arg)
 			return err;
 
 	err += et61x251_set_compression(cam, &jc);
-	if (err) { 
+	if (err) { /* atomic, no rollback in ioctl() */
 		cam->state |= DEV_MISCONFIGURED;
 		DBG(1, "VIDIOC_S_JPEGCOMP failed because of hardware "
 		       "problems. To use the camera, close and open "
@@ -2517,7 +2531,9 @@ static const struct v4l2_file_operations et61x251_fops = {
 	.mmap =    et61x251_mmap,
 };
 
+/*****************************************************************************/
 
+/* It exists a single interface only. We do not need to validate anything. */
 static int
 et61x251_usb_probe(struct usb_interface* intf, const struct usb_device_id* id)
 {

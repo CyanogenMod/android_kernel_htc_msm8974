@@ -15,4 +15,4 @@ struct ar933x_uart_platform_data {
 	unsigned	uartclk;
 };
 
-#endif 
+#endif /* _AR933X_UART_PLATFORM_H */

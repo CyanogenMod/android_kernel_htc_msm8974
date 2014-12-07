@@ -118,4 +118,4 @@ struct brcms_phy_lcnphy {
 	uint lcnphy_aci_start_time;
 	s8 lcnphy_tx_power_offset[TXP_NUM_RATES];
 };
-#endif				
+#endif				/* _BRCM_PHY_LCN_H_ */

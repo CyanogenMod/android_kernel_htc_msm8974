@@ -85,7 +85,7 @@ static void cvm_oct_sgmii_poll(struct net_device *dev)
 	link_info = cvmx_helper_link_autoconf(priv->port);
 	priv->link_info = link_info.u64;
 
-	
+	/* Tell Linux */
 	if (link_info.s.link_up) {
 
 		if (!netif_carrier_ok(dev))
@@ -117,7 +117,7 @@ int cvm_oct_sgmii_init(struct net_device *dev)
 	if (!octeon_is_simulation() && priv->phydev == NULL)
 		priv->poll = cvm_oct_sgmii_poll;
 
-	
+	/* FIXME: Need autoneg logic */
 	return 0;
 }
 

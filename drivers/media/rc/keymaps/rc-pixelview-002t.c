@@ -13,9 +13,13 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/*
+ * Keytable for 002-T IR remote provided together with Pixelview
+ * SBTVD Hybrid Remote Controller. Uses NEC extended format.
+ */
 static struct rc_map_table pixelview_002t[] = {
 	{ 0x866b13, KEY_MUTE },
-	{ 0x866b12, KEY_POWER2 },	
+	{ 0x866b12, KEY_POWER2 },	/* power */
 
 	{ 0x866b01, KEY_1 },
 	{ 0x866b02, KEY_2 },
@@ -30,11 +34,11 @@ static struct rc_map_table pixelview_002t[] = {
 
 	{ 0x866b0d, KEY_CHANNELUP },
 	{ 0x866b19, KEY_CHANNELDOWN },
-	{ 0x866b10, KEY_VOLUMEUP },	
-	{ 0x866b0c, KEY_VOLUMEDOWN },	
+	{ 0x866b10, KEY_VOLUMEUP },	/* vol + */
+	{ 0x866b0c, KEY_VOLUMEDOWN },	/* vol - */
 
-	{ 0x866b0a, KEY_CAMERA },	
-	{ 0x866b0b, KEY_ZOOM },		
+	{ 0x866b0a, KEY_CAMERA },	/* snapshot */
+	{ 0x866b0b, KEY_ZOOM },		/* zoom */
 
 	{ 0x866b1b, KEY_BACKSPACE },
 	{ 0x866b15, KEY_ENTER },

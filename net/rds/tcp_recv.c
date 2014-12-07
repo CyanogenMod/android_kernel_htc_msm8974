@@ -56,6 +56,9 @@ void rds_tcp_inc_free(struct rds_incoming *inc)
 	kmem_cache_free(rds_tcp_incoming_slab, tinc);
 }
 
+/*
+ * this is pretty lame, but, whatever.
+ */
 int rds_tcp_inc_copy_to_user(struct rds_incoming *inc, struct iovec *first_iov,
 			     size_t size)
 {
@@ -88,7 +91,7 @@ int rds_tcp_inc_copy_to_user(struct rds_incoming *inc, struct iovec *first_iov,
 				 ret, size, skb, skb_off, skb->len,
 				 tmp.iov_base, tmp.iov_len, to_copy);
 
-			
+			/* modifies tmp as it copies */
 			if (skb_copy_datagram_iovec(skb, skb_off, &tmp,
 						    to_copy)) {
 				ret = -EFAULT;
@@ -107,6 +110,17 @@ out:
 	return ret;
 }
 
+/*
+ * We have a series of skbs that have fragmented pieces of the congestion
+ * bitmap.  They must add up to the exact size of the congestion bitmap.  We
+ * use the skb helpers to copy those into the pages that make up the in-memory
+ * congestion bitmap for the remote address of this connection.  We then tell
+ * the congestion core that the bitmap has been changed so that it can wake up
+ * sleepers.
+ *
+ * This is racing with sending paths which are using test_bit to see if the
+ * bitmap indicates that their recipient is congested.
+ */
 
 static void rds_tcp_cong_recv(struct rds_connection *conn,
 			      struct rds_tcp_incoming *tinc)
@@ -118,7 +132,7 @@ static void rds_tcp_cong_recv(struct rds_connection *conn,
 	struct rds_cong_map *map;
 	int ret;
 
-	
+	/* catch completely corrupt packets */
 	if (be32_to_cpu(tinc->ti_inc.i_hdr.h_len) != RDS_CONG_MAP_BYTES)
 		return;
 
@@ -134,7 +148,7 @@ static void rds_tcp_cong_recv(struct rds_connection *conn,
 
 			BUG_ON(map_page >= RDS_CONG_MAP_PAGES);
 
-			
+			/* only returns 0 or -error */
 			ret = skb_copy_bits(skb, skb_off,
 				(void *)map->m_page_addrs[map_page] + map_off,
 				to_copy);
@@ -170,6 +184,10 @@ static int rds_tcp_data_recv(read_descriptor_t *desc, struct sk_buff *skb,
 	rdsdebug("tcp data tc %p skb %p offset %u len %zu\n", tc, skb, offset,
 		 len);
 
+	/*
+	 * tcp_read_sock() interprets partial progress as an indication to stop
+	 * processing.
+	 */
 	while (left) {
 		if (!tinc) {
 			tinc = kmem_cache_alloc(rds_tcp_incoming_slab,
@@ -181,6 +199,10 @@ static int rds_tcp_data_recv(read_descriptor_t *desc, struct sk_buff *skb,
 			tc->t_tinc = tinc;
 			rdsdebug("alloced tinc %p\n", tinc);
 			rds_inc_init(&tinc->ti_inc, conn, conn->c_faddr);
+			/*
+			 * XXX * we might be able to use the __ variants when
+			 * we've already serialized at a higher level.
+			 */
 			skb_queue_head_init(&tinc->ti_skb_list);
 		}
 
@@ -198,7 +220,7 @@ static int rds_tcp_data_recv(read_descriptor_t *desc, struct sk_buff *skb,
 			offset += to_copy;
 
 			if (tc->t_tinc_hdr_rem == 0) {
-				
+				/* could be 0 for a 0 len message */
 				tc->t_tinc_data_rem =
 					be32_to_cpu(tinc->ti_inc.i_hdr.h_len);
 			}
@@ -248,6 +270,7 @@ out:
 	return len - left;
 }
 
+/* the caller has to hold the sock lock */
 static int rds_tcp_read_sock(struct rds_connection *conn, gfp_t gfp)
 {
 	struct rds_tcp_connection *tc = conn->c_transport_data;
@@ -255,12 +278,12 @@ static int rds_tcp_read_sock(struct rds_connection *conn, gfp_t gfp)
 	read_descriptor_t desc;
 	struct rds_tcp_desc_arg arg;
 
-	
+	/* It's like glib in the kernel! */
 	arg.conn = conn;
 	arg.gfp = gfp;
 	desc.arg.data = &arg;
 	desc.error = 0;
-	desc.count = 1; 
+	desc.count = 1; /* give more than one skb per call */
 
 	tcp_read_sock(sock->sk, &desc, rds_tcp_data_recv);
 	rdsdebug("tcp_read_sock for tc %p gfp 0x%x returned %d\n", tc, gfp,
@@ -269,6 +292,13 @@ static int rds_tcp_read_sock(struct rds_connection *conn, gfp_t gfp)
 	return desc.error;
 }
 
+/*
+ * We hold the sock lock to serialize our rds_tcp_recv->tcp_read_sock from
+ * data_ready.
+ *
+ * if we fail to allocate we're in trouble.. blindly wait some time before
+ * trying again to see if the VM can free up something for us.
+ */
 int rds_tcp_recv(struct rds_connection *conn)
 {
 	struct rds_tcp_connection *tc = conn->c_transport_data;
@@ -294,7 +324,7 @@ void rds_tcp_data_ready(struct sock *sk, int bytes)
 
 	read_lock_bh(&sk->sk_callback_lock);
 	conn = sk->sk_user_data;
-	if (!conn) { 
+	if (!conn) { /* check for teardown race */
 		ready = sk->sk_data_ready;
 		goto out;
 	}

@@ -11,16 +11,29 @@
 #ifndef __ASM_SH_SPINLOCK_H
 #define __ASM_SH_SPINLOCK_H
 
+/*
+ * The only locking implemented here uses SH-4A opcodes. For others,
+ * split this out as per atomic-*.h.
+ */
 #ifndef CONFIG_CPU_SH4A
 #error "Need movli.l/movco.l for spinlocks"
 #endif
 
+/*
+ * Your basic SMP spinlocks, allowing only a single CPU anywhere
+ */
 
 #define arch_spin_is_locked(x)		((x)->lock <= 0)
 #define arch_spin_lock_flags(lock, flags) arch_spin_lock(lock)
 #define arch_spin_unlock_wait(x) \
 	do { while (arch_spin_is_locked(x)) cpu_relax(); } while (0)
 
+/*
+ * Simple spin lock operations.  There are two variants, one clears IRQ's
+ * on the local processor, one does not.
+ *
+ * We make no fairness assumptions.  They have a cost.
+ */
 static inline void arch_spin_lock(arch_spinlock_t *lock)
 {
 	unsigned long tmp;
@@ -74,9 +87,25 @@ static inline int arch_spin_trylock(arch_spinlock_t *lock)
 	return oldval;
 }
 
+/*
+ * Read-write spinlocks, allowing multiple readers but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts but no interrupt
+ * writers. For those circumstances we can "mix" irq-safe locks - any writer
+ * needs to get a irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ */
 
+/**
+ * read_can_lock - would read_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_read_can_lock(x)	((x)->lock > 0)
 
+/**
+ * write_can_lock - would write_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_write_can_lock(x)	((x)->lock == RW_LOCK_BIAS)
 
 static inline void arch_read_lock(arch_rwlock_t *rw)
@@ -194,4 +223,4 @@ static inline int arch_write_trylock(arch_rwlock_t *rw)
 #define arch_read_relax(lock)	cpu_relax()
 #define arch_write_relax(lock)	cpu_relax()
 
-#endif 
+#endif /* __ASM_SH_SPINLOCK_H */

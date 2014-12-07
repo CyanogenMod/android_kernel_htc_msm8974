@@ -6,10 +6,13 @@
 #include <linux/minix_fs.h>
 
 #define INODE_VERSION(inode)	minix_sb(inode->i_sb)->s_version
-#define MINIX_V1		0x0001		
-#define MINIX_V2		0x0002		
-#define MINIX_V3		0x0003		
+#define MINIX_V1		0x0001		/* original minix fs */
+#define MINIX_V2		0x0002		/* minix V2 fs */
+#define MINIX_V3		0x0003		/* minix V3 fs */
 
+/*
+ * minix fs inode data in memory
+ */
 struct minix_inode_info {
 	union {
 		__u16 i1_data[16];
@@ -18,6 +21,9 @@ struct minix_inode_info {
 	struct inode vfs_inode;
 };
 
+/*
+ * minix super-block data in memory
+ */
 struct minix_sb_info {
 	unsigned long s_ninodes;
 	unsigned long s_nzones;
@@ -93,6 +99,10 @@ static inline unsigned minix_blocks_needed(unsigned bits, unsigned blocksize)
 
 #elif defined(CONFIG_MINIX_FS_NATIVE_ENDIAN)
 
+/*
+ * big-endian 32 or 64 bit indexed bitmaps on big-endian system or
+ * little-endian bitmaps on little-endian system
+ */
 
 #define minix_test_and_set_bit(nr, addr)	\
 	__test_and_set_bit((nr), (unsigned long *)(addr))
@@ -107,6 +117,9 @@ static inline unsigned minix_blocks_needed(unsigned bits, unsigned blocksize)
 
 #elif defined(CONFIG_MINIX_FS_BIG_ENDIAN_16BIT_INDEXED)
 
+/*
+ * big-endian 16bit indexed bitmaps
+ */
 
 static inline int minix_find_first_zero_bit(const void *vaddr, unsigned size)
 {
@@ -141,6 +154,9 @@ static inline int minix_test_bit(int nr, const void *vaddr)
 
 #else
 
+/*
+ * little-endian bitmaps
+ */
 
 #define minix_test_and_set_bit	__test_and_set_bit_le
 #define minix_set_bit		__set_bit_le
@@ -150,4 +166,4 @@ static inline int minix_test_bit(int nr, const void *vaddr)
 
 #endif
 
-#endif 
+#endif /* FS_MINIX_H */

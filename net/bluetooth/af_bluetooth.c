@@ -22,6 +22,7 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+/* Bluetooth address family and sockets. */
 
 #include <linux/module.h>
 
@@ -50,6 +51,7 @@
 
 #define VERSION "2.16"
 
+/* Bluetooth sockets */
 #define BT_MAX_PROTO	8
 static const struct net_proto_family *bt_proto[BT_MAX_PROTO];
 static DEFINE_RWLOCK(bt_proto_lock);
@@ -241,7 +243,7 @@ struct sock *bt_accept_dequeue(struct sock *parent, struct socket *newsock)
 
 		bh_lock_sock(sk);
 
-		
+		/* FIXME: Is this check still needed */
 		if (sk->sk_state == BT_CLOSED) {
 			bh_unlock_sock(sk);
 			bt_accept_unlink(sk);
@@ -409,13 +411,13 @@ int bt_sock_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 				skb_walk_frags(skb, frag) {
 					if (chunk <= frag->len) {
-						
+						/* Pulling partial data */
 						skb->len -= chunk;
 						skb->data_len -= chunk;
 						__skb_pull(frag, chunk);
 						break;
 					} else if (frag->len) {
-						
+						/* Pulling all frag data */
 						chunk -= frag->len;
 						skb->len -= frag->len;
 						skb->data_len -= frag->len;
@@ -431,7 +433,7 @@ int bt_sock_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 			kfree_skb(skb);
 
 		} else {
-			
+			/* put message back and return */
 			skb_queue_head(&sk->sk_receive_queue, skb);
 			break;
 		}

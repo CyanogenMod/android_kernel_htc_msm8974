@@ -15,6 +15,9 @@
 
 #define NR_IRQS				32
 
+/*
+ * IRQ definitions
+ */
 #define KS8695_IRQ_COMM_RX		0
 #define KS8695_IRQ_COMM_TX		1
 #define KS8695_IRQ_EXTERN0		2

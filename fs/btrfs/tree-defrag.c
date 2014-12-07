@@ -23,6 +23,10 @@
 #include "transaction.h"
 #include "locking.h"
 
+/* defrag all the leaves in a given btree.  If cache_only == 1, don't read
+ * things from disk, otherwise read all the leaves and try to get key order to
+ * better reflect disk order
+ */
 
 int btrfs_defrag_leaves(struct btrfs_trans_handle *trans,
 			struct btrfs_root *root, int cache_only)
@@ -41,6 +45,10 @@ int btrfs_defrag_leaves(struct btrfs_trans_handle *trans,
 		goto out;
 
 	if (root->fs_info->extent_root == root) {
+		/*
+		 * there's recursion here right now in the tree locking,
+		 * we can't defrag the extent root without deadlock
+		 */
 		goto out;
 	}
 
@@ -67,7 +75,7 @@ int btrfs_defrag_leaves(struct btrfs_trans_handle *trans,
 		btrfs_set_lock_blocking(root_node);
 		nritems = btrfs_header_nritems(root_node);
 		root->defrag_max.objectid = 0;
-		
+		/* from above we know this is not a leaf */
 		btrfs_node_key_to_cpu(root_node, &root->defrag_max,
 				      nritems - 1);
 		btrfs_tree_unlock(root_node);

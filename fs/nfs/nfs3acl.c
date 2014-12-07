@@ -188,7 +188,7 @@ struct posix_acl *nfs3_proc_getacl(struct inode *inode, int type)
 	struct page *pages[NFSACL_MAXPAGES] = { };
 	struct nfs3_getaclargs args = {
 		.fh = NFS_FH(inode),
-		
+		/* The xdr layer may allocate pages here. */
 		.pages = pages,
 	};
 	struct nfs3_getaclres res = {
@@ -212,6 +212,12 @@ struct posix_acl *nfs3_proc_getacl(struct inode *inode, int type)
 		return acl;
 	acl = NULL;
 
+	/*
+	 * Only get the access acl when explicitly requested: We don't
+	 * need it for access decisions, and only some applications use
+	 * it. Applications which request the access acl first are not
+	 * penalized from this optimization.
+	 */
 	if (type == ACL_TYPE_ACCESS)
 		args.mask |= NFS_ACLCNT|NFS_ACL;
 	if (S_ISDIR(inode->i_mode))
@@ -228,7 +234,7 @@ struct posix_acl *nfs3_proc_getacl(struct inode *inode, int type)
 	status = rpc_call_sync(server->client_acl, &msg, 0);
 	dprintk("NFS reply getacl: %d\n", status);
 
-	
+	/* pages may have been allocated at the xdr layer. */
 	for (count = 0; count < NFSACL_MAXPAGES && args.pages[count]; count++)
 		__free_page(args.pages[count]);
 
@@ -305,6 +311,8 @@ static int nfs3_proc_setacls(struct inode *inode, struct posix_acl *acl,
 	if (!nfs_server_capable(inode, NFS_CAP_ACLS))
 		goto out;
 
+	/* We are doing this here because XDR marshalling does not
+	 * return any results, it BUGs. */
 	status = -ENOSPC;
 	if (acl != NULL && acl->a_count > NFS_ACL_MAX_ENTRIES)
 		goto out;

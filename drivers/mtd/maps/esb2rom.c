@@ -1,3 +1,14 @@
+/*
+ * esb2rom.c
+ *
+ * Normal mappings of flash chips in physical memory
+ * through the Intel ESB2 Southbridge.
+ *
+ * This was derived from ichxrom.c in May 2006 by
+ *	Lew Glendenning <lglendenning@lnxi.com>
+ *
+ * Eric Biederman, of course, was a major help in this effort.
+ */
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -17,12 +28,13 @@
 
 #define ADDRESS_NAME_LEN 18
 
-#define ROM_PROBE_STEP_SIZE (64*1024) 
+#define ROM_PROBE_STEP_SIZE (64*1024) /* 64KiB */
 
 #define BIOS_CNTL		0xDC
 #define BIOS_LOCK_ENABLE	0x02
 #define BIOS_WRITE_ENABLE	0x01
 
+/* This became a 16-bit register, and EN2 has disappeared */
 #define FWH_DEC_EN1	0xD8
 #define FWH_F8_EN	0x8000
 #define FWH_F0_EN	0x4000
@@ -34,11 +46,13 @@
 #define FWH_C0_EN	0x0100
 #define FWH_LEGACY_F_EN	0x0080
 #define FWH_LEGACY_E_EN	0x0040
+/* reserved  0x0020 and 0x0010 */
 #define FWH_70_EN	0x0008
 #define FWH_60_EN	0x0004
 #define FWH_50_EN	0x0002
 #define FWH_40_EN	0x0001
 
+/* these are 32-bit values */
 #define FWH_SEL1	0xD0
 #define FWH_SEL2	0xD4
 
@@ -105,12 +119,12 @@ static void esb2rom_cleanup(struct esb2rom_window *window)
 	struct esb2rom_map_info *map, *scratch;
 	u8 byte;
 
-	
+	/* Disable writes through the rom window */
 	pci_read_config_byte(window->pdev, BIOS_CNTL, &byte);
 	pci_write_config_byte(window->pdev, BIOS_CNTL,
 		byte & ~BIOS_WRITE_ENABLE);
 
-	
+	/* Free all of the mtd devices */
 	list_for_each_entry_safe(map, scratch, &window->maps, list) {
 		if (map->rsrc.parent)
 			release_resource(&map->rsrc);
@@ -140,12 +154,35 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 	u8 byte;
 	u16 word;
 
+	/* For now I just handle the ecb2 and I assume there
+	 * are not a lot of resources up at the top of the address
+	 * space.  It is possible to handle other devices in the
+	 * top 16MiB but it is very painful.  Also since
+	 * you can only really attach a FWH to an ICHX there
+	 * a number of simplifications you can make.
+	 *
+	 * Also you can page firmware hubs if an 8MiB window isn't enough
+	 * but don't currently handle that case either.
+	 */
 	window->pdev = pci_dev_get(pdev);
 
-	
+	/* RLG:  experiment 2.  Force the window registers to the widest values */
 
+/*
+	pci_read_config_word(pdev, FWH_DEC_EN1, &word);
+	printk(KERN_DEBUG "Original FWH_DEC_EN1 : %x\n", word);
+	pci_write_config_byte(pdev, FWH_DEC_EN1, 0xff);
+	pci_read_config_byte(pdev, FWH_DEC_EN1, &byte);
+	printk(KERN_DEBUG "New FWH_DEC_EN1 : %x\n", byte);
 
-	
+	pci_read_config_byte(pdev, FWH_DEC_EN2, &byte);
+	printk(KERN_DEBUG "Original FWH_DEC_EN2 : %x\n", byte);
+	pci_write_config_byte(pdev, FWH_DEC_EN2, 0x0f);
+	pci_read_config_byte(pdev, FWH_DEC_EN2, &byte);
+	printk(KERN_DEBUG "New FWH_DEC_EN2 : %x\n", byte);
+*/
+
+	/* Find a region continuous to the end of the ROM window  */
 	window->phys = 0;
 	pci_read_config_word(pdev, FWH_DEC_EN1, &word);
 	printk(KERN_DEBUG "pci_read_config_word : %x\n", word);
@@ -180,18 +217,25 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 		goto out;
 	}
 
-	
+	/* reserved  0x0020 and 0x0010 */
 	window->phys -= 0x400000UL;
 	window->size = (0xffffffffUL - window->phys) + 1UL;
 
-	
+	/* Enable writes through the rom window */
 	pci_read_config_byte(pdev, BIOS_CNTL, &byte);
 	if (!(byte & BIOS_WRITE_ENABLE)  && (byte & (BIOS_LOCK_ENABLE))) {
+		/* The BIOS will generate an error if I enable
+		 * this device, so don't even try.
+		 */
 		printk(KERN_ERR MOD_NAME ": firmware access control, I can't enable writes\n");
 		goto out;
 	}
 	pci_write_config_byte(pdev, BIOS_CNTL, byte | BIOS_WRITE_ENABLE);
 
+	/*
+	 * Try to reserve the window mem region.  If this fails then
+	 * it is likely due to the window being "reseved" by the BIOS.
+	 */
 	window->rsrc.name = MOD_NAME;
 	window->rsrc.start = window->phys;
 	window->rsrc.end   = window->phys + window->size - 1;
@@ -203,7 +247,7 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 			__func__, &window->rsrc);
 	}
 
-	
+	/* Map the firmware hub into my address space. */
 	window->virt = ioremap_nocache(window->phys, window->size);
 	if (!window->virt) {
 		printk(KERN_ERR MOD_NAME ": ioremap(%08lx, %08lx) failed\n",
@@ -211,17 +255,22 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 		goto out;
 	}
 
-	
+	/* Get the first address to look for an rom chip at */
 	map_top = window->phys;
 	if ((window->phys & 0x3fffff) != 0) {
-		
+		/* if not aligned on 4MiB, look 4MiB lower in address space */
 		map_top = window->phys + 0x400000;
 	}
 #if 1
+	/* The probe sequence run over the firmware hub lock
+	 * registers sets them to 0x7 (no access).
+	 * (Insane hardware design, but most copied Intel's.)
+	 * ==> Probe at most the last 4M of the address space.
+	 */
 	if (map_top < 0xffc00000)
 		map_top = 0xffc00000;
 #endif
-	
+	/* Loop through and look for rom chips */
 	while ((map_top - 1) < 0xffffffffUL) {
 		struct cfi_private *cfi;
 		unsigned long offset;
@@ -241,21 +290,25 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 		map->map.virt = (void __iomem *)
 			(((unsigned long)(window->virt)) + offset);
 		map->map.size = 0xffffffffUL - map_top + 1UL;
-		
+		/* Set the name of the map to the address I am trying */
 		sprintf(map->map_name, "%s @%08Lx",
 			MOD_NAME, (unsigned long long)map->map.phys);
 
+		/* Firmware hubs only use vpp when being programmed
+		 * in a factory setting.  So in-place programming
+		 * needs to use a different method.
+		 */
 		for(map->map.bankwidth = 32; map->map.bankwidth;
 			map->map.bankwidth >>= 1) {
 			char **probe_type;
-			
+			/* Skip bankwidths that are not supported */
 			if (!map_bankwidth_supported(map->map.bankwidth))
 				continue;
 
-			
+			/* Setup the map methods */
 			simple_map_init(&map->map);
 
-			
+			/* Try all of the probe methods */
 			probe_type = rom_probe_types;
 			for(; *probe_type; probe_type++) {
 				map->mtd = do_map_probe(*probe_type, &map->map);
@@ -266,7 +319,7 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 		map_top += ROM_PROBE_STEP_SIZE;
 		continue;
 	found:
-		
+		/* Trim the size if we are larger than the map */
 		if (map->mtd->size > map->map.size) {
 			printk(KERN_WARNING MOD_NAME
 				" rom(%llu) larger than window(%lu). fixing...\n",
@@ -274,6 +327,11 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 			map->mtd->size = map->map.size;
 		}
 		if (window->rsrc.parent) {
+			/*
+			 * Registering the MTD device in iomem may not be possible
+			 * if there is a BIOS "reserved" and BUSY range.  If this
+			 * fails then continue anyway.
+			 */
 			map->rsrc.name  = map->map_name;
 			map->rsrc.start = map->map.phys;
 			map->rsrc.end   = map->map.phys + map->mtd->size - 1;
@@ -285,14 +343,14 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 			}
 		}
 
-		
+		/* Make the whole region visible in the map */
 		map->map.virt = window->virt;
 		map->map.phys = window->phys;
 		cfi = map->map.fldrv_priv;
 		for(i = 0; i < cfi->numchips; i++)
 			cfi->chips[i].start += offset;
 
-		
+		/* Now that the mtd devices is complete claim and export it */
 		map->mtd->owner = THIS_MODULE;
 		if (mtd_device_register(map->mtd, NULL, 0)) {
 			map_destroy(map->mtd);
@@ -300,19 +358,19 @@ static int __devinit esb2rom_init_one(struct pci_dev *pdev,
 			goto out;
 		}
 
-		
+		/* Calculate the new value of map_top */
 		map_top += map->mtd->size;
 
-		
+		/* File away the map structure */
 		list_add(&map->list, &window->maps);
 		map = NULL;
 	}
 
  out:
-	
+	/* Free any left over map structures */
 	kfree(map);
 
-	
+	/* See if I have any map structures */
 	if (list_empty(&window->maps)) {
 		esb2rom_cleanup(window);
 		return -ENODEV;

@@ -58,7 +58,7 @@ static struct mtd_partition gumstix_partitions[] = {
 		.name =		"Bootloader",
 		.size =		0x00040000,
 		.offset =	0,
-		.mask_flags =	MTD_WRITEABLE  
+		.mask_flags =	MTD_WRITEABLE  /* force read-only */
 	} , {
 		.name =		"rootfs",
 		.size =		MTDPART_SIZ_FULL,
@@ -132,6 +132,9 @@ static void gumstix_udc_init(void)
 #endif
 
 #ifdef CONFIG_BT
+/* Normally, the bootloader would have enabled this 32kHz clock but many
+** boards still have u-boot 1.1.4 so we check if it has been turned on and
+** if not, we turn it on with a warning message. */
 static void gumstix_setup_bt_clock(void)
 {
 	int timeout = 500;
@@ -182,12 +185,12 @@ static void gumstix_bluetooth_init(void)
 
 static unsigned long gumstix_pin_config[] __initdata = {
 	GPIO12_32KHz,
-	
+	/* BTUART */
 	GPIO42_HWUART_RXD,
 	GPIO43_HWUART_TXD,
 	GPIO44_HWUART_CTS,
 	GPIO45_HWUART_RTS,
-	
+	/* MMC */
 	GPIO6_MMC_CLK,
 	GPIO53_MMC_CLK,
 	GPIO8_MMC_CS0,
@@ -205,6 +208,10 @@ int __attribute__((weak)) am300_init(void)
 
 static void __init carrier_board_init(void)
 {
+	/*
+	 * put carrier/expansion board init here if
+	 * they cannot be detected programatically
+	 */
 	am200_init();
 	am300_init();
 }
@@ -226,7 +233,7 @@ static void __init gumstix_init(void)
 }
 
 MACHINE_START(GUMSTIX, "Gumstix")
-	.atag_offset	= 0x100, 
+	.atag_offset	= 0x100, /* match u-boot bi_boot_params */
 	.map_io		= pxa25x_map_io,
 	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa25x_init_irq,

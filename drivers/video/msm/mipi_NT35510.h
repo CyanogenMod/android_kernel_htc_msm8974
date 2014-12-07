@@ -17,4 +17,4 @@
 int mipi_nt35510_device_register(struct msm_panel_info *pinfo,
 					u32 channel, u32 panel);
 
-#endif  
+#endif  /* MIPI_NT35510_H */

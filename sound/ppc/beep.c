@@ -30,16 +30,19 @@
 #include "pmac.h"
 
 struct pmac_beep {
-	int running;		
-	int volume;		
-	int volume_play;	
+	int running;		/* boolean */
+	int volume;		/* mixer volume: 0-100 */
+	int volume_play;	/* currently playing volume */
 	int hz;
 	int nsamples;
-	short *buf;		
-	dma_addr_t addr;	
+	short *buf;		/* allocated wave buffer */
+	dma_addr_t addr;	/* physical address of buffer */
 	struct input_dev *dev;
 };
 
+/*
+ * stop beep if running
+ */
 void snd_pmac_beep_stop(struct snd_pmac *chip)
 {
 	struct pmac_beep *beep = chip->beep;
@@ -49,6 +52,11 @@ void snd_pmac_beep_stop(struct snd_pmac *chip)
 	}
 }
 
+/*
+ * Stuff for outputting a beep.  The values range from -327 to +327
+ * so we can multiply by an amplitude in the range 0..100 to get a
+ * signed short value to put in the output buffer.
+ */
 static short beep_wform[256] = {
 	0,	40,	79,	117,	153,	187,	218,	245,
 	269,	288,	304,	316,	323,	327,	327,	324,
@@ -84,9 +92,9 @@ static short beep_wform[256] = {
 	-269,	-245,	-218,	-187,	-153,	-117,	-79,	-40,
 };
 
-#define BEEP_SRATE	22050	
+#define BEEP_SRATE	22050	/* 22050 Hz sample rate */
 #define BEEP_BUFLEN	512
-#define BEEP_VOLUME	15	
+#define BEEP_VOLUME	15	/* 0 - 100 */
 
 static int snd_pmac_beep_event(struct input_dev *dev, unsigned int type,
 			       unsigned int code, int hz)
@@ -138,7 +146,7 @@ static int snd_pmac_beep_event(struct input_dev *dev, unsigned int type,
 	if (hz == beep->hz && beep->volume == beep->volume_play) {
 		nsamples = beep->nsamples;
 	} else {
-		period = srate * 256 / hz;	
+		period = srate * 256 / hz;	/* fixed point */
 		ncycles = BEEP_BUFLEN * 256 / period;
 		nsamples = (period * ncycles) >> 8;
 		f = ncycles * 65536 / nsamples;
@@ -159,6 +167,9 @@ static int snd_pmac_beep_event(struct input_dev *dev, unsigned int type,
 	return 0;
 }
 
+/*
+ * beep volume mixer
+ */
 
 static int snd_pmac_info_beep(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_info *uinfo)
@@ -203,6 +214,7 @@ static struct snd_kcontrol_new snd_pmac_beep_mixer = {
 	.put = snd_pmac_put_beep,
 };
 
+/* Initialize beep stuff */
 int __devinit snd_pmac_attach_beep(struct snd_pmac *chip)
 {
 	struct pmac_beep *beep;
@@ -220,7 +232,7 @@ int __devinit snd_pmac_attach_beep(struct snd_pmac *chip)
 	if (! dmabuf || ! input_dev)
 		goto fail1;
 
-	
+	/* FIXME: set more better values */
 	input_dev->name = "PowerMac Beep";
 	input_dev->phys = "powermac/beep";
 	input_dev->id.bustype = BUS_ADB;

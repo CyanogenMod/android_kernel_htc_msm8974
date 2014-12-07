@@ -20,39 +20,65 @@
 #include "appldata.h"
 
 
-#define P2K(x) ((x) << (PAGE_SHIFT - 10))	
+#define P2K(x) ((x) << (PAGE_SHIFT - 10))	/* Converts #Pages to KB */
 
+/*
+ * Memory data
+ *
+ * This is accessed as binary data by z/VM. If changes to it can't be avoided,
+ * the structure version (product ID, see appldata_base.c) needs to be changed
+ * as well and all documentation and z/VM applications using it must be
+ * updated.
+ *
+ * The record layout is documented in the Linux for zSeries Device Drivers
+ * book:
+ * http://oss.software.ibm.com/developerworks/opensource/linux390/index.shtml
+ */
 static struct appldata_mem_data {
 	u64 timestamp;
-	u32 sync_count_1;       
-	u32 sync_count_2;	
+	u32 sync_count_1;       /* after VM collected the record data, */
+	u32 sync_count_2;	/* sync_count_1 and sync_count_2 should be the
+				   same. If not, the record has been updated on
+				   the Linux side while VM was collecting the
+				   (possibly corrupt) data */
 
-	u64 pgpgin;		
+	u64 pgpgin;		/* data read from disk  */
 	u64 pgpgout;		/* data written to disk */
-	u64 pswpin;		
-	u64 pswpout;		
+	u64 pswpin;		/* pages swapped in  */
+	u64 pswpout;		/* pages swapped out */
 
-	u64 sharedram;		
+	u64 sharedram;		/* sharedram is currently set to 0 */
 
-	u64 totalram;		
-	u64 freeram;		
-	u64 totalhigh;		
-	u64 freehigh;		
+	u64 totalram;		/* total main memory size */
+	u64 freeram;		/* free main memory size  */
+	u64 totalhigh;		/* total high memory size */
+	u64 freehigh;		/* free high memory size  */
 
-	u64 bufferram;		
-	u64 cached;		
-	u64 totalswap;		
-	u64 freeswap;		
+	u64 bufferram;		/* memory reserved for buffers, free cache */
+	u64 cached;		/* size of (used) cache, w/o buffers */
+	u64 totalswap;		/* total swap space size */
+	u64 freeswap;		/* free swap space */
 
-	u64 pgalloc;		
-	u64 pgfault;		
-	u64 pgmajfault;		
+// New in 2.6 -->
+	u64 pgalloc;		/* page allocations */
+	u64 pgfault;		/* page faults (major+minor) */
+	u64 pgmajfault;		/* page faults (major only) */
+// <-- New in 2.6
 
 } __attribute__((packed)) appldata_mem_data;
 
 
+/*
+ * appldata_get_mem_data()
+ *
+ * gather memory data
+ */
 static void appldata_get_mem_data(void *data)
 {
+	/*
+	 * don't put large structures on the stack, we are
+	 * serialized through the appldata_ops_mutex and can use static
+	 */
 	static struct sysinfo val;
 	unsigned long ev[NR_VM_EVENT_ITEMS];
 	struct appldata_mem_data *mem_data;
@@ -96,15 +122,25 @@ static struct appldata_ops ops = {
 	.callback  = &appldata_get_mem_data,
 	.data      = &appldata_mem_data,
 	.owner     = THIS_MODULE,
-	.mod_lvl   = {0xF0, 0xF0},		
+	.mod_lvl   = {0xF0, 0xF0},		/* EBCDIC "00" */
 };
 
 
+/*
+ * appldata_mem_init()
+ *
+ * init_data, register ops
+ */
 static int __init appldata_mem_init(void)
 {
 	return appldata_register_ops(&ops);
 }
 
+/*
+ * appldata_mem_exit()
+ *
+ * unregister ops
+ */
 static void __exit appldata_mem_exit(void)
 {
 	appldata_unregister_ops(&ops);

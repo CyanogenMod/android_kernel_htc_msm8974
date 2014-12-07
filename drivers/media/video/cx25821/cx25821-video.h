@@ -50,6 +50,7 @@ do {									\
 		printk(KERN_DEBUG "%s/0: " fmt, dev->name, ##arg);	\
 } while (0)
 
+/* For IOCTL to identify running upstream */
 #define UPSTREAM_START_VIDEO        700
 #define UPSTREAM_STOP_VIDEO         701
 #define UPSTREAM_START_AUDIO        702
@@ -76,6 +77,7 @@ extern struct sram_channel *channel9;
 extern struct sram_channel *channel10;
 extern struct sram_channel *channel11;
 extern struct video_device cx25821_videoioctl_template;
+/* extern const u32 *ctrl_classes[]; */
 
 extern unsigned int vid_limit;
 

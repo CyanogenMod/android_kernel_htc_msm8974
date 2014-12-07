@@ -43,6 +43,11 @@
 #define TUSB6010_DMACHAN	0x3f
 
 #if defined(CONFIG_USB_MUSB_TUSB6010) || defined(CONFIG_USB_MUSB_TUSB6010_MODULE)
+/*
+ * Enable or disable power to TUSB6010. When enabling, turn on 3.3 V and
+ * 1.5 V voltage regulators of PM companion chip. Companion chip will then
+ * provide then PGOOD signal to TUSB6010 which will release it from reset.
+ */
 static int tusb_set_power(int state)
 {
 	int i, retval = 0;
@@ -51,7 +56,7 @@ static int tusb_set_power(int state)
 		gpio_set_value(TUSB6010_GPIO_ENABLE, 1);
 		msleep(1);
 
-		
+		/* Wait until TUSB6010 pulls INT pin down */
 		i = 100;
 		while (i && gpio_get_value(TUSB6010_GPIO_INT)) {
 			msleep(1);
@@ -82,12 +87,12 @@ static struct musb_hdrc_platform_data tusb_data = {
 	.mode		= MUSB_OTG,
 #elif defined(CONFIG_USB_MUSB_PERIPHERAL)
 	.mode		= MUSB_PERIPHERAL,
-#else 
+#else /* defined(CONFIG_USB_MUSB_HOST) */
 	.mode		= MUSB_HOST,
 #endif
 	.set_power	= tusb_set_power,
-	.min_power	= 25,	
-	.power		= 100,	
+	.min_power	= 25,	/* x2 = 50 mA drawn from VBUS as peripheral */
+	.power		= 100,	/* Max 100 mA VBUS for host mode */
 	.config		= &musb_config,
 };
 
@@ -96,7 +101,7 @@ static void __init n8x0_usb_init(void)
 	int ret = 0;
 	static char	announce[] __initdata = KERN_INFO "TUSB 6010\n";
 
-	
+	/* PM companion chip power control pin */
 	ret = gpio_request_one(TUSB6010_GPIO_ENABLE, GPIOF_OUT_INIT_LOW,
 			       "TUSB6010 enable");
 	if (ret != 0) {
@@ -123,7 +128,7 @@ err:
 
 static void __init n8x0_usb_init(void) {}
 
-#endif 
+#endif /*CONFIG_USB_MUSB_TUSB6010 */
 
 
 static struct omap2_mcspi_device_config p54spi_mcspi_config = {
@@ -148,7 +153,7 @@ static struct mtd_partition onenand_partitions[] = {
 		.name           = "bootloader",
 		.offset         = 0,
 		.size           = 0x20000,
-		.mask_flags     = MTD_WRITEABLE,	
+		.mask_flags     = MTD_WRITEABLE,	/* Force read-only */
 	},
 	{
 		.name           = "config",
@@ -186,6 +191,17 @@ static struct omap_onenand_platform_data board_onenand_data[] = {
 #if defined(CONFIG_MENELAUS) &&						\
 	(defined(CONFIG_MMC_OMAP) || defined(CONFIG_MMC_OMAP_MODULE))
 
+/*
+ * On both N800 and N810, only the first of the two MMC controllers is in use.
+ * The two MMC slots are multiplexed via Menelaus companion chip over I2C.
+ * On N800, both slots are powered via Menelaus. On N810, only one of the
+ * slots is powered via Menelaus. The N810 EMMC is powered via GPIO.
+ *
+ * VMMC				slot 1 on both N800 and N810
+ * VDCDC3_APE and VMCS2_APE	slot 2 on N800
+ * GPIO23 and GPIO9		slot 2 EMMC on N810
+ *
+ */
 #define N8X0_SLOT_SWITCH_GPIO	96
 #define N810_EMMC_VSD_GPIO	23
 #define N810_EMMC_VIO_GPIO	9
@@ -381,7 +397,7 @@ static int n8x0_mmc_late_init(struct device *dev)
 	if (r < 0)
 		return r;
 
-	n8x0_mmc_set_power(dev, 0, MMC_POWER_ON, 16); 
+	n8x0_mmc_set_power(dev, 0, MMC_POWER_ON, 16); /* MMC_VDD_28_29 */
 	n8x0_mmc_set_power(dev, 1, MMC_POWER_ON, 16);
 
 	r = menelaus_set_mmc_slot(1, 1, 0, 1);
@@ -404,7 +420,7 @@ static int n8x0_mmc_late_init(struct device *dev)
 		slot2_cover_open = 0;
 	}
 
-	
+	/* All slot pin bits seem to be inversed until first switch change */
 	if (r == 0xf || r == (0xf & ~bit))
 		r = ~r;
 
@@ -443,6 +459,10 @@ static void n8x0_mmc_cleanup(struct device *dev)
 	}
 }
 
+/*
+ * MMC controller1 has two slots that are multiplexed via I2C.
+ * MMC controller2 is not in use.
+ */
 static struct omap_mmc_platform_data mmc1_data = {
 	.nr_slots			= 2,
 	.switch_slot			= n8x0_mmc_switch_slot,
@@ -488,6 +508,12 @@ static void __init n8x0_mmc_init(void)
 	if (machine_is_nokia_n810()) {
 		mmc1_data.slots[0].name = "external";
 
+		/*
+		 * Some Samsung Movinand chips do not like open-ended
+		 * multi-block reads and fall to braind-dead state
+		 * while doing so. Reducing the number of blocks in
+		 * the transfer or delays in clock disable do not help
+		 */
 		mmc1_data.slots[1].name = "internal";
 		mmc1_data.slots[1].ban_openended = 1;
 	}
@@ -514,7 +540,7 @@ static void __init n8x0_mmc_init(void)
 void __init n8x0_mmc_init(void)
 {
 }
-#endif	
+#endif	/* CONFIG_MMC_OMAP */
 
 #ifdef CONFIG_MENELAUS
 
@@ -595,7 +621,7 @@ static struct i2c_board_info n810_i2c_board_info_2[] __initdata = {
 
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
-	
+	/* I2S codec port pins for McBSP block */
 	OMAP2420_MUX(EAC_AC_SCLK, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
 	OMAP2420_MUX(EAC_AC_FS, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
 	OMAP2420_MUX(EAC_AC_DIN, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
@@ -608,7 +634,7 @@ static struct omap_device_pad serial2_pads[] __initdata = {
 		.name	= "uart3_rx_irrx.uart3_rx_irrx",
 		.flags	= OMAP_DEVICE_PAD_REMUX | OMAP_DEVICE_PAD_WAKEUP,
 		.enable	= OMAP_MUX_MODE0,
-		.idle	= OMAP_MUX_MODE3	
+		.idle	= OMAP_MUX_MODE3	/* Mux as GPIO for idle */
 	},
 };
 
@@ -644,7 +670,7 @@ static inline void board_serial_init(void)
 static void __init n8x0_init_machine(void)
 {
 	omap2420_mux_init(board_mux, OMAP_PACKAGE_ZAC);
-	
+	/* FIXME: add n810 spi devices */
 	spi_register_board_info(n800_spi_board_info,
 				ARRAY_SIZE(n800_spi_board_info));
 	omap_register_i2c_bus(1, 400, n8x0_i2c_board_info_1,

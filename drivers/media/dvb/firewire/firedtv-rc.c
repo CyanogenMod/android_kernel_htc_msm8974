@@ -19,9 +19,10 @@
 
 #include "firedtv.h"
 
+/* fixed table with older keycodes, geared towards MythTV */
 static const u16 oldtable[] = {
 
-	
+	/* code from device: 0x4501...0x451f */
 
 	KEY_ESC,
 	KEY_F9,
@@ -55,16 +56,17 @@ static const u16 oldtable[] = {
 	KEY_P,
 	KEY_M,
 
-	
+	/* code from device: 0x4540...0x4542 */
 
 	KEY_R,
 	KEY_V,
 	KEY_C,
 };
 
+/* user-modifiable table for a remote as sold in 2008 */
 static const u16 keytable[] = {
 
-	
+	/* code from device: 0x0300...0x031f */
 
 	[0x00] = KEY_POWER,
 	[0x01] = KEY_SLEEP,
@@ -83,10 +85,10 @@ static const u16 keytable[] = {
 	[0x0e] = KEY_8,
 	[0x0f] = KEY_9,
 	[0x10] = KEY_DOWN,
-	[0x11] = KEY_TITLE,	
+	[0x11] = KEY_TITLE,	/* "OSD" - fixme */
 	[0x12] = KEY_0,
-	[0x13] = KEY_F20,	
-	[0x14] = KEY_SCREEN,	
+	[0x13] = KEY_F20,	/* "16:9" - fixme */
+	[0x14] = KEY_SCREEN,	/* "FULL" - fixme */
 	[0x15] = KEY_MUTE,
 	[0x16] = KEY_SUBTITLE,
 	[0x17] = KEY_RECORD,
@@ -99,10 +101,10 @@ static const u16 keytable[] = {
 	[0x1e] = KEY_NEXT,
 	[0x1f] = KEY_VOLUMEUP,
 
-	
+	/* code from device: 0x0340...0x0354 */
 
 	[0x20] = KEY_CHANNELUP,
-	[0x21] = KEY_F21,	
+	[0x21] = KEY_F21,	/* "4:3" - fixme */
 	[0x22] = KEY_TV,
 	[0x23] = KEY_DVD,
 	[0x24] = KEY_VCR,
@@ -110,8 +112,8 @@ static const u16 keytable[] = {
 	[0x26] = KEY_GREEN,
 	[0x27] = KEY_YELLOW,
 	[0x28] = KEY_BLUE,
-	[0x29] = KEY_CHANNEL,	
-	[0x2a] = KEY_VENDOR,	
+	[0x29] = KEY_CHANNEL,	/* "CH.LIST" */
+	[0x2a] = KEY_VENDOR,	/* "CI" - fixme */
 	[0x2b] = KEY_VOLUMEDOWN,
 	[0x2c] = KEY_CHANNELDOWN,
 	[0x2d] = KEY_LAST,

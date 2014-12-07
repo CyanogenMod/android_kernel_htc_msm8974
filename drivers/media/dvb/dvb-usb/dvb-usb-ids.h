@@ -9,6 +9,7 @@
 #ifndef _DVB_USB_IDS_H_
 #define _DVB_USB_IDS_H_
 
+/* Vendor IDs */
 #define USB_VID_ADSTECH				0x06e1
 #define USB_VID_AFATECH				0x15a4
 #define USB_VID_ALCOR_MICRO			0x058f
@@ -69,6 +70,7 @@
 #define USB_VID_AZUREWAVE			0x13d3
 #define USB_VID_TECHNISAT			0x14f7
 
+/* Product IDs */
 #define USB_PID_ADSTECH_USB2_COLD			0xa333
 #define USB_PID_ADSTECH_USB2_WARM			0xa334
 #define USB_PID_AFATECH_AF9005				0x9020

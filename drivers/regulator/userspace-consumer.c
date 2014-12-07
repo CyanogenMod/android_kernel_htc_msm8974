@@ -60,6 +60,10 @@ static ssize_t reg_set_state(struct device *dev, struct device_attribute *attr,
 	bool enabled;
 	int ret;
 
+	/*
+	 * sysfs_streq() doesn't need the \n's, but we add them so the strings
+	 * will be shared with show_state(), above.
+	 */
 	if (sysfs_streq(buf, "enabled\n") || sysfs_streq(buf, "1"))
 		enabled = true;
 	else if (sysfs_streq(buf, "disabled\n") || sysfs_streq(buf, "0"))

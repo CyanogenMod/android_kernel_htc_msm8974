@@ -33,7 +33,8 @@ EXPORT_SYMBOL_GPL(olpc_platform_info);
 
 static DEFINE_SPINLOCK(ec_lock);
 
-#define EC_MAX_CMD_ARGS (5 + 1)	
+/* debugfs interface to EC commands */
+#define EC_MAX_CMD_ARGS (5 + 1)	/* cmd byte + 5 args */
 #define EC_MAX_CMD_REPLY (8)
 
 static struct dentry *ec_debugfs_dir;
@@ -41,10 +42,13 @@ static DEFINE_MUTEX(ec_debugfs_cmd_lock);
 static unsigned char ec_debugfs_resp[EC_MAX_CMD_REPLY];
 static unsigned int ec_debugfs_resp_bytes;
 
+/* EC event mask to be applied during suspend (defining wakeup sources). */
 static u16 ec_wakeup_mask;
 
+/* what the timeout *should* be (in ms) */
 #define EC_BASE_TIMEOUT 20
 
+/* the timeout that bugs in the EC might force us to actually use */
 static int ec_timeout = EC_BASE_TIMEOUT;
 
 static int __init olpc_ec_timeout_set(char *str)
@@ -60,6 +64,9 @@ static int __init olpc_ec_timeout_set(char *str)
 }
 __setup("olpc_ec_timeout=", olpc_ec_timeout_set);
 
+/*
+ * These {i,o}bf_status functions return whether the buffers are full or not.
+ */
 
 static inline unsigned int ibf_status(unsigned int port)
 {
@@ -111,6 +118,13 @@ static int __wait_on_obf(unsigned int line, unsigned int port, int desired)
 	return !(state == desired);
 }
 
+/*
+ * This allows the kernel to run Embedded Controller commands.  The EC is
+ * documented at <http://wiki.laptop.org/go/Embedded_controller>, and the
+ * available EC commands are here:
+ * <http://wiki.laptop.org/go/Ec_specification>.  Unfortunately, while
+ * OpenFirmware's source is available, the EC's is not.
+ */
 int olpc_ec_cmd(unsigned char cmd, unsigned char *inbuf, size_t inlen,
 		unsigned char *outbuf,  size_t outlen)
 {
@@ -121,7 +135,7 @@ int olpc_ec_cmd(unsigned char cmd, unsigned char *inbuf, size_t inlen,
 
 	spin_lock_irqsave(&ec_lock, flags);
 
-	
+	/* Clear OBF */
 	for (i = 0; i < 10 && (obf_status(0x6c) == 1); i++)
 		inb(0x68);
 	if (i == 10) {
@@ -137,6 +151,15 @@ int olpc_ec_cmd(unsigned char cmd, unsigned char *inbuf, size_t inlen,
 	}
 
 restart:
+	/*
+	 * Note that if we time out during any IBF checks, that's a failure;
+	 * we have to return.  There's no way for the kernel to clear that.
+	 *
+	 * If we time out during an OBF check, we can restart the command;
+	 * reissuing it will clear the OBF flag, and we should be alright.
+	 * The OBF flag will sometimes misbehave due to what we believe
+	 * is a hardware quirk..
+	 */
 	pr_devel("olpc-ec:  running cmd 0x%x\n", cmd);
 	outb(cmd, 0x6c);
 
@@ -147,7 +170,7 @@ restart:
 	}
 
 	if (inbuf && inlen) {
-		
+		/* write data to EC */
 		for (i = 0; i < inlen; i++) {
 			pr_devel("olpc-ec:  sending cmd arg 0x%x\n", inbuf[i]);
 			outb(inbuf[i], 0x68);
@@ -159,7 +182,7 @@ restart:
 		}
 	}
 	if (outbuf && outlen) {
-		
+		/* read data from EC */
 		for (i = 0; i < outlen; i++) {
 			if (wait_on_obf(0x6c, 1)) {
 				printk(KERN_ERR "olpc-ec:  timeout waiting for"
@@ -192,18 +215,30 @@ void olpc_ec_wakeup_clear(u16 value)
 }
 EXPORT_SYMBOL_GPL(olpc_ec_wakeup_clear);
 
+/*
+ * Returns true if the compile and runtime configurations allow for EC events
+ * to wake the system.
+ */
 bool olpc_ec_wakeup_available(void)
 {
 	if (!machine_is_olpc())
 		return false;
 
+	/*
+	 * XO-1 EC wakeups are available when olpc-xo1-sci driver is
+	 * compiled in
+	 */
 #ifdef CONFIG_OLPC_XO1_SCI
-	if (olpc_platform_info.boardrev < olpc_board_pre(0xd0)) 
+	if (olpc_platform_info.boardrev < olpc_board_pre(0xd0)) /* XO-1 */
 		return true;
 #endif
 
+	/*
+	 * XO-1.5 EC wakeups are available when olpc-xo15-sci driver is
+	 * compiled in
+	 */
 #ifdef CONFIG_OLPC_XO15_SCI
-	if (olpc_platform_info.boardrev >= olpc_board_pre(0xd0)) 
+	if (olpc_platform_info.boardrev >= olpc_board_pre(0xd0)) /* XO-1.5 */
 		return true;
 #endif
 
@@ -263,7 +298,7 @@ static ssize_t ec_debugfs_cmd_write(struct file *file, const char __user *buf,
 		   &ec_cmd_int[1], &ec_cmd_int[2], &ec_cmd_int[3],
 		   &ec_cmd_int[4], &ec_cmd_int[5]);
 	if (m < 2 || ec_debugfs_resp_bytes > EC_MAX_CMD_REPLY) {
-		
+		/* reset to prevent overflow on read */
 		ec_debugfs_resp_bytes = 0;
 
 		printk(KERN_DEBUG "olpc-ec: bad ec cmd:  "
@@ -272,7 +307,7 @@ static ssize_t ec_debugfs_cmd_write(struct file *file, const char __user *buf,
 		goto out;
 	}
 
-	
+	/* convert scanf'd ints to char */
 	ec_cmd_bytes = m - 2;
 	for (i = 0; i <= ec_cmd_bytes; i++)
 		ec_cmd[i] = ec_cmd_int[i];
@@ -402,20 +437,22 @@ static int __init olpc_init(void)
 
 	spin_lock_init(&ec_lock);
 
-	
+	/* assume B1 and above models always have a DCON */
 	if (olpc_board_at_least(olpc_board(0xb1)))
 		olpc_platform_info.flags |= OLPC_F_DCON;
 
-	
+	/* get the EC revision */
 	olpc_ec_cmd(EC_FIRMWARE_REV, NULL, 0,
 			(unsigned char *) &olpc_platform_info.ecver, 1);
 
 #ifdef CONFIG_PCI_OLPC
+	/* If the VSA exists let it emulate PCI, if not emulate in kernel.
+	 * XO-1 only. */
 	if (olpc_platform_info.boardrev < olpc_board_pre(0xd0) &&
 			!cs5535_has_vsa2())
 		x86_init.pci.arch_init = pci_olpc_init;
 #endif
-	
+	/* EC version 0x5f adds support for wide SCI mask */
 	if (olpc_platform_info.ecver >= 0x5f)
 		olpc_platform_info.flags |= OLPC_F_EC_WIDE_SCI;
 
@@ -424,7 +461,7 @@ static int __init olpc_init(void)
 			olpc_platform_info.boardrev >> 4,
 			olpc_platform_info.ecver);
 
-	if (olpc_platform_info.boardrev < olpc_board_pre(0xd0)) { 
+	if (olpc_platform_info.boardrev < olpc_board_pre(0xd0)) { /* XO-1 */
 		r = add_xo1_platform_devices();
 		if (r)
 			return r;

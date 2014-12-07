@@ -26,6 +26,7 @@ static const struct ssb_device_id ssb_gige_tbl[] = {
 	SSB_DEVICE(SSB_VENDOR_BROADCOM, SSB_DEV_ETHERNET_GBIT, SSB_ANY_REV),
 	SSB_DEVTABLE_END
 };
+/* MODULE_DEVICE_TABLE(ssb, ssb_gige_tbl); */
 
 
 static inline u8 gige_read8(struct ssb_gige *dev, u16 offset)
@@ -195,7 +196,7 @@ static int __devinit ssb_gige_probe(struct ssb_device *sdev,
 	if (!ssb_device_is_enabled(sdev))
 		ssb_device_enable(sdev, 0);
 
-	
+	/* Setup BAR0. This is a 64k MMIO region. */
 	base = ssb_admatch_base(ssb_read32(sdev, SSB_ADMATCH1));
 	gige_pcicfg_write32(dev, PCI_BASE_ADDRESS_0, base);
 	gige_pcicfg_write32(dev, PCI_BASE_ADDRESS_1, 0);
@@ -205,13 +206,21 @@ static int __devinit ssb_gige_probe(struct ssb_device *sdev,
 	dev->mem_resource.end = base + 0x10000 - 1;
 	dev->mem_resource.flags = IORESOURCE_MEM | IORESOURCE_PCI_FIXED;
 
-	
+	/* Enable the memory region. */
 	gige_pcicfg_write16(dev, PCI_COMMAND,
 			    gige_pcicfg_read16(dev, PCI_COMMAND)
 			    | PCI_COMMAND_MEMORY);
 
+	/* Write flushing is controlled by the Flush Status Control register.
+	 * We want to flush every register write with a timeout and we want
+	 * to disable the IRQ mask while flushing to avoid concurrency.
+	 * Note that automatic write flushing does _not_ work from
+	 * an IRQ handler. The driver must flush manually by reading a register.
+	 */
 	gige_write32(dev, SSB_GIGE_SHIM_FLUSHSTAT, 0x00000068);
 
+	/* Check if we have an RGMII or GMII PHY-bus.
+	 * On RGMII do not bypass the DLLs */
 	tmslow = ssb_read32(sdev, SSB_TMSLOW);
 	tmshigh = ssb_read32(sdev, SSB_TMSHIGH);
 	if (tmshigh & SSB_GIGE_TMSHIGH_RGMII) {
@@ -247,18 +256,18 @@ int ssb_gige_pcibios_plat_dev_init(struct ssb_device *sdev,
 	struct resource *res;
 
 	if (pdev->bus->ops != &dev->pci_ops) {
-		
+		/* The PCI device is not on this SSB GigE bridge device. */
 		return -ENODEV;
 	}
 
-	
+	/* Fixup the PCI resources. */
 	res = &(pdev->resource[0]);
 	res->flags = IORESOURCE_MEM | IORESOURCE_PCI_FIXED;
 	res->name = dev->mem_resource.name;
 	res->start = dev->mem_resource.start;
 	res->end = dev->mem_resource.end;
 
-	
+	/* Fixup interrupt lines. */
 	pdev->irq = ssb_mips_irq(sdev) + 2;
 	pci_write_config_byte(pdev, PCI_INTERRUPT_LINE, pdev->irq);
 
@@ -271,7 +280,7 @@ int ssb_gige_map_irq(struct ssb_device *sdev,
 	struct ssb_gige *dev = ssb_get_drvdata(sdev);
 
 	if (pdev->bus->ops != &dev->pci_ops) {
-		
+		/* The PCI device is not on this SSB GigE bridge device. */
 		return -ENODEV;
 	}
 

@@ -16,6 +16,12 @@
  */
 
 
+/*
+ * Note: this file must be safe to include in assembly files
+ *
+ * Support for the Vibren PXA255 IDP requires rev04 or later
+ * IDP hardware.
+ */
 
 
 #define IDP_FLASH_PHYS		(PXA_CS0_PHYS)
@@ -27,6 +33,9 @@
 #define IDP_CPLD_PHYS		(PXA_CS5_PHYS + 0x03C00000)
 
 
+/*
+ * virtual memory map
+ */
 
 #define IDP_COREVOLT_VIRT	(0xf0000000)
 #define IDP_COREVOLT_SIZE	(1*1024*1024)
@@ -47,6 +56,7 @@
 #  define __CPLD_REG(x)		CPLD_P2V(x)
 #endif
 
+/* board level registers in the CPLD: (offsets from CPLD_VIRT) */
 
 #define _IDP_CPLD_REV			(IDP_CPLD_PHYS + 0x00)
 #define _IDP_CPLD_PERIPH_PWR		(IDP_CPLD_PHYS + 0x04)
@@ -68,6 +78,7 @@
 #define _IDP_CPLD_PCCARD1_STATUS	(IDP_CPLD_PHYS + 0x58)
 #define _IDP_CPLD_MISC_STATUS		(IDP_CPLD_PHYS + 0x5C)
 
+/* FPGA register virtual addresses */
 
 #define IDP_CPLD_REV			__CPLD_REG(_IDP_CPLD_REV)
 #define IDP_CPLD_PERIPH_PWR		__CPLD_REG(_IDP_CPLD_PERIPH_PWR)
@@ -90,7 +101,11 @@
 #define IDP_CPLD_MISC_STATUS		__CPLD_REG(_IDP_CPLD_MISC_STATUS)
 
 
+/*
+ * Bit masks for various registers
+ */
 
+// IDP_CPLD_PCCARD_PWR
 #define PCC0_PWR0	(1 << 0)
 #define PCC0_PWR1	(1 << 1)
 #define PCC0_PWR2	(1 << 2)
@@ -100,12 +115,14 @@
 #define PCC1_PWR2	(1 << 6)
 #define PCC1_PWR3	(1 << 7)
 
+// IDP_CPLD_PCCARD_EN
 #define PCC0_RESET	(1 << 6)
 #define PCC1_RESET	(1 << 7)
 #define PCC0_ENABLE	(1 << 0)
 #define PCC1_ENABLE	(1 << 1)
 
-#define _PCC_WRPROT	(1 << 7) 
+// IDP_CPLD_PCCARDx_STATUS
+#define _PCC_WRPROT	(1 << 7) // 7-4 read as low true
 #define _PCC_RESET	(1 << 6)
 #define _PCC_IRQ	(1 << 5)
 #define _PCC_INPACK	(1 << 4)
@@ -114,6 +131,7 @@
 #define PCC_VS2		(1 << 1)
 #define PCC_VS1		(1 << 0)
 
+/* A listing of interrupts used by external hardware devices */
 
 #define TOUCH_PANEL_IRQ			PXA_GPIO_TO_IRQ(5)
 #define IDE_IRQ				PXA_GPIO_TO_IRQ(21)
@@ -135,16 +153,26 @@
 #define PCMCIA_S1_RDYINT		PXA_GPIO_TO_IRQ(22)
 
 
+/*
+ * Macros for LED Driver
+ */
 
+/* leds 0 = ON */
 #define IDP_HB_LED	(1<<5)
 #define IDP_BUSY_LED	(1<<6)
 
 #define IDP_LEDS_MASK	(IDP_HB_LED | IDP_BUSY_LED)
 
+/*
+ * macros for MTD driver
+ */
 
 #define FLASH_WRITE_PROTECT_DISABLE()	((IDP_CPLD_FLASH_WE) &= ~(0x1))
 #define FLASH_WRITE_PROTECT_ENABLE()	((IDP_CPLD_FLASH_WE) |= (0x1))
 
+/*
+ * macros for matrix keyboard driver
+ */
 
 #define KEYBD_MATRIX_NUMBER_INPUTS	7
 #define KEYBD_MATRIX_NUMBER_OUTPUTS	14

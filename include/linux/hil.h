@@ -39,19 +39,23 @@
 
 #include <asm/types.h>
 
- 
+/* Physical constants relevant to raw loop/device timing. 
+ */ 
 
 #define HIL_CLOCK		8MHZ
 #define HIL_EK1_CLOCK		30HZ
 #define HIL_EK2_CLOCK		60HZ
 
-#define HIL_TIMEOUT_DEV         5	
-#define HIL_TIMEOUT_DEVS	10	
-#define HIL_TIMEOUT_NORESP	10	
-#define HIL_TIMEOUT_DEVS_DATA	16	
-#define HIL_TIMEOUT_SELFTEST	200	
+#define HIL_TIMEOUT_DEV         5	/* ms */
+#define HIL_TIMEOUT_DEVS	10	/* ms */
+#define HIL_TIMEOUT_NORESP	10	/* ms */
+#define HIL_TIMEOUT_DEVS_DATA	16	/* ms */
+#define HIL_TIMEOUT_SELFTEST	200	/* ms */
 
 
+/* Actual wire line coding.  These will only be useful if someone is 
+ * implementing a software MLC to run HIL devices on a non-parisc machine.
+ */
 
 #define HIL_WIRE_PACKET_LEN	15
 enum hil_wire_bitpos {
@@ -72,6 +76,9 @@ enum hil_wire_bitpos {
 	HIL_WIRE_STOP
 };
 
+/* HP documentation uses these bit positions to refer to commands;
+ * we will call these "packets".
+ */
 enum hil_pkt_bitpos {
 	HIL_PKT_CMD		= 0x00000800,
 	HIL_PKT_ADDR2		= 0x00000400,
@@ -91,14 +98,23 @@ enum hil_pkt_bitpos {
 	HIL_PKT_DATA_SHIFT	= 0
 };
 
+/* The HIL MLC also has several error/status/control bits.  We extend the 
+ * "packet" to include these when direct access to the MLC is available,
+ * or emulate them in cases where they are not available. 
+ *
+ * This way the device driver knows that the underlying MLC driver
+ * has had to deal with loop errors.
+ */
 enum hil_error_bitpos {
-	HIL_ERR_OB	= 0x00000800, 
-	HIL_ERR_INT	= 0x00010000, 
-	HIL_ERR_NMI	= 0x00020000, 
-	HIL_ERR_LERR	= 0x00040000, 
-	HIL_ERR_PERR	= 0x01000000, 
-	HIL_ERR_FERR	= 0x02000000, 
-	HIL_ERR_FOF	= 0x04000000  
+	HIL_ERR_OB	= 0x00000800, /* MLC is busy sending an auto-poll, 
+					 or we have filled up the output 
+					 buffer and must wait. */
+	HIL_ERR_INT	= 0x00010000, /* A normal interrupt has occurred. */
+	HIL_ERR_NMI	= 0x00020000, /* An NMI has occurred. */
+	HIL_ERR_LERR	= 0x00040000, /* A poll didn't come back. */
+	HIL_ERR_PERR	= 0x01000000, /* There was a Parity Error. */
+	HIL_ERR_FERR	= 0x02000000, /* There was a Framing Error. */
+	HIL_ERR_FOF	= 0x04000000  /* Input FIFO Overflowed. */
 };
 
 enum hil_control_bitpos {
@@ -107,128 +123,143 @@ enum hil_control_bitpos {
 	HIL_CTRL_APE	= 0x02000000
 };
 
-#define HIL_DO_ALTER_CTRL  0x40000000 
-#define HIL_CTRL_ONLY      0xc0000000 
+/* Bits 30,31 are unused, we use them to control write behavior. */
+#define HIL_DO_ALTER_CTRL  0x40000000 /* Write MSW of packet to control 
+                                          before writing LSW to loop */
+#define HIL_CTRL_ONLY      0xc0000000 /* *Only* alter the control registers */
 
+/* This gives us a 32-bit "packet" 
+ */
 typedef u32 hil_packet;
 
 
+/* HIL Loop commands 
+ */
 enum hil_command {
-	HIL_CMD_IFC	= 0x00,	
-	HIL_CMD_EPT	= 0x01,	
-	HIL_CMD_ELB	= 0x02,	
-	HIL_CMD_IDD	= 0x03,	
-	HIL_CMD_DSR	= 0x04,	
-	HIL_CMD_PST	= 0x05,	
-	HIL_CMD_RRG	= 0x06,	
-	HIL_CMD_WRG	= 0x07,	
-	HIL_CMD_ACF	= 0x08,	
-	HIL_CMDID_ACF	= 0x07,	
-	HIL_CMD_POL	= 0x10,	
-	HIL_CMDCT_POL	= 0x0f,	
-	HIL_CMD_RPL	= 0x20,	
-	HIL_CMDCT_RPL	= 0x0f,	
-	HIL_CMD_RNM	= 0x30,	
-	HIL_CMD_RST	= 0x31,	
-	HIL_CMD_EXD	= 0x32,	
-	HIL_CMD_RSC	= 0x33,	
+	HIL_CMD_IFC	= 0x00,	/* Interface Clear */
+	HIL_CMD_EPT	= 0x01,	/* Enter Pass-Thru Mode */
+	HIL_CMD_ELB	= 0x02,	/* Enter Loop-Back Mode */
+	HIL_CMD_IDD	= 0x03,	/* Identify and Describe */
+	HIL_CMD_DSR	= 0x04,	/* Device Soft Reset */
+	HIL_CMD_PST	= 0x05,	/* Perform Self Test */
+	HIL_CMD_RRG	= 0x06,	/* Read Register */
+	HIL_CMD_WRG	= 0x07,	/* Write Register */
+	HIL_CMD_ACF	= 0x08,	/* Auto Configure */
+	HIL_CMDID_ACF	= 0x07,	/* Auto Configure bits with incremented ID */
+	HIL_CMD_POL	= 0x10,	/* Poll */
+	HIL_CMDCT_POL	= 0x0f,	/* Poll command bits with item count  */
+	HIL_CMD_RPL	= 0x20,	/* RePoll */
+	HIL_CMDCT_RPL	= 0x0f,	/* RePoll command bits with item count */
+	HIL_CMD_RNM	= 0x30,	/* Report Name */
+	HIL_CMD_RST	= 0x31,	/* Report Status */
+	HIL_CMD_EXD	= 0x32,	/* Extended Describe */
+	HIL_CMD_RSC	= 0x33,	/* Report Security Code */
 
-	
+	/* 0x34 to 0x3c reserved for future use  */
 
-	HIL_CMD_DKA	= 0x3d,	
-	HIL_CMD_EK1	= 0x3e,	
-	HIL_CMD_EK2	= 0x3f,	
-	HIL_CMD_PR1	= 0x40,	  
-	HIL_CMD_PR2	= 0x41,	
-	HIL_CMD_PR3	= 0x42,	
-	HIL_CMD_PR4	= 0x43,	
-	HIL_CMD_PR5	= 0x44,	
-	HIL_CMD_PR6	= 0x45,	
-	HIL_CMD_PR7	= 0x46,	
-	HIL_CMD_PRM	= 0x47,	
-	HIL_CMD_AK1	= 0x48,	  
-	HIL_CMD_AK2	= 0x49,	
-	HIL_CMD_AK3	= 0x4a,	
-	HIL_CMD_AK4	= 0x4b,	
-	HIL_CMD_AK5	= 0x4c,	
-	HIL_CMD_AK6	= 0x4d,	
-	HIL_CMD_AK7	= 0x4e,	
-	HIL_CMD_ACK	= 0x4f,	
+	HIL_CMD_DKA	= 0x3d,	/* Disable Keyswitch Autorepeat */
+	HIL_CMD_EK1	= 0x3e,	/* Enable Keyswitch Autorepeat 1 */
+	HIL_CMD_EK2	= 0x3f,	/* Enable Keyswitch Autorepeat 2 */
+	HIL_CMD_PR1	= 0x40,	/* Prompt1 */  
+	HIL_CMD_PR2	= 0x41,	/* Prompt2 */
+	HIL_CMD_PR3	= 0x42,	/* Prompt3 */
+	HIL_CMD_PR4	= 0x43,	/* Prompt4 */
+	HIL_CMD_PR5	= 0x44,	/* Prompt5 */
+	HIL_CMD_PR6	= 0x45,	/* Prompt6 */
+	HIL_CMD_PR7	= 0x46,	/* Prompt7 */
+	HIL_CMD_PRM	= 0x47,	/* Prompt (General Purpose) */
+	HIL_CMD_AK1	= 0x48,	/* Acknowledge1 */  
+	HIL_CMD_AK2	= 0x49,	/* Acknowledge2 */
+	HIL_CMD_AK3	= 0x4a,	/* Acknowledge3 */
+	HIL_CMD_AK4	= 0x4b,	/* Acknowledge4 */
+	HIL_CMD_AK5	= 0x4c,	/* Acknowledge5 */
+	HIL_CMD_AK6	= 0x4d,	/* Acknowledge6 */
+	HIL_CMD_AK7	= 0x4e,	/* Acknowledge7 */
+	HIL_CMD_ACK	= 0x4f,	/* Acknowledge (General Purpose) */
 
-	
-	
-	
+	/* 0x50 to 0x78 reserved for future use  */
+	/* 0x80 to 0xEF device-specific commands */
+	/* 0xf0 to 0xf9 reserved for future use  */
 
-	HIL_CMD_RIO	= 0xfa,	
-	HIL_CMD_SHR	= 0xfb,	
-	HIL_CMD_TER	= 0xfc,	
-	HIL_CMD_CAE	= 0xfd,	
-	HIL_CMD_DHR	= 0xfe,	
+	HIL_CMD_RIO	= 0xfa,	/* Register I/O Error */
+	HIL_CMD_SHR	= 0xfb,	/* System Hard Reset */
+	HIL_CMD_TER	= 0xfc,	/* Transmission Error */
+	HIL_CMD_CAE	= 0xfd,	/* Configuration Address Error */
+	HIL_CMD_DHR	= 0xfe,	/* Device Hard Reset */
 
-	
+	/* 0xff is prohibited from use. */
 };
 
 
+/* 
+ * Response "records" to HIL commands
+ */
 
-#define HIL_IDD_DID_TYPE_MASK		0xe0	
-#define HIL_IDD_DID_TYPE_KB_INTEGRAL	0xa0	
-#define HIL_IDD_DID_TYPE_KB_ITF		0xc0	
-#define HIL_IDD_DID_TYPE_KB_RSVD	0xe0	
-#define HIL_IDD_DID_TYPE_KB_LANG_MASK	0x1f	
-#define HIL_IDD_DID_KBLANG_USE_ESD	0x00	
-#define HIL_IDD_DID_TYPE_ABS		0x80    
-#define HIL_IDD_DID_ABS_RSVD1_MASK	0xf8	
+/* Device ID byte 
+ */
+#define HIL_IDD_DID_TYPE_MASK		0xe0	/* Primary type bits */
+#define HIL_IDD_DID_TYPE_KB_INTEGRAL	0xa0	/* Integral keyboard */
+#define HIL_IDD_DID_TYPE_KB_ITF		0xc0	/* ITD keyboard */
+#define HIL_IDD_DID_TYPE_KB_RSVD	0xe0	/* Reserved keyboard type */
+#define HIL_IDD_DID_TYPE_KB_LANG_MASK	0x1f	/* Keyboard locale bits */
+#define HIL_IDD_DID_KBLANG_USE_ESD	0x00	/* Use ESD Locale instead */
+#define HIL_IDD_DID_TYPE_ABS		0x80    /* Absolute Positioners */
+#define HIL_IDD_DID_ABS_RSVD1_MASK	0xf8	/* Reserved */
 #define HIL_IDD_DID_ABS_RSVD1		0x98
-#define HIL_IDD_DID_ABS_TABLET_MASK	0xf8	
+#define HIL_IDD_DID_ABS_TABLET_MASK	0xf8	/* Tablets and digitizers */
 #define HIL_IDD_DID_ABS_TABLET		0x90
-#define HIL_IDD_DID_ABS_TSCREEN_MASK	0xfc	
+#define HIL_IDD_DID_ABS_TSCREEN_MASK	0xfc	/* Touch screens */
 #define HIL_IDD_DID_ABS_TSCREEN		0x8c
-#define HIL_IDD_DID_ABS_RSVD2_MASK	0xfc	
+#define HIL_IDD_DID_ABS_RSVD2_MASK	0xfc	/* Reserved */
 #define HIL_IDD_DID_ABS_RSVD2		0x88
-#define HIL_IDD_DID_ABS_RSVD3_MASK	0xfc	
+#define HIL_IDD_DID_ABS_RSVD3_MASK	0xfc	/* Reserved */
 #define HIL_IDD_DID_ABS_RSVD3		0x80
-#define HIL_IDD_DID_TYPE_REL		0x60    
-#define HIL_IDD_DID_REL_RSVD1_MASK	0xf0	
+#define HIL_IDD_DID_TYPE_REL		0x60    /* Relative Positioners */
+#define HIL_IDD_DID_REL_RSVD1_MASK	0xf0	/* Reserved */
 #define HIL_IDD_DID_REL_RSVD1		0x70
-#define HIL_IDD_DID_REL_RSVD2_MASK	0xfc	
+#define HIL_IDD_DID_REL_RSVD2_MASK	0xfc	/* Reserved */
 #define HIL_IDD_DID_REL_RSVD2		0x6c
-#define HIL_IDD_DID_REL_MOUSE_MASK	0xfc	
+#define HIL_IDD_DID_REL_MOUSE_MASK	0xfc	/* Mouse */
 #define HIL_IDD_DID_REL_MOUSE		0x68
-#define HIL_IDD_DID_REL_QUAD_MASK	0xf8	
+#define HIL_IDD_DID_REL_QUAD_MASK	0xf8	/* Other Quadrature Devices */
 #define HIL_IDD_DID_REL_QUAD		0x60
-#define HIL_IDD_DID_TYPE_CHAR		0x40    
-#define HIL_IDD_DID_CHAR_BARCODE_MASK	0xfc	
+#define HIL_IDD_DID_TYPE_CHAR		0x40    /* Character Entry */
+#define HIL_IDD_DID_CHAR_BARCODE_MASK	0xfc	/* Barcode Reader */
 #define HIL_IDD_DID_CHAR_BARCODE	0x5c
-#define HIL_IDD_DID_CHAR_RSVD1_MASK	0xfc	
+#define HIL_IDD_DID_CHAR_RSVD1_MASK	0xfc	/* Reserved */
 #define HIL_IDD_DID_CHAR_RSVD1		0x58
-#define HIL_IDD_DID_CHAR_RSVD2_MASK	0xf8	
+#define HIL_IDD_DID_CHAR_RSVD2_MASK	0xf8	/* Reserved */
 #define HIL_IDD_DID_CHAR_RSVD2		0x50
-#define HIL_IDD_DID_CHAR_RSVD3_MASK	0xf0	
+#define HIL_IDD_DID_CHAR_RSVD3_MASK	0xf0	/* Reserved */
 #define HIL_IDD_DID_CHAR_RSVD3		0x40
-#define HIL_IDD_DID_TYPE_OTHER		0x20    
-#define HIL_IDD_DID_OTHER_RSVD1_MASK	0xf0	
+#define HIL_IDD_DID_TYPE_OTHER		0x20    /* Miscellaneous */
+#define HIL_IDD_DID_OTHER_RSVD1_MASK	0xf0	/* Reserved */
 #define HIL_IDD_DID_OTHER_RSVD1		0x30
-#define HIL_IDD_DID_OTHER_BARCODE_MASK	0xfc	
+#define HIL_IDD_DID_OTHER_BARCODE_MASK	0xfc	/* Tone Generator */
 #define HIL_IDD_DID_OTHER_BARCODE	0x2c
-#define HIL_IDD_DID_OTHER_RSVD2_MASK	0xfc	
+#define HIL_IDD_DID_OTHER_RSVD2_MASK	0xfc	/* Reserved */
 #define HIL_IDD_DID_OTHER_RSVD2		0x28
-#define HIL_IDD_DID_OTHER_RSVD3_MASK	0xf8	
+#define HIL_IDD_DID_OTHER_RSVD3_MASK	0xf8	/* Reserved */
 #define HIL_IDD_DID_OTHER_RSVD3		0x20
-#define HIL_IDD_DID_TYPE_KEYPAD		0x00	
+#define HIL_IDD_DID_TYPE_KEYPAD		0x00	/* Vectra Keyboard */
 
-#define HIL_IDD_HEADER_AXSET_MASK	0x03    
-#define HIL_IDD_HEADER_RSC		0x04	
-#define HIL_IDD_HEADER_EXD		0x08	
-#define HIL_IDD_HEADER_IOD		0x10	
-#define HIL_IDD_HEADER_16BIT		0x20	
-#define HIL_IDD_HEADER_ABS		0x40	
-#define HIL_IDD_HEADER_2X_AXIS		0x80	
+/* IDD record header 
+ */
+#define HIL_IDD_HEADER_AXSET_MASK	0x03    /* Number of axis in a set */
+#define HIL_IDD_HEADER_RSC		0x04	/* Supports RSC command */
+#define HIL_IDD_HEADER_EXD		0x08	/* Supports EXD command */
+#define HIL_IDD_HEADER_IOD		0x10	/* IOD byte to follow */
+#define HIL_IDD_HEADER_16BIT		0x20	/* 16 (vs. 8) bit resolution */
+#define HIL_IDD_HEADER_ABS		0x40	/* Reports Absolute Position */
+#define HIL_IDD_HEADER_2X_AXIS		0x80	/* Two sets of 1-3 axis */
 
-#define HIL_IDD_IOD_NBUTTON_MASK	0x07	
-#define HIL_IDD_IOD_PROXIMITY		0x08	
-#define HIL_IDD_IOD_PROMPT_MASK		0x70	
+/* I/O Descriptor
+ */
+#define HIL_IDD_IOD_NBUTTON_MASK	0x07	/* Number of buttons */
+#define HIL_IDD_IOD_PROXIMITY		0x08	/* Proximity in/out events */
+#define HIL_IDD_IOD_PROMPT_MASK		0x70	/* Number of prompts/acks */
 #define HIL_IDD_IOD_PROMPT_SHIFT	4
-#define HIL_IDD_IOD_PROMPT		0x80	
+#define HIL_IDD_IOD_PROMPT		0x80	/* Generic prompt/ack */
 
 #define HIL_IDD_NUM_AXES_PER_SET(header_packet) \
 ((header_packet) & HIL_IDD_HEADER_AXSET_MASK)
@@ -242,6 +273,10 @@ enum hil_command {
   2 * HIL_IDD_NUM_AXES_PER_SET(header_packet) *			\
  !!((header_packet) & HIL_IDD_HEADER_ABS))
 
+/* The following HIL_IDD_* macros assume you have an array of 
+ * packets and/or unpacked 8-bit data in the order that they 
+ * were received.
+ */
 
 #define HIL_IDD_AXIS_COUNTS_PER_M(header_ptr) \
 (!(HIL_IDD_NUM_AXSETS(*(header_ptr))) ? -1 :			\
@@ -275,13 +310,14 @@ enum hil_command {
  ((HIL_IDD_IOD(header_ptr) & HIL_IDD_IOD_NPROMPT_MASK)		\
   >> HIL_IDD_IOD_PROMPT_SHIFT) : 0)
 
-#define	HIL_EXD_HEADER_WRG		0x03	
-#define HIL_EXD_HEADER_WRG_TYPE1	0x01	
-#define	HIL_EXD_HEADER_WRG_TYPE2	0x02	
-#define	HIL_EXD_HEADER_RRG		0x04	
-#define	HIL_EXD_HEADER_RNM		0x10	
-#define HIL_EXD_HEADER_RST		0x20	
-#define HIL_EXD_HEADER_LOCALE		0x40	
+/* The response to HIL EXD commands -- the "extended describe record" */
+#define	HIL_EXD_HEADER_WRG		0x03	/* Supports type2 WRG */
+#define HIL_EXD_HEADER_WRG_TYPE1	0x01	/* Supports type1 WRG */
+#define	HIL_EXD_HEADER_WRG_TYPE2	0x02	/* Supports type2 WRG */
+#define	HIL_EXD_HEADER_RRG		0x04	/* Supports RRG command */
+#define	HIL_EXD_HEADER_RNM		0x10	/* Supports RNM command */
+#define HIL_EXD_HEADER_RST		0x20	/* Supports RST command */
+#define HIL_EXD_HEADER_LOCALE		0x40	/* Contains locale code */
 
 #define HIL_EXD_NUM_RRG(header_ptr) \
 ((*header_ptr & HIL_EXD_HEADER_RRG) ? \
@@ -309,45 +345,52 @@ enum hil_command {
  ((*(header_ptr + HIL_EXD_LEN(header_ptr) - 1 -				\
      !!(*header_ptr & HIL_EXD_HEADER_LOCALE)) & HIL_PKT_DATA_MASK) << 8))
 
- 
+/* Device locale codes. */ 
 
+/* Last defined locale code.  Everything above this is "Reserved",
+   and note that this same table applies to the Device ID Byte where 
+   keyboards may have a nationality code which is only 5 bits. */
 #define HIL_LOCALE_MAX 0x1f
 
+/* Map to hopefully useful strings.  I was trying to make these look
+   like locale.aliases strings do; maybe that isn't the right table to
+   emulate.  In either case, I didn't have much to work on. */
 #define HIL_LOCALE_MAP \
-"",					\
-"",					\
-"",					\
-"swiss.french",				\
-"portuguese",				\
-"arabic",				\
-"hebrew",				\
-"english.canadian",		\
-"turkish",				\
-"greek",				\
-"thai",				\
-"italian",				\
-"korean",			\
-"dutch",				\
-"swedish",				\
-"german",				\
-"chinese",				\
-"chinese",				\
-"swiss.french",			\
-"spanish",				\
-"swiss.german",			\
-"flemish",			\
-"finnish",				\
-"english.uk",			\
-"french.canadian",		\
-"swiss.german",				\
-"norwegian",				\
-"french",				\
-"danish",				\
-"japanese",				\
-"spanish",		\
-"english.us"			\
+"",			/* 0x00 Reserved */		\
+"",			/* 0x01 Reserved */		\
+"",			/* 0x02 Reserved */		\
+"swiss.french",		/* 0x03 Swiss/French */		\
+"portuguese",		/* 0x04 Portuguese */		\
+"arabic",		/* 0x05 Arabic */		\
+"hebrew",		/* 0x06 Hebrew */		\
+"english.canadian",	/* 0x07 Canadian English */	\
+"turkish",		/* 0x08 Turkish */		\
+"greek",		/* 0x09 Greek */		\
+"thai",			/* 0x0a Thai (Thailand) */	\
+"italian",		/* 0x0b Italian */		\
+"korean",		/* 0x0c Hangul (Korea) */	\
+"dutch",		/* 0x0d Dutch */		\
+"swedish",		/* 0x0e Swedish */		\
+"german",		/* 0x0f German */		\
+"chinese",		/* 0x10 Chinese-PRC */		\
+"chinese",		/* 0x11 Chinese-ROC */		\
+"swiss.french",		/* 0x12 Swiss/French II */	\
+"spanish",		/* 0x13 Spanish */		\
+"swiss.german",		/* 0x14 Swiss/German II */	\
+"flemish",		/* 0x15 Belgian (Flemish) */	\
+"finnish",		/* 0x16 Finnish	*/		\
+"english.uk",		/* 0x17 United Kingdom */	\
+"french.canadian",	/* 0x18 French/Canadian */	\
+"swiss.german",		/* 0x19 Swiss/German */		\
+"norwegian",		/* 0x1a Norwegian */		\
+"french",		/* 0x1b French */		\
+"danish",		/* 0x1c Danish */		\
+"japanese",		/* 0x1d Katakana */		\
+"spanish",		/* 0x1e Latin American/Spanish*/\
+"english.us"		/* 0x1f United States */	\
 
 
+/* HIL keycodes */
 #define HIL_KEYCODES_SET1_TBLSIZE 128
 #define HIL_KEYCODES_SET1 	\
    KEY_5,		KEY_RESERVED,	KEY_RIGHTALT,	KEY_LEFTALT,	\
@@ -359,7 +402,7 @@ enum hil_command {
    KEY_B,		KEY_V,		KEY_C,		KEY_X,		\
    KEY_Z,		KEY_RESERVED,	KEY_RESERVED,   KEY_ESC,	\
    KEY_6,		KEY_F10,	KEY_3,		KEY_F11,	\
-   KEY_KPDOT,		KEY_F9,		KEY_TAB ,	KEY_F12,	\
+   KEY_KPDOT,		KEY_F9,		KEY_TAB /*KP*/,	KEY_F12,	\
    KEY_H,		KEY_G,		KEY_F,		KEY_D,		\
    KEY_S,		KEY_A,		KEY_RESERVED,	KEY_CAPSLOCK,	\
    KEY_U,		KEY_Y,		KEY_T,		KEY_R,		\
@@ -420,20 +463,21 @@ enum hil_command {
   KEY_RESERVED,	KEY_RESERVED,	KEY_RESERVED,	KEY_RESERVED
 
 
+/* Response to POL command, the "poll record header" */
 
-#define HIL_POL_NUM_AXES_MASK	0x03	
-#define HIL_POL_CTS		0x04	
-#define HIL_POL_STATUS_PENDING	0x08	
-#define HIL_POL_CHARTYPE_MASK	0x70	
-#define HIL_POL_CHARTYPE_NONE	0x00	
-#define HIL_POL_CHARTYPE_RSVD1	0x10	
-#define HIL_POL_CHARTYPE_ASCII	0x20	
-#define HIL_POL_CHARTYPE_BINARY	0x30	
-#define HIL_POL_CHARTYPE_SET1	0x40	
-#define HIL_POL_CHARTYPE_RSVD2	0x50	
-#define HIL_POL_CHARTYPE_SET2	0x60	
-#define HIL_POL_CHARTYPE_SET3	0x70	
-#define HIL_POL_AXIS_ALT	0x80	
+#define HIL_POL_NUM_AXES_MASK	0x03	/* Number of axis reported */
+#define HIL_POL_CTS		0x04	/* Device ready to receive data */
+#define HIL_POL_STATUS_PENDING	0x08	/* Device has status to report */
+#define HIL_POL_CHARTYPE_MASK	0x70	/* Type of character data to follow */
+#define HIL_POL_CHARTYPE_NONE	0x00	/* No character data to follow */
+#define HIL_POL_CHARTYPE_RSVD1	0x10	/* Reserved Set 1 */
+#define HIL_POL_CHARTYPE_ASCII	0x20	/* U.S. ASCII */
+#define HIL_POL_CHARTYPE_BINARY	0x30	/* Binary data */
+#define HIL_POL_CHARTYPE_SET1	0x40	/* Keycode Set 1 */
+#define HIL_POL_CHARTYPE_RSVD2	0x50	/* Reserved Set 2 */
+#define HIL_POL_CHARTYPE_SET2	0x60	/* Keycode Set 2 */
+#define HIL_POL_CHARTYPE_SET3	0x70	/* Keycode Set 3 */
+#define HIL_POL_AXIS_ALT	0x80	/* Data is from axis set 2 */
 
 
-#endif 
+#endif /* _HIL_H_ */

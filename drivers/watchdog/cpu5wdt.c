@@ -36,6 +36,7 @@
 #include <linux/uaccess.h>
 #include <linux/watchdog.h>
 
+/* adjustable parameters */
 
 static int verbose;
 static int port = 0x91;
@@ -56,6 +57,7 @@ static DEFINE_SPINLOCK(cpu5wdt_lock);
 
 #define CPU5WDT_INTERVAL	(HZ/10+1)
 
+/* some device data */
 
 static struct {
 	struct completion stop;
@@ -66,6 +68,7 @@ static struct {
 	unsigned long inuse;
 } cpu5wdt_device;
 
+/* generic helper functions */
 
 static void cpu5wdt_trigger(unsigned long unused)
 {
@@ -76,14 +79,14 @@ static void cpu5wdt_trigger(unsigned long unused)
 		ticks--;
 
 	spin_lock(&cpu5wdt_lock);
-	
+	/* keep watchdog alive */
 	outb(1, port + CPU5WDT_TRIGGER_REG);
 
-	
+	/* requeue?? */
 	if (cpu5wdt_device.queue && ticks)
 		mod_timer(&cpu5wdt_device.timer, jiffies + CPU5WDT_INTERVAL);
 	else {
-		
+		/* ticks doesn't matter anyway */
 		complete(&cpu5wdt_device.stop);
 	}
 	spin_unlock(&cpu5wdt_lock);
@@ -113,7 +116,7 @@ static void cpu5wdt_start(void)
 		outb(0, port + CPU5WDT_ENABLE_REG);
 		mod_timer(&cpu5wdt_device.timer, jiffies + CPU5WDT_INTERVAL);
 	}
-	
+	/* if process dies, counter is not decremented */
 	cpu5wdt_device.running++;
 	spin_unlock_irqrestore(&cpu5wdt_lock, flags);
 }
@@ -132,6 +135,7 @@ static int cpu5wdt_stop(void)
 	return -EIO;
 }
 
+/* filesystem operations */
 
 static int cpu5wdt_open(struct inode *inode, struct file *file)
 {
@@ -209,6 +213,7 @@ static struct miscdevice cpu5wdt_misc = {
 	.fops	= &cpu5wdt_fops,
 };
 
+/* init/exit function */
 
 static int __devinit cpu5wdt_init(void)
 {
@@ -229,7 +234,7 @@ static int __devinit cpu5wdt_init(void)
 		goto no_port;
 	}
 
-	
+	/* watchdog reboot? */
 	val = inb(port + CPU5WDT_STATUS_REG);
 	val = (val >> 2) & 1;
 	if (!val)
@@ -274,6 +279,7 @@ static void __devexit cpu5wdt_exit_module(void)
 	cpu5wdt_exit();
 }
 
+/* module entry points */
 
 module_init(cpu5wdt_init_module);
 module_exit(cpu5wdt_exit_module);

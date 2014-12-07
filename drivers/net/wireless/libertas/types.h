@@ -1,3 +1,6 @@
+/*
+ * This header file contains definition for global types
+ */
 #ifndef _LBS_TYPES_H_
 #define _LBS_TYPES_H_
 
@@ -51,8 +54,10 @@ union ieee_phy_param_set {
 	struct ieee_ie_ds_param_set ds;
 } __packed;
 
+/* TLV  type ID definition */
 #define PROPRIETARY_TLV_BASE_ID		0x0100
 
+/* Terminating TLV type */
 #define MRVL_TERMINATE_TLV_ID		0xffff
 
 #define TLV_TYPE_SSID				0x0000
@@ -91,6 +96,7 @@ union ieee_phy_param_set {
 #define TLV_TYPE_MESH_ID            (PROPRIETARY_TLV_BASE_ID + 37)
 #define TLV_TYPE_OLD_MESH_ID        (PROPRIETARY_TLV_BASE_ID + 291)
 
+/* TLV related data structures */
 struct mrvl_ie_header {
 	__le16 type;
 	__le16 len;
@@ -165,17 +171,20 @@ struct mrvl_ie_tsf_timestamp {
 	__le64 tsftable[1];
 } __packed;
 
+/* v9 and later firmware only */
 struct mrvl_ie_auth_type {
 	struct mrvl_ie_header header;
 	__le16 auth;
 } __packed;
 
+/*  Local Power capability */
 struct mrvl_ie_power_capability {
 	struct mrvl_ie_header header;
 	s8 minpower;
 	s8 maxpower;
 } __packed;
 
+/* used in CMD_802_11_SUBSCRIBE_EVENT for SNR, RSSI and Failure */
 struct mrvl_ie_thresholds {
 	struct mrvl_ie_header header;
 	u8 value;
@@ -226,6 +235,11 @@ struct mrvl_ie_ledbhv {
 	struct led_bhv ledbhv[1];
 } __packed;
 
+/*
+ * Meant to be packed as the value member of a struct ieee80211_info_element.
+ * Note that the len member of the ieee80211_info_element varies depending on
+ * the mesh_id_len
+ */
 struct mrvl_meshie_val {
 	uint8_t oui[3];
 	uint8_t type;

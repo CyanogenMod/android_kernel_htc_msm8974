@@ -13,6 +13,7 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 *******************************************************************************/
+/* dn_nsp.c functions prototyping */
 
 extern void dn_nsp_send_data_ack(struct sock *sk);
 extern void dn_nsp_send_oth_ack(struct sock *sk);
@@ -38,32 +39,36 @@ extern int dn_nsp_backlog_rcv(struct sock *sk, struct sk_buff *skb);
 extern struct sk_buff *dn_alloc_skb(struct sock *sk, int size, gfp_t pri);
 extern struct sk_buff *dn_alloc_send_skb(struct sock *sk, size_t *size, int noblock, long timeo, int *err);
 
-#define NSP_REASON_OK 0		
-#define NSP_REASON_NR 1		
-#define NSP_REASON_UN 2		
-#define NSP_REASON_SD 3		
-#define NSP_REASON_ID 4		
-#define NSP_REASON_ER 5		
-#define NSP_REASON_OB 6		
-#define NSP_REASON_US 7		
-#define NSP_REASON_TP 8		
-#define NSP_REASON_EA 9		
-#define NSP_REASON_IF 10	
-#define NSP_REASON_LS 11	
-#define NSP_REASON_LL 32	
-#define NSP_REASON_LE 33	
-#define NSP_REASON_UR 34	
-#define NSP_REASON_UA 36	
-#define NSP_REASON_TM 38	
-#define NSP_REASON_NU 39	
-#define NSP_REASON_NL 41	
-#define NSP_REASON_DC 42	
-#define NSP_REASON_IO 43	
+#define NSP_REASON_OK 0		/* No error */
+#define NSP_REASON_NR 1		/* No resources */
+#define NSP_REASON_UN 2		/* Unrecognised node name */
+#define NSP_REASON_SD 3		/* Node shutting down */
+#define NSP_REASON_ID 4		/* Invalid destination end user */
+#define NSP_REASON_ER 5		/* End user lacks resources */
+#define NSP_REASON_OB 6		/* Object too busy */
+#define NSP_REASON_US 7		/* Unspecified error */
+#define NSP_REASON_TP 8		/* Third-Party abort */
+#define NSP_REASON_EA 9		/* End user has aborted the link */
+#define NSP_REASON_IF 10	/* Invalid node name format */
+#define NSP_REASON_LS 11	/* Local node shutdown */
+#define NSP_REASON_LL 32	/* Node lacks logical-link resources */
+#define NSP_REASON_LE 33	/* End user lacks logical-link resources */
+#define NSP_REASON_UR 34	/* Unacceptable RQSTRID or PASSWORD field */
+#define NSP_REASON_UA 36	/* Unacceptable ACCOUNT field */
+#define NSP_REASON_TM 38	/* End user timed out logical link */
+#define NSP_REASON_NU 39	/* Node unreachable */
+#define NSP_REASON_NL 41	/* No-link message */
+#define NSP_REASON_DC 42	/* Disconnect confirm */
+#define NSP_REASON_IO 43	/* Image data field overflow */
 
 #define NSP_DISCINIT 0x38
 #define NSP_DISCCONF 0x48
 
+/*------------------------- NSP - messages ------------------------------*/
+/* Data Messages */
+/*---------------*/
 
+/* Data Messages    (data segment/interrupt/link service)               */
 
 struct nsp_data_seg_msg {
 	__u8   msgflg;
@@ -83,6 +88,7 @@ struct nsp_data_opt_msg1 {
 } __packed;
 
 
+/* Acknowledgment Message (data/other data)                             */
 struct nsp_data_ack_msg {
 	__u8   msgflg;
 	__le16 dstaddr;
@@ -90,27 +96,30 @@ struct nsp_data_ack_msg {
 	__le16 acknum;
 } __packed;
 
+/* Connect Acknowledgment Message */
 struct  nsp_conn_ack_msg {
 	__u8 msgflg;
 	__le16 dstaddr;
 } __packed;
 
 
+/* Connect Initiate/Retransmit Initiate/Connect Confirm */
 struct  nsp_conn_init_msg {
 	__u8   msgflg;
-#define NSP_CI      0x18            
-#define NSP_RCI     0x68            
+#define NSP_CI      0x18            /* Connect Initiate     */
+#define NSP_RCI     0x68            /* Retrans. Conn Init   */
 	__le16 dstaddr;
 	__le16 srcaddr;
 	__u8   services;
-#define NSP_FC_NONE   0x00            
-#define NSP_FC_SRC    0x04            
-#define NSP_FC_SCMC   0x08            
-#define NSP_FC_MASK   0x0c            
+#define NSP_FC_NONE   0x00            /* Flow Control None    */
+#define NSP_FC_SRC    0x04            /* Seg Req. Count       */
+#define NSP_FC_SCMC   0x08            /* Sess. Control Mess   */
+#define NSP_FC_MASK   0x0c            /* FC type mask         */
 	__u8   info;
 	__le16 segsize;
 } __packed;
 
+/* Disconnect Initiate/Disconnect Confirm */
 struct  nsp_disconn_init_msg {
 	__u8   msgflg;
 	__le16 dstaddr;
@@ -128,6 +137,11 @@ struct  srcobj_fmt {
 	__u8   dlen;
 } __packed;
 
+/*
+ * A collection of functions for manipulating the sequence
+ * numbers used in NSP. Similar in operation to the functions
+ * of the same name in TCP.
+ */
 static __inline__ int dn_before(__u16 seq1, __u16 seq2)
 {
         seq1 &= 0x0fff;
@@ -166,11 +180,17 @@ static __inline__ int seq_next(__u16 seq1, __u16 seq2)
 	return dn_equal(seq1 + 1, seq2);
 }
 
+/*
+ * Can we delay the ack ?
+ */
 static __inline__ int sendack(__u16 seq)
 {
         return (int)((seq & 0x1000) ? 0 : 1);
 }
 
+/*
+ * Is socket congested ?
+ */
 static __inline__ int dn_congested(struct sock *sk)
 {
         return atomic_read(&sk->sk_rmem_alloc) > (sk->sk_rcvbuf >> 1);
@@ -178,4 +198,4 @@ static __inline__ int dn_congested(struct sock *sk)
 
 #define DN_MAX_NSP_DATA_HEADER (11)
 
-#endif 
+#endif /* _NET_DN_NSP_H */

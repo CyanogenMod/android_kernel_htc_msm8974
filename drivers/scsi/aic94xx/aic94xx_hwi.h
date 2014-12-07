@@ -36,17 +36,18 @@
 #include "aic94xx.h"
 #include "aic94xx_sas.h"
 
+/* Define ASD_MAX_PHYS to the maximum phys ever. Currently 8. */
 #define ASD_MAX_PHYS       8
 #define ASD_PCBA_SN_SIZE   12
 
 struct asd_ha_addrspace {
 	void __iomem  *addr;
-	unsigned long  start;       
-	unsigned long  len;         
-	unsigned long  flags;       
+	unsigned long  start;       /* pci resource start */
+	unsigned long  len;         /* pci resource len */
+	unsigned long  flags;       /* pci resource flags */
 
-	
-	u32 swa_base; 
+	/* addresses internal to the host adapter */
+	u32 swa_base; /* mmspace 1 (MBAR1) uses this only */
 	u32 swb_base;
 	u32 swc_base;
 };
@@ -77,7 +78,7 @@ struct flash_struct {
 };
 
 struct asd_phy_desc {
-	
+	/* From CTRL-A settings, then set to what is appropriate */
 	u8     sas_addr[SAS_ADDR_SIZE];
 	u8     max_sas_lrate;
 	u8     min_sas_lrate;
@@ -87,10 +88,10 @@ struct asd_phy_desc {
 #define ASD_CRC_DIS  1
 #define ASD_SATA_SPINUP_HOLD 2
 
-	u8     phy_control_0; 
-	u8     phy_control_1; 
-	u8     phy_control_2; 
-	u8     phy_control_3; 
+	u8     phy_control_0; /* mode 5 reg 0x160 */
+	u8     phy_control_1; /* mode 5 reg 0x161 */
+	u8     phy_control_2; /* mode 5 reg 0x162 */
+	u8     phy_control_3; /* mode 5 reg 0x163 */
 };
 
 struct asd_dma_tok {
@@ -107,9 +108,9 @@ struct hw_profile {
 	u8     sas_addr[SAS_ADDR_SIZE];
 	char   pcba_sn[ASD_PCBA_SN_SIZE+1];
 
-	u8     enabled_phys;	  
+	u8     enabled_phys;	  /* mask of enabled phys */
 	struct asd_phy_desc phy_desc[ASD_MAX_PHYS];
-	u32    max_scbs;	  
+	u32    max_scbs;	  /* absolute sequencer scb queue size */
 	struct asd_dma_tok *scb_ext;
 	u32    max_ddbs;
 	struct asd_dma_tok *ddb_ext;
@@ -117,10 +118,10 @@ struct hw_profile {
 	spinlock_t ddb_lock;
 	void  *ddb_bitmap;
 
-	int    num_phys;	  
-	int    max_phys;	  
+	int    num_phys;	  /* ENABLEABLE */
+	int    max_phys;	  /* REPORTED + ENABLEABLE */
 
-	unsigned addr_range;	  
+	unsigned addr_range;	  /* max # of addrs; max # of possible ports */
 	unsigned port_name_base;
 	unsigned dev_name_base;
 	unsigned sata_name_base;
@@ -130,23 +131,23 @@ struct asd_ascb {
 	struct list_head list;
 	struct asd_ha_struct *ha;
 
-	struct scb *scb;	  
+	struct scb *scb;	  /* equals dma_scb->vaddr */
 	struct asd_dma_tok dma_scb;
 	struct asd_dma_tok *sg_arr;
 
 	void (*tasklet_complete)(struct asd_ascb *, struct done_list_struct *);
 	u8     uldd_timer:1;
 
-	
+	/* internally generated command */
 	struct timer_list timer;
 	struct completion *completion;
 	u8        tag_valid:1;
-	__be16    tag;		  
+	__be16    tag;		  /* error recovery only */
 
-	
+	/* If this is an Empty SCB, index of first edb in seq->edb_arr. */
 	int    edb_index;
 
-	
+	/* Used by the timer timeout function. */
 	int    tc_index;
 
 	void   *uldd_task;
@@ -161,8 +162,8 @@ struct asd_seq_data {
 	u16    scbpro;
 	int    pending;
 	struct list_head pend_q;
-	int    can_queue;	  
-	struct asd_dma_tok next_scb; 
+	int    can_queue;	  /* per adapter */
+	struct asd_dma_tok next_scb; /* next scb to be delivered to CSEQ */
 
 	spinlock_t tc_index_lock;
 	void **tc_index_array;
@@ -170,17 +171,20 @@ struct asd_seq_data {
 	int   tc_index_bitmap_bits;
 
 	struct tasklet_struct dl_tasklet;
-	struct done_list_struct *dl; 
-	struct asd_dma_tok *actual_dl; 
+	struct done_list_struct *dl; /* array of done list entries, equals */
+	struct asd_dma_tok *actual_dl; /* actual_dl->vaddr */
 	int    dl_toggle;
 	int    dl_next;
 
 	int    num_edbs;
 	struct asd_dma_tok **edb_arr;
 	int    num_escbs;
-	struct asd_ascb **escb_arr; 
+	struct asd_ascb **escb_arr; /* array of pointers to escbs */
 };
 
+/* This is an internal port structure. These are used to get accurate
+ * phy_mask for updating DDB 0.
+ */
 struct asd_port {
 	u8  sas_addr[SAS_ADDR_SIZE];
 	u8  attached_sas_addr[SAS_ADDR_SIZE];
@@ -188,6 +192,9 @@ struct asd_port {
 	int num_phys;
 };
 
+/* This is the Host Adapter structure.  It describes the hardware
+ * SAS adapter.
+ */
 struct asd_ha_struct {
 	struct pci_dev   *pcidev;
 	const char       *name;
@@ -209,11 +216,12 @@ struct asd_ha_struct {
 
 	struct dma_pool  *scb_pool;
 
-	struct asd_seq_data  seq; 
+	struct asd_seq_data  seq; /* sequencer related */
 	u32    bios_status;
 	const struct firmware *bios_image;
 };
 
+/* ---------- Common macros ---------- */
 
 #define ASD_BUSADDR_LO(__dma_handle) ((u32)(__dma_handle))
 #define ASD_BUSADDR_HI(__dma_handle) (((sizeof(dma_addr_t))==8)     \
@@ -223,6 +231,10 @@ struct asd_ha_struct {
 #define dev_to_asd_ha(__dev)  pci_get_drvdata(to_pci_dev(__dev))
 #define SCB_SITE_VALID(__site_no) (((__site_no) & 0xF0FF) != 0x00FF   \
 				 && ((__site_no) & 0xF0FF) > 0x001F)
+/* For each bit set in __lseq_mask, set __lseq to equal the bit
+ * position of the set bit and execute the statement following.
+ * __mc is the temporary mask, used as a mask "counter".
+ */
 #define for_each_sequencer(__lseq_mask, __mc, __lseq)                        \
 	for ((__mc)=(__lseq_mask),(__lseq)=0;(__mc)!=0;(__lseq++),(__mc)>>=1)\
 		if (((__mc) & 1))
@@ -232,6 +244,7 @@ struct asd_ha_struct {
 
 #define PHY_ENABLED(_HA, _I) ((_HA)->hw_prof.enabled_phys & (1<<(_I)))
 
+/* ---------- DMA allocs ---------- */
 
 static inline struct asd_dma_tok *asd_dmatok_alloc(gfp_t flags)
 {
@@ -283,12 +296,16 @@ static inline void asd_init_ascb(struct asd_ha_struct *asd_ha,
 	ascb->tc_index = -1;
 }
 
+/* Must be called with the tc_index_lock held!
+ */
 static inline void asd_tc_index_release(struct asd_seq_data *seq, int index)
 {
 	seq->tc_index_array[index] = NULL;
 	clear_bit(index, seq->tc_index_bitmap);
 }
 
+/* Must be called with the tc_index_lock held!
+ */
 static inline int asd_tc_index_get(struct asd_seq_data *seq, void *ptr)
 {
 	int index;
@@ -304,11 +321,20 @@ static inline int asd_tc_index_get(struct asd_seq_data *seq, void *ptr)
 	return index;
 }
 
+/* Must be called with the tc_index_lock held!
+ */
 static inline void *asd_tc_index_find(struct asd_seq_data *seq, int index)
 {
 	return seq->tc_index_array[index];
 }
 
+/**
+ * asd_ascb_free -- free a single aSCB after is has completed
+ * @ascb: pointer to the aSCB of interest
+ *
+ * This frees an aSCB after it has been executed/completed by
+ * the sequencer.
+ */
 static inline void asd_ascb_free(struct asd_ascb *ascb)
 {
 	if (ascb) {
@@ -325,6 +351,14 @@ static inline void asd_ascb_free(struct asd_ascb *ascb)
 	}
 }
 
+/**
+ * asd_ascb_list_free -- free a list of ascbs
+ * @ascb_list: a list of ascbs
+ *
+ * This function will free a list of ascbs allocated by asd_ascb_alloc_list.
+ * It is used when say the scb queueing function returned QUEUE_FULL,
+ * and we do not need the ascbs any more.
+ */
 static inline void asd_ascb_free_list(struct asd_ascb *ascb_list)
 {
 	LIST_HEAD(list);
@@ -337,6 +371,7 @@ static inline void asd_ascb_free_list(struct asd_ascb *ascb_list)
 	}
 }
 
+/* ---------- Function declarations ---------- */
 
 int  asd_init_hw(struct asd_ha_struct *asd_ha);
 irqreturn_t asd_hw_isr(int irq, void *dev_id);

@@ -17,11 +17,13 @@
 
 #include "hvc_console.h"
 
-#define EMUDOF   0x00000001	
-#define EMUDIF   0x00000002	
-#define EMUDOOVF 0x00000004	
-#define EMUDIOVF 0x00000008	
+/* See the Debug/Emulation chapter in the HRM */
+#define EMUDOF   0x00000001	/* EMUDAT_OUT full & valid */
+#define EMUDIF   0x00000002	/* EMUDAT_IN full & valid */
+#define EMUDOOVF 0x00000004	/* EMUDAT_OUT overflow */
+#define EMUDIOVF 0x00000008	/* EMUDAT_IN overflow */
 
+/* Helper functions to glue the register API to simple C operations */
 static inline uint32_t bfin_write_emudat(uint32_t emudat)
 {
 	__asm__ __volatile__("emudat = %0;" : : "d"(emudat));
@@ -35,6 +37,7 @@ static inline uint32_t bfin_read_emudat(void)
 	return emudat;
 }
 
+/* Send data to the host */
 static int hvc_bfin_put_chars(uint32_t vt, const char *buf, int count)
 {
 	static uint32_t outbound_len;
@@ -58,6 +61,7 @@ static int hvc_bfin_put_chars(uint32_t vt, const char *buf, int count)
 	return ret;
 }
 
+/* Receive data from the host */
 static int hvc_bfin_get_chars(uint32_t vt, char *buf, int count)
 {
 	static uint32_t inbound_len;
@@ -80,6 +84,7 @@ static int hvc_bfin_get_chars(uint32_t vt, char *buf, int count)
 	return ret;
 }
 
+/* Glue the HVC layers to the Blackfin layers */
 static const struct hv_ops hvc_bfin_get_put_ops = {
 	.get_chars = hvc_bfin_get_chars,
 	.put_chars = hvc_bfin_put_chars,

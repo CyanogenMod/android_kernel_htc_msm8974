@@ -10,4 +10,4 @@
 
 #define LITTLETON_NR_IRQS	(IRQ_BOARD_START + 8)
 
-#endif 
+#endif /* __ASM_ARCH_LITTLETON_H */

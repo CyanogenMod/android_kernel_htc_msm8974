@@ -52,11 +52,20 @@ static u32 tipc_num_nodes;
 
 static atomic_t tipc_num_links = ATOMIC_INIT(0);
 
+/*
+ * A trivial power-of-two bitmask technique is used for speed, since this
+ * operation is done for every incoming TIPC packet. The number of hash table
+ * entries has been chosen so that no hash chain exceeds 8 nodes and will
+ * usually be much smaller (typically only a single node).
+ */
 static inline unsigned int tipc_hashfn(u32 addr)
 {
 	return addr & (NODE_HTABLE_SIZE - 1);
 }
 
+/*
+ * tipc_node_find - locate specified node object, if it exists
+ */
 
 struct tipc_node *tipc_node_find(u32 addr)
 {
@@ -73,6 +82,15 @@ struct tipc_node *tipc_node_find(u32 addr)
 	return NULL;
 }
 
+/**
+ * tipc_node_create - create neighboring node
+ *
+ * Currently, this routine is called by neighbor discovery code, which holds
+ * net_lock for reading only.  We must take node_create_lock to ensure a node
+ * isn't created twice if two different bearers discover the node at the same
+ * time.  (It would be preferable to switch to holding net_lock in write mode,
+ * but this is a non-trivial change.)
+ */
 
 struct tipc_node *tipc_node_create(u32 addr)
 {
@@ -125,6 +143,11 @@ void tipc_node_delete(struct tipc_node *n_ptr)
 }
 
 
+/**
+ * tipc_node_link_up - handle addition of link
+ *
+ * Link becomes active (alone or shared) or standby, depending on its priority.
+ */
 
 void tipc_node_link_up(struct tipc_node *n_ptr, struct tipc_link *l_ptr)
 {
@@ -155,6 +178,9 @@ void tipc_node_link_up(struct tipc_node *n_ptr, struct tipc_link *l_ptr)
 	active[0] = active[1] = l_ptr;
 }
 
+/**
+ * node_select_active_links - select active link
+ */
 
 static void node_select_active_links(struct tipc_node *n_ptr)
 {
@@ -180,6 +206,9 @@ static void node_select_active_links(struct tipc_node *n_ptr)
 	}
 }
 
+/**
+ * tipc_node_link_down - handle loss of link
+ */
 
 void tipc_node_link_down(struct tipc_node *n_ptr, struct tipc_link *l_ptr)
 {
@@ -270,7 +299,7 @@ static void node_lost_contact(struct tipc_node *n_ptr)
 	info("Lost contact with %s\n",
 	     tipc_addr_string_fill(addr_string, n_ptr->addr));
 
-	
+	/* Flush broadcast link info associated with lost node */
 
 	if (n_ptr->bclink.supported) {
 		while (n_ptr->bclink.deferred_head) {
@@ -291,7 +320,7 @@ static void node_lost_contact(struct tipc_node *n_ptr)
 		n_ptr->bclink.supported = 0;
 	}
 
-	
+	/* Abort link changeover */
 	for (i = 0; i < MAX_BEARERS; i++) {
 		struct tipc_link *l_ptr = n_ptr->links[i];
 		if (!l_ptr)
@@ -301,10 +330,10 @@ static void node_lost_contact(struct tipc_node *n_ptr)
 		tipc_link_reset_fragments(l_ptr);
 	}
 
-	
+	/* Notify subscribers */
 	tipc_nodesub_notify(n_ptr);
 
-	
+	/* Prevent re-contact with node until cleanup is done */
 
 	n_ptr->block_setup = WAIT_PEER_DOWN | WAIT_NAMES_GONE;
 	tipc_k_signal((Handler)node_name_purge_complete, n_ptr->addr);
@@ -332,7 +361,7 @@ struct sk_buff *tipc_node_get_nodes(const void *req_tlv_area, int req_tlv_space)
 		return tipc_cfg_reply_none();
 	}
 
-	
+	/* For now, get space for all other nodes */
 
 	payload_size = TLV_SPACE(sizeof(node_info)) * tipc_num_nodes;
 	if (payload_size > 32768u) {
@@ -346,7 +375,7 @@ struct sk_buff *tipc_node_get_nodes(const void *req_tlv_area, int req_tlv_space)
 		return NULL;
 	}
 
-	
+	/* Add TLVs for all nodes in scope */
 
 	list_for_each_entry(n_ptr, &tipc_node_list, list) {
 		if (!tipc_in_scope(domain, n_ptr->addr))
@@ -382,7 +411,7 @@ struct sk_buff *tipc_node_get_links(const void *req_tlv_area, int req_tlv_space)
 
 	read_lock_bh(&tipc_net_lock);
 
-	
+	/* Get space for all unicast links + broadcast link */
 
 	payload_size = TLV_SPACE(sizeof(link_info)) *
 		(atomic_read(&tipc_num_links) + 1);
@@ -397,14 +426,14 @@ struct sk_buff *tipc_node_get_links(const void *req_tlv_area, int req_tlv_space)
 		return NULL;
 	}
 
-	
+	/* Add TLV for broadcast link */
 
 	link_info.dest = htonl(tipc_cluster_mask(tipc_own_addr));
 	link_info.up = htonl(1);
 	strlcpy(link_info.str, tipc_bclink_name, TIPC_MAX_LINK_NAME);
 	tipc_cfg_append_tlv(buf, TIPC_TLV_LINK_INFO, &link_info, sizeof(link_info));
 
-	
+	/* Add TLVs for any other links in scope */
 
 	list_for_each_entry(n_ptr, &tipc_node_list, list) {
 		u32 i;

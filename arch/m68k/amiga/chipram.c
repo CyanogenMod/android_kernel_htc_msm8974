@@ -62,12 +62,18 @@ void *amiga_chip_alloc(unsigned long size, const char *name)
 EXPORT_SYMBOL(amiga_chip_alloc);
 
 
+	/*
+	 *  Warning:
+	 *  amiga_chip_alloc_res is meant only for drivers that need to
+	 *  allocate Chip RAM before kmalloc() is functional. As a consequence,
+	 *  those drivers must not free that Chip RAM afterwards.
+	 */
 
 void *amiga_chip_alloc_res(unsigned long size, struct resource *res)
 {
 	int error;
 
-	
+	/* round up */
 	size = PAGE_ALIGN(size);
 
 	pr_debug("amiga_chip_alloc_res: allocate %lu bytes\n", size);

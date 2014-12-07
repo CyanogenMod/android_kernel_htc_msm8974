@@ -44,34 +44,42 @@ MODULE_DEVICE_TABLE(parisc, gscps2_device_tbl);
 
 #define PFX "gscps2.c: "
 
+/*
+ * Driver constants
+ */
 
+/* various constants */
 #define ENABLE			1
 #define DISABLE			0
 
-#define GSC_DINO_OFFSET		0x0800	
+#define GSC_DINO_OFFSET		0x0800	/* offset for DINO controller versus LASI one */
 
-#define GSC_ID			0x00	
-#define GSC_RESET		0x00	
-#define GSC_RCVDATA		0x04	
-#define GSC_XMTDATA		0x04	
-#define GSC_CONTROL		0x08	
-#define GSC_STATUS		0x0C	
+/* PS/2 IO port offsets */
+#define GSC_ID			0x00	/* device ID offset (see: GSC_ID_XXX) */
+#define GSC_RESET		0x00	/* reset port offset */
+#define GSC_RCVDATA		0x04	/* receive port offset */
+#define GSC_XMTDATA		0x04	/* transmit port offset */
+#define GSC_CONTROL		0x08	/* see: Control register bits */
+#define GSC_STATUS		0x0C	/* see: Status register bits */
 
-#define GSC_CTRL_ENBL		0x01	
-#define GSC_CTRL_LPBXR		0x02	
-#define GSC_CTRL_DIAG		0x20	
-#define GSC_CTRL_DATDIR		0x40	
-#define GSC_CTRL_CLKDIR		0x80	
+/* Control register bits */
+#define GSC_CTRL_ENBL		0x01	/* enable interface */
+#define GSC_CTRL_LPBXR		0x02	/* loopback operation */
+#define GSC_CTRL_DIAG		0x20	/* directly control clock/data line */
+#define GSC_CTRL_DATDIR		0x40	/* data line direct control */
+#define GSC_CTRL_CLKDIR		0x80	/* clock line direct control */
 
-#define GSC_STAT_RBNE		0x01	
-#define GSC_STAT_TBNE		0x02	
-#define GSC_STAT_TERR		0x04	
-#define GSC_STAT_PERR		0x08	
-#define GSC_STAT_CMPINTR	0x10	
-#define GSC_STAT_DATSHD		0x40	
-#define GSC_STAT_CLKSHD		0x80	
+/* Status register bits */
+#define GSC_STAT_RBNE		0x01	/* Receive Buffer Not Empty */
+#define GSC_STAT_TBNE		0x02	/* Transmit Buffer Not Empty */
+#define GSC_STAT_TERR		0x04	/* Timeout Error */
+#define GSC_STAT_PERR		0x08	/* Parity Error */
+#define GSC_STAT_CMPINTR	0x10	/* Composite Interrupt = irq on any port */
+#define GSC_STAT_DATSHD		0x40	/* Data Line Shadow */
+#define GSC_STAT_CLKSHD		0x80	/* Clock Line Shadow */
 
-#define GSC_ID_KEYBOARD		0	
+/* IDs returned by GSC_ID port register */
+#define GSC_ID_KEYBOARD		0	/* device ID values */
 #define GSC_ID_MOUSE		1
 
 
@@ -79,13 +87,14 @@ static irqreturn_t gscps2_interrupt(int irq, void *dev);
 
 #define BUFFER_SIZE 0x0f
 
+/* GSC PS/2 port device struct */
 struct gscps2port {
 	struct list_head node;
 	struct parisc_device *padev;
 	struct serio *port;
 	spinlock_t lock;
 	char *addr;
-	u8 act, append; 
+	u8 act, append; /* position in buffer[] */
 	struct {
 		u8 data;
 		u8 str;
@@ -93,6 +102,9 @@ struct gscps2port {
 	int id;
 };
 
+/*
+ * Various HW level routines
+ */
 
 #define gscps2_readb_input(x)		readb((x)+GSC_RCVDATA)
 #define gscps2_readb_control(x)		readb((x)+GSC_CONTROL)
@@ -100,19 +112,25 @@ struct gscps2port {
 #define gscps2_writeb_control(x, y)	writeb((x), (y)+GSC_CONTROL)
 
 
+/*
+ * wait_TBE() - wait for Transmit Buffer Empty
+ */
 
 static int wait_TBE(char *addr)
 {
-	int timeout = 25000; 
+	int timeout = 25000; /* device is expected to react within 250 msec */
 	while (gscps2_readb_status(addr) & GSC_STAT_TBNE) {
 		if (!--timeout)
-			return 0;	
+			return 0;	/* This should not happen */
 		udelay(10);
 	}
 	return 1;
 }
 
 
+/*
+ * gscps2_flush() - flush the receive buffer
+ */
 
 static void gscps2_flush(struct gscps2port *ps2port)
 {
@@ -121,6 +139,11 @@ static void gscps2_flush(struct gscps2port *ps2port)
 	ps2port->act = ps2port->append = 0;
 }
 
+/*
+ * gscps2_writeb_output() - write a byte to the port
+ *
+ * returns 1 on success, 0 on error
+ */
 
 static inline int gscps2_writeb_output(struct gscps2port *ps2port, u8 data)
 {
@@ -133,30 +156,33 @@ static inline int gscps2_writeb_output(struct gscps2port *ps2port, u8 data)
 	}
 
 	while (gscps2_readb_status(ps2port->addr) & GSC_STAT_RBNE)
-		;
+		/* wait */;
 
 	spin_lock_irqsave(&ps2port->lock, flags);
 	writeb(data, addr+GSC_XMTDATA);
 	spin_unlock_irqrestore(&ps2port->lock, flags);
 
-	
+	/* this is ugly, but due to timing of the port it seems to be necessary. */
 	mdelay(6);
 
-	
-	
+	/* make sure any received data is returned as fast as possible */
+	/* this is important e.g. when we set the LEDs on the keyboard */
 	gscps2_interrupt(0, NULL);
 
 	return 1;
 }
 
 
+/*
+ * gscps2_enable() - enables or disables the port
+ */
 
 static void gscps2_enable(struct gscps2port *ps2port, int enable)
 {
 	unsigned long flags;
 	u8 data;
 
-	
+	/* now enable/disable the port */
 	spin_lock_irqsave(&ps2port->lock, flags);
 	gscps2_flush(ps2port);
 	data = gscps2_readb_control(ps2port->addr);
@@ -170,13 +196,16 @@ static void gscps2_enable(struct gscps2port *ps2port, int enable)
 	gscps2_flush(ps2port);
 }
 
+/*
+ * gscps2_reset() - resets the PS/2 port
+ */
 
 static void gscps2_reset(struct gscps2port *ps2port)
 {
 	char *addr = ps2port->addr;
 	unsigned long flags;
 
-	
+	/* reset the interface */
 	spin_lock_irqsave(&ps2port->lock, flags);
 	gscps2_flush(ps2port);
 	writeb(0xff, addr+GSC_RESET);
@@ -186,6 +215,17 @@ static void gscps2_reset(struct gscps2port *ps2port)
 
 static LIST_HEAD(ps2port_list);
 
+/**
+ * gscps2_interrupt() - Interruption service routine
+ *
+ * This function reads received PS/2 bytes and processes them on
+ * all interfaces.
+ * The problematic part here is, that the keyboard and mouse PS/2 port
+ * share the same interrupt and it's not possible to send data if any
+ * one of them holds input data. To solve this problem we try to receive
+ * the data as fast as possible and handle the reporting to the upper layer
+ * later.
+ */
 
 static irqreturn_t gscps2_interrupt(int irq, void *dev)
 {
@@ -205,9 +245,9 @@ static irqreturn_t gscps2_interrupt(int irq, void *dev)
 
 	  spin_unlock_irqrestore(&ps2port->lock, flags);
 
-	} 
+	} /* list_for_each_entry */
 
-	
+	/* all data was read from the ports - now report the data to upper layer */
 
 	list_for_each_entry(ps2port, &ps2port_list, node) {
 
@@ -216,6 +256,8 @@ static irqreturn_t gscps2_interrupt(int irq, void *dev)
 	    unsigned int rxflags;
 	    u8 data, status;
 
+	    /* Did new data arrived while we read existing data ?
+	       If yes, exit now and let the new irq handler start over again */
 	    if (gscps2_readb_status(ps2port->addr) & GSC_STAT_CMPINTR)
 		return IRQ_HANDLED;
 
@@ -228,14 +270,17 @@ static irqreturn_t gscps2_interrupt(int irq, void *dev)
 
 	    serio_interrupt(ps2port->port, data, rxflags);
 
-	  } 
+	  } /* while() */
 
-	} 
+	} /* list_for_each_entry */
 
 	return IRQ_HANDLED;
 }
 
 
+/*
+ * gscps2_write() - send a byte out through the aux interface.
+ */
 
 static int gscps2_write(struct serio *port, unsigned char data)
 {
@@ -248,6 +293,10 @@ static int gscps2_write(struct serio *port, unsigned char data)
 	return 0;
 }
 
+/*
+ * gscps2_open() is called when a port is opened by the higher layer.
+ * It resets and enables the port.
+ */
 
 static int gscps2_open(struct serio *port)
 {
@@ -255,7 +304,7 @@ static int gscps2_open(struct serio *port)
 
 	gscps2_reset(ps2port);
 
-	
+	/* enable it */
 	gscps2_enable(ps2port, ENABLE);
 
 	gscps2_interrupt(0, NULL);
@@ -263,6 +312,9 @@ static int gscps2_open(struct serio *port)
 	return 0;
 }
 
+/*
+ * gscps2_close() disables the port
+ */
 
 static void gscps2_close(struct serio *port)
 {
@@ -270,6 +322,10 @@ static void gscps2_close(struct serio *port)
 	gscps2_enable(ps2port, DISABLE);
 }
 
+/**
+ * gscps2_probe() - Probes PS2 devices
+ * @return: success/error report
+ */
 
 static int __devinit gscps2_probe(struct parisc_device *dev)
 {
@@ -281,7 +337,7 @@ static int __devinit gscps2_probe(struct parisc_device *dev)
 	if (!dev->irq)
 		return -ENODEV;
 
-	
+	/* Offset for DINO PS/2. Works with LASI even */
 	if (dev->id.sversion == 0x96)
 		hpa += GSC_DINO_OFFSET;
 
@@ -353,6 +409,10 @@ fail_nomem:
 	return ret;
 }
 
+/**
+ * gscps2_remove() - Removes PS2 devices
+ * @return: success/error report
+ */
 
 static int __devexit gscps2_remove(struct parisc_device *dev)
 {
@@ -373,11 +433,11 @@ static int __devexit gscps2_remove(struct parisc_device *dev)
 
 
 static struct parisc_device_id gscps2_device_tbl[] = {
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x00084 }, 
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x00084 }, /* LASI PS/2 */
 #ifdef DINO_TESTED
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x00096 }, 
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, HVERSION_ANY_ID, 0x00096 }, /* DINO PS/2 */
 #endif
-	{ 0, }	
+	{ 0, }	/* 0 terminated list */
 };
 
 static struct parisc_driver parisc_ps2_driver = {

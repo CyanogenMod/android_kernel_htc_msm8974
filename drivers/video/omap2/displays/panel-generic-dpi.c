@@ -40,20 +40,25 @@
 struct panel_config {
 	struct omap_video_timings timings;
 
-	int acbi;	
-	
-	int acb;	
+	int acbi;	/* ac-bias pin transitions per interrupt */
+	/* Unit: line clocks */
+	int acb;	/* ac-bias pin frequency */
 
 	enum omap_panel_config config;
 
 	int power_on_delay;
 	int power_off_delay;
 
+	/*
+	 * Used to match device to panel configuration
+	 * when use generic panel driver
+	 */
 	const char *name;
 };
 
+/* Panel configurations */
 static struct panel_config generic_dpi_panels[] = {
-	
+	/* Sharp LQ043T1DG01 */
 	{
 		{
 			.x_res		= 480,
@@ -78,7 +83,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "sharp_lq",
 	},
 
-	
+	/* Sharp LS037V7DW01 */
 	{
 		{
 			.x_res		= 480,
@@ -103,7 +108,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "sharp_ls",
 	},
 
-	
+	/* Toppoly TDO35S */
 	{
 		{
 			.x_res		= 480,
@@ -129,7 +134,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "toppoly_tdo35s",
 	},
 
-	
+	/* Samsung LTE430WQ-F0C */
 	{
 		{
 			.x_res		= 480,
@@ -154,7 +159,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "samsung_lte430wq_f0c",
 	},
 
-	
+	/* Seiko 70WVW1TZ3Z3 */
 	{
 		{
 			.x_res		= 800,
@@ -179,7 +184,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "seiko_70wvw1tz3",
 	},
 
-	
+	/* Powertip PH480272T */
 	{
 		{
 			.x_res		= 480,
@@ -204,7 +209,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "powertip_ph480272t",
 	},
 
-	
+	/* Innolux AT070TN83 */
 	{
 		{
 			.x_res		= 800,
@@ -229,7 +234,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "innolux_at070tn83",
 	},
 
-	
+	/* NEC NL2432DR22-11B */
 	{
 		{
 			.x_res		= 240,
@@ -250,7 +255,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "nec_nl2432dr22-11b",
 	},
 
-	
+	/* Unknown panel used in OMAP H4 */
 	{
 		{
 			.x_res		= 240,
@@ -271,7 +276,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "h4",
 	},
 
-	
+	/* Unknown panel used in Samsung OMAP2 Apollon */
 	{
 		{
 			.x_res		= 480,
@@ -292,7 +297,7 @@ static struct panel_config generic_dpi_panels[] = {
 
 		.name			= "apollon",
 	},
-	
+	/* FocalTech ETM070003DH6 */
 	{
 		{
 			.x_res		= 800,
@@ -313,7 +318,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "focaltech_etm070003dh6",
 	},
 
-	
+	/* Microtips Technologies - UMSH-8173MD */
 	{
 		{
 			.x_res		= 800,
@@ -338,7 +343,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "microtips_umsh_8173md",
 	},
 
-	
+	/* OrtusTech COM43H4M10XTC */
 	{
 		{
 			.x_res		= 480,
@@ -359,7 +364,7 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "ortustech_com43h4m10xtc",
 	},
 
-	
+	/* Innolux AT080TN52 */
 	{
 		{
 			.x_res = 800,
@@ -410,7 +415,7 @@ static int generic_dpi_panel_power_on(struct omap_dss_device *dssdev)
 	if (r)
 		goto err0;
 
-	
+	/* wait couple of vsyncs until enabling the LCD */
 	if (panel_config->power_on_delay)
 		msleep(panel_config->power_on_delay);
 
@@ -439,7 +444,7 @@ static void generic_dpi_panel_power_off(struct omap_dss_device *dssdev)
 	if (panel_data->platform_disable)
 		panel_data->platform_disable(dssdev);
 
-	
+	/* wait couple of vsyncs after disabling the LCD */
 	if (panel_config->power_off_delay)
 		msleep(panel_config->power_off_delay);
 

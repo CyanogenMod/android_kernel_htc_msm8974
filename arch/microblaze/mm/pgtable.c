@@ -56,9 +56,21 @@ static void __iomem *__ioremap(phys_addr_t addr, unsigned long size,
 	phys_addr_t p;
 	int err;
 
+	/*
+	 * Choose an address to map it to.
+	 * Once the vmalloc system is running, we use it.
+	 * Before then, we use space going down from ioremap_base
+	 * (ioremap_bot records where we're up to).
+	 */
 	p = addr & PAGE_MASK;
 	size = PAGE_ALIGN(addr + size) - p;
 
+	/*
+	 * Don't allow anybody to remap normal RAM that we're using.
+	 * mem_init() sets high_memory so only do the check after that.
+	 *
+	 * However, allow remap of rootfs: TBD
+	 */
 	if (mem_init_done &&
 		p >= memory_start && p < virt_to_phys(high_memory) &&
 		!(p >= virt_to_phys((unsigned long)&__bss_stop) &&
@@ -72,6 +84,16 @@ static void __iomem *__ioremap(phys_addr_t addr, unsigned long size,
 	if (size == 0)
 		return NULL;
 
+	/*
+	 * Is it already mapped? If the whole area is mapped then we're
+	 * done, otherwise remap it since we want to keep the virt addrs for
+	 * each request contiguous.
+	 *
+	 * We make the assumption here that if the bottom and top
+	 * of the range we want are mapped then it's mapped to the
+	 * same virt address (and this is contiguous).
+	 *  -- Cort
+	 */
 
 	if (mem_init_done) {
 		struct vm_struct *area;
@@ -119,11 +141,11 @@ int map_page(unsigned long va, phys_addr_t pa, int flags)
 	pmd_t *pd;
 	pte_t *pg;
 	int err = -ENOMEM;
-	
+	/* Use upper 10 bits of VA to index the first level map */
 	pd = pmd_offset(pgd_offset_k(va), va);
-	
-	pg = pte_alloc_kernel(pd, va); 
-	
+	/* Use middle 10 bits of VA to index the second-level map */
+	pg = pte_alloc_kernel(pd, va); /* from powerpc - pgtable.c */
+	/* pg = pte_alloc_kernel(&init_mm, pd, va); */
 
 	if (pg != NULL) {
 		err = 0;
@@ -131,11 +153,14 @@ int map_page(unsigned long va, phys_addr_t pa, int flags)
 				__pgprot(flags)));
 		if (unlikely(mem_init_done))
 			flush_HPTE(0, va, pmd_val(*pd));
-			
+			/* flush_HPTE(0, va, pg); */
 	}
 	return err;
 }
 
+/*
+ * Map in all of physical memory starting at CONFIG_KERNEL_START.
+ */
 void __init mapin_ram(void)
 {
 	unsigned long v, p, s, f;
@@ -148,6 +173,8 @@ void __init mapin_ram(void)
 		if ((char *) v < _stext || (char *) v >= _etext)
 			f |= _PAGE_WRENABLE;
 		else
+			/* On the MicroBlaze, no user access
+			   forces R/W kernel access */
 			f |= _PAGE_USER;
 		map_page(v, p, f);
 		v += PAGE_SIZE;
@@ -155,8 +182,14 @@ void __init mapin_ram(void)
 	}
 }
 
+/* is x a power of 2? */
 #define is_power_of_2(x)	((x) != 0 && (((x) & ((x) - 1)) == 0))
 
+/* Scan the real Linux page tables and return a PTE pointer for
+ * a virtual address in a context.
+ * Returns true (1) if PTE was found, zero otherwise.  The pointer to
+ * the PTE pointer is unmodified if PTE is not found.
+ */
 static int get_pteptr(struct mm_struct *mm, unsigned long addr, pte_t **ptep)
 {
 	pgd_t	*pgd;
@@ -178,6 +211,9 @@ static int get_pteptr(struct mm_struct *mm, unsigned long addr, pte_t **ptep)
 	return retval;
 }
 
+/* Find physical address for this virtual address.  Normally used by
+ * I/O functions, but anyone can call it.
+ */
 unsigned long iopa(unsigned long addr)
 {
 	unsigned long pa;
@@ -185,6 +221,9 @@ unsigned long iopa(unsigned long addr)
 	pte_t *pte;
 	struct mm_struct *mm;
 
+	/* Allow mapping of user addresses (within the thread)
+	 * for DMA if necessary.
+	 */
 	if (addr < TASK_SIZE)
 		mm = current->mm;
 	else

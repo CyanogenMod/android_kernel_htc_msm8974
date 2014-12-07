@@ -14,6 +14,9 @@
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/*
+ * phy_hal.h:  functionality exported from the phy to higher layers
+ */
 
 #ifndef _BRCM_PHY_HAL_H_
 #define _BRCM_PHY_HAL_H_
@@ -86,7 +89,10 @@
 
 #define BRCMS_TXPWR_DB_FACTOR	4
 
-#define BRCMS_TXPWR_MAX		(127)	
+/* a large TX Power as an init value to factor out of min() calculations,
+ * keep low enough to fit in an s8, units are .25 dBm
+ */
+#define BRCMS_TXPWR_MAX		(127)	/* ~32 dBm = 1,500 mW */
 
 #define BRCMS_NUM_RATES_CCK           4
 #define BRCMS_NUM_RATES_OFDM          8
@@ -95,7 +101,7 @@
 #define BRCMS_NUM_RATES_MCS_3_STREAM  8
 #define BRCMS_NUM_RATES_MCS_4_STREAM  8
 
-#define	BRCMS_RSSI_INVALID	 0	
+#define	BRCMS_RSSI_INVALID	 0	/* invalid RSSI value */
 
 struct d11regs;
 struct phy_shim_info;
@@ -123,31 +129,32 @@ struct txpwr_limits {
 
 struct tx_power {
 	u32 flags;
-	u16 chanspec;   
-	u16 local_chanspec;     
-	u8 local_max;   
-	u8 local_constraint;    
-	s8 antgain[2];  
-	u8 rf_cores;            
-	u8 est_Pout[4]; 
-	u8 est_Pout_act[4];     
-	u8 est_Pout_cck;        
-	u8 tx_power_max[4];     
-	
+	u16 chanspec;   /* txpwr report for this channel */
+	u16 local_chanspec;     /* channel on which we are associated */
+	u8 local_max;   /* local max according to the AP */
+	u8 local_constraint;    /* local constraint according to the AP */
+	s8 antgain[2];  /* Ant gain for each band - from SROM */
+	u8 rf_cores;            /* count of RF Cores being reported */
+	u8 est_Pout[4]; /* Latest tx power out estimate per RF chain */
+	u8 est_Pout_act[4];     /* Latest tx power out estimate per RF chain
+				 * without adjustment */
+	u8 est_Pout_cck;        /* Latest CCK tx power out estimate */
+	u8 tx_power_max[4];     /* Maximum target power among all rates */
+	/* Index of the rate with the max target power */
 	u8 tx_power_max_rate_ind[4];
-	
+	/* User limit */
 	u8 user_limit[WL_TX_POWER_RATES];
-	
+	/* Regulatory power limit */
 	u8 reg_limit[WL_TX_POWER_RATES];
-	
+	/* Max power board can support (SROM) */
 	u8 board_limit[WL_TX_POWER_RATES];
-	
+	/* Latest target power */
 	u8 target[WL_TX_POWER_RATES];
 };
 
 struct tx_inst_power {
-	u8 txpwr_est_Pout[2];   
-	u8 txpwr_est_Pout_gofdm;        
+	u8 txpwr_est_Pout[2];   /* Latest estimate for 2.4 and 5 Ghz */
+	u8 txpwr_est_Pout_gofdm;        /* Pwr estimate for 2.4 OFDM */
 };
 
 struct brcms_chanvec {
@@ -289,4 +296,4 @@ extern const u8 *wlc_phy_get_ofdm_rate_lookup(void);
 extern s8 wlc_phy_get_tx_power_offset_by_mcs(struct brcms_phy_pub *ppi,
 					     u8 mcs_offset);
 extern s8 wlc_phy_get_tx_power_offset(struct brcms_phy_pub *ppi, u8 tbl_offset);
-#endif                          
+#endif                          /* _BRCM_PHY_HAL_H_ */

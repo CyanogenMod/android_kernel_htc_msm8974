@@ -26,7 +26,7 @@ extern volatile u8 *dec_rtc_base;
 #define RTC_IOMAPPED	0
 #undef RTC_IRQ
 
-#define RTC_DEC_YEAR	0x3f	
+#define RTC_DEC_YEAR	0x3f	/* Where we store the real year on DECs.  */
 
 static inline unsigned char CMOS_READ(unsigned long addr)
 {
@@ -40,4 +40,4 @@ static inline void CMOS_WRITE(unsigned char data, unsigned long addr)
 
 #define RTC_ALWAYS_BCD	0
 
-#endif 
+#endif /* __ASM_MIPS_DEC_RTC_DEC_H */

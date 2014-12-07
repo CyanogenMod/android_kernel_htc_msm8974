@@ -54,4 +54,4 @@ UNUSUAL_DEV(  0x0bf6, 0xa001, 0x0100, 0x0110,
 		USB_SC_ISD200, USB_PR_BULK, isd200_Initialization,
 		0),
 
-#endif 
+#endif /* defined(CONFIG_USB_STORAGE_ISD200) || ... */

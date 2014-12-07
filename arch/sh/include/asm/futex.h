@@ -7,6 +7,7 @@
 #include <linux/uaccess.h>
 #include <asm/errno.h>
 
+/* XXX: UP variants, fix for SH-4A and SMP.. */
 #include <asm/futex-irq.h>
 
 static inline int futex_atomic_op_inuser(int encoded_op, u32 __user *uaddr)
@@ -73,5 +74,5 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	return atomic_futex_op_cmpxchg_inatomic(uval, uaddr, oldval, newval);
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_FUTEX_H */

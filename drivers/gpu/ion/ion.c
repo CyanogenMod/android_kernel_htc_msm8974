@@ -64,6 +64,7 @@ struct ion_client {
 	struct idr idr;
 	struct mutex lock;
 	char *name;
+	const char *debug_name;
 	struct task_struct *task;
 	pid_t pid;
 	struct dentry *debug_root;
@@ -784,6 +785,30 @@ struct ion_client *ion_client_create(struct ion_device *dev,
 }
 EXPORT_SYMBOL(ion_client_create);
 
+int ion_client_set_debug_name(struct ion_client *client, const char *debug_name)
+{
+	int ret = 0;
+	if (!debug_name) {
+		pr_err("%s: debug name cannot be null\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_lock(&client->lock);
+	if (client->debug_name) {
+		kfree(client->debug_name);
+	}
+
+	client->debug_name = kstrndup(debug_name, 64, GFP_KERNEL);
+	if (!client->debug_name) {
+		pr_err("%s: nomem to kstrdup '%s'\n", __func__, debug_name);
+		ret = -ENOMEM;
+	}
+
+	mutex_unlock(&client->lock);
+	return ret;
+}
+EXPORT_SYMBOL(ion_client_set_debug_name);
+
 void ion_client_destroy(struct ion_client *client)
 {
 	struct ion_device *dev = client->dev;
@@ -807,6 +832,8 @@ void ion_client_destroy(struct ion_client *client)
 
 	up_write(&dev->lock);
 
+	if (client->debug_name)
+		kfree(client->debug_name);
 	kfree(client->name);
 	kfree(client);
 }
@@ -1444,13 +1471,15 @@ void ion_debug_mem_map_create(struct seq_file *s, struct ion_heap *heap,
 			if (handle->buffer->heap == heap) {
 				struct mem_map_data *data =
 					kzalloc(sizeof(*data), GFP_KERNEL);
+				const char *name = client->debug_name ?
+							client->debug_name : client->name;
 				if (!data)
 					goto inner_error;
 				heap->ops->phys(heap, handle->buffer,
 							&(data->addr), &size);
 				data->size = (unsigned long) size;
 				data->addr_end = data->addr + data->size - 1;
-				data->client_name = kstrdup(client->name,
+				data->client_name = kstrdup(name,
 							GFP_KERNEL);
 				if (!data->client_name) {
 					kfree(data);
@@ -1522,6 +1551,15 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 		size_t size = ion_debug_heap_total(client, heap->id);
 		if (!size)
 			continue;
+		mutex_lock(&client->lock);
+		if (client->debug_name) {
+			seq_printf(s, "%16.s %16u %16u\n", client->debug_name,
+				   client->pid, size);
+			mutex_unlock(&client->lock);
+			continue;
+		}
+		mutex_unlock(&client->lock);
+
 		if (client->task) {
 			char task_comm[TASK_COMM_LEN];
 

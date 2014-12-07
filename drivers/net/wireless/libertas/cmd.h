@@ -9,23 +9,27 @@
 #include "dev.h"
 
 
+/* Command & response transfer between host and card */
 
 struct cmd_ctrl_node {
 	struct list_head list;
 	int result;
-	
+	/* command response */
 	int (*callback)(struct lbs_private *,
 			unsigned long,
 			struct cmd_header *);
 	unsigned long callback_arg;
-	
+	/* command data */
 	struct cmd_header *cmdbuf;
-	
+	/* wait queue */
 	u16 cmdwaitqwoken;
 	wait_queue_head_t cmdwait_q;
 };
 
 
+/* lbs_cmd() infers the size of the buffer to copy data back into, from
+   the size of the target of the pointer. Since the command to be sent
+   may often be smaller, that size is set in cmd->size by the caller.*/
 #define lbs_cmd(priv, cmdnr, cmd, cb, cb_arg)	({		\
 	uint16_t __sz = le16_to_cpu((cmd)->hdr.size);		\
 	(cmd)->hdr.size = cpu_to_le16(sizeof(*(cmd)));		\
@@ -62,15 +66,18 @@ void lbs_complete_command(struct lbs_private *priv, struct cmd_ctrl_node *cmd,
 int lbs_process_command_response(struct lbs_private *priv, u8 *data, u32 len);
 
 
+/* From cmdresp.c */
 
 void lbs_mac_event_disconnected(struct lbs_private *priv);
 
 
 
+/* Events */
 
 int lbs_process_event(struct lbs_private *priv, u32 event);
 
 
+/* Actual commands */
 
 int lbs_update_hw_spec(struct lbs_private *priv);
 
@@ -98,6 +105,7 @@ int lbs_set_snmp_mib(struct lbs_private *priv, u32 oid, u16 val);
 int lbs_get_snmp_mib(struct lbs_private *priv, u32 oid, u16 *out_val);
 
 
+/* Commands only used in wext.c, assoc. and scan.c */
 
 int lbs_set_power_adapt_cfg(struct lbs_private *priv, int enable, int8_t p0,
 		int8_t p1, int8_t p2);
@@ -130,4 +138,4 @@ int lbs_set_reg(struct lbs_private *priv, u16 reg, u16 offset, u32 value);
 
 int lbs_set_ps_mode(struct lbs_private *priv, u16 cmd_action, bool block);
 
-#endif 
+#endif /* _LBS_CMD_H */

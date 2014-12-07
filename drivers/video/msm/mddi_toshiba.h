@@ -34,4 +34,4 @@
   mddi_queue_register_write(__X, __Y, TRUE, 0);\
 }
 
-#endif 
+#endif /* MDDI_TOSHIBA_H */

@@ -51,16 +51,19 @@ sys_sigaltstack(const stack_t __user *uss, stack_t __user *uoss,
 	return do_sigaltstack(uss, uoss, regs->r1);
 }
 
+/*
+ * Do a signal return; undo the signal stack.
+ */
 struct sigframe {
 	struct sigcontext sc;
 	unsigned long extramask[_NSIG_WORDS-1];
-	unsigned long tramp[2];	
+	unsigned long tramp[2];	/* signal trampoline */
 };
 
 struct rt_sigframe {
 	struct siginfo info;
 	struct ucontext uc;
-	unsigned long tramp[2];	
+	unsigned long tramp[2];	/* signal trampoline */
 };
 
 static int restore_sigcontext(struct pt_regs *regs,
@@ -110,6 +113,8 @@ asmlinkage long sys_rt_sigreturn(struct pt_regs *regs)
 	if (restore_sigcontext(regs, &frame->uc.uc_mcontext, &rval))
 		goto badframe;
 
+	/* It is more difficult to avoid calling this function than to
+	 call it and ignore errors. */
 	if (do_sigaltstack(&frame->uc.uc_stack, NULL, regs->r1))
 		goto badframe;
 
@@ -120,6 +125,9 @@ badframe:
 	return 0;
 }
 
+/*
+ * Set up a signal frame.
+ */
 
 static int
 setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs,
@@ -146,10 +154,13 @@ setup_sigcontext(struct sigcontext __user *sc, struct pt_regs *regs,
 	return err;
 }
 
+/*
+ * Determine which stack to use..
+ */
 static inline void __user *
 get_sigframe(struct k_sigaction *ka, struct pt_regs *regs, size_t frame_size)
 {
-	
+	/* Default to using normal stack */
 	unsigned long sp = regs->r1;
 
 	if ((ka->sa.sa_flags & SA_ONSTACK) != 0 && !on_sig_stack(sp))
@@ -184,7 +195,7 @@ static void setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (info)
 		err |= copy_siginfo_to_user(&frame->info, info);
 
-	
+	/* Create the ucontext. */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(NULL, &frame->uc.uc_link);
 	err |= __put_user((void __user *)current->sas_ss_sp,
@@ -196,13 +207,17 @@ static void setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 			regs, set->sig[0]);
 	err |= __copy_to_user(&frame->uc.uc_sigmask, set, sizeof(*set));
 
-	
-	
+	/* Set up to return from userspace. If provided, use a stub
+	 already in userspace. */
+	/* minus 8 is offset to cater for "rtsd r15,8" */
+	/* addi r12, r0, __NR_sigreturn */
 	err |= __put_user(0x31800000 | __NR_rt_sigreturn ,
 			frame->tramp + 0);
-	
+	/* brki r14, 0x8 */
 	err |= __put_user(0xb9cc0008, frame->tramp + 1);
 
+	/* Return from sighandler will jump to the tramp.
+	 Negative 8 offset because return is rtsd r15, 8 */
 	regs->r15 = ((unsigned long)frame->tramp)-8;
 
 	address = ((unsigned long)frame->tramp);
@@ -215,9 +230,9 @@ static void setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	ptep = pte_offset_map(pmdp, address);
 	if (pte_present(*ptep)) {
 		address = (unsigned long) page_address(pte_page(*ptep));
-		
+		/* MS: I need add offset in page */
 		address += ((unsigned long)frame->tramp) & ~PAGE_MASK;
-		
+		/* MS address is virtual */
 		address = virt_to_phys(address);
 		invalidate_icache_range(address, address + 8);
 		flush_dcache_range(address, address + 8);
@@ -231,19 +246,19 @@ static void setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Set up registers for signal handler */
 	regs->r1 = (unsigned long) frame;
 
-	
-	regs->r5 = signal; 
-	regs->r6 = (unsigned long) &frame->info; 
-	regs->r7 = (unsigned long) &frame->uc; 
-	
+	/* Signal handler args: */
+	regs->r5 = signal; /* arg 0: signum */
+	regs->r6 = (unsigned long) &frame->info; /* arg 1: siginfo */
+	regs->r7 = (unsigned long) &frame->uc; /* arg2: ucontext */
+	/* Offset to handle microblaze rtid r14, 0 */
 	regs->pc = (unsigned long)ka->sa.sa_handler;
 
 	set_fs(USER_DS);
 
-	
+	/* the tracer may want to single-step inside the handler */
 	if (test_thread_flag(TIF_SINGLESTEP))
 		ptrace_notify(SIGTRAP);
 
@@ -260,6 +275,7 @@ give_sigsegv:
 	force_sig(SIGSEGV, current);
 }
 
+/* Handle restarting system calls */
 static inline void
 handle_restart(struct pt_regs *regs, struct k_sigaction *ka, int has_handler)
 {
@@ -275,25 +291,32 @@ handle_restart(struct pt_regs *regs, struct k_sigaction *ka, int has_handler)
 			regs->r3 = -EINTR;
 			break;
 	}
-	
+	/* fallthrough */
 	case -ERESTARTNOINTR:
 do_restart:
-		
+		/* offset of 4 bytes to re-execute trap (brki) instruction */
 #ifndef CONFIG_MMU
 		regs->pc -= 4;
 #else
+		/* offset of 8 bytes required = 4 for rtbd
+		   offset, plus 4 for size of
+			"brki r14,8"
+		   instruction. */
 		regs->pc -= 8;
 #endif
 		break;
 	}
 }
 
+/*
+ * OK, we're invoking a handler
+ */
 
 static int
 handle_signal(unsigned long sig, struct k_sigaction *ka,
 		siginfo_t *info, sigset_t *oldset, struct pt_regs *regs)
 {
-	
+	/* Set up the stack frame */
 	if (ka->sa.sa_flags & SA_SIGINFO)
 		setup_rt_frame(sig, ka, info, oldset, regs);
 	else
@@ -313,6 +336,15 @@ handle_signal(unsigned long sig, struct k_sigaction *ka,
 	return 1;
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ *
+ * Note that we go through the signals twice: once to check the signals that
+ * the kernel can handle, and then we build all the user-level signal handling
+ * stack-frames in one go after that.
+ */
 int do_signal(struct pt_regs *regs, sigset_t *oldset, int in_syscall)
 {
 	siginfo_t info;
@@ -323,6 +355,12 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset, int in_syscall)
 	printk(KERN_INFO "do signal2: %lx %lx %ld [%lx]\n", regs->pc, regs->r1,
 			regs->r12, current_thread_info()->flags);
 #endif
+	/*
+	 * We want the common case to go fast, which
+	 * is why we may in certain cases get here from
+	 * kernel mode. Just return without doing anything
+	 * if so.
+	 */
 	if (kernel_mode(regs))
 		return 1;
 
@@ -333,10 +371,16 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset, int in_syscall)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		
+		/* Whee! Actually deliver the signal. */
 		if (in_syscall)
 			handle_restart(regs, &ka, 1);
 		if (handle_signal(signr, &ka, &info, oldset, regs)) {
+			/*
+			 * A signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TS_RESTORE_SIGMASK flag.
+			 */
 			current_thread_info()->status &=
 			    ~TS_RESTORE_SIGMASK;
 		}
@@ -346,11 +390,15 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset, int in_syscall)
 	if (in_syscall)
 		handle_restart(regs, NULL, 0);
 
+	/*
+	 * If there's no signal to deliver, we just put the saved sigmask
+	 * back.
+	 */
 	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
 		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
 	}
 
-	
+	/* Did we come from a system call? */
 	return 0;
 }

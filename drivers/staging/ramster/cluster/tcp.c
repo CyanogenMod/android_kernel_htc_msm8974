@@ -74,6 +74,11 @@
 
 #define SC_NODEF_FMT "node %s (num %u) at %pI4:%u"
 
+/*
+ * In the following two log macros, the whitespace after the ',' just
+ * before ##args is intentional. Otherwise, gcc 2.95 will eat the
+ * previous token if args expands to nothing.
+ */
 #define msglog(hdr, fmt, args...) do {					\
 	typeof(hdr) __hdr = (hdr);					\
 	mlog(ML_MSG, "[mag %u len %u typ %u stat %d sys_stat %d "	\
@@ -98,8 +103,17 @@ static struct rb_root r2net_handler_tree = RB_ROOT;
 
 static struct r2net_node r2net_nodes[R2NM_MAX_NODES];
 
+/* XXX someday we'll need better accounting */
 static struct socket *r2net_listen_sock;
 
+/*
+ * listen work is only queued by the listening socket callbacks on the
+ * r2net_wq.  teardown detaches the callbacks before destroying the workqueue.
+ * quorum work is queued as sock containers are shutdown.. stop_listening
+ * tears down all the node's sock containers, preventing future shutdowns
+ * and queued quroum work, before canceling delayed quorum work and
+ * destroying the work queue.
+ */
 static struct workqueue_struct *r2net_wq;
 static struct work_struct r2net_listen_work;
 
@@ -115,6 +129,7 @@ static int r2net_sys_err_translations[R2NET_ERR_MAX] = {
 		[R2NET_ERR_OVERFLOW]	= -EOVERFLOW,
 		[R2NET_ERR_DIED]	= -EHOSTDOWN,};
 
+/* can't quite avoid *all* internal declarations :/ */
 static void r2net_sc_connect_completed(struct work_struct *work);
 static void r2net_rx_until_empty(struct work_struct *work);
 static void r2net_shutdown_sc(struct work_struct *work);
@@ -192,7 +207,7 @@ static inline void r2net_set_func_stop_time(struct r2net_sock_container *sc)
 	sc->sc_tv_func_stop = ktime_get();
 }
 
-#else  
+#else  /* CONFIG_DEBUG_FS */
 # define r2net_init_nst(a, b, c, d, e)
 # define r2net_set_nst_sock_time(a)
 # define r2net_set_nst_send_time(a)
@@ -205,7 +220,7 @@ static inline void r2net_set_func_stop_time(struct r2net_sock_container *sc)
 # define r2net_set_advance_stop_time(a)
 # define r2net_set_func_start_time(a)
 # define r2net_set_func_stop_time(a)
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 #ifdef CONFIG_RAMSTER_FS_STATS
 static ktime_t r2net_get_func_run_time(struct r2net_sock_container *sc)
@@ -241,7 +256,7 @@ static void r2net_update_recv_stats(struct r2net_sock_container *sc)
 
 # define r2net_update_recv_stats(sc)
 
-#endif 
+#endif /* CONFIG_RAMSTER_FS_STATS */
 
 static inline int r2net_reconnect_delay(void)
 {
@@ -264,7 +279,7 @@ static inline int r2net_sys_err_to_errno(enum r2net_system_error err)
 	BUG_ON(err >= R2NET_ERR_MAX);
 	trans = r2net_sys_err_translations[err];
 
-	
+	/* Just in case we mess up the translation table above */
 	BUG_ON(err != R2NET_ERR_NONE && trans == 0);
 	return trans;
 }
@@ -281,6 +296,7 @@ static u8 r2net_num_from_nn(struct r2net_node *nn)
 	return nn - r2net_nodes;
 }
 
+/* ------------------------------------------------------------ */
 
 static int r2net_prep_nsw(struct r2net_node *nn, struct r2net_status_wait *nsw)
 {
@@ -372,6 +388,7 @@ static int r2net_nsw_completed(struct r2net_node *nn,
 	return completed;
 }
 
+/* ------------------------------------------------------------ */
 
 static void sc_kref_release(struct kref *kref)
 {
@@ -419,7 +436,7 @@ static struct r2net_sock_container *sc_alloc(struct r2nm_node *node)
 	r2nm_node_get(node);
 	sc->sc_node = node;
 
-	
+	/* pin the node item of the remote node */
 	status = r2nm_depend_item(&node->nd_item);
 	if (status) {
 		mlog_errno(status);
@@ -451,6 +468,7 @@ out:
 	return ret;
 }
 
+/* ------------------------------------------------------------ */
 
 static void r2net_sc_queue_work(struct r2net_sock_container *sc,
 				struct work_struct *work)
@@ -513,7 +531,7 @@ static void r2net_set_nn_state(struct r2net_node *nn,
 	nn->nn_sc_valid = valid ? 1 : 0;
 	nn->nn_persistent_error = err;
 
-	
+	/* mirrors r2net_tx_can_proceed() */
 	if (nn->nn_persistent_error || nn->nn_sc_valid)
 		wake_up(&nn->nn_sc_wq);
 
@@ -541,8 +559,14 @@ static void r2net_set_nn_state(struct r2net_node *nn,
 			ntohs(sc->sc_node->nd_ipv4_port));
 	}
 
+	/* trigger the connecting worker func as long as we're not valid,
+	 * it will back off if it shouldn't connect.  This can be called
+	 * from node config teardown and so needs to be careful about
+	 * the work queue actually being up. */
 	if (!valid && r2net_wq) {
 		unsigned long delay;
+		/* delay if we're within a RECONNECT_DELAY of the
+		 * last attempt */
 		delay = (nn->nn_last_connect_attempt +
 			 msecs_to_jiffies(r2net_reconnect_delay()))
 			- jiffies;
@@ -551,11 +575,20 @@ static void r2net_set_nn_state(struct r2net_node *nn,
 		mlog(ML_CONN, "queueing conn attempt in %lu jiffies\n", delay);
 		queue_delayed_work(r2net_wq, &nn->nn_connect_work, delay);
 
+		/*
+		 * Delay the expired work after idle timeout.
+		 *
+		 * We might have lots of failed connection attempts that run
+		 * through here but we only cancel the connect_expired work when
+		 * a connection attempt succeeds.  So only the first enqueue of
+		 * the connect_expired work will do anything.  The rest will see
+		 * that it's already queued and do nothing.
+		 */
 		delay += msecs_to_jiffies(r2net_idle_timeout());
 		queue_delayed_work(r2net_wq, &nn->nn_connect_expired, delay);
 	}
 
-	
+	/* keep track of the nn's sc ref for the caller */
 	if ((old_sc == NULL) && sc)
 		sc_get(sc);
 	if (old_sc && (old_sc != sc)) {
@@ -564,6 +597,7 @@ static void r2net_set_nn_state(struct r2net_node *nn,
 	}
 }
 
+/* see r2net_register_callbacks() */
 static void r2net_data_ready(struct sock *sk, int bytes)
 {
 	void (*ready)(struct sock *sk, int bytes);
@@ -583,6 +617,7 @@ static void r2net_data_ready(struct sock *sk, int bytes)
 	ready(sk, bytes);
 }
 
+/* see r2net_register_callbacks() */
 static void r2net_state_change(struct sock *sk)
 {
 	void (*state_change)(struct sock *sk);
@@ -601,7 +636,7 @@ static void r2net_state_change(struct sock *sk)
 
 	switch (sk->sk_state) {
 
-	
+	/* ignore connecting sockets as they make progress */
 	case TCP_SYN_SENT:
 	case TCP_SYN_RECV:
 		break;
@@ -623,12 +658,17 @@ out:
 	state_change(sk);
 }
 
+/*
+ * we register callbacks so we can queue work on events before calling
+ * the original callbacks.  our callbacks our careful to test user_data
+ * to discover when they've reaced with r2net_unregister_callbacks().
+ */
 static void r2net_register_callbacks(struct sock *sk,
 				     struct r2net_sock_container *sc)
 {
 	write_lock_bh(&sk->sk_callback_lock);
 
-	
+	/* accepted sockets inherit the old listen socket data ready */
 	if (sk->sk_data_ready == r2net_listen_data_ready) {
 		sk->sk_data_ready = sk->sk_user_data;
 		sk->sk_user_data = NULL;
@@ -665,6 +705,12 @@ static int r2net_unregister_callbacks(struct sock *sk,
 	return ret;
 }
 
+/*
+ * this is a little helper that is called by callers who have seen a problem
+ * with an sc and want to detach it from the nn if someone already hasn't beat
+ * them to it.  if an error is given then the shutdown will be persistent
+ * and pending transmits will be canceled.
+ */
 static void r2net_ensure_shutdown(struct r2net_node *nn,
 					struct r2net_sock_container *sc,
 				   int err)
@@ -675,6 +721,14 @@ static void r2net_ensure_shutdown(struct r2net_node *nn,
 	spin_unlock(&nn->nn_lock);
 }
 
+/*
+ * This work queue function performs the blocking parts of socket shutdown.  A
+ * few paths lead here.  set_nn_state will trigger this callback if it sees an
+ * sc detached from the nn.  state_change will also trigger this callback
+ * directly when it sees errors.  In that case we need to call set_nn_state
+ * ourselves as state_change couldn't get the nn_lock and call set_nn_state
+ * itself.
+ */
 static void r2net_shutdown_sc(struct work_struct *work)
 {
 	struct r2net_sock_container *sc =
@@ -684,18 +738,23 @@ static void r2net_shutdown_sc(struct work_struct *work)
 
 	sclog(sc, "shutting down\n");
 
-	
+	/* drop the callbacks ref and call shutdown only once */
 	if (r2net_unregister_callbacks(sc->sc_sock->sk, sc)) {
+		/* we shouldn't flush as we're in the thread, the
+		 * races with pending sc work structs are harmless */
 		del_timer_sync(&sc->sc_idle_timeout);
 		r2net_sc_cancel_delayed_work(sc, &sc->sc_keepalive_work);
 		sc_put(sc);
 		kernel_sock_shutdown(sc->sc_sock, SHUT_RDWR);
 	}
 
+	/* not fatal so failed connects before the other guy has our
+	 * heartbeat can be retried */
 	r2net_ensure_shutdown(nn, sc, 0);
 	sc_put(sc);
 }
 
+/* ------------------------------------------------------------ */
 
 static int r2net_handler_cmp(struct r2net_msg_handler *nmh, u32 msg_type,
 			     u32 key)
@@ -753,6 +812,8 @@ static void r2net_handler_put(struct r2net_msg_handler *nmh)
 	kref_put(&nmh->nh_kref, r2net_handler_kref_release);
 }
 
+/* max_len is protection for the handler func.  incoming messages won't
+ * be given to the handler if their payload is longer than the max. */
 int r2net_register_handler(u32 msg_type, u32 key, u32 max_len,
 			   r2net_msg_handler_func *func, void *data,
 			   r2net_post_msg_handler_func *post_func,
@@ -794,6 +855,8 @@ int r2net_register_handler(u32 msg_type, u32 key, u32 max_len,
 	nmh->nh_msg_type = msg_type;
 	nmh->nh_max_len = max_len;
 	nmh->nh_key = key;
+	/* the tree and list get this ref.. they're both removed in
+	 * unregister when this ref is dropped */
 	kref_init(&nmh->nh_kref);
 	INIT_LIST_HEAD(&nmh->nh_unregister_item);
 
@@ -807,7 +870,7 @@ int r2net_register_handler(u32 msg_type, u32 key, u32 max_len,
 
 		mlog(ML_TCP, "registered handler func %p type %u key %08x\n",
 		     func, msg_type, key);
-		
+		/* we've had some trouble with handlers seemingly vanishing. */
 		mlog_bug_on_msg(r2net_handler_tree_lookup(msg_type, key, &p,
 							  &parent) == NULL,
 				"couldn't find handler we *just* registered "
@@ -854,6 +917,7 @@ static struct r2net_msg_handler *r2net_handler_get(u32 msg_type, u32 key)
 	return nmh;
 }
 
+/* ------------------------------------------------------------ */
 
 static int r2net_recv_tcp_msg(struct socket *sock, void *data, size_t len)
 {
@@ -900,7 +964,7 @@ static int r2net_send_tcp_msg(struct socket *sock, struct kvec *vec,
 		mlog(ML_ERROR, "sendmsg returned %d instead of %zu\n", ret,
 		     total);
 		if (ret >= 0)
-			ret = -EPIPE; 
+			ret = -EPIPE; /* should be smarter, I bet */
 		goto out;
 	}
 
@@ -980,6 +1044,7 @@ static int r2net_tx_can_proceed(struct r2net_node *nn,
 	return ret;
 }
 
+/* Get a map of all nodes to which this node is currently connected to */
 void r2net_fill_node_map(unsigned long *map, unsigned bytes)
 {
 	struct r2net_sock_container *sc;
@@ -1012,7 +1077,7 @@ int r2net_send_message_vec(u32 msg_type, u32 key, struct kvec *caller_vec,
 	};
 	struct r2net_send_tracking nst;
 
-	
+	/* this may be a general bug fix */
 	init_waitqueue_head(&nsw.ns_wq);
 
 	r2net_init_nst(&nst, msg_type, key, current, target_node);
@@ -1081,6 +1146,8 @@ int r2net_send_message_vec(u32 msg_type, u32 key, struct kvec *caller_vec,
 
 	r2net_set_nst_send_time(&nst);
 
+	/* finally, convert the message header to network byte-order
+	 * and send */
 	mutex_lock(&sc->sc_send_lock);
 	ret = r2net_send_tcp_msg(sc->sc_sock, vec, veclen,
 				 sizeof(struct r2net_msg) + caller_bytes);
@@ -1091,12 +1158,15 @@ int r2net_send_message_vec(u32 msg_type, u32 key, struct kvec *caller_vec,
 		goto out;
 	}
 
-	
+	/* wait on other node's handler */
 	r2net_set_nst_status_time(&nst);
 	wait_event(nsw.ns_wq, r2net_nsw_completed(nn, &nsw));
 
 	r2net_update_send_stats(&nst, sc);
 
+	/* Note that we avoid overwriting the callers status return
+	 * variable if a system error was reported on the other
+	 * side. Callers beware. */
 	ret = r2net_sys_err_to_errno(nsw.ns_sys_status);
 	if (status && !ret)
 		*status = nsw.ns_status;
@@ -1104,7 +1174,7 @@ int r2net_send_message_vec(u32 msg_type, u32 key, struct kvec *caller_vec,
 	mlog(0, "woken, returning system status %d, user status %d\n",
 	     ret, nsw.ns_status);
 out:
-	r2net_debug_del_nst(&nst); 
+	r2net_debug_del_nst(&nst); /* must be before dropping sc and node */
 	if (sc)
 		sc_put(sc);
 	kfree(vec);
@@ -1136,17 +1206,23 @@ static int r2net_send_status_magic(struct socket *sock, struct r2net_msg *hdr,
 
 	BUG_ON(syserr >= R2NET_ERR_MAX);
 
+	/* leave other fields intact from the incoming message, msg_num
+	 * in particular */
 	hdr->sys_status = cpu_to_be32(syserr);
 	hdr->status = cpu_to_be32(err);
-	
+	/* twiddle the magic */
 	hdr->magic = cpu_to_be16(R2NET_MSG_STATUS_MAGIC);
 	hdr->data_len = 0;
 
 	msglog(hdr, "about to send status magic %d\n", err);
-	
+	/* hdr has been in host byteorder this whole time */
 	return r2net_send_tcp_msg(sock, &vec, 1, sizeof(struct r2net_msg));
 }
 
+/*
+ * "data magic" is a long version of "status magic" where the message
+ * payload actually contains data to be passed in reply to certain messages
+ */
 static int r2net_send_data_magic(struct r2net_sock_container *sc,
 			  struct r2net_msg *hdr,
 			  void *data, size_t data_len,
@@ -1162,18 +1238,24 @@ static int r2net_send_data_magic(struct r2net_sock_container *sc,
 
 	BUG_ON(syserr >= R2NET_ERR_MAX);
 
+	/* leave other fields intact from the incoming message, msg_num
+	 * in particular */
 	hdr->sys_status = cpu_to_be32(syserr);
 	hdr->status = cpu_to_be32(err);
-	hdr->magic = cpu_to_be16(R2NET_MSG_DATA_MAGIC);  
+	hdr->magic = cpu_to_be16(R2NET_MSG_DATA_MAGIC);  /* twiddle magic */
 	hdr->data_len = cpu_to_be16(data_len);
 
 	msglog(hdr, "about to send data magic %d\n", err);
-	
+	/* hdr has been in host byteorder this whole time */
 	ret = r2net_send_tcp_msg(sc->sc_sock, vec, 2,
 			sizeof(struct r2net_msg) + data_len);
 	return ret;
 }
 
+/*
+ * called by a message handler to convert an otherwise normal reply
+ * message into a "data magic" message
+ */
 void r2net_force_data_magic(struct r2net_msg *hdr, u16 msgtype, u32 msgkey)
 {
 	hdr->magic = cpu_to_be16(R2NET_MSG_DATA_MAGIC);
@@ -1181,6 +1263,8 @@ void r2net_force_data_magic(struct r2net_msg *hdr, u16 msgtype, u32 msgkey)
 	hdr->key = cpu_to_be32(msgkey);
 }
 
+/* this returns -errno if the header was unknown or too large, etc.
+ * after this is called the buffer us reused for the next message */
 static int r2net_process_message(struct r2net_sock_container *sc,
 				 struct r2net_msg *hdr)
 {
@@ -1198,7 +1282,7 @@ static int r2net_process_message(struct r2net_sock_container *sc,
 	switch (be16_to_cpu(hdr->magic)) {
 
 	case R2NET_MSG_STATUS_MAGIC:
-		
+		/* special type for returning message status */
 		r2net_complete_nsw(nn, NULL, be32_to_cpu(hdr->msg_num),
 						be32_to_cpu(hdr->sys_status),
 						be32_to_cpu(hdr->status));
@@ -1211,6 +1295,11 @@ static int r2net_process_message(struct r2net_sock_container *sc,
 	case R2NET_MSG_MAGIC:
 		break;
 	case R2NET_MSG_DATA_MAGIC:
+		/*
+		 * unlike a normal status magic, a data magic DOES
+		 * (MUST) have a handler, so the control flow is
+		 * a little funky here as a result
+		 */
 		data_magic = 1;
 		break;
 	default:
@@ -1220,7 +1309,7 @@ static int r2net_process_message(struct r2net_sock_container *sc,
 		break;
 	}
 
-	
+	/* find a handler for it */
 	handler_status = 0;
 	nmh = r2net_handler_get(be16_to_cpu(hdr->msg_type),
 				be32_to_cpu(hdr->key));
@@ -1246,10 +1335,19 @@ static int r2net_process_message(struct r2net_sock_container *sc,
 					     be16_to_cpu(hdr->data_len),
 					nmh->nh_func_data, &ret_data);
 	if (data_magic) {
+		/*
+		 * handler handled data sent in reply to request
+		 * so complete the transaction
+		 */
 		r2net_complete_nsw(nn, NULL, be32_to_cpu(hdr->msg_num),
 			be32_to_cpu(hdr->sys_status), handler_status);
 		goto out;
 	}
+	/*
+	 * handler changed magic to DATA_MAGIC to reply to request for data,
+	 * implies ret_data points to data to return and handler_status
+	 * is the number of bytes of data
+	 */
 	if (be16_to_cpu(hdr->magic) == R2NET_MSG_DATA_MAGIC) {
 		ret = r2net_send_data_magic(sc, hdr,
 						ret_data, handler_status,
@@ -1267,7 +1365,7 @@ static int r2net_process_message(struct r2net_sock_container *sc,
 	r2net_update_recv_stats(sc);
 
 out_respond:
-	
+	/* this destroys the hdr, so don't use it after this */
 	mutex_lock(&sc->sc_send_lock);
 	ret = r2net_send_status_magic(sc->sc_sock, hdr, syserr,
 				      handler_status);
@@ -1303,11 +1401,16 @@ static int r2net_check_handshake(struct r2net_sock_container *sc)
 		       (unsigned long long)be64_to_cpu(hand->protocol_version),
 		       R2NET_PROTOCOL_VERSION);
 
-		
+		/* don't bother reconnecting if its the wrong version. */
 		r2net_ensure_shutdown(nn, sc, -ENOTCONN);
 		return -1;
 	}
 
+	/*
+	 * Ensure timeouts are consistent with other nodes, otherwise
+	 * we can end up with one node thinking that the other must be down,
+	 * but isn't. This can ultimately cause corruption.
+	 */
 	if (be32_to_cpu(hand->r2net_idle_timeout_ms) !=
 				r2net_idle_timeout()) {
 		printk(KERN_NOTICE "ramster: " SC_NODEF_FMT " uses a network "
@@ -1350,6 +1453,8 @@ static int r2net_check_handshake(struct r2net_sock_container *sc)
 	sc->sc_handshake_ok = 1;
 
 	spin_lock(&nn->nn_lock);
+	/* set valid and queue the idle timers only if it hasn't been
+	 * shut down already */
 	if (nn->nn_sc == sc) {
 		r2net_sc_reset_idle_timer(sc);
 		atomic_set(&nn->nn_timeout, 0);
@@ -1357,7 +1462,7 @@ static int r2net_check_handshake(struct r2net_sock_container *sc)
 	}
 	spin_unlock(&nn->nn_lock);
 
-	
+	/* shift everything up as though it wasn't there */
 	sc->sc_page_off -= sizeof(struct r2net_handshake);
 	if (sc->sc_page_off)
 		memmove(hand, hand + 1, sc->sc_page_off);
@@ -1365,6 +1470,9 @@ static int r2net_check_handshake(struct r2net_sock_container *sc)
 	return 0;
 }
 
+/* this demuxes the queued rx bytes into header or payload bits and calls
+ * handlers as each full message is read off the socket.  it returns -error,
+ * == 0 eof, or > 0 for progress made.*/
 static int r2net_advance_rx(struct r2net_sock_container *sc)
 {
 	struct r2net_msg *hdr;
@@ -1393,13 +1501,16 @@ static int r2net_advance_rx(struct r2net_sock_container *sc)
 		goto out;
 	}
 
-	
+	/* do we need more header? */
 	if (sc->sc_page_off < sizeof(struct r2net_msg)) {
 		data = page_address(sc->sc_page) + sc->sc_page_off;
 		datalen = sizeof(struct r2net_msg) - sc->sc_page_off;
 		ret = r2net_recv_tcp_msg(sc->sc_sock, data, datalen);
 		if (ret > 0) {
 			sc->sc_page_off += ret;
+			/* only swab incoming here.. we can
+			 * only get here once as we cross from
+			 * being under to over */
 			if (sc->sc_page_off == sizeof(struct r2net_msg)) {
 				hdr = page_address(sc->sc_page);
 				if (be16_to_cpu(hdr->data_len) >
@@ -1412,19 +1523,19 @@ static int r2net_advance_rx(struct r2net_sock_container *sc)
 	}
 
 	if (sc->sc_page_off < sizeof(struct r2net_msg)) {
-		
+		/* oof, still don't have a header */
 		goto out;
 	}
 
-	
+	/* this was swabbed above when we first read it */
 	hdr = page_address(sc->sc_page);
 
 	msglog(hdr, "at page_off %zu\n", sc->sc_page_off);
 
-	
+	/* do we need more payload? */
 	if (sc->sc_page_off - sizeof(struct r2net_msg) <
 					be16_to_cpu(hdr->data_len)) {
-		
+		/* need more payload */
 		data = page_address(sc->sc_page) + sc->sc_page_off;
 		datalen = (sizeof(struct r2net_msg) +
 				be16_to_cpu(hdr->data_len)) -
@@ -1438,6 +1549,9 @@ static int r2net_advance_rx(struct r2net_sock_container *sc)
 
 	if (sc->sc_page_off - sizeof(struct r2net_msg) ==
 						be16_to_cpu(hdr->data_len)) {
+		/* we can only get here once, the first time we read
+		 * the payload.. so set ret to progress if the handler
+		 * works out. after calling this the message is toast */
 		ret = r2net_process_message(sc, hdr);
 		if (ret == 0)
 			ret = 1;
@@ -1450,6 +1564,9 @@ out:
 	return ret;
 }
 
+/* this work func is triggerd by data ready.  it reads until it can read no
+ * more.  it interprets 0, eof, as fatal.  if data_ready hits while we're doing
+ * our work the work struct will be marked and we'll be called again. */
 static void r2net_rx_until_empty(struct work_struct *work)
 {
 	struct r2net_sock_container *sc =
@@ -1463,7 +1580,7 @@ static void r2net_rx_until_empty(struct work_struct *work)
 	if (ret <= 0 && ret != -EAGAIN) {
 		struct r2net_node *nn = r2net_nn_from_num(sc->sc_node->nd_num);
 		sclog(sc, "saw error %d, closing\n", ret);
-		
+		/* not permanent so read failed handshake can retry */
 		r2net_ensure_shutdown(nn, sc, 0);
 	}
 
@@ -1478,6 +1595,16 @@ static int r2net_set_nodelay(struct socket *sock)
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
 
+	/*
+	 * Dear unsuspecting programmer,
+	 *
+	 * Don't use sock_setsockopt() for SOL_TCP.  It doesn't check its level
+	 * argument and assumes SOL_SOCKET so, say, your TCP_NODELAY will
+	 * silently turn into SO_DEBUG.
+	 *
+	 * Yours,
+	 * Keeper of hilariously fragile interfaces.
+	 */
 	ret = sock->ops->setsockopt(sock, SOL_TCP, TCP_NODELAY,
 				    (char __user *)&val, sizeof(val));
 
@@ -1496,7 +1623,10 @@ static void r2net_initialize_handshake(void)
 		r2net_reconnect_delay());
 }
 
+/* ------------------------------------------------------------ */
 
+/* called when a connect completes and after a sock is accepted.  the
+ * rx path will see the response and mark the sc valid */
 static void r2net_sc_connect_completed(struct work_struct *work)
 {
 	struct r2net_sock_container *sc =
@@ -1512,6 +1642,7 @@ static void r2net_sc_connect_completed(struct work_struct *work)
 	sc_put(sc);
 }
 
+/* this is called as a work_struct func. */
 static void r2net_sc_send_keep_req(struct work_struct *work)
 {
 	struct r2net_sock_container *sc =
@@ -1522,6 +1653,9 @@ static void r2net_sc_send_keep_req(struct work_struct *work)
 	sc_put(sc);
 }
 
+/* socket shutdown does a del_timer_sync against this as it tears down.
+ * we can't start this timer until we've got to the point in sc buildup
+ * where shutdown is going to be involved */
 static void r2net_idle_timer(unsigned long data)
 {
 	struct r2net_sock_container *sc = (struct r2net_sock_container *)data;
@@ -1538,10 +1672,14 @@ static void r2net_idle_timer(unsigned long data)
 		&sc->sc_node->nd_ipv4_address, ntohs(sc->sc_node->nd_ipv4_port),
 	       msecs / 1000, msecs % 1000);
 
-	
+	/*
+	 * Initialize the nn_timeout so that the next connection attempt
+	 * will continue in r2net_start_connect.
+	 */
+	/* Avoid spurious shutdowns... not sure if this is still necessary */
 	pr_err("ramster_idle_timer, skipping shutdown work\n");
 #if 0
-	
+	/* old code used to do these two lines */
 	atomic_set(&nn->nn_timeout, 1);
 	r2net_sc_queue_work(sc, &sc->sc_shutdown_work);
 #endif
@@ -1559,11 +1697,16 @@ static void r2net_sc_reset_idle_timer(struct r2net_sock_container *sc)
 
 static void r2net_sc_postpone_idle(struct r2net_sock_container *sc)
 {
-	
+	/* Only push out an existing timer */
 	if (timer_pending(&sc->sc_idle_timeout))
 		r2net_sc_reset_idle_timer(sc);
 }
 
+/* this work func is kicked whenever a path sets the nn state which doesn't
+ * have valid set.  This includes seeing hb come up, losing a connection,
+ * having a connect attempt fail, etc. This centralizes the logic which decides
+ * if a connect attempt should be made or if we should give up and all future
+ * transmit attempts should fail */
 static void r2net_start_connect(struct work_struct *work)
 {
 	struct r2net_node *nn =
@@ -1575,11 +1718,11 @@ static void r2net_start_connect(struct work_struct *work)
 	int ret = 0, stop;
 	unsigned int timeout;
 
-	
+	/* if we're greater we initiate tx, otherwise we accept */
 	if (r2nm_this_node() <= r2net_num_from_nn(nn))
 		goto out;
 
-	
+	/* watch for racing with tearing a node down */
 	node = r2nm_get_node_by_num(r2net_num_from_nn(nn));
 	if (node == NULL) {
 		ret = 0;
@@ -1593,6 +1736,13 @@ static void r2net_start_connect(struct work_struct *work)
 	}
 
 	spin_lock(&nn->nn_lock);
+	/*
+	 * see if we already have one pending or have given up.
+	 * For nn_timeout, it is set when we close the connection
+	 * because of the idle time out. So it means that we have
+	 * at least connected to that node successfully once,
+	 * now try to connect to it again.
+	 */
 	timeout = atomic_read(&nn->nn_timeout);
 	stop = (nn->nn_sc ||
 		(nn->nn_persistent_error &&
@@ -1615,13 +1765,13 @@ static void r2net_start_connect(struct work_struct *work)
 		mlog(0, "can't create socket: %d\n", ret);
 		goto out;
 	}
-	sc->sc_sock = sock; 
+	sc->sc_sock = sock; /* freed by sc_kref_release */
 
 	sock->sk->sk_allocation = GFP_ATOMIC;
 
 	myaddr.sin_family = AF_INET;
 	myaddr.sin_addr.s_addr = mynode->nd_ipv4_address;
-	myaddr.sin_port = htons(0); 
+	myaddr.sin_port = htons(0); /* any port */
 
 	ret = sock->ops->bind(sock, (struct sockaddr *)&myaddr,
 			      sizeof(myaddr));
@@ -1640,7 +1790,7 @@ static void r2net_start_connect(struct work_struct *work)
 	r2net_register_callbacks(sc->sc_sock->sk, sc);
 
 	spin_lock(&nn->nn_lock);
-	
+	/* handshake completion will set nn->nn_sc_valid */
 	r2net_set_nn_state(nn, sc, 0, 0);
 	spin_unlock(&nn->nn_lock);
 
@@ -1661,6 +1811,8 @@ out:
 		       " failed with errno %d\n", sc->sc_node->nd_name,
 			sc->sc_node->nd_num, &sc->sc_node->nd_ipv4_address,
 			ntohs(sc->sc_node->nd_ipv4_port), ret);
+		/* 0 err so that another will be queued and attempted
+		 * from set_nn_state */
 		if (sc)
 			r2net_ensure_shutdown(nn, sc, 0);
 	}
@@ -1696,12 +1848,13 @@ static void r2net_still_up(struct work_struct *work)
 {
 }
 
+/* ------------------------------------------------------------ */
 
 void r2net_disconnect_node(struct r2nm_node *node)
 {
 	struct r2net_node *nn = r2net_nn_from_num(node->nd_num);
 
-	
+	/* don't reconnect until it's heartbeating again */
 	spin_lock(&nn->nn_lock);
 	atomic_set(&nn->nn_timeout, 0);
 	r2net_set_nn_state(nn, NULL, 0, -ENOTCONN);
@@ -1734,11 +1887,15 @@ static void r2net_hb_node_up_cb(struct r2nm_node *node, int node_num,
 
 	BUG_ON(!node);
 
-	
+	/* ensure an immediate connect attempt */
 	nn->nn_last_connect_attempt = jiffies -
 		(msecs_to_jiffies(r2net_reconnect_delay()) + 1);
 
 	if (node_num != r2nm_this_node()) {
+		/* believe it or not, accept and node hearbeating testing
+		 * can succeed for this node before we got here.. so
+		 * only use set_nn_state to clear the persistent error
+		 * if that hasn't already happened */
 		spin_lock(&nn->nn_lock);
 		atomic_set(&nn->nn_timeout, 0);
 		if (nn->nn_persistent_error)
@@ -1772,6 +1929,7 @@ int r2net_register_hb_callbacks(void)
 	return ret;
 }
 
+/* ------------------------------------------------------------ */
 
 static int r2net_accept_one(struct socket *sock)
 {
@@ -1830,6 +1988,8 @@ static int r2net_accept_one(struct socket *sock)
 		goto out;
 	}
 
+	/* this happens all the time when the other node sees our heartbeat
+	 * and tries to connect before we see their heartbeat */
 	if (!r2hb_check_node_heartbeating_from_callback(node->nd_num)) {
 		mlog(ML_CONN, "attempt to connect from node '%s' at "
 		     "%pI4:%d but it isn't heartbeating\n",
@@ -1900,11 +2060,15 @@ static void r2net_listen_data_ready(struct sock *sk, int bytes)
 
 	read_lock(&sk->sk_callback_lock);
 	ready = sk->sk_user_data;
-	if (ready == NULL) { 
+	if (ready == NULL) { /* check for teardown race */
 		ready = sk->sk_data_ready;
 		goto out;
 	}
 
+	/* ->sk_data_ready is also called for a newly established child socket
+	 * before it has been accepted and the acceptor has set up their
+	 * data_ready.. we only want to queue listen work for our listening
+	 * socket */
 	if (sk->sk_state == TCP_LISTEN) {
 		mlog(ML_TCP, "bytes: %d\n", bytes);
 		queue_work(r2net_wq, &r2net_listen_work);
@@ -1964,6 +2128,13 @@ out:
 	return ret;
 }
 
+/*
+ * called from node manager when we should bring up our network listening
+ * socket.  node manager handles all the serialization to only call this
+ * once and to match it with r2net_stop_listening().  note,
+ * r2nm_this_node() doesn't work yet as we're being called while it
+ * is being set up.
+ */
 int r2net_start_listening(struct r2nm_node *node)
 {
 	int ret = 0;
@@ -1975,7 +2146,7 @@ int r2net_start_listening(struct r2nm_node *node)
 	r2net_wq = create_singlethread_workqueue("r2net");
 	if (r2net_wq == NULL) {
 		mlog(ML_ERROR, "unable to launch r2net thread\n");
-		return -ENOMEM; 
+		return -ENOMEM; /* ? */
 	}
 
 	ret = r2net_open_listening_sock(node->nd_ipv4_address,
@@ -1988,6 +2159,8 @@ int r2net_start_listening(struct r2nm_node *node)
 	return ret;
 }
 
+/* again, r2nm_this_node() doesn't work here as we're involved in
+ * tearing it down */
 void r2net_stop_listening(struct r2nm_node *node)
 {
 	struct socket *sock = r2net_listen_sock;
@@ -1996,7 +2169,7 @@ void r2net_stop_listening(struct r2nm_node *node)
 	BUG_ON(r2net_wq == NULL);
 	BUG_ON(r2net_listen_sock == NULL);
 
-	
+	/* stop the listening socket from generating work */
 	write_lock_bh(&sock->sk->sk_callback_lock);
 	sock->sk->sk_data_ready = sock->sk->sk_user_data;
 	sock->sk->sk_user_data = NULL;
@@ -2010,7 +2183,7 @@ void r2net_stop_listening(struct r2nm_node *node)
 		}
 	}
 
-	
+	/* finish all work and tear down the work queue */
 	mlog(ML_KTHREAD, "waiting for r2net thread to exit....\n");
 	destroy_workqueue(r2net_wq);
 	r2net_wq = NULL;
@@ -2030,6 +2203,7 @@ void r2net_hb_node_up_manual(int node_num)
 	}
 }
 
+/* ------------------------------------------------------------ */
 
 int r2net_init(void)
 {
@@ -2063,7 +2237,7 @@ int r2net_init(void)
 		INIT_DELAYED_WORK(&nn->nn_connect_expired,
 				  r2net_connect_expired);
 		INIT_DELAYED_WORK(&nn->nn_still_up, r2net_still_up);
-		
+		/* until we see hb from a node we'll return einval */
 		nn->nn_persistent_error = -ENOTCONN;
 		init_waitqueue_head(&nn->nn_sc_wq);
 		idr_init(&nn->nn_status_idr);

@@ -138,7 +138,7 @@ static int tm6000_start_stream(struct tm6000_core *dev)
 							  & USB_ENDPOINT_NUMBER_MASK);
 
 	size = usb_maxpacket(dev->udev, pipe, usb_pipeout(pipe));
-	size = size * 15; 
+	size = size * 15; /* 512 x 8 or 12 or 15 */
 
 	dvb->bulk_urb->transfer_buffer = kzalloc(size, GFP_KERNEL);
 	if (dvb->bulk_urb->transfer_buffer == NULL) {
@@ -160,8 +160,10 @@ static int tm6000_start_stream(struct tm6000_core *dev)
 	} else
 		printk(KERN_ERR "tm6000: pipe resetted\n");
 
+/*	mutex_lock(&tm6000_driver.open_close_mutex); */
 	ret = usb_submit_urb(dvb->bulk_urb, GFP_ATOMIC);
 
+/*	mutex_unlock(&tm6000_driver.open_close_mutex); */
 	if (ret) {
 		printk(KERN_ERR "tm6000: submit of urb failed (error=%i)\n",
 									ret);
@@ -198,6 +200,7 @@ static int tm6000_start_feed(struct dvb_demux_feed *feed)
 	mutex_lock(&dvb->mutex);
 	if (dvb->streams == 0) {
 		dvb->streams = 1;
+/*		mutex_init(&tm6000_dev->streming_mutex); */
 		tm6000_start_stream(dev);
 	} else
 		++(dvb->streams);
@@ -221,8 +224,10 @@ static int tm6000_stop_feed(struct dvb_demux_feed *feed)
 	if (dvb->streams == 0) {
 		printk(KERN_INFO "stop stream\n");
 		tm6000_stop_stream(dev);
+/*		mutex_destroy(&tm6000_dev->streaming_mutex); */
 	}
 	mutex_unlock(&dvb->mutex);
+/*	mutex_destroy(&tm6000_dev->streaming_mutex); */
 
 	return 0;
 }
@@ -261,7 +266,7 @@ static int register_dvb(struct tm6000_core *dev)
 
 	dvb->streams = 0;
 
-	
+	/* attach the frontend */
 	ret = tm6000_dvb_attach_frontend(dev);
 	if (ret < 0) {
 		printk(KERN_ERR "tm6000: couldn't attach the frontend!\n");
@@ -377,6 +382,7 @@ static void unregister_dvb(struct tm6000_core *dev)
 		usb_free_urb(bulk_urb);
 	}
 
+/*	mutex_lock(&tm6000_driver.open_close_mutex); */
 	if (dvb->frontend) {
 		dvb_frontend_detach(dvb->frontend);
 		dvb_unregister_frontend(dvb->frontend);
@@ -386,6 +392,7 @@ static void unregister_dvb(struct tm6000_core *dev)
 	dvb_dmx_release(&dvb->demux);
 	dvb_unregister_adapter(&dvb->adapter);
 	mutex_destroy(&dvb->mutex);
+/*	mutex_unlock(&tm6000_driver.open_close_mutex); */
 }
 
 static int dvb_init(struct tm6000_core *dev)

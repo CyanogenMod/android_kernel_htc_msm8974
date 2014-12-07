@@ -162,21 +162,21 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		epson_s1d_disp_init(pdev);
 
 	if (!display_on) {
-		
+		/* Enable Vdd regulator */
 		DISP_CMD_OUT(CMD_VDD_ON_C);
 		msleep(20);
 
-		
+		/* Soft Reset before configuring display */
 		DISP_CMD_OUT(CMD_SOFT_RESET_C);
 		msleep(20);
 
-		
+		/* Set display attributes */
 
-		
+		/* GATESCAN */
 		DISP_CMD_OUT(CMD_GATE_LINE_SCAN_MODE_C);
 		DISP_DATA_OUT(0x0);
 
-		
+		/* DISSET */
 		DISP_CMD_OUT(CMD_SET_DISPLAY_C);
 		DISP_DATA_OUT(0x31);
 		DISP_DATA_OUT(0x00);
@@ -186,7 +186,7 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		DISP_DATA_OUT(0x00);
 		DISP_DATA_OUT(0x08);
 
-		
+		/* VOLSET */
 		DISP_CMD_OUT(
 				   CMD_SET_ELECTRONIC_CONTROL_C);
 		DISP_DATA_OUT(0x10);
@@ -197,7 +197,7 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		DISP_DATA_OUT(0x0D);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* PWRCTL */
 		DISP_CMD_OUT(CMD_SET_POWER_CONTROL_C);
 		DISP_DATA_OUT(0x01);
 		DISP_DATA_OUT(0x24);
@@ -214,7 +214,7 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		DISP_DATA_OUT(0x44);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* PPWRCTL */
 		DISP_CMD_OUT(CMD_SET_PARTIAL_POWER_CONTROL_C);
 		DISP_DATA_OUT(0x33);
 		DISP_DATA_OUT(0xFF);
@@ -223,15 +223,15 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		DISP_DATA_OUT(0x44);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* SPLOUT */
 		DISP_CMD_OUT(CMD_SLEEP_OUT_C);
 		msleep(100);
 
-		
+		/* DATSET */
 		DISP_CMD_OUT(CMD_SET_DATA_C);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* DISTMEMSET */
 		DISP_CMD_OUT(CMD_SET_DISPLAY_TIMING_C);
 		DISP_DATA_OUT(0x01);
 		DISP_DATA_OUT(0x2E);
@@ -241,7 +241,7 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		DISP_DATA_OUT(0x2F);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* GAMSETP */
 		DISP_CMD_OUT(CMD_SET_POSITIVE_CORRECTION_CHARS_C);
 		DISP_DATA_OUT(0x37);
 		DISP_DATA_OUT(0xFF);
@@ -250,7 +250,7 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		DISP_DATA_OUT(0x37);
 		DISP_DATA_OUT(0x05);
 
-		
+		/* GAMSETN */
 		DISP_CMD_OUT(CMD_SET_NEGATIVE_CORRECTION_CHARS_C);
 		DISP_DATA_OUT(0x37);
 		DISP_DATA_OUT(0xFF);
@@ -259,38 +259,38 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		DISP_DATA_OUT(0x37);
 		DISP_DATA_OUT(0x05);
 
-		
+		/* ACDRIVE */
 		DISP_CMD_OUT(CMD_SET_AC_OPERATION_DRIVE_C);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* TEST */
 		DISP_CMD_OUT(CMD_TEST_C);
 		DISP_DATA_OUT(0x00);
 		DISP_DATA_OUT(0x00);
 		DISP_DATA_OUT(0x00);
 		DISP_DATA_OUT(0x01);
 
-		
+		/* COLMOD */
 		DISP_CMD_OUT(CMD_SET_DISPLAY_COLOR_MODE_C);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* STADDSET */
 		DISP_CMD_OUT(CMD_SET_START_ADDRESS_C);
 		DISP_DATA_OUT(0x00);
 		DISP_DATA_OUT(0x00);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* EDADDSET */
 		DISP_CMD_OUT(CMD_SET_END_ADDRESS_C);
 		DISP_DATA_OUT(0xEF);
 		DISP_DATA_OUT(0x01);
 		DISP_DATA_OUT(0x3F);
 
-		
+		/* Set Display Start Line */
 		DISP_CMD_OUT(CMD_SET_DISPLAY_START_LINE_C);
 		DISP_DATA_OUT(0x00);
 
-		
+		/* Set Display Data Interface */
 		DISP_CMD_OUT(CMD_SET_DISPLAY_DATA_INTERFACE_C);
 		DISP_DATA_OUT(0x00);
 		DISP_DATA_OUT(0x04);
@@ -303,7 +303,7 @@ static int epson_s1d_disp_on(struct platform_device *pdev)
 		for (i = 0; i < (ACTIVE_WIN_WIDTH * ACTIVE_WIN_HEIGHT); i++)
 			outpdw(DISP_DATA_PORT, 0);
 
-		
+		/* DISON */
 		DISP_CMD_OUT(CMD_DISPLAY_ON_C);
 		msleep(60);
 

@@ -44,7 +44,7 @@
 #endif
 
 #define  MAX_DSP_WAIT_LOOPS      100
-#define  DSP_WAIT_SLEEP_TIME     1	
+#define  DSP_WAIT_SLEEP_TIME     1	/* 1 millisecond */
 
 #define  MAX_LENGTH              0x7f0
 
@@ -60,17 +60,17 @@
 #define  DWNLD_PS_HDR_LOC        0x0A
 
 #define  HANDSHAKE_TIMEOUT_VALUE 0xF1F1
-#define  HANDSHAKE_RESET_VALUE   0xFEFE	
-#define  HANDSHAKE_DSP_BL_READY  0xFEFE	
-#define  HANDSHAKE_DRIVER_READY  0xFFFF	
-#define  HANDSHAKE_SEND_DATA     0x0000	
+#define  HANDSHAKE_RESET_VALUE   0xFEFE	/* When DSP requests startover */
+#define  HANDSHAKE_DSP_BL_READY  0xFEFE	/* At start DSP writes this when bootloader ready */
+#define  HANDSHAKE_DRIVER_READY  0xFFFF	/* Driver writes after receiving 0xFEFE */
+#define  HANDSHAKE_SEND_DATA     0x0000	/* DSP writes this when ready for more data */
 
-#define  HANDSHAKE_REQUEST       0x0001	
-#define  HANDSHAKE_RESPONSE      0x0000	
+#define  HANDSHAKE_REQUEST       0x0001	/* Request from DSP */
+#define  HANDSHAKE_RESPONSE      0x0000	/* Satisfied DSP request */
 
 #define  REQUEST_CODE_LENGTH     0x0000
 #define  REQUEST_RUN_ADDRESS     0x0001
-#define  REQUEST_CODE_SEGMENT    0x0002	
+#define  REQUEST_CODE_SEGMENT    0x0002	/* In WORD count */
 #define  REQUEST_DONE_BL         0x0003
 #define  REQUEST_DONE_CL         0x0004
 #define  REQUEST_VERSION_INFO    0x0005
@@ -94,27 +94,27 @@ void put_request_value(struct net_device *dev, long lvalue);
 u16 hdr_checksum(struct pseudo_hdr *pHdr);
 
 struct dsp_file_hdr {
-	u32  version_id;	
-	u32  package_id;	
-	u32  build_date;	
-	u32  commands_offset;	
-	u32  loader_offset;	
-	u32  loader_code_address;	
-	u32  loader_code_end;	
+	u32  version_id;	// Version ID of this image format.
+	u32  package_id;	// Package ID of code release.
+	u32  build_date;	// Date/time stamp when file was built.
+	u32  commands_offset;	// Offset to attached commands in Pseudo Hdr format.
+	u32  loader_offset;	// Offset to bootloader code.
+	u32  loader_code_address;	// Start address of bootloader.
+	u32  loader_code_end;	// Where bootloader code ends.
 	u32  loader_code_size;
-	u32  version_data_offset;	
-	u32  version_data_size;	
-	u32  nDspImages;	
+	u32  version_data_offset;	// Offset were scrambled version data begins.
+	u32  version_data_size;	// Size, in words, of scrambled version data.
+	u32  nDspImages;	// Number of DSP images in file.
 } __attribute__ ((packed));
 
 struct dsp_image_info {
-	u32  coff_date;		
-	u32  begin_offset;	
-	u32  end_offset;	
-	u32  run_address;	
-	u32  image_size;	
-	u32  version;		
-	unsigned short checksum;	
+	u32  coff_date;		// Date/time when DSP Coff image was built.
+	u32  begin_offset;	// Offset in file where image begins.
+	u32  end_offset;	// Offset in file where image begins.
+	u32  run_address;	// On chip Start address of DSP code.
+	u32  image_size;	// Size of image.
+	u32  version;		// Embedded version # of DSP code.
+	unsigned short checksum;	// Dsp File checksum
 	unsigned short pad1;
 } __attribute__ ((packed));
 
@@ -132,16 +132,16 @@ void card_bootload(struct net_device *dev)
 	pdata = (u32 *) bootimage;
 	size = sizeof(bootimage);
 
-	
+	// check for odd word
 	if (size & 0x0003) {
 		size += 4;
 	}
-	
+	// Provide mutual exclusive access while reading ASIC registers.
 	spin_lock_irqsave(&info->dpram_lock, flags);
 
-	
+	// need to set i/o base address initially and hardware will autoincrement
 	ft1000_write_reg(dev, FT1000_REG_DPRAM_ADDR, FT1000_DPRAM_BASE);
-	
+	// write bytes
 	for (i = 0; i < (size >> 2); i++) {
 		templong = *pdata++;
 		outl(templong, dev->base_addr + FT1000_REG_MAG_DPDATA);
@@ -193,11 +193,11 @@ void put_handshake(struct net_device *dev, u16 handshake_value)
 	if (info->AsicID == ELECTRABUZZ_ID) {
 		ft1000_write_reg(dev, FT1000_REG_DPRAM_ADDR,
 				 DWNLD_HANDSHAKE_LOC);
-		ft1000_write_reg(dev, FT1000_REG_DPRAM_DATA, handshake_value);	
+		ft1000_write_reg(dev, FT1000_REG_DPRAM_DATA, handshake_value);	/* Handshake */
 	} else {
 		tempx = (u32) handshake_value;
 		tempx = ntohl(tempx);
-		ft1000_write_dpram_mag_32(dev, DWNLD_MAG_HANDSHAKE_LOC, tempx);	
+		ft1000_write_dpram_mag_32(dev, DWNLD_MAG_HANDSHAKE_LOC, tempx);	/* Handshake */
 	}
 }
 
@@ -271,7 +271,7 @@ void put_request_value(struct net_device *dev, long lvalue)
 		ft1000_write_reg(dev, FT1000_REG_DPRAM_DATA, size);
 	} else {
 		tempx = ntohl(lvalue);
-		ft1000_write_dpram_mag_32(dev, DWNLD_MAG_SIZE_LOC, tempx);	
+		ft1000_write_dpram_mag_32(dev, DWNLD_MAG_SIZE_LOC, tempx);	/* Handshake */
 	}
 
 }
@@ -358,6 +358,9 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 		case STATE_BOOT_DWNLD:
 			handshake = get_handshake(dev, HANDSHAKE_REQUEST);
 			if (handshake == HANDSHAKE_REQUEST) {
+				/*
+				 * Get type associated with the request.
+				 */
 				request = get_request_type(dev);
 				switch (request) {
 				case REQUEST_RUN_ADDRESS:
@@ -369,7 +372,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 							  loader_code_size);
 					break;
 				case REQUEST_DONE_BL:
-					
+					/* Reposition ptrs to beginning of code section */
 					pUsFile = (u16 *) ((long)pBootEnd);
 					pUcFile = (u8 *) ((long)pBootEnd);
 					uiState = STATE_CODE_DWNLD;
@@ -382,12 +385,18 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 					}
 					if ((word_length * 2 + (long)pUcFile) >
 						(long)pBootEnd) {
+						/*
+						 * Error, beyond boot code range.
+						 */
 						Status = FAILURE;
 						break;
 					}
-					
+					// Provide mutual exclusive access while reading ASIC registers.
 					spin_lock_irqsave(&info->dpram_lock,
 							  flags);
+					/*
+					 * Position ASIC DPRAM auto-increment pointer.
+					 */
 					outw(DWNLD_MAG_PS_HDR_LOC,
 						 dev->base_addr +
 						 FT1000_REG_DPRAM_ADDR);
@@ -395,7 +404,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						word_length++;
 					word_length = word_length / 2;
 
-					for (; word_length > 0; word_length--) {	
+					for (; word_length > 0; word_length--) {	/* In words */
 						templong = *pUsFile++;
 						templong |=
 							(*pUsFile++ << 16);
@@ -422,6 +431,9 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 		case STATE_CODE_DWNLD:
 			handshake = get_handshake(dev, HANDSHAKE_REQUEST);
 			if (handshake == HANDSHAKE_REQUEST) {
+				/*
+				 * Get type associated with the request.
+				 */
 				request = get_request_type(dev);
 				switch (request) {
 				case REQUEST_FILE_CHECKSUM:
@@ -448,7 +460,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 					}
 					break;
 				case REQUEST_DONE_CL:
-					
+					/* Reposition ptrs to beginning of provisioning section */
 					pUsFile = (u16 *) ((long)pFileStart + pFileHdr5->commands_offset);
 					pUcFile = (u8 *) ((long)pFileStart + pFileHdr5->commands_offset);
 					uiState = STATE_DONE_DWNLD;
@@ -465,9 +477,15 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 					}
 					if ((word_length * 2 + (long)pUcFile) >
 						(long)pCodeEnd) {
+						/*
+						 * Error, beyond boot code range.
+						 */
 						Status = FAILURE;
 						break;
 					}
+					/*
+					 * Position ASIC DPRAM auto-increment pointer.
+					 */
 					outw(DWNLD_MAG_PS_HDR_LOC,
 						 dev->base_addr +
 						 FT1000_REG_DPRAM_ADDR);
@@ -475,7 +493,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						word_length++;
 					word_length = word_length / 2;
 
-					for (; word_length > 0; word_length--) {	
+					for (; word_length > 0; word_length--) {	/* In words */
 						templong = *pUsFile++;
 						templong |=
 							(*pUsFile++ << 16);
@@ -487,7 +505,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 					break;
 
 				case REQUEST_MAILBOX_DATA:
-					
+					// Convert length from byte count to word count. Make sure we round up.
 					word_length =
 						(long)(info->DSPInfoBlklen + 1) / 2;
 					put_request_value(dev, word_length);
@@ -495,15 +513,18 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						(struct drv_msg *) & info->DSPInfoBlk[0];
 					pUsData =
 						(u16 *) & pMailBoxData->data[0];
-					
+					// Provide mutual exclusive access while reading ASIC registers.
 					spin_lock_irqsave(&info->dpram_lock,
 							  flags);
 					if (file_version == 5) {
+						/*
+						 * Position ASIC DPRAM auto-increment pointer.
+						 */
 						ft1000_write_reg(dev,
 								 FT1000_REG_DPRAM_ADDR,
 								 DWNLD_PS_HDR_LOC);
 
-						for (; word_length > 0; word_length--) {	
+						for (; word_length > 0; word_length--) {	/* In words */
 							temp = ntohs(*pUsData);
 							ft1000_write_reg(dev,
 									 FT1000_REG_DPRAM_DATA,
@@ -511,6 +532,9 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 							pUsData++;
 						}
 					} else {
+						/*
+						 * Position ASIC DPRAM auto-increment pointer.
+						 */
 						outw(DWNLD_MAG_PS_HDR_LOC,
 							 dev->base_addr +
 							 FT1000_REG_DPRAM_ADDR);
@@ -519,7 +543,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						}
 						word_length = word_length / 2;
 
-						for (; word_length > 0; word_length--) {	
+						for (; word_length > 0; word_length--) {	/* In words */
 							templong = *pUsData++;
 							templong |=
 								(*pUsData++ << 16);
@@ -541,9 +565,12 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						(u16 *) ((long)pFileStart +
 							pFileHdr5->
 							version_data_offset);
-					
+					// Provide mutual exclusive access while reading ASIC registers.
 					spin_lock_irqsave(&info->dpram_lock,
 							  flags);
+					/*
+					 * Position ASIC DPRAM auto-increment pointer.
+					 */
 					outw(DWNLD_MAG_PS_HDR_LOC,
 						 dev->base_addr +
 						 FT1000_REG_DPRAM_ADDR);
@@ -551,7 +578,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						word_length++;
 					word_length = word_length / 2;
 
-					for (; word_length > 0; word_length--) {	
+					for (; word_length > 0; word_length--) {	/* In words */
 						templong =
 							ntohs(*pUsFile++);
 						temp =
@@ -635,6 +662,9 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						pDspImageInfoV6++;
 					}
 					if (!bGoodVersion) {
+						/*
+						 * Error, beyond boot code range.
+						 */
 						Status = FAILURE;
 						break;
 					}
@@ -660,9 +690,9 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 
 			pHdr = (struct pseudo_hdr *) pUsFile;
 
-			if (pHdr->portdest == 0x80	
-				&& (pHdr->portsrc == 0x00	
-				|| pHdr->portsrc == 0x10  )) {
+			if (pHdr->portdest == 0x80	/* DspOAM */
+				&& (pHdr->portsrc == 0x00	/* Driver */
+				|| pHdr->portsrc == 0x10 /* FMM */ )) {
 				uiState = STATE_SECTION_PROV;
 			} else {
 				DEBUG(1,
@@ -681,13 +711,13 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 			pHdr = (struct pseudo_hdr *) pUcFile;
 
 			if (pHdr->checksum == hdr_checksum(pHdr)) {
-				if (pHdr->portdest != 0x80  ) {
+				if (pHdr->portdest != 0x80 /* Dsp OAM */ ) {
 					uiState = STATE_DONE_PROV;
 					break;
 				}
-				usHdrLength = ntohs(pHdr->length);	
+				usHdrLength = ntohs(pHdr->length);	/* Byte length for PROV records */
 
-				
+				// Get buffer for provisioning data
 				pbuffer =
 					kmalloc((usHdrLength + sizeof(struct pseudo_hdr)),
 						GFP_ATOMIC);
@@ -695,7 +725,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 					memcpy(pbuffer, (void *)pUcFile,
 						   (u32) (usHdrLength +
 							   sizeof(struct pseudo_hdr)));
-					
+					// link provisioning data
 					pprov_record =
 						kmalloc(sizeof(struct prov_record),
 							GFP_ATOMIC);
@@ -705,7 +735,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 						list_add_tail(&pprov_record->
 								  list,
 								  &info->prov_list);
-						
+						// Move to next entry if available
 						pUcFile =
 							(u8 *) ((unsigned long) pUcFile +
 								   (unsigned long) ((usHdrLength + 1) & 0xFFFFFFFE) + sizeof(struct pseudo_hdr));
@@ -723,7 +753,7 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 					Status = FAILURE;
 				}
 			} else {
-				
+				/* Checksum did not compute */
 				Status = FAILURE;
 			}
 
@@ -736,9 +766,9 @@ int card_download(struct net_device *dev, const u8 *pFileStart,
 		default:
 			Status = FAILURE;
 			break;
-		}		
+		}		/* End Switch */
 
-	}			
+	}			/* End while */
 
 	return Status;
 

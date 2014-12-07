@@ -14,6 +14,11 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 
 */
 
+/*
+ * Define Linux versions of macros used to cross compile some of
+ * code of this driver as 8051 based starter kit firmware.
+ * todo need to see if this can be cleaned up
+ */
 #define PLACE_IN_CODE_SEG
 
 #define SI_PUSH_STRUCT_PACKING

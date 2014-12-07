@@ -59,7 +59,7 @@ machvec_init_from_cmdline(const char *cmdline)
 	return machvec_init(str);
 }
 
-#endif 
+#endif /* CONFIG_IA64_GENERIC */
 
 void
 machvec_setup (char **arg)

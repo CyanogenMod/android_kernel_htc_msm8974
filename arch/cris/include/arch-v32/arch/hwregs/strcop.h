@@ -1,4 +1,6 @@
+// $Id: strcop.h,v 1.3 2003/10/22 13:27:12 henriken Exp $
 
+// Streamcop meta-data configuration structs
 
 struct strcop_meta_out {
 	unsigned char  csumsel  : 3;
@@ -19,6 +21,7 @@ struct strcop_meta_in {
 	unsigned char  res2;
 };
 
+// Source definitions
 
 enum {
 	src_none = 0,
@@ -31,6 +34,7 @@ enum {
 	src_res  = 7
 };
 
+// Cipher definitions
 
 enum {
 	ciph_des = 0,
@@ -38,6 +42,7 @@ enum {
 	ciph_aes = 2
 };
 
+// Hash definitions
 
 enum {
 	hash_sha1 = 0,

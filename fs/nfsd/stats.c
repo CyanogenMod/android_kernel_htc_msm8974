@@ -49,7 +49,7 @@ static int nfsd_proc_show(struct seq_file *seq, void *v)
 		      nfsdstats.fh_nocache_nondir,
 		      nfsdstats.io_read,
 		      nfsdstats.io_write);
-	
+	/* thread usage: */
 	seq_printf(seq, "th %u %u", nfsdstats.th_cnt, nfsdstats.th_fullcnt);
 	for (i=0; i<10; i++) {
 		unsigned int jifs = nfsdstats.th_usage[i];
@@ -57,18 +57,18 @@ static int nfsd_proc_show(struct seq_file *seq, void *v)
 		seq_printf(seq, " %u.%03u", sec, msec);
 	}
 
-	
+	/* newline and ra-cache */
 	seq_printf(seq, "\nra %u", nfsdstats.ra_size);
 	for (i=0; i<11; i++)
 		seq_printf(seq, " %u", nfsdstats.ra_depth[i]);
 	seq_putc(seq, '\n');
 	
-	
+	/* show my rpc info */
 	svc_seq_show(seq, &nfsd_svcstats);
 
 #ifdef CONFIG_NFSD_V4
-	
-	
+	/* Show count for individual nfsv4 operations */
+	/* Writing operation numbers 0 1 2 also for maintaining uniformity */
 	seq_printf(seq,"proc4ops %u", LAST_NFS4_OP + 1);
 	for (i = 0; i <= LAST_NFS4_OP; i++)
 		seq_printf(seq, " %u", nfsdstats.nfs4_opcount[i]);

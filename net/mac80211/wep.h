@@ -31,4 +31,4 @@ ieee80211_crypto_wep_decrypt(struct ieee80211_rx_data *rx);
 ieee80211_tx_result
 ieee80211_crypto_wep_encrypt(struct ieee80211_tx_data *tx);
 
-#endif 
+#endif /* WEP_H */

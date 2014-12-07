@@ -53,4 +53,4 @@ static inline struct dvb_frontend *tda829x_attach(struct dvb_frontend *fe,
 }
 #endif
 
-#endif 
+#endif /* __TDA8290_H__ */

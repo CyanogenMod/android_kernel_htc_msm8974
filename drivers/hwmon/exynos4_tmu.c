@@ -80,12 +80,16 @@ struct exynos4_tmu_data {
 	u8 temp_error1, temp_error2;
 };
 
+/*
+ * TMU treats temperature as a mapped temperature code.
+ * The temperature is converted differently depending on the calibration type.
+ */
 static int temp_to_code(struct exynos4_tmu_data *data, u8 temp)
 {
 	struct exynos4_tmu_platform_data *pdata = data->pdata;
 	int temp_code;
 
-	
+	/* temp should range between 25 and 125 */
 	if (temp < 25 || temp > 125) {
 		temp_code = -EINVAL;
 		goto out;
@@ -108,12 +112,16 @@ out:
 	return temp_code;
 }
 
+/*
+ * Calculate a temperature value from a temperature code.
+ * The unit of the temperature is degree Celsius.
+ */
 static int code_to_temp(struct exynos4_tmu_data *data, u8 temp_code)
 {
 	struct exynos4_tmu_platform_data *pdata = data->pdata;
 	int temp;
 
-	
+	/* temp_code should range between 75 and 175 */
 	if (temp_code < 75 || temp_code > 175) {
 		temp = -ENODATA;
 		goto out;
@@ -151,12 +159,12 @@ static int exynos4_tmu_initialize(struct platform_device *pdev)
 		goto out;
 	}
 
-	
+	/* Save trimming info in order to perform calibration */
 	trim_info = readl(data->base + EXYNOS4_TMU_REG_TRIMINFO);
 	data->temp_error1 = trim_info & EXYNOS4_TMU_TRIM_TEMP_MASK;
 	data->temp_error2 = ((trim_info >> 8) & EXYNOS4_TMU_TRIM_TEMP_MASK);
 
-	
+	/* Write temperature code for threshold */
 	threshold_code = temp_to_code(data, pdata->threshold);
 	if (threshold_code < 0) {
 		ret = threshold_code;
@@ -202,7 +210,7 @@ static void exynos4_tmu_control(struct platform_device *pdev, bool on)
 			pdata->trigger_level0_en;
 	} else {
 		con |= EXYNOS4_TMU_CORE_OFF;
-		interrupt_en = 0; 
+		interrupt_en = 0; /* Disable all interrupts */
 	}
 	writel(interrupt_en, data->base + EXYNOS4_TMU_REG_INTEN);
 	writel(con, data->base + EXYNOS4_TMU_REG_CONTROL);
@@ -272,7 +280,7 @@ static ssize_t exynos4_tmu_show_temp(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	
+	/* convert from degree Celsius to millidegree Celsius */
 	return sprintf(buf, "%d\n", ret * 1000);
 }
 

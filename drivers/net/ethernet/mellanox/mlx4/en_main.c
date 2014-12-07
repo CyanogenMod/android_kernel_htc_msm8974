@@ -58,10 +58,15 @@ static const char mlx4_en_version[] =
 	MODULE_PARM_DESC(X, desc);
 
 
+/*
+ * Device scope module parameters
+ */
 
+/* Enable RSS UDP traffic */
 MLX4_EN_PARM_INT(udp_rss, 1,
 		 "Enable RSS for incomming UDP traffic or disabled (0)");
 
+/* Priority pausing */
 MLX4_EN_PARM_INT(pfctx, 0, "Priority based Flow Control policy on TX[7:0]."
 			   " Per priority bit mask");
 MLX4_EN_PARM_INT(pfcrx, 0, "Priority based Flow Control policy on RX[7:0]."
@@ -136,6 +141,8 @@ static void mlx4_en_event(struct mlx4_dev *dev, void *endev_ptr,
 	switch (event) {
 	case MLX4_DEV_EVENT_PORT_UP:
 	case MLX4_DEV_EVENT_PORT_DOWN:
+		/* To prevent races, we poll the link state in a separate
+		  task rather than changing it here */
 		priv->link_state = event;
 		queue_work(mdev->workqueue, &priv->linkstate_task);
 		break;
@@ -220,14 +227,14 @@ static void *mlx4_en_add(struct mlx4_dev *dev)
 		goto err_mr;
 	}
 
-	
+	/* Build device profile according to supplied module parameters */
 	err = mlx4_en_get_profile(mdev);
 	if (err) {
 		mlx4_err(mdev, "Bad module parameters, aborting.\n");
 		goto err_mr;
 	}
 
-	
+	/* Configure which ports to start according to module parameters */
 	mdev->port_cnt = 0;
 	mlx4_foreach_port(i, dev, MLX4_PORT_TYPE_ETH)
 		mdev->port_cnt++;
@@ -246,18 +253,23 @@ static void *mlx4_en_add(struct mlx4_dev *dev)
 		}
 	}
 
+	/* Create our own workqueue for reset/multicast tasks
+	 * Note: we cannot use the shared workqueue because of deadlocks caused
+	 *       by the rtnl lock */
 	mdev->workqueue = create_singlethread_workqueue("mlx4_en");
 	if (!mdev->workqueue) {
 		err = -ENOMEM;
 		goto err_mr;
 	}
 
+	/* At this stage all non-port specific tasks are complete:
+	 * mark the card state as up */
 	mutex_init(&mdev->state_lock);
 	mdev->device_up = true;
 
-	
+	/* Setup ports */
 
-	
+	/* Create a netdev for each port */
 	mlx4_foreach_port(i, dev, MLX4_PORT_TYPE_ETH) {
 		mlx4_info(mdev, "Activating port:%d\n", i);
 		if (mlx4_en_init_netdev(mdev, i, &mdev->profile.prof[i]))

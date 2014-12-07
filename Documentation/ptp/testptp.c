@@ -45,6 +45,7 @@
 #define CLOCK_INVALID -1
 #endif
 
+/* When glibc offers the syscall, this will go away. */
 #include <sys/syscall.h>
 static int clock_adjtime(clockid_t id, struct timex *tx)
 {
@@ -69,12 +70,12 @@ static int install_handler(int signum, void (*handler)(int))
 	struct sigaction action;
 	sigset_t mask;
 
-	
+	/* Unblock the signal. */
 	sigemptyset(&mask);
 	sigaddset(&mask, signum);
 	sigprocmask(SIG_UNBLOCK, &mask, NULL);
 
-	
+	/* Install the signal handler. */
 	action.sa_handler = handler;
 	action.sa_flags = 0;
 	sigemptyset(&action.sa_mask);
@@ -85,6 +86,17 @@ static int install_handler(int signum, void (*handler)(int))
 
 static long ppb_to_scaled_ppm(int ppb)
 {
+	/*
+	 * The 'freq' field in the 'struct timex' is in parts per
+	 * million, but with a 16 bit binary fractional field.
+	 * Instead of calculating either one of
+	 *
+	 *    scaled_ppm = (ppb / 1000) << 16  [1]
+	 *    scaled_ppm = (ppb << 16) / 1000  [2]
+	 *
+	 * we simply use double precision math, in order to avoid the
+	 * truncation in [1] and the possible overflow in [2].
+	 */
 	return (long) (ppb * 65.536);
 }
 
@@ -287,7 +299,7 @@ int main(int argc, char *argv[])
 			       event.t.sec, event.t.nsec);
 			fflush(stdout);
 		}
-		
+		/* Disable the feature again. */
 		extts_request.flags = 0;
 		if (ioctl(fd, PTP_EXTTS_REQUEST, &extts_request)) {
 			perror("PTP_EXTTS_REQUEST");
@@ -296,14 +308,14 @@ int main(int argc, char *argv[])
 
 	if (oneshot) {
 		install_handler(SIGALRM, handle_alarm);
-		
+		/* Create a timer. */
 		sigevent.sigev_notify = SIGEV_SIGNAL;
 		sigevent.sigev_signo = SIGALRM;
 		if (timer_create(clkid, &sigevent, &timerid)) {
 			perror("timer_create");
 			return -1;
 		}
-		
+		/* Start the timer. */
 		memset(&timeout, 0, sizeof(timeout));
 		timeout.it_value.tv_sec = oneshot;
 		if (timer_settime(timerid, 0, &timeout, NULL)) {
@@ -316,14 +328,14 @@ int main(int argc, char *argv[])
 
 	if (periodic) {
 		install_handler(SIGALRM, handle_alarm);
-		
+		/* Create a timer. */
 		sigevent.sigev_notify = SIGEV_SIGNAL;
 		sigevent.sigev_signo = SIGALRM;
 		if (timer_create(clkid, &sigevent, &timerid)) {
 			perror("timer_create");
 			return -1;
 		}
-		
+		/* Start the timer. */
 		memset(&timeout, 0, sizeof(timeout));
 		timeout.it_interval.tv_sec = periodic;
 		timeout.it_value.tv_sec = periodic;

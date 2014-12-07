@@ -24,7 +24,7 @@
 #define FX2CMD_MEM_WRITE_DWORD  0x01u
 #define FX2CMD_MEM_READ_DWORD   0x02u
 
-#define FX2CMD_HCW_ZILOG_RESET  0x10u 
+#define FX2CMD_HCW_ZILOG_RESET  0x10u /* 1=reset 0=release */
 
 #define FX2CMD_MEM_READ_64BYTES 0x28u
 
@@ -59,5 +59,14 @@
 #define FX2CMD_ONAIR_DTV_POWER_ON      0xa2u
 #define FX2CMD_ONAIR_DTV_POWER_OFF     0xa3u
 
-#endif 
+#endif /* _PVRUSB2_FX2_CMD_H_ */
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 75 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

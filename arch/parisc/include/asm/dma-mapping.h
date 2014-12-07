@@ -5,6 +5,7 @@
 #include <asm/cacheflush.h>
 #include <asm/scatterlist.h>
 
+/* See Documentation/DMA-API-HOWTO.txt */
 struct hppa_dma_ops {
 	int  (*dma_supported)(struct device *dev, u64 mask);
 	void *(*alloc_consistent)(struct device *dev, size_t size, dma_addr_t *iova, gfp_t flag);
@@ -20,6 +21,23 @@ struct hppa_dma_ops {
 	void (*dma_sync_sg_for_device)(struct device *dev, struct scatterlist *sg, int nelems, enum dma_data_direction direction);
 };
 
+/*
+** We could live without the hppa_dma_ops indirection if we didn't want
+** to support 4 different coherent dma models with one binary (they will
+** someday be loadable modules):
+**     I/O MMU        consistent method           dma_sync behavior
+**  =============   ======================       =======================
+**  a) PA-7x00LC    uncachable host memory          flush/purge
+**  b) U2/Uturn      cachable host memory              NOP
+**  c) Ike/Astro     cachable host memory              NOP
+**  d) EPIC/SAGA     memory on EPIC/SAGA         flush/reset DMA channel
+**
+** PA-7[13]00LC processors have a GSC bus interface and no I/O MMU.
+**
+** Systems (eg PCX-T workstations) that don't fall into the above
+** categories will need to modify the needed drivers to perform
+** flush/purge and allocate "regular" cacheable pages for everything.
+*/
 
 #ifdef CONFIG_PA11
 extern struct hppa_dma_ops pcxl_dma_ops;
@@ -180,7 +198,7 @@ parisc_walk_tree(struct device *dev)
 	struct device *otherdev;
 	if(likely(dev->platform_data != NULL))
 		return dev->platform_data;
-	
+	/* OK, just traverse the bus to find it */
 	for(otherdev = dev->parent; otherdev;
 	    otherdev = otherdev->parent) {
 		if(otherdev->platform_data) {
@@ -204,19 +222,20 @@ int ccio_request_resource(const struct parisc_device *dev,
 int ccio_allocate_resource(const struct parisc_device *dev,
 		struct resource *res, unsigned long size,
 		unsigned long min, unsigned long max, unsigned long align);
-#else 
+#else /* !CONFIG_IOMMU_CCIO */
 #define ccio_get_iommu(dev) NULL
 #define ccio_request_resource(dev, res) insert_resource(&iomem_resource, res)
 #define ccio_allocate_resource(dev, res, size, min, max, align) \
 		allocate_resource(&iomem_resource, res, size, min, max, \
 				align, NULL, NULL)
-#endif 
+#endif /* !CONFIG_IOMMU_CCIO */
 
 #ifdef CONFIG_IOMMU_SBA
 struct parisc_device;
 void * sba_get_iommu(struct parisc_device *dev);
 #endif
 
+/* At the moment, we panic on error for IOMMU resource exaustion */
 #define dma_mapping_error(dev, x)	0
 
 #endif

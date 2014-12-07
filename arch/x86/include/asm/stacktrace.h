@@ -34,10 +34,11 @@ print_context_stack_bp(struct thread_info *tinfo,
 		       const struct stacktrace_ops *ops, void *data,
 		       unsigned long *end, int *graph);
 
+/* Generic stack tracer with callbacks */
 
 struct stacktrace_ops {
 	void (*address)(void *data, unsigned long address, int reliable);
-	
+	/* On negative return stop dumping */
 	int (*stack)(void *data, char *name);
 	walk_stack_t	walk_stack;
 };
@@ -64,12 +65,12 @@ stack_frame(struct task_struct *task, struct pt_regs *regs)
 		return regs->bp;
 
 	if (task == current) {
-		
+		/* Grab bp right from our regs */
 		get_bp(bp);
 		return bp;
 	}
 
-	
+	/* bp is the last reg pushed by switch_to */
 	return *(unsigned long *)task->thread.sp;
 }
 #else
@@ -90,6 +91,7 @@ show_stack_log_lvl(struct task_struct *task, struct pt_regs *regs,
 
 extern unsigned int code_bytes;
 
+/* The form of the top of the frame on the stack */
 struct stack_frame {
 	struct stack_frame *next_frame;
 	unsigned long return_address;
@@ -113,4 +115,4 @@ static inline unsigned long caller_frame_pointer(void)
 	return (unsigned long)frame;
 }
 
-#endif 
+#endif /* _ASM_X86_STACKTRACE_H */

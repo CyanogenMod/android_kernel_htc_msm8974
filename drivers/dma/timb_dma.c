@@ -16,6 +16,9 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * Timberdale FPGA DMA engine
+ */
 
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
@@ -32,6 +35,7 @@
 
 #define DRIVER_NAME "timb-dma"
 
+/* Global DMA registers */
 #define TIMBDMA_ACR		0x34
 #define TIMBDMA_32BIT_ADDR	0x01
 
@@ -39,17 +43,26 @@
 #define TIMBDMA_IPR		0x080004
 #define TIMBDMA_IER		0x080008
 
+/* Channel specific registers */
+/* RX instances base addresses are 0x00, 0x40, 0x80 ...
+ * TX instances base addresses are 0x18, 0x58, 0x98 ...
+ */
 #define TIMBDMA_INSTANCE_OFFSET		0x40
 #define TIMBDMA_INSTANCE_TX_OFFSET	0x18
 
+/* RX registers, relative the instance base */
 #define TIMBDMA_OFFS_RX_DHAR	0x00
 #define TIMBDMA_OFFS_RX_DLAR	0x04
 #define TIMBDMA_OFFS_RX_LR	0x0C
 #define TIMBDMA_OFFS_RX_BLR	0x10
 #define TIMBDMA_OFFS_RX_ER	0x14
 #define TIMBDMA_RX_EN		0x01
+/* bytes per Row, video specific register
+ * which is placed after the TX registers...
+ */
 #define TIMBDMA_OFFS_RX_BPRR	0x30
 
+/* TX registers, relative the instance base */
 #define TIMBDMA_OFFS_TX_DHAR	0x00
 #define TIMBDMA_OFFS_TX_DLAR	0x04
 #define TIMBDMA_OFFS_TX_BLR	0x0C
@@ -69,15 +82,18 @@ struct timb_dma_desc {
 struct timb_dma_chan {
 	struct dma_chan		chan;
 	void __iomem		*membase;
-	spinlock_t		lock; 
+	spinlock_t		lock; /* Used to protect data structures,
+					especially the lists and descriptors,
+					from races between the tasklet and calls
+					from above */
 	bool			ongoing;
 	struct list_head	active_list;
 	struct list_head	queue;
 	struct list_head	free_list;
 	unsigned int		bytes_per_line;
 	enum dma_transfer_direction	direction;
-	unsigned int		descs; 
-	unsigned int		desc_elems; 
+	unsigned int		descs; /* Descriptors to allocate */
+	unsigned int		desc_elems; /* number of elems per descriptor */
 };
 
 struct timb_dma {
@@ -103,13 +119,14 @@ static struct timb_dma *tdchantotd(struct timb_dma_chan *td_chan)
 		id * sizeof(struct timb_dma_chan) - sizeof(struct timb_dma));
 }
 
+/* Must be called with the spinlock held */
 static void __td_enable_chan_irq(struct timb_dma_chan *td_chan)
 {
 	int id = td_chan->chan.chan_id;
 	struct timb_dma *td = tdchantotd(td_chan);
 	u32 ier;
 
-	
+	/* enable interrupt for this channel */
 	ier = ioread32(td->membase + TIMBDMA_IER);
 	ier |= 1 << id;
 	dev_dbg(chan2dev(&td_chan->chan), "Enabling irq: %d, IER: 0x%x\n", id,
@@ -117,6 +134,7 @@ static void __td_enable_chan_irq(struct timb_dma_chan *td_chan)
 	iowrite32(ier, td->membase + TIMBDMA_IER);
 }
 
+/* Should be called with the spinlock held */
 static bool __td_dma_done_ack(struct timb_dma_chan *td_chan)
 {
 	int id = td_chan->chan.chan_id;
@@ -176,7 +194,7 @@ static int td_fill_desc(struct timb_dma_chan *td_chan, u8 *dma_desc,
 		return -EINVAL;
 	}
 
-	
+	/* length must be word aligned */
 	if (sg_dma_len(sg) % sizeof(u32)) {
 		dev_err(chan2dev(&td_chan->chan), "Incorrect length: %d\n",
 			sg_dma_len(sg));
@@ -195,11 +213,12 @@ static int td_fill_desc(struct timb_dma_chan *td_chan, u8 *dma_desc,
 	dma_desc[2] = (sg_dma_len(sg) >> 0) & 0xff;
 
 	dma_desc[1] = 0x00;
-	dma_desc[0] = 0x21 | (last ? 0x02 : 0); 
+	dma_desc[0] = 0x21 | (last ? 0x02 : 0); /* tran, valid */
 
 	return 0;
 }
 
+/* Must be called with the spinlock held */
 static void __td_start_dma(struct timb_dma_chan *td_chan)
 {
 	struct timb_dma_desc *td_desc;
@@ -219,17 +238,17 @@ static void __td_start_dma(struct timb_dma_chan *td_chan)
 
 	if (td_chan->direction == DMA_DEV_TO_MEM) {
 
-		
+		/* descriptor address */
 		iowrite32(0, td_chan->membase + TIMBDMA_OFFS_RX_DHAR);
 		iowrite32(td_desc->txd.phys, td_chan->membase +
 			TIMBDMA_OFFS_RX_DLAR);
-		
+		/* Bytes per line */
 		iowrite32(td_chan->bytes_per_line, td_chan->membase +
 			TIMBDMA_OFFS_RX_BPRR);
-		
+		/* enable RX */
 		iowrite32(TIMBDMA_RX_EN, td_chan->membase + TIMBDMA_OFFS_RX_ER);
 	} else {
-		
+		/* address high */
 		iowrite32(0, td_chan->membase + TIMBDMA_OFFS_TX_DHAR);
 		iowrite32(td_desc->txd.phys, td_chan->membase +
 			TIMBDMA_OFFS_TX_DLAR);
@@ -248,7 +267,7 @@ static void __td_finish(struct timb_dma_chan *td_chan)
 	struct dma_async_tx_descriptor	*txd;
 	struct timb_dma_desc		*td_desc;
 
-	
+	/* can happen if the descriptor is canceled */
 	if (list_empty(&td_chan->active_list))
 		return;
 
@@ -259,9 +278,13 @@ static void __td_finish(struct timb_dma_chan *td_chan)
 	dev_dbg(chan2dev(&td_chan->chan), "descriptor %u complete\n",
 		txd->cookie);
 
-	
+	/* make sure to stop the transfer */
 	if (td_chan->direction == DMA_DEV_TO_MEM)
 		iowrite32(0, td_chan->membase + TIMBDMA_OFFS_RX_ER);
+/* Currently no support for stopping DMA transfers
+	else
+		iowrite32(0, td_chan->membase + TIMBDMA_OFFS_TX_DLAR);
+*/
 	dma_cookie_complete(txd);
 	td_chan->ongoing = false;
 
@@ -274,6 +297,10 @@ static void __td_finish(struct timb_dma_chan *td_chan)
 		__td_unmap_descs(td_desc,
 			txd->flags & DMA_COMPL_SRC_UNMAP_SINGLE);
 
+	/*
+	 * The API requires that no submissions are done from a
+	 * callback, so we don't need to drop the lock here
+	 */
 	if (callback)
 		callback(param);
 }
@@ -465,7 +492,7 @@ static void td_free_chan_resources(struct dma_chan *chan)
 
 	dev_dbg(chan2dev(chan), "%s: Entry\n", __func__);
 
-	
+	/* check that all descriptors are free */
 	BUG_ON(!list_empty(&td_chan->active_list));
 	BUG_ON(!list_empty(&td_chan->queue));
 
@@ -503,7 +530,7 @@ static void td_issue_pending(struct dma_chan *chan)
 	spin_lock_bh(&td_chan->lock);
 
 	if (!list_empty(&td_chan->active_list))
-		
+		/* transfer ongoing */
 		if (__td_dma_done_ack(td_chan))
 			__td_finish(td_chan);
 
@@ -530,7 +557,7 @@ static struct dma_async_tx_descriptor *td_prep_slave_sg(struct dma_chan *chan,
 		return NULL;
 	}
 
-	
+	/* even channels are for RX, odd for TX */
 	if (td_chan->direction != direction) {
 		dev_err(chan2dev(chan),
 			"Requesting channel in wrong direction\n");
@@ -581,13 +608,13 @@ static int td_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 	if (cmd != DMA_TERMINATE_ALL)
 		return -ENXIO;
 
-	
+	/* first the easy part, put the queue into the free list */
 	spin_lock_bh(&td_chan->lock);
 	list_for_each_entry_safe(td_desc, _td_desc, &td_chan->queue,
 		desc_node)
 		list_move(&td_desc->desc_node, &td_chan->free_list);
 
-	
+	/* now tear down the running */
 	__td_finish(td_chan);
 	spin_unlock_bh(&td_chan->lock);
 
@@ -605,7 +632,7 @@ static void td_tasklet(unsigned long data)
 	isr = ioread32(td->membase + TIMBDMA_ISR);
 	ipr = isr & __td_ier_mask(td);
 
-	
+	/* ack the interrupts */
 	iowrite32(ipr, td->membase + TIMBDMA_ISR);
 
 	for (i = 0; i < td->dma.chancnt; i++)
@@ -629,7 +656,7 @@ static irqreturn_t td_irq(int irq, void *devid)
 	u32 ipr = ioread32(td->membase + TIMBDMA_IPR);
 
 	if (ipr) {
-		
+		/* disable interrupts, will be re-enabled in tasklet */
 		iowrite32(0, td->membase + TIMBDMA_IER);
 
 		tasklet_schedule(&td->tasklet);
@@ -682,10 +709,10 @@ static int __devinit td_probe(struct platform_device *pdev)
 		goto err_free_mem;
 	}
 
-	
+	/* 32bit addressing */
 	iowrite32(TIMBDMA_32BIT_ADDR, td->membase + TIMBDMA_ACR);
 
-	
+	/* disable and clear any interrupts */
 	iowrite32(0x0, td->membase + TIMBDMA_IER);
 	iowrite32(0xFFFFFFFF, td->membase + TIMBDMA_ISR);
 
@@ -716,7 +743,7 @@ static int __devinit td_probe(struct platform_device *pdev)
 		struct timb_dma_platform_data_channel *pchan =
 			pdata->channels + i;
 
-		
+		/* even channels are RX, odd are TX */
 		if ((i % 2) == pchan->rx) {
 			dev_err(&pdev->dev, "Wrong channel configuration\n");
 			err = -EINVAL;

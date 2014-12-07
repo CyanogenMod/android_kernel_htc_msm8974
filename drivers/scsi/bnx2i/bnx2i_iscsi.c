@@ -22,7 +22,10 @@ struct scsi_transport_template *bnx2i_scsi_xport_template;
 struct iscsi_transport bnx2i_iscsi_transport;
 static struct scsi_host_template bnx2i_host_template;
 
-static DEFINE_SPINLOCK(bnx2i_resc_lock); 
+/*
+ * Global endpoint resource info
+ */
+static DEFINE_SPINLOCK(bnx2i_resc_lock); /* protects global resources */
 
 DECLARE_PER_CPU(struct bnx2i_percpu_s, bnx2i_percpu);
 
@@ -37,6 +40,17 @@ static int bnx2i_adapter_ready(struct bnx2i_hba *hba)
 	return retval;
 }
 
+/**
+ * bnx2i_get_write_cmd_bd_idx - identifies various BD bookmarks
+ * @cmd:		iscsi cmd struct pointer
+ * @buf_off:		absolute buffer offset
+ * @start_bd_off:	u32 pointer to return the offset within the BD
+ *			indicated by 'start_bd_idx' on which 'buf_off' falls
+ * @start_bd_idx:	index of the BD on which 'buf_off' falls
+ *
+ * identifies & marks various bd info for scsi command's imm data,
+ * unsolicited data and the first solicited data seq.
+ */
 static void bnx2i_get_write_cmd_bd_idx(struct bnx2i_cmd *cmd, u32 buf_off,
 				       u32 *start_bd_off, u32 *start_bd_idx)
 {
@@ -56,6 +70,15 @@ static void bnx2i_get_write_cmd_bd_idx(struct bnx2i_cmd *cmd, u32 buf_off,
 	*start_bd_idx = cur_bd_idx;
 }
 
+/**
+ * bnx2i_setup_write_cmd_bd_info - sets up BD various information
+ * @task:	transport layer's cmd struct pointer
+ *
+ * identifies & marks various bd info for scsi command's immediate data,
+ * unsolicited data and first solicited data seq which includes BD start
+ * index & BD buf off. his function takes into account iscsi parameter such
+ * as immediate data and unsolicited data is support on this connection.
+ */
 static void bnx2i_setup_write_cmd_bd_info(struct iscsi_task *task)
 {
 	struct bnx2i_cmd *cmd = task->dd_data;
@@ -64,10 +87,13 @@ static void bnx2i_setup_write_cmd_bd_info(struct iscsi_task *task)
 	u32 buffer_offset = 0;
 	u32 cmd_len = cmd->req.total_data_transfer_length;
 
+	/* if ImmediateData is turned off & IntialR2T is turned on,
+	 * there will be no immediate or unsolicited data, just return.
+	 */
 	if (!iscsi_task_has_unsol_data(task) && !task->imm_count)
 		return;
 
-	
+	/* Immediate data */
 	buffer_offset += task->imm_count;
 	if (task->imm_count == cmd_len)
 		return;
@@ -105,6 +131,13 @@ static void bnx2i_setup_write_cmd_bd_info(struct iscsi_task *task)
 
 
 
+/**
+ * bnx2i_map_scsi_sg - maps IO buffer and prepares the BD table
+ * @hba:	adapter instance
+ * @cmd:	iscsi cmd struct pointer
+ *
+ * map SG list
+ */
 static int bnx2i_map_scsi_sg(struct bnx2i_hba *hba, struct bnx2i_cmd *cmd)
 {
 	struct scsi_cmnd *sc = cmd->scsi_cmd;
@@ -142,6 +175,12 @@ static int bnx2i_map_scsi_sg(struct bnx2i_hba *hba, struct bnx2i_cmd *cmd)
 	return bd_count;
 }
 
+/**
+ * bnx2i_iscsi_map_sg_list - maps SG list
+ * @cmd:	iscsi cmd struct pointer
+ *
+ * creates BD list table for the command
+ */
 static void bnx2i_iscsi_map_sg_list(struct bnx2i_cmd *cmd)
 {
 	int bd_count;
@@ -157,6 +196,12 @@ static void bnx2i_iscsi_map_sg_list(struct bnx2i_cmd *cmd)
 }
 
 
+/**
+ * bnx2i_iscsi_unmap_sg_list - unmaps SG list
+ * @cmd:	iscsi cmd struct pointer
+ *
+ * unmap IO buffers and invalidate the BD table
+ */
 void bnx2i_iscsi_unmap_sg_list(struct bnx2i_cmd *cmd)
 {
 	struct scsi_cmnd *sc = cmd->scsi_cmd;
@@ -178,6 +223,16 @@ static void bnx2i_setup_cmd_wqe_template(struct bnx2i_cmd *cmd)
 }
 
 
+/**
+ * bnx2i_bind_conn_to_iscsi_cid - bind conn structure to 'iscsi_cid'
+ * @hba:	pointer to adapter instance
+ * @conn:	pointer to iscsi connection
+ * @iscsi_cid:	iscsi context ID, range 0 - (MAX_CONN - 1)
+ *
+ * update iscsi cid table entry with connection pointer. This enables
+ *	driver to quickly get hold of connection structure pointer in
+ *	completion/interrupt thread using iscsi context ID
+ */
 static int bnx2i_bind_conn_to_iscsi_cid(struct bnx2i_hba *hba,
 					struct bnx2i_conn *bnx2i_conn,
 					u32 iscsi_cid)
@@ -193,6 +248,11 @@ static int bnx2i_bind_conn_to_iscsi_cid(struct bnx2i_hba *hba,
 }
 
 
+/**
+ * bnx2i_get_conn_from_id - maps an iscsi cid to corresponding conn ptr
+ * @hba:	pointer to adapter instance
+ * @iscsi_cid:	iscsi context ID, range 0 - (MAX_CONN - 1)
+ */
 struct bnx2i_conn *bnx2i_get_conn_from_id(struct bnx2i_hba *hba,
 					  u16 iscsi_cid)
 {
@@ -208,6 +268,10 @@ struct bnx2i_conn *bnx2i_get_conn_from_id(struct bnx2i_hba *hba,
 }
 
 
+/**
+ * bnx2i_alloc_iscsi_cid - allocates a iscsi_cid from free pool
+ * @hba:	pointer to adapter instance
+ */
 static u32 bnx2i_alloc_iscsi_cid(struct bnx2i_hba *hba)
 {
 	int idx;
@@ -225,6 +289,11 @@ static u32 bnx2i_alloc_iscsi_cid(struct bnx2i_hba *hba)
 }
 
 
+/**
+ * bnx2i_free_iscsi_cid - returns tcp port to free list
+ * @hba: 		pointer to adapter instance
+ * @iscsi_cid:		iscsi context ID to free
+ */
 static void bnx2i_free_iscsi_cid(struct bnx2i_hba *hba, u16 iscsi_cid)
 {
 	int idx;
@@ -243,6 +312,13 @@ static void bnx2i_free_iscsi_cid(struct bnx2i_hba *hba, u16 iscsi_cid)
 }
 
 
+/**
+ * bnx2i_setup_free_cid_que - sets up free iscsi cid queue
+ * @hba:	pointer to adapter instance
+ *
+ * allocates memory for iscsi cid queue & 'cid - conn ptr' mapping table,
+ * 	and initialize table attributes
+ */
 static int bnx2i_setup_free_cid_que(struct bnx2i_hba *hba)
 {
 	int mem_size;
@@ -278,6 +354,10 @@ static int bnx2i_setup_free_cid_que(struct bnx2i_hba *hba)
 }
 
 
+/**
+ * bnx2i_release_free_cid_que - releases 'iscsi_cid' queue resources
+ * @hba:	pointer to adapter instance
+ */
 static void bnx2i_release_free_cid_que(struct bnx2i_hba *hba)
 {
 	kfree(hba->cid_que.cid_que_base);
@@ -288,6 +368,14 @@ static void bnx2i_release_free_cid_que(struct bnx2i_hba *hba)
 }
 
 
+/**
+ * bnx2i_alloc_ep - allocates ep structure from global pool
+ * @hba:	pointer to adapter instance
+ *
+ * routine allocates a free endpoint structure from global pool and
+ *	a tcp port to be used for this connection.  Global resource lock,
+ *	'bnx2i_resc_lock' is held while accessing shared global data structures
+ */
 static struct iscsi_endpoint *bnx2i_alloc_ep(struct bnx2i_hba *hba)
 {
 	struct iscsi_endpoint *ep;
@@ -318,6 +406,10 @@ static struct iscsi_endpoint *bnx2i_alloc_ep(struct bnx2i_hba *hba)
 }
 
 
+/**
+ * bnx2i_free_ep - free endpoint
+ * @ep:		pointer to iscsi endpoint structure
+ */
 static void bnx2i_free_ep(struct iscsi_endpoint *ep)
 {
 	struct bnx2i_endpoint *bnx2i_ep = ep->dd_data;
@@ -341,6 +433,12 @@ static void bnx2i_free_ep(struct iscsi_endpoint *ep)
 }
 
 
+/**
+ * bnx2i_alloc_bdt - allocates buffer descriptor (BD) table for the command
+ * @hba:	adapter instance pointer
+ * @session:	iscsi session pointer
+ * @cmd:	iscsi command structure
+ */
 static int bnx2i_alloc_bdt(struct bnx2i_hba *hba, struct iscsi_session *session,
 			   struct bnx2i_cmd *cmd)
 {
@@ -359,6 +457,12 @@ static int bnx2i_alloc_bdt(struct bnx2i_hba *hba, struct iscsi_session *session,
 	return 0;
 }
 
+/**
+ * bnx2i_destroy_cmd_pool - destroys iscsi command pool and release BD table
+ * @hba:	adapter instance pointer
+ * @session:	iscsi session pointer
+ * @cmd:	iscsi command structure
+ */
 static void bnx2i_destroy_cmd_pool(struct bnx2i_hba *hba,
 				   struct iscsi_session *session)
 {
@@ -379,6 +483,11 @@ static void bnx2i_destroy_cmd_pool(struct bnx2i_hba *hba,
 }
 
 
+/**
+ * bnx2i_setup_cmd_pool - sets up iscsi command pool for the session
+ * @hba:	adapter instance pointer
+ * @session:	iscsi session pointer
+ */
 static int bnx2i_setup_cmd_pool(struct bnx2i_hba *hba,
 				struct iscsi_session *session)
 {
@@ -403,6 +512,13 @@ free_bdts:
 }
 
 
+/**
+ * bnx2i_setup_mp_bdt - allocate BD table resources
+ * @hba:	pointer to adapter structure
+ *
+ * Allocate memory for dummy buffer and associated BD
+ * table to be used by middle path (MP) requests
+ */
 static int bnx2i_setup_mp_bdt(struct bnx2i_hba *hba)
 {
 	int rc = 0;
@@ -440,6 +556,12 @@ out:
 }
 
 
+/**
+ * bnx2i_free_mp_bdt - releases ITT back to free pool
+ * @hba:	pointer to adapter instance
+ *
+ * free MP dummy buffer and associated BD table
+ */
 static void bnx2i_free_mp_bdt(struct bnx2i_hba *hba)
 {
 	if (hba->mp_bd_tbl) {
@@ -455,11 +577,29 @@ static void bnx2i_free_mp_bdt(struct bnx2i_hba *hba)
 		return;
 }
 
+/**
+ * bnx2i_drop_session - notifies iscsid of connection error.
+ * @hba:	adapter instance pointer
+ * @session:	iscsi session pointer
+ *
+ * This notifies iscsid that there is a error, so it can initiate
+ * recovery.
+ *
+ * This relies on caller using the iscsi class iterator so the object
+ * is refcounted and does not disapper from under us.
+ */
 void bnx2i_drop_session(struct iscsi_cls_session *cls_session)
 {
 	iscsi_session_failure(cls_session->dd_data, ISCSI_ERR_CONN_FAILED);
 }
 
+/**
+ * bnx2i_ep_destroy_list_add - add an entry to EP destroy list
+ * @hba:	pointer to adapter instance
+ * @ep:		pointer to endpoint (transport indentifier) structure
+ *
+ * EP destroy queue manager
+ */
 static int bnx2i_ep_destroy_list_add(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
@@ -469,6 +609,14 @@ static int bnx2i_ep_destroy_list_add(struct bnx2i_hba *hba,
 	return 0;
 }
 
+/**
+ * bnx2i_ep_destroy_list_del - add an entry to EP destroy list
+ *
+ * @hba: 		pointer to adapter instance
+ * @ep: 		pointer to endpoint (transport indentifier) structure
+ *
+ * EP destroy queue manager
+ */
 static int bnx2i_ep_destroy_list_del(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
@@ -479,6 +627,13 @@ static int bnx2i_ep_destroy_list_del(struct bnx2i_hba *hba,
 	return 0;
 }
 
+/**
+ * bnx2i_ep_ofld_list_add - add an entry to ep offload pending list
+ * @hba:	pointer to adapter instance
+ * @ep:		pointer to endpoint (transport indentifier) structure
+ *
+ * pending conn offload completion queue manager
+ */
 static int bnx2i_ep_ofld_list_add(struct bnx2i_hba *hba,
 				  struct bnx2i_endpoint *ep)
 {
@@ -488,6 +643,13 @@ static int bnx2i_ep_ofld_list_add(struct bnx2i_hba *hba,
 	return 0;
 }
 
+/**
+ * bnx2i_ep_ofld_list_del - add an entry to ep offload pending list
+ * @hba: 		pointer to adapter instance
+ * @ep: 		pointer to endpoint (transport indentifier) structure
+ *
+ * pending conn offload completion queue manager
+ */
 static int bnx2i_ep_ofld_list_del(struct bnx2i_hba *hba,
 				  struct bnx2i_endpoint *ep)
 {
@@ -498,6 +660,13 @@ static int bnx2i_ep_ofld_list_del(struct bnx2i_hba *hba,
 }
 
 
+/**
+ * bnx2i_find_ep_in_ofld_list - find iscsi_cid in pending list of endpoints
+ *
+ * @hba: 		pointer to adapter instance
+ * @iscsi_cid:		iscsi context ID to find
+ *
+ */
 struct bnx2i_endpoint *
 bnx2i_find_ep_in_ofld_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 {
@@ -520,6 +689,12 @@ bnx2i_find_ep_in_ofld_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 	return ep;
 }
 
+/**
+ * bnx2i_find_ep_in_destroy_list - find iscsi_cid in destroy list
+ * @hba: 		pointer to adapter instance
+ * @iscsi_cid:		iscsi context ID to find
+ *
+ */
 struct bnx2i_endpoint *
 bnx2i_find_ep_in_destroy_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 {
@@ -543,6 +718,13 @@ bnx2i_find_ep_in_destroy_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 	return ep;
 }
 
+/**
+ * bnx2i_ep_active_list_add - add an entry to ep active list
+ * @hba:	pointer to adapter instance
+ * @ep:		pointer to endpoint (transport indentifier) structure
+ *
+ * current active conn queue manager
+ */
 static void bnx2i_ep_active_list_add(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
@@ -552,6 +734,13 @@ static void bnx2i_ep_active_list_add(struct bnx2i_hba *hba,
 }
 
 
+/**
+ * bnx2i_ep_active_list_del - deletes an entry to ep active list
+ * @hba:	pointer to adapter instance
+ * @ep:		pointer to endpoint (transport indentifier) structure
+ *
+ * current active conn queue manager
+ */
 static void bnx2i_ep_active_list_del(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
@@ -561,6 +750,15 @@ static void bnx2i_ep_active_list_del(struct bnx2i_hba *hba,
 }
 
 
+/**
+ * bnx2i_setup_host_queue_size - assigns shost->can_queue param
+ * @hba:	pointer to adapter instance
+ * @shost:	scsi host pointer
+ *
+ * Initializes 'can_queue' parameter based on how many outstanding commands
+ * 	the device can handle. Each device 5708/5709/57710 has different
+ *	capabilities
+ */
 static void bnx2i_setup_host_queue_size(struct bnx2i_hba *hba,
 					struct Scsi_Host *shost)
 {
@@ -575,6 +773,13 @@ static void bnx2i_setup_host_queue_size(struct bnx2i_hba *hba,
 }
 
 
+/**
+ * bnx2i_alloc_hba - allocate and init adapter instance
+ * @cnic:	cnic device pointer
+ *
+ * allocate & initialize adapter structure and call other
+ *	support routines to do per adapter initialization
+ */
 struct bnx2i_hba *bnx2i_alloc_hba(struct cnic_dev *cnic)
 {
 	struct Scsi_Host *shost;
@@ -593,7 +798,7 @@ struct bnx2i_hba *bnx2i_alloc_hba(struct cnic_dev *cnic)
 	hba = iscsi_host_priv(shost);
 	hba->shost = shost;
 	hba->netdev = cnic->netdev;
-	
+	/* Get PCI related information and update hba struct members */
 	hba->pcidev = cnic->pcidev;
 	pci_dev_get(hba->pcidev);
 	hba->pci_did = hba->pcidev->device;
@@ -627,19 +832,19 @@ struct bnx2i_hba *bnx2i_alloc_hba(struct cnic_dev *cnic)
 
 	hba->mtu_supported = BNX2I_MAX_MTU_SUPPORTED;
 
-	
+	/* different values for 5708/5709/57710 */
 	hba->max_active_conns = ISCSI_MAX_CONNS_PER_HBA;
 
 	if (bnx2i_setup_free_cid_que(hba))
 		goto cid_que_err;
 
-	
+	/* SQ/RQ/CQ size can be changed via sysfx interface */
 	if (test_bit(BNX2I_NX2_DEV_57710, &hba->cnic_dev_type)) {
 		if (sq_size && sq_size <= BNX2I_5770X_SQ_WQES_MAX)
 			hba->max_sqes = sq_size;
 		else
 			hba->max_sqes = BNX2I_5770X_SQ_WQES_DEFAULT;
-	} else {	
+	} else {	/* 5706/5708/5709 */
 		if (sq_size && sq_size <= BNX2I_570X_SQ_WQES_MAX)
 			hba->max_sqes = sq_size;
 		else
@@ -663,7 +868,7 @@ struct bnx2i_hba *bnx2i_alloc_hba(struct cnic_dev *cnic)
 		hba->hba_shutdown_tmo = 30 * HZ;
 		hba->conn_teardown_tmo = 20 * HZ;
 		hba->conn_ctx_destroy_tmo = 6 * HZ;
-	} else {	
+	} else {	/* 5706/5708/5709 */
 		hba->hba_shutdown_tmo = 20 * HZ;
 		hba->conn_teardown_tmo = 10 * HZ;
 		hba->conn_ctx_destroy_tmo = 2 * HZ;
@@ -688,6 +893,12 @@ ioreg_map_err:
 	return NULL;
 }
 
+/**
+ * bnx2i_free_hba- releases hba structure and resources held by the adapter
+ * @hba:	pointer to adapter instance
+ *
+ * free adapter structure and call various cleanup routines.
+ */
 void bnx2i_free_hba(struct bnx2i_hba *hba)
 {
 	struct Scsi_Host *shost = hba->shost;
@@ -707,6 +918,13 @@ void bnx2i_free_hba(struct bnx2i_hba *hba)
 	iscsi_host_free(shost);
 }
 
+/**
+ * bnx2i_conn_free_login_resources - free DMA resources used for login process
+ * @hba:		pointer to adapter instance
+ * @bnx2i_conn:		iscsi connection pointer
+ *
+ * Login related resources, mostly BDT & payload DMA memory is freed
+ */
 static void bnx2i_conn_free_login_resources(struct bnx2i_hba *hba,
 					    struct bnx2i_conn *bnx2i_conn)
 {
@@ -741,10 +959,17 @@ static void bnx2i_conn_free_login_resources(struct bnx2i_hba *hba,
 	}
 }
 
+/**
+ * bnx2i_conn_alloc_login_resources - alloc DMA resources for login/nop.
+ * @hba:		pointer to adapter instance
+ * @bnx2i_conn:		iscsi connection pointer
+ *
+ * Mgmt task DNA resources are allocated in this routine.
+ */
 static int bnx2i_conn_alloc_login_resources(struct bnx2i_hba *hba,
 					    struct bnx2i_conn *bnx2i_conn)
 {
-	
+	/* Allocate memory for login request/response buffers */
 	bnx2i_conn->gen_pdu.req_buf =
 		dma_alloc_coherent(&hba->pcidev->dev,
 				   ISCSI_DEF_MAX_RECV_SEG_LEN,
@@ -806,6 +1031,13 @@ login_req_buf_failure:
 }
 
 
+/**
+ * bnx2i_iscsi_prep_generic_pdu_bd - prepares BD table.
+ * @bnx2i_conn:		iscsi connection pointer
+ *
+ * Allocates buffers and BD tables before shipping requests to cnic
+ *	for PDUs prepared by 'iscsid' daemon
+ */
 static void bnx2i_iscsi_prep_generic_pdu_bd(struct bnx2i_conn *bnx2i_conn)
 {
 	struct iscsi_bd *bd_tbl;
@@ -831,6 +1063,13 @@ static void bnx2i_iscsi_prep_generic_pdu_bd(struct bnx2i_conn *bnx2i_conn)
 }
 
 
+/**
+ * bnx2i_iscsi_send_generic_request - called to send mgmt tasks.
+ * @task:	transport layer task pointer
+ *
+ * called to transmit PDUs prepared by the 'iscsid' daemon. iSCSI login,
+ *	Nop-out and Logout requests flow through this path.
+ */
 static int bnx2i_iscsi_send_generic_request(struct iscsi_task *task)
 {
 	struct bnx2i_cmd *cmd = task->dd_data;
@@ -872,7 +1111,15 @@ static int bnx2i_iscsi_send_generic_request(struct iscsi_task *task)
 }
 
 
+/**********************************************************************
+ *		SCSI-ML Interface
+ **********************************************************************/
 
+/**
+ * bnx2i_cpy_scsi_cdb - copies LUN & CDB fields in required format to sq wqe
+ * @sc:		SCSI-ML command pointer
+ * @cmd:	iscsi cmd pointer
+ */
 static void bnx2i_cpy_scsi_cdb(struct scsi_cmnd *sc, struct bnx2i_cmd *cmd)
 {
 	u32 dword;
@@ -906,8 +1153,14 @@ static void bnx2i_cleanup_task(struct iscsi_task *task)
 	struct bnx2i_conn *bnx2i_conn = conn->dd_data;
 	struct bnx2i_hba *hba = bnx2i_conn->hba;
 
+	/*
+	 * mgmt task or cmd was never sent to us to transmit.
+	 */
 	if (!task->sc || task->state == ISCSI_TASK_PENDING)
 		return;
+	/*
+	 * need to clean-up task context to claim dma buffers
+	 */
 	if (task->state == ISCSI_TASK_ABRT_TMF) {
 		bnx2i_send_cmd_cleanup_req(hba, task->dd_data);
 
@@ -919,6 +1172,11 @@ static void bnx2i_cleanup_task(struct iscsi_task *task)
 	bnx2i_iscsi_unmap_sg_list(task->dd_data);
 }
 
+/**
+ * bnx2i_mtask_xmit - transmit mtask to chip for further processing
+ * @conn:	transport layer conn structure pointer
+ * @task:	transport layer command structure pointer
+ */
 static int
 bnx2i_mtask_xmit(struct iscsi_conn *conn, struct iscsi_task *task)
 {
@@ -940,6 +1198,12 @@ bnx2i_mtask_xmit(struct iscsi_conn *conn, struct iscsi_task *task)
 	return bnx2i_iscsi_send_generic_request(task);
 }
 
+/**
+ * bnx2i_task_xmit - transmit iscsi command to chip for further processing
+ * @task:	transport layer command structure pointer
+ *
+ * maps SG buffers and send request to chip/firmware in the form of SQ WQE
+ */
 static int bnx2i_task_xmit(struct iscsi_task *task)
 {
 	struct iscsi_conn *conn = task->conn;
@@ -955,6 +1219,9 @@ static int bnx2i_task_xmit(struct iscsi_task *task)
 	    hba->max_sqes)
 		return -ENOMEM;
 
+	/*
+	 * If there is no scsi_cmnd this must be a mgmt task
+	 */
 	if (!sc)
 		return bnx2i_mtask_xmit(conn, task);
 
@@ -992,6 +1259,14 @@ static int bnx2i_task_xmit(struct iscsi_task *task)
 	return 0;
 }
 
+/**
+ * bnx2i_session_create - create a new iscsi session
+ * @cmds_max:		max commands supported
+ * @qdepth:		scsi queue depth to support
+ * @initial_cmdsn:	initial iscsi CMDSN to be used for this session
+ *
+ * Creates a new iSCSI session instance on given device.
+ */
 static struct iscsi_cls_session *
 bnx2i_session_create(struct iscsi_endpoint *ep,
 		     uint16_t cmds_max, uint16_t qdepth,
@@ -1013,6 +1288,10 @@ bnx2i_session_create(struct iscsi_endpoint *ep,
 	if (bnx2i_adapter_ready(hba))
 		return NULL;
 
+	/*
+	 * user can override hw limit as long as it is within
+	 * the min/max.
+	 */
 	if (cmds_max > hba->max_sqes)
 		cmds_max = hba->max_sqes;
 	else if (cmds_max < BNX2I_SQ_WQES_MIN)
@@ -1034,6 +1313,13 @@ session_teardown:
 }
 
 
+/**
+ * bnx2i_session_destroy - destroys iscsi session
+ * @cls_session:	pointer to iscsi cls session
+ *
+ * Destroys previously created iSCSI session instance and releases
+ *	all resources held by it
+ */
 static void bnx2i_session_destroy(struct iscsi_cls_session *cls_session)
 {
 	struct iscsi_session *session = cls_session->dd_data;
@@ -1045,6 +1331,13 @@ static void bnx2i_session_destroy(struct iscsi_cls_session *cls_session)
 }
 
 
+/**
+ * bnx2i_conn_create - create iscsi connection instance
+ * @cls_session:	pointer to iscsi cls session
+ * @cid:		iscsi cid as per rfc (not NX2's CID terminology)
+ *
+ * Creates a new iSCSI connection instance for a given session
+ */
 static struct iscsi_cls_conn *
 bnx2i_conn_create(struct iscsi_cls_session *cls_session, uint32_t cid)
 {
@@ -1066,7 +1359,7 @@ bnx2i_conn_create(struct iscsi_cls_session *cls_session, uint32_t cid)
 
 	atomic_set(&bnx2i_conn->work_cnt, 0);
 
-	
+	/* 'ep' ptr will be assigned in bind() call */
 	bnx2i_conn->ep = NULL;
 	init_completion(&bnx2i_conn->cmd_cleanup_cmpl);
 
@@ -1083,6 +1376,18 @@ free_conn:
 	return NULL;
 }
 
+/**
+ * bnx2i_conn_bind - binds iscsi sess, conn and ep objects together
+ * @cls_session:	pointer to iscsi cls session
+ * @cls_conn:		pointer to iscsi cls conn
+ * @transport_fd:	64-bit EP handle
+ * @is_leading:		leading connection on this session?
+ *
+ * Binds together iSCSI session instance, iSCSI connection instance
+ *	and the TCP connection. This routine returns error code if
+ *	TCP connection does not belong on the device iSCSI sess/conn
+ *	is bound
+ */
 static int bnx2i_conn_bind(struct iscsi_cls_session *cls_session,
 			   struct iscsi_cls_conn *cls_conn,
 			   uint64_t transport_fd, int is_leading)
@@ -1098,19 +1403,25 @@ static int bnx2i_conn_bind(struct iscsi_cls_session *cls_session,
 	ep = iscsi_lookup_endpoint(transport_fd);
 	if (!ep)
 		return -EINVAL;
+	/*
+	 * Forcefully terminate all in progress connection recovery at the
+	 * earliest, either in bind(), send_pdu(LOGIN), or conn_start()
+	 */
 	if (bnx2i_adapter_ready(hba))
 		return -EIO;
 
 	bnx2i_ep = ep->dd_data;
 	if ((bnx2i_ep->state == EP_STATE_TCP_FIN_RCVD) ||
 	    (bnx2i_ep->state == EP_STATE_TCP_RST_RCVD))
-		
+		/* Peer disconnect via' FIN or RST */
 		return -EINVAL;
 
 	if (iscsi_conn_bind(cls_session, cls_conn, is_leading))
 		return -EINVAL;
 
 	if (bnx2i_ep->hba != hba) {
+		/* Error - TCP connection does not belong to this device
+		 */
 		iscsi_conn_printk(KERN_ALERT, cls_conn->dd_data,
 				  "conn bind, ep=0x%p (%s) does not",
 				  bnx2i_ep, bnx2i_ep->hba->netdev->name);
@@ -1127,6 +1438,9 @@ static int bnx2i_conn_bind(struct iscsi_cls_session *cls_session,
 	ret_code = bnx2i_bind_conn_to_iscsi_cid(hba, bnx2i_conn,
 						bnx2i_ep->ep_iscsi_cid);
 
+	/* 5706/5708/5709 FW takes RQ as full when initiated, but for 57710
+	 * driver needs to explicitly replenish RQ index during setup.
+	 */
 	if (test_bit(BNX2I_NX2_DEV_57710, &bnx2i_ep->hba->cnic_dev_type))
 		bnx2i_put_rq_buf(bnx2i_conn, 0);
 
@@ -1135,6 +1449,13 @@ static int bnx2i_conn_bind(struct iscsi_cls_session *cls_session,
 }
 
 
+/**
+ * bnx2i_conn_destroy - destroy iscsi connection instance & release resources
+ * @cls_conn:	pointer to iscsi cls conn
+ *
+ * Destroy an iSCSI connection instance and release memory resources held by
+ *	this connection
+ */
 static void bnx2i_conn_destroy(struct iscsi_cls_conn *cls_conn)
 {
 	struct iscsi_conn *conn = cls_conn->dd_data;
@@ -1173,6 +1494,14 @@ static void bnx2i_conn_destroy(struct iscsi_cls_conn *cls_conn)
 }
 
 
+/**
+ * bnx2i_ep_get_param - return iscsi ep parameter to caller
+ * @ep:		pointer to iscsi endpoint
+ * @param:	parameter type identifier
+ * @buf: 	buffer pointer
+ *
+ * returns iSCSI ep parameters
+ */
 static int bnx2i_ep_get_param(struct iscsi_endpoint *ep,
 			      enum iscsi_param param, char *buf)
 {
@@ -1203,6 +1532,12 @@ static int bnx2i_ep_get_param(struct iscsi_endpoint *ep,
 	return len;
 }
 
+/**
+ * bnx2i_host_get_param - returns host (adapter) related parameters
+ * @shost:	scsi host pointer
+ * @param:	parameter type identifier
+ * @buf:	buffer pointer
+ */
 static int bnx2i_host_get_param(struct Scsi_Host *shost,
 				enum iscsi_host_param param, char *buf)
 {
@@ -1242,6 +1577,12 @@ static int bnx2i_host_get_param(struct Scsi_Host *shost,
 	return len;
 }
 
+/**
+ * bnx2i_conn_start - completes iscsi connection migration to FFP
+ * @cls_conn:	pointer to iscsi cls conn
+ *
+ * last call in FFP migration to handover iscsi conn to the driver
+ */
 static int bnx2i_conn_start(struct iscsi_cls_conn *cls_conn)
 {
 	struct iscsi_conn *conn = cls_conn->dd_data;
@@ -1250,11 +1591,15 @@ static int bnx2i_conn_start(struct iscsi_cls_conn *cls_conn)
 	bnx2i_conn->ep->state = EP_STATE_ULP_UPDATE_START;
 	bnx2i_update_iscsi_conn(conn);
 
+	/*
+	 * this should normally not sleep for a long time so it should
+	 * not disrupt the caller.
+	 */
 	bnx2i_conn->ep->ofld_timer.expires = 1 * HZ + jiffies;
 	bnx2i_conn->ep->ofld_timer.function = bnx2i_ep_ofld_timer;
 	bnx2i_conn->ep->ofld_timer.data = (unsigned long) bnx2i_conn->ep;
 	add_timer(&bnx2i_conn->ep->ofld_timer);
-	
+	/* update iSCSI context for this conn, wait for CNIC to complete */
 	wait_event_interruptible(bnx2i_conn->ep->ofld_wait,
 			bnx2i_conn->ep->state != EP_STATE_ULP_UPDATE_START);
 
@@ -1267,6 +1612,11 @@ static int bnx2i_conn_start(struct iscsi_cls_conn *cls_conn)
 }
 
 
+/**
+ * bnx2i_conn_get_stats - returns iSCSI stats
+ * @cls_conn:	pointer to iscsi cls conn
+ * @stats:	pointer to iscsi statistic struct
+ */
 static void bnx2i_conn_get_stats(struct iscsi_cls_conn *cls_conn,
 				 struct iscsi_stats *stats)
 {
@@ -1290,6 +1640,12 @@ static void bnx2i_conn_get_stats(struct iscsi_cls_conn *cls_conn,
 }
 
 
+/**
+ * bnx2i_check_route - checks if target IP route belongs to one of NX2 devices
+ * @dst_addr:	target IP address
+ *
+ * check if route resolves to BNX2 device
+ */
 static struct bnx2i_hba *bnx2i_check_route(struct sockaddr *dst_addr)
 {
 	struct sockaddr_in *desti = (struct sockaddr_in *) dst_addr;
@@ -1325,6 +1681,13 @@ no_nx2_route:
 }
 
 
+/**
+ * bnx2i_tear_down_conn - tear down iscsi/tcp connection and free resources
+ * @hba:	pointer to adapter instance
+ * @ep:		endpoint (transport indentifier) structure
+ *
+ * destroys cm_sock structure and on chip iscsi context
+ */
 static int bnx2i_tear_down_conn(struct bnx2i_hba *hba,
 				 struct bnx2i_endpoint *ep)
 {
@@ -1337,9 +1700,13 @@ static int bnx2i_tear_down_conn(struct bnx2i_hba *hba,
 		    ep->conn->cls_conn->dd_data) {
 			struct iscsi_conn *conn = ep->conn->cls_conn->dd_data;
 
-			
+			/* Must suspend all rx queue activity for this ep */
 			set_bit(ISCSI_SUSPEND_BIT, &conn->suspend_rx);
 		}
+		/* CONN_DISCONNECT timeout may or may not be an issue depending
+		 * on what transcribed in TCP layer, different targets behave
+		 * differently
+		 */
 		printk(KERN_ALERT "bnx2i (%s): - WARN - CONN_DISCON timed out, "
 				  "please submit GRC Dump, NW/PCIe trace, "
 				  "driver msgs to developers for analysis\n",
@@ -1355,7 +1722,7 @@ static int bnx2i_tear_down_conn(struct bnx2i_hba *hba,
 
 	bnx2i_ep_destroy_list_add(hba, ep);
 
-	
+	/* destroy iSCSI context, wait for it to complete */
 	if (bnx2i_send_conn_destroy(hba, ep))
 		ep->state = EP_STATE_CLEANUP_CMPL;
 
@@ -1369,13 +1736,25 @@ static int bnx2i_tear_down_conn(struct bnx2i_hba *hba,
 	bnx2i_ep_destroy_list_del(hba, ep);
 
 	if (ep->state != EP_STATE_CLEANUP_CMPL)
-		
+		/* should never happen */
 		printk(KERN_ALERT "bnx2i - conn destroy failed\n");
 
 	return 0;
 }
 
 
+/**
+ * bnx2i_ep_connect - establish TCP connection to target portal
+ * @shost:		scsi host
+ * @dst_addr:		target IP address
+ * @non_blocking:	blocking or non-blocking call
+ *
+ * this routine initiates the TCP/IP connection by invoking Option-2 i/f
+ *	with l5_core and the CNIC. This is a multi-step process of resolving
+ *	route to target, create a iscsi connection context, handshaking with
+ *	CNIC module to create/initialize the socket struct and finally
+ *	sending down option-2 request to complete TCP 3-way handshake
+ */
 static struct iscsi_endpoint *bnx2i_ep_connect(struct Scsi_Host *shost,
 					       struct sockaddr *dst_addr,
 					       int non_blocking)
@@ -1391,9 +1770,13 @@ static struct iscsi_endpoint *bnx2i_ep_connect(struct Scsi_Host *shost,
 	int rc = 0;
 
 	if (shost) {
-		
+		/* driver is given scsi host to work with */
 		hba = iscsi_host_priv(shost);
 	} else
+		/*
+		 * check if the given destination can be reached through
+		 * a iscsi capable NetXtreme2 device
+		 */
 		hba = bnx2i_check_route(dst_addr);
 
 	if (!hba) {
@@ -1456,7 +1839,7 @@ static struct iscsi_endpoint *bnx2i_ep_connect(struct Scsi_Host *shost,
 		goto conn_failed;
 	}
 
-	
+	/* Wait for CNIC hardware to setup conn context and return 'cid' */
 	wait_event_interruptible(bnx2i_ep->ofld_wait,
 				 bnx2i_ep->state != EP_STATE_OFLD_START);
 
@@ -1480,7 +1863,7 @@ static struct iscsi_endpoint *bnx2i_ep_connect(struct Scsi_Host *shost,
 			     iscsi_cid, &bnx2i_ep->cm_sk, bnx2i_ep);
 	if (rc) {
 		rc = -EINVAL;
-		
+		/* Need to terminate and cleanup the connection */
 		goto release_ep;
 	}
 
@@ -1535,6 +1918,13 @@ nohba:
 }
 
 
+/**
+ * bnx2i_ep_poll - polls for TCP connection establishement
+ * @ep:			TCP connection (endpoint) handle
+ * @timeout_ms:		timeout value in milli secs
+ *
+ * polls for TCP connect request to complete
+ */
 static int bnx2i_ep_poll(struct iscsi_endpoint *ep, int timeout_ms)
 {
 	struct bnx2i_endpoint *bnx2i_ep;
@@ -1562,12 +1952,18 @@ static int bnx2i_ep_poll(struct iscsi_endpoint *ep, int timeout_ms)
 	if (rc > 0)
 		return 1;
 	else if (!rc)
-		return 0;	
+		return 0;	/* timeout */
 	else
 		return rc;
 }
 
 
+/**
+ * bnx2i_ep_tcp_conn_active - check EP state transition
+ * @ep:		endpoint pointer
+ *
+ * check if underlying TCP connection is active
+ */
 static int bnx2i_ep_tcp_conn_active(struct bnx2i_endpoint *bnx2i_ep)
 {
 	int ret;
@@ -1607,6 +2003,12 @@ static int bnx2i_ep_tcp_conn_active(struct bnx2i_endpoint *bnx2i_ep)
 }
 
 
+/*
+ * bnx2i_hw_ep_disconnect - executes TCP connection teardown process in the hw
+ * @ep:		TCP connection (bnx2i endpoint) handle
+ *
+ * executes  TCP connection teardown process
+ */
 int bnx2i_hw_ep_disconnect(struct bnx2i_endpoint *bnx2i_ep)
 {
 	struct bnx2i_hba *hba = bnx2i_ep->hba;
@@ -1650,7 +2052,7 @@ int bnx2i_hw_ep_disconnect(struct bnx2i_endpoint *bnx2i_ep)
 		if (bnx2i_ep->state != EP_STATE_TCP_FIN_RCVD) {
 			if (session->state == ISCSI_STATE_LOGGING_OUT) {
 				if (bnx2i_ep->state == EP_STATE_LOGOUT_SENT) {
-					
+					/* Logout sent, but no resp */
 					printk(KERN_ALERT "bnx2i (%s): WARNING"
 						" logout response was not "
 						"received!\n",
@@ -1676,7 +2078,7 @@ int bnx2i_hw_ep_disconnect(struct bnx2i_endpoint *bnx2i_ep)
 		printk(KERN_ALERT "bnx2i (%s): close/abort(%d) returned %d\n",
 			bnx2i_ep->hba->netdev->name, close, close_ret);
 	else
-		
+		/* wait for option-2 conn teardown */
 		wait_event_interruptible(bnx2i_ep->ofld_wait,
 				 bnx2i_ep->state != EP_STATE_DISCONN_START);
 
@@ -1694,6 +2096,12 @@ out:
 }
 
 
+/**
+ * bnx2i_ep_disconnect - executes TCP connection teardown process
+ * @ep:		TCP connection (iscsi endpoint) handle
+ *
+ * executes  TCP connection teardown process
+ */
 static void bnx2i_ep_disconnect(struct iscsi_endpoint *ep)
 {
 	struct bnx2i_endpoint *bnx2i_ep;
@@ -1703,6 +2111,10 @@ static void bnx2i_ep_disconnect(struct iscsi_endpoint *ep)
 
 	bnx2i_ep = ep->dd_data;
 
+	/* driver should not attempt connection cleanup until TCP_CONNECT
+	 * completes either successfully or fails. Timeout is 9-secs, so
+	 * wait for it to complete
+	 */
 	while ((bnx2i_ep->state == EP_STATE_CONNECT_START) &&
 		!time_after(jiffies, bnx2i_ep->timestamp + (12 * HZ)))
 		msleep(250);
@@ -1728,7 +2140,7 @@ static void bnx2i_ep_disconnect(struct iscsi_endpoint *ep)
 		goto free_resc;
 	}
 
-	
+	/* Do all chip cleanup here */
 	if (bnx2i_hw_ep_disconnect(bnx2i_ep)) {
 		mutex_unlock(&hba->net_dev_lock);
 		return;
@@ -1747,13 +2159,18 @@ out:
 }
 
 
+/**
+ * bnx2i_nl_set_path - ISCSI_UEVENT_PATH_UPDATE user message handler
+ * @buf:	pointer to buffer containing iscsi path message
+ *
+ */
 static int bnx2i_nl_set_path(struct Scsi_Host *shost, struct iscsi_path *params)
 {
 	struct bnx2i_hba *hba = iscsi_host_priv(shost);
 	char *buf = (char *) params;
 	u16 len = sizeof(*params);
 
-	
+	/* handled by cnic driver */
 	hba->cnic->iscsi_nl_msg_recv(hba->cnic, ISCSI_UEVENT_PATH_UPDATE, buf,
 				     len);
 
@@ -1814,6 +2231,10 @@ static umode_t bnx2i_attr_is_visible(int param_type, int param)
 	return 0;
 }
 
+/*
+ * 'Scsi_Host_Template' structure and 'iscsi_tranport' structure template
+ * used while registering with the scsi host and iSCSI transport module.
+ */
 static struct scsi_host_template bnx2i_host_template = {
 	.module			= THIS_MODULE,
 	.name			= "Broadcom Offload iSCSI Initiator",
@@ -1854,13 +2275,13 @@ struct iscsi_transport bnx2i_iscsi_transport = {
 	.send_pdu		= iscsi_conn_send_pdu,
 	.xmit_task		= bnx2i_task_xmit,
 	.get_stats		= bnx2i_conn_get_stats,
-	
+	/* TCP connect - disconnect - option-2 interface calls */
 	.get_ep_param		= bnx2i_ep_get_param,
 	.ep_connect		= bnx2i_ep_connect,
 	.ep_poll		= bnx2i_ep_poll,
 	.ep_disconnect		= bnx2i_ep_disconnect,
 	.set_path		= bnx2i_nl_set_path,
-	
+	/* Error recovery timeout call */
 	.session_recovery_timedout = iscsi_session_recovery_timedout,
 	.cleanup_task		= bnx2i_cleanup_task,
 };

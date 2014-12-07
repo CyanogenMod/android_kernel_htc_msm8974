@@ -29,8 +29,9 @@
 #include <linux/slab.h>
 #include "pci.h"
 
-static int sysfs_initialized;	
+static int sysfs_initialized;	/* = 0 */
 
+/* show configuration fields */
 #define pci_config_attr(field, format_string)				\
 static ssize_t								\
 field##_show(struct device *dev, struct device_attribute *attr, char *buf)				\
@@ -108,6 +109,9 @@ static ssize_t local_cpulist_show(struct device *dev,
 	return len;
 }
 
+/*
+ * PCI Bus Class Devices
+ */
 static ssize_t pci_bus_show_cpuaffinity(struct device *dev,
 					int type,
 					struct device_attribute *attr,
@@ -139,6 +143,7 @@ static inline ssize_t pci_bus_show_cpulistaffinity(struct device *dev,
 	return pci_bus_show_cpuaffinity(dev, 1, attr, buf);
 }
 
+/* show resources */
 static ssize_t
 resource_show(struct device * dev, struct device_attribute *attr, char * buf)
 {
@@ -186,7 +191,7 @@ static ssize_t is_enabled_store(struct device *dev,
 	if (result < 0)
 		return result;
 
-	
+	/* this can crash the machine when done on the "wrong" device */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
@@ -255,13 +260,17 @@ msi_bus_store(struct device *dev, struct device_attribute *attr,
 	if (strict_strtoul(buf, 0, &val) < 0)
 		return -EINVAL;
 
+	/* bad things may happen if the no_msi flag is changed
+	 * while some drivers are loaded */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
+	/* Maybe pci devices without subordinate busses shouldn't even have this
+	 * attribute in the first place?  */
 	if (!pdev->subordinate)
 		return count;
 
-	
+	/* Is the flag going to change, or keep the value it already had? */
 	if (!(pdev->subordinate->bus_flags & PCI_BUS_FLAGS_NO_MSI) ^
 	    !!val) {
 		pdev->subordinate->bus_flags ^= PCI_BUS_FLAGS_NO_MSI;
@@ -335,6 +344,9 @@ remove_store(struct device *dev, struct device_attribute *dummy,
 	if (strict_strtoul(buf, 0, &val) < 0)
 		return -EINVAL;
 
+	/* An attribute cannot be unregistered by one of its own methods,
+	 * so we have to use this roundabout approach.
+	 */
 	if (val)
 		ret = device_schedule_callback(dev, remove_callback);
 	if (ret)
@@ -422,7 +434,7 @@ pci_read_config(struct file *filp, struct kobject *kobj,
 	loff_t init_off = off;
 	u8 *data = (u8*) buf;
 
-	
+	/* Several chips lock up trying to read undefined config space */
 	if (security_capable(filp->f_cred, &init_user_ns, CAP_SYS_ADMIN) == 0) {
 		size = dev->cfg_size;
 	} else if (dev->hdr_type == PCI_HEADER_TYPE_CARDBUS) {
@@ -577,6 +589,18 @@ write_vpd_attr(struct file *filp, struct kobject *kobj,
 }
 
 #ifdef HAVE_PCI_LEGACY
+/**
+ * pci_read_legacy_io - read byte(s) from legacy I/O port space
+ * @filp: open sysfs file
+ * @kobj: kobject corresponding to file to read from
+ * @bin_attr: struct bin_attribute for this file
+ * @buf: buffer to store results
+ * @off: offset into legacy I/O port space
+ * @count: number of bytes to read
+ *
+ * Reads 1, 2, or 4 bytes from legacy I/O port space using an arch specific
+ * callback routine (pci_legacy_read).
+ */
 static ssize_t
 pci_read_legacy_io(struct file *filp, struct kobject *kobj,
 		   struct bin_attribute *bin_attr,
@@ -586,7 +610,7 @@ pci_read_legacy_io(struct file *filp, struct kobject *kobj,
                                                       struct device,
 						      kobj));
 
-        
+        /* Only support 1, 2 or 4 byte accesses */
         if (count != 1 && count != 2 && count != 4)
                 return -EINVAL;
 
@@ -613,13 +637,24 @@ pci_write_legacy_io(struct file *filp, struct kobject *kobj,
         struct pci_bus *bus = to_pci_bus(container_of(kobj,
 						      struct device,
 						      kobj));
-        
+        /* Only support 1, 2 or 4 byte accesses */
         if (count != 1 && count != 2 && count != 4)
                 return -EINVAL;
 
         return pci_legacy_write(bus, off, *(u32 *)buf, count);
 }
 
+/**
+ * pci_mmap_legacy_mem - map legacy PCI memory into user memory space
+ * @filp: open sysfs file
+ * @kobj: kobject corresponding to device to be mapped
+ * @attr: struct bin_attribute for this file
+ * @vma: struct vm_area_struct passed to mmap
+ *
+ * Uses an arch specific callback, pci_mmap_legacy_mem_page_range, to mmap
+ * legacy memory space (first meg of bus space) into application virtual
+ * memory space.
+ */
 static int
 pci_mmap_legacy_mem(struct file *filp, struct kobject *kobj,
 		    struct bin_attribute *attr,
@@ -632,6 +667,17 @@ pci_mmap_legacy_mem(struct file *filp, struct kobject *kobj,
         return pci_mmap_legacy_page_range(bus, vma, pci_mmap_mem);
 }
 
+/**
+ * pci_mmap_legacy_io - map legacy PCI IO into user memory space
+ * @filp: open sysfs file
+ * @kobj: kobject corresponding to device to be mapped
+ * @attr: struct bin_attribute for this file
+ * @vma: struct vm_area_struct passed to mmap
+ *
+ * Uses an arch specific callback, pci_mmap_legacy_io_page_range, to mmap
+ * legacy IO space (first meg of bus space) into application virtual
+ * memory space. Returns -ENOSYS if the operation isn't supported
+ */
 static int
 pci_mmap_legacy_io(struct file *filp, struct kobject *kobj,
 		   struct bin_attribute *attr,
@@ -644,12 +690,30 @@ pci_mmap_legacy_io(struct file *filp, struct kobject *kobj,
         return pci_mmap_legacy_page_range(bus, vma, pci_mmap_io);
 }
 
+/**
+ * pci_adjust_legacy_attr - adjustment of legacy file attributes
+ * @b: bus to create files under
+ * @mmap_type: I/O port or memory
+ *
+ * Stub implementation. Can be overridden by arch if necessary.
+ */
 void __weak
 pci_adjust_legacy_attr(struct pci_bus *b, enum pci_mmap_state mmap_type)
 {
 	return;
 }
 
+/**
+ * pci_create_legacy_files - create legacy I/O port and memory files
+ * @b: bus to create files under
+ *
+ * Some platforms allow access to legacy I/O port and ISA memory space on
+ * a per-bus basis.  This routine creates the files and ties them into
+ * their associated read, write and mmap files from pci-sysfs.c
+ *
+ * On error unwind, but don't propagate the error to the caller
+ * as it is ok to set up the PCI bus without these files.
+ */
 void pci_create_legacy_files(struct pci_bus *b)
 {
 	int error;
@@ -671,7 +735,7 @@ void pci_create_legacy_files(struct pci_bus *b)
 	if (error)
 		goto legacy_io_err;
 
-	
+	/* Allocated above after the legacy_io struct */
 	b->legacy_mem = b->legacy_io + 1;
 	sysfs_bin_attr_init(b->legacy_mem);
 	b->legacy_mem->attr.name = "legacy_mem";
@@ -701,10 +765,10 @@ void pci_remove_legacy_files(struct pci_bus *b)
 	if (b->legacy_io) {
 		device_remove_bin_file(&b->dev, b->legacy_io);
 		device_remove_bin_file(&b->dev, b->legacy_mem);
-		kfree(b->legacy_io); 
+		kfree(b->legacy_io); /* both are allocated here */
 	}
 }
-#endif 
+#endif /* HAVE_PCI_LEGACY */
 
 #ifdef HAVE_PCI_MMAP
 
@@ -726,6 +790,15 @@ int pci_mmap_fits(struct pci_dev *pdev, int resno, struct vm_area_struct *vma,
 	return 0;
 }
 
+/**
+ * pci_mmap_resource - map a PCI resource into user memory space
+ * @kobj: kobject for mapping
+ * @attr: struct bin_attribute for the file being mapped
+ * @vma: struct vm_area_struct passed into the mmap
+ * @write_combine: 1 for write_combine mapping
+ *
+ * Use the regular PCI mapping routines to map a PCI resource into userspace.
+ */
 static int
 pci_mmap_resource(struct kobject *kobj, struct bin_attribute *attr,
 		  struct vm_area_struct *vma, int write_combine)
@@ -753,6 +826,10 @@ pci_mmap_resource(struct kobject *kobj, struct bin_attribute *attr,
 		return -EINVAL;
 	}
 
+	/* pci_mmap_page_range() expects the same kind of entry as coming
+	 * from /proc/bus/pci/ which is a "user visible" value. If this is
+	 * different from the resource itself, arch will do necessary fixup.
+	 */
 	pci_resource_to_user(pdev, i, res, &start, &end);
 	vma->vm_pgoff += start >> PAGE_SHIFT;
 	mmap_type = res->flags & IORESOURCE_MEM ? pci_mmap_mem : pci_mmap_io;
@@ -843,6 +920,13 @@ pci_write_resource_io(struct file *filp, struct kobject *kobj,
 	return pci_resource_io(filp, kobj, attr, buf, off, count, true);
 }
 
+/**
+ * pci_remove_resource_files - cleanup resource files
+ * @pdev: dev to cleanup
+ *
+ * If we created resource files for @pdev, remove them from sysfs and
+ * free their resources.
+ */
 static void
 pci_remove_resource_files(struct pci_dev *pdev)
 {
@@ -867,7 +951,7 @@ pci_remove_resource_files(struct pci_dev *pdev)
 
 static int pci_create_attr(struct pci_dev *pdev, int num, int write_combine)
 {
-	
+	/* allocate attribute structure, piggyback attribute name */
 	int name_len = write_combine ? 13 : 10;
 	struct bin_attribute *res_attr;
 	int retval;
@@ -901,20 +985,26 @@ static int pci_create_attr(struct pci_dev *pdev, int num, int write_combine)
 	return retval;
 }
 
+/**
+ * pci_create_resource_files - create resource files in sysfs for @dev
+ * @pdev: dev in question
+ *
+ * Walk the resources in @pdev creating files for each resource available.
+ */
 static int pci_create_resource_files(struct pci_dev *pdev)
 {
 	int i;
 	int retval;
 
-	
+	/* Expose the PCI resources from this device as files */
 	for (i = 0; i < PCI_ROM_RESOURCE; i++) {
 
-		
+		/* skip empty resources */
 		if (!pci_resource_len(pdev, i))
 			continue;
 
 		retval = pci_create_attr(pdev, i, 0);
-		
+		/* for prefetchable resources, create a WC mappable file */
 		if (!retval && pdev->resource[i].flags & IORESOURCE_PREFETCH)
 			retval = pci_create_attr(pdev, i, 1);
 
@@ -925,11 +1015,22 @@ static int pci_create_resource_files(struct pci_dev *pdev)
 	}
 	return 0;
 }
-#else 
+#else /* !HAVE_PCI_MMAP */
 int __weak pci_create_resource_files(struct pci_dev *dev) { return 0; }
 void __weak pci_remove_resource_files(struct pci_dev *dev) { return; }
-#endif 
+#endif /* HAVE_PCI_MMAP */
 
+/**
+ * pci_write_rom - used to enable access to the PCI ROM display
+ * @filp: sysfs file
+ * @kobj: kernel object handle
+ * @bin_attr: struct bin_attribute for this file
+ * @buf: user input
+ * @off: file offset
+ * @count: number of byte in input
+ *
+ * writing anything except 0 enables it
+ */
 static ssize_t
 pci_write_rom(struct file *filp, struct kobject *kobj,
 	      struct bin_attribute *bin_attr,
@@ -945,6 +1046,18 @@ pci_write_rom(struct file *filp, struct kobject *kobj,
 	return count;
 }
 
+/**
+ * pci_read_rom - read a PCI ROM
+ * @filp: sysfs file
+ * @kobj: kernel object handle
+ * @bin_attr: struct bin_attribute for this file
+ * @buf: where to put the data we read from the ROM
+ * @off: file offset
+ * @count: number of bytes to read
+ *
+ * Put @count bytes starting at @off into @buf from the ROM in the PCI
+ * device corresponding to @kobj.
+ */
 static ssize_t
 pci_read_rom(struct file *filp, struct kobject *kobj,
 	     struct bin_attribute *bin_attr,
@@ -957,7 +1070,7 @@ pci_read_rom(struct file *filp, struct kobject *kobj,
 	if (!pdev->rom_attr_enabled)
 		return -EINVAL;
 	
-	rom = pci_map_rom(pdev, &size);	
+	rom = pci_map_rom(pdev, &size);	/* size starts out as PCI window size */
 	if (!rom || !size)
 		return -EIO;
 		
@@ -1027,7 +1140,7 @@ static int pci_create_capabilities_sysfs(struct pci_dev *dev)
 	int retval;
 	struct bin_attribute *attr;
 
-	
+	/* If the device has VPD, try to expose it in sysfs. */
 	if (dev->vpd) {
 		attr = kzalloc(sizeof(*attr), GFP_ATOMIC);
 		if (!attr)
@@ -1047,7 +1160,7 @@ static int pci_create_capabilities_sysfs(struct pci_dev *dev)
 		dev->vpd->attr = attr;
 	}
 
-	
+	/* Active State Power Management */
 	pcie_aspm_create_sysfs_dev_files(dev);
 
 	if (!pci_probe_reset_function(dev)) {
@@ -1093,7 +1206,7 @@ int __must_check pci_create_sysfs_dev_files (struct pci_dev *pdev)
 	else if (pdev->resource[PCI_ROM_RESOURCE].flags & IORESOURCE_ROM_SHADOW)
 		rom_size = 0x20000;
 
-	
+	/* If the device has a ROM, try to expose it in sysfs. */
 	if (rom_size) {
 		attr = kzalloc(sizeof(*attr), GFP_ATOMIC);
 		if (!attr) {
@@ -1120,12 +1233,12 @@ int __must_check pci_create_sysfs_dev_files (struct pci_dev *pdev)
 			goto err_rom_file;
 	}
 
-	
+	/* add platform-specific attributes */
 	retval = pcibios_add_platform_entries(pdev);
 	if (retval)
 		goto err_vga_file;
 
-	
+	/* add sysfs entries for various capabilities */
 	retval = pci_create_capabilities_sysfs(pdev);
 	if (retval)
 		goto err_vga_file;
@@ -1168,6 +1281,12 @@ static void pci_remove_capabilities_sysfs(struct pci_dev *dev)
 	}
 }
 
+/**
+ * pci_remove_sysfs_dev_files - cleanup PCI specific sysfs files
+ * @pdev: device whose entries we should free
+ *
+ * Cleanup when @pdev is removed from sysfs.
+ */
 void pci_remove_sysfs_dev_files(struct pci_dev *pdev)
 {
 	int rom_size = 0;

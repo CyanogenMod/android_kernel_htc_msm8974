@@ -22,16 +22,25 @@
 static LIST_HEAD(rxrpc_security_methods);
 static DECLARE_RWSEM(rxrpc_security_sem);
 
+/*
+ * get an RxRPC security module
+ */
 static struct rxrpc_security *rxrpc_security_get(struct rxrpc_security *sec)
 {
 	return try_module_get(sec->owner) ? sec : NULL;
 }
 
+/*
+ * release an RxRPC security module
+ */
 static void rxrpc_security_put(struct rxrpc_security *sec)
 {
 	module_put(sec->owner);
 }
 
+/*
+ * look up an rxrpc security module
+ */
 static struct rxrpc_security *rxrpc_security_lookup(u8 security_index)
 {
 	struct rxrpc_security *sec = NULL;
@@ -55,6 +64,12 @@ out:
 	return sec;
 }
 
+/**
+ * rxrpc_register_security - register an RxRPC security handler
+ * @sec: security module
+ *
+ * register an RxRPC security handler for use by RxRPC
+ */
 int rxrpc_register_security(struct rxrpc_security *sec)
 {
 	struct rxrpc_security *psec;
@@ -83,6 +98,12 @@ out:
 
 EXPORT_SYMBOL_GPL(rxrpc_register_security);
 
+/**
+ * rxrpc_unregister_security - unregister an RxRPC security handler
+ * @sec: security module
+ *
+ * unregister an RxRPC security handler
+ */
 void rxrpc_unregister_security(struct rxrpc_security *sec)
 {
 
@@ -97,6 +118,9 @@ void rxrpc_unregister_security(struct rxrpc_security *sec)
 
 EXPORT_SYMBOL_GPL(rxrpc_unregister_security);
 
+/*
+ * initialise the security on a client connection
+ */
 int rxrpc_init_client_conn_security(struct rxrpc_connection *conn)
 {
 	struct rxrpc_key_token *token;
@@ -133,6 +157,9 @@ int rxrpc_init_client_conn_security(struct rxrpc_connection *conn)
 	return 0;
 }
 
+/*
+ * initialise the security on a server connection
+ */
 int rxrpc_init_server_conn_security(struct rxrpc_connection *conn)
 {
 	struct rxrpc_security *sec;
@@ -152,14 +179,14 @@ int rxrpc_init_server_conn_security(struct rxrpc_connection *conn)
 		return -ENOKEY;
 	}
 
-	
+	/* find the service */
 	read_lock_bh(&local->services_lock);
 	list_for_each_entry(rx, &local->services, listen_link) {
 		if (rx->service_id == conn->service_id)
 			goto found_service;
 	}
 
-	
+	/* the service appears to have died */
 	read_unlock_bh(&local->services_lock);
 	rxrpc_security_put(sec);
 	_leave(" = -ENOENT");
@@ -173,7 +200,7 @@ found_service:
 		return -ENOKEY;
 	}
 
-	
+	/* look through the service's keyring */
 	kref = keyring_search(make_key_ref(rx->securities, 1UL),
 			      &key_type_rxrpc_s, kdesc);
 	if (IS_ERR(kref)) {
@@ -193,6 +220,9 @@ found_service:
 	return 0;
 }
 
+/*
+ * secure a packet prior to transmission
+ */
 int rxrpc_secure_packet(const struct rxrpc_call *call,
 			struct sk_buff *skb,
 			size_t data_size,
@@ -204,6 +234,9 @@ int rxrpc_secure_packet(const struct rxrpc_call *call,
 	return 0;
 }
 
+/*
+ * secure a packet prior to transmission
+ */
 int rxrpc_verify_packet(const struct rxrpc_call *call, struct sk_buff *skb,
 			u32 *_abort_code)
 {
@@ -213,6 +246,9 @@ int rxrpc_verify_packet(const struct rxrpc_call *call, struct sk_buff *skb,
 	return 0;
 }
 
+/*
+ * clear connection security
+ */
 void rxrpc_clear_conn_security(struct rxrpc_connection *conn)
 {
 	_enter("{%d}", conn->debug_id);

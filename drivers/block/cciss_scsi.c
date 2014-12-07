@@ -22,6 +22,11 @@
  */
 #ifdef CONFIG_CISS_SCSI_TAPE
 
+/* Here we have code to present the driver as a scsi driver 
+   as it is simultaneously presented as a block driver.  The 
+   reason for doing this is to allow access to SCSI tape drives
+   through the array controller.  Note in particular, neither 
+   physical nor logical disks are presented through the scsi layer. */
 
 #include <linux/timer.h>
 #include <linux/completion.h>
@@ -51,11 +56,11 @@ static void cmd_special_free(ctlr_info_t *h, CommandList_struct *c);
 
 static int cciss_scsi_proc_info(
 		struct Scsi_Host *sh,
-		char *buffer, 
-		char **start, 	   
-		off_t offset,	   
-		int length, 	   
-		int func);	   
+		char *buffer, /* data buffer */
+		char **start, 	   /* where data in buffer starts */
+		off_t offset,	   /* offset from start of imaginary file */
+		int length, 	   /* length of data in buffer */
+		int func);	   /* 0 == read, 1 == write */
 
 static int cciss_scsi_queue_command (struct Scsi_Host *h,
 				     struct scsi_cmnd *cmd);
@@ -82,7 +87,7 @@ static struct scsi_host_template cciss_driver_template = {
 	.this_id		= 7,
 	.cmd_per_lun		= 1,
 	.use_clustering		= DISABLE_CLUSTERING,
-	
+	/* Can't have eh_bus_reset_handler or eh_host_reset_handler for cciss */
 	.eh_device_reset_handler= cciss_eh_device_reset_handler,
 	.eh_abort_handler	= cciss_eh_abort_handler,
 };
@@ -117,7 +122,7 @@ struct cciss_scsi_adapter_data_t {
 	struct cciss_scsi_cmd_stack_t cmd_stack;
 	SGDescriptor_struct **cmd_sg_list;
 	int registered;
-	spinlock_t lock; 
+	spinlock_t lock; // to protect ccissscsi[ctlr]; 
 };
 
 #define CPQ_TAPE_LOCK(h, flags) spin_lock_irqsave( \
@@ -128,12 +133,12 @@ struct cciss_scsi_adapter_data_t {
 static CommandList_struct *
 scsi_cmd_alloc(ctlr_info_t *h)
 {
-	
-	
-	
-	
+	/* assume only one process in here at a time, locking done by caller. */
+	/* use h->lock */
+	/* might be better to rewrite how we allocate scsi commands in a way that */
+	/* needs no locking at all. */
 
-	
+	/* take the top memory chunk off the stack and return it, if any. */
 	struct cciss_scsi_cmd_stack_elem_t *c;
 	struct cciss_scsi_adapter_data_t *sa;
 	struct cciss_scsi_cmd_stack_t *stk;
@@ -145,14 +150,19 @@ scsi_cmd_alloc(ctlr_info_t *h)
 	if (stk->top < 0) 
 		return NULL;
 	c = stk->elem[stk->top]; 	
-	
+	/* memset(c, 0, sizeof(*c)); */
 	memset(&c->cmd, 0, sizeof(c->cmd));
 	memset(&c->Err, 0, sizeof(c->Err));
-	
+	/* set physical addr of cmd and addr of scsi parameters */
 	c->cmd.busaddr = c->busaddr; 
 	c->cmd.cmdindex = c->cmdindex;
+	/* (__u32) (stk->cmd_pool_handle + 
+		(sizeof(struct cciss_scsi_cmd_stack_elem_t)*stk->top)); */
 
 	temp64.val = (__u64) (c->busaddr + sizeof(CommandList_struct));
+	/* (__u64) (stk->cmd_pool_handle + 
+		(sizeof(struct cciss_scsi_cmd_stack_elem_t)*stk->top) +
+		 sizeof(CommandList_struct)); */
 	stk->top--;
 	c->cmd.ErrDesc.Addr.lower = temp64.val32.lower;
 	c->cmd.ErrDesc.Addr.upper = temp64.val32.upper;
@@ -167,9 +177,9 @@ scsi_cmd_alloc(ctlr_info_t *h)
 static void 
 scsi_cmd_free(ctlr_info_t *h, CommandList_struct *c)
 {
-	
-	
-	
+	/* assume only one process in here at a time, locking done by caller. */
+	/* use h->lock */
+	/* drop the free memory chunk on top of the stack. */
 
 	struct cciss_scsi_adapter_data_t *sa;
 	struct cciss_scsi_cmd_stack_t *stk;
@@ -201,9 +211,9 @@ scsi_cmd_stack_setup(ctlr_info_t *h, struct cciss_scsi_adapter_data_t *sa)
 
 	size = sizeof(struct cciss_scsi_cmd_stack_elem_t) * stk->nelems;
 
-	
+	/* Check alignment, see cciss_cmd.h near CommandList_struct def. */
 	BUILD_BUG_ON((sizeof(*stk->pool) % COMMANDLIST_ALIGNMENT) != 0);
-	
+	/* pci_alloc_consistent guarantees 32-bit DMA address will be used */
 	stk->pool = (struct cciss_scsi_cmd_stack_elem_t *)
 		pci_alloc_consistent(h->pdev, size, &stk->cmd_pool_handle);
 
@@ -340,8 +350,8 @@ print_cmd(CommandList_struct *cp)
 static int 
 find_bus_target_lun(ctlr_info_t *h, int *bus, int *target, int *lun)
 {
-	
-	
+	/* finds an unused bus, target, lun for a new device */
+	/* assumes h->scsi_ctlr->lock is held */
 	int i, found=0;
 	unsigned char target_taken[CCISS_MAX_SCSI_DEVS_PER_HBA];
 
@@ -369,7 +379,7 @@ cciss_scsi_add_entry(ctlr_info_t *h, int hostno,
 		struct cciss_scsi_dev_t *device,
 		struct scsi2map *added, int *nadded)
 {
-	
+	/* assumes h->scsi_ctlr->lock is held */
 	int n = ccissscsi[h->ctlr].ndevices;
 	struct cciss_scsi_dev_t *sd;
 	int i, bus, target, lun;
@@ -383,20 +393,20 @@ cciss_scsi_add_entry(ctlr_info_t *h, int hostno,
 
 	bus = target = -1;
 	lun = 0;
-	
-	
+	/* Is this device a non-zero lun of a multi-lun device */
+	/* byte 4 of the 8-byte LUN addr will contain the logical unit no. */
 	if (device->scsi3addr[4] != 0) {
-		
-		
-		
-		
+		/* Search through our list and find the device which */
+		/* has the same 8 byte LUN address, excepting byte 4. */
+		/* Assign the same bus and target for this new LUN. */
+		/* Use the logical unit number from the firmware. */
 		memcpy(addr1, device->scsi3addr, 8);
 		addr1[4] = 0;
 		for (i = 0; i < n; i++) {
 			sd = &ccissscsi[h->ctlr].dev[i];
 			memcpy(addr2, sd->scsi3addr, 8);
 			addr2[4] = 0;
-			
+			/* differ only in byte 4? */
 			if (memcmp(addr1, addr2, 8) == 0) {
 				bus = sd->bus;
 				target = sd->target;
@@ -429,6 +439,9 @@ cciss_scsi_add_entry(ctlr_info_t *h, int hostno,
 
 	ccissscsi[h->ctlr].ndevices++;
 
+	/* initially, (before registering with scsi layer) we don't 
+	   know our hostno and we don't want to print anything first 
+	   time anyway (the scsi layer's inquiries will show that info) */
 	if (hostno != -1)
 		dev_info(&h->pdev->dev, "%s device c%db%dt%dl%d added.\n",
 			scsi_device_type(sd->devtype), hostno,
@@ -440,7 +453,7 @@ static void
 cciss_scsi_remove_entry(ctlr_info_t *h, int hostno, int entry,
 	struct scsi2map *removed, int *nremoved)
 {
-	
+	/* assumes h->ctlr]->scsi_ctlr->lock is held */
 	int i;
 	struct cciss_scsi_dev_t sd;
 
@@ -471,8 +484,8 @@ cciss_scsi_remove_entry(ctlr_info_t *h, int hostno, int entry,
 
 static void fixup_botched_add(ctlr_info_t *h, char *scsi3addr)
 {
-	
-	
+	/* called when scsi_add_device fails in order to re-adjust */
+	/* ccissscsi[] to match the mid layer's view. */
 	unsigned long flags;
 	int i, j;
 	CPQ_TAPE_LOCK(h, flags);
@@ -509,7 +522,10 @@ static int
 adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 	struct cciss_scsi_dev_t sd[], int nsds)
 {
- 
+	/* sd contains scsi3 addresses and devtypes, but
+	   bus target and lun are not filled in.  This funciton
+	   takes what's in sd to be the current and adjusts
+	   ccissscsi[] to be in line with what's in sd. */ 
 
 	int i,j, found, changes=0;
 	struct cciss_scsi_dev_t *csd;
@@ -531,9 +547,11 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 
 	CPQ_TAPE_LOCK(h, flags);
 
-	if (hostno != -1)  
+	if (hostno != -1)  /* if it's not the first time... */
 		sh = h->scsi_ctlr->scsi_host;
 
+	/* find any devices in ccissscsi[] that are not in 
+	   sd[] and remove them from ccissscsi[] */
 
 	i = 0;
 	nremoved = 0;
@@ -552,22 +570,22 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 			}
 		}
 
-		if (found == 0) {  
+		if (found == 0) { /* device no longer present. */ 
 			changes++;
 			cciss_scsi_remove_entry(h, hostno, i,
 				removed, &nremoved);
-			
-		} else if (found == 1) { 
+			/* remove ^^^, hence i not incremented */
+		} else if (found == 1) { /* device is different in some way */
 			changes++;
 			dev_info(&h->pdev->dev,
 				"device c%db%dt%dl%d has changed.\n",
 				hostno, csd->bus, csd->target, csd->lun);
 			cciss_scsi_remove_entry(h, hostno, i,
 				removed, &nremoved);
-			
+			/* remove ^^^, hence i not incremented */
 			if (cciss_scsi_add_entry(h, hostno, &sd[j],
 				added, &nadded) != 0)
-				
+				/* we just removed one, so add can't fail. */
 					BUG();
 			csd->devtype = sd[j].devtype;
 			memcpy(csd->device_id, sd[j].device_id,
@@ -578,10 +596,12 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 				sizeof(csd->model));
 			memcpy(csd->revision, sd[j].revision,
 				sizeof(csd->revision));
-		} else 		
-			i++;	
+		} else 		/* device is same as it ever was, */
+			i++;	/* so just move along. */
 	}
 
+	/* Now, make sure every device listed in sd[] is also
+ 	   listed in ccissscsi[], adding them if they aren't found */
 
 	for (i=0;i<nsds;i++) {
 		found=0;
@@ -590,9 +610,9 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 			if (SCSI3ADDR_EQ(sd[i].scsi3addr,
 				csd->scsi3addr)) {
 				if (device_is_the_same(&sd[i], csd))
-					found=2;	
+					found=2;	/* found device */
 				else
-					found=1; 	
+					found=1; 	/* found a bug. */
 				break;
 			}
 		}
@@ -602,22 +622,22 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 				added, &nadded) != 0)
 				break;
 		} else if (found == 1) {
-			
+			/* should never happen... */
 			changes++;
 			dev_warn(&h->pdev->dev,
 				"device unexpectedly changed\n");
-			
+			/* but if it does happen, we just ignore that device */
 		}
 	}
 	CPQ_TAPE_UNLOCK(h, flags);
 
-	
-	
-	
+	/* Don't notify scsi mid layer of any changes the first time through */
+	/* (or if there are no changes) scsi_scan_host will do it later the */
+	/* first time through. */
 	if (hostno == -1 || !changes)
 		goto free_and_out;
 
-	
+	/* Notify scsi mid layer of any removed devices */
 	for (i = 0; i < nremoved; i++) {
 		struct scsi_device *sdev =
 			scsi_device_lookup(sh, removed[i].bus,
@@ -626,9 +646,9 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 			scsi_remove_device(sdev);
 			scsi_device_put(sdev);
 		} else {
-			
-			
-			
+			/* We don't expect to get here. */
+			/* future cmds to this device will get selection */
+			/* timeout as if the device was gone. */
 			dev_warn(&h->pdev->dev, "didn't find "
 				"c%db%dt%dl%d\n for removal.",
 				hostno, removed[i].bus,
@@ -636,7 +656,7 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 		}
 	}
 
-	
+	/* Notify scsi mid layer of any added devices */
 	for (i = 0; i < nadded; i++) {
 		int rc;
 		rc = scsi_add_device(sh, added[i].bus,
@@ -646,8 +666,8 @@ adjust_cciss_scsi_table(ctlr_info_t *h, int hostno,
 		dev_warn(&h->pdev->dev, "scsi_add_device "
 			"c%db%dt%dl%d failed, device not added.\n",
 			hostno, added[i].bus, added[i].target, added[i].lun);
-		
-		
+		/* now we have to remove it from ccissscsi, */
+		/* since it didn't get added to scsi mid layer */
 		fixup_botched_add(h, added[i].scsi3addr);
 	}
 
@@ -709,7 +729,7 @@ static void complete_scsi_command(CommandList_struct *c, int timeout,
 
 	ei = c->err_info;
 
-	
+	/* First, see if it was a message rather than a command */
 	if (c->Request.Type.Type == TYPE_MSG)  {
 		c->cmd_type = CMD_MSG_DONE;
 		return;
@@ -722,14 +742,14 @@ static void complete_scsi_command(CommandList_struct *c, int timeout,
 	if (c->Header.SGTotal > h->max_cmd_sgentries)
 		cciss_unmap_sg_chain_block(h, c);
 
-	cmd->result = (DID_OK << 16); 		
-	cmd->result |= (COMMAND_COMPLETE << 8);	
-			
+	cmd->result = (DID_OK << 16); 		/* host byte */
+	cmd->result |= (COMMAND_COMPLETE << 8);	/* msg byte */
+	/* cmd->result |= (GOOD < 1); */		/* status byte */
 
 	cmd->result |= (ei->ScsiStatus);
-	
+	/* printk("Scsistatus is 0x%02x\n", ei->ScsiStatus);  */
 
-	
+	/* copy the sense data whether we need to or not. */
 
 	memcpy(cmd->sense_buffer, ei->SenseInfo, 
 		ei->SenseLen > SCSI_SENSE_BUFFERSIZE ?
@@ -738,11 +758,11 @@ static void complete_scsi_command(CommandList_struct *c, int timeout,
 	scsi_set_resid(cmd, ei->ResidualCnt);
 
 	if(ei->CommandStatus != 0) 
-	{  
+	{ /* an error has occurred */ 
 		switch(ei->CommandStatus)
 		{
 			case CMD_TARGET_STATUS:
-				
+				/* Pass it up to the upper layers... */
 				if( ei->ScsiStatus)
                 		{
 #if 0
@@ -752,13 +772,20 @@ static void complete_scsi_command(CommandList_struct *c, int timeout,
 #endif
 					cmd->result |= (ei->ScsiStatus << 1);
                 		}
-				else {  
+				else {  /* scsi status is zero??? How??? */
 					
+	/* Ordinarily, this case should never happen, but there is a bug
+	   in some released firmware revisions that allows it to happen
+	   if, for example, a 4100 backplane loses power and the tape
+	   drive is in it.  We assume that it's a fatal error of some
+	   kind because we can't show that it wasn't. We will make it
+	   look like selection timeout since that is the most common
+	   reason for this to occur, and it's severe enough. */
 
 					cmd->result = DID_NO_CONNECT << 16;
 				}
 			break;
-			case CMD_DATA_UNDERRUN: 
+			case CMD_DATA_UNDERRUN: /* let mid layer handle it. */
 			break;
 			case CMD_DATA_OVERRUN:
 				dev_warn(&h->pdev->dev, "%p has"
@@ -766,6 +793,13 @@ static void complete_scsi_command(CommandList_struct *c, int timeout,
 					"reported\n", c);
 			break;
 			case CMD_INVALID: {
+				/* print_bytes(c, sizeof(*c), 1, 0);
+				print_cmd(c); */
+     /* We get CMD_INVALID if you address a non-existent tape drive instead
+	of a selection timeout (no response).  You will see this if you yank 
+	out a tape drive, then try to access it. This is kind of a shame
+	because it means that any other CMD_INVALID (e.g. driver bug) will
+	get interpreted as a missing target. */
 				cmd->result = DID_NO_CONNECT << 16;
 				}
 			break;
@@ -826,8 +860,8 @@ cciss_scsi_detect(ctlr_info_t *h)
 	sh = scsi_host_alloc(&cciss_driver_template, sizeof(struct ctlr_info *));
 	if (sh == NULL)
 		goto fail;
-	sh->io_port = 0;	
-	sh->n_io_port = 0;	
+	sh->io_port = 0;	// good enough?  FIXME, 
+	sh->n_io_port = 0;	// I don't think we use these two...
 	sh->this_id = SELF_SCSI_ID;  
 	sh->can_queue = cciss_tape_cmds;
 	sh->sg_tablesize = h->maxsgentries;
@@ -879,8 +913,8 @@ cciss_map_one(struct pci_dev *pdev,
 	c->SG[0].Addr.upper =
 	  (__u32) ((addr64 >> 32) & (__u64) 0x00000000FFFFFFFF);
 	c->SG[0].Len = buflen;
-	c->Header.SGList = (__u8) 1;   
-	c->Header.SGTotal = (__u16) 1; 
+	c->Header.SGList = (__u8) 1;   /* no. SGs contig in this cmd */
+	c->Header.SGTotal = (__u16) 1; /* total sgs in this cmd list */
 }
 
 static int
@@ -894,13 +928,16 @@ cciss_scsi_do_simple_cmd(ctlr_info_t *h,
 {
 	DECLARE_COMPLETION_ONSTACK(wait);
 
-	c->cmd_type = CMD_IOCTL_PEND; 
+	c->cmd_type = CMD_IOCTL_PEND; /* treat this like an ioctl */
 	c->scsi_cmd = NULL;
-	c->Header.ReplyQueue = 0;  
+	c->Header.ReplyQueue = 0;  /* unused in simple mode */
 	memcpy(&c->Header.LUN, scsi3addr, sizeof(c->Header.LUN));
-	c->Header.Tag.lower = c->busaddr;  
-	
+	c->Header.Tag.lower = c->busaddr;  /* Use k. address of cmd as tag */
+	// Fill in the request block...
 
+	/* printk("Using scsi3addr 0x%02x%0x2%0x2%0x2%0x2%0x2%0x2%0x2\n", 
+		scsi3addr[0], scsi3addr[1], scsi3addr[2], scsi3addr[3],
+		scsi3addr[4], scsi3addr[5], scsi3addr[6], scsi3addr[7]); */
 
 	memset(c->Request.CDB, 0, sizeof(c->Request.CDB));
 	memcpy(c->Request.CDB, cdb, cdblen);
@@ -910,7 +947,7 @@ cciss_scsi_do_simple_cmd(ctlr_info_t *h,
 	c->Request.Type.Attribute = ATTR_SIMPLE;
 	c->Request.Type.Direction = direction;
 
-	
+	/* Fill in the SG list and do dma mapping */
 	cciss_map_one(h->pdev, c, (unsigned char *) buf,
 			bufsize, DMA_FROM_DEVICE); 
 
@@ -918,7 +955,7 @@ cciss_scsi_do_simple_cmd(ctlr_info_t *h,
 	enqueue_cmd_and_start_io(h, c);
 	wait_for_completion(&wait);
 
-	
+	/* undo the dma mapping */
 	cciss_unmap_one(h->pdev, c, bufsize, DMA_FROM_DEVICE);
 	return(0);
 }
@@ -944,7 +981,7 @@ cciss_scsi_interpret_error(ctlr_info_t *h, CommandList_struct *c)
 				"reported incorrectly due to a known "
 				"firmware bug, circa July, 2001.)\n");
 		break;
-		case CMD_DATA_UNDERRUN: 
+		case CMD_DATA_UNDERRUN: /* let mid layer handle it. */
 			dev_info(&h->pdev->dev, "UNDERRUN\n");
 		break;
 		case CMD_DATA_OVERRUN:
@@ -953,18 +990,20 @@ cciss_scsi_interpret_error(ctlr_info_t *h, CommandList_struct *c)
 				"reported\n", c);
 		break;
 		case CMD_INVALID: {
-			
-			
+			/* controller unfortunately reports SCSI passthru's */
+			/* to non-existent targets as invalid commands. */
 			dev_warn(&h->pdev->dev,
 				"%p is reported invalid (probably means "
 				"target device no longer present)\n", c);
+			/* print_bytes((unsigned char *) c, sizeof(*c), 1, 0);
+			print_cmd(c);  */
 			}
 		break;
 		case CMD_PROTOCOL_ERR:
 			dev_warn(&h->pdev->dev, "%p has protocol error\n", c);
 		break;
 		case CMD_HARDWARE_ERR:
-			
+			/* cmd->result = DID_ERROR << 16; */
 			dev_warn(&h->pdev->dev, "%p had hardware error\n", c);
 		break;
 		case CMD_CONNECTION_LOST:
@@ -1010,7 +1049,7 @@ cciss_scsi_do_inquiry(ctlr_info_t *h, unsigned char *scsi3addr,
 	c = scsi_cmd_alloc(h);
 	spin_unlock_irqrestore(&h->lock, flags);
 
-	if (c == NULL) {			
+	if (c == NULL) {			/* trouble... */
 		printk("cmd_alloc returned NULL!\n");
 		return -1;
 	}
@@ -1026,7 +1065,7 @@ cciss_scsi_do_inquiry(ctlr_info_t *h, unsigned char *scsi3addr,
 	rc = cciss_scsi_do_simple_cmd(h, c, scsi3addr, cdb,
 				6, buf, bufsize, XFER_READ);
 
-	if (rc != 0) return rc; 
+	if (rc != 0) return rc; /* something went wrong */
 
 	if (ei->CommandStatus != 0 && 
 	    ei->CommandStatus != CMD_DATA_UNDERRUN) {
@@ -1039,6 +1078,7 @@ cciss_scsi_do_inquiry(ctlr_info_t *h, unsigned char *scsi3addr,
 	return rc;	
 }
 
+/* Get the device id from inquiry page 0x83 */
 static int cciss_scsi_get_device_id(ctlr_info_t *h, unsigned char *scsi3addr,
 	unsigned char *device_id, int buflen)
 {
@@ -1071,19 +1111,19 @@ cciss_scsi_do_report_phys_luns(ctlr_info_t *h,
 	spin_lock_irqsave(&h->lock, flags);
 	c = scsi_cmd_alloc(h);
 	spin_unlock_irqrestore(&h->lock, flags);
-	if (c == NULL) {			
+	if (c == NULL) {			/* trouble... */
 		printk("cmd_alloc returned NULL!\n");
 		return -1;
 	}
 
-	memset(&scsi3addr[0], 0, 8); 
+	memset(&scsi3addr[0], 0, 8); /* address the controller */
 	cdb[0] = CISS_REPORT_PHYS;
 	cdb[1] = 0;
 	cdb[2] = 0;
 	cdb[3] = 0;
 	cdb[4] = 0;
 	cdb[5] = 0;
-	cdb[6] = (bufsize >> 24) & 0xFF;  
+	cdb[6] = (bufsize >> 24) & 0xFF;  //MSB
 	cdb[7] = (bufsize >> 16) & 0xFF;
 	cdb[8] = (bufsize >> 8) & 0xFF;
 	cdb[9] = bufsize & 0xFF;
@@ -1095,7 +1135,7 @@ cciss_scsi_do_report_phys_luns(ctlr_info_t *h,
 				(unsigned char *) buf, 
 				bufsize, XFER_READ);
 
-	if (rc != 0) return rc; 
+	if (rc != 0) return rc; /* something went wrong */
 
 	ei = c->err_info;
 	if (ei->CommandStatus != 0 && 
@@ -1112,6 +1152,32 @@ cciss_scsi_do_report_phys_luns(ctlr_info_t *h,
 static void
 cciss_update_non_disk_devices(ctlr_info_t *h, int hostno)
 {
+	/* the idea here is we could get notified from /proc
+	   that some devices have changed, so we do a report 
+	   physical luns cmd, and adjust our list of devices 
+	   accordingly.  (We can't rely on the scsi-mid layer just
+	   doing inquiries, because the "busses" that the scsi 
+	   mid-layer probes are totally fabricated by this driver,
+	   so new devices wouldn't show up.
+
+	   the scsi3addr's of devices won't change so long as the 
+	   adapter is not reset.  That means we can rescan and 
+	   tell which devices we already know about, vs. new 
+	   devices, vs.  disappearing devices.
+
+	   Also, if you yank out a tape drive, then put in a disk
+	   in it's place, (say, a configured volume from another 
+	   array controller for instance)  _don't_ poke this driver 
+           (so it thinks it's still a tape, but _do_ poke the scsi 
+           mid layer, so it does an inquiry... the scsi mid layer 
+           will see the physical disk.  This would be bad.  Need to
+	   think about how to prevent that.  One idea would be to 
+	   snoop all scsi responses and if an inquiry repsonse comes
+	   back that reports a disk, chuck it an return selection
+	   timeout instead and adjust our table...  Not sure i like
+	   that though.  
+
+	 */
 #define OBDR_TAPE_INQ_SIZE 49
 #define OBDR_TAPE_SIG "$DR-10"
 	ReportLunData_struct *ld_buff;
@@ -1150,17 +1216,17 @@ cciss_update_non_disk_devices(ctlr_info_t *h, int hostno)
 	}
 
 
-		
+	/* adjust our table of devices */	
 	for (i = 0; i < num_luns; i++) {
-		
+		/* for each physical lun, do an inquiry */
 		if (ld_buff->LUN[i][3] & 0xC0) continue;
 		memset(inq_buff, 0, OBDR_TAPE_INQ_SIZE);
 		memcpy(&scsi3addr[0], &ld_buff->LUN[i][0], 8);
 
 		if (cciss_scsi_do_inquiry(h, scsi3addr, 0, inq_buff,
 			(unsigned char) OBDR_TAPE_INQ_SIZE) != 0)
-			
-			continue; 
+			/* Inquiry failed (msg printed already) */
+			continue; /* so we will skip this device. */
 
 		this_device->devtype = (inq_buff[0] & 0x1f);
 		this_device->bus = -1;
@@ -1180,19 +1246,26 @@ cciss_update_non_disk_devices(ctlr_info_t *h, int hostno)
 
 		switch (this_device->devtype)
 		{
-		  case 0x05:  {
+		  case 0x05: /* CD-ROM */ {
 
+			/* We don't *really* support actual CD-ROM devices,
+			 * just this "One Button Disaster Recovery" tape drive
+			 * which temporarily pretends to be a CD-ROM drive.
+			 * So we check that the device is really an OBDR tape
+			 * device by checking for "$DR-10" in bytes 43-48 of
+			 * the inquiry data.
+			 */
 				char obdr_sig[7];
 
 				strncpy(obdr_sig, &inq_buff[43], 6);
 				obdr_sig[6] = '\0';
 				if (strncmp(obdr_sig, OBDR_TAPE_SIG, 6) != 0)
-					
+					/* Not OBDR device, ignore it. */
 					break;
 			}
-			
-		  case 0x01: 
-		  case 0x08: 
+			/* fall through . . . */
+		  case 0x01: /* sequential access, (tape) */
+		  case 0x08: /* medium changer */
 			if (ncurrent >= CCISS_MAX_SCSI_DEVS_PER_HBA) {
 				printk(KERN_INFO "cciss%d: %s ignored, "
 					"too many devices.\n", h->ctlr,
@@ -1216,7 +1289,7 @@ out:
 }
 
 static int
-is_keyword(char *ptr, int len, char *verb)  
+is_keyword(char *ptr, int len, char *verb)  // Thanks to ncr53c8xx.c
 {
 	int verb_len = strlen(verb);
 	if (len >= verb_len && !memcmp(verb,ptr,verb_len))
@@ -1240,11 +1313,11 @@ cciss_scsi_user_command(ctlr_info_t *h, int hostno, char *buffer, int length)
 
 static int
 cciss_scsi_proc_info(struct Scsi_Host *sh,
-		char *buffer, 
-		char **start, 	   
-		off_t offset,	   
-		int length, 	   
-		int func)	   
+		char *buffer, /* data buffer */
+		char **start, 	   /* where data in buffer starts */
+		off_t offset,	   /* offset from start of imaginary file */
+		int length, 	   /* length of data in buffer */
+		int func)	   /* 0 == read, 1 == write */
 {
 
 	int buflen, datalen;
@@ -1252,13 +1325,20 @@ cciss_scsi_proc_info(struct Scsi_Host *sh,
 	int i;
 
 	h = (ctlr_info_t *) sh->hostdata[0];
-	if (h == NULL)  
+	if (h == NULL)  /* This really shouldn't ever happen. */
 		return -EINVAL;
 
-	if (func == 0) {	
+	if (func == 0) {	/* User is reading from /proc/scsi/ciss*?/?*  */
 		buflen = sprintf(buffer, "cciss%d: SCSI host: %d\n",
 				h->ctlr, sh->host_no);
 
+		/* this information is needed by apps to know which cciss
+		   device corresponds to which scsi host number without
+		   having to open a scsi target device node.  The device
+		   information is not a duplicate of /proc/scsi/scsi because
+		   the two may be out of sync due to scsi hotplug, rather
+		   this info is for an app to be able to use to know how to
+		   get them back in sync. */
 
 		for (i = 0; i < ccissscsi[h->ctlr].ndevices; i++) {
 			struct cciss_scsi_dev_t *sd =
@@ -1273,17 +1353,20 @@ cciss_scsi_proc_info(struct Scsi_Host *sh,
 				sd->scsi3addr[6], sd->scsi3addr[7]);
 		}
 		datalen = buflen - offset;
-		if (datalen < 0) { 	
+		if (datalen < 0) { 	/* they're reading past EOF. */
 			datalen = 0;
 			*start = buffer+buflen;	
 		} else
 			*start = buffer + offset;
 		return(datalen);
-	} else 	
+	} else 	/* User is writing to /proc/scsi/cciss*?/?*  ... */
 		return cciss_scsi_user_command(h, sh->host_no,
 			buffer, length);	
 } 
 
+/* cciss_scatter_gather takes a struct scsi_cmnd, (cmd), and does the pci 
+   dma mapping  and fills in the scatter gather entries of the 
+   cciss command, c. */
 
 static void cciss_scatter_gather(ctlr_info_t *h, CommandList_struct *c,
 	struct scsi_cmnd *cmd)
@@ -1325,7 +1408,7 @@ static void cciss_scatter_gather(ctlr_info_t *h, CommandList_struct *c,
 				(request_nsgs - (h->max_cmd_sgentries - 1)) *
 					sizeof(SGDescriptor_struct));
 	}
-	
+	/* track how many SG entries we are using */
 	if (request_nsgs > h->maxSG)
 		h->maxSG = request_nsgs;
 	c->Header.SGTotal = (u16) request_nsgs + chained;
@@ -1346,46 +1429,50 @@ cciss_scsi_queue_command_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmn
 	CommandList_struct *c;
 	unsigned long flags;
 
-	
-	
+	// Get the ptr to our adapter structure (hba[i]) out of cmd->host.
+	// We violate cmd->host privacy here.  (Is there another way?)
 	h = (ctlr_info_t *) cmd->device->host->hostdata[0];
 
 	rc = lookup_scsi3addr(h, cmd->device->channel, cmd->device->id,
 			cmd->device->lun, scsi3addr);
 	if (rc != 0) {
-		
-		
+		/* the scsi nexus does not match any that we presented... */
+		/* pretend to mid layer that we got selection timeout */
 		cmd->result = DID_NO_CONNECT << 16;
 		done(cmd);
+		/* we might want to think about registering controller itself
+		   as a processor device on the bus so sg binds to it. */
 		return 0;
 	}
 
+	/* Ok, we have a reasonable scsi nexus, so send the cmd down, and
+           see what the device thinks of it. */
 
 	spin_lock_irqsave(&h->lock, flags);
 	c = scsi_cmd_alloc(h);
 	spin_unlock_irqrestore(&h->lock, flags);
-	if (c == NULL) {			
+	if (c == NULL) {			/* trouble... */
 		dev_warn(&h->pdev->dev, "scsi_cmd_alloc returned NULL!\n");
-		
+		/* FIXME: next 3 lines are -> BAD! <- */
 		cmd->result = DID_NO_CONNECT << 16;
 		done(cmd);
 		return 0;
 	}
 
-	
+	// Fill in the command list header
 
-	cmd->scsi_done = done;    
+	cmd->scsi_done = done;    // save this for use by completion code 
 
-	
+	/* save c in case we have to abort it */
 	cmd->host_scribble = (unsigned char *) c;
 
 	c->cmd_type = CMD_SCSI;
 	c->scsi_cmd = cmd;
-	c->Header.ReplyQueue = 0;  
+	c->Header.ReplyQueue = 0;  /* unused in simple mode */
 	memcpy(&c->Header.LUN.LunAddrBytes[0], &scsi3addr[0], 8);
-	c->Header.Tag.lower = c->busaddr;  
+	c->Header.Tag.lower = c->busaddr;  /* Use k. address of cmd as tag */
 	
-	
+	// Fill in the request block...
 
 	c->Request.Timeout = 0;
 	memset(c->Request.CDB, 0, sizeof(c->Request.CDB));
@@ -1406,17 +1493,17 @@ cciss_scsi_queue_command_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmn
 		c->Request.Type.Direction = XFER_NONE;
 		break;
 	  case DMA_BIDIRECTIONAL:
-		
-		
-		
+		// This can happen if a buggy application does a scsi passthru
+		// and sets both inlen and outlen to non-zero. ( see
+		// ../scsi/scsi_ioctl.c:scsi_ioctl_send_command() )
 
 		c->Request.Type.Direction = XFER_RSVD;
-		
-		
-		
-		
-		
-		
+		// This is technically wrong, and cciss controllers should
+		// reject it with CMD_INVALID, which is the most correct 
+		// response, but non-fibre backends appear to let it 
+		// slide by, and give the same results as if this field
+		// were set correctly.  Either way is acceptable for
+		// our purposes here.
 
 		break;
 
@@ -1428,7 +1515,7 @@ cciss_scsi_queue_command_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmn
 	}
 	cciss_scatter_gather(h, c, cmd);
 	enqueue_cmd_and_start_io(h, c);
-	
+	/* the cmd'll come back via intr handler in complete_scsi_command()  */
 	return 0;
 }
 
@@ -1440,13 +1527,13 @@ static void cciss_unregister_scsi(ctlr_info_t *h)
 	struct cciss_scsi_cmd_stack_t *stk;
 	unsigned long flags;
 
-	
+	/* we are being forcibly unloaded, and may not refuse. */
 
 	spin_lock_irqsave(&h->lock, flags);
 	sa = h->scsi_ctlr;
 	stk = &sa->cmd_stack; 
 
-	 
+	/* if we weren't ever actually registered, don't unregister */ 
 	if (sa->registered) {
 		spin_unlock_irqrestore(&h->lock, flags);
 		scsi_remove_host(sa->scsi_host);
@@ -1454,6 +1541,8 @@ static void cciss_unregister_scsi(ctlr_info_t *h)
 		spin_lock_irqsave(&h->lock, flags);
 	}
 
+	/* set scsi_host to NULL so our detect routine will 
+	   find us on register */
 	sa->scsi_host = NULL;
 	spin_unlock_irqrestore(&h->lock, flags);
 	scsi_cmd_stack_free(h);
@@ -1509,17 +1598,20 @@ static int wait_for_device_to_become_ready(ctlr_info_t *h,
 		return IO_ERROR;
 	}
 
-	
+	/* Send test unit ready until device ready, or give up. */
 	while (count < 20) {
 
+		/* Wait for a bit.  do this first, because if we send
+		 * the TUR right away, the reset will just abort it.
+		 */
 		schedule_timeout_uninterruptible(waittime);
 		count++;
 
-		
+		/* Increase wait time with each try, up to a point. */
 		if (waittime < (HZ * 30))
 			waittime = waittime * 2;
 
-		
+		/* Send the Test Unit Ready */
 		rc = fill_cmd(h, c, TEST_UNIT_READY, NULL, 0, 0,
 			lunaddr, TYPE_CMD);
 		if (rc == 0)
@@ -1549,7 +1641,7 @@ retry_tur:
 		dev_warn(&h->pdev->dev, "Waiting %d secs "
 			"for device to become ready.\n",
 			waittime / HZ);
-		rc = 1; 
+		rc = 1; /* device not ready. */
 	}
 
 	if (rc)
@@ -1561,6 +1653,16 @@ retry_tur:
 	return rc;
 }
 
+/* Need at least one of these error handlers to keep ../scsi/hosts.c from 
+ * complaining.  Doing a host- or bus-reset can't do anything good here. 
+ * Despite what it might say in scsi_error.c, there may well be commands
+ * on the controller, as the cciss driver registers twice, once as a block
+ * device for the logical drives, and once as a scsi device, for any tape
+ * drives.  So we know there are no commands out on the tape drives, but we
+ * don't know there are no commands on the controller, and it is likely 
+ * that there probably are, as the cciss block device is most commonly used
+ * as a boot device (embedded controller on HP/Compaq systems.)
+*/
 
 static int cciss_eh_device_reset_handler(struct scsi_cmnd *scsicmd)
 {
@@ -1569,17 +1671,17 @@ static int cciss_eh_device_reset_handler(struct scsi_cmnd *scsicmd)
 	unsigned char lunaddr[8];
 	ctlr_info_t *h;
 
-	
+	/* find the controller to which the command to be aborted was sent */
 	h = (ctlr_info_t *) scsicmd->device->host->hostdata[0];
-	if (h == NULL) 
+	if (h == NULL) /* paranoia */
 		return FAILED;
 	dev_warn(&h->pdev->dev, "resetting tape drive or medium changer.\n");
-	
+	/* find the command that's giving us trouble */
 	cmd_in_trouble = (CommandList_struct *) scsicmd->host_scribble;
-	if (cmd_in_trouble == NULL) 
+	if (cmd_in_trouble == NULL) /* paranoia */
 		return FAILED;
 	memcpy(lunaddr, &cmd_in_trouble->Header.LUN.LunAddrBytes[0], 8);
-	
+	/* send a reset to the SCSI LUN which the command was sent to */
 	rc = sendcmd_withirq(h, CCISS_RESET_MSG, NULL, 0, 0, lunaddr,
 		TYPE_MSG);
 	if (rc == 0 && wait_for_device_to_become_ready(h, lunaddr) == 0)
@@ -1595,15 +1697,15 @@ static int  cciss_eh_abort_handler(struct scsi_cmnd *scsicmd)
 	unsigned char lunaddr[8];
 	ctlr_info_t *h;
 
-	
+	/* find the controller to which the command to be aborted was sent */
 	h = (ctlr_info_t *) scsicmd->device->host->hostdata[0];
-	if (h == NULL) 
+	if (h == NULL) /* paranoia */
 		return FAILED;
 	dev_warn(&h->pdev->dev, "aborting tardy SCSI cmd\n");
 
-	
+	/* find the command to be aborted */
 	cmd_to_abort = (CommandList_struct *) scsicmd->host_scribble;
-	if (cmd_to_abort == NULL) 
+	if (cmd_to_abort == NULL) /* paranoia */
 		return FAILED;
 	memcpy(lunaddr, &cmd_to_abort->Header.LUN.LunAddrBytes[0], 8);
 	rc = sendcmd_withirq(h, CCISS_ABORT_MSG, &cmd_to_abort->Header.Tag,
@@ -1614,10 +1716,11 @@ static int  cciss_eh_abort_handler(struct scsi_cmnd *scsicmd)
 
 }
 
-#else 
+#else /* no CONFIG_CISS_SCSI_TAPE */
 
+/* If no tape support, then these become defined out of existence */
 
 #define cciss_scsi_setup(cntl_num)
 #define cciss_engage_scsi(h)
 
-#endif 
+#endif /* CONFIG_CISS_SCSI_TAPE */

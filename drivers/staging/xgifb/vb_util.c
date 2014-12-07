@@ -29,7 +29,7 @@ void xgifb_reg_and_or(unsigned long port, u8 index,
 {
 	u8 temp;
 
-	temp = xgifb_reg_get(port, index); 
+	temp = xgifb_reg_get(port, index); /* XGINew_Part1Port index 02 */
 	temp = (temp & data_and) | data_or;
 	xgifb_reg_set(port, index, temp);
 }
@@ -38,7 +38,7 @@ void xgifb_reg_and(unsigned long port, u8 index, unsigned data_and)
 {
 	u8 temp;
 
-	temp = xgifb_reg_get(port, index); 
+	temp = xgifb_reg_get(port, index); /* XGINew_Part1Port index 02 */
 	temp &= data_and;
 	xgifb_reg_set(port, index, temp);
 }
@@ -47,7 +47,7 @@ void xgifb_reg_or(unsigned long port, u8 index, unsigned data_or)
 {
 	u8 temp;
 
-	temp = xgifb_reg_get(port, index); 
+	temp = xgifb_reg_get(port, index); /* XGINew_Part1Port index 02 */
 	temp |= data_or;
 	xgifb_reg_set(port, index, temp);
 }

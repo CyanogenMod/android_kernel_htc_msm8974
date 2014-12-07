@@ -17,6 +17,7 @@
 #define __NA_	0x000
 
 
+/* Pad control groupings */
 #define MX51_UART_PAD_CTRL	(PAD_CTL_PKE | PAD_CTL_PUE | PAD_CTL_DSE_HIGH | \
 				PAD_CTL_HYS | PAD_CTL_SRE_FAST)
 #define MX51_I2C_PAD_CTRL	(PAD_CTL_SRE_FAST | PAD_CTL_ODE | \
@@ -40,8 +41,16 @@
 #define MX51_PAD_CTRL_4		(PAD_CTL_PKE | PAD_CTL_DVS | PAD_CTL_HYS)
 #define MX51_PAD_CTRL_5		(PAD_CTL_DVS | PAD_CTL_DSE_HIGH)
 
+/*
+ * The naming convention for the pad modes is MX51_PAD_<padname>__<padmode>
+ * If <padname> or <padmode> refers to a GPIO, it is named GPIO<unit>_<num>
+ * See also iomux-v3.h
+ */
 
+/* Raw pin modes without pad control */
+/*							  PAD    MUX ALT INPSE PATH PADCTRL */
 
+/* The same pins as above but with the default pad control values applied */
 #define MX51_PAD_EIM_D16__AUD4_RXFS		IOMUX_PAD(0x3f0, 0x05c, 5, __NA_, 0, NO_PAD_CTRL)
 #define MX51_PAD_EIM_D16__AUD5_TXD		IOMUX_PAD(0x3f0, 0x05c, 7, 0x8d8, 0, NO_PAD_CTRL)
 #define MX51_PAD_EIM_D16__EIM_D16		IOMUX_PAD(0x3f0, 0x05c, 0, __NA_, 0, NO_PAD_CTRL)
@@ -801,4 +810,4 @@
 #define MX51_PAD_GPIO1_9__SD2_LCTL		IOMUX_PAD(0x818, 0x3ec, 6, __NA_, 0, NO_PAD_CTRL)
 #define MX51_PAD_GPIO1_9__USBH3_OC		IOMUX_PAD(0x818, 0x3ec, 1, __NA_, 0, NO_PAD_CTRL)
 
-#endif 
+#endif /* __MACH_IOMUX_MX51_H__ */

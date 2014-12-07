@@ -27,32 +27,32 @@
 #include <linux/gpio.h>
 #include <linux/slab.h>
 
-#define SCR_REVID	0x08		
-#define SCR_ISR		0x50		
-#define SCR_IMR		0x52		
-#define SCR_IRR		0x54		
-#define SCR_GPER	0x60		
-#define SCR_GPI_SR(i)	(0x64 + (i))	
-#define SCR_GPI_IMR(i)	(0x68 + (i))	
-#define SCR_GPI_EDER(i)	(0x6c + (i))	
-#define SCR_GPI_LIR(i)	(0x70 + (i))	
-#define SCR_GPO_DSR(i)	(0x78 + (i))	
-#define SCR_GPO_DOECR(i) (0x7c + (i))	
-#define SCR_GP_IARCR(i)	(0x80 + (i))	
-#define SCR_GP_IARLCR(i) (0x84 + (i))	
-#define SCR_GPI_BCR(i)	(0x88 + (i))	
-#define SCR_GPA_IARCR	0x8c		
-#define SCR_GPA_IARLCR	0x90		
-#define SCR_GPA_BCR	0x94		
-#define SCR_CCR		0x98		
-#define SCR_PLL2CR	0x9a		
-#define SCR_PLL1CR	0x9c		
-#define SCR_DIARCR	0xa0		
-#define SCR_DBOCR	0xa1		
-#define SCR_FER		0xe0		
-#define SCR_MCR		0xe4		
-#define SCR_CONFIG	0xfc		
-#define SCR_DEBUG	0xff		
+#define SCR_REVID	0x08		/* b Revision ID	*/
+#define SCR_ISR		0x50		/* b Interrupt Status	*/
+#define SCR_IMR		0x52		/* b Interrupt Mask	*/
+#define SCR_IRR		0x54		/* b Interrupt Routing	*/
+#define SCR_GPER	0x60		/* w GP Enable		*/
+#define SCR_GPI_SR(i)	(0x64 + (i))	/* b3 GPI Status	*/
+#define SCR_GPI_IMR(i)	(0x68 + (i))	/* b3 GPI INT Mask	*/
+#define SCR_GPI_EDER(i)	(0x6c + (i))	/* b3 GPI Edge Detect Enable */
+#define SCR_GPI_LIR(i)	(0x70 + (i))	/* b3 GPI Level Invert	*/
+#define SCR_GPO_DSR(i)	(0x78 + (i))	/* b3 GPO Data Set	*/
+#define SCR_GPO_DOECR(i) (0x7c + (i))	/* b3 GPO Data OE Control */
+#define SCR_GP_IARCR(i)	(0x80 + (i))	/* b3 GP Internal Active Register Control */
+#define SCR_GP_IARLCR(i) (0x84 + (i))	/* b3 GP INTERNAL Active Register Level Control */
+#define SCR_GPI_BCR(i)	(0x88 + (i))	/* b3 GPI Buffer Control */
+#define SCR_GPA_IARCR	0x8c		/* w GPa Internal Active Register Control */
+#define SCR_GPA_IARLCR	0x90		/* w GPa Internal Active Register Level Control */
+#define SCR_GPA_BCR	0x94		/* w GPa Buffer Control */
+#define SCR_CCR		0x98		/* w Clock Control	*/
+#define SCR_PLL2CR	0x9a		/* w PLL2 Control	*/
+#define SCR_PLL1CR	0x9c		/* l PLL1 Control	*/
+#define SCR_DIARCR	0xa0		/* b Device Internal Active Register Control */
+#define SCR_DBOCR	0xa1		/* b Device Buffer Off Control */
+#define SCR_FER		0xe0		/* b Function Enable	*/
+#define SCR_MCR		0xe4		/* w Mode Control	*/
+#define SCR_CONFIG	0xfc		/* b Configuration Control */
+#define SCR_DEBUG	0xff		/* b Debug		*/
 
 #define SCR_CCR_CK32K	BIT(0)
 #define SCR_CCR_USBCK	BIT(1)
@@ -66,9 +66,9 @@
 #define SCR_CCR_HCLK_24	(0 << 12)
 #define SCR_CCR_HCLK_48	(1 << 12)
 
-#define SCR_FER_USBEN		BIT(0)	
-#define SCR_FER_LCDCVEN		BIT(1)	
-#define SCR_FER_SLCDEN		BIT(2)	
+#define SCR_FER_USBEN		BIT(0)	/* USB host enable */
+#define SCR_FER_LCDCVEN		BIT(1)	/* polysilicon TFT enable */
+#define SCR_FER_SLCDEN		BIT(2)	/* SLCD enable */
 
 #define SCR_MCR_RDY_MASK		(3 << 0)
 #define SCR_MCR_RDY_OPENDRAIN	(0 << 0)
@@ -82,18 +82,20 @@
 #define SCR_MCR_INT_PUSHPULL	(2 << 4)
 #define SCR_MCR_INT_UNK		BIT(6)
 #define SCR_MCR_INT_EN		BIT(7)
+/* bits 8 - 16 are unknown */
 
 #define TC_GPIO_BIT(i)		(1 << (i & 0x7))
 
+/*--------------------------------------------------------------------------*/
 
 struct tc6393xb {
 	void __iomem		*scr;
 
 	struct gpio_chip	gpio;
 
-	struct clk		*clk; 
+	struct clk		*clk; /* 3,6 Mhz */
 
-	spinlock_t		lock; 
+	spinlock_t		lock; /* protects RMW cycles */
 
 	struct {
 		u8		fer;
@@ -116,6 +118,7 @@ enum {
 	TC6393XB_CELL_FB,
 };
 
+/*--------------------------------------------------------------------------*/
 
 static int tc6393xb_nand_enable(struct platform_device *nand)
 {
@@ -125,7 +128,7 @@ static int tc6393xb_nand_enable(struct platform_device *nand)
 
 	spin_lock_irqsave(&tc6393xb->lock, flags);
 
-	
+	/* SMD buffer on */
 	dev_dbg(&dev->dev, "SMD buffer on\n");
 	tmio_iowrite8(0xff, tc6393xb->scr + SCR_GPI_BCR(1));
 
@@ -415,13 +418,14 @@ static struct mfd_cell __devinitdata tc6393xb_cells[] = {
 	},
 };
 
+/*--------------------------------------------------------------------------*/
 
 static int tc6393xb_gpio_get(struct gpio_chip *chip,
 		unsigned offset)
 {
 	struct tc6393xb *tc6393xb = container_of(chip, struct tc6393xb, gpio);
 
-	
+	/* XXX: does dsr also represent inputs? */
 	return tmio_ioread8(tc6393xb->scr + SCR_GPO_DSR(offset / 8))
 		& TC_GPIO_BIT(offset);
 }
@@ -505,6 +509,7 @@ static int tc6393xb_register_gpio(struct tc6393xb *tc6393xb, int gpio_base)
 	return gpiochip_add(&tc6393xb->gpio);
 }
 
+/*--------------------------------------------------------------------------*/
 
 static void
 tc6393xb_irq(unsigned int irq, struct irq_desc *desc)
@@ -595,6 +600,7 @@ static void tc6393xb_detach_irq(struct platform_device *dev)
 	}
 }
 
+/*--------------------------------------------------------------------------*/
 
 static int __devinit tc6393xb_probe(struct platform_device *dev)
 {

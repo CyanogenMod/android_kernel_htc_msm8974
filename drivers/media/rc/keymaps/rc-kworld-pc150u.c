@@ -15,10 +15,13 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Kworld PC150-U
+   Kyle Strickland <kyle@kyle.strickland.name>
+ */
 
 static struct rc_map_table kworld_pc150u[] = {
-	{ 0x0c, KEY_MEDIA },		
-	{ 0x16, KEY_EJECTCLOSECD },	
+	{ 0x0c, KEY_MEDIA },		/* Kworld key */
+	{ 0x16, KEY_EJECTCLOSECD },	/* -> ) */
 	{ 0x1d, KEY_POWER2 },
 
 	{ 0x00, KEY_1 },
@@ -52,7 +55,7 @@ static struct rc_map_table kworld_pc150u[] = {
 	{ 0x13, KEY_VOLUMEUP },
 	{ 0x12, KEY_VOLUMEDOWN },
 
-	{ 0x19, KEY_TIME},		
+	{ 0x19, KEY_TIME},		/* Timeshift */
 	{ 0x1a, KEY_STOP},
 	{ 0x1b, KEY_RECORD},
 	{ 0x4b, KEY_EMAIL},
@@ -62,22 +65,22 @@ static struct rc_map_table kworld_pc150u[] = {
 	{ 0x41, KEY_FORWARD},
 	{ 0x22, KEY_TEXT},
 
-	{ 0x15, KEY_AUDIO},		
-	{ 0x0f, KEY_MODE},		
-	{ 0x1c, KEY_SYSRQ},		
-	{ 0x4a, KEY_SLEEP},		
+	{ 0x15, KEY_AUDIO},		/* ((*)) */
+	{ 0x0f, KEY_MODE},		/* display ratio */
+	{ 0x1c, KEY_SYSRQ},		/* snapshot */
+	{ 0x4a, KEY_SLEEP},		/* sleep timer */
 
-	{ 0x48, KEY_SOUND},		
-	{ 0x49, KEY_BLUE},		
-	{ 0x18, KEY_RED},		
-	{ 0x23, KEY_GREEN},		
+	{ 0x48, KEY_SOUND},		/* switch theater mode */
+	{ 0x49, KEY_BLUE},		/* A */
+	{ 0x18, KEY_RED},		/* B */
+	{ 0x23, KEY_GREEN},		/* C */
 };
 
 static struct rc_map_list kworld_pc150u_map = {
 	.map = {
 		.scan    = kworld_pc150u,
 		.size    = ARRAY_SIZE(kworld_pc150u),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_KWORLD_PC150U,
 	}
 };

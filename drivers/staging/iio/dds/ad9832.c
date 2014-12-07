@@ -154,11 +154,14 @@ error_ret:
 	return ret ? ret : len;
 }
 
+/**
+ * see dds.h for further information
+ */
 
 static IIO_DEV_ATTR_FREQ(0, 0, S_IWUSR, NULL, ad9832_write, AD9832_FREQ0HM);
 static IIO_DEV_ATTR_FREQ(0, 1, S_IWUSR, NULL, ad9832_write, AD9832_FREQ1HM);
 static IIO_DEV_ATTR_FREQSYMBOL(0, S_IWUSR, NULL, ad9832_write, AD9832_FREQ_SYM);
-static IIO_CONST_ATTR_FREQ_SCALE(0, "1"); 
+static IIO_CONST_ATTR_FREQ_SCALE(0, "1"); /* 1Hz */
 
 static IIO_DEV_ATTR_PHASE(0, 0, S_IWUSR, NULL, ad9832_write, AD9832_PHASE0H);
 static IIO_DEV_ATTR_PHASE(0, 1, S_IWUSR, NULL, ad9832_write, AD9832_PHASE1H);
@@ -166,7 +169,7 @@ static IIO_DEV_ATTR_PHASE(0, 2, S_IWUSR, NULL, ad9832_write, AD9832_PHASE2H);
 static IIO_DEV_ATTR_PHASE(0, 3, S_IWUSR, NULL, ad9832_write, AD9832_PHASE3H);
 static IIO_DEV_ATTR_PHASESYMBOL(0, S_IWUSR, NULL,
 				ad9832_write, AD9832_PHASE_SYM);
-static IIO_CONST_ATTR_PHASE_SCALE(0, "0.0015339808"); 
+static IIO_CONST_ATTR_PHASE_SCALE(0, "0.0015339808"); /* 2PI/2^12 rad*/
 
 static IIO_DEV_ATTR_PINCONTROL_EN(0, S_IWUSR, NULL,
 				ad9832_write, AD9832_PINCTRL_EN);
@@ -234,7 +237,7 @@ static int __devinit ad9832_probe(struct spi_device *spi)
 	indio_dev->info = &ad9832_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
-	
+	/* Setup default messages */
 
 	st->xfer.tx_buf = &st->data;
 	st->xfer.len = 2;

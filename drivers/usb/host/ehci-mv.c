@@ -21,7 +21,7 @@
 struct ehci_hcd_mv {
 	struct usb_hcd *hcd;
 
-	
+	/* Which mode does this ehci running OTG/Host ? */
 	int mode;
 
 	void __iomem *phy_regs;
@@ -32,7 +32,7 @@ struct ehci_hcd_mv {
 
 	struct mv_usb_platform_data *pdata;
 
-	
+	/* clock source and total clock number */
 	unsigned int clknum;
 	struct clk *clk[0];
 };
@@ -86,6 +86,9 @@ static int mv_ehci_reset(struct usb_hcd *hcd)
 		return -ENODEV;
 	}
 
+	/*
+	 * data structure init
+	 */
 	retval = ehci_init(hcd);
 	if (retval) {
 		dev_err(dev, "ehci_init failed %d\n", retval);
@@ -109,22 +112,37 @@ static const struct hc_driver mv_ehci_hc_driver = {
 	.product_desc = "Marvell EHCI",
 	.hcd_priv_size = sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq = ehci_irq,
 	.flags = HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset = mv_ehci_reset,
 	.start = ehci_run,
 	.stop = ehci_stop,
 	.shutdown = ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue = ehci_urb_enqueue,
 	.urb_dequeue = ehci_urb_dequeue,
 	.endpoint_disable = ehci_endpoint_disable,
 	.endpoint_reset = ehci_endpoint_reset,
 	.clear_tt_buffer_complete = ehci_clear_tt_buffer_complete,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number = ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data = ehci_hub_status_data,
 	.hub_control = ehci_hub_control,
 	.bus_suspend = ehci_bus_suspend,
@@ -250,7 +268,7 @@ static int mv_ehci_probe(struct platform_device *pdev)
 			retval = -ENODEV;
 			goto err_put_transceiver;
 		}
-		
+		/* otg will enable clock before use as host */
 		mv_ehci_disable(ehci_mv);
 #else
 		dev_info(&pdev->dev, "MV_USB_MODE_OTG "

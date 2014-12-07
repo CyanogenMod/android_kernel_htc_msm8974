@@ -17,4 +17,4 @@ struct flashlight_platform_data {
 
 int flashlight_control(int level);
 
-#endif 
+#endif /*__ASM_ARM_ARCH_FLASHLIGHT_H*/

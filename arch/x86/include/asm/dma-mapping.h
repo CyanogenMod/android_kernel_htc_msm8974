@@ -1,6 +1,10 @@
 #ifndef _ASM_X86_DMA_MAPPING_H
 #define _ASM_X86_DMA_MAPPING_H
 
+/*
+ * IOMMU interface. See Documentation/DMA-API-HOWTO.txt and
+ * Documentation/DMA-API.txt for documentation.
+ */
 
 #include <linux/kmemcheck.h>
 #include <linux/scatterlist.h>
@@ -39,6 +43,7 @@ static inline struct dma_map_ops *get_dma_ops(struct device *dev)
 
 #include <asm-generic/dma-mapping-common.h>
 
+/* Make sure we keep the same behaviour */
 static inline int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 {
 	struct dma_map_ops *ops = get_dma_ops(dev);
@@ -150,7 +155,7 @@ static inline void dma_free_attrs(struct device *dev, size_t size,
 {
 	struct dma_map_ops *ops = get_dma_ops(dev);
 
-	WARN_ON(irqs_disabled());       
+	WARN_ON(irqs_disabled());       /* for portability */
 
 	if (dma_release_from_coherent(dev, get_order(size), vaddr))
 		return;

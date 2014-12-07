@@ -7,7 +7,7 @@
 struct vsyscall_gtod_data {
 	seqcount_t	seq;
 
-	struct { 
+	struct { /* extract of a clocksource struct */
 		int vclock_mode;
 		cycle_t	cycle_last;
 		cycle_t	mask;
@@ -15,7 +15,7 @@ struct vsyscall_gtod_data {
 		u32	shift;
 	} clock;
 
-	
+	/* open coded 'struct timespec' */
 	time_t		wall_time_sec;
 	u32		wall_time_nsec;
 	u32		monotonic_time_nsec;
@@ -27,4 +27,4 @@ struct vsyscall_gtod_data {
 };
 extern struct vsyscall_gtod_data vsyscall_gtod_data;
 
-#endif 
+#endif /* _ASM_X86_VGTOD_H */

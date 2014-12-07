@@ -70,7 +70,7 @@ static int mpc8568_fixup_125_clock(struct phy_device *phydev)
 	int scr;
 	int err;
 
-	
+	/* Workaround for the 125 CLK Toggle */
 	scr = phy_read(phydev, MV88E1111_SCR);
 
 	if (scr < 0)
@@ -101,7 +101,7 @@ static int mpc8568_mds_phy_fixups(struct phy_device *phydev)
 	int temp;
 	int err;
 
-	
+	/* Errata */
 	err = phy_write(phydev,29, 0x0006);
 
 	if (err)
@@ -140,7 +140,7 @@ static int mpc8568_mds_phy_fixups(struct phy_device *phydev)
 	if (err)
 		return err;
 
-	
+	/* Disable automatic MDI/MDIX selection */
 	temp = phy_read(phydev, 16);
 
 	if (temp < 0)
@@ -152,13 +152,18 @@ static int mpc8568_mds_phy_fixups(struct phy_device *phydev)
 	return err;
 }
 
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 #ifdef CONFIG_QUICC_ENGINE
 static void __init mpc85xx_mds_reset_ucc_phys(void)
 {
 	struct device_node *np;
 	static u8 __iomem *bcsr_regs;
 
-	
+	/* Map BCSR area */
 	np = of_find_node_by_name(NULL, "bcsr");
 	if (!np)
 		return;
@@ -174,15 +179,15 @@ static void __init mpc85xx_mds_reset_ucc_phys(void)
 #define BCSR_UCC1_MODE_MSK	(0x3 << 4)
 #define BCSR_UCC2_MODE_MSK	(0x3 << 0)
 
-		
+		/* Turn off UCC1 & UCC2 */
 		clrbits8(&bcsr_regs[8], BCSR_UCC1_GETH_EN);
 		clrbits8(&bcsr_regs[9], BCSR_UCC2_GETH_EN);
 
-		
+		/* Mode is RGMII, all bits clear */
 		clrbits8(&bcsr_regs[11], BCSR_UCC1_MODE_MSK |
 					 BCSR_UCC2_MODE_MSK);
 
-		
+		/* Turn UCC1 & UCC2 on */
 		setbits8(&bcsr_regs[8], BCSR_UCC1_GETH_EN);
 		setbits8(&bcsr_regs[9], BCSR_UCC2_GETH_EN);
 	} else if (machine_is(mpc8569_mds)) {
@@ -190,6 +195,11 @@ static void __init mpc85xx_mds_reset_ucc_phys(void)
 #define BCSR8_UEM_MARVELL_RST	(0x1 << 1)
 #define BCSR_UCC_RGMII		(0x1 << 6)
 #define BCSR_UCC_RTBI		(0x1 << 5)
+		/*
+		 * U-Boot mangles interrupt polarity for Marvell PHYs,
+		 * so reset built-in and UEM Marvell PHYs, this puts
+		 * the PHYs into their normal state.
+		 */
 		clrbits8(&bcsr_regs[7], BCSR7_UCC12_GETHnRST);
 		setbits8(&bcsr_regs[8], BCSR8_UEM_MARVELL_RST);
 
@@ -218,7 +228,7 @@ static void __init mpc85xx_mds_reset_ucc_phys(void)
 		}
 	} else if (machine_is(p1021_mds)) {
 #define BCSR11_ENET_MICRST     (0x1 << 5)
-		
+		/* Reset Micrel PHY */
 		clrbits8(&bcsr_regs[11], BCSR11_ENET_MICRST);
 		setbits8(&bcsr_regs[11], BCSR11_ENET_MICRST);
 	}
@@ -268,6 +278,12 @@ static void __init mpc85xx_mds_qe_init(void)
 			if (!guts)
 				pr_err("mpc85xx-rdb: could not map global utilities register\n");
 			else{
+			/* P1021 has pins muxed for QE and other functions. To
+			 * enable QE UEC mode, we need to set bit QE0 for UCC1
+			 * in Eth mode, QE0 and QE3 for UCC5 in Eth mode, QE9
+			 * and QE12 for QE MII management signals in PMUXCR
+			 * register.
+			 */
 				setbits32(&guts->pmuxcr, MPC85xx_PMUXCR_QE(0) |
 						  MPC85xx_PMUXCR_QE(3) |
 						  MPC85xx_PMUXCR_QE(9) |
@@ -307,7 +323,7 @@ static void __init mpc85xx_mds_qeic_init(void)
 #else
 static void __init mpc85xx_mds_qe_init(void) { }
 static void __init mpc85xx_mds_qeic_init(void) { }
-#endif	
+#endif	/* CONFIG_QUICC_ENGINE */
 
 static void __init mpc85xx_mds_setup_arch(void)
 {
@@ -370,7 +386,7 @@ static int __init board_fixups(void)
 		phy_register_fixup_for_id(phy_id, mpc8568_fixup_125_clock);
 		phy_register_fixup_for_id(phy_id, mpc8568_mds_phy_fixups);
 
-		
+		/* Register a workaround for errata */
 		snprintf(phy_id, sizeof(phy_id), "%llx:%02x",
 			(unsigned long long)res.start, 7);
 		phy_register_fixup_for_id(phy_id, mpc8568_mds_phy_fixups);

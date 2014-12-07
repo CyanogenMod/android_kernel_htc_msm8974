@@ -35,12 +35,25 @@
 #include <net/phonet/pep.h>
 #include <net/phonet/gprs.h>
 
+/* sk_state values:
+ * TCP_CLOSE		sock not in use yet
+ * TCP_CLOSE_WAIT	disconnected pipe
+ * TCP_LISTEN		listening pipe endpoint
+ * TCP_SYN_RECV		connected pipe in disabled state
+ * TCP_ESTABLISHED	connected pipe in enabled state
+ *
+ * pep_sock locking:
+ *  - sk_state, hlist: sock lock needed
+ *  - listener: read only
+ *  - pipe_handle: read only
+ */
 
 #define CREDITS_MAX	10
 #define CREDITS_THR	7
 
-#define pep_sb_size(s) (((s) + 5) & ~3) 
+#define pep_sb_size(s) (((s) + 5) & ~3) /* 2-bytes head, 32-bits aligned */
 
+/* Get the next TLV sub-block. */
 static unsigned char *pep_get_sb(struct sk_buff *skb, u8 *ptype, u8 *plen,
 					void *buf)
 {
@@ -95,7 +108,7 @@ static int pep_reply(struct sock *sk, struct sk_buff *oskb, u8 code,
 
 	ph = pnp_hdr(skb);
 	ph->utid = oph->utid;
-	ph->message_id = oph->message_id + 1; 
+	ph->message_id = oph->message_id + 1; /* REQ -> RESP */
 	ph->pipe_handle = oph->pipe_handle;
 	ph->error_code = code;
 
@@ -136,7 +149,7 @@ static int pipe_handler_request(struct sock *sk, u8 id, u8 code,
 		return -ENOMEM;
 
 	ph = pnp_hdr(skb);
-	ph->utid = id; 
+	ph->utid = id; /* whatever */
 	ph->message_id = id;
 	ph->pipe_handle = pn->pipe_handle;
 	ph->data[0] = code;
@@ -151,14 +164,14 @@ static int pipe_handler_send_created_ind(struct sock *sk)
 		pn->tx_fc, pn->rx_fc,
 	};
 
-	return pep_indicate(sk, PNS_PIPE_CREATED_IND, 1 ,
+	return pep_indicate(sk, PNS_PIPE_CREATED_IND, 1 /* sub-blocks */,
 				data, 4, GFP_ATOMIC);
 }
 
 static int pep_accept_conn(struct sock *sk, struct sk_buff *skb)
 {
 	static const u8 data[20] = {
-		PAD, PAD, PAD, 2 ,
+		PAD, PAD, PAD, 2 /* sub-blocks */,
 		PN_PIPE_SB_REQUIRED_FC_TX, pep_sb_size(5), 3, PAD,
 			PN_MULTI_CREDIT_FLOW_CONTROL,
 			PN_ONE_CREDIT_FLOW_CONTROL,
@@ -179,11 +192,13 @@ static int pep_accept_conn(struct sock *sk, struct sk_buff *skb)
 static int pep_reject_conn(struct sock *sk, struct sk_buff *skb, u8 code,
 				gfp_t priority)
 {
-	static const u8 data[4] = { PAD, PAD, PAD, 0  };
+	static const u8 data[4] = { PAD, PAD, PAD, 0 /* sub-blocks */ };
 	WARN_ON(code == PN_PIPE_NO_ERROR);
 	return pep_reply(sk, skb, code, data, sizeof(data), priority);
 }
 
+/* Control requests are not sent by the pipe service and have a specific
+ * message format. */
 static int pep_ctrlreq_error(struct sock *sk, struct sk_buff *oskb, u8 code,
 				gfp_t priority)
 {
@@ -192,8 +207,8 @@ static int pep_ctrlreq_error(struct sock *sk, struct sk_buff *oskb, u8 code,
 	struct pnpipehdr *ph;
 	struct sockaddr_pn dst;
 	u8 data[4] = {
-		oph->data[0], 
-		code, 
+		oph->data[0], /* PEP type */
+		code, /* error code, at an unusual offset */
 		PAD, PAD,
 	};
 
@@ -205,7 +220,7 @@ static int pep_ctrlreq_error(struct sock *sk, struct sk_buff *oskb, u8 code,
 	ph->utid = oph->utid;
 	ph->message_id = PNS_PEP_CTRL_RESP;
 	ph->pipe_handle = oph->pipe_handle;
-	ph->data[0] = oph->data[1]; 
+	ph->data[0] = oph->data[1]; /* CTRL id */
 
 	pn_skb_get_src_sockaddr(oskb, &dst);
 	return pn_skb_send(sk, skb, &dst);
@@ -219,6 +234,8 @@ static int pipe_snd_status(struct sock *sk, u8 type, u8 status, gfp_t priority)
 				data, 4, priority);
 }
 
+/* Send our RX flow control information to the sender.
+ * Socket must be locked. */
 static void pipe_grant_credits(struct sock *sk, gfp_t priority)
 {
 	struct pep_sock *pn = pep_sk(sk);
@@ -226,7 +243,7 @@ static void pipe_grant_credits(struct sock *sk, gfp_t priority)
 	BUG_ON(sk->sk_state != TCP_ESTABLISHED);
 
 	switch (pn->rx_fc) {
-	case PN_LEGACY_FLOW_CONTROL: 
+	case PN_LEGACY_FLOW_CONTROL: /* TODO */
 		break;
 	case PN_ONE_CREDIT_FLOW_CONTROL:
 		if (pipe_snd_status(sk, PN_PEP_IND_FLOW_CONTROL,
@@ -323,6 +340,8 @@ static int pipe_rcv_created(struct sock *sk, struct sk_buff *skb)
 	return 0;
 }
 
+/* Queue an skb to a connected sock.
+ * Socket lock must be held. */
 static int pipe_do_rcv(struct sock *sk, struct sk_buff *skb)
 {
 	struct pep_sock *pn = pep_sk(sk);
@@ -345,7 +364,7 @@ static int pipe_do_rcv(struct sock *sk, struct sk_buff *skb)
 		break;
 
 	case PNS_PEP_ENABLE_REQ:
-		
+		/* Wait for PNS_PIPE_(ENABLED|REDIRECTED)_IND */
 		pep_reply(sk, skb, PN_PIPE_NO_ERROR, NULL, 0, GFP_ATOMIC);
 		break;
 
@@ -357,11 +376,11 @@ static int pipe_do_rcv(struct sock *sk, struct sk_buff *skb)
 		case PN_PIPE_ENABLE:
 			pn->init_enable = 1;
 			break;
-		default: 
+		default: /* not allowed to send an error here!? */
 			err = -EINVAL;
 			goto out;
 		}
-		
+		/* fall through */
 	case PNS_PEP_DISABLE_REQ:
 		atomic_set(&pn->tx_credits, 0);
 		pep_reply(sk, skb, PN_PIPE_NO_ERROR, NULL, 0, GFP_ATOMIC);
@@ -378,9 +397,9 @@ static int pipe_do_rcv(struct sock *sk, struct sk_buff *skb)
 
 	case PNS_PIPE_ALIGNED_DATA:
 		__skb_pull(skb, 1);
-		
+		/* fall through */
 	case PNS_PIPE_DATA:
-		__skb_pull(skb, 3); 
+		__skb_pull(skb, 3); /* Pipe data header */
 		if (!pn_flow_safe(pn->rx_fc)) {
 			err = sock_queue_rcv_skb(sk, skb);
 			if (!err)
@@ -410,18 +429,18 @@ static int pipe_do_rcv(struct sock *sk, struct sk_buff *skb)
 		err = pipe_rcv_created(sk, skb);
 		if (err)
 			break;
-		
+		/* fall through */
 	case PNS_PIPE_RESET_IND:
 		if (!pn->init_enable)
 			break;
-		
+		/* fall through */
 	case PNS_PIPE_ENABLED_IND:
 		if (!pn_flow_safe(pn->tx_fc)) {
 			atomic_set(&pn->tx_credits, 1);
 			sk->sk_write_space(sk);
 		}
 		if (sk->sk_state == TCP_ESTABLISHED)
-			break; 
+			break; /* Nothing to do */
 		sk->sk_state = TCP_ESTABLISHED;
 		pipe_grant_credits(sk, GFP_ATOMIC);
 		break;
@@ -450,6 +469,7 @@ queue:
 	return NET_RX_SUCCESS;
 }
 
+/* Destroy connected sock. */
 static void pipe_destruct(struct sock *sk)
 {
 	struct pep_sock *pn = pep_sk(sk);
@@ -485,7 +505,7 @@ static int pep_connresp_rcv(struct sock *sk, struct sk_buff *skb)
 	if (hdr->error_code != PN_PIPE_NO_ERROR)
 		return -ECONNREFUSED;
 
-	
+	/* Parse sub-blocks */
 	n_sb = hdr->data[4];
 	while (n_sb > 0) {
 		u8 type, buf[6], len = sizeof(buf);
@@ -521,7 +541,7 @@ static int pep_enableresp_rcv(struct sock *sk, struct sk_buff *skb)
 	if (hdr->error_code != PN_PIPE_NO_ERROR)
 		return -ECONNREFUSED;
 
-	return pep_indicate(sk, PNS_PIPE_ENABLED_IND, 0 ,
+	return pep_indicate(sk, PNS_PIPE_ENABLED_IND, 0 /* sub-blocks */,
 		NULL, 0, GFP_ATOMIC);
 
 }
@@ -537,6 +557,8 @@ static void pipe_start_flow_control(struct sock *sk)
 	pipe_grant_credits(sk, GFP_ATOMIC);
 }
 
+/* Queue an skb to an actively connected sock.
+ * Socket lock must be held. */
 static int pipe_handler_do_rcv(struct sock *sk, struct sk_buff *skb)
 {
 	struct pep_sock *pn = pep_sk(sk);
@@ -546,9 +568,9 @@ static int pipe_handler_do_rcv(struct sock *sk, struct sk_buff *skb)
 	switch (hdr->message_id) {
 	case PNS_PIPE_ALIGNED_DATA:
 		__skb_pull(skb, 1);
-		
+		/* fall through */
 	case PNS_PIPE_DATA:
-		__skb_pull(skb, 3); 
+		__skb_pull(skb, 3); /* Pipe data header */
 		if (!pn_flow_safe(pn->rx_fc)) {
 			err = sock_queue_rcv_skb(sk, skb);
 			if (!err)
@@ -602,7 +624,7 @@ static int pipe_handler_do_rcv(struct sock *sk, struct sk_buff *skb)
 		break;
 
 	case PNS_PEP_DISCONNECT_RESP:
-		
+		/* sock should already be dead, nothing to do */
 		break;
 
 	case PNS_PEP_STATUS_IND:
@@ -613,6 +635,7 @@ static int pipe_handler_do_rcv(struct sock *sk, struct sk_buff *skb)
 	return err;
 }
 
+/* Listening sock must be locked */
 static struct sock *pep_find_pipe(const struct hlist_head *hlist,
 					const struct sockaddr_pn *dst,
 					u8 pipe_handle)
@@ -624,7 +647,7 @@ static struct sock *pep_find_pipe(const struct hlist_head *hlist,
 	sk_for_each(sknode, node, hlist) {
 		struct pep_sock *pnnode = pep_sk(sknode);
 
-		
+		/* Ports match, but addresses might not: */
 		if (pnnode->pn_sk.sobject != dobj)
 			continue;
 		if (pnnode->pipe_handle != pipe_handle)
@@ -638,6 +661,11 @@ static struct sock *pep_find_pipe(const struct hlist_head *hlist,
 	return NULL;
 }
 
+/*
+ * Deliver an skb to a listening sock.
+ * Socket lock must be held.
+ * We then queue the skb to the right connected sock (if any).
+ */
 static int pep_do_rcv(struct sock *sk, struct sk_buff *skb)
 {
 	struct pep_sock *pn = pep_sk(sk);
@@ -656,7 +684,7 @@ static int pep_do_rcv(struct sock *sk, struct sk_buff *skb)
 
 	pn_skb_get_dst_sockaddr(skb, &dst);
 
-	
+	/* Look for an existing pipe handle */
 	sknode = pep_find_pipe(&pn->hlist, &dst, pipe_handle);
 	if (sknode)
 		return sk_receive_skb(sknode, skb, 1);
@@ -685,13 +713,13 @@ static int pep_do_rcv(struct sock *sk, struct sk_buff *skb)
 	case PNS_PEP_RESET_REQ:
 	case PNS_PEP_ENABLE_REQ:
 	case PNS_PEP_DISABLE_REQ:
-		
+		/* invalid handle is not even allowed here! */
 		break;
 
 	default:
 		if ((1 << sk->sk_state)
 				& ~(TCPF_CLOSE|TCPF_LISTEN|TCPF_CLOSE_WAIT))
-			
+			/* actively connected socket */
 			return pipe_handler_do_rcv(sk, skb);
 	}
 drop:
@@ -717,18 +745,19 @@ static int pipe_do_remove(struct sock *sk)
 	return pn_skb_send(sk, skb, NULL);
 }
 
+/* associated socket ceases to exist */
 static void pep_sock_close(struct sock *sk, long timeout)
 {
 	struct pep_sock *pn = pep_sk(sk);
 	int ifindex = 0;
 
-	sock_hold(sk); 
+	sock_hold(sk); /* keep a reference after sk_common_release() */
 	sk_common_release(sk);
 
 	lock_sock(sk);
 	if ((1 << sk->sk_state) & (TCPF_SYN_RECV|TCPF_ESTABLISHED)) {
 		if (sk->sk_backlog_rcv == pipe_do_rcv)
-			
+			/* Forcefully remove dangling Phonet pipe */
 			pipe_do_remove(sk);
 		else
 			pipe_handler_request(sk, PNS_PEP_DISCONNECT_REQ, PAD,
@@ -788,7 +817,7 @@ static struct sock *pep_sock_accept(struct sock *sk, int flags, int *errp)
 	}
 	peer_type = hdr->other_pep_type << 8;
 
-	
+	/* Parse sub-blocks (options) */
 	n_sb = hdr->data[4];
 	while (n_sb > 0) {
 		u8 type, buf[1], len = sizeof(buf);
@@ -809,7 +838,7 @@ static struct sock *pep_sock_accept(struct sock *sk, int flags, int *errp)
 		n_sb--;
 	}
 
-	
+	/* Check for duplicate pipe handle */
 	newsk = pep_find_pipe(&pn->hlist, &dst, pipe_handle);
 	if (unlikely(newsk)) {
 		__sock_put(newsk);
@@ -818,7 +847,7 @@ static struct sock *pep_sock_accept(struct sock *sk, int flags, int *errp)
 		goto drop;
 	}
 
-	
+	/* Create a new to-be-accepted sock */
 	newsk = sk_alloc(sock_net(sk), PF_PHONET, GFP_KERNEL, sk->sk_prot);
 	if (!newsk) {
 		pep_reject_conn(sk, skb, PN_PIPE_ERR_OVERLOAD, GFP_KERNEL);
@@ -868,10 +897,10 @@ static int pep_sock_connect(struct sock *sk, struct sockaddr *addr, int len)
 {
 	struct pep_sock *pn = pep_sk(sk);
 	int err;
-	u8 data[4] = { 0 , PAD, PAD, PAD };
+	u8 data[4] = { 0 /* sub-blocks */, PAD, PAD, PAD };
 
 	if (pn->pipe_handle == PN_PIPE_INVALID_HANDLE)
-		pn->pipe_handle = 1; 
+		pn->pipe_handle = 1; /* anything but INVALID_HANDLE */
 
 	err = pipe_handler_request(sk, PNS_PEP_CONNECT_REQ,
 				pn->init_enable, data, 4);
@@ -979,7 +1008,7 @@ static int pep_setsockopt(struct sock *sk, int level, int optname,
 			break;
 		}
 		if (!pn->ifindex == !val)
-			break; 
+			break; /* Nothing to do! */
 		if (!capable(CAP_NET_ADMIN)) {
 			err = -EPERM;
 			break;
@@ -1080,7 +1109,7 @@ static int pipe_skb_send(struct sock *sk, struct sk_buff *skb)
 	ph->utid = 0;
 	if (pn->aligned) {
 		ph->message_id = PNS_PIPE_ALIGNED_DATA;
-		ph->data[0] = 0; 
+		ph->data[0] = 0; /* padding */
 	} else
 		ph->message_id = PNS_PIPE_DATA;
 	ph->pipe_handle = pn->pipe_handle;
@@ -1126,7 +1155,7 @@ static int pep_sendmsg(struct kiocb *iocb, struct sock *sk,
 		goto out;
 	}
 	if (sk->sk_state != TCP_ESTABLISHED) {
-		
+		/* Wait until the pipe gets to enabled state */
 disabled:
 		err = sk_stream_wait_connect(sk, &timeo);
 		if (err)
@@ -1139,7 +1168,7 @@ disabled:
 	}
 	BUG_ON(sk->sk_state != TCP_ESTABLISHED);
 
-	
+	/* Wait until flow control allows TX */
 	done = atomic_read(&pn->tx_credits);
 	while (!done) {
 		DEFINE_WAIT(wait);
@@ -1164,7 +1193,7 @@ disabled:
 
 	err = pipe_skb_send(sk, skb);
 	if (err >= 0)
-		err = len; 
+		err = len; /* success! */
 	skb = NULL;
 out:
 	release_sock(sk);
@@ -1198,7 +1227,7 @@ int pep_write(struct sock *sk, struct sk_buff *skb)
 	rskb->data_len += rskb->len;
 	rskb->truesize += rskb->len;
 
-	
+	/* Avoid nested fragments */
 	skb_walk_frags(skb, fs)
 		flen += fs->len;
 	skb->next = skb_shinfo(skb)->frag_list;
@@ -1235,7 +1264,7 @@ static int pep_recvmsg(struct kiocb *iocb, struct sock *sk,
 		return -ENOTCONN;
 
 	if ((flags & MSG_OOB) || sock_flag(sk, SOCK_URGINLINE)) {
-		
+		/* Dequeue and acknowledge control request */
 		struct pep_sock *pn = pep_sk(sk);
 
 		if (flags & MSG_PEEK)
@@ -1296,6 +1325,8 @@ static void pep_sock_unhash(struct sock *sk)
 		sk = skparent;
 	}
 
+	/* Unhash a listening sock only when it is closed
+	 * and all of its active connected pipes are closed. */
 	if (hlist_empty(&pn->hlist))
 		pn_sock_unhash(&pn->pn_sk.sk);
 	release_sock(sk);

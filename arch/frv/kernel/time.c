@@ -48,6 +48,10 @@ static struct irqaction timer_irq  = {
 	.name = "timer",
 };
 
+/*
+ * timer_interrupt() needs to keep up the real-time clock,
+ * as well as call the "xtime_update()" routine every clocktick
+ */
 static irqreturn_t timer_interrupt(int irq, void *dummy)
 {
 	profile_tick(CPU_PROFILING);
@@ -58,7 +62,7 @@ static irqreturn_t timer_interrupt(int irq, void *dummy)
 	static unsigned short n;
 	n++;
 	__set_LEDS(n);
-#endif 
+#endif /* CONFIG_HEARTBEAT */
 
 	update_process_times(user_mode(get_irq_regs()));
 
@@ -69,7 +73,7 @@ void time_divisor_init(void)
 {
 	unsigned short base, pre, prediv;
 
-	
+	/* set the scheduling timer going */
 	pre = 1;
 	prediv = 4;
 	base = __res_bus_clock_speed_HZ / pre / HZ / (1 << prediv);
@@ -88,9 +92,9 @@ void read_persistent_clock(struct timespec *ts)
 
 	extern void arch_gettod(int *year, int *mon, int *day, int *hour, int *min, int *sec);
 
-	
-	
-	
+	/* FIX by dqg : Set to zero for platforms that don't have tod */
+	/* without this time is undefined and can overflow time_t, causing  */
+	/* very strange errors */
 	year = 1980;
 	mon = day = 1;
 	hour = min = sec = 0;
@@ -104,12 +108,15 @@ void read_persistent_clock(struct timespec *ts)
 
 void time_init(void)
 {
-	
+	/* install scheduling interrupt handler */
 	setup_irq(IRQ_CPU_TIMER0, &timer_irq);
 
 	time_divisor_init();
 }
 
+/*
+ * Scheduler clock - returns current time in nanosec units.
+ */
 unsigned long long sched_clock(void)
 {
 	return jiffies_64 * (1000000000 / HZ);

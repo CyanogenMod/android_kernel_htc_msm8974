@@ -19,21 +19,24 @@ void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t pte)
 {
 	unsigned long flags, pteval, vpn;
 
+	/*
+	 * Handle debugger faulting in for debugee.
+	 */
 	if (vma && current->active_mm != vma->vm_mm)
 		return;
 
 	local_irq_save(flags);
 
-	
+	/* Set PTEH register */
 	vpn = address & MMU_VPN_MASK;
 	__raw_writel(vpn, MMU_PTEH);
 
-	
+	/* Set PTEAEX */
 	__raw_writel(get_asid(), MMU_PTEAEX);
 
 	pteval = pte.pte_low;
 
-	
+	/* Set PTEA register */
 #ifdef CONFIG_X2TLB
 	/*
 	 * For the extended mode TLB this is trivial, only the ESZ and
@@ -44,19 +47,26 @@ void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t pte)
 	__raw_writel(pte.pte_high, MMU_PTEA);
 #endif
 
-	
-	pteval &= _PAGE_FLAGS_HARDWARE_MASK; 
+	/* Set PTEL register */
+	pteval &= _PAGE_FLAGS_HARDWARE_MASK; /* drop software flags */
 #ifdef CONFIG_CACHE_WRITETHROUGH
 	pteval |= _PAGE_WT;
 #endif
-	
+	/* conveniently, we want all the software flags to be 0 anyway */
 	__raw_writel(pteval, MMU_PTEL);
 
-	
-	asm volatile("ldtlb":  :  : "memory");
+	/* Load the TLB */
+	asm volatile("ldtlb": /* no output */ : /* no input */ : "memory");
 	local_irq_restore(flags);
 }
 
+/*
+ * While SH-X2 extended TLB mode splits out the memory-mapped I/UTLB
+ * data arrays, SH-X3 cores with PTEAEX split out the memory-mapped
+ * address arrays. In compat mode the second array is inaccessible, while
+ * in extended mode, the legacy 8-bit ASID field in address array 1 has
+ * undefined behaviour.
+ */
 void local_flush_tlb_one(unsigned long asid, unsigned long page)
 {
 	jump_to_uncached();
@@ -72,6 +82,9 @@ void local_flush_tlb_all(void)
 	unsigned long flags, status;
 	int i;
 
+	/*
+	 * Flush all the TLB.
+	 */
 	local_irq_save(flags);
 	jump_to_uncached();
 

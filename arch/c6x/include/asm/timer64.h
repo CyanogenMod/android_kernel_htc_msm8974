@@ -3,4 +3,4 @@
 
 extern void __init timer64_init(void);
 
-#endif 
+#endif /* _C6X_TIMER64_H */

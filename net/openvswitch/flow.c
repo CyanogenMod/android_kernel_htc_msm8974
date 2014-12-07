@@ -202,6 +202,9 @@ struct sw_flow_actions *ovs_flow_actions_alloc(const struct nlattr *actions)
 	int actions_len = nla_len(actions);
 	struct sw_flow_actions *sfa;
 
+	/* At least DP_MAX_PORTS actions are required to be able to flood a
+	 * packet to every port.  Factor of 2 allows for setting VLAN tags,
+	 * etc. */
 	if (actions_len > 2 * DP_MAX_PORTS * nla_total_size(4))
 		return ERR_PTR(-EINVAL);
 
@@ -362,7 +365,7 @@ static void flow_table_copy_flows(struct flow_table *old, struct flow_table *new
 	old_ver = old->node_ver;
 	new->node_ver = !old_ver;
 
-	
+	/* Insert in new table. */
 	for (i = 0; i < old->n_buckets; i++) {
 		struct sw_flow *flow;
 		struct hlist_head *head;
@@ -408,6 +411,7 @@ void ovs_flow_free(struct sw_flow *flow)
 	kmem_cache_free(flow_cache, flow);
 }
 
+/* RCU callback used by ovs_flow_deferred_free. */
 static void rcu_free_flow_callback(struct rcu_head *rcu)
 {
 	struct sw_flow *flow = container_of(rcu, struct sw_flow, rcu);
@@ -415,11 +419,14 @@ static void rcu_free_flow_callback(struct rcu_head *rcu)
 	ovs_flow_free(flow);
 }
 
+/* Schedules 'flow' to be freed after the next RCU grace period.
+ * The caller must hold rcu_read_lock for this to be sensible. */
 void ovs_flow_deferred_free(struct sw_flow *flow)
 {
 	call_rcu(&flow->rcu, rcu_free_flow_callback);
 }
 
+/* RCU callback used by ovs_flow_deferred_free_acts. */
 static void rcu_free_acts_callback(struct rcu_head *rcu)
 {
 	struct sw_flow_actions *sf_acts = container_of(rcu,
@@ -427,6 +434,8 @@ static void rcu_free_acts_callback(struct rcu_head *rcu)
 	kfree(sf_acts);
 }
 
+/* Schedules 'sf_acts' to be freed after the next RCU grace period.
+ * The caller must hold rcu_read_lock for this to be sensible. */
 void ovs_flow_deferred_free_acts(struct sw_flow_actions *sf_acts)
 {
 	call_rcu(&sf_acts->rcu, rcu_free_acts_callback);
@@ -435,7 +444,7 @@ void ovs_flow_deferred_free_acts(struct sw_flow_actions *sf_acts)
 static int parse_vlan(struct sk_buff *skb, struct sw_flow_key *key)
 {
 	struct qtag_prefix {
-		__be16 eth_type; 
+		__be16 eth_type; /* ETH_P_8021Q */
 		__be16 tci;
 	};
 	struct qtag_prefix *qp;
@@ -457,8 +466,8 @@ static int parse_vlan(struct sk_buff *skb, struct sw_flow_key *key)
 static __be16 parse_ethertype(struct sk_buff *skb)
 {
 	struct llc_snap_hdr {
-		u8  dsap;  
-		u8  ssap;  
+		u8  dsap;  /* Always 0xAA */
+		u8  ssap;  /* Always 0xAA */
 		u8  ctrl;
 		u8  oui[3];
 		__be16 ethertype;
@@ -495,6 +504,9 @@ static int parse_icmpv6(struct sk_buff *skb, struct sw_flow_key *key,
 	int error = 0;
 	int key_len;
 
+	/* The ICMPv6 type and code fields use the 16-bit transport port
+	 * fields, so we need to store them in 16-bit network byte order.
+	 */
 	key->ipv6.tp.src = htons(icmp->icmp6_type);
 	key->ipv6.tp.dst = htons(icmp->icmp6_code);
 	key_len = SW_FLOW_KEY_OFFSET(ipv6.tp);
@@ -508,6 +520,9 @@ static int parse_icmpv6(struct sk_buff *skb, struct sw_flow_key *key,
 
 		key_len = SW_FLOW_KEY_OFFSET(ipv6.nd);
 
+		/* In order to process neighbor discovery options, we need the
+		 * entire packet.
+		 */
 		if (unlikely(icmp_len < sizeof(*nd)))
 			goto out;
 		if (unlikely(skb_linearize(skb))) {
@@ -529,6 +544,10 @@ static int parse_icmpv6(struct sk_buff *skb, struct sw_flow_key *key,
 			if (unlikely(!opt_len || opt_len > icmp_len))
 				goto invalid;
 
+			/* Store the link layer address if the appropriate
+			 * option is provided.  It is considered an error if
+			 * the same link layer option is specified twice.
+			 */
 			if (nd_opt->nd_opt_type == ND_OPT_SOURCE_LL_ADDR
 			    && opt_len == 8) {
 				if (unlikely(!is_zero_ether_addr(key->ipv6.nd.sll)))
@@ -560,6 +579,30 @@ out:
 	return error;
 }
 
+/**
+ * ovs_flow_extract - extracts a flow key from an Ethernet frame.
+ * @skb: sk_buff that contains the frame, with skb->data pointing to the
+ * Ethernet header
+ * @in_port: port number on which @skb was received.
+ * @key: output flow key
+ * @key_lenp: length of output flow key
+ *
+ * The caller must ensure that skb->len >= ETH_HLEN.
+ *
+ * Returns 0 if successful, otherwise a negative errno value.
+ *
+ * Initializes @skb header pointers as follows:
+ *
+ *    - skb->mac_header: the Ethernet header.
+ *
+ *    - skb->network_header: just past the Ethernet header, or just past the
+ *      VLAN header, to the first byte of the Ethernet payload.
+ *
+ *    - skb->transport_header: If key->dl_type is ETH_P_IP or ETH_P_IPV6
+ *      on output, then just past the IP header, if one is present and
+ *      of a correct length, otherwise the same as skb->network_header.
+ *      For other key->dl_type values it is left untouched.
+ */
 int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 		 int *key_lenp)
 {
@@ -574,6 +617,9 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 
 	skb_reset_mac_header(skb);
 
+	/* Link layer.  We are guaranteed to have at least the 14 byte Ethernet
+	 * header in the linear data area.
+	 */
 	eth = eth_hdr(skb);
 	memcpy(key->eth.src, eth->h_source, ETH_ALEN);
 	memcpy(key->eth.dst, eth->h_dest, ETH_ALEN);
@@ -593,7 +639,7 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 	skb_reset_network_header(skb);
 	__skb_push(skb, skb->data - skb_mac_header(skb));
 
-	
+	/* Network layer. */
 	if (key->eth.type == htons(ETH_P_IP)) {
 		struct iphdr *nh;
 		__be16 offset;
@@ -626,7 +672,7 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 			 skb_shinfo(skb)->gso_type & SKB_GSO_UDP)
 			key->ip.frag = OVS_FRAG_TYPE_FIRST;
 
-		
+		/* Transport layer. */
 		if (key->ip.proto == IPPROTO_TCP) {
 			key_len = SW_FLOW_KEY_OFFSET(ipv4.tp);
 			if (tcphdr_ok(skb)) {
@@ -645,6 +691,9 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 			key_len = SW_FLOW_KEY_OFFSET(ipv4.tp);
 			if (icmphdr_ok(skb)) {
 				struct icmphdr *icmp = icmp_hdr(skb);
+				/* The ICMP type and code fields use the 16-bit
+				 * transport port fields, so we need to store
+				 * them in 16-bit network byte order. */
 				key->ipv4.tp.src = htons(icmp->type);
 				key->ipv4.tp.dst = htons(icmp->code);
 			}
@@ -660,7 +709,7 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 				&& arp->ar_hln == ETH_ALEN
 				&& arp->ar_pln == 4) {
 
-			
+			/* We only match on the lower 8 bits of the opcode. */
 			if (ntohs(arp->ar_op) <= 0xff)
 				key->ip.proto = ntohs(arp->ar_op);
 
@@ -674,7 +723,7 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 			}
 		}
 	} else if (key->eth.type == htons(ETH_P_IPV6)) {
-		int nh_len;             
+		int nh_len;             /* IPv6 Header + Extensions */
 
 		nh_len = parse_ipv6hdr(skb, key, &key_len);
 		if (unlikely(nh_len < 0)) {
@@ -690,7 +739,7 @@ int ovs_flow_extract(struct sk_buff *skb, u16 in_port, struct sw_flow_key *key,
 		if (skb_shinfo(skb)->gso_type & SKB_GSO_UDP)
 			key->ip.frag = OVS_FRAG_TYPE_FIRST;
 
-		
+		/* Transport layer. */
 		if (key->ip.proto == NEXTHDR_TCP) {
 			key_len = SW_FLOW_KEY_OFFSET(ipv6.tp);
 			if (tcphdr_ok(skb)) {
@@ -762,6 +811,7 @@ void ovs_flow_tbl_remove(struct flow_table *table, struct sw_flow *flow)
 	BUG_ON(table->count < 0);
 }
 
+/* The size of the argument for each %OVS_KEY_ATTR_* Netlink attribute.  */
 const int ovs_key_lens[OVS_KEY_ATTR_MAX + 1] = {
 	[OVS_KEY_ATTR_ENCAP] = -1,
 	[OVS_KEY_ATTR_PRIORITY] = sizeof(u32),
@@ -914,6 +964,13 @@ static int parse_flow_nlattrs(const struct nlattr *attr,
 	return 0;
 }
 
+/**
+ * ovs_flow_from_nlattrs - parses Netlink attributes into a flow key.
+ * @swkey: receives the extracted flow key.
+ * @key_lenp: number of bytes used in @swkey.
+ * @attr: Netlink attribute holding nested %OVS_KEY_ATTR_* Netlink attribute
+ * sequence.
+ */
 int ovs_flow_from_nlattrs(struct sw_flow_key *swkey, int *key_lenp,
 		      const struct nlattr *attr)
 {
@@ -930,7 +987,7 @@ int ovs_flow_from_nlattrs(struct sw_flow_key *swkey, int *key_lenp,
 	if (err)
 		return err;
 
-	
+	/* Metadata attributes. */
 	if (attrs & (1 << OVS_KEY_ATTR_PRIORITY)) {
 		swkey->phy.priority = nla_get_u32(a[OVS_KEY_ATTR_PRIORITY]);
 		attrs &= ~(1 << OVS_KEY_ATTR_PRIORITY);
@@ -945,7 +1002,7 @@ int ovs_flow_from_nlattrs(struct sw_flow_key *swkey, int *key_lenp,
 		swkey->phy.in_port = USHRT_MAX;
 	}
 
-	
+	/* Data attributes. */
 	if (!(attrs & (1 << OVS_KEY_ATTR_ETHERNET)))
 		return -EINVAL;
 	attrs &= ~(1 << OVS_KEY_ATTR_ETHERNET);
@@ -973,7 +1030,7 @@ int ovs_flow_from_nlattrs(struct sw_flow_key *swkey, int *key_lenp,
 			if (err)
 				return err;
 		} else if (!tci) {
-			
+			/* Corner case for truncated 802.1Q header. */
 			if (nla_len(encap))
 				return -EINVAL;
 
@@ -1068,6 +1125,17 @@ int ovs_flow_from_nlattrs(struct sw_flow_key *swkey, int *key_lenp,
 	return 0;
 }
 
+/**
+ * ovs_flow_metadata_from_nlattrs - parses Netlink attributes into a flow key.
+ * @in_port: receives the extracted input port.
+ * @key: Netlink attribute holding nested %OVS_KEY_ATTR_* Netlink attribute
+ * sequence.
+ *
+ * This parses a series of Netlink attributes that form a flow key, which must
+ * take the same form accepted by flow_from_nlattrs(), but only enough of it to
+ * get the metadata, that is, the parts of the flow key that cannot be
+ * extracted from the packet itself.
+ */
 int ovs_flow_metadata_from_nlattrs(u32 *priority, u16 *in_port,
 			       const struct nlattr *attr)
 {
@@ -1259,6 +1327,8 @@ nla_put_failure:
 	return -EMSGSIZE;
 }
 
+/* Initializes the flow module.
+ * Returns zero if successful or a negative error code. */
 int ovs_flow_init(void)
 {
 	flow_cache = kmem_cache_create("sw_flow", sizeof(struct sw_flow), 0,
@@ -1269,6 +1339,7 @@ int ovs_flow_init(void)
 	return 0;
 }
 
+/* Uninitializes the flow module. */
 void ovs_flow_exit(void)
 {
 	kmem_cache_destroy(flow_cache);

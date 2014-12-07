@@ -31,8 +31,8 @@
 
 #include <net/irda/iriap_event.h>
 #include <net/irda/irias_object.h>
-#include <net/irda/irqueue.h>		
-#include <net/irda/timer.h>		
+#include <net/irda/irqueue.h>		/* irda_queue_t */
+#include <net/irda/timer.h>		/* struct timer_list */
 
 #define IAP_LST 0x80
 #define IAP_ACK 0x40
@@ -40,6 +40,7 @@
 #define IAS_SERVER 0
 #define IAS_CLIENT 1
 
+/* IrIAP Op-codes */
 #define GET_INFO_BASE      0x01
 #define GET_OBJECTS        0x02
 #define GET_VALUE          0x03
@@ -56,10 +57,10 @@ typedef void (*CONFIRM_CALLBACK)(int result, __u16 obj_id,
 				 struct ias_value *value, void *priv);
 
 struct iriap_cb {
-	irda_queue_t q; 	
-	magic_t magic;  
+	irda_queue_t q; /* Must be first */	
+	magic_t magic;  /* Magic cookie */
 
-	int          mode;   
+	int          mode;   /* Client or server */
 
 	__u32        saddr;
 	__u32        daddr;
@@ -69,16 +70,16 @@ struct iriap_cb {
 	struct lsap_cb *lsap;
 	__u8 slsap_sel;
 
-	
+	/* Client states */
 	IRIAP_STATE client_state;
 	IRIAP_STATE call_state;
 	
-	
+	/* Server states */
 	IRIAP_STATE server_state;
 	IRIAP_STATE r_connect_state;
 	
 	CONFIRM_CALLBACK confirm;
-	void *priv;                
+	void *priv;                /* Used to identify client */
 
 	__u8 max_header_size;
 	__u32 max_data_size;

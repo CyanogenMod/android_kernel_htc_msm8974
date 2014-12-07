@@ -26,6 +26,7 @@
 #include "rmnet_data_vnd.h"
 #include "rmnet_data_private.h"
 
+/* ***************** Local Definitions and Declarations ********************* */
 static struct sock *nl_socket_handle;
 #define RMNET_KERNEL_PRE_3_8
 
@@ -37,6 +38,7 @@ static struct netlink_kernel_cfg rmnet_netlink_cfg = {
 
 #define RMNET_NL_MSG_SIZE(Y) (sizeof(((struct rmnet_nl_msg_s *)0)->Y))
 
+/* ***************** Init and Cleanup *************************************** */
 
 #ifdef RMNET_KERNEL_PRE_3_8
 static struct sock *_rmnet_config_start_netlink(void)
@@ -55,8 +57,14 @@ static struct sock *_rmnet_config_start_netlink(void)
 				     RMNET_NETLINK_PROTO,
 				     &rmnet_netlink_cfg);
 }
-#endif 
+#endif /* RMNET_KERNEL_PRE_3_8 */
 
+/**
+ * rmnet_config_init() - Startup init
+ *
+ * Registers netlink protocol with kernel and opens socket. Netlink handler is
+ * registered with kernel.
+ */
 int rmnet_config_init(void)
 {
 	nl_socket_handle = _rmnet_config_start_netlink();
@@ -67,12 +75,26 @@ int rmnet_config_init(void)
 	return 0;
 }
 
+/**
+ * rmnet_config_exit() - Cleans up all netlink related resources
+ */
 void rmnet_config_exit(void)
 {
 	netlink_kernel_release(nl_socket_handle);
 }
 
+/* ***************** Helper Functions *************************************** */
 
+/**
+ * _rmnet_is_physical_endpoint_associated() - Determines if device is associated
+ * @dev:      Device to get check
+ *
+ * Compares device rx_handler callback pointer against known funtion
+ *
+ * Return:
+ *      - 1 if associated
+ *      - 0 if NOT associated
+ */
 static inline int _rmnet_is_physical_endpoint_associated(struct net_device *dev)
 {
 	rx_handler_func_t *rx_handler;
@@ -84,6 +106,14 @@ static inline int _rmnet_is_physical_endpoint_associated(struct net_device *dev)
 		return 0;
 }
 
+/**
+ * _rmnet_get_phys_ep_config() - Get physical ep config for an associated device
+ * @dev:      Device to get endpoint configuration from
+ *
+ * Return:
+ *     - pointer to configuration if successful
+ *     - 0 (null) if device is not associated
+ */
 static inline struct rmnet_phys_ep_conf_s *_rmnet_get_phys_ep_config
 							(struct net_device *dev)
 {
@@ -94,6 +124,7 @@ static inline struct rmnet_phys_ep_conf_s *_rmnet_get_phys_ep_config
 		return 0;
 }
 
+/* ***************** Netlink Handler **************************************** */
 #define _RMNET_NETLINK_NULL_CHECKS() do { if (!rmnet_header || !resp_rmnet) \
 			BUG(); \
 		} while (0)
@@ -229,7 +260,7 @@ static inline void _rmnet_netlink_get_link_egress_data_format
 		return;
 	}
 
-	
+	/* Begin Data */
 	resp_rmnet->crd = RMNET_NETLINK_MSG_RETURNDATA;
 	resp_rmnet->arg_length = RMNET_NL_MSG_SIZE(data_format);
 	resp_rmnet->data_format.flags = config->egress_data_format;
@@ -259,12 +290,19 @@ static inline void _rmnet_netlink_get_link_ingress_data_format
 		return;
 	}
 
-	
+	/* Begin Data */
 	resp_rmnet->crd = RMNET_NETLINK_MSG_RETURNDATA;
 	resp_rmnet->arg_length = RMNET_NL_MSG_SIZE(data_format);
 	resp_rmnet->data_format.flags = config->ingress_data_format;
 }
 
+/**
+ * rmnet_config_netlink_msg_handler() - Netlink message handler callback
+ * @skb:      Packet containing netlink messages
+ *
+ * Standard kernel-expected format for a netlink message handler. Processes SKBs
+ * which contain RmNet data specific netlink messages.
+ */
 void rmnet_config_netlink_msg_handler(struct sk_buff *skb)
 {
 	struct nlmsghdr *nlmsg_header, *resp_nlmsg;
@@ -359,7 +397,21 @@ void rmnet_config_netlink_msg_handler(struct sk_buff *skb)
 
 }
 
+/* ***************** Configuration API ************************************** */
 
+/**
+ * rmnet_unassociate_network_device() - Unassociate network device
+ * @dev:      Device to unassociate
+ *
+ * Frees all structures generate for device. Unregisters rx_handler
+ * todo: needs to do some sanity verification first (is device in use, etc...)
+ *
+ * Return:
+ *      - RMNET_CONFIG_OK if successful
+ *      - RMNET_CONFIG_NO_SUCH_DEVICE dev is null
+ *      - RMNET_CONFIG_INVALID_REQUEST if device is not already associated
+ *      - RMNET_CONFIG_UNKNOWN_ERROR net_device private section is null
+ */
 int rmnet_unassociate_network_device(struct net_device *dev)
 {
 	struct rmnet_phys_ep_conf_s *config;
@@ -386,6 +438,18 @@ int rmnet_unassociate_network_device(struct net_device *dev)
 	return RMNET_CONFIG_OK;
 }
 
+/**
+ * rmnet_set_ingress_data_format() - Set ingress data format on network device
+ * @dev:                 Device to ingress data format on
+ * @egress_data_format:  32-bit unsigned bitmask of ingress format
+ *
+ * Network device must already have association with RmNet Data driver
+ *
+ * Return:
+ *      - RMNET_CONFIG_OK if successful
+ *      - RMNET_CONFIG_NO_SUCH_DEVICE dev is null
+ *      - RMNET_CONFIG_UNKNOWN_ERROR net_device private section is null
+ */
 int rmnet_set_ingress_data_format(struct net_device *dev,
 				      uint32_t ingress_data_format)
 {
@@ -407,6 +471,19 @@ int rmnet_set_ingress_data_format(struct net_device *dev,
 	return RMNET_CONFIG_OK;
 }
 
+/**
+ * rmnet_set_egress_data_format() - Set egress data format on network device
+ * @dev:                 Device to egress data format on
+ * @egress_data_format:  32-bit unsigned bitmask of egress format
+ *
+ * Network device must already have association with RmNet Data driver
+ * todo: Bounds check on agg_*
+ *
+ * Return:
+ *      - RMNET_CONFIG_OK if successful
+ *      - RMNET_CONFIG_NO_SUCH_DEVICE dev is null
+ *      - RMNET_CONFIG_UNKNOWN_ERROR net_device private section is null
+ */
 int rmnet_set_egress_data_format(struct net_device *dev,
 				 uint32_t egress_data_format,
 				 uint16_t agg_size,
@@ -433,6 +510,19 @@ int rmnet_set_egress_data_format(struct net_device *dev,
 	return RMNET_CONFIG_OK;
 }
 
+/**
+ * rmnet_associate_network_device() - Associate network device
+ * @dev:      Device to register with RmNet data
+ *
+ * Typically used on physical network devices. Registers RX handler and private
+ * metadata structures.
+ *
+ * Return:
+ *      - RMNET_CONFIG_OK if successful
+ *      - RMNET_CONFIG_NO_SUCH_DEVICE dev is null
+ *      - RMNET_CONFIG_DEVICE_IN_USE if dev rx_handler is already filled
+ *      - RMNET_CONFIG_DEVICE_IN_USE if netdev_rx_handler_register() fails
+ */
 int rmnet_associate_network_device(struct net_device *dev)
 {
 	struct rmnet_phys_ep_conf_s *config;
@@ -471,6 +561,18 @@ int rmnet_associate_network_device(struct net_device *dev)
 	return RMNET_CONFIG_OK;
 }
 
+/**
+ * _rmnet_set_logical_endpoint_config() - Set logical endpoing config on device
+ * @dev:         Device to set endpoint configuration on
+ * @config_id:   logical endpoint id on device
+ * @epconfig:    endpoing configuration structure to set
+ *
+ * Return:
+ *      - RMNET_CONFIG_OK if successful
+ *      - RMNET_CONFIG_UNKNOWN_ERROR net_device private section is null
+ *      - RMNET_CONFIG_NO_SUCH_DEVICE if device to set config on is null
+ *      - RMNET_CONFIG_BAD_ARGUMENTS if logical endpoint id is out of range
+ */
 int _rmnet_set_logical_endpoint_config(struct net_device *dev,
 				       int config_id,
 				       struct rmnet_logical_ep_conf_s *epconfig)
@@ -510,6 +612,28 @@ int _rmnet_set_logical_endpoint_config(struct net_device *dev,
 	return RMNET_CONFIG_OK;
 }
 
+/**
+ * rmnet_set_logical_endpoint_config() - Set logical endpoing configuration on a device
+ * @dev:            Device to set endpoint configuration on
+ * @config_id:      logical endpoint id on device
+ * @rmnet_mode:     endpoint mode. Values from: rmnet_config_endpoint_modes_e
+ * @egress_device:  device node to forward packet to once done processing in
+ *                  ingress/egress handlers
+ *
+ * Creates a logical_endpoint_config structure and fills in the information from
+ * function arguments. Calls _rmnet_set_logical_endpoint_config() to finish
+ * configuration. Network device must already have association with RmNet Data
+ * driver
+ *
+ * Return:
+ *      - RMNET_CONFIG_OK if successful
+ *      - RMNET_CONFIG_BAD_EGRESS_DEVICE if egress device is null
+ *      - RMNET_CONFIG_BAD_EGRESS_DEVICE if egress device is not handled by
+ *                                       RmNet data module
+ *      - RMNET_CONFIG_UNKNOWN_ERROR net_device private section is null
+ *      - RMNET_CONFIG_NO_SUCH_DEVICE if device to set config on is null
+ *      - RMNET_CONFIG_BAD_ARGUMENTS if logical endpoint id is out of range
+ */
 int rmnet_set_logical_endpoint_config(struct net_device *dev,
 				      int config_id,
 				      uint8_t rmnet_mode,
@@ -534,6 +658,13 @@ int rmnet_set_logical_endpoint_config(struct net_device *dev,
 	return _rmnet_set_logical_endpoint_config(dev, config_id, &epconfig);
 }
 
+/**
+ * rmnet_create_vnd() - Create virtual network device node
+ * @id:       RmNet virtual device node id
+ *
+ * Return:
+ *      - result of rmnet_vnd_create_dev()
+ */
 int rmnet_create_vnd(int id)
 {
 	struct net_device *dev;

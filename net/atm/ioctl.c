@@ -1,17 +1,19 @@
+/* ATM ioctl handling */
 
 /* Written 1995-2000 by Werner Almesberger, EPFL LRC/ICA */
+/* 2003 John Levon  <levon@movementarian.org> */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ":%s: " fmt, __func__
 
 #include <linux/module.h>
 #include <linux/kmod.h>
-#include <linux/net.h>		
-#include <linux/atm.h>		
+#include <linux/net.h>		/* struct socket, struct proto_ops */
+#include <linux/atm.h>		/* ATM stuff */
 #include <linux/atmdev.h>
-#include <linux/atmclip.h>	
-#include <linux/atmarp.h>	
+#include <linux/atmclip.h>	/* CLIP_*ENCAP */
+#include <linux/atmarp.h>	/* manifest constants */
 #include <linux/capability.h>
-#include <linux/sonet.h>	
+#include <linux/sonet.h>	/* for ioctls */
 #include <linux/atmsvc.h>
 #include <linux/atmmpc.h>
 #include <net/atmclip.h>
@@ -21,7 +23,7 @@
 #include <net/compat.h>
 
 #include "resources.h"
-#include "signaling.h"		
+#include "signaling.h"		/* for WAITING and sigd_attach */
 #include "common.h"
 
 
@@ -78,7 +80,7 @@ static int do_vcc_ioctl(struct socket *sock, unsigned int cmd,
 				 (int __user *)argp) ? -EFAULT : 0;
 		goto done;
 	}
-	case SIOCGSTAMP: 
+	case SIOCGSTAMP: /* borrowed from IP */
 #ifdef CONFIG_COMPAT
 		if (compat)
 			error = compat_sock_get_timestamp(sk, argp);
@@ -86,7 +88,7 @@ static int do_vcc_ioctl(struct socket *sock, unsigned int cmd,
 #endif
 			error = sock_get_timestamp(sk, argp);
 		goto done;
-	case SIOCGSTAMPNS: 
+	case SIOCGSTAMPNS: /* borrowed from IP */
 #ifdef CONFIG_COMPAT
 		if (compat)
 			error = compat_sock_get_timestampns(sk, argp);
@@ -105,11 +107,21 @@ static int do_vcc_ioctl(struct socket *sock, unsigned int cmd,
 			error = -EPERM;
 			goto done;
 		}
+		/*
+		 * The user/kernel protocol for exchanging signalling
+		 * info uses kernel pointers as opaque references,
+		 * so the holder of the file descriptor can scribble
+		 * on the kernel... so we should make sure that we
+		 * have the same privileges that /proc/kcore needs
+		 */
 		if (!capable(CAP_SYS_RAWIO)) {
 			error = -EPERM;
 			goto done;
 		}
 #ifdef CONFIG_COMPAT
+		/* WTF? I don't even want to _think_ about making this
+		   work for 32-bit userspace. TBH I don't really want
+		   to think about it at all. dwmw2. */
 		if (compat) {
 			if (net_ratelimit())
 				pr_warning("32-bit task cannot be atmsigd\n");
@@ -179,6 +191,16 @@ int vcc_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 }
 
 #ifdef CONFIG_COMPAT
+/*
+ * FIXME:
+ * The compat_ioctl handling is duplicated, using both these conversion
+ * routines and the compat argument to the actual handlers. Both
+ * versions are somewhat incomplete and should be merged, e.g. by
+ * moving the ioctl number translation into the actual handlers and
+ * killing the conversion code.
+ *
+ * -arnd, November 2009
+ */
 #define ATM_GETLINKRATE32 _IOW('a', ATMIOC_ITF+1, struct compat_atmif_sioc)
 #define ATM_GETNAMES32    _IOW('a', ATMIOC_ITF+3, struct compat_atm_iobuf)
 #define ATM_GETTYPE32     _IOW('a', ATMIOC_ITF+4, struct compat_atmif_sioc)

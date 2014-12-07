@@ -46,6 +46,14 @@ static void psycho_check_stc_error(struct pci_pbm_info *pbm)
 
 	spin_lock(&stc_buf_lock);
 
+	/* This is __REALLY__ dangerous.  When we put the streaming
+	 * buffer into diagnostic mode to probe it's tags and error
+	 * status, we _must_ clear all of the line tag valid bits
+	 * before re-enabling the streaming buffer.  If any dirty data
+	 * lives in the STC when we do this, we will end up
+	 * invalidating it before it has a chance to reach main
+	 * memory.
+	 */
 	control = upa_readq(strbuf->strbuf_control);
 	upa_writeq(control | PSYCHO_STRBUF_CTRL_DENAB, strbuf->strbuf_control);
 	for (i = 0; i < 128; i++) {
@@ -62,7 +70,7 @@ static void psycho_check_stc_error(struct pci_pbm_info *pbm)
 		upa_writeq(0UL, line_base + (i * 8UL));
 	}
 
-	
+	/* OK, state is logged, exit diagnostic mode. */
 	upa_writeq(control, strbuf->strbuf_control);
 
 	for (i = 0; i < 16; i++) {
@@ -125,7 +133,7 @@ static void psycho_record_iommu_tags_and_data(struct pci_pbm_info *pbm,
 		tag[i] = upa_readq(base + PSYCHO_IOMMU_TAG+off);
 		data[i] = upa_readq(base + PSYCHO_IOMMU_DATA+off);
 
-		
+		/* Now clear out the entry. */
 		upa_writeq(0, base + PSYCHO_IOMMU_TAG + off);
 		upa_writeq(0, base + PSYCHO_IOMMU_DATA + off);
 	}
@@ -224,6 +232,12 @@ void psycho_check_iommu_error(struct pci_pbm_info *pbm,
 		printk(KERN_ERR "%s: IOMMU Error, type[%s]\n",
 		       pbm->name, type_str);
 
+		/* It is very possible for another DVMA to occur while
+		 * we do this probe, and corrupt the system further.
+		 * But we are so screwed at this point that we are
+		 * likely to crash hard anyways, so get as much
+		 * diagnostic information to the console as we can.
+		 */
 		psycho_record_iommu_tags_and_data(pbm, iommu_tag, iommu_data);
 		psycho_dump_iommu_tags_and_data(pbm, iommu_tag, iommu_data);
 	}
@@ -243,10 +257,10 @@ static irqreturn_t psycho_pcierr_intr_other(struct pci_pbm_info *pbm)
 	csr = upa_readq(pbm->pci_csr);
 	csr_error_bits = csr & (PSYCHO_PCICTRL_SBH_ERR | PSYCHO_PCICTRL_SERR);
 	if (csr_error_bits) {
-		
+		/* Clear the errors.  */
 		upa_writeq(csr, pbm->pci_csr);
 
-		
+		/* Log 'em.  */
 		if (csr_error_bits & PSYCHO_PCICTRL_SBH_ERR)
 			printk(KERN_ERR "%s: PCI streaming byte hole "
 			       "error asserted.\n", pbm->name);
@@ -404,7 +418,7 @@ int psycho_iommu_init(struct pci_pbm_info *pbm, int tsbsize,
 
 	psycho_iommu_flush(pbm);
 
-	
+	/* Leave diag mode enabled for full-flushing done in pci_iommu.c */
 	err = iommu_table_init(iommu, tsbsize * 1024 * 8,
 			       dvma_offset, dma_mask, pbm->numa_node);
 	if (err)

@@ -25,6 +25,9 @@ static int rxrpc_send_data(struct kiocb *iocb,
 			   struct rxrpc_call *call,
 			   struct msghdr *msg, size_t len);
 
+/*
+ * extract control messages from the sendmsg() control buffer
+ */
 static int rxrpc_sendmsg_cmsg(struct rxrpc_sock *rx, struct msghdr *msg,
 			      unsigned long *user_call_ID,
 			      enum rxrpc_command *command,
@@ -96,6 +99,9 @@ static int rxrpc_sendmsg_cmsg(struct rxrpc_sock *rx, struct msghdr *msg,
 	return 0;
 }
 
+/*
+ * abort a call, sending an ABORT packet to the peer
+ */
 static void rxrpc_send_abort(struct rxrpc_call *call, u32 abort_code)
 {
 	write_lock_bh(&call->state_lock);
@@ -115,6 +121,11 @@ static void rxrpc_send_abort(struct rxrpc_call *call, u32 abort_code)
 	write_unlock_bh(&call->state_lock);
 }
 
+/*
+ * send a message forming part of a client call through an RxRPC socket
+ * - caller holds the socket locked
+ * - the socket may be either a client socket or a server socket
+ */
 int rxrpc_client_sendmsg(struct kiocb *iocb, struct rxrpc_sock *rx,
 			 struct rxrpc_transport *trans, struct msghdr *msg,
 			 size_t len)
@@ -167,14 +178,14 @@ int rxrpc_client_sendmsg(struct kiocb *iocb, struct rxrpc_sock *rx,
 	       call->debug_id, call->user_call_ID, call->state, call->conn);
 
 	if (call->state >= RXRPC_CALL_COMPLETE) {
-		
+		/* it's too late for this call */
 		ret = -ESHUTDOWN;
 	} else if (cmd == RXRPC_CMD_SEND_ABORT) {
 		rxrpc_send_abort(call, abort_code);
 	} else if (cmd != RXRPC_CMD_SEND_DATA) {
 		ret = -EINVAL;
 	} else if (call->state != RXRPC_CALL_CLIENT_SEND_REQUEST) {
-		
+		/* request phase complete for this client call */
 		ret = -EPROTO;
 	} else {
 		ret = rxrpc_send_data(iocb, rx, call, msg, len);
@@ -185,6 +196,17 @@ int rxrpc_client_sendmsg(struct kiocb *iocb, struct rxrpc_sock *rx,
 	return ret;
 }
 
+/**
+ * rxrpc_kernel_send_data - Allow a kernel service to send data on a call
+ * @call: The call to send data through
+ * @msg: The data to send
+ * @len: The amount of data to send
+ *
+ * Allow a kernel service to send data on a call.  The call must be in an state
+ * appropriate to sending data.  No control data should be supplied in @msg,
+ * nor should an address be supplied.  MSG_MORE should be flagged if there's
+ * more data to come, otherwise this data will end the transmission phase.
+ */
 int rxrpc_kernel_send_data(struct rxrpc_call *call, struct msghdr *msg,
 			   size_t len)
 {
@@ -201,11 +223,11 @@ int rxrpc_kernel_send_data(struct rxrpc_call *call, struct msghdr *msg,
 	       call->debug_id, call->user_call_ID, call->state, call->conn);
 
 	if (call->state >= RXRPC_CALL_COMPLETE) {
-		ret = -ESHUTDOWN; 
+		ret = -ESHUTDOWN; /* it's too late for this call */
 	} else if (call->state != RXRPC_CALL_CLIENT_SEND_REQUEST &&
 		   call->state != RXRPC_CALL_SERVER_ACK_REQUEST &&
 		   call->state != RXRPC_CALL_SERVER_SEND_REPLY) {
-		ret = -EPROTO; 
+		ret = -EPROTO; /* request phase complete for this client call */
 	} else {
 		mm_segment_t oldfs = get_fs();
 		set_fs(KERNEL_DS);
@@ -220,6 +242,13 @@ int rxrpc_kernel_send_data(struct rxrpc_call *call, struct msghdr *msg,
 
 EXPORT_SYMBOL(rxrpc_kernel_send_data);
 
+/*
+ * rxrpc_kernel_abort_call - Allow a kernel service to abort a call
+ * @call: The call to be aborted
+ * @abort_code: The abort code to stick into the ABORT packet
+ *
+ * Allow a kernel service to abort a call, if it's still in an abortable state.
+ */
 void rxrpc_kernel_abort_call(struct rxrpc_call *call, u32 abort_code)
 {
 	_enter("{%d},%d", call->debug_id, abort_code);
@@ -238,6 +267,10 @@ void rxrpc_kernel_abort_call(struct rxrpc_call *call, u32 abort_code)
 
 EXPORT_SYMBOL(rxrpc_kernel_abort_call);
 
+/*
+ * send a message through a server socket
+ * - caller holds the socket locked
+ */
 int rxrpc_server_sendmsg(struct kiocb *iocb, struct rxrpc_sock *rx,
 			 struct msghdr *msg, size_t len)
 {
@@ -275,7 +308,7 @@ int rxrpc_server_sendmsg(struct kiocb *iocb, struct rxrpc_sock *rx,
 		if (call->state != RXRPC_CALL_CLIENT_SEND_REQUEST &&
 		    call->state != RXRPC_CALL_SERVER_ACK_REQUEST &&
 		    call->state != RXRPC_CALL_SERVER_SEND_REPLY) {
-			
+			/* Tx phase not yet begun for this call */
 			ret = -EPROTO;
 			break;
 		}
@@ -296,6 +329,9 @@ int rxrpc_server_sendmsg(struct kiocb *iocb, struct rxrpc_sock *rx,
 	return ret;
 }
 
+/*
+ * send a packet through the transport endpoint
+ */
 int rxrpc_send_packet(struct rxrpc_transport *trans, struct sk_buff *skb)
 {
 	struct kvec iov[1];
@@ -313,8 +349,16 @@ int rxrpc_send_packet(struct rxrpc_transport *trans, struct sk_buff *skb)
 	msg.msg_controllen = 0;
 	msg.msg_flags = 0;
 
+	/* send the packet with the don't fragment bit set if we currently
+	 * think it's small enough */
 	if (skb->len - sizeof(struct rxrpc_header) < trans->peer->maxdata) {
 		down_read(&trans->local->defrag_sem);
+		/* send the packet by UDP
+		 * - returns -EMSGSIZE if UDP would have to fragment the packet
+		 *   to go out of the interface
+		 *   - in which case, we'll have processed the ICMP error
+		 *     message and update the peer record
+		 */
 		ret = kernel_sendmsg(trans->local->socket, &msg, iov, 1,
 				     iov[0].iov_len);
 
@@ -327,7 +371,7 @@ int rxrpc_send_packet(struct rxrpc_transport *trans, struct sk_buff *skb)
 	}
 
 send_fragmentable:
-	
+	/* attempt to send this message with fragmentation enabled */
 	_debug("send fragment");
 
 	down_write(&trans->local->defrag_sem);
@@ -348,6 +392,10 @@ send_fragmentable:
 	return ret;
 }
 
+/*
+ * wait for space to appear in the transmit/ACK window
+ * - caller holds the socket locked
+ */
 static int rxrpc_wait_for_tx_window(struct rxrpc_sock *rx,
 				    struct rxrpc_call *call,
 				    long *timeo)
@@ -383,6 +431,9 @@ static int rxrpc_wait_for_tx_window(struct rxrpc_sock *rx,
 	return ret;
 }
 
+/*
+ * attempt to schedule an instant Tx resend
+ */
 static inline void rxrpc_instant_resend(struct rxrpc_call *call)
 {
 	read_lock_bh(&call->state_lock);
@@ -395,6 +446,10 @@ static inline void rxrpc_instant_resend(struct rxrpc_call *call)
 	read_unlock_bh(&call->state_lock);
 }
 
+/*
+ * queue a packet for transmission, set the resend timer and attempt
+ * to send the packet immediately
+ */
 static void rxrpc_queue_packet(struct rxrpc_call *call, struct sk_buff *skb,
 			       bool last)
 {
@@ -439,8 +494,12 @@ static void rxrpc_queue_packet(struct rxrpc_call *call, struct sk_buff *skb,
 		add_timer(&call->resend_timer);
 	}
 
+	/* attempt to cancel the rx-ACK timer, deferring reply transmission if
+	 * we're ACK'ing the request phase of an incoming call */
 	ret = -EAGAIN;
 	if (try_to_del_timer_sync(&call->ack_timer) >= 0) {
+		/* the packet may be freed by rxrpc_process_call() before this
+		 * returns */
 		ret = rxrpc_send_packet(call->conn->trans, skb);
 		_net("sent skb %p", skb);
 	} else {
@@ -456,6 +515,11 @@ static void rxrpc_queue_packet(struct rxrpc_call *call, struct sk_buff *skb,
 	_leave("");
 }
 
+/*
+ * send data through a socket
+ * - must be called in process context
+ * - caller holds the socket locked
+ */
 static int rxrpc_send_data(struct kiocb *iocb,
 			   struct rxrpc_sock *rx,
 			   struct rxrpc_call *call,
@@ -474,7 +538,7 @@ static int rxrpc_send_data(struct kiocb *iocb,
 
 	timeo = sock_sndtimeo(sk, msg->msg_flags & MSG_DONTWAIT);
 
-	
+	/* this should be in poll */
 	clear_bit(SOCK_ASYNC_NOSPACE, &sk->sk_socket->flags);
 
 	if (sk->sk_err || (sk->sk_shutdown & SEND_SHUTDOWN))
@@ -530,7 +594,7 @@ static int rxrpc_send_data(struct kiocb *iocb,
 
 			_debug("SIZE: %zu/%zu/%zu", chunk, space, size);
 
-			
+			/* create a buffer that we can retain until it's ACK'd */
 			skb = sock_alloc_send_skb(
 				sk, size, msg->msg_flags & MSG_DONTWAIT, &ret);
 			if (!skb)
@@ -563,7 +627,7 @@ static int rxrpc_send_data(struct kiocb *iocb,
 		_debug("append");
 		sp = rxrpc_skb(skb);
 
-		
+		/* append next segment of data to the current buffer */
 		copy = skb_tailroom(skb);
 		ASSERTCMP(copy, >, 0);
 		if (copy > segment)
@@ -594,15 +658,17 @@ static int rxrpc_send_data(struct kiocb *iocb,
 			ioc = 0;
 		}
 
+		/* check for the far side aborting the call or a network error
+		 * occurring */
 		if (call->state > RXRPC_CALL_COMPLETE)
 			goto call_aborted;
 
-		
+		/* add the packet to the send queue if it's now full */
 		if (sp->remain <= 0 || (segment == 0 && !more)) {
 			struct rxrpc_connection *conn = call->conn;
 			size_t pad;
 
-			
+			/* pad out if we're using security */
 			if (conn->security) {
 				pad = conn->security_size + skb->mark;
 				pad = conn->size_align - pad;

@@ -12,6 +12,7 @@
 #ifndef _LINUX_BROADSHEETFB_H_
 #define _LINUX_BROADSHEETFB_H_
 
+/* Broadsheet command defines */
 #define BS_CMD_INIT_SYS_RUN	0x06
 #define BS_CMD_INIT_DSPE_CFG	0x09
 #define BS_CMD_INIT_DSPE_TMG	0x0A
@@ -28,16 +29,20 @@
 #define BS_CMD_UPD_FULL		0x33
 #define BS_CMD_UPD_GDRV_CLR	0x37
 
+/* Broadsheet register interface defines */
 #define BS_REG_REV		0x00
 #define BS_REG_PRC		0x02
 
+/* Broadsheet pin interface specific defines */
 #define BS_CS	0x01
 #define BS_DC 	0x02
 #define BS_WR 	0x03
 
+/* Broadsheet IO interface specific defines */
 #define BS_MMIO_CMD	0x01
 #define BS_MMIO_DATA	0x02
 
+/* struct used by broadsheet. board specific stuff comes from *board */
 struct broadsheetfb_par {
 	struct fb_info *info;
 	struct broadsheet_board *board;
@@ -48,6 +53,7 @@ struct broadsheetfb_par {
 	struct mutex io_lock;
 };
 
+/* board specific routines */
 struct broadsheet_board {
 	struct module *owner;
 	int (*init)(struct broadsheetfb_par *);
@@ -56,12 +62,12 @@ struct broadsheet_board {
 	int (*get_panel_type)(void);
 	int (*setup_irq)(struct fb_info *);
 
-	
+	/* Functions for boards that use GPIO */
 	void (*set_ctl)(struct broadsheetfb_par *, unsigned char, u8);
 	void (*set_hdb)(struct broadsheetfb_par *, u16);
 	u16 (*get_hdb)(struct broadsheetfb_par *);
 
-	
+	/* Functions for boards that have specialized MMIO */
 	void (*mmio_write)(struct broadsheetfb_par *, int type, u16);
 	u16 (*mmio_read)(struct broadsheetfb_par *);
 };

@@ -26,18 +26,19 @@
 #include "seq_queue.h"
 #include "seq_info.h"
 
+/* allowed sequencer timer frequencies, in Hz */
 #define MIN_FREQUENCY		10
 #define MAX_FREQUENCY		6250
 #define DEFAULT_FREQUENCY	1000
 
-#define SKEW_BASE	0x10000	
+#define SKEW_BASE	0x10000	/* 16bit shift */
 
 static void snd_seq_timer_set_tick_resolution(struct snd_seq_timer *tmr)
 {
 	if (tmr->tempo < 1000000)
 		tmr->tick.resolution = (tmr->tempo * 1000) / tmr->ppq;
 	else {
-		
+		/* might overflow.. */
 		unsigned int s;
 		s = tmr->tempo % tmr->ppq;
 		s = (s * 1000) / tmr->ppq;
@@ -49,6 +50,7 @@ static void snd_seq_timer_set_tick_resolution(struct snd_seq_timer *tmr)
 	snd_seq_timer_update_tick(&tmr->tick, 0);
 }
 
+/* create new timer (constructor) */
 struct snd_seq_timer *snd_seq_timer_new(void)
 {
 	struct snd_seq_timer *tmr;
@@ -60,15 +62,16 @@ struct snd_seq_timer *snd_seq_timer_new(void)
 	}
 	spin_lock_init(&tmr->lock);
 
-	
+	/* reset setup to defaults */
 	snd_seq_timer_defaults(tmr);
 	
-	
+	/* reset time */
 	snd_seq_timer_reset(tmr);
 	
 	return tmr;
 }
 
+/* delete timer (destructor) */
 void snd_seq_timer_delete(struct snd_seq_timer **tmr)
 {
 	struct snd_seq_timer *t = *tmr;
@@ -80,7 +83,7 @@ void snd_seq_timer_delete(struct snd_seq_timer **tmr)
 	}
 	t->running = 0;
 
-	
+	/* reset time */
 	snd_seq_timer_stop(t);
 	snd_seq_timer_reset(t);
 
@@ -89,9 +92,9 @@ void snd_seq_timer_delete(struct snd_seq_timer **tmr)
 
 void snd_seq_timer_defaults(struct snd_seq_timer * tmr)
 {
-	
-	tmr->ppq = 96;		
-	tmr->tempo = 500000;	
+	/* setup defaults */
+	tmr->ppq = 96;		/* 96 PPQ */
+	tmr->tempo = 500000;	/* 120 BPM */
 	snd_seq_timer_set_tick_resolution(tmr);
 	tmr->running = 0;
 
@@ -112,7 +115,7 @@ void snd_seq_timer_reset(struct snd_seq_timer * tmr)
 
 	spin_lock_irqsave(&tmr->lock, flags);
 
-	
+	/* reset time & songposition */
 	tmr->cur_time.tv_sec = 0;
 	tmr->cur_time.tv_nsec = 0;
 
@@ -123,6 +126,7 @@ void snd_seq_timer_reset(struct snd_seq_timer * tmr)
 }
 
 
+/* called by timer interrupt routine. the period time since previous invocation is passed */
 static void snd_seq_timer_interrupt(struct snd_timer_instance *timeri,
 				    unsigned long resolution,
 				    unsigned long ticks)
@@ -141,28 +145,29 @@ static void snd_seq_timer_interrupt(struct snd_timer_instance *timeri,
 
 	resolution *= ticks;
 	if (tmr->skew != tmr->skew_base) {
-		
+		/* FIXME: assuming skew_base = 0x10000 */
 		resolution = (resolution >> 16) * tmr->skew +
 			(((resolution & 0xffff) * tmr->skew) >> 16);
 	}
 
 	spin_lock_irqsave(&tmr->lock, flags);
 
-	
+	/* update timer */
 	snd_seq_inc_time_nsec(&tmr->cur_time, resolution);
 
-	
+	/* calculate current tick */
 	snd_seq_timer_update_tick(&tmr->tick, resolution);
 
-	
+	/* register actual time of this timer update */
 	do_gettimeofday(&tmr->last_update);
 
 	spin_unlock_irqrestore(&tmr->lock, flags);
 
-	
+	/* check queues and dispatch events */
 	snd_seq_check_queue(q, 1, 0);
 }
 
+/* set current tempo */
 int snd_seq_timer_set_tempo(struct snd_seq_timer * tmr, int tempo)
 {
 	unsigned long flags;
@@ -180,6 +185,7 @@ int snd_seq_timer_set_tempo(struct snd_seq_timer * tmr, int tempo)
 	return 0;
 }
 
+/* set current ppq */
 int snd_seq_timer_set_ppq(struct snd_seq_timer * tmr, int ppq)
 {
 	unsigned long flags;
@@ -190,8 +196,8 @@ int snd_seq_timer_set_ppq(struct snd_seq_timer * tmr, int ppq)
 		return -EINVAL;
 	spin_lock_irqsave(&tmr->lock, flags);
 	if (tmr->running && (ppq != tmr->ppq)) {
-		
-		
+		/* refuse to change ppq on running timers */
+		/* because it will upset the song position (ticks) */
 		spin_unlock_irqrestore(&tmr->lock, flags);
 		snd_printd("seq: cannot change ppq of a running timer\n");
 		return -EBUSY;
@@ -203,6 +209,7 @@ int snd_seq_timer_set_ppq(struct snd_seq_timer * tmr, int ppq)
 	return 0;
 }
 
+/* set current tick position */
 int snd_seq_timer_set_position_tick(struct snd_seq_timer *tmr,
 				    snd_seq_tick_time_t position)
 {
@@ -218,6 +225,7 @@ int snd_seq_timer_set_position_tick(struct snd_seq_timer *tmr,
 	return 0;
 }
 
+/* set current real-time position */
 int snd_seq_timer_set_position_time(struct snd_seq_timer *tmr,
 				    snd_seq_real_time_t position)
 {
@@ -233,6 +241,7 @@ int snd_seq_timer_set_position_time(struct snd_seq_timer *tmr,
 	return 0;
 }
 
+/* set timer skew */
 int snd_seq_timer_set_skew(struct snd_seq_timer *tmr, unsigned int skew,
 			   unsigned int base)
 {
@@ -241,7 +250,7 @@ int snd_seq_timer_set_skew(struct snd_seq_timer *tmr, unsigned int skew,
 	if (snd_BUG_ON(!tmr))
 		return -EINVAL;
 
-	
+	/* FIXME */
 	if (base != SKEW_BASE) {
 		snd_printd("invalid skew base 0x%x\n", base);
 		return -EINVAL;
@@ -265,7 +274,7 @@ int snd_seq_timer_open(struct snd_seq_queue *q)
 	if (tmr->timeri)
 		return -EBUSY;
 	sprintf(str, "sequencer queue %i", q->queue);
-	if (tmr->type != SNDRV_SEQ_TIMER_ALSA)	
+	if (tmr->type != SNDRV_SEQ_TIMER_ALSA)	/* standard ALSA timer */
 		return -EINVAL;
 	if (tmr->alsa_id.dev_class != SNDRV_TIMER_CLASS_SLAVE)
 		tmr->alsa_id.dev_sclass = SNDRV_TIMER_SCLASS_SEQUENCER;
@@ -383,6 +392,7 @@ int snd_seq_timer_continue(struct snd_seq_timer * tmr)
 	return 0;
 }
 
+/* return current 'real' time. use timeofday() to get better granularity. */
 snd_seq_real_time_t snd_seq_timer_get_cur_time(struct snd_seq_timer *tmr)
 {
 	snd_seq_real_time_t cur_time;
@@ -406,6 +416,8 @@ snd_seq_real_time_t snd_seq_timer_get_cur_time(struct snd_seq_timer *tmr)
 	return cur_time;	
 }
 
+/* TODO: use interpolation on tick queue (will only be useful for very
+ high PPQ values) */
 snd_seq_tick_time_t snd_seq_timer_get_cur_tick(struct snd_seq_timer *tmr)
 {
 	return tmr->tick.cur_tick;
@@ -413,6 +425,7 @@ snd_seq_tick_time_t snd_seq_timer_get_cur_tick(struct snd_seq_timer *tmr)
 
 
 #ifdef CONFIG_PROC_FS
+/* exported to seq_info.c */
 void snd_seq_info_timer_read(struct snd_info_entry *entry,
 			     struct snd_info_buffer *buffer)
 {
@@ -438,5 +451,5 @@ void snd_seq_info_timer_read(struct snd_info_entry *entry,
 		queuefree(q);
  	}
 }
-#endif 
+#endif /* CONFIG_PROC_FS */
 

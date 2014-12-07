@@ -130,13 +130,13 @@ static int wl12xx_sdio_power_on(struct wl12xx_sdio_glue *glue)
 	int ret;
 	struct sdio_func *func = dev_to_sdio_func(glue->dev);
 
-	
+	/* If enabled, tell runtime PM not to power off the card */
 	if (pm_runtime_enabled(&func->dev)) {
 		ret = pm_runtime_get_sync(&func->dev);
 		if (ret < 0)
 			goto out;
 	} else {
-		
+		/* Runtime PM is disabled: power up the card manually */
 		ret = mmc_power_restore_host(func->card->host);
 		if (ret < 0)
 			goto out;
@@ -159,12 +159,12 @@ static int wl12xx_sdio_power_off(struct wl12xx_sdio_glue *glue)
 	sdio_disable_func(func);
 	sdio_release_host(func);
 
-	
+	/* Power off the card manually, even if runtime PM is enabled. */
 	ret = mmc_power_save_host(func->card->host);
 	if (ret < 0)
 		return ret;
 
-	
+	/* If enabled, let runtime PM know the card is powered off */
 	if (pm_runtime_enabled(&func->dev))
 		ret = pm_runtime_put_sync(&func->dev);
 
@@ -197,7 +197,7 @@ static int __devinit wl1271_probe(struct sdio_func *func,
 	mmc_pm_flag_t mmcflags;
 	int ret = -ENOMEM;
 
-	
+	/* We are only able to handle the wlan function */
 	if (func->num != 0x02)
 		return -ENODEV;
 
@@ -209,10 +209,10 @@ static int __devinit wl1271_probe(struct sdio_func *func,
 
 	glue->dev = &func->dev;
 
-	
+	/* Grab access to FN0 for ELP reg. */
 	func->card->quirks |= MMC_QUIRK_LENIENT_FN0;
 
-	
+	/* Use block mode for transferring over one block size of data */
 	func->card->quirks |= MMC_QUIRK_BLKSZ_FOR_BYTE_MODE;
 
 	wlan_data = wl12xx_get_platform_data();
@@ -222,7 +222,7 @@ static int __devinit wl1271_probe(struct sdio_func *func,
 		goto out_free_glue;
 	}
 
-	
+	/* if sdio can keep power while host is suspended, enable wow */
 	mmcflags = sdio_get_host_pm_caps(func);
 	dev_dbg(glue->dev, "sdio PM caps = 0x%x\n", mmcflags);
 
@@ -233,7 +233,7 @@ static int __devinit wl1271_probe(struct sdio_func *func,
 
 	sdio_set_drvdata(func, glue);
 
-	
+	/* Tell PM core that we don't need the card to be powered now */
 	pm_runtime_put_noidle(&func->dev);
 
 	glue->core = platform_device_alloc("wl12xx", -1);
@@ -285,7 +285,7 @@ static void __devexit wl1271_remove(struct sdio_func *func)
 {
 	struct wl12xx_sdio_glue *glue = sdio_get_drvdata(func);
 
-	
+	/* Undo decrement done above in wl1271_probe */
 	pm_runtime_get_noresume(&func->dev);
 
 	platform_device_del(glue->core);
@@ -296,6 +296,8 @@ static void __devexit wl1271_remove(struct sdio_func *func)
 #ifdef CONFIG_PM
 static int wl1271_suspend(struct device *dev)
 {
+	/* Tell MMC/SDIO core it's OK to power down the card
+	 * (if it isn't already), but not to remove it completely */
 	struct sdio_func *func = dev_to_sdio_func(dev);
 	struct wl12xx_sdio_glue *glue = sdio_get_drvdata(func);
 	struct wl1271 *wl = platform_get_drvdata(glue->core);
@@ -305,7 +307,7 @@ static int wl1271_suspend(struct device *dev)
 	dev_dbg(dev, "wl1271 suspend. wow_enabled: %d\n",
 		wl->wow_enabled);
 
-	
+	/* check whether sdio should keep power */
 	if (wl->wow_enabled) {
 		sdio_flags = sdio_get_host_pm_caps(func);
 
@@ -316,7 +318,7 @@ static int wl1271_suspend(struct device *dev)
 			goto out;
 		}
 
-		
+		/* keep power while host suspended */
 		ret = sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER);
 		if (ret) {
 			dev_err(dev, "error while trying to keep power\n");

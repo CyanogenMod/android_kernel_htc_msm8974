@@ -35,10 +35,10 @@ static void proc_evict_inode(struct inode *inode)
 	truncate_inode_pages(&inode->i_data, 0);
 	end_writeback(inode);
 
-	
+	/* Stop tracking associated processes */
 	put_pid(PROC_I(inode)->pid);
 
-	
+	/* Let go of any associated proc directory entry */
 	de = PROC_I(inode)->pde;
 	if (de)
 		pde_put(de);
@@ -47,7 +47,7 @@ static void proc_evict_inode(struct inode *inode)
 		rcu_assign_pointer(PROC_I(inode)->sysctl, NULL);
 		sysctl_head_put(head);
 	}
-	
+	/* Release any associated namespace */
 	ns_ops = PROC_I(inode)->ns_ops;
 	if (ns_ops && ns_ops->put)
 		ns_ops->put(PROC_I(inode)->ns);
@@ -147,11 +147,23 @@ static loff_t proc_reg_llseek(struct file *file, loff_t offset, int whence)
 	loff_t (*llseek)(struct file *, loff_t, int);
 
 	spin_lock(&pde->pde_unload_lock);
+	/*
+	 * remove_proc_entry() is going to delete PDE (as part of module
+	 * cleanup sequence). No new callers into module allowed.
+	 */
 	if (!pde->proc_fops) {
 		spin_unlock(&pde->pde_unload_lock);
 		return rv;
 	}
+	/*
+	 * Bump refcount so that remove_proc_entry will wail for ->llseek to
+	 * complete.
+	 */
 	pde->pde_users++;
+	/*
+	 * Save function pointer under lock, to protect against ->proc_fops
+	 * NULL'ifying right after ->pde_unload_lock is dropped.
+	 */
 	llseek = pde->proc_fops->llseek;
 	spin_unlock(&pde->pde_unload_lock);
 
@@ -305,6 +317,16 @@ static int proc_reg_open(struct inode *inode, struct file *file)
 	int (*release)(struct inode *, struct file *);
 	struct pde_opener *pdeo;
 
+	/*
+	 * What for, you ask? Well, we can have open, rmmod, remove_proc_entry
+	 * sequence. ->release won't be called because ->proc_fops will be
+	 * cleared. Depending on complexity of ->release, consequences vary.
+	 *
+	 * We can't wait for mercy when close will be done for real, it's
+	 * deadlockable: rmmod foo </proc/foo . So, we're going to do ->release
+	 * by hand in remove_proc_entry(). For this, save opener's credentials
+	 * for later.
+	 */
 	pdeo = kmalloc(sizeof(struct pde_opener), GFP_KERNEL);
 	if (!pdeo)
 		return -ENOMEM;
@@ -325,10 +347,10 @@ static int proc_reg_open(struct inode *inode, struct file *file)
 
 	spin_lock(&pde->pde_unload_lock);
 	if (rv == 0 && release) {
-		
+		/* To know what to release. */
 		pdeo->inode = inode;
 		pdeo->file = file;
-		
+		/* Strictly for "too late" ->release in proc_reg_release(). */
 		pdeo->release = release;
 		list_add(&pdeo->lh, &pde->pde_openers);
 	} else
@@ -360,6 +382,14 @@ static int proc_reg_release(struct inode *inode, struct file *file)
 	spin_lock(&pde->pde_unload_lock);
 	pdeo = find_pde_opener(pde, inode, file);
 	if (!pde->proc_fops) {
+		/*
+		 * Can't simply exit, __fput() will think that everything is OK,
+		 * and move on to freeing struct file. remove_proc_entry() will
+		 * find slacker in opener's list and will try to do non-trivial
+		 * things with struct file. Therefore, remove opener from list.
+		 *
+		 * But if opener is removed from list, who will ->release it?
+		 */
 		if (pdeo) {
 			list_del(&pdeo->lh);
 			spin_unlock(&pde->pde_unload_lock);

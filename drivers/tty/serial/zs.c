@@ -83,14 +83,20 @@ MODULE_LICENSE("GPL");
 static char zs_name[] __initdata = "DECstation Z85C30 serial driver version ";
 static char zs_version[] __initdata = "0.10";
 
-#define ZS_NUM_SCCS	2		
-#define ZS_NUM_CHAN	2		
-#define ZS_CHAN_A	0		
-#define ZS_CHAN_B	1		
-#define ZS_CHAN_IO_SIZE 8		
-#define ZS_CHAN_IO_STRIDE 4		
-#define ZS_CHAN_IO_OFFSET 1		
-#define ZS_CLOCK        7372800 	
+/*
+ * It would be nice to dynamically allocate everything that
+ * depends on ZS_NUM_SCCS, so we could support any number of
+ * Z85C30s, but for now...
+ */
+#define ZS_NUM_SCCS	2		/* Max # of ZS chips supported.  */
+#define ZS_NUM_CHAN	2		/* 2 channels per chip.  */
+#define ZS_CHAN_A	0		/* Index of the channel A.  */
+#define ZS_CHAN_B	1		/* Index of the channel B.  */
+#define ZS_CHAN_IO_SIZE 8		/* IOMEM space size.  */
+#define ZS_CHAN_IO_STRIDE 4		/* Register alignment.  */
+#define ZS_CHAN_IO_OFFSET 1		/* The SCC resides on the high byte
+					   of the 16-bit IOBUS.  */
+#define ZS_CLOCK        7372800 	/* Z85C30 PCLK input clock rate.  */
 
 #define to_zport(uport) container_of(uport, struct zs_port, port)
 
@@ -102,24 +108,30 @@ struct zs_parms {
 static struct zs_scc zs_sccs[ZS_NUM_SCCS];
 
 static u8 zs_init_regs[ZS_NUM_REGS] __initdata = {
-	0,				
-	PAR_SPEC,			
-	0,				
-	0,				
-	X16CLK | SB1,			
-	0,				
-	0, 0, 0,			
-	MIE | DLC | NV,			
-	NRZ,				
-	TCBR | RCBR,			
-	0, 0,				
-	BRSRC | BRENABL,		
-	0,				
+	0,				/* write 0 */
+	PAR_SPEC,			/* write 1 */
+	0,				/* write 2 */
+	0,				/* write 3 */
+	X16CLK | SB1,			/* write 4 */
+	0,				/* write 5 */
+	0, 0, 0,			/* write 6, 7, 8 */
+	MIE | DLC | NV,			/* write 9 */
+	NRZ,				/* write 10 */
+	TCBR | RCBR,			/* write 11 */
+	0, 0,				/* BRG time constant, write 12 + 13 */
+	BRSRC | BRENABL,		/* write 14 */
+	0,				/* write 15 */
 };
 
+/*
+ * Debugging.
+ */
 #undef ZS_DEBUG_REGS
 
 
+/*
+ * Reading and writing Z85C30 registers.
+ */
 static void recovery_delay(void)
 {
 	udelay(2);
@@ -253,9 +265,9 @@ static int zs_line_drain(struct zs_port *zport, int irq)
 
 static void load_zsregs(struct zs_port *zport, u8 *regs, int irq)
 {
-	
+	/* Let the current transmission finish.  */
 	zs_line_drain(zport, irq);
-	
+	/* Load 'em up.  */
 	write_zsreg(zport, R3, regs[3] & ~RxENABLE);
 	write_zsreg(zport, R5, regs[5] & ~TxENAB);
 	write_zsreg(zport, R4, regs[4]);
@@ -277,6 +289,9 @@ static void load_zsregs(struct zs_port *zport, u8 *regs, int irq)
 }
 
 
+/*
+ * Status handling routines.
+ */
 
 /*
  * zs_tx_empty() -- get the transmitter empty status
@@ -389,7 +404,7 @@ static void zs_set_mctrl(struct uart_port *uport, unsigned int mctrl)
 		write_zsreg(zport_a, R5, zport_a->regs[5]);
 	}
 
-	
+	/* Rarely modified, so don't poke at hardware unless necessary. */
 	oldloop = zport->regs[14];
 	newloop = oldloop;
 	if (mctrl & TIOCM_LOOP)
@@ -447,7 +462,7 @@ static void zs_stop_rx(struct uart_port *uport)
 	zport->regs[1] |= RxINT_DISAB;
 
 	if (zport != zport_a) {
-		
+		/* A-side DCD tracks RI and SYNC tracks DSR.  */
 		zport_a->regs[15] &= ~(DCDIE | SYNCIE);
 		write_zsreg(zport_a, R15, zport_a->regs[15]);
 		if (!(zport_a->regs[15] & BRKIE)) {
@@ -455,11 +470,11 @@ static void zs_stop_rx(struct uart_port *uport)
 			write_zsreg(zport_a, R1, zport_a->regs[1]);
 		}
 
-		
+		/* This-side DCD tracks DCD and CTS tracks CTS.  */
 		zport->regs[15] &= ~(DCDIE | CTSIE);
 		zport->regs[1] &= ~EXT_INT_ENAB;
 	} else {
-		
+		/* DCD tracks RI and SYNC tracks DSR for the B side.  */
 		if (!(zport->regs[15] & (DCDIE | SYNCIE)))
 			zport->regs[1] &= ~EXT_INT_ENAB;
 	}
@@ -480,15 +495,15 @@ static void zs_enable_ms(struct uart_port *uport)
 
 	spin_lock(&scc->zlock);
 
-	
+	/* Clear Ext interrupts if not being handled already.  */
 	if (!(zport_a->regs[1] & EXT_INT_ENAB))
 		write_zsreg(zport_a, R0, RES_EXT_INT);
 
-	
+	/* A-side DCD tracks RI and SYNC tracks DSR.  */
 	zport_a->regs[1] |= EXT_INT_ENAB;
 	zport_a->regs[15] |= DCDIE | SYNCIE;
 
-	
+	/* This-side DCD tracks DCD and CTS tracks CTS.  */
 	zport->regs[15] |= DCDIE | CTSIE;
 
 	zs_raw_xor_mctrl(zport);
@@ -515,8 +530,11 @@ static void zs_break_ctl(struct uart_port *uport, int break_state)
 }
 
 
-#define Rx_BRK 0x0100			
-#define Rx_SYS 0x0200			
+/*
+ * Interrupt handling routines.
+ */
+#define Rx_BRK 0x0100			/* BREAK event software flag.  */
+#define Rx_SYS 0x0200			/* SysRq event software flag.  */
 
 static void zs_receive_chars(struct zs_port *zport)
 {
@@ -543,14 +561,14 @@ static void zs_receive_chars(struct zs_port *zport)
 		icount = &uport->icount;
 		icount->rx++;
 
-		
+		/* Handle the null char got when BREAK is removed.  */
 		if (!ch)
 			status |= zport->tty_break;
 		if (unlikely(status &
 			     (Rx_OVR | FRM_ERR | PAR_ERR | Rx_SYS | Rx_BRK))) {
 			zport->tty_break = 0;
 
-			
+			/* Reset the error indication.  */
 			if (status & (Rx_OVR | FRM_ERR | PAR_ERR)) {
 				spin_lock(&scc->zlock);
 				write_zsreg(zport, R0, ERR_RES);
@@ -559,7 +577,7 @@ static void zs_receive_chars(struct zs_port *zport)
 
 			if (status & (Rx_SYS | Rx_BRK)) {
 				icount->brk++;
-				
+				/* SysRq discards the null char.  */
 				if (status & Rx_SYS)
 					continue;
 			} else if (status & FRM_ERR)
@@ -591,7 +609,7 @@ static void zs_raw_transmit_chars(struct zs_port *zport)
 {
 	struct circ_buf *xmit = &zport->port.state->xmit;
 
-	
+	/* XON/XOFF chars.  */
 	if (zport->port.x_char) {
 		write_zsdata(zport, zport->port.x_char);
 		zport->port.icount.tx++;
@@ -599,13 +617,13 @@ static void zs_raw_transmit_chars(struct zs_port *zport)
 		return;
 	}
 
-	
+	/* If nothing to do or stopped or hardware stopped.  */
 	if (uart_circ_empty(xmit) || uart_tx_stopped(&zport->port)) {
 		zs_raw_stop_tx(zport);
 		return;
 	}
 
-	
+	/* Send char.  */
 	write_zsdata(zport, xmit->buf[xmit->tail]);
 	xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
 	zport->port.icount.tx++;
@@ -613,7 +631,7 @@ static void zs_raw_transmit_chars(struct zs_port *zport)
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(&zport->port);
 
-	
+	/* Are we are done?  */
 	if (uart_circ_empty(xmit))
 		zs_raw_stop_tx(zport);
 }
@@ -636,7 +654,7 @@ static void zs_status_handle(struct zs_port *zport, struct zs_port *zport_a)
 
 	spin_lock(&scc->zlock);
 
-	
+	/* Get status from Read Register 0.  */
 	status = read_zsreg(zport, R0);
 
 	if (zport->regs[15] & BRKIE) {
@@ -673,12 +691,15 @@ static void zs_status_handle(struct zs_port *zport, struct zs_port *zport_a)
 		spin_lock(&scc->zlock);
 	}
 
-	
+	/* Clear the status condition...  */
 	write_zsreg(zport, R0, RES_EXT_INT);
 
 	spin_unlock(&scc->zlock);
 }
 
+/*
+ * This is the Z85C30 driver's generic interrupt routine.
+ */
 static irqreturn_t zs_interrupt(int irq, void *dev_id)
 {
 	struct zs_scc *scc = dev_id;
@@ -688,6 +709,13 @@ static irqreturn_t zs_interrupt(int irq, void *dev_id)
 	u8 zs_intreg;
 	int count;
 
+	/*
+	 * NOTE: The read register 3, which holds the irq status,
+	 *       does so for both channels on each chip.  Although
+	 *       the status value itself must be read from the A
+	 *       channel and is only valid when read from channel A.
+	 *       Yes... broken hardware...
+	 */
 	for (count = 16; count; count--) {
 		spin_lock(&scc->zlock);
 		zs_intreg = read_zsreg(zport_a, R3);
@@ -695,6 +723,11 @@ static irqreturn_t zs_interrupt(int irq, void *dev_id)
 		if (!zs_intreg)
 			break;
 
+		/*
+		 * We do not like losing characters, so we prioritise
+		 * interrupt sources a little bit differently than
+		 * the SCC would, was it allowed to.
+		 */
 		if (zs_intreg & CHBRxIP)
 			zs_receive_chars(zport_b);
 		if (zs_intreg & CHARxIP)
@@ -715,6 +748,9 @@ static irqreturn_t zs_interrupt(int irq, void *dev_id)
 }
 
 
+/*
+ * Finally, routines used to initialize the serial port.
+ */
 static int zs_startup(struct uart_port *uport)
 {
 	struct zs_port *zport = to_zport(uport);
@@ -737,17 +773,17 @@ static int zs_startup(struct uart_port *uport)
 
 	spin_lock_irqsave(&scc->zlock, flags);
 
-	
+	/* Clear the receive FIFO.  */
 	zs_receive_drain(zport);
 
-	
+	/* Clear the interrupt registers.  */
 	write_zsreg(zport, R0, ERR_RES);
 	write_zsreg(zport, R0, RES_Tx_P);
-	
+	/* But Ext only if not being handled already.  */
 	if (!(zport->regs[1] & EXT_INT_ENAB))
 		write_zsreg(zport, R0, RES_EXT_INT);
 
-	
+	/* Finally, enable sequencing and interrupts.  */
 	zport->regs[1] &= ~RxINT_MASK;
 	zport->regs[1] |= RxINT_ALL | TxINT_ENAB | EXT_INT_ENAB;
 	zport->regs[3] |= RxENABLE;
@@ -757,7 +793,7 @@ static int zs_startup(struct uart_port *uport)
 	write_zsreg(zport, R5, zport->regs[5]);
 	write_zsreg(zport, R15, zport->regs[15]);
 
-	
+	/* Record the current state of RR0.  */
 	zport->mctrl = zs_raw_get_mctrl(zport);
 	zport->brk = read_zsreg(zport, R0) & BRK_ABRT;
 
@@ -798,9 +834,9 @@ static void zs_reset(struct zs_port *zport)
 	spin_lock_irqsave(&scc->zlock, flags);
 	irq = !irqs_disabled_flags(flags);
 	if (!scc->initialised) {
-		
+		/* Reset the pointer first, just in case...  */
 		read_zsreg(zport, R0);
-		
+		/* And let the current transmission finish.  */
 		zs_line_drain(zport, irq);
 		write_zsreg(zport, R9, FHWRES);
 		udelay(10);
@@ -824,7 +860,7 @@ static void zs_set_termios(struct uart_port *uport, struct ktermios *termios,
 	spin_lock_irqsave(&scc->zlock, flags);
 	irq = !irqs_disabled_flags(flags);
 
-	
+	/* Byte size.  */
 	zport->regs[3] &= ~RxNBITS_MASK;
 	zport->regs[5] &= ~TxNBITS_MASK;
 	switch (termios->c_cflag & CSIZE) {
@@ -847,7 +883,7 @@ static void zs_set_termios(struct uart_port *uport, struct ktermios *termios,
 		break;
 	}
 
-	
+	/* Parity and stop bits.  */
 	zport->regs[4] &= ~(XCLK_MASK | SB_MASK | PAR_ENA | PAR_EVEN);
 	if (termios->c_cflag & CSTOPB)
 		zport->regs[4] |= SB2;
@@ -915,12 +951,17 @@ static void zs_set_termios(struct uart_port *uport, struct ktermios *termios,
 		zs_raw_xor_mctrl(zport);
 	}
 
-	
+	/* Load up the new values.  */
 	load_zsregs(zport, zport->regs, irq);
 
 	spin_unlock_irqrestore(&scc->zlock, flags);
 }
 
+/*
+ * Hack alert!
+ * Required solely so that the initial PROM-based console
+ * works undisturbed in parallel with this one.
+ */
 static void zs_pm(struct uart_port *uport, unsigned int state,
 		  unsigned int oldstate)
 {
@@ -1023,6 +1064,9 @@ static struct uart_ops zs_ops = {
 	.verify_port	= zs_verify_port,
 };
 
+/*
+ * Initialize Z85C30 port structures.
+ */
 static int __init zs_probe_sccs(void)
 {
 	static int probed;
@@ -1095,6 +1139,10 @@ static void zs_console_putchar(struct uart_port *uport, int ch)
 	spin_unlock_irqrestore(&scc->zlock, flags);
 }
 
+/*
+ * Print a string to the serial port trying not to disturb
+ * any possible real use of the port...
+ */
 static void zs_console_write(struct console *co, const char *s,
 			     unsigned int count)
 {
@@ -1105,7 +1153,7 @@ static void zs_console_write(struct console *co, const char *s,
 	u8 txint, txenb;
 	int irq;
 
-	
+	/* Disable transmit interrupts and enable the transmitter. */
 	spin_lock_irqsave(&scc->zlock, flags);
 	txint = zport->regs[1];
 	txenb = zport->regs[5];
@@ -1121,7 +1169,7 @@ static void zs_console_write(struct console *co, const char *s,
 
 	uart_console_write(&zport->port, s, count, zs_console_putchar);
 
-	
+	/* Restore transmit interrupts and the transmitter enable. */
 	spin_lock_irqsave(&scc->zlock, flags);
 	irq = !irqs_disabled_flags(flags);
 	zs_line_drain(zport, irq);
@@ -1136,6 +1184,12 @@ static void zs_console_write(struct console *co, const char *s,
 	spin_unlock_irqrestore(&scc->zlock, flags);
 }
 
+/*
+ * Setup serial console baud/bits/parity.  We do two things here:
+ * - construct a cflag setting for the first uart_open()
+ * - initialise the serial port
+ * Return non-zero if we didn't find a serial port.
+ */
 static int __init zs_console_setup(struct console *co, char *options)
 {
 	int chip = co->index / ZS_NUM_CHAN, side = co->index % ZS_NUM_CHAN;
@@ -1170,6 +1224,9 @@ static struct console zs_console = {
 	.data	= &zs_reg,
 };
 
+/*
+ *	Register console.
+ */
 static int __init zs_serial_console_init(void)
 {
 	int ret;
@@ -1187,7 +1244,7 @@ console_initcall(zs_serial_console_init);
 #define SERIAL_ZS_CONSOLE	&zs_console
 #else
 #define SERIAL_ZS_CONSOLE	NULL
-#endif 
+#endif /* CONFIG_SERIAL_ZS_CONSOLE */
 
 static struct uart_driver zs_reg = {
 	.owner			= THIS_MODULE,
@@ -1199,13 +1256,14 @@ static struct uart_driver zs_reg = {
 	.cons			= SERIAL_ZS_CONSOLE,
 };
 
+/* zs_init inits the driver. */
 static int __init zs_init(void)
 {
 	int i, ret;
 
 	pr_info("%s%s\n", zs_name, zs_version);
 
-	
+	/* Find out how many Z85C30 SCCs we have.  */
 	ret = zs_probe_sccs();
 	if (ret)
 		return ret;

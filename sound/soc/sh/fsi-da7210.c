@@ -35,7 +35,7 @@ static int fsi_da7210_init(struct snd_soc_pcm_runtime *rtd)
 static struct snd_soc_dai_link fsi_da7210_dai = {
 	.name		= "DA7210",
 	.stream_name	= "DA7210",
-	.cpu_dai_name	= "fsib-dai", 
+	.cpu_dai_name	= "fsib-dai", /* FSI B */
 	.codec_dai_name	= "da7210-hifi",
 	.platform_name	= "sh_fsi.0",
 	.codec_name	= "da7210-codec.0-001a",
@@ -75,6 +75,7 @@ static void __exit fsi_da7210_sound_exit(void)
 module_init(fsi_da7210_sound_init);
 module_exit(fsi_da7210_sound_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("ALSA SoC FSI DA2710");
 MODULE_AUTHOR("Kuninori Morimoto <morimoto.kuninori@renesas.com>");
 MODULE_LICENSE("GPL");

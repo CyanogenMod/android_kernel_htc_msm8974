@@ -32,6 +32,7 @@
 
 #include "wm8400.h"
 
+/* Fake register for internal state */
 #define WM8400_INTDRIVBITS      (WM8400_REGISTER_COUNT + 1)
 #define WM8400_INMIXL_PWR			0
 #define WM8400_AINLMUX_PWR			1
@@ -62,6 +63,7 @@ static struct regulator_bulk_data power[] = {
 	},
 };
 
+/* codec private data */
 struct wm8400_priv {
 	struct snd_soc_codec *codec;
 	struct wm8400 *wm8400;
@@ -83,6 +85,9 @@ static inline unsigned int wm8400_read(struct snd_soc_codec *codec,
 		return wm8400_reg_read(wm8400->wm8400, reg);
 }
 
+/*
+ * write to the wm8400 register space
+ */
 static int wm8400_write(struct snd_soc_codec *codec, unsigned int reg,
 	unsigned int value)
 {
@@ -132,7 +137,7 @@ static int wm8400_outpga_put_volsw_vu(struct snd_kcontrol *kcontrol,
         if (ret < 0)
                 return ret;
 
-        
+        /* now hit the volume update bits (always bit 8) */
         val = wm8400_read(codec, reg);
         return wm8400_write(codec, reg, val | 0x0100);
 }
@@ -165,15 +170,18 @@ static const struct soc_enum wm8400_right_adcmode_enum =
 SOC_ENUM_SINGLE(WM8400_ADC_CTRL, WM8400_ADC_HPF_CUT_SHIFT, 3, wm8400_adcmode);
 
 static const struct snd_kcontrol_new wm8400_snd_controls[] = {
+/* INMIXL */
 SOC_SINGLE("LIN12 PGA Boost", WM8400_INPUT_MIXER3, WM8400_L12MNBST_SHIFT,
 	   1, 0),
 SOC_SINGLE("LIN34 PGA Boost", WM8400_INPUT_MIXER3, WM8400_L34MNBST_SHIFT,
 	   1, 0),
+/* INMIXR */
 SOC_SINGLE("RIN12 PGA Boost", WM8400_INPUT_MIXER3, WM8400_R12MNBST_SHIFT,
 	   1, 0),
 SOC_SINGLE("RIN34 PGA Boost", WM8400_INPUT_MIXER3, WM8400_R34MNBST_SHIFT,
 	   1, 0),
 
+/* LOMIX */
 SOC_SINGLE_TLV("LOMIX LIN3 Bypass Volume", WM8400_OUTPUT_MIXER3,
 	WM8400_LLI3LOVOL_SHIFT, 7, 0, out_mix_tlv),
 SOC_SINGLE_TLV("LOMIX RIN12 PGA Bypass Volume", WM8400_OUTPUT_MIXER3,
@@ -187,6 +195,7 @@ SOC_SINGLE_TLV("LOMIX AINRMUX Bypass Volume", WM8400_OUTPUT_MIXER5,
 SOC_SINGLE_TLV("LOMIX AINLMUX Bypass Volume", WM8400_OUTPUT_MIXER5,
 	WM8400_LRBLOVOL_SHIFT, 7, 0, out_mix_tlv),
 
+/* ROMIX */
 SOC_SINGLE_TLV("ROMIX RIN3 Bypass Volume", WM8400_OUTPUT_MIXER4,
 	WM8400_RRI3ROVOL_SHIFT, 7, 0, out_mix_tlv),
 SOC_SINGLE_TLV("ROMIX LIN12 PGA Bypass Volume", WM8400_OUTPUT_MIXER4,
@@ -200,19 +209,23 @@ SOC_SINGLE_TLV("ROMIX AINLMUX Bypass Volume", WM8400_OUTPUT_MIXER6,
 SOC_SINGLE_TLV("ROMIX AINRMUX Bypass Volume", WM8400_OUTPUT_MIXER6,
 	WM8400_RRBROVOL_SHIFT, 7, 0, out_mix_tlv),
 
+/* LOUT */
 WM8400_OUTPGA_SINGLE_R_TLV("LOUT Volume", WM8400_LEFT_OUTPUT_VOLUME,
 	WM8400_LOUTVOL_SHIFT, WM8400_LOUTVOL_MASK, 0, out_pga_tlv),
 SOC_SINGLE("LOUT ZC", WM8400_LEFT_OUTPUT_VOLUME, WM8400_LOZC_SHIFT, 1, 0),
 
+/* ROUT */
 WM8400_OUTPGA_SINGLE_R_TLV("ROUT Volume", WM8400_RIGHT_OUTPUT_VOLUME,
 	WM8400_ROUTVOL_SHIFT, WM8400_ROUTVOL_MASK, 0, out_pga_tlv),
 SOC_SINGLE("ROUT ZC", WM8400_RIGHT_OUTPUT_VOLUME, WM8400_ROZC_SHIFT, 1, 0),
 
+/* LOPGA */
 WM8400_OUTPGA_SINGLE_R_TLV("LOPGA Volume", WM8400_LEFT_OPGA_VOLUME,
 	WM8400_LOPGAVOL_SHIFT, WM8400_LOPGAVOL_MASK, 0, out_pga_tlv),
 SOC_SINGLE("LOPGA ZC Switch", WM8400_LEFT_OPGA_VOLUME,
 	WM8400_LOPGAZC_SHIFT, 1, 0),
 
+/* ROPGA */
 WM8400_OUTPGA_SINGLE_R_TLV("ROPGA Volume", WM8400_RIGHT_OPGA_VOLUME,
 	WM8400_ROPGAVOL_SHIFT, WM8400_ROPGAVOL_MASK, 0, out_pga_tlv),
 SOC_SINGLE("ROPGA ZC Switch", WM8400_RIGHT_OPGA_VOLUME,
@@ -340,6 +353,9 @@ SOC_SINGLE("RIN34 Mute Switch", WM8400_RIGHT_LINE_INPUT_3_4_VOLUME,
 
 };
 
+/*
+ * _DAPM_ Controls
+ */
 
 static int inmixer_event (struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
@@ -414,11 +430,13 @@ static int outmixer_event (struct snd_soc_dapm_widget *w,
 	return ret;
 }
 
+/* INMIX dB values */
 static const unsigned int in_mix_tlv[] = {
 	TLV_DB_RANGE_HEAD(1),
 	0,7, TLV_DB_SCALE_ITEM(-1200, 600, 0),
 };
 
+/* Left In PGA Connections */
 static const struct snd_kcontrol_new wm8400_dapm_lin12_pga_controls[] = {
 SOC_DAPM_SINGLE("LIN1 Switch", WM8400_INPUT_MIXER2, WM8400_LMN1_SHIFT, 1, 0),
 SOC_DAPM_SINGLE("LIN2 Switch", WM8400_INPUT_MIXER2, WM8400_LMP2_SHIFT, 1, 0),
@@ -429,6 +447,7 @@ SOC_DAPM_SINGLE("LIN3 Switch", WM8400_INPUT_MIXER2, WM8400_LMN3_SHIFT, 1, 0),
 SOC_DAPM_SINGLE("LIN4 Switch", WM8400_INPUT_MIXER2, WM8400_LMP4_SHIFT, 1, 0),
 };
 
+/* Right In PGA Connections */
 static const struct snd_kcontrol_new wm8400_dapm_rin12_pga_controls[] = {
 SOC_DAPM_SINGLE("RIN1 Switch", WM8400_INPUT_MIXER2, WM8400_RMN1_SHIFT, 1, 0),
 SOC_DAPM_SINGLE("RIN2 Switch", WM8400_INPUT_MIXER2, WM8400_RMP2_SHIFT, 1, 0),
@@ -439,6 +458,7 @@ SOC_DAPM_SINGLE("RIN3 Switch", WM8400_INPUT_MIXER2, WM8400_RMN3_SHIFT, 1, 0),
 SOC_DAPM_SINGLE("RIN4 Switch", WM8400_INPUT_MIXER2, WM8400_RMP4_SHIFT, 1, 0),
 };
 
+/* INMIXL */
 static const struct snd_kcontrol_new wm8400_dapm_inmixl_controls[] = {
 SOC_DAPM_SINGLE_TLV("Record Left Volume", WM8400_INPUT_MIXER3,
 	WM8400_LDBVOL_SHIFT, WM8400_LDBVOL_MASK, 0, in_mix_tlv),
@@ -450,6 +470,7 @@ SOC_DAPM_SINGLE("LINPGA34 Switch", WM8400_INPUT_MIXER3, WM8400_L34MNB_SHIFT,
 		1, 0),
 };
 
+/* INMIXR */
 static const struct snd_kcontrol_new wm8400_dapm_inmixr_controls[] = {
 SOC_DAPM_SINGLE_TLV("Record Right Volume", WM8400_INPUT_MIXER4,
 	WM8400_RDBVOL_SHIFT, WM8400_RDBVOL_MASK, 0, in_mix_tlv),
@@ -461,6 +482,7 @@ SOC_DAPM_SINGLE("RINPGA34 Switch", WM8400_INPUT_MIXER3, WM8400_L34MNB_SHIFT,
 	1, 0),
 };
 
+/* AINLMUX */
 static const char *wm8400_ainlmux[] =
 	{"INMIXL Mix", "RXVOICE Mix", "DIFFINL Mix"};
 
@@ -471,7 +493,9 @@ SOC_ENUM_SINGLE( WM8400_INPUT_MIXER1, WM8400_AINLMODE_SHIFT,
 static const struct snd_kcontrol_new wm8400_dapm_ainlmux_controls =
 SOC_DAPM_ENUM("Route", wm8400_ainlmux_enum);
 
+/* DIFFINL */
 
+/* AINRMUX */
 static const char *wm8400_ainrmux[] =
 	{"INMIXR Mix", "RXVOICE Mix", "DIFFINR Mix"};
 
@@ -482,6 +506,7 @@ SOC_ENUM_SINGLE( WM8400_INPUT_MIXER1, WM8400_AINRMODE_SHIFT,
 static const struct snd_kcontrol_new wm8400_dapm_ainrmux_controls =
 SOC_DAPM_ENUM("Route", wm8400_ainrmux_enum);
 
+/* RXVOICE */
 static const struct snd_kcontrol_new wm8400_dapm_rxvoice_controls[] = {
 SOC_DAPM_SINGLE_TLV("LIN4/RXN", WM8400_INPUT_MIXER5, WM8400_LR4BVOL_SHIFT,
 			WM8400_LR4BVOL_MASK, 0, in_mix_tlv),
@@ -489,6 +514,7 @@ SOC_DAPM_SINGLE_TLV("RIN4/RXP", WM8400_INPUT_MIXER6, WM8400_RL4BVOL_SHIFT,
 			WM8400_RL4BVOL_MASK, 0, in_mix_tlv),
 };
 
+/* LOMIX */
 static const struct snd_kcontrol_new wm8400_dapm_lomix_controls[] = {
 SOC_DAPM_SINGLE("LOMIX Right ADC Bypass Switch", WM8400_OUTPUT_MIXER1,
 	WM8400_LRBLO_SHIFT, 1, 0),
@@ -506,6 +532,7 @@ SOC_DAPM_SINGLE("LOMIX Left DAC Switch", WM8400_OUTPUT_MIXER1,
 	WM8400_LDLO_SHIFT, 1, 0),
 };
 
+/* ROMIX */
 static const struct snd_kcontrol_new wm8400_dapm_romix_controls[] = {
 SOC_DAPM_SINGLE("ROMIX Left ADC Bypass Switch", WM8400_OUTPUT_MIXER2,
 	WM8400_RLBRO_SHIFT, 1, 0),
@@ -523,6 +550,7 @@ SOC_DAPM_SINGLE("ROMIX Right DAC Switch", WM8400_OUTPUT_MIXER2,
 	WM8400_RDRO_SHIFT, 1, 0),
 };
 
+/* LONMIX */
 static const struct snd_kcontrol_new wm8400_dapm_lonmix_controls[] = {
 SOC_DAPM_SINGLE("LONMIX Left Mixer PGA Switch", WM8400_LINE_MIXER1,
 	WM8400_LLOPGALON_SHIFT, 1, 0),
@@ -532,6 +560,7 @@ SOC_DAPM_SINGLE("LONMIX Inverted LOP Switch", WM8400_LINE_MIXER1,
 	WM8400_LOPLON_SHIFT, 1, 0),
 };
 
+/* LOPMIX */
 static const struct snd_kcontrol_new wm8400_dapm_lopmix_controls[] = {
 SOC_DAPM_SINGLE("LOPMIX Right Mic Bypass Switch", WM8400_LINE_MIXER1,
 	WM8400_LR12LOP_SHIFT, 1, 0),
@@ -541,6 +570,7 @@ SOC_DAPM_SINGLE("LOPMIX Left Mixer PGA Switch", WM8400_LINE_MIXER1,
 	WM8400_LLOPGALOP_SHIFT, 1, 0),
 };
 
+/* RONMIX */
 static const struct snd_kcontrol_new wm8400_dapm_ronmix_controls[] = {
 SOC_DAPM_SINGLE("RONMIX Right Mixer PGA Switch", WM8400_LINE_MIXER2,
 	WM8400_RROPGARON_SHIFT, 1, 0),
@@ -550,6 +580,7 @@ SOC_DAPM_SINGLE("RONMIX Inverted ROP Switch", WM8400_LINE_MIXER2,
 	WM8400_ROPRON_SHIFT, 1, 0),
 };
 
+/* ROPMIX */
 static const struct snd_kcontrol_new wm8400_dapm_ropmix_controls[] = {
 SOC_DAPM_SINGLE("ROPMIX Left Mic Bypass Switch", WM8400_LINE_MIXER2,
 	WM8400_RL12ROP_SHIFT, 1, 0),
@@ -559,6 +590,7 @@ SOC_DAPM_SINGLE("ROPMIX Right Mixer PGA Switch", WM8400_LINE_MIXER2,
 	WM8400_RROPGAROP_SHIFT, 1, 0),
 };
 
+/* OUT3MIX */
 static const struct snd_kcontrol_new wm8400_dapm_out3mix_controls[] = {
 SOC_DAPM_SINGLE("OUT3MIX LIN4/RXP Bypass Switch", WM8400_OUT3_4_MIXER,
 	WM8400_LI4O3_SHIFT, 1, 0),
@@ -566,6 +598,7 @@ SOC_DAPM_SINGLE("OUT3MIX Left Out PGA Switch", WM8400_OUT3_4_MIXER,
 	WM8400_LPGAO3_SHIFT, 1, 0),
 };
 
+/* OUT4MIX */
 static const struct snd_kcontrol_new wm8400_dapm_out4mix_controls[] = {
 SOC_DAPM_SINGLE("OUT4MIX Right Out PGA Switch", WM8400_OUT3_4_MIXER,
 	WM8400_RPGAO4_SHIFT, 1, 0),
@@ -573,6 +606,7 @@ SOC_DAPM_SINGLE("OUT4MIX RIN4/RXP Bypass Switch", WM8400_OUT3_4_MIXER,
 	WM8400_RI4O4_SHIFT, 1, 0),
 };
 
+/* SPKMIX */
 static const struct snd_kcontrol_new wm8400_dapm_spkmix_controls[] = {
 SOC_DAPM_SINGLE("SPKMIX LIN2 Bypass Switch", WM8400_SPEAKER_MIXER,
 	WM8400_LI2SPK_SHIFT, 1, 0),
@@ -593,6 +627,8 @@ SOC_DAPM_SINGLE("SPKMIX RIN2 Bypass Switch", WM8400_SPEAKER_MIXER,
 };
 
 static const struct snd_soc_dapm_widget wm8400_dapm_widgets[] = {
+/* Input Side */
+/* Input Lines */
 SND_SOC_DAPM_INPUT("LIN1"),
 SND_SOC_DAPM_INPUT("LIN2"),
 SND_SOC_DAPM_INPUT("LIN3"),
@@ -603,11 +639,13 @@ SND_SOC_DAPM_INPUT("RIN1"),
 SND_SOC_DAPM_INPUT("RIN2"),
 SND_SOC_DAPM_INPUT("Internal ADC Source"),
 
+/* DACs */
 SND_SOC_DAPM_ADC("Left ADC", "Left Capture", WM8400_POWER_MANAGEMENT_2,
 	WM8400_ADCL_ENA_SHIFT, 0),
 SND_SOC_DAPM_ADC("Right ADC", "Right Capture", WM8400_POWER_MANAGEMENT_2,
 	WM8400_ADCR_ENA_SHIFT, 0),
 
+/* Input PGAs */
 SND_SOC_DAPM_MIXER("LIN12 PGA", WM8400_POWER_MANAGEMENT_2,
 		   WM8400_LIN12_ENA_SHIFT,
 		   0, &wm8400_dapm_lin12_pga_controls[0],
@@ -625,82 +663,102 @@ SND_SOC_DAPM_MIXER("RIN34 PGA", WM8400_POWER_MANAGEMENT_2,
 		   0, &wm8400_dapm_rin34_pga_controls[0],
 		   ARRAY_SIZE(wm8400_dapm_rin34_pga_controls)),
 
+/* INMIXL */
 SND_SOC_DAPM_MIXER_E("INMIXL", WM8400_INTDRIVBITS, WM8400_INMIXL_PWR, 0,
 	&wm8400_dapm_inmixl_controls[0],
 	ARRAY_SIZE(wm8400_dapm_inmixl_controls),
 	inmixer_event, SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
+/* AINLMUX */
 SND_SOC_DAPM_MUX_E("AILNMUX", WM8400_INTDRIVBITS, WM8400_AINLMUX_PWR, 0,
 	&wm8400_dapm_ainlmux_controls, inmixer_event,
 	SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
+/* INMIXR */
 SND_SOC_DAPM_MIXER_E("INMIXR", WM8400_INTDRIVBITS, WM8400_INMIXR_PWR, 0,
 	&wm8400_dapm_inmixr_controls[0],
 	ARRAY_SIZE(wm8400_dapm_inmixr_controls),
 	inmixer_event, SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
+/* AINRMUX */
 SND_SOC_DAPM_MUX_E("AIRNMUX", WM8400_INTDRIVBITS, WM8400_AINRMUX_PWR, 0,
 	&wm8400_dapm_ainrmux_controls, inmixer_event,
 	SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
+/* Output Side */
+/* DACs */
 SND_SOC_DAPM_DAC("Left DAC", "Left Playback", WM8400_POWER_MANAGEMENT_3,
 	WM8400_DACL_ENA_SHIFT, 0),
 SND_SOC_DAPM_DAC("Right DAC", "Right Playback", WM8400_POWER_MANAGEMENT_3,
 	WM8400_DACR_ENA_SHIFT, 0),
 
+/* LOMIX */
 SND_SOC_DAPM_MIXER_E("LOMIX", WM8400_POWER_MANAGEMENT_3,
 		     WM8400_LOMIX_ENA_SHIFT,
 		     0, &wm8400_dapm_lomix_controls[0],
 		     ARRAY_SIZE(wm8400_dapm_lomix_controls),
 		     outmixer_event, SND_SOC_DAPM_PRE_REG),
 
+/* LONMIX */
 SND_SOC_DAPM_MIXER("LONMIX", WM8400_POWER_MANAGEMENT_3, WM8400_LON_ENA_SHIFT,
 		   0, &wm8400_dapm_lonmix_controls[0],
 		   ARRAY_SIZE(wm8400_dapm_lonmix_controls)),
 
+/* LOPMIX */
 SND_SOC_DAPM_MIXER("LOPMIX", WM8400_POWER_MANAGEMENT_3, WM8400_LOP_ENA_SHIFT,
 		   0, &wm8400_dapm_lopmix_controls[0],
 		   ARRAY_SIZE(wm8400_dapm_lopmix_controls)),
 
+/* OUT3MIX */
 SND_SOC_DAPM_MIXER("OUT3MIX", WM8400_POWER_MANAGEMENT_1, WM8400_OUT3_ENA_SHIFT,
 		   0, &wm8400_dapm_out3mix_controls[0],
 		   ARRAY_SIZE(wm8400_dapm_out3mix_controls)),
 
+/* SPKMIX */
 SND_SOC_DAPM_MIXER_E("SPKMIX", WM8400_POWER_MANAGEMENT_1, WM8400_SPK_ENA_SHIFT,
 		     0, &wm8400_dapm_spkmix_controls[0],
 		     ARRAY_SIZE(wm8400_dapm_spkmix_controls), outmixer_event,
 		     SND_SOC_DAPM_PRE_REG),
 
+/* OUT4MIX */
 SND_SOC_DAPM_MIXER("OUT4MIX", WM8400_POWER_MANAGEMENT_1, WM8400_OUT4_ENA_SHIFT,
 	0, &wm8400_dapm_out4mix_controls[0],
 	ARRAY_SIZE(wm8400_dapm_out4mix_controls)),
 
+/* ROPMIX */
 SND_SOC_DAPM_MIXER("ROPMIX", WM8400_POWER_MANAGEMENT_3, WM8400_ROP_ENA_SHIFT,
 		   0, &wm8400_dapm_ropmix_controls[0],
 		   ARRAY_SIZE(wm8400_dapm_ropmix_controls)),
 
+/* RONMIX */
 SND_SOC_DAPM_MIXER("RONMIX", WM8400_POWER_MANAGEMENT_3, WM8400_RON_ENA_SHIFT,
 		   0, &wm8400_dapm_ronmix_controls[0],
 		   ARRAY_SIZE(wm8400_dapm_ronmix_controls)),
 
+/* ROMIX */
 SND_SOC_DAPM_MIXER_E("ROMIX", WM8400_POWER_MANAGEMENT_3,
 		     WM8400_ROMIX_ENA_SHIFT,
 		     0, &wm8400_dapm_romix_controls[0],
 		     ARRAY_SIZE(wm8400_dapm_romix_controls),
 		     outmixer_event, SND_SOC_DAPM_PRE_REG),
 
+/* LOUT PGA */
 SND_SOC_DAPM_PGA("LOUT PGA", WM8400_POWER_MANAGEMENT_1, WM8400_LOUT_ENA_SHIFT,
 		 0, NULL, 0),
 
+/* ROUT PGA */
 SND_SOC_DAPM_PGA("ROUT PGA", WM8400_POWER_MANAGEMENT_1, WM8400_ROUT_ENA_SHIFT,
 		 0, NULL, 0),
 
+/* LOPGA */
 SND_SOC_DAPM_PGA("LOPGA", WM8400_POWER_MANAGEMENT_3, WM8400_LOPGA_ENA_SHIFT, 0,
 	NULL, 0),
 
+/* ROPGA */
 SND_SOC_DAPM_PGA("ROPGA", WM8400_POWER_MANAGEMENT_3, WM8400_ROPGA_ENA_SHIFT, 0,
 	NULL, 0),
 
+/* MICBIAS */
 SND_SOC_DAPM_SUPPLY("MICBIAS", WM8400_POWER_MANAGEMENT_1,
 		    WM8400_MIC1BIAS_ENA_SHIFT, 0, NULL, 0),
 
@@ -719,55 +777,57 @@ SND_SOC_DAPM_OUTPUT("Internal DAC Sink"),
 };
 
 static const struct snd_soc_dapm_route wm8400_dapm_routes[] = {
-	
+	/* Make DACs turn on when playing even if not mixed into any outputs */
 	{"Internal DAC Sink", NULL, "Left DAC"},
 	{"Internal DAC Sink", NULL, "Right DAC"},
 
+	/* Make ADCs turn on when recording
+	 * even if not mixed from any inputs */
 	{"Left ADC", NULL, "Internal ADC Source"},
 	{"Right ADC", NULL, "Internal ADC Source"},
 
-	
-	
+	/* Input Side */
+	/* LIN12 PGA */
 	{"LIN12 PGA", "LIN1 Switch", "LIN1"},
 	{"LIN12 PGA", "LIN2 Switch", "LIN2"},
-	
+	/* LIN34 PGA */
 	{"LIN34 PGA", "LIN3 Switch", "LIN3"},
 	{"LIN34 PGA", "LIN4 Switch", "LIN4/RXN"},
-	
+	/* INMIXL */
 	{"INMIXL", "Record Left Volume", "LOMIX"},
 	{"INMIXL", "LIN2 Volume", "LIN2"},
 	{"INMIXL", "LINPGA12 Switch", "LIN12 PGA"},
 	{"INMIXL", "LINPGA34 Switch", "LIN34 PGA"},
-	
+	/* AILNMUX */
 	{"AILNMUX", "INMIXL Mix", "INMIXL"},
 	{"AILNMUX", "DIFFINL Mix", "LIN12 PGA"},
 	{"AILNMUX", "DIFFINL Mix", "LIN34 PGA"},
 	{"AILNMUX", "RXVOICE Mix", "LIN4/RXN"},
 	{"AILNMUX", "RXVOICE Mix", "RIN4/RXP"},
-	
+	/* ADC */
 	{"Left ADC", NULL, "AILNMUX"},
 
-	
+	/* RIN12 PGA */
 	{"RIN12 PGA", "RIN1 Switch", "RIN1"},
 	{"RIN12 PGA", "RIN2 Switch", "RIN2"},
-	
+	/* RIN34 PGA */
 	{"RIN34 PGA", "RIN3 Switch", "RIN3"},
 	{"RIN34 PGA", "RIN4 Switch", "RIN4/RXP"},
-	
+	/* INMIXL */
 	{"INMIXR", "Record Right Volume", "ROMIX"},
 	{"INMIXR", "RIN2 Volume", "RIN2"},
 	{"INMIXR", "RINPGA12 Switch", "RIN12 PGA"},
 	{"INMIXR", "RINPGA34 Switch", "RIN34 PGA"},
-	
+	/* AIRNMUX */
 	{"AIRNMUX", "INMIXR Mix", "INMIXR"},
 	{"AIRNMUX", "DIFFINR Mix", "RIN12 PGA"},
 	{"AIRNMUX", "DIFFINR Mix", "RIN34 PGA"},
 	{"AIRNMUX", "RXVOICE Mix", "LIN4/RXN"},
 	{"AIRNMUX", "RXVOICE Mix", "RIN4/RXP"},
-	
+	/* ADC */
 	{"Right ADC", NULL, "AIRNMUX"},
 
-	
+	/* LOMIX */
 	{"LOMIX", "LOMIX RIN3 Bypass Switch", "RIN3"},
 	{"LOMIX", "LOMIX LIN3 Bypass Switch", "LIN3"},
 	{"LOMIX", "LOMIX LIN12 PGA Bypass Switch", "LIN12 PGA"},
@@ -776,7 +836,7 @@ static const struct snd_soc_dapm_route wm8400_dapm_routes[] = {
 	{"LOMIX", "LOMIX Left ADC Bypass Switch", "AILNMUX"},
 	{"LOMIX", "LOMIX Left DAC Switch", "Left DAC"},
 
-	
+	/* ROMIX */
 	{"ROMIX", "ROMIX RIN3 Bypass Switch", "RIN3"},
 	{"ROMIX", "ROMIX LIN3 Bypass Switch", "LIN3"},
 	{"ROMIX", "ROMIX LIN12 PGA Bypass Switch", "LIN12 PGA"},
@@ -785,7 +845,7 @@ static const struct snd_soc_dapm_route wm8400_dapm_routes[] = {
 	{"ROMIX", "ROMIX Left ADC Bypass Switch", "AILNMUX"},
 	{"ROMIX", "ROMIX Right DAC Switch", "Right DAC"},
 
-	
+	/* SPKMIX */
 	{"SPKMIX", "SPKMIX LIN2 Bypass Switch", "LIN2"},
 	{"SPKMIX", "SPKMIX RIN2 Bypass Switch", "RIN2"},
 	{"SPKMIX", "SPKMIX LADC Bypass Switch", "AILNMUX"},
@@ -795,42 +855,42 @@ static const struct snd_soc_dapm_route wm8400_dapm_routes[] = {
 	{"SPKMIX", "SPKMIX Right DAC Switch", "Right DAC"},
 	{"SPKMIX", "SPKMIX Left DAC Switch", "Right DAC"},
 
-	
+	/* LONMIX */
 	{"LONMIX", "LONMIX Left Mixer PGA Switch", "LOPGA"},
 	{"LONMIX", "LONMIX Right Mixer PGA Switch", "ROPGA"},
 	{"LONMIX", "LONMIX Inverted LOP Switch", "LOPMIX"},
 
-	
+	/* LOPMIX */
 	{"LOPMIX", "LOPMIX Right Mic Bypass Switch", "RIN12 PGA"},
 	{"LOPMIX", "LOPMIX Left Mic Bypass Switch", "LIN12 PGA"},
 	{"LOPMIX", "LOPMIX Left Mixer PGA Switch", "LOPGA"},
 
-	
+	/* OUT3MIX */
 	{"OUT3MIX", "OUT3MIX LIN4/RXP Bypass Switch", "LIN4/RXN"},
 	{"OUT3MIX", "OUT3MIX Left Out PGA Switch", "LOPGA"},
 
-	
+	/* OUT4MIX */
 	{"OUT4MIX", "OUT4MIX Right Out PGA Switch", "ROPGA"},
 	{"OUT4MIX", "OUT4MIX RIN4/RXP Bypass Switch", "RIN4/RXP"},
 
-	
+	/* RONMIX */
 	{"RONMIX", "RONMIX Right Mixer PGA Switch", "ROPGA"},
 	{"RONMIX", "RONMIX Left Mixer PGA Switch", "LOPGA"},
 	{"RONMIX", "RONMIX Inverted ROP Switch", "ROPMIX"},
 
-	
+	/* ROPMIX */
 	{"ROPMIX", "ROPMIX Left Mic Bypass Switch", "LIN12 PGA"},
 	{"ROPMIX", "ROPMIX Right Mic Bypass Switch", "RIN12 PGA"},
 	{"ROPMIX", "ROPMIX Right Mixer PGA Switch", "ROPGA"},
 
-	
+	/* Out Mixer PGAs */
 	{"LOPGA", NULL, "LOMIX"},
 	{"ROPGA", NULL, "ROMIX"},
 
 	{"LOUT PGA", NULL, "LOMIX"},
 	{"ROUT PGA", NULL, "ROMIX"},
 
-	
+	/* Output Pins */
 	{"LON", NULL, "LONMIX"},
 	{"LOP", NULL, "LOPMIX"},
 	{"OUT3", NULL, "OUT3MIX"},
@@ -842,6 +902,9 @@ static const struct snd_soc_dapm_route wm8400_dapm_routes[] = {
 	{"RON", NULL, "RONMIX"},
 };
 
+/*
+ * Clock after FLL and dividers
+ */
 static int wm8400_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 		int clk_id, unsigned int freq, int dir)
 {
@@ -892,7 +955,7 @@ static int fll_factors(struct wm8400_priv *wm8400, struct fll_factors *factors,
 	else
 		factors->fratio = 0;
 
-	
+	/* Ensure we have a fractional part */
 	do {
 		if (Fref < 1000000)
 			factors->fratio--;
@@ -909,7 +972,7 @@ static int fll_factors(struct wm8400_priv *wm8400, struct fll_factors *factors,
 		Nmod = target % (Fref * factors->fratio);
 	} while (Nmod == 0);
 
-	
+	/* Calculate fractional part - scale up so we can round. */
 	Kpart = FIXED_FLL_SIZE * (long long)Nmod;
 
 	do_div(Kpart, (Fref * factors->fratio));
@@ -919,7 +982,7 @@ static int fll_factors(struct wm8400_priv *wm8400, struct fll_factors *factors,
 	if ((K % 10) >= 5)
 		K += 5;
 
-	
+	/* Move down to proper range now rounding is done */
 	factors->k = K / 10;
 
 	dev_dbg(wm8400->wm8400->dev,
@@ -948,13 +1011,16 @@ static int wm8400_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 		if (ret != 0)
 			return ret;
 	} else {
+		/* Bodge GCC 4.4.0 uninitialised variable warning - it
+		 * doesn't seem capable of working out that we exit if
+		 * freq_out is 0 before any of the uses. */
 		memset(&factors, 0, sizeof(factors));
 	}
 
 	wm8400->fll_out = freq_out;
 	wm8400->fll_in = freq_in;
 
-	
+	/* We *must* disable the FLL before any changes */
 	reg = wm8400_read(codec, WM8400_POWER_MANAGEMENT_2);
 	reg &= ~WM8400_FLL_ENA;
 	wm8400_write(codec, WM8400_POWER_MANAGEMENT_2, reg);
@@ -982,6 +1048,9 @@ static int wm8400_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 	return 0;
 }
 
+/*
+ * Sets ADC and Voice DAC format.
+ */
 static int wm8400_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		unsigned int fmt)
 {
@@ -991,7 +1060,7 @@ static int wm8400_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	audio1 = wm8400_read(codec, WM8400_AUDIO_INTERFACE_1);
 	audio3 = wm8400_read(codec, WM8400_AUDIO_INTERFACE_3);
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
 		audio3 &= ~WM8400_AIF_MSTR1;
@@ -1005,7 +1074,7 @@ static int wm8400_set_dai_fmt(struct snd_soc_dai *codec_dai,
 
 	audio1 &= ~WM8400_AIF_FMT_MASK;
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		audio1 |= WM8400_AIF_FMT_I2S;
@@ -1069,6 +1138,9 @@ static int wm8400_set_dai_clkdiv(struct snd_soc_dai *codec_dai,
 	return 0;
 }
 
+/*
+ * Set PCM DAI bit size and sample rate.
+ */
 static int wm8400_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *params,
 	struct snd_soc_dai *dai)
@@ -1078,7 +1150,7 @@ static int wm8400_hw_params(struct snd_pcm_substream *substream,
 	u16 audio1 = wm8400_read(codec, WM8400_AUDIO_INTERFACE_1);
 
 	audio1 &= ~WM8400_AIF_WL_MASK;
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
@@ -1110,6 +1182,7 @@ static int wm8400_mute(struct snd_soc_dai *dai, int mute)
 	return 0;
 }
 
+/* TODO: set bias for best performance at standby */
 static int wm8400_set_bias_level(struct snd_soc_codec *codec,
 				 enum snd_soc_bias_level level)
 {
@@ -1122,7 +1195,7 @@ static int wm8400_set_bias_level(struct snd_soc_codec *codec,
 		break;
 
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* VMID=2*50k */
 		val = wm8400_read(codec, WM8400_POWER_MANAGEMENT_1) &
 			~WM8400_VMID_MODE_MASK;
 		wm8400_write(codec, WM8400_POWER_MANAGEMENT_1, val | 0x2);
@@ -1142,70 +1215,70 @@ static int wm8400_set_bias_level(struct snd_soc_codec *codec,
 			wm8400_write(codec, WM8400_POWER_MANAGEMENT_1,
 				     WM8400_CODEC_ENA | WM8400_SYSCLK_ENA);
 
-			
+			/* Enable POBCTRL, SOFT_ST, VMIDTOG and BUFDCOPEN */
 			wm8400_write(codec, WM8400_ANTIPOP2, WM8400_SOFTST |
 				     WM8400_BUFDCOPEN | WM8400_POBCTRL);
 
 			msleep(50);
 
-			
+			/* Enable VREF & VMID at 2x50k */
 			val = wm8400_read(codec, WM8400_POWER_MANAGEMENT_1);
 			val |= 0x2 | WM8400_VREF_ENA;
 			wm8400_write(codec, WM8400_POWER_MANAGEMENT_1, val);
 
-			
+			/* Enable BUFIOEN */
 			wm8400_write(codec, WM8400_ANTIPOP2, WM8400_SOFTST |
 				     WM8400_BUFDCOPEN | WM8400_POBCTRL |
 				     WM8400_BUFIOEN);
 
-			
+			/* disable POBCTRL, SOFT_ST and BUFDCOPEN */
 			wm8400_write(codec, WM8400_ANTIPOP2, WM8400_BUFIOEN);
 		}
 
-		
+		/* VMID=2*300k */
 		val = wm8400_read(codec, WM8400_POWER_MANAGEMENT_1) &
 			~WM8400_VMID_MODE_MASK;
 		wm8400_write(codec, WM8400_POWER_MANAGEMENT_1, val | 0x4);
 		break;
 
 	case SND_SOC_BIAS_OFF:
-		
+		/* Enable POBCTRL and SOFT_ST */
 		wm8400_write(codec, WM8400_ANTIPOP2, WM8400_SOFTST |
 			WM8400_POBCTRL | WM8400_BUFIOEN);
 
-		
+		/* Enable POBCTRL, SOFT_ST and BUFDCOPEN */
 		wm8400_write(codec, WM8400_ANTIPOP2, WM8400_SOFTST |
 			WM8400_BUFDCOPEN | WM8400_POBCTRL |
 			WM8400_BUFIOEN);
 
-		
+		/* mute DAC */
 		val = wm8400_read(codec, WM8400_DAC_CTRL);
 		wm8400_write(codec, WM8400_DAC_CTRL, val | WM8400_DAC_MUTE);
 
-		
+		/* Enable any disabled outputs */
 		val = wm8400_read(codec, WM8400_POWER_MANAGEMENT_1);
 		val |= WM8400_SPK_ENA | WM8400_OUT3_ENA |
 			WM8400_OUT4_ENA | WM8400_LOUT_ENA |
 			WM8400_ROUT_ENA;
 		wm8400_write(codec, WM8400_POWER_MANAGEMENT_1, val);
 
-		
+		/* Disable VMID */
 		val &= ~WM8400_VMID_MODE_MASK;
 		wm8400_write(codec, WM8400_POWER_MANAGEMENT_1, val);
 
 		msleep(300);
 
-		
+		/* Enable all output discharge bits */
 		wm8400_write(codec, WM8400_ANTIPOP1, WM8400_DIS_LLINE |
 			WM8400_DIS_RLINE | WM8400_DIS_OUT3 |
 			WM8400_DIS_OUT4 | WM8400_DIS_LOUT |
 			WM8400_DIS_ROUT);
 
-		
+		/* Disable VREF */
 		val &= ~WM8400_VREF_ENA;
 		wm8400_write(codec, WM8400_POWER_MANAGEMENT_1, val);
 
-		
+		/* disable POBCTRL, SOFT_ST and BUFDCOPEN */
 		wm8400_write(codec, WM8400_ANTIPOP2, 0x0);
 
 		ret = regulator_bulk_disable(ARRAY_SIZE(power),
@@ -1234,7 +1307,15 @@ static const struct snd_soc_dai_ops wm8400_dai_ops = {
 	.set_pll = wm8400_set_dai_pll,
 };
 
+/*
+ * The WM8400 supports 2 different and mutually exclusive DAI
+ * configurations.
+ *
+ * 1. ADC/DAC on Primary Interface
+ * 2. ADC on Primary Interface/DAC on secondary
+ */
 static struct snd_soc_dai_driver wm8400_dai = {
+/* ADC/DAC on primary */
 	.name = "wm8400-hifi",
 	.playback = {
 		.stream_name = "Playback",
@@ -1273,7 +1354,7 @@ static void wm8400_probe_deferred(struct work_struct *work)
 						work);
 	struct snd_soc_codec *codec = priv->codec;
 
-	
+	/* charge output caps */
 	wm8400_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 }
 
@@ -1307,7 +1388,7 @@ static int wm8400_codec_probe(struct snd_soc_codec *codec)
 	reg = wm8400_read(codec, WM8400_POWER_MANAGEMENT_1);
 	wm8400_write(codec, WM8400_POWER_MANAGEMENT_1, reg | WM8400_CODEC_ENA);
 
-	
+	/* Latch volume update bits */
 	reg = wm8400_read(codec, WM8400_LEFT_LINE_INPUT_1_2_VOLUME);
 	wm8400_write(codec, WM8400_LEFT_LINE_INPUT_1_2_VOLUME,
 		     reg & WM8400_IPVU);

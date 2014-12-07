@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /*
  * MCA bus support functions for sysfs.
@@ -30,12 +31,15 @@
 #include <linux/init.h>
 #include <linux/slab.h>
 
+/* Very few machines have more than one MCA bus.  However, there are
+ * those that do (Voyager 35xx/5xxx), so we do it this way for future
+ * expansion.  None that I know have more than 2 */
 static struct mca_bus *mca_root_busses[MAX_MCA_BUSSES];
 
 #define MCA_DEVINFO(i,s) { .pos = i, .name = s }
 
 struct mca_device_info {
-	short pos_id;		
+	short pos_id;		/* the 2 byte pos id for this card */
 	char name[50];
 };
 
@@ -54,6 +58,9 @@ static int mca_bus_match (struct device *dev, struct device_driver *drv)
 			}
 		}
 	}
+	/* If the integrated id is present, treat it as though it were an
+	 * additional id in the id_table (it can't be because by definition,
+	 * integrated id's overflow a short */
 	if (mca_drv->integrated_id && mca_dev->pos_id ==
 	    mca_drv->integrated_id) {
 		mca_dev->index = i;
@@ -70,7 +77,7 @@ EXPORT_SYMBOL (mca_bus_type);
 
 static ssize_t mca_show_pos_id(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	
+	/* four digits, \n and trailing \0 */
 	struct mca_device *mca_dev = to_mca_device(dev);
 	int len;
 
@@ -82,13 +89,13 @@ static ssize_t mca_show_pos_id(struct device *dev, struct device_attribute *attr
 }
 static ssize_t mca_show_pos(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	
+	/* enough for 8 two byte hex chars plus space and new line */
 	int j, len=0;
 	struct mca_device *mca_dev = to_mca_device(dev);
 
 	for(j=0; j<8; j++)
 		len += sprintf(buf+len, "%02x ", mca_dev->pos[j]);
-	
+	/* change last trailing space to new line */
 	buf[len-1] = '\n';
 	return len;
 }
@@ -127,12 +134,13 @@ err_out:
 	return 0;
 }
 
+/* */
 struct mca_bus * __devinit mca_attach_bus(int bus)
 {
 	struct mca_bus *mca_bus;
 
 	if (unlikely(mca_root_busses[bus] != NULL)) {
-		
+		/* This should never happen, but just in case */
 		printk(KERN_EMERG "MCA tried to add already existing bus %d\n",
 		       bus);
 		dump_stack();

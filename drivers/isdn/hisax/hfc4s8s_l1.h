@@ -1,9 +1,26 @@
+/***************************************************************/
+/*  $Id: hfc4s8s_l1.h,v 1.1 2005/02/02 17:28:55 martinb1 Exp $ */
+/*                                                             */
+/*  This file is a minimal required extraction of hfc48scu.h   */
+/*  (Genero 3.2, HFC XML 1.7a for HFC-E1, HFC-4S and HFC-8S)   */
+/*                                                             */
+/*  To get this complete register description contact          */
+/*  Cologne Chip AG :                                          */
+/*  Internet:  http://www.colognechip.com/                     */
+/*  E-Mail:    info@colognechip.com                            */
+/***************************************************************/
 
 #ifndef _HFC4S8S_L1_H_
 #define _HFC4S8S_L1_H_
 
 
+/*
+ *  include Genero generated HFC-4S/8S header file hfc48scu.h
+ *  for complete register description. This will define _HFC48SCU_H_
+ *  to prevent redefinitions
+ */
 
+// #include "hfc48scu.h"
 
 #ifndef _HFC48SCU_H_
 #define _HFC48SCU_H_
@@ -67,5 +84,5 @@
 #define R_IRQMSK_MISC	0x11
 #define M_TI_IRQMSK	0x02
 
-#endif	
-#endif	
+#endif	/* _HFC4S8S_L1_H_ */
+#endif	/* _HFC48SCU_H_ */

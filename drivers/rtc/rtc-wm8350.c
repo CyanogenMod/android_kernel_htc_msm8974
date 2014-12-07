@@ -32,12 +32,19 @@
 
 #define to_wm8350_from_rtc_dev(d) container_of(d, struct wm8350, rtc.pdev.dev)
 
+/*
+ * Read current time and date in RTC
+ */
 static int wm8350_rtc_readtime(struct device *dev, struct rtc_time *tm)
 {
 	struct wm8350 *wm8350 = dev_get_drvdata(dev);
 	u16 time1[4], time2[4];
 	int retries = WM8350_GET_TIME_RETRIES, ret;
 
+	/*
+	 * Read the time twice and compare.
+	 * If time1 == time2, then time is valid else retry.
+	 */
 	do {
 		ret = wm8350_block_read(wm8350, WM8350_RTC_SECONDS_MINUTES,
 					4, time1);
@@ -84,6 +91,9 @@ static int wm8350_rtc_readtime(struct device *dev, struct rtc_time *tm)
 	return -EIO;
 }
 
+/*
+ * Set current time and date in RTC
+ */
 static int wm8350_rtc_settime(struct device *dev, struct rtc_time *tm)
 {
 	struct wm8350 *wm8350 = dev_get_drvdata(dev);
@@ -103,12 +113,12 @@ static int wm8350_rtc_settime(struct device *dev, struct rtc_time *tm)
 	dev_dbg(dev, "Setting: %04x %04x %04x %04x\n",
 		time[0], time[1], time[2], time[3]);
 
-	
+	/* Set RTC_SET to stop the clock */
 	ret = wm8350_set_bits(wm8350, WM8350_RTC_TIME_CONTROL, WM8350_RTC_SET);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Wait until confirmation of stopping */
 	do {
 		rtc_ctrl = wm8350_reg_read(wm8350, WM8350_RTC_TIME_CONTROL);
 		schedule_timeout_uninterruptible(msecs_to_jiffies(1));
@@ -119,17 +129,20 @@ static int wm8350_rtc_settime(struct device *dev, struct rtc_time *tm)
 		return -EIO;
 	}
 
-	
+	/* Write time to RTC */
 	ret = wm8350_block_write(wm8350, WM8350_RTC_SECONDS_MINUTES, 4, time);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Clear RTC_SET to start the clock */
 	ret = wm8350_clear_bits(wm8350, WM8350_RTC_TIME_CONTROL,
 				WM8350_RTC_SET);
 	return ret;
 }
 
+/*
+ * Read alarm time and date in RTC
+ */
 static int wm8350_rtc_readalarm(struct device *dev, struct rtc_wkalrm *alrm)
 {
 	struct wm8350 *wm8350 = dev_get_drvdata(dev);
@@ -182,13 +195,13 @@ static int wm8350_rtc_stop_alarm(struct wm8350 *wm8350)
 	u16 rtc_ctrl;
 	int ret;
 
-	
+	/* Set RTC_SET to stop the clock */
 	ret = wm8350_set_bits(wm8350, WM8350_RTC_TIME_CONTROL,
 			      WM8350_RTC_ALMSET);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Wait until confirmation of stopping */
 	do {
 		rtc_ctrl = wm8350_reg_read(wm8350, WM8350_RTC_TIME_CONTROL);
 		schedule_timeout_uninterruptible(msecs_to_jiffies(1));
@@ -211,7 +224,7 @@ static int wm8350_rtc_start_alarm(struct wm8350 *wm8350)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Wait until confirmation */
 	do {
 		rtc_ctrl = wm8350_reg_read(wm8350, WM8350_RTC_TIME_CONTROL);
 		schedule_timeout_uninterruptible(msecs_to_jiffies(1));
@@ -277,7 +290,7 @@ static int wm8350_rtc_setalarm(struct device *dev, struct rtc_wkalrm *alrm)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Write time to RTC */
 	ret = wm8350_block_write(wm8350, WM8350_ALARM_SECONDS_MINUTES,
 				 3, time);
 	if (ret < 0)
@@ -297,7 +310,7 @@ static irqreturn_t wm8350_rtc_alarm_handler(int irq, void *data)
 
 	rtc_update_irq(rtc, 1, RTC_IRQF | RTC_AF);
 
-	
+	/* Make it one shot */
 	ret = wm8350_set_bits(wm8350, WM8350_RTC_TIME_CONTROL,
 			      WM8350_RTC_ALMSET);
 	if (ret != 0) {
@@ -385,7 +398,7 @@ static int wm8350_rtc_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* enable the RTC if it's not already enabled */
 	power5 = wm8350_reg_read(wm8350, WM8350_POWER_MGMT_5);
 	if (!(power5 &  WM8350_RTC_TICK_ENA)) {
 		dev_info(wm8350->dev, "Starting RTC\n");

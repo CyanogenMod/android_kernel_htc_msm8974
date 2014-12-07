@@ -26,16 +26,17 @@ MODULE_DESCRIPTION("w1 family 29 driver for DS2408 8 Pin IO");
 
 #define W1_F29_RETRIES		3
 
-#define W1_F29_REG_LOGIG_STATE             0x88 
-#define W1_F29_REG_OUTPUT_LATCH_STATE      0x89 
-#define W1_F29_REG_ACTIVITY_LATCH_STATE    0x8A 
-#define W1_F29_REG_COND_SEARCH_SELECT_MASK 0x8B 
-#define W1_F29_REG_COND_SEARCH_POL_SELECT  0x8C 
-#define W1_F29_REG_CONTROL_AND_STATUS      0x8D 
+#define W1_F29_REG_LOGIG_STATE             0x88 /* R */
+#define W1_F29_REG_OUTPUT_LATCH_STATE      0x89 /* R */
+#define W1_F29_REG_ACTIVITY_LATCH_STATE    0x8A /* R */
+#define W1_F29_REG_COND_SEARCH_SELECT_MASK 0x8B /* RW */
+#define W1_F29_REG_COND_SEARCH_POL_SELECT  0x8C /* RW */
+#define W1_F29_REG_CONTROL_AND_STATUS      0x8D /* RW */
 
 #define W1_F29_FUNC_READ_PIO_REGS          0xF0
 #define W1_F29_FUNC_CHANN_ACCESS_READ      0xF5
 #define W1_F29_FUNC_CHANN_ACCESS_WRITE     0x5A
+/* also used to write the control/status reg (0x8D): */
 #define W1_F29_FUNC_WRITE_COND_SEARCH_REG  0xCC
 #define W1_F29_FUNC_RESET_ACTIVITY_LATCHES 0xC3
 
@@ -177,23 +178,28 @@ static ssize_t w1_f29_write_output(
 		w1_write_block(sl->master, w1_buf, 3);
 
 		readBack = w1_read_8(sl->master);
+		/* here the master could read another byte which
+		   would be the PIO reg (the actual pin logic state)
+		   since in this driver we don't know which pins are
+		   in and outs, there's no value to read the state and
+		   compare. with (*buf) so end this command abruptly: */
 		if (w1_reset_resume_command(sl->master))
 			goto error;
 
 		if (readBack != 0xAA) {
-			
+			/* try again, the slave is ready for a command */
 			continue;
 		}
 
-		
-		
+		/* go read back the output latches */
+		/* (the direct effect of the write above) */
 		w1_buf[0] = W1_F29_FUNC_READ_PIO_REGS;
 		w1_buf[1] = W1_F29_REG_OUTPUT_LATCH_STATE;
 		w1_buf[2] = 0;
 		w1_write_block(sl->master, w1_buf, 3);
-		
+		/* read the result of the READ_PIO_REGS command */
 		if (w1_read_8(sl->master) == *buf) {
-			
+			/* success! */
 			mutex_unlock(&sl->master->mutex);
 			dev_dbg(&sl->dev,
 				"mutex unlocked, retries:%d", retries);
@@ -208,6 +214,9 @@ error:
 }
 
 
+/**
+ * Writing to the activity file resets the activity latches.
+ */
 static ssize_t w1_f29_write_activity(
 	struct file *filp, struct kobject *kobj,
 	struct bin_attribute *bin_attr,
@@ -275,7 +284,7 @@ static ssize_t w1_f29_write_status_control(
 
 		w1_write_block(sl->master, w1_buf, 3);
 		if (w1_read_8(sl->master) == *buf) {
-			
+			/* success! */
 			mutex_unlock(&sl->master->mutex);
 			return 1;
 		}

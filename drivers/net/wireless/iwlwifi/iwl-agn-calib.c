@@ -69,12 +69,16 @@
 #include "iwl-trans.h"
 #include "iwl-agn.h"
 
+/*****************************************************************************
+ * INIT calibrations framework
+ *****************************************************************************/
 
+/* Opaque calibration results */
 struct iwl_calib_result {
 	struct list_head list;
 	size_t cmd_len;
 	struct iwl_calib_hdr hdr;
-	
+	/* data follows */
 };
 
 struct statistics_general_data {
@@ -131,7 +135,7 @@ int iwl_calib_set(struct iwl_priv *priv,
 		}
 	}
 
-	
+	/* wasn't in list already */
 	list_add_tail(&res->list, &priv->calib_results);
 
 	return 0;
@@ -147,7 +151,18 @@ void iwl_calib_free_results(struct iwl_priv *priv)
 	}
 }
 
+/*****************************************************************************
+ * RUNTIME calibrations framework
+ *****************************************************************************/
 
+/* "false alarms" are signals that our DSP tries to lock onto,
+ *   but then determines that they are either noise, or transmissions
+ *   from a distant wireless network (also "noise", really) that get
+ *   "stepped on" by stronger transmissions within our own network.
+ * This algorithm attempts to set a sensitivity level that is high
+ *   enough to receive all of our own network traffic, but not so
+ *   high that our DSP gets too busy trying to lock onto non-network
+ *   activity/noise. */
 static int iwl_sens_energy_cck(struct iwl_priv *priv,
 				   u32 norm_fa,
 				   u32 rx_enable_time,
@@ -162,6 +177,15 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 	u8 silence_rssi_c = 0;
 	u32 val;
 
+	/* "false_alarms" values below are cross-multiplications to assess the
+	 *   numbers of false alarms within the measured period of actual Rx
+	 *   (Rx is off when we're txing), vs the min/max expected false alarms
+	 *   (some should be expected if rx is sensitive enough) in a
+	 *   hypothetical listening period of 200 time units (TU), 204.8 msec:
+	 *
+	 * MIN_FA/fixed-time < false_alarms/actual-rx-time < MAX_FA/beacon-time
+	 *
+	 * */
 	u32 false_alarms = norm_fa * 200 * 1024;
 	u32 max_false_alarms = MAX_FA_CCK * rx_enable_time;
 	u32 min_false_alarms = MIN_FA_CCK * rx_enable_time;
@@ -172,6 +196,9 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 
 	data->nrg_auto_corr_silence_diff = 0;
 
+	/* Find max silence rssi among all 3 receivers.
+	 * This is background noise, which may include transmissions from other
+	 *    networks, measured during silence before our network's beacon */
 	silence_rssi_a = (u8)((rx_info->beacon_silence_rssi_a &
 			    ALL_BAND_FILTER) >> 8);
 	silence_rssi_b = (u8)((rx_info->beacon_silence_rssi_b &
@@ -182,13 +209,13 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 	val = max(silence_rssi_b, silence_rssi_c);
 	max_silence_rssi = max(silence_rssi_a, (u8) val);
 
-	
+	/* Store silence rssi in 20-beacon history table */
 	data->nrg_silence_rssi[data->nrg_silence_idx] = max_silence_rssi;
 	data->nrg_silence_idx++;
 	if (data->nrg_silence_idx >= NRG_NUM_PREV_STAT_L)
 		data->nrg_silence_idx = 0;
 
-	
+	/* Find max silence rssi across 20 beacon history */
 	for (i = 0; i < NRG_NUM_PREV_STAT_L; i++) {
 		val = data->nrg_silence_rssi[i];
 		silence_ref = max(silence_ref, val);
@@ -197,6 +224,9 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 			silence_rssi_a, silence_rssi_b, silence_rssi_c,
 			silence_ref);
 
+	/* Find max rx energy (min value!) among all 3 receivers,
+	 *   measured during beacon frame.
+	 * Save it in 10-beacon history table. */
 	i = data->nrg_energy_idx;
 	val = min(rx_info->beacon_energy_b, rx_info->beacon_energy_c);
 	data->nrg_value[i] = min(rx_info->beacon_energy_a, val);
@@ -205,6 +235,10 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 	if (data->nrg_energy_idx >= 10)
 		data->nrg_energy_idx = 0;
 
+	/* Find min rx energy (max value) across 10 beacon history.
+	 * This is the minimum signal level that we want to receive well.
+	 * Add backoff (margin so we don't miss slightly lower energy frames).
+	 * This establishes an upper bound (min value) for energy threshold. */
 	max_nrg_cck = data->nrg_value[0];
 	for (i = 1; i < 10; i++)
 		max_nrg_cck = (u32) max(max_nrg_cck, (data->nrg_value[i]));
@@ -214,6 +248,8 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 			rx_info->beacon_energy_a, rx_info->beacon_energy_b,
 			rx_info->beacon_energy_c, max_nrg_cck - 6);
 
+	/* Count number of consecutive beacons with fewer-than-desired
+	 *   false alarms. */
 	if (false_alarms < min_false_alarms)
 		data->num_in_cck_no_fa++;
 	else
@@ -221,21 +257,25 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 	IWL_DEBUG_CALIB(priv, "consecutive bcns with few false alarms = %u\n",
 			data->num_in_cck_no_fa);
 
-	
+	/* If we got too many false alarms this time, reduce sensitivity */
 	if ((false_alarms > max_false_alarms) &&
 		(data->auto_corr_cck > AUTO_CORR_MAX_TH_CCK)) {
 		IWL_DEBUG_CALIB(priv, "norm FA %u > max FA %u\n",
 		     false_alarms, max_false_alarms);
 		IWL_DEBUG_CALIB(priv, "... reducing sensitivity\n");
 		data->nrg_curr_state = IWL_FA_TOO_MANY;
-		
+		/* Store for "fewer than desired" on later beacon */
 		data->nrg_silence_ref = silence_ref;
 
+		/* increase energy threshold (reduce nrg value)
+		 *   to decrease sensitivity */
 		data->nrg_th_cck = data->nrg_th_cck - NRG_STEP_CCK;
-	
+	/* Else if we got fewer than desired, increase sensitivity */
 	} else if (false_alarms < min_false_alarms) {
 		data->nrg_curr_state = IWL_FA_TOO_FEW;
 
+		/* Compare silence level with silence level for most recent
+		 *   healthy number or too many false alarms */
 		data->nrg_auto_corr_silence_diff = (s32)data->nrg_silence_ref -
 						   (s32)silence_ref;
 
@@ -243,26 +283,35 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 			 false_alarms, min_false_alarms,
 			 data->nrg_auto_corr_silence_diff);
 
+		/* Increase value to increase sensitivity, but only if:
+		 * 1a) previous beacon did *not* have *too many* false alarms
+		 * 1b) AND there's a significant difference in Rx levels
+		 *      from a previous beacon with too many, or healthy # FAs
+		 * OR 2) We've seen a lot of beacons (100) with too few
+		 *       false alarms */
 		if ((data->nrg_prev_state != IWL_FA_TOO_MANY) &&
 			((data->nrg_auto_corr_silence_diff > NRG_DIFF) ||
 			(data->num_in_cck_no_fa > MAX_NUMBER_CCK_NO_FA))) {
 
 			IWL_DEBUG_CALIB(priv, "... increasing sensitivity\n");
-			
+			/* Increase nrg value to increase sensitivity */
 			val = data->nrg_th_cck + NRG_STEP_CCK;
 			data->nrg_th_cck = min((u32)ranges->min_nrg_cck, val);
 		} else {
 			IWL_DEBUG_CALIB(priv, "... but not changing sensitivity\n");
 		}
 
-	
+	/* Else we got a healthy number of false alarms, keep status quo */
 	} else {
 		IWL_DEBUG_CALIB(priv, " FA in safe zone\n");
 		data->nrg_curr_state = IWL_FA_GOOD_RANGE;
 
-		
+		/* Store for use in "fewer than desired" with later beacon */
 		data->nrg_silence_ref = silence_ref;
 
+		/* If previous beacon had too many false alarms,
+		 *   give it some extra margin by reducing sensitivity again
+		 *   (but don't go below measured energy of desired Rx) */
 		if (IWL_FA_TOO_MANY == data->nrg_prev_state) {
 			IWL_DEBUG_CALIB(priv, "... increasing margin\n");
 			if (data->nrg_th_cck > (max_nrg_cck + NRG_MARGIN))
@@ -272,14 +321,22 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 		}
 	}
 
+	/* Make sure the energy threshold does not go above the measured
+	 * energy of the desired Rx signals (reduced by backoff margin),
+	 * or else we might start missing Rx frames.
+	 * Lower value is higher energy, so we use max()!
+	 */
 	data->nrg_th_cck = max(max_nrg_cck, data->nrg_th_cck);
 	IWL_DEBUG_CALIB(priv, "new nrg_th_cck %u\n", data->nrg_th_cck);
 
 	data->nrg_prev_state = data->nrg_curr_state;
 
-	
+	/* Auto-correlation CCK algorithm */
 	if (false_alarms > min_false_alarms) {
 
+		/* increase auto_corr values to decrease sensitivity
+		 * so the DSP won't be disturbed by the noise
+		 */
 		if (data->auto_corr_cck < AUTO_CORR_MAX_TH_CCK)
 			data->auto_corr_cck = AUTO_CORR_MAX_TH_CCK + 1;
 		else {
@@ -294,7 +351,7 @@ static int iwl_sens_energy_cck(struct iwl_priv *priv,
 	   ((data->nrg_auto_corr_silence_diff > NRG_DIFF) ||
 	   (data->num_in_cck_no_fa > MAX_NUMBER_CCK_NO_FA))) {
 
-		
+		/* Decrease auto_corr values to increase sensitivity */
 		val = data->auto_corr_cck - AUTO_CORR_STEP_CCK;
 		data->auto_corr_cck =
 			max((u32)ranges->auto_corr_min_cck, val);
@@ -320,7 +377,7 @@ static int iwl_sens_auto_corr_ofdm(struct iwl_priv *priv,
 
 	data = &(priv->sensitivity_data);
 
-	
+	/* If we got too many false alarms this time, reduce sensitivity */
 	if (false_alarms > max_false_alarms) {
 
 		IWL_DEBUG_CALIB(priv, "norm FA %u > max FA %u)\n",
@@ -343,7 +400,7 @@ static int iwl_sens_auto_corr_ofdm(struct iwl_priv *priv,
 			min((u32)ranges->auto_corr_max_ofdm_mrc_x1, val);
 	}
 
-	
+	/* Else if we got fewer than desired, increase sensitivity */
 	else if (false_alarms < min_false_alarms) {
 
 		IWL_DEBUG_CALIB(priv, "norm FA %u < min FA %u\n",
@@ -411,6 +468,7 @@ static void iwl_prepare_legacy_sensitivity_tbl(struct iwl_priv *priv,
 			data->nrg_th_cck);
 }
 
+/* Prepare a SENSITIVITY_CMD, send to uCode if values have changed */
 static int iwl_sensitivity_write(struct iwl_priv *priv)
 {
 	struct iwl_sensitivity_cmd cmd;
@@ -428,23 +486,24 @@ static int iwl_sensitivity_write(struct iwl_priv *priv)
 
 	iwl_prepare_legacy_sensitivity_tbl(priv, data, &cmd.table[0]);
 
-	
+	/* Update uCode's "work" table, and copy it to DSP */
 	cmd.control = SENSITIVITY_CMD_CONTROL_WORK_TABLE;
 
-	
+	/* Don't send command to uCode if nothing has changed */
 	if (!memcmp(&cmd.table[0], &(priv->sensitivity_tbl[0]),
 		    sizeof(u16)*HD_TABLE_SIZE)) {
 		IWL_DEBUG_CALIB(priv, "No change in SENSITIVITY_CMD\n");
 		return 0;
 	}
 
-	
+	/* Copy table for comparison next time */
 	memcpy(&(priv->sensitivity_tbl[0]), &(cmd.table[0]),
 	       sizeof(u16)*HD_TABLE_SIZE);
 
 	return iwl_dvm_send_cmd(priv, &cmd_out);
 }
 
+/* Prepare a SENSITIVITY_CMD, send to uCode if values have changed */
 static int iwl_enhance_sensitivity_write(struct iwl_priv *priv)
 {
 	struct iwl_enhance_sensitivity_cmd cmd;
@@ -510,10 +569,10 @@ static int iwl_enhance_sensitivity_write(struct iwl_priv *priv)
 			HD_CCK_NON_SQUARE_DET_INTERCEPT_DATA_V1;
 	}
 
-	
+	/* Update uCode's "work" table, and copy it to DSP */
 	cmd.control = SENSITIVITY_CMD_CONTROL_WORK_TABLE;
 
-	
+	/* Don't send command to uCode if nothing has changed */
 	if (!memcmp(&cmd.enhance_table[0], &(priv->sensitivity_tbl[0]),
 		    sizeof(u16)*HD_TABLE_SIZE) &&
 	    !memcmp(&cmd.enhance_table[HD_INA_NON_SQUARE_DET_OFDM_INDEX],
@@ -523,7 +582,7 @@ static int iwl_enhance_sensitivity_write(struct iwl_priv *priv)
 		return 0;
 	}
 
-	
+	/* Copy table for comparison next time */
 	memcpy(&(priv->sensitivity_tbl[0]), &(cmd.enhance_table[0]),
 	       sizeof(u16)*HD_TABLE_SIZE);
 	memcpy(&(priv->enhance_sensitivity_tbl[0]),
@@ -545,7 +604,7 @@ void iwl_init_sensitivity(struct iwl_priv *priv)
 
 	IWL_DEBUG_CALIB(priv, "Start iwl_init_sensitivity\n");
 
-	
+	/* Clear driver's sensitivity algo data */
 	data = &(priv->sensitivity_data);
 
 	if (ranges == NULL)
@@ -624,7 +683,7 @@ void iwl_sensitivity_calibration(struct iwl_priv *priv)
 		return;
 	}
 
-	
+	/* Extract Statistics: */
 	rx_enable_time = le32_to_cpu(rx_info->channel_load);
 	fa_cck = le32_to_cpu(cck->false_alarm_cnt);
 	fa_ofdm = le32_to_cpu(ofdm->false_alarm_cnt);
@@ -653,6 +712,9 @@ void iwl_sensitivity_calibration(struct iwl_priv *priv)
 		return;
 	}
 
+	/* These statistics increase monotonically, and do not reset
+	 *   at each beacon.  Calculate difference from last value, or just
+	 *   use the new statistics value if it has reset or wrapped around. */
 	if (data->last_bad_plcp_cnt_cck > bad_plcp_cck)
 		data->last_bad_plcp_cnt_cck = bad_plcp_cck;
 	else {
@@ -681,7 +743,7 @@ void iwl_sensitivity_calibration(struct iwl_priv *priv)
 		data->last_fa_cnt_cck += fa_cck;
 	}
 
-	
+	/* Total aborted signal locks */
 	norm_fa_ofdm = fa_ofdm + bad_plcp_ofdm;
 	norm_fa_cck = fa_cck + bad_plcp_cck;
 
@@ -705,6 +767,10 @@ static inline u8 find_first_chain(u8 mask)
 	return CHAIN_C;
 }
 
+/**
+ * Run disconnected antenna algorithm to find out which antennas are
+ * disconnected.
+ */
 static void iwl_find_disconn_antenna(struct iwl_priv *priv, u32* average_sig,
 				     struct iwl_chain_noise_data *data)
 {
@@ -740,11 +806,13 @@ static void iwl_find_disconn_antenna(struct iwl_priv *priv, u32* average_sig,
 	IWL_DEBUG_CALIB(priv, "max_average_sig = %d, antenna %d\n",
 		     max_average_sig, max_average_sig_antenna_i);
 
-	
+	/* Compare signal strengths for all 3 receivers. */
 	for (i = 0; i < NUM_RX_CHAINS; i++) {
 		if (i != max_average_sig_antenna_i) {
 			s32 rssi_delta = (max_average_sig - average_sig[i]);
 
+			/* If signal is very weak, compared with
+			 * strongest, mark it as disconnected. */
 			if (rssi_delta > MAXIMUM_ALLOWED_PATHLOSS)
 				data->disconn_array[i] = 1;
 			else
@@ -755,20 +823,36 @@ static void iwl_find_disconn_antenna(struct iwl_priv *priv, u32* average_sig,
 		}
 	}
 
+	/*
+	 * The above algorithm sometimes fails when the ucode
+	 * reports 0 for all chains. It's not clear why that
+	 * happens to start with, but it is then causing trouble
+	 * because this can make us enable more chains than the
+	 * hardware really has.
+	 *
+	 * To be safe, simply mask out any chains that we know
+	 * are not on the device.
+	 */
 	active_chains &= hw_params(priv).valid_rx_ant;
 
 	num_tx_chains = 0;
 	for (i = 0; i < NUM_RX_CHAINS; i++) {
+		/* loops on all the bits of
+		 * priv->hw_setting.valid_tx_ant */
 		u8 ant_msk = (1 << i);
 		if (!(hw_params(priv).valid_tx_ant & ant_msk))
 			continue;
 
 		num_tx_chains++;
 		if (data->disconn_array[i] == 0)
-			
+			/* there is a Tx antenna connected */
 			break;
 		if (num_tx_chains == hw_params(priv).tx_chains_num &&
 		    data->disconn_array[i]) {
+			/*
+			 * If all chains are disconnected
+			 * connect the first valid tx chain
+			 */
 			first_chain =
 				find_first_chain(hw_params(priv).valid_tx_ant);
 			data->disconn_array[first_chain] = 0;
@@ -788,7 +872,7 @@ static void iwl_find_disconn_antenna(struct iwl_priv *priv, u32* average_sig,
 				active_chains,
 				hw_params(priv).valid_rx_ant);
 
-	
+	/* Save for use within RXON, TX, SCAN commands, etc. */
 	data->active_chains = active_chains;
 	IWL_DEBUG_CALIB(priv, "active_chains (bitwise) = 0x%x\n",
 			active_chains);
@@ -802,6 +886,9 @@ static void iwlagn_gain_computation(struct iwl_priv *priv,
 	s32 delta_g;
 	struct iwl_chain_noise_data *data = &priv->chain_noise_data;
 
+	/*
+	 * Find Gain Code for the chains based on "default chain"
+	 */
 	for (i = default_chain + 1; i < NUM_RX_CHAINS; i++) {
 		if ((data->disconn_array[i])) {
 			data->delta_gain_code[i] = 0;
@@ -812,12 +899,20 @@ static void iwlagn_gain_computation(struct iwl_priv *priv,
 			((s32)average_noise[default_chain] -
 			(s32)average_noise[i])) / 1500;
 
-		
+		/* bound gain by 2 bits value max, 3rd bit is sign */
 		data->delta_gain_code[i] =
 			min(abs(delta_g),
 			(long) CHAIN_NOISE_MAX_DELTA_GAIN_CODE);
 
 		if (delta_g < 0)
+			/*
+			 * set negative sign ...
+			 * note to Intel developers:  This is uCode API format,
+			 *   not the format of any internal device registers.
+			 *   Do not change this format for e.g. 6050 or similar
+			 *   devices.  Change format only if more resolution
+			 *   (i.e. more than 2 bits magnitude) is needed.
+			 */
 			data->delta_gain_code[i] |= (1 << 2);
 	}
 
@@ -841,6 +936,12 @@ static void iwlagn_gain_computation(struct iwl_priv *priv,
 	}
 }
 
+/*
+ * Accumulate 16 beacons of signal and noise statistics for each of
+ *   3 receivers/antennas/rx-chains, then figure out:
+ * 1)  Which antennas are connected.
+ * 2)  Differential rx gain settings to balance the 3 receivers.
+ */
 void iwl_chain_noise_calibration(struct iwl_priv *priv)
 {
 	struct iwl_chain_noise_data *data = NULL;
@@ -862,6 +963,11 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 	u8 stat_band24;
 	struct statistics_rx_non_phy *rx_info;
 
+	/*
+	 * MULTI-FIXME:
+	 * When we support multiple interfaces on different channels,
+	 * this must be modified/fixed.
+	 */
 	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
 
 	if (priv->disable_chain_noise_cal)
@@ -869,6 +975,10 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 
 	data = &(priv->chain_noise_data);
 
+	/*
+	 * Accumulate just the first "chain_noise_num_beacons" after
+	 * the first association, then we're done forever.
+	 */
 	if (data->state != IWL_CHAIN_NOISE_ACCUMULATE) {
 		if (data->state == IWL_CHAIN_NOISE_ALIVE)
 			IWL_DEBUG_CALIB(priv, "Wait for noise calib reset\n");
@@ -891,6 +1001,8 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 		!!(priv->statistics.flag & STATISTICS_REPLY_FLG_BAND_24G_MSK);
 	stat_chnum = le32_to_cpu(priv->statistics.flag) >> 16;
 
+	/* Make sure we accumulate data for just the associated channel
+	 *   (even if scanning). */
 	if ((rxon_chnum != stat_chnum) || (rxon_band24 != stat_band24)) {
 		IWL_DEBUG_CALIB(priv, "Stats not from chan=%d, band24=%d\n",
 				rxon_chnum, rxon_band24);
@@ -898,6 +1010,10 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 		return;
 	}
 
+	/*
+	 *  Accumulate beacon statistics values across
+	 * "chain_noise_num_beacons"
+	 */
 	chain_noise_a = le32_to_cpu(rx_info->beacon_silence_rssi_a) &
 				IN_BAND_FILTER;
 	chain_noise_b = le32_to_cpu(rx_info->beacon_silence_rssi_b) &
@@ -928,12 +1044,17 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 	IWL_DEBUG_CALIB(priv, "chain_noise: a %d b %d c %d\n",
 			chain_noise_a, chain_noise_b, chain_noise_c);
 
+	/* If this is the "chain_noise_num_beacons", determine:
+	 * 1)  Disconnected antennas (using signal strengths)
+	 * 2)  Differential gain (using silence noise) to balance receivers */
 	if (data->beacon_count != IWL_CAL_NUM_BEACONS)
 		return;
 
-	
+	/* Analyze signal for disconnected antenna */
 	if (cfg(priv)->bt_params &&
 	    cfg(priv)->bt_params->advanced_bt_coexist) {
+		/* Disable disconnected antenna algorithm for advanced
+		   bt coex, assuming valid antennas are connected */
 		data->active_chains = hw_params(priv).valid_rx_ant;
 		for (i = 0; i < NUM_RX_CHAINS; i++)
 			if (!(data->active_chains & (1<<i)))
@@ -941,7 +1062,7 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 	} else
 		iwl_find_disconn_antenna(priv, average_sig, data);
 
-	
+	/* Analyze noise for rx balance */
 	average_noise[0] = data->chain_noise_a / IWL_CAL_NUM_BEACONS;
 	average_noise[1] = data->chain_noise_b / IWL_CAL_NUM_BEACONS;
 	average_noise[2] = data->chain_noise_c / IWL_CAL_NUM_BEACONS;
@@ -949,6 +1070,8 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 	for (i = 0; i < NUM_RX_CHAINS; i++) {
 		if (!(data->disconn_array[i]) &&
 		   (average_noise[i] <= min_average_noise)) {
+			/* This means that chain i is active and has
+			 * lower noise values so far: */
 			min_average_noise = average_noise[i];
 			min_average_noise_antenna_i = i;
 		}
@@ -964,6 +1087,9 @@ void iwl_chain_noise_calibration(struct iwl_priv *priv)
 	iwlagn_gain_computation(priv, average_noise,
 				find_first_chain(hw_params(priv).valid_rx_ant));
 
+	/* Some power changes may have been made during the calibration.
+	 * Update and commit the RXON
+	 */
 	iwl_update_chain_flags(priv);
 
 	data->state = IWL_CHAIN_NOISE_DONE;
@@ -981,5 +1107,7 @@ void iwl_reset_run_time_calib(struct iwl_priv *priv)
 		priv->chain_noise_data.delta_gain_code[i] =
 				CHAIN_NOISE_DELTA_GAIN_INIT_VAL;
 
+	/* Ask for statistics now, the uCode will send notification
+	 * periodically after association */
 	iwl_send_statistics_request(priv, CMD_ASYNC, true);
 }

@@ -48,6 +48,7 @@ struct raid_data {
 	int resync;
 };
 
+/* resync complete goes from 0 to this */
 #define RAID_MAX_RESYNC		(10000)
 
 #define DEFINE_RAID_ATTRIBUTE(type, attr)				      \

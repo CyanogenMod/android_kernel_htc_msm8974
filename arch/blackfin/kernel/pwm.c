@@ -28,7 +28,7 @@ struct pwm_device *pwm_request(int pwm_id, const char *label)
 	struct pwm_device *pwm;
 	int ret;
 
-	
+	/* XXX: pwm_id really should be unsigned */
 	if (pwm_id < 0)
 		return NULL;
 

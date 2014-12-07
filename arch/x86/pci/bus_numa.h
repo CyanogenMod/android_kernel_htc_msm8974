@@ -1,5 +1,9 @@
 #ifndef __BUS_NUMA_H
 #define __BUS_NUMA_H
+/*
+ * sub bus (transparent) will use entres from 3 to store extra from
+ * root, so need to make sure we have enough slot there.
+ */
 #define RES_NUM 16
 struct pci_root_info {
 	char name[12];
@@ -11,6 +15,7 @@ struct pci_root_info {
 	int link;
 };
 
+/* 4 at this time, it may become to 32 */
 #define PCI_ROOT_NR 4
 extern int pci_root_num;
 extern struct pci_root_info pci_root_info[PCI_ROOT_NR];

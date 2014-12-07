@@ -107,6 +107,7 @@
 
 #ifdef CONFIG_UX500_SOC_DB8500
 
+/* Virtual interrupts corresponding to the PRCMU wakeups.  */
 #define IRQ_PRCMU_BASE IRQ_SOC_START
 #define NUM_PRCMU_WAKEUPS (IRQ_PRCMU_END - IRQ_PRCMU_BASE)
 
@@ -135,10 +136,15 @@
 #define IRQ_PRCMU_HOTMON_HIGH (IRQ_PRCMU_BASE + 22)
 #define IRQ_PRCMU_END (IRQ_PRCMU_BASE + 23)
 
+/*
+ * We may have several SoCs, but only one will run at a
+ * time, so the one with most IRQs will bump this ahead,
+ * but the IRQ_SOC_START remains the same for either SoC.
+ */
 #if IRQ_SOC_END < IRQ_PRCMU_END
 #undef IRQ_SOC_END
 #define IRQ_SOC_END IRQ_PRCMU_END
 #endif
 
-#endif 
+#endif /* CONFIG_UX500_SOC_DB8500 */
 #endif

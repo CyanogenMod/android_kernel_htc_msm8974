@@ -72,12 +72,20 @@ enum stb0899_inversion {
 #define STB0899_GPIO19				0xf153
 #define STB0899_GPIO20				0xf154
 
-#define STB0899_GPIOPULLUP			0x01 
-#define STB0899_GPIOPULLDN			0x00 
+#define STB0899_GPIOPULLUP			0x01 /* Output device is connected to Vdd */
+#define STB0899_GPIOPULLDN			0x00 /* Output device is connected to Vss */
 
 #define STB0899_POSTPROC_GPIO_POWER		0x00
 #define STB0899_POSTPROC_GPIO_LOCK		0x01
 
+/*
+ * Post process output configuration control
+ * 1. POWER ON/OFF		(index 0)
+ * 2. FE_HAS_LOCK/LOCK_LOSS	(index 1)
+ *
+ * @gpio 	= one of the above listed GPIO's
+ * @level	= output state: pulled up or low
+ */
 struct stb0899_postproc {
 	u16	gpio;
 	u8	level;
@@ -108,6 +116,7 @@ struct stb0899_config {
 	u8	data_fifo_mode;
 	u8	out_rate_comp;
 	u8	i2c_repeater;
+//	int	inversion;
 	int	lo_clk;
 	int	hi_clk;
 
@@ -147,7 +156,7 @@ static inline struct dvb_frontend *stb0899_attach(struct stb0899_config *config,
 	return NULL;
 }
 
-#endif 
+#endif //CONFIG_DVB_STB0899
 
 
 #endif

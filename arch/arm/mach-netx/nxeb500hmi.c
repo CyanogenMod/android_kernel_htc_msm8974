@@ -74,13 +74,13 @@ static int nxeb500hmi_clcd_setup(struct clcd_fb *fb)
 	fb->fb.var.green.length = 5;
 	fb->fb.var.green.msb_right = 0;
 
-	
+	/* enable asic control */
 	val = readl(NETX_SYSTEM_IOC_ACCESS_KEY);
 	writel(val, NETX_SYSTEM_IOC_ACCESS_KEY);
 
 	writel(3, NETX_SYSTEM_IOC_CR);
 
-	
+	/* GPIO 14 is used for display enable on newer boards */
 	writel(9, NETX_GPIO_CFG(14));
 
 	val = readl(NETX_PIO_OUTPIO);

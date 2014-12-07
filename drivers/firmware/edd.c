@@ -66,6 +66,7 @@ struct edd_attribute {
 	int (*test) (struct edd_device * edev);
 };
 
+/* forward declarations */
 static int edd_dev_is_type(struct edd_device *edev, const char *type);
 static struct pci_dev *edd_get_pci_dev(struct edd_device *edev);
 
@@ -251,7 +252,7 @@ edd_show_raw_data(struct edd_device *edev, char *buf)
 	if (!(info->params.key == 0xBEDD || info->params.key == 0xDDBE))
 		len = info->params.length;
 
-	
+	/* In case of buggy BIOSs */
 	if (len > (sizeof(info->params)))
 		len = sizeof(info->params);
 
@@ -444,6 +445,15 @@ edd_show_sectors(struct edd_device *edev, char *buf)
 }
 
 
+/*
+ * Some device instances may not have all the above attributes,
+ * or the attribute values may be meaningless (i.e. if
+ * the device is < EDD 3.0, it won't have host_bus and interface
+ * information), so don't bother making files for them.  Likewise
+ * if the default_{cylinders,heads,sectors_per_track} values
+ * are zero, the BIOS doesn't provide sane values, don't bother
+ * creating files for them either.
+ */
 
 static int
 edd_has_legacy_max_cylinder(struct edd_device *edev)
@@ -535,7 +545,7 @@ edd_has_edd30(struct edd_device *edev)
 	}
 
 
-	
+	/* We support only T13 spec */
 	if (info->params.device_path_info_length != 44)
 		return 0;
 
@@ -574,10 +584,14 @@ static EDD_DEVICE_ATTR(host_bus, 0444, edd_show_host_bus, edd_has_edd30);
 static EDD_DEVICE_ATTR(mbr_signature, 0444, edd_show_mbr_signature, edd_has_mbr_signature);
 
 
+/* These are default attributes that are added for every edd
+ * device discovered.  There are none.
+ */
 static struct attribute * def_attrs[] = {
 	NULL,
 };
 
+/* These attributes are conditional and only added for some devices. */
 static struct edd_attribute * edd_attrs[] = {
 	&edd_attr_raw_data,
 	&edd_attr_version,
@@ -596,6 +610,14 @@ static struct edd_attribute * edd_attrs[] = {
 	NULL,
 };
 
+/**
+ *	edd_release - free edd structure
+ *	@kobj:	kobject of edd structure
+ *
+ *	This is called when the refcount of the edd structure
+ *	reaches 0. This should happen right after we unregister,
+ *	but just in case, we use the release callback anyway.
+ */
 
 static void edd_release(struct kobject * kobj)
 {
@@ -612,6 +634,13 @@ static struct kobj_type edd_ktype = {
 static struct kset *edd_kset;
 
 
+/**
+ * edd_dev_is_type() - is this EDD device a 'type' device?
+ * @edev: target edd_device
+ * @type: a host bus or interface identifier string per the EDD spec
+ *
+ * Returns 1 (TRUE) if it is a 'type' device, 0 otherwise.
+ */
 static int
 edd_dev_is_type(struct edd_device *edev, const char *type)
 {
@@ -628,6 +657,12 @@ edd_dev_is_type(struct edd_device *edev, const char *type)
 	return 0;
 }
 
+/**
+ * edd_get_pci_dev() - finds pci_dev that matches edev
+ * @edev: edd_device
+ *
+ * Returns pci_dev if found, or NULL
+ */
 static struct pci_dev *
 edd_get_pci_dev(struct edd_device *edev)
 {
@@ -703,6 +738,9 @@ static inline int edd_num_devices(void)
 		     min_t(unsigned char, EDDMAXNR, edd.edd_info_nr));
 }
 
+/**
+ * edd_init() - creates sysfs tree of EDD data
+ */
 static int __init
 edd_init(void)
 {

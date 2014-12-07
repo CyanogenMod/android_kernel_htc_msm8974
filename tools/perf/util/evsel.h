@@ -28,12 +28,22 @@ struct perf_counts {
 
 struct perf_evsel;
 
+/*
+ * Per fd, to map back from PERF_SAMPLE_ID to evsel, only used when there are
+ * more than one entry in the evlist.
+ */
 struct perf_sample_id {
 	struct hlist_node 	node;
 	u64		 	id;
 	struct perf_evsel	*evsel;
 };
 
+/** struct perf_evsel - event selector
+ *
+ * @name - Can be set to retain the original event name passed by the user,
+ *         so that when showing results in tools such as 'perf stat', we
+ *         show the name used, not some alias.
+ */
 struct perf_evsel {
 	struct list_head	node;
 	struct perf_event_attr	attr;
@@ -98,12 +108,26 @@ void perf_evsel__close(struct perf_evsel *evsel, int ncpus, int nthreads);
 int __perf_evsel__read_on_cpu(struct perf_evsel *evsel,
 			      int cpu, int thread, bool scale);
 
+/**
+ * perf_evsel__read_on_cpu - Read out the results on a CPU and thread
+ *
+ * @evsel - event selector to read value
+ * @cpu - CPU of interest
+ * @thread - thread of interest
+ */
 static inline int perf_evsel__read_on_cpu(struct perf_evsel *evsel,
 					  int cpu, int thread)
 {
 	return __perf_evsel__read_on_cpu(evsel, cpu, thread, false);
 }
 
+/**
+ * perf_evsel__read_on_cpu_scaled - Read out the results on a CPU and thread, scaled
+ *
+ * @evsel - event selector to read value
+ * @cpu - CPU of interest
+ * @thread - thread of interest
+ */
 static inline int perf_evsel__read_on_cpu_scaled(struct perf_evsel *evsel,
 						 int cpu, int thread)
 {
@@ -113,12 +137,26 @@ static inline int perf_evsel__read_on_cpu_scaled(struct perf_evsel *evsel,
 int __perf_evsel__read(struct perf_evsel *evsel, int ncpus, int nthreads,
 		       bool scale);
 
+/**
+ * perf_evsel__read - Read the aggregate results on all CPUs
+ *
+ * @evsel - event selector to read value
+ * @ncpus - Number of cpus affected, from zero
+ * @nthreads - Number of threads affected, from zero
+ */
 static inline int perf_evsel__read(struct perf_evsel *evsel,
 				    int ncpus, int nthreads)
 {
 	return __perf_evsel__read(evsel, ncpus, nthreads, false);
 }
 
+/**
+ * perf_evsel__read_scaled - Read the aggregate results on all CPUs, scaled
+ *
+ * @evsel - event selector to read value
+ * @ncpus - Number of cpus affected, from zero
+ * @nthreads - Number of threads affected, from zero
+ */
 static inline int perf_evsel__read_scaled(struct perf_evsel *evsel,
 					  int ncpus, int nthreads)
 {
@@ -134,4 +172,4 @@ static inline int perf_evsel__sample_size(struct perf_evsel *evsel)
 
 void hists__init(struct hists *hists);
 
-#endif 
+#endif /* __PERF_EVSEL_H */

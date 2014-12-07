@@ -22,10 +22,16 @@
 #include "irq_user.h"
 #include "os.h"
 
+/* Per CPU bogomips and other parameters
+ * The only piece used here is the ipi pipe, which is set before SMP is
+ * started and never changed.
+ */
 struct cpuinfo_um cpu_data[NR_CPUS];
 
+/* A statistic, can be a little off */
 int num_reschedules_sent = 0;
 
+/* Not changed after boot */
 struct task_struct *idle_threads[NR_CPUS];
 
 void smp_send_reschedule(int cpu)
@@ -206,7 +212,7 @@ int smp_call_function(void (*_func)(void *info), void *_info, int wait)
 	if (!cpus)
 		return 0;
 
-	
+	/* Can deadlock when called with interrupts disabled */
 	WARN_ON(irqs_disabled());
 
 	spin_lock_bh(&call_lock);

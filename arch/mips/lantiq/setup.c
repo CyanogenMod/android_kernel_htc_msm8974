@@ -20,7 +20,7 @@
 
 void __init plat_mem_setup(void)
 {
-	
+	/* assume 16M as default incase uboot fails to pass proper ramsize */
 	unsigned long memsize = 16;
 	char **envp = (char **) KSEG1ADDR(fw_arg2);
 
@@ -57,7 +57,7 @@ arch_initcall(lantiq_setup);
 static void __init
 lantiq_generic_init(void)
 {
-	
+	/* Nothing to do */
 }
 
 MIPS_MACHINE(LTQ_MACH_GENERIC,

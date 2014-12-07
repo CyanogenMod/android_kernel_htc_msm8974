@@ -1,6 +1,6 @@
 #include <linux/fsnotify_backend.h>
 #include <linux/inotify.h>
-#include <linux/slab.h> 
+#include <linux/slab.h> /* struct kmem_cache */
 
 extern struct kmem_cache *event_priv_cachep;
 

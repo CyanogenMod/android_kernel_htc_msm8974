@@ -44,7 +44,7 @@ void nr_init_timers(struct sock *sk)
 	setup_timer(&nr->t4timer, nr_t4timer_expiry, (unsigned long)sk);
 	setup_timer(&nr->idletimer, nr_idletimer_expiry, (unsigned long)sk);
 
-	
+	/* initialized by sock_init_data */
 	sk->sk_timer.data     = (unsigned long)sk;
 	sk->sk_timer.function = &nr_heartbeat_expiry;
 }
@@ -121,6 +121,8 @@ static void nr_heartbeat_expiry(unsigned long param)
 	bh_lock_sock(sk);
 	switch (nr->state) {
 	case NR_STATE_0:
+		/* Magic here: If we listen() and a new link dies before it
+		   is accepted() it isn't 'dead' so doesn't get removed. */
 		if (sock_flag(sk, SOCK_DESTROY) ||
 		    (sk->sk_state == TCP_LISTEN && sock_flag(sk, SOCK_DEAD))) {
 			sock_hold(sk);
@@ -132,6 +134,9 @@ static void nr_heartbeat_expiry(unsigned long param)
 		break;
 
 	case NR_STATE_3:
+		/*
+		 * Check for the state of the receive buffer.
+		 */
 		if (atomic_read(&sk->sk_rmem_alloc) < (sk->sk_rcvbuf / 2) &&
 		    (nr->condition & NR_COND_OWN_RX_BUSY)) {
 			nr->condition &= ~NR_COND_OWN_RX_BUSY;

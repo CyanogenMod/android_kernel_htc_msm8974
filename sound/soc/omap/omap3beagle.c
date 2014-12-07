@@ -44,12 +44,12 @@ static int omap3beagle_hw_params(struct snd_pcm_substream *substream,
 	int ret;
 
 	switch (params_channels(params)) {
-	case 2: 
+	case 2: /* Stereo I2S mode */
 		fmt =	SND_SOC_DAIFMT_I2S |
 			SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CBM_CFM;
 		break;
-	case 4: 
+	case 4: /* Four channel TDM mode */
 		fmt =	SND_SOC_DAIFMT_DSP_A |
 			SND_SOC_DAIFMT_IB_NF |
 			SND_SOC_DAIFMT_CBM_CFM;
@@ -58,21 +58,21 @@ static int omap3beagle_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* Set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, fmt);
 	if (ret < 0) {
 		printk(KERN_ERR "can't set codec DAI configuration\n");
 		return ret;
 	}
 
-	
+	/* Set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, fmt);
 	if (ret < 0) {
 		printk(KERN_ERR "can't set cpu DAI configuration\n");
 		return ret;
 	}
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, 26000000,
 				     SND_SOC_CLOCK_IN);
 	if (ret < 0) {
@@ -87,6 +87,7 @@ static struct snd_soc_ops omap3beagle_ops = {
 	.hw_params = omap3beagle_hw_params,
 };
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link omap3beagle_dai = {
 	.name = "TWL4030",
 	.stream_name = "TWL4030",
@@ -97,6 +98,7 @@ static struct snd_soc_dai_link omap3beagle_dai = {
 	.ops = &omap3beagle_ops,
 };
 
+/* Audio machine driver */
 static struct snd_soc_card snd_soc_omap3beagle = {
 	.name = "omap3beagle",
 	.owner = THIS_MODULE,

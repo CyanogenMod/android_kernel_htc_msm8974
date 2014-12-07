@@ -57,6 +57,7 @@ static int coherence_id_open(struct inode *inode, struct file *file)
 	return single_open(file, coherence_id_show, NULL);
 }
 
+/* /proc/sgi_sn/sn_topology uses seq_file, see sn_hwperf.c */
 extern int sn_topology_open(struct inode *, struct file *);
 extern int sn_topology_release(struct inode *, struct file *);
 
@@ -113,4 +114,4 @@ void register_sn_procfs(void)
 	proc_create("sn_topology", 0444, sgi_proc_dir, &proc_sn_topo_fops);
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */

@@ -52,6 +52,33 @@ enum {
 	IB_FMR_HASH_MASK  = IB_FMR_HASH_SIZE - 1
 };
 
+/*
+ * If an FMR is not in use, then the list member will point to either
+ * its pool's free_list (if the FMR can be mapped again; that is,
+ * remap_count < pool->max_remaps) or its pool's dirty_list (if the
+ * FMR needs to be unmapped before being remapped).  In either of
+ * these cases it is a bug if the ref_count is not 0.  In other words,
+ * if ref_count is > 0, then the list member must not be linked into
+ * either free_list or dirty_list.
+ *
+ * The cache_node member is used to link the FMR into a cache bucket
+ * (if caching is enabled).  This is independent of the reference
+ * count of the FMR.  When a valid FMR is released, its ref_count is
+ * decremented, and if ref_count reaches 0, the FMR is placed in
+ * either free_list or dirty_list as appropriate.  However, it is not
+ * removed from the cache and may be "revived" if a call to
+ * ib_fmr_register_physical() occurs before the FMR is remapped.  In
+ * this case we just increment the ref_count and remove the FMR from
+ * free_list/dirty_list.
+ *
+ * Before we remap an FMR from free_list, we remove it from the cache
+ * (to prevent another user from obtaining a stale FMR).  When an FMR
+ * is released, we add it to the tail of the free list, so that our
+ * cache eviction policy is "least recently used."
+ *
+ * All manipulation of ref_count, list and cache_node is protected by
+ * pool_lock to maintain consistency.
+ */
 
 struct ib_fmr_pool {
 	spinlock_t                pool_lock;
@@ -83,6 +110,7 @@ static inline u32 ib_fmr_hash(u64 first_page)
 		(IB_FMR_HASH_SIZE - 1);
 }
 
+/* Caller must hold pool_lock */
 static inline struct ib_pool_fmr *ib_fmr_cache_lookup(struct ib_fmr_pool *pool,
 						      u64 *page_list,
 						      int  page_list_len,
@@ -172,6 +200,14 @@ static int ib_fmr_cleanup_thread(void *pool_ptr)
 	return 0;
 }
 
+/**
+ * ib_create_fmr_pool - Create an FMR pool
+ * @pd:Protection domain for FMRs
+ * @params:FMR pool parameters
+ *
+ * Create a pool of FMRs.  Return value is pointer to new pool or
+ * error code if creation failed.
+ */
 struct ib_fmr_pool *ib_create_fmr_pool(struct ib_pd             *pd,
 				       struct ib_fmr_pool_param *params)
 {
@@ -314,6 +350,12 @@ struct ib_fmr_pool *ib_create_fmr_pool(struct ib_pd             *pd,
 }
 EXPORT_SYMBOL(ib_create_fmr_pool);
 
+/**
+ * ib_destroy_fmr_pool - Free FMR pool
+ * @pool:FMR pool to free
+ *
+ * Destroy an FMR pool and free all associated resources.
+ */
 void ib_destroy_fmr_pool(struct ib_fmr_pool *pool)
 {
 	struct ib_pool_fmr *fmr;
@@ -346,11 +388,23 @@ void ib_destroy_fmr_pool(struct ib_fmr_pool *pool)
 }
 EXPORT_SYMBOL(ib_destroy_fmr_pool);
 
+/**
+ * ib_flush_fmr_pool - Invalidate all unmapped FMRs
+ * @pool:FMR pool to flush
+ *
+ * Ensure that all unmapped FMRs are fully invalidated.
+ */
 int ib_flush_fmr_pool(struct ib_fmr_pool *pool)
 {
 	int serial;
 	struct ib_pool_fmr *fmr, *next;
 
+	/*
+	 * The free_list holds FMRs that may have been used
+	 * but have not been remapped enough times to be dirty.
+	 * Put them on the dirty list now so that the cleanup
+	 * thread will reap them too.
+	 */
 	spin_lock_irq(&pool->pool_lock);
 	list_for_each_entry_safe(fmr, next, &pool->free_list, list) {
 		if (fmr->remap_count > 0)
@@ -369,6 +423,15 @@ int ib_flush_fmr_pool(struct ib_fmr_pool *pool)
 }
 EXPORT_SYMBOL(ib_flush_fmr_pool);
 
+/**
+ * ib_fmr_pool_map_phys -
+ * @pool:FMR pool to allocate FMR from
+ * @page_list:List of pages to map
+ * @list_len:Number of pages in @page_list
+ * @io_virtual_address:I/O virtual address for new FMR
+ *
+ * Map an FMR from an FMR pool.
+ */
 struct ib_pool_fmr *ib_fmr_pool_map_phys(struct ib_fmr_pool *pool_handle,
 					 u64                *page_list,
 					 int                 list_len,
@@ -388,7 +451,7 @@ struct ib_pool_fmr *ib_fmr_pool_map_phys(struct ib_fmr_pool *pool_handle,
 				  list_len,
 				  io_virtual_address);
 	if (fmr) {
-		
+		/* found in cache */
 		++fmr->ref_count;
 		if (fmr->ref_count == 1) {
 			list_del(&fmr->list);
@@ -440,6 +503,13 @@ struct ib_pool_fmr *ib_fmr_pool_map_phys(struct ib_fmr_pool *pool_handle,
 }
 EXPORT_SYMBOL(ib_fmr_pool_map_phys);
 
+/**
+ * ib_fmr_pool_unmap - Unmap FMR
+ * @fmr:FMR to unmap
+ *
+ * Unmap an FMR.  The FMR mapping may remain valid until the FMR is
+ * reused (or until ib_flush_fmr_pool() is called).
+ */
 int ib_fmr_pool_unmap(struct ib_pool_fmr *fmr)
 {
 	struct ib_fmr_pool *pool;

@@ -3,6 +3,9 @@
 
 #include "perf_event.h"
 
+/*
+ * Not sure about some of these
+ */
 static const u64 p6_perfmon_event_map[] =
 {
   [PERF_COUNT_HW_CPU_CYCLES]		= 0x0079,
@@ -19,16 +22,22 @@ static u64 p6_pmu_event_map(int hw_event)
 	return p6_perfmon_event_map[hw_event];
 }
 
+/*
+ * Event setting that is specified not to count anything.
+ * We use this to effectively disable a counter.
+ *
+ * L2_RQSTS with 0 MESI unit mask.
+ */
 #define P6_NOP_EVENT			0x0000002EULL
 
 static struct event_constraint p6_event_constraints[] =
 {
-	INTEL_EVENT_CONSTRAINT(0xc1, 0x1),	
-	INTEL_EVENT_CONSTRAINT(0x10, 0x1),	
-	INTEL_EVENT_CONSTRAINT(0x11, 0x1),	
-	INTEL_EVENT_CONSTRAINT(0x12, 0x2),	
-	INTEL_EVENT_CONSTRAINT(0x13, 0x2),	
-	INTEL_EVENT_CONSTRAINT(0x14, 0x1),	
+	INTEL_EVENT_CONSTRAINT(0xc1, 0x1),	/* FLOPS */
+	INTEL_EVENT_CONSTRAINT(0x10, 0x1),	/* FP_COMP_OPS_EXE */
+	INTEL_EVENT_CONSTRAINT(0x11, 0x1),	/* FP_ASSIST */
+	INTEL_EVENT_CONSTRAINT(0x12, 0x2),	/* MUL */
+	INTEL_EVENT_CONSTRAINT(0x13, 0x2),	/* DIV */
+	INTEL_EVENT_CONSTRAINT(0x14, 0x1),	/* CYCLES_DIV_BUSY */
 	EVENT_CONSTRAINT_END
 };
 
@@ -36,7 +45,7 @@ static void p6_pmu_disable_all(void)
 {
 	u64 val;
 
-	
+	/* p6 only has one enable register */
 	rdmsrl(MSR_P6_EVNTSEL0, val);
 	val &= ~ARCH_PERFMON_EVENTSEL_ENABLE;
 	wrmsrl(MSR_P6_EVNTSEL0, val);
@@ -46,7 +55,7 @@ static void p6_pmu_enable_all(int added)
 {
 	unsigned long val;
 
-	
+	/* p6 only has one enable register */
 	rdmsrl(MSR_P6_EVNTSEL0, val);
 	val |= ARCH_PERFMON_EVENTSEL_ENABLE;
 	wrmsrl(MSR_P6_EVNTSEL0, val);
@@ -112,6 +121,13 @@ static __initconst const struct x86_pmu p6_pmu = {
 	.max_period		= (1ULL << 31) - 1,
 	.version		= 0,
 	.num_counters		= 2,
+	/*
+	 * Events have 40 bits implemented. However they are designed such
+	 * that bits [32-39] are sign extensions of bit 31. As such the
+	 * effective width of a event for P6-like PMU is 32 bits only.
+	 *
+	 * See IA-32 Intel Architecture Software developer manual Vol 3B
+	 */
 	.cntval_bits		= 32,
 	.cntval_mask		= (1ULL << 32) - 1,
 	.get_event_constraints	= x86_get_event_constraints,
@@ -124,15 +140,15 @@ __init int p6_pmu_init(void)
 {
 	switch (boot_cpu_data.x86_model) {
 	case 1:
-	case 3:  
+	case 3:  /* Pentium Pro */
 	case 5:
-	case 6:  
+	case 6:  /* Pentium II */
 	case 7:
 	case 8:
-	case 11: 
+	case 11: /* Pentium III */
 	case 9:
 	case 13:
-		
+		/* Pentium M */
 		break;
 	default:
 		pr_cont("unsupported p6 CPU model %d ",

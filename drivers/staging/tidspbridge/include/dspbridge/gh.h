@@ -29,4 +29,4 @@ extern void *gh_insert(struct gh_t_hash_tab *hash_tab, void *key, void *value);
 void gh_iterate(struct gh_t_hash_tab *hash_tab,
 	void (*callback)(void *, void *), void *user_data);
 #endif
-#endif 
+#endif /* GH_ */

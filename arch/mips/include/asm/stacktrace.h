@@ -23,6 +23,10 @@ static inline unsigned long unwind_stack(struct task_struct *task,
 static __always_inline void prepare_frametrace(struct pt_regs *regs)
 {
 #ifndef CONFIG_KALLSYMS
+	/*
+	 * Remove any garbage that may be in regs (specially func
+	 * addresses) to avoid show_raw_backtrace() to report them
+	 */
 	memset(regs, 0, sizeof(*regs));
 #endif
 	__asm__ __volatile__(
@@ -45,4 +49,4 @@ static __always_inline void prepare_frametrace(struct pt_regs *regs)
 		: : "memory");
 }
 
-#endif 
+#endif /* _ASM_STACKTRACE_H */

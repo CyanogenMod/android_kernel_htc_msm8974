@@ -78,7 +78,7 @@ static int msm_cpuidle_notifier(struct notifier_block *self, unsigned long cmd,
 	case CPU_PM_ENTER:
 		val = get_cpu_iowait_time_us(smp_processor_id(),
 					&last_update_time);
-		
+		/* val could be -1 when NOHZ is not enabled */
 		if (val == (u64)-1)
 			val = 0;
 		per_cpu(iowait_on_cpu, smp_processor_id()) = val;
@@ -178,6 +178,11 @@ static int msm_dcvs_freq_set(int core_num,
 static unsigned int msm_dcvs_freq_get(int core_num)
 {
 	struct msm_gov *gov = &per_cpu(msm_gov_info, core_num);
+	/*
+	 * the rw_sem in cpufreq is always held when this is called.
+	 * The policy->cur won't be updated in this case - so it is safe to
+	 * access policy->cur
+	 */
 	return gov->policy->cur;
 }
 

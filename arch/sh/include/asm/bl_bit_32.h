@@ -30,4 +30,4 @@ static inline void clear_bl_bit(void)
 	);
 }
 
-#endif 
+#endif /* __ASM_SH_BL_BIT_32_H */

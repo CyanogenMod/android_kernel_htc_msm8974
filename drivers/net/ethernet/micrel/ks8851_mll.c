@@ -16,6 +16,10 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/**
+ * Supports:
+ * KS8851 16bit MLL chip from Micrel Inc.
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -50,6 +54,7 @@ static u8 KS_DEFAULT_MAC_ADDRESS[] = { 0x00, 0x10, 0xA1, 0x86, 0x95, 0x11 };
 #define CCR_SHARED			(1 << 4)
 #define CCR_32PIN			(1 << 0)
 
+/* MAC address registers */
 #define KS_MARL				0x10
 #define KS_MARM				0x12
 #define KS_MARH				0x14
@@ -153,6 +158,7 @@ static u8 KS_DEFAULT_MAC_ADDRESS[] = { 0x00, 0x10, 0xA1, 0x86, 0x95, 0x11 };
 #define RXCR2_SRDBL_8B			(0x1 << 5)
 #define RXCR2_SRDBL_16B			(0x2 << 5)
 #define RXCR2_SRDBL_32B			(0x3 << 5)
+/* #define RXCR2_SRDBL_FRAME		(0x4 << 5) */
 #define RXCR2_IUFFP			(1 << 4)
 #define RXCR2_RXIUFCEZ			(1 << 3)
 #define RXCR2_UDPLFE			(1 << 2)
@@ -289,6 +295,7 @@ static u8 KS_DEFAULT_MAC_ADDRESS[] = { 0x00, 0x10, 0xA1, 0x86, 0x95, 0x11 };
 #define PMECR_PM_SOFTDOWN		(0x2 << 0)
 #define PMECR_PM_POWERSAVE		(0x3 << 0)
 
+/* Standard MII PHY data */
 #define KS_P1MBCR			0xE4
 #define P1MBCR_FORCE_FDX		(1 << 8)
 
@@ -331,6 +338,7 @@ static u8 KS_DEFAULT_MAC_ADDRESS[] = { 0x00, 0x10, 0xA1, 0x86, 0x95, 0x11 };
 #define P1CR_PNTR_10BT_FDX		(1 << 1)
 #define P1CR_PNTR_10BT_HDX		(1 << 0)
 
+/* TX Frame control */
 
 #define TXFR_TXIC			(1 << 15)
 #define TXFR_TXFID_MASK			(0x3f << 0)
@@ -358,15 +366,65 @@ static u8 KS_DEFAULT_MAC_ADDRESS[] = { 0x00, 0x10, 0xA1, 0x86, 0x95, 0x11 };
 #define MAX_MCAST_LST			32
 #define HW_MCAST_SIZE			8
 
+/**
+ * union ks_tx_hdr - tx header data
+ * @txb: The header as bytes
+ * @txw: The header as 16bit, little-endian words
+ *
+ * A dual representation of the tx header data to allow
+ * access to individual bytes, and to allow 16bit accesses
+ * with 16bit alignment.
+ */
 union ks_tx_hdr {
 	u8      txb[4];
 	__le16  txw[2];
 };
 
+/**
+ * struct ks_net - KS8851 driver private data
+ * @net_device 	: The network device we're bound to
+ * @hw_addr	: start address of data register.
+ * @hw_addr_cmd	: start address of command register.
+ * @txh    	: temporaly buffer to save status/length.
+ * @lock	: Lock to ensure that the device is not accessed when busy.
+ * @pdev	: Pointer to platform device.
+ * @mii		: The MII state information for the mii calls.
+ * @frame_head_info   	: frame header information for multi-pkt rx.
+ * @statelock	: Lock on this structure for tx list.
+ * @msg_enable	: The message flags controlling driver output (see ethtool).
+ * @frame_cnt  	: number of frames received.
+ * @bus_width  	: i/o bus width.
+ * @rc_rxqcr	: Cached copy of KS_RXQCR.
+ * @rc_txcr	: Cached copy of KS_TXCR.
+ * @rc_ier	: Cached copy of KS_IER.
+ * @sharedbus  	: Multipex(addr and data bus) mode indicator.
+ * @cmd_reg_cache	: command register cached.
+ * @cmd_reg_cache_int	: command register cached. Used in the irq handler.
+ * @promiscuous	: promiscuous mode indicator.
+ * @all_mcast  	: mutlicast indicator.
+ * @mcast_lst_size   	: size of multicast list.
+ * @mcast_lst    	: multicast list.
+ * @mcast_bits    	: multicast enabed.
+ * @mac_addr   		: MAC address assigned to this device.
+ * @fid    		: frame id.
+ * @extra_byte    	: number of extra byte prepended rx pkt.
+ * @enabled    		: indicator this device works.
+ *
+ * The @lock ensures that the chip is protected when certain operations are
+ * in progress. When the read or write packet transfer is in progress, most
+ * of the chip registers are not accessible until the transfer is finished and
+ * the DMA has been de-asserted.
+ *
+ * The @statelock is used to protect information in the structure which may
+ * need to be accessed via several sources, such as the network driver layer
+ * or one of the work queues.
+ *
+ */
 
+/* Receive multiplex framer header info */
 struct type_frame_head {
-	u16	sts;         
-	u16	len;         
+	u16	sts;         /* Frame status */
+	u16	len;         /* Byte count */
 };
 
 struct ks_net {
@@ -374,7 +432,7 @@ struct ks_net {
 	void __iomem    	*hw_addr;
 	void __iomem    	*hw_addr_cmd;
 	union ks_tx_hdr		txh ____cacheline_aligned;
-	struct mutex      	lock; 
+	struct mutex      	lock; /* spinlock to be interrupt safe */
 	struct platform_device *pdev;
 	struct mii_if_info	mii;
 	struct type_frame_head	*frame_head_info;
@@ -402,12 +460,26 @@ struct ks_net {
 
 static int msg_enable;
 
-#define BE3             0x8000      
-#define BE2             0x4000      
-#define BE1             0x2000      
-#define BE0             0x1000      
+#define BE3             0x8000      /* Byte Enable 3 */
+#define BE2             0x4000      /* Byte Enable 2 */
+#define BE1             0x2000      /* Byte Enable 1 */
+#define BE0             0x1000      /* Byte Enable 0 */
 
+/**
+ * register read/write calls.
+ *
+ * All these calls issue transactions to access the chip's registers. They
+ * all require that the necessary lock is held to prevent accesses when the
+ * chip is busy transferring packet data (RX/TX FIFO accesses).
+ */
 
+/**
+ * ks_rdreg8 - read 8 bit register from device
+ * @ks	  : The chip information
+ * @offset: The register address
+ *
+ * Read a 8bit register from the chip, returning the result
+ */
 static u8 ks_rdreg8(struct ks_net *ks, int offset)
 {
 	u16 data;
@@ -419,6 +491,13 @@ static u8 ks_rdreg8(struct ks_net *ks, int offset)
 	return (u8)(data >> shift_data);
 }
 
+/**
+ * ks_rdreg16 - read 16 bit register from device
+ * @ks	  : The chip information
+ * @offset: The register address
+ *
+ * Read a 16bit register from the chip, returning the result
+ */
 
 static u16 ks_rdreg16(struct ks_net *ks, int offset)
 {
@@ -427,6 +506,13 @@ static u16 ks_rdreg16(struct ks_net *ks, int offset)
 	return ioread16(ks->hw_addr);
 }
 
+/**
+ * ks_wrreg8 - write 8bit register value to chip
+ * @ks: The chip information
+ * @offset: The register address
+ * @value: The value to write
+ *
+ */
 static void ks_wrreg8(struct ks_net *ks, int offset, u8 value)
 {
 	u8  shift_bit = (offset & 0x03);
@@ -436,6 +522,13 @@ static void ks_wrreg8(struct ks_net *ks, int offset, u8 value)
 	iowrite16(value_write, ks->hw_addr);
 }
 
+/**
+ * ks_wrreg16 - write 16bit register value to chip
+ * @ks: The chip information
+ * @offset: The register address
+ * @value: The value to write
+ *
+ */
 
 static void ks_wrreg16(struct ks_net *ks, int offset, u16 value)
 {
@@ -444,6 +537,13 @@ static void ks_wrreg16(struct ks_net *ks, int offset, u16 value)
 	iowrite16(value, ks->hw_addr);
 }
 
+/**
+ * ks_inblk - read a block of data from QMU. This is called after sudo DMA mode enabled.
+ * @ks: The chip state
+ * @wptr: buffer address to save data
+ * @len: length in byte to read
+ *
+ */
 static inline void ks_inblk(struct ks_net *ks, u16 *wptr, u32 len)
 {
 	len >>= 1;
@@ -451,6 +551,13 @@ static inline void ks_inblk(struct ks_net *ks, u16 *wptr, u32 len)
 		*wptr++ = (u16)ioread16(ks->hw_addr);
 }
 
+/**
+ * ks_outblk - write data to QMU. This is called after sudo DMA mode enabled.
+ * @ks: The chip information
+ * @wptr: buffer address
+ * @len: length in byte to write
+ *
+ */
 static inline void ks_outblk(struct ks_net *ks, u16 *wptr, u32 len)
 {
 	len >>= 1;
@@ -461,29 +568,55 @@ static inline void ks_outblk(struct ks_net *ks, u16 *wptr, u32 len)
 static void ks_disable_int(struct ks_net *ks)
 {
 	ks_wrreg16(ks, KS_IER, 0x0000);
-}  
+}  /* ks_disable_int */
 
 static void ks_enable_int(struct ks_net *ks)
 {
 	ks_wrreg16(ks, KS_IER, ks->rc_ier);
-}  
+}  /* ks_enable_int */
 
+/**
+ * ks_tx_fifo_space - return the available hardware buffer size.
+ * @ks: The chip information
+ *
+ */
 static inline u16 ks_tx_fifo_space(struct ks_net *ks)
 {
 	return ks_rdreg16(ks, KS_TXMIR) & 0x1fff;
 }
 
+/**
+ * ks_save_cmd_reg - save the command register from the cache.
+ * @ks: The chip information
+ *
+ */
 static inline void ks_save_cmd_reg(struct ks_net *ks)
 {
+	/*ks8851 MLL has a bug to read back the command register.
+	* So rely on software to save the content of command register.
+	*/
 	ks->cmd_reg_cache_int = ks->cmd_reg_cache;
 }
 
+/**
+ * ks_restore_cmd_reg - restore the command register from the cache and
+ * 	write to hardware register.
+ * @ks: The chip information
+ *
+ */
 static inline void ks_restore_cmd_reg(struct ks_net *ks)
 {
 	ks->cmd_reg_cache = ks->cmd_reg_cache_int;
 	iowrite16(ks->cmd_reg_cache, ks->hw_addr_cmd);
 }
 
+/**
+ * ks_set_powermode - set power mode of the device
+ * @ks: The chip information
+ * @pwrmode: The power mode value to write to KS_PMECR.
+ *
+ * Change the power mode of the chip.
+ */
 static void ks_set_powermode(struct ks_net *ks, unsigned pwrmode)
 {
 	unsigned pmecr;
@@ -498,17 +631,25 @@ static void ks_set_powermode(struct ks_net *ks, unsigned pwrmode)
 	ks_wrreg16(ks, KS_PMECR, pmecr);
 }
 
+/**
+ * ks_read_config - read chip configuration of bus width.
+ * @ks: The chip information
+ *
+ */
 static void ks_read_config(struct ks_net *ks)
 {
 	u16 reg_data = 0;
 
-	
+	/* Regardless of bus width, 8 bit read should always work.*/
 	reg_data = ks_rdreg8(ks, KS_CCR) & 0x00FF;
 	reg_data |= ks_rdreg8(ks, KS_CCR+1) << 8;
 
-	
+	/* addr/data bus are multiplexed */
 	ks->sharedbus = (reg_data & CCR_SHARED) == CCR_SHARED;
 
+	/* There are garbage data when reading data from QMU,
+	depending on bus-width.
+	*/
 
 	if (reg_data & CCR_8BIT) {
 		ks->bus_width = ENUM_BUS_8BIT;
@@ -522,14 +663,27 @@ static void ks_read_config(struct ks_net *ks)
 	}
 }
 
+/**
+ * ks_soft_reset - issue one of the soft reset to the device
+ * @ks: The device state.
+ * @op: The bit(s) to set in the GRR
+ *
+ * Issue the relevant soft-reset command to the device's GRR register
+ * specified by @op.
+ *
+ * Note, the delays are in there as a caution to ensure that the reset
+ * has time to take effect and then complete. Since the datasheet does
+ * not currently specify the exact sequence, we have chosen something
+ * that seems to work with our device.
+ */
 static void ks_soft_reset(struct ks_net *ks, unsigned op)
 {
-	
+	/* Disable interrupt first */
 	ks_wrreg16(ks, KS_IER, 0x0000);
 	ks_wrreg16(ks, KS_GRR, op);
-	mdelay(10);	
+	mdelay(10);	/* wait a short time to effect reset */
 	ks_wrreg16(ks, KS_GRR, 0);
-	mdelay(1);	
+	mdelay(1);	/* wait for condition to clear */
 }
 
 
@@ -538,18 +692,22 @@ void ks_enable_qmu(struct ks_net *ks)
 	u16 w;
 
 	w = ks_rdreg16(ks, KS_TXCR);
-	
+	/* Enables QMU Transmit (TXCR). */
 	ks_wrreg16(ks, KS_TXCR, w | TXCR_TXE);
 
+	/*
+	 * RX Frame Count Threshold Enable and Auto-Dequeue RXQ Frame
+	 * Enable
+	 */
 
 	w = ks_rdreg16(ks, KS_RXQCR);
 	ks_wrreg16(ks, KS_RXQCR, w | RXQCR_RXFCTE);
 
-	
+	/* Enables QMU Receive (RXCR1). */
 	w = ks_rdreg16(ks, KS_RXCR1);
 	ks_wrreg16(ks, KS_RXCR1, w | RXCR1_RXE);
 	ks->enabled = true;
-}  
+}  /* ks_enable_qmu */
 
 static void ks_disable_qmu(struct ks_net *ks)
 {
@@ -557,42 +715,66 @@ static void ks_disable_qmu(struct ks_net *ks)
 
 	w = ks_rdreg16(ks, KS_TXCR);
 
-	
+	/* Disables QMU Transmit (TXCR). */
 	w  &= ~TXCR_TXE;
 	ks_wrreg16(ks, KS_TXCR, w);
 
-	
+	/* Disables QMU Receive (RXCR1). */
 	w = ks_rdreg16(ks, KS_RXCR1);
 	w &= ~RXCR1_RXE ;
 	ks_wrreg16(ks, KS_RXCR1, w);
 
 	ks->enabled = false;
 
-}  
+}  /* ks_disable_qmu */
 
+/**
+ * ks_read_qmu - read 1 pkt data from the QMU.
+ * @ks: The chip information
+ * @buf: buffer address to save 1 pkt
+ * @len: Pkt length
+ * Here is the sequence to read 1 pkt:
+ *	1. set sudo DMA mode
+ *	2. read prepend data
+ *	3. read pkt data
+ *	4. reset sudo DMA Mode
+ */
 static inline void ks_read_qmu(struct ks_net *ks, u16 *buf, u32 len)
 {
 	u32 r =  ks->extra_byte & 0x1 ;
 	u32 w = ks->extra_byte - r;
 
-	
+	/* 1. set sudo DMA mode */
 	ks_wrreg16(ks, KS_RXFDPR, RXFDPR_RXFPAI);
 	ks_wrreg8(ks, KS_RXQCR, (ks->rc_rxqcr | RXQCR_SDA) & 0xff);
 
-	
+	/* 2. read prepend data */
+	/**
+	 * read 4 + extra bytes and discard them.
+	 * extra bytes for dummy, 2 for status, 2 for len
+	 */
 
-	
+	/* use likely(r) for 8 bit access for performance */
 	if (unlikely(r))
 		ioread8(ks->hw_addr);
 	ks_inblk(ks, buf, w + 2 + 2);
 
-	
+	/* 3. read pkt data */
 	ks_inblk(ks, buf, ALIGN(len, 4));
 
-	
+	/* 4. reset sudo DMA Mode */
 	ks_wrreg8(ks, KS_RXQCR, ks->rc_rxqcr);
 }
 
+/**
+ * ks_rcv - read multiple pkts data from the QMU.
+ * @ks: The chip information
+ * @netdev: The network device being opened.
+ *
+ * Read all of header information before reading pkt content.
+ * It is not allowed only port of pkts in QMU after issuing
+ * interrupt ack.
+ */
 static void ks_rcv(struct ks_net *ks, struct net_device *netdev)
 {
 	u32	i;
@@ -601,11 +783,11 @@ static void ks_rcv(struct ks_net *ks, struct net_device *netdev)
 
 	ks->frame_cnt = ks_rdreg16(ks, KS_RXFCTR) >> 8;
 
-	
+	/* read all header information */
 	for (i = 0; i < ks->frame_cnt; i++) {
-		
+		/* Checking Received packet status */
 		frame_hdr->sts = ks_rdreg16(ks, KS_RXFHSR);
-		
+		/* Get packet len from hardware */
 		frame_hdr->len = ks_rdreg16(ks, KS_RXFHBCR);
 		frame_hdr++;
 	}
@@ -616,7 +798,7 @@ static void ks_rcv(struct ks_net *ks, struct net_device *netdev)
 		if (likely(skb && (frame_hdr->sts & RXFSHR_RXFV) &&
 			(frame_hdr->len < RX_BUF_SIZE) && frame_hdr->len)) {
 			skb_reserve(skb, 2);
-			
+			/* read data block including CRC 4 bytes */
 			ks_read_qmu(ks, (u16 *)skb->data, frame_hdr->len);
 			skb_put(skb, frame_hdr->len);
 			skb->protocol = eth_type_trans(skb, netdev);
@@ -631,10 +813,16 @@ static void ks_rcv(struct ks_net *ks, struct net_device *netdev)
 	}
 }
 
+/**
+ * ks_update_link_status - link status update.
+ * @netdev: The network device being opened.
+ * @ks: The chip information
+ *
+ */
 
 static void ks_update_link_status(struct net_device *netdev, struct ks_net *ks)
 {
-	
+	/* check the status of the link */
 	u32 link_up_status;
 	if (ks_rdreg16(ks, KS_P1SR) & P1SR_LINK_GOOD) {
 		netif_carrier_on(netdev);
@@ -647,6 +835,16 @@ static void ks_update_link_status(struct net_device *netdev, struct ks_net *ks)
 		  "%s: %s\n", __func__, link_up_status ? "UP" : "DOWN");
 }
 
+/**
+ * ks_irq - device interrupt handler
+ * @irq: Interrupt number passed from the IRQ handler.
+ * @pw: The private word passed to register_irq(), our struct ks_net.
+ *
+ * This is the handler invoked to find out what happened
+ *
+ * Read the interrupt status, work out what needs to be done and then clear
+ * any of the interrupts that are not needed.
+ */
 
 static irqreturn_t ks_irq(int irq, void *pw)
 {
@@ -654,7 +852,7 @@ static irqreturn_t ks_irq(int irq, void *pw)
 	struct ks_net *ks = netdev_priv(netdev);
 	u16 status;
 
-	
+	/*this should be the first in IRQ handler */
 	ks_save_cmd_reg(ks);
 
 	status = ks_rdreg16(ks, KS_ISR);
@@ -681,22 +879,32 @@ static irqreturn_t ks_irq(int irq, void *pw)
 		ks_wrreg16(ks, KS_PMECR, pmecr | PMECR_WKEVT_LINK);
 	}
 
-	
+	/* this should be the last in IRQ handler*/
 	ks_restore_cmd_reg(ks);
 	return IRQ_HANDLED;
 }
 
 
+/**
+ * ks_net_open - open network device
+ * @netdev: The network device being opened.
+ *
+ * Called when the network device is marked active, such as a user executing
+ * 'ifconfig up' on the device.
+ */
 static int ks_net_open(struct net_device *netdev)
 {
 	struct ks_net *ks = netdev_priv(netdev);
 	int err;
 
 #define	KS_INT_FLAGS	(IRQF_DISABLED|IRQF_TRIGGER_LOW)
+	/* lock the card, even if we may not actually do anything
+	 * else at the moment.
+	 */
 
 	netif_dbg(ks, ifup, ks->netdev, "%s - entry\n", __func__);
 
-	
+	/* reset the HW */
 	err = request_irq(netdev->irq, ks_irq, KS_INT_FLAGS, DRV_NAME, netdev);
 
 	if (err) {
@@ -704,9 +912,9 @@ static int ks_net_open(struct net_device *netdev)
 		return err;
 	}
 
-	
+	/* wake up powermode to normal mode */
 	ks_set_powermode(ks, PMECR_PM_NORMAL);
-	mdelay(1);	
+	mdelay(1);	/* wait for normal mode to take effect */
 
 	ks_wrreg16(ks, KS_ISR, 0xffff);
 	ks_enable_int(ks);
@@ -718,6 +926,14 @@ static int ks_net_open(struct net_device *netdev)
 	return 0;
 }
 
+/**
+ * ks_net_stop - close network device
+ * @netdev: The device being closed.
+ *
+ * Called to close down a network device which has been active. Cancell any
+ * work, shutdown the RX and TX process and then place the chip into a low
+ * power state whilst it is not being used.
+ */
 static int ks_net_stop(struct net_device *netdev)
 {
 	struct ks_net *ks = netdev_priv(netdev);
@@ -728,14 +944,14 @@ static int ks_net_stop(struct net_device *netdev)
 
 	mutex_lock(&ks->lock);
 
-	
+	/* turn off the IRQs and ack any outstanding */
 	ks_wrreg16(ks, KS_IER, 0x0000);
 	ks_wrreg16(ks, KS_ISR, 0xffff);
 
-	
+	/* shutdown RX/TX QMU */
 	ks_disable_qmu(ks);
 
-	
+	/* set powermode to soft power down to save power */
 	ks_set_powermode(ks, PMECR_PM_SOFTDOWN);
 	free_irq(netdev->irq, netdev);
 	mutex_unlock(&ks->lock);
@@ -743,27 +959,49 @@ static int ks_net_stop(struct net_device *netdev)
 }
 
 
+/**
+ * ks_write_qmu - write 1 pkt data to the QMU.
+ * @ks: The chip information
+ * @pdata: buffer address to save 1 pkt
+ * @len: Pkt length in byte
+ * Here is the sequence to write 1 pkt:
+ *	1. set sudo DMA mode
+ *	2. write status/length
+ *	3. write pkt data
+ *	4. reset sudo DMA Mode
+ *	5. reset sudo DMA mode
+ *	6. Wait until pkt is out
+ */
 static void ks_write_qmu(struct ks_net *ks, u8 *pdata, u16 len)
 {
-	
+	/* start header at txb[0] to align txw entries */
 	ks->txh.txw[0] = 0;
 	ks->txh.txw[1] = cpu_to_le16(len);
 
-	
+	/* 1. set sudo-DMA mode */
 	ks_wrreg8(ks, KS_RXQCR, (ks->rc_rxqcr | RXQCR_SDA) & 0xff);
-	
+	/* 2. write status/lenth info */
 	ks_outblk(ks, ks->txh.txw, 4);
-	
+	/* 3. write pkt data */
 	ks_outblk(ks, (u16 *)pdata, ALIGN(len, 4));
-	
+	/* 4. reset sudo-DMA mode */
 	ks_wrreg8(ks, KS_RXQCR, ks->rc_rxqcr);
-	
+	/* 5. Enqueue Tx(move the pkt from TX buffer into TXQ) */
 	ks_wrreg16(ks, KS_TXQCR, TXQCR_METFE);
-	
+	/* 6. wait until TXQCR_METFE is auto-cleared */
 	while (ks_rdreg16(ks, KS_TXQCR) & TXQCR_METFE)
 		;
 }
 
+/**
+ * ks_start_xmit - transmit packet
+ * @skb		: The buffer to transmit
+ * @netdev	: The device used to transmit the packet.
+ *
+ * Called by the network layer to transmit the @skb.
+ * spin_lock_irqsave is required because tx and rx should be mutual exclusive.
+ * So while tx is in-progress, prevent IRQ interrupt from happenning.
+ */
 static int ks_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 {
 	int retv = NETDEV_TX_OK;
@@ -773,6 +1011,9 @@ static int ks_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 	ks_disable_int(ks);
 	spin_lock(&ks->statelock);
 
+	/* Extra space are required:
+	*  4 byte for alignment, 4 for status/length, 4 for CRC
+	*/
 
 	if (likely(ks_tx_fifo_space(ks) >= skb->len + 12)) {
 		ks_write_qmu(ks, skb->data, skb->len);
@@ -785,26 +1026,36 @@ static int ks_start_xmit(struct sk_buff *skb, struct net_device *netdev)
 	return retv;
 }
 
+/**
+ * ks_start_rx - ready to serve pkts
+ * @ks		: The chip information
+ *
+ */
 static void ks_start_rx(struct ks_net *ks)
 {
 	u16 cntl;
 
-	
+	/* Enables QMU Receive (RXCR1). */
 	cntl = ks_rdreg16(ks, KS_RXCR1);
 	cntl |= RXCR1_RXE ;
 	ks_wrreg16(ks, KS_RXCR1, cntl);
-}  
+}  /* ks_start_rx */
 
+/**
+ * ks_stop_rx - stop to serve pkts
+ * @ks		: The chip information
+ *
+ */
 static void ks_stop_rx(struct ks_net *ks)
 {
 	u16 cntl;
 
-	
+	/* Disables QMU Receive (RXCR1). */
 	cntl = ks_rdreg16(ks, KS_RXCR1);
 	cntl &= ~RXCR1_RXE ;
 	ks_wrreg16(ks, KS_RXCR1, cntl);
 
-}  
+}  /* ks_stop_rx */
 
 static unsigned long const ethernet_polynomial = 0x04c11db7U;
 
@@ -822,8 +1073,12 @@ static unsigned long ether_gen_crc(int length, u8 *data)
 		}
 	}
 	return (unsigned long)crc;
-}  
+}  /* ether_gen_crc */
 
+/**
+* ks_set_grpaddr - set multicast information
+* @ks : The chip information
+*/
 
 static void ks_set_grpaddr(struct ks_net *ks)
 {
@@ -846,8 +1101,14 @@ static void ks_set_grpaddr(struct ks_net *ks)
 				ks->mcast_bits[i - 1]);
 		}
 	}
-}  
+}  /* ks_set_grpaddr */
 
+/*
+* ks_clear_mcast - clear multicast information
+*
+* @ks : The chip information
+* This routine removes all mcast addresses set in the hardware.
+*/
 
 static void ks_clear_mcast(struct ks_net *ks)
 {
@@ -864,15 +1125,15 @@ static void ks_set_promis(struct ks_net *ks, u16 promiscuous_mode)
 {
 	u16		cntl;
 	ks->promiscuous = promiscuous_mode;
-	ks_stop_rx(ks);  
+	ks_stop_rx(ks);  /* Stop receiving for reconfiguration */
 	cntl = ks_rdreg16(ks, KS_RXCR1);
 
 	cntl &= ~RXCR1_FILTER_MASK;
 	if (promiscuous_mode)
-		
+		/* Enable Promiscuous mode */
 		cntl |= RXCR1_RXAE | RXCR1_RXINVF;
 	else
-		
+		/* Disable Promiscuous mode (default normal mode) */
 		cntl |= RXCR1_RXPAFMA;
 
 	ks_wrreg16(ks, KS_RXCR1, cntl);
@@ -880,38 +1141,42 @@ static void ks_set_promis(struct ks_net *ks, u16 promiscuous_mode)
 	if (ks->enabled)
 		ks_start_rx(ks);
 
-}  
+}  /* ks_set_promis */
 
 static void ks_set_mcast(struct ks_net *ks, u16 mcast)
 {
 	u16	cntl;
 
 	ks->all_mcast = mcast;
-	ks_stop_rx(ks);  
+	ks_stop_rx(ks);  /* Stop receiving for reconfiguration */
 	cntl = ks_rdreg16(ks, KS_RXCR1);
 	cntl &= ~RXCR1_FILTER_MASK;
 	if (mcast)
-		
+		/* Enable "Perfect with Multicast address passed mode" */
 		cntl |= (RXCR1_RXAE | RXCR1_RXMAFMA | RXCR1_RXPAFMA);
 	else
+		/**
+		 * Disable "Perfect with Multicast address passed
+		 * mode" (normal mode).
+		 */
 		cntl |= RXCR1_RXPAFMA;
 
 	ks_wrreg16(ks, KS_RXCR1, cntl);
 
 	if (ks->enabled)
 		ks_start_rx(ks);
-}  
+}  /* ks_set_mcast */
 
 static void ks_set_rx_mode(struct net_device *netdev)
 {
 	struct ks_net *ks = netdev_priv(netdev);
 	struct netdev_hw_addr *ha;
 
-	
+	/* Turn on/off promiscuous mode. */
 	if ((netdev->flags & IFF_PROMISC) == IFF_PROMISC)
 		ks_set_promis(ks,
 			(u16)((netdev->flags & IFF_PROMISC) == IFF_PROMISC));
-	
+	/* Turn on/off all mcast mode. */
 	else if ((netdev->flags & IFF_ALLMULTI) == IFF_ALLMULTI)
 		ks_set_mcast(ks,
 			(u16)((netdev->flags & IFF_ALLMULTI) == IFF_ALLMULTI));
@@ -930,6 +1195,10 @@ static void ks_set_rx_mode(struct net_device *netdev)
 			ks->mcast_lst_size = (u8)i;
 			ks_set_grpaddr(ks);
 		} else {
+			/**
+			 * List too big to support so
+			 * turn on all mcast mode.
+			 */
 			ks->mcast_lst_size = MAX_MCAST_LST;
 			ks_set_mcast(ks, true);
 		}
@@ -937,14 +1206,14 @@ static void ks_set_rx_mode(struct net_device *netdev)
 		ks->mcast_lst_size = 0;
 		ks_clear_mcast(ks);
 	}
-} 
+} /* ks_set_rx_mode */
 
 static void ks_set_mac(struct ks_net *ks, u8 *data)
 {
 	u16 *pw = (u16 *)data;
 	u16 w, u;
 
-	ks_stop_rx(ks);  
+	ks_stop_rx(ks);  /* Stop receiving for reconfiguration */
 
 	u = *pw++;
 	w = ((u & 0xFF) << 8) | ((u >> 8) & 0xFF);
@@ -1000,6 +1269,7 @@ static const struct net_device_ops ks_netdev_ops = {
 	.ndo_validate_addr	= eth_validate_addr,
 };
 
+/* ethtool support */
 
 static void ks_get_drvinfo(struct net_device *netdev,
 			       struct ethtool_drvinfo *di)
@@ -1056,7 +1326,16 @@ static const struct ethtool_ops ks_ethtool_ops = {
 	.nway_reset	= ks_nway_reset,
 };
 
+/* MII interface controls */
 
+/**
+ * ks_phy_reg - convert MII register into a KS8851 register
+ * @reg: MII register number.
+ *
+ * Return the KS8851 register number for the corresponding MII PHY register
+ * if possible. Return zero if the MII register has no direct mapping to the
+ * KS8851 register set.
+ */
 static int ks_phy_reg(int reg)
 {
 	switch (reg) {
@@ -1077,6 +1356,21 @@ static int ks_phy_reg(int reg)
 	return 0x0;
 }
 
+/**
+ * ks_phy_read - MII interface PHY register read.
+ * @netdev: The network device the PHY is on.
+ * @phy_addr: Address of PHY (ignored as we only have one)
+ * @reg: The register to read.
+ *
+ * This call reads data from the PHY register specified in @reg. Since the
+ * device does not support all the MII registers, the non-existent values
+ * are always returned as zero.
+ *
+ * We return zero for unsupported registers as the MII code does not check
+ * the value returned for any error status, and simply returns it to the
+ * caller. The mii-tool that the driver was tested with takes any -ve error
+ * as real PHY capabilities, thus displaying incorrect data to the user.
+ */
 static int ks_phy_read(struct net_device *netdev, int phy_addr, int reg)
 {
 	struct ks_net *ks = netdev_priv(netdev);
@@ -1085,7 +1379,7 @@ static int ks_phy_read(struct net_device *netdev, int phy_addr, int reg)
 
 	ksreg = ks_phy_reg(reg);
 	if (!ksreg)
-		return 0x0;	
+		return 0x0;	/* no error return allowed, so use zero */
 
 	mutex_lock(&ks->lock);
 	result = ks_rdreg16(ks, ksreg);
@@ -1108,6 +1402,12 @@ static void ks_phy_write(struct net_device *netdev,
 	}
 }
 
+/**
+ * ks_read_selftest - read the selftest memory info.
+ * @ks: The device state
+ *
+ * Read and check the TX/RX memory selftest information.
+ */
 static int ks_read_selftest(struct ks_net *ks)
 {
 	unsigned both_done = MBIR_TXMBF | MBIR_RXMBF;
@@ -1139,20 +1439,28 @@ static void ks_setup(struct ks_net *ks)
 {
 	u16	w;
 
+	/**
+	 * Configure QMU Transmit
+	 */
 
-	
+	/* Setup Transmit Frame Data Pointer Auto-Increment (TXFDPR) */
 	ks_wrreg16(ks, KS_TXFDPR, TXFDPR_TXFPAI);
 
-	
+	/* Setup Receive Frame Data Pointer Auto-Increment */
 	ks_wrreg16(ks, KS_RXFDPR, RXFDPR_RXFPAI);
 
-	
+	/* Setup Receive Frame Threshold - 1 frame (RXFCTFC) */
 	ks_wrreg16(ks, KS_RXFCTR, 1 & RXFCTR_THRESHOLD_MASK);
 
-	
+	/* Setup RxQ Command Control (RXQCR) */
 	ks->rc_rxqcr = RXQCR_CMD_CNTL;
 	ks_wrreg16(ks, KS_RXQCR, ks->rc_rxqcr);
 
+	/**
+	 * set the force mode to half duplex, default is full duplex
+	 *  because if the auto-negotiation fails, most switch uses
+	 *  half-duplex.
+	 */
 
 	w = ks_rdreg16(ks, KS_P1MBCR);
 	w &= ~P1MBCR_FORCE_FDX;
@@ -1163,26 +1471,26 @@ static void ks_setup(struct ks_net *ks)
 
 	w = RXCR1_RXFCE | RXCR1_RXBE | RXCR1_RXUE | RXCR1_RXME | RXCR1_RXIPFCC;
 
-	if (ks->promiscuous)         
+	if (ks->promiscuous)         /* bPromiscuous */
 		w |= (RXCR1_RXAE | RXCR1_RXINVF);
-	else if (ks->all_mcast) 
+	else if (ks->all_mcast) /* Multicast address passed mode */
 		w |= (RXCR1_RXAE | RXCR1_RXMAFMA | RXCR1_RXPAFMA);
-	else                                   
+	else                                   /* Normal mode */
 		w |= RXCR1_RXPAFMA;
 
 	ks_wrreg16(ks, KS_RXCR1, w);
-}  
+}  /*ks_setup */
 
 
 static void ks_setup_int(struct ks_net *ks)
 {
 	ks->rc_ier = 0x00;
-	
+	/* Clear the interrupts status of the hardware. */
 	ks_wrreg16(ks, KS_ISR, 0xffff);
 
-	
+	/* Enables the interrupts of the hardware. */
 	ks->rc_ier = (IRQ_LCI | IRQ_TXI | IRQ_RXI);
-}  
+}  /* ks_setup_int */
 
 static int ks_hw_init(struct ks_net *ks)
 {
@@ -1249,7 +1557,7 @@ static int __devinit ks8851_probe(struct platform_device *pdev)
 	netdev->netdev_ops = &ks_netdev_ops;
 	netdev->ethtool_ops = &ks_ethtool_ops;
 
-	
+	/* setup mii state */
 	ks->mii.dev             = netdev;
 	ks->mii.phy_id          = 1,
 	ks->mii.phy_id_mask     = 1;
@@ -1258,13 +1566,13 @@ static int __devinit ks8851_probe(struct platform_device *pdev)
 	ks->mii.mdio_write      = ks_phy_write;
 
 	netdev_info(netdev, "message enable is %d\n", msg_enable);
-	
+	/* set the default message enable */
 	ks->msg_enable = netif_msg_init(msg_enable, (NETIF_MSG_DRV |
 						     NETIF_MSG_PROBE |
 						     NETIF_MSG_LINK));
 	ks_read_config(ks);
 
-	
+	/* simple check for a valid chip being connected to the bus */
 	if ((ks_rdreg16(ks, KS_CIDER) & ~CIDER_REV_MASK) != CIDER_ID) {
 		netdev_err(netdev, "failed to read device ID\n");
 		err = -ENODEV;
@@ -1293,6 +1601,10 @@ static int __devinit ks8851_probe(struct platform_device *pdev)
 	data = ks_rdreg16(ks, KS_OBCR);
 	ks_wrreg16(ks, KS_OBCR, data | OBCR_ODS_16MA);
 
+	/**
+	 * If you want to use the default MAC addr,
+	 * comment out the 2 functions below.
+	 */
 
 	random_ether_addr(netdev->dev_addr);
 	ks_set_mac(ks, netdev->dev_addr);

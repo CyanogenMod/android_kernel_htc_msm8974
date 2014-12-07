@@ -27,10 +27,12 @@
 #include <sound/snd_wavefront.h>
 #include <sound/initval.h>
 
+/* Control bits for the Load Control Register
+ */
 
 #define FX_LSB_TRANSFER 0x01    /* transfer after DSP LSB byte written */
 #define FX_MSB_TRANSFER 0x02    /* transfer after DSP MSB byte written */
-#define FX_AUTO_INCR    0x04    
+#define FX_AUTO_INCR    0x04    /* auto-increment DSP address after transfer */
 
 #define WAIT_IDLE	0xff
 
@@ -127,6 +129,11 @@ int
 snd_wavefront_fx_detect (snd_wavefront_t *dev)
 
 {
+	/* This is a crude check, but its the best one I have for now.
+	   Certainly on the Maui and the Tropez, wavefront_fx_idle() will
+	   report "never idle", which suggests that this test should
+	   work OK.
+	*/
 
 	if (inb (dev->fx_status) & 0x80) {
 		snd_printk ("Hmm, probably a Maui or Tropez.\n");
@@ -206,9 +213,9 @@ snd_wavefront_fx_ioctl (struct snd_hwdep *sdev, struct file *file,
 		}
 
 		err = wavefront_fx_memset (dev,
-			     r.data[0], 
-			     r.data[1], 
-			     r.data[2], 
+			     r.data[0], /* page */
+			     r.data[1], /* addr */
+			     r.data[2], /* cnt */
 			     pd);
 		kfree(page_data);
 		break;
@@ -221,6 +228,17 @@ snd_wavefront_fx_ioctl (struct snd_hwdep *sdev, struct file *file,
 	return err;
 }
 
+/* YSS225 initialization.
+
+   This code was developed using DOSEMU. The Turtle Beach SETUPSND
+   utility was run with I/O tracing in DOSEMU enabled, and a reconstruction
+   of the port I/O done, using the Yamaha faxback document as a guide
+   to add more logic to the code. Its really pretty weird.
+
+   This is the approach of just dumping the whole I/O
+   sequence as a series of port/value pairs and a simple loop
+   that outputs it.
+*/
 
 int __devinit
 snd_wavefront_fx_start (snd_wavefront_t *dev)

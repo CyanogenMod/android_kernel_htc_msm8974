@@ -57,6 +57,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define GONI_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -103,6 +104,7 @@ static struct s3c2410_uartcfg goni_uartcfgs[] __initdata = {
 	},
 };
 
+/* Frame Buffer */
 static struct s3c_fb_pd_win goni_fb_win0 = {
 	.win_mode = {
 		.left_margin	= 16,
@@ -155,9 +157,9 @@ static struct lcd_platform_data goni_lcd_platform_data = {
 	.reset			= reset_lcd,
 	.power_on		= lcd_power_on,
 	.lcd_enabled		= 0,
-	.reset_delay		= 120,	
-	.power_on_delay		= 25,	
-	.power_off_delay	= 200,	
+	.reset_delay		= 120,	/* 120ms */
+	.power_on_delay		= 25,	/* 25ms */
+	.power_off_delay	= 200,	/* 200ms */
 };
 
 #define LCD_BUS_NUM	3
@@ -169,13 +171,13 @@ static struct spi_board_info spi_board_info[] __initdata = {
 		.bus_num	= LCD_BUS_NUM,
 		.chip_select	= 0,
 		.mode		= SPI_MODE_3,
-		.controller_data = (void *)S5PV210_MP01(1), 
+		.controller_data = (void *)S5PV210_MP01(1), /* DISPLAY_CS */
 	},
 };
 
 static struct spi_gpio_platform_data lcd_spi_gpio_data = {
-	.sck	= S5PV210_MP04(1), 
-	.mosi	= S5PV210_MP04(3), 
+	.sck	= S5PV210_MP04(1), /* DISPLAY_CLK */
+	.mosi	= S5PV210_MP04(3), /* DISPLAY_SI */
 	.miso	= SPI_GPIO_NO_MISO,
 	.num_chipselect	= 1,
 };
@@ -189,13 +191,14 @@ static struct platform_device goni_spi_gpio = {
 	},
 };
 
+/* KEYPAD */
 static uint32_t keymap[] __initdata = {
-	
-	KEY(0, 1, KEY_MENU),		
-	KEY(0, 2, KEY_BACK),		
-	KEY(1, 1, KEY_CONFIG),		
+	/* KEY(row, col, keycode) */
+	KEY(0, 1, KEY_MENU),		/* Send */
+	KEY(0, 2, KEY_BACK),		/* End */
+	KEY(1, 1, KEY_CONFIG),		/* Half shot */
 	KEY(1, 2, KEY_VOLUMEUP),
-	KEY(2, 1, KEY_CAMERA),		
+	KEY(2, 1, KEY_CAMERA),		/* Full shot */
 	KEY(2, 2, KEY_VOLUMEDOWN),
 };
 
@@ -210,6 +213,7 @@ static struct samsung_keypad_platdata keypad_data __initdata = {
 	.cols		= 3,
 };
 
+/* Radio */
 static struct i2c_board_info i2c1_devs[] __initdata = {
 	{
 		I2C_BOARD_INFO("si470x", 0x10),
@@ -220,12 +224,12 @@ static void __init goni_radio_init(void)
 {
 	int gpio;
 
-	gpio = S5PV210_GPJ2(4);			
+	gpio = S5PV210_GPJ2(4);			/* XMSMDATA_4 */
 	gpio_request(gpio, "FM_INT");
 	s3c_gpio_cfgpin(gpio, S3C_GPIO_SFN(0xf));
 	i2c1_devs[0].irq = gpio_to_irq(gpio);
 
-	gpio = S5PV210_GPJ2(5);			
+	gpio = S5PV210_GPJ2(5);			/* XMSMDATA_5 */
 	gpio_request_one(gpio, GPIOF_OUT_INIT_HIGH, "FM_RST");
 }
 
@@ -234,6 +238,7 @@ static u8 read_chg(void)
 	return gpio_get_value(S5PV210_GPJ0(5));
 }
 
+/* TSP */
 static struct mxt_platform_data qt602240_platform_data = {
 	.x_line		= 17,
 	.y_line		= 11,
@@ -241,7 +246,7 @@ static struct mxt_platform_data qt602240_platform_data = {
 	.y_size		= 480,
 	.blen		= 0x21,
 	.threshold	= 0x28,
-	.voltage	= 2800000,              
+	.voltage	= 2800000,              /* 2.8V */
 	.orient		= MXT_DIAGONAL,
 	.irqflags	= IRQF_TRIGGER_FALLING,
 	.read_chg	= &read_chg,
@@ -266,11 +271,11 @@ static void __init goni_tsp_init(void)
 {
 	int gpio;
 
-	gpio = S5PV210_GPJ1(3);		
+	gpio = S5PV210_GPJ1(3);		/* XMSMADDR_11 */
 	gpio_request_one(gpio, GPIOF_OUT_INIT_HIGH, "TSP_LDO_ON");
 	gpio_export(gpio, 0);
 
-	gpio = S5PV210_GPJ0(5);		
+	gpio = S5PV210_GPJ0(5);		/* XMSMADDR_5 */
 	gpio_request(gpio, "TSP_INT");
 
 	s5p_register_gpio_interrupt(gpio);
@@ -283,10 +288,11 @@ static void goni_camera_init(void)
 {
 	s5pv210_fimc_setup_gpio(S5P_CAMPORT_A);
 
-	
+	/* Set max driver strength on CAM_A_CLKOUT pin. */
 	s5p_gpio_set_drvstr(S5PV210_GPE1(3), S5P_GPIO_DRVSTR_LV4);
 }
 
+/* MAX8998 regulators */
 #if defined(CONFIG_REGULATOR_MAX8998) || defined(CONFIG_REGULATOR_MAX8998_MODULE)
 
 static struct regulator_consumer_supply goni_ldo3_consumers[] = {
@@ -303,15 +309,15 @@ static struct regulator_consumer_supply goni_ldo8_consumers[] = {
 };
 
 static struct regulator_consumer_supply goni_ldo11_consumers[] = {
-	REGULATOR_SUPPLY("vddio", "0-0030"), 
+	REGULATOR_SUPPLY("vddio", "0-0030"), /* "CAM_IO_2.8V" */
 };
 
 static struct regulator_consumer_supply goni_ldo13_consumers[] = {
-	REGULATOR_SUPPLY("vdda", "0-0030"), 
+	REGULATOR_SUPPLY("vdda", "0-0030"), /* "CAM_A_2.8V" */
 };
 
 static struct regulator_consumer_supply goni_ldo14_consumers[] = {
-	REGULATOR_SUPPLY("vdd_core", "0-0030"), 
+	REGULATOR_SUPPLY("vdd_core", "0-0030"), /* "CAM_CIF_1.8V" */
 };
 
 static struct regulator_init_data goni_ldo2_data = {
@@ -483,6 +489,7 @@ static struct regulator_init_data goni_ldo17_data = {
 	},
 };
 
+/* BUCK */
 static struct regulator_consumer_supply buck1_consumer =
 	REGULATOR_SUPPLY("vddarm", NULL);
 
@@ -662,26 +669,27 @@ static struct regulator_init_data wm8994_ldo2_data = {
 };
 
 static struct wm8994_pdata wm8994_platform_data = {
-	
+	/* configure gpio1 function: 0x0001(Logic level input/output) */
 	.gpio_defaults[0] = 0x0001,
-	
+	/* configure gpio3/4/5/7 function for AIF2 voice */
 	.gpio_defaults[2] = 0x8100,
 	.gpio_defaults[3] = 0x8100,
 	.gpio_defaults[4] = 0x8100,
 	.gpio_defaults[6] = 0x0100,
-	
+	/* configure gpio8/9/10/11 function for AIF3 BT */
 	.gpio_defaults[7] = 0x8100,
 	.gpio_defaults[8] = 0x0100,
 	.gpio_defaults[9] = 0x0100,
 	.gpio_defaults[10] = 0x0100,
-	.ldo[0]	= { S5PV210_MP03(6), &wm8994_ldo1_data },	
+	.ldo[0]	= { S5PV210_MP03(6), &wm8994_ldo1_data },	/* XM0FRNB_2 */
 	.ldo[1]	= { 0, &wm8994_ldo2_data },
 };
 
+/* GPIO I2C PMIC */
 #define AP_I2C_GPIO_PMIC_BUS_4	4
 static struct i2c_gpio_platform_data goni_i2c_gpio_pmic_data = {
-	.sda_pin	= S5PV210_GPJ4(0),	
-	.scl_pin	= S5PV210_GPJ4(3),	
+	.sda_pin	= S5PV210_GPJ4(0),	/* XMSMCSN */
+	.scl_pin	= S5PV210_GPJ4(3),	/* XMSMIRQN */
 };
 
 static struct platform_device goni_i2c_gpio_pmic = {
@@ -695,17 +703,18 @@ static struct platform_device goni_i2c_gpio_pmic = {
 static struct i2c_board_info i2c_gpio_pmic_devs[] __initdata = {
 #if defined(CONFIG_REGULATOR_MAX8998) || defined(CONFIG_REGULATOR_MAX8998_MODULE)
 	{
-		
+		/* 0xCC when SRAD = 0 */
 		I2C_BOARD_INFO("max8998", 0xCC >> 1),
 		.platform_data = &goni_max8998_pdata,
 	},
 #endif
 };
 
+/* GPIO I2C AP 1.8V */
 #define AP_I2C_GPIO_BUS_5	5
 static struct i2c_gpio_platform_data goni_i2c_gpio5_data = {
-	.sda_pin	= S5PV210_MP05(3),	
-	.scl_pin	= S5PV210_MP05(2),	
+	.sda_pin	= S5PV210_MP05(3),	/* XM0ADDR_11 */
+	.scl_pin	= S5PV210_MP05(2),	/* XM0ADDR_10 */
 };
 
 static struct platform_device goni_i2c_gpio5 = {
@@ -718,12 +727,13 @@ static struct platform_device goni_i2c_gpio5 = {
 
 static struct i2c_board_info i2c_gpio5_devs[] __initdata = {
 	{
-		
+		/* CS/ADDR = low 0x34 (FYI: high = 0x36) */
 		I2C_BOARD_INFO("wm8994", 0x1a),
 		.platform_data	= &wm8994_platform_data,
 	},
 };
 
+/* PMIC Power button */
 static struct gpio_keys_button goni_gpio_keys_table[] = {
 	{
 		.code 		= KEY_POWER,
@@ -750,27 +760,30 @@ static struct platform_device goni_device_gpiokeys = {
 
 static void __init goni_pmic_init(void)
 {
-	
+	/* AP_PMIC_IRQ: EINT7 */
 	s3c_gpio_cfgpin(S5PV210_GPH0(7), S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(S5PV210_GPH0(7), S3C_GPIO_PULL_UP);
 
-	
+	/* nPower: EINT22 */
 	s3c_gpio_cfgpin(S5PV210_GPH2(6), S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(S5PV210_GPH2(6), S3C_GPIO_PULL_UP);
 }
 
+/* MoviNAND */
 static struct s3c_sdhci_platdata goni_hsmmc0_data __initdata = {
 	.max_width		= 4,
 	.host_caps2		= MMC_CAP2_BROKEN_VOLTAGE,
 	.cd_type		= S3C_SDHCI_CD_PERMANENT,
 };
 
+/* Wireless LAN */
 static struct s3c_sdhci_platdata goni_hsmmc1_data __initdata = {
 	.max_width		= 4,
 	.cd_type		= S3C_SDHCI_CD_EXTERNAL,
-	
+	/* ext_cd_{init,cleanup} callbacks will be added later */
 };
 
+/* External Flash */
 #define GONI_EXT_FLASH_EN	S5PV210_MP05(4)
 #define GONI_EXT_FLASH_CD	S5PV210_GPH3(4)
 static struct s3c_sdhci_platdata goni_hsmmc2_data __initdata = {
@@ -818,8 +831,8 @@ static void goni_setup_sdhci(void)
 
 static struct noon010pc30_platform_data noon010pc30_pldata = {
 	.clk_rate	= 16000000UL,
-	.gpio_nreset	= S5PV210_GPB(2), 
-	.gpio_nstby	= S5PV210_GPB(0), 
+	.gpio_nreset	= S5PV210_GPB(2), /* CAM_CIF_NRST */
+	.gpio_nstby	= S5PV210_GPB(0), /* CAM_CIF_NSTBY */
 };
 
 static struct i2c_board_info noon010pc30_board_info = {
@@ -876,6 +889,10 @@ static struct platform_device *goni_devices[] __initdata = {
 
 static void __init goni_sound_init(void)
 {
+	/* Ths main clock of WM8994 codec uses the output of CLKOUT pin.
+	 * The CLKOUT[9:8] set to 0x3(XUSBXTI) of 0xE010E000(OTHERS)
+	 * because it needs 24MHz clock to operate WM8994 codec.
+	 */
 	__raw_writel(__raw_readl(S5P_OTHERS) | (0x3 << 8), S5P_OTHERS);
 }
 
@@ -894,48 +911,48 @@ static void __init goni_reserve(void)
 
 static void __init goni_machine_init(void)
 {
-	
+	/* Radio: call before I2C 1 registeration */
 	goni_radio_init();
 
-	
+	/* I2C0 */
 	s3c_i2c0_set_platdata(NULL);
 
-	
+	/* I2C1 */
 	s3c_i2c1_set_platdata(NULL);
 	i2c_register_board_info(1, i2c1_devs, ARRAY_SIZE(i2c1_devs));
 
-	
+	/* TSP: call before I2C 2 registeration */
 	goni_tsp_init();
 
-	
+	/* I2C2 */
 	s3c_i2c2_set_platdata(&i2c2_data);
 	i2c_register_board_info(2, i2c2_devs, ARRAY_SIZE(i2c2_devs));
 
-	
+	/* PMIC */
 	goni_pmic_init();
 	i2c_register_board_info(AP_I2C_GPIO_PMIC_BUS_4, i2c_gpio_pmic_devs,
 			ARRAY_SIZE(i2c_gpio_pmic_devs));
-	
+	/* SDHCI */
 	goni_setup_sdhci();
 
-	
+	/* SOUND */
 	goni_sound_init();
 	i2c_register_board_info(AP_I2C_GPIO_BUS_5, i2c_gpio5_devs,
 			ARRAY_SIZE(i2c_gpio5_devs));
 
-	
+	/* FB */
 	s3c_fb_set_platdata(&goni_lcd_pdata);
 
-	
+	/* FIMC */
 	s3c_set_platdata(&goni_fimc_md_platdata, sizeof(goni_fimc_md_platdata),
 			 &s5p_device_fimc_md);
 
 	goni_camera_init();
 
-	
+	/* SPI */
 	spi_register_board_info(spi_board_info, ARRAY_SIZE(spi_board_info));
 
-	
+	/* KEYPAD */
 	samsung_keypad_set_platdata(&keypad_data);
 
 	clk_xusbxti.rate = 24000000;
@@ -944,7 +961,7 @@ static void __init goni_machine_init(void)
 }
 
 MACHINE_START(GONI, "GONI")
-	
+	/* Maintainers: Kyungmin Park <kyungmin.park@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s5pv210_init_irq,
 	.handle_irq	= vic_handle_irq,

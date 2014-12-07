@@ -56,12 +56,14 @@ typedef void (r2net_post_msg_handler_func)(int status, void *data,
 
 #define R2NET_MAX_PAYLOAD_BYTES  (4096 - sizeof(struct r2net_msg))
 
+/* same as hb delay, we're waiting for another node to recognize our hb */
 #define R2NET_RECONNECT_DELAY_MS_DEFAULT	2000
 
 #define R2NET_KEEPALIVE_DELAY_MS_DEFAULT	2000
 #define R2NET_IDLE_TIMEOUT_MS_DEFAULT		30000
 
 
+/* TODO: figure this out.... */
 static inline int r2net_link_down(int err, struct socket *sock)
 {
 	if (sock) {
@@ -74,9 +76,11 @@ static inline int r2net_link_down(int err, struct socket *sock)
 		return 0;
 	switch (err) {
 
-	
+	/* ????????????????????????? */
 	case -ERESTARTSYS:
 	case -EBADF:
+	/* When the server has died, an ICMP port unreachable
+	 * message prompts ECONNREFUSED. */
 	case -ECONNREFUSED:
 	case -ENOTCONN:
 	case -ECONNRESET:
@@ -150,6 +154,6 @@ static inline void r2net_debug_add_sc(struct r2net_sock_container *sc)
 static inline void r2net_debug_del_sc(struct r2net_sock_container *sc)
 {
 }
-#endif	
+#endif	/* CONFIG_DEBUG_FS */
 
-#endif 
+#endif /* R2CLUSTER_TCP_H */

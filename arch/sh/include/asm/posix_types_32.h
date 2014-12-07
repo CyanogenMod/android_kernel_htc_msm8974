@@ -21,4 +21,4 @@ typedef unsigned short	__kernel_old_dev_t;
 
 #include <asm-generic/posix_types.h>
 
-#endif 
+#endif /* __ASM_SH_POSIX_TYPES_32_H */

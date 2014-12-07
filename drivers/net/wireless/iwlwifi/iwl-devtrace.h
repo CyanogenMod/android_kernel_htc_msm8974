@@ -107,7 +107,7 @@ TRACE_EVENT(iwlwifi_dev_irq,
 	TP_fast_assign(
 		DEV_ASSIGN;
 	),
-	
+	/* TP_printk("") doesn't compile */
 	TP_printk("%d", 0)
 );
 
@@ -286,6 +286,11 @@ TRACE_EVENT(iwlwifi_dev_tx,
 		__field(size_t, framelen)
 		__dynamic_array(u8, tfd, tfdlen)
 
+		/*
+		 * Do not insert between or below these items,
+		 * we want to keep the frame together (except
+		 * for the possible padding).
+		 */
 		__dynamic_array(u8, buf0, buf0_len)
 		__dynamic_array(u8, buf1, buf1_len)
 	),
@@ -380,7 +385,7 @@ TRACE_EVENT(iwlwifi_dev_ucode_event,
 	TP_printk("[%s] EVT_LOGT:%010u:0x%08x:%04u",
 		  __get_str(dev), __entry->time, __entry->data, __entry->ev)
 );
-#endif 
+#endif /* __IWLWIFI_DEVICE_TRACE */
 
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .

@@ -36,7 +36,7 @@ static int dwmac1000_dma_init(void __iomem *ioaddr, int pbl, u32 dma_tx,
 	u32 value = readl(ioaddr + DMA_BUS_MODE);
 	int limit;
 
-	
+	/* DMA SW reset */
 	value |= DMA_BUS_MODE_SFT_RESET;
 	writel(value, ioaddr + DMA_BUS_MODE);
 	limit = 10;
@@ -48,16 +48,16 @@ static int dwmac1000_dma_init(void __iomem *ioaddr, int pbl, u32 dma_tx,
 	if (limit < 0)
 		return -EBUSY;
 
-	value =  DMA_BUS_MODE_4PBL |
+	value = /* DMA_BUS_MODE_FB | */ DMA_BUS_MODE_4PBL |
 	    ((pbl << DMA_BUS_MODE_PBL_SHIFT) |
 	     (pbl << DMA_BUS_MODE_RPBL_SHIFT));
 
 #ifdef CONFIG_STMMAC_DA
-	value |= DMA_BUS_MODE_DA;	
+	value |= DMA_BUS_MODE_DA;	/* Rx has priority over tx */
 #endif
 	writel(value, ioaddr + DMA_BUS_MODE);
 
-	
+	/* Mask interrupts by writing to CSR7 */
 	writel(DMA_INTR_DEFAULT_MASK, ioaddr + DMA_INTR_ENA);
 
 	/* The base address of the RX/TX descriptor lists must be written into
@@ -75,15 +75,17 @@ static void dwmac1000_dma_operation_mode(void __iomem *ioaddr, int txmode,
 
 	if (txmode == SF_DMA_MODE) {
 		CHIP_DBG(KERN_DEBUG "GMAC: enable TX store and forward mode\n");
-		
+		/* Transmit COE type 2 cannot be done in cut-through mode. */
 		csr6 |= DMA_CONTROL_TSF;
+		/* Operating on second frame increase the performance
+		 * especially when transmit store-and-forward is used.*/
 		csr6 |= DMA_CONTROL_OSF;
 	} else {
 		CHIP_DBG(KERN_DEBUG "GMAC: disabling TX store and forward mode"
 			      " (threshold = %d)\n", txmode);
 		csr6 &= ~DMA_CONTROL_TSF;
 		csr6 &= DMA_CONTROL_TC_TX_MASK;
-		
+		/* Set the transmit threshold */
 		if (txmode <= 32)
 			csr6 |= DMA_CONTROL_TTC_32;
 		else if (txmode <= 64)

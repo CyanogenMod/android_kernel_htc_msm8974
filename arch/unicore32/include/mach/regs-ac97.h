@@ -1,3 +1,6 @@
+/*
+ * PKUnity AC97 Registers
+ */
 
 #define PKUNITY_AC97_CONR		(PKUNITY_AC97_BASE + 0x0000)
 #define PKUNITY_AC97_OCR		(PKUNITY_AC97_BASE + 0x0004)
@@ -14,8 +17,14 @@
 #define AC97_CODEC_VAL(v)               FIELD((v), 16, 0)
 #define AC97_CODEC_WRITECOMPLETE        FIELD(1, 1, 2)
 
+/*
+ * VAR PLAY SAMPLE RATE
+ */
 #define AC97_CMD_VPSAMPLE		(FIELD(3, 2, 16) | FIELD(3, 2, 0))
 
+/*
+ * FIX CAPTURE SAMPLE RATE
+ */
 #define AC97_CMD_FCSAMPLE		FIELD(7, 3, 0)
 
 #define AC97_CMD_RESET			FIELD(1, 1, 0)

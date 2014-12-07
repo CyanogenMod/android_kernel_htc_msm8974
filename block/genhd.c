@@ -32,6 +32,7 @@ static void disk_alloc_events(struct gendisk *disk);
 static void disk_add_events(struct gendisk *disk);
 static void disk_del_events(struct gendisk *disk);
 static void disk_release_events(struct gendisk *disk);
+extern void add_emmc_part_entry(unsigned int dev_num, unsigned int part_size, char *name);
 
 struct hd_struct *disk_get_part(struct gendisk *disk, int partno)
 {
@@ -433,8 +434,12 @@ exit:
 
 	
 	disk_part_iter_init(&piter, disk, 0);
-	while ((part = disk_part_iter_next(&piter)))
+	while ((part = disk_part_iter_next(&piter))) {
+		if (!strcmp(disk->disk_name, "mmcblk0") && part->info && part->info->volname[0])
+			add_emmc_part_entry(part->partno, (unsigned int)part->nr_sects,
+				part->info->volname);
 		kobject_uevent(&part_to_dev(part)->kobj, KOBJ_ADD);
+	}
 	disk_part_iter_exit(&piter);
 }
 

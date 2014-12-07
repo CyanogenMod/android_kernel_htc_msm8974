@@ -37,6 +37,11 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Evgeniy Polyakov <zbr@ioremap.net>");
 MODULE_DESCRIPTION("Driver for 1-wire Dallas network protocol, temperature family.");
 
+/* Allow the strong pullup to be disabled, but default to enabled.
+ * If it was disabled a parasite powered device might not get the require
+ * current to do a temperature conversion.  If it is enabled parasite powered
+ * devices have a better chance of getting the current required.
+ */
 static int w1_strong_pullup = 1;
 module_param_named(strong_pullup, w1_strong_pullup, int, 0);
 
@@ -94,6 +99,7 @@ struct w1_therm_family_converter
 	int			(*convert)(u8 rom[9]);
 };
 
+/* The return value is millidegrees Centigrade. */
 static inline int w1_DS18B20_convert_temp(u8 rom[9]);
 static inline int w1_DS18S20_convert_temp(u8 rom[9]);
 
@@ -194,7 +200,7 @@ static ssize_t w1_therm_read(struct device *device,
 			if (w1_reset_select_slave(sl))
 				continue;
 
-			
+			/* 750ms strong pullup (or delay) after the convert */
 			if (!external_power && w1_strong_pullup)
 				w1_next_pullup(dev, tm);
 

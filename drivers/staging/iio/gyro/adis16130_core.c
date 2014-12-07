@@ -23,19 +23,26 @@
 #define ADIS16130_CON_RD      (1 << 6)
 #define ADIS16130_IOP         0x1
 
+/* 1 = data-ready signal low when unread data on all channels; */
 #define ADIS16130_IOP_ALL_RDY (1 << 3)
-#define ADIS16130_IOP_SYNC    (1 << 0) 
-#define ADIS16130_RATEDATA    0x8 
-#define ADIS16130_TEMPDATA    0xA 
-#define ADIS16130_RATECS      0x28 
-#define ADIS16130_RATECS_EN   (1 << 3) 
-#define ADIS16130_TEMPCS      0x2A 
+#define ADIS16130_IOP_SYNC    (1 << 0) /* 1 = synchronization enabled */
+#define ADIS16130_RATEDATA    0x8 /* Gyroscope output, rate of rotation */
+#define ADIS16130_TEMPDATA    0xA /* Temperature output */
+#define ADIS16130_RATECS      0x28 /* Gyroscope channel setup */
+#define ADIS16130_RATECS_EN   (1 << 3) /* 1 = channel enable; */
+#define ADIS16130_TEMPCS      0x2A /* Temperature channel setup */
 #define ADIS16130_TEMPCS_EN   (1 << 3)
 #define ADIS16130_RATECONV    0x30
 #define ADIS16130_TEMPCONV    0x32
 #define ADIS16130_MODE        0x38
-#define ADIS16130_MODE_24BIT  (1 << 1) 
+#define ADIS16130_MODE_24BIT  (1 << 1) /* 1 = 24-bit resolution; */
 
+/**
+ * struct adis16130_state - device instance specific data
+ * @us:			actual spi_device to write data
+ * @buf_lock:		mutex to protect tx and rx
+ * @buf:		unified tx/rx buffer
+ **/
 struct adis16130_state {
 	struct spi_device		*us;
 	struct mutex			buf_lock;
@@ -78,7 +85,7 @@ static int adis16130_read_raw(struct iio_dev *indio_dev,
 	int ret;
 	u32 temp;
 
-	
+	/* Take the iio_dev status lock */
 	mutex_lock(&indio_dev->mlock);
 	ret =  adis16130_spi_read(indio_dev, chan->address, &temp);
 	mutex_unlock(&indio_dev->mlock);
@@ -113,14 +120,14 @@ static int __devinit adis16130_probe(struct spi_device *spi)
 	struct adis16130_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 	st->us = spi;
 	mutex_init(&st->buf_lock);
@@ -144,6 +151,7 @@ error_ret:
 	return ret;
 }
 
+/* fixme, confirm ordering in this function */
 static int adis16130_remove(struct spi_device *spi)
 {
 	iio_device_unregister(spi_get_drvdata(spi));

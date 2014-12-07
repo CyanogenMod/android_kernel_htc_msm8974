@@ -40,32 +40,50 @@
 #define PFX	"s1d13xxxfb: "
 #define BLIT	"s1d13xxxfb_bitblt: "
 
+/*
+ * set this to enable debugging on general functions
+ */
 #if 0
 #define dbg(fmt, args...) do { printk(KERN_INFO fmt, ## args); } while(0)
 #else
 #define dbg(fmt, args...) do { } while (0)
 #endif
 
+/*
+ * set this to enable debugging on 2D acceleration
+ */
 #if 0
 #define dbg_blit(fmt, args...) do { printk(KERN_INFO BLIT fmt, ## args); } while (0)
 #else
 #define dbg_blit(fmt, args...) do { } while (0)
 #endif
 
+/*
+ * we make sure only one bitblt operation is running
+ */
 static DEFINE_SPINLOCK(s1d13xxxfb_bitblt_lock);
 
+/*
+ * list of card production ids
+ */
 static const int s1d13xxxfb_prod_ids[] = {
 	S1D13505_PROD_ID,
 	S1D13506_PROD_ID,
 	S1D13806_PROD_ID,
 };
 
+/*
+ * List of card strings
+ */
 static const char *s1d13xxxfb_prod_names[] = {
 	"S1D13505",
 	"S1D13506",
 	"S1D13806",
 };
 
+/*
+ * here we define the default struct fb_fix_screeninfo
+ */
 static struct fb_fix_screeninfo __devinitdata s1d13xxxfb_fix = {
 	.id		= S1D_FBID,
 	.type		= FB_TYPE_PACKED_PIXELS,
@@ -110,7 +128,7 @@ s1d13xxxfb_runinit(struct s1d13xxxfb_par *par,
 		}
         }
 
-	
+	/* make sure the hardware can cope with us */
 	mdelay(1);
 }
 
@@ -141,6 +159,9 @@ crt_enable(struct s1d13xxxfb_par *par, int enable)
 }
 
 
+/*************************************************************
+ framebuffer control functions
+ *************************************************************/
 static inline void
 s1d13xxxfb_setup_pseudocolour(struct fb_info *info)
 {
@@ -167,6 +188,20 @@ s1d13xxxfb_setup_truecolour(struct fb_info *info)
 	info->var.blue.offset = 0;
 }
 
+/**
+ *      s1d13xxxfb_set_par - Alters the hardware state.
+ *      @info: frame buffer structure
+ *
+ *	Using the fb_var_screeninfo in fb_info we set the depth of the
+ *	framebuffer. This function alters the par AND the
+ *	fb_fix_screeninfo stored in fb_info. It doesn't not alter var in
+ *	fb_info since we are using that data. This means we depend on the
+ *	data in var inside fb_info to be supported by the hardware.
+ *	xxxfb_check_var is always called before xxxfb_set_par to ensure this.
+ *
+ *	XXX TODO: write proper s1d13xxxfb_check_var(), without which that
+ *	function is quite useless.
+ */
 static int
 s1d13xxxfb_set_par(struct fb_info *info)
 {
@@ -175,10 +210,10 @@ s1d13xxxfb_set_par(struct fb_info *info)
 
 	dbg("s1d13xxxfb_set_par: bpp=%d\n", info->var.bits_per_pixel);
 
-	if ((s1dfb->display & 0x01))	
-		val = s1d13xxxfb_readreg(s1dfb, S1DREG_LCD_DISP_MODE);   
-	else	
-		val = s1d13xxxfb_readreg(s1dfb, S1DREG_CRT_DISP_MODE);   
+	if ((s1dfb->display & 0x01))	/* LCD */
+		val = s1d13xxxfb_readreg(s1dfb, S1DREG_LCD_DISP_MODE);   /* read colour control */
+	else	/* CRT */
+		val = s1d13xxxfb_readreg(s1dfb, S1DREG_CRT_DISP_MODE);   /* read colour control */
 
 	val &= ~0x07;
 
@@ -206,9 +241,9 @@ s1d13xxxfb_set_par(struct fb_info *info)
 
 	dbg("writing %02x to display mode register\n", val);
 
-	if ((s1dfb->display & 0x01))	
+	if ((s1dfb->display & 0x01))	/* LCD */
 		s1d13xxxfb_writereg(s1dfb, S1DREG_LCD_DISP_MODE, val);
-	else	
+	else	/* CRT */
 		s1d13xxxfb_writereg(s1dfb, S1DREG_CRT_DISP_MODE, val);
 
 	info->fix.line_length  = info->var.xres * info->var.bits_per_pixel;
@@ -221,6 +256,17 @@ s1d13xxxfb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/**
+ *	s1d13xxxfb_setcolreg - sets a color register.
+ *	@regno: Which register in the CLUT we are programming
+ *	@red: The red value which can be up to 16 bits wide
+ *	@green: The green value which can be up to 16 bits wide
+ *	@blue:  The blue value which can be up to 16 bits wide.
+ *	@transp: If supported the alpha value which can be up to 16 bits wide.
+ *	@info: frame buffer info structure
+ *
+ *	Returns negative errno on error, or zero on success.
+ */
 static int
 s1d13xxxfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			u_int transp, struct fb_info *info)
@@ -242,7 +288,7 @@ s1d13xxxfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			if (regno >= 16)
 				return -EINVAL;
 
-			
+			/* deal with creating pseudo-palette entries */
 
 			pseudo_val  = (red   >> 11) << info->var.red.offset;
 			pseudo_val |= (green >> 10) << info->var.green.offset;
@@ -274,6 +320,21 @@ s1d13xxxfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	return 0;
 }
 
+/**
+ *      s1d13xxxfb_blank - blanks the display.
+ *      @blank_mode: the blank mode we want.
+ *      @info: frame buffer structure that represents a single frame buffer
+ *
+ *      Blank the screen if blank_mode != 0, else unblank. Return 0 if
+ *      blanking succeeded, != 0 if un-/blanking failed due to e.g. a
+ *      video mode which doesn't support it. Implements VESA suspend
+ *      and powerdown modes on hardware that supports disabling hsync/vsync:
+ *      blank_mode == 2: suspend vsync
+ *      blank_mode == 3: suspend hsync
+ *      blank_mode == 4: powerdown
+ *
+ *      Returns negative errno on error, or zero on success.
+ */
 static int
 s1d13xxxfb_blank(int blank_mode, struct fb_info *info)
 {
@@ -300,17 +361,28 @@ s1d13xxxfb_blank(int blank_mode, struct fb_info *info)
 			return -EINVAL;
 	}
 
-	
+	/* let fbcon do a soft blank for us */
 	return ((blank_mode == FB_BLANK_NORMAL) ? 1 : 0);
 }
 
+/**
+ *	s1d13xxxfb_pan_display - Pans the display.
+ *	@var: frame buffer variable screen structure
+ *	@info: frame buffer structure that represents a single frame buffer
+ *
+ *	Pan (or wrap, depending on the `vmode' field) the display using the
+ *	`yoffset' field of the `var' structure (`xoffset'  not yet supported).
+ *	If the values don't fit, return -EINVAL.
+ *
+ *	Returns negative errno on error, or zero on success.
+ */
 static int
 s1d13xxxfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	struct s1d13xxxfb_par *par = info->par;
 	u32 start;
 
-	if (var->xoffset != 0)	
+	if (var->xoffset != 0)	/* not yet ... */
 		return -EINVAL;
 
 	if (var->yoffset + info->var.yres > info->var.yres_virtual)
@@ -319,12 +391,12 @@ s1d13xxxfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	start = (info->fix.line_length >> 1) * var->yoffset;
 
 	if ((par->display & 0x01)) {
-		
+		/* LCD */
 		s1d13xxxfb_writereg(par, S1DREG_LCD_DISP_START0, (start & 0xff));
 		s1d13xxxfb_writereg(par, S1DREG_LCD_DISP_START1, ((start >> 8) & 0xff));
 		s1d13xxxfb_writereg(par, S1DREG_LCD_DISP_START2, ((start >> 16) & 0x0f));
 	} else {
-		
+		/* CRT */
 		s1d13xxxfb_writereg(par, S1DREG_CRT_DISP_START0, (start & 0xff));
 		s1d13xxxfb_writereg(par, S1DREG_CRT_DISP_START1, ((start >> 8) & 0xff));
 		s1d13xxxfb_writereg(par, S1DREG_CRT_DISP_START2, ((start >> 16) & 0x0f));
@@ -333,7 +405,19 @@ s1d13xxxfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/************************************************************
+ functions to handle bitblt acceleration
+ ************************************************************/
 
+/**
+ *	bltbit_wait_bitclear - waits for change in register value
+ *	@info : frambuffer structure
+ *	@bit  : value currently in register
+ *	@timeout : ...
+ *
+ *	waits until value changes FROM bit
+ *
+ */
 static u8
 bltbit_wait_bitclear(struct fb_info *info, u8 bit, int timeout)
 {
@@ -348,6 +432,14 @@ bltbit_wait_bitclear(struct fb_info *info, u8 bit, int timeout)
 	return timeout;
 }
 
+/*
+ *	s1d13xxxfb_bitblt_copyarea - accelerated copyarea function
+ *	@info : framebuffer structure
+ *	@area : fb_copyarea structure
+ *
+ *	supports (atleast) S1D13506
+ *
+ */
 static void
 s1d13xxxfb_bitblt_copyarea(struct fb_info *info, const struct fb_copyarea *area)
 {
@@ -361,54 +453,54 @@ s1d13xxxfb_bitblt_copyarea(struct fb_info *info, const struct fb_copyarea *area)
 
 	spin_lock(&s1d13xxxfb_bitblt_lock);
 
-	
+	/* bytes per xres line */
 	bpp = (info->var.bits_per_pixel >> 3);
 	stride = bpp * info->var.xres;
 
-	
+	/* reverse, calculate the last pixel in rectangle */
 	if ((dy > sy) || ((dy == sy) && (dx >= sx))) {
 		dst = (((dy + height - 1) * stride) + (bpp * (dx + width - 1)));
 		src = (((sy + height - 1) * stride) + (bpp * (sx + width - 1)));
 		reverse = 1;
-	
-	} else { 
+	/* not reverse, calculate the first pixel in rectangle */
+	} else { /* (y * xres) + (bpp * x) */
 		dst = (dy * stride) + (bpp * dx);
 		src = (sy * stride) + (bpp * sx);
 	}
 
-	
+	/* set source address */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_SRC_START0, (src & 0xff));
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_SRC_START1, (src >> 8) & 0x00ff);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_SRC_START2, (src >> 16) & 0x00ff);
 
-	
+	/* set destination address */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_DST_START0, (dst & 0xff));
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_DST_START1, (dst >> 8) & 0x00ff);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_DST_START2, (dst >> 16) & 0x00ff);
 
-	
+	/* program height and width */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_WIDTH0, (width & 0xff) - 1);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_WIDTH1, (width >> 8));
 
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_HEIGHT0, (height & 0xff) - 1);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_HEIGHT1, (height >> 8));
 
-	
+	/* negative direction ROP */
 	if (reverse == 1) {
 		dbg_blit("(copyarea) negative rop\n");
 		s1d13xxxfb_writereg(info->par, S1DREG_BBLT_OP, 0x03);
-	} else  {
+	} else /* positive direction ROP */ {
 		s1d13xxxfb_writereg(info->par, S1DREG_BBLT_OP, 0x02);
 		dbg_blit("(copyarea) positive rop\n");
 	}
 
-	
+	/* set for rectangel mode and not linear */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_CTL0, 0x0);
 
-	
+	/* setup the bpp 1 = 16bpp, 0 = 8bpp*/
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_CTL1, (bpp >> 1));
 
-	
+	/* set words per xres */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_MEM_OFF0, (stride >> 1) & 0xff);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_MEM_OFF1, (stride >> 9));
 
@@ -421,15 +513,24 @@ s1d13xxxfb_bitblt_copyarea(struct fb_info *info, const struct fb_copyarea *area)
 
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_CC_EXP, 0x0c);
 
-	
+	/* initialize the engine */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_CTL0, 0x80);
 
-	
+	/* wait to complete */
 	bltbit_wait_bitclear(info, 0x80, 8000);
 
 	spin_unlock(&s1d13xxxfb_bitblt_lock);
 }
 
+/**
+ *
+ *	s1d13xxxfb_bitblt_solidfill - accelerated solidfill function
+ *	@info : framebuffer structure
+ *	@rect : fb_fillrect structure
+ *
+ *	supports (atleast 13506)
+ *
+ **/
 static void
 s1d13xxxfb_bitblt_solidfill(struct fb_info *info, const struct fb_fillrect *rect)
 {
@@ -437,13 +538,13 @@ s1d13xxxfb_bitblt_solidfill(struct fb_info *info, const struct fb_fillrect *rect
 	u32 fg;
 	u16 bpp = (info->var.bits_per_pixel >> 3);
 
-	
+	/* grab spinlock */
 	spin_lock(&s1d13xxxfb_bitblt_lock);
 
-	
+	/* bytes per x width */
 	screen_stride = (bpp * info->var.xres);
 
-	
+	/* bytes to starting point */
 	dest = ((rect->dy * screen_stride) + (bpp * rect->dx));
 
 	dbg_blit("(solidfill) dx=%d, dy=%d, stride=%d, dest=%d\n"
@@ -456,16 +557,16 @@ s1d13xxxfb_bitblt_solidfill(struct fb_info *info, const struct fb_fillrect *rect
 				info->var.bits_per_pixel);
 	dbg_blit("(solidfill) : rop=%d\n", rect->rop);
 
-	
+	/* We split the destination into the three registers */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_DST_START0, (dest & 0x00ff));
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_DST_START1, ((dest >> 8) & 0x00ff));
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_DST_START2, ((dest >> 16) & 0x00ff));
 
-	
+	/* give information regarding rectangel width */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_WIDTH0, ((rect->width) & 0x00ff) - 1);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_WIDTH1, (rect->width >> 8));
 
-	
+	/* give information regarding rectangel height */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_HEIGHT0, ((rect->height) & 0x00ff) - 1);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_HEIGHT1, (rect->height >> 8));
 
@@ -479,33 +580,34 @@ s1d13xxxfb_bitblt_solidfill(struct fb_info *info, const struct fb_fillrect *rect
 		dbg_blit("(solidfill) color = %d\n", rect->color);
 	}
 
-	
+	/* set foreground color */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_FGC0, (fg & 0xff));
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_FGC1, (fg >> 8) & 0xff);
 
-	
+	/* set rectangual region of memory (rectangle and not linear) */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_CTL0, 0x0);
 
-	
+	/* set operation mode SOLID_FILL */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_OP, BBLT_SOLID_FILL);
 
-	
+	/* set bits per pixel (1 = 16bpp, 0 = 8bpp) */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_CTL1, (info->var.bits_per_pixel >> 4));
 
-	
+	/* set the memory offset for the bblt in word sizes */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_MEM_OFF0, (screen_stride >> 1) & 0x00ff);
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_MEM_OFF1, (screen_stride >> 9));
 
-	
+	/* and away we go.... */
 	s1d13xxxfb_writereg(info->par, S1DREG_BBLT_CTL0, 0x80);
 
-	
+	/* wait until its done */
 	bltbit_wait_bitclear(info, 0x80, 8000);
 
-	
+	/* let others play */
 	spin_unlock(&s1d13xxxfb_bitblt_lock);
 }
 
+/* framebuffer information structures */
 static struct fb_ops s1d13xxxfb_fbops = {
 	.owner		= THIS_MODULE,
 	.fb_set_par	= s1d13xxxfb_set_par,
@@ -514,7 +616,7 @@ static struct fb_ops s1d13xxxfb_fbops = {
 
 	.fb_pan_display	= s1d13xxxfb_pan_display,
 
-	
+	/* gets replaced at chip detection time */
 	.fb_fillrect	= cfb_fillrect,
 	.fb_copyarea	= cfb_copyarea,
 	.fb_imageblit	= cfb_imageblit,
@@ -556,7 +658,7 @@ s1d13xxxfb_fetch_hw_state(struct fb_info *info)
 
 	fix->type = FB_TYPE_PACKED_PIXELS;
 
-	
+	/* general info */
 	par->display = s1d13xxxfb_readreg(par, S1DREG_COM_DISP_MODE);
 	crt_enabled = (par->display & 0x02) != 0;
 	lcd_enabled = (par->display & 0x01) != 0;
@@ -566,19 +668,19 @@ s1d13xxxfb_fetch_hw_state(struct fb_info *info)
 
 	if (lcd_enabled)
 		display = s1d13xxxfb_readreg(par, S1DREG_LCD_DISP_MODE);
-	else	
+	else	/* CRT */
 		display = s1d13xxxfb_readreg(par, S1DREG_CRT_DISP_MODE);
 
 	bpp = display & 0x07;
 
 	switch (bpp) {
-		case 2:	
-		case 3:	
+		case 2:	/* 4 bpp */
+		case 3:	/* 8 bpp */
 			var->bits_per_pixel = 8;
 			var->red.offset = var->green.offset = var->blue.offset = 0;
 			var->red.length = var->green.length = var->blue.length = 8;
 			break;
-		case 5:	
+		case 5:	/* 16 bpp */
 			s1d13xxxfb_setup_truecolour(info);
 			break;
 		default:
@@ -586,7 +688,7 @@ s1d13xxxfb_fetch_hw_state(struct fb_info *info)
 	}
 	fb_alloc_cmap(&info->cmap, 256, 0);
 
-	
+	/* LCD info */
 	panel = s1d13xxxfb_readreg(par, S1DREG_PANEL_TYPE);
 	is_color = (panel & 0x04) != 0;
 	is_dual = (panel & 0x02) != 0;
@@ -600,7 +702,7 @@ s1d13xxxfb_fetch_hw_state(struct fb_info *info)
 
 		offset = (s1d13xxxfb_readreg(par, S1DREG_LCD_MEM_OFF0) +
 			((s1d13xxxfb_readreg(par, S1DREG_LCD_MEM_OFF1) & 0x7) << 8));
-	} else { 
+	} else { /* crt */
 		xres = (s1d13xxxfb_readreg(par, S1DREG_CRT_DISP_HWIDTH) + 1) * 8;
 		yres = (s1d13xxxfb_readreg(par, S1DREG_CRT_DISP_VHEIGHT0) +
 			((s1d13xxxfb_readreg(par, S1DREG_CRT_DISP_VHEIGHT1) & 0x03) << 8) + 1);
@@ -641,7 +743,7 @@ s1d13xxxfb_remove(struct platform_device *pdev)
 	if (info) {
 		par = info->par;
 		if (par && par->regs) {
-			
+			/* disable output & enable powersave */
 			s1d13xxxfb_writereg(par, S1DREG_COM_DISP_MODE, 0x00);
 			s1d13xxxfb_writereg(par, S1DREG_PS_CNF, 0x11);
 			iounmap(par->regs);
@@ -676,7 +778,7 @@ s1d13xxxfb_probe(struct platform_device *pdev)
 
 	printk(KERN_INFO "Epson S1D13XXX FB Driver\n");
 
-	
+	/* enable platform-dependent hardware glue, if any */
 	if (pdev->dev.platform_data)
 		pdata = pdev->dev.platform_data;
 
@@ -690,7 +792,7 @@ s1d13xxxfb_probe(struct platform_device *pdev)
 		goto bail;
 	}
 
-	
+	/* resource[0] is VRAM, resource[1] is registers */
 	if (pdev->resource[0].flags != IORESOURCE_MEM
 			|| pdev->resource[1].flags != IORESOURCE_MEM) {
 		dev_err(&pdev->dev, "invalid resource type\n");
@@ -738,15 +840,15 @@ s1d13xxxfb_probe(struct platform_device *pdev)
 		goto bail;
 	}
 
-	
+	/* production id is top 6 bits */
 	prod_id = s1d13xxxfb_readreg(default_par, S1DREG_REV_CODE) >> 2;
-	
+	/* revision id is lower 2 bits */
 	revision = s1d13xxxfb_readreg(default_par, S1DREG_REV_CODE) & 0x3;
 	ret = -ENODEV;
 
 	for (i = 0; i < ARRAY_SIZE(s1d13xxxfb_prod_ids); i++) {
 		if (prod_id == s1d13xxxfb_prod_ids[i]) {
-			
+			/* looks like we got it in our list */
 			default_par->prod_id = prod_id;
 			default_par->revision = revision;
 			ret = 0;
@@ -780,7 +882,7 @@ s1d13xxxfb_probe(struct platform_device *pdev)
 	info->fbops = &s1d13xxxfb_fbops;
 
 	switch(prod_id) {
-	case S1D13506_PROD_ID:	
+	case S1D13506_PROD_ID:	/* activate acceleration */
 		s1d13xxxfb_fbops.fb_fillrect = s1d13xxxfb_bitblt_solidfill;
 		s1d13xxxfb_fbops.fb_copyarea = s1d13xxxfb_bitblt_copyarea;
 		info->flags = FBINFO_DEFAULT | FBINFO_HWACCEL_YPAN |
@@ -790,7 +892,7 @@ s1d13xxxfb_probe(struct platform_device *pdev)
 		break;
 	}
 
-	
+	/* perform "manual" chip initialization, if needed */
 	if (pdata && pdata->initregs)
 		s1d13xxxfb_runinit(info->par, pdata->initregs, pdata->initregssize);
 
@@ -819,7 +921,7 @@ static int s1d13xxxfb_suspend(struct platform_device *dev, pm_message_t state)
 	struct s1d13xxxfb_par *s1dfb = info->par;
 	struct s1d13xxxfb_pdata *pdata = NULL;
 
-	
+	/* disable display */
 	lcd_enable(s1dfb, 0);
 	crt_enable(s1dfb, 0);
 
@@ -848,10 +950,10 @@ static int s1d13xxxfb_suspend(struct platform_device *dev, pm_message_t state)
 		return -ENOMEM;
 	}
 
-	
+	/* backup all registers */
 	memcpy_fromio(s1dfb->regs_save, s1dfb->regs, info->fix.mmio_len);
 
-	
+	/* now activate power save mode */
 	s1d13xxxfb_writereg(s1dfb, S1DREG_PS_CNF, 0x11);
 
 	if (pdata && pdata->platform_suspend_video)
@@ -866,10 +968,10 @@ static int s1d13xxxfb_resume(struct platform_device *dev)
 	struct s1d13xxxfb_par *s1dfb = info->par;
 	struct s1d13xxxfb_pdata *pdata = NULL;
 
-	
+	/* awaken the chip */
 	s1d13xxxfb_writereg(s1dfb, S1DREG_PS_CNF, 0x10);
 
-	
+	/* do not let go until SDRAM "wakes up" */
 	while ((s1d13xxxfb_readreg(s1dfb, S1DREG_PS_STATUS) & 0x01))
 		udelay(10);
 
@@ -877,7 +979,7 @@ static int s1d13xxxfb_resume(struct platform_device *dev)
 		pdata = dev->dev.platform_data;
 
 	if (s1dfb->regs_save) {
-		
+		/* will write RO regs, *should* get away with it :) */
 		memcpy_toio(s1dfb->regs, s1dfb->regs_save, info->fix.mmio_len);
 		kfree(s1dfb->regs_save);
 	}
@@ -885,7 +987,7 @@ static int s1d13xxxfb_resume(struct platform_device *dev)
 	if (s1dfb->disp_save) {
 		memcpy_toio(info->screen_base, s1dfb->disp_save,
 				info->fix.smem_len);
-		kfree(s1dfb->disp_save);	
+		kfree(s1dfb->disp_save);	/* XXX kmalloc()'d when? */
 	}
 
 	if ((s1dfb->display & 0x01) != 0)
@@ -898,7 +1000,7 @@ static int s1d13xxxfb_resume(struct platform_device *dev)
 	else
 		return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static struct platform_driver s1d13xxxfb_driver = {
 	.probe		= s1d13xxxfb_probe,

@@ -26,6 +26,9 @@
 #include <asm/portmux.h>
 #include <asm/dpmc.h>
 
+/*
+ * Name the Board for the /proc/cpuinfo
+ */
 const char bfin_board_name[] = "BlackStamp";
 
 #if defined(CONFIG_RTC_DRV_BFIN) || defined(CONFIG_RTC_DRV_BFIN_MODULE)
@@ -35,6 +38,9 @@ static struct platform_device rtc_device = {
 };
 #endif
 
+/*
+ *  Driver needs to know address, irq and flag pin.
+ */
 #if defined(CONFIG_SMC91X) || defined(CONFIG_SMC91X_MODULE)
 #include <linux/smc91x.h>
 
@@ -93,8 +99,9 @@ static struct flash_platform_data bfin_spi_flash_data = {
 	.type = "m25p64",
 };
 
+/* SPI flash chip (m25p64) */
 static struct bfin5xx_spi_chip spi_flash_chip_info = {
-	.enable_dma = 0,         
+	.enable_dma = 0,         /* use dma transfer with this chip*/
 };
 #endif
 
@@ -107,11 +114,11 @@ static struct bfin5xx_spi_chip mmc_spi_chip_info = {
 static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MTD_M25P80) || defined(CONFIG_MTD_M25P80_MODULE)
 	{
-		
-		.modalias = "m25p80", 
-		.max_speed_hz = 20000000,     
-		.bus_num = 0, 
-		.chip_select = 2, 
+		/* the modalias must be the same as spi device driver name */
+		.modalias = "m25p80", /* Name of spi_driver for this device */
+		.max_speed_hz = 20000000,     /* max spi clock (SCK) speed in HZ */
+		.bus_num = 0, /* Framework bus number */
+		.chip_select = 2, /* Framework chip select. */
 		.platform_data = &bfin_spi_flash_data,
 		.controller_data = &spi_flash_chip_info,
 		.mode = SPI_MODE_3,
@@ -121,7 +128,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MMC_SPI) || defined(CONFIG_MMC_SPI_MODULE)
 	{
 		.modalias = "mmc_spi",
-		.max_speed_hz = 20000000,     
+		.max_speed_hz = 20000000,     /* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = 5,
 		.controller_data = &mmc_spi_chip_info,
@@ -132,7 +139,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_SPI_SPIDEV) || defined(CONFIG_SPI_SPIDEV_MODULE)
 	{
 		.modalias = "spidev",
-		.max_speed_hz = 3125000,     
+		.max_speed_hz = 3125000,     /* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = 7,
 	},
@@ -140,6 +147,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 };
 
 #if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
+/* SPI (0) */
 static struct resource bfin_spi0_resource[] = {
 	[0] = {
 		.start = SPI0_REGBASE,
@@ -158,22 +166,23 @@ static struct resource bfin_spi0_resource[] = {
 	}
 };
 
+/* SPI controller data */
 static struct bfin5xx_spi_master bfin_spi0_info = {
 	.num_chipselect = 8,
-	.enable_dma = 1,  
+	.enable_dma = 1,  /* master has the ability to do dma transfer */
 	.pin_req = {P_SPI0_SCK, P_SPI0_MISO, P_SPI0_MOSI, 0},
 };
 
 static struct platform_device bfin_spi0_device = {
 	.name = "bfin-spi",
-	.id = 0, 
+	.id = 0, /* Bus number */
 	.num_resources = ARRAY_SIZE(bfin_spi0_resource),
 	.resource = bfin_spi0_resource,
 	.dev = {
-		.platform_data = &bfin_spi0_info, 
+		.platform_data = &bfin_spi0_info, /* Passed to driver */
 	},
 };
-#endif  
+#endif  /* spi master and devices */
 
 #if defined(CONFIG_SERIAL_BFIN) || defined(CONFIG_SERIAL_BFIN_MODULE)
 #ifdef CONFIG_SERIAL_BFIN_UART0
@@ -220,7 +229,7 @@ static struct platform_device bfin_uart0_device = {
 	.num_resources = ARRAY_SIZE(bfin_uart0_resources),
 	.resource = bfin_uart0_resources,
 	.dev = {
-		.platform_data = &bfin_uart0_peripherals, 
+		.platform_data = &bfin_uart0_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -286,7 +295,7 @@ static struct platform_device bfin_sport0_uart_device = {
 	.num_resources = ARRAY_SIZE(bfin_sport0_uart_resources),
 	.resource = bfin_sport0_uart_resources,
 	.dev = {
-		.platform_data = &bfin_sport0_peripherals, 
+		.platform_data = &bfin_sport0_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -320,7 +329,7 @@ static struct platform_device bfin_sport1_uart_device = {
 	.num_resources = ARRAY_SIZE(bfin_sport1_uart_resources),
 	.resource = bfin_sport1_uart_resources,
 	.dev = {
-		.platform_data = &bfin_sport1_peripherals, 
+		.platform_data = &bfin_sport1_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -334,7 +343,7 @@ static struct gpio_keys_button bfin_gpio_keys_table[] = {
 	{BTN_0, GPIO_PF4, 0, "gpio-keys: BTN0"},
 	{BTN_1, GPIO_PF5, 0, "gpio-keys: BTN1"},
 	{BTN_2, GPIO_PF6, 0, "gpio-keys: BTN2"},
-}; 
+}; /* Mapped to the first three PF Test Points */
 
 static struct gpio_keys_platform_data bfin_gpio_keys_data = {
 	.buttons        = bfin_gpio_keys_table,
@@ -358,7 +367,8 @@ static struct i2c_gpio_platform_data i2c_gpio_data = {
 	.sda_is_open_drain	= 0,
 	.scl_is_open_drain	= 0,
 	.udelay			= 40,
-}; 
+}; /* This hasn't actually been used these pins
+    * are (currently) free pins on the expansion connector */
 
 static struct platform_device i2c_gpio_device = {
 	.name		= "i2c-gpio",
@@ -389,7 +399,7 @@ static const unsigned int cclk_vlev_datasheet[] =
 static struct bfin_dpmc_platform_data bfin_dmpc_vreg_data = {
 	.tuple_tab = cclk_vlev_datasheet,
 	.tabsize = ARRAY_SIZE(cclk_vlev_datasheet),
-	.vr_settling_time = 25 ,
+	.vr_settling_time = 25 /* us */,
 };
 
 static struct platform_device bfin_dpmc = {
@@ -460,6 +470,11 @@ static int __init blackstamp_init(void)
 		return ret;
 
 #if defined(CONFIG_SMC91X) || defined(CONFIG_SMC91X_MODULE)
+	/*
+	 * setup BF533_STAMP CPLD to route AMS3 to Ethernet MAC.
+	 * the bfin-async-map driver takes care of flipping between
+	 * flash and ethernet when necessary.
+	 */
 	ret = gpio_request(GPIO_PF0, "enet_cpld");
 	if (!ret) {
 		gpio_direction_output(GPIO_PF0, 1);

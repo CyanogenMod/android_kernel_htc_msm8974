@@ -31,17 +31,21 @@
 #define QQVGA_WIDTH		160
 #define QQVGA_HEIGHT		120
 
-#define VID_MAX_WIDTH		1280	
-#define VID_MAX_HEIGHT		720	
+/* Max Resolution supported by the driver */
+#define VID_MAX_WIDTH		1280	/* Largest width */
+#define VID_MAX_HEIGHT		720	/* Largest height */
 
+/* Mimimum requirement is 2x2 for DSS */
 #define VID_MIN_WIDTH		2
 #define VID_MIN_HEIGHT		2
 
+/* 2048 x 2048 is max res supported by OMAP display controller */
 #define MAX_PIXELS_PER_LINE     2048
 
 #define VRFB_TX_TIMEOUT         1000
 #define VRFB_NUM_BUFS		4
 
+/* Max buffer size tobe allocated during init */
 #define OMAP_VOUT_MAX_BUF_SIZE (VID_MAX_WIDTH*VID_MAX_HEIGHT*4)
 
 enum dma_channel_state {
@@ -49,6 +53,10 @@ enum dma_channel_state {
 	DMA_CHAN_ALLOTED,
 };
 
+/* Enum for Rotation
+ * DSS understands rotation in 0, 1, 2, 3 context
+ * while V4L2 driver understands it as 0, 90, 180, 270
+ */
 enum dss_rotation {
 	dss_rotation_0_degree	= 0,
 	dss_rotation_90_degree	= 1,
@@ -56,11 +64,21 @@ enum dss_rotation {
 	dss_rotation_270_degree = 3,
 };
 
+/* Enum for choosing rotation type for vout
+ * DSS2 doesn't understand no rotation as an
+ * option while V4L2 driver doesn't support
+ * rotation in the case where VRFB is not built in
+ * the kernel
+ */
 enum vout_rotaion_type {
 	VOUT_ROT_NONE	= 0,
 	VOUT_ROT_VRFB	= 1,
 };
 
+/*
+ * This structure is used to store the DMA transfer parameters
+ * for VRFB hidden buffer
+ */
 struct vid_vrfb_dma {
 	int dev_id;
 	int dma_ch;
@@ -92,6 +110,7 @@ struct omap2video_device {
 	struct omap_overlay_manager *managers[MAX_MANAGERS];
 };
 
+/* per-device data structure */
 struct omap_vout_device {
 
 	struct omapvideo_info vid_info;
@@ -100,20 +119,26 @@ struct omap_vout_device {
 	int vid;
 	int opened;
 
+	/* we don't allow to change image fmt/size once buffer has
+	 * been allocated
+	 */
 	int buffer_allocated;
-	
+	/* allow to reuse previously allocated buffer which is big enough */
 	int buffer_size;
-	
+	/* keep buffer info across opens */
 	unsigned long buf_virt_addr[VIDEO_MAX_FRAME];
 	unsigned long buf_phy_addr[VIDEO_MAX_FRAME];
 	enum omap_color_mode dss_mode;
 
+	/* we don't allow to request new buffer when old buffers are
+	 * still mmaped
+	 */
 	int mmap_count;
 
-	spinlock_t vbq_lock;		
-	unsigned long field_count;	
+	spinlock_t vbq_lock;		/* spinlock for videobuf queues */
+	unsigned long field_count;	/* field counter for videobuf_buffer */
 
-	
+	/* non-NULL means streaming is in progress. */
 	bool streaming;
 
 	struct v4l2_pix_format pix;
@@ -121,18 +146,18 @@ struct omap_vout_device {
 	struct v4l2_window win;
 	struct v4l2_framebuffer fbuf;
 
-	
+	/* Lock to protect the shared data structures in ioctl */
 	struct mutex lock;
 
-	
+	/* V4L2 control structure for different control id */
 	struct v4l2_control control[MAX_CID];
 	enum dss_rotation rotation;
 	bool mirror;
 	int flicker_filter;
-	
+	/* V4L2 control structure for different control id */
 
-	int bpp; 
-	int vrfb_bpp; 
+	int bpp; /* bytes per pixel */
+	int vrfb_bpp; /* bytes per pixel with respect to VRFB */
 
 	struct vid_vrfb_dma vrfb_dma_tx;
 	unsigned int smsshado_phy_addr[MAC_VRFB_CTXS];
@@ -151,7 +176,7 @@ struct omap_vout_device {
 	s32 tv_field1_offset;
 	void *isr_handle;
 
-	
+	/* Buffer queue variables */
 	struct omap_vout_device *vout;
 	enum v4l2_buf_type type;
 	struct videobuf_queue vbq;
@@ -159,17 +184,26 @@ struct omap_vout_device {
 
 };
 
+/*
+ * Return true if rotation is 90 or 270
+ */
 static inline int is_rotation_90_or_270(const struct omap_vout_device *vout)
 {
 	return (vout->rotation == dss_rotation_90_degree ||
 			vout->rotation == dss_rotation_270_degree);
 }
 
+/*
+ * Return true if rotation is enabled
+ */
 static inline int is_rotation_enabled(const struct omap_vout_device *vout)
 {
 	return vout->rotation || vout->mirror;
 }
 
+/*
+ * Reverse the rotation degree if mirroring is enabled
+ */
 static inline int calc_rotation(const struct omap_vout_device *vout)
 {
 	if (!vout->mirror)
@@ -188,4 +222,4 @@ static inline int calc_rotation(const struct omap_vout_device *vout)
 }
 
 void omap_vout_free_buffers(struct omap_vout_device *vout);
-#endif	
+#endif	/* ifndef OMAP_VOUTDEF_H */

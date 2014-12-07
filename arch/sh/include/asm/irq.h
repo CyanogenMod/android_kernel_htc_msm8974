@@ -4,14 +4,31 @@
 #include <linux/cpumask.h>
 #include <asm/machvec.h>
 
+/*
+ * A sane default based on a reasonable vector table size, platforms are
+ * advised to cap this at the hard limit that they're interested in
+ * through the machvec.
+ */
 #define NR_IRQS			512
-#define NR_IRQS_LEGACY		8	
+#define NR_IRQS_LEGACY		8	/* Legacy external IRQ0-7 */
 
+/*
+ * This is a special IRQ number for indicating that no IRQ has been
+ * triggered and to simply ignore the IRQ dispatch. This is a special
+ * case that can happen with IRQ auto-distribution when multiple CPUs
+ * are woken up and signalled in parallel.
+ */
 #define NO_IRQ_IGNORE		((unsigned int)-1)
 
+/*
+ * Simple Mask Register Support
+ */
 extern void make_maskreg_irq(unsigned int irq);
 extern unsigned short *irq_mask_register;
 
+/*
+ * PINT IRQs
+ */
 void init_IRQ_pint(void);
 void make_imask_irq(unsigned int irq);
 
@@ -49,4 +66,4 @@ extern void irq_finish(unsigned int irq);
 #include <cpu/irq.h>
 #endif
 
-#endif 
+#endif /* __ASM_SH_IRQ_H */

@@ -42,21 +42,30 @@ static int omap4_pm_suspend(void)
 	int state, ret = 0;
 	u32 cpu_id = smp_processor_id();
 
-	
+	/* Save current powerdomain state */
 	list_for_each_entry(pwrst, &pwrst_list, node) {
 		pwrst->saved_state = pwrdm_read_next_pwrst(pwrst->pwrdm);
 		pwrst->saved_logic_state = pwrdm_read_logic_retst(pwrst->pwrdm);
 	}
 
-	
+	/* Set targeted power domain states by suspend */
 	list_for_each_entry(pwrst, &pwrst_list, node) {
 		omap_set_pwrdm_state(pwrst->pwrdm, pwrst->next_state);
 		pwrdm_set_logic_retst(pwrst->pwrdm, PWRDM_POWER_OFF);
 	}
 
+	/*
+	 * For MPUSS to hit power domain retention(CSWR or OSWR),
+	 * CPU0 and CPU1 power domains need to be in OFF or DORMANT state,
+	 * since CPU power domain CSWR is not supported by hardware
+	 * Only master CPU follows suspend path. All other CPUs follow
+	 * CPU hotplug path in system wide suspend. On OMAP4, CPU power
+	 * domain CSWR is not supported by hardware.
+	 * More details can be found in OMAP4430 TRM section 4.3.4.2.
+	 */
 	omap4_enter_lowpower(cpu_id, PWRDM_POWER_OFF);
 
-	
+	/* Restore next powerdomain state */
 	list_for_each_entry(pwrst, &pwrst_list, node) {
 		state = pwrdm_read_prev_pwrst(pwrst->pwrdm);
 		if (state > pwrst->next_state) {
@@ -75,7 +84,7 @@ static int omap4_pm_suspend(void)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SUSPEND */
 
 static int __init pwrdms_setup(struct powerdomain *pwrdm, void *unused)
 {
@@ -84,9 +93,18 @@ static int __init pwrdms_setup(struct powerdomain *pwrdm, void *unused)
 	if (!pwrdm->pwrsts)
 		return 0;
 
+	/*
+	 * Skip CPU0 and CPU1 power domains. CPU1 is programmed
+	 * through hotplug path and CPU0 explicitly programmed
+	 * further down in the code path
+	 */
 	if (!strncmp(pwrdm->name, "cpu", 3))
 		return 0;
 
+	/*
+	 * FIXME: Remove this check when core retention is supported
+	 * Only MPUSS power domain is added in the list.
+	 */
 	if (strcmp(pwrdm->name, "mpu_pwrdm"))
 		return 0;
 
@@ -101,6 +119,13 @@ static int __init pwrdms_setup(struct powerdomain *pwrdm, void *unused)
 	return omap_set_pwrdm_state(pwrst->pwrdm, pwrst->next_state);
 }
 
+/**
+ * omap_default_idle - OMAP4 default ilde routine.'
+ *
+ * Implements OMAP4 memory, IO ordering requirements which can't be addressed
+ * with default cpu_do_idle() hook. Used by all CPUs with !CONFIG_CPUIDLE and
+ * by secondary CPU with CONFIG_CPUIDLE.
+ */
 static void omap_default_idle(void)
 {
 	local_fiq_disable();
@@ -110,6 +135,12 @@ static void omap_default_idle(void)
 	local_fiq_enable();
 }
 
+/**
+ * omap4_pm_init - Init routine for OMAP4 PM
+ *
+ * Initializes all powerdomain and clockdomain target states
+ * and all PRCM settings.
+ */
 static int __init omap4_pm_init(void)
 {
 	int ret;
@@ -132,6 +163,16 @@ static int __init omap4_pm_init(void)
 		goto err2;
 	}
 
+	/*
+	 * The dynamic dependency between MPUSS -> MEMIF and
+	 * MPUSS -> L4_PER/L3_* and DUCATI -> L3_* doesn't work as
+	 * expected. The hardware recommendation is to enable static
+	 * dependencies for these to avoid system lock ups or random crashes.
+	 * The L4 wakeup depedency is added to workaround the OCP sync hardware
+	 * BUG with 32K synctimer which lead to incorrect timer value read
+	 * from the 32K counter. The BUG applies for GPTIMER1 and WDT2 which
+	 * are part of L4 wakeup clockdomain.
+	 */
 	mpuss_clkdm = clkdm_lookup("mpuss_clkdm");
 	emif_clkdm = clkdm_lookup("l3_emif_clkdm");
 	l3_1_clkdm = clkdm_lookup("l3_1_clkdm");
@@ -168,7 +209,7 @@ static int __init omap4_pm_init(void)
 	omap_pm_suspend = omap4_pm_suspend;
 #endif
 
-	
+	/* Overwrite the default cpu_do_idle() */
 	arm_pm_idle = omap_default_idle;
 
 	omap4_idle_init();

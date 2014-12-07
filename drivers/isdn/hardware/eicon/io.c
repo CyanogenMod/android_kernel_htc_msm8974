@@ -29,7 +29,7 @@
 #include "pr_pc.h"
 #include "divasync.h"
 #define MIPS_SCOM
-#include "pkmaint.h" 
+#include "pkmaint.h" /* pc_main.h, packed in os-dependent fashion */
 #include "di.h"
 #include "mi_pc.h"
 #include "io.h"
@@ -37,6 +37,9 @@ extern ADAPTER *adapter[MAX_ADAPTER];
 extern PISDN_ADAPTER IoAdapters[MAX_ADAPTER];
 void request(PISDN_ADAPTER, ENTITY *);
 static void pcm_req(PISDN_ADAPTER, ENTITY *);
+/* --------------------------------------------------------------------------
+   local functions
+   -------------------------------------------------------------------------- */
 #define ReqFunc(N)							\
 	static void Request##N(ENTITY *e)				\
 	{ if (IoAdapters[N]) (*IoAdapters[N]->DIRequest)(IoAdapters[N], e); }
@@ -62,6 +65,11 @@ IDI_CALL Requests[MAX_ADAPTER] =
   &Request8, &Request9, &Request10, &Request11,
   &Request12, &Request13, &Request14, &Request15
 };
+/*****************************************************************************/
+/*
+  This array should indicate all new services, that this version of XDI
+  is able to provide to his clients
+*/
 static byte extended_xdi_features[DIVA_XDI_EXTENDED_FEATURES_MAX_SZ + 1] = {
 	(DIVA_XDI_EXTENDED_FEATURES_VALID       |
 	 DIVA_XDI_EXTENDED_FEATURE_SDRAM_BAR    |
@@ -74,6 +82,7 @@ static byte extended_xdi_features[DIVA_XDI_EXTENDED_FEATURES_MAX_SZ + 1] = {
 	 DIVA_XDI_EXTENDED_FEATURE_NO_CANCEL_RC),
 	0
 };
+/*****************************************************************************/
 void
 dump_xlog_buffer(PISDN_ADAPTER IoAdapter, Xdesc *xlogDesc)
 {
@@ -108,6 +117,7 @@ dump_xlog_buffer(PISDN_ADAPTER IoAdapter, Xdesc *xlogDesc)
 	DBG_FTL(("%s: ***************** end of XLOG *****************",
 		 &IoAdapter->Name[0]))
 		}
+/*****************************************************************************/
 #if defined(XDI_USE_XLOG)
 static char *(ExceptionCauseTable[]) =
 {
@@ -187,10 +197,17 @@ dump_trap_frame(PISDN_ADAPTER IoAdapter, byte __iomem *exceptionFrame)
 			 READ_DWORD(&xcept->mdhi), READ_DWORD(&xcept->mdlo),
 			 READ_DWORD(&xcept->reseverd), READ_DWORD(&xcept->xclass)))
 		}
+/* --------------------------------------------------------------------------
+   Real XDI Request function
+   -------------------------------------------------------------------------- */
 void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 {
 	byte i;
 	diva_os_spin_lock_magic_t irql;
+/*
+ * if the Req field in the entity structure is 0,
+ * we treat this request as a special function call
+ */
 	if (!e->Req)
 	{
 		IDI_SYNC_REQ *syncReq = (IDI_SYNC_REQ *)e;
@@ -357,6 +374,9 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 				return;
 		}
 	diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
+/*
+ * assign an entity
+ */
 	if (!(e->Id & 0x1f))
 	{
 		if (IoAdapter->e_count >= IoAdapter->e_max)
@@ -366,6 +386,9 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 				diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
 			return;
 		}
+/*
+ * find a new free id
+ */
 		for (i = 1; IoAdapter->e_tbl[i].e; ++i);
 		IoAdapter->e_tbl[i].e = e;
 		IoAdapter->e_count++;
@@ -377,12 +400,18 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 	{
 		i = e->No;
 	}
+/*
+ * if the entity is still busy, ignore the request call
+ */
 	if (e->More & XBUSY)
 	{
 		DBG_FTL(("xdi: Id 0x%x busy --> Req 0x%x ignored", e->Id, e->Req))
 			if (!IoAdapter->trapped && IoAdapter->trapFnc)
 			{
 				IoAdapter->trapFnc(IoAdapter);
+				/*
+				  Firs trap, also notify user if supported
+				*/
 				if (IoAdapter->trapped && IoAdapter->os_trap_nfy_Fnc) {
 					(*(IoAdapter->os_trap_nfy_Fnc))(IoAdapter, IoAdapter->ANum);
 				}
@@ -390,10 +419,16 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 		diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
 		return;
 	}
+/*
+ * initialize transmit status variables
+ */
 	e->More |= XBUSY;
 	e->More &= ~XMOREF;
 	e->XCurrent = 0;
 	e->XOffset = 0;
+/*
+ * queue this entity in the adapter request queue
+ */
 	IoAdapter->e_tbl[i].next = 0;
 	if (IoAdapter->head)
 	{
@@ -405,9 +440,15 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 		IoAdapter->head = i;
 		IoAdapter->tail = i;
 	}
+/*
+ * queue the DPC to process the request
+ */
 	diva_os_schedule_soft_isr(&IoAdapter->req_soft_isr);
 	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
 }
+/* ---------------------------------------------------------------------
+   Main DPC routine
+   --------------------------------------------------------------------- */
 void DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr, void *Context) {
 	PISDN_ADAPTER IoAdapter = (PISDN_ADAPTER)Context;
 	ADAPTER *a = &IoAdapter->a;
@@ -422,6 +463,9 @@ void DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr, void *Context) {
 			}
 			IoAdapter->out(a);
 		} while (diva_os_atomic_decrement(pin_dpc) > 0);
+		/* ----------------------------------------------------------------
+		   Look for XLOG request (cards with indirect addressing)
+		   ---------------------------------------------------------------- */
 		if (IoAdapter->pcm_pending) {
 			struct pc_maint *pcm;
 			diva_os_spin_lock_magic_t OldIrql;
@@ -430,27 +474,30 @@ void DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr, void *Context) {
 						"data_dpc");
 			pcm = (struct pc_maint *)IoAdapter->pcm_data;
 			switch (IoAdapter->pcm_pending) {
-			case 1: 
+			case 1: /* ask card for XLOG */
 				a->ram_out(a, &IoAdapter->pcm->rc, 0);
 				a->ram_out(a, &IoAdapter->pcm->req, pcm->req);
 				IoAdapter->pcm_pending = 2;
 				break;
-			case 2: 
+			case 2: /* Try to get XLOG from the card */
 				if ((int)(a->ram_in(a, &IoAdapter->pcm->rc))) {
 					a->ram_in_buffer(a, IoAdapter->pcm, pcm, sizeof(*pcm));
 					IoAdapter->pcm_pending = 3;
 				}
 				break;
-			case 3: 
+			case 3: /* let XDI recovery XLOG */
 				break;
 			}
 			diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
 						&OldIrql,
 						"data_dpc");
 		}
-		
+		/* ---------------------------------------------------------------- */
 	}
 }
+/* --------------------------------------------------------------------------
+   XLOG interface
+   -------------------------------------------------------------------------- */
 static void
 pcm_req(PISDN_ADAPTER IoAdapter, ENTITY *e)
 {
@@ -458,6 +505,10 @@ pcm_req(PISDN_ADAPTER IoAdapter, ENTITY *e)
 	int              i, rc;
 	ADAPTER         *a = &IoAdapter->a;
 	struct pc_maint *pcm = (struct pc_maint *)&e->Ind;
+/*
+ * special handling of I/O based card interface
+ * the memory access isn't an atomic operation !
+ */
 	if (IoAdapter->Properties.Card == CARD_MAE)
 	{
 		diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
@@ -501,6 +552,10 @@ pcm_req(PISDN_ADAPTER IoAdapter, ENTITY *e)
 					"data_pcm_4");
 		goto Trapped;
 	}
+/*
+ * memory based shared ram is accessible from different
+ * processors without disturbing concurrent processes.
+ */
 	a->ram_out(a, &IoAdapter->pcm->rc, 0);
 	a->ram_out(a, &IoAdapter->pcm->req, pcm->req);
 	for (i = (IoAdapter->trapped ? 3000 : 250); --i > 0;)
@@ -518,11 +573,17 @@ Trapped:
 	{
 		int trapped = IoAdapter->trapped;
 		IoAdapter->trapFnc(IoAdapter);
+		/*
+		  Firs trap, also notify user if supported
+		*/
 		if (!trapped && IoAdapter->trapped && IoAdapter->os_trap_nfy_Fnc) {
 			(*(IoAdapter->os_trap_nfy_Fnc))(IoAdapter, IoAdapter->ANum);
 		}
 	}
 }
+/*------------------------------------------------------------------*/
+/* ram access functions for memory mapped cards                     */
+/*------------------------------------------------------------------*/
 byte mem_in(ADAPTER *a, void *addr)
 {
 	byte val;
@@ -597,6 +658,9 @@ void mem_inc(ADAPTER *a, void *addr)
 	WRITE_BYTE(Base + (unsigned long)addr, x + 1);
 	DIVA_OS_MEM_DETACH_RAM((PISDN_ADAPTER)a->io, Base);
 }
+/*------------------------------------------------------------------*/
+/* ram access functions for io-mapped cards                         */
+/*------------------------------------------------------------------*/
 byte io_in(ADAPTER *a, void *adr)
 {
 	byte val;
@@ -686,6 +750,9 @@ void io_inc(ADAPTER *a, void *adr)
 	outpp(Port, x + 1);
 	DIVA_OS_MEM_DETACH_PORT((PISDN_ADAPTER)a->io, Port);
 }
+/*------------------------------------------------------------------*/
+/* OS specific functions related to queuing of entities             */
+/*------------------------------------------------------------------*/
 void free_entity(ADAPTER *a, byte e_no)
 {
 	PISDN_ADAPTER IoAdapter;
@@ -757,6 +824,9 @@ void next_req(ADAPTER *a)
 	if (!IoAdapter->head) IoAdapter->tail = 0;
 	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req_next");
 }
+/*------------------------------------------------------------------*/
+/* memory map functions                                             */
+/*------------------------------------------------------------------*/
 ENTITY *entity_ptr(ADAPTER *a, byte e_no)
 {
 	PISDN_ADAPTER IoAdapter;

@@ -34,11 +34,20 @@
 #define COMPILER_DEPENDENT_INT64   long long
 #define COMPILER_DEPENDENT_UINT64  unsigned long long
 
+/*
+ * Calling conventions:
+ *
+ * ACPI_SYSTEM_XFACE        - Interfaces to host OS (handlers, threads)
+ * ACPI_EXTERNAL_XFACE      - External ACPI interfaces
+ * ACPI_INTERNAL_XFACE      - Internal ACPI interfaces
+ * ACPI_INTERNAL_VAR_XFACE  - Internal variable-parameter list interfaces
+ */
 #define ACPI_SYSTEM_XFACE
 #define ACPI_EXTERNAL_XFACE
 #define ACPI_INTERNAL_XFACE
 #define ACPI_INTERNAL_VAR_XFACE
 
+/* Asm macros */
 
 #define ACPI_ASM_MACROS
 #define BREAKPOINT3
@@ -55,6 +64,9 @@ int __acpi_release_global_lock(unsigned int *lock);
 #define ACPI_RELEASE_GLOBAL_LOCK(facs, Acq) \
 	((Acq) = __acpi_release_global_lock(&facs->global_lock))
 
+/*
+ * Math helper asm macros
+ */
 #define ACPI_DIV_64_BY_32(n_hi, n_lo, d32, q32, r32) \
 	asm("divl %2;"				     \
 	    : "=a"(q32), "=d"(r32)		     \
@@ -102,15 +114,26 @@ static inline void acpi_disable_pci(void)
 	acpi_noirq_set();
 }
 
+/* Low-level suspend routine. */
 extern int acpi_suspend_lowlevel(void);
 
 extern const unsigned char acpi_wakeup_code[];
 #define acpi_wakeup_address (__pa(TRAMPOLINE_SYM(acpi_wakeup_code)))
 
+/* early initialization routine */
 extern void acpi_reserve_wakeup_memory(void);
 
+/*
+ * Check if the CPU can handle C2 and deeper
+ */
 static inline unsigned int acpi_processor_cstate_check(unsigned int max_cstate)
 {
+	/*
+	 * Early models (<=5) of AMD Opterons are not supposed to go into
+	 * C2 state.
+	 *
+	 * Steppings 0x0A and later are good
+	 */
 	if (boot_cpu_data.x86 == 0x0F &&
 	    boot_cpu_data.x86_vendor == X86_VENDOR_AMD &&
 	    boot_cpu_data.x86_model <= 0x05 &&
@@ -141,11 +164,14 @@ static inline void arch_acpi_set_pdc_bits(u32 *buf)
 	if (cpu_has(c, X86_FEATURE_ACPI))
 		buf[2] |= ACPI_PDC_T_FFH;
 
+	/*
+	 * If mwait/monitor is unsupported, C2/C3_FFH will be disabled
+	 */
 	if (!cpu_has(c, X86_FEATURE_MWAIT))
 		buf[2] &= ~(ACPI_PDC_C_C2C3_FFH);
 }
 
-#else 
+#else /* !CONFIG_ACPI */
 
 #define acpi_lapic 0
 #define acpi_ioapic 0
@@ -153,15 +179,15 @@ static inline void acpi_noirq_set(void) { }
 static inline void acpi_disable_pci(void) { }
 static inline void disable_acpi(void) { }
 
-#endif 
+#endif /* !CONFIG_ACPI */
 
 #define ARCH_HAS_POWER_INIT	1
 
 #ifdef CONFIG_ACPI_NUMA
 extern int acpi_numa;
 extern int x86_acpi_numa_init(void);
-#endif 
+#endif /* CONFIG_ACPI_NUMA */
 
 #define acpi_unlazy_tlb(x)	leave_mm(x)
 
-#endif 
+#endif /* _ASM_X86_ACPI_H */

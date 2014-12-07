@@ -65,7 +65,7 @@
 			vcc-i2c-supply = <&pm8110_l14>;
 			goodix,panel-coords = <0 0 540 980>;
 			goodix,display-coords = <0 0 540 960>;
-			goodix,button-map= <139 102 158>;
+			goodix,button-map= <139 172 158>;
 			goodix,product-id = "915";
 			goodix,enable-power-off;
 			goodix,cfg-data0 = [
@@ -88,6 +88,8 @@
 				00 FF FF FF FF FF FF FF 00 00
 				00 FF FF FF FF FF FF FF FF FF
 				F8 FF FF FF E4 01];
+			goodix,have-touch-key;
+			goodix,driver-send-cfg;
 		};
 	};
 	gen-vkeys {
@@ -99,6 +101,20 @@
 		qcom,panel-maxy = <946>;
 		qcom,key-codes = <139 102 158>;
 		qcom,y-offset = <0>;
+	};
+
+	i2c@f9924000 { /* BLSP-1 QUP-2 */
+		nfc-nci@e {
+			compatible = "qcom,nfc-nci";
+			reg = <0x0e>;
+			qcom,irq-gpio = <&msmgpio 77 0x00>;
+			qcom,dis-gpio = <&msmgpio 93 0x00>;
+			qcom,clk-en-gpio = <&msmgpio 78 0x00>;
+			qcom,clk-src = "GPCLK2";
+			interrupt-parent = <&msmgpio>;
+			interrupts = <77 0>;
+			qcom,clk-gpio = <&msmgpio 75 0x00>;
+		};
 	};
 
     i2c@f9925000 {

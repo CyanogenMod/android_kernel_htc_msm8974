@@ -5,4 +5,4 @@
 
 #include <asm-generic/ioctls.h>
 
-#endif 
+#endif /* __ARCH_H8300_IOCTLS_H__ */

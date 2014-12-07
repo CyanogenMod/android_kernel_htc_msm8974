@@ -183,7 +183,7 @@ int main(int argc, char *argv[])
 			}
 	}
 
-	
+	/* invalid command */
 	usbip_help(0, NULL);
 out:
 	return (rc > -1 ? EXIT_SUCCESS : EXIT_FAILURE);

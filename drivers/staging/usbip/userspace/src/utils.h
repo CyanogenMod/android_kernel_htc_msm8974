@@ -21,5 +21,5 @@
 
 int modify_match_busid(char *busid, int add);
 
-#endif 
+#endif /* __UTILS_H */
 

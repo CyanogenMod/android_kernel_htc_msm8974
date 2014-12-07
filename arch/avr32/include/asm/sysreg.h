@@ -10,6 +10,7 @@
 #ifndef __ASM_AVR32_SYSREG_H
 #define __ASM_AVR32_SYSREG_H
 
+/* sysreg register offsets */
 #define SYSREG_SR				0x0000
 #define SYSREG_EVBA				0x0004
 #define SYSREG_ACBA				0x0008
@@ -63,6 +64,7 @@
 #define SYSREG_SABAH				0x0304
 #define SYSREG_SABD				0x0308
 
+/* Bitfields in SR */
 #define SYSREG_SR_C_OFFSET			0
 #define SYSREG_SR_C_SIZE			1
 #define SYSREG_Z_OFFSET				1
@@ -108,6 +110,7 @@
 #define SYSREG_H_OFFSET				29
 #define SYSREG_H_SIZE				1
 
+/* Bitfields in CPUCR */
 #define SYSREG_BI_OFFSET			0
 #define SYSREG_BI_SIZE				1
 #define SYSREG_BE_OFFSET			1
@@ -121,6 +124,7 @@
 #define SYSREG_IEE_OFFSET			5
 #define SYSREG_IEE_SIZE				1
 
+/* Bitfields in CONFIG0 */
 #define SYSREG_CONFIG0_R_OFFSET			0
 #define SYSREG_CONFIG0_R_SIZE			1
 #define SYSREG_CONFIG0_D_OFFSET			1
@@ -146,6 +150,7 @@
 #define SYSREG_PROCESSORID_OFFSET		24
 #define SYSREG_PROCESSORID_SIZE			8
 
+/* Bitfields in CONFIG1 */
 #define SYSREG_DASS_OFFSET			0
 #define SYSREG_DASS_SIZE			3
 #define SYSREG_DLSZ_OFFSET			3
@@ -163,6 +168,7 @@
 #define SYSREG_IMMUSZ_OFFSET			26
 #define SYSREG_IMMUSZ_SIZE			6
 
+/* Bitfields in TLBEHI */
 #define SYSREG_ASID_OFFSET			0
 #define SYSREG_ASID_SIZE			8
 #define SYSREG_TLBEHI_I_OFFSET			8
@@ -172,6 +178,7 @@
 #define SYSREG_VPN_OFFSET			10
 #define SYSREG_VPN_SIZE				22
 
+/* Bitfields in TLBELO */
 #define SYSREG_W_OFFSET				0
 #define SYSREG_W_SIZE				1
 #define SYSREG_TLBELO_D_OFFSET			1
@@ -189,6 +196,7 @@
 #define SYSREG_PFN_OFFSET			10
 #define SYSREG_PFN_SIZE				22
 
+/* Bitfields in MMUCR */
 #define SYSREG_E_OFFSET				0
 #define SYSREG_E_SIZE				1
 #define SYSREG_M_OFFSET				1
@@ -208,6 +216,7 @@
 #define SYSREG_IRP_OFFSET			26
 #define SYSREG_IRP_SIZE				6
 
+/* Bitfields in PCCR */
 #define SYSREG_PCCR_E_OFFSET			0
 #define SYSREG_PCCR_E_SIZE			1
 #define SYSREG_PCCR_R_OFFSET			1
@@ -233,6 +242,7 @@
 #define SYSREG_CONF1_OFFSET			18
 #define SYSREG_CONF1_SIZE			6
 
+/* Constants for ECR */
 #define ECR_UNRECOVERABLE			0
 #define ECR_TLB_MULTIPLE			1
 #define ECR_BUS_ERROR_WRITE			2
@@ -255,6 +265,7 @@
 #define ECR_TLB_MISS_R				24
 #define ECR_TLB_MISS_W				28
 
+/* Bit manipulation macros */
 #define SYSREG_BIT(name)				\
 	(1 << SYSREG_##name##_OFFSET)
 #define SYSREG_BF(name,value)				\
@@ -268,6 +279,7 @@
 		    << SYSREG_##name##_OFFSET))		\
 	 | SYSREG_BF(name,value))
 
+/* Register access macros */
 #ifdef __CHECKER__
 extern unsigned long __builtin_mfsr(unsigned long reg);
 extern void __builtin_mtsr(unsigned long reg, unsigned long value);
@@ -276,4 +288,4 @@ extern void __builtin_mtsr(unsigned long reg, unsigned long value);
 #define sysreg_read(reg)		__builtin_mfsr(SYSREG_##reg)
 #define sysreg_write(reg, value)	__builtin_mtsr(SYSREG_##reg, value)
 
-#endif 
+#endif /* __ASM_AVR32_SYSREG_H */

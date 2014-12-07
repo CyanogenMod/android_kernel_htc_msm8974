@@ -28,6 +28,7 @@
 #include <mach/bast-map.h>
 #include <mach/bast-irq.h>
 
+/* IDE ports */
 
 static struct pata_platform_info bast_ide_platdata = {
 	.ioport_shift	= 5,

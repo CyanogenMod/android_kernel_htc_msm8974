@@ -34,7 +34,7 @@ static struct mtd_info *map_ram_probe(struct map_info *map)
 {
 	struct mtd_info *mtd;
 
-	
+	/* Check the first byte is RAM */
 #if 0
 	map_write8(map, 0x55, 0);
 	if (map_read8(map, 0) != 0x55)
@@ -44,7 +44,7 @@ static struct mtd_info *map_ram_probe(struct map_info *map)
 	if (map_read8(map, 0) != 0xAA)
 		return NULL;
 
-	
+	/* Check the last byte is RAM */
 	map_write8(map, 0x55, map->size-1);
 	if (map_read8(map, map->size-1) != 0x55)
 		return NULL;
@@ -53,7 +53,7 @@ static struct mtd_info *map_ram_probe(struct map_info *map)
 	if (map_read8(map, map->size-1) != 0xAA)
 		return NULL;
 #endif
-	
+	/* OK. It seems to be RAM. */
 
 	mtd = kzalloc(sizeof(*mtd), GFP_KERNEL);
 	if (!mtd)
@@ -81,6 +81,11 @@ static struct mtd_info *map_ram_probe(struct map_info *map)
 }
 
 
+/*
+ * Allow NOMMU mmap() to directly map the device (if not NULL)
+ * - return the address to which the offset maps
+ * - return -ENOSYS to indicate refusal to do the mapping
+ */
 static unsigned long mapram_unmapped_area(struct mtd_info *mtd,
 					  unsigned long len,
 					  unsigned long offset,
@@ -110,6 +115,8 @@ static int mapram_write (struct mtd_info *mtd, loff_t to, size_t len, size_t *re
 
 static int mapram_erase (struct mtd_info *mtd, struct erase_info *instr)
 {
+	/* Yeah, it's inefficient. Who cares? It's faster than a _real_
+	   flash erase. */
 	struct map_info *map = mtd->priv;
 	map_word allff;
 	unsigned long i;
@@ -124,7 +131,7 @@ static int mapram_erase (struct mtd_info *mtd, struct erase_info *instr)
 
 static void mapram_nop(struct mtd_info *mtd)
 {
-	
+	/* Nothing to see here */
 }
 
 static int __init map_ram_init(void)

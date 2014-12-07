@@ -11,6 +11,9 @@
 #include <linux/types.h>
 #include <asm/mipsregs.h>
 
+/*
+ * Cavium Octeons are MIPS64v2 processors
+ */
 #define cpu_dcache_line_size()	128
 #define cpu_icache_line_size()	128
 
@@ -29,6 +32,10 @@
 #define cpu_has_prefetch	1
 
 #define cpu_has_llsc		1
+/*
+ * We Disable LL/SC on non SMP systems as it is faster to disable
+ * interrupts for atomic access than a LL/SC.
+ */
 #ifdef CONFIG_SMP
 # define kernel_uses_llsc	1
 #else
@@ -59,6 +66,10 @@
 #define PREFETCH_STRIDE 128
 
 #ifdef __OCTEON__
+/*
+ * All gcc versions that have OCTEON support define __OCTEON__ and have the
+ *  __builtin_popcount support.
+ */
 #define ARCH_HAS_USABLE_BUILTIN_POPCOUNT 1
 #endif
 
@@ -69,6 +80,10 @@ static inline int octeon_has_saa(void)
 	return id >= 0x000d0300;
 }
 
+/*
+ * The last 256MB are reserved for device to device mappings and the
+ * BAR1 hole.
+ */
 #define MAX_DMA32_PFN (((1ULL << 32) - (1ULL << 28)) >> PAGE_SHIFT)
 
 #endif

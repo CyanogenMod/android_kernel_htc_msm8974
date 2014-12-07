@@ -80,6 +80,7 @@ struct std_name {
 
 #define CSTD_ALL (CSTD_PAL|CSTD_NTSC|CSTD_ATSC|CSTD_SECAM)
 
+/* Mapping of standard bits to color system */
 static const struct std_name std_groups[] = {
 	{"PAL",CSTD_PAL},
 	{"NTSC",CSTD_NTSC},
@@ -87,6 +88,7 @@ static const struct std_name std_groups[] = {
 	{"ATSC",CSTD_ATSC},
 };
 
+/* Mapping of standard bits to modulation system */
 static const struct std_name std_items[] = {
 	{"B",TSTD_B},
 	{"B1",TSTD_B1},
@@ -111,6 +113,8 @@ static const struct std_name std_items[] = {
 };
 
 
+// Search an array of std_name structures and return a pointer to the
+// element with the matching name.
 static const struct std_name *find_std_name(const struct std_name *arrPtr,
 					    unsigned int arrSize,
 					    const char *bufPtr,
@@ -142,10 +146,10 @@ int pvr2_std_str_to_id(v4l2_std_id *idPtr,const char *bufPtr,
 		if (!mMode) {
 			cnt = 0;
 			while ((cnt < bufSize) && (bufPtr[cnt] != '-')) cnt++;
-			if (cnt >= bufSize) return 0; 
+			if (cnt >= bufSize) return 0; // No more characters
 			sp = find_std_name(std_groups, ARRAY_SIZE(std_groups),
 					   bufPtr,cnt);
-			if (!sp) return 0; 
+			if (!sp) return 0; // Illegal color system name
 			cnt++;
 			bufPtr += cnt;
 			bufSize -= cnt;
@@ -165,9 +169,9 @@ int pvr2_std_str_to_id(v4l2_std_id *idPtr,const char *bufPtr,
 		}
 		sp = find_std_name(std_items, ARRAY_SIZE(std_items),
 				   bufPtr,cnt);
-		if (!sp) return 0; 
+		if (!sp) return 0; // Illegal modulation system ID
 		t = sp->id & cmsk;
-		if (!t) return 0; 
+		if (!t) return 0; // Specific color + modulation system illegal
 		id |= t;
 		if (cnt < bufSize) cnt++;
 		bufPtr += cnt;
@@ -222,6 +226,8 @@ unsigned int pvr2_std_id_to_str(char *bufPtr, unsigned int bufSize,
 }
 
 
+// Template data for possible enumerated video standards.  Here we group
+// standards which share common frame rates and resolution.
 static struct v4l2_standard generic_standards[] = {
 	{
 		.id             = (TSTD_B|TSTD_B1|
@@ -251,7 +257,7 @@ static struct v4l2_standard generic_standards[] = {
 		},
 		.framelines     = 525,
 		.reserved       = {0,0,0,0}
-	}, { 
+	}, { // This is a total wild guess
 		.id             = (TSTD_60),
 		.frameperiod    =
 		{
@@ -260,7 +266,7 @@ static struct v4l2_standard generic_standards[] = {
 		},
 		.framelines     = 525,
 		.reserved       = {0,0,0,0}
-	}, { 
+	}, { // This is total wild guess
 		.id             = V4L2_STD_NTSC_443,
 		.frameperiod    =
 		{
@@ -301,6 +307,8 @@ static int pvr2_std_fill(struct v4l2_standard *std,v4l2_std_id id)
 	return !0;
 }
 
+/* These are special cases of combined standards that we should enumerate
+   separately if the component pieces are present. */
 static v4l2_std_id std_mixes[] = {
 	V4L2_STD_PAL_B | V4L2_STD_PAL_G,
 	V4L2_STD_PAL_D | V4L2_STD_PAL_K,
@@ -341,7 +349,7 @@ struct v4l2_standard *pvr2_std_create_enum(unsigned int *countptr,
 		if ((id & std_mixes[idx2]) == std_mixes[idx2]) std_cnt++;
 	}
 
-	
+	/* Don't complain about ATSC standard values */
 	fmsk &= ~CSTD_ATSC;
 
 	if (fmsk) {
@@ -356,7 +364,7 @@ struct v4l2_standard *pvr2_std_create_enum(unsigned int *countptr,
 
 	pvr2_trace(PVR2_TRACE_STD,"Setting up %u unique standard(s)",
 		   std_cnt);
-	if (!std_cnt) return NULL; 
+	if (!std_cnt) return NULL; // paranoia
 
 	stddefs = kzalloc(sizeof(struct v4l2_standard) * std_cnt,
 			  GFP_KERNEL);
@@ -368,13 +376,13 @@ struct v4l2_standard *pvr2_std_create_enum(unsigned int *countptr,
 
 	idx = 0;
 
-	
+	/* Enumerate potential special cases */
 	for (idx2 = 0; (idx2 < ARRAY_SIZE(std_mixes)) && (idx < std_cnt);
 	     idx2++) {
 		if (!(id & std_mixes[idx2])) continue;
 		if (pvr2_std_fill(stddefs+idx,std_mixes[idx2])) idx++;
 	}
-	
+	/* Now enumerate individual pieces */
 	for (idmsk = 1, cmsk = id; cmsk && (idx < std_cnt); idmsk <<= 1) {
 		if (!(idmsk & cmsk)) continue;
 		cmsk &= ~idmsk;
@@ -392,3 +400,12 @@ v4l2_std_id pvr2_std_get_usable(void)
 }
 
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 75 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

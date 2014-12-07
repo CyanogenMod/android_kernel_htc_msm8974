@@ -54,14 +54,14 @@ static int c2_alloc_mqsp_chunk(struct c2_dev *c2dev, gfp_t gfp_mask,
 	new_head->next = NULL;
 	new_head->head = 0;
 
-	
+	/* build list where each index is the next free slot */
 	for (i = 0;
 	     i < (PAGE_SIZE - sizeof(struct sp_chunk) -
 		  sizeof(u16)) / sizeof(u16) - 1;
 	     i++) {
 		new_head->shared_ptr[i] = i + 1;
 	}
-	
+	/* terminate list */
 	new_head->shared_ptr[i] = 0xFFFF;
 
 	*head = new_head;
@@ -124,19 +124,19 @@ void c2_free_mqsp(__be16 *mqsp)
 	struct sp_chunk *head;
 	u16 idx;
 
-	
+	/* The chunk containing this ptr begins at the page boundary */
 	head = (struct sp_chunk *) ((unsigned long) mqsp & PAGE_MASK);
 
-	
+	/* Link head to new mqsp */
 	*mqsp = (__force __be16) head->head;
 
-	
+	/* Compute the shared_ptr index */
 	idx = ((unsigned long) mqsp & ~PAGE_MASK) >> 1;
 	idx -= (unsigned long) &(((struct sp_chunk *) 0)->shared_ptr[0]) >> 1;
 
-	
+	/* Point this index at the head */
 	head->shared_ptr[idx] = head->head;
 
-	
+	/* Point head at this index */
 	head->head = idx;
 }

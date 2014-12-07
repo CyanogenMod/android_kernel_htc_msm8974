@@ -11,5 +11,5 @@ extern unsigned int (*nf_nat_irc_hook)(struct sk_buff *skb,
 				       unsigned int matchlen,
 				       struct nf_conntrack_expect *exp);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _NF_CONNTRACK_IRC_H */

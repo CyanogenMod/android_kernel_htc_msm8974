@@ -24,6 +24,9 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
+/*
+ * Authors: Thomas Hellstrom <thellstrom-at-vmware-dot-com>
+ */
 
 #define pr_fmt(fmt) "[TTM] " fmt
 
@@ -85,6 +88,11 @@ static int ttm_bo_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	struct ttm_mem_type_manager *man =
 		&bdev->man[bo->mem.mem_type];
 
+	/*
+	 * Work around locking order reversal in fault / nopfn
+	 * between mmap_sem and bo_reserve: Perform a trylock operation
+	 * for reserve, and if it fails, retry the fault after scheduling.
+	 */
 
 	ret = ttm_bo_reserve(bo, true, true, false, 0);
 	if (unlikely(ret != 0)) {
@@ -109,6 +117,10 @@ static int ttm_bo_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		}
 	}
 
+	/*
+	 * Wait for buffer data in transit, due to a pipelined
+	 * move.
+	 */
 
 	spin_lock(&bdev->fence_lock);
 	if (test_bit(TTM_BO_PRIV_FLAG_MOVING, &bo->priv_flags)) {
@@ -143,6 +155,19 @@ static int ttm_bo_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		goto out_io_unlock;
 	}
 
+	/*
+	 * Strictly, we're not allowed to modify vma->vm_page_prot here,
+	 * since the mmap_sem is only held in read mode. However, we
+	 * modify only the caching bits of vma->vm_page_prot and
+	 * consider those bits protected by
+	 * the bo->mutex, as we should be the only writers.
+	 * There shouldn't really be any readers of these bits except
+	 * within vm_insert_mixed()? fork?
+	 *
+	 * TODO: Add a list of vmas to the bo, and change the
+	 * vma->vm_page_prot when the object changes caching policy, with
+	 * the correct locks held.
+	 */
 	if (bo->mem.bus.is_iomem) {
 		vma->vm_page_prot = ttm_io_prot(bo->mem.placement,
 						vma->vm_page_prot);
@@ -152,13 +177,17 @@ static int ttm_bo_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		    vm_get_page_prot(vma->vm_flags) :
 		    ttm_io_prot(bo->mem.placement, vma->vm_page_prot);
 
-		
+		/* Allocate all page at once, most common usage */
 		if (ttm->bdev->driver->ttm_tt_populate(ttm)) {
 			retval = VM_FAULT_OOM;
 			goto out_io_unlock;
 		}
 	}
 
+	/*
+	 * Speculatively prefault a number of pages. Only error on
+	 * first page.
+	 */
 	for (i = 0; i < TTM_BO_VM_NUM_PREFAULT; ++i) {
 		if (bo->mem.bus.is_iomem)
 			pfn = ((bo->mem.bus.base + bo->mem.bus.offset) >> PAGE_SHIFT) + page_offset;
@@ -174,6 +203,10 @@ static int ttm_bo_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		}
 
 		ret = vm_insert_mixed(vma, address, pfn);
+		/*
+		 * Somebody beat us to this PTE or prefaulting to
+		 * an already populated PTE, or prefaulting error.
+		 */
 
 		if (unlikely((ret == -EBUSY) || (ret != 0 && i > 0)))
 			break;
@@ -246,6 +279,10 @@ int ttm_bo_mmap(struct file *filp, struct vm_area_struct *vma,
 
 	vma->vm_ops = &ttm_bo_vm_ops;
 
+	/*
+	 * Note: We're transferring the bo reference to
+	 * vma->vm_private_data here.
+	 */
 
 	vma->vm_private_data = bo;
 	vma->vm_flags |= VM_RESERVED | VM_IO | VM_MIXEDMAP | VM_DONTEXPAND;

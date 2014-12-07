@@ -31,6 +31,9 @@ struct bfin_glue {
 };
 #define glue_to_musb(g)		platform_get_drvdata(g->musb)
 
+/*
+ * Load an endpoint's FIFO
+ */
 void musb_write_fifo(struct musb_hw_ep *hw_ep, u16 len, const u8 *src)
 {
 	struct musb *musb = hw_ep->musb;
@@ -53,7 +56,7 @@ void musb_write_fifo(struct musb_hw_ep *hw_ep, u16 len, const u8 *src)
 		flush_dcache_range((unsigned long)src,
 			(unsigned long)(src + len));
 
-		
+		/* Setup DMA address register */
 		dma_reg = (u32)src;
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_ADDR_LOW), dma_reg);
 		SSYNC();
@@ -62,25 +65,25 @@ void musb_write_fifo(struct musb_hw_ep *hw_ep, u16 len, const u8 *src)
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_ADDR_HIGH), dma_reg);
 		SSYNC();
 
-		
+		/* Setup DMA count register */
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_COUNT_LOW), len);
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_COUNT_HIGH), 0);
 		SSYNC();
 
-		
+		/* Enable the DMA */
 		dma_reg = (epnum << 4) | DMA_ENA | INT_ENA | DIRECTION;
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_CTRL), dma_reg);
 		SSYNC();
 
-		
+		/* Wait for compelete */
 		while (!(bfin_read_USB_DMA_INTERRUPT() & (1 << epnum)))
 			cpu_relax();
 
-		
+		/* acknowledge dma interrupt */
 		bfin_write_USB_DMA_INTERRUPT(1 << epnum);
 		SSYNC();
 
-		
+		/* Reset DMA */
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_CTRL), 0);
 		SSYNC();
 	} else {
@@ -92,6 +95,9 @@ void musb_write_fifo(struct musb_hw_ep *hw_ep, u16 len, const u8 *src)
 			outsw((unsigned long)fifo, src, (len + 1) >> 1);
 	}
 }
+/*
+ * Unload an endpoint's FIFO
+ */
 void musb_read_fifo(struct musb_hw_ep *hw_ep, u16 len, u8 *dst)
 {
 	struct musb *musb = hw_ep->musb;
@@ -104,7 +110,7 @@ void musb_read_fifo(struct musb_hw_ep *hw_ep, u16 len, u8 *dst)
 		invalidate_dcache_range((unsigned long)dst,
 			(unsigned long)(dst + len));
 
-		
+		/* Setup DMA address register */
 		dma_reg = (u32)dst;
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_ADDR_LOW), dma_reg);
 		SSYNC();
@@ -113,29 +119,32 @@ void musb_read_fifo(struct musb_hw_ep *hw_ep, u16 len, u8 *dst)
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_ADDR_HIGH), dma_reg);
 		SSYNC();
 
-		
+		/* Setup DMA count register */
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_COUNT_LOW), len);
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_COUNT_HIGH), 0);
 		SSYNC();
 
-		
+		/* Enable the DMA */
 		dma_reg = (epnum << 4) | DMA_ENA | INT_ENA;
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_CTRL), dma_reg);
 		SSYNC();
 
-		
+		/* Wait for compelete */
 		while (!(bfin_read_USB_DMA_INTERRUPT() & (1 << epnum)))
 			cpu_relax();
 
-		
+		/* acknowledge dma interrupt */
 		bfin_write_USB_DMA_INTERRUPT(1 << epnum);
 		SSYNC();
 
-		
+		/* Reset DMA */
 		bfin_write16(USB_DMA_REG(epnum, USB_DMAx_CTRL), 0);
 		SSYNC();
 	} else {
 		SSYNC();
+		/* Read the last byte of packet with odd size from address fifo + 4
+		 * to trigger 1 byte access to EP0 FIFO.
+		 */
 		if (len == 1)
 			*dst = (u8)inw((unsigned long)fifo + 4);
 		else {
@@ -173,7 +182,7 @@ static irqreturn_t blackfin_interrupt(int irq, void *__hci)
 		retval = musb_interrupt(musb);
 	}
 
-	
+	/* Start sampling ID pin, when plug is removed from MUSB */
 	if ((is_otg_enabled(musb) && (musb->xceiv->state == OTG_STATE_B_IDLE
 		|| musb->xceiv->state == OTG_STATE_A_WAIT_BCON)) ||
 		(musb->int_usb & MUSB_INTR_DISCONNECT && is_host_active(musb))) {
@@ -197,13 +206,13 @@ static void musb_conn_timer_handler(unsigned long _musb)
 	switch (musb->xceiv->state) {
 	case OTG_STATE_A_IDLE:
 	case OTG_STATE_A_WAIT_BCON:
-		
+		/* Start a new session */
 		val = musb_readw(musb->mregs, MUSB_DEVCTL);
 		val &= ~MUSB_DEVCTL_SESSION;
 		musb_writew(musb->mregs, MUSB_DEVCTL, val);
 		val |= MUSB_DEVCTL_SESSION;
 		musb_writew(musb->mregs, MUSB_DEVCTL, val);
-		
+		/* Check if musb is host or peripheral. */
 		val = musb_readw(musb->mregs, MUSB_DEVCTL);
 
 		if (!(val & MUSB_DEVCTL_BDEVICE)) {
@@ -211,7 +220,7 @@ static void musb_conn_timer_handler(unsigned long _musb)
 			musb->xceiv->state = OTG_STATE_A_WAIT_BCON;
 		} else {
 			gpio_set_value(musb->config->gpio_vrsel, 0);
-			
+			/* Ignore VBUSERROR and SUSPEND IRQ */
 			val = musb_readb(musb->mregs, MUSB_INTRUSBE);
 			val &= ~MUSB_INTR_VBUSERROR;
 			musb_writeb(musb->mregs, MUSB_INTRUSBE, val);
@@ -229,6 +238,9 @@ static void musb_conn_timer_handler(unsigned long _musb)
 
 		if (!is_peripheral_enabled(musb))
 			break;
+		/* Start a new session.  It seems that MUSB needs taking
+		 * some time to recognize the type of the plug inserted?
+		 */
 		val = musb_readw(musb->mregs, MUSB_DEVCTL);
 		val |= MUSB_DEVCTL_SESSION;
 		musb_writew(musb->mregs, MUSB_DEVCTL, val);
@@ -240,7 +252,7 @@ static void musb_conn_timer_handler(unsigned long _musb)
 		} else {
 			gpio_set_value(musb->config->gpio_vrsel, 0);
 
-			
+			/* Ignore VBUSERROR and SUSPEND IRQ */
 			val = musb_readb(musb->mregs, MUSB_INTRUSBE);
 			val &= ~MUSB_INTR_VBUSERROR;
 			musb_writeb(musb->mregs, MUSB_INTRUSBE, val);
@@ -248,6 +260,9 @@ static void musb_conn_timer_handler(unsigned long _musb)
 			val = MUSB_INTR_SUSPEND | MUSB_INTR_VBUSERROR;
 			musb_writeb(musb->mregs, MUSB_INTRUSB, val);
 
+			/* Toggle the Soft Conn bit, so that we can response to
+			 * the inserting of either A-plug or B-plug.
+			 */
 			if (toggle) {
 				val = musb_readb(musb->mregs, MUSB_POWER);
 				val &= ~MUSB_POWER_SOFTCONN;
@@ -259,6 +274,10 @@ static void musb_conn_timer_handler(unsigned long _musb)
 				musb_writeb(musb->mregs, MUSB_POWER, val);
 				toggle = 1;
 			}
+			/* The delay time is set to 1/4 second by default,
+			 * shortening it, if accelerating A-plug detection
+			 * is needed in OTG mode.
+			 */
 			mod_timer(&musb_conn_timer, jiffies + TIMER_DELAY / 4);
 		}
 		break;
@@ -293,7 +312,7 @@ static void bfin_musb_set_vbus(struct musb *musb, int is_on)
 	gpio_set_value(musb->config->gpio_vrsel, value);
 
 	dev_dbg(musb->controller, "VBUS %s, devctl %02x "
-		 "\n",
+		/* otg %3x conf %08x prcm %08x */ "\n",
 		otg_state_string(musb->xceiv->state),
 		musb_readb(musb->mregs, MUSB_DEVCTL));
 }
@@ -325,6 +344,13 @@ static int bfin_musb_adjust_channel_params(struct dma_channel *channel,
 {
 	struct musb_dma_channel *musb_channel = channel->private_data;
 
+	/*
+	 * Anomaly 05000450 might cause data corruption when using DMA
+	 * MODE 1 transmits with short packet.  So to work around this,
+	 * we truncate all MODE 1 transfers down to a multiple of the
+	 * max packet size, and then do the last short packet transfer
+	 * (if there is any) using MODE 0.
+	 */
 	if (ANOMALY_05000450) {
 		if (musb_channel->transmit && *mode == 1)
 			*len = *len - (*len % packet_sz);
@@ -345,7 +371,7 @@ static void bfin_musb_reg_init(struct musb *musb)
 		SSYNC();
 	}
 
-	
+	/* Configure PLL oscillator register */
 	bfin_write_USB_PLLOSC_CTRL(0x3080 |
 			((480/musb->config->clkin) << 1));
 	SSYNC();
@@ -359,7 +385,7 @@ static void bfin_musb_reg_init(struct musb *musb)
 	bfin_write_USB_EP_NI0_TXMAXP(64);
 	SSYNC();
 
-	
+	/* Route INTRUSB/INTR_RX/INTR_TX to USB_INT0*/
 	bfin_write_USB_GLOBINTR(0x7);
 	SSYNC();
 
@@ -374,6 +400,12 @@ static void bfin_musb_reg_init(struct musb *musb)
 static int bfin_musb_init(struct musb *musb)
 {
 
+	/*
+	 * Rev 1.0 BF549 EZ-KITs require PE7 to be high for both DEVICE
+	 * and OTG HOST modes, while rev 1.1 and greater require PE7 to
+	 * be low for DEVICE mode and high for HOST mode. We set it high
+	 * here because we are in host mode
+	 */
 
 	if (gpio_request(musb->config->gpio_vrsel, "USB_VRSEL")) {
 		printk(KERN_ERR "Failed ro request USB_VRSEL GPIO_%d\n",
@@ -511,6 +543,12 @@ static int bfin_suspend(struct device *dev)
 	struct musb		*musb = glue_to_musb(glue);
 
 	if (is_host_active(musb))
+		/*
+		 * During hibernate gpio_vrsel will change from high to low
+		 * low which will generate wakeup event resume the system
+		 * immediately.  Set it to 0 before hibernate to avoid this
+		 * wakeup event.
+		 */
 		gpio_set_value(musb->config->gpio_vrsel, 0);
 
 	return 0;

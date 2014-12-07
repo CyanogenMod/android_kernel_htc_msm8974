@@ -1,3 +1,9 @@
+/*
+ *	HP300 Topcat framebuffer support (derived from macfb of all things)
+ *	Phil Blundell <philb@gnu.org> 1998
+ *	DIO-II, colour map and Catseye support by
+ *	Kars de Jong <jongk@linux-m68k.org>, May 2004.
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -30,6 +36,7 @@ static unsigned char fb_bitmask;
 #define TC_FBEN		0x4090
 #define TC_PRR		0x40ea
 
+/* These defines match the X window system */
 #define RR_CLEAR	0x0
 #define RR_COPY		0x3
 #define RR_NOOP		0x5
@@ -38,6 +45,7 @@ static unsigned char fb_bitmask;
 #define RR_COPYINVERTED 0xc
 #define RR_SET		0xf
 
+/* blitter regs */
 #define BUSY		0x4044
 #define WMRR		0x40ef
 #define SOURCE_X	0x40f2
@@ -68,12 +76,18 @@ static int hpfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 			  unsigned blue, unsigned transp,
 			  struct fb_info *info)
 {
-	
+	/* use MSBs */
 	unsigned char _red  =red>>8;
 	unsigned char _green=green>>8;
 	unsigned char _blue =blue>>8;
 	unsigned char _regno=regno;
 
+	/*
+	 *  Set a single color register. The values supplied are
+	 *  already rounded down to the hardware's capabilities
+	 *  (according to the entries in the `var' structure). Return
+	 *  != 0 for invalid regno.
+	 */
 
 	if (regno >= info->cmap.len)
 		return 1;
@@ -99,6 +113,7 @@ static int hpfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return 0;
 }
 
+/* 0 unblank, 1 blank, 2 no vsync, 3 no hsync, 4 off */
 
 static int hpfb_blank(int blank, struct fb_info *info)
 {
@@ -141,11 +156,11 @@ static void hpfb_fillrect(struct fb_info *p, const struct fb_fillrect *region)
 	while (in_8(fb_regs + BUSY) & fb_bitmask)
 		;
 
-	
+	/* Foreground */
 	out_8(fb_regs + TC_WEN, fb_bitmask & clr);
 	out_8(fb_regs + WMRR, (region->rop == ROP_COPY ? RR_SET : RR_INVERT));
 
-	
+	/* Background */
 	out_8(fb_regs + TC_WEN, fb_bitmask & ~clr);
 	out_8(fb_regs + WMRR, (region->rop == ROP_COPY ? RR_CLEAR : RR_NOOP));
 
@@ -154,6 +169,10 @@ static void hpfb_fillrect(struct fb_info *p, const struct fb_fillrect *region)
 
 static int hpfb_sync(struct fb_info *info)
 {
+	/*
+	 * Since we also access the framebuffer directly, we have to wait
+	 * until the block mover is finished
+	 */
 	while (in_8(fb_regs + BUSY) & fb_bitmask)
 		;
 
@@ -174,16 +193,17 @@ static struct fb_ops hpfb_ops = {
 	.fb_sync	= hpfb_sync,
 };
 
-#define HPFB_FBWMSB	0x05	
+/* Common to all HP framebuffers */
+#define HPFB_FBWMSB	0x05	/* Frame buffer width 		*/
 #define HPFB_FBWLSB	0x07
-#define HPFB_FBHMSB	0x09	
+#define HPFB_FBHMSB	0x09	/* Frame buffer height		*/
 #define HPFB_FBHLSB	0x0b
-#define HPFB_DWMSB	0x0d	
+#define HPFB_DWMSB	0x0d	/* Display width		*/
 #define HPFB_DWLSB	0x0f
-#define HPFB_DHMSB	0x11	
+#define HPFB_DHMSB	0x11	/* Display height		*/
 #define HPFB_DHLSB	0x13
-#define HPFB_NUMPLANES	0x5b	
-#define HPFB_FBOMSB	0x5d	
+#define HPFB_NUMPLANES	0x5b	/* Number of colour planes	*/
+#define HPFB_FBOMSB	0x5d	/* Frame buffer offset		*/
 #define HPFB_FBOLSB	0x5f
 
 static int __devinit hpfb_init_one(unsigned long phys_base,
@@ -201,19 +221,22 @@ static int __devinit hpfb_init_one(unsigned long phys_base,
 	}
 
 	if (DIO_SECID(fb_regs) != DIO_ID2_TOPCAT) {
-		
+		/* This is the magic incantation the HP X server uses to make Catseye boards work. */
 		while (in_be16(fb_regs+0x4800) & 1)
 			;
-		out_be16(fb_regs+0x4800, 0);	
-		out_be16(fb_regs+0x4510, 0);	
-		out_be16(fb_regs+0x4512, 0);	
-		out_be16(fb_regs+0x4514, 0);	
-		out_be16(fb_regs+0x4516, 0);	
-		out_be16(fb_regs+0x4206, 0x90);	
-		out_be16(fb_regs+0x60a2, 0);	
-		out_be16(fb_regs+0x60bc, 0);	
+		out_be16(fb_regs+0x4800, 0);	/* Catseye status */
+		out_be16(fb_regs+0x4510, 0);	/* VB */
+		out_be16(fb_regs+0x4512, 0);	/* TCNTRL */
+		out_be16(fb_regs+0x4514, 0);	/* ACNTRL */
+		out_be16(fb_regs+0x4516, 0);	/* PNCNTRL */
+		out_be16(fb_regs+0x4206, 0x90);	/* RUG Command/Status */
+		out_be16(fb_regs+0x60a2, 0);	/* Overlay Mask */
+		out_be16(fb_regs+0x60bc, 0);	/* Ram Select */
 	}
 
+	/*
+	 *	Fill in the available video resolution
+	 */
 	fb_width = (in_8(fb_regs + HPFB_FBWMSB) << 8) | in_8(fb_regs + HPFB_FBWLSB);
 	fb_info.fix.line_length = fb_width;
 	fb_height = (in_8(fb_regs + HPFB_FBHMSB) << 8) | in_8(fb_regs + HPFB_FBHLSB);
@@ -231,6 +254,10 @@ static int __devinit hpfb_init_one(unsigned long phys_base,
 	printk(KERN_INFO "hpfb: mode is %dx%dx%d, linelength=%d\n",
 	       hpfb_defined.xres, hpfb_defined.yres, hpfb_defined.bits_per_pixel, fb_info.fix.line_length);
 
+	/*
+	 *	Give the hardware a bit of a prod and work out how many bits per
+	 *	pixel are supported.
+	 */
 	out_8(fb_regs + TC_WEN, 0xff);
 	out_8(fb_regs + TC_PRR, RR_COPY);
 	out_8(fb_regs + TC_FBEN, 0xff);
@@ -238,13 +265,22 @@ static int __devinit hpfb_init_one(unsigned long phys_base,
 	fb_bitmask = in_8(fb_start);
 	out_8(fb_start, 0);
 
+	/*
+	 *	Enable reading/writing of all the planes.
+	 */
 	out_8(fb_regs + TC_WEN, fb_bitmask);
 	out_8(fb_regs + TC_PRR, RR_COPY);
 	out_8(fb_regs + TC_REN, fb_bitmask);
 	out_8(fb_regs + TC_FBEN, fb_bitmask);
 
+	/*
+	 *	Clear the screen.
+	 */
 	topcat_blit(0, 0, 0, 0, fb_width, fb_height, RR_CLEAR);
 
+	/*
+	 *	Let there be consoles..
+	 */
 	if (DIO_SECID(fb_regs) == DIO_ID2_TOPCAT)
 		strcat(fb_info.fix.id, "Topcat");
 	else
@@ -269,10 +305,17 @@ static int __devinit hpfb_init_one(unsigned long phys_base,
 	return 0;
 }
 
+/* 
+ * Check that the secondary ID indicates that we have some hope of working with this
+ * framebuffer.  The catseye boards are pretty much like topcats and we can muddle through.
+ */
 
 #define topcat_sid_ok(x)  (((x) == DIO_ID2_LRCATSEYE) || ((x) == DIO_ID2_HRCCATSEYE)    \
 			   || ((x) == DIO_ID2_HRMCATSEYE) || ((x) == DIO_ID2_TOPCAT))
 
+/* 
+ * Initialise the framebuffer
+ */
 static int __devinit hpfb_dio_probe(struct dio_dev * d, const struct dio_device_id * ent)
 {
 	unsigned long paddr, vaddr;
@@ -326,6 +369,14 @@ int __init hpfb_init(void)
 	unsigned char i;
 	int err;
 
+	/* Topcats can be on the internal IO bus or real DIO devices.
+	 * The internal variant sits at 0x560000; it has primary
+	 * and secondary ID registers just like the DIO version.
+	 * So we merge the two detection routines.
+	 *
+	 * Perhaps this #define should be in a global header file:
+	 * I believe it's common to all internal fbs, not just topcat.
+	 */
 #define INTFBVADDR 0xf0560000
 #define INTFBPADDR 0x560000
 

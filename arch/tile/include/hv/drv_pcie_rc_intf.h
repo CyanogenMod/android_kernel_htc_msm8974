@@ -12,17 +12,27 @@
  *   more details.
  */
 
+/**
+ * @file drv_pcie_rc_intf.h
+ * Interface definitions for the PCIE Root Complex.
+ */
 
 #ifndef _SYS_HV_DRV_PCIE_RC_INTF_H
 #define _SYS_HV_DRV_PCIE_RC_INTF_H
 
+/** File offset for reading the interrupt base number used for PCIE legacy
+    interrupts and PLX Gen 1 requirement flag */
 #define PCIE_RC_CONFIG_MASK_OFF 0
 
 
+/**
+ * Structure used for obtaining PCIe config information, read from the PCIE
+ * subsystem /ctl file at initialization
+ */
 typedef struct pcie_rc_config
 {
-  int intr;                     
-  int plx_gen1;                 
+  int intr;                     /**< interrupt number used for downcall */
+  int plx_gen1;                 /**< flag for PLX Gen 1 configuration */
 } pcie_rc_config_t;
 
-#endif  
+#endif  /* _SYS_HV_DRV_PCIE_RC_INTF_H */

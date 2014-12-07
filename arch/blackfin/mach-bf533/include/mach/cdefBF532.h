@@ -7,6 +7,7 @@
 #ifndef _CDEF_BF532_H
 #define _CDEF_BF532_H
 
+/* Clock and System Control (0xFFC0 0400-0xFFC0 07FF) */
 #define bfin_read_PLL_CTL()                  bfin_read16(PLL_CTL)
 #define bfin_read_PLL_STAT()                 bfin_read16(PLL_STAT)
 #define bfin_write_PLL_STAT(val)             bfin_write16(PLL_STAT,val)
@@ -17,6 +18,7 @@
 #define bfin_write_PLL_DIV(val)              bfin_write16(PLL_DIV,val)
 #define bfin_read_VR_CTL()                   bfin_read16(VR_CTL)
 
+/* System Interrupt Controller (0xFFC0 0C00-0xFFC0 0FFF) */
 #define bfin_read_SWRST()                    bfin_read16(SWRST)
 #define bfin_write_SWRST(val)                bfin_write16(SWRST,val)
 #define bfin_read_SYSCR()                    bfin_read16(SYSCR)
@@ -36,6 +38,7 @@
 #define bfin_read_SIC_IWR()                  bfin_read32(SIC_IWR)
 #define bfin_write_SIC_IWR(val)              bfin_write32(SIC_IWR,val)
 
+/* Watchdog Timer (0xFFC0 1000-0xFFC0 13FF) */
 #define bfin_read_WDOG_CTL()                 bfin_read16(WDOG_CTL)
 #define bfin_write_WDOG_CTL(val)             bfin_write16(WDOG_CTL,val)
 #define bfin_read_WDOG_CNT()                 bfin_read32(WDOG_CNT)
@@ -43,6 +46,7 @@
 #define bfin_read_WDOG_STAT()                bfin_read32(WDOG_STAT)
 #define bfin_write_WDOG_STAT(val)            bfin_write32(WDOG_STAT,val)
 
+/* Real Time Clock (0xFFC0 1400-0xFFC0 17FF) */
 #define bfin_read_RTC_STAT()                 bfin_read32(RTC_STAT)
 #define bfin_write_RTC_STAT(val)             bfin_write32(RTC_STAT,val)
 #define bfin_read_RTC_ICTL()                 bfin_read16(RTC_ICTL)
@@ -58,11 +62,13 @@
 #define bfin_read_RTC_PREN()                 bfin_read16(RTC_PREN)
 #define bfin_write_RTC_PREN(val)             bfin_write16(RTC_PREN,val)
 
+/* DMA Traffic controls */
 #define bfin_read_DMAC_TC_PER()              bfin_read16(DMAC_TC_PER)
 #define bfin_write_DMAC_TC_PER(val)          bfin_write16(DMAC_TC_PER,val)
 #define bfin_read_DMAC_TC_CNT()              bfin_read16(DMAC_TC_CNT)
 #define bfin_write_DMAC_TC_CNT(val)          bfin_write16(DMAC_TC_CNT,val)
 
+/* General Purpose IO (0xFFC0 2400-0xFFC0 27FF) */
 #define bfin_read_FIO_DIR()                  bfin_read16(FIO_DIR)
 #define bfin_write_FIO_DIR(val)              bfin_write16(FIO_DIR,val)
 #define bfin_read_FIO_MASKA_C()              bfin_read16(FIO_MASKA_C)
@@ -91,6 +97,7 @@
 #define bfin_write_FIO_MASKB_T(val)          bfin_write16(FIO_MASKB_T,val)
 
 #if ANOMALY_05000311
+/* Keep at the CPP expansion to avoid circular header dependency loops */
 #define BFIN_WRITE_FIO_FLAG(name, val) \
 	do { \
 		unsigned long __flags; \
@@ -130,6 +137,7 @@
 #define bfin_read_FIO_FLAG_T()               bfin_read16(FIO_FLAG_T)
 #endif
 
+/* DMA Controller */
 #define bfin_read_DMA0_CONFIG()              bfin_read16(DMA0_CONFIG)
 #define bfin_write_DMA0_CONFIG(val)          bfin_write16(DMA0_CONFIG,val)
 #define bfin_read_DMA0_NEXT_DESC_PTR()       bfin_read32(DMA0_NEXT_DESC_PTR)
@@ -454,6 +462,7 @@
 #define bfin_read_MDMA_S0_PERIPHERAL_MAP()   bfin_read16(MDMA_S0_PERIPHERAL_MAP)
 #define bfin_write_MDMA_S0_PERIPHERAL_MAP(val) bfin_write16(MDMA_S0_PERIPHERAL_MAP,val)
 
+/* Aysnchronous Memory Controller - External Bus Interface Unit (0xFFC0 3C00-0xFFC0 3FFF) */
 #define bfin_read_EBIU_AMGCTL()              bfin_read16(EBIU_AMGCTL)
 #define bfin_write_EBIU_AMGCTL(val)          bfin_write16(EBIU_AMGCTL,val)
 #define bfin_read_EBIU_AMBCTL0()             bfin_read32(EBIU_AMBCTL0)
@@ -461,6 +470,7 @@
 #define bfin_read_EBIU_AMBCTL1()             bfin_read32(EBIU_AMBCTL1)
 #define bfin_write_EBIU_AMBCTL1(val)         bfin_write32(EBIU_AMBCTL1,val)
 
+/* SDRAM Controller External Bus Interface Unit (0xFFC0 4C00-0xFFC0 4FFF) */
 #define bfin_read_EBIU_SDGCTL()              bfin_read32(EBIU_SDGCTL)
 #define bfin_write_EBIU_SDGCTL(val)          bfin_write32(EBIU_SDGCTL,val)
 #define bfin_read_EBIU_SDRRC()               bfin_read16(EBIU_SDRRC)
@@ -470,6 +480,7 @@
 #define bfin_read_EBIU_SDBCTL()              bfin_read16(EBIU_SDBCTL)
 #define bfin_write_EBIU_SDBCTL(val)          bfin_write16(EBIU_SDBCTL,val)
 
+/* UART Controller */
 #define bfin_read_UART_THR()                 bfin_read16(UART_THR)
 #define bfin_write_UART_THR(val)             bfin_write16(UART_THR,val)
 #define bfin_read_UART_RBR()                 bfin_read16(UART_RBR)
@@ -488,11 +499,15 @@
 #define bfin_write_UART_MCR(val)             bfin_write16(UART_MCR,val)
 #define bfin_read_UART_LSR()                 bfin_read16(UART_LSR)
 #define bfin_write_UART_LSR(val)             bfin_write16(UART_LSR,val)
+/*
+#define UART_MSR
+*/
 #define bfin_read_UART_SCR()                 bfin_read16(UART_SCR)
 #define bfin_write_UART_SCR(val)             bfin_write16(UART_SCR,val)
 #define bfin_read_UART_GCTL()                bfin_read16(UART_GCTL)
 #define bfin_write_UART_GCTL(val)            bfin_write16(UART_GCTL,val)
 
+/* SPI Controller */
 #define bfin_read_SPI_CTL()                  bfin_read16(SPI_CTL)
 #define bfin_write_SPI_CTL(val)              bfin_write16(SPI_CTL,val)
 #define bfin_read_SPI_FLG()                  bfin_read16(SPI_FLG)
@@ -508,6 +523,7 @@
 #define bfin_read_SPI_SHADOW()               bfin_read16(SPI_SHADOW)
 #define bfin_write_SPI_SHADOW(val)           bfin_write16(SPI_SHADOW,val)
 
+/* TIMER 0, 1, 2 Registers */
 #define bfin_read_TIMER0_CONFIG()            bfin_read16(TIMER0_CONFIG)
 #define bfin_write_TIMER0_CONFIG(val)        bfin_write16(TIMER0_CONFIG,val)
 #define bfin_read_TIMER0_COUNTER()           bfin_read32(TIMER0_COUNTER)
@@ -542,6 +558,7 @@
 #define bfin_read_TIMER_STATUS()             bfin_read16(TIMER_STATUS)
 #define bfin_write_TIMER_STATUS(val)         bfin_write16(TIMER_STATUS,val)
 
+/* SPORT0 Controller */
 #define bfin_read_SPORT0_TCR1()              bfin_read16(SPORT0_TCR1)
 #define bfin_write_SPORT0_TCR1(val)          bfin_write16(SPORT0_TCR1,val)
 #define bfin_read_SPORT0_TCR2()              bfin_read16(SPORT0_TCR2)
@@ -595,6 +612,7 @@
 #define bfin_read_SPORT0_MRCS3()             bfin_read32(SPORT0_MRCS3)
 #define bfin_write_SPORT0_MRCS3(val)         bfin_write32(SPORT0_MRCS3,val)
 
+/* SPORT1 Controller */
 #define bfin_read_SPORT1_TCR1()              bfin_read16(SPORT1_TCR1)
 #define bfin_write_SPORT1_TCR1(val)          bfin_write16(SPORT1_TCR1,val)
 #define bfin_read_SPORT1_TCR2()              bfin_read16(SPORT1_TCR2)
@@ -648,6 +666,7 @@
 #define bfin_read_SPORT1_MRCS3()             bfin_read32(SPORT1_MRCS3)
 #define bfin_write_SPORT1_MRCS3(val)         bfin_write32(SPORT1_MRCS3,val)
 
+/* Parallel Peripheral Interface (PPI) */
 #define bfin_read_PPI_CONTROL()              bfin_read16(PPI_CONTROL)
 #define bfin_write_PPI_CONTROL(val)          bfin_write16(PPI_CONTROL,val)
 #define bfin_read_PPI_STATUS()               bfin_read16(PPI_STATUS)
@@ -660,4 +679,4 @@
 #define bfin_read_PPI_FRAME()                bfin_read16(PPI_FRAME)
 #define bfin_write_PPI_FRAME(val)            bfin_write16(PPI_FRAME,val)
 
-#endif				
+#endif				/* _CDEF_BF532_H */

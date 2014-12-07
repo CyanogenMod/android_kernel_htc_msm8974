@@ -45,7 +45,7 @@ static int pcpu_populate_chunk(struct pcpu_chunk *chunk, int off, int size)
 
 static void pcpu_depopulate_chunk(struct pcpu_chunk *chunk, int off, int size)
 {
-	
+	/* nada */
 }
 
 static struct pcpu_chunk *pcpu_create_chunk(void)
@@ -91,7 +91,7 @@ static int __init pcpu_verify_alloc_info(const struct pcpu_alloc_info *ai)
 {
 	size_t nr_pages, alloc_pages;
 
-	
+	/* all units must be in a single group */
 	if (ai->nr_groups != 1) {
 		printk(KERN_CRIT "percpu: can't handle more than one groups\n");
 		return -EINVAL;

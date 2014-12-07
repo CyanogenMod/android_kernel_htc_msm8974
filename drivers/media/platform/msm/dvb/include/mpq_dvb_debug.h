@@ -13,21 +13,26 @@
 #ifndef _MPQ_DVB_DEBUG_H
 #define _MPQ_DVB_DEBUG_H
 
+/* Enable this line if you want to output debug printouts */
 #define MPG_DVB_DEBUG_ENABLE
 
-#undef MPQ_DVB_DBG_PRINT		
+#undef MPQ_DVB_DBG_PRINT		/* undef it, just in case */
 
 #ifdef MPG_DVB_DEBUG_ENABLE
 #define MPQ_DVB_DBG_PRINT(fmt, args...) pr_debug(fmt, ## args)
 #define MPQ_DVB_ERR_PRINT(fmt, args...) pr_err(fmt, ## args)
-#else  
+#else  /* MPG_DVB_DEBUG_ENABLE */
 #define MPQ_DVB_DBG_PRINT(fmt, args...)
 #define MPQ_DVB_ERR_PRINT(fmt, args...)
-#endif 
+#endif /* MPG_DVB_DEBUG_ENABLE */
 
 
+/*
+ * The following can be used to disable specific printout
+ * by adding a letter to the end of MPQ_DVB_DBG_PRINT
+ */
 #undef MPQ_DVB_DBG_PRINTT
 #define MPQ_DVB_DBG_PRINTT(fmt, args...)
 
-#endif 
+#endif /* _MPQ_DVB_DEBUG_H */
 

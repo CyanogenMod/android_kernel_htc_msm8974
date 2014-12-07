@@ -92,7 +92,7 @@ void cifs_dump_mids(struct TCP_Server_Info *server)
 			mid_entry->resp_buf,
 			mid_entry->when_received,
 			jiffies);
-#endif 
+#endif /* STATS2 */
 		cERROR(1, "IsMult: %d IsEnd: %d", mid_entry->multiRsp,
 			  mid_entry->multiEnd);
 		if (mid_entry->resp_buf) {
@@ -103,7 +103,7 @@ void cifs_dump_mids(struct TCP_Server_Info *server)
 	}
 	spin_unlock(&GlobalMid_Lock);
 }
-#endif 
+#endif /* CONFIG_CIFS_DEBUG2 */
 
 #ifdef CONFIG_PROC_FS
 static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
@@ -231,7 +231,7 @@ static int cifs_debug_data_proc_show(struct seq_file *m, void *v)
 	spin_unlock(&cifs_tcp_ses_lock);
 	seq_putc(m, '\n');
 
-	
+	/* BB add code to dump additional info such as TCP session info now */
 	return 0;
 }
 
@@ -267,7 +267,7 @@ static ssize_t cifs_stats_proc_write(struct file *file,
 #ifdef CONFIG_CIFS_STATS2
 		atomic_set(&totBufAllocCount, 0);
 		atomic_set(&totSmBufAllocCount, 0);
-#endif 
+#endif /* CONFIG_CIFS_STATS2 */
 		spin_lock(&cifs_tcp_ses_lock);
 		list_for_each(tmp1, &cifs_tcp_ses_list) {
 			server = list_entry(tmp1, struct TCP_Server_Info,
@@ -329,7 +329,7 @@ static int cifs_stats_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "Total Large %d Small %d Allocations\n",
 				atomic_read(&totBufAllocCount),
 				atomic_read(&totSmBufAllocCount));
-#endif 
+#endif /* CONFIG_CIFS_STATS2 */
 
 	seq_printf(m, "Operations (MIDs): %d\n", atomic_read(&midCount));
 	seq_printf(m,
@@ -414,7 +414,7 @@ static const struct file_operations cifs_stats_proc_fops = {
 	.release	= single_release,
 	.write		= cifs_stats_proc_write,
 };
-#endif 
+#endif /* STATS */
 
 static struct proc_dir_entry *proc_fs_cifs;
 static const struct file_operations cifsFYI_proc_fops;
@@ -435,7 +435,7 @@ cifs_proc_init(void)
 
 #ifdef CONFIG_CIFS_STATS
 	proc_create("Stats", 0, proc_fs_cifs, &cifs_stats_proc_fops);
-#endif 
+#endif /* STATS */
 	proc_create("cifsFYI", 0, proc_fs_cifs, &cifsFYI_proc_fops);
 	proc_create("traceSMB", 0, proc_fs_cifs, &traceSMB_proc_fops);
 	proc_create("LinuxExtensionsEnabled", 0, proc_fs_cifs,
@@ -492,7 +492,7 @@ static ssize_t cifsFYI_proc_write(struct file *file, const char __user *buffer,
 	else if (c == '1' || c == 'y' || c == 'Y')
 		cifsFYI = 1;
 	else if ((c > '1') && (c <= '9'))
-		cifsFYI = (int) (c - '0'); 
+		cifsFYI = (int) (c - '0'); /* see cifs_debug.h for meanings */
 
 	return count;
 }
@@ -690,10 +690,10 @@ static ssize_t cifs_security_flags_proc_write(struct file *file,
 		return -EFAULT;
 
 	if (count < 3) {
-		
+		/* single char or single char followed by null */
 		c = flags_string[0];
 		if (c == '0' || c == 'n' || c == 'N') {
-			global_secflags = CIFSSEC_DEF; 
+			global_secflags = CIFSSEC_DEF; /* default */
 			return count;
 		} else if (c == '1' || c == 'y' || c == 'Y') {
 			global_secflags = CIFSSEC_MAX;
@@ -703,7 +703,7 @@ static ssize_t cifs_security_flags_proc_write(struct file *file,
 			return -EINVAL;
 		}
 	}
-	
+	/* else we have a number */
 
 	flags = simple_strtoul(flags_string, NULL, 0);
 
@@ -719,16 +719,16 @@ static ssize_t cifs_security_flags_proc_write(struct file *file,
 			flags & ~CIFSSEC_MASK);
 		return -EINVAL;
 	}
-	
+	/* flags look ok - update the global security flags for cifs module */
 	global_secflags = flags;
 	if (global_secflags & CIFSSEC_MUST_SIGN) {
-		
+		/* requiring signing implies signing is allowed */
 		global_secflags |= CIFSSEC_MAY_SIGN;
 		cFYI(1, "packet signing now required");
 	} else if ((global_secflags & CIFSSEC_MAY_SIGN) == 0) {
 		cFYI(1, "packet signing disabled");
 	}
-	
+	/* BB should we turn on MAY flags for other MUST options? */
 	return count;
 }
 
@@ -748,4 +748,4 @@ inline void cifs_proc_init(void)
 inline void cifs_proc_clean(void)
 {
 }
-#endif 
+#endif /* PROC_FS */

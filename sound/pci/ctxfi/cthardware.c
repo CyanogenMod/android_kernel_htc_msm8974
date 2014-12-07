@@ -51,10 +51,10 @@ int destroy_hw_obj(struct hw *hw)
 	int err;
 
 	switch (hw->pci->device) {
-	case 0x0005:	
+	case 0x0005:	/* 20k1 device */
 		err = destroy_20k1_hw_obj(hw);
 		break;
-	case 0x000B:	
+	case 0x000B:	/* 20k2 device */
 		err = destroy_20k2_hw_obj(hw);
 		break;
 	default:
@@ -70,7 +70,7 @@ unsigned int get_field(unsigned int data, unsigned int field)
 	int i;
 
 	BUG_ON(!field);
-	
+	/* @field should always be greater than 0 */
 	for (i = 0; !(field & (1 << i)); )
 		i++;
 
@@ -82,7 +82,7 @@ void set_field(unsigned int *data, unsigned int field, unsigned int value)
 	int i;
 
 	BUG_ON(!field);
-	
+	/* @field should always be greater than 0 */
 	for (i = 0; !(field & (1 << i)); )
 		i++;
 

@@ -51,7 +51,7 @@ int cmd_set(int argc, char **argv)
 	textdomain(PACKAGE);
 
 	params.params = 0;
-	
+	/* parameter parsing */
 	while ((ret = getopt_long(argc, argv, "m:s:b:",
 						set_opts, NULL)) != -1) {
 		switch (ret) {
@@ -109,11 +109,11 @@ int cmd_set(int argc, char **argv)
 				(ret == -ENODEV) ? "not supported" : "");
 	}
 
-	
+	/* Default is: set all CPUs */
 	if (bitmask_isallclear(cpus_chosen))
 		bitmask_setall(cpus_chosen);
 
-	
+	/* loop over CPUs */
 	for (cpu = bitmask_first(cpus_chosen);
 	     cpu <= bitmask_last(cpus_chosen); cpu++) {
 

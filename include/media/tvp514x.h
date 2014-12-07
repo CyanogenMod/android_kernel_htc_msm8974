@@ -29,16 +29,27 @@
 #ifndef _TVP514X_H
 #define _TVP514X_H
 
+/*
+ * Other macros
+ */
 #define TVP514X_MODULE_NAME		"tvp514x"
 
 #define TVP514X_XCLK_BT656		(27000000)
 
+/* Number of pixels and number of lines per frame for different standards */
 #define NTSC_NUM_ACTIVE_PIXELS		(720)
 #define NTSC_NUM_ACTIVE_LINES		(480)
 #define PAL_NUM_ACTIVE_PIXELS		(720)
 #define PAL_NUM_ACTIVE_LINES		(576)
 
+/**
+ * enum tvp514x_input - enum for different decoder input pin
+ *		configuration.
+ */
 enum tvp514x_input {
+	/*
+	 * CVBS input selection
+	 */
 	INPUT_CVBS_VI1A = 0x0,
 	INPUT_CVBS_VI1B,
 	INPUT_CVBS_VI1C,
@@ -49,6 +60,9 @@ enum tvp514x_input {
 	INPUT_CVBS_VI3B,
 	INPUT_CVBS_VI3C,
 	INPUT_CVBS_VI4A = 0x0C,
+	/*
+	 * S-Video input selection
+	 */
 	INPUT_SVIDEO_VI2A_VI1A = 0x44,
 	INPUT_SVIDEO_VI2B_VI1B,
 	INPUT_SVIDEO_VI2C_VI1C,
@@ -62,9 +76,17 @@ enum tvp514x_input {
 	INPUT_SVIDEO_VI4A_VI3B,
 	INPUT_SVIDEO_VI4A_VI3C,
 
+	/* Need to add entries for
+	 * RGB, YPbPr and SCART.
+	 */
 	INPUT_INVALID
 };
 
+/**
+ * enum tvp514x_output - enum for output format
+ *			supported.
+ *
+ */
 enum tvp514x_output {
 	OUTPUT_10BIT_422_EMBEDDED_SYNC = 0,
 	OUTPUT_20BIT_422_SEPERATE_SYNC,
@@ -72,12 +94,21 @@ enum tvp514x_output {
 	OUTPUT_INVALID
 };
 
+/**
+ * struct tvp514x_platform_data - Platform data values and access functions.
+ * @power_set: Power state access function, zero is off, non-zero is on.
+ * @ifparm: Interface parameters access function.
+ * @priv_data_set: Device private data (pointer) access function.
+ * @clk_polarity: Clock polarity of the current interface.
+ * @ hs_polarity: HSYNC Polarity configuration for current interface.
+ * @ vs_polarity: VSYNC Polarity configuration for current interface.
+ */
 struct tvp514x_platform_data {
-	
+	/* Interface control params */
 	bool clk_polarity;
 	bool hs_polarity;
 	bool vs_polarity;
 };
 
 
-#endif				
+#endif				/* ifndef _TVP514X_H */

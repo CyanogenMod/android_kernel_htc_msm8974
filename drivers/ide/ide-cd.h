@@ -18,6 +18,7 @@
 
 #define ATAPI_WAIT_WRITE_BUSY	(10 * HZ)
 
+/************************************************************************/
 
 #define SECTOR_BITS 		9
 #ifndef SECTOR_SIZE
@@ -26,9 +27,11 @@
 #define SECTORS_PER_FRAME	(CD_FRAMESIZE >> SECTOR_BITS)
 #define SECTOR_BUFFER_SIZE	(CD_FRAMESIZE * 32)
 
+/* Capabilities Page size including 8 bytes of Mode Page Header */
 #define ATAPI_CAPABILITIES_PAGE_SIZE		(8 + 20)
 #define ATAPI_CAPABILITIES_PAGE_PAD_SIZE	4
 
+/* Structure of a MSF cdrom address. */
 struct atapi_msf {
 	u8 reserved;
 	u8 minute;
@@ -36,6 +39,7 @@ struct atapi_msf {
 	u8 frame;
 };
 
+/* Space to hold the disk TOC. */
 #define MAX_TRACKS 99
 struct atapi_toc_header {
 	unsigned short toc_length;
@@ -68,29 +72,34 @@ struct atapi_toc {
 	unsigned long capacity;
 	struct atapi_toc_header hdr;
 	struct atapi_toc_entry  ent[MAX_TRACKS+1];
-	  
+	  /* One extra for the leadout. */
 };
 
+/* Extra per-device info for cdrom drives. */
 struct cdrom_info {
 	ide_drive_t		*drive;
 	struct ide_driver	*driver;
 	struct gendisk		*disk;
 	struct device		dev;
 
+	/* Buffer for table of contents.  NULL if we haven't allocated
+	   a TOC buffer for this device yet. */
 
 	struct atapi_toc *toc;
 
-	u8 max_speed;		
-	u8 current_speed;	
+	u8 max_speed;		/* Max speed of the drive. */
+	u8 current_speed;	/* Current speed of the drive. */
 
-        
+        /* Per-device info needed by cdrom.c generic driver. */
         struct cdrom_device_info devinfo;
 
 	unsigned long write_timeout;
 };
 
+/* ide-cd_verbose.c */
 void ide_cd_log_error(const char *, struct request *, struct request_sense *);
 
+/* ide-cd.c functions used by ide-cd_ioctl.c */
 int ide_cd_queue_pc(ide_drive_t *, const unsigned char *, int, void *,
 		    unsigned *, struct request_sense *, int, unsigned int);
 int ide_cd_read_toc(ide_drive_t *, struct request_sense *);
@@ -98,6 +107,7 @@ int ide_cdrom_get_capabilities(ide_drive_t *, u8 *);
 void ide_cdrom_update_speed(ide_drive_t *, u8 *);
 int cdrom_check_status(ide_drive_t *, struct request_sense *);
 
+/* ide-cd_ioctl.c */
 int ide_cdrom_open_real(struct cdrom_device_info *, int);
 void ide_cdrom_release_real(struct cdrom_device_info *);
 int ide_cdrom_drive_status(struct cdrom_device_info *, int);
@@ -113,4 +123,4 @@ int ide_cdrom_reset(struct cdrom_device_info *cdi);
 int ide_cdrom_audio_ioctl(struct cdrom_device_info *, unsigned int, void *);
 int ide_cdrom_packet(struct cdrom_device_info *, struct packet_command *);
 
-#endif 
+#endif /* _IDE_CD_H */

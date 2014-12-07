@@ -27,5 +27,5 @@
 #define SAMPLE_TYPE_AWE32		0x20
 #endif
 
-#endif 
+#endif /* __SOUND_SEQ_OSS_LEGACY_H */
 

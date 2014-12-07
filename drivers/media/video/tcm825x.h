@@ -24,8 +24,14 @@
 #define TCM825X_MASK(x)  x & 0x00ff
 #define TCM825X_ADDR(x) (x & 0xff00) >> 8
 
+/* The TCM825X I2C sensor chip has a fixed slave address of 0x3d. */
 #define TCM825X_I2C_ADDR	0x3d
 
+/*
+ * define register offsets for the TCM825X sensor chip
+ * OFFSET(8 bits) + MASK(8 bits)
+ * MASK bit 4 and 3 are used when the register uses more than one address
+ */
 #define TCM825X_FPS		0x0280
 #define TCM825X_ACF		0x0240
 #define TCM825X_DOUTBUF		0x020C
@@ -143,9 +149,10 @@
 
 #define TCM825X_BYTES_PER_PIXEL 2
 
-#define TCM825X_REG_TERM 0xff		
-#define TCM825X_VAL_TERM 0xff		
+#define TCM825X_REG_TERM 0xff		/* terminating list entry for reg */
+#define TCM825X_VAL_TERM 0xff		/* terminating list entry for val */
 
+/* define a structure for tcm825x register initialization values */
 struct tcm825x_reg {
 	u8 val;
 	u16 reg;
@@ -165,8 +172,10 @@ struct capture_size {
 };
 
 struct tcm825x_platform_data {
+	/* Is the sensor usable? Doesn't yet mean it's there, but you
+	 * can try! */
 	int (*is_okay)(void);
-	
+	/* Set power state, zero is off, non-zero is on. */
 	int (*power_set)(int power);
 	/* Default registers written after power-on or reset. */
 	const struct tcm825x_reg *(*default_regs)(void);
@@ -176,13 +185,16 @@ struct tcm825x_platform_data {
 	int (*is_upside_down)(void);
 };
 
+/* Array of image sizes supported by TCM825X.  These must be ordered from
+ * smallest image size to largest.
+ */
 static const struct capture_size tcm825x_sizes[] = {
-	{ 128,  96 }, 
-	{ 160, 120 }, 
-	{ 176, 144 }, 
-	{ 320, 240 }, 
-	{ 352, 288 }, 
-	{ 640, 480 }, 
+	{ 128,  96 }, /* subQCIF */
+	{ 160, 120 }, /* QQVGA */
+	{ 176, 144 }, /* QCIF */
+	{ 320, 240 }, /* QVGA */
+	{ 352, 288 }, /* CIF */
+	{ 640, 480 }, /* VGA */
 };
 
-#endif 
+#endif /* ifndef TCM825X_H */

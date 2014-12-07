@@ -37,6 +37,9 @@
 
 #include "generic.h"
 
+/*
+ * Flash
+ */
 
 static struct mtd_partition h5000_flash0_partitions[] = {
 	{
@@ -111,23 +114,29 @@ static struct platform_device h5000_flash[] = {
 	},
 };
 
+/*
+ * USB Device Controller
+ */
 
 static struct pxa2xx_udc_mach_info h5000_udc_mach_info __initdata = {
 	.gpio_pullup = H5000_GPIO_USB_PULLUP,
 };
 
+/*
+ * GPIO setup
+ */
 
 static unsigned long h5000_pin_config[] __initdata = {
-	
+	/* Crystal and Clock Signals */
 	GPIO12_32KHz,
 
-	
+	/* SDRAM and Static Memory I/O Signals */
 	GPIO15_nCS_1,
 	GPIO78_nCS_2,
 	GPIO79_nCS_3,
 	GPIO80_nCS_4,
 
-	
+	/* FFUART */
 	GPIO34_FFUART_RXD,
 	GPIO35_FFUART_CTS,
 	GPIO36_FFUART_DCD,
@@ -137,18 +146,18 @@ static unsigned long h5000_pin_config[] __initdata = {
 	GPIO40_FFUART_DTR,
 	GPIO41_FFUART_RTS,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* SSP1 */
 	GPIO23_SSP1_SCLK,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
 
-	
+	/* I2S */
 	GPIO28_I2S_BITCLK_OUT,
 	GPIO29_I2S_SDATA_IN,
 	GPIO30_I2S_SDATA_OUT,
@@ -156,6 +165,12 @@ static unsigned long h5000_pin_config[] __initdata = {
 	GPIO32_I2S_SYSCLK,
 };
 
+/*
+ * Localbus setup:
+ * CS0: Flash;
+ * CS1: MediaQ chip, select 16-bit bus and vlio;
+ * CS5: SAMCOP.
+ */
 
 static void fix_msc(void)
 {
@@ -166,6 +181,9 @@ static void fix_msc(void)
 	__raw_writel(__raw_readl(MDREFR) | 0x02080000, MDREFR);
 }
 
+/*
+ * Platform devices
+ */
 
 static struct platform_device *devices[] __initdata = {
 	&h5000_flash[0],

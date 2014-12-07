@@ -20,6 +20,37 @@
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
  */
+/*
+Driver: rti800
+Description: Analog Devices RTI-800/815
+Author: ds
+Status: unknown
+Updated: Fri, 05 Sep 2008 14:50:44 +0100
+Devices: [Analog Devices] RTI-800 (rti800), RTI-815 (rti815)
+
+Configuration options:
+  [0] - I/O port base address
+  [1] - IRQ
+  [2] - A/D reference
+	0 = differential
+	1 = pseudodifferential (common)
+	2 = single-ended
+  [3] - A/D range
+	0 = [-10,10]
+	1 = [-5,5]
+	2 = [0,10]
+  [4] - A/D encoding
+	0 = two's complement
+	1 = straight binary
+  [5] - DAC 0 range
+	0 = [-10,10]
+	1 = [0,10]
+  [6] - DAC 0 encoding
+	0 = two's complement
+	1 = straight binary
+  [7] - DAC 1 range (same as DAC 0)
+  [8] - DAC 1 encoding (same as DAC 0)
+*/
 
 #include <linux/interrupt.h>
 #include "../comedidev.h"
@@ -44,6 +75,9 @@
 #define RTI800_9513A_CNTRL 13
 #define RTI800_9513A_STATUS 13
 
+/*
+ * flags for CSR register
+ */
 
 #define RTI800_BUSY		0x80
 #define RTI800_DONE		0x40
@@ -169,6 +203,7 @@ static irqreturn_t rti800_interrupt(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
+/* settling delay times in usec for different gains */
 static const int gaindelay[] = { 10, 20, 40, 80 };
 
 static int rti800_ai_insn_read(struct comedi_device *dev,
@@ -188,6 +223,8 @@ static int rti800_ai_insn_read(struct comedi_device *dev,
 	if (muxgain_bits != devpriv->muxgain_bits) {
 		devpriv->muxgain_bits = muxgain_bits;
 		outb(devpriv->muxgain_bits, dev->iobase + RTI800_MUXGAIN);
+		/* without a delay here, the RTI_OVERRUN bit
+		 * gets set, and you will have an error. */
 		if (insn->n > 0) {
 			BUG_ON(gain >= ARRAY_SIZE(gaindelay));
 			udelay(gaindelay[gain]);
@@ -275,7 +312,7 @@ static int rti800_do_insn_bits(struct comedi_device *dev,
 	if (data[0]) {
 		s->state &= ~data[0];
 		s->state |= data[0] & data[1];
-		
+		/* Outputs are inverted... */
 		outb(s->state ^ 0xff, dev->iobase + RTI800_DO);
 	}
 
@@ -284,6 +321,22 @@ static int rti800_do_insn_bits(struct comedi_device *dev,
 	return 2;
 }
 
+/*
+   options[0] - I/O port
+   options[1] - irq
+   options[2] - a/d mux
+	0=differential, 1=pseudodiff, 2=single
+   options[3] - a/d range
+	0=bipolar10, 1=bipolar5, 2=unipolar10
+   options[4] - a/d coding
+	0=2's comp, 1=straight binary
+   options[5] - dac0 range
+	0=bipolar10, 1=unipolar10
+   options[6] - dac0 coding
+	0=2's comp, 1=straight binary
+   options[7] - dac1 range
+   options[8] - dac1 coding
+ */
 
 static int rti800_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 {
@@ -345,7 +398,7 @@ static int rti800_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	devpriv->muxgain_bits = -1;
 
 	s = dev->subdevices + 0;
-	
+	/* ai subdevice */
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND;
 	s->n_chan = (devpriv->adc_mux ? 16 : 8);
@@ -365,7 +418,7 @@ static int rti800_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 
 	s++;
 	if (this_board->has_ao) {
-		
+		/* ao subdevice (only on rti815) */
 		s->type = COMEDI_SUBD_AO;
 		s->subdev_flags = SDF_WRITABLE;
 		s->n_chan = 2;
@@ -394,7 +447,7 @@ static int rti800_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 
 	s++;
-	
+	/* di */
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
 	s->n_chan = 8;
@@ -403,7 +456,7 @@ static int rti800_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->range_table = &range_digital;
 
 	s++;
-	
+	/* do */
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->n_chan = 8;
@@ -411,9 +464,10 @@ static int rti800_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->maxdata = 1;
 	s->range_table = &range_digital;
 
+/* don't yet know how to deal with counter/timers */
 #if 0
 	s++;
-	
+	/* do */
 	s->type = COMEDI_SUBD_TIMER;
 #endif
 

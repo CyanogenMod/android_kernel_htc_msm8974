@@ -24,6 +24,9 @@ struct of_serial_info {
 	int line;
 };
 
+/*
+ * Fill a struct uart_port for a given device node
+ */
 static int __devinit of_platform_serial_setup(struct platform_device *ofdev,
 					int type, struct uart_port *port)
 {
@@ -37,7 +40,7 @@ static int __devinit of_platform_serial_setup(struct platform_device *ofdev,
 		dev_warn(&ofdev->dev, "no clock-frequency property set\n");
 		return -ENODEV;
 	}
-	
+	/* If current-speed was set, then try not to change it. */
 	if (of_property_read_u32(np, "current-speed", &spd) == 0)
 		port->custom_divisor = clk / (16 * spd);
 
@@ -50,11 +53,11 @@ static int __devinit of_platform_serial_setup(struct platform_device *ofdev,
 	spin_lock_init(&port->lock);
 	port->mapbase = resource.start;
 
-	
+	/* Check for shifted address mapping */
 	if (of_property_read_u32(np, "reg-offset", &prop) == 0)
 		port->mapbase += prop;
 
-	
+	/* Check for registers offset within the devices address range */
 	if (of_property_read_u32(np, "reg-shift", &prop) == 0)
 		port->regshift = prop;
 
@@ -84,6 +87,9 @@ static int __devinit of_platform_serial_setup(struct platform_device *ofdev,
 	return 0;
 }
 
+/*
+ * Try to register a serial port
+ */
 static struct of_device_id of_platform_serial_table[];
 static int __devinit of_platform_serial_probe(struct platform_device *ofdev)
 {
@@ -121,7 +127,7 @@ static int __devinit of_platform_serial_probe(struct platform_device *ofdev)
 		break;
 #endif
 	default:
-		
+		/* need to add code for these */
 	case PORT_UNKNOWN:
 		dev_info(&ofdev->dev, "Unknown serial port found, ignored\n");
 		ret = -ENODEV;
@@ -140,6 +146,9 @@ out:
 	return ret;
 }
 
+/*
+ * Release a line
+ */
 static int of_platform_serial_remove(struct platform_device *ofdev)
 {
 	struct of_serial_info *info = dev_get_drvdata(&ofdev->dev);
@@ -155,13 +164,16 @@ static int of_platform_serial_remove(struct platform_device *ofdev)
 		break;
 #endif
 	default:
-		
+		/* need to add code for these */
 		break;
 	}
 	kfree(info);
 	return 0;
 }
 
+/*
+ * A few common types, add more as needed.
+ */
 static struct of_device_id __devinitdata of_platform_serial_table[] = {
 	{ .compatible = "ns8250",   .data = (void *)PORT_8250, },
 	{ .compatible = "ns16450",  .data = (void *)PORT_16450, },
@@ -175,7 +187,7 @@ static struct of_device_id __devinitdata of_platform_serial_table[] = {
 		.data = (void *)PORT_NWPSERIAL, },
 #endif
 	{ .type = "serial",         .data = (void *)PORT_UNKNOWN, },
-	{  },
+	{ /* end of list */ },
 };
 
 static struct platform_driver of_platform_serial_driver = {

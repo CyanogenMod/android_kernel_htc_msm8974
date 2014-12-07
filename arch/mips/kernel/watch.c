@@ -11,6 +11,10 @@
 #include <asm/processor.h>
 #include <asm/watch.h>
 
+/*
+ * Install the watch registers for the current thread.  A maximum of
+ * four registers are installed although the machine may have more.
+ */
 void mips_install_watch_registers(void)
 {
 	struct mips3264_watch_reg_state *watches =
@@ -20,6 +24,8 @@ void mips_install_watch_registers(void)
 		BUG();
 	case 4:
 		write_c0_watchlo3(watches->watchlo[3]);
+		/* Write 1 to the I, R, and W bits to clear them, and
+		   1 to G so all ASIDs are trapped. */
 		write_c0_watchhi3(0x40000007 | watches->watchhi[3]);
 	case 3:
 		write_c0_watchlo2(watches->watchlo[2]);
@@ -33,6 +39,11 @@ void mips_install_watch_registers(void)
 	}
 }
 
+/*
+ * Read back the watchhi registers so the user space debugger has
+ * access to the I, R, and W bits.  A maximum of four registers are
+ * read although the machine may have more.
+ */
 void mips_read_watch_registers(void)
 {
 	struct mips3264_watch_reg_state *watches =
@@ -51,10 +62,20 @@ void mips_read_watch_registers(void)
 	}
 	if (current_cpu_data.watch_reg_use_cnt == 1 &&
 	    (watches->watchhi[0] & 7) == 0) {
+		/* Pathological case of release 1 architecture that
+		 * doesn't set the condition bits.  We assume that
+		 * since we got here, the watch condition was met and
+		 * signal that the conditions requested in watchlo
+		 * were met.  */
 		watches->watchhi[0] |= (watches->watchlo[0] & 7);
 	}
  }
 
+/*
+ * Disable all watch registers.  Although only four registers are
+ * installed, all are cleared to eliminate the possibility of endless
+ * looping in the watch handler.
+ */
 void mips_clear_watch_registers(void)
 {
 	switch (current_cpu_data.watch_reg_count) {
@@ -85,11 +106,17 @@ __cpuinit void mips_probe_watch_registers(struct cpuinfo_mips *c)
 
 	if ((c->options & MIPS_CPU_WATCH) == 0)
 		return;
+	/*
+	 * Check which of the I,R and W bits are supported, then
+	 * disable the register.
+	 */
 	write_c0_watchlo0(7);
 	t = read_c0_watchlo0();
 	write_c0_watchlo0(0);
 	c->watch_reg_masks[0] = t & 7;
 
+	/* Write the mask bits and read them back to determine which
+	 * can be used. */
 	c->watch_reg_count = 1;
 	c->watch_reg_use_cnt = 1;
 	t = read_c0_watchhi0();
@@ -141,7 +168,7 @@ __cpuinit void mips_probe_watch_registers(struct cpuinfo_mips *c)
 	if ((t & 0x80000000) == 0)
 		return;
 
-	
+	/* We use at most 4, but probe and report up to 8. */
 	c->watch_reg_count = 5;
 	t = read_c0_watchhi4();
 	if ((t & 0x80000000) == 0)

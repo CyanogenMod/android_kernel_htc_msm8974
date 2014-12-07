@@ -26,8 +26,10 @@ struct page {
 
 #define BUG_ON(__BUG_ON_cond) assert(!(__BUG_ON_cond))
 
+/* Physical == Virtual */
 #define virt_to_phys(p) ((unsigned long)p)
 #define phys_to_virt(a) ((void *)(unsigned long)(a))
+/* Page address: Virtual / 4K */
 #define virt_to_page(p) ((struct page*)((virt_to_phys(p) / 4096) * \
 					sizeof(struct page)))
 #define offset_in_page(p) (((unsigned long)p) % 4096)
@@ -35,6 +37,9 @@ struct page {
 		     sg->offset)
 static inline void sg_mark_end(struct scatterlist *sg)
 {
+	/*
+	 * Set termination bit, clear potential chain bit
+	 */
 	sg->page_link |= 0x02;
 	sg->page_link &= ~0x01;
 }
@@ -47,6 +52,10 @@ static inline void sg_assign_page(struct scatterlist *sg, struct page *page)
 {
 	unsigned long page_link = sg->page_link & 0x3;
 
+	/*
+	 * In order for the low bit stealing approach to work, pages
+	 * must be aligned at a 32-bit boundary as a minimum.
+	 */
 	BUG_ON((unsigned long) page & 0x03);
 	sg->page_link = page_link | (unsigned long) page;
 }
@@ -114,6 +123,7 @@ static inline void kfree(void *p)
 #define dev_err(dev, format, ...) fprintf (stderr, format, ## __VA_ARGS__)
 #define dev_warn(dev, format, ...) fprintf (stderr, format, ## __VA_ARGS__)
 
+/* TODO: empty stubs for now. Broken but enough for virtio_ring.c */
 #define list_add_tail(a, b) do {} while (0)
 #define list_del(a) do {} while (0)
 
@@ -121,6 +131,8 @@ static inline void kfree(void *p)
 #define BITS_PER_BYTE		8
 #define BITS_PER_LONG (sizeof(long) * BITS_PER_BYTE)
 #define BIT_MASK(nr)		(1UL << ((nr) % BITS_PER_LONG))
+/* TODO: Not atomic as it should be:
+ * we don't use this for anything important. */
 static inline void clear_bit(int nr, volatile unsigned long *addr)
 {
 	unsigned long mask = BIT_MASK(nr);
@@ -134,8 +146,10 @@ static inline int test_bit(int nr, const volatile unsigned long *addr)
         return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
 }
 
+/* The only feature we care to support */
 #define virtio_has_feature(dev, feature) \
 	test_bit((feature), (dev)->features)
+/* end of stubs */
 
 struct virtio_device {
 	void *dev;
@@ -143,6 +157,9 @@ struct virtio_device {
 };
 
 struct virtqueue {
+	/* TODO: commented as list macros are empty stubs for now.
+	 * Broken but enough for virtio_ring.c
+	 * struct list_head list; */
 	void (*callback)(struct virtqueue *vq);
 	const char *name;
 	struct virtio_device *vdev;
@@ -164,12 +181,14 @@ struct virtqueue {
 #define smp_mb()	mb()
 # define smp_rmb()	barrier()
 # define smp_wmb()	barrier()
+/* Weak barriers should be used. If not - it's a bug */
 # define rmb()	abort()
 # define wmb()	abort()
 #else
 #error Please fill in barrier macros
 #endif
 
+/* Interfaces exported by virtio_ring. */
 int virtqueue_add_buf(struct virtqueue *vq,
 		      struct scatterlist sg[],
 		      unsigned int out_num,

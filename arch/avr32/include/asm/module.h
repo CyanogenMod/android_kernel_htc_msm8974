@@ -7,13 +7,13 @@ struct mod_arch_syminfo {
 };
 
 struct mod_arch_specific {
-	
+	/* Starting offset of got in the module core memory. */
 	unsigned long got_offset;
-	
+	/* Size of the got. */
 	unsigned long got_size;
-	
+	/* Number of symbols in syminfo. */
 	int nsyms;
-	
+	/* Additional symbol information (got offsets). */
 	struct mod_arch_syminfo *syminfo;
 };
 
@@ -25,4 +25,4 @@ struct mod_arch_specific {
 
 #define MODULE_ARCH_VERMAGIC MODULE_PROC_FAMILY
 
-#endif 
+#endif /* __ASM_AVR32_MODULE_H */

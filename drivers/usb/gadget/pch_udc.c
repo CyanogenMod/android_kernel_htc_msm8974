@@ -18,33 +18,37 @@
 #include <linux/gpio.h>
 #include <linux/irq.h>
 
-static int vbus_gpio_port = -1;		
+/* GPIO port for VBUS detecting */
+static int vbus_gpio_port = -1;		/* GPIO port number (-1:Not used) */
 
-#define PCH_VBUS_PERIOD		3000	
-#define PCH_VBUS_INTERVAL	10	
+#define PCH_VBUS_PERIOD		3000	/* VBUS polling period (msec) */
+#define PCH_VBUS_INTERVAL	10	/* VBUS polling interval (msec) */
 
-#define UDC_EP_REG_SHIFT	0x20	
+/* Address offset of Registers */
+#define UDC_EP_REG_SHIFT	0x20	/* Offset to next EP */
 
-#define UDC_EPCTL_ADDR		0x00	
-#define UDC_EPSTS_ADDR		0x04	
-#define UDC_BUFIN_FRAMENUM_ADDR	0x08	
-#define UDC_BUFOUT_MAXPKT_ADDR	0x0C	
-#define UDC_SUBPTR_ADDR		0x10	
-#define UDC_DESPTR_ADDR		0x14	
-#define UDC_CONFIRM_ADDR	0x18	
+#define UDC_EPCTL_ADDR		0x00	/* Endpoint control */
+#define UDC_EPSTS_ADDR		0x04	/* Endpoint status */
+#define UDC_BUFIN_FRAMENUM_ADDR	0x08	/* buffer size in / frame number out */
+#define UDC_BUFOUT_MAXPKT_ADDR	0x0C	/* buffer size out / maxpkt in */
+#define UDC_SUBPTR_ADDR		0x10	/* setup buffer pointer */
+#define UDC_DESPTR_ADDR		0x14	/* Data descriptor pointer */
+#define UDC_CONFIRM_ADDR	0x18	/* Write/Read confirmation */
 
-#define UDC_DEVCFG_ADDR		0x400	
-#define UDC_DEVCTL_ADDR		0x404	
-#define UDC_DEVSTS_ADDR		0x408	
-#define UDC_DEVIRQSTS_ADDR	0x40C	
-#define UDC_DEVIRQMSK_ADDR	0x410	
-#define UDC_EPIRQSTS_ADDR	0x414	
-#define UDC_EPIRQMSK_ADDR	0x418	
-#define UDC_DEVLPM_ADDR		0x41C	
-#define UDC_CSR_BUSY_ADDR	0x4f0	
-#define UDC_SRST_ADDR		0x4fc	
-#define UDC_CSR_ADDR		0x500	
+#define UDC_DEVCFG_ADDR		0x400	/* Device configuration */
+#define UDC_DEVCTL_ADDR		0x404	/* Device control */
+#define UDC_DEVSTS_ADDR		0x408	/* Device status */
+#define UDC_DEVIRQSTS_ADDR	0x40C	/* Device irq status */
+#define UDC_DEVIRQMSK_ADDR	0x410	/* Device irq mask */
+#define UDC_EPIRQSTS_ADDR	0x414	/* Endpoint irq status */
+#define UDC_EPIRQMSK_ADDR	0x418	/* Endpoint irq mask */
+#define UDC_DEVLPM_ADDR		0x41C	/* LPM control / status */
+#define UDC_CSR_BUSY_ADDR	0x4f0	/* UDC_CSR_BUSY Status register */
+#define UDC_SRST_ADDR		0x4fc	/* SOFT RESET register */
+#define UDC_CSR_ADDR		0x500	/* USB_DEVICE endpoint register */
 
+/* Endpoint control register */
+/* Bit position */
 #define UDC_EPCTL_MRXFLUSH		(1 << 12)
 #define UDC_EPCTL_RRDY			(1 << 9)
 #define UDC_EPCTL_CNAK			(1 << 8)
@@ -54,12 +58,16 @@ static int vbus_gpio_port = -1;
 #define UDC_EPCTL_F			(1 << 1)
 #define UDC_EPCTL_S			(1 << 0)
 #define UDC_EPCTL_ET_SHIFT		4
+/* Mask patern */
 #define UDC_EPCTL_ET_MASK		0x00000030
+/* Value for ET field */
 #define UDC_EPCTL_ET_CONTROL		0
 #define UDC_EPCTL_ET_ISO		1
 #define UDC_EPCTL_ET_BULK		2
 #define UDC_EPCTL_ET_INTERRUPT		3
 
+/* Endpoint status register */
+/* Bit position */
 #define UDC_EPSTS_XFERDONE		(1 << 27)
 #define UDC_EPSTS_RSS			(1 << 26)
 #define UDC_EPSTS_RCS			(1 << 25)
@@ -70,17 +78,24 @@ static int vbus_gpio_port = -1;
 #define UDC_EPSTS_BNA			(1 << 7)
 #define UDC_EPSTS_IN			(1 << 6)
 #define UDC_EPSTS_OUT_SHIFT		4
+/* Mask patern */
 #define UDC_EPSTS_OUT_MASK		0x00000030
 #define UDC_EPSTS_ALL_CLR_MASK		0x1F0006F0
+/* Value for OUT field */
 #define UDC_EPSTS_OUT_SETUP		2
 #define UDC_EPSTS_OUT_DATA		1
 
+/* Device configuration register */
+/* Bit position */
 #define UDC_DEVCFG_CSR_PRG		(1 << 17)
 #define UDC_DEVCFG_SP			(1 << 3)
+/* SPD Valee */
 #define UDC_DEVCFG_SPD_HS		0x0
 #define UDC_DEVCFG_SPD_FS		0x1
 #define UDC_DEVCFG_SPD_LS		0x2
 
+/* Device control register */
+/* Bit position */
 #define UDC_DEVCTL_THLEN_SHIFT		24
 #define UDC_DEVCTL_BRLEN_SHIFT		16
 #define UDC_DEVCTL_CSR_DONE		(1 << 13)
@@ -93,21 +108,27 @@ static int vbus_gpio_port = -1;
 #define UDC_DEVCTL_RDE			(1 << 2)
 #define UDC_DEVCTL_RES			(1 << 0)
 
+/* Device status register */
+/* Bit position */
 #define UDC_DEVSTS_TS_SHIFT		18
 #define UDC_DEVSTS_ENUM_SPEED_SHIFT	13
 #define UDC_DEVSTS_ALT_SHIFT		8
 #define UDC_DEVSTS_INTF_SHIFT		4
 #define UDC_DEVSTS_CFG_SHIFT		0
+/* Mask patern */
 #define UDC_DEVSTS_TS_MASK		0xfffc0000
 #define UDC_DEVSTS_ENUM_SPEED_MASK	0x00006000
 #define UDC_DEVSTS_ALT_MASK		0x00000f00
 #define UDC_DEVSTS_INTF_MASK		0x000000f0
 #define UDC_DEVSTS_CFG_MASK		0x0000000f
+/* value for maximum speed for SPEED field */
 #define UDC_DEVSTS_ENUM_SPEED_FULL	1
 #define UDC_DEVSTS_ENUM_SPEED_HIGH	0
 #define UDC_DEVSTS_ENUM_SPEED_LOW	2
 #define UDC_DEVSTS_ENUM_SPEED_FULLX	3
 
+/* Device irq register */
+/* Bit position */
 #define UDC_DEVINT_RWKP			(1 << 7)
 #define UDC_DEVINT_ENUM			(1 << 6)
 #define UDC_DEVINT_SOF			(1 << 5)
@@ -116,19 +137,29 @@ static int vbus_gpio_port = -1;
 #define UDC_DEVINT_ES			(1 << 2)
 #define UDC_DEVINT_SI			(1 << 1)
 #define UDC_DEVINT_SC			(1 << 0)
+/* Mask patern */
 #define UDC_DEVINT_MSK			0x7f
 
+/* Endpoint irq register */
+/* Bit position */
 #define UDC_EPINT_IN_SHIFT		0
 #define UDC_EPINT_OUT_SHIFT		16
 #define UDC_EPINT_IN_EP0		(1 << 0)
 #define UDC_EPINT_OUT_EP0		(1 << 16)
+/* Mask patern */
 #define UDC_EPINT_MSK_DISABLE_ALL	0xffffffff
 
+/* UDC_CSR_BUSY Status register */
+/* Bit position */
 #define UDC_CSR_BUSY			(1 << 0)
 
+/* SOFT RESET register */
+/* Bit position */
 #define UDC_PSRST			(1 << 1)
 #define UDC_SRST			(1 << 0)
 
+/* USB_DEVICE endpoint register */
+/* Bit position */
 #define UDC_CSR_NE_NUM_SHIFT		0
 #define UDC_CSR_NE_DIR_SHIFT		4
 #define UDC_CSR_NE_TYPE_SHIFT		5
@@ -136,6 +167,7 @@ static int vbus_gpio_port = -1;
 #define UDC_CSR_NE_INTF_SHIFT		11
 #define UDC_CSR_NE_ALT_SHIFT		15
 #define UDC_CSR_NE_MAX_PKT_SHIFT	19
+/* Mask patern */
 #define UDC_CSR_NE_NUM_MASK		0x0000000f
 #define UDC_CSR_NE_DIR_MASK		0x00000010
 #define UDC_CSR_NE_TYPE_MASK		0x00000060
@@ -148,6 +180,7 @@ static int vbus_gpio_port = -1;
 #define PCH_UDC_EPINT(in, num)\
 		(1 << (num + (in ? UDC_EPINT_IN_SHIFT : UDC_EPINT_OUT_SHIFT)))
 
+/* Index of endpoint */
 #define UDC_EP0IN_IDX		0
 #define UDC_EP0OUT_IDX		1
 #define UDC_EPIN_IDX(ep)	(ep * 2)
@@ -157,23 +190,36 @@ static int vbus_gpio_port = -1;
 #define PCH_UDC_EP2		2
 #define PCH_UDC_EP3		3
 
-#define PCH_UDC_EP_NUM		32	
-#define PCH_UDC_USED_EP_NUM	4	
-#define PCH_UDC_BRLEN		0x0F	
-#define PCH_UDC_THLEN		0x1F	
+/* Number of endpoint */
+#define PCH_UDC_EP_NUM		32	/* Total number of EPs (16 IN,16 OUT) */
+#define PCH_UDC_USED_EP_NUM	4	/* EP number of EP's really used */
+/* Length Value */
+#define PCH_UDC_BRLEN		0x0F	/* Burst length */
+#define PCH_UDC_THLEN		0x1F	/* Threshold length */
+/* Value of EP Buffer Size */
 #define UDC_EP0IN_BUFF_SIZE	16
 #define UDC_EPIN_BUFF_SIZE	256
 #define UDC_EP0OUT_BUFF_SIZE	16
 #define UDC_EPOUT_BUFF_SIZE	256
+/* Value of EP maximum packet size */
 #define UDC_EP0IN_MAX_PKT_SIZE	64
 #define UDC_EP0OUT_MAX_PKT_SIZE	64
 #define UDC_BULK_MAX_PKT_SIZE	512
 
-#define DMA_DIR_RX		1	
-#define DMA_DIR_TX		2	
+/* DMA */
+#define DMA_DIR_RX		1	/* DMA for data receive */
+#define DMA_DIR_TX		2	/* DMA for data transmit */
 #define DMA_ADDR_INVALID	(~(dma_addr_t)0)
-#define UDC_DMA_MAXPACKET	65536	
+#define UDC_DMA_MAXPACKET	65536	/* maximum packet size for DMA */
 
+/**
+ * struct pch_udc_data_dma_desc - Structure to hold DMA descriptor information
+ *				  for data
+ * @status:		Status quadlet
+ * @reserved:		Reserved
+ * @dataptr:		Buffer descriptor
+ * @next:		Next descriptor
+ */
 struct pch_udc_data_dma_desc {
 	u32 status;
 	u32 reserved;
@@ -181,30 +227,66 @@ struct pch_udc_data_dma_desc {
 	u32 next;
 };
 
+/**
+ * struct pch_udc_stp_dma_desc - Structure to hold DMA descriptor information
+ *				 for control data
+ * @status:	Status
+ * @reserved:	Reserved
+ * @data12:	First setup word
+ * @data34:	Second setup word
+ */
 struct pch_udc_stp_dma_desc {
 	u32 status;
 	u32 reserved;
 	struct usb_ctrlrequest request;
 } __attribute((packed));
 
+/* DMA status definitions */
+/* Buffer status */
 #define PCH_UDC_BUFF_STS	0xC0000000
 #define PCH_UDC_BS_HST_RDY	0x00000000
 #define PCH_UDC_BS_DMA_BSY	0x40000000
 #define PCH_UDC_BS_DMA_DONE	0x80000000
 #define PCH_UDC_BS_HST_BSY	0xC0000000
+/*  Rx/Tx Status */
 #define PCH_UDC_RXTX_STS	0x30000000
 #define PCH_UDC_RTS_SUCC	0x00000000
 #define PCH_UDC_RTS_DESERR	0x10000000
 #define PCH_UDC_RTS_BUFERR	0x30000000
+/* Last Descriptor Indication */
 #define PCH_UDC_DMA_LAST	0x08000000
+/* Number of Rx/Tx Bytes Mask */
 #define PCH_UDC_RXTX_BYTES	0x0000ffff
 
+/**
+ * struct pch_udc_cfg_data - Structure to hold current configuration
+ *			     and interface information
+ * @cur_cfg:	current configuration in use
+ * @cur_intf:	current interface in use
+ * @cur_alt:	current alt interface in use
+ */
 struct pch_udc_cfg_data {
 	u16 cur_cfg;
 	u16 cur_intf;
 	u16 cur_alt;
 };
 
+/**
+ * struct pch_udc_ep - Structure holding a PCH USB device Endpoint information
+ * @ep:			embedded ep request
+ * @td_stp_phys:	for setup request
+ * @td_data_phys:	for data request
+ * @td_stp:		for setup request
+ * @td_data:		for data request
+ * @dev:		reference to device struct
+ * @offset_addr:	offset address of ep register
+ * @desc:		for this ep
+ * @queue:		queue for requests
+ * @num:		endpoint number
+ * @in:			endpoint is IN
+ * @halted:		endpoint halted?
+ * @epsts:		Endpoint status
+ */
 struct pch_udc_ep {
 	struct usb_ep			ep;
 	dma_addr_t			td_stp_phys;
@@ -221,6 +303,14 @@ struct pch_udc_ep {
 	unsigned long			epsts;
 };
 
+/**
+ * struct pch_vbus_gpio_data - Structure holding GPIO informaton
+ *					for detecting VBUS
+ * @port:		gpio port number
+ * @intr:		gpio interrupt number
+ * @irq_work_fall	Structure for WorkQueue
+ * @irq_work_rise	Structure for WorkQueue
+ */
 struct pch_vbus_gpio_data {
 	int			port;
 	int			intr;
@@ -228,12 +318,42 @@ struct pch_vbus_gpio_data {
 	struct work_struct	irq_work_rise;
 };
 
+/**
+ * struct pch_udc_dev - Structure holding complete information
+ *			of the PCH USB device
+ * @gadget:		gadget driver data
+ * @driver:		reference to gadget driver bound
+ * @pdev:		reference to the PCI device
+ * @ep:			array of endpoints
+ * @lock:		protects all state
+ * @active:		enabled the PCI device
+ * @stall:		stall requested
+ * @prot_stall:		protcol stall requested
+ * @irq_registered:	irq registered with system
+ * @mem_region:		device memory mapped
+ * @registered:		driver regsitered with system
+ * @suspended:		driver in suspended state
+ * @connected:		gadget driver associated
+ * @vbus_session:	required vbus_session state
+ * @set_cfg_not_acked:	pending acknowledgement 4 setup
+ * @waiting_zlp_ack:	pending acknowledgement 4 ZLP
+ * @data_requests:	DMA pool for data requests
+ * @stp_requests:	DMA pool for setup requests
+ * @dma_addr:		DMA pool for received
+ * @ep0out_buf:		Buffer for DMA
+ * @setup_data:		Received setup data
+ * @phys_addr:		of device memory
+ * @base_addr:		for mapped device memory
+ * @irq:		IRQ line for the device
+ * @cfg_data:		current cfg, intf, and alt in use
+ * @vbus_gpio:		GPIO informaton for detecting VBUS
+ */
 struct pch_udc_dev {
 	struct usb_gadget		gadget;
 	struct usb_gadget_driver	*driver;
 	struct pci_dev			*pdev;
 	struct pch_udc_ep		ep[PCH_UDC_EP_NUM];
-	spinlock_t			lock; 
+	spinlock_t			lock; /* protects all state */
 	unsigned	active:1,
 			stall:1,
 			prot_stall:1,
@@ -264,12 +384,26 @@ struct pch_udc_dev {
 #define PCI_DEVICE_ID_ML7831_IOH_UDC	0x8808
 
 static const char	ep0_string[] = "ep0in";
-static DEFINE_SPINLOCK(udc_stall_spinlock);	
-struct pch_udc_dev *pch_udc;		
+static DEFINE_SPINLOCK(udc_stall_spinlock);	/* stall spin lock */
+struct pch_udc_dev *pch_udc;		/* pointer to device object */
 static bool speed_fs;
 module_param_named(speed_fs, speed_fs, bool, S_IRUGO);
 MODULE_PARM_DESC(speed_fs, "true for Full speed operation");
 
+/**
+ * struct pch_udc_request - Structure holding a PCH USB device request packet
+ * @req:		embedded ep request
+ * @td_data_phys:	phys. address
+ * @td_data:		first dma desc. of chain
+ * @td_data_last:	last dma desc. of chain
+ * @queue:		associated queue
+ * @dma_going:		DMA in progress for request
+ * @dma_mapped:		DMA memory mapped for request
+ * @dma_done:		DMA completed for request
+ * @chain_len:		chain length
+ * @buf:		Buffer memory for align adjustment
+ * @dma:		DMA memory for align adjustment
+ */
 struct pch_udc_request {
 	struct usb_request		req;
 	dma_addr_t			td_data_phys;
@@ -334,11 +468,15 @@ static inline void pch_udc_ep_bit_clr(struct pch_udc_ep *ep,
 	pch_udc_ep_writel(ep, pch_udc_ep_readl(ep, reg) & ~(bitmask), reg);
 }
 
+/**
+ * pch_udc_csr_busy() - Wait till idle.
+ * @dev:	Reference to pch_udc_dev structure
+ */
 static void pch_udc_csr_busy(struct pch_udc_dev *dev)
 {
 	unsigned int count = 200;
 
-	
+	/* Wait till idle */
 	while ((pch_udc_readl(dev, UDC_CSR_BUSY_ADDR) & UDC_CSR_BUSY)
 		&& --count)
 		cpu_relax();
@@ -357,21 +495,32 @@ static void pch_udc_write_csr(struct pch_udc_dev *dev, unsigned long val,
 {
 	unsigned long reg = PCH_UDC_CSR(ep);
 
-	pch_udc_csr_busy(dev);		
+	pch_udc_csr_busy(dev);		/* Wait till idle */
 	pch_udc_writel(dev, val, reg);
-	pch_udc_csr_busy(dev);		
+	pch_udc_csr_busy(dev);		/* Wait till idle */
 }
 
+/**
+ * pch_udc_read_csr() - Read the command and status registers.
+ * @dev:	Reference to pch_udc_dev structure
+ * @addr:	address of CSR register
+ *
+ * Return codes:	content of CSR register
+ */
 static u32 pch_udc_read_csr(struct pch_udc_dev *dev, unsigned int ep)
 {
 	unsigned long reg = PCH_UDC_CSR(ep);
 
-	pch_udc_csr_busy(dev);		
-	pch_udc_readl(dev, reg);	
-	pch_udc_csr_busy(dev);		
+	pch_udc_csr_busy(dev);		/* Wait till idle */
+	pch_udc_readl(dev, reg);	/* Dummy read */
+	pch_udc_csr_busy(dev);		/* Wait till idle */
 	return pch_udc_readl(dev, reg);
 }
 
+/**
+ * pch_udc_rmt_wakeup() - Initiate for remote wakeup
+ * @dev:	Reference to pch_udc_dev structure
+ */
 static inline void pch_udc_rmt_wakeup(struct pch_udc_dev *dev)
 {
 	pch_udc_bit_set(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_RES);
@@ -379,55 +528,88 @@ static inline void pch_udc_rmt_wakeup(struct pch_udc_dev *dev)
 	pch_udc_bit_clr(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_RES);
 }
 
+/**
+ * pch_udc_get_frame() - Get the current frame from device status register
+ * @dev:	Reference to pch_udc_dev structure
+ * Retern	current frame
+ */
 static inline int pch_udc_get_frame(struct pch_udc_dev *dev)
 {
 	u32 frame = pch_udc_readl(dev, UDC_DEVSTS_ADDR);
 	return (frame & UDC_DEVSTS_TS_MASK) >> UDC_DEVSTS_TS_SHIFT;
 }
 
+/**
+ * pch_udc_clear_selfpowered() - Clear the self power control
+ * @dev:	Reference to pch_udc_regs structure
+ */
 static inline void pch_udc_clear_selfpowered(struct pch_udc_dev *dev)
 {
 	pch_udc_bit_clr(dev, UDC_DEVCFG_ADDR, UDC_DEVCFG_SP);
 }
 
+/**
+ * pch_udc_set_selfpowered() - Set the self power control
+ * @dev:	Reference to pch_udc_regs structure
+ */
 static inline void pch_udc_set_selfpowered(struct pch_udc_dev *dev)
 {
 	pch_udc_bit_set(dev, UDC_DEVCFG_ADDR, UDC_DEVCFG_SP);
 }
 
+/**
+ * pch_udc_set_disconnect() - Set the disconnect status.
+ * @dev:	Reference to pch_udc_regs structure
+ */
 static inline void pch_udc_set_disconnect(struct pch_udc_dev *dev)
 {
 	pch_udc_bit_set(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_SD);
 }
 
+/**
+ * pch_udc_clear_disconnect() - Clear the disconnect status.
+ * @dev:	Reference to pch_udc_regs structure
+ */
 static void pch_udc_clear_disconnect(struct pch_udc_dev *dev)
 {
-	
+	/* Clear the disconnect */
 	pch_udc_bit_set(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_RES);
 	pch_udc_bit_clr(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_SD);
 	mdelay(1);
-	
+	/* Resume USB signalling */
 	pch_udc_bit_clr(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_RES);
 }
 
+/**
+ * pch_udc_reconnect() - This API initializes usb device controller,
+ *						and clear the disconnect status.
+ * @dev:		Reference to pch_udc_regs structure
+ */
 static void pch_udc_init(struct pch_udc_dev *dev);
 static void pch_udc_reconnect(struct pch_udc_dev *dev)
 {
 	pch_udc_init(dev);
 
-	
-	
+	/* enable device interrupts */
+	/* pch_udc_enable_interrupts() */
 	pch_udc_bit_clr(dev, UDC_DEVIRQMSK_ADDR,
 			UDC_DEVINT_UR | UDC_DEVINT_ENUM);
 
-	
+	/* Clear the disconnect */
 	pch_udc_bit_set(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_RES);
 	pch_udc_bit_clr(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_SD);
 	mdelay(1);
-	
+	/* Resume USB signalling */
 	pch_udc_bit_clr(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_RES);
 }
 
+/**
+ * pch_udc_vbus_session() - set or clearr the disconnect status.
+ * @dev:	Reference to pch_udc_regs structure
+ * @is_active:	Parameter specifying the action
+ *		  0:   indicating VBUS power is ending
+ *		  !0:  indicating VBUS power is starting
+ */
 static inline void pch_udc_vbus_session(struct pch_udc_dev *dev,
 					  int is_active)
 {
@@ -445,6 +627,10 @@ static inline void pch_udc_vbus_session(struct pch_udc_dev *dev,
 	}
 }
 
+/**
+ * pch_udc_ep_set_stall() - Set the stall of endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ */
 static void pch_udc_ep_set_stall(struct pch_udc_ep *ep)
 {
 	if (ep->in) {
@@ -455,14 +641,23 @@ static void pch_udc_ep_set_stall(struct pch_udc_ep *ep)
 	}
 }
 
+/**
+ * pch_udc_ep_clear_stall() - Clear the stall of endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ */
 static inline void pch_udc_ep_clear_stall(struct pch_udc_ep *ep)
 {
-	
+	/* Clear the stall */
 	pch_udc_ep_bit_clr(ep, UDC_EPCTL_ADDR, UDC_EPCTL_S);
-	
+	/* Clear NAK by writing CNAK */
 	pch_udc_ep_bit_set(ep, UDC_EPCTL_ADDR, UDC_EPCTL_CNAK);
 }
 
+/**
+ * pch_udc_ep_set_trfr_type() - Set the transfer type of endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * @type:	Type of endpoint
+ */
 static inline void pch_udc_ep_set_trfr_type(struct pch_udc_ep *ep,
 					u8 type)
 {
@@ -470,6 +665,11 @@ static inline void pch_udc_ep_set_trfr_type(struct pch_udc_ep *ep,
 				UDC_EPCTL_ET_MASK), UDC_EPCTL_ADDR);
 }
 
+/**
+ * pch_udc_ep_set_bufsz() - Set the maximum packet size for the endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * @buf_size:	The buffer word size
+ */
 static void pch_udc_ep_set_bufsz(struct pch_udc_ep *ep,
 						 u32 buf_size, u32 ep_in)
 {
@@ -485,6 +685,11 @@ static void pch_udc_ep_set_bufsz(struct pch_udc_ep *ep,
 	}
 }
 
+/**
+ * pch_udc_ep_set_maxpkt() - Set the Max packet size for the endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * @pkt_size:	The packet byte size
+ */
 static void pch_udc_ep_set_maxpkt(struct pch_udc_ep *ep, u32 pkt_size)
 {
 	u32 data = pch_udc_ep_readl(ep, UDC_BUFOUT_MAXPKT_ADDR);
@@ -492,31 +697,61 @@ static void pch_udc_ep_set_maxpkt(struct pch_udc_ep *ep, u32 pkt_size)
 	pch_udc_ep_writel(ep, data, UDC_BUFOUT_MAXPKT_ADDR);
 }
 
+/**
+ * pch_udc_ep_set_subptr() - Set the Setup buffer pointer for the endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * @addr:	Address of the register
+ */
 static inline void pch_udc_ep_set_subptr(struct pch_udc_ep *ep, u32 addr)
 {
 	pch_udc_ep_writel(ep, addr, UDC_SUBPTR_ADDR);
 }
 
+/**
+ * pch_udc_ep_set_ddptr() - Set the Data descriptor pointer for the endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * @addr:	Address of the register
+ */
 static inline void pch_udc_ep_set_ddptr(struct pch_udc_ep *ep, u32 addr)
 {
 	pch_udc_ep_writel(ep, addr, UDC_DESPTR_ADDR);
 }
 
+/**
+ * pch_udc_ep_set_pd() - Set the poll demand bit for the endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ */
 static inline void pch_udc_ep_set_pd(struct pch_udc_ep *ep)
 {
 	pch_udc_ep_bit_set(ep, UDC_EPCTL_ADDR, UDC_EPCTL_P);
 }
 
+/**
+ * pch_udc_ep_set_rrdy() - Set the receive ready bit for the endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ */
 static inline void pch_udc_ep_set_rrdy(struct pch_udc_ep *ep)
 {
 	pch_udc_ep_bit_set(ep, UDC_EPCTL_ADDR, UDC_EPCTL_RRDY);
 }
 
+/**
+ * pch_udc_ep_clear_rrdy() - Clear the receive ready bit for the endpoint
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ */
 static inline void pch_udc_ep_clear_rrdy(struct pch_udc_ep *ep)
 {
 	pch_udc_ep_bit_clr(ep, UDC_EPCTL_ADDR, UDC_EPCTL_RRDY);
 }
 
+/**
+ * pch_udc_set_dma() - Set the 'TDE' or RDE bit of device control
+ *			register depending on the direction specified
+ * @dev:	Reference to structure of type pch_udc_regs
+ * @dir:	whether Tx or Rx
+ *		  DMA_DIR_RX: Receive
+ *		  DMA_DIR_TX: Transmit
+ */
 static inline void pch_udc_set_dma(struct pch_udc_dev *dev, int dir)
 {
 	if (dir == DMA_DIR_RX)
@@ -525,6 +760,14 @@ static inline void pch_udc_set_dma(struct pch_udc_dev *dev, int dir)
 		pch_udc_bit_set(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_TDE);
 }
 
+/**
+ * pch_udc_clear_dma() - Clear the 'TDE' or RDE bit of device control
+ *				 register depending on the direction specified
+ * @dev:	Reference to structure of type pch_udc_regs
+ * @dir:	Whether Tx or Rx
+ *		  DMA_DIR_RX: Receive
+ *		  DMA_DIR_TX: Transmit
+ */
 static inline void pch_udc_clear_dma(struct pch_udc_dev *dev, int dir)
 {
 	if (dir == DMA_DIR_RX)
@@ -533,35 +776,65 @@ static inline void pch_udc_clear_dma(struct pch_udc_dev *dev, int dir)
 		pch_udc_bit_clr(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_TDE);
 }
 
+/**
+ * pch_udc_set_csr_done() - Set the device control register
+ *				CSR done field (bit 13)
+ * @dev:	reference to structure of type pch_udc_regs
+ */
 static inline void pch_udc_set_csr_done(struct pch_udc_dev *dev)
 {
 	pch_udc_bit_set(dev, UDC_DEVCTL_ADDR, UDC_DEVCTL_CSR_DONE);
 }
 
+/**
+ * pch_udc_disable_interrupts() - Disables the specified interrupts
+ * @dev:	Reference to structure of type pch_udc_regs
+ * @mask:	Mask to disable interrupts
+ */
 static inline void pch_udc_disable_interrupts(struct pch_udc_dev *dev,
 					    u32 mask)
 {
 	pch_udc_bit_set(dev, UDC_DEVIRQMSK_ADDR, mask);
 }
 
+/**
+ * pch_udc_enable_interrupts() - Enable the specified interrupts
+ * @dev:	Reference to structure of type pch_udc_regs
+ * @mask:	Mask to enable interrupts
+ */
 static inline void pch_udc_enable_interrupts(struct pch_udc_dev *dev,
 					   u32 mask)
 {
 	pch_udc_bit_clr(dev, UDC_DEVIRQMSK_ADDR, mask);
 }
 
+/**
+ * pch_udc_disable_ep_interrupts() - Disable endpoint interrupts
+ * @dev:	Reference to structure of type pch_udc_regs
+ * @mask:	Mask to disable interrupts
+ */
 static inline void pch_udc_disable_ep_interrupts(struct pch_udc_dev *dev,
 						u32 mask)
 {
 	pch_udc_bit_set(dev, UDC_EPIRQMSK_ADDR, mask);
 }
 
+/**
+ * pch_udc_enable_ep_interrupts() - Enable endpoint interrupts
+ * @dev:	Reference to structure of type pch_udc_regs
+ * @mask:	Mask to enable interrupts
+ */
 static inline void pch_udc_enable_ep_interrupts(struct pch_udc_dev *dev,
 					      u32 mask)
 {
 	pch_udc_bit_clr(dev, UDC_EPIRQMSK_ADDR, mask);
 }
 
+/**
+ * pch_udc_read_device_interrupts() - Read the device interrupts
+ * @dev:	Reference to structure of type pch_udc_regs
+ * Retern	The device interrupts
+ */
 static inline u32 pch_udc_read_device_interrupts(struct pch_udc_dev *dev)
 {
 	return pch_udc_readl(dev, UDC_DEVIRQSTS_ADDR);
@@ -578,6 +851,11 @@ static inline void pch_udc_write_device_interrupts(struct pch_udc_dev *dev,
 	pch_udc_writel(dev, val, UDC_DEVIRQSTS_ADDR);
 }
 
+/**
+ * pch_udc_read_ep_interrupts() - Read the endpoint interrupts
+ * @dev:	Reference to structure of type pch_udc_regs
+ * Retern	The endpoint interrupt
+ */
 static inline u32 pch_udc_read_ep_interrupts(struct pch_udc_dev *dev)
 {
 	return pch_udc_readl(dev, UDC_EPIRQSTS_ADDR);
@@ -594,37 +872,72 @@ static inline void pch_udc_write_ep_interrupts(struct pch_udc_dev *dev,
 	pch_udc_writel(dev, val, UDC_EPIRQSTS_ADDR);
 }
 
+/**
+ * pch_udc_read_device_status() - Read the device status
+ * @dev:	Reference to structure of type pch_udc_regs
+ * Retern	The device status
+ */
 static inline u32 pch_udc_read_device_status(struct pch_udc_dev *dev)
 {
 	return pch_udc_readl(dev, UDC_DEVSTS_ADDR);
 }
 
+/**
+ * pch_udc_read_ep_control() - Read the endpoint control
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * Retern	The endpoint control register value
+ */
 static inline u32 pch_udc_read_ep_control(struct pch_udc_ep *ep)
 {
 	return pch_udc_ep_readl(ep, UDC_EPCTL_ADDR);
 }
 
+/**
+ * pch_udc_clear_ep_control() - Clear the endpoint control register
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * Retern	The endpoint control register value
+ */
 static inline void pch_udc_clear_ep_control(struct pch_udc_ep *ep)
 {
 	return pch_udc_ep_writel(ep, 0, UDC_EPCTL_ADDR);
 }
 
+/**
+ * pch_udc_read_ep_status() - Read the endpoint status
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * Retern	The endpoint status
+ */
 static inline u32 pch_udc_read_ep_status(struct pch_udc_ep *ep)
 {
 	return pch_udc_ep_readl(ep, UDC_EPSTS_ADDR);
 }
 
+/**
+ * pch_udc_clear_ep_status() - Clear the endpoint status
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ * @stat:	Endpoint status
+ */
 static inline void pch_udc_clear_ep_status(struct pch_udc_ep *ep,
 					 u32 stat)
 {
 	return pch_udc_ep_writel(ep, stat, UDC_EPSTS_ADDR);
 }
 
+/**
+ * pch_udc_ep_set_nak() - Set the bit 7 (SNAK field)
+ *				of the endpoint control register
+ * @ep:		Reference to structure of type pch_udc_ep_regs
+ */
 static inline void pch_udc_ep_set_nak(struct pch_udc_ep *ep)
 {
 	pch_udc_ep_bit_set(ep, UDC_EPCTL_ADDR, UDC_EPCTL_SNAK);
 }
 
+/**
+ * pch_udc_ep_clear_nak() - Set the bit 8 (CNAK field)
+ *				of the endpoint control register
+ * @ep:		reference to structure of type pch_udc_ep_regs
+ */
 static void pch_udc_ep_clear_nak(struct pch_udc_ep *ep)
 {
 	unsigned int loopcnt = 0;
@@ -651,14 +964,26 @@ static void pch_udc_ep_clear_nak(struct pch_udc_ep *ep)
 			__func__, ep->num, (ep->in ? "in" : "out"));
 }
 
+/**
+ * pch_udc_ep_fifo_flush() - Flush the endpoint fifo
+ * @ep:	reference to structure of type pch_udc_ep_regs
+ * @dir:	direction of endpoint
+ *		  0:  endpoint is OUT
+ *		  !0: endpoint is IN
+ */
 static void pch_udc_ep_fifo_flush(struct pch_udc_ep *ep, int dir)
 {
-	if (dir) {	
+	if (dir) {	/* IN ep */
 		pch_udc_ep_bit_set(ep, UDC_EPCTL_ADDR, UDC_EPCTL_F);
 		return;
 	}
 }
 
+/**
+ * pch_udc_ep_enable() - This api enables endpoint
+ * @regs:	Reference to structure pch_udc_ep_regs
+ * @desc:	endpoint descriptor
+ */
 static void pch_udc_ep_enable(struct pch_udc_ep *ep,
 			       struct pch_udc_cfg_data *cfg,
 			       const struct usb_endpoint_descriptor *desc)
@@ -675,7 +1000,7 @@ static void pch_udc_ep_enable(struct pch_udc_ep *ep,
 	pch_udc_ep_set_maxpkt(ep, usb_endpoint_maxp(desc));
 	pch_udc_ep_set_nak(ep);
 	pch_udc_ep_fifo_flush(ep, ep->in);
-	
+	/* Configure the endpoint */
 	val = ep->num << UDC_CSR_NE_NUM_SHIFT | ep->in << UDC_CSR_NE_DIR_SHIFT |
 	      ((desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) <<
 		UDC_CSR_NE_TYPE_SHIFT) |
@@ -690,59 +1015,71 @@ static void pch_udc_ep_enable(struct pch_udc_ep *ep,
 		pch_udc_write_csr(ep->dev, val, UDC_EPOUT_IDX(ep->num));
 }
 
+/**
+ * pch_udc_ep_disable() - This api disables endpoint
+ * @regs:	Reference to structure pch_udc_ep_regs
+ */
 static void pch_udc_ep_disable(struct pch_udc_ep *ep)
 {
 	if (ep->in) {
-		
+		/* flush the fifo */
 		pch_udc_ep_writel(ep, UDC_EPCTL_F, UDC_EPCTL_ADDR);
-		
+		/* set NAK */
 		pch_udc_ep_writel(ep, UDC_EPCTL_SNAK, UDC_EPCTL_ADDR);
 		pch_udc_ep_bit_set(ep, UDC_EPSTS_ADDR, UDC_EPSTS_IN);
 	} else {
-		
+		/* set NAK */
 		pch_udc_ep_writel(ep, UDC_EPCTL_SNAK, UDC_EPCTL_ADDR);
 	}
-	
+	/* reset desc pointer */
 	pch_udc_ep_writel(ep, 0, UDC_DESPTR_ADDR);
 }
 
+/**
+ * pch_udc_wait_ep_stall() - Wait EP stall.
+ * @dev:	Reference to pch_udc_dev structure
+ */
 static void pch_udc_wait_ep_stall(struct pch_udc_ep *ep)
 {
 	unsigned int count = 10000;
 
-	
+	/* Wait till idle */
 	while ((pch_udc_read_ep_control(ep) & UDC_EPCTL_S) && --count)
 		udelay(5);
 	if (!count)
 		dev_err(&ep->dev->pdev->dev, "%s: wait error\n", __func__);
 }
 
+/**
+ * pch_udc_init() - This API initializes usb device controller
+ * @dev:	Rreference to pch_udc_regs structure
+ */
 static void pch_udc_init(struct pch_udc_dev *dev)
 {
 	if (NULL == dev) {
 		pr_err("%s: Invalid address\n", __func__);
 		return;
 	}
-	
+	/* Soft Reset and Reset PHY */
 	pch_udc_writel(dev, UDC_SRST, UDC_SRST_ADDR);
 	pch_udc_writel(dev, UDC_SRST | UDC_PSRST, UDC_SRST_ADDR);
 	mdelay(1);
 	pch_udc_writel(dev, UDC_SRST, UDC_SRST_ADDR);
 	pch_udc_writel(dev, 0x00, UDC_SRST_ADDR);
 	mdelay(1);
-	
+	/* mask and clear all device interrupts */
 	pch_udc_bit_set(dev, UDC_DEVIRQMSK_ADDR, UDC_DEVINT_MSK);
 	pch_udc_bit_set(dev, UDC_DEVIRQSTS_ADDR, UDC_DEVINT_MSK);
 
-	
+	/* mask and clear all ep interrupts */
 	pch_udc_bit_set(dev, UDC_EPIRQMSK_ADDR, UDC_EPINT_MSK_DISABLE_ALL);
 	pch_udc_bit_set(dev, UDC_EPIRQSTS_ADDR, UDC_EPINT_MSK_DISABLE_ALL);
 
-	
+	/* enable dynamic CSR programmingi, self powered and device speed */
 	if (speed_fs)
 		pch_udc_bit_set(dev, UDC_DEVCFG_ADDR, UDC_DEVCFG_CSR_PRG |
 				UDC_DEVCFG_SP | UDC_DEVCFG_SPD_FS);
-	else 
+	else /* defaul high speed */
 		pch_udc_bit_set(dev, UDC_DEVCFG_ADDR, UDC_DEVCFG_CSR_PRG |
 				UDC_DEVCFG_SP | UDC_DEVCFG_SPD_HS);
 	pch_udc_bit_set(dev, UDC_DEVCTL_ADDR,
@@ -752,16 +1089,28 @@ static void pch_udc_init(struct pch_udc_dev *dev)
 			UDC_DEVCTL_THE);
 }
 
+/**
+ * pch_udc_exit() - This API exit usb device controller
+ * @dev:	Reference to pch_udc_regs structure
+ */
 static void pch_udc_exit(struct pch_udc_dev *dev)
 {
-	
+	/* mask all device interrupts */
 	pch_udc_bit_set(dev, UDC_DEVIRQMSK_ADDR, UDC_DEVINT_MSK);
-	
+	/* mask all ep interrupts */
 	pch_udc_bit_set(dev, UDC_EPIRQMSK_ADDR, UDC_EPINT_MSK_DISABLE_ALL);
-	
+	/* put device in disconnected state */
 	pch_udc_set_disconnect(dev);
 }
 
+/**
+ * pch_udc_pcd_get_frame() - This API is invoked to get the current frame number
+ * @gadget:	Reference to the gadget driver
+ *
+ * Return codes:
+ *	0:		Success
+ *	-EINVAL:	If the gadget passed is NULL
+ */
 static int pch_udc_pcd_get_frame(struct usb_gadget *gadget)
 {
 	struct pch_udc_dev	*dev;
@@ -772,6 +1121,14 @@ static int pch_udc_pcd_get_frame(struct usb_gadget *gadget)
 	return pch_udc_get_frame(dev);
 }
 
+/**
+ * pch_udc_pcd_wakeup() - This API is invoked to initiate a remote wakeup
+ * @gadget:	Reference to the gadget driver
+ *
+ * Return codes:
+ *	0:		Success
+ *	-EINVAL:	If the gadget passed is NULL
+ */
 static int pch_udc_pcd_wakeup(struct usb_gadget *gadget)
 {
 	struct pch_udc_dev	*dev;
@@ -786,6 +1143,16 @@ static int pch_udc_pcd_wakeup(struct usb_gadget *gadget)
 	return 0;
 }
 
+/**
+ * pch_udc_pcd_selfpowered() - This API is invoked to specify whether the device
+ *				is self powered or not
+ * @gadget:	Reference to the gadget driver
+ * @value:	Specifies self powered or not
+ *
+ * Return codes:
+ *	0:		Success
+ *	-EINVAL:	If the gadget passed is NULL
+ */
 static int pch_udc_pcd_selfpowered(struct usb_gadget *gadget, int value)
 {
 	struct pch_udc_dev	*dev;
@@ -800,6 +1167,16 @@ static int pch_udc_pcd_selfpowered(struct usb_gadget *gadget, int value)
 	return 0;
 }
 
+/**
+ * pch_udc_pcd_pullup() - This API is invoked to make the device
+ *				visible/invisible to the host
+ * @gadget:	Reference to the gadget driver
+ * @is_on:	Specifies whether the pull up is made active or inactive
+ *
+ * Return codes:
+ *	0:		Success
+ *	-EINVAL:	If the gadget passed is NULL
+ */
 static int pch_udc_pcd_pullup(struct usb_gadget *gadget, int is_on)
 {
 	struct pch_udc_dev	*dev;
@@ -821,6 +1198,17 @@ static int pch_udc_pcd_pullup(struct usb_gadget *gadget, int is_on)
 	return 0;
 }
 
+/**
+ * pch_udc_pcd_vbus_session() - This API is used by a driver for an external
+ *				transceiver (or GPIO) that
+ *				detects a VBUS power session starting/ending
+ * @gadget:	Reference to the gadget driver
+ * @is_active:	specifies whether the session is starting or ending
+ *
+ * Return codes:
+ *	0:		Success
+ *	-EINVAL:	If the gadget passed is NULL
+ */
 static int pch_udc_pcd_vbus_session(struct usb_gadget *gadget, int is_active)
 {
 	struct pch_udc_dev	*dev;
@@ -832,6 +1220,17 @@ static int pch_udc_pcd_vbus_session(struct usb_gadget *gadget, int is_active)
 	return 0;
 }
 
+/**
+ * pch_udc_pcd_vbus_draw() - This API is used by gadget drivers during
+ *				SET_CONFIGURATION calls to
+ *				specify how much power the device can consume
+ * @gadget:	Reference to the gadget driver
+ * @mA:		specifies the current limit in 2mA unit
+ *
+ * Return codes:
+ *	-EINVAL:	If the gadget passed is NULL
+ *	-EOPNOTSUPP:
+ */
 static int pch_udc_pcd_vbus_draw(struct usb_gadget *gadget, unsigned int mA)
 {
 	return -EOPNOTSUPP;
@@ -851,6 +1250,15 @@ static const struct usb_gadget_ops pch_udc_ops = {
 	.stop	= pch_udc_stop,
 };
 
+/**
+ * pch_vbus_gpio_get_value() - This API gets value of GPIO port as VBUS status.
+ * @dev:	Reference to the driver structure
+ *
+ * Return value:
+ *	1: VBUS is high
+ *	0: VBUS is low
+ *     -1: It is not enable to detect VBUS using GPIO
+ */
 static int pch_vbus_gpio_get_value(struct pch_udc_dev *dev)
 {
 	int vbus = 0;
@@ -863,6 +1271,12 @@ static int pch_vbus_gpio_get_value(struct pch_udc_dev *dev)
 	return vbus;
 }
 
+/**
+ * pch_vbus_gpio_work_fall() - This API keeps watch on VBUS becoming Low.
+ *                             If VBUS is Low, disconnect is processed
+ * @irq_work:	Structure for WorkQueue
+ *
+ */
 static void pch_vbus_gpio_work_fall(struct work_struct *irq_work)
 {
 	struct pch_vbus_gpio_data *vbus_gpio = container_of(irq_work,
@@ -898,6 +1312,12 @@ static void pch_vbus_gpio_work_fall(struct work_struct *irq_work)
 	}
 }
 
+/**
+ * pch_vbus_gpio_work_rise() - This API checks VBUS is High.
+ *                             If VBUS is High, connect is processed
+ * @irq_work:	Structure for WorkQueue
+ *
+ */
 static void pch_vbus_gpio_work_rise(struct work_struct *irq_work)
 {
 	struct pch_vbus_gpio_data *vbus_gpio = container_of(irq_work,
@@ -919,6 +1339,15 @@ static void pch_vbus_gpio_work_rise(struct work_struct *irq_work)
 	}
 }
 
+/**
+ * pch_vbus_gpio_irq() - IRQ handler for GPIO intrerrupt for changing VBUS
+ * @irq:	Interrupt request number
+ * @dev:	Reference to the device structure
+ *
+ * Return codes:
+ *	0: Success
+ *	-EINVAL: GPIO port is invalid or can't be initialized.
+ */
 static irqreturn_t pch_vbus_gpio_irq(int irq, void *data)
 {
 	struct pch_udc_dev *dev = (struct pch_udc_dev *)data;
@@ -934,6 +1363,15 @@ static irqreturn_t pch_vbus_gpio_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/**
+ * pch_vbus_gpio_init() - This API initializes GPIO port detecting VBUS.
+ * @dev:	Reference to the driver structure
+ * @vbus_gpio	Number of GPIO port to detect gpio
+ *
+ * Return codes:
+ *	0: Success
+ *	-EINVAL: GPIO port is invalid or can't be initialized.
+ */
 static int pch_vbus_gpio_init(struct pch_udc_dev *dev, int vbus_gpio_port)
 {
 	int err;
@@ -981,6 +1419,10 @@ static int pch_vbus_gpio_init(struct pch_udc_dev *dev, int vbus_gpio_port)
 	return 0;
 }
 
+/**
+ * pch_vbus_gpio_free() - This API frees resources of GPIO port
+ * @dev:	Reference to the driver structure
+ */
 static void pch_vbus_gpio_free(struct pch_udc_dev *dev)
 {
 	if (dev->vbus_gpio.intr)
@@ -990,6 +1432,13 @@ static void pch_vbus_gpio_free(struct pch_udc_dev *dev)
 		gpio_free(dev->vbus_gpio.port);
 }
 
+/**
+ * complete_req() - This API is invoked from the driver when processing
+ *			of a request is complete
+ * @ep:		Reference to the endpoint structure
+ * @req:	Reference to the request structure
+ * @status:	Indicates the success/failure of completion
+ */
 static void complete_req(struct pch_udc_ep *ep, struct pch_udc_request *req,
 								 int status)
 {
@@ -998,7 +1447,7 @@ static void complete_req(struct pch_udc_ep *ep, struct pch_udc_request *req,
 
 	list_del_init(&req->queue);
 
-	
+	/* set new status if pending */
 	if (req->req.status == -EINPROGRESS)
 		req->req.status = status;
 	else
@@ -1041,6 +1490,10 @@ static void complete_req(struct pch_udc_ep *ep, struct pch_udc_request *req,
 	ep->halted = halted;
 }
 
+/**
+ * empty_req_queue() - This API empties the request queue of an endpoint
+ * @ep:		Reference to the endpoint structure
+ */
 static void empty_req_queue(struct pch_udc_ep *ep)
 {
 	struct pch_udc_request	*req;
@@ -1048,10 +1501,19 @@ static void empty_req_queue(struct pch_udc_ep *ep)
 	ep->halted = 1;
 	while (!list_empty(&ep->queue)) {
 		req = list_entry(ep->queue.next, struct pch_udc_request, queue);
-		complete_req(ep, req, -ESHUTDOWN);	
+		complete_req(ep, req, -ESHUTDOWN);	/* Remove from list */
 	}
 }
 
+/**
+ * pch_udc_free_dma_chain() - This function frees the DMA chain created
+ *				for the request
+ * @dev		Reference to the driver structure
+ * @req		Reference to the request to be freed
+ *
+ * Return codes:
+ *	0: Success
+ */
 static void pch_udc_free_dma_chain(struct pch_udc_dev *dev,
 				   struct pch_udc_request *req)
 {
@@ -1062,7 +1524,7 @@ static void pch_udc_free_dma_chain(struct pch_udc_dev *dev,
 	dma_addr_t addr = (dma_addr_t)td->next;
 	td->next = 0x00;
 	for (; i > 1; --i) {
-		
+		/* do not free first desc., will be done by free for request */
 		td = phys_to_virt(addr);
 		addr2 = (dma_addr_t)td->next;
 		pci_pool_free(dev->data_requests, td, addr);
@@ -1072,6 +1534,18 @@ static void pch_udc_free_dma_chain(struct pch_udc_dev *dev,
 	req->chain_len = 1;
 }
 
+/**
+ * pch_udc_create_dma_chain() - This function creates or reinitializes
+ *				a DMA chain
+ * @ep:		Reference to the endpoint structure
+ * @req:	Reference to the request
+ * @buf_len:	The buffer length
+ * @gfp_flags:	Flags to be used while mapping the data buffer
+ *
+ * Return codes:
+ *	0:		success,
+ *	-ENOMEM:	pci_pool_alloc invocation fails
+ */
 static int pch_udc_create_dma_chain(struct pch_udc_ep *ep,
 				    struct pch_udc_request *req,
 				    unsigned long buf_len,
@@ -1120,12 +1594,23 @@ nomem:
 	return -ENOMEM;
 }
 
+/**
+ * prepare_dma() - This function creates and initializes the DMA chain
+ *			for the request
+ * @ep:		Reference to the endpoint structure
+ * @req:	Reference to the request
+ * @gfp:	Flag to be used while mapping the data buffer
+ *
+ * Return codes:
+ *	0:		Success
+ *	Other 0:	linux error number on failure
+ */
 static int prepare_dma(struct pch_udc_ep *ep, struct pch_udc_request *req,
 			  gfp_t gfp)
 {
 	int	retval;
 
-	
+	/* Allocate and create a DMA chain */
 	retval = pch_udc_create_dma_chain(ep, req, ep->ep.maxpacket, gfp);
 	if (retval) {
 		pr_err("%s: could not create DMA chain:%d\n", __func__, retval);
@@ -1137,24 +1622,38 @@ static int prepare_dma(struct pch_udc_ep *ep, struct pch_udc_request *req,
 	return 0;
 }
 
+/**
+ * process_zlp() - This function process zero length packets
+ *			from the gadget driver
+ * @ep:		Reference to the endpoint structure
+ * @req:	Reference to the request
+ */
 static void process_zlp(struct pch_udc_ep *ep, struct pch_udc_request *req)
 {
 	struct pch_udc_dev	*dev = ep->dev;
 
-	
+	/* IN zlp's are handled by hardware */
 	complete_req(ep, req, 0);
 
+	/* if set_config or set_intf is waiting for ack by zlp
+	 * then set CSR_DONE
+	 */
 	if (dev->set_cfg_not_acked) {
 		pch_udc_set_csr_done(dev);
 		dev->set_cfg_not_acked = 0;
 	}
-	
+	/* setup command is ACK'ed now by zlp */
 	if (!dev->stall && dev->waiting_zlp_ack) {
 		pch_udc_ep_clear_nak(&(dev->ep[UDC_EP0IN_IDX]));
 		dev->waiting_zlp_ack = 0;
 	}
 }
 
+/**
+ * pch_udc_start_rxrequest() - This function starts the receive requirement.
+ * @ep:		Reference to the endpoint structure
+ * @req:	Reference to the request structure
+ */
 static void pch_udc_start_rxrequest(struct pch_udc_ep *ep,
 					 struct pch_udc_request *req)
 {
@@ -1162,7 +1661,7 @@ static void pch_udc_start_rxrequest(struct pch_udc_ep *ep,
 
 	pch_udc_clear_dma(ep->dev, DMA_DIR_RX);
 	td_data = req->td_data;
-	
+	/* Set the status bits for all descriptors */
 	while (1) {
 		td_data->status = (td_data->status & ~PCH_UDC_BUFF_STS) |
 				    PCH_UDC_BS_HST_RDY;
@@ -1170,7 +1669,7 @@ static void pch_udc_start_rxrequest(struct pch_udc_ep *ep,
 			break;
 		td_data = phys_to_virt(td_data->next);
 	}
-	
+	/* Write the descriptor pointer */
 	pch_udc_ep_set_ddptr(ep, req->td_data_phys);
 	req->dma_going = 1;
 	pch_udc_enable_ep_interrupts(ep->dev, UDC_EPINT_OUT_EP0 << ep->num);
@@ -1179,6 +1678,17 @@ static void pch_udc_start_rxrequest(struct pch_udc_ep *ep,
 	pch_udc_ep_set_rrdy(ep);
 }
 
+/**
+ * pch_udc_pcd_ep_enable() - This API enables the endpoint. It is called
+ *				from gadget driver
+ * @usbep:	Reference to the USB endpoint structure
+ * @desc:	Reference to the USB endpoint descriptor structure
+ *
+ * Return codes:
+ *	0:		Success
+ *	-EINVAL:
+ *	-ESHUTDOWN:
+ */
 static int pch_udc_pcd_ep_enable(struct usb_ep *usbep,
 				    const struct usb_endpoint_descriptor *desc)
 {
@@ -1204,6 +1714,15 @@ static int pch_udc_pcd_ep_enable(struct usb_ep *usbep,
 	return 0;
 }
 
+/**
+ * pch_udc_pcd_ep_disable() - This API disables endpoint and is called
+ *				from gadget driver
+ * @usbep	Reference to the USB endpoint structure
+ *
+ * Return codes:
+ *	0:		Success
+ *	-EINVAL:
+ */
 static int pch_udc_pcd_ep_disable(struct usb_ep *usbep)
 {
 	struct pch_udc_ep	*ep;
@@ -1230,6 +1749,16 @@ static int pch_udc_pcd_ep_disable(struct usb_ep *usbep)
 	return 0;
 }
 
+/**
+ * pch_udc_alloc_request() - This function allocates request structure.
+ *				It is called by gadget driver
+ * @usbep:	Reference to the USB endpoint structure
+ * @gfp:	Flag to be used while allocating memory
+ *
+ * Return codes:
+ *	NULL:			Failure
+ *	Allocated address:	Success
+ */
 static struct usb_request *pch_udc_alloc_request(struct usb_ep *usbep,
 						  gfp_t gfp)
 {
@@ -1250,14 +1779,14 @@ static struct usb_request *pch_udc_alloc_request(struct usb_ep *usbep,
 	INIT_LIST_HEAD(&req->queue);
 	if (!ep->dev->dma_addr)
 		return &req->req;
-	
+	/* ep0 in requests are allocated from data pool here */
 	dma_desc = pci_pool_alloc(ep->dev->data_requests, gfp,
 				  &req->td_data_phys);
 	if (NULL == dma_desc) {
 		kfree(req);
 		return NULL;
 	}
-	
+	/* prevent from using desc. - set HOST BUSY */
 	dma_desc->status |= PCH_UDC_BS_HST_BSY;
 	dma_desc->dataptr = __constant_cpu_to_le32(DMA_ADDR_INVALID);
 	req->td_data = dma_desc;
@@ -1266,6 +1795,12 @@ static struct usb_request *pch_udc_alloc_request(struct usb_ep *usbep,
 	return &req->req;
 }
 
+/**
+ * pch_udc_free_request() - This function frees request structure.
+ *				It is called by gadget driver
+ * @usbep:	Reference to the USB endpoint structure
+ * @usbreq:	Reference to the USB request
+ */
 static void pch_udc_free_request(struct usb_ep *usbep,
 				  struct usb_request *usbreq)
 {
@@ -1290,6 +1825,17 @@ static void pch_udc_free_request(struct usb_ep *usbep,
 	kfree(req);
 }
 
+/**
+ * pch_udc_pcd_queue() - This function queues a request packet. It is called
+ *			by gadget driver
+ * @usbep:	Reference to the USB endpoint structure
+ * @usbreq:	Reference to the USB request
+ * @gfp:	Flag to be used while mapping the data buffer
+ *
+ * Return codes:
+ *	0:			Success
+ *	linux error number:	Failure
+ */
 static int pch_udc_pcd_queue(struct usb_ep *usbep, struct usb_request *usbreq,
 								 gfp_t gfp)
 {
@@ -1311,7 +1857,7 @@ static int pch_udc_pcd_queue(struct usb_ep *usbep, struct usb_request *usbreq,
 	if (!dev->driver || (dev->gadget.speed == USB_SPEED_UNKNOWN))
 		return -ESHUTDOWN;
 	spin_lock_irqsave(&dev->lock, iflags);
-	
+	/* map the buffer for dma */
 	if (usbreq->length &&
 	    ((usbreq->dma == DMA_ADDR_INVALID) || !usbreq->dma)) {
 		if (!((unsigned long)(usbreq->buf) & 0x03)) {
@@ -1354,7 +1900,7 @@ static int pch_udc_pcd_queue(struct usb_ep *usbep, struct usb_request *usbreq,
 	usbreq->status = -EINPROGRESS;
 	req->dma_done = 0;
 	if (list_empty(&ep->queue) && !ep->halted) {
-		
+		/* no pending transfer, so start this req */
 		if (!usbreq->length) {
 			process_zlp(ep, req);
 			retval = 0;
@@ -1363,12 +1909,17 @@ static int pch_udc_pcd_queue(struct usb_ep *usbep, struct usb_request *usbreq,
 		if (!ep->in) {
 			pch_udc_start_rxrequest(ep, req);
 		} else {
+			/*
+			* For IN trfr the descriptors will be programmed and
+			* P bit will be set when
+			* we get an IN token
+			*/
 			pch_udc_wait_ep_stall(ep);
 			pch_udc_ep_clear_nak(ep);
 			pch_udc_enable_ep_interrupts(ep->dev, (1 << ep->num));
 		}
 	}
-	
+	/* Now add this request to the ep's pending requests */
 	if (req != NULL)
 		list_add_tail(&req->queue, &ep->queue);
 
@@ -1377,6 +1928,16 @@ probe_end:
 	return retval;
 }
 
+/**
+ * pch_udc_pcd_dequeue() - This function de-queues a request packet.
+ *				It is called by gadget driver
+ * @usbep:	Reference to the USB endpoint structure
+ * @usbreq:	Reference to the USB request
+ *
+ * Return codes:
+ *	0:			Success
+ *	linux error number:	Failure
+ */
 static int pch_udc_pcd_dequeue(struct usb_ep *usbep,
 				struct usb_request *usbreq)
 {
@@ -1392,7 +1953,7 @@ static int pch_udc_pcd_dequeue(struct usb_ep *usbep,
 		return ret;
 	req = container_of(usbreq, struct pch_udc_request, req);
 	spin_lock_irqsave(&ep->dev->lock, flags);
-	
+	/* make sure it's still queued on this endpoint */
 	list_for_each_entry(req, &ep->queue, queue) {
 		if (&req->req == usbreq) {
 			pch_udc_ep_set_nak(ep);
@@ -1406,6 +1967,16 @@ static int pch_udc_pcd_dequeue(struct usb_ep *usbep,
 	return ret;
 }
 
+/**
+ * pch_udc_pcd_set_halt() - This function Sets or clear the endpoint halt
+ *			    feature
+ * @usbep:	Reference to the USB endpoint structure
+ * @halt:	Specifies whether to set or clear the feature
+ *
+ * Return codes:
+ *	0:			Success
+ *	linux error number:	Failure
+ */
 static int pch_udc_pcd_set_halt(struct usb_ep *usbep, int halt)
 {
 	struct pch_udc_ep	*ep;
@@ -1441,6 +2012,16 @@ static int pch_udc_pcd_set_halt(struct usb_ep *usbep, int halt)
 	return ret;
 }
 
+/**
+ * pch_udc_pcd_set_wedge() - This function Sets or clear the endpoint
+ *				halt feature
+ * @usbep:	Reference to the USB endpoint structure
+ * @halt:	Specifies whether to set or clear the feature
+ *
+ * Return codes:
+ *	0:			Success
+ *	linux error number:	Failure
+ */
 static int pch_udc_pcd_set_wedge(struct usb_ep *usbep)
 {
 	struct pch_udc_ep	*ep;
@@ -1472,6 +2053,10 @@ static int pch_udc_pcd_set_wedge(struct usb_ep *usbep)
 	return ret;
 }
 
+/**
+ * pch_udc_pcd_fifo_flush() - This function Flush the FIFO of specified endpoint
+ * @usbep:	Reference to the USB endpoint structure
+ */
 static void pch_udc_pcd_fifo_flush(struct usb_ep *usbep)
 {
 	struct pch_udc_ep  *ep;
@@ -1497,6 +2082,10 @@ static const struct usb_ep_ops pch_udc_ep_ops = {
 	.fifo_flush	= pch_udc_pcd_fifo_flush,
 };
 
+/**
+ * pch_udc_init_setup_buff() - This function initializes the SETUP buffer
+ * @td_stp:	Reference to the SETP buffer structure
+ */
 static void pch_udc_init_setup_buff(struct pch_udc_stp_dma_desc *td_stp)
 {
 	static u32	pky_marker;
@@ -1508,6 +2097,11 @@ static void pch_udc_init_setup_buff(struct pch_udc_stp_dma_desc *td_stp)
 	td_stp->status = PCH_UDC_BS_HST_RDY;
 }
 
+/**
+ * pch_udc_start_next_txrequest() - This function starts
+ *					the next transmission requirement
+ * @ep:	Reference to the endpoint structure
+ */
 static void pch_udc_start_next_txrequest(struct pch_udc_ep *ep)
 {
 	struct pch_udc_request *req;
@@ -1519,7 +2113,7 @@ static void pch_udc_start_next_txrequest(struct pch_udc_ep *ep)
 	if (list_empty(&ep->queue))
 		return;
 
-	
+	/* next request */
 	req = list_entry(ep->queue.next, struct pch_udc_request, queue);
 	if (req->dma_going)
 		return;
@@ -1543,6 +2137,10 @@ static void pch_udc_start_next_txrequest(struct pch_udc_ep *ep)
 	pch_udc_ep_clear_nak(ep);
 }
 
+/**
+ * pch_udc_complete_transfer() - This function completes a transfer
+ * @ep:		Reference to the endpoint structure
+ */
 static void pch_udc_complete_transfer(struct pch_udc_ep *ep)
 {
 	struct pch_udc_request *req;
@@ -1579,6 +2177,10 @@ static void pch_udc_complete_transfer(struct pch_udc_ep *ep)
 	}
 }
 
+/**
+ * pch_udc_complete_receiver() - This function completes a receiver
+ * @ep:		Reference to the endpoint structure
+ */
 static void pch_udc_complete_receiver(struct pch_udc_ep *ep)
 {
 	struct pch_udc_request *req;
@@ -1589,7 +2191,7 @@ static void pch_udc_complete_receiver(struct pch_udc_ep *ep)
 
 	if (list_empty(&ep->queue))
 		return;
-	
+	/* next request */
 	req = list_entry(ep->queue.next, struct pch_udc_request, queue);
 	pch_udc_clear_dma(ep->dev, DMA_DIR_RX);
 	pch_udc_ep_set_ddptr(ep, 0);
@@ -1619,7 +2221,7 @@ static void pch_udc_complete_receiver(struct pch_udc_ep *ep)
 		addr = (dma_addr_t)td->next;
 		td = phys_to_virt(addr);
 	}
-	
+	/* on 64k packets the RXBYTES field is zero */
 	if (!count && (req->req.length == UDC_DMA_MAXPACKET))
 		count = UDC_DMA_MAXPACKET;
 	req->td_data->status |= PCH_UDC_DMA_LAST;
@@ -1628,13 +2230,19 @@ static void pch_udc_complete_receiver(struct pch_udc_ep *ep)
 	req->dma_going = 0;
 	req->req.actual = count;
 	complete_req(ep, req, 0);
-	
+	/* If there is a new/failed requests try that now */
 	if (!list_empty(&ep->queue)) {
 		req = list_entry(ep->queue.next, struct pch_udc_request, queue);
 		pch_udc_start_rxrequest(ep, req);
 	}
 }
 
+/**
+ * pch_udc_svc_data_in() - This function process endpoint interrupts
+ *				for IN endpoints
+ * @dev:	Reference to the device structure
+ * @ep_num:	Endpoint that generated the interrupt
+ */
 static void pch_udc_svc_data_in(struct pch_udc_dev *dev, int ep_num)
 {
 	u32	epsts;
@@ -1668,12 +2276,17 @@ static void pch_udc_svc_data_in(struct pch_udc_dev *dev, int ep_num)
 	}
 	if (epsts & UDC_EPSTS_TDC)
 		pch_udc_complete_transfer(ep);
-	
+	/* On IN interrupt, provide data if we have any */
 	if ((epsts & UDC_EPSTS_IN) && !(epsts & UDC_EPSTS_RSS) &&
 	    !(epsts & UDC_EPSTS_TDC) && !(epsts & UDC_EPSTS_TXEMPTY))
 		pch_udc_start_next_txrequest(ep);
 }
 
+/**
+ * pch_udc_svc_data_out() - Handles interrupts from OUT endpoint
+ * @dev:	Reference to the device structure
+ * @ep_num:	Endpoint that generated the interrupt
+ */
 static void pch_udc_svc_data_out(struct pch_udc_dev *dev, int ep_num)
 {
 	u32			epsts;
@@ -1685,7 +2298,7 @@ static void pch_udc_svc_data_out(struct pch_udc_dev *dev, int ep_num)
 	ep->epsts = 0;
 
 	if ((epsts & UDC_EPSTS_BNA) && (!list_empty(&ep->queue))) {
-		
+		/* next request */
 		req = list_entry(ep->queue.next, struct pch_udc_request,
 				 queue);
 		if ((req->td_data_last->status & PCH_UDC_BUFF_STS) !=
@@ -1725,6 +2338,10 @@ static void pch_udc_svc_data_out(struct pch_udc_dev *dev, int ep_num)
 		pch_udc_set_dma(dev, DMA_DIR_RX);
 }
 
+/**
+ * pch_udc_svc_control_in() - Handle Control IN endpoint interrupts
+ * @dev:	Reference to the device structure
+ */
 static void pch_udc_svc_control_in(struct pch_udc_dev *dev)
 {
 	u32	epsts;
@@ -1754,12 +2371,17 @@ static void pch_udc_svc_control_in(struct pch_udc_dev *dev)
 		pch_udc_set_dma(dev, DMA_DIR_RX);
 		pch_udc_ep_set_rrdy(ep_out);
 	}
-	
+	/* On IN interrupt, provide data if we have any */
 	if ((epsts & UDC_EPSTS_IN) && !(epsts & UDC_EPSTS_TDC) &&
 	     !(epsts & UDC_EPSTS_TXEMPTY))
 		pch_udc_start_next_txrequest(ep);
 }
 
+/**
+ * pch_udc_svc_control_out() - Routine that handle Control
+ *					OUT endpoint interrupts
+ * @dev:	Reference to the device structure
+ */
 static void pch_udc_svc_control_out(struct pch_udc_dev *dev)
 {
 	u32	stat;
@@ -1770,7 +2392,7 @@ static void pch_udc_svc_control_out(struct pch_udc_dev *dev)
 	stat = ep->epsts;
 	ep->epsts = 0;
 
-	
+	/* If setup data */
 	if (((stat & UDC_EPSTS_OUT_MASK) >> UDC_EPSTS_OUT_SHIFT) ==
 	    UDC_EPSTS_OUT_SETUP) {
 		dev->stall = 0;
@@ -1783,14 +2405,14 @@ static void pch_udc_svc_control_out(struct pch_udc_dev *dev)
 				      dev->ep[UDC_EP0IN_IDX].in);
 		if ((dev->setup_data.bRequestType & USB_DIR_IN))
 			dev->gadget.ep0 = &dev->ep[UDC_EP0IN_IDX].ep;
-		else 
+		else /* OUT */
 			dev->gadget.ep0 = &ep->ep;
 		spin_unlock(&dev->lock);
-		
+		/* If Mass storage Reset */
 		if ((dev->setup_data.bRequestType == 0x21) &&
 		    (dev->setup_data.bRequest == 0xFF))
 			dev->prot_stall = 0;
-		
+		/* call gadget with setup data received */
 		setup_supported = dev->driver->setup(&dev->gadget,
 						     &dev->setup_data);
 		spin_lock(&dev->lock);
@@ -1801,16 +2423,18 @@ static void pch_udc_svc_control_out(struct pch_udc_dev *dev)
 						PCH_UDC_BS_HST_RDY;
 			pch_udc_ep_set_ddptr(ep, ep->td_data_phys);
 		}
-		
+		/* ep0 in returns data on IN phase */
 		if (setup_supported >= 0 && setup_supported <
 					    UDC_EP0IN_MAX_PKT_SIZE) {
 			pch_udc_ep_clear_nak(&(dev->ep[UDC_EP0IN_IDX]));
+			/* Gadget would have queued a request when
+			 * we called the setup */
 			if (!(dev->setup_data.bRequestType & USB_DIR_IN)) {
 				pch_udc_set_dma(dev, DMA_DIR_RX);
 				pch_udc_ep_clear_nak(ep);
 			}
 		} else if (setup_supported < 0) {
-			
+			/* if unsupported request, then stall */
 			pch_udc_ep_set_stall(&(dev->ep[UDC_EP0IN_IDX]));
 			pch_udc_enable_ep_interrupts(ep->dev,
 						PCH_UDC_EPINT(ep->in, ep->num));
@@ -1833,6 +2457,12 @@ static void pch_udc_svc_control_out(struct pch_udc_dev *dev)
 }
 
 
+/**
+ * pch_udc_postsvc_epinters() - This function enables end point interrupts
+ *				and clears NAK status
+ * @dev:	Reference to the device structure
+ * @ep_num:	End point number
+ */
 static void pch_udc_postsvc_epinters(struct pch_udc_dev *dev, int ep_num)
 {
 	struct pch_udc_ep	*ep;
@@ -1847,19 +2477,24 @@ static void pch_udc_postsvc_epinters(struct pch_udc_dev *dev, int ep_num)
 	}
 }
 
+/**
+ * pch_udc_read_all_epstatus() - This function read all endpoint status
+ * @dev:	Reference to the device structure
+ * @ep_intr:	Status of endpoint interrupt
+ */
 static void pch_udc_read_all_epstatus(struct pch_udc_dev *dev, u32 ep_intr)
 {
 	int i;
 	struct pch_udc_ep	*ep;
 
 	for (i = 0; i < PCH_UDC_USED_EP_NUM; i++) {
-		
+		/* IN */
 		if (ep_intr & (0x1 << i)) {
 			ep = &dev->ep[UDC_EPIN_IDX(i)];
 			ep->epsts = pch_udc_read_ep_status(ep);
 			pch_udc_clear_ep_status(ep, ep->epsts);
 		}
-		
+		/* OUT */
 		if (ep_intr & (0x10000 << i)) {
 			ep = &dev->ep[UDC_EPOUT_IDX(i)];
 			ep->epsts = pch_udc_read_ep_status(ep);
@@ -1868,24 +2503,29 @@ static void pch_udc_read_all_epstatus(struct pch_udc_dev *dev, u32 ep_intr)
 	}
 }
 
+/**
+ * pch_udc_activate_control_ep() - This function enables the control endpoints
+ *					for traffic after a reset
+ * @dev:	Reference to the device structure
+ */
 static void pch_udc_activate_control_ep(struct pch_udc_dev *dev)
 {
 	struct pch_udc_ep	*ep;
 	u32 val;
 
-	
+	/* Setup the IN endpoint */
 	ep = &dev->ep[UDC_EP0IN_IDX];
 	pch_udc_clear_ep_control(ep);
 	pch_udc_ep_fifo_flush(ep, ep->in);
 	pch_udc_ep_set_bufsz(ep, UDC_EP0IN_BUFF_SIZE, ep->in);
 	pch_udc_ep_set_maxpkt(ep, UDC_EP0IN_MAX_PKT_SIZE);
-	
+	/* Initialize the IN EP Descriptor */
 	ep->td_data      = NULL;
 	ep->td_stp       = NULL;
 	ep->td_data_phys = 0;
 	ep->td_stp_phys  = 0;
 
-	
+	/* Setup the OUT endpoint */
 	ep = &dev->ep[UDC_EP0OUT_IDX];
 	pch_udc_clear_ep_control(ep);
 	pch_udc_ep_fifo_flush(ep, ep->in);
@@ -1894,14 +2534,14 @@ static void pch_udc_activate_control_ep(struct pch_udc_dev *dev)
 	val = UDC_EP0OUT_MAX_PKT_SIZE << UDC_CSR_NE_MAX_PKT_SHIFT;
 	pch_udc_write_csr(ep->dev, val, UDC_EP0OUT_IDX);
 
-	
+	/* Initialize the SETUP buffer */
 	pch_udc_init_setup_buff(ep->td_stp);
-	
+	/* Write the pointer address of dma descriptor */
 	pch_udc_ep_set_subptr(ep, ep->td_stp_phys);
-	
+	/* Write the pointer address of Setup descriptor */
 	pch_udc_ep_set_ddptr(ep, ep->td_data_phys);
 
-	
+	/* Initialize the dma descriptor */
 	ep->td_data->status  = PCH_UDC_DMA_LAST;
 	ep->td_data->dataptr = dev->dma_addr;
 	ep->td_data->next    = ep->td_data_phys;
@@ -1910,6 +2550,10 @@ static void pch_udc_activate_control_ep(struct pch_udc_dev *dev)
 }
 
 
+/**
+ * pch_udc_svc_ur_interrupt() - This function handles a USB reset interrupt
+ * @dev:	Reference to driver structure
+ */
 static void pch_udc_svc_ur_interrupt(struct pch_udc_dev *dev)
 {
 	struct pch_udc_ep	*ep;
@@ -1917,9 +2561,9 @@ static void pch_udc_svc_ur_interrupt(struct pch_udc_dev *dev)
 
 	pch_udc_clear_dma(dev, DMA_DIR_TX);
 	pch_udc_clear_dma(dev, DMA_DIR_RX);
-	
+	/* Mask all endpoint interrupts */
 	pch_udc_disable_ep_interrupts(dev, UDC_EPINT_MSK_DISABLE_ALL);
-	
+	/* clear all endpoint interrupts */
 	pch_udc_write_ep_interrupts(dev, UDC_EPINT_MSK_DISABLE_ALL);
 
 	for (i = 0; i < PCH_UDC_EP_NUM; i++) {
@@ -1934,12 +2578,12 @@ static void pch_udc_svc_ur_interrupt(struct pch_udc_dev *dev)
 	dev->waiting_zlp_ack = 0;
 	dev->set_cfg_not_acked = 0;
 
-	
+	/* disable ep to empty req queue. Skip the control EP's */
 	for (i = 0; i < (PCH_UDC_USED_EP_NUM*2); i++) {
 		ep = &dev->ep[i];
 		pch_udc_ep_set_nak(ep);
 		pch_udc_ep_fifo_flush(ep, ep->in);
-		
+		/* Complete request queue */
 		empty_req_queue(ep);
 	}
 	if (dev->driver && dev->driver->disconnect) {
@@ -1949,6 +2593,11 @@ static void pch_udc_svc_ur_interrupt(struct pch_udc_dev *dev)
 	}
 }
 
+/**
+ * pch_udc_svc_enum_interrupt() - This function handles a USB speed enumeration
+ *				done interrupt
+ * @dev:	Reference to driver structure
+ */
 static void pch_udc_svc_enum_interrupt(struct pch_udc_dev *dev)
 {
 	u32 dev_stat, dev_speed;
@@ -1977,12 +2626,17 @@ static void pch_udc_svc_enum_interrupt(struct pch_udc_dev *dev)
 	pch_udc_set_dma(dev, DMA_DIR_RX);
 	pch_udc_ep_set_rrdy(&(dev->ep[UDC_EP0OUT_IDX]));
 
-	
+	/* enable device interrupts */
 	pch_udc_enable_interrupts(dev, UDC_DEVINT_UR | UDC_DEVINT_US |
 					UDC_DEVINT_ES | UDC_DEVINT_ENUM |
 					UDC_DEVINT_SI | UDC_DEVINT_SC);
 }
 
+/**
+ * pch_udc_svc_intf_interrupt() - This function handles a set interface
+ *				  interrupt
+ * @dev:	Reference to driver structure
+ */
 static void pch_udc_svc_intf_interrupt(struct pch_udc_dev *dev)
 {
 	u32 reg, dev_stat = 0;
@@ -1994,14 +2648,14 @@ static void pch_udc_svc_intf_interrupt(struct pch_udc_dev *dev)
 	dev->cfg_data.cur_alt = (dev_stat & UDC_DEVSTS_ALT_MASK) >>
 							 UDC_DEVSTS_ALT_SHIFT;
 	dev->set_cfg_not_acked = 1;
-	
+	/* Construct the usb request for gadget driver and inform it */
 	memset(&dev->setup_data, 0 , sizeof dev->setup_data);
 	dev->setup_data.bRequest = USB_REQ_SET_INTERFACE;
 	dev->setup_data.bRequestType = USB_RECIP_INTERFACE;
 	dev->setup_data.wValue = cpu_to_le16(dev->cfg_data.cur_alt);
 	dev->setup_data.wIndex = cpu_to_le16(dev->cfg_data.cur_intf);
-	
-	
+	/* programm the Endpoint Cfg registers */
+	/* Only one end point cfg register */
 	reg = pch_udc_read_csr(dev, UDC_EP0OUT_IDX);
 	reg = (reg & ~UDC_CSR_NE_INTF_MASK) |
 	      (dev->cfg_data.cur_intf << UDC_CSR_NE_INTF_SHIFT);
@@ -2009,7 +2663,7 @@ static void pch_udc_svc_intf_interrupt(struct pch_udc_dev *dev)
 	      (dev->cfg_data.cur_alt << UDC_CSR_NE_ALT_SHIFT);
 	pch_udc_write_csr(dev, reg, UDC_EP0OUT_IDX);
 	for (i = 0; i < PCH_UDC_USED_EP_NUM * 2; i++) {
-		
+		/* clear stall bits */
 		pch_udc_ep_clear_stall(&(dev->ep[i]));
 		dev->ep[i].halted = 0;
 	}
@@ -2019,6 +2673,11 @@ static void pch_udc_svc_intf_interrupt(struct pch_udc_dev *dev)
 	spin_lock(&dev->lock);
 }
 
+/**
+ * pch_udc_svc_cfg_interrupt() - This function handles a set configuration
+ *				interrupt
+ * @dev:	Reference to driver structure
+ */
 static void pch_udc_svc_cfg_interrupt(struct pch_udc_dev *dev)
 {
 	int i, ret;
@@ -2028,50 +2687,56 @@ static void pch_udc_svc_cfg_interrupt(struct pch_udc_dev *dev)
 	dev->set_cfg_not_acked = 1;
 	dev->cfg_data.cur_cfg = (dev_stat & UDC_DEVSTS_CFG_MASK) >>
 				UDC_DEVSTS_CFG_SHIFT;
-	
+	/* make usb request for gadget driver */
 	memset(&dev->setup_data, 0 , sizeof dev->setup_data);
 	dev->setup_data.bRequest = USB_REQ_SET_CONFIGURATION;
 	dev->setup_data.wValue = cpu_to_le16(dev->cfg_data.cur_cfg);
-	
-	
+	/* program the NE registers */
+	/* Only one end point cfg register */
 	reg = pch_udc_read_csr(dev, UDC_EP0OUT_IDX);
 	reg = (reg & ~UDC_CSR_NE_CFG_MASK) |
 	      (dev->cfg_data.cur_cfg << UDC_CSR_NE_CFG_SHIFT);
 	pch_udc_write_csr(dev, reg, UDC_EP0OUT_IDX);
 	for (i = 0; i < PCH_UDC_USED_EP_NUM * 2; i++) {
-		
+		/* clear stall bits */
 		pch_udc_ep_clear_stall(&(dev->ep[i]));
 		dev->ep[i].halted = 0;
 	}
 	dev->stall = 0;
 
-	
+	/* call gadget zero with setup data received */
 	spin_unlock(&dev->lock);
 	ret = dev->driver->setup(&dev->gadget, &dev->setup_data);
 	spin_lock(&dev->lock);
 }
 
+/**
+ * pch_udc_dev_isr() - This function services device interrupts
+ *			by invoking appropriate routines.
+ * @dev:	Reference to the device structure
+ * @dev_intr:	The Device interrupt status.
+ */
 static void pch_udc_dev_isr(struct pch_udc_dev *dev, u32 dev_intr)
 {
 	int vbus;
 
-	
+	/* USB Reset Interrupt */
 	if (dev_intr & UDC_DEVINT_UR) {
 		pch_udc_svc_ur_interrupt(dev);
 		dev_dbg(&dev->pdev->dev, "USB_RESET\n");
 	}
-	
+	/* Enumeration Done Interrupt */
 	if (dev_intr & UDC_DEVINT_ENUM) {
 		pch_udc_svc_enum_interrupt(dev);
 		dev_dbg(&dev->pdev->dev, "USB_ENUM\n");
 	}
-	
+	/* Set Interface Interrupt */
 	if (dev_intr & UDC_DEVINT_SI)
 		pch_udc_svc_intf_interrupt(dev);
-	
+	/* Set Config Interrupt */
 	if (dev_intr & UDC_DEVINT_SC)
 		pch_udc_svc_cfg_interrupt(dev);
-	
+	/* USB Suspend interrupt */
 	if (dev_intr & UDC_DEVINT_US) {
 		if (dev->driver
 			&& dev->driver->suspend) {
@@ -2096,17 +2761,22 @@ static void pch_udc_dev_isr(struct pch_udc_dev *dev, u32 dev_intr)
 
 		dev_dbg(&dev->pdev->dev, "USB_SUSPEND\n");
 	}
-	
+	/* Clear the SOF interrupt, if enabled */
 	if (dev_intr & UDC_DEVINT_SOF)
 		dev_dbg(&dev->pdev->dev, "SOF\n");
-	
+	/* ES interrupt, IDLE > 3ms on the USB */
 	if (dev_intr & UDC_DEVINT_ES)
 		dev_dbg(&dev->pdev->dev, "ES\n");
-	
+	/* RWKP interrupt */
 	if (dev_intr & UDC_DEVINT_RWKP)
 		dev_dbg(&dev->pdev->dev, "RWKP\n");
 }
 
+/**
+ * pch_udc_isr() - This function handles interrupts from the PCH USB Device
+ * @irq:	Interrupt request number
+ * @dev:	Reference to the device structure
+ */
 static irqreturn_t pch_udc_isr(int irq, void *pdev)
 {
 	struct pch_udc_dev *dev = (struct pch_udc_dev *) pdev;
@@ -2116,19 +2786,19 @@ static irqreturn_t pch_udc_isr(int irq, void *pdev)
 	dev_intr = pch_udc_read_device_interrupts(dev);
 	ep_intr = pch_udc_read_ep_interrupts(dev);
 
-	
+	/* For a hot plug, this find that the controller is hung up. */
 	if (dev_intr == ep_intr)
 		if (dev_intr == pch_udc_readl(dev, UDC_DEVCFG_ADDR)) {
 			dev_dbg(&dev->pdev->dev, "UDC: Hung up\n");
-			
+			/* The controller is reset */
 			pch_udc_writel(dev, UDC_SRST, UDC_SRST_ADDR);
 			return IRQ_HANDLED;
 		}
 	if (dev_intr)
-		
+		/* Clear device interrupts */
 		pch_udc_write_device_interrupts(dev, dev_intr);
 	if (ep_intr)
-		
+		/* Clear ep interrupts */
 		pch_udc_write_ep_interrupts(dev, ep_intr);
 	if (!dev_intr && !ep_intr)
 		return IRQ_NONE;
@@ -2137,22 +2807,22 @@ static irqreturn_t pch_udc_isr(int irq, void *pdev)
 		pch_udc_dev_isr(dev, dev_intr);
 	if (ep_intr) {
 		pch_udc_read_all_epstatus(dev, ep_intr);
-		
+		/* Process Control In interrupts, if present */
 		if (ep_intr & UDC_EPINT_IN_EP0) {
 			pch_udc_svc_control_in(dev);
 			pch_udc_postsvc_epinters(dev, 0);
 		}
-		
+		/* Process Control Out interrupts, if present */
 		if (ep_intr & UDC_EPINT_OUT_EP0)
 			pch_udc_svc_control_out(dev);
-		
+		/* Process data in end point interrupts */
 		for (i = 1; i < PCH_UDC_USED_EP_NUM; i++) {
 			if (ep_intr & (1 <<  i)) {
 				pch_udc_svc_data_in(dev, i);
 				pch_udc_postsvc_epinters(dev, i);
 			}
 		}
-		
+		/* Process data out end point interrupts */
 		for (i = UDC_EPINT_OUT_SHIFT + 1; i < (UDC_EPINT_OUT_SHIFT +
 						 PCH_UDC_USED_EP_NUM); i++)
 			if (ep_intr & (1 <<  i))
@@ -2163,17 +2833,25 @@ static irqreturn_t pch_udc_isr(int irq, void *pdev)
 	return IRQ_HANDLED;
 }
 
+/**
+ * pch_udc_setup_ep0() - This function enables control endpoint for traffic
+ * @dev:	Reference to the device structure
+ */
 static void pch_udc_setup_ep0(struct pch_udc_dev *dev)
 {
-	
+	/* enable ep0 interrupts */
 	pch_udc_enable_ep_interrupts(dev, UDC_EPINT_IN_EP0 |
 						UDC_EPINT_OUT_EP0);
-	
+	/* enable device interrupts */
 	pch_udc_enable_interrupts(dev, UDC_DEVINT_UR | UDC_DEVINT_US |
 				       UDC_DEVINT_ES | UDC_DEVINT_ENUM |
 				       UDC_DEVINT_SI | UDC_DEVINT_SC);
 }
 
+/**
+ * gadget_release() - Free the gadget driver private data
+ * @pdev	reference to struct pci_dev
+ */
 static void gadget_release(struct device *pdev)
 {
 	struct pch_udc_dev *dev = dev_get_drvdata(pdev);
@@ -2181,6 +2859,10 @@ static void gadget_release(struct device *pdev)
 	kfree(dev);
 }
 
+/**
+ * pch_udc_pcd_reinit() - This API initializes the endpoint structures
+ * @dev:	Reference to the driver structure
+ */
 static void pch_udc_pcd_reinit(struct pch_udc_dev *dev)
 {
 	const char *const ep_string[] = {
@@ -2196,7 +2878,7 @@ static void pch_udc_pcd_reinit(struct pch_udc_dev *dev)
 	dev->gadget.speed = USB_SPEED_UNKNOWN;
 	INIT_LIST_HEAD(&dev->gadget.ep_list);
 
-	
+	/* Initialize the endpoints structures */
 	memset(dev->ep, 0, sizeof dev->ep);
 	for (i = 0; i < PCH_UDC_EP_NUM; i++) {
 		struct pch_udc_ep *ep = &dev->ep[i];
@@ -2211,7 +2893,7 @@ static void pch_udc_pcd_reinit(struct pch_udc_dev *dev)
 		else
 			ep->offset_addr = (UDC_EPINT_OUT_SHIFT + ep->num) *
 					  UDC_EP_REG_SHIFT;
-		
+		/* need to set ep->ep.maxpacket and set Default Configuration?*/
 		ep->ep.maxpacket = UDC_BULK_MAX_PKT_SIZE;
 		list_add_tail(&ep->ep.ep_list, &dev->gadget.ep_list);
 		INIT_LIST_HEAD(&ep->queue);
@@ -2219,7 +2901,7 @@ static void pch_udc_pcd_reinit(struct pch_udc_dev *dev)
 	dev->ep[UDC_EP0IN_IDX].ep.maxpacket = UDC_EP0IN_MAX_PKT_SIZE;
 	dev->ep[UDC_EP0OUT_IDX].ep.maxpacket = UDC_EP0OUT_MAX_PKT_SIZE;
 
-	
+	/* remove ep0 in and out from the list.  They have own pointer */
 	list_del_init(&dev->ep[UDC_EP0IN_IDX].ep.ep_list);
 	list_del_init(&dev->ep[UDC_EP0OUT_IDX].ep.ep_list);
 
@@ -2227,6 +2909,13 @@ static void pch_udc_pcd_reinit(struct pch_udc_dev *dev)
 	INIT_LIST_HEAD(&dev->gadget.ep0->ep_list);
 }
 
+/**
+ * pch_udc_pcd_init() - This API initializes the driver structure
+ * @dev:	Reference to the driver structure
+ *
+ * Return codes:
+ *	0: Success
+ */
 static int pch_udc_pcd_init(struct pch_udc_dev *dev)
 {
 	pch_udc_init(dev);
@@ -2235,12 +2924,16 @@ static int pch_udc_pcd_init(struct pch_udc_dev *dev)
 	return 0;
 }
 
+/**
+ * init_dma_pools() - create dma pools during initialization
+ * @pdev:	reference to struct pci_dev
+ */
 static int init_dma_pools(struct pch_udc_dev *dev)
 {
 	struct pch_udc_stp_dma_desc	*td_stp;
 	struct pch_udc_data_dma_desc	*td_data;
 
-	
+	/* DMA setup */
 	dev->data_requests = pci_pool_create("data_requests", dev->pdev,
 		sizeof(struct pch_udc_data_dma_desc), 0, 0);
 	if (!dev->data_requests) {
@@ -2249,7 +2942,7 @@ static int init_dma_pools(struct pch_udc_dev *dev)
 		return -ENOMEM;
 	}
 
-	
+	/* dma desc for setup data */
 	dev->stp_requests = pci_pool_create("setup requests", dev->pdev,
 		sizeof(struct pch_udc_stp_dma_desc), 0, 0);
 	if (!dev->stp_requests) {
@@ -2257,7 +2950,7 @@ static int init_dma_pools(struct pch_udc_dev *dev)
 			__func__);
 		return -ENOMEM;
 	}
-	
+	/* setup */
 	td_stp = pci_pool_alloc(dev->stp_requests, GFP_KERNEL,
 				&dev->ep[UDC_EP0OUT_IDX].td_stp_phys);
 	if (!td_stp) {
@@ -2267,7 +2960,7 @@ static int init_dma_pools(struct pch_udc_dev *dev)
 	}
 	dev->ep[UDC_EP0OUT_IDX].td_stp = td_stp;
 
-	
+	/* data: 0 packets !? */
 	td_data = pci_pool_alloc(dev->data_requests, GFP_KERNEL,
 				&dev->ep[UDC_EP0OUT_IDX].td_data_phys);
 	if (!td_data) {
@@ -2314,7 +3007,7 @@ static int pch_udc_start(struct usb_gadget_driver *driver,
 	dev->driver = driver;
 	dev->gadget.dev.driver = &driver->driver;
 
-	
+	/* Invoke the bind routine of the gadget driver */
 	retval = bind(&dev->gadget);
 
 	if (retval) {
@@ -2324,10 +3017,10 @@ static int pch_udc_start(struct usb_gadget_driver *driver,
 		dev->gadget.dev.driver = NULL;
 		return retval;
 	}
-	
+	/* get ready for ep0 traffic */
 	pch_udc_setup_ep0(dev);
 
-	
+	/* clear SD */
 	if ((pch_vbus_gpio_get_value(dev) != 0) || !dev->vbus_gpio.intr)
 		pch_udc_clear_disconnect(dev);
 
@@ -2350,14 +3043,14 @@ static int pch_udc_stop(struct usb_gadget_driver *driver)
 
 	pch_udc_disable_interrupts(dev, UDC_DEVINT_MSK);
 
-	
+	/* Assures that there are no pending requests with this driver */
 	driver->disconnect(&dev->gadget);
 	driver->unbind(&dev->gadget);
 	dev->gadget.dev.driver = NULL;
 	dev->driver = NULL;
 	dev->connected = 0;
 
-	
+	/* set SD */
 	pch_udc_set_disconnect(dev);
 	return 0;
 }
@@ -2369,7 +3062,7 @@ static void pch_udc_shutdown(struct pci_dev *pdev)
 	pch_udc_disable_interrupts(dev, UDC_DEVINT_MSK);
 	pch_udc_disable_ep_interrupts(dev, UDC_EPINT_MSK_DISABLE_ALL);
 
-	
+	/* disable the pullup so the host will think we're gone */
 	pch_udc_set_disconnect(dev);
 }
 
@@ -2379,16 +3072,16 @@ static void pch_udc_remove(struct pci_dev *pdev)
 
 	usb_del_gadget_udc(&dev->gadget);
 
-	
+	/* gadget driver must not be registered */
 	if (dev->driver)
 		dev_err(&pdev->dev,
 			"%s: gadget driver still bound!!!\n", __func__);
-	
+	/* dma pool cleanup */
 	if (dev->data_requests)
 		pci_pool_destroy(dev->data_requests);
 
 	if (dev->stp_requests) {
-		
+		/* cleanup DMA desc's for ep0in */
 		if (dev->ep[UDC_EP0OUT_IDX].td_stp) {
 			pci_pool_free(dev->stp_requests,
 				dev->ep[UDC_EP0OUT_IDX].td_stp,
@@ -2463,7 +3156,7 @@ static int pch_udc_resume(struct pci_dev *pdev)
 #else
 #define pch_udc_suspend	NULL
 #define pch_udc_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static int pch_udc_probe(struct pci_dev *pdev,
 			  const struct pci_device_id *id)
@@ -2473,18 +3166,18 @@ static int pch_udc_probe(struct pci_dev *pdev,
 	int			retval;
 	struct pch_udc_dev	*dev;
 
-	
+	/* one udc only */
 	if (pch_udc) {
 		pr_err("%s: already probed\n", __func__);
 		return -EBUSY;
 	}
-	
+	/* init */
 	dev = kzalloc(sizeof *dev, GFP_KERNEL);
 	if (!dev) {
 		pr_err("%s: no memory for device structure\n", __func__);
 		return -ENOMEM;
 	}
-	
+	/* pci setup */
 	if (pci_enable_device(pdev) < 0) {
 		kfree(dev);
 		pr_err("%s: pci_enable_device failed\n", __func__);
@@ -2493,7 +3186,7 @@ static int pch_udc_probe(struct pci_dev *pdev,
 	dev->active = 1;
 	pci_set_drvdata(pdev, dev);
 
-	
+	/* PCI resource allocation */
 	resource = pci_resource_start(pdev, 1);
 	len = pci_resource_len(pdev, 1);
 
@@ -2517,7 +3210,7 @@ static int pch_udc_probe(struct pci_dev *pdev,
 		goto finished;
 	}
 	pch_udc = dev;
-	
+	/* initialize the hardware */
 	if (pch_udc_pcd_init(dev)) {
 		retval = -ENODEV;
 		goto finished;
@@ -2535,7 +3228,7 @@ static int pch_udc_probe(struct pci_dev *pdev,
 	pci_set_master(pdev);
 	pci_try_set_mwi(pdev);
 
-	
+	/* device struct setup */
 	spin_lock_init(&dev->lock);
 	dev->pdev = pdev;
 	dev->gadget.ops = &pch_udc_ops;
@@ -2556,7 +3249,7 @@ static int pch_udc_probe(struct pci_dev *pdev,
 		goto finished;
 	dev->registered = 1;
 
-	
+	/* Put the device in disconnected state till a driver is bound */
 	pch_udc_set_disconnect(dev);
 	retval = usb_add_gadget_udc(&pdev->dev, &dev->gadget);
 	if (retval)

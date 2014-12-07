@@ -90,6 +90,7 @@ static unsigned int video_debug;
 module_param(video_debug, int, 0644);
 MODULE_PARM_DESC(video_debug, "enable debug messages [video]");
 
+/* supported video standards */
 static struct cx231xx_fmt format[] = {
 	{
 	 .name = "16bpp YUY2, 4:2:2, packed",
@@ -99,7 +100,10 @@ static struct cx231xx_fmt format[] = {
 	 },
 };
 
+/* supported controls */
+/* Common to all boards */
 
+/* ------------------------------------------------------------------- */
 
 static const struct v4l2_queryctrl no_ctl = {
 	.name = "42",
@@ -107,7 +111,7 @@ static const struct v4l2_queryctrl no_ctl = {
 };
 
 static struct cx231xx_ctrl cx231xx_ctls[] = {
-	
+	/* --- video --- */
 	{
 		.v = {
 			.id = V4L2_CID_BRIGHTNESS,
@@ -151,6 +155,9 @@ static struct cx231xx_ctrl cx231xx_ctls[] = {
 		.mask = 0xff0000,
 		.shift = 16,
 	}, {
+	/* strictly, this only describes only U saturation.
+	* V saturation is handled specially through code.
+	*/
 		.v = {
 			.id = V4L2_CID_SATURATION,
 			.name = "Saturation",
@@ -165,7 +172,7 @@ static struct cx231xx_ctrl cx231xx_ctls[] = {
 		.mask = 0x00ff,
 		.shift = 0,
 	}, {
-		
+		/* --- audio --- */
 		.v = {
 			.id = V4L2_CID_AUDIO_MUTE,
 			.name = "Mute",
@@ -213,12 +220,18 @@ static const u32 *ctrl_classes[] = {
 	NULL
 };
 
+/* ------------------------------------------------------------------
+	Video buffer and parser functions
+   ------------------------------------------------------------------*/
 
+/*
+ * Announces that a buffer were filled and request the next
+ */
 static inline void buffer_filled(struct cx231xx *dev,
 				 struct cx231xx_dmaqueue *dma_q,
 				 struct cx231xx_buffer *buf)
 {
-	
+	/* Advice that buffer was filled */
 	cx231xx_isocdbg("[%p/%d] wakeup\n", buf, buf->vb.i);
 	buf->vb.state = VIDEOBUF_DONE;
 	buf->vb.field_count++;
@@ -271,6 +284,9 @@ static inline void print_err_status(struct cx231xx *dev, int packet, int status)
 	}
 }
 
+/*
+ * video-buf generic routine to get the next available buffer
+ */
 static inline void get_next_buf(struct cx231xx_dmaqueue *dma_q,
 				struct cx231xx_buffer **buf)
 {
@@ -290,10 +306,10 @@ static inline void get_next_buf(struct cx231xx_dmaqueue *dma_q,
 		return;
 	}
 
-	
+	/* Get the next buffer */
 	*buf = list_entry(dma_q->active.next, struct cx231xx_buffer, vb.queue);
 
-	
+	/* Cleans up buffer - Useful for testing for frame/URB loss */
 	outp = videobuf_to_vmalloc(&(*buf)->vb);
 	memset(outp, 0, (*buf)->vb.size);
 
@@ -305,6 +321,9 @@ static inline void get_next_buf(struct cx231xx_dmaqueue *dma_q,
 	return;
 }
 
+/*
+ * Controls the isoc copy of each urb packet
+ */
 static inline int cx231xx_isoc_copy(struct cx231xx *dev, struct urb *urb)
 {
 	struct cx231xx_buffer *buf;
@@ -341,7 +360,7 @@ static inline int cx231xx_isoc_copy(struct cx231xx *dev, struct urb *urb)
 		}
 
 		if (urb->iso_frame_desc[i].actual_length <= 0) {
-			
+			/* cx231xx_isocdbg("packet %d is empty",i); - spammy */
 			continue;
 		}
 		if (urb->iso_frame_desc[i].actual_length >
@@ -350,15 +369,17 @@ static inline int cx231xx_isoc_copy(struct cx231xx *dev, struct urb *urb)
 			continue;
 		}
 
-		
+		/*  get buffer pointer and length */
 		p_buffer = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
 		buffer_size = urb->iso_frame_desc[i].actual_length;
 		bytes_parsed = 0;
 
 		if (dma_q->is_partial_line) {
-			
+			/* Handle the case of a partial line */
 			sav_eav = dma_q->last_sav;
 		} else {
+			/* Check for a SAV/EAV overlapping
+				the buffer boundary */
 			sav_eav =
 			    cx231xx_find_boundary_SAV_EAV(p_buffer,
 							  dma_q->partial_buf,
@@ -366,35 +387,39 @@ static inline int cx231xx_isoc_copy(struct cx231xx *dev, struct urb *urb)
 		}
 
 		sav_eav &= 0xF0;
+		/* Get the first line if we have some portion of an SAV/EAV from
+		   the last buffer or a partial line  */
 		if (sav_eav) {
 			bytes_parsed += cx231xx_get_video_line(dev, dma_q,
-				sav_eav,	
-				p_buffer + bytes_parsed,	
-				buffer_size - bytes_parsed);
+				sav_eav,	/* SAV/EAV */
+				p_buffer + bytes_parsed,	/* p_buffer */
+				buffer_size - bytes_parsed);/* buf size */
 		}
 
-		
-		
+		/* Now parse data that is completely in this buffer */
+		/* dma_q->is_partial_line = 0;  */
 
 		while (bytes_parsed < buffer_size) {
 			u32 bytes_used = 0;
 
 			sav_eav = cx231xx_find_next_SAV_EAV(
-				p_buffer + bytes_parsed,	
-				buffer_size - bytes_parsed,	
-				&bytes_used);
+				p_buffer + bytes_parsed,	/* p_buffer */
+				buffer_size - bytes_parsed,	/* buf size */
+				&bytes_used);/* bytes used to get SAV/EAV */
 
 			bytes_parsed += bytes_used;
 
 			sav_eav &= 0xF0;
 			if (sav_eav && (bytes_parsed < buffer_size)) {
 				bytes_parsed += cx231xx_get_video_line(dev,
-					dma_q, sav_eav,	
-					p_buffer + bytes_parsed,
-					buffer_size - bytes_parsed);
+					dma_q, sav_eav,	/* SAV/EAV */
+					p_buffer + bytes_parsed,/* p_buffer */
+					buffer_size - bytes_parsed);/*buf size*/
 			}
 		}
 
+		/* Save the last four bytes of the buffer so we can check the
+		   buffer boundary condition next time */
 		memcpy(dma_q->partial_buf, p_buffer + buffer_size - 4, 4);
 		bytes_parsed = 0;
 
@@ -430,15 +455,17 @@ static inline int cx231xx_bulk_copy(struct cx231xx *dev, struct urb *urb)
 
 	if (1) {
 
-		
+		/*  get buffer pointer and length */
 		p_buffer = urb->transfer_buffer;
 		buffer_size = urb->actual_length;
 		bytes_parsed = 0;
 
 		if (dma_q->is_partial_line) {
-			
+			/* Handle the case of a partial line */
 			sav_eav = dma_q->last_sav;
 		} else {
+			/* Check for a SAV/EAV overlapping
+				the buffer boundary */
 			sav_eav =
 			    cx231xx_find_boundary_SAV_EAV(p_buffer,
 							  dma_q->partial_buf,
@@ -446,35 +473,39 @@ static inline int cx231xx_bulk_copy(struct cx231xx *dev, struct urb *urb)
 		}
 
 		sav_eav &= 0xF0;
+		/* Get the first line if we have some portion of an SAV/EAV from
+		   the last buffer or a partial line  */
 		if (sav_eav) {
 			bytes_parsed += cx231xx_get_video_line(dev, dma_q,
-				sav_eav,	
-				p_buffer + bytes_parsed,	
-				buffer_size - bytes_parsed);
+				sav_eav,	/* SAV/EAV */
+				p_buffer + bytes_parsed,	/* p_buffer */
+				buffer_size - bytes_parsed);/* buf size */
 		}
 
-		
-		
+		/* Now parse data that is completely in this buffer */
+		/* dma_q->is_partial_line = 0;  */
 
 		while (bytes_parsed < buffer_size) {
 			u32 bytes_used = 0;
 
 			sav_eav = cx231xx_find_next_SAV_EAV(
-				p_buffer + bytes_parsed,	
-				buffer_size - bytes_parsed,	
-				&bytes_used);
+				p_buffer + bytes_parsed,	/* p_buffer */
+				buffer_size - bytes_parsed,	/* buf size */
+				&bytes_used);/* bytes used to get SAV/EAV */
 
 			bytes_parsed += bytes_used;
 
 			sav_eav &= 0xF0;
 			if (sav_eav && (bytes_parsed < buffer_size)) {
 				bytes_parsed += cx231xx_get_video_line(dev,
-					dma_q, sav_eav,	
-					p_buffer + bytes_parsed,
-					buffer_size - bytes_parsed);
+					dma_q, sav_eav,	/* SAV/EAV */
+					p_buffer + bytes_parsed,/* p_buffer */
+					buffer_size - bytes_parsed);/*buf size*/
 			}
 		}
 
+		/* Save the last four bytes of the buffer so we can check the
+		   buffer boundary condition next time */
 		memcpy(dma_q->partial_buf, p_buffer + buffer_size - 4, 4);
 		bytes_parsed = 0;
 
@@ -492,15 +523,19 @@ u8 cx231xx_find_boundary_SAV_EAV(u8 *p_buffer, u8 *partial_buf,
 
 	*p_bytes_used = 0;
 
+	/* Create an array of the last 4 bytes of the last buffer and the first
+	   4 bytes of the current buffer. */
 
 	memcpy(boundary_bytes, partial_buf, 4);
 	memcpy(boundary_bytes + 4, p_buffer, 4);
 
-	
+	/* Check for the SAV/EAV in the boundary buffer */
 	sav_eav = cx231xx_find_next_SAV_EAV((u8 *)&boundary_bytes, 8,
 					    &bytes_used);
 
 	if (sav_eav) {
+		/* found a boundary SAV/EAV.  Updates the bytes used to reflect
+		   only those used in the new buffer */
 		*p_bytes_used = bytes_used - 4;
 	}
 
@@ -512,6 +547,11 @@ u8 cx231xx_find_next_SAV_EAV(u8 *p_buffer, u32 buffer_size, u32 *p_bytes_used)
 	u32 i;
 	u8 sav_eav = 0;
 
+	/*
+	 * Don't search if the buffer size is less than 4.  It causes a page
+	 * fault since buffer_size - 4 evaluates to a large number in that
+	 * case.
+	 */
 	if (buffer_size < 4) {
 		*p_bytes_used = buffer_size;
 		return 0;
@@ -541,6 +581,9 @@ u32 cx231xx_get_video_line(struct cx231xx *dev,
 
 	switch (sav_eav) {
 	case SAV_ACTIVE_VIDEO_FIELD1:
+		/* looking for skipped line which occurred in PAL 720x480 mode.
+		   In this case, there will be no active data contained
+		   between the SAV and EAV */
 		if ((buffer_size > 3) && (p_buffer[0] == 0xFF) &&
 		    (p_buffer[1] == 0x00) && (p_buffer[2] == 0x00) &&
 		    ((p_buffer[3] == EAV_ACTIVE_VIDEO_FIELD1) ||
@@ -552,6 +595,9 @@ u32 cx231xx_get_video_line(struct cx231xx *dev,
 		break;
 
 	case SAV_ACTIVE_VIDEO_FIELD2:
+		/* looking for skipped line which occurred in PAL 720x480 mode.
+		   In this case, there will be no active data contained between
+		   the SAV and EAV */
 		if ((buffer_size > 3) && (p_buffer[0] == 0xFF) &&
 		    (p_buffer[1] == 0x00) && (p_buffer[2] == 0x00) &&
 		    ((p_buffer[3] == EAV_ACTIVE_VIDEO_FIELD1) ||
@@ -582,13 +628,13 @@ u32 cx231xx_copy_video_line(struct cx231xx *dev,
 	if (dma_q->current_field != field_number)
 		cx231xx_reset_video_buffer(dev, dma_q);
 
-	
+	/* get the buffer pointer */
 	if (dev->USE_ISO)
 		buf = dev->video_mode.isoc_ctl.buf;
 	else
 		buf = dev->video_mode.bulk_ctl.buf;
 
-	
+	/* Remember the field number for next time */
 	dma_q->current_field = field_number;
 
 	bytes_to_copy = dma_q->bytes_left_in_line;
@@ -604,6 +650,8 @@ u32 cx231xx_copy_video_line(struct cx231xx *dev,
 
 	dma_q->is_partial_line = 1;
 
+	/* If we don't have a buffer, just return the number of bytes we would
+	   have copied if we had a buffer. */
 	if (!buf) {
 		dma_q->bytes_left_in_line -= bytes_to_copy;
 		dma_q->is_partial_line = (dma_q->bytes_left_in_line == 0)
@@ -611,7 +659,7 @@ u32 cx231xx_copy_video_line(struct cx231xx *dev,
 		return bytes_to_copy;
 	}
 
-	
+	/* copy the data to video buffer */
 	cx231xx_do_copy(dev, dma_q, p_line, bytes_to_copy);
 
 	dma_q->pos += bytes_to_copy;
@@ -639,7 +687,7 @@ void cx231xx_reset_video_buffer(struct cx231xx *dev,
 {
 	struct cx231xx_buffer *buf;
 
-	
+	/* handle the switch from field 1 to field 2 */
 	if (dma_q->current_field == 1) {
 		if (dma_q->lines_completed >= dma_q->lines_per_field)
 			dma_q->field1_done = 1;
@@ -654,7 +702,7 @@ void cx231xx_reset_video_buffer(struct cx231xx *dev,
 
 	if (buf == NULL) {
 		u8 *outp = NULL;
-		
+		/* first try to get the buffer */
 		get_next_buf(dma_q, &buf);
 
 		if (buf)
@@ -665,7 +713,7 @@ void cx231xx_reset_video_buffer(struct cx231xx *dev,
 		dma_q->current_field = -1;
 	}
 
-	
+	/* reset the counters */
 	dma_q->bytes_left_in_line = dev->width << 1;
 	dma_q->lines_completed = 0;
 }
@@ -692,16 +740,16 @@ int cx231xx_do_copy(struct cx231xx *dev, struct cx231xx_dmaqueue *dma_q,
 
 	current_line_bytes_copied = _line_size - dma_q->bytes_left_in_line;
 
-	
+	/* Offset field 2 one line from the top of the buffer */
 	offset = (dma_q->current_field == 1) ? 0 : _line_size;
 
-	
+	/* Offset for field 2 */
 	startwrite = p_out_buffer + offset;
 
-	
+	/* lines already completed in the current field */
 	startwrite += (dma_q->lines_completed * _line_size * 2);
 
-	
+	/* bytes already completed in the current line */
 	startwrite += current_line_bytes_copied;
 
 	lencopy = dma_q->bytes_left_in_line > bytes_to_copy ?
@@ -710,7 +758,7 @@ int cx231xx_do_copy(struct cx231xx *dev, struct cx231xx_dmaqueue *dma_q,
 	if ((u8 *)(startwrite + lencopy) > (u8 *)(p_out_buffer + buf->vb.size))
 		return 0;
 
-	
+	/* The below copies the UYVY data straight into video buffer */
 	cx231xx_swab((u16 *) p_buffer, (u16 *) startwrite, (u16) lencopy);
 
 	return 0;
@@ -731,7 +779,7 @@ u8 cx231xx_is_buffer_done(struct cx231xx *dev, struct cx231xx_dmaqueue *dma_q)
 {
 	u8 buffer_complete = 0;
 
-	
+	/* Dual field stream */
 	buffer_complete = ((dma_q->current_field == 2) &&
 			   (dma_q->lines_completed >= dma_q->lines_per_field) &&
 			    dma_q->field1_done);
@@ -739,6 +787,9 @@ u8 cx231xx_is_buffer_done(struct cx231xx *dev, struct cx231xx_dmaqueue *dma_q)
 	return buffer_complete;
 }
 
+/* ------------------------------------------------------------------
+	Videobuf operations
+   ------------------------------------------------------------------*/
 
 static int
 buffer_setup(struct videobuf_queue *vq, unsigned int *count, unsigned int *size)
@@ -756,6 +807,7 @@ buffer_setup(struct videobuf_queue *vq, unsigned int *count, unsigned int *size)
 	return 0;
 }
 
+/* This is called *without* dev->slock held; please keep it that way */
 static void free_buffer(struct videobuf_queue *vq, struct cx231xx_buffer *buf)
 {
 	struct cx231xx_fh *fh = vq->priv_data;
@@ -765,6 +817,15 @@ static void free_buffer(struct videobuf_queue *vq, struct cx231xx_buffer *buf)
 	if (in_interrupt())
 		BUG();
 
+	/* We used to wait for the buffer to finish here, but this didn't work
+	   because, as we were keeping the state as VIDEOBUF_QUEUED,
+	   videobuf_queue_cancel marked it as finished for us.
+	   (Also, it could wedge forever if the hardware was misconfigured.)
+
+	   This should be safe; by the time we get here, the buffer isn't
+	   queued anymore. If we ever start marking the buffers as
+	   VIDEOBUF_ACTIVE, it won't be, though.
+	 */
 	spin_lock_irqsave(&dev->video_mode.slock, flags);
 	if (dev->USE_ISO) {
 		if (dev->video_mode.isoc_ctl.buf == buf)
@@ -789,7 +850,7 @@ buffer_prepare(struct videobuf_queue *vq, struct videobuf_buffer *vb,
 	struct cx231xx *dev = fh->dev;
 	int rc = 0, urb_init = 0;
 
-	
+	/* The only currently supported format is 16 bits/pixel */
 	buf->vb.size = (fh->dev->width * fh->dev->height * dev->format->depth
 			+ 7) >> 3;
 	if (0 != buf->vb.baddr && buf->vb.bsize < buf->vb.size)
@@ -812,6 +873,8 @@ buffer_prepare(struct videobuf_queue *vq, struct videobuf_buffer *vb,
 		if (!dev->video_mode.bulk_ctl.num_bufs)
 			urb_init = 1;
 	}
+	/*cx231xx_info("urb_init=%d dev->video_mode.max_pkt_size=%d\n",
+		urb_init, dev->video_mode.max_pkt_size);*/
 	if (urb_init) {
 		dev->mode_tv = 0;
 		if (dev->USE_ISO)
@@ -869,6 +932,7 @@ static struct videobuf_queue_ops cx231xx_video_qops = {
 	.buf_release = buffer_release,
 };
 
+/*********************  v4l2 interface  **************************************/
 
 void video_mux(struct cx231xx *dev, int index)
 {
@@ -883,16 +947,17 @@ void video_mux(struct cx231xx *dev, int index)
 
 	cx231xx_info("video_mux : %d\n", index);
 
-	
+	/* do mode control overrides if required */
 	cx231xx_do_mode_ctrl_overrides(dev);
 }
 
+/* Usage lock check functions */
 static int res_get(struct cx231xx_fh *fh)
 {
 	struct cx231xx *dev = fh->dev;
 	int rc = 0;
 
-	
+	/* This instance already has stream_on */
 	if (fh->stream_on)
 		return rc;
 
@@ -938,6 +1003,9 @@ static int check_dev(struct cx231xx *dev)
 	return 0;
 }
 
+/* ------------------------------------------------------------------
+	IOCTL vidioc handling
+   ------------------------------------------------------------------*/
 
 static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 				struct v4l2_format *f)
@@ -986,6 +1054,8 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 		return -EINVAL;
 	}
 
+	/* width must even because of the YUYV format
+	   height must be even because of interlacing */
 	v4l_bound_align_image(&width, 48, maxw, 1, &height, 32, maxh, 1, 0);
 
 	f->fmt.pix.width = width;
@@ -1028,7 +1098,7 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 		return -EBUSY;
 	}
 
-	
+	/* set new image size */
 	dev->width = f->fmt.pix.width;
 	dev->height = f->fmt.pix.height;
 	dev->format = fmt;
@@ -1065,22 +1135,25 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 
 	dev->norm = *norm;
 
-	
+	/* Adjusts width/height, if needed */
 	f.fmt.pix.width = dev->width;
 	f.fmt.pix.height = dev->height;
 	vidioc_try_fmt_vid_cap(file, priv, &f);
 
 	call_all(dev, core, s_std, dev->norm);
 
+	/* We need to reset basic properties in the decoder related to
+	   resolution (since a standard change effects things like the number
+	   of lines in VACT, etc) */
 	v4l2_fill_mbus_format(&mbus_fmt, &f.fmt.pix, V4L2_MBUS_FMT_FIXED);
 	call_all(dev, video, s_mbus_fmt, &mbus_fmt);
 	v4l2_fill_pix_format(&f.fmt.pix, &mbus_fmt);
 
-	
+	/* set new image size */
 	dev->width = f.fmt.pix.width;
 	dev->height = f.fmt.pix.height;
 
-	
+	/* do mode control overrides */
 	cx231xx_do_mode_ctrl_overrides(dev);
 
 	return 0;
@@ -1120,7 +1193,7 @@ static int vidioc_enum_input(struct file *file, void *priv,
 
 	i->std = dev->vdev->tvnorms;
 
-	
+	/* If they are asking about the active input, read signal status */
 	if (n == dev->video_input) {
 		ret = cx231xx_read_i2c_data(dev, VID_BLK_I2C_ADDRESS,
 					    GEN_STAT, 2, &gen_stat, 4);
@@ -1165,6 +1238,9 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int i)
 
 	if (INPUT(i)->type == CX231XX_VMUX_TELEVISION ||
 	    INPUT(i)->type == CX231XX_VMUX_CABLE) {
+		/* There's a tuner, so reset the standard and put it on the
+		   last known frequency (since it was probably powered down
+		   until now */
 		call_all(dev, core, s_std, dev->norm);
 	}
 
@@ -1199,7 +1275,7 @@ static int vidioc_s_audio(struct file *file, void *priv, struct v4l2_audio *a)
 	struct cx231xx *dev = fh->dev;
 	int status = 0;
 
-	
+	/* Doesn't allow manual routing */
 	if (a->index != dev->ctl_ainput)
 		return -EINVAL;
 
@@ -1299,7 +1375,7 @@ static int vidioc_g_tuner(struct file *file, void *priv, struct v4l2_tuner *t)
 	t->type = V4L2_TUNER_ANALOG_TV;
 	t->capability = V4L2_TUNER_CAP_NORM;
 	t->rangehigh = 0xffffffffUL;
-	t->signal = 0xffff;	
+	t->signal = 0xffff;	/* LOCKED */
 
 	return 0;
 }
@@ -1346,7 +1422,7 @@ static int vidioc_s_frequency(struct file *file, void *priv,
 
 	cx231xx_info("Enter vidioc_s_frequency()f->frequency=%d;f->type=%d\n",
 		 f->frequency, f->type);
-	
+	/*cx231xx_info("f->type:  1-radio 2-analogTV 3-digitalTV\n");*/
 
 	rc = check_dev(dev);
 	if (rc < 0)
@@ -1360,30 +1436,30 @@ static int vidioc_s_frequency(struct file *file, void *priv,
 	if (unlikely(1 == fh->radio && f->type != V4L2_TUNER_RADIO))
 		return -EINVAL;
 
-	
+	/* set pre channel change settings in DIF first */
 	rc = cx231xx_tuner_pre_channel_change(dev);
 
 	dev->ctl_freq = f->frequency;
 	call_all(dev, tuner, s_frequency, f);
 
-	
+	/* set post channel change settings in DIF first */
 	rc = cx231xx_tuner_post_channel_change(dev);
 
 	if (dev->tuner_type == TUNER_NXP_TDA18271) {
 		if (dev->norm & (V4L2_STD_MN | V4L2_STD_NTSC_443))
-			if_frequency = 5400000;  
+			if_frequency = 5400000;  /*5.4MHz	*/
 		else if (dev->norm & V4L2_STD_B)
-			if_frequency = 6000000;  
+			if_frequency = 6000000;  /*6.0MHz	*/
 		else if (dev->norm & (V4L2_STD_PAL_DK | V4L2_STD_SECAM_DK))
-			if_frequency = 6900000;  
+			if_frequency = 6900000;  /*6.9MHz	*/
 		else if (dev->norm & V4L2_STD_GH)
-			if_frequency = 7100000;  
+			if_frequency = 7100000;  /*7.1MHz	*/
 		else if (dev->norm & V4L2_STD_PAL_I)
-			if_frequency = 7250000;  
+			if_frequency = 7250000;  /*7.25MHz	*/
 		else if (dev->norm & V4L2_STD_SECAM_L)
-			if_frequency = 6900000;  
+			if_frequency = 6900000;  /*6.9MHz	*/
 		else if (dev->norm & V4L2_STD_SECAM_LC)
-			if_frequency = 1250000;  
+			if_frequency = 1250000;  /*1.25MHz	*/
 
 		cx231xx_info("if_frequency is set to %d\n", if_frequency);
 		cx231xx_set_Colibri_For_LowIF(dev, if_frequency, 1, 1);
@@ -1398,6 +1474,18 @@ static int vidioc_s_frequency(struct file *file, void *priv,
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 
+/*
+  -R, --list-registers=type=<host/i2cdrv/i2caddr>,
+				chip=<chip>[,min=<addr>,max=<addr>]
+		     dump registers from <min> to <max> [VIDIOC_DBG_G_REGISTER]
+  -r, --set-register=type=<host/i2cdrv/i2caddr>,
+				chip=<chip>,reg=<addr>,val=<val>
+		     set the register [VIDIOC_DBG_S_REGISTER]
+
+  if type == host, then <chip> is the hosts chip ID (default 0)
+  if type == i2cdrv (default), then <chip> is the I2C driver name or ID
+  if type == i2caddr, then <chip> is the 7-bit I2C address
+*/
 
 static int vidioc_g_register(struct file *file, void *priv,
 			     struct v4l2_dbg_register *reg)
@@ -1411,40 +1499,40 @@ static int vidioc_g_register(struct file *file, void *priv,
 	switch (reg->match.type) {
 	case V4L2_CHIP_MATCH_HOST:
 		switch (reg->match.addr) {
-		case 0:	
+		case 0:	/* Cx231xx - internal registers */
 			ret = cx231xx_read_ctrl_reg(dev, VRT_GET_REGISTER,
 						  (u16)reg->reg, value, 4);
 			reg->val = value[0] | value[1] << 8 |
 				   value[2] << 16 | value[3] << 24;
 			break;
-		case 1:	
+		case 1:	/* AFE - read byte */
 			ret = cx231xx_read_i2c_data(dev, AFE_DEVICE_ADDRESS,
 						  (u16)reg->reg, 2, &data, 1);
 			reg->val = le32_to_cpu(data & 0xff);
 			break;
-		case 14: 
+		case 14: /* AFE - read dword */
 			ret = cx231xx_read_i2c_data(dev, AFE_DEVICE_ADDRESS,
 						  (u16)reg->reg, 2, &data, 4);
 			reg->val = le32_to_cpu(data);
 			break;
-		case 2:	
+		case 2:	/* Video Block - read byte */
 			ret = cx231xx_read_i2c_data(dev, VID_BLK_I2C_ADDRESS,
 						  (u16)reg->reg, 2, &data, 1);
 			reg->val = le32_to_cpu(data & 0xff);
 			break;
-		case 24: 
+		case 24: /* Video Block - read dword */
 			ret = cx231xx_read_i2c_data(dev, VID_BLK_I2C_ADDRESS,
 						  (u16)reg->reg, 2, &data, 4);
 			reg->val = le32_to_cpu(data);
 			break;
-		case 3:	
+		case 3:	/* I2S block - read byte */
 			ret = cx231xx_read_i2c_data(dev,
 						    I2S_BLK_DEVICE_ADDRESS,
 						    (u16)reg->reg, 1,
 						    &data, 1);
 			reg->val = le32_to_cpu(data & 0xff);
 			break;
-		case 34: 
+		case 34: /* I2S Block - read dword */
 			ret =
 			    cx231xx_read_i2c_data(dev, I2S_BLK_DEVICE_ADDRESS,
 						  (u16)reg->reg, 1, &data, 4);
@@ -1456,23 +1544,23 @@ static int vidioc_g_register(struct file *file, void *priv,
 	case V4L2_CHIP_MATCH_I2C_DRIVER:
 		call_all(dev, core, g_register, reg);
 		return 0;
-	case V4L2_CHIP_MATCH_I2C_ADDR:
+	case V4L2_CHIP_MATCH_I2C_ADDR:/*for register debug*/
 		switch (reg->match.addr) {
-		case 0:	
+		case 0:	/* Cx231xx - internal registers */
 			ret = cx231xx_read_ctrl_reg(dev, VRT_GET_REGISTER,
 						  (u16)reg->reg, value, 4);
 			reg->val = value[0] | value[1] << 8 |
 				   value[2] << 16 | value[3] << 24;
 
 			break;
-		case 0x600:
+		case 0x600:/* AFE - read byte */
 			ret = cx231xx_read_i2c_master(dev, AFE_DEVICE_ADDRESS,
 						 (u16)reg->reg, 2,
 						 &data, 1 , 0);
 			reg->val = le32_to_cpu(data & 0xff);
 			break;
 
-		case 0x880:
+		case 0x880:/* Video Block - read byte */
 			if (reg->reg < 0x0b) {
 				ret = cx231xx_read_i2c_master(dev,
 						VID_BLK_I2C_ADDRESS,
@@ -1535,7 +1623,7 @@ static int vidioc_g_register(struct file *file, void *priv,
 			break;
 			}
 		return ret < 0 ? ret : 0;
-		
+		/*return -EINVAL;*/
 	default:
 		if (!v4l2_chip_match_host(&reg->match))
 			return -EINVAL;
@@ -1564,7 +1652,7 @@ static int vidioc_s_register(struct file *file, void *priv,
 			value = (u32) buf & 0xffffffff;
 
 			switch (reg->match.addr) {
-			case 0:	
+			case 0:	/* cx231xx internal registers */
 				data[0] = (u8) value;
 				data[1] = (u8) (value >> 8);
 				data[2] = (u8) (value >> 16);
@@ -1574,40 +1662,40 @@ static int vidioc_s_register(struct file *file, void *priv,
 							   (u16)reg->reg, data,
 							   4);
 				break;
-			case 1:	
+			case 1:	/* AFE - read byte */
 				ret = cx231xx_write_i2c_data(dev,
 							AFE_DEVICE_ADDRESS,
 							(u16)reg->reg, 2,
 							value, 1);
 				break;
-			case 14: 
+			case 14: /* AFE - read dword */
 				ret = cx231xx_write_i2c_data(dev,
 							AFE_DEVICE_ADDRESS,
 							(u16)reg->reg, 2,
 							value, 4);
 				break;
-			case 2:	
+			case 2:	/* Video Block - read byte */
 				ret =
 				    cx231xx_write_i2c_data(dev,
 							VID_BLK_I2C_ADDRESS,
 							(u16)reg->reg, 2,
 							value, 1);
 				break;
-			case 24: 
+			case 24: /* Video Block - read dword */
 				ret =
 				    cx231xx_write_i2c_data(dev,
 							VID_BLK_I2C_ADDRESS,
 							(u16)reg->reg, 2,
 							value, 4);
 				break;
-			case 3:	
+			case 3:	/* I2S block - read byte */
 				ret =
 				    cx231xx_write_i2c_data(dev,
 							I2S_BLK_DEVICE_ADDRESS,
 							(u16)reg->reg, 1,
 							value, 1);
 				break;
-			case 34: 
+			case 34: /* I2S block - read dword */
 				ret =
 				    cx231xx_write_i2c_data(dev,
 							I2S_BLK_DEVICE_ADDRESS,
@@ -1622,7 +1710,7 @@ static int vidioc_s_register(struct file *file, void *priv,
 			value = (u32) buf & 0xffffffff;
 
 			switch (reg->match.addr) {
-			case 0:
+			case 0:/*cx231xx internal registers*/
 					data[0] = (u8) value;
 					data[1] = (u8) (value >> 8);
 					data[2] = (u8) (value >> 16);
@@ -1632,14 +1720,14 @@ static int vidioc_s_register(struct file *file, void *priv,
 							   (u16)reg->reg, data,
 							   4);
 					break;
-			case 0x600:
+			case 0x600:/* AFE - read byte */
 					ret = cx231xx_write_i2c_master(dev,
 							AFE_DEVICE_ADDRESS,
 							(u16)reg->reg, 2,
 							value, 1 , 0);
 					break;
 
-			case 0x880:
+			case 0x880:/* Video Block - read byte */
 					if (reg->reg < 0x0b)
 						cx231xx_write_i2c_master(dev,
 							VID_BLK_I2C_ADDRESS,
@@ -1726,7 +1814,7 @@ static int vidioc_cropcap(struct file *file, void *priv,
 	cc->bounds.width = dev->width;
 	cc->bounds.height = dev->height;
 	cc->defrect = cc->bounds;
-	cc->pixelaspect.numerator = 54;	
+	cc->pixelaspect.numerator = 54;	/* 4:3 FIXME: remove magic numbers */
 	cc->pixelaspect.denominator = 59;
 
 	return 0;
@@ -1815,6 +1903,7 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
 	return 0;
 }
 
+/* Sliced VBI ioctls */
 static int vidioc_g_fmt_sliced_vbi_cap(struct file *file, void *priv,
 				       struct v4l2_format *f)
 {
@@ -1855,6 +1944,7 @@ static int vidioc_try_set_sliced_vbi_cap(struct file *file, void *priv,
 	return 0;
 }
 
+/* RAW VBI ioctls */
 
 static int vidioc_g_fmt_vbi_cap(struct file *file, void *priv,
 				struct v4l2_format *f)
@@ -1959,6 +2049,9 @@ static int vidioc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *b)
 	return videobuf_dqbuf(&fh->vb_vidq, b, file->f_flags & O_NONBLOCK);
 }
 
+/* ----------------------------------------------------------- */
+/* RADIO ESPECIFIC IOCTLS                                      */
+/* ----------------------------------------------------------- */
 
 static int radio_querycap(struct file *file, void *priv,
 			  struct v4l2_capability *cap)
@@ -2049,6 +2142,10 @@ static int radio_queryctrl(struct file *file, void *priv,
 	return 0;
 }
 
+/*
+ * cx231xx_v4l2_open()
+ * inits the device and starts isoc transfer
+ */
 static int cx231xx_v4l2_open(struct file *filp)
 {
 	int errCode = 0, radio = 0;
@@ -2096,7 +2193,7 @@ static int cx231xx_v4l2_open(struct file *filp)
 		dev->width = norm_maxw(dev);
 		dev->height = norm_maxh(dev);
 
-		
+		/* Power up in Analog TV mode */
 		if (dev->board.external_av)
 			cx231xx_set_power_mode(dev,
 				 POLARIS_AVMODE_ENXTERNAL_AV);
@@ -2107,19 +2204,21 @@ static int cx231xx_v4l2_open(struct file *filp)
 		cx231xx_set_mode(dev, CX231XX_ANALOG_MODE);
 #endif
 
-		
+		/* set video alternate setting */
 		cx231xx_set_video_alternate(dev);
 
+		/* Needed, since GPIO might have disabled power of
+		   some i2c device */
 		cx231xx_config_i2c(dev);
 
-		
+		/* device needs to be initialized before isoc transfer */
 		dev->video_input = dev->video_input > 2 ? 2 : dev->video_input;
 
 	}
 	if (fh->radio) {
 		cx231xx_videodbg("video_open: setting radio device\n");
 
-		
+		/* cx231xx_start_radio(dev); */
 
 		call_all(dev, tuner, s_radio);
 	}
@@ -2133,6 +2232,8 @@ static int cx231xx_v4l2_open(struct file *filp)
 					    sizeof(struct cx231xx_buffer),
 					    fh, &dev->lock);
 	if (fh->type == V4L2_BUF_TYPE_VBI_CAPTURE) {
+		/* Set the required alternate setting  VBI interface works in
+		   Bulk mode only */
 		cx231xx_set_alt_setting(dev, INDEX_VANC, 0);
 
 		videobuf_queue_vmalloc_init(&fh->vb_vidq, &cx231xx_vbi_qops,
@@ -2145,10 +2246,15 @@ static int cx231xx_v4l2_open(struct file *filp)
 	return errCode;
 }
 
+/*
+ * cx231xx_realease_resources()
+ * unregisters the v4l2,i2c and usb devices
+ * called when the device gets disconected or at module unload
+*/
 void cx231xx_release_analog_resources(struct cx231xx *dev)
 {
 
-	
+	/*FIXME: I2C IR should be disconnected */
 
 	if (dev->radio_dev) {
 		if (video_is_registered(dev->radio_dev))
@@ -2181,6 +2287,11 @@ void cx231xx_release_analog_resources(struct cx231xx *dev)
 	}
 }
 
+/*
+ * cx231xx_v4l2_close()
+ * stops streaming and deallocates all resources allocated by the v4l2
+ * calls and ioctls
+ */
 static int cx231xx_v4l2_close(struct file *filp)
 {
 	struct cx231xx_fh *fh = filp->private_data;
@@ -2192,11 +2303,19 @@ static int cx231xx_v4l2_close(struct file *filp)
 	if (res_check(fh))
 		res_free(fh);
 
+	/*
+	 * To workaround error number=-71 on EP0 for VideoGrabber,
+	 *	 need exclude following.
+	 * FIXME: It is probably safe to remove most of these, as we're
+	 * now avoiding the alternate setting for INDEX_VANC
+	 */
 	if (!dev->board.no_alt_vanc)
 		if (fh->type == V4L2_BUF_TYPE_VBI_CAPTURE) {
 			videobuf_stop(&fh->vb_vidq);
 			videobuf_mmap_free(&fh->vb_vidq);
 
+			/* the device is already disconnect,
+			   free the remaining resources */
 			if (dev->state & DEV_DISCONNECTED) {
 				if (atomic_read(&dev->devlist_count) > 0) {
 					cx231xx_release_resources(dev);
@@ -2206,10 +2325,10 @@ static int cx231xx_v4l2_close(struct file *filp)
 				return 0;
 			}
 
-			
+			/* do this before setting alternate! */
 			cx231xx_uninit_vbi_isoc(dev);
 
-			
+			/* set alternate 0 */
 			if (!dev->vbi_or_sliced_cc_mode)
 				cx231xx_set_alt_setting(dev, INDEX_VANC, 0);
 			else
@@ -2226,23 +2345,25 @@ static int cx231xx_v4l2_close(struct file *filp)
 		videobuf_stop(&fh->vb_vidq);
 		videobuf_mmap_free(&fh->vb_vidq);
 
+		/* the device is already disconnect,
+		   free the remaining resources */
 		if (dev->state & DEV_DISCONNECTED) {
 			cx231xx_release_resources(dev);
 			fh->dev = NULL;
 			return 0;
 		}
 
-		
+		/* Save some power by putting tuner to sleep */
 		call_all(dev, core, s_power, 0);
 
-		
+		/* do this before setting alternate! */
 		if (dev->USE_ISO)
 			cx231xx_uninit_isoc(dev);
 		else
 			cx231xx_uninit_bulk(dev);
 		cx231xx_set_mode(dev, CX231XX_SUSPEND);
 
-		
+		/* set alternate 0 */
 		cx231xx_set_alt_setting(dev, INDEX_VIDEO, 0);
 	}
 	kfree(fh);
@@ -2250,6 +2371,10 @@ static int cx231xx_v4l2_close(struct file *filp)
 	return 0;
 }
 
+/*
+ * cx231xx_v4l2_read()
+ * will allocate buffers when called for the first time
+ */
 static ssize_t
 cx231xx_v4l2_read(struct file *filp, char __user *buf, size_t count,
 		  loff_t *pos)
@@ -2275,6 +2400,10 @@ cx231xx_v4l2_read(struct file *filp, char __user *buf, size_t count,
 	return 0;
 }
 
+/*
+ * cx231xx_v4l2_poll()
+ * will allocate buffers when called for the first time
+ */
 static unsigned int cx231xx_v4l2_poll(struct file *filp, poll_table *wait)
 {
 	struct cx231xx_fh *fh = filp->private_data;
@@ -2297,6 +2426,9 @@ static unsigned int cx231xx_v4l2_poll(struct file *filp, poll_table *wait)
 		return POLLERR;
 }
 
+/*
+ * cx231xx_v4l2_mmap()
+ */
 static int cx231xx_v4l2_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	struct cx231xx_fh *fh = filp->private_data;
@@ -2412,6 +2544,7 @@ static struct video_device cx231xx_radio_template = {
 	.ioctl_ops = &radio_ioctl_ops,
 };
 
+/******************************** usb interface ******************************/
 
 static struct video_device *cx231xx_vdev_init(struct cx231xx *dev,
 		const struct video_device
@@ -2442,33 +2575,33 @@ int cx231xx_register_analog_devices(struct cx231xx *dev)
 	cx231xx_info("%s: v4l2 driver version %s\n",
 		     dev->name, CX231XX_VERSION);
 
-	
-	
+	/* set default norm */
+	/*dev->norm = cx231xx_video_template.current_norm; */
 	dev->width = norm_maxw(dev);
 	dev->height = norm_maxh(dev);
 	dev->interlaced = 0;
 
-	
+	/* Analog specific initialization */
 	dev->format = &format[0];
 
-	
+	/* Set the initial input */
 	video_mux(dev, dev->video_input);
 
-	
+	/* Audio defaults */
 	dev->mute = 1;
 	dev->volume = 0x1f;
 
-	
-	
+	/* enable vbi capturing */
+	/* write code here...  */
 
-	
+	/* allocate and fill video video_device struct */
 	dev->vdev = cx231xx_vdev_init(dev, &cx231xx_video_template, "video");
 	if (!dev->vdev) {
 		cx231xx_errdev("cannot allocate video_device.\n");
 		return -ENODEV;
 	}
 
-	
+	/* register v4l2 video video_device */
 	ret = video_register_device(dev->vdev, VFL_TYPE_GRABBER,
 				    video_nr[dev->devno]);
 	if (ret) {
@@ -2480,15 +2613,15 @@ int cx231xx_register_analog_devices(struct cx231xx *dev)
 	cx231xx_info("%s/0: registered device %s [v4l2]\n",
 		     dev->name, video_device_node_name(dev->vdev));
 
-	
+	/* Initialize VBI template */
 	memcpy(&cx231xx_vbi_template, &cx231xx_video_template,
 	       sizeof(cx231xx_vbi_template));
 	strcpy(cx231xx_vbi_template.name, "cx231xx-vbi");
 
-	
+	/* Allocate and fill vbi video_device struct */
 	dev->vbi_dev = cx231xx_vdev_init(dev, &cx231xx_vbi_template, "vbi");
 
-	
+	/* register v4l2 vbi video_device */
 	ret = video_register_device(dev->vbi_dev, VFL_TYPE_VBI,
 				    vbi_nr[dev->devno]);
 	if (ret < 0) {

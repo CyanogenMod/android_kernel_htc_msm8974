@@ -23,6 +23,7 @@
 #ifndef _LNBH24_H
 #define _LNBH24_H
 
+/* system register bits */
 #define LNBH24_OLF	0x01
 #define LNBH24_OTF	0x02
 #define LNBH24_EN	0x04
@@ -36,6 +37,8 @@
 
 #if defined(CONFIG_DVB_LNBP21) || (defined(CONFIG_DVB_LNBP21_MODULE) \
 							&& defined(MODULE))
+/* override_set and override_clear control which
+   system register bits (above) to always set & clear */
 extern struct dvb_frontend *lnbh24_attach(struct dvb_frontend *fe,
 				struct i2c_adapter *i2c, u8 override_set,
 				u8 override_clear, u8 i2c_addr);

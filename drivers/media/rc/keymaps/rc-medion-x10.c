@@ -25,30 +25,30 @@
 #include <media/rc-map.h>
 
 static struct rc_map_table medion_x10[] = {
-	{ 0x2c, KEY_TV },    
-	{ 0x2d, KEY_VCR },   
-	{ 0x04, KEY_DVD },   
-	{ 0x06, KEY_AUDIO }, 
+	{ 0x2c, KEY_TV },    /* TV */
+	{ 0x2d, KEY_VCR },   /* VCR */
+	{ 0x04, KEY_DVD },   /* DVD */
+	{ 0x06, KEY_AUDIO }, /* MUSIC */
 
-	{ 0x2e, KEY_RADIO },     
-	{ 0x05, KEY_DIRECTORY }, 
-	{ 0x2f, KEY_INFO },      
-	{ 0x30, KEY_LIST },      
+	{ 0x2e, KEY_RADIO },     /* RADIO */
+	{ 0x05, KEY_DIRECTORY }, /* PHOTO */
+	{ 0x2f, KEY_INFO },      /* TV-PREVIEW */
+	{ 0x30, KEY_LIST },      /* CHANNEL-LST */
 
-	{ 0x1b, KEY_SETUP }, 
-	{ 0x31, KEY_VIDEO }, 
+	{ 0x1b, KEY_SETUP }, /* SETUP */
+	{ 0x31, KEY_VIDEO }, /* VIDEO DESKTOP */
 
-	{ 0x08, KEY_VOLUMEDOWN },  
-	{ 0x09, KEY_VOLUMEUP },    
-	{ 0x0b, KEY_CHANNELUP },   
-	{ 0x0c, KEY_CHANNELDOWN }, 
-	{ 0x00, KEY_MUTE },        
+	{ 0x08, KEY_VOLUMEDOWN },  /* VOL - */
+	{ 0x09, KEY_VOLUMEUP },    /* VOL + */
+	{ 0x0b, KEY_CHANNELUP },   /* CHAN + */
+	{ 0x0c, KEY_CHANNELDOWN }, /* CHAN - */
+	{ 0x00, KEY_MUTE },        /* MUTE */
 
-	{ 0x32, KEY_RED }, 
-	{ 0x33, KEY_GREEN }, 
-	{ 0x34, KEY_YELLOW }, 
-	{ 0x35, KEY_BLUE }, 
-	{ 0x16, KEY_TEXT }, 
+	{ 0x32, KEY_RED }, /* red */
+	{ 0x33, KEY_GREEN }, /* green */
+	{ 0x34, KEY_YELLOW }, /* yellow */
+	{ 0x35, KEY_BLUE }, /* blue */
+	{ 0x16, KEY_TEXT }, /* TXT */
 
 	{ 0x0d, KEY_1 },
 	{ 0x0e, KEY_2 },
@@ -60,35 +60,35 @@ static struct rc_map_table medion_x10[] = {
 	{ 0x14, KEY_8 },
 	{ 0x15, KEY_9 },
 	{ 0x17, KEY_0 },
-	{ 0x1c, KEY_SEARCH }, 
-	{ 0x20, KEY_DELETE }, 
+	{ 0x1c, KEY_SEARCH }, /* TV/RAD, CH SRC */
+	{ 0x20, KEY_DELETE }, /* DELETE */
 
-	{ 0x36, KEY_KEYBOARD }, 
-	{ 0x18, KEY_SCREEN },   
+	{ 0x36, KEY_KEYBOARD }, /* RENAME */
+	{ 0x18, KEY_SCREEN },   /* SNAPSHOT */
 
-	{ 0x1a, KEY_UP },    
-	{ 0x22, KEY_DOWN },  
-	{ 0x1d, KEY_LEFT },  
-	{ 0x1f, KEY_RIGHT }, 
-	{ 0x1e, KEY_OK },    
+	{ 0x1a, KEY_UP },    /* up */
+	{ 0x22, KEY_DOWN },  /* down */
+	{ 0x1d, KEY_LEFT },  /* left */
+	{ 0x1f, KEY_RIGHT }, /* right */
+	{ 0x1e, KEY_OK },    /* OK */
 
-	{ 0x37, KEY_SELECT }, 
-	{ 0x38, KEY_EDIT },   
+	{ 0x37, KEY_SELECT }, /* ACQUIRE IMAGE */
+	{ 0x38, KEY_EDIT },   /* EDIT IMAGE */
 
-	{ 0x24, KEY_REWIND },   
-	{ 0x25, KEY_PLAY },     
-	{ 0x26, KEY_FORWARD },  
-	{ 0x27, KEY_RECORD },   
-	{ 0x28, KEY_STOP },     
-	{ 0x29, KEY_PAUSE },    
+	{ 0x24, KEY_REWIND },   /* rewind  (<<) */
+	{ 0x25, KEY_PLAY },     /* play    ( >) */
+	{ 0x26, KEY_FORWARD },  /* forward (>>) */
+	{ 0x27, KEY_RECORD },   /* record  ( o) */
+	{ 0x28, KEY_STOP },     /* stop    ([]) */
+	{ 0x29, KEY_PAUSE },    /* pause   ('') */
 
-	{ 0x21, KEY_PREVIOUS },        
-	{ 0x39, KEY_SWITCHVIDEOMODE }, 
-	{ 0x23, KEY_NEXT },            
-	{ 0x19, KEY_MENU },            
-	{ 0x3a, KEY_LANGUAGE },        
+	{ 0x21, KEY_PREVIOUS },        /* prev */
+	{ 0x39, KEY_SWITCHVIDEOMODE }, /* F SCR */
+	{ 0x23, KEY_NEXT },            /* next */
+	{ 0x19, KEY_MENU },            /* MENU */
+	{ 0x3a, KEY_LANGUAGE },        /* AUDIO */
 
-	{ 0x02, KEY_POWER }, 
+	{ 0x02, KEY_POWER }, /* POWER */
 };
 
 static struct rc_map_list medion_x10_map = {

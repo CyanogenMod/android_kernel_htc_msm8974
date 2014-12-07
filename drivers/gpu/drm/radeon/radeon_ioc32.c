@@ -100,7 +100,7 @@ typedef struct drm_radeon_clear32 {
 	unsigned int clear_color;
 	unsigned int clear_depth;
 	unsigned int color_mask;
-	unsigned int depth_mask;	
+	unsigned int depth_mask;	/* misnamed field:  should be stencil */
 	u32 depth_boxes;
 } drm_radeon_clear32_t;
 
@@ -151,7 +151,7 @@ static int compat_radeon_cp_stipple(struct file *file, unsigned int cmd,
 }
 
 typedef struct drm_radeon_tex_image32 {
-	unsigned int x, y;	
+	unsigned int x, y;	/* Blit coordinates */
 	unsigned int width, height;
 	u32 data;
 } drm_radeon_tex_image32_t;
@@ -160,7 +160,7 @@ typedef struct drm_radeon_texture32 {
 	unsigned int offset;
 	int pitch;
 	int format;
-	int width;		
+	int width;		/* Texture image coordinates */
 	int height;
 	u32 image;
 } drm_radeon_texture32_t;
@@ -205,8 +205,8 @@ static int compat_radeon_cp_texture(struct file *file, unsigned int cmd,
 }
 
 typedef struct drm_radeon_vertex2_32 {
-	int idx;		
-	int discard;		
+	int idx;		/* Index of vertex buffer */
+	int discard;		/* Client finished with buffer? */
 	int nr_states;
 	u32 state;
 	int nr_prims;
@@ -294,7 +294,7 @@ typedef struct drm_radeon_mem_alloc32 {
 	int region;
 	int alignment;
 	int size;
-	u32 region_offset;	
+	u32 region_offset;	/* offset from start of fb or GART */
 } drm_radeon_mem_alloc32_t;
 
 static int compat_radeon_mem_alloc(struct file *file, unsigned int cmd,
@@ -340,6 +340,7 @@ static int compat_radeon_irq_emit(struct file *file, unsigned int cmd,
 	return drm_ioctl(file, DRM_IOCTL_RADEON_IRQ_EMIT, (unsigned long)request);
 }
 
+/* The two 64-bit arches where alignof(u64)==4 in 32-bit code */
 #if defined (CONFIG_X86_64) || defined(CONFIG_IA64)
 typedef struct drm_radeon_setparam32 {
 	int param;
@@ -366,7 +367,7 @@ static int compat_radeon_cp_setparam(struct file *file, unsigned int cmd,
 }
 #else
 #define compat_radeon_cp_setparam NULL
-#endif 
+#endif /* X86_64 || IA64 */
 
 drm_ioctl_compat_t *radeon_compat_ioctls[] = {
 	[DRM_RADEON_CP_INIT] = compat_radeon_cp_init,
@@ -381,6 +382,15 @@ drm_ioctl_compat_t *radeon_compat_ioctls[] = {
 	[DRM_RADEON_IRQ_EMIT] = compat_radeon_irq_emit,
 };
 
+/**
+ * Called whenever a 32-bit process running under a 64-bit kernel
+ * performs an ioctl on /dev/dri/card<n>.
+ *
+ * \param filp file pointer.
+ * \param cmd command.
+ * \param arg user argument.
+ * \return zero on success or negative number on failure.
+ */
 long radeon_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	unsigned int nr = DRM_IOCTL_NR(cmd);

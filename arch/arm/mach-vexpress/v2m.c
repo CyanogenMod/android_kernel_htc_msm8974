@@ -1,3 +1,6 @@
+/*
+ * Versatile Express V2M Motherboard Support
+ */
 #include <linux/device.h>
 #include <linux/amba/bus.h>
 #include <linux/amba/mmci.h>
@@ -59,7 +62,7 @@ static void __init v2m_sysctl_init(void __iomem *base)
 	if (WARN_ON(!base))
 		return;
 
-	
+	/* Select 1MHz TIMCLK as the reference clock for SP804 timers */
 	scctrl = readl(base + SCCTRL);
 	scctrl |= SCCTRL_TIMEREN0SEL_TIMCLK;
 	scctrl |= SCCTRL_TIMEREN1SEL_TIMCLK;
@@ -93,7 +96,7 @@ static DEFINE_SPINLOCK(v2m_cfg_lock);
 
 int v2m_cfg_write(u32 devfn, u32 data)
 {
-	
+	/* Configuration interface broken? */
 	u32 val;
 
 	printk("%s: writing %08x to %08x\n", __func__, data, devfn);
@@ -351,41 +354,41 @@ static struct clk v2m_ref_clk = {
 static struct clk dummy_apb_pclk;
 
 static struct clk_lookup v2m_lookups[] = {
-	{	
+	{	/* AMBA bus clock */
 		.con_id		= "apb_pclk",
 		.clk		= &dummy_apb_pclk,
-	}, {	
+	}, {	/* UART0 */
 		.dev_id		= "mb:uart0",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* UART1 */
 		.dev_id		= "mb:uart1",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* UART2 */
 		.dev_id		= "mb:uart2",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* UART3 */
 		.dev_id		= "mb:uart3",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* KMI0 */
 		.dev_id		= "mb:kmi0",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* KMI1 */
 		.dev_id		= "mb:kmi1",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* MMC0 */
 		.dev_id		= "mb:mmci",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* CLCD */
 		.dev_id		= "mb:clcd",
 		.clk		= &osc1_clk,
-	}, {	
+	}, {	/* SP805 WDT */
 		.dev_id		= "mb:wdt",
 		.clk		= &v2m_ref_clk,
-	}, {	
+	}, {	/* SP804 timers */
 		.dev_id		= "sp804",
 		.con_id		= "v2m-timer0",
 		.clk		= &v2m_sp804_clk,
-	}, {	
+	}, {	/* SP804 timers */
 		.dev_id		= "sp804",
 		.con_id		= "v2m-timer1",
 		.clk		= &v2m_sp804_clk,
@@ -520,71 +523,71 @@ void __init v2m_dt_map_io(void)
 }
 
 static struct clk_lookup v2m_dt_lookups[] = {
-	{	
+	{	/* AMBA bus clock */
 		.con_id		= "apb_pclk",
 		.clk		= &dummy_apb_pclk,
-	}, {	
+	}, {	/* SP804 timers */
 		.dev_id		= "sp804",
 		.con_id		= "v2m-timer0",
 		.clk		= &v2m_sp804_clk,
-	}, {	
+	}, {	/* SP804 timers */
 		.dev_id		= "sp804",
 		.con_id		= "v2m-timer1",
 		.clk		= &v2m_sp804_clk,
-	}, {	
-		.dev_id		= "mb:mmci", 
+	}, {	/* PL180 MMCI */
+		.dev_id		= "mb:mmci", /* 10005000.mmci */
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL050 KMI0 */
 		.dev_id		= "10006000.kmi",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL050 KMI1 */
 		.dev_id		= "10007000.kmi",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART0 */
 		.dev_id		= "10009000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART1 */
 		.dev_id		= "1000a000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART2 */
 		.dev_id		= "1000b000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART3 */
 		.dev_id		= "1000c000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* SP805 WDT */
 		.dev_id		= "1000f000.wdt",
 		.clk		= &v2m_ref_clk,
-	}, {	
+	}, {	/* PL111 CLCD */
 		.dev_id		= "1001f000.clcd",
 		.clk		= &osc1_clk,
 	},
-	
-	{	
-		.dev_id		= "mb:mmci", 
+	/* RS1 memory map */
+	{	/* PL180 MMCI */
+		.dev_id		= "mb:mmci", /* 1c050000.mmci */
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL050 KMI0 */
 		.dev_id		= "1c060000.kmi",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL050 KMI1 */
 		.dev_id		= "1c070000.kmi",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART0 */
 		.dev_id		= "1c090000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART1 */
 		.dev_id		= "1c0a0000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART2 */
 		.dev_id		= "1c0b0000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* PL011 UART3 */
 		.dev_id		= "1c0c0000.uart",
 		.clk		= &osc2_clk,
-	}, {	
+	}, {	/* SP805 WDT */
 		.dev_id		= "1c0f0000.wdt",
 		.clk		= &v2m_ref_clk,
-	}, {	
+	}, {	/* PL111 CLCD */
 		.dev_id		= "1c1f0000.clcd",
 		.clk		= &osc1_clk,
 	},
@@ -600,7 +603,7 @@ void __init v2m_dt_init_early(void)
 	if (WARN_ON(!v2m_sysreg_base))
 		return;
 
-	
+	/* Confirm board type against DT property, if available */
 	if (of_property_read_u32(allnodes, "arm,hbi", &dt_hbi) == 0) {
 		u32 misc = readl(v2m_sysreg_base + V2M_SYS_MISC);
 		u32 id = readl(v2m_sysreg_base + (misc & SYS_MISC_MASTERSITE ?
@@ -650,7 +653,7 @@ static struct of_dev_auxdata v2m_dt_auxdata_lookup[] __initdata = {
 	OF_DEV_AUXDATA("arm,vexpress-flash", V2M_NOR0, "physmap-flash",
 			&v2m_flash_data),
 	OF_DEV_AUXDATA("arm,primecell", V2M_MMCI, "mb:mmci", &v2m_mmci_data),
-	
+	/* RS1 memory map */
 	OF_DEV_AUXDATA("arm,vexpress-flash", 0x08000000, "physmap-flash",
 			&v2m_flash_data),
 	OF_DEV_AUXDATA("arm,primecell", 0x1c050000, "mb:mmci", &v2m_mmci_data),

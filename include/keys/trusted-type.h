@@ -28,4 +28,4 @@ struct trusted_key_payload {
 
 extern struct key_type key_type_trusted;
 
-#endif 
+#endif /* _KEYS_TRUSTED_TYPE_H */

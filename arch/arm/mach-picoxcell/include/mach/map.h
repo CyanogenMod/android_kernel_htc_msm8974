@@ -22,4 +22,4 @@
 #define IO_ADDRESS(x)		(void __iomem __force *)(PHYS_TO_IO((x)))
 #endif
 
-#endif 
+#endif /* __PICOXCELL_MAP_H__ */

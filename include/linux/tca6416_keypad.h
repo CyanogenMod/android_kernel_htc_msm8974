@@ -16,19 +16,19 @@
 #include <linux/types.h>
 
 struct tca6416_button {
-	
-	int code;		
+	/* Configuration parameters */
+	int code;		/* input event code (KEY_*, SW_*) */
 	int active_low;
-	int type;		
+	int type;		/* input event type (EV_KEY, EV_SW) */
 };
 
 struct tca6416_keys_platform_data {
 	struct tca6416_button *buttons;
 	int nbuttons;
-	unsigned int rep:1;	
+	unsigned int rep:1;	/* enable input subsystem auto repeat */
 	uint16_t pinmask;
 	uint16_t invert;
 	int irq_is_gpio;
-	int use_polling;	
+	int use_polling;	/* use polling if Interrupt is not connected*/
 };
 #endif

@@ -42,52 +42,52 @@ static void davinci_pm_suspend(void)
 
 	if (pdata->cpupll_reg_base != pdata->ddrpll_reg_base) {
 
-		
+		/* Switch CPU PLL to bypass mode */
 		val = __raw_readl(pdata->cpupll_reg_base + PLLCTL);
 		val &= ~(PLLCTL_PLLENSRC | PLLCTL_PLLEN);
 		__raw_writel(val, pdata->cpupll_reg_base + PLLCTL);
 
 		udelay(PLL_BYPASS_TIME);
 
-		
+		/* Powerdown CPU PLL */
 		val = __raw_readl(pdata->cpupll_reg_base + PLLCTL);
 		val |= PLLCTL_PLLPWRDN;
 		__raw_writel(val, pdata->cpupll_reg_base + PLLCTL);
 	}
 
-	
+	/* Configure sleep count in deep sleep register */
 	val = __raw_readl(pdata->deepsleep_reg);
 	val &= ~DEEPSLEEP_SLEEPCOUNT_MASK,
 	val |= pdata->sleepcount;
 	__raw_writel(val, pdata->deepsleep_reg);
 
-	
+	/* System goes to sleep in this call */
 	davinci_sram_suspend(pdata);
 
 	if (pdata->cpupll_reg_base != pdata->ddrpll_reg_base) {
 
-		
+		/* put CPU PLL in reset */
 		val = __raw_readl(pdata->cpupll_reg_base + PLLCTL);
 		val &= ~PLLCTL_PLLRST;
 		__raw_writel(val, pdata->cpupll_reg_base + PLLCTL);
 
-		
+		/* put CPU PLL in power down */
 		val = __raw_readl(pdata->cpupll_reg_base + PLLCTL);
 		val &= ~PLLCTL_PLLPWRDN;
 		__raw_writel(val, pdata->cpupll_reg_base + PLLCTL);
 
-		
+		/* wait for CPU PLL reset */
 		udelay(PLL_RESET_TIME);
 
-		
+		/* bring CPU PLL out of reset */
 		val = __raw_readl(pdata->cpupll_reg_base + PLLCTL);
 		val |= PLLCTL_PLLRST;
 		__raw_writel(val, pdata->cpupll_reg_base + PLLCTL);
 
-		
+		/* Wait for CPU PLL to lock */
 		udelay(PLL_LOCK_TIME);
 
-		
+		/* Remove CPU PLL from bypass mode */
 		val = __raw_readl(pdata->cpupll_reg_base + PLLCTL);
 		val &= ~PLLCTL_PLLENSRC;
 		val |= PLLCTL_PLLEN;

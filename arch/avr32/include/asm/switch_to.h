@@ -8,6 +8,11 @@
 #ifndef __ASM_AVR32_SWITCH_TO_H
 #define __ASM_AVR32_SWITCH_TO_H
 
+/*
+ * Help PathFinder and other Nexus-compliant debuggers keep track of
+ * the current PID by emitting an Ownership Trace Message each time we
+ * switch task.
+ */
 #ifdef CONFIG_OWNERSHIP_TRACE
 #include <asm/ocd.h>
 #define finish_arch_switch(prev)			\
@@ -17,6 +22,15 @@
 	} while(0)
 #endif
 
+/*
+ * switch_to(prev, next, last) should switch from task `prev' to task
+ * `next'. `prev' will never be the same as `next'.
+ *
+ * We just delegate everything to the __switch_to assembly function,
+ * which is implemented in arch/avr32/kernel/switch_to.S
+ *
+ * mb() tells GCC not to cache `current' across this call.
+ */
 struct cpu_context;
 struct task_struct;
 extern struct task_struct *__switch_to(struct task_struct *,
@@ -29,4 +43,4 @@ extern struct task_struct *__switch_to(struct task_struct *,
 	} while (0)
 
 
-#endif 
+#endif /* __ASM_AVR32_SWITCH_TO_H */

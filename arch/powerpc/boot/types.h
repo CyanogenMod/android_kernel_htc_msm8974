@@ -24,4 +24,4 @@ typedef long long		s64;
 	(void) (&_x == &_y);	\
 	_x > _y ? _x : _y; })
 
-#endif 
+#endif /* _TYPES_H_ */

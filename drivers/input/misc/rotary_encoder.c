@@ -38,7 +38,7 @@ struct rotary_encoder {
 	unsigned int irq_b;
 
 	bool armed;
-	unsigned char dir;	
+	unsigned char dir;	/* 0 - clockwise, 1 - CCW */
 
 	char last_stable;
 };
@@ -65,13 +65,13 @@ static void rotary_encoder_report_event(struct rotary_encoder *encoder)
 		unsigned int pos = encoder->pos;
 
 		if (encoder->dir) {
-			
+			/* turning counter-clockwise */
 			if (pdata->rollover)
 				pos += pdata->steps;
 			if (pos)
 				pos--;
 		} else {
-			
+			/* turning clockwise */
 			if (pdata->rollover || pos < pdata->steps)
 				pos++;
 		}
@@ -166,7 +166,7 @@ static int __devinit rotary_encoder_probe(struct platform_device *pdev)
 	encoder->irq_a = gpio_to_irq(pdata->gpio_a);
 	encoder->irq_b = gpio_to_irq(pdata->gpio_b);
 
-	
+	/* create and register the input driver */
 	input->name = pdev->name;
 	input->id.bustype = BUS_HOST;
 	input->dev.parent = &pdev->dev;
@@ -186,7 +186,7 @@ static int __devinit rotary_encoder_probe(struct platform_device *pdev)
 		goto exit_free_mem;
 	}
 
-	
+	/* request the GPIOs */
 	err = gpio_request(pdata->gpio_a, DRV_NAME);
 	if (err) {
 		dev_err(&pdev->dev, "unable to request GPIO %d\n",
@@ -215,7 +215,7 @@ static int __devinit rotary_encoder_probe(struct platform_device *pdev)
 		goto exit_free_gpio_a;
 	}
 
-	
+	/* request the IRQs */
 	if (pdata->half_period) {
 		handler = &rotary_encoder_half_period_irq;
 		encoder->last_stable = rotary_encoder_get_state(pdata);
@@ -253,7 +253,7 @@ exit_free_gpio_a:
 	gpio_free(pdata->gpio_a);
 exit_unregister_input:
 	input_unregister_device(input);
-	input = NULL; 
+	input = NULL; /* so we don't try to free it */
 exit_free_mem:
 	input_free_device(input);
 	kfree(encoder);

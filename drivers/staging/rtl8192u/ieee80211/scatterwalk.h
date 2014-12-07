@@ -26,6 +26,8 @@ struct scatter_walk {
 	unsigned int		offset;
 };
 
+/* Define sg_next is an inline routine now in case we want to change
+   scatterlist to a linked list later. */
 static inline struct scatterlist *sg_next(struct scatterlist *sg)
 {
 	return sg + 1;
@@ -46,4 +48,4 @@ int scatterwalk_copychunks(void *buf, struct scatter_walk *walk, size_t nbytes, 
 void scatterwalk_map(struct scatter_walk *walk, int out);
 void scatterwalk_done(struct scatter_walk *walk, int out, int more);
 
-#endif  
+#endif  /* _CRYPTO_SCATTERWALK_H */

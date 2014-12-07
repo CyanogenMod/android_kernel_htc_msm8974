@@ -61,6 +61,17 @@ static inline loff_t reiserfs_xattr_nblocks(struct inode *inode, loff_t size)
 	return ret;
 }
 
+/* We may have to create up to 3 objects: xattr root, xattr dir, xattr file.
+ * Let's try to be smart about it.
+ * xattr root: We cache it. If it's not cached, we may need to create it.
+ * xattr dir: If anything has been loaded for this inode, we can set a flag
+ *            saying so.
+ * xattr file: Since we don't cache xattrs, we can't tell. We always include
+ *             blocks for it.
+ *
+ * However, since root and dir can be created between calls - YOU MUST SAVE
+ * THIS VALUE.
+ */
 static inline size_t reiserfs_xattr_jcreate_nblocks(struct inode *inode)
 {
 	size_t nblocks = JOURNAL_BLOCKS_PER_OBJECT(inode->i_sb);
@@ -89,7 +100,7 @@ static inline void reiserfs_init_xattr_rwsem(struct inode *inode)
 static inline void reiserfs_init_xattr_rwsem(struct inode *inode)
 {
 }
-#endif  
+#endif  /*  CONFIG_REISERFS_FS_XATTR  */
 
 #ifndef CONFIG_REISERFS_FS_SECURITY
 static inline int reiserfs_security_init(struct inode *dir,

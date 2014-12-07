@@ -123,6 +123,12 @@ config HTC_QUICKBOOT_OFFMODE_ALARM
         help
         support HTC quickboot offmode alarm.
 
+config HTC_POWERSAVE_MODE_ALARM
+        bool "Support HTC powersave mode alarm."
+        default n
+        help
+        support HTC powersave mode alarm.
+
 config RTC_INTF_DEV_UIE_EMUL
 	bool "RTC UIE emulation on dev interface"
 	depends on RTC_INTF_DEV

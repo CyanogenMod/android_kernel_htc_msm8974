@@ -17,6 +17,28 @@
   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+Driver: ni_660x
+Description: National Instruments 660x counter/timer boards
+Devices:
+[National Instruments] PCI-6601 (ni_660x), PCI-6602, PXI-6602,
+	PXI-6608
+Author: J.P. Mellor <jpmellor@rose-hulman.edu>,
+	Herman.Bruyninckx@mech.kuleuven.ac.be,
+	Wim.Meeussen@mech.kuleuven.ac.be,
+	Klaas.Gadeyne@mech.kuleuven.ac.be,
+	Frank Mori Hess <fmhess@users.sourceforge.net>
+Updated: Thu Oct 18 12:56:06 EDT 2007
+Status: experimental
+
+Encoders work.  PulseGeneration (both single pulse and pulse train)
+works. Buffered commands work for input but not output.
+
+References:
+DAQ 660x Register-Level Programmer Manual  (NI 370505A-01)
+DAQ 6601/6602 User Manual (NI 322137B-01)
+
+*/
 
 #include <linux/interrupt.h>
 #include "../comedidev.h"
@@ -30,8 +52,11 @@ enum ni_660x_constants {
 };
 
 #define NUM_PFI_CHANNELS 40
+/* really there are only up to 3 dma channels, but the register layout allows
+for 4 */
 #define MAX_DMA_CHANNEL 4
 
+/* See Register-Level Programmer Manual page 3.1 */
 enum NI_660x_Register {
 	G0InterruptAcknowledge,
 	G0StatusRegister,
@@ -171,10 +196,10 @@ static inline unsigned NI_660X_GPCT_SUBDEV(unsigned index)
 
 struct NI_660xRegisterData {
 
-	const char *name;	
-	int offset;		
+	const char *name;	/*  Register Name */
+	int offset;		/*  Offset from base address from GPCT chip */
 	enum ni_660x_register_direction direction;
-	enum ni_660x_register_width size; 
+	enum ni_660x_register_width size; /* 1 byte, 2 bytes, or 4 bytes */
 };
 
 static const struct NI_660xRegisterData registerData[NumRegisters] = {
@@ -278,10 +303,12 @@ static const struct NI_660xRegisterData registerData[NumRegisters] = {
 	{"IO Config Register 38-39", 0x7A2, NI_660x_READ_WRITE, DATA_2B}
 };
 
+/* kind of ENABLE for the second counter */
 enum clock_config_register_bits {
 	CounterSwap = 0x1 << 21
 };
 
+/* ioconfigreg */
 static inline unsigned ioconfig_bitshift(unsigned pfi_channel)
 {
 	if (pfi_channel % 2)
@@ -312,6 +339,7 @@ static inline unsigned pfi_input_select_bits(unsigned pfi_channel,
 	return (input_select & 0x7) << (4 + ioconfig_bitshift(pfi_channel));
 }
 
+/* dma configuration register bits */
 static inline unsigned dma_select_mask(unsigned dma_channel)
 {
 	BUG_ON(dma_channel >= MAX_DMA_CHANNEL);
@@ -354,12 +382,15 @@ enum global_interrupt_config_register_bits {
 	Global_Int_Enable_Bit = 0x80000000
 };
 
+/* Offset of the GPCT chips from the base-address of the card */
+/* First chip is at base-address + 0x00, etc. */
 static const unsigned GPCT_OFFSET[2] = { 0x0, 0x800 };
 
+/* Board description*/
 struct ni_660x_board {
-	unsigned short dev_id;	
+	unsigned short dev_id;	/* `lspci` will show you this */
 	const char *name;
-	unsigned n_chips;	
+	unsigned n_chips;	/* total number of TIO chips */
 };
 
 static const struct ni_660x_board ni_660x_boards[] = {
@@ -405,7 +436,7 @@ struct ni_660x_private {
 	struct mite_dma_descriptor_ring
 	*mite_rings[NI_660X_MAX_NUM_CHIPS][counters_per_chip];
 	spinlock_t mite_channel_lock;
-	
+	/* interrupt_lock prevents races between interrupt and comedi_poll */
 	spinlock_t interrupt_lock;
 	unsigned dma_configuration_soft_copies[NI_660X_MAX_NUM_CHIPS];
 	spinlock_t soft_reg_copy_lock;
@@ -417,6 +448,7 @@ static inline struct ni_660x_private *private(struct comedi_device *dev)
 	return dev->private;
 }
 
+/* initialized in ni_660x_find_device() */
 static inline const struct ni_660x_board *board(struct comedi_device *dev)
 {
 	return dev->board_ptr;
@@ -481,6 +513,7 @@ static int ni_660x_find_device(struct comedi_device *dev, int bus, int slot);
 static int ni_660x_set_pfi_routing(struct comedi_device *dev, unsigned chan,
 				   unsigned source);
 
+/* Possible instructions for a GPCT */
 static int ni_660x_GPCT_rinsn(struct comedi_device *dev,
 			      struct comedi_subdevice *s,
 			      struct comedi_insn *insn, unsigned int *data);
@@ -492,6 +525,7 @@ static int ni_660x_GPCT_winsn(struct comedi_device *dev,
 			      struct comedi_subdevice *s,
 			      struct comedi_insn *insn, unsigned int *data);
 
+/* Possible instructions for Digital IO */
 static int ni_660x_dio_insn_config(struct comedi_device *dev,
 				   struct comedi_subdevice *s,
 				   struct comedi_insn *insn,
@@ -880,6 +914,7 @@ static int ni_660x_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	int retval;
 
 	struct ni_gpct *counter = subdev_to_counter(s);
+/* const struct comedi_cmd *cmd = &s->async->cmd; */
 
 	retval = ni_660x_request_mite_channel(dev, counter, COMEDI_INPUT);
 	if (retval) {
@@ -913,6 +948,10 @@ static int ni_660x_cancel(struct comedi_device *dev, struct comedi_subdevice *s)
 
 static void set_tio_counterswap(struct comedi_device *dev, int chipset)
 {
+	/* See P. 3.5 of the Register-Level Programming manual.  The
+	   CounterSwap bit has to be set on the second chip, otherwise
+	   it will try to use the same pins as the first chip.
+	 */
 	if (chipset)
 		ni_660x_write_register(dev, chipset, CounterSwap,
 				       ClockConfigRegister);
@@ -942,7 +981,7 @@ static irqreturn_t ni_660x_interrupt(int irq, void *d)
 
 	if (dev->attached == 0)
 		return IRQ_NONE;
-	
+	/* lock to avoid race with comedi_poll */
 	spin_lock_irqsave(&private(dev)->interrupt_lock, flags);
 	smp_mb();
 	for (i = 0; i < ni_660x_num_counters(dev); ++i) {
@@ -957,7 +996,7 @@ static int ni_660x_input_poll(struct comedi_device *dev,
 			      struct comedi_subdevice *s)
 {
 	unsigned long flags;
-	
+	/* lock to avoid race with comedi_poll */
 	spin_lock_irqsave(&private(dev)->interrupt_lock, flags);
 	mite_sync_input_dma(subdev_to_counter(s)->mite_chan, s->async);
 	spin_unlock_irqrestore(&private(dev)->interrupt_lock, flags);
@@ -1060,11 +1099,11 @@ static int ni_660x_attach(struct comedi_device *dev,
 		return -ENOMEM;
 
 	s = dev->subdevices + 0;
-	
+	/* Old GENERAL-PURPOSE COUNTER/TIME (GPCT) subdevice, no longer used */
 	s->type = COMEDI_SUBD_UNUSED;
 
 	s = dev->subdevices + NI_660X_DIO_SUBDEV;
-	
+	/* DIGITAL I/O SUBDEVICE */
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
 	s->n_chan = NUM_PFI_CHANNELS;
@@ -1072,7 +1111,9 @@ static int ni_660x_attach(struct comedi_device *dev,
 	s->range_table = &range_digital;
 	s->insn_bits = ni_660x_dio_insn_bits;
 	s->insn_config = ni_660x_dio_insn_config;
-	s->io_bits = 0;		
+	s->io_bits = 0;		/* all bits default to input */
+	/*  we use the ioconfig registers to control dio direction, so zero
+	output enables in stc dio control reg */
 	ni_660x_write_register(dev, 0, 0, STCDIOControl);
 
 	private(dev)->counter_dev = ni_gpct_device_construct(dev,
@@ -1089,7 +1130,7 @@ static int ni_660x_attach(struct comedi_device *dev,
 			s->type = COMEDI_SUBD_COUNTER;
 			s->subdev_flags =
 			    SDF_READABLE | SDF_WRITABLE | SDF_LSAMPL |
-			    SDF_CMD_READ  ;
+			    SDF_CMD_READ /* | SDF_CMD_WRITE */ ;
 			s->n_chan = 3;
 			s->maxdata = 0xffffffff;
 			s->insn_read = ni_660x_GPCT_rinsn;
@@ -1126,6 +1167,8 @@ static int ni_660x_attach(struct comedi_device *dev,
 						pfi_output_select_counter);
 		ni_660x_select_pfi_output(dev, i, pfi_output_select_high_Z);
 	}
+	/* to be safe, set counterswap bits on tio chips after all the counter
+	   outputs have been set to high impedance mode */
 	for (i = 0; i < board(dev)->n_chips; ++i)
 		set_tio_counterswap(dev, i);
 
@@ -1149,7 +1192,7 @@ static int ni_660x_detach(struct comedi_device *dev)
 {
 	printk(KERN_INFO "comedi%d: ni_660x: remove\n", dev->minor);
 
-	
+	/* Free irq */
 	if (dev->irq)
 		free_irq(dev->irq, dev);
 
@@ -1175,7 +1218,7 @@ static void init_tio_chip(struct comedi_device *dev, int chipset)
 {
 	unsigned i;
 
-	
+	/*  init dma configuration register */
 	private(dev)->dma_configuration_soft_copies[chipset] = 0;
 	for (i = 0; i < MAX_DMA_CHANNEL; ++i) {
 		private(dev)->dma_configuration_soft_copies[chipset] |=
@@ -1236,13 +1279,15 @@ static int ni_660x_dio_insn_bits(struct comedi_device *dev,
 {
 	unsigned base_bitfield_channel = CR_CHAN(insn->chanspec);
 
-	
+	/*  Check if we have to write some bits */
 	if (data[0]) {
 		s->state &= ~(data[0] << base_bitfield_channel);
 		s->state |= (data[0] & data[1]) << base_bitfield_channel;
-		
+		/* Write out the new digital output lines */
 		ni_660x_write_register(dev, 0, s->state, DIO32Output);
 	}
+	/* on return, data[1] contains the value of the digital
+	 * input and output lines. */
 	data[1] =
 	    (ni_660x_read_register(dev, 0,
 				   DIO32Input) >> base_bitfield_channel);
@@ -1340,6 +1385,10 @@ static int ni_660x_dio_insn_config(struct comedi_device *dev,
 {
 	int chan = CR_CHAN(insn->chanspec);
 
+	/* The input or output configuration of each digital line is
+	 * configured by a special insn_config instruction.  chanspec
+	 * contains the channel to be changed, and data[0] contains the
+	 * value COMEDI_INPUT or COMEDI_OUTPUT. */
 
 	switch (data[0]) {
 	case INSN_CONFIG_DIO_OUTPUT:

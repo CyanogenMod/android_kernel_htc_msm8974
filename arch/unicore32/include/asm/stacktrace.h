@@ -28,4 +28,4 @@ extern int unwind_frame(struct stackframe *frame);
 extern void walk_stackframe(struct stackframe *frame,
 			    int (*fn)(struct stackframe *, void *), void *data);
 
-#endif	
+#endif	/* __UNICORE_STACKTRACE_H__ */

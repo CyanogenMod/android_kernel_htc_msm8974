@@ -26,17 +26,19 @@
 
 #include "mux.h"
 
+/* In register I2C_CON, Bit 15 is the I2C enable bit */
 #define I2C_EN					BIT(15)
 #define OMAP2_I2C_CON_OFFSET			0x24
 #define OMAP4_I2C_CON_OFFSET			0xA4
 
+/* Maximum microseconds to wait for OMAP module to softreset */
 #define MAX_MODULE_SOFTRESET_WAIT	10000
 
 void __init omap2_i2c_mux_pins(int bus_id)
 {
 	char mux_name[sizeof("i2c2_scl.i2c2_scl")];
 
-	
+	/* First I2C bus is not muxable */
 	if (bus_id == 1)
 		return;
 
@@ -46,6 +48,19 @@ void __init omap2_i2c_mux_pins(int bus_id)
 	omap_mux_init_signal(mux_name, OMAP_PIN_INPUT);
 }
 
+/**
+ * omap_i2c_reset - reset the omap i2c module.
+ * @oh: struct omap_hwmod *
+ *
+ * The i2c moudle in omap2, omap3 had a special sequence to reset. The
+ * sequence is:
+ * - Disable the I2C.
+ * - Write to SOFTRESET bit.
+ * - Enable the I2C.
+ * - Poll on the RESETDONE bit.
+ * The sequence is implemented in below function. This is called for 2420,
+ * 2430 and omap3.
+ */
 int omap_i2c_reset(struct omap_hwmod *oh)
 {
 	u32 v;
@@ -62,20 +77,20 @@ int omap_i2c_reset(struct omap_hwmod *oh)
 		return -EINVAL;
 	}
 
-	
+	/* Disable I2C */
 	v = omap_hwmod_read(oh, i2c_con);
 	v &= ~I2C_EN;
 	omap_hwmod_write(v, oh, i2c_con);
 
-	
+	/* Write to the SOFTRESET bit */
 	omap_hwmod_softreset(oh);
 
-	
+	/* Enable I2C */
 	v = omap_hwmod_read(oh, i2c_con);
 	v |= I2C_EN;
 	omap_hwmod_write(v, oh, i2c_con);
 
-	
+	/* Poll on RESETDONE bit */
 	omap_test_timeout((omap_hwmod_read(oh,
 				oh->class->sysc->syss_offs)
 				& SYSS_RESETDONE_MASK),

@@ -20,6 +20,12 @@
 
 #ifndef find_str_pc_offset
 
+/*
+ * For STR and STM instructions, an ARM core may choose to use either
+ * a +8 or a +12 displacement from the current instruction's address.
+ * Whichever value is chosen for a given core, it must be the same for
+ * both instructions and may not change.  This function measures it.
+ */
 
 int str_pc_offset;
 
@@ -37,7 +43,7 @@ void __init find_str_pc_offset(void)
 	str_pc_offset = ret;
 }
 
-#endif 
+#endif /* !find_str_pc_offset */
 
 
 #ifndef test_load_write_pc_interworking
@@ -51,7 +57,7 @@ void __init test_load_write_pc_interworking(void)
 	load_write_pc_interworks = arch >= CPU_ARCH_ARMv5T;
 }
 
-#endif 
+#endif /* !test_load_write_pc_interworking */
 
 
 #ifndef test_alu_write_pc_interworking
@@ -65,7 +71,7 @@ void __init test_alu_write_pc_interworking(void)
 	alu_write_pc_interworks = arch >= CPU_ARCH_ARMv7;
 }
 
-#endif 
+#endif /* !test_alu_write_pc_interworking */
 
 
 void __init arm_kprobe_decode_init(void)
@@ -118,39 +124,39 @@ static unsigned long __kprobes __check_vc(unsigned long cpsr)
 
 static unsigned long __kprobes __check_hi(unsigned long cpsr)
 {
-	cpsr &= ~(cpsr >> 1); 
+	cpsr &= ~(cpsr >> 1); /* PSR_C_BIT &= ~PSR_Z_BIT */
 	return cpsr & PSR_C_BIT;
 }
 
 static unsigned long __kprobes __check_ls(unsigned long cpsr)
 {
-	cpsr &= ~(cpsr >> 1); 
+	cpsr &= ~(cpsr >> 1); /* PSR_C_BIT &= ~PSR_Z_BIT */
 	return (~cpsr) & PSR_C_BIT;
 }
 
 static unsigned long __kprobes __check_ge(unsigned long cpsr)
 {
-	cpsr ^= (cpsr << 3); 
+	cpsr ^= (cpsr << 3); /* PSR_N_BIT ^= PSR_V_BIT */
 	return (~cpsr) & PSR_N_BIT;
 }
 
 static unsigned long __kprobes __check_lt(unsigned long cpsr)
 {
-	cpsr ^= (cpsr << 3); 
+	cpsr ^= (cpsr << 3); /* PSR_N_BIT ^= PSR_V_BIT */
 	return cpsr & PSR_N_BIT;
 }
 
 static unsigned long __kprobes __check_gt(unsigned long cpsr)
 {
-	unsigned long temp = cpsr ^ (cpsr << 3); 
-	temp |= (cpsr << 1);			 
+	unsigned long temp = cpsr ^ (cpsr << 3); /* PSR_N_BIT ^= PSR_V_BIT */
+	temp |= (cpsr << 1);			 /* PSR_N_BIT |= PSR_Z_BIT */
 	return (~temp) & PSR_N_BIT;
 }
 
 static unsigned long __kprobes __check_le(unsigned long cpsr)
 {
-	unsigned long temp = cpsr ^ (cpsr << 3); 
-	temp |= (cpsr << 1);			 
+	unsigned long temp = cpsr ^ (cpsr << 3); /* PSR_N_BIT ^= PSR_V_BIT */
+	temp |= (cpsr << 1);			 /* PSR_N_BIT |= PSR_Z_BIT */
 	return temp & PSR_N_BIT;
 }
 
@@ -247,7 +253,7 @@ emulate_generic_r0_12_noflags(struct kprobe *p, struct pt_regs *regs)
 		"ldr	pc, [sp], #4		\n\t"
 		"1:				\n\t"
 #endif
-		"ldr	lr, [sp], #4		\n\t" 
+		"ldr	lr, [sp], #4		\n\t" /* lr = regs */
 		"stmia	lr, {r0-r12}		\n\t"
 		"ldr	r11, [sp], #4		\n\t"
 		: [regs] "=r" (rregs), [fn] "=r" (rfn)
@@ -279,17 +285,17 @@ kprobe_decode_ldmstm(kprobe_opcode_t insn, struct arch_specific_insn *asi)
 	int rn = (insn >> 16) & 0xf;
 
 	if (rn <= 12 && (reglist & 0xe000) == 0) {
-		
+		/* Instruction only uses registers in the range R0..R12 */
 		handler = emulate_generic_r0_12_noflags;
 
 	} else if (rn >= 2 && (reglist & 0x8003) == 0) {
-		
+		/* Instruction only uses registers in the range R2..R14 */
 		rn -= 2;
 		reglist >>= 2;
 		handler = emulate_generic_r2_14_noflags;
 
 	} else if (rn >= 3 && (reglist & 0x0007) == 0) {
-		
+		/* Instruction only uses registers in the range R3..R15 */
 		if (is_ldm && (reglist & 0x8000)) {
 			rn -= 3;
 			reglist >>= 3;
@@ -298,13 +304,13 @@ kprobe_decode_ldmstm(kprobe_opcode_t insn, struct arch_specific_insn *asi)
 	}
 
 	if (handler) {
-		
+		/* We can emulate the instruction in (possibly) modified form */
 		asi->insn[0] = (insn & 0xfff00000) | (rn << 16) | reglist;
 		asi->insn_handler = handler;
 		return INSN_GOOD;
 	}
 
-	
+	/* Fallback to slower simulation... */
 	if (reglist & 0x8000)
 		handler = is_ldm ? simulate_ldm1_pc : simulate_stm1_pc;
 	else
@@ -314,6 +320,13 @@ kprobe_decode_ldmstm(kprobe_opcode_t insn, struct arch_specific_insn *asi)
 }
 
 
+/*
+ * Prepare an instruction slot to receive an instruction for emulating.
+ * This is done by placing a subroutine return after the location where the
+ * instruction will be placed. We also modify ARM instructions to be
+ * unconditional as the condition code will already be checked before any
+ * emulation handler is called.
+ */
 static kprobe_opcode_t __kprobes
 prepare_emulated_insn(kprobe_opcode_t insn, struct arch_specific_insn *asi,
 								bool thumb)
@@ -321,20 +334,24 @@ prepare_emulated_insn(kprobe_opcode_t insn, struct arch_specific_insn *asi,
 #ifdef CONFIG_THUMB2_KERNEL
 	if (thumb) {
 		u16 *thumb_insn = (u16 *)asi->insn;
-		thumb_insn[1] = 0x4770; 
-		thumb_insn[2] = 0x4770; 
+		thumb_insn[1] = 0x4770; /* Thumb bx lr */
+		thumb_insn[2] = 0x4770; /* Thumb bx lr */
 		return insn;
 	}
-	asi->insn[1] = 0xe12fff1e; 
+	asi->insn[1] = 0xe12fff1e; /* ARM bx lr */
 #else
-	asi->insn[1] = 0xe1a0f00e; 
+	asi->insn[1] = 0xe1a0f00e; /* mov pc, lr */
 #endif
-	
+	/* Make an ARM instruction unconditional */
 	if (insn < 0xe0000000)
 		insn = (insn | 0xe0000000) & ~0x10000000;
 	return insn;
 }
 
+/*
+ * Write a (probably modified) instruction into the slot previously prepared by
+ * prepare_emulated_insn
+ */
 static void  __kprobes
 set_emulated_insn(kprobe_opcode_t insn, struct arch_specific_insn *asi,
 								bool thumb)
@@ -351,14 +368,31 @@ set_emulated_insn(kprobe_opcode_t insn, struct arch_specific_insn *asi,
 	asi->insn[0] = insn;
 }
 
+/*
+ * When we modify the register numbers encoded in an instruction to be emulated,
+ * the new values come from this define. For ARM and 32-bit Thumb instructions
+ * this gives...
+ *
+ *	bit position	  16  12   8   4   0
+ *	---------------+---+---+---+---+---+
+ *	register	 r2  r0  r1  --  r3
+ */
 #define INSN_NEW_BITS		0x00020103
 
+/* Each nibble has same value as that at INSN_NEW_BITS bit 16 */
 #define INSN_SAMEAS16_BITS	0x22222222
 
+/*
+ * Validate and modify each of the registers encoded in an instruction.
+ *
+ * Each nibble in regs contains a value from enum decode_reg_type. For each
+ * non-zero value, the corresponding nibble in pinsn is validated and modified
+ * according to the type.
+ */
 static bool __kprobes decode_regs(kprobe_opcode_t* pinsn, u32 regs)
 {
 	kprobe_opcode_t insn = *pinsn;
-	kprobe_opcode_t mask = 0xf; 
+	kprobe_opcode_t mask = 0xf; /* Start at least significant nibble */
 
 	for (; regs != 0; regs >>= 4, mask <<= 4) {
 
@@ -367,56 +401,56 @@ static bool __kprobes decode_regs(kprobe_opcode_t* pinsn, u32 regs)
 		switch (regs & 0xf) {
 
 		case REG_TYPE_NONE:
-			
+			/* Nibble not a register, skip to next */
 			continue;
 
 		case REG_TYPE_ANY:
-			
+			/* Any register is allowed */
 			break;
 
 		case REG_TYPE_SAMEAS16:
-			
+			/* Replace register with same as at bit position 16 */
 			new_bits = INSN_SAMEAS16_BITS;
 			break;
 
 		case REG_TYPE_SP:
-			
+			/* Only allow SP (R13) */
 			if ((insn ^ 0xdddddddd) & mask)
 				goto reject;
 			break;
 
 		case REG_TYPE_PC:
-			
+			/* Only allow PC (R15) */
 			if ((insn ^ 0xffffffff) & mask)
 				goto reject;
 			break;
 
 		case REG_TYPE_NOSP:
-			
+			/* Reject SP (R13) */
 			if (((insn ^ 0xdddddddd) & mask) == 0)
 				goto reject;
 			break;
 
 		case REG_TYPE_NOSPPC:
 		case REG_TYPE_NOSPPCX:
-			
+			/* Reject SP and PC (R13 and R15) */
 			if (((insn ^ 0xdddddddd) & 0xdddddddd & mask) == 0)
 				goto reject;
 			break;
 
 		case REG_TYPE_NOPCWB:
 			if (!is_writeback(insn))
-				break; 
-			
+				break; /* No writeback, so any register is OK */
+			/* fall through... */
 		case REG_TYPE_NOPC:
 		case REG_TYPE_NOPCX:
-			
+			/* Reject PC (R15) */
 			if (((insn ^ 0xffffffff) & mask) == 0)
 				goto reject;
 			break;
 		}
 
-		
+		/* Replace value of nibble with new register number... */
 		insn &= ~mask;
 		insn |= new_bits & mask;
 	}
@@ -437,6 +471,49 @@ static const int decode_struct_sizes[NUM_DECODE_TYPES] = {
 	[DECODE_TYPE_REJECT]	= sizeof(struct decode_reject)
 };
 
+/*
+ * kprobe_decode_insn operates on data tables in order to decode an ARM
+ * architecture instruction onto which a kprobe has been placed.
+ *
+ * These instruction decoding tables are a concatenation of entries each
+ * of which consist of one of the following structs:
+ *
+ *	decode_table
+ *	decode_custom
+ *	decode_simulate
+ *	decode_emulate
+ *	decode_or
+ *	decode_reject
+ *
+ * Each of these starts with a struct decode_header which has the following
+ * fields:
+ *
+ *	type_regs
+ *	mask
+ *	value
+ *
+ * The least significant DECODE_TYPE_BITS of type_regs contains a value
+ * from enum decode_type, this indicates which of the decode_* structs
+ * the entry contains. The value DECODE_TYPE_END indicates the end of the
+ * table.
+ *
+ * When the table is parsed, each entry is checked in turn to see if it
+ * matches the instruction to be decoded using the test:
+ *
+ *	(insn & mask) == value
+ *
+ * If no match is found before the end of the table is reached then decoding
+ * fails with INSN_REJECTED.
+ *
+ * When a match is found, decode_regs() is called to validate and modify each
+ * of the registers encoded in the instruction; the data it uses to do this
+ * is (type_regs >> DECODE_TYPE_BITS). A validation failure will cause decoding
+ * to fail with INSN_REJECTED.
+ *
+ * Once the instruction has passed the above tests, further processing
+ * depends on the type of the table entry's decode struct.
+ *
+ */
 int __kprobes
 kprobe_decode_insn(kprobe_opcode_t insn, struct arch_specific_insn *asi,
 				const union decode_item *table, bool thumb)

@@ -28,16 +28,16 @@
 
 struct ves1820_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* value of XIN to use */
 	u32 xin;
 
-	
+	/* does inversion need inverted? */
 	u8 invert:1;
 
-	
+	/* SELAGC control */
 	u8 selagc:1;
 };
 
@@ -51,6 +51,6 @@ static inline struct dvb_frontend* ves1820_attach(const struct ves1820_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_VES1820
 
-#endif 
+#endif // VES1820_H

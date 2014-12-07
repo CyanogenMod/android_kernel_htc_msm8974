@@ -28,6 +28,7 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Alexander Shishkin");
 
+/* Cortex CoreSight components within omap3xxx EMU */
 #define ETM_BASE	(L4_EMU_34XX_PHYS + 0x10000)
 #define DBG_BASE	(L4_EMU_34XX_PHYS + 0x11000)
 #define ETB_BASE	(L4_EMU_34XX_PHYS + 0x1b000)

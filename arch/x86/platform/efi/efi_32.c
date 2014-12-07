@@ -31,6 +31,12 @@
 #include <asm/tlbflush.h>
 #include <asm/efi.h>
 
+/*
+ * To make EFI call EFI runtime service in physical addressing mode we need
+ * prelog/epilog before/after the invocation to disable interrupt, to
+ * claim EFI runtime service handler exclusively and to duplicate a memory in
+ * low memory space say 0 - 3G.
+ */
 
 static unsigned long efi_rt_eflags;
 

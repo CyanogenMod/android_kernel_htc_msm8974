@@ -30,7 +30,7 @@ struct zd_ctrlset {
 	u8     modulation;
 	__le16 tx_length;
 	u8     control;
-	
+	/* stores only the difference to tx_length on ZD1211B */
 	__le16 packet_length;
 	__le16 current_length;
 	u8     service;
@@ -39,6 +39,13 @@ struct zd_ctrlset {
 
 #define ZD_CS_RESERVED_SIZE	25
 
+/* The field modulation of struct zd_ctrlset controls the bit rate, the use
+ * of short or long preambles in 802.11b (CCK mode) or the use of 802.11a or
+ * 802.11g in OFDM mode.
+ *
+ * The term zd-rate is used for the combination of the modulation type flag
+ * and the "pure" rate value.
+ */
 #define ZD_PURE_RATE_MASK       0x0f
 #define ZD_MODULATION_TYPE_MASK 0x10
 #define ZD_RATE_MASK            (ZD_PURE_RATE_MASK|ZD_MODULATION_TYPE_MASK)
@@ -46,9 +53,17 @@ struct zd_ctrlset {
 #define ZD_MODULATION_TYPE(modulation) ((modulation) & ZD_MODULATION_TYPE_MASK)
 #define ZD_RATE(modulation) ((modulation) & ZD_RATE_MASK)
 
+/* The two possible modulation types. Notify that 802.11b doesn't use the CCK
+ * codeing for the 1 and 2 MBit/s rate. We stay with the term here to remain
+ * consistent with uses the term at other places.
+ */
 #define ZD_CCK                  0x00
 #define ZD_OFDM                 0x10
 
+/* The ZD1211 firmware uses proprietary encodings of the 802.11b (CCK) rates.
+ * For OFDM the PLCP rate encodings are used. We combine these "pure" rates
+ * with the modulation type flag and call the resulting values zd-rates.
+ */
 #define ZD_CCK_RATE_1M          (ZD_CCK|0x00)
 #define ZD_CCK_RATE_2M          (ZD_CCK|0x01)
 #define ZD_CCK_RATE_5_5M        (ZD_CCK|0x02)
@@ -62,11 +77,15 @@ struct zd_ctrlset {
 #define ZD_OFDM_RATE_48M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_48M)
 #define ZD_OFDM_RATE_54M        (ZD_OFDM|ZD_OFDM_PLCP_RATE_54M)
 
+/* The bit 5 of the zd_ctrlset modulation field controls the preamble in CCK
+ * mode or the 802.11a/802.11g selection in OFDM mode.
+ */
 #define ZD_CCK_PREA_LONG        0x00
 #define ZD_CCK_PREA_SHORT       0x20
 #define ZD_OFDM_MODE_11G        0x00
 #define ZD_OFDM_MODE_11A        0x20
 
+/* zd_ctrlset control field */
 #define ZD_CS_NEED_RANDOM_BACKOFF	0x01
 #define ZD_CS_NO_ACK			0x02
 
@@ -81,6 +100,7 @@ struct zd_ctrlset {
 #define ZD_CS_ENCRYPT			0x40
 #define ZD_CS_SELF_CTS			0x80
 
+/* Incoming frames are prepended by a PLCP header */
 #define ZD_PLCP_HEADER_SIZE		5
 
 struct rx_length_info {
@@ -92,13 +112,14 @@ struct rx_length_info {
 
 struct rx_status {
 	u8 signal_quality_cck;
-	
+	/* rssi */
 	u8 signal_strength;
 	u8 signal_quality_ofdm;
 	u8 decryption_type;
 	u8 frame_status;
 } __packed;
 
+/* rx_status field decryption_type */
 #define ZD_RX_NO_WEP	0
 #define ZD_RX_WEP64	1
 #define ZD_RX_TKIP	2
@@ -106,6 +127,7 @@ struct rx_status {
 #define ZD_RX_WEP128	5
 #define ZD_RX_WEP256	6
 
+/* rx_status field frame_status */
 #define ZD_RX_FRAME_MODULATION_MASK	0x01
 #define ZD_RX_CCK			0x00
 #define ZD_RX_OFDM			0x01
@@ -119,13 +141,13 @@ struct rx_status {
 #define ZD_RX_ERROR			0x80
 
 struct tx_retry_rate {
-	int count;	
-	int rate[10];	
+	int count;	/* number of valid element in rate[] array */
+	int rate[10];	/* retry rates, described by an index in zd_rates[] */
 };
 
 struct tx_status {
-	u8 type;	
-	u8 id;		
+	u8 type;	/* must always be 0x01 : USB_INT_TYPE */
+	u8 id;		/* must always be 0xa0 : USB_INT_ID_RETRY_FAILED */
 	u8 rate;
 	u8 pad;
 	u8 mac[ETH_ALEN];
@@ -180,19 +202,19 @@ struct zd_mac {
 	struct ieee80211_rate rates[12];
 	struct ieee80211_supported_band band;
 
-	
+	/* Short preamble (used for RTS/CTS) */
 	unsigned int short_preamble:1;
 
-	
+	/* whether to pass frames with CRC errors to stack */
 	unsigned int pass_failed_fcs:1;
 
-	
+	/* whether to pass control frames to stack */
 	unsigned int pass_ctrl:1;
 
-	
+	/* whether we have received a 802.11 ACK that is pending */
 	unsigned int ack_pending:1;
 
-	
+	/* signal strength of the last 802.11 ACK received */
 	int ack_signal;
 };
 
@@ -222,6 +244,12 @@ static inline u8 zd_ofdm_plcp_header_rate(const struct ofdm_plcp_header *header)
 	return header->prefix[0] & 0xf;
 }
 
+/* The following defines give the encoding of the 4-bit rate field in the
+ * OFDM (802.11a/802.11g) PLCP header. Notify that these values are used to
+ * define the zd-rate values for OFDM.
+ *
+ * See the struct zd_ctrlset definition in zd_mac.h.
+ */
 #define ZD_OFDM_PLCP_RATE_6M	0xb
 #define ZD_OFDM_PLCP_RATE_9M	0xf
 #define ZD_OFDM_PLCP_RATE_12M	0xa
@@ -243,6 +271,13 @@ static inline u8 zd_cck_plcp_header_signal(const struct cck_plcp_header *header)
 	return header->signal;
 }
 
+/* These defines give the encodings of the signal field in the 802.11b PLCP
+ * header. The signal field gives the bit rate of the following packet. Even
+ * if technically wrong we use CCK here also for the 1 MBit/s and 2 MBit/s
+ * rate to stay consistent with Zydas and our use of the term.
+ *
+ * Notify that these values are *not* used in the zd-rates.
+ */
 #define ZD_CCK_PLCP_SIGNAL_1M	0x0a
 #define ZD_CCK_PLCP_SIGNAL_2M	0x14
 #define ZD_CCK_PLCP_SIGNAL_5M5	0x37
@@ -288,6 +323,6 @@ int zd_restore_settings(struct zd_mac *mac);
 void zd_dump_rx_status(const struct rx_status *status);
 #else
 #define zd_dump_rx_status(status)
-#endif 
+#endif /* DEBUG */
 
-#endif 
+#endif /* _ZD_MAC_H */

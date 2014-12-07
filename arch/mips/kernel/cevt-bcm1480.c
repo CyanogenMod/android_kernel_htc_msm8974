@@ -36,6 +36,10 @@
 #define IMR_IP3_VAL	K_BCM1480_INT_MAP_I1
 #define IMR_IP4_VAL	K_BCM1480_INT_MAP_I2
 
+/*
+ * The general purpose timer ticks at 1MHz independent if
+ * the rest of the system
+ */
 static void sibyte_set_mode(enum clock_event_mode mode,
                            struct clock_event_device *evt)
 {
@@ -54,12 +58,12 @@ static void sibyte_set_mode(enum clock_event_mode mode,
 		break;
 
 	case CLOCK_EVT_MODE_ONESHOT:
-		
+		/* Stop the timer until we actually program a shot */
 	case CLOCK_EVT_MODE_SHUTDOWN:
 		__raw_writeq(0, cfg);
 		break;
 
-	case CLOCK_EVT_MODE_UNUSED:	
+	case CLOCK_EVT_MODE_UNUSED:	/* shuddup gcc */
 	case CLOCK_EVT_MODE_RESUME:
 		;
 	}
@@ -92,7 +96,7 @@ static irqreturn_t sibyte_counter_handler(int irq, void *dev_id)
 	else
 		tmode = 0;
 
-	
+	/* ACK interrupt */
 	cfg = IOADDR(A_SCD_TIMER_REGISTER(cpu, R_SCD_TIMER_CFG));
 	____raw_writeq(tmode, cfg);
 
@@ -113,7 +117,7 @@ void __cpuinit sb1480_clockevent_init(void)
 	struct clock_event_device *cd = &per_cpu(sibyte_hpt_clockevent, cpu);
 	unsigned char *name = per_cpu(sibyte_hpt_name, cpu);
 
-	BUG_ON(cpu > 3);	
+	BUG_ON(cpu > 3);	/* Only have 4 general purpose timers */
 
 	sprintf(name, "bcm1480-counter-%d", cpu);
 	cd->name		= name;
@@ -131,6 +135,9 @@ void __cpuinit sb1480_clockevent_init(void)
 
 	bcm1480_mask_irq(cpu, irq);
 
+	/*
+	 * Map the timer interrupt to IP[4] of this cpu
+	 */
 	__raw_writeq(IMR_IP4_VAL,
 		     IOADDR(A_BCM1480_IMR_REGISTER(cpu,
 			R_BCM1480_IMR_INTERRUPT_MAP_BASE_H) + (irq << 3)));

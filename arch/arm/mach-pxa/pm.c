@@ -27,28 +27,28 @@ int pxa_pm_enter(suspend_state_t state)
 	int i;
 
 #ifdef CONFIG_IWMMXT
-	
+	/* force any iWMMXt context to ram **/
 	if (elf_hwcap & HWCAP_IWMMXT)
 		iwmmxt_task_disable(NULL);
 #endif
 
-	
+	/* skip registers saving for standby */
 	if (state != PM_SUSPEND_STANDBY && pxa_cpu_pm_fns->save) {
 		pxa_cpu_pm_fns->save(sleep_save);
-		
+		/* before sleeping, calculate and save a checksum */
 		for (i = 0; i < pxa_cpu_pm_fns->save_count - 1; i++)
 			sleep_save_checksum += sleep_save[i];
 	}
 
-	
+	/* *** go zzz *** */
 	pxa_cpu_pm_fns->enter(state);
 
 	if (state != PM_SUSPEND_STANDBY && pxa_cpu_pm_fns->restore) {
-		
+		/* after sleeping, validate the checksum */
 		for (i = 0; i < pxa_cpu_pm_fns->save_count - 1; i++)
 			checksum += sleep_save[i];
 
-		
+		/* if invalid, display message and wait for a hardware reset */
 		if (checksum != sleep_save_checksum) {
 
 			lubbock_set_hexled(0xbadbadc5);

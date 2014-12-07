@@ -26,8 +26,11 @@
 #ifndef __ASSEMBLY__
 
 #include <linux/types.h>
-#include <asm/kregs.h> 
+#include <asm/kregs.h> /* for IA64_PSR_I */
 
+/******************************************************************************
+ * replacement of intrinsics operations.
+ */
 
 struct pv_cpu_ops {
 	void (*fc)(void *addr);
@@ -53,6 +56,9 @@ extern struct pv_cpu_ops pv_cpu_ops;
 extern void ia64_native_setreg_func(int regnum, unsigned long val);
 extern unsigned long ia64_native_getreg_func(int regnum);
 
+/************************************************/
+/* Instructions paravirtualized for performance */
+/************************************************/
 
 #ifndef ASM_SUPPORTED
 #define paravirt_ssm_i()	pv_cpu_ops.ssm_i()
@@ -60,6 +66,8 @@ extern unsigned long ia64_native_getreg_func(int regnum);
 #define __paravirt_getreg()	pv_cpu_ops.getreg()
 #endif
 
+/* mask for ia64_native_ssm/rsm() must be constant.("i" constraing).
+ * static inline function doesn't satisfy it. */
 #define paravirt_ssm(mask)			\
 	do {					\
 		if ((mask) == IA64_PSR_I)	\
@@ -76,6 +84,8 @@ extern unsigned long ia64_native_getreg_func(int regnum);
 			ia64_native_rsm(mask);	\
 	} while (0)
 
+/* returned ip value should be the one in the caller,
+ * not in __paravirt_getreg() */
 #define paravirt_getreg(reg)					\
 	({							\
 		unsigned long res;				\
@@ -97,22 +107,26 @@ struct pv_cpu_asm_switch {
 };
 void paravirt_cpu_asm_init(const struct pv_cpu_asm_switch *cpu_asm_switch);
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define IA64_PARAVIRT_ASM_FUNC(name)	paravirt_ ## name
 
 #else
 
+/* fallback for native case */
 #define IA64_PARAVIRT_ASM_FUNC(name)	ia64_native_ ## name
 
-#endif 
+#endif /* CONFIG_PARAVIRT */
 
 #if defined(CONFIG_PARAVIRT) && defined(ASM_SUPPORTED)
 #define paravirt_dv_serialize_data()	ia64_dv_serialize_data()
 #else
-#define paravirt_dv_serialize_data()	
+#define paravirt_dv_serialize_data()	/* nothing */
 #endif
 
+/* these routines utilize privilege-sensitive or performance-sensitive
+ * privileged instructions so the code must be replaced with
+ * paravirtualized versions */
 #define ia64_switch_to			IA64_PARAVIRT_ASM_FUNC(switch_to)
 #define ia64_leave_syscall		IA64_PARAVIRT_ASM_FUNC(leave_syscall)
 #define ia64_work_processed_syscall	\
@@ -121,6 +135,9 @@ void paravirt_cpu_asm_init(const struct pv_cpu_asm_switch *cpu_asm_switch);
 
 
 #if defined(CONFIG_PARAVIRT)
+/******************************************************************************
+ * binary patching infrastructure
+ */
 #define PARAVIRT_PATCH_TYPE_FC				1
 #define PARAVIRT_PATCH_TYPE_THASH			2
 #define PARAVIRT_PATCH_TYPE_GET_CPUID			3
@@ -134,9 +151,16 @@ void paravirt_cpu_asm_init(const struct pv_cpu_asm_switch *cpu_asm_switch);
 #define PARAVIRT_PATCH_TYPE_GET_PSR_I			11
 #define PARAVIRT_PATCH_TYPE_INTRIN_LOCAL_IRQ_RESTORE	12
 
+/* PARAVIRT_PATY_TYPE_[GS]ETREG + _IA64_REG_xxx */
 #define PARAVIRT_PATCH_TYPE_GETREG			0x10000000
 #define PARAVIRT_PATCH_TYPE_SETREG			0x20000000
 
+/*
+ * struct task_struct* (*ia64_switch_to)(void* next_task);
+ * void *ia64_leave_syscall;
+ * void *ia64_work_processed_syscall
+ * void *ia64_leave_kernel;
+ */
 
 #define PARAVIRT_PATCH_TYPE_BR_START			0x30000000
 #define PARAVIRT_PATCH_TYPE_BR_SWITCH_TO		\
@@ -179,34 +203,35 @@ void paravirt_cpu_asm_init(const struct pv_cpu_asm_switch *cpu_asm_switch);
  * b0: rp: preserved. gcc ignores b0 in clobbered register.
  * r16: saved gp
  */
+/* 5 bundles */
 #define __PARAVIRT_BR							\
 	";;\n"								\
 	"{ .mlx\n"							\
 	"nop 0\n"							\
-	"movl r2 = %[op_addr]\n"	\
+	"movl r2 = %[op_addr]\n"/* get function pointer address */	\
 	";;\n"								\
 	"}\n"								\
 	"1:\n"								\
 	"{ .mii\n"							\
-	"ld8 r2 = [r2]\n"		\
-	"mov r17 = ip\n"		\
-	"mov r16 = gp\n"					\
+	"ld8 r2 = [r2]\n"	/* load function descriptor address */	\
+	"mov r17 = ip\n"	/* get ip to calc return address */	\
+	"mov r16 = gp\n"	/* save gp */				\
 	";;\n"								\
 	"}\n"								\
 	"{ .mii\n"							\
-	"ld8 r3 = [r2], 8\n"			\
-	"adds r17 =  1f - 1b, r17\n"		\
+	"ld8 r3 = [r2], 8\n"	/* load entry address */		\
+	"adds r17 =  1f - 1b, r17\n"	/* calculate return address */	\
 	";;\n"								\
-	"mov b7 = r3\n"					\
+	"mov b7 = r3\n"		/* set entry address */			\
 	"}\n"								\
 	"{ .mib\n"							\
-	"ld8 gp = [r2]\n"				\
-	"mov b6 = r17\n"			\
-	"br.cond.sptk.few b7\n"		\
+	"ld8 gp = [r2]\n"	/* load gp value */			\
+	"mov b6 = r17\n"	/* set return address */		\
+	"br.cond.sptk.few b7\n"	/* intrinsics are very short isns */	\
 	"}\n"								\
 	"1:\n"								\
 	"{ .mii\n"							\
-	"mov gp = r16\n"				\
+	"mov gp = r16\n"	/* restore gp value */			\
 	"nop 0\n"							\
 	"nop 0\n"							\
 	";;\n"								\
@@ -219,19 +244,19 @@ void paravirt_cpu_asm_init(const struct pv_cpu_asm_switch *cpu_asm_switch);
 	PARAVIRT_PATCH_TYPE_ ## type
 
 #define PARAVIRT_REG_CLOBBERS0					\
-	"r2", "r3",  "r9", "r10", "r11", "r14",	\
+	"r2", "r3", /*"r8",*/ "r9", "r10", "r11", "r14",	\
 		"r15", "r16", "r17"
 
 #define PARAVIRT_REG_CLOBBERS1					\
-	"r2","r3",  "r9", "r10", "r11", "r14",		\
+	"r2","r3", /*"r8",*/ "r9", "r10", "r11", "r14",		\
 		"r15", "r16", "r17"
 
 #define PARAVIRT_REG_CLOBBERS2					\
-	"r2", "r3",  "r10", "r11", "r14",	\
+	"r2", "r3", /*"r8", "r9",*/ "r10", "r11", "r14",	\
 		"r15", "r16", "r17"
 
 #define PARAVIRT_REG_CLOBBERS5					\
-	"r2", "r3", 	\
+	"r2", "r3", /*"r8", "r9", "r10", "r11", "r14",*/	\
 		"r15", "r16", "r17"
 
 #define PARAVIRT_BR_CLOBBERS			\
@@ -414,6 +439,7 @@ paravirt_set_rr0_to_rr4(unsigned long val0, unsigned long val1,
 		      : PARAVIRT_CLOBBERS5);
 }
 
+/* unsigned long paravirt_getreg(int reg) */
 #define __paravirt_getreg(reg)						\
 	({								\
 		register unsigned long ia64_intri_res asm ("r8");	\
@@ -429,6 +455,7 @@ paravirt_set_rr0_to_rr4(unsigned long val0, unsigned long val1,
 		ia64_intri_res;						\
 	})
 
+/* void paravirt_setreg(int reg, unsigned long val) */
 #define paravirt_setreg(reg, val)					\
 	do {								\
 		register unsigned long __val asm ("r8") = val;		\
@@ -446,7 +473,7 @@ paravirt_set_rr0_to_rr4(unsigned long val0, unsigned long val1,
 			      : PARAVIRT_CLOBBERS2);			\
 	} while (0)
 
-#endif 
-#endif 
+#endif /* ASM_SUPPORTED */
+#endif /* CONFIG_PARAVIRT && ASM_SUPPOTED */
 
-#endif 
+#endif /* _ASM_IA64_PARAVIRT_PRIVOP_H */

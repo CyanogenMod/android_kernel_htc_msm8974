@@ -25,32 +25,32 @@ int pnp_add_card_device(struct pnp_card *card, struct pnp_dev *dev);
 void pnp_remove_card_device(struct pnp_dev *dev);
 
 struct pnp_port {
-	resource_size_t min;	
-	resource_size_t max;	
-	resource_size_t align;	
-	resource_size_t size;	
-	unsigned char flags;	
+	resource_size_t min;	/* min base number */
+	resource_size_t max;	/* max base number */
+	resource_size_t align;	/* align boundary */
+	resource_size_t size;	/* size of range */
+	unsigned char flags;	/* port flags */
 };
 
 #define PNP_IRQ_NR 256
 typedef struct { DECLARE_BITMAP(bits, PNP_IRQ_NR); } pnp_irq_mask_t;
 
 struct pnp_irq {
-	pnp_irq_mask_t map;	
-	unsigned char flags;	
+	pnp_irq_mask_t map;	/* bitmap for IRQ lines */
+	unsigned char flags;	/* IRQ flags */
 };
 
 struct pnp_dma {
-	unsigned char map;	
-	unsigned char flags;	
+	unsigned char map;	/* bitmask for DMA channels */
+	unsigned char flags;	/* DMA flags */
 };
 
 struct pnp_mem {
-	resource_size_t min;	
-	resource_size_t max;	
-	resource_size_t align;	
-	resource_size_t size;	
-	unsigned char flags;	
+	resource_size_t min;	/* min base number */
+	resource_size_t max;	/* max base number */
+	resource_size_t align;	/* align boundary */
+	resource_size_t size;	/* size of range */
+	unsigned char flags;	/* memory flags */
 };
 
 #define PNP_OPTION_DEPENDENT		0x80000000
@@ -66,9 +66,9 @@ struct pnp_mem {
 
 struct pnp_option {
 	struct list_head list;
-	unsigned int flags;	
+	unsigned int flags;	/* independent/dependent, set, priority */
 
-	unsigned long type;	
+	unsigned long type;	/* IORESOURCE_{IO,MEM,IRQ,DMA} */
 	union {
 		struct pnp_port port;
 		struct pnp_irq irq;

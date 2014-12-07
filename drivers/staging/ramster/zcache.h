@@ -19,4 +19,4 @@ extern int zcache_flush_object(int, int, struct tmem_oid *);
 extern int zcache_localify(int, struct tmem_oid *, uint32_t,
 			char *, size_t, void *);
 
-#endif 
+#endif /* _ZCACHE_H */

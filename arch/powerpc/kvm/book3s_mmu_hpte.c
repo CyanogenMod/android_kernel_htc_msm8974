@@ -65,20 +65,20 @@ void kvmppc_mmu_hpte_cache_map(struct kvm_vcpu *vcpu, struct hpte_cache *pte)
 
 	spin_lock(&vcpu3s->mmu_lock);
 
-	
+	/* Add to ePTE list */
 	index = kvmppc_mmu_hash_pte(pte->pte.eaddr);
 	hlist_add_head_rcu(&pte->list_pte, &vcpu3s->hpte_hash_pte[index]);
 
-	
+	/* Add to ePTE_long list */
 	index = kvmppc_mmu_hash_pte_long(pte->pte.eaddr);
 	hlist_add_head_rcu(&pte->list_pte_long,
 			   &vcpu3s->hpte_hash_pte_long[index]);
 
-	
+	/* Add to vPTE list */
 	index = kvmppc_mmu_hash_vpte(pte->pte.vpage);
 	hlist_add_head_rcu(&pte->list_vpte, &vcpu3s->hpte_hash_vpte[index]);
 
-	
+	/* Add to vPTE_long list */
 	index = kvmppc_mmu_hash_vpte_long(pte->pte.vpage);
 	hlist_add_head_rcu(&pte->list_vpte_long,
 			   &vcpu3s->hpte_hash_vpte_long[index]);
@@ -98,12 +98,12 @@ static void invalidate_pte(struct kvm_vcpu *vcpu, struct hpte_cache *pte)
 
 	trace_kvm_book3s_mmu_invalidate(pte);
 
-	
+	/* Different for 32 and 64 bit */
 	kvmppc_mmu_invalidate_pte(vcpu, pte);
 
 	spin_lock(&vcpu3s->mmu_lock);
 
-	
+	/* pte already invalidated in between? */
 	if (hlist_unhashed(&pte->list_pte)) {
 		spin_unlock(&vcpu3s->mmu_lock);
 		return;
@@ -151,12 +151,12 @@ static void kvmppc_mmu_pte_flush_page(struct kvm_vcpu *vcpu, ulong guest_ea)
 	struct hlist_node *node;
 	struct hpte_cache *pte;
 
-	
+	/* Find the list of entries in the map */
 	list = &vcpu3s->hpte_hash_pte[kvmppc_mmu_hash_pte(guest_ea)];
 
 	rcu_read_lock();
 
-	
+	/* Check the list for matching entries and invalidate */
 	hlist_for_each_entry_rcu(pte, node, list, list_pte)
 		if ((pte->pte.eaddr & ~0xfffUL) == guest_ea)
 			invalidate_pte(vcpu, pte);
@@ -171,13 +171,13 @@ static void kvmppc_mmu_pte_flush_long(struct kvm_vcpu *vcpu, ulong guest_ea)
 	struct hlist_node *node;
 	struct hpte_cache *pte;
 
-	
+	/* Find the list of entries in the map */
 	list = &vcpu3s->hpte_hash_pte_long[
 			kvmppc_mmu_hash_pte_long(guest_ea)];
 
 	rcu_read_lock();
 
-	
+	/* Check the list for matching entries and invalidate */
 	hlist_for_each_entry_rcu(pte, node, list, list_pte_long)
 		if ((pte->pte.eaddr & 0x0ffff000UL) == guest_ea)
 			invalidate_pte(vcpu, pte);
@@ -198,7 +198,7 @@ void kvmppc_mmu_pte_flush(struct kvm_vcpu *vcpu, ulong guest_ea, ulong ea_mask)
 		kvmppc_mmu_pte_flush_long(vcpu, guest_ea);
 		break;
 	case 0:
-		
+		/* Doing a complete flush -> start from scratch */
 		kvmppc_mmu_pte_flush_all(vcpu);
 		break;
 	default:
@@ -207,6 +207,7 @@ void kvmppc_mmu_pte_flush(struct kvm_vcpu *vcpu, ulong guest_ea, ulong ea_mask)
 	}
 }
 
+/* Flush with mask 0xfffffffff */
 static void kvmppc_mmu_pte_vflush_short(struct kvm_vcpu *vcpu, u64 guest_vp)
 {
 	struct kvmppc_vcpu_book3s *vcpu3s = to_book3s(vcpu);
@@ -219,7 +220,7 @@ static void kvmppc_mmu_pte_vflush_short(struct kvm_vcpu *vcpu, u64 guest_vp)
 
 	rcu_read_lock();
 
-	
+	/* Check the list for matching entries and invalidate */
 	hlist_for_each_entry_rcu(pte, node, list, list_vpte)
 		if ((pte->pte.vpage & vp_mask) == guest_vp)
 			invalidate_pte(vcpu, pte);
@@ -227,6 +228,7 @@ static void kvmppc_mmu_pte_vflush_short(struct kvm_vcpu *vcpu, u64 guest_vp)
 	rcu_read_unlock();
 }
 
+/* Flush with mask 0xffffff000 */
 static void kvmppc_mmu_pte_vflush_long(struct kvm_vcpu *vcpu, u64 guest_vp)
 {
 	struct kvmppc_vcpu_book3s *vcpu3s = to_book3s(vcpu);
@@ -240,7 +242,7 @@ static void kvmppc_mmu_pte_vflush_long(struct kvm_vcpu *vcpu, u64 guest_vp)
 
 	rcu_read_lock();
 
-	
+	/* Check the list for matching entries and invalidate */
 	hlist_for_each_entry_rcu(pte, node, list, list_vpte_long)
 		if ((pte->pte.vpage & vp_mask) == guest_vp)
 			invalidate_pte(vcpu, pte);
@@ -320,7 +322,7 @@ int kvmppc_mmu_hpte_init(struct kvm_vcpu *vcpu)
 {
 	struct kvmppc_vcpu_book3s *vcpu3s = to_book3s(vcpu);
 
-	
+	/* init hpte lookup hashes */
 	kvmppc_mmu_hpte_init_hash(vcpu3s->hpte_hash_pte,
 				  ARRAY_SIZE(vcpu3s->hpte_hash_pte));
 	kvmppc_mmu_hpte_init_hash(vcpu3s->hpte_hash_pte_long,
@@ -337,7 +339,7 @@ int kvmppc_mmu_hpte_init(struct kvm_vcpu *vcpu)
 
 int kvmppc_mmu_hpte_sysinit(void)
 {
-	
+	/* init hpte slab cache */
 	hpte_cache = kmem_cache_create("kvm-spt", sizeof(struct hpte_cache),
 				       sizeof(struct hpte_cache), 0, NULL);
 

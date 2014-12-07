@@ -18,6 +18,7 @@
  * http://www.usb.org/developers/devclass_docs/midi10.pdf
  */
 
+/* #define VERBOSE_DEBUG */
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -42,6 +43,7 @@
 #include "epautoconf.c"
 #include "f_midi.c"
 
+/*-------------------------------------------------------------------------*/
 
 MODULE_AUTHOR("Ben Williamson");
 MODULE_LICENSE("GPL v2");
@@ -73,9 +75,15 @@ static unsigned int out_ports = 1;
 module_param(out_ports, uint, S_IRUGO);
 MODULE_PARM_DESC(out_ports, "Number of MIDI output ports");
 
-#define DRIVER_VENDOR_NUM	0x17b3		
-#define DRIVER_PRODUCT_NUM	0x0004		
+/* Thanks to Grey Innovation for donating this product ID.
+ *
+ * DO NOT REUSE THESE IDs with a protocol-incompatible driver!!  Ever!!
+ * Instead:  allocate your own, using normal USB-IF procedures.
+ */
+#define DRIVER_VENDOR_NUM	0x17b3		/* Grey Innovation */
+#define DRIVER_PRODUCT_NUM	0x0004		/* Linux-USB "MIDI Gadget" */
 
+/* string IDs are assigned dynamically */
 
 #define STRING_MANUFACTURER_IDX		0
 #define STRING_PRODUCT_IDX		1
@@ -88,8 +96,8 @@ static struct usb_device_descriptor device_desc = {
 	.bDeviceClass =		USB_CLASS_PER_INTERFACE,
 	.idVendor =		__constant_cpu_to_le16(DRIVER_VENDOR_NUM),
 	.idProduct =		__constant_cpu_to_le16(DRIVER_PRODUCT_NUM),
-	
-	
+	/* .iManufacturer =	DYNAMIC */
+	/* .iProduct =		DYNAMIC */
 	.bNumConfigurations =	1,
 };
 
@@ -97,11 +105,11 @@ static struct usb_string strings_dev[] = {
 	[STRING_MANUFACTURER_IDX].s	= "Grey Innovation",
 	[STRING_PRODUCT_IDX].s		= "MIDI Gadget",
 	[STRING_DESCRIPTION_IDX].s	= "MIDI",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings stringtab_dev = {
-	.language	= 0x0409,	
+	.language	= 0x0409,	/* en-us */
 	.strings	= strings_dev,
 };
 
@@ -118,7 +126,7 @@ static int __exit midi_unbind(struct usb_composite_dev *dev)
 static struct usb_configuration midi_config = {
 	.label		= "MIDI Gadget",
 	.bConfigurationValue = 1,
-	
+	/* .iConfiguration = DYNAMIC */
 	.bmAttributes	= USB_CONFIG_ATT_ONE,
 	.bMaxPower	= CONFIG_USB_GADGET_VBUS_DRAW / 2,
 };
@@ -147,7 +155,7 @@ static int __init midi_bind(struct usb_composite_dev *cdev)
 	strings_dev[STRING_PRODUCT_IDX].id = status;
 	device_desc.iProduct = status;
 
-	
+	/* config description */
 	status = usb_string_id(cdev);
 	if (status < 0)
 		return status;
@@ -157,6 +165,10 @@ static int __init midi_bind(struct usb_composite_dev *cdev)
 
 	gcnum = usb_gadget_controller_number(gadget);
 	if (gcnum < 0) {
+		/* gmidi is so simple (no altsettings) that
+		 * it SHOULD NOT have problems with bulk-capable hardware.
+		 * so warn about unrecognized controllers, don't panic.
+		 */
 		pr_warning("%s: controller '%s' not recognized\n",
 			   __func__, gadget->name);
 		device_desc.bcdDevice = cpu_to_le16(0x9999);

@@ -12,15 +12,15 @@
 #include <linux/input.h>
 
 #define RC_TYPE_UNKNOWN	0
-#define RC_TYPE_RC5	(1  << 0)	
+#define RC_TYPE_RC5	(1  << 0)	/* Philips RC5 protocol */
 #define RC_TYPE_NEC	(1  << 1)
-#define RC_TYPE_RC6	(1  << 2)	
-#define RC_TYPE_JVC	(1  << 3)	
-#define RC_TYPE_SONY	(1  << 4)	
-#define RC_TYPE_RC5_SZ	(1  << 5)	
-#define RC_TYPE_SANYO   (1  << 6)	
-#define RC_TYPE_MCE_KBD	(1  << 29)	
-#define RC_TYPE_LIRC	(1  << 30)	
+#define RC_TYPE_RC6	(1  << 2)	/* Philips RC6 protocol */
+#define RC_TYPE_JVC	(1  << 3)	/* JVC protocol */
+#define RC_TYPE_SONY	(1  << 4)	/* Sony12/15/20 protocol */
+#define RC_TYPE_RC5_SZ	(1  << 5)	/* RC5 variant used by Streamzap */
+#define RC_TYPE_SANYO   (1  << 6)	/* Sanyo protocol */
+#define RC_TYPE_MCE_KBD	(1  << 29)	/* RC6-ish MCE keyboard/mouse */
+#define RC_TYPE_LIRC	(1  << 30)	/* Pass raw IR to lirc userspace */
 #define RC_TYPE_OTHER	(1u << 31)
 
 #define RC_TYPE_ALL (RC_TYPE_RC5    | RC_TYPE_NEC   | RC_TYPE_RC6     | \
@@ -35,9 +35,9 @@ struct rc_map_table {
 
 struct rc_map {
 	struct rc_map_table	*scan;
-	unsigned int		size;	
-	unsigned int		len;	
-	unsigned int		alloc;	
+	unsigned int		size;	/* Max number of entries */
+	unsigned int		len;	/* Used number of entries */
+	unsigned int		alloc;	/* Size of *scan in bytes */
 	u64			rc_type;
 	const char		*name;
 	spinlock_t		lock;
@@ -48,12 +48,14 @@ struct rc_map_list {
 	struct rc_map map;
 };
 
+/* Routines from rc-map.c */
 
 int rc_map_register(struct rc_map_list *map);
 void rc_map_unregister(struct rc_map_list *map);
 struct rc_map *rc_map_get(const char *name);
 void rc_map_init(void);
 
+/* Names of the several keytables defined in-kernel */
 
 #define RC_MAP_ADSTECH_DVB_T_PCI         "rc-adstech-dvb-t-pci"
 #define RC_MAP_ALINK_DTU_M               "rc-alink-dtu-m"
@@ -157,3 +159,7 @@ void rc_map_init(void);
 #define RC_MAP_WINFAST                   "rc-winfast"
 #define RC_MAP_WINFAST_USBII_DELUXE      "rc-winfast-usbii-deluxe"
 
+/*
+ * Please, do not just append newer Remote Controller names at the end.
+ * The names should be ordered in alphabetical order
+ */

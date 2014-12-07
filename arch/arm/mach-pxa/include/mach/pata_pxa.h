@@ -22,12 +22,12 @@
 #define	__MACH_PATA_PXA_H__
 
 struct pata_pxa_pdata {
-	
+	/* PXA DMA DREQ<0:2> pin */
 	uint32_t	dma_dreq;
-	
+	/* Register shift */
 	uint32_t	reg_shift;
-	
+	/* IRQ flags */
 	uint32_t	irq_flags;
 };
 
-#endif	
+#endif	/* __MACH_PATA_PXA_H__ */

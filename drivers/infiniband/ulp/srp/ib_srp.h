@@ -125,13 +125,13 @@ struct srp_request {
 };
 
 struct srp_target_port {
-	
+	/* These are RW in the hot path, and commonly used together */
 	struct list_head	free_tx;
 	struct list_head	free_reqs;
 	spinlock_t		lock;
 	s32			req_lim;
 
-	
+	/* These are read-only in the hot path */
 	struct ib_cq	       *send_cq ____cacheline_aligned_in_smp;
 	struct ib_cq	       *recv_cq;
 	struct ib_qp	       *qp;
@@ -143,6 +143,9 @@ struct srp_target_port {
 	unsigned int		indirect_size;
 	bool			allow_ext_sg;
 
+	/* Everything above this point is used in the hot path of
+	 * command processing. Try to keep them packed into cachelines.
+	 */
 
 	__be64			id_ext;
 	__be64			ioc_guid;
@@ -204,4 +207,4 @@ struct srp_map_state {
 	dma_addr_t		unmapped_addr;
 };
 
-#endif 
+#endif /* IB_SRP_H */

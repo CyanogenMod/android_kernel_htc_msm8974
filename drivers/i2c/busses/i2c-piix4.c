@@ -17,6 +17,16 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+   Supports:
+	Intel PIIX4, 440MX
+	Serverworks OSB4, CSB5, CSB6, HT-1000, HT-1100
+	ATI IXP200, IXP300, IXP400, SB600, SB700, SB800
+	AMD Hudson-2
+	SMSC Victory66
+
+   Note: we assume there can only be one device, with one SMBus interface.
+*/
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -32,6 +42,7 @@
 #include <linux/io.h>
 
 
+/* PIIX4 SMBus address offsets */
 #define SMBHSTSTS	(0 + piix4_smba)
 #define SMBHSLVSTS	(1 + piix4_smba)
 #define SMBHSTCNT	(2 + piix4_smba)
@@ -45,8 +56,10 @@
 #define SMBSLVEVT	(0xA + piix4_smba)
 #define SMBSLVDAT	(0xC + piix4_smba)
 
+/* count for request_region */
 #define SMBIOSIZE	8
 
+/* PCI Address Constants */
 #define SMBBA		0x090
 #define SMBHSTCFG	0x0D2
 #define SMBSLVC		0x0D3
@@ -54,20 +67,27 @@
 #define SMBSHDW2	0x0D5
 #define SMBREV		0x0D6
 
+/* Other settings */
 #define MAX_TIMEOUT	500
 #define  ENABLE_INT9	0
 
+/* PIIX4 constants */
 #define PIIX4_QUICK		0x00
 #define PIIX4_BYTE		0x04
 #define PIIX4_BYTE_DATA		0x08
 #define PIIX4_WORD_DATA		0x0C
 #define PIIX4_BLOCK_DATA	0x14
 
+/* insmod parameters */
 
+/* If force is set to anything different from 0, we forcibly enable the
+   PIIX4. DANGEROUS! */
 static int force;
 module_param (force, int, 0);
 MODULE_PARM_DESC(force, "Forcibly enable the PIIX4. DANGEROUS!");
 
+/* If force_addr is set to anything different from 0, we forcibly enable
+   the PIIX4 at the given address. VERY DANGEROUS! */
 static int force_addr;
 module_param (force_addr, int, 0);
 MODULE_PARM_DESC(force_addr,
@@ -97,6 +117,8 @@ static struct dmi_system_id __devinitdata piix4_dmi_blacklist[] = {
 	{ }
 };
 
+/* The IBM entry is in a separate table because we only check it
+   on Intel-based systems */
 static struct dmi_system_id __devinitdata piix4_dmi_ibm[] = {
 	{
 		.ident = "IBM",
@@ -114,13 +136,15 @@ static int __devinit piix4_setup(struct pci_dev *PIIX4_dev,
 	    (PIIX4_dev->device == PCI_DEVICE_ID_SERVERWORKS_CSB5))
 		srvrworks_csb5_delay = 1;
 
+	/* On some motherboards, it was reported that accessing the SMBus
+	   caused severe hardware problems */
 	if (dmi_check_system(piix4_dmi_blacklist)) {
 		dev_err(&PIIX4_dev->dev,
 			"Accessing the SMBus on this system is unsafe!\n");
 		return -EPERM;
 	}
 
-	
+	/* Don't access SMBus on IBM systems which get corrupted eeproms */
 	if (dmi_check_system(piix4_dmi_ibm) &&
 			PIIX4_dev->vendor == PCI_VENDOR_ID_INTEL) {
 		dev_err(&PIIX4_dev->dev, "IBM system detected; this module "
@@ -129,7 +153,7 @@ static int __devinit piix4_setup(struct pci_dev *PIIX4_dev,
 		return -EPERM;
 	}
 
-	
+	/* Determine the address of the SMBus areas */
 	if (force_addr) {
 		piix4_smba = force_addr & 0xfff0;
 		force = 0;
@@ -155,6 +179,8 @@ static int __devinit piix4_setup(struct pci_dev *PIIX4_dev,
 
 	pci_read_config_byte(PIIX4_dev, SMBHSTCFG, &temp);
 
+	/* If force_addr is set, we program the new address here. Just to make
+	   sure, we disable the PIIX4 first. */
 	if (force_addr) {
 		pci_write_config_byte(PIIX4_dev, SMBHSTCFG, temp & 0xfe);
 		pci_write_config_word(PIIX4_dev, SMBBA, piix4_smba);
@@ -163,6 +189,14 @@ static int __devinit piix4_setup(struct pci_dev *PIIX4_dev,
 			"new address %04x!\n", piix4_smba);
 	} else if ((temp & 1) == 0) {
 		if (force) {
+			/* This should never need to be done, but has been
+			 * noted that many Dell machines have the SMBus
+			 * interface on the PIIX4 disabled!? NOTE: This assumes
+			 * I/O space and other allocations WERE done by the
+			 * Bios!  Don't complain if your hardware does weird
+			 * things after enabling this. :') Check for Bios
+			 * updates before resorting to this.
+			 */
 			pci_write_config_byte(PIIX4_dev, SMBHSTCFG,
 					      temp | 1);
 			dev_printk(KERN_NOTICE, &PIIX4_dev->dev,
@@ -199,14 +233,14 @@ static int __devinit piix4_setup_sb800(struct pci_dev *PIIX4_dev,
 	unsigned short smba_idx = 0xcd6;
 	u8 smba_en_lo, smba_en_hi, i2ccfg, i2ccfg_offset = 0x10, smb_en = 0x2c;
 
-	
+	/* SB800 and later SMBus does not support forcing address */
 	if (force || force_addr) {
 		dev_err(&PIIX4_dev->dev, "SMBus does not support "
 			"forcing address!\n");
 		return -EINVAL;
 	}
 
-	
+	/* Determine the address of the SMBus areas */
 	if (!request_region(smba_idx, 2, "smba_idx")) {
 		dev_err(&PIIX4_dev->dev, "SMBus base address index region "
 			"0x%x already in use!\n", smba_idx);
@@ -234,7 +268,7 @@ static int __devinit piix4_setup_sb800(struct pci_dev *PIIX4_dev,
 		return -EBUSY;
 	}
 
-	
+	/* Request the SMBus I2C bus config region */
 	if (!request_region(piix4_smba + i2ccfg_offset, 1, "i2ccfg")) {
 		dev_err(&PIIX4_dev->dev, "SMBus I2C bus config region "
 			"0x%x already in use!\n", piix4_smba + i2ccfg_offset);
@@ -268,7 +302,7 @@ static int piix4_transaction(void)
 		inb_p(SMBHSTCMD), inb_p(SMBHSTADD), inb_p(SMBHSTDAT0),
 		inb_p(SMBHSTDAT1));
 
-	
+	/* Make sure the SMBus host is ready to start transmitting */
 	if ((temp = inb_p(SMBHSTSTS)) != 0x00) {
 		dev_dbg(&piix4_adapter.dev, "SMBus busy (%02x). "
 			"Resetting...\n", temp);
@@ -281,11 +315,11 @@ static int piix4_transaction(void)
 		}
 	}
 
-	
+	/* start the transaction by setting bit 6 */
 	outb_p(inb(SMBHSTCNT) | 0x040, SMBHSTCNT);
 
-	
-	if (srvrworks_csb5_delay) 
+	/* We will always wait for a fraction of a second! (See PIIX4 docs errata) */
+	if (srvrworks_csb5_delay) /* Extra delay for SERVERWORKS_CSB5 */
 		msleep(2);
 	else
 		msleep(1);
@@ -294,7 +328,7 @@ static int piix4_transaction(void)
 	       ((temp = inb_p(SMBHSTSTS)) & 0x01))
 		msleep(1);
 
-	
+	/* If the SMBus is still busy, we give up */
 	if (timeout == MAX_TIMEOUT) {
 		dev_err(&piix4_adapter.dev, "SMBus Timeout!\n");
 		result = -ETIMEDOUT;
@@ -309,7 +343,7 @@ static int piix4_transaction(void)
 		result = -EIO;
 		dev_dbg(&piix4_adapter.dev, "Bus collision! SMBus may be "
 			"locked until next hard reset. (sorry!)\n");
-		
+		/* Clock stops and slave is stuck in mid-transmission */
 	}
 
 	if (temp & 0x04) {
@@ -331,6 +365,7 @@ static int piix4_transaction(void)
 	return result;
 }
 
+/* Return negative errno on error. */
 static s32 piix4_access(struct i2c_adapter * adap, u16 addr,
 		 unsigned short flags, char read_write,
 		 u8 command, int size, union i2c_smbus_data * data)
@@ -378,7 +413,7 @@ static s32 piix4_access(struct i2c_adapter * adap, u16 addr,
 			if (len == 0 || len > I2C_SMBUS_BLOCK_MAX)
 				return -EINVAL;
 			outb_p(len, SMBHSTDAT0);
-			i = inb_p(SMBHSTCNT);	
+			i = inb_p(SMBHSTCNT);	/* Reset SMBBLKDAT */
 			for (i = 1; i <= len; i++)
 				outb_p(data->block[i], SMBBLKDAT);
 		}
@@ -411,7 +446,7 @@ static s32 piix4_access(struct i2c_adapter * adap, u16 addr,
 		data->block[0] = inb_p(SMBHSTDAT0);
 		if (data->block[0] == 0 || data->block[0] > I2C_SMBUS_BLOCK_MAX)
 			return -EPROTO;
-		i = inb_p(SMBHSTCNT);	
+		i = inb_p(SMBHSTCNT);	/* Reset SMBBLKDAT */
 		for (i = 1; i <= data->block[0]; i++)
 			data->block[i] = inb_p(SMBBLKDAT);
 		break;
@@ -470,7 +505,7 @@ static int __devinit piix4_probe(struct pci_dev *dev,
 	     dev->device == PCI_DEVICE_ID_ATI_SBX00_SMBUS &&
 	     dev->revision >= 0x40) ||
 	    dev->vendor == PCI_VENDOR_ID_AMD)
-		
+		/* base address location etc changed in SB800 */
 		retval = piix4_setup_sb800(dev, id);
 	else
 		retval = piix4_setup(dev, id);
@@ -478,7 +513,7 @@ static int __devinit piix4_probe(struct pci_dev *dev,
 	if (retval)
 		return retval;
 
-	
+	/* set up the sysfs linkage to our parent device */
 	piix4_adapter.dev.parent = &dev->dev;
 
 	snprintf(piix4_adapter.name, sizeof(piix4_adapter.name),

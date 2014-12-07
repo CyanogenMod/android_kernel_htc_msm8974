@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * double precision: common utilities
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -46,10 +49,12 @@ int ieee754dp_tint(ieee754dp x)
 		break;
 	}
 	if (xe > 31) {
+		/* Set invalid. We will only use overflow for floating
+		   point overflow */
 		SETCX(IEEE754_INVALID_OPERATION);
 		return ieee754si_xcpt(ieee754si_indef(), "dp_tint", x);
 	}
-	
+	/* oh gawd */
 	if (xe > DP_MBITS) {
 		xm <<= xe - DP_MBITS;
 	} else if (xe < DP_MBITS) {
@@ -69,6 +74,8 @@ int ieee754dp_tint(ieee754dp x)
 			sticky = (residue << 1) != 0;
 			xm >>= DP_MBITS - xe;
 		}
+		/* Note: At this point upper 32 bits of xm are guaranteed
+		   to be zero */
 		odd = (xm & 0x1) != 0x0;
 		switch (ieee754_csr.rm) {
 		case IEEE754_RN:
@@ -77,18 +84,18 @@ int ieee754dp_tint(ieee754dp x)
 			break;
 		case IEEE754_RZ:
 			break;
-		case IEEE754_RU:	
+		case IEEE754_RU:	/* toward +Infinity */
 			if ((round || sticky) && !xs)
 				xm++;
 			break;
-		case IEEE754_RD:	
+		case IEEE754_RD:	/* toward -Infinity */
 			if ((round || sticky) && xs)
 				xm++;
 			break;
 		}
-		
+		/* look for valid corner case 0x80000000 */
 		if ((xm >> 31) != 0 && (xs == 0 || xm != 0x80000000)) {
-			
+			/* This can happen after rounding */
 			SETCX(IEEE754_INVALID_OPERATION);
 			return ieee754si_xcpt(ieee754si_indef(), "dp_tint", x);
 		}
@@ -106,7 +113,7 @@ unsigned int ieee754dp_tuns(ieee754dp x)
 {
 	ieee754dp hb = ieee754dp_1e31();
 
-	
+	/* what if x < 0 ?? */
 	if (ieee754dp_lt(x, hb))
 		return (unsigned) ieee754dp_tint(x);
 

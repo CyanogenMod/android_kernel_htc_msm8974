@@ -78,14 +78,25 @@
  *  if compiled into the kernel).
  */
 
+/* Change STREAMER_DEBUG to 1 to get verbose, and I mean really verbose, messages */
 
 #define STREAMER_DEBUG 0
 #define STREAMER_DEBUG_PACKETS 0
 
+/* Change STREAMER_NETWORK_MONITOR to receive mac frames through the arb channel.
+ * Will also create a /proc/net/streamer_tr entry if proc_fs is compiled into the
+ * kernel.
+ * Intended to be used to create a ring-error reporting network module 
+ * i.e. it will give you the source address of beaconers on the ring 
+ */
 
 #define STREAMER_NETWORK_MONITOR 0
 
+/* #define CONFIG_PROC_FS */
 
+/*
+ *  Allow or disallow ioctl's for debugging
+ */
 
 #define STREAMER_IOCTL 0
 
@@ -124,13 +135,20 @@
 #endif
 
 
+/* I've got to put some intelligence into the version number so that Peter and I know
+ * which version of the code somebody has got. 
+ * Version Number = a.b.c.d  where a.b.c is the level of code and d is the latest author.
+ * So 0.0.1.pds = Peter, 0.0.1.mlp = Mike
+ * 
+ * Official releases will only have an a.b.c version number format.
+ */
 
 static char version[] = "LanStreamer.c v0.4.0 03/08/01 - Mike Sullivan\n"
                         "              v0.5.3 11/13/02 - Kent Yoder";
 
 static DEFINE_PCI_DEVICE_TABLE(streamer_pci_tbl) = {
 	{ PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_TR, PCI_ANY_ID, PCI_ANY_ID,},
-	{}	
+	{}	/* terminating entry */
 };
 MODULE_DEVICE_TABLE(pci,streamer_pci_tbl);
 
@@ -151,17 +169,29 @@ static char *open_min_error[] = {
 	"Monitor Contention failer for RPL", "FDX Protocol Error"
 };
 
+/* Module parameters */
 
+/* Ring Speed 0,4,16
+ * 0 = Autosense         
+ * 4,16 = Selected speed only, no autosense
+ * This allows the card to be the first on the ring
+ * and become the active monitor.
+ *
+ * WARNING: Some hubs will allow you to insert
+ * at the wrong speed
+ */
 
 static int ringspeed[STREAMER_MAX_ADAPTERS] = { 0, };
 
 module_param_array(ringspeed, int, NULL, 0);
 
+/* Packet buffer size */
 
 static int pkt_buf_sz[STREAMER_MAX_ADAPTERS] = { 0, };
 
 module_param_array(pkt_buf_sz, int, NULL, 0);
 
+/* Message Level */
 
 static int message_level[STREAMER_MAX_ADAPTERS] = { 1, };
 
@@ -423,7 +453,7 @@ static int streamer_reset(struct net_device *dev)
 
 	writew(readw(streamer_mmio + BCTL) | BCTL_SOFTRESET, streamer_mmio + BCTL);
 	t = jiffies;
-	
+	/* Hold soft reset bit for a while */
 	ssleep(1);
 	
 	writew(readw(streamer_mmio + BCTL) & ~BCTL_SOFTRESET,
@@ -436,7 +466,7 @@ static int streamer_reset(struct net_device *dev)
 #endif
 	writew(readw(streamer_mmio + BCTL) | (BCTL_RX_FIFO_8 | BCTL_TX_FIFO_8), streamer_mmio + BCTL );
 
-	if (streamer_priv->streamer_ring_speed == 0) {	
+	if (streamer_priv->streamer_ring_speed == 0) {	/* Autosense */
 		writew(readw(streamer_mmio + GPR) | GPR_AUTOSENSE,
 		       streamer_mmio + GPR);
 		if (streamer_priv->streamer_message_level)
@@ -476,7 +506,7 @@ static int streamer_reset(struct net_device *dev)
 #if STREAMER_DEBUG
 	printk("GPR = %x\n", readw(streamer_mmio + GPR));
 #endif
-	
+	/* start solo init */
 	writew(SISR_MI, streamer_mmio + SISR_MASK_SUM);
 
 	while (!((readw(streamer_mmio + SISR)) & SISR_SRB_REPLY)) {
@@ -495,7 +525,7 @@ static int streamer_reset(struct net_device *dev)
 	writew(~misr, streamer_mmio + MISR_RUM);
 
 	if (skb)
-		dev_kfree_skb(skb);	
+		dev_kfree_skb(skb);	/* release skb used for diagnostics */
 
 #if STREAMER_DEBUG
 	printk("LAPWWO: %x, LAPA: %x LAPE:  %x\n",
@@ -526,7 +556,7 @@ static int streamer_reset(struct net_device *dev)
 
 	writew(readw(streamer_mmio + LAPWWO) + 8, streamer_mmio + LAPA);
 	uaa_addr = ntohs(readw(streamer_mmio + LAPDINC));
-	readw(streamer_mmio + LAPDINC);	
+	readw(streamer_mmio + LAPDINC);	/* skip over Level.Addr field */
 	streamer_priv->streamer_addr_table_addr = ntohs(readw(streamer_mmio + LAPDINC));
 	streamer_priv->streamer_parms_addr = ntohs(readw(streamer_mmio + LAPDINC));
 
@@ -534,7 +564,7 @@ static int streamer_reset(struct net_device *dev)
 	printk("UAA resides at %x\n", uaa_addr);
 #endif
 
-	
+	/* setup uaa area for access with LAPD */
 	{
 		int i;
 		__u16 addr;
@@ -574,10 +604,10 @@ static int streamer_open(struct net_device *dev)
 	printk("pending ints: %x\n", readw(streamer_mmio + SISR));
 #endif
 
-	writew(SISR_MI | SISR_SRB_REPLY, streamer_mmio + SISR_MASK);	
-	writew(LISR_LIE, streamer_mmio + LISR);	
+	writew(SISR_MI | SISR_SRB_REPLY, streamer_mmio + SISR_MASK);	/* more ints later, doesn't stop arb cmd interrupt */
+	writew(LISR_LIE, streamer_mmio + LISR);	/* more ints later */
 
-	
+	/* adapter is closed, so SRB is pointed to by LAPWWO */
 	writew(readw(streamer_mmio + LAPWWO), streamer_mmio + LAPA);
 
 #if STREAMER_DEBUG
@@ -592,16 +622,16 @@ static int streamer_open(struct net_device *dev)
 		}
 
 		writew(readw(streamer_mmio+LAPWWO),streamer_mmio+LAPA);
-		writew(htons(SRB_OPEN_ADAPTER<<8),streamer_mmio+LAPDINC) ; 	
+		writew(htons(SRB_OPEN_ADAPTER<<8),streamer_mmio+LAPDINC) ; 	/* open */
 		writew(htons(STREAMER_CLEAR_RET_CODE<<8),streamer_mmio+LAPDINC);
 		writew(STREAMER_CLEAR_RET_CODE, streamer_mmio + LAPDINC);
 
 		writew(readw(streamer_mmio + LAPWWO) + 8, streamer_mmio + LAPA);
 #if STREAMER_NETWORK_MONITOR
-		
-		writew(htons(OPEN_ADAPTER_ENABLE_FDX | OPEN_ADAPTER_PASS_ADC_MAC | OPEN_ADAPTER_PASS_ATT_MAC | OPEN_ADAPTER_PASS_BEACON), streamer_mmio + LAPDINC);	
+		/* If Network Monitor, instruct card to copy MAC frames through the ARB */
+		writew(htons(OPEN_ADAPTER_ENABLE_FDX | OPEN_ADAPTER_PASS_ADC_MAC | OPEN_ADAPTER_PASS_ATT_MAC | OPEN_ADAPTER_PASS_BEACON), streamer_mmio + LAPDINC);	/* offset 8 word contains open options */
 #else
-		writew(htons(OPEN_ADAPTER_ENABLE_FDX), streamer_mmio + LAPDINC);	
+		writew(htons(OPEN_ADAPTER_ENABLE_FDX), streamer_mmio + LAPDINC);	/* Offset 8 word contains Open.Options */
 #endif
 
 		if (streamer_priv->streamer_laa[0]) {
@@ -615,7 +645,7 @@ static int streamer_open(struct net_device *dev)
 			memcpy(dev->dev_addr, streamer_priv->streamer_laa, dev->addr_len);
 		}
 
-		
+		/* save off srb open offset */
 		srb_open = readw(streamer_mmio + LAPWWO);
 #if STREAMER_DEBUG
 		writew(readw(streamer_mmio + LAPWWO),
@@ -629,7 +659,7 @@ static int streamer_open(struct net_device *dev)
 		spin_lock_irqsave(&streamer_priv->streamer_lock, flags);
 		streamer_priv->srb_queued = 1;
 
-		
+		/* signal solo that SRB command has been issued */
 		writew(LISR_SRB_CMD, streamer_mmio + LISR_SUM);
 		spin_unlock_irqrestore(&streamer_priv->streamer_lock, flags);
 
@@ -656,6 +686,9 @@ static int streamer_open(struct net_device *dev)
 		}
 #endif
 
+		/* If we get the same return response as we set, the interrupt wasn't raised and the open
+		 * timed out.
+		 */
 		writew(srb_open + 2, streamer_mmio + LAPA);
 		srb_word = ntohs(readw(streamer_mmio + LAPD)) >> 8;
 		if (srb_word == STREAMER_CLEAR_RET_CODE) {
@@ -666,7 +699,7 @@ static int streamer_open(struct net_device *dev)
 
 		if (srb_word != 0) {
 			if (srb_word == 0x07) {
-				if (!streamer_priv->streamer_ring_speed && open_finished) {	
+				if (!streamer_priv->streamer_ring_speed && open_finished) {	/* Autosense , first time around */
 					printk(KERN_WARNING "%s: Retrying at different ring speed\n",
 					       dev->name);
 					open_finished = 0;
@@ -693,7 +726,7 @@ static int streamer_open(struct net_device *dev)
 					free_irq(dev->irq, dev);
 					return -EIO;
 
-				}	
+				}	/* if autosense && open_finished */
 			} else {
 				printk(KERN_WARNING "%s: Bad OPEN response: %x\n",
 				       dev->name, srb_word);
@@ -702,7 +735,7 @@ static int streamer_open(struct net_device *dev)
 			}
 		} else
 			open_finished = 1;
-	} while (!(open_finished));	
+	} while (!(open_finished));	/* Will only loop if ring speed mismatch re-open attempted && autosense is on */
 
 	writew(srb_open + 18, streamer_mmio + LAPA);
 	srb_word=ntohs(readw(streamer_mmio+LAPD)) >> 8;
@@ -724,17 +757,17 @@ static int streamer_open(struct net_device *dev)
 	streamer_priv->asb = ntohs(readw(streamer_mmio + LAPDINC));
 	streamer_priv->srb = ntohs(readw(streamer_mmio + LAPDINC));
 	streamer_priv->arb = ntohs(readw(streamer_mmio + LAPDINC));
-	readw(streamer_mmio + LAPDINC);	
+	readw(streamer_mmio + LAPDINC);	/* offset 14 word is rsvd */
 	streamer_priv->trb = ntohs(readw(streamer_mmio + LAPDINC));
 
 	streamer_priv->streamer_receive_options = 0x00;
 	streamer_priv->streamer_copy_all_options = 0;
 
-	
-	
+	/* setup rx ring */
+	/* enable rx channel */
 	writew(~BMCTL_RX_DIS, streamer_mmio + BMCTL_RUM);
 
-	
+	/* setup rx descriptors */
 	streamer_priv->streamer_rx_ring=
 	    kmalloc( sizeof(struct streamer_rx_desc)*
 		     STREAMER_RX_RING_SIZE,GFP_KERNEL);
@@ -772,7 +805,7 @@ static int streamer_open(struct net_device *dev)
 		return -EIO;
 	}
 
-	streamer_priv->rx_ring_last_received = STREAMER_RX_RING_SIZE - 1;	
+	streamer_priv->rx_ring_last_received = STREAMER_RX_RING_SIZE - 1;	/* last processed rx status */
 
 	writel(cpu_to_le32(pci_map_single(streamer_priv->pci_dev, &streamer_priv->streamer_rx_ring[0],
 				sizeof(struct streamer_rx_desc), PCI_DMA_TODEVICE)), 
@@ -781,11 +814,11 @@ static int streamer_open(struct net_device *dev)
 				sizeof(struct streamer_rx_desc), PCI_DMA_TODEVICE)), 
 		streamer_mmio + RXLBDA);
 
-	
+	/* set bus master interrupt event mask */
 	writew(MISR_RX_NOBUF | MISR_RX_EOF, streamer_mmio + MISR_MASK);
 
 
-	
+	/* setup tx ring */
 	streamer_priv->streamer_tx_ring=kmalloc(sizeof(struct streamer_tx_desc)*
 						STREAMER_TX_RING_SIZE,GFP_KERNEL);
 	if (!streamer_priv->streamer_tx_ring) {
@@ -793,7 +826,7 @@ static int streamer_open(struct net_device *dev)
 	    return -EIO;
 	}
 
-	writew(~BMCTL_TX2_DIS, streamer_mmio + BMCTL_RUM);	
+	writew(~BMCTL_TX2_DIS, streamer_mmio + BMCTL_RUM);	/* Enables TX channel 2 */
 	for (i = 0; i < STREAMER_TX_RING_SIZE; i++) {
 		streamer_priv->streamer_tx_ring[i].forward = cpu_to_le32(pci_map_single(streamer_priv->pci_dev, 
 										&streamer_priv->streamer_tx_ring[i + 1],
@@ -812,12 +845,12 @@ static int streamer_open(struct net_device *dev)
 							sizeof(struct streamer_tx_desc), PCI_DMA_TODEVICE));
 
 	streamer_priv->free_tx_ring_entries = STREAMER_TX_RING_SIZE;
-	streamer_priv->tx_ring_free = 0;	
+	streamer_priv->tx_ring_free = 0;	/* next entry in tx ring to use */
 	streamer_priv->tx_ring_last_status = STREAMER_TX_RING_SIZE - 1;
 
-	
+	/* set Busmaster interrupt event mask (handle receives on interrupt only */
 	writew(MISR_TX2_EOF | MISR_RX_NOBUF | MISR_RX_EOF, streamer_mmio + MISR_MASK);
-	
+	/* set system event interrupt mask */
 	writew(SISR_ADAPTER_CHECK | SISR_ARB_CMD | SISR_TRB_REPLY | SISR_ASB_FREE, streamer_mmio + SISR_MASK_SUM);
 
 #if STREAMER_DEBUG
@@ -851,6 +884,17 @@ static int streamer_open(struct net_device *dev)
 	return 0;
 }
 
+/*
+ *	When we enter the rx routine we do not know how many frames have been 
+ *	queued on the rx channel.  Therefore we start at the next rx status
+ *	position and travel around the receive ring until we have completed
+ *	all the frames.
+ *
+ *	This means that we may process the frame before we receive the end
+ *	of frame interrupt. This is why we always test the status instead
+ *	of blindly processing the next frame.
+ *	
+ */
 static void streamer_rx(struct net_device *dev)
 {
 	struct streamer_private *streamer_priv =
@@ -860,11 +904,11 @@ static void streamer_rx(struct net_device *dev)
 	int rx_ring_last_received, length, frame_length, buffer_cnt = 0;
 	struct sk_buff *skb, *skb2;
 
-	
+	/* setup the next rx descriptor to be received */
 	rx_desc = &streamer_priv->streamer_rx_ring[(streamer_priv->rx_ring_last_received + 1) & (STREAMER_RX_RING_SIZE - 1)];
 	rx_ring_last_received = streamer_priv->rx_ring_last_received;
 
-	while (rx_desc->status & 0x01000000) {	
+	while (rx_desc->status & 0x01000000) {	/* While processed descriptors are available */
 		if (rx_ring_last_received != streamer_priv->rx_ring_last_received) 
 		{
 			printk(KERN_WARNING "RX Error 1 rx_ring_last_received not the same %x %x\n",
@@ -873,16 +917,16 @@ static void streamer_rx(struct net_device *dev)
 		streamer_priv->rx_ring_last_received = (streamer_priv->rx_ring_last_received + 1) & (STREAMER_RX_RING_SIZE - 1);
 		rx_ring_last_received = streamer_priv->rx_ring_last_received;
 
-		length = rx_desc->framelen_buflen & 0xffff;	
+		length = rx_desc->framelen_buflen & 0xffff;	/* buffer length */
 		frame_length = (rx_desc->framelen_buflen >> 16) & 0xffff;
 
-		if (rx_desc->status & 0x7E830000) {	
+		if (rx_desc->status & 0x7E830000) {	/* errors */
 			if (streamer_priv->streamer_message_level) {
 				printk(KERN_WARNING "%s: Rx Error %x\n",
 				       dev->name, rx_desc->status);
 			}
-		} else {	
-			if (rx_desc->status & 0x80000000) {	
+		} else {	/* received without errors */
+			if (rx_desc->status & 0x80000000) {	/* frame complete */
 				buffer_cnt = 1;
 				skb = dev_alloc_skb(streamer_priv->pkt_buf_sz);
 			} else {
@@ -893,9 +937,9 @@ static void streamer_rx(struct net_device *dev)
 			{
 				printk(KERN_WARNING "%s: Not enough memory to copy packet to upper layers.\n",	dev->name);
 				dev->stats.rx_dropped++;
-			} else {	
+			} else {	/* we allocated an skb OK */
 				if (buffer_cnt == 1) {
-					
+					/* release the DMA mapping */
 					pci_unmap_single(streamer_priv->pci_dev, 
 						le32_to_cpu(streamer_priv->streamer_rx_ring[rx_ring_last_received].buffer),
 						streamer_priv->pkt_buf_sz, 
@@ -916,37 +960,37 @@ static void streamer_rx(struct net_device *dev)
 #endif
 					skb_put(skb2, length);
 					skb2->protocol = tr_type_trans(skb2, dev);
-					
+					/* recycle this descriptor */
 					streamer_priv->streamer_rx_ring[rx_ring_last_received].status = 0;
 					streamer_priv->streamer_rx_ring[rx_ring_last_received].framelen_buflen = streamer_priv->pkt_buf_sz;
 					streamer_priv->streamer_rx_ring[rx_ring_last_received].buffer = 
 						cpu_to_le32(pci_map_single(streamer_priv->pci_dev, skb->data, streamer_priv->pkt_buf_sz,
 								PCI_DMA_FROMDEVICE));
 					streamer_priv->rx_ring_skb[rx_ring_last_received] = skb;
-					
+					/* place recycled descriptor back on the adapter */
 					writel(cpu_to_le32(pci_map_single(streamer_priv->pci_dev, 
 									&streamer_priv->streamer_rx_ring[rx_ring_last_received],
 									sizeof(struct streamer_rx_desc), PCI_DMA_FROMDEVICE)),
 						streamer_mmio + RXLBDA);
-					
+					/* pass the received skb up to the protocol */
 					netif_rx(skb2);
 				} else {
-					do {	
+					do {	/* Walk the buffers */
 						pci_unmap_single(streamer_priv->pci_dev, le32_to_cpu(rx_desc->buffer), length, PCI_DMA_FROMDEVICE), 
-						memcpy(skb_put(skb, length), (void *)rx_desc->buffer, length);	
+						memcpy(skb_put(skb, length), (void *)rx_desc->buffer, length);	/* copy this fragment */
 						streamer_priv->streamer_rx_ring[rx_ring_last_received].status = 0;
 						streamer_priv->streamer_rx_ring[rx_ring_last_received].framelen_buflen = streamer_priv->pkt_buf_sz;
 						
-						
+						/* give descriptor back to the adapter */
 						writel(cpu_to_le32(pci_map_single(streamer_priv->pci_dev, 
 									&streamer_priv->streamer_rx_ring[rx_ring_last_received],
 									length, PCI_DMA_FROMDEVICE)), 
 							streamer_mmio + RXLBDA);
 
 						if (rx_desc->status & 0x80000000)
-							break;	
+							break;	/* this descriptor completes the frame */
 
-						
+						/* else get the next pending descriptor */
 						if (rx_ring_last_received!= streamer_priv->rx_ring_last_received)
 						{
 							printk("RX Error rx_ring_last_received not the same %x %x\n",
@@ -955,23 +999,23 @@ static void streamer_rx(struct net_device *dev)
 						}
 						rx_desc = &streamer_priv->streamer_rx_ring[(streamer_priv->rx_ring_last_received+1) & (STREAMER_RX_RING_SIZE-1)];
 
-						length = rx_desc->framelen_buflen & 0xffff;	
+						length = rx_desc->framelen_buflen & 0xffff;	/* buffer length */
 						streamer_priv->rx_ring_last_received =	(streamer_priv->rx_ring_last_received+1) & (STREAMER_RX_RING_SIZE - 1);
 						rx_ring_last_received = streamer_priv->rx_ring_last_received;
 					} while (1);
 
 					skb->protocol = tr_type_trans(skb, dev);
-					
+					/* send up to the protocol */
 					netif_rx(skb);
 				}
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += length;
-			}	
-		}		
+			}	/* if skb == null */
+		}		/* end received without errors */
 
-		
+		/* try the next one */
 		rx_desc = &streamer_priv->streamer_rx_ring[(rx_ring_last_received + 1) & (STREAMER_RX_RING_SIZE - 1)];
-	}			
+	}			/* end for all completed rx descriptors */
 }
 
 static irqreturn_t streamer_interrupt(int irq, void *dev_id)
@@ -1025,10 +1069,13 @@ static irqreturn_t streamer_interrupt(int irq, void *dev_id)
 		if (misr & MISR_RX_EOF) {
 			streamer_rx(dev);
 		}
-		
+		/* MISR_RX_EOF */
 
 			if (misr & MISR_RX_NOBUF) {
-			}		
+				/* According to the documentation, we don't have to do anything,  
+                                 * but trapping it keeps it out of /var/log/messages.  
+                                 */
+			}		/* SISR_RX_NOBUF */
 
 			writew(~misr, streamer_mmio + MISR_RUM);
 			(void)readw(streamer_mmio + MISR_RUM);
@@ -1059,24 +1106,24 @@ static irqreturn_t streamer_interrupt(int irq, void *dev_id)
 			printk(KERN_WARNING "%s: Adapter must be manually reset.\n", dev->name);
 		}
 
-		
+		/* SISR_ADAPTER_CHECK */
 		else if (sisr & SISR_ASB_FREE) {
-			
+			/* Wake up anything that is waiting for the asb response */
 			if (streamer_priv->asb_queued) {
 				streamer_asb_bh(dev);
 			}
 			writew(~SISR_ASB_FREE, streamer_mmio + SISR_RUM);
 			(void)readw(streamer_mmio + SISR_RUM);
 		}
-		
+		/* SISR_ASB_FREE */
 		else if (sisr & SISR_ARB_CMD) {
 			streamer_arb_cmd(dev);
 			writew(~SISR_ARB_CMD, streamer_mmio + SISR_RUM);
 			(void)readw(streamer_mmio + SISR_RUM);
 		}
-		
+		/* SISR_ARB_CMD */
 		else if (sisr & SISR_TRB_REPLY) {
-			
+			/* Wake up anything that is waiting for the trb response */
 			if (streamer_priv->trb_queued) {
 				wake_up_interruptible(&streamer_priv->
 						      trb_wait);
@@ -1085,11 +1132,11 @@ static irqreturn_t streamer_interrupt(int irq, void *dev_id)
 			writew(~SISR_TRB_REPLY, streamer_mmio + SISR_RUM);
 			(void)readw(streamer_mmio + SISR_RUM);
 		}
-		
+		/* SISR_TRB_REPLY */
 
 		sisr = readw(streamer_mmio + SISR);
 		max_intr--;
-	} 		
+	} /* while() */		
 
 	spin_unlock(&streamer_priv->streamer_lock) ; 
 	return IRQ_HANDLED;
@@ -1193,8 +1240,13 @@ static int streamer_close(struct net_device *dev)
 		streamer_priv->rx_ring_last_received = (streamer_priv->rx_ring_last_received + 1) & (STREAMER_RX_RING_SIZE - 1);
 	}
 
-	
+	/* reset tx/rx fifo's and busmaster logic */
 
+	/* TBD. Add graceful way to reset the LLC channel without doing a soft reset. 
+	   writel(readl(streamer_mmio+BCTL)|(3<<13),streamer_mmio+BCTL);
+	   udelay(1);
+	   writel(readl(streamer_mmio+BCTL)&~(3<<13),streamer_mmio+BCTL);
+	 */
 
 #if STREAMER_DEBUG
 	writew(streamer_priv->srb, streamer_mmio + LAPA);
@@ -1221,15 +1273,15 @@ static void streamer_set_rx_mode(struct net_device *dev)
 	options = streamer_priv->streamer_copy_all_options;
 
 	if (dev->flags & IFF_PROMISC)
-		options |= (3 << 5);	
+		options |= (3 << 5);	/* All LLC and MAC frames, all through the main rx channel */
 	else
 		options &= ~(3 << 5);
 
-	
+	/* Only issue the srb if there is a change in options */
 
 	if ((options ^ streamer_priv->streamer_copy_all_options)) 
 	{
-		
+		/* Now to issue the srb command to alter the copy.all.options */
 		writew(htons(SRB_MODIFY_RECEIVE_OPTIONS << 8), streamer_mmio+LAPDINC);
 		writew(htons(STREAMER_CLEAR_RET_CODE << 8), streamer_mmio+LAPDINC);
 		writew(htons((streamer_priv->streamer_receive_options << 8) | options),streamer_mmio+LAPDINC);
@@ -1238,7 +1290,7 @@ static void streamer_set_rx_mode(struct net_device *dev)
 		writew(htons(0x5320),streamer_mmio+LAPDINC);
 		writew(0x2020, streamer_mmio + LAPDINC);
 
-		streamer_priv->srb_queued = 2;	
+		streamer_priv->srb_queued = 2;	/* Can't sleep, use srb_bh */
 
 		writel(LISR_SRB_CMD, streamer_mmio + LISR_SUM);
 
@@ -1246,7 +1298,7 @@ static void streamer_set_rx_mode(struct net_device *dev)
 		return;
 	}
 
-	
+	/* Set the functional addresses we need for multicast */
 	writel(streamer_priv->srb,streamer_mmio+LAPA);
 	dev_mc_address[0] = dev_mc_address[1] = dev_mc_address[2] = dev_mc_address[3] = 0 ; 
   
@@ -1277,6 +1329,10 @@ static void streamer_srb_bh(struct net_device *dev)
 
 	switch (srb_word) {
 
+		/* SRB_MODIFY_RECEIVE_OPTIONS i.e. set_multicast_list options (promiscuous) 
+		 * At some point we should do something if we get an error, such as
+		 * resetting the IFF_PROMISC flag in dev
+		 */
 
 	case SRB_MODIFY_RECEIVE_OPTIONS:
 	        srb_word=ntohs(readw(streamer_mmio+LAPDINC)) >> 8;
@@ -1295,10 +1351,12 @@ static void streamer_srb_bh(struct net_device *dev)
 				       streamer_priv->streamer_copy_all_options,
 				       streamer_priv->streamer_receive_options);
 			break;
-		}		
+		}		/* switch srb[2] */
 		break;
 
 
+		/* SRB_SET_GROUP_ADDRESS - Multicast group setting 
+		 */
 	case SRB_SET_GROUP_ADDRESS:
 	        srb_word=ntohs(readw(streamer_mmio+LAPDINC)) >> 8;
 		switch (srb_word) {
@@ -1313,7 +1371,7 @@ static void streamer_srb_bh(struct net_device *dev)
 		case 0x3c:
 			printk(KERN_WARNING "%s: Group/Functional address indicator bits not set correctly\n", dev->name);
 			break;
-		case 0x3e:	
+		case 0x3e:	/* If we ever implement individual multicast addresses, will need to deal with this */
 			printk(KERN_WARNING "%s: Group address registers full\n", dev->name);
 			break;
 		case 0x55:
@@ -1321,10 +1379,12 @@ static void streamer_srb_bh(struct net_device *dev)
 			break;
 		default:
 			break;
-		}		
+		}		/* switch srb[2] */
 		break;
 
 
+		/* SRB_RESET_GROUP_ADDRESS - Remove a multicast address from group list
+		 */
 	case SRB_RESET_GROUP_ADDRESS:
 	        srb_word=ntohs(readw(streamer_mmio+LAPDINC)) >> 8;
 		switch (srb_word) {
@@ -1336,15 +1396,17 @@ static void streamer_srb_bh(struct net_device *dev)
 		case 0x04:
 			printk(KERN_WARNING "%s: Adapter must be open for this operation, doh!!\n", dev->name);
 			break;
-		case 0x39:	
+		case 0x39:	/* Must deal with this if individual multicast addresses used */
 			printk(KERN_INFO "%s: Group address not found\n", dev->name);
 			break;
 		default:
 			break;
-		}		
+		}		/* switch srb[2] */
 		break;
 
 
+		/* SRB_SET_FUNC_ADDRESS - Called by the set_rx_mode 
+		 */
 
 	case SRB_SET_FUNC_ADDRESS:
 	        srb_word=ntohs(readw(streamer_mmio+LAPDINC)) >> 8;
@@ -1361,9 +1423,11 @@ static void streamer_srb_bh(struct net_device *dev)
 			break;
 		default:
 			break;
-		}		
+		}		/* switch srb[2] */
 		break;
 
+		/* SRB_READ_LOG - Read and reset the adapter error counters
+		 */
 
 	case SRB_READ_LOG:
 	        srb_word=ntohs(readw(streamer_mmio+LAPDINC)) >> 8;
@@ -1389,10 +1453,10 @@ static void streamer_srb_bh(struct net_device *dev)
 			printk(KERN_WARNING "%s: Adapter must be open for this operation, doh!!\n", dev->name);
 			break;
 
-		}		
+		}		/* switch srb[2] */
 		break;
 
-		
+		/* SRB_READ_SR_COUNTERS - Read and reset the source routing bridge related counters */
 
 	case SRB_READ_SR_COUNTERS:
 	        srb_word=ntohs(readw(streamer_mmio+LAPDINC)) >> 8;
@@ -1409,13 +1473,13 @@ static void streamer_srb_bh(struct net_device *dev)
 			break;
 		default:
 			break;
-		}		
+		}		/* switch srb[2] */
 		break;
 
 	default:
 		printk(KERN_WARNING "%s: Unrecognized srb bh return value.\n", dev->name);
 		break;
-	}			
+	}			/* switch srb[0] */
 }
 
 static int streamer_set_mac_address(struct net_device *dev, void *addr)
@@ -1453,7 +1517,7 @@ static void streamer_arb_cmd(struct net_device *dev)
 	struct sk_buff *mac_frame;
 	__u8 frame_data[256];
 	__u16 buff_off;
-	__u16 lan_status = 0, lan_status_diff;	
+	__u16 lan_status = 0, lan_status_diff;	/* Initialize to stop compiler warning */
 	__u8 fdx_prot_error;
 	__u16 next_ptr;
 	__u16 arb_word;
@@ -1465,10 +1529,10 @@ static void streamer_arb_cmd(struct net_device *dev)
 	writew(streamer_priv->arb, streamer_mmio + LAPA);
 	arb_word=ntohs(readw(streamer_mmio+LAPD)) >> 8;
 	
-	if (arb_word == ARB_RECEIVE_DATA) {	
+	if (arb_word == ARB_RECEIVE_DATA) {	/* Receive.data, MAC frames */
 		writew(streamer_priv->arb + 6, streamer_mmio + LAPA);
 		streamer_priv->mac_rx_buffer = buff_off = ntohs(readw(streamer_mmio + LAPDINC));
-		header_len=ntohs(readw(streamer_mmio+LAPDINC)) >> 8; 
+		header_len=ntohs(readw(streamer_mmio+LAPDINC)) >> 8; /* 802.5 Token-Ring Header Length */
 		frame_len = ntohs(readw(streamer_mmio + LAPDINC));
 
 #if STREAMER_DEBUG
@@ -1478,13 +1542,13 @@ static void streamer_arb_cmd(struct net_device *dev)
 			__u8 status;
 			__u16 len;
 
-			writew(ntohs(buff_off), streamer_mmio + LAPA);	
+			writew(ntohs(buff_off), streamer_mmio + LAPA);	/*setup window to frame data */
 			next = htons(readw(streamer_mmio + LAPDINC));
 			status =
 			    ntohs(readw(streamer_mmio + LAPDINC)) & 0xff;
 			len = ntohs(readw(streamer_mmio + LAPDINC));
 
-			
+			/* print out 1st 14 bytes of frame data */
 			for (i = 0; i < 7; i++) {
 				printk("Loc %d = %04x\n", i,
 				       ntohs(readw
@@ -1500,15 +1564,15 @@ static void streamer_arb_cmd(struct net_device *dev)
 			       dev->name);
 			goto drop_frame;
 		}
-		
+		/* Walk the buffer chain, creating the frame */
 
 		do {
 			int i;
 			__u16 rx_word;
 
-			writew(htons(buff_off), streamer_mmio + LAPA);	
+			writew(htons(buff_off), streamer_mmio + LAPA);	/* setup window to frame data */
 			next_ptr = ntohs(readw(streamer_mmio + LAPDINC));
-			readw(streamer_mmio + LAPDINC);	
+			readw(streamer_mmio + LAPDINC);	/* read thru status word */
 			buffer_len = ntohs(readw(streamer_mmio + LAPDINC));
 
 			if (buffer_len > 256)
@@ -1540,19 +1604,19 @@ static void streamer_arb_cmd(struct net_device *dev)
 #endif
 		netif_rx(mac_frame);
 
-		
+		/* Now tell the card we have dealt with the received frame */
 drop_frame:
-		
+		/* Set LISR Bit 1 */
 		writel(LISR_ARB_FREE, streamer_priv->streamer_mmio + LISR_SUM);
 
-		
+		/* Is the ASB free ? */
 
 		if (!(readl(streamer_priv->streamer_mmio + SISR) & SISR_ASB_FREE)) 
 		{
 			streamer_priv->asb_queued = 1;
 			writel(LISR_ASB_FREE_REQ, streamer_priv->streamer_mmio + LISR_SUM);
 			return;
-			
+			/* Drop out and wait for the bottom half to be run */
 		}
 
 
@@ -1567,12 +1631,12 @@ drop_frame:
 		streamer_priv->asb_queued = 2;
 		return;
 
-	} else if (arb_word == ARB_LAN_CHANGE_STATUS) {	
+	} else if (arb_word == ARB_LAN_CHANGE_STATUS) {	/* Lan.change.status */
 		writew(streamer_priv->arb + 6, streamer_mmio + LAPA);
 		lan_status = ntohs(readw(streamer_mmio + LAPDINC));
 		fdx_prot_error = ntohs(readw(streamer_mmio+LAPD)) >> 8;
 		
-		
+		/* Issue ARB Free */
 		writew(LISR_ARB_FREE, streamer_priv->streamer_mmio + LISR_SUM);
 
 		lan_status_diff = (streamer_priv->streamer_lan_status ^ lan_status) & 
@@ -1589,16 +1653,19 @@ drop_frame:
 			if (lan_status_diff & LSC_RR)
 				printk(KERN_WARNING "%s: Force remove MAC frame received\n", dev->name);
 
-			
+			/* Adapter has been closed by the hardware */
 
-			
+			/* reset tx/rx fifo's and busmaster logic */
 
+			/* @TBD. no llc reset on autostreamer writel(readl(streamer_mmio+BCTL)|(3<<13),streamer_mmio+BCTL);
+			   udelay(1);
+			   writel(readl(streamer_mmio+BCTL)&~(3<<13),streamer_mmio+BCTL); */
 
 			netif_stop_queue(dev);
 			netif_carrier_off(dev);
 			printk(KERN_WARNING "%s: Adapter must be manually reset.\n", dev->name);
 		}
-		
+		/* If serious error */
 		if (streamer_priv->streamer_message_level) {
 			if (lan_status_diff & LSC_SIG_LOSS)
 				printk(KERN_WARNING "%s: No receive signal detected\n", dev->name);
@@ -1620,13 +1687,13 @@ drop_frame:
 			if (streamer_priv->streamer_message_level)
 				printk(KERN_INFO "%s: Counter Overflow\n", dev->name);
 
-			
+			/* Issue READ.LOG command */
 
 			writew(streamer_priv->srb, streamer_mmio + LAPA);
 			writew(htons(SRB_READ_LOG << 8),streamer_mmio+LAPDINC);
 			writew(htons(STREAMER_CLEAR_RET_CODE << 8), streamer_mmio+LAPDINC);
 			writew(0, streamer_mmio + LAPDINC);
-			streamer_priv->srb_queued = 2;	
+			streamer_priv->srb_queued = 2;	/* Can't sleep, use srb_bh */
 
 			writew(LISR_SRB_CMD, streamer_mmio + LISR_SUM);
 		}
@@ -1635,18 +1702,18 @@ drop_frame:
 			if (streamer_priv->streamer_message_level)
 				printk(KERN_INFO "%s: Source routing counters overflow\n", dev->name);
 
-			
+			/* Issue a READ.SR.COUNTERS */
 			writew(streamer_priv->srb, streamer_mmio + LAPA);
 			writew(htons(SRB_READ_SR_COUNTERS << 8),
 			       streamer_mmio+LAPDINC);
 			writew(htons(STREAMER_CLEAR_RET_CODE << 8),
 			       streamer_mmio+LAPDINC);
-			streamer_priv->srb_queued = 2;	
+			streamer_priv->srb_queued = 2;	/* Can't sleep, use srb_bh */
 			writew(LISR_SRB_CMD, streamer_mmio + LISR_SUM);
 
 		}
 		streamer_priv->streamer_lan_status = lan_status;
-	} 
+	} /* Lan.change.status */
 	else
 		printk(KERN_WARNING "%s: Unknown arb command\n", dev->name);
 }
@@ -1659,7 +1726,7 @@ static void streamer_asb_bh(struct net_device *dev)
 
 	if (streamer_priv->asb_queued == 1) 
 	{
-		
+		/* Dropped through the first time */
 
 		writew(streamer_priv->asb, streamer_mmio + LAPA);
 		writew(htons(ASB_RECEIVE_DATA << 8),streamer_mmio+LAPDINC);
@@ -1685,7 +1752,7 @@ static void streamer_asb_bh(struct net_device *dev)
 			printk(KERN_WARNING "%s: Unrecognized buffer address\n", dev->name);
 			break;
 		case 0xFF:
-			
+			/* Valid response, everything should be ok again */
 			break;
 		default:
 			printk(KERN_WARNING "%s: Invalid return code in asb\n", dev->name);
@@ -1750,12 +1817,12 @@ static int streamer_proc_info(char *buffer, char **start, off_t offset,
 				}
 				if (pos > offset + length)
 					break;
-		}		
+		}		/* for */
 
-	*start = buffer + (offset - begin);	
-	len -= (offset - begin);	
+	*start = buffer + (offset - begin);	/* Start of wanted data */
+	len -= (offset - begin);	/* Start slop */
 	if (len > length)
-		len = length;	
+		len = length;	/* Ending slop */
 	return len;
 }
 

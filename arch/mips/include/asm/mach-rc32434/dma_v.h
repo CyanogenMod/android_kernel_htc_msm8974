@@ -49,4 +49,4 @@ static inline void rc32434_chain_dma(struct dma_reg *ch, u32 dma_addr)
 	__raw_writel(dma_addr, &ch->dmandptr);
 }
 
-#endif  
+#endif  /* _ASM_RC32434_DMA_V_H_ */

@@ -25,6 +25,28 @@ enum jz_gpio_function {
     JZ_GPIO_FUNC3,
 };
 
+/*
+ Usually a driver for a SoC component has to request several gpio pins and
+ configure them as funcion pins.
+ jz_gpio_bulk_request can be used to ease this process.
+ Usually one would do something like:
+
+ static const struct jz_gpio_bulk_request i2c_pins[] = {
+	JZ_GPIO_BULK_PIN(I2C_SDA),
+	JZ_GPIO_BULK_PIN(I2C_SCK),
+ };
+
+ inside the probe function:
+
+    ret = jz_gpio_bulk_request(i2c_pins, ARRAY_SIZE(i2c_pins));
+    if (ret) {
+	...
+
+ inside the remove function:
+
+    jz_gpio_bulk_free(i2c_pins, ARRAY_SIZE(i2c_pins));
+
+*/
 
 struct jz_gpio_bulk_request {
 	int gpio;
@@ -58,6 +80,7 @@ uint32_t jz_gpio_port_get_value(int port, uint32_t mask);
 #define JZ_GPIO_PORTC(x) ((x) + 32 * 2)
 #define JZ_GPIO_PORTD(x) ((x) + 32 * 3)
 
+/* Port A function pins */
 #define JZ_GPIO_MEM_DATA0		JZ_GPIO_PORTA(0)
 #define JZ_GPIO_MEM_DATA1		JZ_GPIO_PORTA(1)
 #define JZ_GPIO_MEM_DATA2		JZ_GPIO_PORTA(2)
@@ -124,6 +147,7 @@ uint32_t jz_gpio_port_get_value(int port, uint32_t mask);
 #define JZ_GPIO_FUNC_MEM_DATA30		JZ_GPIO_FUNC1
 #define JZ_GPIO_FUNC_MEM_DATA31		JZ_GPIO_FUNC1
 
+/* Port B function pins */
 #define JZ_GPIO_MEM_ADDR0		JZ_GPIO_PORTB(0)
 #define JZ_GPIO_MEM_ADDR1		JZ_GPIO_PORTB(1)
 #define JZ_GPIO_MEM_ADDR2		JZ_GPIO_PORTB(2)
@@ -197,6 +221,7 @@ uint32_t jz_gpio_port_get_value(int port, uint32_t mask);
 #define JZ_GPIO_FUNC_MEM_ADDR21		JZ_GPIO_FUNC2
 #define JZ_GPIO_FUNC_MEM_ADDR22		JZ_GPIO_FUNC2
 
+/* Port C function pins */
 #define JZ_GPIO_LCD_DATA0		JZ_GPIO_PORTC(0)
 #define JZ_GPIO_LCD_DATA1		JZ_GPIO_PORTC(1)
 #define JZ_GPIO_LCD_DATA2		JZ_GPIO_PORTC(2)
@@ -266,6 +291,7 @@ uint32_t jz_gpio_port_get_value(int port, uint32_t mask);
 #define JZ_GPIO_FUNC_MEM_ADDR19		JZ_GPIO_FUNC2
 #define JZ_GPIO_FUNC_MEM_ADDR20		JZ_GPIO_FUNC2
 
+/* Port D function pins */
 #define JZ_GPIO_CIM_DATA0		JZ_GPIO_PORTD(0)
 #define JZ_GPIO_CIM_DATA1		JZ_GPIO_PORTD(1)
 #define JZ_GPIO_CIM_DATA2		JZ_GPIO_PORTD(2)

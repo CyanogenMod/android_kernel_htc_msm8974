@@ -26,31 +26,40 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 
-#define WM831X_TCH_ENA                          0x8000  
-#define WM831X_TCH_CVT_ENA                      0x4000  
-#define WM831X_TCH_SLPENA                       0x1000  
-#define WM831X_TCH_Z_ENA                        0x0400  
-#define WM831X_TCH_Y_ENA                        0x0200  
-#define WM831X_TCH_X_ENA                        0x0100  
-#define WM831X_TCH_DELAY_MASK                   0x00E0  
-#define WM831X_TCH_DELAY_SHIFT                       5  
-#define WM831X_TCH_DELAY_WIDTH                       3  
-#define WM831X_TCH_RATE_MASK                    0x001F  
-#define WM831X_TCH_RATE_SHIFT                        0  
-#define WM831X_TCH_RATE_WIDTH                        5  
+/*
+ * R16424 (0x4028) - Touch Control 1
+ */
+#define WM831X_TCH_ENA                          0x8000  /* TCH_ENA */
+#define WM831X_TCH_CVT_ENA                      0x4000  /* TCH_CVT_ENA */
+#define WM831X_TCH_SLPENA                       0x1000  /* TCH_SLPENA */
+#define WM831X_TCH_Z_ENA                        0x0400  /* TCH_Z_ENA */
+#define WM831X_TCH_Y_ENA                        0x0200  /* TCH_Y_ENA */
+#define WM831X_TCH_X_ENA                        0x0100  /* TCH_X_ENA */
+#define WM831X_TCH_DELAY_MASK                   0x00E0  /* TCH_DELAY - [7:5] */
+#define WM831X_TCH_DELAY_SHIFT                       5  /* TCH_DELAY - [7:5] */
+#define WM831X_TCH_DELAY_WIDTH                       3  /* TCH_DELAY - [7:5] */
+#define WM831X_TCH_RATE_MASK                    0x001F  /* TCH_RATE - [4:0] */
+#define WM831X_TCH_RATE_SHIFT                        0  /* TCH_RATE - [4:0] */
+#define WM831X_TCH_RATE_WIDTH                        5  /* TCH_RATE - [4:0] */
 
-#define WM831X_TCH_PD_WK                        0x2000  
-#define WM831X_TCH_5WIRE                        0x1000  
-#define WM831X_TCH_PDONLY                       0x0800  
-#define WM831X_TCH_ISEL                         0x0100  
-#define WM831X_TCH_RPU_MASK                     0x000F  
-#define WM831X_TCH_RPU_SHIFT                         0  
-#define WM831X_TCH_RPU_WIDTH                         4  
+/*
+ * R16425 (0x4029) - Touch Control 2
+ */
+#define WM831X_TCH_PD_WK                        0x2000  /* TCH_PD_WK */
+#define WM831X_TCH_5WIRE                        0x1000  /* TCH_5WIRE */
+#define WM831X_TCH_PDONLY                       0x0800  /* TCH_PDONLY */
+#define WM831X_TCH_ISEL                         0x0100  /* TCH_ISEL */
+#define WM831X_TCH_RPU_MASK                     0x000F  /* TCH_RPU - [3:0] */
+#define WM831X_TCH_RPU_SHIFT                         0  /* TCH_RPU - [3:0] */
+#define WM831X_TCH_RPU_WIDTH                         4  /* TCH_RPU - [3:0] */
 
-#define WM831X_TCH_PD                           0x8000  
-#define WM831X_TCH_DATA_MASK                    0x0FFF  
-#define WM831X_TCH_DATA_SHIFT                        0  
-#define WM831X_TCH_DATA_WIDTH                       12  
+/*
+ * R16426-8 (0x402A-C) - Touch Data X/Y/X
+ */
+#define WM831X_TCH_PD                           0x8000  /* TCH_PD1 */
+#define WM831X_TCH_DATA_MASK                    0x0FFF  /* TCH_DATA - [11:0] */
+#define WM831X_TCH_DATA_SHIFT                        0  /* TCH_DATA - [11:0] */
+#define WM831X_TCH_DATA_WIDTH                       12  /* TCH_DATA - [11:0] */
 
 struct wm831x_ts {
 	struct input_dev *input_dev;
@@ -101,6 +110,10 @@ static irqreturn_t wm831x_ts_data_irq(int irq, void *irq_data)
 		return IRQ_NONE;
 	}
 
+	/*
+	 * We get a pen down reading on every reading, report pen up if any
+	 * individual reading does so.
+	 */
 	wm831x_ts->pen_down = true;
 	for (i = 0; i < count; i++) {
 		if (!(data[i] & WM831X_TCH_PD)) {
@@ -112,17 +125,17 @@ static irqreturn_t wm831x_ts_data_irq(int irq, void *irq_data)
 	}
 
 	if (!wm831x_ts->pen_down) {
-		
+		/* Switch from data to pen down */
 		dev_dbg(wm831x->dev, "IRQ DATA->PD\n");
 
 		disable_irq_nosync(wm831x_ts->data_irq);
 
-		
+		/* Don't need data any more */
 		wm831x_set_bits(wm831x, WM831X_TOUCH_CONTROL_1,
 				WM831X_TCH_X_ENA | WM831X_TCH_Y_ENA |
 				WM831X_TCH_Z_ENA, 0);
 
-		
+		/* Flush any final samples that arrived while reading */
 		wm831x_set_bits(wm831x, WM831X_INTERRUPT_STATUS_1,
 				WM831X_TCHDATA_EINT, WM831X_TCHDATA_EINT);
 
@@ -155,7 +168,7 @@ static irqreturn_t wm831x_ts_pen_down_irq(int irq, void *irq_data)
 
 	disable_irq_nosync(wm831x_ts->pd_irq);
 
-	
+	/* Start collecting data */
 	if (wm831x_ts->pressure)
 		ena |= WM831X_TCH_Z_ENA;
 
@@ -168,7 +181,7 @@ static irqreturn_t wm831x_ts_pen_down_irq(int irq, void *irq_data)
 
 	wm831x_ts->pen_down = true;
 
-	
+	/* Switch from pen down to data */
 	dev_dbg(wm831x->dev, "IRQ PD->DATA\n");
 	schedule_work(&wm831x_ts->pd_data_work);
 
@@ -196,17 +209,23 @@ static void wm831x_ts_input_close(struct input_dev *idev)
 	struct wm831x_ts *wm831x_ts = input_get_drvdata(idev);
 	struct wm831x *wm831x = wm831x_ts->wm831x;
 
-	
+	/* Shut the controller down, disabling all other functionality too */
 	wm831x_set_bits(wm831x, WM831X_TOUCH_CONTROL_1,
 			WM831X_TCH_ENA | WM831X_TCH_X_ENA |
 			WM831X_TCH_Y_ENA | WM831X_TCH_Z_ENA, 0);
 
+	/* Make sure any pending IRQs are done, the above will prevent
+	 * new ones firing.
+	 */
 	synchronize_irq(wm831x_ts->data_irq);
 	synchronize_irq(wm831x_ts->pd_irq);
 
-	
+	/* Make sure the IRQ completion work is quiesced */
 	flush_work_sync(&wm831x_ts->pd_data_work);
 
+	/* If we ended up with the pen down then make sure we revert back
+	 * to pen detection state for the next time we start up.
+	 */
 	if (wm831x_ts->pen_down) {
 		disable_irq(wm831x_ts->data_irq);
 		enable_irq(wm831x_ts->pd_irq);
@@ -237,6 +256,10 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 	wm831x_ts->input_dev = input_dev;
 	INIT_WORK(&wm831x_ts->pd_data_work, wm831x_pd_data_work);
 
+	/*
+	 * If we have a direct IRQ use it, otherwise use the interrupt
+	 * from the WM831x IRQ controller.
+	 */
 	if (pdata && pdata->data_irq)
 		wm831x_ts->data_irq = pdata->data_irq;
 	else
@@ -252,12 +275,12 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 	else
 		wm831x_ts->pressure = true;
 
-	
+	/* Five wire touchscreens can't report pressure */
 	if (pdata && pdata->fivewire) {
 		wm831x_set_bits(wm831x, WM831X_TOUCH_CONTROL_2,
 				WM831X_TCH_5WIRE, WM831X_TCH_5WIRE);
 
-		
+		/* Pressure measurements are not possible for five wire mode */
 		WARN_ON(pdata->pressure && pdata->fivewire);
 		wm831x_ts->pressure = false;
 	} else {
@@ -270,7 +293,7 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 		default:
 			dev_err(&pdev->dev, "Unsupported ISEL setting: %d\n",
 				pdata->isel);
-			
+			/* Fall through */
 		case 200:
 		case 0:
 			wm831x_set_bits(wm831x, WM831X_TOUCH_CONTROL_2,
@@ -286,7 +309,7 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 	wm831x_set_bits(wm831x, WM831X_TOUCH_CONTROL_2,
 			WM831X_TCH_PDONLY, 0);
 
-	
+	/* Default to 96 samples/sec */
 	wm831x_set_bits(wm831x, WM831X_TOUCH_CONTROL_1,
 			WM831X_TCH_RATE_MASK, 6);
 
@@ -321,7 +344,7 @@ static __devinit int wm831x_ts_probe(struct platform_device *pdev)
 		goto err_data_irq;
 	}
 
-	
+	/* set up touch configuration */
 	input_dev->name = "WM831x touchscreen";
 	input_dev->phys = "wm831x";
 	input_dev->open = wm831x_ts_input_open;
@@ -380,6 +403,7 @@ static struct platform_driver wm831x_ts_driver = {
 };
 module_platform_driver(wm831x_ts_driver);
 
+/* Module information */
 MODULE_AUTHOR("Mark Brown <broonie@opensource.wolfsonmicro.com>");
 MODULE_DESCRIPTION("WM831x PMIC touchscreen driver");
 MODULE_LICENSE("GPL");

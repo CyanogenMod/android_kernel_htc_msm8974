@@ -28,7 +28,7 @@ const struct imx_mxc_mmc_data imx21_mxc_mmc_data[] __initconst = {
 	imx21_mxc_mmc_data_entry(0, 1),
 	imx21_mxc_mmc_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX21 */
 
 #ifdef CONFIG_SOC_IMX27
 const struct imx_mxc_mmc_data imx27_mxc_mmc_data[] __initconst = {
@@ -37,7 +37,7 @@ const struct imx_mxc_mmc_data imx27_mxc_mmc_data[] __initconst = {
 	imx27_mxc_mmc_data_entry(0, 1),
 	imx27_mxc_mmc_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX27 */
 
 #ifdef CONFIG_SOC_IMX31
 const struct imx_mxc_mmc_data imx31_mxc_mmc_data[] __initconst = {
@@ -46,7 +46,7 @@ const struct imx_mxc_mmc_data imx31_mxc_mmc_data[] __initconst = {
 	imx31_mxc_mmc_data_entry(0, 1),
 	imx31_mxc_mmc_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX31 */
 
 struct platform_device *__init imx_add_mxc_mmc(
 		const struct imx_mxc_mmc_data *data,

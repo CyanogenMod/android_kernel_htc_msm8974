@@ -176,6 +176,13 @@ static void int_callback(struct urb *urb)
 	last_status = ushc->last_status;
 	ushc->last_status = status;
 
+	/*
+	 * Ignore the card interrupt status on interrupt transfers that
+	 * were submitted while card interrupts where disabled.
+	 *
+	 * This avoid occasional spurious interrupts when enabling
+	 * interrupts immediately after clearing the source on the card.
+	 */
 
 	if (!test_and_clear_bit(IGNORE_NEXT_INT, &ushc->flags)
 	    && test_bit(INT_EN, &ushc->flags)
@@ -255,12 +262,14 @@ static void ushc_request(struct mmc_host *mmc, struct mmc_request *req)
 		goto out;
 	}
 
-	
+	/* Version 2 firmware doesn't support the R2 response format. */
 	if (req->cmd->flags & MMC_RSP_136) {
 		ret = -EINVAL;
 		goto out;
 	}
 
+	/* The Astoria's data FIFOs don't work with clock speeds < 5MHz so
+	   limit commands with data to 6MHz or more. */
 	if (req->data && ushc->clock_freq < 6000000) {
 		ret = -EINVAL;
 		goto out;
@@ -268,7 +277,7 @@ static void ushc_request(struct mmc_host *mmc, struct mmc_request *req)
 
 	ushc->current_req = req;
 
-	
+	/* Start cmd with CBW. */
 	ushc->cbw->cmd_idx = cpu_to_le16(req->cmd->opcode);
 	if (req->data)
 		ushc->cbw->block_size = cpu_to_le16(req->data->blksz);
@@ -280,7 +289,7 @@ static void ushc_request(struct mmc_host *mmc, struct mmc_request *req)
 	if (ret < 0)
 		goto out;
 
-	
+	/* Submit data (if any). */
 	if (req->data) {
 		struct mmc_data *data = req->data;
 		int pipe;
@@ -298,7 +307,7 @@ static void ushc_request(struct mmc_host *mmc, struct mmc_request *req)
 			goto out;
 	}
 
-	
+	/* Submit CSW. */
 	ret = usb_submit_urb(ushc->csw_urb, GFP_ATOMIC);
 	if (ret < 0)
 		goto out;
@@ -344,7 +353,7 @@ static int ushc_set_bus_freq(struct ushc_data *ushc, int clk, bool enable_hs)
 {
 	int ret;
 
-	
+	/* Hardware can't detect interrupts while the clock is off. */
 	if (clk == 0)
 		clk = 400000;
 
@@ -432,7 +441,7 @@ static int ushc_probe(struct usb_interface *intf, const struct usb_device_id *id
 	if (ret < 0)
 		goto err;
 
-	
+	/* Read capabilities. */
 	ret = ushc_hw_get_caps(ushc);
 	if (ret < 0)
 		goto err;
@@ -540,7 +549,7 @@ static void ushc_disconnect(struct usb_interface *intf)
 }
 
 static struct usb_device_id ushc_id_table[] = {
-	
+	/* CSR USB SD Host Controller */
 	{ USB_DEVICE(0x0a12, 0x5d10) },
 	{ },
 };

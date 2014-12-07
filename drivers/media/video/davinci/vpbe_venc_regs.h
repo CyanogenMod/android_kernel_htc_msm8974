@@ -17,6 +17,7 @@
 #ifndef _VPBE_VENC_REGS_H
 #define _VPBE_VENC_REGS_H
 
+/* VPBE Video Encoder / Digital LCD Subsystem Registers (VENC) */
 #define VENC_VMOD				0x00
 #define VENC_VIDCTL				0x04
 #define VENC_VDPRO				0x08
@@ -95,6 +96,7 @@
 #define VENC_GAMCTL				0x144
 #define VENC_XHINTVL				0x174
 
+/* bit definitions */
 #define VPBE_PCR_VENC_DIV			(1 << 1)
 #define VPBE_PCR_CLK_OFF			(1 << 0)
 
@@ -121,8 +123,10 @@
 #define VENC_VMOD_VIE				(1 << 1)
 #define VENC_VMOD_VENC				(1 << 0)
 
+/* VMOD TVTYP options for HDMD=0 */
 #define SDTV_NTSC				0
 #define SDTV_PAL				1
+/* VMOD TVTYP options for HDMD=1 */
 #define HDTV_525P				0
 #define HDTV_625P				1
 #define HDTV_1080I				2
@@ -170,4 +174,4 @@
 #define VENC_CMPNT_MRGB_SHIFT			14
 #define VENC_CMPNT_MRGB				(1 << 14)
 
-#endif				
+#endif				/* _VPBE_VENC_REGS_H */

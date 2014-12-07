@@ -9,4 +9,4 @@ struct xt_realm_info {
 	__u8 invert;
 };
 
-#endif 
+#endif /* _XT_REALM_H */

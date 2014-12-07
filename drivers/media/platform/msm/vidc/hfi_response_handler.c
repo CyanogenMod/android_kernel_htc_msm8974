@@ -224,6 +224,7 @@ static void hfi_process_session_error(
 	case HFI_ERR_SESSION_INVALID_SCALE_FACTOR:
 	case HFI_ERR_SESSION_UNSUPPORT_BUFFERTYPE:
 	case HFI_ERR_SESSION_UNSUPPORTED_SETTING:
+	case HFI_ERR_SESSION_UPSCALE_NOT_SUPPORTED:
 		dprintk(VIDC_INFO, "Non Fatal : HFI_EVENT_SESSION_ERROR\n");
 		break;
 	default:
@@ -252,13 +253,14 @@ static void hfi_process_event_notify(
 #ifdef REDUCE_KERNEL_ERROR_LOG
 		if(debug_kernel_count<=10)
 		{
-		dprintk(VIDC_ERR, "HFI_EVENT_SYS_ERROR: %d, 0x%x\n",
-			pkt->event_data1, pkt->event_data2);
+                dprintk(VIDC_ERR, "HFI_EVENT_SYS_ERROR[%u]: %d, 0x%x\n",
+                        pkt->session_id, pkt->event_data1, pkt->event_data2);
+
 		debug_kernel_count++;
 		}
 #else
-		dprintk(VIDC_ERR, "HFI_EVENT_SYS_ERROR: %d, 0x%x\n",
-			pkt->event_data1, pkt->event_data2);
+                dprintk(VIDC_ERR, "HFI_EVENT_SYS_ERROR[%u]: %d, 0x%x\n",
+                        pkt->session_id, pkt->event_data1, pkt->event_data2);
 #endif
 		hfi_process_sys_error(callback, device_id);
 		break;
@@ -1085,7 +1087,6 @@ static void hfi_process_session_stop_done(
 #ifdef REDUCE_KERNEL_ERROR_LOG
 	debug_kernel_count=0;
 #endif
-
 	dprintk(VIDC_DBG, "RECEIVED: SESSION_STOP_DONE[%u]\n",
 		pkt->session_id);
 
@@ -1200,6 +1201,8 @@ static void hfi_process_session_abort_done(
 				__func__, pkt ? pkt->size : 0);
 		return;
 	}
+        dprintk(VIDC_DBG, "RECEIVED:SESSION_RELEASE_BUFFER_DONE[%u]",
+                pkt->session_id);
 	memset(&cmd_done, 0, sizeof(struct msm_vidc_cb_cmd_done));
 	cmd_done.device_id = device_id;
 	cmd_done.session_id =

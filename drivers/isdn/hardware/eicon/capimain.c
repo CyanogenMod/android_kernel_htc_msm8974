@@ -36,6 +36,9 @@ MODULE_AUTHOR("Cytronics & Melware, Eicon Networks");
 MODULE_SUPPORTED_DEVICE("CAPI and DIVA card drivers");
 MODULE_LICENSE("GPL");
 
+/*
+ * get revision number from revision string
+ */
 static char *getrev(const char *revision)
 {
 	char *rev;
@@ -50,6 +53,9 @@ static char *getrev(const char *revision)
 
 }
 
+/*
+ * alloc a message buffer
+ */
 diva_os_message_buffer_s *diva_os_alloc_message_buffer(unsigned long size,
 						       void **data_buf)
 {
@@ -60,11 +66,17 @@ diva_os_message_buffer_s *diva_os_alloc_message_buffer(unsigned long size,
 	return (dmb);
 }
 
+/*
+ * free a message buffer
+ */
 void diva_os_free_message_buffer(diva_os_message_buffer_s *dmb)
 {
 	kfree_skb(dmb);
 }
 
+/*
+ * proc function for controller info
+ */
 static int diva_ctl_proc_show(struct seq_file *m, void *v)
 {
 	struct capi_ctr *ctrl = m->private;
@@ -91,6 +103,9 @@ static const struct file_operations diva_ctl_proc_fops = {
 	.release	= single_release,
 };
 
+/*
+ * set additional os settings in capi_ctr struct
+ */
 void diva_os_set_controller_struct(struct capi_ctr *ctrl)
 {
 	ctrl->driver_name = DRIVERLNAME;
@@ -100,6 +115,9 @@ void diva_os_set_controller_struct(struct capi_ctr *ctrl)
 	ctrl->owner = THIS_MODULE;
 }
 
+/*
+ * module init
+ */
 static int DIVA_INIT_FUNCTION divacapi_init(void)
 {
 	char tmprev[32];
@@ -123,6 +141,9 @@ static int DIVA_INIT_FUNCTION divacapi_init(void)
 	return ret;
 }
 
+/*
+ * module exit
+ */
 static void DIVA_EXIT_FUNCTION divacapi_exit(void)
 {
 	finit_capifunc();

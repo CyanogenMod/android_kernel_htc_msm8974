@@ -21,4 +21,4 @@ int mvme147_release(struct Scsi_Host *);
 #define CAN_QUEUE		16
 #endif
 
-#endif 
+#endif /* MVME147_H */

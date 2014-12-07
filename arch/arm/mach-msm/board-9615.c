@@ -196,11 +196,13 @@ struct pm8xxx_mpp_init {
 			PM_GPIO_STRENGTH_HIGH, \
 			PM_GPIO_FUNC_NORMAL, 0, 0)
 
+/* Initial PM8018 GPIO configurations */
 static struct pm8xxx_gpio_init pm8018_gpios[] __initdata = {
-	PM8018_GPIO_OUTPUT(2,	0,	HIGH), 
-	PM8018_GPIO_OUTPUT(6,	0,	LOW), 
+	PM8018_GPIO_OUTPUT(2,	0,	HIGH), /* EXT_LDO_EN_WLAN */
+	PM8018_GPIO_OUTPUT(6,	0,	LOW), /* WLAN_CLK_PWR_REQ */
 };
 
+/* Initial PM8018 MPP configurations */
 static struct pm8xxx_mpp_init pm8018_mpps[] __initdata = {
 };
 
@@ -234,6 +236,14 @@ static struct pm8xxx_adc_amux pm8018_adc_channels_data[] = {
 		ADC_DECIMATION_TYPE2, ADC_SCALE_DEFAULT},
 	{"vph_pwr", CHANNEL_VPH_PWR, CHAN_PATH_SCALING2, AMUX_RSV1,
 		ADC_DECIMATION_TYPE2, ADC_SCALE_DEFAULT},
+	/* AMUX8 is used to read either Batt_id/Batt_therm.
+	 * Current configuration is to support Batt_id. If clients
+	 * want to read the Batt_therm, the scaling function needs to be
+	 * updated to use ADC_SCALE_BATT_THERM instead of ADC_SCALE_DEFAULT.
+	 * E.g.
+	 * {"batt_therm", CHANNEL_BATT_ID_THERM, CHAN_PATH_SCALING1,
+	 * AMUX_RSV2, ADC_DECIMATION_TYPE2, ADC_SCALE_BATT_THERM},
+	 */
 	{"batt_id", CHANNEL_BATT_ID_THERM, CHAN_PATH_SCALING1,
 		AMUX_RSV2, ADC_DECIMATION_TYPE2, ADC_SCALE_DEFAULT},
 	{"pmic_therm", CHANNEL_DIE_TEMP, CHAN_PATH_SCALING1, AMUX_RSV1,
@@ -249,7 +259,7 @@ static struct pm8xxx_adc_amux pm8018_adc_channels_data[] = {
 };
 
 static struct pm8xxx_adc_properties pm8018_adc_data = {
-	.adc_vdd_reference	= 1800, 
+	.adc_vdd_reference	= 1800, /* milli-voltage for this adc */
 	.bitresolution		= 15,
 	.bipolar                = 0,
 };
@@ -289,9 +299,13 @@ static struct pm8xxx_misc_platform_data pm8xxx_misc_pdata = {
 	.priority		= 0,
 };
 
-#define PM8018_LED_KB_MAX_CURRENT	20	
+#define PM8018_LED_KB_MAX_CURRENT	20	/* I = 20mA */
 #define PM8XXX_LED_PWM_PERIOD_US	1000
 
+/**
+ * PM8XXX_PWM_CHANNEL_NONE shall be used when LED shall not be
+ * driven using PWM feature.
+ */
 #define PM8XXX_PWM_CHANNEL_NONE		-1
 
 static struct led_info pm8018_led_info[] = {
@@ -386,6 +400,9 @@ static void __init msm9615_init_buses(void)
 
 #define TABLA_INTERRUPT_BASE (NR_MSM_IRQS + NR_GPIO_IRQS)
 
+/*
+ * MDM9x15 I2S.
+ */
 static struct wcd9xxx_pdata wcd9xxx_i2c_platform_data = {
 	.irq = MSM_GPIO_TO_INT(85),
 	.irq_base = TABLA_INTERRUPT_BASE,
@@ -460,7 +477,19 @@ static struct i2c_board_info wcd9xxx_device_info[] __initdata = {
 	},
 };
 
+/*
+ * MDM9x15 I2S.
+ */
 
+/* Micbias setting is based on 8660 CDP/MTP/FLUID requirement
+ * 4 micbiases are used to power various analog and digital
+ * microphones operating at 1800 mV. Technically, all micbiases
+ * can source from single cfilter since all microphones operate
+ * at the same voltage level. The arrangement below is to make
+ * sure all cfilters are exercised. LDO_H regulator ouput level
+ * does not need to be as high as 2.85V. It is choosen for
+ * microphone sensitivity purpose.
+ */
 
 static struct wcd9xxx_pdata tabla20_platform_data = {
 	.slimbus_slave_device = {
@@ -542,7 +571,7 @@ static struct i2c_registry msm9615_i2c_devices[] __initdata = {
 };
 
 static struct slim_boardinfo msm_slim_devices[] = {
-	
+	/* add slimbus slaves as needed */
 #ifdef CONFIG_WCD9310_CODEC
 	{
 		.bus_num = 1,
@@ -586,10 +615,11 @@ static int msm_hsusb_vbus_power(bool on)
 }
 
 static int shelby_phy_init_seq[] = {
-	0x44, 0x80,
-	0x68, 0x81, 
-	0x24, 0x82,
-	0x13, 0x83,
+	0x44, 0x80,/* set VBUS valid threshold and
+			disconnect valid threshold */
+	0x68, 0x81, /* update DC voltage level */
+	0x24, 0x82,/* set preemphasis and rise/fall time */
+	0x13, 0x83,/* set source impedance adjustment */
 	-1};
 
 #define USB_BAM_PHY_BASE	0x12502000
@@ -849,11 +879,11 @@ static int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum)
 
 	pr_debug("%s: dload:%p pid:%x serial_num:%s\n",
 				__func__, dload, pid, snum);
-	
+	/* update pid */
 	dload->magic_struct.pid = PID_MAGIC_ID;
 	dload->pid = pid;
 
-	
+	/* update serial number */
 	dload->magic_struct.serial_num = 0;
 	if (!snum) {
 		memset(dload->serial_number, 0, SERIAL_NUMBER_LENGTH);
@@ -990,6 +1020,9 @@ static void __init msm9615_i2c_init(void)
 {
 	u8 mach_mask = 0;
 	int i;
+	/* Mask is hardcoded to SURF (CDP).
+	 * works on MTP with same configuration.
+	 */
 	mach_mask = I2C_SURF;
 	if (machine_is_msm9615_cdp())
 		mach_mask = I2C_SURF;
@@ -1049,7 +1082,7 @@ static void __init msm9615_common_init(void)
 	platform_add_devices(common_devices, ARRAY_SIZE(common_devices));
 	msm9615_pm8xxx_gpio_mpp_init();
 
-	
+	/* Ensure ar6000pm device is registered before MMC/SDC */
 	msm9615_init_ar6000pm();
 
 	msm9615_init_mmc();

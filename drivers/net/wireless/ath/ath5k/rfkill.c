@@ -66,8 +66,8 @@ static inline void ath5k_rfkill_set_intr(struct ath5k_hw *ah, bool enable)
 static bool
 ath5k_is_rfkill_set(struct ath5k_hw *ah)
 {
-	
-	
+	/* configuring GPIO for input for some reason disables rfkill */
+	/*ath5k_hw_set_gpio_input(ah, ah->rf_kill.gpio);*/
 	return ath5k_hw_get_gpio(ah, ah->rf_kill.gpio) ==
 							ah->rf_kill.polarity;
 }
@@ -86,7 +86,7 @@ ath5k_tasklet_rfkill_toggle(unsigned long data)
 void
 ath5k_rfkill_hw_start(struct ath5k_hw *ah)
 {
-	
+	/* read rfkill GPIO configuration from EEPROM header */
 	ah->rf_kill.gpio = ah->ah_capabilities.cap_eeprom.ee_rfkill_pin;
 	ah->rf_kill.polarity = ah->ah_capabilities.cap_eeprom.ee_rfkill_pol;
 
@@ -95,7 +95,7 @@ ath5k_rfkill_hw_start(struct ath5k_hw *ah)
 
 	ath5k_rfkill_disable(ah);
 
-	
+	/* enable interrupt for rfkill switch */
 	if (AR5K_EEPROM_HDR_RFKILL(ah->ah_capabilities.cap_eeprom.ee_header))
 		ath5k_rfkill_set_intr(ah, true);
 }
@@ -104,13 +104,13 @@ ath5k_rfkill_hw_start(struct ath5k_hw *ah)
 void
 ath5k_rfkill_hw_stop(struct ath5k_hw *ah)
 {
-	
+	/* disable interrupt for rfkill switch */
 	if (AR5K_EEPROM_HDR_RFKILL(ah->ah_capabilities.cap_eeprom.ee_header))
 		ath5k_rfkill_set_intr(ah, false);
 
 	tasklet_kill(&ah->rf_kill.toggleq);
 
-	
+	/* enable RFKILL when stopping HW so Wifi LED is turned off */
 	ath5k_rfkill_enable(ah);
 }
 

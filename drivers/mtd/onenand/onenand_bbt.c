@@ -17,12 +17,25 @@
 #include <linux/mtd/onenand.h>
 #include <linux/export.h>
 
+/**
+ * check_short_pattern - [GENERIC] check if a pattern is in the buffer
+ * @param buf		the buffer to search
+ * @param len		the length of buffer to search
+ * @param paglen	the pagelength
+ * @param td		search pattern descriptor
+ *
+ * Check for a pattern at the given place. Used to search bad block
+ * tables and good / bad block identifiers. Same as check_pattern, but
+ * no optional empty check and the pattern is expected to start
+ * at offset 0.
+ *
+ */
 static int check_short_pattern(uint8_t *buf, int len, int paglen, struct nand_bbt_descr *td)
 {
 	int i;
 	uint8_t *p = buf;
 
-	
+	/* Compare the pattern */
 	for (i = 0; i < td->len; i++) {
 		if (p[i] != td->pattern[i])
 			return -1;
@@ -30,6 +43,17 @@ static int check_short_pattern(uint8_t *buf, int len, int paglen, struct nand_bb
         return 0;
 }
 
+/**
+ * create_bbt - [GENERIC] Create a bad block table by scanning the device
+ * @param mtd		MTD device structure
+ * @param buf		temporary buffer
+ * @param bd		descriptor for the good/bad block search pattern
+ * @param chip		create the table for a specific chip, -1 read all chips.
+ *              Applies only if NAND_BBT_PERCHIP option is set
+ *
+ * Create a bad block table by scanning the device
+ * for the given good/bad block identify pattern
+ */
 static int create_bbt(struct mtd_info *mtd, uint8_t *buf, struct nand_bbt_descr *bd, int chip)
 {
 	struct onenand_chip *this = mtd->priv;
@@ -45,11 +69,14 @@ static int create_bbt(struct mtd_info *mtd, uint8_t *buf, struct nand_bbt_descr 
 
 	len = 2;
 
-	
+	/* We need only read few bytes from the OOB area */
 	scanlen = ooblen = 0;
 	readlen = bd->len;
 
-	
+	/* chip == -1 case only */
+	/* Note that numblocks is 2 * (real numblocks) here;
+	 * see i += 2 below as it makses shifting and masking less painful
+	 */
 	numblocks = this->chipsize >> (bbm->bbt_erase_shift - 1);
 	startblock = 0;
 	from = 0;
@@ -63,10 +90,12 @@ static int create_bbt(struct mtd_info *mtd, uint8_t *buf, struct nand_bbt_descr 
 		int ret;
 
 		for (j = 0; j < len; j++) {
+			/* No need to read pages fully,
+			 * just read required OOB bytes */
 			ret = onenand_bbt_read_oob(mtd,
 				from + j * this->writesize + bd->offs, &ops);
 
-			
+			/* If it is a initial bad block, just ignore it */
 			if (ret == ONENAND_BBT_READ_FATAL_ERROR)
 				return -EIO;
 
@@ -92,6 +121,14 @@ static int create_bbt(struct mtd_info *mtd, uint8_t *buf, struct nand_bbt_descr 
 }
 
 
+/**
+ * onenand_memory_bbt - [GENERIC] create a memory based bad block table
+ * @param mtd		MTD device structure
+ * @param bd		descriptor for the good/bad block search pattern
+ *
+ * The function creates a memory based bbt by scanning the device
+ * for manufacturer / software marked good / bad blocks
+ */
 static inline int onenand_memory_bbt (struct mtd_info *mtd, struct nand_bbt_descr *bd)
 {
 	struct onenand_chip *this = mtd->priv;
@@ -100,6 +137,12 @@ static inline int onenand_memory_bbt (struct mtd_info *mtd, struct nand_bbt_desc
 	return create_bbt(mtd, this->page_buf, bd, -1);
 }
 
+/**
+ * onenand_isbad_bbt - [OneNAND Interface] Check if a block is bad
+ * @param mtd		MTD device structure
+ * @param offs		offset in the device
+ * @param allowbbt	allow access to bad block table region
+ */
 static int onenand_isbad_bbt(struct mtd_info *mtd, loff_t offs, int allowbbt)
 {
 	struct onenand_chip *this = mtd->priv;
@@ -107,7 +150,7 @@ static int onenand_isbad_bbt(struct mtd_info *mtd, loff_t offs, int allowbbt)
 	int block;
 	uint8_t res;
 
-	
+	/* Get block number * 2 */
 	block = (int) (onenand_block(this, offs) << 1);
 	res = (bbm->bbt[block >> 3] >> (block & 0x06)) & 0x03;
 
@@ -123,6 +166,20 @@ static int onenand_isbad_bbt(struct mtd_info *mtd, loff_t offs, int allowbbt)
 	return 1;
 }
 
+/**
+ * onenand_scan_bbt - [OneNAND Interface] scan, find, read and maybe create bad block table(s)
+ * @param mtd		MTD device structure
+ * @param bd		descriptor for the good/bad block search pattern
+ *
+ * The function checks, if a bad block table(s) is/are already
+ * available. If not it scans the device for manufacturer
+ * marked good / bad blocks and writes the bad block table(s) to
+ * the selected place.
+ *
+ * The bad block table memory is allocated here. It is freed
+ * by the onenand_release function.
+ *
+ */
 int onenand_scan_bbt(struct mtd_info *mtd, struct nand_bbt_descr *bd)
 {
 	struct onenand_chip *this = mtd->priv;
@@ -130,21 +187,21 @@ int onenand_scan_bbt(struct mtd_info *mtd, struct nand_bbt_descr *bd)
 	int len, ret = 0;
 
 	len = this->chipsize >> (this->erase_shift + 2);
-	
+	/* Allocate memory (2bit per block) and clear the memory bad block table */
 	bbm->bbt = kzalloc(len, GFP_KERNEL);
 	if (!bbm->bbt)
 		return -ENOMEM;
 
-	
+	/* Set the bad block position */
 	bbm->badblockpos = ONENAND_BADBLOCK_POS;
 
-	
+	/* Set erase shift */
 	bbm->bbt_erase_shift = this->erase_shift;
 
 	if (!bbm->isbad_bbt)
 		bbm->isbad_bbt = onenand_isbad_bbt;
 
-	
+	/* Scan the device to build a memory based bad block table */
 	if ((ret = onenand_memory_bbt(mtd, bd))) {
 		printk(KERN_ERR "onenand_scan_bbt: Can't scan flash and build the RAM-based BBT\n");
 		kfree(bbm->bbt);
@@ -154,6 +211,10 @@ int onenand_scan_bbt(struct mtd_info *mtd, struct nand_bbt_descr *bd)
 	return ret;
 }
 
+/*
+ * Define some generic bad / good block scan pattern which are used
+ * while scanning a device for factory marked good / bad blocks.
+ */
 static uint8_t scan_ff_pattern[] = { 0xff, 0xff };
 
 static struct nand_bbt_descr largepage_memorybased = {
@@ -163,6 +224,13 @@ static struct nand_bbt_descr largepage_memorybased = {
 	.pattern = scan_ff_pattern,
 };
 
+/**
+ * onenand_default_bbt - [OneNAND Interface] Select a default bad block table for the device
+ * @param mtd		MTD device structure
+ *
+ * This function selects the default bad block table
+ * support for the device and calls the onenand_scan_bbt function
+ */
 int onenand_default_bbt(struct mtd_info *mtd)
 {
 	struct onenand_chip *this = mtd->priv;
@@ -174,7 +242,7 @@ int onenand_default_bbt(struct mtd_info *mtd)
 
 	bbm = this->bbm;
 
-	
+	/* 1KB page has same configuration as 2KB page */
 	if (!bbm->badblock_pattern)
 		bbm->badblock_pattern = &largepage_memorybased;
 

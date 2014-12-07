@@ -30,8 +30,8 @@ struct dvb_net_if {
 	__u16 pid;
 	__u16 if_num;
 	__u8  feedtype;
-#define DVB_NET_FEEDTYPE_MPE 0	
-#define DVB_NET_FEEDTYPE_ULE 1	
+#define DVB_NET_FEEDTYPE_MPE 0	/* multi protocol encapsulation */
+#define DVB_NET_FEEDTYPE_ULE 1	/* ultra lightweight encapsulation */
 };
 
 
@@ -40,6 +40,7 @@ struct dvb_net_if {
 #define NET_GET_IF    _IOWR('o', 54, struct dvb_net_if)
 
 
+/* binary compatibility cruft: */
 struct __dvb_net_if_old {
 	__u16 pid;
 	__u16 if_num;
@@ -48,4 +49,4 @@ struct __dvb_net_if_old {
 #define __NET_GET_IF_OLD _IOWR('o', 54, struct __dvb_net_if_old)
 
 
-#endif 
+#endif /*_DVBNET_H_*/

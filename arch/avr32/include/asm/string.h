@@ -14,4 +14,4 @@ extern void *memset(void *b, int c, size_t len);
 #define __HAVE_ARCH_MEMCPY
 extern void *memcpy(void *to, const void *from, size_t len);
 
-#endif 
+#endif /* __ASM_AVR32_STRING_H */

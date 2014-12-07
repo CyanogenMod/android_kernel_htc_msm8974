@@ -39,7 +39,7 @@ bool tegra_apb_init(void)
 
 	mutex_lock(&tegra_apb_dma_lock);
 
-	
+	/* Check to see if we raced to setup */
 	if (tegra_apb_dma)
 		goto out;
 

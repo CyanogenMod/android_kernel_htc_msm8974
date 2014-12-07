@@ -23,10 +23,12 @@
 
 #include "coda_linux.h"
 
+/* pioctl ops */
 static int coda_ioctl_permission(struct inode *inode, int mask);
 static long coda_pioctl(struct file *filp, unsigned int cmd,
 			unsigned long user_data);
 
+/* exported from this file */
 const struct inode_operations coda_ioctl_inode_operations = {
 	.permission	= coda_ioctl_permission,
 	.setattr	= coda_setattr,
@@ -38,6 +40,7 @@ const struct file_operations coda_ioctl_operations = {
 	.llseek		= noop_llseek,
 };
 
+/* the coda pioctl inode ops */
 static int coda_ioctl_permission(struct inode *inode, int mask)
 {
 	return (mask & MAY_EXEC) ? -EACCES : 0;
@@ -53,10 +56,14 @@ static long coda_pioctl(struct file *filp, unsigned int cmd,
 	struct inode *target_inode = NULL;
 	struct coda_inode_info *cnp;
 
-	
+	/* get the Pioctl data arguments from user space */
 	if (copy_from_user(&data, (void __user *)user_data, sizeof(data)))
 		return -EINVAL;
 
+	/*
+	 * Look up the pathname. Note that the pathname is in
+	 * user memory, and namei takes care of this
+	 */
 	if (data.follow)
 		error = user_path(data.path, &path);
 	else
@@ -67,13 +74,13 @@ static long coda_pioctl(struct file *filp, unsigned int cmd,
 
 	target_inode = path.dentry->d_inode;
 
-	
+	/* return if it is not a Coda inode */
 	if (target_inode->i_sb != inode->i_sb) {
 		error = -EINVAL;
 		goto out;
 	}
 
-	
+	/* now proceed to make the upcall */
 	cnp = ITOC(target_inode);
 
 	error = venus_pioctl(inode->i_sb, &(cnp->c_fid), cmd, &data);

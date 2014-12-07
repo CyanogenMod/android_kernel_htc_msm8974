@@ -31,11 +31,12 @@
 struct et61x251_device;
 struct et61x251_sensor;
 
+/*****************************************************************************/
 
 extern int et61x251_probe_tas5130d1b(struct et61x251_device* cam);
 
 #define ET61X251_SENSOR_TABLE                                                 \
-                          \
+/* Weak detections must go at the end of the list */                          \
 static int (*et61x251_sensor_table[])(struct et61x251_device*) = {            \
 	&et61x251_probe_tas5130d1b,                                           \
 	NULL,                                                                 \
@@ -48,12 +49,14 @@ extern void
 et61x251_attach_sensor(struct et61x251_device* cam,
 		       const struct et61x251_sensor* sensor);
 
+/*****************************************************************************/
 
 extern int et61x251_write_reg(struct et61x251_device*, u8 value, u16 index);
 extern int et61x251_i2c_raw_write(struct et61x251_device*, u8 n, u8 data1,
 				  u8 data2, u8 data3, u8 data4, u8 data5,
 				  u8 data6, u8 data7, u8 data8, u8 address);
 
+/*****************************************************************************/
 
 enum et61x251_i2c_sysfs_ops {
 	ET61X251_I2C_READ = 0x01,
@@ -65,9 +68,10 @@ enum et61x251_i2c_interface {
 	ET61X251_I2C_3WIRES,
 };
 
+/* Repeat start condition when RSTA is high */
 enum et61x251_i2c_rsta {
-	ET61X251_I2C_RSTA_STOP = 0x00, 
-	ET61X251_I2C_RSTA_REPEAT = 0x01, 
+	ET61X251_I2C_RSTA_STOP = 0x00, /* stop then start */
+	ET61X251_I2C_RSTA_REPEAT = 0x01, /* repeat start */
 };
 
 #define ET61X251_MAX_CTRLS (V4L2_CID_LASTP1-V4L2_CID_BASE+10)
@@ -80,7 +84,7 @@ struct et61x251_sensor {
 	enum et61x251_i2c_interface interface;
 	u8 i2c_slave_id;
 	enum et61x251_i2c_rsta rsta;
-	struct v4l2_rect active_pixel; 
+	struct v4l2_rect active_pixel; /* left and top define FVSX and FVSY */
 
 	struct v4l2_queryctrl qctrl[ET61X251_MAX_CTRLS];
 	struct v4l2_cropcap cropcap;
@@ -96,9 +100,9 @@ struct et61x251_sensor {
 	int (*set_pix_format)(struct et61x251_device* cam,
 			      const struct v4l2_pix_format* pix);
 
-	
+	/* Private */
 	struct v4l2_queryctrl _qctrl[ET61X251_MAX_CTRLS];
 	struct v4l2_rect _rect;
 };
 
-#endif 
+#endif /* _ET61X251_SENSOR_H_ */

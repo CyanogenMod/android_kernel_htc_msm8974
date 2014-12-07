@@ -1,3 +1,9 @@
+/*
+ * DB1200/DB1300/DB1550 ASoC audio fabric support code.
+ *
+ * (c) 2008-2011 Manuel Lauss <manuel.lauss@googlemail.com>
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -38,6 +44,7 @@ static struct platform_device_id db1200_pids[] = {
 	{},
 };
 
+/*-------------------------  AC97 PART  ---------------------------*/
 
 static struct snd_soc_dai_link db1200_ac97_dai = {
 	.name		= "AC97",
@@ -76,6 +83,7 @@ static struct snd_soc_card db1550_ac97_machine = {
 	.num_links	= 1,
 };
 
+/*-------------------------  I2S PART  ---------------------------*/
 
 static int db1200_i2s_startup(struct snd_pcm_substream *substream)
 {
@@ -84,11 +92,11 @@ static int db1200_i2s_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret;
 
-	
+	/* WM8731 has its own 12MHz crystal */
 	snd_soc_dai_set_sysclk(codec_dai, WM8731_SYSCLK_XTAL,
 				12000000, SND_SOC_CLOCK_IN);
 
-	
+	/* codec is bitclock and lrclk master */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_LEFT_J |
 			SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBM_CFM);
 	if (ret < 0)
@@ -157,6 +165,7 @@ static struct snd_soc_card db1550_i2s_machine = {
 	.num_links	= 1,
 };
 
+/*-------------------------  COMMON PART  ---------------------------*/
 
 static struct snd_soc_card *db1200_cards[] __devinitdata = {
 	&db1200_ac97_machine,

@@ -363,12 +363,14 @@
 #define     MIN_MAX_BANK__MAX_VALUE			0x000c
 
 
-#define CLEAR 0                 
-#define SET   1                 
-#define FAIL 1                  
-#define PASS 0                  
-#define ERR -1                  
+/* ffsdefs.h */
+#define CLEAR 0                 /*use this to clear a field instead of "fail"*/
+#define SET   1                 /*use this to set a field instead of "pass"*/
+#define FAIL 1                  /*failed flag*/
+#define PASS 0                  /*success flag*/
+#define ERR -1                  /*error flag*/
 
+/* lld.h */
 #define GOOD_BLOCK 0
 #define DEFECTIVE_BLOCK 1
 #define READ_ERROR 2
@@ -376,12 +378,15 @@
 #define CLK_X  5
 #define CLK_MULTI 4
 
+/* spectraswconfig.h */
 #define CMD_DMA 0
 
 #define SPECTRA_PARTITION_ID    0
+/**** Block Table and Reserved Block Parameters *****/
 #define SPECTRA_START_BLOCK     3
 #define NUM_FREE_BLOCKS_GATE    30
 
+/* KBV - Updated to LNW scratch register address */
 #define SCRATCH_REG_ADDR    CONFIG_MTD_NAND_DENALI_SCRATCH_REG_ADDR
 #define SCRATCH_REG_SIZE    64
 
@@ -395,6 +400,7 @@
 #define ONFI_BLOOM_TIME         1
 #define MODE5_WORKAROUND        0
 
+/* lld_nand.h */
 /*
  * NAND Flash Controller Device Driver
  * Copyright (c) 2009, Intel Corporation and its suppliers.
@@ -464,30 +470,30 @@ struct nand_buf {
 struct denali_nand_info {
 	struct mtd_info mtd;
 	struct nand_chip nand;
-	int flash_bank; 
+	int flash_bank; /* currently selected chip */
 	int status;
 	int platform;
 	struct nand_buf buf;
 	struct device *dev;
 	int total_used_banks;
-	uint32_t block;  
+	uint32_t block;  /* stored for future use */
 	uint16_t page;
-	void __iomem *flash_reg;  
-	void __iomem *flash_mem;  
+	void __iomem *flash_reg;  /* Mapped io reg base address */
+	void __iomem *flash_mem;  /* Mapped io reg base address */
 
-	
+	/* elements used by ISR */
 	struct completion complete;
 	spinlock_t irq_lock;
 	uint32_t irq_status;
 	int irq_debug_array[32];
 	int idx;
 
-	uint32_t devnum;	
-	uint32_t fwblks; 
+	uint32_t devnum;	/* represent how many nands connected */
+	uint32_t fwblks; /* represent how many blocks FW used */
 	uint32_t totalblks;
 	uint32_t blksperchip;
 	uint32_t bbtskipbytes;
 	uint32_t max_banks;
 };
 
-#endif 
+#endif /*_LLD_NAND_*/

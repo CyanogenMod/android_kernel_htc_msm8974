@@ -57,9 +57,10 @@ struct cxd2820r_priv {
 	u8 gpio[3];
 
 	fe_delivery_system_t delivery_system;
-	bool last_tune_failed; 
+	bool last_tune_failed; /* for switch between T and T2 tune */
 };
 
+/* cxd2820r_core.c */
 
 extern int cxd2820r_debug;
 
@@ -83,6 +84,7 @@ int cxd2820r_wr_reg(struct cxd2820r_priv *priv, u32 reg, u8 val);
 
 int cxd2820r_rd_reg(struct cxd2820r_priv *priv, u32 reg, u8 *val);
 
+/* cxd2820r_c.c */
 
 int cxd2820r_get_frontend_c(struct dvb_frontend *fe);
 
@@ -105,6 +107,7 @@ int cxd2820r_sleep_c(struct dvb_frontend *fe);
 int cxd2820r_get_tune_settings_c(struct dvb_frontend *fe,
 	struct dvb_frontend_tune_settings *s);
 
+/* cxd2820r_t.c */
 
 int cxd2820r_get_frontend_t(struct dvb_frontend *fe);
 
@@ -127,6 +130,7 @@ int cxd2820r_sleep_t(struct dvb_frontend *fe);
 int cxd2820r_get_tune_settings_t(struct dvb_frontend *fe,
 	struct dvb_frontend_tune_settings *s);
 
+/* cxd2820r_t2.c */
 
 int cxd2820r_get_frontend_t2(struct dvb_frontend *fe);
 
@@ -149,4 +153,4 @@ int cxd2820r_sleep_t2(struct dvb_frontend *fe);
 int cxd2820r_get_tune_settings_t2(struct dvb_frontend *fe,
 	struct dvb_frontend_tune_settings *s);
 
-#endif 
+#endif /* CXD2820R_PRIV_H */

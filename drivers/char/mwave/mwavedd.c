@@ -68,6 +68,11 @@ MODULE_DESCRIPTION("3780i Advanced Communications Processor (Mwave) driver");
 MODULE_AUTHOR("Mike Sullivan and Paul Schroeder");
 MODULE_LICENSE("GPL");
 
+/*
+* These parameters support the setting of MWave resources. Note that no
+* checks are made against other devices (ie. superio) for conflicts.
+* We'll depend on users using the tpctl utility to do that for now
+*/
 static DEFINE_MUTEX(mwave_mutex);
 int mwave_debug = 0;
 int mwave_3780i_irq = 0;
@@ -329,16 +334,16 @@ static long mwave_ioctl(struct file *file, unsigned int iocmd,
 				add_wait_queue(&pDrvData->IPCs[ipcnum].ipc_wait_queue, &wait);
 				pDrvData->IPCs[ipcnum].bIsHere = TRUE;
 				set_current_state(TASK_INTERRUPTIBLE);
-				
-				
-				if (pDrvData->IPCs[ipcnum].usIntCount == 1) {	
-					pDrvData->IPCs[ipcnum].usIntCount = 2;	
+				/* check whether an event was signalled by */
+				/* the interrupt handler while we were gone */
+				if (pDrvData->IPCs[ipcnum].usIntCount == 1) {	/* first int has occurred (race condition) */
+					pDrvData->IPCs[ipcnum].usIntCount = 2;	/* first int has been handled */
 					PRINTK_2(TRACE_MWAVE,
 						"mwavedd::mwave_ioctl"
 						" IOCTL_MW_GET_IPC ipcnum %x"
 						" handling first int\n",
 						ipcnum);
-				} else {	
+				} else {	/* either 1st int has not yet occurred, or we have already handled the first int */
 					schedule();
 					if (pDrvData->IPCs[ipcnum].usIntCount == 1) {
 						pDrvData->IPCs[ipcnum].usIntCount = 2;
@@ -392,7 +397,7 @@ static long mwave_ioctl(struct file *file, unsigned int iocmd,
 		default:
 			return -ENOTTY;
 			break;
-	} 
+	} /* switch */
 
 	PRINTK_2(TRACE_MWAVE, "mwavedd::mwave_ioctl, exit retval %x\n", retval);
 
@@ -432,30 +437,30 @@ static int register_serial_portandirq(unsigned int port, int irq)
 		case 0x2f8:
 		case 0x3e8:
 		case 0x2e8:
-			
+			/* OK */
 			break;
 		default:
 			PRINTK_ERROR(KERN_ERR_MWAVE
 					"mwavedd::register_serial_portandirq:"
 					" Error: Illegal port %x\n", port );
 			return -1;
-	} 
-	
+	} /* switch */
+	/* port is okay */
 
 	switch ( irq ) {
 		case 3:
 		case 4:
 		case 5:
 		case 7:
-			
+			/* OK */
 			break;
 		default:
 			PRINTK_ERROR(KERN_ERR_MWAVE
 					"mwavedd::register_serial_portandirq:"
 					" Error: Illegal irq %x\n", irq );
 			return -1;
-	} 
-	
+	} /* switch */
+	/* irq is okay */
 
 	memset(&uart, 0, sizeof(struct uart_port));
 	
@@ -481,10 +486,14 @@ static const struct file_operations mwave_fops = {
 
 static struct miscdevice mwave_misc_dev = { MWAVE_MINOR, "mwave", &mwave_fops };
 
-#if 0 
+#if 0 /* totally b0rked */
+/*
+ * sysfs support <paulsch@us.ibm.com>
+ */
 
 struct device mwave_device;
 
+/* Prevent code redundancy, create a macro for mwave_show_* functions. */
 #define mwave_show_function(attr_name, format_string, field)		\
 static ssize_t mwave_show_##attr_name(struct device *dev, struct device_attribute *attr, char *buf)	\
 {									\
@@ -493,6 +502,7 @@ static ssize_t mwave_show_##attr_name(struct device *dev, struct device_attribut
         return sprintf(buf, format_string, pSettings->field);		\
 }
 
+/* All of our attributes are read attributes. */
 #define mwave_dev_rd_attr(attr_name, format_string, field)		\
 	mwave_show_function(attr_name, format_string, field)		\
 static DEVICE_ATTR(attr_name, S_IRUGO, mwave_show_##attr_name, NULL)
@@ -512,6 +522,12 @@ static struct device_attribute * const mwave_dev_attrs[] = {
 };
 #endif
 
+/*
+* mwave_init is called on module load
+*
+* mwave_exit is called on module unload
+* mwave_exit is also used to clean up after an aborted mwave_init
+*/
 static void mwave_exit(void)
 {
 	pMWAVE_DEVICE_DATA pDrvData = &mwave_s_mdd;
@@ -570,7 +586,7 @@ static int __init mwave_init(void)
 	for (i = 0; i < ARRAY_SIZE(pDrvData->IPCs); i++) {
 		pDrvData->IPCs[i].bIsEnabled = FALSE;
 		pDrvData->IPCs[i].bIsHere = FALSE;
-		pDrvData->IPCs[i].usIntCount = 0;	
+		pDrvData->IPCs[i].usIntCount = 0;	/* no ints received yet */
 		init_waitqueue_head(&pDrvData->IPCs[i].ipc_wait_queue);
 	}
 
@@ -643,10 +659,10 @@ static int __init mwave_init(void)
 				" Failed to register serial driver\n");
 		goto cleanup_error;
 	}
-	
+	/* uart is registered */
 
 #if 0
-	
+	/* sysfs */
 	memset(&mwave_device, 0, sizeof (struct device));
 	dev_set_name(&mwave_device, "mwave");
 
@@ -665,14 +681,14 @@ static int __init mwave_init(void)
 	}
 #endif
 
-	
+	/* SUCCESS! */
 	return 0;
 
 cleanup_error:
 	PRINTK_ERROR(KERN_ERR_MWAVE
 			"mwavedd::mwave_init: Error:"
 			" Failed to initialize\n");
-	mwave_exit(); 
+	mwave_exit(); /* clean up */
 
 	return -EIO;
 }

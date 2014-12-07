@@ -7,4 +7,4 @@ int bcm63xx_set_cs_timing(unsigned int cs, unsigned int wait,
 int bcm63xx_set_cs_param(unsigned int cs, u32 flags);
 int bcm63xx_set_cs_status(unsigned int cs, int enable);
 
-#endif 
+#endif /* !BCM63XX_CS_H */

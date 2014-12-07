@@ -60,7 +60,7 @@ proc_bus_zorro_read(struct file *file, char __user *buf, size_t nbytes, loff_t *
 	if (pos + nbytes > sizeof(struct ConfigDev))
 		nbytes = sizeof(struct ConfigDev) - pos;
 
-	
+	/* Construct a ConfigDev */
 	memset(&cd, 0, sizeof(cd));
 	cd.cd_Rom = z->rom;
 	cd.cd_SlotAddr = z->slotaddr;

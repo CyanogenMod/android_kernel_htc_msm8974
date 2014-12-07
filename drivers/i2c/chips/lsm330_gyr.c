@@ -70,6 +70,7 @@
 
 #include <linux/lsm330.h>
 #include <linux/of_gpio.h>
+/*#include "lsm330.h"*/
 static struct rot_matrix {
        short matrix[3][3];
 	} rot_matrix[] = {
@@ -148,27 +149,30 @@ static void debug_do_work(struct work_struct *w)
 	}
 }
 
+/* Maximum polled-device-reported rot speed value value in dps */
 #define FS_MAX		32768
 #define MS_TO_NS(x)			(x*1000000L)
 
+/* lsm330 gyroscope registers */
 #define WHO_AM_I	(0x0F)
 
-#define SENSITIVITY_250			8750		
-#define SENSITIVITY_500			17500		
-#define SENSITIVITY_2000		70000		
+#define SENSITIVITY_250			8750		/*	udps/LSB */
+#define SENSITIVITY_500			17500		/*	udps/LSB */
+#define SENSITIVITY_2000		70000		/*	udps/LSB */
 
-#define CTRL_REG1	(0x20)    
-#define CTRL_REG2	(0x21)    
-#define CTRL_REG3	(0x22)    
-#define CTRL_REG4	(0x23)    
-#define CTRL_REG5	(0x24)    
-#define	REFERENCE	(0x25)    
-#define	FIFO_CTRL_REG	(0x2E)    
-#define FIFO_SRC_REG	(0x2F)    
-#define	OUT_X_L		(0x28)    
+#define CTRL_REG1	(0x20)    /* CTRL REG1 */
+#define CTRL_REG2	(0x21)    /* CTRL REG2 */
+#define CTRL_REG3	(0x22)    /* CTRL_REG3 */
+#define CTRL_REG4	(0x23)    /* CTRL_REG4 */
+#define CTRL_REG5	(0x24)    /* CTRL_REG5 */
+#define	REFERENCE	(0x25)    /* REFERENCE REG */
+#define	FIFO_CTRL_REG	(0x2E)    /* FIFO CONTROL REGISTER */
+#define FIFO_SRC_REG	(0x2F)    /* FIFO SOURCE REGISTER */
+#define	OUT_X_L		(0x28)    /* 1st AXIS OUT REG of 6 */
 
 #define AXISDATA_REG	OUT_X_L
 
+/* CTRL_REG1 */
 #define ALL_ZEROES	(0x00)
 #define PM_OFF		(0x00)
 #define PM_NORMAL	(0x08)
@@ -178,11 +182,12 @@ static void debug_do_work(struct work_struct *w)
 #define BW01		(0x10)
 #define BW10		(0x20)
 #define BW11		(0x30)
-#define ODR095		(0x00)  
-#define ODR190		(0x40)  
-#define ODR380		(0x80)  
-#define ODR760		(0xC0)  
+#define ODR095		(0x00)  /* ODR =  95Hz */
+#define ODR190		(0x40)  /* ODR = 190Hz */
+#define ODR380		(0x80)  /* ODR = 380Hz */
+#define ODR760		(0xC0)  /* ODR = 760Hz */
 
+/* CTRL_REG3 bits */
 #define	I2_DRDY		(0x08)
 #define	I2_WTM		(0x04)
 #define	I2_OVRUN	(0x02)
@@ -190,12 +195,15 @@ static void debug_do_work(struct work_struct *w)
 #define	I2_NONE		(0x00)
 #define	I2_MASK		(0x0F)
 
+/* CTRL_REG4 bits */
 #define	FS_MASK		(0x30)
 #define	BDU_ENABLE	(0x80)
 
+/* CTRL_REG5 bits */
 #define	FIFO_ENABLE	(0x40)
 #define HPF_ENALBE	(0x11)
 
+/* FIFO_CTRL_REG bits */
 #define	FIFO_MODE_MASK		(0xE0)
 #define	FIFO_MODE_BYPASS	(0x00)
 #define	FIFO_MODE_FIFO		(0x20)
@@ -208,6 +216,7 @@ static void debug_do_work(struct work_struct *w)
 
 #define I2C_AUTO_INCREMENT	(0x80)
 
+/* RESUME STATE INDICES */
 #define	RES_CTRL_REG1		0
 #define	RES_CTRL_REG2		1
 #define	RES_CTRL_REG3		2
@@ -218,8 +227,10 @@ static void debug_do_work(struct work_struct *w)
 #define TOLERENCE		358
 
 
+/* #define DEBUG 1 */
 
-#define WHOAMI_LSM330_GYR	(0xD4)  
+/** Registers Contents */
+#define WHOAMI_LSM330_GYR	(0xD4)  /* Expected content for WAI register*/
 #define DIF(x...) {\
                 if (DEBUG_FLAG)\
                        printk(KERN_DEBUG "[LSM330] [GYRO]" x); }
@@ -229,13 +240,19 @@ module_param(DEBUG_FLAG,int,0600);
 
 static int int1_gpio = LSM330_GYR_DEFAULT_INT1_GPIO;
 static int int2_gpio = LSM330_GYR_DEFAULT_INT2_GPIO;
+/* module_param(int1_gpio, int, S_IRUGO); */
 module_param(int2_gpio, int, S_IRUGO);
 
+/*
+ * LSM330 gyroscope data
+ * brief structure containing gyroscope values for yaw, pitch and roll in
+ * s32
+ */
 
 struct lsm330_gyr_triple {
-	s32	x,	
-		y,	
-		z;	
+	s32	x,	/* x-axis angular rate data. */
+		y,	/* y-axis angluar rate data. */
+		z;	/* z-axis angular rate data. */
 };
 
 struct output_rate {
@@ -255,9 +272,9 @@ static struct lsm330_gyr_platform_data default_lsm330_gyr_pdata = {
 	.fs_range = LSM330_GYR_FS_250DPS,
 	.rot_matrix_index = 0,
 	.poll_interval = 100,
-	.min_interval = LSM330_GYR_MIN_POLL_PERIOD_MS, 
+	.min_interval = LSM330_GYR_MIN_POLL_PERIOD_MS, /* 2ms */
 	.gpio_int1 = LSM330_GYR_DEFAULT_INT1_GPIO,
-	.gpio_int2 = LSM330_GYR_DEFAULT_INT2_GPIO,	
+	.gpio_int2 = LSM330_GYR_DEFAULT_INT2_GPIO,	/* int for fifo */
 };
 
 struct workqueue_struct *lsm330_gyr_workqueue = 0;
@@ -286,13 +303,13 @@ struct lsm330_gyr_status {
 	int on_before_suspend;
 #endif
 
-	
+	/* interrupt related */
 	int irq2;
 	struct work_struct irq2_work;
 	struct workqueue_struct *irq2_work_queue;
 
 	bool polling_enabled;
-	
+	/* fifo related */
 	u8 watermark;
 	u8 fifomode;
 
@@ -311,6 +328,13 @@ static int lsm330_gyr_i2c_read(struct lsm330_gyr_status *stat, u8 *buf,
 	u8 reg = buf[0];
 	u8 cmd = reg;
 
+/*
+	if (len > sizeof(buf))
+			dev_err(&stat->client->dev,
+				"read error insufficient buffer length: "
+				"len:%d, buf size=%d\n",
+				len, sizeof(buf));
+*/
 	if (len > 1)
 		cmd = (I2C_AUTO_INCREMENT | reg);
 	if (stat->use_smbus) {
@@ -345,9 +369,9 @@ static int lsm330_gyr_i2c_read(struct lsm330_gyr_status *stat, u8 *buf,
 			dev_err(&stat->client->dev,
 				"read transfer error: len:%d, command=0x%02x\n",
 				len, cmd);
-			return 0; 
+			return 0; /* failure */
 		}
-		return len; 
+		return len; /* success */
 	}
 
 	ret = i2c_master_send(stat->client, &cmd, sizeof(cmd));
@@ -409,6 +433,8 @@ static int lsm330_gyr_register_write(struct lsm330_gyr_status *stat,
 {
 	int err;
 
+		/* Sets configuration register at reg_address
+		 *  NOTE: this is a straight overwrite  */
 		buf[0] = reg_address;
 		buf[1] = new_value;
 		err = lsm330_gyr_i2c_write(stat, buf, 1);
@@ -486,6 +512,10 @@ static int lsm330_gyr_update_fifomode(struct lsm330_gyr_status *stat,
 		dev_err(&stat->client->dev, "failed to update fifoMode\n");
 		return res;
 	}
+	/*
+	dev_dbg(&stat->client->dev, "new_value:0x%02x,prev fifomode:0x%02x\n",
+				__func__, new_value, stat->fifomode);
+	 */
 	stat->resume_state[RES_FIFO_CTRL_REG] =
 		((FIFO_MODE_MASK & new_value) |
 		(~FIFO_MODE_MASK &
@@ -543,6 +573,13 @@ static int lsm330_gyr_manage_int2settings(struct lsm330_gyr_status *stat,
 	bool enable_fifo_hw;
 	bool recognized_mode = false;
 	u8 int2bits = I2_NONE;
+/*
+	if (stat->polling_enabled) {
+		fifomode = FIFO_MODE_BYPASS;
+		dbg_warn(&stat->client->dev, "in polling mode, fifo mode forced"
+							" to BYPASS mode\n");
+	}
+*/
 
 
 	switch (fifomode) {
@@ -567,7 +604,7 @@ static int lsm330_gyr_manage_int2settings(struct lsm330_gyr_status *stat,
 		stat->resume_state[RES_CTRL_REG3] =
 			((I2_MASK & int2bits) |
 			(~(I2_MASK) & stat->resume_state[RES_CTRL_REG3]));
-		
+		/* enable_fifo_hw = true; */
 		break;
 
 	case FIFO_MODE_BYPASS:
@@ -684,6 +721,8 @@ static int lsm330_gyr_update_odr(struct lsm330_gyr_status *stat,
 	config[1] = odr_table[i].mask;
 	config[1] |= (ENABLE_ALL_AXES + PM_NORMAL);
 
+	/* If device is currently enabled, we need to write new
+	 *  configuration out to it */
 	if (atomic_read(&stat->enabled)) {
 		config[0] = CTRL_REG1;
 		err = lsm330_gyr_i2c_write(stat, config, 1);
@@ -696,12 +735,13 @@ static int lsm330_gyr_update_odr(struct lsm330_gyr_status *stat,
 	return err;
 }
 
+/* gyroscope data readout */
 static int lsm330_gyr_get_data(struct lsm330_gyr_status *stat,
 			     struct lsm330_gyr_triple *data)
 {
 	int i, err, out[3];
 	unsigned char gyro_out[6];
-	
+	/* y,p,r hardware data */
 	s32 hw_d[3] = { 0 };
 
 	gyro_out[0] = (AXISDATA_REG);
@@ -715,9 +755,9 @@ static int lsm330_gyr_get_data(struct lsm330_gyr_status *stat,
 	hw_d[1] = (s32) ((s16)((gyro_out[3]) << 8) | gyro_out[2]);
 	hw_d[2] = (s32) ((s16)((gyro_out[5]) << 8) | gyro_out[4]);
 
-	
-	
-	
+	//hw_d[0] = hw_d[0] * stat->sensitivity;
+	//hw_d[1] = hw_d[1] * stat->sensitivity;
+	//hw_d[2] = hw_d[2] * stat->sensitivity;
 
 	for (i = 0; i < 3; i++) {
 		out[i] = stat->rot_matrix[0][i] * hw_d[0] +
@@ -789,13 +829,20 @@ static void lsm330_gyr_device_power_off(struct lsm330_gyr_status *stat)
 		dev_err(&stat->client->dev, "soft power off failed\n");
 
 	if (stat->pdata->power_off) {
-		
+		/* disable_irq_nosync(acc->irq1); */
 		disable_irq_nosync(stat->irq2);
 		stat->pdata->power_off();
 		stat->hw_initialized = 0;
 	}
 
 	if (stat->hw_initialized) {
+		/*
+		if (stat->pdata->gpio_int1 >= 0) {
+			disable_irq_nosync(stat->irq1);
+			dev_info(&stat->client->dev,
+					"power off: irq1 disabled\n");
+		}
+		*/
 		if (stat->pdata->gpio_int2 >= 0) {
 			disable_irq_nosync(stat->irq2);
 			dev_info(&stat->client->dev,
@@ -827,6 +874,11 @@ static int lsm330_gyr_device_power_on(struct lsm330_gyr_status *stat)
 	}
 
 	if (stat->hw_initialized) {
+		/* if (stat->pdata->gpio_int1) {
+			enable_irq(stat->irq1);
+			dev_info(&stat->client->dev,
+						"power on: irq1 enabled\n");
+		} */
 		dev_dbg(&stat->client->dev, "stat->pdata->gpio_int2 = %d\n",
 						stat->pdata->gpio_int2);
 		if (stat->pdata->gpio_int2 >= 0) {
@@ -934,7 +986,7 @@ static ssize_t attr_range_show(struct device *dev,
 		break;
 	}
 	mutex_unlock(&stat->lock);
-	
+	/* return sprintf(buf, "0x%02x\n", val); */
 	return sprintf(buf, "%d\n", range);
 }
 
@@ -1077,6 +1129,8 @@ static ssize_t attr_fifomode_store(struct device *dev,
 
 	if (strict_strtoul(buf, 16, &fifomode))
 		return -EINVAL;
+	/* if (!fifomode)
+		return -EINVAL; */
 
 	dev_dbg(dev, "%s, got value:0x%02x\n", __func__, (u8)fifomode);
 
@@ -1149,7 +1203,7 @@ static ssize_t attr_addr_set(struct device *dev, struct device_attribute *attr,
 
 	return size;
 }
-#endif 
+#endif /* DEBUG */
 
 static ssize_t attr_cali_data_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
@@ -1414,29 +1468,32 @@ static void lsm330_gyr_irq2_work_func(struct work_struct *work)
 
 	struct lsm330_gyr_status *stat =
 		container_of(work, struct lsm330_gyr_status, irq2_work);
+	/* TODO  add interrupt service procedure.
+		 ie:lsm330_gyr_irq2_XXX(stat); */
 	lsm330_gyr_irq2_fifo(stat);
-	
+	/*  */
 	pr_debug("%s %s: IRQ2 served\n", LSM330_GYR_DEV_NAME, __func__);
+/* exit: */
 	enable_irq(stat->irq2);
 }
 
 int lsm330_gyr_input_open(struct input_dev *input)
 {
-	
-	
-	return 0;
+	//struct lsm330_gyr_status *stat = input_get_drvdata(input);
+	//dev_dbg(&stat->client->dev, "%s\n", __func__);
+	return 0;//lsm330_gyr_enable(stat);
 }
 
 void lsm330_gyr_input_close(struct input_dev *dev)
 {
-	
-	
-	
+	//struct lsm330_gyr_status *stat = input_get_drvdata(dev);
+	//dev_dbg(&stat->client->dev, "%s\n", __func__);
+	//lsm330_gyr_disable(stat);
 }
 
 static int lsm330_gyr_validate_pdata(struct lsm330_gyr_status *stat)
 {
-	
+	/* checks for correctness of minimal polling period */
 	stat->pdata->min_interval =
 		max((unsigned int) LSM330_GYR_MIN_POLL_PERIOD_MS,
 						stat->pdata->min_interval);
@@ -1453,7 +1510,7 @@ static int lsm330_gyr_validate_pdata(struct lsm330_gyr_status *stat)
 		rot_matrix[stat->pdata->rot_matrix_index].matrix,
 							9 * sizeof(short));
 
-	
+	/* Enforce minimum polling interval */
 	if (stat->pdata->poll_interval < stat->pdata->min_interval) {
 		dev_err(&stat->client->dev,
 			"minimum poll interval violated\n");
@@ -1580,6 +1637,55 @@ static int lsm330_gyr_parse_dt(struct device *dev, struct lsm330_gyr_platform_da
                 I("%s: gyro_lsm330,rot_matrix_index not found", __func__);
 
 
+/*
+	prop = of_find_property(dt, "gyro_lsm330,axis_map_x", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "gyro_lsm330,axis_map_x", &buf);
+		pdata->axis_map_x = buf;
+		I("%s: axis_map_x = %d", __func__, pdata->axis_map_x);
+	} else
+		I("%s: gyro_lsm330,axis_map_x not found", __func__);
+
+	prop = of_find_property(dt, "gyro_lsm330,axis_map_y", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "gyro_lsm330,axis_map_y", &buf);
+		pdata->axis_map_y = buf;
+		I("%s: axis_map_y = %d", __func__, pdata->axis_map_y);
+	} else
+		I("%s: gyro_lsm330,axis_map_y not found", __func__);
+
+	prop = of_find_property(dt, "gyro_lsm330,axis_map_z", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "gyro_lsm330,axis_map_z", &buf);
+		pdata->axis_map_z = buf;
+		I("%s: axis_map_z = %d", __func__, pdata->axis_map_z);
+	} else
+		I("%s: gyro_lsm330,axis_map_z not found", __func__);
+
+	prop = of_find_property(dt, "gyro_lsm330,negate_x", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "gyro_lsm330,negate_x", &buf);
+		pdata->negate_x = buf;
+		I("%s: negate_x = %d", __func__, pdata->negate_x);
+	} else
+		I("%s: gyro_lsm330,negate_x not found", __func__);
+
+	prop = of_find_property(dt, "gyro_lsm330,negate_y", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "gyro_lsm330,negate_y", &buf);
+		pdata->negate_y = buf;
+		I("%s: negate_y = %d", __func__, pdata->negate_y);
+	} else
+		I("%s: gyro_lsm330,negate_y not found", __func__);
+
+	prop = of_find_property(dt, "gyro_lsm330,negate_z", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "gyro_lsm330,negate_z", &buf);
+		pdata->negate_z = buf;
+		I("%s: negate_z = %d", __func__, pdata->negate_z);
+	} else
+		I("%s: gyro_lsm330,negate_z not found", __func__);
+*/
 	prop = of_find_property(dt, "gyro_lsm330,poll_interval", NULL);
 	if (prop) {
 		of_property_read_u32(dt, "gyro_lsm330,poll_interval", &buf);
@@ -1660,7 +1766,7 @@ static int __devinit lsm330_gyr_probe(struct i2c_client *client,
 		goto err0;
 	}
 
-	
+	/* Support for both I2C and SMBUS adapter interfaces. */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		dev_warn(&client->dev, "client not i2c capable\n");
 		if (i2c_check_functionality(client->adapter, smbus_func)) {
@@ -1781,7 +1887,7 @@ static int __devinit lsm330_gyr_probe(struct i2c_client *client,
 
 	lsm330_gyr_device_power_off(stat);
 
-	
+	/* As default, do not report information */
 	atomic_set(&stat->enabled, 0);
 
 
@@ -1824,6 +1930,9 @@ static int __devinit lsm330_gyr_probe(struct i2c_client *client,
 		stat->cali_data_y = to_signed_int(&stat->pdata->gyro_kvalue[8]);
 		stat->cali_data_z = to_signed_int(&stat->pdata->gyro_kvalue[12]);
 	} else {
+		/*stat->cali_data_x = to_signed_int(&gyro_gsensor_kvalue[4]);
+		stat->cali_data_y = to_signed_int(&gyro_gsensor_kvalue[8]);
+		stat->cali_data_z = to_signed_int(&gyro_gsensor_kvalue[12]);*/
 	}
 	D("%s: Calibration data (x, y, z) = (%d, %d, %d)\n",
 		__func__, stat->cali_data_x, stat->cali_data_y,
@@ -1843,6 +1952,9 @@ static int __devinit lsm330_gyr_probe(struct i2c_client *client,
 err_create_singlethread_workqueue:
 	if (stat && (stat->pdata) && (stat->pdata->gpio_int2 >= 0))
 		free_irq(stat->irq2, stat);
+/*err7:
+	free_irq(stat->irq2, stat);
+*/
 err6:
 	destroy_workqueue(stat->irq2_work_queue);
 err5:
@@ -1879,6 +1991,14 @@ static int lsm330_gyr_remove(struct i2c_client *client)
 		flush_workqueue(lsm330_gyr_workqueue);
 		destroy_workqueue(lsm330_gyr_workqueue);
 	}
+	/*
+	if (stat->pdata->gpio_int1 >= 0)
+	{
+		free_irq(stat->irq1, stat);
+		gpio_free(stat->pdata->gpio_int1);
+		destroy_workqueue(stat->irq1_work_queue);
+	}
+	*/
 	if (stat->pdata->gpio_int2 >= 0) {
 		free_irq(stat->irq2, stat);
 		gpio_free(stat->pdata->gpio_int2);
@@ -1915,10 +2035,10 @@ static int lsm330_gyr_resume(struct device *dev)
 
 	return 0;
 }
-#else 
+#else /* CONFIG_PM */
 #define lsm330_gyr_suspend	NULL
 #define lsm330_gyr_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
 
 static const struct i2c_device_id lsm330_gyr_id[] = {

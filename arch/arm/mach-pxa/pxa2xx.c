@@ -23,7 +23,7 @@
 
 void pxa2xx_clear_reset_status(unsigned int mask)
 {
-	
+	/* RESET_STATUS_* has a 1:1 mapping with RCSR */
 	RCSR = mask;
 }
 

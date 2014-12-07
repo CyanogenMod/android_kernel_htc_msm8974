@@ -36,6 +36,7 @@
 #include <net/nfc/nci.h>
 #include <net/nfc/nci_core.h>
 
+/* Handle NCI Response packets */
 
 static void nci_core_reset_rsp_packet(struct nci_dev *ndev, struct sk_buff *skb)
 {
@@ -147,7 +148,7 @@ static void nci_rf_disc_select_rsp_packet(struct nci_dev *ndev,
 
 	pr_debug("status 0x%x\n", status);
 
-	
+	/* Complete the request on intf_activated_ntf or generic_error_ntf */
 	if (status != NCI_STATUS_OK)
 		nci_req_complete(ndev, status);
 }
@@ -159,7 +160,7 @@ static void nci_rf_deactivate_rsp_packet(struct nci_dev *ndev,
 
 	pr_debug("status 0x%x\n", status);
 
-	
+	/* If target was active, complete the request only in deactivate_ntf */
 	if ((status != NCI_STATUS_OK) ||
 	    (atomic_read(&ndev->state) != NCI_POLL_ACTIVE)) {
 		nci_clear_target_list(ndev);
@@ -172,7 +173,7 @@ void nci_rsp_packet(struct nci_dev *ndev, struct sk_buff *skb)
 {
 	__u16 rsp_opcode = nci_opcode(skb->data);
 
-	
+	/* we got a rsp, stop the cmd timer */
 	del_timer(&ndev->cmd_timer);
 
 	pr_debug("NCI RX: MT=rsp, PBF=%d, GID=0x%x, OID=0x%x, plen=%d\n",
@@ -181,7 +182,7 @@ void nci_rsp_packet(struct nci_dev *ndev, struct sk_buff *skb)
 		 nci_opcode_oid(rsp_opcode),
 		 nci_plen(skb->data));
 
-	
+	/* strip the nci control header */
 	skb_pull(skb, NCI_CTRL_HDR_SIZE);
 
 	switch (rsp_opcode) {
@@ -216,7 +217,7 @@ void nci_rsp_packet(struct nci_dev *ndev, struct sk_buff *skb)
 
 	kfree_skb(skb);
 
-	
+	/* trigger the next cmd */
 	atomic_set(&ndev->cmd_cnt, 1);
 	if (!skb_queue_empty(&ndev->cmd_q))
 		queue_work(ndev->cmd_wq, &ndev->cmd_work);

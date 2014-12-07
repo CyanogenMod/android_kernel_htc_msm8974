@@ -67,8 +67,10 @@ static const char *ITACVer[] =
 #define ELSA_QS3000PCI 10
 #define ELSA_PCMCIA_IPAC 11
 
+/* PCI stuff */
 #define ELSA_PCI_IRQ_MASK	0x04
 
+/* ITAC Registeradressen (only Microlink PC) */
 #define ITAC_SYS	0x34
 #define ITAC_ISEN	0x48
 #define ITAC_RFIE	0x4A
@@ -76,56 +78,65 @@ static const char *ITACVer[] =
 #define ITAC_SCIE	0x4E
 #define ITAC_STIE	0x46
 
+/***                                                                    ***
+ ***   Makros als Befehle fuer die Kartenregister                       ***
+ ***   (mehrere Befehle werden durch Bit-Oderung kombiniert)            ***
+ ***                                                                    ***/
 
-#define ELIRQF_TIMER_RUN       0x02	
-#define ELIRQF_TIMER_RUN_PCC8  0x01	
-#define ELSA_IRQ_IDX       0x38	
-#define ELSA_IRQ_IDX_PCC8  0x30	
-#define ELSA_IRQ_IDX_PC    0x0c	
+/* Config-Register (Read) */
+#define ELIRQF_TIMER_RUN       0x02	/* Bit 1 des Config-Reg     */
+#define ELIRQF_TIMER_RUN_PCC8  0x01	/* Bit 0 des Config-Reg  bei PCC */
+#define ELSA_IRQ_IDX       0x38	/* Bit 3,4,5 des Config-Reg */
+#define ELSA_IRQ_IDX_PCC8  0x30	/* Bit 4,5 des Config-Reg */
+#define ELSA_IRQ_IDX_PC    0x0c	/* Bit 2,3 des Config-Reg */
 
-#define ELSA_LINE_LED        0x02	
-#define ELSA_STAT_LED        0x08	
-#define ELSA_ISDN_RESET      0x20	
-#define ELSA_ENA_TIMER_INT   0x80	
+/* Control-Register (Write) */
+#define ELSA_LINE_LED        0x02	/* Bit 1 Gelbe LED */
+#define ELSA_STAT_LED        0x08	/* Bit 3 Gruene LED */
+#define ELSA_ISDN_RESET      0x20	/* Bit 5 Reset-Leitung */
+#define ELSA_ENA_TIMER_INT   0x80	/* Bit 7 Freigabe Timer Interrupt */
 
-#define ELSA_HW_RELEASE      0x07	
-#define ELSA_S0_POWER_BAD    0x08	
+/* ALE-Register (Read) */
+#define ELSA_HW_RELEASE      0x07	/* Bit 0-2 Hardwarerkennung */
+#define ELSA_S0_POWER_BAD    0x08	/* Bit 3 S0-Bus Spannung fehlt */
 
+/* Status Flags */
 #define ELIRQF_TIMER_AKTIV 1
 #define ELSA_BAD_PWR     2
 #define ELSA_ASSIGN      4
 
 #define RS_ISR_PASS_LIMIT 256
 #define FLG_MODEM_ACTIVE 1
-#define ELSA_IPAC_LINE_LED	0x40	
-#define ELSA_IPAC_STAT_LED	0x80	
+/* IPAC AUX */
+#define ELSA_IPAC_LINE_LED	0x40	/* Bit 6 Gelbe LED */
+#define ELSA_IPAC_STAT_LED	0x80	/* Bit 7 Gruene LED */
 
 #if ARCOFI_USE
 static struct arcofi_msg ARCOFI_XOP_F =
-{NULL,0,2,{0xa1,0x3f,0,0,0,0,0,0,0,0}}; 
+{NULL,0,2,{0xa1,0x3f,0,0,0,0,0,0,0,0}}; /* Normal OP */
 static struct arcofi_msg ARCOFI_XOP_1 =
-{&ARCOFI_XOP_F,0,2,{0xa1,0x31,0,0,0,0,0,0,0,0}}; 
+{&ARCOFI_XOP_F,0,2,{0xa1,0x31,0,0,0,0,0,0,0,0}}; /* PWR UP */
 static struct arcofi_msg ARCOFI_SOP_F =
 {&ARCOFI_XOP_1,0,10,{0xa1,0x1f,0x00,0x50,0x10,0x00,0x00,0x80,0x02,0x12}};
 static struct arcofi_msg ARCOFI_COP_9 =
-{&ARCOFI_SOP_F,0,10,{0xa1,0x29,0x80,0xcb,0xe9,0x88,0x00,0xc8,0xd8,0x80}}; 
+{&ARCOFI_SOP_F,0,10,{0xa1,0x29,0x80,0xcb,0xe9,0x88,0x00,0xc8,0xd8,0x80}}; /* RX */
 static struct arcofi_msg ARCOFI_COP_8 =
-{&ARCOFI_COP_9,0,10,{0xa1,0x28,0x49,0x31,0x8,0x13,0x6e,0x88,0x2a,0x61}}; 
+{&ARCOFI_COP_9,0,10,{0xa1,0x28,0x49,0x31,0x8,0x13,0x6e,0x88,0x2a,0x61}}; /* TX */
 static struct arcofi_msg ARCOFI_COP_7 =
-{&ARCOFI_COP_8,0,4,{0xa1,0x27,0x80,0x80,0,0,0,0,0,0}}; 
+{&ARCOFI_COP_8,0,4,{0xa1,0x27,0x80,0x80,0,0,0,0,0,0}}; /* GZ */
 static struct arcofi_msg ARCOFI_COP_6 =
-{&ARCOFI_COP_7,0,6,{0xa1,0x26,0,0,0x82,0x7c,0,0,0,0}}; 
+{&ARCOFI_COP_7,0,6,{0xa1,0x26,0,0,0x82,0x7c,0,0,0,0}}; /* GRL GRH */
 static struct arcofi_msg ARCOFI_COP_5 =
-{&ARCOFI_COP_6,0,4,{0xa1,0x25,0xbb,0x4a,0,0,0,0,0,0}}; 
+{&ARCOFI_COP_6,0,4,{0xa1,0x25,0xbb,0x4a,0,0,0,0,0,0}}; /* GTX */
 static struct arcofi_msg ARCOFI_VERSION =
 {NULL,1,2,{0xa0,0,0,0,0,0,0,0,0,0}};
 static struct arcofi_msg ARCOFI_XOP_0 =
-{NULL,0,2,{0xa1,0x30,0,0,0,0,0,0,0,0}}; 
+{NULL,0,2,{0xa1,0x30,0,0,0,0,0,0,0,0}}; /* PWR Down */
 
 static void set_arcofi(struct IsdnCardState *cs, int bc);
 
 #include "elsa_ser.c"
-#endif 
+#endif /* ARCOFI_USE */
 
 static inline u_char
 readreg(unsigned int ale, unsigned int adr, u_char off)
@@ -159,6 +170,7 @@ writefifo(unsigned int ale, unsigned int adr, u_char off, u_char *data, int size
 	outsb(adr, data, size);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -251,6 +263,9 @@ TimerRun(struct IsdnCardState *cs)
 		return (v & ELIRQF_TIMER_RUN_PCC8);
 	return (v & ELIRQF_TIMER_RUN);
 }
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) readreg(cs->hw.elsa.ale,			\
 				      cs->hw.elsa.hscx, reg + (nr ? 0x40 : 0))
@@ -274,6 +289,8 @@ elsa_interrupt(int intno, void *dev_id)
 	int icnt = 5;
 
 	if ((cs->typ == ISDN_CTYPE_ELSA_PCMCIA) && (*cs->busy_flag == 1)) {
+		/* The card tends to generate interrupts while being removed
+		   causing us to just crash the kernel. bad. */
 		printk(KERN_WARNING "Elsa: card not available!\n");
 		return IRQ_NONE;
 	}
@@ -318,7 +335,7 @@ Start_ISAC:
 	writereg(cs->hw.elsa.ale, cs->hw.elsa.isac, ISAC_MASK, 0xFF);
 	if (cs->hw.elsa.status & ELIRQF_TIMER_AKTIV) {
 		if (!TimerRun(cs)) {
-			
+			/* Timer Restart */
 			byteout(cs->hw.elsa.timer, 0);
 			cs->hw.elsa.counter++;
 		}
@@ -352,7 +369,7 @@ elsa_interrupt_ipac(int intno, void *dev_id)
 
 	spin_lock_irqsave(&cs->lock, flags);
 	if (cs->subtyp == ELSA_QS1000PCI || cs->subtyp == ELSA_QS3000PCI) {
-		val = bytein(cs->hw.elsa.cfg + 0x4c); 
+		val = bytein(cs->hw.elsa.cfg + 0x4c); /* PCI IRQ */
 		if (!(val & ELSA_PCI_IRQ_MASK)) {
 			spin_unlock_irqrestore(&cs->lock, flags);
 			return IRQ_NONE;
@@ -415,15 +432,15 @@ release_io_elsa(struct IsdnCardState *cs)
 	clear_arcofi(cs);
 #endif
 	if (cs->hw.elsa.ctrl)
-		byteout(cs->hw.elsa.ctrl, 0);	
+		byteout(cs->hw.elsa.ctrl, 0);	/* LEDs Out */
 	if (cs->subtyp == ELSA_QS1000PCI) {
-		byteout(cs->hw.elsa.cfg + 0x4c, 0x01);  
+		byteout(cs->hw.elsa.cfg + 0x4c, 0x01);  /* disable IRQ */
 		writereg(cs->hw.elsa.ale, cs->hw.elsa.isac, IPAC_ATX, 0xff);
 		bytecnt = 2;
 		release_region(cs->hw.elsa.cfg, 0x80);
 	}
 	if (cs->subtyp == ELSA_QS3000PCI) {
-		byteout(cs->hw.elsa.cfg + 0x4c, 0x03); 
+		byteout(cs->hw.elsa.cfg + 0x4c, 0x03); /* disable ELSA PCI IRQ */
 		writereg(cs->hw.elsa.ale, cs->hw.elsa.isac, IPAC_ATX, 0xff);
 		release_region(cs->hw.elsa.cfg, 0x80);
 	}
@@ -447,18 +464,18 @@ static void
 reset_elsa(struct IsdnCardState *cs)
 {
 	if (cs->hw.elsa.timer) {
-		
+		/* Wait 1 Timer */
 		byteout(cs->hw.elsa.timer, 0);
 		while (TimerRun(cs));
 		cs->hw.elsa.ctrl_reg |= 0x50;
-		cs->hw.elsa.ctrl_reg &= ~ELSA_ISDN_RESET;	
+		cs->hw.elsa.ctrl_reg &= ~ELSA_ISDN_RESET;	/* Reset On */
 		byteout(cs->hw.elsa.ctrl, cs->hw.elsa.ctrl_reg);
-		
+		/* Wait 1 Timer */
 		byteout(cs->hw.elsa.timer, 0);
 		while (TimerRun(cs));
-		cs->hw.elsa.ctrl_reg |= ELSA_ISDN_RESET;	
+		cs->hw.elsa.ctrl_reg |= ELSA_ISDN_RESET;	/* Reset Off */
 		byteout(cs->hw.elsa.ctrl, cs->hw.elsa.ctrl_reg);
-		
+		/* Wait 1 Timer */
 		byteout(cs->hw.elsa.timer, 0);
 		while (TimerRun(cs));
 		if (cs->hw.elsa.trig)
@@ -480,9 +497,9 @@ reset_elsa(struct IsdnCardState *cs)
 		}
 		writereg(cs->hw.elsa.ale, cs->hw.elsa.isac, IPAC_ATX, 0xff);
 		if (cs->subtyp == ELSA_QS1000PCI)
-			byteout(cs->hw.elsa.cfg + 0x4c, 0x41); 
+			byteout(cs->hw.elsa.cfg + 0x4c, 0x41); /* enable ELSA PCI IRQ */
 		else if (cs->subtyp == ELSA_QS3000PCI)
-			byteout(cs->hw.elsa.cfg + 0x4c, 0x43); 
+			byteout(cs->hw.elsa.cfg + 0x4c, 0x43); /* enable ELSA PCI IRQ */
 	}
 }
 
@@ -583,7 +600,7 @@ check_arcofi(struct IsdnCardState *cs)
 	}
 	return (0);
 }
-#endif 
+#endif /* ARCOFI_USE */
 
 static void
 elsa_led_handler(struct IsdnCardState *cs)
@@ -757,6 +774,9 @@ probe_elsa_adr(unsigned int adr, int typ)
 	int i, in1, in2, p16_1 = 0, p16_2 = 0, p8_1 = 0, p8_2 = 0, pc_1 = 0,
 		pc_2 = 0, pfp_1 = 0, pfp_2 = 0;
 
+	/* In case of the elsa pcmcia card, this region is in use,
+	   reserved for us by the card manager. So we do not check it
+	   here, it would fail. */
 	if (typ != ISDN_CTYPE_ELSA_PCMCIA) {
 		if (request_region(adr, 8, "elsa card")) {
 			release_region(adr, 8);
@@ -767,8 +787,8 @@ probe_elsa_adr(unsigned int adr, int typ)
 		}
 	}
 	for (i = 0; i < 16; i++) {
-		in1 = inb(adr + ELSA_CONFIG);	
-		in2 = inb(adr + ELSA_CONFIG);	
+		in1 = inb(adr + ELSA_CONFIG);	/* 'toggelt' bei */
+		in2 = inb(adr + ELSA_CONFIG);	/* jedem Zugriff */
 		p16_1 += 0x04 & in1;
 		p16_2 += 0x04 & in2;
 		p8_1 += 0x02 & in1;
@@ -894,7 +914,7 @@ static struct isapnp_device_id elsa_ids[] __devinitdata = {
 
 static struct isapnp_device_id *ipid __devinitdata = &elsa_ids[0];
 static struct pnp_card *pnp_c __devinitdata = NULL;
-#endif	
+#endif	/* __ISAPNP__ */
 
 static int __devinit
 setup_elsa_isapnp(struct IsdnCard *card)
@@ -948,7 +968,7 @@ setup_elsa_isapnp(struct IsdnCard *card)
 			return (0);
 		}
 	}
-#endif	
+#endif	/* __ISAPNP__ */
 
 	if (card->para[1] && card->para[0]) {
 		cs->hw.elsa.base = card->para[1];
@@ -983,7 +1003,7 @@ setup_elsa_pcmcia(struct IsdnCard *card)
 	cs->hw.elsa.base = card->para[1];
 	cs->irq = card->para[0];
 	val = readreg(cs->hw.elsa.base + 0, cs->hw.elsa.base + 2, IPAC_ID);
-	if ((val == 1) || (val == 2)) { 
+	if ((val == 1) || (val == 2)) { /* IPAC version 1.1/1.2 */
 		cs->subtyp = ELSA_PCMCIA_IPAC;
 		cs->hw.elsa.ale = cs->hw.elsa.base + 0;
 		cs->hw.elsa.isac = cs->hw.elsa.base + 2;
@@ -1074,7 +1094,7 @@ setup_elsa_pci(struct IsdnCard *card)
 {
 	return (1);
 }
-#endif 
+#endif /* CONFIG_PCI */
 
 static int __devinit
 setup_elsa_common(struct IsdnCard *card)
@@ -1106,6 +1126,9 @@ setup_elsa_common(struct IsdnCard *card)
 		       "Unknown ELSA subtype %d\n", cs->subtyp);
 		return (0);
 	}
+	/* In case of the elsa pcmcia card, this region is in use,
+	   reserved for us by the card manager. So we do not check it
+	   here, it would fail. */
 	if (cs->typ != ISDN_CTYPE_ELSA_PCMCIA && !request_region(cs->hw.elsa.base, bytecnt, "elsa isdn")) {
 		printk(KERN_WARNING
 		       "HiSax: ELSA config port %#lx-%#lx already in use\n",
@@ -1130,12 +1153,12 @@ setup_elsa_common(struct IsdnCard *card)
 	cs->hw.elsa.tl.function = (void *) elsa_led_handler;
 	cs->hw.elsa.tl.data = (long) cs;
 	init_timer(&cs->hw.elsa.tl);
-	
+	/* Teste Timer */
 	if (cs->hw.elsa.timer) {
 		byteout(cs->hw.elsa.trig, 0xff);
 		byteout(cs->hw.elsa.timer, 0);
 		if (!TimerRun(cs)) {
-			byteout(cs->hw.elsa.timer, 0);	
+			byteout(cs->hw.elsa.timer, 0);	/* 2. Versuch */
 			if (!TimerRun(cs)) {
 				printk(KERN_WARNING
 				       "Elsa: timer do not start\n");
@@ -1143,7 +1166,7 @@ setup_elsa_common(struct IsdnCard *card)
 				return (0);
 			}
 		}
-		HZDELAY((HZ / 100) + 1);	
+		HZDELAY((HZ / 100) + 1);	/* wait >=10 ms */
 		if (TimerRun(cs)) {
 			printk(KERN_WARNING "Elsa: timer do not run down\n");
 			release_io_elsa(cs);

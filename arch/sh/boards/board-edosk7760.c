@@ -32,6 +32,7 @@
 #include <asm/i2c-sh7760.h>
 #include <asm/sizes.h>
 
+/* Bus state controller registers for CS4 area */
 #define BSC_CS4BCR	0xA4FD0010
 #define BSC_CS4WCR	0xA4FD0030
 
@@ -41,12 +42,13 @@
 
 #define ETHERNET_IRQ	5
 
+/* NOR flash */
 static struct mtd_partition edosk7760_nor_flash_partitions[] = {
 	{
 		.name = "bootloader",
 		.offset = 0,
 		.size = SZ_256K,
-		.mask_flags = MTD_WRITEABLE,	
+		.mask_flags = MTD_WRITEABLE,	/* Read-only */
 	}, {
 		.name = "kernel",
 		.offset = MTDPART_OFS_APPEND,
@@ -86,6 +88,7 @@ static struct platform_device edosk7760_nor_flash_device = {
 	},
 };
 
+/* i2c initialization functions */
 static struct sh7760_i2c_platdata i2c_pd = {
 	.speed_khz	= 400,
 };
@@ -135,6 +138,7 @@ static struct platform_device sh7760_i2c0_dev = {
 	.num_resources	= ARRAY_SIZE(sh7760_i2c0_res),
 };
 
+/* eth initialization functions */
 static struct smc91x_platdata smc91x_info = {
 	.flags = SMC91X_USE_16BIT | SMC91X_IO_SHIFT_1 | IORESOURCE_IRQ_LOWLEVEL,
 };
@@ -163,6 +167,7 @@ static struct platform_device smc91x_dev = {
 	},
 };
 
+/* platform init code */
 static struct platform_device *edosk7760_devices[] __initdata = {
 	&smc91x_dev,
 	&edosk7760_nor_flash_device,
@@ -179,6 +184,9 @@ static int __init init_edosk7760_devices(void)
 }
 device_initcall(init_edosk7760_devices);
 
+/*
+ * The Machine Vector
+ */
 struct sh_machine_vector mv_edosk7760 __initmv = {
 	.mv_name	= "EDOSK7760",
 	.mv_nr_irqs	= 128,

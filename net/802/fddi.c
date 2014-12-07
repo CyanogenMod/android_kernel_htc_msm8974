@@ -42,6 +42,12 @@
 #include <net/arp.h>
 #include <net/sock.h>
 
+/*
+ * Create the FDDI MAC header for an arbitrary protocol layer
+ *
+ * saddr=NULL	means use device source address
+ * daddr=NULL	means leave destination address (eg unresolved arp)
+ */
 
 static int fddi_header(struct sk_buff *skb, struct net_device *dev,
 		       unsigned short type,
@@ -65,7 +71,7 @@ static int fddi_header(struct sk_buff *skb, struct net_device *dev,
 		fddi->hdr.llc_snap.ethertype	 = htons(type);
 	}
 
-	
+	/* Set the source and destination hardware addresses */
 
 	if (saddr != NULL)
 		memcpy(fddi->saddr, saddr, dev->addr_len);
@@ -82,6 +88,11 @@ static int fddi_header(struct sk_buff *skb, struct net_device *dev,
 }
 
 
+/*
+ * Rebuild the FDDI MAC header. This is called after an ARP
+ * (or in future other address resolution) has completed on
+ * this sk_buff.  We now let ARP fill in the other fields.
+ */
 
 static int fddi_rebuild_header(struct sk_buff	*skb)
 {
@@ -89,7 +100,7 @@ static int fddi_rebuild_header(struct sk_buff	*skb)
 
 #ifdef CONFIG_INET
 	if (fddi->hdr.llc_snap.ethertype == htons(ETH_P_IP))
-		
+		/* Try to get ARP to resolve the header and fill destination address */
 		return arp_find(fddi->daddr, skb);
 	else
 #endif
@@ -101,15 +112,25 @@ static int fddi_rebuild_header(struct sk_buff	*skb)
 }
 
 
+/*
+ * Determine the packet's protocol ID and fill in skb fields.
+ * This routine is called before an incoming packet is passed
+ * up.  It's used to fill in specific skb fields and to set
+ * the proper pointer to the start of packet data (skb->data).
+ */
 
 __be16 fddi_type_trans(struct sk_buff *skb, struct net_device *dev)
 {
 	struct fddihdr *fddi = (struct fddihdr *)skb->data;
 	__be16 type;
 
+	/*
+	 * Set mac.raw field to point to FC byte, set data field to point
+	 * to start of packet data.  Assume 802.2 SNAP frames for now.
+	 */
 
 	skb->dev = dev;
-	skb_reset_mac_header(skb);	
+	skb_reset_mac_header(skb);	/* point to frame control (FC) */
 
 	if(fddi->hdr.llc_8022_1.dsap==0xe0)
 	{
@@ -118,11 +139,11 @@ __be16 fddi_type_trans(struct sk_buff *skb, struct net_device *dev)
 	}
 	else
 	{
-		skb_pull(skb, FDDI_K_SNAP_HLEN);		
+		skb_pull(skb, FDDI_K_SNAP_HLEN);		/* adjust for 21 byte header */
 		type=fddi->hdr.llc_snap.ethertype;
 	}
 
-	
+	/* Set packet type based on destination address and flag settings */
 
 	if (*fddi->daddr & 0x01)
 	{
@@ -138,7 +159,7 @@ __be16 fddi_type_trans(struct sk_buff *skb, struct net_device *dev)
 			skb->pkt_type = PACKET_OTHERHOST;
 	}
 
-	
+	/* Assume 802.2 SNAP frames, for now */
 
 	return type;
 }
@@ -164,15 +185,26 @@ static void fddi_setup(struct net_device *dev)
 {
 	dev->header_ops		= &fddi_header_ops;
 	dev->type		= ARPHRD_FDDI;
-	dev->hard_header_len	= FDDI_K_SNAP_HLEN+3;	
-	dev->mtu		= FDDI_K_SNAP_DLEN;	
+	dev->hard_header_len	= FDDI_K_SNAP_HLEN+3;	/* Assume 802.2 SNAP hdr len + 3 pad bytes */
+	dev->mtu		= FDDI_K_SNAP_DLEN;	/* Assume max payload of 802.2 SNAP frame */
 	dev->addr_len		= FDDI_K_ALEN;
-	dev->tx_queue_len	= 100;			
+	dev->tx_queue_len	= 100;			/* Long queues on FDDI */
 	dev->flags		= IFF_BROADCAST | IFF_MULTICAST;
 
 	memset(dev->broadcast, 0xFF, FDDI_K_ALEN);
 }
 
+/**
+ * alloc_fddidev - Register FDDI device
+ * @sizeof_priv: Size of additional driver-private structure to be allocated
+ *	for this FDDI device
+ *
+ * Fill in the fields of the device structure with FDDI-generic values.
+ *
+ * Constructs a new net device, complete with a private data area of
+ * size @sizeof_priv.  A 32-byte (not bit) alignment is enforced for
+ * this private data area.
+ */
 struct net_device *alloc_fddidev(int sizeof_priv)
 {
 	return alloc_netdev(sizeof_priv, "fddi%d", fddi_setup);

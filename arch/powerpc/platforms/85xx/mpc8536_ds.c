@@ -41,6 +41,9 @@ void __init mpc8536_ds_pic_init(void)
 	mpic_init(mpic);
 }
 
+/*
+ * Setup the architecture
+ */
 static void __init mpc8536_ds_setup_arch(void)
 {
 #ifdef CONFIG_PCI
@@ -86,6 +89,9 @@ machine_device_initcall(mpc8536_ds, mpc85xx_common_publish_devices);
 
 machine_arch_initcall(mpc8536_ds, swiotlb_setup_bus_notifier);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init mpc8536_ds_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

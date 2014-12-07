@@ -16,6 +16,7 @@
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 
+/* The OTP registers */
 #define AB3100_OTP0		0xb0
 #define AB3100_OTP1		0xb1
 #define AB3100_OTP2		0xb2
@@ -26,6 +27,25 @@
 #define AB3100_OTP7		0xb7
 #define AB3100_OTPP		0xbf
 
+/**
+ * struct ab3100_otp
+ * @dev containing device
+ * @locked whether the OTP is locked, after locking, no more bits
+ *       can be changed but before locking it is still possible
+ *       to change bits from 1->0.
+ * @freq clocking frequency for the OTP, this frequency is either
+ *       32768Hz or 1MHz/30
+ * @paf product activation flag, indicates whether this is a real
+ *       product (paf true) or a lab board etc (paf false)
+ * @imeich if this is set it is possible to override the
+ *       IMEI number found in the tac, fac and svn fields with
+ *       (secured) software
+ * @cid customer ID
+ * @tac type allocation code of the IMEI
+ * @fac final assembly code of the IMEI
+ * @svn software version number of the IMEI
+ * @debugfs a debugfs file used when dumping to file
+ */
 struct ab3100_otp {
 	struct device *dev;
 	bool locked;
@@ -59,7 +79,7 @@ static int __init ab3100_otp_read(struct ab3100_otp *otp)
 		return err;
 	}
 
-	
+	/* Cache OTP properties, they never change by nature */
 	otp->locked = (otpp & 0x80);
 	otp->freq = (otpp & 0x40) ? 32768 : 34100;
 	otp->paf = (otpval[1] & 0x80);
@@ -71,6 +91,10 @@ static int __init ab3100_otp_read(struct ab3100_otp *otp)
 	return 0;
 }
 
+/*
+ * This is a simple debugfs human-readable file that dumps out
+ * the contents of the OTP.
+ */
 #ifdef CONFIG_DEBUG_FS
 static int ab3100_show_otp(struct seq_file *s, void *v)
 {
@@ -116,6 +140,7 @@ static void __exit ab3100_otp_exit_debugfs(struct ab3100_otp *otp)
 	debugfs_remove(otp->debugfs);
 }
 #else
+/* Compile this out if debugfs not selected */
 static inline int __init ab3100_otp_init_debugfs(struct device *dev,
 						 struct ab3100_otp *otp)
 {
@@ -169,7 +194,7 @@ static int __init ab3100_otp_probe(struct platform_device *pdev)
 	}
 	otp->dev = &pdev->dev;
 
-	
+	/* Replace platform data coming in with a local struct */
 	platform_set_drvdata(pdev, otp);
 
 	err = ab3100_otp_read(otp);
@@ -178,7 +203,7 @@ static int __init ab3100_otp_probe(struct platform_device *pdev)
 
 	dev_info(&pdev->dev, "AB3100 OTP readout registered\n");
 
-	
+	/* sysfs entries */
 	for (i = 0; i < ARRAY_SIZE(ab3100_otp_attrs); i++) {
 		err = device_create_file(&pdev->dev,
 					 &ab3100_otp_attrs[i]);
@@ -186,7 +211,7 @@ static int __init ab3100_otp_probe(struct platform_device *pdev)
 			goto err_create_file;
 	}
 
-	
+	/* debugfs entries */
 	err = ab3100_otp_init_debugfs(&pdev->dev, otp);
 	if (err)
 		goto err_init_debugfs;

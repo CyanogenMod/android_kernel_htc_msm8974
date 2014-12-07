@@ -4,4 +4,4 @@
 extern int iscsi_target_register_configfs(void);
 extern void iscsi_target_deregister_configfs(void);
 
-#endif 
+#endif /* ISCSI_TARGET_CONFIGFS_H */

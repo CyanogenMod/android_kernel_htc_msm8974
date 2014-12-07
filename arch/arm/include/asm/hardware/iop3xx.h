@@ -15,6 +15,9 @@
 #ifndef __IOP3XX_H
 #define __IOP3XX_H
 
+/*
+ * IOP3XX GPIO handling
+ */
 #define GPIO_IN			0
 #define GPIO_OUT		1
 #define GPIO_LOW		0
@@ -30,6 +33,9 @@ extern int iop3xx_get_init_atu(void);
 #endif
 
 
+/*
+ * IOP3XX processor registers
+ */
 #define IOP3XX_PERIPHERAL_PHYS_BASE	0xffffe000
 #define IOP3XX_PERIPHERAL_VIRT_BASE	0xfeffe000
 #define IOP3XX_PERIPHERAL_SIZE		0x00002000
@@ -42,6 +48,7 @@ extern int iop3xx_get_init_atu(void);
 					- IOP3XX_PERIPHERAL_VIRT_BASE))
 #define IOP3XX_REG_ADDR(reg)		(IOP3XX_PERIPHERAL_VIRT_BASE + (reg))
 
+/* Address Translation Unit  */
 #define IOP3XX_ATUVID		(volatile u16 *)IOP3XX_REG_ADDR(0x0100)
 #define IOP3XX_ATUDID		(volatile u16 *)IOP3XX_REG_ADDR(0x0102)
 #define IOP3XX_ATUCMD		(volatile u16 *)IOP3XX_REG_ADDR(0x0104)
@@ -106,6 +113,7 @@ extern int iop3xx_get_init_atu(void);
 #define IOP3XX_INIT_ATU_DISABLE -1
 #define IOP3XX_INIT_ATU_ENABLE	 1
 
+/* Messaging Unit  */
 #define IOP3XX_IMR0		(volatile u32 *)IOP3XX_REG_ADDR(0x0310)
 #define IOP3XX_IMR1		(volatile u32 *)IOP3XX_REG_ADDR(0x0314)
 #define IOP3XX_OMR0		(volatile u32 *)IOP3XX_REG_ADDR(0x0318)
@@ -128,10 +136,12 @@ extern int iop3xx_get_init_atu(void);
 #define IOP3XX_OPTPR		(volatile u32 *)IOP3XX_REG_ADDR(0x037c)
 #define IOP3XX_IAR		(volatile u32 *)IOP3XX_REG_ADDR(0x0380)
 
+/* DMA Controller  */
 #define IOP3XX_DMA_PHYS_BASE(chan) (IOP3XX_PERIPHERAL_PHYS_BASE + \
 					(0x400 + (chan << 6)))
 #define IOP3XX_DMA_UPPER_PA(chan)  (IOP3XX_DMA_PHYS_BASE(chan) + 0x27)
 
+/* Peripheral bus interface  */
 #define IOP3XX_PBCR		(volatile u32 *)IOP3XX_REG_ADDR(0x0680)
 #define IOP3XX_PBISR		(volatile u32 *)IOP3XX_REG_ADDR(0x0684)
 #define IOP3XX_PBBAR0		(volatile u32 *)IOP3XX_REG_ADDR(0x0688)
@@ -150,16 +160,20 @@ extern int iop3xx_get_init_atu(void);
 #define IOP3XX_PMBR1		(volatile u32 *)IOP3XX_REG_ADDR(0x06e0)
 #define IOP3XX_PMBR2		(volatile u32 *)IOP3XX_REG_ADDR(0x06e4)
 
+/* Peripheral performance monitoring unit  */
 #define IOP3XX_GTMR		(volatile u32 *)IOP3XX_REG_ADDR(0x0700)
 #define IOP3XX_ESR		(volatile u32 *)IOP3XX_REG_ADDR(0x0704)
 #define IOP3XX_EMISR		(volatile u32 *)IOP3XX_REG_ADDR(0x0708)
 #define IOP3XX_GTSR		(volatile u32 *)IOP3XX_REG_ADDR(0x0710)
+/* PERCR0 DOESN'T EXIST - index from 1! */
 #define IOP3XX_PERCR0		(volatile u32 *)IOP3XX_REG_ADDR(0x0710)
 
+/* General Purpose I/O  */
 #define IOP3XX_GPOE		(volatile u32 *)IOP3XX_GPIO_REG(0x0000)
 #define IOP3XX_GPID		(volatile u32 *)IOP3XX_GPIO_REG(0x0004)
 #define IOP3XX_GPOD		(volatile u32 *)IOP3XX_GPIO_REG(0x0008)
 
+/* Timers  */
 #define IOP3XX_TU_TMR0		(volatile u32 *)IOP3XX_TIMER_REG(0x0000)
 #define IOP3XX_TU_TMR1		(volatile u32 *)IOP3XX_TIMER_REG(0x0004)
 #define IOP3XX_TU_TCR0		(volatile u32 *)IOP3XX_TIMER_REG(0x0008)
@@ -173,14 +187,18 @@ extern int iop3xx_get_init_atu(void);
 #define IOP_TMR_PRIVILEGED 0x08
 #define IOP_TMR_RATIO_1_1  0x00
 
+/* Watchdog timer definitions */
 #define IOP_WDTCR_EN_ARM        0x1e1e1e1e
 #define IOP_WDTCR_EN            0xe1e1e1e1
+/* iop3xx does not support stopping the watchdog, so we just re-arm */
 #define IOP_WDTCR_DIS_ARM	(IOP_WDTCR_EN_ARM)
 #define IOP_WDTCR_DIS		(IOP_WDTCR_EN)
 
+/* Application accelerator unit  */
 #define IOP3XX_AAU_PHYS_BASE (IOP3XX_PERIPHERAL_PHYS_BASE + 0x800)
 #define IOP3XX_AAU_UPPER_PA (IOP3XX_AAU_PHYS_BASE + 0xa7)
 
+/* I2C bus interface unit  */
 #define IOP3XX_ICR0		(volatile u32 *)IOP3XX_REG_ADDR(0x1680)
 #define IOP3XX_ISR0		(volatile u32 *)IOP3XX_REG_ADDR(0x1684)
 #define IOP3XX_ISAR0		(volatile u32 *)IOP3XX_REG_ADDR(0x1688)
@@ -193,6 +211,9 @@ extern int iop3xx_get_init_atu(void);
 #define IOP3XX_IBMR1		(volatile u32 *)IOP3XX_REG_ADDR(0x16b4)
 
 
+/*
+ * IOP3XX I/O and Mem space regions for PCI autoconfiguration
+ */
 #define IOP3XX_PCI_LOWER_MEM_PA	0x80000000
 #define IOP3XX_PCI_MEM_WINDOW_SIZE	0x08000000
 
@@ -287,6 +308,9 @@ static inline void write_wdtcr(u32 val)
 
 extern unsigned long get_iop_tick_rate(void);
 
+/* only iop13xx has these registers, we define these to present a
+ * common register interface for the iop_wdt driver.
+ */
 #define IOP_RCSR_WDT	(0)
 static inline u32 read_rcsr(void)
 {

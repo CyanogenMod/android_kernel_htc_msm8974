@@ -1,3 +1,24 @@
+/*
+ * Xen hypercall batching.
+ *
+ * Xen allows multiple hypercalls to be issued at once, using the
+ * multicall interface.  This allows the cost of trapping into the
+ * hypervisor to be amortized over several calls.
+ *
+ * This file implements a simple interface for multicalls.  There's a
+ * per-cpu buffer of outstanding multicalls.  When you want to queue a
+ * multicall for issuing, you can allocate a multicall slot for the
+ * call and its arguments, along with storage for space which is
+ * pointed to by the arguments (for passing pointers to structures,
+ * etc).  When the multicall is actually issued, all the space for the
+ * commands and allocated memory is freed for reuse.
+ *
+ * Multicalls are flushed whenever any of the buffers get full, or
+ * when explicitly requested.  There's no way to get per-multicall
+ * return results back.  It will BUG if any of the multicalls fail.
+ *
+ * Jeremy Fitzhardinge <jeremy@xensource.com>, XenSource Inc, 2007
+ */
 #include <linux/percpu.h>
 #include <linux/hardirq.h>
 #include <linux/debugfs.h>
@@ -41,17 +62,21 @@ void xen_mc_flush(void)
 
 	BUG_ON(preemptible());
 
+	/* Disable interrupts in case someone comes in and queues
+	   something in the middle */
 	local_irq_save(flags);
 
 	trace_xen_mc_flush(b->mcidx, b->argidx, b->cbidx);
 
 	switch (b->mcidx) {
 	case 0:
-		
+		/* no-op */
 		BUG_ON(b->argidx != 0);
 		break;
 
 	case 1:
+		/* Singleton multicall - bypass multicall machinery
+		   and just do the call directly. */
 		mc = &b->entries[0];
 
 		mc->result = privcmd_call(mc->op,

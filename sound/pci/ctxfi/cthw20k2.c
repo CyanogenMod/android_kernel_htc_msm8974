@@ -27,14 +27,14 @@
 #include "ct20k2reg.h"
 
 #if BITS_PER_LONG == 32
-#define CT_XFI_DMA_MASK		DMA_BIT_MASK(32) 
+#define CT_XFI_DMA_MASK		DMA_BIT_MASK(32) /* 32 bit PTE */
 #else
-#define CT_XFI_DMA_MASK		DMA_BIT_MASK(64) 
+#define CT_XFI_DMA_MASK		DMA_BIT_MASK(64) /* 64 bit PTE */
 #endif
 
 struct hw20k2 {
 	struct hw hw;
-	
+	/* for i2c */
 	unsigned char dev_id;
 	unsigned char addr_size;
 	unsigned char data_size;
@@ -45,8 +45,16 @@ struct hw20k2 {
 static u32 hw_read_20kx(struct hw *hw, u32 reg);
 static void hw_write_20kx(struct hw *hw, u32 reg, u32 data);
 
+/*
+ * Type definition block.
+ * The layout of control structures can be directly applied on 20k2 chip.
+ */
 
+/*
+ * SRC control block definitions.
+ */
 
+/* SRC resource control block */
 #define SRCCTL_STATE	0x00000007
 #define SRCCTL_BM	0x00000008
 #define SRCCTL_RSR	0x00000030
@@ -74,8 +82,11 @@ static void hw_write_20kx(struct hw *hw, u32 reg, u32 data);
 
 #define SRCLA_LA	0x0FFFFFFF
 
+/* Mixer Parameter Ring ram Low and Hight register.
+ * Fixed-point value in 8.24 format for parameter channel */
 #define MPRLH_PITCH	0xFFFFFFFF
 
+/* SRC resource register dirty flags */
 union src_dirty {
 	struct {
 		u16 ctl:1;
@@ -84,7 +95,7 @@ union src_dirty {
 		u16 la:1;
 		u16 ca:1;
 		u16 mpr:1;
-		u16 czbfs:1;	
+		u16 czbfs:1;	/* Clear Z-Buffers */
 		u16 rsv:9;
 	} bf;
 	u16 data;
@@ -100,6 +111,7 @@ struct src_rsc_ctrl_blk {
 	union src_dirty	dirty;
 };
 
+/* SRC manager control block */
 union src_mgr_dirty {
 	struct {
 		u16 enb0:1;
@@ -122,6 +134,7 @@ struct src_mgr_ctrl_blk {
 	union src_mgr_dirty	dirty;
 };
 
+/* SRCIMP manager control block */
 #define SRCAIM_ARC	0x00000FFF
 #define SRCAIM_NXT	0x00FF0000
 #define SRCAIM_SRC	0xFF000000
@@ -131,6 +144,7 @@ struct srcimap {
 	unsigned int idx;
 };
 
+/* SRCIMP manager register dirty flags */
 union srcimp_mgr_dirty {
 	struct {
 		u16 srcimap:1;
@@ -144,6 +158,9 @@ struct srcimp_mgr_ctrl_blk {
 	union srcimp_mgr_dirty	dirty;
 };
 
+/*
+ * Function implementation block.
+ */
 
 static int src_get_rsc_ctrl_blk(void **rblk)
 {
@@ -355,7 +372,7 @@ static int src_commit_write(struct hw *hw, unsigned int idx, void *blk)
 	int i;
 
 	if (ctl->dirty.bf.czbfs) {
-		
+		/* Clear Z-Buffer registers */
 		for (i = 0; i < 8; i++)
 			hw_write_20kx(hw, SRC_UPZ+idx*0x100+i*0x4, 0);
 
@@ -368,6 +385,10 @@ static int src_commit_write(struct hw *hw, unsigned int idx, void *blk)
 		ctl->dirty.bf.czbfs = 0;
 	}
 	if (ctl->dirty.bf.mpr) {
+		/* Take the parameter mixer resource in the same group as that
+		 * the idx src is in for simplicity. Unlike src, all conjugate
+		 * parameter mixer resources must be programmed for
+		 * corresponding conjugate src resources. */
 		unsigned int pm_idx = src_param_pitch_mixer(idx);
 		hw_write_20kx(hw, MIXER_PRING_LO_HI+4*pm_idx, ctl->mpr);
 		hw_write_20kx(hw, MIXER_PMOPLO+8*pm_idx, 0x3);
@@ -387,7 +408,7 @@ static int src_commit_write(struct hw *hw, unsigned int idx, void *blk)
 		ctl->dirty.bf.ca = 0;
 	}
 
-	
+	/* Write srccf register */
 	hw_write_20kx(hw, SRC_CF+idx*0x100, 0x0);
 
 	if (ctl->dirty.bf.ccr) {
@@ -556,6 +577,9 @@ static int srcimp_mgr_commit_write(struct hw *hw, void *blk)
 	return 0;
 }
 
+/*
+ * AMIXER control block definitions.
+ */
 
 #define AMOPLO_M	0x00000003
 #define AMOPLO_IV	0x00000004
@@ -565,6 +589,7 @@ static int srcimp_mgr_commit_write(struct hw *hw, void *blk)
 #define AMOPHI_SADR	0x000000FF
 #define AMOPHI_SE	0x80000000
 
+/* AMIXER resource register dirty flags */
 union amixer_dirty {
 	struct {
 		u16 amoplo:1;
@@ -574,6 +599,7 @@ union amixer_dirty {
 	u16 data;
 };
 
+/* AMIXER resource control block */
 struct amixer_rsc_ctrl_blk {
 	unsigned int		amoplo;
 	unsigned int		amophi;
@@ -705,7 +731,11 @@ static int amixer_mgr_put_ctrl_blk(void *blk)
 	return 0;
 }
 
+/*
+ * DAIO control block definitions.
+ */
 
+/* Receiver Sample Rate Tracker Control register */
 #define SRTCTL_SRCO	0x000000FF
 #define SRTCTL_SRCM	0x0000FF00
 #define SRTCTL_RSR	0x00030000
@@ -713,6 +743,7 @@ static int amixer_mgr_put_ctrl_blk(void *blk)
 #define SRTCTL_EC	0x01000000
 #define SRTCTL_ET	0x10000000
 
+/* DAIO Receiver register dirty flags */
 union dai_dirty {
 	struct {
 		u16 srt:1;
@@ -721,11 +752,13 @@ union dai_dirty {
 	u16 data;
 };
 
+/* DAIO Receiver control block */
 struct dai_ctrl_blk {
 	unsigned int	srt;
 	union dai_dirty	dirty;
 };
 
+/* Audio Input Mapper RAM */
 #define AIM_ARC		0x00000FFF
 #define AIM_NXT		0x007F0000
 
@@ -734,6 +767,7 @@ struct daoimap {
 	unsigned int idx;
 };
 
+/* Audio Transmitter Control and Status register */
 #define ATXCTL_EN	0x00000001
 #define ATXCTL_MODE	0x00000010
 #define ATXCTL_CD	0x00000020
@@ -749,6 +783,7 @@ struct daoimap {
 #define ATXCTL_RSAT	0x40000000
 #define ATXCTL_LSAT	0x80000000
 
+/* XDIF Transmitter register dirty flags */
 union dao_dirty {
 	struct {
 		u16 atxcsl:1;
@@ -757,14 +792,17 @@ union dao_dirty {
 	u16 data;
 };
 
+/* XDIF Transmitter control block */
 struct dao_ctrl_blk {
-	
+	/* XDIF Transmitter Channel Status Low Register */
 	unsigned int	atxcsl;
 	union dao_dirty	dirty;
 };
 
+/* Audio Receiver Control register */
 #define ARXCTL_EN	0x00000001
 
+/* DAIO manager register dirty flags */
 union daio_mgr_dirty {
 	struct {
 		u32 atxctl:8;
@@ -775,6 +813,7 @@ union daio_mgr_dirty {
 	u32 data;
 };
 
+/* DAIO manager control block */
 struct daio_mgr_ctrl_blk {
 	struct daoimap		daoimap;
 	unsigned int		txctl[8];
@@ -882,7 +921,7 @@ static int dao_commit_write(struct hw *hw, unsigned int idx, void *blk)
 
 	if (ctl->dirty.bf.atxcsl) {
 		if (idx < 4) {
-			
+			/* S/PDIF SPOSx */
 			hw_write_20kx(hw, AUDIO_IO_TX_CSTAT_L+0x40*idx,
 							ctl->atxcsl);
 		}
@@ -961,7 +1000,7 @@ static int daio_mgr_dao_init(void *blk, unsigned int idx, unsigned int conf)
 	struct daio_mgr_ctrl_blk *ctl = blk;
 
 	if (idx < 4) {
-		
+		/* S/PDIF output */
 		switch ((conf & 0x7)) {
 		case 1:
 			set_field(&ctl->txctl[idx], ATXCTL_NUC, 0);
@@ -978,18 +1017,18 @@ static int daio_mgr_dao_init(void *blk, unsigned int idx, unsigned int conf)
 		default:
 			break;
 		}
-		
+		/* CDIF */
 		set_field(&ctl->txctl[idx], ATXCTL_CD, (!(conf & 0x7)));
-		
+		/* Non-audio */
 		set_field(&ctl->txctl[idx], ATXCTL_LIV, (conf >> 4) & 0x1);
-		
+		/* Non-audio */
 		set_field(&ctl->txctl[idx], ATXCTL_RIV, (conf >> 4) & 0x1);
 		set_field(&ctl->txctl[idx], ATXCTL_RAW,
 			  ((conf >> 3) & 0x1) ? 0 : 0);
 		ctl->dirty.bf.atxctl |= (0x1 << idx);
 	} else {
-		
-		
+		/* I2S output */
+		/*idx %= 4; */
 	}
 	return 0;
 }
@@ -1075,6 +1114,7 @@ static int daio_mgr_put_ctrl_blk(void *blk)
 	return 0;
 }
 
+/* Timer interrupt */
 static int set_timer_irq(struct hw *hw, int enable)
 {
 	hw_write_20kx(hw, GIE, enable ? IT_INT : 0);
@@ -1094,18 +1134,19 @@ static unsigned int get_wc(struct hw *hw)
 	return hw_read_20kx(hw, WC);
 }
 
+/* Card hardware initialization block */
 struct dac_conf {
-	unsigned int msr; 
+	unsigned int msr; /* master sample rate in rsrs */
 };
 
 struct adc_conf {
-	unsigned int msr; 	
-	unsigned char input; 	
-	unsigned char mic20db; 	
+	unsigned int msr; 	/* master sample rate in rsrs */
+	unsigned char input; 	/* the input source of ADC */
+	unsigned char mic20db; 	/* boost mic by 20db if input is microphone */
 };
 
 struct daio_conf {
-	unsigned int msr; 
+	unsigned int msr; /* master sample rate in rsrs */
 };
 
 struct trn_conf {
@@ -1117,6 +1158,8 @@ static int hw_daio_init(struct hw *hw, const struct daio_conf *info)
 	u32 data;
 	int i;
 
+	/* Program I2S with proper sample rate and enable the correct I2S
+	 * channel. ED(0/8/16/24): Enable all I2S/I2X master clock output */
 	if (1 == info->msr) {
 		hw_write_20kx(hw, AUDIO_IO_MCLK, 0x01010101);
 		hw_write_20kx(hw, AUDIO_IO_TX_BLRCLK, 0x01010101);
@@ -1125,9 +1168,18 @@ static int hw_daio_init(struct hw *hw, const struct daio_conf *info)
 		if (hw->model != CTSB1270) {
 			hw_write_20kx(hw, AUDIO_IO_MCLK, 0x11111111);
 		} else {
-			
+			/* PCM4220 on Titanium HD is different. */
 			hw_write_20kx(hw, AUDIO_IO_MCLK, 0x11011111);
 		}
+		/* Specify all playing 96khz
+		 * EA [0]	- Enabled
+		 * RTA [4:5]	- 96kHz
+		 * EB [8]	- Enabled
+		 * RTB [12:13]	- 96kHz
+		 * EC [16]	- Enabled
+		 * RTC [20:21]	- 96kHz
+		 * ED [24]	- Enabled
+		 * RTD [28:29]	- 96kHz */
 		hw_write_20kx(hw, AUDIO_IO_TX_BLRCLK, 0x11111111);
 		hw_write_20kx(hw, AUDIO_IO_RX_BLRCLK, 0);
 	} else if ((4 == info->msr) && (hw->model == CTSB1270)) {
@@ -1141,9 +1193,9 @@ static int hw_daio_init(struct hw *hw, const struct daio_conf *info)
 
 	for (i = 0; i < 8; i++) {
 		if (i <= 3) {
-			
-			
-			
+			/* This comment looks wrong since loop is over 4  */
+			/* channels and emu20k2 supports 4 spdif IOs.     */
+			/* 1st 3 channels are SPDIFs (SB0960) */
 			if (i == 3)
 				data = 0x1001001;
 			else
@@ -1152,21 +1204,30 @@ static int hw_daio_init(struct hw *hw, const struct daio_conf *info)
 			hw_write_20kx(hw, (AUDIO_IO_TX_CTL+(0x40*i)), data);
 			hw_write_20kx(hw, (AUDIO_IO_RX_CTL+(0x40*i)), data);
 
+			/* Initialize the SPDIF Out Channel status registers.
+			 * The value specified here is based on the typical
+			 * values provided in the specification, namely: Clock
+			 * Accuracy of 1000ppm, Sample Rate of 48KHz,
+			 * unspecified source number, Generation status = 1,
+			 * Category code = 0x12 (Digital Signal Mixer),
+			 * Mode = 0, Emph = 0, Copy Permitted, AN = 0
+			 * (indicating that we're transmitting digital audio,
+			 * and the Professional Use bit is 0. */
 
 			hw_write_20kx(hw, AUDIO_IO_TX_CSTAT_L+(0x40*i),
-					0x02109204); 
+					0x02109204); /* Default to 48kHz */
 
 			hw_write_20kx(hw, AUDIO_IO_TX_CSTAT_H+(0x40*i), 0x0B);
 		} else {
-			
-			
+			/* Again, loop is over 4 channels not 5. */
+			/* Next 5 channels are I2S (SB0960) */
 			data = 0x11;
 			hw_write_20kx(hw, AUDIO_IO_RX_CTL+(0x40*i), data);
 			if (2 == info->msr) {
-				
+				/* Four channels per sample period */
 				data |= 0x1000;
 			} else if (4 == info->msr) {
-				
+				/* FIXME: check this against the chip spec */
 				data |= 0x2000;
 			}
 			hw_write_20kx(hw, AUDIO_IO_TX_CTL+(0x40*i), data);
@@ -1176,41 +1237,43 @@ static int hw_daio_init(struct hw *hw, const struct daio_conf *info)
 	return 0;
 }
 
+/* TRANSPORT operations */
 static int hw_trn_init(struct hw *hw, const struct trn_conf *info)
 {
 	u32 vmctl, data;
 	u32 ptp_phys_low, ptp_phys_high;
 	int i;
 
-	
+	/* Set up device page table */
 	if ((~0UL) == info->vm_pgt_phys) {
 		printk(KERN_ALERT "ctxfi: "
 		       "Wrong device page table page address!!!\n");
 		return -1;
 	}
 
-	vmctl = 0x80000C0F;  
+	vmctl = 0x80000C0F;  /* 32-bit, 4k-size page */
 	ptp_phys_low = (u32)info->vm_pgt_phys;
 	ptp_phys_high = upper_32_bits(info->vm_pgt_phys);
-	if (sizeof(void *) == 8) 
+	if (sizeof(void *) == 8) /* 64bit address */
 		vmctl |= (3 << 8);
-	
+	/* Write page table physical address to all PTPAL registers */
 	for (i = 0; i < 64; i++) {
 		hw_write_20kx(hw, VMEM_PTPAL+(16*i), ptp_phys_low);
 		hw_write_20kx(hw, VMEM_PTPAH+(16*i), ptp_phys_high);
 	}
-	
+	/* Enable virtual memory transfer */
 	hw_write_20kx(hw, VMEM_CTL, vmctl);
-	
+	/* Enable transport bus master and queueing of request */
 	hw_write_20kx(hw, TRANSPORT_CTL, 0x03);
 	hw_write_20kx(hw, TRANSPORT_INT, 0x200c01);
-	
+	/* Enable transport ring */
 	data = hw_read_20kx(hw, TRANSPORT_ENB);
 	hw_write_20kx(hw, TRANSPORT_ENB, (data | 0x03));
 
 	return 0;
 }
 
+/* Card initialization */
 #define GCTL_AIE	0x00000001
 #define GCTL_UAA	0x00000002
 #define GCTL_DPC	0x00000004
@@ -1320,6 +1383,7 @@ static int hw_auto_init(struct hw *hw)
 	return 0;
 }
 
+/* DAC operations */
 
 #define CS4382_MC1 		0x1
 #define CS4382_MC2 		0x2
@@ -1340,10 +1404,11 @@ static int hw_auto_init(struct hw *hw)
 #define CS4382_VCB4 		0x11
 #define CS4382_CREV 		0x12
 
+/* I2C status */
 #define STATE_LOCKED		0x00
 #define STATE_UNLOCKED		0xAA
-#define DATA_READY		0x800000    
-#define DATA_ABORT		0x10000     
+#define DATA_READY		0x800000    /* Used with I2C_IF_STATUS */
+#define DATA_ABORT		0x10000     /* Used with I2C_IF_STATUS */
 
 #define I2C_STATUS_DCM	0x00000001
 #define I2C_STATUS_BC	0x00000006
@@ -1383,12 +1448,12 @@ static int hw20k2_i2c_unlock_full_access(struct hw *hw)
 {
 	u8 UnlockKeySequence_FLASH_FULLACCESS_MODE[2] =  {0xB3, 0xD4};
 
-	
+	/* Send keys for forced BIOS mode */
 	hw_write_20kx(hw, I2C_IF_WLOCK,
 			UnlockKeySequence_FLASH_FULLACCESS_MODE[0]);
 	hw_write_20kx(hw, I2C_IF_WLOCK,
 			UnlockKeySequence_FLASH_FULLACCESS_MODE[1]);
-	
+	/* Check whether the chip is unlocked */
 	if (hw_read_20kx(hw, I2C_IF_WLOCK) == STATE_UNLOCKED)
 		return 0;
 
@@ -1397,7 +1462,7 @@ static int hw20k2_i2c_unlock_full_access(struct hw *hw)
 
 static int hw20k2_i2c_lock_chip(struct hw *hw)
 {
-	
+	/* Write twice */
 	hw_write_20kx(hw, I2C_IF_WLOCK, STATE_LOCKED);
 	hw_write_20kx(hw, I2C_IF_WLOCK, STATE_LOCKED);
 	if (hw_read_20kx(hw, I2C_IF_WLOCK) == STATE_LOCKED)
@@ -1428,7 +1493,7 @@ static int hw20k2_i2c_init(struct hw *hw, u8 dev_id, u8 addr_size, u8 data_size)
 
 	i2c_status = hw_read_20kx(hw, I2C_IF_STATUS);
 
-	set_field(&i2c_status, I2C_STATUS_DCM, 1); 
+	set_field(&i2c_status, I2C_STATUS_DCM, 1); /* Direct control mode */
 
 	hw_write_20kx(hw, I2C_IF_STATUS, i2c_status);
 
@@ -1441,13 +1506,13 @@ static int hw20k2_i2c_uninit(struct hw *hw)
 	unsigned int i2c_addr;
 
 	i2c_addr = 0;
-	set_field(&i2c_addr, I2C_ADDRESS_SLAD, 0x57); 
+	set_field(&i2c_addr, I2C_ADDRESS_SLAD, 0x57); /* I2C id */
 
 	hw_write_20kx(hw, I2C_IF_ADDRESS, i2c_addr);
 
 	i2c_status = hw_read_20kx(hw, I2C_IF_STATUS);
 
-	set_field(&i2c_status, I2C_STATUS_DCM, 0); 
+	set_field(&i2c_status, I2C_STATUS_DCM, 0); /* I2C mode */
 
 	hw_write_20kx(hw, I2C_IF_STATUS, i2c_status);
 
@@ -1482,7 +1547,7 @@ static int hw20k2_i2c_read(struct hw *hw, u16 addr, u32 *datap)
 	if (!hw20k2_i2c_wait_data_ready(hw))
 		return -1;
 
-	
+	/* Force a read operation */
 	hw_write_20kx(hw, I2C_IF_RDATA, 0);
 	if (!hw20k2_i2c_wait_data_ready(hw))
 		return -1;
@@ -1506,11 +1571,11 @@ static int hw20k2_i2c_write(struct hw *hw, u16 addr, u32 data)
 
 	hw_write_20kx(hw, I2C_IF_STATUS, i2c_status);
 	hw20k2_i2c_wait_data_ready(hw);
-	
+	/* Dummy write to trigger the write operation */
 	hw_write_20kx(hw, I2C_IF_WDATA, 0);
 	hw20k2_i2c_wait_data_ready(hw);
 
-	
+	/* This is the real data */
 	hw_write_20kx(hw, I2C_IF_WDATA, i2c_data);
 	hw20k2_i2c_wait_data_ready(hw);
 
@@ -1548,23 +1613,23 @@ static int hw_dac_init(struct hw *hw, const struct dac_conf *info)
 	int i;
 	struct regs_cs4382 cs_read = {0};
 	struct regs_cs4382 cs_def = {
-				   0x00000001,  
-				   0x00000000,  
-				   0x00000084,  
-				   0x00000000,  
-				   0x00000000,  
-				   0x00000024,  
-				   0x00000000,  
-				   0x00000000,  
-				   0x00000024,  
-				   0x00000000,  
-				   0x00000000,  
-				   0x00000024,  
-				   0x00000000,  
-				   0x00000000,  
-				   0x00000024,  
-				   0x00000000,  
-				   0x00000000   
+				   0x00000001,  /* Mode Control 1 */
+				   0x00000000,  /* Mode Control 2 */
+				   0x00000084,  /* Mode Control 3 */
+				   0x00000000,  /* Filter Control */
+				   0x00000000,  /* Invert Control */
+				   0x00000024,  /* Mixing Control Pair 1 */
+				   0x00000000,  /* Vol Control A1 */
+				   0x00000000,  /* Vol Control B1 */
+				   0x00000024,  /* Mixing Control Pair 2 */
+				   0x00000000,  /* Vol Control A2 */
+				   0x00000000,  /* Vol Control B2 */
+				   0x00000024,  /* Mixing Control Pair 3 */
+				   0x00000000,  /* Vol Control A3 */
+				   0x00000000,  /* Vol Control B3 */
+				   0x00000024,  /* Mixing Control Pair 4 */
+				   0x00000000,  /* Vol Control A4 */
+				   0x00000000   /* Vol Control B4 */
 				 };
 
 	if (hw->model == CTSB1270) {
@@ -1572,17 +1637,17 @@ static int hw_dac_init(struct hw *hw, const struct dac_conf *info)
 		data = hw_read_20kx(hw, GPIO_DATA);
 		data &= ~0x0600;
 		if (1 == info->msr)
-			data |= 0x0000; 
+			data |= 0x0000; /* Single Speed Mode 0-50kHz */
 		else if (2 == info->msr)
-			data |= 0x0200; 
+			data |= 0x0200; /* Double Speed Mode 50-100kHz */
 		else
-			data |= 0x0600; 
+			data |= 0x0600; /* Quad Speed Mode 100-200kHz */
 		hw_write_20kx(hw, GPIO_DATA, data);
 		hw_dac_start(hw);
 		return 0;
 	}
 
-	
+	/* Set DAC reset bit as output */
 	data = hw_read_20kx(hw, GPIO_CTRL);
 	data |= 0x02;
 	hw_write_20kx(hw, GPIO_CTRL, data);
@@ -1592,6 +1657,8 @@ static int hw_dac_init(struct hw *hw, const struct dac_conf *info)
 		goto End;
 
 	for (i = 0; i < 2; i++) {
+		/* Reset DAC twice just in-case the chip
+		 * didn't initialized properly */
 		hw_dac_reset(hw);
 		hw_dac_reset(hw);
 
@@ -1655,6 +1722,8 @@ static int hw_dac_init(struct hw *hw, const struct dac_conf *info)
 	if (i >= 2)
 		goto End;
 
+	/* Note: Every I2C write must have some delay.
+	 * This is not a requirement but the delay works here... */
 	hw20k2_i2c_write(hw, CS4382_MC1, 0x80);
 	hw20k2_i2c_write(hw, CS4382_MC2, 0x10);
 	if (1 == info->msr) {
@@ -1681,6 +1750,7 @@ End:
 	return -1;
 }
 
+/* ADC operations */
 #define MAKE_WM8775_ADDR(addr, data)	(u32)(((addr<<1)&0xFE)|((data>>8)&0x1))
 #define MAKE_WM8775_DATA(data)	(u32)(data&0xFF)
 
@@ -1695,8 +1765,8 @@ static int hw_is_adc_input_selected(struct hw *hw, enum ADCSRC type)
 {
 	u32 data;
 	if (hw->model == CTSB1270) {
-		
-		
+		/* Titanium HD has two ADC chips, one for line in and one */
+		/* for MIC. We don't need to switch the ADC input. */
 		return 1;
 	}
 	data = hw_read_20kx(hw, GPIO_DATA);
@@ -1723,7 +1793,7 @@ static void hw_wm8775_input_select(struct hw *hw, u8 input, s8 gain_in_db)
 	if (input > 3)
 		input = 3;
 
-	adcmc = ((u32)1 << input) | 0x100; 
+	adcmc = ((u32)1 << input) | 0x100; /* Link L+R gain... */
 
 	hw20k2_i2c_write(hw, MAKE_WM8775_ADDR(WM8775_ADCMC, adcmc),
 				MAKE_WM8775_DATA(adcmc));
@@ -1737,7 +1807,7 @@ static void hw_wm8775_input_select(struct hw *hw, u8 input, s8 gain_in_db)
 
 	hw20k2_i2c_write(hw, MAKE_WM8775_ADDR(WM8775_AADCL, gain),
 				MAKE_WM8775_DATA(gain));
-	
+	/* ...so there should be no need for the following. */
 	hw20k2_i2c_write(hw, MAKE_WM8775_ADDR(WM8775_AADCR, gain),
 				MAKE_WM8775_DATA(gain));
 }
@@ -1750,12 +1820,12 @@ static int hw_adc_input_select(struct hw *hw, enum ADCSRC type)
 	case ADC_MICIN:
 		data |= (0x1 << 14);
 		hw_write_20kx(hw, GPIO_DATA, data);
-		hw_wm8775_input_select(hw, 0, 20); 
+		hw_wm8775_input_select(hw, 0, 20); /* Mic, 20dB */
 		break;
 	case ADC_LINEIN:
 		data &= ~(0x1 << 14);
 		hw_write_20kx(hw, GPIO_DATA, data);
-		hw_wm8775_input_select(hw, 1, 0); 
+		hw_wm8775_input_select(hw, 1, 0); /* Line-in, 0dB */
 		break;
 	default:
 		break;
@@ -1769,54 +1839,54 @@ static int hw_adc_init(struct hw *hw, const struct adc_conf *info)
 	int err;
 	u32 data, ctl;
 
-	
+	/*  Set ADC reset bit as output */
 	data = hw_read_20kx(hw, GPIO_CTRL);
 	data |= (0x1 << 15);
 	hw_write_20kx(hw, GPIO_CTRL, data);
 
-	
+	/* Initialize I2C */
 	err = hw20k2_i2c_init(hw, 0x1A, 1, 1);
 	if (err < 0) {
 		printk(KERN_ALERT "ctxfi: Failure to acquire I2C!!!\n");
 		goto error;
 	}
 
-	
+	/* Reset the ADC (reset is active low). */
 	data = hw_read_20kx(hw, GPIO_DATA);
 	data &= ~(0x1 << 15);
 	hw_write_20kx(hw, GPIO_DATA, data);
 
 	if (hw->model == CTSB1270) {
-		
+		/* Set up the PCM4220 ADC on Titanium HD */
 		data &= ~0x0C;
 		if (1 == info->msr)
-			data |= 0x00; 
+			data |= 0x00; /* Single Speed Mode 32-50kHz */
 		else if (2 == info->msr)
-			data |= 0x08; 
+			data |= 0x08; /* Double Speed Mode 50-108kHz */
 		else
-			data |= 0x04; 
+			data |= 0x04; /* Quad Speed Mode 108kHz-216kHz */
 		hw_write_20kx(hw, GPIO_DATA, data);
 	}
 
 	mdelay(10);
-	
+	/* Return the ADC to normal operation. */
 	data |= (0x1 << 15);
 	hw_write_20kx(hw, GPIO_DATA, data);
 	mdelay(50);
 
-	
-	
-	
+	/* I2C write to register offset 0x0B to set ADC LRCLK polarity */
+	/* invert bit, interface format to I2S, word length to 24-bit, */
+	/* enable ADC high pass filter. Fixes bug 5323?		*/
 	hw20k2_i2c_write(hw, MAKE_WM8775_ADDR(WM8775_IC, 0x26),
 			 MAKE_WM8775_DATA(0x26));
 
-	
+	/* Set the master mode (256fs) */
 	if (1 == info->msr) {
-		
+		/* slave mode, 128x oversampling 256fs */
 		hw20k2_i2c_write(hw, MAKE_WM8775_ADDR(WM8775_MMC, 0x02),
 						MAKE_WM8775_DATA(0x02));
 	} else if ((2 == info->msr) || (4 == info->msr)) {
-		
+		/* slave mode, 64x oversampling, 256fs */
 		hw20k2_i2c_write(hw, MAKE_WM8775_ADDR(WM8775_MMC, 0x0A),
 						MAKE_WM8775_DATA(0x0A));
 	} else {
@@ -1827,7 +1897,7 @@ static int hw_adc_init(struct hw *hw, const struct adc_conf *info)
 	}
 
 	if (hw->model != CTSB1270) {
-		
+		/* Configure GPIO bit 14 change to line-in/mic-in */
 		ctl = hw_read_20kx(hw, GPIO_CTRL);
 		ctl |= 0x1 << 14;
 		hw_write_20kx(hw, GPIO_CTRL, ctl);
@@ -1877,7 +1947,7 @@ static int hw_output_switch_put(struct hw *hw, int position)
 	if (position == hw_output_switch_get(hw))
 		return 0;
 
-	
+	/* Mute line and headphones (intended for anti-pop). */
 	data = hw_read_20kx(hw, GPIO_DATA);
 	data |= (0x03 << 11);
 	hw_write_20kx(hw, GPIO_DATA, data);
@@ -1894,7 +1964,7 @@ static int hw_output_switch_put(struct hw *hw, int position)
 	}
 	hw_write_20kx(hw, GPIO_EXT_DATA, data);
 
-	
+	/* Unmute line and headphones. */
 	data = hw_read_20kx(hw, GPIO_DATA);
 	data &= ~(0x03 << 11);
 	hw_write_20kx(hw, GPIO_DATA, data);
@@ -1918,13 +1988,13 @@ static int hw_mic_source_switch_put(struct hw *hw, int position)
 
 	switch (position) {
 	case 0:
-		hw_wm8775_input_select(hw, 0, 0); 
+		hw_wm8775_input_select(hw, 0, 0); /* Mic, 0dB */
 		break;
 	case 1:
-		hw_wm8775_input_select(hw, 1, 0); 
+		hw_wm8775_input_select(hw, 1, 0); /* FP Mic, 0dB */
 		break;
 	case 2:
-		hw_wm8775_input_select(hw, 3, 0); 
+		hw_wm8775_input_select(hw, 3, 0); /* Aux Ext, 0dB */
 		break;
 	default:
 		return 0;
@@ -1961,7 +2031,7 @@ static int hw_card_start(struct hw *hw)
 	if (err < 0)
 		return err;
 
-	
+	/* Set DMA transfer mask */
 	if (pci_set_dma_mask(pci, CT_XFI_DMA_MASK) < 0 ||
 	    pci_set_consistent_dma_mask(pci, CT_XFI_DMA_MASK) < 0) {
 		printk(KERN_ERR "ctxfi: architecture does not support PCI "
@@ -1984,7 +2054,7 @@ static int hw_card_start(struct hw *hw)
 		}
 	}
 
-	
+	/* Switch to 20k2 mode from UAA mode. */
 	gctl = hw_read_20kx(hw, GLOBAL_CNTL_GCTL);
 	set_field(&gctl, GCTL_UAA, 0);
 	hw_write_20kx(hw, GLOBAL_CNTL_GCTL, gctl);
@@ -2003,6 +2073,9 @@ static int hw_card_start(struct hw *hw)
 
 	return 0;
 
+/*error3:
+	iounmap((void *)hw->mem_base);
+	hw->mem_base = (unsigned long)NULL;*/
 error2:
 	pci_release_regions(pci);
 	hw->io_base = 0;
@@ -2015,14 +2088,14 @@ static int hw_card_stop(struct hw *hw)
 {
 	unsigned int data;
 
-	
+	/* disable transport bus master and queueing of request */
 	hw_write_20kx(hw, TRANSPORT_CTL, 0x00);
 
-	
+	/* disable pll */
 	data = hw_read_20kx(hw, PLL_ENB);
 	hw_write_20kx(hw, PLL_ENB, (data & (~0x07)));
 
-	
+	/* TODO: Disable interrupt and so on... */
 	return 0;
 }
 
@@ -2058,16 +2131,18 @@ static int hw_card_init(struct hw *hw, struct card_conf *info)
 	struct daio_conf daio_info = {0};
 	struct trn_conf trn_info = {0};
 
+	/* Get PCI io port/memory base address and
+	 * do 20kx core switch if needed. */
 	err = hw_card_start(hw);
 	if (err)
 		return err;
 
-	
+	/* PLL init */
 	err = hw_pll_init(hw, info->rsr);
 	if (err < 0)
 		return err;
 
-	
+	/* kick off auto-init */
 	err = hw_auto_init(hw);
 	if (err < 0)
 		return err;
@@ -2079,22 +2154,22 @@ static int hw_card_init(struct hw *hw, struct card_conf *info)
 	set_field(&gctl, GCTL_DPC, 0);
 	hw_write_20kx(hw, GLOBAL_CNTL_GCTL, gctl);
 
-	
+	/* Reset all global pending interrupts */
 	hw_write_20kx(hw, GIE, 0);
-	
+	/* Reset all SRC pending interrupts */
 	hw_write_20kx(hw, SRC_IP, 0);
 
 	if (hw->model != CTSB1270) {
-		
-		
-		
-		
-		
+		/* TODO: detect the card ID and configure GPIO accordingly. */
+		/* Configures GPIO (0xD802 0x98028) */
+		/*hw_write_20kx(hw, GPIO_CTRL, 0x7F07);*/
+		/* Configures GPIO (SB0880) */
+		/*hw_write_20kx(hw, GPIO_CTRL, 0xFF07);*/
 		hw_write_20kx(hw, GPIO_CTRL, 0xD802);
 	} else {
 		hw_write_20kx(hw, GPIO_CTRL, 0x9E5F);
 	}
-	
+	/* Enable audio ring */
 	hw_write_20kx(hw, MIXER_AR_ENABLE, 0x01);
 
 	trn_info.vm_pgt_phys = info->vm_pgt_phys;
@@ -2120,7 +2195,7 @@ static int hw_card_init(struct hw *hw, struct card_conf *info)
 		return err;
 
 	data = hw_read_20kx(hw, SRC_MCTL);
-	data |= 0x1; 
+	data |= 0x1; /* Enables input from the audio ring */
 	hw_write_20kx(hw, SRC_MCTL, data);
 
 	return 0;
@@ -2147,7 +2222,7 @@ static int hw_resume(struct hw *hw, struct card_conf *info)
 	pci_set_power_state(pci, PCI_D0);
 	pci_restore_state(pci);
 
-	
+	/* Re-initialize card hardware. */
 	return hw_card_init(hw, info);
 }
 #endif

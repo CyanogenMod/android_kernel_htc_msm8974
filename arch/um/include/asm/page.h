@@ -9,6 +9,7 @@
 
 #include <linux/const.h>
 
+/* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT	12
 #define PAGE_SIZE	(_AC(1, UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
@@ -20,6 +21,9 @@ struct page;
 #include <linux/types.h>
 #include <asm/vm-flags.h>
 
+/*
+ * These are used to make use of C type-checking..
+ */
 
 #define clear_page(page)	memset((void *)(page), 0, PAGE_SIZE)
 #define copy_page(to,from)	memcpy((void *)(to), (void *)(from), PAGE_SIZE)
@@ -97,6 +101,11 @@ extern unsigned long uml_physmem;
 
 #include "mem.h"
 
+/* Cast to unsigned long before casting to void * to avoid a warning from
+ * mmap_kmem about cutting a long long down to a void *.  Not sure that
+ * casting is the right thing, but 32-bit UML can't have 64-bit virtual
+ * addresses
+ */
 #define __pa(virt) to_phys((void *) (unsigned long) (virt))
 #define __va(phys) to_virt((unsigned long) (phys))
 
@@ -109,5 +118,5 @@ extern unsigned long uml_physmem;
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
-#endif	
-#endif	
+#endif	/* __ASSEMBLY__ */
+#endif	/* __UM_PAGE_H */

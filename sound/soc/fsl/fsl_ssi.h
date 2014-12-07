@@ -12,30 +12,31 @@
 #ifndef _MPC8610_I2S_H
 #define _MPC8610_I2S_H
 
+/* SSI Register Map */
 struct ccsr_ssi {
-	__be32 stx0;	
-	__be32 stx1;	
-	__be32 srx0;	
-	__be32 srx1;	
-	__be32 scr;	
-	__be32 sisr;	
-	__be32 sier;	
-	__be32 stcr;	
-	__be32 srcr;	
-	__be32 stccr;	
-	__be32 srccr;	
-	__be32 sfcsr;	
-	__be32 str;	
-	__be32 sor;	
-	__be32 sacnt;	
-	__be32 sacadd;	
-	__be32 sacdat;	
-	__be32 satag;	
-	__be32 stmsk;	
-	__be32 srmsk;	
-	__be32 saccst;	
-	__be32 saccen;	
-	__be32 saccdis; 
+	__be32 stx0;	/* 0x.0000 - SSI Transmit Data Register 0 */
+	__be32 stx1;	/* 0x.0004 - SSI Transmit Data Register 1 */
+	__be32 srx0;	/* 0x.0008 - SSI Receive Data Register 0 */
+	__be32 srx1;	/* 0x.000C - SSI Receive Data Register 1 */
+	__be32 scr;	/* 0x.0010 - SSI Control Register */
+	__be32 sisr;	/* 0x.0014 - SSI Interrupt Status Register Mixed */
+	__be32 sier;	/* 0x.0018 - SSI Interrupt Enable Register */
+	__be32 stcr;	/* 0x.001C - SSI Transmit Configuration Register */
+	__be32 srcr;	/* 0x.0020 - SSI Receive Configuration Register */
+	__be32 stccr;	/* 0x.0024 - SSI Transmit Clock Control Register */
+	__be32 srccr;	/* 0x.0028 - SSI Receive Clock Control Register */
+	__be32 sfcsr;	/* 0x.002C - SSI FIFO Control/Status Register */
+	__be32 str;	/* 0x.0030 - SSI Test Register */
+	__be32 sor;	/* 0x.0034 - SSI Option Register */
+	__be32 sacnt;	/* 0x.0038 - SSI AC97 Control Register */
+	__be32 sacadd;	/* 0x.003C - SSI AC97 Command Address Register */
+	__be32 sacdat;	/* 0x.0040 - SSI AC97 Command Data Register */
+	__be32 satag;	/* 0x.0044 - SSI AC97 Tag Register */
+	__be32 stmsk;	/* 0x.0048 - SSI Transmit Time Slot Mask Register */
+	__be32 srmsk;	/* 0x.004C - SSI Receive Time Slot Mask Register */
+	__be32 saccst;	/* 0x.0050 - SSI AC97 Channel Status Register */
+	__be32 saccen;	/* 0x.0054 - SSI AC97 Channel Enable Register */
+	__be32 saccdis; /* 0x.0058 - SSI AC97 Channel Disable Register */
 };
 
 #define CCSR_SSI_SCR_RFR_CLK_DIS	0x00000800
@@ -123,6 +124,7 @@ struct ccsr_ssi {
 #define CCSR_SSI_SRCR_RFSL		0x00000002
 #define CCSR_SSI_SRCR_REFS		0x00000001
 
+/* STCCR and SRCCR */
 #define CCSR_SSI_SxCCR_DIV2		0x00040000
 #define CCSR_SSI_SxCCR_PSR		0x00020000
 #define CCSR_SSI_SxCCR_WL_SHIFT		13
@@ -138,6 +140,11 @@ struct ccsr_ssi {
 #define CCSR_SSI_SxCCR_PM(x) \
 	((((x) - 1) << CCSR_SSI_SxCCR_PM_SHIFT) & CCSR_SSI_SxCCR_PM_MASK)
 
+/*
+ * The xFCNT bits are read-only, and the xFWM bits are read/write.  Use the
+ * CCSR_SSI_SFCSR_xFCNTy() macros to read the FIFO counters, and use the
+ * CCSR_SSI_SFCSR_xFWMy() macros to set the watermarks.
+ */
 #define CCSR_SSI_SFCSR_RFCNT1_SHIFT	28
 #define CCSR_SSI_SFCSR_RFCNT1_MASK	0xF0000000
 #define CCSR_SSI_SFCSR_RFCNT1(x) \

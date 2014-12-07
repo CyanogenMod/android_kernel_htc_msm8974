@@ -28,18 +28,28 @@
 #include <net/inet_ecn.h>
 #include <net/flow_keys.h>
 
+/*
+ * SFB uses two B[l][n] : L x N arrays of bins (L levels, N bins per level)
+ * This implementation uses L = 8 and N = 16
+ * This permits us to split one 32bit hash (provided per packet by rxhash or
+ * external classifier) into 8 subhashes of 4 bits.
+ */
 #define SFB_BUCKET_SHIFT 4
-#define SFB_NUMBUCKETS	(1 << SFB_BUCKET_SHIFT) 
+#define SFB_NUMBUCKETS	(1 << SFB_BUCKET_SHIFT) /* N bins per Level */
 #define SFB_BUCKET_MASK (SFB_NUMBUCKETS - 1)
-#define SFB_LEVELS	(32 / SFB_BUCKET_SHIFT) 
+#define SFB_LEVELS	(32 / SFB_BUCKET_SHIFT) /* L */
 
+/* SFB algo uses a virtual queue, named "bin" */
 struct sfb_bucket {
-	u16		qlen; 
-	u16		p_mark; 
+	u16		qlen; /* length of virtual queue */
+	u16		p_mark; /* marking probability */
 };
 
+/* We use a double buffering right before hash change
+ * (Section 4.4 of SFB reference : moving hash functions)
+ */
 struct sfb_bins {
-	u32		  perturbation; 
+	u32		  perturbation; /* jhash perturbation */
 	struct sfb_bucket bins[SFB_LEVELS][SFB_NUMBUCKETS];
 };
 
@@ -47,19 +57,19 @@ struct sfb_sched_data {
 	struct Qdisc	*qdisc;
 	struct tcf_proto *filter_list;
 	unsigned long	rehash_interval;
-	unsigned long	warmup_time;	
+	unsigned long	warmup_time;	/* double buffering warmup time in jiffies */
 	u32		max;
-	u32		bin_size;	
-	u32		increment;	
-	u32		decrement;	
-	u32		limit;		
+	u32		bin_size;	/* maximum queue length per bin */
+	u32		increment;	/* d1 */
+	u32		decrement;	/* d2 */
+	u32		limit;		/* HARD maximal queue length */
 	u32		penalty_rate;
 	u32		penalty_burst;
 	u32		tokens_avail;
 	unsigned long	rehash_time;
 	unsigned long	token_time;
 
-	u8		slot;		
+	u8		slot;		/* current active bins (0 or 1) */
 	bool		double_buffering;
 	struct sfb_bins bins[2];
 
@@ -68,11 +78,16 @@ struct sfb_sched_data {
 		u32	penaltydrop;
 		u32	bucketdrop;
 		u32	queuedrop;
-		u32	childdrop;	
-		u32	marked;		
+		u32	childdrop;	/* drops in child qdisc */
+		u32	marked;		/* ECN mark */
 	} stats;
 };
 
+/*
+ * Each queued skb might be hashed on one or two bins
+ * We store in skb_cb the two hash values.
+ * (A zero value means double buffering was not used)
+ */
 struct sfb_skb_cb {
 	u32 hashes[2];
 };
@@ -83,11 +98,19 @@ static inline struct sfb_skb_cb *sfb_skb_cb(const struct sk_buff *skb)
 	return (struct sfb_skb_cb *)qdisc_skb_cb(skb)->data;
 }
 
+/*
+ * If using 'internal' SFB flow classifier, hash comes from skb rxhash
+ * If using external classifier, hash comes from the classid.
+ */
 static u32 sfb_hash(const struct sk_buff *skb, u32 slot)
 {
 	return sfb_skb_cb(skb)->hashes[slot];
 }
 
+/* Probabilities are coded as Q0.16 fixed-point values,
+ * with 0xFFFF representing 65535/65536 (almost 1.0)
+ * Addition and subtraction are saturating in [0, 65535]
+ */
 static u32 prob_plus(u32 p1, u32 p2)
 {
 	u32 res = p1 + p2;
@@ -111,7 +134,7 @@ static void increment_one_qlen(u32 sfbhash, u32 slot, struct sfb_sched_data *q)
 		sfbhash >>= SFB_BUCKET_SHIFT;
 		if (b[hash].qlen < 0xFFFF)
 			b[hash].qlen++;
-		b += SFB_NUMBUCKETS; 
+		b += SFB_NUMBUCKETS; /* next level */
 	}
 }
 
@@ -140,7 +163,7 @@ static void decrement_one_qlen(u32 sfbhash, u32 slot,
 		sfbhash >>= SFB_BUCKET_SHIFT;
 		if (b[hash].qlen > 0)
 			b[hash].qlen--;
-		b += SFB_NUMBUCKETS; 
+		b += SFB_NUMBUCKETS; /* next level */
 	}
 }
 
@@ -172,6 +195,9 @@ static void sfb_zero_all_buckets(struct sfb_sched_data *q)
 	memset(&q->bins, 0, sizeof(q->bins));
 }
 
+/*
+ * compute max qlen, max p_mark, and avg p_mark
+ */
 static u32 sfb_compute_qlen(u32 *prob_r, u32 *avgpm_r, const struct sfb_sched_data *q)
 {
 	int i;
@@ -204,6 +230,9 @@ static void sfb_swap_slot(struct sfb_sched_data *q)
 	q->double_buffering = false;
 }
 
+/* Non elastic flows are allowed to use part of the bandwidth, expressed
+ * in "penalty_rate" packets per second, with "penalty_burst" burst
+ */
 static bool sfb_rate_limit(struct sk_buff *skb, struct sfb_sched_data *q)
 {
 	if (q->penalty_rate == 0 || q->penalty_burst == 0)
@@ -278,7 +307,7 @@ static int sfb_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	}
 
 	if (q->filter_list) {
-		
+		/* If using external classifiers, get result and record it. */
 		if (!sfb_classify(skb, q, &ret, &salt))
 			goto other_drop;
 		keys.src = salt;
@@ -323,7 +352,7 @@ static int sfb_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	}
 
 	if (unlikely(p_min >= SFB_MAX_PROB)) {
-		
+		/* Inelastic flow */
 		if (q->double_buffering) {
 			sfbhash = jhash_3words((__force u32)keys.dst,
 					       (__force u32)keys.src,
@@ -356,6 +385,10 @@ static int sfb_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 
 	if (unlikely(r < p_min)) {
 		if (unlikely(p_min > SFB_MAX_PROB / 2)) {
+			/* If we're marking that many packets, then either
+			 * this flow is unresponsive, or we're badly congested.
+			 * In either case, we want to start dropping packets.
+			 */
 			if (r < (p_min - SFB_MAX_PROB / 2) * 2) {
 				q->stats.earlydrop++;
 				goto drop;
@@ -415,6 +448,7 @@ static struct sk_buff *sfb_peek(struct Qdisc *sch)
 	return child->ops->peek(child);
 }
 
+/* No sfb_drop -- impossible since the child doesn't return the dropped skb. */
 
 static void sfb_reset(struct Qdisc *sch)
 {
@@ -446,7 +480,7 @@ static const struct tc_sfb_qopt sfb_default_ops = {
 	.limit = 0,
 	.max = 25,
 	.bin_size = 20,
-	.increment = (SFB_MAX_PROB + 500) / 1000, 
+	.increment = (SFB_MAX_PROB + 500) / 1000, /* 0.1 % */
 	.decrement = (SFB_MAX_PROB + 3000) / 6000,
 	.penalty_rate = 10,
 	.penalty_burst = 20,

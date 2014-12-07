@@ -29,14 +29,17 @@ static void fclex(void)
 	no_ip_update = 1;
 }
 
+/* Needs to be externally visible */
 void finit_soft_fpu(struct i387_soft_struct *soft)
 {
 	struct address *oaddr, *iaddr;
 	memset(soft, 0, sizeof(*soft));
 	soft->cwd = 0x037f;
 	soft->swd = 0;
-	soft->ftop = 0;	
+	soft->ftop = 0;	/* We don't keep top in the status word internally. */
 	soft->twd = 0xffff;
+	/* The behaviour is different from that detailed in
+	   Section 15.1.6 of the Intel manual */
 	oaddr = (struct address *)&soft->foo;
 	oaddr->offset = 0;
 	oaddr->selector = 0;
@@ -52,6 +55,9 @@ void finit(void)
 	finit_soft_fpu(&current->thread.fpu.state->soft);
 }
 
+/*
+ * These are nops on the i387..
+ */
 #define feni fnop
 #define fdisi fnop
 #define fsetpm fnop
@@ -103,7 +109,7 @@ void fld_i_(void)
 		return;
 	}
 
-	
+	/* fld st(i) */
 	i = FPU_rm;
 	if (NOT_EMPTY(i)) {
 		reg_copy(&st(i), st_new_ptr);
@@ -112,7 +118,7 @@ void fld_i_(void)
 		FPU_settag0(tag);
 	} else {
 		if (control_word & CW_Invalid) {
-			
+			/* The masked response */
 			FPU_stack_underflow();
 		} else
 			EXCEPTION(EX_StackUnder);
@@ -122,7 +128,7 @@ void fld_i_(void)
 
 void fxch_i(void)
 {
-	
+	/* fxch st(i) */
 	FPU_REG t;
 	int i = FPU_rm;
 	FPU_REG *st0_ptr = &st(0), *sti_ptr = &st(i);
@@ -138,7 +144,7 @@ void fxch_i(void)
 			return;
 		}
 		if (control_word & CW_Invalid) {
-			
+			/* Masked response */
 			FPU_copy_to_reg0(sti_ptr, sti_tag);
 		}
 		FPU_stack_underflow_i(i);
@@ -146,7 +152,7 @@ void fxch_i(void)
 	}
 	if (sti_tag == TAG_Empty) {
 		if (control_word & CW_Invalid) {
-			
+			/* Masked response */
 			FPU_copy_to_regi(st0_ptr, st0_tag, i);
 		}
 		FPU_stack_underflow();
@@ -165,26 +171,26 @@ void fxch_i(void)
 
 void ffree_(void)
 {
-	
+	/* ffree st(i) */
 	FPU_settagi(FPU_rm, TAG_Empty);
 }
 
 void ffreep(void)
 {
-	
+	/* ffree st(i) + pop - unofficial code */
 	FPU_settagi(FPU_rm, TAG_Empty);
 	FPU_pop();
 }
 
 void fst_i_(void)
 {
-	
+	/* fst st(i) */
 	FPU_copy_to_regi(&st(0), FPU_gettag0(), FPU_rm);
 }
 
 void fstp_i(void)
 {
-	
+	/* fstp st(i) */
 	FPU_copy_to_regi(&st(0), FPU_gettag0(), FPU_rm);
 	FPU_pop();
 }

@@ -50,7 +50,7 @@ struct c2_mq_shared {
 	u8 notification_type;
 	u32 unused2;
 	u16 shared;
-	
+	/* Pad to 64 bytes. */
 	u8 pad[64 - sizeof(u16) - 2 * sizeof(u8) - sizeof(u32) - sizeof(u16)];
 };
 
@@ -59,7 +59,11 @@ enum c2_mq_type {
 	C2_MQ_ADAPTER_TARGET = 2,
 };
 
-#define C2_MQ_MAGIC 0x4d512020	
+/*
+ * c2_mq_t is for kernel-mode MQs like the VQs Cand the AEQ.
+ * c2_user_mq_t (which is the same format) is for user-mode MQs...
+ */
+#define C2_MQ_MAGIC 0x4d512020	/* 'MQ  ' */
 struct c2_mq {
 	u32 magic;
 	union {
@@ -99,4 +103,4 @@ extern void c2_mq_req_init(struct c2_mq *q, u32 index, u32 q_size, u32 msg_size,
 extern void c2_mq_rep_init(struct c2_mq *q, u32 index, u32 q_size, u32 msg_size,
 			   u8 *pool_start, u16 __iomem *peer, u32 type);
 
-#endif				
+#endif				/* _C2_MQ_H_ */

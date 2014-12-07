@@ -48,22 +48,25 @@ MODULE_LICENSE("GPL");
 #define SNDRV_DEBUG_MCE
 #endif
 
+/*
+ *  Some variables
+ */
 
 static unsigned char freq_bits[14] = {
-		0x00 | CS4231_XTAL2,
-		0x0E | CS4231_XTAL2,
-		0x00 | CS4231_XTAL1,
-		0x0E | CS4231_XTAL1,
-		0x02 | CS4231_XTAL2,
-		0x02 | CS4231_XTAL1,
-		0x04 | CS4231_XTAL2,
-		0x06 | CS4231_XTAL2,
-		0x04 | CS4231_XTAL1,
-		0x06 | CS4231_XTAL1,
-		0x0C | CS4231_XTAL2,
-		0x08 | CS4231_XTAL2,
-		0x0A | CS4231_XTAL2,
-		0x0C | CS4231_XTAL1
+	/* 5510 */	0x00 | CS4231_XTAL2,
+	/* 6620 */	0x0E | CS4231_XTAL2,
+	/* 8000 */	0x00 | CS4231_XTAL1,
+	/* 9600 */	0x0E | CS4231_XTAL1,
+	/* 11025 */	0x02 | CS4231_XTAL2,
+	/* 16000 */	0x02 | CS4231_XTAL1,
+	/* 18900 */	0x04 | CS4231_XTAL2,
+	/* 22050 */	0x06 | CS4231_XTAL2,
+	/* 27042 */	0x04 | CS4231_XTAL1,
+	/* 32000 */	0x06 | CS4231_XTAL1,
+	/* 33075 */	0x0C | CS4231_XTAL2,
+	/* 37800 */	0x08 | CS4231_XTAL2,
+	/* 44100 */	0x0A | CS4231_XTAL2,
+	/* 48000 */	0x0C | CS4231_XTAL1
 };
 
 static unsigned int rates[14] = {
@@ -85,76 +88,79 @@ static int snd_wss_xrate(struct snd_pcm_runtime *runtime)
 
 static unsigned char snd_wss_original_image[32] =
 {
-	0x00,			
-	0x00,			
-	0x9f,			
-	0x9f,			
-	0x9f,			
-	0x9f,			
-	0xbf,			
-	0xbf,			
-	0x20,			
-	CS4231_AUTOCALIB,	
-	0x00,			
-	0x00,			
-	CS4231_MODE2,		
-	0xfc,			
-	0x00,			
-	0x00,			
-	0x80,			
-	0x01,			
-	0x9f,			
-	0x9f,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0xcf,			
-	0x00,			
-	0x20,			
-	0x00,			
-	0x00,			
-	0x00,			
+	0x00,			/* 00/00 - lic */
+	0x00,			/* 01/01 - ric */
+	0x9f,			/* 02/02 - la1ic */
+	0x9f,			/* 03/03 - ra1ic */
+	0x9f,			/* 04/04 - la2ic */
+	0x9f,			/* 05/05 - ra2ic */
+	0xbf,			/* 06/06 - loc */
+	0xbf,			/* 07/07 - roc */
+	0x20,			/* 08/08 - pdfr */
+	CS4231_AUTOCALIB,	/* 09/09 - ic */
+	0x00,			/* 0a/10 - pc */
+	0x00,			/* 0b/11 - ti */
+	CS4231_MODE2,		/* 0c/12 - mi */
+	0xfc,			/* 0d/13 - lbc */
+	0x00,			/* 0e/14 - pbru */
+	0x00,			/* 0f/15 - pbrl */
+	0x80,			/* 10/16 - afei */
+	0x01,			/* 11/17 - afeii */
+	0x9f,			/* 12/18 - llic */
+	0x9f,			/* 13/19 - rlic */
+	0x00,			/* 14/20 - tlb */
+	0x00,			/* 15/21 - thb */
+	0x00,			/* 16/22 - la3mic/reserved */
+	0x00,			/* 17/23 - ra3mic/reserved */
+	0x00,			/* 18/24 - afs */
+	0x00,			/* 19/25 - lamoc/version */
+	0xcf,			/* 1a/26 - mioc */
+	0x00,			/* 1b/27 - ramoc/reserved */
+	0x20,			/* 1c/28 - cdfr */
+	0x00,			/* 1d/29 - res4 */
+	0x00,			/* 1e/30 - cbru */
+	0x00,			/* 1f/31 - cbrl */
 };
 
 static unsigned char snd_opti93x_original_image[32] =
 {
-	0x00,		
-	0x00,		
-	0x88,		
-	0x88,		
-	0x88,		
-	0x88,		
-	0x80,		
-	0x80,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x0a,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x88,		
-	0x88,		
-	0x88,		
-	0x88,		
-	0x88,		
-	0x88,		
-	0x80,		
-	0x80,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00		
+	0x00,		/* 00/00 - l_mixout_outctrl */
+	0x00,		/* 01/01 - r_mixout_outctrl */
+	0x88,		/* 02/02 - l_cd_inctrl */
+	0x88,		/* 03/03 - r_cd_inctrl */
+	0x88,		/* 04/04 - l_a1/fm_inctrl */
+	0x88,		/* 05/05 - r_a1/fm_inctrl */
+	0x80,		/* 06/06 - l_dac_inctrl */
+	0x80,		/* 07/07 - r_dac_inctrl */
+	0x00,		/* 08/08 - ply_dataform_reg */
+	0x00,		/* 09/09 - if_conf */
+	0x00,		/* 0a/10 - pin_ctrl */
+	0x00,		/* 0b/11 - err_init_reg */
+	0x0a,		/* 0c/12 - id_reg */
+	0x00,		/* 0d/13 - reserved */
+	0x00,		/* 0e/14 - ply_upcount_reg */
+	0x00,		/* 0f/15 - ply_lowcount_reg */
+	0x88,		/* 10/16 - reserved/l_a1_inctrl */
+	0x88,		/* 11/17 - reserved/r_a1_inctrl */
+	0x88,		/* 12/18 - l_line_inctrl */
+	0x88,		/* 13/19 - r_line_inctrl */
+	0x88,		/* 14/20 - l_mic_inctrl */
+	0x88,		/* 15/21 - r_mic_inctrl */
+	0x80,		/* 16/22 - l_out_outctrl */
+	0x80,		/* 17/23 - r_out_outctrl */
+	0x00,		/* 18/24 - reserved */
+	0x00,		/* 19/25 - reserved */
+	0x00,		/* 1a/26 - reserved */
+	0x00,		/* 1b/27 - reserved */
+	0x00,		/* 1c/28 - cap_dataform_reg */
+	0x00,		/* 1d/29 - reserved */
+	0x00,		/* 1e/30 - cap_upcount_reg */
+	0x00		/* 1f/31 - cap_lowcount_reg */
 };
 
+/*
+ *  Basic I/O functions
+ */
 
 static inline void wss_outb(struct snd_wss *chip, u8 offset, u8 val)
 {
@@ -347,15 +353,18 @@ static void snd_wss_debug(struct snd_wss *chip)
 
 #endif
 
+/*
+ *  CS4231 detection / MCE routines
+ */
 
 static void snd_wss_busy_wait(struct snd_wss *chip)
 {
 	int timeout;
 
-	
+	/* huh.. looks like this sequence is proper for CS4231A chip (GUS MAX) */
 	for (timeout = 5; timeout > 0; timeout--)
 		wss_inb(chip, CS4231P(REGSEL));
-	
+	/* end of cleanup sequence */
 	for (timeout = 25000;
 	     timeout > 0 && (wss_inb(chip, CS4231P(REGSEL)) & CS4231_INIT);
 	     timeout--)
@@ -414,11 +423,16 @@ void snd_wss_mce_down(struct snd_wss *chip)
 	if ((timeout & CS4231_MCE) == 0 || !(chip->hardware & hw_mask))
 		return;
 
+	/*
+	 * Wait for (possible -- during init auto-calibration may not be set)
+	 * calibration process to start. Needs up to 5 sample periods on AD1848
+	 * which at the slowest possible rate of 5.5125 kHz means 907 us.
+	 */
 	msleep(1);
 
 	snd_printdd("(1) jiffies = %lu\n", jiffies);
 
-	
+	/* check condition up to 250 ms */
 	end_time = jiffies + msecs_to_jiffies(250);
 	while (snd_wss_in(chip, CS4231_TEST_INIT) &
 		CS4231_CALIB_IN_PROGRESS) {
@@ -433,7 +447,7 @@ void snd_wss_mce_down(struct snd_wss *chip)
 
 	snd_printdd("(2) jiffies = %lu\n", jiffies);
 
-	
+	/* check condition up to 100 ms */
 	end_time = jiffies + msecs_to_jiffies(100);
 	while (wss_inb(chip, CS4231P(REGSEL)) & CS4231_INIT) {
 		if (time_after(jiffies, end_time)) {
@@ -511,6 +525,9 @@ static int snd_wss_trigger(struct snd_pcm_substream *substream,
 	return result;
 }
 
+/*
+ *  CODEC I/O
+ */
 
 static unsigned char snd_wss_get_rate(unsigned int rate)
 {
@@ -519,7 +536,7 @@ static unsigned char snd_wss_get_rate(unsigned int rate)
 	for (i = 0; i < ARRAY_SIZE(rates); i++)
 		if (rate == rates[i])
 			return freq_bits[i];
-	
+	// snd_BUG();
 	return freq_bits[ARRAY_SIZE(rates) - 1];
 }
 
@@ -616,7 +633,7 @@ static void snd_wss_playback_format(struct snd_wss *chip,
 	if (chip->hardware == WSS_HW_CS4231A ||
 	    (chip->hardware & WSS_HW_CS4232_MASK)) {
 		spin_lock_irqsave(&chip->reg_lock, flags);
-		if ((chip->image[CS4231_PLAYBK_FORMAT] & 0x0f) == (pdfr & 0x0f)) {	
+		if ((chip->image[CS4231_PLAYBK_FORMAT] & 0x0f) == (pdfr & 0x0f)) {	/* rate is same? */
 			snd_wss_out(chip, CS4231_ALT_FEATURE_1,
 				    chip->image[CS4231_ALT_FEATURE_1] | 0x10);
 			chip->image[CS4231_PLAYBK_FORMAT] = pdfr;
@@ -624,13 +641,22 @@ static void snd_wss_playback_format(struct snd_wss *chip,
 				    chip->image[CS4231_PLAYBK_FORMAT]);
 			snd_wss_out(chip, CS4231_ALT_FEATURE_1,
 				    chip->image[CS4231_ALT_FEATURE_1] &= ~0x10);
-			udelay(100); 
+			udelay(100); /* Fixes audible clicks at least on GUS MAX */
 			full_calib = 0;
 		}
 		spin_unlock_irqrestore(&chip->reg_lock, flags);
 	} else if (chip->hardware == WSS_HW_AD1845) {
 		unsigned rate = params_rate(params);
 
+		/*
+		 * Program the AD1845 correctly for the playback stream.
+		 * Note that we do NOT need to toggle the MCE bit because
+		 * the PLAYBACK_ENABLE bit of the Interface Configuration
+		 * register is set.
+		 *
+		 * NOTE: We seem to need to write to the MSB before the LSB
+		 *       to get the correct sample frequency.
+		 */
 		spin_lock_irqsave(&chip->reg_lock, flags);
 		snd_wss_out(chip, CS4231_PLAYBK_FORMAT, (pdfr & 0xf0));
 		snd_wss_out(chip, AD1845_UPR_FREQ_SEL, (rate >> 8) & 0xff);
@@ -651,7 +677,7 @@ static void snd_wss_playback_format(struct snd_wss *chip,
 		snd_wss_out(chip, CS4231_PLAYBK_FORMAT, pdfr);
 		spin_unlock_irqrestore(&chip->reg_lock, flags);
 		if (chip->hardware == WSS_HW_OPL3SA2)
-			udelay(100);	
+			udelay(100);	/* this seems to help */
 		snd_wss_mce_down(chip);
 	}
 	mutex_unlock(&chip->mce_mutex);
@@ -668,7 +694,7 @@ static void snd_wss_capture_format(struct snd_wss *chip,
 	if (chip->hardware == WSS_HW_CS4231A ||
 	    (chip->hardware & WSS_HW_CS4232_MASK)) {
 		spin_lock_irqsave(&chip->reg_lock, flags);
-		if ((chip->image[CS4231_PLAYBK_FORMAT] & 0x0f) == (cdfr & 0x0f) ||	
+		if ((chip->image[CS4231_PLAYBK_FORMAT] & 0x0f) == (cdfr & 0x0f) ||	/* rate is same? */
 		    (chip->image[CS4231_IFACE_CTRL] & CS4231_PLAYBACK_ENABLE)) {
 			snd_wss_out(chip, CS4231_ALT_FEATURE_1,
 				chip->image[CS4231_ALT_FEATURE_1] | 0x20);
@@ -682,6 +708,15 @@ static void snd_wss_capture_format(struct snd_wss *chip,
 	} else if (chip->hardware == WSS_HW_AD1845) {
 		unsigned rate = params_rate(params);
 
+		/*
+		 * Program the AD1845 correctly for the capture stream.
+		 * Note that we do NOT need to toggle the MCE bit because
+		 * the PLAYBACK_ENABLE bit of the Interface Configuration
+		 * register is set.
+		 *
+		 * NOTE: We seem to need to write to the MSB before the LSB
+		 *       to get the correct sample frequency.
+		 */
 		spin_lock_irqsave(&chip->reg_lock, flags);
 		snd_wss_out(chip, CS4231_REC_FORMAT, (cdfr & 0xf0));
 		snd_wss_out(chip, AD1845_UPR_FREQ_SEL, (rate >> 8) & 0xff);
@@ -715,6 +750,9 @@ static void snd_wss_capture_format(struct snd_wss *chip,
 	mutex_unlock(&chip->mce_mutex);
 }
 
+/*
+ *  Timer interface
+ */
 
 static unsigned long snd_wss_timer_resolution(struct snd_timer *timer)
 {
@@ -846,7 +884,7 @@ static int snd_wss_open(struct snd_wss *chip, unsigned int mode)
 		mutex_unlock(&chip->open_mutex);
 		return 0;
 	}
-	
+	/* ok. now enable and ack CODEC IRQ */
 	spin_lock_irqsave(&chip->reg_lock, flags);
 	if (!(chip->hardware & WSS_HW_AD1848_MASK)) {
 		snd_wss_out(chip, CS4231_IRQ_STATUS,
@@ -855,8 +893,8 @@ static int snd_wss_open(struct snd_wss *chip, unsigned int mode)
 			    CS4231_TIMER_IRQ);
 		snd_wss_out(chip, CS4231_IRQ_STATUS, 0);
 	}
-	wss_outb(chip, CS4231P(STATUS), 0);	
-	wss_outb(chip, CS4231P(STATUS), 0);	
+	wss_outb(chip, CS4231P(STATUS), 0);	/* clear IRQ */
+	wss_outb(chip, CS4231P(STATUS), 0);	/* clear IRQ */
 	chip->image[CS4231_PIN_CTRL] |= CS4231_IRQ_ENABLE;
 	snd_wss_out(chip, CS4231_PIN_CTRL, chip->image[CS4231_PIN_CTRL]);
 	if (!(chip->hardware & WSS_HW_AD1848_MASK)) {
@@ -883,16 +921,16 @@ static void snd_wss_close(struct snd_wss *chip, unsigned int mode)
 		mutex_unlock(&chip->open_mutex);
 		return;
 	}
-	
+	/* disable IRQ */
 	spin_lock_irqsave(&chip->reg_lock, flags);
 	if (!(chip->hardware & WSS_HW_AD1848_MASK))
 		snd_wss_out(chip, CS4231_IRQ_STATUS, 0);
-	wss_outb(chip, CS4231P(STATUS), 0);	
-	wss_outb(chip, CS4231P(STATUS), 0);	
+	wss_outb(chip, CS4231P(STATUS), 0);	/* clear IRQ */
+	wss_outb(chip, CS4231P(STATUS), 0);	/* clear IRQ */
 	chip->image[CS4231_PIN_CTRL] &= ~CS4231_IRQ_ENABLE;
 	snd_wss_out(chip, CS4231_PIN_CTRL, chip->image[CS4231_PIN_CTRL]);
 
-	
+	/* now disable record & playback */
 
 	if (chip->image[CS4231_IFACE_CTRL] & (CS4231_PLAYBACK_ENABLE | CS4231_PLAYBACK_PIO |
 					       CS4231_RECORD_ENABLE | CS4231_RECORD_PIO)) {
@@ -908,17 +946,20 @@ static void snd_wss_close(struct snd_wss *chip, unsigned int mode)
 		spin_lock_irqsave(&chip->reg_lock, flags);
 	}
 
-	
+	/* clear IRQ again */
 	if (!(chip->hardware & WSS_HW_AD1848_MASK))
 		snd_wss_out(chip, CS4231_IRQ_STATUS, 0);
-	wss_outb(chip, CS4231P(STATUS), 0);	
-	wss_outb(chip, CS4231P(STATUS), 0);	
+	wss_outb(chip, CS4231P(STATUS), 0);	/* clear IRQ */
+	wss_outb(chip, CS4231P(STATUS), 0);	/* clear IRQ */
 	spin_unlock_irqrestore(&chip->reg_lock, flags);
 
 	chip->mode = 0;
 	mutex_unlock(&chip->open_mutex);
 }
 
+/*
+ *  timer open/close
+ */
 
 static int snd_wss_timer_open(struct snd_timer *timer)
 {
@@ -946,6 +987,9 @@ static struct snd_timer_hardware snd_wss_timer_table =
 	.stop =		snd_wss_timer_stop,
 };
 
+/*
+ *  ok.. exported functions..
+ */
 
 static int snd_wss_playback_hw_params(struct snd_pcm_substream *substream,
 					 struct snd_pcm_hw_params *hw_params)
@@ -1051,7 +1095,7 @@ void snd_wss_overrange(struct snd_wss *chip)
 	spin_lock_irqsave(&chip->reg_lock, flags);
 	res = snd_wss_in(chip, CS4231_TEST_INIT);
 	spin_unlock_irqrestore(&chip->reg_lock, flags);
-	if (res & (0x08 | 0x02))	
+	if (res & (0x08 | 0x02))	/* detect overrange only above 0dB; may be user selectable? */
 		chip->capture_substream->runtime->overrange++;
 }
 EXPORT_SYMBOL(snd_wss_overrange);
@@ -1062,7 +1106,7 @@ irqreturn_t snd_wss_interrupt(int irq, void *dev_id)
 	unsigned char status;
 
 	if (chip->hardware & WSS_HW_AD1848_MASK)
-		
+		/* pretend it was the only possible irq for AD1848 */
 		status = CS4231_PLAYBACK_IRQ;
 	else
 		status = snd_wss_in(chip, CS4231_IRQ_STATUS);
@@ -1129,6 +1173,9 @@ static snd_pcm_uframes_t snd_wss_capture_pointer(struct snd_pcm_substream *subst
 	return bytes_to_frames(substream->runtime, ptr);
 }
 
+/*
+
+ */
 
 static int snd_ad1848_probe(struct snd_wss *chip)
 {
@@ -1146,13 +1193,13 @@ static int snd_ad1848_probe(struct snd_wss *chip)
 	}
 	spin_lock_irqsave(&chip->reg_lock, flags);
 
-	
+	/* set CS423x MODE 1 */
 	snd_wss_dout(chip, CS4231_MISC_INFO, 0);
 
-	snd_wss_dout(chip, CS4231_RIGHT_INPUT, 0x45); 
+	snd_wss_dout(chip, CS4231_RIGHT_INPUT, 0x45); /* 0x55 & ~0x10 */
 	r = snd_wss_in(chip, CS4231_RIGHT_INPUT);
 	if (r != 0x45) {
-		
+		/* RMGE always high on AD1847 */
 		if ((r & ~CS4231_ENABLE_MIC_GAIN) != 0x45) {
 			err = -ENODEV;
 			goto out;
@@ -1161,14 +1208,14 @@ static int snd_ad1848_probe(struct snd_wss *chip)
 	} else {
 		snd_wss_dout(chip, CS4231_LEFT_INPUT,  0xaa);
 		r = snd_wss_in(chip, CS4231_LEFT_INPUT);
-		
+		/* L/RMGE always low on AT2320 */
 		if ((r | CS4231_ENABLE_MIC_GAIN) != 0xaa) {
 			err = -ENODEV;
 			goto out;
 		}
 	}
 
-	
+	/* clear pending IRQ */
 	wss_inb(chip, CS4231P(STATUS));
 	wss_outb(chip, CS4231P(STATUS), 0);
 	mb();
@@ -1183,13 +1230,17 @@ static int snd_ad1848_probe(struct snd_wss *chip)
 
 	r = snd_wss_in(chip, CS4231_MISC_INFO);
 
-	
+	/* set CS423x MODE 2 */
 	snd_wss_dout(chip, CS4231_MISC_INFO, CS4231_MODE2);
 	for (i = 0; i < 16; i++) {
 		if (snd_wss_in(chip, i) != snd_wss_in(chip, 16 + i)) {
-			
+			/* we have more than 16 registers: check ID */
 			if ((r & 0xf) != 0xa)
 				goto out_mode;
+			/*
+			 * on CMI8330, CS4231_VERSION is volume control and
+			 * can be set to 0
+			 */
 			snd_wss_dout(chip, CS4231_VERSION, 0);
 			r = snd_wss_in(chip, CS4231_VERSION) & 0xe7;
 			if (!r)
@@ -1232,12 +1283,12 @@ static int snd_wss_probe(struct snd_wss *chip)
 				id = snd_wss_in(chip, CS4231_MISC_INFO) & 0x0f;
 				spin_unlock_irqrestore(&chip->reg_lock, flags);
 				if (id == 0x0a)
-					break;	
+					break;	/* this is valid value */
 			}
 		}
 		snd_printdd("wss: port = 0x%lx, id = 0x%x\n", chip->port, id);
 		if (id != 0x0a)
-			return -ENODEV;	
+			return -ENODEV;	/* no valid device found */
 
 		rev = snd_wss_in(chip, CS4231_VERSION) & 0xe7;
 		snd_printdd("CS4231: VERSION (I25) = 0x%x\n", rev);
@@ -1261,11 +1312,11 @@ static int snd_wss_probe(struct snd_wss *chip)
 		} else {
 			snd_printk(KERN_ERR
 				   "unknown CS chip with version 0x%x\n", rev);
-			return -ENODEV;		
+			return -ENODEV;		/* unknown CS4231 chip? */
 		}
 	}
 	spin_lock_irqsave(&chip->reg_lock, flags);
-	wss_inb(chip, CS4231P(STATUS));	
+	wss_inb(chip, CS4231P(STATUS));	/* clear any pendings IRQ */
 	wss_outb(chip, CS4231P(STATUS), 0);
 	mb();
 	spin_unlock_irqrestore(&chip->reg_lock, flags);
@@ -1296,7 +1347,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 		chip->image[CS4231_ALT_FEATURE_2] =
 			chip->hardware == WSS_HW_INTERWAVE ? 0xc2 : 0x01;
 	}
-	
+	/* enable fine grained frequency selection */
 	if (chip->hardware == WSS_HW_AD1845)
 		chip->image[AD1845_PWR_DOWN] = 8;
 
@@ -1304,7 +1355,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 	regnum = (chip->hardware & WSS_HW_AD1848_MASK) ? 16 : 32;
 	snd_wss_mce_down(chip);
 	spin_lock_irqsave(&chip->reg_lock, flags);
-	for (i = 0; i < regnum; i++)	
+	for (i = 0; i < regnum; i++)	/* ok.. fill all registers */
 		snd_wss_out(chip, i, *ptr++);
 	spin_unlock_irqrestore(&chip->reg_lock, flags);
 	snd_wss_mce_up(chip);
@@ -1312,7 +1363,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 
 	mdelay(2);
 
-	
+	/* ok.. try check hardware version for CS4236+ chips */
 	if ((hw & WSS_HW_TYPE_MASK) == WSS_HW_DETECT) {
 		if (chip->hardware == WSS_HW_CS4236B) {
 			rev = snd_cs4236_ext_in(chip, CS4236_VERSION);
@@ -1320,7 +1371,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 			id = snd_cs4236_ext_in(chip, CS4236_VERSION);
 			snd_cs4236_ext_out(chip, CS4236_VERSION, rev);
 			snd_printdd("CS4231: ext version; rev = 0x%x, id = 0x%x\n", rev, id);
-			if ((id & 0x1f) == 0x1d) {	
+			if ((id & 0x1f) == 0x1d) {	/* CS4235 */
 				chip->hardware = WSS_HW_CS4235;
 				switch (id >> 5) {
 				case 4:
@@ -1333,7 +1384,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 						"(enhanced version = 0x%x)\n",
 						id);
 				}
-			} else if ((id & 0x1f) == 0x0b) {	
+			} else if ((id & 0x1f) == 0x0b) {	/* CS4236/B */
 				switch (id >> 5) {
 				case 4:
 				case 5:
@@ -1347,7 +1398,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 						"(enhanced version = 0x%x)\n",
 						id);
 				}
-			} else if ((id & 0x1f) == 0x08) {	
+			} else if ((id & 0x1f) == 0x08) {	/* CS4237B */
 				chip->hardware = WSS_HW_CS4237B;
 				switch (id >> 5) {
 				case 4:
@@ -1361,7 +1412,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 						"(enhanced version = 0x%x)\n",
 						id);
 				}
-			} else if ((id & 0x1f) == 0x09) {	
+			} else if ((id & 0x1f) == 0x09) {	/* CS4238B */
 				chip->hardware = WSS_HW_CS4238B;
 				switch (id >> 5) {
 				case 5:
@@ -1374,7 +1425,7 @@ static int snd_wss_probe(struct snd_wss *chip)
 						"(enhanced version = 0x%x)\n",
 						id);
 				}
-			} else if ((id & 0x1f) == 0x1e) {	
+			} else if ((id & 0x1f) == 0x1e) {	/* CS4239 */
 				chip->hardware = WSS_HW_CS4239;
 				switch (id >> 5) {
 				case 4:
@@ -1394,9 +1445,12 @@ static int snd_wss_probe(struct snd_wss *chip)
 			}
 		}
 	}
-	return 0;		
+	return 0;		/* all things are ok.. */
 }
 
+/*
+
+ */
 
 static struct snd_pcm_hardware snd_wss_playback =
 {
@@ -1440,6 +1494,9 @@ static struct snd_pcm_hardware snd_wss_capture =
 	.fifo_size =		0,
 };
 
+/*
+
+ */
 
 static int snd_wss_playback_open(struct snd_pcm_substream *substream)
 {
@@ -1449,16 +1506,16 @@ static int snd_wss_playback_open(struct snd_pcm_substream *substream)
 
 	runtime->hw = snd_wss_playback;
 
-	
+	/* hardware limitation of older chipsets */
 	if (chip->hardware & WSS_HW_AD1848_MASK)
 		runtime->hw.formats &= ~(SNDRV_PCM_FMTBIT_IMA_ADPCM |
 					 SNDRV_PCM_FMTBIT_S16_BE);
 
-	
+	/* hardware bug in InterWave chipset */
 	if (chip->hardware == WSS_HW_INTERWAVE && chip->dma1 > 3)
 		runtime->hw.formats &= ~SNDRV_PCM_FMTBIT_MU_LAW;
 
-	
+	/* hardware limitation of cheap chips */
 	if (chip->hardware == WSS_HW_CS4235 ||
 	    chip->hardware == WSS_HW_CS4239)
 		runtime->hw.formats = SNDRV_PCM_FMTBIT_U8 | SNDRV_PCM_FMTBIT_S16_LE;
@@ -1492,12 +1549,12 @@ static int snd_wss_capture_open(struct snd_pcm_substream *substream)
 
 	runtime->hw = snd_wss_capture;
 
-	
+	/* hardware limitation of older chipsets */
 	if (chip->hardware & WSS_HW_AD1848_MASK)
 		runtime->hw.formats &= ~(SNDRV_PCM_FMTBIT_IMA_ADPCM |
 					 SNDRV_PCM_FMTBIT_S16_BE);
 
-	
+	/* hardware limitation of cheap chips */
 	if (chip->hardware == WSS_HW_CS4235 ||
 	    chip->hardware == WSS_HW_CS4239 ||
 	    chip->hardware == WSS_HW_OPTI93X)
@@ -1554,10 +1611,10 @@ static void snd_wss_thinkpad_twiddle(struct snd_wss *chip, int on)
 	tmp = inb(AD1848_THINKPAD_CTL_PORT2);
 
 	if (on)
-		
+		/* turn it on */
 		tmp |= AD1848_THINKPAD_CS4248_ENABLE_BIT;
 	else
-		
+		/* turn it off */
 		tmp &= ~AD1848_THINKPAD_CS4248_ENABLE_BIT;
 
 	outb(tmp, AD1848_THINKPAD_CTL_PORT2);
@@ -1565,6 +1622,7 @@ static void snd_wss_thinkpad_twiddle(struct snd_wss *chip, int on)
 
 #ifdef CONFIG_PM
 
+/* lowlevel suspend callback for CS4231 */
 static void snd_wss_suspend(struct snd_wss *chip)
 {
 	int reg;
@@ -1579,11 +1637,12 @@ static void snd_wss_suspend(struct snd_wss *chip)
 		snd_wss_thinkpad_twiddle(chip, 0);
 }
 
+/* lowlevel resume callback for CS4231 */
 static void snd_wss_resume(struct snd_wss *chip)
 {
 	int reg;
 	unsigned long flags;
-	
+	/* int timeout; */
 
 	if (chip->thinkpad_flag)
 		snd_wss_thinkpad_twiddle(chip, 1);
@@ -1602,6 +1661,10 @@ static void snd_wss_resume(struct snd_wss *chip)
 #if 1
 	snd_wss_mce_down(chip);
 #else
+	/* The following is a workaround to avoid freeze after resume on TP600E.
+	   This is the first half of copy of snd_wss_mce_down(), but doesn't
+	   include rescheduling.  -- iwai
+	   */
 	snd_wss_busy_wait(chip);
 	spin_lock_irqsave(&chip->reg_lock, flags);
 	chip->mce_bit &= ~CS4231_MCE;
@@ -1618,7 +1681,7 @@ static void snd_wss_resume(struct snd_wss *chip)
 	snd_wss_busy_wait(chip);
 #endif
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static int snd_wss_free(struct snd_wss *chip)
 {
@@ -1798,11 +1861,11 @@ int snd_wss_create(struct snd_card *card,
 
 	if (hardware == WSS_HW_THINKPAD) {
 		chip->thinkpad_flag = 1;
-		chip->hardware = WSS_HW_DETECT; 
+		chip->hardware = WSS_HW_DETECT; /* reset */
 		snd_wss_thinkpad_twiddle(chip, 1);
 	}
 
-	
+	/* global setup */
 	if (snd_wss_probe(chip) < 0) {
 		snd_wss_free(chip);
 		return -ENODEV;
@@ -1817,7 +1880,7 @@ int snd_wss_create(struct snd_card *card,
 	}
 #endif
 
-	
+	/* Register device */
 	err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops);
 	if (err < 0) {
 		snd_wss_free(chip);
@@ -1825,7 +1888,7 @@ int snd_wss_create(struct snd_card *card,
 	}
 
 #ifdef CONFIG_PM
-	
+	/* Power Management */
 	chip->suspend = snd_wss_suspend;
 	chip->resume = snd_wss_resume;
 #endif
@@ -1869,7 +1932,7 @@ int snd_wss_pcm(struct snd_wss *chip, int device, struct snd_pcm **rpcm)
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &snd_wss_playback_ops);
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &snd_wss_capture_ops);
 
-	
+	/* global setup */
 	pcm->private_data = chip;
 	pcm->info_flags = 0;
 	if (chip->single_dma)
@@ -1901,7 +1964,7 @@ int snd_wss_timer(struct snd_wss *chip, int device, struct snd_timer **rtimer)
 	struct snd_timer_id tid;
 	int err;
 
-	
+	/* Timer initialization */
 	tid.dev_class = SNDRV_TIMER_CLASS_CARD;
 	tid.dev_sclass = SNDRV_TIMER_SCLASS_NONE;
 	tid.card = chip->card->number;
@@ -1920,6 +1983,9 @@ int snd_wss_timer(struct snd_wss *chip, int device, struct snd_timer **rtimer)
 }
 EXPORT_SYMBOL(snd_wss_timer);
 
+/*
+ *  MIXER part
+ */
 
 static int snd_wss_info_mux(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_info *uinfo)
@@ -2196,10 +2262,10 @@ int snd_wss_mixer(struct snd_wss *chip)
 
 	strcpy(card->mixername, chip->pcm->name);
 
-	
+	/* Use only the first 11 entries on AD1848 */
 	if (chip->hardware & WSS_HW_AD1848_MASK)
 		count = 11;
-	
+	/* There is no loopback on OPTI93X */
 	else if (chip->hardware == WSS_HW_OPTI93X)
 		count = 9;
 
@@ -2221,6 +2287,9 @@ const struct snd_pcm_ops *snd_wss_get_pcm_ops(int direction)
 }
 EXPORT_SYMBOL(snd_wss_get_pcm_ops);
 
+/*
+ *  INIT part
+ */
 
 static int __init alsa_wss_init(void)
 {

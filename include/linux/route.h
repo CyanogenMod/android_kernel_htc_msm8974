@@ -26,40 +26,44 @@
 #include <linux/if.h>
 #include <linux/compiler.h>
 
+/* This structure gets passed by the SIOCADDRT and SIOCDELRT calls. */
 struct rtentry {
 	unsigned long	rt_pad1;
-	struct sockaddr	rt_dst;		
-	struct sockaddr	rt_gateway;	
-	struct sockaddr	rt_genmask;	
+	struct sockaddr	rt_dst;		/* target address		*/
+	struct sockaddr	rt_gateway;	/* gateway addr (RTF_GATEWAY)	*/
+	struct sockaddr	rt_genmask;	/* target network mask (IP)	*/
 	unsigned short	rt_flags;
 	short		rt_pad2;
 	unsigned long	rt_pad3;
 	void		*rt_pad4;
-	short		rt_metric;	
-	char __user	*rt_dev;	
-	unsigned long	rt_mtu;		
+	short		rt_metric;	/* +1 for binary compatibility!	*/
+	char __user	*rt_dev;	/* forcing the device at add	*/
+	unsigned long	rt_mtu;		/* per route MTU/Window 	*/
 #ifndef __KERNEL__
-#define rt_mss	rt_mtu			
+#define rt_mss	rt_mtu			/* Compatibility :-(            */
 #endif
-	unsigned long	rt_window;	
-	unsigned short	rt_irtt;	
+	unsigned long	rt_window;	/* Window clamping 		*/
+	unsigned short	rt_irtt;	/* Initial RTT			*/
 };
 
 
-#define	RTF_UP		0x0001		
-#define	RTF_GATEWAY	0x0002		
-#define	RTF_HOST	0x0004		
-#define RTF_REINSTATE	0x0008		
-#define	RTF_DYNAMIC	0x0010		
-#define	RTF_MODIFIED	0x0020		
-#define RTF_MTU		0x0040		
-#define RTF_MSS		RTF_MTU		
-#define RTF_WINDOW	0x0080		
-#define RTF_IRTT	0x0100		
-#define RTF_REJECT	0x0200		
+#define	RTF_UP		0x0001		/* route usable		  	*/
+#define	RTF_GATEWAY	0x0002		/* destination is a gateway	*/
+#define	RTF_HOST	0x0004		/* host entry (net otherwise)	*/
+#define RTF_REINSTATE	0x0008		/* reinstate route after tmout	*/
+#define	RTF_DYNAMIC	0x0010		/* created dyn. (by redirect)	*/
+#define	RTF_MODIFIED	0x0020		/* modified dyn. (by redirect)	*/
+#define RTF_MTU		0x0040		/* specific MTU for this route	*/
+#define RTF_MSS		RTF_MTU		/* Compatibility :-(		*/
+#define RTF_WINDOW	0x0080		/* per route window clamping	*/
+#define RTF_IRTT	0x0100		/* Initial round trip time	*/
+#define RTF_REJECT	0x0200		/* Reject route			*/
+
+/*
+ *	<linux/ipv6_route.h> uses RTF values >= 64k
+ */
 
 
 
-
-#endif	
+#endif	/* _LINUX_ROUTE_H */
 

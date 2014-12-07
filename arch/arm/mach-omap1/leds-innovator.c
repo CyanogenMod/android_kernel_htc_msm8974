@@ -1,3 +1,6 @@
+/*
+ * linux/arch/arm/mach-omap1/leds-innovator.c
+ */
 #include <linux/init.h>
 
 #include <mach/hardware.h>

@@ -24,11 +24,14 @@
 #ifndef __ASM_HARDWARE_CS89712_H
 #define __ASM_HARDWARE_CS89712_H
 
+/*
+*	CS89712 additional registers
+*/
                                   
-#define PCDR			0x0002	
-#define PCDDR			0x0042	
-#define SDCONF			0x2300  
-#define SDRFPR			0x2340  
+#define PCDR			0x0002	/* Port C Data register ---------------------------- */
+#define PCDDR			0x0042	/* Port C Data Direction register ------------------ */
+#define SDCONF			0x2300  /* SDRAM Configuration register ---------------------*/
+#define SDRFPR			0x2340  /* SDRAM Refresh period register --------------------*/
 
 #define SDCONF_ACTIVE		(1 << 10)
 #define SDCONF_CLKCTL		(1 << 9)
@@ -43,4 +46,4 @@
 #define SDCONF_CASLAT_2		(2)
 #define SDCONF_CASLAT_3		(3)
 
-#endif 
+#endif /* __ASM_HARDWARE_CS89712_H */

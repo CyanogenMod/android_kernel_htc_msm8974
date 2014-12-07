@@ -34,6 +34,17 @@
 
 #define PULL 1
 
+/**
+ * gfs2_struct2blk - compute stuff
+ * @sdp: the filesystem
+ * @nstruct: the number of structures
+ * @ssize: the size of the structures
+ *
+ * Compute the number of log descriptor blocks needed to hold a certain number
+ * of structures of a certain size.
+ *
+ * Returns: the number of blocks needed (minimum is always 1)
+ */
 
 unsigned int gfs2_struct2blk(struct gfs2_sbd *sdp, unsigned int nstruct,
 			     unsigned int ssize)
@@ -53,6 +64,14 @@ unsigned int gfs2_struct2blk(struct gfs2_sbd *sdp, unsigned int nstruct,
 	return blks;
 }
 
+/**
+ * gfs2_remove_from_ail - Remove an entry from the ail lists, updating counters
+ * @mapping: The associated mapping (maybe NULL)
+ * @bd: The gfs2_bufdata to remove
+ *
+ * The ail lock _must_ be held when calling this function
+ *
+ */
 
 void gfs2_remove_from_ail(struct gfs2_bufdata *bd)
 {
@@ -63,6 +82,13 @@ void gfs2_remove_from_ail(struct gfs2_bufdata *bd)
 	brelse(bd->bd_bh);
 }
 
+/**
+ * gfs2_ail1_start_one - Start I/O on a part of the AIL
+ * @sdp: the filesystem
+ * @wbc: The writeback control structure
+ * @ai: The ail structure
+ *
+ */
 
 static int gfs2_ail1_start_one(struct gfs2_sbd *sdp,
 			       struct writeback_control *wbc,
@@ -108,6 +134,14 @@ __acquires(&sdp->sd_ail_lock)
 }
 
 
+/**
+ * gfs2_ail1_flush - start writeback of some ail1 entries 
+ * @sdp: The super block
+ * @wbc: The writeback control structure
+ *
+ * Writes back some ail1 entries, according to the limits in the
+ * writeback control structure
+ */
 
 void gfs2_ail1_flush(struct gfs2_sbd *sdp, struct writeback_control *wbc)
 {
@@ -127,6 +161,10 @@ restart:
 	trace_gfs2_ail_flush(sdp, wbc, 0);
 }
 
+/**
+ * gfs2_ail1_start - start writeback of all ail1 entries
+ * @sdp: The superblock
+ */
 
 static void gfs2_ail1_start(struct gfs2_sbd *sdp)
 {
@@ -140,6 +178,12 @@ static void gfs2_ail1_start(struct gfs2_sbd *sdp)
 	return gfs2_ail1_flush(sdp, &wbc);
 }
 
+/**
+ * gfs2_ail1_empty_one - Check whether or not a trans in the AIL has been synced
+ * @sdp: the filesystem
+ * @ai: the AIL entry
+ *
+ */
 
 static void gfs2_ail1_empty_one(struct gfs2_sbd *sdp, struct gfs2_ail *ai)
 {
@@ -159,6 +203,12 @@ static void gfs2_ail1_empty_one(struct gfs2_sbd *sdp, struct gfs2_ail *ai)
 
 }
 
+/**
+ * gfs2_ail1_empty - Try to empty the ail1 lists
+ * @sdp: The superblock
+ *
+ * Tries to empty the ail1 lists, starting with the oldest first
+ */
 
 static int gfs2_ail1_empty(struct gfs2_sbd *sdp)
 {
@@ -201,6 +251,12 @@ static void gfs2_ail1_wait(struct gfs2_sbd *sdp)
 	spin_unlock(&sdp->sd_ail_lock);
 }
 
+/**
+ * gfs2_ail2_empty_one - Check whether or not a trans in the AIL has been synced
+ * @sdp: the filesystem
+ * @ai: the AIL entry
+ *
+ */
 
 static void gfs2_ail2_empty_one(struct gfs2_sbd *sdp, struct gfs2_ail *ai)
 {
@@ -241,6 +297,25 @@ static void ail2_empty(struct gfs2_sbd *sdp, unsigned int new_tail)
 	spin_unlock(&sdp->sd_ail_lock);
 }
 
+/**
+ * gfs2_log_reserve - Make a log reservation
+ * @sdp: The GFS2 superblock
+ * @blks: The number of blocks to reserve
+ *
+ * Note that we never give out the last few blocks of the journal. Thats
+ * due to the fact that there is a small number of header blocks
+ * associated with each log flush. The exact number can't be known until
+ * flush time, so we ensure that we have just enough free blocks at all
+ * times to avoid running out during a log flush.
+ *
+ * We no longer flush the log here, instead we wake up logd to do that
+ * for us. To avoid the thundering herd and to ensure that we deal fairly
+ * with queued waiters, we use an exclusive wait. This means that when we
+ * get woken with enough journal space to get our reservation, we need to
+ * wake the next waiter on the list.
+ *
+ * Returns: errno
+ */
 
 int gfs2_log_reserve(struct gfs2_sbd *sdp, unsigned int blks)
 {
@@ -272,6 +347,10 @@ retry:
 		goto retry;
 	trace_gfs2_log_blocks(sdp, -blks);
 
+	/*
+	 * If we waited, then so might others, wake them up _after_ we get
+	 * our share of the log.
+	 */
 	if (unlikely(did_wait))
 		wake_up(&sdp->sd_log_waitq);
 
@@ -292,6 +371,17 @@ u64 gfs2_log_bmap(struct gfs2_sbd *sdp, unsigned int lbn)
 	return -1;
 }
 
+/**
+ * log_distance - Compute distance between two journal blocks
+ * @sdp: The GFS2 superblock
+ * @newer: The most recent journal block of the pair
+ * @older: The older journal block of the pair
+ *
+ *   Compute the distance (in the journal direction) between two
+ *   blocks in the journal
+ *
+ * Returns: the distance in blocks
+ */
 
 static inline unsigned int log_distance(struct gfs2_sbd *sdp, unsigned int newer,
 					unsigned int older)
@@ -305,6 +395,31 @@ static inline unsigned int log_distance(struct gfs2_sbd *sdp, unsigned int newer
 	return dist;
 }
 
+/**
+ * calc_reserved - Calculate the number of blocks to reserve when
+ *                 refunding a transaction's unused buffers.
+ * @sdp: The GFS2 superblock
+ *
+ * This is complex.  We need to reserve room for all our currently used
+ * metadata buffers (e.g. normal file I/O rewriting file time stamps) and 
+ * all our journaled data buffers for journaled files (e.g. files in the 
+ * meta_fs like rindex, or files for which chattr +j was done.)
+ * If we don't reserve enough space, gfs2_log_refund and gfs2_log_flush
+ * will count it as free space (sd_log_blks_free) and corruption will follow.
+ *
+ * We can have metadata bufs and jdata bufs in the same journal.  So each
+ * type gets its own log header, for which we need to reserve a block.
+ * In fact, each type has the potential for needing more than one header 
+ * in cases where we have more buffers than will fit on a journal page.
+ * Metadata journal entries take up half the space of journaled buffer entries.
+ * Thus, metadata entries have buf_limit (502) and journaled buffers have
+ * databuf_limit (251) before they cause a wrap around.
+ *
+ * Also, we need to reserve blocks for revoke journal entries and one for an
+ * overall header for the lot.
+ *
+ * Returns: the number of blocks reserved
+ */
 static unsigned int calc_reserved(struct gfs2_sbd *sdp)
 {
 	unsigned int reserved = 0;
@@ -326,7 +441,7 @@ static unsigned int calc_reserved(struct gfs2_sbd *sdp)
 	reserved = sdp->sd_log_commited_buf + metabufhdrs_needed +
 		sdp->sd_log_commited_databuf + databufhdrs_needed +
 		revokes;
-	
+	/* One for the overall header */
 	if (reserved)
 		reserved++;
 	return reserved;
@@ -458,6 +573,12 @@ static void gfs2_ordered_wait(struct gfs2_sbd *sdp)
 	gfs2_log_unlock(sdp);
 }
 
+/**
+ * log_write_header - Get and initialize a journal header buffer
+ * @sdp: The GFS2 superblock
+ *
+ * Returns: the initialized log buffer descriptor
+ */
 
 static void log_write_header(struct gfs2_sbd *sdp, u32 flags, int pull)
 {
@@ -514,6 +635,12 @@ static void log_write_header(struct gfs2_sbd *sdp, u32 flags, int pull)
 	gfs2_log_incr_head(sdp);
 }
 
+/**
+ * gfs2_log_flush - flush incore transaction(s)
+ * @sdp: the filesystem
+ * @gl: The glock structure to flush.  If NULL, flush the whole incore log
+ *
+ */
 
 void gfs2_log_flush(struct gfs2_sbd *sdp, struct gfs2_glock *gl)
 {
@@ -521,7 +648,7 @@ void gfs2_log_flush(struct gfs2_sbd *sdp, struct gfs2_glock *gl)
 
 	down_write(&sdp->sd_log_flush_lock);
 
-	
+	/* Log might have been flushed while we waited for the flush lock */
 	if (gl && !test_bit(GLF_LFLUSH, &gl->gl_flags)) {
 		up_write(&sdp->sd_log_flush_lock);
 		return;
@@ -556,7 +683,7 @@ void gfs2_log_flush(struct gfs2_sbd *sdp, struct gfs2_glock *gl)
 		log_write_header(sdp, 0, 0);
 	} else if (sdp->sd_log_tail != current_tail(sdp) && !sdp->sd_log_idle){
 		gfs2_log_lock(sdp);
-		atomic_dec(&sdp->sd_log_blks_free); 
+		atomic_dec(&sdp->sd_log_blks_free); /* Adjust for unreserved buffer */
 		trace_gfs2_log_blocks(sdp, -1);
 		gfs2_log_unlock(sdp);
 		log_write_header(sdp, 0, PULL);
@@ -623,6 +750,20 @@ static void buf_lo_incore_commit(struct gfs2_sbd *sdp, struct gfs2_trans *tr)
 	gfs2_assert_warn(sdp, !tr->tr_num_buf);
 }
 
+/**
+ * gfs2_log_commit - Commit a transaction to the log
+ * @sdp: the filesystem
+ * @tr: the transaction
+ *
+ * We wake up gfs2_logd if the number of pinned blocks exceed thresh1
+ * or the total number of used blocks (pinned blocks plus AIL blocks)
+ * is greater than thresh2.
+ *
+ * At mount time thresh1 is 1/3rd of journal size, thresh2 is 2/3rd of
+ * journal size.
+ *
+ * Returns: errno
+ */
 
 void gfs2_log_commit(struct gfs2_sbd *sdp, struct gfs2_trans *tr)
 {
@@ -637,6 +778,11 @@ void gfs2_log_commit(struct gfs2_sbd *sdp, struct gfs2_trans *tr)
 		wake_up(&sdp->sd_logd_waitq);
 }
 
+/**
+ * gfs2_log_shutdown - write a shutdown header into a journal
+ * @sdp: the filesystem
+ *
+ */
 
 void gfs2_log_shutdown(struct gfs2_sbd *sdp)
 {
@@ -666,6 +812,11 @@ void gfs2_log_shutdown(struct gfs2_sbd *sdp)
 }
 
 
+/**
+ * gfs2_meta_syncfs - sync all the buffers in a filesystem
+ * @sdp: the filesystem
+ *
+ */
 
 void gfs2_meta_syncfs(struct gfs2_sbd *sdp)
 {
@@ -690,6 +841,13 @@ static inline int gfs2_ail_flush_reqd(struct gfs2_sbd *sdp)
 	return used_blocks >= atomic_read(&sdp->sd_log_thresh2);
 }
 
+/**
+ * gfs2_logd - Update log tail as Active Items get flushed to in-place blocks
+ * @sdp: Pointer to GFS2 superblock
+ *
+ * Also, periodically check to make sure that we're using the most recent
+ * journal index.
+ */
 
 int gfs2_logd(void *data)
 {

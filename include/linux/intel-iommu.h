@@ -29,33 +29,44 @@
 #include <asm/cacheflush.h>
 #include <asm/iommu.h>
 
+/*
+ * Intel IOMMU register specification per version 1.0 public spec.
+ */
 
-#define	DMAR_VER_REG	0x0	
-#define	DMAR_CAP_REG	0x8	
-#define	DMAR_ECAP_REG	0x10	
-#define	DMAR_GCMD_REG	0x18	
-#define	DMAR_GSTS_REG	0x1c	
-#define	DMAR_RTADDR_REG	0x20	
-#define	DMAR_CCMD_REG	0x28	
-#define	DMAR_FSTS_REG	0x34	
-#define	DMAR_FECTL_REG	0x38	
-#define	DMAR_FEDATA_REG	0x3c	
-#define	DMAR_FEADDR_REG	0x40	
-#define	DMAR_FEUADDR_REG 0x44	
-#define	DMAR_AFLOG_REG	0x58	
-#define	DMAR_PMEN_REG	0x64	
-#define	DMAR_PLMBASE_REG 0x68	
-#define	DMAR_PLMLIMIT_REG 0x6c	
-#define	DMAR_PHMBASE_REG 0x70	
-#define	DMAR_PHMLIMIT_REG 0x78	
-#define DMAR_IQH_REG	0x80	
-#define DMAR_IQT_REG	0x88	
-#define DMAR_IQ_SHIFT	4	
-#define DMAR_IQA_REG	0x90	
-#define DMAR_ICS_REG	0x98	
-#define DMAR_IRTA_REG	0xb8    
+#define	DMAR_VER_REG	0x0	/* Arch version supported by this IOMMU */
+#define	DMAR_CAP_REG	0x8	/* Hardware supported capabilities */
+#define	DMAR_ECAP_REG	0x10	/* Extended capabilities supported */
+#define	DMAR_GCMD_REG	0x18	/* Global command register */
+#define	DMAR_GSTS_REG	0x1c	/* Global status register */
+#define	DMAR_RTADDR_REG	0x20	/* Root entry table */
+#define	DMAR_CCMD_REG	0x28	/* Context command reg */
+#define	DMAR_FSTS_REG	0x34	/* Fault Status register */
+#define	DMAR_FECTL_REG	0x38	/* Fault control register */
+#define	DMAR_FEDATA_REG	0x3c	/* Fault event interrupt data register */
+#define	DMAR_FEADDR_REG	0x40	/* Fault event interrupt addr register */
+#define	DMAR_FEUADDR_REG 0x44	/* Upper address register */
+#define	DMAR_AFLOG_REG	0x58	/* Advanced Fault control */
+#define	DMAR_PMEN_REG	0x64	/* Enable Protected Memory Region */
+#define	DMAR_PLMBASE_REG 0x68	/* PMRR Low addr */
+#define	DMAR_PLMLIMIT_REG 0x6c	/* PMRR low limit */
+#define	DMAR_PHMBASE_REG 0x70	/* pmrr high base addr */
+#define	DMAR_PHMLIMIT_REG 0x78	/* pmrr high limit */
+#define DMAR_IQH_REG	0x80	/* Invalidation queue head register */
+#define DMAR_IQT_REG	0x88	/* Invalidation queue tail register */
+#define DMAR_IQ_SHIFT	4	/* Invalidation queue head/tail shift */
+#define DMAR_IQA_REG	0x90	/* Invalidation queue addr register */
+#define DMAR_ICS_REG	0x98	/* Invalidation complete status register */
+#define DMAR_IRTA_REG	0xb8    /* Interrupt remapping table addr register */
 
 #define OFFSET_STRIDE		(9)
+/*
+#define dmar_readl(dmar, reg) readl(dmar + reg)
+#define dmar_readq(dmar, reg) ({ \
+		u32 lo, hi; \
+		lo = readl(dmar + reg); \
+		hi = readl(dmar + reg + 4); \
+		(((u64) hi) << 32) + lo; })
+*/
 static inline u64 dmar_readq(void __iomem *addr)
 {
 	u32 lo, hi;
@@ -73,6 +84,9 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMAR_VER_MAJOR(v)		(((v) & 0xf0) >> 4)
 #define DMAR_VER_MINOR(v)		((v) & 0x0f)
 
+/*
+ * Decoding Capability Register
+ */
 #define cap_read_drain(c)	(((c) >> 55) & 1)
 #define cap_write_drain(c)	(((c) >> 54) & 1)
 #define cap_max_amask_val(c)	(((c) >> 48) & 0x3f)
@@ -97,6 +111,9 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define cap_rwbf(c)		(((c) >> 4) & 1)
 #define cap_afl(c)		(((c) >> 3) & 1)
 #define cap_ndoms(c)		(((unsigned long)1) << (4 + 2 * ((c) & 0x7)))
+/*
+ * Extended Capability Register
+ */
 
 #define ecap_niotlb_iunits(e)	((((e) >> 24) & 0xff) + 1)
 #define ecap_iotlb_offset(e) 	((((e) >> 8) & 0x3ff) * 16)
@@ -109,8 +126,9 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define ecap_ir_support(e)	((e >> 3) & 0x1)
 #define ecap_dev_iotlb_support(e)	(((e) >> 2) & 0x1)
 #define ecap_max_handle_mask(e) ((e >> 20) & 0xf)
-#define ecap_sc_support(e)	((e >> 7) & 0x1) 
+#define ecap_sc_support(e)	((e >> 7) & 0x1) /* Snooping Control */
 
+/* IOTLB_REG */
 #define DMA_TLB_FLUSH_GRANU_OFFSET  60
 #define DMA_TLB_GLOBAL_FLUSH (((u64)1) << 60)
 #define DMA_TLB_DSI_FLUSH (((u64)2) << 60)
@@ -124,6 +142,7 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_TLB_IH_NONLEAF (((u64)1) << 6)
 #define DMA_TLB_MAX_SIZE (0x3f)
 
+/* INVALID_DESC */
 #define DMA_CCMD_INVL_GRANU_OFFSET  61
 #define DMA_ID_TLB_GLOBAL_FLUSH	(((u64)1) << 3)
 #define DMA_ID_TLB_DSI_FLUSH	(((u64)2) << 3)
@@ -135,9 +154,11 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_ID_TLB_ADDR(addr)	(addr)
 #define DMA_ID_TLB_ADDR_MASK(mask)	(mask)
 
+/* PMEN_REG */
 #define DMA_PMEN_EPM (((u32)1)<<31)
 #define DMA_PMEN_PRS (((u32)1)<<0)
 
+/* GCMD_REG */
 #define DMA_GCMD_TE (((u32)1) << 31)
 #define DMA_GCMD_SRTP (((u32)1) << 30)
 #define DMA_GCMD_SFL (((u32)1) << 29)
@@ -148,6 +169,7 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_GCMD_IRE (((u32) 1) << 25)
 #define DMA_GCMD_CFI (((u32) 1) << 23)
 
+/* GSTS_REG */
 #define DMA_GSTS_TES (((u32)1) << 31)
 #define DMA_GSTS_RTPS (((u32)1) << 30)
 #define DMA_GSTS_FLS (((u32)1) << 29)
@@ -158,6 +180,7 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_GSTS_IRES (((u32)1) << 25)
 #define DMA_GSTS_CFIS (((u32)1) << 23)
 
+/* CCMD_REG */
 #define DMA_CCMD_ICC (((u64)1) << 63)
 #define DMA_CCMD_GLOBAL_INVL (((u64)1) << 61)
 #define DMA_CCMD_DOMAIN_INVL (((u64)2) << 61)
@@ -170,8 +193,10 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_CCMD_SID(s) (((u64)((s) & 0xffff)) << 16)
 #define DMA_CCMD_DID(d) ((u64)((d) & 0xffff))
 
+/* FECTL_REG */
 #define DMA_FECTL_IM (((u32)1) << 31)
 
+/* FSTS_REG */
 #define DMA_FSTS_PPF ((u32)2)
 #define DMA_FSTS_PFO ((u32)1)
 #define DMA_FSTS_IQE (1 << 4)
@@ -179,10 +204,12 @@ static inline void dmar_writeq(void __iomem *addr, u64 val)
 #define DMA_FSTS_ITE (1 << 6)
 #define dma_fsts_fault_record_index(s) (((s) >> 8) & 0xff)
 
+/* FRCD_REG, 32 bits access */
 #define DMA_FRCD_F (((u32)1) << 31)
 #define dma_frcd_type(d) ((d >> 30) & 1)
 #define dma_frcd_fault_reason(c) (c & 0xff)
 #define dma_frcd_source_id(c) (c & 0xffff)
+/* low 64 bit */
 #define dma_frcd_page_addr(d) (d & (((u64)-1) << PAGE_SHIFT))
 
 #define IOMMU_WAIT_OP(iommu, offset, op, cond, sts)			\
@@ -198,7 +225,7 @@ do {									\
 	}								\
 } while (0)
 
-#define QI_LENGTH	256	
+#define QI_LENGTH	256	/* queue length */
 
 enum {
 	QI_FREE,
@@ -245,14 +272,15 @@ struct qi_desc {
 
 struct q_inval {
 	raw_spinlock_t  q_lock;
-	struct qi_desc  *desc;          
-	int             *desc_status;   
-	int             free_head;      
-	int             free_tail;      
+	struct qi_desc  *desc;          /* invalidation queue */
+	int             *desc_status;   /* desc status */
+	int             free_head;      /* first free entry */
+	int             free_tail;      /* last free entry */
 	int             free_cnt;
 };
 
 #ifdef CONFIG_IRQ_REMAP
+/* 1MB - maximum possible interrupt remapping table size */
 #define INTR_REMAP_PAGE_ORDER	8
 #define INTR_REMAP_TABLE_REG_SIZE	0xf
 
@@ -279,30 +307,30 @@ enum {
 };
 
 struct intel_iommu {
-	void __iomem	*reg; 
+	void __iomem	*reg; /* Pointer to hardware regs, virtual addr */
 	u64		cap;
 	u64		ecap;
-	u32		gcmd; 
-	raw_spinlock_t	register_lock; 
-	int		seq_id;	
-	int		agaw; 
-	int		msagaw; 
+	u32		gcmd; /* Holds TE, EAFL. Don't need SRTP, SFL, WBF */
+	raw_spinlock_t	register_lock; /* protect register handling */
+	int		seq_id;	/* sequence id of the iommu */
+	int		agaw; /* agaw of this iommu */
+	int		msagaw; /* max sagaw of this iommu */
 	unsigned int 	irq;
-	unsigned char 	name[13];    
+	unsigned char 	name[13];    /* Device Name */
 
 #ifdef CONFIG_INTEL_IOMMU
-	unsigned long 	*domain_ids; 
-	struct dmar_domain **domains; 
-	spinlock_t	lock; 
-	struct root_entry *root_entry; 
+	unsigned long 	*domain_ids; /* bitmap of domains */
+	struct dmar_domain **domains; /* ptr to domains */
+	spinlock_t	lock; /* protect context, domain ids */
+	struct root_entry *root_entry; /* virtual address */
 
 	struct iommu_flush flush;
 #endif
-	struct q_inval  *qi;            
-	u32 *iommu_state; 
+	struct q_inval  *qi;            /* Queued invalidation info */
+	u32 *iommu_state; /* Store iommu states between suspend and resume.*/
 
 #ifdef CONFIG_IRQ_REMAP
-	struct ir_table *ir_table;	
+	struct ir_table *ir_table;	/* Interrupt remapping info */
 #endif
 	int		node;
 };

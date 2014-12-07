@@ -48,23 +48,31 @@
 						ULPI_SYNC_STATE)
 #define is_usb_active()       (!(readl(USB_PORTSC) & PORTSC_SUSP))
 
+/* Timeout (in msec) values (min - max) associated with OTG timers */
 
-#define TA_WAIT_VRISE	100	
-#define TA_WAIT_VFALL	500	
+#define TA_WAIT_VRISE	100	/* ( - 100)  */
+#define TA_WAIT_VFALL	500	/* ( - 1000) */
 
+/*
+ * This option is set for embedded hosts or OTG devices in which leakage
+ * currents are very minimal.
+ */
 #ifdef CONFIG_MSM_OTG_ENABLE_A_WAIT_BCON_TIMEOUT
-#define TA_WAIT_BCON	30000	
+#define TA_WAIT_BCON	30000	/* (1100 - 30000) */
 #else
 #define TA_WAIT_BCON	-1
 #endif
 
-#define TA_AIDL_BDIS	200	
-#define TA_BIDL_ADIS	155	
-#define TB_SRP_FAIL	6000	
-#define TB_ASE0_BRST	155	
+/* AIDL_BDIS should be 500 */
+#define TA_AIDL_BDIS	200	/* (200 - ) */
+#define TA_BIDL_ADIS	155	/* (155 - 200) */
+#define TB_SRP_FAIL	6000	/* (5000 - 6000) */
+#define TB_ASE0_BRST	155	/* (155 - ) */
 
-#define TB_SRP_INIT	2000	
+/* TB_SSEND_SRP and TB_SE0_SRP are combined */
+#define TB_SRP_INIT	2000	/* (1500 - ) */
 
+/* Timeout variables */
 
 #define A_WAIT_VRISE	0
 #define A_WAIT_VFALL	1
@@ -74,6 +82,9 @@
 #define B_SRP_FAIL	5
 #define B_ASE0_BRST	6
 
+/* Internal flags like a_set_b_hnp_en, b_hnp_en are maintained
+ * in usb_bus and usb_gadget
+ */
 
 #define A_BUS_DROP		0
 #define A_BUS_REQ		1
@@ -101,11 +112,14 @@
 struct msm_otg {
 	struct usb_phy phy;
 
-	
+	/* usb clocks */
 	struct clk		*alt_core_clk;
 	struct clk		*iface_clk;
 	struct clk		*core_clk;
 
+	/* clk regime has created dummy clock id for phy so
+	 * that generic clk_reset api can be used to reset phy
+	 */
 	struct clk		*phy_reset_clk;
 
 	int			irq;
@@ -113,34 +127,37 @@ struct msm_otg {
 	int			id_irq;
 	void __iomem		*regs;
 	atomic_t		in_lpm;
+	/* charger-type is modified by gadget for legacy chargers
+	 * and OTG modifies it for ACA
+	 */
 	atomic_t 		chg_type;
 
 	void (*start_host)	(struct usb_bus *bus, int suspend);
-	
+	/* Enable/disable the clocks */
 	int (*set_clk)		(struct usb_phy *phy, int on);
-	
+	/* Reset phy and link */
 	void (*reset)		(struct usb_phy *phy, int phy_reset);
-	
+	/* pmic notfications apis */
 	u8 pmic_vbus_notif_supp;
 	u8 pmic_id_notif_supp;
 	struct msm_otg_platform_data *pdata;
 
-	spinlock_t lock; 
+	spinlock_t lock; /* protects OTG state */
 	struct wake_lock wlock;
-	unsigned long b_last_se0_sess; 
+	unsigned long b_last_se0_sess; /* SRP initial condition check */
 	unsigned long inputs;
 	unsigned long tmouts;
 	u8 active_tmout;
 	struct hrtimer timer;
 	struct workqueue_struct *wq;
-	struct work_struct sm_work; 
+	struct work_struct sm_work; /* state machine work */
 	struct work_struct otg_resume_work;
 	struct notifier_block usbdev_nb;
-	struct msm_xo_voter *xo_handle; 
+	struct msm_xo_voter *xo_handle; /*handle to vote for TCXO D1 buffer*/
 	unsigned curr_power;
 #ifdef CONFIG_USB_MSM_ACA
-	struct timer_list	id_timer;	
-	unsigned		b_max_power;	
+	struct timer_list	id_timer;	/* drives id_status polling */
+	unsigned		b_max_power;	/* ACA: max power of accessory*/
 #endif
 };
 

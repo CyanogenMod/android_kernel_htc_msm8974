@@ -12,6 +12,11 @@
 #include <linux/rwsem.h>
 #include <asm/pgtable.h>
 
+/*
+ * The performance critical leaf functions are made noinline otherwise gcc
+ * inlines everything into a single function which results in too much
+ * register pressure.
+ */
 static inline int gup_pte_range(pmd_t *pmdp, pmd_t pmd, unsigned long addr,
 		unsigned long end, int write, struct page **pages, int *nr)
 {
@@ -80,6 +85,10 @@ static inline int gup_huge_pmd(pmd_t *pmdp, pmd_t pmd, unsigned long addr,
 		return 0;
 	}
 
+	/*
+	 * Any tail page need their mapcount reference taken before we
+	 * return.
+	 */
 	while (refs--) {
 		if (PageTail(tail))
 			get_huge_page_tail(tail);
@@ -177,6 +186,13 @@ int get_user_pages_fast(unsigned long start, int nr_pages, int write,
 	if (end < start)
 		goto slow_irqon;
 
+	/*
+	 * local_irq_disable() doesn't prevent pagetable teardown, but does
+	 * prevent the pagetables from being freed on s390.
+	 *
+	 * So long as we atomically load page table pointers versus teardown,
+	 * we can follow the address down to the the page and take a ref on it.
+	 */
 	local_irq_disable();
 	pgdp = pgd_offset(mm, addr);
 	do {
@@ -198,7 +214,7 @@ int get_user_pages_fast(unsigned long start, int nr_pages, int write,
 slow:
 		local_irq_enable();
 slow_irqon:
-		
+		/* Try to get the remaining pages with get_user_pages */
 		start += nr << PAGE_SHIFT;
 		pages += nr;
 
@@ -207,7 +223,7 @@ slow_irqon:
 			(end - start) >> PAGE_SHIFT, write, 0, pages, NULL);
 		up_read(&mm->mmap_sem);
 
-		
+		/* Have to be a bit careful with return values */
 		if (nr > 0) {
 			if (ret < 0)
 				ret = nr;

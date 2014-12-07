@@ -30,6 +30,12 @@ struct zorro_manuf_info {
 	struct zorro_prod_info *prods;
 };
 
+/*
+ * This is ridiculous, but we want the strings in
+ * the .init section so that they don't take up
+ * real memory.. Parse the same file multiple times
+ * to get all the info.
+ */
 #define MANUF( manuf, name )		static char __manufstr_##manuf[] __initdata = name;
 #define ENDMANUF()
 #define PRODUCT( manuf, prod, name ) 	static char __prodstr_##manuf##prod[] __initdata = name;
@@ -62,7 +68,7 @@ void __init zorro_name_device(struct zorro_dev *dev)
 		manuf_p++;
 	} while (--i);
 
-	
+	/* Couldn't find either the manufacturer nor the product */
 	sprintf(name, "Zorro device %08x", dev->id);
 	return;
 
@@ -78,11 +84,11 @@ void __init zorro_name_device(struct zorro_dev *dev)
 			i--;
 		}
 
-		
+		/* Ok, found the manufacturer, but unknown product */
 		sprintf(name, "Zorro device %08x (%s)", dev->id, manuf_p->name);
 		return;
 
-		
+		/* Full match */
 		match_prod: {
 			char *n = name + sprintf(name, "%s %s", manuf_p->name, prod_p->name);
 			int nr = prod_p->seen + 1;

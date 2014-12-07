@@ -25,15 +25,19 @@ extern void gru_wait_abort_proc(void *cb);
 
 
 
+/*
+ * Architecture dependent functions
+ */
 
 #if defined(CONFIG_IA64)
 #include <linux/compiler.h>
 #include <asm/intrinsics.h>
 #define __flush_cache(p)		ia64_fc((unsigned long)p)
+/* Use volatile on IA64 to ensure ordering via st4.rel */
 #define gru_ordered_store_ulong(p, v)					\
 		do {							\
 			barrier();					\
-			*((volatile unsigned long *)(p)) = v; 	\
+			*((volatile unsigned long *)(p)) = v; /* force st.rel */	\
 		} while (0)
 #elif defined(CONFIG_X86_64)
 #include <asm/cacheflush.h>
@@ -47,14 +51,19 @@ extern void gru_wait_abort_proc(void *cb);
 #error "Unsupported architecture"
 #endif
 
+/*
+ * Control block status and exception codes
+ */
 #define CBS_IDLE			0
 #define CBS_EXCEPTION			1
 #define CBS_ACTIVE			2
 #define CBS_CALL_OS			3
 
+/* CB substatus bitmasks */
 #define CBSS_MSG_QUEUE_MASK		7
 #define CBSS_IMPLICIT_ABORT_ACTIVE_MASK	8
 
+/* CB substatus message queue values (low 3 bits of substatus) */
 #define CBSS_NO_ERROR			0
 #define CBSS_LB_OVERFLOWED		1
 #define CBSS_QLIMIT_REACHED		2
@@ -62,6 +71,10 @@ extern void gru_wait_abort_proc(void *cb);
 #define CBSS_AMO_NACKED			4
 #define CBSS_PUT_NACKED			5
 
+/*
+ * Structure used to fetch exception detail for CBs that terminate with
+ * CBS_EXCEPTION
+ */
 struct control_block_extended_exc_detail {
 	unsigned long	cb;
 	int		opc;
@@ -73,55 +86,67 @@ struct control_block_extended_exc_detail {
 	int		cbrexecstatus;
 };
 
+/*
+ * Instruction formats
+ */
 
+/*
+ * Generic instruction format.
+ * This definition has precise bit field definitions.
+ */
 struct gru_instruction_bits {
-    
+    /* DW 0  - low */
     unsigned int		icmd:      1;
-    unsigned char		ima:	   3;	
+    unsigned char		ima:	   3;	/* CB_DelRep, unmapped mode */
     unsigned char		reserved0: 4;
     unsigned int		xtype:     3;
     unsigned int		iaa0:      2;
     unsigned int		iaa1:      2;
     unsigned char		reserved1: 1;
-    unsigned char		opc:       8;	
-    unsigned char		exopc:     8;	
-    
-    unsigned int		idef2:    22;	
+    unsigned char		opc:       8;	/* opcode */
+    unsigned char		exopc:     8;	/* extended opcode */
+    /* DW 0  - high */
+    unsigned int		idef2:    22;	/* TRi0 */
     unsigned char		reserved2: 2;
     unsigned char		istatus:   2;
     unsigned char		isubstatus:4;
     unsigned char		reserved3: 1;
     unsigned char		tlb_fault_color: 1;
-    
-    unsigned long		idef4;		
-    
-    unsigned long		idef1;		
-    unsigned long		idef5;		
-    unsigned long		idef6;		
-    unsigned long		idef3;		
+    /* DW 1 */
+    unsigned long		idef4;		/* 42 bits: TRi1, BufSize */
+    /* DW 2-6 */
+    unsigned long		idef1;		/* BAddr0 */
+    unsigned long		idef5;		/* Nelem */
+    unsigned long		idef6;		/* Stride, Operand1 */
+    unsigned long		idef3;		/* BAddr1, Value, Operand2 */
     unsigned long		reserved4;
-    
-    unsigned long		avalue;		 
+    /* DW 7 */
+    unsigned long		avalue;		 /* AValue */
 };
 
+/*
+ * Generic instruction with friendlier names. This format is used
+ * for inline instructions.
+ */
 struct gru_instruction {
-    
+    /* DW 0 */
     union {
-    	unsigned long		op64;    
+    	unsigned long		op64;    /* icmd,xtype,iaa0,ima,opc,tri0 */
 	struct {
 		unsigned int	op32;
 		unsigned int	tri0;
 	};
     };
-    unsigned long		tri1_bufsize;		
-    unsigned long		baddr0;			
-    unsigned long		nelem;			
-    unsigned long		op1_stride;		
-    unsigned long		op2_value_baddr1;	
-    unsigned long		reserved0;		
-    unsigned long		avalue;			
+    unsigned long		tri1_bufsize;		/* DW 1 */
+    unsigned long		baddr0;			/* DW 2 */
+    unsigned long		nelem;			/* DW 3 */
+    unsigned long		op1_stride;		/* DW 4 */
+    unsigned long		op2_value_baddr1;	/* DW 5 */
+    unsigned long		reserved0;		/* DW 6 */
+    unsigned long		avalue;			/* DW 7 */
 };
 
+/* Some shifts and masks for the low 64 bits of a GRU command */
 #define GRU_CB_ICMD_SHFT	0
 #define GRU_CB_ICMD_MASK	0x1
 #define GRU_CB_XTYPE_SHFT	8
@@ -141,6 +166,7 @@ struct gru_instruction {
 #define GRU_ISTATUS_SHFT	56
 #define GRU_ISTATUS_MASK	0x3
 
+/* GRU instruction opcodes (opc field) */
 #define OP_NOP		0x00
 #define OP_BCOPY	0x01
 #define OP_VLOAD	0x02
@@ -159,58 +185,68 @@ struct gru_instruction {
 #define OP_VFLUSH	0x0f
 
 
+/* Extended opcodes values (exopc field) */
 
-#define EOP_IR_FETCH	0x01 
-#define EOP_IR_CLR	0x02 
-#define EOP_IR_INC	0x05 
-#define EOP_IR_DEC	0x07 
-#define EOP_IR_QCHK1	0x0d 
-#define EOP_IR_QCHK2	0x0e 
+/* GAMIR - AMOs with implicit operands */
+#define EOP_IR_FETCH	0x01 /* Plain fetch of memory */
+#define EOP_IR_CLR	0x02 /* Fetch and clear */
+#define EOP_IR_INC	0x05 /* Fetch and increment */
+#define EOP_IR_DEC	0x07 /* Fetch and decrement */
+#define EOP_IR_QCHK1	0x0d /* Queue check, 64 byte msg */
+#define EOP_IR_QCHK2	0x0e /* Queue check, 128 byte msg */
 
-#define EOP_IRR_FETCH	0x01 
-#define EOP_IRR_CLR	0x02 
-#define EOP_IRR_INC	0x05 
-#define EOP_IRR_DEC	0x07 
-#define EOP_IRR_DECZ	0x0f 
+/* GAMIRR - Registered AMOs with implicit operands */
+#define EOP_IRR_FETCH	0x01 /* Registered fetch of memory */
+#define EOP_IRR_CLR	0x02 /* Registered fetch and clear */
+#define EOP_IRR_INC	0x05 /* Registered fetch and increment */
+#define EOP_IRR_DEC	0x07 /* Registered fetch and decrement */
+#define EOP_IRR_DECZ	0x0f /* Registered fetch and decrement, update on zero*/
 
-#define EOP_ER_SWAP	0x00 
-#define EOP_ER_OR	0x01 
-#define EOP_ER_AND	0x02 
-#define EOP_ER_XOR	0x03 
-#define EOP_ER_ADD	0x04 
-#define EOP_ER_CSWAP	0x08 
-#define EOP_ER_CADD	0x0c 
+/* GAMER - AMOs with explicit operands */
+#define EOP_ER_SWAP	0x00 /* Exchange argument and memory */
+#define EOP_ER_OR	0x01 /* Logical OR with memory */
+#define EOP_ER_AND	0x02 /* Logical AND with memory */
+#define EOP_ER_XOR	0x03 /* Logical XOR with memory */
+#define EOP_ER_ADD	0x04 /* Add value to memory */
+#define EOP_ER_CSWAP	0x08 /* Compare with operand2, write operand1 if match*/
+#define EOP_ER_CADD	0x0c /* Queue check, operand1*64 byte msg */
 
-#define EOP_ERR_SWAP	0x00 
-#define EOP_ERR_OR	0x01 
-#define EOP_ERR_AND	0x02 
-#define EOP_ERR_XOR	0x03 
-#define EOP_ERR_ADD	0x04 
-#define EOP_ERR_CSWAP	0x08 
-#define EOP_ERR_EPOLL	0x09 
-#define EOP_ERR_NPOLL	0x0a 
+/* GAMERR - Registered AMOs with explicit operands */
+#define EOP_ERR_SWAP	0x00 /* Exchange argument and memory */
+#define EOP_ERR_OR	0x01 /* Logical OR with memory */
+#define EOP_ERR_AND	0x02 /* Logical AND with memory */
+#define EOP_ERR_XOR	0x03 /* Logical XOR with memory */
+#define EOP_ERR_ADD	0x04 /* Add value to memory */
+#define EOP_ERR_CSWAP	0x08 /* Compare with operand2, write operand1 if match*/
+#define EOP_ERR_EPOLL	0x09 /* Poll for equality */
+#define EOP_ERR_NPOLL	0x0a /* Poll for inequality */
 
-#define EOP_XR_CSWAP	0x0b 
-
-
-#define XTYPE_B		0x0	
-#define XTYPE_S		0x1	
-#define XTYPE_W		0x2	
-#define XTYPE_DW	0x3	
-#define XTYPE_CL	0x6	
-
-
-#define IAA_RAM		0x0	
-#define IAA_NCRAM	0x2	
-#define IAA_MMIO	0x1	
-#define IAA_REGISTER	0x3	
+/* GAMXR - SGI Arithmetic unit */
+#define EOP_XR_CSWAP	0x0b /* Masked compare exchange */
 
 
-#define IMA_MAPPED	0x0	
-#define IMA_CB_DELAY	0x1	
-#define IMA_UNMAPPED	0x2	
-#define IMA_INTERRUPT	0x4	
+/* Transfer types (xtype field) */
+#define XTYPE_B		0x0	/* byte */
+#define XTYPE_S		0x1	/* short (2-byte) */
+#define XTYPE_W		0x2	/* word (4-byte) */
+#define XTYPE_DW	0x3	/* doubleword (8-byte) */
+#define XTYPE_CL	0x6	/* cacheline (64-byte) */
 
+
+/* Instruction access attributes (iaa0, iaa1 fields) */
+#define IAA_RAM		0x0	/* normal cached RAM access */
+#define IAA_NCRAM	0x2	/* noncoherent RAM access */
+#define IAA_MMIO	0x1	/* noncoherent memory-mapped I/O space */
+#define IAA_REGISTER	0x3	/* memory-mapped registers, etc. */
+
+
+/* Instruction mode attributes (ima field) */
+#define IMA_MAPPED	0x0	/* Virtual mode  */
+#define IMA_CB_DELAY	0x1	/* hold read responses until status changes */
+#define IMA_UNMAPPED	0x2	/* bypass the TLBs (OS only) */
+#define IMA_INTERRUPT	0x4	/* Interrupt when instruction completes */
+
+/* CBE ecause bits */
 #define CBE_CAUSE_RI				(1 << 0)
 #define CBE_CAUSE_INVALID_INSTRUCTION		(1 << 1)
 #define CBE_CAUSE_UNMAPPED_MODE_FORBIDDEN	(1 << 2)
@@ -232,6 +268,7 @@ struct gru_instruction {
 #define CBE_CAUSE_HA_RESPONSE_DATA_ERROR	(1 << 18)
 #define CBE_CAUSE_FORCED_ERROR			(1 << 19)
 
+/* CBE cbrexecstatus bits */
 #define CBR_EXS_ABORT_OCC_BIT			0
 #define CBR_EXS_INT_OCC_BIT			1
 #define CBR_EXS_PENDING_BIT			2
@@ -248,6 +285,10 @@ struct gru_instruction {
 #define CBR_EXS_EXCEPTION			(1 << CBR_EXS_EXCEPTION_BIT)
 #define CBR_EXS_CB_INT_PENDING			(1 << CBR_EXS_CB_INT_PENDING_BIT)
 
+/*
+ * Exceptions are retried for the following cases. If any OTHER bits are set
+ * in ecause, the exception is not retryable.
+ */
 #define EXCEPTION_RETRY_BITS (CBE_CAUSE_EXECUTION_HW_ERROR |		\
 			      CBE_CAUSE_TLBHW_ERROR |			\
 			      CBE_CAUSE_RA_REQUEST_TIMEOUT |		\
@@ -257,6 +298,7 @@ struct gru_instruction {
 			      CBE_CAUSE_HA_RESPONSE_DATA_ERROR		\
 			      )
 
+/* Message queue head structure */
 union gru_mesqhead {
 	unsigned long	val;
 	struct {
@@ -266,6 +308,7 @@ union gru_mesqhead {
 };
 
 
+/* Generate the low word of a GRU instruction */
 static inline unsigned long
 __opdword(unsigned char opcode, unsigned char exopc, unsigned char xtype,
        unsigned char iaa0, unsigned char iaa1,
@@ -282,11 +325,18 @@ __opdword(unsigned char opcode, unsigned char exopc, unsigned char xtype,
 	   (exopc << GRU_CB_EXOPC_SHFT);
 }
 
+/*
+ * Architecture specific intrinsics
+ */
 static inline void gru_flush_cache(void *p)
 {
 	__flush_cache(p);
 }
 
+/*
+ * Store the lower 64 bits of the command including the "start" bit. Then
+ * start the instruction executing.
+ */
 static inline void gru_start_instruction(struct gru_instruction *ins, unsigned long op64)
 {
 	gru_ordered_store_ulong(ins, op64);
@@ -295,10 +345,17 @@ static inline void gru_start_instruction(struct gru_instruction *ins, unsigned l
 }
 
 
+/* Convert "hints" to IMA */
 #define CB_IMA(h)		((h) | IMA_UNMAPPED)
 
+/* Convert data segment cache line index into TRI0 / TRI1 value */
 #define GRU_DINDEX(i)		((i) * GRU_CACHE_LINE_BYTES)
 
+/* Inline functions for GRU instructions.
+ *     Note:
+ *     	- nelem and stride are in elements
+ *     	- tri0/tri1 is in bytes for the beginning of the data segment.
+ */
 static inline void gru_vload_phys(void *cb, unsigned long gpa,
 		unsigned int tri0, int iaa, unsigned long hints)
 {
@@ -552,12 +609,18 @@ static inline union gru_mesqhead  gru_mesq_head(int head, int limit)
 	return mqh;
 }
 
+/*
+ * Get struct control_block_extended_exc_detail for CB.
+ */
 extern int gru_get_cb_exception_detail(void *cb,
 		       struct control_block_extended_exc_detail *excdet);
 
 #define GRU_EXC_STR_SIZE		256
 
 
+/*
+ * Control block definition for checking status
+ */
 struct gru_control_block_status {
 	unsigned int	icmd		:1;
 	unsigned int	ima		:3;
@@ -569,6 +632,7 @@ struct gru_control_block_status {
 	unsigned int	unused3		:2;
 };
 
+/* Get CB status */
 static inline int gru_get_cb_status(void *cb)
 {
 	struct gru_control_block_status *cbs = (void *)cb;
@@ -576,6 +640,7 @@ static inline int gru_get_cb_status(void *cb)
 	return cbs->istatus;
 }
 
+/* Get CB message queue substatus */
 static inline int gru_get_cb_message_queue_substatus(void *cb)
 {
 	struct gru_control_block_status *cbs = (void *)cb;
@@ -583,6 +648,7 @@ static inline int gru_get_cb_message_queue_substatus(void *cb)
 	return cbs->isubstatus & CBSS_MSG_QUEUE_MASK;
 }
 
+/* Get CB substatus */
 static inline int gru_get_cb_substatus(void *cb)
 {
 	struct gru_control_block_status *cbs = (void *)cb;
@@ -590,6 +656,12 @@ static inline int gru_get_cb_substatus(void *cb)
 	return cbs->isubstatus;
 }
 
+/*
+ * User interface to check an instruction status. UPM and exceptions
+ * are handled automatically. However, this function does NOT wait
+ * for an active instruction to complete.
+ *
+ */
 static inline int gru_check_status(void *cb)
 {
 	struct gru_control_block_status *cbs = (void *)cb;
@@ -601,34 +673,64 @@ static inline int gru_check_status(void *cb)
 	return ret;
 }
 
+/*
+ * User interface (via inline function) to wait for an instruction
+ * to complete. Completion status (IDLE or EXCEPTION is returned
+ * to the user. Exception due to hardware errors are automatically
+ * retried before returning an exception.
+ *
+ */
 static inline int gru_wait(void *cb)
 {
 	return gru_wait_proc(cb);
 }
 
+/*
+ * Wait for CB to complete. Aborts program if error. (Note: error does NOT
+ * mean TLB mis - only fatal errors such as memory parity error or user
+ * bugs will cause termination.
+ */
 static inline void gru_wait_abort(void *cb)
 {
 	gru_wait_abort_proc(cb);
 }
 
+/*
+ * Get a pointer to the start of a gseg
+ * 	p	- Any valid pointer within the gseg
+ */
 static inline void *gru_get_gseg_pointer (void *p)
 {
 	return (void *)((unsigned long)p & ~(GRU_GSEG_PAGESIZE - 1));
 }
 
+/*
+ * Get a pointer to a control block
+ * 	gseg	- GSeg address returned from gru_get_thread_gru_segment()
+ * 	index	- index of desired CB
+ */
 static inline void *gru_get_cb_pointer(void *gseg,
 						      int index)
 {
 	return gseg + GRU_CB_BASE + index * GRU_HANDLE_STRIDE;
 }
 
+/*
+ * Get a pointer to a cacheline in the data segment portion of a GSeg
+ * 	gseg	- GSeg address returned from gru_get_thread_gru_segment()
+ * 	index	- index of desired cache line
+ */
 static inline void *gru_get_data_pointer(void *gseg, int index)
 {
 	return gseg + GRU_DS_BASE + index * GRU_CACHE_LINE_BYTES;
 }
 
+/*
+ * Convert a vaddr into the tri index within the GSEG
+ * 	vaddr		- virtual address of within gseg
+ */
 static inline int gru_get_tri(void *vaddr)
 {
 	return ((unsigned long)vaddr & (GRU_GSEG_PAGESIZE - 1)) - GRU_DS_BASE;
 }
-#endif		
+#endif		/* __GRU_INSTRUCTIONS_H__ */

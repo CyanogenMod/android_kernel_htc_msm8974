@@ -51,54 +51,55 @@ static inline u32 emc_readl(unsigned long addr)
 }
 
 static const unsigned long emc_reg_addr[TEGRA_EMC_NUM_REGS] = {
-	0x2c,	
-	0x30,	
-	0x34,	
-	0x38,	
-	0x3c,	
-	0x40,	
-	0x44,	
-	0x48,	
-	0x4c,	
-	0x50,	
-	0x54,	
-	0x58,	
-	0x5c,	
-	0x60,	
-	0x64,	
-	0x68,	
-	0x6c,	
-	0x70,	
-	0x74,	
-	0x78,	
-	0x7c,	
-	0x80,	
-	0x84,	
-	0x88,	
-	0x8c,	
-	0x90,	
-	0x94,	
-	0x98,	
-	0x9c,	
-	0xa0,	
-	0xa4,	
-	0xa8,	
-	0xac,	
-	0x114,	
-	0xb0,	
-	0xb4,	
-	0x104,	
-	0x2bc,	
-	0x2c0,	
-	0x2c4,	
-	0x2e0,	
-	0x2e4,	
-	0x2a8,	
-	0x2d0,	
-	0x2d4,	
-	0x2d8,	
+	0x2c,	/* RC */
+	0x30,	/* RFC */
+	0x34,	/* RAS */
+	0x38,	/* RP */
+	0x3c,	/* R2W */
+	0x40,	/* W2R */
+	0x44,	/* R2P */
+	0x48,	/* W2P */
+	0x4c,	/* RD_RCD */
+	0x50,	/* WR_RCD */
+	0x54,	/* RRD */
+	0x58,	/* REXT */
+	0x5c,	/* WDV */
+	0x60,	/* QUSE */
+	0x64,	/* QRST */
+	0x68,	/* QSAFE */
+	0x6c,	/* RDV */
+	0x70,	/* REFRESH */
+	0x74,	/* BURST_REFRESH_NUM */
+	0x78,	/* PDEX2WR */
+	0x7c,	/* PDEX2RD */
+	0x80,	/* PCHG2PDEN */
+	0x84,	/* ACT2PDEN */
+	0x88,	/* AR2PDEN */
+	0x8c,	/* RW2PDEN */
+	0x90,	/* TXSR */
+	0x94,	/* TCKE */
+	0x98,	/* TFAW */
+	0x9c,	/* TRPAB */
+	0xa0,	/* TCLKSTABLE */
+	0xa4,	/* TCLKSTOP */
+	0xa8,	/* TREFBW */
+	0xac,	/* QUSE_EXTRA */
+	0x114,	/* FBIO_CFG6 */
+	0xb0,	/* ODT_WRITE */
+	0xb4,	/* ODT_READ */
+	0x104,	/* FBIO_CFG5 */
+	0x2bc,	/* CFG_DIG_DLL */
+	0x2c0,	/* DLL_XFORM_DQS */
+	0x2c4,	/* DLL_XFORM_QUSE */
+	0x2e0,	/* ZCAL_REF_CNT */
+	0x2e4,	/* ZCAL_WAIT_CNT */
+	0x2a8,	/* AUTO_CAL_INTERVAL */
+	0x2d0,	/* CFG_CLKTRIM_0 */
+	0x2d4,	/* CFG_CLKTRIM_1 */
+	0x2d8,	/* CFG_CLKTRIM_2 */
 };
 
+/* Select the closest EMC rate that is higher than the requested rate */
 long tegra_emc_round_rate(unsigned long rate)
 {
 	struct tegra_emc_pdata *pdata;
@@ -113,6 +114,10 @@ long tegra_emc_round_rate(unsigned long rate)
 
 	pr_debug("%s: %lu\n", __func__, rate);
 
+	/*
+	 * The EMC clock rate is twice the bus rate, and the bus rate is
+	 * measured in kHz
+	 */
 	rate = rate / 2 / 1000;
 
 	for (i = 0; i < pdata->num_tables; i++) {
@@ -131,6 +136,14 @@ long tegra_emc_round_rate(unsigned long rate)
 	return pdata->tables[best].rate * 2 * 1000;
 }
 
+/*
+ * The EMC registers have shadow registers.  When the EMC clock is updated
+ * in the clock controller, the shadow registers are copied to the active
+ * registers, allowing glitchless memory bus frequency changes.
+ * This function updates the shadow registers for a new clock frequency,
+ * and relies on the clock lock on the emc clock to avoid races between
+ * multiple frequency changes
+ */
 int tegra_emc_set_rate(unsigned long rate)
 {
 	struct tegra_emc_pdata *pdata;
@@ -142,6 +155,10 @@ int tegra_emc_set_rate(unsigned long rate)
 
 	pdata = emc_pdev->dev.platform_data;
 
+	/*
+	 * The EMC clock rate is twice the bus rate, and the bus rate is
+	 * measured in kHz
+	 */
 	rate = rate / 2 / 1000;
 
 	for (i = 0; i < pdata->num_tables; i++)

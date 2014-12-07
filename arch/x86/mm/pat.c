@@ -1,3 +1,11 @@
+/*
+ * Handle caching attributes in page tables (PAT)
+ *
+ * Authors: Venkatesh Pallipadi <venkatesh.pallipadi@intel.com>
+ *          Suresh B Siddha <suresh.b.siddha@intel.com>
+ *
+ * Loosely based on earlier PAT patchset from Eric Biederman and Andi Kleen.
+ */
 
 #include <linux/seq_file.h>
 #include <linux/bootmem.h>
@@ -59,12 +67,12 @@ __setup("debugpat", pat_debug_setup);
 static u64 __read_mostly boot_pat_state;
 
 enum {
-	PAT_UC = 0,		
-	PAT_WC = 1,		
-	PAT_WT = 4,		
-	PAT_WP = 5,		
-	PAT_WB = 6,		
-	PAT_UC_MINUS = 7,	
+	PAT_UC = 0,		/* uncached */
+	PAT_WC = 1,		/* Write combining */
+	PAT_WT = 4,		/* Write Through */
+	PAT_WP = 5,		/* Write Protected */
+	PAT_WB = 6,		/* Write Back (default) */
+	PAT_UC_MINUS = 7,	/* UC, but can be overriden by MTRR */
 };
 
 #define PAT(x, y)	((u64)PAT_ ## y << ((x)*8))
@@ -82,17 +90,34 @@ void pat_init(void)
 			pat_disable("PAT not supported by CPU.");
 			return;
 		} else {
+			/*
+			 * If this happens we are on a secondary CPU, but
+			 * switched to PAT on the boot CPU. We have no way to
+			 * undo PAT.
+			 */
 			printk(KERN_ERR "PAT enabled, "
 			       "but not supported by secondary CPU\n");
 			BUG();
 		}
 	}
 
-	
+	/* Set PWT to Write-Combining. All other bits stay the same */
+	/*
+	 * PTE encoding used in Linux:
+	 *      PAT
+	 *      |PCD
+	 *      ||PWT
+	 *      |||
+	 *      000 WB		_PAGE_CACHE_WB
+	 *      001 WC		_PAGE_CACHE_WC
+	 *      010 UC-		_PAGE_CACHE_UC_MINUS
+	 *      011 UC		_PAGE_CACHE_UC
+	 * PAT bit unused
+	 */
 	pat = PAT(0, WB) | PAT(1, WC) | PAT(2, UC_MINUS) | PAT(3, UC) |
 	      PAT(4, WB) | PAT(5, WC) | PAT(6, UC_MINUS) | PAT(7, UC);
 
-	
+	/* Boot CPU check */
 	if (!boot_pat_state)
 		rdmsrl(MSR_IA32_CR_PAT, boot_pat_state);
 
@@ -105,10 +130,21 @@ void pat_init(void)
 
 #undef PAT
 
-static DEFINE_SPINLOCK(memtype_lock);	
+static DEFINE_SPINLOCK(memtype_lock);	/* protects memtype accesses */
 
+/*
+ * Does intersection of PAT memory type and MTRR memory type and returns
+ * the resulting memory type as PAT understands it.
+ * (Type in pat and mtrr will not have same value)
+ * The intersection is based on "Effective Memory Type" tables in IA-32
+ * SDM vol 3a
+ */
 static unsigned long pat_x_mtrr_type(u64 start, u64 end, unsigned long req_type)
 {
+	/*
+	 * Look for MTRR hint to get the effective type in case where PAT
+	 * request is for WB.
+	 */
 	if (req_type == _PAGE_CACHE_WB) {
 		u8 mtrr_type;
 
@@ -129,6 +165,13 @@ static int pat_pagerange_is_ram(resource_size_t start, resource_size_t end)
 
 	for (page_nr = (start >> PAGE_SHIFT); page_nr < (end >> PAGE_SHIFT);
 	     ++page_nr) {
+		/*
+		 * For legacy reasons, physical address range in the legacy ISA
+		 * region is tracked as non-RAM. This will allow users of
+		 * /dev/mem to map portions of legacy ISA region, even when
+		 * some of those portions are listed(or not even listed) with
+		 * different e820 types(RAM/reserved/..)
+		 */
 		if (page_nr >= (ISA_END_ADDRESS >> PAGE_SHIFT) &&
 		    page_is_ram(page_nr))
 			ram_page = 1;
@@ -142,6 +185,12 @@ static int pat_pagerange_is_ram(resource_size_t start, resource_size_t end)
 	return ram_page;
 }
 
+/*
+ * For RAM pages, we use page flags to mark the pages with appropriate type.
+ * Here we do two pass:
+ * - Find the memtype of all the pages in the range, look for any conflicts
+ * - In case of no conflicts, set the new memtype for pages in the range
+ */
 static int reserve_ram_pages_type(u64 start, u64 end, unsigned long req_type,
 				  unsigned long *new_type)
 {
@@ -149,7 +198,7 @@ static int reserve_ram_pages_type(u64 start, u64 end, unsigned long req_type,
 	u64 pfn;
 
 	if (req_type == _PAGE_CACHE_UC) {
-		
+		/* We do not support strong UC */
 		WARN_ON_ONCE(1);
 		req_type = _PAGE_CACHE_UC_MINUS;
 	}
@@ -192,6 +241,18 @@ static int free_ram_pages_type(u64 start, u64 end)
 	return 0;
 }
 
+/*
+ * req_type typically has one of the:
+ * - _PAGE_CACHE_WB
+ * - _PAGE_CACHE_WC
+ * - _PAGE_CACHE_UC_MINUS
+ * - _PAGE_CACHE_UC
+ *
+ * If new_type is NULL, function will return an error if it cannot reserve the
+ * region with req_type. If new_type is non-NULL, function will return
+ * available type in new_type in case of no error. In case of any error
+ * it will return a negative return value.
+ */
 int reserve_memtype(u64 start, u64 end, unsigned long req_type,
 		    unsigned long *new_type)
 {
@@ -200,10 +261,10 @@ int reserve_memtype(u64 start, u64 end, unsigned long req_type,
 	int is_range_ram;
 	int err = 0;
 
-	BUG_ON(start >= end); 
+	BUG_ON(start >= end); /* end is exclusive */
 
 	if (!pat_enabled) {
-		
+		/* This is identical to page table setting without PAT */
 		if (new_type) {
 			if (req_type == _PAGE_CACHE_WC)
 				*new_type = _PAGE_CACHE_UC_MINUS;
@@ -213,13 +274,19 @@ int reserve_memtype(u64 start, u64 end, unsigned long req_type,
 		return 0;
 	}
 
-	
+	/* Low ISA region is always mapped WB in page table. No need to track */
 	if (x86_platform.is_untracked_pat_range(start, end)) {
 		if (new_type)
 			*new_type = _PAGE_CACHE_WB;
 		return 0;
 	}
 
+	/*
+	 * Call mtrr_lookup to get the type hint. This is an
+	 * optimization for /dev/mem mmap'ers into WB memory (BIOS
+	 * tools and ACPI tools). Use WB request for WB memory and use
+	 * UC_MINUS otherwise.
+	 */
 	actual_type = pat_x_mtrr_type(start, end, req_type & _PAGE_CACHE_MASK);
 
 	if (new_type)
@@ -274,7 +341,7 @@ int free_memtype(u64 start, u64 end)
 	if (!pat_enabled)
 		return 0;
 
-	
+	/* Low ISA region is always mapped WB. No need to track */
 	if (x86_platform.is_untracked_pat_range(start, end))
 		return 0;
 
@@ -306,6 +373,15 @@ int free_memtype(u64 start, u64 end)
 }
 
 
+/**
+ * lookup_memtype - Looksup the memory type for a physical address
+ * @paddr: physical address of which memory type needs to be looked up
+ *
+ * Only to be called when PAT is enabled
+ *
+ * Returns _PAGE_CACHE_WB, _PAGE_CACHE_WC, _PAGE_CACHE_UC_MINUS or
+ * _PAGE_CACHE_UC
+ */
 static unsigned long lookup_memtype(u64 paddr)
 {
 	int rettype = _PAGE_CACHE_WB;
@@ -318,6 +394,10 @@ static unsigned long lookup_memtype(u64 paddr)
 		struct page *page;
 		page = pfn_to_page(paddr >> PAGE_SHIFT);
 		rettype = get_page_memtype(page);
+		/*
+		 * -1 from get_page_memtype() implies RAM page is in its
+		 * default state and not reserved, and hence of type WB
+		 */
 		if (rettype == -1)
 			rettype = _PAGE_CACHE_WB;
 
@@ -336,6 +416,16 @@ static unsigned long lookup_memtype(u64 paddr)
 	return rettype;
 }
 
+/**
+ * io_reserve_memtype - Request a memory type mapping for a region of memory
+ * @start: start (physical address) of the region
+ * @end: end (physical address) of the region
+ * @type: A pointer to memtype, with requested type. On success, requested
+ * or any other compatible type that was available for the region is returned
+ *
+ * On success, returns 0
+ * On failure, returns non-zero
+ */
 int io_reserve_memtype(resource_size_t start, resource_size_t end,
 			unsigned long *type)
 {
@@ -366,6 +456,11 @@ out_err:
 	return ret;
 }
 
+/**
+ * io_free_memtype - Release a memory type mapping for a region of memory
+ * @start: start (physical address) of the region
+ * @end: end (physical address) of the region
+ */
 void io_free_memtype(resource_size_t start, resource_size_t end)
 {
 	free_memtype(start, end);
@@ -378,11 +473,13 @@ pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
 }
 
 #ifdef CONFIG_STRICT_DEVMEM
+/* This check is done in drivers/char/mem.c in case of STRICT_DEVMEM*/
 static inline int range_is_allowed(unsigned long pfn, unsigned long size)
 {
 	return 1;
 }
 #else
+/* This check is needed to avoid cache aliasing when PAT is enabled */
 static inline int range_is_allowed(unsigned long pfn, unsigned long size)
 {
 	u64 from = ((u64)pfn) << PAGE_SHIFT;
@@ -404,7 +501,7 @@ static inline int range_is_allowed(unsigned long pfn, unsigned long size)
 	}
 	return 1;
 }
-#endif 
+#endif /* CONFIG_STRICT_DEVMEM */
 
 int phys_mem_access_prot_allowed(struct file *file, unsigned long pfn,
 				unsigned long size, pgprot_t *vma_prot)
@@ -418,6 +515,14 @@ int phys_mem_access_prot_allowed(struct file *file, unsigned long pfn,
 		flags = _PAGE_CACHE_UC_MINUS;
 
 #ifdef CONFIG_X86_32
+	/*
+	 * On the PPro and successors, the MTRRs are used to set
+	 * memory types for physical addresses outside main memory,
+	 * so blindly setting UC or PWT on those pages is wrong.
+	 * For Pentiums and earlier, the surround logic should disable
+	 * caching for the high addresses through the KEN pin, but
+	 * we maintain the tradition of paranoia in this code.
+	 */
 	if (!pat_enabled &&
 	    !(boot_cpu_has(X86_FEATURE_MTRR) ||
 	      boot_cpu_has(X86_FEATURE_K6_MTRR) ||
@@ -433,6 +538,10 @@ int phys_mem_access_prot_allowed(struct file *file, unsigned long pfn,
 	return 1;
 }
 
+/*
+ * Change the memory type for the physial address range in kernel identity
+ * mapping space if that range is a part of identity map.
+ */
 int kernel_map_sync_memtype(u64 base, unsigned long size, unsigned long flags)
 {
 	unsigned long id_sz;
@@ -456,6 +565,11 @@ int kernel_map_sync_memtype(u64 base, unsigned long size, unsigned long flags)
 	return 0;
 }
 
+/*
+ * Internal interface to reserve a range of physical memory with prot.
+ * Reserved non RAM regions only and after successful reserve_memtype,
+ * this func also keeps identity mapping (if any) in sync with this new prot.
+ */
 static int reserve_pfn_range(u64 paddr, unsigned long size, pgprot_t *vma_prot,
 				int strict_prot)
 {
@@ -466,6 +580,11 @@ static int reserve_pfn_range(u64 paddr, unsigned long size, pgprot_t *vma_prot,
 
 	is_ram = pat_pagerange_is_ram(paddr, paddr + size);
 
+	/*
+	 * reserve_pfn_range() for RAM pages. We do not refcount to keep
+	 * track of number of mappings of RAM pages. We can assert that
+	 * the type requested matches the type of first page in the range.
+	 */
 	if (is_ram) {
 		if (!pat_enabled)
 			return 0;
@@ -503,6 +622,10 @@ static int reserve_pfn_range(u64 paddr, unsigned long size, pgprot_t *vma_prot,
 				cattr_name(flags));
 			return -EINVAL;
 		}
+		/*
+		 * We allow returning different type than the one requested in
+		 * non strict case.
+		 */
 		*vma_prot = __pgprot((pgprot_val(*vma_prot) &
 				      (~_PAGE_CACHE_MASK)) |
 				     flags);
@@ -515,6 +638,10 @@ static int reserve_pfn_range(u64 paddr, unsigned long size, pgprot_t *vma_prot,
 	return 0;
 }
 
+/*
+ * Internal interface to free a range of physical memory.
+ * Frees non RAM regions only.
+ */
 static void free_pfn_range(u64 paddr, unsigned long size)
 {
 	int is_ram;
@@ -524,6 +651,13 @@ static void free_pfn_range(u64 paddr, unsigned long size)
 		free_memtype(paddr, paddr + size);
 }
 
+/*
+ * track_pfn_vma_copy is called when vma that is covering the pfnmap gets
+ * copied through copy_page_range().
+ *
+ * If the vma has a linear pfn mapping for the entire range, we get the prot
+ * from pte and reserve the entire vma range with single reserve_pfn_range call.
+ */
 int track_pfn_vma_copy(struct vm_area_struct *vma)
 {
 	resource_size_t paddr;
@@ -532,6 +666,10 @@ int track_pfn_vma_copy(struct vm_area_struct *vma)
 	pgprot_t pgprot;
 
 	if (is_linear_pfn_mapping(vma)) {
+		/*
+		 * reserve the whole chunk covered by vma. We need the
+		 * starting address and protection from pte.
+		 */
 		if (follow_phys(vma, vma->vm_start, 0, &prot, &paddr)) {
 			WARN_ON_ONCE(1);
 			return -EINVAL;
@@ -543,6 +681,14 @@ int track_pfn_vma_copy(struct vm_area_struct *vma)
 	return 0;
 }
 
+/*
+ * track_pfn_vma_new is called when a _new_ pfn mapping is being established
+ * for physical range indicated by pfn and size.
+ *
+ * prot is passed in as a parameter for the new mapping. If the vma has a
+ * linear pfn mapping for the entire range reserve the entire vma range with
+ * single reserve_pfn_range call.
+ */
 int track_pfn_vma_new(struct vm_area_struct *vma, pgprot_t *prot,
 			unsigned long pfn, unsigned long size)
 {
@@ -551,7 +697,7 @@ int track_pfn_vma_new(struct vm_area_struct *vma, pgprot_t *prot,
 	unsigned long vma_size = vma->vm_end - vma->vm_start;
 
 	if (is_linear_pfn_mapping(vma)) {
-		
+		/* reserve the whole chunk starting from vm_pgoff */
 		paddr = (resource_size_t)vma->vm_pgoff << PAGE_SHIFT;
 		return reserve_pfn_range(paddr, vma_size, prot, 0);
 	}
@@ -559,7 +705,7 @@ int track_pfn_vma_new(struct vm_area_struct *vma, pgprot_t *prot,
 	if (!pat_enabled)
 		return 0;
 
-	
+	/* for vm_insert_pfn and friends, we set prot based on lookup */
 	flags = lookup_memtype(pfn << PAGE_SHIFT);
 	*prot = __pgprot((pgprot_val(vma->vm_page_prot) & (~_PAGE_CACHE_MASK)) |
 			 flags);
@@ -567,6 +713,11 @@ int track_pfn_vma_new(struct vm_area_struct *vma, pgprot_t *prot,
 	return 0;
 }
 
+/*
+ * untrack_pfn_vma is called while unmapping a pfnmap for a region.
+ * untrack can be called for a specific region indicated by pfn and size or
+ * can be for the entire vma (in which case size can be zero).
+ */
 void untrack_pfn_vma(struct vm_area_struct *vma, unsigned long pfn,
 			unsigned long size)
 {
@@ -574,7 +725,7 @@ void untrack_pfn_vma(struct vm_area_struct *vma, unsigned long pfn,
 	unsigned long vma_size = vma->vm_end - vma->vm_start;
 
 	if (is_linear_pfn_mapping(vma)) {
-		
+		/* free the whole chunk starting from vm_pgoff */
 		paddr = (resource_size_t)vma->vm_pgoff << PAGE_SHIFT;
 		free_pfn_range(paddr, vma_size);
 		return;
@@ -674,4 +825,4 @@ static int __init pat_memtype_list_init(void)
 
 late_initcall(pat_memtype_list_init);
 
-#endif 
+#endif /* CONFIG_DEBUG_FS && CONFIG_X86_PAT */

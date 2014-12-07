@@ -10,16 +10,26 @@
 #define _ASM_RESOURCE_H
 
 
-#define RLIMIT_NOFILE		5	
-#define RLIMIT_AS		6	
-#define RLIMIT_RSS		7	
-#define RLIMIT_NPROC		8	
-#define RLIMIT_MEMLOCK		9	
+/*
+ * These five resource limit IDs have a MIPS/Linux-specific ordering,
+ * the rest comes from the generic header:
+ */
+#define RLIMIT_NOFILE		5	/* max number of open files */
+#define RLIMIT_AS		6	/* address space limit */
+#define RLIMIT_RSS		7	/* max resident set size */
+#define RLIMIT_NPROC		8	/* max number of processes */
+#define RLIMIT_MEMLOCK		9	/* max locked-in-memory address space */
 
+/*
+ * SuS says limits have to be unsigned.
+ * Which makes a ton more sense anyway,
+ * but we keep the old value on MIPS32,
+ * for compatibility:
+ */
 #ifdef CONFIG_32BIT
 # define RLIM_INFINITY		0x7fffffffUL
 #endif
 
 #include <asm-generic/resource.h>
 
-#endif 
+#endif /* _ASM_RESOURCE_H */

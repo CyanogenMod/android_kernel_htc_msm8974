@@ -20,6 +20,9 @@
 #define XSAVE_YMM_SIZE	    256
 #define XSAVE_YMM_OFFSET    (XSAVE_HDR_SIZE + XSAVE_HDR_OFFSET)
 
+/*
+ * These are the features that the OS can handle currently.
+ */
 #define XCNTXT_MASK	(XSTATE_FP | XSTATE_SSE | XSTATE_YMM)
 
 #ifdef CONFIG_X86_64
@@ -62,6 +65,10 @@ static inline int xsave_user(struct xsave_struct __user *buf)
 {
 	int err;
 
+	/*
+	 * Clear the xsave header first, so that reserved fields are
+	 * initialized to zero.
+	 */
 	err = __clear_user(&buf->xsave_hdr,
 			   sizeof(struct xsave_hdr_struct));
 	if (unlikely(err))
@@ -82,7 +89,7 @@ static inline int xsave_user(struct xsave_struct __user *buf)
 			     : "memory");
 	if (unlikely(err) && __clear_user(buf, xstate_size))
 		err = -EFAULT;
-	
+	/* No need to clear here because the caller clears USED_MATH */
 	return err;
 }
 
@@ -105,7 +112,7 @@ static inline int xrestore_user(struct xsave_struct __user *buf, u64 mask)
 			     ".previous"
 			     : [err] "=r" (err)
 			     : "D" (xstate), "a" (lmask), "d" (hmask), "0" (0)
-			     : "memory");	
+			     : "memory");	/* memory required? */
 	return err;
 }
 
@@ -131,6 +138,8 @@ static inline void xsave_state(struct xsave_struct *fx, u64 mask)
 
 static inline void fpu_xsave(struct fpu *fpu)
 {
+	/* This, however, we can work around by forcing the compiler to select
+	   an addressing mode that doesn't require extended registers. */
 	alternative_input(
 		".byte " REX_PREFIX "0x0f,0xae,0x27",
 		".byte " REX_PREFIX "0x0f,0xae,0x37",

@@ -23,4 +23,4 @@ int s5p_mfc_wait_for_done_dev(struct s5p_mfc_dev *dev, int command);
 void s5p_mfc_clean_ctx_int_flags(struct s5p_mfc_ctx *ctx);
 void s5p_mfc_clean_dev_int_flags(struct s5p_mfc_dev *dev);
 
-#endif 
+#endif /* S5P_MFC_INTR_H_ */

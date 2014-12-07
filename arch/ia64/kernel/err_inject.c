@@ -32,7 +32,7 @@
 
 #define ERR_INJ_DEBUG
 
-#define ERR_DATA_BUFFER_SIZE 3 		
+#define ERR_DATA_BUFFER_SIZE 3 		// Three 8-byte;
 
 #define define_one_ro(name) 						\
 static DEVICE_ATTR(name, 0444, show_##name, NULL)
@@ -74,6 +74,9 @@ store_##name(struct device *dev, struct device_attribute *attr,	\
 
 show(call_start)
 
+/* It's user's responsibility to call the PAL procedure on a specific
+ * processor. The cpu number in driver is only used for storing data.
+ */
 static ssize_t
 store_call_start(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t size)
@@ -91,16 +94,16 @@ store_call_start(struct device *dev, struct device_attribute *attr,
 			  err_data_buffer[cpu].data3);
 #endif
 	switch (call_start) {
-	    case 0: 
+	    case 0: /* Do nothing. */
 		break;
-	    case 1: 
+	    case 1: /* Call pal_mc_error_inject in physical mode. */
 		status[cpu]=ia64_pal_mc_error_inject_phys(err_type_info[cpu],
 					err_struct_info[cpu],
 					ia64_tpa(&err_data_buffer[cpu]),
 					&capabilities[cpu],
 			 		&resources[cpu]);
 		break;
-	    case 2: 
+	    case 2: /* Call pal_mc_error_inject in virtual mode. */
 		status[cpu]=ia64_pal_mc_error_inject_virt(err_type_info[cpu],
 					err_struct_info[cpu],
 					ia64_tpa(&err_data_buffer[cpu]),
@@ -221,6 +224,7 @@ static struct attribute_group err_inject_attr_group = {
 	.attrs = default_attrs,
 	.name = "err_inject"
 };
+/* Add/Remove err_inject interface for CPU device */
 static int __cpuinit err_inject_add_dev(struct device * sys_dev)
 {
 	return sysfs_create_group(&sys_dev->kobj, &err_inject_attr_group);

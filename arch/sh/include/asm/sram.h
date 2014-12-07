@@ -6,6 +6,7 @@
 #include <linux/spinlock.h>
 #include <linux/genalloc.h>
 
+/* arch/sh/mm/sram.c */
 extern struct gen_pool *sram_pool;
 
 static inline unsigned long sram_alloc(size_t len)
@@ -32,6 +33,6 @@ static inline void sram_free(unsigned long addr, size_t len)
 {
 }
 
-#endif 
+#endif /* CONFIG_HAVE_SRAM_POOL */
 
-#endif 
+#endif /* __ASM_SRAM_H */

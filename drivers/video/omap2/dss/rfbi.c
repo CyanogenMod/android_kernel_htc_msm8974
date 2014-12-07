@@ -305,7 +305,7 @@ static void rfbi_transfer_area(struct omap_dss_device *dssdev, u16 width,
 {
 	u32 l;
 
-	
+	/*BUG_ON(callback == 0);*/
 	BUG_ON(rfbi.framedone_callback != NULL);
 
 	DSSDBG("rfbi_transfer_area %dx%d\n", width, height);
@@ -320,9 +320,9 @@ static void rfbi_transfer_area(struct omap_dss_device *dssdev, u16 width,
 	rfbi_write_reg(RFBI_PIXEL_CNT, width * height);
 
 	l = rfbi_read_reg(RFBI_CONTROL);
-	l = FLD_MOD(l, 1, 0, 0); 
+	l = FLD_MOD(l, 1, 0, 0); /* enable */
 	if (!rfbi.te_enabled)
-		l = FLD_MOD(l, 1, 4, 4); 
+		l = FLD_MOD(l, 1, 4, 4); /* ITE */
 
 	rfbi_write_reg(RFBI_CONTROL, l);
 }
@@ -342,7 +342,7 @@ static void framedone_callback(void *data, u32 mask)
 		callback(rfbi.framedone_callback_data);
 }
 
-#if 1 
+#if 1 /* VERBOSE */
 static void rfbi_print_timings(void)
 {
 	u32 l;
@@ -444,7 +444,7 @@ static void rfbi_set_timings(int rfbi_module, struct rfbi_timings *t)
 	rfbi_write_reg(RFBI_ONOFF_TIME(rfbi_module), t->tim[0]);
 	rfbi_write_reg(RFBI_CYCLE_TIME(rfbi_module), t->tim[1]);
 
-	
+	/* TIMEGRANULARITY */
 	REG_FLD_MOD(RFBI_CONFIG(rfbi_module),
 		    (t->tim[2] ? 1 : 0), 4, 4);
 
@@ -456,7 +456,7 @@ static int ps_to_rfbi_ticks(int time, int div)
 	unsigned long tick_ps;
 	int ret;
 
-	
+	/* Calculate in picosecs to yield more exact results */
 	tick_ps = 1000000000 / (rfbi.l4_khz) * div;
 
 	ret = (time + tick_ps - 1) / tick_ps;
@@ -480,6 +480,10 @@ static int rfbi_convert_timings(struct rfbi_timings *t)
 	if (div <= 0 || div > 2)
 		return -1;
 
+	/* Make sure that after conversion it still holds that:
+	 * weoff > weon, reoff > reon, recyc >= reoff, wecyc >= weoff,
+	 * csoff > cson, csoff >= max(weoff, reoff), actim > reon
+	 */
 	weon = ps_to_rfbi_ticks(t->we_on_time, div);
 	weoff = ps_to_rfbi_ticks(t->we_off_time, div);
 	if (weoff <= weon)
@@ -554,6 +558,7 @@ static int rfbi_convert_timings(struct rfbi_timings *t)
 	return 0;
 }
 
+/* xxx FIX module selection missing */
 int omap_rfbi_setup_te(enum omap_rfbi_te_mode mode,
 			     unsigned hs_pulse_time, unsigned vs_pulse_time,
 			     int hs_pol_inv, int vs_pol_inv, int extif_div)
@@ -568,7 +573,7 @@ int omap_rfbi_setup_te(enum omap_rfbi_te_mode mode,
 		return -EDOM;
 	if (mode == OMAP_DSS_RFBI_TE_MODE_2)
 		min = 2;
-	else 
+	else /* OMAP_DSS_RFBI_TE_MODE_1 */
 		min = 4;
 	if (vs < min)
 		return -EDOM;
@@ -595,6 +600,7 @@ int omap_rfbi_setup_te(enum omap_rfbi_te_mode mode,
 }
 EXPORT_SYMBOL(omap_rfbi_setup_te);
 
+/* xxx FIX module selection missing */
 int omap_rfbi_enable_te(bool enable, unsigned line)
 {
 	u32 l;
@@ -713,23 +719,23 @@ static int rfbi_configure(int rfbi_module, int bpp, int lines)
 		break;
 	}
 
-	REG_FLD_MOD(RFBI_CONTROL, 0, 3, 2); 
+	REG_FLD_MOD(RFBI_CONTROL, 0, 3, 2); /* clear CS */
 
 	l = 0;
 	l |= FLD_VAL(parallelmode, 1, 0);
-	l |= FLD_VAL(0, 3, 2);		
-	l |= FLD_VAL(0, 4, 4);		
+	l |= FLD_VAL(0, 3, 2);		/* TRIGGERMODE: ITE */
+	l |= FLD_VAL(0, 4, 4);		/* TIMEGRANULARITY */
 	l |= FLD_VAL(datatype, 6, 5);
-		
-	l |= FLD_VAL(0, 8, 7);	
+	/* l |= FLD_VAL(2, 8, 7); */	/* L4FORMAT, 2pix/L4 */
+	l |= FLD_VAL(0, 8, 7);	/* L4FORMAT, 1pix/L4 */
 	l |= FLD_VAL(cycleformat, 10, 9);
-	l |= FLD_VAL(0, 12, 11);	
-	l |= FLD_VAL(0, 16, 16);	
-	l |= FLD_VAL(0, 17, 17);	
-	l |= FLD_VAL(0, 18, 18);	
-	l |= FLD_VAL(0, 19, 19);	
-	l |= FLD_VAL(1, 20, 20);	
-	l |= FLD_VAL(1, 21, 21);	
+	l |= FLD_VAL(0, 12, 11);	/* UNUSEDBITS */
+	l |= FLD_VAL(0, 16, 16);	/* A0POLARITY */
+	l |= FLD_VAL(0, 17, 17);	/* REPOLARITY */
+	l |= FLD_VAL(0, 18, 18);	/* WEPOLARITY */
+	l |= FLD_VAL(0, 19, 19);	/* CSPOLARITY */
+	l |= FLD_VAL(1, 20, 20);	/* TE_VSYNC_POLARITY */
+	l |= FLD_VAL(1, 21, 21);	/* HSYNCPOLARITY */
 	rfbi_write_reg(RFBI_CONFIG(rfbi_module), l);
 
 	rfbi_write_reg(RFBI_DATA_CYCLE1(rfbi_module), cycle1);
@@ -738,8 +744,8 @@ static int rfbi_configure(int rfbi_module, int bpp, int lines)
 
 
 	l = rfbi_read_reg(RFBI_CONTROL);
-	l = FLD_MOD(l, rfbi_module+1, 3, 2); 
-	l = FLD_MOD(l, 0, 1, 1); 
+	l = FLD_MOD(l, rfbi_module+1, 3, 2); /* Select CSx */
+	l = FLD_MOD(l, 0, 1, 1); /* clear bypass */
 	rfbi_write_reg(RFBI_CONTROL, l);
 
 
@@ -901,6 +907,7 @@ int rfbi_init_display(struct omap_dss_device *dssdev)
 	return 0;
 }
 
+/* RFBI HW IP initialisation */
 static int omap_rfbihw_probe(struct platform_device *pdev)
 {
 	u32 rev;

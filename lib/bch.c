@@ -91,18 +91,26 @@
 #define dbg(_fmt, args...)     do {} while (0)
 #endif
 
+/*
+ * represent a polynomial over GF(2^m)
+ */
 struct gf_poly {
-	unsigned int deg;    
-	unsigned int c[0];   
+	unsigned int deg;    /* polynomial degree */
+	unsigned int c[0];   /* polynomial terms */
 };
 
+/* given its degree, compute a polynomial size in bytes */
 #define GF_POLY_SZ(_d) (sizeof(struct gf_poly)+((_d)+1)*sizeof(unsigned int))
 
+/* polynomial of degree 1 */
 struct gf_poly_deg1 {
 	struct gf_poly poly;
 	unsigned int   c[2];
 };
 
+/*
+ * same as encode_bch(), but process input data one byte at a time
+ */
 static void encode_bch_unaligned(struct bch_control *bch,
 				 const unsigned char *data, unsigned int len,
 				 uint32_t *ecc)
@@ -121,6 +129,9 @@ static void encode_bch_unaligned(struct bch_control *bch,
 	}
 }
 
+/*
+ * convert ecc bytes to aligned, zero-padded 32-bit ecc words
+ */
 static void load_ecc8(struct bch_control *bch, uint32_t *dst,
 		      const uint8_t *src)
 {
@@ -134,6 +145,9 @@ static void load_ecc8(struct bch_control *bch, uint32_t *dst,
 	dst[nwords] = (pad[0] << 24)|(pad[1] << 16)|(pad[2] << 8)|pad[3];
 }
 
+/*
+ * convert 32-bit ecc words to ecc bytes
+ */
 static void store_ecc8(struct bch_control *bch, uint8_t *dst,
 		       const uint32_t *src)
 {
@@ -153,6 +167,20 @@ static void store_ecc8(struct bch_control *bch, uint8_t *dst,
 	memcpy(dst, pad, BCH_ECC_BYTES(bch)-4*nwords);
 }
 
+/**
+ * encode_bch - calculate BCH ecc parity of data
+ * @bch:   BCH control structure
+ * @data:  data to encode
+ * @len:   data length in bytes
+ * @ecc:   ecc parity data, must be initialized by caller
+ *
+ * The @ecc parity array is used both as input and output parameter, in order to
+ * allow incremental computations. It should be of the size indicated by member
+ * @ecc_bytes of @bch, and should be initialized to 0 before the first call.
+ *
+ * The exact number of computed ecc parity bits is given by member @ecc_bits of
+ * @bch; it may be less than m*t for large values of t.
+ */
 void encode_bch(struct bch_control *bch, const uint8_t *data,
 		unsigned int len, uint8_t *ecc)
 {
@@ -167,13 +195,13 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
 	const uint32_t *pdata, *p0, *p1, *p2, *p3;
 
 	if (ecc) {
-		
+		/* load ecc parity bytes into internal 32-bit buffer */
 		load_ecc8(bch, bch->ecc_buf, ecc);
 	} else {
 		memset(bch->ecc_buf, 0, sizeof(r));
 	}
 
-	
+	/* process first unaligned data bytes */
 	m = ((unsigned long)data) & 3;
 	if (m) {
 		mlen = (len < (4-m)) ? len : 4-m;
@@ -182,15 +210,26 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
 		len  -= mlen;
 	}
 
-	
+	/* process 32-bit aligned data words */
 	pdata = (uint32_t *)data;
 	mlen  = len/4;
 	data += 4*mlen;
 	len  -= 4*mlen;
 	memcpy(r, bch->ecc_buf, sizeof(r));
 
+	/*
+	 * split each 32-bit word into 4 polynomials of weight 8 as follows:
+	 *
+	 * 31 ...24  23 ...16  15 ... 8  7 ... 0
+	 * xxxxxxxx  yyyyyyyy  zzzzzzzz  tttttttt
+	 *                               tttttttt  mod g = r0 (precomputed)
+	 *                     zzzzzzzz  00000000  mod g = r1 (precomputed)
+	 *           yyyyyyyy  00000000  00000000  mod g = r2 (precomputed)
+	 * xxxxxxxx  00000000  00000000  00000000  mod g = r3 (precomputed)
+	 * xxxxxxxx  yyyyyyyy  zzzzzzzz  tttttttt  mod g = r0^r1^r2^r3
+	 */
 	while (mlen--) {
-		
+		/* input data is read in big-endian format */
 		w = r[0]^cpu_to_be32(*pdata++);
 		p0 = tab0 + (l+1)*((w >>  0) & 0xff);
 		p1 = tab1 + (l+1)*((w >>  8) & 0xff);
@@ -204,11 +243,11 @@ void encode_bch(struct bch_control *bch, const uint8_t *data,
 	}
 	memcpy(bch->ecc_buf, r, sizeof(r));
 
-	
+	/* process last unaligned bytes */
 	if (len)
 		encode_bch_unaligned(bch, data, len, bch->ecc_buf);
 
-	
+	/* store ecc parity bytes into original parity buffer */
 	if (ecc)
 		store_ecc8(bch, ecc, bch->ecc_buf);
 }
@@ -224,6 +263,9 @@ static inline int modulo(struct bch_control *bch, unsigned int v)
 	return v;
 }
 
+/*
+ * shorter and faster modulo function, only works when v < 2N.
+ */
 static inline int mod_s(struct bch_control *bch, unsigned int v)
 {
 	const unsigned int n = GF_N(bch);
@@ -232,18 +274,23 @@ static inline int mod_s(struct bch_control *bch, unsigned int v)
 
 static inline int deg(unsigned int poly)
 {
-	
+	/* polynomial degree is the most-significant bit index */
 	return fls(poly)-1;
 }
 
 static inline int parity(unsigned int x)
 {
+	/*
+	 * public domain code snippet, lifted from
+	 * http://www-graphics.stanford.edu/~seander/bithacks.html
+	 */
 	x ^= x >> 1;
 	x ^= x >> 2;
 	x = (x & 0x11111111U) * 0x11111111U;
 	return (x >> 28) & 1;
 }
 
+/* Galois field basic operations: multiply, divide, inverse, etc. */
 
 static inline unsigned int gf_mul(struct bch_control *bch, unsigned int a,
 				  unsigned int b)
@@ -284,6 +331,9 @@ static inline int a_ilog(struct bch_control *bch, unsigned int x)
 	return mod_s(bch, GF_N(bch)-bch->a_log_tab[x]);
 }
 
+/*
+ * compute 2t syndromes of ecc polynomial, i.e. ecc(a^j) for j=1..2t
+ */
 static void compute_syndromes(struct bch_control *bch, uint32_t *ecc,
 			      unsigned int *syn)
 {
@@ -294,13 +344,13 @@ static void compute_syndromes(struct bch_control *bch, uint32_t *ecc,
 
 	s = bch->ecc_bits;
 
-	
+	/* make sure extra bits in last ecc word are cleared */
 	m = ((unsigned int)s) & 31;
 	if (m)
 		ecc[s/32] &= ~((1u << (32-m))-1);
 	memset(syn, 0, 2*t*sizeof(*syn));
 
-	
+	/* compute v(a^j) for j=1 .. 2t-1 */
 	do {
 		poly = *ecc++;
 		s -= 32;
@@ -313,7 +363,7 @@ static void compute_syndromes(struct bch_control *bch, uint32_t *ecc,
 		}
 	} while (s > 0);
 
-	
+	/* v(a^(2j)) = v(a^j)^2 */
 	for (j = 0; j < t; j++)
 		syn[2*j+1] = gf_sqr(bch, syn[j]);
 }
@@ -342,12 +392,12 @@ static int compute_error_locator_polynomial(struct bch_control *bch,
 	elp->deg = 0;
 	elp->c[0] = 1;
 
-	
+	/* use simplified binary Berlekamp-Massey algorithm */
 	for (i = 0; (i < t) && (elp->deg <= t); i++) {
 		if (d) {
 			k = 2*i-pp;
 			gf_poly_copy(elp_copy, elp);
-			
+			/* e[i+1](X) = e[i](X)+di*dp^-1*X^2(i-p)*e[p](X) */
 			tmp = a_log(bch, d)+n-a_log(bch, pd);
 			for (j = 0; j <= pelp->deg; j++) {
 				if (pelp->c[j]) {
@@ -355,7 +405,7 @@ static int compute_error_locator_polynomial(struct bch_control *bch,
 					elp->c[j+k] ^= a_pow(bch, tmp+l);
 				}
 			}
-			
+			/* compute l[i+1] = max(l[i]->c[l[p]+2*(i-p]) */
 			tmp = pelp->deg+k;
 			if (tmp > elp->deg) {
 				elp->deg = tmp;
@@ -364,7 +414,7 @@ static int compute_error_locator_polynomial(struct bch_control *bch,
 				pp = 2*i;
 			}
 		}
-		
+		/* di+1 = S(2i+3)+elp[i+1].1*S(2i+2)+...+elp[i+1].lS(2i+3-l) */
 		if (i < t-1) {
 			d = syn[2*i+2];
 			for (j = 1; j <= elp->deg; j++)
@@ -375,6 +425,10 @@ static int compute_error_locator_polynomial(struct bch_control *bch,
 	return (elp->deg > t) ? -1 : (int)elp->deg;
 }
 
+/*
+ * solve a m x m linear system in GF(2) with an expected number of solutions,
+ * and return the number of found solutions
+ */
 static int solve_linear_system(struct bch_control *bch, unsigned int *rows,
 			       unsigned int *sol, int nsol)
 {
@@ -385,11 +439,11 @@ static int solve_linear_system(struct bch_control *bch, unsigned int *rows,
 	k = 0;
 	mask = 1 << m;
 
-	
+	/* Gaussian elimination */
 	for (c = 0; c < m; c++) {
 		rem = 0;
 		p = c-k;
-		
+		/* find suitable row for elimination */
 		for (r = p; r < m; r++) {
 			if (rows[r] & mask) {
 				if (r != p) {
@@ -402,24 +456,24 @@ static int solve_linear_system(struct bch_control *bch, unsigned int *rows,
 			}
 		}
 		if (rem) {
-			
+			/* perform elimination on remaining rows */
 			tmp = rows[p];
 			for (r = rem; r < m; r++) {
 				if (rows[r] & mask)
 					rows[r] ^= tmp;
 			}
 		} else {
-			
+			/* elimination not needed, store defective row index */
 			param[k++] = c;
 		}
 		mask >>= 1;
 	}
-	
+	/* rewrite system, inserting fake parameter rows */
 	if (k > 0) {
 		p = k;
 		for (r = m-1; r >= 0; r--) {
 			if ((r > m-1-k) && rows[r])
-				
+				/* system has no solution */
 				return 0;
 
 			rows[r] = (p && (r == param[p-1])) ?
@@ -428,15 +482,15 @@ static int solve_linear_system(struct bch_control *bch, unsigned int *rows,
 	}
 
 	if (nsol != (1 << k))
-		
+		/* unexpected number of solutions */
 		return 0;
 
 	for (p = 0; p < nsol; p++) {
-		
+		/* set parameters for p-th solution */
 		for (c = 0; c < k; c++)
 			rows[param[c]] = (rows[param[c]] & ~1)|((p >> c) & 1);
 
-		
+		/* compute unique solution */
 		tmp = 0;
 		for (r = m-1; r >= 0; r--) {
 			mask = rows[r] & (tmp|1);
@@ -447,6 +501,10 @@ static int solve_linear_system(struct bch_control *bch, unsigned int *rows,
 	return nsol;
 }
 
+/*
+ * this function builds and solves a linear system for finding roots of a degree
+ * 4 affine monic polynomial X^4+aX^2+bX+c over GF(2^m).
+ */
 static int find_affine4_roots(struct bch_control *bch, unsigned int a,
 			      unsigned int b, unsigned int c,
 			      unsigned int *roots)
@@ -459,7 +517,7 @@ static int find_affine4_roots(struct bch_control *bch, unsigned int a,
 	k = a_log(bch, a);
 	rows[0] = c;
 
-	
+	/* buid linear system to solve X^4+aX^2+bX+c = 0 */
 	for (i = 0; i < m; i++) {
 		rows[i+1] = bch->a_pow_tab[4*i]^
 			(a ? bch->a_pow_tab[mod_s(bch, k)] : 0)^
@@ -467,6 +525,10 @@ static int find_affine4_roots(struct bch_control *bch, unsigned int a,
 		j++;
 		k += 2;
 	}
+	/*
+	 * transpose 16x16 matrix before passing it to linear solver
+	 * warning: this code assumes m < 16
+	 */
 	for (j = 8; j != 0; j >>= 1, mask ^= (mask << j)) {
 		for (k = 0; k < 16; k = (k+j+1) & ~j) {
 			t = ((rows[k] >> j)^rows[k+j]) & mask;
@@ -477,18 +539,24 @@ static int find_affine4_roots(struct bch_control *bch, unsigned int a,
 	return solve_linear_system(bch, rows, roots, 4);
 }
 
+/*
+ * compute root r of a degree 1 polynomial over GF(2^m) (returned as log(1/r))
+ */
 static int find_poly_deg1_roots(struct bch_control *bch, struct gf_poly *poly,
 				unsigned int *roots)
 {
 	int n = 0;
 
 	if (poly->c[0])
-		
+		/* poly[X] = bX+c with c!=0, root=c/b */
 		roots[n++] = mod_s(bch, GF_N(bch)-bch->a_log_tab[poly->c[0]]+
 				   bch->a_log_tab[poly->c[1]]);
 	return n;
 }
 
+/*
+ * compute roots of a degree 2 polynomial over GF(2^m)
+ */
 static int find_poly_deg2_roots(struct bch_control *bch, struct gf_poly *poly,
 				unsigned int *roots)
 {
@@ -501,8 +569,14 @@ static int find_poly_deg2_roots(struct bch_control *bch, struct gf_poly *poly,
 		l1 = bch->a_log_tab[poly->c[1]];
 		l2 = bch->a_log_tab[poly->c[2]];
 
-		
+		/* using z=a/bX, transform aX^2+bX+c into z^2+z+u (u=ac/b^2) */
 		u = a_pow(bch, l0+l2+2*(GF_N(bch)-l1));
+		/*
+		 * let u = sum(li.a^i) i=0..m-1; then compute r = sum(li.xi):
+		 * r^2+r = sum(li.(xi^2+xi)) = sum(li.(a^i+Tr(a^i).a^k)) =
+		 * u + sum(li.Tr(a^i).a^k) = u+a^k.Tr(sum(li.a^i)) = u+a^k.Tr(u)
+		 * i.e. r and r+1 are roots iff Tr(u)=0
+		 */
 		r = 0;
 		v = u;
 		while (v) {
@@ -510,9 +584,9 @@ static int find_poly_deg2_roots(struct bch_control *bch, struct gf_poly *poly,
 			r ^= bch->xi_tab[i];
 			v ^= (1 << i);
 		}
-		
+		/* verify root */
 		if ((gf_sqr(bch, r)^r) == u) {
-			
+			/* reverse z=a/bX transformation and compute log(1/r) */
 			roots[n++] = modulo(bch, 2*GF_N(bch)-l1-
 					    bch->a_log_tab[r]+l2);
 			roots[n++] = modulo(bch, 2*GF_N(bch)-l1-
@@ -522,6 +596,9 @@ static int find_poly_deg2_roots(struct bch_control *bch, struct gf_poly *poly,
 	return n;
 }
 
+/*
+ * compute roots of a degree 3 polynomial over GF(2^m)
+ */
 static int find_poly_deg3_roots(struct bch_control *bch, struct gf_poly *poly,
 				unsigned int *roots)
 {
@@ -529,20 +606,20 @@ static int find_poly_deg3_roots(struct bch_control *bch, struct gf_poly *poly,
 	unsigned int a, b, c, a2, b2, c2, e3, tmp[4];
 
 	if (poly->c[0]) {
-		
+		/* transform polynomial into monic X^3 + a2X^2 + b2X + c2 */
 		e3 = poly->c[3];
 		c2 = gf_div(bch, poly->c[0], e3);
 		b2 = gf_div(bch, poly->c[1], e3);
 		a2 = gf_div(bch, poly->c[2], e3);
 
-		
-		c = gf_mul(bch, a2, c2);           
-		b = gf_mul(bch, a2, b2)^c2;        
-		a = gf_sqr(bch, a2)^b2;            
+		/* (X+a2)(X^3+a2X^2+b2X+c2) = X^4+aX^2+bX+c (affine) */
+		c = gf_mul(bch, a2, c2);           /* c = a2c2      */
+		b = gf_mul(bch, a2, b2)^c2;        /* b = a2b2 + c2 */
+		a = gf_sqr(bch, a2)^b2;            /* a = a2^2 + b2 */
 
-		
+		/* find the 4 roots of this affine polynomial */
 		if (find_affine4_roots(bch, a, b, c, tmp) == 4) {
-			
+			/* remove a2 from final list of roots */
 			for (i = 0; i < 4; i++) {
 				if (tmp[i] != a2)
 					roots[n++] = a_ilog(bch, tmp[i]);
@@ -552,6 +629,9 @@ static int find_poly_deg3_roots(struct bch_control *bch, struct gf_poly *poly,
 	return n;
 }
 
+/*
+ * compute roots of a degree 4 polynomial over GF(2^m)
+ */
 static int find_poly_deg4_roots(struct bch_control *bch, struct gf_poly *poly,
 				unsigned int *roots)
 {
@@ -561,43 +641,50 @@ static int find_poly_deg4_roots(struct bch_control *bch, struct gf_poly *poly,
 	if (poly->c[0] == 0)
 		return 0;
 
-	
+	/* transform polynomial into monic X^4 + aX^3 + bX^2 + cX + d */
 	e4 = poly->c[4];
 	d = gf_div(bch, poly->c[0], e4);
 	c = gf_div(bch, poly->c[1], e4);
 	b = gf_div(bch, poly->c[2], e4);
 	a = gf_div(bch, poly->c[3], e4);
 
-	
+	/* use Y=1/X transformation to get an affine polynomial */
 	if (a) {
-		
+		/* first, eliminate cX by using z=X+e with ae^2+c=0 */
 		if (c) {
-			
+			/* compute e such that e^2 = c/a */
 			f = gf_div(bch, c, a);
 			l = a_log(bch, f);
 			l += (l & 1) ? GF_N(bch) : 0;
 			e = a_pow(bch, l/2);
+			/*
+			 * use transformation z=X+e:
+			 * z^4+e^4 + a(z^3+ez^2+e^2z+e^3) + b(z^2+e^2) +cz+ce+d
+			 * z^4 + az^3 + (ae+b)z^2 + (ae^2+c)z+e^4+be^2+ae^3+ce+d
+			 * z^4 + az^3 + (ae+b)z^2 + e^4+be^2+d
+			 * z^4 + az^3 +     b'z^2 + d'
+			 */
 			d = a_pow(bch, 2*l)^gf_mul(bch, b, f)^d;
 			b = gf_mul(bch, a, e)^b;
 		}
-		
+		/* now, use Y=1/X to get Y^4 + b/dY^2 + a/dY + 1/d */
 		if (d == 0)
-			
+			/* assume all roots have multiplicity 1 */
 			return 0;
 
 		c2 = gf_inv(bch, d);
 		b2 = gf_div(bch, a, d);
 		a2 = gf_div(bch, b, d);
 	} else {
-		
+		/* polynomial is already affine */
 		c2 = d;
 		b2 = c;
 		a2 = b;
 	}
-	
+	/* find the 4 roots of this affine polynomial */
 	if (find_affine4_roots(bch, a2, b2, c2, roots) == 4) {
 		for (i = 0; i < 4; i++) {
-			
+			/* post-process roots (reverse transformations) */
 			f = a ? gf_inv(bch, roots[i]) : roots[i];
 			roots[i] = a_ilog(bch, f^e);
 		}
@@ -606,16 +693,22 @@ static int find_poly_deg4_roots(struct bch_control *bch, struct gf_poly *poly,
 	return n;
 }
 
+/*
+ * build monic, log-based representation of a polynomial
+ */
 static void gf_poly_logrep(struct bch_control *bch,
 			   const struct gf_poly *a, int *rep)
 {
 	int i, d = a->deg, l = GF_N(bch)-a_log(bch, a->c[a->deg]);
 
-	
+	/* represent 0 values with -1; warning, rep[d] is not set to 1 */
 	for (i = 0; i < d; i++)
 		rep[i] = a->c[i] ? mod_s(bch, a_log(bch, a->c[i])+l) : -1;
 }
 
+/*
+ * compute polynomial Euclidean division remainder in GF(2^m)[X]
+ */
 static void gf_poly_mod(struct bch_control *bch, struct gf_poly *a,
 			const struct gf_poly *b, int *rep)
 {
@@ -626,7 +719,7 @@ static void gf_poly_mod(struct bch_control *bch, struct gf_poly *a,
 	if (a->deg < d)
 		return;
 
-	
+	/* reuse or compute log representation of denominator */
 	if (!rep) {
 		rep = bch->cache;
 		gf_poly_logrep(bch, b, rep);
@@ -649,14 +742,17 @@ static void gf_poly_mod(struct bch_control *bch, struct gf_poly *a,
 		a->deg--;
 }
 
+/*
+ * compute polynomial Euclidean division quotient in GF(2^m)[X]
+ */
 static void gf_poly_div(struct bch_control *bch, struct gf_poly *a,
 			const struct gf_poly *b, struct gf_poly *q)
 {
 	if (a->deg >= b->deg) {
 		q->deg = a->deg-b->deg;
-		
+		/* compute a mod b (modifies a) */
 		gf_poly_mod(bch, a, b, NULL);
-		
+		/* quotient is stored in upper part of polynomial a */
 		memcpy(q->c, &a->c[b->deg], (1+q->deg)*sizeof(unsigned int));
 	} else {
 		q->deg = 0;
@@ -664,6 +760,9 @@ static void gf_poly_div(struct bch_control *bch, struct gf_poly *a,
 	}
 }
 
+/*
+ * compute polynomial GCD (Greatest Common Divisor) in GF(2^m)[X]
+ */
 static struct gf_poly *gf_poly_gcd(struct bch_control *bch, struct gf_poly *a,
 				   struct gf_poly *b)
 {
@@ -689,6 +788,10 @@ static struct gf_poly *gf_poly_gcd(struct bch_control *bch, struct gf_poly *a,
 	return a;
 }
 
+/*
+ * Given a polynomial f and an integer k, compute Tr(a^kX) mod f
+ * This is used in Berlekamp Trace algorithm for splitting polynomials
+ */
 static void compute_trace_bk_mod(struct bch_control *bch, int k,
 				 const struct gf_poly *f, struct gf_poly *z,
 				 struct gf_poly *out)
@@ -696,7 +799,7 @@ static void compute_trace_bk_mod(struct bch_control *bch, int k,
 	const int m = GF_M(bch);
 	int i, j;
 
-	
+	/* z contains z^2j mod f */
 	z->deg = 1;
 	z->c[0] = 0;
 	z->c[1] = bch->a_pow_tab[k];
@@ -704,11 +807,11 @@ static void compute_trace_bk_mod(struct bch_control *bch, int k,
 	out->deg = 0;
 	memset(out, 0, GF_POLY_SZ(f->deg));
 
-	
+	/* compute f log representation only once */
 	gf_poly_logrep(bch, f, bch->cache);
 
 	for (i = 0; i < m; i++) {
-		
+		/* add a^(k*2^i)(z^(2^i) mod f) and compute (z^(2^i) mod f)^2 */
 		for (j = z->deg; j >= 0; j--) {
 			out->c[j] ^= z->c[j];
 			z->c[2*j] = gf_sqr(bch, z->c[j]);
@@ -719,7 +822,7 @@ static void compute_trace_bk_mod(struct bch_control *bch, int k,
 
 		if (i < m-1) {
 			z->deg *= 2;
-			
+			/* z^(2(i+1)) mod f = (z^(2^i) mod f)^2 mod f */
 			gf_poly_mod(bch, z, f, bch->cache);
 		}
 	}
@@ -729,6 +832,9 @@ static void compute_trace_bk_mod(struct bch_control *bch, int k,
 	dbg("Tr(a^%d.X) mod f = %s\n", k, gf_poly_str(out));
 }
 
+/*
+ * factor a polynomial using Berlekamp Trace algorithm (BTA)
+ */
 static void factor_polynomial(struct bch_control *bch, int k, struct gf_poly *f,
 			      struct gf_poly **g, struct gf_poly **h)
 {
@@ -743,17 +849,17 @@ static void factor_polynomial(struct bch_control *bch, int k, struct gf_poly *f,
 	*g = f;
 	*h = NULL;
 
-	
+	/* tk = Tr(a^k.X) mod f */
 	compute_trace_bk_mod(bch, k, f, z, tk);
 
 	if (tk->deg > 0) {
-		
+		/* compute g = gcd(f, tk) (destructive operation) */
 		gf_poly_copy(f2, f);
 		gcd = gf_poly_gcd(bch, f2, tk);
 		if (gcd->deg < f->deg) {
-			
+			/* compute h=f/gcd(f,tk); this will modify f and q */
 			gf_poly_div(bch, f, gcd, q);
-			
+			/* store g and h in-place (clobbering f) */
 			*h = &((struct gf_poly_deg1 *)f)[gcd->deg].poly;
 			gf_poly_copy(*g, gcd);
 			gf_poly_copy(*h, q);
@@ -761,6 +867,10 @@ static void factor_polynomial(struct bch_control *bch, int k, struct gf_poly *f,
 	}
 }
 
+/*
+ * find roots of a polynomial, using BTZ algorithm; see the beginning of this
+ * file for details
+ */
 static int find_poly_roots(struct bch_control *bch, unsigned int k,
 			   struct gf_poly *poly, unsigned int *roots)
 {
@@ -768,7 +878,7 @@ static int find_poly_roots(struct bch_control *bch, unsigned int k,
 	struct gf_poly *f1, *f2;
 
 	switch (poly->deg) {
-		
+		/* handle low degree polynomials with ad hoc techniques */
 	case 1:
 		cnt = find_poly_deg1_roots(bch, poly, roots);
 		break;
@@ -782,7 +892,7 @@ static int find_poly_roots(struct bch_control *bch, unsigned int k,
 		cnt = find_poly_deg4_roots(bch, poly, roots);
 		break;
 	default:
-		
+		/* factor polynomial using Berlekamp Trace Algorithm (BTA) */
 		cnt = 0;
 		if (poly->deg && (k <= GF_M(bch))) {
 			factor_polynomial(bch, k, poly, &f1, &f2);
@@ -797,6 +907,10 @@ static int find_poly_roots(struct bch_control *bch, unsigned int k,
 }
 
 #if defined(USE_CHIEN_SEARCH)
+/*
+ * exhaustive root search (Chien) implementation - not used, included only for
+ * reference/comparison tests
+ */
 static int chien_search(struct bch_control *bch, unsigned int len,
 			struct gf_poly *p, unsigned int *roots)
 {
@@ -804,13 +918,13 @@ static int chien_search(struct bch_control *bch, unsigned int len,
 	unsigned int i, j, syn, syn0, count = 0;
 	const unsigned int k = 8*len+bch->ecc_bits;
 
-	
+	/* use a log-based representation of polynomial */
 	gf_poly_logrep(bch, p, bch->cache);
 	bch->cache[p->deg] = 0;
 	syn0 = gf_div(bch, p->c[0], p->c[p->deg]);
 
 	for (i = GF_N(bch)-k+1; i <= GF_N(bch); i++) {
-		
+		/* compute elp(a^i) */
 		for (j = 1, syn = syn0; j <= p->deg; j++) {
 			m = bch->cache[j];
 			if (m >= 0)
@@ -825,8 +939,50 @@ static int chien_search(struct bch_control *bch, unsigned int len,
 	return (count == p->deg) ? count : 0;
 }
 #define find_poly_roots(_p, _k, _elp, _loc) chien_search(_p, len, _elp, _loc)
-#endif 
+#endif /* USE_CHIEN_SEARCH */
 
+/**
+ * decode_bch - decode received codeword and find bit error locations
+ * @bch:      BCH control structure
+ * @data:     received data, ignored if @calc_ecc is provided
+ * @len:      data length in bytes, must always be provided
+ * @recv_ecc: received ecc, if NULL then assume it was XORed in @calc_ecc
+ * @calc_ecc: calculated ecc, if NULL then calc_ecc is computed from @data
+ * @syn:      hw computed syndrome data (if NULL, syndrome is calculated)
+ * @errloc:   output array of error locations
+ *
+ * Returns:
+ *  The number of errors found, or -EBADMSG if decoding failed, or -EINVAL if
+ *  invalid parameters were provided
+ *
+ * Depending on the available hw BCH support and the need to compute @calc_ecc
+ * separately (using encode_bch()), this function should be called with one of
+ * the following parameter configurations -
+ *
+ * by providing @data and @recv_ecc only:
+ *   decode_bch(@bch, @data, @len, @recv_ecc, NULL, NULL, @errloc)
+ *
+ * by providing @recv_ecc and @calc_ecc:
+ *   decode_bch(@bch, NULL, @len, @recv_ecc, @calc_ecc, NULL, @errloc)
+ *
+ * by providing ecc = recv_ecc XOR calc_ecc:
+ *   decode_bch(@bch, NULL, @len, NULL, ecc, NULL, @errloc)
+ *
+ * by providing syndrome results @syn:
+ *   decode_bch(@bch, NULL, @len, NULL, NULL, @syn, @errloc)
+ *
+ * Once decode_bch() has successfully returned with a positive value, error
+ * locations returned in array @errloc should be interpreted as follows -
+ *
+ * if (errloc[n] >= 8*len), then n-th error is located in ecc (no need for
+ * data correction)
+ *
+ * if (errloc[n] < 8*len), then n-th error is located in data and can be
+ * corrected with statement data[errloc[n]/8] ^= 1 << (errloc[n] % 8);
+ *
+ * Note that this function does not perform any data correction by itself, it
+ * merely indicates error locations.
+ */
 int decode_bch(struct bch_control *bch, const uint8_t *data, unsigned int len,
 	       const uint8_t *recv_ecc, const uint8_t *calc_ecc,
 	       const unsigned int *syn, unsigned int *errloc)
@@ -836,31 +992,31 @@ int decode_bch(struct bch_control *bch, const uint8_t *data, unsigned int len,
 	int i, err, nroots;
 	uint32_t sum;
 
-	
+	/* sanity check: make sure data length can be handled */
 	if (8*len > (bch->n-bch->ecc_bits))
 		return -EINVAL;
 
-	
+	/* if caller does not provide syndromes, compute them */
 	if (!syn) {
 		if (!calc_ecc) {
-			
+			/* compute received data ecc into an internal buffer */
 			if (!data || !recv_ecc)
 				return -EINVAL;
 			encode_bch(bch, data, len, NULL);
 		} else {
-			
+			/* load provided calculated ecc */
 			load_ecc8(bch, bch->ecc_buf, calc_ecc);
 		}
-		
+		/* load received ecc or assume it was XORed in calc_ecc */
 		if (recv_ecc) {
 			load_ecc8(bch, bch->ecc_buf2, recv_ecc);
-			
+			/* XOR received and calculated ecc */
 			for (i = 0, sum = 0; i < (int)ecc_words; i++) {
 				bch->ecc_buf[i] ^= bch->ecc_buf2[i];
 				sum |= bch->ecc_buf[i];
 			}
 			if (!sum)
-				
+				/* no error found */
 				return 0;
 		}
 		compute_syndromes(bch, bch->ecc_buf, bch->syn);
@@ -874,7 +1030,7 @@ int decode_bch(struct bch_control *bch, const uint8_t *data, unsigned int len,
 			err = -1;
 	}
 	if (err > 0) {
-		
+		/* post-process raw error locations for easier correction */
 		nbits = (len*8)+bch->ecc_bits;
 		for (i = 0; i < err; i++) {
 			if (errloc[i] >= nbits) {
@@ -889,12 +1045,15 @@ int decode_bch(struct bch_control *bch, const uint8_t *data, unsigned int len,
 }
 EXPORT_SYMBOL_GPL(decode_bch);
 
+/*
+ * generate Galois field lookup tables
+ */
 static int build_gf_tables(struct bch_control *bch, unsigned int poly)
 {
 	unsigned int i, x = 1;
 	const unsigned int k = 1 << deg(poly);
 
-	
+	/* primitive polynomial must be of degree m */
 	if (k != (1u << GF_M(bch)))
 		return -1;
 
@@ -902,7 +1061,7 @@ static int build_gf_tables(struct bch_control *bch, unsigned int poly)
 		bch->a_pow_tab[i] = x;
 		bch->a_log_tab[x] = i;
 		if (i && (x == 1))
-			
+			/* polynomial is not primitive (a^i=1 with 0<i<2^m-1) */
 			return -1;
 		x <<= 1;
 		if (x & k)
@@ -914,6 +1073,9 @@ static int build_gf_tables(struct bch_control *bch, unsigned int poly)
 	return 0;
 }
 
+/*
+ * compute generator polynomial remainder tables for fast encoding
+ */
 static void build_mod8_tables(struct bch_control *bch, const uint32_t *g)
 {
 	int i, j, b, d;
@@ -925,14 +1087,14 @@ static void build_mod8_tables(struct bch_control *bch, const uint32_t *g)
 	memset(bch->mod8_tab, 0, 4*256*l*sizeof(*bch->mod8_tab));
 
 	for (i = 0; i < 256; i++) {
-		
+		/* p(X)=i is a small polynomial of weight <= 8 */
 		for (b = 0; b < 4; b++) {
-			
+			/* we want to compute (p(X).X^(8*b+deg(g))) mod g(X) */
 			tab = bch->mod8_tab + (b*256+i)*l;
 			data = i << (8*b);
 			while (data) {
 				d = deg(data);
-				
+				/* subtract X^d.g(X) from p(X).X^(8*b+deg(g)) */
 				data ^= g[0] >> (31-d);
 				for (j = 0; j < ecclen; j++) {
 					hi = (d < 31) ? g[j] << (d+1) : 0;
@@ -945,13 +1107,16 @@ static void build_mod8_tables(struct bch_control *bch, const uint32_t *g)
 	}
 }
 
+/*
+ * build a base for factoring degree 2 polynomials
+ */
 static int build_deg2_base(struct bch_control *bch)
 {
 	const int m = GF_M(bch);
 	int i, j, r;
 	unsigned int sum, x, y, remaining, ak = 0, xi[m];
 
-	
+	/* find k s.t. Tr(a^k) = 1 and 0 <= k < m */
 	for (i = 0; i < m; i++) {
 		for (j = 0, sum = 0; j < m; j++)
 			sum ^= a_pow(bch, i*(1 << j));
@@ -961,7 +1126,7 @@ static int build_deg2_base(struct bch_control *bch)
 			break;
 		}
 	}
-	
+	/* find xi, i=0..m-1 such that xi^2+xi = a^i+Tr(a^i).a^k */
 	remaining = m;
 	memset(xi, 0, sizeof(xi));
 
@@ -979,7 +1144,7 @@ static int build_deg2_base(struct bch_control *bch)
 			y ^= ak;
 		}
 	}
-	
+	/* should not happen but check anyway */
 	return remaining ? -1 : 0;
 }
 
@@ -993,6 +1158,9 @@ static void *bch_alloc(size_t size, int *err)
 	return ptr;
 }
 
+/*
+ * compute generator polynomial for given (m,t) parameters.
+ */
 static uint32_t *compute_generator_polynomial(struct bch_control *bch)
 {
 	const unsigned int m = GF_M(bch);
@@ -1012,7 +1180,7 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
 		goto finish;
 	}
 
-	
+	/* enumerate all roots of g(X) */
 	memset(roots , 0, (bch->n+1)*sizeof(*roots));
 	for (i = 0; i < t; i++) {
 		for (j = 0, r = 2*i+1; j < m; j++) {
@@ -1020,12 +1188,12 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
 			r = mod_s(bch, 2*r);
 		}
 	}
-	
+	/* build generator polynomial g(X) */
 	g->deg = 0;
 	g->c[0] = 1;
 	for (i = 0; i < GF_N(bch); i++) {
 		if (roots[i]) {
-			
+			/* multiply g(X) by (X+root) */
 			r = bch->a_pow_tab[i];
 			g->c[g->deg+1] = 1;
 			for (j = g->deg; j > 0; j--)
@@ -1035,7 +1203,7 @@ static uint32_t *compute_generator_polynomial(struct bch_control *bch)
 			g->deg++;
 		}
 	}
-	
+	/* store left-justified binary representation of g(X) */
 	n = g->deg+1;
 	i = 0;
 
@@ -1057,6 +1225,27 @@ finish:
 	return genpoly;
 }
 
+/**
+ * init_bch - initialize a BCH encoder/decoder
+ * @m:          Galois field order, should be in the range 5-15
+ * @t:          maximum error correction capability, in bits
+ * @prim_poly:  user-provided primitive polynomial (or 0 to use default)
+ *
+ * Returns:
+ *  a newly allocated BCH control structure if successful, NULL otherwise
+ *
+ * This initialization can take some time, as lookup tables are built for fast
+ * encoding/decoding; make sure not to call this function from a time critical
+ * path. Usually, init_bch() should be called on module/driver init and
+ * free_bch() should be called to release memory on exit.
+ *
+ * You may provide your own primitive polynomial of degree @m in argument
+ * @prim_poly, or let init_bch() use its default polynomial.
+ *
+ * Once init_bch() has successfully returned a pointer to a newly allocated
+ * BCH control structure, ecc length in bytes is given by member @ecc_bytes of
+ * the structure.
+ */
 struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
 {
 	int err = 0;
@@ -1067,7 +1256,7 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
 	const int min_m = 5;
 	const int max_m = 15;
 
-	
+	/* default primitive polynomials */
 	static const unsigned int prim_poly_tab[] = {
 		0x25, 0x43, 0x83, 0x11d, 0x211, 0x409, 0x805, 0x1053, 0x201b,
 		0x402b, 0x8003,
@@ -1082,14 +1271,19 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
 	}
 #endif
 	if ((m < min_m) || (m > max_m))
+		/*
+		 * values of m greater than 15 are not currently supported;
+		 * supporting m > 15 would require changing table base type
+		 * (uint16_t) and a small patch in matrix transposition
+		 */
 		goto fail;
 
-	
+	/* sanity checks */
 	if ((t < 1) || (m*t >= ((1 << m)-1)))
-		
+		/* invalid t value */
 		goto fail;
 
-	
+	/* select a primitive polynomial for generating GF(2^m) */
 	if (prim_poly == 0)
 		prim_poly = prim_poly_tab[m-min_m];
 
@@ -1122,7 +1316,7 @@ struct bch_control *init_bch(int m, int t, unsigned int prim_poly)
 	if (err)
 		goto fail;
 
-	
+	/* use generator polynomial for computing encoding tables */
 	genpoly = compute_generator_polynomial(bch);
 	if (genpoly == NULL)
 		goto fail;
@@ -1142,6 +1336,10 @@ fail:
 }
 EXPORT_SYMBOL_GPL(init_bch);
 
+/**
+ *  free_bch - free the BCH control structure
+ *  @bch:    BCH control structure to release
+ */
 void free_bch(struct bch_control *bch)
 {
 	unsigned int i;

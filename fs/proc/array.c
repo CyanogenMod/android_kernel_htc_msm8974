@@ -125,17 +125,23 @@ static inline void task_name(struct seq_file *m, struct task_struct *p)
 	seq_putc(m, '\n');
 }
 
+/*
+ * The task state array is a strange "bitmap" of
+ * reasons to sleep. Thus "running" is zero, and
+ * you can test for combinations of others with
+ * simple bit tests.
+ */
 static const char * const task_state_array[] = {
-	"R (running)",		
-	"S (sleeping)",		
-	"D (disk sleep)",	
-	"T (stopped)",		
-	"t (tracing stop)",	
-	"Z (zombie)",		
-	"X (dead)",		
-	"x (dead)",		
-	"K (wakekill)",		
-	"W (waking)",		
+	"R (running)",		/*   0 */
+	"S (sleeping)",		/*   1 */
+	"D (disk sleep)",	/*   2 */
+	"T (stopped)",		/*   4 */
+	"t (tracing stop)",	/*   8 */
+	"Z (zombie)",		/*  16 */
+	"X (dead)",		/*  32 */
+	"x (dead)",		/*  64 */
+	"K (wakekill)",		/* 128 */
+	"W (waking)",		/* 256 */
 };
 
 static inline const char *get_task_state(struct task_struct *tsk)
@@ -262,7 +268,7 @@ static inline void task_sig(struct seq_file *m, struct task_struct *p)
 		blocked = p->blocked;
 		collect_sigign_sigcatch(p, &ignored, &caught);
 		num_threads = get_nr_threads(p);
-		rcu_read_lock();  
+		rcu_read_lock();  /* FIXME: is this correct? */
 		qsize = atomic_read(&__task_cred(p)->user->sigpending);
 		rcu_read_unlock();
 		qlim = task_rlimit(p, RLIMIT_SIGPENDING);
@@ -272,7 +278,7 @@ static inline void task_sig(struct seq_file *m, struct task_struct *p)
 	seq_printf(m, "Threads:\t%d\n", num_threads);
 	seq_printf(m, "SigQ:\t%lu/%lu\n", qsize, qlim);
 
-	
+	/* render them all */
 	render_sigset_t(m, "SigPnd:\t", &pending);
 	render_sigset_t(m, "ShdPnd:\t", &shpending);
 	render_sigset_t(m, "SigBlk:\t", &blocked);
@@ -411,7 +417,7 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 		cgtime = sig->cgtime;
 		rsslim = ACCESS_ONCE(sig->rlim[RLIMIT_RSS].rlim_cur);
 
-		
+		/* add up live thread stats at the group level */
 		if (whole) {
 			struct task_struct *t = task;
 			do {
@@ -443,17 +449,17 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 		gtime = task->gtime;
 	}
 
-	
-	
+	/* scale priority and nice values from timeslices to -20..20 */
+	/* to make it look like a "normal" Unix priority/nice value  */
 	priority = task_prio(task);
 	nice = task_nice(task);
 
-	
-	
+	/* Temporary variable needed for gcc-2.96 */
+	/* convert timespec -> nsec*/
 	start_time =
 		(unsigned long long)task->real_start_time.tv_sec * NSEC_PER_SEC
 				+ task->real_start_time.tv_nsec;
-	
+	/* convert nsec -> ticks */
 	start_time = nsec_to_clock_t(start_time);
 
 	seq_printf(m, "%d (%s) %c", pid_nr_ns(pid, ns), tcomm, state);
@@ -484,6 +490,10 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 	seq_put_decimal_ull(m, ' ', (permitted && mm) ? mm->start_stack : 0);
 	seq_put_decimal_ull(m, ' ', esp);
 	seq_put_decimal_ull(m, ' ', eip);
+	/* The signal information here is obsolete.
+	 * It must be decimal for Linux 2.0 compatibility.
+	 * Use /proc/#/status for real-time signals.
+	 */
 	seq_put_decimal_ull(m, ' ', task->pending.signal.sig[0] & 0x7fffffffUL);
 	seq_put_decimal_ull(m, ' ', task->blocked.sig[0] & 0x7fffffffUL);
 	seq_put_decimal_ull(m, ' ', sigign.sig[0] & 0x7fffffffUL);
@@ -529,6 +539,12 @@ int proc_pid_statm(struct seq_file *m, struct pid_namespace *ns,
 		size = task_statm(mm, &shared, &text, &data, &resident);
 		mmput(mm);
 	}
+	/*
+	 * For quick read, open code by putting numbers directly
+	 * expected format is
+	 * seq_printf(m, "%lu %lu %lu %lu 0 %lu 0\n",
+	 *               size, resident, shared, text, data);
+	 */
 	seq_put_decimal_ull(m, 0, size);
 	seq_put_decimal_ull(m, ' ', resident);
 	seq_put_decimal_ull(m, ' ', shared);

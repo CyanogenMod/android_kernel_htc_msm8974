@@ -24,8 +24,11 @@ static int alpha_core_agp_vm_fault(struct vm_area_struct *vma,
 	pa = agp->ops->translate(agp, dma_addr);
 
 	if (pa == (unsigned long)-EINVAL)
-		return VM_FAULT_SIGBUS;	
+		return VM_FAULT_SIGBUS;	/* no translation */
 
+	/*
+	 * Get the page, inc the use count, and return it
+	 */
 	page = virt_to_page(__va(pa));
 	get_page(page);
 	vmf->page = page;
@@ -34,7 +37,7 @@ static int alpha_core_agp_vm_fault(struct vm_area_struct *vma,
 
 static struct aper_size_info_fixed alpha_core_agp_sizes[] =
 {
-	{ 0, 0, 0 }, 
+	{ 0, 0, 0 }, /* filled in by alpha_core_agp_setup */
 };
 
 static const struct vm_operations_struct alpha_core_agp_vm_ops = {
@@ -152,7 +155,7 @@ int __init
 alpha_core_agp_setup(void)
 {
 	alpha_agp_info *agp = alpha_mv.agp_info();
-	struct pci_dev *pdev;	
+	struct pci_dev *pdev;	/* faked */
 	struct aper_size_info_fixed *aper_size;
 
 	if (!agp)
@@ -160,11 +163,17 @@ alpha_core_agp_setup(void)
 	if (agp->ops->setup(agp))
 		return -ENODEV;
 
+	/*
+	 * Build the aperture size descriptor
+	 */
 	aper_size = alpha_core_agp_sizes;
 	aper_size->size = agp->aperture.size / (1024 * 1024);
 	aper_size->num_entries = agp->aperture.size / PAGE_SIZE;
 	aper_size->page_order = __ffs(aper_size->num_entries / 1024);
 
+	/*
+	 * Build a fake pci_dev struct
+	 */
 	pdev = alloc_pci_dev();
 	if (!pdev)
 		return -ENOMEM;
@@ -178,7 +187,7 @@ alpha_core_agp_setup(void)
 
 	alpha_bridge->driver = &alpha_core_agp_driver;
 	alpha_bridge->vm_ops = &alpha_core_agp_vm_ops;
-	alpha_bridge->current_size = aper_size; 
+	alpha_bridge->current_size = aper_size; /* only 1 size */
 	alpha_bridge->dev_private_data = agp;
 	alpha_bridge->dev = pdev;
 	alpha_bridge->mode = agp->capability.lw;

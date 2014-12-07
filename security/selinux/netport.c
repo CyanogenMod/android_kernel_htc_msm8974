@@ -60,7 +60,7 @@ static struct sel_netport *sel_netport_find(u8 protocol, u16 pnum)
 
 	idx = sel_netport_hashfn(pnum);
 	list_for_each_entry_rcu(port, &sel_netport_hash[idx].list, list)
-		if (port->psec.port == pnum && port->psec.protocol == protocol)
+		if (port && port->psec.port == pnum && port->psec.protocol == protocol)
 			return port;
 
 	return NULL;

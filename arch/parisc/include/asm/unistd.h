@@ -1,7 +1,13 @@
 #ifndef _ASM_PARISC_UNISTD_H_
 #define _ASM_PARISC_UNISTD_H_
 
+/*
+ * This file contains the system call numbers.
+ */
 
+/*
+ *   HP-UX system calls get their native numbers for binary compatibility.
+ */
 
 #define __NR_HPUX_exit                    1
 #define __NR_HPUX_fork                    2
@@ -170,6 +176,7 @@
 #define __NR_HPUX_shmat                 165
 #define __NR_HPUX_shmdt                 166
 #define __NR_HPUX_m68020_advise         167
+/* [168,189] are for Discless/DUX */
 #define __NR_HPUX_csp                   168
 #define __NR_HPUX_cluster               169
 #define __NR_HPUX_mkrnod                170
@@ -203,13 +210,16 @@
 #define __NR_HPUX_vfsmount              198
 #define __NR_HPUX_reserved6             199
 #define __NR_HPUX_waitpid               200
+/* 201 - 223 missing */
 #define __NR_HPUX_sigsetreturn          224
 #define __NR_HPUX_sigsetstatemask       225
+/* 226 missing */
 #define __NR_HPUX_cs                    227
 #define __NR_HPUX_cds                   228
 #define __NR_HPUX_set_no_trunc          229
 #define __NR_HPUX_pathconf              230
 #define __NR_HPUX_fpathconf             231
+/* 232, 233 missing */
 #define __NR_HPUX_nfs_fcntl             234
 #define __NR_HPUX_ogetacl               235
 #define __NR_HPUX_ofgetacl              236
@@ -227,8 +237,10 @@
 #define __NR_HPUX_audctl                248
 #define __NR_HPUX_ogetaccess            249
 #define __NR_HPUX_fsctl                 250
+/* 251 - 258 missing */
 #define __NR_HPUX_swapfs                259
 #define __NR_HPUX_fss                   260
+/* 261 - 266 missing */
 #define __NR_HPUX_tsync                 267
 #define __NR_HPUX_getnumfds             268
 #define __NR_HPUX_poll                  269
@@ -260,6 +272,7 @@
 #define __NR_HPUX_proc_recv             295
 #define __NR_HPUX_proc_sendrecv         296
 #define __NR_HPUX_proc_syscall          297
+/* 298 - 311 missing */
 #define __NR_HPUX_semctl                312
 #define __NR_HPUX_msgctl                313
 #define __NR_HPUX_shmctl                314
@@ -267,6 +280,7 @@
 #define __NR_HPUX_exportfs              316
 #define __NR_HPUX_getpmsg               317
 #define __NR_HPUX_putpmsg               318
+/* 319 missing */
 #define __NR_HPUX_msync                 320
 #define __NR_HPUX_msleep                321
 #define __NR_HPUX_mwakeup               322
@@ -282,6 +296,7 @@
 #define __NR_HPUX_lchown                332
 #define __NR_HPUX_getsid                333
 #define __NR_HPUX_sysfs                 334
+/* 335, 336 missing */
 #define __NR_HPUX_sched_setparam        337
 #define __NR_HPUX_sched_getparam        338
 #define __NR_HPUX_sched_setscheduler    339
@@ -300,6 +315,7 @@
 #define __NR_HPUX_timer_getoverrun      352
 #define __NR_HPUX_nanosleep             353
 #define __NR_HPUX_toolbox               354
+/* 355 missing */
 #define __NR_HPUX_getdents              356
 #define __NR_HPUX_getcontext            357
 #define __NR_HPUX_sysinfo               358
@@ -338,11 +354,13 @@
 #define __NR_HPUX_lwp_wait              391
 #define __NR_HPUX_lwp_suspend           392
 #define __NR_HPUX_lwp_resume            393
+/* 394 missing */
 #define __NR_HPUX_lwp_abort_syscall     395
 #define __NR_HPUX_lwp_info              396
 #define __NR_HPUX_lwp_kill              397
 #define __NR_HPUX_ksleep                398
 #define __NR_HPUX_kwakeup               399
+/* 400 missing */
 #define __NR_HPUX_pstat_getlwp          401
 #define __NR_HPUX_lwp_exit              402
 #define __NR_HPUX_lwp_continue          403
@@ -457,6 +475,19 @@
 
 #define __NR_HPUX_syscalls		512
 
+/*
+ * Linux system call numbers.
+ *
+ * Cary Coutant says that we should just use another syscall gateway
+ * page to avoid clashing with the HPUX space, and I think he's right:
+ * it will would keep a branch out of our syscall entry path, at the
+ * very least.  If we decide to change it later, we can ``just'' tweak
+ * the LINUX_GATEWAY_ADDR define at the bottom and make __NR_Linux be
+ * 1024 or something.  Oh, and recompile libc. =)
+ *
+ * 64-bit HPUX binaries get the syscall gateway address passed in a register
+ * from the kernel at startup, which seems a sane strategy.
+ */
 
 #define __NR_Linux                0
 #define __NR_restart_syscall      (__NR_Linux + 0)
@@ -561,6 +592,7 @@
 #define __NR_statfs              (__NR_Linux + 99)
 #define __NR_fstatfs            (__NR_Linux + 100)
 #define __NR_stat64           (__NR_Linux + 101)
+/* #define __NR_socketcall         (__NR_Linux + 102) */
 #define __NR_syslog             (__NR_Linux + 103)
 #define __NR_setitimer          (__NR_Linux + 104)
 #define __NR_getitimer          (__NR_Linux + 105)
@@ -595,7 +627,7 @@
 #define __NR_bdflush            (__NR_Linux + 134)
 #define __NR_sysfs              (__NR_Linux + 135)
 #define __NR_personality        (__NR_Linux + 136)
-#define __NR_afs_syscall        (__NR_Linux + 137) 
+#define __NR_afs_syscall        (__NR_Linux + 137) /* Syscall for Andrew File System */
 #define __NR_setfsuid           (__NR_Linux + 138)
 #define __NR_setfsgid           (__NR_Linux + 139)
 #define __NR__llseek            (__NR_Linux + 140)
@@ -655,7 +687,7 @@
 #define __NR_shmget             (__NR_Linux + 194)
 #define __NR_shmctl             (__NR_Linux + 195)
 
-#define __NR_getpmsg		(__NR_Linux + 196) 
+#define __NR_getpmsg		(__NR_Linux + 196) /* Somebody *wants* streams? */
 #define __NR_putpmsg		(__NR_Linux + 197)
 
 #define __NR_lstat64            (__NR_Linux + 198)
@@ -794,9 +826,9 @@
 #define __NR_Linux_syscalls	(__NR_sendmmsg + 1)
 
 
-#define __IGNORE_select		
-#define __IGNORE_fadvise64	
-#define __IGNORE_utimes		
+#define __IGNORE_select		/* newselect */
+#define __IGNORE_fadvise64	/* fadvise64_64 */
+#define __IGNORE_utimes		/* utime */
 
 
 #define HPUX_GATEWAY_ADDR       0xC0000004
@@ -811,8 +843,12 @@
 # define ASM_LINE_SEP ;
 #endif
 
+/* Definition taken from glibc 2.3.3
+ * sysdeps/unix/sysv/linux/hppa/sysdep.h
+ */
 
 #ifdef PIC
+/* WARNING: CANNOT BE USED IN A NOP! */
 # define K_STW_ASM_PIC	"       copy %%r19, %%r4\n"
 # define K_LDW_ASM_PIC	"       copy %%r4, %%r19\n"
 # define K_USING_GR4	"%r4",
@@ -822,6 +858,16 @@
 # define K_USING_GR4
 #endif
 
+/* GCC has to be warned that a syscall may clobber all the ABI
+   registers listed as "caller-saves", see page 8, Table 2
+   in section 2.2.6 of the PA-RISC RUN-TIME architecture
+   document. However! r28 is the result and will conflict with
+   the clobber list so it is left out. Also the input arguments
+   registers r20 -> r26 will conflict with the list so they
+   are treated specially. Although r19 is clobbered by the syscall
+   we cannot say this because it would violate ABI, thus we say
+   r4 is clobbered and use that register to save/restore r19
+   across the syscall. */
 
 #define K_CALL_CLOB_REGS "%r1", "%r2", K_USING_GR4 \
 	        	 "%r20", "%r29", "%r31"
@@ -832,7 +878,7 @@
 	{								\
 		register unsigned long __res __asm__("r28");		\
 		K_LOAD_ARGS_##nr(args)					\
-				\
+		/* FIXME: HACK stw/ldw r19 around syscall */		\
 		__asm__ volatile(					\
 			K_STW_ASM_PIC					\
 			"	ble  0x100(%%sr2, %%r0)\n"		\
@@ -871,6 +917,7 @@
 	register unsigned long __r21 __asm__("r21") = (unsigned long)(r21);   \
 	K_LOAD_ARGS_5(r26,r25,r24,r23,r22)
 
+/* Even with zero args we use r20 for the syscall number */
 #define K_ASM_ARGS_0
 #define K_ASM_ARGS_1 K_ASM_ARGS_0, "r" (__r26)
 #define K_ASM_ARGS_2 K_ASM_ARGS_1, "r" (__r25)
@@ -879,6 +926,7 @@
 #define K_ASM_ARGS_5 K_ASM_ARGS_4, "r" (__r22)
 #define K_ASM_ARGS_6 K_ASM_ARGS_5, "r" (__r21)
 
+/* The registers not listed as inputs but clobbered */
 #define K_CLOB_ARGS_6
 #define K_CLOB_ARGS_5 K_CLOB_ARGS_6, "%r21"
 #define K_CLOB_ARGS_4 K_CLOB_ARGS_5, "%r22"
@@ -917,6 +965,7 @@ type name(type1 arg1, type2 arg2, type3 arg3, type4 arg4)		\
     return K_INLINE_SYSCALL(name, 4, arg1, arg2, arg3, arg4);	        \
 }
 
+/* select takes 5 arguments */
 #define _syscall5(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4,type5,arg5) \
 type name(type1 arg1, type2 arg2, type3 arg3, type4 arg4, type5 arg5)	\
 {									\
@@ -947,11 +996,17 @@ type name(type1 arg1, type2 arg2, type3 arg3, type4 arg4, type5 arg5)	\
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND
 #define __ARCH_WANT_COMPAT_SYS_RT_SIGSUSPEND
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #undef STR
 
+/*
+ * "Conditional" syscalls
+ *
+ * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
+ * but it doesn't work on all toolchains, so we just do it by hand
+ */
 #define cond_syscall(x) asm(".weak\t" #x "\n\t.set\t" #x ",sys_ni_syscall")
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_PARISC_UNISTD_H_ */

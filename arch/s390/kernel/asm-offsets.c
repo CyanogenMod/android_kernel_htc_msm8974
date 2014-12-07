@@ -1,3 +1,8 @@
+/*
+ * Generate definitions needed by assembly language modules.
+ * This code generates raw asm output which is post-processed to extract
+ * and format the required data.
+ */
 
 #define ASM_OFFSETS_C
 
@@ -8,6 +13,10 @@
 #include <asm/vdso.h>
 #include <asm/pgtable.h>
 
+/*
+ * Make sure that the compiler is new enough. We want a compiler that
+ * is known to work with the "Q" assembler constraint.
+ */
 #if __GNUC__ < 3 || (__GNUC__ == 3 && __GNUC_MINOR__ < 3)
 #error Your compiler is too old; please use version 3.3.3 or newer
 #endif
@@ -45,7 +54,7 @@ int main(void)
 	DEFINE(__SF_GPRS, offsetof(struct stack_frame, gprs));
 	DEFINE(__SF_EMPTY, offsetof(struct stack_frame, empty1));
 	BLANK();
-	
+	/* timeval/timezone offsets for use by vdso */
 	DEFINE(__VDSO_UPD_COUNT, offsetof(struct vdso_data, tb_update_count));
 	DEFINE(__VDSO_XTIME_STAMP, offsetof(struct vdso_data, xtime_tod_stamp));
 	DEFINE(__VDSO_XTIME_SEC, offsetof(struct vdso_data, xtime_clock_sec));
@@ -57,18 +66,18 @@ int main(void)
 	DEFINE(__VDSO_NTP_MULT, offsetof(struct vdso_data, ntp_mult));
 	DEFINE(__VDSO_ECTG_BASE, offsetof(struct vdso_per_cpu_data, ectg_timer_base));
 	DEFINE(__VDSO_ECTG_USER, offsetof(struct vdso_per_cpu_data, ectg_user_time));
-	
+	/* constants used by the vdso */
 	DEFINE(__CLOCK_REALTIME, CLOCK_REALTIME);
 	DEFINE(__CLOCK_MONOTONIC, CLOCK_MONOTONIC);
 	DEFINE(__CLOCK_REALTIME_RES, MONOTONIC_RES_NSEC);
 	BLANK();
-	
+	/* idle data offsets */
 	DEFINE(__IDLE_ENTER, offsetof(struct s390_idle_data, idle_enter));
 	DEFINE(__IDLE_EXIT, offsetof(struct s390_idle_data, idle_exit));
-	
+	/* vtimer queue offsets */
 	DEFINE(__VQ_IDLE_ENTER, offsetof(struct vtimer_queue, idle_enter));
 	DEFINE(__VQ_IDLE_EXIT, offsetof(struct vtimer_queue, idle_exit));
-	
+	/* lowcore offsets */
 	DEFINE(__LC_EXT_PARAMS, offsetof(struct _lowcore, ext_params));
 	DEFINE(__LC_EXT_CPU_ADDR, offsetof(struct _lowcore, ext_cpu_addr));
 	DEFINE(__LC_EXT_INT_CODE, offsetof(struct _lowcore, ext_int_code));
@@ -140,7 +149,7 @@ int main(void)
 	DEFINE(__LC_CREGS_SAVE_AREA, offsetof(struct _lowcore, cregs_save_area));
 #ifdef CONFIG_32BIT
 	DEFINE(SAVE_AREA_BASE, offsetof(struct _lowcore, extended_save_area_addr));
-#else 
+#else /* CONFIG_32BIT */
 	DEFINE(__LC_EXT_PARAMS2, offsetof(struct _lowcore, ext_params2));
 	DEFINE(SAVE_AREA_BASE, offsetof(struct _lowcore, floating_pt_save_area));
 	DEFINE(__LC_PASTE, offsetof(struct _lowcore, paste));
@@ -149,6 +158,6 @@ int main(void)
 	DEFINE(__LC_VDSO_PER_CPU, offsetof(struct _lowcore, vdso_per_cpu_data));
 	DEFINE(__LC_GMAP, offsetof(struct _lowcore, gmap));
 	DEFINE(__GMAP_ASCE, offsetof(struct gmap, asce));
-#endif 
+#endif /* CONFIG_32BIT */
 	return 0;
 }

@@ -34,6 +34,14 @@
 
 asmlinkage void ret_from_fork(void) asm ("ret_from_fork");
 
+/*
+ * Return saved PC of a blocked thread. used in kernel/sched.
+ * resume in entry.S does not create a new stack frame, it
+ * just stores the registers %r6-%r15 to the frame given by
+ * schedule. We want to return the address of the caller of
+ * schedule, so we have to walk the backchain one time to
+ * find the frame schedule() store its return address.
+ */
 unsigned long thread_saved_pc(struct task_struct *tsk)
 {
 	struct stack_frame *sf, *low, *high;
@@ -51,6 +59,9 @@ unsigned long thread_saved_pc(struct task_struct *tsk)
 	return sf->gprs[8];
 }
 
+/*
+ * The idle loop on a S390...
+ */
 static void default_idle(void)
 {
 	if (cpu_is_offline(smp_processor_id()))
@@ -66,7 +77,7 @@ static void default_idle(void)
 		local_irq_enable();
 		return;
 	}
-	
+	/* Halt the cpu and keep track of cpu time accounting. */
 	vtime_stop_cpu();
 }
 
@@ -110,12 +121,15 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.gprs[11] = (unsigned long) do_exit;
 	regs.orig_gpr2 = -1;
 
-	
+	/* Ok, create the new process.. */
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED,
 		       0, &regs, 0, NULL, NULL);
 }
 EXPORT_SYMBOL(kernel_thread);
 
+/*
+ * Free current thread data structures etc..
+ */
 void exit_thread(void)
 {
 }
@@ -141,32 +155,36 @@ int copy_thread(unsigned long clone_flags, unsigned long new_stackp,
 
 	frame = container_of(task_pt_regs(p), struct fake_frame, childregs);
 	p->thread.ksp = (unsigned long) frame;
-	
+	/* Store access registers to kernel stack of new process. */
 	frame->childregs = *regs;
-	frame->childregs.gprs[2] = 0;	
+	frame->childregs.gprs[2] = 0;	/* child returns 0 on fork. */
 	frame->childregs.gprs[15] = new_stackp;
 	frame->sf.back_chain = 0;
 
-	
+	/* new return point is ret_from_fork */
 	frame->sf.gprs[8] = (unsigned long) ret_from_fork;
 
-	
+	/* fake return stack for resume(), don't go back to schedule */
 	frame->sf.gprs[9] = (unsigned long) frame;
 
-	
+	/* Save access registers to new thread structure. */
 	save_access_regs(&p->thread.acrs[0]);
 
 #ifndef CONFIG_64BIT
+	/*
+	 * save fprs to current->thread.fp_regs to merge them with
+	 * the emulated registers and then copy the result to the child.
+	 */
 	save_fp_regs(&current->thread.fp_regs);
 	memcpy(&p->thread.fp_regs, &current->thread.fp_regs,
 	       sizeof(s390_fp_regs));
-	
+	/* Set a new TLS ?  */
 	if (clone_flags & CLONE_SETTLS)
 		p->thread.acrs[0] = regs->gprs[6];
-#else 
-	
+#else /* CONFIG_64BIT */
+	/* Save the fpu registers to new thread structure. */
 	save_fp_regs(&p->thread.fp_regs);
-	
+	/* Set a new TLS ?  */
 	if (clone_flags & CLONE_SETTLS) {
 		if (is_compat_task()) {
 			p->thread.acrs[0] = (unsigned int) regs->gprs[6];
@@ -175,15 +193,15 @@ int copy_thread(unsigned long clone_flags, unsigned long new_stackp,
 			p->thread.acrs[1] = (unsigned int) regs->gprs[6];
 		}
 	}
-#endif 
-	
+#endif /* CONFIG_64BIT */
+	/* start new process with ar4 pointing to the correct address space */
 	p->thread.mm_segment = get_fs();
-	
+	/* Don't copy debug registers */
 	memset(&p->thread.per_user, 0, sizeof(p->thread.per_user));
 	memset(&p->thread.per_event, 0, sizeof(p->thread.per_event));
 	clear_tsk_thread_flag(p, TIF_SINGLE_STEP);
 	clear_tsk_thread_flag(p, TIF_PER_TRAP);
-	
+	/* Initialize per thread user and system timer values */
 	ti = task_thread_info(p);
 	ti->user_timer = 0;
 	ti->system_timer = 0;
@@ -207,6 +225,16 @@ SYSCALL_DEFINE4(clone, unsigned long, newsp, unsigned long, clone_flags,
 		       parent_tidptr, child_tidptr);
 }
 
+/*
+ * This is trivial, and on the face of it looks like it
+ * could equally well be done in user mode.
+ *
+ * Not so, for quite unobvious reasons - register pressure.
+ * In user mode vfork() cannot have a stack frame, and if
+ * done by calling the "clone()" system call directly, you
+ * do not have enough call-clobbered registers to hold all
+ * the information you need.
+ */
 SYSCALL_DEFINE0(vfork)
 {
 	struct pt_regs *regs = task_pt_regs(current);
@@ -221,6 +249,9 @@ asmlinkage void execve_tail(void)
 		asm volatile("sfpc %0,%0" : : "d" (0));
 }
 
+/*
+ * sys_execve() executes a new program.
+ */
 SYSCALL_DEFINE3(execve, const char __user *, name,
 		const char __user *const __user *, argv,
 		const char __user *const __user *, envp)
@@ -243,14 +274,21 @@ out:
 	return rc;
 }
 
+/*
+ * fill in the FPU structure for a core dump.
+ */
 int dump_fpu (struct pt_regs * regs, s390_fp_regs *fpregs)
 {
 #ifndef CONFIG_64BIT
+	/*
+	 * save fprs to current->thread.fp_regs to merge them with
+	 * the emulated registers and then copy the result to the dump.
+	 */
 	save_fp_regs(&current->thread.fp_regs);
 	memcpy(fpregs, &current->thread.fp_regs, sizeof(s390_fp_regs));
-#else 
+#else /* CONFIG_64BIT */
 	save_fp_regs(fpregs);
-#endif 
+#endif /* CONFIG_64BIT */
 	return 1;
 }
 EXPORT_SYMBOL(dump_fpu);
@@ -288,7 +326,7 @@ unsigned long arch_align_stack(unsigned long sp)
 
 static inline unsigned long brk_rnd(void)
 {
-	
+	/* 8MB for 32bit, 1GB for 64bit */
 	if (is_32bit_task())
 		return (get_random_int() & 0x7ffUL) << PAGE_SHIFT;
 	else

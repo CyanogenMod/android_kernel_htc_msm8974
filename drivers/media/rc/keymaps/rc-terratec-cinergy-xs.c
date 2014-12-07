@@ -13,6 +13,9 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Terratec Cinergy Hybrid T USB XS
+   Devin Heitmueller <dheitmueller@linuxtv.org>
+ */
 
 static struct rc_map_table terratec_cinergy_xs[] = {
 	{ 0x41, KEY_HOME},
@@ -68,7 +71,7 @@ static struct rc_map_list terratec_cinergy_xs_map = {
 	.map = {
 		.scan    = terratec_cinergy_xs,
 		.size    = ARRAY_SIZE(terratec_cinergy_xs),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_TERRATEC_CINERGY_XS,
 	}
 };

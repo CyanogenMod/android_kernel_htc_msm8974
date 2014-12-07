@@ -42,12 +42,12 @@ static int omap2_onenand_set_async_mode(int cs, void __iomem *onenand_base)
 	const int t_ce = 76;
 	const int t_aa = 76;
 	const int t_oe = 20;
-	const int t_cez = 20; 
+	const int t_cez = 20; /* max of t_cez, t_oez */
 	const int t_ds = 30;
 	const int t_wpl = 40;
 	const int t_wph = 30;
 
-	
+	/* Ensure sync read and sync write are disabled */
 	reg = readw(onenand_base + ONENAND_REG_SYS_CFG1);
 	reg &= ~ONENAND_SYS_CFG1_SYNC_READ & ~ONENAND_SYS_CFG1_SYNC_WRITE;
 	writew(reg, onenand_base + ONENAND_REG_SYS_CFG1);
@@ -57,7 +57,7 @@ static int omap2_onenand_set_async_mode(int cs, void __iomem *onenand_base)
 	t.cs_on = 0;
 	t.adv_on = 0;
 
-	
+	/* Read */
 	t.adv_rd_off = gpmc_round_ns_to_ticks(max_t(int, t_avdp, t_cer));
 	t.oe_on  = t.adv_rd_off + gpmc_round_ns_to_ticks(t_aavdh);
 	t.access = t.adv_on + gpmc_round_ns_to_ticks(t_aa);
@@ -67,7 +67,7 @@ static int omap2_onenand_set_async_mode(int cs, void __iomem *onenand_base)
 	t.cs_rd_off = t.oe_off;
 	t.rd_cycle  = t.cs_rd_off + gpmc_round_ns_to_ticks(t_cez);
 
-	
+	/* Write */
 	t.adv_wr_off = t.adv_rd_off;
 	t.we_on  = t.oe_on;
 	if (cpu_is_omap34xx()) {
@@ -78,7 +78,7 @@ static int omap2_onenand_set_async_mode(int cs, void __iomem *onenand_base)
 	t.cs_wr_off = t.we_off + gpmc_round_ns_to_ticks(t_wph);
 	t.wr_cycle  = t.cs_wr_off + gpmc_round_ns_to_ticks(t_cez);
 
-	
+	/* Configure GPMC for asynchronous read */
 	gpmc_cs_write_reg(cs, GPMC_CS_CONFIG1,
 			  GPMC_CONFIG1_DEVICESIZE_16 |
 			  GPMC_CONFIG1_MUXADDDATA);
@@ -87,7 +87,7 @@ static int omap2_onenand_set_async_mode(int cs, void __iomem *onenand_base)
 	if (err)
 		return err;
 
-	
+	/* Ensure sync read and sync write are disabled */
 	reg = readw(onenand_base + ONENAND_REG_SYS_CFG1);
 	reg &= ~ONENAND_SYS_CFG1_SYNC_READ & ~ONENAND_SYS_CFG1_SYNC_WRITE;
 	writew(reg, onenand_base + ONENAND_REG_SYS_CFG1);
@@ -171,7 +171,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 	struct gpmc_timings t;
 	const int t_cer  = 15;
 	const int t_avdp = 12;
-	const int t_cez  = 20; 
+	const int t_cez  = 20; /* max of t_cez, t_oez */
 	const int t_ds   = 30;
 	const int t_wpl  = 40;
 	const int t_wph  = 30;
@@ -192,7 +192,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 		return omap2_onenand_set_async_mode(cs, onenand_base);
 
 	if (!freq) {
-		
+		/* Very first call freq is not known */
 		err = omap2_onenand_set_async_mode(cs, onenand_base);
 		if (err)
 			return err;
@@ -202,7 +202,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 
 	switch (freq) {
 	case 104:
-		min_gpmc_clk_period = 9600; 
+		min_gpmc_clk_period = 9600; /* 104 MHz */
 		t_ces   = 3;
 		t_avds  = 4;
 		t_avdh  = 2;
@@ -211,7 +211,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 		t_rdyo  = 6;
 		break;
 	case 83:
-		min_gpmc_clk_period = 12000; 
+		min_gpmc_clk_period = 12000; /* 83 MHz */
 		t_ces   = 5;
 		t_avds  = 4;
 		t_avdh  = 2;
@@ -220,7 +220,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 		t_rdyo  = 9;
 		break;
 	case 66:
-		min_gpmc_clk_period = 15000; 
+		min_gpmc_clk_period = 15000; /* 66 MHz */
 		t_ces   = 6;
 		t_avds  = 5;
 		t_avdh  = 2;
@@ -229,7 +229,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 		t_rdyo  = 11;
 		break;
 	default:
-		min_gpmc_clk_period = 18500; 
+		min_gpmc_clk_period = 18500; /* 54 MHz */
 		t_ces   = 7;
 		t_avds  = 7;
 		t_avdh  = 7;
@@ -243,27 +243,27 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 	tick_ns = gpmc_ticks_to_ns(1);
 	div = gpmc_cs_calc_divider(cs, min_gpmc_clk_period);
 	gpmc_clk_ns = gpmc_ticks_to_ns(div);
-	if (gpmc_clk_ns < 15) 
+	if (gpmc_clk_ns < 15) /* >66Mhz */
 		hf = 1;
-	if (gpmc_clk_ns < 12) 
+	if (gpmc_clk_ns < 12) /* >83Mhz */
 		vhf = 1;
 	if (vhf)
 		latency = 8;
 	else if (hf)
 		latency = 6;
-	else if (gpmc_clk_ns >= 25) 
+	else if (gpmc_clk_ns >= 25) /* 40 MHz*/
 		latency = 3;
 	else
 		latency = 4;
 
 	if (clk_dep) {
-		if (gpmc_clk_ns < 12) { 
+		if (gpmc_clk_ns < 12) { /* >83Mhz */
 			t_ces   = 3;
 			t_avds  = 4;
-		} else if (gpmc_clk_ns < 15) { 
+		} else if (gpmc_clk_ns < 15) { /* >66Mhz */
 			t_ces   = 5;
 			t_avds  = 4;
-		} else if (gpmc_clk_ns < 25) { 
+		} else if (gpmc_clk_ns < 25) { /* >40Mhz */
 			t_ces   = 6;
 			t_avds  = 5;
 		} else {
@@ -300,7 +300,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 		gpmc_cs_write_reg(cs, GPMC_CS_CONFIG4, reg);
 	}
 
-	
+	/* Set synchronous read timings */
 	memset(&t, 0, sizeof(t));
 	t.sync_clk = min_gpmc_clk_period;
 	t.cs_on = 0;
@@ -309,10 +309,10 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 	fclk_offset = gpmc_ns_to_ticks(fclk_offset_ns);
 	t.page_burst_access = gpmc_clk_ns;
 
-	
+	/* Read */
 	t.adv_rd_off = gpmc_ticks_to_ns(fclk_offset + gpmc_ns_to_ticks(t_avdh));
 	t.oe_on = gpmc_ticks_to_ns(fclk_offset + gpmc_ns_to_ticks(t_ach));
-	
+	/* Force at least 1 clk between AVD High to OE Low */
 	if (t.oe_on <= t.adv_rd_off)
 		t.oe_on = t.adv_rd_off + gpmc_round_ns_to_ticks(1);
 	t.access = gpmc_ticks_to_ns(fclk_offset + (latency + 1) * div);
@@ -322,7 +322,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 	t.rd_cycle = gpmc_ticks_to_ns(fclk_offset + (latency + 1) * div +
 		     ticks_cez);
 
-	
+	/* Write */
 	if (sync_write) {
 		t.adv_wr_off = t.adv_rd_off;
 		t.we_on  = 0;
@@ -348,7 +348,7 @@ static int omap2_onenand_set_sync_mode(struct omap_onenand_platform_data *cfg,
 		}
 	}
 
-	
+	/* Configure GPMC for synchronous read */
 	gpmc_cs_write_reg(cs, GPMC_CS_CONFIG1,
 			  GPMC_CONFIG1_WRAPBURST_SUPP |
 			  GPMC_CONFIG1_READMULTIPLE_SUPP |
@@ -379,7 +379,7 @@ static int gpmc_onenand_setup(void __iomem *onenand_base, int *freq_ptr)
 {
 	struct device *dev = &gpmc_onenand_device.dev;
 
-	
+	/* Set sync timings in GPMC */
 	if (omap2_onenand_set_sync_mode(gpmc_onenand_data, onenand_base,
 			freq_ptr) < 0) {
 		dev_err(dev, "Unable to set synchronous mode\n");

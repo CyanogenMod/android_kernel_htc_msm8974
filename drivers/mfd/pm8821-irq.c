@@ -35,6 +35,10 @@
 #define MPM_PIN_FOR_8821_IRQ		7
 #define SSBI_REG_ADDR_IRQ_IT_STATUS(master_base, block) (master_base + block)
 
+/*
+ * Block 0 does not exist in PM8821 IRQ SSBI address space,
+ * IRQ0 is assigned to bit0 of block1.
+ */
 #define SSBI_REG_ADDR_IRQ_IT_CLEAR(master_base, block) \
 	(master_base + PM8821_IRQ_CLEAR_OFFSET + block)
 
@@ -117,10 +121,10 @@ static int pm8821_irq_block_handler(struct pm_irq_chip *chip,
 		return 0;
 	}
 
-	
+	/* Convert block offset to global block number */
 	block += (master_number * PM8821_BLOCKS_PER_MASTER) - 1;
 
-	
+	/* Check IRQ bits */
 	for (i = 0; i < 8; i++) {
 		if (bits & BIT(i)) {
 			pmirq = (block << 3) + i;
@@ -263,6 +267,10 @@ static void pm8821_irq_unmask(struct irq_data *d)
 
 static int pm8821_irq_set_type(struct irq_data *d, unsigned int flow_type)
 {
+	/*
+	 * PM8821 IRQ controller does not have explicit software support for
+	 * IRQ flow type.
+	 */
 	return 0;
 }
 
@@ -289,6 +297,19 @@ static struct irq_chip pm_irq_chip = {
 	.flags		= IRQCHIP_MASK_ON_SUSPEND,
 };
 
+/**
+ * pm8821_get_irq_stat - get the status of the irq line
+ * @chip: pointer to identify a pmic irq controller
+ * @irq: the irq number
+ *
+ * The pm8821 gpio and mpp rely on the interrupt block to read
+ * the values on their pins. This function is to facilitate reading
+ * the status of a gpio or an mpp line. The caller has to convert the
+ * gpio number to irq number.
+ *
+ * RETURNS:
+ * an int indicating the value read on that line
+ */
 int pm8821_get_irq_stat(struct pm_irq_chip *chip, int irq)
 {
 	int pmirq, rc;

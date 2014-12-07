@@ -148,7 +148,7 @@ int mpsc_console_init(void *devp, struct serial_console_data *scdp)
 
 	mpscintr_base += (reg_set == 0) ? 0x4 : 0xc;
 
-	
+	/* Make sure the mpsc ctlrs are shutdown */
 	out_le32((u32 *)(mpscintr_base + MPSC_INTR_CAUSE), 0);
 	out_le32((u32 *)(mpscintr_base + MPSC_INTR_CAUSE), 0);
 	out_le32((u32 *)(mpscintr_base + MPSC_INTR_MASK), 0);

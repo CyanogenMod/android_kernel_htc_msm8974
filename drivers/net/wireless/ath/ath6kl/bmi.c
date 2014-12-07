@@ -72,7 +72,7 @@ int ath6kl_bmi_get_target_info(struct ath6kl *ar,
 	}
 
 	if (le32_to_cpu(targ_info->version) == TARGET_VERSION_SENTINAL) {
-		
+		/* Determine how many bytes are in the Target's targ_info */
 		ret = ath6kl_hif_bmi_read(ar,
 				   (u8 *)&targ_info->byte_count,
 				   sizeof(targ_info->byte_count));
@@ -82,12 +82,16 @@ int ath6kl_bmi_get_target_info(struct ath6kl *ar,
 			return ret;
 		}
 
+		/*
+		 * The target's targ_info doesn't match the host's targ_info.
+		 * We need to do some backwards compatibility to make this work.
+		 */
 		if (le32_to_cpu(targ_info->byte_count) != sizeof(*targ_info)) {
 			WARN_ON(1);
 			return -EINVAL;
 		}
 
-		
+		/* Read the remainder of the targ_info */
 		ret = ath6kl_hif_bmi_read(ar,
 				   ((u8 *)targ_info) +
 				   sizeof(targ_info->byte_count),
@@ -197,7 +201,7 @@ int ath6kl_bmi_write(struct ath6kl *ar, u32 addr, u8 *buf, u32 len)
 
 		if (len_remain < (ar->bmi.max_data_size - header)) {
 			if (len_remain & 3) {
-				
+				/* align it with 4 bytes */
 				len_remain = len_remain +
 					     (4 - (len_remain & 3));
 				memcpy(aligned_buf, src, len_remain);
@@ -498,7 +502,7 @@ int ath6kl_bmi_fast_download(struct ath6kl *ar, u32 addr, u8 *buf, u32 len)
 		return ret;
 
 	if (unaligned_bytes) {
-		
+		/* copy the last word into a zero padded buffer */
 		memcpy(&last_word, &buf[last_word_offset], unaligned_bytes);
 	}
 
@@ -510,6 +514,8 @@ int ath6kl_bmi_fast_download(struct ath6kl *ar, u32 addr, u8 *buf, u32 len)
 		ret = ath6kl_bmi_lz_data(ar, (u8 *)&last_word, 4);
 
 	if (!ret) {
+		/* Close compressed stream and open a new (fake) one.
+		 * This serves mainly to flush Target caches. */
 		ret = ath6kl_bmi_lz_stream_start(ar, 0x00);
 	}
 	return ret;
@@ -525,7 +531,7 @@ int ath6kl_bmi_init(struct ath6kl *ar)
 	if (WARN_ON(ar->bmi.max_data_size == 0))
 		return -EINVAL;
 
-	
+	/* cmd + addr + len + data_size */
 	ar->bmi.max_cmd_size = ar->bmi.max_data_size + (sizeof(u32) * 3);
 
 	ar->bmi.cmd_buf = kzalloc(ar->bmi.max_cmd_size, GFP_ATOMIC);

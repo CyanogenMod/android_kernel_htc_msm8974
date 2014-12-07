@@ -44,7 +44,7 @@ nlmsvc_share_file(struct nlm_host *host, struct nlm_file *file,
 	if (share == NULL)
 		return nlm_lck_denied_nolocks;
 
-	
+	/* Copy owner handle */
 	ohdata = (u8 *) (share + 1);
 	memcpy(ohdata, oh->data, oh->len);
 
@@ -61,6 +61,9 @@ update:
 	return nlm_granted;
 }
 
+/*
+ * Delete a share.
+ */
 __be32
 nlmsvc_unshare_file(struct nlm_host *host, struct nlm_file *file,
 			struct nlm_args *argp)
@@ -77,9 +80,15 @@ nlmsvc_unshare_file(struct nlm_host *host, struct nlm_file *file,
 		}
 	}
 
+	/* X/Open spec says return success even if there was no
+	 * corresponding share. */
 	return nlm_granted;
 }
 
+/*
+ * Traverse all shares for a given file, and delete
+ * those owned by the given (type of) host
+ */
 void nlmsvc_traverse_shares(struct nlm_host *host, struct nlm_file *file,
 		nlm_host_match_fn_t match)
 {

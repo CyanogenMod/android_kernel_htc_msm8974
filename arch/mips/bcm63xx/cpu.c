@@ -100,18 +100,18 @@ static unsigned int detect_cpu_clock(void)
 {
 	switch (bcm63xx_get_cpu_id()) {
 	case BCM6338_CPU_ID:
-		
+		/* BCM6338 has a fixed 240 Mhz frequency */
 		return 240000000;
 
 	case BCM6345_CPU_ID:
-		
+		/* BCM6345 has a fixed 140Mhz frequency */
 		return 140000000;
 
 	case BCM6348_CPU_ID:
 	{
 		unsigned int tmp, n1, n2, m1;
 
-		
+		/* 16MHz * (N1 + 1) * (N2 + 2) / (M1_CPU + 1) */
 		tmp = bcm_perf_readl(PERF_MIPSPLLCTL_REG);
 		n1 = (tmp & MIPSPLLCTL_N1_MASK) >> MIPSPLLCTL_N1_SHIFT;
 		n2 = (tmp & MIPSPLLCTL_N2_MASK) >> MIPSPLLCTL_N2_SHIFT;
@@ -126,7 +126,7 @@ static unsigned int detect_cpu_clock(void)
 	{
 		unsigned int tmp, n1, n2, m1;
 
-		
+		/* 16MHz * N1 * N2 / M1_CPU */
 		tmp = bcm_ddr_readl(DDR_DMIPSPLLCFG_REG);
 		n1 = (tmp & DMIPSPLLCFG_N1_MASK) >> DMIPSPLLCFG_N1_SHIFT;
 		n2 = (tmp & DMIPSPLLCFG_N2_MASK) >> DMIPSPLLCFG_N2_SHIFT;
@@ -138,7 +138,7 @@ static unsigned int detect_cpu_clock(void)
 	{
 		unsigned int tmp, p1, p2, ndiv, m1;
 
-		
+		/* (64MHz / P1) * P2 * NDIV / M1_CPU */
 		tmp = bcm_ddr_readl(DDR_DMIPSPLLCFG_6368_REG);
 
 		p1 = (tmp & DMIPSPLLCFG_6368_P1_MASK) >>
@@ -162,6 +162,9 @@ static unsigned int detect_cpu_clock(void)
 	}
 }
 
+/*
+ * attempt to detect the amount of memory installed
+ */
 static unsigned int detect_memory_size(void)
 {
 	unsigned int cols = 0, rows = 0, is_32bits = 0, banks = 0;
@@ -188,10 +191,10 @@ static unsigned int detect_memory_size(void)
 		banks = 2;
 	}
 
-	
+	/* 0 => 11 address bits ... 2 => 13 address bits */
 	rows += 11;
 
-	
+	/* 0 => 8 address bits ... 2 => 10 address bits */
 	cols += 8;
 
 	return 1 << (cols + rows + (is_32bits + 1) + banks);
@@ -203,7 +206,7 @@ void __init bcm63xx_cpu_init(void)
 	struct cpuinfo_mips *c = &current_cpu_data;
 	unsigned int cpu = smp_processor_id();
 
-	
+	/* soc registers location depends on cpu type */
 	expected_cpu_id = 0;
 
 	switch (c->cputype) {
@@ -240,11 +243,18 @@ void __init bcm63xx_cpu_init(void)
 		break;
 	}
 
+	/*
+	 * really early to panic, but delaying panic would not help since we
+	 * will never get any working console
+	 */
 	if (!expected_cpu_id)
 		panic("unsupported Broadcom CPU");
 
+	/*
+	 * bcm63xx_regs_base is set, we can access soc registers
+	 */
 
-	
+	/* double check CPU type */
 	tmp = bcm_perf_readl(PERF_REV_REG);
 	bcm63xx_cpu_id = (tmp & REV_CHIPID_MASK) >> REV_CHIPID_SHIFT;
 	bcm63xx_cpu_rev = (tmp & REV_REVID_MASK) >> REV_REVID_SHIFT;

@@ -23,27 +23,46 @@
 #include <asm/prom.h>
 
 
+/*
+ * MSIC registers, specified as offsets from dcr_base
+ */
 #define MSIC_CTRL_REG	0x0
 
+/* Base Address registers specify FIFO location in BE memory */
 #define MSIC_BASE_ADDR_HI_REG	0x3
 #define MSIC_BASE_ADDR_LO_REG	0x4
 
+/* Hold the read/write offsets into the FIFO */
 #define MSIC_READ_OFFSET_REG	0x5
 #define MSIC_WRITE_OFFSET_REG	0x6
 
 
+/* MSIC control register flags */
 #define MSIC_CTRL_ENABLE		0x0001
 #define MSIC_CTRL_FIFO_FULL_ENABLE	0x0002
 #define MSIC_CTRL_IRQ_ENABLE		0x0008
 #define MSIC_CTRL_FULL_STOP_ENABLE	0x0010
 
+/*
+ * The MSIC can be configured to use a FIFO of 32KB, 64KB, 128KB or 256KB.
+ * Currently we're using a 64KB FIFO size.
+ */
 #define MSIC_FIFO_SIZE_SHIFT	16
 #define MSIC_FIFO_SIZE_BYTES	(1 << MSIC_FIFO_SIZE_SHIFT)
 
+/*
+ * To configure the FIFO size as (1 << n) bytes, we write (n - 15) into bits
+ * 8-9 of the MSIC control reg.
+ */
 #define MSIC_CTRL_FIFO_SIZE	(((MSIC_FIFO_SIZE_SHIFT - 15) << 8) & 0x300)
 
+/*
+ * We need to mask the read/write offsets to make sure they stay within
+ * the bounds of the FIFO. Also they should always be 16-byte aligned.
+ */
 #define MSIC_FIFO_SIZE_MASK	((MSIC_FIFO_SIZE_BYTES - 1) & ~0xFu)
 
+/* Each entry in the FIFO is 16 bytes, the first 4 bytes hold the irq # */
 #define MSIC_FIFO_ENTRY_SIZE	0x10
 
 
@@ -84,7 +103,7 @@ static void axon_msi_cascade(unsigned int irq, struct irq_desc *desc)
 	write_offset = dcr_read(msic->dcr_host, MSIC_WRITE_OFFSET_REG);
 	pr_devel("axon_msi: original write_offset 0x%x\n", write_offset);
 
-	
+	/* write_offset doesn't wrap properly, so we have to mask it */
 	write_offset &= MSIC_FIFO_SIZE_MASK;
 
 	while (msic->read_offset != write_offset && retry < 100) {
@@ -99,6 +118,12 @@ static void axon_msi_cascade(unsigned int irq, struct irq_desc *desc)
 			generic_handle_irq(msi);
 			msic->fifo_virt[idx] = cpu_to_le32(0xffffffff);
 		} else {
+			/*
+			 * Reading the MSIC_WRITE_OFFSET_REG does not
+			 * reliably flush the outstanding DMA to the
+			 * FIFO buffer. Here we were reading stale
+			 * data, so we need to retry.
+			 */
 			udelay(1);
 			retry++;
 			pr_devel("axon_msi: invalid irq 0x%x!\n", msi);
@@ -364,7 +389,7 @@ static int axon_msi_probe(struct platform_device *device)
 	}
 	memset(msic->fifo_virt, 0xff, MSIC_FIFO_SIZE_BYTES);
 
-	
+	/* We rely on being able to stash a virq in a u16, so limit irqs to < 65536 */
 	msic->irq_domain = irq_domain_add_nomap(dn, 65536, &msic_host_ops, msic);
 	if (!msic->irq_domain) {
 		printk(KERN_ERR "axon_msi: couldn't allocate irq_domain for %s\n",
@@ -376,7 +401,7 @@ static int axon_msi_probe(struct platform_device *device)
 	irq_set_chained_handler(virq, axon_msi_cascade);
 	pr_devel("axon_msi: irq 0x%x setup for axon_msi\n", virq);
 
-	
+	/* Enable the MSIC hardware */
 	msic_dcr_write(msic, MSIC_BASE_ADDR_HI_REG, msic->fifo_phys >> 32);
 	msic_dcr_write(msic, MSIC_BASE_ADDR_LO_REG,
 				  msic->fifo_phys & 0xFFFFFFFF);
@@ -474,4 +499,4 @@ void axon_msi_debug_setup(struct device_node *dn, struct axon_msic *msic)
 		return;
 	}
 }
-#endif 
+#endif /* DEBUG */

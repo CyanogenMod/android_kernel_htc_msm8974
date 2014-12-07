@@ -4,6 +4,7 @@
 #include <linux/pci.h>
 #include <video/vga.h>
 
+/* Terminator for register set */
 
 #define VGA_REGSET_END_VAL	0xFF
 #define VGA_REGSET_END		{VGA_REGSET_END_VAL, 0, 0}
@@ -14,19 +15,20 @@ struct vga_regset {
 	u8 highbit;
 };
 
+/* ------------------------------------------------------------------------- */
 
 #define SVGA_FORMAT_END_VAL	0xFFFF
 #define SVGA_FORMAT_END		{SVGA_FORMAT_END_VAL, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, 0, 0, 0, 0, 0, 0}
 
 struct svga_fb_format {
-	
+	/* var part */
 	u32 bits_per_pixel;
 	struct fb_bitfield red;
 	struct fb_bitfield green;
 	struct fb_bitfield blue;
 	struct fb_bitfield transp;
 	u32 nonstd;
-	
+	/* fix part */
 	u32 type;
 	u32 type_aux;
 	u32 visual;
@@ -56,13 +58,14 @@ struct svga_pll {
 	u16 n_min;
 	u16 n_max;
 	u16 r_min;
-	u16 r_max;  
+	u16 r_max;  /* r_max < 32 */
 	u32 f_vco_min;
 	u32 f_vco_max;
 	u32 f_base;
 };
 
 
+/* Write a value to the attribute register */
 
 static inline void svga_wattr(void __iomem *regbase, u8 index, u8 data)
 {
@@ -71,12 +74,14 @@ static inline void svga_wattr(void __iomem *regbase, u8 index, u8 data)
 	vga_w(regbase, VGA_ATT_W, data);
 }
 
+/* Write a value to a sequence register with a mask */
 
 static inline void svga_wseq_mask(void __iomem *regbase, u8 index, u8 data, u8 mask)
 {
 	vga_wseq(regbase, index, (data & mask) | (vga_rseq(regbase, index) & ~mask));
 }
 
+/* Write a value to a CRT register with a mask */
 
 static inline void svga_wcrt_mask(void __iomem *regbase, u8 index, u8 data, u8 mask)
 {
@@ -115,5 +120,5 @@ void svga_set_timings(void __iomem *regbase, const struct svga_timing_regs *tm, 
 
 int svga_match_format(const struct svga_fb_format *frm, struct fb_var_screeninfo *var, struct fb_fix_screeninfo *fix);
 
-#endif 
+#endif /* _LINUX_SVGA_H */
 

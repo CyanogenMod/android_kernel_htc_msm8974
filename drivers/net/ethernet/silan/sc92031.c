@@ -18,6 +18,9 @@
  *  http://www.silan.com.cn/english/product/pdf/SC92031AY.pdf 
  */
 
+/* Note about set_mac_address: I don't know how to change the hardware
+ * matching, so you need to enable IFF_PROMISC when using it.
+ */
 
 #include <linux/interrupt.h>
 #include <linux/module.h>
@@ -35,10 +38,12 @@
 
 #define SC92031_NAME "sc92031"
 
+/* BAR 0 is MMIO, BAR 1 is PIO */
 #ifndef SC92031_USE_BAR
 #define SC92031_USE_BAR 0
 #endif
 
+/* Maximum number of multicast addresses to filter (vs. Rx-all-multicast). */
 static int multicast_filter_limit = 64;
 module_param(multicast_filter_limit, int, 0);
 MODULE_PARM_DESC(multicast_filter_limit,
@@ -50,56 +55,63 @@ MODULE_PARM_DESC(media, "Media type (0x00 = autodetect,"
 	" 0x01 = 10M half, 0x02 = 10M full,"
 	" 0x04 = 100M half, 0x08 = 100M full)");
 
-#define  RX_BUF_LEN_IDX  3 
+/* Size of the in-memory receive ring. */
+#define  RX_BUF_LEN_IDX  3 /* 0==8K, 1==16K, 2==32K, 3==64K ,4==128K*/
 #define  RX_BUF_LEN	(8192 << RX_BUF_LEN_IDX)
 
+/* Number of Tx descriptor registers. */
 #define  NUM_TX_DESC	   4
 
+/* max supported ethernet frame size -- must be at least (dev->mtu+14+4).*/
 #define  MAX_ETH_FRAME_SIZE	  1536
 
+/* Size of the Tx bounce buffers -- must be at least (dev->mtu+14+4). */
 #define  TX_BUF_SIZE       MAX_ETH_FRAME_SIZE
 #define  TX_BUF_TOT_LEN    (TX_BUF_SIZE * NUM_TX_DESC)
 
-#define  RX_FIFO_THRESH    7     
+/* The following settings are log_2(bytes)-4:  0 == 16 bytes .. 6==1024, 7==end of packet. */
+#define  RX_FIFO_THRESH    7     /* Rx buffer level before first PCI xfer.  */
 
+/* Time in jiffies before concluding the transmitter is hung. */
 #define  TX_TIMEOUT     (4*HZ)
 
-#define  SILAN_STATS_NUM    2    
+#define  SILAN_STATS_NUM    2    /* number of ETHTOOL_GSTATS */
 
+/* media options */
 #define  AUTOSELECT    0x00
 #define  M10_HALF      0x01
 #define  M10_FULL      0x02
 #define  M100_HALF     0x04
 #define  M100_FULL     0x08
 
- 
+ /* Symbolic offsets to registers. */
 enum  silan_registers {
-   Config0    = 0x00,         
-   Config1    = 0x04,         
-   RxBufWPtr  = 0x08,         
-   IntrStatus = 0x0C,         
-   IntrMask   = 0x10,         
-   RxbufAddr  = 0x14,         
-   RxBufRPtr  = 0x18,         
-   Txstatusall = 0x1C,        
-   TxStatus0  = 0x20,	      
-   TxAddr0    = 0x30,         
-   RxConfig   = 0x40,         
-   MAC0	      = 0x44,	      
-   MAR0	      = 0x4C,	      
-   RxStatus0  = 0x54,         
-   TxConfig   = 0x5C,         
-   PhyCtrl    = 0x60,         
-   FlowCtrlConfig = 0x64,     
-   Miicmd0    = 0x68,         
-   Miicmd1    = 0x6C,         
-   Miistatus  = 0x70,         
-   Timercnt   = 0x74,         
-   TimerIntr  = 0x78,         
-   PMConfig   = 0x7C,         
-   CRC0       = 0x80,         
-   Wakeup0    = 0x88,         
-   LSBCRC0    = 0xC8,         
+   Config0    = 0x00,         // Config0
+   Config1    = 0x04,         // Config1
+   RxBufWPtr  = 0x08,         // Rx buffer writer poiter
+   IntrStatus = 0x0C,         // Interrupt status
+   IntrMask   = 0x10,         // Interrupt mask
+   RxbufAddr  = 0x14,         // Rx buffer start address
+   RxBufRPtr  = 0x18,         // Rx buffer read pointer
+   Txstatusall = 0x1C,        // Transmit status of all descriptors
+   TxStatus0  = 0x20,	      // Transmit status (Four 32bit registers).
+   TxAddr0    = 0x30,         // Tx descriptors (also four 32bit).
+   RxConfig   = 0x40,         // Rx configuration
+   MAC0	      = 0x44,	      // Ethernet hardware address.
+   MAR0	      = 0x4C,	      // Multicast filter.
+   RxStatus0  = 0x54,         // Rx status
+   TxConfig   = 0x5C,         // Tx configuration
+   PhyCtrl    = 0x60,         // physical control
+   FlowCtrlConfig = 0x64,     // flow control
+   Miicmd0    = 0x68,         // Mii command0 register
+   Miicmd1    = 0x6C,         // Mii command1 register
+   Miistatus  = 0x70,         // Mii status register
+   Timercnt   = 0x74,         // Timer counter register
+   TimerIntr  = 0x78,         // Timer interrupt register
+   PMConfig   = 0x7C,         // Power Manager configuration
+   CRC0       = 0x80,         // Power Manager CRC ( Two 32bit regisers)
+   Wakeup0    = 0x88,         // power Manager wakeup( Eight 64bit regiser)
+   LSBCRC0    = 0xC8,         // power Manager LSBCRC(Two 32bit regiser)
    TestD0     = 0xD0,
    TestD4     = 0xD4,
    TestD8     = 0xD8,
@@ -196,7 +208,7 @@ enum Config1Bits {
    Cfg1_EarlyRx = 1 << 31,
    Cfg1_EarlyTx = 1 << 30,
 
-   
+   //rx buffer size
    Cfg1_Rcv8K   = 0x0,
    Cfg1_Rcv16K  = 0x1,
    Cfg1_Rcv32K  = 0x3,
@@ -244,50 +256,57 @@ enum PMConfigBits {
  * Use mmiowb() before unlocking if the hardware was written to.
  */
 
+/* Locking rules for the interrupt:
+ * - the interrupt and the tasklet never run at the same time
+ * - neither run between sc92031_disable_interrupts and
+ *   sc92031_enable_interrupt
+ */
 
 struct sc92031_priv {
 	spinlock_t		lock;
-	
+	/* iomap.h cookie */
 	void __iomem		*port_base;
-	
+	/* pci device structure */
 	struct pci_dev		*pdev;
-	
+	/* tasklet */
 	struct tasklet_struct	tasklet;
 
-	
+	/* CPU address of rx ring */
 	void			*rx_ring;
-	
+	/* PCI address of rx ring */
 	dma_addr_t		rx_ring_dma_addr;
-	
+	/* PCI address of rx ring read pointer */
 	dma_addr_t		rx_ring_tail;
 
-	
+	/* tx ring write index */
 	unsigned		tx_head;
-	
+	/* tx ring read index */
 	unsigned		tx_tail;
-	
+	/* CPU address of tx bounce buffer */
 	void			*tx_bufs;
-	
+	/* PCI address of tx bounce buffer */
 	dma_addr_t		tx_bufs_dma_addr;
 
-	
+	/* copies of some hardware registers */
 	u32			intr_status;
 	atomic_t		intr_mask;
 	u32			rx_config;
 	u32			tx_config;
 	u32			pm_config;
 
-	
+	/* copy of some flags from dev->flags */
 	unsigned int		mc_flags;
 
-	
+	/* for ETHTOOL_GSTATS */
 	u64			tx_timeouts;
 	u64			rx_loss;
 
-	
+	/* for dev->get_stats */
 	long			rx_value;
 };
 
+/* I don't know which registers can be safely read; however, I can guess
+ * MAC0 is one of them. */
 static inline void _sc92031_dummy_read(void __iomem *port_base)
 {
 	ioread32(port_base + MAC0);
@@ -337,16 +356,16 @@ static void sc92031_disable_interrupts(struct net_device *dev)
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 
-	
+	/* tell the tasklet/interrupt not to enable interrupts */
 	atomic_set(&priv->intr_mask, 0);
 	wmb();
 
-	
+	/* stop interrupts */
 	iowrite32(0, port_base + IntrMask);
 	_sc92031_dummy_read(port_base);
 	mmiowb();
 
-	
+	/* wait for any concurrent interrupt/tasklet to finish */
 	synchronize_irq(dev->irq);
 	tasklet_disable(&priv->tasklet);
 }
@@ -484,16 +503,16 @@ static bool _sc92031_check_media(struct net_device *dev)
 		speed_100 = output_status & 0x2;
 		duplex_full = output_status & 0x4;
 
-		
+		/* Initial Tx/Rx configuration */
 		priv->rx_config = (0x40 << LowThresholdShift) | (0x1c0 << HighThresholdShift);
 		priv->tx_config = 0x48800000;
 
-		
+		/* NOTE: vendor driver had dead code here to enable tx padding */
 
 		if (!speed_100)
 			priv->tx_config |= 0x80000;
 
-		
+		// configure rx mode
 		_sc92031_set_rx_config(dev);
 
 		if (duplex_full) {
@@ -580,51 +599,51 @@ static void _sc92031_reset(struct net_device *dev)
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 
-	
+	/* disable PM */
 	iowrite32(0, port_base + PMConfig);
 
-	
+	/* soft reset the chip */
 	iowrite32(Cfg0_Reset, port_base + Config0);
 	mdelay(200);
 
 	iowrite32(0, port_base + Config0);
 	mdelay(10);
 
-	
+	/* disable interrupts */
 	iowrite32(0, port_base + IntrMask);
 
-	
+	/* clear multicast address */
 	iowrite32(0, port_base + MAR0);
 	iowrite32(0, port_base + MAR0 + 4);
 
-	
+	/* init rx ring */
 	iowrite32(priv->rx_ring_dma_addr, port_base + RxbufAddr);
 	priv->rx_ring_tail = priv->rx_ring_dma_addr;
 
-	
+	/* init tx ring */
 	_sc92031_tx_clear(dev);
 
-	
+	/* clear old register values */
 	priv->intr_status = 0;
 	atomic_set(&priv->intr_mask, 0);
 	priv->rx_config = 0;
 	priv->tx_config = 0;
 	priv->mc_flags = 0;
 
-	
-	
+	/* configure rx buffer size */
+	/* NOTE: vendor driver had dead code here to enable early tx/rx */
 	iowrite32(Cfg1_Rcv64K, port_base + Config1);
 
 	_sc92031_phy_reset(dev);
 	_sc92031_check_media(dev);
 
-	
+	/* calculate rx fifo overflow */
 	priv->rx_value = 0;
 
-	
+	/* enable PM */
 	iowrite32(priv->pm_config, port_base + PMConfig);
 
-	
+	/* clear intr register */
 	ioread32(port_base + IntrStatus);
 }
 
@@ -650,7 +669,7 @@ static void _sc92031_tx_tasklet(struct net_device *dev)
 		if (tx_status & TxStatOK) {
 			dev->stats.tx_bytes += tx_status & 0x1fff;
 			dev->stats.tx_packets++;
-			
+			/* Note: TxCarrierLost is always asserted at 100mbps. */
 			dev->stats.collisions += (tx_status >> 22) & 0xf;
 		}
 
@@ -714,6 +733,9 @@ static void _sc92031_rx_tasklet(struct net_device *dev)
 	rx_ring_head = ioread32(port_base + RxBufWPtr);
 	rmb();
 
+	/* rx_ring_head is only 17 bits in the RxBufWPtr register.
+	 * we need to change it to 32 bits physical address
+	 */
 	rx_ring_head &= (dma_addr_t)(RX_BUF_LEN - 1);
 	rx_ring_head |= priv->rx_ring_dma_addr & ~(dma_addr_t)(RX_BUF_LEN - 1);
 	if (rx_ring_head < priv->rx_ring_dma_addr)
@@ -745,8 +767,8 @@ static void _sc92031_rx_tasklet(struct net_device *dev)
 		rmb();
 
 		rx_size = rx_status >> 20;
-		rx_size_align = (rx_size + 3) & ~3;	
-		pkt_size = rx_size - 4;	
+		rx_size_align = (rx_size + 3) & ~3;	// for 4 bytes aligned
+		pkt_size = rx_size - 4;	// Omit the four octet CRC from the length.
 
 		rx_ring_offset = (rx_ring_offset + 4) % RX_BUF_LEN;
 
@@ -859,13 +881,13 @@ static irqreturn_t sc92031_interrupt(int irq, void *dev_id)
 	void __iomem *port_base = priv->port_base;
 	u32 intr_status, intr_mask;
 
-	
+	/* mask interrupts before clearing IntrStatus */
 	iowrite32(0, port_base + IntrMask);
 	_sc92031_dummy_read(port_base);
 
 	intr_status = ioread32(port_base + IntrStatus);
 	if (unlikely(intr_status == 0xffffffff))
-		return IRQ_NONE;	
+		return IRQ_NONE;	// hardware has gone missing
 
 	intr_status &= IntrBits;
 	if (!intr_status)
@@ -891,13 +913,13 @@ static struct net_device_stats *sc92031_get_stats(struct net_device *dev)
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 
-	
+	// FIXME I do not understand what is this trying to do.
 	if (netif_running(dev)) {
 		int temp;
 
 		spin_lock_bh(&priv->lock);
 
-		
+		/* Update the error count. */
 		temp = (ioread32(port_base + RxStatus0) >> 16) & 0xffff;
 
 		if (temp == 0xffff) {
@@ -1000,7 +1022,7 @@ static int sc92031_open(struct net_device *dev)
 
 	priv->pm_config = 0;
 
-	
+	/* Interrupts already disabled by sc92031_stop or sc92031_probe */
 	spin_lock_bh(&priv->lock);
 
 	_sc92031_reset(dev);
@@ -1033,7 +1055,7 @@ static int sc92031_stop(struct net_device *dev)
 
 	netif_tx_disable(dev);
 
-	
+	/* Disable interrupts, stop Tx and Rx. */
 	sc92031_disable_interrupts(dev);
 
 	spin_lock_bh(&priv->lock);
@@ -1070,7 +1092,7 @@ static void sc92031_tx_timeout(struct net_device *dev)
 {
 	struct sc92031_priv *priv = netdev_priv(dev);
 
-	
+	/* Disable interrupts by clearing the interrupt mask.*/
 	sc92031_disable_interrupts(dev);
 
 	spin_lock(&priv->lock);
@@ -1082,7 +1104,7 @@ static void sc92031_tx_timeout(struct net_device *dev)
 
 	spin_unlock(&priv->lock);
 
-	
+	/* enable interrupts */
 	sc92031_enable_interrupts(dev);
 
 	if (netif_carrier_ok(dev))
@@ -1189,7 +1211,7 @@ static int sc92031_ethtool_set_settings(struct net_device *dev,
 
 		phy_ctrl = PhyCtrlAne;
 
-		
+		// FIXME: I'm not sure what the original code was trying to do
 		if (cmd->advertising & ADVERTISED_Autoneg)
 			phy_ctrl |= PhyCtrlDux | PhyCtrlSpd100 | PhyCtrlSpd10;
 		if (cmd->advertising & ADVERTISED_100baseT_Full)
@@ -1201,12 +1223,12 @@ static int sc92031_ethtool_set_settings(struct net_device *dev,
 		if (cmd->advertising & ADVERTISED_10baseT_Half)
 			phy_ctrl |= PhyCtrlSpd10;
 	} else {
-		
+		// FIXME: Whole branch guessed
 		phy_ctrl = 0;
 
 		if (speed == SPEED_10)
 			phy_ctrl |= PhyCtrlSpd10;
-		else 
+		else /* cmd->speed == SPEED_100 */
 			phy_ctrl |= PhyCtrlSpd100;
 
 		if (cmd->duplex == DUPLEX_FULL)
@@ -1237,7 +1259,7 @@ static void sc92031_ethtool_get_wol(struct net_device *dev,
 	pm_config = ioread32(port_base + PMConfig);
 	spin_unlock_bh(&priv->lock);
 
-	
+	// FIXME: Guessed
 	wolinfo->supported = WAKE_PHY | WAKE_MAGIC
 			| WAKE_UCAST | WAKE_MCAST | WAKE_BCAST;
 	wolinfo->wolopts = 0;
@@ -1249,7 +1271,7 @@ static void sc92031_ethtool_get_wol(struct net_device *dev,
 		wolinfo->wolopts |= WAKE_MAGIC;
 
 	if (pm_config & PM_WakeUp)
-		
+		// FIXME: Guessed
 		wolinfo->wolopts |= WAKE_UCAST | WAKE_MCAST | WAKE_BCAST;
 }
 
@@ -1271,7 +1293,7 @@ static int sc92031_ethtool_set_wol(struct net_device *dev,
 	if (wolinfo->wolopts & WAKE_MAGIC)
 		pm_config |= PM_Magic;
 
-	
+	// FIXME: Guessed
 	if (wolinfo->wolopts & (WAKE_UCAST | WAKE_MCAST | WAKE_BCAST))
 		pm_config |= PM_WakeUp;
 
@@ -1423,7 +1445,7 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 #endif
 	dev->irq = pdev->irq;
 
-	
+	/* faked with skb_copy_and_csum_dev */
 	dev->features = NETIF_F_SG | NETIF_F_HIGHDMA |
 		NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM;
 
@@ -1436,9 +1458,11 @@ static int __devinit sc92031_probe(struct pci_dev *pdev,
 	priv->port_base = port_base;
 	priv->pdev = pdev;
 	tasklet_init(&priv->tasklet, sc92031_tasklet, (unsigned long)dev);
+	/* Fudge tasklet count so the call to sc92031_enable_interrupts at
+	 * sc92031_open will work correctly */
 	tasklet_disable_nosync(&priv->tasklet);
 
-	
+	/* PCI PM Wakeup */
 	iowrite32((~PM_LongWF & ~PM_LWPTN) | PM_Enable, port_base + PMConfig);
 
 	mac0 = ioread32(port_base + MAC0);
@@ -1502,7 +1526,7 @@ static int sc92031_suspend(struct pci_dev *pdev, pm_message_t state)
 
 	netif_device_detach(dev);
 
-	
+	/* Disable interrupts, stop Tx and Rx. */
 	sc92031_disable_interrupts(dev);
 
 	spin_lock_bh(&priv->lock);
@@ -1530,7 +1554,7 @@ static int sc92031_resume(struct pci_dev *pdev)
 	if (!netif_running(dev))
 		goto out;
 
-	
+	/* Interrupts already disabled by sc92031_suspend */
 	spin_lock_bh(&priv->lock);
 
 	_sc92031_reset(dev);

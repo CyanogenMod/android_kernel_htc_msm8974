@@ -43,6 +43,7 @@ MODULE_LICENSE("GPL and additional rights");
 
 static LIST_HEAD(kernel_fb_helper_list);
 
+/* simple single crtc case helper function */
 int drm_fb_helper_single_add_all_connectors(struct drm_fb_helper *fb_helper)
 {
 	struct drm_device *dev = fb_helper->dev;
@@ -84,7 +85,7 @@ static int drm_fb_helper_parse_command_line(struct drm_fb_helper *fb_helper)
 		connector = fb_helper_conn->connector;
 		mode = &fb_helper_conn->cmdline_mode;
 
-		
+		/* do something on return - turn off connector maybe */
 		if (fb_get_options(drm_get_connector_name(connector), &option))
 			continue;
 
@@ -173,6 +174,7 @@ int drm_fb_helper_debug_enter(struct fb_info *info)
 }
 EXPORT_SYMBOL(drm_fb_helper_debug_enter);
 
+/* Find the real fb for a given fb helper CRTC */
 static struct drm_framebuffer *drm_mode_config_fb(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
@@ -253,6 +255,10 @@ bool drm_fb_helper_force_kernel_mode(void)
 int drm_fb_helper_panic(struct notifier_block *n, unsigned long ununsed,
 			void *panic_str)
 {
+	/*
+	 * It's a waste of time and effort to switch back to text console
+	 * if the kernel should reboot before panic messages can be seen.
+	 */
 	if (panic_timeout < 0)
 		return 0;
 
@@ -265,6 +271,11 @@ static struct notifier_block paniced = {
 	.notifier_call = drm_fb_helper_panic,
 };
 
+/**
+ * drm_fb_helper_restore - restore the framebuffer console (kernel) config
+ *
+ * Restore's the kernel's fbcon mode, used for lastclose & panic paths.
+ */
 void drm_fb_helper_restore(void)
 {
 	bool ret;
@@ -303,6 +314,9 @@ static void drm_fb_helper_dpms(struct fb_info *info, int dpms_mode)
 	struct drm_connector *connector;
 	int i, j;
 
+	/*
+	 * For each CRTC in this fb, turn the connectors on/off.
+	 */
 	mutex_lock(&dev->mode_config.mutex);
 	for (i = 0; i < fb_helper->crtc_count; i++) {
 		crtc = fb_helper->crtc_info[i].mode_set.crtc;
@@ -310,7 +324,7 @@ static void drm_fb_helper_dpms(struct fb_info *info, int dpms_mode)
 		if (!crtc->enabled)
 			continue;
 
-		
+		/* Walk the connectors & encoders on this fb turning them on/off */
 		for (j = 0; j < fb_helper->connector_count; j++) {
 			connector = fb_helper->connector_info[j]->connector;
 			drm_helper_connector_dpms(connector, dpms_mode);
@@ -324,23 +338,23 @@ static void drm_fb_helper_dpms(struct fb_info *info, int dpms_mode)
 int drm_fb_helper_blank(int blank, struct fb_info *info)
 {
 	switch (blank) {
-	
+	/* Display: On; HSync: On, VSync: On */
 	case FB_BLANK_UNBLANK:
 		drm_fb_helper_dpms(info, DRM_MODE_DPMS_ON);
 		break;
-	
+	/* Display: Off; HSync: On, VSync: On */
 	case FB_BLANK_NORMAL:
 		drm_fb_helper_dpms(info, DRM_MODE_DPMS_STANDBY);
 		break;
-	
+	/* Display: Off; HSync: Off, VSync: On */
 	case FB_BLANK_HSYNC_SUSPEND:
 		drm_fb_helper_dpms(info, DRM_MODE_DPMS_STANDBY);
 		break;
-	
+	/* Display: Off; HSync: On, VSync: Off */
 	case FB_BLANK_VSYNC_SUSPEND:
 		drm_fb_helper_dpms(info, DRM_MODE_DPMS_SUSPEND);
 		break;
-	
+	/* Display: Off; HSync: Off, VSync: Off */
 	case FB_BLANK_POWERDOWN:
 		drm_fb_helper_dpms(info, DRM_MODE_DPMS_OFF);
 		break;
@@ -441,7 +455,7 @@ static int setcolreg(struct drm_crtc *crtc, u16 red, u16 green,
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 *palette;
 		u32 value;
-		
+		/* place color in psuedopalette */
 		if (regno > 16)
 			return -EINVAL;
 		palette = (u32 *)info->pseudo_palette;
@@ -544,7 +558,7 @@ int drm_fb_helper_check_var(struct fb_var_screeninfo *var,
 	if (var->pixclock != 0 || in_dbg_master())
 		return -EINVAL;
 
-	
+	/* Need to resize the fb object !!! */
 	if (var->bits_per_pixel > fb->bits_per_pixel ||
 	    var->xres > fb->width || var->yres > fb->height ||
 	    var->xres_virtual > fb->width || var->yres_virtual > fb->height) {
@@ -626,6 +640,7 @@ int drm_fb_helper_check_var(struct fb_var_screeninfo *var,
 }
 EXPORT_SYMBOL(drm_fb_helper_check_var);
 
+/* this will let fbcon do the mode init */
 int drm_fb_helper_set_par(struct fb_info *info)
 {
 	struct drm_fb_helper *fb_helper = info->par;
@@ -707,10 +722,12 @@ int drm_fb_helper_single_fb_probe(struct drm_fb_helper *fb_helper,
 	sizes.fb_width = (unsigned)-1;
 	sizes.fb_height = (unsigned)-1;
 
+	/* if driver picks 8 or 16 by default use that
+	   for both depth/bpp */
 	if (preferred_bpp != sizes.surface_bpp) {
 		sizes.surface_depth = sizes.surface_bpp = preferred_bpp;
 	}
-	
+	/* first up get a count of crtcs now in use and new min/maxes width/heights */
 	for (i = 0; i < fb_helper->connector_count; i++) {
 		struct drm_fb_helper_connector *fb_helper_conn = fb_helper->connector_info[i];
 		struct drm_cmdline_mode *cmdline_mode;
@@ -762,19 +779,21 @@ int drm_fb_helper_single_fb_probe(struct drm_fb_helper *fb_helper,
 	}
 
 	if (crtc_count == 0 || sizes.fb_width == -1 || sizes.fb_height == -1) {
+		/* hmm everyone went away - assume VGA cable just fell out
+		   and will come back later. */
 		DRM_INFO("Cannot find any crtc or sizes - going 1024x768\n");
 		sizes.fb_width = sizes.surface_width = 1024;
 		sizes.fb_height = sizes.surface_height = 768;
 	}
 
-	
+	/* push down into drivers */
 	new_fb = (*fb_helper->funcs->fb_probe)(fb_helper, &sizes);
 	if (new_fb < 0)
 		return new_fb;
 
 	info = fb_helper->fbdev;
 
-	
+	/* set the fb pointer */
 	for (i = 0; i < fb_helper->crtc_count; i++) {
 		fb_helper->crtc_info[i].mode_set.fb = fb_helper->fb;
 	}
@@ -792,8 +811,8 @@ int drm_fb_helper_single_fb_probe(struct drm_fb_helper *fb_helper,
 		drm_fb_helper_set_par(info);
 	}
 
-	
-	
+	/* Switch back to kernel console on panic */
+	/* multi card linked list maybe */
 	if (list_empty(&kernel_fb_helper_list)) {
 		printk(KERN_INFO "drm: registered panic notifier\n");
 		atomic_notifier_chain_register(&panic_notifier_list,
@@ -816,8 +835,8 @@ void drm_fb_helper_fill_fix(struct fb_info *info, uint32_t pitch,
 	info->fix.mmio_start = 0;
 	info->fix.mmio_len = 0;
 	info->fix.type_aux = 0;
-	info->fix.xpanstep = 1; 
-	info->fix.ypanstep = 1; 
+	info->fix.xpanstep = 1; /* doing it in hw */
+	info->fix.ypanstep = 1; /* doing it in hw */
 	info->fix.ywrapstep = 0;
 	info->fix.accel = FB_ACCEL_NONE;
 	info->fix.type_aux = 0;
@@ -847,7 +866,7 @@ void drm_fb_helper_fill_var(struct fb_info *info, struct drm_fb_helper *fb_helpe
 		info->var.red.offset = 0;
 		info->var.green.offset = 0;
 		info->var.blue.offset = 0;
-		info->var.red.length = 8; 
+		info->var.red.length = 8; /* 8bit DAC */
 		info->var.green.length = 8;
 		info->var.blue.length = 8;
 		info->var.transp.offset = 0;
@@ -948,11 +967,14 @@ static struct drm_display_mode *drm_pick_cmdline_mode(struct drm_fb_helper_conne
 	if (cmdline_mode->specified == false)
 		return mode;
 
+	/* attempt to find a matching mode in the list of modes
+	 *  we have gotten so far, if not add a CVT mode that conforms
+	 */
 	if (cmdline_mode->rb || cmdline_mode->margins)
 		goto create_mode;
 
 	list_for_each_entry(mode, &fb_helper_conn->connector->modes, head) {
-		
+		/* check width/height */
 		if (mode->hdisplay != cmdline_mode->xres ||
 		    mode->vdisplay != cmdline_mode->yres)
 			continue;
@@ -1021,7 +1043,7 @@ static bool drm_target_cloned(struct drm_fb_helper *fb_helper,
 	struct drm_fb_helper_connector *fb_helper_conn;
 	struct drm_display_mode *dmt_mode, *mode;
 
-	
+	/* only contemplate cloning in the single crtc case */
 	if (fb_helper->crtc_count > 1)
 		return false;
 
@@ -1031,11 +1053,11 @@ static bool drm_target_cloned(struct drm_fb_helper *fb_helper,
 			count++;
 	}
 
-	
+	/* only contemplate cloning if more than one connector is enabled */
 	if (count <= 1)
 		return false;
 
-	
+	/* check the command line or if nothing common pick 1024x768 */
 	can_clone = true;
 	for (i = 0; i < fb_helper->connector_count; i++) {
 		if (!enabled[i])
@@ -1059,7 +1081,7 @@ static bool drm_target_cloned(struct drm_fb_helper *fb_helper,
 		return true;
 	}
 
-	
+	/* try and find a 1024x768 mode on each connector */
 	can_clone = true;
 	dmt_mode = drm_mode_find_dmt(fb_helper->dev, 1024, 768, 60);
 
@@ -1101,14 +1123,14 @@ static bool drm_target_preferred(struct drm_fb_helper *fb_helper,
 		DRM_DEBUG_KMS("looking for cmdline mode on connector %d\n",
 			      fb_helper_conn->connector->base.id);
 
-		
+		/* got for command line mode first */
 		modes[i] = drm_pick_cmdline_mode(fb_helper_conn, width, height);
 		if (!modes[i]) {
 			DRM_DEBUG_KMS("looking for preferred mode on connector %d\n",
 				      fb_helper_conn->connector->base.id);
 			modes[i] = drm_has_preferred_mode(fb_helper_conn, width, height);
 		}
-		
+		/* No preferred modes, pick one off the list */
 		if (!modes[i] && !list_empty(&fb_helper_conn->connector->modes)) {
 			list_for_each_entry(modes[i], &fb_helper_conn->connector->modes, head)
 				break;
@@ -1164,6 +1186,8 @@ static int drm_pick_crtcs(struct drm_fb_helper *fb_helper,
 	if (!encoder)
 		goto out;
 
+	/* select a crtc for this connector and then attempt to configure
+	   remaining connectors */
 	for (c = 0; c < fb_helper->crtc_count; c++) {
 		crtc = &fb_helper->crtc_info[c];
 
@@ -1176,7 +1200,7 @@ static int drm_pick_crtcs(struct drm_fb_helper *fb_helper,
 				break;
 
 		if (o < n) {
-			
+			/* ignore cloning unless only a single crtc */
 			if (fb_helper->crtc_count > 1)
 				continue;
 
@@ -1217,7 +1241,7 @@ static void drm_setup_crtcs(struct drm_fb_helper *fb_helper)
 	width = dev->mode_config.max_width;
 	height = dev->mode_config.max_height;
 
-	
+	/* clean out all the encoder/crtc combos */
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 		encoder->crtc = NULL;
 	}
@@ -1242,8 +1266,8 @@ static void drm_setup_crtcs(struct drm_fb_helper *fb_helper)
 
 	drm_pick_crtcs(fb_helper, crtcs, modes, 0, width, height);
 
-	
-	
+	/* need to set the modesets up here for use later */
+	/* fill out the connector<->crtc mappings into the modesets */
 	for (i = 0; i < fb_helper->crtc_count; i++) {
 		modeset = &fb_helper->crtc_info[i].mode_set;
 		modeset->num_connectors = 0;
@@ -1271,12 +1295,26 @@ static void drm_setup_crtcs(struct drm_fb_helper *fb_helper)
 	kfree(enabled);
 }
 
+/**
+ * drm_helper_initial_config - setup a sane initial connector configuration
+ * @dev: DRM device
+ *
+ * LOCKING:
+ * Called at init time, must take mode config lock.
+ *
+ * Scan the CRTCs and connectors and try to put together an initial setup.
+ * At the moment, this is a cloned configuration across all heads with
+ * a new framebuffer object as the backing store.
+ *
+ * RETURNS:
+ * Zero if everything went ok, nonzero otherwise.
+ */
 bool drm_fb_helper_initial_config(struct drm_fb_helper *fb_helper, int bpp_sel)
 {
 	struct drm_device *dev = fb_helper->dev;
 	int count = 0;
 
-	
+	/* disable all the possible outputs/crtcs before entering KMS mode */
 	drm_helper_disable_unused_functions(fb_helper->dev);
 
 	drm_fb_helper_parse_command_line(fb_helper);
@@ -1284,6 +1322,9 @@ bool drm_fb_helper_initial_config(struct drm_fb_helper *fb_helper, int bpp_sel)
 	count = drm_fb_helper_probe_connector_modes(fb_helper,
 						    dev->mode_config.max_width,
 						    dev->mode_config.max_height);
+	/*
+	 * we shouldn't end up with no modes here.
+	 */
 	if (count == 0) {
 		printk(KERN_INFO "No connectors reported connected with modes\n");
 	}
@@ -1293,6 +1334,20 @@ bool drm_fb_helper_initial_config(struct drm_fb_helper *fb_helper, int bpp_sel)
 }
 EXPORT_SYMBOL(drm_fb_helper_initial_config);
 
+/**
+ * drm_fb_helper_hotplug_event - respond to a hotplug notification by
+ *                               probing all the outputs attached to the fb.
+ * @fb_helper: the drm_fb_helper
+ *
+ * LOCKING:
+ * Called at runtime, must take mode config lock.
+ *
+ * Scan the connectors attached to the fb_helper and try to put together a
+ * setup after *notification of a change in output configuration.
+ *
+ * RETURNS:
+ * 0 on success and a non-zero error code otherwise.
+ */
 int drm_fb_helper_hotplug_event(struct drm_fb_helper *fb_helper)
 {
 	struct drm_device *dev = fb_helper->dev;
@@ -1332,6 +1387,10 @@ int drm_fb_helper_hotplug_event(struct drm_fb_helper *fb_helper)
 }
 EXPORT_SYMBOL(drm_fb_helper_hotplug_event);
 
+/* The Kconfig DRM_KMS_HELPER selects FRAMEBUFFER_CONSOLE (if !EXPERT)
+ * but the module doesn't depend on any fb console symbols.  At least
+ * attempt to load fbcon to avoid leaving the system without a usable console.
+ */
 #if defined(CONFIG_FRAMEBUFFER_CONSOLE_MODULE) && !defined(CONFIG_EXPERT)
 static int __init drm_fb_helper_modinit(void)
 {

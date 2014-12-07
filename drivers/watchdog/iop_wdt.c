@@ -50,6 +50,10 @@ static unsigned long iop_watchdog_timeout(void)
 	return (0xffffffffUL / get_iop_tick_rate());
 }
 
+/**
+ * wdt_supports_disable - determine if we are accessing a iop13xx watchdog
+ * or iop3xx by whether it has a disable command
+ */
 static int wdt_supports_disable(void)
 {
 	int can_disable;
@@ -64,15 +68,19 @@ static int wdt_supports_disable(void)
 
 static void wdt_enable(void)
 {
+	/* Arm and enable the Timer to starting counting down from 0xFFFF.FFFF
+	 * Takes approx. 10.7s to timeout
+	 */
 	spin_lock(&wdt_lock);
 	write_wdtcr(IOP_WDTCR_EN_ARM);
 	write_wdtcr(IOP_WDTCR_EN);
 	spin_unlock(&wdt_lock);
 }
 
+/* returns 0 if the timer was successfully disabled */
 static int wdt_disable(void)
 {
-	
+	/* Stop Counting */
 	if (wdt_supports_disable()) {
 		spin_lock(&wdt_lock);
 		write_wdtcr(IOP_WDTCR_DIS_ARM);
@@ -186,6 +194,9 @@ static int iop_wdt_release(struct inode *inode, struct file *file)
 		if (test_bit(WDT_ENABLED, &wdt_status))
 			state = wdt_disable();
 
+	/* if the timer is not disabled reload and notify that we are still
+	 * going down
+	 */
 	if (state != 0) {
 		wdt_enable();
 		pr_crit("Device closed unexpectedly - reset in %lu seconds\n",
@@ -217,11 +228,16 @@ static int __init iop_wdt_init(void)
 {
 	int ret;
 
-	
+	/* check if the reset was caused by the watchdog timer */
 	boot_status = (read_rcsr() & IOP_RCSR_WDT) ? WDIOF_CARDRESET : 0;
 
+	/* Configure Watchdog Timeout to cause an Internal Bus (IB) Reset
+	 * NOTE: An IB Reset will Reset both cores in the IOP342
+	 */
 	write_wdtsr(IOP13XX_WDTCR_IB_RESET);
 
+	/* Register after we have the device set up so we cannot race
+	   with an open */
 	ret = misc_register(&iop_wdt_miscdev);
 	if (ret == 0)
 		pr_info("timeout %lu sec\n", iop_watchdog_timeout());

@@ -16,6 +16,7 @@
 #include <media/v4l2-subdev.h>
 #include <media/msmb_camera.h>
 
+/* NOTE: this header file should ONLY be included by subdev drivers */
 
 struct msm_sd_close_ioctl {
 	unsigned int session;
@@ -34,6 +35,18 @@ struct msm_sd_close_ioctl {
 #define MSM_SD_SHUTDOWN \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 29, struct msm_sd_close_ioctl)
 
+/*
+ * This is used to install Sequence in msm_sd_register.
+ * During msm_close, proper close sequence will be triggered.
+ * For example:
+ *
+ * close_sequence = 0x00100001 (ISP)
+ * close_sequence = 0x00100002 (ISP)
+ * close_sequence = 0x00100003 (ISP)
+ * close_sequence = 0x00200001 (sensor)
+ * close_sequence = 0x00200002 (sensor)
+ * close_sequence = 0x00200003 (sensor)
+ */
 #define MSM_SD_CLOSE_1ST_CATEGORY  0x00010000
 #define MSM_SD_CLOSE_2ND_CATEGORY  0x00020000
 #define MSM_SD_CLOSE_3RD_CATEGORY  0x00030000
@@ -70,4 +83,4 @@ struct v4l2_subdev *msm_sd_get_subdev(struct v4l2_subdev *sd,
 	const char *get_name);
 void msm_sd_put_subdev(struct v4l2_subdev *sd, struct v4l2_subdev *put);
 
-#endif 
+#endif /*_MSM_SD_H */

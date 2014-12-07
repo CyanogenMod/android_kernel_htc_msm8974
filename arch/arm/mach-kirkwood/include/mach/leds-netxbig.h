@@ -52,4 +52,4 @@ struct netxbig_led_platform_data {
 	int			num_leds;
 };
 
-#endif 
+#endif /* __MACH_LEDS_NETXBIG_H */

@@ -52,9 +52,9 @@ enum {
 	MTHCA_MAX_DIRECT_QP_SIZE = 4 * PAGE_SIZE,
 	MTHCA_ACK_REQ_FREQ       = 10,
 	MTHCA_FLIGHT_LIMIT       = 9,
-	MTHCA_UD_HEADER_SIZE     = 72, 
-	MTHCA_INLINE_HEADER_SIZE = 4,  
-	MTHCA_INLINE_CHUNK_SIZE  = 16  
+	MTHCA_UD_HEADER_SIZE     = 72, /* largest UD header possible */
+	MTHCA_INLINE_HEADER_SIZE = 4,  /* data segment overhead for inline */
+	MTHCA_INLINE_CHUNK_SIZE  = 16  /* inline data segment chunk */
 };
 
 enum {
@@ -83,15 +83,15 @@ enum {
 };
 
 enum {
-	
+	/* qp_context flags */
 	MTHCA_QP_BIT_DE  = 1 <<  8,
-	
+	/* params1 */
 	MTHCA_QP_BIT_SRE = 1 << 15,
 	MTHCA_QP_BIT_SWE = 1 << 14,
 	MTHCA_QP_BIT_SAE = 1 << 13,
 	MTHCA_QP_BIT_SIC = 1 <<  4,
 	MTHCA_QP_BIT_SSC = 1 <<  3,
-	
+	/* params2 */
 	MTHCA_QP_BIT_RRE = 1 << 15,
 	MTHCA_QP_BIT_RWE = 1 << 14,
 	MTHCA_QP_BIT_RAE = 1 << 13,
@@ -118,11 +118,11 @@ struct mthca_qp_path {
 
 struct mthca_qp_context {
 	__be32 flags;
-	__be32 tavor_sched_queue; 
+	__be32 tavor_sched_queue; /* Reserved on Arbel */
 	u8     mtu_msgmax;
-	u8     rq_size_stride;	
-	u8     sq_size_stride;	
-	u8     rlkey_arbel_sched_queue;	
+	u8     rq_size_stride;	/* Reserved on Tavor */
+	u8     sq_size_stride;	/* Reserved on Tavor */
+	u8     rlkey_arbel_sched_queue;	/* Reserved on Tavor */
 	__be32 usr_page;
 	__be32 local_qpn;
 	__be32 remote_qpn;
@@ -137,21 +137,21 @@ struct mthca_qp_context {
 	__be32 reserved2;
 	__be32 next_send_psn;
 	__be32 cqn_snd;
-	__be32 snd_wqe_base_l;	
-	__be32 snd_db_index;	
+	__be32 snd_wqe_base_l;	/* Next send WQE on Tavor */
+	__be32 snd_db_index;	/* (debugging only entries) */
 	__be32 last_acked_psn;
 	__be32 ssn;
 	__be32 params2;
 	__be32 rnr_nextrecvpsn;
 	__be32 ra_buff_indx;
 	__be32 cqn_rcv;
-	__be32 rcv_wqe_base_l;	
-	__be32 rcv_db_index;	
+	__be32 rcv_wqe_base_l;	/* Next recv WQE on Tavor */
+	__be32 rcv_db_index;	/* (debugging only entries) */
 	__be32 qkey;
 	__be32 srqn;
 	__be32 rmsn;
-	__be16 rq_wqe_counter;	
-	__be16 sq_wqe_counter;	
+	__be16 rq_wqe_counter;	/* reserved on Tavor */
+	__be16 sq_wqe_counter;	/* reserved on Tavor */
 	u32    reserved3[18];
 } __attribute__((packed));
 
@@ -478,7 +478,7 @@ int mthca_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_m
 	qp_attr->port_num   =
 		(be32_to_cpu(context->pri_path.port_pkey) >> 24) & 0x3;
 
-	
+	/* qp_attr->en_sqd_async_notify is only applicable in modify qp */
 	qp_attr->sq_draining = mthca_state == MTHCA_QP_STATE_DRAINING;
 
 	qp_attr->max_rd_atomic = 1 << ((be32_to_cpu(context->params1) >> 21) & 0x7);
@@ -579,7 +579,7 @@ static int __mthca_modify_qp(struct ib_qp *ibqp,
 		}
 	}
 
-	
+	/* leave tavor_sched_queue as 0 */
 
 	if (qp->transport == MLX || qp->transport == UD)
 		qp_context->mtu_msgmax = (IB_MTU_2048 << 5) | 11;
@@ -602,7 +602,7 @@ static int __mthca_modify_qp(struct ib_qp *ibqp,
 		qp_context->sq_size_stride |= qp->sq.wqe_shift - 4;
 	}
 
-	
+	/* leave arbel_sched_queue as 0 */
 
 	if (qp->ibqp.uobject)
 		qp_context->usr_page =
@@ -687,9 +687,9 @@ static int __mthca_modify_qp(struct ib_qp *ibqp,
 		qp_param->opt_param_mask |= cpu_to_be32(MTHCA_QP_OPTPAR_ALT_ADDR_PATH);
 	}
 
-	
+	/* leave rdd as 0 */
 	qp_context->pd         = cpu_to_be32(to_mpd(ibqp->pd)->pd_num);
-	
+	/* leave wqe_base as 0 (we always create an MR based at 0 for WQs) */
 	qp_context->wqe_lkey   = cpu_to_be32(qp->mr.ibmr.lkey);
 	qp_context->params1    = cpu_to_be32((MTHCA_ACK_REQ_FREQ << 28) |
 					     (MTHCA_FLIGHT_LIMIT << 24) |
@@ -793,6 +793,10 @@ static int __mthca_modify_qp(struct ib_qp *ibqp,
 	if (is_sqp(dev, qp))
 		store_attrs(to_msqp(qp), attr, attr_mask);
 
+	/*
+	 * If we moved QP0 to RTR, bring the IB link up; if we moved
+	 * QP0 to RESET or ERROR, bring the link back down.
+	 */
 	if (is_qp0(dev, qp)) {
 		if (cur_state != IB_QPS_RTR &&
 		    new_state == IB_QPS_RTR)
@@ -805,6 +809,10 @@ static int __mthca_modify_qp(struct ib_qp *ibqp,
 			mthca_CLOSE_IB(dev, qp->port);
 	}
 
+	/*
+	 * If we moved a kernel QP to RESET, clean up all old CQ
+	 * entries and reinitialize the QP.
+	 */
 	if (new_state == IB_QPS_RESET && !qp->ibqp.uobject) {
 		mthca_cq_clean(dev, to_mcq(qp->ibqp.recv_cq), qp->qpn,
 			       qp->ibqp.srq ? to_msrq(qp->ibqp.srq) : NULL);
@@ -899,6 +907,10 @@ out:
 
 static int mthca_max_data_size(struct mthca_dev *dev, struct mthca_qp *qp, int desc_sz)
 {
+	/*
+	 * Calculate the maximum size of WQE s/g segments, excluding
+	 * the next segment and other non-data segments.
+	 */
 	int max_data_size = desc_sz - sizeof (struct mthca_next_seg);
 
 	switch (qp->transport) {
@@ -923,7 +935,7 @@ static int mthca_max_data_size(struct mthca_dev *dev, struct mthca_qp *qp, int d
 
 static inline int mthca_max_inline_data(struct mthca_pd *pd, int max_data_size)
 {
-	
+	/* We don't support inline data for kernel QPs (yet). */
 	return pd->ibpd.uobject ? max_data_size - MTHCA_INLINE_HEADER_SIZE : 0;
 }
 
@@ -945,6 +957,13 @@ static void mthca_adjust_qp_caps(struct mthca_dev *dev,
 			       sizeof (struct mthca_data_seg));
 }
 
+/*
+ * Allocate and register buffer for WQEs.  qp->rq.max, sq.max,
+ * rq.max_gs and sq.max_gs must all be assigned.
+ * mthca_alloc_wqe_buf will calculate rq.wqe_shift and
+ * sq.wqe_shift (as well as send_wqe_offset, is_direct, and
+ * queue)
+ */
 static int mthca_alloc_wqe_buf(struct mthca_dev *dev,
 			       struct mthca_pd *pd,
 			       struct mthca_qp *qp)
@@ -960,7 +979,7 @@ static int mthca_alloc_wqe_buf(struct mthca_dev *dev,
 
 	for (qp->rq.wqe_shift = 6; 1 << qp->rq.wqe_shift < size;
 	     qp->rq.wqe_shift++)
-		; 
+		; /* nothing */
 
 	size = qp->sq.max_gs * sizeof (struct mthca_data_seg);
 	switch (qp->transport) {
@@ -980,6 +999,10 @@ static int mthca_alloc_wqe_buf(struct mthca_dev *dev,
 
 	case RC:
 		size += sizeof (struct mthca_raddr_seg);
+		/*
+		 * An atomic op will require an atomic segment, a
+		 * remote address segment and one scatter entry.
+		 */
 		size = max_t(int, size,
 			     sizeof (struct mthca_atomic_seg) +
 			     sizeof (struct mthca_raddr_seg) +
@@ -990,7 +1013,7 @@ static int mthca_alloc_wqe_buf(struct mthca_dev *dev,
 		break;
 	}
 
-	
+	/* Make sure that we have enough space for a bind request */
 	size = max_t(int, size, sizeof (struct mthca_bind_seg));
 
 	size += sizeof (struct mthca_next_seg);
@@ -1000,11 +1023,16 @@ static int mthca_alloc_wqe_buf(struct mthca_dev *dev,
 
 	for (qp->sq.wqe_shift = 6; 1 << qp->sq.wqe_shift < size;
 	     qp->sq.wqe_shift++)
-		; 
+		; /* nothing */
 
 	qp->send_wqe_offset = ALIGN(qp->rq.max << qp->rq.wqe_shift,
 				    1 << qp->sq.wqe_shift);
 
+	/*
+	 * If this is a userspace QP, we don't actually have to
+	 * allocate anything.  All we need is to calculate the WQE
+	 * sizes and the send_wqe_offset, so we're done now.
+	 */
 	if (pd->ibpd.uobject)
 		return 0;
 
@@ -1143,6 +1171,11 @@ static int mthca_alloc_qp_common(struct mthca_dev *dev,
 
 	mthca_adjust_qp_caps(dev, pd, qp);
 
+	/*
+	 * If this is a userspace QP, we're done now.  The doorbells
+	 * will be allocated and buffers will be initialized in
+	 * userspace.
+	 */
 	if (pd->ibpd.uobject)
 		return 0;
 
@@ -1196,7 +1229,7 @@ static int mthca_set_qp_size(struct mthca_dev *dev, struct ib_qp_cap *cap,
 {
 	int max_data_size = mthca_max_data_size(dev, qp, dev->limits.max_desc_sz);
 
-	
+	/* Sanity check QP size before proceeding */
 	if (cap->max_send_wr  	 > dev->limits.max_wqes ||
 	    cap->max_recv_wr  	 > dev->limits.max_wqes ||
 	    cap->max_send_sge 	 > dev->limits.max_sg   ||
@@ -1204,6 +1237,10 @@ static int mthca_set_qp_size(struct mthca_dev *dev, struct ib_qp_cap *cap,
 	    cap->max_inline_data > mthca_max_inline_data(pd, max_data_size))
 		return -EINVAL;
 
+	/*
+	 * For MLX transport we need 2 extra send gather entries:
+	 * one for the header and one for the checksum at the end
+	 */
 	if (qp->transport == MLX && cap->max_send_sge + 2 > dev->limits.max_sg)
 		return -EINVAL;
 
@@ -1252,7 +1289,7 @@ int mthca_alloc_qp(struct mthca_dev *dev,
 	if (qp->qpn == -1)
 		return -ENOMEM;
 
-	
+	/* initialize port to zero for error-catching. */
 	qp->port = 0;
 
 	err = mthca_alloc_qp_common(dev, pd, send_cq, recv_cq,
@@ -1348,6 +1385,10 @@ int mthca_alloc_sqp(struct mthca_dev *dev,
 	return 0;
 
  err_out_free:
+	/*
+	 * Lock CQs here, so that CQ polling code can do QP lookup
+	 * without taking a lock.
+	 */
 	mthca_lock_cqs(send_cq, recv_cq);
 
 	spin_lock(&dev->qp_table.lock);
@@ -1383,6 +1424,10 @@ void mthca_free_qp(struct mthca_dev *dev,
 	send_cq = to_mcq(qp->ibqp.send_cq);
 	recv_cq = to_mcq(qp->ibqp.recv_cq);
 
+	/*
+	 * Lock CQs here, so that CQ polling code can do QP lookup
+	 * without taking a lock.
+	 */
 	mthca_lock_cqs(send_cq, recv_cq);
 
 	spin_lock(&dev->qp_table.lock);
@@ -1399,6 +1444,11 @@ void mthca_free_qp(struct mthca_dev *dev,
 		mthca_MODIFY_QP(dev, qp->state, IB_QPS_RESET, qp->qpn, 0,
 				NULL, 0);
 
+	/*
+	 * If this is a userspace QP, the buffers, MR, CQs and so on
+	 * will be cleaned up in userspace, so all we have to do is
+	 * unref the mem-free tables and free the QPN in our table.
+	 */
 	if (!qp->ibqp.uobject) {
 		mthca_cq_clean(dev, recv_cq, qp->qpn,
 			       qp->ibqp.srq ? to_msrq(qp->ibqp.srq) : NULL);
@@ -1421,6 +1471,7 @@ void mthca_free_qp(struct mthca_dev *dev,
 		mthca_free(&dev->qp_table.alloc, qp->qpn);
 }
 
+/* Create UD header for an MLX send and build a data segment for it */
 static int build_mlx_header(struct mthca_dev *dev, struct mthca_sqp *sqp,
 			    int ind, struct ib_send_wr *wr,
 			    struct mthca_mlx_seg *mlx,
@@ -1430,7 +1481,7 @@ static int build_mlx_header(struct mthca_dev *dev, struct mthca_sqp *sqp,
 	int err;
 	u16 pkey;
 
-	ib_ud_header_init(256,  1, 0, 0,
+	ib_ud_header_init(256, /* assume a MAD */ 1, 0, 0,
 			  mthca_ah_grh_present(to_mah(wr->wr.ud.ah)), 0,
 			  &sqp->ud_header);
 
@@ -1557,6 +1608,13 @@ int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 	int nreq;
 	int i;
 	int size;
+	/*
+	 * f0 and size0 are only used if nreq != 0, and they will
+	 * always be initialized the first time through the main loop
+	 * before nreq is incremented.  So nreq cannot become non-zero
+	 * without initializing f0 and size0, and they are in fact
+	 * never used uninitialized.
+	 */
 	int uninitialized_var(size0);
 	u32 uninitialized_var(f0);
 	int ind;
@@ -1564,7 +1622,7 @@ int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 
 	spin_lock_irqsave(&qp->sq.lock, flags);
 
-	
+	/* XXX check that state is OK to post send */
 
 	ind = qp->sq.next_ind;
 
@@ -1623,7 +1681,7 @@ int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 				break;
 
 			default:
-				
+				/* No extra segments required for sends */
 				break;
 			}
 
@@ -1640,7 +1698,7 @@ int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 				break;
 
 			default:
-				
+				/* No extra segments required for sends */
 				break;
 			}
 
@@ -1678,7 +1736,7 @@ int mthca_tavor_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 			size += sizeof (struct mthca_data_seg) / 16;
 		}
 
-		
+		/* Add one more inline data segment for ICRC */
 		if (qp->transport == MLX) {
 			((struct mthca_data_seg *) wqe)->byte_count =
 				cpu_to_be32((1 << 31) | 4);
@@ -1727,6 +1785,10 @@ out:
 			      (qp->qpn << 8) | size0,
 			      dev->kar + MTHCA_SEND_DOORBELL,
 			      MTHCA_GET_DOORBELL_LOCK(&dev->doorbell_lock));
+		/*
+		 * Make sure doorbells don't leak out of SQ spinlock
+		 * and reach the HCA out of order:
+		 */
 		mmiowb();
 	}
 
@@ -1747,6 +1809,13 @@ int mthca_tavor_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 	int nreq;
 	int i;
 	int size;
+	/*
+	 * size0 is only used if nreq != 0, and it will always be
+	 * initialized the first time through the main loop before
+	 * nreq is incremented.  So nreq cannot become non-zero
+	 * without initializing size0, and it is in fact never used
+	 * uninitialized.
+	 */
 	int uninitialized_var(size0);
 	int ind;
 	void *wqe;
@@ -1754,7 +1823,7 @@ int mthca_tavor_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 
 	spin_lock_irqsave(&qp->rq.lock, flags);
 
-	
+	/* XXX check that state is OK to post receive */
 
 	ind = qp->rq.next_ind;
 
@@ -1831,6 +1900,10 @@ out:
 	qp->rq.next_ind = ind;
 	qp->rq.head    += nreq;
 
+	/*
+	 * Make sure doorbells don't leak out of RQ spinlock and reach
+	 * the HCA out of order:
+	 */
 	mmiowb();
 
 	spin_unlock_irqrestore(&qp->rq.lock, flags);
@@ -1850,6 +1923,13 @@ int mthca_arbel_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 	int nreq;
 	int i;
 	int size;
+	/*
+	 * f0 and size0 are only used if nreq != 0, and they will
+	 * always be initialized the first time through the main loop
+	 * before nreq is incremented.  So nreq cannot become non-zero
+	 * without initializing f0 and size0, and they are in fact
+	 * never used uninitialized.
+	 */
 	int uninitialized_var(size0);
 	u32 uninitialized_var(f0);
 	int ind;
@@ -1857,7 +1937,7 @@ int mthca_arbel_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 
 	spin_lock_irqsave(&qp->sq.lock, flags);
 
-	
+	/* XXX check that state is OK to post send */
 
 	ind = qp->sq.head & (qp->sq.max - 1);
 
@@ -1942,7 +2022,7 @@ int mthca_arbel_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 				break;
 
 			default:
-				
+				/* No extra segments required for sends */
 				break;
 			}
 
@@ -1959,7 +2039,7 @@ int mthca_arbel_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 				break;
 
 			default:
-				
+				/* No extra segments required for sends */
 				break;
 			}
 
@@ -1997,7 +2077,7 @@ int mthca_arbel_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 			size += sizeof (struct mthca_data_seg) / 16;
 		}
 
-		
+		/* Add one more inline data segment for ICRC */
 		if (qp->transport == MLX) {
 			((struct mthca_data_seg *) wqe)->byte_count =
 				cpu_to_be32((1 << 31) | 4);
@@ -2060,6 +2140,10 @@ out:
 			      MTHCA_GET_DOORBELL_LOCK(&dev->doorbell_lock));
 	}
 
+	/*
+	 * Make sure doorbells don't leak out of SQ spinlock and reach
+	 * the HCA out of order:
+	 */
 	mmiowb();
 
 	spin_unlock_irqrestore(&qp->sq.lock, flags);
@@ -2080,7 +2164,7 @@ int mthca_arbel_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 
 	spin_lock_irqsave(&qp->rq.lock, flags);
 
-	
+	/* XXX check that state is OK to post receive */
 
 	ind = qp->rq.head & (qp->rq.max - 1);
 
@@ -2142,6 +2226,10 @@ void mthca_free_err_wqe(struct mthca_dev *dev, struct mthca_qp *qp, int is_send,
 {
 	struct mthca_next_seg *next;
 
+	/*
+	 * For SRQs, all receive WQEs generate a CQE, so we're always
+	 * at the end of the doorbell chain.
+	 */
 	if (qp->ibqp.srq && !is_send) {
 		*new_wqe = 0;
 		return;
@@ -2167,6 +2255,10 @@ int mthca_init_qp_table(struct mthca_dev *dev)
 
 	spin_lock_init(&dev->qp_table.lock);
 
+	/*
+	 * We reserve 2 extra QPs per port for the special QPs.  The
+	 * special QP for port 1 has to be even, so round up.
+	 */
 	dev->qp_table.sqp_start = (dev->limits.reserved_qps + 1) & ~1UL;
 	err = mthca_alloc_init(&dev->qp_table.alloc,
 			       dev->limits.num_qps,

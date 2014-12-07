@@ -15,6 +15,16 @@
 
 struct task_struct;
 
+/*
+ * Context switch from one thread to another.  If the two threads have
+ * different address spaces, schedule() has already taken care of
+ * switching to the new address space by calling switch_mm().
+ *
+ * Disabling access to the fph partition and the debug-register
+ * context switch MUST be done before calling ia64_switch_to() since a
+ * newly created thread returns directly to
+ * ia64_ret_from_syscall_clear_r8.
+ */
 extern struct task_struct *ia64_switch_to (void *next_task);
 
 extern void ia64_save_extra (struct task_struct *task);
@@ -49,6 +59,12 @@ extern void ia64_account_on_switch (struct task_struct *prev, struct task_struct
 } while (0)
 
 #ifdef CONFIG_SMP
+/*
+ * In the SMP case, we save the fph state when context-switching away from a thread that
+ * modified fph.  This way, when the thread gets scheduled on another CPU, the CPU can
+ * pick up the state from task->thread.fph, avoiding the complication of having to fetch
+ * the latest fph state from another CPU.  In other words: eager save, lazy restore.
+ */
 # define switch_to(prev,next,last) do {						\
 	if (ia64_psr(task_pt_regs(prev))->mfh && ia64_is_local_fpu_owner(prev)) {				\
 		ia64_psr(task_pt_regs(prev))->mfh = 0;			\
@@ -56,7 +72,7 @@ extern void ia64_account_on_switch (struct task_struct *prev, struct task_struct
 		__ia64_save_fpu((prev)->thread.fph);				\
 	}									\
 	__switch_to(prev, next, last);						\
-				\
+	/* "next" in old context is "current" in new context */			\
 	if (unlikely((current->thread.flags & IA64_THREAD_MIGRATION) &&	       \
 		     (task_cpu(current) !=				       \
 		      		      task_thread_info(current)->last_cpu))) { \
@@ -68,4 +84,4 @@ extern void ia64_account_on_switch (struct task_struct *prev, struct task_struct
 # define switch_to(prev,next,last)	__switch_to(prev, next, last)
 #endif
 
-#endif 
+#endif /* _ASM_IA64_SWITCH_TO_H */

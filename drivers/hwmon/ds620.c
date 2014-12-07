@@ -32,6 +32,14 @@
 #include <linux/sysfs.h>
 #include <linux/i2c/ds620.h>
 
+/*
+ * Many DS620 constants specified below
+ *  15   14   13   12   11   10   09    08
+ * |Done|NVB |THF |TLF |R1  |R0  |AUTOC|1SHOT|
+ *
+ *  07   06   05   04   03   02   01    00
+ * |PO2 |PO1 |A2  |A1  |A0  |    |     |     |
+ */
 #define DS620_REG_CONFIG_DONE		0x8000
 #define DS620_REG_CONFIG_NVB		0x4000
 #define DS620_REG_CONFIG_THF		0x2000
@@ -46,23 +54,25 @@
 #define DS620_REG_CONFIG_A1		0x0010
 #define DS620_REG_CONFIG_A0		0x0008
 
+/* The DS620 registers */
 static const u8 DS620_REG_TEMP[3] = {
-	0xAA,			
-	0xA2,			
-	0xA0,			
+	0xAA,			/* input, word, RO */
+	0xA2,			/* min, word, RW */
+	0xA0,			/* max, word, RW */
 };
 
-#define DS620_REG_CONF		0xAC	
-#define DS620_COM_START		0x51	
-#define DS620_COM_STOP		0x22	
+#define DS620_REG_CONF		0xAC	/* word, RW */
+#define DS620_COM_START		0x51	/* no data */
+#define DS620_COM_STOP		0x22	/* no data */
 
+/* Each client has this additional data */
 struct ds620_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid;		
-	unsigned long last_updated;	
+	char valid;		/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
 
-	s16 temp[3];		
+	s16 temp[3];		/* Register values, word */
 };
 
 static void ds620_init_client(struct i2c_client *client)
@@ -73,24 +83,24 @@ static void ds620_init_client(struct i2c_client *client)
 	new_conf = conf =
 	    i2c_smbus_read_word_swapped(client, DS620_REG_CONF);
 
-	
+	/* switch to continuous conversion mode */
 	new_conf &= ~DS620_REG_CONFIG_1SHOT;
-	
+	/* already high at power-on, but don't trust the BIOS! */
 	new_conf |= DS620_REG_CONFIG_PO2;
-	
+	/* thermostat mode according to platform data */
 	if (ds620_info && ds620_info->pomode == 1)
-		new_conf &= ~DS620_REG_CONFIG_PO1; 
+		new_conf &= ~DS620_REG_CONFIG_PO1; /* PO_LOW */
 	else if (ds620_info && ds620_info->pomode == 2)
-		new_conf |= DS620_REG_CONFIG_PO1; 
+		new_conf |= DS620_REG_CONFIG_PO1; /* PO_HIGH */
 	else
-		new_conf &= ~DS620_REG_CONFIG_PO2; 
-	
+		new_conf &= ~DS620_REG_CONFIG_PO2; /* always low */
+	/* with highest precision */
 	new_conf |= DS620_REG_CONFIG_R1 | DS620_REG_CONFIG_R0;
 
 	if (conf != new_conf)
 		i2c_smbus_write_word_swapped(client, DS620_REG_CONF, new_conf);
 
-	
+	/* start conversion */
 	i2c_smbus_write_byte(client, DS620_COM_START);
 }
 
@@ -178,7 +188,7 @@ static ssize_t show_alarm(struct device *dev, struct device_attribute *da,
 	if (IS_ERR(data))
 		return PTR_ERR(data);
 
-	
+	/* reset alarms if necessary */
 	res = i2c_smbus_read_word_swapped(client, DS620_REG_CONF);
 	if (res < 0)
 		return res;
@@ -231,10 +241,10 @@ static int ds620_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the DS620 chip */
 	ds620_init_client(client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &ds620_group);
 	if (err)
 		goto exit_free;
@@ -276,6 +286,7 @@ static const struct i2c_device_id ds620_id[] = {
 
 MODULE_DEVICE_TABLE(i2c, ds620_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver ds620_driver = {
 	.class = I2C_CLASS_HWMON,
 	.driver = {

@@ -45,7 +45,7 @@ enum uinput_state { UIST_NEW_DEVICE, UIST_SETUP_COMPLETE, UIST_CREATED };
 
 struct uinput_request {
 	int			id;
-	int			code;	
+	int			code;	/* UI_FF_UPLOAD, UI_FF_ERASE */
 
 	int			retval;
 	struct completion	done;
@@ -74,7 +74,7 @@ struct uinput_device {
 	wait_queue_head_t	requests_waitq;
 	spinlock_t		requests_lock;
 };
-#endif	
+#endif	/* __KERNEL__ */
 
 struct uinput_ff_upload {
 	int			request_id;
@@ -89,6 +89,7 @@ struct uinput_ff_erase {
 	int			effect_id;
 };
 
+/* ioctl */
 #define UINPUT_IOCTL_BASE	'U'
 #define UI_DEV_CREATE		_IO(UINPUT_IOCTL_BASE, 1)
 #define UI_DEV_DESTROY		_IO(UINPUT_IOCTL_BASE, 2)
@@ -110,7 +111,53 @@ struct uinput_ff_erase {
 #define UI_BEGIN_FF_ERASE	_IOWR(UINPUT_IOCTL_BASE, 202, struct uinput_ff_erase)
 #define UI_END_FF_ERASE		_IOW(UINPUT_IOCTL_BASE, 203, struct uinput_ff_erase)
 
+/*
+ * To write a force-feedback-capable driver, the upload_effect
+ * and erase_effect callbacks in input_dev must be implemented.
+ * The uinput driver will generate a fake input event when one of
+ * these callbacks are invoked. The userspace code then uses
+ * ioctls to retrieve additional parameters and send the return code.
+ * The callback blocks until this return code is sent.
+ *
+ * The described callback mechanism is only used if ff_effects_max
+ * is set.
+ *
+ * To implement upload_effect():
+ *   1. Wait for an event with type == EV_UINPUT and code == UI_FF_UPLOAD.
+ *      A request ID will be given in 'value'.
+ *   2. Allocate a uinput_ff_upload struct, fill in request_id with
+ *      the 'value' from the EV_UINPUT event.
+ *   3. Issue a UI_BEGIN_FF_UPLOAD ioctl, giving it the
+ *      uinput_ff_upload struct. It will be filled in with the
+ *      ff_effects passed to upload_effect().
+ *   4. Perform the effect upload, and place a return code back into
+        the uinput_ff_upload struct.
+ *   5. Issue a UI_END_FF_UPLOAD ioctl, also giving it the
+ *      uinput_ff_upload_effect struct. This will complete execution
+ *      of our upload_effect() handler.
+ *
+ * To implement erase_effect():
+ *   1. Wait for an event with type == EV_UINPUT and code == UI_FF_ERASE.
+ *      A request ID will be given in 'value'.
+ *   2. Allocate a uinput_ff_erase struct, fill in request_id with
+ *      the 'value' from the EV_UINPUT event.
+ *   3. Issue a UI_BEGIN_FF_ERASE ioctl, giving it the
+ *      uinput_ff_erase struct. It will be filled in with the
+ *      effect ID passed to erase_effect().
+ *   4. Perform the effect erasure, and place a return code back
+ *      into the uinput_ff_erase struct.
+ *   5. Issue a UI_END_FF_ERASE ioctl, also giving it the
+ *      uinput_ff_erase_effect struct. This will complete execution
+ *      of our erase_effect() handler.
+ */
 
+/*
+ * This is the new event type, used only by uinput.
+ * 'code' is UI_FF_UPLOAD or UI_FF_ERASE, and 'value'
+ * is the unique request ID. This number was picked
+ * arbitrarily, above EV_MAX (since the input system
+ * never sees it) but in the range of a 16-bit int.
+ */
 #define EV_UINPUT		0x0101
 #define UI_FF_UPLOAD		1
 #define UI_FF_ERASE		2
@@ -125,5 +172,5 @@ struct uinput_user_dev {
 	int absfuzz[ABS_CNT];
 	int absflat[ABS_CNT];
 };
-#endif	
+#endif	/* __UINPUT_H_ */
 

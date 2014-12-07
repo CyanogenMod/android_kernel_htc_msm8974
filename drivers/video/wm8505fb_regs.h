@@ -19,15 +19,30 @@
 #ifndef _WM8505FB_REGS_H
 #define _WM8505FB_REGS_H
 
+/*
+ * Color space select register, default value 0x1c
+ *   BIT0 GOVRH_DVO_YUV2RGB_ENABLE
+ *   BIT1 GOVRH_VGA_YUV2RGB_ENABLE
+ *   BIT2 GOVRH_RGB_MODE
+ *   BIT3 GOVRH_DAC_CLKINV
+ *   BIT4 GOVRH_BLANK_ZERO
+ */
 #define WMT_GOVR_COLORSPACE	0x1e4
+/*
+ * Another colorspace select register, default value 1
+ *   BIT0 GOVRH_DVO_RGB
+ *   BIT1 GOVRH_DVO_YUV422
+ */
 #define WMT_GOVR_COLORSPACE1	 0x30
 
 #define WMT_GOVR_CONTRAST	0x1b8
-#define WMT_GOVR_BRGHTNESS	0x1bc 
+#define WMT_GOVR_BRGHTNESS	0x1bc /* incompatible with RGB? */
 
+/* Framubeffer address */
 #define WMT_GOVR_FBADDR		 0x90
-#define WMT_GOVR_FBADDR1	 0x94 
+#define WMT_GOVR_FBADDR1	 0x94 /* UV offset in YUV mode */
 
+/* Offset of visible window */
 #define WMT_GOVR_XPAN		 0xa4
 #define WMT_GOVR_YPAN		 0xa0
 
@@ -38,10 +53,17 @@
 #define WMT_GOVR_FHI		 0xa8
 #define WMT_GOVR_REG_UPDATE	 0xe4
 
+/*
+ *   BIT0 GOVRH_DVO_OUTWIDTH
+ *   BIT1 GOVRH_DVO_SYNC_POLAR
+ *   BIT2 GOVRH_DVO_ENABLE
+ */
 #define WMT_GOVR_DVO_SET	0x148
 
+/* Timing generator? */
 #define WMT_GOVR_TG		0x100
 
+/* Timings */
 #define WMT_GOVR_TIMING_H_ALL	0x108
 #define WMT_GOVR_TIMING_V_ALL	0x10c
 #define WMT_GOVR_TIMING_V_START	0x110
@@ -51,4 +73,4 @@
 #define WMT_GOVR_TIMING_V_SYNC	0x128
 #define WMT_GOVR_TIMING_H_SYNC	0x12c
 
-#endif 
+#endif /* _WM8505FB_REGS_H */

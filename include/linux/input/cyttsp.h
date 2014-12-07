@@ -31,19 +31,23 @@
 
 #define CY_SPI_NAME "cyttsp-spi"
 #define CY_I2C_NAME "cyttsp-i2c"
-#define CY_ACT_INTRVL_DFLT 0x00 
-#define CY_TCH_TMOUT_DFLT 0xFF 
-#define CY_LP_INTRVL_DFLT 0x0A 
-#define CY_ACT_DIST_DFLT 0xF8 
+/* Active Power state scanning/processing refresh interval */
+#define CY_ACT_INTRVL_DFLT 0x00 /* ms */
+/* touch timeout for the Active power */
+#define CY_TCH_TMOUT_DFLT 0xFF /* ms */
+/* Low Power state scanning/processing refresh interval */
+#define CY_LP_INTRVL_DFLT 0x0A /* ms */
+/* Active distance in pixels for a gesture to be reported */
+#define CY_ACT_DIST_DFLT 0xF8 /* pixels */
 
 struct cyttsp_platform_data {
 	u32 maxx;
 	u32 maxy;
 	bool use_hndshk;
-	u8 act_dist;	
-	u8 act_intrvl;  
-	u8 tch_tmout;   
-	u8 lp_intrvl;   
+	u8 act_dist;	/* Active distance */
+	u8 act_intrvl;  /* Active refresh interval; ms */
+	u8 tch_tmout;   /* Active touch timeout; ms */
+	u8 lp_intrvl;   /* Low power refresh interval; ms */
 	int (*init)(void);
 	void (*exit)(void);
 	char *name;
@@ -51,4 +55,4 @@ struct cyttsp_platform_data {
 	u8 *bl_keys;
 };
 
-#endif 
+#endif /* _CYTTSP_H_ */

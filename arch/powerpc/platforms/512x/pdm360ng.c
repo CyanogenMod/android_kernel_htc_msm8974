@@ -40,7 +40,7 @@ static int pdm360ng_get_pendown_state(void)
 
 	reg = in_be32(pdm360ng_gpio_base + 0x8);
 
-	
+	/* return 1 if pen is down */
 	return (reg & 0x40) == 0;
 }
 
@@ -101,7 +101,7 @@ static void __init pdm360ng_touchscreen_init(void)
 static inline void __init pdm360ng_touchscreen_init(void)
 {
 }
-#endif 
+#endif /* CONFIG_TOUCHSCREEN_ADS7846 */
 
 void __init pdm360ng_init(void)
 {

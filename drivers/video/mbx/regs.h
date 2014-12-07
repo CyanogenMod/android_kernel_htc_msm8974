@@ -1,14 +1,18 @@
 #ifndef __REGS_2700G_
 #define __REGS_2700G_
 
+/* extern unsigned long virt_base_2700; */
+/* #define __REG_2700G(x)	(*(volatile unsigned long*)((x)+virt_base_2700)) */
 #define __REG_2700G(x)	((x)+virt_base_2700)
 
+/* System Configuration Registers (0x0000_0000  0x0000_0010) */
 #define SYSCFG		__REG_2700G(0x00000000)
 #define PFBASE		__REG_2700G(0x00000004)
 #define PFCEIL		__REG_2700G(0x00000008)
 #define POLLFLAG	__REG_2700G(0x0000000c)
 #define SYSRST		__REG_2700G(0x00000010)
 
+/* Interrupt Control Registers (0x0000_0014  0x0000_002F) */
 #define NINTPW		__REG_2700G(0x00000014)
 #define MINTENABLE	__REG_2700G(0x00000018)
 #define MINTSTAT	__REG_2700G(0x0000001c)
@@ -16,6 +20,7 @@
 #define SINTSTAT	__REG_2700G(0x00000024)
 #define SINTCLR		__REG_2700G(0x00000028)
 
+/* Clock Control Registers (0x0000_002C  0x0000_005F) */
 #define SYSCLKSRC	__REG_2700G(0x0000002c)
 #define PIXCLKSRC	__REG_2700G(0x00000030)
 #define CLKSLEEP	__REG_2700G(0x00000034)
@@ -30,16 +35,20 @@
 #define SDCLK		__REG_2700G(0x00000058)
 #define PIXCLKDIV	__REG_2700G(0x0000005c)
 
+/* LCD Port Control Register (0x0000_0060  0x0000_006F) */
 #define LCD_CONFIG	__REG_2700G(0x00000060)
 
+/* On-Die Frame Buffer Registers (0x0000_0064  0x0000_006B) */
 #define ODFBPWR		__REG_2700G(0x00000064)
 #define ODFBSTAT	__REG_2700G(0x00000068)
 
+/* GPIO Registers (0x0000_006C  0x0000_007F) */
 #define GPIOCGF		__REG_2700G(0x0000006c)
 #define GPIOHI		__REG_2700G(0x00000070)
 #define GPIOLO		__REG_2700G(0x00000074)
 #define GPIOSTAT	__REG_2700G(0x00000078)
 
+/* Pulse Width Modulator (PWM) Registers (0x0000_0200  0x0000_02FF) */
 #define PWMRST		__REG_2700G(0x00000200)
 #define PWMCFG		__REG_2700G(0x00000204)
 #define PWM0DIV		__REG_2700G(0x00000210)
@@ -49,8 +58,10 @@
 #define PWM1DUTY	__REG_2700G(0x00000224)
 #define PWM1PER		__REG_2700G(0x00000228)
 
+/* Identification (ID) Registers (0x0000_0300  0x0000_0FFF) */
 #define ID		__REG_2700G(0x00000FF0)
 
+/* Local Memory (SDRAM) Interface Registers (0x0000_1000  0x0000_1FFF) */
 #define LMRST		__REG_2700G(0x00001000)
 #define LMCFG		__REG_2700G(0x00001004)
 #define LMPWR		__REG_2700G(0x00001008)
@@ -64,6 +75,7 @@
 #define LMPROTCFG	__REG_2700G(0x00001028)
 #define LMPROTERR	__REG_2700G(0x0000102c)
 
+/* Plane Controller Registers (0x0000_2000  0x0000_2FFF) */
 #define GSCTRL		__REG_2700G(0x00002000)
 #define VSCTRL		__REG_2700G(0x00002004)
 #define GBBASE		__REG_2700G(0x00002020)
@@ -100,6 +112,8 @@
 #define SPOCTRL		__REG_2700G(0x00002190)
 #define SVCTRL		__REG_2700G(0x00002194)
 
+/* 0x0000_2198 */
+/* 0x0000_21A8 VSCOEFF[0:4] Video Scalar Vertical Coefficient [0:4] 4.14.5 */
 #define VSCOEFF0	__REG_2700G(0x00002198)
 #define VSCOEFF1	__REG_2700G(0x0000219c)
 #define VSCOEFF2	__REG_2700G(0x000021a0)
@@ -108,6 +122,8 @@
 
 #define SHCTRL		__REG_2700G(0x000021b0)
 
+/* 0x0000_21B4 */
+/* 0x0000_21D4 HSCOEFF[0:8] Video Scalar Horizontal Coefficient [0:8] 4.14.7 */
 #define HSCOEFF0	__REG_2700G(0x000021b4)
 #define HSCOEFF1	__REG_2700G(0x000021b8)
 #define HSCOEFF2	__REG_2700G(0x000021bc)
@@ -120,6 +136,8 @@
 
 #define SSSIZE		__REG_2700G(0x000021D8)
 
+/* 0x0000_2200 */
+/* 0x0000_2240 VIDGAM[0:16] Video Gamma LUT Index [0:16] 4.15.2 */
 #define VIDGAM0		__REG_2700G(0x00002200)
 #define VIDGAM1		__REG_2700G(0x00002204)
 #define VIDGAM2		__REG_2700G(0x00002208)
@@ -138,6 +156,8 @@
 #define VIDGAM15	__REG_2700G(0x0000223c)
 #define VIDGAM16	__REG_2700G(0x00002240)
 
+/* 0x0000_2250 */
+/* 0x0000_2290 GFXGAM[0:16] Graphics Gamma LUT Index [0:16] 4.15.3 */
 #define GFXGAM0		__REG_2700G(0x00002250)
 #define GFXGAM1		__REG_2700G(0x00002254)
 #define GFXGAM2		__REG_2700G(0x00002258)
@@ -172,4 +192,4 @@
 
 #define FB_MEMORY_START	__REG_2700G(0x00060000)
 
-#endif 
+#endif /* __REGS_2700G_ */

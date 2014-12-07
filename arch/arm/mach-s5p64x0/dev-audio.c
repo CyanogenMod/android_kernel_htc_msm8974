@@ -185,6 +185,7 @@ struct platform_device s5p6450_device_iis2 = {
 	},
 };
 
+/* PCM Controller platform_devices */
 
 static int s5p6440_pcm_cfg_gpio(struct platform_device *pdev)
 {

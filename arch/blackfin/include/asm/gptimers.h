@@ -14,10 +14,16 @@
 #include <linux/types.h>
 #include <asm/blackfin.h>
 
+/*
+ * BF51x/BF52x/BF537: 8 timers:
+ */
 #if defined(CONFIG_BF51x) || defined(CONFIG_BF52x) || defined(BF537_FAMILY)
 # define MAX_BLACKFIN_GPTIMERS 8
 # define TIMER0_GROUP_REG      TIMER_ENABLE
 #endif
+/*
+ * BF54x: 11 timers (BF542: 8 timers):
+ */
 #if defined(CONFIG_BF54x)
 # ifdef CONFIG_BF542
 #  define MAX_BLACKFIN_GPTIMERS 8
@@ -28,12 +34,18 @@
 # endif
 # define TIMER0_GROUP_REG       TIMER_ENABLE0
 #endif
+/*
+ * BF561: 12 timers:
+ */
 #if defined(CONFIG_BF561)
 # define MAX_BLACKFIN_GPTIMERS 12
 # define TIMER0_GROUP_REG      TMRS8_ENABLE
 # define TIMER8_GROUP_REG      TMRS4_ENABLE
 # define TIMER_GROUP2          1
 #endif
+/*
+ * All others: 3 timers:
+ */
 #define TIMER_GROUP1           0
 #if !defined(MAX_BLACKFIN_GPTIMERS)
 # define MAX_BLACKFIN_GPTIMERS 3
@@ -43,9 +55,10 @@
 #define BLACKFIN_GPTIMER_IDMASK ((1UL << MAX_BLACKFIN_GPTIMERS) - 1)
 #define BFIN_TIMER_OCTET(x) ((x) >> 3)
 
-#define TIMER0bit  0x0001  
-#define TIMER1bit  0x0002  
-#define TIMER2bit  0x0004  
+/* used in masks for timer_enable() and timer_disable() */
+#define TIMER0bit  0x0001  /*  0001b */
+#define TIMER1bit  0x0002  /*  0010b */
+#define TIMER2bit  0x0004  /*  0100b */
 #define TIMER3bit  0x0008
 #define TIMER4bit  0x0010
 #define TIMER5bit  0x0020
@@ -69,6 +82,7 @@
 #define TIMER10_id 10
 #define TIMER11_id 11
 
+/* associated timers for ppi framesync: */
 
 #if defined(CONFIG_BF561)
 # define FS0_1_TIMER_ID   TIMER8_id
@@ -90,6 +104,9 @@
 # define FS2_TIMER_BIT TIMER1bit
 #endif
 
+/*
+ * Timer Configuration Register Bits
+ */
 #define TIMER_ERR           0xC000
 #define TIMER_ERR_OVFL      0x4000
 #define TIMER_ERR_PROG_PER  0x8000
@@ -107,6 +124,9 @@
 #define TIMER_MODE_WDTH     0x0002
 #define TIMER_MODE_EXT_CLK  0x0003
 
+/*
+ * Timer Status Register Bits
+ */
 #define TIMER_STATUS_TIMIL0  0x0001
 #define TIMER_STATUS_TIMIL1  0x0002
 #define TIMER_STATUS_TIMIL2  0x0004
@@ -120,7 +140,7 @@
 #define TIMER_STATUS_TIMIL10 0x0004
 #define TIMER_STATUS_TIMIL11 0x0008
 
-#define TIMER_STATUS_TOVF0   0x0010	
+#define TIMER_STATUS_TOVF0   0x0010	/* timer 0 overflow error */
 #define TIMER_STATUS_TOVF1   0x0020
 #define TIMER_STATUS_TOVF2   0x0040
 #define TIMER_STATUS_TOVF3   0x00000080
@@ -133,6 +153,9 @@
 #define TIMER_STATUS_TOVF10  0x0040
 #define TIMER_STATUS_TOVF11  0x0080
 
+/*
+ * Timer Slave Enable Status : write 1 to clear
+ */
 #define TIMER_STATUS_TRUN0  0x1000
 #define TIMER_STATUS_TRUN1  0x2000
 #define TIMER_STATUS_TRUN2  0x4000
@@ -147,6 +170,7 @@
 #define TIMER_STATUS_TRUN10 0x4000
 #define TIMER_STATUS_TRUN11 0x8000
 
+/* The actual gptimer API */
 
 void     set_gptimer_pwidth(unsigned int timer_id, uint32_t width);
 uint32_t get_gptimer_pwidth(unsigned int timer_id);
@@ -179,8 +203,15 @@ static inline void disable_gptimer(unsigned int timer_id)
 	disable_gptimers(1 << timer_id);
 }
 
+/*
+ * All Blackfin system MMRs are padded to 32bits even if the register
+ * itself is only 16bits.  So use a helper macro to streamline this.
+ */
 #define __BFP(m) u16 m; u16 __pad_##m
 
+/*
+ * bfin timer registers layout
+ */
 struct bfin_gptimer_regs {
 	__BFP(config);
 	u32 counter;
@@ -188,6 +219,9 @@ struct bfin_gptimer_regs {
 	u32 width;
 };
 
+/*
+ * bfin group timer registers layout
+ */
 struct bfin_gptimer_group_regs {
 	__BFP(enable);
 	__BFP(disable);

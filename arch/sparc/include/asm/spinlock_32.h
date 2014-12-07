@@ -9,7 +9,7 @@
 #ifndef __ASSEMBLY__
 
 #include <asm/psr.h>
-#include <asm/processor.h> 
+#include <asm/processor.h> /* for cpu_relax */
 
 #define arch_spin_is_locked(lock) (*((volatile unsigned char *)(lock)) != 0)
 
@@ -31,7 +31,7 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 	" ldub	[%0], %%g2\n\t"
 	"b,a	1b\n\t"
 	".previous\n"
-	: 
+	: /* no outputs */
 	: "r" (lock)
 	: "g2", "memory", "cc");
 }
@@ -51,6 +51,32 @@ static inline void arch_spin_unlock(arch_spinlock_t *lock)
 	__asm__ __volatile__("stb %%g0, [%0]" : : "r" (lock) : "memory");
 }
 
+/* Read-write spinlocks, allowing multiple readers
+ * but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts
+ * but no interrupt writers. For those circumstances we
+ * can "mix" irq-safe locks - any writer needs to get a
+ * irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ *
+ * XXX This might create some problems with my dual spinlock
+ * XXX scheme, deadlocks etc. -DaveM
+ *
+ * Sort of like atomic_t's on Sparc, but even more clever.
+ *
+ *	------------------------------------
+ *	| 24-bit counter           | wlock |  arch_rwlock_t
+ *	------------------------------------
+ *	 31                       8 7     0
+ *
+ * wlock signifies the one writer is in or somebody is updating
+ * counter. For a writer, if he successfully acquires the wlock,
+ * but counter is non-zero, he has to release the lock and wait,
+ * till both counter and wlock are zero.
+ *
+ * Unfortunately this scheme limits us to ~16,000,000 cpus.
+ */
 static inline void __arch_read_lock(arch_rwlock_t *rw)
 {
 	register arch_rwlock_t *lp asm("g1");
@@ -59,7 +85,7 @@ static inline void __arch_read_lock(arch_rwlock_t *rw)
 	"mov	%%o7, %%g4\n\t"
 	"call	___rw_read_enter\n\t"
 	" ldstub	[%%g1 + 3], %%g2\n"
-	: 
+	: /* no outputs */
 	: "r" (lp)
 	: "g2", "g4", "memory", "cc");
 }
@@ -79,7 +105,7 @@ static inline void __arch_read_unlock(arch_rwlock_t *rw)
 	"mov	%%o7, %%g4\n\t"
 	"call	___rw_read_exit\n\t"
 	" ldstub	[%%g1 + 3], %%g2\n"
-	: 
+	: /* no outputs */
 	: "r" (lp)
 	: "g2", "g4", "memory", "cc");
 }
@@ -99,7 +125,7 @@ static inline void arch_write_lock(arch_rwlock_t *rw)
 	"mov	%%o7, %%g4\n\t"
 	"call	___rw_write_enter\n\t"
 	" ldstub	[%%g1 + 3], %%g2\n"
-	: 
+	: /* no outputs */
 	: "r" (lp)
 	: "g2", "g4", "memory", "cc");
 	*(volatile __u32 *)&lp->lock = ~0U;
@@ -109,7 +135,7 @@ static void inline arch_write_unlock(arch_rwlock_t *lock)
 {
 	__asm__ __volatile__(
 "	st		%%g0, [%0]"
-	: 
+	: /* no outputs */
 	: "r" (lock)
 	: "memory");
 }
@@ -169,6 +195,6 @@ static inline int __arch_read_trylock(arch_rwlock_t *rw)
 #define arch_read_can_lock(rw) (!((rw)->lock & 0xff))
 #define arch_write_can_lock(rw) (!(rw)->lock)
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
-#endif 
+#endif /* __SPARC_SPINLOCK_H */

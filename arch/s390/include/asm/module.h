@@ -1,5 +1,8 @@
 #ifndef _ASM_S390_MODULE_H
 #define _ASM_S390_MODULE_H
+/*
+ * This file contains the s390 architecture specific module code.
+ */
 
 struct mod_arch_syminfo
 {
@@ -11,17 +14,17 @@ struct mod_arch_syminfo
 
 struct mod_arch_specific
 {
-	
+	/* Starting offset of got in the module core memory. */
 	unsigned long got_offset;
-	
+	/* Starting offset of plt in the module core memory. */
 	unsigned long plt_offset;
-	
+	/* Size of the got. */
 	unsigned long got_size;
-	
+	/* Size of the plt. */
 	unsigned long plt_size;
-	
+	/* Number of symbols in syminfo. */
 	int nsyms;
-	
+	/* Additional symbol information (got and plt offsets). */
 	struct mod_arch_syminfo *syminfo;
 };
 
@@ -40,4 +43,4 @@ struct mod_arch_specific
 #define Elf_Ehdr ElfW(Ehdr)
 #define ELF_R_SYM ELFW(R_SYM)
 #define ELF_R_TYPE ELFW(R_TYPE)
-#endif 
+#endif /* _ASM_S390_MODULE_H */

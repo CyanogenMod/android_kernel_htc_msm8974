@@ -36,11 +36,20 @@
 #include "tcrypt.h"
 #include "internal.h"
 
+/*
+ * Need slab memory for testing (size in number of pages).
+ */
 #define TVMEMSIZE	4
 
+/*
+* Used by test_cipher_speed()
+*/
 #define ENCRYPT 1
 #define DECRYPT 0
 
+/*
+ * Used by test_cipher_speed()
+ */
 static unsigned int sec;
 
 static char *alg = NULL;
@@ -91,7 +100,7 @@ static int test_cipher_cycles(struct blkcipher_desc *desc, int enc,
 	local_bh_disable();
 	local_irq_disable();
 
-	
+	/* Warm-up run. */
 	for (i = 0; i < 4; i++) {
 		if (enc)
 			ret = crypto_blkcipher_encrypt(desc, sg, sg, blen);
@@ -102,7 +111,7 @@ static int test_cipher_cycles(struct blkcipher_desc *desc, int enc,
 			goto out;
 	}
 
-	
+	/* The real thing. */
 	for (i = 0; i < 8; i++) {
 		cycles_t start, end;
 
@@ -180,7 +189,7 @@ static void test_cipher_speed(const char *algo, int enc, unsigned int sec,
 
 			memset(tvmem[0], 0xff, PAGE_SIZE);
 
-			
+			/* set key, plain text and IV */
 			key = tvmem[0];
 			for (j = 0; j < tcount; j++) {
 				if (template[j].klen == *keysize) {
@@ -272,7 +281,7 @@ static int test_hash_jiffies(struct hash_desc *desc, struct scatterlist *sg,
 			if (ret)
 				return ret;
 		}
-		
+		/* we assume there is enough space in 'out' for the result */
 		ret = crypto_hash_final(desc, out);
 		if (ret)
 			return ret;
@@ -294,14 +303,14 @@ static int test_hash_cycles_digest(struct hash_desc *desc,
 	local_bh_disable();
 	local_irq_disable();
 
-	
+	/* Warm-up run. */
 	for (i = 0; i < 4; i++) {
 		ret = crypto_hash_digest(desc, sg, blen, out);
 		if (ret)
 			goto out;
 	}
 
-	
+	/* The real thing. */
 	for (i = 0; i < 8; i++) {
 		cycles_t start, end;
 
@@ -342,7 +351,7 @@ static int test_hash_cycles(struct hash_desc *desc, struct scatterlist *sg,
 	local_bh_disable();
 	local_irq_disable();
 
-	
+	/* Warm-up run. */
 	for (i = 0; i < 4; i++) {
 		ret = crypto_hash_init(desc);
 		if (ret)
@@ -357,7 +366,7 @@ static int test_hash_cycles(struct hash_desc *desc, struct scatterlist *sg,
 			goto out;
 	}
 
-	
+	/* The real thing. */
 	for (i = 0; i < 8; i++) {
 		cycles_t start, end;
 
@@ -535,7 +544,7 @@ static int test_ahash_jiffies(struct ahash_request *req, int blen,
 			if (ret)
 				return ret;
 		}
-		
+		/* we assume there is enough space in 'out' for the result */
 		ret = do_one_ahash_op(req, crypto_ahash_final(req));
 		if (ret)
 			return ret;
@@ -553,14 +562,14 @@ static int test_ahash_cycles_digest(struct ahash_request *req, int blen,
 	unsigned long cycles = 0;
 	int ret, i;
 
-	
+	/* Warm-up run. */
 	for (i = 0; i < 4; i++) {
 		ret = do_one_ahash_op(req, crypto_ahash_digest(req));
 		if (ret)
 			goto out;
 	}
 
-	
+	/* The real thing. */
 	for (i = 0; i < 8; i++) {
 		cycles_t start, end;
 
@@ -594,7 +603,7 @@ static int test_ahash_cycles(struct ahash_request *req, int blen,
 	if (plen == blen)
 		return test_ahash_cycles_digest(req, blen, out);
 
-	
+	/* Warm-up run. */
 	for (i = 0; i < 4; i++) {
 		ret = crypto_ahash_init(req);
 		if (ret)
@@ -609,7 +618,7 @@ static int test_ahash_cycles(struct ahash_request *req, int blen,
 			goto out;
 	}
 
-	
+	/* The real thing. */
 	for (i = 0; i < 8; i++) {
 		cycles_t start, end;
 
@@ -756,7 +765,7 @@ static int test_acipher_cycles(struct ablkcipher_request *req, int enc,
 	int ret = 0;
 	int i;
 
-	
+	/* Warm-up run. */
 	for (i = 0; i < 4; i++) {
 		if (enc)
 			ret = do_one_acipher_op(req,
@@ -769,7 +778,7 @@ static int test_acipher_cycles(struct ablkcipher_request *req, int enc,
 			goto out;
 	}
 
-	
+	/* The real thing. */
 	for (i = 0; i < 8; i++) {
 		cycles_t start, end;
 
@@ -855,7 +864,7 @@ static void test_acipher_speed(const char *algo, int enc, unsigned int sec,
 
 			memset(tvmem[0], 0xff, PAGE_SIZE);
 
-			
+			/* set key, plain text and IV */
 			key = tvmem[0];
 			for (j = 0; j < tcount; j++) {
 				if (template[j].klen == *keysize) {
@@ -928,7 +937,7 @@ static inline int tcrypt_test(const char *alg)
 	int ret;
 
 	ret = alg_test(alg, alg, 0, 0);
-	
+	/* non-fips algs return -EINVAL in fips mode */
 	if (fips_enabled && ret == -EINVAL)
 		ret = 0;
 	return ret;
@@ -1331,7 +1340,7 @@ static int do_test(int m)
 		break;
 
 	case 300:
-		
+		/* fall through */
 
 	case 301:
 		test_hash_speed("md4", sec, generic_hash_speed_template);
@@ -1409,7 +1418,7 @@ static int do_test(int m)
 		break;
 
 	case 400:
-		
+		/* fall through */
 
 	case 401:
 		test_ahash_speed("md4", sec, generic_hash_speed_template);
@@ -1589,6 +1598,13 @@ static int __init tcrypt_mod_init(void)
 		goto err_free_tv;
 	}
 
+	/* We intentionaly return -EAGAIN to prevent keeping the module,
+	 * unless we're running in fips mode. It does all its work from
+	 * init() and doesn't offer any runtime functionality, but in
+	 * the fips case, checking for a successful load is helpful.
+	 * => we don't need it in the memory, do we?
+	 *                                        -- mludvig
+	 */
 	if (!fips_enabled)
 		err = -EAGAIN;
 
@@ -1599,6 +1615,10 @@ err_free_tv:
 	return err;
 }
 
+/*
+ * If an init function is provided, an exit function must also be provided
+ * to allow module unload.
+ */
 static void __exit tcrypt_mod_fini(void) { }
 
 module_init(tcrypt_mod_init);

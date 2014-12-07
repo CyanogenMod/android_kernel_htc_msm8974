@@ -3,4 +3,4 @@
 
 #include <asm-generic/swab.h>
 
-#endif 
+#endif /* _ASM_SCORE_SWAB_H */

@@ -34,6 +34,33 @@ struct ath_buf;
 
 #ifdef CONFIG_ATH9K_DEBUGFS
 
+/**
+ * struct ath_interrupt_stats - Contains statistics about interrupts
+ * @total: Total no. of interrupts generated so far
+ * @rxok: RX with no errors
+ * @rxlp: RX with low priority RX
+ * @rxhp: RX with high priority, uapsd only
+ * @rxeol: RX with no more RXDESC available
+ * @rxorn: RX FIFO overrun
+ * @txok: TX completed at the requested rate
+ * @txurn: TX FIFO underrun
+ * @mib: MIB regs reaching its threshold
+ * @rxphyerr: RX with phy errors
+ * @rx_keycache_miss: RX with key cache misses
+ * @swba: Software Beacon Alert
+ * @bmiss: Beacon Miss
+ * @bnr: Beacon Not Ready
+ * @cst: Carrier Sense TImeout
+ * @gtt: Global TX Timeout
+ * @tim: RX beacon TIM occurrence
+ * @cabend: RX End of CAB traffic
+ * @dtimsync: DTIM sync lossage
+ * @dtim: RX Beacon with DTIM
+ * @bb_watchdog: Baseband watchdog
+ * @tsfoor: TSF out of range, indicates that the corrected TSF received
+ * from a beacon differs from the PCU's internal TSF by more than a
+ * (programmable) threshold
+ */
 struct ath_interrupt_stats {
 	u32 total;
 	u32 rxok;
@@ -60,6 +87,33 @@ struct ath_interrupt_stats {
 	u32 tsfoor;
 };
 
+/**
+ * struct ath_tx_stats - Statistics about TX
+ * @tx_pkts_all:  No. of total frames transmitted, including ones that
+	may have had errors.
+ * @tx_bytes_all:  No. of total bytes transmitted, including ones that
+	may have had errors.
+ * @queued: Total MPDUs (non-aggr) queued
+ * @completed: Total MPDUs (non-aggr) completed
+ * @a_aggr: Total no. of aggregates queued
+ * @a_queued_hw: Total AMPDUs queued to hardware
+ * @a_queued_sw: Total AMPDUs queued to software queues
+ * @a_completed: Total AMPDUs completed
+ * @a_retries: No. of AMPDUs retried (SW)
+ * @a_xretries: No. of AMPDUs dropped due to xretries
+ * @fifo_underrun: FIFO underrun occurrences
+	Valid only for:
+		- non-aggregate condition.
+		- first packet of aggregate.
+ * @xtxop: No. of frames filtered because of TXOP limit
+ * @timer_exp: Transmit timer expiry
+ * @desc_cfg_err: Descriptor configuration errors
+ * @data_urn: TX data underrun errors
+ * @delim_urn: TX delimiter underrun errors
+ * @puttxbuf: Number of times hardware was given txbuf to write.
+ * @txstart:  Number of times hardware was told to start tx.
+ * @txprocdesc:  Number of times tx descriptor was processed
+ */
 struct ath_tx_stats {
 	u32 tx_pkts_all;
 	u32 tx_bytes_all;
@@ -83,6 +137,23 @@ struct ath_tx_stats {
 	u32 txprocdesc;
 };
 
+/**
+ * struct ath_rx_stats - RX Statistics
+ * @rx_pkts_all:  No. of total frames received, including ones that
+	may have had errors.
+ * @rx_bytes_all:  No. of total bytes received, including ones that
+	may have had errors.
+ * @crc_err: No. of frames with incorrect CRC value
+ * @decrypt_crc_err: No. of frames whose CRC check failed after
+	decryption process completed
+ * @phy_err: No. of frames whose reception failed because the PHY
+	encountered an error
+ * @mic_err: No. of frames with incorrect TKIP MIC verification failure
+ * @pre_delim_crc_err: Pre-Frame delimiter CRC error detections
+ * @post_delim_crc_err: Post-Frame delimiter CRC error detections
+ * @decrypt_busy_err: Decryption interruptions counter
+ * @phy_err_stats: Individual PHY error statistics
+ */
 struct ath_rx_stats {
 	u32 rx_pkts_all;
 	u32 rx_bytes_all;
@@ -199,7 +270,7 @@ static inline void ath_debug_stat_rx(struct ath_softc *sc,
 {
 }
 
-#endif 
+#endif /* CONFIG_ATH9K_DEBUGFS */
 
 #ifdef CONFIG_ATH9K_MAC_DEBUG
 
@@ -214,4 +285,4 @@ static inline void ath9k_debug_samp_bb_mac(struct ath_softc *sc)
 #endif
 
 
-#endif 
+#endif /* DEBUG_H */

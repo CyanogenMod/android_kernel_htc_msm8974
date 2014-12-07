@@ -41,6 +41,14 @@ extern long atomic64_sub_ret(long, atomic64_t *);
 #define atomic_add_return(i, v) atomic_add_ret(i, v)
 #define atomic64_add_return(i, v) atomic64_add_ret(i, v)
 
+/*
+ * atomic_inc_and_test - increment and test
+ * @v: pointer of type atomic_t
+ *
+ * Atomically increments @v by 1
+ * and returns true if the result is zero, or false for all
+ * other cases.
+ */
 #define atomic_inc_and_test(v) (atomic_inc_return(v) == 0)
 #define atomic64_inc_and_test(v) (atomic64_inc_return(v) == 0)
 
@@ -98,9 +106,10 @@ static inline long atomic64_add_unless(atomic64_t *v, long a, long u)
 
 #define atomic64_inc_not_zero(v) atomic64_add_unless((v), 1, 0)
 
+/* Atomic operations are already serializing */
 #define smp_mb__before_atomic_dec()	barrier()
 #define smp_mb__after_atomic_dec()	barrier()
 #define smp_mb__before_atomic_inc()	barrier()
 #define smp_mb__after_atomic_inc()	barrier()
 
-#endif 
+#endif /* !(__ARCH_SPARC64_ATOMIC__) */

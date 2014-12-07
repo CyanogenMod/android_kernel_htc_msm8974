@@ -17,10 +17,15 @@ typedef u32 (*cs5536_pci_vsm_read)(int reg);
 extern void pci_##name##_write_reg(int reg, u32 value); \
 extern u32 pci_##name##_read_reg(int reg);
 
+/* ide module */
 DECLARE_CS5536_MODULE(ide)
+/* acc module */
 DECLARE_CS5536_MODULE(acc)
+/* ohci module */
 DECLARE_CS5536_MODULE(ohci)
+/* isa module */
 DECLARE_CS5536_MODULE(isa)
+/* ehci module */
 DECLARE_CS5536_MODULE(ehci)
 
-#endif				
+#endif				/* _CS5536_VSM_H */

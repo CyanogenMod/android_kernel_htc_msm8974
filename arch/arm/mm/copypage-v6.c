@@ -26,6 +26,10 @@
 
 static DEFINE_RAW_SPINLOCK(v6_lock);
 
+/*
+ * Copy the user page.  No aliasing to deal with so we can just
+ * attack the kernel's existing mapping of these pages.
+ */
 static void v6_copy_user_highpage_nonaliasing(struct page *to,
 	struct page *from, unsigned long vaddr, struct vm_area_struct *vma)
 {
@@ -38,6 +42,10 @@ static void v6_copy_user_highpage_nonaliasing(struct page *to,
 	kunmap_atomic(kfrom);
 }
 
+/*
+ * Clear the user page.  No aliasing to deal with so we can just
+ * attack the kernel's existing mapping of this page.
+ */
 static void v6_clear_user_highpage_nonaliasing(struct page *page, unsigned long vaddr)
 {
 	void *kaddr = kmap_atomic(page);
@@ -45,6 +53,10 @@ static void v6_clear_user_highpage_nonaliasing(struct page *page, unsigned long 
 	kunmap_atomic(kaddr);
 }
 
+/*
+ * Discard data in the kernel mapping for the new page.
+ * FIXME: needs this MCRR to be supported.
+ */
 static void discard_old_kernel_data(void *kto)
 {
 	__asm__("mcrr	p15, 0, %1, %0, c6	@ 0xec401f06"
@@ -54,6 +66,9 @@ static void discard_old_kernel_data(void *kto)
 	   : "cc");
 }
 
+/*
+ * Copy the page, taking account of the cache colour.
+ */
 static void v6_copy_user_highpage_aliasing(struct page *to,
 	struct page *from, unsigned long vaddr, struct vm_area_struct *vma)
 {
@@ -63,9 +78,13 @@ static void v6_copy_user_highpage_aliasing(struct page *to,
 	if (!test_and_set_bit(PG_dcache_clean, &from->flags))
 		__flush_dcache_page(page_mapping(from), from);
 
-	
+	/* FIXME: not highmem safe */
 	discard_old_kernel_data(page_address(to));
 
+	/*
+	 * Now copy the page using the same cache colour as the
+	 * pages ultimate destination.
+	 */
 	raw_spin_lock(&v6_lock);
 
 	kfrom = COPYPAGE_V6_FROM + (offset << PAGE_SHIFT);
@@ -79,13 +98,22 @@ static void v6_copy_user_highpage_aliasing(struct page *to,
 	raw_spin_unlock(&v6_lock);
 }
 
+/*
+ * Clear the user page.  We need to deal with the aliasing issues,
+ * so remap the kernel page into the same cache colour as the user
+ * page.
+ */
 static void v6_clear_user_highpage_aliasing(struct page *page, unsigned long vaddr)
 {
 	unsigned long to = COPYPAGE_V6_TO + (CACHE_COLOUR(vaddr) << PAGE_SHIFT);
 
-	
+	/* FIXME: not highmem safe */
 	discard_old_kernel_data(page_address(page));
 
+	/*
+	 * Now clear the page using the same cache colour as
+	 * the pages ultimate destination.
+	 */
 	raw_spin_lock(&v6_lock);
 
 	set_top_pte(to, mk_pte(page, PAGE_KERNEL));

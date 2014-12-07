@@ -20,14 +20,14 @@ static int ohci_xls_probe_internal(const struct hc_driver *driver,
 	struct usb_hcd *hcd;
 	int retval, irq;
 
-	
+	/* Get our IRQ from an earlier registered Platform Resource */
 	irq = platform_get_irq(dev, 0);
 	if (irq < 0) {
 		dev_err(&dev->dev, "Found HC with no IRQ\n");
 		return -ENODEV;
 	}
 
-	
+	/* Get our Memory Handle */
 	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&dev->dev, "MMIO Handle incorrect!\n");

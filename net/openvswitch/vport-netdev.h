@@ -39,4 +39,4 @@ const char *ovs_netdev_get_name(const struct vport *);
 const char *ovs_netdev_get_config(const struct vport *);
 int ovs_netdev_get_ifindex(const struct vport *);
 
-#endif 
+#endif /* vport_netdev.h */

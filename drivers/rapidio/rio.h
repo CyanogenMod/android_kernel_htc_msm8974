@@ -16,6 +16,7 @@
 
 #define RIO_MAX_CHK_RETRY	3
 
+/* Functions internal to the RIO core code */
 
 extern u32 rio_mport_get_feature(struct rio_mport *mport, int local, u16 destid,
 				 u8 hopcount, int ftr);
@@ -39,16 +40,30 @@ extern int rio_std_route_clr_table(struct rio_mport *mport, u16 destid,
 extern int rio_set_port_lockout(struct rio_dev *rdev, u32 pnum, int lock);
 extern struct rio_dev *rio_get_comptag(u32 comp_tag, struct rio_dev *from);
 
+/* Structures internal to the RIO core code */
 extern struct device_attribute rio_dev_attrs[];
 extern spinlock_t rio_global_list_lock;
 
 extern struct rio_switch_ops __start_rio_switch_ops[];
 extern struct rio_switch_ops __end_rio_switch_ops[];
 
+/* Helpers internal to the RIO core code */
 #define DECLARE_RIO_SWITCH_SECTION(section, name, vid, did, init_hook) \
 	static const struct rio_switch_ops __rio_switch_##name __used \
 	__section(section) = { vid, did, init_hook };
 
+/**
+ * DECLARE_RIO_SWITCH_INIT - Registers switch initialization routine
+ * @vid: RIO vendor ID
+ * @did: RIO device ID
+ * @init_hook: Callback that performs switch-specific initialization
+ *
+ * Manipulating switch route tables and error management in RIO
+ * is switch specific. This registers a switch by vendor and device ID with
+ * initialization callback for setting up switch operations and (if required)
+ * hardware initialization. A &struct rio_switch_ops is initialized with
+ * pointer to the init routine and placed into a RIO-specific kernel section.
+ */
 #define DECLARE_RIO_SWITCH_INIT(vid, did, init_hook)		\
 	DECLARE_RIO_SWITCH_SECTION(.rio_switch_ops, vid##did, \
 			vid, did, init_hook)

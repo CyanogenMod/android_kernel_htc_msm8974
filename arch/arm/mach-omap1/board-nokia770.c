@@ -156,6 +156,7 @@ static void __init hwa742_dev_init(void)
 	clk_add_alias("hwa_sys_ck", NULL, "bclk", NULL);
 }
 
+/* assume no Mini-AB port */
 
 static struct omap_usb_config nokia770_usb_config __initdata = {
 	.otg		= 1,
@@ -212,7 +213,7 @@ static void __init nokia770_mmc_init(void)
 	}
 	gpio_direction_input(NOKIA770_GPIO_MMC_SWITCH);
 
-	
+	/* Only the second MMC controller is used */
 	nokia770_mmc_data[1] = &nokia770_mmc2_data;
 	omap1_init_mmc(nokia770_mmc_data, OMAP16XX_NR_MMC);
 }
@@ -225,10 +226,13 @@ static inline void nokia770_mmc_init(void)
 
 static void __init omap_nokia770_init(void)
 {
+	/* On Nokia 770, the SleepX signal is masked with an
+	 * MPUIO line by default.  It has to be unmasked for it
+	 * to become functional */
 
-	
+	/* SleepX mask direction */
 	omap_writew((omap_readw(0xfffb5008) & ~2), 0xfffb5008);
-	
+	/* Unmask SleepX signal */
 	omap_writew((omap_readw(0xfffb5004) & ~2), 0xfffb5004);
 
 	platform_add_devices(nokia770_devices, ARRAY_SIZE(nokia770_devices));

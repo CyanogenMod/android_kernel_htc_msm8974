@@ -41,6 +41,8 @@ struct mgmt_rp_read_index_list {
 	__le16 index[0];
 } __packed;
 
+/* Reserve one extra byte for names in management messages so that they
+ * are always guaranteed to be nul-terminated */
 #define MGMT_MAX_NAME_LENGTH		(HCI_MAX_NAME_LENGTH + 1)
 
 #define MGMT_OP_READ_INFO		0x0004

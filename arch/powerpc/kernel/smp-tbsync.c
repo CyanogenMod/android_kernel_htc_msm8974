@@ -116,7 +116,7 @@ void __devinit smp_generic_give_timebase(void)
 
 	pr_debug("Software timebase sync\n");
 
-	
+	/* if this fails then this kernel won't work anyway... */
 	tbsync = kzalloc( sizeof(*tbsync), GFP_KERNEL );
 	mb();
 	running = 1;
@@ -126,7 +126,7 @@ void __devinit smp_generic_give_timebase(void)
 
 	pr_debug("Got ack\n");
 
-	
+	/* binary search */
 	for (old = -1; old != offset ; offset = (min+max) / 2) {
 		score = start_contest(kSetAndTest, offset, NUM_ITER);
 
@@ -147,7 +147,7 @@ void __devinit smp_generic_give_timebase(void)
 	score2 = abs(score2);
 	offset = (score < score2) ? min : max;
 
-	
+	/* guard against inaccurate mttb */
 	for (i = 0; i < 10; i++) {
 		start_contest(kSetAndTest, offset, NUM_ITER/10);
 
@@ -158,7 +158,7 @@ void __devinit smp_generic_give_timebase(void)
 	}
 	pr_debug("Final offset: %d (%d/%d)\n", offset, score2, NUM_ITER );
 
-	
+	/* exiting */
 	tbsync->cmd = kExit;
 	wmb();
 	tbsync->handshake = 1;

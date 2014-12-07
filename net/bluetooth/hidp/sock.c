@@ -141,8 +141,8 @@ static int hidp_sock_ioctl(struct socket *sock, unsigned int cmd, unsigned long 
 
 #ifdef CONFIG_COMPAT
 struct compat_hidp_connadd_req {
-	int   ctrl_sock;	
-	int   intr_sock;	
+	int   ctrl_sock;	/* Connected control socket */
+	int   intr_sock;	/* Connected interrupt socket */
 	__u16 parser;
 	__u16 rd_size;
 	compat_uptr_t rd_data;
@@ -204,6 +204,9 @@ static int hidp_sock_compat_ioctl(struct socket *sock, unsigned int cmd, unsigne
 
 		arg = (unsigned long) uca;
 
+		/* Fall through. We don't actually write back any _changes_
+		   to the structure anyway, so there's no need to copy back
+		   into the original compat version */
 	}
 
 	return hidp_sock_ioctl(sock, cmd, arg);

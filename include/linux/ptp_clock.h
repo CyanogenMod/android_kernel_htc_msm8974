@@ -24,37 +24,47 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
+/* PTP_xxx bits, for the flags field within the request structures. */
 #define PTP_ENABLE_FEATURE (1<<0)
 #define PTP_RISING_EDGE    (1<<1)
 #define PTP_FALLING_EDGE   (1<<2)
 
+/*
+ * struct ptp_clock_time - represents a time value
+ *
+ * The sign of the seconds field applies to the whole value. The
+ * nanoseconds field is always unsigned. The reserved field is
+ * included for sub-nanosecond resolution, should the demand for
+ * this ever appear.
+ *
+ */
 struct ptp_clock_time {
-	__s64 sec;  
-	__u32 nsec; 
+	__s64 sec;  /* seconds */
+	__u32 nsec; /* nanoseconds */
 	__u32 reserved;
 };
 
 struct ptp_clock_caps {
-	int max_adj;   
-	int n_alarm;   
-	int n_ext_ts;  
-	int n_per_out; 
-	int pps;       
-	int rsv[15];   
+	int max_adj;   /* Maximum frequency adjustment in parts per billon. */
+	int n_alarm;   /* Number of programmable alarms. */
+	int n_ext_ts;  /* Number of external time stamp channels. */
+	int n_per_out; /* Number of programmable periodic signals. */
+	int pps;       /* Whether the clock supports a PPS callback. */
+	int rsv[15];   /* Reserved for future use. */
 };
 
 struct ptp_extts_request {
-	unsigned int index;  
-	unsigned int flags;  
-	unsigned int rsv[2]; 
+	unsigned int index;  /* Which channel to configure. */
+	unsigned int flags;  /* Bit field for PTP_xxx flags. */
+	unsigned int rsv[2]; /* Reserved for future use. */
 };
 
 struct ptp_perout_request {
-	struct ptp_clock_time start;  
-	struct ptp_clock_time period; 
-	unsigned int index;           
-	unsigned int flags;           
-	unsigned int rsv[4];          
+	struct ptp_clock_time start;  /* Absolute start time. */
+	struct ptp_clock_time period; /* Desired period, zero means disable. */
+	unsigned int index;           /* Which channel to configure. */
+	unsigned int flags;           /* Reserved for future use. */
+	unsigned int rsv[4];          /* Reserved for future use. */
 };
 
 #define PTP_CLK_MAGIC '='
@@ -65,10 +75,10 @@ struct ptp_perout_request {
 #define PTP_ENABLE_PPS     _IOW(PTP_CLK_MAGIC, 4, int)
 
 struct ptp_extts_event {
-	struct ptp_clock_time t; 
-	unsigned int index;      
-	unsigned int flags;      
-	unsigned int rsv[2];     
+	struct ptp_clock_time t; /* Time event occured. */
+	unsigned int index;      /* Which channel produced the event. */
+	unsigned int flags;      /* Reserved for future use. */
+	unsigned int rsv[2];     /* Reserved for future use. */
 };
 
 #endif

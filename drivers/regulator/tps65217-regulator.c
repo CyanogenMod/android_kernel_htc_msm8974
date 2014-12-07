@@ -175,7 +175,7 @@ static int tps65217_pmic_enable(struct regulator_dev *dev)
 	if (rid < TPS65217_DCDC_1 || rid > TPS65217_LDO_4)
 		return -EINVAL;
 
-	
+	/* Enable the regulator and password protection is level 1 */
 	return tps65217_set_bits(tps, TPS65217_REG_ENABLE,
 				tps->info[rid]->enable_mask,
 				tps->info[rid]->enable_mask,
@@ -190,7 +190,7 @@ static int tps65217_pmic_disable(struct regulator_dev *dev)
 	if (rid < TPS65217_DCDC_1 || rid > TPS65217_LDO_4)
 		return -EINVAL;
 
-	
+	/* Disable the regulator and password protection is level 1 */
 	return tps65217_clear_bits(tps, TPS65217_REG_ENABLE,
 			tps->info[rid]->enable_mask, TPS65217_PROTECT_L1);
 }
@@ -225,7 +225,7 @@ static int tps65217_pmic_ldo1_set_voltage_sel(struct regulator_dev *dev,
 	if (selector >= tps->info[ldo]->table_len)
 		return -EINVAL;
 
-	
+	/* Set the voltage based on vsel value and write protect level is 2 */
 	return tps65217_set_bits(tps, tps->info[ldo]->set_vout_reg,
 					tps->info[ldo]->set_vout_mask,
 					selector, TPS65217_PROTECT_L2);
@@ -238,7 +238,7 @@ static int tps65217_pmic_set_voltage(struct regulator_dev *dev,
 	struct tps65217 *tps = rdev_get_drvdata(dev);
 	unsigned int rid = rdev_get_id(dev);
 
-	
+	/* LDO1 implements set_voltage_sel callback */
 	if (rid == TPS65217_LDO_1)
 		return -EINVAL;
 
@@ -257,12 +257,12 @@ static int tps65217_pmic_set_voltage(struct regulator_dev *dev,
 	if (ret)
 		return ret;
 
-	
+	/* Set the voltage based on vsel value and write protect level is 2 */
 	ret = tps65217_set_bits(tps, tps->info[rid]->set_vout_reg,
 				tps->info[rid]->set_vout_mask,
 				*selector, TPS65217_PROTECT_L2);
 
-	
+	/* Set GO bit for DCDCx to initiate voltage transistion */
 	switch (rid) {
 	case TPS65217_DCDC_1 ... TPS65217_DCDC_3:
 		ret = tps65217_set_bits(tps, TPS65217_REG_DEFSLEW,
@@ -292,6 +292,7 @@ static int tps65217_pmic_list_voltage(struct regulator_dev *dev,
 	return tps->info[rid]->vsel_to_uv(selector);
 }
 
+/* Operations permitted on DCDCx, LDO2, LDO3 and LDO4 */
 static struct regulator_ops tps65217_pmic_ops = {
 	.is_enabled		= tps65217_pmic_is_enabled,
 	.enable			= tps65217_pmic_enable,
@@ -301,6 +302,7 @@ static struct regulator_ops tps65217_pmic_ops = {
 	.list_voltage		= tps65217_pmic_list_voltage,
 };
 
+/* Operations permitted on LDO1 */
 static struct regulator_ops tps65217_pmic_ldo1_ops = {
 	.is_enabled		= tps65217_pmic_is_enabled,
 	.enable			= tps65217_pmic_enable,
@@ -326,7 +328,7 @@ static int __devinit tps65217_regulator_probe(struct platform_device *pdev)
 	struct tps65217 *tps;
 	struct tps_info *info = &tps65217_pmic_regs[pdev->id];
 
-	
+	/* Already set by core driver */
 	tps = dev_to_tps65217(pdev->dev.parent);
 	tps->info[pdev->id] = info;
 

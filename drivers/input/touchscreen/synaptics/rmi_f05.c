@@ -40,14 +40,26 @@
 #include "rmi_f05.h"
 
 struct f05_instance_data {
-	int dummy;	
+	int dummy;	/* TODO: Write this */
 };
 
+/*
+ * There is no attention function for F05 - it is left NULL
+ * in the function table so it is not called.
+ *
+ */
 
 
+/*
+ * This reads in a sample and reports the F05 source data to the
+ * input subsystem. It is used for both polling and interrupt driven
+ * operation. This is called a lot so don't put in any informational
+ * printks since they will slow things way down!
+ */
 void FN_05_inthandler(struct rmi_function_info *rmifninfo,
 	unsigned int assertedIRQs)
 {
+//	struct f05_instance_data *instance_data = rmifninfo->fndata;
 }
 EXPORT_SYMBOL(FN_05_inthandler);
 
@@ -57,14 +69,21 @@ int FN_05_config(struct rmi_function_info *rmifninfo)
 
 	pr_debug("%s: RMI4 F05 config\n", __func__);
 
+	/* TODO: Perform configuration.  In particular, write any cached control
+	 * register values to the device. */
 
 	return retval;
 }
 EXPORT_SYMBOL(FN_05_config);
 
+/* Initialize any F05 specific params and settings - input
+ * settings, device settings, etc.
+ */
 int FN_05_init(struct rmi_function_device *function_device)
 {
 	int retval = 0;
+//	struct f05_instance_data *instance_data = function_device->rfi->fndata;
+//	struct rmi_f05_functiondata *functiondata = rmi_sensor_get_functiondata(function_device->sensor, RMI_F05_INDEX);
 
 	printk(KERN_DEBUG "%s: RMI4 F05 init\n", __func__);
 
@@ -90,6 +109,8 @@ int FN_05_detect(struct rmi_function_info *rmifninfo,
 	}
 	rmifninfo->fndata = instanceData;
 
+	/* Store addresses - used elsewhere to read data,
+	* control, query, etc. */
 	rmifninfo->funcDescriptor.queryBaseAddr = fndescr->queryBaseAddr;
 	rmifninfo->funcDescriptor.commandBaseAddr = fndescr->commandBaseAddr;
 	rmifninfo->funcDescriptor.controlBaseAddr = fndescr->controlBaseAddr;
@@ -98,8 +119,12 @@ int FN_05_detect(struct rmi_function_info *rmifninfo,
 	rmifninfo->funcDescriptor.functionNum = fndescr->functionNum;
 
 	rmifninfo->numSources = fndescr->interruptSrcCnt;
+	/* Need to get interrupt info to be used later when handling
+	interrupts. */
 	rmifninfo->interruptRegister = interruptCount/8;
 
+	/* loop through interrupts for each source in fn $11 and or in a bit
+	to the interrupt mask for each. */
 	fn05InterruptOffset = interruptCount % 8;
 
 	for (i = fn05InterruptOffset;

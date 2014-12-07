@@ -192,20 +192,33 @@ static irqreturn_t max8997_irq_thread(int irq, void *data)
 	}
 
 	if (irq_src & MAX8997_IRQSRC_PMIC) {
-		
+		/* PMIC INT1 ~ INT4 */
 		max8997_bulk_read(max8997->i2c, MAX8997_REG_INT1, 4,
 				&irq_reg[PMIC_INT1]);
 	}
 	if (irq_src & MAX8997_IRQSRC_FUELGAUGE) {
+		/*
+		 * TODO: FUEL GAUGE
+		 *
+		 * This is to be supported by Max17042 driver. When
+		 * an interrupt incurs here, it should be relayed to a
+		 * Max17042 device that is connected (probably by
+		 * platform-data). However, we do not have interrupt
+		 * handling in Max17042 driver currently. The Max17042 IRQ
+		 * driver should be ready to be used as a stand-alone device and
+		 * a Max8997-dependent device. Because it is not ready in
+		 * Max17042-side and it is not too critical in operating
+		 * Max8997, we do not implement this in initial releases.
+		 */
 		irq_reg[FUEL_GAUGE] = 0;
 	}
 	if (irq_src & MAX8997_IRQSRC_MUIC) {
-		
+		/* MUIC INT1 ~ INT3 */
 		max8997_bulk_read(max8997->muic, MAX8997_MUIC_REG_INT1, 3,
 				&irq_reg[MUIC_INT1]);
 	}
 	if (irq_src & MAX8997_IRQSRC_GPIO) {
-		
+		/* GPIO Interrupt */
 		u8 gpio_info[MAX8997_NUM_GPIO];
 
 		irq_reg[GPIO_LOW] = 0;
@@ -245,16 +258,16 @@ static irqreturn_t max8997_irq_thread(int irq, void *data)
 		}
 	}
 	if (irq_src & MAX8997_IRQSRC_FLASH) {
-		
+		/* Flash Status Interrupt */
 		ret = max8997_read_reg(max8997->i2c, MAX8997_REG_FLASHSTATUS,
 				&irq_reg[FLASH_STATUS]);
 	}
 
-	
+	/* Apply masking */
 	for (i = 0; i < MAX8997_IRQ_GROUP_NR; i++)
 		irq_reg[i] &= ~max8997->irq_masks_cur[i];
 
-	
+	/* Report */
 	for (i = 0; i < MAX8997_IRQ_NR; i++) {
 		if (irq_reg[max8997_irqs[i].group] & max8997_irqs[i].mask)
 			handle_nested_irq(max8997->irq_base + i);
@@ -290,7 +303,7 @@ int max8997_irq_init(struct max8997_dev *max8997)
 
 	mutex_init(&max8997->irqlock);
 
-	
+	/* Mask individual interrupt sources */
 	for (i = 0; i < MAX8997_IRQ_GROUP_NR; i++) {
 		struct i2c_client *i2c;
 
@@ -314,7 +327,7 @@ int max8997_irq_init(struct max8997_dev *max8997)
 					true : false;
 	}
 
-	
+	/* Register with genirq */
 	for (i = 0; i < MAX8997_IRQ_NR; i++) {
 		cur_irq = i + max8997->irq_base;
 		irq_set_chip_data(cur_irq, max8997);

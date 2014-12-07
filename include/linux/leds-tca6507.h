@@ -31,4 +31,4 @@ struct tca6507_platform_data {
 };
 
 #define	TCA6507_MAKE_GPIO 1
-#endif 
+#endif /* __LINUX_TCA6507_H*/

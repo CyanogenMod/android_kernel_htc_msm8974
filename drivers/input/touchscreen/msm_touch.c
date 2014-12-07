@@ -24,32 +24,36 @@
 
 #include <mach/msm_touch.h>
 
+/* HW register map */
 #define TSSC_CTL_REG      0x100
 #define TSSC_SI_REG       0x108
 #define TSSC_OPN_REG      0x104
 #define TSSC_STATUS_REG   0x10C
 #define TSSC_AVG12_REG    0x110
 
+/* status bits */
 #define TSSC_STS_OPN_SHIFT 0x6
 #define TSSC_STS_OPN_BMSK  0x1C0
 #define TSSC_STS_NUMSAMP_SHFT 0x1
 #define TSSC_STS_NUMSAMP_BMSK 0x3E
 
+/* CTL bits */
 #define TSSC_CTL_EN		(0x1 << 0)
 #define TSSC_CTL_SW_RESET	(0x1 << 2)
 #define TSSC_CTL_MASTER_MODE	(0x3 << 3)
 #define TSSC_CTL_AVG_EN		(0x1 << 5)
 #define TSSC_CTL_DEB_EN		(0x1 << 6)
-#define TSSC_CTL_DEB_12_MS	(0x2 << 7)	
-#define TSSC_CTL_DEB_16_MS	(0x3 << 7)	
-#define TSSC_CTL_DEB_2_MS	(0x4 << 7)	
-#define TSSC_CTL_DEB_3_MS	(0x5 << 7)	
-#define TSSC_CTL_DEB_4_MS	(0x6 << 7)	
-#define TSSC_CTL_DEB_6_MS	(0x7 << 7)	
+#define TSSC_CTL_DEB_12_MS	(0x2 << 7)	/* 1.2 ms */
+#define TSSC_CTL_DEB_16_MS	(0x3 << 7)	/* 1.6 ms */
+#define TSSC_CTL_DEB_2_MS	(0x4 << 7)	/* 2 ms */
+#define TSSC_CTL_DEB_3_MS	(0x5 << 7)	/* 3 ms */
+#define TSSC_CTL_DEB_4_MS	(0x6 << 7)	/* 4 ms */
+#define TSSC_CTL_DEB_6_MS	(0x7 << 7)	/* 6 ms */
 #define TSSC_CTL_INTR_FLAG1	(0x1 << 10)
 #define TSSC_CTL_DATA		(0x1 << 11)
 #define TSSC_CTL_SSBI_CTRL_EN	(0x1 << 13)
 
+/* control reg's default state */
 #define TSSC_CTL_STATE	  ( \
 		TSSC_CTL_DEB_12_MS | \
 		TSSC_CTL_DEB_EN | \
@@ -112,18 +116,35 @@ static irqreturn_t ts_interrupt(int irq, void *dev_id)
 	x = avgs & 0xFFFF;
 	y = avgs >> 16;
 
+	/* For pen down make sure that the data just read is still valid.
+	 * The DATA bit will still be set if the ARM9 hasn't clobbered
+	 * the TSSC. If it's not set, then it doesn't need to be cleared
+	 * here, so just return.
+	 */
 	if (!(readl_relaxed(TSSC_REG(CTL)) & TSSC_CTL_DATA))
 		goto out;
 
-	
+	/* Data has been read, OK to clear the data flag */
 	writel_relaxed(TSSC_CTL_STATE, TSSC_REG(CTL));
-	
+	/* barrier: Write to complete before the next sample */
 	mb();
+	/* Valid samples are indicated by the sample number in the status
+	 * register being the number of expected samples and the number of
+	 * samples collected being zero (this check is due to ADC contention).
+	 */
 	num_op = (status & TSSC_STS_OPN_BMSK) >> TSSC_STS_OPN_SHIFT;
 	num_samp = (status & TSSC_STS_NUMSAMP_BMSK) >> TSSC_STS_NUMSAMP_SHFT;
 
 	if ((num_op == TSSC_NUMBER_OF_OPERATIONS) && (num_samp == 0)) {
+		/* TSSC can do Z axis measurment, but driver doesn't support
+		 * this yet.
+		 */
 
+		/*
+		 * REMOVE THIS:
+		 * These x, y co-ordinates adjustments will be removed once
+		 * Android framework adds calibration framework.
+		 */
 #ifdef CONFIG_ANDROID_TOUCHSCREEN_MSM_HACKS
 		lx = ts->x_max - x;
 		ly = ts->y_max - y;
@@ -132,7 +153,7 @@ static irqreturn_t ts_interrupt(int irq, void *dev_id)
 		ly = y;
 #endif
 		ts_update_pen_state(ts, lx, ly, 255);
-		
+		/* kick pen up timer - to make sure it expires again(!) */
 		mod_timer(&ts->timer,
 			jiffies + msecs_to_jiffies(TS_PENUP_TIMEOUT_MS));
 
@@ -154,6 +175,9 @@ static int __devinit ts_probe(struct platform_device *pdev)
 	unsigned int x_max, y_max, pressure_max;
 	struct msm_ts_platform_data *pdata = pdev->dev.platform_data;
 
+	/* The primary initialization of the TS Hardware
+	 * is taken care of by the ADC code on the modem side
+	 */
 
 	ts = kzalloc(sizeof(struct ts), GFP_KERNEL);
 	input_dev = input_allocate_device();

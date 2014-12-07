@@ -8,7 +8,16 @@
 #include <linux/atmel_pwm.h>
 
 
-#define	PWM_NCHAN	4		
+/*
+ * This is a simple driver for the PWM controller found in various newer
+ * Atmel SOCs, including the AVR32 series and the AT91sam9263.
+ *
+ * Chips with current Linux ports have only 4 PWM channels, out of max 32.
+ * AT32UC3A and AT32UC3B chips have 7 channels (but currently no Linux).
+ * Docs are inconsistent about the width of the channel counter registers;
+ * it's at least 16 bits, but several places say 20 bits.
+ */
+#define	PWM_NCHAN	4		/* max 32 */
 
 struct pwm {
 	spinlock_t		lock;
@@ -22,6 +31,7 @@ struct pwm {
 };
 
 
+/* global PWM controller registers */
 #define PWM_MR		0x00
 #define PWM_ENA		0x04
 #define PWM_DIS		0x08
@@ -67,12 +77,20 @@ static void pwm_dumpregs(struct pwm_channel *ch, char *tag)
 }
 
 
+/**
+ * pwm_channel_alloc - allocate an unused PWM channel
+ * @index: identifies the channel
+ * @ch: structure to be initialized
+ *
+ * Drivers allocate PWM channels according to the board's wiring, and
+ * matching board-specific setup code.  Returns zero or negative errno.
+ */
 int pwm_channel_alloc(int index, struct pwm_channel *ch)
 {
 	unsigned long	flags;
 	int		status = 0;
 
-	
+	/* insist on PWM init, with this signal pinned out */
 	if (!pwm || !(pwm->mask & 1 << index))
 		return -ENODEV;
 
@@ -89,13 +107,13 @@ int pwm_channel_alloc(int index, struct pwm_channel *ch)
 		ch->regs = pwmc_regs(pwm, index);
 		ch->index = index;
 
-		
+		/* REVISIT: ap7000 seems to go 2x as fast as we expect!! */
 		ch->mck = clk_get_rate(pwm->clk);
 
 		pwm->channel[index] = ch;
 		pwm->handler[index] = NULL;
 
-		
+		/* channel and irq are always disabled when we return */
 		pwm_writel(pwm, PWM_DIS, 1 << index);
 		pwm_writel(pwm, PWM_IDR, 1 << index);
 	}
@@ -119,6 +137,13 @@ static int pwmcheck(struct pwm_channel *ch)
 	return index;
 }
 
+/**
+ * pwm_channel_free - release a previously allocated channel
+ * @ch: the channel being released
+ *
+ * The channel is completely shut down (counter and IRQ disabled),
+ * and made available for re-use.  Returns zero, or negative errno.
+ */
 int pwm_channel_free(struct pwm_channel *ch)
 {
 	unsigned long	flags;
@@ -130,7 +155,7 @@ int pwm_channel_free(struct pwm_channel *ch)
 		pwm->channel[t] = NULL;
 		pwm->handler[t] = NULL;
 
-		
+		/* channel and irq are always disabled when we return */
 		pwm_writel(pwm, PWM_DIS, 1 << t);
 		pwm_writel(pwm, PWM_IDR, 1 << t);
 
@@ -147,7 +172,7 @@ int __pwm_channel_onoff(struct pwm_channel *ch, int enabled)
 	unsigned long	flags;
 	int		t;
 
-	
+	/* OMITTED FUNCTIONALITY:  starting several channels in synch */
 
 	spin_lock_irqsave(&pwm->lock, flags);
 	t = pwmcheck(ch);
@@ -162,6 +187,16 @@ int __pwm_channel_onoff(struct pwm_channel *ch, int enabled)
 }
 EXPORT_SYMBOL(__pwm_channel_onoff);
 
+/**
+ * pwm_clk_alloc - allocate and configure CLKA or CLKB
+ * @prescale: from 0..10, the power of two used to divide MCK
+ * @div: from 1..255, the linear divisor to use
+ *
+ * Returns PWM_CPR_CLKA, PWM_CPR_CLKB, or negative errno.  The allocated
+ * clock will run with a period of (2^prescale * div) / MCK, or twice as
+ * long if center aligned PWM output is used.  The clock must later be
+ * deconfigured using pwm_clk_free().
+ */
 int pwm_clk_alloc(unsigned prescale, unsigned div)
 {
 	unsigned long	flags;
@@ -188,6 +223,11 @@ int pwm_clk_alloc(unsigned prescale, unsigned div)
 }
 EXPORT_SYMBOL(pwm_clk_alloc);
 
+/**
+ * pwm_clk_free - deconfigure and release CLKA or CLKB
+ *
+ * Reverses the effect of pwm_clk_alloc().
+ */
 void pwm_clk_free(unsigned clk)
 {
 	unsigned long	flags;
@@ -203,6 +243,15 @@ void pwm_clk_free(unsigned clk)
 }
 EXPORT_SYMBOL(pwm_clk_free);
 
+/**
+ * pwm_channel_handler - manage channel's IRQ handler
+ * @ch: the channel
+ * @handler: the handler to use, possibly NULL
+ *
+ * If the handler is non-null, the handler will be called after every
+ * period of this PWM channel.  If the handler is null, this channel
+ * won't generate an IRQ.
+ */
 int pwm_channel_handler(struct pwm_channel *ch,
 		void (*handler)(struct pwm_channel *ch))
 {
@@ -231,7 +280,7 @@ static irqreturn_t pwm_irq(int id, void *_pwm)
 
 	spin_lock(&p->lock);
 
-	
+	/* ack irqs, then handle them */
 	irqstat = pwm_readl(pwm, PWM_ISR);
 
 	while (irqstat) {
@@ -338,6 +387,10 @@ static struct platform_driver atmel_pwm_driver = {
 	},
 	.remove = __exit_p(pwm_remove),
 
+	/* NOTE: PWM can keep running in AVR32 "idle" and "frozen" states;
+	 * and all AT91sam9263 states, albeit at reduced clock rate if
+	 * MCK becomes the slow clock (i.e. what Linux labels STR).
+	 */
 };
 
 static int __init pwm_init(void)

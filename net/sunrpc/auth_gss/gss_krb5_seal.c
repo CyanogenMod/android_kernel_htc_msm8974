@@ -81,7 +81,7 @@ setup_token(struct krb5_ctx *ctx, struct xdr_netobj *token)
 	ptr = (__be16 *)token->data;
 	g_make_token_header(&ctx->mech_used, body_size, (unsigned char **)&ptr);
 
-	
+	/* ptr now at start of header described in rfc 1964, section 1.2.1: */
 	krb5_hdr = ptr;
 	*ptr++ = KG_TOK_MIC_MSG;
 	*ptr++ = cpu_to_le16(ctx->gk5e->signalg);
@@ -102,6 +102,8 @@ setup_token_v2(struct krb5_ctx *ctx, struct xdr_netobj *token)
 	if (ctx->flags & KRB5_CTX_FLAG_ACCEPTOR_SUBKEY)
 		flags |= 0x04;
 
+	/* Per rfc 4121, sec 4.2.6.1, there is no header,
+	 * just start the token */
 	krb5_hdr = ptr = (__be16 *)token->data;
 
 	*ptr++ = KG2_TOK_MIC;
@@ -174,6 +176,8 @@ gss_get_mic_v2(struct krb5_ctx *ctx, struct xdr_buf *text,
 
 	krb5_hdr = setup_token_v2(ctx, token);
 
+	/* Set up the sequence number. Now 64-bits in clear
+	 * text and w/o direction indicator */
 	spin_lock(&krb5_seq_lock);
 	seq_send = ctx->seq_send64++;
 	spin_unlock(&krb5_seq_lock);

@@ -56,6 +56,7 @@ struct psb_info nlm_prom_info;
 
 unsigned long nlm_common_ebase = 0x0;
 
+/* default to uniprocessor */
 uint32_t nlm_coremask = 1, nlm_cpumask  = 1;
 int  nlm_threads_per_core = 1;
 
@@ -83,7 +84,7 @@ static void nlm_linux_exit(void)
 	uint64_t gpiobase;
 
 	gpiobase = nlm_mmio_base(NETLOGIC_IO_GPIO_OFFSET);
-	
+	/* trigger a chip reset by writing 1 to GPIO_SWRESET_REG */
 	nlm_write_reg(gpiobase, NETLOGIC_GPIO_SWRESET_REG, 1);
 	for ( ; ; )
 		cpu_wait();
@@ -109,7 +110,7 @@ unsigned int nlm_get_cpu_frequency(void)
 
 void __init prom_free_prom_memory(void)
 {
-	
+	/* Nothing yet */
 }
 
 static void __init build_arcs_cmdline(int *argv)
@@ -129,7 +130,7 @@ static void __init build_arcs_cmdline(int *argv)
 		remain -=  len + 1;
 	}
 
-	
+	/* Add the default options here */
 	if ((strstr(arcs_cmdline, "console=")) == NULL) {
 		arg = "console=ttyS0,38400 ";
 		len = strlen(arg);
@@ -157,7 +158,7 @@ static void prom_add_memory(void)
 {
 	struct nlm_boot_mem_map *bootm;
 	u64 start, size;
-	u64 pref_backup = 512;  
+	u64 pref_backup = 512;  /* avoid pref walking beyond end */
 	int i;
 
 	bootm = (void *)(long)nlm_prom_info.psb_mem_map;
@@ -167,7 +168,7 @@ static void prom_add_memory(void)
 		start = bootm->map[i].addr;
 		size   = bootm->map[i].size;
 
-		
+		/* Work around for using bootloader mem */
 		if (i == 0 && start == 0 && size == 0x0c000000)
 			size = 0x0ff00000;
 
@@ -177,10 +178,10 @@ static void prom_add_memory(void)
 
 void __init prom_init(void)
 {
-	int *argv, *envp;		
+	int *argv, *envp;		/* passed as 32 bit ptrs */
 	struct psb_info *prom_infop;
 
-	
+	/* truncate to 32 bit and sign extend all args */
 	argv = (int *)(long)(int)fw_arg1;
 	envp = (int *)(long)(int)fw_arg2;
 	prom_infop = (struct psb_info *)(long)(int)fw_arg3;

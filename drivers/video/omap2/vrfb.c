@@ -18,6 +18,7 @@
  * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/*#define DEBUG*/
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -42,8 +43,8 @@
 
 #define OMAP_VRFB_SIZE			(2048 * 2048 * 4)
 
-#define VRFB_PAGE_WIDTH_EXP	5 
-#define VRFB_PAGE_HEIGHT_EXP	5 
+#define VRFB_PAGE_WIDTH_EXP	5 /* Assuming SDRAM pagesize= 1024 */
+#define VRFB_PAGE_HEIGHT_EXP	5 /* 1024 = 2^5 * 2^5 */
 #define VRFB_PAGE_WIDTH		(1 << VRFB_PAGE_WIDTH_EXP)
 #define VRFB_PAGE_HEIGHT	(1 << VRFB_PAGE_HEIGHT_EXP)
 #define SMS_IMAGEHEIGHT_OFFSET	16
@@ -53,10 +54,17 @@
 #define SMS_PS_OFFSET		0
 
 #define VRFB_NUM_CTXS 12
+/* bitmap of reserved contexts */
 static unsigned long ctx_map;
 
 static DEFINE_MUTEX(ctx_lock);
 
+/*
+ * Access to this happens from client drivers or the PM core after wake-up.
+ * For the first case we require locking at the driver level, for the second
+ * we don't need locking, since no drivers will run until after the wake-up
+ * has finished.
+ */
 static struct {
 	u32 physical_ba;
 	u32 control;
@@ -79,6 +87,11 @@ static u32 get_image_width_roundup(u16 width, u8 bytespp)
 	return ceil_pages_per_stride * VRFB_PAGE_WIDTH / bytespp;
 }
 
+/*
+ * This the extra space needed in the VRFB physical area for VRFB to safely wrap
+ * any memory accesses to the invisible part of the virtual view to the physical
+ * area.
+ */
 static inline u32 get_extra_physical_size(u16 image_width_roundup, u8 bytespp)
 {
 	return (OMAP_VRFB_LINE_LEN - image_width_roundup) * VRFB_PAGE_HEIGHT *
@@ -91,7 +104,7 @@ void omap_vrfb_restore_context(void)
 	unsigned long map = ctx_map;
 
 	for (i = ffs(map); i; i = ffs(map)) {
-		
+		/* i=1..32 */
 		i--;
 		map &= ~(1 << i);
 		restore_hw_context(i);
@@ -136,7 +149,7 @@ u16 omap_vrfb_max_height(u32 phys_size, u16 width, u8 bytespp)
 
 	height = (phys_size - extra) / (width * bytespp);
 
-	
+	/* Virtual views provided by VRFB are limited to 2048x2048. */
 	return min_t(unsigned long, height, 2048);
 }
 EXPORT_SYMBOL(omap_vrfb_max_height);
@@ -155,6 +168,8 @@ void omap_vrfb_setup(struct vrfb *vrfb, unsigned long paddr,
 	DBG("omapfb_set_vrfb(%d, %lx, %dx%d, %d, %d)\n", ctx, paddr,
 			width, height, bytespp, yuv_mode);
 
+	/* For YUV2 and UYVY modes VRFB needs to handle pixels a bit
+	 * differently. See TRM. */
 	if (yuv_mode) {
 		bytespp *= 2;
 		width /= 2;

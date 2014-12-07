@@ -35,6 +35,9 @@
 #define DRV_NAME "pata_cmd64x"
 #define DRV_VERSION "0.2.18"
 
+/*
+ * CMD64x specific registers definition.
+ */
 
 enum {
 	CFR 		= 0x50,
@@ -72,13 +75,21 @@ static int cmd648_cable_detect(struct ata_port *ap)
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	u8 r;
 
-	
+	/* Check cable detect bits */
 	pci_read_config_byte(pdev, BMIDECSR, &r);
 	if (r & (1 << ap->port_no))
 		return ATA_CBL_PATA80;
 	return ATA_CBL_PATA40;
 }
 
+/**
+ *	cmd64x_set_timing	-	set PIO and MWDMA timing
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *	@mode: mode
+ *
+ *	Called to do the PIO and MWDMA mode setup.
+ */
 
 static void cmd64x_set_timing(struct ata_port *ap, struct ata_device *adev, u8 mode)
 {
@@ -89,7 +100,7 @@ static void cmd64x_set_timing(struct ata_port *ap, struct ata_device *adev, u8 m
 
 	u8 reg;
 
-	
+	/* Port layout is not logical so use a table */
 	const u8 arttim_port[2][2] = {
 		{ ARTTIM0, ARTTIM1 },
 		{ ARTTIM23, ARTTIM23 }
@@ -102,12 +113,14 @@ static void cmd64x_set_timing(struct ata_port *ap, struct ata_device *adev, u8 m
 	int arttim = arttim_port[ap->port_no][adev->devno];
 	int drwtim = drwtim_port[ap->port_no][adev->devno];
 
+	/* ata_timing_compute is smart and will produce timings for MWDMA
+	   that don't violate the drives PIO capabilities. */
 	if (ata_timing_compute(adev, mode, &t, T, 0) < 0) {
 		printk(KERN_ERR DRV_NAME ": mode computation failed.\n");
 		return;
 	}
 	if (ap->port_no) {
-		
+		/* Slave has shared address setup */
 		struct ata_device *pair = ata_dev_pair(adev);
 
 		if (pair) {
@@ -126,6 +139,8 @@ static void cmd64x_set_timing(struct ata_port *ap, struct ata_device *adev, u8 m
 	if (t.active > 16)
 		t.active = 16;
 
+	/* Now convert the clocks into values we can actually stuff into
+	   the chip */
 
 	if (t.recover == 16)
 		t.recover = 0;
@@ -139,24 +154,39 @@ static void cmd64x_set_timing(struct ata_port *ap, struct ata_device *adev, u8 m
 	else
 		t.setup = setup_data[t.setup];
 
-	t.active &= 0x0F;	
+	t.active &= 0x0F;	/* 0 = 16 */
 
-	
+	/* Load setup timing */
 	pci_read_config_byte(pdev, arttim, &reg);
 	reg &= 0x3F;
 	reg |= t.setup;
 	pci_write_config_byte(pdev, arttim, reg);
 
-	
+	/* Load active/recovery */
 	pci_write_config_byte(pdev, drwtim, (t.active << 4) | t.recover);
 }
 
+/**
+ *	cmd64x_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Used when configuring the devices ot set the PIO timings. All the
+ *	actual work is done by the PIO/MWDMA setting helper
+ */
 
 static void cmd64x_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
 	cmd64x_set_timing(ap, adev, adev->pio_mode);
 }
 
+/**
+ *	cmd64x_set_dmamode	-	set initial DMA mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the DMA mode setup.
+ */
 
 static void cmd64x_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -174,22 +204,22 @@ static void cmd64x_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	pci_read_config_byte(pdev, pciD, &regD);
 	pci_read_config_byte(pdev, pciU, &regU);
 
-	
+	/* DMA bits off */
 	regD &= ~(0x20 << adev->devno);
-	
+	/* DMA control bits */
 	regU &= ~(0x30 << shift);
-	
+	/* DMA timing bits */
 	regU &= ~(0x05 << adev->devno);
 
 	if (adev->dma_mode >= XFER_UDMA_0) {
-		
+		/* Merge the timing value */
 		regU |= udma_data[adev->dma_mode - XFER_UDMA_0] << shift;
-		
-		regU |= 1 << adev->devno; 
-		if (adev->dma_mode > XFER_UDMA_2) 
+		/* Merge the control bits */
+		regU |= 1 << adev->devno; /* UDMA on */
+		if (adev->dma_mode > XFER_UDMA_2) /* 15nS timing */
 			regU |= 4 << adev->devno;
 	} else {
-		regU &= ~ (1 << adev->devno);	
+		regU &= ~ (1 << adev->devno);	/* UDMA off */
 		cmd64x_set_timing(ap, adev, adev->dma_mode);
 	}
 
@@ -199,6 +229,12 @@ static void cmd64x_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	pci_write_config_byte(pdev, pciD, regD);
 }
 
+/**
+ *	cmd64x_sff_irq_check	-	check IDE interrupt
+ *	@ap: ATA interface
+ *
+ *	Check IDE interrupt in CFR/ARTTIM23 registers.
+ */
 
 static bool cmd64x_sff_irq_check(struct ata_port *ap)
 {
@@ -207,12 +243,18 @@ static bool cmd64x_sff_irq_check(struct ata_port *ap)
 	int irq_reg  = ap->port_no ? ARTTIM23 : CFR;
 	u8 irq_stat;
 
-	
+	/* NOTE: reading the register should clear the interrupt */
 	pci_read_config_byte(pdev, irq_reg, &irq_stat);
 
 	return irq_stat & irq_mask;
 }
 
+/**
+ *	cmd64x_sff_irq_clear	-	clear IDE interrupt
+ *	@ap: ATA interface
+ *
+ *	Clear IDE interrupt in CFR/ARTTIM23 and DMA status registers.
+ */
 
 static void cmd64x_sff_irq_clear(struct ata_port *ap)
 {
@@ -222,10 +264,16 @@ static void cmd64x_sff_irq_clear(struct ata_port *ap)
 
 	ata_bmdma_irq_clear(ap);
 
-	
+	/* Reading the register should be enough to clear the interrupt */
 	pci_read_config_byte(pdev, irq_reg, &irq_stat);
 }
 
+/**
+ *	cmd648_sff_irq_check	-	check IDE interrupt
+ *	@ap: ATA interface
+ *
+ *	Check IDE interrupt in MRDMODE register.
+ */
 
 static bool cmd648_sff_irq_check(struct ata_port *ap)
 {
@@ -237,6 +285,12 @@ static bool cmd648_sff_irq_check(struct ata_port *ap)
 	return mrdmode & irq_mask;
 }
 
+/**
+ *	cmd648_sff_irq_clear	-	clear IDE interrupt
+ *	@ap: ATA interface
+ *
+ *	Clear IDE interrupt in MRDMODE and DMA status registers.
+ */
 
 static void cmd648_sff_irq_clear(struct ata_port *ap)
 {
@@ -247,12 +301,18 @@ static void cmd648_sff_irq_clear(struct ata_port *ap)
 
 	ata_bmdma_irq_clear(ap);
 
-	
+	/* Clear this port's interrupt bit (leaving the other port alone) */
 	mrdmode  = inb(base + 1);
 	mrdmode &= ~(MRDMODE_INTR_CH0 | MRDMODE_INTR_CH1);
 	outb(mrdmode | irq_mask, base + 1);
 }
 
+/**
+ *	cmd646r1_bmdma_stop	-	DMA stop callback
+ *	@qc: Command in progress
+ *
+ *	Stub for now while investigating the r1 quirk in the old driver.
+ */
 
 static void cmd646r1_bmdma_stop(struct ata_queued_cmd *qc)
 {
@@ -304,11 +364,11 @@ static void cmd64x_fixup(struct pci_dev *pdev)
 
 	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 64);
 	pci_read_config_byte(pdev, MRDMODE, &mrdmode);
-	mrdmode &= ~0x30;	
-	mrdmode |= 0x02;	
+	mrdmode &= ~0x30;	/* IRQ set up */
+	mrdmode |= 0x02;	/* Memory read line enable */
 	pci_write_config_byte(pdev, MRDMODE, mrdmode);
 
-	
+	/* PPC specific fixup copied from old driver */
 #ifdef CONFIG_PPC
 	pci_write_config_byte(pdev, UDIDETCR0, 0xF0);
 #endif
@@ -317,45 +377,45 @@ static void cmd64x_fixup(struct pci_dev *pdev)
 static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	static const struct ata_port_info cmd_info[7] = {
-		{	
+		{	/* CMD 643 - no UDMA */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.port_ops = &cmd64x_port_ops
 		},
-		{	
+		{	/* CMD 646 with broken UDMA */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.port_ops = &cmd64x_port_ops
 		},
-		{	
+		{	/* CMD 646U with broken UDMA */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.port_ops = &cmd646r3_port_ops
 		},
-		{	
+		{	/* CMD 646U2 with working UDMA */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.udma_mask = ATA_UDMA2,
 			.port_ops = &cmd646r3_port_ops
 		},
-		{	
+		{	/* CMD 646 rev 1  */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.port_ops = &cmd646r1_port_ops
 		},
-		{	
+		{	/* CMD 648 */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.udma_mask = ATA_UDMA4,
 			.port_ops = &cmd648_port_ops
 		},
-		{	
+		{	/* CMD 649 */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
@@ -371,38 +431,38 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	u8 reg;
 	int rc;
 	struct pci_dev *bridge = pdev->bus->self;
-	
+	/* mobility split bridges don't report enabled ports correctly */
 	int port_ok = !(bridge && bridge->vendor ==
 			PCI_VENDOR_ID_MOBILITY_ELECTRONICS);
-	
+	/* all (with exceptions below) apart from 643 have CNTRL_CH0 bit */
 	int cntrl_ch0_ok = (id->driver_data != 0);
 
 	rc = pcim_enable_device(pdev);
 	if (rc)
 		return rc;
 
-	if (id->driver_data == 0)	
+	if (id->driver_data == 0)	/* 643 */
 		ata_pci_bmdma_clear_simplex(pdev);
 
 	if (pdev->device == PCI_DEVICE_ID_CMD_646)
 		switch (pdev->revision) {
-		
+		/* UDMA works since rev 5 */
 		default:
 			ppi[0] = &cmd_info[3];
 			ppi[1] = &cmd_info[3];
 			break;
-		
+		/* Interrupts in MRDMODE since rev 3 */
 		case 3:
 		case 4:
 			ppi[0] = &cmd_info[2];
 			ppi[1] = &cmd_info[2];
 			break;
-		
+		/* Rev 1 with other problems? */
 		case 1:
 			ppi[0] = &cmd_info[4];
 			ppi[1] = &cmd_info[4];
-			
-		
+			/* FALL THRU */
+		/* Early revs have no CNTRL_CH0 */
 		case 2:
 		case 0:
 			cntrl_ch0_ok = 0;
@@ -411,7 +471,7 @@ static int cmd64x_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	cmd64x_fixup(pdev);
 
-	
+	/* check for enabled ports */
 	pci_read_config_byte(pdev, CNTRL, &reg);
 	if (!port_ok)
 		dev_printk(KERN_NOTICE, &pdev->dev, "Mobility Bridge detected, ignoring CNTRL port enable/disable\n");

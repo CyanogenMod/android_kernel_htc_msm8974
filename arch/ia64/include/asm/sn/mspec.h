@@ -10,7 +10,7 @@
 #ifndef _ASM_IA64_SN_MSPEC_H
 #define _ASM_IA64_SN_MSPEC_H
 
-#define FETCHOP_VAR_SIZE 64 
+#define FETCHOP_VAR_SIZE 64 /* 64 byte per fetchop variable */
 
 #define FETCHOP_LOAD		0
 #define FETCHOP_INCREMENT	8
@@ -31,12 +31,29 @@
 
 #ifdef __KERNEL__
 
+/*
+ * Each Atomic Memory Operation (amo, formerly known as fetchop)
+ * variable is 64 bytes long.  The first 8 bytes are used.  The
+ * remaining 56 bytes are unaddressable due to the operation taking
+ * that portion of the address.
+ *
+ * NOTE: The amo structure _MUST_ be placed in either the first or second
+ * half of the cache line.  The cache line _MUST NOT_ be used for anything
+ * other than additional amo entries.  This is because there are two
+ * addresses which reference the same physical cache line.  One will
+ * be a cached entry with the memory type bits all set.  This address
+ * may be loaded into processor cache.  The amo will be referenced
+ * uncached via the memory special memory type.  If any portion of the
+ * cached cache-line is modified, when that line is flushed, it will
+ * overwrite the uncached value in physical memory and lead to
+ * inconsistency.
+ */
 struct amo {
         u64 variable;
         u64 unused[7];
 };
 
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_IA64_SN_MSPEC_H */

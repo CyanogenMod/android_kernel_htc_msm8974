@@ -40,6 +40,7 @@ static struct resource dma40_resources[] = {
 	}
 };
 
+/* Default configuration for physcial memcpy */
 struct stedma40_chan_cfg dma40_memcpy_conf_phy = {
 	.mode = STEDMA40_MODE_PHYSICAL,
 	.dir = STEDMA40_MEM_TO_MEM,
@@ -52,6 +53,7 @@ struct stedma40_chan_cfg dma40_memcpy_conf_phy = {
 	.dst_info.psize = STEDMA40_PSIZE_PHY_1,
 	.dst_info.flow_ctrl = STEDMA40_NO_FLOW_CTRL,
 };
+/* Default configuration for logical memcpy */
 struct stedma40_chan_cfg dma40_memcpy_conf_log = {
 	.dir = STEDMA40_MEM_TO_MEM,
 
@@ -64,8 +66,14 @@ struct stedma40_chan_cfg dma40_memcpy_conf_log = {
 	.dst_info.flow_ctrl = STEDMA40_NO_FLOW_CTRL,
 };
 
+/*
+ * Mapping between destination event lines and physical device address.
+ * The event line is tied to a device and therefore the address is constant.
+ * When the address comes from a primecell it will be configured in runtime
+ * and we set the address to -1 as a placeholder.
+ */
 static const dma_addr_t dma40_tx_map[DB8500_DMA_NR_DEV] = {
-	
+	/* MUSB - these will be runtime-reconfigured */
 	[DB8500_DMA_DEV39_USB_OTG_OEP_8] = -1,
 	[DB8500_DMA_DEV16_USB_OTG_OEP_7_15] = -1,
 	[DB8500_DMA_DEV17_USB_OTG_OEP_6_14] = -1,
@@ -74,7 +82,7 @@ static const dma_addr_t dma40_tx_map[DB8500_DMA_NR_DEV] = {
 	[DB8500_DMA_DEV36_USB_OTG_OEP_3_11] = -1,
 	[DB8500_DMA_DEV37_USB_OTG_OEP_2_10] = -1,
 	[DB8500_DMA_DEV38_USB_OTG_OEP_1_9] = -1,
-	
+	/* PrimeCells - run-time configured */
 	[DB8500_DMA_DEV0_SPI0_TX] = -1,
 	[DB8500_DMA_DEV1_SD_MMC0_TX] = -1,
 	[DB8500_DMA_DEV2_SD_MMC1_TX] = -1,
@@ -98,8 +106,9 @@ static const dma_addr_t dma40_tx_map[DB8500_DMA_NR_DEV] = {
 	[DB8500_DMA_DEV31_MSP0_TX_SLIM0_CH0_TX] = U8500_MSP0_BASE + MSP_TX_RX_REG_OFFSET,
 };
 
+/* Mapping between source event lines and physical device address */
 static const dma_addr_t dma40_rx_map[DB8500_DMA_NR_DEV] = {
-	
+	/* MUSB - these will be runtime-reconfigured */
 	[DB8500_DMA_DEV39_USB_OTG_IEP_8] = -1,
 	[DB8500_DMA_DEV16_USB_OTG_IEP_7_15] = -1,
 	[DB8500_DMA_DEV17_USB_OTG_IEP_6_14] = -1,
@@ -108,7 +117,7 @@ static const dma_addr_t dma40_rx_map[DB8500_DMA_NR_DEV] = {
 	[DB8500_DMA_DEV36_USB_OTG_IEP_3_11] = -1,
 	[DB8500_DMA_DEV37_USB_OTG_IEP_2_10] = -1,
 	[DB8500_DMA_DEV38_USB_OTG_IEP_1_9] = -1,
-	
+	/* PrimeCells */
 	[DB8500_DMA_DEV0_SPI0_RX] = -1,
 	[DB8500_DMA_DEV1_SD_MMC0_RX] = -1,
 	[DB8500_DMA_DEV2_SD_MMC1_RX] = -1,
@@ -132,6 +141,7 @@ static const dma_addr_t dma40_rx_map[DB8500_DMA_NR_DEV] = {
 	[DB8500_DMA_DEV31_MSP0_RX_SLIM0_CH0_RX] = U8500_MSP0_BASE + MSP_TX_RX_REG_OFFSET,
 };
 
+/* Reserved event lines for memcpy only */
 static int dma40_memcpy_event[] = {
 	DB8500_DMA_MEMCPY_TX_0,
 	DB8500_DMA_MEMCPY_TX_1,

@@ -17,12 +17,12 @@
 #include <mach/pmic.h>
 
 struct snddev_icodec_data {
-	u32 capability; 
+	u32 capability; /* RX or TX */
 	const char *name;
-	u32 copp_id; 
-	
+	u32 copp_id; /* audpp routing */
+	/* Adie profile */
 	struct adie_codec_dev_profile *profile;
-	
+	/* Afe setting */
 	u8 channel_mode;
 	u32 default_sample_rate;
 	int (*pamp_on) (void);

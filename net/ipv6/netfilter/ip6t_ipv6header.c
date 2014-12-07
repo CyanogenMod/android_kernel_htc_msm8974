@@ -1,3 +1,5 @@
+/* ipv6header match - matches IPv6 packets based
+   on whether they contain certain headers */
 
 /* Original idea: Brad Chapman
  * Rewritten by: Andras Kis-Szabo <kisza@sch.bme.hu> */
@@ -33,13 +35,13 @@ ipv6header_mt6(const struct sk_buff *skb, struct xt_action_param *par)
 	u8 nexthdr;
 	unsigned int ptr;
 
-	
+	/* Make sure this isn't an evil packet */
 
-	
+	/* type of the 1st exthdr */
 	nexthdr = ipv6_hdr(skb)->nexthdr;
-	
+	/* pointer to the 1st exthdr */
 	ptr = sizeof(struct ipv6hdr);
-	
+	/* available length */
 	len = skb->len - ptr;
 	temp = 0;
 
@@ -48,15 +50,15 @@ ipv6header_mt6(const struct sk_buff *skb, struct xt_action_param *par)
 		struct ipv6_opt_hdr _hdr;
 		int hdrlen;
 
-		
+		/* No more exthdr -> evaluate */
 		if (nexthdr == NEXTHDR_NONE) {
 			temp |= MASK_NONE;
 			break;
 		}
-		
+		/* Is there enough space for the next ext header? */
 		if (len < (int)sizeof(struct ipv6_opt_hdr))
 			return false;
-		
+		/* ESP -> evaluate */
 		if (nexthdr == NEXTHDR_ESP) {
 			temp |= MASK_ESP;
 			break;
@@ -65,7 +67,7 @@ ipv6header_mt6(const struct sk_buff *skb, struct xt_action_param *par)
 		hp = skb_header_pointer(skb, ptr, sizeof(_hdr), &_hdr);
 		BUG_ON(hp == NULL);
 
-		
+		/* Calculate the header length */
 		if (nexthdr == NEXTHDR_FRAGMENT)
 			hdrlen = 8;
 		else if (nexthdr == NEXTHDR_AUTH)
@@ -73,7 +75,7 @@ ipv6header_mt6(const struct sk_buff *skb, struct xt_action_param *par)
 		else
 			hdrlen = ipv6_optlen(hp);
 
-		
+		/* set the flag */
 		switch (nexthdr) {
 		case NEXTHDR_HOP:
 			temp |= MASK_HOPOPTS;
@@ -120,7 +122,7 @@ static int ipv6header_mt6_check(const struct xt_mtchk_param *par)
 {
 	const struct ip6t_ipv6header_info *info = par->matchinfo;
 
-	
+	/* invflags is 0 or 0xff in hard mode */
 	if ((!info->modeflag) && info->invflags != 0x00 &&
 	    info->invflags != 0xFF)
 		return -EINVAL;

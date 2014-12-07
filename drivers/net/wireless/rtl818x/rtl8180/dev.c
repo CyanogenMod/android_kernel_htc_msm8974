@@ -37,12 +37,12 @@ MODULE_DESCRIPTION("RTL8180 / RTL8185 PCI wireless driver");
 MODULE_LICENSE("GPL");
 
 static DEFINE_PCI_DEVICE_TABLE(rtl8180_table) = {
-	
+	/* rtl8185 */
 	{ PCI_DEVICE(PCI_VENDOR_ID_REALTEK, 0x8185) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_BELKIN, 0x700f) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_BELKIN, 0x701f) },
 
-	
+	/* rtl8180 */
 	{ PCI_DEVICE(PCI_VENDOR_ID_REALTEK, 0x8180) },
 	{ PCI_DEVICE(0x1799, 0x6001) },
 	{ PCI_DEVICE(0x1799, 0x6020) },
@@ -348,7 +348,7 @@ static int rtl8180_init_hw(struct ieee80211_hw *dev)
 	rtl818x_ioread8(priv, &priv->map->CMD);
 	msleep(10);
 
-	
+	/* reset */
 	rtl818x_iowrite16(priv, &priv->map->INT_MASK, 0);
 	rtl818x_ioread8(priv, &priv->map->CMD);
 
@@ -359,7 +359,7 @@ static int rtl8180_init_hw(struct ieee80211_hw *dev)
 	rtl818x_ioread8(priv, &priv->map->CMD);
 	msleep(200);
 
-	
+	/* check success of reset */
 	if (rtl818x_ioread8(priv, &priv->map->CMD) & RTL818X_CMD_RESET) {
 		wiphy_err(dev->wiphy, "reset timeout!\n");
 		return -ETIMEDOUT;
@@ -370,7 +370,7 @@ static int rtl8180_init_hw(struct ieee80211_hw *dev)
 	msleep(200);
 
 	if (rtl818x_ioread8(priv, &priv->map->CONFIG3) & (1 << 3)) {
-		
+		/* For cardbus */
 		reg = rtl818x_ioread8(priv, &priv->map->CONFIG3);
 		reg |= 1 << 1;
 		rtl818x_iowrite8(priv, &priv->map->CONFIG3, reg);
@@ -390,7 +390,7 @@ static int rtl8180_init_hw(struct ieee80211_hw *dev)
 	rtl818x_iowrite32(priv, &priv->map->TNPDA, priv->tx_ring[1].dma);
 	rtl818x_iowrite32(priv, &priv->map->TLPDA, priv->tx_ring[0].dma);
 
-	
+	/* TODO: necessary? specs indicate not */
 	rtl818x_iowrite8(priv, &priv->map->EEPROM_CMD, RTL818X_EEPROM_CMD_CONFIG);
 	reg = rtl818x_ioread8(priv, &priv->map->CONFIG2);
 	rtl818x_iowrite8(priv, &priv->map->CONFIG2, reg & ~(1 << 3));
@@ -400,9 +400,9 @@ static int rtl8180_init_hw(struct ieee80211_hw *dev)
 	}
 	rtl818x_iowrite8(priv, &priv->map->EEPROM_CMD, RTL818X_EEPROM_CMD_NORMAL);
 
-	
+	/* TODO: set CONFIG5 for calibrating AGC on rtl8180 + philips radio? */
 
-	
+	/* TODO: turn off hw wep on rtl8180 */
 
 	rtl818x_iowrite32(priv, &priv->map->INT_TIMEOUT, 0);
 
@@ -413,7 +413,7 @@ static int rtl8180_init_hw(struct ieee80211_hw *dev)
 
 		rtl818x_iowrite16(priv, &priv->map->BRSR, 0x01F3);
 
-		
+		/* TODO: set ClkRun enable? necessary? */
 		reg = rtl818x_ioread8(priv, &priv->map->GP_ENABLE);
 		rtl818x_iowrite8(priv, &priv->map->GP_ENABLE, reg & ~(1 << 6));
 		rtl818x_iowrite8(priv, &priv->map->EEPROM_CMD, RTL818X_EEPROM_CMD_CONFIG);
@@ -581,7 +581,7 @@ static int rtl8180_start(struct ieee80211_hw *dev)
 	      RTL818X_RX_CONF_RX_AUTORESETPHY |
 	      RTL818X_RX_CONF_MGMT |
 	      RTL818X_RX_CONF_DATA |
-	      (7 << 8 ) |
+	      (7 << 8 /* MAX RX DMA */) |
 	      RTL818X_RX_CONF_BROADCAST |
 	      RTL818X_RX_CONF_NICMAC;
 
@@ -609,12 +609,12 @@ static int rtl8180_start(struct ieee80211_hw *dev)
 		reg |=  RTL818X_TX_AGC_CTL_FEEDBACK_ANT;
 		rtl818x_iowrite8(priv, &priv->map->TX_AGC_CTL, reg);
 
-		
+		/* disable early TX */
 		rtl818x_iowrite8(priv, (u8 __iomem *)priv->map + 0xec, 0x3f);
 	}
 
 	reg = rtl818x_ioread32(priv, &priv->map->TX_CONF);
-	reg |= (6 << 21 ) |
+	reg |= (6 << 21 /* MAX TX DMA */) |
 	       RTL818X_TX_CONF_NO_ICV;
 
 	if (priv->r8185)
@@ -622,7 +622,7 @@ static int rtl8180_start(struct ieee80211_hw *dev)
 	else
 		reg &= ~RTL818X_TX_CONF_HW_SEQNUM;
 
-	
+	/* different meaning, same value on both rtl8185 and rtl8180 */
 	reg &= ~RTL818X_TX_CONF_SAT_HWPLCP;
 
 	rtl818x_iowrite32(priv, &priv->map->TX_CONF, reg);
@@ -689,24 +689,32 @@ static void rtl8180_beacon_work(struct work_struct *work)
 	struct ieee80211_mgmt *mgmt;
 	struct sk_buff *skb;
 
-	
+	/* don't overflow the tx ring */
 	if (ieee80211_queue_stopped(dev, 0))
 		goto resched;
 
-	
+	/* grab a fresh beacon */
 	skb = ieee80211_beacon_get(dev, vif);
 	if (!skb)
 		goto resched;
 
+	/*
+	 * update beacon timestamp w/ TSF value
+	 * TODO: make hardware update beacon timestamp
+	 */
 	mgmt = (struct ieee80211_mgmt *)skb->data;
 	mgmt->u.beacon.timestamp = cpu_to_le64(rtl8180_get_tsf(dev, vif));
 
-	
+	/* TODO: use actual beacon queue */
 	skb_set_queue_mapping(skb, 0);
 
 	rtl8180_tx(dev, skb);
 
 resched:
+	/*
+	 * schedule next beacon
+	 * TODO: use hardware support for beacon timing
+	 */
 	schedule_delayed_work(&vif_priv->beacon_work,
 			usecs_to_jiffies(1024 * vif->bss_conf.beacon_int));
 }
@@ -717,6 +725,9 @@ static int rtl8180_add_interface(struct ieee80211_hw *dev,
 	struct rtl8180_priv *priv = dev->priv;
 	struct rtl8180_vif *vif_priv;
 
+	/*
+	 * We only support one active interface at a time.
+	 */
 	if (priv->vif)
 		return -EBUSY;
 
@@ -730,7 +741,7 @@ static int rtl8180_add_interface(struct ieee80211_hw *dev,
 
 	priv->vif = vif;
 
-	
+	/* Initialize driver private area */
 	vif_priv = (struct rtl8180_vif *)&vif->drv_priv;
 	vif_priv->dev = dev;
 	INIT_DELAYED_WORK(&vif_priv->beacon_work, rtl8180_beacon_work);
@@ -1069,7 +1080,7 @@ static int __devinit rtl8180_probe(struct pci_dev *pdev,
 	}
 	SET_IEEE80211_PERM_ADDR(dev, mac_addr);
 
-	
+	/* CCK TX power */
 	for (i = 0; i < 14; i += 2) {
 		u16 txpwr;
 		eeprom_93cx6_read(&eeprom, 0x10 + (i >> 1), &txpwr);
@@ -1077,7 +1088,7 @@ static int __devinit rtl8180_probe(struct pci_dev *pdev,
 		priv->channels[i + 1].hw_value = txpwr >> 8;
 	}
 
-	
+	/* OFDM TX power */
 	if (priv->r8185) {
 		for (i = 0; i < 14; i += 2) {
 			u16 txpwr;
@@ -1149,7 +1160,7 @@ static int rtl8180_resume(struct pci_dev *pdev)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
 static struct pci_driver rtl8180_driver = {
 	.name		= KBUILD_MODNAME,
@@ -1159,7 +1170,7 @@ static struct pci_driver rtl8180_driver = {
 #ifdef CONFIG_PM
 	.suspend	= rtl8180_suspend,
 	.resume		= rtl8180_resume,
-#endif 
+#endif /* CONFIG_PM */
 };
 
 static int __init rtl8180_init(void)

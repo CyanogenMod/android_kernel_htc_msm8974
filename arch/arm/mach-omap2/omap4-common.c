@@ -40,6 +40,7 @@ static void __iomem *l2cache_base;
 static void __iomem *sar_ram_base;
 
 #ifdef CONFIG_OMAP4_ERRATA_I688
+/* Used to implement memory barrier on DRAM path */
 #define OMAP4_DRAM_BARRIER_VA			0xfe600000
 
 void __iomem *dram_sync, *sram_sync;
@@ -57,6 +58,7 @@ void omap_bus_sync(void)
 }
 EXPORT_SYMBOL(omap_bus_sync);
 
+/* Steal one page physical memory for barrier implementation */
 int __init omap_barrier_reserve_memblock(void)
 {
 
@@ -92,11 +94,11 @@ void __init gic_init_irq(void)
 	void __iomem *omap_irq_base;
 	void __iomem *gic_dist_base_addr;
 
-	
+	/* Static mapping, never released */
 	gic_dist_base_addr = ioremap(OMAP44XX_GIC_DIST_BASE, SZ_4K);
 	BUG_ON(!gic_dist_base_addr);
 
-	
+	/* Static mapping, never released */
 	omap_irq_base = ioremap(OMAP44XX_GIC_CPU_BASE, SZ_512);
 	BUG_ON(!omap_irq_base);
 
@@ -114,13 +116,13 @@ void __iomem *omap4_get_l2cache_base(void)
 
 static void omap4_l2x0_disable(void)
 {
-	
+	/* Disable PL310 L2 Cache controller */
 	omap_smc1(0x102, 0x0);
 }
 
 static void omap4_l2x0_set_debug(unsigned long val)
 {
-	
+	/* Program PL310 L2 Cache controller debug register */
 	omap_smc1(0x100, val);
 }
 
@@ -128,14 +130,23 @@ static int __init omap_l2_cache_init(void)
 {
 	u32 aux_ctrl = 0;
 
+	/*
+	 * To avoid code running on other OMAPs in
+	 * multi-omap builds
+	 */
 	if (!cpu_is_omap44xx())
 		return -ENODEV;
 
-	
+	/* Static mapping, never released */
 	l2cache_base = ioremap(OMAP44XX_L2CACHE_BASE, SZ_4K);
 	if (WARN_ON(!l2cache_base))
 		return -ENOMEM;
 
+	/*
+	 * 16-way associativity, parity disabled
+	 * Way size - 32KB (es1.0)
+	 * Way size - 64KB (es2.0 +)
+	 */
 	aux_ctrl = ((1 << L2X0_AUX_CTRL_ASSOCIATIVITY_SHIFT) |
 			(0x1 << 25) |
 			(0x1 << L2X0_AUX_CTRL_NS_LOCKDOWN_SHIFT) |
@@ -153,11 +164,15 @@ static int __init omap_l2_cache_init(void)
 	if (omap_rev() != OMAP4430_REV_ES1_0)
 		omap_smc1(0x109, aux_ctrl);
 
-	
+	/* Enable PL310 L2 Cache controller */
 	omap_smc1(0x102, 0x1);
 
 	l2x0_init(l2cache_base, aux_ctrl, L2X0_AUX_CTRL_MASK);
 
+	/*
+	 * Override default outer_cache.disable with a OMAP4
+	 * specific one
+	*/
 	outer_cache.disable = omap4_l2x0_disable;
 	outer_cache.set_debug = omap4_l2x0_set_debug;
 
@@ -171,12 +186,20 @@ void __iomem *omap4_get_sar_ram_base(void)
 	return sar_ram_base;
 }
 
+/*
+ * SAR RAM used to save and restore the HW
+ * context in low power modes
+ */
 static int __init omap4_sar_ram_init(void)
 {
+	/*
+	 * To avoid code running on other OMAPs in
+	 * multi-omap builds
+	 */
 	if (!cpu_is_omap44xx())
 		return -ENOMEM;
 
-	
+	/* Static mapping, never released */
 	sar_ram_base = ioremap(OMAP44XX_SAR_RAM_BASE, SZ_16K);
 	if (WARN_ON(!sar_ram_base))
 		return -ENOMEM;

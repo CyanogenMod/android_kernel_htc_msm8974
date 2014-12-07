@@ -11,6 +11,12 @@
 
 #include <asm/uaccess.h>
 
+/* Calculating the exact fault address when using
+ * block loads and stores can be very complicated.
+ *
+ * Instead of trying to be clever and handling all
+ * of the cases, just fix things up simply here.
+ */
 
 static unsigned long compute_size(unsigned long start, unsigned long size, unsigned long *offset)
 {

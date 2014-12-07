@@ -26,10 +26,20 @@
 #include <linux/dvb/frontend.h>
 
 struct hd29l2_config {
+	/*
+	 * demodulator I2C address
+	 */
 	u8 i2c_addr;
 
+	/*
+	 * tuner I2C address
+	 * only needed when tuner is behind demod I2C-gate
+	 */
 	u8 tuner_i2c_addr;
 
+	/*
+	 * TS settings
+	 */
 #define HD29L2_TS_SERIAL            0x00
 #define HD29L2_TS_PARALLEL          0x80
 #define HD29L2_TS_CLK_NORMAL        0x40
@@ -53,4 +63,4 @@ const struct hd29l2_config *config, struct i2c_adapter *i2c)
 }
 #endif
 
-#endif 
+#endif /* HD29L2_H */

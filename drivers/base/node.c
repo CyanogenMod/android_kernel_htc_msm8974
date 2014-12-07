@@ -1,3 +1,6 @@
+/*
+ * Basic Node interface support
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -27,7 +30,7 @@ static ssize_t node_read_cpumap(struct device *dev, int type, char *buf)
 	const struct cpumask *mask = cpumask_of_node(node_dev->dev.id);
 	int len;
 
-	
+	/* 2008/04/07: buf currently PAGE_SIZE, need 9 chars per 32 bits. */
 	BUILD_BUG_ON((NR_CPUS/32 * 9) > (PAGE_SIZE-1));
 
 	len = type?
@@ -194,6 +197,10 @@ static ssize_t node_read_distance(struct device *dev,
 	int len = 0;
 	int i;
 
+	/*
+	 * buf is currently PAGE_SIZE in length and each node needs 4 chars
+	 * at the most (distance + space or newline).
+	 */
 	BUILD_BUG_ON(MAX_NUMNODES * 4 > PAGE_SIZE);
 
 	for_each_online_node(i)
@@ -205,6 +212,15 @@ static ssize_t node_read_distance(struct device *dev,
 static DEVICE_ATTR(distance, S_IRUGO, node_read_distance, NULL);
 
 #ifdef CONFIG_HUGETLBFS
+/*
+ * hugetlbfs per node attributes registration interface:
+ * When/if hugetlb[fs] subsystem initializes [sometime after this module],
+ * it will register its per node attributes for all online nodes with
+ * memory.  It will also call register_hugetlbfs_with_node(), below, to
+ * register its attribute registration functions with this node driver.
+ * Once these hooks have been initialized, the node driver will call into
+ * the hugetlb module to [un]register attributes for hot-plugged nodes.
+ */
 static node_registration_func_t __hugetlb_register_node;
 static node_registration_func_t __hugetlb_unregister_node;
 
@@ -237,6 +253,12 @@ static inline void hugetlb_unregister_node(struct node *node) {}
 #endif
 
 
+/*
+ * register_node - Setup a sysfs device for a node.
+ * @num - Node number to use when creating the device.
+ *
+ * Initialize and register the node device.
+ */
 int register_node(struct node *node, int num, struct node *parent)
 {
 	int error;
@@ -262,6 +284,13 @@ int register_node(struct node *node, int num, struct node *parent)
 	return error;
 }
 
+/**
+ * unregister_node - unregister a node device
+ * @node: node going away
+ *
+ * Unregisters a node device @node.  All the devices on the node must be
+ * unregistered before calling this function.
+ */
 void unregister_node(struct node *node)
 {
 	device_remove_file(&node->dev, &dev_attr_cpumap);
@@ -272,13 +301,16 @@ void unregister_node(struct node *node)
 	device_remove_file(&node->dev, &dev_attr_vmstat);
 
 	scan_unevictable_unregister_node(node);
-	hugetlb_unregister_node(node);		
+	hugetlb_unregister_node(node);		/* no-op, if memoryless node */
 
 	device_unregister(&node->dev);
 }
 
 struct node node_devices[MAX_NUMNODES];
 
+/*
+ * register cpu under node
+ */
 int register_cpu_under_node(unsigned int cpu, unsigned int nid)
 {
 	int ret;
@@ -336,6 +368,7 @@ static int get_nid_for_pfn(unsigned long pfn)
 	return pfn_to_nid(pfn);
 }
 
+/* register memory section under specified node if it spans that node */
 int register_mem_sect_under_node(struct memory_block *mem_blk, int nid)
 {
 	int ret;
@@ -367,10 +400,11 @@ int register_mem_sect_under_node(struct memory_block *mem_blk, int nid)
 				&node_devices[nid].dev.kobj,
 				kobject_name(&node_devices[nid].dev.kobj));
 	}
-	
+	/* mem section does not span the specified node */
 	return 0;
 }
 
+/* unregister memory section under all nodes that it spans */
 int unregister_mem_sect_under_nodes(struct memory_block *mem_blk,
 				    unsigned long phys_index)
 {
@@ -423,7 +457,7 @@ static int link_mem_sections(int nid)
 			continue;
 		mem_sect = __nr_to_section(section_nr);
 
-		
+		/* same memblock ? */
 		if (mem_blk)
 			if ((section_nr >= mem_blk->start_section_nr) &&
 			    (section_nr <= mem_blk->end_section_nr))
@@ -435,7 +469,7 @@ static int link_mem_sections(int nid)
 		if (!err)
 			err = ret;
 
-		
+		/* discard ref obtained in find_memory_block() */
 	}
 
 	if (mem_blk)
@@ -444,10 +478,22 @@ static int link_mem_sections(int nid)
 }
 
 #ifdef CONFIG_HUGETLBFS
+/*
+ * Handle per node hstate attribute [un]registration on transistions
+ * to/from memoryless state.
+ */
 static void node_hugetlb_work(struct work_struct *work)
 {
 	struct node *node = container_of(work, struct node, node_work);
 
+	/*
+	 * We only get here when a node transitions to/from memoryless state.
+	 * We can detect which transition occurred by examining whether the
+	 * node has memory now.  hugetlb_register_node() already check this
+	 * so we try to register the attributes.  If that fails, then the
+	 * node has transitioned to memoryless, try to unregister the
+	 * attributes.
+	 */
 	if (!hugetlb_register_node(node))
 		hugetlb_unregister_node(node);
 }
@@ -466,6 +512,10 @@ static int node_memory_callback(struct notifier_block *self,
 	switch (action) {
 	case MEM_ONLINE:
 	case MEM_OFFLINE:
+		/*
+		 * offload per node hstate [un]registration to a work thread
+		 * when transitioning to/from memoryless state.
+		 */
 		if (nid != NUMA_NO_NODE)
 			schedule_work(&node_devices[nid].node_work);
 		break;
@@ -480,11 +530,11 @@ static int node_memory_callback(struct notifier_block *self,
 
 	return NOTIFY_OK;
 }
-#endif	
-#else	
+#endif	/* CONFIG_HUGETLBFS */
+#else	/* !CONFIG_MEMORY_HOTPLUG_SPARSE */
 
 static int link_mem_sections(int nid) { return 0; }
-#endif	
+#endif	/* CONFIG_MEMORY_HOTPLUG_SPARSE */
 
 #if !defined(CONFIG_MEMORY_HOTPLUG_SPARSE) || \
     !defined(CONFIG_HUGETLBFS)
@@ -512,16 +562,16 @@ int register_one_node(int nid)
 
 		error = register_node(&node_devices[nid], nid, parent);
 
-		
+		/* link cpu under this node */
 		for_each_present_cpu(cpu) {
 			if (cpu_to_node(cpu) == nid)
 				register_cpu_under_node(cpu, nid);
 		}
 
-		
+		/* link memory sections under this node */
 		error = link_mem_sections(nid);
 
-		
+		/* initialize work queue for memory hot plug */
 		init_node_hugetlb_work(nid);
 	}
 
@@ -534,6 +584,9 @@ void unregister_one_node(int nid)
 	unregister_node(&node_devices[nid]);
 }
 
+/*
+ * node states attributes
+ */
 
 static ssize_t print_nodes_state(enum node_states state, char *buf)
 {
@@ -592,7 +645,7 @@ static const struct attribute_group *cpu_root_attr_groups[] = {
 	NULL,
 };
 
-#define NODE_CALLBACK_PRI	2	
+#define NODE_CALLBACK_PRI	2	/* lower than SLAB */
 static int __init register_node_type(void)
 {
 	int ret;
@@ -606,6 +659,10 @@ static int __init register_node_type(void)
 					NODE_CALLBACK_PRI);
 	}
 
+	/*
+	 * Note:  we're not going to unregister the node class if we fail
+	 * to register the node state class attribute files.
+	 */
 	return ret;
 }
 postcore_initcall(register_node_type);

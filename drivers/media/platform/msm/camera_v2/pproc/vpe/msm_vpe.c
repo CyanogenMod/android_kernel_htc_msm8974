@@ -742,6 +742,10 @@ static void vpe_update_scaler_params(struct vpe_device *vpe_dev,
 	uint32_t out_ROI_width, out_ROI_height;
 	uint32_t src_ROI_width, src_ROI_height;
 
+	/*
+	* phase_step_x, phase_step_y, phase_init_x and phase_init_y
+	* are represented in fixed-point, unsigned 3.29 format
+	*/
 	uint32_t phase_step_x = 0;
 	uint32_t phase_step_y = 0;
 	uint32_t phase_init_x = 0;
@@ -752,6 +756,10 @@ static void vpe_update_scaler_params(struct vpe_device *vpe_dev,
 	uint32_t scale_unit_sel_x, scale_unit_sel_y;
 	uint64_t numerator, denominator;
 
+	/*
+	 * assumption is both direction need zoom. this can be
+	 * improved.
+	 */
 	temp = msm_camera_io_r(vpe_dev->base + VPE_OP_MODE_OFFSET) | 0x3;
 	msm_camera_io_w(temp, vpe_dev->base + VPE_OP_MODE_OFFSET);
 
@@ -777,55 +785,101 @@ static void vpe_update_scaler_params(struct vpe_device *vpe_dev,
 			VPE_SRC_XY_OFFSET);
 	VPE_DBG("src_xy = 0x%x, src_roi=0x%x.\n", src_xy, src_roi);
 
-	
+	/* decide whether to use FIR or M/N for scaling */
 	if ((out_ROI_width == 1 && src_ROI_width < 4) ||
 		(src_ROI_width < 4 * out_ROI_width - 3))
-		scale_unit_sel_x = 0;
+		scale_unit_sel_x = 0;/* use FIR scalar */
 	else
-		scale_unit_sel_x = 1;
+		scale_unit_sel_x = 1;/* use M/N scalar */
 
 	if ((out_ROI_height == 1 && src_ROI_height < 4) ||
 		(src_ROI_height < 4 * out_ROI_height - 3))
-		scale_unit_sel_y = 0;
+		scale_unit_sel_y = 0;/* use FIR scalar */
 	else
-		scale_unit_sel_y = 1;
+		scale_unit_sel_y = 1;/* use M/N scalar */
 
-	
+	/* calculate phase step for the x direction */
 
+	/*
+	 * if destination is only 1 pixel wide, the value of
+	 * phase_step_x is unimportant. Assigning phase_step_x to src
+	 * ROI width as an arbitrary value.
+	 */
 	if (out_ROI_width == 1)
 		phase_step_x = (uint32_t) ((src_ROI_width) <<
 						SCALER_PHASE_BITS);
 
-		
+		/* if using FIR scalar */
 	else if (scale_unit_sel_x == 0) {
 
+		/*
+		 * Calculate the quotient ( src_ROI_width - 1 ) (
+		 * out_ROI_width - 1) with u3.29 precision. Quotient
+		 * is rounded up to the larger 29th decimal point
+		 */
 		numerator = (uint64_t)(src_ROI_width - 1) <<
 			SCALER_PHASE_BITS;
+		/*
+		 * never equals to 0 because of the "(out_ROI_width ==
+		 * 1 )"
+		 */
 		denominator = (uint64_t)(out_ROI_width - 1);
+		/*
+		 * divide and round up to the larger 29th decimal
+		 * point.
+		 */
 		phase_step_x = (uint32_t) vpe_do_div((numerator +
 					denominator - 1), denominator);
-	} else if (scale_unit_sel_x == 1) { 
+	} else if (scale_unit_sel_x == 1) { /* if M/N scalar */
+		/*
+		 * Calculate the quotient ( src_ROI_width ) / (
+		 * out_ROI_width) with u3.29 precision. Quotient is
+		 * rounded down to the smaller 29th decimal point.
+		 */
 		numerator = (uint64_t)(src_ROI_width) <<
 			SCALER_PHASE_BITS;
 		denominator = (uint64_t)(out_ROI_width);
 		phase_step_x =
 			(uint32_t) vpe_do_div(numerator, denominator);
 	}
-	
+	/* calculate phase step for the y direction */
 
+	/*
+	 * if destination is only 1 pixel wide, the value of
+	 * phase_step_x is unimportant. Assigning phase_step_x to src
+	 * ROI width as an arbitrary value.
+	 */
 	if (out_ROI_height == 1)
 		phase_step_y =
 		(uint32_t) ((src_ROI_height) << SCALER_PHASE_BITS);
 
-	
+	/* if FIR scalar */
 	else if (scale_unit_sel_y == 0) {
+		/*
+		 * Calculate the quotient ( src_ROI_height - 1 ) / (
+		 * out_ROI_height - 1) with u3.29 precision. Quotient
+		 * is rounded up to the larger 29th decimal point.
+		 */
 		numerator = (uint64_t)(src_ROI_height - 1) <<
 			SCALER_PHASE_BITS;
+		/*
+		 * never equals to 0 because of the " ( out_ROI_height
+		 * == 1 )" case
+		 */
 		denominator = (uint64_t)(out_ROI_height - 1);
+		/*
+		 * Quotient is rounded up to the larger 29th decimal
+		 * point.
+		 */
 		phase_step_y =
 		(uint32_t) vpe_do_div(
 			(numerator + denominator - 1), denominator);
-	} else if (scale_unit_sel_y == 1) { 
+	} else if (scale_unit_sel_y == 1) { /* if M/N scalar */
+		/*
+		 * Calculate the quotient ( src_ROI_height ) (
+		 * out_ROI_height) with u3.29 precision. Quotient is
+		 * rounded down to the smaller 29th decimal point.
+		 */
 		numerator = (uint64_t)(src_ROI_height) <<
 			SCALER_PHASE_BITS;
 		denominator = (uint64_t)(out_ROI_height);
@@ -833,7 +887,7 @@ static void vpe_update_scaler_params(struct vpe_device *vpe_dev,
 			numerator, denominator);
 	}
 
-	
+	/* decide which set of FIR coefficients to use */
 	if (phase_step_x > HAL_MDP_PHASE_STEP_2P50)
 		xscale_filter_sel = 0;
 	else if (phase_step_x > HAL_MDP_PHASE_STEP_1P66)
@@ -852,9 +906,9 @@ static void vpe_update_scaler_params(struct vpe_device *vpe_dev,
 	else
 		yscale_filter_sel = 3;
 
-	
+	/* calculate phase init for the x direction */
 
-	
+	/* if using FIR scalar */
 	if (scale_unit_sel_x == 0) {
 		if (out_ROI_width == 1)
 			phase_init_x =
@@ -862,9 +916,13 @@ static void vpe_update_scaler_params(struct vpe_device *vpe_dev,
 							SCALER_PHASE_BITS);
 		else
 			phase_init_x = 0;
-	} else if (scale_unit_sel_x == 1) 
+	} else if (scale_unit_sel_x == 1) /* M over N scalar  */
 		phase_init_x = 0;
 
+	/*
+	 * calculate phase init for the y direction if using FIR
+	 * scalar
+	 */
 	if (scale_unit_sel_y == 0) {
 		if (out_ROI_height == 1)
 			phase_init_y =
@@ -872,7 +930,7 @@ static void vpe_update_scaler_params(struct vpe_device *vpe_dev,
 						1) << SCALER_PHASE_BITS);
 		else
 			phase_init_y = 0;
-	} else if (scale_unit_sel_y == 1) 
+	} else if (scale_unit_sel_y == 1) /* M over N scalar   */
 		phase_init_y = 0;
 
 	strip_info.phase_step_x = phase_step_x;
@@ -915,7 +973,7 @@ static void vpe_program_buffer_addresses(
 
 static int vpe_start(struct vpe_device *vpe_dev)
 {
-	
+	/*  enable the frame irq, bit 0 = Display list 0 ROI done */
 	msm_camera_io_w_mb(1, vpe_dev->base + VPE_INTR_ENABLE_OFFSET);
 	msm_camera_io_dump(vpe_dev->base, 0x120);
 	msm_camera_io_dump(vpe_dev->base + 0x00400, 0x18);
@@ -924,6 +982,10 @@ static int vpe_start(struct vpe_device *vpe_dev)
 	msm_camera_io_dump(vpe_dev->base + 0x50000, 0x30);
 	msm_camera_io_dump(vpe_dev->base + 0x50400, 0x10);
 
+	/*
+	 * This triggers the operation. When the VPE is done,
+	 * msm_vpe_irq will fire.
+	 */
 	msm_camera_io_w_mb(1, vpe_dev->base + VPE_DL0_START_OFFSET);
 	return 0;
 }
@@ -941,13 +1003,13 @@ static int vpe_reset(struct vpe_device *vpe_dev)
 	vpe_version = msm_camera_io_r(
 			vpe_dev->base + VPE_HW_VERSION_OFFSET);
 	VPE_DBG("vpe_version = 0x%x\n", vpe_version);
-	
+	/* disable all interrupts.*/
 	msm_camera_io_w(0, vpe_dev->base + VPE_INTR_ENABLE_OFFSET);
-	
+	/* clear all pending interrupts*/
 	msm_camera_io_w(0x1fffff, vpe_dev->base + VPE_INTR_CLEAR_OFFSET);
-	
+	/* write sw_reset to reset the core. */
 	msm_camera_io_w(0x10, vpe_dev->base + VPE_SW_RESET_OFFSET);
-	
+	/* then poll the reset bit, it should be self-cleared. */
 	while (1) {
 		rc = msm_camera_io_r(vpe_dev->base + VPE_SW_RESET_OFFSET) \
 			& 0x10;
@@ -955,6 +1017,10 @@ static int vpe_reset(struct vpe_device *vpe_dev)
 			break;
 		cpu_relax();
 	}
+	/*
+	 * at this point, hardware is reset. Then pogram to default
+	 * values.
+	 */
 	msm_camera_io_w(VPE_AXI_RD_ARB_CONFIG_VALUE,
 			vpe_dev->base + VPE_AXI_RD_ARB_CONFIG_OFFSET);
 
@@ -1008,6 +1074,13 @@ static void vpe_operation_config(struct vpe_device *vpe_dev, uint32_t *p)
 	msm_camera_io_w(*p, vpe_dev->base + VPE_OP_MODE_OFFSET);
 }
 
+/**
+ * msm_vpe_transaction_setup() - send setup for one frame to VPE
+ * @vpe_dev:	vpe device
+ * @data:	packed setup commands
+ *
+ * See msm_vpe.h for the expected format of `data'
+ */
 static void msm_vpe_transaction_setup(struct vpe_device *vpe_dev, void *data)
 {
 	int i;
@@ -1396,7 +1469,7 @@ static long msm_vpe_subdev_fops_ioctl(struct file *file, unsigned int cmd,
 static int vpe_register_domain(void)
 {
 	struct msm_iova_partition vpe_iommu_partition = {
-		
+		/* TODO: verify that these are correct? */
 		.start = SZ_128K,
 		.size = SZ_2G - SZ_128K,
 	};

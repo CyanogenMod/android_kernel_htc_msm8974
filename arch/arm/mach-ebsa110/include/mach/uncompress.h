@@ -12,6 +12,9 @@
 
 #define SERIAL_BASE	((unsigned char *)0xf0000be0)
 
+/*
+ * This does not append a newline
+ */
 static inline void putc(int c)
 {
 	unsigned char v, *base = SERIAL_BASE;
@@ -35,5 +38,8 @@ static inline void flush(void)
 		 (UART_LSR_TEMT|UART_LSR_THRE));
 }
 
+/*
+ * nothing to do
+ */
 #define arch_decomp_setup()
 #define arch_decomp_wdog()

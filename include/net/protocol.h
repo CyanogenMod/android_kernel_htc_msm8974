@@ -29,9 +29,10 @@
 #include <linux/ipv6.h>
 #endif
 
-#define MAX_INET_PROTOS	256		
+#define MAX_INET_PROTOS	256		/* Must be a power of 2		*/
 
 
+/* This is used to register protocols. */
 struct net_protocol {
 	int			(*handler)(struct sk_buff *skb);
 	void			(*err_handler)(struct sk_buff *skb, u32 info);
@@ -61,30 +62,32 @@ struct inet6_protocol {
 					struct sk_buff *skb);
 	int	(*gro_complete)(struct sk_buff *skb);
 
-	unsigned int	flags;	
+	unsigned int	flags;	/* INET6_PROTO_xxx */
 };
 
 #define INET6_PROTO_NOPOLICY	0x1
 #define INET6_PROTO_FINAL	0x2
+/* This should be set for any extension header which is compatible with GSO. */
 #define INET6_PROTO_GSO_EXTHDR	0x4
 #endif
 
+/* This is used to register socket interfaces for IP protocols.  */
 struct inet_protosw {
 	struct list_head list;
 
-        
-	unsigned short	 type;	   
-	unsigned short	 protocol; 
+        /* These two fields form the lookup key.  */
+	unsigned short	 type;	   /* This is the 2nd argument to socket(2). */
+	unsigned short	 protocol; /* This is the L4 protocol number.  */
 
 	struct proto	 *prot;
 	const struct proto_ops *ops;
   
-	char             no_check;   
-	unsigned char	 flags;      
+	char             no_check;   /* checksum on rcv/xmit/none? */
+	unsigned char	 flags;      /* See INET_PROTOSW_* below.  */
 };
-#define INET_PROTOSW_REUSE 0x01	     
-#define INET_PROTOSW_PERMANENT 0x02  
-#define INET_PROTOSW_ICSK      0x04  
+#define INET_PROTOSW_REUSE 0x01	     /* Are ports automatically reusable? */
+#define INET_PROTOSW_PERMANENT 0x02  /* Permanent protocols are unremovable. */
+#define INET_PROTOSW_ICSK      0x04  /* Is this an inet_connection_sock? */
 
 extern const struct net_protocol __rcu *inet_protos[MAX_INET_PROTOS];
 
@@ -104,4 +107,4 @@ extern int	inet6_register_protosw(struct inet_protosw *p);
 extern void	inet6_unregister_protosw(struct inet_protosw *p);
 #endif
 
-#endif	
+#endif	/* _PROTOCOL_H */

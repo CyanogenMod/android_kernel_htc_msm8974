@@ -40,28 +40,32 @@
 #include "generic.h"
 #include "devices.h"
 
+/* TODO:
+ * - add pxa2xx_audio_ops_t device structure
+ * - Ethernet interrupt
+ */
 
 static unsigned long idp_pin_config[] __initdata = {
-	
+	/* LCD */
 	GPIOxx_LCD_DSTN_16BPP,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* STUART */
 	GPIO46_STUART_RXD,
 	GPIO47_STUART_TXD,
 
-	
+	/* MMC */
 	GPIO6_MMC_CLK,
 	GPIO8_MMC_CS0,
 
-	
-	GPIO33_nCS_5,	
-	GPIO4_GPIO,	
+	/* Ethernet */
+	GPIO33_nCS_5,	/* Ethernet CS */
+	GPIO4_GPIO,	/* Ethernet IRQ */
 };
 
 static struct resource smc91x_resources[] = {
@@ -110,6 +114,11 @@ static void idp_lcd_power(int on, struct fb_var_screeninfo *var)
 		IDP_CPLD_LCD &= ~(1<<0);
 	}
 
+	/* call idp_vlcd for now as core driver does not support
+	 * both power and vlcd hooks.  Note, this is not technically
+	 * the correct sequence, but seems to work.  Disclaimer:
+	 * this may eventually damage the display.
+	 */
 
 	idp_vlcd(on);
 }
@@ -157,7 +166,7 @@ static void __init idp_init(void)
 	pxa_set_stuart_info(NULL);
 
 	platform_device_register(&smc91x_device);
-	
+	//platform_device_register(&mst_audio_device);
 	pxa_set_fb_info(NULL, &sharp_lm8v31);
 	pxa_set_mci_info(&idp_mci_platform_data);
 }
@@ -184,7 +193,7 @@ static void __init idp_map_io(void)
 
 
 MACHINE_START(PXA_IDP, "Vibren PXA255 IDP")
-	
+	/* Maintainer: Vibren Technologies */
 	.map_io		= idp_map_io,
 	.nr_irqs	= PXA_NR_IRQS,
 	.init_irq	= pxa25x_init_irq,

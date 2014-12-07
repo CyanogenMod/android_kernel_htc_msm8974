@@ -17,6 +17,8 @@
 #include <asm/time.h>
 #include <asm/dpmc.h>
 
+/* this is the table of CCLK frequencies, in Hz */
+/* .index is the entry in the auxiliary dpm_state_table[] */
 static struct cpufreq_frequency_table bfin_freq_table[] = {
 	{
 		.frequency = CPUFREQ_TABLE_END,
@@ -37,22 +39,28 @@ static struct cpufreq_frequency_table bfin_freq_table[] = {
 };
 
 static struct bfin_dpm_state {
-	unsigned int csel; 
-	unsigned int tscale; 
+	unsigned int csel; /* system clock divider */
+	unsigned int tscale; /* change the divider on the core timer interrupt */
 } dpm_state_table[3];
 
 #if defined(CONFIG_CYCLES_CLOCKSOURCE)
+/*
+ * normalized to maximum frequency offset for CYCLES,
+ * used in time-ts cycles clock source, but could be used
+ * somewhere also.
+ */
 unsigned long long __bfin_cycles_off;
 unsigned int __bfin_cycles_mod;
 #endif
 
+/**************************************************************************/
 static void __init bfin_init_tables(unsigned long cclk, unsigned long sclk)
 {
 
 	unsigned long csel, min_cclk;
 	int index;
 
-	
+	/* Anomaly 273 seems to still exist on non-BF54x w/dcache turned on */
 #if ANOMALY_05000273 || ANOMALY_05000274 || \
 	(!defined(CONFIG_BF54x) && defined(CONFIG_BFIN_EXTMEM_DCACHEABLE))
 	min_cclk = sclk * 2;
@@ -63,7 +71,7 @@ static void __init bfin_init_tables(unsigned long cclk, unsigned long sclk)
 
 	for (index = 0;  (cclk >> index) >= min_cclk && csel <= 3; index++, csel++) {
 		bfin_freq_table[index].frequency = cclk >> index;
-		dpm_state_table[index].csel = csel << 4; 
+		dpm_state_table[index].csel = csel << 4; /* Shift now into PLL_DIV bitpos */
 		dpm_state_table[index].tscale =  (TIME_SCALE / (1 << csel)) - 1;
 
 		pr_debug("cpufreq: freq:%d csel:0x%x tscale:%d\n",
@@ -79,7 +87,7 @@ static void bfin_adjust_core_timer(void *info)
 	unsigned int tscale;
 	unsigned int index = *(unsigned int *)info;
 
-	
+	/* we have to adjust the core timer, because it is using cclk */
 	tscale = dpm_state_table[index].tscale;
 	bfin_write_TSCALE(tscale);
 	return;
@@ -87,7 +95,7 @@ static void bfin_adjust_core_timer(void *info)
 
 static unsigned int bfin_getfreq_khz(unsigned int cpu)
 {
-	
+	/* Both CoreA/B have the same core clock */
 	return get_cclk() / 1000;
 }
 
@@ -133,7 +141,7 @@ static int bfin_target(struct cpufreq_policy *poli,
 #if defined(CONFIG_CYCLES_CLOCKSOURCE)
 			cycles = get_cycles();
 			SSYNC();
-			cycles += 10; 
+			cycles += 10; /* ~10 cycles we lose after get_cycles() */
 			__bfin_cycles_off +=
 			    (cycles << __bfin_cycles_mod) - (cycles << index);
 			__bfin_cycles_mod = index;
@@ -148,7 +156,7 @@ static int bfin_target(struct cpufreq_policy *poli,
 			}
 			hard_local_irq_restore(flags);
 		}
-		
+		/* TODO: just test case for cycles clock source, remove later */
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 	}
 
@@ -172,7 +180,7 @@ static int __init __bfin_cpu_init(struct cpufreq_policy *policy)
 	if (policy->cpu == CPUFREQ_CPU)
 		bfin_init_tables(cclk, sclk);
 
-	policy->cpuinfo.transition_latency = 50000; 
+	policy->cpuinfo.transition_latency = 50000; /* 50us assumed */
 
 	policy->cur = cclk;
 	cpufreq_frequency_table_get_attr(bfin_freq_table, policy->cpu);

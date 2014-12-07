@@ -18,4 +18,4 @@
 
 #include_next <mc146818rtc.h>
 
-#endif 
+#endif /* __ASM_MACH_RM_MC146818RTC_H */

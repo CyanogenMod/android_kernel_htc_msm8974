@@ -23,4 +23,4 @@
 
 #include <asm-generic/param.h>
 
-#endif 
+#endif /* __ASM_OPENRISC_PARAM_H */

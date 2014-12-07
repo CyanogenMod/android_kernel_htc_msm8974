@@ -109,6 +109,7 @@
 #define SAA7146_A_TIME_SLOT1	0x180
 #define SAA7146_A_TIME_SLOT2	0x1C0
 
+/* bitfield defines */
 #define MASK_31			0x80000000
 #define MASK_30			0x40000000
 #define MASK_29			0x20000000
@@ -153,6 +154,7 @@
 #define MASK_NONE		0x00000000
 
 #define SAA7146_PAGE_MAP_EN	MASK_11
+/* main control register 1 */
 #define SAA7146_MC1_MRST_N	MASK_15
 #define SAA7146_MC1_ERPS1	MASK_13
 #define SAA7146_MC1_ERPS0	MASK_12
@@ -168,6 +170,7 @@
 #define SAA7146_MC1_TR_E_A2_IN	MASK_02
 #define SAA7146_MC1_TR_E_A1_OUT	MASK_01
 #define SAA7146_MC1_TR_E_A1_IN	MASK_00
+/* main control register 2 */
 #define SAA7146_MC2_RPS_SIG4	MASK_15
 #define SAA7146_MC2_RPS_SIG3	MASK_14
 #define SAA7146_MC2_RPS_SIG2	MASK_13
@@ -183,6 +186,7 @@
 #define SAA7146_MC2_UPLD_DMA1	MASK_02
 #define SAA7146_MC2_UPLD_DEBI	MASK_01
 #define SAA7146_MC2_UPLD_I2C	MASK_00
+/* Primary Status Register and Interrupt Enable/Status Registers */
 #define SAA7146_PSR_PPEF	MASK_31
 #define SAA7146_PSR_PABO	MASK_30
 #define SAA7146_PSR_PPED	MASK_29
@@ -215,6 +219,7 @@
 #define SAA7146_PSR_ECS		MASK_02
 #define SAA7146_PSR_EC3S	MASK_01
 #define SAA7146_PSR_EC0S	MASK_00
+/* Secondary Status Register */
 #define SAA7146_SSR_PRQ		MASK_31
 #define SAA7146_SSR_PMA		MASK_30
 #define SAA7146_SSR_RPS_RE1	MASK_29
@@ -246,6 +251,7 @@
 #define SAA7146_SSR_EC4S	MASK_02
 #define SAA7146_SSR_EC2S	MASK_01
 #define SAA7146_SSR_EC1S	MASK_00
+/* I2C status register */
 #define SAA7146_I2C_ABORT	MASK_07
 #define SAA7146_I2C_SPERR	MASK_06
 #define SAA7146_I2C_APERR	MASK_05
@@ -254,6 +260,7 @@
 #define SAA7146_I2C_AL		MASK_02
 #define SAA7146_I2C_ERR		MASK_01
 #define SAA7146_I2C_BUSY	MASK_00
+/* output formats */
 #define SAA7146_YUV422	0
 #define SAA7146_RGB16	0
 #define SAA7146_YUV444	1

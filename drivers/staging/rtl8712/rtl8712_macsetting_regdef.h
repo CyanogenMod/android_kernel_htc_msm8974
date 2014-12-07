@@ -31,5 +31,5 @@
 
 
 
-#endif 
+#endif /*__RTL8712_MACSETTING_REGDEF_H__*/
 

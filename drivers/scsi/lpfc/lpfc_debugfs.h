@@ -23,18 +23,27 @@
 
 #ifdef CONFIG_SCSI_LPFC_DEBUG_FS
 
+/* size of output line, for discovery_trace and slow_ring_trace */
 #define LPFC_DEBUG_TRC_ENTRY_SIZE 100
 
+/* nodelist output buffer size */
 #define LPFC_NODELIST_SIZE 8192
 #define LPFC_NODELIST_ENTRY_SIZE 120
 
+/* dumpHBASlim output buffer size */
 #define LPFC_DUMPHBASLIM_SIZE 4096
 
+/* dumpHostSlim output buffer size */
 #define LPFC_DUMPHOSTSLIM_SIZE 4096
 
+/* hbqinfo output buffer size */
 #define LPFC_HBQINFO_SIZE 8192
 
+/*
+ * For SLI4 iDiag debugfs diagnostics tool
+ */
 
+/* pciConf */
 #define LPFC_PCI_CFG_BROWSE 0xffff
 #define LPFC_PCI_CFG_RD_CMD_ARG 2
 #define LPFC_PCI_CFG_WR_CMD_ARG 3
@@ -45,6 +54,7 @@
 #define IDIAG_PCICFG_COUNT_INDX 1
 #define IDIAG_PCICFG_VALUE_INDX 2
 
+/* barAcc */
 #define LPFC_PCI_BAR_BROWSE 0xffff
 #define LPFC_PCI_BAR_RD_CMD_ARG 3
 #define LPFC_PCI_BAR_WR_CMD_ARG 3
@@ -74,8 +84,10 @@
 
 #define SINGLE_WORD 1
 
+/* queue info */
 #define LPFC_QUE_INFO_GET_BUF_SIZE 4096
 
+/* queue acc */
 #define LPFC_QUE_ACC_BROWSE 0xffff
 #define LPFC_QUE_ACC_RD_CMD_ARG 4
 #define LPFC_QUE_ACC_WR_CMD_ARG 6
@@ -95,6 +107,7 @@
 #define IDIAG_QUEACC_OFFST_INDX 4
 #define IDIAG_QUEACC_VALUE_INDX 5
 
+/* doorbell register acc */
 #define LPFC_DRB_ACC_ALL 0xffff
 #define LPFC_DRB_ACC_RD_CMD_ARG 1
 #define LPFC_DRB_ACC_WR_CMD_ARG 2
@@ -110,6 +123,7 @@
 #define IDIAG_DRBACC_REGID_INDX 0
 #define IDIAG_DRBACC_VALUE_INDX 1
 
+/* control register acc */
 #define LPFC_CTL_ACC_ALL 0xffff
 #define LPFC_CTL_ACC_RD_CMD_ARG 1
 #define LPFC_CTL_ACC_WR_CMD_ARG 2
@@ -127,6 +141,7 @@
 #define IDIAG_CTLACC_REGID_INDX 0
 #define IDIAG_CTLACC_VALUE_INDX 1
 
+/* mailbox access */
 #define LPFC_MBX_DMP_ARG 4
 
 #define LPFC_MBX_ACC_BUF_SIZE 512
@@ -153,6 +168,7 @@
 #define IDIAG_MBXACC_DPCNT_INDX 2
 #define IDIAG_MBXACC_WDCNT_INDX 3
 
+/* extents access */
 #define LPFC_EXT_ACC_CMD_ARG 1
 #define LPFC_EXT_ACC_BUF_SIZE 4096
 
@@ -235,17 +251,19 @@ struct lpfc_idiag {
 };
 #endif
 
-#define LPFC_DISC_TRC_ELS_CMD		0x1	
-#define LPFC_DISC_TRC_ELS_RSP		0x2	
-#define LPFC_DISC_TRC_ELS_UNSOL		0x4	
-#define LPFC_DISC_TRC_ELS_ALL		0x7	
-#define LPFC_DISC_TRC_MBOX_VPORT	0x8	
-#define LPFC_DISC_TRC_MBOX		0x10	
-#define LPFC_DISC_TRC_MBOX_ALL		0x18	
-#define LPFC_DISC_TRC_CT		0x20	
-#define LPFC_DISC_TRC_DSM		0x40    
-#define LPFC_DISC_TRC_RPORT		0x80    
-#define LPFC_DISC_TRC_NODE		0x100   
+/* Mask for discovery_trace */
+#define LPFC_DISC_TRC_ELS_CMD		0x1	/* Trace ELS commands */
+#define LPFC_DISC_TRC_ELS_RSP		0x2	/* Trace ELS response */
+#define LPFC_DISC_TRC_ELS_UNSOL		0x4	/* Trace ELS rcv'ed   */
+#define LPFC_DISC_TRC_ELS_ALL		0x7	/* Trace ELS */
+#define LPFC_DISC_TRC_MBOX_VPORT	0x8	/* Trace vport MBOXs */
+#define LPFC_DISC_TRC_MBOX		0x10	/* Trace other MBOXs */
+#define LPFC_DISC_TRC_MBOX_ALL		0x18	/* Trace all MBOXs */
+#define LPFC_DISC_TRC_CT		0x20	/* Trace disc CT requests */
+#define LPFC_DISC_TRC_DSM		0x40    /* Trace DSM events */
+#define LPFC_DISC_TRC_RPORT		0x80    /* Trace rport events */
+#define LPFC_DISC_TRC_NODE		0x100   /* Trace ndlp state changes */
 
-#define LPFC_DISC_TRC_DISCOVERY		0xef    
-#endif 
+#define LPFC_DISC_TRC_DISCOVERY		0xef    /* common mask for general
+						 * discovery */
+#endif /* H_LPFC_DEBUG_FS */

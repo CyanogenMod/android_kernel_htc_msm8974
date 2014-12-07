@@ -42,6 +42,7 @@
 #define NES_MPA_REQUEST_ACCEPT  1
 #define NES_MPA_REQUEST_REJECT  2
 
+/* IETF MPA -- defines, enums, structs */
 #define IEFT_MPA_KEY_REQ  "MPA ID Req Frame"
 #define IEFT_MPA_KEY_REP  "MPA ID Rep Frame"
 #define IETF_MPA_KEY_SIZE 16
@@ -51,6 +52,7 @@
 #define IETF_RTR_MSG_SIZE      4
 #define IETF_MPA_V2_FLAG       0x10
 
+/* IETF RTR MSG Fields               */
 #define IETF_PEER_TO_PEER       0x8000
 #define IETF_FLPDU_ZERO_LEN     0x4000
 #define IETF_RDMA0_WRITE        0x8000
@@ -58,9 +60,9 @@
 #define IETF_NO_IRD_ORD         0x3FFF
 
 enum ietf_mpa_flags {
-	IETF_MPA_FLAGS_MARKERS = 0x80,	
-	IETF_MPA_FLAGS_CRC     = 0x40,	
-	IETF_MPA_FLAGS_REJECT  = 0x20,	
+	IETF_MPA_FLAGS_MARKERS = 0x80,	/* receive Markers */
+	IETF_MPA_FLAGS_CRC     = 0x40,	/* receive Markers */
+	IETF_MPA_FLAGS_REJECT  = 0x20,	/* Reject */
 };
 
 struct ietf_mpa_v1 {
@@ -89,9 +91,9 @@ struct ietf_mpa_v2 {
 
 struct nes_v4_quad {
 	u32 rsvd0;
-	__le32 DstIpAdrIndex;	
+	__le32 DstIpAdrIndex;	/* Only most significant 5 bits are valid */
 	__be32 SrcIpadr;
-	__be16 TcpPorts[2];		
+	__be16 TcpPorts[2];		/* src is low, dest is high */
 };
 
 struct nes_cm_node;
@@ -151,7 +153,7 @@ union all_known_options {
 
 struct nes_timer_entry {
 	struct list_head list;
-	unsigned long timetosend;	
+	unsigned long timetosend;	/* jiffies */
 	struct sk_buff *skb;
 	u32 type;
 	u32 retrycount;
@@ -179,8 +181,8 @@ struct nes_timer_entry {
 #define NES_CM_DEFAULT_MTU            1540
 #define NES_CM_DEFAULT_FRAME_CNT      10
 #define NES_CM_THREAD_STACK_SIZE      256
-#define NES_CM_DEFAULT_RCV_WND        64240	
-#define NES_CM_DEFAULT_RCV_WND_SCALED 256960  
+#define NES_CM_DEFAULT_RCV_WND        64240	// before we know that window scaling is allowed
+#define NES_CM_DEFAULT_RCV_WND_SCALED 256960  // after we know that window scaling is allowed
 #define NES_CM_DEFAULT_RCV_WND_SCALE  2
 #define NES_CM_DEFAULT_FREE_PKTS      0x000A
 #define NES_CM_FREE_PKT_LO_WATERMARK  2
@@ -200,6 +202,7 @@ typedef u32 nes_addr_t;
 
 struct nes_qp;
 
+/* cm node transition states */
 enum nes_cm_node_state {
 	NES_CM_STATE_UNKNOWN,
 	NES_CM_STATE_INITED,
@@ -248,10 +251,12 @@ enum nes_tcpip_pkt_type {
 };
 
 
+/* type of nes connection */
 enum nes_cm_conn_type {
 	NES_CM_IWARP_CONN_TYPE,
 };
 
+/* CM context params */
 struct nes_cm_tcp_context {
 	u8  client;
 
@@ -298,6 +303,7 @@ struct nes_cm_listener {
 	u32                        reused_node;
 };
 
+/* per connection node and node state information */
 struct nes_cm_node {
 	nes_addr_t                loc_addr, rem_addr;
 	u16                       loc_port, rem_port;
@@ -343,6 +349,8 @@ struct nes_cm_node {
 	atomic_t 		passive_state;
 };
 
+/* structure for client or CM to fill when making CM api calls. */
+/*	- only need to set relevant data, based on op. */
 struct nes_cm_info {
 	union {
 		struct iw_cm_id   *cm_id;
@@ -358,6 +366,7 @@ struct nes_cm_info {
 	int backlog;
 };
 
+/* CM event codes */
 enum  nes_cm_event_type {
 	NES_CM_EVENT_UNKNOWN,
 	NES_CM_EVENT_ESTABLISHED,
@@ -377,6 +386,7 @@ enum  nes_cm_event_type {
 	NES_CM_EVENT_SEND_FIRST
 };
 
+/* event to post to CM event handler */
 struct nes_cm_event {
 	enum nes_cm_event_type type;
 
@@ -397,7 +407,7 @@ struct nes_cm_core {
 	u32                     rx_pkt_posted;
 	atomic_t                ht_node_cnt;
 	struct list_head        connected_nodes;
-	
+	/* struct list_head hashtable[NES_CM_HASHTABLE_SIZE]; */
 	spinlock_t              ht_lock;
 
 	struct timer_list       tcp_timer;
@@ -420,6 +430,7 @@ struct nes_cm_core {
 #define NES_CM_SET_PKT_SIZE        (1 << 1)
 #define NES_CM_SET_FREE_PKT_Q_SIZE (1 << 2)
 
+/* CM ops/API for client interface */
 struct nes_cm_ops {
 	int (*accelerated)(struct nes_cm_core *, struct nes_cm_node *);
 	struct nes_cm_listener * (*listen)(struct nes_cm_core *, struct nes_vnic *,
@@ -453,4 +464,4 @@ int nes_cm_stop(void);
 int nes_add_ref_cm_node(struct nes_cm_node *cm_node);
 int nes_rem_ref_cm_node(struct nes_cm_node *cm_node);
 
-#endif			
+#endif			/* NES_CM_H */

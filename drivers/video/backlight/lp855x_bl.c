@@ -16,6 +16,7 @@
 #include <linux/err.h>
 #include <linux/lp855x.h>
 
+/* Registers */
 #define BRIGHTNESS_CTRL		(0x00)
 #define DEVICE_CTRL		(0x01)
 

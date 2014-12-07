@@ -16,6 +16,7 @@
 #include <arch/svinto.h>
 #include <asm/mmu_context.h>
 
+/* debug of low-level TLB reload */
 #undef DEBUG
 
 #ifdef DEBUG
@@ -30,6 +31,9 @@ extern const struct exception_table_entry
 asmlinkage void do_page_fault(unsigned long address, struct pt_regs *regs,
                               int protection, int writeaccess);
 
+/* fast TLB-fill fault handler
+ * this is called from entry.S with interrupts disabled
+ */
 
 void
 handle_mmu_bus_fault(struct pt_regs *regs)
@@ -50,7 +54,7 @@ handle_mmu_bus_fault(struct pt_regs *regs)
 
 	cause = *R_MMU_CAUSE;
 
-	address = cause & PAGE_MASK; 
+	address = cause & PAGE_MASK; /* get faulting address */
 	select = *R_TLB_SELECT;
 
 #ifdef DEBUG
@@ -66,12 +70,16 @@ handle_mmu_bus_fault(struct pt_regs *regs)
 	D(printk("bus_fault from IRP 0x%lx: addr 0x%lx, miss %d, inv %d, we %d, acc %d, dx %d pid %d\n",
 		 regs->irp, address, miss, inv, we, acc, index, page_id));
 
-	
+	/* leave it to the MM system fault handler */
 	if (miss)
 		do_page_fault(address, regs, 0, writeac);
         else
 		do_page_fault(address, regs, 1, we);
 
+        /* Reload TLB with new entry to avoid an extra miss exception.
+	 * do_page_fault may have flushed the TLB so we have to restore
+	 * the MMU registers.
+	 */
 	local_irq_save(flags);
 	pmd = (pmd_t *)(pgd + pgd_index(address));
 	if (pmd_none(*pmd))

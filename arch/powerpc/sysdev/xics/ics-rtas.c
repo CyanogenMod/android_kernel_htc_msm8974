@@ -17,6 +17,7 @@
 #include <asm/xics.h>
 #include <asm/rtas.h>
 
+/* RTAS service tokens */
 static int ibm_get_xive;
 static int ibm_set_xive;
 static int ibm_int_on;
@@ -27,6 +28,7 @@ static void ics_rtas_mask_unknown(struct ics *ics, unsigned long vec);
 static long ics_rtas_get_server(struct ics *ics, unsigned long vec);
 static int ics_rtas_host_match(struct ics *ics, struct device_node *node);
 
+/* Only one global & state struct ics */
 static struct ics ics_rtas = {
 	.map		= ics_rtas_map,
 	.mask_unknown	= ics_rtas_mask_unknown,
@@ -56,7 +58,7 @@ static void ics_rtas_unmask_irq(struct irq_data *d)
 		return;
 	}
 
-	
+	/* Now unmask the interrupt (often a no-op) */
 	call_status = rtas_call(ibm_int_on, 1, 1, NULL, hw_irq);
 	if (call_status != 0) {
 		printk(KERN_ERR "%s: ibm_int_on irq=%u returned %d\n",
@@ -68,10 +70,15 @@ static void ics_rtas_unmask_irq(struct irq_data *d)
 static unsigned int ics_rtas_startup(struct irq_data *d)
 {
 #ifdef CONFIG_PCI_MSI
+	/*
+	 * The generic MSI code returns with the interrupt disabled on the
+	 * card, using the MSI mask bits. Firmware doesn't appear to unmask
+	 * at that level, so we do it here by hand.
+	 */
 	if (d->msi_desc)
 		unmask_msi_irq(d);
 #endif
-	
+	/* unmask it */
 	ics_rtas_unmask_irq(d);
 	return 0;
 }
@@ -90,7 +97,7 @@ static void ics_rtas_mask_real_irq(unsigned int hw_irq)
 		return;
 	}
 
-	
+	/* Have to set XIVE to 0xff to be able to remove a slot */
 	call_status = rtas_call(ibm_set_xive, 3, 1, NULL, hw_irq,
 				xics_default_server, 0xff);
 	if (call_status != 0) {
@@ -158,7 +165,7 @@ static struct irq_chip ics_rtas_irq_chip = {
 	.irq_startup = ics_rtas_startup,
 	.irq_mask = ics_rtas_mask_irq,
 	.irq_unmask = ics_rtas_unmask_irq,
-	.irq_eoi = NULL, 
+	.irq_eoi = NULL, /* Patched at init time */
 	.irq_set_affinity = ics_rtas_set_affinity
 };
 
@@ -171,7 +178,7 @@ static int ics_rtas_map(struct ics *ics, unsigned int virq)
 	if (WARN_ON(hw_irq == XICS_IPI || hw_irq == XICS_IRQ_SPURIOUS))
 		return -EINVAL;
 
-	
+	/* Check if RTAS knows about this interrupt */
 	rc = rtas_call(ibm_get_xive, 1, 3, status, hw_irq);
 	if (rc)
 		return -ENXIO;
@@ -199,6 +206,10 @@ static long ics_rtas_get_server(struct ics *ics, unsigned long vec)
 
 static int ics_rtas_host_match(struct ics *ics, struct device_node *node)
 {
+	/* IBM machines have interrupt parents of various funky types for things
+	 * like vdevices, events, etc... The trick we use here is to match
+	 * everything here except the legacy 8259 which is compatible "chrp,iic"
+	 */
 	return !of_device_is_compatible(node, "chrp,iic");
 }
 
@@ -209,13 +220,19 @@ int ics_rtas_init(void)
 	ibm_int_on  = rtas_token("ibm,int-on");
 	ibm_int_off = rtas_token("ibm,int-off");
 
+	/* We enable the RTAS "ICS" if RTAS is present with the
+	 * appropriate tokens
+	 */
 	if (ibm_get_xive == RTAS_UNKNOWN_SERVICE ||
 	    ibm_set_xive == RTAS_UNKNOWN_SERVICE)
 		return -ENODEV;
 
+	/* We need to patch our irq chip's EOI to point to the
+	 * right ICP
+	 */
 	ics_rtas_irq_chip.irq_eoi = icp_ops->eoi;
 
-	
+	/* Register ourselves */
 	xics_register_ics(&ics_rtas);
 
 	return 0;

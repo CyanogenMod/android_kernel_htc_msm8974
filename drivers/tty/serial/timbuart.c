@@ -16,6 +16,9 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * Timberdale FPGA UART
+ */
 
 #include <linux/pci.h>
 #include <linux/interrupt.h>
@@ -47,14 +50,14 @@ static irqreturn_t timbuart_handleinterrupt(int irq, void *devid);
 
 static void timbuart_stop_rx(struct uart_port *port)
 {
-	
+	/* spin lock held by upper layer, disable all RX interrupts */
 	u32 ier = ioread32(port->membase + TIMBUART_IER) & ~RXFLAGS;
 	iowrite32(ier, port->membase + TIMBUART_IER);
 }
 
 static void timbuart_stop_tx(struct uart_port *port)
 {
-	
+	/* spinlock held by upper layer, disable TX interrupt */
 	u32 ier = ioread32(port->membase + TIMBUART_IER) & ~TXBAE;
 	iowrite32(ier, port->membase + TIMBUART_IER);
 }
@@ -64,7 +67,7 @@ static void timbuart_start_tx(struct uart_port *port)
 	struct timbuart_port *uart =
 		container_of(port, struct timbuart_port, port);
 
-	
+	/* do not transfer anything here -> fire off the tasklet */
 	tasklet_schedule(&uart->tasklet);
 }
 
@@ -139,15 +142,20 @@ static void timbuart_handle_tx_port(struct uart_port *port, u32 isr, u32 *ier)
 
 	if (isr & TXFLAGS) {
 		timbuart_tx_chars(port);
-		
+		/* clear all TX interrupts */
 		iowrite32(TXFLAGS, port->membase + TIMBUART_ISR);
 
 		if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 			uart_write_wakeup(port);
 	} else
-		
+		/* Re-enable any tx interrupt */
 		*ier |= uart->last_ier & TXFLAGS;
 
+	/* enable interrupts if there are chars in the transmit buffer,
+	 * Or if we delivered some bytes and want the almost empty interrupt
+	 * we wake up the upper layer later when we got the interrupt
+	 * to give it some time to go out...
+	 */
 	if (!uart_circ_empty(xmit))
 		*ier |= TXBAE;
 
@@ -157,7 +165,7 @@ static void timbuart_handle_tx_port(struct uart_port *port, u32 isr, u32 *ier)
 void timbuart_handle_rx_port(struct uart_port *port, u32 isr, u32 *ier)
 {
 	if (isr & RXFLAGS) {
-		
+		/* Some RX status is set */
 		if (isr & RXBF) {
 			u8 ctl = ioread8(port->membase + TIMBUART_CTRL) |
 				TIMBUART_CTRL_FLSHRX;
@@ -166,11 +174,11 @@ void timbuart_handle_rx_port(struct uart_port *port, u32 isr, u32 *ier)
 		} else if (isr & (RXDP))
 			timbuart_rx_chars(port);
 
-		
+		/* ack all RX interrupts */
 		iowrite32(RXFLAGS, port->membase + TIMBUART_ISR);
 	}
 
-	
+	/* always have the RX interrupts enabled */
 	*ier |= RXBAF | RXBF | RXTT;
 
 	dev_dbg(port->dev, "%s - leaving\n", __func__);
@@ -226,7 +234,7 @@ static void timbuart_mctrl_check(struct uart_port *port, u32 isr, u32 *ier)
 	unsigned int cts;
 
 	if (isr & CTS_DELTA) {
-		
+		/* ack */
 		iowrite32(CTS_DELTA, port->membase + TIMBUART_ISR);
 		cts = timbuart_get_mctrl(port);
 		uart_handle_cts_change(port, cts & TIOCM_CTS);
@@ -238,12 +246,12 @@ static void timbuart_mctrl_check(struct uart_port *port, u32 isr, u32 *ier)
 
 static void timbuart_enable_ms(struct uart_port *port)
 {
-	
+	/* N/A */
 }
 
 static void timbuart_break_ctl(struct uart_port *port, int ctl)
 {
-	
+	/* N/A */
 }
 
 static int timbuart_startup(struct uart_port *port)
@@ -255,7 +263,7 @@ static int timbuart_startup(struct uart_port *port)
 
 	iowrite8(TIMBUART_CTRL_FLSHRX, port->membase + TIMBUART_CTRL);
 	iowrite32(0x1ff, port->membase + TIMBUART_ISR);
-	
+	/* Enable all but TX interrupts */
 	iowrite32(RXBAF | RXBF | RXTT | CTS_DELTA,
 		port->membase + TIMBUART_IER);
 
@@ -299,6 +307,8 @@ static void timbuart_set_termios(struct uart_port *port,
 		bindex = 0;
 	baud = baudrates[bindex];
 
+	/* The serial layer calls into this once with old = NULL when setting
+	   up initially */
 	if (old)
 		tty_termios_copy_hw(termios, old);
 	tty_termios_encode_baud_rate(termios, baud, baud);
@@ -314,6 +324,9 @@ static const char *timbuart_type(struct uart_port *port)
 	return port->type == PORT_UNKNOWN ? "timbuart" : NULL;
 }
 
+/* We do not request/release mappings of the registers here,
+ * currently it's done in the proble function.
+ */
 static void timbuart_release_port(struct uart_port *port)
 {
 	struct platform_device *pdev = to_platform_device(port->dev);
@@ -355,10 +368,10 @@ static irqreturn_t timbuart_handleinterrupt(int irq, void *devid)
 	if (ioread8(uart->port.membase + TIMBUART_IPR)) {
 		uart->last_ier = ioread32(uart->port.membase + TIMBUART_IER);
 
-		
+		/* disable interrupts, the tasklet enables them again */
 		iowrite32(0, uart->port.membase + TIMBUART_IER);
 
-		
+		/* fire off bottom half */
 		tasklet_schedule(&uart->tasklet);
 
 		return IRQ_HANDLED;
@@ -366,6 +379,9 @@ static irqreturn_t timbuart_handleinterrupt(int irq, void *devid)
 		return IRQ_NONE;
 }
 
+/*
+ * Configure/autoconfigure the port.
+ */
 static void timbuart_config_port(struct uart_port *port, int flags)
 {
 	if (flags & UART_CONFIG_TYPE) {
@@ -377,7 +393,7 @@ static void timbuart_config_port(struct uart_port *port, int flags)
 static int timbuart_verify_port(struct uart_port *port,
 	struct serial_struct *ser)
 {
-	
+	/* we don't want the core code to modify any port params */
 	return -EINVAL;
 }
 

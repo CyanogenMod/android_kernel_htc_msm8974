@@ -12,6 +12,9 @@ int init_fpu(struct task_struct *tsk)
 		return 0;
 	}
 
+	/*
+	 * Memory allocation at the first usage of the FPU and other state.
+	 */
 	if (!tsk->thread.xstate) {
 		tsk->thread.xstate = kmem_cache_alloc(task_xstate_cachep,
 						      GFP_KERNEL);
@@ -56,7 +59,13 @@ void fpu_state_restore(struct pt_regs *regs)
 
 	if (!tsk_used_math(tsk)) {
 		local_irq_enable();
+		/*
+		 * does a slab alloc which can sleep
+		 */
 		if (init_fpu(tsk)) {
+			/*
+			 * ran out of memory!
+			 */
 			do_group_exit(SIGKILL);
 			return;
 		}
@@ -74,4 +83,4 @@ BUILD_TRAP_HANDLER(fpu_state_restore)
 
 	fpu_state_restore(regs);
 }
-#endif 
+#endif /* CONFIG_SH_FPU */

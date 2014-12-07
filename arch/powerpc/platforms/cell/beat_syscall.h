@@ -84,13 +84,13 @@
 #define HV_set_interrupt_mask __BEAT_ADD_VENDOR_ID(73, 0)
 #define HV_get_logical_partition_id __BEAT_ADD_VENDOR_ID(74, 0)
 #define HV_create_repository_node2 __BEAT_ADD_VENDOR_ID(90, 0)
-#define HV_create_repository_node __BEAT_ADD_VENDOR_ID(90, 0) 
+#define HV_create_repository_node __BEAT_ADD_VENDOR_ID(90, 0) /* alias */
 #define HV_get_repository_node_value2 __BEAT_ADD_VENDOR_ID(91, 0)
-#define HV_get_repository_node_value __BEAT_ADD_VENDOR_ID(91, 0) 
+#define HV_get_repository_node_value __BEAT_ADD_VENDOR_ID(91, 0) /* alias */
 #define HV_modify_repository_node_value2 __BEAT_ADD_VENDOR_ID(92, 0)
-#define HV_modify_repository_node_value __BEAT_ADD_VENDOR_ID(92, 0) 
+#define HV_modify_repository_node_value __BEAT_ADD_VENDOR_ID(92, 0) /* alias */
 #define HV_remove_repository_node2 __BEAT_ADD_VENDOR_ID(93, 0)
-#define HV_remove_repository_node __BEAT_ADD_VENDOR_ID(93, 0) 
+#define HV_remove_repository_node __BEAT_ADD_VENDOR_ID(93, 0) /* alias */
 #define HV_cancel_shared_memory __BEAT_ADD_VENDOR_ID(104, 0)
 #define HV_clear_interrupt_status_of_spe __BEAT_ADD_VENDOR_ID(206, 0)
 #define HV_construct_spe_irq_outlet __BEAT_ADD_VENDOR_ID(80, 0)

@@ -18,6 +18,7 @@
 #ifndef ___ASM_ARCH_REGS_IRQ_H
 #define ___ASM_ARCH_REGS_IRQ_H
 
+/* Advance Interrupt Controller (AIC) Registers */
 
 #define AIC_BA    		W90X900_VA_IRQ
 
@@ -40,10 +41,11 @@
 #define AIC_IPER		(0x10C)
 #define AIC_ISNR		(0x110)
 
+/*16-18 bits of REG_AIC_GEN define irq(2-4) group*/
 
 #define TIMER2_IRQ		(1 << 16)
 #define TIMER3_IRQ		(1 << 17)
 #define TIMER4_IRQ		(1 << 18)
 #define TIME_GROUP_IRQ		(TIMER2_IRQ|TIMER3_IRQ|TIMER4_IRQ)
 
-#endif 
+#endif /* ___ASM_ARCH_REGS_IRQ_H */

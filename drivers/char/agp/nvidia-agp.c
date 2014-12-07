@@ -1,3 +1,8 @@
+/*
+ * Nvidia AGPGART routines.
+ * Based upon a 2.4 agpgart diff by the folks from NVIDIA, and hacked up
+ * to work in 2.5 by Dave Jones <davej@redhat.com>
+ */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -8,6 +13,7 @@
 #include <linux/jiffies.h>
 #include "agp.h"
 
+/* NVIDIA registers */
 #define NVIDIA_0_APSIZE		0x80
 #define NVIDIA_1_WBC		0xf0
 #define NVIDIA_2_GARTCTRL	0xd0
@@ -63,8 +69,8 @@ static int nvidia_init_iorr(u32 base, u32 size)
 	u32 sys_hi, sys_lo;
 	u32 iorr_addr, free_iorr_addr;
 
-	
-	
+	/* Find the iorr that is already used for the base */
+	/* If not found, determine the uppermost available iorr */
 	free_iorr_addr = AMD_K7_NUM_IORR;
 	for (iorr_addr = 0; iorr_addr < AMD_K7_NUM_IORR; iorr_addr++) {
 		rdmsr(IORR_BASE0 + 2 * iorr_addr, base_lo, base_hi);
@@ -105,11 +111,11 @@ static int nvidia_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, NVIDIA_0_APSIZE,
 		current_size->size_value);
 
-    
+    /* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &apbase);
 	apbase &= PCI_BASE_ADDRESS_MEM_MASK;
 	agp_bridge->gart_bus_addr = apbase;
@@ -121,7 +127,7 @@ static int nvidia_configure(void)
 	if (0 != (rc = nvidia_init_iorr(apbase, current_size->size * 1024 * 1024)))
 		return rc;
 
-	
+	/* directory size is 64k */
 	num_dirs = current_size->size / 64;
 	nvidia_private.num_active_entries = current_size->num_entries;
 	nvidia_private.pg_offset = 0;
@@ -132,21 +138,21 @@ static int nvidia_configure(void)
 			~(current_size->size * 1024 * 1024 - 1)) / PAGE_SIZE;
 	}
 
-	
+	/* attbase */
 	for (i = 0; i < 8; i++) {
 		pci_write_config_dword(nvidia_private.dev_2, NVIDIA_2_ATTBASE(i),
 			(agp_bridge->gatt_bus_addr + (i % num_dirs) * 64 * 1024) | 1);
 	}
 
-	
+	/* gtlb control */
 	pci_read_config_dword(nvidia_private.dev_2, NVIDIA_2_GARTCTRL, &temp);
 	pci_write_config_dword(nvidia_private.dev_2, NVIDIA_2_GARTCTRL, temp | 0x11);
 
-	
+	/* gart control */
 	pci_read_config_dword(agp_bridge->dev, NVIDIA_0_APSIZE, &temp);
 	pci_write_config_dword(agp_bridge->dev, NVIDIA_0_APSIZE, temp | 0x100);
 
-	
+	/* map aperture */
 	nvidia_private.aperture =
 		(volatile u32 __iomem *) ioremap(apbase, 33 * PAGE_SIZE);
 
@@ -161,28 +167,34 @@ static void nvidia_cleanup(void)
 	struct aper_size_info_8 *previous_size;
 	u32 temp;
 
-	
+	/* gart control */
 	pci_read_config_dword(agp_bridge->dev, NVIDIA_0_APSIZE, &temp);
 	pci_write_config_dword(agp_bridge->dev, NVIDIA_0_APSIZE, temp & ~(0x100));
 
-	
+	/* gtlb control */
 	pci_read_config_dword(nvidia_private.dev_2, NVIDIA_2_GARTCTRL, &temp);
 	pci_write_config_dword(nvidia_private.dev_2, NVIDIA_2_GARTCTRL, temp & ~(0x11));
 
-	
+	/* unmap aperture */
 	iounmap((void __iomem *) nvidia_private.aperture);
 
-	
+	/* restore previous aperture size */
 	previous_size = A_SIZE_8(agp_bridge->previous_size);
 	pci_write_config_byte(agp_bridge->dev, NVIDIA_0_APSIZE,
 		previous_size->size_value);
 
-	
+	/* restore iorr for previous aperture size */
 	nvidia_init_iorr(agp_bridge->gart_bus_addr,
 		previous_size->size * 1024 * 1024);
 }
 
 
+/*
+ * Note we can't use the generic routines, even though they are 99% the same.
+ * Aperture sizes <64M still requires a full 64k GART directory, but
+ * only use the portion of the TLB entries that correspond to the apertures
+ * alignment inside the surrounding 64M block.
+ */
 extern int agp_memory_reserved;
 
 static int nvidia_insert_memory(struct agp_memory *mem, off_t pg_start, int type)
@@ -216,7 +228,7 @@ static int nvidia_insert_memory(struct agp_memory *mem, off_t pg_start, int type
 			agp_bridge->gatt_table+nvidia_private.pg_offset+j);
 	}
 
-	
+	/* PCI Posting. */
 	readl(agp_bridge->gatt_table+nvidia_private.pg_offset+j - 1);
 
 	agp_bridge->driver->tlb_flush(mem);
@@ -251,7 +263,7 @@ static void nvidia_tlbflush(struct agp_memory *mem)
 	u32 wbc_reg, temp;
 	int i;
 
-	
+	/* flush chipset */
 	if (nvidia_private.wbc_mask) {
 		pci_read_config_dword(nvidia_private.dev_1, NVIDIA_1_WBC, &wbc_reg);
 		wbc_reg |= nvidia_private.wbc_mask;
@@ -268,7 +280,7 @@ static void nvidia_tlbflush(struct agp_memory *mem)
 		} while (wbc_reg & nvidia_private.wbc_mask);
 	}
 
-	
+	/* flush TLB entries */
 	for (i = 0; i < 32 + 1; i++)
 		temp = readl(nvidia_private.aperture+(i * PAGE_SIZE / sizeof(u32)));
 	for (i = 0; i < 32 + 1; i++)
@@ -282,7 +294,7 @@ static const struct aper_size_info_8 nvidia_generic_sizes[5] =
 	{256, 65536, 6, 8},
 	{128, 32768, 5, 12},
 	{64, 16384, 4, 14},
-	
+	/* The 32M mode still requires a 64k gatt */
 	{32, 16384, 4, 15}
 };
 
@@ -367,7 +379,7 @@ static int __devinit agp_nvidia_probe(struct pci_dev *pdev,
 	bridge->dev = pdev;
 	bridge->capndx = cap_ptr;
 
-	
+	/* Fill in the mode register */
 	pci_read_config_dword(pdev,
 			bridge->capndx+PCI_AGP_STATUS,
 			&bridge->mode);
@@ -395,11 +407,11 @@ static int agp_nvidia_suspend(struct pci_dev *pdev, pm_message_t state)
 
 static int agp_nvidia_resume(struct pci_dev *pdev)
 {
-	
+	/* set power state 0 and restore PCI space */
 	pci_set_power_state (pdev, 0);
 	pci_restore_state(pdev);
 
-	
+	/* reconfigure AGP hardware again */
 	nvidia_configure();
 
 	return 0;

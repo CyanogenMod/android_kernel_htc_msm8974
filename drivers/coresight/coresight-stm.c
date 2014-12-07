@@ -162,6 +162,9 @@ static void __stm_hwevent_enable(struct stm_drvdata *drvdata)
 {
 	STM_UNLOCK(drvdata);
 
+	/* Program STMHETER to ensure TRIGOUTHETE (fed to CTI) is asserted
+	   for HW events.
+	*/
 	stm_writel(drvdata, 0xFFFFFFFF, STMHETER);
 	stm_writel(drvdata, 0xFFFFFFFF, STMHEER);
 	stm_writel(drvdata, 0x5, STMHEMCR);
@@ -227,7 +230,7 @@ static void __stm_enable(struct stm_drvdata *drvdata)
 	STM_UNLOCK(drvdata);
 
 	stm_writel(drvdata, 0xFFF, STMSYNCR);
-	
+	/* SYNCEN is read-only and HWTEN is not implemented */
 	stm_writel(drvdata, 0x100003, STMTCSR);
 
 	STM_LOCK(drvdata);
@@ -355,6 +358,9 @@ static int stm_send_64bit(void *addr, const void *data, uint32_t size)
 	uint8_t off, endoff;
 	uint32_t len = size;
 
+	/* only 64bit writes are supported, we rely on the compiler to
+	 * generate STRD instruction for the casted 64bit assignments
+	 */
 
 	off = (unsigned long)data & 0x7;
 
@@ -371,7 +377,7 @@ static int stm_send_64bit(void *addr, const void *data, uint32_t size)
 		*(volatile uint64_t __force *)addr = prepad;
 	}
 
-	
+	/* now we are 64bit aligned */
 	while (size >= 8) {
 		*(volatile uint64_t __force *)addr = *(uint64_t *)data;
 		data += 8;
@@ -413,7 +419,7 @@ static int stm_trace_ost_header_64bit(unsigned long ch_addr, uint32_t options,
 	prepad_size = (unsigned long)payload_data & 0x7;
 	*(uint32_t *)(hdr + 4) = (prepad_size << 24) | payload_size;
 
-	
+	/* for 64bit writes, header is expected to be D32M, D32M type */
 	options |= STM_OPTION_MARKED;
 	options &= ~STM_OPTION_TIMESTAMPED;
 	addr =  (void *)(ch_addr | stm_channel_off(STM_PKT_TYPE_DATA, options));
@@ -457,7 +463,7 @@ static int stm_send(void *addr, const void *data, uint32_t size)
 		size -= 2;
 	}
 
-	
+	/* now we are 32bit aligned */
 	while (size >= 4) {
 		stm_data_writel(*(uint32_t *)data, addr);
 		data += 4;
@@ -493,7 +499,7 @@ static int stm_trace_ost_header(unsigned long ch_addr, uint32_t options,
 	hdr[2] = entity_id;
 	hdr[3] = proto_id;
 
-	
+	/* header is expected to be D32M type */
 	options |= STM_OPTION_MARKED;
 	options &= ~STM_OPTION_TIMESTAMPED;
 	addr =  (void *)(ch_addr | stm_channel_off(STM_PKT_TYPE_DATA, options));
@@ -530,44 +536,60 @@ static inline int __stm_trace(uint32_t options, uint8_t entity_id,
 	uint32_t ch;
 	unsigned long ch_addr;
 
-	
+	/* allocate channel and get the channel address */
 	ch = stm_channel_alloc(0);
 	ch_addr = (unsigned long)stm_channel_addr(drvdata, ch);
 
 	if (drvdata->write_64bit) {
-		
+		/* send the ost header */
 		len += stm_trace_ost_header_64bit(ch_addr, options, entity_id,
 						  proto_id, data, size);
 
-		
+		/* send the payload data */
 		len += stm_trace_data_64bit(ch_addr, options, data, size);
 
-		
+		/* send the ost tail */
 		len += stm_trace_ost_tail_64bit(ch_addr, options);
 	} else {
-		
+		/* send the ost header */
 		len += stm_trace_ost_header(ch_addr, options, entity_id,
 					    proto_id, data, size);
 
-		
+		/* send the payload data */
 		len += stm_trace_data(ch_addr, options, data, size);
 
-		
+		/* send the ost tail */
 		len += stm_trace_ost_tail(ch_addr, options);
 	}
 
-	
+	/* we are done, free the channel */
 	stm_channel_free(ch);
 
 	return len;
 }
 
+/**
+ * stm_trace - trace the binary or string data through STM
+ * @options: tracing options - guaranteed, timestamped, etc
+ * @entity_id: entity representing the trace data
+ * @proto_id: protocol id to distinguish between different binary formats
+ * @data: pointer to binary or string data buffer
+ * @size: size of data to send
+ *
+ * Packetizes the data as the payload to an OST packet and sends it over STM
+ *
+ * CONTEXT:
+ * Can be called from any context.
+ *
+ * RETURNS:
+ * number of bytes transfered over STM
+ */
 int stm_trace(uint32_t options, uint8_t entity_id, uint8_t proto_id,
 			const void *data, uint32_t size)
 {
 	struct stm_drvdata *drvdata = stmdrvdata;
 
-	
+	/* we don't support sizes more than 24bits (0 to 23) */
 	if (!(drvdata && drvdata->enable &&
 	      test_bit(entity_id, drvdata->entities) && size &&
 	      (size < 0x1000000)))
@@ -784,7 +806,7 @@ static int __devinit stm_probe(struct platform_device *pdev)
 	drvdata = devm_kzalloc(dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
 		return -ENOMEM;
-	
+	/* Store the driver data pointer for use in exported functions */
 	stmdrvdata = drvdata;
 	drvdata->dev = &pdev->dev;
 	platform_set_drvdata(pdev, drvdata);

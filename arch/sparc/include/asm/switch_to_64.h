@@ -8,10 +8,19 @@ do {						\
 	flushw_all();				\
 } while (0)
 
+	/* See what happens when you design the chip correctly?
+	 *
+	 * We tell gcc we clobber all non-fixed-usage registers except
+	 * for l0/l1.  It will use one for 'next' and the other to hold
+	 * the output value of 'last'.  'next' is not referenced again
+	 * past the invocation of switch_to in the scheduler, so we need
+	 * not preserve it's value.  Hairy, but it lets us remove 2 loads
+	 * and 2 stores in this critical code path.  -DaveM
+	 */
 #define switch_to(prev, next, last)					\
 do {	flush_tlb_pending();						\
 	save_and_clear_fpu();						\
-		\
+	/* If you are tempted to conditionalize the following */	\
 	/* so that ASI is only written if it changes, think again. */	\
 	__asm__ __volatile__("wr %%g0, %0, %%asi"			\
 	: : "r" (__thread_flag_byte_ptr(task_thread_info(next))[TI_FLAG_BYTE_CURRENT_DS]));\
@@ -60,4 +69,4 @@ do {	flush_tlb_pending();						\
 extern void synchronize_user_stack(void);
 extern void fault_in_user_windows(void);
 
-#endif 
+#endif /* __SPARC64_SWITCH_TO_64_H */

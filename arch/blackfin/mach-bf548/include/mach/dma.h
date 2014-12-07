@@ -36,26 +36,26 @@
 
 #if defined(CONFIG_UART2_DMA_RX_ON_DMA13)
 #define CH_UART2_RX		13
-#define IRQ_UART2_RX		BFIN_IRQ(37)	
+#define IRQ_UART2_RX		BFIN_IRQ(37)	/* UART2 RX USE EPP1 (DMA13) Interrupt */
 #define CH_UART2_TX		14
-#define IRQ_UART2_TX		BFIN_IRQ(38)	
-#else						
+#define IRQ_UART2_TX		BFIN_IRQ(38)	/* UART2 RX USE EPP1 (DMA14) Interrupt */
+#else						/* Default USE SPORT2's DMA Channel */
 #define CH_UART2_RX		18
-#define IRQ_UART2_RX		BFIN_IRQ(33)	
+#define IRQ_UART2_RX		BFIN_IRQ(33)	/* UART2 RX (DMA18) Interrupt */
 #define CH_UART2_TX		19
-#define IRQ_UART2_TX		BFIN_IRQ(34)	
+#define IRQ_UART2_TX		BFIN_IRQ(34)	/* UART2 TX (DMA19) Interrupt */
 #endif
 
 #if defined(CONFIG_UART3_DMA_RX_ON_DMA15)
 #define CH_UART3_RX		15
-#define IRQ_UART3_RX		BFIN_IRQ(64)	
+#define IRQ_UART3_RX		BFIN_IRQ(64)	/* UART3 RX USE PIXC IN0 (DMA15) Interrupt */
 #define CH_UART3_TX		16
-#define IRQ_UART3_TX		BFIN_IRQ(65)	
-#else						
+#define IRQ_UART3_TX		BFIN_IRQ(65)	/* UART3 TX USE PIXC IN1 (DMA16) Interrupt */
+#else						/* Default USE SPORT3's DMA Channel */
 #define CH_UART3_RX		20
-#define IRQ_UART3_RX		BFIN_IRQ(35)	
+#define IRQ_UART3_RX		BFIN_IRQ(35)	/* UART3 RX (DMA20) Interrupt */
 #define CH_UART3_TX		21
-#define IRQ_UART3_TX		BFIN_IRQ(36)	
+#define IRQ_UART3_TX		BFIN_IRQ(36)	/* UART3 TX (DMA21) Interrupt */
 #endif
 
 #define CH_MEM_STREAM0_DEST	24

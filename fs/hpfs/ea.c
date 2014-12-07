@@ -1,6 +1,15 @@
+/*
+ *  linux/fs/hpfs/ea.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  handling extended attributes
+ */
 
 #include "hpfs_fn.h"
 
+/* Remove external extended attributes. ano specifies whether a is a 
+   direct sector where eas starts or an anode */
 
 void hpfs_ea_ext_remove(struct super_block *s, secno a, int ano, unsigned len)
 {
@@ -59,6 +68,7 @@ static void set_indirect_ea(struct super_block *s, int ano, secno a,
 	hpfs_ea_write(s, a, ano, 0, size, data);
 }
 
+/* Read an extended attribute named 'key' into the provided buffer */
 
 int hpfs_read_ea(struct super_block *s, struct fnode *fnode, char *key,
 		char *buf, int size)
@@ -115,6 +125,7 @@ indirect:
 	return 0;
 }
 
+/* Read an extended attribute named 'key' */
 char *hpfs_get_ea(struct super_block *s, struct fnode *fnode, char *key, int *size)
 {
 	char *ret;
@@ -169,6 +180,11 @@ char *hpfs_get_ea(struct super_block *s, struct fnode *fnode, char *key, int *si
 	return NULL;
 }
 
+/* 
+ * Update or create extended attribute 'key' with value 'data'. Note that
+ * when this ea exists, it MUST have the same size as size of data.
+ * This driver can't change sizes of eas ('cause I just don't need it).
+ */
 
 void hpfs_set_ea(struct inode *inode, struct fnode *fnode, const char *key,
 		 const char *data, int size)
@@ -220,6 +236,11 @@ void hpfs_set_ea(struct inode *inode, struct fnode *fnode, const char *key,
 		pos += ea->namelen + ea_valuelen(ea) + 5;
 	}
 	if (!le16_to_cpu(fnode->ea_offs)) {
+		/*if (le16_to_cpu(fnode->ea_size_s)) {
+			hpfs_error(s, "fnode %08x: ea_size_s == %03x, ea_offs == 0",
+				inode->i_ino, le16_to_cpu(fnode->ea_size_s));
+			return;
+		}*/
 		fnode->ea_offs = cpu_to_le16(0xc4);
 	}
 	if (le16_to_cpu(fnode->ea_offs) < 0xc4 || le16_to_cpu(fnode->ea_offs) + le16_to_cpu(fnode->acl_size_s) + le16_to_cpu(fnode->ea_size_s) > 0x200) {
@@ -240,6 +261,8 @@ void hpfs_set_ea(struct inode *inode, struct fnode *fnode, const char *key,
 		fnode->ea_size_s = cpu_to_le16(le16_to_cpu(fnode->ea_size_s) + strlen(key) + size + 5);
 		goto ret;
 	}
+	/* Most the code here is 99.9993422% unused. I hope there are no bugs.
+	   But what .. HPFS.IFS has also bugs in ea management. */
 	if (le16_to_cpu(fnode->ea_size_s) && !le32_to_cpu(fnode->ea_size_l)) {
 		secno n;
 		struct buffer_head *bh;
@@ -271,7 +294,24 @@ void hpfs_set_ea(struct inode *inode, struct fnode *fnode, const char *key,
 			if (hpfs_alloc_if_possible(s, le32_to_cpu(fnode->ea_secno) + len)) {
 				len++;
 			} else {
-				
+				/* Aargh... don't know how to create ea anodes :-( */
+				/*struct buffer_head *bh;
+				struct anode *anode;
+				anode_secno a_s;
+				if (!(anode = hpfs_alloc_anode(s, fno, &a_s, &bh)))
+					goto bail;
+				anode->up = cpu_to_le32(fno);
+				anode->btree.fnode_parent = 1;
+				anode->btree.n_free_nodes--;
+				anode->btree.n_used_nodes++;
+				anode->btree.first_free = cpu_to_le16(le16_to_cpu(anode->btree.first_free) + 12);
+				anode->u.external[0].disk_secno = cpu_to_le32(le32_to_cpu(fnode->ea_secno));
+				anode->u.external[0].file_secno = cpu_to_le32(0);
+				anode->u.external[0].length = cpu_to_le32(len);
+				mark_buffer_dirty(bh);
+				brelse(bh);
+				fnode->ea_anode = 1;
+				fnode->ea_secno = cpu_to_le32(a_s);*/
 				secno new_sec;
 				int i;
 				if (!(new_sec = hpfs_alloc_sector(s, fno, 1, 1 - ((pos + 511) >> 9))))

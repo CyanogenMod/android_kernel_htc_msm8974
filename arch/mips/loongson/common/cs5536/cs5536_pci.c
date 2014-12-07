@@ -52,6 +52,9 @@ static const cs5536_pci_vsm_read vsm_conf_read[] = {
 	[CS5536_EHCI_FUNC]	pci_ehci_read_reg,
 };
 
+/*
+ * write to PCI config space and transfer it to MSR write.
+ */
 void cs5536_pci_conf_write4(int function, int reg, u32 value)
 {
 	if ((function <= CS5536_FUNC_START) || (function >= CS5536_FUNC_END))
@@ -63,6 +66,9 @@ void cs5536_pci_conf_write4(int function, int reg, u32 value)
 		vsm_conf_write[function](reg, value);
 }
 
+/*
+ * read PCI config space and transfer it to MSR access.
+ */
 u32 cs5536_pci_conf_read4(int function, int reg)
 {
 	u32 data = 0;

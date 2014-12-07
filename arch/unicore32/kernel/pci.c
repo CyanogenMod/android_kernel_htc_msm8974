@@ -73,7 +73,7 @@ struct pci_ops pci_puv3_ops = {
 void pci_puv3_preinit(void)
 {
 	printk(KERN_DEBUG "PCI: PKUnity PCI Controller Initializing ...\n");
-	
+	/* config PCI bridge base */
 	writel(io_v2p(PKUNITY_PCIBRI_BASE), PCICFG_BRIBASE);
 
 	writel(0, PCIBRI_AHBCTL0);
@@ -104,7 +104,7 @@ void pci_puv3_preinit(void)
 static int __init pci_puv3_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	if (dev->bus->number == 0) {
-#ifdef CONFIG_ARCH_FPGA 
+#ifdef CONFIG_ARCH_FPGA /* 4 pci slots */
 		if      (dev->devfn == 0x00)
 			return IRQ_PCIINTA;
 		else if (dev->devfn == 0x08)
@@ -114,7 +114,7 @@ static int __init pci_puv3_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 		else if (dev->devfn == 0x18)
 			return IRQ_PCIINTD;
 #endif
-#ifdef CONFIG_PUV3_DB0913 
+#ifdef CONFIG_PUV3_DB0913 /* 3 pci slots */
 		if      (dev->devfn == 0x30)
 			return IRQ_PCIINTB;
 		else if (dev->devfn == 0x60)
@@ -123,19 +123,28 @@ static int __init pci_puv3_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 			return IRQ_PCIINTD;
 #endif
 #if	defined(CONFIG_PUV3_NB0916) || defined(CONFIG_PUV3_SMW0919)
-		
+		/* only support 2 pci devices */
 		if      (dev->devfn == 0x00)
-			return IRQ_PCIINTC; 
+			return IRQ_PCIINTC; /* sata */
 #endif
 	}
 	return -1;
 }
 
+/*
+ * Only first 128MB of memory can be accessed via PCI.
+ * We use GFP_DMA to allocate safe buffers to do map/unmap.
+ * This is really ugly and we need a better way of specifying
+ * DMA-capable regions of memory.
+ */
 void __init puv3_pci_adjust_zones(unsigned long *zone_size,
 	unsigned long *zhole_size)
 {
 	unsigned int sz = SZ_128M >> PAGE_SHIFT;
 
+	/*
+	 * Only adjust if > 128M on current system
+	 */
 	if (zone_size[0] <= sz)
 		return;
 
@@ -153,11 +162,19 @@ void __devinit pcibios_update_irq(struct pci_dev *dev, int irq)
 	pci_write_config_byte(dev, PCI_INTERRUPT_LINE, irq);
 }
 
+/*
+ * If the bus contains any of these devices, then we must not turn on
+ * parity checking of any kind.
+ */
 static inline int pdev_bad_for_parity(struct pci_dev *dev)
 {
 	return 0;
 }
 
+/*
+ * pcibios_fixup_bus - Called after each bus is probed,
+ * but before its children are examined.
+ */
 void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
@@ -168,11 +185,21 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 	bus->resource[0] = &ioport_resource;
 	bus->resource[1] = &iomem_resource;
 
+	/*
+	 * Walk the devices on this bus, working out what we can
+	 * and can't support.
+	 */
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		u16 status;
 
 		pci_read_config_word(dev, PCI_STATUS, &status);
 
+		/*
+		 * If any device on this bus does not support fast back
+		 * to back transfers, then the bus as a whole is not able
+		 * to support them.  Having fast back to back transfers
+		 * on saves us one PCI cycle per transaction.
+		 */
 		if (!(status & PCI_STATUS_FAST_BACK))
 			features &= ~PCI_COMMAND_FAST_BACK;
 
@@ -201,6 +228,9 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 		}
 	}
 
+	/*
+	 * Now walk the devices again, this time setting them up.
+	 */
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		u16 cmd;
 
@@ -212,6 +242,9 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 				      L1_CACHE_BYTES >> 2);
 	}
 
+	/*
+	 * Propagate the flags to the PCI bridge.
+	 */
 	if (bus->self && bus->self->hdr_type == PCI_HEADER_TYPE_BRIDGE) {
 		if (features & PCI_COMMAND_FAST_BACK)
 			bus->bridge_ctl |= PCI_BRIDGE_CTL_FAST_BACK;
@@ -219,6 +252,9 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 			bus->bridge_ctl |= PCI_BRIDGE_CTL_PARITY;
 	}
 
+	/*
+	 * Report what we did for this bus
+	 */
 	printk(KERN_INFO "PCI: bus%d: Fast back to back transfers %sabled\n",
 		bus->number, (features & PCI_COMMAND_FAST_BACK) ? "en" : "dis");
 }
@@ -240,11 +276,20 @@ static int __init pci_common_init(void)
 	pci_fixup_irqs(pci_common_swizzle, pci_puv3_map_irq);
 
 	if (!pci_has_flag(PCI_PROBE_ONLY)) {
+		/*
+		 * Size the bridge windows.
+		 */
 		pci_bus_size_bridges(puv3_bus);
 
+		/*
+		 * Assign resources.
+		 */
 		pci_bus_assign_resources(puv3_bus);
 	}
 
+	/*
+	 * Tell drivers about devices found.
+	 */
 	pci_bus_add_devices(puv3_bus);
 
 	return 0;
@@ -265,9 +310,24 @@ char * __devinit pcibios_setup(char *str)
 
 void pcibios_set_master(struct pci_dev *dev)
 {
-	
+	/* No special bus mastering setup handling */
 }
 
+/*
+ * From arch/i386/kernel/pci-i386.c:
+ *
+ * We need to avoid collisions with `mirrored' VGA ports
+ * and other strange ISA hardware, so we always want the
+ * addresses to be allocated in the 0x000-0x0ff region
+ * modulo 0x400.
+ *
+ * Why? Because some silly external IO cards only decode
+ * the low 10 bits of the IO address. The 0x00-0xff region
+ * is reserved for motherboard devices that decode all 16
+ * bits, so it's ok to allocate at, say, 0x2800-0x28ff,
+ * but we want to try to avoid allocating at 0x2900-0x2bff
+ * which might be mirrored at 0x0100-0x03ff..
+ */
 resource_size_t pcibios_align_resource(void *data, const struct resource *res,
 				resource_size_t size, resource_size_t align)
 {
@@ -281,6 +341,10 @@ resource_size_t pcibios_align_resource(void *data, const struct resource *res,
 	return start;
 }
 
+/**
+ * pcibios_enable_device - Enable I/O and memory.
+ * @dev: PCI device to be enabled
+ */
 int pcibios_enable_device(struct pci_dev *dev, int mask)
 {
 	u16 cmd, old_cmd;
@@ -290,7 +354,7 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	old_cmd = cmd;
 	for (idx = 0; idx < 6; idx++) {
-		
+		/* Only set up the requested stuff */
 		if (!(mask & (1 << idx)))
 			continue;
 
@@ -306,6 +370,9 @@ int pcibios_enable_device(struct pci_dev *dev, int mask)
 			cmd |= PCI_COMMAND_MEMORY;
 	}
 
+	/*
+	 * Bridges (eg, cardbus bridges) need to be fully enabled
+	 */
 	if ((dev->class >> 16) == PCI_BASE_CLASS_BRIDGE)
 		cmd |= PCI_COMMAND_IO | PCI_COMMAND_MEMORY;
 
@@ -327,6 +394,9 @@ int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 
 	phys = vma->vm_pgoff;
 
+	/*
+	 * Mark this as IO
+	 */
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
 	if (remap_pfn_range(vma, vma->vm_start, phys,

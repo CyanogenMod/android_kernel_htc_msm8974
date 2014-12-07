@@ -138,10 +138,10 @@ static void solo_disp_config(struct solo_dev *solo_dev)
 
 	solo_reg_write(solo_dev, SOLO_VO_DISP_ERASE, SOLO_VO_DISP_ERASE_ON);
 
-	
+	/* Enable channels we support */
 	solo_reg_write(solo_dev, SOLO_VI_CH_ENA, (1 << solo_dev->nr_chans) - 1);
 
-	
+	/* Disable the watchdog */
 	solo_reg_write(solo_dev, SOLO_WATCHDOG, 0);
 }
 
@@ -173,32 +173,36 @@ void solo_set_motion_threshold(struct solo_dev *solo_dev, u8 ch, u16 val)
 			    val, SOLO_MOT_THRESH_REAL);
 }
 
+/* First 8k is motion flag (512 bytes * 16). Following that is an 8k+8k
+ * threshold and working table for each channel. Atleast that's what the
+ * spec says. However, this code (take from rdk) has some mystery 8k
+ * block right after the flag area, before the first thresh table. */
 static void solo_motion_config(struct solo_dev *solo_dev)
 {
 	int i;
 
 	for (i = 0; i < solo_dev->nr_chans; i++) {
-		
+		/* Clear motion flag area */
 		solo_dma_vin_region(solo_dev, i * SOLO_MOT_FLAG_SIZE, 0x0000,
 				    SOLO_MOT_FLAG_SIZE);
 
-		
+		/* Clear working cache table */
 		solo_dma_vin_region(solo_dev, SOLO_MOT_FLAG_AREA +
 				    SOLO_MOT_THRESH_SIZE +
 				    (i * SOLO_MOT_THRESH_SIZE * 2),
 				    0x0000, SOLO_MOT_THRESH_REAL);
 
-		
+		/* Set default threshold table */
 		solo_set_motion_threshold(solo_dev, i, SOLO_DEF_MOT_THRESH);
 	}
 
-	
+	/* Default motion settings */
 	solo_reg_write(solo_dev, SOLO_VI_MOT_ADR, SOLO_VI_MOTION_EN(0) |
 		       (SOLO_MOTION_EXT_ADDR(solo_dev) >> 16));
 	solo_reg_write(solo_dev, SOLO_VI_MOT_CTRL,
 		       SOLO_VI_MOTION_FRAME_COUNT(3) |
 		       SOLO_VI_MOTION_SAMPLE_LENGTH(solo_dev->video_hsize / 16)
-		       | 
+		       | /* SOLO_VI_MOTION_INTR_START_STOP | */
 		       SOLO_VI_MOTION_SAMPLE_COUNT(10));
 
 	solo_reg_write(solo_dev, SOLO_VI_MOTION_BORDER, 0);
@@ -246,7 +250,7 @@ void solo_disp_exit(struct solo_dev *solo_dev)
 		solo_reg_write(solo_dev, SOLO_VI_WIN_ON(i), 0);
 	}
 
-	
+	/* Set default border */
 	for (i = 0; i < 5; i++)
 		solo_reg_write(solo_dev, SOLO_VO_BORDER_X(i), 0);
 

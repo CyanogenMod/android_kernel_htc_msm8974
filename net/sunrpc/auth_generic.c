@@ -29,12 +29,18 @@ struct generic_cred {
 static struct rpc_auth generic_auth;
 static const struct rpc_credops generic_credops;
 
+/*
+ * Public call interface
+ */
 struct rpc_cred *rpc_lookup_cred(void)
 {
 	return rpcauth_lookupcred(&generic_auth, 0);
 }
 EXPORT_SYMBOL_GPL(rpc_lookup_cred);
 
+/*
+ * Public call interface for looking up machine creds.
+ */
 struct rpc_cred *rpc_lookup_machine_cred(const char *service_name)
 {
 	struct auth_cred acred = {
@@ -59,6 +65,9 @@ static struct rpc_cred *generic_bind_cred(struct rpc_task *task,
 	return auth->au_ops->lookup_cred(auth, acred, lookupflags);
 }
 
+/*
+ * Lookup generic creds for current process
+ */
 static struct rpc_cred *
 generic_lookup_cred(struct rpc_auth *auth, struct auth_cred *acred, int flags)
 {
@@ -126,6 +135,9 @@ machine_cred_match(struct auth_cred *acred, struct generic_cred *gcred, int flag
 	return 1;
 }
 
+/*
+ * Match credentials against current process creds.
+ */
 static int
 generic_match(struct auth_cred *acred, struct rpc_cred *cred, int flags)
 {
@@ -140,11 +152,11 @@ generic_match(struct auth_cred *acred, struct rpc_cred *cred, int flags)
 	    gcred->acred.machine_cred != 0)
 		goto out_nomatch;
 
-	
+	/* Optimisation in the case where pointers are identical... */
 	if (gcred->acred.group_info == acred->group_info)
 		goto out_match;
 
-	
+	/* Slow path... */
 	if (gcred->acred.group_info->ngroups != acred->group_info->ngroups)
 		goto out_nomatch;
 	for (i = 0; i < gcred->acred.group_info->ngroups; i++) {

@@ -35,6 +35,12 @@
 #endif
 
 
+/* Permissions for sysfs attributes.  Since the permissions policy will change
+ * on a global basis in the future, rather than edit all sysfs attrs everywhere
+ * in the driver (and risk screwing that up in the process), we use this handy
+ * set of #defines.  That way when we change the policy for sysfs permissions,
+ * we only need to change them here.
+ */
 #define RMI_RO_ATTR S_IRUGO
 #define RMI_RW_ATTR (S_IRUGO | S_IWUGO)
 #define RMI_WO_ATTR S_IWUGO
@@ -46,6 +52,12 @@ enum rmi_irq_polarity {
 	RMI_IRQ_ACTIVE_HIGH = 1
 };
 
+/**
+ * struct rmi_f11_axis_alignmen - target axis alignment
+ * @swap_axes: set to TRUE if desired to swap x- and y-axis
+ * @flip_x: set to TRUE if desired to flip direction on x-axis
+ * @flip_y: set to TRUE if desired to flip direction on y-axis
+ */
 struct rmi_f11_2d_axis_alignment {
 	bool swap_axes;
 	bool flip_x;
@@ -59,6 +71,12 @@ struct rmi_f11_2d_axis_alignment {
 	int rel_report_enabled;
 };
 
+/**
+ * RMI F11 - function control register parameters
+ * Each register that has a specific bit-field setup has an accompanied
+ * register definition so that the setting can be chosen as a one-word
+ * register setting or per-bit setting.
+ */
 union rmi_f11_2d_ctrl0 {
 	struct {
 		u8 reporting_mode:3;
@@ -157,6 +175,10 @@ union rmi_f11_2d_ctrl14 {
 	u8 reg;
 };
 
+/* The configuation is controlled as per register which means that if a register
+ * is allocated for ctrl configuration one must make sure that all the bits are
+ * set accordingly for that particular register.
+ */
 struct  rmi_f11_2d_ctrl {
 	union rmi_f11_2d_ctrl0		*ctrl0;
 	union rmi_f11_2d_ctrl1		*ctrl1;
@@ -204,7 +226,7 @@ struct rmi_device_platform_data {
 
 	struct rmi_device_platform_data_spi spi_v2;
 
-	
+	/* function handler pdata */
 	struct rmi_f11_2d_ctrl *f11_ctrl;
 	struct rmi_f11_2d_axis_alignment axis_align;
 	struct rmi_f19_button_map *button_map;
@@ -216,6 +238,19 @@ struct rmi_device_platform_data {
 #endif
 };
 
+/**
+ * struct rmi_function_descriptor - RMI function base addresses
+ * @query_base_addr: The RMI Query base address
+ * @command_base_addr: The RMI Command base address
+ * @control_base_addr: The RMI Control base address
+ * @data_base_addr: The RMI Data base address
+ * @interrupt_source_count: The number of irqs this RMI function needs
+ * @function_number: The RMI function number
+ *
+ * This struct is used when iterating the Page Description Table. The addresses
+ * are 16-bit values to include the current page address.
+ *
+ */
 struct rmi_function_descriptor {
 	u16 query_base_addr;
 	u16 command_base_addr;
@@ -229,6 +264,19 @@ struct rmi_function_descriptor {
 struct rmi_function_container;
 struct rmi_device;
 
+/**
+ * struct rmi_function_handler - an RMI function handler
+ * @func: The RMI function number
+ * @init: Callback for RMI function init
+ * @attention: Callback for RMI function attention
+ * @suspend: Callback for function suspend
+ * @resume: Callback for RMI function resume
+ * @remove: Callback for RMI function removal
+ *
+ * This struct describes the interface of an RMI function. These are
+ * registered to the bus using the rmi_register_function_driver() call.
+ *
+ */
 struct rmi_function_handler {
 	int func;
 	int (*init)(struct rmi_function_container *fc);
@@ -240,10 +288,31 @@ struct rmi_function_handler {
 	void (*remove)(struct rmi_function_container *fc);
 };
 
+/**
+ * struct rmi_function_device - represent an RMI function device
+ * @dev: The device created
+ *
+ * The RMI function device implements the "psuedo" device that represents
+ * an RMI4 function like function 0x11, function 0x34, etc. and is really
+ * a placeholder to be able to create sysfs attributes for each function
+ * in order to facilitate communication between user code and RMI4 functions.
+ *
+ */
 struct rmi_function_device {
 	struct device dev;
 };
 
+/**
+ * struct rmi_function_container - an element in a function handler list
+ * @list: The list
+ * @fd: The function descriptor of the RMI function
+ * @rmi_dev: Pointer to the RMI device associated with this function container
+ * @fh: The callbacks connected to this function
+ * @num_of_irqs: The number of irqs needed by this function
+ * @irq_pos: The position in the irq bitfield this function holds
+ * @data: Private data pointer
+ *
+ */
 struct rmi_function_container {
 	struct list_head list;
 
@@ -264,32 +333,51 @@ struct rmi_function_container {
 		container_of(d, struct rmi_function_device, dev);
 
 
+//#ifdef CONFIG_RMI4_DEV
 
 #define RMI_CHAR_DEV_TMPBUF_SZ 128
 #define RMI_REG_ADDR_PAGE_SELECT 0xFF
 
 struct rmi_char_dev {
-	
+	/* mutex for file operation*/
 	struct mutex mutex_file_op;
-	
+	/* main char dev structure */
 	struct cdev main_dev;
 
-	
-	
+	/* register address for RMI protocol */
+	/* filp->f_pos */
 
-	
-	
+	/* pointer to the corresponding phys device info for this sensor */
+	/* The phys device has the pointers to read, write, etc. */
 	struct rmi_phys_device *phys;
-	
+	/* reference count */
 	int ref_count;
 };
 
 int rmi_char_dev_register(void);
 void rmi_char_dev_unregister(struct rmi_phys_device *phys);
 
+//#endif /*CONFIG_RMI4_DEV*/
 
 
 
+/**
+ * struct rmi_driver - represents an RMI driver
+ * @driver: Device driver model driver
+ * @probe: Callback for device probe
+ * @remove: Callback for device removal
+ * @shutdown: Callback for device shutdown
+ * @irq_handler: Callback for handling irqs
+ * @fh_add: Callback for function handler add
+ * @fh_remove: Callback for function handler remove
+ * @get_func_irq_mask: Callback for calculating interrupt mask
+ * @store_irq_mask: Callback for storing and replacing interrupt mask
+ * @restore_irq_mask: Callback for restoring previously stored interrupt mask
+ * @data: Private data pointer
+ *
+ * The RMI driver implements a driver on the RMI bus.
+ *
+ */
 struct rmi_driver {
 	struct device_driver driver;
 
@@ -310,6 +398,17 @@ struct rmi_driver {
 #define to_rmi_driver(d) \
 	container_of(d, struct rmi_driver, driver);
 
+/** struct rmi_phys_info - diagnostic information about the RMI physical
+ * device, used in the phys sysfs file.
+ * @proto String indicating the protocol being used.
+ * @tx_count Number of transmit operations.
+ * @tx_bytes Number of bytes transmitted.
+ * @tx_errs  Number of errors encountered during transmit operations.
+ * @rx_count Number of receive operations.
+ * @rx_bytes Number of bytes received.
+ * @rx_errs  Number of errors encountered during receive operations.
+ * @att_count Number of times ATTN assertions have been handled.
+ */
 struct rmi_phys_info {
 	char *proto;
 	long tx_count;
@@ -322,6 +421,20 @@ struct rmi_phys_info {
 	long attn;
 };
 
+/**
+ * struct rmi_phys_device - represent an RMI physical device
+ * @dev: Pointer to the communication device, e.g. i2c or spi
+ * @rmi_dev: Pointer to the RMI device
+ * @write: Callback for write
+ * @write_block: Callback for writing a block of data
+ * @read: Callback for read
+ * @read_block: Callback for reading a block of data
+ * @data: Private data pointer
+ *
+ * The RMI physical device implements the glue between different communication
+ * buses such as I2C and SPI.
+ *
+ */
 struct rmi_phys_device {
 	struct device *dev;
 	struct rmi_device *rmi_dev;
@@ -340,11 +453,24 @@ struct rmi_phys_device {
 
 	struct rmi_phys_info info;
 
-	
+//#ifdef CONFIG_RMI4_DEV
+	/* pointer to attention char device and char device */
 	struct rmi_char_dev *char_dev;
 	struct class *rmi_char_device_class;
+//#endif /*CONFIG_RMI4_DEV*/
 };
 
+/**
+ * struct rmi_device - represents an RMI device
+ * @dev: The device created for the RMI bus
+ * @driver: Pointer to associated driver
+ * @phys: Pointer to the physical interface
+ * @early_suspend_handler: Pointers to early_suspend and late_resume, if
+ * configured.
+ *
+ * This structs represent an RMI device.
+ *
+ */
 struct rmi_device {
 	struct device dev;
 
@@ -371,17 +497,45 @@ static inline void *rmi_get_driverdata(struct rmi_device *d)
 	return dev_get_drvdata(&d->dev);
 }
 
+/**
+ * rmi_read - RMI read byte
+ * @d: Pointer to an RMI device
+ * @addr: The address to read from
+ * @buf: The read buffer
+ *
+ * Reads a byte of data using the underlaying physical protocol in to buf. It
+ * returns zero or a negative error code.
+ */
 static inline int rmi_read(struct rmi_device *d, u16 addr, u8 *buf)
 {
 	return d->phys->read(d->phys, addr, buf);
 }
 
+/**
+ * rmi_read_block - RMI read block
+ * @d: Pointer to an RMI device
+ * @addr: The start address to read from
+ * @buf: The read buffer
+ * @len: Length of the read buffer
+ *
+ * Reads a block of byte data using the underlaying physical protocol in to buf.
+ * It returns the amount of bytes read or a negative error code.
+ */
 static inline int rmi_read_block(struct rmi_device *d, u16 addr, u8 *buf,
 				 int len)
 {
 	return d->phys->read_block(d->phys, addr, buf, len);
 }
 
+/**
+ * rmi_write - RMI write byte
+ * @d: Pointer to an RMI device
+ * @addr: The address to write to
+ * @data: The data to write
+ *
+ * Writes a byte from buf using the underlaying physical protocol. It
+ * returns zero or a negative error code.
+ */
 static inline int rmi_write(struct rmi_device *d, u16 addr, u8 data)
 {
 	return d->phys->write(d->phys, addr, data);
@@ -403,28 +557,85 @@ static inline int rmi_write_block(struct rmi_device *d, u16 addr, u8 *buf,
 	return d->phys->write_block(d->phys, addr, buf, len);
 }
 
+/**
+ * rmi_register_driver - register rmi driver
+ * @driver: the driver to register
+ *
+ * This function registers an RMI driver to the RMI bus.
+ */
 int rmi_register_driver(struct rmi_driver *driver);
 
+/**
+ * rmi_unregister_driver - unregister rmi driver
+ * @driver: the driver to unregister
+ *
+ * This function unregisters an RMI driver to the RMI bus.
+ */
 void rmi_unregister_driver(struct rmi_driver *driver);
 
+/**
+ * rmi_register_phys_device - register a physical device connection
+ * @phys: the physical driver to register
+ *
+ * This function registers a physical driver to the RMI bus. These drivers
+ * provide a communication layer for the drivers connected to the bus, e.g.
+ * I2C, SPI and so on.
+ */
 int rmi_register_phys_device(struct rmi_phys_device *phys);
 
+/**
+ * rmi_unregister_phys_device - unregister a physical device connection
+ * @phys: the physical driver to unregister
+ *
+ * This function unregisters a physical driver from the RMI bus.
+ */
 void rmi_unregister_phys_device(struct rmi_phys_device *phys);
 
+/**
+ * rmi_register_function_driver - register an RMI function driver
+ * @fh: the function handler to register
+ *
+ * This function registers support for a new RMI function to the bus. All
+ * drivers on the bus will be notified of the presence of the new function
+ * driver.
+ */
 int rmi_register_function_driver(struct rmi_function_handler *fh);
 
+/**
+ * rmi_unregister_function_driver - unregister an RMI function driver
+ * @fh: the function handler to unregister
+ *
+ * This function unregisters a RMI function from the RMI bus. All drivers on
+ * the bus will be notified of the removal of a function driver.
+ */
 void rmi_unregister_function_driver(struct rmi_function_handler *fh);
 
+/**
+ * rmi_get_function_handler - get a pointer to specified RMI function
+ * @id: the RMI function id
+ *
+ * This function gets the specified RMI function handler from the list of
+ * supported functions.
+ */
 struct rmi_function_handler *rmi_get_function_handler(int id);
 
+/* Utility routine to handle writes to read-only attributes.  Hopefully
+ * this will never happen, but if the user does something stupid, we
+ * don't want to accept it quietly.
+ */
 ssize_t rmi_store_error(struct device *dev,
 			struct device_attribute *attr,
 			const char *buf, size_t count);
 
+/* Utility routine to handle reads to write-only attributes.  Hopefully
+ * this will never happen, but if the user does something stupid, we
+ * don't want to accept it quietly.
+ */
 ssize_t rmi_show_error(struct device *dev,
 		       struct device_attribute *attr,
 		       char *buf);
 
+/* utility function for bit access of u8*'s */
 void u8_set_bit(u8 *target, int pos);
 void u8_clear_bit(u8 *target, int pos);
 bool u8_is_set(u8 *target, int pos);

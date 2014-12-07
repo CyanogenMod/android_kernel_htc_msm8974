@@ -1,3 +1,11 @@
+/*
+ *	Routines to indentify caches on Intel CPU.
+ *
+ *	Changes:
+ *	Venkatesh Pallipadi	: Adding cache identification through cpuid(4)
+ *	Ashok Raj <ashok.raj@intel.com>: Work with CPU hotplug infrastructure.
+ *	Andi Kleen / Andreas Herrmann	: CPUID4 emulation on AMD.
+ */
 
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -26,81 +34,83 @@ struct _cache_table {
 
 #define MB(x)	((x) * 1024)
 
+/* All the cache descriptor types we care about (no TLB or
+   trace cache entries) */
 
 static const struct _cache_table __cpuinitconst cache_table[] =
 {
-	{ 0x06, LVL_1_INST, 8 },	
-	{ 0x08, LVL_1_INST, 16 },	
-	{ 0x09, LVL_1_INST, 32 },	
-	{ 0x0a, LVL_1_DATA, 8 },	
-	{ 0x0c, LVL_1_DATA, 16 },	
-	{ 0x0d, LVL_1_DATA, 16 },	
-	{ 0x0e, LVL_1_DATA, 24 },	
-	{ 0x21, LVL_2,      256 },	
-	{ 0x22, LVL_3,      512 },	
-	{ 0x23, LVL_3,      MB(1) },	
-	{ 0x25, LVL_3,      MB(2) },	
-	{ 0x29, LVL_3,      MB(4) },	
-	{ 0x2c, LVL_1_DATA, 32 },	
-	{ 0x30, LVL_1_INST, 32 },	
-	{ 0x39, LVL_2,      128 },	
-	{ 0x3a, LVL_2,      192 },	
-	{ 0x3b, LVL_2,      128 },	
-	{ 0x3c, LVL_2,      256 },	
-	{ 0x3d, LVL_2,      384 },	
-	{ 0x3e, LVL_2,      512 },	
-	{ 0x3f, LVL_2,      256 },	
-	{ 0x41, LVL_2,      128 },	
-	{ 0x42, LVL_2,      256 },	
-	{ 0x43, LVL_2,      512 },	
-	{ 0x44, LVL_2,      MB(1) },	
-	{ 0x45, LVL_2,      MB(2) },	
-	{ 0x46, LVL_3,      MB(4) },	
-	{ 0x47, LVL_3,      MB(8) },	
-	{ 0x48, LVL_2,      MB(3) },	
-	{ 0x49, LVL_3,      MB(4) },	
-	{ 0x4a, LVL_3,      MB(6) },	
-	{ 0x4b, LVL_3,      MB(8) },	
-	{ 0x4c, LVL_3,      MB(12) },	
-	{ 0x4d, LVL_3,      MB(16) },	
-	{ 0x4e, LVL_2,      MB(6) },	
-	{ 0x60, LVL_1_DATA, 16 },	
-	{ 0x66, LVL_1_DATA, 8 },	
-	{ 0x67, LVL_1_DATA, 16 },	
-	{ 0x68, LVL_1_DATA, 32 },	
-	{ 0x70, LVL_TRACE,  12 },	
-	{ 0x71, LVL_TRACE,  16 },	
-	{ 0x72, LVL_TRACE,  32 },	
-	{ 0x73, LVL_TRACE,  64 },	
-	{ 0x78, LVL_2,      MB(1) },	
-	{ 0x79, LVL_2,      128 },	
-	{ 0x7a, LVL_2,      256 },	
-	{ 0x7b, LVL_2,      512 },	
-	{ 0x7c, LVL_2,      MB(1) },	
-	{ 0x7d, LVL_2,      MB(2) },	
-	{ 0x7f, LVL_2,      512 },	
-	{ 0x80, LVL_2,      512 },	
-	{ 0x82, LVL_2,      256 },	
-	{ 0x83, LVL_2,      512 },	
-	{ 0x84, LVL_2,      MB(1) },	
-	{ 0x85, LVL_2,      MB(2) },	
-	{ 0x86, LVL_2,      512 },	
-	{ 0x87, LVL_2,      MB(1) },	
-	{ 0xd0, LVL_3,      512 },	
-	{ 0xd1, LVL_3,      MB(1) },	
-	{ 0xd2, LVL_3,      MB(2) },	
-	{ 0xd6, LVL_3,      MB(1) },	
-	{ 0xd7, LVL_3,      MB(2) },	
-	{ 0xd8, LVL_3,      MB(4) },	
-	{ 0xdc, LVL_3,      MB(2) },	
-	{ 0xdd, LVL_3,      MB(4) },	
-	{ 0xde, LVL_3,      MB(8) },	
-	{ 0xe2, LVL_3,      MB(2) },	
-	{ 0xe3, LVL_3,      MB(4) },	
-	{ 0xe4, LVL_3,      MB(8) },	
-	{ 0xea, LVL_3,      MB(12) },	
-	{ 0xeb, LVL_3,      MB(18) },	
-	{ 0xec, LVL_3,      MB(24) },	
+	{ 0x06, LVL_1_INST, 8 },	/* 4-way set assoc, 32 byte line size */
+	{ 0x08, LVL_1_INST, 16 },	/* 4-way set assoc, 32 byte line size */
+	{ 0x09, LVL_1_INST, 32 },	/* 4-way set assoc, 64 byte line size */
+	{ 0x0a, LVL_1_DATA, 8 },	/* 2 way set assoc, 32 byte line size */
+	{ 0x0c, LVL_1_DATA, 16 },	/* 4-way set assoc, 32 byte line size */
+	{ 0x0d, LVL_1_DATA, 16 },	/* 4-way set assoc, 64 byte line size */
+	{ 0x0e, LVL_1_DATA, 24 },	/* 6-way set assoc, 64 byte line size */
+	{ 0x21, LVL_2,      256 },	/* 8-way set assoc, 64 byte line size */
+	{ 0x22, LVL_3,      512 },	/* 4-way set assoc, sectored cache, 64 byte line size */
+	{ 0x23, LVL_3,      MB(1) },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x25, LVL_3,      MB(2) },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x29, LVL_3,      MB(4) },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x2c, LVL_1_DATA, 32 },	/* 8-way set assoc, 64 byte line size */
+	{ 0x30, LVL_1_INST, 32 },	/* 8-way set assoc, 64 byte line size */
+	{ 0x39, LVL_2,      128 },	/* 4-way set assoc, sectored cache, 64 byte line size */
+	{ 0x3a, LVL_2,      192 },	/* 6-way set assoc, sectored cache, 64 byte line size */
+	{ 0x3b, LVL_2,      128 },	/* 2-way set assoc, sectored cache, 64 byte line size */
+	{ 0x3c, LVL_2,      256 },	/* 4-way set assoc, sectored cache, 64 byte line size */
+	{ 0x3d, LVL_2,      384 },	/* 6-way set assoc, sectored cache, 64 byte line size */
+	{ 0x3e, LVL_2,      512 },	/* 4-way set assoc, sectored cache, 64 byte line size */
+	{ 0x3f, LVL_2,      256 },	/* 2-way set assoc, 64 byte line size */
+	{ 0x41, LVL_2,      128 },	/* 4-way set assoc, 32 byte line size */
+	{ 0x42, LVL_2,      256 },	/* 4-way set assoc, 32 byte line size */
+	{ 0x43, LVL_2,      512 },	/* 4-way set assoc, 32 byte line size */
+	{ 0x44, LVL_2,      MB(1) },	/* 4-way set assoc, 32 byte line size */
+	{ 0x45, LVL_2,      MB(2) },	/* 4-way set assoc, 32 byte line size */
+	{ 0x46, LVL_3,      MB(4) },	/* 4-way set assoc, 64 byte line size */
+	{ 0x47, LVL_3,      MB(8) },	/* 8-way set assoc, 64 byte line size */
+	{ 0x48, LVL_2,      MB(3) },	/* 12-way set assoc, 64 byte line size */
+	{ 0x49, LVL_3,      MB(4) },	/* 16-way set assoc, 64 byte line size */
+	{ 0x4a, LVL_3,      MB(6) },	/* 12-way set assoc, 64 byte line size */
+	{ 0x4b, LVL_3,      MB(8) },	/* 16-way set assoc, 64 byte line size */
+	{ 0x4c, LVL_3,      MB(12) },	/* 12-way set assoc, 64 byte line size */
+	{ 0x4d, LVL_3,      MB(16) },	/* 16-way set assoc, 64 byte line size */
+	{ 0x4e, LVL_2,      MB(6) },	/* 24-way set assoc, 64 byte line size */
+	{ 0x60, LVL_1_DATA, 16 },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x66, LVL_1_DATA, 8 },	/* 4-way set assoc, sectored cache, 64 byte line size */
+	{ 0x67, LVL_1_DATA, 16 },	/* 4-way set assoc, sectored cache, 64 byte line size */
+	{ 0x68, LVL_1_DATA, 32 },	/* 4-way set assoc, sectored cache, 64 byte line size */
+	{ 0x70, LVL_TRACE,  12 },	/* 8-way set assoc */
+	{ 0x71, LVL_TRACE,  16 },	/* 8-way set assoc */
+	{ 0x72, LVL_TRACE,  32 },	/* 8-way set assoc */
+	{ 0x73, LVL_TRACE,  64 },	/* 8-way set assoc */
+	{ 0x78, LVL_2,      MB(1) },	/* 4-way set assoc, 64 byte line size */
+	{ 0x79, LVL_2,      128 },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x7a, LVL_2,      256 },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x7b, LVL_2,      512 },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x7c, LVL_2,      MB(1) },	/* 8-way set assoc, sectored cache, 64 byte line size */
+	{ 0x7d, LVL_2,      MB(2) },	/* 8-way set assoc, 64 byte line size */
+	{ 0x7f, LVL_2,      512 },	/* 2-way set assoc, 64 byte line size */
+	{ 0x80, LVL_2,      512 },	/* 8-way set assoc, 64 byte line size */
+	{ 0x82, LVL_2,      256 },	/* 8-way set assoc, 32 byte line size */
+	{ 0x83, LVL_2,      512 },	/* 8-way set assoc, 32 byte line size */
+	{ 0x84, LVL_2,      MB(1) },	/* 8-way set assoc, 32 byte line size */
+	{ 0x85, LVL_2,      MB(2) },	/* 8-way set assoc, 32 byte line size */
+	{ 0x86, LVL_2,      512 },	/* 4-way set assoc, 64 byte line size */
+	{ 0x87, LVL_2,      MB(1) },	/* 8-way set assoc, 64 byte line size */
+	{ 0xd0, LVL_3,      512 },	/* 4-way set assoc, 64 byte line size */
+	{ 0xd1, LVL_3,      MB(1) },	/* 4-way set assoc, 64 byte line size */
+	{ 0xd2, LVL_3,      MB(2) },	/* 4-way set assoc, 64 byte line size */
+	{ 0xd6, LVL_3,      MB(1) },	/* 8-way set assoc, 64 byte line size */
+	{ 0xd7, LVL_3,      MB(2) },	/* 8-way set assoc, 64 byte line size */
+	{ 0xd8, LVL_3,      MB(4) },	/* 12-way set assoc, 64 byte line size */
+	{ 0xdc, LVL_3,      MB(2) },	/* 12-way set assoc, 64 byte line size */
+	{ 0xdd, LVL_3,      MB(4) },	/* 12-way set assoc, 64 byte line size */
+	{ 0xde, LVL_3,      MB(8) },	/* 12-way set assoc, 64 byte line size */
+	{ 0xe2, LVL_3,      MB(2) },	/* 16-way set assoc, 64 byte line size */
+	{ 0xe3, LVL_3,      MB(4) },	/* 16-way set assoc, 64 byte line size */
+	{ 0xe4, LVL_3,      MB(8) },	/* 16-way set assoc, 64 byte line size */
+	{ 0xea, LVL_3,      MB(12) },	/* 24-way set assoc, 64 byte line size */
+	{ 0xeb, LVL_3,      MB(18) },	/* 24-way set assoc, 64 byte line size */
+	{ 0xec, LVL_3,      MB(24) },	/* 24-way set assoc, 64 byte line size */
 	{ 0x00, 0, 0}
 };
 
@@ -156,6 +166,12 @@ struct _cpuid4_info {
 
 unsigned short			num_cache_leaves;
 
+/* AMD doesn't have CPUID4. Emulate it here to report the same
+   information to the user.  This makes some assumptions about the machine:
+   L2 not shared, no SMT etc. that is currently true on AMD CPUs.
+
+   In theory the TLBs could be reported as fake type (they are in "dummy").
+   Maybe later */
 union l1_cache {
 	struct {
 		unsigned line_size:8;
@@ -198,7 +214,7 @@ static const unsigned short __cpuinitconst assocs[] = {
 	[0xc] = 64,
 	[0xd] = 96,
 	[0xe] = 128,
-	[0xf] = 0xffff 
+	[0xf] = 0xffff /* fully associative - no way to show this currently */
 };
 
 static const unsigned char __cpuinitconst levels[] = { 1, 1, 2, 3 };
@@ -240,7 +256,7 @@ amd_cpuid4(int leaf, union _cpuid4_leaf_eax *eax,
 		assoc = assocs[l2.assoc];
 		line_size = l2.line_size;
 		lines_per_tag = l2.lines_per_tag;
-		
+		/* cpu_data has errata corrections for K7 applied */
 		size_in_kb = __this_cpu_read(cpu_info.x86_cache_size);
 		break;
 	case 3:
@@ -284,6 +300,9 @@ struct _cache_attr {
 
 #ifdef CONFIG_AMD_NB
 
+/*
+ * L3 cache descriptors
+ */
 static void __cpuinit amd_calc_l3_indices(struct amd_northbridge *nb)
 {
 	struct amd_l3_cache *l3 = &nb->l3_cache;
@@ -292,7 +311,7 @@ static void __cpuinit amd_calc_l3_indices(struct amd_northbridge *nb)
 
 	pci_read_config_dword(nb->misc, 0x1C4, &val);
 
-	
+	/* calculate subcache sizes */
 	l3->subcaches[0] = sc0 = !(val & BIT(0));
 	l3->subcaches[1] = sc1 = !(val & BIT(4));
 
@@ -311,7 +330,7 @@ static void __cpuinit amd_init_l3_cache(struct _cpuid4_info_regs *this_leaf, int
 {
 	int node;
 
-	
+	/* only for L3, and not in virtualized environments */
 	if (index < 3)
 		return;
 
@@ -321,13 +340,20 @@ static void __cpuinit amd_init_l3_cache(struct _cpuid4_info_regs *this_leaf, int
 		amd_calc_l3_indices(this_leaf->nb);
 }
 
+/*
+ * check whether a slot used for disabling an L3 index is occupied.
+ * @l3: L3 cache descriptor
+ * @slot: slot number (0..1)
+ *
+ * @returns: the disabled index if used or negative value if slot free.
+ */
 int amd_get_l3_disable_slot(struct amd_northbridge *nb, unsigned slot)
 {
 	unsigned int reg = 0;
 
 	pci_read_config_dword(nb->misc, 0x1BC + slot * 4, &reg);
 
-	
+	/* check whether this slot is activated already */
 	if (reg & (3UL << 30))
 		return reg & 0xfff;
 
@@ -366,6 +392,9 @@ static void amd_l3_disable_index(struct amd_northbridge *nb, int cpu,
 
 	idx |= BIT(30);
 
+	/*
+	 *  disable index in all 4 subcaches
+	 */
 	for (i = 0; i < 4; i++) {
 		u32 reg = idx | (i << 20);
 
@@ -374,6 +403,11 @@ static void amd_l3_disable_index(struct amd_northbridge *nb, int cpu,
 
 		pci_write_config_dword(nb->misc, 0x1BC + slot * 4, reg);
 
+		/*
+		 * We need to WBINVD on a core on the node containing the L3
+		 * cache which indices we disable therefore a simple wbinvd()
+		 * is not sufficient.
+		 */
 		wbinvd_on_cpu(cpu);
 
 		reg |= BIT(31);
@@ -381,12 +415,22 @@ static void amd_l3_disable_index(struct amd_northbridge *nb, int cpu,
 	}
 }
 
+/*
+ * disable a L3 cache index by using a disable-slot
+ *
+ * @l3:    L3 cache descriptor
+ * @cpu:   A CPU on the node containing the L3 cache
+ * @slot:  slot number (0..1)
+ * @index: index to disable
+ *
+ * @return: 0 on success, error status on failure
+ */
 int amd_set_l3_disable_slot(struct amd_northbridge *nb, int cpu, unsigned slot,
 			    unsigned long index)
 {
 	int ret = 0;
 
-	
+	/*  check if @slot is already used or the index is already disabled */
 	ret = amd_get_l3_disable_slot(nb, slot);
 	if (ret >= 0)
 		return -EEXIST;
@@ -394,7 +438,7 @@ int amd_set_l3_disable_slot(struct amd_northbridge *nb, int cpu, unsigned slot,
 	if (index > nb->l3_cache.indices)
 		return -EINVAL;
 
-	
+	/* check whether the other slot has disabled the same index already */
 	if (index == amd_get_l3_disable_slot(nb, !slot))
 		return -EEXIST;
 
@@ -480,9 +524,9 @@ store_subcaches(struct _cpuid4_info *this_leaf, const char *buf, size_t count,
 static struct _cache_attr subcaches =
 	__ATTR(subcaches, 0644, show_subcaches, store_subcaches);
 
-#else	
+#else	/* CONFIG_AMD_NB */
 #define amd_init_l3_cache(x, y)
-#endif 
+#endif /* CONFIG_AMD_NB */
 
 static int
 __cpuinit cpuid4_cache_lookup_regs(int index,
@@ -501,7 +545,7 @@ __cpuinit cpuid4_cache_lookup_regs(int index,
 	}
 
 	if (eax.split.type == CACHE_TYPE_NULL)
-		return -EIO; 
+		return -EIO; /* better error ? */
 
 	this_leaf->eax = eax;
 	this_leaf->ebx = ebx;
@@ -521,7 +565,7 @@ static int __cpuinit find_num_cache_leaves(void)
 
 	do {
 		++i;
-		
+		/* Do cpuid(4) loop to find out num_cache_leaves */
 		cpuid_count(4, i, &eax, &ebx, &ecx, &edx);
 		cache_eax.full = eax;
 	} while (cache_eax.split.type != CACHE_TYPE_NULL);
@@ -530,10 +574,10 @@ static int __cpuinit find_num_cache_leaves(void)
 
 unsigned int __cpuinit init_intel_cacheinfo(struct cpuinfo_x86 *c)
 {
-	
+	/* Cache sizes */
 	unsigned int trace = 0, l1i = 0, l1d = 0, l2 = 0, l3 = 0;
-	unsigned int new_l1d = 0, new_l1i = 0; 
-	unsigned int new_l2 = 0, new_l3 = 0, i; 
+	unsigned int new_l1d = 0, new_l1i = 0; /* Cache sizes from cpuid(4) */
+	unsigned int new_l2 = 0, new_l3 = 0, i; /* Cache sizes from cpuid(4) */
 	unsigned int l2_id = 0, l3_id = 0, num_threads_sharing, index_msb;
 #ifdef CONFIG_X86_HT
 	unsigned int cpu = c->cpu_index;
@@ -543,11 +587,15 @@ unsigned int __cpuinit init_intel_cacheinfo(struct cpuinfo_x86 *c)
 		static int is_initialized;
 
 		if (is_initialized == 0) {
-			
+			/* Init num_cache_leaves from boot CPU */
 			num_cache_leaves = find_num_cache_leaves();
 			is_initialized++;
 		}
 
+		/*
+		 * Whenever possible use cpuid(4), deterministic cache
+		 * parameters cpuid leaf to find the cache details
+		 */
 		for (i = 0; i < num_cache_leaves; i++) {
 			struct _cpuid4_info_regs this_leaf;
 			int retval;
@@ -582,8 +630,12 @@ unsigned int __cpuinit init_intel_cacheinfo(struct cpuinfo_x86 *c)
 			}
 		}
 	}
+	/*
+	 * Don't use cpuid2 if cpuid4 is supported. For P4, we use cpuid2 for
+	 * trace cache
+	 */
 	if ((num_cache_leaves == 0 || c->x86 == 15) && c->cpuid_level > 1) {
-		
+		/* supports eax=2  call */
 		int j, n;
 		unsigned int regs[4];
 		unsigned char *dp = (unsigned char *)regs;
@@ -592,23 +644,23 @@ unsigned int __cpuinit init_intel_cacheinfo(struct cpuinfo_x86 *c)
 		if (num_cache_leaves != 0 && c->x86 == 15)
 			only_trace = 1;
 
-		
+		/* Number of times to iterate */
 		n = cpuid_eax(2) & 0xFF;
 
 		for (i = 0 ; i < n ; i++) {
 			cpuid(2, &regs[0], &regs[1], &regs[2], &regs[3]);
 
-			
+			/* If bit 31 is set, this is an unknown format */
 			for (j = 0 ; j < 3 ; j++)
 				if (regs[j] & (1 << 31))
 					regs[j] = 0;
 
-			
+			/* Byte 0 is level count, not a descriptor */
 			for (j = 1 ; j < 16 ; j++) {
 				unsigned char des = dp[j];
 				unsigned char k = 0;
 
-				
+				/* look up this descriptor in the table */
 				while (cache_table[k].descriptor != 0) {
 					if (cache_table[k].descriptor == des) {
 						if (only_trace && cache_table[k].cache_type != LVL_TRACE)
@@ -667,6 +719,7 @@ unsigned int __cpuinit init_intel_cacheinfo(struct cpuinfo_x86 *c)
 
 #ifdef CONFIG_SYSFS
 
+/* pointer to _cpuid4_info array (for each cache leaf) */
 static DEFINE_PER_CPU(struct _cpuid4_info *, ici_cpuid4_info);
 #define CPUID4_INFO_IDX(x, y)	(&((per_cpu(ici_cpuid4_info, x))[y]))
 
@@ -780,7 +833,7 @@ static void __cpuinit get_cpu_leaves(void *_retval)
 {
 	int j, *retval = _retval, cpu = smp_processor_id();
 
-	
+	/* Do cpuid and store the results */
 	for (j = 0; j < num_cache_leaves; j++) {
 		struct _cpuid4_info *this_leaf = CPUID4_INFO_IDX(cpu, j);
 
@@ -821,6 +874,7 @@ static int __cpuinit detect_cache_attributes(unsigned int cpu)
 #include <linux/sysfs.h>
 #include <linux/cpu.h>
 
+/* pointer to kobject for cpuX/cache */
 static DEFINE_PER_CPU(struct kobject *, ici_cache_kobject);
 
 struct _index_kobject {
@@ -829,6 +883,7 @@ struct _index_kobject {
 	unsigned short index;
 };
 
+/* pointer to array of kobjects for cpuX/cache/indexY */
 static DEFINE_PER_CPU(struct _index_kobject *, ici_index_kobject);
 #define INDEX_KOBJECT_PTR(x, y)		(&((per_cpu(ici_index_kobject, x))[y]))
 
@@ -1024,7 +1079,7 @@ static int __cpuinit cpuid4_cache_sysfs_init(unsigned int cpu)
 	if (err)
 		return err;
 
-	
+	/* Allocate all required memory */
 	per_cpu(ici_cache_kobject, cpu) =
 		kzalloc(sizeof(struct kobject), GFP_KERNEL);
 	if (unlikely(per_cpu(ici_cache_kobject, cpu) == NULL))
@@ -1044,6 +1099,7 @@ err_out:
 
 static DECLARE_BITMAP(cache_dev_map, NR_CPUS);
 
+/* Add/Remove cache interface for CPU device */
 static int __cpuinit cache_add_dev(struct device *dev)
 {
 	unsigned int cpu = dev->id;

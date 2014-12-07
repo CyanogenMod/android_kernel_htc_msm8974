@@ -175,6 +175,9 @@ static int add_reg(u32 *reg, u32 *add, int naddr)
 	return !carry;
 }
 
+/* It is assumed that if the first byte of reg fits in a
+ * range, then the whole reg block fits.
+ */
 static int compare_reg(u32 *reg, u32 *range, u32 *rangesize)
 {
 	int i;
@@ -199,6 +202,7 @@ static int compare_reg(u32 *reg, u32 *range, u32 *rangesize)
 	return reg[i] != end;
 }
 
+/* reg must be MAX_ADDR_CELLS */
 static int find_range(u32 *reg, u32 *ranges, int nregaddr,
                       int naddr, int nsize, int buflen)
 {
@@ -219,6 +223,10 @@ static int find_range(u32 *reg, u32 *ranges, int nregaddr,
 	return -1;
 }
 
+/* Currently only generic buses without special encodings are supported.
+ * In particular, PCI is not supported.  Also, only the beginning of the
+ * reg block is tracked; size is ignored except in ranges.
+ */
 static u32 prop_buf[MAX_PROP_LEN / 4];
 
 static int dt_xlate(void *node, int res, int reglen, unsigned long *addr,

@@ -38,6 +38,35 @@ lubbock_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 
 	pa_dwr_mask = pa_dwr_set = misc_mask = misc_set = 0;
 
+	/* Lubbock uses the Maxim MAX1602, with the following connections:
+	 *
+	 * Socket 0 (PCMCIA):
+	 *	MAX1602	Lubbock		Register
+	 *	Pin	Signal
+	 *	-----	-------		----------------------
+	 *	A0VPP	S0_PWR0		SA-1111 GPIO A<0>
+	 *	A1VPP	S0_PWR1		SA-1111 GPIO A<1>
+	 *	A0VCC	S0_PWR2		SA-1111 GPIO A<2>
+	 *	A1VCC	S0_PWR3		SA-1111 GPIO A<3>
+	 *	VX	VCC
+	 *	VY	+3.3V
+	 *	12IN	+12V
+	 *	CODE	+3.3V		Cirrus  Code, CODE = High (VY)
+	 *
+	 * Socket 1 (CF):
+	 *	MAX1602	Lubbock		Register
+	 *	Pin	Signal
+	 *	-----	-------		----------------------
+	 *	A0VPP	GND		VPP is not connected
+	 *	A1VPP	GND		VPP is not connected
+	 *	A0VCC	S1_PWR0		MISC_WR<14>
+	 *	A1VCC	S1_PWR1		MISC_WR<15>
+	 *	VX	VCC
+	 *	VY	+3.3V
+	 *	12IN	GND		VPP is not connected
+	 *	CODE	+3.3V		Cirrus  Code, CODE = High (VY)
+	 *
+	 */
 
  again:
 	switch (skt->nr) {
@@ -45,14 +74,14 @@ lubbock_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 		pa_dwr_mask = GPIO_A0 | GPIO_A1 | GPIO_A2 | GPIO_A3;
 
 		switch (state->Vcc) {
-		case 0: 
+		case 0: /* Hi-Z */
 			break;
 
-		case 33: 
+		case 33: /* VY */
 			pa_dwr_set |= GPIO_A3;
 			break;
 
-		case 50: 
+		case 50: /* VX */
 			pa_dwr_set |= GPIO_A2;
 			break;
 
@@ -63,14 +92,14 @@ lubbock_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 		}
 
 		switch (state->Vpp) {
-		case 0: 
+		case 0: /* Hi-Z */
 			break;
 
-		case 120: 
+		case 120: /* 12IN */
 			pa_dwr_set |= GPIO_A1;
 			break;
 
-		default: 
+		default: /* VCC */
 			if (state->Vpp == state->Vcc)
 				pa_dwr_set |= GPIO_A0;
 			else {
@@ -86,14 +115,14 @@ lubbock_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 		misc_mask = (1 << 15) | (1 << 14);
 
 		switch (state->Vcc) {
-		case 0: 
+		case 0: /* Hi-Z */
 			break;
 
-		case 33: 
+		case 33: /* VY */
 			misc_set |= 1 << 15;
 			break;
 
-		case 50: 
+		case 50: /* VX */
 			misc_set |= 1 << 14;
 			break;
 
@@ -128,16 +157,38 @@ lubbock_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 	if (ret == 0 && state->Vcc == 33) {
 		struct pcmcia_state new_state;
 
+		/*
+		 * HACK ALERT:
+		 * We can't sense the voltage properly on Lubbock before
+		 * actually applying some power to the socket (catch 22).
+		 * Resense the socket Voltage Sense pins after applying
+		 * socket power.
+		 *
+		 * Note: It takes about 2.5ms for the MAX1602 VCC output
+		 * to rise.
+		 */
 		mdelay(3);
 
 		sa1111_pcmcia_socket_state(skt, &new_state);
 
 		if (!new_state.vs_3v && !new_state.vs_Xv) {
+			/*
+			 * Switch to 5V,  Configure socket with 5V voltage
+			 */
 			lubbock_set_misc_wr(misc_mask, 0);
 			sa1111_set_io(s->dev, pa_dwr_mask, 0);
 
+			/*
+			 * It takes about 100ms to turn off Vcc.
+			 */
 			mdelay(100);
 
+			/*
+			 * We need to hack around the const qualifier as
+			 * well to keep this ugly workaround localized and
+			 * not force it to the rest of the code. Barf bags
+			 * available in the seat pocket in front of you!
+			 */
 			((socket_state_t *)state)->Vcc = 50;
 			((socket_state_t *)state)->Vpp = 50;
 			goto again;
@@ -162,11 +213,15 @@ int pcmcia_lubbock_init(struct sa1111_dev *sadev)
 	int ret = -ENODEV;
 
 	if (machine_is_lubbock()) {
+		/*
+		 * Set GPIO_A<3:0> to be outputs for the MAX1600,
+		 * and switch to standby mode.
+		 */
 		sa1111_set_io_dir(sadev, GPIO_A0|GPIO_A1|GPIO_A2|GPIO_A3, 0, 0);
 		sa1111_set_io(sadev, GPIO_A0|GPIO_A1|GPIO_A2|GPIO_A3, 0);
 		sa1111_set_sleep_io(sadev, GPIO_A0|GPIO_A1|GPIO_A2|GPIO_A3, 0);
 
-		
+		/* Set CF Socket 1 power to standby mode. */
 		lubbock_set_misc_wr((1 << 15) | (1 << 14), 0);
 
 		pxa2xx_drv_pcmcia_ops(&lubbock_pcmcia_ops);

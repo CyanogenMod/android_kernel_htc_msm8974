@@ -31,7 +31,7 @@ static int hists__browser_title(struct hists *self, char *bf, size_t size,
 
 static void hist_browser__refresh_dimensions(struct hist_browser *self)
 {
-	
+	/* 3 == +/- toggle symbol before actual hist_entry rendering */
 	self->b.width = 3 + (hists__sort_list_width(self->hists) +
 			     sizeof("[k]"));
 }
@@ -76,17 +76,17 @@ static int callchain_node__count_rows_rb_tree(struct callchain_node *self)
 	for (nd = rb_first(&self->rb_root); nd; nd = rb_next(nd)) {
 		struct callchain_node *child = rb_entry(nd, struct callchain_node, rb_node);
 		struct callchain_list *chain;
-		char folded_sign = ' '; 
+		char folded_sign = ' '; /* No children */
 
 		list_for_each_entry(chain, &child->val, list) {
 			++n;
-			
+			/* We need this because we may not have children */
 			folded_sign = callchain_list__folded(chain);
 			if (folded_sign == '+')
 				break;
 		}
 
-		if (folded_sign == '-') 
+		if (folded_sign == '-') /* Have children and they're unfolded */
 			n += callchain_node__count_rows_rb_tree(child);
 	}
 
@@ -205,7 +205,7 @@ static bool hist_browser__toggle_fold(struct hist_browser *self)
 		return true;
 	}
 
-	
+	/* If it doesn't have children, no toggling performed */
 	return false;
 }
 
@@ -292,7 +292,7 @@ static void hist_browser__set_folding(struct hist_browser *self, bool unfold)
 {
 	hists__set_folding(self->hists, unfold);
 	self->b.nr_entries = self->hists->nr_entries;
-	
+	/* Go to the start, we may be way after valid entries after a collapse */
 	ui_browser__reset_index(&self->b);
 }
 
@@ -339,7 +339,7 @@ static int hist_browser__run(struct hist_browser *self, const char *ev_name,
 			hists__browser_title(self->hists, title, sizeof(title), ev_name);
 			ui_browser__show_title(&self->b, title);
 			continue;
-		case 'D': { 
+		case 'D': { /* Debug */
 			static int seq;
 			struct hist_entry *h = rb_entry(self->b.top,
 							struct hist_entry, rb_node);
@@ -354,17 +354,17 @@ static int hist_browser__run(struct hist_browser *self, const char *ev_name,
 		}
 			break;
 		case 'C':
-			
+			/* Collapse the whole world. */
 			hist_browser__set_folding(self, false);
 			break;
 		case 'E':
-			
+			/* Expand the whole world. */
 			hist_browser__set_folding(self, true);
 			break;
 		case K_ENTER:
 			if (hist_browser__toggle_fold(self))
 				break;
-			
+			/* fall thru */
 		default:
 			goto out;
 		}
@@ -559,7 +559,7 @@ static int hist_browser__show_entry(struct hist_browser *self,
 	char s[256];
 	double percent;
 	int printed = 0;
-	int width = self->b.width - 6; 
+	int width = self->b.width - 6; /* The percentage */
 	char folded_sign = ' ';
 	bool current_entry = ui_browser__is_current_entry(&self->b, row);
 	off_t row_offset = entry->row_offset;
@@ -587,7 +587,7 @@ static int hist_browser__show_entry(struct hist_browser *self,
 
 		slsmg_printf(" %5.2f%%", percent);
 
-		
+		/* The scroll bar isn't being used */
 		if (!self->b.navkeypressed)
 			width += 1;
 
@@ -706,9 +706,26 @@ static void ui_browser__hists_seek(struct ui_browser *self,
 		return;
 	}
 
+	/*
+	 * Moves not relative to the first visible entry invalidates its
+	 * row_offset:
+	 */
 	h = rb_entry(self->top, struct hist_entry, rb_node);
 	h->row_offset = 0;
 
+	/*
+	 * Here we have to check if nd is expanded (+), if it is we can't go
+	 * the next top level hist_entry, instead we must compute an offset of
+	 * what _not_ to show and not change the first visible entry.
+	 *
+	 * This offset increments when we are going from top to bottom and
+	 * decreases when we're going from bottom to top.
+	 *
+	 * As we don't have backpointers to the top level in the callchains
+	 * structure, we need to always print the whole hist_entry callchain,
+	 * skipping the first ones that are before the first visible entry
+	 * and stop when we printed enough lines to fill the screen.
+	 */
 do_offset:
 	if (offset > 0) {
 		do {
@@ -764,6 +781,11 @@ do_offset:
 			++offset;
 			self->top = nd;
 			if (offset == 0) {
+				/*
+				 * Last unfiltered hist_entry, check if it is
+				 * unfolded, if it is then we should have
+				 * row_offset at its last entry.
+				 */
 				h = rb_entry(nd, struct hist_entry, rb_node);
 				if (h->ms.unfolded)
 					h->row_offset = h->nr_rows;
@@ -893,6 +915,10 @@ static int perf_evsel__hists_browse(struct perf_evsel *evsel, int nr_events,
 		case K_UNTAB:
 			if (nr_events == 1)
 				continue;
+			/*
+			 * Exit the browser, let hists__browser_tree
+			 * go to the next or previous
+			 */
 			goto out_free_stack;
 		case 'a':
 			if (!browser->has_symbols) {
@@ -943,12 +969,15 @@ static int perf_evsel__hists_browse(struct perf_evsel *evsel, int nr_events,
 			continue;
 		case K_ENTER:
 		case K_RIGHT:
-			
+			/* menu */
 			break;
 		case K_LEFT: {
 			const void *top;
 
 			if (pstack__empty(fstack)) {
+				/*
+				 * Go back to the perf_evsel_menu__run or other user
+				 */
 				if (left_exits)
 					goto out_free_stack;
 				continue;
@@ -965,7 +994,7 @@ static int perf_evsel__hists_browse(struct perf_evsel *evsel, int nr_events,
 			    !ui_browser__dialog_yesno(&browser->b,
 					       "Do you really want to exit?"))
 				continue;
-			
+			/* Fall thru */
 		case 'q':
 		case CTRL('c'):
 			goto out_free_stack;
@@ -1043,6 +1072,12 @@ do_annotate:
 			if (he == NULL)
 				continue;
 
+			/*
+			 * we stash the branch_info symbol + map into the
+			 * the ms so we don't have to rewrite all the annotation
+			 * code to use branch_info.
+			 * in branch mode, the ms struct is not used
+			 */
 			if (choice == annotate_f) {
 				he->ms.sym = he->branch_info->from.sym;
 				he->ms.map = he->branch_info->from.map;
@@ -1051,10 +1086,17 @@ do_annotate:
 				he->ms.map = he->branch_info->to.map;
 			}
 
+			/*
+			 * Don't let this be freed, say, by hists__decay_entry.
+			 */
 			he->used = true;
 			err = hist_entry__tui_annotate(he, evsel->idx,
 						       timer, arg, delay_secs);
 			he->used = false;
+			/*
+			 * offer option to annotate the other branch source or target
+			 * (if they exists) when returning from annotate
+			 */
 			if ((err == 'q' || err == CTRL('c'))
 			    && annotate_t != -2 && annotate_f != -2)
 				goto retry_popup_menu;
@@ -1188,6 +1230,10 @@ static int perf_evsel_menu__run(struct perf_evsel_menu *menu,
 			pos = menu->selection;
 browse_hists:
 			perf_evlist__set_selected(evlist, pos);
+			/*
+			 * Give the calling tool a chance to populate the non
+			 * default evsel resorted hists tree.
+			 */
 			if (timer)
 				timer(arg);
 			ev_name = event_name(pos);
@@ -1212,7 +1258,7 @@ browse_hists:
 				if (!ui_browser__dialog_yesno(&menu->b,
 						"Do you really want to exit?"))
 					continue;
-				
+				/* Fall thru */
 			case 'q':
 			case CTRL('c'):
 				goto out;
@@ -1225,7 +1271,7 @@ browse_hists:
 			if (!ui_browser__dialog_yesno(&menu->b,
 					       "Do you really want to exit?"))
 				continue;
-			
+			/* Fall thru */
 		case 'q':
 		case CTRL('c'):
 			goto out;
@@ -1264,6 +1310,10 @@ static int __perf_evlist__tui_browse_hists(struct perf_evlist *evlist,
 
 		if (menu.b.width < line_len)
 			menu.b.width = line_len;
+		/*
+		 * Cache the evsel name, tracepoints have a _high_ cost per
+		 * event_name() call.
+		 */
 		if (pos->name == NULL)
 			pos->name = strdup(ev_name);
 	}

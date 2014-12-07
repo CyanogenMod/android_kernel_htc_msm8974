@@ -51,6 +51,8 @@ static int init_hw(struct echoaudio *chip, u16 device_id, u16 subdevice_id)
 	chip->subdevice_id = subdevice_id;
 	chip->bad_board = TRUE;
 	chip->dsp_code_to_load = FW_INDIGO_IO_DSP;
+	/* Since this card has no ASIC, mark it as loaded so everything
+	   works OK */
 	chip->asic_loaded = TRUE;
 	chip->input_clock_types = ECHO_CLOCK_BIT_INTERNAL;
 
@@ -78,6 +80,7 @@ static u32 detect_input_clocks(const struct echoaudio *chip)
 
 
 
+/* The IndigoIO has no ASIC. Just do nothing */
 static int load_asic(struct echoaudio *chip)
 {
 	return 0;
@@ -98,6 +101,7 @@ static int set_sample_rate(struct echoaudio *chip, u32 rate)
 
 
 
+/* This function routes the sound from a virtual channel to a real output */
 static int set_vmixer_gain(struct echoaudio *chip, u16 output, u16 pipe,
 			   int gain)
 {
@@ -120,6 +124,7 @@ static int set_vmixer_gain(struct echoaudio *chip, u16 output, u16 pipe,
 
 
 
+/* Tell the DSP to read and update virtual mixer levels in comm page. */
 static int update_vmixer_level(struct echoaudio *chip)
 {
 	if (wait_handshake(chip))

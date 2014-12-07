@@ -44,12 +44,14 @@ MODULE_LICENSE(DRIVER_LICENSE);
 
 #define ART_MASTER_PKGLEN_MAX	10
 
+/* device IDs */
 #define STYLUS_DEVICE_ID	0x02
 #define TOUCH_DEVICE_ID		0x03
 #define CURSOR_DEVICE_ID	0x06
 #define ERASER_DEVICE_ID	0x0A
 #define PAD_DEVICE_ID		0x0F
 
+/* match vendor and interface info  */
 #define HANWANG_TABLET_DEVICE(vend, cl, sc, pr) \
 	.match_flags = USB_DEVICE_ID_MATCH_VENDOR \
 		| USB_DEVICE_ID_MATCH_INT_INFO, \
@@ -128,23 +130,23 @@ static void hanwang_parse_packet(struct hanwang *hanwang)
 	u16 x, y, p;
 
 	switch (data[0]) {
-	case 0x02:	
+	case 0x02:	/* data packet */
 		switch (data[1]) {
-		case 0x80:	
+		case 0x80:	/* tool prox out */
 			hanwang->current_id = 0;
 			input_report_key(input_dev, hanwang->current_tool, 0);
 			break;
 
-		case 0xc2:	
+		case 0xc2:	/* first time tool prox in */
 			switch (data[3] & 0xf0) {
-			case 0x20:	
-			case 0x30:	
+			case 0x20:	/* art_master III */
+			case 0x30:	/* art_master_HD */
 				hanwang->current_id = STYLUS_DEVICE_ID;
 				hanwang->current_tool = BTN_TOOL_PEN;
 				input_report_key(input_dev, BTN_TOOL_PEN, 1);
 				break;
-			case 0xa0:	
-			case 0xb0:	
+			case 0xa0:	/* art_master III */
+			case 0xb0:	/* art_master_HD */
 				hanwang->current_id = ERASER_DEVICE_ID;
 				hanwang->current_tool = BTN_TOOL_RUBBER;
 				input_report_key(input_dev, BTN_TOOL_RUBBER, 1);
@@ -157,7 +159,7 @@ static void hanwang_parse_packet(struct hanwang *hanwang)
 			}
 			break;
 
-		default:	
+		default:	/* tool data packet */
 			x = (data[2] << 8) | data[3];
 			y = (data[4] << 8) | data[5];
 
@@ -195,7 +197,7 @@ static void hanwang_parse_packet(struct hanwang *hanwang)
 		break;
 
 	case 0x0c:
-		
+		/* roll wheel */
 		hanwang->current_id = PAD_DEVICE_ID;
 
 		switch (type) {
@@ -247,13 +249,13 @@ static void hanwang_irq(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		;
+		/* success */;
 		hanwang_parse_packet(hanwang);
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dev_err(&dev->dev, "%s - urb shutting down with status: %d",
 			__func__, urb->status);
 		return;

@@ -21,6 +21,7 @@
 #ifndef _SMSC95XX_H
 #define _SMSC95XX_H
 
+/* Tx command words */
 #define TX_CMD_A_DATA_OFFSET_		(0x001F0000)
 #define TX_CMD_A_FIRST_SEG_		(0x00002000)
 #define TX_CMD_A_LAST_SEG_		(0x00001000)
@@ -31,21 +32,23 @@
 #define TX_CMD_B_DISABLE_PADDING_	(0x00001000)
 #define TX_CMD_B_PKT_BYTE_LENGTH_	(0x000007FF)
 
-#define RX_STS_FF_			(0x40000000)	
-#define RX_STS_FL_			(0x3FFF0000)	
-#define RX_STS_ES_			(0x00008000)	
-#define RX_STS_BF_			(0x00002000)	
-#define RX_STS_LE_			(0x00001000)	
-#define RX_STS_RF_			(0x00000800)	
-#define RX_STS_MF_			(0x00000400)	
-#define RX_STS_TL_			(0x00000080)	
-#define RX_STS_CS_			(0x00000040)	
-#define RX_STS_FT_			(0x00000020)	
-#define RX_STS_RW_			(0x00000010)	
-#define RX_STS_ME_			(0x00000008)	
-#define RX_STS_DB_			(0x00000004)	
-#define RX_STS_CRC_			(0x00000002)	
+/* Rx status word */
+#define RX_STS_FF_			(0x40000000)	/* Filter Fail */
+#define RX_STS_FL_			(0x3FFF0000)	/* Frame Length */
+#define RX_STS_ES_			(0x00008000)	/* Error Summary */
+#define RX_STS_BF_			(0x00002000)	/* Broadcast Frame */
+#define RX_STS_LE_			(0x00001000)	/* Length Error */
+#define RX_STS_RF_			(0x00000800)	/* Runt Frame */
+#define RX_STS_MF_			(0x00000400)	/* Multicast Frame */
+#define RX_STS_TL_			(0x00000080)	/* Frame too long */
+#define RX_STS_CS_			(0x00000040)	/* Collision Seen */
+#define RX_STS_FT_			(0x00000020)	/* Frame Type */
+#define RX_STS_RW_			(0x00000010)	/* Receive Watchdog */
+#define RX_STS_ME_			(0x00000008)	/* Mii Error */
+#define RX_STS_DB_			(0x00000004)	/* Dribbling */
+#define RX_STS_CRC_			(0x00000002)	/* CRC Error */
 
+/* SCSRs */
 #define ID_REV				(0x00)
 #define ID_REV_CHIP_ID_MASK_		(0xFFFF0000)
 #define ID_REV_CHIP_REV_MASK_		(0x0000FFFF)
@@ -104,6 +107,10 @@
 
 #define AFC_CFG				(0x2C)
 
+/* Hi watermark = 15.5Kb (~10 mtu pkts) */
+/* low watermark = 3k (~2 mtu pkts) */
+/* backpressure duration = ~ 350us */
+/* Apply FC on any frame. */
 #define AFC_CFG_DEFAULT			(0x00F830A1)
 
 #define E2P_CMD				(0x30)
@@ -144,6 +151,7 @@
 
 #define BULK_IN_DLY			(0x6C)
 
+/* MAC CSRs */
 #define MAC_CR				(0x100)
 #define MAC_CR_RXALL_			(0x80000000)
 #define MAC_CR_RCVOWN_			(0x00800000)
@@ -175,7 +183,7 @@
 #define MII_ADDR			(0x114)
 #define MII_WRITE_			(0x02)
 #define MII_BUSY_			(0x01)
-#define MII_READ_			(0x00) 
+#define MII_READ_			(0x00) /* ~of MII Write bit */
 
 #define MII_DATA			(0x118)
 
@@ -198,7 +206,9 @@
 #define Rx_COE_MODE_			(0x00000002)
 #define Rx_COE_EN_			(0x00000001)
 
+/* Vendor-specific PHY Definitions */
 
+/* Mode Control/Status Register */
 #define PHY_MODE_CTRL_STS		(17)
 #define MODE_CTRL_STS_EDPWRDOWN_	((u16)0x2000)
 #define MODE_CTRL_STS_ENERGYON_		((u16)0x0002)
@@ -229,10 +239,12 @@
 #define PHY_SPECIAL_SPD_100HALF_	((u16)0x0008)
 #define PHY_SPECIAL_SPD_100FULL_	((u16)0x0018)
 
+/* USB Vendor Requests */
 #define USB_VENDOR_REQUEST_WRITE_REGISTER	0xA0
 #define USB_VENDOR_REQUEST_READ_REGISTER	0xA1
 #define USB_VENDOR_REQUEST_GET_STATS		0xA2
 
+/* Interrupt Endpoint status word bitfields */
 #define INT_ENP_TX_STOP_		((u32)BIT(17))
 #define INT_ENP_RX_STOP_		((u32)BIT(16))
 #define INT_ENP_PHY_INT_		((u32)BIT(15))
@@ -241,4 +253,4 @@
 #define INT_ENP_TDFO_			((u32)BIT(12))
 #define INT_ENP_RXDF_			((u32)BIT(11))
 
-#endif 
+#endif /* _SMSC95XX_H */

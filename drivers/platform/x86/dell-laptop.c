@@ -33,6 +33,8 @@
 
 #define BRIGHTNESS_TOKEN 0x7d
 
+/* This structure will be modified by the firmware when we enter
+ * system management mode, hence the volatiles */
 
 struct calling_interface_buffer {
 	u16 class;
@@ -103,7 +105,7 @@ static const struct dmi_system_id __initdata dell_device_table[] = {
 	{
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
-			DMI_MATCH(DMI_CHASSIS_TYPE, "9"), 
+			DMI_MATCH(DMI_CHASSIS_TYPE, "9"), /*Laptop*/
 		},
 	},
 	{
@@ -118,7 +120,7 @@ static const struct dmi_system_id __initdata dell_device_table[] = {
 MODULE_DEVICE_TABLE(dmi, dell_device_table);
 
 static struct dmi_system_id __devinitdata dell_blacklist[] = {
-	
+	/* Supported by compal-laptop */
 	{
 		.ident = "Dell Mini 9",
 		.matches = {
@@ -232,11 +234,13 @@ static void release_buffer(void)
 
 static void __init parse_da_table(const struct dmi_header *dm)
 {
-	
+	/* Final token is a terminator, so we don't want to copy it */
 	int tokens = (dm->length-11)/sizeof(struct calling_interface_token)-1;
 	struct calling_interface_structure *table =
 		container_of(dm, struct calling_interface_structure, header);
 
+	/* 4 bytes of table header, plus 7 bytes of Dell header, plus at least
+	   6 bytes of entry */
 
 	if (dm->length < 17)
 		return;
@@ -260,11 +264,11 @@ static void __init parse_da_table(const struct dmi_header *dm)
 static void __init find_tokens(const struct dmi_header *dm, void *dummy)
 {
 	switch (dm->type) {
-	case 0xd4: 
-	case 0xd5: 
-	case 0xd6: 
+	case 0xd4: /* Indexed IO */
+	case 0xd5: /* Protected Area Type 1 */
+	case 0xd6: /* Protected Area Type 2 */
 		break;
-	case 0xda: 
+	case 0xda: /* Calling interface */
 		parse_da_table(dm);
 		break;
 	}
@@ -301,6 +305,45 @@ dell_send_request(struct calling_interface_buffer *buffer, int class,
 	return buffer;
 }
 
+/* Derived from information in DellWirelessCtl.cpp:
+   Class 17, select 11 is radio control. It returns an array of 32-bit values.
+
+   Input byte 0 = 0: Wireless information
+
+   result[0]: return code
+   result[1]:
+     Bit 0:      Hardware switch supported
+     Bit 1:      Wifi locator supported
+     Bit 2:      Wifi is supported
+     Bit 3:      Bluetooth is supported
+     Bit 4:      WWAN is supported
+     Bit 5:      Wireless keyboard supported
+     Bits 6-7:   Reserved
+     Bit 8:      Wifi is installed
+     Bit 9:      Bluetooth is installed
+     Bit 10:     WWAN is installed
+     Bits 11-15: Reserved
+     Bit 16:     Hardware switch is on
+     Bit 17:     Wifi is blocked
+     Bit 18:     Bluetooth is blocked
+     Bit 19:     WWAN is blocked
+     Bits 20-31: Reserved
+   result[2]: NVRAM size in bytes
+   result[3]: NVRAM format version number
+
+   Input byte 0 = 2: Wireless switch configuration
+   result[0]: return code
+   result[1]:
+     Bit 0:      Wifi controlled by switch
+     Bit 1:      Bluetooth controlled by switch
+     Bit 2:      WWAN controlled by switch
+     Bits 3-6:   Reserved
+     Bit 7:      Wireless switch config locked
+     Bit 8:      Wifi locator enabled
+     Bits 9-14:  Reserved
+     Bit 15:     Wifi locator setting locked
+     Bits 16-31: Reserved
+*/
 
 static int dell_rfkill_set(void *data, bool blocked)
 {
@@ -312,6 +355,8 @@ static int dell_rfkill_set(void *data, bool blocked)
 	get_buffer();
 	dell_send_request(buffer, 17, 11);
 
+	/* If the hardware switch controls this radio, and the hardware
+	   switch is disabled, don't allow changing the software state */
 	if ((hwswitch_state & BIT(hwswitch_bit)) &&
 	    !(buffer->output[1] & BIT(16))) {
 		ret = -EINVAL;
@@ -643,7 +688,7 @@ static int __init dell_init(void)
 		return -ENODEV;
 
 	quirks = NULL;
-	
+	/* find if this machine support other functions */
 	dmi_check_system(dell_quirks);
 
 	dmi_walk(find_tokens, NULL);
@@ -665,6 +710,10 @@ static int __init dell_init(void)
 	if (ret)
 		goto fail_platform_device2;
 
+	/*
+	 * Allocate buffer below 4GB for SMI data--only 32-bit physical addr
+	 * is passed to SMI handler.
+	 */
 	bufferpage = alloc_page(GFP_KERNEL | GFP_DMA32);
 
 	if (!bufferpage)
@@ -693,6 +742,9 @@ static int __init dell_init(void)
 				    &dell_debugfs_fops);
 
 #ifdef CONFIG_ACPI
+	/* In the event of an ACPI backlight being available, don't
+	 * register the platform controller.
+	 */
 	if (acpi_video_backlight_support())
 		return 0;
 #endif

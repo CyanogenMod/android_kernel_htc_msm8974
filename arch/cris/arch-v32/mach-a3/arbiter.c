@@ -94,12 +94,12 @@ static struct crisv32_watch_entry watches[ARBITERS][NUMBER_OF_BP] =
 
 struct arbiter arbiters[ARBITERS] =
 {
-  { 
+  { /* L2 cache arbiter */
     .instance = regi_marb_foo,
     .nbr_regions = 2,
     .nbr_clients = 15
   },
-  { 
+  { /* DDR2 arbiter */
     .instance = regi_marb_bar,
     .nbr_regions = 1,
     .nbr_clients = 9
@@ -115,6 +115,18 @@ crisv32_foo_arbiter_irq(int irq, void *dev_id);
 static irqreturn_t
 crisv32_bar_arbiter_irq(int irq, void *dev_id);
 
+/*
+ * "I'm the arbiter, I know the score.
+ *  From square one I'll be watching all 64."
+ * (memory arbiter slots, that is)
+ *
+ *  Or in other words:
+ * Program the memory arbiter slots for "region" according to what's
+ * in requested_slots[] and active_clients[], while minimizing
+ * latency. A caller may pass a non-zero positive amount for
+ * "unused_slots", which must then be the unallocated, remaining
+ * number of slots, free to hand out to any client.
+ */
 
 static void crisv32_arbiter_config(int arbiter, int region, int unused_slots)
 {
@@ -122,6 +134,13 @@ static void crisv32_arbiter_config(int arbiter, int region, int unused_slots)
 	int client;
 	int interval = 0;
 
+	/*
+	 * This vector corresponds to the hardware arbiter slots (see
+	 * the hardware documentation for semantics). We initialize
+	 * each slot with a suitable sentinel value outside the valid
+	 * range {0 .. NBR_OF_CLIENTS - 1} and replace them with
+	 * client indexes. Then it's fed to the hardware.
+	 */
 	s8 val[NBR_OF_SLOTS];
 
 	for (slot = 0; slot < NBR_OF_SLOTS; slot++)
@@ -129,14 +148,36 @@ static void crisv32_arbiter_config(int arbiter, int region, int unused_slots)
 
 	for (client = 0; client < arbiters[arbiter].nbr_clients; client++) {
 	    int pos;
+	    /* Allocate the requested non-zero number of slots, but
+	     * also give clients with zero-requests one slot each
+	     * while stocks last. We do the latter here, in client
+	     * order. This makes sure zero-request clients are the
+	     * first to get to any spare slots, else those slots
+	     * could, when bandwidth is allocated close to the limit,
+	     * all be allocated to low-index non-zero-request clients
+	     * in the default-fill loop below. Another positive but
+	     * secondary effect is a somewhat better spread of the
+	     * zero-bandwidth clients in the vector, avoiding some of
+	     * the latency that could otherwise be caused by the
+	     * partitioning of non-zero-bandwidth clients at low
+	     * indexes and zero-bandwidth clients at high
+	     * indexes. (Note that this spreading can only affect the
+	     * unallocated bandwidth.)  All the above only matters for
+	     * memory-intensive situations, of course.
+	     */
 	    if (!arbiters[arbiter].requested_slots[region][client]) {
+		/*
+		 * Skip inactive clients. Also skip zero-slot
+		 * allocations in this pass when there are no known
+		 * free slots.
+		 */
 		if (!arbiters[arbiter].active_clients[region][client] ||
 				unused_slots <= 0)
 			continue;
 
 		unused_slots--;
 
-		
+		/* Only allocate one slot for this client. */
 		interval = NBR_OF_SLOTS;
 	    } else
 		interval = NBR_OF_SLOTS /
@@ -155,6 +196,12 @@ static void crisv32_arbiter_config(int arbiter, int region, int unused_slots)
 
 	client = 0;
 	for (slot = 0; slot < NBR_OF_SLOTS; slot++) {
+		/*
+		 * Allocate remaining slots in round-robin
+		 * client-number order for active clients. For this
+		 * pass, we ignore requested bandwidth and previous
+		 * allocations.
+		 */
 		if (val[slot] < 0) {
 			int first = client;
 			while (!arbiters[arbiter].active_clients[region][client]) {
@@ -191,6 +238,17 @@ static void crisv32_arbiter_init(void)
 
 	initialized = 1;
 
+	/*
+	 * CPU caches are always set to active, but with zero
+	 * bandwidth allocated. It should be ok to allocate zero
+	 * bandwidth for the caches, because DMA for other channels
+	 * will supposedly finish, once their programmed amount is
+	 * done, and then the caches will get access according to the
+	 * "fixed scheme" for unclaimed slots. Though, if for some
+	 * use-case somewhere, there's a maximum CPU latency for
+	 * e.g. some interrupt, we have to start allocating specific
+	 * bandwidth for the CPU caches too.
+	 */
 	arbiters[0].active_clients[EXT_REGION][11] = 1;
 	arbiters[0].active_clients[EXT_REGION][12] = 1;
 	crisv32_arbiter_config(0, EXT_REGION, 0);
@@ -206,13 +264,13 @@ static void crisv32_arbiter_init(void)
 		printk(KERN_ERR "Couldn't allocate arbiter IRQ\n");
 
 #ifndef CONFIG_ETRAX_KGDB
-	
+	/* Global watch for writes to kernel text segment. */
 	crisv32_arbiter_watch(virt_to_phys(&_stext), &_etext - &_stext,
 		MARB_CLIENTS(arbiter_all_clients, arbiter_bar_all_clients),
 			      arbiter_all_write, NULL);
 #endif
 
-	
+	/* Set up max burst sizes by default */
 	REG_WR_INT(marb_bar, regi_marb_bar, rw_h264_rd_burst, 3);
 	REG_WR_INT(marb_bar, regi_marb_bar, rw_h264_wr_burst, 3);
 	REG_WR_INT(marb_bar, regi_marb_bar, rw_ccd_burst, 3);
@@ -245,10 +303,18 @@ int crisv32_arbiter_allocate_bandwidth(int client, int region,
 		total_clients += arbiters[arbiter].active_clients[region][i];
 	}
 
-	
+	/* Avoid division by 0 for 0-bandwidth requests. */
 	req = bandwidth == 0
 		? 0 : NBR_OF_SLOTS / (max_bandwidth[region] / bandwidth);
 
+	/*
+	 * We make sure that there are enough slots only for non-zero
+	 * requests. Requesting 0 bandwidth *may* allocate slots,
+	 * though if all bandwidth is allocated, such a client won't
+	 * get any and will have to rely on getting memory access
+	 * according to the fixed scheme that's the default when one
+	 * of the slot-allocated clients doesn't claim their slot.
+	 */
 	if (total_assigned + req > NBR_OF_SLOTS)
 	   return -ENOMEM;
 
@@ -256,13 +322,24 @@ int crisv32_arbiter_allocate_bandwidth(int client, int region,
 	arbiters[arbiter].requested_slots[region][client] = req;
 	crisv32_arbiter_config(arbiter, region, NBR_OF_SLOTS - total_assigned);
 
-	
+	/* Propagate allocation from foo to bar */
 	if (arbiter == 0)
 		crisv32_arbiter_allocate_bandwidth(8 << 16,
 			EXT_REGION, bandwidth);
 	return 0;
 }
 
+/*
+ * Main entry for bandwidth deallocation.
+ *
+ * Strictly speaking, for a somewhat constant set of clients where
+ * each client gets a constant bandwidth and is just enabled or
+ * disabled (somewhat dynamically), no action is necessary here to
+ * avoid starvation for non-zero-allocation clients, as the allocated
+ * slots will just be unused. However, handing out those unused slots
+ * to active clients avoids needless latency if the "fixed scheme"
+ * would give unclaimed slots to an eager low-index client.
+ */
 
 void crisv32_arbiter_deallocate_bandwidth(int client, int region)
 {
@@ -473,7 +550,7 @@ crisv32_foo_arbiter_irq(int irq, void *dev_id)
 	else
 		return IRQ_NONE;
 
-	
+	/* Retrieve all useful information and print it. */
 	r_clients = REG_RD(marb_foo_bp, watch->instance, r_brk_clients);
 	r_addr = REG_RD(marb_foo_bp, watch->instance, r_brk_addr);
 	r_op = REG_RD(marb_foo_bp, watch->instance, r_brk_op);
@@ -529,7 +606,7 @@ crisv32_bar_arbiter_irq(int irq, void *dev_id)
 	else
 		return IRQ_NONE;
 
-	
+	/* Retrieve all useful information and print it. */
 	r_clients = REG_RD(marb_bar_bp, watch->instance, r_brk_clients);
 	r_addr = REG_RD(marb_bar_bp, watch->instance, r_brk_addr);
 	r_op = REG_RD(marb_bar_bp, watch->instance, r_brk_op);

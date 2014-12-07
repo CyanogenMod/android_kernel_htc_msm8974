@@ -189,16 +189,16 @@ static void __devexit pcips2_remove(struct pci_dev *dev)
 
 static const struct pci_device_id pcips2_ids[] = {
 	{
-		.vendor		= 0x14f2,	
-		.device		= 0x0123,	
+		.vendor		= 0x14f2,	/* MOBILITY */
+		.device		= 0x0123,	/* Keyboard */
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
 		.class		= PCI_CLASS_INPUT_KEYBOARD << 8,
 		.class_mask	= 0xffff00,
 	},
 	{
-		.vendor		= 0x14f2,	
-		.device		= 0x0124,	
+		.vendor		= 0x14f2,	/* MOBILITY */
+		.device		= 0x0124,	/* Mouse */
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
 		.class		= PCI_CLASS_INPUT_MOUSE << 8,

@@ -24,6 +24,9 @@
 #include <linux/types.h>
 #include <crypto/serpent.h>
 
+/* Key is padded to the maximum of 256 bits before round key generation.
+ * Any key length <= 256 bits (32 bytes) is allowed by the algorithm.
+ */
 
 #define PHI 0x9e3779b9UL
 
@@ -234,7 +237,7 @@ int __serpent_setkey(struct serpent_ctx *ctx, const u8 *key,
 	u32 r0, r1, r2, r3, r4;
 	int i;
 
-	
+	/* Copy key, add padding */
 
 	for (i = 0; i < keylen; ++i)
 		k8[i] = key[i];
@@ -243,7 +246,7 @@ int __serpent_setkey(struct serpent_ctx *ctx, const u8 *key,
 	while (i < SERPENT_MAX_KEY_SIZE)
 		k8[i++] = 0;
 
-	
+	/* Expand key using polynomial */
 
 	r0 = le32_to_cpu(k[3]);
 	r1 = le32_to_cpu(k[4]);
@@ -391,7 +394,7 @@ int __serpent_setkey(struct serpent_ctx *ctx, const u8 *key,
 	keyiter(k[22], r0, r4, r2, 130, 30);
 	keyiter(k[23], r1, r0, r3, 131, 31);
 
-	
+	/* Apply S-boxes */
 
 	S3(r3, r4, r0, r1, r2); store_and_load_keys(r1, r2, r4, r3, 28, 24);
 	S4(r1, r2, r4, r3, r0); store_and_load_keys(r2, r4, r3, r0, 24, 20);
@@ -446,6 +449,10 @@ void __serpent_encrypt(struct serpent_ctx *ctx, u8 *dst, const u8 *src)
 	__le32	*d = (__le32 *)dst;
 	u32	r0, r1, r2, r3, r4;
 
+/*
+ * Note: The conversions between u8* and u32* might cause trouble
+ * on architectures with stricter alignment rules than x86
+ */
 
 	r0 = le32_to_cpu(s[0]);
 	r1 = le32_to_cpu(s[1]);

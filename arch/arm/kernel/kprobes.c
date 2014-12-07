@@ -40,6 +40,7 @@
 			   (unsigned long)(addr) +	\
 			   (size))
 
+/* Used as a marker in ARM_pc to note when we're in a jprobe. */
 #define JPROBE_MAGIC_ADDR		0xffffffff
 
 DEFINE_PER_CPU(struct kprobe *, current_kprobe) = NULL;
@@ -60,7 +61,7 @@ int __kprobes arch_prepare_kprobe(struct kprobe *p)
 
 #ifdef CONFIG_THUMB2_KERNEL
 	thumb = true;
-	addr &= ~1; 
+	addr &= ~1; /* Bit 0 would normally be set to indicate Thumb code */
 	insn = ((u16 *)addr)[0];
 	if (is_wide_instruction(insn)) {
 		insn <<= 16;
@@ -68,7 +69,7 @@ int __kprobes arch_prepare_kprobe(struct kprobe *p)
 		decode_insn = thumb32_kprobe_decode_insn;
 	} else
 		decode_insn = thumb16_kprobe_decode_insn;
-#else 
+#else /* !CONFIG_THUMB2_KERNEL */
 	thumb = false;
 	if (addr & 0x3)
 		return -EINVAL;
@@ -80,10 +81,10 @@ int __kprobes arch_prepare_kprobe(struct kprobe *p)
 	p->ainsn.insn = tmp_insn;
 
 	switch ((*decode_insn)(insn, &p->ainsn)) {
-	case INSN_REJECTED:	
+	case INSN_REJECTED:	/* not supported */
 		return -EINVAL;
 
-	case INSN_GOOD:		
+	case INSN_GOOD:		/* instruction uses slot */
 		p->ainsn.insn = get_insn_slot();
 		if (!p->ainsn.insn)
 			return -ENOMEM;
@@ -95,7 +96,7 @@ int __kprobes arch_prepare_kprobe(struct kprobe *p)
 					((uintptr_t)p->ainsn.insn | thumb);
 		break;
 
-	case INSN_GOOD_NO_SLOT:	
+	case INSN_GOOD_NO_SLOT:	/* instruction doesn't need insn slot */
 		p->ainsn.insn = NULL;
 		break;
 	}
@@ -109,7 +110,7 @@ void __kprobes arch_arm_kprobe(struct kprobe *p)
 	void *addr;
 
 	if (IS_ENABLED(CONFIG_THUMB2_KERNEL)) {
-		
+		/* Remove any Thumb flag */
 		addr = (void *)((uintptr_t)p->addr & ~1);
 
 		if (is_wide_instruction(p->opcode))
@@ -123,14 +124,22 @@ void __kprobes arch_arm_kprobe(struct kprobe *p)
 		brkp = KPROBE_ARM_BREAKPOINT_INSTRUCTION;
 
 		if (insn >= 0xe0000000)
-			brkp |= 0xe0000000;  
+			brkp |= 0xe0000000;  /* Unconditional instruction */
 		else
-			brkp |= insn & 0xf0000000;  
+			brkp |= insn & 0xf0000000;  /* Copy condition from insn */
 	}
 
 	patch_text(addr, brkp);
 }
 
+/*
+ * The actual disarming is done here on each CPU and synchronized using
+ * stop_machine. This synchronization is necessary on SMP to avoid removing
+ * a probe between the moment the 'Undefined Instruction' exception is raised
+ * and the moment the exception handler reads the faulting instruction from
+ * memory. It is also needed to atomically set the two half-words of a 32-bit
+ * Thumb breakpoint.
+ */
 int __kprobes __arch_disarm_kprobe(void *p)
 {
 	struct kprobe *kp = p;
@@ -191,6 +200,13 @@ singlestep(struct kprobe *p, struct pt_regs *regs, struct kprobe_ctlblk *kcb)
 	p->ainsn.insn_singlestep(p, regs);
 }
 
+/*
+ * Called with IRQs disabled. IRQs must remain disabled from that point
+ * all the way until processing this kprobe is complete.  The current
+ * kprobes implementation cannot process more than one nested level of
+ * kprobe, and that level is reserved for user kprobe handlers, so we can't
+ * risk encountering a new kprobe in an interrupt handler.
+ */
 void __kprobes kprobe_handler(struct pt_regs *regs)
 {
 	struct kprobe *p, *cur;
@@ -200,21 +216,26 @@ void __kprobes kprobe_handler(struct pt_regs *regs)
 	cur = kprobe_running();
 
 #ifdef CONFIG_THUMB2_KERNEL
+	/*
+	 * First look for a probe which was registered using an address with
+	 * bit 0 set, this is the usual situation for pointers to Thumb code.
+	 * If not found, fallback to looking for one with bit 0 clear.
+	 */
 	p = get_kprobe((kprobe_opcode_t *)(regs->ARM_pc | 1));
 	if (!p)
 		p = get_kprobe((kprobe_opcode_t *)regs->ARM_pc);
 
-#else 
+#else /* ! CONFIG_THUMB2_KERNEL */
 	p = get_kprobe((kprobe_opcode_t *)regs->ARM_pc);
 #endif
 
 	if (p) {
 		if (cur) {
-			
+			/* Kprobe is pending, so we're recursing. */
 			switch (kcb->kprobe_status) {
 			case KPROBE_HIT_ACTIVE:
 			case KPROBE_HIT_SSDONE:
-				
+				/* A pre- or post-handler probe got us here. */
 				kprobes_inc_nmissed_count(p);
 				save_previous_kprobe(kcb);
 				set_current_kprobe(p);
@@ -223,14 +244,21 @@ void __kprobes kprobe_handler(struct pt_regs *regs)
 				restore_previous_kprobe(kcb);
 				break;
 			default:
-				
+				/* impossible cases */
 				BUG();
 			}
 		} else if (p->ainsn.insn_check_cc(regs->ARM_cpsr)) {
-			
+			/* Probe hit and conditional execution check ok. */
 			set_current_kprobe(p);
 			kcb->kprobe_status = KPROBE_HIT_ACTIVE;
 
+			/*
+			 * If we have no pre-handler or it returned 0, we
+			 * continue with normal processing.  If we have a
+			 * pre-handler and it returned non-zero, it prepped
+			 * for calling the break_handler below on re-entry,
+			 * so get out doing nothing more here.
+			 */
 			if (!p->pre_handler || !p->pre_handler(p, regs)) {
 				kcb->kprobe_status = KPROBE_HIT_SS;
 				singlestep(p, regs, kcb);
@@ -241,10 +269,15 @@ void __kprobes kprobe_handler(struct pt_regs *regs)
 				reset_current_kprobe();
 			}
 		} else {
+			/*
+			 * Probe hit but conditional execution check failed,
+			 * so just skip the instruction and continue as if
+			 * nothing had happened.
+			 */
 			singlestep_skip(p, regs);
 		}
 	} else if (cur) {
-		
+		/* We probably hit a jprobe.  Call its break handler. */
 		if (cur->break_handler && cur->break_handler(cur, regs)) {
 			kcb->kprobe_status = KPROBE_HIT_SS;
 			singlestep(cur, regs, kcb);
@@ -255,6 +288,12 @@ void __kprobes kprobe_handler(struct pt_regs *regs)
 		}
 		reset_current_kprobe();
 	} else {
+		/*
+		 * The probe was removed and a race is in progress.
+		 * There is nothing we can do about it.  Let's restart
+		 * the instruction.  By the time we can restart, the
+		 * real instruction will be there.
+		 */
 	}
 }
 
@@ -275,6 +314,13 @@ int __kprobes kprobe_fault_handler(struct pt_regs *regs, unsigned int fsr)
 	switch (kcb->kprobe_status) {
 	case KPROBE_HIT_SS:
 	case KPROBE_REENTER:
+		/*
+		 * We are here because the instruction being single
+		 * stepped caused a page fault. We reset the current
+		 * kprobe and the PC to point back to the probe address
+		 * and allow the page fault handler to continue as a
+		 * normal page fault.
+		 */
 		regs->ARM_pc = (long)cur->addr;
 		if (kcb->kprobe_status == KPROBE_REENTER) {
 			restore_previous_kprobe(kcb);
@@ -285,8 +331,20 @@ int __kprobes kprobe_fault_handler(struct pt_regs *regs, unsigned int fsr)
 
 	case KPROBE_HIT_ACTIVE:
 	case KPROBE_HIT_SSDONE:
+		/*
+		 * We increment the nmissed count for accounting,
+		 * we can also use npre/npostfault count for accounting
+		 * these specific fault cases.
+		 */
 		kprobes_inc_nmissed_count(cur);
 
+		/*
+		 * We come here because instructions in the pre/post
+		 * handler caused the page_fault, this could happen
+		 * if handler tries to access user space by
+		 * copy_from_user(), get_user() etc. Let the
+		 * user-specified handler try to fix it.
+		 */
 		if (cur->fault_handler && cur->fault_handler(cur, regs, fsr))
 			return 1;
 		break;
@@ -301,9 +359,21 @@ int __kprobes kprobe_fault_handler(struct pt_regs *regs, unsigned int fsr)
 int __kprobes kprobe_exceptions_notify(struct notifier_block *self,
 				       unsigned long val, void *data)
 {
+	/*
+	 * notify_die() is currently never called on ARM,
+	 * so this callback is currently empty.
+	 */
 	return NOTIFY_DONE;
 }
 
+/*
+ * When a retprobed function returns, trampoline_handler() is called,
+ * calling the kretprobe's handler. We construct a struct pt_regs to
+ * give a view of registers r0-r11 to the user return-handler.  This is
+ * not a complete pt_regs structure, but that should be plenty sufficient
+ * for kretprobe handlers which should normally be interested in r0 only
+ * anyway.
+ */
 void __naked __kprobes kretprobe_trampoline(void)
 {
 	__asm__ __volatile__ (
@@ -320,6 +390,7 @@ void __naked __kprobes kretprobe_trampoline(void)
 		: : : "memory");
 }
 
+/* Called from kretprobe_trampoline */
 static __used __kprobes void *trampoline_handler(struct pt_regs *regs)
 {
 	struct kretprobe_instance *ri = NULL;
@@ -331,9 +402,22 @@ static __used __kprobes void *trampoline_handler(struct pt_regs *regs)
 	INIT_HLIST_HEAD(&empty_rp);
 	kretprobe_hash_lock(current, &head, &flags);
 
+	/*
+	 * It is possible to have multiple instances associated with a given
+	 * task either because multiple functions in the call path have
+	 * a return probe installed on them, and/or more than one return
+	 * probe was registered for a target function.
+	 *
+	 * We can handle this because:
+	 *     - instances are always inserted at the head of the list
+	 *     - when multiple return probes are registered for the same
+	 *       function, the first instance's ret_addr will point to the
+	 *       real return address, and all the rest will point to
+	 *       kretprobe_trampoline
+	 */
 	hlist_for_each_entry_safe(ri, node, tmp, head, hlist) {
 		if (ri->task != current)
-			
+			/* another task is sharing our hash bucket */
 			continue;
 
 		if (ri->rp && ri->rp->handler) {
@@ -347,6 +431,11 @@ static __used __kprobes void *trampoline_handler(struct pt_regs *regs)
 		recycle_rp_inst(ri, &empty_rp);
 
 		if (orig_ret_address != trampoline_address)
+			/*
+			 * This is the real return address. Any other
+			 * instances associated with this task are for
+			 * other calls deeper on the call stack
+			 */
 			break;
 	}
 
@@ -366,7 +455,7 @@ void __kprobes arch_prepare_kretprobe(struct kretprobe_instance *ri,
 {
 	ri->ret_addr = (kprobe_opcode_t *)regs->ARM_lr;
 
-	
+	/* Replace the return addr with trampoline addr. */
 	regs->ARM_lr = (unsigned long)&kretprobe_trampoline;
 }
 
@@ -383,7 +472,7 @@ int __kprobes setjmp_pre_handler(struct kprobe *p, struct pt_regs *regs)
 
 	cpsr = regs->ARM_cpsr | PSR_I_BIT;
 #ifdef CONFIG_THUMB2_KERNEL
-	
+	/* Set correct Thumb state in cpsr */
 	if (regs->ARM_pc & 1)
 		cpsr |= PSR_T_BIT;
 	else
@@ -400,6 +489,18 @@ void __kprobes jprobe_return(void)
 	struct kprobe_ctlblk *kcb = get_kprobe_ctlblk();
 
 	__asm__ __volatile__ (
+		/*
+		 * Setup an empty pt_regs. Fill SP and PC fields as
+		 * they're needed by longjmp_break_handler.
+		 *
+		 * We allocate some slack between the original SP and start of
+		 * our fabricated regs. To be precise we want to have worst case
+		 * covered which is STMFD with all 16 regs so we allocate 2 *
+		 * sizeof(struct_pt_regs)).
+		 *
+		 * This is to prevent any simulated instruction from writing
+		 * over the regs when they are accessing the stack.
+		 */
 #ifdef CONFIG_THUMB2_KERNEL
 		"sub    r0, %0, %1		\n\t"
 		"mov    sp, r0			\n\t"
@@ -412,12 +513,16 @@ void __kprobes jprobe_return(void)
 		"mov    r0, sp			\n\t"
 		"bl     kprobe_handler		\n\t"
 
+		/*
+		 * Return to the context saved by setjmp_pre_handler
+		 * and restored by longjmp_break_handler.
+		 */
 #ifdef CONFIG_THUMB2_KERNEL
-		"ldr	lr, [sp, %2]		\n\t" 
-		"ldrd	r0, r1, [sp, %5]	\n\t" 
-		"ldr	r2, [sp, %4]		\n\t" 
-		"stmdb	lr!, {r0, r1, r2}	\n\t" 
-						      
+		"ldr	lr, [sp, %2]		\n\t" /* lr = saved sp */
+		"ldrd	r0, r1, [sp, %5]	\n\t" /* r0,r1 = saved lr,pc */
+		"ldr	r2, [sp, %4]		\n\t" /* r2 = saved psr */
+		"stmdb	lr!, {r0, r1, r2}	\n\t" /* push saved lr and */
+						      /* rfe context */
 		"ldmia	sp, {r0 - r12}		\n\t"
 		"mov	sp, lr			\n\t"
 		"ldr	lr, [sp], #4		\n\t"
@@ -488,7 +593,7 @@ static struct undef_hook kprobes_thumb32_break_hook = {
 	.fn		= kprobe_trap_handler,
 };
 
-#else  
+#else  /* !CONFIG_THUMB2_KERNEL */
 
 static struct undef_hook kprobes_arm_break_hook = {
 	.instr_mask	= 0x0fffffff,
@@ -498,7 +603,7 @@ static struct undef_hook kprobes_arm_break_hook = {
 	.fn		= kprobe_trap_handler,
 };
 
-#endif 
+#endif /* !CONFIG_THUMB2_KERNEL */
 
 int __init arch_init_kprobes()
 {

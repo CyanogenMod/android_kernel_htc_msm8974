@@ -34,6 +34,12 @@
 #include <asm/uasm.h>
 #include <asm/setup.h>
 
+/*
+ * TLB load/store/modify handlers.
+ *
+ * Only the fastpath gets synthesized at runtime, the slowpath for
+ * do_page_fault remains normal asm.
+ */
 extern void tlb_do_page_fault_0(void);
 extern void tlb_do_page_fault_1(void);
 
@@ -52,13 +58,13 @@ static struct tlb_reg_save handler_reg_save[NR_CPUS];
 
 static inline int r45k_bvahwbug(void)
 {
-	
+	/* XXX: We should probe for the presence of this bug, but we don't. */
 	return 0;
 }
 
 static inline int r4k_250MHZhwbug(void)
 {
-	
+	/* XXX: We should probe for the presence of this bug, but we don't. */
 	return 0;
 }
 
@@ -101,7 +107,11 @@ static bool scratchpad_available(void)
 }
 static int scratchpad_offset(int i)
 {
-	i += 1; 
+	/*
+	 * CVMSEG starts at address -32768 and extends for
+	 * CAVIUM_OCTEON_CVMSEG_SIZE 128 byte cache lines.
+	 */
+	i += 1; /* Kernel use starts at the top and works down. */
 	return CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE * 128 - (8 * i) - 32768;
 }
 #else
@@ -112,16 +122,26 @@ static bool scratchpad_available(void)
 static int scratchpad_offset(int i)
 {
 	BUG();
-	
+	/* Really unreachable, but evidently some GCC want this. */
 	return 0;
 }
 #endif
+/*
+ * Found by experiment: At least some revisions of the 4kc throw under
+ * some circumstances a machine check exception, triggered by invalid
+ * values in the index register.  Delaying the tlbp instruction until
+ * after the next branch,  plus adding an additional nop in front of
+ * tlbwi/tlbwr avoids the invalid index register values. Nobody knows
+ * why; it's not an issue caused by the core RTL.
+ *
+ */
 static int __cpuinit m4kc_tlbp_war(void)
 {
 	return (current_cpu_data.processor_id & 0xffff00) ==
 	       (PRID_COMP_MIPS | PRID_IMP_4KC);
 }
 
+/* Handle labels (which must be positive integers). */
 enum label_id {
 	label_second_part = 1,
 	label_leave,
@@ -160,6 +180,9 @@ UASM_L_LA(_large_segbits_fault)
 UASM_L_LA(_tlb_huge_update)
 #endif
 
+/*
+ * For debug purposes.
+ */
 static inline void dump_handler(const u32 *handler, int count)
 {
 	int i;
@@ -173,9 +196,11 @@ static inline void dump_handler(const u32 *handler, int count)
 	pr_debug("\t.set pop\n");
 }
 
+/* The only general purpose registers allowed in TLB handlers. */
 #define K0		26
 #define K1		27
 
+/* Some CP0 registers */
 #define C0_INDEX	0, 0
 #define C0_ENTRYLO0	2, 0
 #define C0_TCBIND	2, 2
@@ -193,8 +218,17 @@ static inline void dump_handler(const u32 *handler, int count)
 # define GET_CONTEXT(buf, reg) UASM_i_MFC0(buf, reg, C0_CONTEXT)
 #endif
 
+/* The worst case length of the handler is around 18 instructions for
+ * R3000-style TLBs and up to 63 instructions for R4000-style TLBs.
+ * Maximum space available is 32 instructions for R3000 and 64
+ * instructions for R4000.
+ *
+ * We deliberately chose a buffer size of 128, so we won't scribble
+ * over anything important on overflow before we panic.
+ */
 static u32 tlb_handler[128] __cpuinitdata;
 
+/* simply assume worst case size for labels and relocs */
 static struct uasm_label labels[128] __cpuinitdata;
 static struct uasm_reloc relocs[128] __cpuinitdata;
 
@@ -216,7 +250,7 @@ static int __cpuinit allocate_kscratch(void)
 	if (r == 0)
 		return -1;
 
-	r--; 
+	r--; /* make it zero based */
 
 	kscratch_used_mask |= (1 << r);
 
@@ -236,7 +270,7 @@ static struct work_registers __cpuinit build_get_work_registers(u32 **p)
 	int smp_processor_id_shift;
 
 	if (scratch_reg > 0) {
-		
+		/* Save in CPU local C0_KScratch? */
 		UASM_i_MTC0(p, 1, 31, scratch_reg);
 		r.r1 = K0;
 		r.r2 = K1;
@@ -247,25 +281,25 @@ static struct work_registers __cpuinit build_get_work_registers(u32 **p)
 	if (num_possible_cpus() > 1) {
 #ifdef CONFIG_MIPS_PGD_C0_CONTEXT
 		smp_processor_id_shift = 51;
-		smp_processor_id_reg = 20; 
+		smp_processor_id_reg = 20; /* XContext */
 		smp_processor_id_sel = 0;
 #else
 # ifdef CONFIG_32BIT
 		smp_processor_id_shift = 25;
-		smp_processor_id_reg = 4; 
+		smp_processor_id_reg = 4; /* Context */
 		smp_processor_id_sel = 0;
 # endif
 # ifdef CONFIG_64BIT
 		smp_processor_id_shift = 26;
-		smp_processor_id_reg = 4; 
+		smp_processor_id_reg = 4; /* Context */
 		smp_processor_id_sel = 0;
 # endif
 #endif
-		
+		/* Get smp_processor_id */
 		UASM_i_MFC0(p, K0, smp_processor_id_reg, smp_processor_id_sel);
 		UASM_i_SRL_SAFE(p, K0, K0, smp_processor_id_shift);
 
-		
+		/* handler_reg_save index in K0 */
 		UASM_i_SLL(p, K0, K0, ilog2(sizeof(struct tlb_reg_save)));
 
 		UASM_i_LA(p, K1, (long)&handler_reg_save);
@@ -273,7 +307,7 @@ static struct work_registers __cpuinit build_get_work_registers(u32 **p)
 	} else {
 		UASM_i_LA(p, K0, (long)&handler_reg_save);
 	}
-	
+	/* K0 now points to save area, save $1 and $2  */
 	UASM_i_SW(p, 1, offsetof(struct tlb_reg_save, a), K0);
 	UASM_i_SW(p, 2, offsetof(struct tlb_reg_save, b), K0);
 
@@ -289,15 +323,25 @@ static void __cpuinit build_restore_work_registers(u32 **p)
 		UASM_i_MFC0(p, 1, 31, scratch_reg);
 		return;
 	}
-	
+	/* K0 already points to save area, restore $1 and $2  */
 	UASM_i_LW(p, 1, offsetof(struct tlb_reg_save, a), K0);
 	UASM_i_LW(p, 2, offsetof(struct tlb_reg_save, b), K0);
 }
 
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
 
+/*
+ * CONFIG_MIPS_PGD_C0_CONTEXT implies 64 bit and lack of pgd_current,
+ * we cannot do r3000 under these circumstances.
+ *
+ * Declare pgd_current here instead of including mmu_context.h to avoid type
+ * conflicts for tlbmiss_handler_setup_pgd
+ */
 extern unsigned long pgd_current[];
 
+/*
+ * The R3000 TLB handler is simple.
+ */
 static void __cpuinit build_r3000_tlb_refill_handler(void)
 {
 	long pgdc = (long)pgd_current;
@@ -307,22 +351,22 @@ static void __cpuinit build_r3000_tlb_refill_handler(void)
 	p = tlb_handler;
 
 	uasm_i_mfc0(&p, K0, C0_BADVADDR);
-	uasm_i_lui(&p, K1, uasm_rel_hi(pgdc)); 
+	uasm_i_lui(&p, K1, uasm_rel_hi(pgdc)); /* cp0 delay */
 	uasm_i_lw(&p, K1, uasm_rel_lo(pgdc), K1);
-	uasm_i_srl(&p, K0, K0, 22); 
+	uasm_i_srl(&p, K0, K0, 22); /* load delay */
 	uasm_i_sll(&p, K0, K0, 2);
 	uasm_i_addu(&p, K1, K1, K0);
 	uasm_i_mfc0(&p, K0, C0_CONTEXT);
-	uasm_i_lw(&p, K1, 0, K1); 
-	uasm_i_andi(&p, K0, K0, 0xffc); 
+	uasm_i_lw(&p, K1, 0, K1); /* cp0 delay */
+	uasm_i_andi(&p, K0, K0, 0xffc); /* load delay */
 	uasm_i_addu(&p, K1, K1, K0);
 	uasm_i_lw(&p, K0, 0, K1);
-	uasm_i_nop(&p); 
+	uasm_i_nop(&p); /* load delay */
 	uasm_i_mtc0(&p, K0, C0_ENTRYLO0);
-	uasm_i_mfc0(&p, K1, C0_EPC); 
-	uasm_i_tlbwr(&p); 
+	uasm_i_mfc0(&p, K1, C0_EPC); /* cp0 delay */
+	uasm_i_tlbwr(&p); /* cp0 delay */
 	uasm_i_jr(&p, K1);
-	uasm_i_rfe(&p); 
+	uasm_i_rfe(&p); /* branch delay */
 
 	if (p > tlb_handler + 32)
 		panic("TLB refill handler space exceeded");
@@ -334,14 +378,43 @@ static void __cpuinit build_r3000_tlb_refill_handler(void)
 
 	dump_handler((u32 *)ebase, 32);
 }
-#endif 
+#endif /* CONFIG_MIPS_PGD_C0_CONTEXT */
 
+/*
+ * The R4000 TLB handler is much more complicated. We have two
+ * consecutive handler areas with 32 instructions space each.
+ * Since they aren't used at the same time, we can overflow in the
+ * other one.To keep things simple, we first assume linear space,
+ * then we relocate it to the final handler layout as needed.
+ */
 static u32 final_handler[64] __cpuinitdata;
 
+/*
+ * Hazards
+ *
+ * From the IDT errata for the QED RM5230 (Nevada), processor revision 1.0:
+ * 2. A timing hazard exists for the TLBP instruction.
+ *
+ *      stalling_instruction
+ *      TLBP
+ *
+ * The JTLB is being read for the TLBP throughout the stall generated by the
+ * previous instruction. This is not really correct as the stalling instruction
+ * can modify the address used to access the JTLB.  The failure symptom is that
+ * the TLBP instruction will use an address created for the stalling instruction
+ * and not the address held in C0_ENHI and thus report the wrong results.
+ *
+ * The software work-around is to not allow the instruction preceding the TLBP
+ * to stall - make it an NOP or some other instruction guaranteed not to stall.
+ *
+ * Errata 2 will not be fixed.  This errata is also on the R5000.
+ *
+ * As if we MIPS hackers wouldn't know how to nop pipelines happy ...
+ */
 static void __cpuinit __maybe_unused build_tlb_probe_entry(u32 **p)
 {
 	switch (current_cpu_type()) {
-	
+	/* Found by experiment: R4600 v2.0/R4700 needs this, too.  */
 	case CPU_R4600:
 	case CPU_R4700:
 	case CPU_R5000:
@@ -357,6 +430,10 @@ static void __cpuinit __maybe_unused build_tlb_probe_entry(u32 **p)
 	}
 }
 
+/*
+ * Write random or indexed TLB entry, and care about the hazards from
+ * the preceding mtc0 and for the following eret.
+ */
 enum tlb_write_entry { tlb_random, tlb_indexed };
 
 static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
@@ -384,6 +461,10 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 	case CPU_R4400PC:
 	case CPU_R4400SC:
 	case CPU_R4400MC:
+		/*
+		 * This branch uses up a mtc0 hazard nop slot and saves
+		 * two nops after the tlbw instruction.
+		 */
 		uasm_il_bgezl(p, r, 0, label_tlbw_hazard);
 		tlbw(p);
 		uasm_l_tlbw_hazard(l, *p);
@@ -432,7 +513,11 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 		break;
 
 	case CPU_NEVADA:
-		uasm_i_nop(p); 
+		uasm_i_nop(p); /* QED specifies 2 nops hazard */
+		/*
+		 * This branch uses up a mtc0 hazard nop slot and saves
+		 * a nop after the tlbw instruction.
+		 */
 		uasm_il_bgezl(p, r, 0, label_tlbw_hazard);
 		tlbw(p);
 		uasm_l_tlbw_hazard(l, *p);
@@ -447,6 +532,12 @@ static void __cpuinit build_tlb_write_entry(u32 **p, struct uasm_label **l,
 		break;
 
 	case CPU_RM9000:
+		/*
+		 * When the JTLB is updated by tlbwi or tlbwr, a subsequent
+		 * use of the JTLB for instructions should not occur for 4
+		 * cpu cycles and use for data translations should not occur
+		 * for 3 cpu cycles.
+		 */
 		uasm_i_ssnop(p);
 		uasm_i_ssnop(p);
 		uasm_i_ssnop(p);
@@ -514,7 +605,7 @@ static __cpuinit void build_restore_pagemask(u32 **p,
 					     int restore_scratch)
 {
 	if (restore_scratch) {
-		
+		/* Reset default page size */
 		if (PM_DEFAULT_MASK >> 16) {
 			uasm_i_lui(p, tmp, PM_DEFAULT_MASK >> 16);
 			uasm_i_ori(p, tmp, tmp, PM_DEFAULT_MASK & 0xffff);
@@ -533,7 +624,7 @@ static __cpuinit void build_restore_pagemask(u32 **p,
 		else
 			UASM_i_LW(p, 1, scratchpad_offset(0), 0);
 	} else {
-		
+		/* Reset default page size */
 		if (PM_DEFAULT_MASK >> 16) {
 			uasm_i_lui(p, tmp, PM_DEFAULT_MASK >> 16);
 			uasm_i_ori(p, tmp, tmp, PM_DEFAULT_MASK & 0xffff);
@@ -557,7 +648,7 @@ static __cpuinit void build_huge_tlb_write_entry(u32 **p,
 						 enum tlb_write_entry wmode,
 						 int restore_scratch)
 {
-	
+	/* Set huge page tlb entry size */
 	uasm_i_lui(p, tmp, PM_HUGE_MASK >> 16);
 	uasm_i_ori(p, tmp, tmp, PM_HUGE_MASK & 0xffff);
 	uasm_i_mtc0(p, tmp, C0_PAGEMASK);
@@ -567,6 +658,9 @@ static __cpuinit void build_huge_tlb_write_entry(u32 **p,
 	build_restore_pagemask(p, r, tmp, label_leave, restore_scratch);
 }
 
+/*
+ * Check if Huge PTE is present, if so then jump to LABEL.
+ */
 static void __cpuinit
 build_is_huge_pte(u32 **p, struct uasm_reloc **r, unsigned int tmp,
 		unsigned int pmd, int lid)
@@ -586,21 +680,30 @@ static __cpuinit void build_huge_update_entries(u32 **p,
 {
 	int small_sequence;
 
+	/*
+	 * A huge PTE describes an area the size of the
+	 * configured huge page size. This is twice the
+	 * of the large TLB entry size we intend to use.
+	 * A TLB entry half the size of the configured
+	 * huge page size is configured into entrylo0
+	 * and entrylo1 to cover the contiguous huge PTE
+	 * address space.
+	 */
 	small_sequence = (HPAGE_SIZE >> 7) < 0x10000;
 
-	
+	/* We can clobber tmp.  It isn't used after this.*/
 	if (!small_sequence)
 		uasm_i_lui(p, tmp, HPAGE_SIZE >> (7 + 16));
 
 	build_convert_pte_to_entrylo(p, pte);
-	UASM_i_MTC0(p, pte, C0_ENTRYLO0); 
-	
+	UASM_i_MTC0(p, pte, C0_ENTRYLO0); /* load it */
+	/* convert to entrylo1 */
 	if (small_sequence)
 		UASM_i_ADDIU(p, pte, pte, HPAGE_SIZE >> 7);
 	else
 		UASM_i_ADDU(p, pte, pte, tmp);
 
-	UASM_i_MTC0(p, pte, C0_ENTRYLO1); 
+	UASM_i_MTC0(p, pte, C0_ENTRYLO1); /* load it */
 }
 
 static __cpuinit void build_huge_handler_tail(u32 **p,
@@ -612,16 +715,20 @@ static __cpuinit void build_huge_handler_tail(u32 **p,
 #ifdef CONFIG_SMP
 	UASM_i_SC(p, pte, 0, ptr);
 	uasm_il_beqz(p, r, pte, label_tlb_huge_update);
-	UASM_i_LW(p, pte, 0, ptr); 
+	UASM_i_LW(p, pte, 0, ptr); /* Needed because SC killed our PTE */
 #else
 	UASM_i_SW(p, pte, 0, ptr);
 #endif
 	build_huge_update_entries(p, pte, ptr);
 	build_huge_tlb_write_entry(p, l, r, pte, tlb_indexed, 0);
 }
-#endif 
+#endif /* CONFIG_HUGETLB_PAGE */
 
 #ifdef CONFIG_64BIT
+/*
+ * TMP and PTR are scratch.
+ * TMP will be clobbered, PTR will hold the pmd entry.
+ */
 static void __cpuinit
 build_get_pmde64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 		 unsigned int tmp, unsigned int ptr)
@@ -629,35 +736,59 @@ build_get_pmde64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
 	long pgdc = (long)pgd_current;
 #endif
+	/*
+	 * The vmalloc handling is not in the hotpath.
+	 */
 	uasm_i_dmfc0(p, tmp, C0_BADVADDR);
 
 	if (check_for_high_segbits) {
+		/*
+		 * The kernel currently implicitely assumes that the
+		 * MIPS SEGBITS parameter for the processor is
+		 * (PGDIR_SHIFT+PGDIR_BITS) or less, and will never
+		 * allocate virtual addresses outside the maximum
+		 * range for SEGBITS = (PGDIR_SHIFT+PGDIR_BITS). But
+		 * that doesn't prevent user code from accessing the
+		 * higher xuseg addresses.  Here, we make sure that
+		 * everything but the lower xuseg addresses goes down
+		 * the module_alloc/vmalloc path.
+		 */
 		uasm_i_dsrl_safe(p, ptr, tmp, PGDIR_SHIFT + PGD_ORDER + PAGE_SHIFT - 3);
 		uasm_il_bnez(p, r, ptr, label_vmalloc);
 	} else {
 		uasm_il_bltz(p, r, tmp, label_vmalloc);
 	}
-	
+	/* No uasm_i_nop needed here, since the next insn doesn't touch TMP. */
 
 #ifdef CONFIG_MIPS_PGD_C0_CONTEXT
 	if (pgd_reg != -1) {
-		
+		/* pgd is in pgd_reg */
 		UASM_i_MFC0(p, ptr, 31, pgd_reg);
 	} else {
+		/*
+		 * &pgd << 11 stored in CONTEXT [23..63].
+		 */
 		UASM_i_MFC0(p, ptr, C0_CONTEXT);
 
-		
+		/* Clear lower 23 bits of context. */
 		uasm_i_dins(p, ptr, 0, 0, 23);
 
-		
+		/* 1 0  1 0 1  << 6  xkphys cached */
 		uasm_i_ori(p, ptr, ptr, 0x540);
 		uasm_i_drotr(p, ptr, ptr, 11);
 	}
 #elif defined(CONFIG_SMP)
 # ifdef  CONFIG_MIPS_MT_SMTC
+	/*
+	 * SMTC uses TCBind value as "CPU" index
+	 */
 	uasm_i_mfc0(p, ptr, C0_TCBIND);
 	uasm_i_dsrl_safe(p, ptr, ptr, 19);
 # else
+	/*
+	 * 64 bit SMP running in XKPHYS has smp_processor_id() << 3
+	 * stored in CONTEXT.
+	 */
 	uasm_i_dmfc0(p, ptr, C0_CONTEXT);
 	uasm_i_dsrl_safe(p, ptr, ptr, 23);
 # endif
@@ -672,20 +803,24 @@ build_get_pmde64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 
 	uasm_l_vmalloc_done(l, *p);
 
-	
+	/* get pgd offset in bytes */
 	uasm_i_dsrl_safe(p, tmp, tmp, PGDIR_SHIFT - 3);
 
 	uasm_i_andi(p, tmp, tmp, (PTRS_PER_PGD - 1)<<3);
-	uasm_i_daddu(p, ptr, ptr, tmp); 
+	uasm_i_daddu(p, ptr, ptr, tmp); /* add in pgd offset */
 #ifndef __PAGETABLE_PMD_FOLDED
-	uasm_i_dmfc0(p, tmp, C0_BADVADDR); 
-	uasm_i_ld(p, ptr, 0, ptr); 
-	uasm_i_dsrl_safe(p, tmp, tmp, PMD_SHIFT-3); 
+	uasm_i_dmfc0(p, tmp, C0_BADVADDR); /* get faulting address */
+	uasm_i_ld(p, ptr, 0, ptr); /* get pmd pointer */
+	uasm_i_dsrl_safe(p, tmp, tmp, PMD_SHIFT-3); /* get pmd offset in bytes */
 	uasm_i_andi(p, tmp, tmp, (PTRS_PER_PMD - 1)<<3);
-	uasm_i_daddu(p, ptr, ptr, tmp); 
+	uasm_i_daddu(p, ptr, ptr, tmp); /* add in pmd offset */
 #endif
 }
 
+/*
+ * BVADDR is the faulting address, PTR is scratch.
+ * PTR will hold the pgd for vmalloc.
+ */
 static void __cpuinit
 build_get_pgd_vmalloc64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 			unsigned int bvaddr, unsigned int ptr,
@@ -704,7 +839,7 @@ build_get_pgd_vmalloc64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 			uasm_il_bltz(p, r, bvaddr, label_vmalloc_done);
 			uasm_i_lui(p, ptr, uasm_rel_hi(swpd));
 			did_vmalloc_branch = 1;
-			
+			/* fall through */
 		} else {
 			uasm_il_bgez(p, r, bvaddr, label_large_segbits_fault);
 		}
@@ -724,6 +859,18 @@ build_get_pgd_vmalloc64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 	}
 	if (mode != not_refill && check_for_high_segbits) {
 		uasm_l_large_segbits_fault(l, *p);
+		/*
+		 * We get here if we are an xsseg address, or if we are
+		 * an xuseg address above (PGDIR_SHIFT+PGDIR_BITS) boundary.
+		 *
+		 * Ignoring xsseg (assume disabled so would generate
+		 * (address errors?), the only remaining possibility
+		 * is the upper xuseg addresses.  On processors with
+		 * TLB_SEGBITS <= PGDIR_SHIFT+PGDIR_BITS, these
+		 * addresses would have taken an address error. We try
+		 * to mimic that here by taking a load/istream page
+		 * fault.
+		 */
 		UASM_i_LA(p, ptr, (unsigned long)tlb_do_page_fault_0);
 		uasm_i_jr(p, ptr);
 
@@ -738,20 +885,30 @@ build_get_pgd_vmalloc64(u32 **p, struct uasm_label **l, struct uasm_reloc **r,
 	}
 }
 
-#else 
+#else /* !CONFIG_64BIT */
 
+/*
+ * TMP and PTR are scratch.
+ * TMP will be clobbered, PTR will hold the pgd entry.
+ */
 static void __cpuinit __maybe_unused
 build_get_pgde32(u32 **p, unsigned int tmp, unsigned int ptr)
 {
 	long pgdc = (long)pgd_current;
 
-	
+	/* 32 bit SMP has smp_processor_id() stored in CONTEXT. */
 #ifdef CONFIG_SMP
 #ifdef  CONFIG_MIPS_MT_SMTC
+	/*
+	 * SMTC uses TCBind value as "CPU" index
+	 */
 	uasm_i_mfc0(p, ptr, C0_TCBIND);
 	UASM_i_LA_mostly(p, tmp, pgdc);
 	uasm_i_srl(p, ptr, ptr, 19);
 #else
+	/*
+	 * smp_processor_id() << 3 is stored in CONTEXT.
+         */
 	uasm_i_mfc0(p, ptr, C0_CONTEXT);
 	UASM_i_LA_mostly(p, tmp, pgdc);
 	uasm_i_srl(p, ptr, ptr, 23);
@@ -760,14 +917,14 @@ build_get_pgde32(u32 **p, unsigned int tmp, unsigned int ptr)
 #else
 	UASM_i_LA_mostly(p, ptr, pgdc);
 #endif
-	uasm_i_mfc0(p, tmp, C0_BADVADDR); 
+	uasm_i_mfc0(p, tmp, C0_BADVADDR); /* get faulting address */
 	uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
-	uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); 
+	uasm_i_srl(p, tmp, tmp, PGDIR_SHIFT); /* get pgd only bits */
 	uasm_i_sll(p, tmp, tmp, PGD_T_LOG2);
-	uasm_i_addu(p, ptr, ptr, tmp); 
+	uasm_i_addu(p, ptr, ptr, tmp); /* add in pgd offset */
 }
 
-#endif 
+#endif /* !CONFIG_64BIT */
 
 static void __cpuinit build_adjust_context(u32 **p, unsigned int ctx)
 {
@@ -797,54 +954,65 @@ static void __cpuinit build_adjust_context(u32 **p, unsigned int ctx)
 
 static void __cpuinit build_get_ptep(u32 **p, unsigned int tmp, unsigned int ptr)
 {
+	/*
+	 * Bug workaround for the Nevada. It seems as if under certain
+	 * circumstances the move from cp0_context might produce a
+	 * bogus result when the mfc0 instruction and its consumer are
+	 * in a different cacheline or a load instruction, probably any
+	 * memory reference, is between them.
+	 */
 	switch (current_cpu_type()) {
 	case CPU_NEVADA:
 		UASM_i_LW(p, ptr, 0, ptr);
-		GET_CONTEXT(p, tmp); 
+		GET_CONTEXT(p, tmp); /* get context reg */
 		break;
 
 	default:
-		GET_CONTEXT(p, tmp); 
+		GET_CONTEXT(p, tmp); /* get context reg */
 		UASM_i_LW(p, ptr, 0, ptr);
 		break;
 	}
 
 	build_adjust_context(p, tmp);
-	UASM_i_ADDU(p, ptr, ptr, tmp); 
+	UASM_i_ADDU(p, ptr, ptr, tmp); /* add in offset */
 }
 
 static void __cpuinit build_update_entries(u32 **p, unsigned int tmp,
 					unsigned int ptep)
 {
+	/*
+	 * 64bit address support (36bit on a 32bit CPU) in a 32bit
+	 * Kernel is a special case. Only a few CPUs use it.
+	 */
 #ifdef CONFIG_64BIT_PHYS_ADDR
 	if (cpu_has_64bits) {
-		uasm_i_ld(p, tmp, 0, ptep); 
-		uasm_i_ld(p, ptep, sizeof(pte_t), ptep); 
+		uasm_i_ld(p, tmp, 0, ptep); /* get even pte */
+		uasm_i_ld(p, ptep, sizeof(pte_t), ptep); /* get odd pte */
 		if (kernel_uses_smartmips_rixi) {
 			UASM_i_SRL(p, tmp, tmp, ilog2(_PAGE_NO_EXEC));
 			UASM_i_SRL(p, ptep, ptep, ilog2(_PAGE_NO_EXEC));
 			UASM_i_ROTR(p, tmp, tmp, ilog2(_PAGE_GLOBAL) - ilog2(_PAGE_NO_EXEC));
-			UASM_i_MTC0(p, tmp, C0_ENTRYLO0); 
+			UASM_i_MTC0(p, tmp, C0_ENTRYLO0); /* load it */
 			UASM_i_ROTR(p, ptep, ptep, ilog2(_PAGE_GLOBAL) - ilog2(_PAGE_NO_EXEC));
 		} else {
-			uasm_i_dsrl_safe(p, tmp, tmp, ilog2(_PAGE_GLOBAL)); 
-			UASM_i_MTC0(p, tmp, C0_ENTRYLO0); 
-			uasm_i_dsrl_safe(p, ptep, ptep, ilog2(_PAGE_GLOBAL)); 
+			uasm_i_dsrl_safe(p, tmp, tmp, ilog2(_PAGE_GLOBAL)); /* convert to entrylo0 */
+			UASM_i_MTC0(p, tmp, C0_ENTRYLO0); /* load it */
+			uasm_i_dsrl_safe(p, ptep, ptep, ilog2(_PAGE_GLOBAL)); /* convert to entrylo1 */
 		}
-		UASM_i_MTC0(p, ptep, C0_ENTRYLO1); 
+		UASM_i_MTC0(p, ptep, C0_ENTRYLO1); /* load it */
 	} else {
 		int pte_off_even = sizeof(pte_t) / 2;
 		int pte_off_odd = pte_off_even + sizeof(pte_t);
 
-		
-		uasm_i_lw(p, tmp, pte_off_even, ptep); 
-		UASM_i_MTC0(p, tmp, C0_ENTRYLO0); 
-		uasm_i_lw(p, ptep, pte_off_odd, ptep); 
-		UASM_i_MTC0(p, ptep, C0_ENTRYLO1); 
+		/* The pte entries are pre-shifted */
+		uasm_i_lw(p, tmp, pte_off_even, ptep); /* get even pte */
+		UASM_i_MTC0(p, tmp, C0_ENTRYLO0); /* load it */
+		uasm_i_lw(p, ptep, pte_off_odd, ptep); /* get odd pte */
+		UASM_i_MTC0(p, ptep, C0_ENTRYLO1); /* load it */
 	}
 #else
-	UASM_i_LW(p, tmp, 0, ptep); 
-	UASM_i_LW(p, ptep, sizeof(pte_t), ptep); 
+	UASM_i_LW(p, tmp, 0, ptep); /* get even pte */
+	UASM_i_LW(p, ptep, sizeof(pte_t), ptep); /* get odd pte */
 	if (r45k_bvahwbug())
 		build_tlb_probe_entry(p);
 	if (kernel_uses_smartmips_rixi) {
@@ -853,20 +1021,20 @@ static void __cpuinit build_update_entries(u32 **p, unsigned int tmp,
 		UASM_i_ROTR(p, tmp, tmp, ilog2(_PAGE_GLOBAL) - ilog2(_PAGE_NO_EXEC));
 		if (r4k_250MHZhwbug())
 			UASM_i_MTC0(p, 0, C0_ENTRYLO0);
-		UASM_i_MTC0(p, tmp, C0_ENTRYLO0); 
+		UASM_i_MTC0(p, tmp, C0_ENTRYLO0); /* load it */
 		UASM_i_ROTR(p, ptep, ptep, ilog2(_PAGE_GLOBAL) - ilog2(_PAGE_NO_EXEC));
 	} else {
-		UASM_i_SRL(p, tmp, tmp, ilog2(_PAGE_GLOBAL)); 
+		UASM_i_SRL(p, tmp, tmp, ilog2(_PAGE_GLOBAL)); /* convert to entrylo0 */
 		if (r4k_250MHZhwbug())
 			UASM_i_MTC0(p, 0, C0_ENTRYLO0);
-		UASM_i_MTC0(p, tmp, C0_ENTRYLO0); 
-		UASM_i_SRL(p, ptep, ptep, ilog2(_PAGE_GLOBAL)); 
+		UASM_i_MTC0(p, tmp, C0_ENTRYLO0); /* load it */
+		UASM_i_SRL(p, ptep, ptep, ilog2(_PAGE_GLOBAL)); /* convert to entrylo1 */
 		if (r45k_bvahwbug())
 			uasm_i_mfc0(p, tmp, C0_INDEX);
 	}
 	if (r4k_250MHZhwbug())
 		UASM_i_MTC0(p, 0, C0_ENTRYLO1);
-	UASM_i_MTC0(p, ptep, C0_ENTRYLO1); 
+	UASM_i_MTC0(p, ptep, C0_ENTRYLO1); /* load it */
 #endif
 }
 
@@ -883,7 +1051,7 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 	struct mips_huge_tlb_info rv;
 	unsigned int even, odd;
 	int vmalloc_branch_delay_filled = 0;
-	const int scratch = 1; 
+	const int scratch = 1; /* Our extra working register */
 
 	rv.huge_pte = scratch;
 	rv.restore_scratch = 0;
@@ -907,7 +1075,7 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 
 		if (pgd_reg == -1) {
 			vmalloc_branch_delay_filled = 1;
-			
+			/* Clear lower 23 bits of context. */
 			uasm_i_dins(p, ptr, 0, 0, 23);
 		}
 	} else {
@@ -924,7 +1092,7 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 			UASM_i_SW(p, scratch, scratchpad_offset(0), 0);
 
 		if (pgd_reg == -1)
-			
+			/* Clear lower 23 bits of context. */
 			uasm_i_dins(p, ptr, 0, 0, 23);
 
 		uasm_il_bltz(p, r, tmp, label_vmalloc);
@@ -932,7 +1100,7 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 
 	if (pgd_reg == -1) {
 		vmalloc_branch_delay_filled = 1;
-		
+		/* 1 0  1 0 1  << 6  xkphys cached */
 		uasm_i_ori(p, ptr, ptr, 0x540);
 		uasm_i_drotr(p, ptr, ptr, 11);
 	}
@@ -944,52 +1112,62 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 #endif
 
 	if (!vmalloc_branch_delay_filled)
-		
+		/* get pgd offset in bytes */
 		uasm_i_dsrl_safe(p, scratch, tmp, PGDIR_SHIFT - 3);
 
 	uasm_l_vmalloc_done(l, *p);
 
+	/*
+	 *                         tmp          ptr
+	 * fall-through case =   badvaddr  *pgd_current
+	 * vmalloc case      =   badvaddr  swapper_pg_dir
+	 */
 
 	if (vmalloc_branch_delay_filled)
-		
+		/* get pgd offset in bytes */
 		uasm_i_dsrl_safe(p, scratch, tmp, PGDIR_SHIFT - 3);
 
 #ifdef __PAGETABLE_PMD_FOLDED
-	GET_CONTEXT(p, tmp); 
+	GET_CONTEXT(p, tmp); /* get context reg */
 #endif
 	uasm_i_andi(p, scratch, scratch, (PTRS_PER_PGD - 1) << 3);
 
 	if (use_lwx_insns()) {
 		UASM_i_LWX(p, LOC_PTEP, scratch, ptr);
 	} else {
-		uasm_i_daddu(p, ptr, ptr, scratch); 
-		uasm_i_ld(p, LOC_PTEP, 0, ptr); 
+		uasm_i_daddu(p, ptr, ptr, scratch); /* add in pgd offset */
+		uasm_i_ld(p, LOC_PTEP, 0, ptr); /* get pmd pointer */
 	}
 
 #ifndef __PAGETABLE_PMD_FOLDED
-	
+	/* get pmd offset in bytes */
 	uasm_i_dsrl_safe(p, scratch, tmp, PMD_SHIFT - 3);
 	uasm_i_andi(p, scratch, scratch, (PTRS_PER_PMD - 1) << 3);
-	GET_CONTEXT(p, tmp); 
+	GET_CONTEXT(p, tmp); /* get context reg */
 
 	if (use_lwx_insns()) {
 		UASM_i_LWX(p, scratch, scratch, ptr);
 	} else {
-		uasm_i_daddu(p, ptr, ptr, scratch); 
+		uasm_i_daddu(p, ptr, ptr, scratch); /* add in pmd offset */
 		UASM_i_LW(p, scratch, 0, ptr);
 	}
 #endif
-	
+	/* Adjust the context during the load latency. */
 	build_adjust_context(p, tmp);
 
 #ifdef CONFIG_HUGETLB_PAGE
 	uasm_il_bbit1(p, r, scratch, ilog2(_PAGE_HUGE), label_tlb_huge_update);
+	/*
+	 * The in the LWX case we don't want to do the load in the
+	 * delay slot.  It cannot issue in the same cycle and may be
+	 * speculative and unneeded.
+	 */
 	if (use_lwx_insns())
 		uasm_i_nop(p);
-#endif 
+#endif /* CONFIG_HUGETLB_PAGE */
 
 
-	
+	/* build_update_entries */
 	if (use_lwx_insns()) {
 		even = ptr;
 		odd = tmp;
@@ -997,26 +1175,26 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 		UASM_i_ADDIU(p, tmp, tmp, sizeof(pte_t));
 		UASM_i_LWX(p, odd, scratch, tmp);
 	} else {
-		UASM_i_ADDU(p, ptr, scratch, tmp); 
+		UASM_i_ADDU(p, ptr, scratch, tmp); /* add in offset */
 		even = tmp;
 		odd = ptr;
-		UASM_i_LW(p, even, 0, ptr); 
-		UASM_i_LW(p, odd, sizeof(pte_t), ptr); 
+		UASM_i_LW(p, even, 0, ptr); /* get even pte */
+		UASM_i_LW(p, odd, sizeof(pte_t), ptr); /* get odd pte */
 	}
 	if (kernel_uses_smartmips_rixi) {
 		uasm_i_dsrl_safe(p, even, even, ilog2(_PAGE_NO_EXEC));
 		uasm_i_dsrl_safe(p, odd, odd, ilog2(_PAGE_NO_EXEC));
 		uasm_i_drotr(p, even, even,
 			     ilog2(_PAGE_GLOBAL) - ilog2(_PAGE_NO_EXEC));
-		UASM_i_MTC0(p, even, C0_ENTRYLO0); 
+		UASM_i_MTC0(p, even, C0_ENTRYLO0); /* load it */
 		uasm_i_drotr(p, odd, odd,
 			     ilog2(_PAGE_GLOBAL) - ilog2(_PAGE_NO_EXEC));
 	} else {
 		uasm_i_dsrl_safe(p, even, even, ilog2(_PAGE_GLOBAL));
-		UASM_i_MTC0(p, even, C0_ENTRYLO0); 
+		UASM_i_MTC0(p, even, C0_ENTRYLO0); /* load it */
 		uasm_i_dsrl_safe(p, odd, odd, ilog2(_PAGE_GLOBAL));
 	}
-	UASM_i_MTC0(p, odd, C0_ENTRYLO1); 
+	UASM_i_MTC0(p, odd, C0_ENTRYLO1); /* load it */
 
 	if (c0_scratch >= 0) {
 		UASM_i_MFC0(p, scratch, 31, c0_scratch);
@@ -1034,11 +1212,17 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
 		rv.restore_scratch = 1;
 	}
 
-	uasm_i_eret(p); 
+	uasm_i_eret(p); /* return from trap */
 
 	return rv;
 }
 
+/*
+ * For a 64-bit kernel, we are using the 64-bit XTLB refill exception
+ * because EXL == 0.  If we wrap, we can also use the 32 instruction
+ * slots before the XTLB refill exception handler which belong to the
+ * unused TLB refill exception.
+ */
 #define MIPS64_REFILL_INSNS 32
 
 static void __cpuinit build_r4000_tlb_refill_handler(void)
@@ -1064,6 +1248,9 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 		htlb_info.huge_pte = K0;
 		htlb_info.restore_scratch = 0;
 		vmalloc_mode = refill_noscratch;
+		/*
+		 * create the plain linear handler
+		 */
 		if (bcm1250_m3_war()) {
 			unsigned int segbits = 44;
 
@@ -1075,13 +1262,13 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 			uasm_i_dsll_safe(&p, K0, K0, 64 + 12 + 1 - segbits);
 			uasm_i_or(&p, K0, K0, K1);
 			uasm_il_bnez(&p, &r, K0, label_leave);
-			
+			/* No need for uasm_i_nop */
 		}
 
 #ifdef CONFIG_64BIT
-		build_get_pmde64(&p, &l, &r, K0, K1); 
+		build_get_pmde64(&p, &l, &r, K0, K1); /* get pmd in K1 */
 #else
-		build_get_pgde32(&p, K0, K1); 
+		build_get_pgde32(&p, K0, K1); /* get pgd in K1 */
 #endif
 
 #ifdef CONFIG_HUGETLB_PAGE
@@ -1092,7 +1279,7 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 		build_update_entries(&p, K0, K1);
 		build_tlb_write_entry(&p, &l, &r, tlb_random);
 		uasm_l_leave(&l, p);
-		uasm_i_eret(&p); 
+		uasm_i_eret(&p); /* return from trap */
 	}
 #ifdef CONFIG_HUGETLB_PAGE
 	uasm_l_tlb_huge_update(&l, p);
@@ -1105,7 +1292,14 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 	build_get_pgd_vmalloc64(&p, &l, &r, K0, K1, vmalloc_mode);
 #endif
 
-	
+	/*
+	 * Overflow check: For the 64bit handler, we need at least one
+	 * free instruction slot for the wrap-around branch. In worst
+	 * case, if the intended insertion point is a delay slot, we
+	 * need three, with the second nop'ed and the third being
+	 * unused.
+	 */
+	/* Loongson2 ebase is different than r4k, we have more space */
 #if defined(CONFIG_32BIT) || defined(CONFIG_CPU_LOONGSON2)
 	if ((p - tlb_handler) > 64)
 		panic("TLB refill handler space exceeded");
@@ -1117,15 +1311,18 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 		panic("TLB refill handler space exceeded");
 #endif
 
+	/*
+	 * Now fold the handler in the TLB refill handler space.
+	 */
 #if defined(CONFIG_32BIT) || defined(CONFIG_CPU_LOONGSON2)
 	f = final_handler;
-	
+	/* Simplest case, just copy the handler. */
 	uasm_copy_handler(relocs, labels, tlb_handler, p, f);
 	final_len = p - tlb_handler;
-#else 
+#else /* CONFIG_64BIT */
 	f = final_handler + MIPS64_REFILL_INSNS;
 	if ((p - tlb_handler) <= MIPS64_REFILL_INSNS) {
-		
+		/* Just copy the handler. */
 		uasm_copy_handler(relocs, labels, tlb_handler, p, f);
 		final_len = p - tlb_handler;
 	} else {
@@ -1143,22 +1340,35 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 		BUG_ON(i == ARRAY_SIZE(labels));
 		split = labels[i].addr;
 
+		/*
+		 * See if we have overflown one way or the other.
+		 */
 		if (split > tlb_handler + MIPS64_REFILL_INSNS ||
 		    split < p - MIPS64_REFILL_INSNS)
 			ov = 1;
 
 		if (ov) {
+			/*
+			 * Split two instructions before the end.  One
+			 * for the branch and one for the instruction
+			 * in the delay slot.
+			 */
 			split = tlb_handler + MIPS64_REFILL_INSNS - 2;
 
+			/*
+			 * If the branch would fall in a delay slot,
+			 * we must back up an additional instruction
+			 * so that it is no longer in a delay slot.
+			 */
 			if (uasm_insn_has_bdelay(relocs, split - 1))
 				split--;
 		}
-		
+		/* Copy first part of the handler. */
 		uasm_copy_handler(relocs, labels, tlb_handler, split, f);
 		f += split - tlb_handler;
 
 		if (ov) {
-			
+			/* Insert branch. */
 			uasm_l_split(&l, final_handler);
 			uasm_il_b(&f, &r, label_split);
 			if (uasm_insn_has_bdelay(relocs, split))
@@ -1172,12 +1382,12 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 			}
 		}
 
-		
+		/* Copy the rest of the handler. */
 		uasm_copy_handler(relocs, labels, split, p, final_handler);
 		final_len = (f - (final_handler + MIPS64_REFILL_INSNS)) +
 			    (p - split);
 	}
-#endif 
+#endif /* CONFIG_64BIT */
 
 	uasm_resolve_relocs(relocs, labels);
 	pr_debug("Wrote TLB refill handler (%u instructions).\n",
@@ -1188,6 +1398,10 @@ static void __cpuinit build_r4000_tlb_refill_handler(void)
 	dump_handler((u32 *)ebase, 64);
 }
 
+/*
+ * 128 instructions for the fastpath handler is generous and should
+ * never be exceeded.
+ */
 #define FASTPATH_SIZE 128
 
 u32 handle_tlbl[FASTPATH_SIZE] __cacheline_aligned;
@@ -1211,7 +1425,13 @@ static void __cpuinit build_r4000_setup_pgd(void)
 	pgd_reg = allocate_kscratch();
 
 	if (pgd_reg == -1) {
-		
+		/* PGD << 11 in c0_Context */
+		/*
+		 * If it is a ckseg0 address, convert to a physical
+		 * address.  Shifting right by 29 and adding 4 will
+		 * result in zero for these addresses.
+		 *
+		 */
 		UASM_i_SRA(&p, a1, a0, 29);
 		UASM_i_ADDIU(&p, a1, a1, 4);
 		uasm_il_bnez(&p, &r, a1, label_tlbl_goaround1);
@@ -1222,7 +1442,7 @@ static void __cpuinit build_r4000_setup_pgd(void)
 		uasm_i_jr(&p, 31);
 		UASM_i_MTC0(&p, a0, C0_CONTEXT);
 	} else {
-		
+		/* PGD in c0_KScratch */
 		uasm_i_jr(&p, 31);
 		UASM_i_MTC0(&p, a0, 31, pgd_reg);
 	}
@@ -1281,12 +1501,12 @@ iPTE_SW(u32 **p, struct uasm_reloc **r, unsigned int pte, unsigned int ptr,
 
 # ifdef CONFIG_64BIT_PHYS_ADDR
 	if (!cpu_has_64bits) {
-		
+		/* no uasm_i_nop needed */
 		uasm_i_ll(p, pte, sizeof(pte_t) / 2, ptr);
 		uasm_i_ori(p, pte, pte, hwmode);
 		uasm_i_sc(p, pte, sizeof(pte_t) / 2, ptr);
 		uasm_il_beqz(p, r, pte, label_smp_pgtable_change);
-		
+		/* no uasm_i_nop needed */
 		uasm_i_lw(p, pte, 0, ptr);
 	} else
 		uasm_i_nop(p);
@@ -1312,6 +1532,11 @@ iPTE_SW(u32 **p, struct uasm_reloc **r, unsigned int pte, unsigned int ptr,
 #endif
 }
 
+/*
+ * Check if PTE is present, if not then jump to LABEL. PTR points to
+ * the page table where this PTE is located, PTE will be re-loaded
+ * with it's original value.
+ */
 static void __cpuinit
 build_pte_present(u32 **p, struct uasm_reloc **r,
 		  int pte, int ptr, int scratch, enum label_id lid)
@@ -1326,7 +1551,7 @@ build_pte_present(u32 **p, struct uasm_reloc **r,
 			uasm_i_andi(p, t, pte, _PAGE_PRESENT);
 			uasm_il_beqz(p, r, t, lid);
 			if (pte == t)
-				
+				/* You lose the SMP race :-(*/
 				iPTE_LW(p, pte, ptr);
 		}
 	} else {
@@ -1334,11 +1559,12 @@ build_pte_present(u32 **p, struct uasm_reloc **r,
 		uasm_i_xori(p, t, t, _PAGE_PRESENT | _PAGE_READ);
 		uasm_il_bnez(p, r, t, lid);
 		if (pte == t)
-			
+			/* You lose the SMP race :-(*/
 			iPTE_LW(p, pte, ptr);
 	}
 }
 
+/* Make PTE valid, store result in PTR. */
 static void __cpuinit
 build_make_valid(u32 **p, struct uasm_reloc **r, unsigned int pte,
 		 unsigned int ptr)
@@ -1363,12 +1589,15 @@ build_pte_writable(u32 **p, struct uasm_reloc **r,
 	uasm_i_xori(p, t, t, _PAGE_PRESENT | _PAGE_WRITE);
 	uasm_il_bnez(p, r, t, lid);
 	if (pte == t)
-		
+		/* You lose the SMP race :-(*/
 		iPTE_LW(p, pte, ptr);
 	else
 		uasm_i_nop(p);
 }
 
+/* Make PTE writable, update software status bits as well, then store
+ * at PTR.
+ */
 static void __cpuinit
 build_make_write(u32 **p, struct uasm_reloc **r, unsigned int pte,
 		 unsigned int ptr)
@@ -1379,6 +1608,10 @@ build_make_write(u32 **p, struct uasm_reloc **r, unsigned int pte,
 	iPTE_SW(p, r, pte, ptr, mode);
 }
 
+/*
+ * Check if PTE can be modified, if not branch to LABEL. Regardless
+ * restore PTE with value from PTR when done.
+ */
 static void __cpuinit
 build_pte_modifiable(u32 **p, struct uasm_reloc **r,
 		     unsigned int pte, unsigned int ptr, int scratch,
@@ -1392,7 +1625,7 @@ build_pte_modifiable(u32 **p, struct uasm_reloc **r,
 		uasm_i_andi(p, t, pte, _PAGE_WRITE);
 		uasm_il_beqz(p, r, t, lid);
 		if (pte == t)
-			
+			/* You lose the SMP race :-(*/
 			iPTE_LW(p, pte, ptr);
 	}
 }
@@ -1400,33 +1633,46 @@ build_pte_modifiable(u32 **p, struct uasm_reloc **r,
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
 
 
+/*
+ * R3000 style TLB load/store/modify handlers.
+ */
 
+/*
+ * This places the pte into ENTRYLO0 and writes it with tlbwi.
+ * Then it returns.
+ */
 static void __cpuinit
 build_r3000_pte_reload_tlbwi(u32 **p, unsigned int pte, unsigned int tmp)
 {
-	uasm_i_mtc0(p, pte, C0_ENTRYLO0); 
-	uasm_i_mfc0(p, tmp, C0_EPC); 
+	uasm_i_mtc0(p, pte, C0_ENTRYLO0); /* cp0 delay */
+	uasm_i_mfc0(p, tmp, C0_EPC); /* cp0 delay */
 	uasm_i_tlbwi(p);
 	uasm_i_jr(p, tmp);
-	uasm_i_rfe(p); 
+	uasm_i_rfe(p); /* branch delay */
 }
 
+/*
+ * This places the pte into ENTRYLO0 and writes it with tlbwi
+ * or tlbwr as appropriate.  This is because the index register
+ * may have the probe fail bit set as a result of a trap on a
+ * kseg2 access, i.e. without refill.  Then it returns.
+ */
 static void __cpuinit
 build_r3000_tlb_reload_write(u32 **p, struct uasm_label **l,
 			     struct uasm_reloc **r, unsigned int pte,
 			     unsigned int tmp)
 {
 	uasm_i_mfc0(p, tmp, C0_INDEX);
-	uasm_i_mtc0(p, pte, C0_ENTRYLO0); 
-	uasm_il_bltz(p, r, tmp, label_r3000_write_probe_fail); 
-	uasm_i_mfc0(p, tmp, C0_EPC); 
-	uasm_i_tlbwi(p); 
+	uasm_i_mtc0(p, pte, C0_ENTRYLO0); /* cp0 delay */
+	uasm_il_bltz(p, r, tmp, label_r3000_write_probe_fail); /* cp0 delay */
+	uasm_i_mfc0(p, tmp, C0_EPC); /* branch delay */
+	uasm_i_tlbwi(p); /* cp0 delay */
 	uasm_i_jr(p, tmp);
-	uasm_i_rfe(p); 
+	uasm_i_rfe(p); /* branch delay */
 	uasm_l_r3000_write_probe_fail(l, *p);
-	uasm_i_tlbwr(p); 
+	uasm_i_tlbwr(p); /* cp0 delay */
 	uasm_i_jr(p, tmp);
-	uasm_i_rfe(p); 
+	uasm_i_rfe(p); /* branch delay */
 }
 
 static void __cpuinit
@@ -1436,17 +1682,17 @@ build_r3000_tlbchange_handler_head(u32 **p, unsigned int pte,
 	long pgdc = (long)pgd_current;
 
 	uasm_i_mfc0(p, pte, C0_BADVADDR);
-	uasm_i_lui(p, ptr, uasm_rel_hi(pgdc)); 
+	uasm_i_lui(p, ptr, uasm_rel_hi(pgdc)); /* cp0 delay */
 	uasm_i_lw(p, ptr, uasm_rel_lo(pgdc), ptr);
-	uasm_i_srl(p, pte, pte, 22); 
+	uasm_i_srl(p, pte, pte, 22); /* load delay */
 	uasm_i_sll(p, pte, pte, 2);
 	uasm_i_addu(p, ptr, ptr, pte);
 	uasm_i_mfc0(p, pte, C0_CONTEXT);
-	uasm_i_lw(p, ptr, 0, ptr); 
-	uasm_i_andi(p, pte, pte, 0xffc); 
+	uasm_i_lw(p, ptr, 0, ptr); /* cp0 delay */
+	uasm_i_andi(p, pte, pte, 0xffc); /* load delay */
 	uasm_i_addu(p, ptr, ptr, pte);
 	uasm_i_lw(p, pte, 0, ptr);
-	uasm_i_tlbp(p); 
+	uasm_i_tlbp(p); /* load delay */
 }
 
 static void __cpuinit build_r3000_tlb_load_handler(void)
@@ -1461,7 +1707,7 @@ static void __cpuinit build_r3000_tlb_load_handler(void)
 
 	build_r3000_tlbchange_handler_head(&p, K0, K1);
 	build_pte_present(&p, &r, K0, K1, -1, label_nopage_tlbl);
-	uasm_i_nop(&p); 
+	uasm_i_nop(&p); /* load delay */
 	build_make_valid(&p, &r, K0, K1);
 	build_r3000_tlb_reload_write(&p, &l, &r, K0, K1);
 
@@ -1491,7 +1737,7 @@ static void __cpuinit build_r3000_tlb_store_handler(void)
 
 	build_r3000_tlbchange_handler_head(&p, K0, K1);
 	build_pte_writable(&p, &r, K0, K1, -1, label_nopage_tlbs);
-	uasm_i_nop(&p); 
+	uasm_i_nop(&p); /* load delay */
 	build_make_write(&p, &r, K0, K1);
 	build_r3000_tlb_reload_write(&p, &l, &r, K0, K1);
 
@@ -1521,7 +1767,7 @@ static void __cpuinit build_r3000_tlb_modify_handler(void)
 
 	build_r3000_tlbchange_handler_head(&p, K0, K1);
 	build_pte_modifiable(&p, &r, K0, K1,  -1, label_nopage_tlbm);
-	uasm_i_nop(&p); 
+	uasm_i_nop(&p); /* load delay */
 	build_make_write(&p, &r, K0, K1);
 	build_r3000_pte_reload_tlbwi(&p, K0, K1);
 
@@ -1538,8 +1784,11 @@ static void __cpuinit build_r3000_tlb_modify_handler(void)
 
 	dump_handler(handle_tlbm, ARRAY_SIZE(handle_tlbm));
 }
-#endif 
+#endif /* CONFIG_MIPS_PGD_C0_CONTEXT */
 
+/*
+ * R4000 style TLB load/store/modify handlers.
+ */
 static struct work_registers __cpuinit
 build_r4000_tlbchange_handler_head(u32 **p, struct uasm_label **l,
 				   struct uasm_reloc **r)
@@ -1547,12 +1796,17 @@ build_r4000_tlbchange_handler_head(u32 **p, struct uasm_label **l,
 	struct work_registers wr = build_get_work_registers(p);
 
 #ifdef CONFIG_64BIT
-	build_get_pmde64(p, l, r, wr.r1, wr.r2); 
+	build_get_pmde64(p, l, r, wr.r1, wr.r2); /* get pmd in ptr */
 #else
-	build_get_pgde32(p, wr.r1, wr.r2); 
+	build_get_pgde32(p, wr.r1, wr.r2); /* get pgd in ptr */
 #endif
 
 #ifdef CONFIG_HUGETLB_PAGE
+	/*
+	 * For huge tlb entries, pmd doesn't contain an address but
+	 * instead contains the tlb pte. Check the PAGE_HUGE bit and
+	 * see if we need to jump to huge tlb processing.
+	 */
 	build_is_huge_pte(p, r, wr.r1, wr.r2, label_tlb_huge_update);
 #endif
 
@@ -1565,7 +1819,7 @@ build_r4000_tlbchange_handler_head(u32 **p, struct uasm_label **l,
 #ifdef CONFIG_SMP
 	uasm_l_smp_pgtable_change(l, *p);
 #endif
-	iPTE_LW(p, wr.r1, wr.r2); 
+	iPTE_LW(p, wr.r1, wr.r2); /* get even pte */
 	if (!m4kc_tlbp_war())
 		build_tlb_probe_entry(p);
 	return wr;
@@ -1582,7 +1836,7 @@ build_r4000_tlbchange_handler_tail(u32 **p, struct uasm_label **l,
 	build_tlb_write_entry(p, l, r, tlb_indexed);
 	uasm_l_leave(l, *p);
 	build_restore_work_registers(p);
-	uasm_i_eret(p); 
+	uasm_i_eret(p); /* return from trap */
 
 #ifdef CONFIG_64BIT
 	build_get_pgd_vmalloc64(p, l, r, tmp, ptr, not_refill);
@@ -1611,7 +1865,7 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 		uasm_i_dsll_safe(&p, K0, K0, 64 + 12 + 1 - segbits);
 		uasm_i_or(&p, K0, K0, K1);
 		uasm_il_bnez(&p, &r, K0, label_leave);
-		
+		/* No need for uasm_i_nop */
 	}
 
 	wr = build_r4000_tlbchange_handler_head(&p, &l, &r);
@@ -1620,6 +1874,10 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 		build_tlb_probe_entry(&p);
 
 	if (kernel_uses_smartmips_rixi) {
+		/*
+		 * If the page is not _PAGE_VALID, RI or XI could not
+		 * have triggered it.  Skip the expensive test..
+		 */
 		if (use_bbit_insns()) {
 			uasm_il_bbit0(&p, &r, wr.r1, ilog2(_PAGE_VALID),
 				      label_tlbl_goaround1);
@@ -1630,17 +1888,21 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 		uasm_i_nop(&p);
 
 		uasm_i_tlbr(&p);
-		
+		/* Examine  entrylo 0 or 1 based on ptr. */
 		if (use_bbit_insns()) {
 			uasm_i_bbit0(&p, wr.r2, ilog2(sizeof(pte_t)), 8);
 		} else {
 			uasm_i_andi(&p, wr.r3, wr.r2, sizeof(pte_t));
 			uasm_i_beqz(&p, wr.r3, 8);
 		}
-		
+		/* load it in the delay slot*/
 		UASM_i_MFC0(&p, wr.r3, C0_ENTRYLO0);
-		
+		/* load it if ptr is odd */
 		UASM_i_MFC0(&p, wr.r3, C0_ENTRYLO1);
+		/*
+		 * If the entryLo (now in wr.r3) is valid (bit 1), RI or
+		 * XI must have triggered it.
+		 */
 		if (use_bbit_insns()) {
 			uasm_il_bbit1(&p, &r, wr.r3, 1, label_nopage_tlbl);
 			uasm_i_nop(&p);
@@ -1656,12 +1918,20 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, wr.r1, wr.r2);
 
 #ifdef CONFIG_HUGETLB_PAGE
+	/*
+	 * This is the entry point when build_r4000_tlbchange_handler_head
+	 * spots a huge page.
+	 */
 	uasm_l_tlb_huge_update(&l, p);
 	iPTE_LW(&p, wr.r1, wr.r2);
 	build_pte_present(&p, &r, wr.r1, wr.r2, wr.r3, label_nopage_tlbl);
 	build_tlb_probe_entry(&p);
 
 	if (kernel_uses_smartmips_rixi) {
+		/*
+		 * If the page is not _PAGE_VALID, RI or XI could not
+		 * have triggered it.  Skip the expensive test..
+		 */
 		if (use_bbit_insns()) {
 			uasm_il_bbit0(&p, &r, wr.r1, ilog2(_PAGE_VALID),
 				      label_tlbl_goaround2);
@@ -1672,17 +1942,21 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 		uasm_i_nop(&p);
 
 		uasm_i_tlbr(&p);
-		
+		/* Examine  entrylo 0 or 1 based on ptr. */
 		if (use_bbit_insns()) {
 			uasm_i_bbit0(&p, wr.r2, ilog2(sizeof(pte_t)), 8);
 		} else {
 			uasm_i_andi(&p, wr.r3, wr.r2, sizeof(pte_t));
 			uasm_i_beqz(&p, wr.r3, 8);
 		}
-		
+		/* load it in the delay slot*/
 		UASM_i_MFC0(&p, wr.r3, C0_ENTRYLO0);
-		
+		/* load it if ptr is odd */
 		UASM_i_MFC0(&p, wr.r3, C0_ENTRYLO1);
+		/*
+		 * If the entryLo (now in wr.r3) is valid (bit 1), RI or
+		 * XI must have triggered it.
+		 */
 		if (use_bbit_insns()) {
 			uasm_il_bbit0(&p, &r, wr.r3, 1, label_tlbl_goaround2);
 		} else {
@@ -1691,6 +1965,10 @@ static void __cpuinit build_r4000_tlb_load_handler(void)
 		}
 		if (PM_DEFAULT_MASK == 0)
 			uasm_i_nop(&p);
+		/*
+		 * We clobbered C0_PAGEMASK, restore it.  On the other branch
+		 * it is restored in build_huge_tlb_write_entry.
+		 */
 		build_restore_pagemask(&p, &r, wr.r3, label_nopage_tlbl, 0);
 
 		uasm_l_tlbl_goaround2(&l, p);
@@ -1733,6 +2011,10 @@ static void __cpuinit build_r4000_tlb_store_handler(void)
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, wr.r1, wr.r2);
 
 #ifdef CONFIG_HUGETLB_PAGE
+	/*
+	 * This is the entry point when
+	 * build_r4000_tlbchange_handler_head spots a huge page.
+	 */
 	uasm_l_tlb_huge_update(&l, p);
 	iPTE_LW(&p, wr.r1, wr.r2);
 	build_pte_writable(&p, &r, wr.r1, wr.r2, wr.r3, label_nopage_tlbs);
@@ -1772,11 +2054,15 @@ static void __cpuinit build_r4000_tlb_modify_handler(void)
 	build_pte_modifiable(&p, &r, wr.r1, wr.r2, wr.r3, label_nopage_tlbm);
 	if (m4kc_tlbp_war())
 		build_tlb_probe_entry(&p);
-	
+	/* Present and writable bits set, set accessed and dirty bits. */
 	build_make_write(&p, &r, wr.r1, wr.r2);
 	build_r4000_tlbchange_handler_tail(&p, &l, &r, wr.r1, wr.r2);
 
 #ifdef CONFIG_HUGETLB_PAGE
+	/*
+	 * This is the entry point when
+	 * build_r4000_tlbchange_handler_head spots a huge page.
+	 */
 	uasm_l_tlb_huge_update(&l, p);
 	iPTE_LW(&p, wr.r1, wr.r2);
 	build_pte_modifiable(&p, &r, wr.r1, wr.r2,  wr.r3, label_nopage_tlbm);
@@ -1803,6 +2089,11 @@ static void __cpuinit build_r4000_tlb_modify_handler(void)
 
 void __cpuinit build_tlb_refill_handler(void)
 {
+	/*
+	 * The refill handler is generated per-CPU, multi-node systems
+	 * may have local storage for it. The other handlers are only
+	 * needed once.
+	 */
 	static int run_once = 0;
 
 #ifdef CONFIG_64BIT

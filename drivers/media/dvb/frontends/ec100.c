@@ -35,6 +35,7 @@ struct ec100_state {
 	u16 ber;
 };
 
+/* write single register */
 static int ec100_write_reg(struct ec100_state *state, u8 reg, u8 val)
 {
 	u8 buf[2] = {reg, val};
@@ -51,6 +52,7 @@ static int ec100_write_reg(struct ec100_state *state, u8 reg, u8 val)
 	return 0;
 }
 
+/* read single register */
 static int ec100_read_reg(struct ec100_state *state, u8 reg, u8 *val)
 {
 	struct i2c_msg msg[2] = {
@@ -84,7 +86,7 @@ static int ec100_set_frontend(struct dvb_frontend *fe)
 	deb_info("%s: freq:%d bw:%d\n", __func__, c->frequency,
 		c->bandwidth_hz);
 
-	
+	/* program tuner */
 	if (fe->ops.tuner_ops.set_params)
 		fe->ops.tuner_ops.set_params(fe);
 
@@ -98,6 +100,13 @@ static int ec100_set_frontend(struct dvb_frontend *fe)
 	if (ret)
 		goto error;
 
+	/* reg/bw |   6  |   7  |   8
+	   -------+------+------+------
+	   A 0x1b | 0xa1 | 0xe7 | 0x2c
+	   A 0x1c | 0x55 | 0x63 | 0x72
+	   -------+------+------+------
+	   B 0x1b | 0xb7 | 0x00 | 0x49
+	   B 0x1c | 0x55 | 0x64 | 0x72 */
 
 	switch (c->bandwidth_hz) {
 	case 6000000:
@@ -121,10 +130,10 @@ static int ec100_set_frontend(struct dvb_frontend *fe)
 	if (ret)
 		goto error;
 
-	ret = ec100_write_reg(state, 0x0c, 0xbb); 
+	ret = ec100_write_reg(state, 0x0c, 0xbb); /* if freq */
 	if (ret)
 		goto error;
-	ret = ec100_write_reg(state, 0x0d, 0x31); 
+	ret = ec100_write_reg(state, 0x0d, 0x31); /* if freq */
 	if (ret)
 		goto error;
 
@@ -132,10 +141,10 @@ static int ec100_set_frontend(struct dvb_frontend *fe)
 	if (ret)
 		goto error;
 
-	ret = ec100_write_reg(state, 0x00, 0x00); 
+	ret = ec100_write_reg(state, 0x00, 0x00); /* go */
 	if (ret)
 		goto error;
-	ret = ec100_write_reg(state, 0x00, 0x20); 
+	ret = ec100_write_reg(state, 0x00, 0x20); /* go */
 	if (ret)
 		goto error;
 
@@ -167,7 +176,7 @@ static int ec100_read_status(struct dvb_frontend *fe, fe_status_t *status)
 		goto error;
 
 	if (tmp & 0x80) {
-		
+		/* bit7 set - have lock */
 		*status |= FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_VITERBI |
 			FE_HAS_SYNC | FE_HAS_LOCK;
 	} else {
@@ -176,10 +185,10 @@ static int ec100_read_status(struct dvb_frontend *fe, fe_status_t *status)
 			goto error;
 
 		if (tmp & 0x10) {
-			
+			/* bit4 set - have signal */
 			*status |= FE_HAS_SIGNAL;
 			if (!(tmp & 0x01)) {
-				
+				/* bit0 clear - have ~valid signal */
 				*status |= FE_HAS_CARRIER |  FE_HAS_VITERBI;
 			}
 		}
@@ -209,7 +218,7 @@ static int ec100_read_ber(struct dvb_frontend *fe, u32 *ber)
 
 	ber2 = (tmp2 << 8) | tmp;
 
-	
+	/* if counter overflow or clear */
 	if (ber2 < state->ber)
 		*ber = ber2;
 	else
@@ -270,21 +279,21 @@ struct dvb_frontend *ec100_attach(const struct ec100_config *config,
 	struct ec100_state *state = NULL;
 	u8 tmp;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct ec100_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->i2c = i2c;
 	memcpy(&state->config, config, sizeof(struct ec100_config));
 
-	
+	/* check if the demod is there */
 	ret = ec100_read_reg(state, 0x33, &tmp);
 	if (ret || tmp != 0x0b)
 		goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &ec100_ops,
 		sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;

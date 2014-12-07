@@ -79,7 +79,7 @@ int nilfs_btnode_submit_block(struct address_space *btnc, __u64 blocknr,
 	if (unlikely(!bh))
 		return -ENOMEM;
 
-	err = -EEXIST; 
+	err = -EEXIST; /* internal code */
 	page = bh->b_page;
 
 	if (buffer_uptodate(bh) || buffer_dirty(bh))
@@ -90,7 +90,7 @@ int nilfs_btnode_submit_block(struct address_space *btnc, __u64 blocknr,
 		if (inode->i_ino != NILFS_DAT_INO) {
 			struct the_nilfs *nilfs = inode->i_sb->s_fs_info;
 
-			
+			/* blocknr is a virtual block number */
 			err = nilfs_dat_translate(nilfs->ns_dat, blocknr,
 						  &pblocknr);
 			if (unlikely(err)) {
@@ -102,25 +102,25 @@ int nilfs_btnode_submit_block(struct address_space *btnc, __u64 blocknr,
 
 	if (mode == READA) {
 		if (pblocknr != *submit_ptr + 1 || !trylock_buffer(bh)) {
-			err = -EBUSY; 
+			err = -EBUSY; /* internal code */
 			brelse(bh);
 			goto out_locked;
 		}
-	} else { 
+	} else { /* mode == READ */
 		lock_buffer(bh);
 	}
 	if (buffer_uptodate(bh)) {
 		unlock_buffer(bh);
-		err = -EEXIST; 
+		err = -EEXIST; /* internal code */
 		goto found;
 	}
 	set_buffer_mapped(bh);
 	bh->b_bdev = inode->i_sb->s_bdev;
-	bh->b_blocknr = pblocknr; 
+	bh->b_blocknr = pblocknr; /* set block address for read */
 	bh->b_end_io = end_buffer_read_sync;
 	get_bh(bh);
 	submit_bh(mode, bh);
-	bh->b_blocknr = blocknr; 
+	bh->b_blocknr = blocknr; /* set back to the given block address */
 	*submit_ptr = pblocknr;
 	err = 0;
 found:
@@ -132,6 +132,13 @@ out_locked:
 	return err;
 }
 
+/**
+ * nilfs_btnode_delete - delete B-tree node buffer
+ * @bh: buffer to be deleted
+ *
+ * nilfs_btnode_delete() invalidates the specified buffer and delete the page
+ * including the buffer if the page gets unbusy.
+ */
 void nilfs_btnode_delete(struct buffer_head *bh)
 {
 	struct address_space *mapping;
@@ -153,6 +160,13 @@ void nilfs_btnode_delete(struct buffer_head *bh)
 		invalidate_inode_pages2_range(mapping, index, index);
 }
 
+/**
+ * nilfs_btnode_prepare_change_key
+ *  prepare to move contents of the block for old key to one of new key.
+ *  the old buffer will not be removed, but might be reused for new buffer.
+ *  it might return -ENOMEM because of memory allocation errors,
+ *  and might return -EIO because of disk read errors.
+ */
 int nilfs_btnode_prepare_change_key(struct address_space *btnc,
 				    struct nilfs_btnode_chkey_ctxt *ctxt)
 {
@@ -169,11 +183,15 @@ int nilfs_btnode_prepare_change_key(struct address_space *btnc,
 
 	if (inode->i_blkbits == PAGE_CACHE_SHIFT) {
 		lock_page(obh->b_page);
+		/*
+		 * We cannot call radix_tree_preload for the kernels older
+		 * than 2.6.23, because it is not exported for modules.
+		 */
 retry:
 		err = radix_tree_preload(GFP_NOFS & ~__GFP_HIGHMEM);
 		if (err)
 			goto failed_unlock;
-		
+		/* BUG_ON(oldkey != obh->b_page->index); */
 		if (unlikely(oldkey != obh->b_page->index))
 			NILFS_PAGE_BUG(obh->b_page,
 				       "invalid oldkey %lld (newkey=%lld)",
@@ -183,6 +201,12 @@ retry:
 		spin_lock_irq(&btnc->tree_lock);
 		err = radix_tree_insert(&btnc->page_tree, newkey, obh->b_page);
 		spin_unlock_irq(&btnc->tree_lock);
+		/*
+		 * Note: page->index will not change to newkey until
+		 * nilfs_btnode_commit_change_key() will be called.
+		 * To protect the page in intermediate state, the page lock
+		 * is held.
+		 */
 		radix_tree_preload_end();
 		if (!err)
 			return 0;
@@ -192,7 +216,7 @@ retry:
 		err = invalidate_inode_pages2_range(btnc, newkey, newkey);
 		if (!err)
 			goto retry;
-		
+		/* fallback to copy mode */
 		unlock_page(obh->b_page);
 	}
 
@@ -209,6 +233,10 @@ retry:
 	return err;
 }
 
+/**
+ * nilfs_btnode_commit_change_key
+ *  commit the change_key operation prepared by prepare_change_key().
+ */
 void nilfs_btnode_commit_change_key(struct address_space *btnc,
 				    struct nilfs_btnode_chkey_ctxt *ctxt)
 {
@@ -219,7 +247,7 @@ void nilfs_btnode_commit_change_key(struct address_space *btnc,
 	if (oldkey == newkey)
 		return;
 
-	if (nbh == NULL) {	
+	if (nbh == NULL) {	/* blocksize == pagesize */
 		opage = obh->b_page;
 		if (unlikely(oldkey != opage->index))
 			NILFS_PAGE_BUG(opage,
@@ -242,10 +270,14 @@ void nilfs_btnode_commit_change_key(struct address_space *btnc,
 
 		nbh->b_blocknr = newkey;
 		ctxt->bh = nbh;
-		nilfs_btnode_delete(obh); 
+		nilfs_btnode_delete(obh); /* will decrement bh->b_count */
 	}
 }
 
+/**
+ * nilfs_btnode_abort_change_key
+ *  abort the change_key operation prepared by prepare_change_key().
+ */
 void nilfs_btnode_abort_change_key(struct address_space *btnc,
 				   struct nilfs_btnode_chkey_ctxt *ctxt)
 {
@@ -255,7 +287,7 @@ void nilfs_btnode_abort_change_key(struct address_space *btnc,
 	if (oldkey == newkey)
 		return;
 
-	if (nbh == NULL) {	
+	if (nbh == NULL) {	/* blocksize == pagesize */
 		spin_lock_irq(&btnc->tree_lock);
 		radix_tree_delete(&btnc->page_tree, newkey);
 		spin_unlock_irq(&btnc->tree_lock);

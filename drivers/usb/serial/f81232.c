@@ -29,7 +29,7 @@ static bool debug;
 
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x1934, 0x0706) },
-	{ }					
+	{ }					/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, id_table);
 
@@ -72,12 +72,12 @@ static void f81232_read_int_callback(struct urb *urb)
 
 	switch (status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d", __func__,
 		    status);
 		return;
@@ -111,7 +111,7 @@ static void f81232_process_read_urb(struct urb *urb)
 	u8 line_status;
 	int i;
 
-	
+	/* update line status */
 	spin_lock_irqsave(&priv->lock, flags);
 	line_status = priv->line_status;
 	priv->line_status &= ~UART_STATE_TRANSIENT_MASK;
@@ -125,8 +125,8 @@ static void f81232_process_read_urb(struct urb *urb)
 	if (!tty)
 		return;
 
-	
-	
+	/* break takes precedence over parity, */
+	/* which takes precedence over framing errors */
 	if (line_status & UART_BREAK_ERROR)
 		tty_flag = TTY_BREAK;
 	else if (line_status & UART_PARITY_ERROR)
@@ -135,7 +135,7 @@ static void f81232_process_read_urb(struct urb *urb)
 		tty_flag = TTY_FRAME;
 	dbg("%s - tty_flag = %d", __func__, tty_flag);
 
-	
+	/* overrun is special, not associated with a char */
 	if (line_status & UART_OVERRUN_ERROR)
 		tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 
@@ -154,38 +154,43 @@ static void f81232_process_read_urb(struct urb *urb)
 
 static int set_control_lines(struct usb_device *dev, u8 value)
 {
-	
+	/* FIXME - Stubbed out for now */
 	return 0;
 }
 
 static void f81232_break_ctl(struct tty_struct *tty, int break_state)
 {
-	
+	/* FIXME - Stubbed out for now */
 
+	/*
+	 * break_state = -1 to turn on break, and 0 to turn off break
+	 * see drivers/char/tty_io.c to see it used.
+	 * last_set_data_urb_value NEVER has the break bit set in it.
+	 */
 }
 
 static void f81232_set_termios(struct tty_struct *tty,
 		struct usb_serial_port *port, struct ktermios *old_termios)
 {
-	
+	/* FIXME - Stubbed out for now */
 
-	
+	/* Don't change anything if nothing has changed */
 	if (!tty_termios_hw_change(tty->termios, old_termios))
 		return;
 
-	
+	/* Do the real work here... */
 }
 
 static int f81232_tiocmget(struct tty_struct *tty)
 {
-	
+	/* FIXME - Stubbed out for now */
 	return 0;
 }
 
 static int f81232_tiocmset(struct tty_struct *tty,
 			unsigned int set, unsigned int clear)
 {
-	
+	/* FIXME - Stubbed out for now */
 	return 0;
 }
 
@@ -194,7 +199,7 @@ static int f81232_open(struct tty_struct *tty, struct usb_serial_port *port)
 	struct ktermios tmp_termios;
 	int result;
 
-	
+	/* Setup termios */
 	if (tty)
 		f81232_set_termios(tty, port, &tmp_termios);
 
@@ -229,7 +234,7 @@ static void f81232_dtr_rts(struct usb_serial_port *port, int on)
 	u8 control;
 
 	spin_lock_irqsave(&priv->lock, flags);
-	
+	/* Change DTR and RTS */
 	if (on)
 		priv->line_control |= (CONTROL_DTR | CONTROL_RTS);
 	else
@@ -261,7 +266,7 @@ static int wait_modem_info(struct usb_serial_port *port, unsigned int arg)
 
 	while (1) {
 		interruptible_sleep_on(&priv->delta_msr_wait);
-		
+		/* see if a signal did it */
 		if (signal_pending(current))
 			return -ERESTARTSYS;
 
@@ -279,7 +284,7 @@ static int wait_modem_info(struct usb_serial_port *port, unsigned int arg)
 		}
 		prevstatus = status;
 	}
-	
+	/* NOTREACHED */
 	return 0;
 }
 

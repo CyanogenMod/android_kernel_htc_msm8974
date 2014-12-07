@@ -34,17 +34,21 @@ struct txx9_irc_reg {
 	u32 csr;
 };
 
+/* IRCER : Int. Control Enable */
 #define TXx9_IRCER_ICE	0x00000001
 
+/* IRCR : Int. Control */
 #define TXx9_IRCR_LOW	0x00000000
 #define TXx9_IRCR_HIGH	0x00000001
 #define TXx9_IRCR_DOWN	0x00000002
 #define TXx9_IRCR_UP	0x00000003
 #define TXx9_IRCR_EDGE(cr)	((cr) & 0x00000002)
 
+/* IRSCR : Int. Status Control */
 #define TXx9_IRSCR_EIClrE	0x00000100
 #define TXx9_IRSCR_EIClr_MASK	0x0000000f
 
+/* IRCSR : Int. Current Status */
 #define TXx9_IRCSR_IF	0x00010000
 #define TXx9_IRCSR_ILV_MASK	0x00000700
 #define TXx9_IRCSR_IVL_MASK	0x0000001f
@@ -69,7 +73,7 @@ static void txx9_irq_unmask(struct irq_data *d)
 		     | (txx9irq[irq_nr].level << ofs),
 		     ilrp);
 #ifdef CONFIG_CPU_TX39XX
-	
+	/* update IRCSR */
 	__raw_writel(0, &txx9_ircptr->imr);
 	__raw_writel(irc_elevel, &txx9_ircptr->imr);
 #endif
@@ -85,10 +89,10 @@ static inline void txx9_irq_mask(struct irq_data *d)
 		     | (irc_dlevel << ofs),
 		     ilrp);
 #ifdef CONFIG_CPU_TX39XX
-	
+	/* update IRCSR */
 	__raw_writel(0, &txx9_ircptr->imr);
 	__raw_writel(irc_elevel, &txx9_ircptr->imr);
-	
+	/* flush write buffer */
 	__raw_readl(&txx9_ircptr->ssr);
 #else
 	mmiowb();
@@ -100,7 +104,7 @@ static void txx9_irq_mask_ack(struct irq_data *d)
 	unsigned int irq_nr = d->irq - TXX9_IRQ_BASE;
 
 	txx9_irq_mask(d);
-	
+	/* clear edge detection */
 	if (unlikely(TXx9_IRCR_EDGE(txx9irq[irq_nr].mode)))
 		__raw_writel(TXx9_IRSCR_EIClrE | irq_nr, &txx9_ircptr->scr);
 }
@@ -148,20 +152,20 @@ void __init txx9_irq_init(unsigned long baseaddr)
 
 	txx9_ircptr = ioremap(baseaddr, sizeof(struct txx9_irc_reg));
 	for (i = 0; i < TXx9_MAX_IR; i++) {
-		txx9irq[i].level = 4; 
+		txx9irq[i].level = 4; /* middle level */
 		txx9irq[i].mode = TXx9_IRCR_LOW;
 		irq_set_chip_and_handler(TXX9_IRQ_BASE + i, &txx9_irq_chip,
 					 handle_level_irq);
 	}
 
-	
+	/* mask all IRC interrupts */
 	__raw_writel(0, &txx9_ircptr->imr);
 	for (i = 0; i < 8; i++)
 		__raw_writel(0, &txx9_ircptr->ilr[i]);
-	
+	/* setup IRC interrupt mode (Low Active) */
 	for (i = 0; i < 2; i++)
 		__raw_writel(0, &txx9_ircptr->cr[i]);
-	
+	/* enable interrupt control */
 	__raw_writel(TXx9_IRCER_ICE, &txx9_ircptr->cer);
 	__raw_writel(irc_elevel, &txx9_ircptr->imr);
 }

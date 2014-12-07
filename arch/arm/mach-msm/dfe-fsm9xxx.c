@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2012, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,6 +27,9 @@
 
 #include <linux/fsm_dfe_hh.h>
 
+/*
+ * DFE of FSM9XXX
+ */
 
 #define HH_ADDR_MASK			0x000ffffc
 #define HH_OFFSET_VALID(offset)		(((offset) & ~HH_ADDR_MASK) == 0)
@@ -36,6 +39,9 @@
 #define HH_REG_SCPN_IREQ_MASK		HH_REG_IOADDR(HH_MAKE_OFFSET(5, 0x12))
 #define HH_REG_SCPN_IREQ_FLAG		HH_REG_IOADDR(HH_MAKE_OFFSET(5, 0x13))
 
+/*
+ * Device private information per device node
+ */
 
 #define HH_IRQ_FIFO_SIZE		64
 #define HH_IRQ_FIFO_EMPTY(pdev)		((pdev)->irq_fifo_head == \
@@ -44,6 +50,8 @@
 					HH_IRQ_FIFO_SIZE) == \
 					(pdev)->irq_fifo_head)
 
+#define UINT32_MAX  (0xFFFFFFFFU)
+
 static struct hh_dev_node_info {
 	spinlock_t hh_lock;
 	char irq_fifo[HH_IRQ_FIFO_SIZE];
@@ -51,9 +59,12 @@ static struct hh_dev_node_info {
 	wait_queue_head_t wq;
 } hh_dev_info;
 
+/*
+ * Device private information per file
+ */
 
 struct hh_dev_file_info {
-	
+	/* Buffer */
 	unsigned int *parray;
 	unsigned int array_num;
 
@@ -61,18 +72,21 @@ struct hh_dev_file_info {
 	unsigned int cmd_num;
 };
 
+/*
+ * File interface
+ */
 
 static int hh_open(struct inode *inode, struct file *file)
 {
 	struct hh_dev_file_info *pdfi;
 
-	
+	/* private data allocation */
 	pdfi = kmalloc(sizeof(*pdfi), GFP_KERNEL);
 	if (pdfi == NULL)
 		return -ENOMEM;
 	file->private_data = pdfi;
 
-	
+	/* buffer initialization */
 	pdfi->parray = NULL;
 	pdfi->array_num = 0;
 	pdfi->pcmd = NULL;
@@ -123,7 +137,7 @@ static ssize_t hh_read(struct file *filp, char __user *buf, size_t count,
 	} while (irq < 0);
 
 	if (irq < 0) {
-		
+		/* No pending interrupt */
 		return 0;
 	} else {
 		put_user(irq, buf);
@@ -208,8 +222,9 @@ static long hh_ioctl(struct file *file,
 				return -EFAULT;
 			if (!HH_OFFSET_VALID(param.offset))
 				return -EINVAL;
-			if (param.num == 0)
-				break;
+			if ((param.num == 0) ||
+			(param.num >= (UINT32_MAX / sizeof(unsigned int))))
+				return -EINVAL;
 			req_sz = sizeof(unsigned int) * param.num;
 
 			if (pdfi->array_num < param.num) {
@@ -258,8 +273,10 @@ static long hh_ioctl(struct file *file,
 
 			if (copy_from_user(&param, argp, sizeof param))
 				return -EFAULT;
-			if (param.num == 0)
-				break;
+			if ((param.num == 0) ||
+			(param.num >= (UINT32_MAX  /
+			sizeof(struct dfe_command_entry))))
+				return -EINVAL;
 			req_sz = sizeof(struct dfe_command_entry) * param.num;
 
 			if (pdfi->cmd_num < param.num) {
@@ -335,6 +352,9 @@ static const struct file_operations hh_fops = {
 	.poll = hh_poll,
 };
 
+/*
+ * Interrupt handling
+ */
 
 static irqreturn_t hh_irq_handler(int irq, void *data)
 {
@@ -345,11 +365,11 @@ static irqreturn_t hh_irq_handler(int irq, void *data)
 	irq_flag = __raw_readl(HH_REG_SCPN_IREQ_FLAG);
 	irq_flag &= irq_enable;
 
-	
+	/* Disables interrupts */
 	irq_enable &= ~irq_flag;
 	__raw_writel(irq_enable, HH_REG_SCPN_IREQ_MASK);
 
-	
+	/* Adds the pending interrupts to irq_fifo */
 	spin_lock(&hh_dev_info.hh_lock);
 	for (i = 0, irq_mask = 1; i < 32; ++i, irq_mask <<= 1) {
 		if (HH_IRQ_FIFO_FULL(&hh_dev_info))
@@ -363,12 +383,15 @@ static irqreturn_t hh_irq_handler(int irq, void *data)
 	}
 	spin_unlock(&hh_dev_info.hh_lock);
 
-	
+	/* Wakes up pending processes */
 	wake_up_interruptible(&hh_dev_info.wq);
 
 	return IRQ_HANDLED;
 }
 
+/*
+ * Driver initialization & cleanup
+ */
 
 static struct miscdevice hh_misc_dev = {
 	.minor = MISC_DYNAMIC_MINOR,
@@ -380,10 +403,10 @@ static int __init hh_init(void)
 {
 	int ret;
 
-	
+	/* lock initialization */
 	spin_lock_init(&hh_dev_info.hh_lock);
 
-	
+	/* interrupt handler */
 	hh_dev_info.irq_fifo_head = 0;
 	hh_dev_info.irq_fifo_tail = 0;
 	ret = request_irq(INT_HH_SUPSS_IRQ, hh_irq_handler,
@@ -393,7 +416,7 @@ static int __init hh_init(void)
 		return ret;
 	}
 
-	
+	/* wait queue */
 	init_waitqueue_head(&hh_dev_info.wq);
 
 	return misc_register(&hh_misc_dev);

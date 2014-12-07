@@ -34,7 +34,7 @@ struct l64781_state {
 	const struct l64781_config* config;
 	struct dvb_frontend frontend;
 
-	
+	/* private demodulator data */
 	unsigned int first:1;
 };
 
@@ -82,20 +82,27 @@ static void apply_tps (struct l64781_state* state)
 	l64781_writereg (state, 0x2a, 0x00);
 	l64781_writereg (state, 0x2a, 0x01);
 
+	/* This here is a little bit questionable because it enables
+	   the automatic update of TPS registers. I think we'd need to
+	   handle the IRQ from FE to update some other registers as
+	   well, or at least implement some magic to tuning to correct
+	   to the TPS received from transmission. */
 	l64781_writereg (state, 0x2a, 0x02);
 }
 
 
 static void reset_afc (struct l64781_state* state)
 {
-	l64781_writereg (state, 0x07, 0x9e); 
-	l64781_writereg (state, 0x08, 0);    
+	/* Set AFC stall for the AFC_INIT_FRQ setting, TIM_STALL for
+	   timing offset */
+	l64781_writereg (state, 0x07, 0x9e); /* stall AFC */
+	l64781_writereg (state, 0x08, 0);    /* AFC INIT FREQ */
 	l64781_writereg (state, 0x09, 0);
 	l64781_writereg (state, 0x0a, 0);
 	l64781_writereg (state, 0x07, 0x8e);
-	l64781_writereg (state, 0x0e, 0);    
-	l64781_writereg (state, 0x11, 0x80); 
-	l64781_writereg (state, 0x10, 0);    
+	l64781_writereg (state, 0x0e, 0);    /* AGC gain to zero in beginning */
+	l64781_writereg (state, 0x11, 0x80); /* stall TIM */
+	l64781_writereg (state, 0x10, 0);    /* TIM_OFFSET_LSB */
 	l64781_writereg (state, 0x12, 0);
 	l64781_writereg (state, 0x13, 0);
 	l64781_writereg (state, 0x11, 0x00);
@@ -105,7 +112,7 @@ static int reset_and_configure (struct l64781_state* state)
 {
 	u8 buf [] = { 0x06 };
 	struct i2c_msg msg = { .addr = 0x00, .flags = 0, .buf = buf, .len = 1 };
-	
+	// NOTE: this is correct in writing to address 0x00
 
 	return (i2c_transfer(state->i2c, &msg, 1) == 1) ? 0 : -ENODEV;
 }
@@ -114,14 +121,16 @@ static int apply_frontend_param(struct dvb_frontend *fe)
 {
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
 	struct l64781_state* state = fe->demodulator_priv;
-	
+	/* The coderates for FEC_NONE, FEC_4_5 and FEC_FEC_6_7 are arbitrary */
 	static const u8 fec_tab[] = { 7, 0, 1, 2, 9, 3, 10, 4 };
-	
+	/* QPSK, QAM_16, QAM_64 */
 	static const u8 qam_tab [] = { 2, 4, 0, 6 };
 	static const u8 guard_tab [] = { 1, 2, 4, 8 };
-	
+	/* The Grundig 29504-401.04 Tuner comes with 18.432MHz crystal. */
 	static const u32 ppm = 8000;
 	u32 ddfs_offset_fixed;
+/*	u32 ddfs_offset_variable = 0x6000-((1000000UL+ppm)/ */
+/*			bw_tab[p->bandWidth]<<10)/15625; */
 	u32 init_freq;
 	u32 spi_bias;
 	u8 val0x04;
@@ -181,12 +190,12 @@ static int apply_frontend_param(struct dvb_frontend *fe)
 
 	ddfs_offset_fixed = 0x4000-(ppm<<16)/bw/1000000;
 
-	
+	/* This works up to 20000 ppm, it overflows if too large ppm! */
 	init_freq = (((8UL<<25) + (8UL<<19) / 25*ppm / (15625/25)) /
 			bw & 0xFFFFFF);
 
-	
-	
+	/* SPI bias calculation is slightly modified to fit in 32bit */
+	/* will work for high ppm only... */
 	spi_bias = 378 * (1 << 10);
 	spi_bias *= 16;
 	spi_bias *= bw;
@@ -211,7 +220,7 @@ static int apply_frontend_param(struct dvb_frontend *fe)
 
 	reset_afc (state);
 
-	
+	/* Technical manual section 2.6.1, TIM_IIR_GAIN optimal values */
 	l64781_writereg (state, 0x15,
 			 p->transmission_mode == TRANSMISSION_MODE_2K ? 1 : 3);
 	l64781_writereg (state, 0x16, init_freq & 0xff);
@@ -226,8 +235,8 @@ static int apply_frontend_param(struct dvb_frontend *fe)
 	l64781_writereg (state, 0x22, ddfs_offset_fixed & 0xff);
 	l64781_writereg (state, 0x23, (ddfs_offset_fixed >> 8) & 0x3f);
 
-	l64781_readreg (state, 0x00);  
-	l64781_readreg (state, 0x01);  
+	l64781_readreg (state, 0x00);  /*  clear interrupt registers... */
+	l64781_readreg (state, 0x01);  /*  dto. */
 
 	apply_tps (state);
 
@@ -356,15 +365,15 @@ static int l64781_read_status(struct dvb_frontend* fe, fe_status_t* status)
 	int sync = l64781_readreg (state, 0x32);
 	int gain = l64781_readreg (state, 0x0e);
 
-	l64781_readreg (state, 0x00);  
-	l64781_readreg (state, 0x01);  
+	l64781_readreg (state, 0x00);  /*  clear interrupt registers... */
+	l64781_readreg (state, 0x01);  /*  dto. */
 
 	*status = 0;
 
 	if (gain > 5)
 		*status |= FE_HAS_SIGNAL;
 
-	if (sync & 0x02) 
+	if (sync & 0x02) /* VCXO locked, this criteria should be ok */
 		*status |= FE_HAS_CARRIER;
 
 	if (sync & 0x20)
@@ -383,6 +392,8 @@ static int l64781_read_ber(struct dvb_frontend* fe, u32* ber)
 {
 	struct l64781_state* state = fe->demodulator_priv;
 
+	/*   XXX FIXME: set up counting period (reg 0x26...0x28)
+	 */
 	*ber = l64781_readreg (state, 0x39)
 	    | (l64781_readreg (state, 0x3a) << 8);
 
@@ -404,7 +415,7 @@ static int l64781_read_snr(struct dvb_frontend* fe, u16* snr)
 	struct l64781_state* state = fe->demodulator_priv;
 
 	u8 avg_quality = 0xff - l64781_readreg (state, 0x33);
-	*snr = (avg_quality << 8) | avg_quality; 
+	*snr = (avg_quality << 8) | avg_quality; /* not exact, but...*/
 
 	return 0;
 }
@@ -423,7 +434,7 @@ static int l64781_sleep(struct dvb_frontend* fe)
 {
 	struct l64781_state* state = fe->demodulator_priv;
 
-	
+	/* Power down */
 	return l64781_writereg (state, 0x3e, 0x5a);
 }
 
@@ -433,32 +444,35 @@ static int l64781_init(struct dvb_frontend* fe)
 
 	reset_and_configure (state);
 
-	
+	/* Power up */
 	l64781_writereg (state, 0x3e, 0xa5);
 
-	
+	/* Reset hard */
 	l64781_writereg (state, 0x2a, 0x04);
 	l64781_writereg (state, 0x2a, 0x00);
 
-	
-	
+	/* Set tuner specific things */
+	/* AFC_POL, set also in reset_afc */
 	l64781_writereg (state, 0x07, 0x8e);
 
-	
+	/* Use internal ADC */
 	l64781_writereg (state, 0x0b, 0x81);
 
-	
+	/* AGC loop gain, and polarity is positive */
 	l64781_writereg (state, 0x0c, 0x84);
 
-	
+	/* Internal ADC outputs two's complement */
 	l64781_writereg (state, 0x0d, 0x8c);
 
-	
+	/* With ppm=8000, it seems the DTR_SENSITIVITY will result in
+	   value of 2 with all possible bandwidths and guard
+	   intervals, which is the initial value anyway. */
+	/*l64781_writereg (state, 0x19, 0x92);*/
 
-	
+	/* Everything is two's complement, soft bit and CSI_OUT too */
 	l64781_writereg (state, 0x1e, 0x09);
 
-	
+	/* delay a bit after first init attempt */
 	if (state->first) {
 		state->first = 0;
 		msleep(200);
@@ -494,61 +508,65 @@ struct dvb_frontend* l64781_attach(const struct l64781_config* config,
 	struct i2c_msg msg [] = { { .addr = config->demod_address, .flags = 0, .buf = b0, .len = 1 },
 			   { .addr = config->demod_address, .flags = I2C_M_RD, .buf = b1, .len = 1 } };
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct l64781_state), GFP_KERNEL);
 	if (state == NULL) goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->first = 1;
 
+	/**
+	 *  the L64781 won't show up before we send the reset_and_configure()
+	 *  broadcast. If nothing responds there is no L64781 on the bus...
+	 */
 	if (reset_and_configure(state) < 0) {
 		dprintk("No response to reset and configure broadcast...\n");
 		goto error;
 	}
 
-	
+	/* The chip always responds to reads */
 	if (i2c_transfer(state->i2c, msg, 2) != 2) {
 		dprintk("No response to read on I2C bus\n");
 		goto error;
 	}
 
-	
+	/* Save current register contents for bailout */
 	reg0x3e = l64781_readreg(state, 0x3e);
 
-	
+	/* Reading the POWER_DOWN register always returns 0 */
 	if (reg0x3e != 0) {
 		dprintk("Device doesn't look like L64781\n");
 		goto error;
 	}
 
-	
+	/* Turn the chip off */
 	l64781_writereg (state, 0x3e, 0x5a);
 
-	
+	/* Responds to all reads with 0 */
 	if (l64781_readreg(state, 0x1a) != 0) {
 		dprintk("Read 1 returned unexpcted value\n");
 		goto error;
 	}
 
-	
+	/* Turn the chip on */
 	l64781_writereg (state, 0x3e, 0xa5);
 
-	
+	/* Responds with register default value */
 	if (l64781_readreg(state, 0x1a) != 0xa1) {
 		dprintk("Read 2 returned unexpcted value\n");
 		goto error;
 	}
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &l64781_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 	return &state->frontend;
 
 error:
 	if (reg0x3e >= 0)
-		l64781_writereg (state, 0x3e, reg0x3e);  
+		l64781_writereg (state, 0x3e, reg0x3e);  /* restore reg 0x3e */
 	kfree(state);
 	return NULL;
 }
@@ -557,11 +575,11 @@ static struct dvb_frontend_ops l64781_ops = {
 	.delsys = { SYS_DVBT },
 	.info = {
 		.name = "LSI L64781 DVB-T",
-	
-	
+	/*	.frequency_min = ???,*/
+	/*	.frequency_max = ???,*/
 		.frequency_stepsize = 166666,
-	
-	
+	/*      .frequency_tolerance = ???,*/
+	/*      .symbol_rate_tolerance = ???,*/
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		      FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 |
 		      FE_CAN_QPSK | FE_CAN_QAM_16 | FE_CAN_QAM_64 |

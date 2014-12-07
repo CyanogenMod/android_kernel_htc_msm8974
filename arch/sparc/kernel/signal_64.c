@@ -9,7 +9,7 @@
  */
 
 #ifdef CONFIG_COMPAT
-#include <linux/compat.h>	
+#include <linux/compat.h>	/* for compat_old_sigset_t */
 #endif
 #include <linux/sched.h>
 #include <linux/kernel.h>
@@ -40,6 +40,7 @@
 
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
+/* {set, get}context() needed for 64-bit SparcLinux userland. */
 asmlinkage void sparc64_set_context(struct pt_regs *regs)
 {
 	struct ucontext __user *ucp = (struct ucontext __user *)
@@ -90,7 +91,7 @@ asmlinkage void sparc64_set_context(struct pt_regs *regs)
 	err |= __get_user(regs->u_regs[UREG_G5], (&(*grp)[MC_G5]));
 	err |= __get_user(regs->u_regs[UREG_G6], (&(*grp)[MC_G6]));
 
-	
+	/* Skip %g7 as that's the thread register in userspace.  */
 
 	err |= __get_user(regs->u_regs[UREG_I0], (&(*grp)[MC_O0]));
 	err |= __get_user(regs->u_regs[UREG_I1], (&(*grp)[MC_O1]));
@@ -152,7 +153,7 @@ asmlinkage void sparc64_get_context(struct pt_regs *regs)
 		goto do_sigsegv;
 
 #if 1
-	fenab = 0; 
+	fenab = 0; /* IMO get_context is like any other system call, thus modifies FPU state -jj */
 #else
 	fenab = (current_thread_info()->fpsaved[0] & FPRS_FEF);
 #endif
@@ -160,7 +161,7 @@ asmlinkage void sparc64_get_context(struct pt_regs *regs)
 	mcp = &ucp->uc_mcontext;
 	grp = &mcp->mc_gregs;
 
-	
+	/* Skip over the trap instruction, first. */
 	if (test_thread_flag(TIF_32BIT)) {
 		regs->tpc   = (regs->tnpc & 0xffffffff);
 		regs->tnpc  = (regs->tnpc + 4) & 0xffffffff;
@@ -275,14 +276,14 @@ void do_rt_sigreturn(struct pt_regs *regs)
 	sigset_t set;
 	int err;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 	synchronize_user_stack ();
 	sf = (struct rt_signal_frame __user *)
 		(regs->u_regs [UREG_FP] + STACK_BIAS);
 
-	
+	/* 1. Make sure we are not getting garbage from the user */
 	if (((unsigned long) sf) & 3)
 		goto segv;
 
@@ -294,12 +295,12 @@ void do_rt_sigreturn(struct pt_regs *regs)
 	}
 	err |= ((tpc | tnpc) & 3);
 
-	
+	/* 2. Restore the state */
 	err |= __get_user(regs->y, &sf->regs.y);
 	err |= __get_user(tstate, &sf->regs.tstate);
 	err |= copy_from_user(regs->u_regs, sf->regs.u_regs, sizeof(regs->u_regs));
 
-	
+	/* User can only change condition codes and %asi in %tstate. */
 	regs->tstate &= ~(TSTATE_ASI | TSTATE_ICC | TSTATE_XCC);
 	regs->tstate |= (tstate & (TSTATE_ASI | TSTATE_ICC | TSTATE_XCC));
 
@@ -322,7 +323,7 @@ void do_rt_sigreturn(struct pt_regs *regs)
 	regs->tpc = tpc;
 	regs->tnpc = tnpc;
 
-	
+	/* Prevent syscall restart.  */
 	pt_regs_clear_syscall(regs);
 
 	sigdelsetmask(&set, ~_BLOCKABLE);
@@ -332,6 +333,7 @@ segv:
 	force_sig(SIGSEGV, current);
 }
 
+/* Checks if the fp is valid */
 static int invalid_frame_pointer(void __user *fp)
 {
 	if (((unsigned long) fp) & 15)
@@ -343,10 +345,14 @@ static inline void __user *get_sigframe(struct k_sigaction *ka, struct pt_regs *
 {
 	unsigned long sp = regs->u_regs[UREG_FP] + STACK_BIAS;
 
+	/*
+	 * If we are on the alternate signal stack and would overflow it, don't.
+	 * Return an always-bogus address instead so we will die with SIGSEGV.
+	 */
 	if (on_sig_stack(sp) && !likely(on_sig_stack(sp - framesize)))
 		return (void __user *) -1L;
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (sas_ss_flags(sp) == 0)
 			sp = current->sas_ss_sp + current->sas_ss_size;
@@ -354,6 +360,12 @@ static inline void __user *get_sigframe(struct k_sigaction *ka, struct pt_regs *
 
 	sp -= framesize;
 
+	/* Always align the stack frame.  This handles two cases.  First,
+	 * sigaltstack need not be mindful of platform specific stack
+	 * alignment.  Second, if we took this signal because the stack
+	 * is not aligned properly, we'd like to take the signal cleanly
+	 * and report that.
+	 */
 	sp &= ~15UL;
 
 	return (void __user *) sp;
@@ -367,7 +379,7 @@ setup_rt_frame(struct k_sigaction *ka, struct pt_regs *regs,
 	int wsaved, err, sf_size;
 	void __user *tail;
 
-	
+	/* 1. Make sure everything is clean */
 	synchronize_user_stack();
 	save_and_clear_fpu();
 	
@@ -386,7 +398,7 @@ setup_rt_frame(struct k_sigaction *ka, struct pt_regs *regs,
 
 	tail = (sf + 1);
 
-	
+	/* 2. Save the current process state */
 	err = copy_to_user(&sf->regs, regs, sizeof (*regs));
 
 	if (current_thread_info()->fpsaved[0] & FPRS_FEF) {
@@ -407,7 +419,7 @@ setup_rt_frame(struct k_sigaction *ka, struct pt_regs *regs,
 		err |= __put_user(0, &sf->rwin_save);
 	}
 	
-	
+	/* Setup sigaltstack */
 	err |= __put_user(current->sas_ss_sp, &sf->stack.ss_sp);
 	err |= __put_user(sas_ss_flags(regs->u_regs[UREG_FP]), &sf->stack.ss_flags);
 	err |= __put_user(current->sas_ss_size, &sf->stack.ss_size);
@@ -434,21 +446,25 @@ setup_rt_frame(struct k_sigaction *ka, struct pt_regs *regs,
 	if (err)
 		goto sigsegv;
 	
-	
+	/* 3. signal handler back-trampoline and parameters */
 	regs->u_regs[UREG_FP] = ((unsigned long) sf) - STACK_BIAS;
 	regs->u_regs[UREG_I0] = signo;
 	regs->u_regs[UREG_I1] = (unsigned long) &sf->info;
 
+	/* The sigcontext is passed in this way because of how it
+	 * is defined in GLIBC's /usr/include/bits/sigcontext.h
+	 * for sparc64.  It includes the 128 bytes of siginfo_t.
+	 */
 	regs->u_regs[UREG_I2] = (unsigned long) &sf->info;
 
-	
+	/* 5. signal handler */
 	regs->tpc = (unsigned long) ka->sa.sa_handler;
 	regs->tnpc = (regs->tpc + 4);
 	if (test_thread_flag(TIF_32BIT)) {
 		regs->tpc &= 0xffffffff;
 		regs->tnpc &= 0xffffffff;
 	}
-	
+	/* 4. return to kernel instructions */
 	regs->u_regs[UREG_I7] = (unsigned long)ka->ka_restorer;
 	return 0;
 
@@ -491,7 +507,7 @@ static inline void syscall_restart(unsigned long orig_i0, struct pt_regs *regs,
 	case ERESTARTSYS:
 		if (!(sa->sa_flags & SA_RESTART))
 			goto no_system_call_restart;
-		
+		/* fallthrough */
 	case ERESTARTNOINTR:
 		regs->u_regs[UREG_I0] = orig_i0;
 		regs->tpc -= 4;
@@ -499,6 +515,10 @@ static inline void syscall_restart(unsigned long orig_i0, struct pt_regs *regs,
 	}
 }
 
+/* Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ */
 static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 {
 	struct k_sigaction ka;
@@ -507,6 +527,24 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 	siginfo_t info;
 	int signr;
 	
+	/* It's a lot of work and synchronization to add a new ptrace
+	 * register for GDB to save and restore in order to get
+	 * orig_i0 correct for syscall restarts when debugging.
+	 *
+	 * Although it should be the case that most of the global
+	 * registers are volatile across a system call, glibc already
+	 * depends upon that fact that we preserve them.  So we can't
+	 * just use any global register to save away the orig_i0 value.
+	 *
+	 * In particular %g2, %g3, %g4, and %g5 are all assumed to be
+	 * preserved across a system call trap by various pieces of
+	 * code in glibc.
+	 *
+	 * %g7 is used as the "thread register".   %g6 is not used in
+	 * any fixed manner.  %g6 is used as a scratch register and
+	 * a compiler temporary, but it's value is never used across
+	 * a system call.  Therefore %g6 is usable for orig_i0 storage.
+	 */
 	if (pt_regs_is_syscall(regs) &&
 	    (regs->tstate & (TSTATE_XCARRY | TSTATE_ICARRY)))
 		regs->u_regs[UREG_G6] = orig_i0;
@@ -537,6 +575,11 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 		if (restart_syscall)
 			syscall_restart(orig_i0, regs, &ka.sa);
 		if (handle_signal(signr, &ka, &info, oldset, regs) == 0) {
+			/* A signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TS_RESTORE_SIGMASK flag.
+			 */
 			current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
 		}
 		return;
@@ -545,7 +588,7 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 	    (regs->u_regs[UREG_I0] == ERESTARTNOHAND ||
 	     regs->u_regs[UREG_I0] == ERESTARTSYS ||
 	     regs->u_regs[UREG_I0] == ERESTARTNOINTR)) {
-		
+		/* replay the system call when we are done */
 		regs->u_regs[UREG_I0] = orig_i0;
 		regs->tpc -= 4;
 		regs->tnpc -= 4;
@@ -559,6 +602,9 @@ static void do_signal(struct pt_regs *regs, unsigned long orig_i0)
 		pt_regs_clear_syscall(regs);
 	}
 
+	/* If there's no signal to deliver, we just put the saved sigmask
+	 * back
+	 */
 	if (current_thread_info()->status & TS_RESTORE_SIGMASK) {
 		current_thread_info()->status &= ~TS_RESTORE_SIGMASK;
 		set_current_blocked(&current->saved_sigmask);

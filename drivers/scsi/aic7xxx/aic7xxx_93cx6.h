@@ -64,6 +64,21 @@ struct seeprom_descriptor {
 	uint16_t sd_DI;
 };
 
+/*
+ * This function will read count 16-bit words from the serial EEPROM and
+ * return their value in buf.  The port address of the aic7xxx serial EEPROM
+ * control register is passed in as offset.  The following parameters are
+ * also passed in:
+ *
+ *   CS  - Chip select
+ *   CK  - Clock
+ *   DO  - Data out
+ *   DI  - Data in
+ *   RDY - SEEPROM ready
+ *   MS  - Memory port mode select
+ *
+ *  A failed read attempt returns 0, and a successful read returns 1.
+ */
 
 #define	SEEPROM_INB(sd) \
 	ahc_inb(sd->sd_ahc, sd->sd_control_offset)
@@ -84,4 +99,4 @@ int ahc_write_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 		      u_int start_addr, u_int count);
 int ahc_verify_cksum(struct seeprom_config *sc);
 
-#endif 
+#endif /* _AIC7XXX_93CX6_H_ */

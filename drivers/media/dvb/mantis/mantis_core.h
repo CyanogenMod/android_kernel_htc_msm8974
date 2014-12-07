@@ -54,4 +54,4 @@ extern int mantis_i2c_exit(struct mantis_pci *mantis);
 extern int mantis_core_init(struct mantis_pci *mantis);
 extern int mantis_core_exit(struct mantis_pci *mantis);
 
-#endif 
+#endif /* __MANTIS_CORE_H */

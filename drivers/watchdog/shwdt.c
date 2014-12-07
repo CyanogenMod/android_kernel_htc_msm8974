@@ -39,6 +39,33 @@
 
 #define DRV_NAME "sh-wdt"
 
+/*
+ * Default clock division ratio is 5.25 msecs. For an additional table of
+ * values, consult the asm-sh/watchdog.h. Overload this at module load
+ * time.
+ *
+ * In order for this to work reliably we need to have HZ set to 1000 or
+ * something quite higher than 100 (or we need a proper high-res timer
+ * implementation that will deal with this properly), otherwise the 10ms
+ * resolution of a jiffy is enough to trigger the overflow. For things like
+ * the SH-4 and SH-5, this isn't necessarily that big of a problem, though
+ * for the SH-2 and SH-3, this isn't recommended unless the WDT is absolutely
+ * necssary.
+ *
+ * As a result of this timing problem, the only modes that are particularly
+ * feasible are the 4096 and the 2048 divisors, which yield 5.25 and 2.62ms
+ * overflow periods respectively.
+ *
+ * Also, since we can't really expect userspace to be responsive enough
+ * before the overflow happens, we maintain two separate timers .. One in
+ * the kernel for clearing out WOVF every 2ms or so (again, this depends on
+ * HZ == 1000), and another for monitoring userspace writes to the WDT device.
+ *
+ * As such, we currently use a configurable heartbeat interval which defaults
+ * to 30s. In this case, the userspace daemon is only responsible for periodic
+ * writes to the device before the next heartbeat is scheduled. If the daemon
+ * misses its deadline, the kernel timer will allow the WDT to overflow.
+ */
 static int clock_division_ratio = WTCSR_CKS_4096;
 #define next_ping_period(cks)	(jiffies + msecs_to_jiffies(cks - 4))
 
@@ -46,8 +73,8 @@ static const struct watchdog_info sh_wdt_info;
 static struct platform_device *sh_wdt_dev;
 static DEFINE_SPINLOCK(shwdt_lock);
 
-#define WATCHDOG_HEARTBEAT 30			
-static int heartbeat = WATCHDOG_HEARTBEAT;	
+#define WATCHDOG_HEARTBEAT 30			/* 30 sec default heartbeat */
+static int heartbeat = WATCHDOG_HEARTBEAT;	/* in seconds */
 static bool nowayout = WATCHDOG_NOWAYOUT;
 static unsigned long next_heartbeat;
 
@@ -77,6 +104,14 @@ static void sh_wdt_start(struct sh_wdt *wdt)
 
 	sh_wdt_write_cnt(0);
 
+	/*
+	 * These processors have a bit of an inconsistent initialization
+	 * process.. starting with SH-3, RSTS was moved to WTCSR, and the
+	 * RSTCSR register was removed.
+	 *
+	 * On the SH-2 however, in addition with bits being in different
+	 * locations, we must deal with RSTCSR outright..
+	 */
 	csr = sh_wdt_read_csr();
 	csr |= WTCSR_TME;
 	csr &= ~WTCSR_RSTS;
@@ -119,7 +154,7 @@ static int sh_wdt_set_heartbeat(int t)
 {
 	unsigned long flags;
 
-	if (unlikely(t < 1 || t > 3600)) 
+	if (unlikely(t < 1 || t > 3600)) /* arbitrary upper limit */
 		return -EINVAL;
 
 	spin_lock_irqsave(&shwdt_lock, flags);
@@ -249,7 +284,7 @@ static long sh_wdt_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 
 		sh_wdt_keepalive(wdt);
-		
+		/* Fall */
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, (int *)arg);
 	default:
@@ -301,6 +336,10 @@ static int __devinit sh_wdt_probe(struct platform_device *pdev)
 	struct resource *res;
 	int rc;
 
+	/*
+	 * As this driver only covers the global watchdog case, reject
+	 * any attempts to register per-CPU watchdogs.
+	 */
 	if (pdev->id != -1)
 		return -EINVAL;
 

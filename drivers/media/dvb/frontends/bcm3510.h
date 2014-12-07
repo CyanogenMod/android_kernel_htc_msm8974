@@ -27,10 +27,10 @@
 
 struct bcm3510_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* request firmware for device */
 	int (*request_firmware)(struct dvb_frontend* fe, const struct firmware **fw, char* name);
 };
 
@@ -44,6 +44,6 @@ static inline struct dvb_frontend* bcm3510_attach(const struct bcm3510_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_BCM3510
 
 #endif

@@ -29,6 +29,7 @@
 
 #define DEBUG 0
 #define MAX_FAILURE_COUNT 3
+/*#define AKM_EARLY_SUSPEND 1*/
 
 #define D(x...) printk(KERN_DEBUG "[COMP][AKM8975] " x)
 #define I(x...) printk(KERN_INFO "[COMP][AKM8975] " x)
@@ -53,6 +54,7 @@ struct akm8975_data {
 	struct device *ecompass_dev;
 };
 
+/* Addresses to scan -- protected by sense_data_mutex */
 static char sense_data[RBUFF_SIZE_8975 + 1];
 static struct mutex sense_data_mutex;
 #define AKM8975_RETRY_COUNT 10
@@ -102,7 +104,7 @@ static int AKI2C_RxData(char *rxData, int length)
 		 },
 	};
 
-	
+	/*D("%s:\n", __func__);*/
 
 	for (loop_i = 0; loop_i < AKM8975_RETRY_COUNT; loop_i++) {
 		if (i2c_transfer(this_client->adapter, msgs, 2) > 0)
@@ -111,6 +113,13 @@ static int AKI2C_RxData(char *rxData, int length)
 		mdelay(10);
 	}
 
+	/*D("%s msgs[1]: addr = 0x%x, flags = 0x%x, "
+		"len = 0x%x,  buf(0, 1, 2, 3, 4, 5, 6, 7) = (0x%x, 0x%x"
+		", 0x%x, 0x%x, 0x%x, 0x%x, 0x%x, 0x%x)\n",
+		__func__, msgs[1].addr, msgs[1].flags,
+		msgs[1].len, msgs[1].buf[0], msgs[1].buf[1],
+		msgs[1].buf[2], msgs[1].buf[3], msgs[1].buf[4], msgs[1].buf[5]
+		, msgs[1].buf[6], msgs[1].buf[7]);*/
 
 	if (loop_i >= AKM8975_RETRY_COUNT) {
 		E("%s retry over %d\n",
@@ -139,6 +148,12 @@ static int AKI2C_TxData(char *txData, int length)
 		mdelay(10);
 	}
 
+	/*D("%s msg: addr = 0x%x, flags = 0x%x, "
+		"len = 0x%x,  buf(0, 1, 2, 3, 4) = (0x%x, 0x%x"
+		", 0x%x, 0x%x, 0x%x)\n",
+		__func__, msg[0].addr, msg[0].flags,
+		msg[0].len, msg[0].buf[0], msg[0].buf[1],
+		msg[0].buf[2], msg[0].buf[3], msg[0].buf[4]);*/
 
 	if (loop_i >= AKM8975_RETRY_COUNT) {
 		E("%s retry over %d\n",
@@ -153,11 +168,11 @@ static int AKECS_StartMeasure(void)
 	char buffer[2];
 	atomic_set(&data_ready, 0);
 
-	
+	/* Set measure mode */
 	buffer[0] = AK8975_REG_CNTL;
 	buffer[1] = AK8975_CNTL_SNG_MEASURE;
 
-	
+	/* Set data */
 	return AKI2C_TxData(buffer, 2);
 }
 
@@ -166,19 +181,19 @@ static int AKECS_PowerDown(void)
 	char buffer[2];
 	int ret;
 
-	
+	/*D("%s:\n", __func__);*/
 
-	
+	/* Set powerdown mode */
 	buffer[0] = AK8975_REG_CNTL;
 	buffer[1] = AK8975_CNTL_POWER_DOWN;
-	
+	/* Set data */
 	ret = AKI2C_TxData(buffer, 2);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Dummy read for clearing INT pin */
 	buffer[0] = AK8975_REG_ST1;
-	
+	/* Read data */
 	ret = AKI2C_RxData(buffer, 1);
 	if (ret < 0)
 		return ret;
@@ -189,12 +204,12 @@ static int AKECS_StartFuseRead(void)
 {
 	char buffer[2];
 
-	
+	/*D("%s:\n", __func__);*/
 
-	
+	/* Set measure mode */
 	buffer[0] = AK8975_REG_CNTL;
 	buffer[1] = AK8975_CNTL_FUSE_ACCESS;
-	
+	/* Set data */
 	return AKI2C_TxData(buffer, 2);
 }
 
@@ -249,7 +264,7 @@ static int AKECS_SetMode(char mode)
 		return -EINVAL;
 	}
 
-	
+	/* wait at least 300us after changing mode */
 	mdelay(1);
 	return ret;
 }
@@ -334,7 +349,7 @@ static void AKECS_Report_Value(short *rbuf)
 			debug_flag_fatal_err = 0;
 		}
 
-		
+		/* Report magnetic sensor information */
 		if (atomic_read(&m_flag)) {
 			input_report_abs(data->input_dev, ABS_RX, rbuf[0]);
 			input_report_abs(data->input_dev, ABS_RY, rbuf[1]);
@@ -342,7 +357,7 @@ static void AKECS_Report_Value(short *rbuf)
 			input_report_abs(data->input_dev, ABS_RUDDER, rbuf[4]);
 		}
 
-		
+		/* Report acceleration sensor information */
 		if (atomic_read(&a_flag)) {
 			input_report_abs(data->input_dev, ABS_X, rbuf[6]);
 			input_report_abs(data->input_dev, ABS_Y, rbuf[7]);
@@ -350,7 +365,7 @@ static void AKECS_Report_Value(short *rbuf)
 			input_report_abs(data->input_dev, ABS_WHEEL, rbuf[5]);
 		}
 
-		
+		/* Report temperature information */
 		if (atomic_read(&t_flag))
 			input_report_abs(data->input_dev, ABS_THROTTLE, rbuf[3]);
 
@@ -372,7 +387,7 @@ static int AKECS_GetOpenStatus(void)
 {
 	D("%s:\n", __func__);
 	wait_event_interruptible(open_wq, (atomic_read(&open_flag) != 0));
-	
+	/*D("%s: After wait_event_interruptible\n", __func__);*/
 	return atomic_read(&open_flag);
 }
 
@@ -431,7 +446,7 @@ static int akm_aot_release(struct inode *inode, struct file *file)
 }
 
 static long
-akm_aot_ioctl( struct file *file,
+akm_aot_ioctl(/*struct inode *inode,*/ struct file *file,
 	      unsigned int cmd, unsigned long arg)
 {
 	void __user *argp = (void __user *)arg;
@@ -552,7 +567,7 @@ int  akm_get_akmd_ready(void)
 	return m_f_times;
 }
 static long
-akmd_ioctl( struct file *file, unsigned int cmd,
+akmd_ioctl(/*struct inode *inode,*/ struct file *file, unsigned int cmd,
 	   unsigned long arg)
 {
 
@@ -565,7 +580,9 @@ akmd_ioctl( struct file *file, unsigned int cmd,
 	int i, j, k;
 
 	DIF("%s: cmd = 0x%x\n", __func__, cmd);
-	
+	/*D("%s: cmd = 0x%x\n", __func__, cmd);*/
+	/*D("%s: ECS_IOCTL_GETDATA = 0x%x\n",
+		__func__, ECS_IOCTL_GETDATA);*/
 
 	switch (cmd) {
 	case ECS_IOCTL_WRITE:
@@ -574,8 +591,12 @@ akmd_ioctl( struct file *file, unsigned int cmd,
 			return -EFAULT;
 		break;
 	case ECS_IOCTL_SET_MODE:
+		/*D("%s: ECS_IOCTL_SET_MODE\n",
+			__func__);*/
 		if (copy_from_user(&mode, argp, sizeof(mode)))
 			return -EFAULT;
+		/*D("%s: ECS_IOCTL_SET_MODE success!\n",
+			__func__);*/
 		break;
 	case ECS_IOCTL_SET_YPR:
 		if (copy_from_user(&value, argp, sizeof(value)))
@@ -601,16 +622,22 @@ akmd_ioctl( struct file *file, unsigned int cmd,
 			return ret;
 		break;
 	case ECS_IOCTL_SET_MODE:
+		/*D("%s: ECS_IOCTL_SET_MODE2\n",
+			__func__);*/
 		ret = AKECS_SetMode((char)mode);
 		if (ret < 0)
 			return ret;
+		/*D("%s: ECS_IOCTL_SET_MODE2 success\n",
+			__func__);*/
 		break;
 	case ECS_IOCTL_GETDATA:
-		
+		/*D("%s: ECS_IOCTL_GETDATA\n", __func__);*/
 		DIF_FATAL_ERR("%s: calling AKECS_TransRBuff\n", __func__);
 		ret = AKECS_TransRBuff(msg, RBUFF_SIZE_8975);
 		if (ret < 0)
 			return ret;
+		/*D("%s: ECS_IOCTL_GETDATA: success\n",
+			__func__);*/
 		break;
 	case ECS_IOCTL_SET_YPR:
 		for (i = 0; i < 12; i++)
@@ -650,6 +677,10 @@ akmd_ioctl( struct file *file, unsigned int cmd,
 		for (i = 0; i < 4; i++)
 			for (j = 0; j < 3; j++)
 				for (k = 0; k < 3; k++) {
+					/*D("%s: "
+						"pdata->layouts[%d][%d][%d]"
+						" = %d\n",
+				__func__, i, j, k, pdata->layouts[i][j][k]);*/
 				layouts[i][j][k] = pdata->layouts[i][j][k];
 				}
 		break;
@@ -663,7 +694,11 @@ akmd_ioctl( struct file *file, unsigned int cmd,
 			return -EFAULT;
 		break;
 	case ECS_IOCTL_GETDATA:
-		msg[8] = debug_flag;
+		msg[8] = debug_flag;/*
+		DIF("msg(0, 1, 2, 3, 4, 5, 6, 7, 8) = (0x%x, 0x%x, 0x%x, 0x%x,"
+		  " 0x%x, 0x%x, 0x%x, 0x%x, 0x%x)\n",
+			msg[0], msg[1],	msg[2], msg[3], msg[4], msg[5], msg[6],
+			msg[7],	msg[8]);*/
 		if (copy_to_user(argp, &msg, sizeof(msg)))
 			return -EFAULT;
 		break;
@@ -738,7 +773,7 @@ static void akm8975_early_resume(struct early_suspend *handler)
 		D("AKM8975 akm8975_early_resume: PhoneOn_flag is set\n");
 }
 
-#else 
+#else /* AKM_EARLY_SUSPEND */
 
 static int akm8975_suspend(struct i2c_client *client, pm_message_t mesg)
 {
@@ -768,13 +803,13 @@ static int akm8975_resume(struct i2c_client *client)
 
 	return 0;
 }
-#endif 
+#endif /* AKM_EARLY_SUSPEND */
 
 static const struct file_operations akmd_fops = {
 	.owner = THIS_MODULE,
 	.open = akmd_open,
 	.release = akmd_release,
-	
+	/*.ioctl = akmd_ioctl,*/
 #if HAVE_COMPAT_IOCTL
 	.compat_ioctl = akmd_ioctl,
 #endif
@@ -787,7 +822,7 @@ static const struct file_operations akm_aot_fops = {
 	.owner = THIS_MODULE,
 	.open = akm_aot_open,
 	.release = akm_aot_release,
-	
+	/*.ioctl = akm_aot_ioctl,*/
 #if HAVE_COMPAT_IOCTL
 	.compat_ioctl = akm_aot_ioctl,
 #endif
@@ -932,17 +967,17 @@ int akm8975_registerAttr_pana(struct akm8975_data *akm)
 		goto err_create_ecompass_device;
 	}
 
-	
+	/* register the attributes */
 	ret = device_create_file(akm->ecompass_dev, &dev_attr_PhoneOnOffFlag);
 	if (ret)
 		goto err_create_ecompass_device_file;
 
-	
+	/* register the attributes */
 	ret = device_create_file(akm->ecompass_dev, &dev_attr_debug_en);
 	if (ret)
 		goto err_create_ecompass_debug_device_file;
 
-	
+	/* register the attributes */
 	ret = device_create_file(akm->ecompass_dev, &dev_attr_disable_en);
 	if (ret)
 		goto err_create_ecompass_disable_device_file;
@@ -968,7 +1003,7 @@ int akm8975_probe_pana(struct i2c_client *client, const struct i2c_device_id *id
 	char msg[RBUFF_SIZE_8975 + 1];
 	unsigned int irq_type;
 
-	
+	/*int i = 0;*/
 
 	memset(msg, 0, RBUFF_SIZE_8975 + 1);
 
@@ -1011,31 +1046,31 @@ int akm8975_probe_pana(struct i2c_client *client, const struct i2c_device_id *id
 		}
 
 		set_bit(EV_ABS, akm->input_dev->evbit);
-		
+		/* yaw */
 		input_set_abs_params(akm->input_dev, ABS_RX, 0, 360, 0, 0);
-		
+		/* pitch */
 		input_set_abs_params(akm->input_dev, ABS_RY, -180, 180, 0, 0);
-		
+		/* roll */
 		input_set_abs_params(akm->input_dev, ABS_RZ, -90, 90, 0, 0);
-		
+		/* x-axis acceleration */
 		input_set_abs_params(akm->input_dev, ABS_X, -1872, 1872, 0, 0);
-		
+		/* y-axis acceleration */
 		input_set_abs_params(akm->input_dev, ABS_Y, -1872, 1872, 0, 0);
-		
+		/* z-axis acceleration */
 		input_set_abs_params(akm->input_dev, ABS_Z, -1872, 1872, 0, 0);
-		
+		/* temparature */
 		input_set_abs_params(akm->input_dev, ABS_THROTTLE, -30, 85, 0, 0);
-		
+		/* status of magnetic sensor */
 		input_set_abs_params(akm->input_dev, ABS_RUDDER, -32768, 3, 0, 0);
-		
+		/* status of acceleration sensor */
 		input_set_abs_params(akm->input_dev, ABS_WHEEL, -32768, 3, 0, 0);
-		
+		/* step count */
 		input_set_abs_params(akm->input_dev, ABS_GAS, 0, 65535, 0, 0);
-		
+		/* x-axis of raw magnetic vector */
 		input_set_abs_params(akm->input_dev, ABS_HAT0X, -2048, 2032, 0, 0);
-		
+		/* y-axis of raw magnetic vector */
 		input_set_abs_params(akm->input_dev, ABS_HAT0Y, -2048, 2032, 0, 0);
-		
+		/* z-axis of raw magnetic vector */
 		input_set_abs_params(akm->input_dev, ABS_BRAKE, -2048, 2032, 0, 0);
 
 		akm->input_dev->name = "compass";
@@ -1063,7 +1098,7 @@ int akm8975_probe_pana(struct i2c_client *client, const struct i2c_device_id *id
 	init_waitqueue_head(&data_ready_wq);
 	init_waitqueue_head(&open_wq);
 
-	
+	/* As default, report all information */
 	atomic_set(&m_flag, 0);
 	atomic_set(&a_flag, 0);
 	atomic_set(&t_flag, 0);

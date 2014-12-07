@@ -34,7 +34,7 @@
 #define RTL92C_NUM_RX_URBS			8
 #define RTL92C_NUM_TX_URBS			32
 
-#define RTL92C_SIZE_MAX_RX_BUFFER		15360   
+#define RTL92C_SIZE_MAX_RX_BUFFER		15360   /* 8192 */
 #define RX_DRV_INFO_SIZE_UNIT			8
 
 #define RTL_AGG_ON				1
@@ -46,9 +46,9 @@ enum usb_rx_agg_mode {
 	USB_RX_AGG_DMA_USB
 };
 
-#define TX_SELE_HQ				BIT(0)	
-#define TX_SELE_LQ				BIT(1)	
-#define TX_SELE_NQ				BIT(2)	
+#define TX_SELE_HQ				BIT(0)	/* High Queue */
+#define TX_SELE_LQ				BIT(1)	/* Low Queue */
+#define TX_SELE_NQ				BIT(2)	/* Normal Queue */
 
 #define RTL_USB_TX_AGG_NUM_DESC			5
 
@@ -58,31 +58,36 @@ enum usb_rx_agg_mode {
 #define RTL_USB_RX_AGG_BLOCK_NUM		5
 #define RTL_USB_RX_AGG_BLOCK_TIMEOUT		3
 
+/*======================== rx status =========================================*/
 
 struct rx_drv_info_92c {
+	/*
+	 * Driver info contain PHY status and other variabel size info
+	 * PHY Status content as below
+	 */
 
-	
+	/* DWORD 0 */
 	u8 gain_trsw[4];
 
-	
+	/* DWORD 1 */
 	u8 pwdb_all;
 	u8 cfosho[4];
 
-	
+	/* DWORD 2 */
 	u8 cfotail[4];
 
-	
+	/* DWORD 3 */
 	s8 rxevm[2];
 	s8 rxsnr[4];
 
-	
+	/* DWORD 4 */
 	u8 pdsnr[2];
 
-	
+	/* DWORD 5 */
 	u8 csi_current[2];
 	u8 csi_target[2];
 
-	
+	/* DWORD 6 */
 	u8 sigevm;
 	u8 max_ex_pwr;
 	u8 ex_intf_flag:1;
@@ -91,11 +96,21 @@ struct rx_drv_info_92c {
 	u8 reserve:4;
 } __packed;
 
+/* Define a macro that takes a le32 word, converts it to host ordering,
+ * right shifts by a specified count, creates a mask of the specified
+ * bit count, and extracts that number of bits.
+ */
 
 #define SHIFT_AND_MASK_LE(__pdesc, __shift, __bits)		\
 	((le32_to_cpu(*(((__le32 *)(__pdesc)))) >> (__shift)) &	\
 	BIT_LEN_MASK_32(__bits))
 
+/* Define a macro that clears a bit field in an le32 word and
+ * sets the specified value into that bit field. The resulting
+ * value remains in le32 ordering; however, it is properly converted
+ * to host ordering for the clear and set operations before conversion
+ * back to le32.
+ */
 
 #define SET_BITS_OFFSET_LE(__pdesc, __shift, __len, __val)	\
 	(*(__le32 *)(__pdesc) = 				\
@@ -103,7 +118,9 @@ struct rx_drv_info_92c {
 	(~(BIT_OFFSET_LEN_MASK_32((__shift), __len)))) |		\
 	(((u32)(__val) & BIT_LEN_MASK_32(__len)) << (__shift)))));
 
+/* macros to read various fields in RX descriptor */
 
+/* DWORD 0 */
 #define GET_RX_DESC_PKT_LEN(__rxdesc)		\
 	SHIFT_AND_MASK_LE((__rxdesc), 0, 14)
 #define GET_RX_DESC_CRC32(__rxdesc)		\
@@ -131,6 +148,7 @@ struct rx_drv_info_92c {
 #define GET_RX_DESC_OWN(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc, 31, 1)
 
+/* DWORD 1 */
 #define GET_RX_DESC_MACID(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+4, 0, 5)
 #define GET_RX_DESC_TID(__rxdesc)		\
@@ -158,6 +176,7 @@ struct rx_drv_info_92c {
 #define GET_RX_DESC_BC(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+4, 31, 1)
 
+/* DWORD 2 */
 #define GET_RX_DESC_SEQ(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+8, 0, 12)
 #define GET_RX_DESC_FRAG(__rxdesc)		\
@@ -167,6 +186,7 @@ struct rx_drv_info_92c {
 #define GET_RX_DESC_NEXT_IND(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+8, 30, 1)
 
+/* DWORD 3 */
 #define GET_RX_DESC_RX_MCS(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+12, 0, 6)
 #define GET_RX_DESC_RX_HT(__rxdesc)		\
@@ -192,14 +212,19 @@ struct rx_drv_info_92c {
 #define GET_RX_DESC_IV0(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+12, 16, 16)
 
+/* DWORD 4 */
 #define GET_RX_DESC_IV1(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+16, 0, 32)
 
+/* DWORD 5 */
 #define GET_RX_DESC_TSFL(__rxdesc)		\
 	SHIFT_AND_MASK_LE(__rxdesc+20, 0, 32)
 
+/*======================= tx desc ============================================*/
 
+/* macros to set various fields in TX descriptor */
 
+/* Dword 0 */
 #define SET_TX_DESC_PKT_SIZE(__txdesc, __value)		\
 	SET_BITS_OFFSET_LE(__txdesc, 0, 16, __value)
 #define SET_TX_DESC_OFFSET(__txdesc, __value)		\
@@ -222,6 +247,7 @@ struct rx_drv_info_92c {
 	SET_BITS_OFFSET_LE(__txdesc, 31, 1, __value)
 
 
+/* Dword 1 */
 #define SET_TX_DESC_MACID(__txdesc, __value)		\
 	SET_BITS_OFFSET_LE(__txdesc+4, 0, 5, __value)
 #define SET_TX_DESC_AGG_ENABLE(__txdesc, __value)	\
@@ -251,6 +277,7 @@ struct rx_drv_info_92c {
 #define SET_TX_DESC_PKT_OFFSET(__txdesc, __value)	\
 	SET_BITS_OFFSET_LE(__txdesc+4, 26, 5, __value)
 
+/* Dword 2 */
 #define SET_TX_DESC_RTS_RC(__txdesc, __value)		\
 	SET_BITS_OFFSET_LE(__txdesc+8, 0, 6, __value)
 #define SET_TX_DESC_DATA_RC(__txdesc, __value)		\
@@ -276,6 +303,7 @@ struct rx_drv_info_92c {
 #define SET_TX_DESC_TX_ANT_HT(__txdesc, __value)	\
 	SET_BITS_OFFSET_LE(__txdesc+8, 30, 2, __value)
 
+/* Dword 3 */
 #define SET_TX_DESC_NEXT_HEAP_PAGE(__txdesc, __value)	\
 	SET_BITS_OFFSET_LE(__txdesc+12, 0, 8, __value)
 #define SET_TX_DESC_TAIL_PAGE(__txdesc, __value)	\
@@ -285,6 +313,7 @@ struct rx_drv_info_92c {
 #define SET_TX_DESC_PKT_ID(__txdesc, __value)		\
 	SET_BITS_OFFSET_LE(__txdesc+12, 28, 4, __value)
 
+/* Dword 4 */
 #define SET_TX_DESC_RTS_RATE(__txdesc, __value)		\
 	SET_BITS_OFFSET_LE(__txdesc+16, 0, 5, __value)
 #define SET_TX_DESC_AP_DCFE(__txdesc, __value)		\
@@ -326,6 +355,7 @@ struct rx_drv_info_92c {
 #define SET_TX_DESC_RTS_STBC(__txdesc, __value)		\
 	SET_BITS_OFFSET_LE(__txdesc+16, 30, 2, __value)
 
+/* Dword 5 */
 #define SET_TX_DESC_TX_RATE(__pdesc, __val)		\
 	SET_BITS_OFFSET_LE(__pdesc+20, 0, 6, __val)
 #define SET_TX_DESC_DATA_SHORTGI(__pdesc, __val)	\
@@ -343,6 +373,7 @@ struct rx_drv_info_92c {
 #define SET_TX_DESC_USB_TXAGG_NUM(__txdesc, __value)	\
 	SET_BITS_OFFSET_LE(__txdesc+20, 24, 8, __value)
 
+/* Dword 6 */
 #define SET_TX_DESC_TXAGC_A(__txdesc, __value)		\
 	SET_BITS_OFFSET_LE(__txdesc+24, 0, 5, __value)
 #define SET_TX_DESC_TXAGC_B(__txdesc, __value)		\
@@ -360,6 +391,7 @@ struct rx_drv_info_92c {
 #define SET_TX_DESC_MCSG7_MAX_LEN(__txdesc, __value)	\
 	SET_BITS_OFFSET_LE(__txdesc+24, 28, 4, __value)
 
+/* Dword 7 */
 #define SET_TX_DESC_TX_DESC_CHECKSUM(__txdesc, __value) \
 	SET_BITS_OFFSET_LE(__txdesc+28, 0, 16, __value)
 #define SET_TX_DESC_MCSG4_MAX_LEN(__txdesc, __value)	\

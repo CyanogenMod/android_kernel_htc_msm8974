@@ -19,6 +19,9 @@
 #define HX4700_EGPIO_BASE	(HX4700_ASIC3_GPIO_BASE + ASIC3_NUM_GPIOS)
 #define HX4700_NR_IRQS		(IRQ_BOARD_START + 70)
 
+/*
+ * PXA GPIOs
+ */
 
 #define GPIO0_HX4700_nKEY_POWER			0
 #define GPIO12_HX4700_ASIC3_IRQ			12
@@ -58,7 +61,7 @@
 #define GPIO96_HX4700_BQ24022_ISET2		96
 #define GPIO97_HX4700_nBL_DETECT		97
 #define GPIO99_HX4700_KEY_CONTACTS		99
-#define GPIO100_HX4700_AUTO_SENSE		100 
+#define GPIO100_HX4700_AUTO_SENSE		100 /* BL auto brightness */
 #define GPIO102_HX4700_SYNAPTICS_POWER_ON	102
 #define GPIO103_HX4700_SYNAPTICS_INT		103
 #define GPIO105_HX4700_nIR_ON			105
@@ -71,6 +74,9 @@
 #define GPIO114_HX4700_CF_RESET			114
 #define GPIO116_HX4700_CPU_HW_nRESET		116
 
+/*
+ * ASIC3 GPIOs
+ */
 
 #define GPIOC_BASE		(HX4700_ASIC3_GPIO_BASE + 32)
 #define GPIOD_BASE		(HX4700_ASIC3_GPIO_BASE + 48)
@@ -79,45 +85,48 @@
 #define GPIOC1_LED_GREEN	(GPIOC_BASE + 1)
 #define GPIOC2_LED_BLUE		(GPIOC_BASE + 2)
 #define GPIOC3_nSD_CS		(GPIOC_BASE + 3)
-#define GPIOC4_CF_nCD		(GPIOC_BASE + 4)	
-#define GPIOC5_nCIOW		(GPIOC_BASE + 5)	
-#define GPIOC6_nCIOR		(GPIOC_BASE + 6)	
-#define GPIOC7_nPCE1		(GPIOC_BASE + 7)	
-#define GPIOC8_nPCE2		(GPIOC_BASE + 8)	
-#define GPIOC9_nPOE		(GPIOC_BASE + 9)	
-#define GPIOC10_CF_nPWE		(GPIOC_BASE + 10)	
-#define GPIOC11_PSKTSEL		(GPIOC_BASE + 11)	
-#define GPIOC12_nPREG		(GPIOC_BASE + 12)	
-#define GPIOC13_nPWAIT		(GPIOC_BASE + 13)	
-#define GPIOC14_nPIOIS16	(GPIOC_BASE + 14)	
-#define GPIOC15_nPIOR		(GPIOC_BASE + 15)	
+#define GPIOC4_CF_nCD		(GPIOC_BASE + 4)	/* Input */
+#define GPIOC5_nCIOW		(GPIOC_BASE + 5)	/* Output, to CF */
+#define GPIOC6_nCIOR		(GPIOC_BASE + 6)	/* Output, to CF */
+#define GPIOC7_nPCE1		(GPIOC_BASE + 7)	/* Input, from CPU */
+#define GPIOC8_nPCE2		(GPIOC_BASE + 8)	/* Input, from CPU */
+#define GPIOC9_nPOE		(GPIOC_BASE + 9)	/* Input, from CPU */
+#define GPIOC10_CF_nPWE		(GPIOC_BASE + 10)	/* Input */
+#define GPIOC11_PSKTSEL		(GPIOC_BASE + 11)	/* Input, from CPU */
+#define GPIOC12_nPREG		(GPIOC_BASE + 12)	/* Input, from CPU */
+#define GPIOC13_nPWAIT		(GPIOC_BASE + 13)	/* Output, to CPU */
+#define GPIOC14_nPIOIS16	(GPIOC_BASE + 14)	/* Output, to CPU */
+#define GPIOC15_nPIOR		(GPIOC_BASE + 15)	/* Input, from CPU */
 
-#define GPIOD0_CPU_SS_INT	(GPIOD_BASE + 0)	
+#define GPIOD0_CPU_SS_INT	(GPIOD_BASE + 0)	/* Input */
 #define GPIOD1_nKEY_CALENDAR	(GPIOD_BASE + 1)
 #define GPIOD2_BLUETOOTH_WAKEUP	(GPIOD_BASE + 2)
 #define GPIOD3_nKEY_HOME	(GPIOD_BASE + 3)
-#define GPIOD4_CF_nCD		(GPIOD_BASE + 4)	
-#define GPIOD5_nPIO		(GPIOD_BASE + 5)	
+#define GPIOD4_CF_nCD		(GPIOD_BASE + 4)	/* Input, from CF */
+#define GPIOD5_nPIO		(GPIOD_BASE + 5)	/* Input */
 #define GPIOD6_nKEY_RECORD	(GPIOD_BASE + 6)
 #define GPIOD7_nSDIO_DETECT	(GPIOD_BASE + 7)
-#define GPIOD8_COM_DCD		(GPIOD_BASE + 8)	
+#define GPIOD8_COM_DCD		(GPIOD_BASE + 8)	/* Input */
 #define GPIOD9_nAC_IN		(GPIOD_BASE + 9)
-#define GPIOD10_nSDIO_IRQ	(GPIOD_BASE + 10)	
-#define GPIOD11_nCIOIS16	(GPIOD_BASE + 11)	
-#define GPIOD12_nCWAIT		(GPIOD_BASE + 12)	
-#define GPIOD13_CF_RNB		(GPIOD_BASE + 13)	
+#define GPIOD10_nSDIO_IRQ	(GPIOD_BASE + 10)	/* Input */
+#define GPIOD11_nCIOIS16	(GPIOD_BASE + 11)	/* Input, from CF */
+#define GPIOD12_nCWAIT		(GPIOD_BASE + 12)	/* Input, from CF */
+#define GPIOD13_CF_RNB		(GPIOD_BASE + 13)	/* Input */
 #define GPIOD14_nUSBC_DETECT	(GPIOD_BASE + 14)
-#define GPIOD15_nPIOW		(GPIOD_BASE + 15)	
+#define GPIOD15_nPIOW		(GPIOD_BASE + 15)	/* Input, from CPU */
 
+/*
+ * EGPIOs
+ */
 
-#define EGPIO0_VCC_3V3_EN	(HX4700_EGPIO_BASE + 0)	
-#define EGPIO1_WL_VREG_EN	(HX4700_EGPIO_BASE + 1)	
-#define EGPIO2_VCC_2V1_WL_EN	(HX4700_EGPIO_BASE + 2)	
-#define EGPIO3_SS_PWR_ON	(HX4700_EGPIO_BASE + 3)	
-#define EGPIO4_CF_3V3_ON	(HX4700_EGPIO_BASE + 4)	
-#define EGPIO5_BT_3V3_ON	(HX4700_EGPIO_BASE + 5)	
-#define EGPIO6_WL1V8_EN		(HX4700_EGPIO_BASE + 6)	
-#define EGPIO7_VCC_3V3_WL_EN	(HX4700_EGPIO_BASE + 7)	
-#define EGPIO8_USB_3V3_ON	(HX4700_EGPIO_BASE + 8)	
+#define EGPIO0_VCC_3V3_EN	(HX4700_EGPIO_BASE + 0)	/* WLAN support chip */
+#define EGPIO1_WL_VREG_EN	(HX4700_EGPIO_BASE + 1)	/* WLAN power */
+#define EGPIO2_VCC_2V1_WL_EN	(HX4700_EGPIO_BASE + 2)	/* unused */
+#define EGPIO3_SS_PWR_ON	(HX4700_EGPIO_BASE + 3)	/* smart slot power */
+#define EGPIO4_CF_3V3_ON	(HX4700_EGPIO_BASE + 4)	/* CF 3.3V enable */
+#define EGPIO5_BT_3V3_ON	(HX4700_EGPIO_BASE + 5)	/* BT 3.3V enable */
+#define EGPIO6_WL1V8_EN		(HX4700_EGPIO_BASE + 6)	/* WLAN 1.8V enable */
+#define EGPIO7_VCC_3V3_WL_EN	(HX4700_EGPIO_BASE + 7)	/* WLAN 3.3V enable */
+#define EGPIO8_USB_3V3_ON	(HX4700_EGPIO_BASE + 8)	/* unused */
 
-#endif 
+#endif /* _HX4700_H_ */

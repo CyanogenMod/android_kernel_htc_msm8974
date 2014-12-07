@@ -26,12 +26,13 @@
 
 #define DRV_NAME "h1940-bt"
 
+/* Bluetooth control */
 static void h1940bt_enable(int on)
 {
 	if (on) {
-		
+		/* Power on the chip */
 		gpio_set_value(H1940_LATCH_BLUETOOTH_POWER, 1);
-		
+		/* Reset the chip */
 		mdelay(10);
 
 		gpio_set_value(S3C2410_GPH(1), 1);
@@ -79,7 +80,7 @@ static int __devinit h1940bt_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* Configures BT serial port GPIOs */
 	s3c_gpio_cfgpin(S3C2410_GPH(0), S3C2410_GPH0_nCTS0);
 	s3c_gpio_setpull(S3C2410_GPH(0), S3C_GPIO_PULL_NONE);
 	s3c_gpio_cfgpin(S3C2410_GPH(1), S3C2410_GPIO_OUTPUT);

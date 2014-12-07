@@ -21,7 +21,7 @@
 
 #include <linux/spinlock.h>
 #include <linux/list.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* schedule_timeout() */
 #include <linux/delay.h>
 #include <linux/export.h>
 
@@ -53,7 +53,7 @@ int w1_register_family(struct w1_family *newf)
 	}
 	spin_unlock(&w1_flock);
 
-	
+	/* check default devices against the new set of drivers */
 	w1_reconnect_slaves(newf, 1);
 
 	return ret;
@@ -75,7 +75,7 @@ void w1_unregister_family(struct w1_family *fent)
 	}
 	spin_unlock(&w1_flock);
 
-	
+	/* deatch devices using this family code */
 	w1_reconnect_slaves(fent, 0);
 
 	while (atomic_read(&fent->refcnt)) {
@@ -87,6 +87,9 @@ void w1_unregister_family(struct w1_family *fent)
 	}
 }
 
+/*
+ * Should be called under w1_flock held.
+ */
 struct w1_family * w1_family_registered(u8 fid)
 {
 	struct list_head *ent, *n;
@@ -124,7 +127,7 @@ void w1_family_get(struct w1_family *f)
 	__w1_family_get(f);
 	spin_unlock(&w1_flock);
 }
-#endif  
+#endif  /*  0  */
 
 void __w1_family_get(struct w1_family *f)
 {

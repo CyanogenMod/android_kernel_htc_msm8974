@@ -7,6 +7,9 @@
  * by the Free Software Foundation, incorporated herein by reference.
  */
 
+/*
+ * Driver for PHY related operations via MCDI.
+ */
 
 #include <linux/slab.h>
 #include "efx.h"
@@ -259,7 +262,7 @@ static u32 efx_get_mcdi_phy_flags(struct efx_nic *efx)
 	enum efx_phy_mode mode, supported;
 	u32 flags;
 
-	
+	/* TODO: Advertise the capabilities supported by this PHY */
 	supported = 0;
 	if (phy_cfg->flags & (1 << MC_CMD_GET_PHY_CFG_OUT_TXDIS_LBN))
 		supported |= PHY_MODE_TX_DISABLED;
@@ -308,7 +311,7 @@ static int efx_mcdi_phy_probe(struct efx_nic *efx)
 	u32 caps;
 	int rc;
 
-	
+	/* Initialise and populate phy_data */
 	phy_data = kzalloc(sizeof(*phy_data), GFP_KERNEL);
 	if (phy_data == NULL)
 		return -ENOMEM;
@@ -317,14 +320,14 @@ static int efx_mcdi_phy_probe(struct efx_nic *efx)
 	if (rc != 0)
 		goto fail;
 
-	
+	/* Read initial link advertisement */
 	BUILD_BUG_ON(MC_CMD_GET_LINK_IN_LEN != 0);
 	rc = efx_mcdi_rpc(efx, MC_CMD_GET_LINK, NULL, 0,
 			  outbuf, sizeof(outbuf), NULL);
 	if (rc)
 		goto fail;
 
-	
+	/* Fill out nic state */
 	efx->phy_data = phy_data;
 	efx->phy_type = phy_data->type;
 
@@ -344,7 +347,7 @@ static int efx_mcdi_phy_probe(struct efx_nic *efx)
 	else
 		phy_data->forced_cap = caps;
 
-	
+	/* Assert that we can map efx -> mcdi loopback modes */
 	BUILD_BUG_ON(LOOPBACK_NONE != MC_CMD_LOOPBACK_NONE);
 	BUILD_BUG_ON(LOOPBACK_DATA != MC_CMD_LOOPBACK_DATA);
 	BUILD_BUG_ON(LOOPBACK_GMAC != MC_CMD_LOOPBACK_GMAC);
@@ -376,16 +379,18 @@ static int efx_mcdi_phy_probe(struct efx_nic *efx)
 	rc = efx_mcdi_loopback_modes(efx, &efx->loopback_modes);
 	if (rc != 0)
 		goto fail;
+	/* The MC indicates that LOOPBACK_NONE is a valid loopback mode,
+	 * but by convention we don't */
 	efx->loopback_modes &= ~(1 << LOOPBACK_NONE);
 
-	
+	/* Set the initial link mode */
 	efx_mcdi_phy_decode_link(
 		efx, &efx->link_state,
 		MCDI_DWORD(outbuf, GET_LINK_OUT_LINK_SPEED),
 		MCDI_DWORD(outbuf, GET_LINK_OUT_FLAGS),
 		MCDI_DWORD(outbuf, GET_LINK_OUT_FCNTL));
 
-	
+	/* Default to Autonegotiated flow control if the PHY supports it */
 	efx->wanted_fc = EFX_FC_RX | EFX_FC_TX;
 	if (phy_data->supported_cap & (1 << MC_CMD_PHY_CAP_AN_LBN))
 		efx->wanted_fc |= EFX_FC_AUTO;
@@ -415,7 +420,7 @@ void efx_mcdi_phy_decode_link(struct efx_nic *efx,
 {
 	switch (fcntl) {
 	case MC_CMD_FCNTL_AUTO:
-		WARN_ON(1);	
+		WARN_ON(1);	/* This is not a link mode */
 		link_state->fc = EFX_FC_AUTO | EFX_FC_TX | EFX_FC_RX;
 		break;
 	case MC_CMD_FCNTL_BIDIR:
@@ -436,15 +441,20 @@ void efx_mcdi_phy_decode_link(struct efx_nic *efx,
 	link_state->speed = speed;
 }
 
+/* Verify that the forced flow control settings (!EFX_FC_AUTO) are
+ * supported by the link partner. Warn the user if this isn't the case
+ */
 void efx_mcdi_phy_check_fcntl(struct efx_nic *efx, u32 lpa)
 {
 	struct efx_mcdi_phy_data *phy_cfg = efx->phy_data;
 	u32 rmtadv;
 
+	/* The link partner capabilities are only relevant if the
+	 * link supports flow control autonegotiation */
 	if (~phy_cfg->supported_cap & (1 << MC_CMD_PHY_CAP_AN_LBN))
 		return;
 
-	
+	/* If flow control autoneg is supported and enabled, then fine */
 	if (efx->wanted_fc & EFX_FC_AUTO)
 		return;
 
@@ -619,7 +629,7 @@ static int efx_mcdi_bist(struct efx_nic *efx, unsigned int bist_mode,
 	if (rc)
 		goto out;
 
-	
+	/* Wait up to 10s for BIST to finish */
 	for (retry = 0; retry < 100; ++retry) {
 		BUILD_BUG_ON(MC_CMD_POLL_BIST_IN_LEN != 0);
 		rc = efx_mcdi_rpc(efx, MC_CMD_POLL_BIST, NULL, 0,
@@ -640,7 +650,7 @@ static int efx_mcdi_bist(struct efx_nic *efx, unsigned int bist_mode,
 finished:
 	results[count++] = (status == MC_CMD_POLL_BIST_PASSED) ? 1 : -1;
 
-	
+	/* SFT9001 specific cable diagnostics output */
 	if (efx->phy_type == PHY_TYPE_SFT9001B &&
 	    (bist_mode == MC_CMD_PHY_BIST_CABLE_SHORT ||
 	     bist_mode == MC_CMD_PHY_BIST_CABLE_LONG)) {
@@ -678,6 +688,8 @@ static int efx_mcdi_phy_run_tests(struct efx_nic *efx, int *results,
 		results += rc;
 	}
 
+	/* If we support both LONG and SHORT, then run each in response to
+	 * break or not. Otherwise, run the one we support */
 	mode = 0;
 	if (phy_cfg->flags & (1 << MC_CMD_GET_PHY_CFG_OUT_BIST_CABLE_SHORT_LBN)) {
 		if ((flags & ETH_TEST_FL_OFFLINE) &&

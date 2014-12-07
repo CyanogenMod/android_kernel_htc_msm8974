@@ -23,6 +23,12 @@
  * of the Software.
  *
  */
+/*
+ * Authors:
+ *    Jerome Glisse <glisse@freedesktop.org>
+ *    Thomas Hellstrom <thomas-at-tungstengraphics-dot-com>
+ *    Dave Airlie
+ */
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <drm/drmP.h>
@@ -35,13 +41,17 @@ int radeon_ttm_init(struct radeon_device *rdev);
 void radeon_ttm_fini(struct radeon_device *rdev);
 static void radeon_bo_clear_surface_reg(struct radeon_bo *bo);
 
+/*
+ * To exclude mutual BO access we rely on bo_reserve exclusion, as all
+ * function are calling it.
+ */
 
 void radeon_bo_clear_va(struct radeon_bo *bo)
 {
 	struct radeon_bo_va *bo_va, *tmp;
 
 	list_for_each_entry_safe(bo_va, tmp, &bo->va, bo_list) {
-		
+		/* remove from all vm address space */
 		mutex_lock(&bo_va->vm->mutex);
 		list_del(&bo_va->vm_list);
 		mutex_unlock(&bo_va->vm->mutex);
@@ -115,7 +125,7 @@ int radeon_bo_create(struct radeon_device *rdev,
 	}
 	*bo_ptr = NULL;
 
-	
+	/* maximun bo size is the minimun btw visible vram and gtt size */
 	max_size = min(rdev->mc.visible_vram_size, rdev->mc.gtt_size);
 	if ((page_align << PAGE_SHIFT) >= max_size) {
 		printk(KERN_WARNING "%s:%d alloc size %ldM bigger than %ldMb limit\n",
@@ -141,7 +151,7 @@ retry:
 	INIT_LIST_HEAD(&bo->list);
 	INIT_LIST_HEAD(&bo->va);
 	radeon_ttm_placement_from_domain(bo, domain);
-	
+	/* Kernel allocation are uninterruptible */
 	mutex_lock(&rdev->vram_mutex);
 	r = ttm_bo_init(&rdev->mman.bdev, &bo->tbo, size, type,
 			&bo->placement, page_align, 0, !kernel, NULL,
@@ -239,7 +249,7 @@ int radeon_bo_pin_restricted(struct radeon_bo *bo, u32 domain, u64 max_offset,
 	}
 	radeon_ttm_placement_from_domain(bo, domain);
 	if (domain == RADEON_GEM_DOMAIN_VRAM) {
-		
+		/* force to pin into visible video ram */
 		bo->placement.lpfn = bo->rdev->mc.visible_vram_size >> PAGE_SHIFT;
 	}
 	if (max_offset) {
@@ -290,10 +300,10 @@ int radeon_bo_unpin(struct radeon_bo *bo)
 
 int radeon_bo_evict_vram(struct radeon_device *rdev)
 {
-	
+	/* late 2.6.33 fix IGP hibernate - we need pm ops to do this correct */
 	if (0 && (rdev->flags & RADEON_IS_IGP)) {
 		if (rdev->mc.igp_sideport_enabled == false)
-			
+			/* Useless to evict on IGP chips */
 			return 0;
 	}
 	return ttm_bo_evict_mm(&rdev->mman.bdev, TTM_PL_VRAM);
@@ -315,7 +325,7 @@ void radeon_bo_force_delete(struct radeon_device *rdev)
 		mutex_lock(&bo->rdev->gem.mutex);
 		list_del_init(&bo->list);
 		mutex_unlock(&bo->rdev->gem.mutex);
-		
+		/* this should unref the ttm bo */
 		drm_gem_object_unreference(&bo->gem_base);
 		mutex_unlock(&rdev->ddev->struct_mutex);
 	}
@@ -323,7 +333,7 @@ void radeon_bo_force_delete(struct radeon_device *rdev)
 
 int radeon_bo_init(struct radeon_device *rdev)
 {
-	
+	/* Add an MTRR for the VRAM */
 	rdev->mc.vram_mtrr = mtrr_add(rdev->mc.aper_base, rdev->mc.aper_size,
 			MTRR_TYPE_WRCOMB, 1);
 	DRM_INFO("Detected VRAM RAM=%lluM, BAR=%lluM\n",
@@ -420,14 +430,14 @@ int radeon_bo_get_surface_reg(struct radeon_bo *bo)
 			steal = i;
 	}
 
-	
+	/* if we are all out */
 	if (i == RADEON_GEM_MAX_SURFACES) {
 		if (steal == -1)
 			return -ENOMEM;
-		
+		/* find someone with a surface reg and nuke their BO */
 		reg = &rdev->surface_regs[steal];
 		old_object = reg->bo;
-		
+		/* blow away the mapping */
 		DRM_DEBUG("stealing surface reg %d from %p\n", steal, old_object);
 		ttm_bo_unmap_virtual(&old_object->tbo);
 		old_object->surface_reg = -1;
@@ -585,14 +595,14 @@ int radeon_bo_fault_reserve_notify(struct ttm_buffer_object *bo)
 		size = bo->mem.num_pages << PAGE_SHIFT;
 		offset = bo->mem.start << PAGE_SHIFT;
 		if ((offset + size) > rdev->mc.visible_vram_size) {
-			
+			/* hurrah the memory is not visible ! */
 			radeon_ttm_placement_from_domain(rbo, RADEON_GEM_DOMAIN_VRAM);
 			rbo->placement.lpfn = rdev->mc.visible_vram_size >> PAGE_SHIFT;
 			r = ttm_bo_validate(bo, &rbo->placement, false, true, false);
 			if (unlikely(r != 0))
 				return r;
 			offset = bo->mem.start << PAGE_SHIFT;
-			
+			/* this should not happen */
 			if ((offset + size) > rdev->mc.visible_vram_size)
 				return -EINVAL;
 		}
@@ -618,6 +628,16 @@ int radeon_bo_wait(struct radeon_bo *bo, u32 *mem_type, bool no_wait)
 }
 
 
+/**
+ * radeon_bo_reserve - reserve bo
+ * @bo:		bo structure
+ * @no_wait:		don't sleep while trying to reserve (return -EBUSY)
+ *
+ * Returns:
+ * -EBUSY: buffer is busy and @no_wait is true
+ * -ERESTARTSYS: A wait for the buffer to become unreserved was interrupted by
+ * a signal. Release all buffer reservations and return to user-space.
+ */
 int radeon_bo_reserve(struct radeon_bo *bo, bool no_wait)
 {
 	int r;
@@ -631,6 +651,7 @@ int radeon_bo_reserve(struct radeon_bo *bo, bool no_wait)
 	return 0;
 }
 
+/* object have to be reserved */
 struct radeon_bo_va *radeon_bo_va(struct radeon_bo *rbo, struct radeon_vm *vm)
 {
 	struct radeon_bo_va *bo_va;

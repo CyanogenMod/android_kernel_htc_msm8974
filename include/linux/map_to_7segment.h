@@ -19,6 +19,46 @@
 #ifndef MAP_TO_7SEGMENT_H
 #define MAP_TO_7SEGMENT_H
 
+/* This file provides translation primitives and tables for the conversion
+ * of (ASCII) characters to a 7-segments notation.
+ *
+ * The 7 segment's wikipedia notation below is used as standard.
+ * See: http://en.wikipedia.org/wiki/Seven_segment_display
+ *
+ * Notation:	+-a-+
+ *		f   b
+ *		+-g-+
+ *		e   c
+ *		+-d-+
+ *
+ * Usage:
+ *
+ *   Register a map variable, and fill it with a character set:
+ *	static SEG7_DEFAULT_MAP(map_seg7);
+ *
+ *
+ *   Then use for conversion:
+ *	seg7 = map_to_seg7(&map_seg7, some_char);
+ *	...
+ *
+ * In device drivers it is recommended, if required, to make the char map
+ * accessible via the sysfs interface using the following scheme:
+ *
+ * static ssize_t show_map(struct device *dev, char *buf) {
+ *	memcpy(buf, &map_seg7, sizeof(map_seg7));
+ *	return sizeof(map_seg7);
+ * }
+ * static ssize_t store_map(struct device *dev, const char *buf, size_t cnt) {
+ *	if(cnt != sizeof(map_seg7))
+ *		return -EINVAL;
+ *	memcpy(&map_seg7, buf, cnt);
+ *	return cnt;
+ * }
+ * static DEVICE_ATTR(map_seg7, PERMS_RW, show_map, store_map);
+ *
+ * History:
+ * 2005-05-31	RFC linux-kernel@vger.kernel.org
+ */
 #include <linux/errno.h>
 
 
@@ -43,8 +83,16 @@ static __inline__ int map_to_seg7(struct seg7_conversion_map *map, int c)
 #define SEG7_CONVERSION_MAP(_name, _map)	\
 	struct seg7_conversion_map _name = { .table = { _map } }
 
+/*
+ * It is recommended to use a facility that allows user space to redefine
+ * custom character sets for LCD devices. Please use a sysfs interface
+ * as described above.
+ */
 #define MAP_TO_SEG7_SYSFS_FILE	"map_seg7"
 
+/*******************************************************************************
+ * ASCII conversion table
+ ******************************************************************************/
 
 #define _SEG7(l,a,b,c,d,e,f,g)	\
       (	a<<BIT_SEG7_A |	b<<BIT_SEG7_B |	c<<BIT_SEG7_C |	d<<BIT_SEG7_D |	\
@@ -101,7 +149,12 @@ static __inline__ int map_to_seg7(struct seg7_conversion_map *map, int c)
  _SEG7('{',1,0,0,1,1,1,0), _SEG7('|',0,0,0,0,1,1,0), _SEG7('}',1,1,1,1,0,0,0),\
  _SEG7('~',1,0,0,0,0,0,0),
 
+/* Maps */
 
+/* This set tries to map as close as possible to the visible characteristics
+ * of the ASCII symbol, lowercase and uppercase letters may differ in
+ * presentation on the display.
+ */
 #define MAP_ASCII7SEG_ALPHANUM			\
 	_MAP_0_32_ASCII_SEG7_NON_PRINTABLE	\
 	_MAP_33_47_ASCII_SEG7_SYMBOL		\
@@ -112,6 +165,11 @@ static __inline__ int map_to_seg7(struct seg7_conversion_map *map, int c)
 	_MAP_97_122_ASCII_SEG7_ALPHA_LOWER	\
 	_MAP_123_126_ASCII_SEG7_SYMBOL
 
+/* This set tries to map as close as possible to the symbolic characteristics
+ * of the ASCII character for maximum discrimination.
+ * For now this means all alpha chars are in lower case representations.
+ * (This for example facilitates the use of hex numbers with uppercase input.)
+ */
 #define MAP_ASCII7SEG_ALPHANUM_LC			\
 	_MAP_0_32_ASCII_SEG7_NON_PRINTABLE	\
 	_MAP_33_47_ASCII_SEG7_SYMBOL		\
@@ -125,5 +183,5 @@ static __inline__ int map_to_seg7(struct seg7_conversion_map *map, int c)
 #define SEG7_DEFAULT_MAP(_name)		\
 	SEG7_CONVERSION_MAP(_name,MAP_ASCII7SEG_ALPHANUM)
 
-#endif	
+#endif	/* MAP_TO_7SEGMENT_H */
 

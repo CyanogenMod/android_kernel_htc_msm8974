@@ -53,21 +53,21 @@ MODULE_DESCRIPTION("AMD InterWave STB with TEA6330T");
 MODULE_SUPPORTED_DEVICE("{{AMD,InterWave STB with TEA6330T}}");
 #endif
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; /* Enable this card */
 #ifdef CONFIG_PNP
 static bool isapnp[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
 #endif
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x210,0x220,0x230,0x240,0x250,0x260 */
 #ifdef SNDRV_STB
-static long port_tc[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
+static long port_tc[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x350,0x360,0x370,0x380 */
 #endif
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 2,3,5,9,11,12,15 */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3,5,6,7 */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3,5,6,7 */
 static int joystick_dac[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 29};
-				
+				/* 0 to 31, (0.59V-4.52V or 0.389V-2.98V) */
 static int midi[SNDRV_CARDS];
 static int pcm_channels[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 2};
 static int effect[SNDRV_CARDS];
@@ -138,21 +138,21 @@ static int pnp_registered;
 
 static struct pnp_card_device_id snd_interwave_pnpids[] = {
 #ifndef SNDRV_STB
-	
+	/* Gravis UltraSound Plug & Play */
 	{ .id = "GRV0001", .devs = { { .id = "GRV0000" } } },
-	
+	/* STB SoundRage32 */
 	{ .id = "STB011a", .devs = { { .id = "STB0010" } } },
-	
+	/* MED3210 */
 	{ .id = "DXP3201", .devs = { { .id = "DXP0010" } } },
-	
-	
+	/* Dynasonic Pro */
+	/* This device also have CDC1117:DynaSonix Pro Audio Effects Processor */
 	{ .id = "CDC1111", .devs = { { .id = "CDC1112" } } },
-	
+	/* Panasonic PCA761AW Audio Card */
 	{ .id = "ADV55ff", .devs = { { .id = "ADV0010" } } },
-	
+	/* InterWave STB without TEA6330T */
 	{ .id = "ADV550a", .devs = { { .id = "ADV0010" } } },
 #else
-	
+	/* InterWave STB with TEA6330T */
 	{ .id = "ADV550a", .devs = { { .id = "ADV0010" }, { .id = "ADV0015" } } },
 #endif
 	{ .id = "" }
@@ -160,7 +160,7 @@ static struct pnp_card_device_id snd_interwave_pnpids[] = {
 
 MODULE_DEVICE_TABLE(pnp_card, snd_interwave_pnpids);
 
-#endif 
+#endif /* CONFIG_PNP */
 
 
 #ifdef SNDRV_STB
@@ -261,13 +261,13 @@ static int __devinit snd_interwave_detect(struct snd_interwave *iwcard,
 	unsigned char rev1, rev2;
 	int d;
 
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 0);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 0);	/* reset GF1 */
 	if (((d = snd_gf1_i_look8(gus, SNDRV_GF1_GB_RESET)) & 0x07) != 0) {
 		snd_printdd("[0x%lx] check 1 failed - 0x%x\n", gus->gf1.port, d);
 		return -ENODEV;
 	}
 	udelay(160);
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 1);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 1);	/* release reset */
 	udelay(160);
 	if (((d = snd_gf1_i_look8(gus, SNDRV_GF1_GB_RESET)) & 0x07) != 1) {
 		snd_printdd("[0x%lx] check 2 failed - 0x%x\n", gus->gf1.port, d);
@@ -287,7 +287,7 @@ static int __devinit snd_interwave_detect(struct snd_interwave *iwcard,
 		strcpy(gus->card->shortname, "AMD InterWave");
 		gus->revision = rev1 >> 4;
 #ifndef SNDRV_STB
-		return 0;	
+		return 0;	/* ok.. We have an InterWave board */
 #else
 		return snd_interwave_detect_stb(iwcard, gus, dev, rbus);
 #endif
@@ -309,7 +309,7 @@ static irqreturn_t snd_interwave_interrupt(int irq, void *dev_id)
 			snd_gus_interrupt(irq, iwcard->gus);
 			loop++;
 		}
-		if (inb(iwcard->pcm_status_reg) & 0x01) {	
+		if (inb(iwcard->pcm_status_reg) & 0x01) {	/* IRQ bit is set? */
 			handled = 1;
 			snd_wss_interrupt(irq, iwcard->wss);
 			loop++;
@@ -362,19 +362,19 @@ static void __devinit snd_interwave_bank_sizes(struct snd_gus_card * gus, int *s
 }
 
 struct rom_hdr {
-	 unsigned char iwave[8];
-	 unsigned char rom_hdr_revision;
-	 unsigned char series_number;
-	 unsigned char series_name[16];
-	 unsigned char date[10];
-	 unsigned short vendor_revision_major;
-	 unsigned short vendor_revision_minor;
-	 unsigned int rom_size;
-	 unsigned char copyright[128];
-	 unsigned char vendor_name[64];
-	 unsigned char rom_description[128];
-	 unsigned char pad[147];
-	 unsigned char csum;
+	/* 000 */ unsigned char iwave[8];
+	/* 008 */ unsigned char rom_hdr_revision;
+	/* 009 */ unsigned char series_number;
+	/* 010 */ unsigned char series_name[16];
+	/* 026 */ unsigned char date[10];
+	/* 036 */ unsigned short vendor_revision_major;
+	/* 038 */ unsigned short vendor_revision_minor;
+	/* 040 */ unsigned int rom_size;
+	/* 044 */ unsigned char copyright[128];
+	/* 172 */ unsigned char vendor_name[64];
+	/* 236 */ unsigned char rom_description[128];
+	/* 364 */ unsigned char pad[147];
+	/* 511 */ unsigned char csum;
 };
 
 static void __devinit snd_interwave_detect_memory(struct snd_gus_card * gus)
@@ -394,17 +394,17 @@ static void __devinit snd_interwave_detect_memory(struct snd_gus_card * gus)
 	unsigned char csum;
 
 	snd_interwave_reset(gus);
-	snd_gf1_write8(gus, SNDRV_GF1_GB_GLOBAL_MODE, snd_gf1_read8(gus, SNDRV_GF1_GB_GLOBAL_MODE) | 0x01);		
-	snd_gf1_write8(gus, SNDRV_GF1_GB_MEMORY_CONTROL, 0x01);	
+	snd_gf1_write8(gus, SNDRV_GF1_GB_GLOBAL_MODE, snd_gf1_read8(gus, SNDRV_GF1_GB_GLOBAL_MODE) | 0x01);		/* enhanced mode */
+	snd_gf1_write8(gus, SNDRV_GF1_GB_MEMORY_CONTROL, 0x01);	/* DRAM I/O cycles selected */
 	snd_gf1_write16(gus, SNDRV_GF1_GW_MEMORY_CONFIG, (snd_gf1_look16(gus, SNDRV_GF1_GW_MEMORY_CONFIG) & 0xff10) | 0x004c);
-	
+	/* ok.. simple test of memory size */
 	pages = 0;
 	snd_gf1_poke(gus, 0, 0x55);
 	snd_gf1_poke(gus, 1, 0xaa);
 #if 1
 	if (snd_gf1_peek(gus, 0) == 0x55 && snd_gf1_peek(gus, 1) == 0xaa)
 #else
-	if (0)			
+	if (0)			/* ok.. for testing of 0k RAM */
 #endif
 	{
 		snd_interwave_bank_sizes(gus, psizes);
@@ -435,7 +435,7 @@ static void __devinit snd_interwave_detect_memory(struct snd_gus_card * gus)
 	pages <<= 18;
 	gus->gf1.memory = pages;
 
-	snd_gf1_write8(gus, SNDRV_GF1_GB_MEMORY_CONTROL, 0x03);	
+	snd_gf1_write8(gus, SNDRV_GF1_GB_MEMORY_CONTROL, 0x03);	/* select ROM */
 	snd_gf1_write16(gus, SNDRV_GF1_GW_MEMORY_CONFIG, (snd_gf1_look16(gus, SNDRV_GF1_GW_MEMORY_CONFIG) & 0xff1f) | (4 << 5));
 	gus->gf1.rom_banks = 0;
 	gus->gf1.rom_memory = 0;
@@ -448,7 +448,7 @@ static void __devinit snd_interwave_detect_memory(struct snd_gus_card * gus)
 		       iwave[4], iwave[5], iwave[6], iwave[7]);
 #endif
 		if (strncmp(iwave, "INTRWAVE", 8))
-			continue;	
+			continue;	/* first check */
 		csum = 0;
 		for (i = 0; i < sizeof(struct rom_hdr); i++)
 			csum += snd_gf1_peek(gus, bank_pos + i);
@@ -456,7 +456,7 @@ static void __devinit snd_interwave_detect_memory(struct snd_gus_card * gus)
 		printk(KERN_DEBUG "ROM checksum = 0x%x (computed)\n", csum);
 #endif
 		if (csum != 0)
-			continue;	
+			continue;	/* not valid rom */
 		gus->gf1.rom_banks++;
 		gus->gf1.rom_present |= 1 << (bank_pos >> 22);
 		gus->gf1.rom_memory = snd_gf1_peek(gus, bank_pos + 40) |
@@ -470,7 +470,7 @@ static void __devinit snd_interwave_detect_memory(struct snd_gus_card * gus)
 			gus->card->type = SNDRV_CARD_TYPE_IW_DYNASONIC;
 	}
 #endif
-	snd_gf1_write8(gus, SNDRV_GF1_GB_MEMORY_CONTROL, 0x00);	
+	snd_gf1_write8(gus, SNDRV_GF1_GB_MEMORY_CONTROL, 0x00);	/* select RAM */
 
 	if (!gus->gf1.enh_mode)
 		snd_interwave_reset(gus);
@@ -480,7 +480,7 @@ static void __devinit snd_interwave_init(int dev, struct snd_gus_card * gus)
 {
 	unsigned long flags;
 
-	
+	/* ok.. some InterWave specific initialization */
 	spin_lock_irqsave(&gus->reg_lock, flags);
 	snd_gf1_write8(gus, SNDRV_GF1_GB_SOUND_BLASTER_CONTROL, 0x00);
 	snd_gf1_write8(gus, SNDRV_GF1_GB_COMPATIBILITY, 0x1f);
@@ -520,7 +520,7 @@ static int __devinit snd_interwave_mixer(struct snd_wss *chip)
 	memset(&id2, 0, sizeof(id2));
 	id1.iface = id2.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
 #if 0
-	
+	/* remove mono microphone controls */
 	strcpy(id1.name, "Mic Playback Switch");
 	if ((err = snd_ctl_remove_id(card, &id1)) < 0)
 		return err;
@@ -528,7 +528,7 @@ static int __devinit snd_interwave_mixer(struct snd_wss *chip)
 	if ((err = snd_ctl_remove_id(card, &id1)) < 0)
 		return err;
 #endif
-	
+	/* add new master and mic controls */
 	for (idx = 0; idx < ARRAY_SIZE(snd_interwave_controls); idx++)
 		if ((err = snd_ctl_add(card, snd_ctl_new1(&snd_interwave_controls[idx], chip))) < 0)
 			return err;
@@ -536,7 +536,7 @@ static int __devinit snd_interwave_mixer(struct snd_wss *chip)
 	snd_wss_out(chip, CS4231_LINE_RIGHT_OUTPUT, 0x9f);
 	snd_wss_out(chip, CS4231_LEFT_MIC_INPUT, 0x9f);
 	snd_wss_out(chip, CS4231_RIGHT_MIC_INPUT, 0x9f);
-	
+	/* reassign AUXA to SYNTHESIZER */
 	strcpy(id1.name, "Aux Playback Switch");
 	strcpy(id2.name, "Synth Playback Switch");
 	if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0)
@@ -545,7 +545,7 @@ static int __devinit snd_interwave_mixer(struct snd_wss *chip)
 	strcpy(id2.name, "Synth Playback Volume");
 	if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0)
 		return err;
-	
+	/* reassign AUXB to CD */
 	strcpy(id1.name, "Aux Playback Switch"); id1.index = 1;
 	strcpy(id2.name, "CD Playback Switch");
 	if ((err = snd_ctl_rename_id(card, &id1, &id2)) < 0)
@@ -575,7 +575,7 @@ static int __devinit snd_interwave_pnp(int dev, struct snd_interwave *iwcard,
 	if (iwcard->devtc == NULL)
 		return -EBUSY;
 #endif
-	
+	/* Synth & Codec initialization */
 	pdev = iwcard->dev;
 
 	err = pnp_activate_dev(pdev);
@@ -599,7 +599,7 @@ static int __devinit snd_interwave_pnp(int dev, struct snd_interwave *iwcard,
 			(unsigned long long)pnp_port_start(pdev, 2));
 	snd_printdd("isapnp IW: dma1=%i, dma2=%i, irq=%i\n", dma1[dev], dma2[dev], irq[dev]);
 #ifdef SNDRV_STB
-	
+	/* Tone Control initialization */
 	pdev = iwcard->devtc;
 
 	err = pnp_activate_dev(pdev);
@@ -612,7 +612,7 @@ static int __devinit snd_interwave_pnp(int dev, struct snd_interwave *iwcard,
 #endif
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PNP */
 
 static void snd_interwave_free(struct snd_card *card)
 {
@@ -858,7 +858,7 @@ static struct isa_driver snd_interwave_driver = {
 	.match		= snd_interwave_isa_match,
 	.probe		= snd_interwave_isa_probe,
 	.remove		= __devexit_p(snd_interwave_isa_remove),
-	
+	/* FIXME: suspend,resume */
 	.driver		= {
 		.name	= INTERWAVE_DRIVER
 	},
@@ -909,10 +909,10 @@ static struct pnp_card_driver interwave_pnpc_driver = {
 	.id_table = snd_interwave_pnpids,
 	.probe = snd_interwave_pnp_detect,
 	.remove = __devexit_p(snd_interwave_pnp_remove),
-	
+	/* FIXME: suspend,resume */
 };
 
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init alsa_card_interwave_init(void)
 {

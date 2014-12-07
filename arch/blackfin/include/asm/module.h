@@ -21,4 +21,4 @@ struct mod_arch_specific {
 	Elf_Shdr	*data_l2;
 	Elf_Shdr	*bss_l2;
 };
-#endif				
+#endif				/* _ASM_BFIN_MODULE_H */

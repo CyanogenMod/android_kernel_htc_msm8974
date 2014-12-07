@@ -17,6 +17,14 @@ static void umc_device_release(struct device *dev)
 	kfree(umc);
 }
 
+/**
+ * umc_device_create - allocate a child UMC device
+ * @parent: parent of the new UMC device.
+ * @n:      index of the new device.
+ *
+ * The new UMC device will have a bus ID of the parent with '-n'
+ * appended.
+ */
 struct umc_dev *umc_device_create(struct device *parent, int n)
 {
 	struct umc_dev *umc;
@@ -34,6 +42,13 @@ struct umc_dev *umc_device_create(struct device *parent, int n)
 }
 EXPORT_SYMBOL_GPL(umc_device_create);
 
+/**
+ * umc_device_register - register a UMC device
+ * @umc: pointer to the UMC device
+ *
+ * The memory resource for the UMC device is acquired and the device
+ * registered with the system.
+ */
 int umc_device_register(struct umc_dev *umc)
 {
 	int err;
@@ -57,6 +72,15 @@ error_request_resource:
 }
 EXPORT_SYMBOL_GPL(umc_device_register);
 
+/**
+ * umc_device_unregister - unregister a UMC device
+ * @umc: pointer to the UMC device
+ *
+ * First we unregister the device, make sure the driver can do it's
+ * resource release thing and then we try to release any left over
+ * resources. We take a ref to the device, to make sure it doesn't
+ * disappear under our feet.
+ */
 void umc_device_unregister(struct umc_dev *umc)
 {
 	struct device *dev;

@@ -14,7 +14,33 @@
  *
  ******************************************************************************/
 
+/*
+	PCM
+	Physical Connection Management
+*/
 
+/*
+ * Hardware independent state machine implemantation
+ * The following external SMT functions are referenced :
+ *
+ * 		queue_event()
+ * 		smt_timer_start()
+ * 		smt_timer_stop()
+ *
+ * 	The following external HW dependent functions are referenced :
+ * 		sm_pm_control()
+ *		sm_ph_linestate()
+ *		sm_pm_ls_latch()
+ *
+ * 	The following HW dependent events are required :
+ *		PC_QLS
+ *		PC_ILS
+ *		PC_HLS
+ *		PC_MLS
+ *		PC_NSE
+ *		PC_LEM
+ *
+ */
 
 
 #include "h/types.h"
@@ -43,11 +69,17 @@ int p
 #endif
 ) ;
 #endif
+/*
+ * FSM Macros
+ */
 #define AFLAG		(0x20)
 #define GO_STATE(x)	(mib->fddiPORTPCMState = (x)|AFLAG)
 #define ACTIONS_DONE()	(mib->fddiPORTPCMState &= ~AFLAG)
 #define ACTIONS(x)	(x|AFLAG)
 
+/*
+ * PCM states
+ */
 #define PC0_OFF			0
 #define PC1_BREAK		1
 #define PC2_TRACE		2
@@ -60,11 +92,17 @@ int p
 #define PC9_MAINT		9
 
 #ifdef	DEBUG
+/*
+ * symbolic state names
+ */
 static const char * const pcm_states[] =  {
 	"PC0_OFF","PC1_BREAK","PC2_TRACE","PC3_CONNECT","PC4_NEXT",
 	"PC5_SIGNAL","PC6_JOIN","PC7_VERIFY","PC8_ACTIVE","PC9_MAINT"
 } ;
 
+/*
+ * symbolic event names
+ */
 static const char * const pcm_events[] = {
 	"NONE","PC_START","PC_STOP","PC_LOOP","PC_JOIN","PC_SIGNAL",
 	"PC_REJECT","PC_MAINT","PC_TRACE","PC_PDR",
@@ -78,21 +116,34 @@ static const char * const pcm_events[] = {
 #endif
 
 #ifdef	MOT_ELM
+/*
+ * PCL-S control register
+ * this register in the PLC-S controls the scrambling parameters
+ */
 #define PLCS_CONTROL_C_U	0
 #define PLCS_CONTROL_C_S	(PL_C_SDOFF_ENABLE | PL_C_SDON_ENABLE | \
 				 PL_C_CIPHER_ENABLE)
 #define	PLCS_FASSERT_U		0
-#define	PLCS_FASSERT_S		0xFd76	
+#define	PLCS_FASSERT_S		0xFd76	/* 52.0 us */
 #define	PLCS_FDEASSERT_U	0
 #define	PLCS_FDEASSERT_S	0
-#else	
+#else	/* nMOT_ELM */
+/*
+ * PCL-S control register
+ * this register in the PLC-S controls the scrambling parameters
+ * can be patched for ANSI compliance if standard changes
+ */
 static const u_char plcs_control_c_u[17] = "PLC_CNTRL_C_U=\0\0" ;
 static const u_char plcs_control_c_s[17] = "PLC_CNTRL_C_S=\01\02" ;
 
 #define PLCS_CONTROL_C_U (plcs_control_c_u[14] | (plcs_control_c_u[15]<<8))
 #define PLCS_CONTROL_C_S (plcs_control_c_s[14] | (plcs_control_c_s[15]<<8))
-#endif	
+#endif	/* nMOT_ELM */
 
+/*
+ * external vars
+ */
+/* struct definition see 'cmtdef.h' (also used by CFM) */
 
 #define PS_OFF		0
 #define PS_BIT3		1
@@ -105,35 +156,49 @@ static const u_char plcs_control_c_s[17] = "PLC_CNTRL_C_S=\01\02" ;
 
 #define LCT_LEM_MAX	255
 
+/*
+ * PLC timing parameter
+ */
 
 #define PLC_MS(m)	((int)((0x10000L-(m*100000L/2048))))
 #define SLOW_TL_MIN	PLC_MS(6)
 #define SLOW_C_MIN	PLC_MS(10)
 
 static	const struct plt {
-	int	timer ;			
-	int	para ;			
+	int	timer ;			/* relative plc timer address */
+	int	para ;			/* default timing parameters */
 } pltm[] = {
-	{ PL_C_MIN, SLOW_C_MIN },	
-	{ PL_TL_MIN, SLOW_TL_MIN },	
-	{ PL_TB_MIN, TP_TB_MIN },	
-	{ PL_T_OUT, TP_T_OUT },		
-	{ PL_LC_LENGTH, TP_LC_LENGTH },	
-	{ PL_T_SCRUB, TP_T_SCRUB },	
-	{ PL_NS_MAX, TP_NS_MAX },	
+	{ PL_C_MIN, SLOW_C_MIN },	/* min t. to remain Connect State */
+	{ PL_TL_MIN, SLOW_TL_MIN },	/* min t. to transmit a Line State */
+	{ PL_TB_MIN, TP_TB_MIN },	/* min break time */
+	{ PL_T_OUT, TP_T_OUT },		/* Signaling timeout */
+	{ PL_LC_LENGTH, TP_LC_LENGTH },	/* Link Confidence Test Time */
+	{ PL_T_SCRUB, TP_T_SCRUB },	/* Scrub Time == MAC TVX time ! */
+	{ PL_NS_MAX, TP_NS_MAX },	/* max t. that noise is tolerated */
 	{ 0,0 }
 } ;
 
+/*
+ * interrupt mask
+ */
 #ifdef	SUPERNET_3
+/*
+ * Do we need the EBUF error during signaling, too, to detect SUPERNET_3
+ * PLL bug?
+ */
 static const int plc_imsk_na = PL_PCM_CODE | PL_TRACE_PROP | PL_PCM_BREAK |
 			PL_PCM_ENABLED | PL_SELF_TEST | PL_EBUF_ERR;
-#else	
+#else	/* SUPERNET_3 */
+/*
+ * We do NOT need the elasticity buffer error during signaling.
+ */
 static int plc_imsk_na = PL_PCM_CODE | PL_TRACE_PROP | PL_PCM_BREAK |
 			PL_PCM_ENABLED | PL_SELF_TEST ;
-#endif	
+#endif	/* SUPERNET_3 */
 static const int plc_imsk_act = PL_PCM_CODE | PL_TRACE_PROP | PL_PCM_BREAK |
 			PL_PCM_ENABLED | PL_SELF_TEST | PL_EBUF_ERR;
 
+/* internal functions */
 static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd);
 static void pc_rcode_actions(struct s_smc *smc, int bit, struct s_phy *phy);
 static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy);
@@ -144,19 +209,31 @@ static void sm_ph_lem_stop(struct s_smc *smc, int np);
 static void sm_ph_linestate(struct s_smc *smc, int phy, int ls);
 static void real_init_plc(struct s_smc *smc);
 
+/*
+ * SMT timer interface
+ *      start PCM timer 0
+ */
 static void start_pcm_timer0(struct s_smc *smc, u_long value, int event,
 			     struct s_phy *phy)
 {
-	phy->timer0_exp = FALSE ;       
+	phy->timer0_exp = FALSE ;       /* clear timer event flag */
 	smt_timer_start(smc,&phy->pcm_timer0,value,
 		EV_TOKEN(EVENT_PCM+phy->np,event)) ;
 }
+/*
+ * SMT timer interface
+ *      stop PCM timer 0
+ */
 static void stop_pcm_timer0(struct s_smc *smc, struct s_phy *phy)
 {
 	if (phy->pcm_timer0.tm_active)
 		smt_timer_stop(smc,&phy->pcm_timer0) ;
 }
 
+/*
+	init PCM state machine (called by driver)
+	clear all PCM vars and flags
+*/
 void pcm_init(struct s_smc *smc)
 {
 	int		i ;
@@ -165,7 +242,7 @@ void pcm_init(struct s_smc *smc)
 	struct fddi_mib_p	*mib ;
 
 	for (np = 0,phy = smc->y ; np < NUMPHYS ; np++,phy++) {
-		
+		/* Indicates the type of PHY being used */
 		mib = phy->mib ;
 		mib->fddiPORTPCMState = ACTIONS(PC0_OFF) ;
 		phy->np = np ;
@@ -197,6 +274,9 @@ void pcm_init(struct s_smc *smc)
 			break ;
 #endif
 		}
+		/*
+		 * set PMD-type
+		 */
 		phy->pmd_scramble = 0 ;
 		switch (phy->pmd_type[PMD_SK_PMD]) {
 		case 'P' :
@@ -241,6 +321,9 @@ void pcm_init(struct s_smc *smc)
 			mib->fddiPORTPMDClass = MIB_PMDCLASS_UNKNOWN ;
 			break ;
 		}
+		/*
+		 * A and B port can be on primary and secondary path
+		 */
 		switch (mib->fddiPORTMy_Type) {
 		case TA :
 			mib->fddiPORTAvailablePaths |= MIB_PATH_S ;
@@ -303,7 +386,7 @@ void pcm_init(struct s_smc *smc)
 			phy->phy_name = '0' + np - PM ;
 		else
 			phy->phy_name = 'A' + np ;
-		phy->wc_flag = FALSE ;		
+		phy->wc_flag = FALSE ;		/* set by SMT */
 		memset((char *)&phy->lem,0,sizeof(struct lem_counter)) ;
 		reset_lem_struct(phy) ;
 		memset((char *)&phy->plc,0,sizeof(struct s_plc)) ;
@@ -319,6 +402,13 @@ void init_plc(struct s_smc *smc)
 {
 	SK_UNUSED(smc) ;
 
+	/*
+	 * dummy
+	 * this is an obsolete public entry point that has to remain
+	 * for compat. It is used by various drivers.
+	 * the work is now done in real_init_plc()
+	 * which is called from pcm_init() ;
+	 */
 }
 
 static void real_init_plc(struct s_smc *smc)
@@ -333,42 +423,55 @@ static void plc_init(struct s_smc *smc, int p)
 {
 	int	i ;
 #ifndef	MOT_ELM
-	int	rev ;	
-#endif	
+	int	rev ;	/* Revision of PLC-x */
+#endif	/* MOT_ELM */
 
-	
+	/* transit PCM state machine to MAINT state */
 	outpw(PLC(p,PL_CNTRL_B),0) ;
 	outpw(PLC(p,PL_CNTRL_B),PL_PCM_STOP) ;
 	outpw(PLC(p,PL_CNTRL_A),0) ;
 
+	/*
+	 * if PLC-S then set control register C
+	 */
 #ifndef	MOT_ELM
 	rev = inpw(PLC(p,PL_STATUS_A)) & PLC_REV_MASK ;
 	if (rev != PLC_REVISION_A)
-#endif	
+#endif	/* MOT_ELM */
 	{
 		if (smc->y[p].pmd_scramble) {
 			outpw(PLC(p,PL_CNTRL_C),PLCS_CONTROL_C_S) ;
 #ifdef	MOT_ELM
 			outpw(PLC(p,PL_T_FOT_ASS),PLCS_FASSERT_S) ;
 			outpw(PLC(p,PL_T_FOT_DEASS),PLCS_FDEASSERT_S) ;
-#endif	
+#endif	/* MOT_ELM */
 		}
 		else {
 			outpw(PLC(p,PL_CNTRL_C),PLCS_CONTROL_C_U) ;
 #ifdef	MOT_ELM
 			outpw(PLC(p,PL_T_FOT_ASS),PLCS_FASSERT_U) ;
 			outpw(PLC(p,PL_T_FOT_DEASS),PLCS_FDEASSERT_U) ;
-#endif	
+#endif	/* MOT_ELM */
 		}
 	}
 
-	for ( i = 0 ; pltm[i].timer; i++)	
+	/*
+	 * set timer register
+	 */
+	for ( i = 0 ; pltm[i].timer; i++)	/* set timer parameter reg */
 		outpw(PLC(p,pltm[i].timer),pltm[i].para) ;
 
-	(void)inpw(PLC(p,PL_INTR_EVENT)) ;	
+	(void)inpw(PLC(p,PL_INTR_EVENT)) ;	/* clear interrupt event reg */
 	plc_clear_irq(smc,p) ;
-	outpw(PLC(p,PL_INTR_MASK),plc_imsk_na); 
+	outpw(PLC(p,PL_INTR_MASK),plc_imsk_na); /* enable non active irq's */
 
+	/*
+	 * if PCM is configured for class s, it will NOT go to the
+	 * REMOVE state if offline (page 3-36;)
+	 * in the concentrator, all inactive PHYS always must be in
+	 * the remove state
+	 * there's no real need to use this feature at all ..
+	 */
 #ifndef	CONCENTRATOR
 	if ((smc->s.sas == SMT_SAS) && (p == PS)) {
 		outpw(PLC(p,PL_CNTRL_B),PL_CLASS_S) ;
@@ -376,6 +479,9 @@ static void plc_init(struct s_smc *smc, int p)
 #endif
 }
 
+/*
+ * control PCM state machine
+ */
 static void plc_go_state(struct s_smc *smc, int p, int state)
 {
 	HW_PTR port ;
@@ -389,6 +495,9 @@ static void plc_go_state(struct s_smc *smc, int p, int state)
 	outpw(port,val | state) ;
 }
 
+/*
+ * read current line state (called by ECM & PCM)
+ */
 int sm_pm_get_ls(struct s_smc *smc, int phy)
 {
 	int	state ;
@@ -424,13 +533,13 @@ int sm_pm_get_ls(struct s_smc *smc, int phy)
 
 static int plc_send_bits(struct s_smc *smc, struct s_phy *phy, int len)
 {
-	int np = phy->np ;		
+	int np = phy->np ;		/* PHY index */
 	int	n ;
 	int	i ;
 
 	SK_UNUSED(smc) ;
 
-	
+	/* create bit vector */
 	for (i = len-1,n = 0 ; i >= 0 ; i--) {
 		n = (n<<1) | phy->t_val[phy->bitn+i] ;
 	}
@@ -440,8 +549,8 @@ static int plc_send_bits(struct s_smc *smc, struct s_phy *phy, int len)
 #endif
 		return 1;
 	}
-	
-	outpw(PLC(np,PL_VECTOR_LEN),len-1) ;	
+	/* write bit[n] & length = 1 to regs */
+	outpw(PLC(np,PL_VECTOR_LEN),len-1) ;	/* len=nr-1 */
 	outpw(PLC(np,PL_XMIT_VECTOR),n) ;
 #ifdef	DEBUG
 #if 1
@@ -456,6 +565,9 @@ static int plc_send_bits(struct s_smc *smc, struct s_phy *phy, int len)
 	return 0;
 }
 
+/*
+ * config plc muxes
+ */
 void plc_config_mux(struct s_smc *smc, int mux)
 {
 	if (smc->s.sas != SMT_DAS)
@@ -472,6 +584,14 @@ void plc_config_mux(struct s_smc *smc, int mux)
 	CLEAR(PLC(PB,PL_CNTRL_A),PL_SC_REM_LOOP) ;
 }
 
+/*
+	PCM state machine
+	called by dispatcher  & fddi_init() (driver)
+	do
+		display state change
+		process event
+	until SM is stable
+*/
 void pcm(struct s_smc *smc, const int np, int event)
 {
 	int	state ;
@@ -480,6 +600,9 @@ void pcm(struct s_smc *smc, const int np, int event)
 	struct fddi_mib_p	*mib ;
 
 #ifndef	CONCENTRATOR
+	/*
+	 * ignore 2nd PHY if SAS
+	 */
 	if ((np != PS) && (smc->s.sas == SMT_SAS))
 		return ;
 #endif
@@ -497,12 +620,21 @@ void pcm(struct s_smc *smc, const int np, int event)
 		pcm_fsm(smc,phy,event) ;
 		event = 0 ;
 	} while (state != mib->fddiPORTPCMState) ;
+	/*
+	 * because the PLC does the bit signaling for us,
+	 * we're always in SIGNAL state
+	 * the MIB want's to see CONNECT
+	 * we therefore fake an entry in the MIB
+	 */
 	if (state == PC5_SIGNAL)
 		mib->fddiPORTPCMStateX = PC3_CONNECT ;
 	else
 		mib->fddiPORTPCMStateX = state ;
 
 #ifndef	SLIM_SMT
+	/*
+	 * path change
+	 */
 	if (	mib->fddiPORTPCMState != oldstate &&
 		((oldstate == PC8_ACTIVE) || (mib->fddiPORTPCMState == PC8_ACTIVE))) {
 		smt_srf_event(smc,SMT_EVENT_PORT_PATH_CHANGE,
@@ -511,23 +643,23 @@ void pcm(struct s_smc *smc, const int np, int event)
 #endif
 
 #ifdef FDDI_MIB
-	
+	/* check whether a snmp-trap has to be sent */
 
 	if ( mib->fddiPORTPCMState != oldstate ) {
-		
+		/* a real state change took place */
 		DB_SNMP ("PCM from %d to %d\n", oldstate, mib->fddiPORTPCMState);
 		if ( mib->fddiPORTPCMState == PC0_OFF ) {
-			
+			/* send first trap */
 			snmp_fddi_trap (smc, 1, (int) mib->fddiPORTIndex );
 		} else if ( oldstate == PC0_OFF ) {
-			
+			/* send second trap */
 			snmp_fddi_trap (smc, 2, (int) mib->fddiPORTIndex );
 		} else if ( mib->fddiPORTPCMState != PC2_TRACE &&
 			oldstate == PC8_ACTIVE ) {
-			
+			/* send third trap */
 			snmp_fddi_trap (smc, 3, (int) mib->fddiPORTIndex );
 		} else if ( mib->fddiPORTPCMState == PC8_ACTIVE ) {
-			
+			/* send fourth trap */
 			snmp_fddi_trap (smc, 4, (int) mib->fddiPORTIndex );
 		}
 	}
@@ -536,22 +668,28 @@ void pcm(struct s_smc *smc, const int np, int event)
 	pcm_state_change(smc,np,state) ;
 }
 
+/*
+ * PCM state machine
+ */
 static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 {
 	int	i ;
-	int	np = phy->np ;		
+	int	np = phy->np ;		/* PHY index */
 	struct s_plc	*plc ;
 	struct fddi_mib_p	*mib ;
 #ifndef	MOT_ELM
-	u_short	plc_rev ;		
-#endif	
+	u_short	plc_rev ;		/* Revision of the plc */
+#endif	/* nMOT_ELM */
 
 	plc = &phy->plc ;
 	mib = phy->mib ;
 
+	/*
+	 * general transitions independent of state
+	 */
 	switch (cmd) {
 	case PC_STOP :
-		
+		/*PC00-PC80*/
 		if (mib->fddiPORTPCMState != PC9_MAINT) {
 			GO_STATE(PC0_OFF) ;
 			AIX_EVENT(smc, (u_long) FDDI_RING_STATUS, (u_long)
@@ -560,22 +698,22 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		}
 		return ;
 	case PC_START :
-		
+		/*PC01-PC81*/
 		if (mib->fddiPORTPCMState != PC9_MAINT)
 			GO_STATE(PC1_BREAK) ;
 		return ;
 	case PC_DISABLE :
-		
+		/* PC09-PC99 */
 		GO_STATE(PC9_MAINT) ;
 		AIX_EVENT(smc, (u_long) FDDI_RING_STATUS, (u_long)
 			FDDI_PORT_EVENT, (u_long) FDDI_PORT_DISABLED,
 			smt_get_port_event_word(smc));
 		return ;
 	case PC_TIMEOUT_LCT :
-		
+		/* if long or extended LCT */
 		stop_pcm_timer0(smc,phy) ;
 		CLEAR(PLC(np,PL_CNTRL_B),PL_LONG) ;
-		
+		/* end of LCT is indicate by PCM_CODE (initiate PCM event) */
 		return ;
 	}
 
@@ -585,7 +723,7 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		outpw(PLC(np,PL_CNTRL_A),0) ;
 		CLEAR(PLC(np,PL_CNTRL_B),PL_PC_JOIN) ;
 		CLEAR(PLC(np,PL_CNTRL_B),PL_LONG) ;
-		sm_ph_lem_stop(smc,np) ;		
+		sm_ph_lem_stop(smc,np) ;		/* disable LEM */
 		phy->cf_loop = FALSE ;
 		phy->cf_join = FALSE ;
 		queue_event(smc,EVENT_CFM,CF_JOIN+np) ;
@@ -594,26 +732,32 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		ACTIONS_DONE() ;
 		break ;
 	case PC0_OFF:
-		
+		/*PC09*/
 		if (cmd == PC_MAINT) {
 			GO_STATE(PC9_MAINT) ;
 			break ;
 		}
 		break ;
 	case ACTIONS(PC1_BREAK) :
-		
+		/* Stop the LCT timer if we came from Signal state */
 		stop_pcm_timer0(smc,phy) ;
 		ACTIONS_DONE() ;
 		plc_go_state(smc,np,0) ;
 		CLEAR(PLC(np,PL_CNTRL_B),PL_PC_JOIN) ;
 		CLEAR(PLC(np,PL_CNTRL_B),PL_LONG) ;
-		sm_ph_lem_stop(smc,np) ;		
+		sm_ph_lem_stop(smc,np) ;		/* disable LEM */
+		/*
+		 * if vector is already loaded, go to OFF to clear PCM_SIGNAL
+		 */
 #if	0
 		if (inpw(PLC(np,PL_STATUS_B)) & PL_PCM_SIGNAL) {
 			plc_go_state(smc,np,PL_PCM_STOP) ;
-			
+			/* TB_MIN ? */
 		}
 #endif
+		/*
+		 * Go to OFF state in any case.
+		 */
 		plc_go_state(smc,np,PL_PCM_STOP) ;
 
 		if (mib->fddiPORTPC_Withhold == PC_WH_NONE)
@@ -622,40 +766,73 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		phy->cf_join = FALSE ;
 		queue_event(smc,EVENT_CFM,CF_JOIN+np) ;
 		phy->ls_flag = FALSE ;
-		phy->pc_mode = PM_NONE ;	
-		phy->bitn = 0 ;			
+		phy->pc_mode = PM_NONE ;	/* needed by CFM */
+		phy->bitn = 0 ;			/* bit signaling start bit */
 		for (i = 0 ; i < 3 ; i++)
 			pc_tcode_actions(smc,i,phy) ;
 
-		
+		/* Set the non-active interrupt mask register */
 		outpw(PLC(np,PL_INTR_MASK),plc_imsk_na) ;
 
+		/*
+		 * If the LCT was stopped. There might be a
+		 * PCM_CODE interrupt event present.
+		 * This must be cleared.
+		 */
 		(void)inpw(PLC(np,PL_INTR_EVENT)) ;
 #ifndef	MOT_ELM
-		
+		/* Get the plc revision for revision dependent code */
 		plc_rev = inpw(PLC(np,PL_STATUS_A)) & PLC_REV_MASK ;
 
 		if (plc_rev != PLC_REV_SN3)
-#endif	
+#endif	/* MOT_ELM */
 		{
+			/*
+			 * No supernet III PLC, so set Xmit verctor and
+			 * length BEFORE starting the state machine.
+			 */
 			if (plc_send_bits(smc,phy,3)) {
 				return ;
 			}
 		}
 
+		/*
+		 * Now give the Start command.
+		 * - The start command shall be done before setting the bits
+		 *   to be signaled. (In PLC-S description and PLCS in SN3.
+		 * - The start command shall be issued AFTER setting the
+		 *   XMIT vector and the XMIT length register.
+		 *
+		 * We do it exactly according this specs for the old PLC and
+		 * the new PLCS inside the SN3.
+		 * For the usual PLCS we try it the way it is done for the
+		 * old PLC and set the XMIT registers again, if the PLC is
+		 * not in SIGNAL state. This is done according to an PLCS
+		 * errata workaround.
+		 */
 
 		plc_go_state(smc,np,PL_PCM_START) ;
 
+		/*
+		 * workaround for PLC-S eng. sample errata
+		 */
 #ifdef	MOT_ELM
 		if (!(inpw(PLC(np,PL_STATUS_B)) & PL_PCM_SIGNAL))
-#else	
+#else	/* nMOT_ELM */
 		if (((inpw(PLC(np,PL_STATUS_A)) & PLC_REV_MASK) !=
 			PLC_REVISION_A) &&
 			!(inpw(PLC(np,PL_STATUS_B)) & PL_PCM_SIGNAL))
-#endif	
+#endif	/* nMOT_ELM */
 		{
+			/*
+			 * Set register again (PLCS errata) or the first time
+			 * (new SN3 PLCS).
+			 */
 			(void) plc_send_bits(smc,phy,3) ;
 		}
+		/*
+		 * end of workaround
+		 */
 
 		GO_STATE(PC5_SIGNAL) ;
 		plc->p_state = PS_BIT3 ;
@@ -672,7 +849,7 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 	case PC2_TRACE :
 		break ;
 
-	case PC3_CONNECT :	
+	case PC3_CONNECT :	/* these states are done by hardware */
 	case PC4_NEXT :
 		break ;
 
@@ -713,15 +890,18 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 			plc->p_bits = 0 ;
 			plc->p_start = 7 ;
 			phy->bitn = 7 ;
-		sm_ph_lem_start(smc,np,(int)smc->s.lct_short) ; 
-			
+		sm_ph_lem_start(smc,np,(int)smc->s.lct_short) ; /* enable LEM */
+			/* start LCT */
 			i = inpw(PLC(np,PL_CNTRL_B)) & ~PL_PC_LOOP ;
-			outpw(PLC(np,PL_CNTRL_B),i) ;	
+			outpw(PLC(np,PL_CNTRL_B),i) ;	/* must be cleared */
 			outpw(PLC(np,PL_CNTRL_B),i | PL_RLBP) ;
 			break ;
 		case PS_LCT :
-			
+			/* check for local LCT failure */
 			pc_tcode_actions(smc,7,phy) ;
+			/*
+			 * set tval[7]
+			 */
 			plc->p_state = PS_BIT8 ;
 			plc->p_bits = 1 ;
 			plc->p_start = 7 ;
@@ -731,7 +911,7 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 			}
 			break ;
 		case PS_BIT8 :
-			
+			/* check for remote LCT failure */
 			pc_rcode_actions(smc,7,phy) ;
 			if (phy->t_val[7] || phy->r_val[7]) {
 				plc_go_state(smc,np,PL_PCM_STOP) ;
@@ -758,6 +938,9 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		break ;
 
 	case ACTIONS(PC6_JOIN) :
+		/*
+		 * prevent mux error when going from WRAP_A to WRAP_B
+		 */
 		if (smc->s.sas == SMT_DAS && np == PB &&
 			(smc->y[PA].pc_mode == PM_TREE ||
 			 smc->y[PB].pc_mode == PM_TREE)) {
@@ -770,18 +953,18 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		SETMASK(PLC(np,PL_CNTRL_B),PL_PC_JOIN,PL_PC_JOIN) ;
 		ACTIONS_DONE() ;
 		cmd = 0 ;
-		
+		/* fall thru */
 	case PC6_JOIN :
 		switch (plc->p_state) {
 		case PS_ACTIVE:
-			
+			/*PC88b*/
 			if (!phy->cf_join) {
 				phy->cf_join = TRUE ;
 				queue_event(smc,EVENT_CFM,CF_JOIN+np) ;
 			}
 			if (cmd == PC_JOIN)
 				GO_STATE(PC8_ACTIVE) ;
-			
+			/*PC82*/
 			if (cmd == PC_TRACE) {
 				GO_STATE(PC2_TRACE) ;
 				break ;
@@ -794,32 +977,35 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		break ;
 
 	case ACTIONS(PC8_ACTIVE) :
+		/*
+		 * start LEM for SMT
+		 */
 		sm_ph_lem_start(smc,(int)phy->np,LCT_LEM_MAX) ;
 
 		phy->tr_flag = FALSE ;
 		mib->fddiPORTConnectState = PCM_ACTIVE ;
 
-		
+		/* Set the active interrupt mask register */
 		outpw(PLC(np,PL_INTR_MASK),plc_imsk_act) ;
 
 		ACTIONS_DONE() ;
 		break ;
 	case PC8_ACTIVE :
-		
-		
+		/*PC81 is done by PL_TNE_EXPIRED irq */
+		/*PC82*/
 		if (cmd == PC_TRACE) {
 			GO_STATE(PC2_TRACE) ;
 			break ;
 		}
-		
+		/*PC88c: is done by TRACE_PROP irq */
 
 		break ;
 	case ACTIONS(PC9_MAINT) :
 		stop_pcm_timer0(smc,phy) ;
 		CLEAR(PLC(np,PL_CNTRL_B),PL_PC_JOIN) ;
 		CLEAR(PLC(np,PL_CNTRL_B),PL_LONG) ;
-		CLEAR(PLC(np,PL_INTR_MASK),PL_LE_CTR) ;	
-		sm_ph_lem_stop(smc,np) ;		
+		CLEAR(PLC(np,PL_INTR_MASK),PL_LE_CTR) ;	/* disable LEM int. */
+		sm_ph_lem_stop(smc,np) ;		/* disable LEM */
 		phy->cf_loop = FALSE ;
 		phy->cf_join = FALSE ;
 		queue_event(smc,EVENT_CFM,CF_JOIN+np) ;
@@ -832,7 +1018,7 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 		break ;
 	case PC9_MAINT :
 		DB_PCMN(1,"PCM %c : MAINT\n",phy->phy_name,0) ;
-		
+		/*PC90*/
 		if (cmd == PC_ENABLE) {
 			GO_STATE(PC0_OFF) ;
 			break ;
@@ -845,6 +1031,9 @@ static void pcm_fsm(struct s_smc *smc, struct s_phy *phy, int cmd)
 	}
 }
 
+/*
+ * force line state on a PHY output	(only in MAINT state)
+ */
 static void sm_ph_linestate(struct s_smc *smc, int phy, int ls)
 {
 	int	cntrl ;
@@ -854,20 +1043,20 @@ static void sm_ph_linestate(struct s_smc *smc, int phy, int ls)
 	cntrl = (inpw(PLC(phy,PL_CNTRL_B)) & ~PL_MAINT_LS) |
 						PL_PCM_STOP | PL_MAINT ;
 	switch(ls) {
-	case PC_QLS: 		
+	case PC_QLS: 		/* Force Quiet */
 		cntrl |= PL_M_QUI0 ;
 		break ;
-	case PC_MLS: 		
+	case PC_MLS: 		/* Force Master */
 		cntrl |= PL_M_MASTR ;
 		break ;
-	case PC_HLS: 		
+	case PC_HLS: 		/* Force Halt */
 		cntrl |= PL_M_HALT ;
 		break ;
 	default :
-	case PC_ILS: 		
+	case PC_ILS: 		/* Force Idle */
 		cntrl |= PL_M_IDLE ;
 		break ;
-	case PC_LS_PDR: 	
+	case PC_LS_PDR: 	/* Enable repeat filter */
 		cntrl |= PL_M_TPDR ;
 		break ;
 	}
@@ -882,6 +1071,9 @@ static void reset_lem_struct(struct s_phy *phy)
 	lem->lem_float_ber = 15 * 100 ;
 }
 
+/*
+ * link error monitor
+ */
 static void lem_evaluate(struct s_smc *smc, struct s_phy *phy)
 {
 	int ber ;
@@ -900,6 +1092,15 @@ static void lem_evaluate(struct s_smc *smc, struct s_phy *phy)
 	mib->fddiPORTLem_Ct += errors ;
 
 	errors = lem->lem_errors ;
+	/*
+	 * calculation is called on a intervall of 8 seconds
+	 *	-> this means, that one error in 8 sec. is one of 8*125*10E6
+	 *	the same as BER = 10E-9
+	 * Please note:
+	 *	-> 9 errors in 8 seconds mean:
+	 *	   BER = 9 * 10E-9  and this is
+	 *	    < 10E-8, so the limit of 10E-8 is not reached!
+	 */
 
 		if (!errors)		ber = 15 ;
 	else	if (errors <= 9)	ber = 9 ;
@@ -913,6 +1114,9 @@ static void lem_evaluate(struct s_smc *smc, struct s_phy *phy)
 	else	if (errors <= 999999999) ber = 1 ;
 	else				ber = 0 ;
 
+	/*
+	 * weighted average
+	 */
 	ber *= 100 ;
 	lem->lem_float_ber = lem->lem_float_ber * 7 + ber * 3 ;
 	lem->lem_float_ber /= 10 ;
@@ -938,7 +1142,7 @@ static void lem_evaluate(struct s_smc *smc, struct s_phy *phy)
 		TRUE : FALSE ;
 #ifdef	SMT_EXT_CUTOFF
 	smt_ler_alarm_check(smc,phy,cond) ;
-#endif	
+#endif	/* nSMT_EXT_CUTOFF */
 	if (cond != mib->fddiPORTLerFlag) {
 		smt_srf_event(smc,SMT_COND_PORT_LER,
 			(int) (INDEX_PORT+ phy->np) ,cond) ;
@@ -946,23 +1150,30 @@ static void lem_evaluate(struct s_smc *smc, struct s_phy *phy)
 #endif
 
 	if (	mib->fddiPORTLer_Estimate <= mib->fddiPORTLer_Cutoff) {
-		phy->pc_lem_fail = TRUE ;		
+		phy->pc_lem_fail = TRUE ;		/* flag */
 		mib->fddiPORTLem_Reject_Ct++ ;
+		/*
+		 * "forgive 10e-2" if we cutoff so we can come
+		 * up again ..
+		 */
 		lem->lem_float_ber += 2*100 ;
 
-		
+		/*PC81b*/
 #ifdef	CONCENTRATOR
 		DB_PCMN(1,"PCM: LER cutoff on port %d cutoff %d\n",
 			phy->np, mib->fddiPORTLer_Cutoff) ;
 #endif
 #ifdef	SMT_EXT_CUTOFF
 		smt_port_off_event(smc,phy->np);
-#else	
+#else	/* nSMT_EXT_CUTOFF */
 		queue_event(smc,(int)(EVENT_PCM+phy->np),PC_START) ;
-#endif	
+#endif	/* nSMT_EXT_CUTOFF */
 	}
 }
 
+/*
+ * called by SMT to calculate LEM bit error rate
+ */
 void sm_lem_evaluate(struct s_smc *smc)
 {
 	int np ;
@@ -979,7 +1190,7 @@ static void lem_check_lct(struct s_smc *smc, struct s_phy *phy)
 
 	mib = phy->mib ;
 
-	phy->pc_lem_fail = FALSE ;		
+	phy->pc_lem_fail = FALSE ;		/* flag */
 	errors = inpw(PLC(((int)phy->np),PL_LINK_ERR_CTR)) ;
 	lem->lem_errors += errors ;
 	mib->fddiPORTLem_Ct += errors ;
@@ -1012,6 +1223,9 @@ static void lem_check_lct(struct s_smc *smc, struct s_phy *phy)
 		mib->fddiPORTLCTFail_Ct = 0 ;
 }
 
+/*
+ * LEM functions
+ */
 static void sm_ph_lem_start(struct s_smc *smc, int np, int threshold)
 {
 	struct lem_counter *lem = &smc->y[np].lem ;
@@ -1019,11 +1233,14 @@ static void sm_ph_lem_start(struct s_smc *smc, int np, int threshold)
 	lem->lem_on = 1 ;
 	lem->lem_errors = 0L ;
 
+	/* Do NOT reset mib->fddiPORTLer_Estimate here. It is called too
+	 * often.
+	 */
 
 	outpw(PLC(np,PL_LE_THRESHOLD),threshold) ;
-	(void)inpw(PLC(np,PL_LINK_ERR_CTR)) ;	
+	(void)inpw(PLC(np,PL_LINK_ERR_CTR)) ;	/* clear error counter */
 
-	
+	/* enable LE INT */
 	SETMASK(PLC(np,PL_INTR_MASK),PL_LE_CTR,PL_LE_CTR) ;
 }
 
@@ -1035,7 +1252,9 @@ static void sm_ph_lem_stop(struct s_smc *smc, int np)
 	CLEAR(PLC(np,PL_INTR_MASK),PL_LE_CTR) ;
 }
 
+/* ARGSUSED */
 void sm_pm_ls_latch(struct s_smc *smc, int phy, int on_off)
+/* int on_off;	en- or disable ident. ls */
 {
 	SK_UNUSED(smc) ;
 
@@ -1043,7 +1262,15 @@ void sm_pm_ls_latch(struct s_smc *smc, int phy, int on_off)
 }
 
 
+/*
+ * PCM pseudo code
+ * receive actions are called AFTER the bit n is received,
+ * i.e. if pc_rcode_actions(5) is called, bit 6 is the next bit to be received
+ */
 
+/*
+ * PCM pseudo code 5.1 .. 6.1
+ */
 static void pc_rcode_actions(struct s_smc *smc, int bit, struct s_phy *phy)
 {
 	struct fddi_mib_p	*mib ;
@@ -1084,7 +1311,7 @@ static void pc_rcode_actions(struct s_smc *smc, int bit, struct s_phy *phy)
 			else
 				phy->pc_mode = PM_PEER ;
 
-			
+			/* reevaluate the selection criteria (wc_flag) */
 			all_selection_criteria (smc);
 
 			if (phy->wc_flag) {
@@ -1121,11 +1348,11 @@ static void pc_rcode_actions(struct s_smc *smc, int bit, struct s_phy *phy)
 		else
 			phy->lc_test = LC_SHORT ;
 		switch (phy->lc_test) {
-		case LC_SHORT :				
+		case LC_SHORT :				/* 50ms */
 			outpw(PLC((int)phy->np,PL_LC_LENGTH), TP_LC_LENGTH ) ;
 			phy->t_next[7] = smc->s.pcm_lc_short ;
 			break ;
-		case LC_MEDIUM :			
+		case LC_MEDIUM :			/* 500ms */
 			outpw(PLC((int)phy->np,PL_LC_LENGTH), TP_LC_LONGLN ) ;
 			phy->t_next[7] = smc->s.pcm_lc_medium ;
 			break ;
@@ -1166,17 +1393,20 @@ static void pc_rcode_actions(struct s_smc *smc, int bit, struct s_phy *phy)
 		break ;
 	case 10:
 		if (phy->r_val[9]) {
-			 ;
+			/* neighbor intends to have MAC on output */ ;
 			mib->fddiPORTMacIndicated.R_val = TRUE ;
 		}
 		else {
-			 ;
+			/* neighbor does not intend to have MAC on output */ ;
 			mib->fddiPORTMacIndicated.R_val = FALSE ;
 		}
 		break ;
 	}
 }
 
+/*
+ * PCM pseudo code 5.1 .. 6.1
+ */
 static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy)
 {
 	int	np = phy->np ;
@@ -1186,7 +1416,7 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 
 	switch(bit) {
 	case 0:
-		phy->t_val[0] = 0 ;		
+		phy->t_val[0] = 0 ;		/* no escape used */
 		break ;
 	case 1:
 		if (mib->fddiPORTMy_Type == TS || mib->fddiPORTMy_Type == TM)
@@ -1209,7 +1439,7 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 		ne = mib->fddiPORTNeighborType ;
 		policy = smc->mib.fddiSMTConnectionPolicy ;
 
-		phy->t_val[3] = 1 ;	
+		phy->t_val[3] = 1 ;	/* Accept connection */
 		switch (type) {
 		case TA :
 			if (
@@ -1217,7 +1447,7 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 				((policy & POLICY_AB) && ne == TB) ||
 				((policy & POLICY_AS) && ne == TS) ||
 				((policy & POLICY_AM) && ne == TM) )
-				phy->t_val[3] = 0 ;	
+				phy->t_val[3] = 0 ;	/* Reject */
 			break ;
 		case TB :
 			if (
@@ -1225,7 +1455,7 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 				((policy & POLICY_BB) && ne == TB) ||
 				((policy & POLICY_BS) && ne == TS) ||
 				((policy & POLICY_BM) && ne == TM) )
-				phy->t_val[3] = 0 ;	
+				phy->t_val[3] = 0 ;	/* Reject */
 			break ;
 		case TS :
 			if (
@@ -1233,7 +1463,7 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 				((policy & POLICY_SB) && ne == TB) ||
 				((policy & POLICY_SS) && ne == TS) ||
 				((policy & POLICY_SM) && ne == TM) )
-				phy->t_val[3] = 0 ;	
+				phy->t_val[3] = 0 ;	/* Reject */
 			break ;
 		case TM :
 			if (	ne == TM ||
@@ -1241,10 +1471,13 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 				((policy & POLICY_MB) && ne == TB) ||
 				((policy & POLICY_MS) && ne == TS) ||
 				((policy & POLICY_MM) && ne == TM) )
-				phy->t_val[3] = 0 ;	
+				phy->t_val[3] = 0 ;	/* Reject */
 			break ;
 		}
 #ifndef	SLIM_SMT
+		/*
+		 * detect undesirable connection attempt event
+		 */
 		if (	(type == TA && ne == TA ) ||
 			(type == TA && ne == TS ) ||
 			(type == TB && ne == TB ) ||
@@ -1260,31 +1493,36 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 	case 4:
 		if (mib->fddiPORTPC_Withhold == PC_WH_NONE) {
 			if (phy->pc_lem_fail) {
-				phy->t_val[4] = 1 ;	
+				phy->t_val[4] = 1 ;	/* long */
 				phy->t_val[5] = 0 ;
 			}
 			else {
 				phy->t_val[4] = 0 ;
 				if (mib->fddiPORTLCTFail_Ct > 0)
-					phy->t_val[5] = 1 ;	
+					phy->t_val[5] = 1 ;	/* medium */
 				else
-					phy->t_val[5] = 0 ;	
+					phy->t_val[5] = 0 ;	/* short */
 
+				/*
+				 * Implementers choice: use medium
+				 * instead of short when undesired
+				 * connection attempt is made.
+				 */
 				if (phy->wc_flag)
-					phy->t_val[5] = 1 ;	
+					phy->t_val[5] = 1 ;	/* medium */
 			}
 			mib->fddiPORTConnectState = PCM_CONNECTING ;
 		}
 		else {
 			mib->fddiPORTConnectState = PCM_STANDBY ;
-			phy->t_val[4] = 1 ;	
+			phy->t_val[4] = 1 ;	/* extended */
 			phy->t_val[5] = 1 ;
 		}
 		break ;
 	case 5:
 		break ;
 	case 6:
-		
+		/* we do NOT have a MAC for LCT */
 		phy->t_val[6] = 0 ;
 		break ;
 	case 7:
@@ -1299,7 +1537,7 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 			phy->t_val[7] = 0 ;
 		break ;
 	case 8:
-		phy->t_val[8] = 0 ;	
+		phy->t_val[8] = 0 ;	/* Don't request MAC loopback */
 		break ;
 	case 9:
 		phy->cf_loop = 0 ;
@@ -1311,6 +1549,9 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 		phy->t_val[9] = FALSE ;
 		switch (smc->s.sas) {
 		case SMT_DAS :
+			/*
+			 * MAC intended on output
+			 */
 			if (phy->pc_mode == PM_TREE) {
 				if ((np == PB) || ((np == PA) &&
 				(smc->y[PB].mib->fddiPORTConnectState !=
@@ -1328,6 +1569,9 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 			break ;
 #ifdef	CONCENTRATOR
 		case SMT_NAC :
+			/*
+			 * MAC intended on output
+			 */
 			if (np == PB)
 				phy->t_val[9] = TRUE ;
 			break ;
@@ -1339,6 +1583,9 @@ static void pc_tcode_actions(struct s_smc *smc, const int bit, struct s_phy *phy
 	DB_PCMN(1,"SIG snd %x %x:\n", bit,phy->t_val[bit] ) ;
 }
 
+/*
+ * return status twisted (called by SMT)
+ */
 int pcm_status_twisted(struct s_smc *smc)
 {
 	int	twist = 0 ;
@@ -1351,6 +1598,13 @@ int pcm_status_twisted(struct s_smc *smc)
 	return twist;
 }
 
+/*
+ * return status	(called by SMT)
+ *	type
+ *	state
+ *	remote phy type
+ *	remote mac yes/no
+ */
 void pcm_status_state(struct s_smc *smc, int np, int *type, int *state,
 		      int *remote, int *mac)
 {
@@ -1359,9 +1613,9 @@ void pcm_status_state(struct s_smc *smc, int np, int *type, int *state,
 
 	mib = phy->mib ;
 
-	
+	/* remote PHY type and MAC - set only if active */
 	*mac = 0 ;
-	*type = mib->fddiPORTMy_Type ;		
+	*type = mib->fddiPORTMy_Type ;		/* our PHY type */
 	*state = mib->fddiPORTConnectState ;
 	*remote = mib->fddiPORTNeighborType ;
 
@@ -1372,6 +1626,9 @@ void pcm_status_state(struct s_smc *smc, int np, int *type, int *state,
 	}
 }
 
+/*
+ * return rooted station status (called by SMT)
+ */
 int pcm_rooted_station(struct s_smc *smc)
 {
 	int	n ;
@@ -1384,81 +1641,126 @@ int pcm_rooted_station(struct s_smc *smc)
 	return 1;
 }
 
+/*
+ * Interrupt actions for PLC & PCM events
+ */
 void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
+/* int np;	PHY index */
 {
 	struct s_phy *phy = &smc->y[np] ;
 	struct s_plc *plc = &phy->plc ;
 	int		n ;
 #ifdef	SUPERNET_3
 	int		corr_mask ;
-#endif	
+#endif	/* SUPERNET_3 */
 	int		i ;
 
 	if (np >= smc->s.numphys) {
 		plc->soft_err++ ;
 		return ;
 	}
-	if (cmd & PL_EBUF_ERR) {	
+	if (cmd & PL_EBUF_ERR) {	/* elastic buff. det. over-|underflow*/
+		/*
+		 * Check whether the SRF Condition occurred.
+		 */
 		if (!plc->ebuf_cont && phy->mib->fddiPORTPCMState == PC8_ACTIVE){
+			/*
+			 * This is the real Elasticity Error.
+			 * More than one in a row are treated as a
+			 * single one.
+			 * Only count this in the active state.
+			 */
 			phy->mib->fddiPORTEBError_Ct ++ ;
 
 		}
 
 		plc->ebuf_err++ ;
 		if (plc->ebuf_cont <= 1000) {
-			plc->ebuf_cont++ ;	
+			/*
+			 * Prevent counter from being wrapped after
+			 * hanging years in that interrupt.
+			 */
+			plc->ebuf_cont++ ;	/* Ebuf continuous error */
 		}
 
 #ifdef	SUPERNET_3
 		if (plc->ebuf_cont == 1000 &&
 			((inpw(PLC(np,PL_STATUS_A)) & PLC_REV_MASK) ==
 			PLC_REV_SN3)) {
+			/*
+			 * This interrupt remeained high for at least
+			 * 1000 consecutive interrupt calls.
+			 *
+			 * This is caused by a hardware error of the
+			 * ORION part of the Supernet III chipset.
+			 *
+			 * Disable this bit from the mask.
+			 */
 			corr_mask = (plc_imsk_na & ~PL_EBUF_ERR) ;
 			outpw(PLC(np,PL_INTR_MASK),corr_mask);
 
+			/*
+			 * Disconnect from the ring.
+			 * Call the driver with the reset indication.
+			 */
 			queue_event(smc,EVENT_ECM,EC_DISCONNECT) ;
 
+			/*
+			 * Make an error log entry.
+			 */
 			SMT_ERR_LOG(smc,SMT_E0136, SMT_E0136_MSG) ;
 
+			/*
+			 * Indicate the Reset.
+			 */
 			drv_reset_indication(smc) ;
 		}
-#endif	
+#endif	/* SUPERNET_3 */
 	} else {
-		
-		plc->ebuf_cont = 0 ;	
+		/* Reset the continuous error variable */
+		plc->ebuf_cont = 0 ;	/* reset Ebuf continuous error */
 	}
-	if (cmd & PL_PHYINV) {		
+	if (cmd & PL_PHYINV) {		/* physical layer invalid signal */
 		plc->phyinv++ ;
 	}
-	if (cmd & PL_VSYM_CTR) {	
+	if (cmd & PL_VSYM_CTR) {	/* violation symbol counter has incr.*/
 		plc->vsym_ctr++ ;
 	}
-	if (cmd & PL_MINI_CTR) {	
+	if (cmd & PL_MINI_CTR) {	/* dep. on PLC_CNTRL_A's MINI_CTR_INT*/
 		plc->mini_ctr++ ;
 	}
-	if (cmd & PL_LE_CTR) {		
+	if (cmd & PL_LE_CTR) {		/* link error event counter */
 		int	j ;
 
+		/*
+		 * note: PL_LINK_ERR_CTR MUST be read to clear it
+		 */
 		j = inpw(PLC(np,PL_LE_THRESHOLD)) ;
 		i = inpw(PLC(np,PL_LINK_ERR_CTR)) ;
 
 		if (i < j) {
-			
+			/* wrapped around */
 			i += 256 ;
 		}
 
 		if (phy->lem.lem_on) {
+			/* Note: Lem errors shall only be counted when
+			 * link is ACTIVE or LCT is active.
+			 */
 			phy->lem.lem_errors += i ;
 			phy->mib->fddiPORTLem_Ct += i ;
 		}
 	}
-	if (cmd & PL_TPC_EXPIRED) {	
+	if (cmd & PL_TPC_EXPIRED) {	/* TPC timer reached zero */
 		if (plc->p_state == PS_LCT) {
+			/*
+			 * end of LCT
+			 */
 			;
 		}
 		plc->tpc_exp++ ;
 	}
-	if (cmd & PL_LS_MATCH) {	
+	if (cmd & PL_LS_MATCH) {	/* LS == LS in PLC_CNTRL_B's MATCH_LS*/
 		switch (inpw(PLC(np,PL_CNTRL_B)) & PL_MATCH_LS) {
 		case PL_I_IDLE :	phy->curr_ls = PC_ILS ;		break ;
 		case PL_I_HALT :	phy->curr_ls = PC_HLS ;		break ;
@@ -1466,7 +1768,7 @@ void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
 		case PL_I_QUIET :	phy->curr_ls = PC_QLS ;		break ;
 		}
 	}
-	if (cmd & PL_PCM_BREAK) {	
+	if (cmd & PL_PCM_BREAK) {	/* PCM has entered the BREAK state */
 		int	reason;
 
 		reason = inpw(PLC(np,PL_STATUS_B)) & PL_BREAK_REASON ;
@@ -1480,7 +1782,7 @@ void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
 		case PL_B_HLS :		plc->b_hls++ ;	break ;
 		}
 
-		
+		/*jd 05-Aug-1999 changed: Bug #10419 */
 		DB_PCMN(1,"PLC %d: MDcF = %x\n", np, smc->e.DisconnectFlag);
 		if (smc->e.DisconnectFlag == FALSE) {
 			DB_PCMN(1,"PLC %d: restart (reason %x)\n", np, reason);
@@ -1491,7 +1793,10 @@ void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
 		}
 		return ;
 	}
-	if (cmd & PL_PCM_CODE) { 
+	/*
+	 * If both CODE & ENABLE are set ignore enable
+	 */
+	if (cmd & PL_PCM_CODE) { /* receive last sign.-bit | LCT complete */
 		queue_event(smc,EVENT_PCM+np,PC_SIGNAL) ;
 		n = inpw(PLC(np,PL_RCV_VECTOR)) ;
 		for (i = 0 ; i < plc->p_bits ; i++) {
@@ -1499,11 +1804,11 @@ void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
 			n >>= 1 ;
 		}
 	}
-	else if (cmd & PL_PCM_ENABLED) { 
+	else if (cmd & PL_PCM_ENABLED) { /* asserted SC_JOIN, scrub.completed*/
 		queue_event(smc,EVENT_PCM+np,PC_JOIN) ;
 	}
-	if (cmd & PL_TRACE_PROP) {	
-		
+	if (cmd & PL_TRACE_PROP) {	/* MLS while PC8_ACTIV || PC2_TRACE */
+		/*PC22b*/
 		if (!phy->tr_flag) {
 			DB_PCMN(1,"PCM : irq TRACE_PROP %d %d\n",
 				np,smc->mib.fddiSMTECMState) ;
@@ -1512,8 +1817,12 @@ void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
 			queue_event(smc,EVENT_ECM,EC_TRACE_PROP) ;
 		}
 	}
+	/*
+	 * filter PLC glitch ???
+	 * QLS || HLS only while in PC2_TRACE state
+	 */
 	if ((cmd & PL_SELF_TEST) && (phy->mib->fddiPORTPCMState == PC2_TRACE)) {
-		
+		/*PC22a*/
 		if (smc->e.path_test == PT_PASSED) {
 			DB_PCMN(1,"PCM : state = %s %d\n", get_pcmstate(smc,np),
 				phy->mib->fddiPORTPCMState) ;
@@ -1522,8 +1831,8 @@ void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
 			queue_event(smc,EVENT_ECM,EC_PATH_TEST) ;
 		}
 	}
-	if (cmd & PL_TNE_EXPIRED) {	
-		
+	if (cmd & PL_TNE_EXPIRED) {	/* TNE: length of noise events */
+		/* break_required (TNE > NS_Max) */
 		if (phy->mib->fddiPORTPCMState == PC8_ACTIVE) {
 			if (!phy->tr_flag) {
 			   DB_PCMN(1,"PCM %c : PC81 %s\n",phy->phy_name,"NSE");
@@ -1533,20 +1842,26 @@ void plc_irq(struct s_smc *smc, int np, unsigned int cmd)
 		}
 	}
 #if	0
-	if (cmd & PL_NP_ERR) {		
+	if (cmd & PL_NP_ERR) {		/* NP has requested to r/w an inv reg*/
+		/*
+		 * It's a bug by AMD
+		 */
 		plc->np_err++ ;
 	}
-	
-	if (cmd & PL_PARITY_ERR) {	
+	/* pin inactiv (GND) */
+	if (cmd & PL_PARITY_ERR) {	/* p. error dedected on TX9-0 inp */
 		plc->parity_err++ ;
 	}
-	if (cmd & PL_LSDO) {		
+	if (cmd & PL_LSDO) {		/* carrier detected */
 		;
 	}
 #endif
 }
 
 #ifdef	DEBUG
+/*
+ * fill state struct
+ */
 void pcm_get_state(struct s_smc *smc, struct smt_state *state)
 {
 	struct s_phy	*phy ;

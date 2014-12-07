@@ -56,25 +56,52 @@ static unsigned long long last_pet;
 static bool has_vic;
 static unsigned int msm_wdog_irq;
 
+/*
+ * On the kernel command line specify
+ * msm_watchdog.enable=1 to enable the watchdog
+ * By default watchdog is turned on
+ */
 static int enable = 1;
 module_param(enable, int, 0);
 
+/*
+ * Watchdog bark reboot timeout in seconds.
+ * Can be specified in kernel command line.
+ */
 static int reboot_bark_timeout = 22;
 module_param(reboot_bark_timeout, int, 0644);
+/*
+ * If the watchdog is enabled at bootup (enable=1),
+ * the runtime_disable sysfs node at
+ * /sys/module/msm_watchdog/runtime_disable
+ * can be used to deactivate the watchdog.
+ * This is a one-time setting. The watchdog
+ * cannot be re-enabled once it is disabled.
+ */
 static int runtime_disable;
 static DEFINE_MUTEX(disable_lock);
 static int wdog_enable_set(const char *val, struct kernel_param *kp);
 module_param_call(runtime_disable, wdog_enable_set, param_get_int,
 			&runtime_disable, 0644);
 
+/*
+ * On the kernel command line specify msm_watchdog.appsbark=1 to handle
+ * watchdog barks in Linux. By default barks are processed by the secure side.
+ */
 static int appsbark;
 module_param(appsbark, int, 0);
 
 static int appsbark_fiq;
 
+/*
+ * Use /sys/module/msm_watchdog/parameters/print_all_stacks
+ * to control whether stacks of all running
+ * processes are printed when a wdog bark is received.
+ */
 static int print_all_stacks = 1;
 module_param(print_all_stacks, int,  S_IRUGO | S_IWUSR);
 
+/* Area for context dump in secure mode */
 static void *scm_regsave;
 
 static struct msm_watchdog_pdata __percpu **percpu_pdata;
@@ -84,6 +111,7 @@ static void init_watchdog_work(struct work_struct *work);
 static DECLARE_DELAYED_WORK(dogwork_struct, pet_watchdog_work);
 static DECLARE_WORK(init_dogwork_struct, init_watchdog_work);
 
+/* Called from the FIQ bark handler */
 void msm_wdog_bark_fin(void)
 {
 	flush_cache_all();
@@ -179,7 +207,7 @@ static void wdog_disable_work(struct work_struct *work)
 	atomic_notifier_chain_unregister(&panic_notifier_list, &panic_blk);
 	unregister_reboot_notifier(&msm_reboot_notifier);
 	cancel_delayed_work(&dogwork_struct);
-	
+	/* may be suspended after the first write above */
 	__raw_writel(0, msm_wdt_base + WDT_EN);
 	complete(&work_data->complete);
 	pr_info("MSM Watchdog deactivated.\n");
@@ -267,7 +295,7 @@ static irqreturn_t wdog_bark_handler(int irq, void *dev_id)
 
 	if (print_all_stacks) {
 
-		
+		/* Suspend wdog until all stacks are printed */
 		msm_watchdog_suspend(NULL);
 
 		printk(KERN_INFO "Stack trace dump:\n");
@@ -311,6 +339,11 @@ static void configure_bark_dump(void)
 		} else {
 			pr_err("Allocating register save space failed\n"
 			       "Registers won't be dumped on a dog bite\n");
+			/*
+			 * No need to bail if allocation fails. Simply don't
+			 * send the command, and the secure side will reset
+			 * without saving registers.
+			 */
 		}
 	}
 }
@@ -350,7 +383,7 @@ static void init_watchdog_work(struct work_struct *work)
 			return;
 		}
 
-		
+		/* Must request irq before sending scm command */
 		ret = request_percpu_irq(msm_wdog_irq,
 			wdog_bark_handler, "apps_wdog_bark", percpu_pdata);
 		if (ret) {
@@ -395,6 +428,9 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 	}
 
 	bark_time = pdata->bark_time;
+	/* reboot_bark_timeout (in seconds) might have been supplied as
+	 * module parameter.
+	 */
 	if ((reboot_bark_timeout * MSEC_PER_SEC) < bark_time)
 		reboot_bark_timeout = (bark_time / MSEC_PER_SEC);
 	has_vic = pdata->has_vic;
@@ -406,6 +442,10 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 	msm_wdt_base = pdata->base;
 	msm_wdog_irq = platform_get_irq(pdev, 0);
 
+	/*
+	 * This is only temporary till SBLs turn on the XPUs
+	 * This initialization will be done in SBLs on a later releases
+	 */
 	if (cpu_is_msm9615())
 		__raw_writel(0xF, MSM_TCSR_BASE + TCSR_WDT_CFG);
 

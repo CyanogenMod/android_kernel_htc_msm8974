@@ -16,6 +16,7 @@
 #ifndef CSP_HW_CFG_H
 #define CSP_HW_CFG_H
 
+/* ---- Include Files ---------------------------------------------------- */
 
 #include <cfg_global.h>
 #include <mach/csp/cap_inline.h>
@@ -26,6 +27,15 @@
 #include <hw_cfg.h>
 #endif
 
+/* Some items that can be defined externally, but will be set to default values */
+/* if they are not defined. */
+/*      HW_CFG_PLL_SPREAD_SPECTRUM_DISABLE   Default undefined and SS is enabled. */
+/*      HW_CFG_SDRAM_CAS_LATENCY        5    Default 5, Values [3..6] */
+/*      HW_CFG_SDRAM_CHIP_SELECT_CNT    1    Default 1, Vaules [1..2] */
+/*      HW_CFG_SDRAM_SPEED_GRADE        667  Default 667, Values [400,533,667,800] */
+/*      HW_CFG_SDRAM_WIDTH_BITS         16   Default 16, Vaules [8,16] */
+/*      HW_CFG_SDRAM_ADDR_BRC                Default undefined and Row-Bank-Col (RBC) addressing used. Define to use Bank-Row-Col (BRC). */
+/*      HW_CFG_SDRAM_CLK_ASYNC               Default undefined and DDR clock is synchronous with AXI BUS clock. Define for ASYNC mode. */
 
 #if defined(CFG_GLOBAL_CHIP)
   #if (CFG_GLOBAL_CHIP == FPGA11107)
@@ -54,7 +64,10 @@
    #define HW_CFG_VPM_CLK_HZ            300000000
 #endif
 
+/* ---- Public Constants and Types --------------------------------------- */
+/* ---- Public Variable Externs ------------------------------------------ */
+/* ---- Public Function Prototypes --------------------------------------- */
 
 
-#endif 
+#endif /* CSP_HW_CFG_H */
 

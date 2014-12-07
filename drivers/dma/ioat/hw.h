@@ -21,9 +21,11 @@
 #ifndef _IOAT_HW_H_
 #define _IOAT_HW_H_
 
+/* PCI Configuration Space Values */
 #define IOAT_PCI_VID            0x8086
 #define IOAT_MMIO_BAR		0
 
+/* CB device ID's */
 #define IOAT_PCI_DID_5000       0x1A38
 #define IOAT_PCI_DID_CNB        0x360B
 #define IOAT_PCI_DID_SCNB       0x65FF
@@ -32,10 +34,10 @@
 #define IOAT_PCI_RID            0x00
 #define IOAT_PCI_SVID           0x8086
 #define IOAT_PCI_SID            0x8086
-#define IOAT_VER_1_2            0x12    
-#define IOAT_VER_2_0            0x20    
-#define IOAT_VER_3_0            0x30    
-#define IOAT_VER_3_2            0x32    
+#define IOAT_VER_1_2            0x12    /* Version 1.2 */
+#define IOAT_VER_2_0            0x20    /* Version 2.0 */
+#define IOAT_VER_3_0            0x30    /* Version 3.0 */
+#define IOAT_VER_3_2            0x32    /* Version 3.2 */
 
 int system_has_dca_enabled(struct pci_dev *pdev);
 
@@ -65,7 +67,7 @@ struct ioat_dma_descriptor {
 	uint64_t	next;
 	uint64_t	rsv1;
 	uint64_t	rsv2;
-	
+	/* store some driver data in an unused portion of the descriptor */
 	union {
 		uint64_t	user1;
 		uint64_t	tx_cnt;

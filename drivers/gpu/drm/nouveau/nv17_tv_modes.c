@@ -47,6 +47,7 @@ char *nv17_tv_norm_names[NUM_TV_NORMS] = {
 	[TV_NORM_HD1080I] = "hd1080i"
 };
 
+/* TV standard specific parameters */
 
 struct nv17_tv_norm_params nv17_tv_norms[NUM_TV_NORMS] = {
 	[TV_NORM_PAL] = { TV_ENC_MODE, {
@@ -212,6 +213,38 @@ struct nv17_tv_norm_params nv17_tv_norms[NUM_TV_NORMS] = {
 				} } } }
 };
 
+/*
+ * The following is some guesswork on how the TV encoder flicker
+ * filter/rescaler works:
+ *
+ * It seems to use some sort of resampling filter, it is controlled
+ * through the registers at NV_PTV_HFILTER and NV_PTV_VFILTER, they
+ * control the horizontal and vertical stage respectively, there is
+ * also NV_PTV_HFILTER2 the blob fills identically to NV_PTV_HFILTER,
+ * but they seem to do nothing. A rough guess might be that they could
+ * be used to independently control the filtering of each interlaced
+ * field, but I don't know how they are enabled. The whole filtering
+ * process seems to be disabled with bits 26:27 of PTV_200, but we
+ * aren't doing that.
+ *
+ * The layout of both register sets is the same:
+ *
+ * A: [BASE+0x18]...[BASE+0x0] [BASE+0x58]..[BASE+0x40]
+ * B: [BASE+0x34]...[BASE+0x1c] [BASE+0x74]..[BASE+0x5c]
+ *
+ * Each coefficient is stored in bits [31],[15:9] in two's complement
+ * format. They seem to be some kind of weights used in a low-pass
+ * filter. Both A and B coefficients are applied to the 14 nearest
+ * samples on each side (Listed from nearest to furthermost.  They
+ * roughly cover 2 framebuffer pixels on each side).  They are
+ * probably multiplied with some more hardwired weights before being
+ * used: B-coefficients are applied the same on both sides,
+ * A-coefficients are inverted before being applied to the opposite
+ * side.
+ *
+ * After all the hassle, I got the following formula by empirical
+ * means...
+ */
 
 #define calc_overscan(o) interpolate(0x100, 0xe1, 0xc1, o)
 
@@ -239,7 +272,7 @@ static struct filter_params{
 	int64_t ki2rf;
 	int64_t ki3rf;
 } fparams[2][4] = {
-	
+	/* Horizontal filter parameters */
 	{
 		{64.311690 * id5, -39.516924 * id5, 6.586143 * id5, 0.000002 * id5,
 		 0.051285 * id4, 26.168746 * id4, -4.361449 * id4, -0.000001 * id4,
@@ -259,7 +292,7 @@ static struct filter_params{
 		 112.201065 * id1, 39.992155 * id1, -25.155714 * id1, 2.113984 * id1},
 	},
 
-	
+	/* Vertical filter parameters */
 	{
 		{67.601979 * id5, 0.428319 * id5, -0.071318 * id5, -0.000012 * id5,
 		 -3.402339 * id4, 0.000209 * id4, -0.000092 * id4, 0.000010 * id4,
@@ -319,6 +352,7 @@ static void tv_setup_filter(struct drm_encoder *encoder)
 	}
 }
 
+/* Hardware state saving/restoring */
 
 static void tv_save_filter(struct drm_device *dev, uint32_t base,
 			   uint32_t regs[4][7])
@@ -397,11 +431,12 @@ void nv17_tv_state_load(struct drm_device *dev, struct nv17_tv_state *state)
 	nv_load_ptv(dev, state, 610);
 	nv_load_ptv(dev, state, 614);
 
-	
+	/* This is required for some settings to kick in. */
 	nv_write_tv_enc(dev, 0x3e, 1);
 	nv_write_tv_enc(dev, 0x3e, 0);
 }
 
+/* Timings similar to the ones the blob sets */
 
 const struct drm_display_mode nv17_tv_modes[] = {
 	{ DRM_MODE("320x200", DRM_MODE_TYPE_DRIVER, 0,
@@ -449,7 +484,7 @@ void nv17_tv_update_properties(struct drm_encoder *encoder)
 	{
 		regs->ptv_204 = 0x2;
 
-		
+		/* The composite connector may be found on either pin. */
 		if (tv_enc->pin_mask & 0x4)
 			regs->ptv_204 |= 0x010000;
 		else if (tv_enc->pin_mask & 0x2)
@@ -517,7 +552,7 @@ void nv17_ctv_update_rescaler(struct drm_encoder *encoder)
 		&get_tv_norm(encoder)->ctv_enc_mode.mode;
 	int overscan, hmargin, vmargin, hratio, vratio;
 
-	
+	/* The rescaler doesn't do the right thing for interlaced modes. */
 	if (output_mode->flags & DRM_MODE_FLAG_INTERLACE)
 		overscan = 100;
 	else

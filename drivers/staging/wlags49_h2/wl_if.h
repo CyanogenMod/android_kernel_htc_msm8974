@@ -65,6 +65,9 @@
 
 
 
+/*******************************************************************************
+ *  constant definitions
+ ******************************************************************************/
 #define MAX_LTV_BUF_SIZE            (512 - (sizeof(hcf_16) * 2))
 
 #define HCF_TALLIES_SIZE            (sizeof(CFG_HERMES_TALLIES_STRCT) + \
@@ -77,7 +80,24 @@
 #define TX_TIMEOUT                  ((800 * HZ) / 1000)
 
 
+//#define HCF_MIN_COMM_QUALITY        0
+//#define HCF_MAX_COMM_QUALITY        92
+//#define HCF_MIN_SIGNAL_LEVEL        47
+//#define HCF_MAX_SIGNAL_LEVEL        138
+//#define HCF_MIN_NOISE_LEVEL         47
+//#define HCF_MAX_NOISE_LEVEL         138
+//#define HCF_0DBM_OFFSET             149
 
+// PE1DNN
+// Better data from the real world. Not scientific but empirical data gathered
+// from a Thomson Speedtouch 110 which is identified as:
+// PCMCIA Info: "Agere Systems" "Wireless PC Card Model 0110"
+//              Manufacture ID: 0156,0003
+// Lowest measurment for noise floor seen is value 54
+// Highest signal strength in close proximity to the AP seen is value 118
+// Very good must be arround 100 (otherwise its never "full scale"
+// All other constants are derrived from these. This makes the signal gauge
+// work for me...
 #define HCF_MIN_SIGNAL_LEVEL        54
 #define HCF_MAX_SIGNAL_LEVEL        100
 #define HCF_MIN_NOISE_LEVEL         HCF_MIN_SIGNAL_LEVEL
@@ -87,8 +107,9 @@
 #define HCF_MAX_COMM_QUALITY        (HCF_MAX_SIGNAL_LEVEL - HCF_MIN_NOISE_LEVEL + 1)
 
 
-#define MIN_KEY_SIZE                5       
-#define MAX_KEY_SIZE                13      
+/* For encryption (WEP) */
+#define MIN_KEY_SIZE                5       // 40 bits RC4 - WEP
+#define MAX_KEY_SIZE                13      // 104 bits
 #define MAX_KEYS                    4
 
 #define RADIO_CHANNELS              14
@@ -104,16 +125,34 @@
 
 #define HCF_FAILURE                 0xFF
 #define UIL_FAILURE		            0xFF
-#define CFG_UIL_CONNECT             0xA123          
-#define CFG_UIL_CONNECT_ACK_CODE    0x5653435A      
+#define CFG_UIL_CONNECT             0xA123          // Define differently?
+#define CFG_UIL_CONNECT_ACK_CODE    0x5653435A      // VSCZ
 #define WVLAN2_UIL_CONNECTED        (0x01L << 0)
 #define WVLAN2_UIL_BUSY             (0x01L << 1)
 
 
 
 
+/*******************************************************************************
+ * driver ioctl interface
+ ******************************************************************************/
 #define WVLAN2_IOCTL_UIL            SIOCDEVPRIVATE
 
+/* The UIL Interface used in conjunction with the WVLAN2_IOCTL_UIL code above
+   is defined in mdd.h. A quick reference of the UIL codes is listed below */
+/*
+UIL_FUN_CONNECT
+UIL_FUN_DISCONNECT
+UIL_FUN_ACTION
+    UIL_ACT_BLOCK
+    UIL_ACT_UNBLOCK
+    UIL_ACT_SCA
+    UIL_ACT_DIAG
+    UIL_ACT_APPLY
+UIL_FUN_SEND_DIAG_MSG
+UIL_FUN_GET_INFO
+UIL_FUN_PUT_INFO
+*/
 
 #define SIOCSIWNETNAME              SIOCDEVPRIVATE+1
 #define SIOCGIWNETNAME              SIOCDEVPRIVATE+2
@@ -122,14 +161,19 @@
 #define SIOCSIWPORTTYPE             SIOCDEVPRIVATE+5
 #define SIOCGIWPORTTYPE             SIOCDEVPRIVATE+6
 
+/* IOCTL code for the RTS interface */
 #define WL_IOCTL_RTS                SIOCDEVPRIVATE+7
 
+/* IOCTL subcodes for WL_IOCTL_RTS */
 #define WL_IOCTL_RTS_READ           1
 #define WL_IOCTL_RTS_WRITE          2
 #define WL_IOCTL_RTS_BATCH_READ     3
 #define WL_IOCTL_RTS_BATCH_WRITE    4
 
 
+/*******************************************************************************
+ * STRUCTURE DEFINITIONS
+ ******************************************************************************/
 typedef struct
 {
     __u16   length;
@@ -163,6 +207,9 @@ struct uilreq
     __u8        command;
     __u8        result;
 
+    /* The data field in this structure is typically an LTV of some type. The
+       len field is the size of the buffer in bytes, as opposed to words (like
+       the L-field in the LTV */
     __u16       len;
     void       *data;
 };
@@ -183,5 +230,5 @@ struct rtsreq
 };
 
 
-#endif  
+#endif  // __WAVELAN2_IF_H__
 

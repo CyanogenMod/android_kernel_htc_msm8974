@@ -21,6 +21,24 @@
 #include <linux/compat.h>
 #endif
 
+/**
+ * process_vm_rw_pages - read/write pages from task specified
+ * @task: task to read/write from
+ * @mm: mm for task
+ * @process_pages: struct pages area that can store at least
+ *  nr_pages_to_copy struct page pointers
+ * @pa: address of page in task to start copying from/to
+ * @start_offset: offset in page to start copying from/to
+ * @len: number of bytes to copy
+ * @lvec: iovec array specifying where to copy to/from
+ * @lvec_cnt: number of elements in iovec array
+ * @lvec_current: index in iovec array we are up to
+ * @lvec_offset: offset in bytes from current iovec iov_base we are up to
+ * @vm_write: 0 means copy from, 1 means copy to
+ * @nr_pages_to_copy: number of pages to copy
+ * @bytes_copied: returns number of bytes successfully copied
+ * Returns 0 on success, error code otherwise
+ */
 static int process_vm_rw_pages(struct task_struct *task,
 			       struct mm_struct *mm,
 			       struct page **process_pages,
@@ -45,7 +63,7 @@ static int process_vm_rw_pages(struct task_struct *task,
 
 	*bytes_copied = 0;
 
-	
+	/* Get the pages we're interested in */
 	down_read(&mm->mmap_sem);
 	pages_pinned = get_user_pages(task, mm, pa,
 				      nr_pages_to_copy,
@@ -57,17 +75,22 @@ static int process_vm_rw_pages(struct task_struct *task,
 		goto end;
 	}
 
-	
+	/* Do the copy for each page */
 	for (pgs_copied = 0;
 	     (pgs_copied < nr_pages_to_copy) && (*lvec_current < lvec_cnt);
 	     pgs_copied++) {
-		
+		/* Make sure we have a non zero length iovec */
 		while (*lvec_current < lvec_cnt
 		       && lvec[*lvec_current].iov_len == 0)
 			(*lvec_current)++;
 		if (*lvec_current == lvec_cnt)
 			break;
 
+		/*
+		 * Will copy smallest of:
+		 * - bytes remaining in page
+		 * - bytes remaining in destination iovec
+		 */
 		bytes_to_copy = min_t(ssize_t, PAGE_SIZE - start_offset,
 				      len - *bytes_copied);
 		bytes_to_copy = min_t(ssize_t, bytes_to_copy,
@@ -95,6 +118,10 @@ static int process_vm_rw_pages(struct task_struct *task,
 		*bytes_copied += bytes_to_copy;
 		*lvec_offset += bytes_to_copy;
 		if (*lvec_offset == lvec[*lvec_current].iov_len) {
+			/*
+			 * Need to copy remaining part of page into the
+			 * next iovec if there are any bytes left in page
+			 */
 			(*lvec_current)++;
 			*lvec_offset = 0;
 			start_offset = (start_offset + bytes_to_copy)
@@ -121,8 +148,25 @@ end:
 	return rc;
 }
 
+/* Maximum number of pages kmalloc'd to hold struct page's during copy */
 #define PVM_MAX_KMALLOC_PAGES (PAGE_SIZE * 2)
 
+/**
+ * process_vm_rw_single_vec - read/write pages from task specified
+ * @addr: start memory address of target process
+ * @len: size of area to copy to/from
+ * @lvec: iovec array specifying where to copy to/from locally
+ * @lvec_cnt: number of elements in iovec array
+ * @lvec_current: index in iovec array we are up to
+ * @lvec_offset: offset in bytes from current iovec iov_base we are up to
+ * @process_pages: struct pages area that can store at least
+ *  nr_pages_to_copy struct page pointers
+ * @mm: mm for task
+ * @task: task to read/write from
+ * @vm_write: 0 means copy from, 1 means copy to
+ * @bytes_copied: returns number of bytes successfully copied
+ * Returns 0 on success or on failure error code
+ */
 static int process_vm_rw_single_vec(unsigned long addr,
 				    unsigned long len,
 				    const struct iovec *lvec,
@@ -147,7 +191,7 @@ static int process_vm_rw_single_vec(unsigned long addr,
 
 	*bytes_copied = 0;
 
-	
+	/* Work out address and page range required */
 	if (len == 0)
 		return 0;
 	nr_pages = (addr + len - 1) / PAGE_SIZE - addr / PAGE_SIZE + 1;
@@ -177,6 +221,8 @@ static int process_vm_rw_single_vec(unsigned long addr,
 	return rc;
 }
 
+/* Maximum number of entries for process pages array
+   which lives on stack */
 #define PVM_MAX_PP_ARRAY_COUNT 16
 
 /**
@@ -212,6 +258,10 @@ static ssize_t process_vm_rw_core(pid_t pid, const struct iovec *lvec,
 	size_t iov_l_curr_offset = 0;
 	ssize_t iov_len;
 
+	/*
+	 * Work out how many pages of struct pages we're going to need
+	 * when eventually calling get_user_pages
+	 */
 	for (i = 0; i < riovcnt; i++) {
 		iov_len = rvec[i].iov_len;
 		if (iov_len > 0) {
@@ -227,6 +277,8 @@ static ssize_t process_vm_rw_core(pid_t pid, const struct iovec *lvec,
 		return 0;
 
 	if (nr_pages > PVM_MAX_PP_ARRAY_COUNT) {
+		/* For reliability don't try to kmalloc more than
+		   2 pages worth */
 		process_pages = kmalloc(min_t(size_t, PVM_MAX_KMALLOC_PAGES,
 					      sizeof(struct pages *)*nr_pages),
 					GFP_KERNEL);
@@ -235,7 +287,7 @@ static ssize_t process_vm_rw_core(pid_t pid, const struct iovec *lvec,
 			return -ENOMEM;
 	}
 
-	
+	/* Get process information */
 	rcu_read_lock();
 	task = find_task_by_vpid(pid);
 	if (task)
@@ -249,6 +301,10 @@ static ssize_t process_vm_rw_core(pid_t pid, const struct iovec *lvec,
 	mm = mm_access(task, PTRACE_MODE_ATTACH);
 	if (!mm || IS_ERR(mm)) {
 		rc = IS_ERR(mm) ? PTR_ERR(mm) : -ESRCH;
+		/*
+		 * Explicitly map EACCES to EPERM as EPERM is a more a
+		 * appropriate error code for process_vw_readv/writev
+		 */
 		if (rc == -EACCES)
 			rc = -EPERM;
 		goto put_task_struct;
@@ -261,6 +317,9 @@ static ssize_t process_vm_rw_core(pid_t pid, const struct iovec *lvec,
 			process_pages, mm, task, vm_write, &bytes_copied_loop);
 		bytes_copied += bytes_copied_loop;
 		if (rc != 0) {
+			/* If we have managed to copy any data at all then
+			   we return the number of bytes copied. Otherwise
+			   we return the error code */
 			if (bytes_copied)
 				rc = bytes_copied;
 			goto put_mm;
@@ -309,7 +368,7 @@ static ssize_t process_vm_rw(pid_t pid,
 	if (flags != 0)
 		return -EINVAL;
 
-	
+	/* Check iovecs */
 	if (vm_write)
 		rc = rw_copy_check_uvector(WRITE, lvec, liovcnt, UIO_FASTIOV,
 					   iovstack_l, &iov_l, 1);

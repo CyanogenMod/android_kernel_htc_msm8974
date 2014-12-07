@@ -9,4 +9,4 @@ void board_setup(void);
 
 int board_register_devices(void);
 
-#endif 
+#endif /* ! BCM63XX_BOARD_H_ */

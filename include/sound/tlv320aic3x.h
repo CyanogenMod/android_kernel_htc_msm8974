@@ -10,6 +10,7 @@
 #ifndef __TLV320AIC3x_H__
 #define __TLV320AIC3x_H__
 
+/* GPIO API */
 enum {
 	AIC3X_GPIO1_FUNC_DISABLED		= 0,
 	AIC3X_GPIO1_FUNC_AUDIO_WORDCLK_ADC	= 1,
@@ -50,7 +51,7 @@ struct aic3x_setup_data {
 };
 
 struct aic3x_pdata {
-	int gpio_reset; 
+	int gpio_reset; /* < 0 if not used */
 	struct aic3x_setup_data *setup;
 };
 

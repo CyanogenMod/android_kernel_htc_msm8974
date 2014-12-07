@@ -36,7 +36,7 @@
 struct cast5_ctx {
 	u32 Km[16];
 	u8 Kr[16];
-	int rr;	
+	int rr;	/* rr?number of rounds = 16:number of rounds = 12; (rfc 2144) */
 };
 
 
@@ -583,16 +583,26 @@ static void cast5_encrypt(struct crypto_tfm *tfm, u8 *outbuf, const u8 *inbuf)
 	const __be32 *src = (const __be32 *)inbuf;
 	__be32 *dst = (__be32 *)outbuf;
 	u32 l, r, t;
-	u32 I;			
+	u32 I;			/* used by the Fx macros */
 	u32 *Km;
 	u8 *Kr;
 
 	Km = c->Km;
 	Kr = c->Kr;
 
+	/* (L0,R0) <-- (m1...m64).  (Split the plaintext into left and
+	 * right 32-bit halves L0 = m1...m32 and R0 = m33...m64.)
+	 */
 	l = be32_to_cpu(src[0]);
 	r = be32_to_cpu(src[1]);
 
+	/* (16 rounds) for i from 1 to 16, compute Li and Ri as follows:
+	 *  Li = Ri-1;
+	 *  Ri = Li-1 ^ f(Ri-1,Kmi,Kri), where f is defined in Section 2.2
+	 * Rounds 1, 4, 7, 10, 13, and 16 use f function Type 1.
+	 * Rounds 2, 5, 8, 11, and 14 use f function Type 2.
+	 * Rounds 3, 6, 9, 12, and 15 use f function Type 3.
+	 */
 
 	t = l; l = r; r = t ^ F1(r, Km[0], Kr[0]);
 	t = l; l = r; r = t ^ F2(r, Km[1], Kr[1]);
@@ -613,6 +623,8 @@ static void cast5_encrypt(struct crypto_tfm *tfm, u8 *outbuf, const u8 *inbuf)
 		t = l; l = r; r = t ^ F1(r, Km[15], Kr[15]);
 	}
 
+	/* c1...c64 <-- (R16,L16).  (Exchange final blocks L16, R16 and
+	 *  concatenate to form the ciphertext.) */
 	dst[0] = cpu_to_be32(r);
 	dst[1] = cpu_to_be32(l);
 }

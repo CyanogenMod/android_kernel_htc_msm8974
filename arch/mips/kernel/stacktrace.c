@@ -8,6 +8,9 @@
 #include <linux/export.h>
 #include <asm/stacktrace.h>
 
+/*
+ * Save stack-backtrace addresses into a stack_trace buffer:
+ */
 static void save_raw_context_stack(struct stack_trace *trace,
 	unsigned long reg29)
 {
@@ -57,6 +60,9 @@ static void save_context_stack(struct stack_trace *trace,
 #endif
 }
 
+/*
+ * Save stack-backtrace addresses into a stack_trace buffer.
+ */
 void save_stack_trace(struct stack_trace *trace)
 {
 	save_stack_trace_tsk(current, trace);

@@ -29,6 +29,7 @@ struct tpm_st_i2c_dev {
 	struct completion com[2];
 };
 
+/* for completion array */
 #define ACCEPT_CMD_INDEX 0
 #define DATA_AVAIL_INDEX 1
 
@@ -44,7 +45,7 @@ static u8 tpm_st_i2c_status(struct tpm_chip *chip)
 
 static void tpm_st_i2c_cancel(struct tpm_chip *chip)
 {
-	
+	/* not supported */
 	return;
 }
 
@@ -55,7 +56,7 @@ static int tpm_st_i2c_transfer_buf(struct tpm_chip *chip, u8 *buf, size_t count,
 		.addr = tpm_st_i2c_dev->client->addr,
 		.flags = 0,
 		.buf = buf,
-		.len = TPM_HEADER_LEN, 
+		.len = TPM_HEADER_LEN, /* must read/write header first */
 	};
 	int gpio;
 	int irq;
@@ -86,6 +87,9 @@ static int tpm_st_i2c_transfer_buf(struct tpm_chip *chip, u8 *buf, size_t count,
 
 	do {
 		if (!gpio_get_value(gpio)) {
+			/* reset the completion in case the irq fired
+			 * during the probe
+			 */
 			init_completion(com);
 			enable_irq(irq);
 			tmp = wait_for_completion_interruptible_timeout(
@@ -193,7 +197,7 @@ static struct tpm_vendor_specific tpm_st_i2c_vendor = {
 	.cancel = tpm_st_i2c_cancel,
 	.req_complete_mask = TPM_ST_I2C_REQ_COMPLETE_MASK,
 	.req_complete_val = TPM_ST_I2C_REQ_COMPLETE_MASK,
-	.req_canceled = 0xff,  
+	.req_canceled = 0xff,  /* not supported */
 	.attr_group = &tpm_st_i2c_attr_grp,
 	.miscdev = {
 		    .fops = &tpm_st_i2c_fs_ops,},
@@ -255,6 +259,9 @@ static int tpm_st_i2c_probe(struct i2c_client *client,
 
 	init_completion(&tpm_st_i2c_dev->com[ACCEPT_CMD_INDEX]);
 	init_completion(&tpm_st_i2c_dev->com[DATA_AVAIL_INDEX]);
+	/* This logic allows us to setup irq but not have it enabled, in
+	 * case the lines are already active
+	 */
 	high = gpio_get_value(pd->data_avail_gpio);
 	rc = request_irq(pd->data_avail_irq, tpm_st_i2c_isr, IRQF_TRIGGER_HIGH,
 			 DEVICE_NAME "-data", NULL);

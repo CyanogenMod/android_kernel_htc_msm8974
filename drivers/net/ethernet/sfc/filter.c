@@ -15,11 +15,21 @@
 #include "nic.h"
 #include "regs.h"
 
+/* "Fudge factors" - difference between programmed value and actual depth.
+ * Due to pipelined implementation we need to program H/W with a value that
+ * is larger than the hop limit we want.
+ */
 #define FILTER_CTL_SRCH_FUDGE_WILD 3
 #define FILTER_CTL_SRCH_FUDGE_FULL 1
 
+/* Hard maximum hop limit.  Hardware will time-out beyond 200-something.
+ * We also need to avoid infinite loops in efx_filter_search() when the
+ * table is full.
+ */
 #define FILTER_CTL_SRCH_MAX 200
 
+/* Don't try very hard to find space for performance hints, as this is
+ * counter-productive. */
 #define FILTER_CTL_SRCH_HINT_MAX 5
 
 enum efx_filter_table_id {
@@ -38,10 +48,10 @@ enum efx_filter_index {
 
 struct efx_filter_table {
 	enum efx_filter_table_id id;
-	u32		offset;		
-	unsigned	size;		
-	unsigned	step;		
-	unsigned	used;		
+	u32		offset;		/* address of table relative to BAR */
+	unsigned	size;		/* number of entries */
+	unsigned	step;		/* step between entries */
+	unsigned	used;		/* number currently used */
 	unsigned long	*used_bitmap;
 	struct efx_filter_spec *spec;
 	unsigned	search_depth[EFX_FILTER_TYPE_COUNT];
@@ -56,20 +66,24 @@ struct efx_filter_state {
 #endif
 };
 
+/* The filter hash function is LFSR polynomial x^16 + x^3 + 1 of a 32-bit
+ * key derived from the n-tuple.  The initial LFSR state is 0xffff. */
 static u16 efx_filter_hash(u32 key)
 {
 	u16 tmp;
 
-	
+	/* First 16 rounds */
 	tmp = 0x1fff ^ key >> 16;
 	tmp = tmp ^ tmp >> 3 ^ tmp >> 6;
 	tmp = tmp ^ tmp >> 9;
-	
+	/* Last 16 rounds */
 	tmp = tmp ^ tmp << 13 ^ key;
 	tmp = tmp ^ tmp >> 3 ^ tmp >> 6;
 	return tmp ^ tmp >> 9;
 }
 
+/* To allow for hash collisions, filter search continues at these
+ * increments from the first possible entry selected by the hash. */
 static u16 efx_filter_increment(u32 key)
 {
 	return key * 2 - 1;
@@ -209,6 +223,13 @@ static inline void __efx_filter_get_ipv4(const struct efx_filter_spec *spec,
 	*port2 = htons(spec->data[1] >> 16);
 }
 
+/**
+ * efx_filter_set_ipv4_local - specify IPv4 host, transport protocol and port
+ * @spec: Specification to initialise
+ * @proto: Transport layer protocol number
+ * @host: Local host address (network byte order)
+ * @port: Local port (network byte order)
+ */
 int efx_filter_set_ipv4_local(struct efx_filter_spec *spec, u8 proto,
 			      __be32 host, __be16 port)
 {
@@ -217,7 +238,7 @@ int efx_filter_set_ipv4_local(struct efx_filter_spec *spec, u8 proto,
 
 	EFX_BUG_ON_PARANOID(!(spec->flags & EFX_FILTER_FLAG_RX));
 
-	
+	/* This cannot currently be combined with other filtering */
 	if (spec->type != EFX_FILTER_UNSPEC)
 		return -EPROTONOSUPPORT;
 
@@ -235,6 +256,11 @@ int efx_filter_set_ipv4_local(struct efx_filter_spec *spec, u8 proto,
 		return -EPROTONOSUPPORT;
 	}
 
+	/* Filter is constructed in terms of source and destination,
+	 * with the odd wrinkle that the ports are swapped in a UDP
+	 * wildcard filter.  We need to convert from local and remote
+	 * (= zero for wildcard) addresses.
+	 */
 	host1 = 0;
 	if (proto != IPPROTO_UDP) {
 		port1 = 0;
@@ -267,13 +293,22 @@ int efx_filter_get_ipv4_local(const struct efx_filter_spec *spec,
 	}
 }
 
+/**
+ * efx_filter_set_ipv4_full - specify IPv4 hosts, transport protocol and ports
+ * @spec: Specification to initialise
+ * @proto: Transport layer protocol number
+ * @host: Local host address (network byte order)
+ * @port: Local port (network byte order)
+ * @rhost: Remote host address (network byte order)
+ * @rport: Remote port (network byte order)
+ */
 int efx_filter_set_ipv4_full(struct efx_filter_spec *spec, u8 proto,
 			     __be32 host, __be16 port,
 			     __be32 rhost, __be16 rport)
 {
 	EFX_BUG_ON_PARANOID(!(spec->flags & EFX_FILTER_FLAG_RX));
 
-	
+	/* This cannot currently be combined with other filtering */
 	if (spec->type != EFX_FILTER_UNSPEC)
 		return -EPROTONOSUPPORT;
 
@@ -314,13 +349,19 @@ int efx_filter_get_ipv4_full(const struct efx_filter_spec *spec,
 	return 0;
 }
 
+/**
+ * efx_filter_set_eth_local - specify local Ethernet address and optional VID
+ * @spec: Specification to initialise
+ * @vid: VLAN ID to match, or %EFX_FILTER_VID_UNSPEC
+ * @addr: Local Ethernet MAC address
+ */
 int efx_filter_set_eth_local(struct efx_filter_spec *spec,
 			     u16 vid, const u8 *addr)
 {
 	EFX_BUG_ON_PARANOID(!(spec->flags &
 			      (EFX_FILTER_FLAG_RX | EFX_FILTER_FLAG_TX)));
 
-	
+	/* This cannot currently be combined with other filtering */
 	if (spec->type != EFX_FILTER_UNSPEC)
 		return -EPROTONOSUPPORT;
 
@@ -337,6 +378,10 @@ int efx_filter_set_eth_local(struct efx_filter_spec *spec,
 	return 0;
 }
 
+/**
+ * efx_filter_set_uc_def - specify matching otherwise-unmatched unicast
+ * @spec: Specification to initialise
+ */
 int efx_filter_set_uc_def(struct efx_filter_spec *spec)
 {
 	EFX_BUG_ON_PARANOID(!(spec->flags &
@@ -346,10 +391,14 @@ int efx_filter_set_uc_def(struct efx_filter_spec *spec)
 		return -EINVAL;
 
 	spec->type = EFX_FILTER_UC_DEF;
-	memset(spec->data, 0, sizeof(spec->data)); 
+	memset(spec->data, 0, sizeof(spec->data)); /* ensure equality */
 	return 0;
 }
 
+/**
+ * efx_filter_set_mc_def - specify matching otherwise-unmatched multicast
+ * @spec: Specification to initialise
+ */
 int efx_filter_set_mc_def(struct efx_filter_spec *spec)
 {
 	EFX_BUG_ON_PARANOID(!(spec->flags &
@@ -359,7 +408,7 @@ int efx_filter_set_mc_def(struct efx_filter_spec *spec)
 		return -EINVAL;
 
 	spec->type = EFX_FILTER_MC_DEF;
-	memset(spec->data, 0, sizeof(spec->data)); 
+	memset(spec->data, 0, sizeof(spec->data)); /* ensure equality */
 	return 0;
 }
 
@@ -398,6 +447,7 @@ int efx_filter_get_eth_local(const struct efx_filter_spec *spec,
 	return 0;
 }
 
+/* Build a filter entry and return its n-tuple key. */
 static u32 efx_filter_build(efx_oword_t *filter, struct efx_filter_spec *spec)
 {
 	u32 data3;
@@ -422,7 +472,7 @@ static u32 efx_filter_build(efx_oword_t *filter, struct efx_filter_spec *spec)
 	}
 
 	case EFX_FILTER_TABLE_RX_DEF:
-		
+		/* One filter spec per type */
 		BUILD_BUG_ON(EFX_FILTER_INDEX_UC_DEF != 0);
 		BUILD_BUG_ON(EFX_FILTER_INDEX_MC_DEF !=
 			     EFX_FILTER_MC_DEF - EFX_FILTER_UC_DEF);
@@ -497,6 +547,9 @@ static int efx_filter_search(struct efx_filter_table *table,
 		     table->search_depth[spec->type]);
 
 	for (;;) {
+		/* Return success if entry is used and matches this spec
+		 * or entry is unused and we are trying to insert.
+		 */
 		if (test_bit(filter_idx, table->used_bitmap) ?
 		    efx_filter_equal(spec, &table->spec[filter_idx]) :
 		    for_insert) {
@@ -504,7 +557,7 @@ static int efx_filter_search(struct efx_filter_table *table,
 			return filter_idx;
 		}
 
-		
+		/* Return failure if we reached the maximum search depth */
 		if (depth == depth_max)
 			return for_insert ? -EBUSY : -ENOENT;
 
@@ -513,6 +566,15 @@ static int efx_filter_search(struct efx_filter_table *table,
 	}
 }
 
+/*
+ * Construct/deconstruct external filter IDs.  These must be ordered
+ * by matching priority, for RX NFC semantics.
+ *
+ * Each RX MAC filter entry has a flag for whether it can override an
+ * RX IP filter that also matches.  So we assign locations for MAC
+ * filters with overriding behaviour, then for IP filters, then for
+ * MAC filters without overriding behaviour.
+ */
 
 #define EFX_FILTER_MATCH_PRI_RX_MAC_OVERRIDE_IP	0
 #define EFX_FILTER_MATCH_PRI_RX_DEF_OVERRIDE_IP	1
@@ -583,6 +645,16 @@ u32 efx_filter_get_rx_id_limit(struct efx_nic *efx)
 	return 0;
 }
 
+/**
+ * efx_filter_insert_filter - add or replace a filter
+ * @efx: NIC in which to insert the filter
+ * @spec: Specification for the filter
+ * @replace: Flag for whether the specified filter may replace a filter
+ *	with an identical match expression and equal or lower priority
+ *
+ * On success, return the filter ID.
+ * On failure, return a negative error code.
+ */
 s32 efx_filter_insert_filter(struct efx_nic *efx, struct efx_filter_spec *spec,
 			     bool replace)
 {
@@ -613,7 +685,7 @@ s32 efx_filter_insert_filter(struct efx_nic *efx, struct efx_filter_spec *spec,
 	saved_spec = &table->spec[filter_idx];
 
 	if (test_bit(filter_idx, table->used_bitmap)) {
-		
+		/* Should we replace the existing filter? */
 		if (!replace) {
 			rc = -EEXIST;
 			goto out;
@@ -660,7 +732,7 @@ static void efx_filter_table_clear_entry(struct efx_nic *efx,
 	static efx_oword_t filter;
 
 	if (table->id == EFX_FILTER_TABLE_RX_DEF) {
-		
+		/* RX default filters must always exist */
 		efx_filter_reset_rx_def(efx, filter_idx);
 		efx_filter_push_rx_config(efx);
 	} else if (test_bit(filter_idx, table->used_bitmap)) {
@@ -673,6 +745,15 @@ static void efx_filter_table_clear_entry(struct efx_nic *efx,
 	}
 }
 
+/**
+ * efx_filter_remove_id_safe - remove a filter by ID, carefully
+ * @efx: NIC from which to remove the filter
+ * @priority: Priority of filter, as passed to @efx_filter_insert_filter
+ * @filter_id: ID of filter, as returned by @efx_filter_insert_filter
+ *
+ * This function will range-check @filter_id, so it is safe to call
+ * with a value passed from userland.
+ */
 int efx_filter_remove_id_safe(struct efx_nic *efx,
 			      enum efx_filter_priority priority,
 			      u32 filter_id)
@@ -715,6 +796,16 @@ int efx_filter_remove_id_safe(struct efx_nic *efx,
 	return rc;
 }
 
+/**
+ * efx_filter_get_filter_safe - retrieve a filter by ID, carefully
+ * @efx: NIC from which to remove the filter
+ * @priority: Priority of filter, as passed to @efx_filter_insert_filter
+ * @filter_id: ID of filter, as returned by @efx_filter_insert_filter
+ * @spec: Buffer in which to store filter specification
+ *
+ * This function will range-check @filter_id, so it is safe to call
+ * with a value passed from userland.
+ */
 int efx_filter_get_filter_safe(struct efx_nic *efx,
 			       enum efx_filter_priority priority,
 			       u32 filter_id, struct efx_filter_spec *spec_buf)
@@ -774,6 +865,11 @@ static void efx_filter_table_clear(struct efx_nic *efx,
 	spin_unlock_bh(&state->lock);
 }
 
+/**
+ * efx_filter_clear_rx - remove RX filters by priority
+ * @efx: NIC from which to remove the filters
+ * @priority: Maximum priority to remove
+ */
 void efx_filter_clear_rx(struct efx_nic *efx, enum efx_filter_priority priority)
 {
 	efx_filter_table_clear(efx, EFX_FILTER_TABLE_RX_IP, priority);
@@ -842,6 +938,7 @@ out:
 	return count;
 }
 
+/* Restore filter stater after reset */
 void efx_restore_filters(struct efx_nic *efx)
 {
 	struct efx_filter_state *state = efx->filter_state;
@@ -855,7 +952,7 @@ void efx_restore_filters(struct efx_nic *efx)
 	for (table_id = 0; table_id < EFX_FILTER_TABLE_COUNT; table_id++) {
 		table = &state->table[table_id];
 
-		
+		/* Check whether this is a regular register table */
 		if (table->step == 0)
 			continue;
 
@@ -935,7 +1032,7 @@ int efx_probe_filters(struct efx_nic *efx)
 	}
 
 	if (state->table[EFX_FILTER_TABLE_RX_DEF].size) {
-		
+		/* RX default filters must always exist */
 		unsigned i;
 		for (i = 0; i < EFX_FILTER_SIZE_RX_DEF; i++)
 			efx_filter_reset_rx_def(efx, i);
@@ -984,7 +1081,7 @@ int efx_filter_rfs(struct net_device *net_dev, const struct sk_buff *skb,
 	if (skb->protocol != htons(ETH_P_IP))
 		return -EPROTONOSUPPORT;
 
-	
+	/* RFS must validate the IP header length before calling us */
 	EFX_BUG_ON_PARANOID(skb_headlen(skb) < nhoff + sizeof(*ip));
 	ip = (const struct iphdr *)(skb->data + nhoff);
 	if (ip_is_fragment(ip))
@@ -1002,7 +1099,7 @@ int efx_filter_rfs(struct net_device *net_dev, const struct sk_buff *skb,
 	if (rc < 0)
 		return rc;
 
-	
+	/* Remember this so we can check whether to expire the filter later */
 	state->rps_flow_id[rc] = flow_id;
 	channel = efx_get_channel(efx, skb_get_rx_queue(skb));
 	++channel->rfs_filters_added;
@@ -1052,4 +1149,4 @@ bool __efx_filter_rfs_expire(struct efx_nic *efx, unsigned quota)
 	return true;
 }
 
-#endif 
+#endif /* CONFIG_RFS_ACCEL */

@@ -16,6 +16,8 @@
 
 #include <plat/sdrc.h>
 
+/* Micron MT46H32M32LF-6 */
+/* XXX Using ARE = 0x1 (no autorefresh burst) -- can this be changed? */
 static struct omap_sdrc_params mt46h32m32lf6_sdrc_params[] = {
 	[0] = {
 		.rate	     = 166000000,

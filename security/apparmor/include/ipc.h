@@ -25,4 +25,4 @@ int aa_may_ptrace(struct task_struct *tracer_task, struct aa_profile *tracer,
 int aa_ptrace(struct task_struct *tracer, struct task_struct *tracee,
 	      unsigned int mode);
 
-#endif 
+#endif /* __AA_IPC_H */

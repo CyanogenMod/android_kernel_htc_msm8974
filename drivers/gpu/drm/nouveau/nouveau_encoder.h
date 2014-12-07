@@ -46,6 +46,8 @@ struct nouveau_encoder {
 	struct dcb_entry *dcb;
 	int or;
 
+	/* different to drm_encoder.crtc, this reflects what's
+	 * actually programmed on the hw, not the proposed crtc */
 	struct drm_crtc *crtc;
 
 	struct drm_display_mode mode;
@@ -84,6 +86,7 @@ get_slave_funcs(struct drm_encoder *enc)
 	return to_encoder_slave(enc)->slave_funcs;
 }
 
+/* nouveau_dp.c */
 int nouveau_dp_auxch(struct nouveau_i2c_chan *auxch, int cmd, int addr,
 		     uint8_t *data, int data_nr);
 bool nouveau_dp_detect(struct drm_encoder *);
@@ -98,4 +101,4 @@ void nv50_sor_dp_calc_tu(struct drm_device *, int, int, u32, u32);
 int nv50_dac_create(struct drm_connector *, struct dcb_entry *);
 
 
-#endif 
+#endif /* __NOUVEAU_ENCODER_H__ */

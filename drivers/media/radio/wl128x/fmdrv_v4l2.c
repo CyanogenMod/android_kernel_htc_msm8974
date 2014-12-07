@@ -39,7 +39,9 @@
 static struct video_device *gradio_dev;
 static u8 radio_disconnected;
 
+/* -- V4L2 RADIO (/dev/radioX) device file operation interfaces --- */
 
+/* Read RX RDS data */
 static ssize_t fm_v4l2_fops_read(struct file *file, char __user * buf,
 					size_t count, loff_t *ppos)
 {
@@ -54,7 +56,7 @@ static ssize_t fm_v4l2_fops_read(struct file *file, char __user * buf,
 		return -EIO;
 	}
 
-	
+	/* Turn on RDS mode , if it is disabled */
 	ret = fm_rx_get_rds_mode(fmdev, &rds_mode);
 	if (ret < 0) {
 		fmerr("Unable to read current rds mode\n");
@@ -69,10 +71,11 @@ static ssize_t fm_v4l2_fops_read(struct file *file, char __user * buf,
 		}
 	}
 
-	
+	/* Copy RDS data from internal buffer to user buffer */
 	return fmc_transfer_rds_from_internal_buff(fmdev, file, buf, count);
 }
 
+/* Write TX RDS data */
 static ssize_t fm_v4l2_fops_write(struct file *file, const char __user * buf,
 		size_t count, loff_t *ppos)
 {
@@ -107,12 +110,16 @@ static u32 fm_v4l2_fops_poll(struct file *file, struct poll_table_struct *pts)
 	return 0;
 }
 
+/*
+ * Handle open request for "/dev/radioX" device.
+ * Start with FM RX mode as default.
+ */
 static int fm_v4l2_fops_open(struct file *file)
 {
 	int ret;
 	struct fmdev *fmdev = NULL;
 
-	
+	/* Don't allow multiple open */
 	if (radio_disconnected) {
 		fmerr("FM device is already opened\n");
 		return -EBUSY;
@@ -165,6 +172,7 @@ static int fm_v4l2_fops_release(struct file *file)
 	return ret;
 }
 
+/* V4L2 RADIO (/dev/radioX) device IOCTL interfaces */
 static int fm_v4l2_vidioc_querycap(struct file *file, void *priv,
 		struct v4l2_capability *capability)
 {
@@ -203,14 +211,14 @@ static int fm_v4l2_s_ctrl(struct v4l2_ctrl *ctrl)
 			struct fmdev, ctrl_handler);
 
 	switch (ctrl->id) {
-	case V4L2_CID_AUDIO_VOLUME:	
+	case V4L2_CID_AUDIO_VOLUME:	/* set volume */
 		return fm_rx_set_volume(fmdev, (u16)ctrl->val);
 
-	case V4L2_CID_AUDIO_MUTE:	
+	case V4L2_CID_AUDIO_MUTE:	/* set mute */
 		return fmc_set_mute_mode(fmdev, (u8)ctrl->val);
 
 	case V4L2_CID_TUNE_POWER_LEVEL:
-		
+		/* set TX power level - ext control */
 		return fm_tx_set_pwr_lvl(fmdev, (u8)ctrl->val);
 
 	case V4L2_CID_TUNE_PREEMPHASIS:
@@ -240,6 +248,7 @@ static int fm_v4l2_vidioc_s_audio(struct file *file, void *priv,
 	return 0;
 }
 
+/* Get tuner attributes. If current mode is NOT RX, return error */
 static int fm_v4l2_vidioc_g_tuner(struct file *file, void *priv,
 		struct v4l2_tuner *tuner)
 {
@@ -270,7 +279,7 @@ static int fm_v4l2_vidioc_g_tuner(struct file *file, void *priv,
 
 	strcpy(tuner->name, "FM");
 	tuner->type = V4L2_TUNER_RADIO;
-	
+	/* Store rangelow and rangehigh freq in unit of 62.5 Hz */
 	tuner->rangelow = bottom_freq * 16;
 	tuner->rangehigh = top_freq * 16;
 	tuner->rxsubchans = V4L2_TUNER_SUB_MONO | V4L2_TUNER_SUB_STEREO |
@@ -280,14 +289,27 @@ static int fm_v4l2_vidioc_g_tuner(struct file *file, void *priv,
 	tuner->audmode = (stereo_mono_mode ?
 			  V4L2_TUNER_MODE_MONO : V4L2_TUNER_MODE_STEREO);
 
+	/*
+	 * Actual rssi value lies in between -128 to +127.
+	 * Convert this range from 0 to 255 by adding +128
+	 */
 	rssilvl += 128;
 
+	/*
+	 * Return signal strength value should be within 0 to 65535.
+	 * Find out correct signal radio by multiplying (65535/255) = 257
+	 */
 	tuner->signal = rssilvl * 257;
 	tuner->afc = 0;
 
 	return ret;
 }
 
+/*
+ * Set tuner attributes. If current mode is NOT RX, set to RX.
+ * Currently, we set only audio mode (mono/stereo) and RDS state (on/off).
+ * Should we set other tuner attributes, too?
+ */
 static int fm_v4l2_vidioc_s_tuner(struct file *file, void *priv,
 		struct v4l2_tuner *tuner)
 {
@@ -325,6 +347,7 @@ static int fm_v4l2_vidioc_s_tuner(struct file *file, void *priv,
 	return ret;
 }
 
+/* Get tuner or modulator radio frequency */
 static int fm_v4l2_vidioc_g_freq(struct file *file, void *priv,
 		struct v4l2_frequency *freq)
 {
@@ -337,22 +360,28 @@ static int fm_v4l2_vidioc_g_freq(struct file *file, void *priv,
 		return ret;
 	}
 
-	
+	/* Frequency unit of 62.5 Hz*/
 	freq->frequency = (u32) freq->frequency * 16;
 
 	return 0;
 }
 
+/* Set tuner or modulator radio frequency */
 static int fm_v4l2_vidioc_s_freq(struct file *file, void *priv,
 		struct v4l2_frequency *freq)
 {
 	struct fmdev *fmdev = video_drvdata(file);
 
+	/*
+	 * As V4L2_TUNER_CAP_LOW is set 1 user sends the frequency
+	 * in units of 62.5 Hz.
+	 */
 	freq->frequency = (u32)(freq->frequency / 16);
 
 	return fmc_set_freq(fmdev, freq->frequency);
 }
 
+/* Set hardware frequency seek. If current mode is NOT RX, set it RX. */
 static int fm_v4l2_vidioc_s_hw_freq_seek(struct file *file, void *priv,
 		struct v4l2_hw_freq_seek *seek)
 {
@@ -374,6 +403,7 @@ static int fm_v4l2_vidioc_s_hw_freq_seek(struct file *file, void *priv,
 
 	return ret;
 }
+/* Get modulator attributes. If mode is not TX, return no attributes. */
 static int fm_v4l2_vidioc_g_modulator(struct file *file, void *priv,
 		struct v4l2_modulator *mod)
 {
@@ -396,6 +426,7 @@ static int fm_v4l2_vidioc_g_modulator(struct file *file, void *priv,
 	return 0;
 }
 
+/* Set modulator attributes. If mode is not TX, set to TX. */
 static int fm_v4l2_vidioc_s_modulator(struct file *file, void *priv,
 		struct v4l2_modulator *mod)
 {
@@ -458,6 +489,7 @@ static const struct v4l2_ioctl_ops fm_drv_ioctl_ops = {
 	.vidioc_s_modulator = fm_v4l2_vidioc_s_modulator
 };
 
+/* V4L2 RADIO device parent structure */
 static struct video_device fm_viddev_template = {
 	.fops = &fm_drv_fops,
 	.ioctl_ops = &fm_drv_ioctl_ops,
@@ -470,24 +502,24 @@ int fm_v4l2_init_video_device(struct fmdev *fmdev, int radio_nr)
 	struct v4l2_ctrl *ctrl;
 	int ret;
 
-	
+	/* Init mutex for core locking */
 	mutex_init(&fmdev->mutex);
 
-	
+	/* Allocate new video device */
 	gradio_dev = video_device_alloc();
 	if (NULL == gradio_dev) {
 		fmerr("Can't allocate video device\n");
 		return -ENOMEM;
 	}
 
-	
+	/* Setup FM driver's V4L2 properties */
 	memcpy(gradio_dev, &fm_viddev_template, sizeof(fm_viddev_template));
 
 	video_set_drvdata(gradio_dev, fmdev);
 
 	gradio_dev->lock = &fmdev->mutex;
 
-	
+	/* Register with V4L2 subsystem as RADIO device */
 	if (video_register_device(gradio_dev, VFL_TYPE_RADIO, radio_nr)) {
 		video_device_release(gradio_dev);
 		fmerr("Could not register video device\n");
@@ -496,7 +528,7 @@ int fm_v4l2_init_video_device(struct fmdev *fmdev, int radio_nr)
 
 	fmdev->radio_dev = gradio_dev;
 
-	
+	/* Register to v4l2 ctrl handler framework */
 	fmdev->radio_dev->ctrl_handler = &fmdev->ctrl_handler;
 
 	ret = v4l2_ctrl_handler_init(&fmdev->ctrl_handler, 5);
@@ -506,6 +538,10 @@ int fm_v4l2_init_video_device(struct fmdev *fmdev, int radio_nr)
 		return -EBUSY;
 	}
 
+	/*
+	 * Following controls are handled by V4L2 control framework.
+	 * Added in ascending ID order.
+	 */
 	v4l2_ctrl_new_std(&fmdev->ctrl_handler, &fm_ctrl_ops,
 			V4L2_CID_AUDIO_VOLUME, FM_RX_VOLUME_MIN,
 			FM_RX_VOLUME_MAX, 1, FM_RX_VOLUME_MAX);
@@ -538,10 +574,10 @@ void *fm_v4l2_deinit_video_device(void)
 
 	fmdev = video_get_drvdata(gradio_dev);
 
-	
+	/* Unregister to v4l2 ctrl handler framework*/
 	v4l2_ctrl_handler_free(&fmdev->ctrl_handler);
 
-	
+	/* Unregister RADIO device from V4L2 subsystem */
 	video_unregister_device(gradio_dev);
 
 	return fmdev;

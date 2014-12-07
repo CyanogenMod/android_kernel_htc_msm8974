@@ -27,21 +27,30 @@
 #include <linux/i2c-algo-bit.h>
 #include <linux/io.h>
 
-#define PM_CFG_REVID	0x08	
+/* Power management registers */
+#define PM_CFG_REVID	0x08	/* silicon revision code */
 #define PM_CFG_IOBASE0	0x20
 #define PM_CFG_IOBASE1	0x48
 
 #define I2C_DIR		(pm_io_base+0x40)
 #define I2C_OUT		(pm_io_base+0x42)
 #define I2C_IN		(pm_io_base+0x44)
-#define I2C_SCL		0x02	
+#define I2C_SCL		0x02	/* clock bit in DIR/OUT/IN register */
 #define I2C_SDA		0x04
 
+/* io-region reservation */
 #define IOSPACE		0x06
 
 static struct pci_driver vt586b_driver;
 static u16 pm_io_base;
 
+/*
+   It does not appear from the datasheet that the GPIO pins are
+   open drain. So a we set a low value by setting the direction to
+   output and a high value by setting the direction to input and
+   relying on the required I2C pullup. The data value is initialized
+   to 0 in via_init() and never changed.
+*/
 static void bit_via_setscl(void *data, int state)
 {
 	outb(state ? inb(I2C_DIR) & ~I2C_SCL : inb(I2C_DIR) | I2C_SCL, I2C_DIR);
@@ -111,7 +120,7 @@ static int __devinit vt586b_probe(struct pci_dev *dev, const struct pci_device_i
 
 	default:
 		base = PM_CFG_IOBASE1;
-		
+		/* later revision */
 	}
 
 	pci_read_config_word(dev, base, &pm_io_base);
@@ -125,7 +134,7 @@ static int __devinit vt586b_probe(struct pci_dev *dev, const struct pci_device_i
 	outb(inb(I2C_DIR) & ~(I2C_SDA | I2C_SCL), I2C_DIR);
 	outb(inb(I2C_OUT) & ~(I2C_SDA | I2C_SCL), I2C_OUT);
 
-	
+	/* set up the sysfs linkage to our parent device */
 	vt586b_adapter.dev.parent = &dev->dev;
 
 	res = i2c_bit_add_bus(&vt586b_adapter);

@@ -25,6 +25,9 @@
 #include <linux/module.h>
 #include <linux/timex.h>
 
+/*
+ * Default to the loop-based delay implementation.
+ */
 struct arm_delay_ops arm_delay_ops = {
 	.delay		= __loop_delay,
 	.const_udelay	= __loop_const_udelay,

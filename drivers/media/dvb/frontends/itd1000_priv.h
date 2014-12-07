@@ -26,8 +26,11 @@ struct itd1000_state {
 	struct itd1000_config *cfg;
 	struct i2c_adapter    *i2c;
 
-	u32 frequency; 
+	u32 frequency; /* contains the value resulting from the LO-setting */
 
+	/* ugly workaround for flexcop's incapable i2c-controller
+	 * FIXME, if possible
+	 */
 	u8 shadow[256];
 };
 

@@ -131,16 +131,16 @@ nv31_mpeg_init(struct drm_device *dev, int engine)
 	struct nv31_mpeg_engine *pmpeg = nv_engine(dev, engine);
 	int i;
 
-	
+	/* VPE init */
 	nv_mask(dev, 0x000200, 0x00000002, 0x00000000);
 	nv_mask(dev, 0x000200, 0x00000002, 0x00000002);
-	nv_wr32(dev, 0x00b0e0, 0x00000020); 
-	nv_wr32(dev, 0x00b0e8, 0x00000020); 
+	nv_wr32(dev, 0x00b0e0, 0x00000020); /* nvidia: rd 0x01, wr 0x20 */
+	nv_wr32(dev, 0x00b0e8, 0x00000020); /* nvidia: rd 0x01, wr 0x20 */
 
 	for (i = 0; i < dev_priv->engine.fb.num_tiles; i++)
 		pmpeg->base.set_tile_region(dev, i);
 
-	
+	/* PMPEG init */
 	nv_wr32(dev, 0x00b32c, 0x00000000);
 	nv_wr32(dev, 0x00b314, 0x00000100);
 	nv_wr32(dev, 0x00b220, nv44_graph_class(dev) ? 0x00000044 : 0x00000031);
@@ -161,7 +161,7 @@ nv31_mpeg_init(struct drm_device *dev, int engine)
 static int
 nv31_mpeg_fini(struct drm_device *dev, int engine, bool suspend)
 {
-	
+	/*XXX: context save? */
 	nv_mask(dev, 0x00b32c, 0x00000001, 0x00000000);
 	nv_wr32(dev, 0x00b140, 0x00000000);
 	return 0;
@@ -178,23 +178,23 @@ nv31_mpeg_mthd_dma(struct nouveau_channel *chan, u32 class, u32 mthd, u32 data)
 	u32 base = (dma2 & 0xfffff000) | (dma0 >> 20);
 	u32 size = dma1 + 1;
 
-	
+	/* only allow linear DMA objects */
 	if (!(dma0 & 0x00002000))
 		return -EINVAL;
 
 	if (mthd == 0x0190) {
-		
+		/* DMA_CMD */
 		nv_mask(dev, 0x00b300, 0x00030000, (dma0 & 0x00030000));
 		nv_wr32(dev, 0x00b334, base);
 		nv_wr32(dev, 0x00b324, size);
 	} else
 	if (mthd == 0x01a0) {
-		
+		/* DMA_DATA */
 		nv_mask(dev, 0x00b300, 0x000c0000, (dma0 & 0x00030000) << 2);
 		nv_wr32(dev, 0x00b360, base);
 		nv_wr32(dev, 0x00b364, size);
 	} else {
-		
+		/* DMA_IMAGE, VRAM only */
 		if (dma0 & 0x000c0000)
 			return -EINVAL;
 
@@ -213,7 +213,7 @@ nv31_mpeg_isr_chid(struct drm_device *dev, u32 inst)
 	unsigned long flags;
 	int i;
 
-	
+	/* hardcode drm channel id on nv3x, so swmthd lookup works */
 	if (dev_priv->card_type < NV_40)
 		return 0;
 
@@ -253,7 +253,7 @@ nv31_mpeg_isr(struct drm_device *dev)
 	u32 show = stat;
 
 	if (stat & 0x01000000) {
-		
+		/* happens on initial binding of the object */
 		if (type == 0x00000020 && mthd == 0x0000) {
 			nv_mask(dev, 0x00b308, 0x00000000, 0x00000000);
 			show &= ~0x01000000;
@@ -321,6 +321,11 @@ nv31_mpeg_create(struct drm_device *dev)
 	}
 	pmpeg->base.object_new = nv31_mpeg_object_new;
 
+	/* ISR vector, PMC_ENABLE bit,  and TILE regs are shared between
+	 * all VPE engines, for this driver's purposes the PMPEG engine
+	 * will be treated as the "master" and handle the global VPE
+	 * bits too
+	 */
 	pmpeg->base.set_tile_region = nv31_vpe_set_tile_region;
 	nouveau_irq_register(dev, 0, nv31_vpe_isr);
 

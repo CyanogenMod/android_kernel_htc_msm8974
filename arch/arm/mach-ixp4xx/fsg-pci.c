@@ -25,6 +25,7 @@
 #define MAX_DEV		3
 #define IRQ_LINES	3
 
+/* PCI controller GPIO to IRQ pin mappings */
 #define INTA	6
 #define INTB	7
 #define INTC	5

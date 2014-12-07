@@ -29,6 +29,7 @@
 #define	ISL6271A_VOLTAGE_MAX	1600000
 #define	ISL6271A_VOLTAGE_STEP	50000
 
+/* PMIC details */
 struct isl_pmic {
 	struct i2c_client	*client;
 	struct regulator_dev	*rdev[3];
@@ -49,7 +50,7 @@ static int isl6271a_get_voltage(struct regulator_dev *dev)
 		goto out;
 	}
 
-	
+	/* Convert the data from chip to microvolts */
 	data = ISL6271A_VOLTAGE_MIN + (ISL6271A_VOLTAGE_STEP * (idx & 0xf));
 
 out:

@@ -15,6 +15,7 @@
 #include <linux/integrity.h>
 #include <crypto/sha.h>
 
+/* iint cache flags */
 #define IMA_MEASURED		0x01
 
 enum evm_ima_xattr_type {
@@ -28,16 +29,20 @@ struct evm_ima_xattr_data {
 	u8 digest[SHA1_DIGEST_SIZE];
 }  __attribute__((packed));
 
+/* integrity data associated with an inode */
 struct integrity_iint_cache {
-	struct rb_node rb_node; 
-	struct inode *inode;	
-	u64 version;		
+	struct rb_node rb_node; /* rooted in integrity_iint_tree */
+	struct inode *inode;	/* back pointer to inode in question */
+	u64 version;		/* track inode changes */
 	unsigned char flags;
 	u8 digest[SHA1_DIGEST_SIZE];
-	struct mutex mutex;	
+	struct mutex mutex;	/* protects: version, flags, digest */
 	enum integrity_status evm_status;
 };
 
+/* rbtree tree calls to lookup, insert, delete
+ * integrity data associated with an inode.
+ */
 struct integrity_iint_cache *integrity_iint_insert(struct inode *inode);
 struct integrity_iint_cache *integrity_iint_find(struct inode *inode);
 
@@ -60,6 +65,7 @@ static inline int integrity_digsig_verify(const unsigned int id,
 	return -EOPNOTSUPP;
 }
 
-#endif 
+#endif /* CONFIG_INTEGRITY_SIGNATURE */
 
+/* set during initialization */
 extern int iint_initialized;

@@ -46,6 +46,7 @@
 #include <asm/unaligned.h>
 #include <linux/mtio.h>
 
+/* define to see debug info */
 #undef IDETAPE_DEBUG_LOG
 
 #ifdef IDETAPE_DEBUG_LOG
@@ -54,102 +55,165 @@
 #define ide_debug_log(lvl, fmt, args...) do {} while (0)
 #endif
 
+/**************************** Tunable parameters *****************************/
+/*
+ * After each failed packet command we issue a request sense command and retry
+ * the packet command IDETAPE_MAX_PC_RETRIES times.
+ *
+ * Setting IDETAPE_MAX_PC_RETRIES to 0 will disable retries.
+ */
 #define IDETAPE_MAX_PC_RETRIES		3
 
+/*
+ * The following parameter is used to select the point in the internal tape fifo
+ * in which we will start to refill the buffer. Decreasing the following
+ * parameter will improve the system's latency and interactive response, while
+ * using a high value might improve system throughput.
+ */
 #define IDETAPE_FIFO_THRESHOLD		2
 
+/*
+ * DSC polling parameters.
+ *
+ * Polling for DSC (a single bit in the status register) is a very important
+ * function in ide-tape. There are two cases in which we poll for DSC:
+ *
+ * 1. Before a read/write packet command, to ensure that we can transfer data
+ * from/to the tape's data buffers, without causing an actual media access.
+ * In case the tape is not ready yet, we take out our request from the device
+ * request queue, so that ide.c could service requests from the other device
+ * on the same interface in the meantime.
+ *
+ * 2. After the successful initialization of a "media access packet command",
+ * which is a command that can take a long time to complete (the interval can
+ * range from several seconds to even an hour). Again, we postpone our request
+ * in the middle to free the bus for the other device. The polling frequency
+ * here should be lower than the read/write frequency since those media access
+ * commands are slow. We start from a "fast" frequency - IDETAPE_DSC_MA_FAST
+ * (1 second), and if we don't receive DSC after IDETAPE_DSC_MA_THRESHOLD
+ * (5 min), we switch it to a lower frequency - IDETAPE_DSC_MA_SLOW (1 min).
+ *
+ * We also set a timeout for the timer, in case something goes wrong. The
+ * timeout should be longer then the maximum execution time of a tape operation.
+ */
 
-#define IDETAPE_DSC_RW_MIN		5*HZ/100	
-#define IDETAPE_DSC_RW_MAX		40*HZ/100	
-#define IDETAPE_DSC_RW_TIMEOUT		2*60*HZ		
-#define IDETAPE_DSC_MA_FAST		2*HZ		
-#define IDETAPE_DSC_MA_THRESHOLD	5*60*HZ		
-#define IDETAPE_DSC_MA_SLOW		30*HZ		
-#define IDETAPE_DSC_MA_TIMEOUT		2*60*60*HZ	
+/* DSC timings. */
+#define IDETAPE_DSC_RW_MIN		5*HZ/100	/* 50 msec */
+#define IDETAPE_DSC_RW_MAX		40*HZ/100	/* 400 msec */
+#define IDETAPE_DSC_RW_TIMEOUT		2*60*HZ		/* 2 minutes */
+#define IDETAPE_DSC_MA_FAST		2*HZ		/* 2 seconds */
+#define IDETAPE_DSC_MA_THRESHOLD	5*60*HZ		/* 5 minutes */
+#define IDETAPE_DSC_MA_SLOW		30*HZ		/* 30 seconds */
+#define IDETAPE_DSC_MA_TIMEOUT		2*60*60*HZ	/* 2 hours */
 
+/*************************** End of tunable parameters ***********************/
 
+/* tape directions */
 enum {
 	IDETAPE_DIR_NONE  = (1 << 0),
 	IDETAPE_DIR_READ  = (1 << 1),
 	IDETAPE_DIR_WRITE = (1 << 2),
 };
 
+/* Tape door status */
 #define DOOR_UNLOCKED			0
 #define DOOR_LOCKED			1
 #define DOOR_EXPLICITLY_LOCKED		2
 
+/* Some defines for the SPACE command */
 #define IDETAPE_SPACE_OVER_FILEMARK	1
 #define IDETAPE_SPACE_TO_EOD		3
 
+/* Some defines for the LOAD UNLOAD command */
 #define IDETAPE_LU_LOAD_MASK		1
 #define IDETAPE_LU_RETENSION_MASK	2
 #define IDETAPE_LU_EOT_MASK		4
 
+/* Structures related to the SELECT SENSE / MODE SENSE packet commands. */
 #define IDETAPE_BLOCK_DESCRIPTOR	0
 #define IDETAPE_CAPABILITIES_PAGE	0x2a
 
+/*
+ * Most of our global data which we need to save even as we leave the driver due
+ * to an interrupt or a timer event is stored in the struct defined below.
+ */
 typedef struct ide_tape_obj {
 	ide_drive_t		*drive;
 	struct ide_driver	*driver;
 	struct gendisk		*disk;
 	struct device		dev;
 
-	
+	/* used by REQ_IDETAPE_{READ,WRITE} requests */
 	struct ide_atapi_pc queued_pc;
 
+	/*
+	 * DSC polling variables.
+	 *
+	 * While polling for DSC we use postponed_rq to postpone the current
+	 * request so that ide.c will be able to service pending requests on the
+	 * other device. Note that at most we will have only one DSC (usually
+	 * data transfer) request in the device request queue.
+	 */
 	bool postponed_rq;
 
-	
+	/* The time in which we started polling for DSC */
 	unsigned long dsc_polling_start;
-	
+	/* Timer used to poll for dsc */
 	struct timer_list dsc_timer;
-	
+	/* Read/Write dsc polling frequency */
 	unsigned long best_dsc_rw_freq;
 	unsigned long dsc_poll_freq;
 	unsigned long dsc_timeout;
 
-	
+	/* Read position information */
 	u8 partition;
-	
+	/* Current block */
 	unsigned int first_frame;
 
-	
+	/* Last error information */
 	u8 sense_key, asc, ascq;
 
-	
+	/* Character device operation */
 	unsigned int minor;
-	
+	/* device name */
 	char name[4];
-	
+	/* Current character device data transfer direction */
 	u8 chrdev_dir;
 
-	
+	/* tape block size, usually 512 or 1024 bytes */
 	unsigned short blk_size;
 	int user_bs_factor;
 
-	
+	/* Copy of the tape's Capabilities and Mechanical Page */
 	u8 caps[20];
 
+	/*
+	 * Active data transfer request parameters.
+	 *
+	 * At most, there is only one ide-tape originated data transfer request
+	 * in the device request queue. This allows ide.c to easily service
+	 * requests from the other device when we postpone our active request.
+	 */
 
-	
+	/* Data buffer size chosen based on the tape's recommendation */
 	int buffer_size;
-	
+	/* Staging buffer of buffer_size bytes */
 	void *buf;
-	
+	/* The read/write cursor */
 	void *cur;
-	
+	/* The number of valid bytes in buf */
 	size_t valid;
 
-	
+	/* Measures average tape speed */
 	unsigned long avg_time;
 	int avg_size;
 	int avg_speed;
 
-	
+	/* the door is currently locked */
 	int door_locked;
-	
+	/* the tape hardware is write protected */
 	char drv_write_prot;
-	
+	/* the tape is write protected (hardware or opened as read-only) */
 	char write_prot;
 } idetape_tape_t;
 
@@ -197,6 +261,10 @@ static void ide_tape_put(struct ide_tape_obj *tape)
 	mutex_unlock(&idetape_ref_mutex);
 }
 
+/*
+ * called on each failed packet command retry to analyze the request sense. We
+ * currently do not utilize this information.
+ */
 static void idetape_analyze_error(ide_drive_t *drive)
 {
 	idetape_tape_t *tape = drive->driver_data;
@@ -212,17 +280,22 @@ static void idetape_analyze_error(ide_drive_t *drive)
 		      "cmd: 0x%x, sense key = %x, asc = %x, ascq = %x",
 		      rq->cmd[0], tape->sense_key, tape->asc, tape->ascq);
 
-	
+	/* correct remaining bytes to transfer */
 	if (pc->flags & PC_FLAG_DMA_ERROR)
 		rq->resid_len = tape->blk_size * get_unaligned_be32(&sense[3]);
 
+	/*
+	 * If error was the result of a zero-length read or write command,
+	 * with sense key=5, asc=0x22, ascq=0, let it slide.  Some drives
+	 * (i.e. Seagate STT3401A Travan) don't support 0-length read/writes.
+	 */
 	if ((pc->c[0] == READ_6 || pc->c[0] == WRITE_6)
-	    
+	    /* length == 0 */
 	    && pc->c[4] == 0 && pc->c[3] == 0 && pc->c[2] == 0) {
 		if (tape->sense_key == 5) {
-			
+			/* don't report an error, everything's ok */
 			pc->error = 0;
-			
+			/* don't retry read/write */
 			pc->flags |= PC_FLAG_ABORT;
 		}
 	}
@@ -298,6 +371,10 @@ static int ide_tape_callback(ide_drive_t *drive, int dsc)
 	return uptodate;
 }
 
+/*
+ * Postpone the current request so that ide.c will be able to service requests
+ * from another device on the same port while we are polling for DSC.
+ */
 static void ide_tape_stall_queue(ide_drive_t *drive)
 {
 	idetape_tape_t *tape = drive->driver_data;
@@ -314,14 +391,50 @@ static void ide_tape_handle_dsc(ide_drive_t *drive)
 {
 	idetape_tape_t *tape = drive->driver_data;
 
-	
+	/* Media access command */
 	tape->dsc_polling_start = jiffies;
 	tape->dsc_poll_freq = IDETAPE_DSC_MA_FAST;
 	tape->dsc_timeout = jiffies + IDETAPE_DSC_MA_TIMEOUT;
-	
+	/* Allow ide.c to handle other requests */
 	ide_tape_stall_queue(drive);
 }
 
+/*
+ * Packet Command Interface
+ *
+ * The current Packet Command is available in drive->pc, and will not change
+ * until we finish handling it. Each packet command is associated with a
+ * callback function that will be called when the command is finished.
+ *
+ * The handling will be done in three stages:
+ *
+ * 1. ide_tape_issue_pc will send the packet command to the drive, and will set
+ * the interrupt handler to ide_pc_intr.
+ *
+ * 2. On each interrupt, ide_pc_intr will be called. This step will be
+ * repeated until the device signals us that no more interrupts will be issued.
+ *
+ * 3. ATAPI Tape media access commands have immediate status with a delayed
+ * process. In case of a successful initiation of a media access packet command,
+ * the DSC bit will be set when the actual execution of the command is finished.
+ * Since the tape drive will not issue an interrupt, we have to poll for this
+ * event. In this case, we define the request as "low priority request" by
+ * setting rq_status to IDETAPE_RQ_POSTPONED, set a timer to poll for DSC and
+ * exit the driver.
+ *
+ * ide.c will then give higher priority to requests which originate from the
+ * other device, until will change rq_status to RQ_ACTIVE.
+ *
+ * 4. When the packet command is finished, it will be checked for errors.
+ *
+ * 5. In case an error was found, we queue a request sense packet command in
+ * front of the request queue and retry the operation up to
+ * IDETAPE_MAX_PC_RETRIES times.
+ *
+ * 6. In case no error was found, or we decided to give up and not to retry
+ * again, the callback function will be called and then we will handle the next
+ * request.
+ */
 
 static ide_startstop_t ide_tape_issue_pc(ide_drive_t *drive,
 					 struct ide_cmd *cmd,
@@ -333,12 +446,17 @@ static ide_startstop_t ide_tape_issue_pc(ide_drive_t *drive,
 	if (drive->failed_pc == NULL && pc->c[0] != REQUEST_SENSE)
 		drive->failed_pc = pc;
 
-	
+	/* Set the current packet command */
 	drive->pc = pc;
 
 	if (pc->retries > IDETAPE_MAX_PC_RETRIES ||
 		(pc->flags & PC_FLAG_ABORT)) {
 
+		/*
+		 * We will "abort" retrying a packet command in case legitimate
+		 * error code was received (crossing a filemark, or end of the
+		 * media, for example).
+		 */
 		if (!(pc->flags & PC_FLAG_ABORT)) {
 			if (!(pc->c[0] == TEST_UNIT_READY &&
 			      tape->sense_key == 2 && tape->asc == 4 &&
@@ -350,7 +468,7 @@ static ide_startstop_t ide_tape_issue_pc(ide_drive_t *drive,
 						tape->sense_key, tape->asc,
 						tape->ascq);
 			}
-			
+			/* Giving up */
 			pc->error = IDE_DRV_ERROR_GENERAL;
 		}
 
@@ -367,16 +485,24 @@ static ide_startstop_t ide_tape_issue_pc(ide_drive_t *drive,
 	return ide_issue_pc(drive, cmd);
 }
 
+/* A mode sense command is used to "sense" tape parameters. */
 static void idetape_create_mode_sense_cmd(struct ide_atapi_pc *pc, u8 page_code)
 {
 	ide_init_pc(pc);
 	pc->c[0] = MODE_SENSE;
 	if (page_code != IDETAPE_BLOCK_DESCRIPTOR)
-		
+		/* DBD = 1 - Don't return block descriptors */
 		pc->c[1] = 8;
 	pc->c[2] = page_code;
+	/*
+	 * Changed pc->c[3] to 0 (255 will at best return unused info).
+	 *
+	 * For SCSI this byte is defined as subpage instead of high byte
+	 * of length and some IDE drives seem to interpret it this way
+	 * and return an error when 255 is used.
+	 */
 	pc->c[3] = 0;
-	
+	/* We will just discard data in that case */
 	pc->c[4] = 255;
 	if (page_code == IDETAPE_BLOCK_DESCRIPTOR)
 		pc->req_xfer = 12;
@@ -397,11 +523,11 @@ static ide_startstop_t idetape_media_access_finished(ide_drive_t *drive)
 
 	if (stat & ATA_DSC) {
 		if (stat & ATA_ERR) {
-			
+			/* Error detected */
 			if (pc->c[0] != TEST_UNIT_READY)
 				printk(KERN_ERR "ide-tape: %s: I/O error, ",
 						tape->name);
-			
+			/* Retry operation */
 			ide_retry_pc(drive);
 			return ide_stopped;
 		}
@@ -453,12 +579,16 @@ static ide_startstop_t idetape_do_request(ide_drive_t *drive,
 	BUG_ON(!(rq->cmd_type == REQ_TYPE_SPECIAL ||
 		 rq->cmd_type == REQ_TYPE_SENSE));
 
-	
+	/* Retry a failed packet command */
 	if (drive->failed_pc && drive->pc->c[0] == REQUEST_SENSE) {
 		pc = drive->failed_pc;
 		goto out;
 	}
 
+	/*
+	 * If the tape is still busy, postpone our request and service
+	 * the other device meanwhile.
+	 */
 	stat = hwif->tp_ops->read_status(hwif);
 
 	if ((drive->dev_flags & IDE_DFLAG_DSC_OVERLAP) == 0 &&
@@ -519,7 +649,7 @@ static ide_startstop_t idetape_do_request(ide_drive_t *drive,
 	BUG();
 
 out:
-	
+	/* prepare sense request for this command */
 	ide_prep_sense(drive, rq);
 
 	memset(&cmd, 0, sizeof(cmd));
@@ -535,6 +665,10 @@ out:
 	return ide_tape_issue_pc(drive, &cmd, pc);
 }
 
+/*
+ * Write a filemark if write_filemark=1. Flush the device buffers without
+ * writing a filemark otherwise.
+ */
 static void idetape_create_write_filemark_cmd(ide_drive_t *drive,
 		struct ide_atapi_pc *pc, int write_filemark)
 {
@@ -550,7 +684,7 @@ static int idetape_wait_ready(ide_drive_t *drive, unsigned long timeout)
 	struct gendisk *disk = tape->disk;
 	int load_attempted = 0;
 
-	
+	/* Wait for the tape to become ready */
 	set_bit(ilog2(IDE_AFLAG_MEDIUM_PRESENT), &drive->atapi_flags);
 	timeout += jiffies;
 	while (time_before(jiffies, timeout)) {
@@ -558,12 +692,12 @@ static int idetape_wait_ready(ide_drive_t *drive, unsigned long timeout)
 			return 0;
 		if ((tape->sense_key == 2 && tape->asc == 4 && tape->ascq == 2)
 		    || (tape->asc == 0x3A)) {
-			
+			/* no media */
 			if (load_attempted)
 				return -ENOMEDIUM;
 			ide_do_start_stop(drive, disk, IDETAPE_LU_LOAD_MASK);
 			load_attempted = 1;
-		
+		/* not about to be ready */
 		} else if (!(tape->sense_key == 2 && tape->asc == 4 &&
 			     (tape->ascq == 1 || tape->ascq == 8)))
 			return -EIO;
@@ -594,7 +728,7 @@ static int ide_tape_read_position(ide_drive_t *drive)
 
 	ide_debug_log(IDE_DBG_FUNC, "enter");
 
-	
+	/* prep cmd */
 	ide_init_pc(&pc);
 	pc.c[0] = READ_POSITION;
 	pc.req_xfer = 20;
@@ -657,6 +791,12 @@ static void __ide_tape_discard_merge_buffer(ide_drive_t *drive)
 	tape->chrdev_dir = IDETAPE_DIR_NONE;
 }
 
+/*
+ * Position the tape to the requested block using the LOCATE packet command.
+ * A READ POSITION command is then issued to check where we are positioned. Like
+ * all higher level operations, we queue the commands at the tail of the request
+ * queue and wait for their completion.
+ */
 static int idetape_position_tape(ide_drive_t *drive, unsigned int block,
 		u8 partition, int skip)
 {
@@ -697,6 +837,10 @@ static void ide_tape_discard_merge_buffer(ide_drive_t *drive,
 	}
 }
 
+/*
+ * Generate a read/write request for the block device interface and wait for it
+ * to be serviced.
+ */
 static int idetape_queue_rw_tail(ide_drive_t *drive, int cmd, int size)
 {
 	idetape_tape_t *tape = drive->driver_data;
@@ -723,7 +867,7 @@ static int idetape_queue_rw_tail(ide_drive_t *drive, int cmd, int size)
 
 	blk_execute_rq(drive->queue, tape->disk, rq, 0);
 
-	
+	/* calculate the number of transferred bytes and update buffer state */
 	size -= rq->resid_len;
 	tape->cur = tape->buf;
 	if (cmd == REQ_IDETAPE_READ)
@@ -820,6 +964,12 @@ static int idetape_init_rw(ide_drive_t *drive, int dir)
 	tape->chrdev_dir = dir;
 	tape->cur = tape->buf;
 
+	/*
+	 * Issue a 0 rw command to ensure that DSC handshake is
+	 * switched from completion mode to buffer available mode.  No
+	 * point in issuing this if DSC overlap isn't supported, some
+	 * drives (Seagate STT3401A) will return an error.
+	 */
 	if (drive->dev_flags & IDE_DFLAG_DSC_OVERLAP) {
 		int cmd = dir == IDETAPE_DIR_READ ? REQ_IDETAPE_READ
 						  : REQ_IDETAPE_WRITE;
@@ -850,6 +1000,10 @@ static void idetape_pad_zeros(ide_drive_t *drive, int bcount)
 	}
 }
 
+/*
+ * Rewinds the tape to the Beginning Of the current Partition (BOP). We
+ * currently support only one partition.
+ */
 static int idetape_rewind_tape(ide_drive_t *drive)
 {
 	struct ide_tape_obj *tape = drive->driver_data;
@@ -870,6 +1024,7 @@ static int idetape_rewind_tape(ide_drive_t *drive)
 	return 0;
 }
 
+/* mtio.h compatible commands should be issued to the chrdev interface. */
 static int idetape_blkdev_ioctl(ide_drive_t *drive, unsigned int cmd,
 				unsigned long arg)
 {
@@ -954,6 +1109,21 @@ static int idetape_space_over_filemarks(ide_drive_t *drive, short mt_op,
 	}
 }
 
+/*
+ * Our character device read / write functions.
+ *
+ * The tape is optimized to maximize throughput when it is transferring an
+ * integral number of the "continuous transfer limit", which is a parameter of
+ * the specific tape (26kB on my particular tape, 32kB for Onstream).
+ *
+ * As of version 1.3 of the driver, the character device provides an abstract
+ * continuous view of the media - any mix of block sizes (even 1 byte) on the
+ * same backup/restore procedure is supported. The driver will internally
+ * convert the requests to the recommended transfer unit, so that an unmatch
+ * between the user's block size to the recommended size will only result in a
+ * (slightly) increased driver overhead, but will no longer hit performance.
+ * This is not applicable to Onstream.
+ */
 static ssize_t idetape_chrdev_read(struct file *file, char __user *buf,
 				   size_t count, loff_t *ppos)
 {
@@ -979,19 +1149,19 @@ static ssize_t idetape_chrdev_read(struct file *file, char __user *buf,
 	while (done < count) {
 		size_t todo;
 
-		
+		/* refill if staging buffer is empty */
 		if (!tape->valid) {
-			
+			/* If we are at a filemark, nothing more to read */
 			if (test_bit(ilog2(IDE_AFLAG_FILEMARK),
 				     &drive->atapi_flags))
 				break;
-			
+			/* read */
 			if (idetape_queue_rw_tail(drive, REQ_IDETAPE_READ,
 						  tape->buffer_size) <= 0)
 				break;
 		}
 
-		
+		/* copy out */
 		todo = min_t(size_t, count - done, tape->valid);
 		if (copy_to_user(buf + done, tape->cur, todo))
 			ret = -EFAULT;
@@ -1018,13 +1188,13 @@ static ssize_t idetape_chrdev_write(struct file *file, const char __user *buf,
 	ssize_t ret = 0;
 	int rc;
 
-	
+	/* The drive is write protected. */
 	if (tape->write_prot)
 		return -EACCES;
 
 	ide_debug_log(IDE_DBG_FUNC, "count %Zd", count);
 
-	
+	/* Initialize write operation */
 	rc = idetape_init_rw(drive, IDETAPE_DIR_WRITE);
 	if (rc < 0)
 		return rc;
@@ -1032,13 +1202,13 @@ static ssize_t idetape_chrdev_write(struct file *file, const char __user *buf,
 	while (done < count) {
 		size_t todo;
 
-		
+		/* flush if staging buffer is full */
 		if (tape->valid == tape->buffer_size &&
 		    idetape_queue_rw_tail(drive, REQ_IDETAPE_WRITE,
 					  tape->buffer_size) <= 0)
 			return rc;
 
-		
+		/* copy in */
 		todo = min_t(size_t, count - done,
 			     tape->buffer_size - tape->valid);
 		if (copy_from_user(tape->cur, buf + done, todo))
@@ -1057,7 +1227,7 @@ static int idetape_write_filemark(ide_drive_t *drive)
 	struct ide_tape_obj *tape = drive->driver_data;
 	struct ide_atapi_pc pc;
 
-	
+	/* Write a filemark */
 	idetape_create_write_filemark_cmd(drive, &pc, 1);
 	if (ide_queue_pc_tail(drive, tape->disk, &pc, NULL, 0)) {
 		printk(KERN_ERR "ide-tape: Couldn't write a filemark\n");
@@ -1066,6 +1236,19 @@ static int idetape_write_filemark(ide_drive_t *drive)
 	return 0;
 }
 
+/*
+ * Called from idetape_chrdev_ioctl when the general mtio MTIOCTOP ioctl is
+ * requested.
+ *
+ * Note: MTBSF and MTBSFM are not supported when the tape doesn't support
+ * spacing over filemarks in the reverse direction. In this case, MTFSFM is also
+ * usually not supported.
+ *
+ * The following commands are currently not supported:
+ *
+ * MTFSS, MTBSS, MTWSM, MTSETDENSITY, MTSETDRVBUFFER, MT_ST_BOOLEANS,
+ * MT_ST_WRITE_THRESHOLD.
+ */
 static int idetape_mtioctop(ide_drive_t *drive, short mt_op, int mt_count)
 {
 	idetape_tape_t *tape = drive->driver_data;
@@ -1109,6 +1292,10 @@ static int idetape_mtioctop(ide_drive_t *drive, short mt_op, int mt_count)
 		return ide_do_start_stop(drive, disk, IDETAPE_LU_LOAD_MASK);
 	case MTUNLOAD:
 	case MTOFFL:
+		/*
+		 * If door is locked, attempt to unlock before
+		 * attempting to eject.
+		 */
 		if (tape->door_locked) {
 			if (!ide_set_media_lock(drive, disk, 0))
 				tape->door_locked = DOOR_UNLOCKED;
@@ -1173,6 +1360,11 @@ static int idetape_mtioctop(ide_drive_t *drive, short mt_op, int mt_count)
 	}
 }
 
+/*
+ * Our character device ioctls. General mtio.h magnetic io commands are
+ * supported here, and not in the corresponding block interface. Our own
+ * ide-tape ioctls are supported on both interfaces.
+ */
 static long do_idetape_chrdev_ioctl(struct file *file,
 				unsigned int cmd, unsigned long arg)
 {
@@ -1238,6 +1430,10 @@ static long idetape_chrdev_ioctl(struct file *file,
 	return ret;
 }
 
+/*
+ * Do a mode sense page 0 with block descriptor and if it succeeds set the tape
+ * block size with the reported value.
+ */
 static void ide_tape_get_bsize_from_bdesc(ide_drive_t *drive)
 {
 	idetape_tape_t *tape = drive->driver_data;
@@ -1286,6 +1482,11 @@ static int idetape_chrdev_open(struct inode *inode, struct file *filp)
 
 	ide_debug_log(IDE_DBG_FUNC, "enter");
 
+	/*
+	 * We really want to do nonseekable_open(inode, filp); here, but some
+	 * versions of tar incorrectly call lseek on tapes and bail out if that
+	 * fails.  So we disallow pread() and pwrite(), but permit lseeks.
+	 */
 	filp->f_mode &= ~(FMODE_PREAD | FMODE_PWRITE);
 
 
@@ -1305,16 +1506,16 @@ static int idetape_chrdev_open(struct inode *inode, struct file *filp)
 	if (!test_bit(ilog2(IDE_AFLAG_ADDRESS_VALID), &drive->atapi_flags))
 		(void)idetape_rewind_tape(drive);
 
-	
+	/* Read block size and write protect status from drive. */
 	ide_tape_get_bsize_from_bdesc(drive);
 
-	
+	/* Set write protect flag if device is opened as read-only. */
 	if ((filp->f_flags & O_ACCMODE) == O_RDONLY)
 		tape->write_prot = 1;
 	else
 		tape->write_prot = tape->drv_write_prot;
 
-	
+	/* Make sure drive isn't write protected if user wants to write. */
 	if (tape->write_prot) {
 		if ((filp->f_flags & O_ACCMODE) == O_WRONLY ||
 		    (filp->f_flags & O_ACCMODE) == O_RDWR) {
@@ -1324,7 +1525,7 @@ static int idetape_chrdev_open(struct inode *inode, struct file *filp)
 		}
 	}
 
-	
+	/* Lock the tape drive door so user can't eject. */
 	if (tape->chrdev_dir == IDETAPE_DIR_NONE) {
 		if (!ide_set_media_lock(drive, tape->disk, 1)) {
 			if (tape->door_locked != DOOR_EXPLICITLY_LOCKED)
@@ -1422,6 +1623,10 @@ static void idetape_get_inquiry_results(ide_drive_t *drive)
 			drive->name, tape->name, vendor_id, product_id, fw_rev);
 }
 
+/*
+ * Ask the tape about its various parameters. In particular, we will adjust our
+ * data transfer buffer	size to the recommended value as returned by the tape.
+ */
 static void idetape_get_mode_sense_results(ide_drive_t *drive)
 {
 	idetape_tape_t *tape = drive->driver_data;
@@ -1441,7 +1646,7 @@ static void idetape_get_mode_sense_results(ide_drive_t *drive)
 	}
 	caps = buf + 4 + buf[3];
 
-	
+	/* convert to host order and save for later use */
 	speed = be16_to_cpup((__be16 *)&caps[14]);
 	max_speed = be16_to_cpup((__be16 *)&caps[8]);
 
@@ -1463,7 +1668,7 @@ static void idetape_get_mode_sense_results(ide_drive_t *drive)
 
 	memcpy(&tape->caps, caps, 20);
 
-	
+	/* device lacks locking support according to capabilities page */
 	if ((caps[6] & 1) == 0)
 		drive->dev_flags &= ~IDE_DFLAG_DOORLOCKING;
 
@@ -1524,6 +1729,17 @@ static const struct ide_proc_devset idetape_settings[] = {
 };
 #endif
 
+/*
+ * The function below is called to:
+ *
+ * 1. Initialize our various state variables.
+ * 2. Ask the tape for its capabilities.
+ * 3. Allocate a buffer which will be used for data transfer. The buffer size
+ * is chosen based on the recommendation which we received in step 2.
+ *
+ * Note that at this point ide.c already assigned us an irq, so that we can
+ * queue requests here and wait for their completion.
+ */
 static void idetape_setup(ide_drive_t *drive, idetape_tape_t *tape, int minor)
 {
 	unsigned long t;
@@ -1543,7 +1759,7 @@ static void idetape_setup(ide_drive_t *drive, idetape_tape_t *tape, int minor)
 		drive->dev_flags &= ~IDE_DFLAG_DSC_OVERLAP;
 	}
 
-	
+	/* Seagate Travan drives do not support DSC overlap. */
 	if (strstr((char *)&drive->id[ATA_ID_PROD], "Seagate STT3401"))
 		drive->dev_flags &= ~IDE_DFLAG_DSC_OVERLAP;
 
@@ -1565,11 +1781,15 @@ static void idetape_setup(ide_drive_t *drive, idetape_tape_t *tape, int minor)
 	}
 	buffer_size = tape->buffer_size;
 
-	
+	/* select the "best" DSC read/write polling freq */
 	speed = max(*(u16 *)&tape->caps[14], *(u16 *)&tape->caps[8]);
 
 	t = (IDETAPE_FIFO_THRESHOLD * tape->buffer_size * HZ) / (speed * 1000);
 
+	/*
+	 * Ensure that the number we got makes sense; limit it within
+	 * IDETAPE_DSC_RW_MIN and IDETAPE_DSC_RW_MAX.
+	 */
 	tape->best_dsc_rw_freq = clamp_t(unsigned long, t, IDETAPE_DSC_RW_MIN,
 					 IDETAPE_DSC_RW_MAX);
 	printk(KERN_INFO "ide-tape: %s <-> %s: %dKBps, %d*%dkB buffer, "
@@ -1673,6 +1893,7 @@ static struct ide_driver idetape_driver = {
 #endif
 };
 
+/* Our character device supporting functions, passed to register_chrdev. */
 static const struct file_operations idetape_fops = {
 	.owner		= THIS_MODULE,
 	.read		= idetape_chrdev_read,

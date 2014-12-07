@@ -70,13 +70,19 @@ static int update_dt_property(struct device_node *dn, struct property **prop,
 	struct property *old_prop;
 	int more = 0;
 
+	/* A negative 'vd' value indicates that only part of the new property
+	 * value is contained in the buffer and we need to call
+	 * ibm,update-properties again to get the rest of the value.
+	 *
+	 * A negative value is also the two's compliment of the actual value.
+	 */
 	if (vd & 0x80000000) {
 		vd = ~vd + 1;
 		more = 1;
 	}
 
 	if (new_prop) {
-		
+		/* partial property fixup */
 		char *new_data = kzalloc(new_prop->length + vd, GFP_KERNEL);
 		if (!new_data)
 			return -ENOMEM;
@@ -167,7 +173,7 @@ static int update_dt_node(u32 phandle)
 
 			switch (vd) {
 			case 0x00000000:
-				
+				/* name only property, nothing to do */
 				break;
 
 			case 0x80000000:

@@ -1,3 +1,12 @@
+/*
+ *  ebt_snat
+ *
+ *	Authors:
+ *	Bart De Schuymer <bdschuym@pandora.be>
+ *
+ *  June, 2002
+ *
+ */
 #include <linux/module.h>
 #include <net/sock.h>
 #include <linux/if_arp.h>

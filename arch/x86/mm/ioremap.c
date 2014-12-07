@@ -24,6 +24,10 @@
 
 #include "physaddr.h"
 
+/*
+ * Fix up the linear direct mapping of the kernel to avoid cache attribute
+ * conflicts.
+ */
 int ioremap_change_attr(unsigned long vaddr, unsigned long size,
 			       unsigned long prot_val)
 {
@@ -46,6 +50,15 @@ int ioremap_change_attr(unsigned long vaddr, unsigned long size,
 	return err;
 }
 
+/*
+ * Remap an arbitrary physical address space into the kernel virtual
+ * address space. Needed when the kernel wants to access high addresses
+ * directly.
+ *
+ * NOTE! We need to allow non-page-aligned mappings too: we will obviously
+ * have to convert them into an offset in a page-aligned mapping, but the
+ * caller shouldn't need to know that small detail.
+ */
 static void __iomem *__ioremap_caller(resource_size_t phys_addr,
 		unsigned long size, unsigned long prot_val, void *caller)
 {
@@ -59,7 +72,7 @@ static void __iomem *__ioremap_caller(resource_size_t phys_addr,
 	int retval;
 	void __iomem *ret_addr;
 
-	
+	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
@@ -71,9 +84,15 @@ static void __iomem *__ioremap_caller(resource_size_t phys_addr,
 		return NULL;
 	}
 
+	/*
+	 * Don't remap the low PCI/ISA area, it's always mapped..
+	 */
 	if (is_ISA_range(phys_addr, last_addr))
 		return (__force void __iomem *)phys_to_virt(phys_addr);
 
+	/*
+	 * Don't allow anybody to remap normal RAM that we're using..
+	 */
 	last_pfn = last_addr >> PAGE_SHIFT;
 	for (pfn = phys_addr >> PAGE_SHIFT; pfn <= last_pfn; pfn++) {
 		int is_ram = page_is_ram(pfn);
@@ -83,6 +102,9 @@ static void __iomem *__ioremap_caller(resource_size_t phys_addr,
 		WARN_ON_ONCE(is_ram);
 	}
 
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PHYSICAL_PAGE_MASK;
 	size = PAGE_ALIGN(last_addr+1) - phys_addr;
@@ -123,6 +145,9 @@ static void __iomem *__ioremap_caller(resource_size_t phys_addr,
 		break;
 	}
 
+	/*
+	 * Ok, go for it..
+	 */
 	area = get_vm_area_caller(size, VM_IOREMAP, caller);
 	if (!area)
 		goto err_free_memtype;
@@ -138,6 +163,10 @@ static void __iomem *__ioremap_caller(resource_size_t phys_addr,
 	ret_addr = (void __iomem *) (vaddr + offset);
 	mmiotrace_ioremap(unaligned_phys_addr, unaligned_size, ret_addr);
 
+	/*
+	 * Check if the request spans more than any BAR in the iomem resource
+	 * tree.
+	 */
 	WARN_ONCE(iomem_map_sanity_check(unaligned_phys_addr, unaligned_size),
 		  KERN_INFO "Info: mapping multiple BARs. Your kernel is fine.");
 
@@ -149,8 +178,36 @@ err_free_memtype:
 	return NULL;
 }
 
+/**
+ * ioremap_nocache     -   map bus memory into CPU space
+ * @offset:    bus address of the memory
+ * @size:      size of the resource to map
+ *
+ * ioremap_nocache performs a platform specific sequence of operations to
+ * make bus memory CPU accessible via the readb/readw/readl/writeb/
+ * writew/writel functions and the other mmio helpers. The returned
+ * address is not guaranteed to be usable directly as a virtual
+ * address.
+ *
+ * This version of ioremap ensures that the memory is marked uncachable
+ * on the CPU as well as honouring existing caching rules from things like
+ * the PCI bus. Note that there are other caches and buffers on many
+ * busses. In particular driver authors should read up on PCI writes
+ *
+ * It's useful if some control registers are in such an area and
+ * write combining or read caching is not desirable:
+ *
+ * Must be freed with iounmap.
+ */
 void __iomem *ioremap_nocache(resource_size_t phys_addr, unsigned long size)
 {
+	/*
+	 * Ideally, this should be:
+	 *	pat_enabled ? _PAGE_CACHE_UC : _PAGE_CACHE_UC_MINUS;
+	 *
+	 * Till we fix all X drivers to use ioremap_wc(), we will use
+	 * UC MINUS.
+	 */
 	unsigned long val = _PAGE_CACHE_UC_MINUS;
 
 	return __ioremap_caller(phys_addr, size, val,
@@ -158,6 +215,16 @@ void __iomem *ioremap_nocache(resource_size_t phys_addr, unsigned long size)
 }
 EXPORT_SYMBOL(ioremap_nocache);
 
+/**
+ * ioremap_wc	-	map memory into CPU space write combined
+ * @offset:	bus address of the memory
+ * @size:	size of the resource to map
+ *
+ * This version of ioremap ensures that the memory is marked write combining.
+ * Write combining allows faster writes to some hardware devices.
+ *
+ * Must be freed with iounmap.
+ */
 void __iomem *ioremap_wc(resource_size_t phys_addr, unsigned long size)
 {
 	if (pat_enabled)
@@ -183,6 +250,12 @@ void __iomem *ioremap_prot(resource_size_t phys_addr, unsigned long size,
 }
 EXPORT_SYMBOL(ioremap_prot);
 
+/**
+ * iounmap - Free a IO remapping
+ * @addr: virtual address from ioremap_*
+ *
+ * Caller must ensure there is only one unmapping for the same pointer.
+ */
 void iounmap(volatile void __iomem *addr)
 {
 	struct vm_struct *p, *o;
@@ -190,6 +263,11 @@ void iounmap(volatile void __iomem *addr)
 	if ((void __force *)addr <= high_memory)
 		return;
 
+	/*
+	 * __ioremap special-cases the PCI/ISA range by not instantiating a
+	 * vm_area and by simply returning an address into the kernel mapping
+	 * of ISA space.   So handle that here.
+	 */
 	if ((void __force *)addr >= phys_to_virt(ISA_START_ADDRESS) &&
 	    (void __force *)addr < phys_to_virt(ISA_END_ADDRESS))
 		return;
@@ -199,6 +277,11 @@ void iounmap(volatile void __iomem *addr)
 
 	mmiotrace_iounmap(addr);
 
+	/* Use the vm area unlocked, assuming the caller
+	   ensures there isn't another iounmap for the same address
+	   in parallel. Reuse of the virtual address is prevented by
+	   leaving it in the global lists until we're done with it.
+	   cpa takes care of the direct mappings. */
 	read_lock(&vmlist_lock);
 	for (p = vmlist; p; p = p->next) {
 		if (p->addr == (void __force *)addr)
@@ -214,19 +297,23 @@ void iounmap(volatile void __iomem *addr)
 
 	free_memtype(p->phys_addr, p->phys_addr + get_vm_area_size(p));
 
-	
+	/* Finally remove it */
 	o = remove_vm_area((void __force *)addr);
 	BUG_ON(p != o || o == NULL);
 	kfree(p);
 }
 EXPORT_SYMBOL(iounmap);
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 void *xlate_dev_mem_ptr(unsigned long phys)
 {
 	void *addr;
 	unsigned long start = phys & PAGE_MASK;
 
-	
+	/* If page is RAM, we can use __va. Otherwise ioremap and unmap. */
 	if (page_is_ram(start >> PAGE_SHIFT))
 		return __va(phys);
 
@@ -261,7 +348,7 @@ static pte_t bm_pte[PAGE_SIZE/sizeof(pte_t)] __page_aligned_bss;
 
 static inline pmd_t * __init early_ioremap_pmd(unsigned long addr)
 {
-	
+	/* Don't assume we're using swapper_pg_dir at this point */
 	pgd_t *base = __va(read_cr3());
 	pgd_t *pgd = &base[pgd_index(addr)];
 	pud_t *pud = pud_offset(pgd, addr);
@@ -297,6 +384,10 @@ void __init early_ioremap_init(void)
 	memset(bm_pte, 0, sizeof(bm_pte));
 	pmd_populate_kernel(&init_mm, pmd, bm_pte);
 
+	/*
+	 * The boot-ioremap range spans multiple pmds, for which
+	 * we are not prepared:
+	 */
 #define __FIXADDR_TOP (-PAGE_SIZE)
 	BUILD_BUG_ON((__fix_to_virt(FIX_BTMAP_BEGIN) >> PMD_SHIFT)
 		     != (__fix_to_virt(FIX_BTMAP_END) >> PMD_SHIFT));
@@ -427,7 +518,7 @@ __early_ioremap(resource_size_t phys_addr, unsigned long size, pgprot_t prot)
 		dump_stack();
 	}
 
-	
+	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr) {
 		WARN_ON(1);
@@ -435,16 +526,25 @@ __early_ioremap(resource_size_t phys_addr, unsigned long size, pgprot_t prot)
 	}
 
 	prev_size[slot] = size;
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr + 1) - phys_addr;
 
+	/*
+	 * Mappings have to fit in the FIX_BTMAP area.
+	 */
 	nrpages = size >> PAGE_SHIFT;
 	if (nrpages > NR_FIX_BTMAPS) {
 		WARN_ON(1);
 		return NULL;
 	}
 
+	/*
+	 * Ok, go for it..
+	 */
 	idx0 = FIX_BTMAP_BEGIN - NR_FIX_BTMAPS*slot;
 	idx = idx0;
 	while (nrpages > 0) {
@@ -460,12 +560,14 @@ __early_ioremap(resource_size_t phys_addr, unsigned long size, pgprot_t prot)
 	return prev_map[slot];
 }
 
+/* Remap an IO device */
 void __init __iomem *
 early_ioremap(resource_size_t phys_addr, unsigned long size)
 {
 	return __early_ioremap(phys_addr, size, PAGE_KERNEL_IO);
 }
 
+/* Remap memory */
 void __init __iomem *
 early_memremap(resource_size_t phys_addr, unsigned long size)
 {

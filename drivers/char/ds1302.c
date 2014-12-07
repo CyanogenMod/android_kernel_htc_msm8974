@@ -29,24 +29,25 @@
 #include <asm/m32r.h>
 #endif
 
-#define RTC_MAJOR_NR 121 
+#define RTC_MAJOR_NR 121 /* local major, change later */
 
 static DEFINE_MUTEX(rtc_mutex);
 static const char ds1302_name[] = "ds1302";
 
+/* Send 8 bits. */
 static void
 out_byte_rtc(unsigned int reg_addr, unsigned char x)
 {
-	
+	//RST H
 	outw(0x0001,(unsigned long)PLD_RTCRSTODT);
-	
+	//write data
 	outw(((x<<8)|(reg_addr&0xff)),(unsigned long)PLD_RTCWRDATA);
-	
+	//WE
 	outw(0x0002,(unsigned long)PLD_RTCCR);
-	
+	//wait
 	while(inw((unsigned long)PLD_RTCCR));
 
-	
+	//RST L
 	outw(0x0000,(unsigned long)PLD_RTCRSTODT);
 
 }
@@ -56,24 +57,25 @@ in_byte_rtc(unsigned int reg_addr)
 {
 	unsigned char retval;
 
-	
+	//RST H
 	outw(0x0001,(unsigned long)PLD_RTCRSTODT);
-	
+	//write data
 	outw((reg_addr&0xff),(unsigned long)PLD_RTCRDDATA);
-	
+	//RE
 	outw(0x0001,(unsigned long)PLD_RTCCR);
-	
+	//wait
 	while(inw((unsigned long)PLD_RTCCR));
 
-	
+	//read data
 	retval=(inw((unsigned long)PLD_RTCRDDATA) & 0xff00)>>8;
 
-	
+	//RST L
 	outw(0x0000,(unsigned long)PLD_RTCRSTODT);
 
 	return retval;
 }
 
+/* Enable writing. */
 
 static void
 ds1302_wenable(void)
@@ -81,6 +83,7 @@ ds1302_wenable(void)
 	out_byte_rtc(0x8e,0x00);
 }
 
+/* Disable writing. */
 
 static void
 ds1302_wdisable(void)
@@ -90,17 +93,19 @@ ds1302_wdisable(void)
 
 
 
+/* Read a byte from the selected register in the DS1302. */
 
 unsigned char
 ds1302_readreg(int reg)
 {
 	unsigned char x;
 
-	x=in_byte_rtc((0x81 | (reg << 1))); 
+	x=in_byte_rtc((0x81 | (reg << 1))); /* read register */
 
 	return x;
 }
 
+/* Write a byte to the selected register. */
 
 void
 ds1302_writereg(int reg, unsigned char val)
@@ -133,6 +138,10 @@ get_rtc_time(struct rtc_time *rtc_tm)
 	rtc_tm->tm_mon = bcd2bin(rtc_tm->tm_mon);
 	rtc_tm->tm_year = bcd2bin(rtc_tm->tm_year);
 
+	/*
+	 * Account for differences between how the RTC uses the values
+	 * and how they are defined in a struct rtc_time;
+	 */
 
 	if (rtc_tm->tm_year <= 69)
 		rtc_tm->tm_year += 100;
@@ -143,13 +152,14 @@ get_rtc_time(struct rtc_time *rtc_tm)
 static unsigned char days_in_mo[] =
     {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
+/* ioctl that supports RTC_RD_TIME and RTC_SET_TIME (read and set time/date). */
 
 static long rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	unsigned long flags;
 
 	switch(cmd) {
-		case RTC_RD_TIME:	
+		case RTC_RD_TIME:	/* read the time/date from RTC	*/
 		{
 			struct rtc_time rtc_tm;
 
@@ -162,7 +172,7 @@ static long rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			return 0;
 		}
 
-		case RTC_SET_TIME:	
+		case RTC_SET_TIME:	/* set the RTC */
 		{
 			struct rtc_time rtc_tm;
 			unsigned char mon, day, hrs, min, sec, leap_yr;
@@ -175,7 +185,7 @@ static long rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EFAULT;
 
 			yrs = rtc_tm.tm_year + 1900;
-			mon = rtc_tm.tm_mon + 1;   
+			mon = rtc_tm.tm_mon + 1;   /* tm_mon starts at zero */
 			day = rtc_tm.tm_mday;
 			hrs = rtc_tm.tm_hour;
 			min = rtc_tm.tm_min;
@@ -197,9 +207,9 @@ static long rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EINVAL;
 
 			if (yrs >= 2000)
-				yrs -= 2000;	
+				yrs -= 2000;	/* RTC (0, 1, ... 69) */
 			else
-				yrs -= 1900;	
+				yrs -= 1900;	/* RTC (70, 71, ... 99) */
 
 			sec = bin2bcd(sec);
 			min = bin2bcd(min);
@@ -219,10 +229,15 @@ static long rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			local_irq_restore(flags);
 			mutex_unlock(&rtc_mutex);
 
+			/* Notice that at this point, the RTC is updated but
+			 * the kernel is still running with the old time.
+			 * You need to set that separately with settimeofday
+			 * or adjtimex.
+			 */
 			return 0;
 		}
 
-		case RTC_SET_CHARGE: 
+		case RTC_SET_CHARGE: /* set the RTC TRICKLE CHARGE register */
 		{
 			int tcs_val;
 
@@ -253,6 +268,10 @@ get_rtc_status(char *buf)
 
 	get_rtc_time(&tm);
 
+	/*
+	 * There is no way to tell if the luser has the RTC set for local
+	 * time or for Universal Standard Time (GMT). Probably local though.
+	 */
 
 	p += sprintf(p,
 		"rtc_time\t: %02d:%02d:%02d\n"
@@ -264,6 +283,7 @@ get_rtc_status(char *buf)
 }
 
 
+/* The various file operations we support. */
 
 static const struct file_operations rtc_fops = {
 	.owner		= THIS_MODULE,
@@ -271,6 +291,7 @@ static const struct file_operations rtc_fops = {
 	.llseek		= noop_llseek,
 };
 
+/* Probe for the chip by writing something to its RAM and try reading it back. */
 
 #define MAGIC_PATTERN 0x42
 
@@ -287,14 +308,14 @@ ds1302_probe(void)
 	outw(0x0000,(unsigned long)PLD_RTCRSTODT);
 	outw(baur,(unsigned long)PLD_RTCBAUR);
 
-	
+	/* Try to talk to timekeeper. */
 
 	ds1302_wenable();
-	
-	
+	/* write RAM byte 0 */
+	/* write something magic */
 	out_byte_rtc(0xc0,MAGIC_PATTERN);
 
-	
+	/* read RAM byte 0 */
 	if((res = in_byte_rtc(0xc1)) == MAGIC_PATTERN) {
 		char buf[100];
 		ds1302_wdisable();
@@ -311,6 +332,7 @@ ds1302_probe(void)
 }
 
 
+/* Just probe for the RTC and register the device to handle the ioctl needed. */
 
 int __init
 ds1302_init(void)

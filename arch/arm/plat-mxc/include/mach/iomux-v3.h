@@ -20,6 +20,38 @@
 #ifndef __MACH_IOMUX_V3_H__
 #define __MACH_IOMUX_V3_H__
 
+/*
+ *	build IOMUX_PAD structure
+ *
+ * This iomux scheme is based around pads, which are the physical balls
+ * on the processor.
+ *
+ * - Each pad has a pad control register (IOMUXC_SW_PAD_CTRL_x) which controls
+ *   things like driving strength and pullup/pulldown.
+ * - Each pad can have but not necessarily does have an output routing register
+ *   (IOMUXC_SW_MUX_CTL_PAD_x).
+ * - Each pad can have but not necessarily does have an input routing register
+ *   (IOMUXC_x_SELECT_INPUT)
+ *
+ * The three register sets do not have a fixed offset to each other,
+ * hence we order this table by pad control registers (which all pads
+ * have) and put the optional i/o routing registers into additional
+ * fields.
+ *
+ * The naming convention for the pad modes is MX35_PAD_<padname>__<padmode>
+ * If <padname> or <padmode> refers to a GPIO, it is named
+ * GPIO_<unit>_<num>
+ *
+ * IOMUX/PAD Bit field definitions
+ *
+ * MUX_CTRL_OFS:	    0..11 (12)
+ * PAD_CTRL_OFS:	   12..23 (12)
+ * SEL_INPUT_OFS:	   24..35 (12)
+ * MUX_MODE + SION:	   36..40  (5)
+ * PAD_CTRL + NO_PAD_CTRL: 41..57 (17)
+ * SEL_INP:		   58..61  (4)
+ * reserved:		     63    (1)
+*/
 
 typedef u64 iomux_v3_cfg_t;
 
@@ -49,6 +81,9 @@ typedef u64 iomux_v3_cfg_t;
 		((iomux_v3_cfg_t)(_sel_input) << MUX_SEL_INPUT_SHIFT))
 
 #define NEW_PAD_CTRL(cfg, pad)	(((cfg) & ~MUX_PAD_CTRL_MASK) | MUX_PAD_CTRL(pad))
+/*
+ * Use to set PAD control
+ */
 
 #define NO_PAD_CTRL			(1 << 16)
 #define PAD_CTL_DVS			(1 << 13)
@@ -87,11 +122,21 @@ typedef u64 iomux_v3_cfg_t;
 #define GPIO_PORTE	(4 << GPIO_PORT_SHIFT)
 #define GPIO_PORTF	(5 << GPIO_PORT_SHIFT)
 
+/*
+ * setups a single pad in the iomuxer
+ */
 int mxc_iomux_v3_setup_pad(iomux_v3_cfg_t pad);
 
+/*
+ * setups mutliple pads
+ * convenient way to call the above function with tables
+ */
 int mxc_iomux_v3_setup_multiple_pads(iomux_v3_cfg_t *pad_list, unsigned count);
 
+/*
+ * Initialise the iomux controller
+ */
 void mxc_iomux_v3_init(void __iomem *iomux_v3_base);
 
-#endif 
+#endif /* __MACH_IOMUX_V3_H__*/
 

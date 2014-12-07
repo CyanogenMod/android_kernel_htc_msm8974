@@ -22,4 +22,4 @@
 #define PICOXCELL_VIC0_BASE		0x80060000
 #define PICOXCELL_VIC1_BASE		0x80064000
 
-#endif 
+#endif /* __PICOXCELL_SOC_H__ */

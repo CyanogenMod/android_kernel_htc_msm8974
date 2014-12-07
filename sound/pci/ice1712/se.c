@@ -40,22 +40,96 @@ struct se_spec {
 	} vol[8];
 };
 
+/****************************************************************************/
+/*  ONKYO WAVIO SE-200PCI                                                   */
+/****************************************************************************/
+/*
+ *  system configuration ICE_EEP2_SYSCONF=0x4b
+ *    XIN1 49.152MHz
+ *    not have UART
+ *    one stereo ADC and a S/PDIF receiver connected
+ *    four stereo DACs connected
+ *
+ *  AC-Link configuration ICE_EEP2_ACLINK=0x80
+ *    use I2C, not use AC97
+ *
+ *  I2S converters feature ICE_EEP2_I2S=0x78
+ *    I2S codec has no volume/mute control feature
+ *    I2S codec supports 96KHz and 192KHz
+ *    I2S codec 24bits
+ *
+ *  S/PDIF configuration ICE_EEP2_SPDIF=0xc3
+ *    Enable integrated S/PDIF transmitter
+ *    internal S/PDIF out implemented
+ *    S/PDIF is stereo
+ *    External S/PDIF out implemented
+ *
+ *
+ * ** connected chips **
+ *
+ *  WM8740
+ *      A 2ch-DAC of main outputs.
+ *      It setuped as I2S mode by wire, so no way to setup from software.
+ *      The sample-rate are automatically changed. 
+ *          ML/I2S (28pin) --------+
+ *          MC/DM1 (27pin) -- 5V   |
+ *          MD/DM0 (26pin) -- GND  |
+ *          MUTEB  (25pin) -- NC   |
+ *          MODE   (24pin) -- GND  |
+ *          CSBIW  (23pin) --------+
+ *                                 |
+ *          RSTB   (22pin) --R(1K)-+
+ *      Probably it reduce the noise from the control line.
+ *
+ *  WM8766
+ *      A 6ch-DAC for surrounds.
+ *      It's control wire was connected to GPIOxx (3-wire serial interface)
+ *          ML/I2S (11pin) -- GPIO18
+ *          MC/IWL (12pin) -- GPIO17
+ *          MD/DM  (13pin) -- GPIO16
+ *          MUTE   (14pin) -- GPIO01
+ *
+ *  WM8776
+ *     A 2ch-ADC(with 10ch-selector) plus 2ch-DAC.
+ *     It's control wire was connected to SDA/SCLK (2-wire serial interface)
+ *          MODE (16pin) -- R(1K) -- GND
+ *          CE   (17pin) -- R(1K) -- GND  2-wire mode (address=0x34)
+ *          DI   (18pin) -- SDA
+ *          CL   (19pin) -- SCLK
+ *
+ *
+ * ** output pins and device names **
+ *
+ *   7.1ch name -- output connector color -- device (-D option)
+ *
+ *      FRONT 2ch                  -- green  -- plughw:0,0
+ *      CENTER(Lch) SUBWOOFER(Rch) -- black  -- plughw:0,2,0
+ *      SURROUND 2ch               -- orange -- plughw:0,2,1
+ *      SURROUND BACK 2ch          -- white  -- plughw:0,2,2
+ *
+ */
 
 
+/****************************************************************************/
+/*  WM8740 interface                                                        */
+/****************************************************************************/
 
 static void __devinit se200pci_WM8740_init(struct snd_ice1712 *ice)
 {
-	
+	/* nothing to do */
 }
 
 
 static void se200pci_WM8740_set_pro_rate(struct snd_ice1712 *ice,
 						unsigned int rate)
 {
-	
+	/* nothing to do */
 }
 
 
+/****************************************************************************/
+/*  WM8766 interface                                                        */
+/****************************************************************************/
 
 static void se200pci_WM8766_write(struct snd_ice1712 *ice,
 					unsigned int addr, unsigned int data)
@@ -124,33 +198,36 @@ static void se200pci_WM8766_set_volume(struct snd_ice1712 *ice, int ch,
 
 static void __devinit se200pci_WM8766_init(struct snd_ice1712 *ice)
 {
-	se200pci_WM8766_write(ice, 0x1f, 0x000); 
+	se200pci_WM8766_write(ice, 0x1f, 0x000); /* RESET ALL */
 	udelay(10);
 
-	se200pci_WM8766_set_volume(ice, 0, 0, 0); 
-	se200pci_WM8766_set_volume(ice, 1, 0, 0); 
-	se200pci_WM8766_set_volume(ice, 2, 0, 0); 
+	se200pci_WM8766_set_volume(ice, 0, 0, 0); /* volume L=0 R=0 */
+	se200pci_WM8766_set_volume(ice, 1, 0, 0); /* volume L=0 R=0 */
+	se200pci_WM8766_set_volume(ice, 2, 0, 0); /* volume L=0 R=0 */
 
-	se200pci_WM8766_write(ice, 0x03, 0x022); 
-	se200pci_WM8766_write(ice, 0x0a, 0x080); 
-	se200pci_WM8766_write(ice, 0x12, 0x000); 
-	se200pci_WM8766_write(ice, 0x15, 0x000); 
-	se200pci_WM8766_write(ice, 0x09, 0x000); 
+	se200pci_WM8766_write(ice, 0x03, 0x022); /* serial mode I2S-24bits */
+	se200pci_WM8766_write(ice, 0x0a, 0x080); /* MCLK=256fs */
+	se200pci_WM8766_write(ice, 0x12, 0x000); /* MDP=0 */
+	se200pci_WM8766_write(ice, 0x15, 0x000); /* MDP=0 */
+	se200pci_WM8766_write(ice, 0x09, 0x000); /* demp=off mute=off */
 
-	se200pci_WM8766_write(ice, 0x02, 0x124); 
-	se200pci_WM8766_write(ice, 0x02, 0x120); 
+	se200pci_WM8766_write(ice, 0x02, 0x124); /* ch-assign L=L R=R RESET */
+	se200pci_WM8766_write(ice, 0x02, 0x120); /* ch-assign L=L R=R */
 }
 
 static void se200pci_WM8766_set_pro_rate(struct snd_ice1712 *ice,
 					unsigned int rate)
 {
 	if (rate > 96000)
-		se200pci_WM8766_write(ice, 0x0a, 0x000); 
+		se200pci_WM8766_write(ice, 0x0a, 0x000); /* MCLK=128fs */
 	else
-		se200pci_WM8766_write(ice, 0x0a, 0x080); 
+		se200pci_WM8766_write(ice, 0x0a, 0x080); /* MCLK=256fs */
 }
 
 
+/****************************************************************************/
+/*  WM8776 interface                                                        */
+/****************************************************************************/
 
 static void se200pci_WM8776_write(struct snd_ice1712 *ice,
 					unsigned int addr, unsigned int data)
@@ -184,7 +261,7 @@ static void se200pci_WM8776_set_input_selector(struct snd_ice1712 *ice,
 					       unsigned int sel)
 {
 	static unsigned char vals[] = {
-		
+		/* LINE, CD, MIC, ALL, GND */
 		0x10, 0x04, 0x08, 0x1c, 0x03
 	};
 	if (sel > 4)
@@ -194,7 +271,7 @@ static void se200pci_WM8776_set_input_selector(struct snd_ice1712 *ice,
 
 static void se200pci_WM8776_set_afl(struct snd_ice1712 *ice, unsigned int afl)
 {
-	
+	/* AFL -- After Fader Listening */
 	if (afl)
 		se200pci_WM8776_write(ice, 0x16, 0x005);
 	else
@@ -207,18 +284,18 @@ static const char *se200pci_agc[] = {
 
 static void se200pci_WM8776_set_agc(struct snd_ice1712 *ice, unsigned int agc)
 {
-	
+	/* AGC -- Auto Gain Control of the input */
 	switch (agc) {
 	case 0:
-		se200pci_WM8776_write(ice, 0x11, 0x000); 
+		se200pci_WM8776_write(ice, 0x11, 0x000); /* Off */
 		break;
 	case 1:
 		se200pci_WM8776_write(ice, 0x10, 0x07b);
-		se200pci_WM8776_write(ice, 0x11, 0x100); 
+		se200pci_WM8776_write(ice, 0x11, 0x100); /* LimiterMode */
 		break;
 	case 2:
 		se200pci_WM8776_write(ice, 0x10, 0x1fb);
-		se200pci_WM8776_write(ice, 0x11, 0x100); 
+		se200pci_WM8776_write(ice, 0x11, 0x100); /* ALCMode */
 		break;
 	}
 }
@@ -235,11 +312,11 @@ static void __devinit se200pci_WM8776_init(struct snd_ice1712 *ice)
 		0x032, 0x000, 0x0a6, 0x001, 0x001
 	};
 
-	se200pci_WM8776_write(ice, 0x17, 0x000); 
-	
- 	
+	se200pci_WM8776_write(ice, 0x17, 0x000); /* reset all */
+	/* ADC and DAC interface is I2S 24bits mode */
+ 	/* The sample-rate are automatically changed */
 	udelay(10);
-	
+	/* BUT my board can not do reset all, so I load all by manually. */
 	for (i = 0; i < ARRAY_SIZE(default_values); i++)
 		se200pci_WM8776_write(ice, i, default_values[i]);
 
@@ -249,7 +326,7 @@ static void __devinit se200pci_WM8776_init(struct snd_ice1712 *ice)
 	se200pci_WM8776_set_input_volume(ice, 0, 0);
 	se200pci_WM8776_set_output_volume(ice, 0, 0);
 
-	
+	/* head phone mute and power down */
 	se200pci_WM8776_write(ice, 0x00, 0);
 	se200pci_WM8776_write(ice, 0x01, 0);
 	se200pci_WM8776_write(ice, 0x02, 0x100);
@@ -259,10 +336,13 @@ static void __devinit se200pci_WM8776_init(struct snd_ice1712 *ice)
 static void se200pci_WM8776_set_pro_rate(struct snd_ice1712 *ice,
 						unsigned int rate)
 {
-	
+	/* nothing to do */
 }
 
 
+/****************************************************************************/
+/*  runtime interface                                                       */
+/****************************************************************************/
 
 static void se200pci_set_pro_rate(struct snd_ice1712 *ice, unsigned int rate)
 {
@@ -357,8 +437,8 @@ static int se200pci_cont_volume_info(struct snd_kcontrol *kc,
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->count = 2;
-	uinfo->value.integer.min = 0; 
-	uinfo->value.integer.max = 0xff; 
+	uinfo->value.integer.min = 0; /* mute */
+	uinfo->value.integer.max = 0xff; /* 0dB */
 	return 0;
 }
 
@@ -568,10 +648,35 @@ static int __devinit se200pci_add_controls(struct snd_ice1712 *ice)
 }
 
 
+/****************************************************************************/
+/*  ONKYO WAVIO SE-90PCI                                                    */
+/****************************************************************************/
+/*
+ *  system configuration ICE_EEP2_SYSCONF=0x4b
+ *  AC-Link configuration ICE_EEP2_ACLINK=0x80
+ *  I2S converters feature ICE_EEP2_I2S=0x78
+ *  S/PDIF configuration ICE_EEP2_SPDIF=0xc3
+ *
+ *  ** connected chip **
+ *
+ *   WM8716
+ *      A 2ch-DAC of main outputs.
+ *      It setuped as I2S mode by wire, so no way to setup from software.
+ *         ML/I2S (28pin) -- +5V
+ *         MC/DM1 (27pin) -- GND
+ *         MC/DM0 (26pin) -- GND
+ *         MUTEB  (25pin) -- open (internal pull-up)
+ *         MODE   (24pin) -- GND
+ *         CSBIWO (23pin) -- +5V
+ *
+ */
 
- 
+ /* Nothing to do for this chip. */
 
 
+/****************************************************************************/
+/*  probe/initialize/setup                                                  */
+/****************************************************************************/
 
 static int __devinit se_init(struct snd_ice1712 *ice)
 {
@@ -606,7 +711,7 @@ static int __devinit se_add_controls(struct snd_ice1712 *ice)
 	int err;
 
 	err = 0;
-	
+	/* nothing to do for VT1724_SUBDEVICE_SE90PCI */
 	if (ice->eeprom.subvendor == VT1724_SUBDEVICE_SE200PCI)
 		err = se200pci_add_controls(ice);
 
@@ -614,33 +719,36 @@ static int __devinit se_add_controls(struct snd_ice1712 *ice)
 }
 
 
+/****************************************************************************/
+/*  entry point                                                             */
+/****************************************************************************/
 
 static unsigned char se200pci_eeprom[] __devinitdata = {
-	[ICE_EEP2_SYSCONF]	= 0x4b,	
-	[ICE_EEP2_ACLINK]	= 0x80,	
-	[ICE_EEP2_I2S]		= 0x78,	
-	[ICE_EEP2_SPDIF]	= 0xc3,	
+	[ICE_EEP2_SYSCONF]	= 0x4b,	/* 49.152Hz, spdif-in/ADC, 4DACs */
+	[ICE_EEP2_ACLINK]	= 0x80,	/* I2S */
+	[ICE_EEP2_I2S]		= 0x78,	/* 96k-ok, 24bit, 192k-ok */
+	[ICE_EEP2_SPDIF]	= 0xc3,	/* out-en, out-int, spdif-in */
 
-	[ICE_EEP2_GPIO_DIR]	= 0x02, 
-	[ICE_EEP2_GPIO_DIR1]	= 0x00, 
-	[ICE_EEP2_GPIO_DIR2]	= 0x07, 
+	[ICE_EEP2_GPIO_DIR]	= 0x02, /* WM8766 mute      1=output */
+	[ICE_EEP2_GPIO_DIR1]	= 0x00, /* not used */
+	[ICE_EEP2_GPIO_DIR2]	= 0x07, /* WM8766 ML/MC/MD  1=output */
 
-	[ICE_EEP2_GPIO_MASK]	= 0x00, 
-	[ICE_EEP2_GPIO_MASK1]	= 0x00, 
-	[ICE_EEP2_GPIO_MASK2]	= 0x00, 
+	[ICE_EEP2_GPIO_MASK]	= 0x00, /* 0=writable */
+	[ICE_EEP2_GPIO_MASK1]	= 0x00, /* 0=writable */
+	[ICE_EEP2_GPIO_MASK2]	= 0x00, /* 0=writable */
 
-	[ICE_EEP2_GPIO_STATE]	= 0x00, 
-	[ICE_EEP2_GPIO_STATE1]	= 0x00, 
-	[ICE_EEP2_GPIO_STATE2]	= 0x07, 
+	[ICE_EEP2_GPIO_STATE]	= 0x00, /* WM8766 mute=0 */
+	[ICE_EEP2_GPIO_STATE1]	= 0x00, /* not used */
+	[ICE_EEP2_GPIO_STATE2]	= 0x07, /* WM8766 ML/MC/MD */
 };
 
 static unsigned char se90pci_eeprom[] __devinitdata = {
-	[ICE_EEP2_SYSCONF]	= 0x4b,	
-	[ICE_EEP2_ACLINK]	= 0x80,	
-	[ICE_EEP2_I2S]		= 0x78,	
-	[ICE_EEP2_SPDIF]	= 0xc3,	
+	[ICE_EEP2_SYSCONF]	= 0x4b,	/* 49.152Hz, spdif-in/ADC, 4DACs */
+	[ICE_EEP2_ACLINK]	= 0x80,	/* I2S */
+	[ICE_EEP2_I2S]		= 0x78,	/* 96k-ok, 24bit, 192k-ok */
+	[ICE_EEP2_SPDIF]	= 0xc3,	/* out-en, out-int, spdif-in */
 
-	
+	/* ALL GPIO bits are in input mode */
 };
 
 struct snd_ice1712_card_info snd_vt1724_se_cards[] __devinitdata = {
@@ -662,5 +770,5 @@ struct snd_ice1712_card_info snd_vt1724_se_cards[] __devinitdata = {
 		.eeprom_size = sizeof(se90pci_eeprom),
 		.eeprom_data = se90pci_eeprom,
 	},
-	{} 
+	{} /*terminator*/
 };

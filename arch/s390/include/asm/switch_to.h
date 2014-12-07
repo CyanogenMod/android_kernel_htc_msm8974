@@ -97,4 +97,4 @@ extern void account_tick_vtime(struct task_struct *);
 	account_vtime(prev, current);					     \
 } while (0)
 
-#endif 
+#endif /* __ASM_SWITCH_TO_H */

@@ -39,7 +39,7 @@ icmp_unique_tuple(struct nf_conntrack_tuple *tuple,
 	unsigned int i;
 
 	range_size = ntohs(range->max.icmp.id) - ntohs(range->min.icmp.id) + 1;
-	
+	/* If no range specified... */
 	if (!(range->flags & NF_NAT_RANGE_PROTO_SPECIFIED))
 		range_size = 0xFFFF;
 

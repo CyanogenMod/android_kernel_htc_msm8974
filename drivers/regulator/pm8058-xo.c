@@ -23,6 +23,7 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/regulator/pm8058-xo.h>
 
+/* XO buffer masks and values */
 
 #define XO_PULLDOWN_MASK	0x08
 #define XO_PULLDOWN_ENABLE	0x08
@@ -134,7 +135,7 @@ static int pm8058_init_xo_buffer(struct pm8058_xo_buffer *xo)
 {
 	int	rc;
 
-	
+	/* Save the current control register state */
 	rc = pm8xxx_readb(xo->dev->parent, xo->ctrl_addr, &xo->ctrl_reg);
 
 	if (rc)

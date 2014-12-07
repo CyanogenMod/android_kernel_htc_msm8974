@@ -85,7 +85,7 @@ static int getmaster(char *line)
 	for (bank = "pqrs"; *bank; bank++) {
 		line[strlen("/dev/pty")] = *bank;
 		*pty = '0';
-		
+		/* Did we hit the end ? */
 		if ((stat(line, &buf) < 0) && (errno == ENOENT))
 			break;
 
@@ -95,7 +95,7 @@ static int getmaster(char *line)
 			if (master >= 0) {
 				char *tp = &line[strlen("/dev/")];
 
-				
+				/* verify slave side is usable */
 				*tp = 't';
 				err = access(line, R_OK | W_OK);
 				*tp = 'p';

@@ -67,15 +67,15 @@ static void xen_update_blkif_status(struct xen_blkif *blkif)
 	int err;
 	char name[TASK_COMM_LEN];
 
-	
+	/* Not ready to connect? */
 	if (!blkif->irq || !blkif->vbd.bdev)
 		return;
 
-	
+	/* Already connected? */
 	if (blkif->be->dev->state == XenbusStateConnected)
 		return;
 
-	
+	/* Attempt to connect: exit if we fail to. */
 	connect(blkif->be);
 	if (blkif->be->dev->state != XenbusStateConnected)
 		return;
@@ -127,7 +127,7 @@ static int xen_blkif_map(struct xen_blkif *blkif, unsigned long shared_page,
 {
 	int err;
 
-	
+	/* Already connected through? */
 	if (blkif->irq)
 		return 0;
 
@@ -214,6 +214,9 @@ int __init xen_blkif_interface_init(void)
 	return 0;
 }
 
+/*
+ *  sysfs interface for VBD I/O requests
+ */
 
 #define VBD_SHOW(name, format, args...)					\
 	static ssize_t show_##name(struct device *_dev,			\
@@ -408,7 +411,7 @@ static void xen_blkbk_discard(struct xenbus_transaction xbt, struct backend_info
 			return;
 		}
 		state = 1;
-		
+		/* Optional. */
 		err = xenbus_printf(xbt, dev->nodename,
 				    "discard-secure", "%d",
 				    blkif->vbd.discard_secure);
@@ -436,6 +439,11 @@ int xen_blkbk_barrier(struct xenbus_transaction xbt,
 	return err;
 }
 
+/*
+ * Entry point to this code when a new device is created.  Allocate the basic
+ * structures, and watch the store waiting for the hotplug scripts to tell us
+ * the device's physical major and minor numbers.  Switch to InitWait.
+ */
 static int xen_blkbk_probe(struct xenbus_device *dev,
 			   const struct xenbus_device_id *id)
 {
@@ -458,7 +466,7 @@ static int xen_blkbk_probe(struct xenbus_device *dev,
 		goto fail;
 	}
 
-	
+	/* setup back pointer */
 	be->blkif->be = be;
 
 	err = xenbus_watch_pathfmt(dev, &be->backend_watch, backend_changed,
@@ -479,6 +487,11 @@ fail:
 }
 
 
+/*
+ * Callback received when the hotplug scripts have placed the physical-device
+ * node.  Read it and the mode node, and create a vbd.  If the frontend is
+ * ready, connect.
+ */
 static void backend_changed(struct xenbus_watch *watch,
 			    const char **vec, unsigned int len)
 {
@@ -496,6 +509,11 @@ static void backend_changed(struct xenbus_watch *watch,
 	err = xenbus_scanf(XBT_NIL, dev->nodename, "physical-device", "%x:%x",
 			   &major, &minor);
 	if (XENBUS_EXIST_ERR(err)) {
+		/*
+		 * Since this watch will fire once immediately after it is
+		 * registered, we expect this.  Ignore it, and wait for the
+		 * hotplug scripts.
+		 */
 		return;
 	}
 	if (err != 2) {
@@ -525,7 +543,7 @@ static void backend_changed(struct xenbus_watch *watch,
 	}
 
 	if (be->major == 0 && be->minor == 0) {
-		
+		/* Front end dir is a number, which is used as the handle. */
 
 		char *p = strrchr(dev->otherend, '/') + 1;
 		long handle;
@@ -554,12 +572,15 @@ static void backend_changed(struct xenbus_watch *watch,
 			return;
 		}
 
-		
+		/* We're potentially connected now */
 		xen_update_blkif_status(be->blkif);
 	}
 }
 
 
+/*
+ * Callback received when the frontend's state changes.
+ */
 static void frontend_changed(struct xenbus_device *dev,
 			     enum xenbus_state frontend_state)
 {
@@ -579,9 +600,18 @@ static void frontend_changed(struct xenbus_device *dev,
 
 	case XenbusStateInitialised:
 	case XenbusStateConnected:
+		/*
+		 * Ensure we connect even when two watches fire in
+		 * close succession and we miss the intermediate value
+		 * of frontend_state.
+		 */
 		if (dev->state == XenbusStateConnected)
 			break;
 
+		/*
+		 * Enforce precondition before potential leak point.
+		 * xen_blkif_disconnect() is idempotent.
+		 */
 		xen_blkif_disconnect(be->blkif);
 
 		err = connect_ring(be);
@@ -599,9 +629,9 @@ static void frontend_changed(struct xenbus_device *dev,
 		xenbus_switch_state(dev, XenbusStateClosed);
 		if (xenbus_dev_is_online(dev))
 			break;
-		
+		/* fall through if not online */
 	case XenbusStateUnknown:
-		
+		/* implies xen_blkif_disconnect() via xen_blkbk_remove() */
 		device_unregister(&dev->dev);
 		break;
 
@@ -613,8 +643,13 @@ static void frontend_changed(struct xenbus_device *dev,
 }
 
 
+/* ** Connection ** */
 
 
+/*
+ * Write the physical details regarding the block device to the store, and
+ * switch to Connected state.
+ */
 static void connect(struct backend_info *be)
 {
 	struct xenbus_transaction xbt;
@@ -623,7 +658,7 @@ static void connect(struct backend_info *be)
 
 	DPRINTK("%s", dev->otherend);
 
-	
+	/* Supply the information about the device the frontend needs */
 again:
 	err = xenbus_transaction_start(&xbt);
 	if (err) {
@@ -631,7 +666,7 @@ again:
 		return;
 	}
 
-	
+	/* If we can't advertise it is OK. */
 	xen_blkbk_flush_diskcache(xbt, be, be->blkif->vbd.flush_support);
 
 	xen_blkbk_discard(xbt, be);
@@ -646,7 +681,7 @@ again:
 		goto abort;
 	}
 
-	
+	/* FIXME: use a typename instead */
 	err = xenbus_printf(xbt, dev->nodename, "info", "%u",
 			    be->blkif->vbd.type |
 			    (be->blkif->vbd.readonly ? VDISK_READONLY : 0));
@@ -718,7 +753,7 @@ static int connect_ring(struct backend_info *be)
 	pr_info(DRV_PFX "ring-ref %ld, event-channel %d, protocol %d (%s)\n",
 		ring_ref, evtchn, be->blkif->blk_protocol, protocol);
 
-	
+	/* Map the shared frame, irq etc. */
 	err = xen_blkif_map(be->blkif, ring_ref, evtchn);
 	if (err) {
 		xenbus_dev_fatal(dev, err, "mapping ring-ref %lu port %u",
@@ -730,6 +765,7 @@ static int connect_ring(struct backend_info *be)
 }
 
 
+/* ** Driver Registration ** */
 
 
 static const struct xenbus_device_id xen_blkbk_ids[] = {

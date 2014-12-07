@@ -119,7 +119,7 @@ struct rmnet_mux_ctrl_dev {
 };
 
 struct rmnet_mux_sdio_dev {
-	
+	/* Tx/Rx lists */
 	struct list_head tx_idle;
 	struct sk_buff_head    tx_skb_queue;
 	struct list_head rx_idle;
@@ -135,20 +135,21 @@ struct rmnet_mux_sdio_dev {
 	unsigned int dpkts_pending_atdmux;
 };
 
+/* Data SMD channel */
 struct rmnet_mux_smd_info {
 	struct smd_channel *ch;
 	struct tasklet_struct tx_tlet;
 	struct tasklet_struct rx_tlet;
 #define RMNET_MUX_CH_OPENED 0
 	unsigned long flags;
-	
+	/* pending rx packet length */
 	atomic_t rx_pkt;
-	
+	/* wait for smd open event*/
 	wait_queue_head_t wait;
 };
 
 struct rmnet_mux_smd_dev {
-	
+	/* Tx/Rx lists */
 	struct list_head tx_idle;
 	struct list_head rx_idle;
 	struct list_head rx_queue;
@@ -177,7 +178,7 @@ struct rmnet_mux_dev {
 	struct workqueue_struct *wq;
 	struct work_struct disconnect_work;
 
-	
+	/* pkt counters */
 	unsigned long dpkts_tomsm;
 	unsigned long dpkts_tomdm;
 	unsigned long dpkts_tolaptop;
@@ -198,6 +199,7 @@ static struct usb_interface_descriptor rmnet_mux_interface_desc = {
 	.bInterfaceProtocol =   USB_CLASS_VENDOR_SPEC,
 };
 
+/* Full speed support */
 static struct usb_endpoint_descriptor rmnet_mux_fs_notify_desc = {
 	.bLength =              USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =      USB_DT_ENDPOINT,
@@ -232,6 +234,7 @@ static struct usb_descriptor_header *rmnet_mux_fs_function[] = {
 	NULL,
 };
 
+/* High speed support */
 static struct usb_endpoint_descriptor rmnet_mux_hs_notify_desc  = {
 	.bLength =              USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =      USB_DT_ENDPOINT,
@@ -266,14 +269,15 @@ static struct usb_descriptor_header *rmnet_mux_hs_function[] = {
 	NULL,
 };
 
+/* String descriptors */
 
 static struct usb_string rmnet_mux_string_defs[] = {
 	[0].s = "RmNet",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings rmnet_mux_string_table = {
-	.language =             0x0409, 
+	.language =             0x0409, /* en-us */
 	.strings =              rmnet_mux_string_defs,
 };
 
@@ -309,6 +313,10 @@ static void rmnet_mux_free_ctrl_pkt(struct rmnet_mux_ctrl_pkt *cpkt)
 	kfree(cpkt);
 }
 
+/*
+ * Allocate a usb_request and its buffer.  Returns a pointer to the
+ * usb_request or a pointer with an error code if there is an error.
+ */
 static struct usb_request *
 rmnet_mux_alloc_req(struct usb_ep *ep, unsigned len, gfp_t kmalloc_flags)
 {
@@ -328,6 +336,9 @@ rmnet_mux_alloc_req(struct usb_ep *ep, unsigned len, gfp_t kmalloc_flags)
 	return req ? req : ERR_PTR(-ENOMEM);
 }
 
+/*
+ * Free a usb_request and its buffer.
+ */
 static void rmnet_mux_free_req(struct usb_ep *ep, struct usb_request *req)
 {
 	kfree(req->buf);
@@ -423,7 +434,7 @@ static void rmnet_mux_sdio_start_tx(struct rmnet_mux_dev *dev)
 		status = usb_ep_queue(dev->epin, req, GFP_ATOMIC);
 		spin_lock(&dev->lock);
 		if (status) {
-			
+			/* USB still online, queue requests back */
 			if (atomic_read(&dev->online)) {
 				ERROR(cdev, "rmnet tx data enqueue err %d\n",
 						status);
@@ -476,6 +487,9 @@ static void rmnet_mux_sdio_data_write_done(void *priv, struct sk_buff *skb)
 		return;
 
 	dev_kfree_skb_any(skb);
+	/* this function is called from
+	 * sdio mux from spin_lock_irqsave
+	 */
 	spin_lock(&dev->lock);
 	sdio_dev->dpkts_pending_atdmux--;
 
@@ -534,19 +548,19 @@ rmnet_mux_sdio_complete_epout(struct usb_ep *ep, struct usb_request *req)
 
 	switch (status) {
 	case 0:
-		
+		/* successful completion */
 		skb_put(skb, req->actual);
 		queue = 1;
 		break;
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		dev_kfree_skb_any(skb);
 		req->buf = 0;
 		rmnet_mux_free_req(ep, req);
 		return;
 	default:
-		
+		/* unexpected failure */
 		ERROR(cdev, "RMNET_MUX %s response error %d, %d/%d\n",
 			ep->name, status,
 			req->actual, req->length);
@@ -592,10 +606,10 @@ rmnet_mux_sdio_complete_epin(struct usb_ep *ep, struct usb_request *req)
 
 	switch (status) {
 	case 0:
-		
+		/* successful completion */
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		break;
 	default:
 		ERROR(cdev, "rmnet_mux data tx ep error %d\n", status);
@@ -616,6 +630,10 @@ static int rmnet_mux_sdio_enable(struct rmnet_mux_dev *dev)
 	int i;
 	struct usb_request *req;
 
+	/*
+	 * If the memory allocation fails, all the allocated
+	 * requests will be freed upon cable disconnect.
+	 */
 	for (i = 0; i < RMNET_MUX_SDIO_RX_REQ_MAX; i++) {
 		req = rmnet_mux_alloc_req(dev->epout, 0, GFP_KERNEL);
 		if (IS_ERR(req))
@@ -744,10 +762,15 @@ static void rmnet_mux_smd_data_rx_tlet(unsigned long arg)
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
 
-	
+	/* We have free rx data requests. */
 	rmnet_mux_smd_start_rx(dev);
 }
 
+/* If SMD has enough room to accommodate a data rx packet,
+ * write into SMD directly. Otherwise enqueue to rx_queue.
+ * We will not write into SMD directly untill rx_queue is
+ * empty to strictly follow the ordering requests.
+ */
 static void
 rmnet_mux_smd_complete_epout(struct usb_ep *ep, struct usb_request *req)
 {
@@ -764,17 +787,17 @@ rmnet_mux_smd_complete_epout(struct usb_ep *ep, struct usb_request *req)
 
 	switch (status) {
 	case 0:
-		
+		/* normal completion */
 		break;
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		spin_lock(&dev->lock);
 		list_add_tail(&req->list, &smd_dev->rx_idle);
 		spin_unlock(&dev->lock);
 		return;
 	default:
-		
+		/* unexpected failure */
 		ERROR(cdev, "RMNET_MUX %s response error %d, %d/%d\n",
 			ep->name, status,
 			req->actual, req->length);
@@ -792,10 +815,10 @@ rmnet_mux_smd_complete_epout(struct usb_ep *ep, struct usb_request *req)
 		}
 		spin_unlock(&dev->lock);
 		ret = smd_write(smd_dev->smd_data.ch, req->buf, req->actual);
-		
+		/* This should never happen */
 		if (ret != req->actual)
 			ERROR(cdev, "rmnet_mux data smd write failed\n");
-		
+		/* Restart Rx */
 		dev->dpkts_tomsm++;
 		spin_lock(&dev->lock);
 		list_add_tail(&req->list, &smd_dev->rx_idle);
@@ -825,14 +848,14 @@ static void rmnet_mux_smd_complete_epin(struct usb_ep *ep,
 	switch (status) {
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		spin_lock(&dev->lock);
 		list_add_tail(&req->list, &smd_dev->tx_idle);
 		spin_unlock(&dev->lock);
 		break;
 	default:
 		ERROR(cdev, "rmnet_mux data tx ep error %d\n", status);
-		
+		/* FALLTHROUGH */
 	case 0:
 		spin_lock(&dev->lock);
 		if (list_empty(&smd_dev->tx_idle))
@@ -867,10 +890,17 @@ static void rmnet_mux_smd_notify(void *priv, unsigned event)
 		break;
 	}
 	case SMD_EVENT_OPEN:
+		/* usb endpoints are not enabled untill smd channels
+		 * are opened. wake up worker thread to continue
+		 * connection processing
+		 */
 		set_bit(RMNET_MUX_CH_OPENED, &smd_info->flags);
 		wake_up(&smd_info->wait);
 		break;
 	case SMD_EVENT_CLOSE:
+		/* We will never come here.
+		 * reset flags after closing smd channel
+		 * */
 		clear_bit(RMNET_MUX_CH_OPENED, &smd_info->flags);
 		break;
 	}
@@ -896,6 +926,10 @@ static int rmnet_mux_smd_enable(struct rmnet_mux_dev *dev)
 	wait_event(smd_dev->smd_data.wait, test_bit(RMNET_MUX_CH_OPENED,
 				&smd_dev->smd_data.flags));
 
+	/* Allocate bulk in/out requests for data transfer.
+	 * If the memory allocation fails, all the allocated
+	 * requests will be freed upon cable disconnect.
+	 */
 smd_alloc_req:
 	for (i = 0; i < RMNET_MUX_SMD_RX_REQ_MAX; i++) {
 		req = rmnet_mux_alloc_req(dev->epout, RMNET_MUX_SMD_RX_REQ_SIZE,
@@ -932,12 +966,12 @@ static void rmnet_mux_notify_complete(struct usb_ep *ep,
 	switch (status) {
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		atomic_set(&dev->notify_count, 0);
 		break;
 	default:
 		ERROR(cdev, "rmnet_mux notifyep error %d\n", status);
-		
+		/* FALLTHROUGH */
 	case 0:
 
 		if (atomic_dec_and_test(&dev->notify_count))
@@ -959,7 +993,7 @@ static void ctrl_response_available(struct rmnet_mux_dev *dev)
 	struct usb_cdc_notification     *event = req->buf;
 	int status;
 
-	
+	/* Response will be sent later */
 	if (atomic_inc_return(&dev->notify_count) != 1)
 		return;
 
@@ -1034,7 +1068,7 @@ static void rmnet_mux_command_complete(struct usb_ep *ep,
 	ctrl_dev->tx_len++;
 	spin_unlock(&dev->lock);
 
-	
+	/* wakeup read thread */
 	wake_up(&ctrl_dev->tx_wait_q);
 }
 
@@ -1100,6 +1134,15 @@ rmnet_mux_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 		break;
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 			| USB_CDC_REQ_SET_CONTROL_LINE_STATE:
+		/* This is a workaround for RmNet and is borrowed from the
+		 * CDC/ACM standard. The host driver will issue the above ACM
+		 * standard request to the RmNet interface in the following
+		 * scenario: Once the network adapter is disabled from device
+		 * manager, the above request will be sent from the qcusbnet
+		 * host driver, with DTR being '0'. Once network adapter is
+		 * enabled from device manager (or during enumeration), the
+		 * request will be sent with DTR being '1'.
+		 */
 		if (w_value & RMNET_MUX_ACM_CTRL_DTR)
 			ctrl_dev->cbits_to_modem |= TIOCM_DTR;
 		else
@@ -1116,7 +1159,7 @@ invalid:
 		w_value, w_index, w_length);
 	}
 
-	
+	/* respond with data transfer or status phase? */
 	if (ret >= 0) {
 		VDBG(cdev, "rmnet_mux req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
@@ -1143,7 +1186,7 @@ static void rmnet_mux_free_buf(struct rmnet_mux_dev *dev)
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->lock, flags);
-	
+	/* free all usb requests in SDIO tx pool */
 	pool = &sdio_dev->tx_idle;
 	while (!list_empty(pool)) {
 		req = list_first_entry(pool, struct usb_request, list);
@@ -1153,7 +1196,7 @@ static void rmnet_mux_free_buf(struct rmnet_mux_dev *dev)
 	}
 
 	pool = &sdio_dev->rx_idle;
-	
+	/* free all usb requests in SDIO rx pool */
 	while (!list_empty(pool)) {
 		req = list_first_entry(pool, struct usb_request, list);
 		list_del(&req->list);
@@ -1167,7 +1210,7 @@ static void rmnet_mux_free_buf(struct rmnet_mux_dev *dev)
 	while ((skb = __skb_dequeue(&sdio_dev->rx_skb_queue)))
 		dev_kfree_skb_any(skb);
 
-	
+	/* free all usb requests in SMD tx pool */
 	pool = &smd_dev->tx_idle;
 	while (!list_empty(pool)) {
 		req = list_first_entry(pool, struct usb_request, list);
@@ -1176,14 +1219,14 @@ static void rmnet_mux_free_buf(struct rmnet_mux_dev *dev)
 	}
 
 	pool = &smd_dev->rx_idle;
-	
+	/* free all usb requests in SMD rx pool */
 	while (!list_empty(pool)) {
 		req = list_first_entry(pool, struct usb_request, list);
 		list_del(&req->list);
 		rmnet_mux_free_req(dev->epin, req);
 	}
 
-	
+	/* free all usb requests in SMD rx queue */
 	pool = &smd_dev->rx_queue;
 	while (!list_empty(pool)) {
 		req = list_first_entry(pool, struct usb_request, list);
@@ -1224,7 +1267,7 @@ static void rmnet_mux_disconnect_work(struct work_struct *w)
 	rmnet_mux_free_buf(dev);
 	dev->xport = 0;
 
-	
+	/* wakeup read thread */
 	wake_up(&ctrl_dev->tx_wait_q);
 }
 
@@ -1236,6 +1279,11 @@ static void rmnet_mux_suspend(struct usb_function *f)
 
 	if (!atomic_read(&dev->online))
 		return;
+	/* This is a workaround for Windows Host bug during suspend.
+	 * Windows 7/xp Hosts are suppose to drop DTR, when Host suspended.
+	 * Since it is not being done, Hence exclusively dropping the DTR
+	 * from function driver suspend.
+	 */
 	ctrl_dev->cbits_to_modem &= ~TIOCM_DTR;
 }
 
@@ -1260,7 +1308,7 @@ static void rmnet_mux_disable(struct usb_function *f)
 	usb_ep_fifo_flush(dev->epin);
 	usb_ep_disable(dev->epin);
 
-	
+	/* cleanup work */
 	ctrl_dev->cbits_to_modem = 0;
 	queue_work(dev->wq, &dev->disconnect_work);
 }
@@ -1276,7 +1324,7 @@ static void rmnet_mux_open_sdio_work(struct work_struct *w)
 	int ret;
 	static int retry_cnt;
 
-	
+	/* Data channel for network packets */
 	ret = msm_sdio_dmux_open(rmnet_mux_sdio_data_ch, dev,
 				rmnet_mux_sdio_data_receive_cb,
 				rmnet_mux_sdio_data_write_done);
@@ -1308,7 +1356,7 @@ static int rmnet_mux_set_alt(struct usb_function *f,
 	struct usb_composite_dev *cdev = dev->cdev;
 	int ret = 0;
 
-	
+	/* allocate notification */
 	dev->notify_req = rmnet_mux_alloc_req(dev->epnotify,
 				RMNET_MUX_SDIO_MAX_NFY_SZE, GFP_ATOMIC);
 
@@ -1319,7 +1367,7 @@ static int rmnet_mux_set_alt(struct usb_function *f,
 	dev->notify_req->context = dev;
 	dev->notify_req->length = RMNET_MUX_SDIO_MAX_NFY_SZE;
 
-	
+	/* Enable epin */
 	dev->epin->driver_data = dev;
 	ret = config_ep_by_speed(cdev->gadget, f, dev->epin);
 	if (ret) {
@@ -1335,7 +1383,7 @@ static int rmnet_mux_set_alt(struct usb_function *f,
 		return ret;
 	}
 
-	
+	/* Enable epout */
 	dev->epout->driver_data = dev;
 	ret = config_ep_by_speed(cdev->gadget, f, dev->epout);
 	if (ret) {
@@ -1353,7 +1401,7 @@ static int rmnet_mux_set_alt(struct usb_function *f,
 		return ret;
 	}
 
-	
+	/* Enable epnotify */
 	ret = config_ep_by_speed(cdev->gadget, f, dev->epnotify);
 	if (ret) {
 		dev->epnotify->desc = NULL;
@@ -1422,7 +1470,7 @@ static ssize_t transport_store(
 	pr_debug("usb_rmnet_mux: TransportRequested: %s\n",
 			xport_to_str(given_xport));
 
-	
+	/* prevent any other pkts to/from usb  */
 	t = dev->xport;
 	dev->xport = USB_GADGET_XPORT_UNDEF;
 	if (t != USB_GADGET_XPORT_UNDEF) {
@@ -1433,7 +1481,7 @@ static ssize_t transport_store(
 	switch (t) {
 	case USB_GADGET_XPORT_SDIO:
 		spin_lock_irqsave(&dev->lock, flags);
-		
+		/* tx_idle */
 
 		sdio_dev->dpkts_pending_atdmux = 0;
 
@@ -1445,9 +1493,9 @@ static ssize_t transport_store(
 			rmnet_mux_free_req(dev->epout, req);
 		}
 
-		
+		/* rx_idle */
 		pool = &sdio_dev->rx_idle;
-		
+		/* free all usb requests in SDIO rx pool */
 		while (!list_empty(pool)) {
 			req = list_first_entry(pool, struct usb_request, list);
 			list_del(&req->list);
@@ -1455,11 +1503,11 @@ static ssize_t transport_store(
 			rmnet_mux_free_req(dev->epin, req);
 		}
 
-		
+		/* tx_skb_queue */
 		skb_pool = &sdio_dev->tx_skb_queue;
 		while ((skb = __skb_dequeue(skb_pool)))
 			dev_kfree_skb_any(skb);
-		
+		/* rx_skb_queue */
 		skb_pool = &sdio_dev->rx_skb_queue;
 		while ((skb = __skb_dequeue(skb_pool)))
 			dev_kfree_skb_any(skb);
@@ -1467,12 +1515,12 @@ static ssize_t transport_store(
 		spin_unlock_irqrestore(&dev->lock, flags);
 		break;
 	case USB_GADGET_XPORT_SMD:
-		
+		/* close smd xport */
 		tasklet_kill(&smd_dev->smd_data.rx_tlet);
 		tasklet_kill(&smd_dev->smd_data.tx_tlet);
 
 		spin_lock_irqsave(&dev->lock, flags);
-		
+		/* free all usb requests in SMD tx pool */
 		pool = &smd_dev->tx_idle;
 		while (!list_empty(pool)) {
 			req = list_first_entry(pool, struct usb_request, list);
@@ -1481,14 +1529,14 @@ static ssize_t transport_store(
 		}
 
 		pool = &smd_dev->rx_idle;
-		
+		/* free all usb requests in SMD rx pool */
 		while (!list_empty(pool)) {
 			req = list_first_entry(pool, struct usb_request, list);
 			list_del(&req->list);
 			rmnet_mux_free_req(dev->epin, req);
 		}
 
-		
+		/* free all usb requests in SMD rx queue */
 		pool = &smd_dev->rx_queue;
 		while (!list_empty(pool)) {
 			req = list_first_entry(pool, struct usb_request, list);
@@ -1512,7 +1560,7 @@ static ssize_t transport_store(
 		rmnet_mux_smd_enable(dev);
 		break;
 	default:
-		
+		/* we should never come here */
 		pr_err("%s: undefined transport\n", __func__);
 	}
 
@@ -1531,7 +1579,7 @@ static int rmnet_mux_bind(struct usb_configuration *c, struct usb_function *f)
 
 	dev->cdev = cdev;
 
-	
+	/* allocate interface ID */
 	id = usb_interface_id(c, f);
 	if (id < 0)
 		return id;
@@ -1541,21 +1589,25 @@ static int rmnet_mux_bind(struct usb_configuration *c, struct usb_function *f)
 	ep = usb_ep_autoconfig(cdev->gadget, &rmnet_mux_fs_in_desc);
 	if (!ep)
 		goto out;
-	ep->driver_data = cdev; 
+	ep->driver_data = cdev; /* claim endpoint */
 	dev->epin = ep;
 
 	ep = usb_ep_autoconfig(cdev->gadget, &rmnet_mux_fs_out_desc);
 	if (!ep)
 		goto out;
-	ep->driver_data = cdev; 
+	ep->driver_data = cdev; /* claim endpoint */
 	dev->epout = ep;
 
 	ep = usb_ep_autoconfig(cdev->gadget, &rmnet_mux_fs_notify_desc);
 	if (!ep)
 		goto out;
-	ep->driver_data = cdev; 
+	ep->driver_data = cdev; /* claim endpoint */
 	dev->epnotify = ep;
 
+	/* support all relevant hardware speeds... we expect that when
+	 * hardware is dual speed, all bulk-capable endpoints work at
+	 * both speeds
+	 */
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 		rmnet_mux_hs_in_desc.bEndpointAddress =
 			rmnet_mux_fs_in_desc.bEndpointAddress;
@@ -1785,7 +1837,7 @@ ctrl_read:
 	spin_lock_irqsave(&dev->lock, flags);
 	if (list_empty(&ctrl_dev->tx_q)) {
 		spin_unlock_irqrestore(&dev->lock, flags);
-		
+		/* Implement sleep and wakeup here */
 		ret = wait_event_interruptible(ctrl_dev->tx_wait_q,
 					!list_empty(&ctrl_dev->tx_q) ||
 					!atomic_read(&dev->online));

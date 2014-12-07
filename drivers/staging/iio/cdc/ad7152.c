@@ -18,6 +18,12 @@
 #include "../iio.h"
 #include "../sysfs.h"
 
+/*
+ * TODO: Check compliance of calibbias with abi (units)
+ */
+/*
+ * AD7152 registers definition
+ */
 
 #define AD7152_REG_STATUS		0
 #define AD7152_REG_CH1_DATA_HIGH	1
@@ -34,11 +40,13 @@
 #define AD7152_REG_CAPDAC_NEG		18
 #define AD7152_REG_CFG2			26
 
+/* Status Register Bit Designations (AD7152_REG_STATUS) */
 #define AD7152_STATUS_RDY1		(1 << 0)
 #define AD7152_STATUS_RDY2		(1 << 1)
 #define AD7152_STATUS_C1C2		(1 << 2)
 #define AD7152_STATUS_PWDN		(1 << 7)
 
+/* Setup Register Bit Designations (AD7152_REG_CHx_SETUP) */
 #define AD7152_SETUP_CAPDIFF		(1 << 5)
 #define AD7152_SETUP_RANGE_2pF		(0 << 6)
 #define AD7152_SETUP_RANGE_0_5pF	(1 << 6)
@@ -46,6 +54,7 @@
 #define AD7152_SETUP_RANGE_4pF		(3 << 6)
 #define AD7152_SETUP_RANGE(x)		((x) << 6)
 
+/* Config Register Bit Designations (AD7152_REG_CFG) */
 #define AD7152_CONF_CH2EN		(1 << 3)
 #define AD7152_CONF_CH1EN		(1 << 4)
 #define AD7152_CONF_MODE_IDLE		(0 << 0)
@@ -54,9 +63,11 @@
 #define AD7152_CONF_MODE_OFFS_CAL	(5 << 0)
 #define AD7152_CONF_MODE_GAIN_CAL	(6 << 0)
 
+/* Capdac Register Bit Designations (AD7152_REG_CAPDAC_XXX) */
 #define AD7152_CAPDAC_DACEN		(1 << 7)
 #define AD7152_CAPDAC_DACP(x)		((x) & 0x1F)
 
+/* CFG2 Register Bit Designations (AD7152_REG_CFG2) */
 #define AD7152_CFG2_OSR(x)		(((x) & 0x3) << 4)
 
 enum {
@@ -66,9 +77,16 @@ enum {
 	AD7152_SETUP
 };
 
+/*
+ * struct ad7152_chip_info - chip specifc information
+ */
 
 struct ad7152_chip_info {
 	struct i2c_client *client;
+	/*
+	 * Capacitive channel digital filter setup;
+	 * conversion time/update rate setup per channel
+	 */
 	u8	filter_rate_setup;
 	u8	setup[2];
 };
@@ -142,6 +160,7 @@ static IIO_DEVICE_ATTR(in_capacitance0_calibscale_calibration,
 static IIO_DEVICE_ATTR(in_capacitance1_calibscale_calibration,
 		       S_IWUSR, NULL, ad7152_start_gain_calib, 1);
 
+/* Values are Update Rate (Hz), Conversion Time (ms) + 1*/
 static const unsigned char ad7152_filter_rate_table[][2] = {
 	{200, 5 + 1}, {50, 20 + 1}, {20, 50 + 1}, {17, 60 + 1},
 };
@@ -223,6 +242,7 @@ static const u8 ad7152_addresses[][4] = {
 	  AD7152_REG_CH2_GAIN_HIGH, AD7152_REG_CH2_SETUP },
 };
 
+/* Values are nano relative to pf base. */
 static const int ad7152_scale_table[] = {
 	30525, 7631, 15263, 61050
 };
@@ -310,7 +330,7 @@ static int ad7152_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case 0:
-		
+		/* First set whether in differential mode */
 
 		regval = chip->setup[chan->channel];
 
@@ -326,13 +346,13 @@ static int ad7152_read_raw(struct iio_dev *indio_dev,
 			if (ret < 0)
 				goto out;
 		}
-		
+		/* Make sure the channel is enabled */
 		if (chan->channel == 0)
 			regval = AD7152_CONF_CH1EN;
 		else
 			regval = AD7152_CONF_CH2EN;
 
-		
+		/* Trigger a single read */
 		regval |= AD7152_CONF_MODE_SINGLE_CONV;
 		ret = i2c_smbus_write_byte_data(chip->client, AD7152_REG_CFG,
 				regval);
@@ -340,7 +360,7 @@ static int ad7152_read_raw(struct iio_dev *indio_dev,
 			goto out;
 
 		msleep(ad7152_filter_rate_table[chip->filter_rate_setup][1]);
-		
+		/* Now read the actual register */
 		ret = i2c_smbus_read_word_data(chip->client,
 				ad7152_addresses[chan->channel][AD7152_DATA]);
 		if (ret < 0)
@@ -358,7 +378,7 @@ static int ad7152_read_raw(struct iio_dev *indio_dev,
 				ad7152_addresses[chan->channel][AD7152_GAIN]);
 		if (ret < 0)
 			goto out;
-		
+		/* 1 + gain_val / 2^16 */
 		*val = 1;
 		*val2 = (15625 * swab16(ret)) / 1024;
 
@@ -446,6 +466,9 @@ static const struct iio_chan_spec ad7152_channels[] = {
 		IIO_CHAN_INFO_SCALE_SEPARATE_BIT,
 	}
 };
+/*
+ * device probe and remove
+ */
 
 static int __devinit ad7152_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
@@ -460,12 +483,12 @@ static int __devinit ad7152_probe(struct i2c_client *client,
 		goto error_ret;
 	}
 	chip = iio_priv(indio_dev);
-	
+	/* this is only used for device removal purposes */
 	i2c_set_clientdata(client, indio_dev);
 
 	chip->client = client;
 
-	
+	/* Establish that the iio_dev is a child of the i2c device */
 	indio_dev->name = id->name;
 	indio_dev->dev.parent = &client->dev;
 	indio_dev->info = &ad7152_info;

@@ -33,6 +33,7 @@
 
 #include "coda_int.h"
 
+/* VFS super_block ops */
 static void coda_evict_inode(struct inode *);
 static void coda_put_super(struct super_block *);
 static int coda_statfs(struct dentry *dentry, struct kstatfs *buf);
@@ -93,6 +94,7 @@ static int coda_remount(struct super_block *sb, int *flags, char *data)
 	return 0;
 }
 
+/* exported operations */
 static const struct super_operations coda_super_operations =
 {
 	.alloc_inode	= coda_alloc_inode,
@@ -154,7 +156,7 @@ static int coda_fill_super(struct super_block *sb, void *data, int silent)
 
 	idx = get_device_index((struct coda_mount_data *) data);
 
-	
+	/* Ignore errors in data, for backward compatibility */
 	if(idx == -1)
 		idx = 0;
 	
@@ -184,14 +186,14 @@ static int coda_fill_super(struct super_block *sb, void *data, int silent)
 
 	sb->s_fs_info = vc;
 	sb->s_flags |= MS_NOATIME;
-	sb->s_blocksize = 4096;	
+	sb->s_blocksize = 4096;	/* XXXXX  what do we put here?? */
 	sb->s_blocksize_bits = 12;
 	sb->s_magic = CODA_SUPER_MAGIC;
 	sb->s_op = &coda_super_operations;
 	sb->s_d_op = &coda_dentry_operations;
 	sb->s_bdi = &vc->bdi;
 
-	
+	/* get root fid from Venus: this needs the root inode */
 	error = venus_rootfid(sb, &fid);
 	if ( error ) {
 	        printk("coda_read_super: coda_get_rootfid failed with %d\n",
@@ -200,7 +202,7 @@ static int coda_fill_super(struct super_block *sb, void *data, int silent)
 	}
 	printk("coda_read_super: rootfid is %s\n", coda_f2s(&fid));
 	
-	
+	/* make root inode */
         root = coda_cnode_make(&fid, sb);
         if (IS_ERR(root)) {
 		error = PTR_ERR(root);
@@ -264,9 +266,9 @@ int coda_setattr(struct dentry *de, struct iattr *iattr)
 
 	inode->i_ctime = CURRENT_TIME_SEC;
 	coda_iattr_to_vattr(iattr, &vattr);
-	vattr.va_type = C_VNON; 
+	vattr.va_type = C_VNON; /* cannot set type */
 
-	
+	/* Venus is responsible for truncating the container-file!!! */
 	error = venus_setattr(inode->i_sb, coda_i2f(inode), &vattr);
 
 	if (!error) {
@@ -289,7 +291,7 @@ static int coda_statfs(struct dentry *dentry, struct kstatfs *buf)
 	error = venus_statfs(dentry, buf);
 
 	if (error) {
-		
+		/* fake something like AFS does */
 		buf->f_blocks = 9000000;
 		buf->f_bfree  = 9000000;
 		buf->f_bavail = 9000000;
@@ -297,7 +299,7 @@ static int coda_statfs(struct dentry *dentry, struct kstatfs *buf)
 		buf->f_ffree  = 9000000;
 	}
 
-	
+	/* and fill in the rest */
 	buf->f_type = CODA_SUPER_MAGIC;
 	buf->f_bsize = 4096;
 	buf->f_namelen = CODA_MAXNAMLEN;
@@ -305,6 +307,7 @@ static int coda_statfs(struct dentry *dentry, struct kstatfs *buf)
 	return 0; 
 }
 
+/* init_coda: used by filesystems.c to register coda */
 
 static struct dentry *coda_mount(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data)

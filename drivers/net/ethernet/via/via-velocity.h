@@ -59,11 +59,17 @@
 
 #define VAR_USED(p)     do {(p)=(p);} while (0)
 
+/*
+ * Purpose: Structures for MAX RX/TX descriptors.
+ */
 
 
 #define B_OWNED_BY_CHIP     1
 #define B_OWNED_BY_HOST     0
 
+/*
+ * Bits in the RSR0 register
+ */
 
 #define RSR_DETAG	cpu_to_le16(0x0080)
 #define RSR_SNTAG	cpu_to_le16(0x0040)
@@ -74,49 +80,61 @@
 #define RSR_CRC		cpu_to_le16(0x0002)
 #define RSR_VIDM	cpu_to_le16(0x0001)
 
+/*
+ * Bits in the RSR1 register
+ */
 
-#define RSR_RXOK	cpu_to_le16(0x8000) 
-#define RSR_PFT		cpu_to_le16(0x4000) 
-#define RSR_MAR		cpu_to_le16(0x2000) 
-#define RSR_BAR		cpu_to_le16(0x1000) 
-#define RSR_PHY		cpu_to_le16(0x0800) 
-#define RSR_VTAG	cpu_to_le16(0x0400) 
-#define RSR_STP		cpu_to_le16(0x0200) 
-#define RSR_EDP		cpu_to_le16(0x0100) 
+#define RSR_RXOK	cpu_to_le16(0x8000) // rx OK
+#define RSR_PFT		cpu_to_le16(0x4000) // Perfect filtering address match
+#define RSR_MAR		cpu_to_le16(0x2000) // MAC accept multicast address packet
+#define RSR_BAR		cpu_to_le16(0x1000) // MAC accept broadcast address packet
+#define RSR_PHY		cpu_to_le16(0x0800) // MAC accept physical address packet
+#define RSR_VTAG	cpu_to_le16(0x0400) // 802.1p/1q tagging packet indicator
+#define RSR_STP		cpu_to_le16(0x0200) // start of packet
+#define RSR_EDP		cpu_to_le16(0x0100) // end of packet
 
+/*
+ * Bits in the CSM register
+ */
 
-#define CSM_IPOK            0x40	
-#define CSM_TUPOK           0x20	
-#define CSM_FRAG            0x10	
-#define CSM_IPKT            0x04	
-#define CSM_TCPKT           0x02	
-#define CSM_UDPKT           0x01	
+#define CSM_IPOK            0x40	//IP Checksum validation ok
+#define CSM_TUPOK           0x20	//TCP/UDP Checksum validation ok
+#define CSM_FRAG            0x10	//Fragment IP datagram
+#define CSM_IPKT            0x04	//Received an IP packet
+#define CSM_TCPKT           0x02	//Received a TCP packet
+#define CSM_UDPKT           0x01	//Received a UDP packet
 
+/*
+ * Bits in the TSR0 register
+ */
 
-#define TSR0_ABT	cpu_to_le16(0x0080) 
-#define TSR0_OWT	cpu_to_le16(0x0040) 
-#define TSR0_OWC	cpu_to_le16(0x0020) 
-#define TSR0_COLS	cpu_to_le16(0x0010) 
-#define TSR0_NCR3	cpu_to_le16(0x0008) 
-#define TSR0_NCR2	cpu_to_le16(0x0004) 
-#define TSR0_NCR1	cpu_to_le16(0x0002) 
-#define TSR0_NCR0	cpu_to_le16(0x0001) 
-#define TSR0_TERR	cpu_to_le16(0x8000) 
-#define TSR0_FDX	cpu_to_le16(0x4000) 
-#define TSR0_GMII	cpu_to_le16(0x2000) 
-#define TSR0_LNKFL	cpu_to_le16(0x1000) 
-#define TSR0_SHDN	cpu_to_le16(0x0400) 
-#define TSR0_CRS	cpu_to_le16(0x0200) 
-#define TSR0_CDH	cpu_to_le16(0x0100) 
+#define TSR0_ABT	cpu_to_le16(0x0080) // Tx abort because of excessive collision
+#define TSR0_OWT	cpu_to_le16(0x0040) // Jumbo frame Tx abort
+#define TSR0_OWC	cpu_to_le16(0x0020) // Out of window collision
+#define TSR0_COLS	cpu_to_le16(0x0010) // experience collision in this transmit event
+#define TSR0_NCR3	cpu_to_le16(0x0008) // collision retry counter[3]
+#define TSR0_NCR2	cpu_to_le16(0x0004) // collision retry counter[2]
+#define TSR0_NCR1	cpu_to_le16(0x0002) // collision retry counter[1]
+#define TSR0_NCR0	cpu_to_le16(0x0001) // collision retry counter[0]
+#define TSR0_TERR	cpu_to_le16(0x8000) //
+#define TSR0_FDX	cpu_to_le16(0x4000) // current transaction is serviced by full duplex mode
+#define TSR0_GMII	cpu_to_le16(0x2000) // current transaction is serviced by GMII mode
+#define TSR0_LNKFL	cpu_to_le16(0x1000) // packet serviced during link down
+#define TSR0_SHDN	cpu_to_le16(0x0400) // shutdown case
+#define TSR0_CRS	cpu_to_le16(0x0200) // carrier sense lost
+#define TSR0_CDH	cpu_to_le16(0x0100) // AQE test fail (CD heartbeat)
 
-#define TCR0_TIC            0x80	
-#define TCR0_PIC            0x40	
-#define TCR0_VETAG          0x20	
-#define TCR0_IPCK           0x10	
-#define TCR0_UDPCK          0x08	
-#define TCR0_TCPCK          0x04	
-#define TCR0_JMBO           0x02	
-#define TCR0_CRC            0x01	
+//
+// Bits in the TCR0 register
+//
+#define TCR0_TIC            0x80	// assert interrupt immediately while descriptor has been send complete
+#define TCR0_PIC            0x40	// priority interrupt request, INA# is issued over adaptive interrupt scheme
+#define TCR0_VETAG          0x20	// enable VLAN tag
+#define TCR0_IPCK           0x10	// request IP  checksum calculation.
+#define TCR0_UDPCK          0x08	// request UDP checksum calculation.
+#define TCR0_TCPCK          0x04	// request TCP checksum calculation.
+#define TCR0_JMBO           0x02	// indicate a jumbo packet in GMAC side
+#define TCR0_CRC            0x01	// disable CRC generation
 
 #define TCPLS_NORMAL        3
 #define TCPLS_START         2
@@ -124,29 +142,39 @@
 #define TCPLS_MED           0
 
 
-#define CB_RX_BUF_SIZE     2048UL	
-					
+// max transmit or receive buffer size
+#define CB_RX_BUF_SIZE     2048UL	// max buffer size
+					// NOTE: must be multiple of 4
 
-#define CB_MAX_RD_NUM       512	
-#define CB_MAX_TD_NUM       256	
+#define CB_MAX_RD_NUM       512	// MAX # of RD
+#define CB_MAX_TD_NUM       256	// MAX # of TD
 
-#define CB_INIT_RD_NUM_3119 128	
-#define CB_INIT_TD_NUM_3119 64	
+#define CB_INIT_RD_NUM_3119 128	// init # of RD, for setup VT3119
+#define CB_INIT_TD_NUM_3119 64	// init # of TD, for setup VT3119
 
-#define CB_INIT_RD_NUM      128	
-#define CB_INIT_TD_NUM      64	
+#define CB_INIT_RD_NUM      128	// init # of RD, for setup default
+#define CB_INIT_TD_NUM      64	// init # of TD, for setup default
 
-#define CB_TD_RING_NUM      4	
-#define CB_MAX_SEG_PER_PKT  7	
+// for 3119
+#define CB_TD_RING_NUM      4	// # of TD rings.
+#define CB_MAX_SEG_PER_PKT  7	// max data seg per packet (Tx)
 
 
+/*
+ *	If collisions excess 15 times , tx will abort, and
+ *	if tx fifo underflow, tx will fail
+ *	we should try to resend it
+ */
 
 #define CB_MAX_TX_ABORT_RETRY   3
 
+/*
+ *	Receive descriptor
+ */
 
 struct rdesc0 {
-	__le16 RSR;		
-	__le16 len;		
+	__le16 RSR;		/* Receive status */
+	__le16 len;		/* bits 0--13; bit 15 - owner */
 };
 
 struct rdesc1 {
@@ -162,21 +190,24 @@ enum {
 struct rx_desc {
 	struct rdesc0 rdesc0;
 	struct rdesc1 rdesc1;
-	__le32 pa_low;		
-	__le16 pa_high;		
-	__le16 size;		
+	__le32 pa_low;		/* Low 32 bit PCI address */
+	__le16 pa_high;		/* Next 16 bit PCI address (48 total) */
+	__le16 size;		/* bits 0--14 - frame size, bit 15 - enable int. */
 } __packed;
 
+/*
+ *	Transmit descriptor
+ */
 
 struct tdesc0 {
-	__le16 TSR;		
-	__le16 len;		
+	__le16 TSR;		/* Transmit status register */
+	__le16 len;		/* bits 0--13 - size of frame, bit 15 - owner */
 };
 
 struct tdesc1 {
 	__le16 vlan;
 	u8 TCR;
-	u8 cmd;			
+	u8 cmd;			/* bits 0--1 - TCPLS, bits 4--7 - CMDZ */
 } __packed;
 
 enum {
@@ -186,7 +217,7 @@ enum {
 struct td_buf {
 	__le32 pa_low;
 	__le16 pa_high;
-	__le16 size;		
+	__le16 size;		/* bits 0--13 - size, bit 15 - queue */
 } __packed;
 
 struct tx_desc {
@@ -200,6 +231,9 @@ struct velocity_rd_info {
 	dma_addr_t skb_dma;
 };
 
+/*
+ *	Used to track transmit side buffers.
+ */
 
 struct velocity_td_info {
 	struct sk_buff *skb;
@@ -213,6 +247,9 @@ enum  velocity_owner {
 };
 
 
+/*
+ *	MAC registers and macros.
+ */
 
 
 #define MCAM_SIZE           64
@@ -223,8 +260,11 @@ enum  velocity_owner {
 #define VELOCITY_MIN_MTU    (64)
 #define VELOCITY_MAX_MTU    (9000)
 
+/*
+ *	Registers in the MAC
+ */
 
-#define MAC_REG_PAR         0x00	
+#define MAC_REG_PAR         0x00	// physical address
 #define MAC_REG_RCR         0x06
 #define MAC_REG_TCR         0x07
 #define MAC_REG_CR0_SET     0x08
@@ -321,7 +361,7 @@ enum  velocity_owner {
 #define MAC_REG_CHIPGSR     0x9C
 #define MAC_REG_TESTCFG     0x9D
 #define MAC_REG_DEBUG       0x9E
-#define MAC_REG_CHIPGCR     0x9F	
+#define MAC_REG_CHIPGCR     0x9F	/* Chip Operation and Diagnostic Control */
 #define MAC_REG_WOLCR0_SET  0xA0
 #define MAC_REG_WOLCR1_SET  0xA1
 #define MAC_REG_PWCFG_SET   0xA2
@@ -359,6 +399,9 @@ enum  velocity_owner {
 #define MAC_REG_BYTEMSK3_2  0xF8
 #define MAC_REG_BYTEMSK3_3  0xFC
 
+/*
+ *	Bits in the RCR register
+ */
 
 #define RCR_AS              0x80
 #define RCR_AP              0x40
@@ -369,31 +412,37 @@ enum  velocity_owner {
 #define RCR_AR              0x02
 #define RCR_SEP             0x01
 
+/*
+ *	Bits in the TCR register
+ */
 
 #define TCR_TB2BDIS         0x80
 #define TCR_COLTMC1         0x08
 #define TCR_COLTMC0         0x04
-#define TCR_LB1             0x02	
-#define TCR_LB0             0x01	
+#define TCR_LB1             0x02	/* loopback[1] */
+#define TCR_LB0             0x01	/* loopback[0] */
 
+/*
+ *	Bits in the CR0 register
+ */
 
 #define CR0_TXON            0x00000008UL
 #define CR0_RXON            0x00000004UL
-#define CR0_STOP            0x00000002UL	
-#define CR0_STRT            0x00000001UL	
-#define CR0_SFRST           0x00008000UL	
+#define CR0_STOP            0x00000002UL	/* stop MAC, default = 1 */
+#define CR0_STRT            0x00000001UL	/* start MAC */
+#define CR0_SFRST           0x00008000UL	/* software reset */
 #define CR0_TM1EN           0x00004000UL
 #define CR0_TM0EN           0x00002000UL
-#define CR0_DPOLL           0x00000800UL	
+#define CR0_DPOLL           0x00000800UL	/* disable rx/tx auto polling */
 #define CR0_DISAU           0x00000100UL
 #define CR0_XONEN           0x00800000UL
-#define CR0_FDXTFCEN        0x00400000UL	
-#define CR0_FDXRFCEN        0x00200000UL	
-#define CR0_HDXFCEN         0x00100000UL	
-#define CR0_XHITH1          0x00080000UL	
-#define CR0_XHITH0          0x00040000UL	
-#define CR0_XLTH1           0x00020000UL	
-#define CR0_XLTH0           0x00010000UL	
+#define CR0_FDXTFCEN        0x00400000UL	/* full-duplex TX flow control enable */
+#define CR0_FDXRFCEN        0x00200000UL	/* full-duplex RX flow control enable */
+#define CR0_HDXFCEN         0x00100000UL	/* half-duplex flow control enable */
+#define CR0_XHITH1          0x00080000UL	/* TX XON high threshold 1 */
+#define CR0_XHITH0          0x00040000UL	/* TX XON high threshold 0 */
+#define CR0_XLTH1           0x00020000UL	/* TX pause frame low threshold 1 */
+#define CR0_XLTH0           0x00010000UL	/* TX pause frame low threshold 0 */
 #define CR0_GSPRST          0x80000000UL
 #define CR0_FORSRST         0x40000000UL
 #define CR0_FPHYRST         0x20000000UL
@@ -402,23 +451,32 @@ enum  velocity_owner {
 #define CR0_GINTMSK1        0x02000000UL
 #define CR0_GINTMSK0        0x01000000UL
 
+/*
+ *	Bits in the CR1 register
+ */
 
-#define CR1_SFRST           0x80	
+#define CR1_SFRST           0x80	/* software reset */
 #define CR1_TM1EN           0x40
 #define CR1_TM0EN           0x20
-#define CR1_DPOLL           0x08	
+#define CR1_DPOLL           0x08	/* disable rx/tx auto polling */
 #define CR1_DISAU           0x01
 
+/*
+ *	Bits in the CR2 register
+ */
 
 #define CR2_XONEN           0x80
-#define CR2_FDXTFCEN        0x40	
-#define CR2_FDXRFCEN        0x20	
-#define CR2_HDXFCEN         0x10	
-#define CR2_XHITH1          0x08	
-#define CR2_XHITH0          0x04	
-#define CR2_XLTH1           0x02	
-#define CR2_XLTH0           0x01	
+#define CR2_FDXTFCEN        0x40	/* full-duplex TX flow control enable */
+#define CR2_FDXRFCEN        0x20	/* full-duplex RX flow control enable */
+#define CR2_HDXFCEN         0x10	/* half-duplex flow control enable */
+#define CR2_XHITH1          0x08	/* TX XON high threshold 1 */
+#define CR2_XHITH0          0x04	/* TX XON high threshold 0 */
+#define CR2_XLTH1           0x02	/* TX pause frame low threshold 1 */
+#define CR2_XLTH0           0x01	/* TX pause frame low threshold 0 */
 
+/*
+ *	Bits in the CR3 register
+ */
 
 #define CR3_GSPRST          0x80
 #define CR3_FORSRST         0x40
@@ -437,6 +495,9 @@ enum  velocity_owner {
 #define ISRCTL_HCRLD        0x0200
 #define ISRCTL_SCRLD        0x0100
 
+/*
+ *	Bits in the ISR_CTL1 register
+ */
 
 #define ISRCTL1_UDPINT      0x80
 #define ISRCTL1_TSUPDIS     0x40
@@ -447,18 +508,27 @@ enum  velocity_owner {
 #define ISRCTL1_HCRLD       0x02
 #define ISRCTL1_SCRLD       0x01
 
+/*
+ *	Bits in the TXE_SR register
+ */
 
 #define TXESR_TFDBS         0x08
 #define TXESR_TDWBS         0x04
 #define TXESR_TDRBS         0x02
 #define TXESR_TDSTR         0x01
 
+/*
+ *	Bits in the RXE_SR register
+ */
 
 #define RXESR_RFDBS         0x08
 #define RXESR_RDWBS         0x04
 #define RXESR_RDRBS         0x02
 #define RXESR_RDSTR         0x01
 
+/*
+ *	Bits in the ISR register
+ */
 
 #define ISR_ISR3            0x80000000UL
 #define ISR_ISR2            0x40000000UL
@@ -491,6 +561,9 @@ enum  velocity_owner {
 #define ISR_PPTXI           0x00000002UL
 #define ISR_PPRXI           0x00000001UL
 
+/*
+ *	Bits in the IMR register
+ */
 
 #define IMR_TXSTLM          0x02000000UL
 #define IMR_UDPIM           0x00400000UL
@@ -519,22 +592,32 @@ enum  velocity_owner {
 #define IMR_PPTXIM          0x00000002UL
 #define IMR_PPRXIM          0x00000001UL
 
+/* 0x0013FB0FUL  =  initial value of IMR */
 
 #define INT_MASK_DEF        (IMR_PPTXIM|IMR_PPRXIM|IMR_PTXIM|IMR_PRXIM|\
                             IMR_PWEIM|IMR_TXWB0IM|IMR_TXWB1IM|IMR_FLONIM|\
                             IMR_OVFIM|IMR_LSTEIM|IMR_LSTPEIM|IMR_SRCIM|IMR_MIBFIM|\
                             IMR_SHDNIM|IMR_TMR1IM|IMR_TMR0IM|IMR_TXSTLM)
 
+/*
+ *	Bits in the TDCSR0/1, RDCSR0 register
+ */
 
 #define TRDCSR_DEAD         0x0008
 #define TRDCSR_WAK          0x0004
 #define TRDCSR_ACT          0x0002
 #define TRDCSR_RUN	    0x0001
 
+/*
+ *	Bits in the CAMADDR register
+ */
 
 #define CAMADDR_CAMEN       0x80
 #define CAMADDR_VCAMSL      0x40
 
+/*
+ *	Bits in the CAMCR register
+ */
 
 #define CAMCR_PS1           0x80
 #define CAMCR_PS0           0x40
@@ -546,14 +629,23 @@ enum  velocity_owner {
 #define CAMCR_PS_CAM_DATA   0x80
 #define CAMCR_PS_MAR        0x00
 
+/*
+ *	Bits in the MIICFG register
+ */
 
 #define MIICFG_MPO1         0x80
 #define MIICFG_MPO0         0x40
 #define MIICFG_MFDC         0x20
 
+/*
+ *	Bits in the MIISR register
+ */
 
 #define MIISR_MIDLE         0x80
 
+/*
+ *	 Bits in the PHYSR0 register
+ */
 
 #define PHYSR0_PHYRST       0x80
 #define PHYSR0_LINKGD       0x40
@@ -563,9 +655,15 @@ enum  velocity_owner {
 #define PHYSR0_RXFLC        0x02
 #define PHYSR0_TXFLC        0x01
 
+/*
+ *	Bits in the PHYSR1 register
+ */
 
 #define PHYSR1_PHYTBI       0x01
 
+/*
+ *	Bits in the MIICR register
+ */
 
 #define MIICR_MAUTO         0x80
 #define MIICR_RCMD          0x40
@@ -576,15 +674,24 @@ enum  velocity_owner {
 #define MIICR_MDI           0x02
 #define MIICR_MDC           0x01
 
+/*
+ *	Bits in the MIIADR register
+ */
 
 #define MIIADR_SWMPL        0x80
 
+/*
+ *	Bits in the CFGA register
+ */
 
 #define CFGA_PMHCTG         0x08
 #define CFGA_GPIO1PD        0x04
 #define CFGA_ABSHDN         0x02
 #define CFGA_PACPI          0x01
 
+/*
+ *	Bits in the CFGB register
+ */
 
 #define CFGB_GTCKOPT        0x80
 #define CFGB_MIIOPT         0x40
@@ -595,16 +702,22 @@ enum  velocity_owner {
 #define CFGB_MBA            0x02
 #define CFGB_BAKOPT         0x01
 
+/*
+ *	Bits in the CFGC register
+ */
 
 #define CFGC_EELOAD         0x80
 #define CFGC_BROPT          0x40
 #define CFGC_DLYEN          0x20
 #define CFGC_DTSEL          0x10
 #define CFGC_BTSEL          0x08
-#define CFGC_BPS2           0x04	
-#define CFGC_BPS1           0x02	
-#define CFGC_BPS0           0x01	
+#define CFGC_BPS2           0x04	/* bootrom select[2] */
+#define CFGC_BPS1           0x02	/* bootrom select[1] */
+#define CFGC_BPS0           0x01	/* bootrom select[0] */
 
+/*
+ * Bits in the CFGD register
+ */
 
 #define CFGD_IODIS          0x80
 #define CFGD_MSLVDACEN      0x40
@@ -612,6 +725,9 @@ enum  velocity_owner {
 #define CFGD_PCI64EN        0x10
 #define CFGD_HTMRL4         0x08
 
+/*
+ *	Bits in the DCFG1 register
+ */
 
 #define DCFG_XMWI           0x8000
 #define DCFG_XMRM           0x4000
@@ -621,6 +737,9 @@ enum  velocity_owner {
 #define DCFG_MWWAIT         0x0200
 #define DCFG_LATMEN         0x0100
 
+/*
+ *	Bits in the MCFG0 register
+ */
 
 #define MCFG_RXARB          0x0080
 #define MCFG_RFT1           0x0020
@@ -630,6 +749,9 @@ enum  velocity_owner {
 #define MCFG_RTGOPT         0x0002
 #define MCFG_VIDFR          0x0001
 
+/*
+ *	Bits in the MCFG1 register
+ */
 
 #define MCFG_TXARB          0x8000
 #define MCFG_TXQBK1         0x0800
@@ -637,6 +759,9 @@ enum  velocity_owner {
 #define MCFG_TXQNOBK        0x0200
 #define MCFG_SNAPOPT        0x0100
 
+/*
+ *	Bits in the PMCC  register
+ */
 
 #define PMCC_DSI            0x80
 #define PMCC_D2_DIS         0x40
@@ -647,13 +772,19 @@ enum  velocity_owner {
 #define PMCC_D1_EN          0x02
 #define PMCC_D0_EN          0x01
 
+/*
+ *	Bits in STICKHW
+ */
 
 #define STICKHW_SWPTAG      0x10
 #define STICKHW_WOLSR       0x08
 #define STICKHW_WOLEN       0x04
-#define STICKHW_DS1         0x02	
-#define STICKHW_DS0         0x01	
+#define STICKHW_DS1         0x02	/* R/W by software/cfg cycle */
+#define STICKHW_DS0         0x01	/* suspend well DS write port */
 
+/*
+ *	Bits in the MIBCR register
+ */
 
 #define MIBCR_MIBISTOK      0x80
 #define MIBCR_MIBISTGO      0x40
@@ -664,8 +795,11 @@ enum  velocity_owner {
 #define MIBCR_MPTRINI       0x02
 #define MIBCR_MIBCLR        0x01
 
+/*
+ *	Bits in the EERSV register
+ */
 
-#define EERSV_BOOT_RPL      ((u8) 0x01)	 
+#define EERSV_BOOT_RPL      ((u8) 0x01)	 /* Boot method selection for VT6110 */
 
 #define EERSV_BOOT_MASK     ((u8) 0x06)
 #define EERSV_BOOT_INT19    ((u8) 0x00)
@@ -674,20 +808,29 @@ enum  velocity_owner {
 #define EERSV_BOOT_BEV      ((u8) 0x06)
 
 
+/*
+ *	Bits in BPCMD
+ */
 
 #define BPCMD_BPDNE         0x80
 #define BPCMD_EBPWR         0x02
 #define BPCMD_EBPRD         0x01
 
+/*
+ *	Bits in the EECSR register
+ */
 
-#define EECSR_EMBP          0x40	
-#define EECSR_RELOAD        0x20	
-#define EECSR_DPM           0x10	
-#define EECSR_ECS           0x08	
-#define EECSR_ECK           0x04	
-#define EECSR_EDI           0x02	
-#define EECSR_EDO           0x01	
+#define EECSR_EMBP          0x40	/* eeprom embedded programming */
+#define EECSR_RELOAD        0x20	/* eeprom content reload */
+#define EECSR_DPM           0x10	/* eeprom direct programming */
+#define EECSR_ECS           0x08	/* eeprom CS pin */
+#define EECSR_ECK           0x04	/* eeprom CK pin */
+#define EECSR_EDI           0x02	/* eeprom DI pin */
+#define EECSR_EDO           0x01	/* eeprom DO pin */
 
+/*
+ *	Bits in the EMBCMD register
+ */
 
 #define EMBCMD_EDONE        0x80
 #define EMBCMD_EWDIS        0x08
@@ -695,21 +838,30 @@ enum  velocity_owner {
 #define EMBCMD_EWR          0x02
 #define EMBCMD_ERD          0x01
 
+/*
+ *	Bits in TESTCFG register
+ */
 
 #define TESTCFG_HBDIS       0x80
 
+/*
+ *	Bits in CHIPGCR register
+ */
 
-#define CHIPGCR_FCGMII      0x80	
-#define CHIPGCR_FCFDX       0x40	
+#define CHIPGCR_FCGMII      0x80	/* force GMII (else MII only) */
+#define CHIPGCR_FCFDX       0x40	/* force full duplex */
 #define CHIPGCR_FCRESV      0x20
-#define CHIPGCR_FCMODE      0x10	
+#define CHIPGCR_FCMODE      0x10	/* enable MAC forced mode */
 #define CHIPGCR_LPSOPT      0x08
 #define CHIPGCR_TM1US       0x04
 #define CHIPGCR_TM0US       0x02
 #define CHIPGCR_PHYINTEN    0x01
 
+/*
+ *	Bits in WOLCR0
+ */
 
-#define WOLCR_MSWOLEN7      0x0080	
+#define WOLCR_MSWOLEN7      0x0080	/* enable pattern match filtering */
 #define WOLCR_MSWOLEN6      0x0040
 #define WOLCR_MSWOLEN5      0x0020
 #define WOLCR_MSWOLEN4      0x0010
@@ -719,122 +871,161 @@ enum  velocity_owner {
 #define WOLCR_MSWOLEN0      0x0001
 #define WOLCR_ARP_EN        0x0001
 
+/*
+ *	Bits in WOLCR1
+ */
 
-#define WOLCR_LINKOFF_EN      0x0800	
-#define WOLCR_LINKON_EN       0x0400	
-#define WOLCR_MAGIC_EN        0x0200	
-#define WOLCR_UNICAST_EN      0x0100	
+#define WOLCR_LINKOFF_EN      0x0800	/* link off detected enable */
+#define WOLCR_LINKON_EN       0x0400	/* link on detected enable */
+#define WOLCR_MAGIC_EN        0x0200	/* magic packet filter enable */
+#define WOLCR_UNICAST_EN      0x0100	/* unicast filter enable */
 
 
+/*
+ *	Bits in PWCFG
+ */
 
-#define PWCFG_PHYPWOPT          0x80	
-#define PWCFG_PCISTICK          0x40	
-#define PWCFG_WOLTYPE           0x20	
+#define PWCFG_PHYPWOPT          0x80	/* internal MII I/F timing */
+#define PWCFG_PCISTICK          0x40	/* PCI sticky R/W enable */
+#define PWCFG_WOLTYPE           0x20	/* pulse(1) or button (0) */
 #define PWCFG_LEGCY_WOL         0x10
 #define PWCFG_PMCSR_PME_SR      0x08
-#define PWCFG_PMCSR_PME_EN      0x04	
-#define PWCFG_LEGACY_WOLSR      0x02	
-#define PWCFG_LEGACY_WOLEN      0x01	
+#define PWCFG_PMCSR_PME_EN      0x04	/* control by PCISTICK */
+#define PWCFG_LEGACY_WOLSR      0x02	/* Legacy WOL_SR shadow */
+#define PWCFG_LEGACY_WOLEN      0x01	/* Legacy WOL_EN shadow */
 
+/*
+ *	Bits in WOLCFG
+ */
 
-#define WOLCFG_PMEOVR           0x80	
-#define WOLCFG_SAM              0x20	
-#define WOLCFG_SAB              0x10	
-#define WOLCFG_SMIIACC          0x08	
+#define WOLCFG_PMEOVR           0x80	/* for legacy use, force PMEEN always */
+#define WOLCFG_SAM              0x20	/* accept multicast case reset, default=0 */
+#define WOLCFG_SAB              0x10	/* accept broadcast case reset, default=0 */
+#define WOLCFG_SMIIACC          0x08	/* ?? */
 #define WOLCFG_SGENWH           0x02
-#define WOLCFG_PHYINTEN         0x01	
+#define WOLCFG_PHYINTEN         0x01	/* 0:PHYINT trigger enable, 1:use internal MII
+					  to report status change */
+/*
+ *	Bits in WOLSR1
+ */
 
 #define WOLSR_LINKOFF_INT      0x0800
 #define WOLSR_LINKON_INT       0x0400
 #define WOLSR_MAGIC_INT        0x0200
 #define WOLSR_UNICAST_INT      0x0100
 
+/*
+ *	Ethernet address filter type
+ */
 
-#define PKT_TYPE_NONE               0x0000	
-#define PKT_TYPE_DIRECTED           0x0001	
+#define PKT_TYPE_NONE               0x0000	/* Turn off receiver */
+#define PKT_TYPE_DIRECTED           0x0001	/* obselete, directed address is always accepted */
 #define PKT_TYPE_MULTICAST          0x0002
 #define PKT_TYPE_ALL_MULTICAST      0x0004
 #define PKT_TYPE_BROADCAST          0x0008
 #define PKT_TYPE_PROMISCUOUS        0x0020
-#define PKT_TYPE_LONG               0x2000	
+#define PKT_TYPE_LONG               0x2000	/* NOTE.... the definition of LONG is >2048 bytes in our chip */
 #define PKT_TYPE_RUNT               0x4000
-#define PKT_TYPE_ERROR              0x8000	
+#define PKT_TYPE_ERROR              0x8000	/* Accept error packets, e.g. CRC error */
 
+/*
+ *	Loopback mode
+ */
 
 #define MAC_LB_NONE         0x00
 #define MAC_LB_INTERNAL     0x01
 #define MAC_LB_EXTERNAL     0x02
 
+/*
+ *	Enabled mask value of irq
+ */
 
 #if defined(_SIM)
-#define IMR_MASK_VALUE      0x0033FF0FUL	
+#define IMR_MASK_VALUE      0x0033FF0FUL	/* initial value of IMR
+						   set IMR0 to 0x0F according to spec */
 
 #else
-#define IMR_MASK_VALUE      0x0013FB0FUL	
+#define IMR_MASK_VALUE      0x0013FB0FUL	/* initial value of IMR
+						   ignore MIBFI,RACEI to
+						   reduce intr. frequency
+						   NOTE.... do not enable NoBuf int mask at driver driver
+						      when (1) NoBuf -> RxThreshold = SF
+							   (2) OK    -> RxThreshold = original value
+						 */
 #endif
 
+/*
+ *	Revision id
+ */
 
 #define REV_ID_VT3119_A0	0x00
 #define REV_ID_VT3119_A1	0x01
 #define REV_ID_VT3216_A0	0x10
 
+/*
+ *	Max time out delay time
+ */
 
 #define W_MAX_TIMEOUT       0x0FFFU
 
 
+/*
+ *	MAC registers as a structure. Cannot be directly accessed this
+ *	way but generates offsets for readl/writel() calls
+ */
 
 struct mac_regs {
-	volatile u8 PAR[6];		
+	volatile u8 PAR[6];		/* 0x00 */
 	volatile u8 RCR;
 	volatile u8 TCR;
 
-	volatile __le32 CR0Set;		
-	volatile __le32 CR0Clr;		
+	volatile __le32 CR0Set;		/* 0x08 */
+	volatile __le32 CR0Clr;		/* 0x0C */
 
-	volatile u8 MARCAM[8];		
+	volatile u8 MARCAM[8];		/* 0x10 */
 
-	volatile __le32 DecBaseHi;	
-	volatile __le16 DbfBaseHi;	
+	volatile __le32 DecBaseHi;	/* 0x18 */
+	volatile __le16 DbfBaseHi;	/* 0x1C */
 	volatile __le16 reserved_1E;
 
-	volatile __le16 ISRCTL;		
+	volatile __le16 ISRCTL;		/* 0x20 */
 	volatile u8 TXESR;
 	volatile u8 RXESR;
 
-	volatile __le32 ISR;		
+	volatile __le32 ISR;		/* 0x24 */
 	volatile __le32 IMR;
 
-	volatile __le32 TDStatusPort;	
+	volatile __le32 TDStatusPort;	/* 0x2C */
 
-	volatile __le16 TDCSRSet;	
+	volatile __le16 TDCSRSet;	/* 0x30 */
 	volatile u8 RDCSRSet;
 	volatile u8 reserved_33;
 	volatile __le16 TDCSRClr;
 	volatile u8 RDCSRClr;
 	volatile u8 reserved_37;
 
-	volatile __le32 RDBaseLo;	
-	volatile __le16 RDIdx;		
-	volatile u8 TQETMR;		
-	volatile u8 RQETMR;		
+	volatile __le32 RDBaseLo;	/* 0x38 */
+	volatile __le16 RDIdx;		/* 0x3C */
+	volatile u8 TQETMR;		/* 0x3E, VT3216 and above only */
+	volatile u8 RQETMR;		/* 0x3F, VT3216 and above only */
 
-	volatile __le32 TDBaseLo[4];	
+	volatile __le32 TDBaseLo[4];	/* 0x40 */
 
-	volatile __le16 RDCSize;	
-	volatile __le16 TDCSize;	
-	volatile __le16 TDIdx[4];	
-	volatile __le16 tx_pause_timer;	
-	volatile __le16 RBRDU;		
+	volatile __le16 RDCSize;	/* 0x50 */
+	volatile __le16 TDCSize;	/* 0x52 */
+	volatile __le16 TDIdx[4];	/* 0x54 */
+	volatile __le16 tx_pause_timer;	/* 0x5C */
+	volatile __le16 RBRDU;		/* 0x5E */
 
-	volatile __le32 FIFOTest0;	
-	volatile __le32 FIFOTest1;	
+	volatile __le32 FIFOTest0;	/* 0x60 */
+	volatile __le32 FIFOTest1;	/* 0x64 */
 
-	volatile u8 CAMADDR;		
-	volatile u8 CAMCR;		
-	volatile u8 GFTEST;		
-	volatile u8 FTSTCMD;		
+	volatile u8 CAMADDR;		/* 0x68 */
+	volatile u8 CAMCR;		/* 0x69 */
+	volatile u8 GFTEST;		/* 0x6A */
+	volatile u8 FTSTCMD;		/* 0x6B */
 
-	volatile u8 MIICFG;		
+	volatile u8 MIICFG;		/* 0x6C */
 	volatile u8 MIISR;
 	volatile u8 PHYSR0;
 	volatile u8 PHYSR1;
@@ -842,28 +1033,28 @@ struct mac_regs {
 	volatile u8 MIIADR;
 	volatile __le16 MIIDATA;
 
-	volatile __le16 SoftTimer0;	
+	volatile __le16 SoftTimer0;	/* 0x74 */
 	volatile __le16 SoftTimer1;
 
-	volatile u8 CFGA;		
+	volatile u8 CFGA;		/* 0x78 */
 	volatile u8 CFGB;
 	volatile u8 CFGC;
 	volatile u8 CFGD;
 
-	volatile __le16 DCFG;		
+	volatile __le16 DCFG;		/* 0x7C */
 	volatile __le16 MCFG;
 
-	volatile u8 TBIST;		
+	volatile u8 TBIST;		/* 0x80 */
 	volatile u8 RBIST;
 	volatile u8 PMCPORT;
 	volatile u8 STICKHW;
 
-	volatile u8 MIBCR;		
+	volatile u8 MIBCR;		/* 0x84 */
 	volatile u8 reserved_85;
 	volatile u8 rev_id;
 	volatile u8 PORSTS;
 
-	volatile __le32 MIBData;	
+	volatile __le32 MIBData;	/* 0x88 */
 
 	volatile __le16 EEWrData;
 
@@ -872,39 +1063,39 @@ struct mac_regs {
 	volatile u8 BPCMD;
 	volatile u8 BPMDRd;
 
-	volatile u8 EECHKSUM;		
+	volatile u8 EECHKSUM;		/* 0x92 */
 	volatile u8 EECSR;
 
-	volatile __le16 EERdData;	
+	volatile __le16 EERdData;	/* 0x94 */
 	volatile u8 EADDR;
 	volatile u8 EMBCMD;
 
 
-	volatile u8 JMPSR0;		
+	volatile u8 JMPSR0;		/* 0x98 */
 	volatile u8 JMPSR1;
 	volatile u8 JMPSR2;
 	volatile u8 JMPSR3;
-	volatile u8 CHIPGSR;		
+	volatile u8 CHIPGSR;		/* 0x9C */
 	volatile u8 TESTCFG;
 	volatile u8 DEBUG;
 	volatile u8 CHIPGCR;
 
-	volatile __le16 WOLCRSet;	
+	volatile __le16 WOLCRSet;	/* 0xA0 */
 	volatile u8 PWCFGSet;
 	volatile u8 WOLCFGSet;
 
-	volatile __le16 WOLCRClr;	
+	volatile __le16 WOLCRClr;	/* 0xA4 */
 	volatile u8 PWCFGCLR;
 	volatile u8 WOLCFGClr;
 
-	volatile __le16 WOLSRSet;	
+	volatile __le16 WOLSRSet;	/* 0xA8 */
 	volatile __le16 reserved_AA;
 
-	volatile __le16 WOLSRClr;	
+	volatile __le16 WOLSRClr;	/* 0xAC */
 	volatile __le16 reserved_AE;
 
-	volatile __le16 PatternCRC[8];	
-	volatile __le32 ByteMask[4][4];	
+	volatile __le16 PatternCRC[8];	/* 0xB0 */
+	volatile __le32 ByteMask[4][4];	/* 0xC0 */
 };
 
 
@@ -1006,6 +1197,9 @@ static inline void mac_eeprom_reload(struct mac_regs __iomem * regs) {
 	} while (BYTE_REG_BITS_IS_ON(EECSR_RELOAD,&(regs->EECSR)));
 }
 
+/*
+ * Header for WOL definitions. Used to compute hashes
+ */
 
 typedef u8 MCAM_ADDR[ETH_ALEN];
 
@@ -1032,6 +1226,10 @@ struct _magic_packet {
 	u8 password[6];
 } __packed;
 
+/*
+ *	Store for chip context when saving and restoring status. Not
+ *	all fields are saved/restored currently.
+ */
 
 struct velocity_context {
 	u8 mac_reg[256];
@@ -1042,16 +1240,25 @@ struct velocity_context {
 	u32 pattern[8];
 };
 
+/*
+ *	Registers in the MII (offset unit is WORD)
+ */
 
-#define MII_REG_PSCR        0x10	
+// Marvell 88E1000/88E1000S
+#define MII_REG_PSCR        0x10	// PHY specific control register
 
+//
+// Bits in the Silicon revision register
+//
 
-#define TCSR_ECHODIS        0x2000	
-#define AUXCR_MDPPS         0x0004	
+#define TCSR_ECHODIS        0x2000	//
+#define AUXCR_MDPPS         0x0004	//
 
-#define PLED_LALBE			0x0004	
+// Bits in the PLED register
+#define PLED_LALBE			0x0004	//
 
-#define PSCR_ACRSTX         0x0800	
+// Marvell 88E1000/88E1000S Bits in the PHY specific control register (10h)
+#define PSCR_ACRSTX         0x0800	// Assert CRS on Transmit
 
 #define PHYID_CICADA_CS8201 0x000FC410UL
 #define PHYID_VT3216_32BIT  0x000FC610UL
@@ -1088,14 +1295,17 @@ struct velocity_context {
     velocity_mii_read((p),MII_PHYSID1,((u16 *) &id)+1);\
     (id);})
 
+/*
+ * Inline debug routine
+ */
 
 
 enum velocity_msg_level {
-	MSG_LEVEL_ERR = 0,	
-	MSG_LEVEL_NOTICE = 1,	
-	MSG_LEVEL_INFO = 2,	
-	MSG_LEVEL_VERBOSE = 3,	
-	MSG_LEVEL_DEBUG = 4	
+	MSG_LEVEL_ERR = 0,	//Errors that will cause abnormal operation.
+	MSG_LEVEL_NOTICE = 1,	//Some errors need users to be notified.
+	MSG_LEVEL_INFO = 2,	//Normal message.
+	MSG_LEVEL_VERBOSE = 3,	//Will report all trival errors.
+	MSG_LEVEL_DEBUG = 4	//Only for debug purpose.
 };
 
 #ifdef VELOCITY_DEBUG
@@ -1137,6 +1347,9 @@ enum velocity_msg_level {
 #define     VELOCITY_WOL_MCAST             0x00000020UL
 #define     VELOCITY_WOL_MAGIC_SEC         0x00000040UL
 
+/*
+ *	Flags for options
+ */
 
 #define     VELOCITY_FLAGS_TAGGING         0x00000001UL
 #define     VELOCITY_FLAGS_RX_CSUM         0x00000004UL
@@ -1145,12 +1358,18 @@ enum velocity_msg_level {
 
 #define     VELOCITY_FLAGS_FLOW_CTRL       0x01000000UL
 
+/*
+ *	Flags for driver status
+ */
 
 #define     VELOCITY_FLAGS_OPENED          0x00010000UL
 #define     VELOCITY_FLAGS_VMNS_CONNECTED  0x00020000UL
 #define     VELOCITY_FLAGS_VMNS_COMMITTED  0x00040000UL
 #define     VELOCITY_FLAGS_WOL_ENABLED     0x00080000UL
 
+/*
+ *	Flags for MII status
+ */
 
 #define     VELOCITY_LINK_FAIL             0x00000001UL
 #define     VELOCITY_SPEED_10              0x00000002UL
@@ -1160,6 +1379,9 @@ enum velocity_msg_level {
 #define     VELOCITY_AUTONEG_ENABLE        0x00000020UL
 #define     VELOCITY_FORCED_BY_EEPROM      0x00000040UL
 
+/*
+ *	For velocity_set_media_duplex
+ */
 
 #define     VELOCITY_LINK_CHANGE           0x00000001UL
 
@@ -1187,14 +1409,14 @@ enum velocity_flow_cntl_type {
 };
 
 struct velocity_opt {
-	int numrx;			
-	int numtx;			
-	enum speed_opt spd_dpx;		
+	int numrx;			/* Number of RX descriptors */
+	int numtx;			/* Number of TX descriptors */
+	enum speed_opt spd_dpx;		/* Media link mode */
 
-	int DMA_length;			
-	int rx_thresh;			
+	int DMA_length;			/* DMA length */
+	int rx_thresh;			/* RX_THRESH */
 	int flow_cntl;
-	int wol_opts;			
+	int wol_opts;			/* Wake on lan options */
 	int td_int_count;
 	int int_works;
 	int rx_bandwidth_hi;
@@ -1226,7 +1448,7 @@ struct velocity_info {
 	struct tx_info {
 		int numq;
 
-		
+		/* FIXME: the locality of the data seems rather poor. */
 		int used[TX_QUEUE_NO];
 		int curr[TX_QUEUE_NO];
 		int tail[TX_QUEUE_NO];
@@ -1242,7 +1464,7 @@ struct velocity_info {
 		int curr;
 		u32 filled;
 		struct rx_desc *ring;
-		struct velocity_rd_info *info;	
+		struct velocity_rd_info *info;	/* It's an array */
 		dma_addr_t pool_dma;
 	} rx;
 
@@ -1274,6 +1496,16 @@ struct velocity_info {
 	struct napi_struct napi;
 };
 
+/**
+ *	velocity_get_ip		-	find an IP address for the device
+ *	@vptr: Velocity to query
+ *
+ *	Dig out an IP address for this interface so that we can
+ *	configure wakeup with WOL for ARP. If there are multiple IP
+ *	addresses on this chain then we use the first - multi-IP WOL is not
+ *	supported.
+ *
+ */
 
 static inline int velocity_get_ip(struct velocity_info *vptr)
 {
@@ -1294,6 +1526,16 @@ static inline int velocity_get_ip(struct velocity_info *vptr)
 	return res;
 }
 
+/**
+ *	velocity_update_hw_mibs	-	fetch MIB counters from chip
+ *	@vptr: velocity to update
+ *
+ *	The velocity hardware keeps certain counters in the hardware
+ * 	side. We need to read these when the user asks for statistics
+ *	or when they overflow (causing an interrupt). The read of the
+ *	statistic clears it, so we keep running master counters in user
+ *	space.
+ */
 
 static inline void velocity_update_hw_mibs(struct velocity_info *vptr)
 {
@@ -1310,18 +1552,26 @@ static inline void velocity_update_hw_mibs(struct velocity_info *vptr)
 	}
 }
 
+/**
+ *	init_flow_control_register 	-	set up flow control
+ *	@vptr: velocity to configure
+ *
+ *	Configure the flow control registers for this velocity device.
+ */
 
 static inline void init_flow_control_register(struct velocity_info *vptr)
 {
 	struct mac_regs __iomem * regs = vptr->mac_regs;
 
+	/* Set {XHITH1, XHITH0, XLTH1, XLTH0} in FlowCR1 to {1, 0, 1, 1}
+	   depend on RD=64, and Turn on XNOEN in FlowCR1 */
 	writel((CR0_XONEN | CR0_XHITH1 | CR0_XLTH1 | CR0_XLTH0), &regs->CR0Set);
 	writel((CR0_FDXTFCEN | CR0_FDXRFCEN | CR0_HDXFCEN | CR0_XHITH0), &regs->CR0Clr);
 
-	
+	/* Set TxPauseTimer to 0xFFFF */
 	writew(0xFFFF, &regs->tx_pause_timer);
 
-	
+	/* Initialize RBRDU to Rx buffer count. */
 	writew(vptr->options.numrx, &regs->RBRDU);
 }
 

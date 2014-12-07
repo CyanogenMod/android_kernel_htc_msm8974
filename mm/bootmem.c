@@ -61,6 +61,10 @@ static unsigned long __init bootmap_bytes(unsigned long pages)
 	return ALIGN(bytes, sizeof(long));
 }
 
+/**
+ * bootmem_bootmap_pages - calculate bitmap size in pages
+ * @pages: number of pages the bitmap has to represent
+ */
 unsigned long __init bootmem_bootmap_pages(unsigned long pages)
 {
 	unsigned long bytes = bootmap_bytes(pages);
@@ -68,6 +72,9 @@ unsigned long __init bootmem_bootmap_pages(unsigned long pages)
 	return PAGE_ALIGN(bytes) >> PAGE_SHIFT;
 }
 
+/*
+ * link bdata in order
+ */
 static void __init link_bootmem(bootmem_data_t *bdata)
 {
 	struct list_head *iter;
@@ -82,6 +89,9 @@ static void __init link_bootmem(bootmem_data_t *bdata)
 	list_add_tail(&bdata->list, iter);
 }
 
+/*
+ * Called once to set up the allocator itself.
+ */
 static unsigned long __init init_bootmem_core(bootmem_data_t *bdata,
 	unsigned long mapstart, unsigned long start, unsigned long end)
 {
@@ -93,6 +103,10 @@ static unsigned long __init init_bootmem_core(bootmem_data_t *bdata,
 	bdata->node_low_pfn = end;
 	link_bootmem(bdata);
 
+	/*
+	 * Initially all pages are reserved - setup_arch() has to
+	 * register free RAM areas explicitly.
+	 */
 	mapsize = bootmap_bytes(end - start);
 	memset(bdata->node_bootmem_map, 0xff, mapsize);
 
@@ -102,12 +116,28 @@ static unsigned long __init init_bootmem_core(bootmem_data_t *bdata,
 	return mapsize;
 }
 
+/**
+ * init_bootmem_node - register a node as boot memory
+ * @pgdat: node to register
+ * @freepfn: pfn where the bitmap for this node is to be placed
+ * @startpfn: first pfn on the node
+ * @endpfn: first pfn after the node
+ *
+ * Returns the number of bytes needed to hold the bitmap for this node.
+ */
 unsigned long __init init_bootmem_node(pg_data_t *pgdat, unsigned long freepfn,
 				unsigned long startpfn, unsigned long endpfn)
 {
 	return init_bootmem_core(pgdat->bdata, freepfn, startpfn, endpfn);
 }
 
+/**
+ * init_bootmem - register boot memory
+ * @start: pfn where the bitmap is to be placed
+ * @pages: number of available physical pages
+ *
+ * Returns the number of bytes needed to hold the bitmap.
+ */
 unsigned long __init init_bootmem(unsigned long start, unsigned long pages)
 {
 	max_low_pfn = pages;
@@ -115,6 +145,15 @@ unsigned long __init init_bootmem(unsigned long start, unsigned long pages)
 	return init_bootmem_core(NODE_DATA(0)->bdata, start, 0, pages);
 }
 
+/*
+ * free_bootmem_late - free bootmem pages directly to page allocator
+ * @addr: starting address of the range
+ * @size: size of the range in bytes
+ *
+ * This is only useful when the bootmem allocator has already been torn
+ * down, but we are still initializing the system.  Pages are given directly
+ * to the page allocator, no bootmem metadata is updated because it is gone.
+ */
 void free_bootmem_late(unsigned long addr, unsigned long size)
 {
 	unsigned long cursor, end;
@@ -150,6 +189,11 @@ static unsigned long __init free_all_bootmem_core(bootmem_data_t *bdata)
 		map = bdata->node_bootmem_map;
 		idx = start - bdata->node_min_pfn;
 		vec = ~map[idx / BITS_PER_LONG];
+		/*
+		 * If we have a properly aligned and fully unreserved
+		 * BITS_PER_LONG block of pages in front of us, free
+		 * it in one go.
+		 */
 		if (IS_ALIGNED(start, BITS_PER_LONG) && vec == ~0UL) {
 			int order = ilog2(BITS_PER_LONG);
 
@@ -184,12 +228,23 @@ static unsigned long __init free_all_bootmem_core(bootmem_data_t *bdata)
 	return count;
 }
 
+/**
+ * free_all_bootmem_node - release a node's free pages to the buddy allocator
+ * @pgdat: node to be released
+ *
+ * Returns the number of pages actually released.
+ */
 unsigned long __init free_all_bootmem_node(pg_data_t *pgdat)
 {
 	register_page_bootmem_info_node(pgdat);
 	return free_all_bootmem_core(pgdat->bdata);
 }
 
+/**
+ * free_all_bootmem - release free pages to the buddy allocator
+ *
+ * Returns the number of pages actually released.
+ */
 unsigned long __init free_all_bootmem(void)
 {
 	unsigned long total_pages = 0;
@@ -296,6 +351,16 @@ static int __init mark_bootmem(unsigned long start, unsigned long end,
 	BUG();
 }
 
+/**
+ * free_bootmem_node - mark a page range as usable
+ * @pgdat: node the range resides on
+ * @physaddr: starting address of the range
+ * @size: size of the range in bytes
+ *
+ * Partial pages will be considered reserved and left as they are.
+ *
+ * The range must reside completely on the specified node.
+ */
 void __init free_bootmem_node(pg_data_t *pgdat, unsigned long physaddr,
 			      unsigned long size)
 {
@@ -309,6 +374,15 @@ void __init free_bootmem_node(pg_data_t *pgdat, unsigned long physaddr,
 	mark_bootmem_node(pgdat->bdata, start, end, 0, 0);
 }
 
+/**
+ * free_bootmem - mark a page range as usable
+ * @addr: starting address of the range
+ * @size: size of the range in bytes
+ *
+ * Partial pages will be considered reserved and left as they are.
+ *
+ * The range must be contiguous but may span node boundaries.
+ */
 void __init free_bootmem(unsigned long addr, unsigned long size)
 {
 	unsigned long start, end;
@@ -321,6 +395,17 @@ void __init free_bootmem(unsigned long addr, unsigned long size)
 	mark_bootmem(start, end, 0, 0);
 }
 
+/**
+ * reserve_bootmem_node - mark a page range as reserved
+ * @pgdat: node the range resides on
+ * @physaddr: starting address of the range
+ * @size: size of the range in bytes
+ * @flags: reservation flags (see linux/bootmem.h)
+ *
+ * Partial pages will be reserved.
+ *
+ * The range must reside completely on the specified node.
+ */
 int __init reserve_bootmem_node(pg_data_t *pgdat, unsigned long physaddr,
 				 unsigned long size, int flags)
 {
@@ -332,6 +417,16 @@ int __init reserve_bootmem_node(pg_data_t *pgdat, unsigned long physaddr,
 	return mark_bootmem_node(pgdat->bdata, start, end, 1, flags);
 }
 
+/**
+ * reserve_bootmem - mark a page range as usable
+ * @addr: starting address of the range
+ * @size: size of the range in bytes
+ * @flags: reservation flags (see linux/bootmem.h)
+ *
+ * Partial pages will be reserved.
+ *
+ * The range must be contiguous but may span node boundaries.
+ */
 int __init reserve_bootmem(unsigned long addr, unsigned long size,
 			    int flags)
 {
@@ -354,6 +449,10 @@ static unsigned long __init align_idx(struct bootmem_data *bdata,
 {
 	unsigned long base = bdata->node_min_pfn;
 
+	/*
+	 * Align the index with respect to the node start so that the
+	 * combination of both satisfies the requested alignment.
+	 */
 
 	return ALIGN(base + idx, step) - base;
 }
@@ -363,7 +462,7 @@ static unsigned long __init align_off(struct bootmem_data *bdata,
 {
 	unsigned long base = PFN_PHYS(bdata->node_min_pfn);
 
-	
+	/* Same as align_idx for byte offsets */
 
 	return ALIGN(base + off, align) - base;
 }
@@ -408,6 +507,10 @@ static void * __init alloc_bootmem_core(struct bootmem_data *bdata,
 	midx = max - bdata->node_min_pfn;
 
 	if (bdata->hint_idx > sidx) {
+		/*
+		 * Handle the valid case of sidx being zero and still
+		 * catch the fallback below.
+		 */
 		fallback = sidx + 1;
 		sidx = align_idx(bdata, bdata->hint_idx, step);
 	}
@@ -444,6 +547,9 @@ find_block:
 		bdata->last_end_off = end_off;
 		bdata->hint_idx = PFN_UP(end_off);
 
+		/*
+		 * Reserve the area now:
+		 */
 		if (__reserve(bdata, PFN_DOWN(start_off) + merge,
 				PFN_UP(end_off), BOOTMEM_EXCLUSIVE))
 			BUG();
@@ -451,6 +557,10 @@ find_block:
 		region = phys_to_virt(PFN_PHYS(bdata->node_min_pfn) +
 				start_off);
 		memset(region, 0, size);
+		/*
+		 * The min_count is set to 0 so that bootmem allocated blocks
+		 * are never reported as leaks.
+		 */
 		kmemleak_alloc(region, size, 0, 0);
 		return region;
 	}
@@ -517,6 +627,19 @@ restart:
 	return NULL;
 }
 
+/**
+ * __alloc_bootmem_nopanic - allocate boot memory without panicking
+ * @size: size of the request in bytes
+ * @align: alignment of the region
+ * @goal: preferred starting address of the region
+ *
+ * The goal is dropped if it can not be satisfied and the allocation will
+ * fall back to memory below @goal.
+ *
+ * Allocation may happen on any node in the system.
+ *
+ * Returns NULL on failure.
+ */
 void * __init __alloc_bootmem_nopanic(unsigned long size, unsigned long align,
 					unsigned long goal)
 {
@@ -532,11 +655,27 @@ static void * __init ___alloc_bootmem(unsigned long size, unsigned long align,
 
 	if (mem)
 		return mem;
+	/*
+	 * Whoops, we cannot satisfy the allocation request.
+	 */
 	printk(KERN_ALERT "bootmem alloc of %lu bytes failed!\n", size);
 	panic("Out of memory");
 	return NULL;
 }
 
+/**
+ * __alloc_bootmem - allocate boot memory
+ * @size: size of the request in bytes
+ * @align: alignment of the region
+ * @goal: preferred starting address of the region
+ *
+ * The goal is dropped if it can not be satisfied and the allocation will
+ * fall back to memory below @goal.
+ *
+ * Allocation may happen on any node in the system.
+ *
+ * The function panics if the request can not be satisfied.
+ */
 void * __init __alloc_bootmem(unsigned long size, unsigned long align,
 			      unsigned long goal)
 {
@@ -562,6 +701,21 @@ static void * __init ___alloc_bootmem_node(bootmem_data_t *bdata,
 	return ___alloc_bootmem(size, align, goal, limit);
 }
 
+/**
+ * __alloc_bootmem_node - allocate boot memory from a specific node
+ * @pgdat: node to allocate from
+ * @size: size of the request in bytes
+ * @align: alignment of the region
+ * @goal: preferred starting address of the region
+ *
+ * The goal is dropped if it can not be satisfied and the allocation will
+ * fall back to memory below @goal.
+ *
+ * Allocation may fall back to any node in the system if the specified node
+ * can not hold the requested memory.
+ *
+ * The function panics if the request can not be satisfied.
+ */
 void * __init __alloc_bootmem_node(pg_data_t *pgdat, unsigned long size,
 				   unsigned long align, unsigned long goal)
 {
@@ -580,7 +734,7 @@ void * __init __alloc_bootmem_node_high(pg_data_t *pgdat, unsigned long size,
 	if (WARN_ON_ONCE(slab_is_available()))
 		return kzalloc_node(size, GFP_NOWAIT, pgdat->node_id);
 
-	
+	/* update goal according ...MAX_DMA32_PFN */
 	end_pfn = pgdat->node_start_pfn + pgdat->node_spanned_pages;
 
 	if (end_pfn > MAX_DMA32_PFN + (128 >> (20 - PAGE_SHIFT)) &&
@@ -601,6 +755,13 @@ void * __init __alloc_bootmem_node_high(pg_data_t *pgdat, unsigned long size,
 }
 
 #ifdef CONFIG_SPARSEMEM
+/**
+ * alloc_bootmem_section - allocate boot memory from a specific section
+ * @size: size of the request in bytes
+ * @section_nr: sparse map section to allocate from
+ *
+ * Return NULL on failure.
+ */
 void * __init alloc_bootmem_section(unsigned long size,
 				    unsigned long section_nr)
 {
@@ -638,12 +799,40 @@ void * __init __alloc_bootmem_node_nopanic(pg_data_t *pgdat, unsigned long size,
 #define ARCH_LOW_ADDRESS_LIMIT	0xffffffffUL
 #endif
 
+/**
+ * __alloc_bootmem_low - allocate low boot memory
+ * @size: size of the request in bytes
+ * @align: alignment of the region
+ * @goal: preferred starting address of the region
+ *
+ * The goal is dropped if it can not be satisfied and the allocation will
+ * fall back to memory below @goal.
+ *
+ * Allocation may happen on any node in the system.
+ *
+ * The function panics if the request can not be satisfied.
+ */
 void * __init __alloc_bootmem_low(unsigned long size, unsigned long align,
 				  unsigned long goal)
 {
 	return ___alloc_bootmem(size, align, goal, ARCH_LOW_ADDRESS_LIMIT);
 }
 
+/**
+ * __alloc_bootmem_low_node - allocate low boot memory from a specific node
+ * @pgdat: node to allocate from
+ * @size: size of the request in bytes
+ * @align: alignment of the region
+ * @goal: preferred starting address of the region
+ *
+ * The goal is dropped if it can not be satisfied and the allocation will
+ * fall back to memory below @goal.
+ *
+ * Allocation may fall back to any node in the system if the specified node
+ * can not hold the requested memory.
+ *
+ * The function panics if the request can not be satisfied.
+ */
 void * __init __alloc_bootmem_low_node(pg_data_t *pgdat, unsigned long size,
 				       unsigned long align, unsigned long goal)
 {

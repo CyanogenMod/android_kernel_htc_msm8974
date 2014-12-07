@@ -1,3 +1,29 @@
+/*
+ * pata_mpiix.c 	- Intel MPIIX PATA for new ATA layer
+ *			  (C) 2005-2006 Red Hat Inc
+ *			  Alan Cox <alan@lxorguk.ukuu.org.uk>
+ *
+ * The MPIIX is different enough to the PIIX4 and friends that we give it
+ * a separate driver. The old ide/pci code handles this by just not tuning
+ * MPIIX at all.
+ *
+ * The MPIIX also differs in another important way from the majority of PIIX
+ * devices. The chip is a bridge (pardon the pun) between the old world of
+ * ISA IDE and PCI IDE. Although the ATA timings are PCI configured the actual
+ * IDE controller is not decoded in PCI space and the chip does not claim to
+ * be IDE class PCI. This requires slightly non-standard probe logic compared
+ * with PCI IDE and also that we do not disable the device when our driver is
+ * unloaded (as it has many other functions).
+ *
+ * The driver consciously keeps this logic internally to avoid pushing quirky
+ * PATA history into the clean libata layer.
+ *
+ * Thinkpad specific note: If you boot an MPIIX using a thinkpad with a PCMCIA
+ * hard disk present this driver will not detect it. This is not a bug. In this
+ * configuration the secondary port of the MPIIX is disabled and the addresses
+ * are decoded by the PCMCIA bridge and therefore are for a generic IDE driver
+ * to operate.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -12,7 +38,7 @@
 #define DRV_VERSION "0.7.7"
 
 enum {
-	IDETIM = 0x6C,		
+	IDETIM = 0x6C,		/* IDE control register */
 	IORDY = (1 << 1),
 	PPE = (1 << 2),
 	FTIM = (1 << 0),
@@ -32,6 +58,20 @@ static int mpiix_pre_reset(struct ata_link *link, unsigned long deadline)
 	return ata_sff_prereset(link, deadline);
 }
 
+/**
+ *	mpiix_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the PIO mode setup. The MPIIX allows us to program the
+ *	IORDY sample point (2-5 clocks), recovery (1-4 clocks) and whether
+ *	prefetching or IORDY are used.
+ *
+ *	This would get very ugly because we can only program timing for one
+ *	device at a time, the other gets PIO0. Fortunately libata calls
+ *	our qc_issue command before a command is issued so we can flip the
+ *	timings back and forth to reduce the pain.
+ */
 
 static void mpiix_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -39,7 +79,7 @@ static void mpiix_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	int pio = adev->pio_mode - XFER_PIO_0;
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	u16 idetim;
-	static const	 
+	static const	 /* ISP  RTC */
 	u8 timings[][2]	= { { 0, 0 },
 			    { 0, 0 },
 			    { 1, 0 },
@@ -48,15 +88,15 @@ static void mpiix_set_piomode(struct ata_port *ap, struct ata_device *adev)
 
 	pci_read_config_word(pdev, IDETIM, &idetim);
 
-	
+	/* Mask the IORDY/TIME/PPE for this device */
 	if (adev->class == ATA_DEV_ATA)
-		control |= PPE;		
+		control |= PPE;		/* Enable prefetch/posting for disk */
 	if (ata_pio_need_iordy(adev))
 		control |= IORDY;
 	if (pio > 1)
-		control |= FTIM;	
+		control |= FTIM;	/* This drive is on the fast timing bank */
 
-	
+	/* Mask out timing and clear both TIME bank selects */
 	idetim &= 0xCCEE;
 	idetim &= ~(0x07  << (4 * adev->devno));
 	idetim |= control << (4 * adev->devno);
@@ -64,15 +104,31 @@ static void mpiix_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	idetim |= (timings[pio][0] << 12) | (timings[pio][1] << 8);
 	pci_write_config_word(pdev, IDETIM, idetim);
 
+	/* We use ap->private_data as a pointer to the device currently
+	   loaded for timing */
 	ap->private_data = adev;
 }
 
+/**
+ *	mpiix_qc_issue		-	command issue
+ *	@qc: command pending
+ *
+ *	Called when the libata layer is about to issue a command. We wrap
+ *	this interface so that we can load the correct ATA timings if
+ *	necessary. Our logic also clears TIME0/TIME1 for the other device so
+ *	that, even if we get this wrong, cycles to the other device will
+ *	be made PIO0.
+ */
 
 static unsigned int mpiix_qc_issue(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
 	struct ata_device *adev = qc->dev;
 
+	/* If modes have been configured and the channel data is not loaded
+	   then load it. We have to check if pio_mode is set as the core code
+	   does not set adev->pio_mode to XFER_PIO_0 while probing as would be
+	   logical */
 
 	if (adev->pio_mode && adev != ap->private_data)
 		mpiix_set_piomode(ap, adev);
@@ -95,7 +151,7 @@ static struct ata_port_operations mpiix_port_ops = {
 
 static int mpiix_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
-	
+	/* Single threaded by the PCI probe logic */
 	struct ata_host *host;
 	struct ata_port *ap;
 	void __iomem *cmd_addr, *ctl_addr;
@@ -109,12 +165,15 @@ static int mpiix_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 		return -ENOMEM;
 	ap = host->ports[0];
 
+	/* MPIIX has many functions which can be turned on or off according
+	   to other devices present. Make sure IDE is enabled before we try
+	   and use it */
 
 	pci_read_config_word(dev, IDETIM, &idetim);
 	if (!(idetim & ENABLED))
 		return -ENODEV;
 
-	
+	/* See if it's primary or secondary channel... */
 	if (!(idetim & SECONDARY)) {
 		cmd = 0x1F0;
 		ctl = 0x3F6;
@@ -132,6 +191,11 @@ static int mpiix_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 
 	ata_port_desc(ap, "cmd 0x%x ctl 0x%x", cmd, ctl);
 
+	/* We do our own plumbing to avoid leaking special cases for whacko
+	   ancient hardware into the core code. There are two issues to
+	   worry about.  #1 The chip is a bridge so if in legacy mode and
+	   without BARs set fools the setup.  #2 If you pci_disable_device
+	   the MPIIX your box goes castors up */
 
 	ap->ops = &mpiix_port_ops;
 	ap->pio_mask = ATA_PIO4;
@@ -141,10 +205,10 @@ static int mpiix_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 	ap->ioaddr.ctl_addr = ctl_addr;
 	ap->ioaddr.altstatus_addr = ctl_addr;
 
-	
+	/* Let libata fill in the port details */
 	ata_sff_std_ports(&ap->ioaddr);
 
-	
+	/* activate host */
 	return ata_host_activate(host, irq, ata_sff_interrupt, IRQF_SHARED,
 				 &mpiix_sht);
 }

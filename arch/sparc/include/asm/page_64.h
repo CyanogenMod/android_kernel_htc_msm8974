@@ -14,6 +14,9 @@
 #define PAGE_SIZE    (_AC(1,UL) << PAGE_SHIFT)
 #define PAGE_MASK    (~(PAGE_SIZE-1))
 
+/* Flushing for D-cache alias handling is only needed if
+ * the page size is smaller than 16K.
+ */
 #if PAGE_SHIFT < 14
 #define DCACHE_ALIASING_POSSIBLE
 #endif
@@ -44,10 +47,17 @@ extern void clear_user_page(void *addr, unsigned long vaddr, struct page *page);
 #define copy_page(X,Y)	memcpy((void *)(X), (void *)(Y), PAGE_SIZE)
 extern void copy_user_page(void *to, void *from, unsigned long vaddr, struct page *topage);
 
+/* Unlike sparc32, sparc64's parameter passing API is more
+ * sane in that structures which as small enough are passed
+ * in registers instead of on the stack.  Thus, setting
+ * STRICT_MM_TYPECHECKS does not generate worse code so
+ * let's enable it to get the type checking.
+ */
 
 #define STRICT_MM_TYPECHECKS
 
 #ifdef STRICT_MM_TYPECHECKS
+/* These are used to make use of C type-checking.. */
 typedef struct { unsigned long pte; } pte_t;
 typedef struct { unsigned long iopte; } iopte_t;
 typedef struct { unsigned int pmd; } pmd_t;
@@ -67,6 +77,7 @@ typedef struct { unsigned long pgprot; } pgprot_t;
 #define __pgprot(x)	((pgprot_t) { (x) } )
 
 #else
+/* .. while these make it easier on the compiler */
 typedef unsigned long pte_t;
 typedef unsigned long iopte_t;
 typedef unsigned int pmd_t;
@@ -85,7 +96,7 @@ typedef unsigned long pgprot_t;
 #define __pgd(x)	(x)
 #define __pgprot(x)	(x)
 
-#endif 
+#endif /* (STRICT_MM_TYPECHECKS) */
 
 typedef struct page *pgtable_t;
 
@@ -95,8 +106,11 @@ typedef struct page *pgtable_t;
 
 #include <asm-generic/memory_model.h>
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
+/* We used to stick this into a hard-coded global register (%g4)
+ * but that does not make sense anymore.
+ */
 #define PAGE_OFFSET		_AC(0xFFFFF80000000000,UL)
 
 #ifndef __ASSEMBLY__
@@ -113,11 +127,11 @@ typedef struct page *pgtable_t;
 #define virt_to_phys __pa
 #define phys_to_virt __va
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
 #define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
 #include <asm-generic/getorder.h>
 
-#endif 
+#endif /* _SPARC64_PAGE_H */

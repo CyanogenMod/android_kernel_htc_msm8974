@@ -39,9 +39,11 @@
 #define XCEP_ETH_ATTR_END	(PXA_CS3_PHYS + 0x020fffff)
 #define XCEP_ETH_IRQ		IRQ_GPIO0
 
+/*  XCEP CPLD base */
 #define XCEP_CPLD_BASE		0xf0000000
 
 
+/* Flash partitions. */
 
 static struct mtd_partition xcep_partitions[] = {
 	{
@@ -71,7 +73,7 @@ static struct mtd_partition xcep_partitions[] = {
 
 static struct physmap_flash_data xcep_flash_data[] = {
 	{
-		.width		= 4,		
+		.width		= 4,		/* bankwidth in bytes */
 		.parts		= xcep_partitions,
 		.nr_parts	= ARRAY_SIZE(xcep_partitions)
 	}
@@ -95,6 +97,7 @@ static struct platform_device flash_device = {
 
 
 
+/* SMC LAN91C111 network controller. */
 
 static struct resource smc91x_resources[] = {
 	[0] = {
@@ -137,15 +140,18 @@ static struct platform_device *devices[] __initdata = {
 };
 
 
+/* We have to state that there are HWMON devices on the I2C bus on XCEP.
+ * Drivers for HWMON verify capabilities of the adapter when loading and
+ * refuse to attach if the adapter doesn't support HWMON class of devices. */
 static struct i2c_pxa_platform_data xcep_i2c_platform_data  = {
 	.class = I2C_CLASS_HWMON
 };
 
 
 static mfp_cfg_t xcep_pin_config[] __initdata = {
-	GPIO79_nCS_3,	
-	GPIO80_nCS_4,	
-	
+	GPIO79_nCS_3,	/* SMC 91C111 chip select. */
+	GPIO80_nCS_4,	/* CPLD chip select. */
+	/* SSP communication to MSP430 */
 	GPIO23_SSP1_SCLK,
 	GPIO24_SSP1_SFRM,
 	GPIO25_SSP1_TXD,
@@ -162,10 +168,10 @@ static void __init xcep_init(void)
 	pxa_set_stuart_info(NULL);
 	pxa_set_hwuart_info(NULL);
 
-	
-	
+	/* See Intel XScale Developer's Guide for details */
+	/* Set RDF and RDN to appropriate values (chip select 3 (smc91x)) */
 	__raw_writel((__raw_readl(MSC1) & 0xffff) | 0xD5540000, MSC1);
-	
+	/* Set RDF and RDN to appropriate values (chip select 5 (fpga)) */
 	__raw_writel((__raw_readl(MSC2) & 0xffff) | 0x72A00000, MSC2);
 
 	platform_add_devices(ARRAY_AND_SIZE(devices));

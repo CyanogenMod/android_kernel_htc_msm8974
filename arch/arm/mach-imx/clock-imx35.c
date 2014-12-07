@@ -62,6 +62,7 @@ static void calc_dividers(u32 div, u32 *pre, u32 *post, u32 maxpost)
 	*post = (div + *pre - 1) / *pre;
 }
 
+/* get the best values for a 3-bit divider combined with a 6-bit divider */
 static void calc_dividers_3_6(u32 div, u32 *pre, u32 *post)
 {
 	if (div >= 512) {
@@ -78,6 +79,7 @@ static void calc_dividers_3_6(u32 div, u32 *pre, u32 *post)
 	}
 }
 
+/* get the best values for two cascaded 3-bit dividers */
 static void calc_dividers_3_3(u32 div, u32 *pre, u32 *post)
 {
 	if (div >= 64) {
@@ -337,6 +339,7 @@ static void clk_cgr_disable(struct clk *clk)
 
 DEFINE_CLOCK(asrc_clk,   0, MX35_CCM_CGR0,  0, NULL, NULL);
 DEFINE_CLOCK(pata_clk,    0, MX35_CCM_CGR0,  2, get_rate_ipg, NULL);
+/* DEFINE_CLOCK(audmux_clk, 0, MX35_CCM_CGR0,  4, NULL, NULL); */
 DEFINE_CLOCK(can1_clk,   0, MX35_CCM_CGR0,  6, get_rate_ipg, NULL);
 DEFINE_CLOCK(can2_clk,   1, MX35_CCM_CGR0,  8, get_rate_ipg, NULL);
 DEFINE_CLOCK(cspi1_clk,  0, MX35_CCM_CGR0, 10, get_rate_ipg, NULL);
@@ -408,12 +411,13 @@ static unsigned long get_rate_nfc(struct clk *clk)
 	return get_rate_ahb(NULL) / div1;
 }
 
+/* NAND Controller: It seems it can't be disabled */
 static struct clk nfc_clk = {
 	.id		= 0,
 	.enable_reg	= 0,
 	.enable_shift	= 0,
 	.get_rate	= get_rate_nfc,
-	.set_rate	= NULL, 
+	.set_rate	= NULL, /* set_rate_nfc, */
 	.enable		= clk_dummy_enable,
 	.disable	= clk_dummy_disable
 };
@@ -441,7 +445,7 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK("sdhci-esdhc-imx35.0", NULL, esdhc1_clk)
 	_REGISTER_CLOCK("sdhci-esdhc-imx35.1", NULL, esdhc2_clk)
 	_REGISTER_CLOCK("sdhci-esdhc-imx35.2", NULL, esdhc3_clk)
-	
+	/* i.mx35 has the i.mx27 type fec */
 	_REGISTER_CLOCK("imx27-fec.0", NULL, fec_clk)
 	_REGISTER_CLOCK(NULL, "gpio", gpio1_clk)
 	_REGISTER_CLOCK(NULL, "gpio", gpio2_clk)
@@ -467,7 +471,7 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK(NULL, "spdif", spdif_clk)
 	_REGISTER_CLOCK("imx-ssi.0", NULL, ssi1_clk)
 	_REGISTER_CLOCK("imx-ssi.1", NULL, ssi2_clk)
-	
+	/* i.mx35 has the i.mx21 type uart */
 	_REGISTER_CLOCK("imx21-uart.0", NULL, uart1_clk)
 	_REGISTER_CLOCK("imx21-uart.1", NULL, uart2_clk)
 	_REGISTER_CLOCK("imx21-uart.2", NULL, uart3_clk)
@@ -495,6 +499,9 @@ int __init mx35_clocks_init()
 
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
 
+	/* Turn off all clocks except the ones we need to survive, namely:
+	 * EMI, GPIO1/2/3, GPT, IOMUX, MAX and eventually uart
+	 */
 	__raw_writel((3 << 18), MX35_CCM_CGR0);
 	__raw_writel((3 << 2) | (3 << 4) | (3 << 6) | (3 << 8) | (3 << 16),
 			MX35_CCM_CGR1);
@@ -505,8 +512,13 @@ int __init mx35_clocks_init()
 	imx_print_silicon_rev("i.MX35", mx35_revision());
 	clk_disable(&iim_clk);
 
+	/*
+	 * Check if we came up in internal boot mode. If yes, we need some
+	 * extra clocks turned on, otherwise the MX35 boot ROM code will
+	 * hang after a watchdog reset.
+	 */
 	if (!(__raw_readl(MX35_CCM_RCSR) & (3 << 10))) {
-		
+		/* Additionally turn on UART1, SCC, and IIM clocks */
 		clk_enable(&iim_clk);
 		clk_enable(&uart1_clk);
 		clk_enable(&scc_clk);

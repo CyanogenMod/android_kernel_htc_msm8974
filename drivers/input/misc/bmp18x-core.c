@@ -61,7 +61,7 @@
 #define BMP18X_CHIP_ID			0x55
 
 #define BMP18X_CALIBRATION_DATA_START	0xAA
-#define BMP18X_CALIBRATION_DATA_LENGTH	11	
+#define BMP18X_CALIBRATION_DATA_LENGTH	11	/* 16 bit values */
 #define BMP18X_CHIP_ID_REG		0xD0
 #define BMP18X_CTRL_REG			0xF4
 #define BMP18X_TEMP_MEASUREMENT		0x2E
@@ -84,11 +84,11 @@ static struct sensors_classdev sensors_cdev = {
 	.max_range = "1100.0",
 	.resolution = "0.01",
 	.sensor_power = "0.67",
-	.min_delay = 20000,	
+	.min_delay = 20000,	/* microsecond */
 	.fifo_reserved_event_count = 0,
 	.fifo_max_event_count = 0,
 	.enabled = 0,
-	.delay_msec = 200,	
+	.delay_msec = 200,	/* millisecond */
 	.sensors_enable = NULL,
 	.sensors_poll_delay = NULL,
 };
@@ -154,7 +154,7 @@ static s32 bmp18x_update_raw_temperature(struct bmp18x_data *data)
 	}
 	data->raw_temperature = be16_to_cpu(tmp);
 	data->last_temp_measurement = jiffies;
-	status = 0;	
+	status = 0;	/* everything ok, return 0 */
 
 exit:
 	mutex_unlock(&data->lock);
@@ -176,10 +176,10 @@ static s32 bmp18x_update_raw_pressure(struct bmp18x_data *data)
 		goto exit;
 	}
 
-	
+	/* wait for the end of conversion */
 	msleep(2+(3 << data->oversampling_setting));
 
-	
+	/* copy data into a u32 (4 bytes), but skip the first byte. */
 	status = data->data_bus.bops->read_block(data->data_bus.client,
 			BMP18X_CONVERSION_REGISTER_MSB, 3, ((u8 *)&tmp)+1);
 	if (status < 0)
@@ -192,7 +192,7 @@ static s32 bmp18x_update_raw_pressure(struct bmp18x_data *data)
 	}
 	data->raw_pressure = be32_to_cpu((tmp));
 	data->raw_pressure >>= (8-data->oversampling_setting);
-	status = 0;	
+	status = 0;	/* everything ok, return 0 */
 
 exit:
 	mutex_unlock(&data->lock);
@@ -200,6 +200,10 @@ exit:
 }
 
 
+/*
+ * This function starts the temperature measurement and returns the value
+ * in tenth of a degree celsius.
+ */
 static s32 bmp18x_get_temperature(struct bmp18x_data *data, int *temperature)
 {
 	struct bmp18x_calibration_data *cali = &data->calibration;
@@ -213,7 +217,7 @@ static s32 bmp18x_get_temperature(struct bmp18x_data *data, int *temperature)
 	x1 = ((data->raw_temperature - cali->AC6) * cali->AC5) >> 15;
 	x2 = (cali->MC << 11) / (x1 + cali->MD);
 	data->b6 = x1 + x2 - 4000;
-	
+	/* if NULL just update b6. Used for pressure only measurements */
 	if (temperature != NULL)
 		*temperature = (x1+x2+8) >> 4;
 
@@ -221,6 +225,14 @@ exit:
 	return status;
 }
 
+/*
+ * This function starts the pressure measurement and returns the value
+ * in millibar. Since the pressure depends on the ambient temperature,
+ * a temperature measurement is executed according to the given temperature
+ * measurememt period (default is 1 sec boundary). This period could vary
+ * and needs to be adjusted accoring to the sensor environment, i.e. if big
+ * temperature variations then the temperature needs to be read out often.
+ */
 static s32 bmp18x_get_pressure(struct bmp18x_data *data, int *pressure)
 {
 	struct bmp18x_calibration_data *cali = &data->calibration;
@@ -231,7 +243,7 @@ static s32 bmp18x_get_pressure(struct bmp18x_data *data, int *pressure)
 	int i_loop, i;
 	u32 p_tmp;
 
-	
+	/* update the ambient temperature according to the given meas. period */
 	if (data->last_temp_measurement +
 			data->temp_measurement_period < jiffies) {
 		status = bmp18x_get_temperature(data, NULL);
@@ -289,6 +301,13 @@ exit:
 	return status;
 }
 
+/*
+ * This function sets the chip-internal oversampling. Valid values are 0..3.
+ * The chip will use 2^oversampling samples for internal averaging.
+ * This influences the measurement time and the accuracy; larger values
+ * increase both. The datasheet gives on overview on how measurement time,
+ * accuracy and noise correlate.
+ */
 static void bmp18x_set_oversampling(struct bmp18x_data *data,
 						unsigned char oversampling)
 {
@@ -297,11 +316,15 @@ static void bmp18x_set_oversampling(struct bmp18x_data *data,
 	data->oversampling_setting = oversampling;
 }
 
+/*
+ * Returns the currently selected oversampling. Range: 0..3
+ */
 static unsigned char bmp18x_get_oversampling(struct bmp18x_data *data)
 {
 	return data->oversampling_setting;
 }
 
+/* sysfs callbacks */
 static ssize_t set_oversampling(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
@@ -605,17 +628,17 @@ __devinit int bmp18x_probe(struct device *dev, struct bmp18x_data_bus *data_bus)
 	data->data_bus = *data_bus;
 	data->dev = dev;
 
-	
+	/* Initialize the BMP18X chip */
 	err = bmp18x_init_client(data, pdata);
 	if (err != 0)
 		goto exit_free;
 
-	
+	/* Initialize the BMP18X input device */
 	err = bmp18x_input_init(data);
 	if (err != 0)
 		goto exit_free;
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&data->input->dev.kobj, &bmp18x_attr_group);
 	if (err)
 		goto error_sysfs;
@@ -629,7 +652,7 @@ __devinit int bmp18x_probe(struct device *dev, struct bmp18x_data_bus *data_bus)
 		goto error_class_sysfs;
 	}
 
-	
+	/* workqueue init */
 	INIT_DELAYED_WORK(&data->work, bmp18x_work_func);
 	data->delay  = BMP_DELAY_DEFAULT;
 	data->enable = 0;

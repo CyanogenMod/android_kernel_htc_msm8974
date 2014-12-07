@@ -24,11 +24,18 @@
 #include <asm/dec/prom.h>
 #include <asm/dec/system.h>
 
+/*
+ * Protected read byte from TURBOchannel slot space.
+ */
 int tc_preadb(u8 *valp, void __iomem *addr)
 {
 	return get_dbe(*valp, (u8 *)addr);
 }
 
+/*
+ * Get TURBOchannel bus information as specified by the spec, plus
+ * the slot space base address and the number of slots.
+ */
 int __init tc_bus_get_info(struct tc_bus *tbus)
 {
 	if (!dec_tc_bus)
@@ -45,7 +52,7 @@ int __init tc_bus_get_info(struct tc_bus *tbus)
 	case MACH_DS5900:
 		tbus->ext_slot_base = 0x20000000;
 		tbus->ext_slot_size = 0x20000000;
-		
+		/* fall through */
 	case MACH_DS5000_1XX:
 		tbus->num_tcslots = 3;
 		break;
@@ -57,6 +64,9 @@ int __init tc_bus_get_info(struct tc_bus *tbus)
 	return 0;
 }
 
+/*
+ * Get the IRQ for the specified slot.
+ */
 void __init tc_device_get_irq(struct tc_dev *tdev)
 {
 	switch (tdev->slot) {
@@ -69,6 +79,9 @@ void __init tc_device_get_irq(struct tc_dev *tdev)
 	case 2:
 		tdev->interrupt = dec_interrupt[DEC_IRQ_TC2];
 		break;
+	/*
+	 * Yuck! DS5000/200 onboard devices
+	 */
 	case 5:
 		tdev->interrupt = dec_interrupt[DEC_IRQ_TC5];
 		break;

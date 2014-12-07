@@ -16,4 +16,4 @@
 # error "MIPS, but neither __MIPSEB__, nor __MIPSEL__???"
 #endif
 
-#endif 
+#endif /* _ASM_BYTEORDER_H */

@@ -195,11 +195,11 @@ static struct tegra_gpio_table seaboard_gpio_table[] = {
 };
 
 static struct tegra_gpio_table ventana_gpio_table[] = {
-	
+	/* hp_det */
 	{ .gpio = TEGRA_GPIO_PW2,		.enable = true },
-	
+	/* int_mic_en */
 	{ .gpio = TEGRA_GPIO_PX0,		.enable = true },
-	
+	/* ext_mic_en */
 	{ .gpio = TEGRA_GPIO_PX1,		.enable = true },
 };
 

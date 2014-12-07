@@ -46,9 +46,9 @@ static inline int fs_uart_id_fsid2smc(int id)
 
 struct fs_uart_platform_info {
         void(*init_ioports)(struct fs_uart_platform_info *);
-	
-	int fs_no;		
-	char fs_type[4];        
+	/* device specific information */
+	int fs_no;		/* controller index */
+	char fs_type[4];        /* controller type  */
 	u32 uart_clk;
 	u8 tx_num_fifo;
 	u8 tx_buf_size;

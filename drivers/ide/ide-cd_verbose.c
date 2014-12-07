@@ -15,6 +15,8 @@
 void ide_cd_log_error(const char *name, struct request *failed_command,
 		      struct request_sense *sense)
 {
+	/* Suppress printing unit attention and `in progress of becoming ready'
+	   errors when we're not being verbose. */
 	if (sense->sense_key == UNIT_ATTENTION ||
 	    (sense->sense_key == NOT_READY && (sense->asc == 4 ||
 						sense->asc == 0x3a)))
@@ -26,6 +28,8 @@ void ide_cd_log_error(const char *name, struct request *failed_command,
 			sense->asc, sense->ascq);
 }
 #else
+/* The generic packet command opcodes for CD/DVD Logical Units,
+ * From Table 57 of the SFF8090 Ver. 3 (Mt. Fuji) draft standard. */
 static const struct {
 	unsigned short packet_command;
 	const char * const text;
@@ -82,6 +86,7 @@ static const struct {
 	{ GPCMD_READ_CD, "Read CD" },
 };
 
+/* From Table 303 of the SFF8090 Ver. 3 (Mt. Fuji) draft standard. */
 static const char * const sense_key_texts[16] = {
 	"No sense data",
 	"Recovered error",
@@ -101,6 +106,7 @@ static const char * const sense_key_texts[16] = {
 	"(reserved)",
 };
 
+/* From Table 304 of the SFF8090 Ver. 3 (Mt. Fuji) draft standard. */
 static const struct {
 	unsigned long asc_ascq;
 	const char * const text;
@@ -130,7 +136,7 @@ static const struct {
 	{ 0x015dff, "Failure prediction threshold exceeded - False" },
 	{ 0x017301, "Power calibration area almost full" },
 	{ 0x020400, "Logical unit not ready - cause not reportable" },
-	
+	/* Following is misspelled in ATAPI 2.6, _and_ in Mt. Fuji */
 	{ 0x020401, "Logical unit not ready"
 		    " - in progress [sic] of becoming ready" },
 	{ 0x020402, "Logical unit not ready - initializing command required" },
@@ -227,6 +233,8 @@ static const struct {
 	{ 0x065a00, "Operator request or state change input (unspecified)" },
 	{ 0x065a01, "Operator medium removal request" },
 	{ 0x0bb900, "Play operation aborted" },
+	/* Here we use 0xff for the key (not a valid key) to signify
+	 * that these can have _any_ key value associated with them... */
 	{ 0xff0401, "Logical unit is in process of becoming ready" },
 	{ 0xff0400, "Logical unit not ready, cause not reportable" },
 	{ 0xff0402, "Logical unit not ready, initializing command required" },
@@ -323,6 +331,11 @@ void ide_cd_log_error(const char *name, struct request *failed_command,
 		printk(KERN_CONT "\"\n");
 	}
 
+	/* The SKSV bit specifies validity of the sense_key_specific
+	 * in the next two commands. It is bit 7 of the first byte.
+	 * In the case of NOT_READY, if SKSV is set the drive can
+	 * give us nice ETA readings.
+	 */
 	if (sense->sense_key == NOT_READY && (sense->sks[0] & 0x80)) {
 		int progress = (sense->sks[1] << 8 | sense->sks[2]) * 100;
 

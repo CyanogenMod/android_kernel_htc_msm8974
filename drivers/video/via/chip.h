@@ -23,9 +23,13 @@
 
 #include "global.h"
 
+/***************************************/
+/* Definition Graphic Chip Information */
+/***************************************/
 
 #define     PCI_VIA_VENDOR_ID       0x1106
 
+/* Define VIA Graphic Chip Name */
 #define     UNICHROME_CLE266        1
 #define     UNICHROME_CLE266_DID    0x3122
 #define     CLE266_REVISION_AX      0x0A
@@ -70,24 +74,35 @@
 #define     UNICHROME_VX900         13
 #define     UNICHROME_VX900_DID     0x7122
 
+/**************************************************/
+/* Definition TMDS Trasmitter Information         */
+/**************************************************/
 
+/* Definition TMDS Trasmitter Index */
 #define     NON_TMDS_TRANSMITTER    0x00
 #define     VT1632_TMDS             0x01
 #define     INTEGRATED_TMDS         0x42
 
+/* Definition TMDS Trasmitter I2C Slave Address */
 #define     VT1632_TMDS_I2C_ADDR    0x10
 
+/**************************************************/
+/* Definition LVDS Trasmitter Information         */
+/**************************************************/
 
+/* Definition LVDS Trasmitter Index */
 #define     NON_LVDS_TRANSMITTER    0x00
 #define     VT1631_LVDS             0x01
 #define     VT1636_LVDS             0x0E
 #define     INTEGRATED_LVDS         0x41
 
+/* Definition Digital Transmitter Mode */
 #define     TX_DATA_12_BITS         0x01
 #define     TX_DATA_24_BITS         0x02
 #define     TX_DATA_DDR_MODE        0x04
 #define     TX_DATA_SDR_MODE        0x08
 
+/* Definition LVDS Trasmitter I2C Slave Address */
 #define     VT1631_LVDS_I2C_ADDR    0x70
 #define     VT3271_LVDS_I2C_ADDR    0x80
 #define     VT1636_LVDS_I2C_ADDR    0x80
@@ -106,6 +121,7 @@ struct lvds_chip_information {
 	int i2c_port;
 };
 
+/* The type of 2D engine */
 enum via_2d_engine {
 	VIA_2D_ENG_H2,
 	VIA_2D_ENG_H5,
@@ -136,20 +152,20 @@ struct lvds_setting_information {
 	int device_lcd_dualedge;
 	int LCDDithering;
 	int lcd_mode;
-	u32 vclk;		
+	u32 vclk;		/*panel mode clock value */
 };
 
 struct GFX_DPA_SETTING {
 	int ClkRangeIndex;
-	u8 DVP0;		
-	u8 DVP0DataDri_S1;	
-	u8 DVP0DataDri_S;	
-	u8 DVP0ClockDri_S1;	
-	u8 DVP0ClockDri_S;	
-	u8 DVP1;		
-	u8 DVP1Driving;		
-	u8 DFPHigh;		
-	u8 DFPLow;		
+	u8 DVP0;		/* CR96[3:0] */
+	u8 DVP0DataDri_S1;	/* SR2A[5]   */
+	u8 DVP0DataDri_S;	/* SR1B[1]   */
+	u8 DVP0ClockDri_S1;	/* SR2A[4]   */
+	u8 DVP0ClockDri_S;	/* SR1E[2]   */
+	u8 DVP1;		/* CR9B[3:0] */
+	u8 DVP1Driving;		/* SR65[3:0], Data and Clock driving */
+	u8 DFPHigh;		/* CR97[3:0] */
+	u8 DFPLow;		/* CR99[3:0] */
 
 };
 
@@ -157,4 +173,4 @@ struct VT1636_DPA_SETTING {
 	u8 CLK_SEL_ST1;
 	u8 CLK_SEL_ST2;
 };
-#endif 
+#endif /* __CHIP_H__ */

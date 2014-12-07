@@ -21,6 +21,7 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Uses NEC extended 0x02bd */
 static struct rc_map_table total_media_in_hand[] = {
 	{ 0x02bd00, KEY_1 },
 	{ 0x02bd01, KEY_2 },
@@ -33,30 +34,30 @@ static struct rc_map_table total_media_in_hand[] = {
 	{ 0x02bd08, KEY_9 },
 	{ 0x02bd09, KEY_0 },
 	{ 0x02bd0a, KEY_MUTE },
-	{ 0x02bd0b, KEY_CYCLEWINDOWS },    
-	{ 0x02bd0c, KEY_VIDEO },           
+	{ 0x02bd0b, KEY_CYCLEWINDOWS },    /* yellow, [min / max] */
+	{ 0x02bd0c, KEY_VIDEO },           /* TV / AV */
 	{ 0x02bd0e, KEY_VOLUMEDOWN },
-	{ 0x02bd0f, KEY_TIME },            
-	{ 0x02bd10, KEY_RIGHT },           
-	{ 0x02bd11, KEY_LEFT },            
-	{ 0x02bd12, KEY_UP },              
-	{ 0x02bd13, KEY_DOWN },            
-	{ 0x02bd14, KEY_POWER2 },          
-	{ 0x02bd15, KEY_OK },              
+	{ 0x02bd0f, KEY_TIME },            /* TimeShift */
+	{ 0x02bd10, KEY_RIGHT },           /* right arrow */
+	{ 0x02bd11, KEY_LEFT },            /* left arrow */
+	{ 0x02bd12, KEY_UP },              /* up arrow */
+	{ 0x02bd13, KEY_DOWN },            /* down arrow */
+	{ 0x02bd14, KEY_POWER2 },          /* [red] */
+	{ 0x02bd15, KEY_OK },              /* OK */
 	{ 0x02bd16, KEY_STOP },
-	{ 0x02bd17, KEY_CAMERA },          
+	{ 0x02bd17, KEY_CAMERA },          /* Snapshot */
 	{ 0x02bd18, KEY_CHANNELUP },
 	{ 0x02bd19, KEY_RECORD },
 	{ 0x02bd1a, KEY_CHANNELDOWN },
-	{ 0x02bd1c, KEY_ESC },             
+	{ 0x02bd1c, KEY_ESC },             /* Esc */
 	{ 0x02bd1e, KEY_PLAY },
 	{ 0x02bd1f, KEY_VOLUMEUP },
 	{ 0x02bd40, KEY_PAUSE },
-	{ 0x02bd41, KEY_FASTFORWARD },     
-	{ 0x02bd42, KEY_REWIND },          
-	{ 0x02bd43, KEY_ZOOM },            
-	{ 0x02bd44, KEY_SHUFFLE },         
-	{ 0x02bd45, KEY_INFO },            
+	{ 0x02bd41, KEY_FASTFORWARD },     /* FF >> */
+	{ 0x02bd42, KEY_REWIND },          /* FR << */
+	{ 0x02bd43, KEY_ZOOM },            /* [window + mouse pointer] */
+	{ 0x02bd44, KEY_SHUFFLE },         /* Shuffle */
+	{ 0x02bd45, KEY_INFO },            /* [red (I)] */
 };
 
 static struct rc_map_list total_media_in_hand_map = {

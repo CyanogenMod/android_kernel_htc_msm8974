@@ -104,17 +104,21 @@ static struct platform_device palmz71_kp_device = {
 };
 
 static struct mtd_partition palmz71_rom_partitions[] = {
-	
+	/* PalmOS "Small ROM", contains the bootloader and the debugger */
 	{
 		.name		= "smallrom",
 		.offset		= 0,
 		.size		= 0xa000,
 		.mask_flags	= MTD_WRITEABLE,
 	},
-	
+	/* PalmOS "Big ROM", a filesystem with all the OS code and data */
 	{
 		.name	= "bigrom",
 		.offset	= SZ_128K,
+		/*
+		 * 0x5f0000 bytes big in the multi-language ("EFIGS") version,
+		 * 0x7b0000 bytes in the English-only ("enUS") version.
+		 */
 		.size		= 0x7b0000,
 		.mask_flags	= MTD_WRITEABLE,
 	},
@@ -210,24 +214,24 @@ palmz71_get_pendown_state(void)
 
 static const struct ads7846_platform_data palmz71_ts_info = {
 	.model			= 7846,
-	.vref_delay_usecs	= 100,	
+	.vref_delay_usecs	= 100,	/* internal, no capacitor */
 	.x_plate_ohms		= 419,
 	.y_plate_ohms		= 486,
 	.get_pendown_state	= palmz71_get_pendown_state,
 };
 
 static struct spi_board_info __initdata palmz71_boardinfo[] = { {
-	
+	/* MicroWire (bus 2) CS0 has an ads7846e */
 	.modalias	= "ads7846",
 	.platform_data	= &palmz71_ts_info,
-	.max_speed_hz	= 120000	
-				* 26	,
+	.max_speed_hz	= 120000	/* max sample rate at 3V */
+				* 26	/* command + data + overhead */,
 	.bus_num	= 2,
 	.chip_select	= 0,
 } };
 
 static struct omap_usb_config palmz71_usb_config __initdata = {
-	.register_dev	= 1,	
+	.register_dev	= 1,	/* Mini-B only receptacle */
 	.hmc_mode	= 0,
 	.pins[0]	= 2,
 };
@@ -266,17 +270,17 @@ static void __init
 palmz71_gpio_setup(int early)
 {
 	if (early) {
-		
+		/* Only set GPIO1 so we have a working serial */
 		gpio_direction_output(1, 1);
 	} else {
-		
+		/* Set MMC/SD host WP pin as input */
 		if (gpio_request(PALMZ71_MMC_WP_GPIO, "MMC WP") < 0) {
 			printk(KERN_ERR "Could not reserve WP GPIO!\n");
 			return;
 		}
 		gpio_direction_input(PALMZ71_MMC_WP_GPIO);
 
-		
+		/* Monitor the Power-cable-connected signal */
 		if (gpio_request(PALMZ71_USBDETECT_GPIO, "USB detect") < 0) {
 			printk(KERN_ERR
 				"Could not reserve cable signal GPIO!\n");
@@ -295,7 +299,7 @@ palmz71_gpio_setup(int early)
 static void __init
 omap_palmz71_init(void)
 {
-	
+	/* mux pins for uarts */
 	omap_cfg_reg(UART1_TX);
 	omap_cfg_reg(UART1_RTS);
 	omap_cfg_reg(UART2_TX);

@@ -25,8 +25,19 @@
 
 ************************************************************************
 */
+/*
+Driver: ni_daq_dio24
+Description: National Instruments PCMCIA DAQ-Card DIO-24
+Author: Daniel Vecino Castel <dvecino@able.es>
+Devices: [National Instruments] PCMCIA DAQ-Card DIO-24 (ni_daq_dio24)
+Status: ?
+Updated: Thu, 07 Nov 2002 21:53:06 -0800
 
-			    
+This is just a wrapper around the 8255.o driver to properly handle
+the PCMCIA interface.
+*/
+
+			    /* #define LABPC_DEBUG *//*  enable debugging messages */
 #undef LABPC_DEBUG
 
 #include <linux/interrupt.h>
@@ -43,7 +54,7 @@
 
 static struct pcmcia_device *pcmcia_cur_dev;
 
-#define DIO24_SIZE 4		
+#define DIO24_SIZE 4		/*  size of io region used by board */
 
 static int dio24_attach(struct comedi_device *dev, struct comedi_devconfig *it);
 static int dio24_detach(struct comedi_device *dev);
@@ -52,10 +63,10 @@ enum dio24_bustype { pcmcia_bustype };
 
 struct dio24_board_struct {
 	const char *name;
-	int device_id;		
-	enum dio24_bustype bustype;	
-	int have_dio;		
-	
+	int device_id;		/*  device id for pcmcia board */
+	enum dio24_bustype bustype;	/*  PCMCIA */
+	int have_dio;		/*  have 8255 chip */
+	/*  function pointers so we can use inb/outb or readb/writeb as appropriate */
 	unsigned int (*read_byte) (unsigned int address);
 	void (*write_byte) (unsigned int byte, unsigned int address);
 };
@@ -63,23 +74,26 @@ struct dio24_board_struct {
 static const struct dio24_board_struct dio24_boards[] = {
 	{
 	 .name = "daqcard-dio24",
-	 .device_id = 0x475c,	
+	 .device_id = 0x475c,	/*  0x10b is manufacturer id, 0x475c is device id */
 	 .bustype = pcmcia_bustype,
 	 .have_dio = 1,
 	 },
 	{
 	 .name = "ni_daq_dio24",
-	 .device_id = 0x475c,	
+	 .device_id = 0x475c,	/*  0x10b is manufacturer id, 0x475c is device id */
 	 .bustype = pcmcia_bustype,
 	 .have_dio = 1,
 	 },
 };
 
+/*
+ * Useful for shorthand access to the particular board structure
+ */
 #define thisboard ((const struct dio24_board_struct *)dev->board_ptr)
 
 struct dio24_private {
 
-	int data;		
+	int data;		/* number of data points left to be taken */
 };
 
 #define devpriv ((struct dio24_private *)dev->private)
@@ -103,14 +117,14 @@ static int dio24_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 #endif
 	struct pcmcia_device *link;
 
-	
+	/* allocate and initialize dev->private */
 	if (alloc_private(dev, sizeof(struct dio24_private)) < 0)
 		return -ENOMEM;
 
-	
+	/*  get base address, irq etc. based on bustype */
 	switch (thisboard->bustype) {
 	case pcmcia_bustype:
-		link = pcmcia_cur_dev;	
+		link = pcmcia_cur_dev;	/* XXX hack */
 		if (!link)
 			return -EIO;
 		iobase = link->resource[0]->start;
@@ -138,7 +152,7 @@ static int dio24_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	dev->iobase = iobase;
 
 #ifdef incomplete
-	
+	/* grab our IRQ */
 	dev->irq = irq;
 #endif
 
@@ -147,7 +161,7 @@ static int dio24_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	if (alloc_subdevices(dev, 1) < 0)
 		return -ENOMEM;
 
-	
+	/* 8255 dio */
 	s = dev->subdevices + 0;
 	subdev_8255_init(dev, s, NULL, dev->iobase);
 
@@ -191,7 +205,7 @@ static int dio24_cs_attach(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "dio24_cs_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(struct local_info_t), GFP_KERNEL);
 	if (!local)
 		return -ENOMEM;
@@ -203,7 +217,7 @@ static int dio24_cs_attach(struct pcmcia_device *link)
 	dio24_config(link);
 
 	return 0;
-}				
+}				/* dio24_cs_attach */
 
 static void dio24_cs_detach(struct pcmcia_device *link)
 {
@@ -215,10 +229,10 @@ static void dio24_cs_detach(struct pcmcia_device *link)
 	((struct local_info_t *)link->priv)->stop = 1;
 	dio24_release(link);
 
-	
+	/* This points to the parent local_info_t struct */
 	kfree(link->priv);
 
-}				
+}				/* dio24_cs_detach */
 
 static int dio24_pcmcia_config_loop(struct pcmcia_device *p_dev,
 				void *priv_data)
@@ -259,23 +273,23 @@ failed:
 	printk(KERN_INFO "Fallo");
 	dio24_release(link);
 
-}				
+}				/* dio24_config */
 
 static void dio24_release(struct pcmcia_device *link)
 {
 	dev_dbg(&link->dev, "dio24_release\n");
 
 	pcmcia_disable_device(link);
-}				
+}				/* dio24_release */
 
 static int dio24_cs_suspend(struct pcmcia_device *link)
 {
 	struct local_info_t *local = link->priv;
 
-	
+	/* Mark the device as stopped, to block IO until later */
 	local->stop = 1;
 	return 0;
-}				
+}				/* dio24_cs_suspend */
 
 static int dio24_cs_resume(struct pcmcia_device *link)
 {
@@ -283,12 +297,13 @@ static int dio24_cs_resume(struct pcmcia_device *link)
 
 	local->stop = 0;
 	return 0;
-}				
+}				/* dio24_cs_resume */
 
+/*====================================================================*/
 
 static const struct pcmcia_device_id dio24_cs_ids[] = {
-	
-	PCMCIA_DEVICE_MANF_CARD(0x010b, 0x475c),	
+	/* N.B. These IDs should match those in dio24_boards */
+	PCMCIA_DEVICE_MANF_CARD(0x010b, 0x475c),	/* daqcard-dio24 */
 	PCMCIA_DEVICE_NULL
 };
 

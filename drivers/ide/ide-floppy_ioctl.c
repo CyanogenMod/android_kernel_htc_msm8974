@@ -1,3 +1,6 @@
+/*
+ * ide-floppy IOCTLs handling.
+ */
 
 #include <linux/kernel.h>
 #include <linux/ide.h>
@@ -10,6 +13,24 @@
 
 #include "ide-floppy.h"
 
+/*
+ * Obtain the list of formattable capacities.
+ * Very similar to ide_floppy_get_capacity, except that we push the capacity
+ * descriptors to userland, instead of our own structures.
+ *
+ * Userland gives us the following structure:
+ *
+ * struct idefloppy_format_capacities {
+ *	int nformats;
+ *	struct {
+ *		int nblocks;
+ *		int blocksize;
+ *	} formats[];
+ * };
+ *
+ * userland initializes nformats to the number of allocated formats[] records.
+ * On exit we set nformats to the number of records we've actually initialized.
+ */
 
 static DEFINE_MUTEX(ide_floppy_ioctl_mutex);
 static int ide_floppy_get_format_capacities(ide_drive_t *drive,
@@ -35,16 +56,21 @@ static int ide_floppy_get_format_capacities(ide_drive_t *drive,
 	}
 
 	header_len = pc_buf[3];
-	desc_cnt = header_len / 8; 
+	desc_cnt = header_len / 8; /* capacity descriptor of 8 bytes */
 
 	u_index = 0;
 	argp = arg + 1;
 
+	/*
+	 * We always skip the first capacity descriptor.  That's the current
+	 * capacity.  We are interested in the remaining descriptors, the
+	 * formattable capacities.
+	 */
 	for (i = 1; i < desc_cnt; i++) {
 		unsigned int desc_start = 4 + i*8;
 
 		if (u_index >= u_array_size)
-			break;	
+			break;	/* User-supplied buffer too small */
 
 		blocks = be32_to_cpup((__be32 *)&pc_buf[desc_start]);
 		length = be16_to_cpup((__be16 *)&pc_buf[desc_start + 6]);
@@ -78,10 +104,10 @@ static void ide_floppy_create_format_unit_cmd(struct ide_atapi_pc *pc,
 
 	memset(buf, 0, 12);
 	buf[1] = 0xA2;
-	
+	/* Default format list header, u8 1: FOV/DCRT/IMM bits set */
 
-	if (flags & 1)				
-		buf[1] ^= 0x20;			
+	if (flags & 1)				/* Verify bit on... */
+		buf[1] ^= 0x20;			/* ... turn off DCRT bit */
 	buf[3] = 8;
 
 	put_unaligned(cpu_to_be32(b), (unsigned int *)(&buf[4]));
@@ -117,13 +143,28 @@ static int ide_floppy_format_unit(ide_drive_t *drive, struct ide_atapi_pc *pc,
 	int blocks, length, flags, err = 0;
 
 	if (floppy->openers > 1) {
-		
+		/* Don't format if someone is using the disk */
 		drive->dev_flags &= ~IDE_DFLAG_FORMAT_IN_PROGRESS;
 		return -EBUSY;
 	}
 
 	drive->dev_flags |= IDE_DFLAG_FORMAT_IN_PROGRESS;
 
+	/*
+	 * Send ATAPI_FORMAT_UNIT to the drive.
+	 *
+	 * Userland gives us the following structure:
+	 *
+	 * struct idefloppy_format_command {
+	 *        int nblocks;
+	 *        int blocksize;
+	 *        int flags;
+	 *        } ;
+	 *
+	 * flags is a bitmask, currently, the only defined flag is:
+	 *
+	 *        0x01 - verify media after format.
+	 */
 	if (get_user(blocks, arg) ||
 			get_user(length, arg+1) ||
 			get_user(flags, arg+2)) {
@@ -143,6 +184,15 @@ out:
 	return err;
 }
 
+/*
+ * Get ATAPI_FORMAT_UNIT progress indication.
+ *
+ * Userland gives a pointer to an int.  The int is set to a progress
+ * indicator 0-65536, with 65536=100%.
+ *
+ * If the drive does not support format progress indication, we just check
+ * the dsc bit, and return either 0 or 65536.
+ */
 
 static int ide_floppy_get_format_progress(ide_drive_t *drive,
 					  struct ide_atapi_pc *pc,
@@ -163,7 +213,7 @@ static int ide_floppy_get_format_progress(ide_drive_t *drive,
 		    floppy->ascq == 4)
 			progress_indication = floppy->progress_indication;
 
-		
+		/* Else assume format_unit has finished, and we're at 0x10000 */
 	} else {
 		ide_hwif_t *hwif = drive->hwif;
 		unsigned long flags;
@@ -237,6 +287,10 @@ int ide_floppy_ioctl(ide_drive_t *drive, struct block_device *bdev,
 	if (err != -ENOTTY)
 		goto out;
 
+	/*
+	 * skip SCSI_IOCTL_SEND_COMMAND (deprecated)
+	 * and CDROM_SEND_PACKET (legacy) ioctls
+	 */
 	if (cmd != CDROM_SEND_PACKET && cmd != SCSI_IOCTL_SEND_COMMAND)
 		err = scsi_cmd_blk_ioctl(bdev, mode, cmd, argp);
 

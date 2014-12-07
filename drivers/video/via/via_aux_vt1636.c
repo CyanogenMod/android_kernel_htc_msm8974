@@ -17,6 +17,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * driver for VIA VT1636 LVDS Transmitter
+ */
 
 #include <linux/slab.h>
 #include "via_aux.h"
@@ -31,7 +34,7 @@ void via_aux_vt1636_probe(struct via_aux_bus *bus)
 		.bus	=	bus,
 		.addr	=	0x40,
 		.name	=	name};
-	
+	/* check vendor id and device id */
 	const u8 id[] = {0x06, 0x11, 0x45, 0x33}, len = ARRAY_SIZE(id);
 	u8 tmp[len];
 

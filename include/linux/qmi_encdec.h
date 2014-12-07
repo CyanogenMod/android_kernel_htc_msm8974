@@ -25,6 +25,10 @@
 #define QMI_INDICATION_CONTROL_FLAG 0x04
 #define QMI_HEADER_SIZE 7
 
+/**
+ * elem_type - Enum to identify the data type of elements in a data
+ *             structure.
+ */
 enum elem_type {
 	QMI_OPT_FLAG = 1,
 	QMI_DATA_LEN,
@@ -38,12 +42,34 @@ enum elem_type {
 	QMI_EOTI,
 };
 
+/**
+ * array_type - Enum to identify if an element in a data structure is
+ *              an array. If so, then is it a static length array or a
+ *              variable length array.
+ */
 enum array_type {
 	NO_ARRAY = 0,
 	STATIC_ARRAY = 1,
 	VAR_LEN_ARRAY = 2,
 };
 
+/**
+ * elem_info - Data structure to specify information about an element
+ *               in a data structure. An array of this data structure
+ *               can be used to specify info about a complex data
+ *               structure to be encoded/decoded.
+ *
+ * @data_type: Data type of this element.
+ * @elem_len: Array length of this element, if an array.
+ * @elem_size: Size of a single instance of this data type.
+ * @is_array: Array type of this element.
+ * @tlv_type: QMI message specific type to identify which element
+ *            is present in an incoming message.
+ * @offset: To identify the address of the first instance of this
+ *          element in the data structure.
+ * @ei_array: Array to provide information about the nested structure
+ *            within a data structure to be encoded/decoded.
+ */
 struct elem_info {
 	enum elem_type data_type;
 	uint32_t elem_len;
@@ -54,6 +80,13 @@ struct elem_info {
 	struct elem_info *ei_array;
 };
 
+/**
+ * @msg_desc - Describe about the main/outer structure to be
+ *		  encoded/decoded.
+ *
+ * @max_msg_len: Maximum possible length of the QMI message.
+ * @ei_array: Array to provide information about a data structure.
+ */
 struct msg_desc {
 	uint16_t msg_id;
 	int max_msg_len;
@@ -92,13 +125,38 @@ static inline void decode_qmi_header(unsigned char *buf,
 }
 
 #ifdef CONFIG_QMI_ENCDEC
+/**
+ * qmi_kernel_encode() - Encode to QMI message wire format
+ * @desc: Pointer to structure descriptor.
+ * @out_buf: Buffer to hold the encoded QMI message.
+ * @out_buf_len: Length of the out buffer.
+ * @in_c_struct: C Structure to be encoded.
+ *
+ * @return: size of encoded message on success, < 0 on error.
+ */
 int qmi_kernel_encode(struct msg_desc *desc,
 		      void *out_buf, uint32_t out_buf_len,
 		      void *in_c_struct);
 
+/**
+ * qmi_kernel_decode() - Decode to C Structure format
+ * @desc: Pointer to structure descriptor.
+ * @out_c_struct: Buffer to hold the decoded C structure.
+ * @in_buf: Buffer containg the QMI message to be decoded.
+ * @in_buf_len: Length of the incoming QMI message.
+ *
+ * @return: 0 on success, < 0 on error.
+ */
 int qmi_kernel_decode(struct msg_desc *desc, void *out_c_struct,
 		      void *in_buf, uint32_t in_buf_len);
 
+/**
+ * qmi_verify_max_msg_len() - Verify the maximum length of a QMI message
+ * @desc: Pointer to structure descriptor.
+ *
+ * @return: true if the maximum message length embedded in structure
+ *          descriptor matches the calculated value, else false.
+ */
 bool qmi_verify_max_msg_len(struct msg_desc *desc);
 
 #else

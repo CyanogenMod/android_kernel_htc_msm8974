@@ -28,6 +28,32 @@
 #include "usbhid/usbhid.h"
 #include "hid-lg.h"
 
+/*
+ * G940 Theory of Operation (from experimentation)
+ *
+ * There are 63 fields (only 3 of them currently used)
+ * 0 - seems to be command field
+ * 1 - 30 deal with the x axis
+ * 31 -60 deal with the y axis
+ *
+ * Field 1 is x axis constant force
+ * Field 31 is y axis constant force
+ *
+ * other interesting fields 1,2,3,4 on x axis
+ * (same for 31,32,33,34 on y axis)
+ *
+ * 0 0 127 127 makes the joystick autocenter hard
+ *
+ * 127 0 127 127 makes the joystick loose on the right,
+ * but stops all movemnt left
+ *
+ * -127 0 -127 -127 makes the joystick loose on the left,
+ * but stops all movement right
+ *
+ * 0 0 -127 -127 makes the joystick rattle very hard
+ *
+ * I'm sure these are effects that I don't know enough about them
+ */
 
 struct lg3ff_device {
 	struct hid_report *report;
@@ -41,16 +67,28 @@ static int hid_lg3ff_play(struct input_dev *dev, void *data,
 	struct hid_report *report = list_entry(report_list->next, struct hid_report, list);
 	int x, y;
 
+/*
+ * Maxusage should always be 63 (maximum fields)
+ * likely a better way to ensure this data is clean
+ */
 	memset(report->field[0]->value, 0, sizeof(__s32)*report->field[0]->maxusage);
 
 	switch (effect->type) {
 	case FF_CONSTANT:
+/*
+ * Already clamped in ff_memless
+ * 0 is center (different then other logitech)
+ */
 		x = effect->u.ramp.start_level;
 		y = effect->u.ramp.end_level;
 
-		
+		/* send command byte */
 		report->field[0]->value[0] = 0x51;
 
+/*
+ * Sign backwards from other Force3d pro
+ * which get recast here in two's complement 8 bits
+ */
 		report->field[0]->value[1] = (unsigned char)(-x);
 		report->field[0]->value[31] = (unsigned char)(-y);
 
@@ -65,6 +103,11 @@ static void hid_lg3ff_set_autocenter(struct input_dev *dev, u16 magnitude)
 	struct list_head *report_list = &hid->report_enum[HID_OUTPUT_REPORT].report_list;
 	struct hid_report *report = list_entry(report_list->next, struct hid_report, list);
 
+/*
+ * Auto Centering probed from device
+ * NOTE: deadman's switch on G940 must be covered
+ * for effects to work
+ */
 	report->field[0]->value[0] = 0x51;
 	report->field[0]->value[1] = 0x00;
 	report->field[0]->value[2] = 0x00;
@@ -96,13 +139,13 @@ int lg3ff_init(struct hid_device *hid)
 	int error;
 	int i;
 
-	
+	/* Find the report to use */
 	if (list_empty(report_list)) {
 		hid_err(hid, "No output report found\n");
 		return -1;
 	}
 
-	
+	/* Check that the report looks ok */
 	report = list_entry(report_list->next, struct hid_report, list);
 	if (!report) {
 		hid_err(hid, "NULL output report\n");
@@ -115,7 +158,7 @@ int lg3ff_init(struct hid_device *hid)
 		return -1;
 	}
 
-	
+	/* Assume single fixed device G940 */
 	for (i = 0; ff_bits[i] >= 0; i++)
 		set_bit(ff_bits[i], dev->ffbit);
 

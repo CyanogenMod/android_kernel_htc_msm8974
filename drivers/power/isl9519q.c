@@ -105,6 +105,14 @@ static int isl9519q_write_reg(struct i2c_client *client, int reg,
 	return 0;
 }
 
+/**
+ * Read charge-current via ADC.
+ *
+ * The ISL CCMON (charge-current-monitor) pin is connected to
+ * the PMIC MPP#X pin.
+ * This not required when notify_by_pmic is used where the PMIC
+ * uses BMS to notify the ISL on charging-done / charge-resume.
+ */
 static int isl_read_adc(int channel, int *mv_reading)
 {
 	int ret;
@@ -173,7 +181,7 @@ static bool is_trickle_charging(struct isl9519q_struct *isl_chg)
 
 static void isl_adapter_check_ichg(struct isl9519q_struct *isl_chg)
 {
-	int ichg; 
+	int ichg; /* isl charger current */
 	int mv_reading = 0;
 
 	ichg = isl_read_adc(CHANNEL_ADC_BATT_AMON, &mv_reading);
@@ -193,6 +201,14 @@ static void isl_adapter_check_ichg(struct isl9519q_struct *isl_chg)
 					 CHG_BATT_BEGIN_FAST_CHARGING);
 }
 
+/**
+ * isl9519q_worker
+ *
+ * Periodic task required to kick the ISL HW watchdog to keep
+ * charging.
+ *
+ * @isl9519_work: work context.
+ */
 static void isl9519q_worker(struct work_struct *isl9519_work)
 {
 	struct isl9519q_struct *isl_chg;
@@ -205,10 +221,10 @@ static void isl9519q_worker(struct work_struct *isl9519_work)
 	if (!isl_chg->charging) {
 		pr_debug("stop charging.\n");
 		isl9519q_write_reg(isl_chg->client, CHG_CURRENT_REG, 0);
-		return; 
+		return; /* Stop periodic worker */
 	}
 
-	
+	/* Kick the dog by writting to CHG_CURRENT_REG */
 	isl9519q_write_reg(isl_chg->client, CHG_CURRENT_REG,
 			   isl_chg->chgcurrent);
 
@@ -241,6 +257,10 @@ static int isl9519q_start_charging(struct isl9519q_struct *isl_chg,
 		"%s starting timed work.period=%d seconds.\n",
 		__func__, (int) ISL9519_CHG_PERIOD_SEC);
 
+	/*
+	 * The ISL will start charging from the worker context.
+	 * This API might be called from interrupt context.
+	 */
 	schedule_delayed_work(&isl_chg->charge_work, 1);
 
 	isl_chg->charging = true;
@@ -266,6 +286,10 @@ static int isl9519q_stop_charging(struct isl9519q_struct *isl_chg)
 
 	isl_chg->charging = false;
 	isl_chg->trickle = false;
+	/*
+	 * The ISL will stop charging from the worker context.
+	 * This API might be called from interrupt context.
+	 */
 	schedule_delayed_work(&isl_chg->charge_work, 1);
 
 	return 0;
@@ -497,7 +521,7 @@ static int __devinit isl9519q_init_adapter(struct isl9519q_struct *isl_chg)
 		dev_err(&client->dev,
 			"%s gpio_get_value failed for %d ret=%d\n",
 			__func__, pdata->valid_n_gpio, ret);
-		
+		/* assume absent */
 		ret = 1;
 	}
 	if (!ret) {
@@ -675,10 +699,16 @@ static int __devinit isl9519q_probe(struct i2c_client *client,
 	isl_chg->min_system_voltage = pdata->min_system_voltage;
 	isl_chg->valid_n_gpio = pdata->valid_n_gpio;
 
-	
+	/* h/w ignores lower 7 bits of charging current and input current */
 	isl_chg->chgcurrent &= ~0x7F;
 	isl_chg->input_current &= ~0x7F;
 
+	/**
+	 * ISL is Notified by PMIC to start/stop charging, rather than
+	 * handling interrupt from ISL for End-Of-Chargring, and
+	 * monitoring the charge-current periodically. The valid_n_gpio
+	 * is also not used, dc-present is detected by PMIC.
+	 */
 	isl_chg->notify_by_pmic = (client->irq == 0);
 	i2c_set_clientdata(client, isl_chg);
 
@@ -756,6 +786,11 @@ static int isl9519q_suspend(struct device *dev)
 	struct isl9519q_struct *isl_chg = dev_get_drvdata(dev);
 
 	dev_dbg(&isl_chg->client->dev, "%s\n", __func__);
+	/*
+	 * do not suspend while we are charging
+	 * because we need to periodically update the register
+	 * for charging to proceed
+	 */
 	if (isl_chg->charging)
 		return -EBUSY;
 

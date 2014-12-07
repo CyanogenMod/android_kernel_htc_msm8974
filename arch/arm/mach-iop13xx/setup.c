@@ -32,18 +32,20 @@
 #define IOP13XX_SETUP_DEBUG 0
 #define PRINTK(x...) ((void)(IOP13XX_SETUP_DEBUG && printk(x)))
 
+/* Standard IO mapping for all IOP13XX based systems
+ */
 static struct map_desc iop13xx_std_desc[] __initdata = {
-	{    
+	{    /* mem mapped registers */
 		.virtual = IOP13XX_PMMR_VIRT_MEM_BASE,
 		.pfn 	 = __phys_to_pfn(IOP13XX_PMMR_PHYS_MEM_BASE),
 		.length  = IOP13XX_PMMR_SIZE,
 		.type	 = MT_DEVICE,
-	}, { 
+	}, { /* PCIE IO space */
 		.virtual = IOP13XX_PCIE_LOWER_IO_VA,
 		.pfn 	 = __phys_to_pfn(IOP13XX_PCIE_LOWER_IO_PA),
 		.length  = IOP13XX_PCIX_IO_WINDOW_SIZE,
 		.type	 = MT_DEVICE,
-	}, { 
+	}, { /* PCIX IO space */
 		.virtual = IOP13XX_PCIX_LOWER_IO_VA,
 		.pfn 	 = __phys_to_pfn(IOP13XX_PCIX_LOWER_IO_PA),
 		.length  = IOP13XX_PCIX_IO_WINDOW_SIZE,
@@ -103,6 +105,7 @@ static struct plat_serial8250_port iop13xx_uart1_data[] = {
 	{  },
 };
 
+/* The ids are fixed up later in iop13xx_platform_init */
 static struct platform_device iop13xx_uart0 = {
        .name = "serial8250",
        .id = 0,
@@ -158,7 +161,11 @@ static struct resource iop13xx_i2c_2_resources[] = {
 	}
 };
 
+/* I2C controllers. The IOP13XX uses the same block as the IOP3xx, so
+ * we just use the same device name.
+ */
 
+/* The ids are fixed up later in iop13xx_platform_init */
 static struct platform_device iop13xx_i2c_0_controller = {
 	.name = "IOP3xx-I2C",
 	.id = 0,
@@ -181,6 +188,8 @@ static struct platform_device iop13xx_i2c_2_controller = {
 };
 
 #ifdef CONFIG_MTD_PHYSMAP
+/* PBI Flash Device
+ */
 static struct physmap_flash_data iq8134x_flash_data = {
 	.width = 2,
 };
@@ -208,18 +217,18 @@ static unsigned long iq8134x_probe_flash_size(void)
 	int width = iq8134x_flash_data.width;
 
 	if (flash_addr) {
-		
+		/* send CFI 'query' command */
 		writew(0x98, flash_addr);
 
-		
+		/* check for CFI compliance */
 		for (i = 0; i < 3 * width; i += width)
 			query[i / width] = readb(flash_addr + (0x10 * width) + i);
 
-		
+		/* read the size */
 		if (memcmp(query, "QRY", 3) == 0)
 			size = 1 << readb(flash_addr + (0x27 * width));
 
-		
+		/* send CFI 'read array' command */
 		writew(0xff, flash_addr);
 
 		iounmap(flash_addr);
@@ -229,6 +238,7 @@ static unsigned long iq8134x_probe_flash_size(void)
 }
 #endif
 
+/* ADMA Channels */
 static struct resource iop13xx_adma_0_resources[] = {
 	[0] = {
 		.start = IOP13XX_ADMA_PHYS_BASE(0),
@@ -314,6 +324,7 @@ static struct iop_adma_platform_data iop13xx_adma_2_data = {
 	.pool_size = PAGE_SIZE,
 };
 
+/* The ids are fixed up later in iop13xx_platform_init */
 static struct platform_device iop13xx_adma_0_channel = {
 	.name = "iop-adma",
 	.id = 0,
@@ -352,7 +363,7 @@ static struct platform_device iop13xx_adma_2_channel = {
 
 void __init iop13xx_map_io(void)
 {
-	
+	/* Initialize the Static Page Table maps */
 	iotable_init(iop13xx_std_desc, ARRAY_SIZE(iop13xx_std_desc));
 }
 
@@ -366,14 +377,14 @@ void __init iop13xx_platform_init(void)
 	u32 uart_idx, i2c_idx, adma_idx, plat_idx;
 	struct platform_device *iop13xx_devices[IQ81340_MAX_PLAT_DEVICES];
 
-	
+	/* set the bases so we can read the device id */
 	iop13xx_set_atu_mmr_bases();
 
 	memset(iop13xx_devices, 0, sizeof(iop13xx_devices));
 
 	if (init_uart == IOP13XX_INIT_UART_DEFAULT) {
 		switch (iop13xx_dev_id()) {
-		
+		/* enable both uarts on iop341 */
 		case 0x3380:
 		case 0x3384:
 		case 0x3388:
@@ -381,7 +392,7 @@ void __init iop13xx_platform_init(void)
 			init_uart |= IOP13XX_INIT_UART_0;
 			init_uart |= IOP13XX_INIT_UART_1;
 			break;
-		
+		/* only enable uart 1 */
 		default:
 			init_uart |= IOP13XX_INIT_UART_1;
 		}
@@ -389,7 +400,7 @@ void __init iop13xx_platform_init(void)
 
 	if (init_i2c == IOP13XX_INIT_I2C_DEFAULT) {
 		switch (iop13xx_dev_id()) {
-		
+		/* enable all i2c units on iop341 and iop342 */
 		case 0x3380:
 		case 0x3384:
 		case 0x3388:
@@ -402,7 +413,7 @@ void __init iop13xx_platform_init(void)
 			init_i2c |= IOP13XX_INIT_I2C_1;
 			init_i2c |= IOP13XX_INIT_I2C_2;
 			break;
-		
+		/* only enable i2c 1 and 2 */
 		default:
 			init_i2c |= IOP13XX_INIT_I2C_1;
 			init_i2c |= IOP13XX_INIT_I2C_2;
@@ -419,7 +430,7 @@ void __init iop13xx_platform_init(void)
 	uart_idx = 0;
 	i2c_idx = 0;
 
-	
+	/* uart 1 (if enabled) is ttyS0 */
 	if (init_uart & IOP13XX_INIT_UART_1) {
 		PRINTK("Adding uart1 to platform device list\n");
 		iop13xx_uart1.id = uart_idx++;
@@ -453,7 +464,7 @@ void __init iop13xx_platform_init(void)
 		}
 	}
 
-	
+	/* initialize adma channel ids and capabilities */
 	adma_idx = 0;
 	for (i = 0; i < IQ81340_NUM_ADMA; i++) {
 		struct iop_adma_platform_data *plat_data;
@@ -598,6 +609,9 @@ __setup("iop13xx_init_i2c", iop13xx_init_i2c_setup);
 
 void iop13xx_restart(char mode, const char *cmd)
 {
+	/*
+	 * Reset the internal bus (warning both cores are reset)
+	 */
 	write_wdtcr(IOP_WDTCR_EN_ARM);
 	write_wdtcr(IOP_WDTCR_EN);
 	write_wdtsr(IOP13XX_WDTSR_WRITE_EN | IOP13XX_WDTCR_IB_RESET);

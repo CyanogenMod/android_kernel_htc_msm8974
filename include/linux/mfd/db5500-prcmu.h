@@ -71,7 +71,7 @@ int db5500_prcmu_enable_dsipll(void);
 int db5500_prcmu_abb_read(u8 slave, u8 reg, u8 *value, u8 size);
 int db5500_prcmu_abb_write(u8 slave, u8 reg, u8 *value, u8 size);
 
-#else 
+#else /* !CONFIG_UX500_SOC_DB5500 */
 
 static inline void db5500_prcmu_early_init(void) {}
 
@@ -100,6 +100,6 @@ static inline int db5500_prcmu_enable_dsipll(void)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_MFD_DB5500_PRCMU */
 
-#endif 
+#endif /* __MFD_DB5500_PRCMU_H */

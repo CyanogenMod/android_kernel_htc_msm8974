@@ -52,6 +52,10 @@ struct regdata {
 	u8 data;
 };
 
+/*
+ * Initialization sequence: Use whatevere default values that PV SBTVD
+ * does on its initialisation, obtained via USB snoop
+ */
 static struct regdata mb86a20s_init[] = {
 	{ 0x70, 0x0f },
 	{ 0x70, 0xff },
@@ -118,7 +122,7 @@ static struct regdata mb86a20s_init[] = {
 	{ 0x50, 0x51 }, { 0x51, 0x04 },
 	{ 0x45, 0x04 },
 	{ 0x48, 0x04 },
-	{ 0x50, 0xd5 }, { 0x51, 0x01 },		
+	{ 0x50, 0xd5 }, { 0x51, 0x01 },		/* Serial */
 	{ 0x50, 0xd6 }, { 0x51, 0x1f },
 	{ 0x50, 0xd2 }, { 0x51, 0x03 },
 	{ 0x50, 0xd7 }, { 0x51, 0x3f },
@@ -244,7 +248,7 @@ static int mb86a20s_initfe(struct dvb_frontend *fe)
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 0);
 
-	
+	/* Initialize the frontend */
 	rc = mb86a20s_writeregdata(state, mb86a20s_init);
 	if (rc < 0)
 		goto err;
@@ -285,7 +289,7 @@ static int mb86a20s_read_signal_strength(struct dvb_frontend *fe, u16 *strength)
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 0);
 
-	
+	/* Does a binary search to get RF strength */
 	rf_max = 0xfff;
 	rf_min = 0;
 	do {
@@ -340,7 +344,7 @@ static int mb86a20s_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	if (val >= 7)
 		*status |= FE_HAS_SYNC;
 
-	if (val >= 8)				
+	if (val >= 8)				/* Maybe 9? */
 		*status |= FE_HAS_LOCK;
 
 	dprintk("val = %d, status = 0x%02x\n", val, *status);
@@ -353,6 +357,9 @@ static int mb86a20s_set_frontend(struct dvb_frontend *fe)
 	struct mb86a20s_state *state = fe->demodulator_priv;
 	int rc;
 #if 0
+	/*
+	 * FIXME: Properly implement the set frontend properties
+	 */
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
 #endif
 
@@ -363,6 +370,16 @@ static int mb86a20s_set_frontend(struct dvb_frontend *fe)
 	dprintk("Calling tuner set parameters\n");
 	fe->ops.tuner_ops.set_params(fe);
 
+	/*
+	 * Make it more reliable: if, for some reason, the initial
+	 * device initialization doesn't happen, initialize it when
+	 * a SBTVD parameters are adjusted.
+	 *
+	 * Unfortunately, due to a hard to track bug at tda829x/tda18271,
+	 * the agc callback logic is not called during DVB attach time,
+	 * causing mb86a20s to not be initialized with Kworld SBTVD.
+	 * So, this hack is needed, in order to make Kworld SBTVD to work.
+	 */
 	if (state->need_init)
 		mb86a20s_initfe(fe);
 
@@ -380,9 +397,9 @@ static int mb86a20s_get_modulation(struct mb86a20s_state *state,
 {
 	int rc;
 	static unsigned char reg[] = {
-		[0] = 0x86,	
-		[1] = 0x8a,	
-		[2] = 0x8e,	
+		[0] = 0x86,	/* Layer A */
+		[1] = 0x8a,	/* Layer B */
+		[2] = 0x8e,	/* Layer C */
 	};
 
 	if (layer >= ARRAY_SIZE(reg))
@@ -413,9 +430,9 @@ static int mb86a20s_get_fec(struct mb86a20s_state *state,
 	int rc;
 
 	static unsigned char reg[] = {
-		[0] = 0x87,	
-		[1] = 0x8b,	
-		[2] = 0x8f,	
+		[0] = 0x87,	/* Layer A */
+		[1] = 0x8b,	/* Layer B */
+		[2] = 0x8f,	/* Layer C */
 	};
 
 	if (layer >= ARRAY_SIZE(reg))
@@ -448,9 +465,9 @@ static int mb86a20s_get_interleaving(struct mb86a20s_state *state,
 	int rc;
 
 	static unsigned char reg[] = {
-		[0] = 0x88,	
-		[1] = 0x8c,	
-		[2] = 0x90,	
+		[0] = 0x88,	/* Layer A */
+		[1] = 0x8c,	/* Layer B */
+		[2] = 0x90,	/* Layer C */
 	};
 
 	if (layer >= ARRAY_SIZE(reg))
@@ -462,7 +479,7 @@ static int mb86a20s_get_interleaving(struct mb86a20s_state *state,
 	if (rc < 0)
 		return rc;
 	if (rc > 3)
-		return -EINVAL;	
+		return -EINVAL;	/* Not used */
 	return rc;
 }
 
@@ -472,9 +489,9 @@ static int mb86a20s_get_segment_count(struct mb86a20s_state *state,
 	int rc, count;
 
 	static unsigned char reg[] = {
-		[0] = 0x89,	
-		[1] = 0x8d,	
-		[2] = 0x91,	
+		[0] = 0x89,	/* Layer A */
+		[1] = 0x8d,	/* Layer B */
+		[2] = 0x91,	/* Layer C */
 	};
 
 	if (layer >= ARRAY_SIZE(reg))
@@ -496,21 +513,21 @@ static int mb86a20s_get_frontend(struct dvb_frontend *fe)
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
 	int i, rc;
 
-	
+	/* Fixed parameters */
 	p->delivery_system = SYS_ISDBT;
 	p->bandwidth_hz = 6000000;
 
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 0);
 
-	
+	/* Check for partial reception */
 	rc = mb86a20s_writereg(state, 0x6d, 0x85);
 	if (rc >= 0)
 		rc = mb86a20s_readreg(state, 0x6e);
 	if (rc >= 0)
 		p->isdbt_partial_reception = (rc & 0x10) ? 1 : 0;
 
-	
+	/* Get per-layer data */
 	p->isdbt_layer_enabled = 0;
 	for (i = 0; i < 3; i++) {
 		rc = mb86a20s_get_segment_count(state, i);
@@ -534,13 +551,13 @@ static int mb86a20s_get_frontend(struct dvb_frontend *fe)
 	rc = mb86a20s_writereg(state, 0x6d, 0x84);
 	if ((rc >= 0) && ((rc & 0x60) == 0x20)) {
 		p->isdbt_sb_mode = 1;
-		
+		/* At least, one segment should exist */
 		if (!p->isdbt_sb_segment_count)
 			p->isdbt_sb_segment_count = 1;
 	} else
 		p->isdbt_sb_segment_count = 0;
 
-	
+	/* Get transmission mode and guard interval */
 	p->transmission_mode = TRANSMISSION_MODE_AUTO;
 	p->guard_interval = GUARD_INTERVAL_AUTO;
 	rc = mb86a20s_readreg(state, 0x07);
@@ -614,7 +631,7 @@ struct dvb_frontend *mb86a20s_attach(const struct mb86a20s_config *config,
 {
 	u8	rev;
 
-	
+	/* allocate memory for the internal state */
 	struct mb86a20s_state *state =
 		kzalloc(sizeof(struct mb86a20s_state), GFP_KERNEL);
 
@@ -624,16 +641,16 @@ struct dvb_frontend *mb86a20s_attach(const struct mb86a20s_config *config,
 		goto error;
 	}
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &mb86a20s_ops,
 		sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 
-	
+	/* Check if it is a mb86a20s frontend */
 	rev = mb86a20s_readreg(state, 0);
 
 	if (rev == 0x13) {
@@ -654,7 +671,7 @@ EXPORT_SYMBOL(mb86a20s_attach);
 
 static struct dvb_frontend_ops mb86a20s_ops = {
 	.delsys = { SYS_ISDBT },
-	
+	/* Use dib8000 values per default */
 	.info = {
 		.name = "Fujitsu mb86A20s",
 		.caps = FE_CAN_INVERSION_AUTO | FE_CAN_RECOVER |
@@ -663,7 +680,7 @@ static struct dvb_frontend_ops mb86a20s_ops = {
 			FE_CAN_QPSK     | FE_CAN_QAM_16  | FE_CAN_QAM_64 |
 			FE_CAN_TRANSMISSION_MODE_AUTO | FE_CAN_QAM_AUTO |
 			FE_CAN_GUARD_INTERVAL_AUTO    | FE_CAN_HIERARCHY_AUTO,
-		
+		/* Actually, those values depend on the used tuner */
 		.frequency_min = 45000000,
 		.frequency_max = 864000000,
 		.frequency_stepsize = 62500,

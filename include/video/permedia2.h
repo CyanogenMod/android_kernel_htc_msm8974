@@ -12,12 +12,15 @@
 #ifndef PM2FB_H
 #define PM2FB_H
 
-#define PM2_REFERENCE_CLOCK	14318			
-#define PM2_MAX_PIXCLOCK	230000			
+#define PM2_REFERENCE_CLOCK	14318			/* in KHz */
+#define PM2_MAX_PIXCLOCK	230000			/* in KHz */
 #define PM2_REGS_SIZE		0x10000
 
 #define PM2TAG(r) (u32 )(((r)-0x8000)>>3)
 
+/*****************************************************************************
+ * Permedia2 registers used in the framebuffer
+ *****************************************************************************/
  
 #define PM2R_RESET_STATUS				0x0000
 #define PM2R_IN_FIFO_SPACE				0x0018
@@ -120,10 +123,12 @@
 #define PM2R_CONFIG					0x8d90
 #define PM2R_DELTA_MODE					0x9300
 
+/* Permedia2v */
 #define PM2VR_RD_INDEX_LOW				0x4020
 #define PM2VR_RD_INDEX_HIGH				0x4028
 #define PM2VR_RD_INDEXED_DATA				0x4030
 
+/* Permedia2 RAMDAC indexed registers */
 #define PM2I_RD_CURSOR_CONTROL				0x06
 #define PM2I_RD_COLOR_MODE				0x18
 #define PM2I_RD_MODE_CONTROL				0x19
@@ -142,6 +147,7 @@
 #define PM2I_RD_GREEN_KEY				0x43
 #define PM2I_RD_BLUE_KEY				0x44
 
+/* Permedia2v extensions */
 #define PM2VI_RD_MISC_CONTROL				0x000
 #define PM2VI_RD_SYNC_CONTROL				0x001
 #define PM2VI_RD_DAC_CONTROL				0x002
@@ -168,6 +174,7 @@
 #define PM2VI_RD_CURSOR_PALETTE				0x303
 #define PM2VI_RD_CURSOR_PATTERN				0x400
 
+/* Fields and flags */
 #define PM2F_RENDER_AREASTIPPLE				(1L<<0)
 #define PM2F_RENDER_FASTFILL				(1L<<3)
 #define PM2F_RENDER_PRIMITIVE_MASK			(3L<<6)
@@ -240,5 +247,8 @@ typedef enum {
 	PM2_TYPE_PERMEDIA2V
 } pm2type_t;
 
-#endif 
+#endif /* PM2FB_H */
 
+/*****************************************************************************
+ * That's all folks!
+ *****************************************************************************/

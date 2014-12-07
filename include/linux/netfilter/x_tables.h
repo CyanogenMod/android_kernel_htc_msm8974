@@ -12,18 +12,18 @@ struct xt_entry_match {
 		struct {
 			__u16 match_size;
 
-			
+			/* Used by userspace */
 			char name[XT_EXTENSION_MAXNAMELEN];
 			__u8 revision;
 		} user;
 		struct {
 			__u16 match_size;
 
-			
+			/* Used inside the kernel */
 			struct xt_match *match;
 		} kernel;
 
-		
+		/* Total length */
 		__u16 match_size;
 	} u;
 
@@ -35,18 +35,18 @@ struct xt_entry_target {
 		struct {
 			__u16 target_size;
 
-			
+			/* Used by userspace */
 			char name[XT_EXTENSION_MAXNAMELEN];
 			__u8 revision;
 		} user;
 		struct {
 			__u16 target_size;
 
-			
+			/* Used inside the kernel */
 			struct xt_target *target;
 		} kernel;
 
-		
+		/* Total length */
 		__u16 target_size;
 	} u;
 
@@ -71,15 +71,24 @@ struct xt_error_target {
 	char errorname[XT_FUNCTION_MAXNAMELEN];
 };
 
+/* The argument to IPT_SO_GET_REVISION_*.  Returns highest revision
+ * kernel supports, if >= revision. */
 struct xt_get_revision {
 	char name[XT_EXTENSION_MAXNAMELEN];
 	__u8 revision;
 };
 
+/* CONTINUE verdict for targets */
 #define XT_CONTINUE 0xFFFFFFFF
 
+/* For standard target */
 #define XT_RETURN (-NF_REPEAT - 1)
 
+/* this is a dummy structure to find out the alignment requirement for a struct
+ * containing all the fundamental data types that are used in ipt_entry,
+ * ip6t_entry and arpt_entry.  This sucks, and it is a hack.  It will be my
+ * personal pleasure to remove it -HW
+ */
 struct _xt_align {
 	__u8 u8;
 	__u16 u16;
@@ -89,29 +98,33 @@ struct _xt_align {
 
 #define XT_ALIGN(s) __ALIGN_KERNEL((s), __alignof__(struct _xt_align))
 
+/* Standard return verdict, or do jump. */
 #define XT_STANDARD_TARGET ""
+/* Error verdict. */
 #define XT_ERROR_TARGET "ERROR"
 
 #define SET_COUNTER(c,b,p) do { (c).bcnt = (b); (c).pcnt = (p); } while(0)
 #define ADD_COUNTER(c,b,p) do { (c).bcnt += (b); (c).pcnt += (p); } while(0)
 
 struct xt_counters {
-	__u64 pcnt, bcnt;			
+	__u64 pcnt, bcnt;			/* Packet and byte counters */
 };
 
+/* The argument to IPT_SO_ADD_COUNTERS. */
 struct xt_counters_info {
-	
+	/* Which table. */
 	char name[XT_TABLE_MAXNAMELEN];
 
 	unsigned int num_counters;
 
-	
+	/* The counters (actually `number' of these). */
 	struct xt_counters counters[0];
 };
 
-#define XT_INV_PROTO		0x40	
+#define XT_INV_PROTO		0x40	/* Invert the sense of PROTO. */
 
 #ifndef __KERNEL__
+/* fn returns 0 to continue iteration */
 #define XT_MATCH_ITERATE(type, e, fn, args...)			\
 ({								\
 	unsigned int __i;					\
@@ -130,6 +143,7 @@ struct xt_counters_info {
 	__ret;							\
 })
 
+/* fn returns 0 to continue iteration */
 #define XT_ENTRY_ITERATE_CONTINUE(type, entries, size, n, fn, args...) \
 ({								\
 	unsigned int __i, __n;					\
@@ -149,16 +163,19 @@ struct xt_counters_info {
 	__ret;							\
 })
 
+/* fn returns 0 to continue iteration */
 #define XT_ENTRY_ITERATE(type, entries, size, fn, args...) \
 	XT_ENTRY_ITERATE_CONTINUE(type, entries, size, 0, fn, args)
 
-#endif 
+#endif /* !__KERNEL__ */
 
+/* pos is normally a struct ipt_entry/ip6t_entry/etc. */
 #define xt_entry_foreach(pos, ehead, esize) \
 	for ((pos) = (typeof(pos))(ehead); \
 	     (pos) < (typeof(pos))((char *)(ehead) + (esize)); \
 	     (pos) = (typeof(pos))((char *)(pos) + (pos)->next_offset))
 
+/* can only be xt_entry_match, so no use of typeof here */
 #define xt_ematch_foreach(pos, entry) \
 	for ((pos) = (struct xt_entry_match *)entry->elems; \
 	     (pos) < (struct xt_entry_match *)((char *)(entry) + \
@@ -206,6 +223,19 @@ struct xt_action_param {
 	bool hotdrop;
 };
 
+/**
+ * struct xt_mtchk_param - parameters for match extensions'
+ * checkentry functions
+ *
+ * @net:	network namespace through which the check was invoked
+ * @table:	table the rule is tried to be inserted into
+ * @entryinfo:	the family-specific rule data
+ * 		(struct ipt_ip, ip6t_ip, arpt_arp or (note) ebt_entry)
+ * @match:	struct xt_match through which this function was invoked
+ * @matchinfo:	per-match data
+ * @hook_mask:	via which hooks the new rule is reachable
+ * Other fields as above.
+ */
 struct xt_mtchk_param {
 	struct net *net;
 	const char *table;
@@ -216,6 +246,10 @@ struct xt_mtchk_param {
 	u_int8_t family;
 };
 
+/**
+ * struct xt_mdtor_param - match destructor parameters
+ * Fields as above.
+ */
 struct xt_mtdtor_param {
 	struct net *net;
 	const struct xt_match *match;
@@ -223,6 +257,15 @@ struct xt_mtdtor_param {
 	u_int8_t family;
 };
 
+/**
+ * struct xt_tgchk_param - parameters for target extensions'
+ * checkentry functions
+ *
+ * @entryinfo:	the family-specific rule data
+ * 		(struct ipt_entry, ip6t_entry, arpt_entry, ebt_entry)
+ *
+ * Other fields see above.
+ */
 struct xt_tgchk_param {
 	struct net *net;
 	const char *table;
@@ -233,6 +276,7 @@ struct xt_tgchk_param {
 	u_int8_t family;
 };
 
+/* Target destructor parameters */
 struct xt_tgdtor_param {
 	struct net *net;
 	const struct xt_target *target;
@@ -246,20 +290,25 @@ struct xt_match {
 	const char name[XT_EXTENSION_MAXNAMELEN];
 	u_int8_t revision;
 
+	/* Return true or false: return FALSE and set *hotdrop = 1 to
+           force immediate packet drop. */
+	/* Arguments changed since 2.6.9, as this must now handle
+	   non-linear skb, using skb_header_pointer and
+	   skb_ip_make_writable. */
 	bool (*match)(const struct sk_buff *skb,
 		      struct xt_action_param *);
 
-	
+	/* Called when user tries to insert an entry of this type. */
 	int (*checkentry)(const struct xt_mtchk_param *);
 
-	
+	/* Called when entry of this type deleted. */
 	void (*destroy)(const struct xt_mtdtor_param *);
 #ifdef CONFIG_COMPAT
-	
+	/* Called when userspace align differs from kernel space one */
 	void (*compat_from_user)(void *dst, const void *src);
 	int (*compat_to_user)(void __user *dst, const void *src);
 #endif
-	
+	/* Set this to THIS_MODULE if you are a module, otherwise NULL */
 	struct module *me;
 
 	const char *table;
@@ -273,26 +322,33 @@ struct xt_match {
 	unsigned short family;
 };
 
+/* Registration hooks for targets. */
 struct xt_target {
 	struct list_head list;
 
 	const char name[XT_EXTENSION_MAXNAMELEN];
 	u_int8_t revision;
 
+	/* Returns verdict. Argument order changed since 2.6.9, as this
+	   must now handle non-linear skbs, using skb_copy_bits and
+	   skb_ip_make_writable. */
 	unsigned int (*target)(struct sk_buff *skb,
 			       const struct xt_action_param *);
 
-	
+	/* Called when user tries to insert an entry of this type:
+           hook_mask is a bitmask of hooks from which it can be
+           called. */
+	/* Should return 0 on success or an error code otherwise (-Exxxx). */
 	int (*checkentry)(const struct xt_tgchk_param *);
 
-	
+	/* Called when entry of this type deleted. */
 	void (*destroy)(const struct xt_tgdtor_param *);
 #ifdef CONFIG_COMPAT
-	
+	/* Called when userspace align differs from kernel space one */
 	void (*compat_from_user)(void *dst, const void *src);
 	int (*compat_to_user)(void __user *dst, const void *src);
 #endif
-	
+	/* Set this to THIS_MODULE if you are a module, otherwise NULL */
 	struct module *me;
 
 	const char *table;
@@ -306,44 +362,50 @@ struct xt_target {
 	unsigned short family;
 };
 
+/* Furniture shopping... */
 struct xt_table {
 	struct list_head list;
 
-	
+	/* What hooks you will enter on */
 	unsigned int valid_hooks;
 
-	
+	/* Man behind the curtain... */
 	struct xt_table_info *private;
 
-	
+	/* Set this to THIS_MODULE if you are a module, otherwise NULL */
 	struct module *me;
 
-	u_int8_t af;		
-	int priority;		
+	u_int8_t af;		/* address/protocol family */
+	int priority;		/* hook order */
 
-	
+	/* A unique name... */
 	const char name[XT_TABLE_MAXNAMELEN];
 };
 
 #include <linux/netfilter_ipv4.h>
 
+/* The table itself */
 struct xt_table_info {
-	
+	/* Size per table */
 	unsigned int size;
-	
+	/* Number of entries: FIXME. --RR */
 	unsigned int number;
-	
+	/* Initial number of entries. Needed for module usage count */
 	unsigned int initial_entries;
 
-	
+	/* Entry points and underflows */
 	unsigned int hook_entry[NF_INET_NUMHOOKS];
 	unsigned int underflow[NF_INET_NUMHOOKS];
 
+	/*
+	 * Number of user chains. Since tables cannot have loops, at most
+	 * @stacksize jumps (number of user chains) can possibly be made.
+	 */
 	unsigned int stacksize;
 	unsigned int __percpu *stackptr;
 	void ***jumpstack;
-	
-	
+	/* ipt_entry tables: one per CPU */
+	/* Note : this field MUST be the last one, see XT_TABLE_INFO_SZ */
 	void *entries[1];
 };
 
@@ -394,27 +456,65 @@ extern void xt_proto_fini(struct net *net, u_int8_t af);
 extern struct xt_table_info *xt_alloc_table_info(unsigned int size);
 extern void xt_free_table_info(struct xt_table_info *info);
 
+/**
+ * xt_recseq - recursive seqcount for netfilter use
+ * 
+ * Packet processing changes the seqcount only if no recursion happened
+ * get_counters() can use read_seqcount_begin()/read_seqcount_retry(),
+ * because we use the normal seqcount convention :
+ * Low order bit set to 1 if a writer is active.
+ */
 DECLARE_PER_CPU(seqcount_t, xt_recseq);
 
+/**
+ * xt_write_recseq_begin - start of a write section
+ *
+ * Begin packet processing : all readers must wait the end
+ * 1) Must be called with preemption disabled
+ * 2) softirqs must be disabled too (or we should use this_cpu_add())
+ * Returns :
+ *  1 if no recursion on this cpu
+ *  0 if recursion detected
+ */
 static inline unsigned int xt_write_recseq_begin(void)
 {
 	unsigned int addend;
 
+	/*
+	 * Low order bit of sequence is set if we already
+	 * called xt_write_recseq_begin().
+	 */
 	addend = (__this_cpu_read(xt_recseq.sequence) + 1) & 1;
 
+	/*
+	 * This is kind of a write_seqcount_begin(), but addend is 0 or 1
+	 * We dont check addend value to avoid a test and conditional jump,
+	 * since addend is most likely 1
+	 */
 	__this_cpu_add(xt_recseq.sequence, addend);
 	smp_wmb();
 
 	return addend;
 }
 
+/**
+ * xt_write_recseq_end - end of a write section
+ * @addend: return value from previous xt_write_recseq_begin()
+ *
+ * End packet processing : all readers can proceed
+ * 1) Must be called with preemption disabled
+ * 2) softirqs must be disabled too (or we should use this_cpu_add())
+ */
 static inline void xt_write_recseq_end(unsigned int addend)
 {
-	
+	/* this is kind of a write_seqcount_end(), but addend is 0 or 1 */
 	smp_wmb();
 	__this_cpu_add(xt_recseq.sequence, addend);
 }
 
+/*
+ * This helper is performance critical and must be inlined
+ */
 static inline unsigned long ifname_compare_aligned(const char *_a,
 						   const char *_b,
 						   const char *_mask)
@@ -473,9 +573,12 @@ struct compat_xt_entry_target {
 	unsigned char data[0];
 };
 
+/* FIXME: this works only on 32 bit tasks
+ * need to change whole approach in order to calculate align as function of
+ * current task alignment */
 
 struct compat_xt_counters {
-	compat_u64 pcnt, bcnt;			
+	compat_u64 pcnt, bcnt;			/* Packet and byte counters */
 };
 
 struct compat_xt_counters_info {
@@ -513,7 +616,7 @@ extern void xt_compat_target_from_user(struct xt_entry_target *t,
 extern int xt_compat_target_to_user(const struct xt_entry_target *t,
 				    void __user **dstptr, unsigned int *size);
 
-#endif 
-#endif 
+#endif /* CONFIG_COMPAT */
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _X_TABLES_H */

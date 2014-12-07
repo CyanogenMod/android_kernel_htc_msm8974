@@ -18,4 +18,4 @@ static inline struct tcf_nat *to_tcf_nat(struct tcf_common *pc)
 	return container_of(pc, struct tcf_nat, common);
 }
 
-#endif 
+#endif /* __NET_TC_NAT_H */

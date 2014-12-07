@@ -18,6 +18,7 @@
 #define DEBUG_SECTION_SZ(_dwords) (((_dwords) * sizeof(unsigned int)) \
 		+ sizeof(struct kgsl_snapshot_debug))
 
+/* Dump the SX debug registers into a GPU snapshot debug section */
 
 #define SXDEBUG_COUNT 0x1B
 
@@ -73,6 +74,11 @@ static int a2xx_snapshot_cpdebug(struct kgsl_device *device, void *snapshot,
 	return DEBUG_SECTION_SZ(CPDEBUG_COUNT);
 }
 
+/*
+ * The contents of the SQ debug sections are dword pairs:
+ * [register offset]:[value]
+ * This macro writes both dwords for the given register
+ */
 
 #define SQ_DEBUG_WRITE(_device, _reg, _data, _offset) \
 	do { _data[(_offset)++] = (_reg); \
@@ -219,6 +225,7 @@ static int a2xx_snapshot_miudebug(struct kgsl_device *device, void *snapshot,
 	return DEBUG_SECTION_SZ(MIUDEBUG_COUNT);
 }
 
+/* Snapshot the istore memory */
 static int a2xx_snapshot_istore(struct kgsl_device *device, void *snapshot,
 	int remain, void *priv)
 {
@@ -243,6 +250,9 @@ static int a2xx_snapshot_istore(struct kgsl_device *device, void *snapshot,
 	return (count * 4) + sizeof(*header);
 }
 
+/* A2XX GPU snapshot function - this is where all of the A2XX specific
+ * bits and pieces are grabbed into the snapshot memory
+ */
 
 void *a2xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	int *remain, int hang)
@@ -252,7 +262,7 @@ void *a2xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	struct kgsl_snapshot_registers regs;
 	unsigned int pmoverride;
 
-	
+	/* Choose the register set to dump */
 
 	if (adreno_is_a20x(adreno_dev)) {
 		regs.regs = (unsigned int *) a200_registers;
@@ -268,84 +278,96 @@ void *a2xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	list.registers = &regs;
 	list.count = 1;
 
-	
+	/* Master set of (non debug) registers */
 	snapshot = kgsl_snapshot_add_section(device,
 		KGSL_SNAPSHOT_SECTION_REGS, snapshot, remain,
 		kgsl_snapshot_dump_regs, &list);
 
-	
+	/* CP_STATE_DEBUG indexed registers */
 	snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, REG_CP_STATE_DEBUG_INDEX,
 			REG_CP_STATE_DEBUG_DATA, 0x0, 0x14);
 
-	
+	/* CP_ME indexed registers */
 	snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, REG_CP_ME_CNTL, REG_CP_ME_STATUS,
 			64, 44);
 
+	/*
+	 * Need to temporarily turn off clock gating for the debug bus to
+	 * work
+	 */
 
 	kgsl_regread(device, REG_RBBM_PM_OVERRIDE2, &pmoverride);
 	kgsl_regwrite(device, REG_RBBM_PM_OVERRIDE2, 0xFF);
 
-	
+	/* SX debug registers */
 	snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a2xx_snapshot_sxdebug, NULL);
 
-	
+	/* SU debug indexed registers (only for < 470) */
 	if (!adreno_is_a22x(adreno_dev))
 		snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 				remain, REG_PA_SU_DEBUG_CNTL,
 				REG_PA_SU_DEBUG_DATA,
 				0, 0x1B);
 
-	
+	/* CP debug registers */
 	snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a2xx_snapshot_cpdebug, NULL);
 
-	
+	/* MH debug indexed registers */
 	snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, MH_DEBUG_CTRL, MH_DEBUG_DATA, 0x0, 0x40);
 
-	
+	/* Leia only register sets */
 	if (adreno_is_a22x(adreno_dev)) {
-		
+		/* RB DEBUG indexed regisers */
 		snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, REG_RB_DEBUG_CNTL, REG_RB_DEBUG_DATA, 0, 8);
 
-		
+		/* RB DEBUG indexed registers bank 2 */
 		snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, REG_RB_DEBUG_CNTL, REG_RB_DEBUG_DATA + 0x1000,
 			0, 8);
 
-		
+		/* PC_DEBUG indexed registers */
 		snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, REG_PC_DEBUG_CNTL, REG_PC_DEBUG_DATA, 0, 8);
 
-		
+		/* GRAS_DEBUG indexed registers */
 		snapshot = kgsl_snapshot_indexed_registers(device, snapshot,
 			remain, REG_GRAS_DEBUG_CNTL, REG_GRAS_DEBUG_DATA, 0, 4);
 
-		
+		/* MIU debug registers */
 		snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a2xx_snapshot_miudebug, NULL);
 
-		
+		/* SQ DEBUG debug registers */
 		snapshot = kgsl_snapshot_add_section(device,
 			KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 			a2xx_snapshot_sqdebug, NULL);
 
+		/*
+		 * Reading SQ THREAD causes bad things to happen on a running
+		 * system, so only read it if the GPU is already hung
+		 */
 
 		if (hang) {
-			
+			/* SQ THREAD debug registers */
 			snapshot = kgsl_snapshot_add_section(device,
 				KGSL_SNAPSHOT_SECTION_DEBUG, snapshot, remain,
 				a2xx_snapshot_sqthreaddebug, NULL);
 		}
 	}
 
+	/*
+	 * Only dump the istore on a hang - reading it on a running system
+	 * has a non zero chance of hanging the GPU.
+	 */
 
 	if (adreno_is_a2xx(adreno_dev) && hang) {
 		snapshot = kgsl_snapshot_add_section(device,
@@ -354,7 +376,7 @@ void *a2xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	}
 
 
-	
+	/* Reset the clock gating */
 	kgsl_regwrite(device, REG_RBBM_PM_OVERRIDE2, pmoverride);
 
 	return snapshot;

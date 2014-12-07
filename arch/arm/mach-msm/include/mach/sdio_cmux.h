@@ -11,6 +11,9 @@
  *
  */
 
+/*
+ * SDIO CMUX API
+ */
 
 #ifndef __SDIO_CMUX__
 #define __SDIO_CMUX__
@@ -51,8 +54,18 @@ int sdio_cmux_open(const int id,
 		   void (*status_callback)(int, void *),
 		   void *priv);
 
+/*
+ * sdio_cmux_close - Close the mux channel
+ *
+ * @id: Channel id to be closed
+ */
 int sdio_cmux_close(int id);
 
+/*
+ * sdio_cmux_write_avail - Write space avaialable for this channel
+ *
+ * @id: Channel id to look for the available write space
+ */
 int sdio_cmux_write_avail(int id);
 
 /*
@@ -64,11 +77,24 @@ int sdio_cmux_write_avail(int id);
  */
 int sdio_cmux_write(int id, void *data, int len);
 
+/* these are used to get and set the IF sigs of a channel.
+ * DTR and RTS can be set; DSR, CTS, CD and RI can be read.
+ */
 int sdio_cmux_tiocmget(int id);
 int sdio_cmux_tiocmset(int id, unsigned int set, unsigned int clear);
 
+/*
+ * is_remote_open - Check whether the remote channel is open
+ *
+ * @id: Channel id to be checked
+ */
 int is_remote_open(int id);
 
+/*
+ * sdio_cmux_is_channel_reset - Check whether the channel is in reset state
+ *
+ * @id: Channel id to be checked
+ */
 int sdio_cmux_is_channel_reset(int id);
 
 #else
@@ -117,4 +143,4 @@ static int __maybe_unused sdio_cmux_is_channel_reset(int id)
 	return -ENODEV;
 }
 #endif
-#endif 
+#endif /* __SDIO_CMUX__ */

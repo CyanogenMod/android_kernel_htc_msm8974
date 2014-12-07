@@ -14,6 +14,14 @@
 #ifndef __ASM_ARCH_MSM_IOMAP_8974_H
 #define __ASM_ARCH_MSM_IOMAP_8974_H
 
+/* Physical base address and size of peripherals.
+ * Ordered by the virtual base addresses they will be mapped at.
+ *
+ * If you add or remove entries here, you'll want to edit the
+ * io desc array in arch/arm/mach-msm/io.c to reflect your
+ * changes.
+ *
+ */
 
 #define MSM8974_MSM_SHARED_RAM_PHYS	0x0FA00000
 
@@ -35,7 +43,7 @@
 #endif
 
 #ifdef CONFIG_HTC_DEBUG_FOOTPRINT
-#define HTC_DEBUG_FOOTPRINT_PHYS	0x05B00000 + (SZ_1M - SZ_64K + SZ_4K) 
+#define HTC_DEBUG_FOOTPRINT_PHYS	0x05B00000 + (SZ_1M - SZ_64K + SZ_4K) // 0x05BF1000
 #define HTC_DEBUG_FOOTPRINT_BASE	IOMEM(0xFE000000)
 #define HTC_DEBUG_FOOTPRINT_SIZE	SZ_4K
 #endif

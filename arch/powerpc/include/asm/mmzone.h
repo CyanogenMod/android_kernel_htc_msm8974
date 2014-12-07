@@ -10,12 +10,24 @@
 
 #include <linux/cpumask.h>
 
+/*
+ * generic non-linear memory support:
+ *
+ * 1) we will not split memory into more chunks than will fit into the
+ *    flags field of the struct page
+ */
 
 #ifdef CONFIG_NEED_MULTIPLE_NODES
 
 extern struct pglist_data *node_data[];
+/*
+ * Return a pointer to the node data for node n.
+ */
 #define NODE_DATA(nid)		(node_data[nid])
 
+/*
+ * Following are specific to this numa platform.
+ */
 
 extern int numa_cpu_lookup_table[];
 extern cpumask_var_t node_to_cpumask_map[];
@@ -28,7 +40,7 @@ u64 memory_hotplug_max(void);
 
 #else
 #define memory_hotplug_max() memblock_end_of_DRAM()
-#endif 
+#endif /* CONFIG_NEED_MULTIPLE_NODES */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_MMZONE_H_ */

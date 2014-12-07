@@ -53,4 +53,4 @@ extern void do_dabr(struct pt_regs *regs, unsigned long address,
 		    unsigned long error_code);
 #endif
 
-#endif 
+#endif /* _ASM_POWERPC_DEBUG_H */

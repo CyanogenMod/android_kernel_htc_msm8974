@@ -62,12 +62,13 @@ static const struct file_operations ima_measurements_count_ops = {
 	.llseek = generic_file_llseek,
 };
 
+/* returns pointer to hlist_node */
 static void *ima_measurements_start(struct seq_file *m, loff_t *pos)
 {
 	loff_t l = *pos;
 	struct ima_queue_entry *qe;
 
-	
+	/* we need a lock since pos could point beyond last element */
 	rcu_read_lock();
 	list_for_each_entry_rcu(qe, &ima_measurements, later) {
 		if (!l--) {
@@ -83,6 +84,9 @@ static void *ima_measurements_next(struct seq_file *m, void *v, loff_t *pos)
 {
 	struct ima_queue_entry *qe = v;
 
+	/* lock protects when reading beyond last element
+	 * against concurrent list-extension
+	 */
 	rcu_read_lock();
 	qe = list_entry_rcu(qe->later.next,
 			    struct ima_queue_entry, later);
@@ -102,32 +106,44 @@ static void ima_putc(struct seq_file *m, void *data, int datalen)
 		seq_putc(m, *(char *)data++);
 }
 
+/* print format:
+ *       32bit-le=pcr#
+ *       char[20]=template digest
+ *       32bit-le=template name size
+ *       char[n]=template name
+ *       eventdata[n]=template specific data
+ */
 static int ima_measurements_show(struct seq_file *m, void *v)
 {
-	
+	/* the list never shrinks, so we don't need a lock here */
 	struct ima_queue_entry *qe = v;
 	struct ima_template_entry *e;
 	int namelen;
 	u32 pcr = CONFIG_IMA_MEASURE_PCR_IDX;
 
-	
+	/* get entry */
 	e = qe->entry;
 	if (e == NULL)
 		return -1;
 
+	/*
+	 * 1st: PCRIndex
+	 * PCR used is always the same (config option) in
+	 * little-endian format
+	 */
 	ima_putc(m, &pcr, sizeof pcr);
 
-	
+	/* 2nd: template digest */
 	ima_putc(m, e->digest, IMA_DIGEST_SIZE);
 
-	
+	/* 3rd: template name size */
 	namelen = strlen(e->template_name);
 	ima_putc(m, &namelen, sizeof namelen);
 
-	
+	/* 4th:  template name */
 	ima_putc(m, (void *)e->template_name, namelen);
 
-	
+	/* 5th:  template specific data */
 	ima_template_show(m, (struct ima_template_data *)&e->template,
 			  IMA_SHOW_BINARY);
 	return 0;
@@ -181,27 +197,28 @@ void ima_template_show(struct seq_file *m, void *e, enum ima_show_type show)
 	}
 }
 
+/* print in ascii */
 static int ima_ascii_measurements_show(struct seq_file *m, void *v)
 {
-	
+	/* the list never shrinks, so we don't need a lock here */
 	struct ima_queue_entry *qe = v;
 	struct ima_template_entry *e;
 
-	
+	/* get entry */
 	e = qe->entry;
 	if (e == NULL)
 		return -1;
 
-	
+	/* 1st: PCR used (config option) */
 	seq_printf(m, "%2d ", CONFIG_IMA_MEASURE_PCR_IDX);
 
-	
+	/* 2nd: SHA1 template hash */
 	ima_print_digest(m, e->digest);
 
-	
+	/* 3th:  template name */
 	seq_printf(m, " %s ", e->template_name);
 
-	
+	/* 4th:  template specific data */
 	ima_template_show(m, (struct ima_template_data *)&e->template,
 			  IMA_SHOW_ASCII);
 	return 0;
@@ -235,7 +252,7 @@ static ssize_t ima_write_policy(struct file *file, const char __user *buf,
 	if (datalen >= PAGE_SIZE)
 		datalen = PAGE_SIZE - 1;
 
-	
+	/* No partial writes. */
 	result = -EINVAL;
 	if (*ppos != 0)
 		goto out;
@@ -267,9 +284,12 @@ static struct dentry *violations;
 static struct dentry *ima_policy;
 
 static atomic_t policy_opencount = ATOMIC_INIT(1);
+/*
+ * ima_open_policy: sequentialize access to the policy file
+ */
 static int ima_open_policy(struct inode * inode, struct file * filp)
 {
-	
+	/* No point in being allowed to open it if you aren't going to write */
 	if (!(filp->f_flags & O_WRONLY))
 		return -EACCES;
 	if (atomic_dec_and_test(&policy_opencount))
@@ -277,6 +297,13 @@ static int ima_open_policy(struct inode * inode, struct file * filp)
 	return -EBUSY;
 }
 
+/*
+ * ima_release_policy - start using the new measure policy rules.
+ *
+ * Initially, ima_measure points to the default policy rules, now
+ * point to the new policy rules, and remove the securityfs policy file,
+ * assuming a valid policy.
+ */
 static int ima_release_policy(struct inode *inode, struct file *file)
 {
 	if (!valid_policy) {

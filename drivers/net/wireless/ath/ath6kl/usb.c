@@ -21,6 +21,7 @@
 #include "debug.h"
 #include "core.h"
 
+/* usb device object */
 struct ath6kl_usb {
 	struct usb_device *udev;
 	struct usb_interface *interface;
@@ -29,6 +30,7 @@ struct ath6kl_usb {
 	struct ath6kl *ar;
 };
 
+/* diagnostic command defnitions */
 #define ATH6KL_USB_CONTROL_REQ_SEND_BMI_CMD        1
 #define ATH6KL_USB_CONTROL_REQ_RECV_BMI_RESP       2
 #define ATH6KL_USB_CONTROL_REQ_DIAG_CMD            3
@@ -132,7 +134,7 @@ static int ath6kl_usb_submit_ctrl_out(struct ath6kl_usb *ar_usb,
 		memcpy(buf, data, size);
 	}
 
-	
+	/* note: if successful returns number of bytes transfered */
 	ret = usb_control_msg(ar_usb->udev,
 			      usb_sndctrlpipe(ar_usb->udev, 0),
 			      req,
@@ -163,7 +165,7 @@ static int ath6kl_usb_submit_ctrl_in(struct ath6kl_usb *ar_usb,
 			return -ENOMEM;
 	}
 
-	
+	/* note: if successful returns number of bytes transfered */
 	ret = usb_control_msg(ar_usb->udev,
 				 usb_rcvctrlpipe(ar_usb->udev, 0),
 				 req,
@@ -189,7 +191,7 @@ static int ath6kl_usb_ctrl_msg_exchange(struct ath6kl_usb *ar_usb,
 {
 	int ret;
 
-	
+	/* send command */
 	ret = ath6kl_usb_submit_ctrl_out(ar_usb, req_val, 0, 0,
 					 req_buf, req_len);
 
@@ -197,11 +199,11 @@ static int ath6kl_usb_ctrl_msg_exchange(struct ath6kl_usb *ar_usb,
 		return ret;
 
 	if (resp_buf == NULL) {
-		
+		/* no expected response */
 		return ret;
 	}
 
-	
+	/* get response */
 	ret = ath6kl_usb_submit_ctrl_in(ar_usb, resp_val, 0, 0,
 					resp_buf, *resp_len);
 
@@ -266,7 +268,7 @@ static int ath6kl_usb_bmi_read(struct ath6kl *ar, u8 *buf, u32 len)
 	struct ath6kl_usb *ar_usb = ar->hif_priv;
 	int ret;
 
-	
+	/* get response */
 	ret = ath6kl_usb_submit_ctrl_in(ar_usb,
 					ATH6KL_USB_CONTROL_REQ_RECV_BMI_RESP,
 					0, 0, buf, len);
@@ -284,7 +286,7 @@ static int ath6kl_usb_bmi_write(struct ath6kl *ar, u8 *buf, u32 len)
 	struct ath6kl_usb *ar_usb = ar->hif_priv;
 	int ret;
 
-	
+	/* send command */
 	ret = ath6kl_usb_submit_ctrl_out(ar_usb,
 					 ATH6KL_USB_CONTROL_REQ_SEND_BMI_CMD,
 					 0, 0, buf, len);
@@ -316,6 +318,7 @@ static const struct ath6kl_hif_ops ath6kl_usb_ops = {
 	.power_off = ath6kl_usb_power_off,
 };
 
+/* ath6kl usb driver registered functions */
 static int ath6kl_usb_probe(struct usb_interface *interface,
 			    const struct usb_device_id *id)
 {
@@ -389,9 +392,10 @@ static void ath6kl_usb_remove(struct usb_interface *interface)
 	ath6kl_usb_device_detached(interface);
 }
 
+/* table of devices that work with this driver */
 static struct usb_device_id ath6kl_usb_ids[] = {
 	{USB_DEVICE(0x0cf3, 0x9374)},
-	{  },
+	{ /* Terminating entry */ },
 };
 
 MODULE_DEVICE_TABLE(usb, ath6kl_usb_ids);

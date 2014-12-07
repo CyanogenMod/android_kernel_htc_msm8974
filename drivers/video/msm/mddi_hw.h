@@ -122,8 +122,11 @@
 #define MDDI_CLIENT_CAPABILITY_REV_PKT_SIZE  0x60
 #define MDDI_MAX_REV_PKT_SIZE                0x60
 
+/* #define MDDI_REV_BUFFER_SIZE 128 */
 #define MDDI_REV_BUFFER_SIZE (MDDI_MAX_REV_PKT_SIZE * 4)
 
+/* MDP sends 256 pixel packets, so lower value hibernates more without
+ * significantly increasing latency of waiting for next subframe */
 #define MDDI_HOST_BYTES_PER_SUBFRAME  0x3C00
 
 #if defined(CONFIG_MSM_MDP31) || defined(CONFIG_MSM_MDP40)
@@ -145,7 +148,7 @@ struct __attribute__((packed)) mddi_client_status {
 	uint16_t length;
 	uint16_t type;
 	uint16_t client_id;
-	uint16_t reverse_link_request;  
+	uint16_t reverse_link_request;  /* bytes needed in rev encap message */
 	uint8_t  crc_error_count;
 	uint8_t  capability_change;
 	uint16_t graphics_busy_flags;
@@ -153,8 +156,8 @@ struct __attribute__((packed)) mddi_client_status {
 };
 
 struct __attribute__((packed)) mddi_client_caps {
-	uint16_t length; 
-	uint16_t type; 
+	uint16_t length; /* length, exclusive of this field */
+	uint16_t type; /* 66 */
 	uint16_t client_id;
 
 	uint16_t Protocol_Version;
@@ -201,10 +204,18 @@ struct __attribute__((packed)) mddi_client_caps {
 
 struct __attribute__((packed)) mddi_video_stream {
 	uint16_t length;
-	uint16_t type; 
-	uint16_t client_id; 
+	uint16_t type; /* 16 */
+	uint16_t client_id; /* 0 */
 
 	uint16_t video_data_format_descriptor;
+/* format of each pixel in the Pixel Data in the present stream in the
+ * present packet.
+ * If bits [15:13] = 000 monochrome
+ * If bits [15:13] = 001 color pixels (palette).
+ * If bits [15:13] = 010 color pixels in raw RGB
+ * If bits [15:13] = 011 data in 4:2:2 Y Cb Cr format
+ * If bits [15:13] = 100 Bayer pixels
+ */
 
 	uint16_t pixel_data_attributes;
 /* interpreted as follows:
@@ -233,22 +244,26 @@ struct __attribute__((packed)) mddi_video_stream {
 
 	uint16_t x_left_edge;
 	uint16_t y_top_edge;
-	
+	/* X,Y coordinate of the top left edge of the screen window */
 
 	uint16_t x_right_edge;
 	uint16_t y_bottom_edge;
+	/* X,Y coordinate of the bottom right edge of the window being
+	 * updated. */
 
 	uint16_t x_start;
 	uint16_t y_start;
+	/* (X Start, Y Start) is the first pixel in the Pixel Data field
+	 * below. */
 
 	uint16_t pixel_count;
-	
+	/* number of pixels in the Pixel Data field below. */
 
 	uint16_t parameter_CRC;
-	
+	/* 16-bit CRC of all bytes from the Packet Length to the Pixel Count. */
 
 	uint16_t reserved;
-	
+	/* 16-bit variable to make structure align on 4 byte boundary */
 };
 
 #define TYPE_VIDEO_STREAM      16
@@ -258,10 +273,17 @@ struct __attribute__((packed)) mddi_video_stream {
 
 struct __attribute__((packed)) mddi_register_access {
 	uint16_t length;
-	uint16_t type; 
+	uint16_t type; /* 146 */
 	uint16_t client_id;
 
 	uint16_t read_write_info;
+	/* Bits 13:0  a 14-bit unsigned integer that specifies the number of
+	 *            32-bit Register Data List items to be transferred in the
+	 *            Register Data List field.
+	 * Bits[15:14] = 00  Write to register(s);
+	 * Bits[15:14] = 10  Read from register(s);
+	 * Bits[15:14] = 11  Response to a Read.
+	 * Bits[15:14] = 01  this value is reserved for future use. */
 #define MDDI_WRITE     (0 << 14)
 #define MDDI_READ      (2 << 14)
 #define MDDI_READ_RESP (3 << 14)
@@ -272,14 +294,14 @@ struct __attribute__((packed)) mddi_register_access {
 	uint16_t crc16;
 
 	uint32_t register_data_list;
-	
+	/* list of 4-byte register data values for/from client registers */
 };
 
 struct __attribute__((packed)) mddi_llentry {
 	uint16_t flags;
 	uint16_t header_count;
 	uint16_t data_count;
-	dma_addr_t data; 
+	dma_addr_t data; /* 32 bit */
 	struct mddi_llentry *next;
 	uint16_t reserved;
 	union {

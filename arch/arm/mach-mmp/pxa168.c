@@ -48,6 +48,7 @@ void __init pxa168_init_irq(void)
 	icu_init_irq();
 }
 
+/* APB peripheral clocks */
 static APBC_CLK(uart1, PXA168_UART1, 1, 14745600);
 static APBC_CLK(uart2, PXA168_UART2, 1, 14745600);
 static APBC_CLK(uart3, PXA168_UART3, 1, 14745600);
@@ -71,6 +72,7 @@ static APMU_CLK(lcd, LCD, 0x7f, 312000000);
 static APMU_CLK(eth, ETH, 0x09, 0);
 static APMU_CLK(usb, USB, 0x12, 0);
 
+/* device and clock bindings */
 static struct clk_lookup pxa168_clkregs[] = {
 	INIT_CLKREG(&clk_uart1, "pxa2xx-uart.0", NULL),
 	INIT_CLKREG(&clk_uart2, "pxa2xx-uart.1", NULL),
@@ -108,13 +110,18 @@ static int __init pxa168_init(void)
 }
 postcore_initcall(pxa168_init);
 
+/* system timer - clock enabled, 3.25MHz */
 #define TIMER_CLK_RST	(APBC_APBCLK | APBC_FNCLK | APBC_FNCLKSEL(3))
 
 static void __init pxa168_timer_init(void)
 {
+	/* this is early, we have to initialize the CCU registers by
+	 * ourselves instead of using clk_* API. Clock rate is defined
+	 * by APBC_TIMERS_CLK_RST (3.25MHz) and enabled free-running
+	 */
 	__raw_writel(APBC_APBCLK | APBC_RST, APBC_PXA168_TIMERS);
 
-	
+	/* 3.25MHz, bus/functional clock enabled, release reset */
 	__raw_writel(TIMER_CLK_RST, APBC_PXA168_TIMERS);
 
 	timer_init(IRQ_PXA168_TIMER1);
@@ -129,11 +136,12 @@ void pxa168_clear_keypad_wakeup(void)
 	uint32_t val;
 	uint32_t mask = APMU_PXA168_KP_WAKE_CLR;
 
-	
+	/* wake event clear is needed in order to clear keypad interrupt */
 	val = __raw_readl(APMU_WAKE_CLR);
 	__raw_writel(val |  mask, APMU_WAKE_CLR);
 }
 
+/* on-chip devices */
 PXA168_DEVICE(uart1, "pxa2xx-uart", 0, UART1, 0xd4017000, 0x30, 21, 22);
 PXA168_DEVICE(uart2, "pxa2xx-uart", 1, UART2, 0xd4018000, 0x30, 23, 24);
 PXA168_DEVICE(uart3, "pxa2xx-uart", 2, UART3, 0xd4026000, 0x30, 23, 24);
@@ -174,14 +182,14 @@ struct platform_device pxa168_device_gpio = {
 };
 
 struct resource pxa168_usb_host_resources[] = {
-	
+	/* USB Host conroller register base */
 	[0] = {
 		.start	= 0xd4209000,
 		.end	= 0xd4209000 + 0x200,
 		.flags	= IORESOURCE_MEM,
 		.name	= "pxa168-usb-host",
 	},
-	
+	/* USB PHY register base */
 	[1] = {
 		.start	= 0xd4206000,
 		.end	= 0xd4206000 + 0xff,

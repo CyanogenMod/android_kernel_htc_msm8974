@@ -7,8 +7,10 @@
 #ifndef _CDEF_BF518_H
 #define _CDEF_BF518_H
 
+/* BF518 is BF516 + IEEE-1588 */
 #include "cdefBF516.h"
 
+/* PTP TSYNC Registers */
 
 #define bfin_read_EMAC_PTP_CTL()                bfin_read16(EMAC_PTP_CTL)
 #define bfin_write_EMAC_PTP_CTL(val)            bfin_write16(EMAC_PTP_CTL, val)
@@ -51,4 +53,4 @@
 #define bfin_read_EMAC_PTP_PPS_PERIOD()         bfin_read32(EMAC_PTP_PPS_PERIOD)
 #define bfin_write_EMAC_PTP_PPS_PERIOD(val)     bfin_write32(EMAC_PTP_PPS_PERIOD, val)
 
-#endif 
+#endif /* _CDEF_BF518_H */

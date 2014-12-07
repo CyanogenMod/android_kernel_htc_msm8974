@@ -30,6 +30,11 @@
 
 #include "setup.h"
 
+/*
+ * PKUnity GPIO edge detection for IRQs:
+ * IRQs are generated on Falling-Edge, Rising-Edge, or both.
+ * Use this instead of directly setting GRER/GFER.
+ */
 static int GPIO_IRQ_rising_edge;
 static int GPIO_IRQ_falling_edge;
 static int GPIO_IRQ_mask = 0;
@@ -66,6 +71,9 @@ static int puv3_gpio_type(struct irq_data *d, unsigned int type)
 	return 0;
 }
 
+/*
+ * GPIO IRQs must be acknowledged.  This is for IRQs from 0 to 7.
+ */
 static void puv3_low_gpio_ack(struct irq_data *d)
 {
 	writel((1 << d->irq), GPIO_GEDR);
@@ -99,6 +107,11 @@ static struct irq_chip puv3_low_gpio_chip = {
 	.irq_set_wake	= puv3_low_gpio_wake,
 };
 
+/*
+ * IRQ8 (GPIO0 through 27) handler.  We enter here with the
+ * irq_controller_lock held, and IRQs disabled.  Decode the IRQ
+ * and call the handler.
+ */
 static void
 puv3_gpio_handler(unsigned int irq, struct irq_desc *desc)
 {
@@ -106,6 +119,10 @@ puv3_gpio_handler(unsigned int irq, struct irq_desc *desc)
 
 	mask = readl(GPIO_GEDR);
 	do {
+		/*
+		 * clear down all currently active IRQ sources.
+		 * We will be processing them all.
+		 */
 		writel(mask, GPIO_GEDR);
 
 		irq = IRQ_GPIO0;
@@ -119,6 +136,11 @@ puv3_gpio_handler(unsigned int irq, struct irq_desc *desc)
 	} while (mask);
 }
 
+/*
+ * GPIO0-27 edge IRQs need to be handled specially.
+ * In addition, the IRQs are all collected up into one bit in the
+ * interrupt controller registers.
+ */
 static void puv3_high_gpio_ack(struct irq_data *d)
 {
 	unsigned int mask = GPIO_MASK(d->irq);
@@ -164,6 +186,10 @@ static struct irq_chip puv3_high_gpio_chip = {
 	.irq_set_wake	= puv3_high_gpio_wake,
 };
 
+/*
+ * We don't need to ACK IRQs on the PKUnity unless they're GPIOs
+ * this is for internal IRQs i.e. from 8 to 31.
+ */
 static void puv3_mask_irq(struct irq_data *d)
 {
 	writel(readl(INTC_ICMR) & ~(1 << d->irq), INTC_ICMR);
@@ -174,6 +200,9 @@ static void puv3_unmask_irq(struct irq_data *d)
 	writel(readl(INTC_ICMR) | (1 << d->irq), INTC_ICMR);
 }
 
+/*
+ * Apart form GPIOs, only the RTC alarm can be a wakeup event.
+ */
 static int puv3_set_wake(struct irq_data *d, unsigned int on)
 {
 	if (d->irq == IRQ_RTCAlarm) {
@@ -216,11 +245,20 @@ static int puv3_irq_suspend(void)
 	st->iclr = readl(INTC_ICLR);
 	st->iccr = readl(INTC_ICCR);
 
+	/*
+	 * Disable all GPIO-based interrupts.
+	 */
 	writel(readl(INTC_ICMR) & ~(0x1ff), INTC_ICMR);
 
+	/*
+	 * Set the appropriate edges for wakeup.
+	 */
 	writel(readl(PM_PWER) & GPIO_IRQ_rising_edge, GPIO_GRER);
 	writel(readl(PM_PWER) & GPIO_IRQ_falling_edge, GPIO_GFER);
 
+	/*
+	 * Clear any pending GPIO interrupts.
+	 */
 	writel(readl(GPIO_GEDR), GPIO_GEDR);
 
 	return 0;
@@ -260,13 +298,13 @@ void __init init_IRQ(void)
 
 	request_resource(&iomem_resource, &irq_resource);
 
-	
+	/* disable all IRQs */
 	writel(0, INTC_ICMR);
 
-	
+	/* all IRQs are IRQ, not REAL */
 	writel(0, INTC_ICLR);
 
-	
+	/* clear all GPIO edge detects */
 	writel(FMASK(8, 0) & ~FIELD(1, 1, GPI_SOFF_REQ), GPIO_GPIR);
 	writel(0, GPIO_GFER);
 	writel(0, GPIO_GRER);
@@ -298,6 +336,9 @@ void __init init_IRQ(void)
 			0);
 	}
 
+	/*
+	 * Install handler for GPIO 0-27 edge detect interrupts
+	 */
 	irq_set_chip(IRQ_GPIOHIGH, &puv3_normal_chip);
 	irq_set_chained_handler(IRQ_GPIOHIGH, puv3_gpio_handler);
 
@@ -306,12 +347,21 @@ void __init init_IRQ(void)
 #endif
 }
 
+/*
+ * do_IRQ handles all hardware IRQ's.  Decoded IRQs should not
+ * come via this function.  Instead, they should provide their
+ * own 'handler'
+ */
 asmlinkage void asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 {
 	struct pt_regs *old_regs = set_irq_regs(regs);
 
 	irq_enter();
 
+	/*
+	 * Some hardware gives randomly wrong interrupts.  Rather
+	 * than crashing, do something sensible.
+	 */
 	if (unlikely(irq >= nr_irqs)) {
 		if (printk_ratelimit())
 			printk(KERN_WARNING "Bad IRQ%u\n", irq);

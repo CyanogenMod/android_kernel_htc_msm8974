@@ -41,11 +41,11 @@ struct cdv_intel_p2_t {
 };
 
 struct cdv_intel_clock_t {
-	
+	/* given values */
 	int n;
 	int m1, m2;
 	int p1, p2;
-	
+	/* derived values */
 	int dot;
 	int vco;
 	int m;
@@ -65,7 +65,7 @@ struct cdv_intel_limit_t {
 #define CDV_LIMIT_DAC_HDMI_96		3
 
 static const struct cdv_intel_limit_t cdv_intel_limits[] = {
-	{			
+	{			/* CDV_SIGNLE_LVDS_96MHz */
 	 .dot = {.min = 20000, .max = 115500},
 	 .vco = {.min = 1800000, .max = 3600000},
 	 .n = {.min = 2, .max = 6},
@@ -77,7 +77,7 @@ static const struct cdv_intel_limit_t cdv_intel_limits[] = {
 	 .p2 = {.dot_limit = 200000,
 		.p2_slow = 14, .p2_fast = 14},
 	 },
-	{			
+	{			/* CDV_SINGLE_LVDS_100MHz */
 	 .dot = {.min = 20000, .max = 115500},
 	 .vco = {.min = 1800000, .max = 3600000},
 	 .n = {.min = 2, .max = 6},
@@ -86,9 +86,12 @@ static const struct cdv_intel_limit_t cdv_intel_limits[] = {
 	 .m2 = {.min = 58, .max = 158},
 	 .p = {.min = 28, .max = 140},
 	 .p1 = {.min = 2, .max = 10},
+	 /* The single-channel range is 25-112Mhz, and dual-channel
+	  * is 80-224Mhz.  Prefer single channel as much as possible.
+	  */
 	 .p2 = {.dot_limit = 200000, .p2_slow = 14, .p2_fast = 14},
 	 },
-	{			
+	{			/* CDV_DAC_HDMI_27MHz */
 	 .dot = {.min = 20000, .max = 400000},
 	 .vco = {.min = 1809000, .max = 3564000},
 	 .n = {.min = 1, .max = 1},
@@ -99,7 +102,7 @@ static const struct cdv_intel_limit_t cdv_intel_limits[] = {
 	 .p1 = {.min = 1, .max = 9},
 	 .p2 = {.dot_limit = 225000, .p2_slow = 10, .p2_fast = 5},
 	 },
-	{			
+	{			/* CDV_DAC_HDMI_96MHz */
 	 .dot = {.min = 20000, .max = 400000},
 	 .vco = {.min = 1800000, .max = 3600000},
 	 .n = {.min = 2, .max = 6},
@@ -195,6 +198,9 @@ static int cdv_sb_write(struct drm_device *dev, u32 reg, u32 val)
 	return 0;
 }
 
+/* Reset the DPIO configuration register.  The BIOS does this at every
+ * mode set.
+ */
 static void cdv_sb_reset(struct drm_device *dev)
 {
 
@@ -203,6 +209,11 @@ static void cdv_sb_reset(struct drm_device *dev)
 	REG_WRITE(DPIO_CFG, DPIO_MODE_SELECT_0 | DPIO_CMN_RESET_N);
 }
 
+/* Unlike most Intel display engines, on Cedarview the DPLL registers
+ * are behind this sideband bus.  They must be programmed while the
+ * DPLL reference clock is on in the DPLL control register, but before
+ * the DPLL is enabled in the DPLL control register.
+ */
 static int
 cdv_dpll_set_clock_cdv(struct drm_device *dev, struct drm_crtc *crtc,
 			       struct cdv_intel_clock_t *clock)
@@ -222,11 +233,14 @@ cdv_dpll_set_clock_cdv(struct drm_device *dev, struct drm_crtc *crtc,
 		return -EBUSY;
 	}
 
-	
+	/* Follow the BIOS and write the REF/SFR Register. Hardcoded value */
 	ref_value = 0x68A701;
 
 	cdv_sb_write(dev, SB_REF_SFR(pipe), ref_value);
 
+	/* We don't know what the other fields of these regs are, so
+	 * leave them in place.
+	 */
 	ret = cdv_sb_read(dev, SB_M(pipe), &m);
 	if (ret)
 		return ret;
@@ -240,7 +254,7 @@ cdv_dpll_set_clock_cdv(struct drm_device *dev, struct drm_crtc *crtc,
 	if (ret)
 		return ret;
 
-	
+	/* Follow the BIOS to program the N_DIVIDER REG */
 	n_vco &= 0xFFFF;
 	n_vco |= 0x107;
 	n_vco &= ~(SB_N_VCO_SEL_MASK |
@@ -293,9 +307,9 @@ cdv_dpll_set_clock_cdv(struct drm_device *dev, struct drm_crtc *crtc,
 	if (ret)
 		return ret;
 
-	
+	/* always Program the Lane Register for the Pipe A*/
 	if (pipe == 0) {
-		
+		/* Program the Lane0/1 for HDMI B */
 		u32 lane_reg, lane_value;
 
 		lane_reg = PSB_LANE0;
@@ -310,7 +324,7 @@ cdv_dpll_set_clock_cdv(struct drm_device *dev, struct drm_crtc *crtc,
 		lane_value |= LANE_PLL_ENABLE;
 		cdv_sb_write(dev, lane_reg, lane_value);
 
-		
+		/* Program the Lane2/3 for HDMI C */
 		lane_reg = PSB_LANE2;
 		cdv_sb_read(dev, lane_reg, &lane_value);
 		lane_value &= ~(LANE_PLL_MASK);
@@ -327,6 +341,9 @@ cdv_dpll_set_clock_cdv(struct drm_device *dev, struct drm_crtc *crtc,
 	return 0;
 }
 
+/*
+ * Returns whether any encoder on the specified pipe is of the specified type
+ */
 static bool cdv_intel_pipe_has_type(struct drm_crtc *crtc, int type)
 {
 	struct drm_device *dev = crtc->dev;
@@ -349,6 +366,10 @@ static const struct cdv_intel_limit_t *cdv_intel_limit(struct drm_crtc *crtc,
 {
 	const struct cdv_intel_limit_t *limit;
 	if (cdv_intel_pipe_has_type(crtc, INTEL_OUTPUT_LVDS)) {
+		/*
+		 * Now only single-channel LVDS is supported on CDV. If it is
+		 * incorrect, please add the dual-channel LVDS.
+		 */
 		if (refclk == 96000)
 			limit = &cdv_intel_limits[CDV_LIMIT_SINGLE_LVDS_96];
 		else
@@ -362,6 +383,7 @@ static const struct cdv_intel_limit_t *cdv_intel_limit(struct drm_crtc *crtc,
 	return limit;
 }
 
+/* m1 is reserved as 0 in CDV, n is a ring counter */
 static void cdv_intel_clock(struct drm_device *dev,
 			int refclk, struct cdv_intel_clock_t *clock)
 {
@@ -372,7 +394,7 @@ static void cdv_intel_clock(struct drm_device *dev,
 }
 
 
-#define INTELPllInvalid(s)   { ; return false; }
+#define INTELPllInvalid(s)   { /* ErrorF (s) */; return false; }
 static bool cdv_intel_PLL_is_valid(struct drm_crtc *crtc,
 				const struct cdv_intel_limit_t *limit,
 			       struct cdv_intel_clock_t *clock)
@@ -381,9 +403,13 @@ static bool cdv_intel_PLL_is_valid(struct drm_crtc *crtc,
 		INTELPllInvalid("p1 out of range\n");
 	if (clock->p < limit->p.min || limit->p.max < clock->p)
 		INTELPllInvalid("p out of range\n");
-	
+	/* unnecessary to check the range of m(m1/M2)/n again */
 	if (clock->vco < limit->vco.min || limit->vco.max < clock->vco)
 		INTELPllInvalid("vco out of range\n");
+	/* XXX: We may need to be checking "Dot clock"
+	 * depending on the multiplier, connector, etc.,
+	 * rather than just a single range.
+	 */
 	if (clock->dot < limit->dot.min || limit->dot.max < clock->dot)
 		INTELPllInvalid("dot out of range\n");
 
@@ -402,6 +428,12 @@ static bool cdv_intel_find_best_PLL(struct drm_crtc *crtc, int target,
 
 	if (cdv_intel_pipe_has_type(crtc, INTEL_OUTPUT_LVDS) &&
 	    (REG_READ(LVDS) & LVDS_PORT_EN) != 0) {
+		/*
+		 * For LVDS, if the panel is on, just rely on its current
+		 * settings for dual-channel.  We haven't figured out how to
+		 * reliably set up different single/dual channel state, if we
+		 * even can.
+		 */
 		if ((REG_READ(LVDS) & LVDS_CLKB_POWER_MASK) ==
 		    LVDS_CLKB_POWER_UP)
 			clock.p2 = limit->p2.p2_fast;
@@ -416,6 +448,8 @@ static bool cdv_intel_find_best_PLL(struct drm_crtc *crtc, int target,
 
 	memset(best_clock, 0, sizeof(*best_clock));
 	clock.m1 = 0;
+	/* m1 is reserved as 0 in CDV, n is a ring counter.
+	   So skip the m1 loop */
 	for (clock.n = limit->n.min; clock.n <= limit->n.max; clock.n++) {
 		for (clock.m2 = limit->m2.min; clock.m2 <= limit->m2.max;
 					     clock.m2++) {
@@ -460,13 +494,15 @@ static int cdv_intel_pipe_set_base(struct drm_crtc *crtc,
 	if (!gma_power_begin(dev, true))
 		return 0;
 
-	
+	/* no fb bound */
 	if (!crtc->fb) {
 		dev_err(dev->dev, "No FB bound\n");
 		goto psb_intel_pipe_cleaner;
 	}
 
 
+	/* We are displaying this buffer, make sure it is actually loaded
+	   into the GTT */
 	ret = psb_gtt_pin(psbfb->gtt);
 	if (ret < 0)
 		goto psb_intel_pipe_set_base_exit;
@@ -508,7 +544,7 @@ static int cdv_intel_pipe_set_base(struct drm_crtc *crtc,
 	REG_READ(dspsurf);
 
 psb_intel_pipe_cleaner:
-	
+	/* If there was a previous display we can now unpin it */
 	if (old_fb)
 		psb_gtt_unpin(to_psb_fb(old_fb)->gtt);
 
@@ -517,6 +553,12 @@ psb_intel_pipe_set_base_exit:
 	return ret;
 }
 
+/**
+ * Sets the power management mode of the pipe and plane.
+ *
+ * This code should probably grow support for turning the cursor off and back
+ * on appropriately at the same time as we're turning the pipe off/on.
+ */
 static void cdv_intel_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
 	struct drm_device *dev = crtc->dev;
@@ -528,77 +570,84 @@ static void cdv_intel_crtc_dpms(struct drm_crtc *crtc, int mode)
 	int pipeconf_reg = (pipe == 0) ? PIPEACONF : PIPEBCONF;
 	u32 temp;
 
+	/* XXX: When our outputs are all unaware of DPMS modes other than off
+	 * and on, we should map those modes to DRM_MODE_DPMS_OFF in the CRTC.
+	 */
 	switch (mode) {
 	case DRM_MODE_DPMS_ON:
 	case DRM_MODE_DPMS_STANDBY:
 	case DRM_MODE_DPMS_SUSPEND:
-		
+		/* Enable the DPLL */
 		temp = REG_READ(dpll_reg);
 		if ((temp & DPLL_VCO_ENABLE) == 0) {
 			REG_WRITE(dpll_reg, temp);
 			REG_READ(dpll_reg);
-			
+			/* Wait for the clocks to stabilize. */
 			udelay(150);
 			REG_WRITE(dpll_reg, temp | DPLL_VCO_ENABLE);
 			REG_READ(dpll_reg);
-			
+			/* Wait for the clocks to stabilize. */
 			udelay(150);
 			REG_WRITE(dpll_reg, temp | DPLL_VCO_ENABLE);
 			REG_READ(dpll_reg);
-			
+			/* Wait for the clocks to stabilize. */
 			udelay(150);
 		}
 
-		
-		
+		/* Jim Bish - switch plan and pipe per scott */
+		/* Enable the plane */
 		temp = REG_READ(dspcntr_reg);
 		if ((temp & DISPLAY_PLANE_ENABLE) == 0) {
 			REG_WRITE(dspcntr_reg,
 				  temp | DISPLAY_PLANE_ENABLE);
-			
+			/* Flush the plane changes */
 			REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 		}
 
 		udelay(150);
 
-		
+		/* Enable the pipe */
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_ENABLE) == 0)
 			REG_WRITE(pipeconf_reg, temp | PIPEACONF_ENABLE);
 
 		psb_intel_crtc_load_lut(crtc);
 
-		
+		/* Give the overlay scaler a chance to enable
+		 * if it's on this pipe */
+		/* psb_intel_crtc_dpms_video(crtc, true); TODO */
 		break;
 	case DRM_MODE_DPMS_OFF:
-		
+		/* Give the overlay scaler a chance to disable
+		 * if it's on this pipe */
+		/* psb_intel_crtc_dpms_video(crtc, FALSE); TODO */
 
-		
+		/* Disable the VGA plane that we never use */
 		REG_WRITE(VGACNTRL, VGA_DISP_DISABLE);
 
-		
+		/* Jim Bish - changed pipe/plane here as well. */
 
-		
+		/* Wait for vblank for the disable to take effect */
 		cdv_intel_wait_for_vblank(dev);
 
-		
+		/* Next, disable display pipes */
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_ENABLE) != 0) {
 			REG_WRITE(pipeconf_reg, temp & ~PIPEACONF_ENABLE);
 			REG_READ(pipeconf_reg);
 		}
 
-		
+		/* Wait for vblank for the disable to take effect. */
 		cdv_intel_wait_for_vblank(dev);
 
 		udelay(150);
 
-		
+		/* Disable display plane */
 		temp = REG_READ(dspcntr_reg);
 		if ((temp & DISPLAY_PLANE_ENABLE) != 0) {
 			REG_WRITE(dspcntr_reg,
 				  temp & ~DISPLAY_PLANE_ENABLE);
-			
+			/* Flush the plane changes */
 			REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 			REG_READ(dspbase_reg);
 		}
@@ -609,11 +658,11 @@ static void cdv_intel_crtc_dpms(struct drm_crtc *crtc, int mode)
 			REG_READ(dpll_reg);
 		}
 
-		
+		/* Wait for the clocks to turn off. */
 		udelay(150);
 		break;
 	}
-	
+	/*Set FIFO Watermarks*/
 	REG_WRITE(DSPARB, 0x3F3E);
 }
 
@@ -637,13 +686,17 @@ static bool cdv_intel_crtc_mode_fixup(struct drm_crtc *crtc,
 }
 
 
+/**
+ * Return the pipe currently connected to the panel fitter,
+ * or -1 if the panel fitter is not present or not in use
+ */
 static int cdv_intel_panel_fitter_pipe(struct drm_device *dev)
 {
 	u32 pfit_control;
 
 	pfit_control = REG_READ(PFIT_CONTROL);
 
-	
+	/* See if the panel fitter is in use */
 	if ((pfit_control & PFIT_ENABLE) == 0)
 		return -1;
 	return (pfit_control >> 29) & 0x3;
@@ -706,8 +759,8 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 
 	refclk = 96000;
 
-	
-	
+	/* Hack selection about ref clk for CRT */
+	/* Select 27MHz as the reference clk for HDMI */
 	if (is_crt || is_hdmi)
 		refclk = 27000;
 
@@ -722,7 +775,8 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 
 	dpll = DPLL_VGA_MODE_DIS;
 	if (is_tv) {
-		
+		/* XXX: just matching BIOS for now */
+/*	dpll |= PLL_REF_INPUT_TVCLKINBC; */
 		dpll |= 3;
 	}
 		dpll |= PLL_REF_INPUT_DREFCLK;
@@ -733,12 +787,12 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 		dpll |= DPLLB_MODE_LVDS;
 	else
 		dpll |= DPLLB_MODE_DAC_SERIAL;
-	
+	/* dpll |= (2 << 11); */
 
-	
+	/* setup pipeconf */
 	pipeconf = REG_READ(pipeconf_reg);
 
-	
+	/* Set up the display plane register */
 	dspcntr = DISPPLANE_GAMMA_ENABLE;
 
 	if (pipe == 0)
@@ -757,17 +811,29 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 	udelay(150);
 
 
+	/* The LVDS pin pair needs to be on before the DPLLs are enabled.
+	 * This is an exception to the general rule that mode_set doesn't turn
+	 * things on.
+	 */
 	if (is_lvds) {
 		u32 lvds = REG_READ(LVDS);
 
 		lvds |=
 		    LVDS_PORT_EN | LVDS_A0A2_CLKA_POWER_UP |
 		    LVDS_PIPEB_SELECT;
+		/* Set the B0-B3 data pairs corresponding to
+		 * whether we're going to
+		 * set the DPLLs for dual-channel mode or not.
+		 */
 		if (clock.p2 == 7)
 			lvds |= LVDS_B0B3_POWER_UP | LVDS_CLKB_POWER_UP;
 		else
 			lvds &= ~(LVDS_B0B3_POWER_UP | LVDS_CLKB_POWER_UP);
 
+		/* It would be nice to set 24 vs 18-bit mode (LVDS_A3_POWER_UP)
+		 * appropriately here, but we need to look more
+		 * thoroughly into how panels behave in the two modes.
+		 */
 
 		REG_WRITE(LVDS, lvds);
 		REG_READ(LVDS);
@@ -775,7 +841,7 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 
 	dpll |= DPLL_VCO_ENABLE;
 
-	
+	/* Disable the panel fitter if it was on our pipe */
 	if (cdv_intel_panel_fitter_pipe(dev) == pipe)
 		REG_WRITE(PFIT_CONTROL, 0);
 
@@ -785,8 +851,8 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 	REG_WRITE(dpll_reg,
 		(REG_READ(dpll_reg) & ~DPLL_LOCK) | DPLL_VCO_ENABLE);
 	REG_READ(dpll_reg);
-	
-	udelay(150); 
+	/* Wait for the clocks to stabilize. */
+	udelay(150); /* 42 usec w/o calibration, 110 with.  rounded up. */
 
 	if (!(REG_READ(dpll_reg) & DPLL_LOCK)) {
 		dev_err(dev->dev, "Failed to get DPLL lock\n");
@@ -810,6 +876,9 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 		  ((adjusted_mode->crtc_vblank_end - 1) << 16));
 	REG_WRITE(vsync_reg, (adjusted_mode->crtc_vsync_start - 1) |
 		  ((adjusted_mode->crtc_vsync_end - 1) << 16));
+	/* pipesrc and dspsize control the size that is scaled from,
+	 * which should always be the user's requested size.
+	 */
 	REG_WRITE(dspsize_reg,
 		  ((mode->vdisplay - 1) << 16) | (mode->hdisplay - 1));
 	REG_WRITE(dsppos_reg, 0);
@@ -822,7 +891,7 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 
 	REG_WRITE(dspcntr_reg, dspcntr);
 
-	
+	/* Flush the plane changes */
 	{
 		struct drm_crtc_helper_funcs *crtc_funcs =
 		    crtc->helper_private;
@@ -834,6 +903,7 @@ static int cdv_intel_crtc_mode_set(struct drm_crtc *crtc,
 	return 0;
 }
 
+/** Loads the palette/gamma unit for the CRTC with the prepared values */
 static void cdv_intel_crtc_load_lut(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
@@ -843,7 +913,7 @@ static void cdv_intel_crtc_load_lut(struct drm_crtc *crtc)
 	int palreg = PALETTE_A;
 	int i;
 
-	
+	/* The clocks have to be on to load the palette. */
 	if (!crtc->enabled)
 		return;
 
@@ -886,9 +956,14 @@ static void cdv_intel_crtc_load_lut(struct drm_crtc *crtc)
 	}
 }
 
+/**
+ * Save HW states of giving crtc
+ */
 static void cdv_intel_crtc_save(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
+	/* struct drm_psb_private *dev_priv =
+			(struct drm_psb_private *)dev->dev_private; */
 	struct psb_intel_crtc *psb_intel_crtc = to_psb_intel_crtc(crtc);
 	struct psb_intel_crtc_state *crtc_state = psb_intel_crtc->crtc_state;
 	int pipeA = (psb_intel_crtc->pipe == 0);
@@ -914,7 +989,7 @@ static void cdv_intel_crtc_save(struct drm_crtc *crtc)
 	crtc_state->saveVSYNC = REG_READ(pipeA ? VSYNC_A : VSYNC_B);
 	crtc_state->saveDSPSTRIDE = REG_READ(pipeA ? DSPASTRIDE : DSPBSTRIDE);
 
-	
+	/*NOTE: DSPSIZE DSPPOS only for psb*/
 	crtc_state->saveDSPSIZE = REG_READ(pipeA ? DSPASIZE : DSPBSIZE);
 	crtc_state->saveDSPPOS = REG_READ(pipeA ? DSPAPOS : DSPBPOS);
 
@@ -944,12 +1019,17 @@ static void cdv_intel_crtc_save(struct drm_crtc *crtc)
 		crtc_state->savePalette[i] = REG_READ(paletteReg + (i << 2));
 }
 
+/**
+ * Restore HW states of giving crtc
+ */
 static void cdv_intel_crtc_restore(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
+	/* struct drm_psb_private * dev_priv =
+				(struct drm_psb_private *)dev->dev_private; */
 	struct psb_intel_crtc *psb_intel_crtc =  to_psb_intel_crtc(crtc);
 	struct psb_intel_crtc_state *crtc_state = psb_intel_crtc->crtc_state;
-	
+	/* struct drm_crtc_helper_funcs * crtc_funcs = crtc->helper_private; */
 	int pipeA = (psb_intel_crtc->pipe == 0);
 	uint32_t paletteReg;
 	int i;
@@ -1062,9 +1142,9 @@ static int cdv_intel_crtc_cursor_set(struct drm_crtc *crtc,
 	struct drm_gem_object *obj;
 	int ret;
 
-	
+	/* if we want to turn of the cursor ignore width and height */
 	if (!handle) {
-		
+		/* turn off the cursor */
 		temp = CURSOR_MODE_DISABLE;
 
 		if (gma_power_begin(dev, false)) {
@@ -1073,7 +1153,7 @@ static int cdv_intel_crtc_cursor_set(struct drm_crtc *crtc,
 			gma_power_end(dev);
 		}
 
-		
+		/* unpin the old GEM object */
 		if (psb_intel_crtc->cursor_obj) {
 			gt = container_of(psb_intel_crtc->cursor_obj,
 							struct gtt_range, gem);
@@ -1085,7 +1165,7 @@ static int cdv_intel_crtc_cursor_set(struct drm_crtc *crtc,
 		return 0;
 	}
 
-	
+	/* Currently we only support 64x64 cursors */
 	if (width != 64 || height != 64) {
 		dev_dbg(dev->dev, "we currently only support 64x64 cursors\n");
 		return -EINVAL;
@@ -1102,19 +1182,19 @@ static int cdv_intel_crtc_cursor_set(struct drm_crtc *crtc,
 
 	gt = container_of(obj, struct gtt_range, gem);
 
-	
+	/* Pin the memory into the GTT */
 	ret = psb_gtt_pin(gt);
 	if (ret) {
 		dev_err(dev->dev, "Can not pin down handle 0x%x\n", handle);
 		return ret;
 	}
 
-	addr = gt->offset;	
+	addr = gt->offset;	/* Or resource.start ??? */
 
 	psb_intel_crtc->cursor_addr = addr;
 
 	temp = 0;
-	
+	/* set the pipe for the cursor */
 	temp |= (pipe << 28);
 	temp |= CURSOR_MODE_64_ARGB_AX | MCURSOR_GAMMA_ENABLE;
 
@@ -1124,7 +1204,7 @@ static int cdv_intel_crtc_cursor_set(struct drm_crtc *crtc,
 		gma_power_end(dev);
 	}
 
-	
+	/* unpin the old GEM object */
 	if (psb_intel_crtc->cursor_obj) {
 		gt = container_of(psb_intel_crtc->cursor_obj,
 							struct gtt_range, gem);
@@ -1200,7 +1280,9 @@ static int cdv_crtc_set_config(struct drm_mode_set *set)
 	return ret;
 }
 
+/** Derive the pixel clock for the given refclk and divisors for 8xx chips. */
 
+/* FIXME: why are we using this, should it be cdv_ in this tree ? */
 
 static void i8xx_clock(int refclk, struct cdv_intel_clock_t *clock)
 {
@@ -1210,6 +1292,7 @@ static void i8xx_clock(int refclk, struct cdv_intel_clock_t *clock)
 	clock->dot = clock->vco / clock->p;
 }
 
+/* Returns the clock of the currently programmed mode of the given pipe. */
 static int cdv_intel_crtc_clock_get(struct drm_device *dev,
 				struct drm_crtc *crtc)
 {
@@ -1264,7 +1347,7 @@ static int cdv_intel_crtc_clock_get(struct drm_device *dev,
 
 		if ((dpll & PLL_REF_INPUT_MASK) ==
 		    PLLB_REF_INPUT_SPREADSPECTRUMIN) {
-			
+			/* XXX: might not be 66MHz */
 			i8xx_clock(66000, &clock);
 		} else
 			i8xx_clock(48000, &clock);
@@ -1285,10 +1368,15 @@ static int cdv_intel_crtc_clock_get(struct drm_device *dev,
 		i8xx_clock(48000, &clock);
 	}
 
+	/* XXX: It would be nice to validate the clocks, but we can't reuse
+	 * i830PllIsValid() because it relies on the xf86_config connector
+	 * configuration being accurate, which it isn't necessarily.
+	 */
 
 	return clock.dot;
 }
 
+/** Returns the currently programmed mode of the given pipe. */
 struct drm_display_mode *cdv_intel_crtc_mode_get(struct drm_device *dev,
 					     struct drm_crtc *crtc)
 {

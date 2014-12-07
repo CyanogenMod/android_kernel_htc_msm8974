@@ -169,10 +169,10 @@ static uint32_t sdcc_translate_vdd(struct device *dev, unsigned int vdd)
 
 	sdcc_vdd = vdd;
 
-	
+	/* enable/disable the signals to the slot */
 	swordfish_sdcc_setup_gpio(pdev->id, !!vdd);
 
-	
+	/* power down */
 	if (vdd == 0) {
 #if DEBUG_SWORDFISH_MMC
 		pr_info("%s: disable sdcc power\n", __func__);
@@ -215,8 +215,14 @@ static unsigned int swordfish_sdcc_slot_status (struct device *dev)
 
 	sdcc_stat = readl(fpga_base + FPGA_SDIO_STATUS);
 
+	/* bit 0 - sdcc1 crd_det
+	 * bit 1 - sdcc1 wr_prt
+	 * bit 2 - sdcc2 crd_det
+	 * bit 3 - sdcc2 wr_prt
+	 * etc...
+	 */
 
-	
+	/* crd_det is active low */
 	return !(sdcc_stat & (1 << ((pdev->id - 1) << 1)));
 }
 
@@ -226,7 +232,7 @@ static unsigned int swordfish_sdcc_slot_status (struct device *dev)
 			| MMC_VDD_28_29 | MMC_VDD_29_30)
 
 static struct mmc_platform_data swordfish_sdcc_data = {
-	.ocr_mask	= SWORDFISH_MMC_VDD,
+	.ocr_mask	= SWORDFISH_MMC_VDD/*MMC_VDD_27_28 | MMC_VDD_28_29*/,
 	.status		= swordfish_sdcc_slot_status,
 	.translate_vdd	= sdcc_translate_vdd,
 };

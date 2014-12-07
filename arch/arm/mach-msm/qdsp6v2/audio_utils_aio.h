@@ -32,7 +32,7 @@
 #define TUNNEL_MODE     0x0000
 #define NON_TUNNEL_MODE 0x0001
 
-#define ADRV_STATUS_AIO_INTF 0x00000001 
+#define ADRV_STATUS_AIO_INTF 0x00000001 /* AIO interface */
 #define ADRV_STATUS_FSYNC 0x00000008
 #define ADRV_STATUS_PAUSE 0x00000010
 #define AUDIO_DEC_EOS_SET  0x00000001
@@ -97,14 +97,18 @@ struct dec_meta_out {
 	struct meta_out_dsp meta_out_dsp[];
 } __packed;
 
+/* General meta field to store meta info
+locally */
 union  meta_data {
 	struct dec_meta_out meta_out;
 	struct dec_meta_in meta_in;
 } __packed;
 
 #define PCM_BUF_COUNT           (2)
+/* Buffer with meta */
 #define PCM_BUFSZ_MIN           ((4*1024) + sizeof(struct dec_meta_out))
 
+/* FRAME_NUM must be a power of two */
 #define FRAME_NUM               (2)
 #define FRAME_SIZE	((4*1536) + sizeof(struct dec_meta_in))
 
@@ -164,11 +168,11 @@ struct q6audio_aio {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dentry;
 #endif
-	struct list_head out_queue;     
-	struct list_head in_queue;      
+	struct list_head out_queue;     /* queue to retain output buffers */
+	struct list_head in_queue;      /* queue to retain input buffers */
 	struct list_head free_event_queue;
 	struct list_head event_queue;
-	struct list_head ion_region_queue;     
+	struct list_head ion_region_queue;     /* protected by lock */
 	struct ion_client *client;
 	struct audio_aio_drv_operations drv_ops;
 	union msm_audio_event_payload eos_write_payload;
@@ -182,8 +186,8 @@ struct q6audio_aio {
 	int enabled;
 	int stopped;
 	int feedback;
-	int rflush;             
-	int wflush;             
+	int rflush;             /* Read  flush */
+	int wflush;             /* Write flush */
 	long (*codec_ioctl)(struct file *, unsigned int, unsigned long);
 };
 

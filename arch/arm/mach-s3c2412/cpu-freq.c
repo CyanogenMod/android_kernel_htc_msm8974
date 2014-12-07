@@ -32,11 +32,13 @@
 #include <plat/clock.h>
 #include <plat/cpu-freq-core.h>
 
+/* our clock resources. */
 static struct clk *xtal;
 static struct clk *fclk;
 static struct clk *hclk;
 static struct clk *armclk;
 
+/* HDIV: 1, 2, 3, 4, 6, 8 */
 
 static int s3c2412_cpufreq_calcdivs(struct s3c_cpufreq_config *cfg)
 {
@@ -48,6 +50,8 @@ static int s3c2412_cpufreq_calcdivs(struct s3c_cpufreq_config *cfg)
 	armclk = cfg->freq.armclk;
 	hclk_max = cfg->max.hclk;
 
+	/* We can't run hclk above armclk as at the best we have to
+	 * have armclk and hclk in dvs mode. */
 
 	if (hclk_max > armclk)
 		hclk_max = armclk;
@@ -74,10 +78,10 @@ static int s3c2412_cpufreq_calcdivs(struct s3c_cpufreq_config *cfg)
 
 	cfg->freq.hclk = hclk = armdiv_clk / hdiv;
 
-	
+	/* set dvs depending on whether we reached armclk or not. */
 	cfg->divs.dvs = dvs = armclk < armdiv_clk;
 
-	
+	/* update the actual armclk we achieved. */
 	cfg->freq.armclk = dvs ? hclk : armdiv_clk;
 
 	s3c_freq_dbg("%s: armclk %lu, hclk %lu, armdiv %d, hdiv %d, dvs %d\n",
@@ -100,7 +104,7 @@ static int s3c2412_cpufreq_calcdivs(struct s3c_cpufreq_config *cfg)
 
 	pdiv *= hdiv;
 
-	
+	/* store the result, and then return */
 
 	cfg->divs.h_divisor = hdiv * armdiv;
 	cfg->divs.p_divisor = pdiv * armdiv;
@@ -118,7 +122,7 @@ static void s3c2412_cpufreq_setdivs(struct s3c_cpufreq_config *cfg)
 
 	olddiv = clkdiv = __raw_readl(S3C2410_CLKDIVN);
 
-	
+	/* clear off current clock info */
 
 	clkdiv &= ~S3C2412_CLKDIVN_ARMDIVN;
 	clkdiv &= ~S3C2412_CLKDIVN_HDIVN_MASK;
@@ -146,15 +150,22 @@ static void s3c2412_cpufreq_setrefresh(struct s3c_cpufreq_config *cfg)
 	s3c_freq_dbg("%s: refresh %u ns, hclk %lu\n", __func__,
 		     board->refresh, cfg->freq.hclk);
 
+	/* Reduce both the refresh time (in ns) and the frequency (in MHz)
+	 * by 10 each to ensure that we do not overflow 32 bit numbers. This
+	 * should work for HCLK up to 133MHz and refresh period up to 30usec.
+	 */
 
 	refresh = (board->refresh / 10);
 	refresh *= (cfg->freq.hclk / 100);
-	refresh /= (1 * 1000 * 1000);	
+	refresh /= (1 * 1000 * 1000);	/* 10^6 */
 
 	s3c_freq_dbg("%s: setting refresh 0x%08lx\n", __func__, refresh);
 	__raw_writel(refresh, S3C2412_REFRESH);
 }
 
+/* set the default cpu frequency information, based on an 200MHz part
+ * as we have no other way of detecting the speed rating in software.
+ */
 
 static struct s3c_cpufreq_info s3c2412_cpufreq_info = {
 	.max		= {
@@ -163,7 +174,7 @@ static struct s3c_cpufreq_info s3c2412_cpufreq_info = {
 		.pclk	=  50000000,
 	},
 
-	.latency	= 5000000, 
+	.latency	= 5000000, /* 5ms */
 
 	.locktime_m	= 150,
 	.locktime_u	= 150,

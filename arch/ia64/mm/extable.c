@@ -16,7 +16,7 @@ static int cmp_ex(const void *a, const void *b)
 	u64 lip = (u64) &l->addr + l->addr;
 	u64 rip = (u64) &r->addr + r->addr;
 
-	
+	/* avoid overflow */
 	if (lip > rip)
 		return 1;
 	if (lip < rip)
@@ -36,6 +36,16 @@ static void swap_ex(void *a, void *b, int size)
 	r->cont = tmp.cont - delta;
 }
 
+/*
+ * Sort the exception table. It's usually already sorted, but there
+ * may be unordered entries due to multiple text sections (such as the
+ * .init text section). Note that the exception-table-entries contain
+ * location-relative addresses, which requires a bit of care during
+ * sorting to avoid overflows in the offset members (e.g., it would
+ * not be safe to make a temporary copy of an exception-table entry on
+ * the stack, because the stack may be more than 2GB away from the
+ * exception-table).
+ */
 void sort_extable (struct exception_table_entry *start,
 		   struct exception_table_entry *finish)
 {
@@ -49,21 +59,25 @@ static inline unsigned long ex_to_addr(const struct exception_table_entry *x)
 }
 
 #ifdef CONFIG_MODULES
+/*
+ * Any entry referring to the module init will be at the beginning or
+ * the end.
+ */
 void trim_init_extable(struct module *m)
 {
-	
+	/*trim the beginning*/
 	while (m->num_exentries &&
 	       within_module_init(ex_to_addr(&m->extable[0]), m)) {
 		m->extable++;
 		m->num_exentries--;
 	}
-	
+	/*trim the end*/
 	while (m->num_exentries &&
 	       within_module_init(ex_to_addr(&m->extable[m->num_exentries-1]),
 				  m))
 		m->num_exentries--;
 }
-#endif 
+#endif /* CONFIG_MODULES */
 
 const struct exception_table_entry *
 search_extable (const struct exception_table_entry *first,
@@ -97,5 +111,5 @@ ia64_handle_exception (struct pt_regs *regs, const struct exception_table_entry 
 	if (fix & 4)
 		regs->r9 = 0;
 	regs->cr_iip = fix & ~0xf;
-	ia64_psr(regs)->ri = fix & 0x3;		
+	ia64_psr(regs)->ri = fix & 0x3;		/* set continuation slot number */
 }

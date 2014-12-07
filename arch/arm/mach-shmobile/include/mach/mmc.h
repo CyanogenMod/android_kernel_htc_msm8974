@@ -1,6 +1,11 @@
 #ifndef MMC_H
 #define MMC_H
 
+/**************************************************
+ *
+ *		board specific settings
+ *
+ **************************************************/
 
 #ifdef CONFIG_MACH_AP4EVB
 #include "mach/mmc-ap4eb.h"
@@ -10,4 +15,4 @@
 #error "unsupported board."
 #endif
 
-#endif 
+#endif /* MMC_H */

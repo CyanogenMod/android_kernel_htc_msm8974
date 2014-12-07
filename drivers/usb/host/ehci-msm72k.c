@@ -72,6 +72,9 @@ static void msm_xusb_pm_qos_update(struct msmusb_hcd *mhcd, int vote)
 {
 	struct msm_usb_host_platform_data *pdata = mhcd->pdata;
 
+	/* if otg driver is available, it would take
+	 * care of voting for appropriate pclk source
+	 */
 	if (mhcd->xceiv)
 		return;
 
@@ -90,7 +93,7 @@ static void msm_xusb_enable_clks(struct msmusb_hcd *mhcd)
 
 	switch (PHY_TYPE(pdata->phy_info)) {
 	case USB_PHY_INTEGRATED:
-		
+		/* OTG driver takes care of clock management */
 		break;
 	case USB_PHY_SERIAL_PMIC:
 		clk_prepare_enable(mhcd->alt_core_clk);
@@ -113,7 +116,7 @@ static void msm_xusb_disable_clks(struct msmusb_hcd *mhcd)
 
 	switch (PHY_TYPE(pdata->phy_info)) {
 	case USB_PHY_INTEGRATED:
-		
+		/* OTG driver takes care of clock management */
 		break;
 	case USB_PHY_SERIAL_PMIC:
 		clk_disable_unprepare(mhcd->alt_core_clk);
@@ -234,6 +237,9 @@ void usb_lpm_exit_w(struct work_struct *work)
 		return;
 	}
 
+	/* If resume signalling finishes before lpm exit, PCD is not set in
+	 * USBSTS register. Drive resume signal to the downstream device now
+	 * so that EHCI can process the upcoming port change interrupt.*/
 
 	writel(readl(USB_PORTSC) | PORTSC_FPR, USB_PORTSC);
 
@@ -266,6 +272,9 @@ static irqreturn_t ehci_msm_irq(struct usb_hcd *hcd)
 	struct msmusb_hcd *mhcd = hcd_to_mhcd(hcd);
 	struct msm_otg *otg = container_of(mhcd->xceiv, struct msm_otg, phy);
 
+	/*
+	 * OTG scheduled a work to get Integrated PHY out of LPM,
+	 * WAIT till then */
 	if (PHY_TYPE(mhcd->pdata->phy_info) == USB_PHY_INTEGRATED)
 		if (atomic_read(&otg->in_lpm))
 			return IRQ_HANDLED;
@@ -308,7 +317,7 @@ static int ehci_msm_bus_resume(struct usb_hcd *hcd)
 
 	if (PHY_TYPE(mhcd->pdata->phy_info) == USB_PHY_INTEGRATED) {
 		usb_phy_set_suspend(mhcd->xceiv, 0);
-	} else { 
+	} else { /* PMIC serial phy */
 		usb_lpm_exit(hcd);
 		if (cancel_work_sync(&(mhcd->lpm_exit_work)))
 			usb_lpm_exit_w(&mhcd->lpm_exit_work);
@@ -323,7 +332,7 @@ static int ehci_msm_bus_resume(struct usb_hcd *hcd)
 #define ehci_msm_bus_suspend NULL
 #define ehci_msm_bus_resume NULL
 
-#endif	
+#endif	/* CONFIG_PM */
 
 static int ehci_msm_reset(struct usb_hcd *hcd)
 {
@@ -334,7 +343,7 @@ static int ehci_msm_reset(struct usb_hcd *hcd)
 	ehci->regs = USB_CAPLENGTH +
 		HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
 
-	
+	/* cache the data to minimize the chip reads*/
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	retval = ehci_init(hcd);
@@ -346,7 +355,7 @@ static int ehci_msm_reset(struct usb_hcd *hcd)
 
 	retval = ehci_reset(ehci);
 
-	
+	/* SW workaround for USB stability issues*/
 	writel(0x0, USB_AHB_MODE);
 	writel(0x0, USB_AHB_BURST);
 
@@ -369,11 +378,11 @@ static int ehci_msm_run(struct usb_hcd *hcd)
 	hcd->uses_new_polling = 1;
 	set_bit(HCD_FLAG_POLL_RH, &hcd->flags);
 
-	
+	/* set hostmode */
 	reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE);
 	ehci_writel(ehci, (USBMODE_VBUS | USBMODE_SDIS), reg_ptr);
 
-	
+	/* port configuration - phy, port speed, port power, port enable */
 	while (port--)
 		ehci_writel(ehci, (PTS_VAL(pdata->phy_info) | PORT_POWER |
 				PORT_PE), &ehci->regs->port_status[port]);
@@ -388,11 +397,11 @@ static int ehci_msm_run(struct usb_hcd *hcd)
 	ehci->command &= ~(CMD_LRESET|CMD_IAAD|CMD_PSE|CMD_ASE|CMD_RESET);
 	ehci->command |= CMD_RUN;
 	ehci_writel(ehci, ehci->command, &ehci->regs->command);
-	ehci_readl(ehci, &ehci->regs->command); 
+	ehci_readl(ehci, &ehci->regs->command); /* unblock posted writes */
 
 	ehci->rh_state = EHCI_RH_RUNNING;
 
-	
+	/*Enable appropriate Interrupts*/
 	ehci_writel(ehci, INTR_MASK, &ehci->regs->intr_enable);
 
 	return retval;
@@ -403,6 +412,9 @@ static struct hc_driver msm_hc_driver = {
 	.product_desc 		= "Qualcomm On-Chip EHCI Host Controller",
 	.hcd_priv_size 		= sizeof(struct msmusb_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq 			= ehci_msm_irq,
 	.flags 			= HCD_USB2,
 
@@ -412,12 +424,21 @@ static struct hc_driver msm_hc_driver = {
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 	.bus_suspend		= ehci_msm_bus_suspend,
@@ -441,8 +462,14 @@ static void msm_hsusb_request_host(void *handle, int request)
 	switch (request) {
 #ifdef CONFIG_USB_OTG
 	case REQUEST_HNP_SUSPEND:
+		/* disable Root hub auto suspend. As hardware is configured
+		 * for peripheral mode, mark hardware is not available.
+		 */
 		if (PHY_TYPE(pdata->phy_info) == USB_PHY_INTEGRATED) {
 			pm_runtime_disable(&udev->dev);
+			/* Mark root hub as disconnected. This would
+			 * protect suspend/resume via sysfs.
+			 */
 			udev->state = USB_STATE_NOTATTACHED;
 			clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 			hcd->state = HC_STATE_HALT;
@@ -492,7 +519,7 @@ static void msm_hsusb_request_host(void *handle, int request)
 		if (!mhcd->running)
 			break;
 		mhcd->running = 0;
-		
+		/* come out of lpm before deregistration */
 		if (PHY_TYPE(pdata->phy_info) == USB_PHY_SERIAL_PMIC) {
 			usb_lpm_exit(hcd);
 			if (cancel_work_sync(&(mhcd->lpm_exit_work)))
@@ -594,7 +621,7 @@ static int msm_xusb_init_host(struct platform_device *pdev,
 		if (pdata->vbus_init)
 			pdata->vbus_init(1);
 
-		
+		/* VBUS might be present. Turn off vbus */
 		if (pdata->vbus_power)
 			pdata->vbus_power(pdata->phy_info, 0);
 
@@ -614,7 +641,7 @@ static int msm_xusb_init_host(struct platform_device *pdev,
 
 		if (!hcd->regs)
 			return -EFAULT;
-		
+		/* get usb clocks */
 		mhcd->alt_core_clk = clk_get(&pdev->dev, "alt_core_clk");
 		if (IS_ERR(mhcd->alt_core_clk)) {
 			iounmap(hcd->regs);

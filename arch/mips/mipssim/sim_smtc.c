@@ -15,6 +15,9 @@
  *  59 Temple Place - Suite 330, Boston MA 02111-1307, USA.
  *
  */
+/*
+ * Simulator Platform-specific hooks for SMTC operation
+ */
 #include <linux/kernel.h>
 #include <linux/sched.h>
 #include <linux/cpumask.h>
@@ -28,12 +31,16 @@
 #include <asm/mmu_context.h>
 #include <asm/smtc_ipi.h>
 
+/* VPE/SMP Prototype implements platform interfaces directly */
 
+/*
+ * Cause the specified action to be performed on a targeted "CPU"
+ */
 
 static void ssmtc_send_ipi_single(int cpu, unsigned int action)
 {
 	smtc_send_ipi(cpu, LINUX_SMP_IPI, action);
-	
+	/* "CPU" may be TC of same VPE, VPE of same CPU, or different CPU */
 }
 
 static inline void ssmtc_send_ipi_mask(const struct cpumask *mask,
@@ -45,20 +52,32 @@ static inline void ssmtc_send_ipi_mask(const struct cpumask *mask,
 		ssmtc_send_ipi_single(i, action);
 }
 
+/*
+ * Post-config but pre-boot cleanup entry point
+ */
 static void __cpuinit ssmtc_init_secondary(void)
 {
 	smtc_init_secondary();
 }
 
+/*
+ * SMP initialization finalization entry point
+ */
 static void __cpuinit ssmtc_smp_finish(void)
 {
 	smtc_smp_finish();
 }
 
+/*
+ * Hook for after all CPUs are online
+ */
 static void ssmtc_cpus_done(void)
 {
 }
 
+/*
+ * Platform "CPU" startup hook
+ */
 static void __cpuinit ssmtc_boot_secondary(int cpu, struct task_struct *idle)
 {
 	smtc_boot_secondary(cpu, idle);
@@ -70,8 +89,15 @@ static void __init ssmtc_smp_setup(void)
 		mipsmt_build_cpu_map(0);
 }
 
+/*
+ * Platform SMP pre-initialization
+ */
 static void ssmtc_prepare_cpus(unsigned int max_cpus)
 {
+	/*
+	 * As noted above, we can assume a single CPU for now
+	 * but it may be multithreaded.
+	 */
 
 	if (read_c0_config3() & (1 << 2)) {
 		mipsmt_prepare_cpus();

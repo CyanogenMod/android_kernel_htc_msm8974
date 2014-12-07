@@ -37,14 +37,16 @@ MODULE_AUTHOR("Hans de Goede <hdegoede@redhat.com>");
 MODULE_DESCRIPTION("STV0680 USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;		
+	struct gspca_dev gspca_dev;		/* !! must be the first item */
 	struct v4l2_pix_format mode;
 	u8 orig_mode;
 	u8 video_mode;
 	u8 current_mode;
 };
 
+/* V4L2 controls supported by the driver */
 static const struct ctrl sd_ctrls[] = {
 };
 
@@ -56,19 +58,19 @@ static int stv_sndctrl(struct gspca_dev *gspca_dev, int set, u8 req, u16 val,
 	unsigned int pipe = 0;
 
 	switch (set) {
-	case 0: 
+	case 0: /*  0xc1  */
 		req_type = USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_ENDPOINT;
 		pipe = usb_rcvctrlpipe(gspca_dev->dev, 0);
 		break;
-	case 1: 
+	case 1: /*  0x41  */
 		req_type = USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_ENDPOINT;
 		pipe = usb_sndctrlpipe(gspca_dev->dev, 0);
 		break;
-	case 2:	
+	case 2:	/*  0x80  */
 		req_type = USB_DIR_IN | USB_RECIP_DEVICE;
 		pipe = usb_rcvctrlpipe(gspca_dev->dev, 0);
 		break;
-	case 3:	
+	case 3:	/*  0x40  */
 		req_type = USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE;
 		pipe = usb_sndctrlpipe(gspca_dev->dev, 0);
 		break;
@@ -87,7 +89,7 @@ static int stv_sndctrl(struct gspca_dev *gspca_dev, int set, u8 req, u16 val,
 
 static int stv0680_handle_error(struct gspca_dev *gspca_dev, int ret)
 {
-	stv_sndctrl(gspca_dev, 0, 0x80, 0, 0x02); 
+	stv_sndctrl(gspca_dev, 0, 0x80, 0, 0x02); /* Get Last Error */
 	PDEBUG(D_ERR, "last error: %i,  command = 0x%x",
 	       gspca_dev->usb_buf[0], gspca_dev->usb_buf[1]);
 	return ret;
@@ -95,7 +97,7 @@ static int stv0680_handle_error(struct gspca_dev *gspca_dev, int ret)
 
 static int stv0680_get_video_mode(struct gspca_dev *gspca_dev)
 {
-	
+	/* Note not sure if this init of usb_buf is really necessary */
 	memset(gspca_dev->usb_buf, 0, 8);
 	gspca_dev->usb_buf[0] = 0x0f;
 
@@ -104,7 +106,7 @@ static int stv0680_get_video_mode(struct gspca_dev *gspca_dev)
 		return stv0680_handle_error(gspca_dev, -EIO);
 	}
 
-	return gspca_dev->usb_buf[0]; 
+	return gspca_dev->usb_buf[0]; /* 01 = VGA, 03 = QVGA, 00 = CIF */
 }
 
 static int stv0680_set_video_mode(struct gspca_dev *gspca_dev, u8 mode)
@@ -122,7 +124,7 @@ static int stv0680_set_video_mode(struct gspca_dev *gspca_dev, u8 mode)
 		return stv0680_handle_error(gspca_dev, -EIO);
 	}
 
-	
+	/* Verify we got what we've asked for */
 	if (stv0680_get_video_mode(gspca_dev) != mode) {
 		PDEBUG(D_ERR, "Error setting camera video mode!");
 		return -EIO;
@@ -133,6 +135,7 @@ static int stv0680_set_video_mode(struct gspca_dev *gspca_dev, u8 mode)
 	return 0;
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -140,16 +143,18 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	struct sd *sd = (struct sd *) gspca_dev;
 	struct cam *cam = &gspca_dev->cam;
 
+	/* Give the camera some time to settle, otherwise initalization will
+	   fail on hotplug, and yes it really needs a full second. */
 	msleep(1000);
 
-	
+	/* ping camera to be sure STV0680 is present */
 	if (stv_sndctrl(gspca_dev, 0, 0x88, 0x5678, 0x02) != 0x02 ||
 	    gspca_dev->usb_buf[0] != 0x56 || gspca_dev->usb_buf[1] != 0x78) {
 		PDEBUG(D_ERR, "STV(e): camera ping failed!!");
 		return stv0680_handle_error(gspca_dev, -ENODEV);
 	}
 
-	
+	/* get camera descriptor */
 	if (stv_sndctrl(gspca_dev, 2, 0x06, 0x0200, 0x09) != 0x09)
 		return stv0680_handle_error(gspca_dev, -ENODEV);
 
@@ -179,11 +184,11 @@ static int sd_config(struct gspca_dev *gspca_dev,
 		PDEBUG(D_PROBE, "Camera supports QVGA mode");
 
 	if (gspca_dev->usb_buf[7] & 0x01)
-		sd->video_mode = 0x00; 
+		sd->video_mode = 0x00; /* CIF */
 	else
-		sd->video_mode = 0x03; 
+		sd->video_mode = 0x03; /* QVGA */
 
-	
+	/* FW rev, ASIC rev, sensor ID  */
 	PDEBUG(D_PROBE, "Firmware rev is %i.%i",
 	       gspca_dev->usb_buf[0], gspca_dev->usb_buf[1]);
 	PDEBUG(D_PROBE, "ASIC rev is %i.%i",
@@ -201,27 +206,27 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Get mode details */
 	if (stv_sndctrl(gspca_dev, 0, 0x8f, 0, 0x10) != 0x10)
 		return stv0680_handle_error(gspca_dev, -EIO);
 
 	cam->bulk = 1;
-	cam->bulk_nurbs = 1; 
+	cam->bulk_nurbs = 1; /* The cam cannot handle more */
 	cam->bulk_size = (gspca_dev->usb_buf[0] << 24) |
 			 (gspca_dev->usb_buf[1] << 16) |
 			 (gspca_dev->usb_buf[2] << 8) |
 			 (gspca_dev->usb_buf[3]);
 	sd->mode.width = (gspca_dev->usb_buf[4] << 8) |
-			 (gspca_dev->usb_buf[5]);  
+			 (gspca_dev->usb_buf[5]);  /* 322, 356, 644 */
 	sd->mode.height = (gspca_dev->usb_buf[6] << 8) |
-			  (gspca_dev->usb_buf[7]); 
+			  (gspca_dev->usb_buf[7]); /* 242, 292, 484 */
 	sd->mode.pixelformat = V4L2_PIX_FMT_STV0680;
 	sd->mode.field = V4L2_FIELD_NONE;
 	sd->mode.bytesperline = sd->mode.width;
 	sd->mode.sizeimage = cam->bulk_size;
 	sd->mode.colorspace = V4L2_COLORSPACE_SRGB;
 
-	
+	/* origGain = gspca_dev->usb_buf[12]; */
 
 	cam->cam_mode = &sd->mode;
 	cam->nmodes = 1;
@@ -240,11 +245,13 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	return 0;
 }
 
+/* -- start the camera -- */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	int ret;
@@ -257,6 +264,10 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	if (stv_sndctrl(gspca_dev, 0, 0x85, 0, 0x10) != 0x10)
 		return stv0680_handle_error(gspca_dev, -EIO);
 
+	/* Start stream at:
+	   0x0000 = CIF (352x288)
+	   0x0100 = VGA (640x480)
+	   0x0300 = QVGA (320x240) */
 	if (stv_sndctrl(gspca_dev, 1, 0x09, sd->video_mode << 8, 0x0) != 0x0)
 		return stv0680_handle_error(gspca_dev, -EIO);
 
@@ -265,7 +276,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 
 static void sd_stopN(struct gspca_dev *gspca_dev)
 {
-	
+	/* This is a high priority command; it stops all lower order cmds */
 	if (stv_sndctrl(gspca_dev, 1, 0x04, 0x0000, 0x0) != 0x0)
 		stv0680_handle_error(gspca_dev, -EIO);
 }
@@ -286,17 +297,25 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
+	/* Every now and then the camera sends a 16 byte packet, no idea
+	   what it contains, but it is not image data, when this
+	   happens the frame received before this packet is corrupt,
+	   so discard it. */
 	if (len != sd->mode.sizeimage) {
 		gspca_dev->last_packet_type = DISCARD_PACKET;
 		return;
 	}
 
+	/* Finish the previous frame, we do this upon reception of the next
+	   packet, even though it is already complete so that the strange 16
+	   byte packets send after a corrupt frame can discard it. */
 	gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
 
-	
+	/* Store the just received frame */
 	gspca_frame_add(gspca_dev, FIRST_PACKET, data, len);
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -309,6 +328,7 @@ static const struct sd_desc sd_desc = {
 	.pkt_scan = sd_pkt_scan,
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x0553, 0x0202)},
 	{USB_DEVICE(0x041e, 0x4007)},
@@ -316,6 +336,7 @@ static const struct usb_device_id device_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {

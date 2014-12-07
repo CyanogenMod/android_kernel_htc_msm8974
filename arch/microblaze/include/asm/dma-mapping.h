@@ -15,6 +15,10 @@
 #ifndef _ASM_MICROBLAZE_DMA_MAPPING_H
 #define _ASM_MICROBLAZE_DMA_MAPPING_H
 
+/*
+ * See Documentation/DMA-API-HOWTO.txt and
+ * Documentation/DMA-API.txt for documentation.
+ */
 
 #include <linux/types.h>
 #include <linux/cache.h>
@@ -35,16 +39,24 @@ static inline unsigned long device_to_mask(struct device *dev)
 {
 	if (dev->dma_mask && *dev->dma_mask)
 		return *dev->dma_mask;
-	
+	/* Assume devices without mask can take 32 bit addresses */
 	return 0xfffffffful;
 }
 
 extern struct dma_map_ops *dma_ops;
 
+/*
+ * Available generic sets of operations
+ */
 extern struct dma_map_ops dma_direct_ops;
 
 static inline struct dma_map_ops *get_dma_ops(struct device *dev)
 {
+	/* We don't handle the NULL dev case for ISA for now. We could
+	 * do it via an out of line call but it is not needed for now. The
+	 * only ISA DMA device we support is the floppy and we have a hack
+	 * in the floppy driver directly to get a device for us.
+	 */
 	if (unlikely(!dev) || !dev->archdata.dma_ops)
 		return NULL;
 
@@ -148,4 +160,4 @@ static inline void dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 	__dma_sync(virt_to_phys(vaddr), size, (int)direction);
 }
 
-#endif	
+#endif	/* _ASM_MICROBLAZE_DMA_MAPPING_H */

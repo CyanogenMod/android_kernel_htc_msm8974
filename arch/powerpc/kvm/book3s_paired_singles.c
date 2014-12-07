@@ -27,6 +27,7 @@
 #include <asm/switch_to.h>
 #include <linux/vmalloc.h>
 
+/* #define DEBUG */
 
 #ifdef DEBUG
 #define dprintk printk
@@ -87,7 +88,7 @@
 #define OP_63_FNMSUB		30
 #define OP_63_FNMADD		31
 #define OP_63_FCMPO		32
-#define OP_63_MTFSB1		38 
+#define OP_63_MTFSB1		38 // XXX
 #define OP_63_FSUB		20
 #define OP_63_FNEG		40
 #define OP_63_MCRFS		64
@@ -170,7 +171,7 @@ static void kvmppc_inject_pf(struct kvm_vcpu *vcpu, ulong eaddr, bool is_store)
 	shared->msr = kvmppc_set_field(shared->msr, 33, 36, 0);
 	shared->msr = kvmppc_set_field(shared->msr, 42, 47, 0);
 	shared->dar = eaddr;
-	
+	/* Page Fault */
 	dsisr = kvmppc_set_field(0, 33, 33, 1);
 	if (is_store)
 		shared->dsisr = kvmppc_set_field(dsisr, 38, 38, 1);
@@ -188,7 +189,7 @@ static int kvmppc_emulate_fpr_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
 	if (ls_type == FPU_LS_DOUBLE)
 		len = sizeof(u64);
 
-	
+	/* read from memory */
 	r = kvmppc_ld(vcpu, &addr, len, tmp, true);
 	vcpu->arch.paddr_accessed = addr;
 
@@ -203,7 +204,7 @@ static int kvmppc_emulate_fpr_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
 
 	emulated = EMULATE_DONE;
 
-	
+	/* put in registers */
 	switch (ls_type) {
 	case FPU_LS_SINGLE:
 		kvm_cvt_fd((u32*)tmp, &vcpu->arch.fpr[rs]);
@@ -275,7 +276,7 @@ static int kvmppc_emulate_psq_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
 	float one = 1.0;
 	u32 tmp[2];
 
-	
+	/* read from memory */
 	if (w) {
 		r = kvmppc_ld(vcpu, &addr, sizeof(u32), tmp, true);
 		memcpy(&tmp[1], &one, sizeof(u32));
@@ -299,7 +300,7 @@ static int kvmppc_emulate_psq_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
 
 	emulated = EMULATE_DONE;
 
-	
+	/* put in registers */
 	kvm_cvt_fd(&tmp[0], &vcpu->arch.fpr[rs]);
 	vcpu->arch.qpr[rs] = tmp[1];
 
@@ -340,11 +341,18 @@ static int kvmppc_emulate_psq_store(struct kvm_run *run, struct kvm_vcpu *vcpu,
 	return emulated;
 }
 
+/*
+ * Cuts out inst bits with ordering according to spec.
+ * That means the leftmost bit is zero. All given bits are included.
+ */
 static inline u32 inst_get_field(u32 inst, int msb, int lsb)
 {
 	return kvmppc_get_field(inst, msb + 32, lsb + 32);
 }
 
+/*
+ * Replaces inst bits with ordering according to spec.
+ */
 static inline u32 inst_set_field(u32 inst, int msb, int lsb, int value)
 {
 	return kvmppc_set_field(inst, msb + 32, lsb + 32, value);
@@ -370,7 +378,7 @@ bool kvmppc_inst_is_paired_single(struct kvm_vcpu *vcpu, u32 inst)
 	case OP_STFDU:
 		return true;
 	case 4:
-		
+		/* X form */
 		switch (inst_get_field(inst, 21, 30)) {
 		case OP_4X_PS_CMPU0:
 		case OP_4X_PSQ_LX:
@@ -388,13 +396,13 @@ bool kvmppc_inst_is_paired_single(struct kvm_vcpu *vcpu, u32 inst)
 		case OP_4X_PS_MERGE11:
 			return true;
 		}
-		
+		/* XW form */
 		switch (inst_get_field(inst, 25, 30)) {
 		case OP_4XW_PSQ_STX:
 		case OP_4XW_PSQ_STUX:
 			return true;
 		}
-		
+		/* A form */
 		switch (inst_get_field(inst, 26, 30)) {
 		case OP_4A_PS_SUM1:
 		case OP_4A_PS_SUM0:
@@ -509,10 +517,10 @@ static int kvmppc_ps_three_in(struct kvm_vcpu *vcpu, bool rc,
 	u32 ps0_in1, ps0_in2, ps0_in3;
 	u32 ps1_in1, ps1_in2, ps1_in3;
 
-	
+	/* RC */
 	WARN_ON(rc);
 
-	
+	/* PS0 */
 	kvm_cvt_df(&fpr[reg_in1], &ps0_in1);
 	kvm_cvt_df(&fpr[reg_in2], &ps0_in2);
 	kvm_cvt_df(&fpr[reg_in3], &ps0_in3);
@@ -528,7 +536,7 @@ static int kvmppc_ps_three_in(struct kvm_vcpu *vcpu, bool rc,
 	if (!(scalar & SCALAR_NO_PS0))
 		kvm_cvt_fd(&ps0_out, &fpr[reg_out]);
 
-	
+	/* PS1 */
 	ps1_in1 = qpr[reg_in1];
 	ps1_in2 = qpr[reg_in2];
 	ps1_in3 = qpr[reg_in3];
@@ -559,10 +567,10 @@ static int kvmppc_ps_two_in(struct kvm_vcpu *vcpu, bool rc,
 	u32 ps1_out;
 	u32 ps1_in1, ps1_in2;
 
-	
+	/* RC */
 	WARN_ON(rc);
 
-	
+	/* PS0 */
 	kvm_cvt_df(&fpr[reg_in1], &ps0_in1);
 
 	if (scalar & SCALAR_LOW)
@@ -579,7 +587,7 @@ static int kvmppc_ps_two_in(struct kvm_vcpu *vcpu, bool rc,
 		kvm_cvt_fd(&ps0_out, &fpr[reg_out]);
 	}
 
-	
+	/* PS1 */
 	ps1_in1 = qpr[reg_in1];
 	ps1_in2 = qpr[reg_in2];
 
@@ -608,10 +616,10 @@ static int kvmppc_ps_one_in(struct kvm_vcpu *vcpu, bool rc,
 	u32 ps0_out, ps0_in;
 	u32 ps1_in;
 
-	
+	/* RC */
 	WARN_ON(rc);
 
-	
+	/* PS0 */
 	kvm_cvt_df(&fpr[reg_in], &ps0_in);
 	func(&vcpu->arch.fpscr, &ps0_out, &ps0_in);
 
@@ -620,7 +628,7 @@ static int kvmppc_ps_one_in(struct kvm_vcpu *vcpu, bool rc,
 
 	kvm_cvt_fd(&ps0_out, &fpr[reg_out]);
 
-	
+	/* PS1 */
 	ps1_in = qpr[reg_in];
 	func(&vcpu->arch.fpscr, &qpr[reg_out], &ps1_in);
 
@@ -663,7 +671,7 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 	kvmppc_giveup_ext(vcpu, MSR_FP);
 	preempt_disable();
 	enable_kernel_fp();
-	
+	/* Do we need to clear FE0 / FE1 here? Don't think so. */
 
 #ifdef DEBUG
 	for (i = 0; i < ARRAY_SIZE(vcpu->arch.fpr); i++) {
@@ -722,10 +730,10 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 		break;
 	}
 	case 4:
-		
+		/* X form */
 		switch (inst_get_field(inst, 21, 30)) {
 		case OP_4X_PS_CMPU0:
-			
+			/* XXX */
 			emulated = EMULATE_FAIL;
 			break;
 		case OP_4X_PSQ_LX:
@@ -739,7 +747,7 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			break;
 		}
 		case OP_4X_PS_CMPO0:
-			
+			/* XXX */
 			emulated = EMULATE_FAIL;
 			break;
 		case OP_4X_PSQ_LUX:
@@ -762,7 +770,7 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			vcpu->arch.qpr[ax_rd] ^= 0x80000000;
 			break;
 		case OP_4X_PS_CMPU1:
-			
+			/* XXX */
 			emulated = EMULATE_FAIL;
 			break;
 		case OP_4X_PS_MR:
@@ -771,7 +779,7 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			vcpu->arch.qpr[ax_rd] = vcpu->arch.qpr[ax_rb];
 			break;
 		case OP_4X_PS_CMPO1:
-			
+			/* XXX */
 			emulated = EMULATE_FAIL;
 			break;
 		case OP_4X_PS_NABS:
@@ -791,7 +799,7 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 		case OP_4X_PS_MERGE00:
 			WARN_ON(rcomp);
 			vcpu->arch.fpr[ax_rd] = vcpu->arch.fpr[ax_ra];
-			
+			/* vcpu->arch.qpr[ax_rd] = vcpu->arch.fpr[ax_rb]; */
 			kvm_cvt_df(&vcpu->arch.fpr[ax_rb],
 				   &vcpu->arch.qpr[ax_rd]);
 			break;
@@ -802,22 +810,22 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			break;
 		case OP_4X_PS_MERGE10:
 			WARN_ON(rcomp);
-			
+			/* vcpu->arch.fpr[ax_rd] = vcpu->arch.qpr[ax_ra]; */
 			kvm_cvt_fd(&vcpu->arch.qpr[ax_ra],
 				   &vcpu->arch.fpr[ax_rd]);
-			
+			/* vcpu->arch.qpr[ax_rd] = vcpu->arch.fpr[ax_rb]; */
 			kvm_cvt_df(&vcpu->arch.fpr[ax_rb],
 				   &vcpu->arch.qpr[ax_rd]);
 			break;
 		case OP_4X_PS_MERGE11:
 			WARN_ON(rcomp);
-			
+			/* vcpu->arch.fpr[ax_rd] = vcpu->arch.qpr[ax_ra]; */
 			kvm_cvt_fd(&vcpu->arch.qpr[ax_ra],
 				   &vcpu->arch.fpr[ax_rd]);
 			vcpu->arch.qpr[ax_rd] = vcpu->arch.qpr[ax_rb];
 			break;
 		}
-		
+		/* XW form */
 		switch (inst_get_field(inst, 25, 30)) {
 		case OP_4XW_PSQ_STX:
 		{
@@ -843,7 +851,7 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			break;
 		}
 		}
-		
+		/* A form */
 		switch (inst_get_field(inst, 26, 30)) {
 		case OP_4A_PS_SUM1:
 			emulated = kvmppc_ps_two_in(vcpu, rcomp, ax_rd,
@@ -918,7 +926,7 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 		}
 		break;
 
-	
+	/* Real FPU operations */
 
 	case OP_LFS:
 	{
@@ -1147,15 +1155,15 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 		case OP_63_MTFSB1:
 		case OP_63_MCRFS:
 		case OP_63_MTFSFI:
-			
+			/* XXX need to implement */
 			break;
 		case OP_63_MFFS:
-			
+			/* XXX missing CR */
 			*fpr_d = vcpu->arch.fpscr;
 			break;
 		case OP_63_MTFSF:
-			
-			
+			/* XXX missing fm bits */
+			/* XXX missing CR */
 			vcpu->arch.fpscr = *fpr_b;
 			break;
 		case OP_63_FCMPU:
@@ -1215,9 +1223,9 @@ int kvmppc_emulate_paired_single(struct kvm_run *run, struct kvm_vcpu *vcpu)
 		{
 			double one = 1.0f;
 
-			
+			/* fD = sqrt(fB) */
 			fpd_fsqrt(&vcpu->arch.fpscr, &cr, fpr_d, fpr_b);
-			
+			/* fD = 1.0f / fD */
 			fpd_fdiv(&vcpu->arch.fpscr, &cr, fpr_d, (u64*)&one, fpr_d);
 			break;
 		}

@@ -62,6 +62,7 @@
 
 #include <linux/if_ether.h>
 
+/*--- Sizes -----------------------------------------------*/
 #define WLAN_CRC_LEN			4
 #define WLAN_BSSID_LEN			6
 #define WLAN_HDR_A3_LEN			24
@@ -71,10 +72,14 @@
 #define WLAN_WEP_IV_LEN			4
 #define WLAN_WEP_ICV_LEN		4
 
+/*--- Frame Control Field -------------------------------------*/
+/* Frame Types */
 #define WLAN_FTYPE_MGMT			0x00
 #define WLAN_FTYPE_CTL			0x01
 #define WLAN_FTYPE_DATA			0x02
 
+/* Frame subtypes */
+/* Management */
 #define WLAN_FSTYPE_ASSOCREQ		0x00
 #define WLAN_FSTYPE_ASSOCRESP		0x01
 #define WLAN_FSTYPE_REASSOCREQ		0x02
@@ -87,6 +92,7 @@
 #define WLAN_FSTYPE_AUTHEN		0x0b
 #define WLAN_FSTYPE_DEAUTHEN		0x0c
 
+/* Control */
 #define WLAN_FSTYPE_BLOCKACKREQ		0x8
 #define WLAN_FSTYPE_BLOCKACK		0x9
 #define WLAN_FSTYPE_PSPOLL		0x0a
@@ -96,6 +102,7 @@
 #define WLAN_FSTYPE_CFEND		0x0e
 #define WLAN_FSTYPE_CFENDCFACK		0x0f
 
+/* Data */
 #define WLAN_FSTYPE_DATAONLY		0x00
 #define WLAN_FSTYPE_DATA_CFACK		0x01
 #define WLAN_FSTYPE_DATA_CFPOLL		0x02
@@ -105,6 +112,24 @@
 #define WLAN_FSTYPE_CFPOLL		0x06
 #define WLAN_FSTYPE_CFACK_CFPOLL	0x07
 
+/*--- FC Macros ----------------------------------------------*/
+/* Macros to get/set the bitfields of the Frame Control Field */
+/*  GET_FC_??? - takes the host byte-order value of an FC     */
+/*               and retrieves the value of one of the        */
+/*               bitfields and moves that value so its lsb is */
+/*               in bit 0.                                    */
+/*  SET_FC_??? - takes a host order value for one of the FC   */
+/*               bitfields and moves it to the proper bit     */
+/*               location for ORing into a host order FC.     */
+/*               To send the FC produced from SET_FC_???,     */
+/*               one must put the bytes in IEEE order.        */
+/*  e.g.                                                      */
+/*     printf("the frame subtype is %x",                      */
+/*                 GET_FC_FTYPE( ieee2host( rx.fc )))         */
+/*                                                            */
+/*     tx.fc = host2ieee( SET_FC_FTYPE(WLAN_FTYP_CTL) |       */
+/*                        SET_FC_FSTYPE(WLAN_FSTYPE_RTS) );   */
+/*------------------------------------------------------------*/
 
 #define WLAN_GET_FC_FTYPE(n)	((((u16)(n)) & (BIT(2) | BIT(3))) >> 2)
 #define WLAN_GET_FC_FSTYPE(n)	((((u16)(n)) & (BIT(4)|BIT(5)|BIT(6)|BIT(7))) >> 4)
@@ -120,6 +145,7 @@
 
 #define DOT11_RATE5_ISBASIC_GET(r)     (((u8)(r)) & BIT(7))
 
+/* Generic 802.11 Header types */
 
 struct p80211_hdr_a3 {
 	u16 fc;
@@ -145,6 +171,7 @@ union p80211_hdr {
 	struct p80211_hdr_a4 a4;
 } __packed;
 
+/* Frame and header length macros */
 
 #define WLAN_CTL_FRAMELEN(fstype) (\
 	(fstype) == WLAN_FSTYPE_BLOCKACKREQ	? 24 : \
@@ -158,6 +185,7 @@ union p80211_hdr {
 
 #define WLAN_FCS_LEN			4
 
+/* ftcl in HOST order */
 static inline u16 p80211_headerlen(u16 fctl)
 {
 	u16 hdrlen = 0;
@@ -182,4 +210,4 @@ static inline u16 p80211_headerlen(u16 fctl)
 	return hdrlen;
 }
 
-#endif 
+#endif /* _P80211HDR_H */

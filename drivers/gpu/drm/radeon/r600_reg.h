@@ -115,16 +115,22 @@
 #define R600_BIOS_6_SCRATCH               0x173c
 #define R600_BIOS_7_SCRATCH               0x1740
 
+/* Audio, these regs were reverse enginered,
+ * so the chance is high that the naming is wrong
+ * R6xx+ ??? */
 
+/* Audio clocks */
 #define R600_AUDIO_PLL1_MUL               0x0514
 #define R600_AUDIO_PLL1_DIV               0x0518
 #define R600_AUDIO_PLL2_MUL               0x0524
 #define R600_AUDIO_PLL2_DIV               0x0528
 #define R600_AUDIO_CLK_SRCSEL             0x0534
 
+/* Audio general */
 #define R600_AUDIO_ENABLE                 0x7300
 #define R600_AUDIO_TIMING                 0x7344
 
+/* Audio params */
 #define R600_AUDIO_VENDOR_ID              0x7380
 #define R600_AUDIO_REVISION_ID            0x7384
 #define R600_AUDIO_ROOT_NODE_COUNT        0x7388
@@ -137,9 +143,11 @@
 #define R600_AUDIO_NID3_CAPS              0x73a4
 #define R600_AUDIO_NID3_PIN_CAPS          0x73a8
 
+/* Audio conn list */
 #define R600_AUDIO_CONN_LIST_LEN          0x73ac
 #define R600_AUDIO_CONN_LIST              0x73b0
 
+/* Audio verbs */
 #define R600_AUDIO_RATE_BPS_CHANNEL       0x73c0
 #define R600_AUDIO_PLAYING                0x73c4
 #define R600_AUDIO_IMPLEMENTATION_ID      0x73c8
@@ -148,10 +156,12 @@
 #define R600_AUDIO_PIN_WIDGET_CNTL        0x73d4
 #define R600_AUDIO_STATUS_BITS            0x73d8
 
+/* HDMI base register addresses */
 #define R600_HDMI_BLOCK1                  0x7400
 #define R600_HDMI_BLOCK2                  0x7700
 #define R600_HDMI_BLOCK3                  0x7800
 
+/* HDMI registers */
 #define R600_HDMI_ENABLE                0x00
 #define R600_HDMI_STATUS                0x04
 #       define R600_HDMI_INT_PENDING    (1 << 29)
@@ -183,6 +193,7 @@
 #define R600_HDMI_AUDIO_DEBUG_2         0xe8
 #define R600_HDMI_AUDIO_DEBUG_3         0xec
 
+/* HDMI additional config base register addresses */
 #define R600_HDMI_CONFIG1                 0x7600
 #define R600_HDMI_CONFIG2                 0x7a00
 

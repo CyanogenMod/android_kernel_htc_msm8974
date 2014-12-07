@@ -38,4 +38,4 @@ static __inline__ void sh_dac_output(u8 value, int channel)
 	else __raw_writeb(value,DADR0);
 }
 
-#endif 
+#endif /* __ASM_CPU_SH3_DAC_H */

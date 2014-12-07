@@ -139,7 +139,7 @@ static void __init sni_pcit_resource_init(void)
 {
 	int i;
 
-	
+	/* request I/O space for devices used on all i[345]86 PCs */
 	for (i = 0; i < ARRAY_SIZE(pcit_io_resources); i++)
 		request_resource(&sni_io_resource, pcit_io_resources + i);
 }

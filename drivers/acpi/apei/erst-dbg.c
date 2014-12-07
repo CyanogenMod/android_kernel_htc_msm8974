@@ -38,6 +38,7 @@
 static void *erst_dbg_buf;
 static unsigned int erst_dbg_buf_len;
 
+/* Prevent erst_dbg_read/write from being invoked concurrently */
 static DEFINE_MUTEX(erst_dbg_mutex);
 
 static int erst_dbg_open(struct inode *inode, struct file *file)
@@ -109,12 +110,12 @@ retry_next:
 	rc = erst_get_record_id_next(pos, &id);
 	if (rc)
 		goto out;
-	
+	/* no more record */
 	if (id == APEI_ERST_INVALID_RECORD_ID)
 		goto out;
 retry:
 	rc = len = erst_read(id, erst_dbg_buf, erst_dbg_buf_len);
-	
+	/* The record may be cleared by others, try read next record */
 	if (rc == -ENOENT)
 		goto retry_next;
 	if (rc < 0)

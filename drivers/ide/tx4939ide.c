@@ -22,6 +22,7 @@
 
 #define MODNAME	"tx4939ide"
 
+/* ATA Shadow Registers (8-bit except for Data which is 16-bit) */
 #define TX4939IDE_Data			0x000
 #define TX4939IDE_Error_Feature		0x001
 #define TX4939IDE_Sec			0x002
@@ -31,9 +32,11 @@
 #define TX4939IDE_DevHead		0x006
 #define TX4939IDE_Stat_Cmd		0x007
 #define TX4939IDE_AltStat_DevCtl	0x402
-#define TX4939IDE_DMA_Cmd	0x800	
-#define TX4939IDE_DMA_Stat	0x802	
-#define TX4939IDE_PRD_Ptr	0x804	
+/* H/W DMA Registers  */
+#define TX4939IDE_DMA_Cmd	0x800	/* 8-bit */
+#define TX4939IDE_DMA_Stat	0x802	/* 8-bit */
+#define TX4939IDE_PRD_Ptr	0x804	/* 32-bit */
+/* ATA100 CORE Registers (16-bit) */
 #define TX4939IDE_Sys_Ctl	0xc00
 #define TX4939IDE_Xfer_Cnt_1	0xc08
 #define TX4939IDE_Xfer_Cnt_2	0xc0a
@@ -53,6 +56,7 @@
 #define TX4939IDE_Pkt_Xfer_Ctl	0xcd8
 #define TX4939IDE_Start_TAddr	0xce0
 
+/* bits for Int_Ctl */
 #define TX4939IDE_INT_ADDRERR	0x80
 #define TX4939IDE_INT_REACHMUL	0x40
 #define TX4939IDE_INT_DEVTIMING	0x20
@@ -111,10 +115,14 @@ static void tx4939ide_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	pair = ide_get_pair_dev(drive);
 	if (pair)
 		safe = min_t(u8, safe, pair->pio_mode - XFER_PIO_0);
+	/*
+	 * Update Command Transfer Mode for master/slave and Data
+	 * Transfer Mode for this drive.
+	 */
 	mask = is_slave ? 0x07f00000 : 0x000007f0;
 	val = ((safe << 8) | (pio << 4)) << (is_slave ? 16 : 0);
 	hwif->select_data = (hwif->select_data & ~mask) | val;
-	
+	/* tx4939ide_tf_load_fixup() will set the Sys_Ctl register */
 }
 
 static void tx4939ide_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
@@ -122,7 +130,7 @@ static void tx4939ide_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	u32 mask, val;
 	const u8 mode = drive->dma_mode;
 
-	
+	/* Update Data Transfer Mode for this drive. */
 	if (mode >= XFER_UDMA_0)
 		val = mode - XFER_UDMA_0 + 8;
 	else
@@ -135,7 +143,7 @@ static void tx4939ide_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 		val <<= 4;
 	}
 	hwif->select_data = (hwif->select_data & ~mask) | val;
-	
+	/* tx4939ide_tf_load_fixup() will set the Sys_Ctl register */
 }
 
 static u16 tx4939ide_check_error_ints(ide_hwif_t *hwif)
@@ -144,12 +152,12 @@ static u16 tx4939ide_check_error_ints(ide_hwif_t *hwif)
 	u16 ctl = tx4939ide_readw(base, TX4939IDE_Int_Ctl);
 
 	if (ctl & TX4939IDE_INT_BUSERR) {
-		
+		/* reset FIFO */
 		u16 sysctl = tx4939ide_readw(base, TX4939IDE_Sys_Ctl);
 
 		tx4939ide_writew(sysctl | 0x4000, base, TX4939IDE_Sys_Ctl);
 		mmiowb();
-		
+		/* wait 12GBUSCLK (typ. 60ns @ GBUS200MHz, max 270ns) */
 		ndelay(270);
 		tx4939ide_writew(sysctl, base, TX4939IDE_Sys_Ctl);
 	}
@@ -169,6 +177,10 @@ static void tx4939ide_clear_irq(ide_drive_t *drive)
 	void __iomem *base;
 	u16 ctl;
 
+	/*
+	 * tx4939ide_dma_test_irq() and tx4939ide_dma_end() do all job
+	 * for DMA case.
+	 */
 	if (drive->waiting_for_dma)
 		return;
 	hwif = drive->hwif;
@@ -208,17 +220,18 @@ static u8 tx4939ide_clear_dma_status(void __iomem *base)
 {
 	u8 dma_stat;
 
-	
+	/* read DMA status for INTR & ERROR flags */
 	dma_stat = tx4939ide_readb(base, TX4939IDE_DMA_Stat);
-	
+	/* clear INTR & ERROR flags */
 	tx4939ide_writeb(dma_stat | ATA_DMA_INTR | ATA_DMA_ERR, base,
 			 TX4939IDE_DMA_Stat);
-	
+	/* recover intmask cleared by writing to bit2 of DMA_Stat */
 	tx4939ide_writew(TX4939IDE_IGNORE_INTS << 8, base, TX4939IDE_Int_Ctl);
 	return dma_stat;
 }
 
 #ifdef __BIG_ENDIAN
+/* custom ide_build_dmatable to handle swapped layout */
 static int tx4939ide_build_dmatable(ide_drive_t *drive, struct ide_cmd *cmd)
 {
 	ide_hwif_t *hwif = drive->hwif;
@@ -233,6 +246,9 @@ static int tx4939ide_build_dmatable(ide_drive_t *drive, struct ide_cmd *cmd)
 		cur_addr = sg_dma_address(sg);
 		cur_len = sg_dma_len(sg);
 
+		/*
+		 * Fill in the DMA table, without crossing any 64kB boundaries.
+		 */
 
 		while (cur_len) {
 			if (count++ >= PRD_ENTRIES)
@@ -241,6 +257,10 @@ static int tx4939ide_build_dmatable(ide_drive_t *drive, struct ide_cmd *cmd)
 			bcount = 0x10000 - (cur_addr & 0xffff);
 			if (bcount > cur_len)
 				bcount = cur_len;
+			/*
+			 * This workaround for zero count seems required.
+			 * (standard ide_build_dmatable does it too)
+			 */
 			if (bcount == 0x10000)
 				bcount = 0x8000;
 			*table++ = bcount & 0xffff;
@@ -259,7 +279,7 @@ use_pio_instead:
 	printk(KERN_ERR "%s: %s\n", drive->name,
 		count ? "DMA table too small" : "empty DMA table?");
 
-	return 0; 
+	return 0; /* revert to PIO for this request */
 }
 #else
 #define tx4939ide_build_dmatable	ide_build_dmatable
@@ -271,17 +291,17 @@ static int tx4939ide_dma_setup(ide_drive_t *drive, struct ide_cmd *cmd)
 	void __iomem *base = TX4939IDE_BASE(hwif);
 	u8 rw = (cmd->tf_flags & IDE_TFLAG_WRITE) ? 0 : ATA_DMA_WR;
 
-	
+	/* fall back to PIO! */
 	if (tx4939ide_build_dmatable(drive, cmd) == 0)
 		return 1;
 
-	
+	/* PRD table */
 	tx4939ide_writel(hwif->dmatable_dma, base, TX4939IDE_PRD_Ptr);
 
-	
+	/* specify r/w */
 	tx4939ide_writeb(rw, base, TX4939IDE_DMA_Cmd);
 
-	
+	/* clear INTR & ERROR flags */
 	tx4939ide_clear_dma_status(base);
 
 	tx4939ide_writew(SECTOR_SIZE / 2, base, drive->dn ?
@@ -299,26 +319,27 @@ static int tx4939ide_dma_end(ide_drive_t *drive)
 	void __iomem *base = TX4939IDE_BASE(hwif);
 	u16 ctl = tx4939ide_readw(base, TX4939IDE_Int_Ctl);
 
-	
+	/* get DMA command mode */
 	dma_cmd = tx4939ide_readb(base, TX4939IDE_DMA_Cmd);
-	
+	/* stop DMA */
 	tx4939ide_writeb(dma_cmd & ~ATA_DMA_START, base, TX4939IDE_DMA_Cmd);
 
-	
+	/* read and clear the INTR & ERROR bits */
 	dma_stat = tx4939ide_clear_dma_status(base);
 
 #define CHECK_DMA_MASK (ATA_DMA_ACTIVE | ATA_DMA_ERR | ATA_DMA_INTR)
 
-	
+	/* verify good DMA status */
 	if ((dma_stat & CHECK_DMA_MASK) == 0 &&
 	    (ctl & (TX4939IDE_INT_XFEREND | TX4939IDE_INT_HOST)) ==
 	    (TX4939IDE_INT_XFEREND | TX4939IDE_INT_HOST))
-		
+		/* INT_IDE lost... bug? */
 		return 0;
 	return ((dma_stat & CHECK_DMA_MASK) !=
 		ATA_DMA_INTR) ? 0x10 | dma_stat : 0;
 }
 
+/* returns 1 if DMA IRQ issued, 0 otherwise */
 static int tx4939ide_dma_test_irq(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
@@ -331,12 +352,12 @@ static int tx4939ide_dma_test_irq(ide_drive_t *drive)
 	ide_int = ctl & (TX4939IDE_INT_XFEREND | TX4939IDE_INT_HOST);
 	switch (ide_int) {
 	case TX4939IDE_INT_HOST:
-		
+		/* On error, XFEREND might not be asserted. */
 		stat = tx4939ide_readb(base, TX4939IDE_AltStat_DevCtl);
 		if ((stat & (ATA_BUSY | ATA_DRQ | ATA_ERR)) == ATA_ERR)
 			found = 1;
 		else
-			
+			/* Wait for XFEREND (Mask HOST and unmask XFEREND) */
 			ctl &= ~TX4939IDE_INT_XFEREND << 8;
 		ctl |= ide_int << 8;
 		break;
@@ -349,6 +370,10 @@ static int tx4939ide_dma_test_irq(ide_drive_t *drive)
 		found = 1;
 		break;
 	}
+	/*
+	 * Do not clear XFEREND, HOST now.  They will be cleared by
+	 * clearing bit2 of DMA_Stat.
+	 */
 	ctl &= ~ide_int;
 	tx4939ide_writew(ctl, base, TX4939IDE_Int_Ctl);
 	return found;
@@ -369,13 +394,13 @@ static void tx4939ide_init_hwif(ide_hwif_t *hwif)
 {
 	void __iomem *base = TX4939IDE_BASE(hwif);
 
-	
+	/* Soft Reset */
 	tx4939ide_writew(0x8000, base, TX4939IDE_Sys_Ctl);
 	mmiowb();
-	
+	/* at least 20 GBUSCLK (typ. 100ns @ GBUS200MHz, max 450ns) */
 	ndelay(450);
 	tx4939ide_writew(0x0000, base, TX4939IDE_Sys_Ctl);
-	
+	/* mask some interrupts and clear all interrupts */
 	tx4939ide_writew((TX4939IDE_IGNORE_INTS << 8) | 0xff, base,
 			 TX4939IDE_Int_Ctl);
 
@@ -387,6 +412,10 @@ static int tx4939ide_init_dma(ide_hwif_t *hwif, const struct ide_port_info *d)
 {
 	hwif->dma_base =
 		hwif->extra_base + tx4939ide_swizzleb(TX4939IDE_DMA_Cmd);
+	/*
+	 * Note that we cannot use ATA_DMA_TABLE_OFS, ATA_DMA_STATUS
+	 * for big endian.
+	 */
 	return ide_allocate_dma_engine(hwif);
 }
 
@@ -416,6 +445,7 @@ static void tx4939ide_tf_load(ide_drive_t *drive, struct ide_taskfile *tf,
 
 #ifdef __BIG_ENDIAN
 
+/* custom iops (independent from SWAP_IO_SPACE) */
 static void tx4939ide_input_data_swap(ide_drive_t *drive, struct ide_cmd *cmd,
 				void *buf, unsigned int len)
 {
@@ -456,7 +486,7 @@ static const struct ide_tp_ops tx4939ide_tp_ops = {
 	.output_data		= tx4939ide_output_data_swap,
 };
 
-#else	
+#else	/* __LITTLE_ENDIAN */
 
 static const struct ide_tp_ops tx4939ide_tp_ops = {
 	.exec_command		= ide_exec_command,
@@ -472,7 +502,7 @@ static const struct ide_tp_ops tx4939ide_tp_ops = {
 	.output_data		= ide_output_data,
 };
 
-#endif	
+#endif	/* __LITTLE_ENDIAN */
 
 static const struct ide_port_ops tx4939ide_port_ops = {
 	.set_pio_mode		= tx4939ide_set_pio_mode,
@@ -553,7 +583,7 @@ static int __init tx4939ide_probe(struct platform_device *pdev)
 	host = ide_host_alloc(&tx4939ide_port_info, hws, 1);
 	if (!host)
 		return -ENOMEM;
-	
+	/* use extra_base for base address of the all registers */
 	host->ports[0]->extra_base = mapbase;
 	ret = ide_host_register(host, &tx4939ide_port_info, hws);
 	if (ret) {

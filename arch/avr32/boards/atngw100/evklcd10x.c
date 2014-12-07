@@ -152,6 +152,9 @@ static void atevklcd10x_lcdc_power_control(int on)
 
 static int __init atevklcd10x_init(void)
 {
+	/* PB15 is connected to the enable line on the boost regulator
+	 * controlling the backlight for the LCD panel.
+	 */
 	at32_select_gpio(GPIO_PIN_PB(15), AT32_GPIOF_OUTPUT);
 	gpio_request(GPIO_PIN_PB(15), "backlight");
 	gpio_direction_output(GPIO_PIN_PB(15), 0);

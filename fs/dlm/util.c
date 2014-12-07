@@ -38,6 +38,8 @@ static void header_in(struct dlm_header *hd)
 	hd->h_length		= le16_to_cpu(hd->h_length);
 }
 
+/* higher errno values are inconsistent across architectures, so select
+   one set of values for on the wire */
 
 static int to_dlm_errno(int err)
 {

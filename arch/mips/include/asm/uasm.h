@@ -122,6 +122,7 @@ Ip_u1u2s3(_bbit1);
 Ip_u3u1u2(_lwx);
 Ip_u3u1u2(_ldx);
 
+/* Handle labels. */
 struct uasm_label {
 	u32 *addr;
 	int lab;
@@ -142,6 +143,7 @@ static inline void __uasminit uasm_l##lb(struct uasm_label **lab, u32 *addr) \
 	uasm_build_label(lab, addr, label##lb);				\
 }
 
+/* convenience macros for instructions */
 #ifdef CONFIG_64BIT
 # define UASM_i_LW(buf, rs, rt, off) uasm_i_ld(buf, rs, rt, off)
 # define UASM_i_SW(buf, rs, rt, off) uasm_i_sd(buf, rs, rt, off)
@@ -213,12 +215,14 @@ static inline void uasm_i_dsll_safe(u32 **p, unsigned int a1,
 		uasm_i_dsll32(p, a1, a2, a3 - 32);
 }
 
+/* Handle relocations. */
 struct uasm_reloc {
 	u32 *addr;
 	unsigned int type;
 	int lab;
 };
 
+/* This is zero so we can use zeroed label arrays. */
 #define UASM_LABEL_INVALID 0
 
 void uasm_r_mips_pc16(struct uasm_reloc **rel, u32 *addr, int lid);
@@ -229,6 +233,7 @@ void uasm_copy_handler(struct uasm_reloc *rel, struct uasm_label *lab,
 	u32 *first, u32 *end, u32 *target);
 int uasm_insn_has_bdelay(struct uasm_reloc *rel, u32 *addr);
 
+/* Convenience functions for labeled branches. */
 void uasm_il_bltz(u32 **p, struct uasm_reloc **r, unsigned int reg, int lid);
 void uasm_il_b(u32 **p, struct uasm_reloc **r, int lid);
 void uasm_il_beqz(u32 **p, struct uasm_reloc **r, unsigned int reg, int lid);

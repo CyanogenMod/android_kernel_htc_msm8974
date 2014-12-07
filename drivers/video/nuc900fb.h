@@ -28,7 +28,7 @@ enum nuc900_lcddrv_type {
 
 
 #define PALETTE_BUFFER_SIZE	256
-#define PALETTE_BUFF_CLEAR 	(0x80000000) 
+#define PALETTE_BUFF_CLEAR 	(0x80000000) /* entry is clear/invalid */
 
 struct nuc900fb_info {
 	struct device		*dev;
@@ -45,11 +45,11 @@ struct nuc900fb_info {
 	struct notifier_block	freq_transition;
 #endif
 
-	
+	/* keep these registers in case we need to re-write palette */
 	u32			palette_buffer[PALETTE_BUFFER_SIZE];
 	u32			pseudo_pal[16];
 };
 
 int nuc900fb_init(void);
 
-#endif 
+#endif /* __NUC900FB_H */

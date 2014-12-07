@@ -15,9 +15,11 @@
 
 #include <linux/serial_core.h>
 
+/* Optional platform device data for msm_serial driver.
+ * Used to configure low power wakeup */
 struct msm_serial_platform_data {
-	int wakeup_irq;  
-	
+	int wakeup_irq;  /* wakeup irq */
+	/* bool: inject char into rx tty on wakeup */
 	unsigned char inject_rx_on_wakeup;
 	char rx_to_inject;
 	int userid;

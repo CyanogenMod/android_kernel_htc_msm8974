@@ -1,3 +1,6 @@
+//
+// IOT Action for different AP
+//
 typedef enum _HT_IOT_ACTION{
 	HT_IOT_ACT_TX_USE_AMSDU_4K = 0x00000001,
 	HT_IOT_ACT_TX_USE_AMSDU_8K = 0x00000002,

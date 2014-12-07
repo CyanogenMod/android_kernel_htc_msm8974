@@ -52,9 +52,9 @@ void pci_acc_write_reg(int reg, u32 value)
 		break;
 	case PCI_ACC_INT_REG:
 		_rdmsr(DIVIL_MSR_REG(PIC_YSEL_LOW), &hi, &lo);
-		
+		/* disable all the usb interrupt in PIC */
 		lo &= ~(0xf << PIC_YSEL_LOW_ACC_SHIFT);
-		if (value)	
+		if (value)	/* enable all the acc interrupt in PIC */
 			lo |= (CS5536_ACC_INTR << PIC_YSEL_LOW_ACC_SHIFT);
 		_wrmsr(DIVIL_MSR_REG(PIC_YSEL_LOW), hi, lo);
 		break;

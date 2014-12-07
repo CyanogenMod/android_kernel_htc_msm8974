@@ -21,7 +21,7 @@ struct imx_mxc_rnga_data {
 #ifdef CONFIG_SOC_IMX31
 static const struct imx_mxc_rnga_data imx31_mxc_rnga_data __initconst =
 	imx_mxc_rnga_data_entry_single(MX31);
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX31 */
 
 static struct platform_device *__init imx_add_mxc_rnga(
 		const struct imx_mxc_rnga_data *data)
@@ -45,7 +45,7 @@ static int __init imxXX_add_mxc_rnga(void)
 	if (cpu_is_mx31())
 		ret = imx_add_mxc_rnga(&imx31_mxc_rnga_data);
 	else
-#endif 
+#endif /* if defined(CONFIG_SOC_IMX31) */
 		ret = ERR_PTR(-ENODEV);
 
 	if (IS_ERR(ret))

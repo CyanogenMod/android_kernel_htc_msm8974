@@ -29,6 +29,7 @@
 #define MAX_DSS_LCD_MANAGERS	2
 #define MAX_NUM_DSI		2
 
+/* DSS has feature id */
 enum dss_feat_id {
 	FEAT_LCDENABLEPOL,
 	FEAT_LCDENABLESIGNAL,
@@ -38,10 +39,10 @@ enum dss_feat_id {
 	FEAT_LINEBUFFERSPLIT,
 	FEAT_ROWREPEATENABLE,
 	FEAT_RESIZECONF,
-	
+	/* Independent core clk divider */
 	FEAT_CORE_CLK_DIV,
 	FEAT_LCD_CLK_SRC,
-	
+	/* DSI-PLL power command 0x3 is not working */
 	FEAT_DSI_PLL_PWR_BUG,
 	FEAT_DSI_PLL_FREQSEL,
 	FEAT_DSI_DCS_CMD_CONFIG_VC,
@@ -59,10 +60,11 @@ enum dss_feat_id {
 	FEAT_ALPHA_FIXED_ZORDER,
 	FEAT_ALPHA_FREE_ZORDER,
 	FEAT_FIFO_MERGE,
-	
+	/* An unknown HW bug causing the normal FIFO thresholds not to work */
 	FEAT_OMAP3_DSI_FIFO_BUG,
 };
 
+/* DSS register field id */
 enum dss_feat_reg_field {
 	FEAT_REG_FIRHINC,
 	FEAT_REG_FIRVINC,
@@ -91,6 +93,7 @@ enum dss_range_param {
 	FEAT_PARAM_LINEWIDTH,
 };
 
+/* DSS Feature Functions */
 int dss_feat_get_num_mgrs(void);
 int dss_feat_get_num_ovls(void);
 unsigned long dss_feat_get_param_min(enum dss_range_param param);
@@ -102,8 +105,8 @@ bool dss_feat_color_mode_supported(enum omap_plane plane,
 		enum omap_color_mode color_mode);
 const char *dss_feat_get_clk_source_name(enum omap_dss_clk_source id);
 
-u32 dss_feat_get_buffer_size_unit(void);	
-u32 dss_feat_get_burst_size_unit(void);		
+u32 dss_feat_get_buffer_size_unit(void);	/* in bytes */
+u32 dss_feat_get_burst_size_unit(void);		/* in bytes */
 
 bool dss_has_feature(enum dss_feat_id id);
 void dss_feat_get_reg_field(enum dss_feat_reg_field id, u8 *start, u8 *end);

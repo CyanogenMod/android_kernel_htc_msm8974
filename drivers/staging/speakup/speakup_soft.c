@@ -22,15 +22,15 @@
  * package and is not a general device driver.  */
 
 #include <linux/unistd.h>
-#include <linux/miscdevice.h> 
-#include <linux/poll.h> 
-#include <linux/sched.h> 
+#include <linux/miscdevice.h> /* for misc_register, and SYNTH_MINOR */
+#include <linux/poll.h> /* for poll_wait() */
+#include <linux/sched.h> /* schedule(), signal_pending(), TASK_INTERRUPTIBLE */
 
 #include "spk_priv.h"
 #include "speakup.h"
 
 #define DRV_VERSION "2.6"
-#define SOFTSYNTH_MINOR 26 
+#define SOFTSYNTH_MINOR 26 /* might as well give it one more than /dev/synth */
 #define PROCSPEECH 0x0d
 #define CLEAR_SYNTH 0x18
 
@@ -57,6 +57,9 @@ static struct var_t vars[] = {
 	V_LAST_VAR
 };
 
+/*
+ * These attributes will appear in /sys/accessibility/speakup/soft.
+ */
 static struct kobj_attribute caps_start_attribute =
 	__ATTR(caps_start, USER_RW, spk_var_show, spk_var_store);
 static struct kobj_attribute caps_stop_attribute =
@@ -76,6 +79,12 @@ static struct kobj_attribute voice_attribute =
 static struct kobj_attribute vol_attribute =
 	__ATTR(vol, USER_RW, spk_var_show, spk_var_store);
 
+/*
+ * We should uncomment the following definition, when we agree on a
+ * method of passing a language designation to the software synthesizer.
+ * static struct kobj_attribute lang_attribute =
+ *	__ATTR(lang, USER_RW, spk_var_show, spk_var_store);
+ */
 
 static struct kobj_attribute delay_time_attribute =
 	__ATTR(delay_time, ROOT_W, spk_var_show, spk_var_store);
@@ -88,10 +97,15 @@ static struct kobj_attribute jiffy_delta_attribute =
 static struct kobj_attribute trigger_time_attribute =
 	__ATTR(trigger_time, ROOT_W, spk_var_show, spk_var_store);
 
+/*
+ * Create a group of attributes so that we can create and destroy them all
+ * at once.
+ */
 static struct attribute *synth_attrs[] = {
 	&caps_start_attribute.attr,
 	&caps_stop_attribute.attr,
 	&freq_attribute.attr,
+/*	&lang_attribute.attr, */
 	&pitch_attribute.attr,
 	&punct_attribute.attr,
 	&rate_attribute.attr,
@@ -103,7 +117,7 @@ static struct attribute *synth_attrs[] = {
 	&full_time_attribute.attr,
 	&jiffy_delta_attribute.attr,
 	&trigger_time_attribute.attr,
-	NULL,	
+	NULL,	/* need to NULL terminate the list of attributes */
 };
 
 static struct spk_synth synth_soft = {
@@ -163,8 +177,8 @@ static char *get_initstring(void)
 static int softsynth_open(struct inode *inode, struct file *fp)
 {
 	unsigned long flags;
-	
-	
+	/*if ((fp->f_flags & O_ACCMODE) != O_RDONLY) */
+	/*	return -EPERM; */
 	spk_lock(flags);
 	if (synth_soft.alive) {
 		spk_unlock(flags);
@@ -182,7 +196,7 @@ static int softsynth_close(struct inode *inode, struct file *fp)
 	synth_soft.alive = 0;
 	initialized = 0;
 	spk_unlock(flags);
-	
+	/* Make sure we let applications go before leaving */
 	speakup_start_ttys();
 	return 0;
 }

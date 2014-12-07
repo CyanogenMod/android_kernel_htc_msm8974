@@ -24,15 +24,15 @@
 
 
 #define CHIPMEM_START	0x00000000
-#define CHIPMEM_END	0x00200000	
+#define CHIPMEM_END	0x00200000	/* overridden by argv[1] */
 
-#define SAVEKMSG_MAGIC1	0x53415645	
-#define SAVEKMSG_MAGIC2	0x4B4D5347	
+#define SAVEKMSG_MAGIC1	0x53415645	/* 'SAVE' */
+#define SAVEKMSG_MAGIC2	0x4B4D5347	/* 'KMSG' */
 
 struct savekmsg {
-    u_long magic1;	
-    u_long magic2;	
-    u_long magicptr;	
+    u_long magic1;	/* SAVEKMSG_MAGIC1 */
+    u_long magic2;	/* SAVEKMSG_MAGIC2 */
+    u_long magicptr;	/* address of magic1 */
     u_long size;
     char data[0];
 };

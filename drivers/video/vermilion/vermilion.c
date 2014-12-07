@@ -41,6 +41,7 @@
 #include <asm/tlbflush.h>
 #include <linux/mmzone.h>
 
+/* #define VERMILION_DEBUG */
 
 #include "vermilion.h"
 
@@ -78,6 +79,10 @@ static u32 vml_clocks[] = {
 
 static u32 vml_num_clocks = ARRAY_SIZE(vml_clocks);
 
+/*
+ * Allocate a contiguous vram area and make its linear kernel map
+ * uncached.
+ */
 
 static int vmlfb_alloc_vram_area(struct vram_area *va, unsigned max_order,
 				 unsigned min_order)
@@ -87,6 +92,12 @@ static int vmlfb_alloc_vram_area(struct vram_area *va, unsigned max_order,
 
 	max_order++;
 	do {
+		/*
+		 * Really try hard to get the needed memory.
+		 * We need memory below the first 32MB, so we
+		 * add the __GFP_DMA flag that guarantees that we are
+		 * below the first 16MB.
+		 */
 
 		flags = __GFP_DMA | __GFP_HIGH;
 		va->logical =
@@ -100,12 +111,22 @@ static int vmlfb_alloc_vram_area(struct vram_area *va, unsigned max_order,
 	va->size = PAGE_SIZE << max_order;
 	va->order = max_order;
 
+	/*
+	 * It seems like __get_free_pages only ups the usage count
+	 * of the first page. This doesn't work with fault mapping, so
+	 * up the usage count once more (XXX: should use split_page or
+	 * compound page).
+	 */
 
 	memset((void *)va->logical, 0x00, va->size);
 	for (i = va->logical; i < va->logical + va->size; i += PAGE_SIZE) {
 		get_page(virt_to_page(i));
 	}
 
+	/*
+	 * Change caching policy of the linear kernel map to avoid
+	 * mapping type conflicts with user-space mappings.
+	 */
 	set_pages_uc(virt_to_page(va->logical), va->size >> PAGE_SHIFT);
 
 	printk(KERN_DEBUG MODULE_NAME
@@ -115,6 +136,10 @@ static int vmlfb_alloc_vram_area(struct vram_area *va, unsigned max_order,
 	return 0;
 }
 
+/*
+ * Free a contiguous vram area and reset its linear kernel map
+ * mapping type.
+ */
 
 static void vmlfb_free_vram_area(struct vram_area *va)
 {
@@ -122,10 +147,17 @@ static void vmlfb_free_vram_area(struct vram_area *va)
 
 	if (va->logical) {
 
+		/*
+		 * Reset the linear kernel map caching policy.
+		 */
 
 		set_pages_wb(virt_to_page(va->logical),
 				 va->size >> PAGE_SHIFT);
 
+		/*
+		 * Decrease the usage count on the pages we've used
+		 * to compensate for upping when allocating.
+		 */
 
 		for (j = va->logical; j < va->logical + va->size;
 		     j += PAGE_SIZE) {
@@ -141,6 +173,9 @@ static void vmlfb_free_vram_area(struct vram_area *va)
 	}
 }
 
+/*
+ * Free allocated vram.
+ */
 
 static void vmlfb_free_vram(struct vml_info *vinfo)
 {
@@ -152,6 +187,12 @@ static void vmlfb_free_vram(struct vml_info *vinfo)
 	vinfo->num_areas = 0;
 }
 
+/*
+ * Allocate vram. Currently we try to allocate contiguous areas from the
+ * __GFP_DMA zone and puzzle them together. A better approach would be to
+ * allocate one contiguous area for scanout and use one-page allocations for
+ * offscreen areas. This requires user-space and GPU virtual mappings.
+ */
 
 static int vmlfb_alloc_vram(struct vml_info *vinfo,
 			    size_t requested,
@@ -233,6 +274,9 @@ static int vmlfb_alloc_vram(struct vml_info *vinfo,
 	return -ENOMEM;
 }
 
+/*
+ * Find the GPU to use with our display controller.
+ */
 
 static int vmlfb_get_gpu(struct vml_par *par)
 {
@@ -253,6 +297,9 @@ static int vmlfb_get_gpu(struct vml_par *par)
 	return 0;
 }
 
+/*
+ * Find a contiguous vram area that contains a given offset from vram start.
+ */
 static int vmlfb_vram_offset(struct vml_info *vinfo, unsigned long offset)
 {
 	unsigned long aoffset;
@@ -269,6 +316,9 @@ static int vmlfb_vram_offset(struct vml_info *vinfo, unsigned long offset)
 	return -EINVAL;
 }
 
+/*
+ * Remap the MMIO register spaces of the VDC and the GPU.
+ */
 
 static int vmlfb_enable_mmio(struct vml_par *par)
 {
@@ -314,6 +364,9 @@ out_err_0:
 	return err;
 }
 
+/*
+ * Unmap the VDC and GPU register spaces.
+ */
 
 static void vmlfb_disable_mmio(struct vml_par *par)
 {
@@ -323,6 +376,9 @@ static void vmlfb_disable_mmio(struct vml_par *par)
 	release_mem_region(par->vdc_mem_base, par->vdc_mem_size);
 }
 
+/*
+ * Release and uninit the VDC and GPU.
+ */
 
 static void vmlfb_release_devices(struct vml_par *par)
 {
@@ -333,6 +389,9 @@ static void vmlfb_release_devices(struct vml_par *par)
 	}
 }
 
+/*
+ * Free up allocated resources for a device.
+ */
 
 static void __devexit vml_pci_remove(struct pci_dev *dev)
 {
@@ -387,6 +446,11 @@ static void vmlfb_set_pref_pixel_format(struct fb_var_screeninfo *var)
 	    var->red.msb_right = var->transp.msb_right = 0;
 }
 
+/*
+ * Device initialization.
+ * We initialize one vml_par struct per device and one vml_info
+ * struct per pipe. Currently we have only one pipe.
+ */
 
 static int __devinit vml_pci_probe(struct pci_dev *dev,
 				   const struct pci_device_id *id)
@@ -496,11 +560,17 @@ out_err_0:
 
 static int vmlfb_open(struct fb_info *info, int user)
 {
+	/*
+	 * Save registers here?
+	 */
 	return 0;
 }
 
 static int vmlfb_release(struct fb_info *info, int user)
 {
+	/*
+	 * Restore registers here.
+	 */
 
 	return 0;
 }
@@ -546,6 +616,9 @@ static int vmlfb_check_var_locked(struct fb_var_screeninfo *var,
 		nearest_clock = vml_nearest_clock(clock);
 	}
 
+	/*
+	 * Accept a 20% diff.
+	 */
 
 	clock_diff = nearest_clock - clock;
 	clock_diff = (clock_diff < 0) ? -clock_diff : clock_diff;
@@ -633,7 +706,7 @@ static int vmlfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 
 static void vml_wait_vblank(struct vml_info *vinfo)
 {
-	
+	/* Wait for vblank. For now, just wait for a 50Hz cycle (20ms)) */
 	mdelay(20);
 }
 
@@ -641,18 +714,18 @@ static void vmlfb_disable_pipe(struct vml_info *vinfo)
 {
 	struct vml_par *par = vinfo->par;
 
-	
+	/* Disable the MDVO pad */
 	VML_WRITE32(par, VML_RCOMPSTAT, 0);
 	while (!(VML_READ32(par, VML_RCOMPSTAT) & VML_MDVO_VDC_I_RCOMP)) ;
 
-	
+	/* Disable display planes */
 	VML_WRITE32(par, VML_DSPCCNTR,
 		    VML_READ32(par, VML_DSPCCNTR) & ~VML_GFX_ENABLE);
 	(void)VML_READ32(par, VML_DSPCCNTR);
-	
+	/* Wait for vblank for the disable to take effect */
 	vml_wait_vblank(vinfo);
 
-	
+	/* Next, disable display pipes */
 	VML_WRITE32(par, VML_PIPEACONF, 0);
 	(void)VML_READ32(par, VML_PIPEACONF);
 
@@ -959,7 +1032,7 @@ static int vmlfb_sync(struct fb_info *info)
 
 static int vmlfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 {
-	return -EINVAL;	
+	return -EINVAL;	/* just to force soft_cursor() call */
 }
 
 static struct fb_ops vmlfb_ops = {
@@ -1027,18 +1100,30 @@ int vmlfb_register_subsys(struct vml_sys *sys)
 	subsys = sys;
 	subsys->save(subsys);
 
+	/*
+	 * We need to restart list traversal for each item, since we
+	 * release the list mutex in the loop.
+	 */
 
 	list = global_no_mode.next;
 	while (list != &global_no_mode) {
 		list_del_init(list);
 		entry = list_entry(list, struct vml_info, head);
 
+		/*
+		 * First, try the current mode which might not be
+		 * completely validated with respect to the pixel clock.
+		 */
 
 		if (!vmlfb_check_var_locked(&entry->info.var, entry)) {
 			vmlfb_set_par_locked(entry);
 			list_add_tail(list, &global_has_mode);
 		} else {
 
+			/*
+			 * Didn't work. Try to find another mode,
+			 * that matches this subsys.
+			 */
 
 			mutex_unlock(&vml_mutex);
 			save_activate = entry->info.var.activate;

@@ -65,6 +65,10 @@ void __init ge_imp3a_pic_init(void)
 
 	BUG_ON(mpic == NULL);
 	mpic_init(mpic);
+	/*
+	 * There is a simple interrupt handler in the main FPGA, this needs
+	 * to be cascaded into the MPIC
+	 */
 	for_each_node_by_type(np, "interrupt-controller")
 		if (of_device_is_compatible(np, "gef,fpga-pic-1.00")) {
 			cascade_node = np;
@@ -82,8 +86,11 @@ void __init ge_imp3a_pic_init(void)
 
 #ifdef CONFIG_PCI
 static int primary_phb_addr;
-#endif	
+#endif	/* CONFIG_PCI */
 
+/*
+ * Setup the architecture
+ */
 static void __init ge_imp3a_setup_arch(void)
 {
 	struct device_node *regs;
@@ -125,7 +132,7 @@ static void __init ge_imp3a_setup_arch(void)
 	}
 #endif
 
-	
+	/* Remap basic board registers */
 	regs = of_find_compatible_node(NULL, NULL, "ge,imp3a-fpga-regs");
 	if (regs) {
 		imp3a_regs = of_iomap(regs, 0);
@@ -141,6 +148,7 @@ static void __init ge_imp3a_setup_arch(void)
 	printk(KERN_INFO "GE Intelligent Platforms IMP3A 3U cPCI SBC\n");
 }
 
+/* Return the PCB revision */
 static unsigned int ge_imp3a_get_pcb_rev(void)
 {
 	unsigned int reg;
@@ -149,6 +157,7 @@ static unsigned int ge_imp3a_get_pcb_rev(void)
 	return (reg >> 8) & 0xff;
 }
 
+/* Return the board (software) revision */
 static unsigned int ge_imp3a_get_board_rev(void)
 {
 	unsigned int reg;
@@ -157,6 +166,7 @@ static unsigned int ge_imp3a_get_board_rev(void)
 	return reg & 0xff;
 }
 
+/* Return the FPGA revision */
 static unsigned int ge_imp3a_get_fpga_rev(void)
 {
 	unsigned int reg;
@@ -165,6 +175,7 @@ static unsigned int ge_imp3a_get_fpga_rev(void)
 	return (reg >> 8) & 0xff;
 }
 
+/* Return compactPCI Geographical Address */
 static unsigned int ge_imp3a_get_cpci_geo_addr(void)
 {
 	unsigned int reg;
@@ -173,6 +184,7 @@ static unsigned int ge_imp3a_get_cpci_geo_addr(void)
 	return (reg & 0x0f00) >> 8;
 }
 
+/* Return compactPCI System Controller Status */
 static unsigned int ge_imp3a_get_cpci_is_syscon(void)
 {
 	unsigned int reg;
@@ -196,6 +208,9 @@ static void ge_imp3a_show_cpuinfo(struct seq_file *m)
 		ge_imp3a_get_cpci_is_syscon() ? "yes" : "no");
 }
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init ge_imp3a_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

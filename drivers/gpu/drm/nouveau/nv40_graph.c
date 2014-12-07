@@ -51,7 +51,7 @@ nv40_graph_context_new(struct nouveau_channel *chan, int engine)
 	if (ret)
 		return ret;
 
-	
+	/* Initialise default context values */
 	ctx.dev = chan->dev;
 	ctx.mode = NOUVEAU_GRCTX_VALS;
 	ctx.data = grctx;
@@ -59,6 +59,9 @@ nv40_graph_context_new(struct nouveau_channel *chan, int engine)
 
 	nv_wo32(grctx, 0, grctx->vinst);
 
+	/* init grctx pointer in ramfc, and on PFIFO if channel is
+	 * already active there
+	 */
 	spin_lock_irqsave(&dev_priv->context_switch_lock, flags);
 	nv_wo32(chan->ramfc, 0x38, grctx->vinst >> 4);
 	nv_mask(dev, 0x002500, 0x00000001, 0x00000000);
@@ -89,7 +92,7 @@ nv40_graph_context_del(struct nouveau_channel *chan, int engine)
 	nv_mask(dev, 0x400720, 0x00000001, 0x00000001);
 	spin_unlock_irqrestore(&dev_priv->context_switch_lock, flags);
 
-	
+	/* Free the context resources */
 	nouveau_gpuobj_ref(NULL, &grctx);
 	chan->engctx[engine] = NULL;
 }
@@ -131,10 +134,10 @@ nv40_graph_set_tile_region(struct drm_device *dev, int i)
 
 	switch (dev_priv->chipset) {
 	case 0x40:
-	case 0x41: 
+	case 0x41: /* guess */
 	case 0x42:
 	case 0x43:
-	case 0x45: 
+	case 0x45: /* guess */
 	case 0x4e:
 		nv_wr32(dev, NV20_PGRAPH_TSIZE(i), tile->pitch);
 		nv_wr32(dev, NV20_PGRAPH_TLIMIT(i), tile->limit);
@@ -166,6 +169,15 @@ nv40_graph_set_tile_region(struct drm_device *dev, int i)
 	}
 }
 
+/*
+ * G70		0x47
+ * G71		0x49
+ * NV45		0x48
+ * G72[M]	0x46
+ * G73		0x4b
+ * C51_G7X	0x4c
+ * C51		0x4e
+ */
 int
 nv40_graph_init(struct drm_device *dev, int engine)
 {
@@ -198,7 +210,7 @@ nv40_graph_init(struct drm_device *dev, int engine)
 
 	kfree(cp);
 
-	
+	/* No context present currently */
 	nv_wr32(dev, NV40_PGRAPH_CTXCTL_CUR, 0x00000000);
 
 	nv_wr32(dev, NV03_PGRAPH_INTR   , 0xFFFFFFFF);
@@ -236,8 +248,8 @@ nv40_graph_init(struct drm_device *dev, int engine)
 		nv_wr32(dev, 0x4009bc, 0x0000014c);
 		break;
 	case 0x41:
-	case 0x42: 
-	
+	case 0x42: /* pciid also 0x00Cx */
+	/* case 0x0120: XXX (pciid) */
 		nv_wr32(dev, 0x400828, 0x007596ff);
 		nv_wr32(dev, 0x40082c, 0x00000108);
 		break;
@@ -246,16 +258,16 @@ nv40_graph_init(struct drm_device *dev, int engine)
 		nv_wr32(dev, 0x40082c, 0x00000108);
 		break;
 	case 0x44:
-	case 0x46: 
+	case 0x46: /* G72 */
 	case 0x4a:
-	case 0x4c: 
+	case 0x4c: /* G7x-based C51 */
 	case 0x4e:
 		nv_wr32(dev, 0x400860, 0);
 		nv_wr32(dev, 0x400864, 0);
 		break;
-	case 0x47: 
-	case 0x49: 
-	case 0x4b: 
+	case 0x47: /* G70 */
+	case 0x49: /* G71 */
+	case 0x4b: /* G73 */
 		nv_wr32(dev, 0x400828, 0x07830610);
 		nv_wr32(dev, 0x40082c, 0x0000016A);
 		break;
@@ -266,7 +278,7 @@ nv40_graph_init(struct drm_device *dev, int engine)
 	nv_wr32(dev, 0x400b38, 0x2ffff800);
 	nv_wr32(dev, 0x400b3c, 0x00006000);
 
-	
+	/* Tiling related stuff. */
 	switch (dev_priv->chipset) {
 	case 0x44:
 	case 0x4a:
@@ -287,11 +299,11 @@ nv40_graph_init(struct drm_device *dev, int engine)
 		break;
 	}
 
-	
+	/* Turn all the tiling regions off. */
 	for (i = 0; i < pfb->num_tiles; i++)
 		nv40_graph_set_tile_region(dev, i);
 
-	
+	/* begin RAM config */
 	vramsz = pci_resource_len(dev->pdev, 0) - 1;
 	switch (dev_priv->chipset) {
 	case 0x40:
@@ -448,30 +460,30 @@ nv40_graph_create(struct drm_device *dev)
 	NVOBJ_ENGINE_ADD(dev, GR, &pgraph->base);
 	nouveau_irq_register(dev, 12, nv40_graph_isr);
 
-	NVOBJ_CLASS(dev, 0x506e, SW); 
-	NVOBJ_CLASS(dev, 0x0030, GR); 
-	NVOBJ_CLASS(dev, 0x0039, GR); 
-	NVOBJ_CLASS(dev, 0x004a, GR); 
-	NVOBJ_CLASS(dev, 0x009f, GR); 
-	NVOBJ_CLASS(dev, 0x008a, GR); 
-	NVOBJ_CLASS(dev, 0x0089, GR); 
-	NVOBJ_CLASS(dev, 0x3089, GR); 
-	NVOBJ_CLASS(dev, 0x0062, GR); 
-	NVOBJ_CLASS(dev, 0x3062, GR); 
-	NVOBJ_CLASS(dev, 0x0043, GR); 
-	NVOBJ_CLASS(dev, 0x0012, GR); 
-	NVOBJ_CLASS(dev, 0x0072, GR); 
-	NVOBJ_CLASS(dev, 0x0019, GR); 
-	NVOBJ_CLASS(dev, 0x0044, GR); 
-	NVOBJ_CLASS(dev, 0x309e, GR); 
+	NVOBJ_CLASS(dev, 0x506e, SW); /* nvsw */
+	NVOBJ_CLASS(dev, 0x0030, GR); /* null */
+	NVOBJ_CLASS(dev, 0x0039, GR); /* m2mf */
+	NVOBJ_CLASS(dev, 0x004a, GR); /* gdirect */
+	NVOBJ_CLASS(dev, 0x009f, GR); /* imageblit (nv12) */
+	NVOBJ_CLASS(dev, 0x008a, GR); /* ifc */
+	NVOBJ_CLASS(dev, 0x0089, GR); /* sifm */
+	NVOBJ_CLASS(dev, 0x3089, GR); /* sifm (nv40) */
+	NVOBJ_CLASS(dev, 0x0062, GR); /* surf2d */
+	NVOBJ_CLASS(dev, 0x3062, GR); /* surf2d (nv40) */
+	NVOBJ_CLASS(dev, 0x0043, GR); /* rop */
+	NVOBJ_CLASS(dev, 0x0012, GR); /* beta1 */
+	NVOBJ_CLASS(dev, 0x0072, GR); /* beta4 */
+	NVOBJ_CLASS(dev, 0x0019, GR); /* cliprect */
+	NVOBJ_CLASS(dev, 0x0044, GR); /* pattern */
+	NVOBJ_CLASS(dev, 0x309e, GR); /* swzsurf */
 
-	
+	/* curie */
 	if (nv44_graph_class(dev))
 		NVOBJ_CLASS(dev, 0x4497, GR);
 	else
 		NVOBJ_CLASS(dev, 0x4097, GR);
 
-	
+	/* nvsw */
 	NVOBJ_CLASS(dev, 0x506e, SW);
 	NVOBJ_MTHD (dev, 0x506e, 0x0500, nv04_graph_mthd_page_flip);
 	return 0;

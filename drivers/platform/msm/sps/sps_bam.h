@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -171,6 +171,7 @@ struct sps_pipe {
 	
 	struct sps_bam_sys_mode sys;
 
+	bool disconnecting;
 };
 
 struct sps_bam {

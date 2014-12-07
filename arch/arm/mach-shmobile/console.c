@@ -26,6 +26,6 @@ void __init shmobile_setup_console(void)
 {
 	parse_early_param();
 
-	
+	/* Let earlyprintk output early console messages */
 	early_platform_driver_probe("earlyprintk", 1, 1);
 }

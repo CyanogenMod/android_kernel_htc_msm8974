@@ -40,7 +40,7 @@ void cns3xxx_pwr_power_up(unsigned int block)
 	reg &= ~(block & CNS3XXX_PWR_PLL_ALL);
 	__raw_writel(reg, PM_PLL_HM_PD_CTRL_REG);
 
-	
+	/* Wait for 300us for the PLL output clock locked. */
 	udelay(300);
 };
 EXPORT_SYMBOL(cns3xxx_pwr_power_up);
@@ -49,7 +49,7 @@ void cns3xxx_pwr_power_down(unsigned int block)
 {
 	u32 reg = __raw_readl(PM_PLL_HM_PD_CTRL_REG);
 
-	
+	/* write '1' to power down */
 	reg |= (block & CNS3XXX_PWR_PLL_ALL);
 	__raw_writel(reg, PM_PLL_HM_PD_CTRL_REG);
 };
@@ -59,6 +59,10 @@ static void cns3xxx_pwr_soft_rst_force(unsigned int block)
 {
 	u32 reg = __raw_readl(PM_SOFT_RST_REG);
 
+	/*
+	 * bit 0, 28, 29 => program low to reset,
+	 * the other else program low and then high
+	 */
 	if (block & 0x30000001) {
 		reg &= ~(block & PM_SOFT_RST_REG_MASK);
 	} else {
@@ -76,7 +80,7 @@ void cns3xxx_pwr_soft_rst(unsigned int block)
 	static unsigned int soft_reset;
 
 	if (soft_reset & block) {
-		
+		/* SPI/I2C/GPIO use the same block, reset once. */
 		return;
 	} else {
 		soft_reset |= block;
@@ -87,9 +91,19 @@ EXPORT_SYMBOL(cns3xxx_pwr_soft_rst);
 
 void cns3xxx_restart(char mode, const char *cmd)
 {
+	/*
+	 * To reset, we hit the on-board reset register
+	 * in the system FPGA.
+	 */
 	cns3xxx_pwr_soft_rst(CNS3XXX_PWR_SOFTWARE_RST(GLOBAL));
 }
 
+/*
+ * cns3xxx_cpu_clock - return CPU/L2 clock
+ *  aclk: cpu clock/2
+ *  hclk: cpu clock/4
+ *  pclk: cpu clock/8
+ */
 int cns3xxx_cpu_clock(void)
 {
 	u32 reg = __raw_readl(PM_CLK_CTRL_REG);

@@ -86,6 +86,12 @@ out:
 	return desc;
 }
 
+/* Protect against 'cutting & pasting' security.evm xattr, include inode
+ * specific info.
+ *
+ * (Additional directory/file metadata needs to be added for more complete
+ * protection.)
+ */
 static void hmac_add_misc(struct shash_desc *desc, struct inode *inode,
 			  char *digest)
 {
@@ -107,6 +113,13 @@ static void hmac_add_misc(struct shash_desc *desc, struct inode *inode,
 	crypto_shash_final(desc, digest);
 }
 
+/*
+ * Calculate the HMAC value across the set of protected security xattrs.
+ *
+ * Instead of retrieving the requested xattr, for performance, calculate
+ * the hmac using the requested xattr value. Don't alloc/free memory for
+ * each xattr, but attempt to re-use the previously allocated memory.
+ */
 static int evm_calc_hmac_or_hash(struct dentry *dentry,
 				const char *req_xattr_name,
 				const char *req_xattr_value,
@@ -173,6 +186,11 @@ int evm_calc_hash(struct dentry *dentry, const char *req_xattr_name,
 				req_xattr_value_len, IMA_XATTR_DIGEST, digest);
 }
 
+/*
+ * Calculate the hmac and update security.evm xattr
+ *
+ * Expects to be called with i_mutex locked.
+ */
 int evm_update_evmxattr(struct dentry *dentry, const char *xattr_name,
 			const char *xattr_value, size_t xattr_value_len)
 {
@@ -210,6 +228,9 @@ int evm_init_hmac(struct inode *inode, const struct xattr *lsm_xattr,
 	return 0;
 }
 
+/*
+ * Get the key from the TPM for the SHA1-HMAC
+ */
 int evm_init_key(void)
 {
 	struct key *evm_key;
@@ -228,7 +249,7 @@ int evm_init_key(void)
 	}
 	memcpy(evmkey, ekp->decrypted_data, ekp->decrypted_datalen);
 out:
-	
+	/* burn the original key contents */
 	memset(ekp->decrypted_data, 0, ekp->decrypted_datalen);
 	up_read(&evm_key->sem);
 	key_put(evm_key);

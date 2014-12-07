@@ -16,6 +16,7 @@
 #define P3SEG		0xc0000000
 #define P4SEG		0xe0000000
 
+/* Detailed P4SEG  */
 #define P4SEG_STORE_QUE	(P4SEG)
 #define P4SEG_IC_ADDR	0xf0000000
 #define P4SEG_IC_DATA	0xf1000000
@@ -36,8 +37,8 @@
 #define PA_AREA6	0x18000000
 #define PA_AREA7	0x1c000000
 
-#define PA_AREA5_IO	0xb4000000	
-#define PA_AREA6_IO	0xb8000000	
+#define PA_AREA5_IO	0xb4000000	/* Area 5 IO Memory */
+#define PA_AREA6_IO	0xb8000000	/* Area 6 IO Memory */
 
-#endif 
+#endif /* __ASM_CPU_SH4_ADDRSPACE_H */
 

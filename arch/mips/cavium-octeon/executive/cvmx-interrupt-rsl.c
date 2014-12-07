@@ -25,6 +25,10 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/*
+ * Utility functions to decode Octeon's RSL_INT_BLOCKS
+ * interrupts into error messages.
+ */
 
 #include <asm/octeon/octeon.h>
 
@@ -37,22 +41,38 @@
 
 void __cvmx_interrupt_gmxx_rxx_int_en_enable(int index, int block);
 
+/**
+ * Enable ASX error interrupts that exist on CN3XXX, CN50XX, and
+ * CN58XX.
+ *
+ * @block:  Interface to enable 0-1
+ */
 void __cvmx_interrupt_asxx_enable(int block)
 {
 	int mask;
 	union cvmx_asxx_int_en csr;
+	/*
+	 * CN38XX and CN58XX have two interfaces with 4 ports per
+	 * interface. All other chips have a max of 3 ports on
+	 * interface 0
+	 */
 	if (OCTEON_IS_MODEL(OCTEON_CN38XX) || OCTEON_IS_MODEL(OCTEON_CN58XX))
-		mask = 0xf;	
+		mask = 0xf;	/* Set enables for 4 ports */
 	else
-		mask = 0x7;	
+		mask = 0x7;	/* Set enables for 3 ports */
 
-	
+	/* Enable interface interrupts */
 	csr.u64 = cvmx_read_csr(CVMX_ASXX_INT_EN(block));
 	csr.s.txpsh = mask;
 	csr.s.txpop = mask;
 	csr.s.ovrflw = mask;
 	cvmx_write_csr(CVMX_ASXX_INT_EN(block), csr.u64);
 }
+/**
+ * Enable GMX error reporting for the supplied interface
+ *
+ * @interface: Interface to enable
+ */
 void __cvmx_interrupt_gmxx_enable(int interface)
 {
 	union cvmx_gmxx_inf_mode mode;
@@ -65,14 +85,14 @@ void __cvmx_interrupt_gmxx_enable(int interface)
 	if (OCTEON_IS_MODEL(OCTEON_CN56XX) || OCTEON_IS_MODEL(OCTEON_CN52XX)) {
 		if (mode.s.en) {
 			switch (mode.cn56xx.mode) {
-			case 1:	
+			case 1:	/* XAUI */
 				num_ports = 1;
 				break;
-			case 2:	
-			case 3:	
+			case 2:	/* SGMII */
+			case 3:	/* PICMG */
 				num_ports = 4;
 				break;
-			default:	
+			default:	/* Disabled */
 				num_ports = 0;
 				break;
 			}
@@ -82,11 +102,21 @@ void __cvmx_interrupt_gmxx_enable(int interface)
 		if (mode.s.en) {
 			if (OCTEON_IS_MODEL(OCTEON_CN38XX)
 			    || OCTEON_IS_MODEL(OCTEON_CN58XX)) {
+				/*
+				 * SPI on CN38XX and CN58XX report all
+				 * errors through port 0.  RGMII needs
+				 * to check all 4 ports
+				 */
 				if (mode.s.type)
 					num_ports = 1;
 				else
 					num_ports = 4;
 			} else {
+				/*
+				 * CN30XX, CN31XX, and CN50XX have two
+				 * or three ports. GMII and MII has 2,
+				 * RGMII has three
+				 */
 				if (mode.s.type)
 					num_ports = 2;
 				else

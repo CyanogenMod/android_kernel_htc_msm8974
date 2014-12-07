@@ -390,6 +390,28 @@ out:
 }
 EXPORT_SYMBOL_GPL(__crypto_alloc_tfm);
 
+/*
+ *	crypto_alloc_base - Locate algorithm and allocate transform
+ *	@alg_name: Name of algorithm
+ *	@type: Type of algorithm
+ *	@mask: Mask for type comparison
+ *
+ *	This function should not be used by new algorithm types.
+ *	Plesae use crypto_alloc_tfm instead.
+ *
+ *	crypto_alloc_base() will first attempt to locate an already loaded
+ *	algorithm.  If that fails and the kernel supports dynamically loadable
+ *	modules, it will then attempt to load a module of the same name or
+ *	alias.  If that fails it will send a query to any loaded crypto manager
+ *	to construct an algorithm on the fly.  A refcount is grabbed on the
+ *	algorithm which is then associated with the new transform.
+ *
+ *	The returned transform is of a non-determinate type.  Most people
+ *	should use one of the more specific allocation functions such as
+ *	crypto_alloc_blkcipher.
+ *
+ *	In case of error the return value is an error pointer.
+ */
 struct crypto_tfm *crypto_alloc_base(const char *alg_name, u32 type, u32 mask)
 {
 	struct crypto_tfm *tfm;
@@ -486,6 +508,26 @@ struct crypto_alg *crypto_find_alg(const char *alg_name,
 }
 EXPORT_SYMBOL_GPL(crypto_find_alg);
 
+/*
+ *	crypto_alloc_tfm - Locate algorithm and allocate transform
+ *	@alg_name: Name of algorithm
+ *	@frontend: Frontend algorithm type
+ *	@type: Type of algorithm
+ *	@mask: Mask for type comparison
+ *
+ *	crypto_alloc_tfm() will first attempt to locate an already loaded
+ *	algorithm.  If that fails and the kernel supports dynamically loadable
+ *	modules, it will then attempt to load a module of the same name or
+ *	alias.  If that fails it will send a query to any loaded crypto manager
+ *	to construct an algorithm on the fly.  A refcount is grabbed on the
+ *	algorithm which is then associated with the new transform.
+ *
+ *	The returned transform is of a non-determinate type.  Most people
+ *	should use one of the more specific allocation functions such as
+ *	crypto_alloc_blkcipher.
+ *
+ *	In case of error the return value is an error pointer.
+ */
 void *crypto_alloc_tfm(const char *alg_name,
 		       const struct crypto_type *frontend, u32 type, u32 mask)
 {
@@ -521,6 +563,14 @@ err:
 }
 EXPORT_SYMBOL_GPL(crypto_alloc_tfm);
 
+/*
+ *	crypto_destroy_tfm - Free crypto transform
+ *	@mem: Start of tfm slab
+ *	@tfm: Transform to free
+ *
+ *	This function frees up the transform and any associated resources,
+ *	then drops the refcount on the associated algorithm.
+ */
 void crypto_destroy_tfm(void *mem, struct crypto_tfm *tfm)
 {
 	struct crypto_alg *alg;

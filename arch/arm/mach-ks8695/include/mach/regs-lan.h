@@ -18,42 +18,48 @@
 #define KS8695_LAN_PA		(KS8695_IO_PA + KS8695_LAN_OFFSET)
 
 
-#define KS8695_LMDTXC		(0x00)		
-#define KS8695_LMDRXC		(0x04)		
-#define KS8695_LMDTSC		(0x08)		
-#define KS8695_LMDRSC		(0x0c)		
-#define KS8695_LTDLB		(0x10)		
-#define KS8695_LRDLB		(0x14)		
-#define KS8695_LMAL		(0x18)		
-#define KS8695_LMAH		(0x1c)		
-#define KS8695_LMAAL(n)		(0x80 + ((n)*8))	
-#define KS8695_LMAAH(n)		(0x84 + ((n)*8))	
+/*
+ * LAN registers
+ */
+#define KS8695_LMDTXC		(0x00)		/* DMA Transmit Control */
+#define KS8695_LMDRXC		(0x04)		/* DMA Receive Control */
+#define KS8695_LMDTSC		(0x08)		/* DMA Transmit Start Command */
+#define KS8695_LMDRSC		(0x0c)		/* DMA Receive Start Command */
+#define KS8695_LTDLB		(0x10)		/* Transmit Descriptor List Base Address */
+#define KS8695_LRDLB		(0x14)		/* Receive Descriptor List Base Address */
+#define KS8695_LMAL		(0x18)		/* MAC Station Address Low */
+#define KS8695_LMAH		(0x1c)		/* MAC Station Address High */
+#define KS8695_LMAAL(n)		(0x80 + ((n)*8))	/* MAC Additional Station Address (0..15) Low */
+#define KS8695_LMAAH(n)		(0x84 + ((n)*8))	/* MAC Additional Station Address (0..15) High */
 
 
-#define LMDTXC_LMTRST		(1    << 31)	
-#define LMDTXC_LMTBS		(0x3f << 24)	
-#define LMDTXC_LMTUCG		(1    << 18)	
-#define LMDTXC_LMTTCG		(1    << 17)	
-#define LMDTXC_LMTICG		(1    << 16)	
-#define LMDTXC_LMTFCE		(1    <<  9)	
-#define LMDTXC_LMTLB		(1    <<  8)	
-#define LMDTXC_LMTEP		(1    <<  2)	
-#define LMDTXC_LMTAC		(1    <<  1)	
-#define LMDTXC_LMTE		(1    <<  0)	
+/* DMA Transmit Control Register */
+#define LMDTXC_LMTRST		(1    << 31)	/* Soft Reset */
+#define LMDTXC_LMTBS		(0x3f << 24)	/* Transmit Burst Size */
+#define LMDTXC_LMTUCG		(1    << 18)	/* Transmit UDP Checksum Generate */
+#define LMDTXC_LMTTCG		(1    << 17)	/* Transmit TCP Checksum Generate */
+#define LMDTXC_LMTICG		(1    << 16)	/* Transmit IP Checksum Generate */
+#define LMDTXC_LMTFCE		(1    <<  9)	/* Transmit Flow Control Enable */
+#define LMDTXC_LMTLB		(1    <<  8)	/* Loopback mode */
+#define LMDTXC_LMTEP		(1    <<  2)	/* Transmit Enable Padding */
+#define LMDTXC_LMTAC		(1    <<  1)	/* Transmit Add CRC */
+#define LMDTXC_LMTE		(1    <<  0)	/* TX Enable */
 
-#define LMDRXC_LMRBS		(0x3f << 24)	
-#define LMDRXC_LMRUCC		(1    << 18)	
-#define LMDRXC_LMRTCG		(1    << 17)	
-#define LMDRXC_LMRICG		(1    << 16)	
-#define LMDRXC_LMRFCE		(1    <<  9)	
-#define LMDRXC_LMRB		(1    <<  6)	
-#define LMDRXC_LMRM		(1    <<  5)	
-#define LMDRXC_LMRU		(1    <<  4)	
-#define LMDRXC_LMRERR		(1    <<  3)	
-#define LMDRXC_LMRA		(1    <<  2)	
-#define LMDRXC_LMRE		(1    <<  1)	
+/* DMA Receive Control Register */
+#define LMDRXC_LMRBS		(0x3f << 24)	/* Receive Burst Size */
+#define LMDRXC_LMRUCC		(1    << 18)	/* Receive UDP Checksum check */
+#define LMDRXC_LMRTCG		(1    << 17)	/* Receive TCP Checksum check */
+#define LMDRXC_LMRICG		(1    << 16)	/* Receive IP Checksum check */
+#define LMDRXC_LMRFCE		(1    <<  9)	/* Receive Flow Control Enable */
+#define LMDRXC_LMRB		(1    <<  6)	/* Receive Broadcast */
+#define LMDRXC_LMRM		(1    <<  5)	/* Receive Multicast */
+#define LMDRXC_LMRU		(1    <<  4)	/* Receive Unicast */
+#define LMDRXC_LMRERR		(1    <<  3)	/* Receive Error Frame */
+#define LMDRXC_LMRA		(1    <<  2)	/* Receive All */
+#define LMDRXC_LMRE		(1    <<  1)	/* RX Enable */
 
-#define LMAAH_E			(1    << 31)	
+/* Additional Station Address High */
+#define LMAAH_E			(1    << 31)	/* Address Enabled */
 
 
 #endif

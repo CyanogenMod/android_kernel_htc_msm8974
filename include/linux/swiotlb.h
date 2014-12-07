@@ -9,14 +9,26 @@ struct scatterlist;
 
 extern int swiotlb_force;
 
+/*
+ * Maximum allowable number of contiguous slabs to map,
+ * must be a power of 2.  What is the appropriate value ?
+ * The complexity of {map,unmap}_single is linearly dependent on this value.
+ */
 #define IO_TLB_SEGSIZE	128
 
+/*
+ * log of the size of each IO TLB slab.  The number of slabs is command line
+ * controllable.
+ */
 #define IO_TLB_SHIFT 11
 
 extern void swiotlb_init(int verbose);
 extern void swiotlb_init_with_tbl(char *tlb, unsigned long nslabs, int verbose);
 extern unsigned long swiotlb_nr_tbl(void);
 
+/*
+ * Enumeration for sync targets
+ */
 enum dma_sync_target {
 	SYNC_FOR_CPU = 0,
 	SYNC_FOR_DEVICE = 1,
@@ -32,6 +44,7 @@ extern void swiotlb_tbl_sync_single(struct device *hwdev, char *dma_addr,
 				    size_t size, enum dma_data_direction dir,
 				    enum dma_sync_target target);
 
+/* Accessory functions. */
 extern void swiotlb_bounce(phys_addr_t phys, char *dma_addr, size_t size,
 			   enum dma_data_direction dir);
 
@@ -97,4 +110,4 @@ static inline void swiotlb_free(void) { }
 #endif
 
 extern void swiotlb_print_info(void);
-#endif 
+#endif /* __LINUX_SWIOTLB_H */

@@ -12,10 +12,10 @@
 #include <linux/mtd/partitions.h>
 
 enum nand_io {
-	NAND_OMAP_PREFETCH_POLLED = 0,	
-	NAND_OMAP_POLLED,		
-	NAND_OMAP_PREFETCH_DMA,		
-	NAND_OMAP_PREFETCH_IRQ		
+	NAND_OMAP_PREFETCH_POLLED = 0,	/* prefetch polled mode, default */
+	NAND_OMAP_POLLED,		/* polled mode, without prefetch */
+	NAND_OMAP_PREFETCH_DMA,		/* prefetch enabled sDMA mode */
+	NAND_OMAP_PREFETCH_IRQ		/* prefetch enabled irq mode */
 };
 
 struct omap_nand_platform_data {
@@ -31,6 +31,7 @@ struct omap_nand_platform_data {
 	enum omap_ecc           ecc_opt;
 };
 
+/* minimum size for IO mapping */
 #define	NAND_IO_SIZE	4
 
 #if defined(CONFIG_MTD_NAND_OMAP2) || defined(CONFIG_MTD_NAND_OMAP2_MODULE)

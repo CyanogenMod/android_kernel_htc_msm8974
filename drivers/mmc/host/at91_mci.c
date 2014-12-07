@@ -10,6 +10,48 @@
  * published by the Free Software Foundation.
  */
 
+/*
+   This is the AT91 MCI driver that has been tested with both MMC cards
+   and SD-cards.  Boards that support write protect are now supported.
+   The CCAT91SBC001 board does not support SD cards.
+
+   The three entry points are at91_mci_request, at91_mci_set_ios
+   and at91_mci_get_ro.
+
+   SET IOS
+     This configures the device to put it into the correct mode and clock speed
+     required.
+
+   MCI REQUEST
+     MCI request processes the commands sent in the mmc_request structure. This
+     can consist of a processing command and a stop command in the case of
+     multiple block transfers.
+
+     There are three main types of request, commands, reads and writes.
+
+     Commands are straight forward. The command is submitted to the controller and
+     the request function returns. When the controller generates an interrupt to indicate
+     the command is finished, the response to the command are read and the mmc_request_done
+     function called to end the request.
+
+     Reads and writes work in a similar manner to normal commands but involve the PDC (DMA)
+     controller to manage the transfers.
+
+     A read is done from the controller directly to the scatterlist passed in from the request.
+     Due to a bug in the AT91RM9200 controller, when a read is completed, all the words are byte
+     swapped in the scatterlist buffers.  AT91SAM926x are not affected by this bug.
+
+     The sequence of read interrupts is: ENDRX, RXBUFF, CMDRDY
+
+     A write is slightly different in that the bytes to write are read from the scatterlist
+     into a dma memory buffer (this is in case the source buffer should be read only). The
+     entire write buffer is then done from this single dma memory buffer.
+
+     The sequence of write interrupts is: ENDTX, TXBUFE, NOTBUSY, CMDRDY
+
+   GET RO
+     Gets the status of the write protect pin, if available.
+*/
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -65,6 +107,9 @@ static inline int at91mci_is_mci1rev2xx(void)
 #define MCI_BLKATONCE 		256
 #define MCI_BUFSIZE 		(MCI_BLKSIZE * MCI_BLKATONCE)
 
+/*
+ * Low level type for this driver
+ */
 struct at91mci_host
 {
 	struct mmc_host *mmc;
@@ -79,25 +124,32 @@ struct at91mci_host
 
 	struct clk *mci_clk;
 
+	/*
+	 * Flag indicating when the command has been sent. This is used to
+	 * work out whether or not to send the stop
+	 */
 	unsigned int flags;
-	
+	/* flag for current bus settings */
 	u32 bus_mode;
 
-	
+	/* DMA buffer used for transmitting */
 	unsigned int* buffer;
 	dma_addr_t physical_address;
 	unsigned int total_length;
 
-	
+	/* Latest in the scatterlist that has been enabled for transfer, but not freed */
 	int in_use_index;
 
-	
+	/* Latest in the scatterlist that has been enabled for transfer */
 	int transfer_index;
 
-	
+	/* Timer for timeouts */
 	struct timer_list timer;
 };
 
+/*
+ * Reset the controller and restore most of the state
+ */
 static void at91_reset_host(struct at91mci_host *host)
 {
 	unsigned long flags;
@@ -111,22 +163,22 @@ static void at91_reset_host(struct at91mci_host *host)
 
 	at91_mci_write(host, AT91_MCI_IDR, 0xffffffff);
 
-	
+	/* save current state */
 	mr = at91_mci_read(host, AT91_MCI_MR) & 0x7fff;
 	sdcr = at91_mci_read(host, AT91_MCI_SDCR);
 	dtor = at91_mci_read(host, AT91_MCI_DTOR);
 
-	
+	/* reset the controller */
 	at91_mci_write(host, AT91_MCI_CR, AT91_MCI_MCIDIS | AT91_MCI_SWRST);
 
-	
+	/* restore state */
 	at91_mci_write(host, AT91_MCI_CR, AT91_MCI_MCIEN);
 	at91_mci_write(host, AT91_MCI_MR, mr);
 	at91_mci_write(host, AT91_MCI_SDCR, sdcr);
 	at91_mci_write(host, AT91_MCI_DTOR, dtor);
 	at91_mci_write(host, AT91_MCI_IER, imr);
 
-	
+	/* make sure sdio interrupts will fire */
 	at91_mci_read(host, AT91_MCI_SR);
 
 	local_irq_restore(flags);
@@ -155,6 +207,9 @@ static void at91_timeout_timer(unsigned long data)
 	}
 }
 
+/*
+ * Copy from sg to a dma block - used for transfers
+ */
 static inline void at91_mci_sg_to_dma(struct at91mci_host *host, struct mmc_data *data)
 {
 	unsigned int len, i, size;
@@ -163,11 +218,16 @@ static inline void at91_mci_sg_to_dma(struct at91mci_host *host, struct mmc_data
 	size = data->blksz * data->blocks;
 	len = data->sg_len;
 
-	
+	/* MCI1 rev2xx Data Write Operation and number of bytes erratum */
 	if (at91mci_is_mci1rev2xx())
 		if (host->total_length == 12)
 			memset(dmabuf, 0, 12);
 
+	/*
+	 * Just loop through all entries. Size might not
+	 * be the entire list though so make sure that
+	 * we do not transfer too much.
+	 */
 	for (i = 0; i < len; i++) {
 		struct scatterlist *sg;
 		int amount;
@@ -179,7 +239,7 @@ static inline void at91_mci_sg_to_dma(struct at91mci_host *host, struct mmc_data
 		amount = min(size, sg->length);
 		size -= amount;
 
-		if (cpu_is_at91rm9200()) {	
+		if (cpu_is_at91rm9200()) {	/* AT91RM9200 errata */
 			int index;
 
 			for (index = 0; index < (amount / 4); index++)
@@ -197,9 +257,16 @@ static inline void at91_mci_sg_to_dma(struct at91mci_host *host, struct mmc_data
 			break;
 	}
 
+	/*
+	 * Check that we didn't get a request to transfer
+	 * more data than can fit into the SG list.
+	 */
 	BUG_ON(size != 0);
 }
 
+/*
+ * Handle after a dma read
+ */
 static void at91_mci_post_dma_read(struct at91mci_host *host)
 {
 	struct mmc_command *cmd;
@@ -238,7 +305,7 @@ static void at91_mci_post_dma_read(struct at91mci_host *host)
 		amount = min(size, sg->length);
 		size -= amount;
 
-		if (cpu_is_at91rm9200()) {	
+		if (cpu_is_at91rm9200()) {	/* AT91RM9200 errata */
 			int index;
 			for (index = 0; index < (amount / 4); index++)
 				sgbuffer[index] = swab32(*dmabuf++);
@@ -259,6 +326,9 @@ static void at91_mci_post_dma_read(struct at91mci_host *host)
 	pr_debug("post dma read done\n");
 }
 
+/*
+ * Handle transmitted data
+ */
 static void at91_mci_handle_transmitted(struct at91mci_host *host)
 {
 	struct mmc_command *cmd;
@@ -266,10 +336,10 @@ static void at91_mci_handle_transmitted(struct at91mci_host *host)
 
 	pr_debug("Handling the transmit\n");
 
-	
+	/* Disable the transfer */
 	at91_mci_write(host, ATMEL_PDC_PTCR, ATMEL_PDC_RXTDIS | ATMEL_PDC_TXTDIS);
 
-	
+	/* Now wait for cmd ready */
 	at91_mci_write(host, AT91_MCI_IDR, AT91_MCI_TXBUFE);
 
 	cmd = host->cmd;
@@ -285,11 +355,14 @@ static void at91_mci_handle_transmitted(struct at91mci_host *host)
 		at91_mci_write(host, AT91_MCI_IER, AT91_MCI_NOTBUSY);
 }
 
+/*
+ * Update bytes tranfered count during a write operation
+ */
 static void at91_mci_update_bytes_xfered(struct at91mci_host *host)
 {
 	struct mmc_data *data;
 
-	
+	/* always deal with the effective request (and not the current cmd) */
 
 	if (host->request->cmd && host->request->cmd->error != 0)
 		return;
@@ -297,7 +370,7 @@ static void at91_mci_update_bytes_xfered(struct at91mci_host *host)
 	if (host->request->data) {
 		data = host->request->data;
 		if (data->flags & MMC_DATA_WRITE) {
-			
+			/* card is in IDLE mode now */
 			pr_debug("-> bytes_xfered %d, total_length = %d\n",
 				data->bytes_xfered, host->total_length);
 			data->bytes_xfered = data->blksz * data->blocks;
@@ -306,26 +379,30 @@ static void at91_mci_update_bytes_xfered(struct at91mci_host *host)
 }
 
 
+/*Handle after command sent ready*/
 static int at91_mci_handle_cmdrdy(struct at91mci_host *host)
 {
 	if (!host->cmd)
 		return 1;
 	else if (!host->cmd->data) {
 		if (host->flags & FL_SENT_STOP) {
-			
+			/*After multi block write, we must wait for NOTBUSY*/
 			at91_mci_write(host, AT91_MCI_IER, AT91_MCI_NOTBUSY);
 		} else return 1;
 	} else if (host->cmd->data->flags & MMC_DATA_WRITE) {
-		
+		/*After sendding multi-block-write command, start DMA transfer*/
 		at91_mci_write(host, AT91_MCI_IER, AT91_MCI_TXBUFE | AT91_MCI_BLKE);
 		at91_mci_write(host, ATMEL_PDC_PTCR, ATMEL_PDC_TXTEN);
 	}
 
-	
+	/* command not completed, have to wait */
 	return 0;
 }
 
 
+/*
+ * Enable the controller
+ */
 static void at91_mci_enable(struct at91mci_host *host)
 {
 	unsigned int mr;
@@ -340,15 +417,21 @@ static void at91_mci_enable(struct at91mci_host *host)
 
 	at91_mci_write(host, AT91_MCI_MR, mr);
 
-	
+	/* use Slot A or B (only one at same time) */
 	at91_mci_write(host, AT91_MCI_SDCR, host->board->slot_b);
 }
 
+/*
+ * Disable the controller
+ */
 static void at91_mci_disable(struct at91mci_host *host)
 {
 	at91_mci_write(host, AT91_MCI_CR, AT91_MCI_MCIDIS | AT91_MCI_SWRST);
 }
 
+/*
+ * Send a command
+ */
 static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command *cmd)
 {
 	unsigned int cmdr, mr;
@@ -360,13 +443,13 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 
 	host->cmd = cmd;
 
-	
+	/* Needed for leaving busy state before CMD1 */
 	if ((at91_mci_read(host, AT91_MCI_SR) & AT91_MCI_RTOE) && (cmd->opcode == 1)) {
 		pr_debug("Clearing timeout\n");
 		at91_mci_write(host, AT91_MCI_ARGR, 0);
 		at91_mci_write(host, AT91_MCI_CMDR, AT91_MCI_OPDCMD);
 		while (!(at91_mci_read(host, AT91_MCI_SR) & AT91_MCI_CMDRDY)) {
-			
+			/* spin */
 			pr_debug("Clearing: SR = %08X\n", at91_mci_read(host, AT91_MCI_SR));
 		}
 	}
@@ -376,9 +459,9 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 	if (mmc_resp_type(cmd) == MMC_RSP_NONE)
 		cmdr |= AT91_MCI_RSPTYP_NONE;
 	else {
-		
+		/* if a response is expected then allow maximum response latancy */
 		cmdr |= AT91_MCI_MAXLAT;
-		
+		/* set 136 bit response for R2, 48 bit response otherwise */
 		if (mmc_resp_type(cmd) == MMC_RSP_R2)
 			cmdr |= AT91_MCI_RSPTYP_136;
 		else
@@ -405,7 +488,7 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 		block_length = data->blksz;
 		blocks = data->blocks;
 
-		
+		/* always set data start - also set direction flag for read */
 		if (data->flags & MMC_DATA_READ)
 			cmdr |= (AT91_MCI_TRDIR | AT91_MCI_TRCMD_START);
 		else if (data->flags & MMC_DATA_WRITE)
@@ -431,6 +514,9 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 	if (host->bus_mode == MMC_BUSMODE_OPENDRAIN)
 		cmdr |= AT91_MCI_OPDCMD;
 
+	/*
+	 * Set the arguments and send the command
+	 */
 	pr_debug("Sending command %d as %08X, arg = %08X, blocks = %d, length = %d (MR = %08X)\n",
 		cmd->opcode, cmdr, cmd->arg, blocks, block_length, at91_mci_read(host, AT91_MCI_MR));
 
@@ -446,7 +532,7 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 		at91_mci_write(host, ATMEL_PDC_TNCR, 0);
 		ier = AT91_MCI_CMDRDY;
 	} else {
-		
+		/* zero block length and PDC mode */
 		mr = at91_mci_read(host, AT91_MCI_MR) & 0x5fff;
 		mr |= (data->blksz & 0x3) ? AT91_MCI_PDCFBYTE : 0;
 		mr |= (block_length << 16);
@@ -458,6 +544,9 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 				AT91_MCI_BLKR_BCNT(blocks) |
 				AT91_MCI_BLKR_BLKLEN(block_length));
 
+		/*
+		 * Disable the PDC controller
+		 */
 		at91_mci_write(host, ATMEL_PDC_PTCR, ATMEL_PDC_RXTDIS | ATMEL_PDC_TXTDIS);
 
 		if (cmdr & AT91_MCI_TRCMD_START) {
@@ -465,6 +554,9 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 			host->transfer_index = 0;
 			host->in_use_index = 0;
 			if (cmdr & AT91_MCI_TRDIR) {
+				/*
+				 * Handle a read
+				 */
 				host->total_length = 0;
 
 				at91_mci_write(host, ATMEL_PDC_RPR, host->physical_address);
@@ -473,10 +565,17 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 				at91_mci_write(host, ATMEL_PDC_RNPR, 0);
 				at91_mci_write(host, ATMEL_PDC_RNCR, 0);
 
-				ier = AT91_MCI_ENDRX ;
+				ier = AT91_MCI_ENDRX /* | AT91_MCI_RXBUFF */;
 			}
 			else {
+				/*
+				 * Handle a write
+				 */
 				host->total_length = block_length * blocks;
+				/*
+				 * MCI1 rev2xx Data Write Operation and
+				 * number of bytes erratum
+				 */
 				if (at91mci_is_mci1rev2xx())
 					if (host->total_length < 12)
 						host->total_length = 12;
@@ -494,6 +593,10 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 		}
 	}
 
+	/*
+	 * Send the command and then enable the PDC - not the other way round as
+	 * the data sheet says
+	 */
 
 	at91_mci_write(host, AT91_MCI_ARGR, cmd->arg);
 	at91_mci_write(host, AT91_MCI_CMDR, cmdr);
@@ -503,10 +606,13 @@ static void at91_mci_send_command(struct at91mci_host *host, struct mmc_command 
 			at91_mci_write(host, ATMEL_PDC_PTCR, ATMEL_PDC_RXTEN);
 	}
 
-	
+	/* Enable selected interrupts */
 	at91_mci_write(host, AT91_MCI_IER, AT91_MCI_ERRORS | ier);
 }
 
+/*
+ * Process the next step in the request
+ */
 static void at91_mci_process_next(struct at91mci_host *host)
 {
 	if (!(host->flags & FL_SENT_COMMAND)) {
@@ -518,12 +624,18 @@ static void at91_mci_process_next(struct at91mci_host *host)
 		at91_mci_send_command(host, host->request->stop);
 	} else {
 		del_timer(&host->timer);
+		/* the at91rm9200 mci controller hangs after some transfers,
+		 * and the workaround is to reset it after each transfer.
+		 */
 		if (cpu_is_at91rm9200())
 			at91_reset_host(host);
 		mmc_request_done(host->mmc, host->request);
 	}
 }
 
+/*
+ * Handle a command that has been completed
+ */
 static void at91_mci_completed_command(struct at91mci_host *host, unsigned int status)
 {
 	struct mmc_command *cmd = host->cmd;
@@ -572,18 +684,24 @@ static void at91_mci_completed_command(struct at91mci_host *host, unsigned int s
 	at91_mci_process_next(host);
 }
 
+/*
+ * Handle an MMC request
+ */
 static void at91_mci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct at91mci_host *host = mmc_priv(mmc);
 	host->request = mrq;
 	host->flags = 0;
 
-	
+	/* more than 1s timeout needed with slow SD cards */
 	mod_timer(&host->timer, jiffies +  msecs_to_jiffies(2000));
 
 	at91_mci_process_next(host);
 }
 
+/*
+ * Set the IOS
+ */
 static void at91_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	int clkdiv;
@@ -593,12 +711,12 @@ static void at91_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	host->bus_mode = ios->bus_mode;
 
 	if (ios->clock == 0) {
-		
+		/* Disable the MCI controller */
 		at91_mci_write(host, AT91_MCI_CR, AT91_MCI_MCIDIS);
 		clkdiv = 0;
 	}
 	else {
-		
+		/* Enable the MCI controller */
 		at91_mci_write(host, AT91_MCI_CR, AT91_MCI_MCIEN);
 
 		if ((at91_master_clock % (ios->clock * 2)) == 0)
@@ -618,10 +736,10 @@ static void at91_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		at91_mci_write(host, AT91_MCI_SDCR, at91_mci_read(host, AT91_MCI_SDCR) & ~AT91_MCI_SDCBUS);
 	}
 
-	
+	/* Set the clock divider */
 	at91_mci_write(host, AT91_MCI_MR, (at91_mci_read(host, AT91_MCI_MR) & ~AT91_MCI_CLKDIV) | clkdiv);
 
-	
+	/* maybe switch power to the card */
 	if (gpio_is_valid(host->board->vcc_pin)) {
 		switch (ios->power_mode) {
 			case MMC_POWER_OFF:
@@ -638,6 +756,9 @@ static void at91_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	}
 }
 
+/*
+ * Handle an interrupt
+ */
 static irqreturn_t at91_mci_irq(int irq, void *devid)
 {
 	struct at91mci_host *host = devid;
@@ -674,7 +795,7 @@ static irqreturn_t at91_mci_irq(int irq, void *devid)
 		if (int_status & AT91_MCI_RINDE)
 			pr_debug("MMC: Response index error\n");
 	} else {
-		
+		/* Only continue processing if no errors */
 
 		if (int_status & AT91_MCI_TXBUFE) {
 			pr_debug("TX buffer empty\n");
@@ -708,6 +829,8 @@ static irqreturn_t at91_mci_irq(int irq, void *devid)
 		if (int_status & AT91_MCI_BLKE) {
 			pr_debug("Block transfer has ended\n");
 			if (host->request->data && host->request->data->blocks > 1) {
+				/* multi block write : complete multi write
+				 * command and send stop */
 				completed = 1;
 			} else {
 				at91_mci_write(host, AT91_MCI_IER, AT91_MCI_NOTBUSY);
@@ -747,8 +870,14 @@ static irqreturn_t at91_mmc_det_irq(int irq, void *_host)
 	struct at91mci_host *host = _host;
 	int present;
 
+	/* entering this ISR means that we have configured det_pin:
+	 * we can use its value in board structure */
 	present = !gpio_get_value(host->board->det_pin);
 
+	/*
+	 * we expect this irq on both insert and remove,
+	 * and use a short delay to debounce.
+	 */
 	if (present != host->present) {
 		host->present = present;
 		pr_debug("%s: card %s\n", mmc_hostname(host->mmc),
@@ -757,7 +886,7 @@ static irqreturn_t at91_mmc_det_irq(int irq, void *_host)
 			pr_debug("****** Resetting SD-card bus width ******\n");
 			at91_mci_write(host, AT91_MCI_SDCR, at91_mci_read(host, AT91_MCI_SDCR) & ~AT91_MCI_SDCBUS);
 		}
-		
+		/* 0.5s needed because of early card detect switch firing */
 		mmc_detect_change(host->mmc, msecs_to_jiffies(500));
 	}
 	return IRQ_HANDLED;
@@ -769,6 +898,10 @@ static int at91_mci_get_ro(struct mmc_host *mmc)
 
 	if (gpio_is_valid(host->board->wp_pin))
 		return !!gpio_get_value(host->board->wp_pin);
+	/*
+	 * Board doesn't support read only detection; let the mmc core
+	 * decide what to do.
+	 */
 	return -ENOSYS;
 }
 
@@ -790,6 +923,9 @@ static const struct mmc_host_ops at91_mci_ops = {
 	.enable_sdio_irq = at91_mci_enable_sdio_irq,
 };
 
+/*
+ * Probe for the device
+ */
 static int __init at91_mci_probe(struct platform_device *pdev)
 {
 	struct mmc_host *mmc;
@@ -843,13 +979,17 @@ static int __init at91_mci_probe(struct platform_device *pdev)
 		goto fail5;
 	}
 
-	
+	/* Add SDIO capability when available */
 	if (at91mci_is_mci1rev2xx()) {
-		
+		/* at91mci MCI1 rev2xx sdio interrupt erratum */
 		if (host->board->wire4 || !host->board->slot_b)
 			mmc->caps |= MMC_CAP_SDIO_IRQ;
 	}
 
+	/*
+	 * Reserve GPIOs ... board init code makes sure these pins are set
+	 * up as GPIOs with the right direction (input, except for vcc)
+	 */
 	if (gpio_is_valid(host->board->det_pin)) {
 		ret = gpio_request(host->board->det_pin, "mmc_detect");
 		if (ret < 0) {
@@ -872,6 +1012,9 @@ static int __init at91_mci_probe(struct platform_device *pdev)
 		}
 	}
 
+	/*
+	 * Get Clock
+	 */
 	host->mci_clk = clk_get(&pdev->dev, "mci_clk");
 	if (IS_ERR(host->mci_clk)) {
 		ret = -ENODEV;
@@ -879,16 +1022,25 @@ static int __init at91_mci_probe(struct platform_device *pdev)
 		goto fail2;
 	}
 
+	/*
+	 * Map I/O region
+	 */
 	host->baseaddr = ioremap(res->start, resource_size(res));
 	if (!host->baseaddr) {
 		ret = -ENOMEM;
 		goto fail1;
 	}
 
-	clk_enable(host->mci_clk);		
+	/*
+	 * Reset hardware
+	 */
+	clk_enable(host->mci_clk);		/* Enable the peripheral clock */
 	at91_mci_disable(host);
 	at91_mci_enable(host);
 
+	/*
+	 * Allocate the MCI interrupt
+	 */
 	host->irq = platform_get_irq(pdev, 0);
 	ret = request_irq(host->irq, at91_mci_irq, IRQF_SHARED,
 			mmc_hostname(mmc), host);
@@ -901,6 +1053,9 @@ static int __init at91_mci_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mmc);
 
+	/*
+	 * Add host to MMC layer
+	 */
 	if (gpio_is_valid(host->board->det_pin)) {
 		host->present = !gpio_get_value(host->board->det_pin);
 	}
@@ -909,6 +1064,9 @@ static int __init at91_mci_probe(struct platform_device *pdev)
 
 	mmc_add_host(mmc);
 
+	/*
+	 * monitor card insertion/removal if we can
+	 */
 	if (gpio_is_valid(host->board->det_pin)) {
 		ret = request_irq(gpio_to_irq(host->board->det_pin),
 				at91_mmc_det_irq, 0, mmc_hostname(mmc), host);
@@ -948,6 +1106,9 @@ fail6:
 	return ret;
 }
 
+/*
+ * Remove a device
+ */
 static int __exit at91_mci_remove(struct platform_device *pdev)
 {
 	struct mmc_host *mmc = platform_get_drvdata(pdev);
@@ -975,7 +1136,7 @@ static int __exit at91_mci_remove(struct platform_device *pdev)
 	mmc_remove_host(mmc);
 	free_irq(host->irq, host);
 
-	clk_disable(host->mci_clk);			
+	clk_disable(host->mci_clk);			/* Disable the peripheral clock */
 	clk_put(host->mci_clk);
 
 	if (gpio_is_valid(host->board->vcc_pin))

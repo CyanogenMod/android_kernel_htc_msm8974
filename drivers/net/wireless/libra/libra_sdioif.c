@@ -19,12 +19,15 @@
 #include <linux/mmc/card.h>
 #include <linux/module.h>
 
+/* Libra SDIO function device */
 static struct sdio_func *libra_sdio_func;
 static struct mmc_host *libra_mmc_host;
 static int libra_mmc_host_index;
 
+/* SDIO Card ID / Device ID */
 static unsigned short  libra_sdio_card_id;
 
+/* completion variables */
 struct completion gCard_rem_event_var;
 EXPORT_SYMBOL(gCard_rem_event_var);
 struct completion gShutdown_event_var;
@@ -42,7 +45,7 @@ int libra_enable_sdio_irq_in_chip(struct sdio_func *func, u8 enable)
 
 	sdio_claim_host(func);
 
-	
+	/* Read the value into reg */
 	libra_sdiocmd52(func, SDIO_CCCR_IENx, &reg, 0, &err);
 	if (err)
 		printk(KERN_ERR "%s: Could not read  SDIO_CCCR_IENx register "
@@ -66,6 +69,15 @@ int libra_enable_sdio_irq_in_chip(struct sdio_func *func, u8 enable)
 }
 EXPORT_SYMBOL(libra_enable_sdio_irq_in_chip);
 
+/**
+ * libra_sdio_configure() - Function to configure the SDIO device param
+ * @libra_sdio_rxhandler    Rx handler
+ * @func_drv_fn             Function driver function for special setup
+ * @funcdrv_timeout         Function Enable timeout
+ * @blksize                 Block size
+ *
+ * Configure SDIO device, enable function and set block size
+ */
 int libra_sdio_configure(sdio_irq_handler_t libra_sdio_rxhandler,
 	void  (*func_drv_fn)(int *status),
 	unsigned int funcdrv_timeout, unsigned int blksize)
@@ -80,7 +92,7 @@ int libra_sdio_configure(sdio_irq_handler_t libra_sdio_rxhandler,
 
 	sdio_claim_host(func);
 
-	
+	/* Currently block sizes are set here. */
 	func->max_blksize = blksize;
 	if (sdio_set_block_size(func, blksize)) {
 		printk(KERN_ERR "%s: Unable to set the block size.\n",
@@ -89,7 +101,7 @@ int libra_sdio_configure(sdio_irq_handler_t libra_sdio_rxhandler,
 		goto cfg_error;
 	}
 
-	
+	/* Function driver specific configuration. */
 	if (func_drv_fn) {
 		(*func_drv_fn)(&err_ret);
 		if (err_ret) {
@@ -100,7 +112,7 @@ int libra_sdio_configure(sdio_irq_handler_t libra_sdio_rxhandler,
 		}
 	}
 
-	
+	/* We set this based on the function card. */
 	func->enable_timeout = funcdrv_timeout;
 	err_ret = sdio_enable_func(func);
 	if (err_ret != 0) {
@@ -139,6 +151,9 @@ int libra_sdio_configure_suspend_resume(
 }
 EXPORT_SYMBOL(libra_sdio_configure_suspend_resume);
 
+/*
+ * libra_sdio_deconfigure() - Function to reset the SDIO device param
+ */
 void libra_sdio_deconfigure(struct sdio_func *func)
 {
 	if (NULL == libra_sdio_func)
@@ -179,6 +194,9 @@ int libra_disable_sdio_irq_capability(struct sdio_func *func, u8 disable)
 }
 EXPORT_SYMBOL(libra_disable_sdio_irq_capability);
 
+/*
+ * libra_sdio_release_irq() - Function to release IRQ
+ */
 void libra_sdio_release_irq(struct sdio_func *func)
 {
 	if (NULL == libra_sdio_func)
@@ -188,6 +206,9 @@ void libra_sdio_release_irq(struct sdio_func *func)
 }
 EXPORT_SYMBOL(libra_sdio_release_irq);
 
+/*
+ * libra_sdio_disable_func() - Function to disable sdio func
+ */
 void libra_sdio_disable_func(struct sdio_func *func)
 {
 	if (NULL == libra_sdio_func)
@@ -197,12 +218,18 @@ void libra_sdio_disable_func(struct sdio_func *func)
 }
 EXPORT_SYMBOL(libra_sdio_disable_func);
 
+/*
+ * Return the SDIO Function device
+ */
 struct sdio_func *libra_getsdio_funcdev(void)
 {
 	return libra_sdio_func;
 }
 EXPORT_SYMBOL(libra_getsdio_funcdev);
 
+/*
+ * Set function driver as the private data for the function device
+ */
 void libra_sdio_setprivdata(struct sdio_func *sdio_func_dev,
 		void *padapter)
 {
@@ -213,12 +240,18 @@ void libra_sdio_setprivdata(struct sdio_func *sdio_func_dev,
 }
 EXPORT_SYMBOL(libra_sdio_setprivdata);
 
+/*
+ * Return private data of the function device.
+ */
 void *libra_sdio_getprivdata(struct sdio_func *sdio_func_dev)
 {
 	return sdio_get_drvdata(sdio_func_dev);
 }
 EXPORT_SYMBOL(libra_sdio_getprivdata);
 
+/*
+ * Function driver claims the SDIO device
+ */
 void libra_claim_host(struct sdio_func *sdio_func_dev,
 		pid_t *curr_claimed, pid_t current_pid, atomic_t *claim_count)
 {
@@ -230,7 +263,7 @@ void libra_claim_host(struct sdio_func *sdio_func_dev,
 		return;
 	}
 
-	
+	/* Go ahead and claim the host if not locked by anybody. */
 	sdio_claim_host(sdio_func_dev);
 
 	*curr_claimed = current_pid;
@@ -239,6 +272,9 @@ void libra_claim_host(struct sdio_func *sdio_func_dev,
 }
 EXPORT_SYMBOL(libra_claim_host);
 
+/*
+ * Function driver releases the SDIO device
+ */
 void libra_release_host(struct sdio_func *sdio_func_dev,
 		pid_t *curr_claimed, pid_t current_pid, atomic_t *claim_count)
 {
@@ -247,7 +283,7 @@ void libra_release_host(struct sdio_func *sdio_func_dev,
 		return;
 
 	if (*curr_claimed != current_pid) {
-		
+		/* Dont release  */
 		return;
 	}
 
@@ -337,6 +373,9 @@ void libra_sdio_set_clock(struct sdio_func *func, unsigned int clk_freq)
 }
 EXPORT_SYMBOL(libra_sdio_set_clock);
 
+/*
+ * API to get SDIO Device Card ID
+ */
 void libra_sdio_get_card_id(struct sdio_func *func, unsigned short *card_id)
 {
 	if (card_id)
@@ -344,6 +383,9 @@ void libra_sdio_get_card_id(struct sdio_func *func, unsigned short *card_id)
 }
 EXPORT_SYMBOL(libra_sdio_get_card_id);
 
+/*
+ * SDIO Probe
+ */
 static int libra_sdio_probe(struct sdio_func *func,
 		const struct sdio_device_id *sdio_dev_id)
 {
@@ -357,7 +399,7 @@ static int libra_sdio_probe(struct sdio_func *func,
 		func->cur_blksize,
 		sdio_dev_id->device);
 
-	
+	/* Turn off SDIO polling from now on */
 	libra_mmc_host->caps &= ~MMC_CAP_NEEDS_POLL;
 	return 0;
 }
@@ -385,13 +427,13 @@ static int libra_sdio_suspend(struct device *dev)
 		return ret;
 	}
 	if (libra_suspend_hldr) {
-		
+		/* Disable SDIO IRQ when driver is being suspended */
 		libra_enable_sdio_irq(func, 0);
 		ret = libra_suspend_hldr(func);
 		if (ret) {
 			printk(KERN_ERR
 			"%s: Libra driver is not able to suspend\n" , __func__);
-			
+			/* Error - Restore SDIO IRQ */
 			libra_enable_sdio_irq(func, 1);
 			return ret;
 		}
@@ -407,7 +449,7 @@ static int libra_sdio_resume(struct device *dev)
 
 	if (libra_resume_hldr) {
 		libra_resume_hldr(func);
-		
+		/* Restore SDIO IRQ */
 		libra_enable_sdio_irq(func, 1);
 	}
 

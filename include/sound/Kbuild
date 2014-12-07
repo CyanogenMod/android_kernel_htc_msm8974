@@ -1,6 +1,7 @@
 header-y += asequencer.h
 header-y += asound.h
 header-y += asound_fm.h
+header-y += audio_effects.h
 header-y += emu10k1.h
 header-y += hdsp.h
 header-y += hdspm.h
@@ -13,4 +14,4 @@ header-y += compress_params.h
 header-y += compress_offload.h
 header-y += lsm_params.h
 header-y += voice_params.h
-header-y += audio_effects.h
+header-y += voice_svc.h

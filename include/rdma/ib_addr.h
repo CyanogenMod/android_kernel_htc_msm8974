@@ -48,8 +48,15 @@ struct rdma_addr_client {
 	struct completion comp;
 };
 
+/**
+ * rdma_addr_register_client - Register an address client.
+ */
 void rdma_addr_register_client(struct rdma_addr_client *client);
 
+/**
+ * rdma_addr_unregister_client - Deregister an address client.
+ * @client: Client object to deregister.
+ */
 void rdma_addr_unregister_client(struct rdma_addr_client *client);
 
 struct rdma_dev_addr {
@@ -61,8 +68,28 @@ struct rdma_dev_addr {
 	enum rdma_transport_type transport;
 };
 
+/**
+ * rdma_translate_ip - Translate a local IP address to an RDMA hardware
+ *   address.
+ */
 int rdma_translate_ip(struct sockaddr *addr, struct rdma_dev_addr *dev_addr);
 
+/**
+ * rdma_resolve_ip - Resolve source and destination IP addresses to
+ *   RDMA hardware addresses.
+ * @client: Address client associated with request.
+ * @src_addr: An optional source address to use in the resolution.  If a
+ *   source address is not provided, a usable address will be returned via
+ *   the callback.
+ * @dst_addr: The destination address to resolve.
+ * @addr: A reference to a data location that will receive the resolved
+ *   addresses.  The data location must remain valid until the callback has
+ *   been invoked.
+ * @timeout_ms: Amount of time to wait for the address resolution to complete.
+ * @callback: Call invoked once address resolution has completed, timed out,
+ *   or been canceled.  A status of 0 indicates success.
+ * @context: User-specified context associated with the call.
+ */
 int rdma_resolve_ip(struct rdma_addr_client *client,
 		    struct sockaddr *src_addr, struct sockaddr *dst_addr,
 		    struct rdma_dev_addr *addr, int timeout_ms,
@@ -167,6 +194,10 @@ static inline void rdma_addr_set_dgid(struct rdma_dev_addr *dev_addr, union ib_g
 
 static inline enum ib_mtu iboe_get_mtu(int mtu)
 {
+	/*
+	 * reduce IB headers from effective IBoE MTU. 28 stands for
+	 * atomic header which is the biggest possible header after BTH
+	 */
 	mtu = mtu - IB_GRH_BYTES - IB_BTH_BYTES - 28;
 
 	if (mtu >= ib_mtu_enum_to_int(IB_MTU_4096))
@@ -253,4 +284,4 @@ static inline struct net_device *rdma_vlan_dev_real_dev(const struct net_device 
 		vlan_dev_real_dev(dev) : NULL;
 }
 
-#endif 
+#endif /* IB_ADDR_H */

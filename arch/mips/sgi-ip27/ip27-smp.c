@@ -23,6 +23,10 @@
 #include <asm/sn/sn0/hubio.h>
 #include <asm/sn/sn0/ip27.h>
 
+/*
+ * Takes as first input the PROM assigned cpu id, and the kernel
+ * assigned cpu id as the second.
+ */
 static void alloc_cpupda(cpuid_t cpu, int cpunum)
 {
 	cnodeid_t node = get_cpu_cnode(cpu);
@@ -40,11 +44,11 @@ static nasid_t get_actual_nasid(lboard_t *brd)
 	if (!brd)
 		return INVALID_NASID;
 
-	
+	/* find out if we are a completely disabled brd. */
 	hub  = (klhub_t *)find_first_component(brd, KLSTRUCT_HUB);
 	if (!hub)
 		return INVALID_NASID;
-	if (!(hub->hub_info.flags & KLINFO_ENABLE))	
+	if (!(hub->hub_info.flags & KLINFO_ENABLE))	/* disabled node brd */
 		return hub->hub_info.physid;
 	else
 		return brd->brd_nasid;
@@ -64,12 +68,12 @@ static int do_cpumask(cnodeid_t cnode, nasid_t nasid, int highest)
 		acpu = (klcpu_t *)find_first_component(brd, KLSTRUCT_CPU);
 		while (acpu) {
 			cpuid = acpu->cpu_info.virtid;
-			
+			/* cnode is not valid for completely disabled brds */
 			if (get_actual_nasid(brd) == brd->brd_nasid)
 				cpuid_to_compact_node[cpuid] = cnode;
 			if (cpuid > highest)
 				highest = cpuid;
-			
+			/* Only let it join in if it's marked enabled */
 			if ((acpu->cpu_info.flags & KLINFO_ENABLE) &&
 			    (tot_cpus_found != NR_CPUS)) {
 				set_cpu_possible(cpuid, true);
@@ -95,6 +99,9 @@ void cpu_node_probe(void)
 	int i, highest = 0;
 	gda_t *gdap = GDA;
 
+	/*
+	 * Initialize the arrays to invalid nodeid (-1)
+	 */
 	for (i = 0; i < MAX_COMPACT_NODES; i++)
 		compact_to_nasid_node[i] = INVALID_NASID;
 	for (i = 0; i < MAX_NASIDS; i++)
@@ -102,6 +109,10 @@ void cpu_node_probe(void)
 	for (i = 0; i < MAXCPUS; i++)
 		cpuid_to_compact_node[i] = INVALID_CNODEID;
 
+	/*
+	 * MCD - this whole "compact node" stuff can probably be dropped,
+	 * as we can handle sparse numbering now
+	 */
 	nodes_clear(node_online_map);
 	for (i = 0; i < MAX_COMPACT_NODES; i++) {
 		nasid_t nasid = gdap->g_nasidtable[i];
@@ -146,6 +157,11 @@ static void ip27_send_ipi_single(int destid, unsigned int action)
 
 	irq += cputoslice(destid);
 
+	/*
+	 * Convert the compact hub number to the NASID to get the correct
+	 * part of the address space.  Then set the interrupt bit associated
+	 * with the CPU we want to send the interrupt to.
+	 */
 	REMOTE_HUB_SEND_INTR(COMPACT_TO_NASID_NODEID(cpu_to_node(destid)), irq);
 }
 
@@ -174,6 +190,11 @@ static void __init ip27_cpus_done(void)
 {
 }
 
+/*
+ * Launch a slave into smp_bootstrap().  It doesn't take an argument, and we
+ * set sp to the kernel stack of the newly created idle process, gp to the proc
+ * struct so that current_thread_info() will work.
+ */
 static void __cpuinit ip27_boot_secondary(int cpu, struct task_struct *idle)
 {
 	unsigned long gp = (unsigned long)task_thread_info(idle);
@@ -196,12 +217,18 @@ static void __init ip27_smp_setup(void)
 
 	replicate_kernel_text();
 
+	/*
+	 * Assumption to be fixed: we're always booted on logical / physical
+	 * processor 0.  While we're always running on logical processor 0
+	 * this still means this is physical processor zero; it might for
+	 * example be disabled in the firmware.
+	 */
 	alloc_cpupda(0, 0);
 }
 
 static void __init ip27_prepare_cpus(unsigned int max_cpus)
 {
-	
+	/* We already did everything necessary earlier */
 }
 
 struct plat_smp_ops ip27_smp_ops = {

@@ -38,12 +38,12 @@ struct eth_regs {
 	u32 etharc;
 	u32 ethhash0;
 	u32 ethhash1;
-	u32 ethu0[4];		
+	u32 ethu0[4];		/* Reserved. */
 	u32 ethpfs;
 	u32 ethmcp;
-	u32 eth_u1[10];		
+	u32 eth_u1[10];		/* Reserved. */
 	u32 ethspare;
-	u32 eth_u2[42];		
+	u32 eth_u2[42];		/* Reserved. */
 	u32 ethsal0;
 	u32 ethsah0;
 	u32 ethsal1;
@@ -58,14 +58,14 @@ struct eth_regs {
 	u32 ethrfc;
 	u32 ethtbc;
 	u32 ethgpf;
-	u32 eth_u9[50];		
+	u32 eth_u9[50];		/* Reserved. */
 	u32 ethmac1;
 	u32 ethmac2;
 	u32 ethipgt;
 	u32 ethipgr;
 	u32 ethclrt;
 	u32 ethmaxf;
-	u32 eth_u10;		
+	u32 eth_u10;		/* Reserved. */
 	u32 ethmtest;
 	u32 miimcfg;
 	u32 miimcmd;
@@ -73,13 +73,14 @@ struct eth_regs {
 	u32 miimwtd;
 	u32 miimrdd;
 	u32 miimind;
-	u32 eth_u11;		
-	u32 eth_u12;		
+	u32 eth_u11;		/* Reserved. */
+	u32 eth_u12;		/* Reserved. */
 	u32 ethcfsa0;
 	u32 ethcfsa1;
 	u32 ethcfsa2;
 };
 
+/* Ethernet interrupt registers */
 #define ETH_INT_FC_EN		(1 << 0)
 #define ETH_INT_FC_ITS		(1 << 1)
 #define ETH_INT_FC_RIP		(1 << 2)
@@ -88,26 +89,33 @@ struct eth_regs {
 #define ETH_INT_FC_UND		(1 << 5)
 #define ETH_INT_FC_IOC		0x000000c0
 
+/* Ethernet FIFO registers */
 #define ETH_FIFI_TT_TTH_BIT	0
 #define ETH_FIFO_TT_TTH		0x0000007f
 
+/* Ethernet ARC/multicast registers */
 #define ETH_ARC_PRO		(1 << 0)
 #define ETH_ARC_AM		(1 << 1)
 #define ETH_ARC_AFM		(1 << 2)
 #define ETH_ARC_AB		(1 << 3)
 
+/* Ethernet SAL registers */
 #define ETH_SAL_BYTE_5		0x000000ff
 #define ETH_SAL_BYTE_4		0x0000ff00
 #define ETH_SAL_BYTE_3		0x00ff0000
 #define ETH_SAL_BYTE_2		0xff000000
 
+/* Ethernet SAH registers */
 #define ETH_SAH_BYTE1		0x000000ff
 #define ETH_SAH_BYTE0		0x0000ff00
 
+/* Ethernet GPF register */
 #define ETH_GPF_PTV		0x0000ffff
 
+/* Ethernet PFG register */
 #define ETH_PFS_PFD		(1 << 0)
 
+/* Ethernet CFSA[0-3] registers */
 #define ETH_CFSA0_CFSA4		0x000000ff
 #define ETH_CFSA0_CFSA5		0x0000ff00
 #define ETH_CFSA1_CFSA2		0x000000ff
@@ -115,6 +123,7 @@ struct eth_regs {
 #define ETH_CFSA1_CFSA0		0x000000ff
 #define ETH_CFSA1_CFSA1		0x0000ff00
 
+/* Ethernet MAC1 registers */
 #define ETH_MAC1_RE		(1 << 0)
 #define ETH_MAC1_PAF		(1 << 1)
 #define ETH_MAC1_RFC		(1 << 2)
@@ -122,6 +131,7 @@ struct eth_regs {
 #define ETH_MAC1_LB		(1 << 4)
 #define ETH_MAC1_MR		(1 << 31)
 
+/* Ethernet MAC2 registers */
 #define ETH_MAC2_FD		(1 << 0)
 #define ETH_MAC2_FLC		(1 << 1)
 #define ETH_MAC2_HFE		(1 << 2)
@@ -136,19 +146,25 @@ struct eth_regs {
 #define ETH_MAC2_BP		(1 << 13)
 #define ETH_MAC2_ED		(1 << 14)
 
+/* Ethernet IPGT register */
 #define ETH_IPGT		0x0000007f
 
+/* Ethernet IPGR registers */
 #define ETH_IPGR_IPGR2		0x0000007f
 #define ETH_IPGR_IPGR1		0x00007f00
 
+/* Ethernet CLRT registers */
 #define ETH_CLRT_MAX_RET	0x0000000f
 #define ETH_CLRT_COL_WIN	0x00003f00
 
+/* Ethernet MAXF register */
 #define ETH_MAXF		0x0000ffff
 
+/* Ethernet test registers */
 #define ETH_TEST_REG		(1 << 2)
 #define ETH_MCP_DIV		0x000000ff
 
+/* MII registers */
 #define ETH_MII_CFG_RSVD	0x0000000c
 #define ETH_MII_CMD_RD		(1 << 0)
 #define ETH_MII_CMD_SCN		(1 << 1)
@@ -160,6 +176,9 @@ struct eth_regs {
 #define ETH_MII_IND_SCN		(1 << 1)
 #define ETH_MII_IND_NV		(1 << 2)
 
+/*
+ * Values for the DEVCS field of the Ethernet DMA Rx and Tx descriptors.
+ */
 
 #define ETH_RX_FD		(1 << 0)
 #define ETH_RX_LD		(1 << 1)
@@ -198,4 +217,4 @@ struct eth_regs {
 #define ETH_TX_LE		(1 << 16)
 #define ETH_TX_CC		0x001E0000
 
-#endif  
+#endif  /* __ASM_RC32434_ETH_H */

@@ -14,6 +14,7 @@
 #include <linux/sunrpc/xdr.h>
 #include <linux/lockd/xdr.h>
 
+/* error codes new to NLMv4 */
 #define	nlm4_deadlock		cpu_to_be32(NLM_DEADLCK)
 #define	nlm4_rofs		cpu_to_be32(NLM_ROFS)
 #define	nlm4_stale_fh		cpu_to_be32(NLM_STALE_FH)
@@ -35,6 +36,12 @@ int	nlm4svc_decode_shareargs(struct svc_rqst *, __be32 *, struct nlm_args *);
 int	nlm4svc_encode_shareres(struct svc_rqst *, __be32 *, struct nlm_res *);
 int	nlm4svc_decode_notify(struct svc_rqst *, __be32 *, struct nlm_args *);
 int	nlm4svc_decode_reboot(struct svc_rqst *, __be32 *, struct nlm_reboot *);
+/*
+int	nlmclt_encode_testargs(struct rpc_rqst *, u32 *, struct nlm_args *);
+int	nlmclt_encode_lockargs(struct rpc_rqst *, u32 *, struct nlm_args *);
+int	nlmclt_encode_cancargs(struct rpc_rqst *, u32 *, struct nlm_args *);
+int	nlmclt_encode_unlockargs(struct rpc_rqst *, u32 *, struct nlm_args *);
+ */
 extern const struct rpc_version nlm_version4;
 
-#endif 
+#endif /* LOCKD_XDR4_H */

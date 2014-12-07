@@ -28,15 +28,18 @@
 
 enum chips { ltc2978, ltc3880 };
 
+/* LTC2978 and LTC3880 */
 #define LTC2978_MFR_VOUT_PEAK		0xdd
 #define LTC2978_MFR_VIN_PEAK		0xde
 #define LTC2978_MFR_TEMPERATURE_PEAK	0xdf
 #define LTC2978_MFR_SPECIAL_ID		0xe7
 
+/* LTC2978 only */
 #define LTC2978_MFR_VOUT_MIN		0xfb
 #define LTC2978_MFR_VIN_MIN		0xfc
 #define LTC2978_MFR_TEMPERATURE_MIN	0xfd
 
+/* LTC3880 only */
 #define LTC3880_MFR_IOUT_PEAK		0xd7
 #define LTC3880_MFR_CLEAR_PEAKS		0xe3
 #define LTC3880_MFR_TEMPERATURE2_PEAK	0xf4
@@ -46,6 +49,13 @@ enum chips { ltc2978, ltc3880 };
 #define LTC3880_ID			0x4000
 #define LTC3880_ID_MASK			0xff00
 
+/*
+ * LTC2978 clears peak data whenever the CLEAR_FAULTS command is executed, which
+ * happens pretty much each time chip data is updated. Raw peak data therefore
+ * does not provide much value. To be able to provide useful peak data, keep an
+ * internal cache of measured peak data, which is only cleared if an explicit
+ * "clear peak" command is executed for the sensor in question.
+ */
 struct ltc2978_data {
 	enum chips id;
 	int vin_min, vin_max;
@@ -63,6 +73,10 @@ static inline int lin11_to_val(int data)
 	s16 e = ((s16)data) >> 11;
 	s32 m = (((s16)(data << 5)) >> 5);
 
+	/*
+	 * mantissa is 10 bit + sign, exponent adds up to 15 bit.
+	 * Add 6 bit to exponent for maximum accuracy (10 + 15 + 6 = 31).
+	 */
 	e += 6;
 	return (e < 0 ? m >> -e : m << e);
 }
@@ -86,6 +100,10 @@ static int ltc2978_read_word_data_common(struct i2c_client *client, int page,
 	case PMBUS_VIRT_READ_VOUT_MAX:
 		ret = pmbus_read_word_data(client, page, LTC2978_MFR_VOUT_PEAK);
 		if (ret >= 0) {
+			/*
+			 * VOUT is 16 bit unsigned with fixed exponent,
+			 * so we can compare it directly
+			 */
 			if (ret > data->vout_max[page])
 				data->vout_max[page] = ret;
 			ret = data->vout_max[page];
@@ -130,6 +148,12 @@ static int ltc2978_read_word_data(struct i2c_client *client, int page, int reg)
 	case PMBUS_VIRT_READ_VOUT_MIN:
 		ret = pmbus_read_word_data(client, page, LTC2978_MFR_VOUT_MIN);
 		if (ret >= 0) {
+			/*
+			 * VOUT_MIN is known to not be supported on some lots
+			 * of LTC2978 revision 1, and will return the maximum
+			 * possible voltage if read. If VOUT_MAX is valid and
+			 * lower than the reading of VOUT_MIN, use it instead.
+			 */
 			if (data->vout_max[page] && ret > data->vout_max[page])
 				ret = data->vout_max[page];
 			if (ret < data->vout_min[page])
@@ -337,6 +361,7 @@ static int ltc2978_probe(struct i2c_client *client,
 	return pmbus_do_probe(client, id, info);
 }
 
+/* This is the driver that will be inserted */
 static struct i2c_driver ltc2978_driver = {
 	.driver = {
 		   .name = "ltc2978",

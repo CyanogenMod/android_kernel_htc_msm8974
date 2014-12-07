@@ -17,13 +17,13 @@
 #ifdef CONFIG_32BIT
 #define KGDB_GDB_REG_SIZE	32
 #define GDB_SIZEOF_REG		sizeof(u32)
-#else 
+#else /* CONFIG_CPU_32BIT */
 #define KGDB_GDB_REG_SIZE	64
 #define GDB_SIZEOF_REG		sizeof(u64)
 #endif
 #else
 #error "Need to set KGDB_GDB_REG_SIZE for MIPS ISA"
-#endif 
+#endif /* _MIPS_ISA */
 
 #define BUFMAX			2048
 #define DBG_MAX_REG_NUM		72
@@ -40,6 +40,6 @@ extern void breakinst(void);
 extern int kgdb_ll_trap(int cmd, const char *str,
 			struct pt_regs *regs, long err, int trap, int sig);
 
-#endif				
+#endif				/* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_KGDB_H_ */

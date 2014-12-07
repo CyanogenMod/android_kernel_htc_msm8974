@@ -44,4 +44,4 @@ nouveau_framebuffer(struct drm_framebuffer *fb)
 
 int nouveau_framebuffer_init(struct drm_device *dev, struct nouveau_framebuffer *nouveau_fb,
 			     struct drm_mode_fb_cmd2 *mode_cmd, struct nouveau_bo *nvbo);
-#endif 
+#endif /* __NOUVEAU_FB_H__ */

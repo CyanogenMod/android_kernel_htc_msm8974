@@ -38,6 +38,14 @@
 
 #define BAD_DMA_ADDRESS ((u64) 0)
 
+/*
+ * The following functions implement driver specific replacements
+ * for the ib_dma_*() functions.
+ *
+ * These functions return kernel virtual addresses instead of
+ * device bus addresses since the driver uses the CPU to copy
+ * data instead of using hardware DMA.
+ */
 
 static int ipath_mapping_error(struct ib_device *dev, u64 dma_addr)
 {
@@ -77,7 +85,7 @@ static u64 ipath_dma_map_page(struct ib_device *dev,
 	addr = (u64) page_address(page);
 	if (addr)
 		addr += offset;
-	
+	/* TODO: handle highmem pages */
 
 done:
 	return addr;
@@ -102,7 +110,7 @@ static int ipath_map_sg(struct ib_device *dev, struct scatterlist *sgl,
 
 	for_each_sg(sgl, sg, nents, i) {
 		addr = (u64) page_address(sg_page(sg));
-		
+		/* TODO: handle highmem pages */
 		if (!addr) {
 			ret = 0;
 			break;

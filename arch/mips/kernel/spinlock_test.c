@@ -64,14 +64,14 @@ static int multi_other(void *data)
 	atomic_dec(&s->enter_wait);
 
 	while (atomic_read(&s->enter_wait))
-		; 
+		; /* spin */
 
 	pt->start = ktime_get();
 
 	atomic_dec(&s->start_wait);
 
 	while (atomic_read(&s->start_wait))
-		; 
+		; /* spin */
 
 	while (cont) {
 		raw_spin_lock(&s->lock);
@@ -83,7 +83,7 @@ static int multi_other(void *data)
 
 	atomic_dec(&s->exit_wait);
 	while (atomic_read(&s->exit_wait))
-		; 
+		; /* spin */
 	return 0;
 }
 

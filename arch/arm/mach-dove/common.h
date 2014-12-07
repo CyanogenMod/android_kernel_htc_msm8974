@@ -16,6 +16,9 @@ struct mv_sata_platform_data;
 
 extern struct sys_timer dove_timer;
 
+/*
+ * Basic Dove init functions used early by machine-setup.
+ */
 void dove_map_io(void);
 void dove_init(void);
 void dove_init_early(void);

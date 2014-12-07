@@ -22,23 +22,26 @@
 
 #include "wm9705.h"
 
+/*
+ * WM9705 register cache
+ */
 static const u16 wm9705_reg[] = {
-	0x6150, 0x8000, 0x8000, 0x8000, 
-	0x0000, 0x8000, 0x8008, 0x8008, 
-	0x8808, 0x8808, 0x8808, 0x8808, 
-	0x8808, 0x0000, 0x8000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x000f, 
-	0x0605, 0x0000, 0xbb80, 0x0000, 
-	0x0000, 0xbb80, 0x0000, 0x0000, 
-	0x0000, 0x2000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0808, 0x0000, 0x0006, 
-	0x0000, 0x0000, 0x574d, 0x4c05, 
+	0x6150, 0x8000, 0x8000, 0x8000, /* 0x0  */
+	0x0000, 0x8000, 0x8008, 0x8008, /* 0x8  */
+	0x8808, 0x8808, 0x8808, 0x8808, /* 0x10 */
+	0x8808, 0x0000, 0x8000, 0x0000, /* 0x18 */
+	0x0000, 0x0000, 0x0000, 0x000f, /* 0x20 */
+	0x0605, 0x0000, 0xbb80, 0x0000, /* 0x28 */
+	0x0000, 0xbb80, 0x0000, 0x0000, /* 0x30 */
+	0x0000, 0x2000, 0x0000, 0x0000, /* 0x38 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 0x40 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 0x48 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 0x50 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 0x58 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 0x60 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 0x68 */
+	0x0000, 0x0808, 0x0000, 0x0006, /* 0x70 */
+	0x0000, 0x0000, 0x574d, 0x4c05, /* 0x78 */
 };
 
 static const struct snd_kcontrol_new wm9705_snd_ac97_controls[] = {
@@ -71,6 +74,7 @@ static const struct soc_enum wm9705_enum_rec_l =
 static const struct soc_enum wm9705_enum_rec_r =
 	SOC_ENUM_SINGLE(AC97_REC_SEL, 0, 8, wm9705_rec_sel);
 
+/* Headphone Mixer */
 static const struct snd_kcontrol_new wm9705_hp_mixer_controls[] = {
 	SOC_DAPM_SINGLE("PCBeep Playback Switch", AC97_PC_BEEP, 15, 1, 1),
 	SOC_DAPM_SINGLE("CD Playback Switch", AC97_CD, 15, 1, 1),
@@ -79,14 +83,17 @@ static const struct snd_kcontrol_new wm9705_hp_mixer_controls[] = {
 	SOC_DAPM_SINGLE("Line Playback Switch", AC97_LINE, 15, 1, 1),
 };
 
+/* Mic source */
 static const struct snd_kcontrol_new wm9705_mic_src_controls =
 	SOC_DAPM_ENUM("Route", wm9705_enum_mic);
 
+/* Capture source */
 static const struct snd_kcontrol_new wm9705_capture_selectl_controls =
 	SOC_DAPM_ENUM("Route", wm9705_enum_rec_l);
 static const struct snd_kcontrol_new wm9705_capture_selectr_controls =
 	SOC_DAPM_ENUM("Route", wm9705_enum_rec_r);
 
+/* DAPM widgets */
 static const struct snd_soc_dapm_widget wm9705_dapm_widgets[] = {
 	SND_SOC_DAPM_MUX("Mic Source", SND_SOC_NOPM, 0, 0,
 		&wm9705_mic_src_controls),
@@ -129,8 +136,14 @@ static const struct snd_soc_dapm_widget wm9705_dapm_widgets[] = {
 	SND_SOC_DAPM_INPUT("MIC2"),
 };
 
+/* Audio map
+ * WM9705 has no switches to disable the route from the inputs to the HP mixer
+ * so in order to prevent active inputs from forcing the audio outputs to be
+ * constantly enabled, we use the mutes on those inputs to simulate such
+ * controls.
+ */
 static const struct snd_soc_dapm_route wm9705_audio_map[] = {
-	
+	/* HP mixer */
 	{"HP Mixer", "PCBeep Playback Switch", "PCBEEP PGA"},
 	{"HP Mixer", "CD Playback Switch", "CD PGA"},
 	{"HP Mixer", "Mic Playback Switch", "Mic PGA"},
@@ -139,10 +152,10 @@ static const struct snd_soc_dapm_route wm9705_audio_map[] = {
 	{"HP Mixer", NULL, "Left DAC"},
 	{"HP Mixer", NULL, "Right DAC"},
 
-	
+	/* mono mixer */
 	{"Mono Mixer", NULL, "HP Mixer"},
 
-	
+	/* outputs */
 	{"Headphone PGA", NULL, "HP Mixer"},
 	{"HPOUTL", NULL, "Headphone PGA"},
 	{"HPOUTR", NULL, "Headphone PGA"},
@@ -152,7 +165,7 @@ static const struct snd_soc_dapm_route wm9705_audio_map[] = {
 	{"Mono PGA", NULL, "Mono Mixer"},
 	{"MONOOUT", NULL, "Mono PGA"},
 
-	
+	/* inputs */
 	{"CD PGA", NULL, "CDINL"},
 	{"CD PGA", NULL, "CDINR"},
 	{"Line PGA", NULL, "LINEINL"},
@@ -163,7 +176,7 @@ static const struct snd_soc_dapm_route wm9705_audio_map[] = {
 	{"Mic PGA", NULL, "Mic Source"},
 	{"PCBEEP PGA", NULL, "PCBEEP"},
 
-	
+	/* Left capture selector */
 	{"Left Capture Source", "Mic", "Mic Source"},
 	{"Left Capture Source", "CD", "CDINL"},
 	{"Left Capture Source", "Line", "LINEINL"},
@@ -171,7 +184,7 @@ static const struct snd_soc_dapm_route wm9705_audio_map[] = {
 	{"Left Capture Source", "Mono Mix", "HP Mixer"},
 	{"Left Capture Source", "Phone", "PHONE"},
 
-	
+	/* Right capture source */
 	{"Right Capture Source", "Mic", "Mic Source"},
 	{"Right Capture Source", "CD", "CDINR"},
 	{"Right Capture Source", "Line", "LINEINR"},
@@ -182,11 +195,12 @@ static const struct snd_soc_dapm_route wm9705_audio_map[] = {
 	{"ADC PGA", NULL, "Left Capture Source"},
 	{"ADC PGA", NULL, "Right Capture Source"},
 
-	
+	/* ADC's */
 	{"Left ADC",  NULL, "ADC PGA"},
 	{"Right ADC", NULL, "ADC PGA"},
 };
 
+/* We use a register cache to enhance read performance. */
 static unsigned int ac97_read(struct snd_soc_codec *codec, unsigned int reg)
 {
 	u16 *cache = codec->reg_cache;
@@ -285,7 +299,7 @@ static int wm9705_reset(struct snd_soc_codec *codec)
 	if (soc_ac97_ops.reset) {
 		soc_ac97_ops.reset(codec->ac97);
 		if (ac97_read(codec, 0) == wm9705_reg[0])
-			return 0; 
+			return 0; /* Success */
 	}
 
 	return -EIO;

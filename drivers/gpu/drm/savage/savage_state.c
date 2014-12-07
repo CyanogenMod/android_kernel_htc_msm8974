@@ -81,11 +81,11 @@ void savage_emit_clip_rect_s4(drm_savage_private_t * dev_priv,
 static int savage_verify_texaddr(drm_savage_private_t * dev_priv, int unit,
 				 uint32_t addr)
 {
-	if ((addr & 6) != 2) {	
+	if ((addr & 6) != 2) {	/* reserved bits */
 		DRM_ERROR("bad texAddr%d %08x (reserved bits)\n", unit, addr);
 		return -EINVAL;
 	}
-	if (!(addr & 1)) {	
+	if (!(addr & 1)) {	/* local */
 		addr &= ~7;
 		if (addr < dev_priv->texture_offset ||
 		    addr >= dev_priv->texture_offset + dev_priv->texture_size) {
@@ -94,7 +94,7 @@ static int savage_verify_texaddr(drm_savage_private_t * dev_priv, int unit,
 			     unit, addr);
 			return -EINVAL;
 		}
-	} else {		
+	} else {		/* AGP */
 		if (!dev_priv->agp_textures) {
 			DRM_ERROR("bad texAddr%d %08x (AGP not available)\n",
 				  unit, addr);
@@ -141,10 +141,10 @@ static int savage_verify_state_s3d(drm_savage_private_t * dev_priv,
 	SAVE_STATE_MASK(SAVAGE_SCEND_S3D, s3d.new_scend,
 			~SAVAGE_SCISSOR_MASK_S3D);
 
-	
+	/* if any texture regs were changed ... */
 	if (start <= SAVAGE_TEXCTRL_S3D &&
 	    start + count > SAVAGE_TEXPALADDR_S3D) {
-		
+		/* ... check texture state */
 		SAVE_STATE(SAVAGE_TEXCTRL_S3D, s3d.texctrl);
 		SAVE_STATE(SAVAGE_TEXADDR_S3D, s3d.texaddr);
 		if (dev_priv->state.s3d.texctrl & SAVAGE_TEXCTRL_TEXEN_MASK)
@@ -173,10 +173,10 @@ static int savage_verify_state_s4(drm_savage_private_t * dev_priv,
 	SAVE_STATE_MASK(SAVAGE_DRAWCTRL1_S4, s4.new_drawctrl1,
 			~SAVAGE_SCISSOR_MASK_S4);
 
-	
+	/* if any texture regs were changed ... */
 	if (start <= SAVAGE_TEXDESCR_S4 &&
 	    start + count > SAVAGE_TEXPALADDR_S4) {
-		
+		/* ... check texture state */
 		SAVE_STATE(SAVAGE_TEXDESCR_S4, s4.texdescr);
 		SAVE_STATE(SAVAGE_TEXADDR0_S4, s4.texaddr0);
 		SAVE_STATE(SAVAGE_TEXADDR1_S4, s4.texaddr1);
@@ -212,7 +212,7 @@ static int savage_dispatch_state(drm_savage_private_t * dev_priv,
 		ret = savage_verify_state_s3d(dev_priv, start, count, regs);
 		if (ret != 0)
 			return ret;
-		
+		/* scissor regs are emitted in savage_dispatch_draw */
 		if (start < SAVAGE_SCSTART_S3D) {
 			if (start + count > SAVAGE_SCEND_S3D + 1)
 				count2 = count - (SAVAGE_SCEND_S3D + 1 - start);
@@ -229,7 +229,7 @@ static int savage_dispatch_state(drm_savage_private_t * dev_priv,
 		ret = savage_verify_state_s4(dev_priv, start, count, regs);
 		if (ret != 0)
 			return ret;
-		
+		/* scissor regs are emitted in savage_dispatch_draw */
 		if (start < SAVAGE_DRAWCTRL0_S4) {
 			if (start + count > SAVAGE_DRAWCTRL1_S4 + 1)
 				count2 = count -
@@ -345,6 +345,9 @@ static int savage_dispatch_dma_prim(drm_savage_private_t * dev_priv,
 		return -EINVAL;
 	}
 
+	/* Vertex DMA doesn't work with command DMA at the same time,
+	 * so we use BCI_... to submit commands here. Flush buffered
+	 * faked DMA first. */
 	DMA_FLUSH();
 
 	if (dmabuf->bus_address != dev_priv->state.common.vbaddr) {
@@ -354,6 +357,11 @@ static int savage_dispatch_dma_prim(drm_savage_private_t * dev_priv,
 		dev_priv->state.common.vbaddr = dmabuf->bus_address;
 	}
 	if (S3_SAVAGE3D_SERIES(dev_priv->chipset) && dev_priv->waiting) {
+		/* Workaround for what looks like a hardware bug. If a
+		 * WAIT_3D_IDLE was emitted some time before the
+		 * indexed drawing command then the engine will lock
+		 * up. There are two known workarounds:
+		 * WAIT_IDLE_EMPTY or emit at least 63 NOPs. */
 		BEGIN_BCI(63);
 		for (i = 0; i < 63; ++i)
 			BCI_WRITE(BCI_CMD_WAIT);
@@ -362,9 +370,12 @@ static int savage_dispatch_dma_prim(drm_savage_private_t * dev_priv,
 
 	prim <<= 25;
 	while (n != 0) {
-		
+		/* Can emit up to 255 indices (85 triangles) at once. */
 		unsigned int count = n > 255 ? 255 : n;
 		if (reorder) {
+			/* Need to reorder indices for correct flat
+			 * shading while preserving the clock sense
+			 * for correct culling. Only on Savage3D. */
 			int reorder[3] = { -1, -1, -1 };
 			reorder[start % 3] = 2;
 
@@ -451,13 +462,13 @@ static int savage_dispatch_vb_prim(drm_savage_private_t * dev_priv,
 			DRM_ERROR("invalid skip flags 0x%04x\n", skip);
 			return -EINVAL;
 		}
-		vtx_size = 8;	
+		vtx_size = 8;	/* full vertex */
 	} else {
 		if (skip > SAVAGE_SKIP_ALL_S4) {
 			DRM_ERROR("invalid skip flags 0x%04x\n", skip);
 			return -EINVAL;
 		}
-		vtx_size = 10;	
+		vtx_size = 10;	/* full vertex */
 	}
 
 	vtx_size -= (skip & 1) + (skip >> 1 & 1) +
@@ -478,9 +489,12 @@ static int savage_dispatch_vb_prim(drm_savage_private_t * dev_priv,
 
 	prim <<= 25;
 	while (n != 0) {
-		
+		/* Can emit up to 255 vertices (85 triangles) at once. */
 		unsigned int count = n > 255 ? 255 : n;
 		if (reorder) {
+			/* Need to reorder vertices for correct flat
+			 * shading while preserving the clock sense
+			 * for correct culling. Only on Savage3D. */
 			int reorder[3] = { -1, -1, -1 };
 			reorder[start % 3] = 2;
 
@@ -581,6 +595,9 @@ static int savage_dispatch_dma_idx(drm_savage_private_t * dev_priv,
 		}
 	}
 
+	/* Vertex DMA doesn't work with command DMA at the same time,
+	 * so we use BCI_... to submit commands here. Flush buffered
+	 * faked DMA first. */
 	DMA_FLUSH();
 
 	if (dmabuf->bus_address != dev_priv->state.common.vbaddr) {
@@ -590,6 +607,11 @@ static int savage_dispatch_dma_idx(drm_savage_private_t * dev_priv,
 		dev_priv->state.common.vbaddr = dmabuf->bus_address;
 	}
 	if (S3_SAVAGE3D_SERIES(dev_priv->chipset) && dev_priv->waiting) {
+		/* Workaround for what looks like a hardware bug. If a
+		 * WAIT_3D_IDLE was emitted some time before the
+		 * indexed drawing command then the engine will lock
+		 * up. There are two known workarounds:
+		 * WAIT_IDLE_EMPTY or emit at least 63 NOPs. */
 		BEGIN_BCI(63);
 		for (i = 0; i < 63; ++i)
 			BCI_WRITE(BCI_CMD_WAIT);
@@ -598,10 +620,10 @@ static int savage_dispatch_dma_idx(drm_savage_private_t * dev_priv,
 
 	prim <<= 25;
 	while (n != 0) {
-		
+		/* Can emit up to 255 indices (85 triangles) at once. */
 		unsigned int count = n > 255 ? 255 : n;
 
-		
+		/* check indices */
 		for (i = 0; i < count; ++i) {
 			if (idx[i] > dmabuf->total / 32) {
 				DRM_ERROR("idx[%u]=%u out of range (0-%u)\n",
@@ -611,6 +633,9 @@ static int savage_dispatch_dma_idx(drm_savage_private_t * dev_priv,
 		}
 
 		if (reorder) {
+			/* Need to reorder indices for correct flat
+			 * shading while preserving the clock sense
+			 * for correct culling. Only on Savage3D. */
 			int reorder[3] = { 2, -1, -1 };
 
 			BEGIN_BCI((count + 1 + 1) / 2);
@@ -694,13 +719,13 @@ static int savage_dispatch_vb_idx(drm_savage_private_t * dev_priv,
 			DRM_ERROR("invalid skip flags 0x%04x\n", skip);
 			return -EINVAL;
 		}
-		vtx_size = 8;	
+		vtx_size = 8;	/* full vertex */
 	} else {
 		if (skip > SAVAGE_SKIP_ALL_S4) {
 			DRM_ERROR("invalid skip flags 0x%04x\n", skip);
 			return -EINVAL;
 		}
-		vtx_size = 10;	
+		vtx_size = 10;	/* full vertex */
 	}
 
 	vtx_size -= (skip & 1) + (skip >> 1 & 1) +
@@ -715,10 +740,10 @@ static int savage_dispatch_vb_idx(drm_savage_private_t * dev_priv,
 
 	prim <<= 25;
 	while (n != 0) {
-		
+		/* Can emit up to 255 vertices (85 triangles) at once. */
 		unsigned int count = n > 255 ? 255 : n;
 
-		
+		/* Check indices */
 		for (i = 0; i < count; ++i) {
 			if (idx[i] > vb_size / (vb_stride * 4)) {
 				DRM_ERROR("idx[%u]=%u out of range (0-%u)\n",
@@ -728,6 +753,9 @@ static int savage_dispatch_vb_idx(drm_savage_private_t * dev_priv,
 		}
 
 		if (reorder) {
+			/* Need to reorder vertices for correct flat
+			 * shading while preserving the clock sense
+			 * for correct culling. Only on Savage3D. */
 			int reorder[3] = { 2, -1, -1 };
 
 			BEGIN_DMA(count * vtx_size + 1);
@@ -784,7 +812,7 @@ static int savage_dispatch_clear(drm_savage_private_t * dev_priv,
 		return 0;
 
 	if (data->clear1.mask != 0xffffffff) {
-		
+		/* set mask */
 		BEGIN_DMA(2);
 		DMA_SET_REGISTERS(SAVAGE_BITPLANEWTMASK, 1);
 		DMA_WRITE(data->clear1.mask);
@@ -822,7 +850,7 @@ static int savage_dispatch_clear(drm_savage_private_t * dev_priv,
 		DMA_COMMIT();
 	}
 	if (data->clear1.mask != 0xffffffff) {
-		
+		/* reset mask */
 		BEGIN_DMA(2);
 		DMA_SET_REGISTERS(SAVAGE_BITPLANEWTMASK, 1);
 		DMA_WRITE(0xffffffff);
@@ -894,7 +922,7 @@ static int savage_dispatch_draw(drm_savage_private_t * dev_priv,
 				break;
 			case SAVAGE_CMD_DMA_IDX:
 				j = (cmd_header.idx.count + 3) / 4;
-				
+				/* j was check in savage_bci_cmdbuf */
 				ret = savage_dispatch_dma_idx(dev_priv,
 					&cmd_header, (const uint16_t *)cmdbuf,
 					dmabuf);
@@ -902,7 +930,7 @@ static int savage_dispatch_draw(drm_savage_private_t * dev_priv,
 				break;
 			case SAVAGE_CMD_VB_IDX:
 				j = (cmd_header.idx.count + 3) / 4;
-				
+				/* j was check in savage_bci_cmdbuf */
 				ret = savage_dispatch_vb_idx(dev_priv,
 					&cmd_header, (const uint16_t *)cmdbuf,
 					(const uint32_t *)vtxbuf, vb_size,
@@ -910,7 +938,7 @@ static int savage_dispatch_draw(drm_savage_private_t * dev_priv,
 				cmdbuf += j;
 				break;
 			default:
-				
+				/* What's the best return code? EFAULT? */
 				DRM_ERROR("IMPLEMENTATION ERROR: "
 					  "non-drawing-command %d\n",
 					  cmd_header.cmd.cmd);
@@ -954,6 +982,11 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 		dmabuf = NULL;
 	}
 
+	/* Copy the user buffers into kernel temporary areas.  This hasn't been
+	 * a performance loss compared to VERIFYAREA_READ/
+	 * COPY_FROM_USER_UNCHECKED when done in other drivers, and is correct
+	 * for locking on FreeBSD.
+	 */
 	if (cmdbuf->size) {
 		kcmd_addr = kmalloc_array(cmdbuf->size, 8, GFP_KERNEL);
 		if (kcmd_addr == NULL)
@@ -997,8 +1030,12 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 	cmdbuf->box_addr = kbox_addr;
 	}
 
+	/* Make sure writes to DMA buffers are finished before sending
+	 * DMA commands to the graphics hardware. */
 	DRM_MEMORYBARRIER();
 
+	/* Coming from user space. Don't know if the Xserver has
+	 * emitted wait commands. Assuming the worst. */
 	dev_priv->waiting = 1;
 
 	i = 0;
@@ -1009,6 +1046,8 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 		cmdbuf->cmd_addr++;
 		i++;
 
+		/* Group drawing commands with same state to minimize
+		 * iterations over clip rects. */
 		j = 0;
 		switch (cmd_header.cmd.cmd) {
 		case SAVAGE_CMD_DMA_IDX:
@@ -1021,7 +1060,7 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 				ret = -EINVAL;
 				goto done;
 			}
-			
+			/* fall through */
 		case SAVAGE_CMD_DMA_PRIM:
 		case SAVAGE_CMD_VB_PRIM:
 			if (!first_draw_cmd)
@@ -1115,7 +1154,7 @@ int savage_bci_cmdbuf(struct drm_device *dev, void *data, struct drm_file *file_
 	}
 
 done:
-	
+	/* If we didn't need to allocate them, these'll be NULL */
 	kfree(kcmd_addr);
 	kfree(kvb_addr);
 	kfree(kbox_addr);

@@ -1,16 +1,19 @@
+/* $XFree86: xc/programs/Xserver/hw/xfree86/drivers/xgi/initdef.h
+ * ,v 1.4 2000/12/02 01:16:17 dawes Exp $*/
 #ifndef _VB_DEF_
 #define _VB_DEF_
 #include "../../video/sis/initdef.h"
 
-#define VB_XGI301C      0x0020 
+#define VB_XGI301C      0x0020 /* for 301C */
 #define VB_YPbPr1080i   0x03
 
 #define LVDSCRT1Len     15
-#define SupportCRT2in301C       0x0100  
+#define SupportCRT2in301C       0x0100  /* for 301C */
 #define SetCHTVOverScan         0x8000
 
-#define Panel_320x480            0x07 
-#define PanelResInfo            0x1F 
+#define Panel_320x480            0x07 /*fstn*/
+/* [ycchen] 02/12/03 Modify for Multi-Sync. LCD Support */
+#define PanelResInfo            0x1F /* CR36 Panel Type/LCDResInfo */
 #define Panel_1024x768x75        0x22
 #define Panel_1280x1024x75       0x23
 
@@ -22,8 +25,12 @@
 
 #define XGI_CRT2_PORT_00        (0x00 - 0x030)
 
+/* =============================================================
+   for 310
+============================================================== */
 #define ModeSoftSetting              0x04
 
+/* ---------------- SetMode Stack */
 #define CRT1Len           15
 #define VCLKLen           4
 
@@ -32,6 +39,7 @@
 #define NoSupportHiVisionTV 0x0060
 #define NoSupportLCD        0x0058
 
+/* -------------- SetMode Stack/Scratch */
 #define XGI_SetCRT2ToLCDA   0x0100
 #define SetCRT2ToDualEdge   0x8000
 
@@ -48,7 +56,7 @@
 #define NTSC1024x768         0x2000
 #define SetTVLockMode        0x4000
 
-#define XGI_LCDVESATiming    0x0001 
+#define XGI_LCDVESATiming    0x0001 /* LCD Info/CR37 */
 #define XGI_EnableLVDSDDA    0x0002
 #define EnableScalingLCD     0x0008
 #define SetPWDEnable         0x0004
@@ -57,21 +65,22 @@
 #define SetLCDLowResolution  0x0200
 #define SetLCDStdMode        0x0400
 
+/* LCD Capability shampoo */
 #define DefaultLCDCap        0x80ea
-#define EnableLCD24bpp       0x0004 
+#define EnableLCD24bpp       0x0004 /* default */
 #define DisableLCD24bpp      0x0000
-#define LCDPolarity          0x00c0 
+#define LCDPolarity          0x00c0 /* default: SyncNN */
 #define XGI_LCDDualLink      0x0100
 #define EnableSpectrum       0x0200
 #define PWDEnable            0x0400
 #define EnableVBCLKDRVLOW    0x4000
 #define EnablePLLSPLOW       0x8000
 
-#define LCDBToA              0x20   
+#define LCDBToA              0x20   /* LCD SetFlag */
 #define StLCDBToA            0x40
 #define LockLCDBToA          0x80
 #define   LCDToFull          0x10
-#define AVIDEOSense          0x01   
+#define AVIDEOSense          0x01   /* CR32 */
 #define SVIDEOSense          0x02
 #define SCARTSense           0x04
 #define LCDSense             0x08
@@ -79,7 +88,7 @@
 #define Monitor1Sense        0x20
 #define HiTVSense            0x40
 
-#define YPbPrSense           0x80   
+#define YPbPrSense           0x80   /* NEW SCRATCH */
 
 #define TVSense              0xc7
 
@@ -93,8 +102,10 @@
 
 #define SetYPbPr             0x04
 
+/* ---------------------- VUMA Information */
 #define DisplayDeviceFromCMOS 0x10
 
+/* ---------------------- HK Evnet Definition */
 #define XGI_ModeSwitchStatus  0xf0
 #define ActiveCRT1            0x10
 #define ActiveLCD             0x0020
@@ -107,6 +118,10 @@
 #define ActiveHiTV            0x08
 #define ActiveYPbPr           0x10
 
+/* --------------------------------------------------------- */
+/* translated from asm code 301def.h */
+/*  */
+/* --------------------------------------------------------- */
 #define LVDSCRT1Len_H        8
 #define LVDSCRT1Len_V        7
 #define LCDDesDataLen        6
@@ -115,7 +130,7 @@
 
 #define NTSC1024x768HT       1908
 
-#define YPbPrTV525iHT        1716 
+#define YPbPrTV525iHT        1716 /* YPbPr */
 #define YPbPrTV525iVT         525
 #define YPbPrTV525pHT        1716
 #define YPbPrTV525pVT         525
@@ -171,7 +186,7 @@
 #define VCLK39_77            0x40
 #define YPbPr525pVCLK        0x3A
 #define NTSC1024VCLK         0x41
-#define VCLK35_2             0x49 
+#define VCLK35_2             0x49 /* ; 800x480 */
 #define VCLK122_61           0x4A
 #define VCLK80_350           0x4B
 #define VCLK107_385          0x4C

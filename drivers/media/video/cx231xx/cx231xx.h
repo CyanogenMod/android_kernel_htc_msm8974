@@ -45,12 +45,14 @@
 #define DRIVER_NAME                     "cx231xx"
 #define PWR_SLEEP_INTERVAL              10
 
+/* I2C addresses for control block in Cx231xx */
 #define     AFE_DEVICE_ADDRESS		0x60
 #define     I2S_BLK_DEVICE_ADDRESS	0x98
 #define     VID_BLK_I2C_ADDRESS		0x88
 #define     VERVE_I2C_ADDRESS           0x40
 #define     DIF_USE_BASEBAND            0xFFFFFFFF
 
+/* Boards supported by driver */
 #define CX231XX_BOARD_UNKNOWN		    0
 #define CX231XX_BOARD_CNXT_CARRAERA	1
 #define CX231XX_BOARD_CNXT_SHELBY	2
@@ -68,6 +70,7 @@
 #define CX231XX_BOARD_HAUPPAUGE_USB2_FM_PAL 14
 #define CX231XX_BOARD_HAUPPAUGE_USB2_FM_NTSC 15
 
+/* Limits minimum and default number of buffers */
 #define CX231XX_MIN_BUF                 4
 #define CX231XX_DEF_BUF                 12
 #define CX231XX_DEF_VBI_BUF             6
@@ -75,23 +78,34 @@
 #define VBI_LINE_COUNT                  17
 #define VBI_LINE_LENGTH                 1440
 
+/*Limits the max URB message size */
 #define URB_MAX_CTRL_SIZE               80
 
+/* Params for validated field */
 #define CX231XX_BOARD_NOT_VALIDATED     1
 #define CX231XX_BOARD_VALIDATED		0
 
+/* maximum number of cx231xx boards */
 #define CX231XX_MAXBOARDS               8
 
+/* maximum number of frames that can be queued */
 #define CX231XX_NUM_FRAMES              5
 
+/* number of buffers for isoc transfers */
 #define CX231XX_NUM_BUFS                8
 
+/* number of packets for each buffer
+   windows requests only 40 packets .. so we better do the same
+   this is what I found out for all alternate numbers there!
+ */
 #define CX231XX_NUM_PACKETS             40
 
+/* default alternate; 0 means choose the best */
 #define CX231XX_PINOUT                  0
 
 #define CX231XX_INTERLACED_DEFAULT      1
 
+/* time to wait when stopping the isoc transfer */
 #define CX231XX_URB_TIMEOUT		\
 		msecs_to_jiffies(CX231XX_NUM_BUFS * CX231XX_NUM_PACKETS)
 
@@ -107,7 +121,7 @@
 
 struct cx23417_fmt {
 	char  *name;
-	u32   fourcc;          
+	u32   fourcc;          /* v4l2 format id */
 	int   depth;
 	int   flags;
 	u32   cxformat;
@@ -132,82 +146,83 @@ enum cx231xx_stream_state {
 struct cx231xx;
 
 struct cx231xx_isoc_ctl {
-	
+	/* max packet size of isoc transaction */
 	int max_pkt_size;
 
-	
+	/* number of allocated urbs */
 	int num_bufs;
 
-	
+	/* urb for isoc transfers */
 	struct urb **urb;
 
-	
+	/* transfer buffers for isoc transfer */
 	char **transfer_buffer;
 
-	
+	/* Last buffer command and region */
 	u8 cmd;
 	int pos, size, pktsize;
 
-	
+	/* Last field: ODD or EVEN? */
 	int field;
 
-	
+	/* Stores incomplete commands */
 	u32 tmp_buf;
 	int tmp_buf_len;
 
-	
+	/* Stores already requested buffers */
 	struct cx231xx_buffer *buf;
 
-	
+	/* Stores the number of received fields */
 	int nfields;
 
-	
+	/* isoc urb callback */
 	int (*isoc_copy) (struct cx231xx *dev, struct urb *urb);
 };
 
 struct cx231xx_bulk_ctl {
-	
+	/* max packet size of bulk transaction */
 	int max_pkt_size;
 
-	
+	/* number of allocated urbs */
 	int num_bufs;
 
-	
+	/* urb for bulk transfers */
 	struct urb **urb;
 
-	
+	/* transfer buffers for bulk transfer */
 	char **transfer_buffer;
 
-	
+	/* Last buffer command and region */
 	u8 cmd;
 	int pos, size, pktsize;
 
-	
+	/* Last field: ODD or EVEN? */
 	int field;
 
-	
+	/* Stores incomplete commands */
 	u32 tmp_buf;
 	int tmp_buf_len;
 
-	
+	/* Stores already requested buffers */
 	struct cx231xx_buffer *buf;
 
-	
+	/* Stores the number of received fields */
 	int nfields;
 
-	
+	/* bulk urb callback */
 	int (*bulk_copy) (struct cx231xx *dev, struct urb *urb);
 };
 
 struct cx231xx_fmt {
 	char *name;
-	u32 fourcc;		
+	u32 fourcc;		/* v4l2 format id */
 	int depth;
 	int reg;
 };
 
+/* buffer for one video frame */
 struct cx231xx_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer vb;
 
 	struct list_head frame;
@@ -226,7 +241,7 @@ struct cx231xx_dmaqueue {
 
 	wait_queue_head_t wq;
 
-	
+	/* Counters to control buffer fill */
 	int pos;
 	u8 is_partial_line;
 	u8 partial_buf[8];
@@ -237,7 +252,7 @@ struct cx231xx_dmaqueue {
 	u8 field1_done;
 	u32 lines_per_field;
 
-	
+	/*Mpeg2 control buffer*/
 	u8 *p_left_data;
 	u32 left_data_count;
 	u8 mpeg_buffer_done;
@@ -246,6 +261,7 @@ struct cx231xx_dmaqueue {
 	char ps_head[10];
 };
 
+/* inputs */
 
 #define MAX_CX231XX_INPUT               4
 
@@ -272,10 +288,11 @@ enum cx231xx_v_input {
 	CX231XX_VIN_3_3,
 };
 
+/* cx231xx has two audio inputs: tuner and line in */
 enum cx231xx_amux {
-	
-	CX231XX_AMUX_VIDEO,	
-	CX231XX_AMUX_LINE_IN,	
+	/* This is the only entry for cx231xx tuner input */
+	CX231XX_AMUX_VIDEO,	/* cx231xx tuner */
+	CX231XX_AMUX_LINE_IN,	/* Line In */
 };
 
 struct cx231xx_reg_seq {
@@ -310,32 +327,32 @@ struct cx231xx_board {
 	int vchannels;
 	int tuner_type;
 	int tuner_addr;
-	v4l2_std_id norm;	
+	v4l2_std_id norm;	/* tv norm */
 
-	
+	/* demod related */
 	int demod_addr;
-	u8 demod_xfer_mode;	
+	u8 demod_xfer_mode;	/* 0 - Serial; 1 - parallel */
 
-	
+	/* GPIO Pins */
 	struct cx231xx_reg_seq *dvb_gpio;
 	struct cx231xx_reg_seq *suspend_gpio;
 	struct cx231xx_reg_seq *tuner_gpio;
-		
+		/* Negative means don't use it */
 	s8 tuner_sif_gpio;
 	s8 tuner_scl_gpio;
 	s8 tuner_sda_gpio;
 
-	
+	/* PIN ctrl */
 	u32 ctl_pin_status_mask;
 	u8 agc_analog_digital_select_gpio;
 	u32 gpio_pin_status_mask;
 
-	
+	/* i2c masters */
 	u8 tuner_i2c_master;
 	u8 demod_i2c_master;
 	u8 ir_i2c_master;
 
-	
+	/* for devices with I2C chips for IR */
 	char *rc_map_name;
 
 	unsigned int max_range_640_480:1;
@@ -356,6 +373,7 @@ struct cx231xx_board {
 	struct rc_map *ir_codes;
 };
 
+/* device states */
 enum cx231xx_dev_state {
 	DEV_INITIALIZED = 0x01,
 	DEV_DISCONNECTED = 0x02,
@@ -381,6 +399,7 @@ enum AUDIO_INPUT {
 #define CX231XX_NUM_AUDIO_PACKETS       16
 #define CX231XX_ISO_NUM_AUDIO_PACKETS	64
 
+/* cx231xx extensions */
 #define CX231XX_AUDIO                   0x10
 #define CX231XX_DVB                     0x20
 
@@ -396,13 +415,13 @@ struct cx231xx_audio {
 	struct snd_card *sndcard;
 
 	int users, shutdown;
-	
+	/* locks */
 	spinlock_t slock;
 
-	int alt;		
-	int max_pkt_size;	
-	int num_alt;		
-	unsigned int *alt_max_pkt_size;	
+	int alt;		/* alternate */
+	int max_pkt_size;	/* max packet size of isoc transaction */
+	int num_alt;		/* Number of alternative settings */
+	unsigned int *alt_max_pkt_size;	/* array of wMaxPacketSize */
 	u16 end_point_addr;
 };
 
@@ -410,7 +429,7 @@ struct cx231xx;
 
 struct cx231xx_fh {
 	struct cx231xx *dev;
-	unsigned int stream_on:1;	
+	unsigned int stream_on:1;	/* Locks streams */
 	int radio;
 
 	struct videobuf_queue vb_vidq;
@@ -419,33 +438,40 @@ struct cx231xx_fh {
 
 
 
+/*following is copyed from cx23885.h*/
 	u32                        resources;
 
-	
+	/* video overlay */
 	struct v4l2_window         win;
 	struct v4l2_clip           *clips;
 	unsigned int               nclips;
 
-	
+	/* video capture */
 	struct cx23417_fmt         *fmt;
 	unsigned int               width, height;
 
-	
+	/* vbi capture */
 	struct videobuf_queue      vidq;
 	struct videobuf_queue      vbiq;
 
-	
+	/* MPEG Encoder specifics ONLY */
 
 	atomic_t                   v4l_reading;
 };
 
+/*****************************************************************/
+/* set/get i2c */
+/* 00--1Mb/s, 01-400kb/s, 10--100kb/s, 11--5Mb/s */
 #define I2C_SPEED_1M            0x0
 #define I2C_SPEED_400K          0x1
 #define I2C_SPEED_100K          0x2
 #define I2C_SPEED_5M            0x3
 
+/* 0-- STOP transaction */
 #define I2C_STOP                0x0
+/* 1-- do not transmit STOP at end of transaction */
 #define I2C_NOSTOP              0x1
+/* 1--allow slave to insert clock wait states */
 #define I2C_SYNC                0x1
 
 struct cx231xx_i2c {
@@ -453,13 +479,13 @@ struct cx231xx_i2c {
 
 	int nr;
 
-	
+	/* i2c i/o */
 	struct i2c_adapter i2c_adap;
 	struct i2c_algo_bit_data i2c_algo;
 	struct i2c_client i2c_client;
 	u32 i2c_rc;
 
-	
+	/* different settings for each bus */
 	u8 i2c_period;
 	u8 i2c_nostop;
 	u8 i2c_reserve;
@@ -467,11 +493,11 @@ struct cx231xx_i2c {
 
 struct cx231xx_i2c_xfer_data {
 	u8 dev_addr;
-	u8 direction;		
-	u8 saddr_len;		
-	u16 saddr_dat;		
-	u8 buf_size;		
-	u8 *p_buffer;		
+	u8 direction;		/* 1 - IN, 0 - OUT */
+	u8 saddr_len;		/* sub address len */
+	u16 saddr_dat;		/* sub addr data */
+	u8 buf_size;		/* buffer size */
+	u8 *p_buffer;		/* pointer to the buffer */
 };
 
 struct VENDOR_REQUEST_IN {
@@ -502,28 +528,37 @@ struct cx231xx_ctrl {
 enum TRANSFER_TYPE {
 	Raw_Video = 0,
 	Audio,
-	Vbi,			
-	Sliced_cc,		
+	Vbi,			/* VANC */
+	Sliced_cc,		/* HANC */
 	TS1_serial_mode,
 	TS2,
 	TS1_parallel_mode
 } ;
 
 struct cx231xx_video_mode {
-	
+	/* Isoc control struct */
 	struct cx231xx_dmaqueue vidq;
 	struct cx231xx_isoc_ctl isoc_ctl;
 	struct cx231xx_bulk_ctl bulk_ctl;
-	
+	/* locks */
 	spinlock_t slock;
 
-	
-	int alt;		
-	int max_pkt_size;	
-	int num_alt;		
-	unsigned int *alt_max_pkt_size;	
+	/* usb transfer */
+	int alt;		/* alternate */
+	int max_pkt_size;	/* max packet size of isoc transaction */
+	int num_alt;		/* Number of alternative settings */
+	unsigned int *alt_max_pkt_size;	/* array of wMaxPacketSize */
 	u16 end_point_addr;
 };
+/*
+struct cx23885_dmaqueue {
+	struct list_head       active;
+	struct list_head       queued;
+	struct timer_list      timeout;
+	struct btcx_riscmem    stopper;
+	u32                    count;
+};
+*/
 struct cx231xx_tsport {
 	struct cx231xx *dev;
 
@@ -532,7 +567,7 @@ struct cx231xx_tsport {
 
 	struct videobuf_dvb_frontends frontends;
 
-	
+	/* dma queues */
 
 	u32                        ts_packet_size;
 	u32                        ts_packet_count;
@@ -540,10 +575,10 @@ struct cx231xx_tsport {
 	int                        width;
 	int                        height;
 
-	
+	/* locks */
 	spinlock_t                 slock;
 
-	
+	/* registers */
 	u32                        reg_gpcnt;
 	u32                        reg_gpcnt_ctl;
 	u32                        reg_dma_ctl;
@@ -559,7 +594,7 @@ struct cx231xx_tsport {
 	u32                        reg_ts_int_stat;
 	u32                        reg_src_sel;
 
-	
+	/* Default register vals */
 	int                        pci_irqmask;
 	u32                        dma_ctl_val;
 	u32                        ts_int_msk_val;
@@ -569,25 +604,26 @@ struct cx231xx_tsport {
 	u32                        vld_misc_val;
 	u32                        hw_sop_ctrl_val;
 
-	
+	/* Allow a single tsport to have multiple frontends */
 	u32                        num_frontends;
 	void                       *port_priv;
 };
 
+/* main device struct */
 struct cx231xx {
-	
-	char name[30];		
-	int model;		
-	int devno;		
+	/* generic device properties */
+	char name[30];		/* name (including minor) of the device */
+	int model;		/* index in the device_data struct */
+	int devno;		/* marks the number of this device */
 
 	struct cx231xx_board board;
 
-	
+	/* For I2C IR support */
 	struct IR_i2c_init_data    init_data;
 	struct i2c_client          *ir_i2c_client;
 
-	unsigned int stream_on:1;	
-	unsigned int vbi_stream_on:1;	
+	unsigned int stream_on:1;	/* Locks streams */
+	unsigned int vbi_stream_on:1;	/* Locks streams for VBI */
 	unsigned int has_audio_class:1;
 	unsigned int has_alsa_audio:1;
 
@@ -597,45 +633,45 @@ struct cx231xx {
 	struct v4l2_subdev *sd_cx25840;
 	struct v4l2_subdev *sd_tuner;
 
-	struct work_struct wq_trigger;		
-	atomic_t	   stream_started;	
+	struct work_struct wq_trigger;		/* Trigger to start/stop audio for alsa module */
+	atomic_t	   stream_started;	/* stream should be running if true */
 
 	struct list_head devlist;
 
-	int tuner_type;		
-	int tuner_addr;		
+	int tuner_type;		/* type of the tuner */
+	int tuner_addr;		/* tuner address */
 
-	
+	/* I2C adapters: Master 1 & 2 (External) & Master 3 (Internal only) */
 	struct cx231xx_i2c i2c_bus[3];
 	unsigned int xc_fw_load_done:1;
-	
+	/* locks */
 	struct mutex gpio_i2c_lock;
 	struct mutex i2c_lock;
 
-	
-	int users;		
-	struct video_device *vdev;	
-	v4l2_std_id norm;	
-	int ctl_freq;		
-	unsigned int ctl_ainput;	
+	/* video for linux */
+	int users;		/* user count for exclusive use */
+	struct video_device *vdev;	/* video for linux device struct */
+	v4l2_std_id norm;	/* selected tv norm */
+	int ctl_freq;		/* selected frequency */
+	unsigned int ctl_ainput;	/* selected audio input */
 	int mute;
 	int volume;
 
-	
-	int width;		
-	int height;		
-	int interlaced;		
+	/* frame properties */
+	int width;		/* current frame width */
+	int height;		/* current frame height */
+	int interlaced;		/* 1=interlace fileds, 0=just top fileds */
 
 	struct cx231xx_audio adev;
 
-	
+	/* states */
 	enum cx231xx_dev_state state;
 
 	struct work_struct request_module_wk;
 
-	
+	/* locks */
 	struct mutex lock;
-	struct mutex ctrl_urb_lock;	
+	struct mutex ctrl_urb_lock;	/* protects urb_buf */
 	struct list_head inqueue, outqueue;
 	wait_queue_head_t open, wait_frame, wait_stream;
 	struct video_device *vbi_dev;
@@ -650,10 +686,10 @@ struct cx231xx {
 
 	atomic_t devlist_count;
 
-	struct usb_device *udev;	
-	char urb_buf[URB_MAX_CTRL_SIZE];	
+	struct usb_device *udev;	/* the usb device */
+	char urb_buf[URB_MAX_CTRL_SIZE];	/* urb control msg buffer */
 
-	
+	/* helper funcs that call usb_control_msg */
 	int (*cx231xx_read_ctrl_reg) (struct cx231xx *dev, u8 req, u16 reg,
 				      char *buf, int len);
 	int (*cx231xx_write_ctrl_reg) (struct cx231xx *dev, u8 req, u16 reg,
@@ -672,30 +708,30 @@ struct cx231xx {
 
 	struct cx231xx_dvb *dvb;
 
-	
+	/* Cx231xx supported PCB config's */
 	struct pcb_config current_pcb_config;
 	u8 current_scenario_idx;
 	u8 interface_count;
 	u8 max_iad_interface_count;
 
-	
+	/* GPIO related register direction and values */
 	u32 gpio_dir;
 	u32 gpio_val;
 
-	
+	/* Power Modes */
 	int power_mode;
 
-	
+	/* afe parameters */
 	enum AFE_MODE afe_mode;
 	u32 afe_ref_count;
 
-	
+	/* video related parameters */
 	u32 video_input;
 	u32 active_mode;
-	u8 vbi_or_sliced_cc_mode;	
-	enum cx231xx_std_mode std_mode;	
+	u8 vbi_or_sliced_cc_mode;	/* 0 - vbi ; 1 - sliced cc mode */
+	enum cx231xx_std_mode std_mode;	/* 0 - Air; 1 - cable */
 
-	
+	/*mode: digital=1 or analog=0*/
 	u8 mode_tv;
 
 	u8 USE_ISO;
@@ -728,13 +764,16 @@ struct cx231xx_ops {
 	int (*fini) (struct cx231xx *);
 };
 
+/* call back functions in dvb module */
 int cx231xx_set_analog_freq(struct cx231xx *dev, u32 freq);
 int cx231xx_reset_analog_tuner(struct cx231xx *dev);
 
+/* Provided by cx231xx-i2c.c */
 void cx231xx_do_i2c_scan(struct cx231xx *dev, struct i2c_client *c);
 int cx231xx_i2c_register(struct cx231xx_i2c *bus);
 int cx231xx_i2c_unregister(struct cx231xx_i2c *bus);
 
+/* Internal block control functions */
 int cx231xx_read_i2c_master(struct cx231xx *dev, u8 dev_addr, u16 saddr,
 		 u8 saddr_len, u32 *data, u8 data_len, int master);
 int cx231xx_write_i2c_master(struct cx231xx *dev, u8 dev_addr, u16 saddr,
@@ -750,8 +789,10 @@ int cx231xx_read_modify_write_i2c_dword(struct cx231xx *dev, u8 dev_addr,
 					u16 saddr, u32 mask, u32 value);
 u32 cx231xx_set_field(u32 field_mask, u32 data);
 
+/*verve r/w*/
 void initGPIO(struct cx231xx *dev);
 void uninitGPIO(struct cx231xx *dev);
+/* afe related functions */
 int cx231xx_afe_init_super_block(struct cx231xx *dev, u32 ref_count);
 int cx231xx_afe_init_channels(struct cx231xx *dev);
 int cx231xx_afe_setup_AFE_for_baseband(struct cx231xx *dev);
@@ -761,11 +802,13 @@ int cx231xx_afe_update_power_control(struct cx231xx *dev,
 					enum AV_MODE avmode);
 int cx231xx_afe_adjust_ref_count(struct cx231xx *dev, u32 video_input);
 
+/* i2s block related functions */
 int cx231xx_i2s_blk_initialize(struct cx231xx *dev);
 int cx231xx_i2s_blk_update_power_control(struct cx231xx *dev,
 					enum AV_MODE avmode);
 int cx231xx_i2s_blk_set_audio_input(struct cx231xx *dev, u8 audio_input);
 
+/* DIF related functions */
 int cx231xx_dif_configure_C2HH_for_low_IF(struct cx231xx *dev, u32 mode,
 					  u32 function_mode, u32 standard);
 void cx231xx_set_Colibri_For_LowIF(struct cx231xx *dev, u32 if_freq,
@@ -785,6 +828,7 @@ int cx231xx_dif_set_standard(struct cx231xx *dev, u32 standard);
 int cx231xx_tuner_pre_channel_change(struct cx231xx *dev);
 int cx231xx_tuner_post_channel_change(struct cx231xx *dev);
 
+/* video parser functions */
 u8 cx231xx_find_next_SAV_EAV(u8 *p_buffer, u32 buffer_size,
 			     u32 *p_bytes_used);
 u8 cx231xx_find_boundary_SAV_EAV(u8 *p_buffer, u8 *partial_buf,
@@ -800,14 +844,17 @@ u32 cx231xx_get_video_line(struct cx231xx *dev, struct cx231xx_dmaqueue *dma_q,
 			   u8 sav_eav, u8 *p_buffer, u32 buffer_size);
 void cx231xx_swab(u16 *from, u16 *to, u16 len);
 
+/* Provided by cx231xx-core.c */
 
 u32 cx231xx_request_buffers(struct cx231xx *dev, u32 count);
 void cx231xx_queue_unusedframes(struct cx231xx *dev);
 void cx231xx_release_buffers(struct cx231xx *dev);
 
+/* read from control pipe */
 int cx231xx_read_ctrl_reg(struct cx231xx *dev, u8 req, u16 reg,
 			  char *buf, int len);
 
+/* write to control pipe */
 int cx231xx_write_ctrl_reg(struct cx231xx *dev, u8 req, u16 reg,
 			   char *buf, int len);
 int cx231xx_mode_register(struct cx231xx *dev, u16 address, u32 mode);
@@ -817,6 +864,7 @@ int cx231xx_send_vendor_cmd(struct cx231xx *dev,
 int cx231xx_send_usb_command(struct cx231xx_i2c *i2c_bus,
 				struct cx231xx_i2c_xfer_data *req_data);
 
+/* Gpio related functions */
 int cx231xx_send_gpio_cmd(struct cx231xx *dev, u32 gpio_bit, u8 *gpio_val,
 			  u8 len, u8 request, u8 direction);
 int cx231xx_set_gpio_bit(struct cx231xx *dev, u32 gpio_bit, u8 *gpio_val);
@@ -836,6 +884,7 @@ int cx231xx_gpio_i2c_write_nak(struct cx231xx *dev);
 int cx231xx_gpio_i2c_read(struct cx231xx *dev, u8 dev_addr, u8 *buf, u8 len);
 int cx231xx_gpio_i2c_write(struct cx231xx *dev, u8 dev_addr, u8 *buf, u8 len);
 
+/* audio related functions */
 int cx231xx_set_audio_decoder_input(struct cx231xx *dev,
 				    enum AUDIO_INPUT audio_input);
 
@@ -864,6 +913,7 @@ void cx231xx_enable656(struct cx231xx *dev);
 int cx231xx_demod_reset(struct cx231xx *dev);
 int cx231xx_gpio_set(struct cx231xx *dev, struct cx231xx_reg_seq *gpio);
 
+/* Device list functions */
 void cx231xx_release_resources(struct cx231xx *dev);
 void cx231xx_release_analog_resources(struct cx231xx *dev);
 int cx231xx_register_analog_devices(struct cx231xx *dev);
@@ -872,35 +922,42 @@ void cx231xx_add_into_devlist(struct cx231xx *dev);
 void cx231xx_init_extension(struct cx231xx *dev);
 void cx231xx_close_extension(struct cx231xx *dev);
 
+/* hardware init functions */
 int cx231xx_dev_init(struct cx231xx *dev);
 void cx231xx_dev_uninit(struct cx231xx *dev);
 void cx231xx_config_i2c(struct cx231xx *dev);
 int cx231xx_config(struct cx231xx *dev);
 
+/* Stream control functions */
 int cx231xx_start_stream(struct cx231xx *dev, u32 ep_mask);
 int cx231xx_stop_stream(struct cx231xx *dev, u32 ep_mask);
 
 int cx231xx_initialize_stream_xfer(struct cx231xx *dev, u32 media_type);
 
+/* Power control functions */
 int cx231xx_set_power_mode(struct cx231xx *dev, enum AV_MODE mode);
 int cx231xx_power_suspend(struct cx231xx *dev);
 
+/* chip specific control functions */
 int cx231xx_init_ctrl_pin_status(struct cx231xx *dev);
 int cx231xx_set_agc_analog_digital_mux_select(struct cx231xx *dev,
 					      u8 analog_or_digital);
 int cx231xx_enable_i2c_port_3(struct cx231xx *dev, bool is_port_3);
 
+/* video audio decoder related functions */
 void video_mux(struct cx231xx *dev, int index);
 int cx231xx_set_video_input_mux(struct cx231xx *dev, u8 input);
 int cx231xx_set_decoder_video_input(struct cx231xx *dev, u8 pin_type, u8 input);
 int cx231xx_do_mode_ctrl_overrides(struct cx231xx *dev);
 int cx231xx_set_audio_input(struct cx231xx *dev, u8 input);
 
+/* Provided by cx231xx-video.c */
 int cx231xx_register_extension(struct cx231xx_ops *dev);
 void cx231xx_unregister_extension(struct cx231xx_ops *dev);
 void cx231xx_init_extension(struct cx231xx *dev);
 void cx231xx_close_extension(struct cx231xx *dev);
 
+/* Provided by cx231xx-cards.c */
 extern void cx231xx_pre_card_setup(struct cx231xx *dev);
 extern void cx231xx_card_setup(struct cx231xx *dev);
 extern struct cx231xx_board cx231xx_boards[];
@@ -908,9 +965,11 @@ extern struct usb_device_id cx231xx_id_table[];
 extern const unsigned int cx231xx_bcount;
 int cx231xx_tuner_callback(void *ptr, int component, int command, int arg);
 
+/* cx23885-417.c                                               */
 extern int cx231xx_417_register(struct cx231xx *dev);
 extern void cx231xx_417_unregister(struct cx231xx *dev);
 
+/* cx23885-input.c                                             */
 
 #if defined(CONFIG_VIDEO_CX231XX_RC)
 int cx231xx_ir_init(struct cx231xx *dev);
@@ -921,6 +980,7 @@ void cx231xx_ir_exit(struct cx231xx *dev);
 #endif
 
 
+/* printk macros */
 
 #define cx231xx_err(fmt, arg...) do {\
 	printk(KERN_ERR fmt , ##arg); } while (0)

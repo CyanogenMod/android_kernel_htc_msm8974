@@ -27,6 +27,9 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * Veritas filesystem driver - inode routines.
+ */
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include <linux/pagemap.h>
@@ -42,6 +45,9 @@ struct kmem_cache		*vxfs_inode_cachep;
 
 
 #ifdef DIAGNOSTIC
+/*
+ * Dump inode contents (partially).
+ */
 void
 vxfs_dumpi(struct vxfs_inode_info *vip, ino_t ino)
 {
@@ -62,6 +68,22 @@ vxfs_dumpi(struct vxfs_inode_info *vip, ino_t ino)
 #endif
 
 
+/**
+ * vxfs_blkiget - find inode based on extent #
+ * @sbp:	superblock of the filesystem we search in
+ * @extent:	number of the extent to search
+ * @ino:	inode number to search
+ *
+ * Description:
+ *  vxfs_blkiget searches inode @ino in the filesystem described by
+ *  @sbp in the extent @extent.
+ *  Returns the matching VxFS inode on success, else a NULL pointer.
+ *
+ * NOTE:
+ *  While __vxfs_iget uses the pagecache vxfs_blkiget uses the
+ *  buffercache.  This function should not be used outside the
+ *  read_super() method, otherwise the data may be incoherent.
+ */
 struct vxfs_inode_info *
 vxfs_blkiget(struct super_block *sbp, u_long extent, ino_t ino)
 {
@@ -93,6 +115,17 @@ fail:
 	return NULL;
 }
 
+/**
+ * __vxfs_iget - generic find inode facility
+ * @sbp:		VFS superblock
+ * @ino:		inode number
+ * @ilistp:		inode list
+ *
+ * Description:
+ *  Search the for inode number @ino in the filesystem
+ *  described by @sbp.  Use the specified inode table (@ilistp).
+ *  Returns the matching VxFS inode on success, else an error code.
+ */
 static struct vxfs_inode_info *
 __vxfs_iget(ino_t ino, struct inode *ilistp)
 {
@@ -127,6 +160,16 @@ fail:
 	return ERR_PTR(-ENOMEM);
 }
 
+/**
+ * vxfs_stiget - find inode using the structural inode list
+ * @sbp:	VFS superblock
+ * @ino:	inode #
+ *
+ * Description:
+ *  Find inode @ino in the filesystem described by @sbp using
+ *  the structural inode list.
+ *  Returns the matching VxFS inode on success, else a NULL pointer.
+ */
 struct vxfs_inode_info *
 vxfs_stiget(struct super_block *sbp, ino_t ino)
 {
@@ -136,6 +179,14 @@ vxfs_stiget(struct super_block *sbp, ino_t ino)
 	return IS_ERR(vip) ? NULL : vip;
 }
 
+/**
+ * vxfs_transmod - mode for a VxFS inode
+ * @vip:	VxFS inode
+ *
+ * Description:
+ *  vxfs_transmod returns a Linux mode_t for a given
+ *  VxFS inode structure.
+ */
 static __inline__ umode_t
 vxfs_transmod(struct vxfs_inode_info *vip)
 {
@@ -159,6 +210,15 @@ vxfs_transmod(struct vxfs_inode_info *vip)
 	return (ret);
 }
 
+/**
+ * vxfs_iinit- helper to fill inode fields
+ * @ip:		VFS inode
+ * @vip:	VxFS inode
+ *
+ * Description:
+ *  vxfs_instino is a helper function to fill in all relevant
+ *  fields in @ip from @vip.
+ */
 static void
 vxfs_iinit(struct inode *ip, struct vxfs_inode_info *vip)
 {
@@ -184,6 +244,16 @@ vxfs_iinit(struct inode *ip, struct vxfs_inode_info *vip)
 	
 }
 
+/**
+ * vxfs_get_fake_inode - get fake inode structure
+ * @sbp:		filesystem superblock
+ * @vip:		fspriv inode
+ *
+ * Description:
+ *  vxfs_fake_inode gets a fake inode (not in the inode hash) for a
+ *  superblock, vxfs_inode pair.
+ *  Returns the filled VFS inode.
+ */
 struct inode *
 vxfs_get_fake_inode(struct super_block *sbp, struct vxfs_inode_info *vip)
 {
@@ -197,12 +267,28 @@ vxfs_get_fake_inode(struct super_block *sbp, struct vxfs_inode_info *vip)
 	return (ip);
 }
 
+/**
+ * vxfs_put_fake_inode - free faked inode
+ * *ip:			VFS inode
+ *
+ * Description:
+ *  vxfs_put_fake_inode frees all data associated with @ip.
+ */
 void
 vxfs_put_fake_inode(struct inode *ip)
 {
 	iput(ip);
 }
 
+/**
+ * vxfs_iget - get an inode
+ * @sbp:	the superblock to get the inode for
+ * @ino:	the number of the inode to get
+ *
+ * Description:
+ *  vxfs_read_inode creates an inode, reads the disk inode for @ino and fills
+ *  in all relevant fields in the new inode.
+ */
 struct inode *
 vxfs_iget(struct super_block *sbp, ino_t ino)
 {
@@ -257,6 +343,14 @@ static void vxfs_i_callback(struct rcu_head *head)
 	kmem_cache_free(vxfs_inode_cachep, inode->i_private);
 }
 
+/**
+ * vxfs_evict_inode - remove inode from main memory
+ * @ip:		inode to discard.
+ *
+ * Description:
+ *  vxfs_evict_inode() is called on the final iput and frees the private
+ *  inode area.
+ */
 void
 vxfs_evict_inode(struct inode *ip)
 {

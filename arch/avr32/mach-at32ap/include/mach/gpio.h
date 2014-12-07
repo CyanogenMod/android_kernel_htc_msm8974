@@ -5,9 +5,13 @@
 #include <asm/irq.h>
 
 
+/* Some GPIO chips can manage IRQs; some can't.  The exact numbers can
+ * be changed if needed, but for the moment they're not configurable.
+ */
 #define ARCH_NR_GPIOS	(NR_GPIO_IRQS + 2 * 32)
 
 
+/* Arch-neutral GPIO API, supporting both "native" and external GPIOs. */
 #include <asm-generic/gpio.h>
 
 static inline int gpio_get_value(unsigned int gpio)
@@ -38,4 +42,4 @@ static inline int irq_to_gpio(unsigned int irq)
 	return irq - GPIO_IRQ_BASE;
 }
 
-#endif 
+#endif /* __ASM_AVR32_ARCH_GPIO_H */

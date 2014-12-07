@@ -28,7 +28,9 @@
 #include <linux/types.h>
 #include <linux/socket.h>
 
+/* Note that this file is shared with user space. */
 
+/* Hint bit positions for first hint byte */
 #define HINT_PNP         0x01
 #define HINT_PDA         0x02
 #define HINT_COMPUTER    0x04
@@ -38,6 +40,7 @@
 #define HINT_LAN         0x40
 #define HINT_EXTENSION   0x80
 
+/* Hint bit positions for second hint byte (first extension byte) */
 #define HINT_TELEPHONY   0x01
 #define HINT_FILE_SERVER 0x02
 #define HINT_COMM        0x04
@@ -45,6 +48,7 @@
 #define HINT_HTTP        0x10
 #define HINT_OBEX        0x20
 
+/* IrLMP character code values */
 #define CS_ASCII         0x00
 #define	CS_ISO_8859_1    0x01
 #define	CS_ISO_8859_2    0x02
@@ -57,6 +61,7 @@
 #define	CS_ISO_8859_9    0x09
 #define CS_UNICODE       0xff
 
+/* These are the currently known dongles */
 typedef enum {
 	IRDA_TEKRAM_DONGLE       = 0,
 	IRDA_ESI_DONGLE          = 1,
@@ -74,37 +79,41 @@ typedef enum {
 	IRDA_EP7211_DONGLE       = 13,
 } IRDA_DONGLE;
 
+/* Protocol types to be used for SOCK_DGRAM */
 enum {
 	IRDAPROTO_UNITDATA = 0,
 	IRDAPROTO_ULTRA    = 1,
 	IRDAPROTO_MAX
 };
 
-#define SOL_IRLMP      266 
-#define SOL_IRTTP      266 
+#define SOL_IRLMP      266 /* Same as SOL_IRDA for now */
+#define SOL_IRTTP      266 /* Same as SOL_IRDA for now */
 
-#define IRLMP_ENUMDEVICES        1	
-#define IRLMP_IAS_SET            2	
-#define IRLMP_IAS_QUERY          3	
-#define IRLMP_HINTS_SET          4	
+#define IRLMP_ENUMDEVICES        1	/* Return discovery log */
+#define IRLMP_IAS_SET            2	/* Set an attribute in local IAS */
+#define IRLMP_IAS_QUERY          3	/* Query remote IAS for attribute */
+#define IRLMP_HINTS_SET          4	/* Set hint bits advertised */
 #define IRLMP_QOS_SET            5
 #define IRLMP_QOS_GET            6
 #define IRLMP_MAX_SDU_SIZE       7
-#define IRLMP_IAS_GET            8	
-#define IRLMP_IAS_DEL		 9	
-#define IRLMP_HINT_MASK_SET	10	
-#define IRLMP_WAITDEVICE	11	
+#define IRLMP_IAS_GET            8	/* Get an attribute from local IAS */
+#define IRLMP_IAS_DEL		 9	/* Remove attribute from local IAS */
+#define IRLMP_HINT_MASK_SET	10	/* Set discovery filter */
+#define IRLMP_WAITDEVICE	11	/* Wait for a new discovery */
 
-#define IRTTP_MAX_SDU_SIZE IRLMP_MAX_SDU_SIZE 
+#define IRTTP_MAX_SDU_SIZE IRLMP_MAX_SDU_SIZE /* Compatibility */
 
-#define IAS_MAX_STRING         256	
-#define IAS_MAX_OCTET_STRING  1024	
-#define IAS_MAX_CLASSNAME       60	
-#define IAS_MAX_ATTRIBNAME      60	
-#define IAS_MAX_ATTRIBNUMBER   256	
+#define IAS_MAX_STRING         256	/* See IrLMP 1.1, 4.3.3.2 */
+#define IAS_MAX_OCTET_STRING  1024	/* See IrLMP 1.1, 4.3.3.2 */
+#define IAS_MAX_CLASSNAME       60	/* See IrLMP 1.1, 4.3.1 */
+#define IAS_MAX_ATTRIBNAME      60	/* See IrLMP 1.1, 4.3.3.1 */
+#define IAS_MAX_ATTRIBNUMBER   256	/* See IrLMP 1.1, 4.3.3.1 */
+/* For user space backward compatibility - may be fixed in kernel 2.5.X
+ * Note : need 60+1 ('\0'), make it 64 for alignement - Jean II */
 #define IAS_EXPORT_CLASSNAME       64
 #define IAS_EXPORT_ATTRIBNAME     256
 
+/* Attribute type needed for struct irda_ias_set */
 #define IAS_MISSING 0
 #define IAS_INTEGER 1
 #define IAS_OCT_SEQ 2
@@ -113,18 +122,18 @@ enum {
 #define LSAP_ANY              0xff
 
 struct sockaddr_irda {
-	__kernel_sa_family_t sir_family; 
-	__u8        sir_lsap_sel; 
-	__u32       sir_addr;     
-	char        sir_name[25]; 
+	__kernel_sa_family_t sir_family; /* AF_IRDA */
+	__u8        sir_lsap_sel; /* LSAP selector */
+	__u32       sir_addr;     /* Device address */
+	char        sir_name[25]; /* Usually <service>:IrDA:TinyTP */
 };
 
 struct irda_device_info {
-	__u32       saddr;    
-	__u32       daddr;    
-	char        info[22]; 
-	__u8        charset;  
-	__u8        hints[2]; 
+	__u32       saddr;    /* Address of local interface */
+	__u32       daddr;    /* Address of remote device */
+	char        info[22]; /* Description */
+	__u8        charset;  /* Charset used for description */
+	__u8        hints[2]; /* Hint bits */
 };
 
 struct irda_device_list {
@@ -148,9 +157,10 @@ struct irda_ias_set {
 			__u8 string[IAS_MAX_STRING];
 		} irda_attrib_string;
 	} attribute;
-	__u32       daddr;    
+	__u32       daddr;    /* Address of device (for some queries only) */
 };
 
+/* Some private IOCTL's (max 16) */
 #define SIOCSDONGLE    (SIOCDEVPRIVATE + 0)
 #define SIOCGDONGLE    (SIOCDEVPRIVATE + 1)
 #define SIOCSBANDWIDTH (SIOCDEVPRIVATE + 2)
@@ -162,8 +172,10 @@ struct irda_ias_set {
 #define SIOCSDTRRTS    (SIOCDEVPRIVATE + 8)
 #define SIOCGQOS       (SIOCDEVPRIVATE + 9)
 
+/* No reason to include <linux/if.h> just because of this one ;-) */
 #define IRNAMSIZ 16 
 
+/* IrDA quality of service information (must not exceed 16 bytes) */
 struct if_irda_qos {
 	unsigned long  baudrate;
 	unsigned short data_size;
@@ -174,17 +186,19 @@ struct if_irda_qos {
 	unsigned char  link_disc;
 };
 
+/* For setting RTS and DTR lines of a dongle */
 struct if_irda_line {
 	__u8 dtr;
 	__u8 rts;
 };
 
+/* IrDA interface configuration (data part must not exceed 16 bytes) */
 struct if_irda_req {
 	union {
-		char ifrn_name[IRNAMSIZ];  
+		char ifrn_name[IRNAMSIZ];  /* if name, e.g. "irda0" */
 	} ifr_ifrn;
 	
-	
+	/* Data part */
 	union {
 		struct if_irda_line ifru_line;
 		struct if_irda_qos  ifru_qos;
@@ -203,6 +217,7 @@ struct if_irda_req {
 #define ifr_rts       ifr_ifru.ifru_line.rts
 
 
+/* IrDA netlink definitions */
 #define IRDA_NL_NAME "irda"
 #define IRDA_NL_VERSION 1
 
@@ -224,11 +239,12 @@ enum nl80211_attrs {
 };
 #define IRDA_NL_ATTR_MAX (__IRDA_NL_ATTR_AFTER_LAST - 1)
 
+/* IrDA modes */
 #define IRDA_MODE_PRIMARY   0x1
 #define IRDA_MODE_SECONDARY 0x2
 #define IRDA_MODE_MONITOR   0x4
 
-#endif 
+#endif /* KERNEL_IRDA_H */
 
 
 

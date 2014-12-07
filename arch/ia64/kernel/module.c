@@ -7,6 +7,23 @@
  * Loosely based on patch by Rusty Russell.
  */
 
+/* relocs tested so far:
+
+   DIR64LSB
+   FPTR64LSB
+   GPREL22
+   LDXMOV
+   LDXMOV
+   LTOFF22
+   LTOFF22X
+   LTOFF22X
+   LTOFF_FPTR22
+   PCREL21B	(for br.call only; br.cond is not supported out of modules!)
+   PCREL60B	(for brl.cond only; brl.call is not supported for modules!)
+   PCREL64LSB
+   SECREL32LSB
+   SEGREL64LSB
+ */
 
 
 #include <linux/kernel.h>
@@ -34,8 +51,9 @@
 # define USE_BRL	1
 #endif
 
-#define MAX_LTOFF	((uint64_t) (1 << 22))	
+#define MAX_LTOFF	((uint64_t) (1 << 22))	/* max. allowable linkage-table offset */
 
+/* Define some relocation helper macros/types: */
 
 #define FORMAT_SHIFT	0
 #define FORMAT_BITS	3
@@ -45,7 +63,7 @@
 #define VALUE_MASK	((1 << VALUE_BITS) - 1)
 
 enum reloc_target_format {
-	
+	/* direct encoded formats: */
 	RF_NONE = 0,
 	RF_INSN14 = 1,
 	RF_INSN22 = 2,
@@ -55,39 +73,39 @@ enum reloc_target_format {
 	RF_64MSB = 6,
 	RF_64LSB = 7,
 
-	
+	/* formats that cannot be directly decoded: */
 	RF_INSN60,
-	RF_INSN21B,	
-	RF_INSN21M,	
-	RF_INSN21F	
+	RF_INSN21B,	/* imm21 form 1 */
+	RF_INSN21M,	/* imm21 form 2 */
+	RF_INSN21F	/* imm21 form 3 */
 };
 
 enum reloc_value_formula {
-	RV_DIRECT = 4,		
-	RV_GPREL = 5,		
-	RV_LTREL = 6,		
-	RV_PLTREL = 7,		
-	RV_FPTR = 8,		
-	RV_PCREL = 9,		
-	RV_LTREL_FPTR = 10,	
-	RV_SEGREL = 11,		
-	RV_SECREL = 12,		
-	RV_BDREL = 13,		
-	RV_LTV = 14,		
-	RV_PCREL2 = 15,		
-	RV_SPECIAL = 16,	
+	RV_DIRECT = 4,		/* S + A */
+	RV_GPREL = 5,		/* @gprel(S + A) */
+	RV_LTREL = 6,		/* @ltoff(S + A) */
+	RV_PLTREL = 7,		/* @pltoff(S + A) */
+	RV_FPTR = 8,		/* @fptr(S + A) */
+	RV_PCREL = 9,		/* S + A - P */
+	RV_LTREL_FPTR = 10,	/* @ltoff(@fptr(S + A)) */
+	RV_SEGREL = 11,		/* @segrel(S + A) */
+	RV_SECREL = 12,		/* @secrel(S + A) */
+	RV_BDREL = 13,		/* BD + A */
+	RV_LTV = 14,		/* S + A (like RV_DIRECT, except frozen at static link-time) */
+	RV_PCREL2 = 15,		/* S + A - P */
+	RV_SPECIAL = 16,	/* various (see below) */
 	RV_RSVD17 = 17,
-	RV_TPREL = 18,		
-	RV_LTREL_TPREL = 19,	
-	RV_DTPMOD = 20,		
-	RV_LTREL_DTPMOD = 21,	
-	RV_DTPREL = 22,		
-	RV_LTREL_DTPREL = 23,	
+	RV_TPREL = 18,		/* @tprel(S + A) */
+	RV_LTREL_TPREL = 19,	/* @ltoff(@tprel(S + A)) */
+	RV_DTPMOD = 20,		/* @dtpmod(S + A) */
+	RV_LTREL_DTPMOD = 21,	/* @ltoff(@dtpmod(S + A)) */
+	RV_DTPREL = 22,		/* @dtprel(S + A) */
+	RV_LTREL_DTPREL = 23,	/* @ltoff(@dtprel(S + A)) */
 	RV_RSVD24 = 24,
 	RV_RSVD25 = 25,
 	RV_RSVD26 = 26,
 	RV_RSVD27 = 27
-	
+	/* 28-31 reserved for implementation-specific purposes.  */
 };
 
 #define N(reloc)	[R_IA64_##reloc] = #reloc
@@ -117,6 +135,7 @@ static const char *reloc_name[256] = {
 
 #undef N
 
+/* Opaque struct for insns, to protect against derefs. */
 struct insn;
 
 static inline uint64_t
@@ -168,10 +187,10 @@ apply_imm22 (struct module *mod, struct insn *insn, uint64_t val)
 			mod->name, (long)val);
 		return 0;
 	}
-	ia64_patch((u64) insn, 0x01fffcfe000UL, (  ((val & 0x200000UL) << 15) 
-					         | ((val & 0x1f0000UL) <<  6) 
-					         | ((val & 0x00ff80UL) << 20) 
-					         | ((val & 0x00007fUL) << 13) ));
+	ia64_patch((u64) insn, 0x01fffcfe000UL, (  ((val & 0x200000UL) << 15) /* bit 21 -> 36 */
+					         | ((val & 0x1f0000UL) <<  6) /* bit 16 -> 22 */
+					         | ((val & 0x00ff80UL) << 20) /* bit  7 -> 27 */
+					         | ((val & 0x00007fUL) << 13) /* bit  0 -> 13 */));
 	return 1;
 }
 
@@ -183,28 +202,28 @@ apply_imm21b (struct module *mod, struct insn *insn, uint64_t val)
 			mod->name, (long)val);
 		return 0;
 	}
-	ia64_patch((u64) insn, 0x11ffffe000UL, (  ((val & 0x100000UL) << 16) 
-					        | ((val & 0x0fffffUL) << 13) ));
+	ia64_patch((u64) insn, 0x11ffffe000UL, (  ((val & 0x100000UL) << 16) /* bit 20 -> 36 */
+					        | ((val & 0x0fffffUL) << 13) /* bit  0 -> 13 */));
 	return 1;
 }
 
 #if USE_BRL
 
 struct plt_entry {
-	
+	/* Three instruction bundles in PLT. */
  	unsigned char bundle[2][16];
 };
 
 static const struct plt_entry ia64_plt_template = {
 	{
 		{
-			0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 
+			0x04, 0x00, 0x00, 0x00, 0x01, 0x00, /* [MLX] nop.m 0 */
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x20, /*	     movl gp=TARGET_GP */
 			0x00, 0x00, 0x00, 0x60
 		},
 		{
-			0x05, 0x00, 0x00, 0x00, 0x01, 0x00, 
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+			0x05, 0x00, 0x00, 0x00, 0x01, 0x00, /* [MLX] nop.m 0 */
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /*	     brl.many gp=TARGET_GP */
 			0x08, 0x00, 0x00, 0xc0
 		}
 	}
@@ -227,35 +246,35 @@ plt_target (struct plt_entry *plt)
 	long off;
 
 	b0 = b[0]; b1 = b[1];
-	off = (  ((b1 & 0x00fffff000000000UL) >> 36)		
-	       | ((b0 >> 48) << 20) | ((b1 & 0x7fffffUL) << 36)	
-	       | ((b1 & 0x0800000000000000UL) << 0));		
+	off = (  ((b1 & 0x00fffff000000000UL) >> 36)		/* imm20b -> bit 0 */
+	       | ((b0 >> 48) << 20) | ((b1 & 0x7fffffUL) << 36)	/* imm39 -> bit 20 */
+	       | ((b1 & 0x0800000000000000UL) << 0));		/* i -> bit 59 */
 	return (long) plt->bundle[1] + 16*off;
 }
 
-#else 
+#else /* !USE_BRL */
 
 struct plt_entry {
-	
+	/* Three instruction bundles in PLT. */
  	unsigned char bundle[3][16];
 };
 
 static const struct plt_entry ia64_plt_template = {
 	{
 		{
-			0x05, 0x00, 0x00, 0x00, 0x01, 0x00, 
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+			0x05, 0x00, 0x00, 0x00, 0x01, 0x00, /* [MLX] nop.m 0 */
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /*	     movl r16=TARGET_IP */
 			0x02, 0x00, 0x00, 0x60
 		},
 		{
-			0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 
-			0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 
+			0x04, 0x00, 0x00, 0x00, 0x01, 0x00, /* [MLX] nop.m 0 */
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x20, /*	     movl gp=TARGET_GP */
 			0x00, 0x00, 0x00, 0x60
 		},
 		{
-			0x11, 0x00, 0x00, 0x00, 0x01, 0x00, 
-			0x60, 0x80, 0x04, 0x80, 0x03, 0x00, 
-			0x60, 0x00, 0x80, 0x00		    
+			0x11, 0x00, 0x00, 0x00, 0x01, 0x00, /* [MIB] nop.m 0 */
+			0x60, 0x80, 0x04, 0x80, 0x03, 0x00, /*	     mov b6=r16 */
+			0x60, 0x00, 0x80, 0x00		    /*	     br.few b6 */
 		}
 	}
 };
@@ -275,15 +294,15 @@ plt_target (struct plt_entry *plt)
 	uint64_t b0, b1, *b = (uint64_t *) plt->bundle[0];
 
 	b0 = b[0]; b1 = b[1];
-	return (  ((b1 & 0x000007f000000000) >> 36)		
-		| ((b1 & 0x07fc000000000000) >> 43)		
-		| ((b1 & 0x0003e00000000000) >> 29)		
-		| ((b1 & 0x0000100000000000) >> 23)		
-		| ((b0 >> 46) << 22) | ((b1 & 0x7fffff) << 40)	
-		| ((b1 & 0x0800000000000000) <<  4));		
+	return (  ((b1 & 0x000007f000000000) >> 36)		/* imm7b -> bit 0 */
+		| ((b1 & 0x07fc000000000000) >> 43)		/* imm9d -> bit 7 */
+		| ((b1 & 0x0003e00000000000) >> 29)		/* imm5c -> bit 16 */
+		| ((b1 & 0x0000100000000000) >> 23)		/* ic -> bit 21 */
+		| ((b0 >> 46) << 22) | ((b1 & 0x7fffff) << 40)	/* imm41 -> bit 22 */
+		| ((b1 & 0x0800000000000000) <<  4));		/* i -> bit 63 */
 }
 
-#endif 
+#endif /* !USE_BRL */
 
 void
 module_free (struct module *mod, void *module_region)
@@ -296,6 +315,8 @@ module_free (struct module *mod, void *module_region)
 	vfree(module_region);
 }
 
+/* Have we already seen one of these relocations? */
+/* FIXME: we could look in other sections, too --RR */
 static int
 duplicate_reloc (const Elf64_Rela *rela, unsigned int num)
 {
@@ -308,11 +329,14 @@ duplicate_reloc (const Elf64_Rela *rela, unsigned int num)
 	return 0;
 }
 
+/* Count how many GOT entries we may need */
 static unsigned int
 count_gots (const Elf64_Rela *rela, unsigned int num)
 {
 	unsigned int i, ret = 0;
 
+	/* Sure, this is order(n^2), but it's usually short, and not
+           time critical */
 	for (i = 0; i < num; i++) {
 		switch (ELF64_R_TYPE(rela[i].r_info)) {
 		      case R_IA64_LTOFF22:
@@ -332,11 +356,14 @@ count_gots (const Elf64_Rela *rela, unsigned int num)
 	return ret;
 }
 
+/* Count how many PLT entries we may need */
 static unsigned int
 count_plts (const Elf64_Rela *rela, unsigned int num)
 {
 	unsigned int i, ret = 0;
 
+	/* Sure, this is order(n^2), but it's usually short, and not
+           time critical */
 	for (i = 0; i < num; i++) {
 		switch (ELF64_R_TYPE(rela[i].r_info)) {
 		      case R_IA64_PCREL21B:
@@ -354,12 +381,14 @@ count_plts (const Elf64_Rela *rela, unsigned int num)
 	return ret;
 }
 
+/* We need to create an function-descriptors for any internal function
+   which is referenced. */
 static unsigned int
 count_fdescs (const Elf64_Rela *rela, unsigned int num)
 {
 	unsigned int i, ret = 0;
 
-	
+	/* Sure, this is order(n^2), but it's usually short, and not time critical.  */
 	for (i = 0; i < num; i++) {
 		switch (ELF64_R_TYPE(rela[i].r_info)) {
 		      case R_IA64_FPTR64I:
@@ -375,6 +404,12 @@ count_fdescs (const Elf64_Rela *rela, unsigned int num)
 		      case R_IA64_LTOFF_FPTR64MSB:
 		      case R_IA64_IPLTMSB:
 		      case R_IA64_IPLTLSB:
+			/*
+			 * Jumps to static functions sometimes go straight to their
+			 * offset.  Of course, that may not be possible if the jump is
+			 * from init -> core or vice. versa, so we need to generate an
+			 * FDESC (and PLT etc) for that.
+			 */
 		      case R_IA64_PCREL21B:
 			if (!duplicate_reloc(rela, i))
 				ret++;
@@ -391,6 +426,10 @@ module_frob_arch_sections (Elf_Ehdr *ehdr, Elf_Shdr *sechdrs, char *secstrings,
 	unsigned long core_plts = 0, init_plts = 0, gots = 0, fdescs = 0;
 	Elf64_Shdr *s, *sechdrs_end = sechdrs + ehdr->e_shnum;
 
+	/*
+	 * To store the PLTs and function-descriptors, we expand the .text section for
+	 * core module-code and the .init.text section for initialization code.
+	 */
 	for (s = sechdrs; s < sechdrs_end; ++s)
 		if (strcmp(".core.plt", secstrings + s->sh_name) == 0)
 			mod->arch.core_plt = s;
@@ -416,7 +455,7 @@ module_frob_arch_sections (Elf_Ehdr *ehdr, Elf_Shdr *sechdrs, char *secstrings,
 		return -ENOEXEC;
 	}
 
-	
+	/* GOT and PLTs can occur in any relocated section... */
 	for (s = sechdrs + 1; s < sechdrs_end; ++s) {
 		const Elf64_Rela *rels = (void *)ehdr + s->sh_offset;
 		unsigned long numrels = s->sh_size/sizeof(Elf64_Rela);
@@ -472,6 +511,9 @@ is_internal (const struct module *mod, uint64_t value)
 	return in_init(mod, value) || in_core(mod, value);
 }
 
+/*
+ * Get gp-relative offset for the linkage-table entry of VALUE.
+ */
 static uint64_t
 get_ltoff (struct module *mod, uint64_t value, int *okp)
 {
@@ -485,7 +527,7 @@ get_ltoff (struct module *mod, uint64_t value, int *okp)
 		if (e->val == value)
 			goto found;
 
-	
+	/* Not enough GOT entries? */
 	BUG_ON(e >= (struct got_entry *) (mod->arch.got->sh_addr + mod->arch.got->sh_size));
 
 	e->val = value;
@@ -500,6 +542,7 @@ gp_addressable (struct module *mod, uint64_t value)
 	return value - mod->arch.gp + MAX_LTOFF/2 < MAX_LTOFF;
 }
 
+/* Get PC-relative PLT entry for this value.  Returns 0 on failure. */
 static uint64_t
 get_plt (struct module *mod, const struct insn *insn, uint64_t value, int *okp)
 {
@@ -517,11 +560,11 @@ get_plt (struct module *mod, const struct insn *insn, uint64_t value, int *okp)
 		plt_end = (void *) plt + mod->arch.core_plt->sh_size;
 	}
 
-	
+	/* "value" is a pointer to a function-descriptor; fetch the target ip/gp from it: */
 	target_ip = ((uint64_t *) value)[0];
 	target_gp = ((uint64_t *) value)[1];
 
-	
+	/* Look for existing PLT entry. */
 	while (plt->bundle[0][0]) {
 		if (plt_target(plt) == target_ip)
 			goto found;
@@ -545,6 +588,7 @@ get_plt (struct module *mod, const struct insn *insn, uint64_t value, int *okp)
 	return (uint64_t) plt;
 }
 
+/* Get function descriptor for VALUE. */
 static uint64_t
 get_fdesc (struct module *mod, uint64_t value, int *okp)
 {
@@ -559,9 +603,13 @@ get_fdesc (struct module *mod, uint64_t value, int *okp)
 	}
 
 	if (!is_internal(mod, value))
+		/*
+		 * If it's not a module-local entry-point, "value" already points to a
+		 * function-descriptor.
+		 */
 		return value;
 
-	
+	/* Look for existing function descriptor. */
 	while (fdesc->ip) {
 		if (fdesc->ip == value)
 			return (uint64_t)fdesc;
@@ -569,7 +617,7 @@ get_fdesc (struct module *mod, uint64_t value, int *okp)
 			BUG();
 	}
 
-	
+	/* Create new one */
 	fdesc->ip = value;
 	fdesc->gp = mod->arch.gp;
 	return (uint64_t) fdesc;
@@ -587,7 +635,7 @@ do_reloc (struct module *mod, uint8_t r_type, Elf64_Sym *sym, uint64_t addend,
 	val = sym->st_value + addend;
 
 	switch (formula) {
-	      case RV_SEGREL:	
+	      case RV_SEGREL:	/* segment base is arbitrarily chosen to be 0 for kernel modules */
 	      case RV_DIRECT:
 		break;
 
@@ -603,6 +651,10 @@ do_reloc (struct module *mod, uint8_t r_type, Elf64_Sym *sym, uint64_t addend,
 		      case R_IA64_PCREL21B:
 			if ((in_init(mod, val) && in_core(mod, (uint64_t)location)) ||
 			    (in_core(mod, val) && in_init(mod, (uint64_t)location))) {
+				/*
+				 * Init section may have been allocated far away from core,
+				 * if the branch won't reach, then allocate a plt for it.
+				 */
 				uint64_t delta = ((int64_t)val - (int64_t)location) / 16;
 				if (delta + (1 << 20) >= (1 << 21)) {
 					val = get_fdesc(mod, val, &ok);
@@ -610,7 +662,7 @@ do_reloc (struct module *mod, uint8_t r_type, Elf64_Sym *sym, uint64_t addend,
 				}
 			} else if (!is_internal(mod, val))
 				val = get_plt(mod, location, val, &ok);
-			
+			/* FALL THROUGH */
 		      default:
 			val -= bundle(location);
 			break;
@@ -637,7 +689,7 @@ do_reloc (struct module *mod, uint8_t r_type, Elf64_Sym *sym, uint64_t addend,
 		break;
 
 	      case RV_LTV:
-		
+		/* can link-time value relocs happen here?  */
 		BUG();
 		break;
 
@@ -679,7 +731,7 @@ do_reloc (struct module *mod, uint8_t r_type, Elf64_Sym *sym, uint64_t addend,
 
 		      case R_IA64_LDXMOV:
 			if (gp_addressable(mod, val)) {
-				
+				/* turn "ld8" into "mov": */
 				DEBUGP("%s: patching ld8 at %p to mov\n", __func__, location);
 				ia64_patch((u64) location, 0x1fff80fe000UL, 0x10000000000UL);
 			}
@@ -724,11 +776,11 @@ do_reloc (struct module *mod, uint8_t r_type, Elf64_Sym *sym, uint64_t addend,
 	      case RF_INSN60:	ok = apply_imm60(mod, location, (int64_t) val / 16); break;
 	      case RF_32LSB:	put_unaligned(val, (uint32_t *) location); break;
 	      case RF_64LSB:	put_unaligned(val, (uint64_t *) location); break;
-	      case RF_32MSB:	
-	      case RF_64MSB:	
-	      case RF_INSN14:	
-	      case RF_INSN21M:	
-	      case RF_INSN21F:	
+	      case RF_32MSB:	/* ia64 Linux is little-endian... */
+	      case RF_64MSB:	/* ia64 Linux is little-endian... */
+	      case RF_INSN14:	/* must be within-module, i.e., resolved by "ld -r" */
+	      case RF_INSN21M:	/* must be within-module, i.e., resolved by "ld -r" */
+	      case RF_INSN21F:	/* must be within-module, i.e., resolved by "ld -r" */
 		printk(KERN_ERR "%s: format %u needed by %s reloc is not supported\n",
 		       mod->name, format, reloc_name[r_type] ? reloc_name[r_type] : "?");
 		return -ENOEXEC;
@@ -756,11 +808,23 @@ apply_relocate_add (Elf64_Shdr *sechdrs, const char *strtab, unsigned int symind
 	target_sec = sechdrs + sechdrs[relsec].sh_info;
 
 	if (target_sec->sh_entsize == ~0UL)
+		/*
+		 * If target section wasn't allocated, we don't need to relocate it.
+		 * Happens, e.g., for debug sections.
+		 */
 		return 0;
 
 	if (!mod->arch.gp) {
+		/*
+		 * XXX Should have an arch-hook for running this after final section
+		 *     addresses have been selected...
+		 */
 		uint64_t gp;
 		if (mod->core_size > MAX_LTOFF)
+			/*
+			 * This takes advantage of fact that SHF_ARCH_SMALL gets allocated
+			 * at the end of the module.
+			 */
 			gp = mod->core_size - MAX_LTOFF / 2;
 		else
 			gp = mod->core_size / 2;
@@ -781,6 +845,12 @@ apply_relocate_add (Elf64_Shdr *sechdrs, const char *strtab, unsigned int symind
 	return 0;
 }
 
+/*
+ * Modules contain a single unwind table which covers both the core and the init text
+ * sections but since the two are not contiguous, we need to split this table up such that
+ * we can register (and unregister) each "segment" separately.  Fortunately, this sounds
+ * more complicated than it really is.
+ */
 static void
 register_unwind_table (struct module *mod)
 {
@@ -789,12 +859,17 @@ register_unwind_table (struct module *mod)
 	struct unw_table_entry tmp, *e1, *e2, *core, *init;
 	unsigned long num_init = 0, num_core = 0;
 
-	
+	/* First, count how many init and core unwind-table entries there are.  */
 	for (e1 = start; e1 < end; ++e1)
 		if (in_init(mod, e1->start_offset))
 			++num_init;
 		else
 			++num_core;
+	/*
+	 * Second, sort the table such that all unwind-table entries for the init and core
+	 * text sections are nicely separated.  We do this with a stupid bubble sort
+	 * (unwind tables don't get ridiculously huge).
+	 */
 	for (e1 = start; e1 < end; ++e1) {
 		for (e2 = e1 + 1; e2 < end; ++e2) {
 			if (e2->start_offset < e1->start_offset) {
@@ -804,6 +879,9 @@ register_unwind_table (struct module *mod)
 			}
 		}
 	}
+	/*
+	 * Third, locate the init and core segments in the unwind table:
+	 */
 	if (in_init(mod, start->start_offset)) {
 		init = start;
 		core = start + num_init;
@@ -815,6 +893,9 @@ register_unwind_table (struct module *mod)
 	DEBUGP("%s: name=%s, gp=%lx, num_init=%lu, num_core=%lu\n", __func__,
 	       mod->name, mod->arch.gp, num_init, num_core);
 
+	/*
+	 * Fourth, register both tables (if not empty).
+	 */
 	if (num_core > 0) {
 		mod->arch.core_unw_table = unw_add_unwind_table(mod->name, 0, mod->arch.gp,
 								core, core + num_core);

@@ -15,6 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/* Sensor : MI1320 */
 
 #include "gl860.h"
 
@@ -179,6 +180,7 @@ static int  mi1320_init_post_alt(struct gspca_dev *gspca_dev);
 static void mi1320_post_unset_alt(struct gspca_dev *gspca_dev);
 static int  mi1320_sensor_settings(struct gspca_dev *gspca_dev);
 static int  mi1320_camera_settings(struct gspca_dev *gspca_dev);
+/*==========================================================================*/
 
 void mi1320_init_settings(struct gspca_dev *gspca_dev)
 {
@@ -199,7 +201,7 @@ void mi1320_init_settings(struct gspca_dev *gspca_dev)
 	sd->vmax.backlight  =  2;
 	sd->vmax.brightness =  8;
 	sd->vmax.sharpness  =  7;
-	sd->vmax.contrast   =  0; 
+	sd->vmax.contrast   =  0; /* 10 but not working with this driver */
 	sd->vmax.gamma      = 40;
 	sd->vmax.hue        =  5 + 1;
 	sd->vmax.saturation =  8;
@@ -215,10 +217,11 @@ void mi1320_init_settings(struct gspca_dev *gspca_dev)
 	sd->dev_post_unset_alt  = mi1320_post_unset_alt;
 }
 
+/*==========================================================================*/
 
 static void common(struct gspca_dev *gspca_dev)
 {
-	s32 n; 
+	s32 n; /* reserved for FETCH functions */
 
 	ctrl_out(gspca_dev, 0x40, 3, 0x0000, 0x0200, 22, dat_common00);
 	ctrl_out(gspca_dev, 0x40, 1, 0x0041, 0x0000, 0, NULL);
@@ -249,6 +252,7 @@ static int mi1320_init_at_startup(struct gspca_dev *gspca_dev)
 
 	common(gspca_dev);
 
+/*	ctrl_out(gspca_dev, 0x40, 11, 0x0000, 0x0000, 0, NULL); */
 
 	return 0;
 }
@@ -374,7 +378,7 @@ static int mi1320_camera_settings(struct gspca_dev *gspca_dev)
 			wbal = 0;
 
 		for (i = 0; i < 2; i++) {
-			if (wbal == 0) { 
+			if (wbal == 0) { /* Normal light */
 				ctrl_out(gspca_dev, 0x40, 1,
 						0x0010, 0x0010, 0, NULL);
 				ctrl_out(gspca_dev, 0x40, 1,
@@ -385,7 +389,7 @@ static int mi1320_camera_settings(struct gspca_dev *gspca_dev)
 						0xba00, 0x0200, 48, dat_wbalNL);
 			}
 
-			if (wbal == 1) { 
+			if (wbal == 1) { /* Low light */
 				ctrl_out(gspca_dev, 0x40, 1,
 						0x0010, 0x0010, 0, NULL);
 				ctrl_out(gspca_dev, 0x40, 1,
@@ -396,7 +400,7 @@ static int mi1320_camera_settings(struct gspca_dev *gspca_dev)
 						0xba00, 0x0200, 48, dat_wbalLL);
 			}
 
-			if (wbal == 2) { 
+			if (wbal == 2) { /* Back light */
 				ctrl_out(gspca_dev, 0x40, 1,
 						0x0010, 0x0010, 0, NULL);
 				ctrl_out(gspca_dev, 0x40, 1,
@@ -445,7 +449,7 @@ static int mi1320_camera_settings(struct gspca_dev *gspca_dev)
 	}
 
 	if (hue != sd->vold.hue) {
-		
+		/* 0=normal  1=NB  2="sepia"  3=negative  4=other  5=other2 */
 		if (hue < 0 || hue > sd->vmax.hue)
 			hue = 0;
 		if (hue == sd->vmax.hue)

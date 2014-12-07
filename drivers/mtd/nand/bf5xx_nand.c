@@ -65,22 +65,26 @@
 #define DRV_AUTHOR	"Bryan Wu <bryan.wu@analog.com>"
 #define DRV_DESC	"BF5xx on-chip NAND FLash Controller Driver"
 
-#define NBUSY       0x01  
-#define WB_FULL     0x02  
-#define PG_WR_STAT  0x04  
-#define PG_RD_STAT  0x08  
-#define WB_EMPTY    0x10  
+/* NFC_STAT Masks */
+#define NBUSY       0x01  /* Not Busy */
+#define WB_FULL     0x02  /* Write Buffer Full */
+#define PG_WR_STAT  0x04  /* Page Write Pending */
+#define PG_RD_STAT  0x08  /* Page Read Pending */
+#define WB_EMPTY    0x10  /* Write Buffer Empty */
 
-#define NBUSYIRQ    0x01  
-#define WB_OVF      0x02  
-#define WB_EDGE     0x04  
-#define RD_RDY      0x08  
-#define WR_DONE     0x10  
+/* NFC_IRQSTAT Masks */
+#define NBUSYIRQ    0x01  /* Not Busy IRQ */
+#define WB_OVF      0x02  /* Write Buffer Overflow */
+#define WB_EDGE     0x04  /* Write Buffer Edge Detect */
+#define RD_RDY      0x08  /* Read Data Ready */
+#define WR_DONE     0x10  /* Page Write Done */
 
-#define ECC_RST     0x01  
+/* NFC_RST Masks */
+#define ECC_RST     0x01  /* ECC (and NFC counters) Reset */
 
-#define PG_RD_START 0x01  
-#define PG_WR_START 0x02  
+/* NFC_PGCTL Masks */
+#define PG_RD_START 0x01  /* Page Read Start */
+#define PG_WR_START 0x02  /* Page Write Start */
 
 #ifdef CONFIG_MTD_NAND_BF5XX_HWECC
 static int hardware_ecc = 1;
@@ -131,23 +135,30 @@ static struct nand_ecclayout bootrom_ecclayout = {
 };
 #endif
 
+/*
+ * Data structures for bf5xx nand flash controller driver
+ */
 
+/* bf5xx nand info */
 struct bf5xx_nand_info {
-	
+	/* mtd info */
 	struct nand_hw_control		controller;
 	struct mtd_info			mtd;
 	struct nand_chip		chip;
 
-	
+	/* platform info */
 	struct bf5xx_nand_platform	*platform;
 
-	
+	/* device info */
 	struct device			*device;
 
-	
+	/* DMA stuff */
 	struct completion		dma_completion;
 };
 
+/*
+ * Conversion functions
+ */
 static struct bf5xx_nand_info *mtd_to_nand_info(struct mtd_info *mtd)
 {
 	return container_of(mtd, struct bf5xx_nand_info, mtd);
@@ -163,7 +174,15 @@ static struct bf5xx_nand_platform *to_nand_plat(struct platform_device *pdev)
 	return pdev->dev.platform_data;
 }
 
+/*
+ * struct nand_chip interface function pointers
+ */
 
+/*
+ * bf5xx_nand_hwcontrol
+ *
+ * Issue command and address cycles to the chip
+ */
 static void bf5xx_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 				   unsigned int ctrl)
 {
@@ -180,6 +199,11 @@ static void bf5xx_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 	SSYNC();
 }
 
+/*
+ * bf5xx_nand_devready()
+ *
+ * returns 0 if the nand is busy, 1 if it is ready
+ */
 static int bf5xx_nand_devready(struct mtd_info *mtd)
 {
 	unsigned short val = bfin_read_NFC_STAT();
@@ -190,7 +214,15 @@ static int bf5xx_nand_devready(struct mtd_info *mtd)
 		return 0;
 }
 
+/*
+ * ECC functions
+ * These allow the bf5xx to use the controller's ECC
+ * generator block to ECC the data as it passes through
+ */
 
+/*
+ * ECC error correction function
+ */
 static int bf5xx_nand_correct_data_256(struct mtd_info *mtd, u_char *dat,
 					u_char *read_ecc, u_char *calc_ecc)
 {
@@ -206,9 +238,19 @@ static int bf5xx_nand_correct_data_256(struct mtd_info *mtd, u_char *dat,
 
 	syndrome[0] = (calced ^ stored);
 
+	/*
+	 * syndrome 0: all zero
+	 * No error in data
+	 * No action
+	 */
 	if (!syndrome[0] || !calced || !stored)
 		return 0;
 
+	/*
+	 * sysdrome 0: only one bit is one
+	 * ECC data was incorrect
+	 * No action
+	 */
 	if (hweight32(syndrome[0]) == 1) {
 		dev_err(info->device, "ECC data was incorrect!\n");
 		return 1;
@@ -226,6 +268,12 @@ static int bf5xx_nand_correct_data_256(struct mtd_info *mtd, u_char *dat,
 		"calced[0x%08x], stored[0x%08x]\n",
 		calced, stored);
 
+	/*
+	 * sysdrome 0: exactly 11 bits are one, each parity
+	 * and parity' pair is 1 & 0 or 0 & 1.
+	 * 1-bit correctable error
+	 * Correct the error
+	 */
 	if (hweight32(syndrome[0]) == 11 && syndrome[4] == 0x7FF) {
 		dev_info(info->device,
 			"1-bit correctable error, correct it.\n");
@@ -241,6 +289,11 @@ static int bf5xx_nand_correct_data_256(struct mtd_info *mtd, u_char *dat,
 		return 0;
 	}
 
+	/*
+	 * sysdrome 0: random data
+	 * More than 1-bit error, non-correctable error
+	 * Discard data, mark bad block
+	 */
 	dev_err(info->device,
 		"More than 1-bit error, non-correctable error.\n");
 	dev_err(info->device,
@@ -257,7 +310,7 @@ static int bf5xx_nand_correct_data(struct mtd_info *mtd, u_char *dat,
 
 	ret = bf5xx_nand_correct_data_256(mtd, dat, read_ecc, calc_ecc);
 
-	
+	/* If ecc size is 512, correct second 256 bytes */
 	if (chip->ecc.size == 512) {
 		dat += 256;
 		read_ecc += 3;
@@ -282,7 +335,7 @@ static int bf5xx_nand_calculate_ecc(struct mtd_info *mtd,
 	u32 code[2];
 	u8 *p;
 
-	
+	/* first 3 bytes ECC code for 256 page size */
 	ecc0 = bfin_read_NFC_ECC0();
 	ecc1 = bfin_read_NFC_ECC1();
 
@@ -293,12 +346,15 @@ static int bf5xx_nand_calculate_ecc(struct mtd_info *mtd,
 	p = (u8 *) code;
 	memcpy(ecc_code, p, 3);
 
-	
+	/* second 3 bytes ECC code for 512 ecc size */
 	if (chip->ecc.size == 512) {
 		ecc0 = bfin_read_NFC_ECC2();
 		ecc1 = bfin_read_NFC_ECC3();
 		code[1] = (ecc0 & 0x7ff) | ((ecc1 & 0x7ff) << 11);
 
+		/* second 3 bytes in ecc_code for second 256
+		 * bytes of 512 page size
+		 */
 		p = (u8 *) (code + 1);
 		memcpy((ecc_code + 3), p, 3);
 		dev_dbg(info->device, "returning ecc 0x%08x\n", code[1]);
@@ -307,16 +363,23 @@ static int bf5xx_nand_calculate_ecc(struct mtd_info *mtd,
 	return 0;
 }
 
+/*
+ * PIO mode for buffer writing and reading
+ */
 static void bf5xx_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
 	int i;
 	unsigned short val;
 
+	/*
+	 * Data reads are requested by first writing to NFC_DATA_RD
+	 * and then reading back from NFC_READ.
+	 */
 	for (i = 0; i < len; i++) {
 		while (bfin_read_NFC_STAT() & WB_FULL)
 			cpu_relax();
 
-		
+		/* Contents do not matter */
 		bfin_write_NFC_DATA_RD(0x0000);
 		SSYNC();
 
@@ -361,6 +424,10 @@ static void bf5xx_nand_read_buf16(struct mtd_info *mtd, uint8_t *buf, int len)
 	u16 *p = (u16 *) buf;
 	len >>= 1;
 
+	/*
+	 * Data reads are requested by first writing to NFC_DATA_RD
+	 * and then reading back from NFC_READ.
+	 */
 	bfin_write_NFC_DATA_RD(0x5555);
 
 	SSYNC();
@@ -382,6 +449,9 @@ static void bf5xx_nand_write_buf16(struct mtd_info *mtd,
 	SSYNC();
 }
 
+/*
+ * DMA functions for buffer writing and reading
+ */
 static irqreturn_t bf5xx_nand_dma_irq(int irq, void *dev_id)
 {
 	struct bf5xx_nand_info *info = dev_id;
@@ -403,6 +473,12 @@ static void bf5xx_nand_dma_rw(struct mtd_info *mtd,
 	dev_dbg(info->device, " mtd->%p, buf->%p, is_read %d\n",
 			mtd, buf, is_read);
 
+	/*
+	 * Before starting a dma transfer, be sure to invalidate/flush
+	 * the cache over the address range of your DMA buffer to
+	 * prevent cache coherency problems. Otherwise very subtle bugs
+	 * can be introduced to your driver.
+	 */
 	if (is_read)
 		invalidate_dcache_range((unsigned int)buf,
 				(unsigned int)(buf + chip->ecc.size));
@@ -423,11 +499,11 @@ static void bf5xx_nand_dma_rw(struct mtd_info *mtd,
 	disable_dma(CH_NFC);
 	clear_dma_irqstat(CH_NFC);
 
-	
+	/* setup DMA register with Blackfin DMA API */
 	set_dma_config(CH_NFC, 0x0);
 	set_dma_start_addr(CH_NFC, (unsigned long) buf);
 
-	
+	/* The DMAs have different size on BF52x and BF54x */
 #ifdef CONFIG_BF52x
 	set_dma_x_count(CH_NFC, (chip->ecc.size >> 1));
 	set_dma_x_modify(CH_NFC, 2);
@@ -439,13 +515,13 @@ static void bf5xx_nand_dma_rw(struct mtd_info *mtd,
 	set_dma_x_modify(CH_NFC, 4);
 	val = DI_EN | WDSIZE_32;
 #endif
-	
+	/* setup write or read operation */
 	if (is_read)
 		val |= WNR;
 	set_dma_config(CH_NFC, val);
 	enable_dma(CH_NFC);
 
-	
+	/* Start PAGE read/write operation */
 	if (is_read)
 		bfin_write_NFC_PGCTL(PG_RD_START);
 	else
@@ -497,17 +573,20 @@ static void bf5xx_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *ch
 	bf5xx_nand_write_buf(mtd, chip->oob_poi, mtd->oobsize);
 }
 
+/*
+ * System initialization functions
+ */
 static int bf5xx_nand_dma_init(struct bf5xx_nand_info *info)
 {
 	int ret;
 
-	
+	/* Do not use dma */
 	if (!hardware_ecc)
 		return 0;
 
 	init_completion(&info->dma_completion);
 
-	
+	/* Request NFC DMA channel */
 	ret = request_dma(CH_NFC, "BF5XX NFC driver");
 	if (ret < 0) {
 		dev_err(info->device, " unable to get DMA channel\n");
@@ -515,32 +594,37 @@ static int bf5xx_nand_dma_init(struct bf5xx_nand_info *info)
 	}
 
 #ifdef CONFIG_BF54x
-	
+	/* Setup DMAC1 channel mux for NFC which shared with SDH */
 	bfin_write_DMAC1_PERIMUX(bfin_read_DMAC1_PERIMUX() & ~1);
 	SSYNC();
 #endif
 
 	set_dma_callback(CH_NFC, bf5xx_nand_dma_irq, info);
 
-	
+	/* Turn off the DMA channel first */
 	disable_dma(CH_NFC);
 	return 0;
 }
 
 static void bf5xx_nand_dma_remove(struct bf5xx_nand_info *info)
 {
-	
+	/* Free NFC DMA channel */
 	if (hardware_ecc)
 		free_dma(CH_NFC);
 }
 
+/*
+ * BF5XX NFC hardware initialization
+ *  - pin mux setup
+ *  - clear interrupt status
+ */
 static int bf5xx_nand_hw_init(struct bf5xx_nand_info *info)
 {
 	int err = 0;
 	unsigned short val;
 	struct bf5xx_nand_platform *plat = info->platform;
 
-	
+	/* setup NFC_CTL register */
 	dev_info(info->device,
 		"data_width=%d, wr_dly=%d, rd_dly=%d\n",
 		(plat->data_width ? 16 : 8),
@@ -555,20 +639,23 @@ static int bf5xx_nand_hw_init(struct bf5xx_nand_info *info)
 	bfin_write_NFC_CTL(val);
 	SSYNC();
 
-	
+	/* clear interrupt status */
 	bfin_write_NFC_IRQMASK(0x0);
 	SSYNC();
 	val = bfin_read_NFC_IRQSTAT();
 	bfin_write_NFC_IRQSTAT(val);
 	SSYNC();
 
-	
+	/* DMA initialization  */
 	if (bf5xx_nand_dma_init(info))
 		err = -ENXIO;
 
 	return err;
 }
 
+/*
+ * Device management interface
+ */
 static int __devinit bf5xx_nand_add_partition(struct bf5xx_nand_info *info)
 {
 	struct mtd_info *mtd = &info->mtd;
@@ -584,12 +671,16 @@ static int __devexit bf5xx_nand_remove(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, NULL);
 
+	/* first thing we need to do is release all our mtds
+	 * and their partitions, then go through freeing the
+	 * resources used
+	 */
 	nand_release(&info->mtd);
 
 	peripheral_free_list(bfin_nfc_pin_req);
 	bf5xx_nand_dma_remove(info);
 
-	
+	/* free the common resources */
 	kfree(info);
 
 	return 0;
@@ -605,6 +696,9 @@ static int bf5xx_nand_scan(struct mtd_info *mtd)
 		return ret;
 
 	if (hardware_ecc) {
+		/*
+		 * for nand with page size > 512B, think it as several sections with 512B
+		 */
 		if (likely(mtd->writesize >= 512)) {
 			chip->ecc.size = 512;
 			chip->ecc.bytes = 6;
@@ -621,6 +715,14 @@ static int bf5xx_nand_scan(struct mtd_info *mtd)
 	return	nand_scan_tail(mtd);
 }
 
+/*
+ * bf5xx_nand_probe
+ *
+ * called by device layer when it finds a device matching
+ * one our driver can handled. This code checks to see if
+ * it can allocate all necessary resources then calls the
+ * nand layer to look for devices
+ */
 static int __devinit bf5xx_nand_probe(struct platform_device *pdev)
 {
 	struct bf5xx_nand_platform *plat = to_nand_plat(pdev);
@@ -656,7 +758,7 @@ static int __devinit bf5xx_nand_probe(struct platform_device *pdev)
 	info->device     = &pdev->dev;
 	info->platform   = plat;
 
-	
+	/* initialise chip data struct */
 	chip = &info->chip;
 
 	if (plat->data_width)
@@ -682,17 +784,17 @@ static int __devinit bf5xx_nand_probe(struct platform_device *pdev)
 
 	chip->chip_delay   = 0;
 
-	
+	/* initialise mtd info data struct */
 	mtd 		= &info->mtd;
 	mtd->priv	= chip;
 	mtd->owner	= THIS_MODULE;
 
-	
+	/* initialise the hardware */
 	err = bf5xx_nand_hw_init(info);
 	if (err)
 		goto out_err_hw_init;
 
-	
+	/* setup hardware ECC data struct */
 	if (hardware_ecc) {
 #ifdef CONFIG_MTD_NAND_BF5XX_BOOTROM_ECC
 		chip->ecc.layout = &bootrom_ecclayout;
@@ -709,7 +811,7 @@ static int __devinit bf5xx_nand_probe(struct platform_device *pdev)
 		chip->ecc.mode	    = NAND_ECC_SOFT;
 	}
 
-	
+	/* scan hardware nand chip and setup mtd info data struct */
 	if (bf5xx_nand_scan(mtd)) {
 		err = -ENXIO;
 		goto out_err_nand_scan;
@@ -719,7 +821,7 @@ static int __devinit bf5xx_nand_probe(struct platform_device *pdev)
 	chip->badblockpos = 63;
 #endif
 
-	
+	/* add NAND partition */
 	bf5xx_nand_add_partition(info);
 
 	dev_dbg(&pdev->dev, "initialised ok\n");
@@ -736,6 +838,7 @@ out_err_kzalloc:
 	return err;
 }
 
+/* PM Support */
 #ifdef CONFIG_PM
 
 static int bf5xx_nand_suspend(struct platform_device *dev, pm_message_t pm)
@@ -757,6 +860,7 @@ static int bf5xx_nand_resume(struct platform_device *dev)
 #define bf5xx_nand_resume NULL
 #endif
 
+/* driver device registration */
 static struct platform_driver bf5xx_nand_driver = {
 	.probe		= bf5xx_nand_probe,
 	.remove		= __devexit_p(bf5xx_nand_remove),

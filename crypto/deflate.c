@@ -173,6 +173,11 @@ static int deflate_decompress(struct crypto_tfm *tfm, const u8 *src,
 	stream->avail_out = *dlen;
 
 	ret = zlib_inflate(stream, Z_SYNC_FLUSH);
+	/*
+	 * Work around a bug in zlib, which sometimes wants to taste an extra
+	 * byte when being used in the (undocumented) raw deflate mode.
+	 * (From USAGI).
+	 */
 	if (ret == Z_OK && !stream->avail_in && stream->avail_out) {
 		u8 zerostuff = 0;
 		stream->next_in = &zerostuff;

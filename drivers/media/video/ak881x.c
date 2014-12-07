@@ -33,8 +33,8 @@ struct ak881x {
 	struct v4l2_subdev subdev;
 	struct ak881x_pdata *pdata;
 	unsigned int lines;
-	int id;	
-	char revision;	
+	int id;	/* DEVICE_ID code V4L2_IDENT_AK881X code from v4l2-chip-ident.h */
+	char revision;	/* DEVICE_REVISION content */
 };
 
 static int reg_read(struct i2c_client *client, const u8 reg)
@@ -192,7 +192,7 @@ static int ak881x_s_std_output(struct v4l2_subdev *sd, v4l2_std_id std)
 		vp1 = 0;
 		ak881x->lines = 480;
 	} else {
-		
+		/* No SECAM or PAL_N/Nc supported */
 		return -EINVAL;
 	}
 
@@ -208,18 +208,18 @@ static int ak881x_s_stream(struct v4l2_subdev *sd, int enable)
 
 	if (enable) {
 		u8 dac;
-		
-		
+		/* For colour-bar testing set bit 6 of AK881X_VIDEO_PROCESS1 */
+		/* Default: composite output */
 		if (ak881x->pdata->flags & AK881X_COMPONENT)
 			dac = 3;
 		else
 			dac = 4;
-		
+		/* Turn on the DAC(s) */
 		reg_write(client, AK881X_DAC_MODE, dac);
 		dev_dbg(&client->dev, "chip status 0x%x\n",
 			reg_read(client, AK881X_STATUS));
 	} else {
-		
+		/* ...and clear bit 6 of AK881X_VIDEO_PROCESS1 here */
 		reg_write(client, AK881X_DAC_MODE, 0);
 		dev_dbg(&client->dev, "chip status 0x%x\n",
 			reg_read(client, AK881X_STATUS));
@@ -309,10 +309,15 @@ static int ak881x_probe(struct i2c_client *client,
 
 		dev_dbg(&client->dev, "IF mode %x\n", ifmode);
 
+		/*
+		 * "Line Blanking No." seems to be the same as the number of
+		 * "black" lines on, e.g., SuperH VOU, whose default value of 20
+		 * "incidentally" matches ak881x' default
+		 */
 		reg_write(client, AK881X_INTERFACE_MODE, ifmode | (20 << 3));
 	}
 
-	
+	/* Hardware default: NTSC-M */
 	ak881x->lines = 480;
 
 	dev_info(&client->dev, "Detected an ak881x chip ID %x, revision %x\n",

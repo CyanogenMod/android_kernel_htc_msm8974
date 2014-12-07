@@ -46,7 +46,7 @@ static void __init u300_init_machine(void)
 #endif
 
 MACHINE_START(U300, MACH_U300_STRING)
-	
+	/* Maintainer: Linus Walleij <linus.walleij@stericsson.com> */
 	.atag_offset	= 0x100,
 	.map_io		= u300_map_io,
 	.init_irq	= u300_init_irq,

@@ -92,16 +92,18 @@ enum {
 #define NLM_MAX_ARGS	64
 #define NLM_MAX_ENVS	32
 
+/* This is what netlboot passes and linux boot_mem_map is subtly different */
 #define NLM_BOOT_MEM_MAP_MAX	32
 struct nlm_boot_mem_map {
 	int nr_map;
 	struct nlm_boot_mem_map_entry {
-		uint64_t addr;		
-		uint64_t size;		
-		uint32_t type;		
+		uint64_t addr;		/* start of memory segment */
+		uint64_t size;		/* size of memory segment */
+		uint32_t type;		/* type of memory segment */
 	} map[NLM_BOOT_MEM_MAP_MAX];
 };
 
+/* Pointer to saved boot loader info */
 extern struct psb_info nlm_prom_info;
 
 #endif

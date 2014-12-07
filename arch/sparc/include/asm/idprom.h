@@ -10,16 +10,16 @@
 #include <linux/types.h>
 
 struct idprom {
-	u8		id_format;	
-	u8		id_machtype;	
-	u8		id_ethaddr[6];	
-	s32		id_date;	
-	u32		id_sernum:24;	
-	u8		id_cksum;	
+	u8		id_format;	/* Format identifier (always 0x01) */
+	u8		id_machtype;	/* Machine type */
+	u8		id_ethaddr[6];	/* Hardware ethernet address */
+	s32		id_date;	/* Date of manufacture */
+	u32		id_sernum:24;	/* Unique serial number */
+	u8		id_cksum;	/* Checksum - xor of the data bytes */
 	u8		reserved[16];
 };
 
 extern struct idprom *idprom;
 extern void idprom_init(void);
 
-#endif 
+#endif /* !(_SPARC_IDPROM_H) */

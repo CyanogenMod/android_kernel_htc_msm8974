@@ -14,10 +14,13 @@
 #ifndef __AMP_H
 #define __AMP_H
 
+/* AMP defaults */
 
-#define A2MP_RSP_TIMEOUT        (8000)  
+#define A2MP_RSP_TIMEOUT        (8000)  /*  8 seconds */
 
+/* A2MP Protocol */
 
+/* A2MP command codes */
 #define A2MP_COMMAND_REJ         0x01
 #define A2MP_DISCOVER_REQ        0x02
 #define A2MP_DISCOVER_RSP        0x03
@@ -107,14 +110,18 @@ struct a2mp_disconnphyslink_rsp {
 } __packed;
 
 
+/* L2CAP-AMP module interface */
 int amp_init(void);
 void amp_exit(void);
 
+/* L2CAP-AMP fixed channel interface */
 void amp_conn_ind(struct hci_conn *hcon, struct sk_buff *skb);
 
+/* L2CAP-AMP link interface */
 void amp_create_physical(struct l2cap_conn *conn, struct sock *sk);
 void amp_accept_physical(struct l2cap_conn *conn, u8 id, struct sock *sk);
 
+/* AMP manager internals */
 struct amp_ctrl {
 	struct  amp_mgr *mgr;
 	__u8    id;
@@ -135,17 +142,19 @@ struct amp_mgr {
 	struct socket *a2mp_sock;
 	struct list_head  ctx_list;
 	rwlock_t       ctx_list_lock;
-	struct amp_ctrl *ctrls;          
+	struct amp_ctrl *ctrls;          /* @@ TODO s.b. list of controllers */
 	struct sk_buff *skb;
 	__u8   connected;
 };
 
+/* AMP Manager signalling contexts */
 #define AMP_GETAMPASSOC       1
 #define AMP_CREATEPHYSLINK    2
 #define AMP_ACCEPTPHYSLINK    3
 #define AMP_CREATELOGLINK     4
 #define AMP_ACCEPTLOGLINK     5
 
+/* Get AMP Assoc sequence */
 #define AMP_GAA_INIT           0
 #define AMP_GAA_RLAA_COMPLETE  1
 struct amp_gaa_state {
@@ -154,6 +163,7 @@ struct amp_gaa_state {
 	__u8      *assoc;
 };
 
+/* Create Physical Link sequence */
 #define AMP_CPL_INIT           0
 #define AMP_CPL_DISC_RSP       1
 #define AMP_CPL_GETINFO_RSP    2
@@ -174,6 +184,7 @@ struct amp_cpl_state {
 	__u8       phy_handle;
 };
 
+/* Accept Physical Link sequence */
 #define AMP_APL_INIT           0
 #define AMP_APL_APL_STATUS     1
 #define AMP_APL_WRA_COMPLETE   2
@@ -187,6 +198,7 @@ struct amp_apl_state {
 	__u8       phy_handle;
 };
 
+/* Create/Accept Logical Link sequence */
 #define AMP_LOG_INIT         0
 #define AMP_LOG_LL_STATUS    1
 #define AMP_LOG_LL_COMPLETE  2
@@ -194,6 +206,7 @@ struct amp_log_state {
 	__u8       remote_id;
 };
 
+/* Possible event types a context may wait for */
 #define AMP_INIT            0x01
 #define AMP_HCI_EVENT       0x02
 #define AMP_HCI_CMD_CMPLT   0x04
@@ -223,6 +236,7 @@ struct amp_ctx {
 	struct timer_list timer;
 };
 
+/* AMP work */
 struct amp_work_pl_timeout {
 	struct work_struct work;
 	struct amp_ctrl *ctrl;
@@ -276,4 +290,4 @@ struct amp_work_event {
 	struct sk_buff *skb;
 };
 
-#endif 
+#endif /* __AMP_H */

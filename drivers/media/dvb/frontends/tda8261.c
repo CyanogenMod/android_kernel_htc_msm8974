@@ -31,7 +31,7 @@ struct tda8261_state {
 	struct i2c_adapter		*i2c;
 	const struct tda8261_config	*config;
 
-	
+	/* state cache */
 	u32 frequency;
 	u32 bandwidth;
 };
@@ -80,7 +80,7 @@ static int tda8261_get_status(struct dvb_frontend *fe, u32 *status)
 	return err;
 }
 
-static const u32 div_tab[] = { 2000, 1000,  500,  250,  125 }; 
+static const u32 div_tab[] = { 2000, 1000,  500,  250,  125 }; /* kHz */
 static const u8  ref_div[] = { 0x00, 0x01, 0x02, 0x05, 0x07 };
 
 static int tda8261_get_state(struct dvb_frontend *fe,
@@ -95,7 +95,7 @@ static int tda8261_get_state(struct dvb_frontend *fe,
 		tstate->frequency = state->frequency;
 		break;
 	case DVBFE_TUNER_BANDWIDTH:
-		tstate->bandwidth = 40000000; 
+		tstate->bandwidth = 40000000; /* FIXME! need to calculate Bandwidth */
 		break;
 	default:
 		printk("%s: Unknown parameter (param=%d)\n", __func__, param);
@@ -117,6 +117,11 @@ static int tda8261_set_state(struct dvb_frontend *fe,
 	int err = 0;
 
 	if (param & DVBFE_TUNER_FREQUENCY) {
+		/**
+		 * N = Max VCO Frequency / Channel Spacing
+		 * Max VCO Frequency = VCO frequency + (channel spacing - 1)
+		 * (to account for half channel spacing on either side)
+		 */
 		frequency = tstate->frequency;
 		if ((frequency < 950000) || (frequency > 2150000)) {
 			printk("%s: Frequency beyond limits, frequency=%d\n", __func__, frequency);
@@ -137,22 +142,22 @@ static int tda8261_set_state(struct dvb_frontend *fe,
 		else if (frequency < 2150000)
 			buf[3] = 0x80;
 
-		
+		/* Set params */
 		if ((err = tda8261_write(state, buf)) < 0) {
 			printk("%s: I/O Error\n", __func__);
 			return err;
 		}
-		
+		/* sleep for some time */
 		printk("%s: Waiting to Phase LOCK\n", __func__);
 		msleep(20);
-		
+		/* check status */
 		if ((err = tda8261_get_status(fe, &status)) < 0) {
 			printk("%s: I/O Error\n", __func__);
 			return err;
 		}
 		if (status == 1) {
 			printk("%s: Tuner Phase locked: status=%d\n", __func__, status);
-			state->frequency = frequency; 
+			state->frequency = frequency; /* cache successful state */
 		} else {
 			printk("%s: No Phase lock: status=%d\n", __func__, status);
 		}
@@ -177,6 +182,7 @@ static struct dvb_tuner_ops tda8261_ops = {
 
 	.info = {
 		.name		= "TDA8261",
+//		.tuner_name	= NULL,
 		.frequency_min	=  950000,
 		.frequency_max	= 2150000,
 		.frequency_step = 0
@@ -204,7 +210,10 @@ struct dvb_frontend *tda8261_attach(struct dvb_frontend *fe,
 	fe->ops.tuner_ops	= tda8261_ops;
 
 	fe->ops.tuner_ops.info.frequency_step = div_tab[config->step_size];
+//	fe->ops.tuner_ops.tuner_name	 = &config->buf;
 
+//	printk("%s: Attaching %s TDA8261 8PSK/QPSK tuner\n",
+//		__func__, fe->ops.tuner_ops.tuner_name);
 	printk("%s: Attaching TDA8261 8PSK/QPSK tuner\n", __func__);
 
 	return fe;

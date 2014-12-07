@@ -15,6 +15,7 @@
 
 #include "msm_led_flash.h"
 
+/*#define CONFIG_MSMB_CAMERA_DEBUG*/
 #undef CDBG
 #ifdef CONFIG_MSMB_CAMERA_DEBUG
 #define CDBG(fmt, args...) pr_err(fmt, ##args)
@@ -45,7 +46,7 @@ static long msm_led_flash_subdev_ioctl(struct v4l2_subdev *sd,
 		*(int *)argp = MSM_CAMERA_LED_RELEASE;
 		return fctrl->func_tbl->flash_led_config(fctrl, argp);
 	default:
-		pr_err("invalid cmd %d\n", cmd);
+		pr_err_ratelimited("invalid cmd %d\n", cmd);
 		return -ENOIOCTLCMD;
 	}
 }
@@ -71,7 +72,7 @@ int32_t msm_led_flash_create_v4lsubdev(struct platform_device *pdev, void *data)
 		return -EINVAL;
 	}
 
-	
+	/* Initialize sub device */
 	v4l2_subdev_init(&fctrl->msm_sd.sd, &msm_flash_subdev_ops);
 	v4l2_set_subdevdata(&fctrl->msm_sd.sd, fctrl);
 
@@ -101,7 +102,7 @@ int32_t msm_led_i2c_flash_create_v4lsubdev(void *data)
 		return -EINVAL;
 	}
 
-	
+	/* Initialize sub device */
 	v4l2_subdev_init(&fctrl->msm_sd.sd, &msm_flash_subdev_ops);
 	v4l2_set_subdevdata(&fctrl->msm_sd.sd, fctrl);
 

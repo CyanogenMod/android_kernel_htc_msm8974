@@ -64,7 +64,7 @@ static struct sleep_save exynos4_vpll_save[] = {
 };
 
 static struct sleep_save exynos4_core_save[] = {
-	
+	/* GIC side */
 	SAVE_ITEM(S5P_VA_GIC_CPU + 0x000),
 	SAVE_ITEM(S5P_VA_GIC_CPU + 0x004),
 	SAVE_ITEM(S5P_VA_GIC_CPU + 0x008),
@@ -147,7 +147,7 @@ static struct sleep_save exynos4_core_save[] = {
 	SAVE_ITEM(S5P_VA_COMBINER_BASE + 0x080),
 	SAVE_ITEM(S5P_VA_COMBINER_BASE + 0x090),
 
-	
+	/* SROM side */
 	SAVE_ITEM(S5P_SROM_BW),
 	SAVE_ITEM(S5P_SROM_BC0),
 	SAVE_ITEM(S5P_SROM_BC1),
@@ -156,16 +156,17 @@ static struct sleep_save exynos4_core_save[] = {
 };
 
 
+/* For Cortex-A9 Diagnostic and Power control register */
 static unsigned int save_arm_register[2];
 
 static int exynos4_cpu_suspend(unsigned long arg)
 {
 	outer_flush_all();
 
-	
+	/* issue the standby signal into the pm unit. */
 	cpu_do_idle();
 
-	
+	/* we should never get past here */
 	panic("sleep resumed to originator?");
 }
 
@@ -179,16 +180,16 @@ static void exynos4_pm_prepare(void)
 
 	tmp = __raw_readl(S5P_INFORM1);
 
-	
+	/* Set value of power down register for sleep mode */
 
 	exynos4_sys_powerdown_conf(SYS_SLEEP);
 	__raw_writel(S5P_CHECK_SLEEP, S5P_INFORM1);
 
-	
+	/* ensure at least INFORM0 has the resume address */
 
 	__raw_writel(virt_to_phys(s3c_cpu_resume), S5P_INFORM0);
 
-	
+	/* Before enter central sequence mode, clock src register have to set */
 
 	s3c_pm_do_restore_core(exynos4_set_clksrc, ARRAY_SIZE(exynos4_set_clksrc));
 
@@ -218,7 +219,7 @@ static void exynos4_restore_pll(void)
 
 	pll_in_rate = pll_base_rate;
 
-	
+	/* EPLL */
 	pll_con = exynos4_epll_save[0].val;
 
 	if (pll_con & (1 << 31)) {
@@ -239,12 +240,12 @@ static void exynos4_restore_pll(void)
 
 	pll_in_rate = pll_base_rate;
 
-	
+	/* VPLL */
 	pll_con = exynos4_vpll_save[0].val;
 
 	if (pll_con & (1 << 31)) {
 		pll_in_rate /= 1000000;
-		
+		/* 750us */
 		locktime = 750;
 		lockcnt = locktime * 10000 / (10000 / pll_in_rate);
 
@@ -255,7 +256,7 @@ static void exynos4_restore_pll(void)
 		vpll_wait = 1;
 	}
 
-	
+	/* Wait PLL locking */
 
 	do {
 		if (epll_wait) {
@@ -285,7 +286,7 @@ static __init int exynos4_pm_drvinit(void)
 
 	s3c_pm_init();
 
-	
+	/* All wakeup disable */
 
 	tmp = __raw_readl(S5P_WAKEUP_MASK);
 	tmp |= ((0xFF << 8) | (0x1F << 1));
@@ -306,7 +307,7 @@ static int exynos4_pm_suspend(void)
 {
 	unsigned long tmp;
 
-	
+	/* Setting Central Sequence Register for power down mode */
 
 	tmp = __raw_readl(S5P_CENTRAL_SEQ_CONFIGURATION);
 	tmp &= ~S5P_CENTRAL_LOWPWR_CFG;
@@ -319,12 +320,12 @@ static int exynos4_pm_suspend(void)
 		__raw_writel(tmp, S5P_CENTRAL_SEQ_OPTION);
 	}
 
-	
+	/* Save Power control register */
 	asm ("mrc p15, 0, %0, c15, c0, 0"
 	     : "=r" (tmp) : : "cc");
 	save_arm_register[0] = tmp;
 
-	
+	/* Save Diagnostic register */
 	asm ("mrc p15, 0, %0, c15, c0, 1"
 	     : "=r" (tmp) : : "cc");
 	save_arm_register[1] = tmp;
@@ -336,26 +337,32 @@ static void exynos4_pm_resume(void)
 {
 	unsigned long tmp;
 
+	/*
+	 * If PMU failed while entering sleep mode, WFI will be
+	 * ignored by PMU and then exiting cpu_do_idle().
+	 * S5P_CENTRAL_LOWPWR_CFG bit will not be set automatically
+	 * in this situation.
+	 */
 	tmp = __raw_readl(S5P_CENTRAL_SEQ_CONFIGURATION);
 	if (!(tmp & S5P_CENTRAL_LOWPWR_CFG)) {
 		tmp |= S5P_CENTRAL_LOWPWR_CFG;
 		__raw_writel(tmp, S5P_CENTRAL_SEQ_CONFIGURATION);
-		
+		/* No need to perform below restore code */
 		goto early_wakeup;
 	}
-	
+	/* Restore Power control register */
 	tmp = save_arm_register[0];
 	asm volatile ("mcr p15, 0, %0, c15, c0, 0"
 		      : : "r" (tmp)
 		      : "cc");
 
-	
+	/* Restore Diagnostic register */
 	tmp = save_arm_register[1];
 	asm volatile ("mcr p15, 0, %0, c15, c0, 1"
 		      : : "r" (tmp)
 		      : "cc");
 
-	
+	/* For release retention */
 
 	__raw_writel((1 << 28), S5P_PAD_RET_MAUDIO_OPTION);
 	__raw_writel((1 << 28), S5P_PAD_RET_GPIO_OPTION);

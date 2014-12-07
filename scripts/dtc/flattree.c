@@ -150,7 +150,7 @@ static void asm_emit_string(void *e, char *str, int len)
 	char c = 0;
 
 	if (len != 0) {
-		
+		/* XXX: ewww */
 		c = str[len];
 		str[len] = '\0';
 	}
@@ -244,7 +244,7 @@ static int stringtable_insert(struct data *d, const char *str)
 {
 	int i;
 
-	
+	/* FIXME: do this more efficiently? */
 
 	for (i = 0; i < d->len; i++) {
 		if (streq(str, d->val + i))
@@ -324,6 +324,9 @@ static struct data flatten_reserve_list(struct reserve_info *reservelist,
 	for (re = reservelist; re; re = re->next) {
 		d = data_append_re(d, &re->re);
 	}
+	/*
+	 * Add additional reserved slots if the user asked for them.
+	 */
 	for (j = 0; j < reservenum; j++) {
 		d = data_append_re(d, &null_re);
 	}
@@ -346,7 +349,7 @@ static void make_fdt_header(struct fdt_header *fdt,
 	fdt->version = cpu_to_fdt32(vi->version);
 	fdt->last_comp_version = cpu_to_fdt32(vi->last_comp_version);
 
-	
+	/* Reserve map should be doubleword aligned */
 	reserve_off = ALIGN(vi->hdr_size, 8);
 
 	fdt->off_mem_rsvmap = cpu_to_fdt32(reserve_off);
@@ -386,10 +389,13 @@ void dt_to_blob(FILE *f, struct boot_info *bi, int version)
 
 	reservebuf = flatten_reserve_list(bi->reservelist, vi);
 
-	
+	/* Make header */
 	make_fdt_header(&fdt, vi, reservebuf.len, dtbuf.len, strbuf.len,
 			bi->boot_cpuid_phys);
 
+	/*
+	 * If the user asked for more space than is used, adjust the totalsize.
+	 */
 	if (minsize > 0) {
 		padlen = minsize - fdt32_to_cpu(fdt.totalsize);
 		if ((padlen < 0) && (quiet < 1))
@@ -407,6 +413,11 @@ void dt_to_blob(FILE *f, struct boot_info *bi, int version)
 		fdt.totalsize = cpu_to_fdt32(tsize);
 	}
 
+	/*
+	 * Assemble the blob: start with the header, add with alignment
+	 * the reserve buffer, add the reserve map terminating zeroes,
+	 * the device tree itself, and finally the strings.
+	 */
 	blob = data_append_data(blob, &fdt, vi->hdr_size);
 	blob = data_append_align(blob, 8);
 	blob = data_merge(blob, reservebuf);
@@ -414,6 +425,9 @@ void dt_to_blob(FILE *f, struct boot_info *bi, int version)
 	blob = data_merge(blob, dtbuf);
 	blob = data_merge(blob, strbuf);
 
+	/*
+	 * If the user asked for more space than is used, pad out the blob.
+	 */
 	if (padlen > 0)
 		blob = data_append_zeroes(blob, padlen);
 
@@ -425,6 +439,10 @@ void dt_to_blob(FILE *f, struct boot_info *bi, int version)
 			die("Short write on device tree blob\n");
 	}
 
+	/*
+	 * data_merge() frees the right-hand element so only the blob
+	 * remains to be freed.
+	 */
 	data_free(blob);
 }
 
@@ -497,11 +515,21 @@ void dt_to_asm(FILE *f, struct boot_info *bi, int version)
 			symprefix, symprefix);
 	}
 
+	/*
+	 * Reserve map entries.
+	 * Align the reserve map to a doubleword boundary.
+	 * Each entry is an (address, size) pair of u64 values.
+	 * Always supply a zero-sized temination entry.
+	 */
 	asm_emit_align(f, 8);
 	emit_label(f, symprefix, "reserve_map");
 
 	fprintf(f, "/* Memory reserve map from source file */\n");
 
+	/*
+	 * Use .long on high and low halfs of u64s to avoid .quad
+	 * as it appears .quad isn't available in some assemblers.
+	 */
 	for (re = bi->reservelist; re; re = re->next) {
 		struct label *l;
 
@@ -534,6 +562,9 @@ void dt_to_asm(FILE *f, struct boot_info *bi, int version)
 
 	emit_label(f, symprefix, "blob_end");
 
+	/*
+	 * If the user asked for more space than is used, pad it out.
+	 */
 	if (minsize > 0) {
 		fprintf(f, "\t.space\t%d - (_%s_blob_end - _%s_blob_start), 0\n",
 			minsize, symprefix, symprefix);
@@ -671,6 +702,12 @@ static struct reserve_info *flat_read_mem_reserve(struct inbuf *inb)
 	struct reserve_info *new;
 	struct fdt_reserve_entry re;
 
+	/*
+	 * Each entry is a pair of u64 (addr, size) values for 4 cell_t's.
+	 * List terminates at an entry with size equal to zero.
+	 *
+	 * First pass, count entries.
+	 */
 	while (1) {
 		flat_read_chunk(inb, &re, sizeof(re));
 		re.address  = fdt64_to_cpu(re.address);
@@ -696,7 +733,7 @@ static char *nodename_from_path(const char *ppath, const char *cpath)
 		die("Path \"%s\" is not valid as a child of \"%s\"\n",
 		    cpath, ppath);
 
-	
+	/* root node is a special case */
 	if (!streq(ppath, "/"))
 		plen++;
 
@@ -751,7 +788,7 @@ static struct node *unflatten_tree(struct inbuf *dtbuf,
 				fprintf(stderr, "Warning: NOP tag found in flat tree"
 					" version <16\n");
 
-			
+			/* Ignore */
 			break;
 
 		default:

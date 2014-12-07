@@ -41,19 +41,19 @@
 #include "zcrypt_pcixcc.h"
 #include "zcrypt_cca_key.h"
 
-#define PCIXCC_MIN_MOD_SIZE	 16	
-#define PCIXCC_MIN_MOD_SIZE_OLD	 64	
-#define PCIXCC_MAX_MOD_SIZE	256	
+#define PCIXCC_MIN_MOD_SIZE	 16	/*  128 bits	*/
+#define PCIXCC_MIN_MOD_SIZE_OLD	 64	/*  512 bits	*/
+#define PCIXCC_MAX_MOD_SIZE	256	/* 2048 bits	*/
 #define CEX3C_MIN_MOD_SIZE	PCIXCC_MIN_MOD_SIZE
-#define CEX3C_MAX_MOD_SIZE	512	
+#define CEX3C_MAX_MOD_SIZE	512	/* 4096 bits	*/
 
 #define PCIXCC_MCL2_SPEED_RATING	7870
 #define PCIXCC_MCL3_SPEED_RATING	7870
 #define CEX2C_SPEED_RATING		7000
 #define CEX3C_SPEED_RATING		6500
 
-#define PCIXCC_MAX_ICA_MESSAGE_SIZE 0x77c  
-#define PCIXCC_MAX_ICA_RESPONSE_SIZE 0x77c 
+#define PCIXCC_MAX_ICA_MESSAGE_SIZE 0x77c  /* max size type6 v2 crt message */
+#define PCIXCC_MAX_ICA_RESPONSE_SIZE 0x77c /* max size type86 v2 reply	    */
 
 #define PCIXCC_MAX_XCRB_MESSAGE_SIZE (12*1024)
 
@@ -72,7 +72,7 @@ static struct ap_device_id zcrypt_pcixcc_ids[] = {
 	{ AP_DEVICE(AP_DEVICE_TYPE_PCIXCC) },
 	{ AP_DEVICE(AP_DEVICE_TYPE_CEX2C) },
 	{ AP_DEVICE(AP_DEVICE_TYPE_CEX3C) },
-	{  },
+	{ /* end of list */ },
 };
 
 MODULE_DEVICE_TABLE(ap, zcrypt_pcixcc_ids);
@@ -94,12 +94,38 @@ static struct ap_driver zcrypt_pcixcc_driver = {
 	.request_timeout = PCIXCC_CLEANUP_TIME,
 };
 
+/**
+ * The following is used to initialize the CPRBX passed to the PCIXCC/CEX2C
+ * card in a type6 message. The 3 fields that must be filled in at execution
+ * time are  req_parml, rpl_parml and usage_domain.
+ * Everything about this interface is ascii/big-endian, since the
+ * device does *not* have 'Intel inside'.
+ *
+ * The CPRBX is followed immediately by the parm block.
+ * The parm block contains:
+ * - function code ('PD' 0x5044 or 'PK' 0x504B)
+ * - rule block (one of:)
+ *   + 0x000A 'PKCS-1.2' (MCL2 'PD')
+ *   + 0x000A 'ZERO-PAD' (MCL2 'PK')
+ *   + 0x000A 'ZERO-PAD' (MCL3 'PD' or CEX2C 'PD')
+ *   + 0x000A 'MRP     ' (MCL3 'PK' or CEX2C 'PK')
+ * - VUD block
+ */
 static struct CPRBX static_cprbx = {
 	.cprb_len	=  0x00DC,
 	.cprb_ver_id	=  0x02,
 	.func_id	= {0x54,0x32},
 };
 
+/**
+ * Convert a ICAMEX message to a type6 MEX message.
+ *
+ * @zdev: crypto device pointer
+ * @ap_msg: pointer to AP message
+ * @mex: pointer to user input data
+ *
+ * Returns 0 on success or -EFAULT.
+ */
 static int ICAMEX_msg_to_type6MEX_msgX(struct zcrypt_device *zdev,
 				       struct ap_message *ap_msg,
 				       struct ica_rsa_modexpo *mex)
@@ -129,18 +155,18 @@ static int ICAMEX_msg_to_type6MEX_msgX(struct zcrypt_device *zdev,
 	} __attribute__((packed)) *msg = ap_msg->message;
 	int size;
 
-	
+	/* VUD.ciphertext */
 	msg->length = mex->inputdatalength + 2;
 	if (copy_from_user(msg->text, mex->inputdata, mex->inputdatalength))
 		return -EFAULT;
 
-	
+	/* Set up key which is located after the variable length text. */
 	size = zcrypt_type6_mex_key_en(mex, msg->text+mex->inputdatalength, 1);
 	if (size < 0)
 		return size;
 	size += sizeof(*msg) + mex->inputdatalength;
 
-	
+	/* message header, cprbx and f&r */
 	msg->hdr = static_type6_hdrX;
 	msg->hdr.ToCardLen1 = size - sizeof(msg->hdr);
 	msg->hdr.FromCardLen1 = PCIXCC_MAX_ICA_RESPONSE_SIZE - sizeof(msg->hdr);
@@ -158,6 +184,15 @@ static int ICAMEX_msg_to_type6MEX_msgX(struct zcrypt_device *zdev,
 	return 0;
 }
 
+/**
+ * Convert a ICACRT message to a type6 CRT message.
+ *
+ * @zdev: crypto device pointer
+ * @ap_msg: pointer to AP message
+ * @crt: pointer to user input data
+ *
+ * Returns 0 on success or -EFAULT.
+ */
 static int ICACRT_msg_to_type6CRT_msgX(struct zcrypt_device *zdev,
 				       struct ap_message *ap_msg,
 				       struct ica_rsa_modexpo_crt *crt)
@@ -188,18 +223,18 @@ static int ICACRT_msg_to_type6CRT_msgX(struct zcrypt_device *zdev,
 	} __attribute__((packed)) *msg = ap_msg->message;
 	int size;
 
-	
+	/* VUD.ciphertext */
 	msg->length = crt->inputdatalength + 2;
 	if (copy_from_user(msg->text, crt->inputdata, crt->inputdatalength))
 		return -EFAULT;
 
-	
+	/* Set up key which is located after the variable length text. */
 	size = zcrypt_type6_crt_key(crt, msg->text + crt->inputdatalength, 1);
 	if (size < 0)
 		return size;
-	size += sizeof(*msg) + crt->inputdatalength;	
+	size += sizeof(*msg) + crt->inputdatalength;	/* total size of msg */
 
-	
+	/* message header, cprbx and f&r */
 	msg->hdr = static_type6_hdrX;
 	msg->hdr.ToCardLen1 = size -  sizeof(msg->hdr);
 	msg->hdr.FromCardLen1 = PCIXCC_MAX_ICA_RESPONSE_SIZE - sizeof(msg->hdr);
@@ -216,6 +251,15 @@ static int ICACRT_msg_to_type6CRT_msgX(struct zcrypt_device *zdev,
 	return 0;
 }
 
+/**
+ * Convert a XCRB message to a type6 CPRB message.
+ *
+ * @zdev: crypto device pointer
+ * @ap_msg: pointer to AP message
+ * @xcRB: pointer to user input data
+ *
+ * Returns 0 on success or -EFAULT, -EINVAL.
+ */
 struct type86_fmt2_msg {
 	struct type86_hdr hdr;
 	struct type86_fmt2_ext fmt2;
@@ -239,7 +283,7 @@ static int XCRB_msg_to_type6CPRB_msgX(struct zcrypt_device *zdev,
 	char *req_data = ap_msg->message + sizeof(struct type6_hdr) + rcblen;
 	char *function_code;
 
-	
+	/* length checks */
 	ap_msg->length = sizeof(struct type6_hdr) +
 		CEIL4(xcRB->request_control_blk_length) +
 		xcRB->request_data_length;
@@ -251,7 +295,7 @@ static int XCRB_msg_to_type6CPRB_msgX(struct zcrypt_device *zdev,
 	if (replylen > PCIXCC_MAX_XCRB_MESSAGE_SIZE)
 		return -EINVAL;
 
-	
+	/* prepare type6 header */
 	msg->hdr = static_type6_hdrX;
 	memcpy(msg->hdr.agent_id , &(xcRB->agent_ID), sizeof(xcRB->agent_ID));
 	msg->hdr.ToCardLen1 = xcRB->request_control_blk_length;
@@ -262,7 +306,7 @@ static int XCRB_msg_to_type6CPRB_msgX(struct zcrypt_device *zdev,
 	msg->hdr.FromCardLen1 = xcRB->reply_control_blk_length;
 	msg->hdr.FromCardLen2 = xcRB->reply_data_length;
 
-	
+	/* prepare CPRB */
 	if (copy_from_user(&(msg->cprbx), xcRB->request_control_blk_addr,
 		    xcRB->request_control_blk_length))
 		return -EFAULT;
@@ -277,7 +321,7 @@ static int XCRB_msg_to_type6CPRB_msgX(struct zcrypt_device *zdev,
 	else
 		ap_msg->special = 0;
 
-	
+	/* copy data block */
 	if (xcRB->request_data_length &&
 	    copy_from_user(req_data, xcRB->request_data_address,
 		xcRB->request_data_length))
@@ -285,6 +329,12 @@ static int XCRB_msg_to_type6CPRB_msgX(struct zcrypt_device *zdev,
 	return 0;
 }
 
+/**
+ * Prepare a type6 CPRB message for random number generation
+ *
+ * @ap_dev: AP device pointer
+ * @ap_msg: pointer to AP message
+ */
 static void rng_type6CPRB_msgX(struct ap_device *ap_dev,
 			       struct ap_message *ap_msg,
 			       unsigned random_number_length)
@@ -328,11 +378,21 @@ static void rng_type6CPRB_msgX(struct ap_device *ap_dev,
 	ap_msg->length = sizeof *msg;
 }
 
+/**
+ * Copy results from a type 86 ICA reply message back to user space.
+ *
+ * @zdev: crypto device pointer
+ * @reply: reply AP message.
+ * @data: pointer to user output data
+ * @length: size of user output data
+ *
+ * Returns 0 on success or -EINVAL, -EFAULT, -EAGAIN in case of an error.
+ */
 struct type86x_reply {
 	struct type86_hdr hdr;
 	struct type86_fmt2_ext fmt2;
 	struct CPRBX cprbx;
-	unsigned char pad[4];	
+	unsigned char pad[4];	/* 4 byte function code/rules block ? */
 	unsigned short length;
 	char text[0];
 } __attribute__((packed));
@@ -400,28 +460,47 @@ static int convert_type86_ica(struct zcrypt_device *zdev,
 		if (service_rc == 8 && service_rs == 72)
 			return -EINVAL;
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 	data = msg->text;
 	reply_len = msg->length - 2;
 	if (reply_len > outputdatalength)
 		return -EINVAL;
+	/*
+	 * For all encipher requests, the length of the ciphertext (reply_len)
+	 * will always equal the modulus length. For MEX decipher requests
+	 * the output needs to get padded. Minimum pad size is 10.
+	 *
+	 * Currently, the cases where padding will be added is for:
+	 * - PCIXCC_MCL2 using a CRT form token (since PKD didn't support
+	 *   ZERO-PAD and CRT is only supported for PKD requests)
+	 * - PCICC, always
+	 */
 	pad_len = outputdatalength - reply_len;
 	if (pad_len > 0) {
 		if (pad_len < 10)
 			return -EINVAL;
-		
+		/* 'restore' padding left in the PCICC/PCIXCC card. */
 		if (copy_to_user(outputdata, static_pad, pad_len - 1))
 			return -EFAULT;
 		if (put_user(0, outputdata + pad_len - 1))
 			return -EFAULT;
 	}
-	
+	/* Copy the crypto response to user space. */
 	if (copy_to_user(outputdata + pad_len, data, reply_len))
 		return -EFAULT;
 	return 0;
 }
 
+/**
+ * Copy results from a type 86 XCRB reply message back to user space.
+ *
+ * @zdev: crypto device pointer
+ * @reply: reply AP message.
+ * @xcRB: pointer to XCRB
+ *
+ * Returns 0 on success or -EINVAL, -EFAULT, -EAGAIN in case of an error.
+ */
 static int convert_type86_xcrb(struct zcrypt_device *zdev,
 			       struct ap_message *reply,
 			       struct ica_xcRB *xcRB)
@@ -429,13 +508,13 @@ static int convert_type86_xcrb(struct zcrypt_device *zdev,
 	struct type86_fmt2_msg *msg = reply->message;
 	char *data = reply->message;
 
-	
+	/* Copy CPRB to user */
 	if (copy_to_user(xcRB->reply_control_blk_addr,
 		data + msg->fmt2.offset1, msg->fmt2.count1))
 		return -EFAULT;
 	xcRB->reply_control_blk_length = msg->fmt2.count1;
 
-	
+	/* Copy data buffer to user */
 	if (msg->fmt2.count2)
 		if (copy_to_user(xcRB->reply_data_addr,
 			data + msg->fmt2.offset2, msg->fmt2.count2))
@@ -468,7 +547,7 @@ static int convert_response_ica(struct zcrypt_device *zdev,
 {
 	struct type86x_reply *msg = reply->message;
 
-	
+	/* Response type byte is the second byte in the response. */
 	switch (((unsigned char *) reply->message)[1]) {
 	case TYPE82_RSP_CODE:
 	case TYPE88_RSP_CODE:
@@ -488,9 +567,11 @@ static int convert_response_ica(struct zcrypt_device *zdev,
 		if (msg->cprbx.cprb_ver_id == 0x02)
 			return convert_type86_ica(zdev, reply,
 						  outputdata, outputdatalength);
-	default: 
+		/* Fall through, no break, incorrect cprb version is an unknown
+		 * response */
+	default: /* Unknown response type, this should NEVER EVER happen */
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 }
 
@@ -500,11 +581,11 @@ static int convert_response_xcrb(struct zcrypt_device *zdev,
 {
 	struct type86x_reply *msg = reply->message;
 
-	
+	/* Response type byte is the second byte in the response. */
 	switch (((unsigned char *) reply->message)[1]) {
 	case TYPE82_RSP_CODE:
 	case TYPE88_RSP_CODE:
-		xcRB->status = 0x0008044DL; 
+		xcRB->status = 0x0008044DL; /* HDD_InvalidParm */
 		return convert_error(zdev, reply);
 	case TYPE86_RSP_CODE:
 		if (msg->hdr.reply_code) {
@@ -513,10 +594,12 @@ static int convert_response_xcrb(struct zcrypt_device *zdev,
 		}
 		if (msg->cprbx.cprb_ver_id == 0x02)
 			return convert_type86_xcrb(zdev, reply, xcRB);
-	default: 
-		xcRB->status = 0x0008044DL; 
+		/* Fall through, no break, incorrect cprb version is an unknown
+		 * response */
+	default: /* Unknown response type, this should NEVER EVER happen */
+		xcRB->status = 0x0008044DL; /* HDD_InvalidParm */
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 }
 
@@ -535,12 +618,22 @@ static int convert_response_rng(struct zcrypt_device *zdev,
 			return -EINVAL;
 		if (msg->cprbx.cprb_ver_id == 0x02)
 			return convert_type86_rng(zdev, reply, data);
-	default: 
+		/* Fall through, no break, incorrect cprb version is an unknown
+		 * response */
+	default: /* Unknown response type, this should NEVER EVER happen */
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 }
 
+/**
+ * This function is called from the AP bus code after a crypto request
+ * "msg" has finished with the reply message "reply".
+ * It is called from tasklet context.
+ * @ap_dev: pointer to the AP device
+ * @msg: pointer to the AP message
+ * @reply: pointer to the AP reply message
+ */
 static void zcrypt_pcixcc_receive(struct ap_device *ap_dev,
 				  struct ap_message *msg,
 				  struct ap_message *reply)
@@ -554,7 +647,7 @@ static void zcrypt_pcixcc_receive(struct ap_device *ap_dev,
 	struct type86x_reply *t86r;
 	int length;
 
-	
+	/* Copy the reply message to the request message buffer. */
 	if (IS_ERR(reply)) {
 		memcpy(msg->message, &error_reply, sizeof(error_reply));
 		goto out;
@@ -585,6 +678,13 @@ out:
 
 static atomic_t zcrypt_step = ATOMIC_INIT(0);
 
+/**
+ * The request distributor calls this function if it picked the PCIXCC/CEX2C
+ * device to handle a modexpo request.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCIXCC/CEX2C device to the request distributor
+ * @mex: pointer to the modexpo request buffer
+ */
 static long zcrypt_pcixcc_modexpo(struct zcrypt_device *zdev,
 				  struct ica_rsa_modexpo *mex)
 {
@@ -611,13 +711,20 @@ static long zcrypt_pcixcc_modexpo(struct zcrypt_device *zdev,
 		rc = convert_response_ica(zdev, &ap_msg, mex->outputdata,
 					  mex->outputdatalength);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 out_free:
 	free_page((unsigned long) ap_msg.message);
 	return rc;
 }
 
+/**
+ * The request distributor calls this function if it picked the PCIXCC/CEX2C
+ * device to handle a modexpo_crt request.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCIXCC/CEX2C device to the request distributor
+ * @crt: pointer to the modexpoc_crt request buffer
+ */
 static long zcrypt_pcixcc_modexpo_crt(struct zcrypt_device *zdev,
 				      struct ica_rsa_modexpo_crt *crt)
 {
@@ -644,13 +751,20 @@ static long zcrypt_pcixcc_modexpo_crt(struct zcrypt_device *zdev,
 		rc = convert_response_ica(zdev, &ap_msg, crt->outputdata,
 					  crt->outputdatalength);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 out_free:
 	free_page((unsigned long) ap_msg.message);
 	return rc;
 }
 
+/**
+ * The request distributor calls this function if it picked the PCIXCC/CEX2C
+ * device to handle a send_cprb request.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCIXCC/CEX2C device to the request distributor
+ * @xcRB: pointer to the send_cprb request buffer
+ */
 static long zcrypt_pcixcc_send_cprb(struct zcrypt_device *zdev,
 				    struct ica_xcRB *xcRB)
 {
@@ -676,13 +790,20 @@ static long zcrypt_pcixcc_send_cprb(struct zcrypt_device *zdev,
 	if (rc == 0)
 		rc = convert_response_xcrb(zdev, &ap_msg, xcRB);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 out_free:
 	kzfree(ap_msg.message);
 	return rc;
 }
 
+/**
+ * The request distributor calls this function if it picked the PCIXCC/CEX2C
+ * device to generate random data.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCIXCC/CEX2C device to the request distributor
+ * @buffer: pointer to a memory page to return random data
+ */
 
 static long zcrypt_pcixcc_rng(struct zcrypt_device *zdev,
 				    char *buffer)
@@ -707,12 +828,15 @@ static long zcrypt_pcixcc_rng(struct zcrypt_device *zdev,
 	if (rc == 0)
 		rc = convert_response_rng(zdev, &ap_msg, buffer);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 	kfree(ap_msg.message);
 	return rc;
 }
 
+/**
+ * The crypto operations for a PCIXCC/CEX2C card.
+ */
 static struct zcrypt_ops zcrypt_pcixcc_ops = {
 	.rsa_modexpo = zcrypt_pcixcc_modexpo,
 	.rsa_modexpo_crt = zcrypt_pcixcc_modexpo_crt,
@@ -726,6 +850,11 @@ static struct zcrypt_ops zcrypt_pcixcc_with_rng_ops = {
 	.rng = zcrypt_pcixcc_rng,
 };
 
+/**
+ * Micro-code detection function. Its sends a message to a pcixcc card
+ * to find out the microcode level.
+ * @ap_dev: pointer to the AP device.
+ */
 static int zcrypt_pcixcc_mcl(struct ap_device *ap_dev)
 {
 	static unsigned char msg[] = {
@@ -811,7 +940,7 @@ static int zcrypt_pcixcc_mcl(struct ap_device *ap_dev)
 	if (rc)
 		goto out_free;
 
-	
+	/* Wait for the test message to complete. */
 	for (i = 0; i < 6; i++) {
 		mdelay(300);
 		rc = ap_recv(ap_dev->qid, &psmid, reply, 4096);
@@ -820,7 +949,7 @@ static int zcrypt_pcixcc_mcl(struct ap_device *ap_dev)
 	}
 
 	if (i >= 6) {
-		
+		/* Got no answer. */
 		rc = -ENODEV;
 		goto out_free;
 	}
@@ -835,6 +964,13 @@ out_free:
 	return rc;
 }
 
+/**
+ * Large random number detection function. Its sends a message to a pcixcc
+ * card to find out if large random numbers are supported.
+ * @ap_dev: pointer to the AP device.
+ *
+ * Returns 1 if large random numbers are supported, 0 if not and < 0 on error.
+ */
 static int zcrypt_pcixcc_rng_supported(struct ap_device *ap_dev)
 {
 	struct ap_message ap_msg;
@@ -857,7 +993,7 @@ static int zcrypt_pcixcc_rng_supported(struct ap_device *ap_dev)
 	if (rc)
 		goto out_free;
 
-	
+	/* Wait for the test message to complete. */
 	for (i = 0; i < 2 * HZ; i++) {
 		msleep(1000 / HZ);
 		rc = ap_recv(ap_dev->qid, &psmid, ap_msg.message, 4096);
@@ -866,7 +1002,7 @@ static int zcrypt_pcixcc_rng_supported(struct ap_device *ap_dev)
 	}
 
 	if (i >= 2 * HZ) {
-		
+		/* Got no answer. */
 		rc = -ENODEV;
 		goto out_free;
 	}
@@ -881,6 +1017,13 @@ out_free:
 	return rc;
 }
 
+/**
+ * Probe function for PCIXCC/CEX2C cards. It always accepts the AP device
+ * since the bus_match already checked the hardware type. The PCIXCC
+ * cards come in two flavours: micro code level 2 and micro code level 3.
+ * This is checked by sending a test message to the device.
+ * @ap_dev: pointer to the AP device.
+ */
 static int zcrypt_pcixcc_probe(struct ap_device *ap_dev)
 {
 	struct zcrypt_device *zdev;
@@ -955,6 +1098,10 @@ static int zcrypt_pcixcc_probe(struct ap_device *ap_dev)
 	return rc;
 }
 
+/**
+ * This is called to remove the extended PCIXCC/CEX2C driver information
+ * if an AP device is removed.
+ */
 static void zcrypt_pcixcc_remove(struct ap_device *ap_dev)
 {
 	struct zcrypt_device *zdev = ap_dev->private;

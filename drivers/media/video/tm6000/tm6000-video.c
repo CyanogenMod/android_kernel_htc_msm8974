@@ -43,17 +43,20 @@
 #include "tm6000-regs.h"
 #include "tm6000.h"
 
-#define BUFFER_TIMEOUT     msecs_to_jiffies(2000)  
+#define BUFFER_TIMEOUT     msecs_to_jiffies(2000)  /* 2 seconds */
 
+/* Limits minimum and default number of buffers */
 #define TM6000_MIN_BUF 4
 #define TM6000_DEF_BUF 8
 
-#define TM6000_MAX_ISO_PACKETS	46	
+#define TM6000_MAX_ISO_PACKETS	46	/* Max number of ISO packets */
 
-static unsigned int vid_limit = 16;	
-static int video_nr = -1;		
-static int radio_nr = -1;		
+/* Declare static vars that will be used as parameters */
+static unsigned int vid_limit = 16;	/* Video memory limit, in Mb */
+static int video_nr = -1;		/* /dev/videoN, -1 for autodetect */
+static int radio_nr = -1;		/* /dev/radioN, -1 for autodetect */
 
+/* Debug level */
 int tm6000_debug;
 EXPORT_SYMBOL_GPL(tm6000_debug);
 
@@ -62,6 +65,7 @@ static const struct v4l2_queryctrl no_ctrl = {
 	.flags = V4L2_CTRL_FLAG_DISABLED,
 };
 
+/* supported controls */
 static struct v4l2_queryctrl tm6000_qctrl[] = {
 	{
 		.id            = V4L2_CID_BRIGHTNESS,
@@ -100,7 +104,7 @@ static struct v4l2_queryctrl tm6000_qctrl[] = {
 		.default_value = 0,
 		.flags         = 0,
 	},
-		
+		/* --- audio --- */
 	{
 		.id            = V4L2_CID_AUDIO_MUTE,
 		.name          = "Mute",
@@ -147,6 +151,10 @@ static const struct v4l2_queryctrl *ctrl_by_id(unsigned int id)
 	return NULL;
 }
 
+/* ------------------------------------------------------------------
+ *	DMA and thread functions
+ * ------------------------------------------------------------------
+ */
 
 #define norm_maxw(a) 720
 #define norm_maxh(a) 576
@@ -154,6 +162,9 @@ static const struct v4l2_queryctrl *ctrl_by_id(unsigned int id)
 #define norm_minw(a) norm_maxw(a)
 #define norm_minh(a) norm_maxh(a)
 
+/*
+ * video-buf generic routine to get the next available buffer
+ */
 static inline void get_next_buf(struct tm6000_dmaqueue *dma_q,
 			       struct tm6000_buffer   **buf)
 {
@@ -169,17 +180,20 @@ static inline void get_next_buf(struct tm6000_dmaqueue *dma_q,
 	*buf = list_entry(dma_q->active.next,
 			struct tm6000_buffer, vb.queue);
 
-	
+	/* Cleans up buffer - Useful for testing for frame/URB loss */
 	outp = videobuf_to_vmalloc(&(*buf)->vb);
 
 	return;
 }
 
+/*
+ * Announces that a buffer were filled and request the next
+ */
 static inline void buffer_filled(struct tm6000_core *dev,
 				 struct tm6000_dmaqueue *dma_q,
 				 struct tm6000_buffer *buf)
 {
-	
+	/* Advice that buffer was filled */
 	dprintk(dev, V4L2_DEBUG_ISOC, "[%p/%d] wakeup\n", buf, buf->vb.i);
 	buf->vb.state = VIDEOBUF_DONE;
 	buf->vb.field_count++;
@@ -189,6 +203,9 @@ static inline void buffer_filled(struct tm6000_core *dev,
 	wake_up(&buf->vb.done);
 }
 
+/*
+ * Identify the tm5600/6000 buffer header type and properly handles
+ */
 static int copy_streams(u8 *data, unsigned long len,
 			struct urb *urb)
 {
@@ -203,7 +220,7 @@ static int copy_streams(u8 *data, unsigned long len,
 	unsigned int linewidth;
 
 	if (!dev->radio) {
-		
+		/* get video buffer */
 		get_next_buf(dma_q, &vbuf);
 
 		if (!vbuf)
@@ -216,9 +233,9 @@ static int copy_streams(u8 *data, unsigned long len,
 
 	for (ptr = data; ptr < endp;) {
 		if (!dev->isoc_ctl.cmd) {
-			
+			/* Header */
 			if (dev->isoc_ctl.tmp_buf_len > 0) {
-				
+				/* from last urb or packet */
 				header = dev->isoc_ctl.tmp_buf;
 				if (4 - dev->isoc_ctl.tmp_buf_len > 0) {
 					memcpy((u8 *)&header +
@@ -230,23 +247,23 @@ static int copy_streams(u8 *data, unsigned long len,
 				dev->isoc_ctl.tmp_buf_len = 0;
 			} else {
 				if (ptr + 3 >= endp) {
-					
+					/* have incomplete header */
 					dev->isoc_ctl.tmp_buf_len = endp - ptr;
 					memcpy(&dev->isoc_ctl.tmp_buf, ptr,
 						dev->isoc_ctl.tmp_buf_len);
 					return rc;
 				}
-				
+				/* Seek for sync */
 				for (; ptr < endp - 3; ptr++) {
 					if (*(ptr + 3) == 0x47)
 						break;
 				}
-				
+				/* Get message header */
 				header = *(unsigned long *)ptr;
 				ptr += 4;
 			}
 
-			
+			/* split the header fields */
 			c = (header >> 24) & 0xff;
 			size = ((header & 0x7e) << 1);
 			if (size > 0)
@@ -255,15 +272,22 @@ static int copy_streams(u8 *data, unsigned long len,
 			field = (header >> 11) & 0x1;
 			line  = (header >> 12) & 0x1ff;
 			cmd   = (header >> 21) & 0x7;
-			
+			/* Validates haeder fields */
 			if (size > TM6000_URB_MSG_LEN)
 				size = TM6000_URB_MSG_LEN;
 			pktsize = TM6000_URB_MSG_LEN;
+			/*
+			 * calculate position in buffer and change the buffer
+			 */
 			switch (cmd) {
 			case TM6000_URB_MSG_VIDEO:
 				if (!dev->radio) {
 					if ((dev->isoc_ctl.vfield != field) &&
 						(field == 1)) {
+						/*
+						 * Announces that a new buffer
+						 * were filled
+						 */
 						buffer_filled(dev, dma_q, vbuf);
 						dprintk(dev, V4L2_DEBUG_ISOC,
 							"new buffer filled\n");
@@ -278,7 +302,7 @@ static int copy_streams(u8 *data, unsigned long len,
 					linewidth = vbuf->vb.width << 1;
 					pos = ((line << 1) - field - 1) *
 					linewidth + block * TM6000_URB_MSG_LEN;
-					
+					/* Don't allow to write out of the buffer */
 					if (pos + size > vbuf->vb.size)
 						cmd = TM6000_URB_MSG_ERR;
 					dev->isoc_ctl.vfield = field;
@@ -288,11 +312,11 @@ static int copy_streams(u8 *data, unsigned long len,
 				break;
 			case TM6000_URB_MSG_AUDIO:
 			case TM6000_URB_MSG_PTS:
-				size = pktsize; 
+				size = pktsize; /* Size is always 180 bytes */
 				break;
 			}
 		} else {
-			
+			/* Continue the last copy */
 			cmd = dev->isoc_ctl.cmd;
 			size = dev->isoc_ctl.size;
 			pos = dev->isoc_ctl.pos;
@@ -301,10 +325,10 @@ static int copy_streams(u8 *data, unsigned long len,
 		}
 		cpysize = (endp - ptr > size) ? size : endp - ptr;
 		if (cpysize) {
-			
+			/* copy data in different buffers */
 			switch (cmd) {
 			case TM6000_URB_MSG_VIDEO:
-				
+				/* Fills video buffer */
 				if (vbuf)
 					memcpy(&voutp[pos], ptr, cpysize);
 				break;
@@ -317,10 +341,10 @@ static int copy_streams(u8 *data, unsigned long len,
 				break;
 			}
 			case TM6000_URB_MSG_VBI:
-				
+				/* Need some code to copy vbi buffer */
 				break;
 			case TM6000_URB_MSG_PTS: {
-				
+				/* Need some code to copy pts */
 				u32 pts;
 				pts = *(u32 *)ptr;
 				dprintk(dev, V4L2_DEBUG_ISOC, "field %d, PTS %x",
@@ -330,6 +354,10 @@ static int copy_streams(u8 *data, unsigned long len,
 			}
 		}
 		if (ptr + pktsize > endp) {
+			/*
+			 * End of URB packet, but cmd processing is not
+			 * complete. Preserve the state for a next packet
+			 */
 			dev->isoc_ctl.pos = pos + cpysize;
 			dev->isoc_ctl.size = size - cpysize;
 			dev->isoc_ctl.cmd = cmd;
@@ -344,6 +372,9 @@ static int copy_streams(u8 *data, unsigned long len,
 	return 0;
 }
 
+/*
+ * Identify the tm5600/6000 buffer header type and properly handles
+ */
 static int copy_multiplexed(u8 *ptr, unsigned long len,
 			struct urb *urb)
 {
@@ -369,7 +400,7 @@ static int copy_multiplexed(u8 *ptr, unsigned long len,
 		len -= cpysize;
 		if (pos >= buf->vb.size) {
 			pos = 0;
-			
+			/* Announces that a new buffer were filled */
 			buffer_filled(dev, dma_q, buf);
 			dprintk(dev, V4L2_DEBUG_ISOC, "new buffer filled\n");
 			get_next_buf(dma_q, &buf);
@@ -427,6 +458,9 @@ static inline void print_err_status(struct tm6000_core *dev,
 }
 
 
+/*
+ * Controls the isoc copy of each urb packet
+ */
 static inline int tm6000_isoc_copy(struct urb *urb)
 {
 	struct tm6000_dmaqueue  *dma_q = urb->context;
@@ -465,7 +499,14 @@ static inline int tm6000_isoc_copy(struct urb *urb)
 	return rc;
 }
 
+/* ------------------------------------------------------------------
+ *	URB control
+ * ------------------------------------------------------------------
+ */
 
+/*
+ * IRQ callback, called by URB callback
+ */
 static void tm6000_irq_callback(struct urb *urb)
 {
 	struct tm6000_dmaqueue  *dma_q = urb->context;
@@ -491,7 +532,7 @@ static void tm6000_irq_callback(struct urb *urb)
 	tm6000_isoc_copy(urb);
 	spin_unlock(&dev->slock);
 
-	
+	/* Reset urb buffers */
 	for (i = 0; i < urb->number_of_packets; i++) {
 		urb->iso_frame_desc[i].status = 0;
 		urb->iso_frame_desc[i].actual_length = 0;
@@ -503,6 +544,9 @@ static void tm6000_irq_callback(struct urb *urb)
 			urb->status);
 }
 
+/*
+ * Stop and Deallocate URBs
+ */
 static void tm6000_uninit_isoc(struct tm6000_core *dev)
 {
 	struct urb *urb;
@@ -534,22 +578,25 @@ static void tm6000_uninit_isoc(struct tm6000_core *dev)
 	dev->isoc_ctl.num_bufs = 0;
 }
 
+/*
+ * Allocate URBs and start IRQ
+ */
 static int tm6000_prepare_isoc(struct tm6000_core *dev)
 {
 	struct tm6000_dmaqueue *dma_q = &dev->vidq;
 	int i, j, sb_size, pipe, size, max_packets, num_bufs = 8;
 	struct urb *urb;
 
-	
+	/* De-allocates all pending stuff */
 	tm6000_uninit_isoc(dev);
-	
+	/* Stop interrupt USB pipe */
 	tm6000_ir_int_stop(dev);
 
 	usb_set_interface(dev->udev,
 			  dev->isoc_in.bInterfaceNumber,
 			  dev->isoc_in.bAlternateSetting);
 
-	
+	/* Start interrupt USB pipe */
 	tm6000_ir_int_start(dev);
 
 	pipe = usb_rcvisocpipe(dev->udev,
@@ -587,7 +634,7 @@ static int tm6000_prepare_isoc(struct tm6000_core *dev)
 		    max_packets, num_bufs, sb_size,
 		    dev->isoc_in.maxsize, size);
 
-	
+	/* allocate urbs and transfer buffers */
 	for (i = 0; i < dev->isoc_ctl.num_bufs; i++) {
 		urb = usb_alloc_urb(max_packets, GFP_KERNEL);
 		if (!urb) {
@@ -636,7 +683,7 @@ static int tm6000_start_thread(struct tm6000_core *dev)
 
 	init_waitqueue_head(&dma_q->wq);
 
-	
+	/* submit urbs and enables IRQ */
 	for (i = 0; i < dev->isoc_ctl.num_bufs; i++) {
 		int rc = usb_submit_urb(dev->isoc_ctl.urb[i], GFP_ATOMIC);
 		if (rc) {
@@ -650,6 +697,10 @@ static int tm6000_start_thread(struct tm6000_core *dev)
 	return 0;
 }
 
+/* ------------------------------------------------------------------
+ *	Videobuf operations
+ * ------------------------------------------------------------------
+ */
 
 static int
 buffer_setup(struct videobuf_queue *vq, unsigned int *count, unsigned int *size)
@@ -678,6 +729,15 @@ static void free_buffer(struct videobuf_queue *vq, struct tm6000_buffer *buf)
 	if (in_interrupt())
 		BUG();
 
+	/* We used to wait for the buffer to finish here, but this didn't work
+	   because, as we were keeping the state as VIDEOBUF_QUEUED,
+	   videobuf_queue_cancel marked it as finished for us.
+	   (Also, it could wedge forever if the hardware was misconfigured.)
+
+	   This should be safe; by the time we get here, the buffer isn't
+	   queued anymore. If we ever start marking the buffers as
+	   VIDEOBUF_ACTIVE, it won't be, though.
+	*/
 	spin_lock_irqsave(&dev->slock, flags);
 	if (dev->isoc_ctl.buf == buf)
 		dev->isoc_ctl.buf = NULL;
@@ -699,8 +759,8 @@ buffer_prepare(struct videobuf_queue *vq, struct videobuf_buffer *vb,
 	BUG_ON(NULL == fh->fmt);
 
 
-	
-	
+	/* FIXME: It assumes depth=2 */
+	/* The only currently supported format is 16 bits/pixel */
 	buf->vb.size = fh->fmt->depth*fh->width*fh->height >> 3;
 	if (0 != buf->vb.baddr  &&  buf->vb.bsize < buf->vb.size)
 		return -EINVAL;
@@ -767,10 +827,14 @@ static struct videobuf_queue_ops tm6000_video_qops = {
 	.buf_release    = buffer_release,
 };
 
+/* ------------------------------------------------------------------
+ *	IOCTL handling
+ * ------------------------------------------------------------------
+ */
 
 static bool is_res_read(struct tm6000_core *dev, struct tm6000_fh *fh)
 {
-	
+	/* Is the current fh handling it? if so, that's OK */
 	if (dev->resources == fh && dev->is_res_read)
 		return true;
 
@@ -779,7 +843,7 @@ static bool is_res_read(struct tm6000_core *dev, struct tm6000_fh *fh)
 
 static bool is_res_streaming(struct tm6000_core *dev, struct tm6000_fh *fh)
 {
-	
+	/* Is the current fh handling it? if so, that's OK */
 	if (dev->resources == fh)
 		return true;
 
@@ -789,15 +853,15 @@ static bool is_res_streaming(struct tm6000_core *dev, struct tm6000_fh *fh)
 static bool res_get(struct tm6000_core *dev, struct tm6000_fh *fh,
 		   bool is_res_read)
 {
-	
+	/* Is the current fh handling it? if so, that's OK */
 	if (dev->resources == fh && dev->is_res_read == is_res_read)
 		return true;
 
-	
+	/* is it free? */
 	if (dev->resources)
 		return false;
 
-	
+	/* grab it */
 	dev->resources = fh;
 	dev->is_res_read = is_res_read;
 	dprintk(dev, V4L2_DEBUG_RES_LOCK, "res: get\n");
@@ -806,7 +870,7 @@ static bool res_get(struct tm6000_core *dev, struct tm6000_fh *fh,
 
 static void res_free(struct tm6000_core *dev, struct tm6000_fh *fh)
 {
-	
+	/* Is the current fh handling it? if so, that's OK */
 	if (dev->resources != fh)
 		return;
 
@@ -814,6 +878,10 @@ static void res_free(struct tm6000_core *dev, struct tm6000_fh *fh)
 	dprintk(dev, V4L2_DEBUG_RES_LOCK, "res: put\n");
 }
 
+/* ------------------------------------------------------------------
+ *	IOCTL vidioc handling
+ * ------------------------------------------------------------------
+ */
 static int vidioc_querycap(struct file *file, void  *priv,
 					struct v4l2_capability *cap)
 {
@@ -911,6 +979,7 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 	return 0;
 }
 
+/*FIXME: This seems to be generic enough to be at videodev2 */
 static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 					struct v4l2_format *f)
 {
@@ -1079,6 +1148,7 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int i)
 	return rc;
 }
 
+/* --- controls ---------------------------------------------- */
 static int vidioc_queryctrl(struct file *file, void *priv,
 				struct v4l2_queryctrl *qc)
 {
@@ -1101,7 +1171,7 @@ static int vidioc_g_ctrl(struct file *file, void *priv,
 	struct tm6000_core *dev    = fh->dev;
 	int  val;
 
-	
+	/* FIXME: Probably, those won't work! Maybe we need shadow regs */
 	switch (ctrl->id) {
 	case V4L2_CID_CONTRAST:
 		val = tm6000_get_reg(dev, TM6010_REQ07_R08_LUMA_CONTRAST_ADJ, 0);
@@ -1382,6 +1452,9 @@ static int radio_queryctrl(struct file *file, void *priv,
 	return 0;
 }
 
+/* ------------------------------------------------------------------
+	File operations for the device
+   ------------------------------------------------------------------*/
 
 static int tm6000_open(struct file *file)
 {
@@ -1407,14 +1480,14 @@ static int tm6000_open(struct file *file)
 		break;
 	}
 
-	
+	/* If more than one user, mutex should be added */
 	dev->users++;
 
 	dprintk(dev, V4L2_DEBUG_OPEN, "open dev=%s type=%s users=%d\n",
 		video_device_node_name(vdev), v4l2_type_names[type],
 		dev->users);
 
-	
+	/* allocate + initialize per filehandle data */
 	fh = kzalloc(sizeof(*fh), GFP_KERNEL);
 	if (NULL == fh) {
 		dev->users--;
@@ -1444,13 +1517,13 @@ static int tm6000_open(struct file *file)
 	dprintk(dev, V4L2_DEBUG_OPEN, "Open: list_empty "
 				"active=%d\n", list_empty(&dev->vidq.active));
 
-	
+	/* initialize hardware on analog mode */
 	rc = tm6000_init_analog_mode(dev);
 	if (rc < 0)
 		return rc;
 
 	if (dev->mode != TM6000_MODE_ANALOG) {
-		
+		/* Put all controls at a sane state */
 		for (i = 0; i < ARRAY_SIZE(tm6000_qctrl); i++)
 			qctl_regs[i] = tm6000_qctrl[i].default_value;
 
@@ -1503,12 +1576,12 @@ tm6000_poll(struct file *file, struct poll_table_struct *wait)
 		return POLLERR;
 
 	if (!is_res_read(fh->dev, fh)) {
-		
+		/* streaming capture */
 		if (list_empty(&fh->vb_vidq.stream))
 			return POLLERR;
 		buf = list_entry(fh->vb_vidq.stream.next, struct tm6000_buffer, vb.stream);
 	} else {
-		
+		/* read() capture */
 		return videobuf_poll_stream(file, &fh->vb_vidq, wait);
 	}
 	poll_wait(file, &buf->vb.done, wait);
@@ -1534,7 +1607,7 @@ static int tm6000_release(struct file *file)
 	if (!dev->users) {
 		tm6000_uninit_isoc(dev);
 
-		
+		/* Stop interrupt USB pipe */
 		tm6000_ir_int_stop(dev);
 
 		usb_reset_configuration(dev->udev);
@@ -1546,7 +1619,7 @@ static int tm6000_release(struct file *file)
 			usb_set_interface(dev->udev,
 					dev->isoc_in.bInterfaceNumber, 0);
 
-		
+		/* Start interrupt USB pipe */
 		tm6000_ir_int_start(dev);
 
 		if (!fh->radio)
@@ -1569,7 +1642,7 @@ static struct v4l2_file_operations tm6000_fops = {
 	.owner = THIS_MODULE,
 	.open = tm6000_open,
 	.release = tm6000_release,
-	.unlocked_ioctl = video_ioctl2, 
+	.unlocked_ioctl = video_ioctl2, /* V4L2 ioctl handler */
 	.read = tm6000_read,
 	.poll = tm6000_poll,
 	.mmap = tm6000_mmap,
@@ -1639,6 +1712,10 @@ static struct video_device tm6000_radio_template = {
 	.ioctl_ops		= &radio_ioctl_ops,
 };
 
+/* -----------------------------------------------------------------
+ *	Initialization and module stuff
+ * ------------------------------------------------------------------
+ */
 
 static struct video_device *vdev_init(struct tm6000_core *dev,
 		const struct video_device
@@ -1674,7 +1751,7 @@ int tm6000_v4l2_register(struct tm6000_core *dev)
 		return -ENOMEM;
 	}
 
-	
+	/* init video dma queues */
 	INIT_LIST_HEAD(&dev->vidq.active);
 	INIT_LIST_HEAD(&dev->vidq.queued);
 
@@ -1695,7 +1772,7 @@ int tm6000_v4l2_register(struct tm6000_core *dev)
 		if (!dev->radio_dev) {
 			printk(KERN_INFO "%s: can't register radio device\n",
 			       dev->name);
-			return ret; 
+			return ret; /* FIXME release resource */
 		}
 
 		ret = video_register_device(dev->radio_dev, VFL_TYPE_RADIO,
@@ -1703,7 +1780,7 @@ int tm6000_v4l2_register(struct tm6000_core *dev)
 		if (ret < 0) {
 			printk(KERN_INFO "%s: can't register radio device\n",
 			       dev->name);
-			return ret; 
+			return ret; /* FIXME release resource */
 		}
 
 		printk(KERN_INFO "%s: registered device %s\n",

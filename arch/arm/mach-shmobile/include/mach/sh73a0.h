@@ -1,8 +1,12 @@
 #ifndef __ASM_SH73A0_H__
 #define __ASM_SH73A0_H__
 
+/* Pin Function Controller:
+ * GPIO_FN_xx - GPIO used to select pin function and MSEL switch
+ * GPIO_PORTxx - GPIO mapped to real I/O pin on CPU
+ */
 enum {
-	
+	/* Hardware manual Table 25-1 (GPIO) */
 	GPIO_PORT0, GPIO_PORT1, GPIO_PORT2, GPIO_PORT3, GPIO_PORT4,
 	GPIO_PORT5, GPIO_PORT6, GPIO_PORT7, GPIO_PORT8, GPIO_PORT9,
 
@@ -89,7 +93,7 @@ enum {
 	GPIO_PORT300, GPIO_PORT301, GPIO_PORT302, GPIO_PORT303, GPIO_PORT304,
 	GPIO_PORT305, GPIO_PORT306, GPIO_PORT307, GPIO_PORT308, GPIO_PORT309,
 
-	
+	/* Table 25-1 (Function 0-7) */
 	GPIO_FN_VBUS_0,
 	GPIO_FN_GPI0,
 	GPIO_FN_GPI1,
@@ -392,7 +396,7 @@ enum {
 	GPIO_FN_MCP_NBRSTOUT_,
 	GPIO_FN_MCP_WE0__MCP_FWE, GPIO_FN_MCP_RDWR_MCP_FWE,
 
-	
+	/* MSEL2 special case */
 	GPIO_FN_TSIF2_TS_XX1,
 	GPIO_FN_TSIF2_TS_XX2,
 	GPIO_FN_TSIF2_TS_XX3,
@@ -419,7 +423,7 @@ enum {
 	GPIO_FN_MST0_TS_XX4,
 	GPIO_FN_MST0_TS_XX5,
 
-	
+	/* MSEL3 special cases */
 	GPIO_FN_SDHI0_VCCQ_MC0_ON,
 	GPIO_FN_SDHI0_VCCQ_MC0_OFF,
 	GPIO_FN_DEBUG_MON_VIO,
@@ -427,7 +431,7 @@ enum {
 	GPIO_FN_LCDC_LCDC0,
 	GPIO_FN_LCDC_LCDC1,
 
-	
+	/* MSEL4 special cases */
 	GPIO_FN_IRQ9_MEM_INT,
 	GPIO_FN_IRQ9_MCP_INT,
 	GPIO_FN_A11,
@@ -438,7 +442,7 @@ enum {
 	GPIO_FN_EDBGREQ_PD,
 	GPIO_FN_EDBGREQ_PU,
 
-	
+	/* Functions with pull-ups */
 	GPIO_FN_KEYIN0_PU,
 	GPIO_FN_KEYIN1_PU,
 	GPIO_FN_KEYIN2_PU,
@@ -480,6 +484,7 @@ enum {
 	GPIO_FN_FSIAISLD_PU,
 };
 
+/* DMA slave IDs */
 enum {
 	SHDMA_SLAVE_INVALID,
 	SHDMA_SLAVE_SCIF0_TX,
@@ -510,7 +515,8 @@ enum {
 	SHDMA_SLAVE_MMCIF_RX,
 };
 
+/* PINT interrupts are located at Linux IRQ 800 and up */
 #define SH73A0_PINT0_IRQ(irq) ((irq) + 800)
 #define SH73A0_PINT1_IRQ(irq) ((irq) + 832)
 
-#endif 
+#endif /* __ASM_SH73A0_H__ */

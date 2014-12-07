@@ -621,7 +621,7 @@ int mon_text_add(struct mon_bus *mbus, const struct usb_bus *ubus)
 		return 0;
 
 	if (ubus != NULL) {
-		rc = snprintf(name, NAMESZ, "%dt", busnum);
+		rc = snprintf(name, sizeof(name), "%dt", busnum);
 		if (rc <= 0 || rc >= NAMESZ)
 			goto err_print_t;
 		d = debugfs_create_file(name, 0600, mon_dir, mbus,
@@ -631,7 +631,7 @@ int mon_text_add(struct mon_bus *mbus, const struct usb_bus *ubus)
 		mbus->dent_t = d;
 	}
 
-	rc = snprintf(name, NAMESZ, "%du", busnum);
+	rc = snprintf(name, sizeof(name), "%du", busnum);
 	if (rc <= 0 || rc >= NAMESZ)
 		goto err_print_u;
 	d = debugfs_create_file(name, 0600, mon_dir, mbus, &mon_fops_text_u);
@@ -639,7 +639,7 @@ int mon_text_add(struct mon_bus *mbus, const struct usb_bus *ubus)
 		goto err_create_u;
 	mbus->dent_u = d;
 
-	rc = snprintf(name, NAMESZ, "%ds", busnum);
+	rc = snprintf(name, sizeof(name), "%ds", busnum);
 	if (rc <= 0 || rc >= NAMESZ)
 		goto err_print_s;
 	d = debugfs_create_file(name, 0600, mon_dir, mbus, &mon_fops_stat);

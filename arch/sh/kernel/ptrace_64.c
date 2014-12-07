@@ -43,9 +43,18 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
 
+/* This mask defines the bits of the SR which the user is not allowed to
+   change, which are everything except S, Q, M, PR, SZ, FR. */
 #define SR_MASK      (0xffff8cfd)
 
+/*
+ * does not yet catch signals sent when the child dies.
+ * in exit.c or in signal.c.
+ */
 
+/*
+ * This routine will get a word from the user area in the process kernel stack.
+ */
 static inline int get_stack_long(struct task_struct *task, int offset)
 {
 	unsigned char *stack;
@@ -66,7 +75,7 @@ get_fpu_long(struct task_struct *task, unsigned long addr)
 		if (addr == offsetof(struct user_fpu_struct, fpscr)) {
 			tmp = FPSCR_INIT;
 		} else {
-			tmp = 0xffffffffUL; 
+			tmp = 0xffffffffUL; /* matches initial value in fpu.c */
 		}
 		return tmp;
 	}
@@ -83,6 +92,9 @@ get_fpu_long(struct task_struct *task, unsigned long addr)
 	return tmp;
 }
 
+/*
+ * This routine will put a word into the user area in the process kernel stack.
+ */
 static inline int put_stack_long(struct task_struct *task, int offset,
 				 unsigned long data)
 {
@@ -119,7 +131,7 @@ void user_enable_single_step(struct task_struct *child)
 {
 	struct pt_regs *regs = child->thread.uregs;
 
-	regs->sr |= SR_SSTEP;	
+	regs->sr |= SR_SSTEP;	/* auto-resetting upon exception */
 
 	set_tsk_thread_flag(child, TIF_SINGLESTEP);
 }
@@ -141,18 +153,18 @@ static int genregs_get(struct task_struct *target,
 	const struct pt_regs *regs = task_pt_regs(target);
 	int ret;
 
-	
+	/* PC, SR, SYSCALL */
 	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
 				  &regs->pc,
 				  0, 3 * sizeof(unsigned long long));
 
-	
+	/* R1 -> R63 */
 	if (!ret)
 		ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
 					  regs->regs,
 					  offsetof(struct pt_regs, regs[0]),
 					  63 * sizeof(unsigned long long));
-	
+	/* TR0 -> TR7 */
 	if (!ret)
 		ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
 					  regs->tregs,
@@ -174,19 +186,19 @@ static int genregs_set(struct task_struct *target,
 	struct pt_regs *regs = task_pt_regs(target);
 	int ret;
 
-	
+	/* PC, SR, SYSCALL */
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 &regs->pc,
 				 0, 3 * sizeof(unsigned long long));
 
-	
+	/* R1 -> R63 */
 	if (!ret && count > 0)
 		ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 					 regs->regs,
 					 offsetof(struct pt_regs, regs[0]),
 					 63 * sizeof(unsigned long long));
 
-	
+	/* TR0 -> TR7 */
 	if (!ret && count > 0)
 		ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 					 regs->tregs,
@@ -319,6 +331,9 @@ const struct pt_regs_offset regoffset_table[] = {
 	REG_OFFSET_END,
 };
 
+/*
+ * These are our native regset flavours.
+ */
 enum sh_regset {
 	REGSET_GENERAL,
 #ifdef CONFIG_SH_FPU
@@ -327,6 +342,12 @@ enum sh_regset {
 };
 
 static const struct user_regset sh_regsets[] = {
+	/*
+	 * Format is:
+	 *	PC, SR, SYSCALL,
+	 *	R1 --> R63,
+	 *	TR0 --> TR7,
+	 */
 	[REGSET_GENERAL] = {
 		.core_note_type	= NT_PRSTATUS,
 		.n		= ELF_NGREG,
@@ -369,7 +390,7 @@ long arch_ptrace(struct task_struct *child, long request,
 	unsigned long __user *datap = (unsigned long __user *) data;
 
 	switch (request) {
-	
+	/* read the word at location addr in the USER area. */
 	case PTRACE_PEEKUSR: {
 		unsigned long tmp;
 
@@ -397,18 +418,22 @@ long arch_ptrace(struct task_struct *child, long request,
 	}
 
 	case PTRACE_POKEUSR:
+                /* write the word at location addr in the USER area. We must
+                   disallow any changes to certain SR bits or u_fpvalid, since
+                   this could crash the kernel or result in a security
+                   loophole. */
 		ret = -EIO;
 		if ((addr & 3) || addr < 0)
 			break;
 
 		if (addr < sizeof(struct pt_regs)) {
-			
+			/* Ignore change of top 32 bits of SR */
 			if (addr == offsetof (struct pt_regs, sr)+4)
 			{
 				ret = 0;
 				break;
 			}
-			
+			/* If lower 32 bits of SR, ignore non-user bits */
 			if (addr == offsetof (struct pt_regs, sr))
 			{
 				long cursr = get_stack_long(child, addr);
@@ -465,6 +490,13 @@ asmlinkage int sh64_ptrace(long request, long pid,
 	static unsigned long first_call;
 
 	if (!test_and_set_bit(0, &first_call)) {
+		/* Set WPC.DBRMODE to 0.  This makes all debug events get
+		 * delivered through RESVEC, i.e. into the handlers in entry.S.
+		 * (If the kernel was downloaded using a remote gdb, WPC.DBRMODE
+		 * would normally be left set to 1, which makes debug events get
+		 * delivered through DBRVEC, i.e. into the remote gdb's
+		 * handlers.  This prevents ptrace getting them, and confuses
+		 * the remote gdb.) */
 		printk("DBRMODE set to 0 to permit native debugging\n");
 		poke_real_address_q(WPC_DBRMODE, 0);
 	}
@@ -494,6 +526,11 @@ asmlinkage long long do_syscall_trace_enter(struct pt_regs *regs)
 
 	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
 	    tracehook_report_syscall_entry(regs))
+		/*
+		 * Tracing decided this syscall should not happen.
+		 * We'll return a bogus call number to get an ENOSYS
+		 * error, but leave the original number in regs->regs[0].
+		 */
 		ret = -1LL;
 
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))
@@ -520,22 +557,36 @@ asmlinkage void do_syscall_trace_leave(struct pt_regs *regs)
 		tracehook_report_syscall_exit(regs, step);
 }
 
+/* Called with interrupts disabled */
 asmlinkage void do_single_step(unsigned long long vec, struct pt_regs *regs)
 {
+	/* This is called after a single step exception (DEBUGSS).
+	   There is no need to change the PC, as it is a post-execution
+	   exception, as entry.S does not do anything to the PC for DEBUGSS.
+	   We need to clear the Single Step setting in SR to avoid
+	   continually stepping. */
 	local_irq_enable();
 	regs->sr &= ~SR_SSTEP;
 	force_sig(SIGTRAP, current);
 }
 
+/* Called with interrupts disabled */
 BUILD_TRAP_HANDLER(breakpoint)
 {
 	TRAP_HANDLER_DECL;
 
+	/* We need to forward step the PC, to counteract the backstep done
+	   in signal.c. */
 	local_irq_enable();
 	force_sig(SIGTRAP, current);
 	regs->pc += 4;
 }
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
 void ptrace_disable(struct task_struct *child)
 {
 	user_disable_single_step(child);

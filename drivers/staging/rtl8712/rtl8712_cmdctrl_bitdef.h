@@ -20,20 +20,26 @@
 #ifndef __RTL8712_CMDCTRL_BITDEF_H__
 #define __RTL8712_CMDCTRL_BITDEF_H__
 
+/*
+ * 2. Command Control Registers	 (Offset: 0x0040 - 0x004F)*/
+/*--------------------------------------------------------------------------*/
+/*       8192S (CMD) command register bits	(Offset 0x40, 16 bits)*/
+/*--------------------------------------------------------------------------*/
 #define		_APSDOFF_STATUS		BIT(15)
 #define		_APSDOFF		BIT(14)
-#define		_BBRSTn			BIT(13)  
-#define		_BB_GLB_RSTn		BIT(12)   
-#define		_SCHEDULE_EN		BIT(10)  
+#define		_BBRSTn			BIT(13)  /*Enable OFDM/CCK*/
+#define		_BB_GLB_RSTn		BIT(12)   /*Enable BB*/
+#define		_SCHEDULE_EN		BIT(10)  /*Enable MAC scheduler*/
 #define		_MACRXEN		BIT(9)
 #define		_MACTXEN		BIT(8)
-#define		_DDMA_EN		BIT(7)  
-#define		_FW2HW_EN		BIT(6)  
+#define		_DDMA_EN		BIT(7)  /*FW off load function enable*/
+#define		_FW2HW_EN		BIT(6)  /*MAC every module reset */
 #define		_RXDMA_EN		BIT(5)
 #define		_TXDMA_EN		BIT(4)
 #define		_HCI_RXDMA_EN		BIT(3)
 #define		_HCI_TXDMA_EN		BIT(2)
 
+/*TXPAUSE*/
 #define	_STOPHCCA			BIT(6)
 #define	_STOPHIGH			BIT(5)
 #define	_STOPMGT			BIT(4)
@@ -42,6 +48,7 @@
 #define	_STOPBE				BIT(1)
 #define	_STOPBK				BIT(0)
 
+/*TCR*/
 #define	_DISCW				BIT(20)
 #define	_ICV				BIT(19)
 #define	_CFEND_FMT			BIT(17)
@@ -57,6 +64,7 @@
 
 #define	_TXDMA_INIT_VALUE	(_IMEM_CHK_RPT|_EMEM_CHK_RPT)
 
+/*RCR*/
 #define	_ENMBID				BIT(27)
 #define	_APP_PHYST_RXFF			BIT(25)
 #define	_APP_PHYST_STAFF		BIT(24)
@@ -79,13 +87,16 @@
 #define	_APM				BIT(1)
 #define	_AAP				BIT(0)
 
+/*MSR*/
 #define	_NETTYPE_MSK			0x03
 #define	_NETTYPE_SHT			0
 
+/*BT*/
 #define _BTMODE_MSK			0x06
 #define _BTMODE_SHT			1
 #define _ENBT				BIT(0)
 
+/*MBIDCTRL*/
 #define	_ENMBID_MODE			BIT(15)
 #define	_BCNNO_MSK			0x7000
 #define	_BCNNO_SHT			12
@@ -93,5 +104,5 @@
 #define	_BCNSPACE_SHT			0
 
 
-#endif 
+#endif /* __RTL8712_CMDCTRL_BITDEF_H__*/
 

@@ -26,6 +26,12 @@
 static DEFINE_SPINLOCK(jornada_ssp_lock);
 static unsigned long jornada_ssp_flags;
 
+/**
+ * jornada_ssp_reverse - reverses input byte
+ *
+ * we need to reverse all data we receive from the mcu due to its physical location
+ * returns : 01110111 -> 11101110
+ */
 u8 inline jornada_ssp_reverse(u8 byte)
 {
 	return
@@ -40,6 +46,15 @@ u8 inline jornada_ssp_reverse(u8 byte)
 };
 EXPORT_SYMBOL(jornada_ssp_reverse);
 
+/**
+ * jornada_ssp_byte - waits for ready ssp bus and sends byte
+ *
+ * waits for fifo buffer to clear and then transmits, if it doesn't then we will
+ * timeout after <timeout> rounds. Needs mcu running before its called.
+ *
+ * returns : %mcu output on success
+ *	   : %-ETIMEDOUT on timeout
+ */
 int jornada_ssp_byte(u8 byte)
 {
 	int timeout = 400000;
@@ -62,27 +77,37 @@ int jornada_ssp_byte(u8 byte)
 };
 EXPORT_SYMBOL(jornada_ssp_byte);
 
+/**
+ * jornada_ssp_inout - decide if input is command or trading byte
+ *
+ * returns : (jornada_ssp_byte(byte)) on success
+ *         : %-ETIMEDOUT on timeout failure
+ */
 int jornada_ssp_inout(u8 byte)
 {
 	int ret, i;
 
-	
+	/* true means command byte */
 	if (byte != TXDUMMY) {
 		ret = jornada_ssp_byte(byte);
-		
+		/* Proper return to commands is TxDummy */
 		if (ret != TXDUMMY) {
-			for (i = 0; i < 256; i++)
+			for (i = 0; i < 256; i++)/* flushing bus */
 				if (jornada_ssp_byte(TXDUMMY) == -1)
 					break;
 			return -ETIMEDOUT;
 		}
-	} else 
+	} else /* Exchange TxDummy for data */
 		ret = jornada_ssp_byte(TXDUMMY);
 
 	return ret;
 };
 EXPORT_SYMBOL(jornada_ssp_inout);
 
+/**
+ * jornada_ssp_start - enable mcu
+ *
+ */
 void jornada_ssp_start(void)
 {
 	spin_lock_irqsave(&jornada_ssp_lock, jornada_ssp_flags);
@@ -92,6 +117,10 @@ void jornada_ssp_start(void)
 };
 EXPORT_SYMBOL(jornada_ssp_start);
 
+/**
+ * jornada_ssp_end - disable mcu and turn off lock
+ *
+ */
 void jornada_ssp_end(void)
 {
 	GPSR = GPIO_GPIO25;
@@ -108,7 +137,7 @@ static int __devinit jornada_ssp_probe(struct platform_device *dev)
 
 	ret = ssp_init();
 
-	
+	/* worked fine, lets not bother with anything else */
 	if (!ret) {
 		printk(KERN_INFO "SSP: device initialized with irq\n");
 		return ret;
@@ -116,40 +145,42 @@ static int __devinit jornada_ssp_probe(struct platform_device *dev)
 
 	printk(KERN_WARNING "SSP: initialization failed, trying non-irq solution \n");
 
-	
+	/* init of Serial 4 port */
 	Ser4MCCR0 = 0;
 	Ser4SSCR0 = 0x0387;
 	Ser4SSCR1 = 0x18;
 
-	
+	/* clear out any left over data */
 	ssp_flush();
 
-	
+	/* enable MCU */
 	jornada_ssp_start();
 
-	
+	/* see if return value makes sense */
 	ret = jornada_ssp_inout(GETBRIGHTNESS);
 
-	
+	/* seems like it worked, just feed it with TxDummy to get rid of data */
 	if (ret == TXDUMMY)
 		jornada_ssp_inout(TXDUMMY);
 
 	jornada_ssp_end();
 
-	
+	/* failed, lets just kill everything */
 	if (ret == -ETIMEDOUT) {
 		printk(KERN_WARNING "SSP: attempts failed, bailing\n");
 		ssp_exit();
 		return -ENODEV;
 	}
 
-	
+	/* all fine */
 	printk(KERN_INFO "SSP: device initialized\n");
 	return 0;
 };
 
 static int jornada_ssp_remove(struct platform_device *dev)
 {
+	/* Note that this doesn't actually remove the driver, since theres nothing to remove
+	 * It just makes sure everything is turned off */
 	GPSR = GPIO_GPIO25;
 	ssp_exit();
 	return 0;

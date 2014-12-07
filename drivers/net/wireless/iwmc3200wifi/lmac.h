@@ -45,20 +45,21 @@ struct iwm_lmac_hdr {
 	__le16 seq_num;
 } __packed;
 
+/* LMAC commands */
 #define CALIB_CFG_FLAG_SEND_COMPLETE_NTFY_AFTER_MSK  0x1
 
 struct iwm_lmac_cal_cfg_elt {
-	__le32 enable; 
-	__le32 start;  
-	__le32 send_res; 
-	__le32 apply_res; 
+	__le32 enable; /* 1 means LMAC needs to do something */
+	__le32 start;  /* 1 to start calibration, 0 to stop */
+	__le32 send_res; /* 1 for sending back results */
+	__le32 apply_res; /* 1 for applying calibration results to HW */
 	__le32 reserved;
 } __packed;
 
 struct iwm_lmac_cal_cfg_status {
 	struct iwm_lmac_cal_cfg_elt init;
 	struct iwm_lmac_cal_cfg_elt periodic;
-	__le32 flags; 
+	__le32 flags; /* CALIB_CFG_FLAG_SEND_COMPLETE_NTFY_AFTER_MSK */
 } __packed;
 
 struct iwm_lmac_cal_cfg_cmd {
@@ -81,34 +82,40 @@ struct iwm_lmac_card_state {
 	__le32 flags;
 } __packed;
 
+/**
+ * COEX_PRIORITY_TABLE_CMD
+ *
+ * Priority entry for each state
+ * Will keep two tables, for STA and WIPAN
+ */
 enum {
-	
+	/* UN-ASSOCIATION PART */
 	COEX_UNASSOC_IDLE = 0,
 	COEX_UNASSOC_MANUAL_SCAN,
 	COEX_UNASSOC_AUTO_SCAN,
 
-	
+	/* CALIBRATION */
 	COEX_CALIBRATION,
 	COEX_PERIODIC_CALIBRATION,
 
-	
+	/* CONNECTION */
 	COEX_CONNECTION_ESTAB,
 
-	
+	/* ASSOCIATION PART */
 	COEX_ASSOCIATED_IDLE,
 	COEX_ASSOC_MANUAL_SCAN,
 	COEX_ASSOC_AUTO_SCAN,
 	COEX_ASSOC_ACTIVE_LEVEL,
 
-	
+	/* RF ON/OFF */
 	COEX_RF_ON,
 	COEX_RF_OFF,
 	COEX_STAND_ALONE_DEBUG,
 
-	
+	/* IPNN */
 	COEX_IPAN_ASSOC_LEVEL,
 
-	
+	/* RESERVED */
 	COEX_RSRVD1,
 	COEX_RSRVD2,
 
@@ -137,6 +144,14 @@ struct iwm_coex_prio_table_cmd {
 	struct coex_event sta_prio[COEX_EVENTS_NUM];
 } __packed;
 
+/* Coexistence definitions
+ *
+ * Constants to fill in the Priorities' Tables
+ * RP - Requested Priority
+ * WP - Win Medium Priority: priority assigned when the contention has been won
+ * FLAGS - Combination of COEX_EVT_FLAG_MEDIUM_FREE_NTFY_MSK and
+ * 	   COEX_EVT_FLAG_MEDIUM_ACTV_NTFY_MSK
+ */
 
 #define COEX_UNASSOC_IDLE_FLAGS		0
 #define COEX_UNASSOC_MANUAL_SCAN_FLAGS	(COEX_EVT_FLAG_MEDIUM_FREE_NTFY_MSK | \
@@ -146,6 +161,8 @@ struct iwm_coex_prio_table_cmd {
 #define COEX_CALIBRATION_FLAGS		(COEX_EVT_FLAG_MEDIUM_FREE_NTFY_MSK | \
 					 COEX_EVT_FLAG_MEDIUM_ACTV_NTFY_MSK)
 #define COEX_PERIODIC_CALIBRATION_FLAGS	0
+/* COEX_CONNECTION_ESTAB: we need DELAY_MEDIUM_FREE_NTFY to let WiMAX
+ * disconnect from network. */
 #define COEX_CONNECTION_ESTAB_FLAGS (COEX_EVT_FLAG_MEDIUM_FREE_NTFY_MSK | \
 				     COEX_EVT_FLAG_MEDIUM_ACTV_NTFY_MSK | \
 				     COEX_EVT_FLAG_DELAY_MEDIUM_FREE_NTFY_MSK)
@@ -164,10 +181,13 @@ struct iwm_coex_prio_table_cmd {
 				     COEX_EVT_FLAG_DELAY_MEDIUM_FREE_NTFY_MSK)
 #define COEX_RSRVD1_FLAGS		0
 #define COEX_RSRVD2_FLAGS		0
+/* XOR_RF_ON is the event wrapping all radio ownership. We need
+ * DELAY_MEDIUM_FREE_NTFY to let WiMAX disconnect from network. */
 #define COEX_XOR_RF_ON_FLAGS	    (COEX_EVT_FLAG_MEDIUM_FREE_NTFY_MSK | \
 				     COEX_EVT_FLAG_MEDIUM_ACTV_NTFY_MSK | \
 				     COEX_EVT_FLAG_DELAY_MEDIUM_FREE_NTFY_MSK)
 
+/* CT kill config command */
 struct iwm_ct_kill_cfg_cmd {
 	u32 exit_threshold;
 	u32 reserved;
@@ -175,12 +195,14 @@ struct iwm_ct_kill_cfg_cmd {
 } __packed;
 
 
+/* LMAC OP CODES */
 #define REPLY_PAD			0x0
 #define REPLY_ALIVE			0x1
 #define REPLY_ERROR			0x2
 #define REPLY_ECHO			0x3
 #define REPLY_HALT			0x6
 
+/* RXON state commands */
 #define REPLY_RX_ON			0x10
 #define REPLY_RX_ON_ASSOC		0x11
 #define REPLY_RX_OFF			0x12
@@ -190,14 +212,17 @@ struct iwm_ct_kill_cfg_cmd {
 #define REPLY_RX_INT_TIMEOUT_CNFG	0x16
 #define REPLY_NULL			0x17
 
+/* Multi-Station support */
 #define REPLY_ADD_STA			0x18
 #define REPLY_REMOVE_STA		0x19
 #define REPLY_RESET_ALL_STA		0x1a
 
+/* RX, TX */
 #define REPLY_ALM_RX			0x1b
 #define REPLY_TX			0x1c
 #define REPLY_TXFIFO_FLUSH		0x1e
 
+/* MISC commands */
 #define REPLY_MGMT_MCAST_KEY		0x1f
 #define REPLY_WEPKEY			0x20
 #define REPLY_INIT_IV			0x21
@@ -215,15 +240,18 @@ struct iwm_ct_kill_cfg_cmd {
 #define REPLY_ANA_MIB_OVERRIDE_CMD	0x4f
 #define REPLY_WRITE2REG_CMD		0x50
 
+/* winfi-wifi coexistence */
 #define COEX_PRIORITY_TABLE_CMD		0x5a
 #define COEX_MEDIUM_NOTIFICATION	0x5b
 #define COEX_EVENT_CMD			0x5c
 
+/* more Protocol and Protocol-test commands */
 #define REPLY_MAX_SLEEP_TIME_CMD	0x61
 #define CALIBRATION_CFG_CMD		0x65
 #define CALIBRATION_RES_NOTIFICATION	0x66
 #define CALIBRATION_COMPLETE_NOTIFICATION	0x67
 
+/* Measurements */
 #define REPLY_QUIET_CMD			0x71
 #define REPLY_CHANNEL_SWITCH		0x72
 #define CHANNEL_SWITCH_NOTIFICATION	0x73
@@ -232,27 +260,33 @@ struct iwm_ct_kill_cfg_cmd {
 #define SPECTRUM_MEASURE_NOTIFICATION	0x75
 #define REPLY_MEASUREMENT_ABORT_CMD	0x76
 
+/* Power Management */
 #define POWER_TABLE_CMD			0x77
 #define SAVE_RESTORE_ADDRESS_CMD		0x78
 #define REPLY_WATERMARK_CMD		0x79
 #define PM_DEBUG_STATISTIC_NOTIFIC	0x7B
 #define PD_FLUSH_N_NOTIFICATION		0x7C
 
+/* Scan commands and notifications */
 #define REPLY_SCAN_REQUEST_CMD		0x80
 #define REPLY_SCAN_ABORT_CMD		0x81
 #define SCAN_START_NOTIFICATION		0x82
 #define SCAN_RESULTS_NOTIFICATION	0x83
 #define SCAN_COMPLETE_NOTIFICATION	0x84
 
+/* Continuous TX commands */
 #define REPLY_CONT_TX_CMD		0x85
 #define END_OF_CONT_TX_NOTIFICATION	0x86
 
+/* Timer/Eeprom commands */
 #define TIMER_CMD			0x87
 #define EEPROM_WRITE_CMD		0x88
 
+/* PAPD commands */
 #define FEEDBACK_REQUEST_NOTIFICATION	0x8b
 #define REPLY_CW_CMD			0x8c
 
+/* IBSS/AP commands Continue */
 #define BEACON_NOTIFICATION		0x90
 #define REPLY_TX_BEACON			0x91
 #define REPLY_REQUEST_ATIM		0x93
@@ -264,18 +298,22 @@ struct iwm_ct_kill_cfg_cmd {
 #define MEASURE_ABORT_NOTIFICATION	0x99
 #define REPLY_CALIBRATION_TUNE		0x9a
 
+/* bt config command */
 #define REPLY_BT_CONFIG			0x9b
 #define REPLY_STATISTICS_CMD		0x9c
 #define STATISTICS_NOTIFICATION		0x9d
 
+/* RF-KILL commands and notifications */
 #define REPLY_CARD_STATE_CMD		0xa0
 #define CARD_STATE_NOTIFICATION		0xa1
 
+/* Missed beacons notification */
 #define MISSED_BEACONS_NOTIFICATION	0xa2
 #define MISSED_BEACONS_NOTIFICATION_TH_CMD	0xa3
 
 #define REPLY_CT_KILL_CONFIG_CMD	0xa4
 
+/* HD commands and notifications */
 #define REPLY_HD_PARAMS_CMD		0xa6
 #define HD_PARAMS_NOTIFICATION		0xa7
 #define SENSITIVITY_CMD			0xa8
@@ -285,6 +323,7 @@ struct iwm_ct_kill_cfg_cmd {
 #define REPLY_PHY_CALIBRATION_CMD	0xb0
 #define REPLAY_RX_GAIN_CALIB_CMD	0xb1
 
+/* WiPAN commands */
 #define REPLY_WIPAN_PARAMS_CMD		0xb2
 #define REPLY_WIPAN_RX_ON_CMD		0xb3
 #define REPLY_WIPAN_RX_ON_TIMING	0xb4
@@ -293,9 +332,11 @@ struct iwm_ct_kill_cfg_cmd {
 #define REPLY_WIPAN_QOS_PARAM		0xb7
 #define WIPAN_REPLY_WEPKEY		0xb8
 
+/* BeamForming commands */
 #define BEAMFORMER_CFG_CMD		0xba
 #define BEAMFORMEE_NOTIFICATION		0xbb
 
+/* TGn new Commands */
 #define REPLY_RX_PHY_CMD		0xc0
 #define REPLY_RX_MPDU_CMD		0xc1
 #define REPLY_MULTICAST_HASH		0xc2
@@ -303,11 +344,13 @@ struct iwm_ct_kill_cfg_cmd {
 #define REPLY_RX_DSP_EXT_INFO		0xc4
 #define REPLY_COMPRESSED_BA		0xc5
 
+/* PNC commands */
 #define PNC_CONFIG_CMD			0xc8
 #define PNC_UPDATE_TABLE_CMD		0xc9
 #define XVT_GENERAL_CTRL_CMD		0xca
 #define REPLY_LEGACY_RADIO_FE		0xdd
 
+/* WoWLAN commands */
 #define WOWLAN_PATTERNS			0xe0
 #define WOWLAN_WAKEUP_FILTER		0xe1
 #define WOWLAN_TSC_RSC_PARAM		0xe2
@@ -324,6 +367,7 @@ struct iwm_ct_kill_cfg_cmd {
 #define REPLY_DEBUG_DC_CALIB		0xf4
 #define REPLY_DYNAMIC_BP		0xf5
 
+/* General purpose Commands */
 #define REPLY_GP1_CMD			0xfa
 #define REPLY_GP2_CMD			0xfb
 #define REPLY_GP3_CMD			0xfc
@@ -335,6 +379,7 @@ struct iwm_ct_kill_cfg_cmd {
 #define LMAC_COMMAND_ID_NUM		(LMAC_COMMAND_ID_MAX + 1)
 
 
+/* Calibration */
 
 enum {
 	PHY_CALIBRATE_DC_CMD			= 0,
@@ -421,7 +466,7 @@ struct iwm_lmac_power_report {
 } __packed;
 
 struct iwm_lmac_tx_resp {
-	u8 frame_cnt; 
+	u8 frame_cnt; /* 1-no aggregation, greater then 1 - aggregation */
 	u8 bt_kill_cnt;
 	__le16 retry_cnt;
 	__le32 initial_tx_rate;

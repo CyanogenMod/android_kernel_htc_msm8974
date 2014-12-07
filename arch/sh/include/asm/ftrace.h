@@ -3,7 +3,7 @@
 
 #ifdef CONFIG_FUNCTION_TRACER
 
-#define MCOUNT_INSN_SIZE	4 
+#define MCOUNT_INSN_SIZE	4 /* sizeof mcount call */
 #define FTRACE_SYSCALL_MAX	NR_syscalls
 
 #ifndef __ASSEMBLY__
@@ -21,22 +21,23 @@ extern void mcount(void);
 #define GRAPH_INSN_OFFSET	((CALLER_ADDR - GRAPH_ADDR) - 4)
 
 struct dyn_arch_ftrace {
-	
+	/* No extra data needed on sh */
 };
 
-#endif 
+#endif /* CONFIG_DYNAMIC_FTRACE */
 
 static inline unsigned long ftrace_call_adjust(unsigned long addr)
 {
-	
+	/* 'addr' is the memory table address. */
 	return addr;
 }
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* CONFIG_FUNCTION_TRACER */
 
 #ifndef __ASSEMBLY__
 
+/* arch/sh/kernel/return_address.c */
 extern void *return_address(unsigned int);
 
 #define HAVE_ARCH_CALLER_ADDR
@@ -49,6 +50,6 @@ extern void *return_address(unsigned int);
 #define CALLER_ADDR5 ((unsigned long)return_address(5))
 #define CALLER_ADDR6 ((unsigned long)return_address(6))
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __ASM_SH_FTRACE_H */

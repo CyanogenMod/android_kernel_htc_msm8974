@@ -38,11 +38,11 @@
 #include <asm/uaccess.h>
 #include <asm/machvec.h>
 
-#define BASE_DIR	"srm_environment"	
-#define NAMED_DIR	"named_variables"	
-#define NUMBERED_DIR	"numbered_variables"	
-#define VERSION		"0.0.6"			
-#define NAME		"srm_env"		
+#define BASE_DIR	"srm_environment"	/* Subdir in /proc/		*/
+#define NAMED_DIR	"named_variables"	/* Subdir for known variables	*/
+#define NUMBERED_DIR	"numbered_variables"	/* Subdir for all variables	*/
+#define VERSION		"0.0.6"			/* Module version		*/
+#define NAME		"srm_env"		/* Module name			*/
 
 MODULE_AUTHOR("Jan-Benedict Glaw <jbglaw@lug-owl.de>");
 MODULE_DESCRIPTION("Accessing Alpha SRM environment through procfs interface");
@@ -156,6 +156,9 @@ srm_env_cleanup(void)
 	unsigned long	var_num;
 
 	if (base_dir) {
+		/*
+		 * Remove named entries
+		 */
 		if (named_dir) {
 			entry = srm_named_entries;
 			while (entry->name != NULL && entry->id != 0) {
@@ -169,6 +172,9 @@ srm_env_cleanup(void)
 			remove_proc_entry(NAMED_DIR, base_dir);
 		}
 
+		/*
+		 * Remove numbered entries
+		 */
 		if (numbered_dir) {
 			for (var_num = 0; var_num <= 255; var_num++) {
 				entry =	&srm_numbered_entries[var_num];
@@ -195,6 +201,9 @@ srm_env_init(void)
 	srm_env_t	*entry;
 	unsigned long	var_num;
 
+	/*
+	 * Check system
+	 */
 	if (!alpha_using_srm) {
 		printk(KERN_INFO "%s: This Alpha system doesn't "
 				"know about SRM (or you've booted "
@@ -203,9 +212,15 @@ srm_env_init(void)
 		return -ENODEV;
 	}
 
+	/*
+	 * Init numbers
+	 */
 	for (var_num = 0; var_num <= 255; var_num++)
 		sprintf(number[var_num], "%ld", var_num);
 
+	/*
+	 * Create base directory
+	 */
 	base_dir = proc_mkdir(BASE_DIR, NULL);
 	if (!base_dir) {
 		printk(KERN_ERR "Couldn't create base dir /proc/%s\n",
@@ -213,6 +228,9 @@ srm_env_init(void)
 		goto cleanup;
 	}
 
+	/*
+	 * Create per-name subdirectory
+	 */
 	named_dir = proc_mkdir(NAMED_DIR, base_dir);
 	if (!named_dir) {
 		printk(KERN_ERR "Couldn't create dir /proc/%s/%s\n",
@@ -220,6 +238,9 @@ srm_env_init(void)
 		goto cleanup;
 	}
 
+	/*
+	 * Create per-number subdirectory
+	 */
 	numbered_dir = proc_mkdir(NUMBERED_DIR, base_dir);
 	if (!numbered_dir) {
 		printk(KERN_ERR "Couldn't create dir /proc/%s/%s\n",
@@ -228,6 +249,9 @@ srm_env_init(void)
 
 	}
 
+	/*
+	 * Create all named nodes
+	 */
 	entry = srm_named_entries;
 	while (entry->name && entry->id) {
 		entry->proc_entry = proc_create_data(entry->name, 0644, named_dir,
@@ -237,6 +261,9 @@ srm_env_init(void)
 		entry++;
 	}
 
+	/*
+	 * Create all numbered nodes
+	 */
 	for (var_num = 0; var_num <= 255; var_num++) {
 		entry = &srm_numbered_entries[var_num];
 		entry->name = number[var_num];

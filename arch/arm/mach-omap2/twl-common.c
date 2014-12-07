@@ -63,13 +63,13 @@ void __init omap4_pmic_init(const char *pmic_type,
 		    struct twl4030_platform_data *pmic_data,
 		    struct twl6040_platform_data *twl6040_data, int twl6040_irq)
 {
-	
+	/* PMIC part*/
 	strncpy(omap4_i2c1_board_info[0].type, pmic_type,
 		sizeof(omap4_i2c1_board_info[0].type));
 	omap4_i2c1_board_info[0].irq = OMAP44XX_IRQ_SYS_1N;
 	omap4_i2c1_board_info[0].platform_data = pmic_data;
 
-	
+	/* TWL6040 audio IC part */
 	omap4_i2c1_board_info[1].irq = twl6040_irq;
 	omap4_i2c1_board_info[1].platform_data = twl6040_data;
 
@@ -79,7 +79,7 @@ void __init omap4_pmic_init(const char *pmic_type,
 
 void __init omap_pmic_late_init(void)
 {
-	
+	/* Init the OMAP TWL parameters (if PMIC has been registerd) */
 	if (pmic_i2c_board_info.irq)
 		omap3_twl_init();
 	if (omap4_i2c1_board_info[0].irq)
@@ -92,6 +92,7 @@ static struct twl4030_usb_data omap3_usb_pdata = {
 };
 
 static int omap3_batt_table[] = {
+/* 0 C */
 30800, 29500, 28300, 27100,
 26000, 24900, 23900, 22900, 22000, 21100, 20300, 19400, 18700, 17900,
 17200, 16500, 15900, 15300, 14700, 14100, 13600, 13100, 12600, 12100,
@@ -160,7 +161,7 @@ void __init omap3_pmic_get_config(struct twl4030_platform_data *pmic_data,
 	if (!pmic_data->irq_end)
 		pmic_data->irq_end = TWL4030_IRQ_END;
 
-	
+	/* Common platform data configurations */
 	if (pdata_flags & TWL_COMMON_PDATA_USB && !pmic_data->usb)
 		pmic_data->usb = &omap3_usb_pdata;
 
@@ -173,14 +174,14 @@ void __init omap3_pmic_get_config(struct twl4030_platform_data *pmic_data,
 	if (pdata_flags & TWL_COMMON_PDATA_AUDIO && !pmic_data->audio)
 		pmic_data->audio = &omap3_audio_pdata;
 
-	
+	/* Common regulator configurations */
 	if (regulators_flags & TWL_COMMON_REGULATOR_VDAC && !pmic_data->vdac)
 		pmic_data->vdac = &omap3_vdac_idata;
 
 	if (regulators_flags & TWL_COMMON_REGULATOR_VPLL2 && !pmic_data->vpll2)
 		pmic_data->vpll2 = &omap3_vpll2_idata;
 }
-#endif 
+#endif /* CONFIG_ARCH_OMAP3 */
 
 #if defined(CONFIG_ARCH_OMAP4)
 static struct twl4030_usb_data omap4_usb_pdata = {
@@ -232,6 +233,7 @@ static struct regulator_consumer_supply omap4_vmmc_supply[] = {
 	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.0"),
 };
 
+/* VMMC1 for MMC1 card */
 static struct regulator_init_data omap4_vmmc_idata = {
 	.constraints = {
 		.min_uV			= 1200000,
@@ -316,11 +318,11 @@ void __init omap4_pmic_get_config(struct twl4030_platform_data *pmic_data,
 	if (!pmic_data->irq_end)
 		pmic_data->irq_end = TWL6030_IRQ_END;
 
-	
+	/* Common platform data configurations */
 	if (pdata_flags & TWL_COMMON_PDATA_USB && !pmic_data->usb)
 		pmic_data->usb = &omap4_usb_pdata;
 
-	
+	/* Common regulator configurations */
 	if (regulators_flags & TWL_COMMON_REGULATOR_VDAC && !pmic_data->vdac)
 		pmic_data->vdac = &omap4_vdac_idata;
 
@@ -349,4 +351,4 @@ void __init omap4_pmic_get_config(struct twl4030_platform_data *pmic_data,
 	    !pmic_data->clk32kg)
 		pmic_data->clk32kg = &omap4_clk32kg_idata;
 }
-#endif 
+#endif /* CONFIG_ARCH_OMAP4 */

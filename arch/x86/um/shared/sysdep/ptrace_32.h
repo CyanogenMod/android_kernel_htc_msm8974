@@ -14,6 +14,7 @@
 
 static inline void update_debugregs(int seq) {}
 
+/* syscall emulation path in ptrace */
 
 #ifndef PTRACE_SYSEMU
 #define PTRACE_SYSEMU 31

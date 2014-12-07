@@ -1,3 +1,10 @@
+/*
+ * serial167.h
+ *
+ * Richard Hirst [richard@sleepie.demon.co.uk]
+ *
+ * Based on cyclades.h
+ */
 
 struct cyclades_monitor {
         unsigned long           int_count;
@@ -6,13 +13,21 @@ struct cyclades_monitor {
         unsigned long           char_last;
 };
 
+/*
+ * This is our internal structure for each serial port's state.
+ * 
+ * Many fields are paralleled by the structure used by the serial_struct
+ * structure.
+ *
+ * For definitions of the flags field, see tty.h
+ */
 
 struct cyclades_port {
 	int                     magic;
 	int                     type;
 	int			card;
 	int			line;
-	int			flags; 		
+	int			flags; 		/* defined in tty.h */
 	struct tty_struct 	*tty;
 	int			read_status_mask;
 	int			timeout;
@@ -21,12 +36,12 @@ struct cyclades_port {
 	int                     tbpr,tco,rbpr,rco;
 	int			ignore_status_mask;
 	int			close_delay;
-	int			IER; 	
+	int			IER; 	/* Interrupt Enable Register */
 	unsigned long		last_active;
-	int			count;	
-	int                     x_char; 
+	int			count;	/* # of fd on device */
+	int                     x_char; /* to be pushed out ASAP */
 	int                     x_break;
-	int			blocked_open; 
+	int			blocked_open; /* # of blocked opens */
 	unsigned char 		*xmit_buf;
 	int			xmit_head;
 	int			xmit_tail;
@@ -52,6 +67,7 @@ struct cyclades_port {
 
 #define CyMaxChipsPerCard 1
 
+/**** cd2401 registers ****/
 
 #define CyGFRCR         (0x81)
 #define CyCCR		(0x13)
@@ -111,7 +127,7 @@ struct cyclades_port {
 #define      Cy_1_STOP		(0x02)
 #define      Cy_2_STOP		(0x04)
 #define CyCOR4		(0x15)
-#define      CyREC_FIFO		(0x0F)  
+#define      CyREC_FIFO		(0x0F)  /* Receive FIFO threshold */
 #define CyCOR5		(0x14)
 #define CyCOR6		(0x18)
 #define CyCOR7		(0x07)
@@ -134,6 +150,8 @@ struct cyclades_port {
 #define CyTFTC		(0x80)
 
 
+/* max number of chars in the FIFO */
 
 #define CyMAX_CHAR_FIFO	12
 
+/***************************************************************************/

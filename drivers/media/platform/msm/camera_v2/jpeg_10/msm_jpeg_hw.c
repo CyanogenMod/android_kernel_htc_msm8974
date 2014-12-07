@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -36,12 +36,12 @@ int msm_jpeg_hw_pingpong_update(struct msm_jpeg_hw_pingpong *pingpong_hw,
 	pingpong_hw->buf_status[buf_free_index] = 1;
 
 	if (pingpong_hw->is_fe) {
-		
+		/* it is fe */
 		msm_jpeg_hw_fe_buffer_update(
 			&pingpong_hw->buf[buf_free_index], buf_free_index,
 			base);
 	} else {
-		
+		/* it is we */
 		msm_jpeg_hw_we_buffer_update(
 			&pingpong_hw->buf[buf_free_index], buf_free_index,
 			base);
@@ -75,7 +75,7 @@ void *msm_jpeg_hw_pingpong_active_buffer(
 }
 
 struct msm_jpeg_hw_cmd hw_cmd_irq_get_status[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_JPEG_HW_CMD_TYPE_READ, 1, JPEG_IRQ_STATUS_ADDR,
 		JPEG_IRQ_STATUS_BMSK, {0} },
 };
@@ -88,7 +88,7 @@ int msm_jpeg_hw_irq_get_status(void *base)
 }
 
 struct msm_jpeg_hw_cmd hw_cmd_encode_output_size[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_JPEG_HW_CMD_TYPE_READ, 1,
 	JPEG_ENCODE_OUTPUT_SIZE_STATUS_ADDR,
 	JPEG_ENCODE_OUTPUT_SIZE_STATUS_BMSK, {0} } ,
@@ -105,7 +105,7 @@ long msm_jpeg_hw_encode_output_size(void *base)
 }
 
 struct msm_jpeg_hw_cmd hw_cmd_irq_clear[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_IRQ_CLEAR_ADDR,
 		JPEG_IRQ_CLEAR_BMSK, {JPEG_IRQ_CLEAR_ALL} },
 };
@@ -119,7 +119,7 @@ void msm_jpeg_hw_irq_clear(uint32_t mask, uint32_t data, void *base)
 }
 
 struct msm_jpeg_hw_cmd hw_cmd_fe_ping_update[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_IRQ_MASK_ADDR,
 		JPEG_IRQ_MASK_BMSK, {JPEG_IRQ_ALLSOURCES_ENABLE} },
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_CMD_ADDR,
@@ -170,7 +170,7 @@ void msm_jpeg_hw_fe_buffer_update(struct msm_jpeg_hw_buf *p_input,
 }
 
 struct msm_jpeg_hw_cmd hw_cmd_fe_start[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_CMD_ADDR,
 		JPEG_CMD_BMSK, {JPEG_OFFLINE_CMD_START} },
 };
@@ -183,7 +183,7 @@ void msm_jpeg_hw_fe_start(void *base)
 }
 
 struct msm_jpeg_hw_cmd hw_cmd_we_ping_update[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_PLN0_WR_PNTR_ADDR,
 		JPEG_PLN0_WR_PNTR_BMSK, {0} },
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_PLN1_WR_PNTR_ADDR,
@@ -232,7 +232,7 @@ void msm_jpeg_hw_we_buffer_update(struct msm_jpeg_hw_buf *p_input,
 }
 
 struct msm_jpeg_hw_cmd hw_cmd_reset[] = {
-	
+	/* type, repeat n times, offset, mask, data or pdata */
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_IRQ_MASK_ADDR,
 		JPEG_IRQ_MASK_BMSK, {JPEG_IRQ_DISABLE_ALL} },
 	{MSM_JPEG_HW_CMD_TYPE_WRITE, 1, JPEG_IRQ_CLEAR_ADDR,
@@ -328,7 +328,7 @@ void msm_jpeg_hw_delay(struct msm_jpeg_hw_cmd *hw_cmd_p, int m_us)
 int msm_jpeg_hw_exec_cmds(struct msm_jpeg_hw_cmd *hw_cmd_p, uint32_t m_cmds,
 	uint32_t max_size, void *base)
 {
-	int is_copy_to_user = -1;
+	int is_copy_to_user = 0;
 	uint32_t data;
 
 	while (m_cmds--) {

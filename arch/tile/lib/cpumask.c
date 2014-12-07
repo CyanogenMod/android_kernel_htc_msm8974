@@ -17,6 +17,10 @@
 #include <linux/errno.h>
 #include <linux/smp.h>
 
+/*
+ * Allow cropping out bits beyond the end of the array.
+ * Move to "lib" directory if more clients want to use this routine.
+ */
 int bitmap_parselist_crop(const char *bp, unsigned long *maskp, int nmaskbits)
 {
 	unsigned a, b;

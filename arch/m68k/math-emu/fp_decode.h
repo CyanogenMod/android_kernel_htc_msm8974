@@ -38,6 +38,29 @@
 #ifndef _FP_DECODE_H
 #define _FP_DECODE_H
 
+/* These macros do the dirty work of the instr decoding, several variables
+ * can be defined in the source file to modify the work of these macros,
+ * currently the following variables are used:
+ * ...
+ * The register usage:
+ * d0 - will contain source operand for data direct mode,
+ *	otherwise scratch register
+ * d1 - upper 16bit are reserved for caller
+ *	lower 16bit may contain further arguments,
+ *	is destroyed during decoding
+ * d2 - contains first two instruction words,
+ *	first word will be used for extension word
+ * a0 - will point to source/dest operand for any indirect mode
+ *	otherwise scratch register
+ * a1 - scratch register
+ * a2 - base addr to the task structure
+ *
+ * the current implementation doesn't check for every disallowed
+ * addressing mode (e.g. pc relative modes as destination), as long
+ * as it only means a new addressing mode, which should not appear
+ * in a program and that doesn't crash the emulation, I think it's
+ * not a problem to allow these modes.
+ */
 
 do_fmovem=0
 do_fmovem_cr=0
@@ -391,4 +414,4 @@ debug	ext.l	"%d0"
 	printf	PDECODE,"%x.l",1,%a0
 .endm
 
-#endif 
+#endif /* _FP_DECODE_H */

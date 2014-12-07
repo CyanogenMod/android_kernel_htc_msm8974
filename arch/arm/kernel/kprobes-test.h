@@ -8,7 +8,7 @@
  * published by the Free Software Foundation.
  */
 
-#define VERBOSE 0 
+#define VERBOSE 0 /* Set to '1' for more logging of test cases */
 
 #ifdef CONFIG_THUMB2_KERNEL
 #define NORMAL_ISA "16"
@@ -17,6 +17,7 @@
 #endif
 
 
+/* Flags used in kprobe_test_flags */
 #define TEST_FLAG_NO_ITBLOCK	(1<<0)
 #define TEST_FLAG_FULL_ITBLOCK	(1<<1)
 #define TEST_FLAG_NARROW_INSTR	(1<<2)
@@ -28,6 +29,21 @@ extern int kprobe_test_cc_position;
 #define TEST_MEMORY_SIZE 256
 
 
+/*
+ * Test case structures.
+ *
+ * The arguments given to test cases can be one of three types.
+ *
+ *   ARG_TYPE_REG
+ *	Load a register with the given value.
+ *
+ *   ARG_TYPE_PTR
+ *	Load a register with a pointer into the stack buffer (SP + given value).
+ *
+ *   ARG_TYPE_MEM
+ *	Store the given value into the stack buffer at [SP+index].
+ *
+ */
 
 #define	ARG_TYPE_END	0
 #define	ARG_TYPE_REG	1
@@ -36,37 +52,50 @@ extern int kprobe_test_cc_position;
 
 #define ARG_FLAG_UNSUPPORTED	0x01
 #define ARG_FLAG_SUPPORTED	0x02
-#define ARG_FLAG_THUMB		0x10	
-#define ARG_FLAG_ARM		0x20	
+#define ARG_FLAG_THUMB		0x10	/* Must be 16 so TEST_ISA can be used */
+#define ARG_FLAG_ARM		0x20	/* Must be 32 so TEST_ISA can be used */
 
 struct test_arg {
-	u8	type;		
+	u8	type;		/* ARG_TYPE_x */
 	u8	_padding[7];
 };
 
 struct test_arg_regptr {
-	u8	type;		
+	u8	type;		/* ARG_TYPE_REG or ARG_TYPE_PTR */
 	u8	reg;
 	u8	_padding[2];
 	u32	val;
 };
 
 struct test_arg_mem {
-	u8	type;		
+	u8	type;		/* ARG_TYPE_MEM */
 	u8	index;
 	u8	_padding[2];
 	u32	val;
 };
 
 struct test_arg_end {
-	u8	type;		
-	u8	flags;		
+	u8	type;		/* ARG_TYPE_END */
+	u8	flags;		/* ARG_FLAG_x */
 	u16	code_offset;
 	u16	branch_offset;
 	u16	end_offset;
 };
 
 
+/*
+ * Building blocks for test cases.
+ *
+ * Each test case is wrapped between TESTCASE_START and TESTCASE_END.
+ *
+ * To specify arguments for a test case the TEST_ARG_{REG,PTR,MEM} macros are
+ * used followed by a terminating TEST_ARG_END.
+ *
+ * After this, the instruction to be tested is defined with TEST_INSTRUCTION.
+ * Or for branches, TEST_BRANCH_B and TEST_BRANCH_F (branch forwards/backwards).
+ *
+ * Some specific test cases may make use of other custom constructs.
+ */
 
 #if VERBOSE
 #define verbose(fmt, ...) pr_info(fmt, ##__VA_ARGS__)
@@ -82,8 +111,8 @@ struct test_arg_end {
 #define TESTCASE_START(title)					\
 	__asm__ __volatile__ (					\
 	"bl	__kprobes_test_case_start		\n\t"	\
-			\
-			\
+	/* don't use .asciz here as 'title' may be */		\
+	/* multiple strings to be concatenated.  */		\
 	".ascii "#title"				\n\t"	\
 	".byte	0					\n\t"	\
 	".align	2					\n\t"
@@ -157,6 +186,22 @@ struct test_arg_end {
 	);
 
 
+/*
+ * Macros to define test cases.
+ *
+ * Those of the form TEST_{R,P,M}* can be used to define test cases
+ * which take combinations of the three basic types of arguments. E.g.
+ *
+ *   TEST_R	One register argument
+ *   TEST_RR	Two register arguments
+ *   TEST_RPR	A register, a pointer, then a register argument
+ *
+ * For testing instructions which may branch, there are macros TEST_BF_*
+ * and TEST_BB_* for branching forwards and backwards.
+ *
+ * TEST_SUPPORTED and TEST_UNSUPPORTED don't cause the code to be executed,
+ * the just verify that a kprobe is or is not allowed on the given instruction.
+ */
 
 #define TEST(code)				\
 	TESTCASE_START(code)			\
@@ -348,6 +393,12 @@ struct test_arg_end {
 	TESTCASE_END
 
 
+/*
+ * Macros for defining space directives spread over multiple lines.
+ * These are required so the compiler guesses better the length of inline asm
+ * code and will spill the literal pool early enough to avoid generating PC
+ * relative loads with out of range offsets.
+ */
 #define TWICE(x)	x x
 #define SPACE_0x8	TWICE(".space 4\n\t")
 #define SPACE_0x10	TWICE(SPACE_0x8)
@@ -361,6 +412,7 @@ struct test_arg_end {
 #define SPACE_0x1000	TWICE(SPACE_0x800)
 
 
+/* Various values used in test cases... */
 #define N(val)	(val ^ 0xffffffff)
 #define VAL1	0x12345678
 #define VAL2	N(VAL1)

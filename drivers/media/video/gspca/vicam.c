@@ -44,22 +44,25 @@ MODULE_LICENSE("GPL");
 enum e_ctrl {
 	GAIN,
 	EXPOSURE,
-	NCTRL		
+	NCTRL		/* number of controls */
 };
 
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 	struct work_struct work_struct;
 	struct workqueue_struct *work_thread;
 	struct gspca_ctrl ctrls[NCTRL];
 };
 
+/* The vicam sensor has a resolution of 512 x 244, with I believe square
+   pixels, but this is forced to a 4:3 ratio by optics. So it has
+   non square pixels :( */
 static struct v4l2_pix_format vicam_mode[] = {
 	{ 256, 122, V4L2_PIX_FMT_SGRBG8, V4L2_FIELD_NONE,
 		.bytesperline = 256,
 		.sizeimage = 256 * 122,
 		.colorspace = V4L2_COLORSPACE_SRGB,},
-	
+	/* 2 modes with somewhat more square pixels */
 	{ 256, 200, V4L2_PIX_FMT_SGRBG8, V4L2_FIELD_NONE,
 		.bytesperline = 256,
 		.sizeimage = 256 * 200,
@@ -68,7 +71,7 @@ static struct v4l2_pix_format vicam_mode[] = {
 		.bytesperline = 256,
 		.sizeimage = 256 * 240,
 		.colorspace = V4L2_COLORSPACE_SRGB,},
-#if 0   
+#if 0   /* This mode has extremely non square pixels, testing use only */
 	{ 512, 122, V4L2_PIX_FMT_SGRBG8, V4L2_FIELD_NONE,
 		.bytesperline = 512,
 		.sizeimage = 512 * 122,
@@ -135,6 +138,9 @@ static int vicam_set_camera_power(struct gspca_dev *gspca_dev, int state)
 	return ret;
 }
 
+/*
+ *  request and read a block of data - see warning on vicam_command.
+ */
 static int vicam_read_frame(struct gspca_dev *gspca_dev, u8 *data, int size)
 {
 	struct sd *sd = (struct sd *)gspca_dev;
@@ -144,35 +150,35 @@ static int vicam_read_frame(struct gspca_dev *gspca_dev, u8 *data, int size)
 	memset(req_data, 0, 16);
 	req_data[0] = sd->ctrls[GAIN].val;
 	if (gspca_dev->width == 256)
-		req_data[1] |= 0x01; 
+		req_data[1] |= 0x01; /* low nibble x-scale */
 	if (gspca_dev->height <= 122) {
-		req_data[1] |= 0x10; 
+		req_data[1] |= 0x10; /* high nibble y-scale */
 		unscaled_height = gspca_dev->height * 2;
 	} else
 		unscaled_height = gspca_dev->height;
-	req_data[2] = 0x90; 
+	req_data[2] = 0x90; /* unknown, does not seem to do anything */
 	if (unscaled_height <= 200)
-		req_data[3] = 0x06; 
-	else if (unscaled_height <= 242) 
-		req_data[3] = 0x07; 
-	else 
-		req_data[3] = 0x08; 
+		req_data[3] = 0x06; /* vend? */
+	else if (unscaled_height <= 242) /* Yes 242 not 240 */
+		req_data[3] = 0x07; /* vend? */
+	else /* Up to 244 lines with req_data[3] == 0x08 */
+		req_data[3] = 0x08; /* vend? */
 
 	if (sd->ctrls[EXPOSURE].val < 256) {
-		
+		/* Frame rate maxed out, use partial frame expo time */
 		req_data[4] = 255 - sd->ctrls[EXPOSURE].val;
 		req_data[5] = 0x00;
 		req_data[6] = 0x00;
 		req_data[7] = 0x01;
 	} else {
-		
+		/* Modify frame rate */
 		req_data[4] = 0x00;
 		req_data[5] = 0x00;
 		req_data[6] = sd->ctrls[EXPOSURE].val & 0xFF;
 		req_data[7] = sd->ctrls[EXPOSURE].val >> 8;
 	}
-	req_data[8] = ((244 - unscaled_height) / 2) & ~0x01; 
-	
+	req_data[8] = ((244 - unscaled_height) / 2) & ~0x01; /* vstart */
+	/* bytes 9-15 do not seem to affect exposure or image quality */
 
 	mutex_lock(&gspca_dev->usb_lock);
 	ret = vicam_control_msg(gspca_dev, 0x51, 0x80, 0, req_data, 16);
@@ -183,7 +189,7 @@ static int vicam_read_frame(struct gspca_dev *gspca_dev, u8 *data, int size)
 	ret = usb_bulk_msg(gspca_dev->dev,
 			   usb_rcvbulkpipe(gspca_dev->dev, 0x81),
 			   data, size, &act_len, 10000);
-	
+	/* successful, it returns 0, otherwise  negative */
 	if (ret < 0 || act_len != size) {
 		pr_err("bulk read fail (%d) len %d/%d\n",
 		       ret, act_len, size);
@@ -192,6 +198,15 @@ static int vicam_read_frame(struct gspca_dev *gspca_dev, u8 *data, int size)
 	return 0;
 }
 
+/* This function is called as a workqueue function and runs whenever the camera
+ * is streaming data. Because it is a workqueue function it is allowed to sleep
+ * so we can use synchronous USB calls. To avoid possible collisions with other
+ * threads attempting to use the camera's USB interface we take the gspca
+ * usb_lock when performing USB operations. In practice the only thing we need
+ * to protect against is the usb_set_interface call that gspca makes during
+ * stream_off as the camera doesn't provide any controls that the user could try
+ * to change.
+ */
 static void vicam_dostream(struct work_struct *work)
 {
 	struct sd *sd = container_of(work, struct sd, work_struct);
@@ -212,6 +227,11 @@ static void vicam_dostream(struct work_struct *work)
 		if (ret < 0)
 			break;
 
+		/* Note the frame header contents seem to be completely
+		   constant, they do not change with either image, or
+		   settings. So we simply discard it. The frames have
+		   a very similar 64 byte footer, which we don't even
+		   bother reading from the cam */
 		gspca_frame_add(gspca_dev, FIRST_PACKET,
 				buffer + HEADER_SIZE,
 				frame_sz - HEADER_SIZE);
@@ -221,13 +241,14 @@ exit:
 	kfree(buffer);
 }
 
+/* This function is called at probe time just before sd_init */
 static int sd_config(struct gspca_dev *gspca_dev,
 		const struct usb_device_id *id)
 {
 	struct cam *cam = &gspca_dev->cam;
 	struct sd *sd = (struct sd *)gspca_dev;
 
-	
+	/* We don't use the buffer gspca allocates so make it small. */
 	cam->bulk = 1;
 	cam->bulk_size = 64;
 	cam->cam_mode = vicam_mode;
@@ -239,6 +260,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	int ret;
@@ -272,6 +294,7 @@ exit:
 	return ret;
 }
 
+/* Set up for getting frames. */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *)gspca_dev;
@@ -281,20 +304,22 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Start the workqueue function to do the streaming */
 	sd->work_thread = create_singlethread_workqueue(MODULE_NAME);
 	queue_work(sd->work_thread, &sd->work_struct);
 
 	return 0;
 }
 
+/* called on streamoff with alt==0 and on disconnect */
+/* the usb_lock is held at entry - restore on exit */
 static void sd_stop0(struct gspca_dev *gspca_dev)
 {
 	struct sd *dev = (struct sd *)gspca_dev;
 
-	
+	/* wait for the work queue to terminate */
 	mutex_unlock(&gspca_dev->usb_lock);
-	
+	/* This waits for vicam_dostream to finish */
 	destroy_workqueue(dev->work_thread);
 	dev->work_thread = NULL;
 	mutex_lock(&gspca_dev->usb_lock);
@@ -303,6 +328,7 @@ static void sd_stop0(struct gspca_dev *gspca_dev)
 		vicam_set_camera_power(gspca_dev, 0);
 }
 
+/* Table of supported USB devices */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x04c1, 0x009d)},
 	{USB_DEVICE(0x0602, 0x1001)},
@@ -311,6 +337,7 @@ static const struct usb_device_id device_table[] = {
 
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name   = MODULE_NAME,
 	.ctrls  = sd_ctrls,
@@ -321,6 +348,7 @@ static const struct sd_desc sd_desc = {
 	.stop0  = sd_stop0,
 };
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 		const struct usb_device_id *id)
 {

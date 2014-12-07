@@ -53,20 +53,30 @@ struct msm_gemini_device {
 	char	  open_count;
 	uint8_t       op_mode;
 
+	/* event queue including frame done & err indications
+	 */
 	struct msm_gemini_q evt_q;
 
+	/* output return queue
+	 */
 	struct msm_gemini_q output_rtn_q;
 
+	/* output buf queue
+	 */
 	struct msm_gemini_q output_buf_q;
 
+	/* input return queue
+	 */
 	struct msm_gemini_q input_rtn_q;
 
+	/* input buf queue
+	 */
 	struct msm_gemini_q input_buf_q;
 
 	struct v4l2_subdev subdev;
 	enum msm_gmn_out_mode out_mode;
 
-	
+	/*single out mode parameters*/
 	struct msm_gemini_hw_buf out_buf;
 	int out_offset;
 	int out_buf_set;
@@ -85,4 +95,4 @@ long __msm_gemini_ioctl(struct msm_gemini_device *pgmn_dev,
 struct msm_gemini_device *__msm_gemini_init(struct platform_device *pdev);
 int __msm_gemini_exit(struct msm_gemini_device *pgmn_dev);
 
-#endif 
+#endif /* MSM_GEMINI_SYNC_H */

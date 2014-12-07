@@ -27,10 +27,10 @@
 
 struct or51132_config
 {
-	
+	/* The demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* Need to set device param for start_dma */
 	int (*set_ts_params)(struct dvb_frontend* fe, int is_punctured);
 };
 
@@ -44,7 +44,12 @@ static inline struct dvb_frontend* or51132_attach(const struct or51132_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_OR51132
 
-#endif 
+#endif // OR51132_H
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

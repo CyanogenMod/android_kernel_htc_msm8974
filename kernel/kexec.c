@@ -39,13 +39,16 @@
 #include <asm/io.h>
 #include <asm/sections.h>
 
+/* Per cpu memory for storing cpu states in case of system crash. */
 note_buf_t __percpu *crash_notes;
 
+/* vmcoreinfo stuff */
 static unsigned char vmcoreinfo_data[VMCOREINFO_BYTES];
 u32 vmcoreinfo_note[VMCOREINFO_NOTE_SIZE/4];
 size_t vmcoreinfo_size;
 size_t vmcoreinfo_max_size = sizeof(vmcoreinfo_data);
 
+/* Location of the reserved area for the crash kernel */
 struct resource crashk_res = {
 	.name  = "Crash kernel",
 	.start = 0,
@@ -60,7 +63,50 @@ int kexec_should_crash(struct task_struct *p)
 	return 0;
 }
 
+/*
+ * When kexec transitions to the new kernel there is a one-to-one
+ * mapping between physical and virtual addresses.  On processors
+ * where you can disable the MMU this is trivial, and easy.  For
+ * others it is still a simple predictable page table to setup.
+ *
+ * In that environment kexec copies the new kernel to its final
+ * resting place.  This means I can only support memory whose
+ * physical address can fit in an unsigned long.  In particular
+ * addresses where (pfn << PAGE_SHIFT) > ULONG_MAX cannot be handled.
+ * If the assembly stub has more restrictive requirements
+ * KEXEC_SOURCE_MEMORY_LIMIT and KEXEC_DEST_MEMORY_LIMIT can be
+ * defined more restrictively in <asm/kexec.h>.
+ *
+ * The code for the transition from the current kernel to the
+ * the new kernel is placed in the control_code_buffer, whose size
+ * is given by KEXEC_CONTROL_PAGE_SIZE.  In the best case only a single
+ * page of memory is necessary, but some architectures require more.
+ * Because this memory must be identity mapped in the transition from
+ * virtual to physical addresses it must live in the range
+ * 0 - TASK_SIZE, as only the user space mappings are arbitrarily
+ * modifiable.
+ *
+ * The assembly stub in the control code buffer is passed a linked list
+ * of descriptor pages detailing the source pages of the new kernel,
+ * and the destination addresses of those source pages.  As this data
+ * structure is not used in the context of the current OS, it must
+ * be self-contained.
+ *
+ * The code has been made to work with highmem pages and will use a
+ * destination page in its final resting place (if it happens
+ * to allocate it).  The end product of this is that most of the
+ * physical address space, and most of RAM can be used.
+ *
+ * Future directions include:
+ *  - allocating a page table with the control code buffer identity
+ *    mapped, to simplify machine_kexec and make kexec_on_panic more
+ *    reliable.
+ */
 
+/*
+ * KIMAGE_NO_DEST is an impossible destination address..., for
+ * allocating pages whose destination address we do not care about.
+ */
 #define KIMAGE_NO_DEST (-1UL)
 
 static int kimage_is_destination_range(struct kimage *image,
@@ -78,7 +124,7 @@ static int do_kimage_alloc(struct kimage **rimage, unsigned long entry,
 	unsigned long i;
 	int result;
 
-	
+	/* Allocate a controlling structure */
 	result = -ENOMEM;
 	image = kzalloc(sizeof(*image), GFP_KERNEL);
 	if (!image)
@@ -87,20 +133,20 @@ static int do_kimage_alloc(struct kimage **rimage, unsigned long entry,
 	image->head = 0;
 	image->entry = &image->head;
 	image->last_entry = &image->head;
-	image->control_page = ~0; 
+	image->control_page = ~0; /* By default this does not apply */
 	image->start = entry;
 	image->type = KEXEC_TYPE_DEFAULT;
 
-	
+	/* Initialize the list of control pages */
 	INIT_LIST_HEAD(&image->control_pages);
 
-	
+	/* Initialize the list of destination pages */
 	INIT_LIST_HEAD(&image->dest_pages);
 
-	
+	/* Initialize the list of unusable pages */
 	INIT_LIST_HEAD(&image->unuseable_pages);
 
-	
+	/* Read in the segments */
 	image->nr_segments = nr_segments;
 	segment_bytes = nr_segments * sizeof(*segments);
 	result = copy_from_user(image->segment, segments, segment_bytes);
@@ -109,6 +155,19 @@ static int do_kimage_alloc(struct kimage **rimage, unsigned long entry,
 		goto out;
 	}
 
+	/*
+	 * Verify we have good destination addresses.  The caller is
+	 * responsible for making certain we don't attempt to load
+	 * the new image into invalid or reserved areas of RAM.  This
+	 * just verifies it is an address we can use.
+	 *
+	 * Since the kernel does everything in page size chunks ensure
+	 * the destination addresses are page aligned.  Too many
+	 * special cases crop of when we don't do this.  The most
+	 * insidious is getting overlapping destination addresses
+	 * simply because addresses are changed to page size
+	 * granularity.
+	 */
 	result = -EADDRNOTAVAIL;
 	for (i = 0; i < nr_segments; i++) {
 		unsigned long mstart, mend;
@@ -121,6 +180,11 @@ static int do_kimage_alloc(struct kimage **rimage, unsigned long entry,
 			goto out;
 	}
 
+	/* Verify our destination addresses do not overlap.
+	 * If we alloed overlapping destination addresses
+	 * through very weird things can happen with no
+	 * easy explanation as one segment stops on another.
+	 */
 	result = -EINVAL;
 	for (i = 0; i < nr_segments; i++) {
 		unsigned long mstart, mend;
@@ -132,12 +196,17 @@ static int do_kimage_alloc(struct kimage **rimage, unsigned long entry,
 			unsigned long pstart, pend;
 			pstart = image->segment[j].mem;
 			pend   = pstart + image->segment[j].memsz;
-			
+			/* Do the segments overlap ? */
 			if ((mend > pstart) && (mstart < pend))
 				goto out;
 		}
 	}
 
+	/* Ensure our buffer sizes are strictly less than
+	 * our memory sizes.  This should always be the case,
+	 * and it is easier to check up front than to be surprised
+	 * later on.
+	 */
 	result = -EINVAL;
 	for (i = 0; i < nr_segments; i++) {
 		if (image->segment[i].bufsz > image->segment[i].memsz)
@@ -162,7 +231,7 @@ static int kimage_normal_alloc(struct kimage **rimage, unsigned long entry,
 	int result;
 	struct kimage *image;
 
-	
+	/* Allocate and initialize a controlling structure */
 	image = NULL;
 	result = do_kimage_alloc(&image, entry, nr_segments, segments);
 	if (result)
@@ -170,6 +239,11 @@ static int kimage_normal_alloc(struct kimage **rimage, unsigned long entry,
 
 	*rimage = image;
 
+	/*
+	 * Find a location for the control code buffer, and add it
+	 * the vector of segments so that it's pages will also be
+	 * counted as destination pages.
+	 */
 	result = -ENOMEM;
 	image->control_code_page = kimage_alloc_control_pages(image,
 					   get_order(KEXEC_CONTROL_PAGE_SIZE));
@@ -203,31 +277,48 @@ static int kimage_crash_alloc(struct kimage **rimage, unsigned long entry,
 	unsigned long i;
 
 	image = NULL;
-	
+	/* Verify we have a valid entry point */
 	if ((entry < crashk_res.start) || (entry > crashk_res.end)) {
 		result = -EADDRNOTAVAIL;
 		goto out;
 	}
 
-	
+	/* Allocate and initialize a controlling structure */
 	result = do_kimage_alloc(&image, entry, nr_segments, segments);
 	if (result)
 		goto out;
 
+	/* Enable the special crash kernel control page
+	 * allocation policy.
+	 */
 	image->control_page = crashk_res.start;
 	image->type = KEXEC_TYPE_CRASH;
 
+	/*
+	 * Verify we have good destination addresses.  Normally
+	 * the caller is responsible for making certain we don't
+	 * attempt to load the new image into invalid or reserved
+	 * areas of RAM.  But crash kernels are preloaded into a
+	 * reserved area of ram.  We must ensure the addresses
+	 * are in the reserved area otherwise preloading the
+	 * kernel could corrupt things.
+	 */
 	result = -EADDRNOTAVAIL;
 	for (i = 0; i < nr_segments; i++) {
 		unsigned long mstart, mend;
 
 		mstart = image->segment[i].mem;
 		mend = mstart + image->segment[i].memsz - 1;
-		
+		/* Ensure we are within the crash kernel limits */
 		if ((mstart < crashk_res.start) || (mend > crashk_res.end))
 			goto out;
 	}
 
+	/*
+	 * Find a location for the control code buffer, and add
+	 * the vector of segments so that it's pages will also be
+	 * counted as destination pages.
+	 */
 	result = -ENOMEM;
 	image->control_code_page = kimage_alloc_control_pages(image,
 					   get_order(KEXEC_CONTROL_PAGE_SIZE));
@@ -308,6 +399,19 @@ static void kimage_free_page_list(struct list_head *list)
 static struct page *kimage_alloc_normal_control_pages(struct kimage *image,
 							unsigned int order)
 {
+	/* Control pages are special, they are the intermediaries
+	 * that are needed while we copy the rest of the pages
+	 * to their final resting place.  As such they must
+	 * not conflict with either the destination addresses
+	 * or memory the kernel is already using.
+	 *
+	 * The only case where we really need more than one of
+	 * these are for architectures where we cannot disable
+	 * the MMU and must instead generate an identity mapped
+	 * page table for all of the memory.
+	 *
+	 * At worst this runs in O(N) of the image size.
+	 */
 	struct list_head extra_pages;
 	struct page *pages;
 	unsigned int count;
@@ -315,6 +419,9 @@ static struct page *kimage_alloc_normal_control_pages(struct kimage *image,
 	count = 1 << order;
 	INIT_LIST_HEAD(&extra_pages);
 
+	/* Loop while I can allocate a page and the page allocated
+	 * is a destination page.
+	 */
 	do {
 		unsigned long pfn, epfn, addr, eaddr;
 
@@ -333,10 +440,23 @@ static struct page *kimage_alloc_normal_control_pages(struct kimage *image,
 	} while (!pages);
 
 	if (pages) {
-		
+		/* Remember the allocated page... */
 		list_add(&pages->lru, &image->control_pages);
 
+		/* Because the page is already in it's destination
+		 * location we will never allocate another page at
+		 * that address.  Therefore kimage_alloc_pages
+		 * will not return it (again) and we don't need
+		 * to give it an entry in image->segment[].
+		 */
 	}
+	/* Deal with the destination pages I have inadvertently allocated.
+	 *
+	 * Ideally I would convert multi-page allocations into single
+	 * page allocations, and add everything to image->dest_pages.
+	 *
+	 * For now it is simpler to just free the pages.
+	 */
 	kimage_free_page_list(&extra_pages);
 
 	return pages;
@@ -345,6 +465,27 @@ static struct page *kimage_alloc_normal_control_pages(struct kimage *image,
 static struct page *kimage_alloc_crash_control_pages(struct kimage *image,
 						      unsigned int order)
 {
+	/* Control pages are special, they are the intermediaries
+	 * that are needed while we copy the rest of the pages
+	 * to their final resting place.  As such they must
+	 * not conflict with either the destination addresses
+	 * or memory the kernel is already using.
+	 *
+	 * Control pages are also the only pags we must allocate
+	 * when loading a crash kernel.  All of the other pages
+	 * are specified by the segments and we just memcpy
+	 * into them directly.
+	 *
+	 * The only case where we really need more than one of
+	 * these are for architectures where we cannot disable
+	 * the MMU and must instead generate an identity mapped
+	 * page table for all of the memory.
+	 *
+	 * Given the low demand this implements a very simple
+	 * allocator that finds the first hole of the appropriate
+	 * size in the reserved memory region, and allocates all
+	 * of the memory up to and including the hole.
+	 */
 	unsigned long hole_start, hole_end, size;
 	struct page *pages;
 
@@ -359,20 +500,20 @@ static struct page *kimage_alloc_crash_control_pages(struct kimage *image,
 			break;
 		if (hole_end > crashk_res.end)
 			break;
-		
+		/* See if I overlap any of the segments */
 		for (i = 0; i < image->nr_segments; i++) {
 			unsigned long mstart, mend;
 
 			mstart = image->segment[i].mem;
 			mend   = mstart + image->segment[i].memsz - 1;
 			if ((hole_end >= mstart) && (hole_start <= mend)) {
-				
+				/* Advance the hole to the end of the segment */
 				hole_start = (mend + (size - 1)) & ~(size - 1);
 				hole_end   = hole_start + size - 1;
 				break;
 			}
 		}
-		
+		/* If I don't overlap any segments I have found my hole! */
 		if (i == image->nr_segments) {
 			pages = pfn_to_page(hole_start >> PAGE_SHIFT);
 			break;
@@ -457,10 +598,10 @@ static int kimage_add_page(struct kimage *image, unsigned long page)
 
 static void kimage_free_extra_pages(struct kimage *image)
 {
-	
+	/* Walk through and free any extra destination pages I may have */
 	kimage_free_page_list(&image->dest_pages);
 
-	
+	/* Walk through and free any unusable pages I have cached */
 	kimage_free_page_list(&image->unuseable_pages);
 
 }
@@ -496,22 +637,25 @@ static void kimage_free(struct kimage *image)
 	kimage_free_extra_pages(image);
 	for_each_kimage_entry(image, ptr, entry) {
 		if (entry & IND_INDIRECTION) {
-			
+			/* Free the previous indirection page */
 			if (ind & IND_INDIRECTION)
 				kimage_free_entry(ind);
+			/* Save this indirection page until we are
+			 * done with it.
+			 */
 			ind = entry;
 		}
 		else if (entry & IND_SOURCE)
 			kimage_free_entry(entry);
 	}
-	
+	/* Free the final indirection page */
 	if (ind & IND_INDIRECTION)
 		kimage_free_entry(ind);
 
-	
+	/* Handle any machine specific cleanup */
 	machine_kexec_cleanup(image);
 
-	
+	/* Free the kexec control pages... */
 	kimage_free_page_list(&image->control_pages);
 	kfree(image);
 }
@@ -539,9 +683,31 @@ static struct page *kimage_alloc_page(struct kimage *image,
 					gfp_t gfp_mask,
 					unsigned long destination)
 {
+	/*
+	 * Here we implement safeguards to ensure that a source page
+	 * is not copied to its destination page before the data on
+	 * the destination page is no longer useful.
+	 *
+	 * To do this we maintain the invariant that a source page is
+	 * either its own destination page, or it is not a
+	 * destination page at all.
+	 *
+	 * That is slightly stronger than required, but the proof
+	 * that no problems will not occur is trivial, and the
+	 * implementation is simply to verify.
+	 *
+	 * When allocating all pages normally this algorithm will run
+	 * in O(N) time, but in the worst case it will run in O(N^2)
+	 * time.   If the runtime is a problem the data structures can
+	 * be fixed.
+	 */
 	struct page *page;
 	unsigned long addr;
 
+	/*
+	 * Walk through the list of destination pages, and see if I
+	 * have a match.
+	 */
 	list_for_each_entry(page, &image->dest_pages, lru) {
 		addr = page_to_pfn(page) << PAGE_SHIFT;
 		if (addr == destination) {
@@ -553,11 +719,11 @@ static struct page *kimage_alloc_page(struct kimage *image,
 	while (1) {
 		kimage_entry_t *old;
 
-		
+		/* Allocate a page, if we run out of memory give up */
 		page = kimage_alloc_pages(gfp_mask, 0);
 		if (!page)
 			return NULL;
-		
+		/* If the page cannot be used file it away */
 		if (page_to_pfn(page) >
 				(KEXEC_SOURCE_MEMORY_LIMIT >> PAGE_SHIFT)) {
 			list_add(&page->lru, &image->unuseable_pages);
@@ -565,18 +731,23 @@ static struct page *kimage_alloc_page(struct kimage *image,
 		}
 		addr = page_to_pfn(page) << PAGE_SHIFT;
 
-		
+		/* If it is the destination page we want use it */
 		if (addr == destination)
 			break;
 
-		
+		/* If the page is not a destination page use it */
 		if (!kimage_is_destination_range(image, addr,
 						  addr + PAGE_SIZE))
 			break;
 
+		/*
+		 * I know that the page is someones destination page.
+		 * See if there is already a source page for this
+		 * destination page.  And if so swap the source pages.
+		 */
 		old = kimage_dst_used(image, addr);
 		if (old) {
-			
+			/* If so move it */
 			unsigned long old_addr;
 			struct page *old_page;
 
@@ -585,6 +756,10 @@ static struct page *kimage_alloc_page(struct kimage *image,
 			copy_highpage(page, old_page);
 			*old = addr | (*old & ~PAGE_MASK);
 
+			/* The old page I have found cannot be a
+			 * destination page, so return it if it's
+			 * gfp_flags honor the ones passed in.
+			 */
 			if (!(gfp_mask & __GFP_HIGHMEM) &&
 			    PageHighMem(old_page)) {
 				kimage_free_pages(old_page);
@@ -595,6 +770,9 @@ static struct page *kimage_alloc_page(struct kimage *image,
 			break;
 		}
 		else {
+			/* Place the page on the destination list I
+			 * will use it later.
+			 */
 			list_add(&page->lru, &image->dest_pages);
 		}
 	}
@@ -636,7 +814,7 @@ static int kimage_load_normal_segment(struct kimage *image,
 			goto out;
 
 		ptr = kmap(page);
-		
+		/* Start with a clear page */
 		clear_page(ptr);
 		ptr += maddr & ~PAGE_MASK;
 		mchunk = PAGE_SIZE - (maddr & ~PAGE_MASK);
@@ -665,6 +843,10 @@ out:
 static int kimage_load_crash_segment(struct kimage *image,
 					struct kexec_segment *segment)
 {
+	/* For crash dumps kernels we simply copy the data from
+	 * user space to it's destination.
+	 * We do things a page at a time for the sake of kmap.
+	 */
 	unsigned long maddr;
 	unsigned long ubytes, mbytes;
 	int result;
@@ -694,7 +876,7 @@ static int kimage_load_crash_segment(struct kimage *image,
 		uchunk = mchunk;
 		if (uchunk > ubytes) {
 			uchunk = ubytes;
-			
+			/* Zero the trailing part of the page */
 			memset(ptr + uchunk, 0, mchunk - uchunk);
 		}
 		result = copy_from_user(ptr, buf, uchunk);
@@ -730,6 +912,26 @@ static int kimage_load_segment(struct kimage *image,
 	return result;
 }
 
+/*
+ * Exec Kernel system call: for obvious reasons only root may call it.
+ *
+ * This call breaks up into three pieces.
+ * - A generic part which loads the new kernel from the current
+ *   address space, and very carefully places the data in the
+ *   allocated pages.
+ *
+ * - A generic part that interacts with the kernel and tells all of
+ *   the devices to shut down.  Preventing on-going dmas, and placing
+ *   the devices in a consistent state so a later kernel can
+ *   reinitialize them.
+ *
+ * - A machine specific part that includes the syscall number
+ *   and the copies the image to it's final destination.  And
+ *   jumps into the image at entry.
+ *
+ * kexec does not sync, or unmount filesystems so if you need
+ * that to happen you need to do that yourself.
+ */
 struct kimage *kexec_image;
 struct kimage *kexec_crash_image;
 
@@ -741,24 +943,39 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
 	struct kimage **dest_image, *image;
 	int result;
 
-	
+	/* We only trust the superuser with rebooting the system. */
 	if (!capable(CAP_SYS_BOOT))
 		return -EPERM;
 
+	/*
+	 * Verify we have a legal set of flags
+	 * This leaves us room for future extensions.
+	 */
 	if ((flags & KEXEC_FLAGS) != (flags & ~KEXEC_ARCH_MASK))
 		return -EINVAL;
 
-	
+	/* Verify we are on the appropriate architecture */
 	if (((flags & KEXEC_ARCH_MASK) != KEXEC_ARCH) &&
 		((flags & KEXEC_ARCH_MASK) != KEXEC_ARCH_DEFAULT))
 		return -EINVAL;
 
+	/* Put an artificial cap on the number
+	 * of segments passed to kexec_load.
+	 */
 	if (nr_segments > KEXEC_SEGMENT_MAX)
 		return -EINVAL;
 
 	image = NULL;
 	result = 0;
 
+	/* Because we write directly to the reserved memory
+	 * region when loading crash kernels we need a mutex here to
+	 * prevent multiple crash  kernels from attempting to load
+	 * simultaneously, and to prevent a crash kernel from loading
+	 * over the top of a in use crash kernel.
+	 *
+	 * KISS: always take the mutex.
+	 */
 	if (!mutex_trylock(&kexec_mutex))
 		return -EBUSY;
 
@@ -768,12 +985,15 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
 	if (nr_segments > 0) {
 		unsigned long i;
 
-		
+		/* Loading another kernel to reboot into */
 		if ((flags & KEXEC_ON_CRASH) == 0)
 			result = kimage_normal_alloc(&image, entry,
 							nr_segments, segments);
-		
+		/* Loading another kernel to switch to if this one crashes */
 		else if (flags & KEXEC_ON_CRASH) {
+			/* Free any current crash dump kernel before
+			 * we corrupt it.
+			 */
 			kimage_free(xchg(&kexec_crash_image, NULL));
 			result = kimage_crash_alloc(&image, entry,
 						     nr_segments, segments);
@@ -797,7 +1017,7 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
 		if (flags & KEXEC_ON_CRASH)
 			crash_unmap_reserved_pages();
 	}
-	
+	/* Install the new kernel, and  Uninstall the old */
 	image = xchg(dest_image, image);
 
 out:
@@ -807,6 +1027,12 @@ out:
 	return result;
 }
 
+/*
+ * Add and remove page tables for crashkernel memory
+ *
+ * Provide an empty default implementation here -- architecture
+ * code may override this
+ */
 void __weak crash_map_reserved_pages(void)
 {}
 
@@ -823,6 +1049,9 @@ asmlinkage long compat_sys_kexec_load(unsigned long entry,
 	struct kexec_segment out, __user *ksegments;
 	unsigned long i, result;
 
+	/* Don't allow clients that don't understand the native
+	 * architecture to do anything.
+	 */
 	if ((flags & KEXEC_ARCH_MASK) == KEXEC_ARCH_DEFAULT)
 		return -EINVAL;
 
@@ -851,6 +1080,14 @@ asmlinkage long compat_sys_kexec_load(unsigned long entry,
 
 void crash_kexec(struct pt_regs *regs)
 {
+	/* Take the kexec_mutex here to prevent sys_kexec_load
+	 * running on one cpu from replacing the crash kernel
+	 * we are using after a panic on a different cpu.
+	 *
+	 * If the crash kernel was not located in a fixed area
+	 * of memory the xchg(&kexec_crash_image) would be
+	 * sufficient.  But since I reuse the memory...
+	 */
 	if (mutex_trylock(&kexec_mutex)) {
 		if (kexec_crash_image) {
 			struct pt_regs fixed_regs;
@@ -974,6 +1211,13 @@ void crash_save_cpu(struct pt_regs *regs, int cpu)
 	if ((cpu < 0) || (cpu >= nr_cpu_ids))
 		return;
 
+	/* Using ELF notes here is opportunistic.
+	 * I need a well defined structure format
+	 * for the data I pass, and I need tags
+	 * on the data to indicate what information I have
+	 * squirrelled away.  ELF notes happen to provide
+	 * all of that, so there is no need to invent something new.
+	 */
 	buf = (u32*)per_cpu_ptr(crash_notes, cpu);
 	if (!buf)
 		return;
@@ -987,7 +1231,7 @@ void crash_save_cpu(struct pt_regs *regs, int cpu)
 
 static int __init crash_notes_memory_init(void)
 {
-	
+	/* Allocate memory for saving cpu registers. */
 	crash_notes = alloc_percpu(note_buf_t);
 	if (!crash_notes) {
 		printk("Kexec: Memory allocation for saving cpu register"
@@ -999,8 +1243,20 @@ static int __init crash_notes_memory_init(void)
 module_init(crash_notes_memory_init)
 
 
+/*
+ * parsing the "crashkernel" commandline
+ *
+ * this code is intended to be called from architecture specific code
+ */
 
 
+/*
+ * This function parses command lines in the format
+ *
+ *   crashkernel=ramsize-range:size[,...][@offset]
+ *
+ * The function returns 0 on success and -EINVAL on failure.
+ */
 static int __init parse_crashkernel_mem(char 			*cmdline,
 					unsigned long long	system_ram,
 					unsigned long long	*crash_size,
@@ -1008,11 +1264,11 @@ static int __init parse_crashkernel_mem(char 			*cmdline,
 {
 	char *cur = cmdline, *tmp;
 
-	
+	/* for each entry of the comma-separated list */
 	do {
 		unsigned long long start, end = ULLONG_MAX, size;
 
-		
+		/* get the start of the range */
 		start = memparse(cur, &tmp);
 		if (cur == tmp) {
 			pr_warning("crashkernel: Memory value expected\n");
@@ -1025,7 +1281,7 @@ static int __init parse_crashkernel_mem(char 			*cmdline,
 		}
 		cur++;
 
-		
+		/* if no ':' is here, than we read the end */
 		if (*cur != ':') {
 			end = memparse(cur, &tmp);
 			if (cur == tmp) {
@@ -1057,7 +1313,7 @@ static int __init parse_crashkernel_mem(char 			*cmdline,
 			return -EINVAL;
 		}
 
-		
+		/* match ? */
 		if (system_ram >= start && system_ram < end) {
 			*crash_size = size;
 			break;
@@ -1081,6 +1337,13 @@ static int __init parse_crashkernel_mem(char 			*cmdline,
 	return 0;
 }
 
+/*
+ * That function parses "simple" (old) crashkernel command lines like
+ *
+ * 	crashkernel=size[@offset]
+ *
+ * It returns 0 on success and -EINVAL on failure.
+ */
 static int __init parse_crashkernel_simple(char 		*cmdline,
 					   unsigned long long 	*crash_size,
 					   unsigned long long 	*crash_base)
@@ -1103,6 +1366,10 @@ static int __init parse_crashkernel_simple(char 		*cmdline,
 	return 0;
 }
 
+/*
+ * That function is the entry point for command line parsing and should be
+ * called from the arch-specific code.
+ */
 int __init parse_crashkernel(char 		 *cmdline,
 			     unsigned long long system_ram,
 			     unsigned long long *crash_size,
@@ -1115,7 +1382,7 @@ int __init parse_crashkernel(char 		 *cmdline,
 	*crash_size = 0;
 	*crash_base = 0;
 
-	
+	/* find crashkernel and use the last one if there are more */
 	p = strstr(p, "crashkernel=");
 	while (p) {
 		ck_cmdline = p;
@@ -1125,8 +1392,12 @@ int __init parse_crashkernel(char 		 *cmdline,
 	if (!ck_cmdline)
 		return -EINVAL;
 
-	ck_cmdline += 12; 
+	ck_cmdline += 12; /* strlen("crashkernel=") */
 
+	/*
+	 * if the commandline contains a ':', then that's the extended
+	 * syntax -- if not, it must be the classic syntax
+	 */
 	first_colon = strchr(ck_cmdline, ':');
 	first_space = strchr(ck_cmdline, ' ');
 	if (first_colon && (!first_space || first_colon < first_space))
@@ -1175,6 +1446,10 @@ void vmcoreinfo_append_str(const char *fmt, ...)
 	vmcoreinfo_size += r;
 }
 
+/*
+ * provide an empty default implementation here -- architecture
+ * code may override this
+ */
 void __attribute__ ((weak)) arch_crash_save_vmcoreinfo(void)
 {}
 
@@ -1247,6 +1522,10 @@ static int __init crash_save_vmcoreinfo_init(void)
 
 module_init(crash_save_vmcoreinfo_init)
 
+/*
+ * Move into place and start executing a preloaded standalone
+ * executable.  If nothing was preloaded return an error.
+ */
 int kernel_kexec(void)
 {
 	int error = 0;
@@ -1271,6 +1550,13 @@ int kernel_kexec(void)
 		error = dpm_suspend_start(PMSG_FREEZE);
 		if (error)
 			goto Resume_console;
+		/* At this point, dpm_suspend_start() has been called,
+		 * but *not* dpm_suspend_end(). We *must* call
+		 * dpm_suspend_end() now.  Otherwise, drivers for
+		 * some devices (e.g. interrupt controllers) become
+		 * desynchronized with the actual state of the
+		 * hardware at resume time, and evil weirdness ensues.
+		 */
 		error = dpm_suspend_end(PMSG_FREEZE);
 		if (error)
 			goto Resume_devices;

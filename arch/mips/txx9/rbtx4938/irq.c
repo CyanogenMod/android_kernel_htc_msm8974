@@ -10,6 +10,58 @@
  * Support for TX4938 in 2.6 - Manish Lachwani (mlachwani@mvista.com)
  */
 
+/*
+ * MIPS_CPU_IRQ_BASE+00 Software 0
+ * MIPS_CPU_IRQ_BASE+01 Software 1
+ * MIPS_CPU_IRQ_BASE+02 Cascade TX4938-CP0
+ * MIPS_CPU_IRQ_BASE+03 Multiplexed -- do not use
+ * MIPS_CPU_IRQ_BASE+04 Multiplexed -- do not use
+ * MIPS_CPU_IRQ_BASE+05 Multiplexed -- do not use
+ * MIPS_CPU_IRQ_BASE+06 Multiplexed -- do not use
+ * MIPS_CPU_IRQ_BASE+07 CPU TIMER
+ *
+ * TXX9_IRQ_BASE+00
+ * TXX9_IRQ_BASE+01
+ * TXX9_IRQ_BASE+02 Cascade RBTX4938-IOC
+ * TXX9_IRQ_BASE+03 RBTX4938 RTL-8019AS Ethernet
+ * TXX9_IRQ_BASE+04
+ * TXX9_IRQ_BASE+05 TX4938 ETH1
+ * TXX9_IRQ_BASE+06 TX4938 ETH0
+ * TXX9_IRQ_BASE+07
+ * TXX9_IRQ_BASE+08 TX4938 SIO 0
+ * TXX9_IRQ_BASE+09 TX4938 SIO 1
+ * TXX9_IRQ_BASE+10 TX4938 DMA0
+ * TXX9_IRQ_BASE+11 TX4938 DMA1
+ * TXX9_IRQ_BASE+12 TX4938 DMA2
+ * TXX9_IRQ_BASE+13 TX4938 DMA3
+ * TXX9_IRQ_BASE+14
+ * TXX9_IRQ_BASE+15
+ * TXX9_IRQ_BASE+16 TX4938 PCIC
+ * TXX9_IRQ_BASE+17 TX4938 TMR0
+ * TXX9_IRQ_BASE+18 TX4938 TMR1
+ * TXX9_IRQ_BASE+19 TX4938 TMR2
+ * TXX9_IRQ_BASE+20
+ * TXX9_IRQ_BASE+21
+ * TXX9_IRQ_BASE+22 TX4938 PCIERR
+ * TXX9_IRQ_BASE+23
+ * TXX9_IRQ_BASE+24
+ * TXX9_IRQ_BASE+25
+ * TXX9_IRQ_BASE+26
+ * TXX9_IRQ_BASE+27
+ * TXX9_IRQ_BASE+28
+ * TXX9_IRQ_BASE+29
+ * TXX9_IRQ_BASE+30
+ * TXX9_IRQ_BASE+31 TX4938 SPI
+ *
+ * RBTX4938_IRQ_IOC+00 PCI-D
+ * RBTX4938_IRQ_IOC+01 PCI-C
+ * RBTX4938_IRQ_IOC+02 PCI-B
+ * RBTX4938_IRQ_IOC+03 PCI-A
+ * RBTX4938_IRQ_IOC+04 RTC
+ * RBTX4938_IRQ_IOC+05 ATA
+ * RBTX4938_IRQ_IOC+06 MODEM
+ * RBTX4938_IRQ_IOC+07 SWINT
+ */
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -24,7 +76,7 @@ static int toshiba_rbtx4938_irq_nested(int sw_irq)
 	level3 = readb(rbtx4938_imstat_addr);
 	if (unlikely(!level3))
 		return -1;
-	
+	/* must use fls so onboard ATA has priority */
 	return RBTX4938_IRQ_IOC + __fls8(level3);
 }
 
@@ -89,17 +141,17 @@ static void __init toshiba_rbtx4938_irq_ioc_init(void)
 void __init rbtx4938_irq_setup(void)
 {
 	txx9_irq_dispatch = rbtx4938_irq_dispatch;
-	
-	
-	
+	/* Now, interrupt control disabled, */
+	/* all IRC interrupts are masked, */
+	/* all IRC interrupt mode are Low Active. */
 
-	
+	/* mask all IOC interrupts */
 	writeb(0, rbtx4938_imask_addr);
 
-	
+	/* clear SoftInt interrupts */
 	writeb(0, rbtx4938_softint_addr);
 	tx4938_irq_init();
 	toshiba_rbtx4938_irq_ioc_init();
-	
+	/* Onboard 10M Ether: High Active */
 	irq_set_irq_type(RBTX4938_IRQ_ETHER, IRQF_TRIGGER_HIGH);
 }

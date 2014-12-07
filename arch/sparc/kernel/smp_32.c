@@ -40,6 +40,13 @@ volatile unsigned long cpu_callin_map[NR_CPUS] __cpuinitdata = {0,};
 
 cpumask_t smp_commenced_mask = CPU_MASK_NONE;
 
+/* The only guaranteed locking primitive available on all Sparc
+ * processors is 'ldstub [%reg + immediate], %dest_reg' which atomically
+ * places the current byte at the effective address into dest_reg and
+ * places 0xff there afterwards.  Pretty lame locking primitive
+ * compared to the Alpha and the Intel no?  Most Sparcs have 'swap'
+ * instruction which is much better...
+ */
 
 void __cpuinit smp_store_cpu_info(int id)
 {
@@ -120,6 +127,11 @@ struct linux_prom_registers smp_penguin_ctable __cpuinitdata = { 0 };
 
 void smp_send_reschedule(int cpu)
 {
+	/*
+	 * CPU model dependent way of implementing IPI generation targeting
+	 * a single CPU. The trap handler needs only to do trap entry/return
+	 * to call schedule.
+	 */
 	BTFIXUP_CALL(smp_ipi_resched)(cpu);
 }
 
@@ -129,7 +141,7 @@ void smp_send_stop(void)
 
 void arch_send_call_function_single_ipi(int cpu)
 {
-	
+	/* trigger one IPI single call on one CPU */
 	BTFIXUP_CALL(smp_ipi_single)(cpu);
 }
 
@@ -137,7 +149,7 @@ void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 {
 	int cpu;
 
-	
+	/* trigger IPI mask call on each CPU */
 	for_each_cpu(cpu, mask)
 		BTFIXUP_CALL(smp_ipi_mask_one)(cpu);
 }
@@ -148,7 +160,7 @@ void smp_resched_interrupt(void)
 	scheduler_ipi();
 	local_cpu_data().irq_resched_count++;
 	irq_exit();
-	
+	/* re-schedule routine called by interrupt return code. */
 }
 
 void smp_call_function_single_interrupt(void)
@@ -267,6 +279,12 @@ void smp_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 
 void smp_flush_page_to_ram(unsigned long page)
 {
+	/* Current theory is that those who call this are the one's
+	 * who have just dirtied their cache with the pages contents
+	 * in kernel space, therefore we only run this on local cpu.
+	 *
+	 * XXX This experiment failed, research further... -DaveM
+	 */
 #if 1
 	xc1((smpfunc_t) BTFIXUP_CALL(local_flush_page_to_ram), page);
 #endif
@@ -285,6 +303,7 @@ void smp_flush_sig_insns(struct mm_struct *mm, unsigned long insn_addr)
 
 extern unsigned int lvl14_resolution;
 
+/* /proc/profile writes can call this, don't __init it please. */
 static DEFINE_SPINLOCK(prof_setup_lock);
 
 int setup_profiling_timer(unsigned int multiplier)
@@ -292,7 +311,7 @@ int setup_profiling_timer(unsigned int multiplier)
 	int i;
 	unsigned long flags;
 
-	
+	/* Prevent level14 ticker IRQ flooding. */
 	if((!multiplier) || (lvl14_resolution / multiplier) < 500)
 		return -EINVAL;
 
@@ -319,7 +338,7 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 		if (cpuid >= NR_CPUS)
 			extra++;
 	}
-	
+	/* i = number of cpus */
 	if (extra && max_cpus > i - extra)
 		printk("Warning: NR_CPUS is too low to start all cpus\n");
 
@@ -358,6 +377,10 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 	}
 }
 
+/* Set this up early so that things like the scheduler can init
+ * properly.  We use the same cpu mask for both the present and
+ * possible cpu map.
+ */
 void __init smp_setup_cpu_possible_map(void)
 {
 	int instance, mid;

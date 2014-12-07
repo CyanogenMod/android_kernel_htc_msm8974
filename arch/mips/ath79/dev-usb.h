@@ -14,4 +14,4 @@
 
 void ath79_register_usb(void);
 
-#endif 
+#endif /* _ATH79_DEV_USB_H */

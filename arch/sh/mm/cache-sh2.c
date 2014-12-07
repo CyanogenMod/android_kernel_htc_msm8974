@@ -54,6 +54,10 @@ static void sh2__flush_purge_region(void *start, int size)
 static void sh2__flush_invalidate_region(void *start, int size)
 {
 #ifdef CONFIG_CACHE_WRITEBACK
+	/*
+	 * SH-2 does not support individual line invalidation, only a
+	 * global invalidate.
+	 */
 	unsigned long ccr;
 	unsigned long flags;
 	local_irq_save(flags);

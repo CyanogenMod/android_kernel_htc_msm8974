@@ -27,6 +27,13 @@
 #include "debug.h"
 #include "ntfs.h"
 
+/**
+ * ntfs_mark_quotas_out_of_date - mark the quotas out of date on an ntfs volume
+ * @vol:	ntfs volume on which to mark the quotas out of date
+ *
+ * Mark the quotas out of date on the ntfs volume @vol and return 'true' on
+ * success and 'false' on error.
+ */
 bool ntfs_mark_quotas_out_of_date(ntfs_volume *vol)
 {
 	ntfs_index_context *ictx;
@@ -69,13 +76,22 @@ bool ntfs_mark_quotas_out_of_date(ntfs_volume *vol)
 		goto err_out;
 	}
 	ntfs_debug("Quota defaults flags = 0x%x.", le32_to_cpu(qce->flags));
-	
+	/* If quotas are already marked out of date, no need to do anything. */
 	if (qce->flags & QUOTA_FLAG_OUT_OF_DATE)
 		goto set_done;
+	/*
+	 * If quota tracking is neither requested, nor enabled and there are no
+	 * pending deletes, no need to mark the quotas out of date.
+	 */
 	if (!(qce->flags & (QUOTA_FLAG_TRACKING_ENABLED |
 			QUOTA_FLAG_TRACKING_REQUESTED |
 			QUOTA_FLAG_PENDING_DELETES)))
 		goto set_done;
+	/*
+	 * Set the QUOTA_FLAG_OUT_OF_DATE bit thus marking quotas out of date.
+	 * This is verified on WinXP to be sufficient to cause windows to
+	 * rescan the volume on boot and update all quota entries.
+	 */
 	qce->flags |= QUOTA_FLAG_OUT_OF_DATE;
 	/* Ensure the modified flags are written to disk. */
 	ntfs_index_entry_flush_dcache_page(ictx);
@@ -83,6 +99,10 @@ bool ntfs_mark_quotas_out_of_date(ntfs_volume *vol)
 set_done:
 	ntfs_index_ctx_put(ictx);
 	mutex_unlock(&vol->quota_q_ino->i_mutex);
+	/*
+	 * We set the flag so we do not try to mark the quotas out of date
+	 * again on remount.
+	 */
 	NVolSetQuotaOutOfDate(vol);
 done:
 	ntfs_debug("Done.");
@@ -94,4 +114,4 @@ err_out:
 	return false;
 }
 
-#endif 
+#endif /* NTFS_RW */

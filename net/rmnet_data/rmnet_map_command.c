@@ -85,5 +85,5 @@ rx_handler_result_t rmnet_map_command(struct sk_buff *skb,
 		break;
 	}
 	rmnet_map_send_ack(skb, rc);
-	return 0; 
+	return 0; /* TODO: handler_consumed */
 }

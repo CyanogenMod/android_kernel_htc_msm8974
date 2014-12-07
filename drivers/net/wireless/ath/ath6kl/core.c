@@ -53,6 +53,11 @@ int ath6kl_core_init(struct ath6kl *ar)
 	if (ret)
 		goto err_wq;
 
+	/*
+	 * Turn on power to get hardware (target) version and leave power
+	 * on delibrately as we will boot the hardware anyway within few
+	 * seconds.
+	 */
 	ret = ath6kl_hif_power_on(ar);
 	if (ret)
 		goto err_bmi_cleanup;
@@ -82,9 +87,9 @@ int ath6kl_core_init(struct ath6kl *ar)
 	if (ret)
 		goto err_htc_cleanup;
 
-	
+	/* FIXME: we should free all firmwares in the error cases below */
 
-	
+	/* Indicate that WMI is enabled (although not ready yet) */
 	set_bit(WMI_ENABLED, &ar->flag);
 	ar->wmi = ath6kl_wmi_init(ar);
 	if (!ar->wmi) {
@@ -95,13 +100,13 @@ int ath6kl_core_init(struct ath6kl *ar)
 
 	ath6kl_dbg(ATH6KL_DBG_TRC, "%s: got wmi @ 0x%p.\n", __func__, ar->wmi);
 
-	
-	ar->ac_stream_pri_map[WMM_AC_BK] = 0; 
+	/* setup access class priority mappings */
+	ar->ac_stream_pri_map[WMM_AC_BK] = 0; /* lowest  */
 	ar->ac_stream_pri_map[WMM_AC_BE] = 1;
 	ar->ac_stream_pri_map[WMM_AC_VI] = 2;
-	ar->ac_stream_pri_map[WMM_AC_VO] = 3; 
+	ar->ac_stream_pri_map[WMM_AC_VO] = 3; /* highest */
 
-	
+	/* allocate some buffers that handle larger AMSDU frames */
 	ath6kl_refill_amsdu_rxbufs(ar, ATH6KL_MAX_AMSDU_RX_BUFFERS);
 
 	ath6kl_cookie_init(ar);
@@ -136,7 +141,7 @@ int ath6kl_core_init(struct ath6kl *ar)
 		goto err_rxbuf_cleanup;
 	}
 
-	
+	/* give our connected endpoints some buffers */
 	ath6kl_rx_refill(ar->htc_target, ar->ctrl_ep);
 	ath6kl_rx_refill(ar->htc_target, ar->ac2ep_map[WMM_AC_BE]);
 
@@ -155,7 +160,7 @@ int ath6kl_core_init(struct ath6kl *ar)
 
 	rtnl_lock();
 
-	
+	/* Add an initial station interface */
 	ndev = ath6kl_interface_add(ar, "wlan%d", NL80211_IFTYPE_STATION, 0,
 				    INFRA_NETWORK);
 
@@ -232,7 +237,7 @@ struct ath6kl *ath6kl_core_create(struct device *dev)
 	memset((u8 *)ar->sta_list, 0,
 	       AP_MAX_NUM_STA * sizeof(struct ath6kl_sta));
 
-	
+	/* Init the PS queues */
 	for (ctr = 0; ctr < AP_MAX_NUM_STA; ctr++) {
 		spin_lock_init(&ar->sta_list[ctr].psq_lock);
 		skb_queue_head_init(&ar->sta_list[ctr].psq);

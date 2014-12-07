@@ -53,6 +53,10 @@ nv44_fb_init_gart(struct drm_device *dev)
 		return;
 	}
 
+	/* calculate vram address of this PRAMIN block, object
+	 * must be allocated on 512KiB alignment, and not exceed
+	 * a total size of 512KiB for this to work correctly
+	 */
 	vinst  = nv_rd32(dev, 0x10020c);
 	vinst -= ((gart->pinst >> 19) + 1) << 19;
 
@@ -72,6 +76,12 @@ nv40_fb_vram_init(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
+	/* 0x001218 is actually present on a few other NV4X I looked at,
+	 * and even contains sane values matching 0x100474.  From looking
+	 * at various vbios images however, this isn't the case everywhere.
+	 * So, I chose to use the same regs I've seen NVIDIA reading around
+	 * the memory detection, hopefully that'll get us the right numbers
+	 */
 	if (dev_priv->chipset == 0x40) {
 		u32 pbus1218 = nv_rd32(dev, 0x001218);
 		switch (pbus1218 & 0x00000300) {
@@ -128,11 +138,11 @@ nv40_fb_init(struct drm_device *dev)
 		nv_wr32(dev, NV10_PFB_CLOSE_PAGE2, tmp & ~(1 << 15));
 		pfb->num_tiles = NV10_PFB_TILE__SIZE;
 		break;
-	case 0x46: 
-	case 0x47: 
-	case 0x49: 
-	case 0x4b: 
-	case 0x4c: 
+	case 0x46: /* G72 */
+	case 0x47: /* G70 */
+	case 0x49: /* G71 */
+	case 0x4b: /* G73 */
+	case 0x4c: /* C51 (G7X version) */
 		pfb->num_tiles = NV40_PFB_TILE__SIZE_1;
 		break;
 	default:
@@ -140,7 +150,7 @@ nv40_fb_init(struct drm_device *dev)
 		break;
 	}
 
-	
+	/* Turn all the tiling regions off. */
 	for (i = 0; i < pfb->num_tiles; i++)
 		pfb->set_tile_region(dev, i);
 

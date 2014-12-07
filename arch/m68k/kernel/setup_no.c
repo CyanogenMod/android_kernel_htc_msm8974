@@ -12,6 +12,9 @@
  *  68VZ328 Fixes/support    Evan Stawnyczy <e@lineo.ca>
  */
 
+/*
+ * This file handles the architecture-dependent parts of system setup
+ */
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -44,10 +47,12 @@ EXPORT_SYMBOL(memory_end);
 
 char __initdata command_line[COMMAND_LINE_SIZE];
 
+/* machine dependent timer functions */
 void (*mach_sched_init)(irq_handler_t handler) __initdata = NULL;
 int (*mach_set_clock_mmss)(unsigned long);
 int (*mach_hwclk) (int, struct rtc_time*);
 
+/* machine dependent reboot functions */
 void (*mach_reset)(void);
 void (*mach_halt)(void);
 void (*mach_power_off)(void);
@@ -68,11 +73,48 @@ void (*mach_power_off)(void);
 #define	CPU_NAME	"UNKNOWN"
 #endif
 
+/*
+ * Different cores have different instruction execution timings.
+ * The old/traditional 68000 cores are basically all the same, at 16.
+ * The ColdFire cores vary a little, their values are defined in their
+ * headers. We default to the standard 68000 value here.
+ */
 #ifndef CPU_INSTR_PER_JIFFY
 #define	CPU_INSTR_PER_JIFFY	16
 #endif
 
 #if defined(CONFIG_UBOOT)
+/*
+ * parse_uboot_commandline
+ *
+ * Copies u-boot commandline arguments and store them in the proper linux
+ * variables.
+ *
+ * Assumes:
+ *	_init_sp global contains the address in the stack pointer when the
+ *	kernel starts (see head.S::_start)
+ *
+ *	U-Boot calling convention:
+ *	(*kernel) (kbd, initrd_start, initrd_end, cmd_start, cmd_end);
+ *
+ *	_init_sp can be parsed as such
+ *
+ *	_init_sp+00 = u-boot cmd after jsr into kernel (skip)
+ *	_init_sp+04 = &kernel board_info (residual data)
+ *	_init_sp+08 = &initrd_start
+ *	_init_sp+12 = &initrd_end
+ *	_init_sp+16 = &cmd_start
+ *	_init_sp+20 = &cmd_end
+ *
+ *	This also assumes that the memory locations pointed to are still
+ *	unmodified. U-boot places them near the end of external SDRAM.
+ *
+ * Argument(s):
+ *	commandp = the linux commandline arg container to fill.
+ *	size     = the sizeof commandp.
+ *
+ * Returns:
+ */
 void parse_uboot_commandline(char *commandp, int size)
 {
 	extern unsigned long _init_sp;
@@ -100,9 +142,9 @@ void parse_uboot_commandline(char *commandp, int size)
 		printk(KERN_INFO "initrd at 0x%lx:0x%lx\n",
 			initrd_start, initrd_end);
 	}
-#endif 
+#endif /* if defined(CONFIG_BLK_DEV_INITRD) */
 }
-#endif 
+#endif /* #if defined(CONFIG_UBOOT) */
 
 void __init setup_arch(char **cmdline_p)
 {
@@ -121,24 +163,24 @@ void __init setup_arch(char **cmdline_p)
 #if defined(CONFIG_BOOTPARAM)
 	strncpy(&command_line[0], CONFIG_BOOTPARAM_STRING, sizeof(command_line));
 	command_line[sizeof(command_line) - 1] = 0;
-#endif 
+#endif /* CONFIG_BOOTPARAM */
 
 #if defined(CONFIG_UBOOT)
-	
+	/* CONFIG_UBOOT and CONFIG_BOOTPARAM defined, concatenate cmdline */
 	#if defined(CONFIG_BOOTPARAM)
-		
+		/* Add the whitespace separator */
 		command_line[strlen(CONFIG_BOOTPARAM_STRING)] = ' ';
-		
+		/* Parse uboot command line into the rest of the buffer */
 		parse_uboot_commandline(
 			&command_line[(strlen(CONFIG_BOOTPARAM_STRING)+1)],
 			(sizeof(command_line) -
 			(strlen(CONFIG_BOOTPARAM_STRING)+1)));
-	
+	/* Only CONFIG_UBOOT defined, create cmdline */
 	#else
 		parse_uboot_commandline(&command_line[0], sizeof(command_line));
-	#endif 
+	#endif /* CONFIG_BOOTPARAM */
 	command_line[sizeof(command_line) - 1] = 0;
-#endif 
+#endif /* CONFIG_UBOOT */
 
 	printk(KERN_INFO "\x0F\r\n\nuClinux/" CPU_NAME "\n");
 
@@ -184,7 +226,7 @@ void __init setup_arch(char **cmdline_p)
 		 (int) &_ebss, (int) memory_start,
 		 (int) memory_start, (int) memory_end);
 
-	
+	/* Keep a copy of command line */
 	*cmdline_p = &command_line[0];
 	memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
 	boot_command_line[COMMAND_LINE_SIZE-1] = 0;
@@ -193,11 +235,19 @@ void __init setup_arch(char **cmdline_p)
 	conswitchp = &dummy_con;
 #endif
 
+	/*
+	 * Give all the memory to the bootmap allocator, tell it to put the
+	 * boot mem_map at the start of memory.
+	 */
 	bootmap_size = init_bootmem_node(
 			NODE_DATA(0),
-			memory_start >> PAGE_SHIFT, 
-			PAGE_OFFSET >> PAGE_SHIFT,	
+			memory_start >> PAGE_SHIFT, /* map goes here */
+			PAGE_OFFSET >> PAGE_SHIFT,	/* 0 on coldfire */
 			memory_end >> PAGE_SHIFT);
+	/*
+	 * Free the usable memory, we have to make sure we do not free
+	 * the bootmem bitmap so we then reserve it after freeing it :-)
+	 */
 	free_bootmem(memory_start, memory_end - memory_start);
 	reserve_bootmem(memory_start, bootmap_size, BOOTMEM_DEFAULT);
 
@@ -206,11 +256,17 @@ void __init setup_arch(char **cmdline_p)
 			(initrd_end < memory_end))
 		reserve_bootmem(initrd_start, initrd_end - initrd_start,
 				 BOOTMEM_DEFAULT);
-#endif 
+#endif /* if defined(CONFIG_BLK_DEV_INITRD) */
 
+	/*
+	 * Get kmalloc into gear.
+	 */
 	paging_init();
 }
 
+/*
+ *	Get CPU information for use by the procfs.
+ */
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	char *cpu, *mmu, *fpu;

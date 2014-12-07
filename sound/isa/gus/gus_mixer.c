@@ -25,6 +25,9 @@
 #include <sound/control.h>
 #include <sound/gus.h>
 
+/*
+ *
+ */
 
 #define GF1_SINGLE(xname, xindex, shift, invert) \
 { .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, .index = xindex, \

@@ -57,6 +57,9 @@ static long min_pages_to_free(struct quicklist *q,
 	return min(pages_to_free, max_free);
 }
 
+/*
+ * Trim down the number of pages in the quicklist
+ */
 void quicklist_trim(int nr, void (*dtor)(void *),
 	unsigned long min_pages, unsigned long max_free)
 {
@@ -68,6 +71,10 @@ void quicklist_trim(int nr, void (*dtor)(void *),
 		pages_to_free = min_pages_to_free(q, min_pages, max_free);
 
 		while (pages_to_free > 0) {
+			/*
+			 * We pass a gfp_t of 0 to quicklist_alloc here
+			 * because we will never call into the page allocator.
+			 */
 			void *p = quicklist_alloc(nr, 0, NULL);
 
 			if (dtor)

@@ -26,6 +26,15 @@
 #include "cs_internal.h"
 
 
+/**
+ * pccard_read_tuple() - internal CIS tuple access
+ * @s:		the struct pcmcia_socket where the card is inserted
+ * @function:	the device function we loop for
+ * @code:	which CIS code shall we look for?
+ * @parse:	buffer where the tuple shall be parsed (or NULL, if no parse)
+ *
+ * pccard_read_tuple() reads out one tuple and attempts to parse it
+ */
 int pccard_read_tuple(struct pcmcia_socket *s, unsigned int function,
 		cisdata_t code, void *parse)
 {
@@ -58,6 +67,21 @@ done:
 }
 
 
+/**
+ * pccard_loop_tuple() - loop over tuples in the CIS
+ * @s:		the struct pcmcia_socket where the card is inserted
+ * @function:	the device function we loop for
+ * @code:	which CIS code shall we look for?
+ * @parse:	buffer where the tuple shall be parsed (or NULL, if no parse)
+ * @priv_data:	private data to be passed to the loop_tuple function.
+ * @loop_tuple:	function to call for each CIS entry of type @function. IT
+ *		gets passed the raw tuple, the paresed tuple (if @parse is
+ *		set) and @priv_data.
+ *
+ * pccard_loop_tuple() loops over all CIS entries of type @function, and
+ * calls the @loop_tuple function for each entry. If the call to @loop_tuple
+ * returns 0, the loop exits. Returns 0 on success or errorcode otherwise.
+ */
 int pccard_loop_tuple(struct pcmcia_socket *s, unsigned int function,
 		      cisdata_t code, cisparse_t *parse, void *priv_data,
 		      int (*loop_tuple) (tuple_t *tuple,
@@ -102,6 +126,9 @@ next_entry:
 }
 
 
+/**
+ * pcmcia_io_cfg_data_width() - convert cfgtable to data path width parameter
+ */
 static int pcmcia_io_cfg_data_width(unsigned int flags)
 {
 	if (!(flags & CISTPL_IO_8BIT))
@@ -120,6 +147,13 @@ struct pcmcia_cfg_mem {
 	cistpl_cftable_entry_t dflt;
 };
 
+/**
+ * pcmcia_do_loop_config() - internal helper for pcmcia_loop_config()
+ *
+ * pcmcia_do_loop_config() is the internal callback for the call from
+ * pcmcia_loop_config() to pccard_loop_tuple(). Data is transferred
+ * by a struct pcmcia_cfg_mem.
+ */
 static int pcmcia_do_loop_config(tuple_t *tuple, cisparse_t *parse, void *priv)
 {
 	struct pcmcia_cfg_mem *cfg_mem = priv;
@@ -132,12 +166,12 @@ static int pcmcia_do_loop_config(tuple_t *tuple, cisparse_t *parse, void *priv)
 	dev_dbg(&p_dev->dev, "testing configuration %x, autoconf %x\n",
 		cfg->index, flags);
 
-	
+	/* default values */
 	cfg_mem->p_dev->config_index = cfg->index;
 	if (cfg->flags & CISTPL_CFTABLE_DEFAULT)
 		cfg_mem->dflt = *cfg;
 
-	
+	/* check for matching Vcc? */
 	if (flags & CONF_AUTO_CHECK_VCC) {
 		if (cfg->vcc.present & (1 << CISTPL_POWER_VNOM)) {
 			if (vcc != cfg->vcc.param[CISTPL_POWER_VNOM] / 10000)
@@ -148,7 +182,7 @@ static int pcmcia_do_loop_config(tuple_t *tuple, cisparse_t *parse, void *priv)
 		}
 	}
 
-	
+	/* set Vpp? */
 	if (flags & CONF_AUTO_SET_VPP) {
 		if (cfg->vpp1.present & (1 << CISTPL_POWER_VNOM))
 			p_dev->vpp = cfg->vpp1.param[CISTPL_POWER_VNOM] / 10000;
@@ -157,12 +191,12 @@ static int pcmcia_do_loop_config(tuple_t *tuple, cisparse_t *parse, void *priv)
 				dflt->vpp1.param[CISTPL_POWER_VNOM] / 10000;
 	}
 
-	
+	/* enable audio? */
 	if ((flags & CONF_AUTO_AUDIO) && (cfg->flags & CISTPL_CFTABLE_AUDIO))
 		p_dev->config_flags |= CONF_ENABLE_SPKR;
 
 
-	
+	/* IO window settings? */
 	if (flags & CONF_AUTO_SET_IO) {
 		cistpl_io_t *io = (cfg->io.nwin) ? &cfg->io : &dflt->io;
 		int i = 0;
@@ -176,6 +210,9 @@ static int pcmcia_do_loop_config(tuple_t *tuple, cisparse_t *parse, void *priv)
 		p_dev->resource[0]->flags |=
 					pcmcia_io_cfg_data_width(io->flags);
 		if (io->nwin > 1) {
+			/* For multifunction cards, by convention, we
+			 * configure the network function with window 0,
+			 * and serial with window 1 */
 			i = (io->win[1].len > io->win[0].len);
 			p_dev->resource[1]->flags = p_dev->resource[0]->flags;
 			p_dev->resource[1]->start = io->win[1-i].base;
@@ -186,9 +223,9 @@ static int pcmcia_do_loop_config(tuple_t *tuple, cisparse_t *parse, void *priv)
 		p_dev->io_lines = io->flags & CISTPL_IO_LINES_MASK;
 	}
 
-	
+	/* MEM window settings? */
 	if (flags & CONF_AUTO_SET_IOMEM) {
-		
+		/* so far, we only set one memory window */
 		cistpl_mem_t *mem = (cfg->mem.nwin) ? &cfg->mem : &dflt->mem;
 
 		p_dev->resource[2]->start = p_dev->resource[2]->end = 0;
@@ -210,6 +247,18 @@ static int pcmcia_do_loop_config(tuple_t *tuple, cisparse_t *parse, void *priv)
 	return cfg_mem->conf_check(p_dev, cfg_mem->priv_data);
 }
 
+/**
+ * pcmcia_loop_config() - loop over configuration options
+ * @p_dev:	the struct pcmcia_device which we need to loop for.
+ * @conf_check:	function to call for each configuration option.
+ *		It gets passed the struct pcmcia_device and private data
+ *		being passed to pcmcia_loop_config()
+ * @priv_data:	private data to be passed to the conf_check function.
+ *
+ * pcmcia_loop_config() loops over all configuration options, and calls
+ * the driver-specific conf_check() for each one, checking whether
+ * it is a valid one. Returns 0 on success or errorcode otherwise.
+ */
 int pcmcia_loop_config(struct pcmcia_device *p_dev,
 		       int	(*conf_check)	(struct pcmcia_device *p_dev,
 						 void *priv_data),
@@ -244,6 +293,13 @@ struct pcmcia_loop_mem {
 			   void *priv_data);
 };
 
+/**
+ * pcmcia_do_loop_tuple() - internal helper for pcmcia_loop_config()
+ *
+ * pcmcia_do_loop_tuple() is the internal callback for the call from
+ * pcmcia_loop_tuple() to pccard_loop_tuple(). Data is transferred
+ * by a struct pcmcia_cfg_mem.
+ */
 static int pcmcia_do_loop_tuple(tuple_t *tuple, cisparse_t *parse, void *priv)
 {
 	struct pcmcia_loop_mem *loop = priv;
@@ -251,6 +307,18 @@ static int pcmcia_do_loop_tuple(tuple_t *tuple, cisparse_t *parse, void *priv)
 	return loop->loop_tuple(loop->p_dev, tuple, loop->priv_data);
 };
 
+/**
+ * pcmcia_loop_tuple() - loop over tuples in the CIS
+ * @p_dev:	the struct pcmcia_device which we need to loop for.
+ * @code:	which CIS code shall we look for?
+ * @priv_data:	private data to be passed to the loop_tuple function.
+ * @loop_tuple:	function to call for each CIS entry of type @function. IT
+ *		gets passed the raw tuple and @priv_data.
+ *
+ * pcmcia_loop_tuple() loops over all CIS entries of type @function, and
+ * calls the @loop_tuple function for each entry. If the call to @loop_tuple
+ * returns 0, the loop exits. Returns 0 on success or errorcode otherwise.
+ */
 int pcmcia_loop_tuple(struct pcmcia_device *p_dev, cisdata_t code,
 		      int (*loop_tuple) (struct pcmcia_device *p_dev,
 					 tuple_t *tuple,
@@ -273,6 +341,15 @@ struct pcmcia_loop_get {
 	cisdata_t **buf;
 };
 
+/**
+ * pcmcia_do_get_tuple() - internal helper for pcmcia_get_tuple()
+ *
+ * pcmcia_do_get_tuple() is the internal callback for the call from
+ * pcmcia_get_tuple() to pcmcia_loop_tuple(). As we're only interested in
+ * the first tuple, return 0 unconditionally. Create a memory buffer large
+ * enough to hold the content of the tuple, and fill it with the tuple data.
+ * The caller is responsible to free the buffer.
+ */
 static int pcmcia_do_get_tuple(struct pcmcia_device *p_dev, tuple_t *tuple,
 			       void *priv)
 {
@@ -287,6 +364,16 @@ static int pcmcia_do_get_tuple(struct pcmcia_device *p_dev, tuple_t *tuple,
 	return 0;
 }
 
+/**
+ * pcmcia_get_tuple() - get first tuple from CIS
+ * @p_dev:	the struct pcmcia_device which we need to loop for.
+ * @code:	which CIS code shall we look for?
+ * @buf:        pointer to store the buffer to.
+ *
+ * pcmcia_get_tuple() gets the content of the first CIS entry of type @code.
+ * It returns the buffer length (or zero). The caller is responsible to free
+ * the buffer passed in @buf.
+ */
 size_t pcmcia_get_tuple(struct pcmcia_device *p_dev, cisdata_t code,
 			unsigned char **buf)
 {
@@ -303,6 +390,14 @@ size_t pcmcia_get_tuple(struct pcmcia_device *p_dev, cisdata_t code,
 EXPORT_SYMBOL(pcmcia_get_tuple);
 
 
+/**
+ * pcmcia_do_get_mac() - internal helper for pcmcia_get_mac_from_cis()
+ *
+ * pcmcia_do_get_mac() is the internal callback for the call from
+ * pcmcia_get_mac_from_cis() to pcmcia_loop_tuple(). We check whether the
+ * tuple contains a proper LAN_NODE_ID of length 6, and copy the data
+ * to struct net_device->dev_addr[i].
+ */
 static int pcmcia_do_get_mac(struct pcmcia_device *p_dev, tuple_t *tuple,
 			     void *priv)
 {
@@ -326,6 +421,15 @@ static int pcmcia_do_get_mac(struct pcmcia_device *p_dev, tuple_t *tuple,
 	return 0;
 }
 
+/**
+ * pcmcia_get_mac_from_cis() - read out MAC address from CISTPL_FUNCE
+ * @p_dev:	the struct pcmcia_device for which we want the address.
+ * @dev:	a properly prepared struct net_device to store the info to.
+ *
+ * pcmcia_get_mac_from_cis() reads out the hardware MAC address from
+ * CISTPL_FUNCE and stores it into struct net_device *dev->dev_addr which
+ * must be set up properly by the driver (see examples!).
+ */
 int pcmcia_get_mac_from_cis(struct pcmcia_device *p_dev, struct net_device *dev)
 {
 	return pcmcia_loop_tuple(p_dev, CISTPL_FUNCE, pcmcia_do_get_mac, dev);

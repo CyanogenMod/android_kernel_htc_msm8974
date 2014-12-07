@@ -38,11 +38,18 @@ static int x25_receive_data(struct sk_buff *skb, struct x25_neigh *nb)
 	frametype = skb->data[2];
 	lci = ((skb->data[0] << 8) & 0xF00) + ((skb->data[1] << 0) & 0x0FF);
 
+	/*
+	 *	LCI of zero is always for us, and its always a link control
+	 *	frame.
+	 */
 	if (lci == 0) {
 		x25_link_control(skb, nb, frametype);
 		return 0;
 	}
 
+	/*
+	 *	Find an existing socket.
+	 */
 	if ((sk = x25_find_socket(lci, nb)) != NULL) {
 		int queued = 1;
 
@@ -58,9 +65,16 @@ static int x25_receive_data(struct sk_buff *skb, struct x25_neigh *nb)
 		return queued;
 	}
 
+	/*
+	 *	Is is a Call Request ? if so process it.
+	 */
 	if (frametype == X25_CALL_REQUEST)
 		return x25_rx_call_request(skb, nb, lci);
 
+	/*
+	 * 	Its not a Call Request, nor is it a control frame.
+	 *	Can we forward it?
+	 */
 
 	if (x25_forward_data(lci, nb, skb)) {
 		if (frametype == X25_CLEAR_CONFIRMATION) {
@@ -70,6 +84,9 @@ static int x25_receive_data(struct sk_buff *skb, struct x25_neigh *nb)
 		return 1;
 	}
 
+/*
+	x25_transmit_clear_request(nb, lci, 0x0D);
+*/
 
 	if (frametype != X25_CLEAR_CONFIRMATION)
 		printk(KERN_DEBUG "x25_receive_data(): unknown frame type %2x\n",frametype);
@@ -92,6 +109,9 @@ int x25_lapb_receive_frame(struct sk_buff *skb, struct net_device *dev,
 	kfree_skb(skb);
 	skb = nskb;
 
+	/*
+	 * Packet received from unrecognised device, throw it away.
+	 */
 	nb = x25_get_neigh(dev);
 	if (!nb) {
 		printk(KERN_DEBUG "X.25: unknown neighbour - %s\n", dev->name);

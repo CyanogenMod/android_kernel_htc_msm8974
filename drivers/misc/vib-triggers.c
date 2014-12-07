@@ -21,13 +21,20 @@
 
 #include <linux/vibtrig.h>
 
+/*
+ * Singleton of vib_trigger, and a lock to protect this object
+ */
 static DECLARE_RWSEM(triggers_container_lock);
 static struct vib_trigger* trigger_singleton = NULL;
 
+/*
+ * Singleton of vib_trigger_enabler, and a lock to protect this object
+ */
 
 static DECLARE_RWSEM(enabler_container_lock);
 static struct vib_trigger_enabler* enabler_singleton = NULL;
 
+/* Simple Vibrator Trigger Interface */
 
 void vib_trigger_enabler_register(struct vib_trigger_enabler *enabler)
 {
@@ -35,7 +42,7 @@ void vib_trigger_enabler_register(struct vib_trigger_enabler *enabler)
 
 	init_rwsem(&enabler->trigger_lock);
 
-	
+	/* the default place to assign enabler_singleton */
 	down_write(&enabler_container_lock);
 	if (enabler_singleton != NULL) {
 		err = -EEXIST;
@@ -59,7 +66,7 @@ void vib_trigger_enabler_unregister(struct vib_trigger_enabler *enabler)
 		vib_trigger_set(enabler, NULL);
 	up_write(&enabler->trigger_lock);
 
-	
+	/* Stop any motion */
 	enabler->enable(enabler, 0);
 
 	down_write(&enabler_container_lock);
@@ -68,11 +75,12 @@ void vib_trigger_enabler_unregister(struct vib_trigger_enabler *enabler)
 }
 EXPORT_SYMBOL_GPL(vib_trigger_enabler_unregister);
 
+/* Caller must ensure enabler->trigger_lock held */
 void vib_trigger_set(struct vib_trigger_enabler *enabler, struct vib_trigger *trigger)
 {
 	unsigned long flags;
 
-	
+	/* Remove any existing trigger */
 	if (enabler->trigger) {
 		write_lock_irqsave(&enabler->trigger->trig_container_lock, flags);
 		enabler->trigger->enabler = NULL;
@@ -80,7 +88,7 @@ void vib_trigger_set(struct vib_trigger_enabler *enabler, struct vib_trigger *tr
 		enabler->trigger = NULL;
 		enabler->enable(enabler, 0);
 	}
-	
+	/* Bind trigger/enabler */
 	if (trigger) {
 		write_lock_irqsave(&trigger->trig_container_lock, flags);
 		trigger->enabler = enabler;
@@ -99,7 +107,7 @@ void vib_trigger_set_default(struct vib_trigger_enabler *enabler)
 	down_write(&enabler->trigger_lock);
 	if (trigger_singleton != NULL)
 		if (!strcmp(enabler->default_trigger, trigger_singleton->name)) {
-			
+			/* name matched */
 			vib_trigger_set(enabler, trigger_singleton);
 		}
 	up_write(&enabler->trigger_lock);
@@ -131,7 +139,7 @@ void vib_trigger_register_simple(const char *name, struct vib_trigger **tp)
 		rwlock_init(&trigger->trig_container_lock);
 		trigger->enabler = NULL;
 
-		
+		/* the only place to assign trigger_singleton */
 		down_write(&triggers_container_lock);
 		if (trigger_singleton != NULL) {
 			err = -EEXIST;
@@ -142,7 +150,7 @@ void vib_trigger_register_simple(const char *name, struct vib_trigger **tp)
 		up_write(&triggers_container_lock);
 
 		if (err == 0) {
-			
+			/* Register with any vibrator trigger enabler that has this as a default trigger */
 			down_read(&enabler_container_lock);
 			if (enabler_singleton != NULL) {
 				down_write(&enabler_singleton->trigger_lock);
@@ -176,12 +184,12 @@ void vib_trigger_unregister_simple(struct vib_trigger *trigger)
 	{
 		struct vib_trigger_enabler* enabler;
 
-		
+		/* Remove from the Singleton of vib triggers */
 		down_write(&triggers_container_lock);
 		trigger_singleton = NULL;
 		up_write(&triggers_container_lock);
 
-		
+		/* Remove anyone actively using this trigger */
 		enabler = trigger->enabler;
 		if (enabler) {
 			down_write(&enabler->trigger_lock);

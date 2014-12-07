@@ -1,3 +1,7 @@
+/*
+ *
+ *
+ */
 #ifndef __LINUX_PLATFORM_DATA_EFM32_UART_H__
 #define __LINUX_PLATFORM_DATA_EFM32_UART_H__
 
@@ -11,4 +15,4 @@
 struct efm32_uart_pdata {
 	u8 location;
 };
-#endif 
+#endif /* ifndef __LINUX_PLATFORM_DATA_EFM32_UART_H__ */

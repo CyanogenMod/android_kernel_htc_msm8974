@@ -15,11 +15,15 @@
 #ifndef _ASM_TILE_COMPAT_H
 #define _ASM_TILE_COMPAT_H
 
+/*
+ * Architecture specific compatibility types
+ */
 #include <linux/types.h>
 #include <linux/sched.h>
 
 #define COMPAT_USER_HZ	100
 
+/* "long" and pointer-based types are different. */
 typedef s32		compat_long_t;
 typedef u32		compat_ulong_t;
 typedef u32		compat_size_t;
@@ -31,6 +35,7 @@ typedef u32		compat_ino_t;
 typedef u32		compat_caddr_t;
 typedef	u32		compat_uptr_t;
 
+/* Many types are "int" or otherwise the same. */
 typedef __kernel_pid_t compat_pid_t;
 typedef __kernel_uid_t __compat_uid_t;
 typedef __kernel_gid_t __compat_gid_t;
@@ -50,6 +55,7 @@ typedef s64 compat_s64;
 typedef uint compat_uint_t;
 typedef u64 compat_u64;
 
+/* We use the same register dump format in 32-bit images. */
 typedef unsigned long compat_elf_greg_t;
 #define COMPAT_ELF_NGREG (sizeof(struct pt_regs) / sizeof(compat_elf_greg_t))
 typedef compat_elf_greg_t compat_elf_gregset_t[COMPAT_ELF_NGREG];
@@ -86,7 +92,7 @@ struct compat_flock {
 	compat_pid_t	l_pid;
 };
 
-#define F_GETLK64	12	
+#define F_GETLK64	12	/*  using 'struct flock64' */
 #define F_SETLK64	13
 #define F_SETLKW64	14
 
@@ -166,6 +172,12 @@ struct compat_shmid64_ds {
 	compat_ulong_t __unused5;
 };
 
+/*
+ * A pointer passed in from user mode. This should not
+ * be used for syscall parameters, just declare them
+ * as pointers because the syscall entry code will have
+ * appropriately converted them already.
+ */
 
 static inline void __user *compat_ptr(compat_uptr_t uptr)
 {
@@ -177,6 +189,7 @@ static inline compat_uptr_t ptr_to_compat(void __user *uptr)
 	return (u32)(unsigned long)uptr;
 }
 
+/* Sign-extend when storing a kernel pointer to a user's ptregs. */
 static inline unsigned long ptr_to_compat_reg(void __user *uptr)
 {
 	return (long)(int)(long __force)uptr;
@@ -197,6 +210,7 @@ extern int compat_setup_rt_frame(int sig, struct k_sigaction *ka,
 				 siginfo_t *info, sigset_t *set,
 				 struct pt_regs *regs);
 
+/* Compat syscalls. */
 struct compat_sigaction;
 struct compat_siginfo;
 struct compat_sigaltstack;
@@ -228,8 +242,10 @@ long compat_sys_fallocate(int fd, int mode,
 long compat_sys_sched_rr_get_interval(compat_pid_t pid,
 				      struct compat_timespec __user *interval);
 
+/* Tilera Linux syscalls that don't have "compat" versions. */
 #define compat_sys_flush_cache sys_flush_cache
 
+/* These are the intvec_64.S trampolines. */
 long _compat_sys_execve(const char __user *path,
 			const compat_uptr_t __user *argv,
 			const compat_uptr_t __user *envp);
@@ -237,4 +253,4 @@ long _compat_sys_sigaltstack(const struct compat_sigaltstack __user *uss_ptr,
 			    struct compat_sigaltstack __user *uoss_ptr);
 long _compat_sys_rt_sigreturn(void);
 
-#endif 
+#endif /* _ASM_TILE_COMPAT_H */

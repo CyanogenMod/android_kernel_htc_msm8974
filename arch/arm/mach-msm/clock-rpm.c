@@ -121,9 +121,13 @@ static DEFINE_MUTEX(rpm_clock_lock);
 static void to_active_sleep_khz(struct rpm_clk *r, unsigned long rate,
 			unsigned long *active_khz, unsigned long *sleep_khz)
 {
-	
+	/* Convert the rate (hz) to khz */
 	*active_khz = DIV_ROUND_UP(rate, 1000);
 
+	/*
+	 * Active-only clocks don't care what the rate is during sleep. So,
+	 * they vote for zero.
+	 */
 	if (r->active_only)
 		*sleep_khz = 0;
 	else
@@ -143,11 +147,11 @@ static int rpm_clk_prepare(struct clk *clk)
 
 	to_active_sleep_khz(r, r->c.rate, &this_khz, &this_sleep_khz);
 
-	
+	/* Don't send requests to the RPM if the rate has not been set. */
 	if (this_khz == 0)
 		goto out;
 
-	
+	/* Take peer clock's rate into account only if it's enabled. */
 	if (peer->enabled)
 		to_active_sleep_khz(peer, peer->c.rate,
 				&peer_khz, &peer_sleep_khz);
@@ -166,7 +170,7 @@ static int rpm_clk_prepare(struct clk *clk)
 
 	rc = clk_rpmrs_set_rate_sleep(r, value);
 	if (rc) {
-		
+		/* Undo the active set vote and restore it to peer_khz */
 		value = peer_khz;
 		rc = clk_rpmrs_set_rate_active(r, value);
 	}
@@ -192,7 +196,7 @@ static void rpm_clk_unprepare(struct clk *clk)
 		unsigned long peer_khz = 0, peer_sleep_khz = 0;
 		int rc;
 
-		
+		/* Take peer clock's rate into account only if it's enabled. */
 		if (peer->enabled)
 			to_active_sleep_khz(peer, peer->c.rate,
 				&peer_khz, &peer_sleep_khz);
@@ -227,7 +231,7 @@ static int rpm_clk_set_rate(struct clk *clk, unsigned long rate)
 
 		to_active_sleep_khz(r, rate, &this_khz, &this_sleep_khz);
 
-		
+		/* Take peer clock's rate into account only if it's enabled. */
 		if (peer->enabled)
 			to_active_sleep_khz(peer, peer->c.rate,
 					&peer_khz, &peer_sleep_khz);
@@ -272,7 +276,7 @@ static int rpm_clk_is_enabled(struct clk *clk)
 
 static long rpm_clk_round_rate(struct clk *clk, unsigned long rate)
 {
-	
+	/* Not supported. */
 	return rate;
 }
 
@@ -286,10 +290,24 @@ static enum handoff rpm_clk_handoff(struct clk *clk)
 	struct rpm_clk *r = to_rpm_clk(clk);
 	int rc;
 
+	/*
+	 * Querying an RPM clock's status will return 0 unless the clock's
+	 * rate has previously been set through the RPM. When handing off,
+	 * assume these clocks are enabled (unless the RPM call fails) so
+	 * child clocks of these RPM clocks can still be handed off.
+	 */
 	rc  = r->rpmrs_data->handoff_fn(r);
 	if (rc < 0)
 		return HANDOFF_DISABLED_CLK;
 
+	/*
+	 * Since RPM handoff code may update the software rate of the clock by
+	 * querying the RPM, we need to make sure our request to RPM now
+	 * matches the software rate of the clock. When we send the request
+	 * to RPM, we also need to update any other state info we would
+	 * normally update. So, call the appropriate clock function instead
+	 * of directly using the RPM driver APIs.
+	 */
 	rc = rpm_clk_prepare(clk);
 	if (rc < 0)
 		return HANDOFF_DISABLED_CLK;

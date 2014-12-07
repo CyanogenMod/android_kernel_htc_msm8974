@@ -25,10 +25,10 @@
 #define M48T86_REG_MINALRM	0x03
 #define M48T86_REG_HOUR		0x04
 #define M48T86_REG_HOURALRM	0x05
-#define M48T86_REG_DOW		0x06 
+#define M48T86_REG_DOW		0x06 /* 1 = sunday */
 #define M48T86_REG_DOM		0x07
-#define M48T86_REG_MONTH	0x08 
-#define M48T86_REG_YEAR		0x09 
+#define M48T86_REG_MONTH	0x08 /* 1 - 12 */
+#define M48T86_REG_YEAR		0x09 /* 0 - 99 */
 #define M48T86_REG_A		0x0A
 #define M48T86_REG_B		0x0B
 #define M48T86_REG_C		0x0C
@@ -51,28 +51,28 @@ static int m48t86_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	reg = ops->readbyte(M48T86_REG_B);
 
 	if (reg & M48T86_REG_B_DM) {
-		
+		/* data (binary) mode */
 		tm->tm_sec	= ops->readbyte(M48T86_REG_SEC);
 		tm->tm_min	= ops->readbyte(M48T86_REG_MIN);
 		tm->tm_hour	= ops->readbyte(M48T86_REG_HOUR) & 0x3F;
 		tm->tm_mday	= ops->readbyte(M48T86_REG_DOM);
-		
+		/* tm_mon is 0-11 */
 		tm->tm_mon	= ops->readbyte(M48T86_REG_MONTH) - 1;
 		tm->tm_year	= ops->readbyte(M48T86_REG_YEAR) + 100;
 		tm->tm_wday	= ops->readbyte(M48T86_REG_DOW);
 	} else {
-		
+		/* bcd mode */
 		tm->tm_sec	= bcd2bin(ops->readbyte(M48T86_REG_SEC));
 		tm->tm_min	= bcd2bin(ops->readbyte(M48T86_REG_MIN));
 		tm->tm_hour	= bcd2bin(ops->readbyte(M48T86_REG_HOUR) & 0x3F);
 		tm->tm_mday	= bcd2bin(ops->readbyte(M48T86_REG_DOM));
-		
+		/* tm_mon is 0-11 */
 		tm->tm_mon	= bcd2bin(ops->readbyte(M48T86_REG_MONTH)) - 1;
 		tm->tm_year	= bcd2bin(ops->readbyte(M48T86_REG_YEAR)) + 100;
 		tm->tm_wday	= bcd2bin(ops->readbyte(M48T86_REG_DOW));
 	}
 
-	
+	/* correct the hour if the clock is in 12h mode */
 	if (!(reg & M48T86_REG_B_H24))
 		if (ops->readbyte(M48T86_REG_HOUR) & 0x80)
 			tm->tm_hour += 12;
@@ -88,12 +88,12 @@ static int m48t86_rtc_set_time(struct device *dev, struct rtc_time *tm)
 
 	reg = ops->readbyte(M48T86_REG_B);
 
-	
+	/* update flag and 24h mode */
 	reg |= M48T86_REG_B_SET | M48T86_REG_B_H24;
 	ops->writebyte(reg, M48T86_REG_B);
 
 	if (reg & M48T86_REG_B_DM) {
-		
+		/* data (binary) mode */
 		ops->writebyte(tm->tm_sec, M48T86_REG_SEC);
 		ops->writebyte(tm->tm_min, M48T86_REG_MIN);
 		ops->writebyte(tm->tm_hour, M48T86_REG_HOUR);
@@ -102,7 +102,7 @@ static int m48t86_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		ops->writebyte(tm->tm_year % 100, M48T86_REG_YEAR);
 		ops->writebyte(tm->tm_wday, M48T86_REG_DOW);
 	} else {
-		
+		/* bcd mode */
 		ops->writebyte(bin2bcd(tm->tm_sec), M48T86_REG_SEC);
 		ops->writebyte(bin2bcd(tm->tm_min), M48T86_REG_MIN);
 		ops->writebyte(bin2bcd(tm->tm_hour), M48T86_REG_HOUR);
@@ -112,7 +112,7 @@ static int m48t86_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		ops->writebyte(bin2bcd(tm->tm_wday), M48T86_REG_DOW);
 	}
 
-	
+	/* update ended */
 	reg &= ~M48T86_REG_B_SET;
 	ops->writebyte(reg, M48T86_REG_B);
 
@@ -156,7 +156,7 @@ static int __devinit m48t86_rtc_probe(struct platform_device *dev)
 
 	platform_set_drvdata(dev, rtc);
 
-	
+	/* read battery status */
 	reg = ops->readbyte(M48T86_REG_D);
 	dev_info(&dev->dev, "battery %s\n",
 		(reg & M48T86_REG_D_VRT) ? "ok" : "exhausted");

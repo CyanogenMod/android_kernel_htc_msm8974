@@ -45,6 +45,12 @@ void sram_free(void *addr, size_t len)
 EXPORT_SYMBOL(sram_free);
 
 
+/*
+ * REVISIT This supports CPU and DMA access to/from SRAM, but it
+ * doesn't (yet?) support some other notable uses of SRAM:  as TCM
+ * for data and/or instructions; and holding code needed to enter
+ * and exit suspend states (while DRAM can't be used).
+ */
 static int __init sram_init(void)
 {
 	unsigned len = davinci_soc_info.sram_len;

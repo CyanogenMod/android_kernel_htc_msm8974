@@ -77,6 +77,11 @@ static int exynos_target(struct cpufreq_policy *policy,
 	freqs.new = freq_table[index].frequency;
 	freqs.cpu = policy->cpu;
 
+	/*
+	 * ARM clock source will be changed APLL to MPLL temporary
+	 * To support this level, need to control regulator for
+	 * required voltage level
+	 */
 	if (exynos_info->need_apll_change != NULL) {
 		if (exynos_info->need_apll_change(old_index, index) &&
 		   (freq_table[index].frequency < mpll_freq_khz) &&
@@ -87,9 +92,9 @@ static int exynos_target(struct cpufreq_policy *policy,
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
-	
+	/* When the new frequency is higher than current frequency */
 	if ((freqs.new > freqs.old) && !safe_arm_volt) {
-		
+		/* Firstly, voltage up to increase frequency */
 		regulator_set_voltage(arm_regulator, arm_volt,
 				arm_volt);
 	}
@@ -102,10 +107,10 @@ static int exynos_target(struct cpufreq_policy *policy,
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 
-	
+	/* When the new frequency is lower than current frequency */
 	if ((freqs.new < freqs.old) ||
 	   ((freqs.new > freqs.old) && safe_arm_volt)) {
-		
+		/* down the voltage after frequency change */
 		regulator_set_voltage(arm_regulator, arm_volt,
 				arm_volt);
 	}
@@ -128,10 +133,25 @@ static int exynos_cpufreq_resume(struct cpufreq_policy *policy)
 }
 #endif
 
+/**
+ * exynos_cpufreq_pm_notifier - block CPUFREQ's activities in suspend-resume
+ *			context
+ * @notifier
+ * @pm_event
+ * @v
+ *
+ * While frequency_locked == true, target() ignores every frequency but
+ * locking_frequency. The locking_frequency value is the initial frequency,
+ * which is set by the bootloader. In order to eliminate possible
+ * inconsistency in clock values, we save and restore frequencies during
+ * suspend and resume and block CPUFREQ activities. Note that the standard
+ * suspend/resume cannot be used as they are too deep (syscore_ops) for
+ * regulator actions.
+ */
 static int exynos_cpufreq_pm_notifier(struct notifier_block *notifier,
 				       unsigned long pm_event, void *v)
 {
-	struct cpufreq_policy *policy = cpufreq_cpu_get(0); 
+	struct cpufreq_policy *policy = cpufreq_cpu_get(0); /* boot CPU */
 	static unsigned int saved_frequency;
 	unsigned int temp;
 
@@ -155,6 +175,12 @@ static int exynos_cpufreq_pm_notifier(struct notifier_block *notifier,
 
 	case PM_POST_SUSPEND:
 		if (saved_frequency) {
+			/*
+			 * While frequency_locked, only locking_frequency
+			 * is valid for target(). In order to use
+			 * saved_frequency while keeping frequency_locked,
+			 * we temporarly overwrite locking_frequency.
+			 */
 			temp = locking_frequency;
 			locking_frequency = saved_frequency;
 
@@ -186,9 +212,15 @@ static int exynos_cpufreq_cpu_init(struct cpufreq_policy *policy)
 
 	locking_frequency = exynos_getspeed(0);
 
-	
+	/* set the transition latency value */
 	policy->cpuinfo.transition_latency = 100000;
 
+	/*
+	 * EXYNOS4 multi-core processors has 2 cores
+	 * that the frequency cannot be set independently.
+	 * Each cpu is bound to the same speed.
+	 * So the affected cpu is all of the cpus.
+	 */
 	if (num_online_cpus() == 1) {
 		cpumask_copy(policy->related_cpus, cpu_possible_mask);
 		cpumask_copy(policy->cpus, cpu_online_mask);

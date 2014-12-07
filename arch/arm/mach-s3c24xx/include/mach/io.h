@@ -13,6 +13,13 @@
 
 #define IO_SPACE_LIMIT 0xffffffff
 
+/*
+ * We use two different types of addressing - PC style addresses, and ARM
+ * addresses.  PC style accesses the PC hardware with the normal PC IO
+ * addresses, eg 0x3f8 for serial#1.  ARM addresses are above A28
+ * and are translated to the start of IO.  Note that all addresses are
+ * not shifted left!
+ */
 
 #define __PORT_PCIO(x)	((x) < (1<<28))
 
@@ -20,6 +27,10 @@
 #define PCIO_BASE_b	 (S3C24XX_VA_ISA_BYTE)
 #define PCIO_BASE_w	 (S3C24XX_VA_ISA_WORD)
 #define PCIO_BASE_l	 (S3C24XX_VA_ISA_WORD)
+/*
+ * Dynamic IO functions - let the compiler
+ * optimize the expressions
+ */
 
 #define DECLARE_DYN_OUT(sz,fnsuffix,instr) \
 static inline void __out##fnsuffix (unsigned int val, unsigned int port) \
@@ -67,6 +78,12 @@ DECLARE_IO(int,l,"")
 #undef DECLARE_IO
 #undef DECLARE_DYN_IN
 
+/*
+ * Constant address IO functions
+ *
+ * These have to be macros for the 'J' constraint to work -
+ * +/-4096 immediate operand.
+ */
 #define __outbc(value,port)						\
 ({									\
 	if (__PORT_PCIO((port)))					\

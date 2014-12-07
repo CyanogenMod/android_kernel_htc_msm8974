@@ -10,6 +10,6 @@ extern __u32 s390_write_class[];
 extern __u32 s390_read_class[];
 extern __u32 s390_chattr_class[];
 extern __u32 s390_signal_class[];
-#endif 
+#endif /* CONFIG_COMPAT */
 
-#endif 
+#endif /* __ARCH_S390_KERNEL_AUDIT_H */

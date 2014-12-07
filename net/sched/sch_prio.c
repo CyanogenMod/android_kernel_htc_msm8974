@@ -231,7 +231,7 @@ static int prio_tune(struct Qdisc *sch, struct nlattr *opt)
 		}
 	}
 
-	
+	/* Schedule qdisc when flow re-enabled */
 	if (flow_change && q->enable_flow) {
 		if (!test_bit(__QDISC_STATE_DEACTIVATED,
 			      &sch->state))

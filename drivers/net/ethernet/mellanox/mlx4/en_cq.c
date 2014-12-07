@@ -90,7 +90,7 @@ int mlx4_en_activate_cq(struct mlx4_en_priv *priv, struct mlx4_en_cq *cq,
 			if (!cq->vector) {
 				sprintf(name, "%s-%d", priv->dev->name,
 					cq->ring);
-				
+				/* Set IRQ for specific name (per ring) */
 				if (mlx4_assign_eq(mdev->dev, name, &cq->vector)) {
 					cq->vector = (cq->ring + 1 + priv->port)
 					    % mdev->dev->caps.num_comp_vectors;
@@ -104,6 +104,8 @@ int mlx4_en_activate_cq(struct mlx4_en_priv *priv, struct mlx4_en_cq *cq,
 				mdev->dev->caps.num_comp_vectors;
 		}
 	} else {
+		/* For TX we use the same irq per
+		ring we assigned for the RX    */
 		struct mlx4_en_cq *rx_cq;
 
 		cq_idx = cq_idx % priv->rx_ring_num;
@@ -161,6 +163,7 @@ void mlx4_en_deactivate_cq(struct mlx4_en_priv *priv, struct mlx4_en_cq *cq)
 	mlx4_cq_free(mdev->dev, &cq->mcq);
 }
 
+/* Set rx cq moderation parameters */
 int mlx4_en_set_cq_moder(struct mlx4_en_priv *priv, struct mlx4_en_cq *cq)
 {
 	return mlx4_cq_modify(priv->mdev->dev, &cq->mcq,

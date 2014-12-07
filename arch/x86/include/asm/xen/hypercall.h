@@ -49,6 +49,37 @@
 #include <xen/interface/physdev.h>
 #include <xen/interface/platform.h>
 
+/*
+ * The hypercall asms have to meet several constraints:
+ * - Work on 32- and 64-bit.
+ *    The two architectures put their arguments in different sets of
+ *    registers.
+ *
+ * - Work around asm syntax quirks
+ *    It isn't possible to specify one of the rNN registers in a
+ *    constraint, so we use explicit register variables to get the
+ *    args into the right place.
+ *
+ * - Mark all registers as potentially clobbered
+ *    Even unused parameters can be clobbered by the hypervisor, so we
+ *    need to make sure gcc knows it.
+ *
+ * - Avoid compiler bugs.
+ *    This is the tricky part.  Because x86_32 has such a constrained
+ *    register set, gcc versions below 4.3 have trouble generating
+ *    code when all the arg registers and memory are trashed by the
+ *    asm.  There are syntactically simpler ways of achieving the
+ *    semantics below, but they cause the compiler to crash.
+ *
+ *    The only combination I found which works is:
+ *     - assign the __argX variables first
+ *     - list all actually used parameters as "+r" (__argX)
+ *     - clobber the rest
+ *
+ * The result certainly isn't pretty, and it really shows up cpp's
+ * weakness as as macro language.  Sorry.  (But let's just give thanks
+ * there aren't more than 5 arguments...)
+ */
 
 extern struct { char _entry[32]; } hypercall_page[];
 
@@ -232,7 +263,7 @@ HYPERVISOR_set_callbacks(unsigned long event_selector,
 			   event_selector, event_address,
 			   failsafe_selector, failsafe_address);
 }
-#else  
+#else  /* CONFIG_X86_64 */
 static inline int
 HYPERVISOR_set_callbacks(unsigned long event_address,
 			unsigned long failsafe_address,
@@ -242,7 +273,7 @@ HYPERVISOR_set_callbacks(unsigned long event_address,
 			   event_address, failsafe_address,
 			   syscall_address);
 }
-#endif  
+#endif  /* CONFIG_X86_{32,64} */
 
 static inline int
 HYPERVISOR_callback_op(int cmd, void *arg)
@@ -405,6 +436,12 @@ HYPERVISOR_suspend(unsigned long start_info_mfn)
 {
 	struct sched_shutdown r = { .reason = SHUTDOWN_suspend };
 
+	/*
+	 * For a PV guest the tools require that the start_info mfn be
+	 * present in rdx/edx when the hypercall is made. Per the
+	 * hypercall calling convention this is the third hypercall
+	 * argument, which is start_info_mfn here.
+	 */
 	return _hypercall3(int, sched_op, SCHEDOP_shutdown, &r, start_info_mfn);
 }
 
@@ -562,4 +599,4 @@ MULTI_stack_switch(struct multicall_entry *mcl,
 	trace_xen_mc_entry(mcl, 2);
 }
 
-#endif 
+#endif /* _ASM_X86_XEN_HYPERCALL_H */

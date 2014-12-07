@@ -18,6 +18,9 @@
 
 #include <linux/kref.h>
 
+/*
+ * Valid flags for a dirty buffer
+ */
 enum {
 	PG_BUSY = 0,
 	PG_MAPPED,
@@ -30,18 +33,18 @@ enum {
 
 struct nfs_inode;
 struct nfs_page {
-	struct list_head	wb_list;	
-	struct page		*wb_page;	
-	struct nfs_open_context	*wb_context;	
-	struct nfs_lock_context	*wb_lock_context;	
-	atomic_t		wb_complete;	
-	pgoff_t			wb_index;	
-	unsigned int		wb_offset,	
-				wb_pgbase,	
-				wb_bytes;	
-	struct kref		wb_kref;	
+	struct list_head	wb_list;	/* Defines state of page: */
+	struct page		*wb_page;	/* page to read in/write out */
+	struct nfs_open_context	*wb_context;	/* File state context info */
+	struct nfs_lock_context	*wb_lock_context;	/* lock context info */
+	atomic_t		wb_complete;	/* i/os we're waiting for */
+	pgoff_t			wb_index;	/* Offset >> PAGE_CACHE_SHIFT */
+	unsigned int		wb_offset,	/* Offset & ~PAGE_CACHE_MASK */
+				wb_pgbase,	/* Start of page data */
+				wb_bytes;	/* Length of request */
+	struct kref		wb_kref;	/* reference count */
 	unsigned long		wb_flags;
-	struct nfs_writeverf	wb_verf;	
+	struct nfs_writeverf	wb_verf;	/* Commit cookie */
 };
 
 struct nfs_pageio_descriptor;
@@ -93,6 +96,9 @@ extern bool nfs_generic_pg_test(struct nfs_pageio_descriptor *desc,
 extern  int nfs_wait_on_request(struct nfs_page *);
 extern	void nfs_unlock_request(struct nfs_page *req);
 
+/*
+ * Lock the page of an asynchronous request without getting a new reference
+ */
 static inline int
 nfs_lock_request_dontget(struct nfs_page *req)
 {
@@ -109,6 +115,11 @@ nfs_lock_request(struct nfs_page *req)
 }
 
 
+/**
+ * nfs_list_add_request - Insert a request into a list
+ * @req: request
+ * @head: head of list into which to insert the request.
+ */
 static inline void
 nfs_list_add_request(struct nfs_page *req, struct list_head *head)
 {
@@ -116,6 +127,10 @@ nfs_list_add_request(struct nfs_page *req, struct list_head *head)
 }
 
 
+/**
+ * nfs_list_remove_request - Remove a request from its wb_list
+ * @req: request
+ */
 static inline void
 nfs_list_remove_request(struct nfs_page *req)
 {
@@ -136,4 +151,4 @@ loff_t req_offset(struct nfs_page *req)
 	return (((loff_t)req->wb_index) << PAGE_CACHE_SHIFT) + req->wb_offset;
 }
 
-#endif 
+#endif /* _LINUX_NFS_PAGE_H */

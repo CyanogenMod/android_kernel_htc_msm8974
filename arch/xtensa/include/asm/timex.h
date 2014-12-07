@@ -34,8 +34,8 @@
 
 #define LINUX_TIMER_MASK        (1L << LINUX_TIMER_INT)
 
-#define CLOCK_TICK_RATE 	1193180	
-#define CLOCK_TICK_FACTOR       20 
+#define CLOCK_TICK_RATE 	1193180	/* (everyone is using this value) */
+#define CLOCK_TICK_FACTOR       20 /* Factor of both 10^6 and CLOCK_TICK_RATE */
 
 #ifdef CONFIG_XTENSA_CALIBRATE_CCOUNT
 extern unsigned long ccount_per_jiffy;
@@ -50,12 +50,18 @@ extern unsigned long nsec_per_ccount;
 
 typedef unsigned long long cycles_t;
 
+/*
+ * Only used for SMP.
+ */
 
 extern cycles_t cacheflush_time;
 
 #define get_cycles()	(0)
 
 
+/*
+ * Register access.
+ */
 
 #define WSR_CCOUNT(r)	  asm volatile ("wsr %0,"__stringify(CCOUNT) :: "a" (r))
 #define RSR_CCOUNT(r)	  asm volatile ("rsr %0,"__stringify(CCOUNT) : "=a" (r))
@@ -86,5 +92,5 @@ static inline void set_linux_timer (unsigned long ccompare)
 	WSR_CCOMPARE(LINUX_TIMER, ccompare);
 }
 
-#endif	
-#endif	
+#endif	/* __KERNEL__ */
+#endif	/* _XTENSA_TIMEX_H */

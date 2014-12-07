@@ -27,6 +27,8 @@ struct sk_buff;
 struct dst_entry;
 struct proto;
 
+/* empty to "strongly type" an otherwise void parameter.
+ */
 struct request_values {
 };
 
@@ -47,14 +49,16 @@ struct request_sock_ops {
 					   struct request_sock *req);
 };
 
+/* struct request_sock - mini sock to represent a connection request
+ */
 struct request_sock {
-	struct request_sock		*dl_next; 
+	struct request_sock		*dl_next; /* Must be first member! */
 	u16				mss;
 	u8				retrans;
-	u8				cookie_ts; 
-	
-	u32				window_clamp; 
-	u32				rcv_wnd;	  
+	u8				cookie_ts; /* syncookie: encode tcpopts in timestamp */
+	/* The following two fields can be easily recomputed I think -AK */
+	u32				window_clamp; /* window clamp at creation time */
+	u32				rcv_wnd;	  /* rcv_wnd offered first time */
 	u32				ts_recent;
 	unsigned long			expires;
 	const struct request_sock_ops	*rsk_ops;
@@ -86,10 +90,14 @@ static inline void reqsk_free(struct request_sock *req)
 
 extern int sysctl_max_syn_backlog;
 
+/** struct listen_sock - listen state
+ *
+ * @max_qlen_log - log_2 of maximal queued SYNs/REQUESTs
+ */
 struct listen_sock {
 	u8			max_qlen_log;
 	u8			synflood_warned;
-	
+	/* 2 bytes hole, try to use */
 	int			qlen;
 	int			qlen_young;
 	int			clock_hand;
@@ -98,12 +106,28 @@ struct listen_sock {
 	struct request_sock	*syn_table[0];
 };
 
+/** struct request_sock_queue - queue of request_socks
+ *
+ * @rskq_accept_head - FIFO head of established children
+ * @rskq_accept_tail - FIFO tail of established children
+ * @rskq_defer_accept - User waits for some data after accept()
+ * @syn_wait_lock - serializer
+ *
+ * %syn_wait_lock is necessary only to avoid proc interface having to grab the main
+ * lock sock while browsing the listening hash (otherwise it's deadlock prone).
+ *
+ * This lock is acquired in read mode only from listening_get_next() seq_file
+ * op and it's acquired in write mode _only_ from code that is actively
+ * changing rskq_accept_head. All readers that are holding the master sock lock
+ * don't need to grab this lock in read mode too as rskq_accept_head. writes
+ * are always protected from the main sock lock.
+ */
 struct request_sock_queue {
 	struct request_sock	*rskq_accept_head;
 	struct request_sock	*rskq_accept_tail;
 	rwlock_t		syn_wait_lock;
 	u8			rskq_defer_accept;
-	
+	/* 3 bytes hole, try to pack */
 	struct listen_sock	*listen_opt;
 };
 
@@ -231,4 +255,4 @@ static inline void reqsk_queue_hash_req(struct request_sock_queue *queue,
 	write_unlock(&queue->syn_wait_lock);
 }
 
-#endif 
+#endif /* _REQUEST_SOCK_H */

@@ -5,6 +5,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the bitmap:port type */
 
 #include <linux/module.h>
 #include <linux/ip.h>
@@ -26,15 +27,17 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("bitmap:port type of IP sets");
 MODULE_ALIAS("ip_set_bitmap:port");
 
+/* Type structure */
 struct bitmap_port {
-	void *members;		
-	u16 first_port;		
-	u16 last_port;		
-	size_t memsize;		
-	u32 timeout;		
-	struct timer_list gc;	
+	void *members;		/* the set members */
+	u16 first_port;		/* host byte order, included in range */
+	u16 last_port;		/* host byte order, included in range */
+	size_t memsize;		/* members size */
+	u32 timeout;		/* timeout parameter */
+	struct timer_list gc;	/* garbage collection */
 };
 
+/* Base variant */
 
 static int
 bitmap_port_test(struct ip_set *set, void *value, u32 timeout, u32 flags)
@@ -98,7 +101,7 @@ bitmap_port_list(const struct ip_set *set,
 		ipset_nest_end(skb, nested);
 	}
 	ipset_nest_end(skb, atd);
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 
 	return 0;
@@ -113,6 +116,7 @@ nla_put_failure:
 	return 0;
 }
 
+/* Timeout variant */
 
 static int
 bitmap_port_ttest(struct ip_set *set, void *value, u32 timeout, u32 flags)
@@ -187,7 +191,7 @@ bitmap_port_tlist(const struct ip_set *set,
 	}
 	ipset_nest_end(skb, adt);
 
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 
 	return 0;
@@ -233,7 +237,7 @@ bitmap_port_uadt(struct ip_set *set, struct nlattr *tb[],
 	struct bitmap_port *map = set->data;
 	ipset_adtfn adtfn = set->variant->adt[adt];
 	u32 timeout = map->timeout;
-	u32 port;	
+	u32 port;	/* wraparound */
 	u16 id, port_to;
 	int ret = 0;
 
@@ -377,9 +381,11 @@ bitmap_port_gc(unsigned long ul_set)
 	struct ip_set *set = (struct ip_set *) ul_set;
 	struct bitmap_port *map = set->data;
 	unsigned long *table = map->members;
-	u32 id;	
+	u32 id;	/* wraparound */
 	u16 last = map->last_port - map->first_port;
 
+	/* We run parallel with other readers (test element)
+	 * but adding/deleting new entries is locked out */
 	read_lock_bh(&set->lock);
 	for (id = 0; id <= last; id++)
 		if (ip_set_timeout_expired(table[id]))
@@ -402,6 +408,7 @@ bitmap_port_gc_init(struct ip_set *set)
 	add_timer(&map->gc);
 }
 
+/* Create bitmap:ip type of sets */
 
 static bool
 init_map_port(struct ip_set *set, struct bitmap_port *map,

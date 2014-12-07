@@ -8,8 +8,28 @@
 
 #include <linux/export.h>
 
+/*
+ * Read/write from/to an (offsettable) iomem cookie. It might be a PIO
+ * access or a MMIO access, these functions don't care. The info is
+ * encoded in the hardware mapping set up by the mapping functions
+ * (or the cookie itself, depending on implementation and hw).
+ *
+ * The generic routines don't assume any hardware mappings, and just
+ * encode the PIO/MMIO as part of the cookie. They coldly assume that
+ * the MMIO IO mappings are not in the low address range.
+ *
+ * Architectures for which this is not true can't use this generic
+ * implementation and should do their own copy.
+ */
 
 #ifndef HAVE_ARCH_PIO_SIZE
+/*
+ * We encode the physical PIO addresses (0-0xffff) into the
+ * pointer by offsetting them with a constant (0x10000) and
+ * assuming that all the low addresses are always PIO. That means
+ * we can do some sanity checks on the low bits, and don't
+ * need to just take things for granted.
+ */
 #define PIO_OFFSET	0x10000UL
 #define PIO_MASK	0x0ffffUL
 #define PIO_RESERVED	0x40000UL
@@ -24,6 +44,9 @@ static void bad_io_access(unsigned long port, const char *access)
 	}
 }
 
+/*
+ * Ugly macros are a way of life.
+ */
 #define IO_COND(addr, is_pio, is_mmio) do {			\
 	unsigned long port = (unsigned long __force)addr;	\
 	if (port >= PIO_RESERVED) {				\
@@ -112,6 +135,12 @@ EXPORT_SYMBOL(iowrite16be);
 EXPORT_SYMBOL(iowrite32);
 EXPORT_SYMBOL(iowrite32be);
 
+/*
+ * These are the "repeat MMIO read/write" functions.
+ * Note the "__raw" accesses, since we don't want to
+ * convert to CPU byte order. We write in "IO byte
+ * order" (we also don't have IO barriers).
+ */
 #ifndef mmio_insb
 static inline void mmio_insb(void __iomem *addr, u8 *dst, int count)
 {
@@ -196,6 +225,7 @@ EXPORT_SYMBOL(iowrite16_rep);
 EXPORT_SYMBOL(iowrite32_rep);
 
 #ifdef CONFIG_HAS_IOPORT
+/* Create a virtual mapping cookie for an IO port range */
 void __iomem *ioport_map(unsigned long port, unsigned int nr)
 {
 	if (port > PIO_MASK)
@@ -205,16 +235,18 @@ void __iomem *ioport_map(unsigned long port, unsigned int nr)
 
 void ioport_unmap(void __iomem *addr)
 {
-	
+	/* Nothing to do */
 }
 EXPORT_SYMBOL(ioport_map);
 EXPORT_SYMBOL(ioport_unmap);
-#endif 
+#endif /* CONFIG_HAS_IOPORT */
 
 #ifdef CONFIG_PCI
+/* Hide the details if this is a MMIO or PIO address space and just do what
+ * you expect in the correct way. */
 void pci_iounmap(struct pci_dev *dev, void __iomem * addr)
 {
-	IO_COND(addr, , iounmap(addr));
+	IO_COND(addr, /* nothing */, iounmap(addr));
 }
 EXPORT_SYMBOL(pci_iounmap);
-#endif 
+#endif /* CONFIG_PCI */

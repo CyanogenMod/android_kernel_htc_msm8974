@@ -84,14 +84,18 @@ static int idma_enqueue(struct snd_pcm_substream *substream)
 	prtd->token = (void *) substream;
 	spin_unlock(&prtd->lock);
 
-	
+	/* Internal DMA Level0 Interrupt Address */
 	val = idma.lp_tx_addr + prtd->periodsz;
 	writel(val, idma.regs + I2SLVL0ADDR);
 
-	
+	/* Start address0 of I2S internal DMA operation. */
 	val = idma.lp_tx_addr;
 	writel(val, idma.regs + I2SSTR0);
 
+	/*
+	 * Transfer block size for I2S internal DMA.
+	 * Should decide transfer size before start dma operation
+	 */
 	val = readl(idma.regs + I2SSIZE);
 	val &= ~(I2SSIZE_TRNMSK << I2SSIZE_SHIFT);
 	val |= (((runtime->dma_bytes >> 2) &
@@ -185,7 +189,7 @@ static int idma_prepare(struct snd_pcm_substream *substream)
 
 	prtd->pos = prtd->start;
 
-	
+	/* flush the DMA channel */
 	idma_control(LPAM_DMA_STOP);
 	idma_enqueue(substream);
 
@@ -249,7 +253,7 @@ static int idma_mmap(struct snd_pcm_substream *substream,
 	unsigned long size, offset;
 	int ret;
 
-	
+	/* From snd_pcm_lib_mmap_iomem */
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 	vma->vm_flags |= VM_IO;
 	size = vma->vm_end - vma->vm_start;
@@ -369,7 +373,7 @@ static int preallocate_idma_buffer(struct snd_pcm *pcm, int stream)
 	buf->dev.dev = pcm->card->dev;
 	buf->private_data = NULL;
 
-	
+	/* Assign PCM buffer pointers */
 	buf->dev.type = SNDRV_DMA_TYPE_CONTINUOUS;
 	buf->addr = idma.lp_tx_addr;
 	buf->bytes = idma_hardware.buffer_bytes_max;

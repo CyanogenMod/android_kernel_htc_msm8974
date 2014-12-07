@@ -28,6 +28,13 @@
 #include <inat.c>
 #include <insn.c>
 
+/*
+ * Test of instruction analysis in general and insn_get_length() in
+ * particular.  See if insn_get_length() and the disassembler agree
+ * on the length of each instruction in an elf disassembly.
+ *
+ * Usage: objdump -d a.out | awk -f distill.awk | ./test_get_len
+ */
 
 const char *prog;
 static int verbose;
@@ -117,7 +124,7 @@ int main(int argc, char **argv)
 		unsigned int b;
 
 		if (line[0] == '<') {
-			
+			/* Symbol line */
 			strcpy(sym, line);
 			continue;
 		}
@@ -133,7 +140,7 @@ int main(int argc, char **argv)
 		tab2 = strchr(s, '\t');
 		if (!tab2)
 			malformed_line(line, insns);
-		*tab2 = '\0';	
+		*tab2 = '\0';	/* Characters beyond tab2 aren't examined */
 		while (s < tab2) {
 			if (sscanf(s, "%x", &b) == 1) {
 				insn_buf[nb++] = (unsigned char) b;
@@ -141,7 +148,7 @@ int main(int argc, char **argv)
 			} else
 				break;
 		}
-		
+		/* Decode an instruction */
 		insn_init(&insn, insn_buf, x86_64);
 		insn_get_length(&insn);
 		if (insn.length != nb) {

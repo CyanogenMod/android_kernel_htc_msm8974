@@ -16,26 +16,26 @@
 
 
 enum {
-	RP5C01_1_SECOND		= 0x0,	
-	RP5C01_10_SECOND	= 0x1,	
-	RP5C01_1_MINUTE		= 0x2,	
-	RP5C01_10_MINUTE	= 0x3,	
-	RP5C01_1_HOUR		= 0x4,	
-	RP5C01_10_HOUR		= 0x5,	
-	RP5C01_DAY_OF_WEEK	= 0x6,	
-	RP5C01_1_DAY		= 0x7,	
-	RP5C01_10_DAY		= 0x8,	
-	RP5C01_1_MONTH		= 0x9,	
-	RP5C01_10_MONTH		= 0xa,	
-	RP5C01_1_YEAR		= 0xb,	
-	RP5C01_10_YEAR		= 0xc,	
+	RP5C01_1_SECOND		= 0x0,	/* MODE 00 */
+	RP5C01_10_SECOND	= 0x1,	/* MODE 00 */
+	RP5C01_1_MINUTE		= 0x2,	/* MODE 00 and MODE 01 */
+	RP5C01_10_MINUTE	= 0x3,	/* MODE 00 and MODE 01 */
+	RP5C01_1_HOUR		= 0x4,	/* MODE 00 and MODE 01 */
+	RP5C01_10_HOUR		= 0x5,	/* MODE 00 and MODE 01 */
+	RP5C01_DAY_OF_WEEK	= 0x6,	/* MODE 00 and MODE 01 */
+	RP5C01_1_DAY		= 0x7,	/* MODE 00 and MODE 01 */
+	RP5C01_10_DAY		= 0x8,	/* MODE 00 and MODE 01 */
+	RP5C01_1_MONTH		= 0x9,	/* MODE 00 */
+	RP5C01_10_MONTH		= 0xa,	/* MODE 00 */
+	RP5C01_1_YEAR		= 0xb,	/* MODE 00 */
+	RP5C01_10_YEAR		= 0xc,	/* MODE 00 */
 
-	RP5C01_12_24_SELECT	= 0xa,	
-	RP5C01_LEAP_YEAR	= 0xb,	
+	RP5C01_12_24_SELECT	= 0xa,	/* MODE 01 */
+	RP5C01_LEAP_YEAR	= 0xb,	/* MODE 01 */
 
-	RP5C01_MODE		= 0xd,	
-	RP5C01_TEST		= 0xe,	
-	RP5C01_RESET		= 0xf,	
+	RP5C01_MODE		= 0xd,	/* all modes */
+	RP5C01_TEST		= 0xe,	/* all modes */
+	RP5C01_RESET		= 0xf,	/* all modes */
 };
 
 #define RP5C01_12_24_SELECT_12	(0 << 0)
@@ -44,26 +44,26 @@ enum {
 #define RP5C01_10_HOUR_AM	(0 << 1)
 #define RP5C01_10_HOUR_PM	(1 << 1)
 
-#define RP5C01_MODE_TIMER_EN	(1 << 3)	
-#define RP5C01_MODE_ALARM_EN	(1 << 2)	
+#define RP5C01_MODE_TIMER_EN	(1 << 3)	/* timer enable */
+#define RP5C01_MODE_ALARM_EN	(1 << 2)	/* alarm enable */
 
 #define RP5C01_MODE_MODE_MASK	(3 << 0)
-#define RP5C01_MODE_MODE00	(0 << 0)	
-#define RP5C01_MODE_MODE01	(1 << 0)	
-#define RP5C01_MODE_RAM_BLOCK10	(2 << 0)	
-#define RP5C01_MODE_RAM_BLOCK11	(3 << 0)	
+#define RP5C01_MODE_MODE00	(0 << 0)	/* time */
+#define RP5C01_MODE_MODE01	(1 << 0)	/* alarm, 12h/24h, leap year */
+#define RP5C01_MODE_RAM_BLOCK10	(2 << 0)	/* RAM 4 bits x 13 */
+#define RP5C01_MODE_RAM_BLOCK11	(3 << 0)	/* RAM 4 bits x 13 */
 
 #define RP5C01_RESET_1HZ_PULSE	(1 << 3)
 #define RP5C01_RESET_16HZ_PULSE	(1 << 2)
-#define RP5C01_RESET_SECOND	(1 << 1)	
-						
-#define RP5C01_RESET_ALARM	(1 << 0)	
+#define RP5C01_RESET_SECOND	(1 << 1)	/* reset divider stages for */
+						/* seconds or smaller units */
+#define RP5C01_RESET_ALARM	(1 << 0)	/* reset all alarm registers */
 
 
 struct rp5c01_priv {
 	u32 __iomem *regs;
 	struct rtc_device *rtc;
-	spinlock_t lock;	
+	spinlock_t lock;	/* against concurrent RTC/NVRAM access */
 	struct bin_attribute nvram_attr;
 };
 
@@ -154,6 +154,11 @@ static const struct rtc_class_ops rp5c01_rtc_ops = {
 };
 
 
+/*
+ * The NVRAM is organized as 2 blocks of 13 nibbles of 4 bits.
+ * We provide access to them like AmigaOS does: the high nibble of each 8-bit
+ * byte is stored in BLOCK10, the low nibble in BLOCK11.
+ */
 
 static ssize_t rp5c01_nvram_read(struct file *filp, struct kobject *kobj,
 				 struct bin_attribute *bin_attr,

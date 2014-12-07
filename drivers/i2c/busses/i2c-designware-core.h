@@ -35,6 +35,32 @@
 #define DW_IC_CON_SLAVE_DISABLE		0x40
 
 
+/**
+ * struct dw_i2c_dev - private i2c-designware data
+ * @dev: driver model device node
+ * @base: IO registers pointer
+ * @cmd_complete: tx completion indicator
+ * @lock: protect this struct and IO registers
+ * @clk: input reference clock
+ * @cmd_err: run time hadware error code
+ * @msgs: points to an array of messages currently being transfered
+ * @msgs_num: the number of elements in msgs
+ * @msg_write_idx: the element index of the current tx message in the msgs
+ *	array
+ * @tx_buf_len: the length of the current tx buffer
+ * @tx_buf: the current tx buffer
+ * @msg_read_idx: the element index of the current rx message in the msgs
+ *	array
+ * @rx_buf_len: the length of the current rx buffer
+ * @rx_buf: the current rx buffer
+ * @msg_err: error status of the current transfer
+ * @status: i2c master status, one of STATUS_*
+ * @abort_source: copy of the TX_ABRT_SOURCE register
+ * @irq: interrupt number for the i2c master
+ * @adapter: i2c subsystem adapter node
+ * @tx_fifo_depth: depth of the hardware tx fifo
+ * @rx_fifo_depth: depth of the hardware rx fifo
+ */
 struct dw_i2c_dev {
 	struct device		*dev;
 	void __iomem		*base;

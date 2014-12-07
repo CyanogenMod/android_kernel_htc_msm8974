@@ -14,5 +14,5 @@
 
 #include <cpu/freq.h>
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_FREQ_H */

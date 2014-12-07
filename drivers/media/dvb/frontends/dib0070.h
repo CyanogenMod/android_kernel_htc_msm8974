@@ -23,21 +23,21 @@ struct dib0070_wbd_gain_cfg {
 struct dib0070_config {
 	u8 i2c_address;
 
-	
+	/* tuner pins controlled externally */
 	int (*reset) (struct dvb_frontend *, int);
 	int (*sleep) (struct dvb_frontend *, int);
 
-	
+	/*  offset in kHz */
 	int freq_offset_khz_uhf;
 	int freq_offset_khz_vhf;
 
-	u8 osc_buffer_state;	
+	u8 osc_buffer_state;	/* 0= normal, 1= tri-state */
 	u32 clock_khz;
-	u8 clock_pad_drive;	
+	u8 clock_pad_drive;	/* (Drive + 1) * 2mA */
 
-	u8 invert_iq;		
+	u8 invert_iq;		/* invert Q - in case I or Q is inverted on the board */
 
-	u8 force_crystal_mode;	
+	u8 force_crystal_mode;	/* if == 0 -> decision is made in the driver default: <24 -> 2, >=24 -> 1 */
 
 	u8 flip_chip;
 	u8 enable_third_order_filter;

@@ -105,9 +105,13 @@
 #define __NR_shmat			1114
 #define __NR_shmdt			1115
 #define __NR_shmctl			1116
+/* also known as klogctl() in GNU libc: */
 #define __NR_syslog			1117
 #define __NR_setitimer			1118
 #define __NR_getitimer			1119
+/* 1120 was __NR_old_stat */
+/* 1121 was __NR_old_lstat */
+/* 1122 was __NR_old_fstat */
 #define __NR_vhangup			1123
 #define __NR_lchown			1124
 #define __NR_remap_file_pages		1125
@@ -117,8 +121,11 @@
 #define __NR_setdomainname		1129
 #define __NR_uname			1130
 #define __NR_adjtimex			1131
+/* 1132 was __NR_create_module */
 #define __NR_init_module		1133
 #define __NR_delete_module		1134
+/* 1135 was __NR_get_kernel_syms */
+/* 1136 was __NR_query_module */
 #define __NR_quotactl			1137
 #define __NR_bdflush			1138
 #define __NR_sysfs			1139
@@ -153,6 +160,7 @@
 #define __NR_nanosleep			1168
 #define __NR_nfsservctl			1169
 #define __NR_prctl			1170
+/* 1171 is reserved for backwards compatibility with old __NR_getpagesize */
 #define __NR_mmap2			1172
 #define __NR_pciconfig_read		1173
 #define __NR_pciconfig_write		1174
@@ -320,16 +328,21 @@
 #ifdef __KERNEL__
 
 
-#define NR_syscalls			311 
+#define NR_syscalls			311 /* length of syscall table */
 
-#define __IGNORE_fork		
-#define __IGNORE_time		
-#define __IGNORE_alarm		
-#define __IGNORE_pause		
-#define __IGNORE_utime		
-#define __IGNORE_getpgrp	
-#define __IGNORE_vfork		
-#define __IGNORE_umount2	
+/*
+ * The following defines stop scripts/checksyscalls.sh from complaining about
+ * unimplemented system calls.  Glibc provides for each of these by using
+ * more modern equivalent system calls.
+ */
+#define __IGNORE_fork		/* clone() */
+#define __IGNORE_time		/* gettimeofday() */
+#define __IGNORE_alarm		/* setitimer(ITIMER_REAL, ... */
+#define __IGNORE_pause		/* rt_sigprocmask(), rt_sigsuspend() */
+#define __IGNORE_utime		/* utimes() */
+#define __IGNORE_getpgrp	/* getpgid() */
+#define __IGNORE_vfork		/* clone() */
+#define __IGNORE_umount2	/* umount() */
 
 #define __ARCH_WANT_SYS_RT_SIGACTION
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND
@@ -358,8 +371,16 @@ asmlinkage long sys_rt_sigaction(int sig,
 				 struct sigaction __user *oact,
 				 size_t sigsetsize);
 
+/*
+ * "Conditional" syscalls
+ *
+ * Note, this macro can only be used in the file which defines sys_ni_syscall, i.e., in
+ * kernel/sys_ni.c.  This version causes warnings because the declaration isn't a
+ * proper prototype, but we can't use __typeof__ either, because not all cond_syscall()
+ * declarations have prototypes at the moment.
+ */
 #define cond_syscall(x) asmlinkage long x (void) __attribute__((weak,alias("sys_ni_syscall")))
 
-#endif 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_IA64_UNISTD_H */

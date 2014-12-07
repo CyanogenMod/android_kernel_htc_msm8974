@@ -778,9 +778,7 @@ powersave_store(struct kobject *kobj, struct kobj_attribute *attr,
         if (strict_strtoul(buf, 10, &val))
                 return -EINVAL;
 
-        if (val > 1)
-                return -EINVAL;
-
+        printk(KERN_INFO "Change powersave attr from %d to %ld\n", powersave_enabled, val);
         powersave_enabled = val;
         sysfs_notify(kobj, NULL, "powersave");
         return n;

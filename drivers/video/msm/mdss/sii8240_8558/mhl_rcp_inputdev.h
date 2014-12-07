@@ -36,7 +36,7 @@ typedef struct _rcp_keymap_t{
 
 #define	MHL_LOGICAL_DEVICE_MAP	(MHL_DEV_LD_GUI)
 
-#define	MHL_NUM_RCP_KEY_CODES	0x80	
+#define	MHL_NUM_RCP_KEY_CODES	0x80	// inclusive
 extern rcp_keymap_t rcpSupportTable[MHL_NUM_RCP_KEY_CODES];
 
 
@@ -47,4 +47,4 @@ uint8_t init_rcp_input_dev(struct mhl_dev_context *dev_context);
 void destroy_rcp_input_dev(struct mhl_dev_context *dev_context);
 void rcp_input_dev_one_time_init(struct mhl_dev_context *dev_context);
 
-#endif 
+#endif /* #ifndef _MHL_RCP_INPUTDEV_H_ */

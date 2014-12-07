@@ -5,4 +5,4 @@
 #define RTC_BIT_INVERTED	0
 #define RTC_DEF_CAPABILITIES	RTC_CAP_4_DIGIT_YEAR
 
-#endif 
+#endif /* __ASM_SH_CPU_SH2A_RTC_H */

@@ -21,7 +21,13 @@
 
 #include <mach/iomux-v3.h>
 
+/*
+ * The naming convention for the pad modes is MX35_PAD_<padname>__<padmode>
+ * If <padname> or <padmode> refers to a GPIO, it is named
+ * GPIO_<unit>_<num> see also iomux-v3.h
+ */
 
+/*									  PAD    MUX   ALT INPSE PATH */
 #define MX35_PAD_CAPTURE__GPT_CAPIN1				IOMUX_PAD(0x328, 0x004, 0, 0x0,   0, NO_PAD_CTRL)
 #define MX35_PAD_CAPTURE__GPT_CMPOUT2				IOMUX_PAD(0x328, 0x004, 1, 0x0,   0, NO_PAD_CTRL)
 #define MX35_PAD_CAPTURE__CSPI2_SS1				IOMUX_PAD(0x328, 0x004, 2, 0x7f4, 0, NO_PAD_CTRL)
@@ -1258,4 +1264,4 @@
 #define MX35_PAD_TEST_MODE__TCU_TEST_MODE			IOMUX_PAD(0x790, 0x0,   0, 0x0,   0, NO_PAD_CTRL)
 
 
-#endif 
+#endif /* __MACH_IOMUX_MX35_H__ */

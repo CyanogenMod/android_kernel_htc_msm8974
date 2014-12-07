@@ -45,13 +45,16 @@
 #ifndef _AIC7XXX_INLINE_H_
 #define _AIC7XXX_INLINE_H_
 
+/************************* Sequencer Execution Control ************************/
 int  ahc_is_paused(struct ahc_softc *ahc);
 void ahc_pause(struct ahc_softc *ahc);
 void ahc_unpause(struct ahc_softc *ahc);
 
+/************************** Memory mapping routines ***************************/
 void	ahc_sync_sglist(struct ahc_softc *ahc,
 			struct scb *scb, int op);
 
+/******************************** Debugging ***********************************/
 static inline char *ahc_name(struct ahc_softc *ahc);
 
 static inline char *ahc_name(struct ahc_softc *ahc)
@@ -59,6 +62,7 @@ static inline char *ahc_name(struct ahc_softc *ahc)
 	return (ahc->name);
 }
 
+/*********************** Miscellaneous Support Functions ***********************/
 
 struct ahc_initiator_tinfo *
 	ahc_fetch_transinfo(struct ahc_softc *ahc,
@@ -87,6 +91,7 @@ struct scsi_sense_data *
 	ahc_get_sense_buf(struct ahc_softc *ahc,
 			  struct scb *scb);
 
+/************************** Interrupt Processing ******************************/
 int	ahc_intr(struct ahc_softc *ahc);
 
-#endif  
+#endif  /* _AIC7XXX_INLINE_H_ */

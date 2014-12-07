@@ -33,8 +33,9 @@
 
 #define V_LAST_VAR { MAXVARS }
 #define SPACE 0x20
-#define SYNTH_CHECK 20030716 
-#define SF_DEC 1 
+#define SYNTH_CHECK 20030716 /* today's date ought to do for check value */
+/* synth flags, for odd synths */
+#define SF_DEC 1 /* to fiddle puncs in alpha strings so it doesn't spell */
 #ifdef MODULE
 #define SYNTH_START 1
 #else
@@ -76,6 +77,15 @@ extern struct speakup_info_t speakup_info;
 
 extern struct var_t synth_time_vars[];
 
+/* Protect the whole speakup machinery, must be taken at each kernel->speakup
+ * transition and released at all corresponding speakup->kernel transitions
+ * (flags must be the same variable between lock/trylock and unlock).
+ *
+ * The progression thread only interferes with the speakup machinery through
+ * the synth buffer, and so only needs to take the lock while tinkering with
+ * it.
+ */
+/* Speakup needs to disable the keyboard IRQ, hence _irqsave/restore */
 #define spk_lock(flags) spin_lock_irqsave(&speakup_info.spinlock, flags)
 #define spk_trylock(flags) spin_trylock_irqsave(&speakup_info.spinlock, flags)
 #define spk_unlock(flags) spin_unlock_irqrestore(&speakup_info.spinlock, flags)

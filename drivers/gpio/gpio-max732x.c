@@ -23,25 +23,58 @@
 #include <linux/i2c/max732x.h>
 
 
+/*
+ * Each port of MAX732x (including MAX7319) falls into one of the
+ * following three types:
+ *
+ *   - Push Pull Output
+ *   - Input
+ *   - Open Drain I/O
+ *
+ * designated by 'O', 'I' and 'P' individually according to MAXIM's
+ * datasheets. 'I' and 'P' ports are interrupt capables, some with
+ * a dedicated interrupt mask.
+ *
+ * There are two groups of I/O ports, each group usually includes
+ * up to 8 I/O ports, and is accessed by a specific I2C address:
+ *
+ *   - Group A : by I2C address 0b'110xxxx
+ *   - Group B : by I2C address 0b'101xxxx
+ *
+ * where 'xxxx' is decided by the connections of pin AD2/AD0.  The
+ * address used also affects the initial state of output signals.
+ *
+ * Within each group of ports, there are five known combinations of
+ * I/O ports: 4I4O, 4P4O, 8I, 8P, 8O, see the definitions below for
+ * the detailed organization of these ports. Only Goup A is interrupt
+ * capable.
+ *
+ * GPIO numbers start from 'gpio_base + 0' to 'gpio_base + 8/16',
+ * and GPIOs from GROUP_A are numbered before those from GROUP_B
+ * (if there are two groups).
+ *
+ * NOTE: MAX7328/MAX7329 are drop-in replacements for PCF8574/a, so
+ * they are not supported by this driver.
+ */
 
-#define PORT_NONE	0x0	
-#define PORT_OUTPUT	0x1	
-#define PORT_INPUT	0x2	
-#define PORT_OPENDRAIN	0x3	
+#define PORT_NONE	0x0	/* '/' No Port */
+#define PORT_OUTPUT	0x1	/* 'O' Push-Pull, Output Only */
+#define PORT_INPUT	0x2	/* 'I' Input Only */
+#define PORT_OPENDRAIN	0x3	/* 'P' Open-Drain, I/O */
 
-#define IO_4I4O		0x5AA5	
-#define IO_4P4O		0x5FF5	
-#define IO_8I		0xAAAA	
-#define IO_8P		0xFFFF	
-#define IO_8O		0x5555	
+#define IO_4I4O		0x5AA5	/* O7 O6 I5 I4 I3 I2 O1 O0 */
+#define IO_4P4O		0x5FF5	/* O7 O6 P5 P4 P3 P2 O1 O0 */
+#define IO_8I		0xAAAA	/* I7 I6 I5 I4 I3 I2 I1 I0 */
+#define IO_8P		0xFFFF	/* P7 P6 P5 P4 P3 P2 P1 P0 */
+#define IO_8O		0x5555	/* O7 O6 O5 O4 O3 O2 O1 O0 */
 
-#define GROUP_A(x)	((x) & 0xffff)	
-#define GROUP_B(x)	((x) << 16)	
+#define GROUP_A(x)	((x) & 0xffff)	/* I2C Addr: 0b'110xxxx */
+#define GROUP_B(x)	((x) << 16)	/* I2C Addr: 0b'101xxxx */
 
-#define INT_NONE	0x0	
-#define INT_NO_MASK	0x1	
-#define INT_INDEP_MASK	0x2	
-#define INT_MERGED_MASK 0x3	
+#define INT_NONE	0x0	/* No interrupt capability */
+#define INT_NO_MASK	0x1	/* Has interrupts, no mask */
+#define INT_INDEP_MASK	0x2	/* Has interrupts, independent mask */
+#define INT_MERGED_MASK 0x3	/* Has interrupts, merged mask */
 
 #define INT_CAPS(x)	(((uint64_t)(x)) << 32)
 
@@ -86,7 +119,7 @@ MODULE_DEVICE_TABLE(i2c, max732x_id);
 struct max732x_chip {
 	struct gpio_chip gpio_chip;
 
-	struct i2c_client *client;	
+	struct i2c_client *client;	/* "main" client */
 	struct i2c_client *client_dummy;
 	struct i2c_client *client_group_a;
 	struct i2c_client *client_group_b;
@@ -177,7 +210,7 @@ static void max732x_gpio_set_value(struct gpio_chip *gc, unsigned off, int val)
 	if (ret < 0)
 		goto out;
 
-	
+	/* update the shadow register then */
 	if (off > 7)
 		chip->reg_out[1] = reg_out;
 	else
@@ -199,6 +232,10 @@ static int max732x_gpio_direction_input(struct gpio_chip *gc, unsigned off)
 		return -EACCES;
 	}
 
+	/*
+	 * Open-drain pins must be set to high impedance (which is
+	 * equivalent to output-high) to be turned into an input.
+	 */
 	if ((mask & chip->dir_output))
 		max732x_gpio_set_value(gc, off, 1);
 
@@ -470,7 +507,7 @@ static void max732x_irq_teardown(struct max732x_chip *chip)
 	if (chip->irq_base)
 		free_irq(chip->client->irq, chip);
 }
-#else 
+#else /* CONFIG_GPIO_MAX732X_IRQ */
 static int max732x_irq_setup(struct max732x_chip *chip,
 			     const struct i2c_device_id *id)
 {
@@ -639,7 +676,7 @@ static int __devexit max732x_remove(struct i2c_client *client)
 
 	max732x_irq_teardown(chip);
 
-	
+	/* unregister any dummy i2c_client */
 	if (chip->client_dummy)
 		i2c_unregister_device(chip->client_dummy);
 
@@ -661,6 +698,9 @@ static int __init max732x_init(void)
 {
 	return i2c_add_driver(&max732x_driver);
 }
+/* register after i2c postcore initcall and before
+ * subsys initcalls that may rely on these GPIOs
+ */
 subsys_initcall(max732x_init);
 
 static void __exit max732x_exit(void)

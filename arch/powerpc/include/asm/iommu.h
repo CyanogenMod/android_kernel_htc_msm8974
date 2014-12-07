@@ -35,30 +35,37 @@
 #define IOMMU_PAGE_MASK       (~((1 << IOMMU_PAGE_SHIFT) - 1))
 #define IOMMU_PAGE_ALIGN(addr) _ALIGN_UP(addr, IOMMU_PAGE_SIZE)
 
+/* Boot time flags */
 extern int iommu_is_off;
 extern int iommu_force_on;
 
+/* Pure 2^n version of get_order */
 static __inline__ __attribute_const__ int get_iommu_order(unsigned long size)
 {
 	return __ilog2((size - 1) >> IOMMU_PAGE_SHIFT) + 1;
 }
 
 
+/*
+ * IOMAP_MAX_ORDER defines the largest contiguous block
+ * of dma space we can get.  IOMAP_MAX_ORDER = 13
+ * allows up to 2**12 pages (4096 * 4096) = 16 MB
+ */
 #define IOMAP_MAX_ORDER		13
 
 struct iommu_table {
-	unsigned long  it_busno;     
-	unsigned long  it_size;      
-	unsigned long  it_offset;    
-	unsigned long  it_base;      
-	unsigned long  it_index;     
-	unsigned long  it_type;      
-	unsigned long  it_blocksize; 
-	unsigned long  it_hint;      
-	unsigned long  it_largehint; 
-	unsigned long  it_halfpoint; 
-	spinlock_t     it_lock;      
-	unsigned long *it_map;       
+	unsigned long  it_busno;     /* Bus number this table belongs to */
+	unsigned long  it_size;      /* Size of iommu table in entries */
+	unsigned long  it_offset;    /* Offset into global table */
+	unsigned long  it_base;      /* mapped address of tce table */
+	unsigned long  it_index;     /* which iommu table this is */
+	unsigned long  it_type;      /* type: PCI or Virtual Bus */
+	unsigned long  it_blocksize; /* Entries in each block (cacheline) */
+	unsigned long  it_hint;      /* Hint for next alloc */
+	unsigned long  it_largehint; /* Hint for large allocs */
+	unsigned long  it_halfpoint; /* Breaking point for small/large allocs */
+	spinlock_t     it_lock;      /* Protects it_map */
+	unsigned long *it_map;       /* A simple allocation bitmap for now */
 };
 
 struct scatterlist;
@@ -73,8 +80,12 @@ static inline void *get_iommu_table_base(struct device *dev)
 	return dev->archdata.dma_data.iommu_table_base;
 }
 
+/* Frees table for an individual device node */
 extern void iommu_free_table(struct iommu_table *tbl, const char *node_name);
 
+/* Initializes an iommu_table based in values set in the passed-in
+ * structure
+ */
 extern struct iommu_table *iommu_init_table(struct iommu_table * tbl,
 					    int nid);
 
@@ -126,5 +137,5 @@ static inline void iommu_restore(void)
 }
 #endif
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_IOMMU_H */

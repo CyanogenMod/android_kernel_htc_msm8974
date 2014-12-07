@@ -1,3 +1,16 @@
+/*
+ *     SUCS NET3:
+ *
+ *     Generic stream handling routines. These are generic for most
+ *     protocols. Even IP. Tonight 8-).
+ *     This is used because TCP, LLC (others too) layer all have mostly
+ *     identical sendmsg() and recvmsg() code.
+ *     So we (will) share it here.
+ *
+ *     Authors:        Arnaldo Carvalho de Melo <acme@conectiva.com.br>
+ *                     (from old tcp.c code)
+ *                     Alan Cox <alan@lxorguk.ukuu.org.uk> (Borrowed comments 8-))
+ */
 
 #include <linux/module.h>
 #include <linux/net.h>
@@ -6,6 +19,12 @@
 #include <linux/wait.h>
 #include <net/sock.h>
 
+/**
+ * sk_stream_write_space - stream socket write_space callback.
+ * @sk: socket
+ *
+ * FIXME: write proper description
+ */
 void sk_stream_write_space(struct sock *sk)
 {
 	struct socket *sock = sk->sk_socket;
@@ -26,6 +45,13 @@ void sk_stream_write_space(struct sock *sk)
 }
 EXPORT_SYMBOL(sk_stream_write_space);
 
+/**
+ * sk_stream_wait_connect - Wait for a socket to get into the connected state
+ * @sk: sock to wait on
+ * @timeo_p: for how long to wait
+ *
+ * Must be called with the socket locked.
+ */
 int sk_stream_wait_connect(struct sock *sk, long *timeo_p)
 {
 	struct task_struct *tsk = current;
@@ -56,6 +82,10 @@ int sk_stream_wait_connect(struct sock *sk, long *timeo_p)
 }
 EXPORT_SYMBOL(sk_stream_wait_connect);
 
+/**
+ * sk_stream_closing - Return 1 if we still have things to send in our buffers.
+ * @sk: socket to verify
+ */
 static inline int sk_stream_closing(struct sock *sk)
 {
 	return (1 << sk->sk_state) &
@@ -79,6 +109,11 @@ void sk_stream_wait_close(struct sock *sk, long timeout)
 }
 EXPORT_SYMBOL(sk_stream_wait_close);
 
+/**
+ * sk_stream_wait_memory - Wait for more memory for a socket
+ * @sk: socket to wait for memory
+ * @timeo_p: for how long
+ */
 int sk_stream_wait_memory(struct sock *sk, long *timeo_p)
 {
 	int err = 0;
@@ -150,20 +185,24 @@ EXPORT_SYMBOL(sk_stream_error);
 
 void sk_stream_kill_queues(struct sock *sk)
 {
-	
+	/* First the read buffer. */
 	__skb_queue_purge(&sk->sk_receive_queue);
 
-	
+	/* Next, the error queue. */
 	__skb_queue_purge(&sk->sk_error_queue);
 
-	
+	/* Next, the write queue. */
 	WARN_ON(!skb_queue_empty(&sk->sk_write_queue));
 
-	
+	/* Account for returned memory. */
 	sk_mem_reclaim(sk);
 
 	WARN_ON(sk->sk_wmem_queued);
 	WARN_ON(sk->sk_forward_alloc);
 
+	/* It is _impossible_ for the backlog to contain anything
+	 * when we get here.  All user references to this socket
+	 * have gone away, only the net layer knows can touch it.
+	 */
 }
 EXPORT_SYMBOL(sk_stream_kill_queues);

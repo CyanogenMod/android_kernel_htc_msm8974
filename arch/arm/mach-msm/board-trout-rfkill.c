@@ -13,6 +13,7 @@
  *
  */
 
+/* Control bluetooth power for trout platform */
 
 #include <linux/platform_device.h>
 #include <linux/module.h>
@@ -46,7 +47,7 @@ static struct rfkill_ops trout_rfkill_ops = {
 static int trout_rfkill_probe(struct platform_device *pdev)
 {
 	int rc = 0;
-	bool default_state = true;  
+	bool default_state = true;  /* off */
 
 	bluetooth_set_power(NULL, default_state);
 
@@ -57,7 +58,7 @@ static int trout_rfkill_probe(struct platform_device *pdev)
 
 	rfkill_set_states(bt_rfk, default_state, false);
 
-	
+	/* userspace cannot take exclusive control */
 
 	rc = rfkill_register(bt_rfk);
 

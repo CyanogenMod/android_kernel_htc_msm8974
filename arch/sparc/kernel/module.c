@@ -43,6 +43,7 @@ static void *module_map(unsigned long size)
 	return vmalloc(size);
 }
 
+/* Replace references to .func with _Func */
 static char *dot2underscore(char *name)
 {
 	if (name[0] == '.') {
@@ -51,13 +52,13 @@ static char *dot2underscore(char *name)
 	}
 	return name;
 }
-#endif 
+#endif /* CONFIG_SPARC64 */
 
 void *module_alloc(unsigned long size)
 {
 	void *ret;
 
-	
+	/* We handle the zero case fine, unlike vmalloc */
 	if (size == 0)
 		return NULL;
 
@@ -70,6 +71,7 @@ void *module_alloc(unsigned long size)
 	return ret;
 }
 
+/* Make generic code ignore STT_REGISTER dummy undefined symbols.  */
 int module_frob_arch_sections(Elf_Ehdr *hdr,
 			      Elf_Shdr *sechdrs,
 			      char *secstrings,
@@ -117,15 +119,17 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 	for (i = 0; i < sechdrs[relsec].sh_size / sizeof(*rel); i++) {
 		Elf_Addr v;
 
-		
+		/* This is where to make the change */
 		location = (u8 *)sechdrs[sechdrs[relsec].sh_info].sh_addr
 			+ rel[i].r_offset;
 		loc32 = (u32 *) location;
 
 #ifdef CONFIG_SPARC64
 		BUG_ON(((u64)location >> (u64)32) != (u64)0);
-#endif 
+#endif /* CONFIG_SPARC64 */
 
+		/* This is the symbol it is referring to.  Note that all
+		   undefined symbols have been resolved.  */
 		sym = (Elf_Sym *)sechdrs[symindex].sh_addr
 			+ ELF_R_SYM(rel[i].r_info);
 		v = sym->st_value + rel[i].r_addend;
@@ -160,7 +164,7 @@ int apply_relocate_add(Elf_Shdr *sechdrs,
 				  (ELF_R_TYPE(rel[i].r_info) >> 8))
 				 & 0x1fff);
 			break;
-#endif 
+#endif /* CONFIG_SPARC64 */
 
 		case R_SPARC_32:
 		case R_SPARC_UA32:
@@ -229,12 +233,12 @@ int module_finalize(const Elf_Ehdr *hdr,
 		    const Elf_Shdr *sechdrs,
 		    struct module *me)
 {
-	
+	/* make jump label nops */
 	jump_label_apply_nops(me);
 
 	do_patch_sections(hdr, sechdrs);
 
-	
+	/* Cheetah's I-cache is fully coherent.  */
 	if (tlb_type == spitfire) {
 		unsigned long va;
 
@@ -246,4 +250,4 @@ int module_finalize(const Elf_Ehdr *hdr,
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SPARC64 */

@@ -3,4 +3,4 @@
 
 struct platform_device *at32_add_device_hh_fpga(void);
 
-#endif 
+#endif /* __BOARDS_HAMMERHEAD_FLASH_H */

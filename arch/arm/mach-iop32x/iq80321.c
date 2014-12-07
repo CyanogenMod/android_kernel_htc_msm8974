@@ -34,9 +34,12 @@
 #include <asm/pgtable.h>
 #include <mach/time.h>
 
+/*
+ * IQ80321 timer tick configuration.
+ */
 static void __init iq80321_timer_init(void)
 {
-	
+	/* 33.333 MHz crystal.  */
 	iop_init_time(200000000);
 }
 
@@ -45,8 +48,11 @@ static struct sys_timer iq80321_timer = {
 };
 
 
+/*
+ * IQ80321 I/O.
+ */
 static struct map_desc iq80321_io_desc[] __initdata = {
- 	{	
+ 	{	/* on-board devices */
 		.virtual	= IQ80321_UART,
 		.pfn		= __phys_to_pfn(IQ80321_UART),
 		.length		= 0x00100000,
@@ -61,25 +67,28 @@ void __init iq80321_map_io(void)
 }
 
 
+/*
+ * IQ80321 PCI.
+ */
 static int __init
 iq80321_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int irq;
 
 	if ((slot == 2 || slot == 6) && pin == 1) {
-		
+		/* PCI-X Slot INTA */
 		irq = IRQ_IOP32X_XINT2;
 	} else if ((slot == 2 || slot == 6) && pin == 2) {
-		
+		/* PCI-X Slot INTA */
 		irq = IRQ_IOP32X_XINT3;
 	} else if ((slot == 2 || slot == 6) && pin == 3) {
-		
+		/* PCI-X Slot INTA */
 		irq = IRQ_IOP32X_XINT0;
 	} else if ((slot == 2 || slot == 6) && pin == 4) {
-		
+		/* PCI-X Slot INTA */
 		irq = IRQ_IOP32X_XINT1;
 	} else if (slot == 4 || slot == 8) {
-		
+		/* Gig-E */
 		irq = IRQ_IOP32X_XINT0;
 	} else {
 		printk(KERN_ERR "iq80321_pci_map_irq() called for unknown "
@@ -112,6 +121,9 @@ static int __init iq80321_pci_init(void)
 subsys_initcall(iq80321_pci_init);
 
 
+/*
+ * IQ80321 machine initialisation.
+ */
 static struct physmap_flash_data iq80321_flash_data = {
 	.width		= 1,
 };
@@ -173,7 +185,7 @@ static void __init iq80321_init_machine(void)
 }
 
 MACHINE_START(IQ80321, "Intel IQ80321")
-	
+	/* Maintainer: Intel Corp. */
 	.atag_offset	= 0x100,
 	.map_io		= iq80321_map_io,
 	.init_irq	= iop32x_init_irq,

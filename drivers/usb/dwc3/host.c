@@ -77,7 +77,7 @@ int dwc3_host_init(struct dwc3 *dwc)
 		goto err1;
 	}
 
-	
+	/* Add XHCI device if !OTG, otherwise OTG takes care of this */
 	if (!dwc->dotg) {
 		xhci->dev.parent = dwc->dev;
 		ret = platform_device_add(xhci);

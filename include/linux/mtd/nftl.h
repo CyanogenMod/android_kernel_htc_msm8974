@@ -25,10 +25,11 @@
 
 #include <mtd/nftl-user.h>
 
-#define BLOCK_NIL          0xffff 
-#define BLOCK_FREE         0xfffe 
-#define BLOCK_NOTEXPLORED  0xfffd 
-#define BLOCK_RESERVED     0xfffc 
+/* these info are used in ReplUnitTable */
+#define BLOCK_NIL          0xffff /* last block of a chain */
+#define BLOCK_FREE         0xfffe /* free block */
+#define BLOCK_NOTEXPLORED  0xfffd /* non explored block, only used during mounting */
+#define BLOCK_RESERVED     0xfffc /* bios block or bad block */
 
 struct NFTLrecord {
 	struct mtd_blktrans_dev mbd;
@@ -40,14 +41,14 @@ struct NFTLrecord {
 	unsigned char sectors;
 	unsigned short cylinders;
 	__u16 numvunits;
-	__u16 lastEUN;                  
+	__u16 lastEUN;                  /* should be suppressed */
 	__u16 numfreeEUNs;
-	__u16 LastFreeEUN; 		
+	__u16 LastFreeEUN; 		/* To speed up finding a free EUN */
 	int head,sect,cyl;
-	__u16 *EUNtable; 		
-	__u16 *ReplUnitTable; 		
-        unsigned int nb_blocks;		
-        unsigned int nb_boot_blocks;	
+	__u16 *EUNtable; 		/* [numvunits]: First EUN for each virtual unit  */
+	__u16 *ReplUnitTable; 		/* [numEUNs]: ReplUnitNumber for each */
+        unsigned int nb_blocks;		/* number of physical blocks */
+        unsigned int nb_boot_blocks;	/* number of blocks used by the bios */
         struct erase_info instr;
 	struct nand_ecclayout oobinfo;
 };
@@ -68,4 +69,4 @@ int nftl_write_oob(struct mtd_info *mtd, loff_t offs, size_t len,
 #define MAX_SECTORS_PER_UNIT 64
 #define NFTL_PARTN_BITS 4
 
-#endif 
+#endif /* __MTD_NFTL_H__ */

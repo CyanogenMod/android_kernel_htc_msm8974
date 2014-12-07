@@ -86,7 +86,7 @@ void auxio_set_lte(int on)
 		__auxio_sbus_set_lte(on);
 		break;
 	case AUXIO_TYPE_EBUS:
-		
+		/* FALL-THROUGH */
 	default:
 		break;
 	}
@@ -145,4 +145,8 @@ static int __init auxio_init(void)
 	return platform_driver_register(&auxio_driver);
 }
 
+/* Must be after subsys_initcall() so that busses are probed.  Must
+ * be before device_initcall() because things like the floppy driver
+ * need to use the AUXIO register.
+ */
 fs_initcall(auxio_init);

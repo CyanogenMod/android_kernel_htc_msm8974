@@ -31,6 +31,7 @@
 #include "atom-bits.h"
 #include "drm_dp_helper.h"
 
+/* move these to drm_dp_helper.c/h */
 #define DP_LINK_CONFIGURATION_SIZE 9
 #define DP_LINK_STATUS_SIZE	   6
 #define DP_DPCD_SIZE	           8
@@ -42,6 +43,7 @@ static char *pre_emph_names[] = {
         "0dB", "3.5dB", "6dB", "9.5dB"
 };
 
+/***** radeon AUX functions *****/
 union aux_channel_transaction {
 	PROCESS_AUX_CHANNEL_TRANSACTION_PS_ALLOCATION v1;
 	PROCESS_AUX_CHANNEL_TRANSACTION_PARAMETERS_V2 v2;
@@ -77,19 +79,19 @@ static int radeon_process_aux_ch(struct radeon_i2c_chan *chan,
 
 	*ack = args.v1.ucReplyStatus;
 
-	
+	/* timeout */
 	if (args.v1.ucReplyStatus == 1) {
 		DRM_DEBUG_KMS("dp_aux_ch timeout\n");
 		return -ETIMEDOUT;
 	}
 
-	
+	/* flags not zero */
 	if (args.v1.ucReplyStatus == 2) {
 		DRM_DEBUG_KMS("dp_aux_ch flags not zero\n");
 		return -EBUSY;
 	}
 
-	
+	/* error */
 	if (args.v1.ucReplyStatus == 3) {
 		DRM_DEBUG_KMS("dp_aux_ch error\n");
 		return -EIO;
@@ -207,7 +209,7 @@ int radeon_dp_i2c_aux_ch(struct i2c_adapter *adapter, int mode,
 	int ret;
 	u8 ack;
 
-	
+	/* Set up the command byte */
 	if (mode & MODE_I2C_READ)
 		msg[2] = AUX_I2C_READ << 4;
 	else
@@ -247,6 +249,9 @@ int radeon_dp_i2c_aux_ch(struct i2c_adapter *adapter, int mode,
 
 		switch (ack & AUX_NATIVE_REPLY_MASK) {
 		case AUX_NATIVE_REPLY_ACK:
+			/* I2C-over-AUX Reply field is only valid
+			 * when paired with AUX ACK.
+			 */
 			break;
 		case AUX_NATIVE_REPLY_NACK:
 			DRM_DEBUG_KMS("aux_ch native nack\n");
@@ -282,6 +287,7 @@ int radeon_dp_i2c_aux_ch(struct i2c_adapter *adapter, int mode,
 	return -EREMOTEIO;
 }
 
+/***** general DP utility functions *****/
 
 static u8 dp_link_status(u8 link_status[DP_LINK_STATUS_SIZE], int r)
 {
@@ -395,6 +401,8 @@ static void dp_get_adjust_train(u8 link_status[DP_LINK_STATUS_SIZE],
 		train_set[lane] = v | p;
 }
 
+/* convert bits per color to bits per pixel */
+/* get bpc from the EDID */
 static int convert_bpc_to_bpp(int bpc)
 {
 #if 0
@@ -406,6 +414,7 @@ static int convert_bpc_to_bpp(int bpc)
 	return 24;
 }
 
+/* get the max pix clock supported by the link rate and lane num */
 static int dp_get_max_dp_pix_clock(int link_rate,
 				   int lane_num,
 				   int bpp)
@@ -444,7 +453,12 @@ static u8 dp_get_dp_link_rate_coded(int link_rate)
 	}
 }
 
+/***** radeon specific DP functions *****/
 
+/* First get the min lane# when low rate is used according to pixel clock
+ * (prefer low rate), second check max lane# supported by DP panel,
+ * if the max lane# < low rate lane# then use max lane# instead.
+ */
 static int radeon_dp_get_dp_lane_number(struct drm_connector *connector,
 					u8 dpcd[DP_DPCD_SIZE],
 					int pix_clock)
@@ -664,12 +678,12 @@ struct radeon_dp_link_train_info {
 
 static void radeon_dp_update_vs_emph(struct radeon_dp_link_train_info *dp_info)
 {
-	
+	/* set the initial vs/emph on the source */
 	atombios_dig_transmitter_setup(dp_info->encoder,
 				       ATOM_TRANSMITTER_ACTION_SETUP_VSEMPH,
-				       0, dp_info->train_set[0]); 
+				       0, dp_info->train_set[0]); /* sets all lanes at once */
 
-	
+	/* set the vs/emph on the sink */
 	radeon_dp_aux_native_write(dp_info->radeon_connector, DP_TRAINING_LANE0_SET,
 				   dp_info->train_set, dp_info->dp_lane_count, 0);
 }
@@ -678,7 +692,7 @@ static void radeon_dp_set_tp(struct radeon_dp_link_train_info *dp_info, int tp)
 {
 	int rtp = 0;
 
-	
+	/* set training pattern on the source */
 	if (ASIC_IS_DCE4(dp_info->rdev) || !dp_info->use_dpencoder) {
 		switch (tp) {
 		case DP_TRAINING_PATTERN_1:
@@ -705,7 +719,7 @@ static void radeon_dp_set_tp(struct radeon_dp_link_train_info *dp_info, int tp)
 					  dp_info->dp_clock, dp_info->enc_id, rtp);
 	}
 
-	
+	/* enable training pattern on the sink */
 	radeon_write_dpcd_reg(dp_info->radeon_connector, DP_TRAINING_PATTERN_SET, tp);
 }
 
@@ -715,12 +729,12 @@ static int radeon_dp_link_train_init(struct radeon_dp_link_train_info *dp_info)
 	struct radeon_encoder_atom_dig *dig = radeon_encoder->enc_priv;
 	u8 tmp;
 
-	
+	/* power up the sink */
 	if (dp_info->dpcd[0] >= 0x11)
 		radeon_write_dpcd_reg(dp_info->radeon_connector,
 				      DP_SET_POWER, DP_SET_POWER_D0);
 
-	
+	/* possibly enable downspread on the sink */
 	if (dp_info->dpcd[3] & 0x1)
 		radeon_write_dpcd_reg(dp_info->radeon_connector,
 				      DP_DOWNSPREAD_CTRL, DP_SPREAD_AMP_0_5);
@@ -733,18 +747,18 @@ static int radeon_dp_link_train_init(struct radeon_dp_link_train_info *dp_info)
 		radeon_write_dpcd_reg(dp_info->radeon_connector, DP_EDP_CONFIGURATION_SET, 1);
 	}
 
-	
+	/* set the lane count on the sink */
 	tmp = dp_info->dp_lane_count;
 	if (dp_info->dpcd[DP_DPCD_REV] >= 0x11 &&
 	    dp_info->dpcd[DP_MAX_LANE_COUNT] & DP_ENHANCED_FRAME_CAP)
 		tmp |= DP_LANE_COUNT_ENHANCED_FRAME_EN;
 	radeon_write_dpcd_reg(dp_info->radeon_connector, DP_LANE_COUNT_SET, tmp);
 
-	
+	/* set the link rate on the sink */
 	tmp = dp_get_dp_link_rate_coded(dp_info->dp_clock);
 	radeon_write_dpcd_reg(dp_info->radeon_connector, DP_LINK_BW_SET, tmp);
 
-	
+	/* start training on the source */
 	if (ASIC_IS_DCE4(dp_info->rdev) || !dp_info->use_dpencoder)
 		atombios_dig_encoder_setup(dp_info->encoder,
 					   ATOM_ENCODER_CMD_DP_LINK_TRAINING_START, 0);
@@ -752,7 +766,7 @@ static int radeon_dp_link_train_init(struct radeon_dp_link_train_info *dp_info)
 		radeon_dp_encoder_service(dp_info->rdev, ATOM_DP_ACTION_TRAINING_START,
 					  dp_info->dp_clock, dp_info->enc_id, 0);
 
-	
+	/* disable the training pattern on the sink */
 	radeon_write_dpcd_reg(dp_info->radeon_connector,
 			      DP_TRAINING_PATTERN_SET,
 			      DP_TRAINING_PATTERN_DISABLE);
@@ -764,12 +778,12 @@ static int radeon_dp_link_train_finish(struct radeon_dp_link_train_info *dp_info
 {
 	udelay(400);
 
-	
+	/* disable the training pattern on the sink */
 	radeon_write_dpcd_reg(dp_info->radeon_connector,
 			      DP_TRAINING_PATTERN_SET,
 			      DP_TRAINING_PATTERN_DISABLE);
 
-	
+	/* disable the training pattern on the source */
 	if (ASIC_IS_DCE4(dp_info->rdev) || !dp_info->use_dpencoder)
 		atombios_dig_encoder_setup(dp_info->encoder,
 					   ATOM_ENCODER_CMD_DP_LINK_TRAINING_COMPLETE, 0);
@@ -792,7 +806,7 @@ static int radeon_dp_link_train_cr(struct radeon_dp_link_train_info *dp_info)
 
 	udelay(400);
 
-	
+	/* clock recovery loop */
 	clock_recovery = false;
 	dp_info->tries = 0;
 	voltage = 0xff;
@@ -830,7 +844,7 @@ static int radeon_dp_link_train_cr(struct radeon_dp_link_train_info *dp_info)
 
 		voltage = dp_info->train_set[0] & DP_TRAIN_VOLTAGE_SWING_MASK;
 
-		
+		/* Compute new train_set as requested by sink */
 		dp_get_adjust_train(dp_info->link_status, dp_info->dp_lane_count, dp_info->train_set);
 
 		radeon_dp_update_vs_emph(dp_info);
@@ -856,7 +870,7 @@ static int radeon_dp_link_train_ce(struct radeon_dp_link_train_info *dp_info)
 	else
 		radeon_dp_set_tp(dp_info, DP_TRAINING_PATTERN_2);
 
-	
+	/* channel equalization loop */
 	dp_info->tries = 0;
 	channel_eq = false;
 	while (1) {
@@ -873,13 +887,13 @@ static int radeon_dp_link_train_ce(struct radeon_dp_link_train_info *dp_info)
 			break;
 		}
 
-		
+		/* Try 5 times */
 		if (dp_info->tries > 5) {
 			DRM_ERROR("channel eq failed: 5 tries\n");
 			break;
 		}
 
-		
+		/* Compute new train_set as requested by sink */
 		dp_get_adjust_train(dp_info->link_status, dp_info->dp_lane_count, dp_info->train_set);
 
 		radeon_dp_update_vs_emph(dp_info);
@@ -924,6 +938,10 @@ void radeon_dp_link_train(struct drm_encoder *encoder,
 	    (dig_connector->dp_sink_type != CONNECTOR_OBJECT_ID_eDP))
 		return;
 
+	/* DPEncoderService newer than 1.1 can't program properly the
+	 * training pattern. When facing such version use the
+	 * DIGXEncoderControl (X== 1 | 2)
+	 */
 	dp_info.use_dpencoder = true;
 	index = GetIndexIntoMasterTable(COMMAND, DPEncoderService);
 	if (atom_parse_cmd_header(rdev->mode_info.atom_context, index, &frev, &crev)) {

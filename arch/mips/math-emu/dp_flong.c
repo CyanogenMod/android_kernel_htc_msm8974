@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * double precision: common utilities
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -41,22 +44,22 @@ ieee754dp ieee754dp_flong(s64 x)
 	xs = (x < 0);
 	if (xs) {
 		if (x == (1ULL << 63))
-			xm = (1ULL << 63);	
+			xm = (1ULL << 63);	/* max neg can't be safely negated */
 		else
 			xm = -x;
 	} else {
 		xm = x;
 	}
 
-	
+	/* normalize */
 	xe = DP_MBITS + 3;
 	if (xm >> (DP_MBITS + 1 + 3)) {
-		
+		/* shunt out overflow bits */
 		while (xm >> (DP_MBITS + 1 + 3)) {
 			XDPSRSX1();
 		}
 	} else {
-		
+		/* normalize in grs extended double precision */
 		while ((xm >> (DP_MBITS + 3)) == 0) {
 			xm <<= 1;
 			xe--;

@@ -51,6 +51,7 @@
 
 #define EFIKAMX_POWER_KEY	IMX_GPIO_NR(2, 31)
 
+/* board 1.1 doesn't have same reset gpio */
 #define EFIKAMX_RESET1_1	IMX_GPIO_NR(3, 2)
 #define EFIKAMX_RESET		IMX_GPIO_NR(1, 4)
 
@@ -58,38 +59,45 @@
 
 #define EFIKAMX_PMIC		IMX_GPIO_NR(1, 6)
 
+/* the pci ids pin have pull up. they're driven low according to board id */
 #define MX51_PAD_PCBID0	IOMUX_PAD(0x518, 0x130, 3, 0x0,   0, PAD_CTL_PUS_100K_UP)
 #define MX51_PAD_PCBID1	IOMUX_PAD(0x51C, 0x134, 3, 0x0,   0, PAD_CTL_PUS_100K_UP)
 #define MX51_PAD_PCBID2	IOMUX_PAD(0x504, 0x128, 3, 0x0,   0, PAD_CTL_PUS_100K_UP)
 #define MX51_PAD_PWRKEY	IOMUX_PAD(0x48c, 0x0f8, 1, 0x0,   0, PAD_CTL_PUS_100K_UP | PAD_CTL_PKE)
 
 static iomux_v3_cfg_t mx51efikamx_pads[] = {
-	
+	/* board id */
 	MX51_PAD_PCBID0,
 	MX51_PAD_PCBID1,
 	MX51_PAD_PCBID2,
 
-	
+	/* leds */
 	MX51_PAD_CSI1_D9__GPIO3_13,
 	MX51_PAD_CSI1_VSYNC__GPIO3_14,
 	MX51_PAD_CSI1_HSYNC__GPIO3_15,
 
-	
+	/* power key */
 	MX51_PAD_PWRKEY,
 
-	
+	/* reset */
 	MX51_PAD_DI1_PIN13__GPIO3_2,
 	MX51_PAD_GPIO1_4__GPIO1_4,
 
-	
+	/* power off */
 	MX51_PAD_CSI2_VSYNC__GPIO4_13,
 };
 
+/*   PCBID2  PCBID1 PCBID0  STATE
+	1       1      1    ER1:rev1.1
+	1       1      0    ER2:rev1.2
+	1       0      1    ER3:rev1.3
+	1       0      0    ER4:rev1.4
+*/
 static void __init mx51_efikamx_board_id(void)
 {
 	int id;
 
-	
+	/* things are taking time to settle */
 	msleep(150);
 
 	gpio_request(EFIKAMX_PCBID0, "pcbid0");
@@ -166,7 +174,7 @@ static struct gpio_keys_button mx51_efikamx_powerkey[] = {
 		.type = EV_PWR,
 		.desc = "Power Button (CM)",
 		.wakeup = 1,
-		.debounce_interval = 10, 
+		.debounce_interval = 10, /* ms */
 	},
 };
 
@@ -209,7 +217,7 @@ static int __init mx51_efikamx_power_init(void)
 		gpio_request(EFIKAMX_POWEROFF, "poweroff");
 		pm_power_off = mx51_efikamx_power_off;
 
-		
+		/* enable coincell charger. maybe need a small power driver ? */
 		coincell = regulator_get(NULL, "coincell");
 		if (!IS_ERR(coincell)) {
 			regulator_set_voltage(coincell, 3000000, 3000000);
@@ -233,7 +241,7 @@ static void __init mx51_efikamx_init(void)
 
 	mx51_efikamx_board_id();
 
-	
+	/* on < 1.2 boards both SD controllers are used */
 	if (system_rev < 0x12) {
 		imx51_add_sdhci_esdhc_imx(0, NULL);
 		imx51_add_sdhci_esdhc_imx(1, &sd_pdata);
@@ -252,6 +260,11 @@ static void __init mx51_efikamx_init(void)
 		gpio_direction_output(EFIKAMX_RESET, 1);
 	}
 
+	/*
+	 * enable wifi by default only on mx
+	 * sb and mx have same wlan pin but the value to enable it are
+	 * different :/
+	 */
 	gpio_request(EFIKA_WLAN_EN, "wlan_en");
 	gpio_direction_output(EFIKA_WLAN_EN, 0);
 	msleep(10);
@@ -272,7 +285,7 @@ static struct sys_timer mx51_efikamx_timer = {
 };
 
 MACHINE_START(MX51_EFIKAMX, "Genesi EfikaMX nettop")
-	
+	/* Maintainer: Amit Kucheria <amit.kucheria@linaro.org> */
 	.atag_offset = 0x100,
 	.map_io = mx51_map_io,
 	.init_early = imx51_init_early,

@@ -30,7 +30,9 @@
 #include "go7007-priv.h"
 #include "wis-i2c.h"
 
+/********************* Driver for on-board I2C adapter *********************/
 
+/* #define GO7007_I2C_DEBUG */
 
 #define SPI_I2C_ADDR_BASE		0x1400
 #define STATUS_REG_ADDR			(SPI_I2C_ADDR_BASE + 0x2)
@@ -43,6 +45,8 @@
 #define I2C_STATE_MASK			0x0007
 #define I2C_READ_READY_MASK		0x0008
 
+/* There is only one I2C port on the TW2804 that feeds all four GO7007 VIPs
+ * on the Adlink PCI-MPG24, so access is shared between all of them. */
 static DEFINE_MUTEX(adlink_mpg24_i2c_lock);
 
 static int go7007_i2c_xfer(struct go7007 *go, u16 addr, int read,
@@ -67,12 +71,12 @@ static int go7007_i2c_xfer(struct go7007 *go, u16 addr, int read,
 	mutex_lock(&go->hw_lock);
 
 	if (go->board_id == GO7007_BOARDID_ADLINK_MPG24) {
-		
+		/* Bridge the I2C port on this GO7007 to the shared bus */
 		mutex_lock(&adlink_mpg24_i2c_lock);
 		go7007_write_addr(go, 0x3c82, 0x0020);
 	}
 
-	
+	/* Wait for I2C adapter to be ready */
 	for (i = 0; i < 10; ++i) {
 		if (go7007_read_addr(go, STATUS_REG_ADDR, &val) < 0)
 			goto i2c_done;
@@ -85,11 +89,11 @@ static int go7007_i2c_xfer(struct go7007 *go, u16 addr, int read,
 		goto i2c_done;
 	}
 
-	
+	/* Set target register (command) */
 	go7007_write_addr(go, I2C_CTRL_REG_ADDR, flags);
 	go7007_write_addr(go, I2C_LO_ADDR_REG_ADDR, command);
 
-	
+	/* If we're writing, send the data and target address and we're done */
 	if (!read) {
 		go7007_write_addr(go, I2C_DATA_REG_ADDR, *data);
 		go7007_write_addr(go, I2C_DEV_UP_ADDR_REG_ADDR,
@@ -98,15 +102,15 @@ static int go7007_i2c_xfer(struct go7007 *go, u16 addr, int read,
 		goto i2c_done;
 	}
 
-	
+	/* Otherwise, we're reading.  First clear i2c_rx_data_rdy. */
 	if (go7007_read_addr(go, I2C_DATA_REG_ADDR, &val) < 0)
 		goto i2c_done;
 
-	
+	/* Send the target address plus read flag */
 	go7007_write_addr(go, I2C_DEV_UP_ADDR_REG_ADDR,
 			(addr << 9) | 0x0100 | (command >> 8));
 
-	
+	/* Wait for i2c_rx_data_rdy */
 	for (i = 0; i < 10; ++i) {
 		if (go7007_read_addr(go, STATUS_REG_ADDR, &val) < 0)
 			goto i2c_done;
@@ -119,7 +123,7 @@ static int go7007_i2c_xfer(struct go7007 *go, u16 addr, int read,
 		goto i2c_done;
 	}
 
-	
+	/* Retrieve the read byte */
 	if (go7007_read_addr(go, I2C_DATA_REG_ADDR, &val) < 0)
 		goto i2c_done;
 	*data = val;
@@ -127,7 +131,7 @@ static int go7007_i2c_xfer(struct go7007 *go, u16 addr, int read,
 
 i2c_done:
 	if (go->board_id == GO7007_BOARDID_ADLINK_MPG24) {
-		
+		/* Isolate the I2C port on this GO7007 from the shared bus */
 		go7007_write_addr(go, 0x3c82, 0x0000);
 		mutex_unlock(&adlink_mpg24_i2c_lock);
 	}
@@ -147,6 +151,10 @@ static int go7007_smbus_xfer(struct i2c_adapter *adapter, u16 addr,
 			flags & I2C_CLIENT_SCCB ? 0x10 : 0x00, &data->byte);
 }
 
+/* VERY LIMITED I2C master xfer function -- only needed because the
+ * SMBus functions only support 8-bit commands and the SAA7135 uses
+ * 16-bit commands.  The I2C interface on the GO7007, as limited as
+ * it is, does support this mode. */
 
 static int go7007_i2c_master_xfer(struct i2c_adapter *adapter,
 					struct i2c_msg msgs[], int num)
@@ -155,6 +163,8 @@ static int go7007_i2c_master_xfer(struct i2c_adapter *adapter,
 	int i;
 
 	for (i = 0; i < num; ++i) {
+		/* We can only do two things here -- write three bytes, or
+		 * write two bytes and read one byte. */
 		if (msgs[i].len == 2) {
 			if (i + 1 == num || msgs[i].addr != msgs[i + 1].addr ||
 					(msgs[i].flags & I2C_M_RD) ||

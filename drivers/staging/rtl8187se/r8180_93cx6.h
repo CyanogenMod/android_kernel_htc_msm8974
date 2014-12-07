@@ -10,6 +10,8 @@
 	We want to tanks the Authors of such projects and the Ndiswrapper project Authors.
 */
 
+/*This files contains card eeprom (93c46 or 93c56) programming routines*/
+/*memory is addressed by WORDS*/
 
 #include "r8180.h"
 #include "r8180_hw.h"

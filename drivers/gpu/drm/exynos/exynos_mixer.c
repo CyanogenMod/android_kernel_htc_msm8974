@@ -223,7 +223,7 @@ do { \
 static inline void vp_filter_set(struct mixer_resources *res,
 		int reg_id, const u8 *data, unsigned int size)
 {
-	
+	/* assure 4-byte align */
 	BUG_ON(size & 3);
 	for (; size; size -= 4, reg_id += 4, data += 4) {
 		u32 val = (data[0] << 24) |  (data[1] << 16) |
@@ -246,7 +246,7 @@ static void mixer_vsync_set_update(struct mixer_context *ctx, bool enable)
 {
 	struct mixer_resources *res = &ctx->mixer_res;
 
-	
+	/* block update on vsync */
 	mixer_reg_writemask(res, MXR_STATUS, enable ?
 			MXR_STATUS_SYNC_ENABLE : 0, MXR_STATUS_SYNC_ENABLE);
 
@@ -259,11 +259,11 @@ static void mixer_cfg_scan(struct mixer_context *ctx, unsigned int height)
 	struct mixer_resources *res = &ctx->mixer_res;
 	u32 val;
 
-	
+	/* choosing between interlace and progressive mode */
 	val = (ctx->interlace ? MXR_CFG_SCAN_INTERLACE :
 				MXR_CFG_SCAN_PROGRASSIVE);
 
-	
+	/* choosing between porper HD and SD mode */
 	if (height == 480)
 		val |= MXR_CFG_SCAN_NTSC | MXR_CFG_SCAN_SD;
 	else if (height == 576)
@@ -371,9 +371,9 @@ static void vp_video_buffer(struct mixer_context *ctx, int win)
 		crcb_mode = false;
 		buf_num = 2;
 		break;
-	
+	/* TODO: single buffer format NV12, NV21 */
 	default:
-		
+		/* ignore pixel format at disable time */
 		if (!win_data->dma_addr)
 			break;
 
@@ -389,7 +389,7 @@ static void vp_video_buffer(struct mixer_context *ctx, int win)
 	mode_width = win_data->mode_width;
 	mode_height = win_data->mode_height;
 
-	
+	/* scaling feature: (src << 16) / dst */
 	x_ratio = (width << 16) / width;
 	y_ratio = (height << 16) / height;
 
@@ -425,19 +425,19 @@ static void vp_video_buffer(struct mixer_context *ctx, int win)
 	spin_lock_irqsave(&res->reg_slock, flags);
 	mixer_vsync_set_update(ctx, false);
 
-	
+	/* interlace or progressive scan mode */
 	val = (ctx->interlace ? ~0 : 0);
 	vp_reg_writemask(res, VP_MODE, val, VP_MODE_LINE_SKIP);
 
-	
+	/* setup format */
 	val = (crcb_mode ? VP_MODE_NV21 : VP_MODE_NV12);
 	val |= (tiled_mode ? VP_MODE_MEM_TILED : VP_MODE_MEM_LINEAR);
 	vp_reg_writemask(res, VP_MODE, val, VP_MODE_FMT_MASK);
 
-	
+	/* setting size of input image */
 	vp_reg_write(res, VP_IMG_SIZE_Y, VP_IMG_HSIZE(full_width) |
 		VP_IMG_VSIZE(full_height));
-	
+	/* chroma height has to reduced by 2 to avoid chroma distorions */
 	vp_reg_write(res, VP_IMG_SIZE_C, VP_IMG_HSIZE(full_width) |
 		VP_IMG_VSIZE(full_height / 2));
 
@@ -462,7 +462,7 @@ static void vp_video_buffer(struct mixer_context *ctx, int win)
 
 	vp_reg_write(res, VP_ENDIAN_MODE, VP_ENDIAN_MODE_LITTLE);
 
-	
+	/* set buffer address to vp */
 	vp_reg_write(res, VP_TOP_Y_PTR, luma_addr[0]);
 	vp_reg_write(res, VP_BOT_Y_PTR, luma_addr[1]);
 	vp_reg_write(res, VP_TOP_C_PTR, chroma_addr[0]);
@@ -517,7 +517,7 @@ static void mixer_graph_buffer(struct mixer_context *ctx, int win)
 	mode_width = win_data->mode_width;
 	mode_height = win_data->mode_height;
 
-	
+	/* 2x scaling feature */
 	x_ratio = 0;
 	y_ratio = 0;
 
@@ -526,7 +526,7 @@ static void mixer_graph_buffer(struct mixer_context *ctx, int win)
 	dst_x_offset = win_data->crtc_x;
 	dst_y_offset = win_data->crtc_y;
 
-	
+	/* converting dma address base and source offset */
 	dma_addr = dma_addr
 		+ (src_x_offset * win_data->bpp >> 3)
 		+ (src_y_offset * full_width * win_data->bpp >> 3);
@@ -541,11 +541,11 @@ static void mixer_graph_buffer(struct mixer_context *ctx, int win)
 	spin_lock_irqsave(&res->reg_slock, flags);
 	mixer_vsync_set_update(ctx, false);
 
-	
+	/* setup format */
 	mixer_reg_writemask(res, MXR_GRAPHIC_CFG(win),
 		MXR_GRP_CFG_FORMAT_VAL(fmt), MXR_GRP_CFG_FORMAT_MASK);
 
-	
+	/* setup geometry */
 	mixer_reg_write(res, MXR_GRAPHIC_SPAN(win), full_width);
 
 	val  = MXR_GRP_WH_WIDTH(width);
@@ -554,17 +554,17 @@ static void mixer_graph_buffer(struct mixer_context *ctx, int win)
 	val |= MXR_GRP_WH_V_SCALE(y_ratio);
 	mixer_reg_write(res, MXR_GRAPHIC_WH(win), val);
 
-	
+	/* setup offsets in source image */
 	val  = MXR_GRP_SXY_SX(src_x_offset);
 	val |= MXR_GRP_SXY_SY(src_y_offset);
 	mixer_reg_write(res, MXR_GRAPHIC_SXY(win), val);
 
-	
+	/* setup offsets in display image */
 	val  = MXR_GRP_DXY_DX(dst_x_offset);
 	val |= MXR_GRP_DXY_DY(dst_y_offset);
 	mixer_reg_write(res, MXR_GRAPHIC_DXY(win), val);
 
-	
+	/* set buffer address to mixer */
 	mixer_reg_write(res, MXR_GRAPHIC_BASE(win), dma_addr);
 
 	mixer_cfg_scan(ctx, mode_height);
@@ -583,7 +583,7 @@ static void vp_win_reset(struct mixer_context *ctx)
 
 	vp_reg_write(res, VP_SRESET, VP_SRESET_PROCESSING);
 	for (tries = 100; tries; --tries) {
-		
+		/* waiting until VP_SRESET_PROCESSING is 0 */
 		if (~vp_reg_read(res, VP_SRESET) & VP_SRESET_PROCESSING)
 			break;
 		mdelay(10);
@@ -600,7 +600,7 @@ static int mixer_enable_vblank(void *ctx, int pipe)
 
 	mixer_ctx->pipe = pipe;
 
-	
+	/* enable vsync interrupt */
 	mixer_reg_writemask(res, MXR_INT_EN, MXR_INT_EN_VSYNC,
 			MXR_INT_EN_VSYNC);
 
@@ -614,7 +614,7 @@ static void mixer_disable_vblank(void *ctx)
 
 	DRM_DEBUG_KMS("[%d] %s\n", __LINE__, __func__);
 
-	
+	/* disable vsync interrupt */
 	mixer_reg_writemask(res, MXR_INT_EN, 0, MXR_INT_EN_VSYNC);
 }
 
@@ -720,16 +720,17 @@ static void mixer_win_disable(void *ctx, int zpos)
 }
 
 static struct exynos_mixer_ops mixer_ops = {
-	
+	/* manager */
 	.enable_vblank		= mixer_enable_vblank,
 	.disable_vblank		= mixer_disable_vblank,
 
-	
+	/* overlay */
 	.win_mode_set		= mixer_win_mode_set,
 	.win_commit		= mixer_win_commit,
 	.win_disable		= mixer_win_disable,
 };
 
+/* for pageflip event */
 static void mixer_finish_pageflip(struct drm_device *drm_dev, int crtc)
 {
 	struct exynos_drm_private *dev_priv = drm_dev->dev_private;
@@ -742,7 +743,7 @@ static void mixer_finish_pageflip(struct drm_device *drm_dev, int crtc)
 
 	list_for_each_entry_safe(e, t, &dev_priv->pageflip_event_list,
 			base.link) {
-		
+		/* if event's pipe isn't same as crtc then ignore it. */
 		if (crtc != e->pipe)
 			continue;
 
@@ -757,6 +758,10 @@ static void mixer_finish_pageflip(struct drm_device *drm_dev, int crtc)
 	}
 
 	if (is_checked)
+		/*
+		 * call drm_vblank_put only in case that drm_vblank_get was
+		 * called.
+		 */
 		if (atomic_read(&drm_dev->vblank_refcount[crtc]) > 0)
 			drm_vblank_put(drm_dev, crtc);
 
@@ -772,12 +777,12 @@ static irqreturn_t mixer_irq_handler(int irq, void *arg)
 
 	spin_lock(&res->reg_slock);
 
-	
+	/* read interrupt status for handling and clearing flags for VSYNC */
 	val = mixer_reg_read(res, MXR_INT_STATUS);
 
-	
+	/* handling VSYNC */
 	if (val & MXR_INT_STATUS_VSYNC) {
-		
+		/* interlace scan need to check shadow register */
 		if (ctx->interlace) {
 			val_base = mixer_reg_read(res, MXR_GRAPHIC_BASE_S(0));
 			if (ctx->win_data[0].dma_addr != val_base)
@@ -793,9 +798,9 @@ static irqreturn_t mixer_irq_handler(int irq, void *arg)
 	}
 
 out:
-	
+	/* clear interrupts */
 	if (~val & MXR_INT_EN_VSYNC) {
-		
+		/* vsync interrupt use different bit for read and clear */
 		val &= ~MXR_INT_EN_VSYNC;
 		val |= MXR_INT_CLEAR_VSYNC;
 	}
@@ -810,48 +815,54 @@ static void mixer_win_reset(struct mixer_context *ctx)
 {
 	struct mixer_resources *res = &ctx->mixer_res;
 	unsigned long flags;
-	u32 val; 
+	u32 val; /* value stored to register */
 
 	spin_lock_irqsave(&res->reg_slock, flags);
 	mixer_vsync_set_update(ctx, false);
 
 	mixer_reg_writemask(res, MXR_CFG, MXR_CFG_DST_HDMI, MXR_CFG_DST_MASK);
 
-	
+	/* set output in RGB888 mode */
 	mixer_reg_writemask(res, MXR_CFG, MXR_CFG_OUT_RGB888, MXR_CFG_OUT_MASK);
 
-	
+	/* 16 beat burst in DMA */
 	mixer_reg_writemask(res, MXR_STATUS, MXR_STATUS_16_BURST,
 		MXR_STATUS_BURST_MASK);
 
+	/* setting default layer priority: layer1 > layer0 > video
+	 * because typical usage scenario would be
+	 * layer1 - OSD
+	 * layer0 - framebuffer
+	 * video - video overlay
+	 */
 	val = MXR_LAYER_CFG_GRP1_VAL(3);
 	val |= MXR_LAYER_CFG_GRP0_VAL(2);
 	val |= MXR_LAYER_CFG_VP_VAL(1);
 	mixer_reg_write(res, MXR_LAYER_CFG, val);
 
-	
+	/* setting background color */
 	mixer_reg_write(res, MXR_BG_COLOR0, 0x008080);
 	mixer_reg_write(res, MXR_BG_COLOR1, 0x008080);
 	mixer_reg_write(res, MXR_BG_COLOR2, 0x008080);
 
-	
+	/* setting graphical layers */
 
-	val  = MXR_GRP_CFG_COLOR_KEY_DISABLE; 
+	val  = MXR_GRP_CFG_COLOR_KEY_DISABLE; /* no blank key */
 	val |= MXR_GRP_CFG_WIN_BLEND_EN;
-	val |= MXR_GRP_CFG_ALPHA_VAL(0xff); 
+	val |= MXR_GRP_CFG_ALPHA_VAL(0xff); /* non-transparent alpha */
 
-	
+	/* the same configuration for both layers */
 	mixer_reg_write(res, MXR_GRAPHIC_CFG(0), val);
 
 	val |= MXR_GRP_CFG_BLEND_PRE_MUL;
 	val |= MXR_GRP_CFG_PIXEL_BLEND_EN;
 	mixer_reg_write(res, MXR_GRAPHIC_CFG(1), val);
 
-	
+	/* configuration of Video Processor Registers */
 	vp_win_reset(ctx);
 	vp_default_filter(res);
 
-	
+	/* disable all layers */
 	mixer_reg_writemask(res, MXR_CFG, 0, MXR_CFG_GRP0_ENABLE);
 	mixer_reg_writemask(res, MXR_CFG, 0, MXR_CFG_GRP1_ENABLE);
 	mixer_reg_writemask(res, MXR_CFG, 0, MXR_CFG_VP_ENABLE);
@@ -1057,12 +1068,12 @@ static int __devinit mixer_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, drm_hdmi_ctx);
 
-	
+	/* acquire resources: regs, irqs, clocks */
 	ret = mixer_resources_init(drm_hdmi_ctx, pdev);
 	if (ret)
 		goto fail;
 
-	
+	/* register specific callback point to common hdmi. */
 	exynos_mixer_ops_register(&mixer_ops);
 
 	mixer_resource_poweron(ctx);

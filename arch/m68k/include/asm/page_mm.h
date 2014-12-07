@@ -9,6 +9,9 @@
 #define get_user_page(vaddr)		__get_free_page(GFP_KERNEL)
 #define free_user_page(page, addr)	free_page(addr)
 
+/*
+ * We don't need to check for alignment etc.
+ */
 #ifdef CPU_M68040_OR_M68060_ONLY
 static inline void copy_page(void *to, void *from)
 {
@@ -89,7 +92,8 @@ static inline void *__va(unsigned long paddr)
 	return vaddr;
 }
 
-#else	
+#else	/* !CONFIG_SUN3 */
+/* This #define is a horrible hack to suppress lots of warnings. --m */
 #define __pa(x) ___pa((unsigned long)(x))
 static inline unsigned long ___pa(unsigned long x)
 {
@@ -111,8 +115,14 @@ static inline void *__va(unsigned long x)
      else
         return (void *)(x-0x2000000);
 }
-#endif	
+#endif	/* CONFIG_SUN3 */
 
+/*
+ * NOTE: virtual isn't really correct, actually it should be the offset into the
+ * memory node, but we have no highmem, so that works for now.
+ * TODO: implement (fast) pfn<->pgdat_idx conversion functions, this makes lots
+ * of the shifts unnecessary.
+ */
 #define virt_to_pfn(kaddr)	(__pa(kaddr) >> PAGE_SHIFT)
 #define pfn_to_virt(pfn)	__va((pfn) << PAGE_SHIFT)
 
@@ -161,9 +171,9 @@ static inline __attribute_const__ int __virt_to_node_shift(void)
 #define virt_addr_valid(kaddr)	((void *)(kaddr) >= (void *)PAGE_OFFSET && (void *)(kaddr) < high_memory)
 #define pfn_valid(pfn)		virt_addr_valid(pfn_to_virt(pfn))
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE | VM_EXEC | \
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
-#endif 
+#endif /* _M68K_PAGE_MM_H */

@@ -79,21 +79,21 @@ enum {
 	PINMUX_RESERVED = 0,
 
 	PINMUX_DATA_BEGIN,
-	GP_ALL(DATA), 
+	GP_ALL(DATA), /* GP_0_0_DATA -> GP_6_8_DATA */
 	PINMUX_DATA_END,
 
 	PINMUX_INPUT_BEGIN,
-	GP_ALL(IN), 
+	GP_ALL(IN), /* GP_0_0_IN -> GP_6_8_IN */
 	PINMUX_INPUT_END,
 
 	PINMUX_OUTPUT_BEGIN,
-	GP_ALL(OUT), 
+	GP_ALL(OUT), /* GP_0_0_OUT -> GP_6_8_OUT */
 	PINMUX_OUTPUT_END,
 
 	PINMUX_FUNCTION_BEGIN,
-	GP_ALL(FN), 
+	GP_ALL(FN), /* GP_0_0_FN -> GP_6_8_FN */
 
-	
+	/* GPSR0 */
 	FN_AVS1, FN_AVS2, FN_IP0_7_6, FN_A17,
 	FN_A18, FN_A19, FN_IP0_9_8, FN_IP0_11_10,
 	FN_IP0_13_12, FN_IP0_15_14, FN_IP0_18_16, FN_IP0_22_19,
@@ -103,7 +103,7 @@ enum {
 	FN_IP2_21_19, FN_IP2_30_28, FN_IP3_2_0, FN_IP3_11_9,
 	FN_IP3_14_12, FN_IP3_22_21, FN_IP3_26_24, FN_IP3_31_29,
 
-	
+	/* GPSR1 */
 	FN_IP4_1_0, FN_IP4_4_2, FN_IP4_7_5, FN_IP4_10_8,
 	FN_IP4_11, FN_IP4_12, FN_IP4_13, FN_IP4_14,
 	FN_IP4_15, FN_IP4_16, FN_IP4_19_17, FN_IP4_22_20,
@@ -113,7 +113,7 @@ enum {
 	FN_IP5_7, FN_IP5_8, FN_IP5_10_9, FN_IP5_12_11,
 	FN_IP5_14_13, FN_IP5_16_15, FN_IP5_20_17, FN_IP5_23_21,
 
-	
+	/* GPSR2 */
 	FN_IP5_27_24, FN_IP8_20, FN_IP8_22_21, FN_IP8_24_23,
 	FN_IP8_27_25, FN_IP8_30_28, FN_IP9_1_0, FN_IP9_3_2,
 	FN_IP9_4, FN_IP9_5, FN_IP9_6, FN_IP9_7,
@@ -123,7 +123,7 @@ enum {
 	FN_IP10_8_6, FN_IP10_11_9, FN_IP10_14_12, FN_IP10_17_15,
 	FN_IP10_20_18, FN_IP10_23_21, FN_IP10_25_24, FN_IP10_28_26,
 
-	
+	/* GPSR3 */
 	FN_IP10_31_29, FN_IP11_2_0, FN_IP11_5_3, FN_IP11_8_6,
 	FN_IP11_11_9, FN_IP11_14_12, FN_IP11_17_15, FN_IP11_20_18,
 	FN_IP11_23_21, FN_IP11_26_24, FN_IP11_29_27, FN_IP12_2_0,
@@ -133,7 +133,7 @@ enum {
 	FN_IP7_26_25, FN_IP1_20_19, FN_IP1_22_21, FN_IP1_24_23,
 	FN_IP5_28, FN_IP5_30_29, FN_IP6_1_0, FN_IP6_3_2,
 
-	
+	/* GPSR4 */
 	FN_IP6_5_4, FN_IP6_7_6, FN_IP6_8, FN_IP6_11_9,
 	FN_IP6_14_12, FN_IP6_17_15, FN_IP6_19_18, FN_IP6_22_20,
 	FN_IP6_24_23, FN_IP6_26_25, FN_IP6_30_29, FN_IP7_1_0,
@@ -143,7 +143,7 @@ enum {
 	FN_IP8_11_8, FN_IP8_15_12, FN_PENC0, FN_PENC1,
 	FN_IP0_2_0, FN_IP8_17_16, FN_IP8_18, FN_IP8_19,
 
-	
+	/* GPSR5 */
 	FN_A1, FN_A2, FN_A3, FN_A4,
 	FN_A5, FN_A6, FN_A7, FN_A8,
 	FN_A9, FN_A10, FN_A11, FN_A12,
@@ -153,12 +153,12 @@ enum {
 	FN_IP2_23, FN_IP2_24, FN_IP2_25, FN_IP2_26,
 	FN_IP2_27, FN_IP3_3, FN_IP3_4, FN_IP3_5,
 
-	
+	/* GPSR6 */
 	FN_IP3_6, FN_IP3_7, FN_IP3_8, FN_IP3_15,
 	FN_IP3_16, FN_IP3_17, FN_IP3_18, FN_IP3_19,
 	FN_IP3_20,
 
-	
+	/* IPSR0 */
 	FN_RD_WR, FN_FWE, FN_ATAG0, FN_VI1_R7,
 	FN_HRTS1, FN_RX4_C,
 	FN_CS1_A26, FN_HSPI_TX2, FN_SDSELF_B,
@@ -179,7 +179,7 @@ enum {
 	FN_PENC2, FN_SCK0, FN_PWM1, FN_PWMFSW0,
 	FN_SCIF_CLK, FN_TCLK0_C,
 
-	
+	/* IPSR1 */
 	FN_EX_CS0, FN_RX3_C_IRDA_RX_C, FN_MMC0_D6,
 	FN_FD6, FN_EX_CS1, FN_MMC0_D7, FN_FD7,
 	FN_EX_CS2, FN_SD1_CLK, FN_MMC0_CLK, FN_FALE,
@@ -197,7 +197,7 @@ enum {
 	FN_SDATA, FN_CTS0_C, FN_SUB_TCK, FN_CC5_STATE2,
 	FN_CC5_STATE10, FN_CC5_STATE18, FN_CC5_STATE26, FN_CC5_STATE34,
 
-	
+	/* IPSR2 */
 	FN_HRX0, FN_RX1, FN_SCKZ, FN_RTS0_C_TANS_C,
 	FN_SUB_TDI, FN_CC5_STATE3, FN_CC5_STATE11, FN_CC5_STATE19,
 	FN_CC5_STATE27, FN_CC5_STATE35, FN_HSCK0, FN_SCK1,
@@ -217,7 +217,7 @@ enum {
 	FN_DU0_DR7, FN_LCDOUT7, FN_DU0_DG0, FN_LCDOUT8,
 	FN_DREQ1, FN_SCL2, FN_AUDATA2,
 
-	
+	/* IPSR3 */
 	FN_DU0_DG1, FN_LCDOUT9, FN_DACK1, FN_SDA2,
 	FN_AUDATA3, FN_DU0_DG2, FN_LCDOUT10, FN_DU0_DG3,
 	FN_LCDOUT11, FN_DU0_DG4, FN_LCDOUT12, FN_DU0_DG5,
@@ -236,7 +236,7 @@ enum {
 	FN_DU0_EXODDF_DU0_ODDF_DISP_CDE, FN_QCPV_QDE, FN_CAN1_TX,
 	FN_TX2_C, FN_SCL2_C, FN_REMOCON,
 
-	
+	/* IPSR4 */
 	FN_DU0_DISP, FN_QPOLA, FN_CAN_CLK_C, FN_SCK2_C,
 	FN_DU0_CDE, FN_QPOLB, FN_CAN1_RX, FN_RX2_C,
 	FN_DREQ0_B, FN_SSI_SCK78_B, FN_SCK0_B, FN_DU1_DR0,
@@ -256,7 +256,7 @@ enum {
 	FN_VI2_DATA4_VI2_B4, FN_SCL2_B, FN_SD3_DAT0, FN_TX5,
 	FN_SCK0_D,
 
-	
+	/* IPSR5 */
 	FN_DU1_DB1, FN_VI2_DATA5_VI2_B5, FN_SDA2_B, FN_SD3_DAT1,
 	FN_RX5, FN_RTS0_D_TANS_D, FN_DU1_DB2, FN_VI2_R4,
 	FN_DU1_DB3, FN_VI2_R5, FN_DU1_DB4, FN_VI2_R6,
@@ -276,7 +276,7 @@ enum {
 	FN_AUDIO_CLKA, FN_CAN_TXCLK, FN_AUDIO_CLKB, FN_USB_OVC2,
 	FN_CAN_DEBUGOUT0, FN_MOUT0,
 
-	
+	/* IPSR6 */
 	FN_SSI_SCK0129, FN_CAN_DEBUGOUT1, FN_MOUT1, FN_SSI_WS0129,
 	FN_CAN_DEBUGOUT2, FN_MOUT2, FN_SSI_SDATA0, FN_CAN_DEBUGOUT3,
 	FN_MOUT5, FN_SSI_SDATA1, FN_CAN_DEBUGOUT4, FN_MOUT6,
@@ -291,7 +291,7 @@ enum {
 	FN_ADIDATA, FN_CAN_DEBUGOUT12, FN_RX3_IRDA_RX, FN_SSI_SCK6,
 	FN_ADICHS0, FN_CAN0_TX, FN_IERX_B,
 
-	
+	/* IPSR7 */
 	FN_SSI_WS6, FN_ADICHS1, FN_CAN0_RX, FN_IETX_B,
 	FN_SSI_SDATA6, FN_ADICHS2, FN_CAN_CLK, FN_IECLK_B,
 	FN_SSI_SCK78, FN_CAN_DEBUGOUT13, FN_IRQ0_B, FN_SSI_SCK9_B,
@@ -307,7 +307,7 @@ enum {
 	FN_RX2_B, FN_CC5_TDI, FN_SD0_CD, FN_DREQ2,
 	FN_RTS1_B_TANS_B, FN_SD0_WP, FN_DACK2, FN_CTS1_B,
 
-	
+	/* IPSR8 */
 	FN_HSPI_CLK0, FN_CTS0, FN_USB_OVC0, FN_AD_CLK,
 	FN_CC5_STATE4, FN_CC5_STATE12, FN_CC5_STATE20, FN_CC5_STATE28,
 	FN_CC5_STATE36, FN_HSPI_CS0, FN_RTS0_TANS, FN_USB_OVC1,
@@ -325,7 +325,7 @@ enum {
 	FN_MMC1_CMD, FN_HSCK1_B, FN_VI0_VSYNC, FN_VI0_DATA1_B_VI0_B1_B,
 	FN_RTS1_C_TANS_C, FN_RX4_D, FN_PWMFSW0_C,
 
-	
+	/* IPSR9 */
 	FN_VI0_DATA0_VI0_B0, FN_HRTS1_B, FN_MT1_VCXO, FN_VI0_DATA1_VI0_B1,
 	FN_HCTS1_B, FN_MT1_PWM, FN_VI0_DATA2_VI0_B2, FN_MMC1_D0,
 	FN_VI0_DATA3_VI0_B3, FN_MMC1_D1, FN_VI0_DATA4_VI0_B4, FN_MMC1_D2,
@@ -341,7 +341,7 @@ enum {
 	FN_ETH_RXD0, FN_SD2_DAT2_B, FN_ARM_TRACEDATA_8, FN_VI0_G7,
 	FN_ETH_RXD1, FN_SD2_DAT3_B, FN_ARM_TRACEDATA_9,
 
-	
+	/* IPSR10 */
 	FN_VI0_R0, FN_SSI_SDATA7_C, FN_SCK1_C, FN_DREQ1_B,
 	FN_ARM_TRACEDATA_10, FN_DREQ0_C, FN_VI0_R1, FN_SSI_SDATA8_C,
 	FN_DACK1_B, FN_ARM_TRACEDATA_11, FN_DACK0_C, FN_DRACK0_C,
@@ -359,7 +359,7 @@ enum {
 	FN_PWMFSW0_E, FN_VI1_VSYNC, FN_AUDIO_CLKOUT_C, FN_SSI_WS4,
 	FN_SIM_CLK, FN_GPS_MAG_C, FN_SPV_TRST, FN_SCL3,
 
-	
+	/* IPSR11 */
 	FN_VI1_DATA0_VI1_B0, FN_SD2_DAT0, FN_SIM_RST, FN_SPV_TCK,
 	FN_ADICLK_B, FN_VI1_DATA1_VI1_B1, FN_SD2_DAT1, FN_MT0_CLK,
 	FN_SPV_TMS, FN_ADICS_B_SAMP_B, FN_VI1_DATA2_VI1_B2, FN_SD2_DAT2,
@@ -375,7 +375,7 @@ enum {
 	FN_SPA_TDO, FN_HCTS0_B, FN_VI1_G1, FN_VI3_DATA1,
 	FN_SSI_SCK1, FN_TS_SDEN1, FN_DACK2_B, FN_RX2, FN_HRTS0_B,
 
-	
+	/* IPSR12 */
 	FN_VI1_G2, FN_VI3_DATA2, FN_SSI_WS1, FN_TS_SPSYNC1,
 	FN_SCK2, FN_HSCK0_B, FN_VI1_G3, FN_VI3_DATA3,
 	FN_SSI_SCK2, FN_TS_SDAT1, FN_SCL1_C, FN_HTX0_B,
@@ -650,7 +650,7 @@ enum {
 };
 
 static pinmux_enum_t pinmux_data[] = {
-	PINMUX_DATA_GP_ALL(), 
+	PINMUX_DATA_GP_ALL(), /* PINMUX_DATA(GP_M_N_DATA, GP_M_N_FN...), */
 
 	PINMUX_DATA(AVS1_MARK, FN_AVS1),
 	PINMUX_DATA(AVS1_MARK, FN_AVS1),
@@ -1455,7 +1455,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(AVS1), GPIO_FN(AVS2), GPIO_FN(A17), GPIO_FN(A18),
 	GPIO_FN(A19),
 
-	
+	/* IPSR0 */
 	GPIO_FN(PENC2), GPIO_FN(SCK0), GPIO_FN(PWM1), GPIO_FN(PWMFSW0),
 	GPIO_FN(SCIF_CLK), GPIO_FN(TCLK0_C), GPIO_FN(BS), GPIO_FN(SD1_DAT2),
 	GPIO_FN(MMC0_D2), GPIO_FN(FD2), GPIO_FN(ATADIR0), GPIO_FN(SDSELF),
@@ -1474,7 +1474,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(SDSELF_B), GPIO_FN(RD_WR), GPIO_FN(FWE), GPIO_FN(ATAG0),
 	GPIO_FN(VI1_R7), GPIO_FN(HRTS1), GPIO_FN(RX4_C),
 
-	
+	/* IPSR1 */
 	GPIO_FN(EX_CS0), GPIO_FN(RX3_C_IRDA_RX_C), GPIO_FN(MMC0_D6),
 	GPIO_FN(FD6), GPIO_FN(EX_CS1), GPIO_FN(MMC0_D7), GPIO_FN(FD7),
 	GPIO_FN(EX_CS2), GPIO_FN(SD1_CLK), GPIO_FN(MMC0_CLK), GPIO_FN(FALE),
@@ -1494,7 +1494,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(CC5_STATE10), GPIO_FN(CC5_STATE18), GPIO_FN(CC5_STATE26),
 	GPIO_FN(CC5_STATE34),
 
-	
+	/* IPSR2 */
 	GPIO_FN(HRX0), GPIO_FN(RX1), GPIO_FN(SCKZ), GPIO_FN(RTS0_C_TANS_C),
 	GPIO_FN(SUB_TDI), GPIO_FN(CC5_STATE3), GPIO_FN(CC5_STATE11),
 	GPIO_FN(CC5_STATE19), GPIO_FN(CC5_STATE27), GPIO_FN(CC5_STATE35),
@@ -1517,7 +1517,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(DU0_DG0), GPIO_FN(LCDOUT8), GPIO_FN(DREQ1), GPIO_FN(SCL2),
 	GPIO_FN(AUDATA2),
 
-	
+	/* IPSR3 */
 	GPIO_FN(DU0_DG1), GPIO_FN(LCDOUT9), GPIO_FN(DACK1), GPIO_FN(SDA2),
 	GPIO_FN(AUDATA3), GPIO_FN(DU0_DG2), GPIO_FN(LCDOUT10),
 	GPIO_FN(DU0_DG3), GPIO_FN(LCDOUT11), GPIO_FN(DU0_DG4),
@@ -1540,7 +1540,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(DU0_EXODDF_DU0_ODDF_DISP_CDE), GPIO_FN(QCPV_QDE),
 	GPIO_FN(CAN1_TX), GPIO_FN(TX2_C), GPIO_FN(SCL2_C), GPIO_FN(REMOCON),
 
-	
+	/* IPSR4 */
 	GPIO_FN(DU0_DISP), GPIO_FN(QPOLA), GPIO_FN(CAN_CLK_C), GPIO_FN(SCK2_C),
 	GPIO_FN(DU0_CDE), GPIO_FN(QPOLB), GPIO_FN(CAN1_RX), GPIO_FN(RX2_C),
 	GPIO_FN(DREQ0_B), GPIO_FN(SSI_SCK78_B), GPIO_FN(SCK0_B),
@@ -1562,7 +1562,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(VI2_DATA4_VI2_B4), GPIO_FN(SCL2_B), GPIO_FN(SD3_DAT0),
 	GPIO_FN(TX5), GPIO_FN(SCK0_D),
 
-	
+	/* IPSR5 */
 	GPIO_FN(DU1_DB1), GPIO_FN(VI2_DATA5_VI2_B5), GPIO_FN(SDA2_B),
 	GPIO_FN(SD3_DAT1), GPIO_FN(RX5), GPIO_FN(RTS0_D_TANS_D),
 	GPIO_FN(DU1_DB2), GPIO_FN(VI2_R4), GPIO_FN(DU1_DB3), GPIO_FN(VI2_R5),
@@ -1586,7 +1586,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(CAN_TXCLK), GPIO_FN(AUDIO_CLKB), GPIO_FN(USB_OVC2),
 	GPIO_FN(CAN_DEBUGOUT0), GPIO_FN(MOUT0),
 
-	
+	/* IPSR6 */
 	GPIO_FN(SSI_SCK0129), GPIO_FN(CAN_DEBUGOUT1), GPIO_FN(MOUT1),
 	GPIO_FN(SSI_WS0129), GPIO_FN(CAN_DEBUGOUT2), GPIO_FN(MOUT2),
 	GPIO_FN(SSI_SDATA0), GPIO_FN(CAN_DEBUGOUT3), GPIO_FN(MOUT5),
@@ -1605,7 +1605,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(CAN_DEBUGOUT12), GPIO_FN(RX3_IRDA_RX), GPIO_FN(SSI_SCK6),
 	GPIO_FN(ADICHS0), GPIO_FN(CAN0_TX), GPIO_FN(IERX_B),
 
-	
+	/* IPSR7 */
 	GPIO_FN(SSI_WS6), GPIO_FN(ADICHS1), GPIO_FN(CAN0_RX), GPIO_FN(IETX_B),
 	GPIO_FN(SSI_SDATA6), GPIO_FN(ADICHS2), GPIO_FN(CAN_CLK),
 	GPIO_FN(IECLK_B), GPIO_FN(SSI_SCK78), GPIO_FN(CAN_DEBUGOUT13),
@@ -1624,7 +1624,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(RTS1_B_TANS_B), GPIO_FN(SD0_WP), GPIO_FN(DACK2),
 	GPIO_FN(CTS1_B),
 
-	
+	/* IPSR8 */
 	GPIO_FN(HSPI_CLK0), GPIO_FN(CTS0), GPIO_FN(USB_OVC0), GPIO_FN(AD_CLK),
 	GPIO_FN(CC5_STATE4), GPIO_FN(CC5_STATE12), GPIO_FN(CC5_STATE20),
 	GPIO_FN(CC5_STATE28), GPIO_FN(CC5_STATE36), GPIO_FN(HSPI_CS0),
@@ -1646,7 +1646,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(VI0_VSYNC), GPIO_FN(VI0_DATA1_B_VI0_B1_B),
 	GPIO_FN(RTS1_C_TANS_C), GPIO_FN(RX4_D), GPIO_FN(PWMFSW0_C),
 
-	
+	/* IPSR9 */
 	GPIO_FN(VI0_DATA0_VI0_B0), GPIO_FN(HRTS1_B), GPIO_FN(MT1_VCXO),
 	GPIO_FN(VI0_DATA1_VI0_B1), GPIO_FN(HCTS1_B), GPIO_FN(MT1_PWM),
 	GPIO_FN(VI0_DATA2_VI0_B2), GPIO_FN(MMC1_D0), GPIO_FN(VI0_DATA3_VI0_B3),
@@ -1666,7 +1666,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(SD2_DAT2_B), GPIO_FN(ARM_TRACEDATA_8), GPIO_FN(VI0_G7),
 	GPIO_FN(ETH_RXD1), GPIO_FN(SD2_DAT3_B), GPIO_FN(ARM_TRACEDATA_9),
 
-	
+	/* IPSR10 */
 	GPIO_FN(VI0_R0), GPIO_FN(SSI_SDATA7_C), GPIO_FN(SCK1_C),
 	GPIO_FN(DREQ1_B), GPIO_FN(ARM_TRACEDATA_10), GPIO_FN(DREQ0_C),
 	GPIO_FN(VI0_R1), GPIO_FN(SSI_SDATA8_C), GPIO_FN(DACK1_B),
@@ -1689,7 +1689,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(SSI_WS4), GPIO_FN(SIM_CLK), GPIO_FN(GPS_MAG_C),
 	GPIO_FN(SPV_TRST), GPIO_FN(SCL3),
 
-	
+	/* IPSR11 */
 	GPIO_FN(VI1_DATA0_VI1_B0), GPIO_FN(SD2_DAT0), GPIO_FN(SIM_RST),
 	GPIO_FN(SPV_TCK), GPIO_FN(ADICLK_B), GPIO_FN(VI1_DATA1_VI1_B1),
 	GPIO_FN(SD2_DAT1), GPIO_FN(MT0_CLK), GPIO_FN(SPV_TMS),
@@ -1710,7 +1710,7 @@ static struct pinmux_gpio pinmux_gpios[] = {
 	GPIO_FN(SSI_SCK1), GPIO_FN(TS_SDEN1), GPIO_FN(DACK2_B), GPIO_FN(RX2),
 	GPIO_FN(HRTS0_B),
 
-	
+	/* IPSR12 */
 	GPIO_FN(VI1_G2), GPIO_FN(VI3_DATA2), GPIO_FN(SSI_WS1),
 	GPIO_FN(TS_SPSYNC1), GPIO_FN(SCK2), GPIO_FN(HSCK0_B), GPIO_FN(VI1_G3),
 	GPIO_FN(VI3_DATA3), GPIO_FN(SSI_SCK2), GPIO_FN(TS_SDAT1),
@@ -1948,121 +1948,121 @@ static struct pinmux_cfg_reg pinmux_config_regs[] = {
 
 	{ PINMUX_CFG_REG_VAR("IPSR0", 0xfffc0020, 32,
 			     1, 3, 2, 1, 2, 4, 3, 2, 2, 2, 2, 2, 3, 3) {
-		
+		/* IP0_31 [1] */
 		0, 0,
-		
+		/* IP0_30_28 [3] */
 		FN_RD_WR, FN_FWE, FN_ATAG0, FN_VI1_R7,
 		FN_HRTS1, FN_RX4_C, 0, 0,
-		
+		/* IP0_27_26 [2] */
 		FN_CS1_A26, FN_HSPI_TX2, FN_SDSELF_B, 0,
-		
+		/* IP0_25 [1] */
 		FN_CS0, FN_HSPI_CS2_B,
-		
+		/* IP0_24_23 [2] */
 		FN_CLKOUT, FN_TX3C_IRDA_TX_C, FN_PWM0_B, 0,
-		
+		/* IP0_22_19 [4] */
 		FN_A25, FN_SD1_WP, FN_MMC0_D5, FN_FD5,
 		FN_HSPI_RX2, FN_VI1_R3, FN_TX5_B, FN_SSI_SDATA7_B,
 		FN_CTS0_B, 0, 0, 0,
 		0, 0, 0, 0,
-		
+		/* IP0_18_16 [3] */
 		FN_A24, FN_SD1_CD, FN_MMC0_D4, FN_FD4,
 		FN_HSPI_CS2, FN_VI1_R2, FN_SSI_WS78_B, 0,
-		
+		/* IP0_15_14 [2] */
 		FN_A23, FN_FCLE, FN_HSPI_CLK2, FN_VI1_R1,
-		
+		/* IP0_13_12 [2] */
 		FN_A22, FN_RX5_D, FN_HSPI_RX2_B, FN_VI1_R0,
-		
+		/* IP0_11_10 [2] */
 		FN_A21, FN_SCK5_D, FN_HSPI_CLK2_B, 0,
-		
+		/* IP0_9_8 [2] */
 		FN_A20, FN_TX5_D, FN_HSPI_TX2_B, 0,
-		
+		/* IP0_7_6 [2] */
 		FN_A0, FN_SD1_DAT3, FN_MMC0_D3, FN_FD3,
-		
+		/* IP0_5_3 [3] */
 		FN_BS, FN_SD1_DAT2, FN_MMC0_D2, FN_FD2,
 		FN_ATADIR0, FN_SDSELF, FN_HCTS1, FN_TX4_C,
-		
+		/* IP0_2_0 [3] */
 		FN_PENC2, FN_SCK0, FN_PWM1, FN_PWMFSW0,
 		FN_SCIF_CLK, FN_TCLK0_C, 0, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR1", 0xfffc0024, 32,
 			     3, 4, 2, 2, 2, 4, 4, 4, 3, 2, 2) {
-		
+		/* IP1_31_29 [3] */
 		0, 0, 0, 0, 0, 0, 0, 0,
-		
+		/* IP1_28_25 [4] */
 		FN_HTX0, FN_TX1, FN_SDATA, FN_CTS0_C,
 		FN_SUB_TCK, FN_CC5_STATE2, FN_CC5_STATE10, FN_CC5_STATE18,
 		FN_CC5_STATE26, FN_CC5_STATE34, 0, 0,
 		0, 0, 0, 0,
-		
+		/* IP1_24_23 [2] */
 		FN_MLB_DAT, FN_PWM4, FN_RX4, 0,
-		
+		/* IP1_22_21 [2] */
 		FN_MLB_SIG, FN_PWM3, FN_TX4, 0,
-		
+		/* IP1_20_19 [2] */
 		FN_MLB_CLK, FN_PWM2, FN_SCK4, 0,
-		
+		/* IP1_18_15 [4] */
 		FN_EX_CS5, FN_SD1_DAT1, FN_MMC0_D1, FN_FD1,
 		FN_ATAWR0, FN_VI1_R6, FN_HRX1, FN_RX2_E,
 		FN_RX0_B, FN_SSI_WS9, 0, 0,
 		0, 0, 0, 0,
-		
+		/* IP1_14_11 [4] */
 		FN_EX_CS4, FN_SD1_DAT0, FN_MMC0_D0, FN_FD0,
 		FN_ATARD0, FN_VI1_R5, FN_SCK5_B, FN_HTX1,
 		FN_TX2_E, FN_TX0_B, FN_SSI_SCK9, 0,
 		0, 0, 0, 0,
-		
+		/* IP1_10_7 [4] */
 		FN_EX_CS3, FN_SD1_CMD, FN_MMC0_CMD, FN_FRE,
 		FN_ATACS10, FN_VI1_R4, FN_RX5_B, FN_HSCK1,
 		FN_SSI_SDATA8_B, FN_RTS0_B_TANS_B, FN_SSI_SDATA9, 0,
 		0, 0, 0, 0,
-		
+		/* IP1_6_4 [3] */
 		FN_EX_CS2, FN_SD1_CLK, FN_MMC0_CLK, FN_FALE,
 		FN_ATACS00, 0, 0, 0,
-		
+		/* IP1_3_2 [2] */
 		FN_EX_CS1, FN_MMC0_D7, FN_FD7, 0,
-		
+		/* IP1_1_0 [2] */
 		FN_EX_CS0, FN_RX3_C_IRDA_RX_C, FN_MMC0_D6, FN_FD6 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR2", 0xfffc0028, 32,
 			     1, 3, 1, 1, 1, 1, 1, 1, 3, 3, 4, 4, 4, 4) {
-		
+		/* IP2_31 [1] */
 		0, 0,
-		
+		/* IP2_30_28 [3] */
 		FN_DU0_DG0, FN_LCDOUT8, FN_DREQ1, FN_SCL2,
 		FN_AUDATA2, 0, 0, 0,
-		
+		/* IP2_27 [1] */
 		FN_DU0_DR7, FN_LCDOUT7,
-		
+		/* IP2_26 [1] */
 		FN_DU0_DR6, FN_LCDOUT6,
-		
+		/* IP2_25 [1] */
 		FN_DU0_DR5, FN_LCDOUT5,
-		
+		/* IP2_24 [1] */
 		FN_DU0_DR4, FN_LCDOUT4,
-		
+		/* IP2_23 [1] */
 		FN_DU0_DR3, FN_LCDOUT3,
-		
+		/* IP2_22 [1] */
 		FN_DU0_DR2, FN_LCDOUT2,
-		
+		/* IP2_21_19 [3] */
 		FN_DU0_DR1, FN_LCDOUT1, FN_DACK0, FN_DRACK0,
 		FN_GPS_SIGN_B, FN_AUDATA1, FN_RX5_C, 0,
-		
+		/* IP2_18_16 [3] */
 		FN_DU0_DR0, FN_LCDOUT0, FN_DREQ0, FN_GPS_CLK_B,
 		FN_AUDATA0, FN_TX5_C, 0, 0,
-		
+		/* IP2_15_12 [4] */
 		FN_HRTS0, FN_RTS1_TANS, FN_MDATA, FN_TX0_C,
 		FN_SUB_TMS, FN_CC5_STATE1, FN_CC5_STATE9, FN_CC5_STATE17,
 		FN_CC5_STATE25, FN_CC5_STATE33, 0, 0,
 		0, 0, 0, 0,
-		
+		/* IP2_11_8 [4] */
 		FN_HCTS0, FN_CTS1, FN_STM, FN_PWM0_D,
 		FN_RX0_C, FN_SCIF_CLK_C, FN_SUB_TRST, FN_TCLK1_B,
 		FN_CC5_OSCOUT, 0, 0, 0,
 		0, 0, 0, 0,
-		
+		/* IP2_7_4 [4] */
 		FN_HSCK0, FN_SCK1, FN_MTS, FN_PWM5,
 		FN_SCK0_C, FN_SSI_SDATA9_B, FN_SUB_TDO, FN_CC5_STATE0,
 		FN_CC5_STATE8, FN_CC5_STATE16, FN_CC5_STATE24, FN_CC5_STATE32,
 		0, 0, 0, 0,
-		
+		/* IP2_3_0 [4] */
 		FN_HRX0, FN_RX1, FN_SCKZ, FN_RTS0_C_TANS_C,
 		FN_SUB_TDI, FN_CC5_STATE3, FN_CC5_STATE11, FN_CC5_STATE19,
 		FN_CC5_STATE27, FN_CC5_STATE35, 0, 0,
@@ -2071,259 +2071,259 @@ static struct pinmux_cfg_reg pinmux_config_regs[] = {
 	{ PINMUX_CFG_REG_VAR("IPSR3", 0xfffc002c, 32,
 			     3, 1, 1, 3, 1, 2, 1, 1, 1, 1, 1,
 			     1, 3, 3, 1, 1, 1, 1, 1, 1, 3) {
-	    
+	    /* IP3_31_29 [3] */
 	    FN_DU0_EXODDF_DU0_ODDF_DISP_CDE, FN_QCPV_QDE, FN_CAN1_TX, FN_TX2_C,
 	    FN_SCL2_C, FN_REMOCON, 0, 0,
-	    
+	    /* IP3_28 [1] */
 	    FN_DU0_EXVSYNC_DU0_VSYNC, FN_QSTB_QHE,
-	    
+	    /* IP3_27 [1] */
 	    FN_DU0_EXHSYNC_DU0_HSYNC, FN_QSTH_QHS,
-	    
+	    /* IP3_26_24 [3] */
 	    FN_DU0_DOTCLKOUT1, FN_QSTVB_QVE, FN_RX3_D_IRDA_RX_D, FN_SDA3_B,
 	    FN_SDA2_C, FN_DACK0_B, FN_DRACK0_B, 0,
-	    
+	    /* IP3_23 [1] */
 	    FN_DU0_DOTCLKOUT0, FN_QCLK,
-	    
+	    /* IP3_22_21 [2] */
 	    FN_DU0_DOTCLKIN, FN_QSTVA_QVS, FN_TX3_D_IRDA_TX_D, FN_SCL3_B,
-	    
+	    /* IP3_20 [1] */
 	    FN_DU0_DB7, FN_LCDOUT23,
-	    
+	    /* IP3_19 [1] */
 	    FN_DU0_DB6, FN_LCDOUT22,
-	    
+	    /* IP3_18 [1] */
 	    FN_DU0_DB5, FN_LCDOUT21,
-	    
+	    /* IP3_17 [1] */
 	    FN_DU0_DB4, FN_LCDOUT20,
-	    
+	    /* IP3_16 [1] */
 	    FN_DU0_DB3, FN_LCDOUT19,
-	    
+	    /* IP3_15 [1] */
 	    FN_DU0_DB2, FN_LCDOUT18,
-	    
+	    /* IP3_14_12 [3] */
 	    FN_DU0_DB1, FN_LCDOUT17, FN_EX_WAIT2, FN_SDA1,
 	    FN_GPS_MAG_B, FN_AUDATA5, FN_SCK5_C, 0,
-	    
+	    /* IP3_11_9 [3] */
 	    FN_DU0_DB0, FN_LCDOUT16, FN_EX_WAIT1, FN_SCL1,
 	    FN_TCLK1, FN_AUDATA4, 0, 0,
-	    
+	    /* IP3_8 [1] */
 	    FN_DU0_DG7, FN_LCDOUT15,
-	    
+	    /* IP3_7 [1] */
 	    FN_DU0_DG6, FN_LCDOUT14,
-	    
+	    /* IP3_6 [1] */
 	    FN_DU0_DG5, FN_LCDOUT13,
-	    
+	    /* IP3_5 [1] */
 	    FN_DU0_DG4, FN_LCDOUT12,
-	    
+	    /* IP3_4 [1] */
 	    FN_DU0_DG3, FN_LCDOUT11,
-	    
+	    /* IP3_3 [1] */
 	    FN_DU0_DG2, FN_LCDOUT10,
-	    
+	    /* IP3_2_0 [3] */
 	    FN_DU0_DG1, FN_LCDOUT9, FN_DACK1, FN_SDA2,
 	    FN_AUDATA3, 0, 0, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR4", 0xfffc0030, 32,
 			     3, 1, 1, 1, 1, 1, 1, 3, 3,
 			     1, 1, 1, 1, 1, 1, 3, 3, 3, 2) {
-	    
+	    /* IP4_31_29 [3] */
 	    FN_DU1_DB0, FN_VI2_DATA4_VI2_B4, FN_SCL2_B, FN_SD3_DAT0,
 	    FN_TX5, FN_SCK0_D, 0, 0,
-	    
+	    /* IP4_28 [1] */
 	    FN_DU1_DG7, FN_VI2_R3,
-	    
+	    /* IP4_27 [1] */
 	    FN_DU1_DG6, FN_VI2_R2,
-	    
+	    /* IP4_26 [1] */
 	    FN_DU1_DG5, FN_VI2_R1,
-	    
+	    /* IP4_25 [1] */
 	    FN_DU1_DG4, FN_VI2_R0,
-	    
+	    /* IP4_24 [1] */
 	    FN_DU1_DG3, FN_VI2_G7,
-	    
+	    /* IP4_23 [1] */
 	    FN_DU1_DG2, FN_VI2_G6,
-	    
+	    /* IP4_22_20 [3] */
 	    FN_DU1_DG1, FN_VI2_DATA3_VI2_B3, FN_SDA1_B, FN_SD3_DAT3,
 	    FN_SCK5, FN_AUDATA7, FN_RX0_D, 0,
-	    
+	    /* IP4_19_17 [3] */
 	    FN_DU1_DG0, FN_VI2_DATA2_VI2_B2, FN_SCL1_B, FN_SD3_DAT2,
 	    FN_SCK3_E, FN_AUDATA6, FN_TX0_D, 0,
-	    
+	    /* IP4_16 [1] */
 	    FN_DU1_DR7, FN_VI2_G5,
-	    
+	    /* IP4_15 [1] */
 	    FN_DU1_DR6, FN_VI2_G4,
-	    
+	    /* IP4_14 [1] */
 	    FN_DU1_DR5, FN_VI2_G3,
-	    
+	    /* IP4_13 [1] */
 	    FN_DU1_DR4, FN_VI2_G2,
-	    
+	    /* IP4_12 [1] */
 	    FN_DU1_DR3, FN_VI2_G1,
-	    
+	    /* IP4_11 [1] */
 	    FN_DU1_DR2, FN_VI2_G0,
-	    
+	    /* IP4_10_8 [3] */
 	    FN_DU1_DR1, FN_VI2_DATA1_VI2_B1, FN_PWM0, FN_SD3_CMD,
 	    FN_RX3_E_IRDA_RX_E, FN_AUDSYNC, FN_CTS0_D, 0,
-	    
+	    /* IP4_7_5 [3] */
 	    FN_DU1_DR0, FN_VI2_DATA0_VI2_B0, FN_PWM6, FN_SD3_CLK,
 	    FN_TX3_E_IRDA_TX_E, FN_AUDCK, FN_PWMFSW0_B, 0,
-	    
+	    /* IP4_4_2 [3] */
 	    FN_DU0_CDE, FN_QPOLB, FN_CAN1_RX, FN_RX2_C,
 	    FN_DREQ0_B, FN_SSI_SCK78_B, FN_SCK0_B, 0,
-	    
+	    /* IP4_1_0 [2] */
 	    FN_DU0_DISP, FN_QPOLA, FN_CAN_CLK_C, FN_SCK2_C }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR5", 0xfffc0034, 32,
 			     1, 2, 1, 4, 3, 4, 2, 2,
 			     2, 2, 1, 1, 1, 1, 1, 1, 3) {
-	    
+	    /* IP5_31 [1] */
 	    0, 0,
-	    
+	    /* IP5_30_29 [2] */
 	    FN_AUDIO_CLKB, FN_USB_OVC2, FN_CAN_DEBUGOUT0, FN_MOUT0,
-	    
+	    /* IP5_28 [1] */
 	    FN_AUDIO_CLKA, FN_CAN_TXCLK,
-	    
+	    /* IP5_27_24 [4] */
 	    FN_DU1_CDE, FN_VI2_DATA7_VI2_B7, FN_RX3_B_IRDA_RX_B, FN_SD3_WP,
 	    FN_HSPI_RX1, FN_VI1_FIELD, FN_VI3_FIELD, FN_AUDIO_CLKOUT,
 	    FN_RX2_D, FN_GPS_CLK_C, FN_GPS_CLK_D, 0,
 	    0, 0, 0, 0,
-	    
+	    /* IP5_23_21 [3] */
 	    FN_DU1_DISP, FN_VI2_DATA6_VI2_B6, FN_TCLK0, FN_QSTVA_B_QVS_B,
 	    FN_HSPI_CLK1, FN_SCK2_D, FN_AUDIO_CLKOUT_B, FN_GPS_MAG_D,
-	    
+	    /* IP5_20_17 [4] */
 	    FN_DU1_EXODDF_DU1_ODDF_DISP_CDE, FN_VI2_CLK, FN_TX3_B_IRDA_TX_B,
 	    FN_SD3_CD, FN_HSPI_TX1, FN_VI1_CLKENB, FN_VI3_CLKENB,
 	    FN_AUDIO_CLKC, FN_TX2_D, FN_SPEEDIN, FN_GPS_SIGN_D, 0,
 	    0, 0, 0, 0,
-	    
+	    /* IP5_16_15 [2] */
 	    FN_DU1_EXVSYNC_DU1_VSYNC, FN_VI2_VSYNC, FN_VI3_VSYNC, 0,
-	    
+	    /* IP5_14_13 [2] */
 	    FN_DU1_EXHSYNC_DU1_HSYNC, FN_VI2_HSYNC, FN_VI3_HSYNC, 0,
-	    
+	    /* IP5_12_11 [2] */
 	    FN_DU1_DOTCLKOUT, FN_VI2_FIELD, FN_SDA1_D, 0,
-	    
+	    /* IP5_10_9 [2] */
 	    FN_DU1_DOTCLKIN, FN_VI2_CLKENB, FN_HSPI_CS1, FN_SCL1_D,
-	    
+	    /* IP5_8 [1] */
 	    FN_DU1_DB7, FN_SDA2_D,
-	    
+	    /* IP5_7 [1] */
 	    FN_DU1_DB6, FN_SCL2_D,
-	    
+	    /* IP5_6 [1] */
 	    FN_DU1_DB5, FN_VI2_R7,
-	    
+	    /* IP5_5 [1] */
 	    FN_DU1_DB4, FN_VI2_R6,
-	    
+	    /* IP5_4 [1] */
 	    FN_DU1_DB3, FN_VI2_R5,
-	    
+	    /* IP5_3 [1] */
 	    FN_DU1_DB2, FN_VI2_R4,
-	    
+	    /* IP5_2_0 [3] */
 	    FN_DU1_DB1, FN_VI2_DATA5_VI2_B5, FN_SDA2_B, FN_SD3_DAT1,
 	    FN_RX5, FN_RTS0_D_TANS_D, 0, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR6", 0xfffc0038, 32,
 			     1, 2, 2, 2, 2, 3, 2, 3, 3, 3, 1, 2, 2, 2, 2) {
-	    
+	    /* IP6_31 [1] */
 	    0, 0,
-	    
+	    /* IP6_30_29 [2] */
 	    FN_SSI_SCK6, FN_ADICHS0, FN_CAN0_TX, FN_IERX_B,
-	    
+	    /* IP_28_27 [2] */
 	    0, 0, 0, 0,
-	    
+	    /* IP6_26_25 [2] */
 	    FN_SSI_SDATA5, FN_ADIDATA, FN_CAN_DEBUGOUT12, FN_RX3_IRDA_RX,
-	    
+	    /* IP6_24_23 [2] */
 	    FN_SSI_WS5, FN_ADICS_SAMP, FN_CAN_DEBUGOUT11, FN_TX3_IRDA_TX,
-	    
+	    /* IP6_22_20 [3] */
 	    FN_SSI_SCK5, FN_ADICLK, FN_CAN_DEBUGOUT10, FN_SCK3,
 	    FN_TCLK0_D, 0, 0, 0,
-	    
+	    /* IP6_19_18 [2] */
 	    FN_SSI_SDATA4, FN_CAN_DEBUGOUT9, FN_SSI_SDATA9_C, 0,
-	    
+	    /* IP6_17_15 [3] */
 	    FN_SSI_SDATA3, FN_PWM0_C, FN_CAN_DEBUGOUT8, FN_CAN_CLK_B,
 	    FN_IECLK, FN_SCIF_CLK_B, FN_TCLK0_B, 0,
-	    
+	    /* IP6_14_12 [3] */
 	    FN_SSI_WS34, FN_CAN_DEBUGOUT7, FN_CAN0_RX_B, FN_IETX,
 	    FN_SSI_WS9_C, 0, 0, 0,
-	    
+	    /* IP6_11_9 [3] */
 	    FN_SSI_SCK34, FN_CAN_DEBUGOUT6, FN_CAN0_TX_B, FN_IERX,
 	    FN_SSI_SCK9_C, 0, 0, 0,
-	    
+	    /* IP6_8 [1] */
 	    FN_SSI_SDATA2, FN_CAN_DEBUGOUT5,
-	    
+	    /* IP6_7_6 [2] */
 	    FN_SSI_SDATA1, FN_CAN_DEBUGOUT4, FN_MOUT6, 0,
-	    
+	    /* IP6_5_4 [2] */
 	    FN_SSI_SDATA0, FN_CAN_DEBUGOUT3, FN_MOUT5, 0,
-	    
+	    /* IP6_3_2 [2] */
 	    FN_SSI_WS0129, FN_CAN_DEBUGOUT2, FN_MOUT2, 0,
-	    
+	    /* IP6_1_0 [2] */
 	    FN_SSI_SCK0129, FN_CAN_DEBUGOUT1, FN_MOUT1, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR7", 0xfffc003c, 32,
 			     1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 2, 2) {
-	    
+	    /* IP7_31 [1] */
 	    0, 0,
-	    
+	    /* IP7_30_29 [2] */
 	    FN_SD0_WP, FN_DACK2, FN_CTS1_B, 0,
-	    
+	    /* IP7_28_27 [2] */
 	    FN_SD0_CD, FN_DREQ2, FN_RTS1_B_TANS_B, 0,
-	    
+	    /* IP7_26_25 [2] */
 	    FN_SD0_DAT3, FN_ATAWR1, FN_RX2_B, FN_CC5_TDI,
-	    
+	    /* IP7_24_23 [2] */
 	    FN_SD0_DAT2, FN_ATARD1, FN_TX2_B, FN_CC5_TCK,
-	    
+	    /* IP7_22_21 [2] */
 	    FN_SD0_DAT1, FN_ATAG1, FN_SCK2_B, FN_CC5_TMS,
-	    
+	    /* IP7_20_19 [2] */
 	    FN_SD0_DAT0, FN_ATADIR1, FN_RX1_B, FN_CC5_TRST,
-	    
+	    /* IP7_18_17 [2] */
 	    FN_SD0_CMD, FN_ATACS11, FN_TX1_B, FN_CC5_TDO,
-	    
+	    /* IP7_16_15 [2] */
 	    FN_SD0_CLK, FN_ATACS01, FN_SCK1_B, 0,
-	    
+	    /* IP7_14_13 [2] */
 	    FN_SSI_SDATA8, FN_VSP, FN_IRQ3_B, FN_HSPI_RX1_C,
-	    
+	    /* IP7_12_10 [3] */
 	    FN_SSI_SDATA7, FN_CAN_DEBUGOUT15, FN_IRQ2_B, FN_TCLK1_C,
 	    FN_HSPI_TX1_C, 0, 0, 0,
-	    
+	    /* IP7_9_7 [3] */
 	    FN_SSI_WS78, FN_CAN_DEBUGOUT14, FN_IRQ1_B, FN_SSI_WS9_B,
 	    FN_HSPI_CS1_C, 0, 0, 0,
-	    
+	    /* IP7_6_4 [3] */
 	    FN_SSI_SCK78, FN_CAN_DEBUGOUT13, FN_IRQ0_B, FN_SSI_SCK9_B,
 	    FN_HSPI_CLK1_C, 0, 0, 0,
-	    
+	    /* IP7_3_2 [2] */
 	    FN_SSI_SDATA6, FN_ADICHS2, FN_CAN_CLK, FN_IECLK_B,
-	    
+	    /* IP7_1_0 [2] */
 	    FN_SSI_WS6, FN_ADICHS1, FN_CAN0_RX, FN_IETX_B }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR8", 0xfffc0040, 32,
 			     1, 3, 3, 2, 2, 1, 1, 1, 2, 4, 4, 4, 4) {
-	    
+	    /* IP8_31 [1] */
 	    0, 0,
-	    
+	    /* IP8_30_28 [3] */
 	    FN_VI0_VSYNC, FN_VI0_DATA1_B_VI0_B1_B, FN_RTS1_C_TANS_C, FN_RX4_D,
 	    FN_PWMFSW0_C, 0, 0, 0,
-	    
+	    /* IP8_27_25 [3] */
 	    FN_VI0_HSYNC, FN_VI0_DATA0_B_VI0_B0_B, FN_CTS1_C, FN_TX4_D,
 	    FN_MMC1_CMD, FN_HSCK1_B, 0, 0,
-	    
+	    /* IP8_24_23 [2] */
 	    FN_VI0_FIELD, FN_RX1_C, FN_HRX1_B, 0,
-	    
+	    /* IP8_22_21 [2] */
 	    FN_VI0_CLKENB, FN_TX1_C, FN_HTX1_B, FN_MT1_SYNC,
-	    
+	    /* IP8_20 [1] */
 	    FN_VI0_CLK, FN_MMC1_CLK,
-	    
+	    /* IP8_19 [1] */
 	    FN_FMIN, FN_RDS_DATA,
-	    
+	    /* IP8_18 [1] */
 	    FN_BPFCLK, FN_PCMWE,
-	    
+	    /* IP8_17_16 [2] */
 	    FN_FMCLK, FN_RDS_CLK, FN_PCMOE, 0,
-	    
+	    /* IP8_15_12 [4] */
 	    FN_HSPI_RX0, FN_RX0, FN_CAN_STEP0, FN_AD_NCS,
 	    FN_CC5_STATE7, FN_CC5_STATE15, FN_CC5_STATE23, FN_CC5_STATE31,
 	    FN_CC5_STATE39, 0, 0, 0,
 	    0, 0, 0, 0,
-	    
+	    /* IP8_11_8 [4] */
 	    FN_HSPI_TX0, FN_TX0, FN_CAN_DEBUG_HW_TRIGGER, FN_AD_DO,
 	    FN_CC5_STATE6, FN_CC5_STATE14, FN_CC5_STATE22, FN_CC5_STATE30,
 	    FN_CC5_STATE38, 0, 0, 0,
 	    0, 0, 0, 0,
-	    
+	    /* IP8_7_4 [4] */
 	    FN_HSPI_CS0, FN_RTS0_TANS, FN_USB_OVC1, FN_AD_DI,
 	    FN_CC5_STATE5, FN_CC5_STATE13, FN_CC5_STATE21, FN_CC5_STATE29,
 	    FN_CC5_STATE37, 0, 0, 0,
 	    0, 0, 0, 0,
-	    
+	    /* IP8_3_0 [4] */
 	    FN_HSPI_CLK0, FN_CTS0, FN_USB_OVC0, FN_AD_CLK,
 	    FN_CC5_STATE4, FN_CC5_STATE12, FN_CC5_STATE20, FN_CC5_STATE28,
 	    FN_CC5_STATE36, 0, 0, 0,
@@ -2332,230 +2332,230 @@ static struct pinmux_cfg_reg pinmux_config_regs[] = {
 	{ PINMUX_CFG_REG_VAR("IPSR9", 0xfffc0044, 32,
 			     2, 2, 2, 2, 2, 3, 3, 2, 2,
 			     2, 2, 1, 1, 1, 1, 2, 2) {
-	    
+	    /* IP9_31_30 [2] */
 	    0, 0, 0, 0,
-	    
+	    /* IP9_29_28 [2] */
 	    FN_VI0_G7, FN_ETH_RXD1, FN_SD2_DAT3_B, FN_ARM_TRACEDATA_9,
-	    
+	    /* IP9_27_26 [2] */
 	    FN_VI0_G6, FN_ETH_RXD0, FN_SD2_DAT2_B, FN_ARM_TRACEDATA_8,
-	    
+	    /* IP9_25_24 [2] */
 	    FN_VI0_G5, FN_ETH_RX_ER, FN_SD2_DAT1_B, FN_ARM_TRACEDATA_7,
-	    
+	    /* IP9_23_22 [2] */
 	    FN_VI0_G4, FN_ETH_TX_EN, FN_SD2_DAT0_B, FN_ARM_TRACEDATA_6,
-	    
+	    /* IP9_21_19 [3] */
 	    FN_VI0_G3, FN_ETH_CRS_DV, FN_MMC1_D7, FN_ARM_TRACEDATA_5,
 	    FN_TS_SDAT0, 0, 0, 0,
-	    
+	    /* IP9_18_16 [3] */
 	    FN_VI0_G2, FN_ETH_TXD1, FN_MMC1_D6, FN_ARM_TRACEDATA_4,
 	    FN_TS_SPSYNC0, 0, 0, 0,
-	    
+	    /* IP9_15_14 [2] */
 	    FN_VI0_G1, FN_SSI_WS78_C, FN_IRQ1, FN_ARM_TRACEDATA_3,
-	    
+	    /* IP9_13_12 [2] */
 	    FN_VI0_G0, FN_SSI_SCK78_C, FN_IRQ0, FN_ARM_TRACEDATA_2,
-	    
+	    /* IP9_11_10 [2] */
 	    FN_VI0_DATA7_VI0_B7, FN_MMC1_D5, FN_ARM_TRACEDATA_1, 0,
-	    
+	    /* IP9_9_8 [2] */
 	    FN_VI0_DATA6_VI0_B6, FN_MMC1_D4, FN_ARM_TRACEDATA_0, 0,
-	    
+	    /* IP9_7 [1] */
 	    FN_VI0_DATA5_VI0_B5, FN_MMC1_D3,
-	    
+	    /* IP9_6 [1] */
 	    FN_VI0_DATA4_VI0_B4, FN_MMC1_D2,
-	    
+	    /* IP9_5 [1] */
 	    FN_VI0_DATA3_VI0_B3, FN_MMC1_D1,
-	    
+	    /* IP9_4 [1] */
 	    FN_VI0_DATA2_VI0_B2, FN_MMC1_D0,
-	    
+	    /* IP9_3_2 [2] */
 	    FN_VI0_DATA1_VI0_B1, FN_HCTS1_B, FN_MT1_PWM, 0,
-	    
+	    /* IP9_1_0 [2] */
 	    FN_VI0_DATA0_VI0_B0, FN_HRTS1_B, FN_MT1_VCXO, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR10", 0xfffc0048, 32,
 			     3, 3, 2, 3, 3, 3, 3, 3, 3, 3, 3) {
-	    
+	    /* IP10_31_29 [3] */
 	    FN_VI1_VSYNC, FN_AUDIO_CLKOUT_C, FN_SSI_WS4, FN_SIM_CLK,
 	    FN_GPS_MAG_C, FN_SPV_TRST, FN_SCL3, 0,
-	    
+	    /* IP10_28_26 [3] */
 	    FN_VI1_HSYNC, FN_VI3_CLK, FN_SSI_SCK4, FN_GPS_SIGN_C,
 	    FN_PWMFSW0_E, 0, 0, 0,
-	    
+	    /* IP10_25_24 [2] */
 	    FN_VI1_CLK, FN_SIM_D, FN_SDA3, 0,
-	    
+	    /* IP10_23_21 [3] */
 	    FN_VI0_R7, FN_ETH_MDIO, FN_DACK2_C, FN_HSPI_RX1_B,
 	    FN_SCIF_CLK_D, FN_TRACECTL, FN_MT1_PEN, 0,
-	    
+	    /* IP10_20_18 [3] */
 	    FN_VI0_R6, FN_ETH_MDC, FN_DREQ2_C, FN_HSPI_TX1_B,
 	    FN_TRACECLK, FN_MT1_BEN, FN_PWMFSW0_D, 0,
-	    
+	    /* IP10_17_15 [3] */
 	    FN_VI0_R5, FN_ETH_TXD0, FN_SD2_WP_B, FN_HSPI_CS1_B,
 	    FN_ARM_TRACEDATA_15, FN_MT1_D, FN_TS_SDEN0, 0,
-	    
+	    /* IP10_14_12 [3] */
 	    FN_VI0_R4, FN_ETH_REFCLK, FN_SD2_CD_B, FN_HSPI_CLK1_B,
 	    FN_ARM_TRACEDATA_14, FN_MT1_CLK, FN_TS_SCK0, 0,
-	    
+	    /* IP10_11_9 [3] */
 	    FN_VI0_R3, FN_ETH_MAGIC, FN_SD2_CMD_B, FN_IRQ3,
 	    FN_ARM_TRACEDATA_13, 0, 0, 0,
-	    
+	    /* IP10_8_6 [3] */
 	    FN_VI0_R2, FN_ETH_LINK, FN_SD2_CLK_B, FN_IRQ2,
 	    FN_ARM_TRACEDATA_12, 0, 0, 0,
-	    
+	    /* IP10_5_3 [3] */
 	    FN_VI0_R1, FN_SSI_SDATA8_C, FN_DACK1_B, FN_ARM_TRACEDATA_11,
 	    FN_DACK0_C, FN_DRACK0_C, 0, 0,
-	    
+	    /* IP10_2_0 [3] */
 	    FN_VI0_R0, FN_SSI_SDATA7_C, FN_SCK1_C, FN_DREQ1_B,
 	    FN_ARM_TRACEDATA_10, FN_DREQ0_C, 0, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR11", 0xfffc004c, 32,
 			     2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3) {
-	    
+	    /* IP11_31_30 [2] */
 	    0, 0, 0, 0,
-	    
+	    /* IP11_29_27 [3] */
 	    FN_VI1_G1, FN_VI3_DATA1, FN_SSI_SCK1, FN_TS_SDEN1,
 	    FN_DACK2_B, FN_RX2, FN_HRTS0_B, 0,
-	    
+	    /* IP11_26_24 [3] */
 	    FN_VI1_G0, FN_VI3_DATA0, FN_DU1_DOTCLKOUT1, FN_TS_SCK1,
 	    FN_DREQ2_B, FN_TX2, FN_SPA_TDO, FN_HCTS0_B,
-	    
+	    /* IP11_23_21 [3] */
 	    FN_VI1_DATA7_VI1_B7, FN_SD2_WP, FN_MT0_PWM, FN_SPA_TDI,
 	    FN_HSPI_RX1_D, 0, 0, 0,
-	    
+	    /* IP11_20_18 [3] */
 	    FN_VI1_DATA6_VI1_B6, FN_SD2_CD, FN_MT0_VCXO, FN_SPA_TMS,
 	    FN_HSPI_TX1_D, 0, 0, 0,
-	    
+	    /* IP11_17_15 [3] */
 	    FN_VI1_DATA5_VI1_B5, FN_SD2_CMD, FN_MT0_SYNC, FN_SPA_TCK,
 	    FN_HSPI_CS1_D, FN_ADICHS2_B, 0, 0,
-	    
+	    /* IP11_14_12 [3] */
 	    FN_VI1_DATA4_VI1_B4, FN_SD2_CLK, FN_MT0_PEN, FN_SPA_TRST,
 	    FN_HSPI_CLK1_D, FN_ADICHS1_B, 0, 0,
-	    
+	    /* IP11_11_9 [3] */
 	    FN_VI1_DATA3_VI1_B3, FN_SD2_DAT3, FN_MT0_BEN, FN_SPV_TDO,
 	    FN_ADICHS0_B, 0, 0, 0,
-	    
+	    /* IP11_8_6 [3] */
 	    FN_VI1_DATA2_VI1_B2, FN_SD2_DAT2, FN_MT0_D, FN_SPVTDI,
 	    FN_ADIDATA_B, 0, 0, 0,
-	    
+	    /* IP11_5_3 [3] */
 	    FN_VI1_DATA1_VI1_B1, FN_SD2_DAT1, FN_MT0_CLK, FN_SPV_TMS,
 	    FN_ADICS_B_SAMP_B, 0, 0, 0,
-	    
+	    /* IP11_2_0 [3] */
 	    FN_VI1_DATA0_VI1_B0, FN_SD2_DAT0, FN_SIM_RST, FN_SPV_TCK,
 	    FN_ADICLK_B, 0, 0, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("IPSR12", 0xfffc0050, 32,
 			     4, 4, 4, 2, 3, 3, 3, 3, 3, 3) {
-	    
+	    /* IP12_31_28 [4] */
 	    0, 0, 0, 0, 0, 0, 0, 0,
 	    0, 0, 0, 0, 0, 0, 0, 0,
-	    
+	    /* IP12_27_24 [4] */
 	    0, 0, 0, 0, 0, 0, 0, 0,
 	    0, 0, 0, 0, 0, 0, 0, 0,
-	    
+	    /* IP12_23_20 [4] */
 	    0, 0, 0, 0, 0, 0, 0, 0,
 	    0, 0, 0, 0, 0, 0, 0, 0,
-	    
+	    /* IP12_19_18 [2] */
 	    0, 0, 0, 0,
-	    
+	    /* IP12_17_15 [3] */
 	    FN_VI1_G7, FN_VI3_DATA7, FN_GPS_MAG, FN_FCE,
 	    FN_SCK4_B, 0, 0, 0,
-	    
+	    /* IP12_14_12 [3] */
 	    FN_VI1_G6, FN_VI3_DATA6, FN_GPS_SIGN, FN_FRB,
 	    FN_RX4_B, FN_SIM_CLK_B, 0, 0,
-	    
+	    /* IP12_11_9 [3] */
 	    FN_VI1_G5, FN_VI3_DATA5, FN_GPS_CLK, FN_FSE,
 	    FN_TX4_B, FN_SIM_D_B, 0, 0,
-	    
+	    /* IP12_8_6 [3] */
 	    FN_VI1_G4, FN_VI3_DATA4, FN_SSI_WS2, FN_SDA1_C,
 	    FN_SIM_RST_B, FN_HRX0_B, 0, 0,
-	    
+	    /* IP12_5_3 [3] */
 	    FN_VI1_G3, FN_VI3_DATA3, FN_SSI_SCK2, FN_TS_SDAT1,
 	    FN_SCL1_C, FN_HTX0_B, 0, 0,
-	    
+	    /* IP12_2_0 [3] */
 	    FN_VI1_G2, FN_VI3_DATA2, FN_SSI_WS1, FN_TS_SPSYNC1,
 	    FN_SCK2, FN_HSCK0_B, 0, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("MOD_SEL", 0xfffc0090, 32,
 			     2, 2, 3, 3, 2, 2, 2, 2, 2,
 			     1, 1, 1, 1, 1, 1, 1, 2, 1, 2) {
-	    
+	    /* SEL_SCIF5 [2] */
 	    FN_SEL_SCIF5_0, FN_SEL_SCIF5_1, FN_SEL_SCIF5_2, FN_SEL_SCIF5_3,
-	    
+	    /* SEL_SCIF4 [2] */
 	    FN_SEL_SCIF4_0, FN_SEL_SCIF4_1, FN_SEL_SCIF4_2, FN_SEL_SCIF4_3,
-	    
+	    /* SEL_SCIF3 [3] */
 	    FN_SEL_SCIF3_0, FN_SEL_SCIF3_1, FN_SEL_SCIF3_2, FN_SEL_SCIF3_3,
 	    FN_SEL_SCIF3_4, 0, 0, 0,
-	    
+	    /* SEL_SCIF2 [3] */
 	    FN_SEL_SCIF2_0, FN_SEL_SCIF2_1, FN_SEL_SCIF2_2, FN_SEL_SCIF2_3,
 	    FN_SEL_SCIF2_4, 0, 0, 0,
-	    
+	    /* SEL_SCIF1 [2] */
 	    FN_SEL_SCIF1_0, FN_SEL_SCIF1_1, FN_SEL_SCIF1_2, 0,
-	    
+	    /* SEL_SCIF0 [2] */
 	    FN_SEL_SCIF0_0, FN_SEL_SCIF0_1, FN_SEL_SCIF0_2, FN_SEL_SCIF0_3,
-	    
+	    /* SEL_SSI9 [2] */
 	    FN_SEL_SSI9_0, FN_SEL_SSI9_1, FN_SEL_SSI9_2, 0,
-	    
+	    /* SEL_SSI8 [2] */
 	    FN_SEL_SSI8_0, FN_SEL_SSI8_1, FN_SEL_SSI8_2, 0,
-	    
+	    /* SEL_SSI7 [2] */
 	    FN_SEL_SSI7_0, FN_SEL_SSI7_1, FN_SEL_SSI7_2, 0,
-	    
+	    /* SEL_VI0 [1] */
 	    FN_SEL_VI0_0, FN_SEL_VI0_1,
-	    
+	    /* SEL_SD2 [1] */
 	    FN_SEL_SD2_0, FN_SEL_SD2_1,
-	    
+	    /* SEL_INT3 [1] */
 	    FN_SEL_INT3_0, FN_SEL_INT3_1,
-	    
+	    /* SEL_INT2 [1] */
 	    FN_SEL_INT2_0, FN_SEL_INT2_1,
-	    
+	    /* SEL_INT1 [1] */
 	    FN_SEL_INT1_0, FN_SEL_INT1_1,
-	    
+	    /* SEL_INT0 [1] */
 	    FN_SEL_INT0_0, FN_SEL_INT0_1,
-	    
+	    /* SEL_IE [1] */
 	    FN_SEL_IE_0, FN_SEL_IE_1,
-	    
+	    /* SEL_EXBUS2 [2] */
 	    FN_SEL_EXBUS2_0, FN_SEL_EXBUS2_1, FN_SEL_EXBUS2_2, 0,
-	    
+	    /* SEL_EXBUS1 [1] */
 	    FN_SEL_EXBUS1_0, FN_SEL_EXBUS1_1,
-	    
+	    /* SEL_EXBUS0 [2] */
 	    FN_SEL_EXBUS0_0, FN_SEL_EXBUS0_1, FN_SEL_EXBUS0_2, 0 }
 	},
 	{ PINMUX_CFG_REG_VAR("MOD_SEL2", 0xfffc0094, 32,
 			     2, 2, 2, 2, 1, 1, 1, 3, 1,
 			     2, 2, 2, 2, 1, 1, 2, 1, 2, 2) {
-	    
+	    /* SEL_TMU1 [2] */
 	    FN_SEL_TMU1_0, FN_SEL_TMU1_1, FN_SEL_TMU1_2, 0,
-	    
+	    /* SEL_TMU0 [2] */
 	    FN_SEL_TMU0_0, FN_SEL_TMU0_1, FN_SEL_TMU0_2, FN_SEL_TMU0_3,
-	    
+	    /* SEL_SCIF [2] */
 	    FN_SEL_SCIF_0, FN_SEL_SCIF_1, FN_SEL_SCIF_2, FN_SEL_SCIF_3,
-	    
+	    /* SEL_CANCLK [2] */
 	    FN_SEL_CANCLK_0, FN_SEL_CANCLK_1, FN_SEL_CANCLK_2,
-	    
+	    /* SEL_CAN0 [1] */
 	    FN_SEL_CAN0_0, FN_SEL_CAN0_1,
-	    
+	    /* SEL_HSCIF1 [1] */
 	    FN_SEL_HSCIF1_0, FN_SEL_HSCIF1_1,
-	    
+	    /* SEL_HSCIF0 [1] */
 	    FN_SEL_HSCIF0_0, FN_SEL_HSCIF0_1,
-	    
+	    /* SEL_PWMFSW [3] */
 	    FN_SEL_PWMFSW_0, FN_SEL_PWMFSW_1, FN_SEL_PWMFSW_2,
 	    FN_SEL_PWMFSW_3, FN_SEL_PWMFSW_4, 0, 0, 0,
-	    
+	    /* SEL_ADI [1] */
 	    FN_SEL_ADI_0, FN_SEL_ADI_1,
-	    
+	    /* [2] */
 	    0, 0, 0, 0,
-	    
+	    /* [2] */
 	    0, 0, 0, 0,
-	    
+	    /* [2] */
 	    0, 0, 0, 0,
-	    
+	    /* SEL_GPS [2] */
 	    FN_SEL_GPS_0, FN_SEL_GPS_1, FN_SEL_GPS_2, FN_SEL_GPS_3,
-	    
+	    /* SEL_SIM [1] */
 	    FN_SEL_SIM_0, FN_SEL_SIM_1,
-	    
+	    /* SEL_HSPI2 [1] */
 	    FN_SEL_HSPI2_0, FN_SEL_HSPI2_1,
-	    
+	    /* SEL_HSPI1 [2] */
 	    FN_SEL_HSPI1_0, FN_SEL_HSPI1_1, FN_SEL_HSPI1_2, FN_SEL_HSPI1_3,
-	    
+	    /* SEL_I2C3 [1] */
 	    FN_SEL_I2C3_0, FN_SEL_I2C3_1,
-	    
+	    /* SEL_I2C2 [2] */
 	    FN_SEL_I2C2_0, FN_SEL_I2C2_1, FN_SEL_I2C2_2, FN_SEL_I2C2_3,
-	    
+	    /* SEL_I2C1 [2] */
 	    FN_SEL_I2C1_0, FN_SEL_I2C1_1, FN_SEL_I2C1_2, FN_SEL_I2C1_3 }
 	},
 	{ PINMUX_CFG_REG("INOUTSEL0", 0xffc40004, 32, 1) { GP_INOUTSEL(0) } },
@@ -2619,7 +2619,7 @@ static struct pinmux_info r8a7779_pinmux_info = {
 	.resource = r8a7779_pfc_resources,
 	.num_resources = ARRAY_SIZE(r8a7779_pfc_resources),
 
-	.unlock_reg = 0xfffc0000, 
+	.unlock_reg = 0xfffc0000, /* PMMR */
 
 	.reserved_id = PINMUX_RESERVED,
 	.data = { PINMUX_DATA_BEGIN, PINMUX_DATA_END },

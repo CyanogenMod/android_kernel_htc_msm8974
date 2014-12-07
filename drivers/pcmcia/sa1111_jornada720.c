@@ -1,3 +1,9 @@
+/*
+ * drivers/pcmcia/sa1100_jornada720.c
+ *
+ * Jornada720 PCMCIA specific routines
+ *
+ */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/device.h>
@@ -10,6 +16,7 @@
 
 #include "sa1111_generic.h"
 
+/* Does SOCKET1_3V actually do anything? */
 #define SOCKET0_POWER	GPIO_GPIO0
 #define SOCKET0_3V	GPIO_GPIO2
 #define SOCKET1_POWER	(GPIO_GPIO1 | GPIO_GPIO3)
@@ -93,7 +100,7 @@ int __devinit pcmcia_jornada720_init(struct device *dev)
 
 		GRER |= 0x00000002;
 
-		
+		/* Set GPIO_A<3:1> to be outputs for PCMCIA/CF power controller: */
 		sa1111_set_io_dir(dev, pin, 0, 0);
 		sa1111_set_io(dev, pin, 0);
 		sa1111_set_sleep_io(dev, pin, 0);

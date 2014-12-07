@@ -32,6 +32,10 @@
 
 #include "../iio.h"
 #include "../sysfs.h"
+/*
+ * Register definitions, as well as various shifts and masks to get at the
+ * individual fields of the registers.
+ */
 #define AK8975_REG_WIA			0x00
 #define AK8975_DEVICE_ID		0x48
 
@@ -73,9 +77,15 @@
 
 #define AK8975_MAX_REGS			AK8975_REG_ASAZ
 
+/*
+ * Miscellaneous values.
+ */
 #define AK8975_MAX_CONVERSION_TIMEOUT	500
 #define AK8975_CONVERSION_DONE_POLL_TIME 10
 
+/*
+ * Per-instance context data for the device.
+ */
 struct ak8975_data {
 	struct i2c_client	*client;
 	struct attribute_group	attrs;
@@ -92,6 +102,9 @@ static const int ak8975_index_to_reg[] = {
 	AK8975_REG_HXL, AK8975_REG_HYL, AK8975_REG_HZL,
 };
 
+/*
+ * Helper function to write to the I2C device's registers.
+ */
 static int ak8975_write_data(struct i2c_client *client,
 			     u8 reg, u8 val, u8 mask, u8 shift)
 {
@@ -111,6 +124,9 @@ static int ak8975_write_data(struct i2c_client *client,
 	return 0;
 }
 
+/*
+ * Helper function to read a contiguous set of the I2C device's registers.
+ */
 static int ak8975_read_data(struct i2c_client *client,
 			    u8 reg, u8 length, u8 *buffer)
 {
@@ -138,6 +154,10 @@ static int ak8975_read_data(struct i2c_client *client,
 	return 0;
 }
 
+/*
+ * Perform some start-of-day setup, including reading the asa calibration
+ * values and caching them.
+ */
 static int ak8975_setup(struct i2c_client *client)
 {
 	struct iio_dev *indio_dev = i2c_get_clientdata(client);
@@ -145,7 +165,7 @@ static int ak8975_setup(struct i2c_client *client)
 	u8 device_id;
 	int ret;
 
-	
+	/* Confirm that the device we're talking to is really an AK8975. */
 	ret = ak8975_read_data(client, AK8975_REG_WIA, 1, &device_id);
 	if (ret < 0) {
 		dev_err(&client->dev, "Error reading WIA\n");
@@ -156,7 +176,7 @@ static int ak8975_setup(struct i2c_client *client)
 		return -ENODEV;
 	}
 
-	
+	/* Write the fused rom access mode. */
 	ret = ak8975_write_data(client,
 				AK8975_REG_CNTL,
 				AK8975_REG_CNTL_MODE_FUSE_ROM,
@@ -167,13 +187,48 @@ static int ak8975_setup(struct i2c_client *client)
 		return ret;
 	}
 
-	
+	/* Get asa data and store in the device data. */
 	ret = ak8975_read_data(client, AK8975_REG_ASAX, 3, data->asa);
 	if (ret < 0) {
 		dev_err(&client->dev, "Not able to read asa data\n");
 		return ret;
 	}
 
+/*
+ * Precalculate scale factor (in Gauss units) for each axis and
+ * store in the device data.
+ *
+ * This scale factor is axis-dependent, and is derived from 3 calibration
+ * factors ASA(x), ASA(y), and ASA(z).
+ *
+ * These ASA values are read from the sensor device at start of day, and
+ * cached in the device context struct.
+ *
+ * Adjusting the flux value with the sensitivity adjustment value should be
+ * done via the following formula:
+ *
+ * Hadj = H * ( ( ( (ASA-128)*0.5 ) / 128 ) + 1 )
+ *
+ * where H is the raw value, ASA is the sensitivity adjustment, and Hadj
+ * is the resultant adjusted value.
+ *
+ * We reduce the formula to:
+ *
+ * Hadj = H * (ASA + 128) / 256
+ *
+ * H is in the range of -4096 to 4095.  The magnetometer has a range of
+ * +-1229uT.  To go from the raw value to uT is:
+ *
+ * HuT = H * 1229/4096, or roughly, 3/10.
+ *
+ * Since 1uT = 100 gauss, our final scale factor becomes:
+ *
+ * Hadj = H * ((ASA + 128) / 256) * 3/10 * 100
+ * Hadj = H * ((ASA + 128) * 30 / 256
+ *
+ * Since ASA doesn't change, we cache the resultant scale factor into the
+ * device context in ak8975_setup().
+ */
 	data->raw_to_gauss[0] = ((data->asa[0] + 128) * 30) >> 8;
 	data->raw_to_gauss[1] = ((data->asa[1] + 128) * 30) >> 8;
 	data->raw_to_gauss[2] = ((data->asa[2] + 128) * 30) >> 8;
@@ -181,6 +236,9 @@ static int ak8975_setup(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * Shows the device's mode.  0 = off, 1 = on.
+ */
 static ssize_t show_mode(struct device *dev, struct device_attribute *devattr,
 			 char *buf)
 {
@@ -190,6 +248,10 @@ static ssize_t show_mode(struct device *dev, struct device_attribute *devattr,
 	return sprintf(buf, "%u\n", data->mode);
 }
 
+/*
+ * Sets the device's mode.  0 = off, 1 = on.  The device's mode must be on
+ * for the magn raw attributes to be available.
+ */
 static ssize_t store_mode(struct device *dev, struct device_attribute *devattr,
 			  const char *buf, size_t count)
 {
@@ -199,13 +261,15 @@ static ssize_t store_mode(struct device *dev, struct device_attribute *devattr,
 	bool value;
 	int ret;
 
+	/* Convert mode string and do some basic sanity checking on it.
+	   only 0 or 1 are valid. */
 	ret = strtobool(buf, &value);
 	if (ret < 0)
 		return ret;
 
 	mutex_lock(&data->lock);
 
-	
+	/* Write the mode to the device. */
 	if (data->mode != value) {
 		ret = ak8975_write_data(client,
 					AK8975_REG_CNTL,
@@ -233,7 +297,7 @@ static int wait_conversion_complete_gpio(struct ak8975_data *data)
 	u32 timeout_ms = AK8975_MAX_CONVERSION_TIMEOUT;
 	int ret;
 
-	
+	/* Wait for the conversion to complete. */
 	while (timeout_ms) {
 		msleep(AK8975_CONVERSION_DONE_POLL_TIME);
 		if (gpio_get_value(data->eoc_gpio))
@@ -260,7 +324,7 @@ static int wait_conversion_complete_polled(struct ak8975_data *data)
 	u32 timeout_ms = AK8975_MAX_CONVERSION_TIMEOUT;
 	int ret;
 
-	
+	/* Wait for the conversion to complete. */
 	while (timeout_ms) {
 		msleep(AK8975_CONVERSION_DONE_POLL_TIME);
 		ret = ak8975_read_data(client, AK8975_REG_ST1, 1, &read_status);
@@ -279,6 +343,9 @@ static int wait_conversion_complete_polled(struct ak8975_data *data)
 	return read_status;
 }
 
+/*
+ * Emits the raw flux value for the x, y, or z axis.
+ */
 static int ak8975_read_axis(struct iio_dev *indio_dev, int index, int *val)
 {
 	struct ak8975_data *data = iio_priv(indio_dev);
@@ -296,7 +363,7 @@ static int ak8975_read_axis(struct iio_dev *indio_dev, int index, int *val)
 		goto exit;
 	}
 
-	
+	/* Set up the device for taking a sample. */
 	ret = ak8975_write_data(client,
 				AK8975_REG_CNTL,
 				AK8975_REG_CNTL_MODE_ONCE,
@@ -307,7 +374,7 @@ static int ak8975_read_axis(struct iio_dev *indio_dev, int index, int *val)
 		goto exit;
 	}
 
-	
+	/* Wait for the conversion to complete. */
 	if (gpio_is_valid(data->eoc_gpio))
 		ret = wait_conversion_complete_gpio(data);
 	else
@@ -332,6 +399,8 @@ static int ak8975_read_axis(struct iio_dev *indio_dev, int index, int *val)
 		}
 	}
 
+	/* Read the flux value from the appropriate register
+	   (the register is specified in the iio device attributes). */
 	ret = ak8975_read_data(client, ak8975_index_to_reg[index],
 			       2, (u8 *)&meas_reg);
 	if (ret < 0) {
@@ -341,10 +410,10 @@ static int ak8975_read_axis(struct iio_dev *indio_dev, int index, int *val)
 
 	mutex_unlock(&data->lock);
 
-	
+	/* Endian conversion of the measured values. */
 	raw = (s16) (le16_to_cpu(meas_reg));
 
-	
+	/* Clamp to valid range. */
 	raw = clamp_t(s16, raw, -4096, 4095);
 	*val = raw;
 	return IIO_VAL_INT;
@@ -409,12 +478,14 @@ static int ak8975_probe(struct i2c_client *client,
 	int eoc_gpio;
 	int err;
 
-	
+	/* Grab and set up the supplied GPIO. */
 	if (client->dev.platform_data == NULL)
 		eoc_gpio = -1;
 	else
 		eoc_gpio = *(int *)(client->dev.platform_data);
 
+	/* We may not have a GPIO based IRQ to scan, that is fine, we will
+	   poll if so */
 	if (gpio_is_valid(eoc_gpio)) {
 		err = gpio_request(eoc_gpio, "ak_8975");
 		if (err < 0) {
@@ -433,7 +504,7 @@ static int ak8975_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* Register with IIO */
 	indio_dev = iio_allocate_device(sizeof(*data));
 	if (indio_dev == NULL) {
 		err = -ENOMEM;
@@ -441,7 +512,7 @@ static int ak8975_probe(struct i2c_client *client,
 	}
 	data = iio_priv(indio_dev);
 	i2c_set_clientdata(client, indio_dev);
-	
+	/* Perform some basic start-of-day setup of the device. */
 	err = ak8975_setup(client);
 	if (err < 0) {
 		dev_err(&client->dev, "AK8975 initialization fails\n");

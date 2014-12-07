@@ -40,16 +40,16 @@
 #define VERSION "0.1"
 
 static const struct sdio_device_id btsdio_table[] = {
-	
+	/* Generic Bluetooth Type-A SDIO device */
 	{ SDIO_DEVICE_CLASS(SDIO_CLASS_BT_A) },
 
-	
+	/* Generic Bluetooth Type-B SDIO device */
 	{ SDIO_DEVICE_CLASS(SDIO_CLASS_BT_B) },
 
-	
+	/* Generic Bluetooth AMP controller */
 	{ SDIO_DEVICE_CLASS(SDIO_CLASS_BT_AMP) },
 
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(sdio, btsdio_table);
@@ -63,16 +63,16 @@ struct btsdio_data {
 	struct sk_buff_head txq;
 };
 
-#define REG_RDAT     0x00	
-#define REG_TDAT     0x00	
-#define REG_PC_RRT   0x10	
-#define REG_PC_WRT   0x11	
-#define REG_RTC_STAT 0x12	
-#define REG_RTC_SET  0x12	
-#define REG_INTRD    0x13	
-#define REG_CL_INTRD 0x13	
-#define REG_EN_INTRD 0x14	
-#define REG_MD_STAT  0x20	
+#define REG_RDAT     0x00	/* Receiver Data */
+#define REG_TDAT     0x00	/* Transmitter Data */
+#define REG_PC_RRT   0x10	/* Read Packet Control */
+#define REG_PC_WRT   0x11	/* Write Packet Control */
+#define REG_RTC_STAT 0x12	/* Retry Control Status */
+#define REG_RTC_SET  0x12	/* Retry Control Set */
+#define REG_INTRD    0x13	/* Interrupt Indication */
+#define REG_CL_INTRD 0x13	/* Interrupt Clear */
+#define REG_EN_INTRD 0x14	/* Interrupt Enable */
+#define REG_MD_STAT  0x20	/* Bluetooth Mode Status */
 
 static int btsdio_tx_packet(struct btsdio_data *data, struct sk_buff *skb)
 {
@@ -80,7 +80,7 @@ static int btsdio_tx_packet(struct btsdio_data *data, struct sk_buff *skb)
 
 	BT_DBG("%s", data->hdev->name);
 
-	
+	/* Prepend Type-A header */
 	skb_push(skb, 4);
 	skb->data[0] = (skb->len & 0x0000ff);
 	skb->data[1] = (skb->len & 0x00ff00) >> 8;
@@ -141,6 +141,9 @@ static int btsdio_rx_packet(struct btsdio_data *data)
 
 	skb = bt_skb_alloc(len - 4, GFP_KERNEL);
 	if (!skb) {
+		/* Out of memory. Prepare a read retry and just
+		 * return with the expectation that the next time
+		 * we're called we'll have more memory. */
 		return -ENOMEM;
 	}
 

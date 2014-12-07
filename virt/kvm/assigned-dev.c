@@ -132,6 +132,7 @@ static irqreturn_t kvm_assigned_dev_thread_msix(int irq, void *dev_id)
 }
 #endif
 
+/* Ack the irq line for an assigned device */
 static void kvm_assigned_dev_ack_irq(struct kvm_irq_ack_notifier *kian)
 {
 	struct kvm_assigned_dev_kernel *dev =
@@ -146,6 +147,10 @@ static void kvm_assigned_dev_ack_irq(struct kvm_irq_ack_notifier *kian)
 		bool reassert = false;
 
 		spin_lock_irq(&dev->intx_lock);
+		/*
+		 * The guest IRQ may be shared so this ack can come from an
+		 * IRQ for another guest device.
+		 */
 		if (dev->host_irq_disabled) {
 			if (!(dev->flags & KVM_DEV_ASSIGN_PCI_2_3))
 				enable_irq(dev->host_irq);
@@ -179,9 +184,20 @@ static void deassign_guest_irq(struct kvm *kvm,
 	assigned_dev->irq_requested_type &= ~(KVM_DEV_IRQ_GUEST_MASK);
 }
 
+/* The function implicit hold kvm->lock mutex due to cancel_work_sync() */
 static void deassign_host_irq(struct kvm *kvm,
 			      struct kvm_assigned_dev_kernel *assigned_dev)
 {
+	/*
+	 * We disable irq here to prevent further events.
+	 *
+	 * Notice this maybe result in nested disable if the interrupt type is
+	 * INTx, but it's OK for we are going to free it.
+	 *
+	 * If this function is a part of VM destroy, please ensure that till
+	 * now, the kvm state is still legal for probably we also have to wait
+	 * on a currently running IRQ handler.
+	 */
 	if (assigned_dev->irq_requested_type & KVM_DEV_IRQ_HOST_MSIX) {
 		int i;
 		for (i = 0; i < assigned_dev->entries_nr; i++)
@@ -196,7 +212,7 @@ static void deassign_host_irq(struct kvm *kvm,
 		kfree(assigned_dev->guest_msix_entries);
 		pci_disable_msix(assigned_dev->dev);
 	} else {
-		
+		/* Deal with MSI and INTx */
 		if ((assigned_dev->irq_requested_type &
 		     KVM_DEV_IRQ_HOST_INTX) &&
 		    (assigned_dev->flags & KVM_DEV_ASSIGN_PCI_2_3)) {
@@ -224,7 +240,7 @@ static int kvm_deassign_irq(struct kvm *kvm,
 
 	if (!irqchip_in_kernel(kvm))
 		return -EINVAL;
-	
+	/* no irq assignment to deassign */
 	if (!assigned_dev->irq_requested_type)
 		return -ENXIO;
 
@@ -291,6 +307,12 @@ static int assigned_device_enable_host_intx(struct kvm *kvm,
 
 	dev->host_irq = dev->dev->irq;
 
+	/*
+	 * We can only share the IRQ line with other host devices if we are
+	 * able to disable the IRQ source at device-level - independently of
+	 * the guest driver. Otherwise host devices may suffer from unbounded
+	 * IRQ latencies when the guest keeps the line asserted.
+	 */
 	if (dev->flags & KVM_DEV_ASSIGN_PCI_2_3) {
 		irq_handler = kvm_assigned_dev_intx;
 		flags = IRQF_SHARED;
@@ -341,6 +363,8 @@ static int assigned_device_enable_host_msix(struct kvm *kvm,
 {
 	int i, r = -EINVAL;
 
+	/* host_msix_entries and guest_msix_entries should have been
+	 * initialized */
 	if (dev->entries_nr == 0)
 		return r;
 
@@ -479,6 +503,7 @@ static int assign_guest_irq(struct kvm *kvm,
 	return r;
 }
 
+/* TODO Deal with KVM_DEV_IRQ_ASSIGNED_MASK_MSIX */
 static int kvm_vm_ioctl_assign_irq(struct kvm *kvm,
 				   struct kvm_assigned_irq *assigned_irq)
 {
@@ -500,7 +525,7 @@ static int kvm_vm_ioctl_assign_irq(struct kvm *kvm,
 	guest_irq_type = (assigned_irq->flags & KVM_DEV_IRQ_GUEST_MASK);
 
 	r = -EINVAL;
-	
+	/* can only assign one type at a time */
 	if (hweight_long(host_irq_type) > 1)
 		goto out;
 	if (hweight_long(guest_irq_type) > 1)
@@ -544,6 +569,16 @@ out:
 	return r;
 }
 
+/*
+ * We want to test whether the caller has been granted permissions to
+ * use this device.  To be able to configure and control the device,
+ * the user needs access to PCI configuration space and BAR resources.
+ * These are accessed through PCI sysfs.  PCI config space is often
+ * passed to the process calling this ioctl via file descriptor, so we
+ * can't rely on access to that file.  We can check for permissions
+ * on each of the BAR resource files, which is a pretty clear
+ * indicator that the user has been granted access to the device.
+ */
 static int probe_sysfs_permissions(struct pci_dev *dev)
 {
 #ifdef CONFIG_SYSFS
@@ -563,7 +598,7 @@ static int probe_sysfs_permissions(struct pci_dev *dev)
 		if (!kpath)
 			return -ENOMEM;
 
-		
+		/* Per sysfs-rules, sysfs is always at /sys */
 		syspath = kasprintf(GFP_KERNEL, "/sys%s/resource%d", kpath, i);
 		kfree(kpath);
 		if (!syspath)
@@ -584,13 +619,13 @@ static int probe_sysfs_permissions(struct pci_dev *dev)
 		bar_found = true;
 	}
 
-	
+	/* If no resources, probably something special */
 	if (!bar_found)
 		return -EPERM;
 
 	return 0;
 #else
-	return -EINVAL; 
+	return -EINVAL; /* No way to control the device without sysfs */
 #endif
 }
 
@@ -611,7 +646,7 @@ static int kvm_vm_ioctl_assign_device(struct kvm *kvm,
 	match = kvm_find_assigned_dev(&kvm->arch.assigned_dev_head,
 				      assigned_dev->assigned_dev_id);
 	if (match) {
-		
+		/* device already assigned */
 		r = -EEXIST;
 		goto out;
 	}
@@ -632,7 +667,7 @@ static int kvm_vm_ioctl_assign_device(struct kvm *kvm,
 		goto out_free;
 	}
 
-	
+	/* Don't allow bridges to be assigned */
 	pci_read_config_byte(dev, PCI_HEADER_TYPE, &header_type);
 	if ((header_type & PCI_HEADER_TYPE) != PCI_HEADER_TYPE_NORMAL) {
 		r = -EPERM;
@@ -775,7 +810,7 @@ static int kvm_vm_ioctl_set_msix_nr(struct kvm *kvm,
 			r = -ENOMEM;
 			goto msix_nr_out;
 		}
-	} else 
+	} else /* Not allowed set MSI-X number twice */
 		r = -EINVAL;
 msix_nr_out:
 	mutex_unlock(&kvm->lock);
@@ -842,7 +877,15 @@ static int kvm_vm_ioctl_set_pci_irq_mask(struct kvm *kvm,
 		if (assigned_dev->flags & KVM_DEV_ASSIGN_MASK_INTX) {
 			kvm_set_irq(match->kvm, match->irq_source_id,
 				    match->guest_irq, 0);
+			/*
+			 * Masking at hardware-level is performed on demand,
+			 * i.e. when an IRQ actually arrives at the host.
+			 */
 		} else if (!(assigned_dev->flags & KVM_DEV_ASSIGN_PCI_2_3)) {
+			/*
+			 * Unmask the IRQ line if required. Unmasking at
+			 * device level will be performed by user space.
+			 */
 			spin_lock_irq(&match->intx_lock);
 			if (match->host_irq_disabled) {
 				enable_irq(match->host_irq);
@@ -943,7 +986,7 @@ long kvm_vm_ioctl_assigned_device(struct kvm *kvm, unsigned ioctl,
 		vfree(entries);
 		break;
 	}
-#endif 
+#endif /* KVM_CAP_IRQ_ROUTING */
 #ifdef __KVM_HAVE_MSIX
 	case KVM_ASSIGN_SET_MSIX_NR: {
 		struct kvm_assigned_msix_nr entry_nr;

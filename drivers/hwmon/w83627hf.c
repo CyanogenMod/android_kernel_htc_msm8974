@@ -22,6 +22,22 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * Supports following chips:
+ *
+ * Chip	#vin	#fanin	#pwm	#temp	wchipid	vendid	i2c	ISA
+ * w83627hf	9	3	2	3	0x20	0x5ca3	no	yes(LPC)
+ * w83627thf	7	3	3	3	0x90	0x5ca3	no	yes(LPC)
+ * w83637hf	7	3	3	3	0x80	0x5ca3	no	yes(LPC)
+ * w83687thf	7	3	3	3	0x90	0x5ca3	no	yes(LPC)
+ * w83697hf	8	2	2	2	0x60	0x5ca3	no	yes(LPC)
+ *
+ * For other winbond chips, and for i2c support in the above chips,
+ * use w83781d.c.
+ *
+ * Note: automatic ("cruise") fan control for 697, 637 & 627thf not
+ * supported yet.
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -63,33 +79,35 @@ static unsigned short force_id;
 module_param(force_id, ushort, 0);
 MODULE_PARM_DESC(force_id, "Override the detected device ID");
 
-#define DEV			0x07 
+/* modified from kernel/include/traps.c */
+#define DEV			0x07 /* Register: Logical device select */
 
+/* logical device numbers for superio_select (below) */
 #define W83627HF_LD_FDC		0x00
 #define W83627HF_LD_PRT		0x01
 #define W83627HF_LD_UART1	0x02
 #define W83627HF_LD_UART2	0x03
 #define W83627HF_LD_KBC		0x05
-#define W83627HF_LD_CIR		0x06 
+#define W83627HF_LD_CIR		0x06 /* w83627hf only */
 #define W83627HF_LD_GAME	0x07
 #define W83627HF_LD_MIDI	0x07
 #define W83627HF_LD_GPIO1	0x07
-#define W83627HF_LD_GPIO5	0x07 
+#define W83627HF_LD_GPIO5	0x07 /* w83627thf only */
 #define W83627HF_LD_GPIO2	0x08
 #define W83627HF_LD_GPIO3	0x09
-#define W83627HF_LD_GPIO4	0x09 
+#define W83627HF_LD_GPIO4	0x09 /* w83627thf only */
 #define W83627HF_LD_ACPI	0x0a
 #define W83627HF_LD_HWM		0x0b
 
-#define DEVID			0x20 
+#define DEVID			0x20 /* Register: Device ID */
 
-#define W83627THF_GPIO5_EN	0x30 
-#define W83627THF_GPIO5_IOSR	0xf3 
-#define W83627THF_GPIO5_DR	0xf4 
+#define W83627THF_GPIO5_EN	0x30 /* w83627thf only */
+#define W83627THF_GPIO5_IOSR	0xf3 /* w83627thf only */
+#define W83627THF_GPIO5_DR	0xf4 /* w83627thf only */
 
-#define W83687THF_VID_EN	0x29 
-#define W83687THF_VID_CFG	0xF0 
-#define W83687THF_VID_DATA	0xF1 
+#define W83687THF_VID_EN	0x29 /* w83687thf only */
+#define W83687THF_VID_CFG	0xF0 /* w83687thf only */
+#define W83687THF_VID_DATA	0xF1 /* w83687thf only */
 
 static inline void
 superio_outb(struct w83627hf_sio_data *sio, int reg, int val)
@@ -132,15 +150,21 @@ superio_exit(struct w83627hf_sio_data *sio)
 #define W687THF_DEVID 0x85
 #define WINB_ACT_REG 0x30
 #define WINB_BASE_REG 0x60
+/* Constants specified below */
 
+/* Alignment of the base address */
 #define WINB_ALIGNMENT		~7
 
+/* Offset & size of I/O region we are interested in */
 #define WINB_REGION_OFFSET	5
 #define WINB_REGION_SIZE	2
 
+/* Where are the sensors address/data registers relative to the region offset */
 #define W83781D_ADDR_REG_OFFSET 0
 #define W83781D_DATA_REG_OFFSET 1
 
+/* The W83781D registers */
+/* The W83782D registers for nr=7,8 are in bank 5 */
 #define W83781D_REG_IN_MAX(nr) ((nr < 7) ? (0x2b + (nr) * 2) : \
 					   (0x554 + (((nr) - 7) * 2)))
 #define W83781D_REG_IN_MIN(nr) ((nr < 7) ? (0x2c + (nr) * 2) : \
@@ -148,11 +172,13 @@ superio_exit(struct w83627hf_sio_data *sio)
 #define W83781D_REG_IN(nr)     ((nr < 7) ? (0x20 + (nr)) : \
 					   (0x550 + (nr) - 7))
 
+/* nr:0-2 for fans:1-3 */
 #define W83627HF_REG_FAN_MIN(nr)	(0x3b + (nr))
 #define W83627HF_REG_FAN(nr)		(0x28 + (nr))
 
 #define W83627HF_REG_TEMP2_CONFIG 0x152
 #define W83627HF_REG_TEMP3_CONFIG 0x252
+/* these are zero-based, unlike config constants above */
 static const u16 w83627hf_reg_temp[]		= { 0x27, 0x150, 0x250 };
 static const u16 w83627hf_reg_temp_hyst[]	= { 0x3A, 0x153, 0x253 };
 static const u16 w83627hf_reg_temp_over[]	= { 0x39, 0x155, 0x255 };
@@ -182,17 +208,17 @@ static const u16 w83627hf_reg_temp_over[]	= { 0x39, 0x155, 0x255 };
 #define W83627HF_REG_PWM2 0x5B
 
 static const u8 W83627THF_REG_PWM_ENABLE[] = {
-	0x04,		
-	0x04,		
-	0x12,		
+	0x04,		/* FAN 1 mode */
+	0x04,		/* FAN 2 mode */
+	0x12,		/* FAN AUX mode */
 };
 static const u8 W83627THF_PWM_ENABLE_SHIFT[] = { 2, 4, 1 };
 
-#define W83627THF_REG_PWM1		0x01	
-#define W83627THF_REG_PWM2		0x03	
-#define W83627THF_REG_PWM3		0x11	
+#define W83627THF_REG_PWM1		0x01	/* 697HF/637HF/687THF too */
+#define W83627THF_REG_PWM2		0x03	/* 697HF/637HF/687THF too */
+#define W83627THF_REG_PWM3		0x11	/* 637HF/687THF too */
 
-#define W83627THF_REG_VRM_OVT_CFG 	0x18	
+#define W83627THF_REG_VRM_OVT_CFG 	0x18	/* 637HF/687THF too */
 
 static const u8 regpwm_627hf[] = { W83627HF_REG_PWM1, W83627HF_REG_PWM2 };
 static const u8 regpwm[] = { W83627THF_REG_PWM1, W83627THF_REG_PWM2,
@@ -200,11 +226,11 @@ static const u8 regpwm[] = { W83627THF_REG_PWM1, W83627THF_REG_PWM2,
 #define W836X7HF_REG_PWM(type, nr) (((type) == w83627hf) ? \
 				    regpwm_627hf[nr] : regpwm[nr])
 
-#define W83627HF_REG_PWM_FREQ		0x5C	
+#define W83627HF_REG_PWM_FREQ		0x5C	/* Only for the 627HF */
 
-#define W83637HF_REG_PWM_FREQ1		0x00	
-#define W83637HF_REG_PWM_FREQ2		0x02	
-#define W83637HF_REG_PWM_FREQ3		0x10	
+#define W83637HF_REG_PWM_FREQ1		0x00	/* 697HF/687THF too */
+#define W83637HF_REG_PWM_FREQ2		0x02	/* 697HF/687THF too */
+#define W83637HF_REG_PWM_FREQ3		0x10	/* 687THF too */
 
 static const u8 W83637HF_REG_PWM_FREQ[] = { W83637HF_REG_PWM_FREQ1,
 					W83637HF_REG_PWM_FREQ2,
@@ -215,12 +241,19 @@ static const u8 W83637HF_REG_PWM_FREQ[] = { W83637HF_REG_PWM_FREQ1,
 #define W83781D_REG_I2C_ADDR 0x48
 #define W83781D_REG_I2C_SUBADDR 0x4A
 
+/* Sensor selection */
 #define W83781D_REG_SCFG1 0x5D
 static const u8 BIT_SCFG1[] = { 0x02, 0x04, 0x08 };
 #define W83781D_REG_SCFG2 0x59
 static const u8 BIT_SCFG2[] = { 0x10, 0x20, 0x40 };
 #define W83781D_DEFAULT_BETA 3435
 
+/*
+ * Conversions. Limit checking is only done on the TO_REG
+ * variants. Note that you should be a bit careful with which arguments
+ * these macros are called: arguments may be evaluated more than once.
+ * Fixing this is just not worth it.
+ */
 #define IN_TO_REG(val)  (SENSORS_LIMIT((((val) + 8)/16),0,255))
 #define IN_FROM_REG(val) ((val) * 16)
 
@@ -236,6 +269,10 @@ static inline u8 FAN_TO_REG(long rpm, int div)
 #define TEMP_MIN (-128000)
 #define TEMP_MAX ( 127000)
 
+/*
+ * TEMP: 0.001C/bit (-128C to +127C)
+ * REG: 1C/bit, two's complement
+ */
 static u8 TEMP_TO_REG(long temp)
 {
         int ntemp = SENSORS_LIMIT(temp, TEMP_MIN, TEMP_MAX);
@@ -261,6 +298,10 @@ static inline unsigned long pwm_freq_from_reg_627hf(u8 reg)
 static inline u8 pwm_freq_to_reg_627hf(unsigned long val)
 {
 	u8 i;
+	/*
+	 * Only 5 dividers (1 2 4 8 16)
+	 * Search for the nearest available frequency
+	 */
 	for (i = 0; i < 4; i++) {
 		if (val > (((W83627HF_BASE_PWM_FREQ >> i) +
 			    (W83627HF_BASE_PWM_FREQ >> (i+1))) / 2))
@@ -271,25 +312,25 @@ static inline u8 pwm_freq_to_reg_627hf(unsigned long val)
 
 static inline unsigned long pwm_freq_from_reg(u8 reg)
 {
-	
+	/* Clock bit 8 -> 180 kHz or 24 MHz */
 	unsigned long clock = (reg & 0x80) ? 180000UL : 24000000UL;
 
 	reg &= 0x7f;
-	
+	/* This should not happen but anyway... */
 	if (reg == 0)
 		reg++;
 	return clock / (reg << 8);
 }
 static inline u8 pwm_freq_to_reg(unsigned long val)
 {
-	
-	if (val >= 93750)	
+	/* Minimum divider value is 0x01 and maximum is 0x7F */
+	if (val >= 93750)	/* The highest we can do */
 		return 0x01;
-	if (val >= 720)	
+	if (val >= 720)	/* Use 24 MHz clock */
 		return 24000000UL / (val << 8);
-	if (val < 6)		
+	if (val < 6)		/* The lowest we can do */
 		return 0xFF;
-	else			
+	else			/* Use 180 kHz clock */
 		return 0x80 | (180000UL / (val << 8));
 }
 
@@ -310,6 +351,10 @@ static inline u8 DIV_TO_REG(long val)
 	return (u8)i;
 }
 
+/*
+ * For each registered chip, we need to keep some data in memory.
+ * The structure is dynamically allocated.
+ */
 struct w83627hf_data {
 	unsigned short addr;
 	const char *name;
@@ -318,27 +363,32 @@ struct w83627hf_data {
 	enum chips type;
 
 	struct mutex update_lock;
-	char valid;		
-	unsigned long last_updated;	
+	char valid;		/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
 
-	u8 in[9];		
-	u8 in_max[9];		
-	u8 in_min[9];		
-	u8 fan[3];		
-	u8 fan_min[3];		
-	u16 temp[3];		
-	u16 temp_max[3];	
-	u16 temp_max_hyst[3];	
-	u8 fan_div[3];		
-	u8 vid;			
-	u32 alarms;		
-	u32 beep_mask;		
-	u8 pwm[3];		
-	u8 pwm_enable[3];	
-	u8 pwm_freq[3];		
-	u16 sens[3];		
+	u8 in[9];		/* Register value */
+	u8 in_max[9];		/* Register value */
+	u8 in_min[9];		/* Register value */
+	u8 fan[3];		/* Register value */
+	u8 fan_min[3];		/* Register value */
+	u16 temp[3];		/* Register value */
+	u16 temp_max[3];	/* Register value */
+	u16 temp_max_hyst[3];	/* Register value */
+	u8 fan_div[3];		/* Register encoding, shifted right */
+	u8 vid;			/* Register encoding, combined */
+	u32 alarms;		/* Register encoding, combined */
+	u32 beep_mask;		/* Register encoding, combined */
+	u8 pwm[3];		/* Register value */
+	u8 pwm_enable[3];	/* 1 = manual
+				 * 2 = thermal cruise (also called SmartFan I)
+				 * 3 = fan speed cruise
+				 */
+	u8 pwm_freq[3];		/* Register value */
+	u16 sens[3];		/* 1 = pentium diode; 2 = 3904 diode;
+				 * 4 = thermistor
+				 */
 	u8 vrm;
-	u8 vrm_ovt;		
+	u8 vrm_ovt;		/* Register value, 627THF/637HF/687THF only */
 };
 
 
@@ -436,6 +486,7 @@ sysfs_vin_decl(6);
 sysfs_vin_decl(7);
 sysfs_vin_decl(8);
 
+/* use a different set of functions for in0 */
 static ssize_t show_in_0(struct w83627hf_data *data, char *buf, u8 reg)
 {
 	long in0;
@@ -444,10 +495,10 @@ static ssize_t show_in_0(struct w83627hf_data *data, char *buf, u8 reg)
 		(w83627thf == data->type || w83637hf == data->type
 		 || w83687thf == data->type))
 
-		
+		/* use VRM9 calculation */
 		in0 = (long)((reg * 488 + 70000 + 50) / 100);
 	else
-		
+		/* use VRM8 (standard) calculation */
 		in0 = (long)IN_FROM_REG(reg);
 
 	return sprintf(buf,"%ld\n", in0);
@@ -488,12 +539,12 @@ static ssize_t store_regs_in_min0(struct device *dev, struct device_attribute *a
 		(w83627thf == data->type || w83637hf == data->type
 		 || w83687thf == data->type))
 
-		
+		/* use VRM9 calculation */
 		data->in_min[0] =
 			SENSORS_LIMIT(((val * 100) - 70000 + 244) / 488, 0,
 					255);
 	else
-		
+		/* use VRM8 (standard) calculation */
 		data->in_min[0] = IN_TO_REG(val);
 
 	w83627hf_write_value(data, W83781D_REG_IN_MIN(0), data->in_min[0]);
@@ -518,12 +569,12 @@ static ssize_t store_regs_in_max0(struct device *dev, struct device_attribute *a
 		(w83627thf == data->type || w83637hf == data->type
 		 || w83687thf == data->type))
 		
-		
+		/* use VRM9 calculation */
 		data->in_max[0] =
 			SENSORS_LIMIT(((val * 100) - 70000 + 244) / 488, 0,
 					255);
 	else
-		
+		/* use VRM8 (standard) calculation */
 		data->in_max[0] = IN_TO_REG(val);
 
 	w83627hf_write_value(data, W83781D_REG_IN_MAX(0), data->in_max[0]);
@@ -758,7 +809,7 @@ store_beep_mask(struct device *dev, struct device_attribute *attr,
 
 	mutex_lock(&data->update_lock);
 
-	
+	/* preserve beep enable */
 	data->beep_mask = (data->beep_mask & 0x8000)
 			| BEEP_MASK_TO_REG(val);
 	w83627hf_write_value(data, W83781D_REG_BEEP_INTS1,
@@ -874,6 +925,12 @@ show_fan_div(struct device *dev, struct device_attribute *devattr, char *buf)
 	return sprintf(buf, "%ld\n",
 		       (long) DIV_FROM_REG(data->fan_div[nr]));
 }
+/*
+ * Note: we save and restore the fan minimum here, because its value is
+ * determined in part by the fan divisor.  This follows the principle of
+ * least surprise; the user doesn't expect the fan minimum to change just
+ * because the divisor changed.
+ */
 static ssize_t
 store_fan_div(struct device *dev, struct device_attribute *devattr,
 	      const char *buf, size_t count)
@@ -891,7 +948,7 @@ store_fan_div(struct device *dev, struct device_attribute *devattr,
 
 	mutex_lock(&data->update_lock);
 
-	
+	/* Save fan_min */
 	min = FAN_FROM_REG(data->fan_min[nr],
 			   DIV_FROM_REG(data->fan_div[nr]));
 
@@ -907,7 +964,7 @@ store_fan_div(struct device *dev, struct device_attribute *devattr,
 	    | ((data->fan_div[nr] & 0x04) << (3 + nr));
 	w83627hf_write_value(data, W83781D_REG_VBAT, reg);
 
-	
+	/* Restore fan_min */
 	data->fan_min[nr] = FAN_TO_REG(min, DIV_FROM_REG(data->fan_div[nr]));
 	w83627hf_write_value(data, W83627HF_REG_FAN_MIN(nr), data->fan_min[nr]);
 
@@ -946,7 +1003,7 @@ store_pwm(struct device *dev, struct device_attribute *devattr,
 	mutex_lock(&data->update_lock);
 
 	if (data->type == w83627thf) {
-		
+		/* bits 0-3 are reserved  in 627THF */
 		data->pwm[nr] = PWM_TO_REG(val) & 0xf0;
 		w83627hf_write_value(data,
 				     W836X7HF_REG_PWM(data->type, nr),
@@ -990,7 +1047,7 @@ store_pwm_enable(struct device *dev, struct device_attribute *devattr,
 	if (err)
 		return err;
 
-	if (!val || val > 3)	
+	if (!val || val > 3)	/* modes 1, 2 and 3 are supported */
 		return -EINVAL;
 	mutex_lock(&data->update_lock);
 	data->pwm_enable[nr] = val;
@@ -1087,7 +1144,7 @@ store_temp_type(struct device *dev, struct device_attribute *devattr,
 	mutex_lock(&data->update_lock);
 
 	switch (val) {
-	case 1:		
+	case 1:		/* PII/Celeron diode */
 		tmp = w83627hf_read_value(data, W83781D_REG_SCFG1);
 		w83627hf_write_value(data, W83781D_REG_SCFG1,
 				    tmp | BIT_SCFG1[nr]);
@@ -1096,7 +1153,7 @@ store_temp_type(struct device *dev, struct device_attribute *devattr,
 				    tmp | BIT_SCFG2[nr]);
 		data->sens[nr] = val;
 		break;
-	case 2:		
+	case 2:		/* 3904 */
 		tmp = w83627hf_read_value(data, W83781D_REG_SCFG1);
 		w83627hf_write_value(data, W83781D_REG_SCFG1,
 				    tmp | BIT_SCFG1[nr]);
@@ -1108,8 +1165,8 @@ store_temp_type(struct device *dev, struct device_attribute *devattr,
 	case W83781D_DEFAULT_BETA:
 		dev_warn(dev, "Sensor type %d is deprecated, please use 4 "
 			 "instead\n", W83781D_DEFAULT_BETA);
-		
-	case 4:		
+		/* fall through */
+	case 4:		/* thermistor */
 		tmp = w83627hf_read_value(data, W83781D_REG_SCFG1);
 		w83627hf_write_value(data, W83781D_REG_SCFG1,
 				    tmp & ~BIT_SCFG1[nr]);
@@ -1176,7 +1233,7 @@ static int __init w83627hf_find(int sioaddr, unsigned short *addr,
 	case W687THF_DEVID:
 		sio_data->type = w83687thf;
 		break;
-	case 0xff:	
+	case 0xff:	/* No device at all */
 		goto exit;
 	default:
 		pr_debug(DRVNAME ": Unsupported chip (DEVID=0x%02x)\n", val);
@@ -1322,21 +1379,21 @@ static int __devinit w83627hf_probe(struct platform_device *pdev)
 	mutex_init(&data->update_lock);
 	platform_set_drvdata(pdev, data);
 
-	
+	/* Initialize the chip */
 	w83627hf_init_device(pdev);
 
-	
+	/* A few vars need to be filled upon startup */
 	for (i = 0; i <= 2; i++)
 		data->fan_min[i] = w83627hf_read_value(
 					data, W83627HF_REG_FAN_MIN(i));
 	w83627hf_update_fan_div(data);
 
-	
+	/* Register common device attributes */
 	err = sysfs_create_group(&dev->kobj, &w83627hf_group);
 	if (err)
 		goto ERROR3;
 
-	
+	/* Register chip-specific device attributes */
 	if (data->type == w83627hf || data->type == w83697hf)
 		if ((err = device_create_file(dev,
 				&sensor_dev_attr_in5_input.dev_attr))
@@ -1400,7 +1457,7 @@ static int __devinit w83627hf_probe(struct platform_device *pdev)
 			goto ERROR4;
 
 	if (data->type != w83697hf && data->vid != 0xff) {
-		
+		/* Convert VID to voltage based on VRM */
 		data->vrm = vid_which_vrm();
 
 		if ((err = device_create_file(dev, &dev_attr_cpu0_vid))
@@ -1478,6 +1535,7 @@ static int __devexit w83627hf_remove(struct platform_device *pdev)
 }
 
 
+/* Registers 0x50-0x5f are banked */
 static inline void w83627hf_set_bank(struct w83627hf_data *data, u16 reg)
 {
 	if ((reg & 0x00f0) == 0x50) {
@@ -1486,6 +1544,7 @@ static inline void w83627hf_set_bank(struct w83627hf_data *data, u16 reg)
 	}
 }
 
+/* Not strictly necessary, but play it safe for now */
 static inline void w83627hf_reset_bank(struct w83627hf_data *data, u16 reg)
 {
 	if (reg & 0xff00) {
@@ -1527,12 +1586,16 @@ static int __devinit w83627thf_read_gpio5(struct platform_device *pdev)
 	superio_enter(sio_data);
 	superio_select(sio_data, W83627HF_LD_GPIO5);
 
-	
+	/* Make sure these GPIO pins are enabled */
 	if (!(superio_inb(sio_data, W83627THF_GPIO5_EN) & (1<<3))) {
 		dev_dbg(&pdev->dev, "GPIO5 disabled, no VID function\n");
 		goto exit;
 	}
 
+	/*
+	 * Make sure the pins are configured for input
+	 * There must be at least five (VRM 9), and possibly 6 (VRM 10)
+	 */
 	sel = superio_inb(sio_data, W83627THF_GPIO5_IOSR) & 0x3f;
 	if ((sel & 0x1f) != 0x1f) {
 		dev_dbg(&pdev->dev, "GPIO5 not configured for VID "
@@ -1556,13 +1619,13 @@ static int __devinit w83687thf_read_vid(struct platform_device *pdev)
 	superio_enter(sio_data);
 	superio_select(sio_data, W83627HF_LD_HWM);
 
-	
+	/* Make sure these GPIO pins are enabled */
 	if (!(superio_inb(sio_data, W83687THF_VID_EN) & (1 << 2))) {
 		dev_dbg(&pdev->dev, "VID disabled, no VID function\n");
 		goto exit;
 	}
 
-	
+	/* Make sure the pins are configured for input */
 	if (!(superio_inb(sio_data, W83687THF_VID_CFG) & (1 << 4))) {
 		dev_dbg(&pdev->dev, "VID configured as output, "
 			"no VID function\n");
@@ -1607,13 +1670,13 @@ static void __devinit w83627hf_init_device(struct platform_device *pdev)
 	enum chips type = data->type;
 	u8 tmp;
 
-	
-	
-	
+	/* Minimize conflicts with other winbond i2c-only clients...  */
+	/* disable i2c subclients... how to disable main i2c client?? */
+	/* force i2c address to relatively uncommon address */
 	w83627hf_write_value(data, W83781D_REG_I2C_SUBADDR, 0x89);
 	w83627hf_write_value(data, W83781D_REG_I2C_ADDR, force_i2c);
 
-	
+	/* Read VID only once */
 	if (type == w83627hf || type == w83637hf) {
 		int lo = w83627hf_read_value(data, W83781D_REG_VID_FANDIV);
 		int hi = w83627hf_read_value(data, W83781D_REG_CHIPID);
@@ -1624,7 +1687,7 @@ static void __devinit w83627hf_init_device(struct platform_device *pdev)
 		data->vid = w83687thf_read_vid(pdev);
 	}
 
-	
+	/* Read VRM & OVT Config only once */
 	if (type == w83627thf || type == w83637hf || type == w83687thf) {
 		data->vrm_ovt = 
 			w83627hf_read_value(data, W83627THF_REG_VRM_OVT_CFG);
@@ -1647,7 +1710,7 @@ static void __devinit w83627hf_init_device(struct platform_device *pdev)
 	}
 
 	if(init) {
-		
+		/* Enable temp2 */
 		tmp = w83627hf_read_value(data, W83627HF_REG_TEMP2_CONFIG);
 		if (tmp & 0x01) {
 			dev_warn(&pdev->dev, "Enabling temp2, readings "
@@ -1656,7 +1719,7 @@ static void __devinit w83627hf_init_device(struct platform_device *pdev)
 				tmp & 0xfe);
 		}
 
-		
+		/* Enable temp3 */
 		if (type != w83697hf) {
 			tmp = w83627hf_read_value(data,
 				W83627HF_REG_TEMP3_CONFIG);
@@ -1669,13 +1732,13 @@ static void __devinit w83627hf_init_device(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* Start monitoring */
 	w83627hf_write_value(data, W83781D_REG_CONFIG,
 			    (w83627hf_read_value(data,
 						W83781D_REG_CONFIG) & 0xf7)
 			    | 0x01);
 
-	
+	/* Enable VBAT monitoring if needed */
 	tmp = w83627hf_read_value(data, W83781D_REG_VBAT);
 	if (!(tmp & 0x01))
 		w83627hf_write_value(data, W83781D_REG_VBAT, tmp | 0x01);
@@ -1710,7 +1773,7 @@ static struct w83627hf_data *w83627hf_update_device(struct device *dev)
 	if (time_after(jiffies, data->last_updated + HZ + HZ / 2)
 	    || !data->valid) {
 		for (i = 0; i <= 8; i++) {
-			
+			/* skip missing sensors */
 			if (((data->type == w83697hf) && (i == 1)) ||
 			    ((data->type != w83627hf && data->type != w83697hf)
 			    && (i == 5 || i == 6)))
@@ -1734,7 +1797,7 @@ static struct w83627hf_data *w83627hf_update_device(struct device *dev)
 		for (i = 0; i <= 2; i++) {
 			u8 tmp = w83627hf_read_value(data,
 				W836X7HF_REG_PWM(data->type, i));
- 			
+ 			/* bits 0-3 are reserved  in 627THF */
  			if (data->type == w83627thf)
 				tmp &= 0xf0;
 			data->pwm[i] = tmp;
@@ -1856,7 +1919,7 @@ static int __init sensors_w83627hf_init(void)
 	if (err)
 		goto exit;
 
-	
+	/* Sets global pdev as a side effect */
 	err = w83627hf_device_add(address, &sio_data);
 	if (err)
 		goto exit_driver;

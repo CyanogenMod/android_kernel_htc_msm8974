@@ -22,6 +22,11 @@
 #include <linux/err.h>
 #include <arch/abi.h>
 
+/*
+ * Only the low 32 bits of orig_r0 are meaningful, so we return int.
+ * This importantly ignores the high bits on 64-bit, so comparisons
+ * sign-extend the low 32 bits.
+ */
 static inline int syscall_get_nr(struct task_struct *t, struct pt_regs *regs)
 {
 	return regs->regs[TREG_SYSCALL_NR];
@@ -71,4 +76,4 @@ static inline void syscall_set_arguments(struct task_struct *task,
 	memcpy(&regs[i], args, n * sizeof(args[0]));
 }
 
-#endif	
+#endif	/* _ASM_TILE_SYSCALL_H */

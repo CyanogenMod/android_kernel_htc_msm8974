@@ -16,8 +16,13 @@
 #include "init.h"
 #include "os.h"
 
+/* Modified by which_tmpdir, which is called during early boot */
 static char *default_tmpdir = "/tmp";
 
+/*
+ *  Modified when creating the physical memory file and when checking
+ * the tmp filesystem for usability, both happening during early boot.
+ */
 static char *tempdir = NULL;
 
 static void __init find_tempdir(void)
@@ -27,7 +32,7 @@ static void __init find_tempdir(void)
 	char *dir = NULL;
 
 	if (tempdir != NULL)
-		
+		/* We've already been called */
 		return;
 	for (i = 0; dirs[i]; i++) {
 		dir = getenv(dirs[i]);
@@ -47,6 +52,12 @@ static void __init find_tempdir(void)
 	strcat(tempdir, "/");
 }
 
+/*
+ * This will return 1, with the first character in buf being the
+ * character following the next instance of c in the file.  This will
+ * read the file as needed.  If there's an error, -errno is returned;
+ * if the end of the file is reached, 0 is returned.
+ */
 static int next(int fd, char *buf, size_t size, char c)
 {
 	ssize_t n;
@@ -67,6 +78,10 @@ static int next(int fd, char *buf, size_t size, char c)
 	len = strlen(ptr);
 	memmove(buf, ptr, len + 1);
 
+	/*
+	 * Refill the buffer so that if there's a partial string that we care
+	 * about, it will be completed, and we can recognize it.
+	 */
 	n = read(fd, &buf[len], size - len - 1);
 	if (n < 0)
 		return -errno;
@@ -75,8 +90,20 @@ static int next(int fd, char *buf, size_t size, char c)
 	return 1;
 }
 
+/* which_tmpdir is called only during early boot */
 static int checked_tmpdir = 0;
 
+/*
+ * Look for a tmpfs mounted at /dev/shm.  I couldn't find a cleaner
+ * way to do this than to parse /proc/mounts.  statfs will return the
+ * same filesystem magic number and fs id for both /dev and /dev/shm
+ * when they are both tmpfs, so you can't tell if they are different
+ * filesystems.  Also, there seems to be no other way of finding the
+ * mount point of a filesystem from within it.
+ *
+ * If a /dev/shm tmpfs entry is found, then we switch to using it.
+ * Otherwise, we stay with the default /tmp.
+ */
 static void which_tmpdir(void)
 {
 	int fd, found;
@@ -193,6 +220,10 @@ static int __init create_tmp_file(unsigned long long len)
 		exit(1);
 	}
 
+	/*
+	 * Seek to len - 1 because writing a character there will
+	 * increase the file size by one byte, to the desired length.
+	 */
 	if (lseek64(fd, len - 1, SEEK_SET) < 0) {
 		perror("lseek64");
 		exit(1);

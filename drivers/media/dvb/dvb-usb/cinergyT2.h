@@ -91,5 +91,5 @@ struct dvbt_set_parameters_msg {
 
 extern struct dvb_frontend *cinergyt2_fe_attach(struct dvb_usb_device *d);
 
-#endif 
+#endif /* _DVB_USB_CINERGYT2_H_ */
 

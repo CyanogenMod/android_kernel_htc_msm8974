@@ -37,34 +37,34 @@
 #define GTMDR_SPS(x)		((x) << 8)
 
 struct gtm_timers_regs {
-	u8	gtcfr1;		
+	u8	gtcfr1;		/* Timer 1, Timer 2 global config register */
 	u8	res0[0x3];
-	u8	gtcfr2;		
+	u8	gtcfr2;		/* Timer 3, timer 4 global config register */
 	u8	res1[0xB];
-	__be16	gtmdr1;		
-	__be16	gtmdr2;		
-	__be16	gtrfr1;		
-	__be16	gtrfr2;		
-	__be16	gtcpr1;		
-	__be16	gtcpr2;		
-	__be16	gtcnr1;		
-	__be16	gtcnr2;		
-	__be16	gtmdr3;		
-	__be16	gtmdr4;		
-	__be16	gtrfr3;		
-	__be16	gtrfr4;		
-	__be16	gtcpr3;		
-	__be16	gtcpr4;		
-	__be16	gtcnr3;		
-	__be16	gtcnr4;		
-	__be16	gtevr1;		
-	__be16	gtevr2;		
-	__be16	gtevr3;		
-	__be16	gtevr4;		
-	__be16	gtpsr1;		
-	__be16	gtpsr2;		
-	__be16	gtpsr3;		
-	__be16	gtpsr4;		
+	__be16	gtmdr1;		/* Timer 1 mode register */
+	__be16	gtmdr2;		/* Timer 2 mode register */
+	__be16	gtrfr1;		/* Timer 1 reference register */
+	__be16	gtrfr2;		/* Timer 2 reference register */
+	__be16	gtcpr1;		/* Timer 1 capture register */
+	__be16	gtcpr2;		/* Timer 2 capture register */
+	__be16	gtcnr1;		/* Timer 1 counter */
+	__be16	gtcnr2;		/* Timer 2 counter */
+	__be16	gtmdr3;		/* Timer 3 mode register */
+	__be16	gtmdr4;		/* Timer 4 mode register */
+	__be16	gtrfr3;		/* Timer 3 reference register */
+	__be16	gtrfr4;		/* Timer 4 reference register */
+	__be16	gtcpr3;		/* Timer 3 capture register */
+	__be16	gtcpr4;		/* Timer 4 capture register */
+	__be16	gtcnr3;		/* Timer 3 counter */
+	__be16	gtcnr4;		/* Timer 4 counter */
+	__be16	gtevr1;		/* Timer 1 event register */
+	__be16	gtevr2;		/* Timer 2 event register */
+	__be16	gtevr3;		/* Timer 3 event register */
+	__be16	gtevr4;		/* Timer 4 event register */
+	__be16	gtpsr1;		/* Timer 1 prescale register */
+	__be16	gtpsr2;		/* Timer 2 prescale register */
+	__be16	gtpsr3;		/* Timer 3 prescale register */
+	__be16	gtpsr4;		/* Timer 4 prescale register */
 	u8 res2[0x40];
 } __attribute__ ((packed));
 
@@ -78,6 +78,14 @@ struct gtm {
 
 static LIST_HEAD(gtms);
 
+/**
+ * gtm_get_timer - request GTM timer to use it with the rest of GTM API
+ * Context:	non-IRQ
+ *
+ * This function reserves GTM timer for later use. It returns gtm_timer
+ * structure to use with the rest of GTM API, you should use timer->irq
+ * to manage timer interrupt.
+ */
 struct gtm_timer *gtm_get_timer16(void)
 {
 	struct gtm *gtm = NULL;
@@ -103,6 +111,16 @@ struct gtm_timer *gtm_get_timer16(void)
 }
 EXPORT_SYMBOL(gtm_get_timer16);
 
+/**
+ * gtm_get_specific_timer - request specific GTM timer
+ * @gtm:	specific GTM, pass here GTM's device_node->data
+ * @timer:	specific timer number, Timer1 is 0.
+ * Context:	non-IRQ
+ *
+ * This function reserves GTM timer for later use. It returns gtm_timer
+ * structure to use with the rest of GTM API, you should use timer->irq
+ * to manage timer interrupt.
+ */
 struct gtm_timer *gtm_get_specific_timer16(struct gtm *gtm,
 					   unsigned int timer)
 {
@@ -125,6 +143,13 @@ out:
 }
 EXPORT_SYMBOL(gtm_get_specific_timer16);
 
+/**
+ * gtm_put_timer16 - release 16 bits GTM timer
+ * @tmr:	pointer to the gtm_timer structure obtained from gtm_get_timer
+ * Context:	any
+ *
+ * This function releases GTM timer so others may request it.
+ */
 void gtm_put_timer16(struct gtm_timer *tmr)
 {
 	gtm_stop_timer16(tmr);
@@ -135,6 +160,10 @@ void gtm_put_timer16(struct gtm_timer *tmr)
 }
 EXPORT_SYMBOL(gtm_put_timer16);
 
+/*
+ * This is back-end for the exported functions, it's used to reset single
+ * timer in reference mode.
+ */
 static int gtm_set_ref_timer16(struct gtm_timer *tmr, int frequency,
 			       int reference_value, bool free_run)
 {
@@ -147,11 +176,16 @@ static int gtm_set_ref_timer16(struct gtm_timer *tmr, int frequency,
 	unsigned long flags;
 	int max_prescaler = 256 * 256 * 16;
 
-	
+	/* CPM2 doesn't have primary prescaler */
 	if (!tmr->gtpsr)
 		max_prescaler /= 256;
 
 	prescaler = gtm->clock / frequency;
+	/*
+	 * We have two 8 bit prescalers -- primary and secondary (psr, sps),
+	 * plus "slow go" mode (clk / 16). So, total prescale value is
+	 * 16 * (psr + 1) * (sps + 1). Though, for CPM2 GTMs we losing psr.
+	 */
 	if (prescaler > max_prescaler)
 		return -EINVAL;
 
@@ -170,6 +204,10 @@ static int gtm_set_ref_timer16(struct gtm_timer *tmr, int frequency,
 
 	spin_lock_irqsave(&gtm->lock, flags);
 
+	/*
+	 * Properly reset timers: stop, reset, set up prescalers, reference
+	 * value and clear event register.
+	 */
 	clrsetbits_8(tmr->gtcfr, ~(GTCFR_STP(num) | GTCFR_RST(num)),
 				 GTCFR_STP(num) | GTCFR_RST(num));
 
@@ -183,7 +221,7 @@ static int gtm_set_ref_timer16(struct gtm_timer *tmr, int frequency,
 	out_be16(tmr->gtrfr, reference_value);
 	out_be16(tmr->gtevr, 0xFFFF);
 
-	
+	/* Let it be. */
 	clrbits8(tmr->gtcfr, GTCFR_STP(num));
 
 	spin_unlock_irqrestore(&gtm->lock, flags);
@@ -191,9 +229,22 @@ static int gtm_set_ref_timer16(struct gtm_timer *tmr, int frequency,
 	return 0;
 }
 
+/**
+ * gtm_set_timer16 - (re)set 16 bit timer with arbitrary precision
+ * @tmr:	pointer to the gtm_timer structure obtained from gtm_get_timer
+ * @usec:	timer interval in microseconds
+ * @reload:	if set, the timer will reset upon expiry rather than
+ *         	continue running free.
+ * Context:	any
+ *
+ * This function (re)sets the GTM timer so that it counts up to the requested
+ * interval value, and fires the interrupt when the value is reached. This
+ * function will reduce the precision of the timer as needed in order for the
+ * requested timeout to fit in a 16-bit register.
+ */
 int gtm_set_timer16(struct gtm_timer *tmr, unsigned long usec, bool reload)
 {
-	
+	/* quite obvious, frequency which is enough for µSec precision */
 	int freq = 1000000;
 	unsigned int bit;
 
@@ -210,16 +261,46 @@ int gtm_set_timer16(struct gtm_timer *tmr, unsigned long usec, bool reload)
 }
 EXPORT_SYMBOL(gtm_set_timer16);
 
+/**
+ * gtm_set_exact_utimer16 - (re)set 16 bits timer
+ * @tmr:	pointer to the gtm_timer structure obtained from gtm_get_timer
+ * @usec:	timer interval in microseconds
+ * @reload:	if set, the timer will reset upon expiry rather than
+ *         	continue running free.
+ * Context:	any
+ *
+ * This function (re)sets GTM timer so that it counts up to the requested
+ * interval value, and fires the interrupt when the value is reached. If reload
+ * flag was set, timer will also reset itself upon reference value, otherwise
+ * it continues to increment.
+ *
+ * The _exact_ bit in the function name states that this function will not
+ * crop precision of the "usec" argument, thus usec is limited to 16 bits
+ * (single timer width).
+ */
 int gtm_set_exact_timer16(struct gtm_timer *tmr, u16 usec, bool reload)
 {
-	
+	/* quite obvious, frequency which is enough for µSec precision */
 	const int freq = 1000000;
 
+	/*
+	 * We can lower the frequency (and probably power consumption) by
+	 * dividing both frequency and usec by 2 until there is no remainder.
+	 * But we won't bother with this unless savings are measured, so just
+	 * run the timer as is.
+	 */
 
 	return gtm_set_ref_timer16(tmr, freq, usec, reload);
 }
 EXPORT_SYMBOL(gtm_set_exact_timer16);
 
+/**
+ * gtm_stop_timer16 - stop single timer
+ * @tmr:	pointer to the gtm_timer structure obtained from gtm_get_timer
+ * Context:	any
+ *
+ * This function simply stops the GTM timer.
+ */
 void gtm_stop_timer16(struct gtm_timer *tmr)
 {
 	struct gtm *gtm = tmr->gtm;
@@ -235,6 +316,15 @@ void gtm_stop_timer16(struct gtm_timer *tmr)
 }
 EXPORT_SYMBOL(gtm_stop_timer16);
 
+/**
+ * gtm_ack_timer16 - acknowledge timer event (free-run timers only)
+ * @tmr:	pointer to the gtm_timer structure obtained from gtm_get_timer
+ * @events:	events mask to ack
+ * Context:	any
+ *
+ * Thus function used to acknowledge timer interrupt event, use it inside the
+ * interrupt handler.
+ */
 void gtm_ack_timer16(struct gtm_timer *tmr, u16 events)
 {
 	out_be16(tmr->gtevr, events);
@@ -245,6 +335,12 @@ static void __init gtm_set_shortcuts(struct device_node *np,
 				     struct gtm_timer *timers,
 				     struct gtm_timers_regs __iomem *regs)
 {
+	/*
+	 * Yeah, I don't like this either, but timers' registers a bit messed,
+	 * so we have to provide shortcuts to write timer independent code.
+	 * Alternative option is to create gt*() accessors, but that will be
+	 * even uglier and cryptic.
+	 */
 	timers[0].gtcfr = &regs->gtcfr1;
 	timers[0].gtmdr = &regs->gtmdr1;
 	timers[0].gtcnr = &regs->gtcnr1;
@@ -269,7 +365,7 @@ static void __init gtm_set_shortcuts(struct device_node *np,
 	timers[3].gtrfr = &regs->gtrfr4;
 	timers[3].gtevr = &regs->gtevr4;
 
-	
+	/* CPM2 doesn't have primary prescaler */
 	if (!of_device_is_compatible(np, "fsl,cpm2-gtm")) {
 		timers[0].gtpsr = &regs->gtpsr1;
 		timers[1].gtpsr = &regs->gtpsr2;
@@ -328,7 +424,7 @@ static int __init fsl_gtm_init(void)
 		gtm_set_shortcuts(np, gtm->timers, gtm->regs);
 		list_add(&gtm->list_node, &gtms);
 
-		
+		/* We don't want to lose the node and its ->data */
 		np->data = gtm;
 		of_node_get(np);
 

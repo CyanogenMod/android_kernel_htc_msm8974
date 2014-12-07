@@ -35,17 +35,22 @@
 #include <inat.c>
 #include <insn.c>
 
+/*
+ * Test of instruction analysis against tampering.
+ * Feed random binary to instruction decoder and ensure not to
+ * access out-of-instruction-buffer.
+ */
 
 #define DEFAULT_MAX_ITER	10000
 #define INSN_NOP 0x90
 
-static const char	*prog;		
-static int		verbose;	
-static int		x86_64;		
-static unsigned int	seed;		
-static unsigned long	iter_start;	
-static unsigned long	iter_end = DEFAULT_MAX_ITER;	
-static FILE		*input_file;	
+static const char	*prog;		/* Program name */
+static int		verbose;	/* Verbosity */
+static int		x86_64;		/* x86-64 bit mode flag */
+static unsigned int	seed;		/* Random seed */
+static unsigned long	iter_start;	/* Start of iteration number */
+static unsigned long	iter_end = DEFAULT_MAX_ITER;	/* End of iteration number */
+static FILE		*input_file;	/* Input file name */
 
 static void usage(const char *err)
 {
@@ -101,7 +106,7 @@ static void dump_stream(FILE *fp, const char *msg, unsigned long nr_iter,
 
 	fprintf(fp, "You can reproduce this with below command(s);\n");
 
-	
+	/* Input a decoded instruction sequence directly */
 	fprintf(fp, " $ echo ");
 	for (i = 0; i < MAX_INSN_SIZE; i++)
 		fprintf(fp, " %02x", insn_buf[i]);
@@ -109,7 +114,7 @@ static void dump_stream(FILE *fp, const char *msg, unsigned long nr_iter,
 
 	if (!input_file) {
 		fprintf(fp, "Or \n");
-		
+		/* Give a seed and iteration number */
 		fprintf(fp, " $ %s -s 0x%x,%lu\n", prog, seed, nr_iter);
 	}
 }
@@ -131,6 +136,7 @@ fail:
 	usage("Failed to open /dev/urandom");
 }
 
+/* Read given instruction sequence from the input file */
 static int read_next_insn(unsigned char *insn_buf)
 {
 	char buf[256]  = "", *tmp;
@@ -156,7 +162,7 @@ static int generate_insn(unsigned char *insn_buf)
 	if (input_file)
 		return read_next_insn(insn_buf);
 
-	
+	/* Fills buffer with random binary up to MAX_INSN_SIZE */
 	for (i = 0; i < MAX_INSN_SIZE - 1; i += 2)
 		*(unsigned short *)(&insn_buf[i]) = random() & 0xffff;
 
@@ -212,16 +218,16 @@ static void parse_args(int argc, char **argv)
 		}
 	}
 
-	
+	/* Check errors */
 	if (iter_end < iter_start)
 		usage("Max iteration number must be bigger than iter-num");
 
 	if (set_seed && input_file)
 		usage("Don't use input file (-i) with random seed (-s)");
 
-	
+	/* Initialize random seed */
 	if (!input_file) {
-		if (!set_seed)	
+		if (!set_seed)	/* No seed is given */
 			init_random_seed();
 		srand(seed);
 	}
@@ -237,23 +243,23 @@ int main(int argc, char **argv)
 
 	parse_args(argc, argv);
 
-	
+	/* Prepare stop bytes with NOPs */
 	memset(insn_buf + MAX_INSN_SIZE, INSN_NOP, MAX_INSN_SIZE);
 
 	for (i = 0; i < iter_end; i++) {
 		if (generate_insn(insn_buf) <= 0)
 			break;
 
-		if (i < iter_start)	
+		if (i < iter_start)	/* Skip to given iteration number */
 			continue;
 
-		
+		/* Decode an instruction */
 		insn_init(&insn, insn_buf, x86_64);
 		insn_get_length(&insn);
 
 		if (insn.next_byte <= insn.kaddr ||
 		    insn.kaddr + MAX_INSN_SIZE < insn.next_byte) {
-			
+			/* Access out-of-range memory */
 			dump_stream(stderr, "Error: Found an access violation", i, insn_buf, &insn);
 			errors++;
 		} else if (verbose && !insn_complete(&insn))

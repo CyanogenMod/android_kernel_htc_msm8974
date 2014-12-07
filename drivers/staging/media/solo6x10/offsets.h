@@ -20,6 +20,7 @@
 #ifndef __SOLO6X10_OFFSETS_H
 #define __SOLO6X10_OFFSETS_H
 
+/* Offsets and sizes of the external address */
 #define SOLO_DISP_EXT_ADDR			0x00000000
 #define SOLO_DISP_EXT_SIZE			0x00480000
 
@@ -45,6 +46,7 @@
 #define SOLO_CAP_EXT_MAX_PAGE			(18 + 15)
 #define SOLO_CAP_EXT_SIZE			(SOLO_CAP_EXT_MAX_PAGE * 65536)
 
+/* This +1 is very important -- Why?! -- BenC */
 #define SOLO_EREF_EXT_ADDR(__solo) \
 		(SOLO_CAP_EXT_ADDR(__solo) + \
 		 (SOLO_CAP_EXT_SIZE * (__solo->nr_chans + 1)))
@@ -69,4 +71,4 @@
 		 (SOLO_MP4D_EXT_SIZE * __solo->nr_chans))
 #define SOLO_JPEG_EXT_SIZE(__solo)		(0x00080000 * __solo->nr_chans)
 
-#endif 
+#endif /* __SOLO6X10_OFFSETS_H */

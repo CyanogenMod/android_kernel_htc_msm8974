@@ -1,3 +1,12 @@
+/*
+ * This program is used to generate definitions needed by
+ * assembly language modules.
+ *
+ * We use the technique used in the OSF Mach kernel code:
+ * generate asm statements containing #defines,
+ * compile this file to assembler, and then extract the
+ * #defines from the assembly-language output.
+ */
 
 #include <linux/stddef.h>
 #include <linux/sched.h>
@@ -11,7 +20,7 @@
 
 int main(void)
 {
-	
+	/* offsets into the task struct */
 	DEFINE(TASK_STATE, offsetof(struct task_struct, state));
 	DEFINE(TASK_FLAGS, offsetof(struct task_struct, flags));
 	DEFINE(TASK_PTRACE, offsetof(struct task_struct, ptrace));
@@ -21,15 +30,15 @@ int main(void)
 	DEFINE(TASK_MM, offsetof(struct task_struct, mm));
 	DEFINE(TASK_ACTIVE_MM, offsetof(struct task_struct, active_mm));
 
-	
+	/* offsets into the irq_cpustat_t struct */
 	DEFINE(CPUSTAT_SOFTIRQ_PENDING, offsetof(irq_cpustat_t, __softirq_pending));
 
-	
+	/* offsets into the thread struct */
 	DEFINE(THREAD_KSP, offsetof(struct thread_struct, ksp));
 	DEFINE(THREAD_USP, offsetof(struct thread_struct, usp));
 	DEFINE(THREAD_CCR, offsetof(struct thread_struct, ccr));
 
-	
+	/* offsets into the pt_regs struct */
 	DEFINE(LER0,  offsetof(struct pt_regs, er0)      - sizeof(long));
 	DEFINE(LER1,  offsetof(struct pt_regs, er1)      - sizeof(long));
 	DEFINE(LER2,  offsetof(struct pt_regs, er2)      - sizeof(long));

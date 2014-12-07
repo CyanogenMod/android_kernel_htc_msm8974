@@ -1,3 +1,8 @@
+/*
+ * Functions for saving/restoring console.
+ *
+ * Originally from swsusp.
+ */
 
 #include <linux/vt_kern.h>
 #include <linux/kbd_kern.h>

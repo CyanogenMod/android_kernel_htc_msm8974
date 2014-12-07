@@ -22,7 +22,7 @@
 static void __iomem *scu_base;
 
 static struct map_desc scu_io_desc __initdata = {
-	
+	/* .virtual and .pfn are run-time assigned */
 	.length		= SZ_4K,
 	.type		= MT_DEVICE,
 };
@@ -31,7 +31,7 @@ void __init imx_scu_map_io(void)
 {
 	unsigned long base;
 
-	
+	/* Get SCU base */
 	asm("mrc p15, 4, %0, c15, c0, 0" : "=r" (base));
 
 	scu_io_desc.virtual = IMX_IO_P2V(base);
@@ -43,6 +43,11 @@ void __init imx_scu_map_io(void)
 
 void __cpuinit platform_secondary_init(unsigned int cpu)
 {
+	/*
+	 * if any interrupts are already enabled for the primary
+	 * core (e.g. timer irq), then they will not have been enabled
+	 * for us: do so
+	 */
 	gic_secondary_init(0);
 }
 
@@ -53,6 +58,10 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 	return 0;
 }
 
+/*
+ * Initialise the CPU possible map early - this describes the CPUs
+ * which may be present or become present in the system.
+ */
 void __init smp_init_cpus(void)
 {
 	int i, ncores;

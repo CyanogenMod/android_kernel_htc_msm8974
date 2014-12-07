@@ -149,19 +149,30 @@ static int __devinit sh_mobile_sdhi_probe(struct platform_device *pdev)
 			priv->param_rx.slave_id = p->dma_slave_rx;
 			priv->dma_priv.chan_priv_tx = &priv->param_tx;
 			priv->dma_priv.chan_priv_rx = &priv->param_rx;
-			priv->dma_priv.alignment_shift = 1; 
+			priv->dma_priv.alignment_shift = 1; /* 2-byte alignment */
 			mmc_data->dma = &priv->dma_priv;
 		}
 	}
 
+	/*
+	 * All SDHI blocks support 2-byte and larger block sizes in 4-bit
+	 * bus width mode.
+	 */
 	mmc_data->flags |= TMIO_MMC_BLKSZ_2BYTES;
 
+	/*
+	 * All SDHI blocks support SDIO IRQ signalling.
+	 */
 	mmc_data->flags |= TMIO_MMC_SDIO_IRQ;
 
 	ret = tmio_mmc_host_probe(&host, pdev, mmc_data);
 	if (ret < 0)
 		goto eprobe;
 
+	/*
+	 * Allow one or more specific (named) ISRs or
+	 * one or more multiplexed (un-named) ISRs.
+	 */
 
 	irq = platform_get_irq_byname(pdev, SH_MOBILE_SDHI_IRQ_CARD_DETECT);
 	if (irq >= 0) {
@@ -207,7 +218,7 @@ static int __devinit sh_mobile_sdhi_probe(struct platform_device *pdev)
 				goto eirq_multiplexed;
 		}
 
-		
+		/* There must be at least one IRQ source */
 		if (!i)
 			goto eirq_multiplexed;
 	}

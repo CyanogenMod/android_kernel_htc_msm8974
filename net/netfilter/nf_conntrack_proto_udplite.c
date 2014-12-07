@@ -59,6 +59,7 @@ static bool udplite_invert_tuple(struct nf_conntrack_tuple *tuple,
 	return true;
 }
 
+/* Print out the per-protocol part of the tuple. */
 static int udplite_print_tuple(struct seq_file *s,
 			       const struct nf_conntrack_tuple *tuple)
 {
@@ -72,6 +73,7 @@ static unsigned int *udplite_get_timeouts(struct net *net)
 	return udplite_timeouts;
 }
 
+/* Returns verdict for packet, and may modify conntracktype */
 static int udplite_packet(struct nf_conn *ct,
 			  const struct sk_buff *skb,
 			  unsigned int dataoff,
@@ -80,10 +82,12 @@ static int udplite_packet(struct nf_conn *ct,
 			  unsigned int hooknum,
 			  unsigned int *timeouts)
 {
+	/* If we've seen traffic both ways, this is some kind of UDP
+	   stream.  Extend timeout. */
 	if (test_bit(IPS_SEEN_REPLY_BIT, &ct->status)) {
 		nf_ct_refresh_acct(ct, ctinfo, skb,
 				   timeouts[UDPLITE_CT_REPLIED]);
-		
+		/* Also, more likely to be important, and not a probe */
 		if (!test_and_set_bit(IPS_ASSURED_BIT, &ct->status))
 			nf_conntrack_event_cache(IPCT_ASSURED, ct);
 	} else {
@@ -93,6 +97,7 @@ static int udplite_packet(struct nf_conn *ct,
 	return NF_ACCEPT;
 }
 
+/* Called when a new connection for this protocol found. */
 static bool udplite_new(struct nf_conn *ct, const struct sk_buff *skb,
 			unsigned int dataoff, unsigned int *timeouts)
 {
@@ -111,7 +116,7 @@ static int udplite_error(struct net *net, struct nf_conn *tmpl,
 	struct udphdr _hdr;
 	unsigned int cscov;
 
-	
+	/* Header is too small? */
 	hdr = skb_header_pointer(skb, dataoff, sizeof(_hdr), &_hdr);
 	if (hdr == NULL) {
 		if (LOG_INVALID(net, IPPROTO_UDPLITE))
@@ -130,7 +135,7 @@ static int udplite_error(struct net *net, struct nf_conn *tmpl,
 		return -NF_ACCEPT;
 	}
 
-	
+	/* UDPLITE mandates checksums */
 	if (!hdr->check) {
 		if (LOG_INVALID(net, IPPROTO_UDPLITE))
 			nf_log_packet(pf, 0, skb, NULL, NULL, NULL,
@@ -138,7 +143,7 @@ static int udplite_error(struct net *net, struct nf_conn *tmpl,
 		return -NF_ACCEPT;
 	}
 
-	
+	/* Checksum invalid? Ignore. */
 	if (net->ct.sysctl_checksum && hooknum == NF_INET_PRE_ROUTING &&
 	    nf_checksum_partial(skb, hooknum, dataoff, cscov, IPPROTO_UDP,
 	    			pf)) {
@@ -160,7 +165,7 @@ static int udplite_timeout_nlattr_to_obj(struct nlattr *tb[], void *data)
 {
 	unsigned int *timeouts = data;
 
-	
+	/* set default timeouts for UDPlite. */
 	timeouts[UDPLITE_CT_UNREPLIED] = udplite_timeouts[UDPLITE_CT_UNREPLIED];
 	timeouts[UDPLITE_CT_REPLIED] = udplite_timeouts[UDPLITE_CT_REPLIED];
 
@@ -195,7 +200,7 @@ udplite_timeout_nla_policy[CTA_TIMEOUT_UDPLITE_MAX+1] = {
 	[CTA_TIMEOUT_UDPLITE_UNREPLIED]	= { .type = NLA_U32 },
 	[CTA_TIMEOUT_UDPLITE_REPLIED]	= { .type = NLA_U32 },
 };
-#endif 
+#endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 
 #ifdef CONFIG_SYSCTL
 static unsigned int udplite_sysctl_table_users;
@@ -217,7 +222,7 @@ static struct ctl_table udplite_sysctl_table[] = {
 	},
 	{ }
 };
-#endif 
+#endif /* CONFIG_SYSCTL */
 
 static struct nf_conntrack_l4proto nf_conntrack_l4proto_udplite4 __read_mostly =
 {
@@ -246,7 +251,7 @@ static struct nf_conntrack_l4proto nf_conntrack_l4proto_udplite4 __read_mostly =
 					CTA_TIMEOUT_UDPLITE_MAX,
 		.nla_policy	= udplite_timeout_nla_policy,
 	},
-#endif 
+#endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 #ifdef CONFIG_SYSCTL
 	.ctl_table_users	= &udplite_sysctl_table_users,
 	.ctl_table_header	= &udplite_sysctl_header,
@@ -281,7 +286,7 @@ static struct nf_conntrack_l4proto nf_conntrack_l4proto_udplite6 __read_mostly =
 					CTA_TIMEOUT_UDPLITE_MAX,
 		.nla_policy	= udplite_timeout_nla_policy,
 	},
-#endif 
+#endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 #ifdef CONFIG_SYSCTL
 	.ctl_table_users	= &udplite_sysctl_table_users,
 	.ctl_table_header	= &udplite_sysctl_header,

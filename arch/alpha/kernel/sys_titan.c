@@ -37,11 +37,23 @@
 #include "err_impl.h"
 
 
+/*
+ * Titan generic
+ */
 
+/*
+ * Titan supports up to 4 CPUs
+ */
 static unsigned long titan_cpu_irq_affinity[4] = { ~0UL, ~0UL, ~0UL, ~0UL };
 
+/*
+ * Mask is set (1) if enabled
+ */
 static unsigned long titan_cached_irq_mask;
 
+/*
+ * Need SMP-safe access to interrupt CSRs
+ */
 DEFINE_SPINLOCK(titan_irq_lock);
 
 static void
@@ -183,7 +195,10 @@ static struct irq_chip titan_irq_type = {
 static irqreturn_t
 titan_intr_nop(int irq, void *dev_id)
 {
-                                                                     
+      /*
+       * This is a NOP interrupt handler for the purposes of
+       * event counting -- just return.
+       */                                                                     
        return IRQ_HANDLED;
 }
 
@@ -203,16 +218,16 @@ titan_init_irq(void)
 static void __init
 titan_legacy_init_irq(void)
 {
-	
+	/* init the legacy dma controller */
 	outb(0, DMA1_RESET_REG);
 	outb(0, DMA2_RESET_REG);
 	outb(DMA_MODE_CASCADE, DMA2_MODE_REG);
 	outb(0, DMA2_MASK_REG);
 
-	
+	/* init the legacy irq controller */
 	init_i8259a_irqs();
 
-	
+	/* init the titan irqs */
 	titan_init_irq();
 }
 
@@ -221,20 +236,29 @@ titan_dispatch_irqs(u64 mask)
 {
 	unsigned long vector;
 
+	/*
+	 * Mask down to those interrupts which are enable on this processor
+	 */
 	mask &= titan_cpu_irq_affinity[smp_processor_id()];
 
+	/*
+	 * Dispatch all requested interrupts 
+	 */
 	while (mask) {
-		
+		/* convert to SRM vector... priority is <63> -> <0> */
 		vector = 63 - __kernel_ctlz(mask);
-		mask &= ~(1UL << vector);	
-		vector = 0x900 + (vector << 4);	
+		mask &= ~(1UL << vector);	/* clear it out 	 */
+		vector = 0x900 + (vector << 4);	/* convert to SRM vector */
 		
-		
+		/* dispatch it */
 		alpha_mv.device_interrupt(vector);
 	}
 }
   
 
+/*
+ * Titan Family
+ */
 static void __init
 titan_request_irq(unsigned int irq, irq_handler_t handler,
 		  unsigned long irqflags, const char *devname,
@@ -251,6 +275,11 @@ titan_request_irq(unsigned int irq, irq_handler_t handler,
 static void __init
 titan_late_init(void)
 {
+	/*
+	 * Enable the system error interrupts. These interrupts are 
+	 * all reported to the kernel as machine checks, so the handler
+	 * is a nop so it can be called to count the individual events.
+	 */
 	titan_request_irq(63+16, titan_intr_nop, IRQF_DISABLED,
 		    "CChip Error", NULL);
 	titan_request_irq(62+16, titan_intr_nop, IRQF_DISABLED,
@@ -262,8 +291,14 @@ titan_late_init(void)
 	titan_request_irq(59+16, titan_intr_nop, IRQF_DISABLED,
 		    "PChip 1 C_Error", NULL);
 
+	/* 
+	 * Register our error handlers.
+	 */
 	titan_register_error_handlers();
 
+	/*
+	 * Check if the console left us any error logs.
+	 */
 	cdl_check_console_data_log();
 
 }
@@ -274,24 +309,28 @@ titan_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	u8 intline;
 	int irq;
 
- 	
+ 	/* Get the current intline.  */
 	pci_read_config_byte(dev, PCI_INTERRUPT_LINE, &intline);
 	irq = intline;
 
- 	
+ 	/* Is it explicitly routed through ISA?  */
  	if ((irq & 0xF0) == 0xE0)
  		return irq;
  
- 	
+ 	/* Offset by 16 to make room for ISA interrupts 0 - 15.  */
  	return irq + 16;
 }
 
 static void __init
 titan_init_pci(void)
 {
+ 	/*
+ 	 * This isn't really the right place, but there's some init
+ 	 * that needs to be done after everything is basically up.
+ 	 */
  	titan_late_init();
  
-	
+	/* Indicate that we trust the console to configure things properly */
 	pci_set_flags(PCI_PROBE_ONLY);
 	common_init_pci();
 	SMC669_Init(0);
@@ -299,18 +338,31 @@ titan_init_pci(void)
 }
 
 
+/*
+ * Privateer
+ */
 static void __init
 privateer_init_pci(void)
 {
+	/*
+	 * Hook a couple of extra err interrupts that the
+	 * common titan code won't.
+	 */
 	titan_request_irq(53+16, titan_intr_nop, IRQF_DISABLED,
 		    "NMI", NULL);
 	titan_request_irq(50+16, titan_intr_nop, IRQF_DISABLED,
 		    "Temperature Warning", NULL);
 
+	/*
+	 * Finish with the common version.
+	 */
 	return titan_init_pci();
 }
 
 
+/*
+ * The System Vectors.
+ */
 struct alpha_machine_vector titan_mv __initmv = {
 	.vector_name		= "TITAN",
 	DO_EV6_MMU,
@@ -322,8 +374,8 @@ struct alpha_machine_vector titan_mv __initmv = {
 	.min_mem_address	= DEFAULT_MEM_BASE,
 	.pci_dac_offset		= TITAN_DAC_OFFSET,
 
-	.nr_irqs		= 80,	
-	
+	.nr_irqs		= 80,	/* 64 + 16 */
+	/* device_interrupt will be filled in by titan_init_irq */
 
 	.agp_info		= titan_agp_info,
 
@@ -349,8 +401,8 @@ struct alpha_machine_vector privateer_mv __initmv = {
 	.min_mem_address	= DEFAULT_MEM_BASE,
 	.pci_dac_offset		= TITAN_DAC_OFFSET,
 
-	.nr_irqs		= 80,	
-	
+	.nr_irqs		= 80,	/* 64 + 16 */
+	/* device_interrupt will be filled in by titan_init_irq */
 
 	.agp_info		= titan_agp_info,
 
@@ -363,3 +415,5 @@ struct alpha_machine_vector privateer_mv __initmv = {
 	.pci_map_irq		= titan_map_irq,
 	.pci_swizzle		= common_swizzle,
 };
+/* No alpha_mv alias for privateer since we compile it 
+   in unconditionally with titan; setup_arch knows how to cope. */

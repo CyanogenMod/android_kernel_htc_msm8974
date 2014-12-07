@@ -3,4 +3,4 @@
 
 #include <asm-generic/types.h>
 
-#endif 
+#endif /* _ASM_X86_TYPES_H */

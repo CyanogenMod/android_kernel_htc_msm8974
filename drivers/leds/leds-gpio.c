@@ -62,6 +62,10 @@ static void gpio_led_set(struct led_classdev *led_cdev,
 	if (led_dat->active_low)
 		level = !level;
 
+	/* Setting GPIOs with I2C/etc requires a task context, and we don't
+	 * seem to have a reliable way to know if we're already in one; so
+	 * let's just assume the worst.
+	 */
 	if (led_dat->can_sleep) {
 		led_dat->new_level = level;
 		schedule_work(&led_dat->work);
@@ -94,7 +98,7 @@ static int __devinit create_gpio_led(const struct gpio_led *template,
 
 	led_dat->gpio = -1;
 
-	
+	/* skip leds that aren't available */
 	if (!gpio_is_valid(template->gpio)) {
 		printk(KERN_INFO "Skipping unavailable LED gpio %d (%s)\n",
 				template->gpio, template->name);
@@ -160,6 +164,7 @@ static inline int sizeof_gpio_leds_priv(int num_leds)
 		(sizeof(struct gpio_led_data) * num_leds);
 }
 
+/* Code to create from OpenFirmware platform devices */
 #ifdef CONFIG_OF_GPIO
 static struct gpio_leds_priv * __devinit gpio_leds_create_of(struct platform_device *pdev)
 {
@@ -167,7 +172,7 @@ static struct gpio_leds_priv * __devinit gpio_leds_create_of(struct platform_dev
 	struct gpio_leds_priv *priv;
 	int count = 0, ret;
 
-	
+	/* count LEDs in this device, so we know how much to allocate */
 	for_each_child_of_node(np, child)
 		count++;
 	if (!count)
@@ -218,13 +223,13 @@ static const struct of_device_id of_gpio_leds_match[] = {
 	{ .compatible = "gpio-leds", },
 	{},
 };
-#else 
+#else /* CONFIG_OF_GPIO */
 static struct gpio_leds_priv * __devinit gpio_leds_create_of(struct platform_device *pdev)
 {
 	return NULL;
 }
 #define of_gpio_leds_match NULL
-#endif 
+#endif /* CONFIG_OF_GPIO */
 
 
 static int __devinit gpio_led_probe(struct platform_device *pdev)
@@ -245,7 +250,7 @@ static int __devinit gpio_led_probe(struct platform_device *pdev)
 					      &priv->leds[i],
 					      &pdev->dev, pdata->gpio_blink_set);
 			if (ret < 0) {
-				
+				/* On failure: unwind the led creations */
 				for (i = i - 1; i >= 0; i--)
 					delete_gpio_led(&priv->leds[i]);
 				kfree(priv);

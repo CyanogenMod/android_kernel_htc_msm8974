@@ -75,7 +75,7 @@ static int __devinit dwc3_exynos_probe(struct platform_device *pdev)
 
 	clk_enable(exynos->clk);
 
-	
+	/* PHY initialization */
 	if (!pdata) {
 		dev_dbg(&pdev->dev, "missing platform data\n");
 	} else {

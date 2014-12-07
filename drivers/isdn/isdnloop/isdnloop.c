@@ -27,6 +27,13 @@ MODULE_PARM_DESC(isdnloop_id, "ID-String of first card");
 
 static int isdnloop_addcard(char *);
 
+/*
+ * Free queue completely.
+ *
+ * Parameter:
+ *   card    = pointer to card struct
+ *   channel = channel number
+ */
 static void
 isdnloop_free_queue(isdnloop_card *card, int channel)
 {
@@ -36,6 +43,14 @@ isdnloop_free_queue(isdnloop_card *card, int channel)
 	card->sndcount[channel] = 0;
 }
 
+/*
+ * Send B-Channel data to another virtual card.
+ * This routine is called via timer-callback from isdnloop_pollbchan().
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ *   ch   = channel number (0-based)
+ */
 static void
 isdnloop_bchan_send(isdnloop_card *card, int ch)
 {
@@ -48,7 +63,7 @@ isdnloop_bchan_send(isdnloop_card *card, int ch)
 		if ((skb = skb_dequeue(&card->bqueue[ch]))) {
 			len = skb->len;
 			card->sndcount[ch] -= len;
-			ack = *(skb->head); 
+			ack = *(skb->head); /* used as scratch area */
 			cmd.driver = card->myid;
 			cmd.arg = ch;
 			if (rcard) {
@@ -66,6 +81,14 @@ isdnloop_bchan_send(isdnloop_card *card, int ch)
 	}
 }
 
+/*
+ * Send/Receive Data to/from the B-Channel.
+ * This routine is called via timer-callback.
+ * It schedules itself while any B-Channel is open.
+ *
+ * Parameter:
+ *   data = pointer to card struct, set by kernel timer.data
+ */
 static void
 isdnloop_pollbchan(unsigned long data)
 {
@@ -77,7 +100,7 @@ isdnloop_pollbchan(unsigned long data)
 	if (card->flags & ISDNLOOP_FLAGS_B2ACTIVE)
 		isdnloop_bchan_send(card, 1);
 	if (card->flags & (ISDNLOOP_FLAGS_B1ACTIVE | ISDNLOOP_FLAGS_B2ACTIVE)) {
-		
+		/* schedule b-channel polling again */
 		spin_lock_irqsave(&card->isdnloop_lock, flags);
 		card->rb_timer.expires = jiffies + ISDNLOOP_TIMER_BCREAD;
 		add_timer(&card->rb_timer);
@@ -87,6 +110,14 @@ isdnloop_pollbchan(unsigned long data)
 		card->flags &= ~ISDNLOOP_FLAGS_RBTIMER;
 }
 
+/*
+ * Parse ICN-type setup string and fill fields of setup-struct
+ * with parsed data.
+ *
+ * Parameter:
+ *   setup = setup string, format: [caller-id],si1,si2,[called-id]
+ *   cmd   = pointer to struct to be filled.
+ */
 static void
 isdnloop_parse_setup(char *setup, isdn_ctrl *cmd)
 {
@@ -118,27 +149,39 @@ typedef struct isdnloop_stat {
 	int command;
 	int action;
 } isdnloop_stat;
+/* *INDENT-OFF* */
 static isdnloop_stat isdnloop_stat_table[] =
 {
-	{"BCON_",          ISDN_STAT_BCONN, 1}, 
-	{"BDIS_",          ISDN_STAT_BHUP,  2}, 
-	{"DCON_",          ISDN_STAT_DCONN, 0}, 
-	{"DDIS_",          ISDN_STAT_DHUP,  0}, 
-	{"DCAL_I",         ISDN_STAT_ICALL, 3}, 
-	{"DSCA_I",         ISDN_STAT_ICALL, 3}, 
-	{"FCALL",          ISDN_STAT_ICALL, 4}, 
-	{"CIF",            ISDN_STAT_CINF,  5}, 
-	{"AOC",            ISDN_STAT_CINF,  6}, 
-	{"CAU",            ISDN_STAT_CAUSE, 7}, 
-	{"TEI OK",         ISDN_STAT_RUN,   0}, 
-	{"E_L1: ACT FAIL", ISDN_STAT_BHUP,  8}, 
-	{"E_L2: DATA LIN", ISDN_STAT_BHUP,  8}, 
+	{"BCON_",          ISDN_STAT_BCONN, 1}, /* B-Channel connected        */
+	{"BDIS_",          ISDN_STAT_BHUP,  2}, /* B-Channel disconnected     */
+	{"DCON_",          ISDN_STAT_DCONN, 0}, /* D-Channel connected        */
+	{"DDIS_",          ISDN_STAT_DHUP,  0}, /* D-Channel disconnected     */
+	{"DCAL_I",         ISDN_STAT_ICALL, 3}, /* Incoming call dialup-line  */
+	{"DSCA_I",         ISDN_STAT_ICALL, 3}, /* Incoming call 1TR6-SPV     */
+	{"FCALL",          ISDN_STAT_ICALL, 4}, /* Leased line connection up  */
+	{"CIF",            ISDN_STAT_CINF,  5}, /* Charge-info, 1TR6-type     */
+	{"AOC",            ISDN_STAT_CINF,  6}, /* Charge-info, DSS1-type     */
+	{"CAU",            ISDN_STAT_CAUSE, 7}, /* Cause code                 */
+	{"TEI OK",         ISDN_STAT_RUN,   0}, /* Card connected to wallplug */
+	{"E_L1: ACT FAIL", ISDN_STAT_BHUP,  8}, /* Layer-1 activation failed  */
+	{"E_L2: DATA LIN", ISDN_STAT_BHUP,  8}, /* Layer-2 data link lost     */
 	{"E_L1: ACTIVATION FAILED",
-	 ISDN_STAT_BHUP,  8},         
+	 ISDN_STAT_BHUP,  8},         /* Layer-1 activation failed  */
 	{NULL, 0, -1}
 };
+/* *INDENT-ON* */
 
 
+/*
+ * Parse Status message-strings from virtual card.
+ * Depending on status, call statcallb for sending messages to upper
+ * levels. Also set/reset B-Channel active-flags.
+ *
+ * Parameter:
+ *   status  = status string to parse.
+ *   channel = channel where message comes from.
+ *   card    = card where message comes from.
+ */
 static void
 isdnloop_parse_status(u_char *status, int channel, isdnloop_card *card)
 {
@@ -160,22 +203,22 @@ isdnloop_parse_status(u_char *status, int channel, isdnloop_card *card)
 	cmd.arg = channel;
 	switch (action) {
 	case 1:
-		
+		/* BCON_x */
 		card->flags |= (channel) ?
 			ISDNLOOP_FLAGS_B2ACTIVE : ISDNLOOP_FLAGS_B1ACTIVE;
 		break;
 	case 2:
-		
+		/* BDIS_x */
 		card->flags &= ~((channel) ?
 				 ISDNLOOP_FLAGS_B2ACTIVE : ISDNLOOP_FLAGS_B1ACTIVE);
 		isdnloop_free_queue(card, channel);
 		break;
 	case 3:
-		
+		/* DCAL_I and DSCA_I */
 		isdnloop_parse_setup(status + 6, &cmd);
 		break;
 	case 4:
-		
+		/* FCALL */
 		sprintf(cmd.parm.setup.phone, "LEASED%d", card->myid);
 		sprintf(cmd.parm.setup.eazmsn, "%d", channel + 1);
 		cmd.parm.setup.si1 = 7;
@@ -184,16 +227,16 @@ isdnloop_parse_status(u_char *status, int channel, isdnloop_card *card)
 		cmd.parm.setup.screen = 0;
 		break;
 	case 5:
-		
+		/* CIF */
 		strlcpy(cmd.parm.num, status + 3, sizeof(cmd.parm.num));
 		break;
 	case 6:
-		
+		/* AOC */
 		snprintf(cmd.parm.num, sizeof(cmd.parm.num), "%d",
 			 (int) simple_strtoul(status + 7, NULL, 16));
 		break;
 	case 7:
-		
+		/* CAU */
 		status += 3;
 		if (strlen(status) == 4)
 			snprintf(cmd.parm.num, sizeof(cmd.parm.num), "%s%c%c",
@@ -202,7 +245,7 @@ isdnloop_parse_status(u_char *status, int channel, isdnloop_card *card)
 			strlcpy(cmd.parm.num, status + 1, sizeof(cmd.parm.num));
 		break;
 	case 8:
-		
+		/* Misc Errors on L1 and L2 */
 		card->flags &= ~ISDNLOOP_FLAGS_B1ACTIVE;
 		isdnloop_free_queue(card, 0);
 		cmd.arg = 0;
@@ -226,6 +269,13 @@ isdnloop_parse_status(u_char *status, int channel, isdnloop_card *card)
 	card->interface.statcallb(&cmd);
 }
 
+/*
+ * Store a cwcharacter into ringbuffer for reading from /dev/isdnctrl
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ *   c    = char to store.
+ */
 static void
 isdnloop_putmsg(isdnloop_card *card, unsigned char c)
 {
@@ -242,6 +292,19 @@ isdnloop_putmsg(isdnloop_card *card, unsigned char c)
 	spin_unlock_irqrestore(&card->isdnloop_lock, flags);
 }
 
+/*
+ * Poll a virtual cards message queue.
+ * If there are new status-replies from the card, copy them to
+ * ringbuffer for reading on /dev/isdnctrl and call
+ * isdnloop_parse_status() for processing them. Watch for special
+ * Firmware bootmessage and parse it, to get the D-Channel protocol.
+ * If there are B-Channels open, initiate a timer-callback to
+ * isdnloop_pollbchan().
+ * This routine is called periodically via timer interrupt.
+ *
+ * Parameter:
+ *   data = pointer to card struct
+ */
 static void
 isdnloop_polldchan(unsigned long data)
 {
@@ -306,7 +369,7 @@ isdnloop_polldchan(unsigned long data)
 	}
 	if (card->flags & (ISDNLOOP_FLAGS_B1ACTIVE | ISDNLOOP_FLAGS_B2ACTIVE))
 		if (!(card->flags & ISDNLOOP_FLAGS_RBTIMER)) {
-			
+			/* schedule b-channel polling */
 			card->flags |= ISDNLOOP_FLAGS_RBTIMER;
 			spin_lock_irqsave(&card->isdnloop_lock, flags);
 			del_timer(&card->rb_timer);
@@ -316,13 +379,23 @@ isdnloop_polldchan(unsigned long data)
 			add_timer(&card->rb_timer);
 			spin_unlock_irqrestore(&card->isdnloop_lock, flags);
 		}
-	
+	/* schedule again */
 	spin_lock_irqsave(&card->isdnloop_lock, flags);
 	card->st_timer.expires = jiffies + ISDNLOOP_TIMER_DCREAD;
 	add_timer(&card->st_timer);
 	spin_unlock_irqrestore(&card->isdnloop_lock, flags);
 }
 
+/*
+ * Append a packet to the transmit buffer-queue.
+ *
+ * Parameter:
+ *   channel = Number of B-channel
+ *   skb     = packet to send.
+ *   card    = pointer to card-struct
+ * Return:
+ *   Number of bytes transferred, -E??? on error
+ */
 static int
 isdnloop_sendbuf(int channel, struct sk_buff *skb, isdnloop_card *card)
 {
@@ -355,6 +428,17 @@ isdnloop_sendbuf(int channel, struct sk_buff *skb, isdnloop_card *card)
 	return len;
 }
 
+/*
+ * Read the messages from the card's ringbuffer
+ *
+ * Parameter:
+ *   buf  = pointer to buffer.
+ *   len  = number of bytes to read.
+ *   user = flag, 1: called from userlevel 0: called from kernel.
+ *   card = pointer to card struct.
+ * Return:
+ *   number of bytes actually transferred.
+ */
 static int
 isdnloop_readstatus(u_char __user *buf, int len, isdnloop_card *card)
 {
@@ -372,6 +456,17 @@ isdnloop_readstatus(u_char __user *buf, int len, isdnloop_card *card)
 	return count;
 }
 
+/*
+ * Simulate a card's response by appending it to the cards
+ * message queue.
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ *   s    = pointer to message-string.
+ *   ch   = channel: 0 = generic messages, 1 and 2 = D-channel messages.
+ * Return:
+ *   0 on success, 1 on memory squeeze.
+ */
 static int
 isdnloop_fake(isdnloop_card *card, char *s, int ch)
 {
@@ -388,31 +483,39 @@ isdnloop_fake(isdnloop_card *card, char *s, int ch)
 	skb_queue_tail(&card->dqueue, skb);
 	return 0;
 }
+/* *INDENT-OFF* */
 static isdnloop_stat isdnloop_cmd_table[] =
 {
-	{"BCON_R",         0,  1},	
-	{"BCON_I",         0, 17},	
-	{"BDIS_R",         0,  2},	
-	{"DDIS_R",         0,  3},	
-	{"DCON_R",         0, 16},	
-	{"DSCA_R",         0,  4},	
-	{"DCAL_R",         0,  5},	
-	{"EAZC",           0,  6},	
-	{"EAZ",            0,  7},	
-	{"SEEAZ",          0,  8},	
-	{"MSN",            0,  9},	
-	{"MSALL",          0, 10},	
-	{"SETSIL",         0, 11},	
-	{"SEESIL",         0, 12},	
-	{"SILC",           0, 13},	
-	{"LOCK",           0, -1},	
-	{"UNLOCK",         0, -1},	
-	{"FV2ON",          1, 14},	
-	{"FV2OFF",         1, 15},	
+	{"BCON_R",         0,  1},	/* B-Channel connect        */
+	{"BCON_I",         0, 17},	/* B-Channel connect ind    */
+	{"BDIS_R",         0,  2},	/* B-Channel disconnect     */
+	{"DDIS_R",         0,  3},	/* D-Channel disconnect     */
+	{"DCON_R",         0, 16},	/* D-Channel connect        */
+	{"DSCA_R",         0,  4},	/* Dial 1TR6-SPV     */
+	{"DCAL_R",         0,  5},	/* Dial */
+	{"EAZC",           0,  6},	/* Clear EAZ listener */
+	{"EAZ",            0,  7},	/* Set EAZ listener */
+	{"SEEAZ",          0,  8},	/* Get EAZ listener */
+	{"MSN",            0,  9},	/* Set/Clear MSN listener */
+	{"MSALL",          0, 10},	/* Set multi MSN listeners */
+	{"SETSIL",         0, 11},	/* Set SI list     */
+	{"SEESIL",         0, 12},	/* Get SI list     */
+	{"SILC",           0, 13},	/* Clear SI list     */
+	{"LOCK",           0, -1},	/* LOCK channel     */
+	{"UNLOCK",         0, -1},	/* UNLOCK channel     */
+	{"FV2ON",          1, 14},	/* Leased mode on               */
+	{"FV2OFF",         1, 15},	/* Leased mode off              */
 	{NULL, 0, -1}
 };
+/* *INDENT-ON* */
 
 
+/*
+ * Simulate an error-response from a card.
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ */
 static void
 isdnloop_fake_err(isdnloop_card *card)
 {
@@ -428,6 +531,17 @@ static u_char ctable_eu[] =
 static u_char ctable_1t[] =
 {0x00, 0x3b, 0x01, 0x3a};
 
+/*
+ * Assemble a simplified cause message depending on the
+ * D-channel protocol used.
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ *   loc  = location: 0 = local, 1 = remote.
+ *   cau  = cause: 1 = busy, 2 = nonexistent callerid, 3 = no user responding.
+ * Return:
+ *   Pointer to buffer containing the assembled message.
+ */
 static char *
 isdnloop_unicause(isdnloop_card *card, int loc, int cau)
 {
@@ -446,6 +560,14 @@ isdnloop_unicause(isdnloop_card *card, int loc, int cau)
 	return (buf);
 }
 
+/*
+ * Release a virtual connection. Called from timer interrupt, when
+ * called party did not respond.
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ *   ch   = channel (0-based)
+ */
 static void
 isdnloop_atimeout(isdnloop_card *card, int ch)
 {
@@ -459,12 +581,15 @@ isdnloop_atimeout(isdnloop_card *card, int ch)
 		card->rcard[ch] = NULL;
 	}
 	isdnloop_fake(card, "DDIS_I", ch + 1);
-	
+	/* No user responding */
 	sprintf(buf, "CAU%s", isdnloop_unicause(card, 1, 3));
 	isdnloop_fake(card, buf, ch + 1);
 	spin_unlock_irqrestore(&card->isdnloop_lock, flags);
 }
 
+/*
+ * Wrapper for isdnloop_atimeout().
+ */
 static void
 isdnloop_atimeout0(unsigned long data)
 {
@@ -472,6 +597,9 @@ isdnloop_atimeout0(unsigned long data)
 	isdnloop_atimeout(card, 0);
 }
 
+/*
+ * Wrapper for isdnloop_atimeout().
+ */
 static void
 isdnloop_atimeout1(unsigned long data)
 {
@@ -479,6 +607,13 @@ isdnloop_atimeout1(unsigned long data)
 	isdnloop_atimeout(card, 1);
 }
 
+/*
+ * Install a watchdog for a user, not responding.
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ *   ch   = channel to watch for.
+ */
 static void
 isdnloop_start_ctimer(isdnloop_card *card, int ch)
 {
@@ -496,6 +631,13 @@ isdnloop_start_ctimer(isdnloop_card *card, int ch)
 	spin_unlock_irqrestore(&card->isdnloop_lock, flags);
 }
 
+/*
+ * Kill a pending channel watchdog.
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ *   ch   = channel (0-based).
+ */
 static void
 isdnloop_kill_ctimer(isdnloop_card *card, int ch)
 {
@@ -511,6 +653,20 @@ static u_char si2bit[] =
 static u_char bit2si[] =
 {1, 5, 7};
 
+/*
+ * Try finding a listener for an outgoing call.
+ *
+ * Parameter:
+ *   card = pointer to calling card.
+ *   p    = pointer to ICN-type setup-string.
+ *   lch  = channel of calling card.
+ *   cmd  = pointer to struct to be filled when parsing setup.
+ * Return:
+ *   0 = found match, alerting should happen.
+ *   1 = found matching number but it is busy.
+ *   2 = no matching listener.
+ *   3 = found matching number but SI does not match.
+ */
 static int
 isdnloop_try_call(isdnloop_card *card, char *p, int lch, isdn_ctrl *cmd)
 {
@@ -525,7 +681,7 @@ isdnloop_try_call(isdnloop_card *card, char *p, int lch, isdn_ctrl *cmd)
 	isdnloop_parse_setup(p, cmd);
 	while (cc) {
 		for (ch = 0; ch < 2; ch++) {
-			
+			/* Exclude ourself */
 			if ((cc == card) && (ch == lch))
 				continue;
 			num_match = 0;
@@ -546,14 +702,14 @@ isdnloop_try_call(isdnloop_card *card, char *p, int lch, isdn_ctrl *cmd)
 			}
 			if (num_match) {
 				spin_lock_irqsave(&card->isdnloop_lock, flags);
-				
+				/* channel idle? */
 				if (!(cc->rcard[ch])) {
-					
+					/* Check SI */
 					if (!(si2bit[cmd->parm.setup.si1] & cc->sil[ch])) {
 						spin_unlock_irqrestore(&card->isdnloop_lock, flags);
 						return 3;
 					}
-					
+					/* ch is idle, si and number matches */
 					cc->rcard[ch] = card;
 					cc->rch[ch] = lch;
 					card->rcard[lch] = cc;
@@ -562,7 +718,7 @@ isdnloop_try_call(isdnloop_card *card, char *p, int lch, isdn_ctrl *cmd)
 					return 0;
 				} else {
 					spin_unlock_irqrestore(&card->isdnloop_lock, flags);
-					
+					/* num matches, but busy */
 					if (ch == 1)
 						return 1;
 				}
@@ -573,6 +729,17 @@ isdnloop_try_call(isdnloop_card *card, char *p, int lch, isdn_ctrl *cmd)
 	return 2;
 }
 
+/*
+ * Depending on D-channel protocol and caller/called, modify
+ * phone number.
+ *
+ * Parameter:
+ *   card   = pointer to card struct.
+ *   phone  = pointer phone number.
+ *   caller = flag: 1 = caller, 0 = called.
+ * Return:
+ *   pointer to new phone number.
+ */
 static char *
 isdnloop_vstphone(isdnloop_card *card, char *phone, int caller)
 {
@@ -604,6 +771,13 @@ isdnloop_vstphone(isdnloop_card *card, char *phone, int caller)
 	return "";
 }
 
+/*
+ * Parse an ICN-type command string sent to the 'card'.
+ * Perform misc. actions depending on the command.
+ *
+ * Parameter:
+ *   card = pointer to card struct.
+ */
 static void
 isdnloop_parse_cmd(isdnloop_card *card)
 {
@@ -640,7 +814,7 @@ isdnloop_parse_cmd(isdnloop_card *card)
 		return;
 	switch (action) {
 	case 1:
-		
+		/* 0x;BCON_R */
 		if (card->rcard[ch - 1]) {
 			isdnloop_fake(card->rcard[ch - 1], "BCON_I",
 				      card->rch[ch - 1] + 1);
@@ -648,14 +822,14 @@ isdnloop_parse_cmd(isdnloop_card *card)
 		}
 		break;
 	case 17:
-		
+		/* 0x;BCON_I */
 		if (card->rcard[ch - 1]) {
 			isdnloop_fake(card->rcard[ch - 1], "BCON_C",
 				      card->rch[ch - 1] + 1);
 		}
 		break;
 	case 2:
-		
+		/* 0x;BDIS_R */
 		isdnloop_fake(card, "BDIS_C", ch);
 		if (card->rcard[ch - 1]) {
 			isdnloop_fake(card->rcard[ch - 1], "BDIS_I",
@@ -663,7 +837,7 @@ isdnloop_parse_cmd(isdnloop_card *card)
 		}
 		break;
 	case 16:
-		
+		/* 0x;DCON_R */
 		isdnloop_kill_ctimer(card, ch - 1);
 		if (card->rcard[ch - 1]) {
 			isdnloop_kill_ctimer(card->rcard[ch - 1], card->rch[ch - 1]);
@@ -673,7 +847,7 @@ isdnloop_parse_cmd(isdnloop_card *card)
 		}
 		break;
 	case 3:
-		
+		/* 0x;DDIS_R */
 		isdnloop_kill_ctimer(card, ch - 1);
 		if (card->rcard[ch - 1]) {
 			isdnloop_kill_ctimer(card->rcard[ch - 1], card->rch[ch - 1]);
@@ -684,18 +858,18 @@ isdnloop_parse_cmd(isdnloop_card *card)
 		isdnloop_fake(card, "DDIS_C", ch);
 		break;
 	case 4:
-		
+		/* 0x;DSCA_Rdd,yy,zz,oo */
 		if (card->ptype != ISDN_PTYPE_1TR6) {
 			isdnloop_fake_err(card);
 			return;
 		}
-		
+		/* Fall through */
 	case 5:
-		
+		/* 0x;DCAL_Rdd,yy,zz,oo */
 		p += 6;
 		switch (isdnloop_try_call(card, p, ch - 1, &cmd)) {
 		case 0:
-			
+			/* Alerting */
 			sprintf(buf, "D%s_I%s,%02d,%02d,%s",
 				(action == 4) ? "SCA" : "CAL",
 				isdnloop_vstphone(card, cmd.parm.setup.eazmsn, 1),
@@ -704,19 +878,19 @@ isdnloop_parse_cmd(isdnloop_card *card)
 				isdnloop_vstphone(card->rcard[ch - 1],
 						  cmd.parm.setup.phone, 0));
 			isdnloop_fake(card->rcard[ch - 1], buf, card->rch[ch - 1] + 1);
-			
+			/* Fall through */
 		case 3:
-			
+			/* si1 does not match, don't alert but start timer */
 			isdnloop_start_ctimer(card, ch - 1);
 			break;
 		case 1:
-			
+			/* Remote busy */
 			isdnloop_fake(card, "DDIS_I", ch);
 			sprintf(buf, "CAU%s", isdnloop_unicause(card, 1, 1));
 			isdnloop_fake(card, buf, ch);
 			break;
 		case 2:
-			
+			/* No such user */
 			isdnloop_fake(card, "DDIS_I", ch);
 			sprintf(buf, "CAU%s", isdnloop_unicause(card, 1, 2));
 			isdnloop_fake(card, buf, ch);
@@ -724,27 +898,27 @@ isdnloop_parse_cmd(isdnloop_card *card)
 		}
 		break;
 	case 6:
-		
+		/* 0x;EAZC */
 		card->eazlist[ch - 1][0] = '\0';
 		break;
 	case 7:
-		
+		/* 0x;EAZ */
 		p += 3;
 		strcpy(card->eazlist[ch - 1], p);
 		break;
 	case 8:
-		
+		/* 0x;SEEAZ */
 		sprintf(buf, "EAZ-LIST: %s", card->eazlist[ch - 1]);
 		isdnloop_fake(card, buf, ch + 1);
 		break;
 	case 9:
-		
+		/* 0x;MSN */
 		break;
 	case 10:
-		
+		/* 0x;MSNALL */
 		break;
 	case 11:
-		
+		/* 0x;SETSIL */
 		p += 6;
 		i = 0;
 		while (strchr("0157", *p)) {
@@ -756,7 +930,7 @@ isdnloop_parse_cmd(isdnloop_card *card)
 			isdnloop_fake_err(card);
 		break;
 	case 12:
-		
+		/* 0x;SEESIL */
 		sprintf(buf, "SIN-LIST: ");
 		p = buf + 10;
 		for (i = 0; i < 3; i++)
@@ -765,18 +939,32 @@ isdnloop_parse_cmd(isdnloop_card *card)
 		isdnloop_fake(card, buf, ch + 1);
 		break;
 	case 13:
-		
+		/* 0x;SILC */
 		card->sil[ch - 1] = 0;
 		break;
 	case 14:
-		
+		/* 00;FV2ON */
 		break;
 	case 15:
-		
+		/* 00;FV2OFF */
 		break;
 	}
 }
 
+/*
+ * Put command-strings into the of the 'card'. In reality, execute them
+ * right in place by calling isdnloop_parse_cmd(). Also copy every
+ * command to the read message ringbuffer, preceding it with a '>'.
+ * These mesagges can be read at /dev/isdnctrl.
+ *
+ * Parameter:
+ *   buf  = pointer to command buffer.
+ *   len  = length of buffer data.
+ *   user = flag: 1 = called form userlevel, 0 called from kernel.
+ *   card = pointer to card struct.
+ * Return:
+ *   number of bytes transferred (currently always equals len).
+ */
 static int
 isdnloop_writecmd(const u_char *buf, int len, int user, isdnloop_card *card)
 {
@@ -824,6 +1012,9 @@ isdnloop_writecmd(const u_char *buf, int len, int user, isdnloop_card *card)
 	return xcount;
 }
 
+/*
+ * Delete card's pending timers, send STOP to linklevel
+ */
 static void
 isdnloop_stopcard(isdnloop_card *card)
 {
@@ -844,6 +1035,9 @@ isdnloop_stopcard(isdnloop_card *card)
 	spin_unlock_irqrestore(&card->isdnloop_lock, flags);
 }
 
+/*
+ * Stop all cards before unload.
+ */
 static void
 isdnloop_stopallcards(void)
 {
@@ -855,6 +1049,17 @@ isdnloop_stopallcards(void)
 	}
 }
 
+/*
+ * Start a 'card'. Simulate card's boot message and set the phone
+ * number(s) of the virtual 'S0-Interface'. Install D-channel
+ * poll timer.
+ *
+ * Parameter:
+ *   card  = pointer to card struct.
+ *   sdefp = pointer to struct holding ioctl parameters.
+ * Return:
+ *   0 on success, -E??? otherwise.
+ */
 static int
 isdnloop_start(isdnloop_card *card, isdnloop_sdef *sdefp)
 {
@@ -913,6 +1118,9 @@ isdnloop_start(isdnloop_card *card, isdnloop_sdef *sdefp)
 	return 0;
 }
 
+/*
+ * Main handler for commands sent by linklevel.
+ */
 static int
 isdnloop_command(isdn_ctrl *c, isdnloop_card *card)
 {
@@ -989,11 +1197,11 @@ isdnloop_command(isdn_ctrl *c, isdnloop_card *card)
 			a = c->arg;
 			p = c->parm.setup.phone;
 			if (*p == 's' || *p == 'S') {
-				
+				/* Dial for SPV */
 				p++;
 				strcpy(dcode, "SCA");
 			} else
-				
+				/* Normal Dial */
 				strcpy(dcode, "CAL");
 			strcpy(dial, p);
 			sprintf(cbuf, "%02d;D%s_R%s,%02d,%02d,%s\n", (int) (a + 1),
@@ -1136,6 +1344,9 @@ isdnloop_command(isdn_ctrl *c, isdnloop_card *card)
 	return 0;
 }
 
+/*
+ * Find card with given driverId
+ */
 static inline isdnloop_card *
 isdnloop_findcard(int driverid)
 {
@@ -1149,6 +1360,9 @@ isdnloop_findcard(int driverid)
 	return (isdnloop_card *) 0;
 }
 
+/*
+ * Wrapper functions for interface to linklevel
+ */
 static int
 if_command(isdn_ctrl *c)
 {
@@ -1199,7 +1413,7 @@ if_sendbuf(int id, int channel, int ack, struct sk_buff *skb)
 	if (card) {
 		if (!(card->flags & ISDNLOOP_FLAGS_RUNNING))
 			return -ENODEV;
-		
+		/* ack request stored in skb scratch area */
 		*(skb->head) = ack;
 		return (isdnloop_sendbuf(channel, skb, card));
 	}
@@ -1208,6 +1422,10 @@ if_sendbuf(int id, int channel, int ack, struct sk_buff *skb)
 	return -ENODEV;
 }
 
+/*
+ * Allocate a new card-struct, initialize it
+ * link it into cards-list and register it at linklevel.
+ */
 static isdnloop_card *
 isdnloop_initcard(char *id)
 {
@@ -1221,7 +1439,7 @@ isdnloop_initcard(char *id)
 	}
 	card->interface.owner = THIS_MODULE;
 	card->interface.channels = ISDNLOOP_BCH;
-	card->interface.hl_hdrlen  = 1; 
+	card->interface.hl_hdrlen  = 1; /* scratch area for storing ack flag*/
 	card->interface.maxbufsize = 4000;
 	card->interface.command = if_command;
 	card->interface.writebuf_skb = if_sendbuf;

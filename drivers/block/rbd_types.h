@@ -15,12 +15,19 @@
 
 #include <linux/types.h>
 
+/*
+ * rbd image 'foo' consists of objects
+ *   foo.rbd      - image metadata
+ *   foo.00000000
+ *   foo.00000001
+ *   ...          - data
+ */
 
 #define RBD_SUFFIX		".rbd"
 #define RBD_DIRECTORY           "rbd_directory"
 #define RBD_INFO                "rbd_info"
 
-#define RBD_DEFAULT_OBJ_ORDER	22   
+#define RBD_DEFAULT_OBJ_ORDER	22   /* 4MB */
 #define RBD_MIN_OBJ_ORDER       16
 #define RBD_MAX_OBJ_ORDER       30
 

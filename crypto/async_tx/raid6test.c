@@ -28,7 +28,7 @@
 #undef pr
 #define pr(fmt, args...) pr_info("raid6test: " fmt, ##args)
 
-#define NDISKS 16 
+#define NDISKS 16 /* Including P and Q */
 
 static struct page *dataptrs[NDISKS];
 static addr_conv_t addr_conv[NDISKS];
@@ -69,6 +69,7 @@ static char disk_type(int d, int disks)
 		return 'D';
 }
 
+/* Recover two failed blocks. */
 static void raid6_dual_recov(int disks, size_t bytes, int faila, int failb, struct page **ptrs)
 {
 	struct async_submit_ctl submit;
@@ -81,7 +82,7 @@ static void raid6_dual_recov(int disks, size_t bytes, int faila, int failb, stru
 
 	if (failb == disks-1) {
 		if (faila == disks-2) {
-			
+			/* P+Q failure.  Just rebuild the syndrome. */
 			init_async_submit(&submit, 0, NULL, NULL, NULL, addr_conv);
 			tx = async_gen_syndrome(ptrs, 0, disks, bytes, &submit);
 		} else {
@@ -90,6 +91,9 @@ static void raid6_dual_recov(int disks, size_t bytes, int faila, int failb, stru
 			int count = 0;
 			int i;
 
+			/* data+Q failure.  Reconstruct data from P,
+			 * then rebuild syndrome
+			 */
 			for (i = disks; i-- ; ) {
 				if (i == faila || i == failb)
 					continue;
@@ -105,11 +109,11 @@ static void raid6_dual_recov(int disks, size_t bytes, int faila, int failb, stru
 		}
 	} else {
 		if (failb == disks-2) {
-			
+			/* data+P failure. */
 			init_async_submit(&submit, 0, NULL, NULL, NULL, addr_conv);
 			tx = async_raid6_datap_recov(disks, bytes, faila, ptrs, &submit);
 		} else {
-			
+			/* data+data failure. */
 			init_async_submit(&submit, 0, NULL, NULL, NULL, addr_conv);
 			tx = async_raid6_2data_recov(disks, bytes, faila, failb, ptrs, &submit);
 		}
@@ -167,11 +171,11 @@ static int test(int disks, int *tests)
 
 	makedata(disks);
 
-	
+	/* Nuke syndromes */
 	memset(page_address(data[disks-2]), 0xee, PAGE_SIZE);
 	memset(page_address(data[disks-1]), 0xee, PAGE_SIZE);
 
-	
+	/* Generate assumed good syndrome */
 	init_completion(&cmp);
 	init_async_submit(&submit, ASYNC_TX_ACK, NULL, callback, &cmp, addr_conv);
 	tx = async_gen_syndrome(dataptrs, 0, disks, PAGE_SIZE, &submit);
@@ -208,11 +212,14 @@ static int raid6_test(void)
 		}
 	}
 
-	
+	/* the 4-disk and 5-disk cases are special for the recovery code */
 	if (NDISKS > 4)
 		err += test(4, &tests);
 	if (NDISKS > 5)
 		err += test(5, &tests);
+	/* the 11 and 12 disk cases are special for ioatdma (p-disabled
+	 * q-continuation without extended descriptor)
+	 */
 	if (NDISKS > 12) {
 		err += test(11, &tests);
 		err += test(12, &tests);
@@ -233,6 +240,9 @@ static void raid6_test_exit(void)
 {
 }
 
+/* when compiled-in wait for drivers to load first (assumes dma drivers
+ * are also compliled-in)
+ */
 late_initcall(raid6_test);
 module_exit(raid6_test_exit);
 MODULE_AUTHOR("Dan Williams <dan.j.williams@intel.com>");

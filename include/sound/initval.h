@@ -87,4 +87,4 @@ static int snd_legacy_find_free_dma(int *dma_table)
 }
 #endif
 
-#endif 
+#endif /* __SOUND_INITVAL_H */

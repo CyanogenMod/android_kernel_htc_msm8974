@@ -8,6 +8,11 @@
  * the Free Software Foundation; version 2 of the License.
  */
 
+/*
+ * This pseudo device allows user to make printk messages. It is possible
+ * to store "console" messages inline with kernel messages for better analyses
+ * of the boot process, for example.
+ */
 
 #include <linux/device.h>
 #include <linux/serial.h>
@@ -21,9 +26,18 @@ struct ttyprintk_port {
 
 static struct ttyprintk_port tpk_port;
 
-#define TPK_STR_SIZE 508 
-#define TPK_MAX_ROOM 4096 
-static const char *tpk_tag = "[U] "; 
+/*
+ * Our simple preformatting supports transparent output of (time-stamped)
+ * printk messages (also suitable for logging service):
+ * - any cr is replaced by nl
+ * - adds a ttyprintk source tag in front of each line
+ * - too long message is fragmeted, with '\'nl between fragments
+ * - TPK_STR_SIZE isn't really the write_room limiting factor, bcause
+ *   it is emptied on the fly during preformatting.
+ */
+#define TPK_STR_SIZE 508 /* should be bigger then max expected line length */
+#define TPK_MAX_ROOM 4096 /* we could assume 4K for instance */
+static const char *tpk_tag = "[U] "; /* U for User */
 static int tpk_curr;
 
 static int tpk_printk(const unsigned char *buf, int count)
@@ -32,9 +46,9 @@ static int tpk_printk(const unsigned char *buf, int count)
 	int i = tpk_curr;
 
 	if (buf == NULL) {
-		
+		/* flush tmp[] */
 		if (tpk_curr > 0) {
-			
+			/* non nl or cr terminated message - add nl */
 			tmp[tpk_curr + 0] = '\n';
 			tmp[tpk_curr + 1] = '\0';
 			printk(KERN_INFO "%s%s", tpk_tag, tmp);
@@ -48,7 +62,7 @@ static int tpk_printk(const unsigned char *buf, int count)
 		if (tpk_curr < TPK_STR_SIZE) {
 			switch (buf[i]) {
 			case '\r':
-				
+				/* replace cr with nl */
 				tmp[tpk_curr + 0] = '\n';
 				tmp[tpk_curr + 1] = '\0';
 				printk(KERN_INFO "%s%s", tpk_tag, tmp);
@@ -65,7 +79,7 @@ static int tpk_printk(const unsigned char *buf, int count)
 				tpk_curr++;
 			}
 		} else {
-			
+			/* end of tmp buffer reached: cut the message in two */
 			tmp[tpk_curr + 1] = '\\';
 			tmp[tpk_curr + 2] = '\n';
 			tmp[tpk_curr + 3] = '\0';
@@ -77,6 +91,9 @@ static int tpk_printk(const unsigned char *buf, int count)
 	return count;
 }
 
+/*
+ * TTY operations open function.
+ */
 static int tpk_open(struct tty_struct *tty, struct file *filp)
 {
 	tty->driver_data = &tpk_port;
@@ -84,18 +101,24 @@ static int tpk_open(struct tty_struct *tty, struct file *filp)
 	return tty_port_open(&tpk_port.port, tty, filp);
 }
 
+/*
+ * TTY operations close function.
+ */
 static void tpk_close(struct tty_struct *tty, struct file *filp)
 {
 	struct ttyprintk_port *tpkp = tty->driver_data;
 
 	mutex_lock(&tpkp->port_write_mutex);
-	
+	/* flush tpk_printk buffer */
 	tpk_printk(NULL, 0);
 	mutex_unlock(&tpkp->port_write_mutex);
 
 	tty_port_close(&tpkp->port, tty, filp);
 }
 
+/*
+ * TTY operations write function.
+ */
 static int tpk_write(struct tty_struct *tty,
 		const unsigned char *buf, int count)
 {
@@ -103,7 +126,7 @@ static int tpk_write(struct tty_struct *tty,
 	int ret;
 
 
-	
+	/* exclusive use of tpk_printk within this tty */
 	mutex_lock(&tpkp->port_write_mutex);
 	ret = tpk_printk(buf, count);
 	mutex_unlock(&tpkp->port_write_mutex);
@@ -111,11 +134,17 @@ static int tpk_write(struct tty_struct *tty,
 	return ret;
 }
 
+/*
+ * TTY operations write_room function.
+ */
 static int tpk_write_room(struct tty_struct *tty)
 {
 	return TPK_MAX_ROOM;
 }
 
+/*
+ * TTY operations ioctl function.
+ */
 static int tpk_ioctl(struct tty_struct *tty,
 			unsigned int cmd, unsigned long arg)
 {
@@ -125,7 +154,7 @@ static int tpk_ioctl(struct tty_struct *tty,
 		return -EINVAL;
 
 	switch (cmd) {
-	
+	/* Stop TIOCCONS */
 	case TIOCCONS:
 		return -EOPNOTSUPP;
 	default:
@@ -172,7 +201,7 @@ static int __init ttyprintk_init(void)
 		goto error;
 	}
 
-	
+	/* create our unnumbered device */
 	rp = device_create(tty_class, NULL, MKDEV(TTYAUX_MAJOR, 3), NULL,
 				ttyprintk_driver->name);
 	if (IS_ERR(rp)) {

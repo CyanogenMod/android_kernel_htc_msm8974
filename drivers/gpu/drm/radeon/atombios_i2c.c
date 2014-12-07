@@ -29,6 +29,7 @@
 
 #define TARGET_HW_I2C_CLOCK 50
 
+/* these are a limitation of ProcessI2cChannelTransaction not the hw */
 #define ATOM_MAX_HW_I2C_WRITE 2
 #define ATOM_MAX_HW_I2C_READ  255
 
@@ -69,7 +70,7 @@ static int radeon_process_i2c_ch(struct radeon_i2c_chan *chan,
 
 	atom_execute_table(rdev->mode_info.atom_context, index, (uint32_t *)&args);
 
-	
+	/* error */
 	if (args.ucStatus != HW_ASSISTED_I2C_STATUS_SUCCESS) {
 		DRM_DEBUG_KMS("hw_i2c error\n");
 		return -EIO;
@@ -89,7 +90,7 @@ int radeon_atom_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	int i, remaining, current_count, buffer_offset, max_bytes, ret;
 	u8 buf = 0, flags;
 
-	
+	/* check for bus probe */
 	p = &msgs[0];
 	if ((num == 1) && (p->len == 0)) {
 		ret = radeon_process_i2c_ch(i2c,
@@ -105,7 +106,7 @@ int radeon_atom_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 		p = &msgs[i];
 		remaining = p->len;
 		buffer_offset = 0;
-		
+		/* max_bytes are a limitation of ProcessI2cChannelTransaction not the hw */
 		if (p->flags & I2C_M_RD) {
 			max_bytes = ATOM_MAX_HW_I2C_READ;
 			flags = HW_I2C_READ;

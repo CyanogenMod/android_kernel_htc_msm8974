@@ -85,7 +85,7 @@ static int audio_mvs_setup_mvs(struct audio_mvs_info_type *audio)
 	struct audio_mvs_enable_msg enable_msg;
 	MM_DBG("%s\n", __func__);
 
-	
+	/* Enable MVS. */
 
 	memset(&enable_msg, 0, sizeof(enable_msg));
 	audio->rpc_status = RPC_STATUS_FAILURE;
@@ -180,7 +180,7 @@ static void audio_mvs_process_rpc_request(uint32_t procedure, uint32_t xid,
 				wake_up(&audio->wait);
 				wake_up(&audio->prepare_wait);
 			} else {
-				
+				/*nothing to do */
 			}
 		} else
 			MM_ERR("ALSA: CB event pointer not valid\n");
@@ -308,6 +308,9 @@ static int audio_mvs_thread(void *data)
 				reply_status = be32_to_cpu(rpc_reply->
 							reply_stat);
 				if (reply_status != RPCMSG_REPLYSTAT_ACCEPTED) {
+					/* If the command is not accepted,
+					 * there will be no response callback.
+					 * Wake the caller and report error. */
 					audio->rpc_status =  RPC_STATUS_REJECT;
 					wake_up(&audio->wait);
 					MM_ERR("RPC reply status denied\n");
@@ -480,7 +483,7 @@ static int msm_pcm_capture_copy(struct snd_pcm_substream *substream,
 
 	MM_DBG("%s\n", __func__);
 
-	
+	/* Ensure the driver has been enabled. */
 	if (audio->state != AUDIO_MVS_ENABLED) {
 		MM_ERR("Read performed in invalid state %d\n", audio->state);
 		return -EPERM;
@@ -552,7 +555,7 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 	if (!audio->instance) {
 		if (audio->state == AUDIO_MVS_ENABLED) {
 			audio->state = AUDIO_MVS_CLOSING;
-			
+			/* Release MVS. */
 			release_msg.client_id = cpu_to_be32(MVS_CLIENT_ID_VOIP);
 			msm_rpc_setup_req(&release_msg.rpc_hdr, audio->rpc_prog,
 						 audio->rpc_ver,
@@ -591,7 +594,7 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 
 		wake_unlock(&audio->suspend_lock);
 		pm_qos_update_request(&audio->pm_qos_req, PM_QOS_DEFAULT_VALUE);
-		
+		/* Release the IO buffers. */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		mutex_lock(&audio->in_lock);
 		audio->in_write = 0;
@@ -626,7 +629,7 @@ static int msm_mvs_pcm_setup(struct snd_pcm_substream *substream)
 	struct audio_mvs_info_type *audio = &audio_mvs_info;
 	memset(&acquire_msg, 0, sizeof(acquire_msg));
 
-	
+	/*Create an Kthread */
 	MM_DBG("ALSA MVS thread creating\n");
 	if (!IS_ERR(audio->rpc_endpt)) {
 		audio->task =
@@ -636,7 +639,7 @@ static int msm_mvs_pcm_setup(struct snd_pcm_substream *substream)
 			MM_DBG("ALSA MVS thread create succeeded\n");
 			audio->rpc_prog = MVS_PROG;
 			audio->rpc_ver = MVS_VERS;
-			
+			/* Acquire MVS. */
 			acquire_msg.acquire_args.client_id =
 			    cpu_to_be32(MVS_CLIENT_ID_VOIP);
 			acquire_msg.acquire_args.cb_func_id =
@@ -685,7 +688,7 @@ static int msm_mvs_pcm_setup(struct snd_pcm_substream *substream)
 		rc = PTR_ERR(audio->rpc_endpt);
 		audio->rpc_endpt = NULL;
 	}
-	
+	/*mvs mode setup */
 	if (audio->state == AUDIO_MVS_ACQUIRE)
 		rc =  audio_mvs_setup_mvs(audio);
 	else
@@ -699,7 +702,7 @@ static int msm_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	MM_DBG("%s\n", __func__);
 	prtd->pcm_playback_irq_pos = 0;
 	prtd->pcm_playback_buf_pos = 0;
-	
+	/* rate and channels are sent to audio driver */
 	prtd->playback_enable = 1;
 	return 0;
 }

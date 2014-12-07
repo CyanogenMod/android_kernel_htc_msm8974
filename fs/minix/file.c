@@ -8,6 +8,10 @@
 
 #include "minix.h"
 
+/*
+ * We have mostly NULLs here: the current defaults are OK for
+ * the minix filesystem.
+ */
 const struct file_operations minix_file_operations = {
 	.llseek		= generic_file_llseek,
 	.read		= do_sync_read,

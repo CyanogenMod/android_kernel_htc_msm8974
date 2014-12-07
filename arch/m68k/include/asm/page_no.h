@@ -35,6 +35,6 @@ extern unsigned long memory_end;
 #define	virt_addr_valid(kaddr)	(((void *)(kaddr) >= (void *)PAGE_OFFSET) && \
 				((void *)(kaddr) < (void *)memory_end))
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _M68K_PAGE_NO_H */

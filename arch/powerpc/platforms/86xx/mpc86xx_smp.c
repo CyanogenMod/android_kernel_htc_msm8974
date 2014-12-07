@@ -30,6 +30,7 @@ extern void __secondary_start_mpc86xx(void);
 
 #define MCM_PORT_CONFIG_OFFSET	0x10
 
+/* Offset from CCSRBAR */
 #define MPC86xx_MCM_OFFSET      (0x1000)
 #define MPC86xx_MCM_SIZE        (0x1000)
 
@@ -42,6 +43,9 @@ smp_86xx_release_core(int nr)
 	if (nr < 0 || nr >= NR_CPUS)
 		return;
 
+	/*
+	 * Startup Core #nr.
+	 */
 	mcm_vaddr = ioremap(get_immrbase() + MPC86xx_MCM_OFFSET,
 			    MPC86xx_MCM_SIZE);
 	pcr = in_be32(mcm_vaddr + (MCM_PORT_CONFIG_OFFSET >> 2));
@@ -67,21 +71,21 @@ smp_86xx_kick_cpu(int nr)
 
 	local_irq_save(flags);
 
-	
+	/* Save reset vector */
 	save_vector = *vector;
 
-	
+	/* Setup fake reset vector to call __secondary_start_mpc86xx. */
 	target = (unsigned long) __secondary_start_mpc86xx;
 	patch_branch(vector, target, BRANCH_SET_LINK);
 
-	
+	/* Kick that CPU */
 	smp_86xx_release_core(nr);
 
-	
+	/* Wait a bit for the CPU to take the exception. */
 	while ((__secondary_hold_acknowledge != nr) && (n++, n < 1000))
 		mdelay(1);
 
-	
+	/* Restore the exception vector */
 	*vector = save_vector;
 	flush_icache_range((unsigned long) vector, (unsigned long) vector + 4);
 

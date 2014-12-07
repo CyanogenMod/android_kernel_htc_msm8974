@@ -84,7 +84,7 @@ static int ad7298_scan_temp(struct ad7298_state *st, int *val)
 	if (ret)
 		return ret;
 
-	usleep_range(101, 1000); 
+	usleep_range(101, 1000); /* sleep > 100us */
 
 	ret = spi_read(st->spi, (u8 *)&buf, 2);
 	if (ret)
@@ -92,13 +92,17 @@ static int ad7298_scan_temp(struct ad7298_state *st, int *val)
 
 	tmp = be16_to_cpu(buf) & RES_MASK(AD7298_BITS);
 
+	/*
+	 * One LSB of the ADC corresponds to 0.25 deg C.
+	 * The temperature reading is in 12-bit twos complement format
+	 */
 
 	if (tmp & (1 << (AD7298_BITS - 1))) {
 		tmp = (4096 - tmp) * 250;
 		tmp -= (2 * tmp);
 
 	} else {
-		tmp *= 250; 
+		tmp *= 250; /* temperature in milli degrees Celsius */
 	}
 
 	*val = tmp;
@@ -189,7 +193,7 @@ static int __devinit ad7298_probe(struct spi_device *spi)
 	indio_dev->num_channels = ARRAY_SIZE(ad7298_channels);
 	indio_dev->info = &ad7298_info;
 
-	
+	/* Setup default message */
 
 	st->scan_single_xfer[0].tx_buf = &st->tx_buf[0];
 	st->scan_single_xfer[0].len = 2;
@@ -217,7 +221,7 @@ static int __devinit ad7298_probe(struct spi_device *spi)
 		goto error_disable_reg;
 
 	ret = iio_buffer_register(indio_dev,
-				  &ad7298_channels[1], 
+				  &ad7298_channels[1], /* skip temp0 */
 				  ARRAY_SIZE(ad7298_channels) - 1);
 	if (ret)
 		goto error_cleanup_ring;

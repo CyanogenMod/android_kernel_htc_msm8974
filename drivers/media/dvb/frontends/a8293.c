@@ -92,15 +92,15 @@ static int a8293_set_voltage(struct dvb_frontend *fe,
 
 	switch (fe_sec_voltage) {
 	case SEC_VOLTAGE_OFF:
-		
+		/* ENB=0 */
 		priv->reg[0] = 0x10;
 		break;
 	case SEC_VOLTAGE_13:
-		
+		/* VSEL0=1, VSEL1=0, VSEL2=0, VSEL3=0, ENB=1*/
 		priv->reg[0] = 0x31;
 		break;
 	case SEC_VOLTAGE_18:
-		
+		/* VSEL0=0, VSEL1=0, VSEL2=0, VSEL3=1, ENB=1*/
 		priv->reg[0] = 0x38;
 		break;
 	default:
@@ -135,30 +135,30 @@ struct dvb_frontend *a8293_attach(struct dvb_frontend *fe,
 	struct a8293_priv *priv = NULL;
 	u8 buf[2];
 
-	
+	/* allocate memory for the internal priv */
 	priv = kzalloc(sizeof(struct a8293_priv), GFP_KERNEL);
 	if (priv == NULL) {
 		ret = -ENOMEM;
 		goto err;
 	}
 
-	
+	/* setup the priv */
 	priv->i2c = i2c;
 	priv->cfg = cfg;
 	fe->sec_priv = priv;
 
-	
+	/* check if the SEC is there */
 	ret = a8293_rd(priv, buf, 2);
 	if (ret)
 		goto err;
 
-	
+	/* ENB=0 */
 	priv->reg[0] = 0x10;
 	ret = a8293_wr(priv, &priv->reg[1], 1);
 	if (ret)
 		goto err;
 
-	
+	/* TMODE=0, TGATE=1 */
 	priv->reg[1] = 0x82;
 	ret = a8293_wr(priv, &priv->reg[1], 1);
 	if (ret)
@@ -168,7 +168,7 @@ struct dvb_frontend *a8293_attach(struct dvb_frontend *fe,
 
 	fe->ops.release_sec = a8293_release_sec;
 
-	
+	/* override frontend ops */
 	fe->ops.set_voltage = a8293_set_voltage;
 
 	return fe;

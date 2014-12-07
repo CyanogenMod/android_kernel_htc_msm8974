@@ -45,6 +45,7 @@ static const struct usb_device_id pn533_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, pn533_table);
 
+/* frame definitions */
 #define PN533_FRAME_TAIL_SIZE 2
 #define PN533_FRAME_SIZE(f) (sizeof(struct pn533_frame) + f->datalen + \
 				PN533_FRAME_TAIL_SIZE)
@@ -52,12 +53,15 @@ MODULE_DEVICE_TABLE(usb, pn533_table);
 #define PN533_FRAME_CHECKSUM(f) (f->data[f->datalen])
 #define PN533_FRAME_POSTAMBLE(f) (f->data[f->datalen + 1])
 
+/* start of frame */
 #define PN533_SOF 0x00FF
 
+/* frame identifier: in/out/error */
 #define PN533_FRAME_IDENTIFIER(f) (f->data[0])
 #define PN533_DIR_OUT 0xD4
 #define PN533_DIR_IN 0xD5
 
+/* PN533 Commands */
 #define PN533_FRAME_CMD(f) (f->data[1])
 #define PN533_FRAME_CMD_PARAMS_PTR(f) (&f->data[2])
 #define PN533_FRAME_CMD_PARAMS_LEN(f) (f->datalen - 2)
@@ -72,6 +76,7 @@ MODULE_DEVICE_TABLE(usb, pn533_table);
 
 #define PN533_CMD_RESPONSE(cmd) (cmd + 1)
 
+/* PN533 Return codes */
 #define PN533_CMD_RET_MASK 0x3F
 #define PN533_CMD_MI_MASK 0x40
 #define PN533_CMD_RET_SUCCESS 0x00
@@ -81,7 +86,9 @@ struct pn533;
 typedef int (*pn533_cmd_complete_t) (struct pn533 *dev, void *arg,
 					u8 *params, int params_len);
 
+/* structs for pn533 commands */
 
+/* PN533_CMD_GET_FIRMWARE_VERSION */
 struct pn533_fw_version {
 	u8 ic;
 	u8 ver;
@@ -89,6 +96,7 @@ struct pn533_fw_version {
 	u8 support;
 };
 
+/* PN533_CMD_RF_CONFIGURATION */
 #define PN533_CFGITEM_MAX_RETRIES 0x05
 
 #define PN533_CONFIG_MAX_RETRIES_NO_RETRY 0x00
@@ -100,14 +108,18 @@ struct pn533_config_max_retries {
 	u8 mx_rty_passive_act;
 } __packed;
 
+/* PN533_CMD_IN_LIST_PASSIVE_TARGET */
 
+/* felica commands opcode */
 #define PN533_FELICA_OPC_SENSF_REQ 0
 #define PN533_FELICA_OPC_SENSF_RES 1
+/* felica SENSF_REQ parameters */
 #define PN533_FELICA_SENSF_SC_ALL 0xFFFF
 #define PN533_FELICA_SENSF_RC_NO_SYSTEM_CODE 0
 #define PN533_FELICA_SENSF_RC_SYSTEM_CODE 1
 #define PN533_FELICA_SENSF_RC_ADVANCED_PROTOCOL 2
 
+/* type B initiator_data values */
 #define PN533_TYPE_B_AFI_ALL_FAMILIES 0
 #define PN533_TYPE_B_POLL_METHOD_TIMESLOT 0
 #define PN533_TYPE_B_POLL_METHOD_PROBABILISTIC 1
@@ -125,6 +137,7 @@ union pn533_cmd_poll_initdata {
 	} __packed felica;
 };
 
+/* Poll modulations */
 enum {
 	PN533_POLL_MOD_106KBPS_A,
 	PN533_POLL_MOD_212KBPS_FELICA,
@@ -200,6 +213,7 @@ const struct pn533_poll_modulations poll_mod[] = {
 	},
 };
 
+/* PN533_CMD_IN_ATR */
 
 struct pn533_cmd_activate_param {
 	u8 tg;
@@ -214,10 +228,11 @@ struct pn533_cmd_activate_response {
 	u8 brt;
 	u8 to;
 	u8 ppt;
-	
+	/* optional */
 	u8 gt[];
 } __packed;
 
+/* PN533_CMD_IN_JUMP_FOR_DEP */
 struct pn533_cmd_jump_dep {
 	u8 active;
 	u8 baud;
@@ -234,7 +249,7 @@ struct pn533_cmd_jump_dep_response {
 	u8 brt;
 	u8 to;
 	u8 ppt;
-	
+	/* optional */
 	u8 gt[];
 } __packed;
 
@@ -277,11 +292,13 @@ struct pn533_frame {
 	u8 data[];
 } __packed;
 
+/* The rule: value + checksum = 0 */
 static inline u8 pn533_checksum(u8 value)
 {
 	return ~value + 1;
 }
 
+/* The rule: sum(data elements) + checksum = 0 */
 static u8 pn533_data_checksum(u8 *data, int datalen)
 {
 	u8 sum = 0;
@@ -293,13 +310,23 @@ static u8 pn533_data_checksum(u8 *data, int datalen)
 	return pn533_checksum(sum);
 }
 
+/**
+ * pn533_tx_frame_ack - create a ack frame
+ * @frame:	The frame to be set as ack
+ *
+ * Ack is different type of standard frame. As a standard frame, it has
+ * preamble and start_frame. However the checksum of this frame must fail,
+ * i.e. datalen + datalen_checksum must NOT be zero. When the checksum test
+ * fails and datalen = 0 and datalen_checksum = 0xFF, the frame is a ack.
+ * After datalen_checksum field, the postamble is placed.
+ */
 static void pn533_tx_frame_ack(struct pn533_frame *frame)
 {
 	frame->preamble = 0;
 	frame->start_frame = cpu_to_be16(PN533_SOF);
 	frame->datalen = 0;
 	frame->datalen_checksum = 0xFF;
-	
+	/* data[0] is used as postamble */
 	frame->data[0] = 0;
 }
 
@@ -383,7 +410,7 @@ static void pn533_recv_response(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
@@ -437,7 +464,7 @@ static void pn533_recv_ack(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
@@ -577,7 +604,7 @@ static int pn533_sync_cmd_complete(struct pn533 *dev, void *_arg,
 
 	arg->rc = 0;
 
-	if (params_len < 0) 
+	if (params_len < 0) /* error */
 		arg->rc = params_len;
 
 	complete(&arg->done);
@@ -615,7 +642,7 @@ static void pn533_send_complete(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
@@ -661,8 +688,10 @@ static bool pn533_target_type_a_is_valid(struct pn533_target_type_a *type_a,
 	if (target_data_len < sizeof(struct pn533_target_type_a))
 		return false;
 
+	/* The lenght check of nfcid[] and ats[] are not being performed because
+	   the values are not being used */
 
-	
+	/* Requirement 4.6.3.3 from NFC Forum Digital Spec */
 	ssd = PN533_TYPE_A_SENS_RES_SSD(type_a->sens_res);
 	platconf = PN533_TYPE_A_SENS_RES_PLATCONF(type_a->sens_res);
 
@@ -672,7 +701,7 @@ static bool pn533_target_type_a_is_valid(struct pn533_target_type_a *type_a,
 			platconf == PN533_TYPE_A_SENS_RES_PLATCONF_JEWEL))
 		return false;
 
-	
+	/* Requirements 4.8.2.1, 4.8.2.3, 4.8.2.5 and 4.8.2.7 from NFC Forum */
 	if (PN533_TYPE_A_SEL_CASCADE(type_a->sel_res) != 0)
 		return false;
 
@@ -718,7 +747,7 @@ struct pn533_target_felica {
 	u8 opcode;
 	u8 nfcid2[8];
 	u8 pad[8];
-	
+	/* optional */
 	u8 syst_code[];
 } __packed;
 
@@ -774,7 +803,7 @@ static bool pn533_target_jewel_is_valid(struct pn533_target_jewel *jewel,
 	if (target_data_len < sizeof(struct pn533_target_jewel))
 		return false;
 
-	
+	/* Requirement 4.6.3.3 from NFC Forum Digital Spec */
 	ssd = PN533_TYPE_A_SENS_RES_SSD(jewel->sens_res);
 	platconf = PN533_TYPE_A_SENS_RES_PLATCONF(jewel->sens_res);
 
@@ -998,7 +1027,7 @@ static int pn533_start_poll_complete(struct pn533 *dev, void *arg,
 	if (resp->nbtg) {
 		rc = pn533_target_found(dev, resp, params_len);
 
-		
+		/* We must stop the poll after a valid target found */
 		if (rc == 0)
 			goto stop_poll;
 
@@ -1016,7 +1045,7 @@ static int pn533_start_poll_complete(struct pn533 *dev, void *arg,
 
 	pn533_start_poll_frame(dev->out_frame, next_mod);
 
-	
+	/* Don't need to down the semaphore again */
 	rc = __pn533_send_cmd_frame_async(dev, dev->out_frame, dev->in_frame,
 				dev->in_maxlen, pn533_start_poll_complete,
 				NULL, GFP_ATOMIC);
@@ -1033,7 +1062,7 @@ static int pn533_start_poll_complete(struct pn533 *dev, void *arg,
 		goto stop_poll;
 	}
 
-	
+	/* Inform caller function to do not up the semaphore */
 	return -EINPROGRESS;
 
 stop_poll:
@@ -1111,10 +1140,10 @@ static void pn533_stop_poll(struct nfc_dev *nfc_dev)
 		return;
 	}
 
-	
+	/* An ack will cancel the last issued command (poll) */
 	pn533_send_ack(dev, GFP_KERNEL);
 
-	
+	/* prevent pn533_start_poll_complete to issue a new poll meanwhile */
 	usb_kill_urb(dev->in_urb);
 }
 
@@ -1148,7 +1177,7 @@ static int pn533_activate_target_nfcdep(struct pn533 *dev)
 	if (rc != PN533_CMD_RET_SUCCESS)
 		return -EIO;
 
-	
+	/* ATR_RES general bytes are located at offset 16 */
 	gt_len = PN533_FRAME_CMD_PARAMS_LEN(dev->in_frame) - 16;
 	rc = nfc_set_remote_general_bytes(dev->nfc_dev, resp->gt, gt_len);
 
@@ -1298,7 +1327,7 @@ static int pn533_in_dep_link_up_complete(struct pn533 *dev, void *arg,
 
 	dev->tgt_active_prot = NFC_PROTO_NFC_DEP;
 
-	
+	/* ATR_RES general bytes are located at offset 17 */
 	target_gt_len = PN533_FRAME_CMD_PARAMS_LEN(dev->in_frame) - 17;
 	rc = nfc_set_remote_general_bytes(dev->nfc_dev,
 						resp->gt, target_gt_len);
@@ -1342,7 +1371,7 @@ static int pn533_dep_link_up(struct nfc_dev *nfc_dev, int target_idx,
 	cmd->active = !comm_mode;
 	cmd->baud = 0;
 	if (gb != NULL && gb_len > 0) {
-		cmd->next = 4; 
+		cmd->next = 4; /* We have some Gi */
 		memcpy(cmd->gt, gb, gb_len);
 	} else {
 		cmd->next = 0;
@@ -1386,7 +1415,7 @@ static int pn533_data_exchange_tx_frame(struct pn533 *dev, struct sk_buff *skb)
 								payload_len);
 
 	if (payload_len > PN533_CMD_DATAEXCH_DATA_MAXLEN) {
-		
+		/* TODO: Implement support to multi-part data exchange */
 		nfc_dev_err(&dev->interface->dev, "Data length greater than the"
 						" max allowed: %d",
 						PN533_CMD_DATAEXCH_DATA_MAXLEN);
@@ -1402,7 +1431,7 @@ static int pn533_data_exchange_tx_frame(struct pn533 *dev, struct sk_buff *skb)
 	memcpy(PN533_FRAME_CMD_PARAMS_PTR(out_frame), &tg, sizeof(u8));
 	out_frame->datalen += sizeof(u8);
 
-	
+	/* The data is already in the out_frame, just update the datalen */
 	out_frame->datalen += payload_len;
 
 	pn533_tx_frame_finish(out_frame);
@@ -1432,7 +1461,7 @@ static int pn533_data_exchange_complete(struct pn533 *dev, void *_arg,
 
 	dev_kfree_skb_irq(arg->skb_out);
 
-	if (params_len < 0) { 
+	if (params_len < 0) { /* error */
 		err = params_len;
 		goto error;
 	}
@@ -1450,10 +1479,10 @@ static int pn533_data_exchange_complete(struct pn533 *dev, void *_arg,
 	}
 
 	if (status & PN533_CMD_MI_MASK) {
-		
+		/* TODO: Implement support to multi-part data exchange */
 		nfc_dev_err(&dev->interface->dev, "Multi-part message not yet"
 								" supported");
-		
+		/* Prevent the other messages from controller */
 		pn533_send_ack(dev, GFP_ATOMIC);
 		err = -ENOSYS;
 		goto error;

@@ -57,7 +57,7 @@ static void mpc85xx_8259_cascade(unsigned int irq, struct irq_desc *desc)
 	}
 	chip->irq_eoi(&desc->irq_data);
 }
-#endif	
+#endif	/* CONFIG_PPC_I8259 */
 
 void __init mpc85xx_ds_pic_init(void)
 {
@@ -86,7 +86,7 @@ void __init mpc85xx_ds_pic_init(void)
 	mpic_init(mpic);
 
 #ifdef CONFIG_PPC_I8259
-	
+	/* Initialize the i8259 controller */
 	for_each_node_by_type(np, "interrupt-controller")
 	    if (of_device_is_compatible(np, "chrp,iic")) {
 		cascade_node = np;
@@ -110,7 +110,7 @@ void __init mpc85xx_ds_pic_init(void)
 	of_node_put(cascade_node);
 
 	irq_set_chained_handler(cascade_irq, mpc85xx_8259_cascade);
-#endif	
+#endif	/* CONFIG_PPC_I8259 */
 }
 
 #ifdef CONFIG_PCI
@@ -133,8 +133,11 @@ static int mpc85xx_exclude_device(struct pci_controller *hose,
 
 	return PCIBIOS_SUCCESSFUL;
 }
-#endif	
+#endif	/* CONFIG_PCI */
 
+/*
+ * Setup the architecture
+ */
 static void __init mpc85xx_ds_setup_arch(void)
 {
 #ifdef CONFIG_PCI
@@ -180,6 +183,9 @@ static void __init mpc85xx_ds_setup_arch(void)
 	printk("MPC85xx DS board from Freescale Semiconductor\n");
 }
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init mpc8544_ds_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -202,6 +208,9 @@ machine_arch_initcall(mpc8544_ds, swiotlb_setup_bus_notifier);
 machine_arch_initcall(mpc8572_ds, swiotlb_setup_bus_notifier);
 machine_arch_initcall(p2020_ds, swiotlb_setup_bus_notifier);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init mpc8572_ds_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -216,6 +225,9 @@ static int __init mpc8572_ds_probe(void)
 	return 0;
 }
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init p2020_ds_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

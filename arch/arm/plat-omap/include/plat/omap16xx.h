@@ -28,7 +28,13 @@
 #ifndef __ASM_ARCH_OMAP16XX_H
 #define __ASM_ARCH_OMAP16XX_H
 
+/*
+ * ----------------------------------------------------------------------------
+ * Base addresses
+ * ----------------------------------------------------------------------------
+ */
 
+/* Syntax: XX_BASE = Virtual base address, XX_START = Physical base address */
 
 #define OMAP16XX_DSP_BASE	0xE0000000
 #define OMAP16XX_DSP_SIZE	0x28000
@@ -43,6 +49,11 @@
 #define OMAP16XX_SEC_SHA1MD5	(OMAP16XX_SEC_BASE + 0x0800)
 #define OMAP16XX_SEC_RNG	(OMAP16XX_SEC_BASE + 0x1000)
 
+/*
+ * ---------------------------------------------------------------------------
+ * Interrupts
+ * ---------------------------------------------------------------------------
+ */
 #define OMAP_IH2_0_BASE		(0xfffe0000)
 #define OMAP_IH2_1_BASE		(0xfffe0100)
 #define OMAP_IH2_2_BASE		(0xfffe0200)
@@ -80,19 +91,40 @@
 #define OMAP_IH2_3_ILR3		(OMAP_IH2_3_BASE + 0x1c)
 #define OMAP_IH2_3_ISR		(OMAP_IH2_3_BASE + 0x9c)
 
+/*
+ * ----------------------------------------------------------------------------
+ * Clocks
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP16XX_ARM_IDLECT3	(CLKGEN_REG_BASE + 0x24)
 
+/*
+ * ----------------------------------------------------------------------------
+ * Pin configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP16XX_CONF_VOLTAGE_VDDSHV6	(1 << 8)
 #define OMAP16XX_CONF_VOLTAGE_VDDSHV7	(1 << 9)
 #define OMAP16XX_CONF_VOLTAGE_VDDSHV8	(1 << 10)
 #define OMAP16XX_CONF_VOLTAGE_VDDSHV9	(1 << 11)
 #define OMAP16XX_SUBLVDS_CONF_VALID	(1 << 13)
 
+/*
+ * ----------------------------------------------------------------------------
+ * System control registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP1610_RESET_CONTROL  0xfffe1140
 
+/*
+ * ---------------------------------------------------------------------------
+ * TIPB bus interface
+ * ---------------------------------------------------------------------------
+ */
 #define TIPB_SWITCH_BASE		 (0xfffbc800)
 #define OMAP16XX_MMCSD2_SSW_MPU_CONF	(TIPB_SWITCH_BASE + 0x160)
 
+/* UART3 Registers Mapping through MPU bus */
 #define UART3_RHR               (OMAP1_UART3_BASE + 0)
 #define UART3_THR               (OMAP1_UART3_BASE + 0)
 #define UART3_DLL               (OMAP1_UART3_BASE + 0)
@@ -131,7 +163,13 @@
 #define UART3_OSC_12M_SEL       (OMAP1_UART3_BASE + 0x4C)
 #define UART3_MVR               (OMAP1_UART3_BASE + 0x50)
 
+/*
+ * ---------------------------------------------------------------------------
+ * Watchdog timer
+ * ---------------------------------------------------------------------------
+ */
 
+/* 32-bit Watchdog timer in OMAP 16XX */
 #define OMAP_16XX_WATCHDOG_BASE        (0xfffeb000)
 #define OMAP_16XX_WIDR         (OMAP_16XX_WATCHDOG_BASE + 0x00)
 #define OMAP_16XX_WD_SYSCONFIG (OMAP_16XX_WATCHDOG_BASE + 0x10)
@@ -160,5 +198,5 @@
 #define OMAP16XX_DSP_MMU_BASE	(0xfffed200)
 #define OMAP16XX_MAILBOX_BASE	(0xfffcf000)
 
-#endif 
+#endif /*  __ASM_ARCH_OMAP16XX_H */
 

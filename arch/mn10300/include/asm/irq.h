@@ -18,8 +18,13 @@
 #include <asm/reset-regs.h>
 #include <proc/irq.h>
 
+/* this number is used when no interrupt has been assigned */
 #define NO_IRQ		INT_MAX
 
+/*
+ * hardware irq numbers
+ * - the ASB2364 has an FPGA with an IRQ multiplexer on it
+ */
 #ifdef CONFIG_MN10300_UNIT_ASB2364
 #include <unit/irq.h>
 #else
@@ -27,8 +32,9 @@
 #define NR_IRQS		NR_CPU_IRQS
 #endif
 
+/* external hardware irq numbers */
 #define NR_XIRQS	GxICR_NUM_XIRQS
 
 #define irq_canonicalize(IRQ) (IRQ)
 
-#endif 
+#endif /* _ASM_IRQ_H */

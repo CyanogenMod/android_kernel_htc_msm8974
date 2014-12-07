@@ -1,3 +1,5 @@
+/* Kernel module to match the bridge port in and
+ * out device for IP packets coming into contact with a bridge. */
 
 /* (C) 2001-2003 Bart De Schuymer <bdschuym@pandora.be>
  *
@@ -28,8 +30,11 @@ physdev_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	const char *indev, *outdev;
 	const struct nf_bridge_info *nf_bridge;
 
+	/* Not a bridged IP packet or no info available yet:
+	 * LOCAL_OUT/mangle and LOCAL_OUT/nat don't know if
+	 * the destination device will be a bridge. */
 	if (!(nf_bridge = skb->nf_bridge)) {
-		
+		/* Return MATCH if the invert flags of the used options are on */
 		if ((info->bitmask & XT_PHYSDEV_OP_BRIDGED) &&
 		    !(info->invert & XT_PHYSDEV_OP_BRIDGED))
 			return false;
@@ -48,7 +53,7 @@ physdev_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		return true;
 	}
 
-	
+	/* This only makes sense in the FORWARD and POSTROUTING chains */
 	if ((info->bitmask & XT_PHYSDEV_OP_BRIDGED) &&
 	    (!!(nf_bridge->mask & BRNF_BRIDGED) ^
 	    !(info->invert & XT_PHYSDEV_OP_BRIDGED)))

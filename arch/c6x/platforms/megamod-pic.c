@@ -23,6 +23,9 @@
 
 #define IRQ_UNMAPPED 0xffff
 
+/*
+ * Megamodule Interrupt Controller register layout
+ */
 struct megamod_regs {
 	u32	evtflag[8];
 	u32	evtset[8];
@@ -49,7 +52,7 @@ struct megamod_pic {
 	struct megamod_regs __iomem *regs;
 	raw_spinlock_t lock;
 
-	
+	/* hw mux mapping */
 	unsigned int output_to_irq[NR_MUX_OUTPUTS];
 };
 
@@ -119,7 +122,7 @@ static int megamod_map(struct irq_domain *h, unsigned int virq,
 	struct megamod_pic *pic = h->host_data;
 	int i;
 
-	
+	/* We shouldn't see a hwirq which is muxed to core controller */
 	for (i = 0; i < NR_MUX_OUTPUTS; i++)
 		if (pic->output_to_irq[i] == hw)
 			return -1;
@@ -127,7 +130,7 @@ static int megamod_map(struct irq_domain *h, unsigned int virq,
 	irq_set_chip_data(virq, pic);
 	irq_set_chip_and_handler(virq, &megamod_chip, handle_level_irq);
 
-	
+	/* Set default irq type */
 	irq_set_irq_type(virq, IRQ_TYPE_NONE);
 
 	return 0;
@@ -148,7 +151,7 @@ static void __init set_megamod_mux(struct megamod_pic *pic, int src, int output)
 		return;
 	}
 
-	
+	/* four mappings per mux register */
 	index = output / 4;
 	offset = (output & 3) * 8;
 
@@ -158,6 +161,19 @@ static void __init set_megamod_mux(struct megamod_pic *pic, int src, int output)
 	soc_writel(val, &pic->regs->intmux[index]);
 }
 
+/*
+ * Parse the MUX mapping, if one exists.
+ *
+ * The MUX map is an array of up to 12 cells; one for each usable core priority
+ * interrupt. The value of a given cell is the megamodule interrupt source
+ * which is to me MUXed to the output corresponding to the cell position
+ * withing the array. The first cell in the array corresponds to priority
+ * 4 and the last (12th) cell corresponds to priority 15. The allowed
+ * values are 4 - ((NR_COMBINERS * 32) - 1). Note that the combined interrupt
+ * sources (0 - 3) are not allowed to be mapped through this property. They
+ * are handled through the "interrupts" property. This allows us to use a
+ * value of zero as a "do not map" placeholder.
+ */
 static void __init parse_priority_map(struct megamod_pic *pic,
 				      int *mapping, int size)
 {
@@ -212,25 +228,38 @@ static struct megamod_pic * __init init_megamod_pic(struct device_node *np)
 		goto error_free;
 	}
 
-	
+	/* Initialize MUX map */
 	for (i = 0; i < ARRAY_SIZE(mapping); i++)
 		mapping[i] = IRQ_UNMAPPED;
 
 	parse_priority_map(pic, mapping, ARRAY_SIZE(mapping));
 
+	/*
+	 * We can have up to 12 interrupts cascading to the core controller.
+	 * These cascades can be from the combined interrupt sources or for
+	 * individual interrupt sources. The "interrupts" property only
+	 * deals with the cascaded combined interrupts. The individual
+	 * interrupts muxed to the core controller use the core controller
+	 * as their interrupt parent.
+	 */
 	for (i = 0; i < NR_COMBINERS; i++) {
 
 		irq = irq_of_parse_and_map(np, i);
 		if (irq == NO_IRQ)
 			continue;
 
+		/*
+		 * We count on the core priority interrupts (4 - 15) being
+		 * direct mapped. Check that device tree provided something
+		 * in that range.
+		 */
 		if (irq < 4 || irq >= NR_PRIORITY_IRQS) {
 			pr_err("%s: combiner-%d virq %d out of range!\n",
 				 np->full_name, i, irq);
 			continue;
 		}
 
-		
+		/* record the mapping */
 		mapping[irq - 4] = i;
 
 		pr_debug("%s: combiner-%d cascading to virq %d\n",
@@ -239,7 +268,7 @@ static struct megamod_pic * __init init_megamod_pic(struct device_node *np)
 		cascade_data[i].pic = pic;
 		cascade_data[i].index = i;
 
-		
+		/* mask and clear all events in combiner */
 		soc_writel(~0, &pic->regs->evtmask[i]);
 		soc_writel(~0, &pic->regs->evtclr[i]);
 
@@ -247,7 +276,7 @@ static struct megamod_pic * __init init_megamod_pic(struct device_node *np)
 		irq_set_chained_handler(irq, megamod_irq_cascade);
 	}
 
-	
+	/* Finally, set up the MUX registers */
 	for (i = 0; i < NR_MUX_OUTPUTS; i++) {
 		if (mapping[i] != IRQ_UNMAPPED) {
 			pr_debug("%s: setting mux %d to priority %d\n",
@@ -264,6 +293,10 @@ error_free:
 	return NULL;
 }
 
+/*
+ * Return next active event after ACK'ing it.
+ * Return -1 if no events active.
+ */
 static int get_exception(void)
 {
 	int i, bit;

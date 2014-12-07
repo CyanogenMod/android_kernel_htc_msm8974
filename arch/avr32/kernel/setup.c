@@ -31,6 +31,10 @@
 
 extern int root_mountflags;
 
+/*
+ * Initialize loops_per_jiffy as 5000000 (500MIPS).
+ * Better make it too large than too small...
+ */
 struct avr32_cpuinfo boot_cpu_data = {
 	.loops_per_jiffy = 5000000
 };
@@ -38,6 +42,9 @@ EXPORT_SYMBOL(boot_cpu_data);
 
 static char __initdata command_line[COMMAND_LINE_SIZE];
 
+/*
+ * Standard memory resources
+ */
 static struct resource __initdata kernel_data = {
 	.name	= "Kernel data",
 	.start	= 0,
@@ -52,9 +59,19 @@ static struct resource __initdata kernel_code = {
 	.sibling = &kernel_data,
 };
 
+/*
+ * Available system RAM and reserved regions as singly linked
+ * lists. These lists are traversed using the sibling pointer in
+ * struct resource and are kept sorted at all times.
+ */
 static struct resource *__initdata system_ram;
 static struct resource *__initdata reserved = &kernel_code;
 
+/*
+ * We need to allocate these before the bootmem allocator is up and
+ * running, so we need this "cache". 32 entries are probably enough
+ * for all but the most insanely complex systems.
+ */
 static struct resource __initdata res_cache[32];
 static unsigned int __initdata res_cache_next_free;
 
@@ -197,9 +214,34 @@ alloc_reserved_region(resource_size_t *start, resource_size_t size,
 	return -ENOMEM;
 }
 
+/*
+ * Early framebuffer allocation. Works as follows:
+ *   - If fbmem_size is zero, nothing will be allocated or reserved.
+ *   - If fbmem_start is zero when setup_bootmem() is called,
+ *     a block of fbmem_size bytes will be reserved before bootmem
+ *     initialization. It will be aligned to the largest page size
+ *     that fbmem_size is a multiple of.
+ *   - If fbmem_start is nonzero, an area of size fbmem_size will be
+ *     reserved at the physical address fbmem_start if possible. If
+ *     it collides with other reserved memory, a different block of
+ *     same size will be allocated, just as if fbmem_start was zero.
+ *
+ * Board-specific code may use these variables to set up platform data
+ * for the framebuffer driver if fbmem_size is nonzero.
+ */
 resource_size_t __initdata fbmem_start;
 resource_size_t __initdata fbmem_size;
 
+/*
+ * "fbmem=xxx[kKmM]" allocates the specified amount of boot memory for
+ * use as framebuffer.
+ *
+ * "fbmem=xxx[kKmM]@yyy[kKmM]" defines a memory region of size xxx and
+ * starting at yyy to be reserved for use as framebuffer.
+ *
+ * The kernel won't verify that the memory region starting at yyy
+ * actually contains usable RAM.
+ */
 static int __init early_parse_fbmem(char *p)
 {
 	int ret;
@@ -220,11 +262,11 @@ static int __init early_parse_fbmem(char *p)
 
 	if (!fbmem_start) {
 		if ((fbmem_size & 0x000fffffUL) == 0)
-			align = 0x100000;	
+			align = 0x100000;	/* 1 MiB */
 		else if ((fbmem_size & 0x0000ffffUL) == 0)
-			align = 0x10000;	
+			align = 0x10000;	/* 64 KiB */
 		else
-			align = 0x1000;		
+			align = 0x1000;		/* 4 KiB */
 
 		ret = alloc_reserved_region(&fbmem_start, fbmem_size,
 					    align, "Framebuffer");
@@ -241,6 +283,10 @@ static int __init early_parse_fbmem(char *p)
 }
 early_param("fbmem", early_parse_fbmem);
 
+/*
+ * Pick out the memory size.  We look for mem=size@start,
+ * where start and size are "size[KkMmGg]"
+ */
 static int __init early_mem(char *p)
 {
 	resource_size_t size, start;
@@ -271,6 +317,11 @@ static int __init parse_tag_mem(struct tag *tag)
 {
 	unsigned long start, end;
 
+	/*
+	 * Ignore zero-sized entries. If we're running standalone, the
+	 * SDRAM code may emit such entries if something goes
+	 * wrong...
+	 */
 	if (tag->u.mem_range.size == 0)
 		return 0;
 
@@ -331,10 +382,19 @@ __tagtable(ATAG_CMDLINE, parse_tag_cmdline);
 
 static int __init parse_tag_clock(struct tag *tag)
 {
+	/*
+	 * We'll figure out the clocks by peeking at the system
+	 * manager regs directly.
+	 */
 	return 0;
 }
 __tagtable(ATAG_CLOCK, parse_tag_clock);
 
+/*
+ * The board_number correspond to the bd->bi_board_number in U-Boot. This
+ * parameter is only available during initialisation and can be used in some
+ * kind of board identification.
+ */
 u32 __initdata board_number;
 
 static int __init parse_tag_boardinfo(struct tag *tag)
@@ -345,6 +405,11 @@ static int __init parse_tag_boardinfo(struct tag *tag)
 }
 __tagtable(ATAG_BOARDINFO, parse_tag_boardinfo);
 
+/*
+ * Scan the tag table for this tag, and call its parse function. The
+ * tag table is built by the linker from all the __tagtable
+ * declarations.
+ */
 static int __init parse_tag(struct tag *tag)
 {
 	extern struct tagtable __tagtable_begin, __tagtable_end;
@@ -359,6 +424,9 @@ static int __init parse_tag(struct tag *tag)
 	return t < &__tagtable_end;
 }
 
+/*
+ * Parse all tags in the list we got from the boot loader
+ */
 static void __init parse_tags(struct tag *t)
 {
 	for (; t->hdr.tag != ATAG_NONE; t = tag_next(t))
@@ -368,6 +436,10 @@ static void __init parse_tags(struct tag *t)
 			       t->hdr.tag);
 }
 
+/*
+ * Find a free memory region large enough for storing the
+ * bootmem bitmap.
+ */
 static unsigned long __init
 find_bootmap_pfn(const struct resource *mem)
 {
@@ -378,6 +450,15 @@ find_bootmap_pfn(const struct resource *mem)
 	bootmap_pages = bootmem_bootmap_pages(node_pages);
 	bootmap_len = bootmap_pages << PAGE_SHIFT;
 
+	/*
+	 * Find a large enough region without reserved pages for
+	 * storing the bootmem bitmap. We can take advantage of the
+	 * fact that all lists have been sorted.
+	 *
+	 * We have to check that we don't collide with any reserved
+	 * regions, which includes the kernel image and any RAMDISK
+	 * images.
+	 */
 	bootmap_start = find_free_region(mem, bootmap_len, PAGE_SIZE);
 
 	return bootmap_start >> PAGE_SHIFT;
@@ -417,6 +498,10 @@ static void __init setup_bootmem(void)
 		if (max_low_pfn > MAX_LOWMEM_PFN) {
 			max_low_pfn = MAX_LOWMEM_PFN;
 #ifndef CONFIG_HIGHMEM
+			/*
+			 * Lowmem is memory that can be addressed
+			 * directly through P1/P2
+			 */
 			printk(KERN_WARNING
 			       "Node %u: Only %ld MiB of memory will be used.\n",
 			       node, MAX_LOWMEM >> 20);
@@ -426,25 +511,34 @@ static void __init setup_bootmem(void)
 #endif
 		}
 
-		
+		/* Initialize the boot-time allocator with low memory only. */
 		bootmap_size = init_bootmem_node(NODE_DATA(node), bootmap_pfn,
 						 first_pfn, max_low_pfn);
 
+		/*
+		 * Register fully available RAM pages with the bootmem
+		 * allocator.
+		 */
 		pages = max_low_pfn - first_pfn;
 		free_bootmem_node (NODE_DATA(node), PFN_PHYS(first_pfn),
 				   PFN_PHYS(pages));
 
-		
+		/* Reserve space for the bootmem bitmap... */
 		reserve_bootmem_node(NODE_DATA(node),
 				     PFN_PHYS(bootmap_pfn),
 				     bootmap_size,
 				     BOOTMEM_DEFAULT);
 
-		
+		/* ...and any other reserved regions. */
 		for (res = reserved; res; res = res->sibling) {
 			if (res->start > PFN_PHYS(max_pfn))
 				break;
 
+			/*
+			 * resource_init will complain about partial
+			 * overlaps, so we'll just ignore such
+			 * resources for now.
+			 */
 			if (res->start >= PFN_PHYS(first_pfn)
 			    && res->end < PFN_PHYS(max_pfn))
 				reserve_bootmem_node(NODE_DATA(node),
@@ -466,6 +560,10 @@ void __init setup_arch (char **cmdline_p)
 	init_mm.end_data = (unsigned long)_edata;
 	init_mm.brk = (unsigned long)_end;
 
+	/*
+	 * Include .init section to make allocations easier. It will
+	 * be removed before the resource is actually requested.
+	 */
 	kernel_code.start = __pa(__init_begin);
 	kernel_code.end = __pa(init_mm.end_code - 1);
 	kernel_data.start = __pa(init_mm.end_code);
@@ -483,6 +581,10 @@ void __init setup_arch (char **cmdline_p)
 	} else {
 		unsigned long cpu_hz = clk_get_rate(cpu_clk);
 
+		/*
+		 * Well, duh, but it's probably a good idea to
+		 * increment the use count.
+		 */
 		clk_enable(cpu_clk);
 
 		boot_cpu_data.clk = cpu_clk;

@@ -5,8 +5,10 @@
 
 static inline unsigned long __xchg(unsigned long x, volatile void * ptr, int size)
 {
+  /* since Etrax doesn't have any atomic xchg instructions, we need to disable
+     irq's (if enabled) and do it with move.d's */
   unsigned long flags,temp;
-  local_irq_save(flags); 
+  local_irq_save(flags); /* save flags, including irq enable bit and shut off irqs */
   switch (size) {
   case 1:
     *((unsigned char *)&temp) = x;
@@ -24,7 +26,7 @@ static inline unsigned long __xchg(unsigned long x, volatile void * ptr, int siz
     *(unsigned long *)ptr = temp;
     break;
   }
-  local_irq_restore(flags); 
+  local_irq_restore(flags); /* restore irq enable bit */
   return x;
 }
 
@@ -35,6 +37,10 @@ static inline unsigned long __xchg(unsigned long x, volatile void * ptr, int siz
 
 #include <asm-generic/cmpxchg-local.h>
 
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
 #define cmpxchg_local(ptr, o, n)				 	       \
 	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
 			(unsigned long)(n), sizeof(*(ptr))))
@@ -44,4 +50,4 @@ static inline unsigned long __xchg(unsigned long x, volatile void * ptr, int siz
 #include <asm-generic/cmpxchg.h>
 #endif
 
-#endif 
+#endif /* __ASM_CRIS_CMPXCHG__ */

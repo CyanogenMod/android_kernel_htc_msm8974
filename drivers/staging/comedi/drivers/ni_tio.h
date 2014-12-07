@@ -25,6 +25,7 @@
 
 #include "../comedidev.h"
 
+/* forward declarations */
 struct mite_struct;
 struct ni_gpct_device;
 
@@ -112,7 +113,7 @@ struct ni_gpct {
 	struct ni_gpct_device *counter_dev;
 	unsigned counter_index;
 	unsigned chip_index;
-	uint64_t clock_period_ps;	
+	uint64_t clock_period_ps;	/* clock period in picoseconds */
 	struct mite_channel *mite_chan;
 	spinlock_t lock;
 };
@@ -170,4 +171,4 @@ static inline struct ni_gpct *subdev_to_counter(struct comedi_subdevice *s)
 	return s->private;
 }
 
-#endif 
+#endif /* _COMEDI_NI_TIO_H */

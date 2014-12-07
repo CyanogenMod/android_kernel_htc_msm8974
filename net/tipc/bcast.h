@@ -40,6 +40,11 @@
 #define MAX_NODES 4096
 #define WSIZE 32
 
+/**
+ * struct tipc_node_map - set of node identifiers
+ * @count: # of nodes in set
+ * @map: bitmap of node identifiers that are in the set
+ */
 
 struct tipc_node_map {
 	u32 count;
@@ -48,6 +53,12 @@ struct tipc_node_map {
 
 #define PLSIZE 32
 
+/**
+ * struct tipc_port_list - set of node local destination ports
+ * @count: # of ports in set (only valid for first entry in list)
+ * @next: pointer to next entry in list
+ * @ports: array of port references
+ */
 
 struct tipc_port_list {
 	int count;
@@ -63,6 +74,9 @@ extern const char tipc_bclink_name[];
 void tipc_nmap_add(struct tipc_node_map *nm_ptr, u32 node);
 void tipc_nmap_remove(struct tipc_node_map *nm_ptr, u32 node);
 
+/**
+ * tipc_nmap_equal - test for equality of node maps
+ */
 
 static inline int tipc_nmap_equal(struct tipc_node_map *nm_a, struct tipc_node_map *nm_b)
 {

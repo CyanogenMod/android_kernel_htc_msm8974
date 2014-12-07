@@ -20,19 +20,41 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: ni_at_ao
+Description: National Instruments AT-AO-6/10
+Devices: [National Instruments] AT-AO-6 (at-ao-6), AT-AO-10 (at-ao-10)
+Status: should work
+Author: ds
+Updated: Sun Dec 26 12:26:28 EST 2004
+
+Configuration options:
+  [0] - I/O port base address
+  [1] - IRQ (unused)
+  [2] - DMA (unused)
+  [3] - analog output range, set by jumpers on hardware (0 for -10 to 10V
+	bipolar, 1 for 0V to 10V unipolar)
+
+*/
+/*
+ * Register-level programming information can be found in NI
+ * document 320379.pdf.
+ */
 
 #include "../comedidev.h"
 
 #include <linux/ioport.h>
 
+/* board egisters */
+/* registers with _2_ are accessed when GRP2WR is set in CFG1 */
 
 #define ATAO_SIZE 0x20
 
-#define ATAO_2_DMATCCLR		0x00	
-#define ATAO_DIN		0x00	
-#define ATAO_DOUT		0x00	
+#define ATAO_2_DMATCCLR		0x00	/* W 16 */
+#define ATAO_DIN		0x00	/* R 16 */
+#define ATAO_DOUT		0x00	/* W 16 */
 
-#define ATAO_CFG2		0x02	
+#define ATAO_CFG2		0x02	/* W 16 */
 #define CALLD1	0x8000
 #define CALLD0	0x4000
 #define FFRTEN	0x2000
@@ -50,9 +72,9 @@
 #define SCLK		0x0002
 #define SDATA		0x0001
 
-#define ATAO_2_INT1CLR		0x02	
+#define ATAO_2_INT1CLR		0x02	/* W 16 */
 
-#define ATAO_CFG3		0x04	
+#define ATAO_CFG3		0x04	/* W 16 */
 #define DMAMODE	0x0040
 #define CLKOUT	0x0020
 #define RCLKEN	0x0010
@@ -61,14 +83,14 @@
 #define EN2_5V	0x0002
 #define SCANEN	0x0001
 
-#define ATAO_2_INT2CLR		0x04	
+#define ATAO_2_INT2CLR		0x04	/* W 16 */
 
-#define ATAO_82C53_BASE		0x06	
+#define ATAO_82C53_BASE		0x06	/* RW 8 */
 
-#define ATAO_82C53_CNTR1	0x06	
-#define ATAO_82C53_CNTR2	0x07	
-#define ATAO_82C53_CNTR3	0x08	
-#define ATAO_82C53_CNTRCMD	0x09	
+#define ATAO_82C53_CNTR1	0x06	/* RW 8 */
+#define ATAO_82C53_CNTR2	0x07	/* RW 8 */
+#define ATAO_82C53_CNTR3	0x08	/* RW 8 */
+#define ATAO_82C53_CNTRCMD	0x09	/* W 8 */
 #define CNTRSEL1	0x80
 #define CNTRSEL0	0x40
 #define RWSEL1	0x20
@@ -77,13 +99,13 @@
 #define MODESEL1	0x04
 #define MODESEL0	0x02
 #define BCDSEL	0x01
-  
+  /* read-back command */
 #define COUNT		0x20
 #define STATUS	0x10
 #define CNTR3		0x08
 #define CNTR2		0x04
 #define CNTR1		0x02
-  
+  /* status */
 #define OUT		0x80
 #define _NULL		0x40
 #define RW1		0x20
@@ -93,12 +115,12 @@
 #define MODE0		0x02
 #define BCD		0x01
 
-#define ATAO_2_RTSISHFT		0x06	
+#define ATAO_2_RTSISHFT		0x06	/* W 8 */
 #define RSI		0x01
 
-#define ATAO_2_RTSISTRB		0x07	
+#define ATAO_2_RTSISTRB		0x07	/* W 8 */
 
-#define ATAO_CFG1		0x0a	
+#define ATAO_CFG1		0x0a	/* W 16 */
 #define EXTINT2EN	0x8000
 #define EXTINT1EN	0x4000
 #define CNTINT2EN	0x2000
@@ -112,7 +134,7 @@
 #define DMARQ		0x0020
 #define DMAEN		0x0010
 #define CH_mask	0x000f
-#define ATAO_STATUS		0x0a	
+#define ATAO_STATUS		0x0a	/* R 16 */
 #define FH		0x0040
 #define FE		0x0020
 #define FF		0x0010
@@ -121,10 +143,15 @@
 #define TCINT		0x0002
 #define PROMOUT	0x0001
 
-#define ATAO_FIFO_WRITE		0x0c	
-#define ATAO_FIFO_CLEAR		0x0c	
-#define ATAO_DACn(x)		(0x0c + 2*(x))	
+#define ATAO_FIFO_WRITE		0x0c	/* W 16 */
+#define ATAO_FIFO_CLEAR		0x0c	/* R 16 */
+#define ATAO_DACn(x)		(0x0c + 2*(x))	/* W */
 
+/*
+ * Board descriptions for two imaginary boards.  Describing the
+ * boards in this way is optional, and completely driver-dependent.
+ * Some drivers use arrays such as this, other do not.
+ */
 struct atao_board {
 	const char *name;
 	int n_ao_chans;
@@ -149,7 +176,7 @@ struct atao_private {
 	unsigned short cfg2;
 	unsigned short cfg3;
 
-	
+	/* Used for AO readback */
 	unsigned int ao_readback[10];
 };
 
@@ -218,7 +245,7 @@ static int atao_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	}
 	dev->iobase = iobase;
 
-	
+	/* dev->board_ptr = atao_probe(dev); */
 
 	dev->board_name = thisboard->name;
 
@@ -229,7 +256,7 @@ static int atao_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		return -ENOMEM;
 
 	s = dev->subdevices + 0;
-	
+	/* analog output subdevice */
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->n_chan = thisboard->n_ao_chans;
@@ -242,7 +269,7 @@ static int atao_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->insn_read = &atao_ao_rinsn;
 
 	s = dev->subdevices + 1;
-	
+	/* digital i/o subdevice */
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
 	s->n_chan = 8;
@@ -252,7 +279,7 @@ static int atao_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->insn_config = atao_dio_insn_config;
 
 	s = dev->subdevices + 2;
-	
+	/* caldac subdevice */
 	s->type = COMEDI_SUBD_CALIB;
 	s->subdev_flags = SDF_WRITABLE | SDF_INTERNAL;
 	s->n_chan = 21;
@@ -261,8 +288,8 @@ static int atao_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->insn_write = atao_calib_insn_write;
 
 	s = dev->subdevices + 3;
-	
-	
+	/* eeprom subdevice */
+	/* s->type=COMEDI_SUBD_EEPROM; */
 	s->type = COMEDI_SUBD_UNUSED;
 
 	atao_reset(dev);
@@ -284,7 +311,7 @@ static int atao_detach(struct comedi_device *dev)
 
 static void atao_reset(struct comedi_device *dev)
 {
-	
+	/* This is the reset sequence described in the manual */
 
 	devpriv->cfg1 = 0;
 	outw(devpriv->cfg1, dev->iobase + ATAO_CFG1);
@@ -373,6 +400,10 @@ static int atao_dio_insn_config(struct comedi_device *dev,
 	int chan = CR_CHAN(insn->chanspec);
 	unsigned int mask, bit;
 
+	/* The input or output configuration of each digital line is
+	 * configured by a special insn_config instruction.  chanspec
+	 * contains the channel to be changed, and data[0] contains the
+	 * value COMEDI_INPUT or COMEDI_OUTPUT. */
 
 	mask = (chan < 4) ? 0x0f : 0xf0;
 	bit = (chan < 4) ? DOUTEN1 : DOUTEN2;
@@ -401,13 +432,19 @@ static int atao_dio_insn_config(struct comedi_device *dev,
 	return 1;
 }
 
+/*
+ * Figure 2-1 in the manual shows 3 chips labeled DAC8800, which
+ * are 8-channel 8-bit DACs.  These are most likely the calibration
+ * DACs.  It is not explicitly stated in the manual how to access
+ * the caldacs, but we can guess.
+ */
 static int atao_calib_insn_read(struct comedi_device *dev,
 				struct comedi_subdevice *s,
 				struct comedi_insn *insn, unsigned int *data)
 {
 	int i;
 	for (i = 0; i < insn->n; i++)
-		data[i] = 0;	
+		data[i] = 0;	/* XXX */
 	return insn->n;
 }
 
@@ -426,7 +463,7 @@ static int atao_calib_insn_write(struct comedi_device *dev,
 		outw(devpriv->cfg2 | SCLK | ((bit & bitstring) ? SDATA : 0),
 		     dev->iobase + ATAO_CFG2);
 	}
-	
+	/* strobe the appropriate caldac */
 	outw(devpriv->cfg2 | (((chan >> 3) + 1) << 14),
 	     dev->iobase + ATAO_CFG2);
 	outw(devpriv->cfg2, dev->iobase + ATAO_CFG2);

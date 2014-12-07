@@ -23,9 +23,11 @@
 #define UBC_CCMFR	0xff200600
 #define UBC_CBCR	0xff200620
 
+/* CRR */
 #define UBC_CRR_PCB	(1 << 1)
 #define UBC_CRR_BIE	(1 << 0)
 
+/* CBR */
 #define UBC_CBR_CE	(1 << 0)
 
 static struct sh_ubc sh4a_ubc;
@@ -101,6 +103,10 @@ static int __init sh4a_ubc_init(void)
 	struct clk *ubc_iclk = clk_get(NULL, "ubc0");
 	int i;
 
+	/*
+	 * The UBC MSTP bit is optional, as not all platforms will have
+	 * it. Just ignore it if we can't find it.
+	 */
 	if (IS_ERR(ubc_iclk))
 		ubc_iclk = NULL;
 
@@ -114,7 +120,7 @@ static int __init sh4a_ubc_init(void)
 
 		__raw_writel(UBC_CRR_BIE | UBC_CRR_PCB, UBC_CRR(i));
 
-		
+		/* dummy read for write posting */
 		(void)__raw_readl(UBC_CRR(i));
 	}
 

@@ -65,6 +65,9 @@ void insw(unsigned long addr, void *dst, unsigned long count) {
 void insl(unsigned long addr, void *dst, unsigned long count) {
         while (count) {
                 count -= 4;
+                /*
+                 * XXX I am sure we are in for an unaligned trap here.
+                 */
                 *(unsigned long *)dst = readl(addr);
                 dst += 4;
                 addr += 4;

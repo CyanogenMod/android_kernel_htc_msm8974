@@ -16,6 +16,6 @@ extern void *set_except_vector(int n, void *addr);
 extern unsigned long ebase;
 extern void per_cpu_trap_init(void);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __SETUP_H */

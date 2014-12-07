@@ -29,6 +29,15 @@ int  __nongpreldata pcibios_last_bus = -1;
 struct pci_bus *__nongpreldata pci_root_bus;
 struct pci_ops *__nongpreldata pci_root_ops;
 
+/*
+ * The accessible PCI window does not cover the entire CPU address space, but
+ * there are devices we want to access outside of that window, so we need to
+ * insert specific PCI bus resources instead of using the platform-level bus
+ * resources directly for the PCI root bus.
+ *
+ * These are configured and inserted by pcibios_init() and are attached to the
+ * root bus by pcibios_fixup_bus().
+ */
 static struct resource pci_ioport_resource = {
 	.name	= "PCI IO",
 	.start	= 0,
@@ -43,6 +52,9 @@ static struct resource pci_iomem_resource = {
 	.flags	= IORESOURCE_MEM,
 };
 
+/*
+ * Functions for accessing PCI configuration space
+ */
 
 #define CONFIG_CMD(bus, dev, where) \
 	(0x80000000 | (bus->number << 16) | (devfn << 8) | (where & ~3))
@@ -72,9 +84,17 @@ static struct resource pci_iomem_resource = {
 
 static inline int __query(const struct pci_dev *dev)
 {
+//	return dev->bus->number==0 && (dev->devfn==PCI_DEVFN(0,0));
+//	return dev->bus->number==1;
+//	return dev->bus->number==0 &&
+//		(dev->devfn==PCI_DEVFN(2,0) || dev->devfn==PCI_DEVFN(3,0));
 	return 0;
 }
 
+/*****************************************************************************/
+/*
+ *
+ */
 static int pci_frv_read_config(struct pci_bus *bus, unsigned int devfn, int where, int size,
 			       u32 *val)
 {
@@ -154,9 +174,19 @@ static struct pci_ops pci_direct_frv = {
 	pci_frv_write_config,
 };
 
+/*
+ * Before we decide to use direct hardware access mechanisms, we try to do some
+ * trivial checks to ensure it at least _seems_ to be working -- we just test
+ * whether bus 00 contains a host bridge (this is similar to checking
+ * techniques used in XFree86, but ours should be more reliable since we
+ * attempt to make use of direct access hints provided by the PCI BIOS).
+ *
+ * This should be close to trivial, but it isn't, because there are buggy
+ * chipsets (yes, you guessed it, by Intel and Compaq) that have no class ID.
+ */
 static int __init pci_sanity_check(struct pci_ops *o)
 {
-	struct pci_bus bus;		
+	struct pci_bus bus;		/* Fake bus and device */
 	u32 id;
 
 	bus.number	= 0;
@@ -177,10 +207,12 @@ static struct pci_ops * __init pci_check_direct(void)
 
 	local_irq_save(flags);
 
-	
+	/* check if access works */
 	if (pci_sanity_check(&pci_direct_frv)) {
 		local_irq_restore(flags);
 		printk("PCI: Using configuration frv\n");
+//		request_mem_region(0xBE040000, 256, "FRV bridge");
+//		request_mem_region(0xBFFFFFF4, 12, "PCI frv");
 		return &pci_direct_frv;
 	}
 
@@ -188,6 +220,10 @@ static struct pci_ops * __init pci_check_direct(void)
 	return NULL;
 }
 
+/*
+ * Discover remaining PCI buses in case there are peer host bridges.
+ * We use the number of last PCI bus provided by the PCI BIOS.
+ */
 static void __init pcibios_fixup_peer_bridges(void)
 {
 	struct pci_bus bus;
@@ -215,9 +251,16 @@ static void __init pcibios_fixup_peer_bridges(void)
 	}
 }
 
+/*
+ * Exceptions for specific devices. Usually work-arounds for fatal design flaws.
+ */
 
 static void __init pci_fixup_umc_ide(struct pci_dev *d)
 {
+	/*
+	 * UM8886BF IDE controller sets region type bits incorrectly,
+	 * therefore they look like memory despite of them being I/O.
+	 */
 	int i;
 
 	printk("PCI: Fixing base address flags for device %s\n", pci_name(d));
@@ -229,6 +272,9 @@ static void __init pci_fixup_ide_bases(struct pci_dev *d)
 {
 	int i;
 
+	/*
+	 * PCI IDE controllers use non-standard I/O port decoding, respect it.
+	 */
 	if ((d->class >> 8) != PCI_CLASS_STORAGE_IDE)
 		return;
 	printk("PCI: IDE base address fixup for %s\n", pci_name(d));
@@ -245,6 +291,10 @@ static void __init pci_fixup_ide_trash(struct pci_dev *d)
 {
 	int i;
 
+	/*
+	 * There exist PCI IDE controllers which have utter garbage
+	 * in first four base registers. Ignore that.
+	 */
 	printk("PCI: IDE base address trash cleared for %s\n", pci_name(d));
 	for(i=0; i<4; i++)
 		d->resource[i].start = d->resource[i].end = d->resource[i].flags = 0;
@@ -252,6 +302,10 @@ static void __init pci_fixup_ide_trash(struct pci_dev *d)
 
 static void __devinit  pci_fixup_latency(struct pci_dev *d)
 {
+	/*
+	 *  SiS 5597 and 5598 chipsets require latency timer set to
+	 *  at most 32 to avoid lockups.
+	 */
 	DBG("PCI: Setting max latency to 32\n");
 	pcibios_max_latency = 32;
 }
@@ -262,6 +316,10 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_SI, PCI_DEVICE_ID_SI_5597, pci_fixup_late
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_SI, PCI_DEVICE_ID_SI_5598, pci_fixup_latency);
 DECLARE_PCI_FIXUP_HEADER(PCI_ANY_ID, PCI_ANY_ID, pci_fixup_ide_bases);
 
+/*
+ *  Called after each bus is probed, but before its children
+ *  are examined.
+ */
 
 void __init pcibios_fixup_bus(struct pci_bus *bus)
 {
@@ -284,6 +342,12 @@ void __init pcibios_fixup_bus(struct pci_bus *bus)
 	}
 }
 
+/*
+ * Initialization. Try all known PCI access methods. Note that we support
+ * using both PCI BIOS and direct access: in such cases, we use I/O ports
+ * to access config space, but we still keep BIOS order of cards to be
+ * compatible with 2.0.X. This should go away some day.
+ */
 
 int __init pcibios_init(void)
 {
@@ -307,7 +371,7 @@ int __init pcibios_init(void)
 	__reg_MB86943_pci_sl_mem_base	= __region_CS2 + 0x08000000;
 	mb();
 
-	
+	/* enable PCI arbitration */
 	__reg_MB86943_pci_arbiter	= MB86943_PCIARB_EN;
 
 	pci_ioport_resource.start	= (__reg_MB86943_sl_pci_io_base << 9) & 0xfffffc00;
@@ -322,6 +386,11 @@ int __init pcibios_init(void)
 	pci_iomem_resource.end		= (__reg_MB86943_sl_pci_mem_range << 9) | 0x3ff;
 	pci_iomem_resource.end		+= pci_iomem_resource.start;
 
+	/* Reserve somewhere to write to flush posted writes.  This is used by
+	 * __flush_PCI_writes() from asm/io.h to force the write FIFO in the
+	 * CPU-PCI bridge to flush as this doesn't happen automatically when a
+	 * read is performed on the MB93090 development kit motherboard.
+	 */
 	pci_iomem_resource.start	+= 0x400;
 
 	printk("PCI MEM window: %08llx-%08llx\n",

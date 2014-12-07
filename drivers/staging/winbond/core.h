@@ -33,9 +33,9 @@ struct mlme_frame {
 	u16		wNumRxMMPDU;
 	u16		wNumRxMMPDUDiscarded;
 
-	u16		wNumRxMMPDUInMLME;	
-	u16		reserved_1;		
-						
+	u16		wNumRxMMPDUInMLME;	/* Number of the Rx MMPDU */
+	u16		reserved_1;		/*  in MLME. */
+						/*  excluding the discarded */
 };
 
 #define WBLINUX_PACKET_ARRAY_SIZE (ETHERNET_TX_DESCRIPTORS*4)
@@ -43,12 +43,13 @@ struct mlme_frame {
 #define WB_MAX_LINK_NAME_LEN 40
 
 struct wbsoft_priv {
-	struct wb_local_para sLocalPara;	
+	struct wb_local_para sLocalPara;	/* Myself connected
+							parameters */
 
-	struct mlme_frame sMlmeFrame;	
+	struct mlme_frame sMlmeFrame;	/* connect to peerSTA parameters */
 
-	struct wb35_mto_params sMtoPara;	
-	struct hw_data sHwData;	
+	struct wb35_mto_params sMtoPara;	/* MTO_struct ... */
+	struct hw_data sHwData;	/*For HAL */
 	struct wb35_mds Mds;
 
 	atomic_t ThreadCount;
@@ -61,4 +62,4 @@ struct wbsoft_priv {
 	bool enabled;
 };
 
-#endif 
+#endif /* __WINBOND_CORE_H */

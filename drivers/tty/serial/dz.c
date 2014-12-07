@@ -90,6 +90,14 @@ static inline struct dz_port *to_dport(struct uart_port *uport)
 	return container_of(uport, struct dz_port, port);
 }
 
+/*
+ * ------------------------------------------------------------
+ * dz_in () and dz_out ()
+ *
+ * These routines are used to access the registers of the DZ
+ * chip, hiding relocation differences between implementation.
+ * ------------------------------------------------------------
+ */
 
 static u16 dz_in(struct dz_port *dport, unsigned offset)
 {
@@ -105,14 +113,23 @@ static void dz_out(struct dz_port *dport, unsigned offset, u16 value)
 	writew(value, addr);
 }
 
+/*
+ * ------------------------------------------------------------
+ * rs_stop () and rs_start ()
+ *
+ * These routines are called before setting or resetting
+ * tty->stopped. They enable or disable transmitter interrupts,
+ * as necessary.
+ * ------------------------------------------------------------
+ */
 
 static void dz_stop_tx(struct uart_port *uport)
 {
 	struct dz_port *dport = to_dport(uport);
 	u16 tmp, mask = 1 << dport->port.line;
 
-	tmp = dz_in(dport, DZ_TCR);	
-	tmp &= ~mask;			
+	tmp = dz_in(dport, DZ_TCR);	/* read the TX flag */
+	tmp &= ~mask;			/* clear the TX flag */
 	dz_out(dport, DZ_TCR, tmp);
 }
 
@@ -121,8 +138,8 @@ static void dz_start_tx(struct uart_port *uport)
 	struct dz_port *dport = to_dport(uport);
 	u16 tmp, mask = 1 << dport->port.line;
 
-	tmp = dz_in(dport, DZ_TCR);	
-	tmp |= mask;			
+	tmp = dz_in(dport, DZ_TCR);	/* read the TX flag */
+	tmp |= mask;			/* set the TX flag */
 	dz_out(dport, DZ_TCR, tmp);
 }
 
@@ -136,10 +153,36 @@ static void dz_stop_rx(struct uart_port *uport)
 
 static void dz_enable_ms(struct uart_port *uport)
 {
-	
+	/* nothing to do */
 }
 
+/*
+ * ------------------------------------------------------------
+ *
+ * Here start the interrupt handling routines.  All of the following
+ * subroutines are declared as inline and are folded into
+ * dz_interrupt.  They were separated out for readability's sake.
+ *
+ * Note: dz_interrupt() is a "fast" interrupt, which means that it
+ * runs with interrupts turned off.  People who may want to modify
+ * dz_interrupt() should try to keep the interrupt handler as fast as
+ * possible.  After you are done making modifications, it is not a bad
+ * idea to do:
+ *
+ *	make drivers/serial/dz.s
+ *
+ * and look at the resulting assemble code in dz.s.
+ *
+ * ------------------------------------------------------------
+ */
 
+/*
+ * ------------------------------------------------------------
+ * receive_char ()
+ *
+ * This routine deals with inputs from any lines.
+ * ------------------------------------------------------------
+ */
 static inline void dz_receive_chars(struct dz_mux *mux)
 {
 	struct uart_port *uport;
@@ -154,9 +197,9 @@ static inline void dz_receive_chars(struct dz_mux *mux)
 	while ((status = dz_in(dport, DZ_RBUF)) & DZ_DVAL) {
 		dport = &mux->dport[LINE(status)];
 		uport = &dport->port;
-		tty = uport->state->port.tty;	
+		tty = uport->state->port.tty;	/* point to the proper dev */
 
-		ch = UCHAR(status);		
+		ch = UCHAR(status);		/* grab the char */
 		flag = TTY_NORMAL;
 
 		icount = &uport->icount;
@@ -164,13 +207,19 @@ static inline void dz_receive_chars(struct dz_mux *mux)
 
 		if (unlikely(status & (DZ_OERR | DZ_FERR | DZ_PERR))) {
 
+			/*
+			 * There is no separate BREAK status bit, so treat
+			 * null characters with framing errors as BREAKs;
+			 * normally, otherwise.  For this move the Framing
+			 * Error bit to a simulated BREAK bit.
+			 */
 			if (!ch) {
 				status |= (status & DZ_FERR) >>
 					  (ffs(DZ_FERR) - ffs(DZ_BREAK));
 				status &= ~DZ_FERR;
 			}
 
-			
+			/* Handle SysRq/SAK & keep track of the statistics. */
 			if (status & DZ_BREAK) {
 				icount->brk++;
 				if (uart_handle_break(uport))
@@ -203,6 +252,13 @@ static inline void dz_receive_chars(struct dz_mux *mux)
 			tty_flip_buffer_push(mux->dport[i].port.state->port.tty);
 }
 
+/*
+ * ------------------------------------------------------------
+ * transmit_char ()
+ *
+ * This routine deals with outputs to any lines.
+ * ------------------------------------------------------------
+ */
 static inline void dz_transmit_chars(struct dz_mux *mux)
 {
 	struct dz_port *dport = &mux->dport[0];
@@ -214,13 +270,13 @@ static inline void dz_transmit_chars(struct dz_mux *mux)
 	dport = &mux->dport[LINE(status)];
 	xmit = &dport->port.state->xmit;
 
-	if (dport->port.x_char) {		
+	if (dport->port.x_char) {		/* XON/XOFF chars */
 		dz_out(dport, DZ_TDR, dport->port.x_char);
 		dport->port.icount.tx++;
 		dport->port.x_char = 0;
 		return;
 	}
-	
+	/* If nothing to do or stopped or hardware stopped. */
 	if (uart_circ_empty(xmit) || uart_tx_stopped(&dport->port)) {
 		spin_lock(&dport->port.lock);
 		dz_stop_tx(&dport->port);
@@ -228,6 +284,10 @@ static inline void dz_transmit_chars(struct dz_mux *mux)
 		return;
 	}
 
+	/*
+	 * If something to do... (remember the dz has no output fifo,
+	 * so we go one char at a time) :-<
+	 */
 	tmp = xmit->buf[xmit->tail];
 	xmit->tail = (xmit->tail + 1) & (DZ_XMIT_SIZE - 1);
 	dz_out(dport, DZ_TDR, tmp);
@@ -236,7 +296,7 @@ static inline void dz_transmit_chars(struct dz_mux *mux)
 	if (uart_circ_chars_pending(xmit) < DZ_WAKEUP_CHARS)
 		uart_write_wakeup(&dport->port);
 
-	
+	/* Are we are done. */
 	if (uart_circ_empty(xmit)) {
 		spin_lock(&dport->port.lock);
 		dz_stop_tx(&dport->port);
@@ -244,28 +304,49 @@ static inline void dz_transmit_chars(struct dz_mux *mux)
 	}
 }
 
+/*
+ * ------------------------------------------------------------
+ * check_modem_status()
+ *
+ * DS 3100 & 5100: Only valid for the MODEM line, duh!
+ * DS 5000/200: Valid for the MODEM and PRINTER line.
+ * ------------------------------------------------------------
+ */
 static inline void check_modem_status(struct dz_port *dport)
 {
+	/*
+	 * FIXME:
+	 * 1. No status change interrupt; use a timer.
+	 * 2. Handle the 3100/5000 as appropriate. --macro
+	 */
 	u16 status;
 
-	
+	/* If not the modem line just return.  */
 	if (dport->port.line != DZ_MODEM)
 		return;
 
 	status = dz_in(dport, DZ_MSR);
 
-	
+	/* it's easy, since DSR2 is the only bit in the register */
 	if (status)
 		dport->port.icount.dsr++;
 }
 
+/*
+ * ------------------------------------------------------------
+ * dz_interrupt ()
+ *
+ * this is the main interrupt routine for the DZ chip.
+ * It deals with the multiple ports.
+ * ------------------------------------------------------------
+ */
 static irqreturn_t dz_interrupt(int irq, void *dev_id)
 {
 	struct dz_mux *mux = dev_id;
 	struct dz_port *dport = &mux->dport[0];
 	u16 status;
 
-	
+	/* get the reason why we just got an irq */
 	status = dz_in(dport, DZ_CSR);
 
 	if ((status & (DZ_RDONE | DZ_RIE)) == (DZ_RDONE | DZ_RIE))
@@ -277,9 +358,17 @@ static irqreturn_t dz_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * -------------------------------------------------------------------
+ * Here ends the DZ interrupt routines.
+ * -------------------------------------------------------------------
+ */
 
 static unsigned int dz_get_mctrl(struct uart_port *uport)
 {
+	/*
+	 * FIXME: Handle the 3100/5000 as appropriate. --macro
+	 */
 	struct dz_port *dport = to_dport(uport);
 	unsigned int mctrl = TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
 
@@ -293,6 +382,9 @@ static unsigned int dz_get_mctrl(struct uart_port *uport)
 
 static void dz_set_mctrl(struct uart_port *uport, unsigned int mctrl)
 {
+	/*
+	 * FIXME: Handle the 3100/5000 as appropriate. --macro
+	 */
 	struct dz_port *dport = to_dport(uport);
 	u16 tmp;
 
@@ -306,6 +398,13 @@ static void dz_set_mctrl(struct uart_port *uport, unsigned int mctrl)
 	}
 }
 
+/*
+ * -------------------------------------------------------------------
+ * startup ()
+ *
+ * various initialization tasks
+ * -------------------------------------------------------------------
+ */
 static int dz_startup(struct uart_port *uport)
 {
 	struct dz_port *dport = to_dport(uport);
@@ -329,7 +428,7 @@ static int dz_startup(struct uart_port *uport)
 
 	spin_lock_irqsave(&dport->port.lock, flags);
 
-	
+	/* Enable interrupts.  */
 	tmp = dz_in(dport, DZ_CSR);
 	tmp |= DZ_RIE | DZ_TIE;
 	dz_out(dport, DZ_CSR, tmp);
@@ -339,6 +438,14 @@ static int dz_startup(struct uart_port *uport)
 	return 0;
 }
 
+/*
+ * -------------------------------------------------------------------
+ * shutdown ()
+ *
+ * This routine will shutdown a serial port; interrupts are disabled, and
+ * DTR is dropped if the hangup on close termio flag is on.
+ * -------------------------------------------------------------------
+ */
 static void dz_shutdown(struct uart_port *uport)
 {
 	struct dz_port *dport = to_dport(uport);
@@ -353,7 +460,7 @@ static void dz_shutdown(struct uart_port *uport)
 
 	irq_guard = atomic_add_return(-1, &mux->irq_guard);
 	if (!irq_guard) {
-		
+		/* Disable interrupts.  */
 		tmp = dz_in(dport, DZ_CSR);
 		tmp &= ~(DZ_RIE | DZ_TIE);
 		dz_out(dport, DZ_CSR, tmp);
@@ -387,6 +494,10 @@ static unsigned int dz_tx_empty(struct uart_port *uport)
 
 static void dz_break_ctl(struct uart_port *uport, int break_state)
 {
+	/*
+	 * FIXME: Can't access BREAK bits in TDR easily;
+	 * reuse the code for polled TX. --macro
+	 */
 	struct dz_port *dport = to_dport(uport);
 	unsigned long flags;
 	unsigned short tmp, mask = 1 << dport->port.line;
@@ -451,7 +562,7 @@ static void dz_reset(struct dz_port *dport)
 	while (dz_in(dport, DZ_CSR) & DZ_CLR);
 	iob();
 
-	
+	/* Enable scanning.  */
 	dz_out(dport, DZ_CSR, DZ_MSE);
 
 	mux->initialised = 1;
@@ -491,10 +602,10 @@ static void dz_set_termios(struct uart_port *uport, struct ktermios *termios,
 
 	baud = uart_get_baud_rate(uport, termios, old_termios, 50, 9600);
 	bflag = dz_encode_baud_rate(baud);
-	if (bflag < 0)	{			
+	if (bflag < 0)	{			/* Try to keep unchanged.  */
 		baud = uart_get_baud_rate(uport, old_termios, NULL, 50, 9600);
 		bflag = dz_encode_baud_rate(baud);
-		if (bflag < 0)	{		
+		if (bflag < 0)	{		/* Resort to 9600.  */
 			baud = 9600;
 			bflag = DZ_B9600;
 		}
@@ -512,14 +623,14 @@ static void dz_set_termios(struct uart_port *uport, struct ktermios *termios,
 	dz_out(dport, DZ_LPR, cflag);
 	dport->cflag = cflag;
 
-	
+	/* setup accept flag */
 	dport->port.read_status_mask = DZ_OERR;
 	if (termios->c_iflag & INPCK)
 		dport->port.read_status_mask |= DZ_FERR | DZ_PERR;
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		dport->port.read_status_mask |= DZ_BREAK;
 
-	
+	/* characters to ignore */
 	uport->ignore_status_mask = 0;
 	if ((termios->c_iflag & (IGNPAR | IGNBRK)) == (IGNPAR | IGNBRK))
 		dport->port.ignore_status_mask |= DZ_OERR;
@@ -531,6 +642,11 @@ static void dz_set_termios(struct uart_port *uport, struct ktermios *termios,
 	spin_unlock_irqrestore(&dport->port.lock, flags);
 }
 
+/*
+ * Hack alert!
+ * Required solely so that the initial PROM-based console
+ * works undisturbed in parallel with this one.
+ */
 static void dz_pm(struct uart_port *uport, unsigned int state,
 		  unsigned int oldstate)
 {
@@ -616,6 +732,9 @@ static void dz_config_port(struct uart_port *uport, int flags)
 	}
 }
 
+/*
+ * Verify the new serial_struct (for TIOCSSERIAL).
+ */
 static int dz_verify_port(struct uart_port *uport, struct serial_struct *ser)
 {
 	int ret = 0;
@@ -679,6 +798,20 @@ static void __init dz_init_ports(void)
 }
 
 #ifdef CONFIG_SERIAL_DZ_CONSOLE
+/*
+ * -------------------------------------------------------------------
+ * dz_console_putchar() -- transmit a character
+ *
+ * Polled transmission.  This is tricky.  We need to mask transmit
+ * interrupts so that they do not interfere, enable the transmitter
+ * for the line requested and then wait till the transmit scanner
+ * requests data for this line.  But it may request data for another
+ * line first, in which case we have to disable its transmitter and
+ * repeat waiting till our line pops up.  Only then the character may
+ * be transmitted.  Finally, the state of the transmitter mask is
+ * restored.  Welcome to the world of PDP-11!
+ * -------------------------------------------------------------------
+ */
 static void dz_console_putchar(struct uart_port *uport, int ch)
 {
 	struct dz_port *dport = to_dport(uport);
@@ -709,13 +842,21 @@ static void dz_console_putchar(struct uart_port *uport, int ch)
 		udelay(2);
 	} while (--loops);
 
-	if (loops)				
+	if (loops)				/* Cannot send otherwise. */
 		dz_out(dport, DZ_TDR, ch);
 
 	dz_out(dport, DZ_TCR, tcr);
 	dz_out(dport, DZ_CSR, csr);
 }
 
+/*
+ * -------------------------------------------------------------------
+ * dz_console_print ()
+ *
+ * dz_console_print is registered for printk.
+ * The console must be locked when we get here.
+ * -------------------------------------------------------------------
+ */
 static void dz_console_print(struct console *co,
 			     const char *str,
 			     unsigned int count)
@@ -741,7 +882,7 @@ static int __init dz_console_setup(struct console *co, char *options)
 	if (ret)
 		return ret;
 
-	spin_lock_init(&dport->port.lock);	
+	spin_lock_init(&dport->port.lock);	/* For dz_pm().  */
 
 	dz_reset(dport);
 	dz_pm(uport, 0, -1);
@@ -778,7 +919,7 @@ console_initcall(dz_serial_console_init);
 #define SERIAL_DZ_CONSOLE	&dz_console
 #else
 #define SERIAL_DZ_CONSOLE	NULL
-#endif 
+#endif /* CONFIG_SERIAL_DZ_CONSOLE */
 
 static struct uart_driver dz_reg = {
 	.owner			= THIS_MODULE,

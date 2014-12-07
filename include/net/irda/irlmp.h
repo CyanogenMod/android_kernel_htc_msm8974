@@ -27,33 +27,34 @@
 #ifndef IRLMP_H
 #define IRLMP_H
 
-#include <asm/param.h>  
+#include <asm/param.h>  /* for HZ */
 
 #include <linux/types.h>
 
 #include <net/irda/irda.h>
 #include <net/irda/qos.h>
-#include <net/irda/irlap.h>		
+#include <net/irda/irlap.h>		/* LAP_MAX_HEADER, ... */
 #include <net/irda/irlmp_event.h>
 #include <net/irda/irqueue.h>
 #include <net/irda/discovery.h>
 
+/* LSAP-SEL's */
 #define LSAP_MASK     0x7f
 #define LSAP_IAS      0x00
 #define LSAP_ANY      0xff
-#define LSAP_MAX      0x6f 
-#define LSAP_CONNLESS 0x70 
+#define LSAP_MAX      0x6f /* 0x70-0x7f are reserved */
+#define LSAP_CONNLESS 0x70 /* Connectionless LSAP, mostly used for Ultra */
 
 #define DEV_ADDR_ANY  0xffffffff
 
-#define LMP_HEADER          2    
-#define LMP_CONTROL_HEADER  4    
-#define LMP_PID_HEADER      1    
+#define LMP_HEADER          2    /* Dest LSAP + Source LSAP */
+#define LMP_CONTROL_HEADER  4    /* LMP_HEADER + opcode + parameter */
+#define LMP_PID_HEADER      1    /* Used by Ultra */
 #define LMP_MAX_HEADER      (LMP_CONTROL_HEADER+LAP_MAX_HEADER)
 
 #define LM_MAX_CONNECTIONS  10
 
-#define LM_IDLE_TIMEOUT     2*HZ 
+#define LM_IDLE_TIMEOUT     2*HZ /* 2 seconds for now */
 
 typedef enum {
 	S_PNP = 0,
@@ -70,48 +71,60 @@ typedef enum {
 	S_END,
 } SERVICE;
 
+/* For selective discovery */
 typedef void (*DISCOVERY_CALLBACK1) (discinfo_t *, DISCOVERY_MODE, void *);
+/* For expiry (the same) */
 typedef void (*DISCOVERY_CALLBACK2) (discinfo_t *, DISCOVERY_MODE, void *);
 
 typedef struct {
-	irda_queue_t queue; 
+	irda_queue_t queue; /* Must be first */
 
-	__u16_host_order hints; 
+	__u16_host_order hints; /* Hint bits */
 } irlmp_service_t;
 
 typedef struct {
-	irda_queue_t queue; 
+	irda_queue_t queue; /* Must be first */
 
 	__u16_host_order hint_mask;
 
-	DISCOVERY_CALLBACK1 disco_callback;	
-	DISCOVERY_CALLBACK2 expir_callback;	
-	void *priv;                
+	DISCOVERY_CALLBACK1 disco_callback;	/* Selective discovery */
+	DISCOVERY_CALLBACK2 expir_callback;	/* Selective expiration */
+	void *priv;                /* Used to identify client */
 } irlmp_client_t;
 
+/*
+ *  Information about each logical LSAP connection
+ */
 struct lsap_cb {
-	irda_queue_t queue;      
+	irda_queue_t queue;      /* Must be first */
 	magic_t magic;
 
-	unsigned long connected;	
+	unsigned long connected;	/* set_bit used on this */
 	int  persistent;
 
-	__u8 slsap_sel;   
-	__u8 dlsap_sel;   
+	__u8 slsap_sel;   /* Source (this) LSAP address */
+	__u8 dlsap_sel;   /* Destination LSAP address (if connected) */
 #ifdef CONFIG_IRDA_ULTRA
-	__u8 pid;         
-#endif 
-	struct sk_buff *conn_skb; 
+	__u8 pid;         /* Used by connectionless LSAP */
+#endif /* CONFIG_IRDA_ULTRA */
+	struct sk_buff *conn_skb; /* Store skb here while connecting */
 
 	struct timer_list watchdog_timer;
 
-	LSAP_STATE      lsap_state;  
-	notify_t        notify;      
-	struct qos_info qos;         
+	LSAP_STATE      lsap_state;  /* Connection state */
+	notify_t        notify;      /* Indication/Confirm entry points */
+	struct qos_info qos;         /* QoS for this connection */
 
-	struct lap_cb *lap; 
+	struct lap_cb *lap; /* Pointer to LAP connection structure */
 };
 
+/*
+ *  Used for caching the last slsap->dlsap->handle mapping
+ *
+ * We don't need to keep/match the remote address in the cache because
+ * we are associated with a specific LAP (which implies it).
+ * Jean II
+ */
 typedef struct {
 	int valid;
 
@@ -120,55 +133,65 @@ typedef struct {
 	struct lsap_cb *lsap;
 } CACHE_ENTRY;
 
+/*
+ *  Information about each registred IrLAP layer
+ */
 struct lap_cb {
-	irda_queue_t queue; 
+	irda_queue_t queue; /* Must be first */
 	magic_t magic;
 
-	int reason;    
+	int reason;    /* LAP disconnect reason */
 
 	IRLMP_STATE lap_state;
 
-	struct irlap_cb *irlap;   
-	hashbin_t *lsaps;         
-	struct lsap_cb *flow_next;	
+	struct irlap_cb *irlap;   /* Instance of IrLAP layer */
+	hashbin_t *lsaps;         /* LSAP associated with this link */
+	struct lsap_cb *flow_next;	/* Next lsap to be polled for Tx */
 
-	__u8  caddr;  
- 	__u32 saddr;  
- 	__u32 daddr;  
+	__u8  caddr;  /* Connection address */
+ 	__u32 saddr;  /* Source device address */
+ 	__u32 daddr;  /* Destination device address */
 	
-	struct qos_info *qos;  
+	struct qos_info *qos;  /* LAP QoS for this session */
 	struct timer_list idle_timer;
 	
 #ifdef CONFIG_IRDA_CACHE_LAST_LSAP
-	CACHE_ENTRY cache;  
+	/* The lsap cache was moved from struct irlmp_cb to here because
+	 * it must be associated with the specific LAP. Also, this
+	 * improves performance. - Jean II */
+	CACHE_ENTRY cache;  /* Caching last slsap->dlsap->handle mapping */
 #endif
 };
 
+/*
+ *  Main structure for IrLMP
+ */
 struct irlmp_cb {
 	magic_t magic;
 
 	__u8 conflict_flag;
 	
-	discovery_t discovery_cmd; 
-	discovery_t discovery_rsp; 
+	discovery_t discovery_cmd; /* Discovery command to use by IrLAP */
+	discovery_t discovery_rsp; /* Discovery response to use by IrLAP */
 
-	
+	/* Last lsap picked automatically by irlmp_find_free_slsap() */
 	int	last_lsap_sel;
 
 	struct timer_list discovery_timer;
 
- 	hashbin_t *links;         
+ 	hashbin_t *links;         /* IrLAP connection table */
 	hashbin_t *unconnected_lsaps;
  	hashbin_t *clients;
 	hashbin_t *services;
 
-	hashbin_t *cachelog;	
+	hashbin_t *cachelog;	/* Current discovery log */
 
 	int running;
 
-	__u16_host_order hints; 
+	__u16_host_order hints; /* Hint bits */
 };
 
+/* Prototype declarations */
 int  irlmp_init(void);
 void irlmp_cleanup(void);
 struct lsap_cb *irlmp_open_lsap(__u8 slsap, notify_t *notify, __u8 pid);
@@ -216,7 +239,7 @@ void irlmp_udata_indication(struct lsap_cb *, struct sk_buff *);
 #ifdef CONFIG_IRDA_ULTRA
 int  irlmp_connless_data_request(struct lsap_cb *, struct sk_buff *, __u8);
 void irlmp_connless_data_indication(struct lsap_cb *, struct sk_buff *);
-#endif 
+#endif /* CONFIG_IRDA_ULTRA */
 
 void irlmp_status_indication(struct lap_cb *, LINK_STATUS link, LOCK_STATUS lock);
 void irlmp_flow_indication(struct lap_cb *self, LOCAL_FLOW flow);
@@ -237,9 +260,11 @@ extern const char *irlmp_reasons[];
 extern int sysctl_discovery_timeout;
 extern int sysctl_discovery_slots;
 extern int sysctl_discovery;
-extern int sysctl_lap_keepalive_time;	
+extern int sysctl_lap_keepalive_time;	/* in ms, default is LM_IDLE_TIMEOUT */
 extern struct irlmp_cb *irlmp;
 
+/* Check if LAP queue is full.
+ * Used by IrTTP for low control, see comments in irlap.h - Jean II */
 static inline int irlmp_lap_tx_queue_full(struct lsap_cb *self)
 {
 	if (self == NULL)
@@ -252,12 +277,17 @@ static inline int irlmp_lap_tx_queue_full(struct lsap_cb *self)
 	return IRLAP_GET_TX_QUEUE_LEN(self->lap->irlap) >= LAP_HIGH_THRESHOLD;
 }
 
+/* After doing a irlmp_dup(), this get one of the two socket back into
+ * a state where it's waiting incomming connections.
+ * Note : this can be used *only* if the socket is not yet connected
+ * (i.e. NO irlmp_connect_response() done on this socket).
+ * - Jean II */
 static inline void irlmp_listen(struct lsap_cb *self)
 {
 	self->dlsap_sel = LSAP_ANY;
 	self->lap = NULL;
 	self->lsap_state = LSAP_DISCONNECTED;
-	
+	/* Started when we received the LM_CONNECT_INDICATION */
 	del_timer(&self->watchdog_timer);
 }
 

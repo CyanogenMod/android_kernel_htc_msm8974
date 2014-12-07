@@ -23,6 +23,9 @@
 
 #include "sbuslib.h"
 
+/*
+ * Local functions.
+ */
 
 static int tcx_setcolreg(unsigned, unsigned, unsigned, unsigned,
 			 unsigned, struct fb_info *);
@@ -32,6 +35,9 @@ static int tcx_mmap(struct fb_info *, struct vm_area_struct *);
 static int tcx_ioctl(struct fb_info *, unsigned int, unsigned long);
 static int tcx_pan_display(struct fb_var_screeninfo *, struct fb_info *);
 
+/*
+ *  Frame buffer operations
+ */
 
 static struct fb_ops tcx_ops = {
 	.owner			= THIS_MODULE,
@@ -48,6 +54,7 @@ static struct fb_ops tcx_ops = {
 #endif
 };
 
+/* THC definitions */
 #define TCX_THC_MISC_REV_SHIFT       16
 #define TCX_THC_MISC_REV_MASK        15
 #define TCX_THC_MISC_VSYNC_DIS       (1 << 25)
@@ -66,6 +73,7 @@ static struct fb_ops tcx_ops = {
 #define TCX_THC_REV_MINREV_SHIFT     28
 #define TCX_THC_REV_MINREV_MASK      15
 
+/* The contents are unknown */
 struct tcx_tec {
 	u32 tec_matrix;
 	u32 tec_clip;
@@ -75,17 +83,17 @@ struct tcx_tec {
 struct tcx_thc {
 	u32 thc_rev;
 	u32 thc_pad0[511];
-	u32 thc_hs;		
+	u32 thc_hs;		/* hsync timing */
 	u32 thc_hsdvs;
 	u32 thc_hd;
-	u32 thc_vs;		
+	u32 thc_vs;		/* vsync timing */
 	u32 thc_vd;
 	u32 thc_refresh;
 	u32 thc_misc;
 	u32 thc_pad1[56];
-	u32 thc_cursxy;	
-	u32 thc_cursmask[32];	
-	u32 thc_cursbits[32];	
+	u32 thc_cursxy;	/* cursor x,y position (16 bits each) */
+	u32 thc_cursmask[32];	/* cursor mask bits */
+	u32 thc_cursbits[32];	/* what to show where mask enabled */
 };
 
 struct bt_regs {
@@ -113,6 +121,7 @@ struct tcx_par {
 	int			lowdepth;
 };
 
+/* Reset control plane so that WID is 8-bit plane. */
 static void __tcx_set_control_plane(struct fb_info *info)
 {
 	struct tcx_par *par = info->par;
@@ -148,6 +157,15 @@ static int tcx_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/**
+ *      tcx_setcolreg - Optional function. Sets a color register.
+ *      @regno: boolean, 0 copy local, 1 get_user() function
+ *      @red: frame buffer colormap structure
+ *      @green: The green value which can be up to 16 bits wide
+ *      @blue:  The blue value which can be up to 16 bits wide.
+ *      @transp: If supported the alpha value which can be up to 16 bits wide.
+ *      @info: frame buffer info structure
+ */
 static int tcx_setcolreg(unsigned regno,
 			 unsigned red, unsigned green, unsigned blue,
 			 unsigned transp, struct fb_info *info)
@@ -175,6 +193,11 @@ static int tcx_setcolreg(unsigned regno,
 	return 0;
 }
 
+/**
+ *      tcx_blank - Optional function.  Blanks the display.
+ *      @blank_mode: the blank mode we want.
+ *      @info: frame buffer structure that represents a single frame buffer
+ */
 static int
 tcx_blank(int blank, struct fb_info *info)
 {
@@ -188,26 +211,26 @@ tcx_blank(int blank, struct fb_info *info)
 	val = sbus_readl(&thc->thc_misc);
 
 	switch (blank) {
-	case FB_BLANK_UNBLANK: 
+	case FB_BLANK_UNBLANK: /* Unblanking */
 		val &= ~(TCX_THC_MISC_VSYNC_DIS |
 			 TCX_THC_MISC_HSYNC_DIS);
 		val |= TCX_THC_MISC_VIDEO;
 		par->flags &= ~TCX_FLAG_BLANKED;
 		break;
 
-	case FB_BLANK_NORMAL: 
+	case FB_BLANK_NORMAL: /* Normal blanking */
 		val &= ~TCX_THC_MISC_VIDEO;
 		par->flags |= TCX_FLAG_BLANKED;
 		break;
 
-	case FB_BLANK_VSYNC_SUSPEND: 
+	case FB_BLANK_VSYNC_SUSPEND: /* VESA blank (vsync off) */
 		val |= TCX_THC_MISC_VSYNC_DIS;
 		break;
-	case FB_BLANK_HSYNC_SUSPEND: 
+	case FB_BLANK_HSYNC_SUSPEND: /* VESA blank (hsync off) */
 		val |= TCX_THC_MISC_HSYNC_DIS;
 		break;
 
-	case FB_BLANK_POWERDOWN: 
+	case FB_BLANK_POWERDOWN: /* Poweroff */
 		break;
 	};
 
@@ -294,6 +317,9 @@ static int tcx_ioctl(struct fb_info *info, unsigned int cmd,
 				   info->fix.smem_len);
 }
 
+/*
+ *  Initialisation
+ */
 
 static void
 tcx_init_fix(struct fb_info *info, int linebytes)
@@ -415,12 +441,12 @@ static int __devinit tcx_probe(struct platform_device *op)
 	info->flags = FBINFO_DEFAULT;
 	info->fbops = &tcx_ops;
 
-	
-	sbus_writel(0x04 << 24, &par->bt->addr);         
+	/* Initialize brooktree DAC. */
+	sbus_writel(0x04 << 24, &par->bt->addr);         /* color planes */
 	sbus_writel(0xff << 24, &par->bt->control);
 	sbus_writel(0x05 << 24, &par->bt->addr);
 	sbus_writel(0x00 << 24, &par->bt->control);
-	sbus_writel(0x06 << 24, &par->bt->addr);         
+	sbus_writel(0x06 << 24, &par->bt->addr);         /* overlay plane */
 	sbus_writel(0x73 << 24, &par->bt->control);
 	sbus_writel(0x07 << 24, &par->bt->addr);
 	sbus_writel(0x00 << 24, &par->bt->control);

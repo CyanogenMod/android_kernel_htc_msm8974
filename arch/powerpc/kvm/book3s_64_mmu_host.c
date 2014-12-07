@@ -38,6 +38,8 @@ void kvmppc_mmu_invalidate_pte(struct kvm_vcpu *vcpu, struct hpte_cache *pte)
 			       false);
 }
 
+/* We keep 512 gvsid->hvsid entries, mapping the guest ones to the array using
+ * a hash, so we don't waste cycles on looping */
 static u16 kvmppc_sid_hash(struct kvm_vcpu *vcpu, u64 gvsid)
 {
 	return (u16)(((gvsid >> (SID_MAP_BITS * 7)) & SID_MAP_MASK) ^
@@ -88,7 +90,7 @@ int kvmppc_mmu_map_page(struct kvm_vcpu *vcpu, struct kvmppc_pte *orig_pte)
 	struct kvmppc_sid_map *map;
 	int r = 0;
 
-	
+	/* Get host physical address for gpa */
 	hpaddr = kvmppc_gfn_to_pfn(vcpu, orig_pte->raddr >> PAGE_SHIFT);
 	if (is_error_pfn(hpaddr)) {
 		printk(KERN_INFO "Couldn't get guest page for gfn %lx!\n", orig_pte->eaddr);
@@ -98,7 +100,7 @@ int kvmppc_mmu_map_page(struct kvm_vcpu *vcpu, struct kvmppc_pte *orig_pte)
 	hpaddr <<= PAGE_SHIFT;
 	hpaddr |= orig_pte->raddr & (~0xfffULL & ~PAGE_MASK);
 
-	
+	/* and write the mapping ea -> hpa into the pt */
 	vcpu->arch.mmu.esid_to_vsid(vcpu, orig_pte->eaddr >> SID_SHIFT, &vsid);
 	map = find_sid_vsid(vcpu, vsid);
 	if (!map) {
@@ -130,7 +132,7 @@ int kvmppc_mmu_map_page(struct kvm_vcpu *vcpu, struct kvmppc_pte *orig_pte)
 map_again:
 	hpteg = ((hash & htab_hash_mask) * HPTES_PER_GROUP);
 
-	
+	/* In case we tried normal mapping already, let's nuke old entries */
 	if (attempt > 1)
 		if (ppc_md.hpte_remove(hpteg) < 0) {
 			r = -1;
@@ -140,7 +142,7 @@ map_again:
 	ret = ppc_md.hpte_insert(hpteg, va, hpaddr, rflags, vflags, MMU_PAGE_4K, MMU_SEGSIZE_256M);
 
 	if (ret < 0) {
-		
+		/* If we couldn't map a primary PTE, try a secondary */
 		hash = ~hash;
 		vflags ^= HPTE_V_SECONDARY;
 		attempt++;
@@ -150,6 +152,8 @@ map_again:
 
 		trace_kvm_book3s_64_mmu_map(rflags, hpteg, va, hpaddr, orig_pte);
 
+		/* The ppc_md code may give us a secondary entry even though we
+		   asked for a primary. Fix up. */
 		if ((ret & _PTEIDX_SECONDARY) && !(vflags & HPTE_V_SECONDARY)) {
 			hash = ~hash;
 			hpteg = ((hash & htab_hash_mask) * HPTES_PER_GROUP);
@@ -177,6 +181,8 @@ static struct kvmppc_sid_map *create_sid_map(struct kvm_vcpu *vcpu, u64 gvsid)
 	if (vcpu->arch.shared->msr & MSR_PR)
 		gvsid |= VSID_PR;
 
+	/* We might get collisions that trap in preceding order, so let's
+	   map them differently */
 
 	sid_map_mask = kvmppc_sid_hash(vcpu, gvsid);
 	if (backwards_map)
@@ -184,10 +190,10 @@ static struct kvmppc_sid_map *create_sid_map(struct kvm_vcpu *vcpu, u64 gvsid)
 
 	map = &to_book3s(vcpu)->sid_map[sid_map_mask];
 
-	
+	/* Make sure we're taking the other map next time */
 	backwards_map = !backwards_map;
 
-	
+	/* Uh-oh ... out of mappings. Let's flush! */
 	if (vcpu_book3s->proto_vsid_next == vcpu_book3s->proto_vsid_max) {
 		vcpu_book3s->proto_vsid_next = vcpu_book3s->proto_vsid_first;
 		memset(vcpu_book3s->sid_map, 0,
@@ -216,7 +222,7 @@ static int kvmppc_mmu_next_segment(struct kvm_vcpu *vcpu, ulong esid)
 	if (!svcpu->slb_max)
 		svcpu->slb_max = 1;
 
-	
+	/* Are we overwriting? */
 	for (i = 1; i < svcpu->slb_max; i++) {
 		if (!(svcpu->slb[i].esid & SLB_ESID_V))
 			found_inval = i;
@@ -226,18 +232,18 @@ static int kvmppc_mmu_next_segment(struct kvm_vcpu *vcpu, ulong esid)
 		}
 	}
 
-	
+	/* Found a spare entry that was invalidated before */
 	if (found_inval > 0) {
 		r = found_inval;
 		goto out;
 	}
 
-	
+	/* No spare invalid entry, so create one */
 
 	if (mmu_slb_size < 64)
 		max_slb_size = mmu_slb_size;
 
-	
+	/* Overflowing -> purge */
 	if ((svcpu->slb_max) == max_slb_size)
 		kvmppc_mmu_flush_segments(vcpu);
 
@@ -263,7 +269,7 @@ int kvmppc_mmu_map_segment(struct kvm_vcpu *vcpu, ulong eaddr)
 	slb_index = kvmppc_mmu_next_segment(vcpu, eaddr & ESID_MASK);
 
 	if (vcpu->arch.mmu.esid_to_vsid(vcpu, esid, &gvsid)) {
-		
+		/* Invalidate an entry */
 		svcpu->slb[slb_index].esid = 0;
 		r = -ENOENT;
 		goto out;

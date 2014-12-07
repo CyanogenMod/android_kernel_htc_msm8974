@@ -21,6 +21,7 @@
  *
  */
 
+/* Condor service processor specific hardware definitions */
 
 #ifndef __IBMASM_CONDOR_H__
 #define __IBMASM_CONDOR_H__
@@ -37,8 +38,8 @@
 #define NO_MFAS_AVAILABLE     0xFFFFFFFF
 
 
-#define INBOUND_QUEUE_PORT   0x40  
-#define OUTBOUND_QUEUE_PORT  0x44  
+#define INBOUND_QUEUE_PORT   0x40  /* contains address of next free MFA */
+#define OUTBOUND_QUEUE_PORT  0x44  /* contains address of posted MFA    */
 
 #define SP_INTR_MASK	0x00000008
 #define UART_INTR_MASK	0x00000010
@@ -133,4 +134,4 @@ static inline struct i2o_message *get_i2o_message(void __iomem *base_address, u3
 	return (struct i2o_message *)(GET_MFA_ADDR(mfa) + base_address);
 }
 
-#endif 
+#endif /* __IBMASM_CONDOR_H__ */

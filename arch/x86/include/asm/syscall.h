@@ -15,11 +15,16 @@
 
 #include <linux/sched.h>
 #include <linux/err.h>
-#include <asm/asm-offsets.h>	
+#include <asm/asm-offsets.h>	/* For NR_syscalls */
 #include <asm/unistd.h>
 
 extern const unsigned long sys_call_table[];
 
+/*
+ * Only the low 32 bits of orig_ax are meaningful, so we return int.
+ * This importantly ignores the high bits on 64-bit, so comparisons
+ * sign-extend the low 32 bits.
+ */
 static inline int syscall_get_nr(struct task_struct *task, struct pt_regs *regs)
 {
 	return regs->orig_ax & __SYSCALL_MASK;
@@ -36,7 +41,15 @@ static inline long syscall_get_error(struct task_struct *task,
 {
 	unsigned long error = regs->ax;
 #ifdef CONFIG_IA32_EMULATION
+	/*
+	 * TS_COMPAT is set for 32-bit syscall entries and then
+	 * remains set until we return to user mode.
+	 */
 	if (task_thread_info(task)->status & TS_COMPAT)
+		/*
+		 * Sign-extend the value so (int)-EFOO becomes (long)-EFOO
+		 * and will match correctly in comparisons.
+		 */
 		error = (long) (int) error;
 #endif
 	return IS_ERR_VALUE(error) ? error : 0;
@@ -75,7 +88,7 @@ static inline void syscall_set_arguments(struct task_struct *task,
 	memcpy(&regs->bx + i, args, n * sizeof(args[0]));
 }
 
-#else	 
+#else	 /* CONFIG_X86_64 */
 
 static inline void syscall_get_arguments(struct task_struct *task,
 					 struct pt_regs *regs,
@@ -199,6 +212,6 @@ static inline void syscall_set_arguments(struct task_struct *task,
 		}
 }
 
-#endif	
+#endif	/* CONFIG_X86_32 */
 
-#endif	
+#endif	/* _ASM_X86_SYSCALL_H */

@@ -17,6 +17,14 @@
 #include <asm/dec/kn02.h>
 
 
+/*
+ * Bits 7:0 of the Control Register are write-only -- the
+ * corresponding bits of the Status Register have a different
+ * meaning.  Hence we use a cache.  It speeds up things a bit
+ * as well.
+ *
+ * There is no default value -- it has to be initialized.
+ */
 u32 cached_kn02_csr;
 
 static int kn02_irq_base;
@@ -59,7 +67,7 @@ void __init init_kn02_irqs(int base)
 						       KN02_CSR);
 	int i;
 
-	
+	/* Mask interrupts. */
 	cached_kn02_csr &= ~KN02_CSR_IOINTEN;
 	*csr = cached_kn02_csr;
 	iob();

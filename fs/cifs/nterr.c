@@ -19,6 +19,7 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* NT error codes - see nterr.h */
 #include <linux/types.h>
 #include <linux/fs.h>
 #include "nterr.h"

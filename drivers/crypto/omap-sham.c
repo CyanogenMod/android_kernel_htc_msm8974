@@ -72,6 +72,7 @@
 
 #define DEFAULT_TIMEOUT_INTERVAL	HZ
 
+/* mostly device flags */
 #define FLAGS_BUSY		0
 #define FLAGS_FINAL		1
 #define FLAGS_DMA_ACTIVE	2
@@ -79,6 +80,7 @@
 #define FLAGS_INIT		4
 #define FLAGS_CPU		5
 #define FLAGS_DMA_READY		6
+/* context flags */
 #define FLAGS_FINUP		16
 #define FLAGS_SG		17
 #define FLAGS_SHA1		18
@@ -106,10 +108,10 @@ struct omap_sham_reqctx {
 	size_t			buflen;
 	dma_addr_t		dma_addr;
 
-	
+	/* walk state */
 	struct scatterlist	*sg;
-	unsigned int		offset;	
-	unsigned int		total;	
+	unsigned int		offset;	/* offset in current sg */
+	unsigned int		total;	/* total request */
 
 	u8			buffer[0] OMAP_ALIGNED;
 };
@@ -125,7 +127,7 @@ struct omap_sham_ctx {
 
 	unsigned long		flags;
 
-	
+	/* fallback stuff */
 	struct crypto_shash	*fallback;
 
 	struct omap_sham_hmac_ctx base[0];
@@ -202,7 +204,7 @@ static void omap_sham_copy_hash(struct ahash_request *req, int out)
 	u32 *hash = (u32 *)ctx->digest;
 	int i;
 
-	
+	/* MD5 is almost unused. So copy sha1 size to reduce code */
 	for (i = 0; i < SHA1_DIGEST_SIZE / sizeof(u32); i++) {
 		if (out)
 			hash[i] = omap_sham_read(ctx->dd,
@@ -224,11 +226,11 @@ static void omap_sham_copy_ready_hash(struct ahash_request *req)
 		return;
 
 	if (likely(ctx->flags & BIT(FLAGS_SHA1))) {
-		
+		/* SHA1 results are in big endian */
 		for (i = 0; i < SHA1_DIGEST_SIZE / sizeof(u32); i++)
 			hash[i] = be32_to_cpu(in[i]);
 	} else {
-		
+		/* MD5 results are in little endian */
 		for (i = 0; i < MD5_DIGEST_SIZE / sizeof(u32); i++)
 			hash[i] = le32_to_cpu(in[i]);
 	}
@@ -265,6 +267,10 @@ static void omap_sham_write_ctrl(struct omap_sham_dev *dd, size_t length,
 	omap_sham_write_mask(dd, SHA_REG_MASK,
 		SHA_REG_MASK_IT_EN | (dma ? SHA_REG_MASK_DMA_EN : 0),
 		SHA_REG_MASK_IT_EN | SHA_REG_MASK_DMA_EN);
+	/*
+	 * Setting ALGO_CONST only for the first iteration
+	 * and CLOSE_HASH only for the last one.
+	 */
 	if (ctx->flags & BIT(FLAGS_SHA1))
 		val |= SHA_REG_CTRL_ALGO;
 	if (!ctx->digcnt)
@@ -290,14 +296,14 @@ static int omap_sham_xmit_cpu(struct omap_sham_dev *dd, const u8 *buf,
 
 	omap_sham_write_ctrl(dd, length, final, 0);
 
-	
+	/* should be non-zero before next lines to disable clocks later */
 	ctx->digcnt += length;
 
 	if (omap_sham_wait(dd, SHA_REG_CTRL, SHA_REG_CTRL_INPUT_READY))
 		return -ETIMEDOUT;
 
 	if (final)
-		set_bit(FLAGS_FINAL, &dd->flags); 
+		set_bit(FLAGS_FINAL, &dd->flags); /* catch last interrupt */
 
 	set_bit(FLAGS_CPU, &dd->flags);
 
@@ -332,7 +338,7 @@ static int omap_sham_xmit_dma(struct omap_sham_dev *dd, dma_addr_t dma_addr,
 	ctx->digcnt += length;
 
 	if (final)
-		set_bit(FLAGS_FINAL, &dd->flags); 
+		set_bit(FLAGS_FINAL, &dd->flags); /* catch last interrupt */
 
 	set_bit(FLAGS_DMA_ACTIVE, &dd->flags);
 
@@ -392,7 +398,7 @@ static int omap_sham_xmit_dma_map(struct omap_sham_dev *dd,
 
 	ctx->flags &= ~BIT(FLAGS_SG);
 
-	
+	/* next call does not fail... so no unmap in the case of error */
 	return omap_sham_xmit_dma(dd, ctx->dma_addr, length, final);
 }
 
@@ -418,7 +424,9 @@ static int omap_sham_update_dma_slow(struct omap_sham_dev *dd)
 	return 0;
 }
 
+/* Start address alignment */
 #define SG_AA(sg)	(IS_ALIGNED(sg->offset, sizeof(u32)))
+/* SHA1 block size alignment */
 #define SG_SA(sg)	(IS_ALIGNED(sg->length, SHA1_MD5_BLOCK_SIZE))
 
 static int omap_sham_update_dma_start(struct omap_sham_dev *dd)
@@ -442,16 +450,16 @@ static int omap_sham_update_dma_start(struct omap_sham_dev *dd)
 		return omap_sham_update_dma_slow(dd);
 
 	if (!sg_is_last(sg) && !SG_SA(sg))
-		
+		/* size is not SHA1_BLOCK_SIZE aligned */
 		return omap_sham_update_dma_slow(dd);
 
 	length = min(ctx->total, sg->length);
 
 	if (sg_is_last(sg)) {
 		if (!(ctx->flags & BIT(FLAGS_FINUP))) {
-			
+			/* not last sg must be SHA1_MD5_BLOCK_SIZE aligned */
 			tail = length & (SHA1_MD5_BLOCK_SIZE - 1);
-			
+			/* without finup() we need one block to close hash */
 			if (!tail)
 				tail = SHA1_MD5_BLOCK_SIZE;
 			length -= tail;
@@ -466,11 +474,11 @@ static int omap_sham_update_dma_start(struct omap_sham_dev *dd)
 	ctx->flags |= BIT(FLAGS_SG);
 
 	ctx->total -= length;
-	ctx->offset = length; 
+	ctx->offset = length; /* offset where to start slow */
 
 	final = (ctx->flags & BIT(FLAGS_FINUP)) && !ctx->total;
 
-	
+	/* next call does not fail... so no unmap in the case of error */
 	return omap_sham_xmit_dma(dd, sg_dma_address(ctx->sg), length, final);
 }
 
@@ -565,7 +573,7 @@ static int omap_sham_update_req(struct omap_sham_dev *dd)
 	else
 		err = omap_sham_update_dma_start(dd);
 
-	
+	/* wait for dma completion before can take more data */
 	dev_dbg(dd->dev, "update: err: %d, digcnt: %d\n", err, ctx->digcnt);
 
 	return err;
@@ -578,7 +586,7 @@ static int omap_sham_final_req(struct omap_sham_dev *dd)
 	int err = 0, use_dma = 1;
 
 	if (ctx->bufcnt <= 64)
-		
+		/* faster to handle last block with cpu */
 		use_dma = 0;
 
 	if (use_dma)
@@ -605,7 +613,7 @@ static int omap_sham_finish_hmac(struct ahash_request *req)
 	} desc;
 
 	desc.shash.tfm = bctx->shash;
-	desc.shash.flags = 0; 
+	desc.shash.flags = 0; /* not CRYPTO_TFM_REQ_MAY_SLEEP */
 
 	return crypto_shash_init(&desc.shash) ?:
 	       crypto_shash_update(&desc.shash, bctx->opad, bs) ?:
@@ -642,7 +650,7 @@ static void omap_sham_finish_req(struct ahash_request *req, int err)
 		ctx->flags |= BIT(FLAGS_ERROR);
 	}
 
-	
+	/* atomic operation is not needed here */
 	dd->flags &= ~(BIT(FLAGS_BUSY) | BIT(FLAGS_FINAL) | BIT(FLAGS_CPU) |
 			BIT(FLAGS_DMA_READY) | BIT(FLAGS_OUTPUT_READY));
 	clk_disable(dd->iclk);
@@ -650,7 +658,7 @@ static void omap_sham_finish_req(struct ahash_request *req, int err)
 	if (req->base.complete)
 		req->base.complete(&req->base, err);
 
-	
+	/* handle new request */
 	tasklet_schedule(&dd->done_task);
 }
 
@@ -703,20 +711,20 @@ static int omap_sham_handle_queue(struct omap_sham_dev *dd,
 			OMAP_DMA_DATA_BURST_4);
 
 	if (ctx->digcnt)
-		
+		/* request has changed - restore hash */
 		omap_sham_copy_hash(req, 0);
 
 	if (ctx->op == OP_UPDATE) {
 		err = omap_sham_update_req(dd);
 		if (err != -EINPROGRESS && (ctx->flags & BIT(FLAGS_FINUP)))
-			
+			/* no final() after finup() */
 			err = omap_sham_final_req(dd);
 	} else if (ctx->op == OP_FINAL) {
 		err = omap_sham_final_req(dd);
 	}
 err1:
 	if (err != -EINPROGRESS)
-		
+		/* done_task will not finish it, so do it here */
 		omap_sham_finish_req(req, err);
 
 	dev_dbg(dd->dev, "exit, err: %d\n", err);
@@ -748,9 +756,17 @@ static int omap_sham_update(struct ahash_request *req)
 
 	if (ctx->flags & BIT(FLAGS_FINUP)) {
 		if ((ctx->digcnt + ctx->bufcnt + ctx->total) < 9) {
+			/*
+			* OMAP HW accel works only with buffers >= 9
+			* will switch to bypass in final()
+			* final has the same request and data
+			*/
 			omap_sham_append_sg(ctx);
 			return 0;
 		} else if (ctx->bufcnt + ctx->total <= SHA1_MD5_BLOCK_SIZE) {
+			/*
+			* faster to use CPU for short transfers
+			*/
 			ctx->flags |= BIT(FLAGS_CPU);
 		}
 	} else if (ctx->bufcnt + ctx->total < ctx->buflen) {
@@ -791,16 +807,16 @@ static int omap_sham_final(struct ahash_request *req)
 	ctx->flags |= BIT(FLAGS_FINUP);
 
 	if (ctx->flags & BIT(FLAGS_ERROR))
-		return 0; 
+		return 0; /* uncompleted hash is not needed */
 
-	
-	
+	/* OMAP HW accel works only with buffers >= 9 */
+	/* HMAC is always >= 9 because ipad == block size */
 	if ((ctx->digcnt + ctx->bufcnt) < 9)
 		return omap_sham_final_shash(req);
 	else if (ctx->bufcnt)
 		return omap_sham_enqueue(req, OP_FINAL);
 
-	
+	/* copy ready hash (+ finalize hmac) */
 	return omap_sham_finish(req);
 }
 
@@ -814,6 +830,10 @@ static int omap_sham_finup(struct ahash_request *req)
 	err1 = omap_sham_update(req);
 	if (err1 == -EINPROGRESS || err1 == -EBUSY)
 		return err1;
+	/*
+	 * final() has to be always called to cleanup resources
+	 * even if udpate() failed, except EINPROGRESS
+	 */
 	err2 = omap_sham_final(req);
 
 	return err1 ?: err2;
@@ -863,7 +883,7 @@ static int omap_sham_cra_init_alg(struct crypto_tfm *tfm, const char *alg_base)
 	struct omap_sham_ctx *tctx = crypto_tfm_ctx(tfm);
 	const char *alg_name = crypto_tfm_alg_name(tfm);
 
-	
+	/* Allocate a fallback and abort if it failed. */
 	tctx->fallback = crypto_alloc_shash(alg_name, 0,
 					    CRYPTO_ALG_NEED_FALLBACK);
 	if (IS_ERR(tctx->fallback)) {
@@ -1041,7 +1061,7 @@ static void omap_sham_done_task(unsigned long data)
 			}
 		}
 		if (test_and_clear_bit(FLAGS_OUTPUT_READY, &dd->flags)) {
-			
+			/* hash or semi-hash ready */
 			clear_bit(FLAGS_DMA_READY, &dd->flags);
 			err = omap_sham_update_dma_start(dd);
 			if (err != -EINPROGRESS)
@@ -1053,7 +1073,7 @@ static void omap_sham_done_task(unsigned long data)
 
 finish:
 	dev_dbg(dd->dev, "update done: err: %d\n", err);
-	
+	/* finish curent request */
 	omap_sham_finish_req(dd->req, err);
 }
 
@@ -1062,7 +1082,7 @@ static irqreturn_t omap_sham_irq(int irq, void *dev_id)
 	struct omap_sham_dev *dd = dev_id;
 
 	if (unlikely(test_bit(FLAGS_FINAL, &dd->flags)))
-		
+		/* final -> allow device to go to power-saving mode */
 		omap_sham_write_mask(dd, SHA_REG_CTRL, 0, SHA_REG_CTRL_LENGTH);
 
 	omap_sham_write_mask(dd, SHA_REG_CTRL, SHA_REG_CTRL_OUTPUT_READY,
@@ -1087,7 +1107,7 @@ static void omap_sham_dma_callback(int lch, u16 ch_status, void *data)
 	if (ch_status != OMAP_DMA_BLOCK_IRQ) {
 		pr_err("omap-sham DMA error status: 0x%hx\n", ch_status);
 		dd->err = -EIO;
-		clear_bit(FLAGS_INIT, &dd->flags);
+		clear_bit(FLAGS_INIT, &dd->flags);/* request to re-initialize */
 	}
 
 	set_bit(FLAGS_DMA_READY, &dd->flags);
@@ -1141,7 +1161,7 @@ static int __devinit omap_sham_probe(struct platform_device *pdev)
 
 	dd->irq = -1;
 
-	
+	/* Get the base address */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(dev, "no MEM resource info\n");
@@ -1150,7 +1170,7 @@ static int __devinit omap_sham_probe(struct platform_device *pdev)
 	}
 	dd->phys_base = res->start;
 
-	
+	/* Get the DMA */
 	res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
 	if (!res) {
 		dev_err(dev, "no DMA resource info\n");
@@ -1159,7 +1179,7 @@ static int __devinit omap_sham_probe(struct platform_device *pdev)
 	}
 	dd->dma = res->start;
 
-	
+	/* Get the IRQ */
 	dd->irq = platform_get_irq(pdev,  0);
 	if (dd->irq < 0) {
 		dev_err(dev, "no IRQ resource info\n");
@@ -1178,7 +1198,7 @@ static int __devinit omap_sham_probe(struct platform_device *pdev)
 	if (err)
 		goto dma_err;
 
-	
+	/* Initializing the clock */
 	dd->iclk = clk_get(dev, "ick");
 	if (IS_ERR(dd->iclk)) {
 		dev_err(dev, "clock intialization failed.\n");

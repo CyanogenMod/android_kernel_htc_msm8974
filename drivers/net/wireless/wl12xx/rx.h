@@ -54,6 +54,15 @@
 #define	RX_DESC_MIC_FAIL	  0x2000
 #define	RX_DESC_DECRYPT_FAIL	  0x4000
 
+/*
+ * RX Descriptor flags:
+ *
+ * Bits 0-1 - band
+ * Bit  2   - STBC
+ * Bit  3   - A-MPDU
+ * Bit  4   - HT
+ * Bits 5-7 - encryption
+ */
 #define WL1271_RX_DESC_BAND_MASK    0x03
 #define WL1271_RX_DESC_ENCRYPT_MASK 0xE0
 
@@ -70,6 +79,13 @@
 #define WL1271_RX_DESC_ENCRYPT_AES  0x60
 #define WL1271_RX_DESC_ENCRYPT_GEM  0x80
 
+/*
+ * RX Descriptor status
+ *
+ * Bits 0-2 - error code
+ * Bits 3-5 - process_id tag (AP mode FW)
+ * Bits 6-7 - reserved
+ */
 #define WL1271_RX_DESC_STATUS_MASK      0x03
 
 #define WL1271_RX_DESC_SUCCESS          0x00
@@ -80,6 +96,7 @@
 #define RX_MEM_BLOCK_MASK            0xFF
 #define RX_BUF_SIZE_MASK             0xFFF00
 #define RX_BUF_SIZE_SHIFT_DIV        6
+/* If set, the start of IP payload is not 4 bytes aligned */
 #define RX_BUF_UNALIGNED_PAYLOAD     BIT(20)
 
 enum {

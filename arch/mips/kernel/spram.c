@@ -18,6 +18,10 @@
 #include <asm/r4kcache.h>
 #include <asm/hazards.h>
 
+/*
+ * These definitions are correct for the 24K/34K/74K SPRAM sample
+ * implementation. The 4KS interpreted the tags differently...
+ */
 #define SPRAM_TAG0_ENABLE	0x00000080
 #define SPRAM_TAG0_PA_MASK	0xfffff000
 #define SPRAM_TAG1_SIZE_MASK	0xfffff000
@@ -26,9 +30,13 @@
 
 #define ERRCTL_SPRAM		(1 << 28)
 
+/* errctl access */
 #define read_c0_errctl(x) read_c0_ecc(x)
 #define write_c0_errctl(x) write_c0_ecc(x)
 
+/*
+ * Different semantics to the set_c0_* function built by __BUILD_SET_C0
+ */
 static __cpuinit unsigned int bis_c0_errctl(unsigned int set)
 {
 	unsigned int res;
@@ -41,7 +49,7 @@ static __cpuinit void ispram_store_tag(unsigned int offset, unsigned int data)
 {
 	unsigned int errctl;
 
-	
+	/* enable SPRAM tag access */
 	errctl = bis_c0_errctl(ERRCTL_SPRAM);
 	ehb();
 
@@ -61,7 +69,7 @@ static __cpuinit unsigned int ispram_load_tag(unsigned int offset)
 	unsigned int data;
 	unsigned int errctl;
 
-	
+	/* enable SPRAM tag access */
 	errctl = bis_c0_errctl(ERRCTL_SPRAM);
 	ehb();
 	cache_op(Index_Load_Tag_I, CKSEG0 | offset);
@@ -78,7 +86,7 @@ static __cpuinit void dspram_store_tag(unsigned int offset, unsigned int data)
 {
 	unsigned int errctl;
 
-	
+	/* enable SPRAM tag access */
 	errctl = bis_c0_errctl(ERRCTL_SPRAM);
 	ehb();
 	write_c0_dtaglo(data);
@@ -119,6 +127,10 @@ static __cpuinit void probe_spram(char *type,
 	unsigned int enabled;
 	int i;
 
+	/*
+	 * The limit is arbitrary but avoids the loop running away if
+	 * the SPRAM tags are implemented differently
+	 */
 
 	for (i = 0; i < 8; i++) {
 		tag0 = read(offset);
@@ -132,22 +144,22 @@ static __cpuinit void probe_spram(char *type,
 			break;
 
 		if (i != 0) {
-			
+			/* tags may repeat... */
 			if ((pa == firstpa && size == firstsize) ||
 			    (pa == lastpa && size == lastsize))
 				break;
 		}
 
-		
+		/* Align base with size */
 		base = (base + size - 1) & ~(size-1);
 
-		
+		/* reprogram the base address base address and enable */
 		tag0 = (base & SPRAM_TAG0_PA_MASK) | SPRAM_TAG0_ENABLE;
 		write(offset, tag0);
 
 		base += size;
 
-		
+		/* reread the tag */
 		tag0 = read(offset);
 		pa = tag0 & SPRAM_TAG0_PA_MASK;
 		enabled = tag0 & SPRAM_TAG0_ENABLE;
@@ -195,7 +207,7 @@ void __cpuinit spram_config(void)
 	case CPU_74K:
 	case CPU_1004K:
 		config0 = read_c0_config();
-		
+		/* FIXME: addresses are Malta specific */
 		if (config0 & (1<<24)) {
 			probe_spram("ISPRAM", 0x1c000000,
 				    &ispram_load_tag, &ispram_store_tag);

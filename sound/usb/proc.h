@@ -4,5 +4,5 @@
 void snd_usb_audio_create_proc(struct snd_usb_audio *chip);
 void snd_usb_proc_pcm_format_add(struct snd_usb_stream *stream);
 
-#endif 
+#endif /* __USBAUDIO_PROC_H */
 

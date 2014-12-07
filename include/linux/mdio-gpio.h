@@ -14,14 +14,14 @@
 #include <linux/mdio-bitbang.h>
 
 struct mdio_gpio_platform_data {
-	
+	/* GPIO numbers for bus pins */
 	unsigned int mdc;
 	unsigned int mdio;
 
 	unsigned int phy_mask;
 	int irqs[PHY_MAX_ADDR];
-	
+	/* reset callback */
 	int (*reset)(struct mii_bus *bus);
 };
 
-#endif 
+#endif /* __LINUX_MDIO_GPIO_H */

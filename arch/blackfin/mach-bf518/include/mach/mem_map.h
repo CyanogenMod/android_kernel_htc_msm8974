@@ -12,20 +12,24 @@
 # error "do not include mach/mem_map.h directly -- use asm/mem_map.h"
 #endif
 
-#define ASYNC_BANK3_BASE	0x20300000	
-#define ASYNC_BANK3_SIZE	0x00100000	
-#define ASYNC_BANK2_BASE	0x20200000	
-#define ASYNC_BANK2_SIZE	0x00100000	
-#define ASYNC_BANK1_BASE	0x20100000	
-#define ASYNC_BANK1_SIZE	0x00100000	
-#define ASYNC_BANK0_BASE	0x20000000	
-#define ASYNC_BANK0_SIZE	0x00100000	
+/* Async Memory Banks */
+#define ASYNC_BANK3_BASE	0x20300000	/* Async Bank 3 */
+#define ASYNC_BANK3_SIZE	0x00100000	/* 1M */
+#define ASYNC_BANK2_BASE	0x20200000	/* Async Bank 2 */
+#define ASYNC_BANK2_SIZE	0x00100000	/* 1M */
+#define ASYNC_BANK1_BASE	0x20100000	/* Async Bank 1 */
+#define ASYNC_BANK1_SIZE	0x00100000	/* 1M */
+#define ASYNC_BANK0_BASE	0x20000000	/* Async Bank 0 */
+#define ASYNC_BANK0_SIZE	0x00100000	/* 1M */
 
+/* Boot ROM Memory */
 
 #define BOOT_ROM_START		0xEF000000
 #define BOOT_ROM_LENGTH		0x8000
 
+/* Level 1 Memory */
 
+/* Memory Map for ADSP-BF518/6/4/2 processors */
 
 #ifdef CONFIG_BFIN_ICACHE
 #define BFIN_ICACHESIZE		(16 * 1024)
@@ -61,6 +65,6 @@
 #define L1_DATA_B_LENGTH	0x8000
 #define BFIN_DCACHESIZE		0
 #define BFIN_DSUPBANKS		0
-#endif				
+#endif				/*CONFIG_BFIN_DCACHE */
 
 #endif

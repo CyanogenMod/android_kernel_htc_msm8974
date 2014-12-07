@@ -11,6 +11,9 @@
  *
  */
 
+/*
+ * DOG KEEPALIVE RPC CLIENT MODULE
+ */
 
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -59,7 +62,7 @@ static int dog_keepalive_cb(struct msm_rpc_client *client,
 	struct dog_keepalive_cb_arg arg;
 	struct dog_keepalive_cb_ret ret;
 
-	xdr_recv_uint32(xdr, &arg.cb_id);           
+	xdr_recv_uint32(xdr, &arg.cb_id);           /* cb_id */
 
 	cb_func = msm_rpc_get_cb_func(client, arg.cb_id);
 	if (cb_func) {
@@ -77,7 +80,7 @@ static int dog_keepalive_cb(struct msm_rpc_client *client,
 	xdr_start_accepted_reply(xdr, accept_status);
 
 	if (accept_status == RPC_ACCEPTSTAT_SUCCESS)
-		xdr_send_uint32(xdr, &ret.result);         
+		xdr_send_uint32(xdr, &ret.result);         /* result */
 
 	rc = xdr_send_msg(xdr);
 	if (rc)
@@ -127,14 +130,14 @@ static int dog_keepalive_register_arg_func(struct msm_rpc_client *client,
 	struct dog_keepalive_register_arg *arg = data;
 	int cb_id;
 
-	
+	/* cb_func */
 	cb_id = msm_rpc_add_cb_func(client, (void *)arg->cb_func);
 	if ((cb_id < 0) && (cb_id != MSM_RPC_CLIENT_NULL_CB_ID))
 		return cb_id;
 
 	xdr_send_uint32(xdr, &cb_id);
-	xdr_send_uint32(xdr, &arg->response_msec);    
-	xdr_send_uint32(xdr, &arg->clnt_id_valid);    
+	xdr_send_uint32(xdr, &arg->response_msec);    /* response_msec */
+	xdr_send_uint32(xdr, &arg->clnt_id_valid);    /* clnt_id valid */
 	return 0;
 }
 
@@ -143,11 +146,11 @@ static int dog_keepalive_register_ret_func(struct msm_rpc_client *client,
 {
 	struct dog_keepalive_register_ret *ret = data;
 
-	
+	/* clnt_id */
 	xdr_recv_pointer(xdr, (void **)&(ret->clnt_id), sizeof(uint32_t),
 			 xdr_recv_uint32);
 
-	
+	/* result */
 	xdr_recv_uint32(xdr, &ret->result);
 	return 0;
 }
@@ -191,6 +194,9 @@ static void dog_keepalive_register(void)
 	DBG("%s: register complete\n", __func__);
 }
 
+/* Registration with the platform driver for notification on the availability
+ * of the DOG_KEEPALIVE remote server
+ */
 static int dog_keepalive_init_probe(struct platform_device *pdev)
 {
 	DBG("%s: probe called\n", __func__);
@@ -205,7 +211,7 @@ static int dog_keepalive_init_probe(struct platform_device *pdev)
 		return PTR_ERR(dog_keepalive_rpc_client);
 	}
 
-	
+	/* Send RPC call to register for callbacks */
 	dog_keepalive_register();
 
 	return 0;

@@ -1,8 +1,12 @@
+/*************************************
+* Macros.h
+**************************************/
 #ifndef __MACROS_H__
 #define __MACROS_H__
 
-#define TX_TIMER_PERIOD 10 
+#define TX_TIMER_PERIOD 10 /*10 msec*/
 #define MAX_CLASSIFIERS 100
+/* #define MAX_CLASSIFIERS_PER_SF  20 */
 #define MAX_TARGET_DSX_BUFFERS 24
 
 #define MAX_CNTRL_PKTS    100
@@ -16,6 +20,7 @@
 #define MAC_ADDR_REGISTER 0xbf60d000
 
 
+/* Quality of Service */
 #define NO_OF_QUEUES 17
 #define HiPriority (NO_OF_QUEUES-1)
 #define LowPriority 0
@@ -24,8 +29,8 @@
 #define ERTPS       5
 #define UGS         6
 
-#define BE_BUCKET_SIZE       (1024*1024*100)  
-#define rtPS_BUCKET_SIZE     (1024*1024*100) 
+#define BE_BUCKET_SIZE       (1024*1024*100)  /* 32kb */
+#define rtPS_BUCKET_SIZE     (1024*1024*100) /*  8kb */
 #define MAX_ALLOWED_RATE     (1024*1024*100)
 #define TX_PACKET_THRESHOLD  10
 #define XSECONDS             (1*HZ)
@@ -49,6 +54,7 @@
 #define IP_PACKET_ONLY_MODE       0
 #define ETH_PACKET_TUNNELING_MODE 1
 
+/* Link Request */
 #define SET_MAC_ADDRESS_REQUEST 0
 #define SYNC_UP_REQUEST         1
 #define SYNCED_UP               2
@@ -89,6 +95,7 @@
 #define IPV6_CS            2
 #define ETH_CS_MASK        0x3f
 
+/** \brief Validity bit maps for TLVs in packet classification rule */
 
 #define PKT_CLASSIFICATION_USER_PRIORITY_VALID 0
 #define PKT_CLASSIFICATION_VLANID_VALID        1
@@ -98,6 +105,7 @@
 #endif
 
 
+/*Leader related terms */
 #define LEADER_STATUS         0x00
 #define LEADER_STATUS_TCP_ACK 0x1
 #define LEADER_SIZE           sizeof(LEADER)
@@ -183,9 +191,9 @@ typedef enum _E_PHS_DSC_ACTION {
 } E_PHS_DSC_ACTION;
 
 
-#define CM_CONTROL_NEWDSX_MULTICLASSIFIER_REQ  0x89 
-#define CM_CONTROL_NEWDSX_MULTICLASSIFIER_RESP 0xA9 
-#define MASK_DISABLE_HEADER_SUPPRESSION        0x10 
+#define CM_CONTROL_NEWDSX_MULTICLASSIFIER_REQ  0x89 /* Host to Mac */
+#define CM_CONTROL_NEWDSX_MULTICLASSIFIER_RESP 0xA9 /* Mac to Host */
+#define MASK_DISABLE_HEADER_SUPPRESSION        0x10 /* 0b000010000 */
 #define MINIMUM_PENDING_DESCRIPTORS            5
 
 #define SHUTDOWN_HOSTINITIATED_REQUESTPAYLOAD 0xCC
@@ -257,12 +265,12 @@ typedef enum _E_PHS_DSC_ACTION {
 #define INVALID_PID ((pid_t)-1)
 #define DDR_80_MHZ  0
 #define DDR_100_MHZ 1
-#define DDR_120_MHZ 2 
+#define DDR_120_MHZ 2 /* Additional Frequency for T3LP */
 #define DDR_133_MHZ 3
-#define DDR_140_MHZ 4 
-#define DDR_160_MHZ 5 
-#define DDR_180_MHZ 6 
-#define DDR_200_MHZ 7 
+#define DDR_140_MHZ 4 /* Not Used (Reserved for future) */
+#define DDR_160_MHZ 5 /* Additional Frequency for T3LP  */
+#define DDR_180_MHZ 6 /* Not Used (Reserved for future) */
+#define DDR_200_MHZ 7 /* Not Used (Reserved for future) */
 
 #define MIPS_200_MHZ   0
 #define MIPS_160_MHZ   1
@@ -284,6 +292,7 @@ typedef enum _E_PHS_DSC_ACTION {
 #define EEPROM_REJECT_MASK  0x0fffffff
 #define VSG_MODE            0x3
 
+/* Idle Mode Related Registers */
 #define DEBUG_INTERRUPT_GENERATOR_REGISTOR 0x0F00007C
 #define SW_ABORT_IDLEMODE_LOC 0x0FF01FFC
 
@@ -343,8 +352,9 @@ enum eAbortPattern {
 };
 
 
+/* Offsets used by driver in skb cb variable */
 #define SKB_CB_CLASSIFICATION_OFFSET    0
 #define SKB_CB_LATENCY_OFFSET           1
 #define SKB_CB_TCPACK_OFFSET            2
 
-#endif 
+#endif /* __MACROS_H__ */

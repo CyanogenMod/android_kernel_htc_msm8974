@@ -13,6 +13,9 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Encore ENLTV-FM v5.3
+   Mauro Carvalho Chehab <mchehab@infradead.org>
+ */
 
 static struct rc_map_table encore_enltv_fm53[] = {
 	{ 0x10, KEY_POWER2},
@@ -29,35 +32,35 @@ static struct rc_map_table encore_enltv_fm53[] = {
 	{ 0x16, KEY_9},
 	{ 0x48, KEY_0},
 
-	{ 0x04, KEY_LIST},		
-	{ 0x40, KEY_LAST},		
+	{ 0x04, KEY_LIST},		/* -/-- */
+	{ 0x40, KEY_LAST},		/* recall */
 
-	{ 0x02, KEY_MODE},		
-	{ 0x05, KEY_CAMERA},		
+	{ 0x02, KEY_MODE},		/* TV/AV */
+	{ 0x05, KEY_CAMERA},		/* SNAPSHOT */
 
-	{ 0x4c, KEY_CHANNELUP},		
-	{ 0x00, KEY_CHANNELDOWN},	
-	{ 0x0d, KEY_VOLUMEUP},		
-	{ 0x15, KEY_VOLUMEDOWN},	
-	{ 0x49, KEY_ENTER},		
+	{ 0x4c, KEY_CHANNELUP},		/* UP */
+	{ 0x00, KEY_CHANNELDOWN},	/* DOWN */
+	{ 0x0d, KEY_VOLUMEUP},		/* RIGHT */
+	{ 0x15, KEY_VOLUMEDOWN},	/* LEFT */
+	{ 0x49, KEY_ENTER},		/* OK */
 
 	{ 0x54, KEY_RECORD},
-	{ 0x4d, KEY_PLAY},		
+	{ 0x4d, KEY_PLAY},		/* pause */
 
-	{ 0x1e, KEY_MENU},		
-	{ 0x0e, KEY_RIGHT},		
-	{ 0x1a, KEY_LEFT},		
+	{ 0x1e, KEY_MENU},		/* video setting */
+	{ 0x0e, KEY_RIGHT},		/* <- */
+	{ 0x1a, KEY_LEFT},		/* -> */
 
-	{ 0x0a, KEY_CLEAR},		
-	{ 0x0c, KEY_ZOOM},		
-	{ 0x47, KEY_SLEEP},		
+	{ 0x0a, KEY_CLEAR},		/* video default */
+	{ 0x0c, KEY_ZOOM},		/* hide pannel */
+	{ 0x47, KEY_SLEEP},		/* shutdown */
 };
 
 static struct rc_map_list encore_enltv_fm53_map = {
 	.map = {
 		.scan    = encore_enltv_fm53,
 		.size    = ARRAY_SIZE(encore_enltv_fm53),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_ENCORE_ENLTV_FM53,
 	}
 };

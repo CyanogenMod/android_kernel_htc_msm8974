@@ -18,9 +18,10 @@
 #include <asm/prom.h>
 #include <asm/pci-bridge.h>
 
-#define PCI_HEADER_TYPE_INVALID		0x7f	
+#define PCI_HEADER_TYPE_INVALID		0x7f	/* Invalid PCI header type */
 
 #ifdef CONFIG_SYSFS
+/* 32-bit hex or dec stringified number + '\n' */
 #define MV64X60_VAL_LEN_MAX		11
 #define MV64X60_PCICFG_CPCI_HOTSWAP	0x68
 
@@ -69,7 +70,7 @@ static ssize_t mv64x60_hs_reg_write(struct file *filp, struct kobject *kobj,
 	return count;
 }
 
-static struct bin_attribute mv64x60_hs_reg_attr = { 
+static struct bin_attribute mv64x60_hs_reg_attr = { /* Hotswap register */
 	.attr = {
 		.name = "hs_reg",
 		.mode = S_IRUGO | S_IWUSR,
@@ -101,10 +102,14 @@ static int __init mv64x60_sysfs_init(void)
 
 subsys_initcall(mv64x60_sysfs_init);
 
-#endif 
+#endif /* CONFIG_SYSFS */
 
 static void __init mv64x60_pci_fixup_early(struct pci_dev *dev)
 {
+	/*
+	 * Set the host bridge hdr_type to an invalid value so that
+	 * pci_setup_device() will ignore the host bridge.
+	 */
 	dev->hdr_type = PCI_HEADER_TYPE_INVALID;
 }
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_MARVELL, PCI_DEVICE_ID_MARVELL_MV64360,
@@ -122,13 +127,13 @@ static int __init mv64x60_add_bridge(struct device_node *dev)
 
 	memset(&rsrc, 0, sizeof(rsrc));
 
-	
+	/* Fetch host bridge registers address */
 	if (of_address_to_resource(dev, 0, &rsrc)) {
 		printk(KERN_ERR "No PCI reg property in device tree\n");
 		return -ENODEV;
 	}
 
-	
+	/* Get bus range if any */
 	bus_range = of_get_property(dev, "bus-range", &len);
 	if (bus_range == NULL || len < 2 * sizeof(int))
 		printk(KERN_WARNING "Can't get bus-range for %s, assume"
@@ -149,8 +154,8 @@ static int __init mv64x60_add_bridge(struct device_node *dev)
 	       (unsigned long long)rsrc.start, hose->first_busno,
 	       hose->last_busno);
 
-	
-	
+	/* Interpret the "ranges" property */
+	/* This also maps the I/O region and sets isa_io/mem_base */
 	primary = (hose->first_busno == 0);
 	pci_process_bridge_OF_ranges(hose, dev, primary);
 

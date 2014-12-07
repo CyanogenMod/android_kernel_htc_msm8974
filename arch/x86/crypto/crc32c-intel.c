@@ -80,6 +80,11 @@ static u32 __pure crc32c_intel_le_hw(u32 crc, unsigned char const *p, size_t len
 	return crc;
 }
 
+/*
+ * Setting the seed allows arbitrary accumulators and flexible XOR policy
+ * If your algorithm starts with ~0, then XOR with ~0 before you set
+ * the seed.
+ */
 static int crc32c_intel_setkey(struct crypto_shash *hash, const u8 *key,
 			unsigned int keylen)
 {

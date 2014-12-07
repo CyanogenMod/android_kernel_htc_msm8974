@@ -3,4 +3,4 @@
 
 #include <asm-generic/scatterlist.h>
 
-#endif 
+#endif /* _ASM_SCORE_SCATTERLIST_H */

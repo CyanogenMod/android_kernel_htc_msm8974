@@ -18,6 +18,8 @@
 #include <mach/devices_cmdline.h>
 #include <mach/devices_dtb.h>
 
+int rom_stockui = 0;
+
 enum {
 	USB_FUNCTION_UMS = 0,
 	USB_FUNCTION_ADB = 1,
@@ -133,6 +135,10 @@ static int intrsharing;
 #define PID_ECM			0x0ff8
 #define PID_NCM			0x0f93
 #define PID_ACM			0x0ff4
+#define PID_MTPUMS		0x0f91
+#define PID_MTPUMS_STOCKUI	0x0f26
+#define PID_STOCKUI	0x060d
+#define PID_UL 0x061A
 
 #define PDATA_NOT_DEFINED(field) \
 	printk(KERN_INFO "[USB] %s: %s isnt defined\n",	__func__, field);
@@ -143,14 +149,16 @@ void android_force_reset(void)
 
 	
 	mutex_lock(&function_bind_sem);
+	if (dev) {
+		android_disable(dev);
+		dev->enabled = false;
 
-	android_disable(dev);
-	dev->enabled = false;
+		msleep(500);
 
-	msleep(500);
-
-	android_enable(dev);
-	dev->enabled = true;
+		android_enable(dev);
+		dev->enabled = true;
+	} else
+		pr_info("force reset fails: no device.\n");
 	mutex_unlock(&function_bind_sem);
 }
 #if 0
@@ -379,6 +387,8 @@ static bool is_mtp_enable(void)
 		return false;
 }
 
+extern int rom_stockui;
+
 int android_switch_function(unsigned func)
 {
 	struct android_dev *dev = _android_dev;
@@ -393,9 +403,12 @@ int android_switch_function(unsigned func)
 	int product_id = 0, vendor_id = 0;
 	unsigned val, comm_class = 0;
 
+	mutex_lock(&function_bind_sem);
+
 	
 	if (dev->enabled != true) {
 		pr_info("%s: USB driver is not initialize\n", __func__);
+		mutex_unlock(&function_bind_sem);
 		return 0;
 	}
 
@@ -405,13 +418,11 @@ int android_switch_function(unsigned func)
 		func &= (1 << USB_FUNCTION_UMS) | (1 << USB_FUNCTION_ADB);
 	}
 
-	mutex_lock(&function_bind_sem);
-
 	val = htc_usb_get_func_combine_value();
 
 	pr_info(" %u, before %u\n", func, val);
 
-	if (func == val) {
+	if (func == val && rom_stockui != 1) {
 		pr_info("%s: SKIP due the function is the same ,%u\n" , __func__, func);
 		mutex_unlock(&function_bind_sem);
 		return 0;
@@ -571,6 +582,15 @@ int android_switch_function(unsigned func)
 
 	if (dev->pdata && dev->pdata->match)
 		product_id = dev->pdata->match(product_id, intrsharing);
+
+	if (rom_stockui && (product_id == PID_MTPUMS)) {
+		product_id = PID_MTPUMS_STOCKUI;
+		pr_info("%s: stockUI ROM for mtp+ums\n", __func__);
+	} else if (rom_stockui && (product_id == PID_UL)) {
+		product_id = PID_STOCKUI;
+		pr_info("%s: stockUI ROM for default function\n", __func__);
+	}
+	pr_info("%s: rom_stockui=%d\n", __func__, rom_stockui);
 
 	pr_info("%s: vendor_id=0x%x, product_id=0x%x\n",
 			__func__, vendor_id, product_id);
@@ -739,6 +759,19 @@ void init_mfg_serialno(void)
 	use_mfg_serialno = (board_mfg_mode() == 1) ? 1 : 0;
 	strncpy(mfg_df_serialno, serialno, strlen(serialno));
 }
+static ssize_t show_usb_ac_cable_status(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	unsigned length;
+
+#ifdef CONFIG_USB_DWC3
+	length = sprintf(buf, "%d",usb_get_connect_type());
+#else
+	length = sprintf(buf, "%d",msm_usb_get_connect_type());
+#endif
+	return length;
+}
+
 static int usb_disable;
 static ssize_t show_usb_cable_connect(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -1034,6 +1067,7 @@ static ssize_t store_ats(struct device *dev,
 	return count;
 }
 
+static DEVICE_ATTR(usb_ac_cable_status, 0444, show_usb_ac_cable_status, NULL);
 static DEVICE_ATTR(usb_cable_connect, 0444, show_usb_cable_connect, NULL);
 static DEVICE_ATTR(usb_function_switch, 0664,
 		show_usb_function_switch, store_usb_function_switch);
@@ -1053,6 +1087,7 @@ static DEVICE_ATTR(os_type, 0444, show_os_type, NULL);
 static DEVICE_ATTR(ats, 0664, show_ats, store_ats);
 
 static __maybe_unused struct attribute *android_htc_usb_attributes[] = {
+	&dev_attr_usb_ac_cable_status.attr,
 	&dev_attr_usb_cable_connect.attr,
 	&dev_attr_usb_function_switch.attr,
 	&dev_attr_USB_ID_status.attr, 
@@ -1173,8 +1208,10 @@ static void setup_vendor_info(struct android_dev *dev) {
 	} else if (board_mfg_mode() == 2) {
 		ANDROID_USB_ENABLE_FUNC(dev, conf, "mass_storage");
 	} else {
-		ANDROID_USB_ENABLE_FUNC(dev, conf, "mtp");
-		ANDROID_USB_ENABLE_FUNC(dev, conf, "mass_storage");
+		if (!rom_stockui) {
+			ANDROID_USB_ENABLE_FUNC(dev, conf, "mtp");
+			ANDROID_USB_ENABLE_FUNC(dev, conf, "mass_storage");
+		}
 	}
 
 	product = get_product(dev, &conf->enabled_functions);
@@ -1186,6 +1223,17 @@ static void setup_vendor_info(struct android_dev *dev) {
 		product_id =  dev->pdata->product_id;
 	} else
 		PDATA_NOT_DEFINED("vendor/product id");
+
+	if (rom_stockui && (product_id == PID_MTPUMS)) {
+		product_id = PID_MTPUMS_STOCKUI;
+		pr_info("%s: stockUI ROM\n", __func__);
+	} else if (rom_stockui && (product_id == PID_UL)) {
+		product_id = PID_STOCKUI;
+		pr_info("%s: stockUI ROM for default function\n", __func__);
+	}
+
+	pr_info("%s: rom_stockui=%d\n", __func__, rom_stockui);
+
 	pr_info("%s: vendor_id=0x%x, product_id=0x%x\n", __func__, vendor_id, product_id);
 
 	device_desc.idVendor = __constant_cpu_to_le16(vendor_id);

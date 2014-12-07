@@ -32,7 +32,7 @@
 #include "rts51x.h"
 #include "rts51x_chip.h"
 
-#if 1 
+#if 1 /* LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 34) */
 #define URB_NO_SETUP_DMA_MAP		0
 #endif
 
@@ -62,6 +62,10 @@ int rts51x_transfer_data_partial(struct rts51x_chip *chip, unsigned int pipe,
 				 unsigned int len, int use_sg,
 				 unsigned int *act_len, int timeout);
 
+/* whichPipe:
+ * 0: bulk in pipe
+ * 1: bulk out pipe
+ * 2: intr  in pipe */
 int rts51x_reset_pipe(struct rts51x_chip *chip, char pipe);
 
 #ifndef POLLING_IN_THREAD
@@ -72,4 +76,4 @@ void rts51x_cancel_epc_transfer(struct rts51x_chip *chip);
 int rts51x_get_epc_status(struct rts51x_chip *chip, u16 *status);
 void rts51x_invoke_transport(struct scsi_cmnd *srb, struct rts51x_chip *chip);
 
-#endif 
+#endif /* __RTS51X_TRANSPORT_H */

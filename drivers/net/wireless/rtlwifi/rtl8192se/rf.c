@@ -49,13 +49,17 @@ static void _rtl92s_get_powerbase(struct ieee80211_hw *hw, u8 *p_pwrlevel,
 	for (i = 0; i < 2; i++)
 		pwrlevel[i] = p_pwrlevel[i];
 
-	
+	/* We only care about the path A for legacy. */
 	if (rtlefuse->eeprom_version < 2) {
 		pwrbase0 = pwrlevel[0] + (rtlefuse->legacy_httxpowerdiff & 0xf);
 	} else if (rtlefuse->eeprom_version >= 2) {
 		legacy_pwrdiff = rtlefuse->txpwr_legacyhtdiff
 						[RF90_PATH_A][chnl - 1];
 
+		/* For legacy OFDM, tx pwr always > HT OFDM pwr.
+		 * We do not care Path B
+		 * legacy OFDM pwr diff. NO BB register
+		 * to notify HW. */
 		pwrbase0 = pwrlevel[0] + legacy_pwrdiff;
 	}
 
@@ -63,35 +67,39 @@ static void _rtl92s_get_powerbase(struct ieee80211_hw *hw, u8 *p_pwrlevel,
 		    pwrbase0;
 	*ofdmbase = pwrbase0;
 
-	
+	/* MCS rates */
 	if (rtlefuse->eeprom_version >= 2) {
-		
+		/* Check HT20 to HT40 diff	*/
 		if (rtlphy->current_chan_bw == HT_CHANNEL_WIDTH_20) {
 			for (i = 0; i < 2; i++) {
-				
-				
+				/* rf-A, rf-B */
+				/* HT 20<->40 pwr diff */
 				ht20_pwrdiff = rtlefuse->txpwr_ht20diff
 							[i][chnl - 1];
 
-				if (ht20_pwrdiff < 8) 
+				if (ht20_pwrdiff < 8) /* 0~+7 */
 					pwrlevel[i] += ht20_pwrdiff;
-				else 
+				else /* index8-15=-8~-1 */
 					pwrlevel[i] -= (16 - ht20_pwrdiff);
 			}
 		}
 	}
 
-	
+	/* use index of rf-A */
 	pwrbase1 = pwrlevel[0];
 	pwrbase1 = (pwrbase1 << 24) | (pwrbase1 << 16) | (pwrbase1 << 8) |
 				pwrbase1;
 	*mcsbase = pwrbase1;
 
+	/* The following is for Antenna
+	 * diff from Ant-B to Ant-A */
 	p_final_pwridx[0] = pwrlevel[0];
 	p_final_pwridx[1] = pwrlevel[1];
 
 	switch (rtlefuse->eeprom_regulatory) {
 	case 3:
+		/* The following is for calculation
+		 * of the power diff for Ant-B to Ant-A. */
 		if (rtlphy->current_chan_bw == HT_CHANNEL_WIDTH_20_40) {
 			p_final_pwridx[0] += rtlefuse->pwrgroup_ht40
 						[RF90_PATH_A][
@@ -135,6 +143,8 @@ static void _rtl92s_set_antennadiff(struct ieee80211_hw *hw,
 	if (rtlphy->rf_type == RF_2T2R) {
 		ant_pwr_diff = p_final_pwridx[1] - p_final_pwridx[0];
 
+		/* range is from 7~-8,
+		 * index = 0x0~0xf */
 		if (ant_pwr_diff > 7)
 			ant_pwr_diff = 7;
 		if (ant_pwr_diff < -8)
@@ -147,10 +157,10 @@ static void _rtl92s_set_antennadiff(struct ieee80211_hw *hw,
 		ant_pwr_diff &= 0xf;
 	}
 
-	
-	rtlefuse->antenna_txpwdiff[2] = 0;
-	rtlefuse->antenna_txpwdiff[1] = 0;
-	rtlefuse->antenna_txpwdiff[0] = (u8)(ant_pwr_diff);	
+	/* Antenna TX power difference */
+	rtlefuse->antenna_txpwdiff[2] = 0;/* RF-D, don't care */
+	rtlefuse->antenna_txpwdiff[1] = 0;/* RF-C, don't care */
+	rtlefuse->antenna_txpwdiff[0] = (u8)(ant_pwr_diff);	/* RF-B */
 
 	u4reg_val = rtlefuse->antenna_txpwdiff[2] << 8 |
 				rtlefuse->antenna_txpwdiff[1] << 4 |
@@ -175,9 +185,11 @@ static void _rtl92s_get_txpower_writeval_byregulatory(struct ieee80211_hw *hw,
 	u8 i, chnlgroup, pwrdiff_limit[4];
 	u32 writeval, customer_limit;
 
-	
+	/* Index 0 & 1= legacy OFDM, 2-5=HT_MCS rate */
 	switch (rtlefuse->eeprom_regulatory) {
 	case 0:
+		/* Realtek better performance increase power diff
+		 * defined by Realtek for large power */
 		chnlgroup = 0;
 
 		writeval = rtlphy->mcs_txpwrlevel_origoffset
@@ -188,6 +200,8 @@ static void _rtl92s_get_txpower_writeval_byregulatory(struct ieee80211_hw *hw,
 			 "RTK better performance, writeval = 0x%x\n", writeval);
 		break;
 	case 1:
+		/* Realtek regulatory increase power diff defined
+		 * by Realtek for regulatory */
 		if (rtlphy->current_chan_bw == HT_CHANNEL_WIDTH_20_40) {
 			writeval = ((index < 2) ? pwrbase0 : pwrbase1);
 
@@ -220,12 +234,14 @@ static void _rtl92s_get_txpower_writeval_byregulatory(struct ieee80211_hw *hw,
 		}
 		break;
 	case 2:
-		
+		/* Better regulatory don't increase any power diff */
 		writeval = ((index < 2) ? pwrbase0 : pwrbase1);
 		RT_TRACE(rtlpriv, COMP_POWER, DBG_LOUD,
 			 "Better regulatory, writeval = 0x%x\n", writeval);
 		break;
 	case 3:
+		/* Customer defined power diff. increase power diff
+		  defined by customer. */
 		chnlgroup = 0;
 
 		if (rtlphy->current_chan_bw == HT_CHANNEL_WIDTH_20_40) {
@@ -308,14 +324,17 @@ static void _rtl92s_write_ofdm_powerreg(struct ieee80211_hw *hw,
 	u8 rfa_lower_bound = 0, rfa_upper_bound = 0, rf_pwr_diff = 0;
 	u32 writeval = val;
 
+	/* If path A and Path B coexist, we must limit Path A tx power.
+	 * Protect Path B pwr over or under flow. We need to calculate
+	 * upper and lower bound of path A tx power. */
 	if (rtlphy->rf_type == RF_2T2R) {
 		rf_pwr_diff = rtlefuse->antenna_txpwdiff[0];
 
-		
+		/* Diff=-8~-1 */
 		if (rf_pwr_diff >= 8) {
-			
+			/* Prevent underflow!! */
 			rfa_lower_bound = 0x10 - rf_pwr_diff;
-		
+		/* if (rf_pwr_diff >= 0) Diff = 0-7 */
 		} else {
 			rfa_upper_bound = RF6052_MAX_TX_PWR - rf_pwr_diff;
 		}
@@ -326,15 +345,18 @@ static void _rtl92s_write_ofdm_powerreg(struct ieee80211_hw *hw,
 		if (rfa_pwr[i]  > RF6052_MAX_TX_PWR)
 			rfa_pwr[i]  = RF6052_MAX_TX_PWR;
 
+		/* If path A and Path B coexist, we must limit Path A tx power.
+		 * Protect Path B pwr over or under flow. We need to calculate
+		 * upper and lower bound of path A tx power. */
 		if (rtlphy->rf_type == RF_2T2R) {
-			
+			/* Diff=-8~-1 */
 			if (rf_pwr_diff >= 8) {
-				
+				/* Prevent underflow!! */
 				if (rfa_pwr[i] < rfa_lower_bound)
 					rfa_pwr[i] = rfa_lower_bound;
-			
+			/* Diff = 0-7 */
 			} else if (rf_pwr_diff >= 1) {
-				
+				/* Prevent overflow */
 				if (rfa_pwr[i] > rfa_upper_bound)
 					rfa_pwr[i] = rfa_upper_bound;
 			}
@@ -412,12 +434,12 @@ bool rtl92s_phy_rf6052_config(struct ieee80211_hw *hw)
 	bool rtstatus = true;
 	struct bb_reg_def *pphyreg;
 
-	
+	/* Initialize RF */
 	for (rfpath = 0; rfpath < rtlphy->num_total_rfpath; rfpath++) {
 
 		pphyreg = &rtlphy->phyreg_def[rfpath];
 
-		
+		/* Store original RFENV control type */
 		switch (rfpath) {
 		case RF90_PATH_A:
 		case RF90_PATH_C:
@@ -433,20 +455,20 @@ bool rtl92s_phy_rf6052_config(struct ieee80211_hw *hw)
 			break;
 		}
 
-		
+		/* Set RF_ENV enable */
 		rtl92s_phy_set_bb_reg(hw, pphyreg->rfintfe,
 				      BRFSI_RFENV << 16, 0x1);
 
-		
+		/* Set RF_ENV output high */
 		rtl92s_phy_set_bb_reg(hw, pphyreg->rfintfo, BRFSI_RFENV, 0x1);
 
-		
+		/* Set bit number of Address and Data for RF register */
 		rtl92s_phy_set_bb_reg(hw, pphyreg->rfhssi_para2,
 				B3WIRE_ADDRESSLENGTH, 0x0);
 		rtl92s_phy_set_bb_reg(hw, pphyreg->rfhssi_para2,
 				B3WIRE_DATALENGTH, 0x0);
 
-		
+		/* Initialize RF fom connfiguration file */
 		switch (rfpath) {
 		case RF90_PATH_A:
 			rtstatus = rtl92s_phy_config_rf(hw,
@@ -462,7 +484,7 @@ bool rtl92s_phy_rf6052_config(struct ieee80211_hw *hw)
 			break;
 		}
 
-		
+		/* Restore RFENV control type */
 		switch (rfpath) {
 		case RF90_PATH_A:
 		case RF90_PATH_C:

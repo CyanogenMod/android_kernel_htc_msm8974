@@ -29,4 +29,4 @@ extern void flush_tlb_pending(void);
 
 #include <asm-generic/tlb.h>
 
-#endif 
+#endif /* _SPARC64_TLB_H */

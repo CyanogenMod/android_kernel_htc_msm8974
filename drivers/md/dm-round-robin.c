@@ -18,6 +18,9 @@
 
 #define DM_MSG_PREFIX "multipath round-robin"
 
+/*-----------------------------------------------------------------
+ * Path-handling code, paths are held in lists
+ *---------------------------------------------------------------*/
 struct path_info {
 	struct list_head list;
 	struct dm_path *path;
@@ -34,6 +37,9 @@ static void free_paths(struct list_head *paths)
 	}
 }
 
+/*-----------------------------------------------------------------
+ * Round-robin selector
+ *---------------------------------------------------------------*/
 
 #define RR_MIN_IO		1000
 
@@ -98,6 +104,10 @@ static int rr_status(struct path_selector *ps, struct dm_path *path,
 	return sz;
 }
 
+/*
+ * Called during initialisation to register each path with an
+ * optional repeat_count.
+ */
 static int rr_add_path(struct path_selector *ps, struct dm_path *path,
 		       int argc, char **argv, char **error)
 {
@@ -111,13 +121,13 @@ static int rr_add_path(struct path_selector *ps, struct dm_path *path,
 		return -EINVAL;
 	}
 
-	
+	/* First path argument is number of I/Os before switching path */
 	if ((argc == 1) && (sscanf(argv[0], "%u%c", &repeat_count, &dummy) != 1)) {
 		*error = "round-robin ps: invalid repeat count";
 		return -EINVAL;
 	}
 
-	
+	/* allocate the path */
 	pi = kmalloc(sizeof(*pi), GFP_KERNEL);
 	if (!pi) {
 		*error = "round-robin ps: Error allocating path context";

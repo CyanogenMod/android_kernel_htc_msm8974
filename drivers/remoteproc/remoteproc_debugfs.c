@@ -29,8 +29,18 @@
 #include <linux/remoteproc.h>
 #include <linux/device.h>
 
+/* remoteproc debugfs parent dir */
 static struct dentry *rproc_dbg;
 
+/*
+ * Some remote processors may support dumping trace logs into a shared
+ * memory buffer. We expose this trace buffer using debugfs, so users
+ * can easily tell what's going on remotely.
+ *
+ * We will most probably improve the rproc tracing facilities later on,
+ * but this kind of lightweight and simple mechanism is always good to have,
+ * as it provides very early tracing with little to no dependencies at all.
+ */
 static ssize_t rproc_trace_read(struct file *filp, char __user *userbuf,
 						size_t count, loff_t *ppos)
 {
@@ -46,6 +56,10 @@ static const struct file_operations trace_rproc_ops = {
 	.llseek	= generic_file_llseek,
 };
 
+/*
+ * A state-to-string lookup table, for exposing a human readable state
+ * via debugfs. Always keep in sync with enum rproc_state
+ */
 static const char * const rproc_state_string[] = {
 	"offline",
 	"suspended",
@@ -54,6 +68,7 @@ static const char * const rproc_state_string[] = {
 	"invalid",
 };
 
+/* expose the state of the remote processor via debugfs */
 static ssize_t rproc_state_read(struct file *filp, char __user *userbuf,
 						size_t count, loff_t *ppos)
 {
@@ -76,11 +91,12 @@ static const struct file_operations rproc_state_ops = {
 	.llseek	= generic_file_llseek,
 };
 
+/* expose the name of the remote processor via debugfs */
 static ssize_t rproc_name_read(struct file *filp, char __user *userbuf,
 						size_t count, loff_t *ppos)
 {
 	struct rproc *rproc = filp->private_data;
-	
+	/* need room for the name, a newline and a terminating null */
 	char buf[100];
 	int i;
 

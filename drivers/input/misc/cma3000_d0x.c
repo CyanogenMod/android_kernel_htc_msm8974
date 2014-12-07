@@ -49,11 +49,17 @@
 #define CMA3000_STATUS_PERR    1
 #define CMA3000_INTSTATUS_FFDET (1 << 2)
 
+/* Settling time delay in ms */
 #define CMA3000_SETDELAY    30
 
+/* Delay for clearing interrupt in us */
 #define CMA3000_INTDELAY    44
 
 
+/*
+ * Bit weights in mg for bit 0, other bits need
+ * multipy factor 2^n. Eight bit is the sign bit.
+ */
 #define BIT_TO_2G  18
 #define BIT_TO_8G  71
 
@@ -80,6 +86,11 @@ struct cma3000_accl_data {
 #define CMA3000_SET(data, reg, val, msg) \
 	((data)->bus_ops->write(data->dev, reg, val, msg))
 
+/*
+ * Conversion for each of the eight modes to g, depending
+ * on G range i.e 2G or 8G. Some modes always operate in
+ * 8G.
+ */
 
 static int mode_to_mg[8][2] = {
 	{ 0, 0 },
@@ -95,7 +106,7 @@ static int mode_to_mg[8][2] = {
 static void decode_mg(struct cma3000_accl_data *data, int *datax,
 				int *datay, int *dataz)
 {
-	
+	/* Data in 2's complement, convert to mg */
 	*datax = ((s8)*datax) * data->bit_to_mg;
 	*datay = ((s8)*datay) * data->bit_to_mg;
 	*dataz = ((s8)*dataz) * data->bit_to_mg;
@@ -111,7 +122,7 @@ static irqreturn_t cma3000_thread_irq(int irq, void *dev_id)
 	if (intr_status < 0)
 		return IRQ_NONE;
 
-	
+	/* Check if free fall is detected, report immediately */
 	if (intr_status & CMA3000_INTSTATUS_FFDET) {
 		input_report_abs(data->input_dev, ABS_MISC, 1);
 		input_sync(data->input_dev);
@@ -129,11 +140,11 @@ static irqreturn_t cma3000_thread_irq(int irq, void *dev_id)
 
 	data->bit_to_mg = mode_to_mg[mode][range];
 
-	
+	/* Interrupt not for this device */
 	if (data->bit_to_mg == 0)
 		return IRQ_NONE;
 
-	
+	/* Decode register values to milli g */
 	decode_mg(data, &datax, &datay, &dataz);
 
 	input_report_abs(data->input_dev, ABS_X, datax);
@@ -148,12 +159,12 @@ static int cma3000_reset(struct cma3000_accl_data *data)
 {
 	int val;
 
-	
+	/* Reset sequence */
 	CMA3000_SET(data, CMA3000_RSTR, 0x02, "Reset");
 	CMA3000_SET(data, CMA3000_RSTR, 0x0A, "Reset");
 	CMA3000_SET(data, CMA3000_RSTR, 0x04, "Reset");
 
-	
+	/* Settling time delay */
 	mdelay(10);
 
 	val = CMA3000_READ(data, CMA3000_STATUS, "Status");
@@ -286,7 +297,7 @@ struct cma3000_accl_data *cma3000_init(struct device *dev, int irq,
 	}
 
 
-	
+	/* if no IRQ return error */
 	if (irq == 0) {
 		error = -EINVAL;
 		goto err_out;

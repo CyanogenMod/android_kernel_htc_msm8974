@@ -60,6 +60,8 @@ static int sd_queue_thread(void *d)
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
 		req = blk_fetch_request(q);
+		if (req)
+			req->process_time = ktime_get();
 		mq->mqrq_cur->req = req;
 		spin_unlock_irq(q->queue_lock);
 
@@ -70,7 +72,8 @@ static int sd_queue_thread(void *d)
 				continue; 
 			} else if ((mq->flags & MMC_QUEUE_URGENT_REQUEST) &&
 				   (mq->mqrq_cur->req &&
-				!(mq->mqrq_cur->req->cmd_flags & REQ_URGENT))) {
+				!(mq->mqrq_cur->req->cmd_flags &
+				       MMC_REQ_NOREINSERT_MASK))) {
 				mq->mqrq_cur->brq.mrq.data = NULL;
 				mq->mqrq_cur->req = NULL;
 			}
@@ -112,6 +115,8 @@ static int mmc_queue_thread(void *d)
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
 		req = blk_fetch_request(q);
+		if (req)
+			req->process_time = ktime_get();
 		mq->mqrq_cur->req = req;
 		spin_unlock_irq(q->queue_lock);
 
@@ -122,7 +127,8 @@ static int mmc_queue_thread(void *d)
 				continue; 
 			} else if ((mq->flags & MMC_QUEUE_URGENT_REQUEST) &&
 				   (mq->mqrq_cur->req &&
-				!(mq->mqrq_cur->req->cmd_flags & REQ_URGENT))) {
+				!(mq->mqrq_cur->req->cmd_flags &
+				       MMC_REQ_NOREINSERT_MASK))) {
 				mq->mqrq_cur->brq.mrq.data = NULL;
 				mq->mqrq_cur->req = NULL;
 			}
@@ -263,6 +269,7 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 		return -ENOMEM;
 
 	if ((host->caps2 & MMC_CAP2_STOP_REQUEST) &&
+			((card->quirks & MMC_QUIRK_URGENT_REQUEST_DISABLE) == 0) &&
 			host->ops->stop_request &&
 			mq->card->ext_csd.hpi_en)
 		blk_urgent_request(mq->queue, mmc_urgent_request);
@@ -348,17 +355,22 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 #endif
 
 	if (!mqrq_cur->bounce_buf && !mqrq_prev->bounce_buf) {
+		unsigned int max_segs = host->max_segs;
+
 		blk_queue_bounce_limit(mq->queue, limit);
 		blk_queue_max_hw_sectors(mq->queue,
 			min(host->max_blk_count, host->max_req_size / 512));
-		blk_queue_max_segments(mq->queue, host->max_segs);
 		blk_queue_max_segment_size(mq->queue, host->max_seg_size);
+ retry:
+		blk_queue_max_segments(mq->queue, host->max_segs);
 
 		if(mmc_card_sd(card)) {
 			if (!cur_sg) {
 				cur_sg = mmc_alloc_sg(host->max_segs, &ret);
 				mqrq_cur->sg = cur_sg;
-				if (ret)
+				if (ret == -ENOMEM)
+					goto cur_sg_alloc_failed;
+				else if (ret)
 					goto cleanup_queue;
 			} else {
 				mqrq_cur->sg = cur_sg;
@@ -366,23 +378,44 @@ int mmc_init_queue(struct mmc_queue *mq, struct mmc_card *card,
 			if (!prev_sg) {
 				prev_sg = mmc_alloc_sg(host->max_segs, &ret);
 				mqrq_prev->sg = prev_sg;
-				if (ret)
+				if (ret == -ENOMEM)
+					goto prev_sg_alloc_failed;
+				else if (ret)
 					goto cleanup_queue;
 			} else {
 				mqrq_prev->sg = prev_sg;
 			}
 		} else {
 			mqrq_cur->sg = mmc_alloc_sg(host->max_segs, &ret);
-			if (ret)
+			if (ret == -ENOMEM)
+				goto cur_sg_alloc_failed;
+			else if (ret)
 				goto cleanup_queue;
 
 
 			mqrq_prev->sg = mmc_alloc_sg(host->max_segs, &ret);
-			if (ret)
+			if (ret == -ENOMEM)
+				goto prev_sg_alloc_failed;
+			else if (ret)
 				goto cleanup_queue;
+		}
+
+		goto success;
+
+ prev_sg_alloc_failed:
+		kfree(mqrq_cur->sg);
+		mqrq_cur->sg = NULL;
+ cur_sg_alloc_failed:
+		host->max_segs /= 2;
+		if (host->max_segs) {
+			goto retry;
+		} else {
+			host->max_segs = max_segs;
+			goto cleanup_queue;
 		}
 	}
 
+ success:
 	sema_init(&mq->thread_sem, 1);
 
 	if(mmc_card_sd(card))

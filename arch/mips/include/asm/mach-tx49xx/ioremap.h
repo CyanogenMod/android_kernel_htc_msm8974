@@ -11,6 +11,10 @@
 
 #include <linux/types.h>
 
+/*
+ * Allow physical addresses to be fixed up to help peripherals located
+ * outside the low 32-bit range -- generic pass-through version.
+ */
 static inline phys_t fixup_bigphys_addr(phys_t phys_addr, phys_t size)
 {
 	return phys_addr;
@@ -36,4 +40,4 @@ static inline int plat_iounmap(const volatile void __iomem *addr)
 		(unsigned long)(int)(TXX9_DIRECTMAP_BASE & 0xffffffff);
 }
 
-#endif 
+#endif /* __ASM_MACH_TX49XX_IOREMAP_H */

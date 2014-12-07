@@ -26,4 +26,4 @@ extern void brcms_c_antsel_antcfg_get(struct antsel_info *asi, bool usedef,
 				  u8 *fbantcfg);
 extern u8 brcms_c_antsel_antsel2id(struct antsel_info *asi, u16 antsel);
 
-#endif 
+#endif /* _BRCM_ANTSEL_H_ */

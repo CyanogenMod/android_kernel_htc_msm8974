@@ -22,20 +22,96 @@
 #include <net/pkt_sched.h>
 
 
+/*	Simple Token Bucket Filter.
+	=======================================
+
+	SOURCE.
+	-------
+
+	None.
+
+	Description.
+	------------
+
+	A data flow obeys TBF with rate R and depth B, if for any
+	time interval t_i...t_f the number of transmitted bits
+	does not exceed B + R*(t_f-t_i).
+
+	Packetized version of this definition:
+	The sequence of packets of sizes s_i served at moments t_i
+	obeys TBF, if for any i<=k:
+
+	s_i+....+s_k <= B + R*(t_k - t_i)
+
+	Algorithm.
+	----------
+
+	Let N(t_i) be B/R initially and N(t) grow continuously with time as:
+
+	N(t+delta) = min{B/R, N(t) + delta}
+
+	If the first packet in queue has length S, it may be
+	transmitted only at the time t_* when S/R <= N(t_*),
+	and in this case N(t) jumps:
+
+	N(t_* + 0) = N(t_* - 0) - S/R.
+
+
+
+	Actually, QoS requires two TBF to be applied to a data stream.
+	One of them controls steady state burst size, another
+	one with rate P (peak rate) and depth M (equal to link MTU)
+	limits bursts at a smaller time scale.
+
+	It is easy to see that P>R, and B>M. If P is infinity, this double
+	TBF is equivalent to a single one.
+
+	When TBF works in reshaping mode, latency is estimated as:
+
+	lat = max ((L-B)/R, (L-M)/P)
+
+
+	NOTES.
+	------
+
+	If TBF throttles, it starts a watchdog timer, which will wake it up
+	when it is ready to transmit.
+	Note that the minimal timer resolution is 1/HZ.
+	If no new packets arrive during this period,
+	or if the device is not awaken by EOI for some previous packet,
+	TBF can stop its activity for 1/HZ.
+
+
+	This means, that with depth B, the maximal rate is
+
+	R_crit = B*HZ
+
+	F.e. for 10Mbit ethernet and HZ=100 the minimal allowed B is ~10Kbytes.
+
+	Note that the peak rate TBF is much more tough: with MTU 1500
+	P_crit = 150Kbytes/sec. So, if you need greater peak
+	rates, use alpha with HZ=1000 :-)
+
+	With classful TBF, limit is just kept for backwards compatibility.
+	It is passed to the default bfifo qdisc - if the inner qdisc is
+	changed the limit is not effective anymore.
+*/
 
 struct tbf_sched_data {
-	u32		limit;		
-	u32		buffer;		
+/* Parameters */
+	u32		limit;		/* Maximal length of backlog: bytes */
+	u32		buffer;		/* Token bucket depth/rate: MUST BE >= MTU/B */
 	u32		mtu;
 	u32		max_size;
 	struct qdisc_rate_table	*R_tab;
 	struct qdisc_rate_table	*P_tab;
 
-	long	tokens;			
-	long	ptokens;		
-	psched_time_t	t_c;		
-	struct Qdisc	*qdisc;		
-	struct qdisc_watchdog watchdog;	
+/* Variables */
+	long	tokens;			/* Current number of B tokens */
+	long	ptokens;		/* Current number of P tokens */
+	psched_time_t	t_c;		/* Time check-point */
+	struct Qdisc	*qdisc;		/* Inner qdisc, default - bfifo queue */
+	struct qdisc_watchdog watchdog;	/* Watchdog timer */
 };
 
 #define L2T(q, L)   qdisc_l2t((q)->R_tab, L)
@@ -116,6 +192,16 @@ static struct sk_buff *tbf_dequeue(struct Qdisc *sch)
 		qdisc_watchdog_schedule(&q->watchdog,
 					now + max_t(long, -toks, -ptoks));
 
+		/* Maybe we have a shorter packet in the queue,
+		   which can be sent now. It sounds cool,
+		   but, however, this is wrong in principle.
+		   We MUST NOT reorder packets under these circumstances.
+
+		   Really, if we split the flow into independent
+		   subflows, it would be a very good solution.
+		   This is the main idea of all FQ algorithms
+		   (cf. CSZ, HPFQ, HFSC)
+		 */
 
 		sch->qstats.overlimits++;
 	}

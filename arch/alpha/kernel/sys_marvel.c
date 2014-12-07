@@ -1,3 +1,8 @@
+/*
+ * linux/arch/alpha/kernel/sys_marvel.c
+ *
+ * Marvel / IO7 support
+ */
 
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -30,18 +35,35 @@
 #endif
 
 
+/*
+ * Interrupt handling.
+ */
 static void 
 io7_device_interrupt(unsigned long vector)
 {
 	unsigned int pid;
 	unsigned int irq;
 
+	/*
+	 * Vector is 0x800 + (interrupt)
+	 *
+	 * where (interrupt) is:
+	 *
+	 *	...16|15 14|13     4|3 0
+	 *	-----+-----+--------+---
+	 *	  PE |  0  |   irq  | 0
+	 *
+	 * where (irq) is 
+	 *
+	 *       0x0800 - 0x0ff0	 - 0x0800 + (LSI id << 4)
+	 *	 0x1000 - 0x2ff0	 - 0x1000 + (MSI_DAT<8:0> << 4)
+	 */
 	pid = vector >> 16;
 	irq = ((vector & 0xffff) - 0x800) >> 4;
 
-	irq += 16;				
-	irq &= MARVEL_IRQ_VEC_IRQ_MASK;		
-	irq |= pid << MARVEL_IRQ_VEC_PE_SHIFT;	
+	irq += 16;				/* offset for legacy */
+	irq &= MARVEL_IRQ_VEC_IRQ_MASK;		/* not too many bits */
+	irq |= pid << MARVEL_IRQ_VEC_PE_SHIFT;	/* merge the pid     */
 
 	handle_irq(irq);
 }
@@ -62,8 +84,8 @@ io7_get_irq_ctl(unsigned int irq, struct io7 **pio7)
 		return NULL;
 	}
 
-	irq &= MARVEL_IRQ_VEC_IRQ_MASK;	
-	irq -= 16;			
+	irq &= MARVEL_IRQ_VEC_IRQ_MASK;	/* isolate the vector    */
+	irq -= 16;			/* subtract legacy bias  */
 
 	if (irq >= 0x180) {
 		printk(KERN_ERR 
@@ -72,8 +94,8 @@ io7_get_irq_ctl(unsigned int irq, struct io7 **pio7)
 		return NULL;
 	}
 
-	ctl = &io7->csrs->PO7_LSI_CTL[irq & 0xff].csr; 
-	if (irq >= 0x80)	     	
+	ctl = &io7->csrs->PO7_LSI_CTL[irq & 0xff].csr; /* assume LSI */
+	if (irq >= 0x80)	     	/* MSI */
 		ctl = &io7->csrs->PO7_MSI_CTL[((irq - 0x80) >> 5) & 0x0f].csr;
 
 	if (pio7) *pio7 = io7;
@@ -156,8 +178,8 @@ io7_redirect_irq(struct io7 *io7,
 	unsigned long val;
 	
 	val = *csr;
-	val &= ~(0x1ffUL << 24);		
-	val |= ((unsigned long)where << 24);	
+	val &= ~(0x1ffUL << 24);		/* clear the target pid   */
+	val |= ((unsigned long)where << 24);	/* set the new target pid */
 	
 	*csr = val;
 	mb();
@@ -169,9 +191,12 @@ io7_redirect_one_lsi(struct io7 *io7, unsigned int which, unsigned int where)
 {
 	unsigned long val;
 
+	/*
+	 * LSI_CTL has target PID @ 14
+	 */
 	val = io7->csrs->PO7_LSI_CTL[which].csr;
-	val &= ~(0x1ffUL << 14);		
-	val |= ((unsigned long)where << 14);	
+	val &= ~(0x1ffUL << 14);		/* clear the target pid */
+	val |= ((unsigned long)where << 14);	/* set the new target pid */
 
 	io7->csrs->PO7_LSI_CTL[which].csr = val;
 	mb();
@@ -183,9 +208,12 @@ io7_redirect_one_msi(struct io7 *io7, unsigned int which, unsigned int where)
 {
 	unsigned long val;
 
+	/*
+	 * MSI_CTL has target PID @ 14
+	 */
 	val = io7->csrs->PO7_MSI_CTL[which].csr;
-	val &= ~(0x1ffUL << 14);		
-	val |= ((unsigned long)where << 14);	
+	val &= ~(0x1ffUL << 14);		/* clear the target pid */
+	val |= ((unsigned long)where << 14);	/* set the new target pid */
 
 	io7->csrs->PO7_MSI_CTL[which].csr = val;
 	mb();
@@ -195,6 +223,9 @@ io7_redirect_one_msi(struct io7 *io7, unsigned int which, unsigned int where)
 static void __init
 init_one_io7_lsi(struct io7 *io7, unsigned int which, unsigned int where)
 {
+	/*
+	 * LSI_CTL has target PID @ 14
+	 */
 	io7->csrs->PO7_LSI_CTL[which].csr = ((unsigned long)where << 14);
 	mb();
 	io7->csrs->PO7_LSI_CTL[which].csr;
@@ -203,6 +234,9 @@ init_one_io7_lsi(struct io7 *io7, unsigned int which, unsigned int where)
 static void __init
 init_one_io7_msi(struct io7 *io7, unsigned int which, unsigned int where)
 {
+	/*
+	 * MSI_CTL has target PID @ 14
+	 */
 	io7->csrs->PO7_MSI_CTL[which].csr = ((unsigned long)where << 14);
 	mb();
 	io7->csrs->PO7_MSI_CTL[which].csr;
@@ -219,24 +253,33 @@ init_io7_irqs(struct io7 *io7,
 	printk("Initializing interrupts for IO7 at PE %u - base %lx\n",
 		io7->pe, base);
 
+	/*
+	 * Where should interrupts from this IO7 go?
+	 *
+	 * They really should be sent to the local CPU to avoid having to
+	 * traverse the mesh, but if it's not an SMP kernel, they have to
+	 * go to the boot CPU. Send them all to the boot CPU for now,
+	 * as each secondary starts, it can redirect it's local device 
+	 * interrupts.
+	 */
 	printk("  Interrupts reported to CPU at PE %u\n", boot_cpuid);
 
 	spin_lock(&io7->irq_lock);
 
-	
+	/* set up the error irqs */
 	io7_redirect_irq(io7, &io7->csrs->HLT_CTL.csr, boot_cpuid);
 	io7_redirect_irq(io7, &io7->csrs->HPI_CTL.csr, boot_cpuid);
 	io7_redirect_irq(io7, &io7->csrs->CRD_CTL.csr, boot_cpuid);
 	io7_redirect_irq(io7, &io7->csrs->STV_CTL.csr, boot_cpuid);
 	io7_redirect_irq(io7, &io7->csrs->HEI_CTL.csr, boot_cpuid);
 
-	
+	/* Set up the lsi irqs.  */
 	for (i = 0; i < 128; ++i) {
 		irq_set_chip_and_handler(base + i, lsi_ops, handle_level_irq);
 		irq_set_status_flags(i, IRQ_LEVEL);
 	}
 
-	
+	/* Disable the implemented irqs in hardware.  */
 	for (i = 0; i < 0x60; ++i) 
 		init_one_io7_lsi(io7, i, boot_cpuid);
 
@@ -244,7 +287,7 @@ init_io7_irqs(struct io7 *io7,
 	init_one_io7_lsi(io7, 0x75, boot_cpuid);
 
 
-	
+	/* Set up the msi irqs.  */
 	for (i = 128; i < (128 + 512); ++i) {
 		irq_set_chip_and_handler(base + i, msi_ops, handle_level_irq);
 		irq_set_status_flags(i, IRQ_LEVEL);
@@ -262,13 +305,13 @@ marvel_init_irq(void)
 	int i;
 	struct io7 *io7 = NULL;
 
-	
+	/* Reserve the legacy irqs.  */
 	for (i = 0; i < 16; ++i) {
 		irq_set_chip_and_handler(i, &marvel_legacy_irq_type,
 					 handle_level_irq);
 	}
 
-	
+	/* Init the io7 irqs.  */
 	for (io7 = NULL; (io7 = marvel_next_io7(io7)) != NULL; )
 		init_io7_irqs(io7, &io7_lsi_irq_type, &io7_msi_irq_type);
 }
@@ -299,8 +342,8 @@ marvel_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 			msi_data_off = PCI_MSI_DATA_64;
 		pci_read_config_word(dev, msi_loc + msi_data_off, &msg_dat);
 
-		irq = msg_dat & 0x1ff;		
-		irq += 0x80;			
+		irq = msg_dat & 0x1ff;		/* we use msg_data<8:0> */
+		irq += 0x80;			/* offset for lsi       */
 
 #if 1
 		printk("PCI:%d:%d:%d (hose %d) is using MSI\n",
@@ -327,8 +370,8 @@ marvel_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 #endif
 	}
 
-	irq += 16;					
-	irq |= io7->pe << MARVEL_IRQ_VEC_PE_SHIFT;	
+	irq += 16;					/* offset for legacy */
+	irq |= io7->pe << MARVEL_IRQ_VEC_PE_SHIFT;	/* merge the pid     */
 
 	return irq; 
 }
@@ -340,12 +383,12 @@ marvel_init_pci(void)
 
 	marvel_register_error_handlers();
 
-	
+	/* Indicate that we trust the console to configure things properly */
 	pci_set_flags(PCI_PROBE_ONLY);
 	common_init_pci();
 	locate_and_init_vga(NULL);
 
-	
+	/* Clear any io7 errors.  */
 	for (io7 = NULL; (io7 = marvel_next_io7(io7)) != NULL; ) 
 		io7_clear_errors(io7);
 }
@@ -417,27 +460,33 @@ marvel_smp_callin(void)
 	if (!io7)
 		return;
 
+	/* 
+	 * There is a local IO7 - redirect all of its interrupts here.
+	 */
 	printk("Redirecting IO7 interrupts to local CPU at PE %u\n", cpuid);
 
-	
+	/* Redirect the error IRQS here.  */
 	io7_redirect_irq(io7, &io7->csrs->HLT_CTL.csr, cpuid);
 	io7_redirect_irq(io7, &io7->csrs->HPI_CTL.csr, cpuid);
 	io7_redirect_irq(io7, &io7->csrs->CRD_CTL.csr, cpuid);
 	io7_redirect_irq(io7, &io7->csrs->STV_CTL.csr, cpuid);
 	io7_redirect_irq(io7, &io7->csrs->HEI_CTL.csr, cpuid);
 
-	
+	/* Redirect the implemented LSIs here.  */
 	for (i = 0; i < 0x60; ++i) 
 		io7_redirect_one_lsi(io7, i, cpuid);
 
 	io7_redirect_one_lsi(io7, 0x74, cpuid);
 	io7_redirect_one_lsi(io7, 0x75, cpuid);
 
-	
+	/* Redirect the MSIs here.  */
 	for (i = 0; i < 16; ++i)
 		io7_redirect_one_msi(io7, i, cpuid);
 }
 
+/*
+ * System Vectors
+ */
 struct alpha_machine_vector marvel_ev7_mv __initmv = {
 	.vector_name		= "MARVEL/EV7",
 	DO_EV7_MMU,

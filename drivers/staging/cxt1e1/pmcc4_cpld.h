@@ -23,6 +23,9 @@
 
 #include <linux/types.h>
 
+/********************************/
+/* iSPLD control chip registers */
+/********************************/
 
 #if 0
 #define CPLD_MCSR    0x0
@@ -33,19 +36,25 @@
 
     struct c4_cpld
     {
-        volatile u_int32_t mcsr;
-        volatile u_int32_t mclk;
-        volatile u_int32_t leds;
-        volatile u_int32_t intr;
+        volatile u_int32_t mcsr;/* r/w: Master Clock Source Register */
+        volatile u_int32_t mclk;/* r/w: Master Clock Register */
+        volatile u_int32_t leds;/* r/w: LED Register */
+        volatile u_int32_t intr;/* r: Interrupt Register */
     };
 
     typedef struct c4_cpld c4cpld_t;
 
-#define PMCC4_CPLD_MCSR_IND     0       
-#define PMCC4_CPLD_MCSR_CMT_1   1       
-#define PMCC4_CPLD_MCSR_CMT_2   2       
-#define PMCC4_CPLD_MCSR_CMT_3   3       
-#define PMCC4_CPLD_MCSR_CMT_4   4       
+/* mcsr note: sourcing COMET must be initialized to Master Mode */
+#define PMCC4_CPLD_MCSR_IND     0       /* ports used individual BP Clk as
+                                         * source, no slaves */
+#define PMCC4_CPLD_MCSR_CMT_1   1       /* COMET 1 BP Clk is source, 2,3,4
+                                         * are Clk slaves */
+#define PMCC4_CPLD_MCSR_CMT_2   2       /* COMET 2 BP Clk is source, 1,3,4
+                                         * are Clk slaves */
+#define PMCC4_CPLD_MCSR_CMT_3   3       /* COMET 3 BP Clk is source, 1,2,4
+                                         * are Clk slaves */
+#define PMCC4_CPLD_MCSR_CMT_4   4       /* COMET 4 BP Clk is source, 1,2,3
+                                         * are Clk slaves */
 
 #define PMCC4_CPLD_MCLK_MASK    0x0f
 #define PMCC4_CPLD_MCLK_P1      0x1
@@ -60,14 +69,14 @@
 
 #define PMCC4_CPLD_LED_OFF      0
 #define PMCC4_CPLD_LED_ON       1
-#define PMCC4_CPLD_LED_GP0      0x01    
-#define PMCC4_CPLD_LED_YP0      0x02    
-#define PMCC4_CPLD_LED_GP1      0x04    
-#define PMCC4_CPLD_LED_YP1      0x08    
-#define PMCC4_CPLD_LED_GP2      0x10    
-#define PMCC4_CPLD_LED_YP2      0x20    
-#define PMCC4_CPLD_LED_GP3      0x40    
-#define PMCC4_CPLD_LED_YP3      0x80    
+#define PMCC4_CPLD_LED_GP0      0x01    /* port 0, green  */
+#define PMCC4_CPLD_LED_YP0      0x02    /* port 0, yellow */
+#define PMCC4_CPLD_LED_GP1      0x04    /* port 1, green  */
+#define PMCC4_CPLD_LED_YP1      0x08    /* port 1, yellow */
+#define PMCC4_CPLD_LED_GP2      0x10    /* port 2, green  */
+#define PMCC4_CPLD_LED_YP2      0x20    /* port 2, yellow */
+#define PMCC4_CPLD_LED_GP3      0x40    /* port 3, green  */
+#define PMCC4_CPLD_LED_YP3      0x80    /* port 3, yellow */
 #define PMCC4_CPLD_LED_GREEN   (PMCC4_CPLD_LED_GP0 | PMCC4_CPLD_LED_GP1 | \
                                 PMCC4_CPLD_LED_GP2 | PMCC4_CPLD_LED_GP3 )
 #define PMCC4_CPLD_LED_YELLOW  (PMCC4_CPLD_LED_YP0 | PMCC4_CPLD_LED_YP1 | \
@@ -79,4 +88,4 @@
 #define PMCC4_CPLD_INTR_CMT_3   0x04
 #define PMCC4_CPLD_INTR_CMT_4   0x08
 
-#endif                          
+#endif                          /* _INC_PMCC4_CPLD_H_ */

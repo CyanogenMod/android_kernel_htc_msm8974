@@ -29,7 +29,7 @@ int split_cmdline(char *cmdline, const char ***argv)
 
 	*argv = malloc(sizeof(char*) * size);
 
-	
+	/* split alias_string */
 	(*argv)[count++] = cmdline;
 	for (src = dst = 0; cmdline[src];) {
 		char c = cmdline[src];
@@ -37,7 +37,7 @@ int split_cmdline(char *cmdline, const char ***argv)
 			cmdline[dst++] = 0;
 			while (cmdline[++src]
 					&& isspace(cmdline[src]))
-				; 
+				; /* skip */
 			if (count >= size) {
 				size += 16;
 				*argv = realloc(*argv, sizeof(char*) * size);

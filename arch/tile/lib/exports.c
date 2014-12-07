@@ -16,6 +16,7 @@
 
 #include <linux/module.h>
 
+/* arch/tile/lib/usercopy.S */
 #include <linux/uaccess.h>
 EXPORT_SYMBOL(__get_user_1);
 EXPORT_SYMBOL(__get_user_2);
@@ -32,13 +33,16 @@ EXPORT_SYMBOL(flush_user_asm);
 EXPORT_SYMBOL(inv_user_asm);
 EXPORT_SYMBOL(finv_user_asm);
 
+/* arch/tile/kernel/entry.S */
 #include <linux/kernel.h>
 #include <asm/processor.h>
 EXPORT_SYMBOL(current_text_addr);
 EXPORT_SYMBOL(dump_stack);
 
+/* arch/tile/kernel/head.S */
 EXPORT_SYMBOL(empty_zero_page);
 
+/* arch/tile/lib/, various memcpy files */
 EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(__copy_to_user_inatomic);
 EXPORT_SYMBOL(__copy_from_user_inatomic);
@@ -47,6 +51,7 @@ EXPORT_SYMBOL(__copy_from_user_zeroing);
 EXPORT_SYMBOL(__copy_in_user_inatomic);
 #endif
 
+/* hypervisor glue */
 #include <hv/hypervisor.h>
 EXPORT_SYMBOL(hv_dev_open);
 EXPORT_SYMBOL(hv_dev_pread);
@@ -59,6 +64,7 @@ EXPORT_SYMBOL(hv_dev_close);
 EXPORT_SYMBOL(hv_sysconf);
 EXPORT_SYMBOL(hv_confstr);
 
+/* libgcc.a */
 uint32_t __udivsi3(uint32_t dividend, uint32_t divisor);
 EXPORT_SYMBOL(__udivsi3);
 int32_t __divsi3(int32_t dividend, int32_t divisor);

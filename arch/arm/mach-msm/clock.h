@@ -17,6 +17,14 @@
 
 #include <linux/clkdev.h>
 
+/**
+ * struct clock_init_data - SoC specific clock initialization data
+ * @table: table of lookups to add
+ * @size: size of @table
+ * @pre_init: called before initializing the clock driver.
+ * @post_init: called after registering @table. clock APIs can be called inside.
+ * @late_init: called during late init
+ */
 struct clock_init_data {
 	struct list_head list;
 	struct clk_lookup *table;

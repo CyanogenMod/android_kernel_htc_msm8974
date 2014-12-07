@@ -27,45 +27,50 @@
 #define PT_LCR		5
 #define PT_PC		6
 
-#define PT__STATUS	7	
-#define PT_SYSCALLNO	8	
-#define PT_ORIG_GR8	9	
+#define PT__STATUS	7	/* exception status */
+#define PT_SYSCALLNO	8	/* syscall number or -1 */
+#define PT_ORIG_GR8	9	/* saved GR8 for signal handling */
 #define PT_GNER0	10
 #define PT_GNER1	11
 #define PT_IACC0H	12
 #define PT_IACC0L	13
 
-#define PT_GR(j)	( 14 + (j))	
-#define PT_FR(j)	( 78 + (j))	
-#define PT_FNER(j)	(142 + (j))	
-#define PT_MSR(j)	(144 + (j))	
-#define PT_ACC(j)	(146 + (j))	
-#define PT_ACCG(jklm)	(154 + (jklm))	
-#define PT_FSR(j)	(156 + (j))	
+#define PT_GR(j)	( 14 + (j))	/* GRj for 0<=j<=63 */
+#define PT_FR(j)	( 78 + (j))	/* FRj for 0<=j<=63 */
+#define PT_FNER(j)	(142 + (j))	/* FNERj for 0<=j<=1 */
+#define PT_MSR(j)	(144 + (j))	/* MSRj for 0<=j<=2 */
+#define PT_ACC(j)	(146 + (j))	/* ACCj for 0<=j<=7 */
+#define PT_ACCG(jklm)	(154 + (jklm))	/* ACCGjklm for 0<=jklm<=1 (reads four regs per slot) */
+#define PT_FSR(j)	(156 + (j))	/* FSRj for 0<=j<=0 */
 #define PT__GPEND	78
 #define PT__END		157
 
 #define PT_TBR		PT_GR(0)
 #define PT_SP		PT_GR(1)
 #define PT_FP		PT_GR(2)
-#define PT_PREV_FRAME	PT_GR(28)	
-#define PT_CURR_TASK	PT_GR(29)	
+#define PT_PREV_FRAME	PT_GR(28)	/* previous exception frame pointer (old gr28 value) */
+#define PT_CURR_TASK	PT_GR(29)	/* current task */
 
 
+/* Arbitrarily choose the same ptrace numbers as used by the Sparc code. */
 #define PTRACE_GETREGS		12
 #define PTRACE_SETREGS		13
 #define PTRACE_GETFPREGS	14
 #define PTRACE_SETFPREGS	15
-#define PTRACE_GETFDPIC		31	
+#define PTRACE_GETFDPIC		31	/* get the ELF fdpic loadmap address */
 
-#define PTRACE_GETFDPIC_EXEC	0	
-#define PTRACE_GETFDPIC_INTERP	1	
+#define PTRACE_GETFDPIC_EXEC	0	/* [addr] request the executable loadmap */
+#define PTRACE_GETFDPIC_INTERP	1	/* [addr] request the interpreter loadmap */
 
 #ifdef __KERNEL__
 #ifndef __ASSEMBLY__
 
 struct task_struct;
 
+/*
+ * we dedicate GR28 to keeping a pointer to the current exception frame
+ * - gr28 is destroyed on entry to the kernel from userspace
+ */
 register struct pt_regs *__frame asm("gr28");
 
 #define user_mode(regs)			(!((regs)->psr & PSR_S))
@@ -79,6 +84,6 @@ extern unsigned long user_stack(const struct pt_regs *);
 
 #define arch_has_single_step()	(1)
 
-#endif 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_PTRACE_H */

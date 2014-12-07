@@ -31,6 +31,7 @@
 #define L3_APPLICATION_ERROR		0x0
 #define L3_DEBUG_ERROR			0x1
 
+/* L3 TARG register offsets */
 #define L3_TARG_STDERRLOG_MAIN		0x48
 #define L3_TARG_STDERRLOG_SLVOFSLSB	0x5c
 #define L3_TARG_STDERRLOG_MSTADDR	0x68
@@ -44,37 +45,38 @@ static u32 l3_flagmux[L3_MODULES] = {
 	0X0200
 };
 
+/* L3 Target standard Error register offsets */
 static u32 l3_targ_inst_clk1[] = {
-	0x100, 
-	0x200, 
-	0x300, 
-	0x400, 
-	0x600  
+	0x100, /* DMM1 */
+	0x200, /* DMM2 */
+	0x300, /* ABE */
+	0x400, /* L4CFG */
+	0x600  /* CLK2 PWR DISC */
 };
 
 static u32 l3_targ_inst_clk2[] = {
-	0x500, 
-	0x300, 
-	0x100, 
-	0x400, 
-	0x700, 
-	0xD00, 
-	0x900, 
-	0x200, 
-	0x100, 
-	0x600, 
-	0x800, 
-	0x1600, 
-	0x1100,	
-	0xF00, 
-	0xE00, 
-	0xC00, 
-	0xA00, 
-	0xB00 
+	0x500, /* CORTEX M3 */
+	0x300, /* DSS */
+	0x100, /* GPMC */
+	0x400, /* ISS */
+	0x700, /* IVAHD */
+	0xD00, /* missing in TRM  corresponds to AES1*/
+	0x900, /* L4 PER0*/
+	0x200, /* OCMRAM */
+	0x100, /* missing in TRM corresponds to GPMC sERROR*/
+	0x600, /* SGX */
+	0x800, /* SL2 */
+	0x1600, /* C2C */
+	0x1100,	/* missing in TRM corresponds PWR DISC CLK1*/
+	0xF00, /* missing in TRM corrsponds to SHA1*/
+	0xE00, /* missing in TRM corresponds to AES2*/
+	0xC00, /* L4 PER3 */
+	0xA00, /* L4 PER1*/
+	0xB00 /* L4 PER2*/
 };
 
 static u32 l3_targ_inst_clk3[] = {
-	0x0100	
+	0x0100	/* EMUSS */
 };
 
 static struct l3_masters_data {
@@ -151,7 +153,7 @@ struct omap4_l3 {
 	struct device *dev;
 	struct clk *ick;
 
-	
+	/* memory base */
 	void __iomem *l3_base[L3_MODULES];
 
 	int debug_irq;

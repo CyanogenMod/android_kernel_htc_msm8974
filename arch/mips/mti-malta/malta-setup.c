@@ -81,21 +81,26 @@ const char *get_system_type(void)
 const char display_string[] = "       SMTC LINUX ON MALTA       ";
 #else
 const char display_string[] = "        LINUX ON MALTA       ";
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 
 #ifdef CONFIG_BLK_DEV_FD
 static void __init fd_activate(void)
 {
-	
+	/*
+	 * Activate Floppy Controller in the SMSC FDC37M817 Super I/O
+	 * Controller.
+	 * Done by YAMON 2.00 onwards
+	 */
+	/* Entering config state. */
 	SMSC_WRITE(SMSC_CONFIG_ENTER, SMSC_CONFIG_REG);
 
-	
+	/* Activate floppy controller. */
 	SMSC_WRITE(SMSC_CONFIG_DEVNUM, SMSC_CONFIG_REG);
 	SMSC_WRITE(SMSC_CONFIG_DEVNUM_FLOPPY, SMSC_DATA_REG);
 	SMSC_WRITE(SMSC_CONFIG_ACTIVATE, SMSC_CONFIG_REG);
 	SMSC_WRITE(SMSC_CONFIG_ACTIVATE_ENABLE, SMSC_DATA_REG);
 
-	
+	/* Exit config state. */
 	SMSC_WRITE(SMSC_CONFIG_EXIT, SMSC_CONFIG_REG);
 }
 #endif
@@ -185,10 +190,13 @@ void __init plat_mem_setup(void)
 
 	mips_pcibios_init();
 
-	
+	/* Request I/O space for devices used on the Malta board. */
 	for (i = 0; i < ARRAY_SIZE(standard_io_resources); i++)
 		request_resource(&ioport_resource, standard_io_resources+i);
 
+	/*
+	 * Enable DMA channel 4 (cascade channel) in the PIIX4 south bridge.
+	 */
 	enable_dma(4);
 
 #ifdef CONFIG_DMA_COHERENT

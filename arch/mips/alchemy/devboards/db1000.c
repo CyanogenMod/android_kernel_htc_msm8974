@@ -64,7 +64,7 @@ const char *get_system_type(void)
 
 void __init board_setup(void)
 {
-	
+	/* initialize board register space */
 	bcsr_init(DB1000_BCSR_PHYS_ADDR,
 		  DB1000_BCSR_PHYS_ADDR + DB1000_BCSR_HEXLED_OFS);
 
@@ -115,6 +115,7 @@ static int __init db1500_pci_init(void)
 		return platform_device_register(&db1500_pci_host_dev);
 	return 0;
 }
+/* must be arch_initcall; MIPS PCI scans busses in a subsys_initcall */
 arch_initcall(db1500_pci_init);
 
 
@@ -183,11 +184,12 @@ static struct platform_device db1x00_audio_dev = {
 	.name		= "db1000-audio",
 };
 
+/******************************************************************************/
 
 static irqreturn_t db1100_mmc_cd(int irq, void *ptr)
 {
 	void (*mmc_cd)(struct mmc_host *, unsigned long);
-	
+	/* link against CONFIG_MMC=m */
 	mmc_cd = symbol_get(mmc_detect_change);
 	mmc_cd(ptr, msecs_to_jiffies(500));
 	symbol_put(mmc_detect_change);
@@ -223,7 +225,7 @@ static int db1100_mmc1_cd_setup(void *mmc_host, int en)
 
 static int db1100_mmc_card_readonly(void *mmc_host)
 {
-	
+	/* testing suggests that this bit is inverted */
 	return (bcsr_read(BCSR_STATUS) & BCSR_STATUS_SD0WP) ? 0 : 1;
 }
 
@@ -236,7 +238,7 @@ static void db1100_mmc_set_power(void *mmc_host, int state)
 {
 	if (state) {
 		bcsr_mod(BCSR_BOARD, 0, BCSR_BOARD_SD0PWR);
-		msleep(400);	
+		msleep(400);	/* stabilization time */
 	} else
 		bcsr_mod(BCSR_BOARD, BCSR_BOARD_SD0PWR, 0);
 }
@@ -267,7 +269,7 @@ static void db1100_mmc1_set_power(void *mmc_host, int state)
 {
 	if (state) {
 		bcsr_mod(BCSR_BOARD, 0, BCSR_BOARD_SD1PWR);
-		msleep(400);	
+		msleep(400);	/* stabilization time */
 	} else
 		bcsr_mod(BCSR_BOARD, BCSR_BOARD_SD1PWR, 0);
 }
@@ -373,6 +375,7 @@ static struct platform_device db1100_mmc1_dev = {
 	.resource	= au1100_mmc1_res,
 };
 
+/******************************************************************************/
 
 static void db1000_irda_set_phy_mode(int mode)
 {
@@ -424,6 +427,7 @@ static struct platform_device db1000_irda_dev = {
 	.num_resources	= ARRAY_SIZE(au1000_irda_res),
 };
 
+/******************************************************************************/
 
 static struct ads7846_platform_data db1100_touch_pd = {
 	.model		= 7846,
@@ -447,7 +451,7 @@ static struct spi_board_info db1100_spi_info[] __initdata = {
 		.mode		 = 0,
 		.irq		 = AU1100_GPIO21_INT,
 		.platform_data	 = &db1100_touch_pd,
-		.controller_data = (void *)210,	
+		.controller_data = (void *)210,	/* for spi_gpio: CS# GPIO210 */
 	},
 };
 
@@ -500,17 +504,17 @@ static int __init db1000_dev_init(void)
 		s0 = AU1100_GPIO1_INT;
 		s1 = AU1100_GPIO4_INT;
 
-		gpio_direction_input(19);	
-		gpio_direction_input(20);	
-		gpio_direction_input(21);	
-		gpio_direction_input(207);	
-		gpio_direction_output(208, 0);	
-		gpio_direction_output(209, 1);	
-		gpio_direction_output(210, 1);	
+		gpio_direction_input(19);	/* sd0 cd# */
+		gpio_direction_input(20);	/* sd1 cd# */
+		gpio_direction_input(21);	/* touch pendown# */
+		gpio_direction_input(207);	/* SPI MISO */
+		gpio_direction_output(208, 0);	/* SPI MOSI */
+		gpio_direction_output(209, 1);	/* SPI SCK */
+		gpio_direction_output(210, 1);	/* SPI CS# */
 
-		
+		/* spi_gpio on SSI0 pins */
 		pfc = __raw_readl((void __iomem *)SYS_PINFUNC);
-		pfc |= (1 << 0);	
+		pfc |= (1 << 0);	/* SSI0 pins as GPIOs */
 		__raw_writel(pfc, (void __iomem *)SYS_PINFUNC);
 		wmb();
 
@@ -527,7 +531,7 @@ static int __init db1000_dev_init(void)
 		s1 = AU1000_GPIO4_INT;
 		platform_add_devices(db1000_devs, ARRAY_SIZE(db1000_devs));
 	} else
-		return 0; 
+		return 0; /* unknown board, no further dev setup to do */
 
 	irq_set_irq_type(d0, IRQ_TYPE_EDGE_BOTH);
 	irq_set_irq_type(d1, IRQ_TYPE_EDGE_BOTH);
@@ -543,7 +547,7 @@ static int __init db1000_dev_init(void)
 		AU1000_PCMCIA_MEM_PHYS_ADDR  + 0x000400000 - 1,
 		AU1000_PCMCIA_IO_PHYS_ADDR,
 		AU1000_PCMCIA_IO_PHYS_ADDR   + 0x000010000 - 1,
-		c0, d0,	0, 0, 0);
+		c0, d0,	/*s0*/0, 0, 0);
 
 	db1x_register_pcmcia_socket(
 		AU1000_PCMCIA_ATTR_PHYS_ADDR + 0x004000000,
@@ -552,10 +556,10 @@ static int __init db1000_dev_init(void)
 		AU1000_PCMCIA_MEM_PHYS_ADDR  + 0x004400000 - 1,
 		AU1000_PCMCIA_IO_PHYS_ADDR   + 0x004000000,
 		AU1000_PCMCIA_IO_PHYS_ADDR   + 0x004010000 - 1,
-		c1, d1,	0, 0, 1);
+		c1, d1,	/*s1*/0, 0, 1);
 
 	platform_add_devices(db1x00_devs, ARRAY_SIZE(db1x00_devs));
-	db1x_register_norflash(32 << 20, 4 , F_SWAPPED);
+	db1x_register_norflash(32 << 20, 4 /* 32bit */, F_SWAPPED);
 	return 0;
 }
 device_initcall(db1000_dev_init);

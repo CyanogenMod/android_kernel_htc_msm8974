@@ -24,6 +24,7 @@ char *pp_sock_tag(struct sock_tag *st);
 char *pp_uid_tag_data(struct uid_tag_data *qtd);
 char *pp_proc_qtu_data(struct proc_qtu_data *pqd);
 
+/*------------------------------------------*/
 void prdebug_sock_tag_list(int indent_level,
 			   struct list_head *sock_tag_list);
 void prdebug_sock_tag_tree(int indent_level,
@@ -40,6 +41,7 @@ void prdebug_iface_stat_list(int indent_level,
 
 #else
 
+/*------------------------------------------*/
 static inline char *pp_tag_t(tag_t *tag)
 {
 	return NULL;
@@ -77,6 +79,7 @@ static inline char *pp_proc_qtu_data(struct proc_qtu_data *pqd)
 	return NULL;
 }
 
+/*------------------------------------------*/
 static inline
 void prdebug_sock_tag_list(int indent_level,
 			   struct list_head *sock_tag_list)
@@ -112,5 +115,6 @@ void prdebug_iface_stat_list(int indent_level,
 {
 }
 #endif
+/*------------------------------------------*/
 const char *netdev_evt_str(int netdev_event);
-#endif  
+#endif  /* ifndef __XT_QTAGUID_PRINT_H__ */

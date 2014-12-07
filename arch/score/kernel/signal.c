@@ -36,8 +36,8 @@
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
 struct rt_sigframe {
-	u32 rs_ass[4];		
-	u32 rs_code[2];		
+	u32 rs_ass[4];		/* argument save space */
+	u32 rs_code[2];		/* signal trampoline */
 	struct siginfo rs_info;
 	struct ucontext rs_uc;
 };
@@ -115,16 +115,19 @@ static int restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc
 	return err;
 }
 
+/*
+ * Determine which stack to use..
+ */
 static void __user *get_sigframe(struct k_sigaction *ka,
 			struct pt_regs *regs, size_t frame_size)
 {
 	unsigned long sp;
 
-	
+	/* Default to using normal stack */
 	sp = regs->regs[0];
 	sp -= 32;
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if ((ka->sa.sa_flags & SA_ONSTACK) && (!on_sig_stack(sp)))
 		sp = current->sas_ss_sp + current->sas_ss_size;
 
@@ -170,6 +173,8 @@ score_rt_sigreturn(struct pt_regs *regs)
 	if (__copy_from_user(&st, &frame->rs_uc.uc_stack, sizeof(st)))
 		goto badframe;
 
+	/* It is more difficult to avoid calling this function than to
+	   call it and ignore errors.  */
 	do_sigaltstack((stack_t __user *)&st, NULL, regs->regs[0]);
 
 	__asm__ __volatile__(
@@ -194,6 +199,12 @@ static int setup_rt_frame(struct k_sigaction *ka, struct pt_regs *regs,
 	if (!access_ok(VERIFY_WRITE, frame, sizeof(*frame)))
 		goto give_sigsegv;
 
+	/*
+	 * Set up the return code ...
+	 *
+	 *         li      v0, __NR_rt_sigreturn
+	 *         syscall
+	 */
 	err |= __put_user(0x87788000 + __NR_rt_sigreturn*2,
 			frame->rs_code + 0);
 	err |= __put_user(0x80008002, frame->rs_code + 1);
@@ -256,6 +267,9 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 		regs->is_syscall = 0;
 	}
 
+	/*
+	 * Set up the stack frame
+	 */
 	ret = setup_rt_frame(ka, regs, sig, oldset, info);
 
 	spin_lock_irq(&current->sighand->siglock);
@@ -275,6 +289,11 @@ static void do_signal(struct pt_regs *regs)
 	siginfo_t info;
 	int signr;
 
+	/*
+	 * We want the common case to go fast, which is why we may in certain
+	 * cases get here from kernel mode. Just return without doing anything
+	 * if so.
+	 */
 	if (!user_mode(regs))
 		return;
 
@@ -285,8 +304,14 @@ static void do_signal(struct pt_regs *regs)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		
+		/* Actually deliver the signal.  */
 		if (handle_signal(signr, &info, &ka, oldset, regs) == 0) {
+			/*
+			 * A signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TIF_RESTORE_SIGMASK flag.
+			 */
 			if (test_thread_flag(TIF_RESTORE_SIGMASK))
 				clear_thread_flag(TIF_RESTORE_SIGMASK);
 		}
@@ -310,19 +335,27 @@ static void do_signal(struct pt_regs *regs)
 			regs->cp0_epc -= 8;
 		}
 
-		regs->is_syscall = 0;	
+		regs->is_syscall = 0;	/* Don't deal with this again.  */
 	}
 
+	/*
+	 * If there's no signal to deliver, we just put the saved sigmask
+	 * back
+	 */
 	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
 		clear_thread_flag(TIF_RESTORE_SIGMASK);
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
 	}
 }
 
+/*
+ * notification of userspace execution resumption
+ * - triggered by the TIF_WORK_MASK flags
+ */
 asmlinkage void do_notify_resume(struct pt_regs *regs, void *unused,
 				__u32 thread_info_flags)
 {
-	
+	/* deal with pending signal delivery */
 	if (thread_info_flags & (_TIF_SIGPENDING | _TIF_RESTORE_SIGMASK))
 		do_signal(regs);
 }

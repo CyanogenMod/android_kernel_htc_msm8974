@@ -39,6 +39,7 @@
 
 #include "spi-fsl-lib.h"
 
+/* CPM1 and CPM2 are mutually exclusive. */
 #ifdef CONFIG_CPM1
 #include <asm/cpm1.h>
 #define CPM_SPI_CMD mk_cr_cmd(CPM_CR_CH_SPI, 0)
@@ -47,6 +48,7 @@
 #define CPM_SPI_CMD mk_cr_cmd(CPM_CR_SPI_PAGE, CPM_CR_SPI_SBLOCK, 0, 0)
 #endif
 
+/* SPI Controller registers */
 struct fsl_spi_reg {
 	u8 res1[0x20];
 	__be32 mode;
@@ -57,6 +59,7 @@ struct fsl_spi_reg {
 	__be32 receive;
 };
 
+/* SPI Controller mode register definitions */
 #define	SPMODE_LOOP		(1 << 30)
 #define	SPMODE_CI_INACTIVEHIGH	(1 << 29)
 #define	SPMODE_CP_BEGIN_EDGECLK	(1 << 28)
@@ -69,19 +72,26 @@ struct fsl_spi_reg {
 #define	SPMODE_OP		(1 << 14)
 #define	SPMODE_CG(x)		((x) << 7)
 
+/*
+ * Default for SPI Mode:
+ *	SPI MODE 0 (inactive low, phase middle, MSB, 8-bit length, slow clk
+ */
 #define	SPMODE_INIT_VAL (SPMODE_CI_INACTIVEHIGH | SPMODE_DIV16 | SPMODE_REV | \
 			 SPMODE_MS | SPMODE_LEN(7) | SPMODE_PM(0xf))
 
-#define	SPIE_NE		0x00000200	
-#define	SPIE_NF		0x00000100	
+/* SPIE register values */
+#define	SPIE_NE		0x00000200	/* Not empty */
+#define	SPIE_NF		0x00000100	/* Not full */
 
-#define	SPIM_NE		0x00000200	
-#define	SPIM_NF		0x00000100	
+/* SPIM register values */
+#define	SPIM_NE		0x00000200	/* Not empty */
+#define	SPIM_NF		0x00000100	/* Not full */
 
 #define	SPIE_TXB	0x00000200	/* Last char is written to tx fifo */
 #define	SPIE_RXB	0x00000100	/* Last char is written to rx buf */
 
-#define	SPCOM_STR	(1 << 23)	
+/* SPCOM register values */
+#define	SPCOM_STR	(1 << 23)	/* Start transmit */
 
 #define	SPI_PRAM_SIZE	0x100
 #define	SPI_MRBLR	((unsigned int)PAGE_SIZE)
@@ -101,13 +111,13 @@ static void fsl_spi_change_mode(struct spi_device *spi)
 	if (cs->hw_mode == mpc8xxx_spi_read_reg(mode))
 		return;
 
-	
+	/* Turn off IRQs locally to minimize time that SPI is disabled. */
 	local_irq_save(flags);
 
-	
+	/* Turn off SPI unit prior changing mode */
 	mpc8xxx_spi_write_reg(mode, cs->hw_mode & ~SPMODE_ENABLE);
 
-	
+	/* When in CPM mode, we need to reinit tx and rx. */
 	if (mspi->flags & SPI_CPM_MODE) {
 		if (mspi->flags & SPI_QE) {
 			qe_issue_cmd(QE_INIT_TX_RX, mspi->subblock,
@@ -200,11 +210,17 @@ static int mspi_apply_qe_mode_quirks(struct spi_mpc8xxx_cs *cs,
 				struct spi_device *spi,
 				int bits_per_word)
 {
+	/* QE uses Little Endian for words > 8
+	 * so transform all words > 8 into 8 bits
+	 * Unfortnatly that doesn't work for LSB so
+	 * reject these for now */
+	/* Note: 32 bits word, LSB works iff
+	 * tfcr/rfcr is set to CPMFCR_GBL */
 	if (spi->mode & SPI_LSB_FIRST &&
 	    bits_per_word > 8)
 		return -EINVAL;
 	if (bits_per_word > 8)
-		return 8; 
+		return 8; /* pretend its 8 bits */
 	return bits_per_word;
 }
 
@@ -224,11 +240,11 @@ static int fsl_spi_setup_transfer(struct spi_device *spi,
 		hz = t->speed_hz;
 	}
 
-	
+	/* spi_transfer level calls that work per-word */
 	if (!bits_per_word)
 		bits_per_word = spi->bits_per_word;
 
-	
+	/* Make sure its a bit width we support [4..16, 32] */
 	if ((bits_per_word < 4)
 	    || ((bits_per_word > 16) && (bits_per_word != 32)))
 		return -EINVAL;
@@ -252,7 +268,7 @@ static int fsl_spi_setup_transfer(struct spi_device *spi,
 	else
 		bits_per_word = bits_per_word - 1;
 
-	
+	/* mask out bits we are going to set */
 	cs->hw_mode &= ~(SPMODE_LEN(0xF) | SPMODE_DIV16
 				  | SPMODE_PM(0xF));
 
@@ -304,7 +320,7 @@ static void fsl_spi_cpm_bufs_start(struct mpc8xxx_spi *mspi)
 	out_be16(&tx_bd->cbd_sc, BD_SC_READY | BD_SC_INTRPT | BD_SC_WRAP |
 				 BD_SC_LAST);
 
-	
+	/* start transfer */
 	mpc8xxx_spi_write_reg(&reg_base->command, SPCOM_STR);
 }
 
@@ -333,7 +349,7 @@ static int fsl_spi_cpm_bufs(struct mpc8xxx_spi *mspi,
 	}
 
 	if (mspi->map_tx_dma) {
-		void *nonconst_tx = (void *)mspi->tx; 
+		void *nonconst_tx = (void *)mspi->tx; /* shut up gcc */
 
 		mspi->tx_dma = dma_map_single(dev, nonconst_tx, t->len,
 					      DMA_TO_DEVICE);
@@ -356,13 +372,13 @@ static int fsl_spi_cpm_bufs(struct mpc8xxx_spi *mspi,
 		mspi->rx_dma = t->rx_dma;
 	}
 
-	
+	/* enable rx ints */
 	mpc8xxx_spi_write_reg(&reg_base->mask, SPIE_RXB);
 
 	mspi->xfer_in_progress = t;
 	mspi->count = t->len;
 
-	
+	/* start CPM transfers */
 	fsl_spi_cpm_bufs_start(mspi);
 
 	return 0;
@@ -393,10 +409,10 @@ static int fsl_spi_cpu_bufs(struct mpc8xxx_spi *mspi,
 
 	mspi->count = len;
 
-	
+	/* enable rx ints */
 	mpc8xxx_spi_write_reg(&reg_base->mask, SPIM_NE);
 
-	
+	/* transmit word */
 	word = mspi->get_tx(mspi);
 	mpc8xxx_spi_write_reg(&reg_base->transmit, word);
 
@@ -418,13 +434,13 @@ static int fsl_spi_bufs(struct spi_device *spi, struct spi_transfer *t,
 		bits_per_word = t->bits_per_word;
 
 	if (bits_per_word > 8) {
-		
+		/* invalid length? */
 		if (len & 1)
 			return -EINVAL;
 		len /= 2;
 	}
 	if (bits_per_word > 16) {
-		
+		/* invalid length? */
 		if (len & 1)
 			return -EINVAL;
 		len /= 2;
@@ -444,7 +460,7 @@ static int fsl_spi_bufs(struct spi_device *spi, struct spi_transfer *t,
 
 	wait_for_completion(&mpc8xxx_spi->done);
 
-	
+	/* disable rx ints */
 	mpc8xxx_spi_write_reg(&reg_base->mask, 0);
 
 	if (mpc8xxx_spi->flags & SPI_CPM_MODE)
@@ -465,7 +481,7 @@ static void fsl_spi_do_one_msg(struct spi_message *m)
 	status = 0;
 	list_for_each_entry(t, &m->transfers, transfer_list) {
 		if (t->bits_per_word || t->speed_hz) {
-			
+			/* Don't allow changes if CS is active */
 			status = -EINVAL;
 
 			if (cs_change)
@@ -529,9 +545,9 @@ static int fsl_spi_setup(struct spi_device *spi)
 
 	reg_base = mpc8xxx_spi->reg_base;
 
-	hw_mode = cs->hw_mode; 
+	hw_mode = cs->hw_mode; /* Save original settings */
 	cs->hw_mode = mpc8xxx_spi_read_reg(&reg_base->mode);
-	
+	/* mask out bits we are going to set */
 	cs->hw_mode &= ~(SPMODE_CP_BEGIN_EDGECLK | SPMODE_CI_INACTIVEHIGH
 			 | SPMODE_REV | SPMODE_LOOP);
 
@@ -546,7 +562,7 @@ static int fsl_spi_setup(struct spi_device *spi)
 
 	retval = fsl_spi_setup_transfer(spi, NULL);
 	if (retval < 0) {
-		cs->hw_mode = hw_mode; 
+		cs->hw_mode = hw_mode; /* Restore settings */
 		return retval;
 	}
 	return 0;
@@ -566,7 +582,7 @@ static void fsl_spi_cpm_irq(struct mpc8xxx_spi *mspi, u32 events)
 		len = mspi->count;
 	}
 
-	
+	/* Clear the events */
 	mpc8xxx_spi_write_reg(&reg_base->event, events);
 
 	mspi->count -= len;
@@ -580,7 +596,7 @@ static void fsl_spi_cpu_irq(struct mpc8xxx_spi *mspi, u32 events)
 {
 	struct fsl_spi_reg *reg_base = mspi->reg_base;
 
-	
+	/* We need handle RX first */
 	if (events & SPIE_NE) {
 		u32 rx_data = mpc8xxx_spi_read_reg(&reg_base->receive);
 
@@ -589,13 +605,13 @@ static void fsl_spi_cpu_irq(struct mpc8xxx_spi *mspi, u32 events)
 	}
 
 	if ((events & SPIE_NF) == 0)
-		
+		/* spin until TX is done */
 		while (((events =
 			mpc8xxx_spi_read_reg(&reg_base->event)) &
 						SPIE_NF) == 0)
 			cpu_relax();
 
-	
+	/* Clear the events */
 	mpc8xxx_spi_write_reg(&reg_base->event, events);
 
 	mspi->count -= 1;
@@ -615,7 +631,7 @@ static irqreturn_t fsl_spi_irq(s32 irq, void *context_data)
 	u32 events;
 	struct fsl_spi_reg *reg_base = mspi->reg_base;
 
-	
+	/* Get interrupt events(tx/rx) */
 	events = mpc8xxx_spi_read_reg(&reg_base->event);
 	if (events)
 		ret = IRQ_HANDLED;
@@ -655,7 +671,7 @@ static void fsl_spi_free_dummy_rx(void)
 	case 1:
 		kfree(fsl_dummy_rx);
 		fsl_dummy_rx = NULL;
-		
+		/* fall through */
 	default:
 		fsl_dummy_rx_refcnt--;
 		break;
@@ -673,14 +689,14 @@ static unsigned long fsl_spi_cpm_get_pram(struct mpc8xxx_spi *mspi)
 	void __iomem *spi_base;
 	unsigned long pram_ofs = -ENOMEM;
 
-	
+	/* Can't use of_address_to_resource(), QE muram isn't at 0. */
 	iprop = of_get_property(np, "reg", &size);
 
-	
+	/* QE with a fixed pram location? */
 	if (mspi->flags & SPI_QE && iprop && size == sizeof(*iprop) * 4)
 		return cpm_muram_alloc_fixed(iprop[2], SPI_PRAM_SIZE);
 
-	
+	/* QE but with a dynamic pram location? */
 	if (mspi->flags & SPI_QE) {
 		pram_ofs = cpm_muram_alloc(SPI_PRAM_SIZE, 64);
 		qe_issue_cmd(QE_ASSIGN_PAGE_TO_DEVICE, mspi->subblock,
@@ -699,7 +715,7 @@ static unsigned long fsl_spi_cpm_get_pram(struct mpc8xxx_spi *mspi)
 		struct spi_pram __iomem *pram = spi_base;
 		u16 rpbase = in_be16(&pram->rpbase);
 
-		
+		/* Microcode relocation patch applied? */
 		if (rpbase)
 			pram_ofs = rpbase;
 		else {
@@ -735,7 +751,7 @@ static int fsl_spi_cpm_init(struct mpc8xxx_spi *mspi)
 		switch (mspi->subblock) {
 		default:
 			dev_warn(dev, "cell-index unspecified, assuming SPI1");
-			
+			/* fall through */
 		case 0:
 			mspi->subblock = QE_CR_SUBBLOCK_SPI1;
 			break;
@@ -777,7 +793,7 @@ static int fsl_spi_cpm_init(struct mpc8xxx_spi *mspi)
 	mspi->tx_bd = cpm_muram_addr(bds_ofs);
 	mspi->rx_bd = cpm_muram_addr(bds_ofs + sizeof(*mspi->tx_bd));
 
-	
+	/* Initialize parameter ram. */
 	out_be16(&mspi->pram->tbase, cpm_muram_offset(mspi->tx_bd));
 	out_be16(&mspi->pram->rbase, cpm_muram_offset(mspi->rx_bd));
 	out_8(&mspi->pram->tfcr, CPMFCR_EB | CPMFCR_GBL);
@@ -871,7 +887,7 @@ static struct spi_master * __devinit fsl_spi_probe(struct device *dev,
 		goto err_ioremap;
 	}
 
-	
+	/* Register for SPI Interrupt */
 	ret = request_irq(mpc8xxx_spi->irq, fsl_spi_irq,
 			  0, "fsl_spi", mpc8xxx_spi);
 
@@ -880,13 +896,13 @@ static struct spi_master * __devinit fsl_spi_probe(struct device *dev,
 
 	reg_base = mpc8xxx_spi->reg_base;
 
-	
+	/* SPI controller initializations */
 	mpc8xxx_spi_write_reg(&reg_base->mode, 0);
 	mpc8xxx_spi_write_reg(&reg_base->mask, 0);
 	mpc8xxx_spi_write_reg(&reg_base->command, 0);
 	mpc8xxx_spi_write_reg(&reg_base->event, 0xffffffff);
 
-	
+	/* Enable SPI interface */
 	regval = pdata->initial_spmode | SPMODE_INIT_VAL | SPMODE_ENABLE;
 	if (mpc8xxx_spi->flags & SPI_QE_CPU_MODE)
 		regval |= SPMODE_OP;
@@ -937,6 +953,10 @@ static int of_fsl_spi_get_chipselects(struct device *dev)
 
 	ngpios = of_gpio_count(np);
 	if (!ngpios) {
+		/*
+		 * SPI w/o chip-select line. One SPI device is still permitted
+		 * though.
+		 */
 		pdata->max_chipselect = 1;
 		return 0;
 	}
@@ -1089,6 +1109,13 @@ static struct platform_driver of_fsl_spi_driver = {
 };
 
 #ifdef CONFIG_MPC832x_RDB
+/*
+ * XXX XXX XXX
+ * This is "legacy" platform driver, was used by the MPC8323E-RDB boards
+ * only. The driver should go away soon, since newer MPC8323E-RDB's device
+ * tree can work with OpenFirmware driver. But for now we support old trees
+ * as well.
+ */
 static int __devinit plat_mpc8xxx_spi_probe(struct platform_device *pdev)
 {
 	struct resource *mem;
@@ -1143,7 +1170,7 @@ static void __exit legacy_driver_unregister(void)
 #else
 static void __init legacy_driver_register(void) {}
 static void __exit legacy_driver_unregister(void) {}
-#endif 
+#endif /* CONFIG_MPC832x_RDB */
 
 static int __init fsl_spi_init(void)
 {

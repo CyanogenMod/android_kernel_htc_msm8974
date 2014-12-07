@@ -7,6 +7,28 @@
  * as published by the Free Software Foundation.
  */
 
+/*
+ * SN Platform Special Memory (mspec) Support
+ *
+ * This driver exports the SN special memory (mspec) facility to user
+ * processes.
+ * There are three types of memory made available thru this driver:
+ * fetchops, uncached and cached.
+ *
+ * Fetchops are atomic memory operations that are implemented in the
+ * memory controller on SGI SN hardware.
+ *
+ * Uncached are used for memory write combining feature of the ia64
+ * cpu.
+ *
+ * Cached are used for areas of memory that are used as cached addresses
+ * on our partition and used as uncached addresses from other partitions.
+ * Due to a design constraint of the SN2 Shub, you can not have processors
+ * on the same FSB perform both a cached and uncached reference to the
+ * same cache line.  These special memory cached regions prevent the
+ * kernel from ever dropping in a TLB entry and therefore prevent the
+ * processor from ever speculating a cache line from this page.
+ */
 
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -41,6 +63,9 @@
 #define REVISION	"4.0"
 #define MSPEC_BASENAME	"mspec"
 
+/*
+ * Page types allocated by the device.
+ */
 enum mspec_page_type {
 	MSPEC_FETCHOP = 1,
 	MSPEC_CACHED,
@@ -53,19 +78,30 @@ static int is_sn2;
 #define is_sn2		0
 #endif
 
+/*
+ * One of these structures is allocated when an mspec region is mmaped. The
+ * structure is pointed to by the vma->vm_private_data field in the vma struct.
+ * This structure is used to record the addresses of the mspec pages.
+ * This structure is shared by all vma's that are split off from the
+ * original vma when split_vma()'s are done.
+ *
+ * The refcnt is incremented atomically because mm->mmap_sem does not
+ * protect in fork case where multiple tasks share the vma_data.
+ */
 struct vma_data {
-	atomic_t refcnt;	
-	spinlock_t lock;	
-	int count;		
-	enum mspec_page_type type; 
-	int flags;		
-	unsigned long vm_start;	
-	unsigned long vm_end;	
-	unsigned long maddr[0];	
+	atomic_t refcnt;	/* Number of vmas sharing the data. */
+	spinlock_t lock;	/* Serialize access to this structure. */
+	int count;		/* Number of pages allocated. */
+	enum mspec_page_type type; /* Type of pages allocated. */
+	int flags;		/* See VMD_xxx below. */
+	unsigned long vm_start;	/* Original (unsplit) base. */
+	unsigned long vm_end;	/* Original (unsplit) end. */
+	unsigned long maddr[0];	/* Array of MSPEC addresses. */
 };
 
-#define VMD_VMALLOCED 0x1	
+#define VMD_VMALLOCED 0x1	/* vmalloc'd rather than kmalloc'd */
 
+/* used on shub2 to clear FOP cache in the HUB */
 static unsigned long scratch_page[MAX_NUMNODES];
 #define SH2_AMO_CACHE_ENTRIES	4
 
@@ -98,6 +134,13 @@ mspec_zero_block(unsigned long addr, int len)
 	return status;
 }
 
+/*
+ * mspec_open
+ *
+ * Called when a device mapping is created by a means other than mmap
+ * (via fork, munmap, etc.).  Increments the reference count on the
+ * underlying mspec data so it is not freed prematurely.
+ */
 static void
 mspec_open(struct vm_area_struct *vma)
 {
@@ -107,6 +150,12 @@ mspec_open(struct vm_area_struct *vma)
 	atomic_inc(&vdata->refcnt);
 }
 
+/*
+ * mspec_close
+ *
+ * Called when unmapping a device mapping. Frees all mspec pages
+ * belonging to all the vma's sharing this vma_data structure.
+ */
 static void
 mspec_close(struct vm_area_struct *vma)
 {
@@ -123,6 +172,10 @@ mspec_close(struct vm_area_struct *vma)
 	for (index = 0; index < last_index; index++) {
 		if (vdata->maddr[index] == 0)
 			continue;
+		/*
+		 * Clear the page before sticking it back
+		 * into the pool.
+		 */
 		my_page = vdata->maddr[index];
 		vdata->maddr[index] = 0;
 		if (!mspec_zero_block(my_page, PAGE_SIZE))
@@ -138,6 +191,11 @@ mspec_close(struct vm_area_struct *vma)
 		kfree(vdata);
 }
 
+/*
+ * mspec_fault
+ *
+ * Creates a mspec page and maps it to user space.
+ */
 static int
 mspec_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
@@ -170,6 +228,11 @@ mspec_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 
 	pfn = paddr >> PAGE_SHIFT;
 
+	/*
+	 * vm_insert_pfn can fail with -EBUSY, but in that case it will
+	 * be because another thread has installed the pte first, so it
+	 * is no problem.
+	 */
 	vm_insert_pfn(vma, (unsigned long)vmf->virtual_address, pfn);
 
 	return VM_FAULT_NOPAGE;
@@ -181,6 +244,13 @@ static const struct vm_operations_struct mspec_vm_ops = {
 	.fault = mspec_fault,
 };
 
+/*
+ * mspec_mmap
+ *
+ * Called when mmapping the device.  Initializes the vma with a fault handler
+ * and private data structure necessary to allocate, track, and free the
+ * underlying pages.
+ */
 static int
 mspec_mmap(struct file *file, struct vm_area_struct *vma,
 					enum mspec_page_type type)
@@ -278,12 +348,21 @@ static struct miscdevice uncached_miscdev = {
 	.fops = &uncached_fops
 };
 
+/*
+ * mspec_init
+ *
+ * Called at boot time to initialize the mspec facility.
+ */
 static int __init
 mspec_init(void)
 {
 	int ret;
 	int nid;
 
+	/*
+	 * The fetchop device only works on SN2 hardware, uncached and cached
+	 * memory drivers should both be valid on all ia64 hardware
+	 */
 #ifdef CONFIG_SGI_SN
 	if (ia64_platform_is("sn2")) {
 		is_sn2 = 1;

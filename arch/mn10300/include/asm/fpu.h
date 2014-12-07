@@ -25,6 +25,7 @@ extern asmlinkage void fpu_disabled(void);
 #ifdef CONFIG_FPU
 
 #ifdef CONFIG_LAZY_SAVE_FPU
+/* the task that currently owns the FPU state */
 extern struct task_struct *fpu_state_owner;
 #endif
 
@@ -107,7 +108,7 @@ static inline void flush_fpu(void)
 	clear_using_fpu(tsk);
 }
 
-#else 
+#else /* CONFIG_FPU */
 
 extern asmlinkage
 void unexpected_fpu_exception(struct pt_regs *, enum exception_code);
@@ -126,8 +127,8 @@ static inline void exit_fpu(void) {}
 static inline void flush_fpu(void) {}
 static inline int fpu_setup_sigcontext(struct fpucontext *buf) { return 0; }
 static inline int fpu_restore_sigcontext(struct fpucontext *buf) { return 0; }
-#endif 
+#endif /* CONFIG_FPU  */
 
-#endif 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* !__ASSEMBLY__ */
+#endif /* _ASM_FPU_H */

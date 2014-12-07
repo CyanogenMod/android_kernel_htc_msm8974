@@ -1,3 +1,12 @@
+/*
+ * include/asm/irqflags.h
+ *
+ * IRQ flags handling
+ *
+ * This file gets included from lowlevel asm headers too, to provide
+ * wrapped versions of the local_irq_*() APIs, based on the
+ * arch_local_irq_*() functions from the lowlevel headers.
+ */
 #ifndef _ASM_IRQFLAGS_H
 #define _ASM_IRQFLAGS_H
 
@@ -33,6 +42,6 @@ static inline notrace bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-#endif 
+#endif /* (__ASSEMBLY__) */
 
-#endif 
+#endif /* !(_ASM_IRQFLAGS_H) */

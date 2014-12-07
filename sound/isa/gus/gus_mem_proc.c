@@ -25,7 +25,7 @@
 #include <sound/info.h>
 
 struct gus_proc_private {
-	int rom;		
+	int rom;		/* data are in ROM */
 	unsigned int address;
 	unsigned int size;
 	struct snd_gus_card * gus;

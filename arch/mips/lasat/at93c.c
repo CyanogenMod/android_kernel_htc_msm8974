@@ -1,3 +1,9 @@
+/*
+ * Atmel AT93C46 serial eeprom driver
+ *
+ * Brian Murphy <brian.murphy@eicon.com>
+ *
+ */
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <asm/lasat/lasat.h>

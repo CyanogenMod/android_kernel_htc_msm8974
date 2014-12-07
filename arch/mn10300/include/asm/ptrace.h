@@ -40,11 +40,15 @@
 #define	PT_PC		26
 #define NR_PTREGS	27
 
+/*
+ * This defines the way registers are stored in the event of an exception
+ * - the strange order is due to the MOVM instruction
+ */
 struct pt_regs {
-	unsigned long		a3;		
-	unsigned long		a2;		
-	unsigned long		d3;		
-	unsigned long		d2;		
+	unsigned long		a3;		/* syscall arg 3 */
+	unsigned long		a2;		/* syscall arg 4 */
+	unsigned long		d3;		/* syscall arg 5 */
+	unsigned long		d2;		/* syscall arg 6 */
 	unsigned long		mcvf;
 	unsigned long		mcrl;
 	unsigned long		mcrh;
@@ -62,20 +66,22 @@ struct pt_regs {
 	unsigned long		lir;
 	unsigned long		mdr;
 	unsigned long		a1;
-	unsigned long		a0;		
-	unsigned long		d1;		
-	unsigned long		d0;		
-	struct pt_regs		*next;		
-	unsigned long		orig_d0;	
+	unsigned long		a0;		/* syscall arg 1 */
+	unsigned long		d1;		/* syscall arg 2 */
+	unsigned long		d0;		/* syscall ret */
+	struct pt_regs		*next;		/* next frame pointer */
+	unsigned long		orig_d0;	/* syscall number */
 	unsigned long		epsw;
 	unsigned long		pc;
 };
 
+/* Arbitrarily choose the same ptrace numbers as used by the Sparc code. */
 #define PTRACE_GETREGS            12
 #define PTRACE_SETREGS            13
 #define PTRACE_GETFPREGS          14
 #define PTRACE_SETFPREGS          15
 
+/* options set using PTRACE_SETOPTIONS */
 #define PTRACE_O_TRACESYSGOOD     0x00000001
 
 #ifdef __KERNEL__
@@ -88,5 +94,5 @@ struct pt_regs {
 
 #define profile_pc(regs) ((regs)->pc)
 
-#endif 
-#endif 
+#endif /* __KERNEL__  */
+#endif /* _ASM_PTRACE_H */

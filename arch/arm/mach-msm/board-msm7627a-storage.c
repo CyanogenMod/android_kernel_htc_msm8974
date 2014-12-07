@@ -36,6 +36,13 @@ struct sdcc_gpio {
 	struct msm_gpio *sleep_cfg_data;
 };
 
+/**
+ * Due to insufficient drive strengths for SDC GPIO lines some old versioned
+ * SD/MMC cards may cause data CRC errors. Hence, set optimal values
+ * for SDC slots based on timing closure and marginality. SDC1 slot
+ * require higher value since it should handle bad signal quality due
+ * to size of T-flash adapters.
+ */
 static struct msm_gpio sdc1_cfg_data[] = {
 	{GPIO_CFG(51, 1, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_UP, GPIO_CFG_14MA),
 								"sdc1_dat_3"},
@@ -273,6 +280,11 @@ static struct mmc_platform_data sdc1_plat_data = {
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 static struct mmc_platform_data sdc2_plat_data = {
+	/*
+	 * SDC2 supports only 1.8V, claim for 2.85V range is just
+	 * for allowing buggy cards who advertise 2.8V even though
+	 * they can operate at 1.8V supply.
+	 */
 	.ocr_mask       = MMC_VDD_28_29 | MMC_VDD_165_195,
 	.translate_vdd  = msm_sdcc_setup_power,
 	.mmc_bus_width  = MMC_CAP_4_BIT_DATA,
@@ -350,25 +362,30 @@ out:
 
 void __init msm7627a_init_mmc(void)
 {
-	
+	/* eMMC slot */
 #ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
 
-	
+	/* There is no eMMC on SDC3 for QRD3 based devices */
 	if (!(machine_is_msm7627a_qrd3() || machine_is_msm8625_qrd7())) {
 		if (mmc_regulator_init(3, "emmc", 3000000))
 			return;
+		/*
+		 * On 7x25A FFA data CRC errors are seen, which are
+		 * probably due to the proximity of SIM card and eMMC.
+		 * Hence, reducing the clock to 24.7Mhz from 49Mhz.
+		 */
 		if (machine_is_msm7625a_ffa())
 			sdc3_plat_data.msmsdcc_fmax =
 				sdc3_plat_data.msmsdcc_fmid;
 		msm_add_sdcc(3, &sdc3_plat_data);
 	}
 #endif
-	
+	/* Micro-SD slot */
 #ifdef CONFIG_MMC_MSM_SDC1_SUPPORT
 	gpio_sdc1_config();
 	if (mmc_regulator_init(1, "mmc", 2850000))
 		return;
-	
+	/* 8x25 EVT do not use hw detector */
 	if (!((machine_is_msm8625_evt() || machine_is_qrd_skud_prime())))
 		sdc1_plat_data.status_irq = MSM_GPIO_TO_INT(gpio_sdc1_hw_det);
 	if (machine_is_msm8625_evt() || machine_is_qrd_skud_prime())
@@ -376,16 +393,16 @@ void __init msm7627a_init_mmc(void)
 
 	msm_add_sdcc(1, &sdc1_plat_data);
 #endif
-	
+	/* SDIO WLAN slot */
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 	if (mmc_regulator_init(2, "smps3", 1800000))
 		return;
 	msm_add_sdcc(2, &sdc2_plat_data);
 #endif
-	
+	/* Not Used */
 #if (defined(CONFIG_MMC_MSM_SDC4_SUPPORT)\
 		&& !defined(CONFIG_MMC_MSM_SDC3_8_BIT_SUPPORT))
-	
+	/* There is no SDC4 for QRD3/7 based devices */
 	if (!(machine_is_msm7627a_qrd3() || machine_is_msm8625_qrd7())) {
 		if (mmc_regulator_init(4, "smps3", 1800000))
 			return;

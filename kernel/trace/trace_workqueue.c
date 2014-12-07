@@ -15,20 +15,30 @@
 #include "trace.h"
 
 
+/* A cpu workqueue thread */
 struct cpu_workqueue_stats {
 	struct list_head            list;
 	struct kref                 kref;
 	int		            cpu;
 	pid_t			    pid;
+/* Can be inserted from interrupt or user context, need to be atomic */
 	atomic_t	            inserted;
+/*
+ *  Don't need to be atomic, works are serialized in a single workqueue thread
+ *  on a single CPU.
+ */
 	unsigned int		    executed;
 };
 
+/* List of workqueue threads on one cpu */
 struct workqueue_global_stats {
 	struct list_head	list;
 	spinlock_t		lock;
 };
 
+/* Don't need a global lock because allocated before the workqueues, and
+ * never freed.
+ */
 static DEFINE_PER_CPU(struct workqueue_global_stats, all_workqueue_stat);
 #define workqueue_cpu_stat(cpu) (&per_cpu(all_workqueue_stat, cpu))
 
@@ -37,6 +47,7 @@ static void cpu_workqueue_stat_free(struct kref *kref)
 	kfree(container_of(kref, struct cpu_workqueue_stats, kref));
 }
 
+/* Insertion of a work */
 static void
 probe_workqueue_insertion(void *ignore,
 			  struct task_struct *wq_thread,
@@ -58,6 +69,7 @@ found:
 	spin_unlock_irqrestore(&workqueue_cpu_stat(cpu)->lock, flags);
 }
 
+/* Execution of a work */
 static void
 probe_workqueue_execution(void *ignore,
 			  struct task_struct *wq_thread,
@@ -79,6 +91,7 @@ found:
 	spin_unlock_irqrestore(&workqueue_cpu_stat(cpu)->lock, flags);
 }
 
+/* Creation of a cpu workqueue thread */
 static void probe_workqueue_creation(void *ignore,
 				     struct task_struct *wq_thread, int cpu)
 {
@@ -87,7 +100,7 @@ static void probe_workqueue_creation(void *ignore,
 
 	WARN_ON(cpu < 0);
 
-	
+	/* Workqueues are sometimes created in atomic context */
 	cws = kzalloc(sizeof(struct cpu_workqueue_stats), GFP_ATOMIC);
 	if (!cws) {
 		pr_warning("trace_workqueue: not enough memory\n");
@@ -103,10 +116,11 @@ static void probe_workqueue_creation(void *ignore,
 	spin_unlock_irqrestore(&workqueue_cpu_stat(cpu)->lock, flags);
 }
 
+/* Destruction of a cpu workqueue thread */
 static void
 probe_workqueue_destruction(void *ignore, struct task_struct *wq_thread)
 {
-	
+	/* Workqueue only execute on one cpu */
 	int cpu = cpumask_first(&wq_thread->cpus_allowed);
 	struct cpu_workqueue_stats *node, *next;
 	unsigned long flags;
@@ -241,6 +255,10 @@ int __init stat_workqueue_init(void)
 }
 fs_initcall(stat_workqueue_init);
 
+/*
+ * Workqueues are created very early, just after pre-smp initcalls.
+ * So we must register our tracepoints at this stage.
+ */
 int __init trace_workqueue_early_init(void)
 {
 	int ret, cpu;

@@ -37,6 +37,6 @@ static inline int cbe_sysreset_hack(void)
 {
 	return 1;
 }
-#endif 
+#endif /* CONFIG_PPC_IBM_CELL_RESETBUTTON */
 
 #endif

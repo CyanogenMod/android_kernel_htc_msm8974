@@ -18,6 +18,7 @@
 
 #include "rio.h"
 
+/* Sysfs support */
 #define rio_config_attr(field, format_string)					\
 static ssize_t								\
 field##_show(struct device *dev, struct device_attribute *attr, char *buf)			\
@@ -110,7 +111,7 @@ rio_read_config(struct file *filp, struct kobject *kobj,
 	loff_t init_off = off;
 	u8 *data = (u8 *) buf;
 
-	
+	/* Several chips lock up trying to read undefined config space */
 	if (capable(CAP_SYS_ADMIN))
 		size = RIO_MAINT_SPACE_SZ;
 
@@ -240,6 +241,12 @@ static struct bin_attribute rio_config_attr = {
 	.write = rio_write_config,
 };
 
+/**
+ * rio_create_sysfs_dev_files - create RIO specific sysfs files
+ * @rdev: device whose entries should be created
+ *
+ * Create files when @rdev is added to sysfs.
+ */
 int rio_create_sysfs_dev_files(struct rio_dev *rdev)
 {
 	int err = 0;
@@ -261,6 +268,12 @@ int rio_create_sysfs_dev_files(struct rio_dev *rdev)
 	return err;
 }
 
+/**
+ * rio_remove_sysfs_dev_files - cleanup RIO specific sysfs files
+ * @rdev: device whose entries we should free
+ *
+ * Cleanup when @rdev is removed from sysfs.
+ */
 void rio_remove_sysfs_dev_files(struct rio_dev *rdev)
 {
 	device_remove_bin_file(&rdev->dev, &rio_config_attr);

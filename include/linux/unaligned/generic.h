@@ -1,6 +1,10 @@
 #ifndef _LINUX_UNALIGNED_GENERIC_H
 #define _LINUX_UNALIGNED_GENERIC_H
 
+/*
+ * Cause a link-time error if we try an unaligned access other than
+ * 1,2,4 or 8 bytes long
+ */
 extern void __bad_unaligned_access_size(void);
 
 #define __get_unaligned_le(ptr) ((__force typeof(*(ptr)))({			\
@@ -61,4 +65,4 @@ extern void __bad_unaligned_access_size(void);
 	}								\
 	(void)0; })
 
-#endif 
+#endif /* _LINUX_UNALIGNED_GENERIC_H */

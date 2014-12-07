@@ -13,6 +13,18 @@
 #define __swizzle_addr_l(port)	(port)
 #define __swizzle_addr_q(port)	(port)
 
+/*
+ * Sane hardware offers swapping of PCI/ISA I/O space accesses in hardware;
+ * less sane hardware forces software to fiddle with this...
+ *
+ * Regardless, if the host bus endianness mismatches that of PCI/ISA, then
+ * you can't have the numerical value of data and byte addresses within
+ * multibyte quantities both preserved at the same time.  Hence two
+ * variations of functions: non-prefixed ones that preserve the value
+ * and prefixed ones that preserve byte addresses.  The latters are
+ * typically used for moving raw data between a peripheral and memory (cf.
+ * string I/O functions), hence the "__mem_" prefix.
+ */
 #if defined(CONFIG_SWAP_IO_SPACE)
 
 # define ioswabb(a, x)		(x)
@@ -37,4 +49,4 @@
 
 #endif
 
-#endif 
+#endif /* __ASM_MACH_GENERIC_MANGLE_PORT_H */

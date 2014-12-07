@@ -46,31 +46,37 @@ extern void __iomem *davinci_sysmod_base;
 #define DAVINCI_SYSMOD_VIRT(x)	(davinci_sysmod_base + (x))
 void davinci_map_sysmod(void);
 
+/* DM355 base addresses */
 #define DM355_ASYNC_EMIF_CONTROL_BASE	0x01e10000
 #define DM355_ASYNC_EMIF_DATA_CE0_BASE	0x02000000
 
 #define ASP1_TX_EVT_EN	1
 #define ASP1_RX_EVT_EN	2
 
+/* DM365 base addresses */
 #define DM365_ASYNC_EMIF_CONTROL_BASE	0x01d10000
 #define DM365_ASYNC_EMIF_DATA_CE0_BASE	0x02000000
 #define DM365_ASYNC_EMIF_DATA_CE1_BASE	0x04000000
 
+/* DM644x base addresses */
 #define DM644X_ASYNC_EMIF_CONTROL_BASE	0x01e00000
 #define DM644X_ASYNC_EMIF_DATA_CE0_BASE 0x02000000
 #define DM644X_ASYNC_EMIF_DATA_CE1_BASE 0x04000000
 #define DM644X_ASYNC_EMIF_DATA_CE2_BASE 0x06000000
 #define DM644X_ASYNC_EMIF_DATA_CE3_BASE 0x08000000
 
+/* DM646x base addresses */
 #define DM646X_ASYNC_EMIF_CONTROL_BASE	0x20008000
 #define DM646X_ASYNC_EMIF_CS2_SPACE_BASE 0x42000000
 
+/* DM355 function declarations */
 void __init dm355_init(void);
 void dm355_init_spi0(unsigned chipselect_mask,
 		struct spi_board_info *info, unsigned len);
 void __init dm355_init_asp1(u32 evt_enable, struct snd_platform_data *pdata);
 void dm355_set_vpfe_config(struct vpfe_config *cfg);
 
+/* DM365 function declarations */
 void __init dm365_init(void);
 void __init dm365_init_asp(struct snd_platform_data *pdata);
 void __init dm365_init_vc(struct snd_platform_data *pdata);
@@ -80,10 +86,12 @@ void dm365_init_spi0(unsigned chipselect_mask,
 			struct spi_board_info *info, unsigned len);
 void dm365_set_vpfe_config(struct vpfe_config *cfg);
 
+/* DM644x function declarations */
 void __init dm644x_init(void);
 void __init dm644x_init_asp(struct snd_platform_data *pdata);
 int __init dm644x_init_video(struct vpfe_config *, struct vpbe_config *);
 
+/* DM646x function declarations */
 void __init dm646x_init(void);
 void __init dm646x_init_mcasp0(struct snd_platform_data *pdata);
 void __init dm646x_init_mcasp1(struct snd_platform_data *pdata);
@@ -91,4 +99,4 @@ int __init dm646x_init_edma(struct edma_rsv_info *rsv);
 void dm646x_video_init(void);
 void dm646x_setup_vpif(struct vpif_display_config *,
 		       struct vpif_capture_config *);
-#endif 
+#endif /*__DAVINCI_H */

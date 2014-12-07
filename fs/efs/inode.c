@@ -27,6 +27,11 @@ static const struct address_space_operations efs_aops = {
 };
 
 static inline void extent_copy(efs_extent *src, efs_extent *dst) {
+	/*
+	 * this is slightly evil. it doesn't just copy
+	 * efs_extent from src to dst, it also mangles
+	 * the bits so that dst ends up in cpu byte-order.
+	 */
 
 	dst->cooked.ex_magic  =  (unsigned int) src->raw[0];
 	dst->cooked.ex_bn     = ((unsigned int) src->raw[1] << 16) |
@@ -59,6 +64,17 @@ struct inode *efs_iget(struct super_block *super, unsigned long ino)
 
 	in = INODE_INFO(inode);
 
+	/*
+	** EFS layout:
+	**
+	** |   cylinder group    |   cylinder group    |   cylinder group ..etc
+	** |inodes|data          |inodes|data          |inodes|data       ..etc
+	**
+	** work out the inode block index, (considering initially that the
+	** inodes are stored as consecutive blocks). then work out the block
+	** number of that inode given the above layout, and finally the
+	** offset of the inode within that block.
+	*/
 
 	inode_index = inode->i_ino /
 		(EFS_BLOCKSIZE / sizeof(struct efs_dinode));
@@ -89,7 +105,7 @@ struct inode *efs_iget(struct super_block *super, unsigned long ino)
 	inode->i_ctime.tv_sec = be32_to_cpu(efs_inode->di_ctime);
 	inode->i_atime.tv_nsec = inode->i_mtime.tv_nsec = inode->i_ctime.tv_nsec = 0;
 
-	
+	/* this is the number of blocks in the file */
 	if (inode->i_size == 0) {
 		inode->i_blocks = 0;
 	} else {
@@ -106,11 +122,11 @@ struct inode *efs_iget(struct super_block *super, unsigned long ino)
 	} else
 		device = old_decode_dev(rdev);
 
-	
+	/* get the number of extents for this object */
 	in->numextents = be16_to_cpu(efs_inode->di_numextents);
 	in->lastextent = 0;
 
-	
+	/* copy the extents contained within the inode to memory */
 	for(i = 0; i < EFS_DIRECTEXTENTS; i++) {
 		extent_copy(&(efs_inode->di_u.di_extents[i]), &(in->extents[i]));
 		if (i < in->numextents && in->extents[i].cooked.ex_magic != 0) {
@@ -166,6 +182,10 @@ efs_extent_check(efs_extent *ptr, efs_block_t block, struct efs_sb_info *sb) {
 	efs_block_t length;
 	efs_block_t offset;
 
+	/*
+	 * given an extent and a logical block within a file,
+	 * can this block be found within this extent ?
+	 */
 	start  = ptr->cooked.ex_bn;
 	length = ptr->cooked.ex_length;
 	offset = ptr->cooked.ex_offset;
@@ -190,11 +210,11 @@ efs_block_t efs_map_block(struct inode *inode, efs_block_t block) {
 	last = in->lastextent;
 
 	if (in->numextents <= EFS_DIRECTEXTENTS) {
-		
+		/* first check the last extent we returned */
 		if ((result = efs_extent_check(&in->extents[last], block, sb)))
 			return result;
     
-		
+		/* if we only have one extent then nothing can be found */
 		if (in->numextents == 1) {
 			printk(KERN_ERR "EFS: map_block() failed to map (1 extent)\n");
 			return 0;
@@ -202,6 +222,10 @@ efs_block_t efs_map_block(struct inode *inode, efs_block_t block) {
 
 		direxts = in->numextents;
 
+		/*
+		 * check the stored extents in the inode
+		 * start with next extent and check forwards
+		 */
 		for(dirext = 1; dirext < direxts; dirext++) {
 			cur = (last + dirext) % in->numextents;
 			if ((result = efs_extent_check(&in->extents[cur], block, sb))) {
@@ -223,6 +247,13 @@ efs_block_t efs_map_block(struct inode *inode, efs_block_t block) {
 	for(indext = 0; indext < indexts; indext++) {
 		cur = (last + indext) % indexts;
 
+		/*
+		 * work out which direct extent contains `cur'.
+		 *
+		 * also compute ibase: i.e. the number of the first
+		 * indirect extent contained within direct extent `cur'.
+		 *
+		 */
 		ibase = 0;
 		for(dirext = 0; cur < ibase && dirext < direxts; dirext++) {
 			ibase += in->extents[dirext].cooked.ex_length *
@@ -230,13 +261,13 @@ efs_block_t efs_map_block(struct inode *inode, efs_block_t block) {
 		}
 
 		if (dirext == direxts) {
-			
+			/* should never happen */
 			printk(KERN_ERR "EFS: couldn't find direct extent for indirect extent %d (block %u)\n", cur, block);
 			if (bh) brelse(bh);
 			return 0;
 		}
 		
-		
+		/* work out block number and offset of this indirect extent */
 		iblock = sb->fs_start + in->extents[dirext].cooked.ex_bn +
 			(cur - ibase) /
 			(EFS_BLOCKSIZE / sizeof(efs_extent));

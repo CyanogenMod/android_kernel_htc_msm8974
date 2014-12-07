@@ -12,6 +12,13 @@
 
 #include "edac_core.h"
 
+/*
+ * INTERNAL EDAC MODULE:
+ * EDAC memory controller sysfs create/remove functions
+ * and setup/teardown functions
+ *
+ * edac_mc objects
+ */
 extern int edac_sysfs_setup_mc_kset(void);
 extern void edac_sysfs_teardown_mc_kset(void);
 extern int edac_mc_register_sysfs_main_kobj(struct mem_ctl_info *mci);
@@ -34,6 +41,7 @@ extern void edac_device_unregister_sysfs_main_kobj(
 extern int edac_device_create_sysfs(struct edac_device_ctl_info *edac_dev);
 extern void edac_device_remove_sysfs(struct edac_device_ctl_info *edac_dev);
 
+/* edac core workqueue: single CPU mode */
 extern struct workqueue_struct *edac_workqueue;
 extern void edac_device_workq_setup(struct edac_device_ctl_info *edac_dev,
 				    unsigned msec);
@@ -44,6 +52,9 @@ extern void edac_mc_reset_delay_period(int value);
 
 extern void *edac_align_ptr(void *ptr, unsigned size);
 
+/*
+ * EDAC PCI functions
+ */
 #ifdef	CONFIG_PCI
 extern void edac_pci_do_parity_check(void);
 extern void edac_pci_clear_parity_errors(void);
@@ -55,7 +66,8 @@ extern void edac_pci_remove_sysfs(struct edac_pci_ctl_info *pci);
 extern void edac_pci_handle_pe(struct edac_pci_ctl_info *pci, const char *msg);
 extern void edac_pci_handle_npe(struct edac_pci_ctl_info *pci,
 				const char *msg);
-#else				
+#else				/* CONFIG_PCI */
+/* pre-process these away */
 #define edac_pci_do_parity_check()
 #define edac_pci_clear_parity_errors()
 #define edac_sysfs_pci_setup()  (0)
@@ -64,6 +76,6 @@ extern void edac_pci_handle_npe(struct edac_pci_ctl_info *pci,
 #define edac_pci_get_poll_msec()
 #define edac_pci_handle_pe()
 #define edac_pci_handle_npe()
-#endif				
+#endif				/* CONFIG_PCI */
 
-#endif				
+#endif				/* __EDAC_MODULE_H__ */

@@ -12,6 +12,7 @@
  *
  */
 #include <linux/init.h>
+//#include <linux/crypto.h>
 #include "rtl_crypto.h"
 #include <linux/rwsem.h>
 #include <linux/proc_fs.h>

@@ -26,11 +26,11 @@
 #include <sound/pcm.h>
 #include "pcm_plugin.h"
 
-#define	SIGN_BIT	(0x80)		
-#define	QUANT_MASK	(0xf)		
-#define	NSEGS		(8)		
-#define	SEG_SHIFT	(4)		
-#define	SEG_MASK	(0x70)		
+#define	SIGN_BIT	(0x80)		/* Sign bit for a u-law byte. */
+#define	QUANT_MASK	(0xf)		/* Quantization field mask. */
+#define	NSEGS		(8)		/* Number of u-law segments. */
+#define	SEG_SHIFT	(4)		/* Left shift for segment number. */
+#define	SEG_MASK	(0x70)		/* Segment field mask. */
 
 static inline int val_seg(int val)
 {
@@ -49,15 +49,44 @@ static inline int val_seg(int val)
 	return r;
 }
 
-#define	BIAS		(0x84)		
+#define	BIAS		(0x84)		/* Bias for linear code. */
 
-static unsigned char linear2ulaw(int pcm_val)	
+/*
+ * linear2ulaw() - Convert a linear PCM value to u-law
+ *
+ * In order to simplify the encoding process, the original linear magnitude
+ * is biased by adding 33 which shifts the encoding range from (0 - 8158) to
+ * (33 - 8191). The result can be seen in the following encoding table:
+ *
+ *	Biased Linear Input Code	Compressed Code
+ *	------------------------	---------------
+ *	00000001wxyza			000wxyz
+ *	0000001wxyzab			001wxyz
+ *	000001wxyzabc			010wxyz
+ *	00001wxyzabcd			011wxyz
+ *	0001wxyzabcde			100wxyz
+ *	001wxyzabcdef			101wxyz
+ *	01wxyzabcdefg			110wxyz
+ *	1wxyzabcdefgh			111wxyz
+ *
+ * Each biased linear code has a leading 1 which identifies the segment
+ * number. The value of the segment number is equal to 7 minus the number
+ * of leading 0's. The quantization interval is directly available as the
+ * four bits wxyz.  * The trailing bits (a - h) are ignored.
+ *
+ * Ordinarily the complement of the resulting code word is used for
+ * transmission, and so the code word is complemented before it is returned.
+ *
+ * For further information see John C. Bellamy's Digital Telephony, 1982,
+ * John Wiley & Sons, pps 98-111 and 472-476.
+ */
+static unsigned char linear2ulaw(int pcm_val)	/* 2's complement (16-bit range) */
 {
 	int mask;
 	int seg;
 	unsigned char uval;
 
-	
+	/* Get the sign and the magnitude of the value. */
 	if (pcm_val < 0) {
 		pcm_val = BIAS - pcm_val;
 		mask = 0x7F;
@@ -68,26 +97,46 @@ static unsigned char linear2ulaw(int pcm_val)
 	if (pcm_val > 0x7FFF)
 		pcm_val = 0x7FFF;
 
-	
+	/* Convert the scaled magnitude to segment number. */
 	seg = val_seg(pcm_val);
 
+	/*
+	 * Combine the sign, segment, quantization bits;
+	 * and complement the code word.
+	 */
 	uval = (seg << 4) | ((pcm_val >> (seg + 3)) & 0xF);
 	return uval ^ mask;
 }
 
+/*
+ * ulaw2linear() - Convert a u-law value to 16-bit linear PCM
+ *
+ * First, a biased linear code is derived from the code word. An unbiased
+ * output can then be obtained by subtracting 33 from the biased code.
+ *
+ * Note that this function expects to be passed the complement of the
+ * original code word. This is in keeping with ISDN conventions.
+ */
 static int ulaw2linear(unsigned char u_val)
 {
 	int t;
 
-	
+	/* Complement to obtain normal u-law value. */
 	u_val = ~u_val;
 
+	/*
+	 * Extract and bias the quantization bits. Then
+	 * shift up by the segment number and subtract out the bias.
+	 */
 	t = ((u_val & QUANT_MASK) << 3) + BIAS;
 	t <<= ((unsigned)u_val & SEG_MASK) >> SEG_SHIFT;
 
 	return ((u_val & SIGN_BIT) ? (BIAS - t) : (t - BIAS));
 }
 
+/*
+ *  Basic Mu-Law plugin
+ */
 
 typedef void (*mulaw_f)(struct snd_pcm_plugin *plugin,
 			const struct snd_pcm_plugin_channel *src_channels,
@@ -96,12 +145,12 @@ typedef void (*mulaw_f)(struct snd_pcm_plugin *plugin,
 
 struct mulaw_priv {
 	mulaw_f func;
-	int cvt_endian;			
-	unsigned int native_ofs;	
-	unsigned int copy_ofs;		
-	unsigned int native_bytes;	
-	unsigned int copy_bytes;	
-	u16 flip; 
+	int cvt_endian;			/* need endian conversion? */
+	unsigned int native_ofs;	/* byte offset in native format */
+	unsigned int copy_ofs;		/* byte offset in s16 format */
+	unsigned int native_bytes;	/* byte size of the native format */
+	unsigned int copy_bytes;	/* bytes to copy per conversion */
+	u16 flip; /* MSB flip for signedness, done after endian conversion */
 };
 
 static inline void cvt_s16_to_native(struct mulaw_priv *data,
@@ -240,7 +289,7 @@ static void init_data(struct mulaw_priv *data, snd_pcm_format_t format)
 		data->native_ofs = data->native_bytes - data->copy_bytes;
 		data->copy_ofs = 2 - data->copy_bytes;
 	} else {
-		
+		/* S24 in 4bytes need an 1 byte offset */
 		data->native_ofs = data->native_bytes -
 			snd_pcm_format_width(format) / 8;
 	}

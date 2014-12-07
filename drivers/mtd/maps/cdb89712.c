@@ -1,3 +1,7 @@
+/*
+ * Flash on Cirrus CDB89712
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -10,6 +14,7 @@
 #include <linux/mtd/map.h>
 #include <linux/mtd/partitions.h>
 
+/* dynamic ioremap() areas */
 #define FLASH_START      0x00000000
 #define FLASH_SIZE       0x800000
 #define FLASH_WIDTH      4

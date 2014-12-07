@@ -12,33 +12,35 @@
 #include <linux/interrupt.h>
 #include <asm/txx9/dmac.h>
 
-#define ACCTLEN			0x00	
-#define ACCTLDIS		0x04	
-#define   ACCTL_ENLINK		0x00000001	
-#define   ACCTL_AUDODMA		0x00000100	
-#define   ACCTL_AUDIDMA		0x00001000	
-#define   ACCTL_AUDOEHLT	0x00010000	
-#define   ACCTL_AUDIEHLT	0x00100000	
-#define ACREGACC		0x08	
-#define   ACREGACC_DAT_SHIFT	0	
-#define   ACREGACC_REG_SHIFT	16	
-#define   ACREGACC_CODECID_SHIFT	24	
-#define   ACREGACC_READ		0x80000000	
-#define   ACREGACC_WRITE	0x00000000	
-#define ACINTSTS		0x10	
-#define ACINTMSTS		0x14	
-#define ACINTEN			0x18	
-#define ACINTDIS		0x1c	
-#define   ACINT_CODECRDY(n)	(0x00000001 << (n))	
-#define   ACINT_REGACCRDY	0x00000010	
-#define   ACINT_AUDOERR		0x00000100	
-#define   ACINT_AUDIERR		0x00001000	
-#define ACDMASTS		0x80	
-#define   ACDMA_AUDO		0x00000001	
-#define   ACDMA_AUDI		0x00000010	
-#define ACAUDODAT		0xa0	
-#define ACAUDIDAT		0xb0	
-#define ACREVID			0xfc	
+#define ACCTLEN			0x00	/* control enable */
+#define ACCTLDIS		0x04	/* control disable */
+#define   ACCTL_ENLINK		0x00000001	/* enable/disable AC-link */
+#define   ACCTL_AUDODMA		0x00000100	/* AUDODMA enable/disable */
+#define   ACCTL_AUDIDMA		0x00001000	/* AUDIDMA enable/disable */
+#define   ACCTL_AUDOEHLT	0x00010000	/* AUDO error halt
+						   enable/disable */
+#define   ACCTL_AUDIEHLT	0x00100000	/* AUDI error halt
+						   enable/disable */
+#define ACREGACC		0x08	/* codec register access */
+#define   ACREGACC_DAT_SHIFT	0	/* data field */
+#define   ACREGACC_REG_SHIFT	16	/* address field */
+#define   ACREGACC_CODECID_SHIFT	24	/* CODEC ID field */
+#define   ACREGACC_READ		0x80000000	/* CODEC read */
+#define   ACREGACC_WRITE	0x00000000	/* CODEC write */
+#define ACINTSTS		0x10	/* interrupt status */
+#define ACINTMSTS		0x14	/* interrupt masked status */
+#define ACINTEN			0x18	/* interrupt enable */
+#define ACINTDIS		0x1c	/* interrupt disable */
+#define   ACINT_CODECRDY(n)	(0x00000001 << (n))	/* CODECn ready */
+#define   ACINT_REGACCRDY	0x00000010	/* ACREGACC ready */
+#define   ACINT_AUDOERR		0x00000100	/* AUDO underrun error */
+#define   ACINT_AUDIERR		0x00001000	/* AUDI overrun error */
+#define ACDMASTS		0x80	/* DMA request status */
+#define   ACDMA_AUDO		0x00000001	/* AUDODMA pending */
+#define   ACDMA_AUDI		0x00000010	/* AUDIDMA pending */
+#define ACAUDODAT		0xa0	/* audio out data */
+#define ACAUDIDAT		0xb0	/* audio in data */
+#define ACREVID			0xfc	/* revision ID */
 
 struct txx9aclc_dmadata {
 	struct resource *dma_res;
@@ -46,7 +48,7 @@ struct txx9aclc_dmadata {
 	struct dma_chan *dma_chan;
 	struct tasklet_struct tasklet;
 	spinlock_t dma_lock;
-	int stream; 
+	int stream; /* SNDRV_PCM_STREAM_PLAYBACK or SNDRV_PCM_STREAM_CAPTURE */
 	struct snd_pcm_substream *substream;
 	unsigned long pos;
 	dma_addr_t dma_addr;
@@ -69,4 +71,4 @@ static inline struct txx9aclc_plat_drvdata *txx9aclc_get_plat_drvdata(
 	return dev_get_drvdata(dai->dev);
 }
 
-#endif 
+#endif /* __TXX9ACLC_H */

@@ -30,7 +30,7 @@
 #include <linux/nls.h>
 #else
 #include <linux/ctype.h>
-#endif 
+#endif /* CONFIG_NCPFS_NLS */
 
 #define NCP_MIN_SYMLINK_SIZE	8
 #define NCP_MAX_SYMLINK_SIZE	512
@@ -105,7 +105,7 @@ int
 ncp_ClearPhysicalRecord(struct ncp_server *server,
 			const char *file_id,
 			__u32 offset, __u32 length);
-#endif	
+#endif	/* CONFIG_NCPFS_IOCTL_LOCKING */
 
 int
 ncp_mount_subdir(struct ncp_server *, __u8, __u8, __le32,
@@ -166,7 +166,7 @@ static inline int ncp_strnicmp(const struct nls_table *t,
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_NCPFS_NLS */
 
 #define NCP_GET_AGE(dentry)	(jiffies - (dentry)->d_time)
 #define NCP_MAX_AGE(server)	atomic_read(&(server)->dentry_ttl)
@@ -226,8 +226,8 @@ ncp_invalidate_dircache_entries(struct dentry *parent)
 
 struct ncp_cache_head {
 	time_t		mtime;
-	unsigned long	time;	
-	unsigned long	end;	
+	unsigned long	time;	/* cache age */
+	unsigned long	end;	/* last valid fpos in cache */
 	int		eof;
 };
 
@@ -251,4 +251,4 @@ struct ncp_cache_control {
 	int				filled, valid, idx;
 };
 
-#endif 
+#endif /* _NCPLIB_H */

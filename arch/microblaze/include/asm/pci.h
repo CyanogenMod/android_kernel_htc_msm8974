@@ -27,6 +27,7 @@
 
 struct pci_dev;
 
+/* Values for the `which' argument to sys_pciconfig_iobase syscall.  */
 #define IOBASE_BRIDGE_NUMBER	0
 #define IOBASE_MEMORY		1
 #define IOBASE_IO		2
@@ -35,17 +36,21 @@ struct pci_dev;
 
 #define pcibios_scan_all_fns(a, b)	0
 
+/*
+ * Set this to 1 if you want the kernel to re-assign all PCI
+ * bus numbers (don't do that on ppc64 yet !)
+ */
 #define pcibios_assign_all_busses()	0
 
 static inline void pcibios_penalize_isa_irq(int irq, int active)
 {
-	
+	/* We don't do dynamic PCI IRQ allocation */
 }
 
 #ifdef CONFIG_PCI
 extern void set_pci_dma_ops(struct dma_map_ops *dma_ops);
 extern struct dma_map_ops *get_pci_dma_ops(void);
-#else	
+#else	/* CONFIG_PCI */
 #define set_pci_dma_ops(d)
 #define get_pci_dma_ops()	NULL
 #endif
@@ -62,12 +67,15 @@ static inline void pci_dma_burst_advice(struct pci_dev *pdev,
 
 extern int pci_domain_nr(struct pci_bus *bus);
 
+/* Decide whether to display the domain number in /proc */
 extern int pci_proc_domain(struct pci_bus *bus);
 
 struct vm_area_struct;
+/* Map a range of PCI memory or I/O space for a device into user space */
 int pci_mmap_page_range(struct pci_dev *pdev, struct vm_area_struct *vma,
 			enum pci_mmap_state mmap_state, int write_combine);
 
+/* Tell drivers/pci/proc.c that we have pci_mmap_page_range() */
 #define HAVE_PCI_MMAP	1
 
 extern int pci_legacy_read(struct pci_bus *bus, loff_t port, u32 *val,
@@ -80,6 +88,10 @@ extern int pci_mmap_legacy_page_range(struct pci_bus *bus,
 
 #define HAVE_PCI_LEGACY	1
 
+/* The PCI address space does equal the physical memory
+ * address space (no IOMMU).  The IDE and SCSI device layers use
+ * this boolean for bounce buffer decisions.
+ */
 #define PCI_DMA_BUS_IS_PHYS     (1)
 
 static inline struct resource *pcibios_select_root(struct pci_dev *pdev,
@@ -132,6 +144,7 @@ extern void pci_resource_to_user(const struct pci_dev *dev, int bar,
 extern void pcibios_setup_bus_devices(struct pci_bus *bus);
 extern void pcibios_setup_bus_self(struct pci_bus *bus);
 
+/* This part of code was originally in xilinx-pci.h */
 #ifdef CONFIG_PCI_XILINX
 extern void __init xilinx_pci_init(void);
 #else
@@ -140,5 +153,5 @@ static inline void __init xilinx_pci_init(void) { return; }
 
 #include <asm-generic/pci-dma-compat.h>
 
-#endif	
-#endif 
+#endif	/* __KERNEL__ */
+#endif /* __ASM_MICROBLAZE_PCI_H */

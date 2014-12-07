@@ -19,6 +19,7 @@
 
 #include "hw.h"
 
+/* Hardware core and driver accessible callbacks */
 
 static inline void ath9k_hw_configpcipowersave(struct ath_hw *ah,
 					       bool power_off)
@@ -77,7 +78,9 @@ static inline void ath9k_hw_antdiv_comb_conf_set(struct ath_hw *ah,
 	ath9k_hw_ops(ah)->antdiv_comb_conf_set(ah, antconf);
 }
 
+/* Private hardware call ops */
 
+/* PHY ops */
 
 static inline int ath9k_hw_rf_set_freq(struct ath_hw *ah,
 				       struct ath9k_channel *chan)
@@ -218,4 +221,4 @@ static inline void ath9k_hw_set_radar_params(struct ath_hw *ah)
 	ath9k_hw_private_ops(ah)->set_radar_params(ah, &ah->radar_conf);
 }
 
-#endif 
+#endif /* ATH9K_HW_OPS_H */

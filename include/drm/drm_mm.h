@@ -25,10 +25,17 @@
  *
  *
  **************************************************************************/
+/*
+ * Authors:
+ * Thomas Hellstrom <thomas-at-tungstengraphics-dot-com>
+ */
 
 #ifndef _DRM_MM_H_
 #define _DRM_MM_H_
 
+/*
+ * Generic range manager structs
+ */
 #include <linux/list.h>
 #ifdef CONFIG_DEBUG_FS
 #include <linux/seq_file.h>
@@ -49,8 +56,10 @@ struct drm_mm_node {
 };
 
 struct drm_mm {
-	
+	/* List of all memory nodes that immediately precede a free hole. */
 	struct list_head hole_stack;
+	/* head_node.node_list is the list of all memory nodes, ordered
+	 * according to the (increasing) start address of the memory node. */
 	struct drm_mm_node head_node;
 	struct list_head unused_nodes;
 	int num_unused;
@@ -85,6 +94,9 @@ static inline bool drm_mm_initialized(struct drm_mm *mm)
 	     entry != NULL; entry = next, \
 		next = entry ? list_entry(entry->node_list.next, \
 			struct drm_mm_node, node_list) : NULL) \
+/*
+ * Basic range manager support (drm_mm.c)
+ */
 extern struct drm_mm_node *drm_mm_get_block_generic(struct drm_mm_node *node,
 						    unsigned long size,
 						    unsigned alignment,

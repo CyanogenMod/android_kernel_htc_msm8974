@@ -40,7 +40,7 @@ int cx23885_g_chip_ident(struct file *file, void *fh,
 			rev = cx_read(RDR_CFG2) & 0xff;
 			switch (dev->pci->device) {
 			case 0x8852:
-				
+				/* rev 0x04 could be '885 or '888. Pick '888. */
 				if (rev == 0x04)
 					chip->ident = V4L2_IDENT_CX23888;
 				else
@@ -66,19 +66,31 @@ int cx23885_g_chip_ident(struct file *file, void *fh,
 			}
 			break;
 		case 2:
+			/*
+			 * The integrated IR controller on the CX23888 is
+			 * host chip 2.  It may not be used/initialized or sd_ir
+			 * may be pointing at the cx25840 subdevice for the
+			 * IR controller on the CX23885.  Thus we find it
+			 * without using the dev->sd_ir pointer.
+			 */
 			call_hw(dev, CX23885_HW_888_IR, core, g_chip_ident,
 				chip);
 			break;
 		default:
-			err = -EINVAL; 
+			err = -EINVAL; /* per V4L2 spec */
 			break;
 		}
 		break;
 	case V4L2_CHIP_MATCH_I2C_DRIVER:
-		
+		/* If needed, returns V4L2_IDENT_AMBIGUOUS without extra work */
 		call_all(dev, core, g_chip_ident, chip);
 		break;
 	case V4L2_CHIP_MATCH_I2C_ADDR:
+		/*
+		 * We could return V4L2_IDENT_UNKNOWN, but we don't do the work
+		 * to look if a chip is at the address with no driver.  That's a
+		 * dangerous thing to do with EEPROMs anyway.
+		 */
 		call_all(dev, core, g_chip_ident, chip);
 		break;
 	default:
@@ -112,7 +124,7 @@ static int cx23417_g_register(struct cx23885_dev *dev,
 		return -EINVAL;
 
 	if (mc417_register_read(dev, (u16) reg->reg, &value))
-		return -EINVAL; 
+		return -EINVAL; /* V4L2 spec, but -EREMOTEIO really */
 
 	reg->size = 4;
 	reg->val = value;
@@ -138,7 +150,7 @@ int cx23885_g_register(struct file *file, void *fh,
 		}
 	}
 
-	
+	/* FIXME - any error returns should not be ignored */
 	call_all(dev, core, g_register, reg);
 	return 0;
 }
@@ -164,7 +176,7 @@ static int cx23417_s_register(struct cx23885_dev *dev,
 		return -EINVAL;
 
 	if (mc417_register_write(dev, (u16) reg->reg, (u32) reg->val))
-		return -EINVAL; 
+		return -EINVAL; /* V4L2 spec, but -EREMOTEIO really */
 
 	reg->size = 4;
 	return 0;
@@ -189,7 +201,7 @@ int cx23885_s_register(struct file *file, void *fh,
 		}
 	}
 
-	
+	/* FIXME - any error returns should not be ignored */
 	call_all(dev, core, s_register, reg);
 	return 0;
 }

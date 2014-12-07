@@ -59,6 +59,7 @@ struct vgasr_priv {
 static int vga_switcheroo_debugfs_init(struct vgasr_priv *priv);
 static void vga_switcheroo_debugfs_fini(struct vgasr_priv *priv);
 
+/* only one switcheroo per system */
 static struct vgasr_priv vgasr_priv;
 
 int vga_switcheroo_register_handler(struct vga_switcheroo_handler *handler)
@@ -87,7 +88,7 @@ static void vga_switcheroo_enable(void)
 {
 	int i;
 	int ret;
-	
+	/* call the handler to init */
 	vgasr_priv.handler->init();
 
 	for (i = 0; i < VGA_SWITCHEROO_MAX_CLIENTS; i++) {
@@ -109,7 +110,7 @@ int vga_switcheroo_register_client(struct pci_dev *pdev,
 	int index;
 
 	mutex_lock(&vgasr_mutex);
-	
+	/* don't do IGD vs DIS here */
 	if (vgasr_priv.registered_clients & 1)
 		index = 1;
 	else
@@ -126,7 +127,7 @@ int vga_switcheroo_register_client(struct pci_dev *pdev,
 
 	vgasr_priv.registered_clients |= (1 << index);
 
-	
+	/* if we get two clients + handler */
 	if (vgasr_priv.registered_clients == 0x3 && vgasr_priv.handler) {
 		printk(KERN_INFO "vga_switcheroo: enabled\n");
 		vga_switcheroo_enable();
@@ -195,7 +196,7 @@ static int vga_switchon(struct vga_switcheroo_client *client)
 {
 	if (vgasr_priv.handler->power_state)
 		vgasr_priv.handler->power_state(client->id, VGA_SWITCHEROO_ON);
-	
+	/* call the driver callback to turn on device */
 	client->set_gpu_state(client->pdev, VGA_SWITCHEROO_ON);
 	client->pwr_state = VGA_SWITCHEROO_ON;
 	return 0;
@@ -203,7 +204,7 @@ static int vga_switchon(struct vga_switcheroo_client *client)
 
 static int vga_switchoff(struct vga_switcheroo_client *client)
 {
-	
+	/* call the driver callback to turn off device */
 	client->set_gpu_state(client->pdev, VGA_SWITCHEROO_OFF);
 	if (vgasr_priv.handler->power_state)
 		vgasr_priv.handler->power_state(client->id, VGA_SWITCHEROO_OFF);
@@ -211,6 +212,7 @@ static int vga_switchoff(struct vga_switcheroo_client *client)
 	return 0;
 }
 
+/* stage one happens before delay */
 static int vga_switchto_stage1(struct vga_switcheroo_client *new_client)
 {
 	int i;
@@ -228,12 +230,13 @@ static int vga_switchto_stage1(struct vga_switcheroo_client *new_client)
 	if (new_client->pwr_state == VGA_SWITCHEROO_OFF)
 		vga_switchon(new_client);
 
-	
+	/* swap shadow resource to denote boot VGA device has changed so X starts on new device */
 	active->pdev->resource[PCI_ROM_RESOURCE].flags &= ~IORESOURCE_ROM_SHADOW;
 	new_client->pdev->resource[PCI_ROM_RESOURCE].flags |= IORESOURCE_ROM_SHADOW;
 	return 0;
 }
 
+/* post delay */
 static int vga_switchto_stage2(struct vga_switcheroo_client *new_client)
 {
 	int ret;
@@ -296,7 +299,7 @@ vga_switcheroo_debugfs_write(struct file *filp, const char __user *ubuf,
 		goto out;
 	}
 
-	
+	/* pwr off the device not in use */
 	if (strncmp(usercmd, "OFF", 3) == 0) {
 		for (i = 0; i < VGA_SWITCHEROO_MAX_CLIENTS; i++) {
 			if (vgasr_priv.clients[i].active)
@@ -306,7 +309,7 @@ vga_switcheroo_debugfs_write(struct file *filp, const char __user *ubuf,
 		}
 		goto out;
 	}
-	
+	/* pwr on the device not in use */
 	if (strncmp(usercmd, "ON", 2) == 0) {
 		for (i = 0; i < VGA_SWITCHEROO_MAX_CLIENTS; i++) {
 			if (vgasr_priv.clients[i].active)
@@ -317,7 +320,7 @@ vga_switcheroo_debugfs_write(struct file *filp, const char __user *ubuf,
 		goto out;
 	}
 
-	
+	/* request a delayed switch - test can we switch now */
 	if (strncmp(usercmd, "DIGD", 4) == 0) {
 		client_id = VGA_SWITCHEROO_IGD;
 		delay = true;
@@ -363,7 +366,7 @@ vga_switcheroo_debugfs_write(struct file *filp, const char __user *ubuf,
 	if (client->active == true)
 		goto out;
 
-	
+	/* okay we want a switch - test if devices are willing to switch */
 	can_switch = true;
 	for (i = 0; i < VGA_SWITCHEROO_MAX_CLIENTS; i++) {
 		can_switch = vgasr_priv.clients[i].can_switch(vgasr_priv.clients[i].pdev);
@@ -424,7 +427,7 @@ static void vga_switcheroo_debugfs_fini(struct vgasr_priv *priv)
 
 static int vga_switcheroo_debugfs_init(struct vgasr_priv *priv)
 {
-	
+	/* already initialised */
 	if (priv->debugfs_root)
 		return 0;
 	priv->debugfs_root = debugfs_create_dir("vgaswitcheroo", NULL);

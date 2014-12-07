@@ -25,29 +25,31 @@
 #include "base.h"
 #include "reg.h"
 
+/* Known PCI ids */
 static DEFINE_PCI_DEVICE_TABLE(ath5k_pci_id_table) = {
-	{ PCI_VDEVICE(ATHEROS, 0x0207) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0007) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0011) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0012) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0013) }, 
-	{ PCI_VDEVICE(3COM_2,  0x0013) }, 
-	{ PCI_VDEVICE(3COM,    0x0013) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x1014) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0014) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0015) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0016) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0017) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0018) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0019) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x001a) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x001b) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x001c) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x001d) }, 
+	{ PCI_VDEVICE(ATHEROS, 0x0207) }, /* 5210 early */
+	{ PCI_VDEVICE(ATHEROS, 0x0007) }, /* 5210 */
+	{ PCI_VDEVICE(ATHEROS, 0x0011) }, /* 5311 - this is on AHB bus !*/
+	{ PCI_VDEVICE(ATHEROS, 0x0012) }, /* 5211 */
+	{ PCI_VDEVICE(ATHEROS, 0x0013) }, /* 5212 */
+	{ PCI_VDEVICE(3COM_2,  0x0013) }, /* 3com 5212 */
+	{ PCI_VDEVICE(3COM,    0x0013) }, /* 3com 3CRDAG675 5212 */
+	{ PCI_VDEVICE(ATHEROS, 0x1014) }, /* IBM minipci 5212 */
+	{ PCI_VDEVICE(ATHEROS, 0x0014) }, /* 5212 compatible */
+	{ PCI_VDEVICE(ATHEROS, 0x0015) }, /* 5212 compatible */
+	{ PCI_VDEVICE(ATHEROS, 0x0016) }, /* 5212 compatible */
+	{ PCI_VDEVICE(ATHEROS, 0x0017) }, /* 5212 compatible */
+	{ PCI_VDEVICE(ATHEROS, 0x0018) }, /* 5212 compatible */
+	{ PCI_VDEVICE(ATHEROS, 0x0019) }, /* 5212 compatible */
+	{ PCI_VDEVICE(ATHEROS, 0x001a) }, /* 2413 Griffin-lite */
+	{ PCI_VDEVICE(ATHEROS, 0x001b) }, /* 5413 Eagle */
+	{ PCI_VDEVICE(ATHEROS, 0x001c) }, /* PCI-E cards */
+	{ PCI_VDEVICE(ATHEROS, 0x001d) }, /* 2417 Nala */
 	{ 0 }
 };
 MODULE_DEVICE_TABLE(pci, ath5k_pci_id_table);
 
+/* return bus cachesize in 4B word units */
 static void ath5k_pci_read_cachesize(struct ath_common *common, int *csz)
 {
 	struct ath5k_hw *ah = (struct ath5k_hw *) common->priv;
@@ -56,17 +58,28 @@ static void ath5k_pci_read_cachesize(struct ath_common *common, int *csz)
 	pci_read_config_byte(ah->pdev, PCI_CACHE_LINE_SIZE, &u8tmp);
 	*csz = (int)u8tmp;
 
+	/*
+	 * This check was put in to avoid "unpleasant" consequences if
+	 * the bootrom has not fully initialized all PCI devices.
+	 * Sometimes the cache line size register is not set
+	 */
 
 	if (*csz == 0)
-		*csz = L1_CACHE_BYTES >> 2;   
+		*csz = L1_CACHE_BYTES >> 2;   /* Use the default size */
 }
 
+/*
+ * Read from eeprom
+ */
 static bool
 ath5k_pci_eeprom_read(struct ath_common *common, u32 offset, u16 *data)
 {
 	struct ath5k_hw *ah = (struct ath5k_hw *) common->ah;
 	u32 status, timeout;
 
+	/*
+	 * Initialize EEPROM access
+	 */
 	if (ah->ah_version == AR5K_AR5210) {
 		AR5K_REG_ENABLE_BITS(ah, AR5K_PCICFG, AR5K_PCICFG_EEAE);
 		(void)ath5k_hw_reg_read(ah, AR5K_EEPROM_BASE + (4 * offset));
@@ -97,6 +110,9 @@ int ath5k_hw_read_srev(struct ath5k_hw *ah)
 	return 0;
 }
 
+/*
+ * Read the MAC address from eeprom or platform_data
+ */
 static int ath5k_pci_eeprom_read_mac(struct ath5k_hw *ah, u8 *mac)
 {
 	u8 mac_d[ETH_ALEN] = {};
@@ -124,6 +140,7 @@ static int ath5k_pci_eeprom_read_mac(struct ath5k_hw *ah, u8 *mac)
 }
 
 
+/* Common ath_bus_opts structure */
 static const struct ath_bus_ops ath_pci_bus_ops = {
 	.ath_bus_type = ATH_PCI,
 	.read_cachesize = ath5k_pci_read_cachesize,
@@ -131,6 +148,9 @@ static const struct ath_bus_ops ath_pci_bus_ops = {
 	.eeprom_read_mac = ath5k_pci_eeprom_read_mac,
 };
 
+/********************\
+* PCI Initialization *
+\********************/
 
 static int __devinit
 ath5k_pci_probe(struct pci_dev *pdev,
@@ -142,6 +162,24 @@ ath5k_pci_probe(struct pci_dev *pdev,
 	int ret;
 	u8 csz;
 
+	/*
+	 * L0s needs to be disabled on all ath5k cards.
+	 *
+	 * For distributions shipping with CONFIG_PCIEASPM (this will be enabled
+	 * by default in the future in 2.6.36) this will also mean both L1 and
+	 * L0s will be disabled when a pre 1.1 PCIe device is detected. We do
+	 * know L1 works correctly even for all ath5k pre 1.1 PCIe devices
+	 * though but cannot currently undue the effect of a blacklist, for
+	 * details you can read pcie_aspm_sanity_check() and see how it adjusts
+	 * the device link capability.
+	 *
+	 * It may be possible in the future to implement some PCI API to allow
+	 * drivers to override blacklists for pre 1.1 PCIe but for now it is
+	 * best to accept that both L0s and L1 will be disabled completely for
+	 * distributions shipping with CONFIG_PCIEASPM rather than having this
+	 * issue present. Motivation for adding this new API will be to help
+	 * with power consumption for some of these devices.
+	 */
 	pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S);
 
 	ret = pci_enable_device(pdev);
@@ -150,23 +188,43 @@ ath5k_pci_probe(struct pci_dev *pdev,
 		goto err;
 	}
 
-	
+	/* XXX 32-bit addressing only */
 	ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (ret) {
 		dev_err(&pdev->dev, "32-bit DMA not available\n");
 		goto err_dis;
 	}
 
+	/*
+	 * Cache line size is used to size and align various
+	 * structures used to communicate with the hardware.
+	 */
 	pci_read_config_byte(pdev, PCI_CACHE_LINE_SIZE, &csz);
 	if (csz == 0) {
+		/*
+		 * Linux 2.4.18 (at least) writes the cache line size
+		 * register as a 16-bit wide register which is wrong.
+		 * We must have this setup properly for rx buffer
+		 * DMA to work so force a reasonable value here if it
+		 * comes up zero.
+		 */
 		csz = L1_CACHE_BYTES >> 2;
 		pci_write_config_byte(pdev, PCI_CACHE_LINE_SIZE, csz);
 	}
+	/*
+	 * The default setting of latency timer yields poor results,
+	 * set it to the value used by other systems.  It may be worth
+	 * tweaking this setting more.
+	 */
 	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 0xa8);
 
-	
+	/* Enable bus mastering */
 	pci_set_master(pdev);
 
+	/*
+	 * Disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state.
+	 */
 	pci_write_config_byte(pdev, 0x41, 0);
 
 	ret = pci_request_region(pdev, 0, "ath5k");
@@ -182,6 +240,10 @@ ath5k_pci_probe(struct pci_dev *pdev,
 		goto err_reg;
 	}
 
+	/*
+	 * Allocate hw (mac80211 main struct)
+	 * and hw->priv (driver private data)
+	 */
 	hw = ieee80211_alloc_hw(sizeof(*ah), &ath5k_hw_ops);
 	if (hw == NULL) {
 		dev_err(&pdev->dev, "cannot allocate ieee80211_hw\n");
@@ -197,14 +259,14 @@ ath5k_pci_probe(struct pci_dev *pdev,
 	ah->dev = &pdev->dev;
 	ah->irq = pdev->irq;
 	ah->devid = id->device;
-	ah->iobase = mem; 
+	ah->iobase = mem; /* So we can unmap it on detach */
 
-	
+	/* Initialize */
 	ret = ath5k_init_ah(ah, &ath_pci_bus_ops);
 	if (ret)
 		goto err_free;
 
-	
+	/* Set private data */
 	pci_set_drvdata(pdev, hw);
 
 	return 0;
@@ -250,6 +312,11 @@ static int ath5k_pci_resume(struct device *dev)
 	struct ieee80211_hw *hw = pci_get_drvdata(pdev);
 	struct ath5k_hw *ah = hw->priv;
 
+	/*
+	 * Suspend/Resume resets the PCI configuration space, so we have to
+	 * re-disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state
+	 */
 	pci_write_config_byte(pdev, 0x41, 0);
 
 	ath5k_led_enable(ah);
@@ -260,7 +327,7 @@ static SIMPLE_DEV_PM_OPS(ath5k_pm_ops, ath5k_pci_suspend, ath5k_pci_resume);
 #define ATH5K_PM_OPS	(&ath5k_pm_ops)
 #else
 #define ATH5K_PM_OPS	NULL
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 static struct pci_driver ath5k_pci_driver = {
 	.name		= KBUILD_MODNAME,
@@ -270,6 +337,9 @@ static struct pci_driver ath5k_pci_driver = {
 	.driver.pm	= ATH5K_PM_OPS,
 };
 
+/*
+ * Module init/exit functions
+ */
 static int __init
 init_ath5k_pci(void)
 {

@@ -39,6 +39,13 @@ static u64 swiotlb_powerpc_get_required(struct device *dev)
 	return mask;
 }
 
+/*
+ * At the moment, all platforms that use this code only require
+ * swiotlb to be used if we're operating on HIGHMEM.  Since
+ * we don't ever call anything other than map_sg, unmap_sg,
+ * map_page, and unmap_page on highmem, use normal dma_ops
+ * for everything else.
+ */
 struct dma_map_ops swiotlb_dma_ops = {
 	.alloc = dma_direct_alloc_coherent,
 	.free = dma_direct_free_coherent,
@@ -72,14 +79,14 @@ static int ppc_swiotlb_bus_notify(struct notifier_block *nb,
 	struct device *dev = data;
 	struct dev_archdata *sd;
 
-	
+	/* We are only intereted in device addition */
 	if (action != BUS_NOTIFY_ADD_DEVICE)
 		return 0;
 
 	sd = &dev->archdata;
 	sd->max_direct_dma_addr = 0;
 
-	
+	/* May need to bounce if the device can't address all of DRAM */
 	if ((dma_get_mask(dev) + 1) < memblock_end_of_DRAM())
 		set_dma_ops(dev, &swiotlb_dma_ops);
 

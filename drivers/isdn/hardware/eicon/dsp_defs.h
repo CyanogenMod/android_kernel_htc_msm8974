@@ -26,7 +26,14 @@
 #ifndef DSP_DEFS_H_
 #define DSP_DEFS_H_
 #include "dspdids.h"
+/*---------------------------------------------------------------------------*/
 #define dsp_download_reserve_space(fp, length)
+/*****************************************************************************/
+/*
+ * OS file access abstraction layer
+ *
+ * I/O functions returns -1 on error, 0 on EOF
+ */
 struct _OsFileHandle_;
 typedef long (*OsFileIo)(struct _OsFileHandle_ *handle,
 			 void *buffer,
@@ -47,7 +54,9 @@ typedef struct _OsFileHandle_
 } OsFileHandle;
 extern OsFileHandle *OsOpenFile(char *path_name);
 extern void          OsCloseFile(OsFileHandle *fp);
+/*****************************************************************************/
 #define DSP_TELINDUS_FILE "dspdload.bin"
+/* special DSP file for BRI cards for Qsig and CornetN because of missing memory */
 #define DSP_QSIG_TELINDUS_FILE "dspdqsig.bin"
 #define DSP_MDM_TELINDUS_FILE "dspdvmdm.bin"
 #define DSP_FAX_TELINDUS_FILE "dspdvfax.bin"
@@ -74,10 +83,10 @@ extern void          OsCloseFile(OsFileHandle *fp);
 #define DSP_RELOC_NONE                      0x00
 #define DSP_RELOC_SEGMENT_MASK              0x3f
 #define DSP_RELOC_TYPE_MASK                 0xc0
-#define DSP_RELOC_TYPE_0                    0x00  
-#define DSP_RELOC_TYPE_1                    0x40  
-#define DSP_RELOC_TYPE_2                    0x80  
-#define DSP_RELOC_TYPE_3                    0xc0  
+#define DSP_RELOC_TYPE_0                    0x00  /* relocation of address in DM word / high part of PM word */
+#define DSP_RELOC_TYPE_1                    0x40  /* relocation of address in low part of PM data word */
+#define DSP_RELOC_TYPE_2                    0x80  /* relocation of address in standard command */
+#define DSP_RELOC_TYPE_3                    0xc0  /* relocation of address in call/jump on flag in */
 #define DSP_COMBIFILE_FORMAT_IDENTIFICATION_SIZE 48
 #define DSP_COMBIFILE_FORMAT_VERSION_BCD    0x0100
 #define DSP_FILE_FORMAT_IDENTIFICATION_SIZE 48
@@ -124,7 +133,7 @@ typedef struct tag_dsp_memory_block_desc
 	word                  alias_memory_block;
 	word                  memory_type;
 	word                  address;
-	word                  size;             
+	word                  size;             /* DSP words */
 } t_dsp_memory_block_desc;
 typedef struct tag_dsp_segment_desc
 {
@@ -132,21 +141,21 @@ typedef struct tag_dsp_segment_desc
 	word                  attributes;
 	word                  base;
 	word                  size;
-	word                  alignment;        
+	word                  alignment;        /* ==0 -> no other legal start address than base */
 } t_dsp_segment_desc;
 typedef struct tag_dsp_symbol_desc
 {
 	word                  symbol_id;
 	word                  segment;
 	word                  offset;
-	word                  size;             
+	word                  size;             /* DSP words */
 } t_dsp_symbol_desc;
 typedef struct tag_dsp_data_block_header
 {
 	word                  attributes;
 	word                  segment;
 	word                  offset;
-	word                  size;             
+	word                  size;             /* DSP words */
 } t_dsp_data_block_header;
 typedef struct tag_dsp_download_desc
 {
@@ -168,7 +177,7 @@ typedef struct tag_dsp_download_desc
 	word *p_data_blocks_dm;
 	word *p_data_blocks_pm;
 } t_dsp_desc;
-typedef struct tag_dsp_portable_download_desc 
+typedef struct tag_dsp_portable_download_desc /* be sure to keep native alignment for MAESTRA's */
 {
 	word                  download_id;
 	word                  download_flags;
@@ -194,6 +203,12 @@ typedef struct tag_dsp_portable_download_desc
 #define DSP_MAX_DOWNLOAD_COUNT                  64
 #define DSP_DOWNLOAD_MAX_SEGMENTS         16
 #define DSP_UDATA_REQUEST_RECONFIGURE     0
+/*
+  parameters:
+  <word> reconfigure delay (in 8kHz samples)
+  <word> reconfigure code
+  <byte> reconfigure hdlc preamble flags
+*/
 #define DSP_RECONFIGURE_TX_FLAG           0x8000
 #define DSP_RECONFIGURE_SHORT_TRAIN_FLAG  0x4000
 #define DSP_RECONFIGURE_ECHO_PROTECT_FLAG 0x2000
@@ -213,11 +228,50 @@ typedef struct tag_dsp_portable_download_desc
 #define DSP_RECONFIGURE_V17_9600          10
 #define DSP_RECONFIGURE_V17_12000         11
 #define DSP_RECONFIGURE_V17_14400         12
+/*
+  data indications if transparent framer
+  <byte> data 0
+  <byte> data 1
+  ...
+  data indications if HDLC framer
+  <byte> data 0
+  <byte> data 1
+  ...
+  <byte> CRC 0
+  <byte> CRC 1
+  <byte> preamble flags
+*/
 #define DSP_UDATA_INDICATION_SYNC         0
+/*
+  returns:
+  <word> time of sync (sampled from counter at 8kHz)
+*/
 #define DSP_UDATA_INDICATION_DCD_OFF      1
+/*
+  returns:
+  <word> time of DCD off (sampled from counter at 8kHz)
+*/
 #define DSP_UDATA_INDICATION_DCD_ON       2
+/*
+  returns:
+  <word> time of DCD on (sampled from counter at 8kHz)
+  <byte> connected norm
+  <word> connected options
+  <dword> connected speed (bit/s)
+*/
 #define DSP_UDATA_INDICATION_CTS_OFF      3
+/*
+  returns:
+  <word> time of CTS off (sampled from counter at 8kHz)
+*/
 #define DSP_UDATA_INDICATION_CTS_ON       4
+/*
+  returns:
+  <word> time of CTS on (sampled from counter at 8kHz)
+  <byte> connected norm
+  <word> connected options
+  <dword> connected speed (bit/s)
+*/
 #define DSP_CONNECTED_NORM_UNSPECIFIED      0
 #define DSP_CONNECTED_NORM_V21              1
 #define DSP_CONNECTED_NORM_V23              2
@@ -237,9 +291,11 @@ typedef struct tag_dsp_portable_download_desc
 #define DSP_CONNECTED_NORM_V33              16
 #define DSP_CONNECTED_NORM_V17              17
 #define DSP_CONNECTED_OPTION_TRELLIS        0x0001
+/*---------------------------------------------------------------------------*/
 extern char *dsp_read_file(OsFileHandle *fp,
 			   word card_type_number,
 			   word *p_dsp_download_count,
 			   t_dsp_desc *p_dsp_download_table,
 			   t_dsp_portable_desc *p_dsp_portable_download_table);
-#endif 
+/*---------------------------------------------------------------------------*/
+#endif /* DSP_DEFS_H_ */

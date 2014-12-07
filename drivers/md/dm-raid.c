@@ -17,14 +17,33 @@
 
 #define DM_MSG_PREFIX "raid"
 
-#define FirstUse 10             
+/*
+ * The following flags are used by dm-raid.c to set up the array state.
+ * They must be cleared before md_run is called.
+ */
+#define FirstUse 10             /* rdev flag */
 
 struct raid_dev {
+	/*
+	 * Two DM devices, one to hold metadata and one to hold the
+	 * actual data/parity.  The reason for this is to not confuse
+	 * ti->len and give more flexibility in altering size and
+	 * characteristics.
+	 *
+	 * While it is possible for this device to be associated
+	 * with a different physical device than the data_dev, it
+	 * is intended for it to be the same.
+	 *    |--------- Physical Device ---------|
+	 *    |- meta_dev -|------ data_dev ------|
+	 */
 	struct dm_dev *meta_dev;
 	struct dm_dev *data_dev;
 	struct md_rdev rdev;
 };
 
+/*
+ * Flags for rs->print_flags field.
+ */
 #define DMPF_SYNC              0x1
 #define DMPF_NOSYNC            0x2
 #define DMPF_REBUILD           0x4
@@ -47,15 +66,16 @@ struct raid_set {
 	struct raid_dev dev[0];
 };
 
+/* Supported raid types and properties. */
 static struct raid_type {
-	const char *name;		
-	const char *descr;		
-	const unsigned parity_devs;	
-	const unsigned minimal_devs;	
-	const unsigned level;		
-	const unsigned algorithm;	
+	const char *name;		/* RAID algorithm. */
+	const char *descr;		/* Descriptor text for logging. */
+	const unsigned parity_devs;	/* # of parity devices. */
+	const unsigned minimal_devs;	/* minimal # of devices in set. */
+	const unsigned level;		/* RAID level. */
+	const unsigned algorithm;	/* RAID algorithm. */
 } raid_types[] = {
-	{"raid1",    "RAID1 (mirroring)",               0, 2, 1, 0 },
+	{"raid1",    "RAID1 (mirroring)",               0, 2, 1, 0 /* NONE */},
 	{"raid4",    "RAID4 (dedicated parity disk)",	1, 2, 5, ALGORITHM_PARITY_0},
 	{"raid5_la", "RAID5 (left asymmetric)",		1, 2, 5, ALGORITHM_LEFT_ASYMMETRIC},
 	{"raid5_ra", "RAID5 (right asymmetric)",	1, 2, 5, ALGORITHM_RIGHT_ASYMMETRIC},
@@ -117,6 +137,13 @@ static struct raid_set *context_alloc(struct dm_target *ti, struct raid_type *ra
 	for (i = 0; i < raid_devs; i++)
 		md_rdev_init(&rs->dev[i].rdev);
 
+	/*
+	 * Remaining items to be initialized by further RAID params:
+	 *  rs->md.persistent
+	 *  rs->md.external
+	 *  rs->md.chunk_sectors
+	 *  rs->md.new_chunk_sectors
+	 */
 
 	return rs;
 }
@@ -139,6 +166,22 @@ static void context_free(struct raid_set *rs)
 	kfree(rs);
 }
 
+/*
+ * For every device we have two words
+ *  <meta_dev>: meta device name or '-' if missing
+ *  <data_dev>: data device name or '-' if missing
+ *
+ * The following are permitted:
+ *    - -
+ *    - <data_dev>
+ *    <meta_dev> <data_dev>
+ *
+ * The following is not allowed:
+ *    <meta_dev> -
+ *
+ * This code parses those words.  If there is a failure,
+ * the caller must use context_free to unwind the operations.
+ */
 static int dev_parms(struct raid_set *rs, char **argv)
 {
 	int i;
@@ -152,6 +195,10 @@ static int dev_parms(struct raid_set *rs, char **argv)
 		rs->dev[i].meta_dev = NULL;
 		rs->dev[i].data_dev = NULL;
 
+		/*
+		 * There are no offsets, since there is a separate device
+		 * for data and metadata.
+		 */
 		rs->dev[i].rdev.data_offset = 0;
 		rs->dev[i].rdev.mddev = &rs->md;
 
@@ -205,6 +252,17 @@ static int dev_parms(struct raid_set *rs, char **argv)
 		rs->md.persistent = 1;
 		rs->md.major_version = 2;
 	} else if (rebuild && !rs->md.recovery_cp) {
+		/*
+		 * Without metadata, we will not be able to tell if the array
+		 * is in-sync or not - we must assume it is not.  Therefore,
+		 * it is impossible to rebuild a drive.
+		 *
+		 * Even if there is metadata, the on-disk information may
+		 * indicate that the array is not in-sync and it will then
+		 * fail at that time.
+		 *
+		 * User could specify 'nosync' option if desperate.
+		 */
 		DMERR("Unable to rebuild drive while array is not in-sync");
 		rs->ti->error = "RAID device lookup failure";
 		return -EINVAL;
@@ -213,20 +271,36 @@ static int dev_parms(struct raid_set *rs, char **argv)
 	return 0;
 }
 
+/*
+ * validate_region_size
+ * @rs
+ * @region_size:  region size in sectors.  If 0, pick a size (4MiB default).
+ *
+ * Set rs->md.bitmap_info.chunksize (which really refers to 'region size').
+ * Ensure that (ti->len/region_size < 2^21) - required by MD bitmap.
+ *
+ * Returns: 0 on success, -EINVAL on failure.
+ */
 static int validate_region_size(struct raid_set *rs, unsigned long region_size)
 {
 	unsigned long min_region_size = rs->ti->len / (1 << 21);
 
 	if (!region_size) {
+		/*
+		 * Choose a reasonable default.  All figures in sectors.
+		 */
 		if (min_region_size > (1 << 13)) {
 			DMINFO("Choosing default region size of %lu sectors",
 			       region_size);
 			region_size = min_region_size;
 		} else {
 			DMINFO("Choosing default region size of 4MiB");
-			region_size = 1 << 13; 
+			region_size = 1 << 13; /* sectors */
 		}
 	} else {
+		/*
+		 * Validate user-supplied value.
+		 */
 		if (region_size > rs->ti->len) {
 			rs->ti->error = "Supplied region size is too large";
 			return -EINVAL;
@@ -250,11 +324,33 @@ static int validate_region_size(struct raid_set *rs, unsigned long region_size)
 		}
 	}
 
+	/*
+	 * Convert sectors to bytes.
+	 */
 	rs->md.bitmap_info.chunksize = (region_size << 9);
 
 	return 0;
 }
 
+/*
+ * Possible arguments are...
+ *	<chunk_size> [optional_args]
+ *
+ * Argument definitions
+ *    <chunk_size>			The number of sectors per disk that
+ *                                      will form the "stripe"
+ *    [[no]sync]			Force or prevent recovery of the
+ *                                      entire array
+ *    [rebuild <idx>]			Rebuild the drive indicated by the index
+ *    [daemon_sleep <ms>]		Time between bitmap daemon work to
+ *                                      clear bits
+ *    [min_recovery_rate <kB/sec/disk>]	Throttle RAID initialization
+ *    [max_recovery_rate <kB/sec/disk>]	Throttle RAID initialization
+ *    [write_mostly <idx>]		Indicate a write mostly drive via index
+ *    [max_write_behind <sectors>]	See '-write-behind=' (man mdadm)
+ *    [stripe_cache <sectors>]		Stripe cache size for higher RAIDs
+ *    [region_size <sectors>]           Defines granularity of bitmap
+ */
 static int parse_raid_params(struct raid_set *rs, char **argv,
 			     unsigned num_raid_params)
 {
@@ -262,6 +358,10 @@ static int parse_raid_params(struct raid_set *rs, char **argv,
 	unsigned long value, region_size = 0;
 	char *key;
 
+	/*
+	 * First, parse the in-order required arguments
+	 * "chunk_size" is the only argument of this type.
+	 */
 	if ((strict_strtoul(argv[0], 10, &value) < 0)) {
 		rs->ti->error = "Bad chunk size";
 		return -EINVAL;
@@ -281,11 +381,31 @@ static int parse_raid_params(struct raid_set *rs, char **argv,
 	argv++;
 	num_raid_params--;
 
+	/*
+	 * We set each individual device as In_sync with a completed
+	 * 'recovery_offset'.  If there has been a device failure or
+	 * replacement then one of the following cases applies:
+	 *
+	 *   1) User specifies 'rebuild'.
+	 *      - Device is reset when param is read.
+	 *   2) A new device is supplied.
+	 *      - No matching superblock found, resets device.
+	 *   3) Device failure was transient and returns on reload.
+	 *      - Failure noticed, resets device for bitmap replay.
+	 *   4) Device hadn't completed recovery after previous failure.
+	 *      - Superblock is read and overrides recovery_offset.
+	 *
+	 * What is found in the superblocks of the devices is always
+	 * authoritative, unless 'rebuild' or '[no]sync' was specified.
+	 */
 	for (i = 0; i < rs->md.raid_disks; i++) {
 		set_bit(In_sync, &rs->dev[i].rdev.flags);
 		rs->dev[i].rdev.recovery_offset = MaxSector;
 	}
 
+	/*
+	 * Second, parse the unordered optional arguments
+	 */
 	for (i = 0; i < num_raid_params; i++) {
 		if (!strcasecmp(argv[i], "nosync")) {
 			rs->md.recovery_cp = MaxSector;
@@ -298,7 +418,7 @@ static int parse_raid_params(struct raid_set *rs, char **argv,
 			continue;
 		}
 
-		
+		/* The rest of the optional arguments come in key/value pairs */
 		if ((i + 1) >= num_raid_params) {
 			rs->ti->error = "Wrong number of raid parameters given";
 			return -EINVAL;
@@ -343,6 +463,10 @@ static int parse_raid_params(struct raid_set *rs, char **argv,
 			}
 			rs->print_flags |= DMPF_MAX_WRITE_BEHIND;
 
+			/*
+			 * In device-mapper, we specify things in sectors, but
+			 * MD records this value in kB
+			 */
 			value /= 2;
 			if (value > COUNTER_MAX) {
 				rs->ti->error = "Max write-behind limit out of range";
@@ -359,6 +483,10 @@ static int parse_raid_params(struct raid_set *rs, char **argv,
 		} else if (!strcasecmp(key, "stripe_cache")) {
 			rs->print_flags |= DMPF_STRIPE_CACHE;
 
+			/*
+			 * In device-mapper, we specify things in sectors, but
+			 * MD records this value in kB
+			 */
 			value /= 2;
 
 			if (rs->raid_type->level < 5) {
@@ -406,7 +534,7 @@ static int parse_raid_params(struct raid_set *rs, char **argv,
 	else
 		rs->ti->split_io = region_size;
 
-	
+	/* Assume there are no metadata devices until the drives are parsed */
 	rs->md.persistent = 0;
 	rs->md.external = 1;
 
@@ -430,27 +558,42 @@ static int raid_is_congested(struct dm_target_callbacks *cb, int bits)
 	return md_raid5_congested(&rs->md, bits);
 }
 
+/*
+ * This structure is never routinely used by userspace, unlike md superblocks.
+ * Devices with this superblock should only ever be accessed via device-mapper.
+ */
 #define DM_RAID_MAGIC 0x64526D44
 struct dm_raid_superblock {
-	__le32 magic;		
-	__le32 features;	
+	__le32 magic;		/* "DmRd" */
+	__le32 features;	/* Used to indicate possible future changes */
 
-	__le32 num_devices;	
-	__le32 array_position;	
+	__le32 num_devices;	/* Number of devices in this array. (Max 64) */
+	__le32 array_position;	/* The position of this drive in the array */
 
-	__le64 events;		
-	__le64 failed_devices;	
+	__le64 events;		/* Incremented by md when superblock updated */
+	__le64 failed_devices;	/* Bit field of devices to indicate failures */
 
+	/*
+	 * This offset tracks the progress of the repair or replacement of
+	 * an individual drive.
+	 */
 	__le64 disk_recovery_offset;
 
+	/*
+	 * This offset tracks the progress of the initial array
+	 * synchronisation/parity calculation.
+	 */
 	__le64 array_resync_offset;
 
+	/*
+	 * RAID characteristics
+	 */
 	__le32 level;
 	__le32 layout;
 	__le32 stripe_sectors;
 
-	__u8 pad[452];		
-				
+	__u8 pad[452];		/* Round struct to 512 bytes. */
+				/* Always set to 0 when writing. */
 } __packed;
 
 static int read_disk_sb(struct md_rdev *rdev, int size)
@@ -488,7 +631,7 @@ static void super_sync(struct mddev *mddev, struct md_rdev *rdev)
 	memset(sb, 0, sizeof(*sb));
 
 	sb->magic = cpu_to_le32(DM_RAID_MAGIC);
-	sb->features = cpu_to_le32(0);	
+	sb->features = cpu_to_le32(0);	/* No features yet */
 
 	sb->num_devices = cpu_to_le32(mddev->raid_disks);
 	sb->array_position = cpu_to_le32(rdev->raid_disk);
@@ -504,6 +647,14 @@ static void super_sync(struct mddev *mddev, struct md_rdev *rdev)
 	sb->stripe_sectors = cpu_to_le32(mddev->chunk_sectors);
 }
 
+/*
+ * super_load
+ *
+ * This function creates a superblock if one is not found on the device
+ * and will decide which superblock to use if there's a choice.
+ *
+ * Return: 1 if use rdev, 0 if use refdev, -Exxx otherwise
+ */
 static int super_load(struct md_rdev *rdev, struct md_rdev *refdev)
 {
 	int ret;
@@ -520,16 +671,21 @@ static int super_load(struct md_rdev *rdev, struct md_rdev *refdev)
 
 	sb = page_address(rdev->sb_page);
 
+	/*
+	 * Two cases that we want to write new superblocks and rebuild:
+	 * 1) New device (no matching magic number)
+	 * 2) Device specified for rebuild (!In_sync w/ offset == 0)
+	 */
 	if ((sb->magic != cpu_to_le32(DM_RAID_MAGIC)) ||
 	    (!test_bit(In_sync, &rdev->flags) && !rdev->recovery_offset)) {
 		super_sync(rdev->mddev, rdev);
 
 		set_bit(FirstUse, &rdev->flags);
 
-		
+		/* Force writing of superblocks to disk */
 		set_bit(MD_CHANGE_DEVS, &rdev->mddev->flags);
 
-		
+		/* Any superblock is better than none, choose that if given */
 		return refdev ? 0 : 1;
 	}
 
@@ -560,8 +716,14 @@ static int super_init_validation(struct mddev *mddev, struct md_rdev *rdev)
 	events_sb = le64_to_cpu(sb->events);
 	failed_devices = le64_to_cpu(sb->failed_devices);
 
+	/*
+	 * Initialise to 1 if this is a new superblock.
+	 */
 	mddev->events = events_sb ? : 1;
 
+	/*
+	 * Reshaping is not currently allowed
+	 */
 	if ((le32_to_cpu(sb->level) != mddev->level) ||
 	    (le32_to_cpu(sb->layout) != mddev->layout) ||
 	    (le32_to_cpu(sb->stripe_sectors) != mddev->chunk_sectors)) {
@@ -569,7 +731,7 @@ static int super_init_validation(struct mddev *mddev, struct md_rdev *rdev)
 		return -EINVAL;
 	}
 
-	
+	/* We can only change the number of devices in RAID1 right now */
 	if ((rs->raid_type->level != 1) &&
 	    (le32_to_cpu(sb->num_devices) != mddev->raid_disks)) {
 		DMERR("Reshaping arrays not yet supported.");
@@ -618,12 +780,19 @@ static int super_init_validation(struct mddev *mddev, struct md_rdev *rdev)
 		return -EINVAL;
 	}
 
+	/*
+	 * Now we set the Faulty bit for those devices that are
+	 * recorded in the superblock as failed.
+	 */
 	rdev_for_each(r, mddev) {
 		if (!r->sb_page)
 			continue;
 		sb2 = page_address(r->sb_page);
 		sb2->failed_devices = 0;
 
+		/*
+		 * Check for any device re-ordering.
+		 */
 		if (!test_bit(FirstUse, &r->flags) && (r->raid_disk >= 0)) {
 			role = le32_to_cpu(sb2->array_position);
 			if (role != r->raid_disk) {
@@ -636,6 +805,10 @@ static int super_init_validation(struct mddev *mddev, struct md_rdev *rdev)
 				       role, r->raid_disk);
 			}
 
+			/*
+			 * Partial recovery is performed on
+			 * returning failed devices.
+			 */
 			if (failed_devices & (1 << role))
 				set_bit(Faulty, &r->flags);
 		}
@@ -648,10 +821,14 @@ static int super_validate(struct mddev *mddev, struct md_rdev *rdev)
 {
 	struct dm_raid_superblock *sb = page_address(rdev->sb_page);
 
+	/*
+	 * If mddev->events is not set, we know we have not yet initialized
+	 * the array.
+	 */
 	if (!mddev->events && super_init_validation(mddev, rdev))
 		return -EINVAL;
 
-	mddev->bitmap_info.offset = 4096 >> 9; 
+	mddev->bitmap_info.offset = 4096 >> 9; /* Enable bitmap creation */
 	rdev->mddev->bitmap_info.default_offset = 4096 >> 9;
 	if (!test_bit(FirstUse, &rdev->flags)) {
 		rdev->recovery_offset = le64_to_cpu(sb->disk_recovery_offset);
@@ -659,6 +836,9 @@ static int super_validate(struct mddev *mddev, struct md_rdev *rdev)
 			clear_bit(In_sync, &rdev->flags);
 	}
 
+	/*
+	 * If a device comes back, set it as not In_sync and no longer faulty.
+	 */
 	if (test_bit(Faulty, &rdev->flags)) {
 		clear_bit(Faulty, &rdev->flags);
 		clear_bit(In_sync, &rdev->flags);
@@ -671,6 +851,9 @@ static int super_validate(struct mddev *mddev, struct md_rdev *rdev)
 	return 0;
 }
 
+/*
+ * Analyse superblocks and select the freshest.
+ */
 static int analyse_superblocks(struct dm_target *ti, struct raid_set *rs)
 {
 	int ret;
@@ -722,6 +905,12 @@ static int analyse_superblocks(struct dm_target *ti, struct raid_set *rs)
 
 				rdev->sb_loaded = 0;
 
+				/*
+				 * We might be able to salvage the data device
+				 * even though the meta device has failed.  For
+				 * now, we behave as though '- -' had been
+				 * set for this device in the table.
+				 */
 				if (dev->data_dev)
 					dm_put_device(ti, dev->data_dev);
 
@@ -740,6 +929,10 @@ static int analyse_superblocks(struct dm_target *ti, struct raid_set *rs)
 	if (!freshest)
 		return 0;
 
+	/*
+	 * Validation of the freshest device provides the source of
+	 * validation for the remaining devices.
+	 */
 	ti->error = "Unable to assemble array: Invalid superblocks";
 	if (super_validate(mddev, freshest))
 		return -EINVAL;
@@ -751,6 +944,15 @@ static int analyse_superblocks(struct dm_target *ti, struct raid_set *rs)
 	return 0;
 }
 
+/*
+ * Construct a RAID4/5/6 mapping:
+ * Args:
+ *	<raid_type> <#raid_params> <raid_params>		\
+ *	<#raid_devs> { <meta_dev1> <dev1> .. <meta_devN> <devN> }
+ *
+ * <raid_params> varies by <raid_type>.  See 'parse_raid_params' for
+ * details on possible <raid_params>.
+ */
 static int raid_ctr(struct dm_target *ti, unsigned argc, char **argv)
 {
 	int ret;
@@ -758,13 +960,13 @@ static int raid_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	unsigned long num_raid_params, num_raid_devs;
 	struct raid_set *rs = NULL;
 
-	
+	/* Must have at least <raid_type> <#raid_params> */
 	if (argc < 2) {
 		ti->error = "Too few arguments";
 		return -EINVAL;
 	}
 
-	
+	/* raid type */
 	rt = get_raid_type(argv[0]);
 	if (!rt) {
 		ti->error = "Unrecognised raid_type";
@@ -773,7 +975,7 @@ static int raid_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	argc--;
 	argv++;
 
-	
+	/* number of RAID parameters */
 	if (strict_strtoul(argv[0], 10, &num_raid_params) < 0) {
 		ti->error = "Cannot understand number of RAID parameters";
 		return -EINVAL;
@@ -781,7 +983,7 @@ static int raid_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	argc--;
 	argv++;
 
-	
+	/* Skip over RAID params for now and find out # of devices */
 	if (num_raid_params + 1 > argc) {
 		ti->error = "Arguments do not agree with counts given";
 		return -EINVAL;
@@ -803,7 +1005,7 @@ static int raid_ctr(struct dm_target *ti, unsigned argc, char **argv)
 
 	ret = -EINVAL;
 
-	argc -= num_raid_params + 1; 
+	argc -= num_raid_params + 1; /* +1: we already have num_raid_devs */
 	argv += num_raid_params + 1;
 
 	if (argc != (num_raid_devs * 2)) {
@@ -826,7 +1028,7 @@ static int raid_ctr(struct dm_target *ti, unsigned argc, char **argv)
 
 	mutex_lock(&rs->md.reconfig_mutex);
 	ret = md_run(&rs->md);
-	rs->md.in_sync = 0; 
+	rs->md.in_sync = 0; /* Assume already marked dirty */
 	mutex_unlock(&rs->md.reconfig_mutex);
 
 	if (ret) {
@@ -869,7 +1071,7 @@ static int raid_status(struct dm_target *ti, status_type_t type,
 		       char *result, unsigned maxlen)
 {
 	struct raid_set *rs = ti->private;
-	unsigned raid_param_cnt = 1; 
+	unsigned raid_param_cnt = 1; /* at least 1 for chunksize */
 	unsigned sz = 0;
 	int i, array_in_sync = 0;
 	sector_t sync;
@@ -887,10 +1089,22 @@ static int raid_status(struct dm_target *ti, status_type_t type,
 			array_in_sync = 1;
 			sync = rs->md.resync_max_sectors;
 		} else {
+			/*
+			 * The array may be doing an initial sync, or it may
+			 * be rebuilding individual components.  If all the
+			 * devices are In_sync, then it is the array that is
+			 * being initialized.
+			 */
 			for (i = 0; i < rs->md.raid_disks; i++)
 				if (!test_bit(In_sync, &rs->dev[i].rdev.flags))
 					array_in_sync = 1;
 		}
+		/*
+		 * Status characters:
+		 *  'D' = Dead/Failed device
+		 *  'a' = Alive but not in-sync
+		 *  'A' = Alive and in-sync
+		 */
 		for (i = 0; i < rs->md.raid_disks; i++) {
 			if (test_bit(Faulty, &rs->dev[i].rdev.flags))
 				DMEMIT("D");
@@ -901,18 +1115,26 @@ static int raid_status(struct dm_target *ti, status_type_t type,
 				DMEMIT("A");
 		}
 
+		/*
+		 * In-sync ratio:
+		 *  The in-sync ratio shows the progress of:
+		 *   - Initializing the array
+		 *   - Rebuilding a subset of devices of the array
+		 *  The user can distinguish between the two by referring
+		 *  to the status characters.
+		 */
 		DMEMIT(" %llu/%llu",
 		       (unsigned long long) sync,
 		       (unsigned long long) rs->md.resync_max_sectors);
 
 		break;
 	case STATUSTYPE_TABLE:
-		
+		/* The string you would use to construct this array */
 		for (i = 0; i < rs->md.raid_disks; i++) {
 			if ((rs->print_flags & DMPF_REBUILD) &&
 			    rs->dev[i].data_dev &&
 			    !test_bit(In_sync, &rs->dev[i].rdev.flags))
-				raid_param_cnt += 2; 
+				raid_param_cnt += 2; /* for rebuilds */
 			if (rs->dev[i].data_dev &&
 			    test_bit(WriteMostly, &rs->dev[i].rdev.flags))
 				raid_param_cnt += 2;
@@ -959,7 +1181,7 @@ static int raid_status(struct dm_target *ti, status_type_t type,
 		if (rs->print_flags & DMPF_STRIPE_CACHE) {
 			struct r5conf *conf = rs->md.private;
 
-			
+			/* convert from kiB to sectors */
 			DMEMIT(" stripe_cache %d",
 			       conf ? conf->max_nr_stripes * 2 : 0);
 		}
@@ -995,7 +1217,7 @@ static int raid_iterate_devices(struct dm_target *ti, iterate_devices_callout_fn
 		if (rs->dev[i].data_dev)
 			ret = fn(ti,
 				 rs->dev[i].data_dev,
-				 0, 
+				 0, /* No offset on data devs */
 				 rs->md.dev_sectors,
 				 data);
 

@@ -14,6 +14,7 @@
 #include <linux/input/matrix_keypad.h>
 #include <linux/mfd/stmpe.h>
 
+/* These are at the same addresses in all STMPE variants */
 #define STMPE_KPC_COL			0x60
 #define STMPE_KPC_ROW_MSB		0x61
 #define STMPE_KPC_ROW_LSB		0x62
@@ -48,6 +49,17 @@
 #define STMPE_KEYPAD_KEYMAP_SIZE	\
 	(STMPE_KEYPAD_MAX_ROWS * STMPE_KEYPAD_MAX_COLS)
 
+/**
+ * struct stmpe_keypad_variant - model-specific attributes
+ * @auto_increment: whether the KPC_DATA_BYTE register address
+ *		    auto-increments on multiple read
+ * @num_data: number of data bytes
+ * @num_normal_data: number of normal keys' data bytes
+ * @max_cols: maximum number of columns supported
+ * @max_rows: maximum number of rows supported
+ * @col_gpios: bitmask of gpios which can be used for columns
+ * @row_gpios: bitmask of gpios which can be used for rows
+ */
 struct stmpe_keypad_variant {
 	bool		auto_increment;
 	int		num_data;
@@ -65,8 +77,8 @@ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
 		.num_normal_data	= 3,
 		.max_cols		= 8,
 		.max_rows		= 8,
-		.col_gpios		= 0x000ff,	
-		.row_gpios		= 0x0ff00,	
+		.col_gpios		= 0x000ff,	/* GPIO 0 - 7 */
+		.row_gpios		= 0x0ff00,	/* GPIO 8 - 15 */
 	},
 	[STMPE2401] = {
 		.auto_increment		= false,
@@ -74,8 +86,8 @@ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
 		.num_normal_data	= 2,
 		.max_cols		= 8,
 		.max_rows		= 12,
-		.col_gpios		= 0x0000ff,	
-		.row_gpios		= 0x1fef00,	
+		.col_gpios		= 0x0000ff,	/* GPIO 0 - 7*/
+		.row_gpios		= 0x1fef00,	/* GPIO 8-14, 16-20 */
 	},
 	[STMPE2403] = {
 		.auto_increment		= true,
@@ -83,8 +95,8 @@ static const struct stmpe_keypad_variant stmpe_keypad_variants[] = {
 		.num_normal_data	= 3,
 		.max_cols		= 8,
 		.max_rows		= 12,
-		.col_gpios		= 0x0000ff,	
-		.row_gpios		= 0x1fef00,	
+		.col_gpios		= 0x0000ff,	/* GPIO 0 - 7*/
+		.row_gpios		= 0x1fef00,	/* GPIO 8-14, 16-20 */
 	},
 };
 
@@ -163,6 +175,16 @@ static int __devinit stmpe_keypad_altfunc_init(struct stmpe_keypad *keypad)
 	unsigned int pins = 0;
 	int i;
 
+	/*
+	 * Figure out which pins need to be set to the keypad alternate
+	 * function.
+	 *
+	 * {cols,rows}_gpios are bitmasks of which pins on the chip can be used
+	 * for the keypad.
+	 *
+	 * keypad->{cols,rows} are a bitmask of which pins (of the ones useable
+	 * for the keypad) are used on the board.
+	 */
 
 	for (i = 0; i < variant->max_cols; i++) {
 		int num = __ffs(col_gpios);

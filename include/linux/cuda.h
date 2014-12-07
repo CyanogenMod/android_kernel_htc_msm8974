@@ -8,6 +8,7 @@
 #ifndef _LINUX_CUDA_H
 #define _LINUX_CUDA_H
 
+/* CUDA commands (2nd byte) */
 #define CUDA_WARM_START		0
 #define CUDA_AUTOPOLL		1
 #define CUDA_GET_6805_ADDR	2
@@ -35,6 +36,6 @@ extern int cuda_request(struct adb_request *req,
 			void (*done)(struct adb_request *), int nbytes, ...);
 extern void cuda_poll(void);
 
-#endif	
+#endif	/* __KERNEL */
 
-#endif 
+#endif /* _LINUX_CUDA_H */

@@ -27,7 +27,7 @@
 
 static struct resource ath79_ohci_resources[] = {
 	[0] = {
-		
+		/* .start and .end fields are filled dynamically */
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
@@ -56,7 +56,7 @@ static struct platform_device ath79_ohci_device = {
 
 static struct resource ath79_ehci_resources[] = {
 	[0] = {
-		
+		/* .start and .end fields are filled dynamically */
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
@@ -104,10 +104,10 @@ static void __init ath79_usb_setup(void)
 
 	usb_ctrl_base = ioremap(AR71XX_USB_CTRL_BASE, AR71XX_USB_CTRL_SIZE);
 
-	
+	/* Turning on the Buff and Desc swap bits */
 	__raw_writel(0xf0000, usb_ctrl_base + AR71XX_USB_CTRL_REG_CONFIG);
 
-	
+	/* WAR for HW bug. Here it adjusts the duration between two SOFS */
 	__raw_writel(0x20c00, usb_ctrl_base + AR71XX_USB_CTRL_REG_FLADJ);
 
 	iounmap(usb_ctrl_base);
@@ -138,7 +138,7 @@ static void __init ar7240_usb_setup(void)
 
 	usb_ctrl_base = ioremap(AR7240_USB_CTRL_BASE, AR7240_USB_CTRL_SIZE);
 
-	
+	/* WAR for HW bug. Here it adjusts the duration between two SOFS */
 	__raw_writel(0x3, usb_ctrl_base + AR71XX_USB_CTRL_REG_FLADJ);
 
 	iounmap(usb_ctrl_base);

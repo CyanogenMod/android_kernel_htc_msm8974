@@ -28,7 +28,7 @@
 #include "audio_utils_aio.h"
 #ifdef CONFIG_USE_DEV_CTRL_VOLUME
 #include <mach/qdsp6v2/audio_dev_ctl.h>
-#endif 
+#endif /*CONFIG_USE_DEV_CTRL_VOLUME*/
 
 #ifdef CONFIG_DEBUG_FS
 ssize_t audio_aio_debug_open(struct inode *inode, struct file *file)
@@ -54,6 +54,10 @@ ssize_t audio_aio_debug_read(struct file *file, char __user *buf,
 	n += scnprintf(buffer + n, debug_bufmax - n,
 			"feedback %d\n", audio->feedback);
 	mutex_unlock(&audio->lock);
+	/* Following variables are only useful for debugging when
+	 * when playback halts unexpectedly. Thus, no mutual exclusion
+	 * enforced
+	 */
 	n += scnprintf(buffer + n, debug_bufmax - n,
 			"wflush %d\n", audio->wflush);
 	n += scnprintf(buffer + n, debug_bufmax - n,
@@ -79,6 +83,9 @@ int insert_eos_buf(struct q6audio_aio *audio,
 		sizeof(eos_buf->meta_out_dsp[0]);
 }
 
+/* Routine which updates read buffers of driver/dsp,
+   for flush operation as DSP output might not have proper
+   value set */
 static int insert_meta_data_flush(struct q6audio_aio *audio,
 	struct audio_aio_buffer_node *buf_node)
 {
@@ -100,11 +107,14 @@ static int audio_aio_ion_lookup_vaddr(struct q6audio_aio *audio, void *addr,
 
 	*region = NULL;
 
-	
+	/* returns physical address or zero */
 	list_for_each_entry(region_elt, &audio->ion_region_queue, list) {
 		if (addr >= region_elt->vaddr &&
 			addr < region_elt->vaddr + region_elt->len &&
 			addr + len <= region_elt->vaddr + region_elt->len) {
+			/* offset since we could pass vaddr inside a registerd
+			* ion buffer
+			*/
 
 			match_count++;
 			if (!*region)
@@ -151,7 +161,7 @@ static unsigned long audio_aio_ion_fixup(struct q6audio_aio *audio, void *addr,
 	pr_debug("%s[%p]:found region %p ref_cnt %d\n",
 			__func__, audio, region, region->ref_cnt);
 	paddr = region->paddr + (addr - region->vaddr);
-	
+	/* provide kernel virtual address for accessing meta information */
 	if (kvaddr)
 		*kvaddr = (void *) (region->kvaddr + (addr - region->vaddr));
 	return paddr;
@@ -170,7 +180,7 @@ static int audio_aio_pause(struct q6audio_aio  *audio)
 				__func__, audio, rc);
 
 		if (rc == 0) {
-			
+			/* Send suspend only if pause was successful */
 			rc = q6asm_cmd(audio->ac, CMD_SUSPEND);
 			if (rc < 0)
 				pr_err("%s[%p]: suspend cmd failed rc=%d\n",
@@ -189,6 +199,8 @@ static int audio_aio_flush(struct q6audio_aio  *audio)
 	int rc;
 
 	if (audio->enabled) {
+		/* Implicitly issue a pause to the decoder before flushing if
+		   it is not in pause state */
 		if (!(audio->drv_status & ADRV_STATUS_PAUSE)) {
 			rc = audio_aio_pause(audio);
 			if (rc < 0)
@@ -202,7 +214,7 @@ static int audio_aio_flush(struct q6audio_aio  *audio)
 		if (rc < 0)
 			pr_err("%s[%p]: flush cmd failed rc=%d\n",
 				__func__, audio, rc);
-		
+		/* Not in stop state, reenable the stream */
 		if (audio->stopped == 0) {
 			rc = audio_aio_enable(audio);
 			if (rc)
@@ -235,6 +247,7 @@ static int audio_aio_outport_flush(struct q6audio_aio *audio)
 	return rc;
 }
 
+/* Write buffer to DSP / Handle Ack from DSP */
 void audio_aio_async_write_ack(struct q6audio_aio *audio, uint32_t token,
 				uint32_t *payload)
 {
@@ -242,7 +255,7 @@ void audio_aio_async_write_ack(struct q6audio_aio *audio, uint32_t token,
 	union msm_audio_event_payload event_payload;
 	struct audio_aio_buffer_node *used_buf;
 
-	
+	/* No active flush in progress */
 	if (audio->wflush)
 		return;
 
@@ -275,6 +288,7 @@ void audio_aio_async_write_ack(struct q6audio_aio *audio, uint32_t token,
 	}
 }
 
+/* ------------------- device --------------------- */
 void audio_aio_async_out_flush(struct q6audio_aio *audio)
 {
 	struct audio_aio_buffer_node *buf_node;
@@ -283,6 +297,8 @@ void audio_aio_async_out_flush(struct q6audio_aio *audio)
 	unsigned long flags;
 
 	pr_debug("%s[%p}\n", __func__, audio);
+	/* EOS followed by flush, EOS response not guranteed, free EOS i/p
+	buffer */
 	spin_lock_irqsave(&audio->dsp_lock, flags);
 
 	if (audio->eos_flag && (audio->eos_write_payload.aio_buf.buf_addr)) {
@@ -315,6 +331,8 @@ void audio_aio_async_in_flush(struct q6audio_aio *audio)
 	list_for_each_safe(ptr, next, &audio->in_queue) {
 		buf_node = list_entry(ptr, struct audio_aio_buffer_node, list);
 		list_del(&buf_node->list);
+		/* Forcefull send o/p eos buffer after flush, if no eos response
+		 * received by dsp even after sending eos command */
 		if ((audio->eos_rsp != 1) && audio->eos_flag) {
 			pr_debug("%s[%p]: send eos on o/p buffer during flush\n",
 				 __func__, audio);
@@ -336,6 +354,8 @@ void audio_aio_async_in_flush(struct q6audio_aio *audio)
 
 int audio_aio_enable(struct q6audio_aio  *audio)
 {
+	/* 2nd arg: 0 -> run immediately
+	3rd arg: 0 -> msw_ts, 4th arg: 0 ->lsw_ts */
 	return q6asm_run(audio->ac, 0x00, 0x00, 0x00);
 }
 
@@ -348,7 +368,7 @@ int audio_aio_disable(struct q6audio_aio *audio)
 		pr_debug("%s[%p]: inbytes[%d] insamples[%d]\n", __func__,
 			audio, atomic_read(&audio->in_bytes),
 			atomic_read(&audio->in_samples));
-		
+		/* Close the session */
 		rc = q6asm_cmd(audio->ac, CMD_CLOSE);
 		if (rc < 0)
 			pr_err("%s[%p]:Failed to close the session rc=%d\n",
@@ -512,7 +532,7 @@ int enable_volume_ramp(struct q6audio_aio *audio)
 		__func__, rc);
 		return rc;
 	}
-	
+	/* disable mute by default */
 	rc = q6asm_set_mute(audio->ac, 0);
 	if (rc < 0) {
 		pr_err("%s: Send mute command failed rc=%d\n",
@@ -522,20 +542,20 @@ int enable_volume_ramp(struct q6audio_aio *audio)
 	return rc;
 }
 
-#else 
+#else /*CONFIG_USE_DEV_CTRL_VOLUME*/
 int register_volume_listener(struct q6audio_aio *audio)
 {
-	return 0;
+	return 0;/* do nothing */
 }
 void unregister_volume_listener(struct q6audio_aio *audio)
 {
-	return;
+	return;/* do nothing */
 }
 int enable_volume_ramp(struct q6audio_aio *audio)
 {
-	return 0; 
+	return 0; /* do nothing */
 }
-#endif 
+#endif /*CONFIG_USE_DEV_CTRL_VOLUME*/
 
 int audio_aio_release(struct inode *inode, struct file *file)
 {
@@ -580,7 +600,7 @@ int audio_aio_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	if (!audio->enabled || audio->feedback)
 		return -EINVAL;
 
-	
+	/* Blocking client sends more data */
 	mutex_lock(&audio->lock);
 	audio->drv_status |= ADRV_STATUS_FSYNC;
 	mutex_unlock(&audio->lock);
@@ -725,6 +745,9 @@ static long audio_aio_process_event_req(struct q6audio_aio *audio,
 		mutex_unlock(&audio->read_lock);
 	}
 
+	/* Some read buffer might be held up in DSP,release all
+	 * Once EOS indicated
+	 */
 	if (audio->eos_rsp && !list_empty(&audio->in_queue)) {
 		pr_debug("%s[%p]:Send flush command to release read buffers"\
 			" held up in DSP\n", __func__, audio);
@@ -880,20 +903,20 @@ static void audio_aio_async_write(struct q6audio_aio *audio,
 		buf_node->meta_info.meta_in.nflags);
 
 	ac = audio->ac;
-	
+	/* Offset with  appropriate meta */
 	if (audio->feedback) {
-		
+		/* Non Tunnel mode */
 		param.paddr = buf_node->paddr + sizeof(struct dec_meta_in);
 		param.len = buf_node->buf.data_len - sizeof(struct dec_meta_in);
 	} else {
-		
+		/* Tunnel mode */
 		param.paddr = buf_node->paddr;
 		param.len = buf_node->buf.data_len;
 	}
 	param.msw_ts = buf_node->meta_info.meta_in.ntimestamp.highpart;
 	param.lsw_ts = buf_node->meta_info.meta_in.ntimestamp.lowpart;
 	param.flags  = buf_node->meta_info.meta_in.nflags;
-	
+	/* If no meta_info enaled, indicate no time stamp valid */
 	if (!audio->buf_cfg.meta_info_enable)
 		param.flags = 0xFF00;
 
@@ -901,7 +924,7 @@ static void audio_aio_async_write(struct q6audio_aio *audio,
 		param.flags |= AUDIO_DEC_EOF_SET;
 
 	param.uid = param.paddr;
-	
+	/* Read command will populate paddr as token */
 	buf_node->token = param.paddr;
 	rc = q6asm_async_write(ac, &param);
 	if (rc < 0)
@@ -949,13 +972,13 @@ static void audio_aio_async_read(struct q6audio_aio *audio,
 		__func__, audio, buf_node,
 		buf_node->paddr, buf_node->buf.buf_len);
 	ac = audio->ac;
-	
+	/* Provide address so driver can append nr frames information */
 	param.paddr = buf_node->paddr +
 		sizeof(struct dec_meta_out);
 	param.len = buf_node->buf.buf_len -
 		sizeof(struct dec_meta_out);
 	param.uid = param.paddr;
-	
+	/* Write command will populate paddr as token */
 	buf_node->token = param.paddr;
 	rc = q6asm_async_read(ac, &param);
 	if (rc < 0)
@@ -986,7 +1009,7 @@ static int audio_aio_buf_add(struct q6audio_aio *audio, unsigned dir,
 						buf_node->buf.buf_len, 1,
 						&buf_node->kvaddr);
 	if (dir) {
-		
+		/* write */
 		if (!buf_node->paddr ||
 			(buf_node->paddr & 0x1) ||
 			(!audio->feedback && !buf_node->buf.data_len)) {
@@ -994,11 +1017,11 @@ static int audio_aio_buf_add(struct q6audio_aio *audio, unsigned dir,
 			return -EINVAL;
 		}
 		extract_meta_out_info(audio, buf_node, 1);
-		
+		/* Not a EOS buffer */
 		if (!(buf_node->meta_info.meta_in.nflags & AUDIO_DEC_EOS_SET)) {
 			spin_lock_irqsave(&audio->dsp_lock, flags);
 			audio_aio_async_write(audio, buf_node);
-			
+			/* EOS buffer handled in driver */
 			list_add_tail(&buf_node->list, &audio->out_queue);
 			spin_unlock_irqrestore(&audio->dsp_lock, flags);
 		} else if (buf_node->meta_info.meta_in.nflags
@@ -1006,13 +1029,18 @@ static int audio_aio_buf_add(struct q6audio_aio *audio, unsigned dir,
 			if (!audio->wflush) {
 				pr_debug("%s[%p]:Send EOS cmd at i/p\n",
 					__func__, audio);
+				/* Driver will forcefully post writedone event
+				 * once eos ack recived from DSP
+				 */
 				audio->eos_write_payload.aio_buf =\
 						buf_node->buf;
 				audio->eos_flag = 1;
 				audio->eos_rsp = 0;
 				q6asm_cmd(audio->ac, CMD_EOS);
 				kfree(buf_node);
-			} else { 
+			} else { /* Flush in progress, send back i/p
+				  * EOS buffer as is
+				  */
 				union msm_audio_event_payload event_payload;
 				event_payload.aio_buf = buf_node->buf;
 				audio_aio_post_event(audio,
@@ -1022,21 +1050,24 @@ static int audio_aio_buf_add(struct q6audio_aio *audio, unsigned dir,
 			}
 		}
 	} else {
-		
+		/* read */
 		if (!buf_node->paddr ||
 			(buf_node->paddr & 0x1) ||
 			(buf_node->buf.buf_len < PCM_BUFSZ_MIN)) {
 			kfree(buf_node);
 			return -EINVAL;
 		}
-		
+		/* No EOS reached */
 		if (!audio->eos_rsp) {
 			spin_lock_irqsave(&audio->dsp_lock, flags);
 			audio_aio_async_read(audio, buf_node);
-			
+			/* EOS buffer handled in driver */
 			list_add_tail(&buf_node->list, &audio->in_queue);
 			spin_unlock_irqrestore(&audio->dsp_lock, flags);
 		}
+		/* EOS reached at input side fake all upcoming read buffer to
+		 * indicate the same
+		 */
 		else {
 			union msm_audio_event_payload event_payload;
 			event_payload.aio_buf = buf_node->buf;
@@ -1055,6 +1086,10 @@ static int audio_aio_buf_add(struct q6audio_aio *audio, unsigned dir,
 void audio_aio_ioport_reset(struct q6audio_aio *audio)
 {
 	if (audio->drv_status & ADRV_STATUS_AIO_INTF) {
+		/* If fsync is in progress, make sure
+		 * return value of fsync indicates
+		 * abort due to flush
+		 */
 		if (audio->drv_status & ADRV_STATUS_FSYNC) {
 			pr_debug("%s[%p]:fsync in progress\n", __func__, audio);
 			audio->drv_ops.out_flush(audio);
@@ -1072,13 +1107,16 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 	struct audio_aio_event *e_node = NULL;
 	struct list_head *ptr, *next;
 
+	/* Settings will be re-config at AUDIO_SET_CONFIG,
+	 * but at least we need to have initial config
+	 */
 	audio->str_cfg.buffer_size = FRAME_SIZE;
 	audio->str_cfg.buffer_count = FRAME_NUM;
 	audio->pcm_cfg.buffer_count = PCM_BUF_COUNT;
 	audio->pcm_cfg.sample_rate = 48000;
 	audio->pcm_cfg.channel_count = 2;
 
-	
+	/* Only AIO interface */
 	if (file->f_flags & O_NONBLOCK) {
 		pr_debug("%s[%p]:set to aio interface\n", __func__, audio);
 		audio->drv_status |= ADRV_STATUS_AIO_INTF;
@@ -1092,7 +1130,7 @@ int audio_aio_open(struct q6audio_aio *audio, struct file *file)
 		goto fail;
 	}
 
-	
+	/* Initialize all locks of audio instance */
 	mutex_init(&audio->lock);
 	mutex_init(&audio->read_lock);
 	mutex_init(&audio->write_lock);
@@ -1284,9 +1322,9 @@ long audio_aio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				__func__, audio);
 			wake_up(&audio->write_wait);
 		}
-		
+		/* Flush DSP */
 		rc = audio_aio_flush(audio);
-		
+		/* Flush input / Output buffer in software*/
 		audio_aio_ioport_reset(audio);
 		if (rc < 0) {
 			pr_err("%s[%p]:AUDIO_FLUSH interrupted\n",

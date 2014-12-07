@@ -27,13 +27,13 @@
 
 static void __init tx4927_wdr_init(void)
 {
-	
+	/* report watchdog reset status */
 	if (____raw_readq(&tx4927_ccfgptr->ccfg) & TX4927_CCFG_WDRST)
 		pr_warning("Watchdog reset detected at 0x%lx\n",
 			   read_c0_errorepc());
-	
+	/* clear WatchDogReset (W1C) */
 	tx4927_ccfg_set(TX4927_CCFG_WDRST);
-	
+	/* do reset on watchdog */
 	tx4927_ccfg_set(TX4927_CCFG_WR);
 }
 
@@ -48,18 +48,18 @@ static void tx4927_machine_restart(char *command)
 	pr_emerg("Rebooting (with %s watchdog reset)...\n",
 		 (____raw_readq(&tx4927_ccfgptr->ccfg) & TX4927_CCFG_WDREXEN) ?
 		 "external" : "internal");
-	
-	tx4927_ccfg_set(TX4927_CCFG_WDRST);	
+	/* clear watchdog status */
+	tx4927_ccfg_set(TX4927_CCFG_WDRST);	/* W1C */
 	txx9_wdt_now(TX4927_TMR_REG(2) & 0xfffffffffULL);
 	while (!(____raw_readq(&tx4927_ccfgptr->ccfg) & TX4927_CCFG_WDRST))
 		;
 	mdelay(10);
 	if (____raw_readq(&tx4927_ccfgptr->ccfg) & TX4927_CCFG_WDREXEN) {
 		pr_emerg("Rebooting (with internal watchdog reset)...\n");
-		
+		/* External WDRST failed.  Do internal watchdog reset */
 		tx4927_ccfg_clear(TX4927_CCFG_WDREXEN);
 	}
-	
+	/* fallback */
 	(*_machine_halt)();
 }
 
@@ -96,20 +96,20 @@ void __init tx4927_setup(void)
 			  TX4927_REG_SIZE);
 	set_c0_config(TX49_CONF_CWFON);
 
-	
+	/* SDRAMC,EBUSC are configured by PROM */
 	for (i = 0; i < 8; i++) {
 		if (!(TX4927_EBUSC_CR(i) & 0x8))
-			continue;	
+			continue;	/* disabled */
 		txx9_ce_res[i].start = (unsigned long)TX4927_EBUSC_BA(i);
 		txx9_ce_res[i].end =
 			txx9_ce_res[i].start + TX4927_EBUSC_SIZE(i) - 1;
 		request_resource(&iomem_resource, &txx9_ce_res[i]);
 	}
 
-	
+	/* clocks */
 	ccfg = ____raw_readq(&tx4927_ccfgptr->ccfg);
 	if (txx9_master_clock) {
-		
+		/* calculate gbus_clock and cpu_clock from master_clock */
 		divmode = (__u32)ccfg & TX4927_CCFG_DIVMODE_MASK;
 		switch (divmode) {
 		case TX4927_CCFG_DIVMODE_8:
@@ -137,8 +137,8 @@ void __init tx4927_setup(void)
 		txx9_cpu_clock = cpuclk;
 	} else {
 		if (txx9_cpu_clock == 0)
-			txx9_cpu_clock = 200000000;	
-		
+			txx9_cpu_clock = 200000000;	/* 200MHz */
+		/* calculate gbus_clock and master_clock from cpu_clock */
 		cpuclk = txx9_cpu_clock;
 		divmode = (__u32)ccfg & TX4927_CCFG_DIVMODE_MASK;
 		switch (divmode) {
@@ -165,21 +165,21 @@ void __init tx4927_setup(void)
 			txx9_master_clock = txx9_gbus_clock;
 		}
 	}
-	
+	/* change default value to udelay/mdelay take reasonable time */
 	loops_per_jiffy = txx9_cpu_clock / HZ / 2;
 
-	
+	/* CCFG */
 	tx4927_wdr_init();
-	
+	/* clear BusErrorOnWrite flag (W1C) */
 	tx4927_ccfg_set(TX4927_CCFG_BEOW);
-	
+	/* enable Timeout BusError */
 	if (txx9_ccfg_toeon)
 		tx4927_ccfg_set(TX4927_CCFG_TOE);
 
-	
+	/* DMA selection */
 	txx9_clear64(&tx4927_ccfgptr->pcfg, TX4927_PCFG_DMASEL_ALL);
 
-	
+	/* Use external clock for external arbiter */
 	if (!(____raw_readq(&tx4927_ccfgptr->ccfg) & TX4927_CCFG_PCIARB))
 		txx9_clear64(&tx4927_ccfgptr->pcfg, TX4927_PCFG_PCICLKEN_ALL);
 
@@ -196,7 +196,7 @@ void __init tx4927_setup(void)
 		__u64 cr = TX4927_SDRAMC_CR(i);
 		unsigned long base, size;
 		if (!((__u32)cr & 0x00000400))
-			continue;	
+			continue;	/* disabled */
 		base = (unsigned long)(cr >> 49) << 21;
 		size = (((unsigned long)(cr >> 33) & 0x7fff) + 1) << 21;
 		printk(" CR%d:%016llx", i, (unsigned long long)cr);
@@ -209,12 +209,12 @@ void __init tx4927_setup(void)
 	printk(" TR:%09llx\n",
 	       (unsigned long long)____raw_readq(&tx4927_sdramcptr->tr));
 
-	
-	
+	/* TMR */
+	/* disable all timers */
 	for (i = 0; i < TX4927_NR_TMR; i++)
 		txx9_tmr_init(TX4927_TMR_REG(i) & 0xfffffffffULL);
 
-	
+	/* PIO */
 	txx9_gpio_init(TX4927_PIO_REG & 0xfffffffffULL, 0, TX4927_NUM_PIO);
 	__raw_writel(0, &tx4927_pioptr->maskcpu);
 	__raw_writel(0, &tx4927_pioptr->maskext);
@@ -250,7 +250,7 @@ void __init tx4927_mtd_init(int ch)
 	unsigned long size = txx9_ce_res[ch].end - start + 1;
 
 	if (!(TX4927_EBUSC_CR(ch) & 0x8))
-		return;	
+		return;	/* disabled */
 	txx9_physmap_flash_init(ch, start, size, &pdata);
 }
 
@@ -274,7 +274,7 @@ void __init tx4927_aclc_init(unsigned int dma_chan_out,
 
 	if (!(pcfg & TX4927_PCFG_SEL2))
 		return;
-	
+	/* setup DMASEL (playback:ACLC ch0, capture:ACLC ch1) */
 	switch (dma_chan_out) {
 	case 0:
 		dmasel_mask |= TX4927_PCFG_DMASEL0_MASK;

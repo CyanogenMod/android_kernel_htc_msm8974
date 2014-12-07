@@ -50,6 +50,9 @@ static void reloc_put32(uint8_t *p, uint32_t val)
 	reloc_put16(p+2, val >> 16);
 }
 
+/*
+ * apply a RELA relocation
+ */
 int apply_relocate_add(Elf32_Shdr *sechdrs,
 		       const char *strtab,
 		       unsigned int symindex,
@@ -67,14 +70,16 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 	       relsec, sechdrs[relsec].sh_info);
 
 	for (i = 0; i < sechdrs[relsec].sh_size / sizeof(*rel); i++) {
-		
+		/* this is where to make the change */
 		location = (void *)sechdrs[sechdrs[relsec].sh_info].sh_addr
 			+ rel[i].r_offset;
 
+		/* this is the symbol the relocation is referring to (note that
+		 * all undefined symbols have been resolved by the caller) */
 		sym = (Elf32_Sym *)sechdrs[symindex].sh_addr
 			+ ELF32_R_SYM(rel[i].r_info);
 
-		
+		/* this is the adjustment to be made */
 		relocation = sym->st_value + rel[i].r_addend;
 
 		if (sym_diff_seen) {
@@ -94,6 +99,8 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 		}
 
 		switch (ELF32_R_TYPE(rel[i].r_info)) {
+			/* for the first four relocation types, we simply
+			 * store the adjustment at the location given */
 		case R_MN10300_32:
 			reloc_put32(location, relocation);
 			break;
@@ -107,6 +114,9 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 			*location = relocation;
 			break;
 
+			/* for the next three relocation types, we write the
+			 * adjustment with the address subtracted over the
+			 * value at the location given */
 		case R_MN10300_PCREL32:
 			value = relocation - (uint32_t) location;
 			reloc_put32(location, value);
@@ -120,11 +130,15 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 			break;
 
 		case R_MN10300_SYM_DIFF:
+			/* This is used to adjust the next reloc as required
+			 * by relaxation. */
 			sym_diff_seen = 1;
 			sym_diff_val = sym->st_value;
 			break;
 
 		case R_MN10300_ALIGN:
+			/* Just ignore the ALIGN relocs.
+			 * Only interesting if kernel performed relaxation. */
 			continue;
 
 		default:

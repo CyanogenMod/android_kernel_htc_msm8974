@@ -18,6 +18,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00lib
+	Abstract: rt2x00 led specific routines.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -33,8 +37,16 @@ void rt2x00leds_led_quality(struct rt2x00_dev *rt2x00dev, int rssi)
 	if ((led->type != LED_TYPE_QUALITY) || !(led->flags & LED_REGISTERED))
 		return;
 
+	/*
+	 * Led handling requires a positive value for the rssi,
+	 * to do that correctly we need to add the correction.
+	 */
 	rssi += rt2x00dev->rssi_offset;
 
+	/*
+	 * Get the rssi level, this is used to convert the rssi
+	 * to a LED value inside the range LED_OFF - LED_FULL.
+	 */
 	if (rssi <= 30)
 		rssi = 0;
 	else if (rssi <= 39)
@@ -48,6 +60,11 @@ void rt2x00leds_led_quality(struct rt2x00_dev *rt2x00dev, int rssi)
 	else
 		rssi = 5;
 
+	/*
+	 * Note that we must _not_ send LED_OFF since the driver
+	 * is going to calculate the value and might use it in a
+	 * division.
+	 */
 	brightness = ((LED_FULL / 6) * rssi) + 1;
 	if (brightness != led->led_dev.brightness) {
 		led->led_dev.brightness_set(&led->led_dev, brightness);
@@ -146,6 +163,11 @@ void rt2x00leds_register(struct rt2x00_dev *rt2x00dev)
 			goto exit_fail;
 	}
 
+	/*
+	 * Initialize blink time to default value:
+	 * On period: 70ms
+	 * Off period: 30ms
+	 */
 	if (rt2x00dev->led_radio.led_dev.blink_set) {
 		on_period = 70;
 		off_period = 30;
@@ -163,6 +185,12 @@ static void rt2x00leds_unregister_led(struct rt2x00_led *led)
 {
 	led_classdev_unregister(&led->led_dev);
 
+	/*
+	 * This might look weird, but when we are unregistering while
+	 * suspended the led is already off, and since we haven't
+	 * fully resumed yet, access to the device might not be
+	 * possible yet.
+	 */
 	if (!(led->led_dev.flags & LED_SUSPENDED))
 		led->led_dev.brightness_set(&led->led_dev, LED_OFF);
 
@@ -183,7 +211,7 @@ static inline void rt2x00leds_suspend_led(struct rt2x00_led *led)
 {
 	led_classdev_suspend(&led->led_dev);
 
-	
+	/* This shouldn't be needed, but just to be safe */
 	led->led_dev.brightness_set(&led->led_dev, LED_OFF);
 	led->led_dev.brightness = LED_OFF;
 }
@@ -202,7 +230,7 @@ static inline void rt2x00leds_resume_led(struct rt2x00_led *led)
 {
 	led_classdev_resume(&led->led_dev);
 
-	
+	/* Device might have enabled the LEDS during resume */
 	led->led_dev.brightness_set(&led->led_dev, LED_OFF);
 	led->led_dev.brightness = LED_OFF;
 }

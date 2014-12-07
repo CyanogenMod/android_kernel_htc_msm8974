@@ -98,7 +98,7 @@ static irqreturn_t ds1287_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *cd = &ds1287_clockevent;
 
-	
+	/* Ack the RTC interrupt. */
 	CMOS_READ(RTC_REG_C);
 
 	cd->event_handler(cd);

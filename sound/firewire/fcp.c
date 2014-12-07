@@ -42,6 +42,30 @@ struct fcp_transaction {
 	wait_queue_head_t wait;
 };
 
+/**
+ * fcp_avc_transaction - send an AV/C command and wait for its response
+ * @unit: a unit on the target device
+ * @command: a buffer containing the command frame; must be DMA-able
+ * @command_size: the size of @command
+ * @response: a buffer for the response frame
+ * @response_size: the maximum size of @response
+ * @response_match_bytes: a bitmap specifying the bytes used to detect the
+ *                        correct response frame
+ *
+ * This function sends a FCP command frame to the target and waits for the
+ * corresponding response frame to be returned.
+ *
+ * Because it is possible for multiple FCP transactions to be active at the
+ * same time, the correct response frame is detected by the value of certain
+ * bytes.  These bytes must be set in @response before calling this function,
+ * and the corresponding bits must be set in @response_match_bytes.
+ *
+ * @command and @response can point to the same buffer.
+ *
+ * Asynchronous operation (INTERIM, NOTIFY) is not supported at the moment.
+ *
+ * Returns the actual size of the response frame, or a negative error code.
+ */
 int fcp_avc_transaction(struct fw_unit *unit,
 			const void *command, unsigned int command_size,
 			void *response, unsigned int response_size,
@@ -93,6 +117,14 @@ int fcp_avc_transaction(struct fw_unit *unit,
 }
 EXPORT_SYMBOL(fcp_avc_transaction);
 
+/**
+ * fcp_bus_reset - inform the target handler about a bus reset
+ * @unit: the unit that might be used by fcp_avc_transaction()
+ *
+ * This function must be called from the driver's .update handler to inform
+ * the FCP transaction handler that a bus reset has happened.  Any pending FCP
+ * transactions are retried.
+ */
 void fcp_bus_reset(struct fw_unit *unit)
 {
 	struct fcp_transaction *t;
@@ -109,6 +141,7 @@ void fcp_bus_reset(struct fw_unit *unit)
 }
 EXPORT_SYMBOL(fcp_bus_reset);
 
+/* checks whether the response matches the masked bytes in response_buffer */
 static bool is_matching_response(struct fcp_transaction *transaction,
 				 const void *response, size_t length)
 {
@@ -147,7 +180,7 @@ static void fcp_response(struct fw_card *card, struct fw_request *request,
 		if (device->card != card ||
 		    device->generation != generation)
 			continue;
-		smp_rmb(); 
+		smp_rmb(); /* node_id vs. generation */
 		if (device->node_id != source)
 			continue;
 

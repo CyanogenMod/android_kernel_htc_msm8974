@@ -87,8 +87,8 @@ enum clk_state {
 };
 
 struct clk {
-	
-	struct list_head	node;		
+	/* node for master clocks list */
+	struct list_head	node;		/* node for list of all clocks */
 	struct clk_lookup	lookup;
 
 #ifdef CONFIG_DEBUG_FS

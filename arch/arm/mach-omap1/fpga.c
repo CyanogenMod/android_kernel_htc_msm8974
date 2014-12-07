@@ -63,7 +63,7 @@ static inline u32 get_fpga_unmasked_irqs(void)
 
 static void fpga_ack_irq(struct irq_data *d)
 {
-	
+	/* Don't need to explicitly ACK FPGA interrupts */
 }
 
 static void fpga_unmask_irq(struct irq_data *d)
@@ -121,6 +121,29 @@ static struct irq_chip omap_fpga_irq = {
 	.irq_unmask	= fpga_unmask_irq,
 };
 
+/*
+ * All of the FPGA interrupt request inputs except for the touchscreen are
+ * edge-sensitive; the touchscreen is level-sensitive.  The edge-sensitive
+ * interrupts are acknowledged as a side-effect of reading the interrupt
+ * status register from the FPGA.  The edge-sensitive interrupt inputs
+ * cause a problem with level interrupt requests, such as Ethernet.  The
+ * problem occurs when a level interrupt request is asserted while its
+ * interrupt input is masked in the FPGA, which results in a missed
+ * interrupt.
+ *
+ * In an attempt to workaround the problem with missed interrupts, the
+ * mask_ack routine for all of the FPGA interrupts has been changed from
+ * fpga_mask_ack_irq() to fpga_ack_irq() so that the specific FPGA interrupt
+ * being serviced is left unmasked.  We can do this because the FPGA cascade
+ * interrupt is installed with the IRQF_DISABLED flag, which leaves all
+ * interrupts masked at the CPU while an FPGA interrupt handler executes.
+ *
+ * Limited testing indicates that this workaround appears to be effective
+ * for the smc9194 Ethernet driver used on the Innovator.  It should work
+ * on other FPGA interrupts as well, but any drivers that explicitly mask
+ * interrupts at the interrupt controller via disable_irq/enable_irq
+ * could pose a problem.
+ */
 void omap1510_fpga_init_irq(void)
 {
 	int i, res;
@@ -132,9 +155,17 @@ void omap1510_fpga_init_irq(void)
 	for (i = OMAP_FPGA_IRQ_BASE; i < OMAP_FPGA_IRQ_END; i++) {
 
 		if (i == OMAP1510_INT_FPGA_TS) {
+			/*
+			 * The touchscreen interrupt is level-sensitive, so
+			 * we'll use the regular mask_ack routine for it.
+			 */
 			irq_set_chip(i, &omap_fpga_irq_ack);
 		}
 		else {
+			/*
+			 * All FPGA interrupts except the touchscreen are
+			 * edge-sensitive, so we won't mask them.
+			 */
 			irq_set_chip(i, &omap_fpga_irq);
 		}
 
@@ -142,6 +173,13 @@ void omap1510_fpga_init_irq(void)
 		set_irq_flags(i, IRQF_VALID);
 	}
 
+	/*
+	 * The FPGA interrupt line is connected to GPIO13. Claim this pin for
+	 * the ARM.
+	 *
+	 * NOTE: For general GPIO/MPUIO access and interrupts, please see
+	 * gpio.[ch]
+	 */
 	res = gpio_request(13, "FPGA irq");
 	if (res) {
 		pr_err("%s failed to get gpio\n", __func__);

@@ -18,12 +18,25 @@
 #include <asm/sn/intr.h>
 #include <asm/sn/sn0/hub.h>
 
+/*
+ * Max #PCI busses we can handle; ie, max #PCI bridges.
+ */
 #define MAX_PCI_BUSSES		40
 
+/*
+ * Max #PCI devices (like scsi controllers) we handle on a bus.
+ */
 #define MAX_DEVICES_PER_PCIBUS	8
 
+/*
+ * XXX: No kmalloc available when we do our crosstalk scan,
+ * 	we should try to move it later in the boot process.
+ */
 static struct bridge_controller bridges[MAX_PCI_BUSSES];
 
+/*
+ * Translate from irq to software PCI bus number and PCI slot.
+ */
 struct bridge_controller *irq_to_bridge[MAX_PCI_BUSSES * MAX_DEVICES_PER_PCIBUS];
 int irq_to_slot[MAX_PCI_BUSSES * MAX_DEVICES_PER_PCIBUS];
 
@@ -41,7 +54,7 @@ int __cpuinit bridge_probe(nasid_t nasid, int widget_id, int masterwid)
 
 	printk("a bridge\n");
 
-	
+	/* XXX: kludge alert.. */
 	if (!num_bridges)
 		ioport_resource.end = ~0UL;
 
@@ -71,30 +84,46 @@ int __cpuinit bridge_probe(nasid_t nasid, int widget_id, int masterwid)
 
 	bc->baddr = (u64)masterwid << 60 | PCI64_ATTR_BAR;
 
+	/*
+	 * point to this bridge
+	 */
 	bridge = (bridge_t *) RAW_NODE_SWIN_BASE(nasid, widget_id);
 
+	/*
+	 * Clear all pending interrupts.
+	 */
 	bridge->b_int_rst_stat = BRIDGE_IRR_ALL_CLR;
 
+	/*
+	 * Until otherwise set up, assume all interrupts are from slot 0
+	 */
 	bridge->b_int_device = 0x0;
 
+	/*
+	 * swap pio's to pci mem and io space (big windows)
+	 */
 	bridge->b_wid_control |= BRIDGE_CTRL_IO_SWAP |
 	                         BRIDGE_CTRL_MEM_SWAP;
 #ifdef CONFIG_PAGE_SIZE_4KB
 	bridge->b_wid_control &= ~BRIDGE_CTRL_PAGE_SIZE;
-#else 
+#else /* 16kB or larger */
 	bridge->b_wid_control |= BRIDGE_CTRL_PAGE_SIZE;
 #endif
 
+	/*
+	 * Hmm...  IRIX sets additional bits in the address which
+	 * are documented as reserved in the bridge docs.
+	 */
 	bridge->b_wid_int_upper = 0x8000 | (masterwid << 16);
-	bridge->b_wid_int_lower = 0x01800090;	
-	bridge->b_dir_map = (masterwid << 20);	
+	bridge->b_wid_int_lower = 0x01800090;	/* PI_INT_PEND_MOD off*/
+	bridge->b_dir_map = (masterwid << 20);	/* DMA */
 	bridge->b_int_enable = 0;
 
 	for (slot = 0; slot < 8; slot ++) {
 		bridge->b_device[slot].reg |= BRIDGE_DEV_SWAP_DIR;
 		bc->pci_int[slot] = -1;
 	}
-	bridge->b_wid_tflush;     
+	bridge->b_wid_tflush;     /* wait until Bridge PIO complete */
 
 	bc->base = bridge;
 
@@ -105,6 +134,15 @@ int __cpuinit bridge_probe(nasid_t nasid, int widget_id, int masterwid)
 	return 0;
 }
 
+/*
+ * All observed requests have pin == 1. We could have a global here, that
+ * gets incremented and returned every time - unfortunately, pci_map_irq
+ * may be called on the same device over and over, and need to return the
+ * same value. On O2000, pin can be 0 or 1, and PCI slots can be [0..7].
+ *
+ * A given PCI device, in general, should be able to intr any of the cpus
+ * on any one of the hubs connected to its xbow.
+ */
 int __devinit pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	return 0;
@@ -113,13 +151,14 @@ int __devinit pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 static inline struct pci_dev *bridge_root_dev(struct pci_dev *dev)
 {
 	while (dev->bus->parent) {
-		
+		/* Move up the chain of bridges. */
 		dev = dev->bus->self;
 	}
 
 	return dev;
 }
 
+/* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
 	struct bridge_controller *bc = BRIDGE_CONTROLLER(dev->bus);
@@ -144,6 +183,12 @@ int pcibios_plat_dev_init(struct pci_dev *dev)
 	return 0;
 }
 
+/*
+ * Device might live on a subordinate PCI bus.  XXX Walk up the chain of buses
+ * to find the slot number in sense of the bridge device register.
+ * XXX This also means multiple devices might rely on conflicting bridge
+ * settings.
+ */
 
 static inline void pci_disable_swapping(struct pci_dev *dev)
 {
@@ -151,9 +196,9 @@ static inline void pci_disable_swapping(struct pci_dev *dev)
 	bridge_t *bridge = bc->base;
 	int slot = PCI_SLOT(dev->devfn);
 
-	
+	/* Turn off byte swapping */
 	bridge->b_device[slot].reg &= ~BRIDGE_DEV_SWAP_DIR;
-	bridge->b_widget.w_tflush;	
+	bridge->b_widget.w_tflush;	/* Flush */
 }
 
 static inline void pci_enable_swapping(struct pci_dev *dev)
@@ -162,9 +207,9 @@ static inline void pci_enable_swapping(struct pci_dev *dev)
 	bridge_t *bridge = bc->base;
 	int slot = PCI_SLOT(dev->devfn);
 
-	
+	/* Turn on byte swapping */
 	bridge->b_device[slot].reg |= BRIDGE_DEV_SWAP_DIR;
-	bridge->b_widget.w_tflush;	
+	bridge->b_widget.w_tflush;	/* Flush */
 }
 
 static void __init pci_fixup_ioc3(struct pci_dev *d)

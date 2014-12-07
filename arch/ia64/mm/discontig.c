@@ -10,6 +10,9 @@
  *	Jack Steiner <steiner@sgi.com>
  */
 
+/*
+ * Platform initialization for Discontig Memory
+ */
 
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -26,6 +29,10 @@
 #include <asm/numa.h>
 #include <asm/sections.h>
 
+/*
+ * Track per-node information needed to setup the boot memory allocator, the
+ * per-node areas, and the real VM.
+ */
 struct early_node_data {
 	struct ia64_node_data *node_data;
 	unsigned long pernode_addr;
@@ -43,11 +50,28 @@ static nodemask_t memory_less_mask __initdata;
 
 pg_data_t *pgdat_list[MAX_NUMNODES];
 
+/*
+ * To prevent cache aliasing effects, align per-node structures so that they
+ * start at addresses that are strided by node number.
+ */
 #define MAX_NODE_ALIGN_OFFSET	(32 * 1024 * 1024)
 #define NODEDATA_ALIGN(addr, node)						\
 	((((addr) + 1024*1024-1) & ~(1024*1024-1)) + 				\
 	     (((node)*PERCPU_PAGE_SIZE) & (MAX_NODE_ALIGN_OFFSET - 1)))
 
+/**
+ * build_node_maps - callback to setup bootmem structs for each node
+ * @start: physical start of range
+ * @len: length of range
+ * @node: node where this range resides
+ *
+ * We allocate a struct bootmem_data for each piece of memory that we wish to
+ * treat as a virtually contiguous block (i.e. each node). Each such block
+ * must start on an %IA64_GRANULE_SIZE boundary, so we round the address down
+ * if necessary.  Any non-existent pages will simply be part of the virtual
+ * memmap.  We also update min_low_pfn and max_low_pfn here as we receive
+ * memory ranges from the caller.
+ */
 static int __init build_node_maps(unsigned long start, unsigned long len,
 				  int node)
 {
@@ -68,6 +92,14 @@ static int __init build_node_maps(unsigned long start, unsigned long len,
 	return 0;
 }
 
+/**
+ * early_nr_cpus_node - return number of cpus on a given node
+ * @node: node to check
+ *
+ * Count the number of cpus on @node.  We can't use nr_cpus_node() yet because
+ * acpi_boot_init() (which builds the node_to_cpu_mask array) hasn't been
+ * called yet.  Note that node 0 will also count all non-existent cpus.
+ */
 static int __meminit early_nr_cpus_node(int node)
 {
 	int cpu, n = 0;
@@ -79,6 +111,10 @@ static int __meminit early_nr_cpus_node(int node)
 	return n;
 }
 
+/**
+ * compute_pernodesize - compute size of pernode data
+ * @node: the node id.
+ */
 static unsigned long __meminit compute_pernodesize(int node)
 {
 	unsigned long pernodesize = 0, cpus;
@@ -93,6 +129,15 @@ static unsigned long __meminit compute_pernodesize(int node)
 	return pernodesize;
 }
 
+/**
+ * per_cpu_node_setup - setup per-cpu areas on each node
+ * @cpu_data: per-cpu area on this node
+ * @node: node to setup
+ *
+ * Copy the static per-cpu data into the region we just set aside and then
+ * setup __per_cpu_offset for each CPU on this node.  Return a pointer to
+ * the end of the area.
+ */
 static void *per_cpu_node_setup(void *cpu_data, int node)
 {
 #ifdef CONFIG_SMP
@@ -108,6 +153,15 @@ static void *per_cpu_node_setup(void *cpu_data, int node)
 		__per_cpu_offset[cpu] = (char *)__va(cpu_data) -
 			__per_cpu_start;
 
+		/*
+		 * percpu area for cpu0 is moved from the __init area
+		 * which is setup by head.S and used till this point.
+		 * Update ar.k3.  This move is ensures that percpu
+		 * area for cpu0 is on the correct node and its
+		 * virtual address isn't insanely far from other
+		 * percpu areas which is important for congruent
+		 * percpu allocator.
+		 */
 		if (cpu == 0)
 			ia64_set_kr(IA64_KR_PER_CPU_DATA,
 				    (unsigned long)cpu_data -
@@ -120,6 +174,14 @@ static void *per_cpu_node_setup(void *cpu_data, int node)
 }
 
 #ifdef CONFIG_SMP
+/**
+ * setup_per_cpu_areas - setup percpu areas
+ *
+ * Arch code has already allocated and initialized percpu areas.  All
+ * this function has to do is to teach the determined layout to the
+ * dynamic percpu allocator, which happens to be more complex than
+ * creating whole new ones using helpers.
+ */
 void __init setup_per_cpu_areas(void)
 {
 	struct pcpu_alloc_info *ai;
@@ -136,14 +198,14 @@ void __init setup_per_cpu_areas(void)
 		panic("failed to allocate pcpu_alloc_info");
 	cpu_map = ai->groups[0].cpu_map;
 
-	
+	/* determine base */
 	base = (void *)ULONG_MAX;
 	for_each_possible_cpu(cpu)
 		base = min(base,
 			   (void *)(__per_cpu_offset[cpu] + __per_cpu_start));
 	base_offset = (void *)__per_cpu_start - base;
 
-	
+	/* build cpu_map, units are grouped by node */
 	unit = 0;
 	for_each_node(node)
 		for_each_possible_cpu(cpu)
@@ -151,7 +213,7 @@ void __init setup_per_cpu_areas(void)
 				cpu_map[unit++] = cpu;
 	nr_units = unit;
 
-	
+	/* set basic parameters */
 	static_size = __per_cpu_end - __per_cpu_start;
 	reserved_size = PERCPU_MODULE_RESERVE;
 	dyn_size = PERCPU_PAGE_SIZE - static_size - reserved_size;
@@ -166,6 +228,10 @@ void __init setup_per_cpu_areas(void)
 	ai->atom_size		= PAGE_SIZE;
 	ai->alloc_size		= PERCPU_PAGE_SIZE;
 
+	/*
+	 * CPUs are put into groups according to node.  Walk cpu_map
+	 * and create new groups at node boundaries.
+	 */
 	prev_node = -1;
 	ai->nr_groups = 0;
 	for (unit = 0; unit < nr_units; unit++) {
@@ -192,6 +258,12 @@ void __init setup_per_cpu_areas(void)
 }
 #endif
 
+/**
+ * fill_pernode - initialize pernode data.
+ * @node: the node id.
+ * @pernode: physical address of pernode data
+ * @pernodesize: size of the pernode data
+ */
 static void __init fill_pernode(int node, unsigned long pernode,
 	unsigned long pernodesize)
 {
@@ -221,6 +293,34 @@ static void __init fill_pernode(int node, unsigned long pernode,
 	return;
 }
 
+/**
+ * find_pernode_space - allocate memory for memory map and per-node structures
+ * @start: physical start of range
+ * @len: length of range
+ * @node: node where this range resides
+ *
+ * This routine reserves space for the per-cpu data struct, the list of
+ * pg_data_ts and the per-node data struct.  Each node will have something like
+ * the following in the first chunk of addr. space large enough to hold it.
+ *
+ *    ________________________
+ *   |                        |
+ *   |~~~~~~~~~~~~~~~~~~~~~~~~| <-- NODEDATA_ALIGN(start, node) for the first
+ *   |    PERCPU_PAGE_SIZE *  |     start and length big enough
+ *   |    cpus_on_this_node   | Node 0 will also have entries for all non-existent cpus.
+ *   |------------------------|
+ *   |   local pg_data_t *    |
+ *   |------------------------|
+ *   |  local ia64_node_data  |
+ *   |------------------------|
+ *   |          ???           |
+ *   |________________________|
+ *
+ * Once this space has been set aside, the bootmem maps are initialized.  We
+ * could probably move the allocation of the per-cpu and ia64_node_data space
+ * outside of this function and use alloc_bootmem_node(), but doing it here
+ * is straightforward and we get the alignments we want so...
+ */
 static int __init find_pernode_space(unsigned long start, unsigned long len,
 				     int node)
 {
@@ -234,23 +334,42 @@ static int __init find_pernode_space(unsigned long start, unsigned long len,
 	pages = bdp->node_low_pfn - bdp->node_min_pfn;
 	mapsize = bootmem_bootmap_pages(pages) << PAGE_SHIFT;
 
+	/*
+	 * Make sure this memory falls within this node's usable memory
+	 * since we may have thrown some away in build_maps().
+	 */
 	if (spfn < bdp->node_min_pfn || epfn > bdp->node_low_pfn)
 		return 0;
 
-	
+	/* Don't setup this node's local space twice... */
 	if (mem_data[node].pernode_addr)
 		return 0;
 
+	/*
+	 * Calculate total size needed, incl. what's necessary
+	 * for good alignment and alias prevention.
+	 */
 	pernodesize = compute_pernodesize(node);
 	pernode = NODEDATA_ALIGN(start, node);
 
-	
+	/* Is this range big enough for what we want to store here? */
 	if (start + len > (pernode + pernodesize + mapsize))
 		fill_pernode(node, pernode, pernodesize);
 
 	return 0;
 }
 
+/**
+ * free_node_bootmem - free bootmem allocator memory for use
+ * @start: physical start of range
+ * @len: length of range
+ * @node: node where this range resides
+ *
+ * Simply calls the bootmem allocator to free the specified ranged from
+ * the given pg_data_t's bdata struct.  After this function has been called
+ * for all the entries in the EFI memory map, the bootmem allocator will
+ * be ready to service allocation requests.
+ */
 static int __init free_node_bootmem(unsigned long start, unsigned long len,
 				    int node)
 {
@@ -259,6 +378,13 @@ static int __init free_node_bootmem(unsigned long start, unsigned long len,
 	return 0;
 }
 
+/**
+ * reserve_pernode_space - reserve memory for per-node space
+ *
+ * Reserve the space used by the bootmem maps & per-node space in the boot
+ * allocator so that when we actually create the real mem maps we don't
+ * use their memory.
+ */
 static void __init reserve_pernode_space(void)
 {
 	unsigned long base, size, pages;
@@ -273,13 +399,13 @@ static void __init reserve_pernode_space(void)
 
 		bdp = pdp->bdata;
 
-		
+		/* First the bootmem_map itself */
 		pages = bdp->node_low_pfn - bdp->node_min_pfn;
 		size = bootmem_bootmap_pages(pages) << PAGE_SHIFT;
 		base = __pa(bdp->node_bootmem_map);
 		reserve_bootmem_node(pdp, base, size, BOOTMEM_DEFAULT);
 
-		
+		/* Now the per-node space */
 		size = mem_data[node].pernode_size;
 		base = __pa(mem_data[node].pernode_addr);
 		reserve_bootmem_node(pdp, base, size, BOOTMEM_DEFAULT);
@@ -291,6 +417,14 @@ static void __meminit scatter_node_data(void)
 	pg_data_t **dst;
 	int node;
 
+	/*
+	 * for_each_online_node() can't be used at here.
+	 * node_online_map is not set for hot-added nodes at this time,
+	 * because we are halfway through initialization of the new node's
+	 * structures.  If for_each_online_node() is used, a new node's
+	 * pg_data_ptrs will be not initialized. Instead of using it,
+	 * pgdat_list[] is checked.
+	 */
 	for_each_node(node) {
 		if (pgdat_list[node]) {
 			dst = LOCAL_DATA_ADDR(pgdat_list[node])->pg_data_ptrs;
@@ -299,6 +433,14 @@ static void __meminit scatter_node_data(void)
 	}
 }
 
+/**
+ * initialize_pernode_data - fixup per-cpu & per-node pointers
+ *
+ * Each node's per-node area has a copy of the global pg_data_t list, so
+ * we copy that to each node here, as well as setting the per-cpu pointer
+ * to the local node data structure.  The active_cpus field of the per-node
+ * structure gets setup by the platform_cpu_init() function later.
+ */
 static void __init initialize_pernode_data(void)
 {
 	int cpu, node;
@@ -306,7 +448,7 @@ static void __init initialize_pernode_data(void)
 	scatter_node_data();
 
 #ifdef CONFIG_SMP
-	
+	/* Set the node_data pointer for each per-cpu struct */
 	for_each_possible_early_cpu(cpu) {
 		node = node_cpuid[cpu].nid;
 		per_cpu(ia64_cpu_info, cpu).node_data =
@@ -321,9 +463,16 @@ static void __init initialize_pernode_data(void)
 			((char *)&ia64_cpu_info - __per_cpu_start));
 		cpu0_cpu_info->node_data = mem_data[node].node_data;
 	}
-#endif 
+#endif /* CONFIG_SMP */
 }
 
+/**
+ * memory_less_node_alloc - * attempt to allocate memory on the best NUMA slit
+ * 	node but fall back to any other node when __alloc_bootmem_node fails
+ *	for best.
+ * @nid: node id
+ * @pernodesize: size of this node's pernode data
+ */
 static void __init *memory_less_node_alloc(int nid, unsigned long pernodesize)
 {
 	void *ptr = NULL;
@@ -349,6 +498,10 @@ static void __init *memory_less_node_alloc(int nid, unsigned long pernodesize)
 	return ptr;
 }
 
+/**
+ * memory_less_nodes - allocate and initialize CPU only nodes pernode
+ *	information.
+ */
 static void __init memory_less_nodes(void)
 {
 	unsigned long pernodesize;
@@ -364,6 +517,12 @@ static void __init memory_less_nodes(void)
 	return;
 }
 
+/**
+ * find_memory - walk the EFI memory map and setup the bootmem allocator
+ *
+ * Called early in boot to setup the bootmem allocator, and to
+ * allocate the per-cpu and per-node structures.
+ */
 void __init find_memory(void)
 {
 	int node;
@@ -379,7 +538,7 @@ void __init find_memory(void)
 	min_low_pfn = -1;
 	max_low_pfn = 0;
 
-	
+	/* These actually end up getting called by call_pernode_memory() */
 	efi_memmap_walk(filter_rsvd_memory, build_node_maps);
 	efi_memmap_walk(filter_rsvd_memory, find_pernode_space);
 	efi_memmap_walk(find_max_min_low_pfn, NULL);
@@ -392,6 +551,10 @@ void __init find_memory(void)
 
 	efi_memmap_walk(filter_memory, register_active_ranges);
 
+	/*
+	 * Initialize the boot memory maps in reverse order since that's
+	 * what the bootmem allocator expects
+	 */
 	for (node = MAX_NUMNODES - 1; node >= 0; node--) {
 		unsigned long pernode, pernodesize, map;
 		struct bootmem_data *bdp;
@@ -424,6 +587,12 @@ void __init find_memory(void)
 }
 
 #ifdef CONFIG_SMP
+/**
+ * per_cpu_init - setup per-cpu variables
+ *
+ * find_pernode_space() does most of this already, we just need to set
+ * local_per_cpu_offset
+ */
 void __cpuinit *per_cpu_init(void)
 {
 	int cpu;
@@ -437,8 +606,14 @@ void __cpuinit *per_cpu_init(void)
 
 	return __per_cpu_start + __per_cpu_offset[smp_processor_id()];
 }
-#endif 
+#endif /* CONFIG_SMP */
 
+/**
+ * show_mem - give short summary of memory stats
+ *
+ * Shows a simple page count of reserved and used pages in the system.
+ * For discontig machines, it does this on a per-pgdat basis.
+ */
 void show_mem(unsigned int filter)
 {
 	int i, total_reserved = 0;
@@ -494,6 +669,19 @@ void show_mem(unsigned int filter)
 	printk(KERN_INFO "%d free buffer pages\n", nr_free_buffer_pages());
 }
 
+/**
+ * call_pernode_memory - use SRAT to call callback functions with node info
+ * @start: physical start of range
+ * @len: length of range
+ * @arg: function to call for each range
+ *
+ * efi_memmap_walk() knows nothing about layout of memory across nodes. Find
+ * out to which node a block of memory belongs.  Ignore memory that we cannot
+ * identify, and split blocks that run across multiple nodes.
+ *
+ * Take this opportunity to round the start address up and the end address
+ * down to page boundaries.
+ */
 void call_pernode_memory(unsigned long start, unsigned long len, void *arg)
 {
 	unsigned long rs, re, end = start + len;
@@ -508,7 +696,7 @@ void call_pernode_memory(unsigned long start, unsigned long len, void *arg)
 	func = arg;
 
 	if (!num_node_memblks) {
-		
+		/* No SRAT table, so assume one node (node 0) */
 		if (start < end)
 			(*func)(start, end - start, 0);
 		return;
@@ -527,6 +715,17 @@ void call_pernode_memory(unsigned long start, unsigned long len, void *arg)
 	}
 }
 
+/**
+ * count_node_pages - callback to build per-node memory info structures
+ * @start: physical start of range
+ * @len: length of range
+ * @node: node where this range resides
+ *
+ * Each node has it's own number of physical pages, DMAable pages, start, and
+ * end page frame number.  This routine will be called by call_pernode_memory()
+ * for each piece of usable memory and will setup these values for each node.
+ * Very similar to build_maps().
+ */
 static __init int count_node_pages(unsigned long start, unsigned long len, int node)
 {
 	unsigned long end = start + len;
@@ -547,6 +746,12 @@ static __init int count_node_pages(unsigned long start, unsigned long len, int n
 	return 0;
 }
 
+/**
+ * paging_init - setup page tables
+ *
+ * paging_init() sets up the page tables for each node of the system and frees
+ * the bootmem allocator memory for general use.
+ */
 void __init paging_init(void)
 {
 	unsigned long max_dma;

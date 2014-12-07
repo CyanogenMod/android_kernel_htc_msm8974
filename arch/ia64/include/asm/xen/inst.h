@@ -113,6 +113,7 @@
 .endm
 #define MOV_FROM_PSR(pred, reg, clob)	__MOV_FROM_PSR pred, reg, clob
 
+/* assuming ar.itc is read with interrupt disabled. */
 #define MOV_FROM_ITC(pred, pred_clob, reg, clob)		\
 (pred)	movl clob = XSI_ITC_OFFSET;				\
 	;;							\
@@ -344,22 +345,23 @@
 	st4 [clob] = r0;	\
 	;;
 
+/* pred will be clobbered */
 #define MASK_TO_PEND_OFS    (-1)
 #define SSM_PSR_I(pred, pred_clob, clob)				\
 (pred)	movl clob = XSI_PSR_I_ADDR					\
 	;;								\
 (pred)	ld8 clob = [clob]						\
 	;;								\
-						\
-			\
+	/* if (pred) vpsr.i = 1 */					\
+	/* if (pred) (vcpu->vcpu_info->evtchn_upcall_mask)=0 */		\
 (pred)	st1 [clob] = r0, MASK_TO_PEND_OFS				\
 	;;								\
-			\
+	/* if (vcpu->vcpu_info->evtchn_upcall_pending) */		\
 (pred)	ld1 clob = [clob]						\
 	;;								\
 (pred)	cmp.ne.unc pred_clob, p0 = clob, r0				\
 	;;								\
-(pred_clob)XEN_HYPER_SSM_I	
+(pred_clob)XEN_HYPER_SSM_I	/* do areal ssm psr.i */
 
 #define RSM_PSR_I(pred, clob0, clob1)	\
 	movl clob0 = XSI_PSR_I_ADDR;	\
@@ -376,7 +378,7 @@
 	ld8 clob0 = [clob0];				\
 	mov clob2 = 1;					\
 	;;						\
-		\
+	/* note: clears both vpsr.i and vpsr.ic! */	\
 	st1 [clob0] = clob2;				\
 	st4 [clob1] = r0;				\
 	;;
@@ -393,7 +395,7 @@
 
 #define BSW_0(clob0, clob1, clob2)			\
 	;;						\
-			\
+	/* r16-r31 all now hold bank1 values */		\
 	mov clob2 = ar.unat;				\
 	movl clob0 = XSI_BANK1_R16;			\
 	movl clob1 = XSI_BANK1_R16 + 8;			\
@@ -432,7 +434,7 @@
 	st4 [clob0] = r0
 
 
-	
+	/* FIXME: THIS CODE IS NOT NaT SAFE! */
 #define XEN_BSW_1(clob)			\
 	mov clob = ar.unat;		\
 	movl r30 = XSI_B1NAT;		\

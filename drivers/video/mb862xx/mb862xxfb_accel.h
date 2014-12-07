@@ -1,8 +1,10 @@
 #ifndef __MB826XXFB_ACCEL_H__
 #define __MB826XXFB_ACCEL_H__
 
+/* registers */
 #define GDC_GEO_REG_INPUT_FIFO 0x00000400L
 
+/* Special Registers */
 #define GDC_REG_CTRL                0x00000400L
 #define GDC_REG_FIFO_STATUS         0x00000404L
 #define GDC_REG_FIFO_COUNT          0x00000408L
@@ -10,13 +12,14 @@
 #define GDC_REG_DDA_STATUS          0x00000410L
 #define GDC_REG_ENGINE_STATUS       0x00000414L
 #define GDC_REG_ERROR_STATUS        0x00000418L
-#define GDC_REG_MODE_MISC           0x00000420L	
-#define GDC_REG_MODE_LINE           0x00000424L	
-#define GDC_REG_MODE_POLYGON        0x00000428L	
-#define GDC_REG_MODE_TEXTURE        0x0000042CL	
-#define GDC_REG_MODE_BITMAP         0x00000430L	
-#define GDC_REG_MODE_EXTENSION      0x0000043CL	
+#define GDC_REG_MODE_MISC           0x00000420L	/* MDR0 */
+#define GDC_REG_MODE_LINE           0x00000424L	/* MDR1 */
+#define GDC_REG_MODE_POLYGON        0x00000428L	/* MDR2 */
+#define GDC_REG_MODE_TEXTURE        0x0000042CL	/* MDR3 */
+#define GDC_REG_MODE_BITMAP         0x00000430L	/* MDR4 */
+#define GDC_REG_MODE_EXTENSION      0x0000043CL	/* MDR7 */
 
+/* Configuration Registers */
 #define GDC_REG_DRAW_BASE           0x00000440L
 #define GDC_REG_X_RESOLUTION        0x00000444L
 #define GDC_REG_Z_BASE              0x00000448L
@@ -30,8 +33,10 @@
 #define GDC_REG_TILE_SIZE           0x00000468L
 #define GDC_REG_TEX_BUF_OFFSET      0x0000046CL
 
-#define GDC_REG_ALPHA_MAP_BASE      0x00000474L	
+/* for MB86293 or later */
+#define GDC_REG_ALPHA_MAP_BASE      0x00000474L	/* ABR */
 
+/* Constant Registers */
 #define GDC_REG_FOREGROUND_COLOR    0x00000480L
 #define GDC_REG_BACKGROUND_COLOR    0x00000484L
 #define GDC_REG_ALPHA               0x00000488L
@@ -39,6 +44,7 @@
 #define GDC_REG_TEX_BORDER_COLOR    0x00000494L
 #define GDC_REG_LINE_PATTERN_OFFSET 0x000003E0L
 
+/* Coomand Code */
 #define GDC_CMD_PIXEL                   0x00000000L
 #define GDC_CMD_PIXEL_Z                 0x00000001L
 
@@ -102,6 +108,7 @@
 #define GDC_CMD_VECTOR_BLPO_FLAG        0x00040000L
 #define GDC_CMD_FAST_VECTOR_BLPO_FLAG   0x00000004L
 
+/* for MB86293 or later */
 #define GDC_CMD_MDR1                            0x00000000L
 #define GDC_CMD_MDR1S                           0x00000002L
 #define GDC_CMD_MDR1B                           0x00000004L
@@ -117,8 +124,8 @@
 #define GDC_CMD_OVERLAP_Z_NON_TOPLEFT           0x00000001L
 #define GDC_CMD_OVERLAP_Z_BORDER                0x00000002L
 #define GDC_CMD_OVERLAP_Z_SHADOW                0x00000003L
-#define GDC_CMD_BLTCOPY_ALT_ALPHA               0x00000000L	
-#define GDC_CMD_DC_LOGOUT                       0x00000000L	
+#define GDC_CMD_BLTCOPY_ALT_ALPHA               0x00000000L	/* Reserverd */
+#define GDC_CMD_DC_LOGOUT                       0x00000000L	/* Reserverd */
 #define GDC_CMD_BODY_FORE_COLOR                 0x00000000L
 #define GDC_CMD_BODY_BACK_COLOR                 0x00000001L
 #define GDC_CMD_SHADOW_FORE_COLOR               0x00000002L
@@ -126,6 +133,7 @@
 #define GDC_CMD_BORDER_FORE_COLOR               0x00000004L
 #define GDC_CMD_BORDER_BACK_COLOR               0x00000005L
 
+/* Type Code Table */
 #define GDC_TYPE_G_NOP                                  0x00000020L
 #define GDC_TYPE_G_BEGIN                                0x00000021L
 #define GDC_TYPE_G_BEGINCONT                            0x00000022L
@@ -174,6 +182,7 @@
 #define GDC_TYPE_INTERRUPT                              0x000000FDL
 #define GDC_TYPE_NOP                                    0x0
 
+/* Raster operation */
 #define GDC_ROP_CLEAR                   0x0000
 #define GDC_ROP_AND                     0x0001
 #define GDC_ROP_AND_REVERSE             0x0002

@@ -1,3 +1,4 @@
+/*Created on  2008/ 7/16,  5:31*/
 #include <linux/types.h>
 
 u32 Rtl8192UsbPHY_REGArray[] = {

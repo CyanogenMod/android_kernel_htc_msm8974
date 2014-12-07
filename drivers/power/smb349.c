@@ -26,6 +26,7 @@
 
 #define SMB349_MASK(BITS, POS)  ((unsigned char)(((1 << BITS) - 1) << POS))
 
+/* Register definitions */
 #define CHG_CURRENT_REG			0x00
 #define CHG_OTHER_CURRENT_REG	0x01
 #define VAR_FUNC_REG			0x02
@@ -56,9 +57,11 @@
 #define STATUS_D_REG	0x3E
 #define STATUS_E_REG	0x3F
 
+/* Status bits and masks */
 #define CHG_STATUS_MASK		SMB349_MASK(2, 1)
 #define CHG_ENABLE_STATUS_BIT		BIT(0)
 
+/* Control bits and masks */
 #define FAST_CHG_CURRENT_MASK			SMB349_MASK(4, 4)
 #define AC_INPUT_CURRENT_LIMIT_MASK		SMB349_MASK(4, 0)
 #define PRE_CHG_CURRENT_MASK			SMB349_MASK(3, 5)
@@ -521,6 +524,11 @@ static void chg_worker(struct work_struct *work)
 
 	gpio_set_value_cansleep(smb349_chg->en_n_gpio, smb349_chg->charging);
 
+	/*
+	 * Write non-default values, charger chip reloads from
+	 * non-volatile memory if it was in suspend mode
+	 *
+	 */
 	if (smb349_chg->charging)
 		ret = smb349_hwinit(smb349_chg);
 	if (ret)

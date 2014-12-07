@@ -52,7 +52,7 @@ read_div(struct drm_device *dev)
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
 	switch (dev_priv->chipset) {
-	case 0x50: 
+	case 0x50: /* it exists, but only has bit 31, not the dividers.. */
 	case 0x84:
 	case 0x86:
 	case 0x98:
@@ -180,7 +180,7 @@ read_pll(struct drm_device *dev, u32 base)
 	int N1, N2, M1, M2;
 
 	if (base == 0x004028 && (mast & 0x00100000)) {
-		
+		/* wtf, appears to only disable post-divider on nva0 */
 		if (dev_priv->chipset != 0xa0)
 			return read_clk(dev, clk_src_dom6);
 	}
@@ -213,7 +213,7 @@ read_clk(struct drm_device *dev, enum clk_src src)
 	case clk_src_crystal:
 		return dev_priv->crystal;
 	case clk_src_href:
-		return 100000; 
+		return 100000; /* PCIE reference clock */
 	case clk_src_hclk:
 		return read_clk(dev, clk_src_href) * 27778 / 10000;
 	case clk_src_hclkm3:
@@ -224,7 +224,7 @@ read_clk(struct drm_device *dev, enum clk_src src)
 		switch (mast & 0x30000000) {
 		case 0x00000000: return read_clk(dev, clk_src_href);
 		case 0x10000000: break;
-		case 0x20000000: 
+		case 0x20000000: /* !0x50 */
 		case 0x30000000: return read_clk(dev, clk_src_hclk);
 		}
 		break;
@@ -275,7 +275,7 @@ read_clk(struct drm_device *dev, enum clk_src src)
 		case 0xa0:
 			switch (mast & 0x00000c00) {
 			case 0x00000000:
-				if (dev_priv->chipset == 0xa0) 
+				if (dev_priv->chipset == 0xa0) /* wtf?? */
 					return read_clk(dev, clk_src_nvclk) >> P;
 				return read_clk(dev, clk_src_crystal) >> P;
 			case 0x00000400:
@@ -495,11 +495,11 @@ mclk_clock_set(struct nouveau_mem_exec_func *exec)
 	u32 ctrl = nv_rd32(exec->dev, 0x004008);
 
 	info->mmast = nv_rd32(exec->dev, 0x00c040);
-	info->mmast &= ~0xc0000000; 
-	info->mmast |=  0x0000c000; 
+	info->mmast &= ~0xc0000000; /* get MCLK_2 from HREF */
+	info->mmast |=  0x0000c000; /* use MCLK_2 as MPLL_BYPASS clock */
 
 	hwsq_wr32(hwsq, 0xc040, info->mmast);
-	hwsq_wr32(hwsq, 0x4008, ctrl | 0x00000200); 
+	hwsq_wr32(hwsq, 0x4008, ctrl | 0x00000200); /* bypass MPLL */
 	if (info->mctrl & 0x80000000)
 		hwsq_wr32(hwsq, 0x400c, info->mcoef);
 	hwsq_wr32(hwsq, 0x4008, info->mctrl);
@@ -546,7 +546,7 @@ calc_mclk(struct drm_device *dev, struct nouveau_pm_level *perflvl,
 	int N, M, P;
 	int ret;
 
-	
+	/* use pcie refclock if possible, otherwise use mpll */
 	info->mctrl  = nv_rd32(dev, 0x004008);
 	info->mctrl &= ~0x81ff0200;
 	if (clk_same(perflvl->memory, read_clk(dev, clk_src_href))) {
@@ -561,25 +561,25 @@ calc_mclk(struct drm_device *dev, struct nouveau_pm_level *perflvl,
 		info->mcoef  = (N << 8) | M;
 	}
 
-	
+	/* build the ucode which will reclock the memory for us */
 	hwsq_init(hwsq);
 	if (crtc_mask) {
-		hwsq_op5f(hwsq, crtc_mask, 0x00); 
-		hwsq_op5f(hwsq, crtc_mask, 0x01); 
+		hwsq_op5f(hwsq, crtc_mask, 0x00); /* wait for scanout */
+		hwsq_op5f(hwsq, crtc_mask, 0x01); /* wait for vblank */
 	}
 	if (dev_priv->chipset >= 0x92)
-		hwsq_wr32(hwsq, 0x611200, 0x00003300); 
-	hwsq_setf(hwsq, 0x10, 0); 
-	hwsq_op5f(hwsq, 0x00, 0x01); 
+		hwsq_wr32(hwsq, 0x611200, 0x00003300); /* disable scanout */
+	hwsq_setf(hwsq, 0x10, 0); /* disable bus access */
+	hwsq_op5f(hwsq, 0x00, 0x01); /* no idea :s */
 
 	ret = nouveau_mem_exec(&exec, perflvl);
 	if (ret)
 		return ret;
 
-	hwsq_setf(hwsq, 0x10, 1); 
-	hwsq_op5f(hwsq, 0x00, 0x00); 
+	hwsq_setf(hwsq, 0x10, 1); /* enable bus access */
+	hwsq_op5f(hwsq, 0x00, 0x00); /* no idea, reverse of 0x00, 0x01? */
 	if (dev_priv->chipset >= 0x92)
-		hwsq_wr32(hwsq, 0x611200, 0x00003330); 
+		hwsq_wr32(hwsq, 0x611200, 0x00003330); /* enable scanout */
 	hwsq_fini(hwsq);
 	return 0;
 }
@@ -604,6 +604,8 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 		return ERR_PTR(-ENOMEM);
 	info->perflvl = perflvl;
 
+	/* memory: build hwsq ucode which we'll use to reclock memory.
+	 *         use pcie refclock if possible, otherwise use mpll */
 	info->mclk_hwsq.len = 0;
 	if (perflvl->memory) {
 		ret = calc_mclk(dev, perflvl, info);
@@ -615,13 +617,13 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 	divs = read_div(dev);
 	mast = info->mmast;
 
-	
+	/* start building HWSQ script for engine reclocking */
 	hwsq = &info->eclk_hwsq;
 	hwsq_init(hwsq);
-	hwsq_setf(hwsq, 0x10, 0); 
-	hwsq_op5f(hwsq, 0x00, 0x01); 
+	hwsq_setf(hwsq, 0x10, 0); /* disable bus access */
+	hwsq_op5f(hwsq, 0x00, 0x01); /* wait for access disabled? */
 
-	
+	/* vdec/dom6: switch to "safe" clocks temporarily */
 	if (perflvl->vdec) {
 		mast &= ~0x00000c00;
 		divs &= ~0x00000700;
@@ -634,18 +636,22 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 
 	hwsq_wr32(hwsq, 0x00c040, mast);
 
+	/* vdec: avoid modifying xpll until we know exactly how the other
+	 * clock domains work, i suspect at least some of them can also be
+	 * tied to xpll...
+	 */
 	if (perflvl->vdec) {
-		
+		/* see how close we can get using nvclk as a source */
 		clk = calc_div(perflvl->core, perflvl->vdec, &P1);
 
-		
+		/* see how close we can get using xpll/hclk as a source */
 		if (dev_priv->chipset != 0x98)
 			out = read_pll(dev, 0x004030);
 		else
 			out = read_clk(dev, clk_src_hclkm3d2);
 		out = calc_div(out, perflvl->vdec, &P2);
 
-		
+		/* select whichever gets us closest */
 		if (abs((int)perflvl->vdec - clk) <=
 		    abs((int)perflvl->vdec - out)) {
 			if (dev_priv->chipset != 0x98)
@@ -657,6 +663,9 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 		}
 	}
 
+	/* dom6: nfi what this is, but we're limited to various combinations
+	 * of the host clock frequency
+	 */
 	if (perflvl->dom6) {
 		if (clk_same(perflvl->dom6, read_clk(dev, clk_src_href))) {
 			mast |= 0x00000000;
@@ -672,7 +681,7 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 		}
 	}
 
-	
+	/* vdec/dom6: complete switch to new clocks */
 	switch (dev_priv->chipset) {
 	case 0x92:
 	case 0x94:
@@ -686,6 +695,9 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 
 	hwsq_wr32(hwsq, 0x00c040, mast);
 
+	/* core/shader: make sure sclk/nvclk are disconnected from their
+	 * PLLs (nvclk to dom6, sclk to hclk)
+	 */
 	if (dev_priv->chipset < 0x92)
 		mast = (mast & ~0x001000b0) | 0x00100080;
 	else
@@ -693,7 +705,7 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 
 	hwsq_wr32(hwsq, 0x00c040, mast);
 
-	
+	/* core: for the moment at least, always use nvpll */
 	clk = calc_pll(dev, 0x4028, &pll, perflvl->core, &N, &M, &P1);
 	if (clk == 0)
 		goto error;
@@ -705,6 +717,12 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 	hwsq_wr32(hwsq, 0x004028, 0x80000000 | (P1 << 19) | (P1 << 16) | ctrl);
 	hwsq_wr32(hwsq, 0x00402c, (N << 8) | M);
 
+	/* shader: tie to nvclk if possible, otherwise use spll.  have to be
+	 * very careful that the shader clock is at least twice the core, or
+	 * some chipsets will be very unhappy.  i expect most or all of these
+	 * cases will be handled by tying to nvclk, but it's possible there's
+	 * corners
+	 */
 	ctrl = nv_rd32(dev, 0x004020) & ~0xc03f0100;
 
 	if (P1-- && perflvl->shader == (perflvl->core << 1)) {
@@ -721,8 +739,8 @@ nv50_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 		hwsq_wr32(hwsq, 0x00c040, 0x00000030 | mast);
 	}
 
-	hwsq_setf(hwsq, 0x10, 1); 
-	hwsq_op5f(hwsq, 0x00, 0x00); 
+	hwsq_setf(hwsq, 0x10, 1); /* enable bus access */
+	hwsq_op5f(hwsq, 0x00, 0x00); /* wait for access enabled? */
 	hwsq_fini(hwsq);
 
 	return info;
@@ -745,7 +763,7 @@ prog_hwsq(struct drm_device *dev, struct hwsq_ucode *hwsq)
 		hwsq_data = 0x080000;
 		hwsq_kick = 0x00000001;
 	}
-	
+	/* upload hwsq ucode */
 	nv_mask(dev, 0x001098, 0x00000008, 0x00000000);
 	nv_wr32(dev, 0x001304, 0x00000000);
 	if (dev_priv->chipset >= 0x92)
@@ -754,7 +772,7 @@ prog_hwsq(struct drm_device *dev, struct hwsq_ucode *hwsq)
 		nv_wr32(dev, hwsq_data + (i * 4), hwsq->ptr.u32[i]);
 	nv_mask(dev, 0x001098, 0x00000018, 0x00000018);
 
-	
+	/* launch, and wait for completion */
 	nv_wr32(dev, 0x00130c, hwsq_kick);
 	if (!nv_wait(dev, 0x001308, 0x00000100, 0x00000000)) {
 		NV_ERROR(dev, "hwsq ucode exec timed out\n");
@@ -777,15 +795,18 @@ nv50_pm_clocks_set(struct drm_device *dev, void *data)
 	struct bit_entry M;
 	int ret = -EBUSY;
 
-	
+	/* halt and idle execution engines */
 	nv_mask(dev, 0x002504, 0x00000001, 0x00000001);
 	if (!nv_wait(dev, 0x002504, 0x00000010, 0x00000010))
 		goto resume;
 	if (!nv_wait(dev, 0x00251c, 0x0000003f, 0x0000003f))
 		goto resume;
 
+	/* program memory clock, if necessary - must come before engine clock
+	 * reprogramming due to how we construct the hwsq scripts in pre()
+	 */
 	if (info->mclk_hwsq.len) {
-		
+		/* execute some scripts that do ??? from the vbios.. */
 		if (!bit_table(dev, 'M', &M) && M.version == 1) {
 			if (M.length >= 6)
 				nouveau_bios_init_exec(dev, ROM16(M.data[5]));
@@ -801,7 +822,7 @@ nv50_pm_clocks_set(struct drm_device *dev, void *data)
 			goto resume;
 	}
 
-	
+	/* program engine clocks */
 	ret = prog_hwsq(dev, &info->eclk_hwsq);
 
 resume:

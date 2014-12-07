@@ -7,7 +7,11 @@
 #ifndef _CDEF_BF54X_H
 #define _CDEF_BF54X_H
 
+/* ************************************************************** */
+/* SYSTEM & MMR ADDRESS DEFINITIONS COMMON TO ALL ADSP-BF54x    */
+/* ************************************************************** */
 
+/* PLL Registers */
 
 #define bfin_read_PLL_CTL()		bfin_read16(PLL_CTL)
 #define bfin_read_PLL_DIV()		bfin_read16(PLL_DIV)
@@ -18,16 +22,19 @@
 #define bfin_read_PLL_LOCKCNT()		bfin_read16(PLL_LOCKCNT)
 #define bfin_write_PLL_LOCKCNT(val)	bfin_write16(PLL_LOCKCNT, val)
 
+/* Debug/MP/Emulation Registers (0xFFC00014 - 0xFFC00014) */
 
 #define bfin_read_CHIPID()		bfin_read32(CHIPID)
 #define bfin_write_CHIPID(val)		bfin_write32(CHIPID, val)
 
+/* System Reset and Interrubfin_read_()t Controller (0xFFC00100 - 0xFFC00104) */
 
 #define bfin_read_SWRST()		bfin_read16(SWRST)
 #define bfin_write_SWRST(val)		bfin_write16(SWRST, val)
 #define bfin_read_SYSCR()		bfin_read16(SYSCR)
 #define bfin_write_SYSCR(val)		bfin_write16(SYSCR, val)
 
+/* SIC Registers */
 
 #define bfin_read_SIC_RVECT()		bfin_read32(SIC_RVECT)
 #define bfin_write_SIC_RVECT(val)	bfin_write32(SIC_RVECT, val)
@@ -80,6 +87,7 @@
 #define bfin_read_SIC_IAR11()		bfin_read32(SIC_IAR11)
 #define bfin_write_SIC_IAR11(val)	bfin_write32(SIC_IAR11, val)
 
+/* Watchdog Timer Registers */
 
 #define bfin_read_WDOG_CTL()		bfin_read16(WDOG_CTL)
 #define bfin_write_WDOG_CTL(val)	bfin_write16(WDOG_CTL, val)
@@ -88,6 +96,7 @@
 #define bfin_read_WDOG_STAT()		bfin_read32(WDOG_STAT)
 #define bfin_write_WDOG_STAT(val)	bfin_write32(WDOG_STAT, val)
 
+/* RTC Registers */
 
 #define bfin_read_RTC_STAT()		bfin_read32(RTC_STAT)
 #define bfin_write_RTC_STAT(val)	bfin_write32(RTC_STAT, val)
@@ -102,6 +111,7 @@
 #define bfin_read_RTC_PREN()		bfin_read16(RTC_PREN)
 #define bfin_write_RTC_PREN(val)	bfin_write16(RTC_PREN, val)
 
+/* UART0 Registers */
 
 #define bfin_read_UART0_DLL()		bfin_read16(UART0_DLL)
 #define bfin_write_UART0_DLL(val)	bfin_write16(UART0_DLL, val)
@@ -128,6 +138,7 @@
 #define bfin_read_UART0_RBR()		bfin_read16(UART0_RBR)
 #define bfin_write_UART0_RBR(val)	bfin_write16(UART0_RBR, val)
 
+/* SPI0 Registers */
 
 #define bfin_read_SPI0_CTL()		bfin_read16(SPI0_CTL)
 #define bfin_write_SPI0_CTL(val)	bfin_write16(SPI0_CTL, val)
@@ -144,9 +155,13 @@
 #define bfin_read_SPI0_SHADOW()		bfin_read16(SPI0_SHADOW)
 #define bfin_write_SPI0_SHADOW(val)	bfin_write16(SPI0_SHADOW, val)
 
+/* Timer Groubfin_read_() of 3 registers are not defined in the shared file because they are not available on the ADSP-BF542 processor */
 
+/* Two Wire Interface Registers (TWI0) */
 
+/* SPORT0 is not defined in the shared file because it is not available on the ADSP-BF542 and ADSP-BF544 bfin_read_()rocessors */
 
+/* SPORT1 Registers */
 
 #define bfin_read_SPORT1_TCR1()		bfin_read16(SPORT1_TCR1)
 #define bfin_write_SPORT1_TCR1(val)	bfin_write16(SPORT1_TCR1, val)
@@ -193,6 +208,7 @@
 #define bfin_read_SPORT1_MRCS3()	bfin_read32(SPORT1_MRCS3)
 #define bfin_write_SPORT1_MRCS3(val)	bfin_write32(SPORT1_MRCS3, val)
 
+/* Asynchronous Memory Control Registers */
 
 #define bfin_read_EBIU_AMGCTL()		bfin_read16(EBIU_AMGCTL)
 #define bfin_write_EBIU_AMGCTL(val)	bfin_write16(EBIU_AMGCTL, val)
@@ -209,6 +225,7 @@
 #define bfin_read_EBIU_FCTL()		bfin_read16(EBIU_FCTL)
 #define bfin_write_EBIU_FCTL(val)	bfin_write16(EBIU_FCTL, val)
 
+/* DDR Memory Control Registers */
 
 #define bfin_read_EBIU_DDRCTL0()	bfin_read32(EBIU_DDRCTL0)
 #define bfin_write_EBIU_DDRCTL0(val)	bfin_write32(EBIU_DDRCTL0, val)
@@ -227,6 +244,7 @@
 #define bfin_read_EBIU_RSTCTL()		bfin_read16(EBIU_RSTCTL)
 #define bfin_write_EBIU_RSTCTL(val)	bfin_write16(EBIU_RSTCTL, val)
 
+/* DDR BankRead and Write Count Registers */
 
 #define bfin_read_EBIU_DDRBRC0()	bfin_read32(EBIU_DDRBRC0)
 #define bfin_write_EBIU_DDRBRC0(val)	bfin_write32(EBIU_DDRBRC0, val)
@@ -279,12 +297,14 @@
 #define bfin_read_EBIU_DDRMCCL()	bfin_read32(EBIU_DDRMCCL)
 #define bfin_write_EBIU_DDRMCCL(val)	bfin_write32(EBIU_DDRMCCL, val)
 
+/* DMAC0 Registers */
 
 #define bfin_read_DMAC0_TC_PER()		bfin_read16(DMAC0_TC_PER)
 #define bfin_write_DMAC0_TC_PER(val)	bfin_write16(DMAC0_TC_PER, val)
 #define bfin_read_DMAC0_TC_CNT()		bfin_read16(DMAC0_TC_CNT)
 #define bfin_write_DMAC0_TC_CNT(val)	bfin_write16(DMAC0_TC_CNT, val)
 
+/* DMA Channel 0 Registers */
 
 #define bfin_read_DMA0_NEXT_DESC_PTR() 		bfin_read32(DMA0_NEXT_DESC_PTR)
 #define bfin_write_DMA0_NEXT_DESC_PTR(val) 	bfin_write32(DMA0_NEXT_DESC_PTR, val)
@@ -313,6 +333,7 @@
 #define bfin_read_DMA0_CURR_Y_COUNT()		bfin_read16(DMA0_CURR_Y_COUNT)
 #define bfin_write_DMA0_CURR_Y_COUNT(val)	bfin_write16(DMA0_CURR_Y_COUNT, val)
 
+/* DMA Channel 1 Registers */
 
 #define bfin_read_DMA1_NEXT_DESC_PTR() 		bfin_read32(DMA1_NEXT_DESC_PTR)
 #define bfin_write_DMA1_NEXT_DESC_PTR(val) 	bfin_write32(DMA1_NEXT_DESC_PTR, val)
@@ -341,6 +362,7 @@
 #define bfin_read_DMA1_CURR_Y_COUNT()		bfin_read16(DMA1_CURR_Y_COUNT)
 #define bfin_write_DMA1_CURR_Y_COUNT(val)	bfin_write16(DMA1_CURR_Y_COUNT, val)
 
+/* DMA Channel 2 Registers */
 
 #define bfin_read_DMA2_NEXT_DESC_PTR() 		bfin_read32(DMA2_NEXT_DESC_PTR)
 #define bfin_write_DMA2_NEXT_DESC_PTR(val) 	bfin_write32(DMA2_NEXT_DESC_PTR, val)
@@ -369,6 +391,7 @@
 #define bfin_read_DMA2_CURR_Y_COUNT()		bfin_read16(DMA2_CURR_Y_COUNT)
 #define bfin_write_DMA2_CURR_Y_COUNT(val)	bfin_write16(DMA2_CURR_Y_COUNT, val)
 
+/* DMA Channel 3 Registers */
 
 #define bfin_read_DMA3_NEXT_DESC_PTR() 		bfin_read32(DMA3_NEXT_DESC_PTR)
 #define bfin_write_DMA3_NEXT_DESC_PTR(val) 	bfin_write32(DMA3_NEXT_DESC_PTR, val)
@@ -397,6 +420,7 @@
 #define bfin_read_DMA3_CURR_Y_COUNT()		bfin_read16(DMA3_CURR_Y_COUNT)
 #define bfin_write_DMA3_CURR_Y_COUNT(val)	bfin_write16(DMA3_CURR_Y_COUNT, val)
 
+/* DMA Channel 4 Registers */
 
 #define bfin_read_DMA4_NEXT_DESC_PTR() 		bfin_read32(DMA4_NEXT_DESC_PTR)
 #define bfin_write_DMA4_NEXT_DESC_PTR(val) 	bfin_write32(DMA4_NEXT_DESC_PTR, val)
@@ -425,6 +449,7 @@
 #define bfin_read_DMA4_CURR_Y_COUNT()		bfin_read16(DMA4_CURR_Y_COUNT)
 #define bfin_write_DMA4_CURR_Y_COUNT(val)	bfin_write16(DMA4_CURR_Y_COUNT, val)
 
+/* DMA Channel 5 Registers */
 
 #define bfin_read_DMA5_NEXT_DESC_PTR() 		bfin_read32(DMA5_NEXT_DESC_PTR)
 #define bfin_write_DMA5_NEXT_DESC_PTR(val) 	bfin_write32(DMA5_NEXT_DESC_PTR, val)
@@ -453,6 +478,7 @@
 #define bfin_read_DMA5_CURR_Y_COUNT()		bfin_read16(DMA5_CURR_Y_COUNT)
 #define bfin_write_DMA5_CURR_Y_COUNT(val)	bfin_write16(DMA5_CURR_Y_COUNT, val)
 
+/* DMA Channel 6 Registers */
 
 #define bfin_read_DMA6_NEXT_DESC_PTR() 		bfin_read32(DMA6_NEXT_DESC_PTR)
 #define bfin_write_DMA6_NEXT_DESC_PTR(val) 	bfin_write32(DMA6_NEXT_DESC_PTR, val)
@@ -481,6 +507,7 @@
 #define bfin_read_DMA6_CURR_Y_COUNT()		bfin_read16(DMA6_CURR_Y_COUNT)
 #define bfin_write_DMA6_CURR_Y_COUNT(val)	bfin_write16(DMA6_CURR_Y_COUNT, val)
 
+/* DMA Channel 7 Registers */
 
 #define bfin_read_DMA7_NEXT_DESC_PTR() 		bfin_read32(DMA7_NEXT_DESC_PTR)
 #define bfin_write_DMA7_NEXT_DESC_PTR(val) 	bfin_write32(DMA7_NEXT_DESC_PTR, val)
@@ -509,6 +536,7 @@
 #define bfin_read_DMA7_CURR_Y_COUNT()		bfin_read16(DMA7_CURR_Y_COUNT)
 #define bfin_write_DMA7_CURR_Y_COUNT(val)	bfin_write16(DMA7_CURR_Y_COUNT, val)
 
+/* DMA Channel 8 Registers */
 
 #define bfin_read_DMA8_NEXT_DESC_PTR() 		bfin_read32(DMA8_NEXT_DESC_PTR)
 #define bfin_write_DMA8_NEXT_DESC_PTR(val) 	bfin_write32(DMA8_NEXT_DESC_PTR, val)
@@ -537,6 +565,7 @@
 #define bfin_read_DMA8_CURR_Y_COUNT()		bfin_read16(DMA8_CURR_Y_COUNT)
 #define bfin_write_DMA8_CURR_Y_COUNT(val)	bfin_write16(DMA8_CURR_Y_COUNT, val)
 
+/* DMA Channel 9 Registers */
 
 #define bfin_read_DMA9_NEXT_DESC_PTR() 		bfin_read32(DMA9_NEXT_DESC_PTR)
 #define bfin_write_DMA9_NEXT_DESC_PTR(val) 	bfin_write32(DMA9_NEXT_DESC_PTR, val)
@@ -565,6 +594,7 @@
 #define bfin_read_DMA9_CURR_Y_COUNT()		bfin_read16(DMA9_CURR_Y_COUNT)
 #define bfin_write_DMA9_CURR_Y_COUNT(val)	bfin_write16(DMA9_CURR_Y_COUNT, val)
 
+/* DMA Channel 10 Registers */
 
 #define bfin_read_DMA10_NEXT_DESC_PTR() 	bfin_read32(DMA10_NEXT_DESC_PTR)
 #define bfin_write_DMA10_NEXT_DESC_PTR(val) 	bfin_write32(DMA10_NEXT_DESC_PTR, val)
@@ -593,6 +623,7 @@
 #define bfin_read_DMA10_CURR_Y_COUNT()		bfin_read16(DMA10_CURR_Y_COUNT)
 #define bfin_write_DMA10_CURR_Y_COUNT(val)	bfin_write16(DMA10_CURR_Y_COUNT, val)
 
+/* DMA Channel 11 Registers */
 
 #define bfin_read_DMA11_NEXT_DESC_PTR() 	bfin_read32(DMA11_NEXT_DESC_PTR)
 #define bfin_write_DMA11_NEXT_DESC_PTR(val) 	bfin_write32(DMA11_NEXT_DESC_PTR, val)
@@ -621,6 +652,7 @@
 #define bfin_read_DMA11_CURR_Y_COUNT()		bfin_read16(DMA11_CURR_Y_COUNT)
 #define bfin_write_DMA11_CURR_Y_COUNT(val)	bfin_write16(DMA11_CURR_Y_COUNT, val)
 
+/* MDMA Stream 0 Registers */
 
 #define bfin_read_MDMA_D0_NEXT_DESC_PTR() 	bfin_read32(MDMA_D0_NEXT_DESC_PTR)
 #define bfin_write_MDMA_D0_NEXT_DESC_PTR(val) 	bfin_write32(MDMA_D0_NEXT_DESC_PTR, val)
@@ -675,6 +707,7 @@
 #define bfin_read_MDMA_S0_CURR_Y_COUNT()	bfin_read16(MDMA_S0_CURR_Y_COUNT)
 #define bfin_write_MDMA_S0_CURR_Y_COUNT(val)	bfin_write16(MDMA_S0_CURR_Y_COUNT, val)
 
+/* MDMA Stream 1 Registers */
 
 #define bfin_read_MDMA_D1_NEXT_DESC_PTR() 	bfin_read32(MDMA_D1_NEXT_DESC_PTR)
 #define bfin_write_MDMA_D1_NEXT_DESC_PTR(val) 	bfin_write32(MDMA_D1_NEXT_DESC_PTR, val)
@@ -729,6 +762,7 @@
 #define bfin_read_MDMA_S1_CURR_Y_COUNT()	bfin_read16(MDMA_S1_CURR_Y_COUNT)
 #define bfin_write_MDMA_S1_CURR_Y_COUNT(val)	bfin_write16(MDMA_S1_CURR_Y_COUNT, val)
 
+/* EPPI1 Registers */
 
 #define bfin_read_EPPI1_STATUS()		bfin_read16(EPPI1_STATUS)
 #define bfin_write_EPPI1_STATUS(val)		bfin_write16(EPPI1_STATUS, val)
@@ -759,6 +793,7 @@
 #define bfin_read_EPPI1_CLIP()			bfin_read32(EPPI1_CLIP)
 #define bfin_write_EPPI1_CLIP(val)		bfin_write32(EPPI1_CLIP, val)
 
+/* Port Interrubfin_read_()t 0 Registers (32-bit) */
 
 #define bfin_read_PINT0_MASK_SET()		bfin_read32(PINT0_MASK_SET)
 #define bfin_write_PINT0_MASK_SET(val)		bfin_write32(PINT0_MASK_SET, val)
@@ -781,6 +816,7 @@
 #define bfin_read_PINT0_LATCH()			bfin_read32(PINT0_LATCH)
 #define bfin_write_PINT0_LATCH(val)		bfin_write32(PINT0_LATCH, val)
 
+/* Port Interrubfin_read_()t 1 Registers (32-bit) */
 
 #define bfin_read_PINT1_MASK_SET()		bfin_read32(PINT1_MASK_SET)
 #define bfin_write_PINT1_MASK_SET(val)		bfin_write32(PINT1_MASK_SET, val)
@@ -803,6 +839,7 @@
 #define bfin_read_PINT1_LATCH()			bfin_read32(PINT1_LATCH)
 #define bfin_write_PINT1_LATCH(val)		bfin_write32(PINT1_LATCH, val)
 
+/* Port Interrubfin_read_()t 2 Registers (32-bit) */
 
 #define bfin_read_PINT2_MASK_SET()		bfin_read32(PINT2_MASK_SET)
 #define bfin_write_PINT2_MASK_SET(val)		bfin_write32(PINT2_MASK_SET, val)
@@ -825,6 +862,7 @@
 #define bfin_read_PINT2_LATCH()			bfin_read32(PINT2_LATCH)
 #define bfin_write_PINT2_LATCH(val)		bfin_write32(PINT2_LATCH, val)
 
+/* Port Interrubfin_read_()t 3 Registers (32-bit) */
 
 #define bfin_read_PINT3_MASK_SET()		bfin_read32(PINT3_MASK_SET)
 #define bfin_write_PINT3_MASK_SET(val)		bfin_write32(PINT3_MASK_SET, val)
@@ -847,6 +885,7 @@
 #define bfin_read_PINT3_LATCH()			bfin_read32(PINT3_LATCH)
 #define bfin_write_PINT3_LATCH(val)		bfin_write32(PINT3_LATCH, val)
 
+/* Port A Registers */
 
 #define bfin_read_PORTA_FER()		bfin_read16(PORTA_FER)
 #define bfin_write_PORTA_FER(val)	bfin_write16(PORTA_FER, val)
@@ -865,6 +904,7 @@
 #define bfin_read_PORTA_MUX()		bfin_read32(PORTA_MUX)
 #define bfin_write_PORTA_MUX(val)	bfin_write32(PORTA_MUX, val)
 
+/* Port B Registers */
 
 #define bfin_read_PORTB_FER()		bfin_read16(PORTB_FER)
 #define bfin_write_PORTB_FER(val)	bfin_write16(PORTB_FER, val)
@@ -883,6 +923,7 @@
 #define bfin_read_PORTB_MUX()		bfin_read32(PORTB_MUX)
 #define bfin_write_PORTB_MUX(val)	bfin_write32(PORTB_MUX, val)
 
+/* Port C Registers */
 
 #define bfin_read_PORTC_FER()		bfin_read16(PORTC_FER)
 #define bfin_write_PORTC_FER(val)	bfin_write16(PORTC_FER, val)
@@ -901,6 +942,7 @@
 #define bfin_read_PORTC_MUX()		bfin_read32(PORTC_MUX)
 #define bfin_write_PORTC_MUX(val)	bfin_write32(PORTC_MUX, val)
 
+/* Port D Registers */
 
 #define bfin_read_PORTD_FER()		bfin_read16(PORTD_FER)
 #define bfin_write_PORTD_FER(val)	bfin_write16(PORTD_FER, val)
@@ -919,6 +961,7 @@
 #define bfin_read_PORTD_MUX()		bfin_read32(PORTD_MUX)
 #define bfin_write_PORTD_MUX(val)	bfin_write32(PORTD_MUX, val)
 
+/* Port E Registers */
 
 #define bfin_read_PORTE_FER()		bfin_read16(PORTE_FER)
 #define bfin_write_PORTE_FER(val)	bfin_write16(PORTE_FER, val)
@@ -937,6 +980,7 @@
 #define bfin_read_PORTE_MUX()		bfin_read32(PORTE_MUX)
 #define bfin_write_PORTE_MUX(val)	bfin_write32(PORTE_MUX, val)
 
+/* Port F Registers */
 
 #define bfin_read_PORTF_FER()		bfin_read16(PORTF_FER)
 #define bfin_write_PORTF_FER(val)	bfin_write16(PORTF_FER, val)
@@ -955,6 +999,7 @@
 #define bfin_read_PORTF_MUX()		bfin_read32(PORTF_MUX)
 #define bfin_write_PORTF_MUX(val)	bfin_write32(PORTF_MUX, val)
 
+/* Port G Registers */
 
 #define bfin_read_PORTG_FER()		bfin_read16(PORTG_FER)
 #define bfin_write_PORTG_FER(val)	bfin_write16(PORTG_FER, val)
@@ -973,6 +1018,7 @@
 #define bfin_read_PORTG_MUX()		bfin_read32(PORTG_MUX)
 #define bfin_write_PORTG_MUX(val)	bfin_write32(PORTG_MUX, val)
 
+/* Port H Registers */
 
 #define bfin_read_PORTH_FER()		bfin_read16(PORTH_FER)
 #define bfin_write_PORTH_FER(val)	bfin_write16(PORTH_FER, val)
@@ -991,6 +1037,7 @@
 #define bfin_read_PORTH_MUX()		bfin_read32(PORTH_MUX)
 #define bfin_write_PORTH_MUX(val)	bfin_write32(PORTH_MUX, val)
 
+/* Port I Registers */
 
 #define bfin_read_PORTI_FER()		bfin_read16(PORTI_FER)
 #define bfin_write_PORTI_FER(val)	bfin_write16(PORTI_FER, val)
@@ -1009,6 +1056,7 @@
 #define bfin_read_PORTI_MUX()		bfin_read32(PORTI_MUX)
 #define bfin_write_PORTI_MUX(val)	bfin_write32(PORTI_MUX, val)
 
+/* Port J Registers */
 
 #define bfin_read_PORTJ_FER()		bfin_read16(PORTJ_FER)
 #define bfin_write_PORTJ_FER(val)	bfin_write16(PORTJ_FER, val)
@@ -1027,6 +1075,7 @@
 #define bfin_read_PORTJ_MUX()		bfin_read32(PORTJ_MUX)
 #define bfin_write_PORTJ_MUX(val)	bfin_write32(PORTJ_MUX, val)
 
+/* PWM Timer Registers */
 
 #define bfin_read_TIMER0_CONFIG()		bfin_read16(TIMER0_CONFIG)
 #define bfin_write_TIMER0_CONFIG(val)		bfin_write16(TIMER0_CONFIG, val)
@@ -1093,6 +1142,7 @@
 #define bfin_read_TIMER7_WIDTH()		bfin_read32(TIMER7_WIDTH)
 #define bfin_write_TIMER7_WIDTH(val)		bfin_write32(TIMER7_WIDTH, val)
 
+/* Timer Groubfin_read_() of 8 */
 
 #define bfin_read_TIMER_ENABLE0()		bfin_read16(TIMER_ENABLE0)
 #define bfin_write_TIMER_ENABLE0(val)		bfin_write16(TIMER_ENABLE0, val)
@@ -1101,12 +1151,14 @@
 #define bfin_read_TIMER_STATUS0()		bfin_read32(TIMER_STATUS0)
 #define bfin_write_TIMER_STATUS0(val)		bfin_write32(TIMER_STATUS0, val)
 
+/* DMAC1 Registers */
 
 #define bfin_read_DMAC1_TC_PER()			bfin_read16(DMAC1_TC_PER)
 #define bfin_write_DMAC1_TC_PER(val)		bfin_write16(DMAC1_TC_PER, val)
 #define bfin_read_DMAC1_TC_CNT()			bfin_read16(DMAC1_TC_CNT)
 #define bfin_write_DMAC1_TC_CNT(val)		bfin_write16(DMAC1_TC_CNT, val)
 
+/* DMA Channel 12 Registers */
 
 #define bfin_read_DMA12_NEXT_DESC_PTR() 	bfin_read32(DMA12_NEXT_DESC_PTR)
 #define bfin_write_DMA12_NEXT_DESC_PTR(val) 	bfin_write32(DMA12_NEXT_DESC_PTR, val)
@@ -1135,6 +1187,7 @@
 #define bfin_read_DMA12_CURR_Y_COUNT()		bfin_read16(DMA12_CURR_Y_COUNT)
 #define bfin_write_DMA12_CURR_Y_COUNT(val)	bfin_write16(DMA12_CURR_Y_COUNT, val)
 
+/* DMA Channel 13 Registers */
 
 #define bfin_read_DMA13_NEXT_DESC_PTR() 	bfin_read32(DMA13_NEXT_DESC_PTR)
 #define bfin_write_DMA13_NEXT_DESC_PTR(val) 	bfin_write32(DMA13_NEXT_DESC_PTR, val)
@@ -1163,6 +1216,7 @@
 #define bfin_read_DMA13_CURR_Y_COUNT()		bfin_read16(DMA13_CURR_Y_COUNT)
 #define bfin_write_DMA13_CURR_Y_COUNT(val)	bfin_write16(DMA13_CURR_Y_COUNT, val)
 
+/* DMA Channel 14 Registers */
 
 #define bfin_read_DMA14_NEXT_DESC_PTR() 	bfin_read32(DMA14_NEXT_DESC_PTR)
 #define bfin_write_DMA14_NEXT_DESC_PTR(val) 	bfin_write32(DMA14_NEXT_DESC_PTR, val)
@@ -1191,6 +1245,7 @@
 #define bfin_read_DMA14_CURR_Y_COUNT()		bfin_read16(DMA14_CURR_Y_COUNT)
 #define bfin_write_DMA14_CURR_Y_COUNT(val)	bfin_write16(DMA14_CURR_Y_COUNT, val)
 
+/* DMA Channel 15 Registers */
 
 #define bfin_read_DMA15_NEXT_DESC_PTR() 	bfin_read32(DMA15_NEXT_DESC_PTR)
 #define bfin_write_DMA15_NEXT_DESC_PTR(val) 	bfin_write32(DMA15_NEXT_DESC_PTR, val)
@@ -1219,6 +1274,7 @@
 #define bfin_read_DMA15_CURR_Y_COUNT()		bfin_read16(DMA15_CURR_Y_COUNT)
 #define bfin_write_DMA15_CURR_Y_COUNT(val)	bfin_write16(DMA15_CURR_Y_COUNT, val)
 
+/* DMA Channel 16 Registers */
 
 #define bfin_read_DMA16_NEXT_DESC_PTR() 	bfin_read32(DMA16_NEXT_DESC_PTR)
 #define bfin_write_DMA16_NEXT_DESC_PTR(val) 	bfin_write32(DMA16_NEXT_DESC_PTR, val)
@@ -1247,6 +1303,7 @@
 #define bfin_read_DMA16_CURR_Y_COUNT()		bfin_read16(DMA16_CURR_Y_COUNT)
 #define bfin_write_DMA16_CURR_Y_COUNT(val)	bfin_write16(DMA16_CURR_Y_COUNT, val)
 
+/* DMA Channel 17 Registers */
 
 #define bfin_read_DMA17_NEXT_DESC_PTR() 	bfin_read32(DMA17_NEXT_DESC_PTR)
 #define bfin_write_DMA17_NEXT_DESC_PTR(val) 	bfin_write32(DMA17_NEXT_DESC_PTR, val)
@@ -1275,6 +1332,7 @@
 #define bfin_read_DMA17_CURR_Y_COUNT()		bfin_read16(DMA17_CURR_Y_COUNT)
 #define bfin_write_DMA17_CURR_Y_COUNT(val)	bfin_write16(DMA17_CURR_Y_COUNT, val)
 
+/* DMA Channel 18 Registers */
 
 #define bfin_read_DMA18_NEXT_DESC_PTR() 	bfin_read32(DMA18_NEXT_DESC_PTR)
 #define bfin_write_DMA18_NEXT_DESC_PTR(val) 	bfin_write32(DMA18_NEXT_DESC_PTR, val)
@@ -1303,6 +1361,7 @@
 #define bfin_read_DMA18_CURR_Y_COUNT()		bfin_read16(DMA18_CURR_Y_COUNT)
 #define bfin_write_DMA18_CURR_Y_COUNT(val)	bfin_write16(DMA18_CURR_Y_COUNT, val)
 
+/* DMA Channel 19 Registers */
 
 #define bfin_read_DMA19_NEXT_DESC_PTR() 	bfin_read32(DMA19_NEXT_DESC_PTR)
 #define bfin_write_DMA19_NEXT_DESC_PTR(val) 	bfin_write32(DMA19_NEXT_DESC_PTR, val)
@@ -1331,6 +1390,7 @@
 #define bfin_read_DMA19_CURR_Y_COUNT()		bfin_read16(DMA19_CURR_Y_COUNT)
 #define bfin_write_DMA19_CURR_Y_COUNT(val)	bfin_write16(DMA19_CURR_Y_COUNT, val)
 
+/* DMA Channel 20 Registers */
 
 #define bfin_read_DMA20_NEXT_DESC_PTR() 	bfin_read32(DMA20_NEXT_DESC_PTR)
 #define bfin_write_DMA20_NEXT_DESC_PTR(val) 	bfin_write32(DMA20_NEXT_DESC_PTR, val)
@@ -1359,6 +1419,7 @@
 #define bfin_read_DMA20_CURR_Y_COUNT()		bfin_read16(DMA20_CURR_Y_COUNT)
 #define bfin_write_DMA20_CURR_Y_COUNT(val)	bfin_write16(DMA20_CURR_Y_COUNT, val)
 
+/* DMA Channel 21 Registers */
 
 #define bfin_read_DMA21_NEXT_DESC_PTR() 	bfin_read32(DMA21_NEXT_DESC_PTR)
 #define bfin_write_DMA21_NEXT_DESC_PTR(val) 	bfin_write32(DMA21_NEXT_DESC_PTR, val)
@@ -1387,6 +1448,7 @@
 #define bfin_read_DMA21_CURR_Y_COUNT()		bfin_read16(DMA21_CURR_Y_COUNT)
 #define bfin_write_DMA21_CURR_Y_COUNT(val)	bfin_write16(DMA21_CURR_Y_COUNT, val)
 
+/* DMA Channel 22 Registers */
 
 #define bfin_read_DMA22_NEXT_DESC_PTR() 	bfin_read32(DMA22_NEXT_DESC_PTR)
 #define bfin_write_DMA22_NEXT_DESC_PTR(val) 	bfin_write32(DMA22_NEXT_DESC_PTR, val)
@@ -1415,6 +1477,7 @@
 #define bfin_read_DMA22_CURR_Y_COUNT()		bfin_read16(DMA22_CURR_Y_COUNT)
 #define bfin_write_DMA22_CURR_Y_COUNT(val)	bfin_write16(DMA22_CURR_Y_COUNT, val)
 
+/* DMA Channel 23 Registers */
 
 #define bfin_read_DMA23_NEXT_DESC_PTR() 		bfin_read32(DMA23_NEXT_DESC_PTR)
 #define bfin_write_DMA23_NEXT_DESC_PTR(val) 		bfin_write32(DMA23_NEXT_DESC_PTR, val)
@@ -1443,6 +1506,7 @@
 #define bfin_read_DMA23_CURR_Y_COUNT()			bfin_read16(DMA23_CURR_Y_COUNT)
 #define bfin_write_DMA23_CURR_Y_COUNT(val)		bfin_write16(DMA23_CURR_Y_COUNT, val)
 
+/* MDMA Stream 2 Registers */
 
 #define bfin_read_MDMA_D2_NEXT_DESC_PTR() 		bfin_read32(MDMA_D2_NEXT_DESC_PTR)
 #define bfin_write_MDMA_D2_NEXT_DESC_PTR(val) 		bfin_write32(MDMA_D2_NEXT_DESC_PTR, val)
@@ -1497,6 +1561,7 @@
 #define bfin_read_MDMA_S2_CURR_Y_COUNT()		bfin_read16(MDMA_S2_CURR_Y_COUNT)
 #define bfin_write_MDMA_S2_CURR_Y_COUNT(val)		bfin_write16(MDMA_S2_CURR_Y_COUNT, val)
 
+/* MDMA Stream 3 Registers */
 
 #define bfin_read_MDMA_D3_NEXT_DESC_PTR() 		bfin_read32(MDMA_D3_NEXT_DESC_PTR)
 #define bfin_write_MDMA_D3_NEXT_DESC_PTR(val) 		bfin_write32(MDMA_D3_NEXT_DESC_PTR, val)
@@ -1551,6 +1616,7 @@
 #define bfin_read_MDMA_S3_CURR_Y_COUNT()		bfin_read16(MDMA_S3_CURR_Y_COUNT)
 #define bfin_write_MDMA_S3_CURR_Y_COUNT(val)		bfin_write16(MDMA_S3_CURR_Y_COUNT, val)
 
+/* UART1 Registers */
 
 #define bfin_read_UART1_DLL()			bfin_read16(UART1_DLL)
 #define bfin_write_UART1_DLL(val)		bfin_write16(UART1_DLL, val)
@@ -1577,7 +1643,9 @@
 #define bfin_read_UART1_RBR()			bfin_read16(UART1_RBR)
 #define bfin_write_UART1_RBR(val)		bfin_write16(UART1_RBR, val)
 
+/* UART2 is not defined in the shared file because it is not available on the ADSP-BF542 and ADSP-BF544 bfin_read_()rocessors */
 
+/* SPI1 Registers */
 
 #define bfin_read_SPI1_CTL()			bfin_read16(SPI1_CTL)
 #define bfin_write_SPI1_CTL(val)		bfin_write16(SPI1_CTL, val)
@@ -1594,6 +1662,7 @@
 #define bfin_read_SPI1_SHADOW()			bfin_read16(SPI1_SHADOW)
 #define bfin_write_SPI1_SHADOW(val)		bfin_write16(SPI1_SHADOW, val)
 
+/* SPORT2 Registers */
 
 #define bfin_read_SPORT2_TCR1()			bfin_read16(SPORT2_TCR1)
 #define bfin_write_SPORT2_TCR1(val)		bfin_write16(SPORT2_TCR1, val)
@@ -1640,6 +1709,7 @@
 #define bfin_read_SPORT2_MRCS3()		bfin_read32(SPORT2_MRCS3)
 #define bfin_write_SPORT2_MRCS3(val)		bfin_write32(SPORT2_MRCS3, val)
 
+/* SPORT3 Registers */
 
 #define bfin_read_SPORT3_TCR1()			bfin_read16(SPORT3_TCR1)
 #define bfin_write_SPORT3_TCR1(val)		bfin_write16(SPORT3_TCR1, val)
@@ -1686,6 +1756,7 @@
 #define bfin_read_SPORT3_MRCS3()		bfin_read32(SPORT3_MRCS3)
 #define bfin_write_SPORT3_MRCS3(val)		bfin_write32(SPORT3_MRCS3, val)
 
+/* EPPI2 Registers */
 
 #define bfin_read_EPPI2_STATUS()		bfin_read16(EPPI2_STATUS)
 #define bfin_write_EPPI2_STATUS(val)		bfin_write16(EPPI2_STATUS, val)
@@ -1716,6 +1787,7 @@
 #define bfin_read_EPPI2_CLIP()			bfin_read32(EPPI2_CLIP)
 #define bfin_write_EPPI2_CLIP(val)		bfin_write32(EPPI2_CLIP, val)
 
+/* CAN Controller 0 Config 1 Registers */
 
 #define bfin_read_CAN0_MC1()		bfin_read16(CAN0_MC1)
 #define bfin_write_CAN0_MC1(val)	bfin_write16(CAN0_MC1, val)
@@ -1744,6 +1816,7 @@
 #define bfin_read_CAN0_OPSS1()		bfin_read16(CAN0_OPSS1)
 #define bfin_write_CAN0_OPSS1(val)	bfin_write16(CAN0_OPSS1, val)
 
+/* CAN Controller 0 Config 2 Registers */
 
 #define bfin_read_CAN0_MC2()		bfin_read16(CAN0_MC2)
 #define bfin_write_CAN0_MC2(val)	bfin_write16(CAN0_MC2, val)
@@ -1772,6 +1845,7 @@
 #define bfin_read_CAN0_OPSS2()		bfin_read16(CAN0_OPSS2)
 #define bfin_write_CAN0_OPSS2(val)	bfin_write16(CAN0_OPSS2, val)
 
+/* CAN Controller 0 Clock/Interrubfin_read_()t/Counter Registers */
 
 #define bfin_read_CAN0_CLOCK()		bfin_read16(CAN0_CLOCK)
 #define bfin_write_CAN0_CLOCK(val)	bfin_write16(CAN0_CLOCK, val)
@@ -1806,6 +1880,7 @@
 #define bfin_read_CAN0_UCCNF()		bfin_read16(CAN0_UCCNF)
 #define bfin_write_CAN0_UCCNF(val)	bfin_write16(CAN0_UCCNF, val)
 
+/* CAN Controller 0 Accebfin_read_()tance Registers */
 
 #define bfin_read_CAN0_AM00L()		bfin_read16(CAN0_AM00L)
 #define bfin_write_CAN0_AM00L(val)	bfin_write16(CAN0_AM00L, val)
@@ -1872,6 +1947,7 @@
 #define bfin_read_CAN0_AM15H()		bfin_read16(CAN0_AM15H)
 #define bfin_write_CAN0_AM15H(val)	bfin_write16(CAN0_AM15H, val)
 
+/* CAN Controller 0 Accebfin_read_()tance Registers */
 
 #define bfin_read_CAN0_AM16L()		bfin_read16(CAN0_AM16L)
 #define bfin_write_CAN0_AM16L(val)	bfin_write16(CAN0_AM16L, val)
@@ -1938,6 +2014,7 @@
 #define bfin_read_CAN0_AM31H()		bfin_read16(CAN0_AM31H)
 #define bfin_write_CAN0_AM31H(val)	bfin_write16(CAN0_AM31H, val)
 
+/* CAN Controller 0 Mailbox Data Registers */
 
 #define bfin_read_CAN0_MB00_DATA0()		bfin_read16(CAN0_MB00_DATA0)
 #define bfin_write_CAN0_MB00_DATA0(val)		bfin_write16(CAN0_MB00_DATA0, val)
@@ -2196,6 +2273,7 @@
 #define bfin_read_CAN0_MB15_ID1()		bfin_read16(CAN0_MB15_ID1)
 #define bfin_write_CAN0_MB15_ID1(val)		bfin_write16(CAN0_MB15_ID1, val)
 
+/* CAN Controller 0 Mailbox Data Registers */
 
 #define bfin_read_CAN0_MB16_DATA0()		bfin_read16(CAN0_MB16_DATA0)
 #define bfin_write_CAN0_MB16_DATA0(val)		bfin_write16(CAN0_MB16_DATA0, val)
@@ -2454,6 +2532,7 @@
 #define bfin_read_CAN0_MB31_ID1()		bfin_read16(CAN0_MB31_ID1)
 #define bfin_write_CAN0_MB31_ID1(val)		bfin_write16(CAN0_MB31_ID1, val)
 
+/* UART3 Registers */
 
 #define bfin_read_UART3_DLL()		bfin_read16(UART3_DLL)
 #define bfin_write_UART3_DLL(val)	bfin_write16(UART3_DLL, val)
@@ -2480,6 +2559,7 @@
 #define bfin_read_UART3_RBR()		bfin_read16(UART3_RBR)
 #define bfin_write_UART3_RBR(val)	bfin_write16(UART3_RBR, val)
 
+/* NFC Registers */
 
 #define bfin_read_NFC_CTL()		bfin_read16(NFC_CTL)
 #define bfin_write_NFC_CTL(val)		bfin_write16(NFC_CTL, val)
@@ -2514,6 +2594,7 @@
 #define bfin_read_NFC_DATA_RD()		bfin_read16(NFC_DATA_RD)
 #define bfin_write_NFC_DATA_RD(val)	bfin_write16(NFC_DATA_RD, val)
 
+/* Counter Registers */
 
 #define bfin_read_CNT_CONFIG()		bfin_read16(CNT_CONFIG)
 #define bfin_write_CNT_CONFIG(val)	bfin_write16(CNT_CONFIG, val)
@@ -2532,6 +2613,7 @@
 #define bfin_read_CNT_MIN()		bfin_read32(CNT_MIN)
 #define bfin_write_CNT_MIN(val)		bfin_write32(CNT_MIN, val)
 
+/* Security Registers */
 
 #define bfin_read_SECURE_SYSSWT()	bfin_read32(SECURE_SYSSWT)
 #define bfin_write_SECURE_SYSSWT(val)	bfin_write32(SECURE_SYSSWT, val)
@@ -2540,10 +2622,12 @@
 #define bfin_read_SECURE_STATUS()	bfin_read16(SECURE_STATUS)
 #define bfin_write_SECURE_STATUS(val)	bfin_write16(SECURE_STATUS, val)
 
+/* DMA Peribfin_read_()heral Mux Register */
 
 #define bfin_read_DMAC1_PERIMUX()	bfin_read16(DMAC1_PERIMUX)
 #define bfin_write_DMAC1_PERIMUX(val)	bfin_write16(DMAC1_PERIMUX, val)
 
+/* Handshake MDMA is not defined in the shared file because it is not available on the ADSP-BF542 bfin_read_()rocessor */
 
-#endif 
+#endif /* _CDEF_BF54X_H */
 

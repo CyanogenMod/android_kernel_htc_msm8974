@@ -28,7 +28,7 @@ struct u8_gpio_chip {
 	struct of_mm_gpio_chip mm_gc;
 	spinlock_t lock;
 
-	
+	/* shadowed data register to clear/set bits safely */
 	u8 data;
 };
 
@@ -136,6 +136,11 @@ void __init simple_gpiochip_init(const char *compatible)
 				goto err;
 			break;
 		default:
+			/*
+			 * Whenever you need support for GPIO bank width > 1,
+			 * please just turn u8_ code into huge macros, and
+			 * construct needed uX_ code with it.
+			 */
 			ret = -ENOSYS;
 			goto err;
 		}

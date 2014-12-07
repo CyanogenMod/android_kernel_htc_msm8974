@@ -21,6 +21,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
+/* #define DEBUG */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -37,8 +38,10 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Anssi Hannula <anssi.hannula@gmail.com>");
 MODULE_DESCRIPTION("Force feedback support for memoryless devices");
 
+/* Number of effects handled with memoryless devices */
 #define FF_MEMLESS_EFFECTS	16
 
+/* Envelope update interval in ms */
 #define FF_ENVELOPE_INTERVAL	50
 
 #define FF_EFFECT_STARTED	0
@@ -47,11 +50,11 @@ MODULE_DESCRIPTION("Force feedback support for memoryless devices");
 
 struct ml_effect_state {
 	struct ff_effect *effect;
-	unsigned long flags;	
-	int count;		
-	unsigned long play_at;	
-	unsigned long stop_at;	
-	unsigned long adj_at;	
+	unsigned long flags;	/* effect state (STARTED, PLAYING, etc) */
+	int count;		/* loop count of the effect */
+	unsigned long play_at;	/* start time */
+	unsigned long stop_at;	/* stop time */
+	unsigned long adj_at;	/* last time the effect was sent */
 };
 
 struct ml_device {
@@ -79,6 +82,9 @@ static const struct ff_envelope *get_envelope(const struct ff_effect *effect)
 	}
 }
 
+/*
+ * Check for the next time envelope requires an update on memoryless devices
+ */
 static unsigned long calculate_next_time(struct ml_effect_state *state)
 {
 	const struct ff_envelope *envelope = get_envelope(state->effect);
@@ -94,14 +100,14 @@ static unsigned long calculate_next_time(struct ml_effect_state *state)
 
 	if (state->effect->replay.length) {
 		if (envelope->fade_length) {
-			
+			/* check when fading should start */
 			fade_start = state->stop_at -
 					msecs_to_jiffies(envelope->fade_length);
 
 			if (time_before(state->adj_at, fade_start))
 				return fade_start;
 
-			
+			/* already fading, advance to next checkpoint */
 			next_fade = state->adj_at +
 					msecs_to_jiffies(FF_ENVELOPE_INTERVAL);
 			if (time_before(next_fade, state->stop_at))
@@ -151,6 +157,9 @@ static void ml_schedule_timer(struct ml_device *ml)
 	}
 }
 
+/*
+ * Apply an envelope to a value
+ */
 static int apply_envelope(struct ml_effect_state *state, int value,
 			  struct ff_envelope *envelope)
 {
@@ -194,6 +203,9 @@ static int apply_envelope(struct ml_effect_state *state, int value,
 		-(difference + envelope_level) : (difference + envelope_level);
 }
 
+/*
+ * Return the type the effect has to be converted into (memless devices)
+ */
 static int get_compatible_type(struct ff_device *ff, int effect_type)
 {
 
@@ -208,6 +220,10 @@ static int get_compatible_type(struct ff_device *ff, int effect_type)
 	return 0;
 }
 
+/*
+ * Only left/right direction should be used (under/over 0x8000) for
+ * forward/reverse motor direction (to keep calculation fast & simple).
+ */
 static u16 ml_calculate_direction(u16 direction, u16 force,
 				  u16 new_direction, u16 new_force)
 {
@@ -220,6 +236,9 @@ static u16 ml_calculate_direction(u16 direction, u16 force,
 		(force + new_force)) << 1;
 }
 
+/*
+ * Combine two effects and apply gain.
+ */
 static void ml_combine_effects(struct ff_effect *effect,
 			       struct ml_effect_state *state,
 			       int gain)
@@ -237,6 +256,11 @@ static void ml_combine_effects(struct ff_effect *effect,
 					&new->u.constant.envelope));
 		x = fixp_mult(fixp_sin(i), level) * gain / 0xffff;
 		y = fixp_mult(-fixp_cos(i), level) * gain / 0xffff;
+		/*
+		 * here we abuse ff_ramp to hold x and y of constant force
+		 * If in future any driver wants something else than x and y
+		 * in s8, this should be changed to something more generic
+		 */
 		effect->u.ramp.start_level =
 			clamp_val(effect->u.ramp.start_level + x, -0x80, 0x7f);
 		effect->u.ramp.end_level =
@@ -270,7 +294,7 @@ static void ml_combine_effects(struct ff_effect *effect,
 		i = apply_envelope(state, abs(new->u.periodic.magnitude),
 				   &new->u.periodic.envelope);
 
-		
+		/* here we also scale it 0x7fff => 0xffff */
 		i = i * gain / 0x7fff;
 
 		if (effect->u.rumble.strong_magnitude + i)
@@ -294,6 +318,10 @@ static void ml_combine_effects(struct ff_effect *effect,
 }
 
 
+/*
+ * Because memoryless devices have only one effect per effect type active
+ * at one time we have to combine multiple effects into one
+ */
 static int ml_get_combo_effect(struct ml_device *ml,
 			       unsigned long *effect_handled,
 			       struct ff_effect *combo_effect)
@@ -318,6 +346,11 @@ static int ml_get_combo_effect(struct ml_device *ml,
 		if (time_before(jiffies, state->play_at))
 			continue;
 
+		/*
+		 * here we have started effects that are either
+		 * currently playing (and may need be aborted)
+		 * or need to start playing.
+		 */
 		effect_type = get_compatible_type(ml->dev->ff, effect->type);
 		if (combo_effect->type != effect_type) {
 			if (combo_effect->type != 0) {
@@ -379,6 +412,9 @@ static void ml_effect_timer(unsigned long timer_data)
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 }
 
+/*
+ * Sets requested gain for FF effects. Called with dev->event_lock held.
+ */
 static void ml_ff_set_gain(struct input_dev *dev, u16 gain)
 {
 	struct ml_device *ml = dev->ff->private;
@@ -392,6 +428,9 @@ static void ml_ff_set_gain(struct input_dev *dev, u16 gain)
 	ml_play_effects(ml);
 }
 
+/*
+ * Start/stop specified FF effect. Called with dev->event_lock held.
+ */
 static int ml_ff_playback(struct input_dev *dev, int effect_id, int value)
 {
 	struct ml_device *ml = dev->ff->private;
@@ -452,6 +491,12 @@ static void ml_ff_destroy(struct ff_device *ff)
 	kfree(ml->private);
 }
 
+/**
+ * input_ff_create_memless() - create memoryless force-feedback device
+ * @dev: input device supporting force-feedback
+ * @data: driver-specific data to be passed into @play_effect
+ * @play_effect: driver-specific method for playing FF effect
+ */
 int input_ff_create_memless(struct input_dev *dev, void *data,
 		int (*play_effect)(struct input_dev *, void *, struct ff_effect *))
 {
@@ -485,7 +530,7 @@ int input_ff_create_memless(struct input_dev *dev, void *data,
 	ff->set_gain = ml_ff_set_gain;
 	ff->destroy = ml_ff_destroy;
 
-	
+	/* we can emulate periodic effects with RUMBLE */
 	if (test_bit(FF_RUMBLE, ff->ffbit)) {
 		set_bit(FF_PERIODIC, dev->ffbit);
 		set_bit(FF_SINE, dev->ffbit);

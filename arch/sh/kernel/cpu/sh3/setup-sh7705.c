@@ -20,7 +20,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5,
 	PINT07, PINT815,
 
@@ -33,7 +33,7 @@ enum {
 };
 
 static struct intc_vect vectors[] __initdata = {
-	
+	/* IRQ0->5 are handled in setup-sh3.c */
 	INTC_VECT(PINT07, 0x700), INTC_VECT(PINT815, 0x720),
 	INTC_VECT(DMAC, 0x800), INTC_VECT(DMAC, 0x820),
 	INTC_VECT(DMAC, 0x840), INTC_VECT(DMAC, 0x860),
@@ -54,14 +54,14 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfffffee2, 0, 16, 4,  { TMU0, TMU1, TMU2, RTC } },
-	{ 0xfffffee4, 0, 16, 4,  { WDT, REF_RCMI, 0, 0 } },
-	{ 0xa4000016, 0, 16, 4,  { IRQ3, IRQ2, IRQ1, IRQ0 } },
-	{ 0xa4000018, 0, 16, 4,  { PINT07, PINT815, IRQ5, IRQ4 } },
-	{ 0xa400001a, 0, 16, 4,  { DMAC, SCIF0, SCIF2, ADC_ADI } },
-	{ 0xa4080000, 0, 16, 4,  { 0, 0, USB } },
-	{ 0xa4080002, 0, 16, 4,  { TPU0, TPU1 } },
-	{ 0xa4080004, 0, 16, 4,  { TPU2, TPU3 } },
+	{ 0xfffffee2, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2, RTC } },
+	{ 0xfffffee4, 0, 16, 4, /* IPRB */ { WDT, REF_RCMI, 0, 0 } },
+	{ 0xa4000016, 0, 16, 4, /* IPRC */ { IRQ3, IRQ2, IRQ1, IRQ0 } },
+	{ 0xa4000018, 0, 16, 4, /* IPRD */ { PINT07, PINT815, IRQ5, IRQ4 } },
+	{ 0xa400001a, 0, 16, 4, /* IPRE */ { DMAC, SCIF0, SCIF2, ADC_ADI } },
+	{ 0xa4080000, 0, 16, 4, /* IPRF */ { 0, 0, USB } },
+	{ 0xa4080002, 0, 16, 4, /* IPRG */ { TPU0, TPU1 } },
+	{ 0xa4080004, 0, 16, 4, /* IPRH */ { TPU2, TPU3 } },
 
 };
 

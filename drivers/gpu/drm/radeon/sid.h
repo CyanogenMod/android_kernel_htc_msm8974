@@ -184,10 +184,10 @@
 
 #define IH_RB_CNTL                                        0x3e00
 #       define IH_RB_ENABLE                               (1 << 0)
-#       define IH_IB_SIZE(x)                              ((x) << 1) 
+#       define IH_IB_SIZE(x)                              ((x) << 1) /* log2 */
 #       define IH_RB_FULL_DRAIN_ENABLE                    (1 << 6)
 #       define IH_WPTR_WRITEBACK_ENABLE                   (1 << 8)
-#       define IH_WPTR_WRITEBACK_TIMER(x)                 ((x) << 9) 
+#       define IH_WPTR_WRITEBACK_TIMER(x)                 ((x) << 9) /* log2 */
 #       define IH_WPTR_OVERFLOW_ENABLE                    (1 << 16)
 #       define IH_WPTR_OVERFLOW_CLEAR                     (1 << 31)
 #define IH_RB_BASE                                        0x3e04
@@ -241,12 +241,14 @@
 #       define LATENCY_LOW_WATERMARK(x)				((x) << 0)
 #       define LATENCY_HIGH_WATERMARK(x)			((x) << 16)
 
+/* 0x6bb8, 0x77b8, 0x103b8, 0x10fb8, 0x11bb8, 0x127b8 */
 #define VLINE_STATUS                                    0x6bb8
 #       define VLINE_OCCURRED                           (1 << 0)
 #       define VLINE_ACK                                (1 << 4)
 #       define VLINE_STAT                               (1 << 12)
 #       define VLINE_INTERRUPT                          (1 << 16)
 #       define VLINE_INTERRUPT_TYPE                     (1 << 17)
+/* 0x6bbc, 0x77bc, 0x103bc, 0x10fbc, 0x11bbc, 0x127bc */
 #define VBLANK_STATUS                                   0x6bbc
 #       define VBLANK_OCCURRED                          (1 << 0)
 #       define VBLANK_ACK                               (1 << 4)
@@ -254,6 +256,7 @@
 #       define VBLANK_INTERRUPT                         (1 << 16)
 #       define VBLANK_INTERRUPT_TYPE                    (1 << 17)
 
+/* 0x6b40, 0x7740, 0x10340, 0x10f40, 0x11b40, 0x12740 */
 #define INT_MASK                                        0x6b40
 #       define VBLANK_INT_MASK                          (1 << 0)
 #       define VLINE_INT_MASK                           (1 << 4)
@@ -294,9 +297,11 @@
 #       define DC_HPD6_INTERRUPT                        (1 << 17)
 #       define DC_HPD6_RX_INTERRUPT                     (1 << 18)
 
+/* 0x6858, 0x7458, 0x10058, 0x10c58, 0x11858, 0x12458 */
 #define GRPH_INT_STATUS                                 0x6858
 #       define GRPH_PFLIP_INT_OCCURRED                  (1 << 0)
 #       define GRPH_PFLIP_INT_CLEAR                     (1 << 8)
+/* 0x685c, 0x745c, 0x1005c, 0x10c5c, 0x1185c, 0x1245c */
 #define	GRPH_INT_CONTROL			        0x685c
 #       define GRPH_PFLIP_INT_MASK                      (1 << 0)
 #       define GRPH_PFLIP_INT_TYPE                      (1 << 8)
@@ -335,6 +340,7 @@
 #       define DC_HPDx_RX_INT_TIMER(x)                    ((x) << 16)
 #       define DC_HPDx_EN                                 (1 << 28)
 
+/* 0x6e98, 0x7a98, 0x10698, 0x11298, 0x11e98, 0x12a98 */
 #define CRTC_STATUS_FRAME_COUNT                         0x6e98
 
 #define	GRBM_CNTL					0x8000
@@ -721,6 +727,9 @@
 #       define THREAD_TRACE_FLUSH                       (54 << 0)
 #       define THREAD_TRACE_FINISH                      (55 << 0)
 
+/*
+ * PM4
+ */
 #define	PACKET_TYPE0	0
 #define	PACKET_TYPE1	1
 #define	PACKET_TYPE2	2
@@ -745,6 +754,7 @@
 
 #define PACKET3_COMPUTE(op, n) (PACKET3(op, n) | 1 << 1)
 
+/* Packet 3 types */
 #define	PACKET3_NOP					0x10
 #define	PACKET3_SET_BASE				0x11
 #define		PACKET3_BASE_INDEX(x)                  ((x) << 0)
@@ -814,11 +824,29 @@
 #define	PACKET3_EVENT_WRITE				0x46
 #define		EVENT_TYPE(x)                           ((x) << 0)
 #define		EVENT_INDEX(x)                          ((x) << 8)
+                /* 0 - any non-TS event
+		 * 1 - ZPASS_DONE
+		 * 2 - SAMPLE_PIPELINESTAT
+		 * 3 - SAMPLE_STREAMOUTSTAT*
+		 * 4 - *S_PARTIAL_FLUSH
+		 * 5 - EOP events
+		 * 6 - EOS events
+		 * 7 - CACHE_FLUSH, CACHE_FLUSH_AND_INV_EVENT
+		 */
 #define		INV_L2                                  (1 << 20)
-                
+                /* INV TC L2 cache when EVENT_INDEX = 7 */
 #define	PACKET3_EVENT_WRITE_EOP				0x47
 #define		DATA_SEL(x)                             ((x) << 29)
+                /* 0 - discard
+		 * 1 - send low 32bit data
+		 * 2 - send 64bit data
+		 * 3 - send 64bit counter value
+		 */
 #define		INT_SEL(x)                              ((x) << 24)
+                /* 0 - none
+		 * 1 - interrupt only (DATA_SEL = 0)
+		 * 2 - interrupt when data write is confirmed
+		 */
 #define	PACKET3_EVENT_WRITE_EOS				0x48
 #define	PACKET3_PREAMBLE_CNTL				0x4A
 #              define PACKET3_PREAMBLE_BEGIN_CLEAR_STATE     (2 << 28)

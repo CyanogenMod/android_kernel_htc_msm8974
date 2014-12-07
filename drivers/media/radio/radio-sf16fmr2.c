@@ -7,11 +7,11 @@
  */
 
 #include <linux/delay.h>
-#include <linux/module.h>	
-#include <linux/init.h>		
+#include <linux/module.h>	/* Modules 			*/
+#include <linux/init.h>		/* Initdata			*/
 #include <linux/slab.h>
-#include <linux/ioport.h>	
-#include <linux/io.h>		
+#include <linux/ioport.h>	/* request_region		*/
+#include <linux/io.h>		/* outb, outb_p			*/
 #include <linux/isa.h>
 #include <sound/tea575x-tuner.h>
 
@@ -31,15 +31,19 @@ struct fmr2 {
 	struct v4l2_ctrl *balance;
 };
 
+/* the port is hardwired so no need to support multiple cards */
 #define FMR2_PORT	0x384
 
+/* TEA575x tuner pins */
 #define STR_DATA	(1 << 0)
 #define STR_CLK		(1 << 1)
 #define STR_WREN	(1 << 2)
 #define STR_MOST	(1 << 3)
+/* PT2254A/TC9154A volume control pins */
 #define PT_ST		(1 << 4)
 #define PT_CK		(1 << 5)
 #define PT_DATA		(1 << 6)
+/* volume control presence pin */
 #define FMR2_HASVOL	(1 << 7)
 
 static void fmr2_tea575x_set_pins(struct snd_tea575x *tea, u8 pins)
@@ -49,7 +53,7 @@ static void fmr2_tea575x_set_pins(struct snd_tea575x *tea, u8 pins)
 
 	bits |= (pins & TEA575X_DATA) ? STR_DATA : 0;
 	bits |= (pins & TEA575X_CLK)  ? STR_CLK  : 0;
-	
+	/* WRITE_ENABLE is inverted, DATA must be high during read */
 	bits |= (pins & TEA575X_WREN) ? 0 : STR_WREN | STR_DATA;
 
 	outb(bits, fmr2->io);
@@ -74,7 +78,9 @@ static struct snd_tea575x_ops fmr2_tea_ops = {
 	.set_direction = fmr2_tea575x_set_direction,
 };
 
+/* TC9154A/PT2254A volume control */
 
+/* 18-bit shift register bit definitions */
 #define TC9154A_ATT_MAJ_0DB	(1 << 0)
 #define TC9154A_ATT_MAJ_10DB	(1 << 1)
 #define TC9154A_ATT_MAJ_20DB	(1 << 2)
@@ -88,8 +94,10 @@ static struct snd_tea575x_ops fmr2_tea_ops = {
 #define TC9154A_ATT_MIN_4DB	(1 << 9)
 #define TC9154A_ATT_MIN_6DB	(1 << 10)
 #define TC9154A_ATT_MIN_8DB	(1 << 11)
+/* bit 12 is ignored */
 #define TC9154A_CHANNEL_LEFT	(1 << 13)
 #define TC9154A_CHANNEL_RIGHT	(1 << 14)
+/* bits 15, 16, 17 must be 0 */
 
 #define	TC9154A_ATT_MAJ(x)	(1 << x)
 #define TC9154A_ATT_MIN(x)	(1 << (7 + x))
@@ -110,7 +118,7 @@ static void tc9154a_set_attenuation(struct fmr2 *fmr2, int att, u32 channel)
 
 	reg = TC9154A_ATT_MAJ(att / 10) | TC9154A_ATT_MIN((att % 10) / 2);
 	reg |= channel;
-	
+	/* write 18-bit shift register, LSB first */
 	for (i = 0; i < 18; i++) {
 		bit = reg & (1 << i) ? PT_DATA : 0;
 		tc9154a_set_pins(fmr2, bit);
@@ -120,7 +128,7 @@ static void tc9154a_set_attenuation(struct fmr2 *fmr2, int att, u32 channel)
 		tc9154a_set_pins(fmr2, bit);
 	}
 
-	
+	/* latch register data */
 	udelay(5);
 	tc9154a_set_pins(fmr2, PT_ST);
 	udelay(5);

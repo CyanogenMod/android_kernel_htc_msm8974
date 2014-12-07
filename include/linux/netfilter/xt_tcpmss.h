@@ -8,4 +8,4 @@ struct xt_tcpmss_match_info {
     __u8 invert;
 };
 
-#endif 
+#endif /*_XT_TCPMSS_MATCH_H*/

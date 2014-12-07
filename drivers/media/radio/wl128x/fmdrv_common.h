@@ -22,8 +22,8 @@
 #ifndef _FMDRV_COMMON_H
 #define _FMDRV_COMMON_H
 
-#define FM_ST_REG_TIMEOUT   msecs_to_jiffies(6000)	
-#define FM_PKT_LOGICAL_CHAN_NUMBER  0x08   
+#define FM_ST_REG_TIMEOUT   msecs_to_jiffies(6000)	/* 6 sec */
+#define FM_PKT_LOGICAL_CHAN_NUMBER  0x08   /* Logical channel 8 */
 
 #define REG_RD       0x1
 #define REG_WR      0x0
@@ -85,6 +85,7 @@ struct fm_reg_table {
 #define FM_POWER_MODE            254
 #define FM_INTERRUPT             255
 
+/* Transmitter API */
 
 #define CHANL_SET                55
 #define CHANL_BW_SET		56
@@ -132,6 +133,7 @@ struct fm_reg_table {
 #define RSSI_BLOCK_SCAN_DATA_GET  5
 #define READ_FMANT_TUNE_VALUE            104
 
+/* SKB helpers */
 struct fm_skb_cb {
 	__u8 fm_op;
 	struct completion *completion;
@@ -139,33 +141,37 @@ struct fm_skb_cb {
 
 #define fm_cb(skb) ((struct fm_skb_cb *)(skb->cb))
 
+/* FM Channel-8 command message format */
 struct fm_cmd_msg_hdr {
-	__u8 hdr;		
-	__u8 len;		
-	__u8 op;		
-	__u8 rd_wr;		
-	__u8 dlen;		
+	__u8 hdr;		/* Logical Channel-8 */
+	__u8 len;		/* Number of bytes follows */
+	__u8 op;		/* FM Opcode */
+	__u8 rd_wr;		/* Read/Write command */
+	__u8 dlen;		/* Length of payload */
 } __attribute__ ((packed));
 
-#define FM_CMD_MSG_HDR_SIZE    5	
+#define FM_CMD_MSG_HDR_SIZE    5	/* sizeof(struct fm_cmd_msg_hdr) */
 
+/* FM Channel-8 event messgage format */
 struct fm_event_msg_hdr {
-	__u8 header;		
-	__u8 len;		
-	__u8 status;		
-	__u8 num_fm_hci_cmds;	
-	__u8 op;		
-	__u8 rd_wr;		
-	__u8 dlen;		
+	__u8 header;		/* Logical Channel-8 */
+	__u8 len;		/* Number of bytes follows */
+	__u8 status;		/* Event status */
+	__u8 num_fm_hci_cmds;	/* Number of pkts the host allowed to send */
+	__u8 op;		/* FM Opcode */
+	__u8 rd_wr;		/* Read/Write command */
+	__u8 dlen;		/* Length of payload */
 } __attribute__ ((packed));
 
-#define FM_EVT_MSG_HDR_SIZE     7	
+#define FM_EVT_MSG_HDR_SIZE     7	/* sizeof(struct fm_event_msg_hdr) */
 
+/* TI's magic number in firmware file */
 #define FM_FW_FILE_HEADER_MAGIC	     0x42535442
 
 #define FM_ENABLE   1
 #define FM_DISABLE  0
 
+/* FLAG_GET register bits */
 #define FM_FR_EVENT		(1 << 0)
 #define FM_BL_EVENT		(1 << 1)
 #define FM_RDS_EVENT		(1 << 2)
@@ -179,28 +185,38 @@ struct fm_event_msg_hdr {
 #define FM_MAL_EVENT		(1 << 10)
 #define FM_POW_ENB_EVENT	(1 << 11)
 
+/*
+ * Firmware files of FM. ASIC ID and ASIC version will be appened to this,
+ * later.
+ */
 #define FM_FMC_FW_FILE_START      ("fmc_ch8")
 #define FM_RX_FW_FILE_START       ("fm_rx_ch8")
 #define FM_TX_FW_FILE_START       ("fm_tx_ch8")
 
 #define FM_UNDEFINED_FREQ		   0xFFFFFFFF
 
+/* Band types */
 #define FM_BAND_EUROPE_US	0
 #define FM_BAND_JAPAN		1
 
+/* Seek directions */
 #define FM_SEARCH_DIRECTION_DOWN	0
 #define FM_SEARCH_DIRECTION_UP		1
 
+/* Tunner modes */
 #define FM_TUNER_STOP_SEARCH_MODE	0
 #define FM_TUNER_PRESET_MODE		1
 #define FM_TUNER_AUTONOMOUS_SEARCH_MODE	2
 #define FM_TUNER_AF_JUMP_MODE		3
 
+/* Min and Max volume */
 #define FM_RX_VOLUME_MIN	0
 #define FM_RX_VOLUME_MAX	70
 
+/* Volume gain step */
 #define FM_RX_VOLUME_GAIN_STEP	0x370
 
+/* Mute modes */
 #define	FM_MUTE_ON		0
 #define FM_MUTE_OFF		1
 #define	FM_MUTE_ATTENUATE	2
@@ -212,32 +228,40 @@ struct fm_event_msg_hdr {
 #define FM_RX_HARD_MUTE_RIGHT_MODE	0x08
 #define FM_RX_SOFT_MUTE_FORCE_MODE	0x10
 
+/* RF dependent mute mode */
 #define FM_RX_RF_DEPENDENT_MUTE_ON	1
 #define FM_RX_RF_DEPENDENT_MUTE_OFF	0
 
+/* RSSI threshold min and max */
 #define FM_RX_RSSI_THRESHOLD_MIN	-128
 #define FM_RX_RSSI_THRESHOLD_MAX	127
 
+/* Stereo/Mono mode */
 #define FM_STEREO_MODE		0
 #define FM_MONO_MODE		1
 #define FM_STEREO_SOFT_BLEND	1
 
+/* FM RX De-emphasis filter modes */
 #define FM_RX_EMPHASIS_FILTER_50_USEC	0
 #define FM_RX_EMPHASIS_FILTER_75_USEC	1
 
+/* FM RDS modes */
 #define FM_RDS_DISABLE	0
 #define FM_RDS_ENABLE	1
 
 #define FM_NO_PI_CODE	0
 
+/* FM and RX RDS block enable/disable  */
 #define FM_RX_PWR_SET_FM_ON_RDS_OFF		0x1
 #define FM_RX_PWR_SET_FM_AND_RDS_BLK_ON		0x3
 #define FM_RX_PWR_SET_FM_AND_RDS_BLK_OFF	0x0
 
+/* RX RDS */
 #define FM_RX_RDS_FLUSH_FIFO		0x1
-#define FM_RX_RDS_FIFO_THRESHOLD	64	
-#define FM_RDS_BLK_SIZE		3	
+#define FM_RX_RDS_FIFO_THRESHOLD	64	/* tuples */
+#define FM_RDS_BLK_SIZE		3	/* 3 bytes */
 
+/* RDS block types */
 #define FM_RDS_BLOCK_A		0
 #define FM_RDS_BLOCK_B		1
 #define FM_RDS_BLOCK_C		2
@@ -253,6 +277,10 @@ struct fm_event_msg_hdr {
 
 #define FM_RDS_STATUS_ERR_MASK	0x18
 
+/*
+ * Represents an RDS group type & version.
+ * There are 15 groups, each group has 2 versions: A and B.
+ */
 #define FM_RDS_GROUP_TYPE_MASK_0A	    ((unsigned long)1<<0)
 #define FM_RDS_GROUP_TYPE_MASK_0B	    ((unsigned long)1<<1)
 #define FM_RDS_GROUP_TYPE_MASK_1A	    ((unsigned long)1<<2)
@@ -286,45 +314,60 @@ struct fm_event_msg_hdr {
 #define FM_RDS_GROUP_TYPE_MASK_15A	    ((unsigned long)1<<30)
 #define FM_RDS_GROUP_TYPE_MASK_15B	    ((unsigned long)1<<31)
 
+/* RX Alternate Frequency info */
 #define FM_RDS_MIN_AF		          1
 #define FM_RDS_MAX_AF		        204
 #define FM_RDS_MAX_AF_JAPAN	        140
 #define FM_RDS_1_AF_FOLLOWS	        225
 #define FM_RDS_25_AF_FOLLOWS	        249
 
+/* RDS system type (RDS/RBDS) */
 #define FM_RDS_SYSTEM_RDS		0
 #define FM_RDS_SYSTEM_RBDS		1
 
+/* AF on/off */
 #define FM_RX_RDS_AF_SWITCH_MODE_ON	1
 #define FM_RX_RDS_AF_SWITCH_MODE_OFF	0
 
-#define FM_IRQ_TIMEOUT_RETRY_MAX	5	
+/* Retry count when interrupt process goes wrong */
+#define FM_IRQ_TIMEOUT_RETRY_MAX	5	/* 5 times */
 
+/* Audio IO set values */
 #define FM_RX_AUDIO_ENABLE_I2S	0x01
 #define FM_RX_AUDIO_ENABLE_ANALOG	0x02
 #define FM_RX_AUDIO_ENABLE_I2S_AND_ANALOG	0x03
 #define FM_RX_AUDIO_ENABLE_DISABLE	0x00
 
+/* HI/LO set values */
 #define FM_RX_IFFREQ_TO_HI_SIDE		0x0
 #define FM_RX_IFFREQ_TO_LO_SIDE		0x1
 #define FM_RX_IFFREQ_HILO_AUTOMATIC	0x2
 
+/*
+ * Default RX mode configuration. Chip will be configured
+ * with this default values after loading RX firmware.
+ */
 #define FM_DEFAULT_RX_VOLUME		10
 #define FM_DEFAULT_RSSI_THRESHOLD	3
 
+/* Range for TX power level in units for dB/uV */
 #define FM_PWR_LVL_LOW			91
 #define FM_PWR_LVL_HIGH			122
 
+/* Chip specific default TX power level value */
 #define FM_PWR_LVL_DEF			4
 
+/* FM TX Pre-emphasis filter values */
 #define FM_TX_PREEMPH_OFF		1
 #define FM_TX_PREEMPH_50US		0
 #define FM_TX_PREEMPH_75US		2
 
+/* FM TX antenna impedance values */
 #define FM_TX_ANT_IMP_50		0
 #define FM_TX_ANT_IMP_200		1
 #define FM_TX_ANT_IMP_500		2
 
+/* Functions exported by FM common sub-module */
 int fmc_prepare(struct fmdev *);
 int fmc_release(struct fmdev *);
 
@@ -347,6 +390,9 @@ int fmc_get_freq(struct fmdev *, u32 *);
 int fmc_get_region(struct fmdev *, u8 *);
 int fmc_get_mode(struct fmdev *, u8 *);
 
+/*
+ * channel spacing
+ */
 #define FM_CHANNEL_SPACING_50KHZ 1
 #define FM_CHANNEL_SPACING_100KHZ 2
 #define FM_CHANNEL_SPACING_200KHZ 4

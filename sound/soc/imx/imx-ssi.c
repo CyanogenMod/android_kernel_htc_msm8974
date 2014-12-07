@@ -54,6 +54,10 @@
 
 #define SSI_SACNT_DEFAULT (SSI_SACNT_AC97EN | SSI_SACNT_FV)
 
+/*
+ * SSI Network Mode or TDM slots configuration.
+ * Should only be called when port is inactive (i.e. SSIEN = 0).
+ */
 static int imx_ssi_set_dai_tdm_slot(struct snd_soc_dai *cpu_dai,
 	unsigned int tx_mask, unsigned int rx_mask, int slots, int slot_width)
 {
@@ -76,6 +80,10 @@ static int imx_ssi_set_dai_tdm_slot(struct snd_soc_dai *cpu_dai,
 	return 0;
 }
 
+/*
+ * SSI DAI format configuration.
+ * Should only be called when port is inactive (i.e. SSIEN = 0).
+ */
 static int imx_ssi_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 {
 	struct imx_ssi *ssi = snd_soc_dai_get_drvdata(cpu_dai);
@@ -83,10 +91,10 @@ static int imx_ssi_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 
 	scr = readl(ssi->base + SSI_SCR) & ~(SSI_SCR_SYN | SSI_SCR_NET);
 
-	
+	/* DAI mode */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
-		
+		/* data on rising edge of bclk, frame low 1clk before data */
 		strcr |= SSI_STCR_TFSI | SSI_STCR_TEFS | SSI_STCR_TXBIT0;
 		scr |= SSI_SCR_NET;
 		if (ssi->flags & IMX_SSI_USE_I2S_SLAVE) {
@@ -95,20 +103,20 @@ static int imx_ssi_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		}
 		break;
 	case SND_SOC_DAIFMT_LEFT_J:
-		
+		/* data on rising edge of bclk, frame high with data */
 		strcr |= SSI_STCR_TXBIT0;
 		break;
 	case SND_SOC_DAIFMT_DSP_B:
-		
+		/* data on rising edge of bclk, frame high with data */
 		strcr |= SSI_STCR_TFSL | SSI_STCR_TXBIT0;
 		break;
 	case SND_SOC_DAIFMT_DSP_A:
-		
+		/* data on rising edge of bclk, frame high 1clk before data */
 		strcr |= SSI_STCR_TFSL | SSI_STCR_TXBIT0 | SSI_STCR_TEFS;
 		break;
 	}
 
-	
+	/* DAI clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_IB_IF:
 		strcr |= SSI_STCR_TFSI;
@@ -126,12 +134,12 @@ static int imx_ssi_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		break;
 	}
 
-	
+	/* DAI clock master masks */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
 		break;
 	default:
-		
+		/* Master mode not implemented, needs handling of clocks. */
 		return -EINVAL;
 	}
 
@@ -149,6 +157,10 @@ static int imx_ssi_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 	return 0;
 }
 
+/*
+ * SSI system clock configuration.
+ * Should only be called when port is inactive (i.e. SSIEN = 0).
+ */
 static int imx_ssi_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 				  int clk_id, unsigned int freq, int dir)
 {
@@ -173,6 +185,10 @@ static int imx_ssi_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 	return 0;
 }
 
+/*
+ * SSI Clock dividers
+ * Should only be called when port is inactive (i.e. SSIEN = 0).
+ */
 static int imx_ssi_set_dai_clkdiv(struct snd_soc_dai *cpu_dai,
 				  int div_id, int div)
 {
@@ -223,7 +239,7 @@ static int imx_ssi_startup(struct snd_pcm_substream *substream,
 	struct imx_ssi *ssi = snd_soc_dai_get_drvdata(cpu_dai);
 	struct imx_pcm_dma_params *dma_data;
 
-	
+	/* Tx/Rx config */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		dma_data = &ssi->dma_params_tx;
 	else
@@ -234,6 +250,10 @@ static int imx_ssi_startup(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * Should only be called when port is inactive (i.e. SSIEN = 0),
+ * although can be called multiple times by upper layers.
+ */
 static int imx_ssi_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_pcm_hw_params *params,
 			     struct snd_soc_dai *cpu_dai)
@@ -241,7 +261,7 @@ static int imx_ssi_hw_params(struct snd_pcm_substream *substream,
 	struct imx_ssi *ssi = snd_soc_dai_get_drvdata(cpu_dai);
 	u32 reg, sccr;
 
-	
+	/* Tx/Rx config */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		reg = SSI_STCCR;
 	else
@@ -252,7 +272,7 @@ static int imx_ssi_hw_params(struct snd_pcm_substream *substream,
 
 	sccr = readl(ssi->base + reg) & ~SSI_STCCR_WL_MASK;
 
-	
+	/* DAI data (word) size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		sccr |= SSI_SRCCR_WL(16);
@@ -325,7 +345,7 @@ static int imx_ssi_trigger(struct snd_pcm_substream *substream, int cmd,
 	}
 
 	if (!(ssi->flags & IMX_SSI_USE_AC97))
-		
+		/* rx/tx are always enabled to access ac97 registers */
 		writel(scr, ssi->base + SSI_SCR);
 
 	writel(sier, ssi->base + SSI_SIER);
@@ -663,6 +683,7 @@ static struct platform_driver imx_ssi_driver = {
 
 module_platform_driver(imx_ssi_driver);
 
+/* Module information */
 MODULE_AUTHOR("Sascha Hauer, <s.hauer@pengutronix.de>");
 MODULE_DESCRIPTION("i.MX I2S/ac97 SoC Interface");
 MODULE_LICENSE("GPL");

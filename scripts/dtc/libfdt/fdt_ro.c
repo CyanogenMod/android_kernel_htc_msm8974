@@ -61,7 +61,7 @@ static int _fdt_nodename_eq(const void *fdt, int offset,
 	const char *p = fdt_offset_ptr(fdt, offset + FDT_TAGSIZE, len+1);
 
 	if (! p)
-		
+		/* short match */
 		return 0;
 
 	if (memcmp(p, s, len) != 0)
@@ -145,7 +145,7 @@ int fdt_subnode_offset_namelen(const void *fdt, int offset,
 
 	if (depth < 0)
 		return -FDT_ERR_NOTFOUND;
-	return offset; 
+	return offset; /* error */
 }
 
 int fdt_subnode_offset(const void *fdt, int parentoffset,
@@ -162,7 +162,7 @@ int fdt_path_offset(const void *fdt, const char *path)
 
 	FDT_CHECK_HEADER(fdt);
 
-	
+	/* see if we have an alias */
 	if (*path != '/') {
 		const char *q = strchr(path, '/');
 
@@ -325,6 +325,8 @@ uint32_t fdt_get_phandle(const void *fdt, int nodeoffset)
 	const uint32_t *php;
 	int len;
 
+	/* FIXME: This is a bit sub-optimal, since we potentially scan
+	 * over all the properties twice. */
 	php = fdt_getprop(fdt, nodeoffset, "phandle", &len);
 	if (!php || (len != sizeof(*php))) {
 		php = fdt_getprop(fdt, nodeoffset, "linux,phandle", &len);
@@ -389,7 +391,7 @@ int fdt_get_path(const void *fdt, int nodeoffset, char *buf, int buflen)
 			if (pdepth < (depth + 1))
 				return -FDT_ERR_NOSPACE;
 
-			if (p > 1) 
+			if (p > 1) /* special case so that root path is "/", not "" */
 				p--;
 			buf[p] = '\0';
 			return 0;
@@ -401,7 +403,7 @@ int fdt_get_path(const void *fdt, int nodeoffset, char *buf, int buflen)
 	else if (offset == -FDT_ERR_BADOFFSET)
 		return -FDT_ERR_BADSTRUCTURE;
 
-	return offset; 
+	return offset; /* error from fdt_next_node() */
 }
 
 int fdt_supernode_atdepth_offset(const void *fdt, int nodeoffset,
@@ -437,7 +439,7 @@ int fdt_supernode_atdepth_offset(const void *fdt, int nodeoffset,
 	else if (offset == -FDT_ERR_BADOFFSET)
 		return -FDT_ERR_BADSTRUCTURE;
 
-	return offset; 
+	return offset; /* error from fdt_next_node() */
 }
 
 int fdt_node_depth(const void *fdt, int nodeoffset)
@@ -471,6 +473,11 @@ int fdt_node_offset_by_prop_value(const void *fdt, int startoffset,
 
 	FDT_CHECK_HEADER(fdt);
 
+	/* FIXME: The algorithm here is pretty horrible: we scan each
+	 * property of a node in fdt_getprop(), then if that didn't
+	 * find what we want, we scan over them again making our way
+	 * to the next node.  Still it's the easiest to implement
+	 * approach; performance can come later. */
 	for (offset = fdt_next_node(fdt, startoffset, NULL);
 	     offset >= 0;
 	     offset = fdt_next_node(fdt, offset, NULL)) {
@@ -480,7 +487,7 @@ int fdt_node_offset_by_prop_value(const void *fdt, int startoffset,
 			return offset;
 	}
 
-	return offset; 
+	return offset; /* error from fdt_next_node() */
 }
 
 int fdt_node_offset_by_phandle(const void *fdt, uint32_t phandle)
@@ -492,6 +499,12 @@ int fdt_node_offset_by_phandle(const void *fdt, uint32_t phandle)
 
 	FDT_CHECK_HEADER(fdt);
 
+	/* FIXME: The algorithm here is pretty horrible: we
+	 * potentially scan each property of a node in
+	 * fdt_get_phandle(), then if that didn't find what
+	 * we want, we scan over them again making our way to the next
+	 * node.  Still it's the easiest to implement approach;
+	 * performance can come later. */
 	for (offset = fdt_next_node(fdt, -1, NULL);
 	     offset >= 0;
 	     offset = fdt_next_node(fdt, offset, NULL)) {
@@ -499,7 +512,7 @@ int fdt_node_offset_by_phandle(const void *fdt, uint32_t phandle)
 			return offset;
 	}
 
-	return offset; 
+	return offset; /* error from fdt_next_node() */
 }
 
 static int _fdt_stringlist_contains(const char *strlist, int listlen,
@@ -513,7 +526,7 @@ static int _fdt_stringlist_contains(const char *strlist, int listlen,
 			return 1;
 		p = memchr(strlist, '\0', listlen);
 		if (!p)
-			return 0; 
+			return 0; /* malformed strlist.. */
 		listlen -= (p-strlist) + 1;
 		strlist = p + 1;
 	}
@@ -542,6 +555,11 @@ int fdt_node_offset_by_compatible(const void *fdt, int startoffset,
 
 	FDT_CHECK_HEADER(fdt);
 
+	/* FIXME: The algorithm here is pretty horrible: we scan each
+	 * property of a node in fdt_node_check_compatible(), then if
+	 * that didn't find what we want, we scan over them again
+	 * making our way to the next node.  Still it's the easiest to
+	 * implement approach; performance can come later. */
 	for (offset = fdt_next_node(fdt, startoffset, NULL);
 	     offset >= 0;
 	     offset = fdt_next_node(fdt, offset, NULL)) {
@@ -552,5 +570,5 @@ int fdt_node_offset_by_compatible(const void *fdt, int startoffset,
 			return offset;
 	}
 
-	return offset; 
+	return offset; /* error from fdt_next_node() */
 }

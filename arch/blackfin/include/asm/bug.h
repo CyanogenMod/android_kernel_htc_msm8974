@@ -9,6 +9,11 @@
 
 #ifdef CONFIG_BUG
 
+/*
+ * This can be any undefined 16-bit opcode, meaning
+ * ((opcode & 0xc000) != 0xc000)
+ * Anything from 0x0001 to 0x000A (inclusive) will work
+ */
 #define BFIN_BUG_OPCODE	0x0001
 
 #ifdef CONFIG_DEBUG_BUGVERBOSE
@@ -42,7 +47,7 @@
 		: "i"(BFIN_BUG_OPCODE), "i"(flags),			\
 		  "i"(sizeof(struct bug_entry)))
 
-#endif 
+#endif /* CONFIG_DEBUG_BUGVERBOSE */
 
 #define BUG()								\
 	do {								\

@@ -17,6 +17,9 @@
 #include <asm/types.h>
 #include "fb_draw.h"
 
+    /*
+     *  Aligned pattern fill using 32/64-bit memory accesses
+     */
 
 static void
 bitfill_aligned(struct fb_info *p, unsigned long *dst, int dst_idx,
@@ -31,21 +34,21 @@ bitfill_aligned(struct fb_info *p, unsigned long *dst, int dst_idx,
 	last = ~(FB_SHIFT_HIGH(p, ~0UL, (dst_idx+n) % bits));
 
 	if (dst_idx+n <= bits) {
-		
+		/* Single word */
 		if (last)
 			first &= last;
 		*dst = comp(pat, *dst, first);
 	} else {
-		
+		/* Multiple destination words */
 
-		
+		/* Leading bits */
  		if (first!= ~0UL) {
 			*dst = comp(pat, *dst, first);
 			dst++;
 			n -= bits - dst_idx;
 		}
 
-		
+		/* Main chunk */
 		n /= bits;
 		while (n >= 8) {
 			*dst++ = pat;
@@ -60,13 +63,19 @@ bitfill_aligned(struct fb_info *p, unsigned long *dst, int dst_idx,
 		}
 		while (n--)
 			*dst++ = pat;
-		
+		/* Trailing bits */
 		if (last)
 			*dst = comp(pat, *dst, last);
 	}
 }
 
 
+    /*
+     *  Unaligned generic pattern fill using 32/64-bit memory accesses
+     *  The pattern must have been expanded to a full 32/64-bit value
+     *  Left/right are the appropriate shifts to convert to the pattern to be
+     *  used for the next 32/64-bit word
+     */
 
 static void
 bitfill_unaligned(struct fb_info *p, unsigned long *dst, int dst_idx,
@@ -81,13 +90,13 @@ bitfill_unaligned(struct fb_info *p, unsigned long *dst, int dst_idx,
 	last = ~(FB_SHIFT_HIGH(p, ~0UL, (dst_idx+n) % bits));
 
 	if (dst_idx+n <= bits) {
-		
+		/* Single word */
 		if (last)
 			first &= last;
 		*dst = comp(pat, *dst, first);
 	} else {
-		
-		
+		/* Multiple destination words */
+		/* Leading bits */
 		if (first) {
 			*dst = comp(pat, *dst, first);
 			dst++;
@@ -95,7 +104,7 @@ bitfill_unaligned(struct fb_info *p, unsigned long *dst, int dst_idx,
 			n -= bits - dst_idx;
 		}
 
-		
+		/* Main chunk */
 		n /= bits;
 		while (n >= 4) {
 			*dst++ = pat;
@@ -113,12 +122,15 @@ bitfill_unaligned(struct fb_info *p, unsigned long *dst, int dst_idx,
 			pat = pat << left | pat >> right;
 		}
 
-		
+		/* Trailing bits */
 		if (last)
 			*dst = comp(pat, *dst, last);
 	}
 }
 
+    /*
+     *  Aligned pattern invert using 32/64-bit memory accesses
+     */
 static void
 bitfill_aligned_rev(struct fb_info *p, unsigned long *dst, int dst_idx,
 		    unsigned long pat, unsigned n, int bits)
@@ -133,20 +145,20 @@ bitfill_aligned_rev(struct fb_info *p, unsigned long *dst, int dst_idx,
 	last = ~(FB_SHIFT_HIGH(p, ~0UL, (dst_idx+n) % bits));
 
 	if (dst_idx+n <= bits) {
-		
+		/* Single word */
 		if (last)
 			first &= last;
 		*dst = comp(*dst ^ val, *dst, first);
 	} else {
-		
-		
+		/* Multiple destination words */
+		/* Leading bits */
 		if (first!=0UL) {
 			*dst = comp(*dst ^ val, *dst, first);
 			dst++;
 			n -= bits - dst_idx;
 		}
 
-		
+		/* Main chunk */
 		n /= bits;
 		while (n >= 8) {
 			*dst++ ^= val;
@@ -161,13 +173,19 @@ bitfill_aligned_rev(struct fb_info *p, unsigned long *dst, int dst_idx,
 		}
 		while (n--)
 			*dst++ ^= val;
-		
+		/* Trailing bits */
 		if (last)
 			*dst = comp(*dst ^ val, *dst, last);
 	}
 }
 
 
+    /*
+     *  Unaligned generic pattern invert using 32/64-bit memory accesses
+     *  The pattern must have been expanded to a full 32/64-bit value
+     *  Left/right are the appropriate shifts to convert to the pattern to be
+     *  used for the next 32/64-bit word
+     */
 
 static void
 bitfill_unaligned_rev(struct fb_info *p, unsigned long *dst, int dst_idx,
@@ -183,14 +201,14 @@ bitfill_unaligned_rev(struct fb_info *p, unsigned long *dst, int dst_idx,
 	last = ~(FB_SHIFT_HIGH(p, ~0UL, (dst_idx+n) % bits));
 
 	if (dst_idx+n <= bits) {
-		
+		/* Single word */
 		if (last)
 			first &= last;
 		*dst = comp(*dst ^ pat, *dst, first);
 	} else {
-		
+		/* Multiple destination words */
 
-		
+		/* Leading bits */
 		if (first != 0UL) {
 			*dst = comp(*dst ^ pat, *dst, first);
 			dst++;
@@ -198,7 +216,7 @@ bitfill_unaligned_rev(struct fb_info *p, unsigned long *dst, int dst_idx,
 			n -= bits - dst_idx;
 		}
 
-		
+		/* Main chunk */
 		n /= bits;
 		while (n >= 4) {
 			*dst++ ^= pat;
@@ -216,7 +234,7 @@ bitfill_unaligned_rev(struct fb_info *p, unsigned long *dst, int dst_idx,
 			pat = pat << left | pat >> right;
 		}
 
-		
+		/* Trailing bits */
 		if (last)
 			*dst = comp(*dst ^ pat, *dst, last);
 	}
@@ -245,7 +263,7 @@ void sys_fillrect(struct fb_info *p, const struct fb_fillrect *rect)
 	dst = (unsigned long *)((unsigned long)p->screen_base & ~(bytes-1));
 	dst_idx = ((unsigned long)p->screen_base & (bytes - 1))*8;
 	dst_idx += rect->dy*p->fix.line_length*8+rect->dx*bpp;
-	
+	/* FIXME For now we support 1-32 bpp only */
 	left = bits % bpp;
 	if (p->fbops->fb_sync)
 		p->fbops->fb_sync(p);
@@ -301,7 +319,7 @@ void sys_fillrect(struct fb_info *p, const struct fb_fillrect *rect)
 			dst += dst_idx / bits;
 			dst_idx &= (bits - 1);
 			r = dst_idx % bpp;
-			
+			/* rotate pattern to the correct start position */
 			pat2 = le_long_to_cpu(rolx(cpu_to_le_long(pat), r, bpp));
 			fill_op(p, dst, dst_idx, pat2, left, right,
 				width*bpp, bits);

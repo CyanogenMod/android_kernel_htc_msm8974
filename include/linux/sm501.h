@@ -27,10 +27,19 @@ extern unsigned long sm501_set_clock(struct device *dev,
 extern unsigned long sm501_find_clock(struct device *dev,
 				      int clksrc, unsigned long req_freq);
 
+/* sm501_misc_control
+ *
+ * Modify the SM501's MISC_CONTROL register
+*/
 
 extern int sm501_misc_control(struct device *dev,
 			      unsigned long set, unsigned long clear);
 
+/* sm501_modify_reg
+ *
+ * Modify a register in the SM501 which may be shared with other
+ * drivers.
+*/
 
 extern unsigned long sm501_modify_reg(struct device *dev,
 				      unsigned long reg,
@@ -38,6 +47,7 @@ extern unsigned long sm501_modify_reg(struct device *dev,
 				      unsigned long clear);
 
 
+/* Platform data definitions */
 
 #define SM501FB_FLAG_USE_INIT_MODE	(1<<0)
 #define SM501FB_FLAG_DISABLE_AT_EXIT	(1<<1)
@@ -56,13 +66,18 @@ struct sm501_platdata_fbsub {
 };
 
 enum sm501_fb_routing {
-	SM501_FB_OWN		= 0,	
-	SM501_FB_CRT_PANEL	= 1,	
+	SM501_FB_OWN		= 0,	/* CRT=>CRT, Panel=>Panel */
+	SM501_FB_CRT_PANEL	= 1,	/* Panel=>CRT, Panel=>Panel */
 };
 
+/* sm501_platdata_fb flag field bit definitions */
 
-#define SM501_FBPD_SWAP_FB_ENDIAN	(1<<0)	
+#define SM501_FBPD_SWAP_FB_ENDIAN	(1<<0)	/* need to endian swap */
 
+/* sm501_platdata_fb
+ *
+ * configuration data for the framebuffer driver
+*/
 
 struct sm501_platdata_fb {
 	enum sm501_fb_routing		 fb_route;
@@ -71,6 +86,12 @@ struct sm501_platdata_fb {
 	struct sm501_platdata_fbsub	*fb_pnl;
 };
 
+/* gpio i2c
+ *
+ * Note, we have to pass in the bus number, as the number used will be
+ * passed to the i2c-gpio driver's platform_device.id, subsequently used
+ * to register the i2c bus.
+*/
 
 struct sm501_platdata_gpio_i2c {
 	unsigned int		bus_num;
@@ -80,6 +101,11 @@ struct sm501_platdata_gpio_i2c {
 	int			timeout;
 };
 
+/* sm501_initdata
+ *
+ * use for initialising values that may not have been setup
+ * before the driver is loaded.
+*/
 
 struct sm501_reg_init {
 	unsigned long		set;
@@ -106,10 +132,14 @@ struct sm501_initdata {
 	struct sm501_reg_init	misc_control;
 
 	unsigned long		devices;
-	unsigned long		mclk;		
-	unsigned long		m1xclk;		
+	unsigned long		mclk;		/* non-zero to modify */
+	unsigned long		m1xclk;		/* non-zero to modify */
 };
 
+/* sm501_init_gpio
+ *
+ * default gpio settings
+*/
 
 struct sm501_init_gpio {
 	struct sm501_reg_init	gpio_data_low;
@@ -120,6 +150,13 @@ struct sm501_init_gpio {
 
 #define SM501_FLAG_SUSPEND_OFF		(1<<4)
 
+/* sm501_platdata
+ *
+ * This is passed with the platform device to allow the board
+ * to control the behaviour of the SM501 driver(s) which attach
+ * to the device.
+ *
+*/
 
 struct sm501_platdata {
 	struct sm501_initdata		*init;

@@ -18,6 +18,7 @@
 #define SECONDS_FOR_LOGOUT_COMP		15
 #define WHITE_SPACE			" \t\v\f\n\r"
 
+/* struct iscsi_node_attrib sanity values */
 #define NA_DATAOUT_TIMEOUT		3
 #define NA_DATAOUT_TIMEOUT_MAX		60
 #define NA_DATAOUT_TIMEOUT_MIX		2
@@ -37,6 +38,7 @@
 #define NA_DEFAULT_ERL_MAX		2
 #define NA_DEFAULT_ERL_MIN		0
 
+/* struct iscsi_tpg_attrib sanity values */
 #define TA_AUTHENTICATION		1
 #define TA_LOGIN_TIMEOUT		15
 #define TA_LOGIN_TIMEOUT_MAX		30
@@ -49,7 +51,9 @@
 #define TA_DEFAULT_CMDSN_DEPTH_MAX	512
 #define TA_DEFAULT_CMDSN_DEPTH_MIN	1
 #define TA_CACHE_DYNAMIC_ACLS		0
+/* Enabled by default in demo mode (generic_node_acls=1) */
 #define TA_DEMO_MODE_WRITE_PROTECT	1
+/* Disabled by default in production mode w/ explict ACLs */
 #define TA_PROD_MODE_WRITE_PROTECT	0
 #define TA_CACHE_CORE_NPS		0
 
@@ -65,6 +69,7 @@ enum tpg_np_network_transport_table {
 	ISCSI_INFINIBAND			= 5,
 };
 
+/* RFC-3720 7.1.4  Standard Connection State Diagram for a Target */
 enum target_conn_state_table {
 	TARG_CONN_STATE_FREE			= 0x1,
 	TARG_CONN_STATE_XPT_UP			= 0x3,
@@ -75,6 +80,7 @@ enum target_conn_state_table {
 	TARG_CONN_STATE_CLEANUP_WAIT		= 0x8,
 };
 
+/* RFC-3720 7.3.2  Session State Diagram for a Target */
 enum target_sess_state_table {
 	TARG_SESS_STATE_FREE			= 0x1,
 	TARG_SESS_STATE_ACTIVE			= 0x2,
@@ -83,22 +89,26 @@ enum target_sess_state_table {
 	TARG_SESS_STATE_IN_CONTINUE		= 0x5,
 };
 
+/* struct iscsi_data_count->type */
 enum data_count_type {
 	ISCSI_RX_DATA	= 1,
 	ISCSI_TX_DATA	= 2,
 };
 
+/* struct iscsi_datain_req->dr_complete */
 enum datain_req_comp_table {
 	DATAIN_COMPLETE_NORMAL			= 1,
 	DATAIN_COMPLETE_WITHIN_COMMAND_RECOVERY = 2,
 	DATAIN_COMPLETE_CONNECTION_RECOVERY	= 3,
 };
 
+/* struct iscsi_datain_req->recovery */
 enum datain_req_rec_table {
 	DATAIN_WITHIN_COMMAND_RECOVERY		= 1,
 	DATAIN_CONNECTION_RECOVERY		= 2,
 };
 
+/* struct iscsi_portal_group->state */
 enum tpg_state_table {
 	TPG_STATE_FREE				= 0,
 	TPG_STATE_ACTIVE			= 1,
@@ -106,11 +116,13 @@ enum tpg_state_table {
 	TPG_STATE_COLD_RESET			= 3,
 };
 
+/* struct iscsi_tiqn->tiqn_state */
 enum tiqn_state_table {
 	TIQN_STATE_ACTIVE			= 1,
 	TIQN_STATE_SHUTDOWN			= 2,
 };
 
+/* struct iscsi_cmd->cmd_flags */
 enum cmd_flags_table {
 	ICF_GOT_LAST_DATAOUT			= 0x00000001,
 	ICF_GOT_DATACK_SNACK			= 0x00000002,
@@ -123,6 +135,7 @@ enum cmd_flags_table {
 	ICF_REJECT_FAIL_CONN			= 0x00000100,
 };
 
+/* struct iscsi_cmd->i_state */
 enum cmd_i_state_table {
 	ISTATE_NO_STATE			= 0,
 	ISTATE_NEW_CMD			= 1,
@@ -169,6 +182,7 @@ enum cmd_i_state_table {
 	ISTATE_FREE			= 42,
 };
 
+/* Used for iscsi_recover_cmdsn() return values */
 enum recover_cmdsn_ret_table {
 	CMDSN_ERROR_CANNOT_RECOVER	= -1,
 	CMDSN_NORMAL_OPERATION		= 0,
@@ -176,12 +190,14 @@ enum recover_cmdsn_ret_table {
 	CMDSN_HIGHER_THAN_EXP		= 2,
 };
 
+/* Used for iscsi_handle_immediate_data() return values */
 enum immedate_data_ret_table {
 	IMMEDIATE_DATA_CANNOT_RECOVER	= -1,
 	IMMEDIATE_DATA_NORMAL_OPERATION = 0,
 	IMMEDIATE_DATA_ERL1_CRC_FAILURE = 1,
 };
 
+/* Used for iscsi_decide_dataout_action() return values */
 enum dataout_action_ret_table {
 	DATAOUT_CANNOT_RECOVER		= -1,
 	DATAOUT_NORMAL			= 0,
@@ -190,6 +206,7 @@ enum dataout_action_ret_table {
 	DATAOUT_WITHIN_COMMAND_RECOVERY = 3,
 };
 
+/* Used for struct iscsi_node_auth->naf_flags */
 enum naf_flags_table {
 	NAF_USERID_SET			= 0x01,
 	NAF_PASSWORD_SET		= 0x02,
@@ -197,17 +214,20 @@ enum naf_flags_table {
 	NAF_PASSWORD_IN_SET		= 0x08,
 };
 
+/* Used by various struct timer_list to manage iSCSI specific state */
 enum iscsi_timer_flags_table {
 	ISCSI_TF_RUNNING		= 0x01,
 	ISCSI_TF_STOP			= 0x02,
 	ISCSI_TF_EXPIRED		= 0x04,
 };
 
+/* Used for struct iscsi_np->np_flags */
 enum np_flags_table {
 	NPF_IP_NETWORK		= 0x00,
-	NPF_SCTP_STRUCT_FILE	= 0x01 
+	NPF_SCTP_STRUCT_FILE	= 0x01 /* Bugfix */
 };
 
+/* Used for struct iscsi_np->np_thread_state */
 enum np_thread_state_table {
 	ISCSI_NP_THREAD_ACTIVE		= 1,
 	ISCSI_NP_THREAD_INACTIVE	= 2,
@@ -217,13 +237,13 @@ enum np_thread_state_table {
 };
 
 struct iscsi_conn_ops {
-	u8	HeaderDigest;			
-	u8	DataDigest;			
-	u32	MaxRecvDataSegmentLength;	
-	u8	OFMarker;			
-	u8	IFMarker;			
-	u32	OFMarkInt;			
-	u32	IFMarkInt;			
+	u8	HeaderDigest;			/* [0,1] == [None,CRC32C] */
+	u8	DataDigest;			/* [0,1] == [None,CRC32C] */
+	u32	MaxRecvDataSegmentLength;	/* [512..2**24-1] */
+	u8	OFMarker;			/* [0,1] == [No,Yes] */
+	u8	IFMarker;			/* [0,1] == [No,Yes] */
+	u32	OFMarkInt;			/* [1..65535] */
+	u32	IFMarkInt;			/* [1..65535] */
 };
 
 struct iscsi_sess_ops {
@@ -232,19 +252,19 @@ struct iscsi_sess_ops {
 	char	TargetName[224];
 	char	TargetAlias[256];
 	char	TargetAddress[256];
-	u16	TargetPortalGroupTag;		
-	u16	MaxConnections;			
-	u8	InitialR2T;			
-	u8	ImmediateData;			
-	u32	MaxBurstLength;			
-	u32	FirstBurstLength;		
-	u16	DefaultTime2Wait;		
-	u16	DefaultTime2Retain;		
-	u16	MaxOutstandingR2T;		
-	u8	DataPDUInOrder;			
-	u8	DataSequenceInOrder;		
-	u8	ErrorRecoveryLevel;		
-	u8	SessionType;			
+	u16	TargetPortalGroupTag;		/* [0..65535] */
+	u16	MaxConnections;			/* [1..65535] */
+	u8	InitialR2T;			/* [0,1] == [No,Yes] */
+	u8	ImmediateData;			/* [0,1] == [No,Yes] */
+	u32	MaxBurstLength;			/* [512..2**24-1] */
+	u32	FirstBurstLength;		/* [512..2**24-1] */
+	u16	DefaultTime2Wait;		/* [0..3600] */
+	u16	DefaultTime2Retain;		/* [0..3600] */
+	u16	MaxOutstandingR2T;		/* [1..65535] */
+	u8	DataPDUInOrder;			/* [0,1] == [No,Yes] */
+	u8	DataSequenceInOrder;		/* [0,1] == [No,Yes] */
+	u8	ErrorRecoveryLevel;		/* [0..2] */
+	u8	SessionType;			/* [0,1] == [Normal,Discovery]*/
 };
 
 struct iscsi_queue_req {
@@ -313,141 +333,141 @@ struct iscsi_r2t {
 
 struct iscsi_cmd {
 	enum iscsi_timer_flags_table dataout_timer_flags;
-	
+	/* DataOUT timeout retries */
 	u8			dataout_timeout_retries;
-	
+	/* Within command recovery count */
 	u8			error_recovery_count;
-	
+	/* iSCSI dependent state for out or order CmdSNs */
 	enum cmd_i_state_table	deferred_i_state;
-	
+	/* iSCSI dependent state */
 	enum cmd_i_state_table	i_state;
-	
+	/* Command is an immediate command (ISCSI_OP_IMMEDIATE set) */
 	u8			immediate_cmd;
-	
+	/* Immediate data present */
 	u8			immediate_data;
-	
+	/* iSCSI Opcode */
 	u8			iscsi_opcode;
-	
+	/* iSCSI Response Code */
 	u8			iscsi_response;
-	
+	/* Logout reason when iscsi_opcode == ISCSI_INIT_LOGOUT_CMND */
 	u8			logout_reason;
-	
+	/* Logout response code when iscsi_opcode == ISCSI_INIT_LOGOUT_CMND */
 	u8			logout_response;
-	
+	/* MaxCmdSN has been incremented */
 	u8			maxcmdsn_inc;
-	
+	/* Immediate Unsolicited Dataout */
 	u8			unsolicited_data;
-	
+	/* CID contained in logout PDU when opcode == ISCSI_INIT_LOGOUT_CMND */
 	u16			logout_cid;
-	
+	/* Command flags */
 	enum cmd_flags_table	cmd_flags;
-	
+	/* Initiator Task Tag assigned from Initiator */
 	u32			init_task_tag;
-	
+	/* Target Transfer Tag assigned from Target */
 	u32			targ_xfer_tag;
-	
+	/* CmdSN assigned from Initiator */
 	u32			cmd_sn;
-	
+	/* ExpStatSN assigned from Initiator */
 	u32			exp_stat_sn;
-	
+	/* StatSN assigned to this ITT */
 	u32			stat_sn;
-	
+	/* DataSN Counter */
 	u32			data_sn;
-	
+	/* R2TSN Counter */
 	u32			r2t_sn;
-	
+	/* Last DataSN acknowledged via DataAck SNACK */
 	u32			acked_data_sn;
-	
+	/* Used for echoing NOPOUT ping data */
 	u32			buf_ptr_size;
-	
+	/* Used to store DataDigest */
 	u32			data_crc;
-	
+	/* Total size in bytes associated with command */
 	u32			data_length;
-	
+	/* Counter for MaxOutstandingR2T */
 	u32			outstanding_r2ts;
-	
+	/* Next R2T Offset when DataSequenceInOrder=Yes */
 	u32			r2t_offset;
-	
+	/* Iovec current and orig count for iscsi_cmd->iov_data */
 	u32			iov_data_count;
 	u32			orig_iov_data_count;
-	
+	/* Number of miscellaneous iovecs used for IP stack calls */
 	u32			iov_misc_count;
-	
+	/* Number of struct iscsi_pdu in struct iscsi_cmd->pdu_list */
 	u32			pdu_count;
-	
+	/* Next struct iscsi_pdu to send in struct iscsi_cmd->pdu_list */
 	u32			pdu_send_order;
-	
+	/* Current struct iscsi_pdu in struct iscsi_cmd->pdu_list */
 	u32			pdu_start;
-	
+	/* Next struct iscsi_seq to send in struct iscsi_cmd->seq_list */
 	u32			seq_send_order;
-	
+	/* Number of struct iscsi_seq in struct iscsi_cmd->seq_list */
 	u32			seq_count;
-	
+	/* Current struct iscsi_seq in struct iscsi_cmd->seq_list */
 	u32			seq_no;
-	
+	/* Lowest offset in current DataOUT sequence */
 	u32			seq_start_offset;
-	
+	/* Highest offset in current DataOUT sequence */
 	u32			seq_end_offset;
-	
+	/* Total size in bytes received so far of READ data */
 	u32			read_data_done;
-	
+	/* Total size in bytes received so far of WRITE data */
 	u32			write_data_done;
-	
+	/* Counter for FirstBurstLength key */
 	u32			first_burst_len;
-	
+	/* Counter for MaxBurstLength key */
 	u32			next_burst_len;
-	
+	/* Transfer size used for IP stack calls */
 	u32			tx_size;
-	
+	/* Buffer used for various purposes */
 	void			*buf_ptr;
-	
+	/* See include/linux/dma-mapping.h */
 	enum dma_data_direction	data_direction;
-	
+	/* iSCSI PDU Header + CRC */
 	unsigned char		pdu[ISCSI_HDR_LEN + ISCSI_CRC_LEN];
-	
+	/* Number of times struct iscsi_cmd is present in immediate queue */
 	atomic_t		immed_queue_count;
 	atomic_t		response_queue_count;
 	spinlock_t		datain_lock;
 	spinlock_t		dataout_timeout_lock;
-	
+	/* spinlock for protecting struct iscsi_cmd->i_state */
 	spinlock_t		istate_lock;
-	
+	/* spinlock for adding within command recovery entries */
 	spinlock_t		error_lock;
-	
+	/* spinlock for adding R2Ts */
 	spinlock_t		r2t_lock;
-	
+	/* DataIN List */
 	struct list_head	datain_list;
-	
+	/* R2T List */
 	struct list_head	cmd_r2t_list;
 	struct completion	reject_comp;
-	
+	/* Timer for DataOUT */
 	struct timer_list	dataout_timer;
-	
+	/* Iovecs for SCSI data payload RX/TX w/ kernel level sockets */
 	struct kvec		*iov_data;
-	
+	/* Iovecs for miscellaneous purposes */
 #define ISCSI_MISC_IOVECS			5
 	struct kvec		iov_misc[ISCSI_MISC_IOVECS];
-	
+	/* Array of struct iscsi_pdu used for DataPDUInOrder=No */
 	struct iscsi_pdu	*pdu_list;
-	
+	/* Current struct iscsi_pdu used for DataPDUInOrder=No */
 	struct iscsi_pdu	*pdu_ptr;
-	
+	/* Array of struct iscsi_seq used for DataSequenceInOrder=No */
 	struct iscsi_seq	*seq_list;
-	
+	/* Current struct iscsi_seq used for DataSequenceInOrder=No */
 	struct iscsi_seq	*seq_ptr;
-	
+	/* TMR Request when iscsi_opcode == ISCSI_OP_SCSI_TMFUNC */
 	struct iscsi_tmr_req	*tmr_req;
-	
+	/* Connection this command is alligient to */
 	struct iscsi_conn	*conn;
-	
+	/* Pointer to connection recovery entry */
 	struct iscsi_conn_recovery *cr;
-	
+	/* Session the command is part of,  used for connection recovery */
 	struct iscsi_session	*sess;
-	
+	/* list_head for connection list */
 	struct list_head	i_list;
-	
+	/* The TCM I/O descriptor that is accessed via container_of() */
 	struct se_cmd		se_cmd;
-	
+	/* Sense buffer that will be mapped into outgoing status */
 #define ISCSI_SENSE_BUFFER_LEN          (TRANSPORT_SENSE_BUFFER + 2)
 	unsigned char		sense_buffer[ISCSI_SENSE_BUFFER_LEN];
 
@@ -472,9 +492,9 @@ struct iscsi_tmr_req {
 };
 
 struct iscsi_conn {
-	
+	/* Authentication Successful for this connection */
 	u8			auth_complete;
-	
+	/* State connection is currently in */
 	u8			conn_state;
 	u8			conn_logout_reason;
 	u8			network_transport;
@@ -482,29 +502,29 @@ struct iscsi_conn {
 	enum iscsi_timer_flags_table nopin_response_timer_flags;
 	u8			tx_immediate_queue;
 	u8			tx_response_queue;
-	
+	/* Used to know what thread encountered a transport failure */
 	u8			which_thread;
-	
+	/* connection id assigned by the Initiator */
 	u16			cid;
-	
+	/* Remote TCP Port */
 	u16			login_port;
 	u16			local_port;
 	int			net_size;
 	u32			auth_id;
 #define CONNFLAG_SCTP_STRUCT_FILE			0x01
 	u32			conn_flags;
-	
+	/* Used for iscsi_tx_login_rsp() */
 	u32			login_itt;
 	u32			exp_statsn;
-	
+	/* Per connection status sequence number */
 	u32			stat_sn;
-	
+	/* IFMarkInt's Current Value */
 	u32			if_marker;
-	
+	/* OFMarkInt's Current Value */
 	u32			of_marker;
-	
+	/* Used for calculating OFMarker offset to next PDU */
 	u32			of_marker_offset;
-	
+	/* Complete Bad PDU for sending reject */
 	unsigned char		bad_hdr[ISCSI_HDR_LEN];
 #define IPV6_ADDRESS_SPACE				48
 	unsigned char		login_ip[IPV6_ADDRESS_SPACE];
@@ -526,40 +546,40 @@ struct iscsi_conn {
 	struct completion	conn_logout_comp;
 	struct completion	tx_half_close_comp;
 	struct completion	rx_half_close_comp;
-	
+	/* socket used by this connection */
 	struct socket		*sock;
 	struct timer_list	nopin_timer;
 	struct timer_list	nopin_response_timer;
 	struct timer_list	transport_timer;
-	
+	/* Spinlock used for add/deleting cmd's from conn_cmd_list */
 	spinlock_t		cmd_lock;
 	spinlock_t		conn_usage_lock;
 	spinlock_t		immed_queue_lock;
 	spinlock_t		nopin_timer_lock;
 	spinlock_t		response_queue_lock;
 	spinlock_t		state_lock;
-	
+	/* libcrypto RX and TX contexts for crc32c */
 	struct hash_desc	conn_rx_hash;
 	struct hash_desc	conn_tx_hash;
-	
+	/* Used for scheduling TX and RX connection kthreads */
 	cpumask_var_t		conn_cpumask;
 	unsigned int		conn_rx_reset_cpumask:1;
 	unsigned int		conn_tx_reset_cpumask:1;
-	
+	/* list_head of struct iscsi_cmd for this connection */
 	struct list_head	conn_cmd_list;
 	struct list_head	immed_queue_list;
 	struct list_head	response_queue_list;
 	struct iscsi_conn_ops	*conn_ops;
 	struct iscsi_param_list	*param_list;
-	
+	/* Used for per connection auth state machine */
 	void			*auth_protocol;
 	struct iscsi_login_thread_s *login_thread;
 	struct iscsi_portal_group *tpg;
-	
+	/* Pointer to parent session */
 	struct iscsi_session	*sess;
-	
+	/* Pointer to thread_set in use for this conn's threads */
 	struct iscsi_thread_set	*thread_set;
-	
+	/* list_head for session connection list */
 	struct list_head	conn_list;
 } ____cacheline_aligned;
 
@@ -583,28 +603,28 @@ struct iscsi_session {
 	u16			cid_called;
 	u16			conn_recovery_count;
 	u16			tsih;
-	
+	/* state session is currently in */
 	u32			session_state;
-	
+	/* session wide counter: initiator assigned task tag */
 	u32			init_task_tag;
-	
+	/* session wide counter: target assigned task tag */
 	u32			targ_xfer_tag;
 	u32			cmdsn_window;
 
-	
+	/* protects cmdsn values */
 	struct mutex		cmdsn_mutex;
-	
+	/* session wide counter: expected command sequence number */
 	u32			exp_cmd_sn;
-	
+	/* session wide counter: maximum allowed command sequence number */
 	u32			max_cmd_sn;
 	struct list_head	sess_ooo_cmdsn_list;
 
-	
+	/* LIO specific session ID */
 	u32			sid;
 	char			auth_type[8];
-	
+	/* unique within the target */
 	int			session_index;
-	
+	/* Used for session reference counting */
 	int			session_usage_count;
 	int			session_waiting_on_uc;
 	u32			cmd_pdus;
@@ -615,7 +635,7 @@ struct iscsi_session {
 	u32			conn_timeout_errors;
 	u64			creation_time;
 	spinlock_t		session_stats_lock;
-	
+	/* Number of active connections */
 	atomic_t		nconn;
 	atomic_t		session_continuation;
 	atomic_t		session_fall_back_to_erl0;
@@ -623,7 +643,7 @@ struct iscsi_session {
 	atomic_t		session_reinstatement;
 	atomic_t		session_stop_active;
 	atomic_t		sleep_on_sess_wait_comp;
-	
+	/* connection list */
 	struct list_head	sess_conn_list;
 	struct list_head	cr_active_list;
 	struct list_head	cr_inactive_list;
@@ -682,6 +702,8 @@ struct se_dev_entry_s;
 struct iscsi_node_auth {
 	enum naf_flags_table	naf_flags;
 	int			authenticate_target;
+	/* Used for iscsit_global->discovery_auth,
+	 * set to zero (auth disabled) by default */
 	int			enforce_discovery_auth;
 #define MAX_USER_LEN				256
 #define MAX_PASS_LEN				256
@@ -755,26 +777,26 @@ struct iscsi_tpg_np {
 
 struct iscsi_portal_group {
 	unsigned char		tpg_chap_id;
-	
+	/* TPG State */
 	enum tpg_state_table	tpg_state;
-	
+	/* Target Portal Group Tag */
 	u16			tpgt;
-	
+	/* Id assigned to target sessions */
 	u16			ntsih;
-	
+	/* Number of active sessions */
 	u32			nsessions;
-	
+	/* Number of Network Portals available for this TPG */
 	u32			num_tpg_nps;
-	
+	/* Per TPG LIO specific session ID. */
 	u32			sid;
-	
+	/* Spinlock for adding/removing Network Portals */
 	spinlock_t		tpg_np_lock;
 	spinlock_t		tpg_state_lock;
 	struct se_portal_group tpg_se_tpg;
 	struct mutex		tpg_access_lock;
 	struct mutex		np_login_lock;
 	struct iscsi_tpg_attrib	tpg_attrib;
-	
+	/* Pointer to default list of iSCSI parameters for TPG */
 	struct iscsi_param_list	*param_list;
 	struct iscsi_tiqn	*tpg_tiqn;
 	struct list_head	tpg_gnp_list;
@@ -820,19 +842,19 @@ struct iscsi_tiqn {
 #define WWN_STAT_GRPS(tiqn)	(&(tiqn)->tiqn_stat_grps)
 
 struct iscsit_global {
-	
+	/* In core shutdown */
 	u32			in_shutdown;
 	u32			active_ts;
-	
+	/* Unique identifier used for the authentication daemon */
 	u32			auth_id;
 	u32			inactive_ts;
-	
+	/* Thread Set bitmap count */
 	int			ts_bitmap_count;
-	
+	/* Thread Set bitmap pointer */
 	unsigned long		*ts_bitmap;
-	
+	/* Used for iSCSI discovery session authentication */
 	struct iscsi_node_acl	discovery_acl;
 	struct iscsi_portal_group	*discovery_tpg;
 };
 
-#endif 
+#endif /* ISCSI_TARGET_CORE_H */

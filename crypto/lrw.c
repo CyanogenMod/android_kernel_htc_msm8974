@@ -11,6 +11,11 @@
  * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  */
+/* This implementation is checked against the test vectors in the above
+ * document and by a test vector provided by Ken Buchanan at
+ * http://www.mail-archive.com/stds-p1619@listserv.ieee.org/msg00173.html
+ *
+ * The test vectors are included in the testing module tcrypt.[ch] */
 
 #include <crypto/algapi.h>
 #include <linux/err.h>
@@ -48,12 +53,12 @@ int lrw_init_table(struct lrw_table_ctx *ctx, const u8 *tweak)
 	if (ctx->table)
 		gf128mul_free_64k(ctx->table);
 
-	
+	/* initialize multiplication table for Key2 */
 	ctx->table = gf128mul_init_64k_bbe((be128 *)tweak);
 	if (!ctx->table)
 		return -ENOMEM;
 
-	
+	/* initialize optimization table */
 	for (i = 0; i < 128; i++) {
 		setbit128_bbe(&tmp, i);
 		ctx->mulinc[i] = tmp;
@@ -106,11 +111,13 @@ static inline void inc(be128 *iv)
 
 static inline void lrw_round(struct sinfo *s, void *dst, const void *src)
 {
-	be128_xor(dst, &s->t, src);		
-	s->fn(s->tfm, dst, dst);		
-	be128_xor(dst, dst, &s->t);		
+	be128_xor(dst, &s->t, src);		/* PP <- T xor P */
+	s->fn(s->tfm, dst, dst);		/* CC <- E(Key2,PP) */
+	be128_xor(dst, dst, &s->t);		/* C <- T xor CC */
 }
 
+/* this returns the number of consequative 1 bits starting
+ * from the right, get_index128(00 00 00 00 00 00 ... 00 00 10 FB) = 2 */
 static inline int get_index128(be128 *block)
 {
 	int x;
@@ -150,17 +157,19 @@ static int crypt(struct blkcipher_desc *d,
 	wsrc = w->src.virt.addr;
 	wdst = w->dst.virt.addr;
 
-	
+	/* calculate first value of T */
 	iv = (be128 *)w->iv;
 	s.t = *iv;
 
-	
+	/* T <- I*Key2 */
 	gf128mul_64k_bbe(&s.t, ctx->table.table);
 
 	goto first;
 
 	for (;;) {
 		do {
+			/* T <- I*Key2, using the optimization
+			 * discussed in the specification */
 			be128_xor(&s.t, &s.t,
 				  &ctx->table.mulinc[get_index128(iv)]);
 			inc(iv);
@@ -231,11 +240,11 @@ int lrw_crypt(struct blkcipher_desc *desc, struct scatterlist *sdst,
 	src = (be128 *)walk.src.virt.addr;
 	dst = (be128 *)walk.dst.virt.addr;
 
-	
+	/* calculate first value of T */
 	iv = (be128 *)walk.iv;
 	t_buf[0] = *iv;
 
-	
+	/* T <- I*Key2 */
 	gf128mul_64k_bbe(&t_buf[0], ctx->table);
 
 	i = 0;
@@ -244,21 +253,23 @@ int lrw_crypt(struct blkcipher_desc *desc, struct scatterlist *sdst,
 	for (;;) {
 		do {
 			for (i = 0; i < nblocks; i++) {
+				/* T <- I*Key2, using the optimization
+				 * discussed in the specification */
 				be128_xor(&t_buf[i], t,
 						&ctx->mulinc[get_index128(iv)]);
 				inc(iv);
 first:
 				t = &t_buf[i];
 
-				
+				/* PP <- T xor P */
 				be128_xor(dst + i, t, src + i);
 			}
 
-			
+			/* CC <- E(Key2,PP) */
 			req->crypt_fn(req->crypt_ctx, (u8 *)dst,
 				      nblocks * bsize);
 
-			
+			/* C <- T xor CC */
 			for (i = 0; i < nblocks; i++)
 				be128_xor(dst + i, dst + i, &t_buf[i]);
 

@@ -30,12 +30,23 @@
 
 #include "atstk1000.h"
 
+/* Oscillator frequencies. These are board specific */
 unsigned long at32_board_osc_rates[3] = {
-	[0] = 32768,	
-	[1] = 20000000,	
-	[2] = 12000000,	
+	[0] = 32768,	/* 32.768 kHz on RTC osc */
+	[1] = 20000000,	/* 20 MHz on osc0 */
+	[2] = 12000000,	/* 12 MHz on osc1 */
 };
 
+/*
+ * The ATSTK1006 daughterboard is very similar to the ATSTK1002. Both
+ * have the AT32AP7000 chip on board; the difference is that the
+ * STK1006 has 128 MB SDRAM (the STK1002 uses the 8 MB SDRAM chip on
+ * the STK1000 motherboard) and 256 MB NAND flash (the STK1002 has
+ * none.)
+ *
+ * The RAM difference is handled by the boot loader, so the only
+ * difference we end up handling here is the NAND flash.
+ */
 #ifdef CONFIG_BOARD_ATSTK1006
 #include <linux/mtd/partitions.h>
 #include <mach/smc.h>
@@ -57,7 +68,7 @@ static struct smc_timing nand_timing __initdata = {
 	.ncs_read_recover	= 0,
 	.nrd_recover		= 15,
 	.ncs_write_recover	= 0,
-	
+	/* WE# high -> RE# low min 60 ns */
 	.nwe_recover		= 50,
 };
 
@@ -97,6 +108,11 @@ struct eth_addr {
 static struct eth_addr __initdata hw_addr[2];
 static struct macb_platform_data __initdata eth_data[2] = {
 	{
+		/*
+		 * The MDIO pullups on STK1000 are a bit too weak for
+		 * the autodetection to work properly, so we have to
+		 * mask out everything but the correct address.
+		 */
 		.phy_mask	= ~(1U << 16),
 	},
 	{
@@ -115,7 +131,7 @@ static struct at73c213_board_info at73c213_data = {
 static struct spi_board_info spi0_board_info[] __initdata = {
 #ifdef CONFIG_BOARD_ATSTK1000_EXTDAC
 	{
-		
+		/* AT73C213 */
 		.modalias	= "at73c213",
 		.max_speed_hz	= 200000,
 		.chip_select	= 0,
@@ -124,7 +140,7 @@ static struct spi_board_info spi0_board_info[] __initdata = {
 	},
 #endif
 	{
-		
+		/* QVGA display */
 		.modalias	= "ltv350qv",
 		.max_speed_hz	= 16000000,
 		.chip_select	= 1,
@@ -135,10 +151,18 @@ static struct spi_board_info spi0_board_info[] __initdata = {
 
 #ifdef CONFIG_BOARD_ATSTK100X_SPI1
 static struct spi_board_info spi1_board_info[] __initdata = { {
-	
+	/* patch in custom entries here */
 } };
 #endif
 
+/*
+ * The next two functions should go away as the boot loader is
+ * supposed to initialize the macb address registers with a valid
+ * ethernet address. But we need to keep it around for a while until
+ * we can be reasonably sure the boot loader does this.
+ *
+ * The phy_id is ignored as the driver will probe for it.
+ */
 static int __init parse_tag_ethernet(struct tag *tag)
 {
 	int i;
@@ -168,6 +192,11 @@ static void __init set_hw_addr(struct platform_device *pdev)
 	if (!is_valid_ether_addr(addr))
 		return;
 
+	/*
+	 * Since this is board-specific code, we'll cheat and use the
+	 * physical address directly as we happen to know that it's
+	 * the same as the virtual address.
+	 */
 	regs = (void __iomem __force *)res->start;
 	pclk = clk_get(&pdev->dev, "pclk");
 	if (IS_ERR(pclk))
@@ -214,17 +243,17 @@ static void __init atstk1002_setup_extdac(void)
 {
 
 }
-#endif 
+#endif /* CONFIG_BOARD_ATSTK1000_EXTDAC */
 
 void __init setup_board(void)
 {
 #ifdef	CONFIG_BOARD_ATSTK100X_SW2_CUSTOM
-	at32_map_usart(0, 1, 0);	
+	at32_map_usart(0, 1, 0);	/* USART 0/B: /dev/ttyS1, IRDA */
 #else
-	at32_map_usart(1, 0, 0);	
+	at32_map_usart(1, 0, 0);	/* USART 1/A: /dev/ttyS0, DB9 */
 #endif
-	
-	at32_map_usart(3, 2, 0);	
+	/* USART 2/unused: expansion connector */
+	at32_map_usart(3, 2, 0);	/* USART 3/C: /dev/ttyS2, DB9 */
 
 	at32_setup_serial_console(0);
 }
@@ -235,20 +264,25 @@ static struct mci_platform_data __initdata mci0_data = {
 	.slot[0] = {
 		.bus_width	= 4,
 
+/* MMC card detect requires MACB0 *NOT* be used */
 #ifdef CONFIG_BOARD_ATSTK1002_SW6_CUSTOM
-		.detect_pin	= GPIO_PIN_PC(14), 
-		.wp_pin		= GPIO_PIN_PC(15), 
+		.detect_pin	= GPIO_PIN_PC(14), /* gpio30/sdcd */
+		.wp_pin		= GPIO_PIN_PC(15), /* gpio31/sdwp */
 #else
 		.detect_pin	= -ENODEV,
 		.wp_pin		= -ENODEV,
-#endif	
+#endif	/* SW6 for sd{cd,wp} routing */
 	},
 };
 
-#endif	
+#endif	/* SW2 for MMC signal routing */
 
 static int __init atstk1002_init(void)
 {
+	/*
+	 * ATSTK1000 uses 32-bit SDRAM interface. Reserve the
+	 * SDRAM-specific pins so that nobody messes with them.
+	 */
 	at32_reserve_pin(GPIO_PIOE_BASE, ATMEL_EBI_PE_DATA_ALL);
 
 #ifdef CONFIG_BOARD_ATSTK1006

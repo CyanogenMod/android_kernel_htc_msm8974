@@ -1,3 +1,4 @@
+/* net/atm/atm_misc.c - Various functions for use by ATM drivers */
 
 /* Written 1995-2000 by Werner Almesberger, EPFL ICA */
 
@@ -44,6 +45,32 @@ struct sk_buff *atm_alloc_charge(struct atm_vcc *vcc, int pdu_size,
 EXPORT_SYMBOL(atm_alloc_charge);
 
 
+/*
+ * atm_pcr_goal returns the positive PCR if it should be rounded up, the
+ * negative PCR if it should be rounded down, and zero if the maximum available
+ * bandwidth should be used.
+ *
+ * The rules are as follows (* = maximum, - = absent (0), x = value "x",
+ * (x+ = x or next value above x, x- = x or next value below):
+ *
+ *	min max pcr	result		min max pcr	result
+ *	-   -   -	* (UBR only)	x   -   -	x+
+ *	-   -   *	*		x   -   *	*
+ *	-   -   z	z-		x   -   z	z-
+ *	-   *   -	*		x   *   -	x+
+ *	-   *   *	*		x   *   *	*
+ *	-   *   z	z-		x   *   z	z-
+ *	-   y   -	y-		x   y   -	x+
+ *	-   y   *	y-		x   y   *	y-
+ *	-   y   z	z-		x   y   z	z-
+ *
+ * All non-error cases can be converted with the following simple set of rules:
+ *
+ *   if pcr == z then z-
+ *   else if min == x && pcr == - then x+
+ *     else if max == y then y-
+ *	 else *
+ */
 
 int atm_pcr_goal(const struct atm_trafprm *tp)
 {

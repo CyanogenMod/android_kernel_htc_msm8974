@@ -30,15 +30,15 @@ int puv3_pm_enter(suspend_state_t state)
 	unsigned long sleep_save_checksum = 0, checksum = 0;
 	int i;
 
-	
+	/* skip registers saving for standby */
 	if (state != PM_SUSPEND_STANDBY) {
 		puv3_cpu_pm_fns->save(sleep_save);
-		
+		/* before sleeping, calculate and save a checksum */
 		for (i = 0; i < puv3_cpu_pm_fns->save_count - 1; i++)
 			sleep_save_checksum += sleep_save[i];
 	}
 
-	
+	/* *** go zzz *** */
 	puv3_cpu_pm_fns->enter(state);
 	cpu_init();
 #ifdef CONFIG_INPUT_KEYBOARD
@@ -48,11 +48,11 @@ int puv3_pm_enter(suspend_state_t state)
 	pci_puv3_preinit();
 #endif
 	if (state != PM_SUSPEND_STANDBY) {
-		
+		/* after sleeping, validate the checksum */
 		for (i = 0; i < puv3_cpu_pm_fns->save_count - 1; i++)
 			checksum += sleep_save[i];
 
-		
+		/* if invalid, display message and wait for a hardware reset */
 		if (checksum != sleep_save_checksum) {
 			while (1)
 				puv3_cpu_pm_fns->enter(state);

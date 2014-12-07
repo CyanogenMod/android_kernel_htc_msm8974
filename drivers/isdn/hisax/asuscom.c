@@ -37,7 +37,8 @@ static const char *Asuscom_revision = "$Revision: 1.14.2.4 $";
 #define ASUS_ISACHSCX	1
 #define ASUS_IPAC	2
 
-#define ASUS_RESET      0x80	
+/* CARD_ADR (Write) */
+#define ASUS_RESET      0x80	/* Bit 7 Reset-Leitung */
 
 static inline u_char
 readreg(unsigned int ale, unsigned int adr, u_char off)
@@ -71,6 +72,7 @@ writefifo(unsigned int ale, unsigned int adr, u_char off, u_char *data, int size
 	outsb(adr, data, size);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -134,6 +136,9 @@ WriteHSCX(struct IsdnCardState *cs, int hscx, u_char offset, u_char value)
 		 cs->hw.asus.hscx, offset + (hscx ? 0x40 : 0), value);
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) readreg(cs->hw.asus.adr,			\
 				      cs->hw.asus.hscx, reg + (nr ? 0x40 : 0))
@@ -247,12 +252,12 @@ reset_asuscom(struct IsdnCardState *cs)
 	if (cs->subtyp == ASUS_IPAC)
 		writereg(cs->hw.asus.adr, cs->hw.asus.isac, IPAC_POTA2, 0x20);
 	else
-		byteout(cs->hw.asus.adr, ASUS_RESET);	
+		byteout(cs->hw.asus.adr, ASUS_RESET);	/* Reset On */
 	mdelay(10);
 	if (cs->subtyp == ASUS_IPAC)
 		writereg(cs->hw.asus.adr, cs->hw.asus.isac, IPAC_POTA2, 0x0);
 	else
-		byteout(cs->hw.asus.adr, 0);	
+		byteout(cs->hw.asus.adr, 0);	/* Reset Off */
 	mdelay(10);
 	if (cs->subtyp == ASUS_IPAC) {
 		writereg(cs->hw.asus.adr, cs->hw.asus.isac, IPAC_CONF, 0x0);

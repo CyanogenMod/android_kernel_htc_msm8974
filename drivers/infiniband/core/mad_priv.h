@@ -45,8 +45,9 @@
 
 #define PFX "ib_mad: "
 
-#define IB_MAD_QPS_CORE		2 
+#define IB_MAD_QPS_CORE		2 /* Always QP0 and QP1 as a minimum */
 
+/* QP and CQ parameters */
 #define IB_MAD_QP_SEND_SIZE	128
 #define IB_MAD_QP_RECV_SIZE	512
 #define IB_MAD_QP_MIN_SIZE	64
@@ -56,6 +57,7 @@
 
 #define IB_MAD_SEND_Q_PSN	0
 
+/* Registration table sizes */
 #define MAX_MGMT_CLASS		80
 #define MAX_MGMT_VERSION	8
 #define MAX_MGMT_OUI		8
@@ -136,7 +138,7 @@ struct ib_mad_send_wr_private {
 	int refcount;
 	enum ib_wc_status status;
 
-	
+	/* RMPP control */
 	struct list_head rmpp_list;
 	struct ib_rmpp_segment *last_ack_seg;
 	struct ib_rmpp_segment *cur_seg;
@@ -225,4 +227,4 @@ void ib_mark_mad_done(struct ib_mad_send_wr_private *mad_send_wr);
 void ib_reset_mad_timeout(struct ib_mad_send_wr_private *mad_send_wr,
 			  int timeout_ms);
 
-#endif	
+#endif	/* __IB_MAD_PRIV_H__ */

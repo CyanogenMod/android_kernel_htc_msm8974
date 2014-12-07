@@ -31,13 +31,13 @@
 
 int swordfish_panel_blank(struct msm_lcdc_panel_ops *ops)
 {
-	
+	/* TODO: Turn backlight off? */
 	return 0;
 }
 
 int swordfish_panel_unblank(struct msm_lcdc_panel_ops *ops)
 {
-	
+	/* TODO: Turn backlight on? */
 	return 0;
 }
 

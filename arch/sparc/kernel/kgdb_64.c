@@ -89,6 +89,9 @@ void gdb_regs_to_pt_regs(unsigned long *gdb_regs, struct pt_regs *regs)
 	for (i = 0; i < 15; i++)
 		regs->u_regs[UREG_G1 + i] = gdb_regs[GDB_G1 + i];
 
+	/* If the TSTATE register is changing, we have to preserve
+	 * the CWP field, otherwise window save/restore explodes.
+	 */
 	if (regs->tstate != gdb_regs[GDB_STATE]) {
 		unsigned long cwp = regs->tstate & TSTATE_CWP;
 
@@ -135,13 +138,13 @@ int kgdb_arch_handle_exception(int e_vector, int signo, int err_code,
 
 	switch (remcomInBuffer[0]) {
 	case 'c':
-		
+		/* try to read optional parameter, pc unchanged if no parm */
 		ptr = &remcomInBuffer[1];
 		if (kgdb_hex2long(&ptr, &addr)) {
 			linux_regs->tpc = addr;
 			linux_regs->tnpc = addr + 4;
 		}
-		
+		/* fallthru */
 
 	case 'D':
 	case 'k':
@@ -186,6 +189,6 @@ void kgdb_arch_set_pc(struct pt_regs *regs, unsigned long ip)
 }
 
 struct kgdb_arch arch_kgdb_ops = {
-	
+	/* Breakpoint instruction: ta 0x72 */
 	.gdb_bpt_instr		= { 0x91, 0xd0, 0x20, 0x72 },
 };

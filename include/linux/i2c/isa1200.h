@@ -32,21 +32,21 @@ enum mode_control {
 };
 
 union pwm_div_freq {
-	unsigned int pwm_div; 
-	unsigned int pwm_freq; 
+	unsigned int pwm_div; /* PWM gen mode */
+	unsigned int pwm_freq; /* PWM input mode */
 };
 
 struct isa1200_platform_data {
 	const char *name;
-	unsigned int pwm_ch_id; 
+	unsigned int pwm_ch_id; /* pwm channel id */
 	unsigned int max_timeout;
 	unsigned int hap_en_gpio;
 	unsigned int hap_len_gpio;
-	bool overdrive_high; 
-	bool overdrive_en; 
-	enum mode_control mode_ctrl; 
+	bool overdrive_high; /* high/low overdrive */
+	bool overdrive_en; /* enable/disable overdrive */
+	enum mode_control mode_ctrl; /* input/generation/wave */
 	union pwm_div_freq pwm_fd;
-	bool smart_en; 
+	bool smart_en; /* smart mode enable/disable */
 	bool is_erm;
 	bool ext_clk_en;
 	bool need_pwm_clk;
@@ -59,4 +59,4 @@ struct isa1200_platform_data {
 	int (*clk_enable)(bool on);
 };
 
-#endif 
+#endif /* __LINUX_ISA1200_H */

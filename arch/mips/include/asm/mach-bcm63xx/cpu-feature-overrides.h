@@ -48,4 +48,4 @@
 #define cpu_icache_line_size()		16
 #define cpu_scache_line_size()		0
 
-#endif 
+#endif /* __ASM_MACH_BCM963XX_CPU_FEATURE_OVERRIDES_H */

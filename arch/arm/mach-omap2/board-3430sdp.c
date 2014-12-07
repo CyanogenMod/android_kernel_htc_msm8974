@@ -227,6 +227,9 @@ static struct omap_board_config_kernel sdp3430_config[] __initdata = {
 static struct omap2_hsmmc_info mmc[] = {
 	{
 		.mmc		= 1,
+		/* 8 bits (default) requires S6.3 == ON,
+		 * so the SIM card isn't used; else 4 bits.
+		 */
 		.caps		= MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA,
 		.gpio_wp	= 4,
 		.deferred	= true,
@@ -237,20 +240,23 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= 7,
 		.deferred	= true,
 	},
-	{}	
+	{}	/* Terminator */
 };
 
 static int sdp3430_twl_gpio_setup(struct device *dev,
 		unsigned gpio, unsigned ngpio)
 {
+	/* gpio + 0 is "mmc0_cd" (input/IRQ),
+	 * gpio + 1 is "mmc1_cd" (input/IRQ)
+	 */
 	mmc[0].gpio_cd = gpio + 0;
 	mmc[1].gpio_cd = gpio + 1;
 	omap_hsmmc_late_init(mmc);
 
-	
+	/* gpio + 7 is "sub_lcd_en_bkl" (output/PWM1) */
 	gpio_request_one(gpio + 7, GPIOF_OUT_INIT_LOW, "sub_lcd_en_bkl");
 
-	
+	/* gpio + 15 is "sub_lcd_nRST" (output) */
 	gpio_request_one(gpio + 15, GPIOF_OUT_INIT_LOW, "sub_lcd_nRST");
 
 	return 0;
@@ -265,7 +271,9 @@ static struct twl4030_gpio_platform_data sdp3430_gpio_data = {
 	.setup		= sdp3430_twl_gpio_setup,
 };
 
+/* regulator consumer mappings */
 
+/* ads7846 on SPI */
 static struct regulator_consumer_supply sdp3430_vaux3_supplies[] = {
 	REGULATOR_SUPPLY("vcc", "spi1.0"),
 };
@@ -282,7 +290,12 @@ static struct regulator_consumer_supply sdp3430_vmmc2_supplies[] = {
 	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.1"),
 };
 
+/*
+ * Apply all the fixed voltages since most versions of U-Boot
+ * don't bother with that initialization.
+ */
 
+/* VAUX1 for mainboard (irda and sub-lcd) */
 static struct regulator_init_data sdp3430_vaux1 = {
 	.constraints = {
 		.min_uV			= 2800000,
@@ -295,6 +308,7 @@ static struct regulator_init_data sdp3430_vaux1 = {
 	},
 };
 
+/* VAUX2 for camera module */
 static struct regulator_init_data sdp3430_vaux2 = {
 	.constraints = {
 		.min_uV			= 2800000,
@@ -307,6 +321,7 @@ static struct regulator_init_data sdp3430_vaux2 = {
 	},
 };
 
+/* VAUX3 for LCD board */
 static struct regulator_init_data sdp3430_vaux3 = {
 	.constraints = {
 		.min_uV			= 2800000,
@@ -321,6 +336,7 @@ static struct regulator_init_data sdp3430_vaux3 = {
 	.consumer_supplies		= sdp3430_vaux3_supplies,
 };
 
+/* VAUX4 for OMAP VDD_CSI2 (camera) */
 static struct regulator_init_data sdp3430_vaux4 = {
 	.constraints = {
 		.min_uV			= 1800000,
@@ -333,6 +349,7 @@ static struct regulator_init_data sdp3430_vaux4 = {
 	},
 };
 
+/* VMMC1 for OMAP VDD_MMC1 (i/o) and MMC1 card */
 static struct regulator_init_data sdp3430_vmmc1 = {
 	.constraints = {
 		.min_uV			= 1850000,
@@ -347,6 +364,7 @@ static struct regulator_init_data sdp3430_vmmc1 = {
 	.consumer_supplies	= sdp3430_vmmc1_supplies,
 };
 
+/* VMMC2 for MMC2 card */
 static struct regulator_init_data sdp3430_vmmc2 = {
 	.constraints = {
 		.min_uV			= 1850000,
@@ -361,6 +379,7 @@ static struct regulator_init_data sdp3430_vmmc2 = {
 	.consumer_supplies	= sdp3430_vmmc2_supplies,
 };
 
+/* VSIM for OMAP VDD_MMC1A (i/o for DAT4..DAT7) */
 static struct regulator_init_data sdp3430_vsim = {
 	.constraints = {
 		.min_uV			= 1800000,
@@ -376,7 +395,7 @@ static struct regulator_init_data sdp3430_vsim = {
 };
 
 static struct twl4030_platform_data sdp3430_twldata = {
-	
+	/* platform_data for children goes here */
 	.gpio		= &sdp3430_gpio_data,
 	.keypad		= &sdp3430_kp_data,
 
@@ -391,7 +410,7 @@ static struct twl4030_platform_data sdp3430_twldata = {
 
 static int __init omap3430_i2c_init(void)
 {
-	
+	/* i2c1 for PMIC only */
 	omap3_pmic_get_config(&sdp3430_twldata,
 			TWL_COMMON_PDATA_USB | TWL_COMMON_PDATA_BCI |
 			TWL_COMMON_PDATA_MADC | TWL_COMMON_PDATA_AUDIO,
@@ -402,9 +421,9 @@ static int __init omap3430_i2c_init(void)
 
 	omap3_pmic_init("twl4030", &sdp3430_twldata);
 
-	
+	/* i2c2 on camera connector (for sensor control) and optional isp1301 */
 	omap_register_i2c_bus(2, 400, NULL, 0);
-	
+	/* i2c3 on display connector (for DVI, tfp410) */
 	omap_register_i2c_bus(3, 400, NULL, 0);
 	return 0;
 }
@@ -437,7 +456,7 @@ static inline void board_smc91x_init(void)
 
 static void enable_board_wakeup_source(void)
 {
-	
+	/* T2 interrupt line (keypad) */
 	omap_mux_init_signal("sys_nirq",
 		OMAP_WAKEUP_EN | OMAP_PIN_INPUT_PULLUP);
 }
@@ -462,35 +481,41 @@ static struct omap_board_mux board_mux[] __initdata = {
 #define board_mux	NULL
 #endif
 
+/*
+ * SDP3430 V2 Board CS organization
+ * Different from SDP3430 V1. Now 4 switches used to specify CS
+ *
+ * See also the Switch S8 settings in the comments.
+ */
 static char chip_sel_3430[][GPMC_CS_NUM] = {
-	{PDC_NOR, PDC_NAND, PDC_ONENAND, DBG_MPDB, 0, 0, 0, 0}, 
-	{PDC_ONENAND, PDC_NAND, PDC_NOR, DBG_MPDB, 0, 0, 0, 0}, 
-	{PDC_NAND, PDC_ONENAND, PDC_NOR, DBG_MPDB, 0, 0, 0, 0}, 
+	{PDC_NOR, PDC_NAND, PDC_ONENAND, DBG_MPDB, 0, 0, 0, 0}, /* S8:1111 */
+	{PDC_ONENAND, PDC_NAND, PDC_NOR, DBG_MPDB, 0, 0, 0, 0}, /* S8:1110 */
+	{PDC_NAND, PDC_ONENAND, PDC_NOR, DBG_MPDB, 0, 0, 0, 0}, /* S8:1101 */
 };
 
 static struct mtd_partition sdp_nor_partitions[] = {
-	
+	/* bootloader (U-Boot, etc) in first sector */
 	{
 		.name		= "Bootloader-NOR",
 		.offset		= 0,
 		.size		= SZ_256K,
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	},
-	
+	/* bootloader params in the next sector */
 	{
 		.name		= "Params-NOR",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_256K,
 		.mask_flags	= 0,
 	},
-	
+	/* kernel */
 	{
 		.name		= "Kernel-NOR",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_2M,
 		.mask_flags	= 0
 	},
-	
+	/* file system */
 	{
 		.name		= "Filesystem-NOR",
 		.offset		= MTDPART_OFS_APPEND,
@@ -504,13 +529,13 @@ static struct mtd_partition sdp_onenand_partitions[] = {
 		.name		= "X-Loader-OneNAND",
 		.offset		= 0,
 		.size		= 4 * (64 * 2048),
-		.mask_flags	= MTD_WRITEABLE  
+		.mask_flags	= MTD_WRITEABLE  /* force read-only */
 	},
 	{
 		.name		= "U-Boot-OneNAND",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= 2 * (64 * 2048),
-		.mask_flags	= MTD_WRITEABLE  
+		.mask_flags	= MTD_WRITEABLE  /* force read-only */
 	},
 	{
 		.name		= "U-Boot Environment-OneNAND",
@@ -530,34 +555,34 @@ static struct mtd_partition sdp_onenand_partitions[] = {
 };
 
 static struct mtd_partition sdp_nand_partitions[] = {
-	
+	/* All the partition sizes are listed in terms of NAND block size */
 	{
 		.name		= "X-Loader-NAND",
 		.offset		= 0,
 		.size		= 4 * (64 * 2048),
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "U-Boot-NAND",
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x80000 */
 		.size		= 10 * (64 * 2048),
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "Boot Env-NAND",
 
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x1c0000 */
 		.size		= 6 * (64 * 2048),
 	},
 	{
 		.name		= "Kernel-NAND",
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x280000 */
 		.size		= 40 * (64 * 2048),
 	},
 	{
 		.name		= "File System - NAND",
 		.size		= MTDPART_SIZ_FULL,
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x780000 */
 	},
 };
 
@@ -602,7 +627,7 @@ static void __init omap_3430sdp_init(void)
 }
 
 MACHINE_START(OMAP_3430SDP, "OMAP3430 3430SDP board")
-	
+	/* Maintainer: Syed Khasim - Texas Instruments Inc */
 	.atag_offset	= 0x100,
 	.reserve	= omap_reserve,
 	.map_io		= omap3_map_io,

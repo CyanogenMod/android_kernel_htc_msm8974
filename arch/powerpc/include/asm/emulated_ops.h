@@ -69,11 +69,11 @@ extern void ppc_warn_emulated_print(const char *type);
 			ppc_warn_emulated_print(ppc_emulated.type.name); \
 	} while (0)
 
-#else 
+#else /* !CONFIG_PPC_EMULATED_STATS */
 
 #define __PPC_WARN_EMULATED(type)	do { } while (0)
 
-#endif 
+#endif /* !CONFIG_PPC_EMULATED_STATS */
 
 #define PPC_WARN_EMULATED(type, regs)					\
 	do {								\
@@ -89,4 +89,4 @@ extern void ppc_warn_emulated_print(const char *type);
 		__PPC_WARN_EMULATED(type);				\
 	} while (0)
 
-#endif 
+#endif /* _ASM_POWERPC_EMULATED_OPS_H */

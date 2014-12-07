@@ -127,4 +127,4 @@ extern void	garp_request_leave(const struct net_device *dev,
 				   const struct garp_application *app,
 				   const void *data, u8 len, u8 type);
 
-#endif 
+#endif /* _NET_GARP_H */

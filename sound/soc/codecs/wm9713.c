@@ -30,7 +30,7 @@
 #include "wm9713.h"
 
 struct wm9713_priv {
-	u32 pll_in; 
+	u32 pll_in; /* PLL input frequency */
 };
 
 static unsigned int ac97_read(struct snd_soc_codec *codec,
@@ -38,6 +38,10 @@ static unsigned int ac97_read(struct snd_soc_codec *codec,
 static int ac97_write(struct snd_soc_codec *codec,
 	unsigned int reg, unsigned int val);
 
+/*
+ * WM9713 register cache
+ * Reg 0x3c bit 15 is used by touch driver.
+ */
 static const u16 wm9713_reg[] = {
 	0x6174, 0x8080, 0x8080, 0x8080,
 	0xc880, 0xe808, 0xe808, 0x0808,
@@ -58,6 +62,7 @@ static const u16 wm9713_reg[] = {
 	0x0000, 0x0000, 0x0000
 };
 
+/* virtual HP mixers regs */
 #define HPL_MIXER	0x80
 #define HPR_MIXER	0x82
 #define MICB_MUX	0x82
@@ -87,26 +92,26 @@ static const char *wm9713_mic_select[] = {"Mic 1", "Mic 2 A", "Mic 2 B"};
 static const char *wm9713_micb_select[] = {"MPB", "MPA"};
 
 static const struct soc_enum wm9713_enum[] = {
-SOC_ENUM_SINGLE(AC97_LINE, 3, 4, wm9713_mic_mixer), 
-SOC_ENUM_SINGLE(AC97_VIDEO, 14, 4, wm9713_rec_mux), 
-SOC_ENUM_SINGLE(AC97_VIDEO, 9, 4, wm9713_rec_mux),  
-SOC_ENUM_SINGLE(AC97_VIDEO, 3, 8, wm9713_rec_src),  
-SOC_ENUM_SINGLE(AC97_VIDEO, 0, 8, wm9713_rec_src),  
-SOC_ENUM_DOUBLE(AC97_CD, 14, 6, 2, wm9713_rec_gain), 
-SOC_ENUM_SINGLE(AC97_PCI_SVID, 14, 4, wm9713_alc_select), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN, 14, 4, wm9713_mono_pga), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN, 11, 8, wm9713_spk_pga), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN, 8, 8, wm9713_spk_pga), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN, 6, 3, wm9713_hp_pga), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN, 4, 3, wm9713_hp_pga), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN, 2, 4, wm9713_out3_pga), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN, 0, 4, wm9713_out4_pga), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN_MIC, 13, 8, wm9713_dac_inv), 
-SOC_ENUM_SINGLE(AC97_REC_GAIN_MIC, 10, 8, wm9713_dac_inv), 
-SOC_ENUM_SINGLE(AC97_GENERAL_PURPOSE, 15, 2, wm9713_bass), 
-SOC_ENUM_SINGLE(AC97_PCI_SVID, 5, 2, wm9713_ng_type), 
-SOC_ENUM_SINGLE(AC97_3D_CONTROL, 12, 3, wm9713_mic_select), 
-SOC_ENUM_SINGLE(MICB_MUX, 0, 2, wm9713_micb_select), 
+SOC_ENUM_SINGLE(AC97_LINE, 3, 4, wm9713_mic_mixer), /* record mic mixer 0 */
+SOC_ENUM_SINGLE(AC97_VIDEO, 14, 4, wm9713_rec_mux), /* record mux hp 1 */
+SOC_ENUM_SINGLE(AC97_VIDEO, 9, 4, wm9713_rec_mux),  /* record mux mono 2 */
+SOC_ENUM_SINGLE(AC97_VIDEO, 3, 8, wm9713_rec_src),  /* record mux left 3 */
+SOC_ENUM_SINGLE(AC97_VIDEO, 0, 8, wm9713_rec_src),  /* record mux right 4*/
+SOC_ENUM_DOUBLE(AC97_CD, 14, 6, 2, wm9713_rec_gain), /* record step size 5 */
+SOC_ENUM_SINGLE(AC97_PCI_SVID, 14, 4, wm9713_alc_select), /* alc source select 6*/
+SOC_ENUM_SINGLE(AC97_REC_GAIN, 14, 4, wm9713_mono_pga), /* mono input select 7 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN, 11, 8, wm9713_spk_pga), /* speaker left input select 8 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN, 8, 8, wm9713_spk_pga), /* speaker right input select 9 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN, 6, 3, wm9713_hp_pga), /* headphone left input 10 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN, 4, 3, wm9713_hp_pga), /* headphone right input 11 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN, 2, 4, wm9713_out3_pga), /* out 3 source 12 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN, 0, 4, wm9713_out4_pga), /* out 4 source 13 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN_MIC, 13, 8, wm9713_dac_inv), /* dac invert 1 14 */
+SOC_ENUM_SINGLE(AC97_REC_GAIN_MIC, 10, 8, wm9713_dac_inv), /* dac invert 2 15 */
+SOC_ENUM_SINGLE(AC97_GENERAL_PURPOSE, 15, 2, wm9713_bass), /* bass control 16 */
+SOC_ENUM_SINGLE(AC97_PCI_SVID, 5, 2, wm9713_ng_type), /* noise gate type 17 */
+SOC_ENUM_SINGLE(AC97_3D_CONTROL, 12, 3, wm9713_mic_select), /* mic selection 18 */
+SOC_ENUM_SINGLE(MICB_MUX, 0, 2, wm9713_micb_select), /* mic selection 19 */
 };
 
 static const DECLARE_TLV_DB_SCALE(out_tlv, -4650, 150, 0);
@@ -218,7 +223,7 @@ static int wm9713_voice_shutdown(struct snd_soc_dapm_widget *w,
 
 	BUG_ON(event != SND_SOC_DAPM_PRE_PMD);
 
-	
+	/* Gracefully shut down the voice interface. */
 	status = ac97_read(codec, AC97_EXTENDED_MID) | 0x1000;
 	rate = ac97_read(codec, AC97_HANDSET_RATE) & 0xF0FF;
 	ac97_write(codec, AC97_HANDSET_RATE, rate | 0x0200);
@@ -230,6 +235,12 @@ static int wm9713_voice_shutdown(struct snd_soc_dapm_widget *w,
 }
 
 
+/* We have to create a fake left and right HP mixers because
+ * the codec only has a single control that is shared by both channels.
+ * This makes it impossible to determine the audio path using the current
+ * register map, thus we add a new (virtual) register to help determine the
+ * audio route within the device.
+ */
 static int mixer_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
@@ -279,6 +290,7 @@ static int mixer_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* Left Headphone Mixers */
 static const struct snd_kcontrol_new wm9713_hpl_mixer_controls[] = {
 SOC_DAPM_SINGLE("Beep Playback Switch", HPL_MIXER, 5, 1, 0),
 SOC_DAPM_SINGLE("Voice Playback Switch", HPL_MIXER, 4, 1, 0),
@@ -288,6 +300,7 @@ SOC_DAPM_SINGLE("MonoIn Playback Switch", HPL_MIXER, 1, 1, 0),
 SOC_DAPM_SINGLE("Bypass Playback Switch", HPL_MIXER, 0, 1, 0),
 };
 
+/* Right Headphone Mixers */
 static const struct snd_kcontrol_new wm9713_hpr_mixer_controls[] = {
 SOC_DAPM_SINGLE("Beep Playback Switch", HPR_MIXER, 5, 1, 0),
 SOC_DAPM_SINGLE("Voice Playback Switch", HPR_MIXER, 4, 1, 0),
@@ -297,12 +310,15 @@ SOC_DAPM_SINGLE("MonoIn Playback Switch", HPR_MIXER, 1, 1, 0),
 SOC_DAPM_SINGLE("Bypass Playback Switch", HPR_MIXER, 0, 1, 0),
 };
 
+/* headphone capture mux */
 static const struct snd_kcontrol_new wm9713_hp_rec_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[1]);
 
+/* headphone mic mux */
 static const struct snd_kcontrol_new wm9713_hp_mic_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[0]);
 
+/* Speaker Mixer */
 static const struct snd_kcontrol_new wm9713_speaker_mixer_controls[] = {
 SOC_DAPM_SINGLE("Beep Playback Switch", AC97_AUX, 11, 1, 1),
 SOC_DAPM_SINGLE("Voice Playback Switch", AC97_PCM, 11, 1, 1),
@@ -312,6 +328,7 @@ SOC_DAPM_SINGLE("MonoIn Playback Switch", AC97_MASTER_TONE, 14, 1, 1),
 SOC_DAPM_SINGLE("Bypass Playback Switch", AC97_PC_BEEP, 14, 1, 1),
 };
 
+/* Mono Mixer */
 static const struct snd_kcontrol_new wm9713_mono_mixer_controls[] = {
 SOC_DAPM_SINGLE("Beep Playback Switch", AC97_AUX, 7, 1, 1),
 SOC_DAPM_SINGLE("Voice Playback Switch", AC97_PCM, 7, 1, 1),
@@ -323,45 +340,59 @@ SOC_DAPM_SINGLE("Mic 1 Sidetone Switch", AC97_LINE, 7, 1, 1),
 SOC_DAPM_SINGLE("Mic 2 Sidetone Switch", AC97_LINE, 6, 1, 1),
 };
 
+/* mono mic mux */
 static const struct snd_kcontrol_new wm9713_mono_mic_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[2]);
 
+/* mono output mux */
 static const struct snd_kcontrol_new wm9713_mono_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[7]);
 
+/* speaker left output mux */
 static const struct snd_kcontrol_new wm9713_hp_spkl_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[8]);
 
+/* speaker right output mux */
 static const struct snd_kcontrol_new wm9713_hp_spkr_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[9]);
 
+/* headphone left output mux */
 static const struct snd_kcontrol_new wm9713_hpl_out_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[10]);
 
+/* headphone right output mux */
 static const struct snd_kcontrol_new wm9713_hpr_out_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[11]);
 
+/* Out3 mux */
 static const struct snd_kcontrol_new wm9713_out3_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[12]);
 
+/* Out4 mux */
 static const struct snd_kcontrol_new wm9713_out4_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[13]);
 
+/* DAC inv mux 1 */
 static const struct snd_kcontrol_new wm9713_dac_inv1_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[14]);
 
+/* DAC inv mux 2 */
 static const struct snd_kcontrol_new wm9713_dac_inv2_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[15]);
 
+/* Capture source left */
 static const struct snd_kcontrol_new wm9713_rec_srcl_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[3]);
 
+/* Capture source right */
 static const struct snd_kcontrol_new wm9713_rec_srcr_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[4]);
 
+/* mic source */
 static const struct snd_kcontrol_new wm9713_mic_sel_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[18]);
 
+/* mic source B virtual control */
 static const struct snd_kcontrol_new wm9713_micb_sel_mux_controls =
 SOC_DAPM_ENUM("Route", wm9713_enum[19]);
 
@@ -457,7 +488,7 @@ SND_SOC_DAPM_VMID("VMID"),
 };
 
 static const struct snd_soc_dapm_route wm9713_audio_map[] = {
-	
+	/* left HP mixer */
 	{"Left HP Mixer", "Beep Playback Switch",    "PCBEEP"},
 	{"Left HP Mixer", "Voice Playback Switch",   "Voice DAC"},
 	{"Left HP Mixer", "Aux Playback Switch",     "Aux DAC"},
@@ -466,7 +497,7 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Left HP Mixer", "MonoIn Playback Switch",  "Mono In"},
 	{"Left HP Mixer", NULL,  "Capture Headphone Mux"},
 
-	
+	/* right HP mixer */
 	{"Right HP Mixer", "Beep Playback Switch",    "PCBEEP"},
 	{"Right HP Mixer", "Voice Playback Switch",   "Voice DAC"},
 	{"Right HP Mixer", "Aux Playback Switch",     "Aux DAC"},
@@ -475,7 +506,7 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Right HP Mixer", "MonoIn Playback Switch",  "Mono In"},
 	{"Right HP Mixer", NULL,  "Capture Headphone Mux"},
 
-	
+	/* virtual mixer - mixes left & right channels for spk and mono */
 	{"AC97 Mixer", NULL, "Left DAC"},
 	{"AC97 Mixer", NULL, "Right DAC"},
 	{"Line Mixer", NULL, "Right Line In"},
@@ -485,7 +516,7 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Capture Mixer", NULL, "Left Capture Source"},
 	{"Capture Mixer", NULL, "Right Capture Source"},
 
-	
+	/* speaker mixer */
 	{"Speaker Mixer", "Beep Playback Switch",    "PCBEEP"},
 	{"Speaker Mixer", "Voice Playback Switch",   "Voice DAC"},
 	{"Speaker Mixer", "Aux Playback Switch",     "Aux DAC"},
@@ -493,7 +524,7 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Speaker Mixer", "PCM Playback Switch",     "AC97 Mixer"},
 	{"Speaker Mixer", "MonoIn Playback Switch",  "Mono In"},
 
-	
+	/* mono mixer */
 	{"Mono Mixer", "Beep Playback Switch",    "PCBEEP"},
 	{"Mono Mixer", "Voice Playback Switch",   "Voice DAC"},
 	{"Mono Mixer", "Aux Playback Switch",     "Aux DAC"},
@@ -503,47 +534,47 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Mono Mixer", "Mic 2 Sidetone Switch", "Mic B PGA"},
 	{"Mono Mixer", NULL,  "Capture Mono Mux"},
 
-	
+	/* DAC inv mux 1 */
 	{"DAC Inv Mux 1", "Mono", "Mono Mixer"},
 	{"DAC Inv Mux 1", "Speaker", "Speaker Mixer"},
 	{"DAC Inv Mux 1", "Left Headphone", "Left HP Mixer"},
 	{"DAC Inv Mux 1", "Right Headphone", "Right HP Mixer"},
 	{"DAC Inv Mux 1", "Headphone Mono", "HP Mixer"},
 
-	
+	/* DAC inv mux 2 */
 	{"DAC Inv Mux 2", "Mono", "Mono Mixer"},
 	{"DAC Inv Mux 2", "Speaker", "Speaker Mixer"},
 	{"DAC Inv Mux 2", "Left Headphone", "Left HP Mixer"},
 	{"DAC Inv Mux 2", "Right Headphone", "Right HP Mixer"},
 	{"DAC Inv Mux 2", "Headphone Mono", "HP Mixer"},
 
-	
+	/* headphone left mux */
 	{"Left Headphone Out Mux", "Headphone", "Left HP Mixer"},
 
-	
+	/* headphone right mux */
 	{"Right Headphone Out Mux", "Headphone", "Right HP Mixer"},
 
-	
+	/* speaker left mux */
 	{"Left Speaker Out Mux", "Headphone", "Left HP Mixer"},
 	{"Left Speaker Out Mux", "Speaker", "Speaker Mixer"},
 	{"Left Speaker Out Mux", "Inv", "DAC Inv Mux 1"},
 
-	
+	/* speaker right mux */
 	{"Right Speaker Out Mux", "Headphone", "Right HP Mixer"},
 	{"Right Speaker Out Mux", "Speaker", "Speaker Mixer"},
 	{"Right Speaker Out Mux", "Inv", "DAC Inv Mux 2"},
 
-	
+	/* mono mux */
 	{"Mono Out Mux", "Mono", "Mono Mixer"},
 	{"Mono Out Mux", "Inv", "DAC Inv Mux 1"},
 
-	
+	/* out 3 mux */
 	{"Out 3 Mux", "Inv 1", "DAC Inv Mux 1"},
 
-	
+	/* out 4 mux */
 	{"Out 4 Mux", "Inv 2", "DAC Inv Mux 2"},
 
-	
+	/* output pga */
 	{"HPL", NULL, "Left Headphone"},
 	{"Left Headphone", NULL, "Left Headphone Out Mux"},
 	{"HPR", NULL, "Right Headphone"},
@@ -559,14 +590,14 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"MONO", NULL, "Mono Out"},
 	{"Mono Out", NULL, "Mono Out Mux"},
 
-	
+	/* input pga */
 	{"Left Line In", NULL, "LINEL"},
 	{"Right Line In", NULL, "LINER"},
 	{"Mono In", NULL, "MONOIN"},
 	{"Mic A PGA", NULL, "Mic A Pre Amp"},
 	{"Mic B PGA", NULL, "Mic B Pre Amp"},
 
-	
+	/* left capture select */
 	{"Left Capture Source", "Mic 1", "Mic A Pre Amp"},
 	{"Left Capture Source", "Mic 2", "Mic B Pre Amp"},
 	{"Left Capture Source", "Line", "LINEL"},
@@ -575,7 +606,7 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Left Capture Source", "Speaker", "Speaker Mixer"},
 	{"Left Capture Source", "Mono Out", "Mono Mixer"},
 
-	
+	/* right capture select */
 	{"Right Capture Source", "Mic 1", "Mic A Pre Amp"},
 	{"Right Capture Source", "Mic 2", "Mic B Pre Amp"},
 	{"Right Capture Source", "Line", "LINER"},
@@ -584,17 +615,17 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Right Capture Source", "Speaker", "Speaker Mixer"},
 	{"Right Capture Source", "Mono Out", "Mono Mixer"},
 
-	
+	/* left ADC */
 	{"Left ADC", NULL, "Left Capture Source"},
 	{"Left Voice ADC", NULL, "Left ADC"},
 	{"Left HiFi ADC", NULL, "Left ADC"},
 
-	
+	/* right ADC */
 	{"Right ADC", NULL, "Right Capture Source"},
 	{"Right Voice ADC", NULL, "Right ADC"},
 	{"Right HiFi ADC", NULL, "Right ADC"},
 
-	
+	/* mic */
 	{"Mic A Pre Amp", NULL, "Mic A Source"},
 	{"Mic A Source", "Mic 1", "MIC1"},
 	{"Mic A Source", "Mic 2 A", "MIC2A"},
@@ -602,12 +633,12 @@ static const struct snd_soc_dapm_route wm9713_audio_map[] = {
 	{"Mic B Pre Amp", "MPB", "Mic B Source"},
 	{"Mic B Source", NULL, "MIC2B"},
 
-	
+	/* headphone capture */
 	{"Capture Headphone Mux", "Stereo", "Capture Mixer"},
 	{"Capture Headphone Mux", "Left", "Left Capture Source"},
 	{"Capture Headphone Mux", "Right", "Right Capture Source"},
 
-	
+	/* mono capture */
 	{"Capture Mono Mux", "Stereo", "Capture Mixer"},
 	{"Capture Mono Mux", "Left", "Left Capture Source"},
 	{"Capture Mono Mux", "Right", "Right Capture Source"},
@@ -645,6 +676,7 @@ static int ac97_write(struct snd_soc_codec *codec, unsigned int reg,
 	return 0;
 }
 
+/* PLL divisors */
 struct _pll_div {
 	u32 divsel:1;
 	u32 divctl:1;
@@ -653,6 +685,8 @@ struct _pll_div {
 	u32 k:24;
 };
 
+/* The size in bits of the PLL divide multiplied by 10
+ * to allow rounding later */
 #define FIXED_PLL_SIZE ((1 << 22) * 10)
 
 static void pll_factors(struct _pll_div *pll_div, unsigned int source)
@@ -660,10 +694,10 @@ static void pll_factors(struct _pll_div *pll_div, unsigned int source)
 	u64 Kpart;
 	unsigned int K, Ndiv, Nmod, target;
 
-	
+	/* The the PLL output is always 98.304MHz. */
 	target = 98304000;
 
-	
+	/* If the input frequency is over 14.4MHz then scale it down. */
 	if (source > 14400000) {
 		source >>= 1;
 		pll_div->divsel = 1;
@@ -679,6 +713,9 @@ static void pll_factors(struct _pll_div *pll_div, unsigned int source)
 		pll_div->divctl = 0;
 	}
 
+	/* Low frequency sources require an additional divide in the
+	 * loop.
+	 */
 	if (source < 8192000) {
 		pll_div->lf = 1;
 		target >>= 2;
@@ -699,16 +736,20 @@ static void pll_factors(struct _pll_div *pll_div, unsigned int source)
 
 	K = Kpart & 0xFFFFFFFF;
 
-	
+	/* Check if we need to round */
 	if ((K % 10) >= 5)
 		K += 5;
 
-	
+	/* Move down to proper range now rounding is done */
 	K /= 10;
 
 	pll_div->k = K;
 }
 
+/**
+ * Please note that changing the PLL input frequency may require
+ * resynchronisation with the AC97 controller.
+ */
 static int wm9713_set_pll(struct snd_soc_codec *codec,
 	int pll_id, unsigned int freq_in, unsigned int freq_out)
 {
@@ -716,9 +757,9 @@ static int wm9713_set_pll(struct snd_soc_codec *codec,
 	u16 reg, reg2;
 	struct _pll_div pll_div;
 
-	
+	/* turn PLL off ? */
 	if (freq_in == 0) {
-		
+		/* disable PLL power and select ext source */
 		reg = ac97_read(codec, AC97_HANDSET_RATE);
 		ac97_write(codec, AC97_HANDSET_RATE, reg | 0x0080);
 		reg = ac97_read(codec, AC97_EXTENDED_MID);
@@ -734,42 +775,42 @@ static int wm9713_set_pll(struct snd_soc_codec *codec,
 			(pll_div.divsel << 9) | (pll_div.divctl << 8);
 		ac97_write(codec, AC97_LINE1_LEVEL, reg);
 	} else {
-		
+		/* write the fractional k to the reg 0x46 pages */
 		reg2 = (pll_div.n << 12) | (pll_div.lf << 11) | (1 << 10) |
 			(pll_div.divsel << 9) | (pll_div.divctl << 8);
 
-		
+		/* K [21:20] */
 		reg = reg2 | (0x5 << 4) | (pll_div.k >> 20);
 		ac97_write(codec, AC97_LINE1_LEVEL, reg);
 
-		
+		/* K [19:16] */
 		reg = reg2 | (0x4 << 4) | ((pll_div.k >> 16) & 0xf);
 		ac97_write(codec, AC97_LINE1_LEVEL, reg);
 
-		
+		/* K [15:12] */
 		reg = reg2 | (0x3 << 4) | ((pll_div.k >> 12) & 0xf);
 		ac97_write(codec, AC97_LINE1_LEVEL, reg);
 
-		
+		/* K [11:8] */
 		reg = reg2 | (0x2 << 4) | ((pll_div.k >> 8) & 0xf);
 		ac97_write(codec, AC97_LINE1_LEVEL, reg);
 
-		
+		/* K [7:4] */
 		reg = reg2 | (0x1 << 4) | ((pll_div.k >> 4) & 0xf);
 		ac97_write(codec, AC97_LINE1_LEVEL, reg);
 
-		reg = reg2 | (0x0 << 4) | (pll_div.k & 0xf); 
+		reg = reg2 | (0x0 << 4) | (pll_div.k & 0xf); /* K [3:0] */
 		ac97_write(codec, AC97_LINE1_LEVEL, reg);
 	}
 
-	
+	/* turn PLL on and select as source */
 	reg = ac97_read(codec, AC97_EXTENDED_MID);
 	ac97_write(codec, AC97_EXTENDED_MID, reg & 0xfdff);
 	reg = ac97_read(codec, AC97_HANDSET_RATE);
 	ac97_write(codec, AC97_HANDSET_RATE, reg & 0xff7f);
 	wm9713->pll_in = freq_in;
 
-	
+	/* wait 10ms AC97 link frames for the link to stabilise */
 	schedule_timeout_interruptible(msecs_to_jiffies(10));
 	return 0;
 }
@@ -781,6 +822,10 @@ static int wm9713_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 	return wm9713_set_pll(codec, pll_id, freq_in, freq_out);
 }
 
+/*
+ * Tristate the PCM DAI lines, tristate can be disabled by calling
+ * wm9713_set_dai_fmt()
+ */
 static int wm9713_set_dai_tristate(struct snd_soc_dai *codec_dai,
 	int tristate)
 {
@@ -793,6 +838,10 @@ static int wm9713_set_dai_tristate(struct snd_soc_dai *codec_dai,
 	return 0;
 }
 
+/*
+ * Configure WM9713 clock dividers.
+ * Voice DAC needs 256 FS
+ */
 static int wm9713_set_dai_clkdiv(struct snd_soc_dai *codec_dai,
 		int div_id, int div)
 {
@@ -842,7 +891,7 @@ static int wm9713_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	u16 gpio = ac97_read(codec, AC97_GPIO_CFG) & 0xffc5;
 	u16 reg = 0x8000;
 
-	
+	/* clock masters */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
 		reg |= 0x4000;
@@ -861,7 +910,7 @@ static int wm9713_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		break;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_IB_IF:
 		reg |= 0x00c0;
@@ -874,7 +923,7 @@ static int wm9713_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		break;
 	}
 
-	
+	/* DAI format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		reg |= 0x0002;
@@ -918,7 +967,7 @@ static int wm9713_pcm_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* enable PCM interface in master mode */
 	ac97_write(codec, AC97_CENTER_LFE_MASTER, reg);
 	return 0;
 }
@@ -1068,20 +1117,20 @@ static int wm9713_set_bias_level(struct snd_soc_codec *codec,
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		
+		/* enable thermal shutdown */
 		reg = ac97_read(codec, AC97_EXTENDED_MID) & 0x1bff;
 		ac97_write(codec, AC97_EXTENDED_MID, reg);
 		break;
 	case SND_SOC_BIAS_PREPARE:
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		
+		/* enable master bias and vmid */
 		reg = ac97_read(codec, AC97_EXTENDED_MID) & 0x3bff;
 		ac97_write(codec, AC97_EXTENDED_MID, reg);
 		ac97_write(codec, AC97_POWERDOWN, 0x0000);
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* disable everything including AC link */
 		ac97_write(codec, AC97_EXTENDED_MID, 0xffff);
 		ac97_write(codec, AC97_EXTENDED_MSTATUS, 0xffff);
 		ac97_write(codec, AC97_POWERDOWN, 0xffff);
@@ -1095,6 +1144,9 @@ static int wm9713_soc_suspend(struct snd_soc_codec *codec)
 {
 	u16 reg;
 
+	/* Disable everything except touchpanel - that will be handled
+	 * by the touch driver and left disabled if touch is not in
+	 * use. */
 	reg = ac97_read(codec, AC97_EXTENDED_MID);
 	ac97_write(codec, AC97_EXTENDED_MID, reg | 0x7fff);
 	ac97_write(codec, AC97_EXTENDED_MSTATUS, 0xffff);
@@ -1118,11 +1170,11 @@ static int wm9713_soc_resume(struct snd_soc_codec *codec)
 
 	wm9713_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* do we need to re-start the PLL ? */
 	if (wm9713->pll_in)
 		wm9713_set_pll(codec, 0, wm9713->pll_in, 0);
 
-	
+	/* only synchronise the codec if warm reset failed */
 	if (ret == 0) {
 		for (i = 2; i < ARRAY_SIZE(wm9713_reg) << 1; i += 2) {
 			if (i == AC97_POWERDOWN || i == AC97_EXTENDED_MID ||
@@ -1149,6 +1201,8 @@ static int wm9713_soc_probe(struct snd_soc_codec *codec)
 	if (ret < 0)
 		goto codec_err;
 
+	/* do a cold reset for the controller and then try
+	 * a warm reset followed by an optional cold reset for codec */
 	wm9713_reset(codec, 0);
 	ret = wm9713_reset(codec, 1);
 	if (ret < 0) {
@@ -1158,7 +1212,7 @@ static int wm9713_soc_probe(struct snd_soc_codec *codec)
 
 	wm9713_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* unmute the adc - move to kcontrol */
 	reg = ac97_read(codec, AC97_CD) & 0x7fff;
 	ac97_write(codec, AC97_CD, reg);
 

@@ -26,10 +26,10 @@
 
 struct nxt6000_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* should clock inversion be used? */
 	u8 clock_inversion:1;
 };
 
@@ -43,6 +43,6 @@ static inline struct dvb_frontend* nxt6000_attach(const struct nxt6000_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_NXT6000
 
-#endif 
+#endif // NXT6000_H

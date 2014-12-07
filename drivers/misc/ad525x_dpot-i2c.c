@@ -11,6 +11,7 @@
 
 #include "ad525x_dpot.h"
 
+/* I2C bus functions */
 static int write_d8(void *client, u8 val)
 {
 	return i2c_smbus_write_byte(client, val);

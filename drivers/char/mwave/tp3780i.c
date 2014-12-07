@@ -140,7 +140,7 @@ static irqreturn_t DspInterrupt(int irq, void *dev_id)
 			}
 			if (usIPCSource == 0)
 				break;
-			
+			/* try next IPC */
 			usIsolationMask = usIsolationMask << 1;
 		}
 	} else {
@@ -200,7 +200,7 @@ int tp3780I_CalcResources(THINKPAD_BD_DATA * pBDData)
 		return -EIO;
 	}
 
-	
+	/* Sanity check */
 	if (
 		( rSmapiInfo.usDspIRQ == 0 )
 		|| ( rSmapiInfo.usDspBaseIO ==  0 )
@@ -362,7 +362,7 @@ int tp3780I_EnableDSP(THINKPAD_BD_DATA * pBDData)
 	if (request_irq(pSettings->usUartIrq, &UartInterrupt, 0, "mwave_uart", NULL)) {
 		PRINTK_ERROR(KERN_ERR_MWAVE "tp3780i::tp3780I_EnableDSP: Error: Could not get UART IRQ %x\n", pSettings->usUartIrq);
 		goto exit_cleanup;
-	} else {		
+	} else {		/* no conflict just release */
 		free_irq(pSettings->usUartIrq, NULL);
 	}
 
@@ -461,7 +461,7 @@ int tp3780I_StartDSP(THINKPAD_BD_DATA * pBDData)
 	PRINTK_2(TRACE_TP3780I, "tp3780i::tp3780I_StartDSP entry pBDData %p\n", pBDData);
 
 	if (dsp3780I_Run(pSettings) == 0) {
-		
+		// @BUG @TBD EnableSRAM(pBDData);
 	} else {
 		retval = -EIO;
 	}
@@ -479,13 +479,13 @@ int tp3780I_QueryAbilities(THINKPAD_BD_DATA * pBDData, MW_ABILITIES * pAbilities
 	PRINTK_2(TRACE_TP3780I,
 		"tp3780i::tp3780I_QueryAbilities entry pBDData %p\n", pBDData);
 
-	
+	/* fill out standard constant fields */
 	pAbilities->instr_per_sec = pBDData->rDspSettings.uIps;
 	pAbilities->data_size = pBDData->rDspSettings.uDStoreSize;
 	pAbilities->inst_size = pBDData->rDspSettings.uIStoreSize;
 	pAbilities->bus_dma_bw = pBDData->rDspSettings.uDmaBandwidth;
 
-	
+	/* fill out dynamically determined fields */
 	pAbilities->component_list[0] = 0x00010000 | MW_ADC_MASK;
 	pAbilities->component_list[1] = 0x00010000 | MW_ACI_MASK;
 	pAbilities->component_list[2] = 0x00010000 | MW_AIC1_MASK;
@@ -495,7 +495,7 @@ int tp3780I_QueryAbilities(THINKPAD_BD_DATA * pBDData, MW_ABILITIES * pAbilities
 	pAbilities->component_list[6] = 0x00010000 | MW_UART_MASK;
 	pAbilities->component_count = 7;
 
-	
+	/* Fill out Mwave OS and BIOS task names */
 
 	memcpy(pAbilities->mwave_os_name, TP_ABILITIES_MWAVEOS_NAME,
 		sizeof(TP_ABILITIES_MWAVEOS_NAME));

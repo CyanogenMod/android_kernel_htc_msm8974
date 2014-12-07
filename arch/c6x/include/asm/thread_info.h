@@ -35,16 +35,24 @@ typedef struct {
 	unsigned long seg;
 } mm_segment_t;
 
+/*
+ * low level task data.
+ */
 struct thread_info {
-	struct task_struct	*task;		
-	struct exec_domain	*exec_domain;	
-	unsigned long		flags;		
-	int			cpu;		
-	int			preempt_count;	
-	mm_segment_t		addr_limit;	
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain	*exec_domain;	/* execution domain */
+	unsigned long		flags;		/* low level flags */
+	int			cpu;		/* cpu we're on */
+	int			preempt_count;	/* 0 = preemptable, <0 = BUG */
+	mm_segment_t		addr_limit;	/* thread address space */
 	struct restart_block	restart_block;
 };
 
+/*
+ * macros/functions for gaining access to the thread information structure
+ *
+ * preempt_count needs to be 1 initially, until the scheduler is functional.
+ */
 #define INIT_THREAD_INFO(tsk)			\
 {						\
 	.task		= &tsk,			\
@@ -61,6 +69,7 @@ struct thread_info {
 #define init_thread_info	(init_thread_union.thread_info)
 #define init_stack		(init_thread_union.stack)
 
+/* get the thread information struct of current task */
 static inline __attribute__((const))
 struct thread_info *current_thread_info(void)
 {
@@ -73,6 +82,7 @@ struct thread_info *current_thread_info(void)
 
 #define __HAVE_ARCH_THREAD_INFO_ALLOCATOR
 
+/* thread information allocation */
 #ifdef CONFIG_DEBUG_STACK_USAGE
 #define THREAD_FLAGS (GFP_KERNEL | __GFP_NOTRACK | __GFP_ZERO)
 #else
@@ -85,22 +95,27 @@ struct thread_info *current_thread_info(void)
 #define free_thread_info(ti)	free_pages((unsigned long) (ti), THREAD_ORDER)
 #define get_thread_info(ti)	get_task_struct((ti)->task)
 #define put_thread_info(ti)	put_task_struct((ti)->task)
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define	PREEMPT_ACTIVE	0x10000000
 
-#define TIF_SYSCALL_TRACE	0	
-#define TIF_NOTIFY_RESUME	1	
-#define TIF_SIGPENDING		2	
-#define TIF_NEED_RESCHED	3	
-#define TIF_RESTORE_SIGMASK	4	
+/*
+ * thread information flag bit numbers
+ * - pending work-to-be-done flags are in LSW
+ * - other flags in MSW
+ */
+#define TIF_SYSCALL_TRACE	0	/* syscall trace active */
+#define TIF_NOTIFY_RESUME	1	/* resumption notification requested */
+#define TIF_SIGPENDING		2	/* signal pending */
+#define TIF_NEED_RESCHED	3	/* rescheduling necessary */
+#define TIF_RESTORE_SIGMASK	4	/* restore signal mask in do_signal() */
 
-#define TIF_POLLING_NRFLAG	16	
-#define TIF_MEMDIE		17	
+#define TIF_POLLING_NRFLAG	16	/* true if polling TIF_NEED_RESCHED */
+#define TIF_MEMDIE		17	/* OOM killer killed process */
 
-#define TIF_WORK_MASK		0x00007FFE 
-#define TIF_ALLWORK_MASK	0x00007FFF 
+#define TIF_WORK_MASK		0x00007FFE /* work on irq/exception return */
+#define TIF_ALLWORK_MASK	0x00007FFF /* work on any return to u-space */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_C6X_THREAD_INFO_H */

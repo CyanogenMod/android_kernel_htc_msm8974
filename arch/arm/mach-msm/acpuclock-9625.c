@@ -33,14 +33,14 @@
 #define GPLL0_TO_A5_ALWAYS_ENABLE	BIT(18)
 
 static struct msm_bus_paths bw_level_tbl[] = {
-	[0] =  BW_MBPS(152), 
-	[1] =  BW_MBPS(264), 
-	[2] =  BW_MBPS(528), 
-	[3] =  BW_MBPS(664), 
-	[4] = BW_MBPS(1064), 
-	[5] = BW_MBPS(1328), 
-	[6] = BW_MBPS(2128), 
-	[7] = BW_MBPS(2664), 
+	[0] =  BW_MBPS(152), /* At least 19 MHz on bus. */
+	[1] =  BW_MBPS(264), /* At least 33 MHz on bus. */
+	[2] =  BW_MBPS(528), /* At least 66 MHz on bus. */
+	[3] =  BW_MBPS(664), /* At least 83 MHz on bus. */
+	[4] = BW_MBPS(1064), /* At least 133 MHz on bus. */
+	[5] = BW_MBPS(1328), /* At least 166 MHz on bus. */
+	[6] = BW_MBPS(2128), /* At least 266 MHz on bus. */
+	[7] = BW_MBPS(2664), /* At least 333 MHz on bus. */
 };
 
 static struct msm_bus_scale_pdata bus_client_pdata = {
@@ -50,6 +50,10 @@ static struct msm_bus_scale_pdata bus_client_pdata = {
 	.name = "acpuclock",
 };
 
+/* TODO:
+ * 1) Update MX voltage when they are avaiable
+ * 2) Update bus bandwidth
+ */
 static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 0,  19200, CXO,     0, 0,   LVL_LOW,    950000, 0 },
 	{ 1, 300000, PLL0,    1, 2,   LVL_LOW,    950000, 4 },
@@ -133,7 +137,7 @@ static int __init acpuclk_9625_probe(struct platform_device *pdev)
 	regval |= GPLL0_TO_A5_ALWAYS_ENABLE;
 	writel_relaxed(regval, drv_data.apcs_cpu_pwr_ctl);
 
-	
+	/* Enable the always on source */
 	clk_prepare_enable(drv_data.src_clocks[PLL0].clk);
 
 	return acpuclk_cortex_init(pdev, &drv_data);

@@ -61,6 +61,9 @@
 
 #define S3_MOBILE_TWISTER_SERIES(chip) ((chip==S3_TWISTER) || (chip==S3_PROSAVAGEDDR))
 
+/* Chip tags.  These are used to group the adapters into
+ * related families.
+ */
 
 typedef enum {
   S3_UNKNOWN = 0,
@@ -78,9 +81,9 @@ typedef enum {
 #define BIOS_BSIZE		     1024
 #define BIOS_BASE		     0xc0000
 
-#define SAVAGE_NEWMMIO_REGBASE_S3    0x1000000  
+#define SAVAGE_NEWMMIO_REGBASE_S3    0x1000000  /* 16MB */
 #define SAVAGE_NEWMMIO_REGBASE_S4    0x0000000
-#define SAVAGE_NEWMMIO_REGSIZE	     0x0080000  
+#define SAVAGE_NEWMMIO_REGSIZE	     0x0080000  /* 512kb */
 #define SAVAGE_NEWMMIO_VGABASE	     0x8000
 
 #define BASE_FREQ		     14318
@@ -148,11 +151,11 @@ struct xtimings {
 };
 
 struct savage_reg {
-	unsigned char MiscOutReg;     
-	unsigned char CRTC[25];       
-	unsigned char Sequencer[5];   
-	unsigned char Graphics[9];    
-	unsigned char Attribute[21];  
+	unsigned char MiscOutReg;     /* Misc */
+	unsigned char CRTC[25];       /* Crtc Controller */
+	unsigned char Sequencer[5];   /* Video Sequencer */
+	unsigned char Graphics[9];    /* Video Graphics */
+	unsigned char Attribute[21];  /* Video Attribute */
 
 	unsigned int mode, refresh;
 	unsigned char SR08, SR0E, SR0F;
@@ -165,9 +168,10 @@ struct savage_reg {
 	unsigned char CR60, CR63, CR65, CR66, CR67, CR68, CR69, CR6D, CR6F;
 	unsigned char CR86, CR88;
 	unsigned char CR90, CR91, CRB0;
-	unsigned int  STREAMS[22];	
+	unsigned int  STREAMS[22];	/* yuck, streams regs */
 	unsigned int  MMPR0, MMPR1, MMPR2, MMPR3;
 };
+/* --------------------------------------------------------------------- */
 
 #define NR_PALETTE	256
 
@@ -231,7 +235,7 @@ struct savagefb_par {
 
 	int HorizScaleFactor;
 
-	
+	/* Panels size */
 	int SavagePanelWidth;
 	int SavagePanelHeight;
 
@@ -248,6 +252,7 @@ struct savagefb_par {
 #define BCI_BD_SET_STRIDE(bd, st)    ((bd) |= ((st) & 0xFFFF))
 
 
+/* IO functions */
 static inline u8 savage_in8(u32 addr, struct savagefb_par *par)
 {
 	return readb(par->mmio.vbase + addr);
@@ -407,4 +412,4 @@ extern void savagefb_imageblit(struct fb_info *info,
 			       const struct fb_image *image);
 
 
-#endif 
+#endif /* __SAVAGEFB_H__ */

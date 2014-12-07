@@ -302,6 +302,10 @@ up:
 	goto up;
 }
 
+/*
+ * after inserting @node into the tree, update the tree to account for
+ * both the new entry and any damage done by rebalance
+ */
 void rb_augment_insert(struct rb_node *node, rb_augment_f func, void *data)
 {
 	if (node->rb_left)
@@ -313,6 +317,10 @@ void rb_augment_insert(struct rb_node *node, rb_augment_f func, void *data)
 }
 EXPORT_SYMBOL(rb_augment_insert);
 
+/*
+ * before removing the node, find the deepest node on the rebalance path
+ * that will still be there after @node gets removed
+ */
 struct rb_node *rb_augment_erase_begin(struct rb_node *node)
 {
 	struct rb_node *deepest;
@@ -335,6 +343,10 @@ struct rb_node *rb_augment_erase_begin(struct rb_node *node)
 }
 EXPORT_SYMBOL(rb_augment_erase_begin);
 
+/*
+ * after removal, update the tree to account for the removed entry
+ * and any rebalance damage.
+ */
 void rb_augment_erase_end(struct rb_node *node, rb_augment_f func, void *data)
 {
 	if (node)
@@ -342,6 +354,9 @@ void rb_augment_erase_end(struct rb_node *node, rb_augment_f func, void *data)
 }
 EXPORT_SYMBOL(rb_augment_erase_end);
 
+/*
+ * This function returns the first node (in sort order) of the tree.
+ */
 struct rb_node *rb_first(const struct rb_root *root)
 {
 	struct rb_node	*n;
@@ -375,6 +390,8 @@ struct rb_node *rb_next(const struct rb_node *node)
 	if (rb_parent(node) == node)
 		return NULL;
 
+	/* If we have a right-hand child, go down and then left as far
+	   as we can. */
 	if (node->rb_right) {
 		node = node->rb_right; 
 		while (node->rb_left)
@@ -382,6 +399,12 @@ struct rb_node *rb_next(const struct rb_node *node)
 		return (struct rb_node *)node;
 	}
 
+	/* No right-hand children.  Everything down and left is
+	   smaller than us, so any 'next' node must be in the general
+	   direction of our parent. Go up the tree; any time the
+	   ancestor is a right-hand child of its parent, keep going
+	   up. First time it's a left-hand child of its parent, said
+	   parent is our 'next' node. */
 	while ((parent = rb_parent(node)) && node == parent->rb_right)
 		node = parent;
 
@@ -396,6 +419,8 @@ struct rb_node *rb_prev(const struct rb_node *node)
 	if (rb_parent(node) == node)
 		return NULL;
 
+	/* If we have a left-hand child, go down and then right as far
+	   as we can. */
 	if (node->rb_left) {
 		node = node->rb_left; 
 		while (node->rb_right)
@@ -403,6 +428,8 @@ struct rb_node *rb_prev(const struct rb_node *node)
 		return (struct rb_node *)node;
 	}
 
+	/* No left-hand children. Go up till we find an ancestor which
+	   is a right-hand child of its parent */
 	while ((parent = rb_parent(node)) && node == parent->rb_left)
 		node = parent;
 
@@ -415,7 +442,7 @@ void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 {
 	struct rb_node *parent = rb_parent(victim);
 
-	
+	/* Set the surrounding nodes to point to the replacement */
 	if (parent) {
 		if (victim == parent->rb_left)
 			parent->rb_left = new;
@@ -429,7 +456,7 @@ void rb_replace_node(struct rb_node *victim, struct rb_node *new,
 	if (victim->rb_right)
 		rb_set_parent(victim->rb_right, new);
 
-	
+	/* Copy the pointers/colour from the victim to the replacement */
 	*new = *victim;
 }
 EXPORT_SYMBOL(rb_replace_node);

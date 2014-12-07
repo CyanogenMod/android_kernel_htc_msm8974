@@ -22,4 +22,4 @@ void rmnet_egress_handler(struct sk_buff *skb,
 
 rx_handler_result_t rmnet_rx_handler(struct sk_buff **pskb);
 
-#endif 
+#endif /* _RMNET_DATA_HANDLERS_H_ */

@@ -30,8 +30,9 @@
 #ifndef _LINUX_O2MICRO_H
 #define _LINUX_O2MICRO_H
 
+/* Additional PCI configuration registers */
 
-#define O2_MUX_CONTROL		0x90	
+#define O2_MUX_CONTROL		0x90	/* 32 bit */
 #define  O2_MUX_RING_OUT	0x0000000f
 #define  O2_MUX_SKTB_ACTV	0x000000f0
 #define  O2_MUX_SCTA_ACTV_ENA	0x00000100
@@ -39,15 +40,16 @@
 #define  O2_MUX_SER_IRQ_ROUTE	0x0000e000
 #define  O2_MUX_SER_PCI		0x00010000
 
-#define  O2_MUX_SKTA_TURBO	0x000c0000	
+#define  O2_MUX_SKTA_TURBO	0x000c0000	/* for 6833, 6860 */
 #define  O2_MUX_SKTB_TURBO	0x00300000
 #define  O2_MUX_AUX_VCC_3V	0x00400000
 #define  O2_MUX_PCI_VCC_5V	0x00800000
 #define  O2_MUX_PME_MUX		0x0f000000
 
+/* Additional ExCA registers */
 
 #define O2_MODE_A		0x38
-#define O2_MODE_A_2		0x26	
+#define O2_MODE_A_2		0x26	/* for 6833B, 6860C */
 #define  O2_MODE_A_CD_PULSE	0x04
 #define  O2_MODE_A_SUSP_EDGE	0x08
 #define  O2_MODE_A_HOST_SUSP	0x10
@@ -55,7 +57,7 @@
 #define  O2_MODE_A_QUIET	0x80
 
 #define O2_MODE_B		0x39
-#define O2_MODE_B_2		0x2e	
+#define O2_MODE_B_2		0x2e	/* for 6833B, 6860C */
 #define  O2_MODE_B_IDENT	0x03
 #define  O2_MODE_B_ID_BSTEP	0x00
 #define  O2_MODE_B_ID_CSTEP	0x01
@@ -78,7 +80,7 @@
 #define  O2_MODE_D_PCI_CLKRUN	0x04
 #define  O2_MODE_D_CB_CLKRUN	0x08
 #define  O2_MODE_D_SKT_ACTV	0x20
-#define  O2_MODE_D_PCI_FIFO	0x40	
+#define  O2_MODE_D_PCI_FIFO	0x40	/* for OZ6729, OZ6730 */
 #define  O2_MODE_D_W97_IRQ	0x40
 #define  O2_MODE_D_ISA_IRQ	0x80
 
@@ -106,6 +108,13 @@
 
 static int o2micro_override(struct yenta_socket *socket)
 {
+	/*
+	 * 'reserved' register at 0x94/D4. allows setting read prefetch and write
+	 * bursting. read prefetching for example makes the RME Hammerfall DSP
+	 * working. for some bridges it is at 0x94, for others at 0xD4. it's
+	 * ok to write to both registers on all O2 bridges.
+	 * from Eric Still, 02Micro.
+	 */
 	u8 a, b;
 	bool use_speedup;
 
@@ -115,6 +124,11 @@ static int o2micro_override(struct yenta_socket *socket)
 		dev_dbg(&socket->dev->dev, "O2: 0x94/0xD4: %02x/%02x\n", a, b);
 
 		switch (socket->dev->device) {
+		/*
+		 * older bridges have problems with both read prefetch and write
+		 * bursting depending on the combination of the chipset, bridge
+		 * and the cardbus card. so disable them to be on the safe side.
+		 */
 		case PCI_DEVICE_ID_O2_6729:
 		case PCI_DEVICE_ID_O2_6730:
 		case PCI_DEVICE_ID_O2_6812:
@@ -128,7 +142,7 @@ static int o2micro_override(struct yenta_socket *socket)
 			break;
 		}
 
-		
+		/* the user may override our decision */
 		if (strcasecmp(o2_speedup, "on") == 0)
 			use_speedup = true;
 		else if (strcasecmp(o2_speedup, "off") == 0)
@@ -159,7 +173,11 @@ static int o2micro_override(struct yenta_socket *socket)
 
 static void o2micro_restore_state(struct yenta_socket *socket)
 {
+	/*
+	 * as long as read prefetch is the only thing in
+	 * o2micro_override, it's safe to call it from here
+	 */
 	o2micro_override(socket);
 }
 
-#endif 
+#endif /* _LINUX_O2MICRO_H */

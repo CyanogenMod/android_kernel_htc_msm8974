@@ -6,4 +6,4 @@ typedef unsigned short	__kernel_mode_t;
 
 #include <asm-generic/posix_types.h>
 
-#endif 
+#endif /* _ASM_MICROBLAZE_POSIX_TYPES_H */

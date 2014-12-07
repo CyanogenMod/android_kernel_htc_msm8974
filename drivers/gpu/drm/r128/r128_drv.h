@@ -1,3 +1,6 @@
+/* r128_drv.h -- Private header for r128 driver -*- linux-c -*-
+ * Created: Mon Dec 13 09:51:11 1999 by faith@precisioninsight.com
+ */
 /*
  * Copyright 1999 Precision Insight, Inc., Cedar Park, Texas.
  * Copyright 2000 VA Linux Systems, Inc., Sunnyvale, California.
@@ -32,12 +35,20 @@
 #ifndef __R128_DRV_H__
 #define __R128_DRV_H__
 
+/* General customization:
+ */
 #define DRIVER_AUTHOR		"Gareth Hughes, VA Linux Systems Inc."
 
 #define DRIVER_NAME		"r128"
 #define DRIVER_DESC		"ATI Rage 128"
 #define DRIVER_DATE		"20030725"
 
+/* Interface history:
+ *
+ * ??  - ??
+ * 2.4 - Add support for ycbcr textures (no new ioctls)
+ * 2.5 - Add FLIP ioctl, disable FULLSCREEN.
+ */
 #define DRIVER_MAJOR		2
 #define DRIVER_MINOR		5
 #define DRIVER_PATCHLEVEL	0
@@ -123,7 +134,7 @@ typedef struct drm_r128_buf_priv {
 extern struct drm_ioctl_desc r128_ioctls[];
 extern int r128_max_ioctl;
 
-				
+				/* r128_cce.c */
 extern int r128_cce_init(struct drm_device *dev, void *data, struct drm_file *file_priv);
 extern int r128_cce_start(struct drm_device *dev, void *data, struct drm_file *file_priv);
 extern int r128_cce_stop(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -155,6 +166,9 @@ extern void r128_driver_preclose(struct drm_device *dev,
 extern long r128_compat_ioctl(struct file *filp, unsigned int cmd,
 			      unsigned long arg);
 
+/* Register definitions, register access macros and drmAddMap constants
+ * for Rage 128 kernel driver.
+ */
 
 #define R128_AUX_SC_CNTL		0x1660
 #	define R128_AUX1_SC_EN			(1 << 0)
@@ -259,6 +273,8 @@ extern long r128_compat_ioctl(struct file *filp, unsigned int cmd,
 #	define R128_EVENT_CRTC_OFFSET		(1 << 0)
 #define R128_WINDOW_XY_OFFSET		0x1bcc
 
+/* CCE registers
+ */
 #define R128_PM4_BUFFER_OFFSET		0x0700
 #define R128_PM4_BUFFER_CNTL		0x0704
 #	define R128_PM4_MASK			(15 << 28)
@@ -307,6 +323,8 @@ extern long r128_compat_ioctl(struct file *filp, unsigned int cmd,
 #define R128_PM4_FIFO_DATA_EVEN		0x1000
 #define R128_PM4_FIFO_DATA_ODD		0x1004
 
+/* CCE command packets
+ */
 #define R128_CCE_PACKET0		0x00000000
 #define R128_CCE_PACKET1		0x40000000
 #define R128_CCE_PACKET2		0x80000000
@@ -351,6 +369,7 @@ extern long r128_compat_ioctl(struct file *filp, unsigned int cmd,
 #define R128_DATATYPE_AYUV444		14
 #define R128_DATATYPE_ARGB4444		15
 
+/* Constants */
 #define R128_AGP_OFFSET			0x02000000
 
 #define R128_WATERMARK_L		16
@@ -358,7 +377,7 @@ extern long r128_compat_ioctl(struct file *filp, unsigned int cmd,
 #define R128_WATERMARK_N		8
 #define R128_WATERMARK_K		128
 
-#define R128_MAX_USEC_TIMEOUT		100000	
+#define R128_MAX_USEC_TIMEOUT		100000	/* 100 ms */
 
 #define R128_LAST_FRAME_REG		R128_GUI_SCRATCH_REG0
 #define R128_LAST_DISPATCH_REG		R128_GUI_SCRATCH_REG1
@@ -399,6 +418,9 @@ static __inline__ void r128_update_ring_snapshot(drm_r128_private_t *dev_priv)
 		ring->space += ring->size;
 }
 
+/* ================================================================
+ * Misc helper macros
+ */
 
 #define DEV_INIT_TEST_WITH_RETURN(_dev_priv)				\
 do {									\
@@ -442,6 +464,9 @@ do {									\
 	OUT_RING(R128_EVENT_CRTC_OFFSET);				\
 } while (0)
 
+/* ================================================================
+ * Ring control
+ */
 
 #define R128_VERBOSE	0
 
@@ -461,6 +486,11 @@ do {									\
 	tail_mask = dev_priv->ring.tail_mask;				\
 } while (0)
 
+/* You can set this to zero if you want.  If the card locks up, you'll
+ * need to keep this set.  It works around a bug in early revs of the
+ * Rage 128 chipset, where the CCE would read 32 dwords past the end of
+ * the ring buffer before wrapping around.
+ */
 #define R128_BROKEN_CCE	1
 
 #define ADVANCE_RING() do {						\
@@ -497,4 +527,4 @@ do {									\
 	write &= tail_mask;						\
 } while (0)
 
-#endif				
+#endif				/* __R128_DRV_H__ */

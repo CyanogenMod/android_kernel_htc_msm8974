@@ -36,4 +36,4 @@ int beat_set_xdabr(unsigned long);
 void beat_power_save(void);
 void beat_kexec_cpu_down(int, int);
 
-#endif 
+#endif /* _CELLEB_BEAT_H */

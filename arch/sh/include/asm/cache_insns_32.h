@@ -18,4 +18,4 @@ static inline reg_size_t register_align(void *val)
 	return (unsigned long)(signed long)val;
 }
 
-#endif 
+#endif /* __ASM_SH_CACHE_INSNS_32_H */

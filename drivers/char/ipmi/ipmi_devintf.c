@@ -101,7 +101,7 @@ static int ipmi_fasync(int fd, struct file *file, int on)
 	struct ipmi_file_private *priv = file->private_data;
 	int                      result;
 
-	mutex_lock(&ipmi_mutex); 
+	mutex_lock(&ipmi_mutex); /* could race against open() otherwise */
 	result = fasync_helper(fd, file, on, &priv->fasync_queue);
 	mutex_unlock(&ipmi_mutex);
 
@@ -144,7 +144,7 @@ static int ipmi_open(struct inode *inode, struct file *file)
 	priv->fasync_queue = NULL;
 	mutex_init(&priv->recv_mutex);
 
-	
+	/* Use the low-level defaults. */
 	priv->default_retries = -1;
 	priv->default_retry_time_ms = 0;
 
@@ -162,7 +162,7 @@ static int ipmi_release(struct inode *inode, struct file *file)
 	if (rv)
 		return rv;
 
-	
+	/* FIXME - free the messages in the list. */
 	kfree(priv);
 
 	return 0;
@@ -190,6 +190,8 @@ static int handle_send_req(ipmi_user_t     user,
 	if (!msg.data)
 		return -ENOMEM;
 
+	/* From here out we cannot return, we must jump to "out" for
+	   error exits to free msgdata. */
 
 	rv = ipmi_validate_addr(&addr, req->addr_len);
 	if (rv)
@@ -283,9 +285,17 @@ static int ipmi_ioctl(struct file   *file,
 			break;
 		}
 
+		/* We claim a mutex because we don't want two
+                   users getting something from the queue at a time.
+                   Since we have to release the spinlock before we can
+                   copy the data to the user, it's possible another
+                   user will grab something from the queue, too.  Then
+                   the messages might get out of order if something
+                   fails and the message gets put back onto the
+                   queue.  This mutex prevents that problem. */
 		mutex_lock(&priv->recv_mutex);
 
-		
+		/* Grab the message off the list. */
 		spin_lock_irqsave(&(priv->recv_msg_lock), flags);
 		if (list_empty(&(priv->recv_msgs))) {
 			spin_unlock_irqrestore(&(priv->recv_msg_lock), flags);
@@ -347,6 +357,8 @@ static int ipmi_ioctl(struct file   *file,
 		break;
 
 	recv_putback_on_err:
+		/* If we got an error, put the message back onto
+		   the head of the queue. */
 		spin_lock_irqsave(&(priv->recv_msg_lock), flags);
 		list_add(entry, &(priv->recv_msgs));
 		spin_unlock_irqrestore(&(priv->recv_msg_lock), flags);
@@ -427,7 +439,7 @@ static int ipmi_ioctl(struct file   *file,
 		break;
 	}
 
-	
+	/* The next four are legacy, not per-channel. */
 	case IPMICTL_SET_MY_ADDRESS_CMD:
 	{
 		unsigned int val;
@@ -616,6 +628,10 @@ static int ipmi_ioctl(struct file   *file,
 	return rv;
 }
 
+/*
+ * Note: it doesn't make sense to take the BKL here but
+ *       not in compat_ipmi_ioctl. -arnd
+ */
 static long ipmi_unlocked_ioctl(struct file   *file,
 			        unsigned int  cmd,
 			        unsigned long data)
@@ -631,6 +647,11 @@ static long ipmi_unlocked_ioctl(struct file   *file,
 
 #ifdef CONFIG_COMPAT
 
+/*
+ * The following code contains code for supporting 32-bit compatible
+ * ioctls on 64-bit kernels.  This allows running 32-bit apps on the
+ * 64-bit kernel
+ */
 #define COMPAT_IPMICTL_SEND_COMMAND	\
 	_IOR(IPMI_IOC_MAGIC, 13, struct compat_ipmi_req)
 #define COMPAT_IPMICTL_SEND_COMMAND_SETTIME	\
@@ -668,6 +689,9 @@ struct compat_ipmi_req_settime {
 	compat_uint_t		retry_time_ms;
 };
 
+/*
+ * Define some helper functions for copying IPMI data
+ */
 static long get_compat_ipmi_msg(struct ipmi_msg *p64,
 				struct compat_ipmi_msg __user *p32)
 {
@@ -749,6 +773,9 @@ static long put_compat_ipmi_recv(struct ipmi_recv *p64,
 	return 0;
 }
 
+/*
+ * Handle compatibility ioctls
+ */
 static long compat_ipmi_ioctl(struct file *filep, unsigned int cmd,
 			      unsigned long arg)
 {
@@ -835,6 +862,7 @@ MODULE_PARM_DESC(ipmi_major, "Sets the major number of the IPMI device.  By"
 		 " interface.  Other values will set the major device number"
 		 " to that value.");
 
+/* Keep track of the devices that are registered. */
 struct ipmi_reg_list {
 	dev_t            dev;
 	struct list_head link;

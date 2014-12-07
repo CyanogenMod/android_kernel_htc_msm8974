@@ -14,22 +14,27 @@
 
 #include <plat/irqs.h>
 
+/* PPI: Private Peripheral Interrupt */
 
 #define IRQ_PPI(x)			(x + 16)
 
+/* SPI: Shared Peripheral Interrupt */
 
 #define IRQ_SPI(x)			(x + 32)
 
+/* COMBINER */
 
 #define MAX_IRQ_IN_COMBINER		8
 #define COMBINER_GROUP(x)		((x) * MAX_IRQ_IN_COMBINER + IRQ_SPI(128))
 #define COMBINER_IRQ(x, y)		(COMBINER_GROUP(x) + y)
 
+/* For EXYNOS4 and EXYNOS5 */
 
 #define EXYNOS_IRQ_MCT_LOCALTIMER	IRQ_PPI(12)
 
 #define EXYNOS_IRQ_EINT16_31		IRQ_SPI(32)
 
+/* For EXYNOS4 SoCs */
 
 #define EXYNOS4_IRQ_EINT0		IRQ_SPI(16)
 #define EXYNOS4_IRQ_EINT1		IRQ_SPI(17)
@@ -158,6 +163,11 @@
 #define EXYNOS4_IRQ_GPIO1_NR_GROUPS	16
 #define EXYNOS4_IRQ_GPIO2_NR_GROUPS	9
 
+/*
+ * For Compatibility:
+ * the default is for EXYNOS4, and
+ * for exynos5, should be re-mapped at function
+ */
 
 #define IRQ_TIMER0_VIC			EXYNOS4_IRQ_TIMER0_VIC
 #define IRQ_TIMER1_VIC			EXYNOS4_IRQ_TIMER1_VIC
@@ -235,6 +245,7 @@
 #define IRQ_GPIO1_NR_GROUPS		EXYNOS4_IRQ_GPIO1_NR_GROUPS
 #define IRQ_GPIO2_NR_GROUPS		EXYNOS4_IRQ_GPIO2_NR_GROUPS
 
+/* For EXYNOS5 SoCs */
 
 #define EXYNOS5_IRQ_MDMA0		IRQ_SPI(33)
 #define EXYNOS5_IRQ_PDMA0		IRQ_SPI(34)
@@ -449,7 +460,8 @@
 #define IRQ_GPIO_END			(S5P_GPIOINT_BASE + S5P_GPIOINT_COUNT)
 #define IRQ_TIMER_BASE			(IRQ_GPIO_END + 64)
 
+/* Set the default NR_IRQS */
 
 #define NR_IRQS				(IRQ_TIMER_BASE + IRQ_TIMER_COUNT)
 
-#endif 
+#endif /* __ASM_ARCH_IRQS_H */

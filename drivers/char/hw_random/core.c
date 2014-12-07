@@ -45,7 +45,7 @@
 
 #define RNG_MODULE_NAME		"hw_random"
 #define PFX			RNG_MODULE_NAME ": "
-#define RNG_MISCDEV_MINOR	183 
+#define RNG_MISCDEV_MINOR	183 /* official */
 
 
 static struct hwrng *current_rng;
@@ -70,7 +70,7 @@ static inline void hwrng_cleanup(struct hwrng *rng)
 
 static int rng_dev_open(struct inode *inode, struct file *filp)
 {
-	
+	/* enforce read-only access to this chrdev */
 	if ((filp->f_mode & FMODE_READ) == 0)
 		return -EINVAL;
 	if (filp->f_mode & FMODE_WRITE)
@@ -307,7 +307,7 @@ int hwrng_register(struct hwrng *rng)
 
 	mutex_lock(&rng_mutex);
 
-	
+	/* Must not register two RNGs with the same name. */
 	err = -EEXIST;
 	list_for_each_entry(tmp, &rng_list, list) {
 		if (strcmp(tmp->name, rng->name) == 0)

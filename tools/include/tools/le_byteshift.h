@@ -67,4 +67,4 @@ static inline void put_unaligned_le64(__u64 val, void *p)
 	__put_unaligned_le64(val, p);
 }
 
-#endif 
+#endif /* _TOOLS_LE_BYTESHIFT_H */

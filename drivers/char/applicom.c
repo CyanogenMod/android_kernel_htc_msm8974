@@ -1,3 +1,23 @@
+/* Derived from Applicom driver ac.c for SCO Unix                            */
+/* Ported by David Woodhouse, Axiom (Cambridge) Ltd.                         */
+/* dwmw2@infradead.org 30/8/98                                               */
+/* $Id: ac.c,v 1.30 2000/03/22 16:03:57 dwmw2 Exp $			     */
+/* This module is for Linux 2.1 and 2.2 series kernels.                      */
+/*****************************************************************************/
+/* J PAGET 18/02/94 passage V2.4.2 ioctl avec code 2 reset to les interrupt  */
+/* ceci pour reseter correctement apres une sortie sauvage                   */
+/* J PAGET 02/05/94 passage V2.4.3 dans le traitement de d'interruption,     */
+/* LoopCount n'etait pas initialise a 0.                                     */
+/* F LAFORSE 04/07/95 version V2.6.0 lecture bidon apres acces a une carte   */
+/*           pour liberer le bus                                             */
+/* J.PAGET 19/11/95 version V2.6.1 Nombre, addresse,irq n'est plus configure */
+/* et passe en argument a acinit, mais est scrute sur le bus pour s'adapter  */
+/* au nombre de cartes presentes sur le bus. IOCL code 6 affichait V2.4.3    */
+/* F.LAFORSE 28/11/95 creation de fichiers acXX.o avec les differentes       */
+/* addresses de base des cartes, IOCTL 6 plus complet                         */
+/* J.PAGET le 19/08/96 copie de la version V2.6 en V2.8.0 sans modification  */
+/* de code autre que le texte V2.6.1 en V2.8.0                               */
+/*****************************************************************************/
 
 
 #include <linux/kernel.h>
@@ -19,11 +39,16 @@
 #include "applicom.h"
 
 
+/* NOTE: We use for loops with {write,read}b() instead of 
+   memcpy_{from,to}io throughout this driver. This is because
+   the board doesn't correctly handle word accesses - only
+   bytes. 
+*/
 
 
 #undef DEBUG
 
-#define MAX_BOARD 8		
+#define MAX_BOARD 8		/* maximum of pc board possible */
 #define MAX_ISA_BOARD 4
 #define LEN_RAM_IO 0x800
 #define AC_MINOR 157
@@ -66,20 +91,20 @@ static struct applicom_board {
 	spinlock_t mutex;
 } apbs[MAX_BOARD];
 
-static unsigned int irq = 0;	
-static unsigned long mem = 0;	
+static unsigned int irq = 0;	/* interrupt number IRQ       */
+static unsigned long mem = 0;	/* physical segment of board  */
 
 module_param(irq, uint, 0);
 MODULE_PARM_DESC(irq, "IRQ of the Applicom board");
 module_param(mem, ulong, 0);
 MODULE_PARM_DESC(mem, "Shared Memory Address of Applicom board");
 
-static unsigned int numboards;	
+static unsigned int numboards;	/* number of installed boards */
 static volatile unsigned char Dummy;
 static DECLARE_WAIT_QUEUE_HEAD(FlagSleepRec);
-static unsigned int WriteErrorCount;	
-static unsigned int ReadErrorCount;	
-static unsigned int DeviceErrorCount;	
+static unsigned int WriteErrorCount;	/* number of write error      */
+static unsigned int ReadErrorCount;	/* number of read error       */
+static unsigned int DeviceErrorCount;	/* number of device error     */
 
 static ssize_t ac_read (struct file *, char __user *, size_t, loff_t *);
 static ssize_t ac_write (struct file *, const char __user *, size_t, loff_t *);
@@ -100,7 +125,7 @@ static struct miscdevice ac_miscdev = {
 	&ac_fops
 };
 
-static int dummy;	
+static int dummy;	/* dev_id for request_irq() */
 
 static int ac_register_board(unsigned long physloc, void __iomem *loc, 
 		      unsigned char boardno)
@@ -167,7 +192,7 @@ static int __init applicom_init(void)
 
 	printk(KERN_INFO "Applicom driver: $Id: ac.c,v 1.30 2000/03/22 16:03:57 dwmw2 Exp $\n");
 
-	
+	/* No mem and irq given - check for a PCI card */
 
 	while ( (dev = pci_get_class(PCI_CLASS_OTHERS << 16, dev))) {
 
@@ -209,13 +234,15 @@ static int __init applicom_init(void)
 			continue;
 		}
 
-		
+		/* Enable interrupts. */
 
 		writeb(0x40, apbs[boardno - 1].RamIO + RAM_IT_FROM_PC);
 
 		apbs[boardno - 1].irq = dev->irq;
 	}
 
+	/* Finished with PCI cards. If none registered, 
+	 * and there was no mem/irq specified, exit */
 
 	if (!mem || !irq) {
 		if (numboards)
@@ -227,7 +254,7 @@ static int __init applicom_init(void)
 		}
 	}
 
-	
+	/* Now try the specified ISA cards */
 
 	for (i = 0; i < MAX_ISA_BOARD; i++) {
 		RamIO = ioremap_nocache(mem + (LEN_RAM_IO * i), LEN_RAM_IO);
@@ -328,10 +355,10 @@ module_exit(applicom_exit);
 
 static ssize_t ac_write(struct file *file, const char __user *buf, size_t count, loff_t * ppos)
 {
-	unsigned int NumCard;	
-	unsigned int IndexCard;	
-	unsigned char TicCard;	
-	unsigned long flags;	
+	unsigned int NumCard;	/* Board number 1 -> 8           */
+	unsigned int IndexCard;	/* Index board number 0 -> 7     */
+	unsigned char TicCard;	/* Board TIC to send             */
+	unsigned long flags;	/* Current priority              */
 	struct st_ram_io st_loc;
 	struct mailbox tmpmailbox;
 #ifdef DEBUG
@@ -356,8 +383,8 @@ static ssize_t ac_write(struct file *file, const char __user *buf, size_t count,
 			  sizeof(struct mailbox))) 
 		return -EFAULT;
 
-	NumCard = st_loc.num_card;	
-	TicCard = st_loc.tic_des_from_pc;	
+	NumCard = st_loc.num_card;	/* board number to send          */
+	TicCard = st_loc.tic_des_from_pc;	/* tic number to send            */
 	IndexCard = NumCard - 1;
 
 	if((NumCard < 1) || (NumCard > MAX_BOARD) || !apbs[IndexCard].RamIO)
@@ -391,7 +418,7 @@ static ssize_t ac_write(struct file *file, const char __user *buf, size_t count,
 
 	spin_lock_irqsave(&apbs[IndexCard].mutex, flags);
 
-	
+	/* Test octet ready correct */
 	if(readb(apbs[IndexCard].RamIO + DATA_FROM_PC_READY) > 2) { 
 		Dummy = readb(apbs[IndexCard].RamIO + VERS);
 		spin_unlock_irqrestore(&apbs[IndexCard].mutex, flags);
@@ -401,14 +428,14 @@ static ssize_t ac_write(struct file *file, const char __user *buf, size_t count,
 		return -EIO;
 	}
 	
-	
+	/* Place ourselves on the wait queue */
 	set_current_state(TASK_INTERRUPTIBLE);
 	add_wait_queue(&apbs[IndexCard].FlagSleepSend, &wait);
 
-	
+	/* Check whether the card is ready for us */
 	while (readb(apbs[IndexCard].RamIO + DATA_FROM_PC_READY) != 0) {
 		Dummy = readb(apbs[IndexCard].RamIO + VERS);
-		
+		/* It's busy. Sleep. */
 
 		spin_unlock_irqrestore(&apbs[IndexCard].mutex, flags);
 		schedule();
@@ -421,12 +448,15 @@ static ssize_t ac_write(struct file *file, const char __user *buf, size_t count,
 		set_current_state(TASK_INTERRUPTIBLE);
 	}
 
-	
+	/* We may not have actually slept */
 	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&apbs[IndexCard].FlagSleepSend, &wait);
 
 	writeb(1, apbs[IndexCard].RamIO + DATA_FROM_PC_READY);
 
+	/* Which is best - lock down the pages with rawio and then
+	   copy directly, or use bounce buffers? For now we do the latter 
+	   because it works with 2.2 still */
 	{
 		unsigned char *from = (unsigned char *) &tmpmailbox;
 		void __iomem *to = apbs[IndexCard].RamIO + RAM_FROM_PC;
@@ -511,7 +541,7 @@ static ssize_t ac_read (struct file *filp, char __user *buf, size_t count, loff_
 #ifdef DEBUG
 	int loopcount=0;
 #endif
-	
+	/* No need to ratelimit this. Only root can trigger it anyway */
 	if (count != sizeof(struct st_ram_io) + sizeof(struct mailbox)) {
 		printk( KERN_WARNING "Hmmm. read() of Applicom card, length %zd != expected %zd\n",
 			count,sizeof(struct st_ram_io) + sizeof(struct mailbox));
@@ -519,11 +549,11 @@ static ssize_t ac_read (struct file *filp, char __user *buf, size_t count, loff_
 	}
 	
 	while(1) {
-		
+		/* Stick ourself on the wait queue */
 		set_current_state(TASK_INTERRUPTIBLE);
 		add_wait_queue(&FlagSleepRec, &wait);
 		
-		
+		/* Scan each board, looking for one which has a packet for us */
 		for (i=0; i < MAX_BOARD; i++) {
 			if (!apbs[i].RamIO)
 				continue;
@@ -535,7 +565,7 @@ static ssize_t ac_read (struct file *filp, char __user *buf, size_t count, loff_
 				struct st_ram_io st_loc;
 				struct mailbox mailbox;
 
-				
+				/* Got a packet for us */
 				memset(&st_loc, 0, sizeof(st_loc));
 				ret = do_ac_read(i, buf, &st_loc, &mailbox);
 				spin_unlock_irqrestore(&apbs[i].mutex, flags);
@@ -550,7 +580,7 @@ static ssize_t ac_read (struct file *filp, char __user *buf, size_t count, loff_
 			}
 			
 			if (tmp > 2) {
-				
+				/* Got an error */
 				Dummy = readb(apbs[i].RamIO + VERS);
 				
 				spin_unlock_irqrestore(&apbs[i].mutex, flags);
@@ -563,13 +593,13 @@ static ssize_t ac_read (struct file *filp, char __user *buf, size_t count, loff_
 				return -EIO;
 			}
 			
-			
+			/* Nothing for us. Try the next board */
 			Dummy = readb(apbs[i].RamIO + VERS);
 			spin_unlock_irqrestore(&apbs[i].mutex, flags);
 			
-		} 
+		} /* per board */
 
-		
+		/* OK - No boards had data for us. Sleep now */
 
 		schedule();
 		remove_wait_queue(&FlagSleepRec, &wait);
@@ -592,7 +622,7 @@ static irqreturn_t ac_interrupt(int vec, void *dev_instance)
 	unsigned int LoopCount;
 	int handled = 0;
 
-	
+	//    printk("Applicom interrupt on IRQ %d occurred\n", vec);
 
 	LoopCount = 0;
 
@@ -600,13 +630,13 @@ static irqreturn_t ac_interrupt(int vec, void *dev_instance)
 		FlagInt = 0;
 		for (i = 0; i < MAX_BOARD; i++) {
 			
-			
+			/* Skip if this board doesn't exist */
 			if (!apbs[i].RamIO)
 				continue;
 
 			spin_lock(&apbs[i].mutex);
 
-			
+			/* Skip if this board doesn't want attention */
 			if(readb(apbs[i].RamIO + RAM_IT_TO_PC) == 0) {
 				spin_unlock(&apbs[i].mutex);
 				continue;
@@ -630,21 +660,21 @@ static irqreturn_t ac_interrupt(int vec, void *dev_instance)
 				DeviceErrorCount++;
 			}
 
-			if (readb(apbs[i].RamIO + DATA_TO_PC_READY) == 2) {	
+			if (readb(apbs[i].RamIO + DATA_TO_PC_READY) == 2) {	/* mailbox sent by the card ?   */
 				if (waitqueue_active(&FlagSleepRec)) {
 				wake_up_interruptible(&FlagSleepRec);
 			}
 			}
 
-			if (readb(apbs[i].RamIO + DATA_FROM_PC_READY) == 0) {	
-				if (waitqueue_active(&apbs[i].FlagSleepSend)) {	
+			if (readb(apbs[i].RamIO + DATA_FROM_PC_READY) == 0) {	/* ram i/o free for write by pc ? */
+				if (waitqueue_active(&apbs[i].FlagSleepSend)) {	/* process sleep during read ?    */
 					wake_up_interruptible(&apbs[i].FlagSleepSend);
 				}
 			}
 			Dummy = readb(apbs[i].RamIO + VERS);
 
 			if(readb(apbs[i].RamIO + RAM_IT_TO_PC)) {
-				
+				/* There's another int waiting on this card */
 				spin_unlock(&apbs[i].mutex);
 				i--;
 			} else {
@@ -663,7 +693,7 @@ static irqreturn_t ac_interrupt(int vec, void *dev_instance)
 
 static long ac_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
      
-{				
+{				/* @ ADG ou ATO selon le cas */
 	int i;
 	unsigned char IndexCard;
 	void __iomem *pmem;
@@ -672,6 +702,8 @@ static long ac_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	struct st_ram_io *adgl;
 	void __user *argp = (void __user *)arg;
 
+	/* In general, the device is only openable by root anyway, so we're not
+	   particularly concerned that bogus ioctls can flood the console. */
 
 	adgl = memdup_user(argp, sizeof(struct st_ram_io));
 	if (IS_ERR(adgl))

@@ -30,7 +30,7 @@
 #endif
 
 struct stmmac_priv {
-	
+	/* Frequently used values are kept adjacent for cache effect */
 	struct dma_desc *dma_tx ____cacheline_aligned;
 	dma_addr_t dma_tx_phy;
 	struct sk_buff **tx_skbuff;

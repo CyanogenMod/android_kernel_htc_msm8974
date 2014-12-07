@@ -9,17 +9,21 @@ extern int fallback_aper_order;
 extern int fallback_aper_force;
 extern int fix_aperture;
 
+/* PTE bits. */
 #define GPTE_VALID	1
 #define GPTE_COHERENT	2
 
+/* Aperture control register bits. */
 #define GARTEN		(1<<0)
 #define DISGARTCPU	(1<<4)
 #define DISGARTIO	(1<<5)
 #define DISTLBWALKPRB	(1<<6)
 
+/* GART cache control register bits. */
 #define INVGART		(1<<0)
 #define GARTPTEERR	(1<<1)
 
+/* K8 On-cpu GART registers */
 #define AMD64_GARTAPERTURECTL	0x90
 #define AMD64_GARTAPERTUREBASE	0x94
 #define AMD64_GARTTABLEBASE	0x98
@@ -58,6 +62,10 @@ static inline void gart_set_size_and_enable(struct pci_dev *dev, u32 order)
 {
 	u32 ctl;
 
+	/*
+	 * Don't enable translation but enable GART IO and CPU accesses.
+	 * Also, set DISTLBWALKPRB since GART tables memory is UC.
+	 */
 	ctl = order << 1;
 
 	pci_write_config_dword(dev, AMD64_GARTAPERTURECTL, ctl);
@@ -67,13 +75,13 @@ static inline void enable_gart_translation(struct pci_dev *dev, u64 addr)
 {
 	u32 tmp, ctl;
 
-	
+	/* address of the mappings table */
 	addr >>= 12;
 	tmp = (u32) addr<<4;
 	tmp &= ~0xf;
 	pci_write_config_dword(dev, AMD64_GARTTABLEBASE, tmp);
 
-	
+	/* Enable GART translation for this hammer. */
 	pci_read_config_dword(dev, AMD64_GARTAPERTURECTL, &ctl);
 	ctl |= GARTEN | DISTLBWALKPRB;
 	ctl &= ~(DISGARTCPU | DISGARTIO);
@@ -102,4 +110,4 @@ static inline int aperture_valid(u64 aper_base, u32 aper_size, u32 min_size)
 	return 1;
 }
 
-#endif 
+#endif /* _ASM_X86_GART_H */

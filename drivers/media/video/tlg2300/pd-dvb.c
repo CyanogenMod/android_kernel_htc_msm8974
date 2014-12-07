@@ -34,7 +34,7 @@ static int poseidon_check_mode_dvbt(struct poseidon *pd)
 	if (ret)
 		return ret;
 
-	
+	/* signal source */
 	ret = send_set_req(pd, SGNL_SRC_SEL, TLG_SIG_SRC_ANTENNA, &cmd_status);
 	if (ret|cmd_status)
 		return ret;
@@ -42,6 +42,10 @@ static int poseidon_check_mode_dvbt(struct poseidon *pd)
 	return 0;
 }
 
+/* acquire :
+ * 	1 == open
+ * 	0 == release
+ */
 static int poseidon_ts_bus_ctrl(struct dvb_frontend *fe, int acquire)
 {
 	struct poseidon *pd = fe->demodulator_priv;
@@ -110,6 +114,9 @@ static s32 poseidon_fe_sleep(struct dvb_frontend *fe)
 	return 0;
 }
 
+/*
+ * return true if we can satisfy the conditions, else return false.
+ */
 static bool check_scan_ok(__u32 freq, int bandwidth,
 			struct pd_dvb_adapter *adapter)
 {
@@ -127,6 +134,9 @@ static bool check_scan_ok(__u32 freq, int bandwidth,
 	return true;
 }
 
+/*
+ * Check if the firmware delays too long for an invalid frequency.
+ */
 static int fw_delay_overflow(struct pd_dvb_adapter *adapter)
 {
 	long nl = jiffies - adapter->last_jiffies;
@@ -173,7 +183,7 @@ static int poseidon_set_fe(struct dvb_frontend *fe)
 			goto front_out;
 		}
 
-		
+		/* save the context for future */
 		memcpy(&pd_dvb->fe_param, fep, sizeof(*fep));
 		pd_dvb->bandwidth = bandwidth;
 		pd_dvb->prev_freq = fep->frequency;
@@ -327,7 +337,7 @@ static struct dvb_frontend_ops poseidon_frontend_ops = {
 		.name		= "Poseidon DVB-T",
 		.frequency_min	= 174000000,
 		.frequency_max  = 862000000,
-		.frequency_stepsize	  = 62500,
+		.frequency_stepsize	  = 62500,/* FIXME */
 		.caps = FE_CAN_INVERSION_AUTO |
 			FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 			FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 | FE_CAN_FEC_AUTO |
@@ -375,11 +385,15 @@ static void dvb_urb_irq(struct urb *urb)
 		int offset;
 		u8 *buf = urb->transfer_buffer;
 
+		/*
+		 * The packet size is 512,
+		 * last packet contains 456 bytes tsp data
+		 */
 		for (offset = 456; offset < len; offset += 512) {
 			if (!strncmp(buf + offset, "DVHS", 4)) {
 				dvb_dmx_swfilter(demux, buf, offset);
 				if (len > offset + 52 + 4) {
-					
+					/*16 bytes trailer + 36 bytes padding */
 					buf += offset + 52;
 					len -= offset + 52 + 4;
 					dvb_dmx_swfilter(demux, buf, len);
@@ -423,6 +437,10 @@ static s32 dvb_start_streaming(struct pd_dvb_adapter *pd_dvb)
 	mutex_lock(&pd->lock);
 	if (!pd_dvb->is_streaming) {
 		s32 i, cmd_status = 0;
+		/*
+		 * Once upon a time, there was a difficult bug lying here.
+		 * ret = send_set_req(pd, TAKE_REQUEST, 0, &cmd_status);
+		 */
 
 		ret = send_set_req(pd, PLAY_SERVICE, 1, &cmd_status);
 		if (ret | cmd_status)
@@ -507,12 +525,12 @@ int pd_dvb_usb_device_init(struct poseidon *pd)
 	ret = dvb_register_adapter(&pd_dvb->dvb_adap,
 				"Poseidon dvbt adapter",
 				THIS_MODULE,
-				NULL ,
+				NULL /* for hibernation correctly*/,
 				adapter_nr);
 	if (ret < 0)
 		goto error1;
 
-	
+	/* register frontend */
 	pd_dvb->dvb_fe.demodulator_priv = pd;
 	memcpy(&pd_dvb->dvb_fe.ops, &poseidon_frontend_ops,
 			sizeof(struct dvb_frontend_ops));
@@ -520,7 +538,7 @@ int pd_dvb_usb_device_init(struct poseidon *pd)
 	if (ret < 0)
 		goto error2;
 
-	
+	/* register demux device */
 	dvbdemux = &pd_dvb->demux;
 	dvbdemux->dmx.capabilities = DMX_TS_FILTERING | DMX_SECTION_FILTERING;
 	dvbdemux->priv = pd_dvb;

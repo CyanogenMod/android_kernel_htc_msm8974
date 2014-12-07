@@ -30,6 +30,9 @@
 #define APCI1710_LOW				0x0
 #define APCI1710_HIGH				0x1
 
+/*********************/
+/* Version 0600-0229 */
+/*********************/
 #define APCI1710_HIGH_EDGE_CLEAR_COUNTER		0x0
 #define APCI1710_HIGH_EDGE_LATCH_COUNTER		0x1
 #define APCI1710_LOW_EDGE_CLEAR_COUNTER			0x2
@@ -83,6 +86,7 @@
 #define APCI1710_TOR_GATE_LOW			0x40
 #define APCI1710_TOR_GATE_HIGH			(~APCI1710_TOR_GATE_LOW)
 
+/* INSN CONFIG */
 #define	APCI1710_INCCPT_INITCOUNTER				100
 #define APCI1710_INCCPT_COUNTERAUTOTEST				101
 #define APCI1710_INCCPT_INITINDEX				102
@@ -91,6 +95,7 @@
 #define APCI1710_INCCPT_INITCOMPARELOGIC			105
 #define APCI1710_INCCPT_INITFREQUENCYMEASUREMENT		106
 
+/* INSN READ */
 #define APCI1710_INCCPT_READLATCHREGISTERSTATUS			200
 #define APCI1710_INCCPT_READLATCHREGISTERVALUE			201
 #define APCI1710_INCCPT_READ16BITCOUNTERVALUE			202
@@ -105,6 +110,7 @@
 #define APCI1710_INCCPT_READFREQUENCYMEASUREMENT		211
 #define APCI1710_INCCPT_READINTERRUPT				212
 
+/* INSN BITS */
 #define APCI1710_INCCPT_CLEARCOUNTERVALUE			300
 #define APCI1710_INCCPT_CLEARALLCOUNTERVALUE			301
 #define APCI1710_INCCPT_SETINPUTFILTER				302
@@ -113,6 +119,7 @@
 #define APCI1710_INCCPT_SETDIGITALCHLON				305
 #define APCI1710_INCCPT_SETDIGITALCHLOFF			306
 
+/* INSN WRITE */
 #define APCI1710_INCCPT_ENABLELATCHINTERRUPT			400
 #define APCI1710_INCCPT_DISABLELATCHINTERRUPT			401
 #define APCI1710_INCCPT_WRITE16BITCOUNTERVALUE			402
@@ -124,6 +131,7 @@
 #define APCI1710_INCCPT_ENABLEFREQUENCYMEASUREMENT		408
 #define APCI1710_INCCPT_DISABLEFREQUENCYMEASUREMENT		409
 
+/************ Main Functions *************/
 int i_APCI1710_InsnConfigINCCPT(struct comedi_device *dev, struct comedi_subdevice *s,
 				struct comedi_insn *insn, unsigned int * data);
 
@@ -136,7 +144,9 @@ int i_APCI1710_InsnWriteINCCPT(struct comedi_device *dev, struct comedi_subdevic
 int i_APCI1710_InsnReadINCCPT(struct comedi_device *dev, struct comedi_subdevice * s,
 			      struct comedi_insn *insn, unsigned int * data);
 
+/*********** Supplementary Functions********/
 
+/* INSN CONFIG */
 int i_APCI1710_InitCounter(struct comedi_device *dev,
 			   unsigned char b_ModulNbr,
 			   unsigned char b_CounterRange,
@@ -170,6 +180,7 @@ int i_APCI1710_InitFrequencyMeasurement(struct comedi_device *dev,
 					unsigned int ul_TimingInterval,
 					unsigned int *pul_RealTimingInterval);
 
+/* INSN BITS */
 int i_APCI1710_ClearCounterValue(struct comedi_device *dev, unsigned char b_ModulNbr);
 
 int i_APCI1710_ClearAllCounterValue(struct comedi_device *dev);
@@ -189,6 +200,7 @@ int i_APCI1710_SetDigitalChlOn(struct comedi_device *dev, unsigned char b_ModulN
 
 int i_APCI1710_SetDigitalChlOff(struct comedi_device *dev, unsigned char b_ModulNbr);
 
+/* INSN WRITE */
 int i_APCI1710_EnableLatchInterrupt(struct comedi_device *dev, unsigned char b_ModulNbr);
 
 int i_APCI1710_DisableLatchInterrupt(struct comedi_device *dev, unsigned char b_ModulNbr);
@@ -215,6 +227,7 @@ int i_APCI1710_EnableFrequencyMeasurement(struct comedi_device *dev,
 int i_APCI1710_DisableFrequencyMeasurement(struct comedi_device *dev,
 					   unsigned char b_ModulNbr);
 
+/* INSN READ */
 int i_APCI1710_ReadLatchRegisterStatus(struct comedi_device *dev,
 				       unsigned char b_ModulNbr, unsigned char b_LatchReg,
 				       unsigned char *pb_LatchStatus);

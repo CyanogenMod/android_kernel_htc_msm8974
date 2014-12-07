@@ -33,15 +33,17 @@ EXPORT_SYMBOL(node_to_cpu_mask);
 void __cpuinit map_cpu_to_node(int cpu, int nid)
 {
 	int oldnid;
-	if (nid < 0) { 
+	if (nid < 0) { /* just initialize by zero */
 		cpu_to_node_map[cpu] = 0;
 		return;
 	}
-	
+	/* sanity check first */
 	oldnid = cpu_to_node_map[cpu];
 	if (cpu_isset(cpu, node_to_cpu_mask[oldnid])) {
-		return; 
+		return; /* nothing to do */
 	}
+	/* we don't have cpu-driven node hot add yet...
+	   In usual case, node is created from SRAT at boot time. */
 	if (!node_online(nid))
 		nid = first_online_node;
 	cpu_to_node_map[cpu] = nid;
@@ -58,6 +60,12 @@ void __cpuinit unmap_cpu_from_node(int cpu, int nid)
 }
 
 
+/**
+ * build_cpu_to_node_map - setup cpu to node and node to cpumask arrays
+ *
+ * Build cpu to node mapping and initialize the per node cpu masks using
+ * info from the node_cpuid array handed to us by ACPI.
+ */
 void __init build_cpu_to_node_map(void)
 {
 	int cpu, i, node;

@@ -41,7 +41,7 @@ static struct rc_map_table technisat_usb2[] = {
 	{0x0a04, KEY_4},
 	{0x0a05, KEY_5},
 	{0x0a06, KEY_6},
-	{0x0a38, KEY_VIDEO}, 
+	{0x0a38, KEY_VIDEO}, /* EXT */
 	{0x0a07, KEY_7},
 	{0x0a08, KEY_8},
 	{0x0a09, KEY_9},
@@ -56,7 +56,7 @@ static struct rc_map_table technisat_usb2[] = {
 	{0x0a21, KEY_CHANNELDOWN},
 	{0x0a22, KEY_REFRESH},
 	{0x0a3c, KEY_TEXT},
-	{0x0a76, KEY_ENTER}, 
+	{0x0a76, KEY_ENTER}, /* HOOK */
 	{0x0a0f, KEY_HELP},
 	{0x0a6b, KEY_RED},
 	{0x0a6c, KEY_GREEN},

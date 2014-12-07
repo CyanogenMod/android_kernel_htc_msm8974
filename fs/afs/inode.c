@@ -25,9 +25,12 @@
 
 struct afs_iget_data {
 	struct afs_fid		fid;
-	struct afs_volume	*volume;	
+	struct afs_volume	*volume;	/* volume on which resides */
 };
 
+/*
+ * map the AFS file status to the inode member variables
+ */
 static int afs_inode_map_status(struct afs_vnode *vnode, struct key *key)
 {
 	struct inode *inode = AFS_VNODE_TO_I(vnode);
@@ -76,7 +79,7 @@ static int afs_inode_map_status(struct afs_vnode *vnode, struct key *key)
 	inode->i_version	= vnode->status.data_version;
 	inode->i_mapping->a_ops	= &afs_fs_aops;
 
-	
+	/* check to see whether a symbolic link is really a mountpoint */
 	if (vnode->status.type == AFS_FTYPE_SYMLINK) {
 		afs_mntpt_check_symlink(vnode, key);
 
@@ -90,6 +93,9 @@ static int afs_inode_map_status(struct afs_vnode *vnode, struct key *key)
 	return 0;
 }
 
+/*
+ * iget5() comparator
+ */
 static int afs_iget5_test(struct inode *inode, void *opaque)
 {
 	struct afs_iget_data *data = opaque;
@@ -98,11 +104,19 @@ static int afs_iget5_test(struct inode *inode, void *opaque)
 		inode->i_generation == data->fid.unique;
 }
 
+/*
+ * iget5() comparator for inode created by autocell operations
+ *
+ * These pseudo inodes don't match anything.
+ */
 static int afs_iget5_autocell_test(struct inode *inode, void *opaque)
 {
 	return 0;
 }
 
+/*
+ * iget5() inode initialiser
+ */
 static int afs_iget5_set(struct inode *inode, void *opaque)
 {
 	struct afs_iget_data *data = opaque;
@@ -116,6 +130,9 @@ static int afs_iget5_set(struct inode *inode, void *opaque)
 	return 0;
 }
 
+/*
+ * inode retrieval for autocell
+ */
 struct inode *afs_iget_autocell(struct inode *dir, const char *dev_name,
 				int namesz, struct key *key)
 {
@@ -151,7 +168,7 @@ struct inode *afs_iget_autocell(struct inode *dir, const char *dev_name,
 
 	vnode = AFS_FS_I(inode);
 
-	
+	/* there shouldn't be an existing inode */
 	BUG_ON(!(inode->i_state & I_NEW));
 
 	inode->i_size		= 0;
@@ -175,6 +192,9 @@ struct inode *afs_iget_autocell(struct inode *dir, const char *dev_name,
 	return inode;
 }
 
+/*
+ * inode retrieval
+ */
 struct inode *afs_iget(struct super_block *sb, struct key *key,
 		       struct afs_fid *fid, struct afs_file_status *status,
 		       struct afs_callback *cb)
@@ -202,23 +222,25 @@ struct inode *afs_iget(struct super_block *sb, struct key *key,
 
 	vnode = AFS_FS_I(inode);
 
-	
+	/* deal with an existing inode */
 	if (!(inode->i_state & I_NEW)) {
 		_leave(" = %p", inode);
 		return inode;
 	}
 
 	if (!status) {
-		
+		/* it's a remotely extant inode */
 		set_bit(AFS_VNODE_CB_BROKEN, &vnode->flags);
 		ret = afs_vnode_fetch_status(vnode, NULL, key);
 		if (ret < 0)
 			goto bad_inode;
 	} else {
-		
+		/* it's an inode we just created */
 		memcpy(&vnode->status, status, sizeof(vnode->status));
 
 		if (!cb) {
+			/* it's a symlink we just created (the fileserver
+			 * didn't give us a callback) */
 			vnode->cb_version = 0;
 			vnode->cb_expiry = 0;
 			vnode->cb_type = 0;
@@ -231,6 +253,8 @@ struct inode *afs_iget(struct super_block *sb, struct key *key,
 		}
 	}
 
+	/* set up caching before mapping the status, as map-status reads the
+	 * first page of symlinks to see if they're really mountpoints */
 	inode->i_size = vnode->status.size;
 #ifdef CONFIG_AFS_FSCACHE
 	vnode->cache = fscache_acquire_cookie(vnode->volume->cache,
@@ -242,14 +266,14 @@ struct inode *afs_iget(struct super_block *sb, struct key *key,
 	if (ret < 0)
 		goto bad_inode;
 
-	
+	/* success */
 	clear_bit(AFS_VNODE_UNSET, &vnode->flags);
 	inode->i_flags |= S_NOATIME;
 	unlock_new_inode(inode);
 	_leave(" = %p [CB { v=%u t=%u }]", inode, vnode->cb_version, vnode->cb_type);
 	return inode;
 
-	
+	/* failure */
 bad_inode:
 #ifdef CONFIG_AFS_FSCACHE
 	fscache_relinquish_cookie(vnode->cache, 0);
@@ -260,6 +284,10 @@ bad_inode:
 	return ERR_PTR(ret);
 }
 
+/*
+ * mark the data attached to an inode as obsolete due to a write on the server
+ * - might also want to ditch all the outstanding writes and dirty pages
+ */
 void afs_zap_data(struct afs_vnode *vnode)
 {
 	_enter("{%x:%u}", vnode->fid.vid, vnode->fid.vnode);
@@ -273,6 +301,15 @@ void afs_zap_data(struct afs_vnode *vnode)
 		invalidate_inode_pages2(vnode->vfs_inode.i_mapping);
 }
 
+/*
+ * validate a vnode/inode
+ * - there are several things we need to check
+ *   - parent dir data changes (rm, rmdir, rename, mkdir, create, link,
+ *     symlink)
+ *   - parent dir metadata changed (security changes)
+ *   - dentry data changed (write, truncate)
+ *   - dentry metadata changed (security changes)
+ */
 int afs_validate(struct afs_vnode *vnode, struct key *key)
 {
 	int ret;
@@ -298,6 +335,10 @@ int afs_validate(struct afs_vnode *vnode, struct key *key)
 
 	mutex_lock(&vnode->validate_lock);
 
+	/* if the promise has expired, we need to check the server again to get
+	 * a new promise - note that if the (parent) directory's metadata was
+	 * changed then the security may be different and we may no longer have
+	 * access */
 	if (!vnode->cb_promised ||
 	    test_bit(AFS_VNODE_CB_BROKEN, &vnode->flags)) {
 		_debug("not promised");
@@ -313,6 +354,8 @@ int afs_validate(struct afs_vnode *vnode, struct key *key)
 		goto error_unlock;
 	}
 
+	/* if the vnode's data version number changed then its contents are
+	 * different */
 	if (test_and_clear_bit(AFS_VNODE_ZAP_DATA, &vnode->flags))
 		afs_zap_data(vnode);
 
@@ -328,6 +371,9 @@ error_unlock:
 	return ret;
 }
 
+/*
+ * read the attributes of an inode
+ */
 int afs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 		      struct kstat *stat)
 {
@@ -341,6 +387,9 @@ int afs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 	return 0;
 }
 
+/*
+ * discard an AFS inode
+ */
 int afs_drop_inode(struct inode *inode)
 {
 	_enter("");
@@ -351,6 +400,9 @@ int afs_drop_inode(struct inode *inode)
 		return generic_drop_inode(inode);
 }
 
+/*
+ * clear an AFS inode
+ */
 void afs_evict_inode(struct inode *inode)
 {
 	struct afs_permits *permits;
@@ -401,6 +453,9 @@ void afs_evict_inode(struct inode *inode)
 	_leave("");
 }
 
+/*
+ * set the attributes of an inode
+ */
 int afs_setattr(struct dentry *dentry, struct iattr *attr)
 {
 	struct afs_vnode *vnode = AFS_FS_I(dentry->d_inode);
@@ -417,7 +472,7 @@ int afs_setattr(struct dentry *dentry, struct iattr *attr)
 		return 0;
 	}
 
-	
+	/* flush any dirty data outstanding on a regular file */
 	if (S_ISREG(vnode->vfs_inode.i_mode)) {
 		filemap_write_and_wait(vnode->vfs_inode.i_mapping);
 		afs_writeback_all(vnode);

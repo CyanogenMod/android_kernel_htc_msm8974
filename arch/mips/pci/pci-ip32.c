@@ -16,6 +16,12 @@
 
 #undef DEBUG_MACE_PCI
 
+/*
+ * Handle errors from the bridge.  This includes master and target aborts,
+ * various command and address errors, and the interrupt test.  This gets
+ * registered on the bridge error irq.  It's conceivable that some of these
+ * conditions warrant a panic.  Anybody care to say which ones?
+ */
 static irqreturn_t macepci_error(int irq, void *dev)
 {
 	char s;
@@ -120,7 +126,7 @@ static int __init mace_init(void)
 {
 	PCIBIOS_MIN_IO = 0x1000;
 
-	
+	/* Clear any outstanding errors and enable interrupts */
 	mace->pci.error_addr = 0;
 	mace->pci.error = 0;
 	mace->pci.control = 0xff008500;
@@ -130,7 +136,7 @@ static int __init mace_init(void)
 	BUG_ON(request_irq(MACE_PCI_BRIDGE_IRQ, macepci_error, 0,
 			   "MACE PCI error", NULL));
 
-	
+	/* extend memory resources */
 	iomem_resource.end = mace_pci_mem_resource.end;
 	ioport_resource = mace_pci_io_resource;
 

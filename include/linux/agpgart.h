@@ -59,74 +59,83 @@ struct agp_version {
 };
 
 typedef struct _agp_info {
-	struct agp_version version;	
-	__u32 bridge_id;	
-	__u32 agp_mode;		
-	unsigned long aper_base;
-	size_t aper_size;	
-	size_t pg_total;	
-	size_t pg_system;	
-	size_t pg_used;		
+	struct agp_version version;	/* version of the driver        */
+	__u32 bridge_id;	/* bridge vendor/device         */
+	__u32 agp_mode;		/* mode info of bridge          */
+	unsigned long aper_base;/* base of aperture             */
+	size_t aper_size;	/* size of aperture             */
+	size_t pg_total;	/* max pages (swap + system)    */
+	size_t pg_system;	/* max pages (system)           */
+	size_t pg_used;		/* current pages used           */
 } agp_info;
 
 typedef struct _agp_setup {
-	__u32 agp_mode;		
+	__u32 agp_mode;		/* mode info of bridge          */
 } agp_setup;
 
+/*
+ * The "prot" down below needs still a "sleep" flag somehow ...
+ */
 typedef struct _agp_segment {
-	__kernel_off_t pg_start;	
-	__kernel_size_t pg_count;	
-	int prot;			
+	__kernel_off_t pg_start;	/* starting page to populate    */
+	__kernel_size_t pg_count;	/* number of pages              */
+	int prot;			/* prot flags for mmap          */
 } agp_segment;
 
 typedef struct _agp_region {
-	__kernel_pid_t pid;		
-	__kernel_size_t seg_count;	
+	__kernel_pid_t pid;		/* pid of process       */
+	__kernel_size_t seg_count;	/* number of segments   */
 	struct _agp_segment *seg_list;
 } agp_region;
 
 typedef struct _agp_allocate {
-	int key;		
-	__kernel_size_t pg_count;
-	__u32 type;		
-   	__u32 physical;         
+	int key;		/* tag of allocation            */
+	__kernel_size_t pg_count;/* number of pages             */
+	__u32 type;		/* 0 == normal, other devspec   */
+   	__u32 physical;         /* device specific (some devices  
+				 * need a phys address of the     
+				 * actual page behind the gatt    
+				 * table)                        */
 } agp_allocate;
 
 typedef struct _agp_bind {
-	int key;		
-	__kernel_off_t pg_start;
+	int key;		/* tag of allocation            */
+	__kernel_off_t pg_start;/* starting page to populate    */
 } agp_bind;
 
 typedef struct _agp_unbind {
-	int key;		
-	__u32 priority;		
+	int key;		/* tag of allocation            */
+	__u32 priority;		/* priority for paging out      */
 } agp_unbind;
 
-#else				
+#else				/* __KERNEL__ */
 #include <linux/mutex.h>
 #include <linux/agp_backend.h>
 
 #define AGPGART_MINOR 175
 
 struct agp_info {
-	struct agp_version version;	
-	u32 bridge_id;		
-	u32 agp_mode;		
-	unsigned long aper_base;
-	size_t aper_size;	
-	size_t pg_total;	
-	size_t pg_system;	
-	size_t pg_used;		
+	struct agp_version version;	/* version of the driver        */
+	u32 bridge_id;		/* bridge vendor/device         */
+	u32 agp_mode;		/* mode info of bridge          */
+	unsigned long aper_base;/* base of aperture             */
+	size_t aper_size;	/* size of aperture             */
+	size_t pg_total;	/* max pages (swap + system)    */
+	size_t pg_system;	/* max pages (system)           */
+	size_t pg_used;		/* current pages used           */
 };
 
 struct agp_setup {
-	u32 agp_mode;		
+	u32 agp_mode;		/* mode info of bridge          */
 };
 
+/*
+ * The "prot" down below needs still a "sleep" flag somehow ...
+ */
 struct agp_segment {
-	off_t pg_start;		
-	size_t pg_count;	
-	int prot;		
+	off_t pg_start;		/* starting page to populate    */
+	size_t pg_count;	/* number of pages              */
+	int prot;		/* prot flags for mmap          */
 };
 
 struct agp_segment_priv {
@@ -136,26 +145,29 @@ struct agp_segment_priv {
 };
 
 struct agp_region {
-	pid_t pid;		
-	size_t seg_count;	
+	pid_t pid;		/* pid of process               */
+	size_t seg_count;	/* number of segments           */
 	struct agp_segment *seg_list;
 };
 
 struct agp_allocate {
-	int key;		
-	size_t pg_count;	
-	u32 type;		
-	u32 physical;           
+	int key;		/* tag of allocation            */
+	size_t pg_count;	/* number of pages              */
+	u32 type;		/* 0 == normal, other devspec   */
+	u32 physical;           /* device specific (some devices  
+				 * need a phys address of the     
+				 * actual page behind the gatt    
+				 * table)                        */
 };
 
 struct agp_bind {
-	int key;		
-	off_t pg_start;		
+	int key;		/* tag of allocation            */
+	off_t pg_start;		/* starting page to populate    */
 };
 
 struct agp_unbind {
-	int key;		
-	u32 priority;		
+	int key;		/* tag of allocation            */
+	u32 priority;		/* priority for paging out      */
 };
 
 struct agp_client {
@@ -185,7 +197,7 @@ struct agp_file_private {
 	struct agp_file_private *next;
 	struct agp_file_private *prev;
 	pid_t my_pid;
-	unsigned long access_flags;	
+	unsigned long access_flags;	/* long req'd for set_bit --RR */
 };
 
 struct agp_front_data {
@@ -197,6 +209,6 @@ struct agp_front_data {
 	bool backend_acquired;
 };
 
-#endif				
+#endif				/* __KERNEL__ */
 
-#endif				
+#endif				/* _AGP_H */

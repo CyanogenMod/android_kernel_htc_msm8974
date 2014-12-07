@@ -7,37 +7,38 @@ typedef unsigned int	tcflag_t;
 
 #define NCCS 19
 struct termios {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_line;			
-	cc_t c_cc[NCCS];		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_line;			/* line discipline */
+	cc_t c_cc[NCCS];		/* control characters */
 };
 
 struct termios2 {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_line;			
-	cc_t c_cc[NCCS];		
-	speed_t c_ispeed;		
-	speed_t c_ospeed;		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_line;			/* line discipline */
+	cc_t c_cc[NCCS];		/* control characters */
+	speed_t c_ispeed;		/* input speed */
+	speed_t c_ospeed;		/* output speed */
 };
 
 struct ktermios {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_line;			
-	cc_t c_cc[NCCS];		
-	speed_t c_ispeed;		
-	speed_t c_ospeed;		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_line;			/* line discipline */
+	cc_t c_cc[NCCS];		/* control characters */
+	speed_t c_ispeed;		/* input speed */
+	speed_t c_ospeed;		/* output speed */
 };
 
 
+/* c_cc characters */
 #define VINTR 0
 #define VQUIT 1
 #define VERASE 2
@@ -56,6 +57,7 @@ struct ktermios {
 #define VLNEXT 15
 #define VEOL2 16
 
+/* c_iflag bits */
 #define IGNBRK	0000001
 #define BRKINT	0000002
 #define IGNPAR	0000004
@@ -72,6 +74,7 @@ struct ktermios {
 #define IMAXBEL	0020000
 #define IUTF8	0040000
 
+/* c_oflag bits */
 #define OPOST	0000001
 #define OLCUC	0000002
 #define ONLCR	0000004
@@ -104,8 +107,9 @@ struct ktermios {
 #define   FF0	0000000
 #define   FF1	0100000
 
+/* c_cflag bit meaning */
 #define CBAUD	0010017
-#define  B0	0000000		
+#define  B0	0000000		/* hang up */
 #define  B50	0000001
 #define  B75	0000002
 #define  B110	0000003
@@ -151,12 +155,13 @@ struct ktermios {
 #define  B3000000 0010015
 #define  B3500000 0010016
 #define  B4000000 0010017
-#define CIBAUD	  002003600000		
-#define CMSPAR    010000000000		
-#define CRTSCTS	  020000000000		
+#define CIBAUD	  002003600000		/* input baud rate */
+#define CMSPAR    010000000000		/* mark or space (stick) parity */
+#define CRTSCTS	  020000000000		/* flow control */
 
 #define IBSHIFT	   16
 
+/* c_lflag bits */
 #define ISIG	0000001
 #define ICANON	0000002
 #define XCASE	0000004
@@ -174,17 +179,20 @@ struct ktermios {
 #define IEXTEN	0100000
 #define EXTPROC	0200000
 
+/* tcflow() and TCXONC use these */
 #define	TCOOFF		0
 #define	TCOON		1
 #define	TCIOFF		2
 #define	TCION		3
 
+/* tcflush() and TCFLSH use these */
 #define	TCIFLUSH	0
 #define	TCOFLUSH	1
 #define	TCIOFLUSH	2
 
+/* tcsetattr uses these */
 #define	TCSANOW		0
 #define	TCSADRAIN	1
 #define	TCSAFLUSH	2
 
-#endif	
+#endif	/* __ASM_ARM_TERMBITS_H */

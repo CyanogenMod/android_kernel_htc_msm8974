@@ -63,7 +63,7 @@ void __init init_ioasic_irqs(int base)
 {
 	int i;
 
-	
+	/* Mask interrupts. */
 	ioasic_write(IO_REG_SIMR, 0);
 	fast_iob();
 

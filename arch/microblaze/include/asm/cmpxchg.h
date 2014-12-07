@@ -39,4 +39,4 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 #include <asm-generic/cmpxchg.h>
 #include <asm-generic/cmpxchg-local.h>
 
-#endif 
+#endif /* _ASM_MICROBLAZE_CMPXCHG_H */

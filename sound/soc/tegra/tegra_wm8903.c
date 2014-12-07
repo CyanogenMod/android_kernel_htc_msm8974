@@ -89,7 +89,7 @@ static int tegra_wm8903_hw_params(struct snd_pcm_substream *substream,
 		mclk = 256 * srate;
 		break;
 	}
-	
+	/* FIXME: Codec only requires >= 3MHz if OSR==0 */
 	while (mclk < 6000000)
 		mclk *= 2;
 
@@ -255,6 +255,14 @@ static int tegra_wm8903_init(struct snd_soc_pcm_runtime *rtd)
 	if (card->dev->platform_data) {
 		memcpy(pdata, card->dev->platform_data, sizeof(*pdata));
 	} else if (np) {
+		/*
+		 * This part must be in init() rather than probe() in order to
+		 * guarantee that the WM8903 has been probed, and hence its
+		 * GPIO controller registered, which is a pre-condition for
+		 * of_get_named_gpio() to be able to map the phandles in the
+		 * properties to the controller node. Given this, all
+		 * pdata handling is in init() for consistency.
+		 */
 		pdata->gpio_spkr_en = of_get_named_gpio(np,
 						"nvidia,spkr-en-gpios", 0);
 		pdata->gpio_hp_mute = of_get_named_gpio(np,
@@ -300,7 +308,7 @@ static int tegra_wm8903_init(struct snd_soc_pcm_runtime *rtd)
 		}
 		machine->gpio_requested |= GPIO_INT_MIC_EN;
 
-		
+		/* Disable int mic; enable signal is active-high */
 		gpio_direction_output(pdata->gpio_int_mic_en, 0);
 	}
 
@@ -312,7 +320,7 @@ static int tegra_wm8903_init(struct snd_soc_pcm_runtime *rtd)
 		}
 		machine->gpio_requested |= GPIO_EXT_MIC_EN;
 
-		
+		/* Enable ext mic; enable signal is active-low */
 		gpio_direction_output(pdata->gpio_ext_mic_en, 0);
 	}
 

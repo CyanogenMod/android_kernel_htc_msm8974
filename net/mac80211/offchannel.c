@@ -17,6 +17,13 @@
 #include "ieee80211_i.h"
 #include "driver-trace.h"
 
+/*
+ * Tell our hardware to disable PS.
+ * Optionally inform AP that we will go to sleep so that it will buffer
+ * the frames while we are doing off-channel work.  This is optional
+ * because we *may* be doing work on-operating channel, and want our
+ * hardware unconditionally awake, but still let the AP send us normal frames.
+ */
 static void ieee80211_offchannel_ps_enable(struct ieee80211_sub_if_data *sdata,
 					   bool tell_ap)
 {
@@ -25,7 +32,7 @@ static void ieee80211_offchannel_ps_enable(struct ieee80211_sub_if_data *sdata,
 
 	local->offchannel_ps_enabled = false;
 
-	
+	/* FIXME: what to do when local->pspolling is true? */
 
 	del_timer_sync(&local->dynamic_ps_timer);
 	del_timer_sync(&ifmgd->bcn_mon_timer);
@@ -41,9 +48,20 @@ static void ieee80211_offchannel_ps_enable(struct ieee80211_sub_if_data *sdata,
 
 	if (tell_ap && (!local->offchannel_ps_enabled ||
 			!(local->hw.flags & IEEE80211_HW_PS_NULLFUNC_STACK)))
+		/*
+		 * If power save was enabled, no need to send a nullfunc
+		 * frame because AP knows that we are sleeping. But if the
+		 * hardware is creating the nullfunc frame for power save
+		 * status (ie. IEEE80211_HW_PS_NULLFUNC_STACK is not
+		 * enabled) and power save was enabled, the firmware just
+		 * sent a null frame with power save disabled. So we need
+		 * to send a new nullfunc frame to inform the AP that we
+		 * are again sleeping.
+		 */
 		ieee80211_send_nullfunc(local, sdata, 1);
 }
 
+/* inform AP that we are awake again, unless power save is enabled */
 static void ieee80211_offchannel_ps_disable(struct ieee80211_sub_if_data *sdata)
 {
 	struct ieee80211_local *local = sdata->local;
@@ -51,9 +69,31 @@ static void ieee80211_offchannel_ps_disable(struct ieee80211_sub_if_data *sdata)
 	if (!local->ps_sdata)
 		ieee80211_send_nullfunc(local, sdata, 0);
 	else if (local->offchannel_ps_enabled) {
+		/*
+		 * In !IEEE80211_HW_PS_NULLFUNC_STACK case the hardware
+		 * will send a nullfunc frame with the powersave bit set
+		 * even though the AP already knows that we are sleeping.
+		 * This could be avoided by sending a null frame with power
+		 * save bit disabled before enabling the power save, but
+		 * this doesn't gain anything.
+		 *
+		 * When IEEE80211_HW_PS_NULLFUNC_STACK is enabled, no need
+		 * to send a nullfunc frame because AP already knows that
+		 * we are sleeping, let's just enable power save mode in
+		 * hardware.
+		 */
+		/* TODO:  Only set hardware if CONF_PS changed?
+		 * TODO:  Should we set offchannel_ps_enabled to false?
+		 */
 		local->hw.conf.flags |= IEEE80211_CONF_PS;
 		ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_PS);
 	} else if (local->hw.conf.dynamic_ps_timeout > 0) {
+		/*
+		 * If IEEE80211_CONF_PS was not set and the dynamic_ps_timer
+		 * had been running before leaving the operating channel,
+		 * restart the timer now and send a nullfunc frame to inform
+		 * the AP that we are awake.
+		 */
 		ieee80211_send_nullfunc(local, sdata, 0);
 		mod_timer(&local->dynamic_ps_timer, jiffies +
 			  msecs_to_jiffies(local->hw.conf.dynamic_ps_timeout));
@@ -68,6 +108,10 @@ void ieee80211_offchannel_stop_vifs(struct ieee80211_local *local,
 {
 	struct ieee80211_sub_if_data *sdata;
 
+	/*
+	 * notify the AP about us leaving the channel and stop all
+	 * STA interfaces.
+	 */
 	mutex_lock(&local->iflist_mtx);
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		if (!ieee80211_sdata_running(sdata))
@@ -76,7 +120,7 @@ void ieee80211_offchannel_stop_vifs(struct ieee80211_local *local,
 		if (sdata->vif.type != NL80211_IFTYPE_MONITOR)
 			set_bit(SDATA_STATE_OFFCHANNEL, &sdata->state);
 
-		
+		/* Check to see if we should disable beaconing. */
 		if (sdata->vif.type == NL80211_IFTYPE_AP ||
 		    sdata->vif.type == NL80211_IFTYPE_ADHOC ||
 		    sdata->vif.type == NL80211_IFTYPE_MESH_POINT)
@@ -107,7 +151,7 @@ void ieee80211_offchannel_return(struct ieee80211_local *local,
 		if (!ieee80211_sdata_running(sdata))
 			continue;
 
-		
+		/* Tell AP we're back */
 		if (offchannel_ps_disable &&
 		    sdata->vif.type == NL80211_IFTYPE_STATION) {
 			if (sdata->u.mgd.associated)
@@ -115,6 +159,16 @@ void ieee80211_offchannel_return(struct ieee80211_local *local,
 		}
 
 		if (sdata->vif.type != NL80211_IFTYPE_MONITOR) {
+			/*
+			 * This may wake up queues even though the driver
+			 * currently has them stopped. This is not very
+			 * likely, since the driver won't have gotten any
+			 * (or hardly any) new packets while we weren't
+			 * on the right channel, and even if it happens
+			 * it will at most lead to queueing up one more
+			 * packet per queue in mac80211 rather than on
+			 * the interface qdisc.
+			 */
 			netif_tx_wake_all_queues(sdata->dev);
 		}
 

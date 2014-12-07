@@ -28,6 +28,7 @@
 static struct clk *usb11_clk;
 static struct clk *usb20_clk;
 
+/* Over-current indicator change bitmask */
 static volatile u16 ocic_mask;
 
 static void ohci_da8xx_clock(int on)
@@ -38,6 +39,11 @@ static void ohci_da8xx_clock(int on)
 	if (on) {
 		clk_enable(usb11_clk);
 
+		/*
+		 * If USB 1.1 reference clock is sourced from USB 2.0 PHY, we
+		 * need to enable the USB 2.0 module clocking, start its PHY,
+		 * and not allow it to stop the clock during USB 2.0 suspend.
+		 */
 		if (!(cfgchip2 & CFGCHIP2_USB1PHYCLKMUX)) {
 			clk_enable(usb20_clk);
 
@@ -50,25 +56,28 @@ static void ohci_da8xx_clock(int on)
 				cpu_relax();
 		}
 
-		
+		/* Enable USB 1.1 PHY */
 		cfgchip2 |= CFGCHIP2_USB1SUSPENDM;
 	} else {
 		clk_disable(usb11_clk);
 		if (!(cfgchip2 & CFGCHIP2_USB1PHYCLKMUX))
 			clk_disable(usb20_clk);
 
-		
+		/* Disable USB 1.1 PHY */
 		cfgchip2 &= ~CFGCHIP2_USB1SUSPENDM;
 	}
 	__raw_writel(cfgchip2, CFGCHIP2);
 }
 
+/*
+ * Handle the port over-current indicator change.
+ */
 static void ohci_da8xx_ocic_handler(struct da8xx_ohci_root_hub *hub,
 				    unsigned port)
 {
 	ocic_mask |= 1 << port;
 
-	
+	/* Once over-current is detected, the port needs to be powered down */
 	if (hub->get_oci(port) > 0)
 		hub->set_power(port, 0);
 }
@@ -85,12 +94,22 @@ static int ohci_da8xx_init(struct usb_hcd *hcd)
 
 	ohci_da8xx_clock(1);
 
+	/*
+	 * DA8xx only have 1 port connected to the pins but the HC root hub
+	 * register A reports 2 ports, thus we'll have to override it...
+	 */
 	ohci->num_ports = 1;
 
 	result = ohci_init(ohci);
 	if (result < 0)
 		return result;
 
+	/*
+	 * Since we're providing a board-specific root hub port power control
+	 * and over-current reporting, we have to override the HC root hub A
+	 * register's default value, so that ohci_hub_control() could return
+	 * the correct hub descriptor...
+	 */
 	rh_a = ohci_readl(ohci, &ohci->regs->roothub.a);
 	if (hub->set_power) {
 		rh_a &= ~RH_A_NPS;
@@ -125,11 +144,14 @@ static int ohci_da8xx_start(struct usb_hcd *hcd)
 	return result;
 }
 
+/*
+ * Update the status data from the hub with the over-current indicator change.
+ */
 static int ohci_da8xx_hub_status_data(struct usb_hcd *hcd, char *buf)
 {
 	int length		= ohci_hub_status_data(hcd, buf);
 
-	
+	/* See if we have OCIC bit set on port 1 */
 	if (ocic_mask & (1 << 1)) {
 		dev_dbg(hcd->self.controller, "over-current indicator change "
 			"on port 1\n");
@@ -142,6 +164,9 @@ static int ohci_da8xx_hub_status_data(struct usb_hcd *hcd, char *buf)
 	return length;
 }
 
+/*
+ * Look at the control requests to the root hub and see if we need to override.
+ */
 static int ohci_da8xx_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				  u16 wIndex, char *buf, u16 wLength)
 {
@@ -151,7 +176,7 @@ static int ohci_da8xx_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 
 	switch (typeReq) {
 	case GetPortStatus:
-		
+		/* Check the port number */
 		if (wIndex != 1)
 			break;
 
@@ -159,15 +184,15 @@ static int ohci_da8xx_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 
 		temp = roothub_portstatus(hcd_to_ohci(hcd), wIndex - 1);
 
-		
+		/* The port power status (PPS) bit defaults to 1 */
 		if (hub->get_power && hub->get_power(wIndex) == 0)
 			temp &= ~RH_PS_PPS;
 
-		
+		/* The port over-current indicator (POCI) bit is always 0 */
 		if (hub->get_oci && hub->get_oci(wIndex) > 0)
 			temp |=  RH_PS_POCI;
 
-		
+		/* The over-current indicator change (OCIC) bit is 0 too */
 		if (ocic_mask & (1 << wIndex))
 			temp |=  RH_PS_OCIC;
 
@@ -180,7 +205,7 @@ static int ohci_da8xx_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		temp = 0;
 
 check_port:
-		
+		/* Check the port number */
 		if (wIndex != 1)
 			break;
 
@@ -214,20 +239,35 @@ static const struct hc_driver ohci_da8xx_hc_driver = {
 	.product_desc		= "DA8xx OHCI",
 	.hcd_priv_size		= sizeof(struct ohci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq			= ohci_irq,
 	.flags			= HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset			= ohci_da8xx_init,
 	.start			= ohci_da8xx_start,
 	.stop			= ohci_da8xx_stop,
 	.shutdown		= ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ohci_urb_enqueue,
 	.urb_dequeue		= ohci_urb_dequeue,
 	.endpoint_disable	= ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ohci_da8xx_hub_status_data,
 	.hub_control		= ohci_da8xx_hub_control,
 
@@ -238,8 +278,17 @@ static const struct hc_driver ohci_da8xx_hc_driver = {
 	.start_port_reset	= ohci_start_port_reset,
 };
 
+/*-------------------------------------------------------------------------*/
 
 
+/**
+ * usb_hcd_da8xx_probe - initialize DA8xx-based HCDs
+ * Context: !in_interrupt()
+ *
+ * Allocates basic resources for this USB host controller, and
+ * then invokes the start() method for the HCD associated with it
+ * through the hotplug entry's driver_data.
+ */
 static int usb_hcd_da8xx_probe(const struct hc_driver *driver,
 			       struct platform_device *pdev)
 {
@@ -319,6 +368,15 @@ err0:
 	return error;
 }
 
+/**
+ * usb_hcd_da8xx_remove - shutdown processing for DA8xx-based HCDs
+ * @dev: USB Host Controller being removed
+ * Context: !in_interrupt()
+ *
+ * Reverses the effect of usb_hcd_da8xx_probe(), first invoking
+ * the HCD's stop() method.  It is always called from a thread
+ * context, normally "rmmod", "apmd", or something similar.
+ */
 static inline void
 usb_hcd_da8xx_remove(struct usb_hcd *hcd, struct platform_device *pdev)
 {
@@ -380,6 +438,9 @@ static int ohci_da8xx_resume(struct platform_device *dev)
 }
 #endif
 
+/*
+ * Driver definition to register with platform structure.
+ */
 static struct platform_driver ohci_hcd_da8xx_driver = {
 	.probe		= ohci_hcd_da8xx_drv_probe,
 	.remove		= ohci_hcd_da8xx_drv_remove,

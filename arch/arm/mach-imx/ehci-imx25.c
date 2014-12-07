@@ -40,7 +40,7 @@ int mx25_initialize_usb_hw(int port, unsigned int flags)
 	v = readl(MX25_IO_ADDRESS(MX25_USB_BASE_ADDR + USBCTRL_OTGBASE_OFFSET));
 
 	switch (port) {
-	case 0:	
+	case 0:	/* OTG port */
 		v &= ~(MX25_OTG_SIC_MASK | MX25_OTG_PM_BIT);
 		v |= (flags & MXC_EHCI_INTERFACE_MASK) << MX25_OTG_SIC_SHIFT;
 
@@ -48,7 +48,7 @@ int mx25_initialize_usb_hw(int port, unsigned int flags)
 			v |= MX25_OTG_PM_BIT;
 
 		break;
-	case 1: 
+	case 1: /* H1 port */
 		v &= ~(MX25_H1_SIC_MASK | MX25_H1_PM_BIT | MX25_H1_TLL_BIT |
 			MX25_H1_USBTE_BIT | MX25_H1_IPPUE_DOWN_BIT | MX25_H1_IPPUE_UP_BIT);
 		v |= (flags & MXC_EHCI_INTERFACE_MASK) << MX25_H1_SIC_SHIFT;

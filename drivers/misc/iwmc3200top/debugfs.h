@@ -40,7 +40,7 @@ struct iwmct_debugfs {
 void iwmct_dbgfs_register(struct iwmct_priv *priv, const char *name);
 void iwmct_dbgfs_unregister(struct iwmct_debugfs *dbgfs);
 
-#else 
+#else /* CONFIG_IWMC3200TOP_DEBUGFS */
 
 struct iwmct_debugfs;
 
@@ -52,7 +52,7 @@ static inline void
 iwmct_dbgfs_unregister(struct iwmct_debugfs *dbgfs)
 {}
 
-#endif 
+#endif /* CONFIG_IWMC3200TOP_DEBUGFS */
 
-#endif 
+#endif /* __DEBUGFS_H__ */
 

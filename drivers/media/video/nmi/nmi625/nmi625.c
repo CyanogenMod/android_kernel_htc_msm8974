@@ -28,6 +28,7 @@
 #include "nmi625.h"
 #include "nmi625-i2c.h"
 
+//#define GPIO_ISDBT_RSTn 85
 #define NMI_NAME		"dmb"
 #define NMI625_HW_CHIP_ID_CHECK
 
@@ -37,14 +38,20 @@ int dmb_open (struct inode *inode, struct file *filp);
 long dmb_ioctl (struct file *filp, unsigned int cmd, unsigned long arg);
 int dmb_release (struct inode *inode, struct file *filp);
 
+/* GPIO Setting */
 void dmb_hw_setting(void);
 void dmb_hw_init(void);
 void dmb_hw_deinit(void);
 void dmb_hw_rst(unsigned long, unsigned long);
 
+/* GPIO Setting For TV */
+//unsigned int gpio_isdbt_pwr_en;
+//unsigned int gpio_isdbt_rstn;	
+//unsigned int gpio_atv_rstn;
 
 extern unsigned int HWREV;
 
+//extern int oneseg_select_antenna(unsigned char data);
 
 static struct file_operations dmb_fops = 
 {
@@ -77,6 +84,7 @@ int dmb_open (struct inode *inode, struct file *filp)
 
 int dmb_release (struct inode *inode, struct file *filp)
 {
+//	DMB_OPEN_INFO_T *hOpen;
 
 	printk("dmb release \n");
 
@@ -115,8 +123,8 @@ long dmb_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 		case IOCTL_DMB_RESET:
 			if (copy_from_user(&info, (void *)arg, size))
 				return -EFAULT;
-			
-			
+			// reset the chip with the info[0], if info[0] is zero then isdbt reset, 
+			// if info[0] is one then atv reset.
 			printk("DMB_RESET enter.., info.buf[0] %d, info.buf[1] %d\n", info.buf[0], info.buf[1]);
 			dmb_hw_rst(info.buf[0], info.buf[1]);
 			break;
@@ -140,8 +148,8 @@ long dmb_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 				return -EFAULT;
 			break;
 		case IOCTL_DMB_BYTE_WRITE:
-			
-			
+			//copy_from_user((void *)&info, (void *)arg, size);
+			//res = BBM_BYTE_WRITE(0, (u16)info.buff[0], (u8)info.buff[1]);
 			break;
 		case IOCTL_DMB_WORD_WRITE:
 			
@@ -172,9 +180,24 @@ long dmb_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 			break;
 		case IOCTL_DMB_POWER_OFF:
 			printk("DMB_POWER_OFF enter..\n");
-			
+			//nmi_i2c_deinit(NULL);
 			dmb_hw_deinit();
 			break;
+///+HTC ADD for antenna control 
+/*
+		case IOCTL_DMB_ANTENNA_SELECT:
+			printk("DMB_ANTENNA_SELECT enter..\n");
+			if (copy_from_user(&info, (void *)arg, size))
+				return -EFAULT;
+			if (info.buf[0] > 0X0F)
+			{
+				printk("DMB_ANTENNA_SELECT: select antenna %d > 0X0F !!!\n", info.buf[0]);
+				return -EFAULT;
+			}
+		    oneseg_select_antenna(info.buf[0]);
+			break;
+*/
+///-
 		default:
 			printk("dmb_ioctl : Undefined ioctl command\n");
 			res = 1;
@@ -186,31 +209,58 @@ long dmb_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 
 void dmb_hw_setting(void)
 {
+//	gpio_isdbt_pwr_en = GPIO_ISDBT_PWR_EN;
+//		gpio_isdbt_rstn = GPIO_ISDBT_RSTn;
 
+//	gpio_request(gpio_isdbt_pwr_en,"ISDBT_EN");
+//	udelay(50);
+//	gpio_direction_output(gpio_isdbt_pwr_en,1);
 
+//	gpio_request(gpio_isdbt_rstn,"ISDBT_RSTn");
+//	    udelay(50);
+//	gpio_direction_output(gpio_isdbt_rstn,1);
 
 }
 
 
 void dmb_hw_setting_gpio_free(void)
 {
-    
+    /* GPIO free*/
+//	gpio_free(gpio_atv_rstn);
+//	gpio_free(gpio_isdbt_rstn);
+//	gpio_free(gpio_isdbt_pwr_en);	
 }
 	
 void dmb_hw_init(void)
 {
+//	gpio_set_value(gpio_isdbt_pwr_en, 1);  // ISDBT EN Enable
 
+//	if (HWREV == 16)          // Derek: above rev1.0
+//    	{
+//		gpio_set_value(GPIO_TV_CLK_EN, 1); //Derek.ji 2010.017.27 NMI 26M clk Ensable			
+//    	}
+//	mdelay(1);
 }
 
 void dmb_hw_rst(unsigned long _arg1, unsigned long _arg2)
 {
-	
-	
+	// _arg1 is the chip selection. if 0, then isdbt. if 1, then atv.
+	// _arg2 is the reset polarity. if 0, then low. if 1, then high.
+//	if(0 == _arg1){
+//		gpio_set_value(gpio_isdbt_rstn, _arg2);  
+//	}else {
+//		gpio_set_value(gpio_atv_rstn, _arg2); 
+//	}
 }
 
 void dmb_hw_deinit(void)
 {
+//	gpio_set_value(gpio_isdbt_pwr_en, 0);  // ISDBT EN Disable
 
+//    if (HWREV == 16)          // Derek: above rev1.0
+//    	{
+//			gpio_set_value(GPIO_TV_CLK_EN, 0);	//Derek.ji 2010.017.27 NMI 26M clk Disable					
+//	}
 }
 
 int dmb_init(void)
@@ -219,16 +269,16 @@ int dmb_init(void)
 
 	printk("dmb dmb_init \n");
 
-	
+	/*misc device registration*/
 	result = misc_register(&nmi_misc_device);
         if (result) {
                 printk(KERN_ERR "[ISDB-T]: can't regist nmi device\n");
                 return result;
         }
 
-	
-	
-	
+	/* nmi i2c init	*/
+	//nmi625_i2c_init();
+	//nmi625_i2c_read_chip_id();
 
 	return 0;
 }
@@ -237,9 +287,11 @@ void dmb_exit(void)
 {
 	printk("dmb dmb_exit \n");
 
+//	nmi625_i2c_deinit();
 
+//	dmb_hw_deinit();
 
-	
+	/*misc device deregistration*/
 	misc_deregister(&nmi_misc_device);
 }
 

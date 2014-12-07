@@ -33,6 +33,7 @@
 #include "tether.h"
 #include "device.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
 #define IS_TYPE_DATA(pMACHeader)                                                        \
     ((((PS802_11Header) pMACHeader)->wFrameCtl & TYPE_802_11_MASK) == TYPE_802_11_DATA)
@@ -73,7 +74,7 @@
 #define IS_FIRST_FRAGMENT_PKT(pMACHeader)                                               \
     ((((PS802_11Header) pMACHeader)->wSeqCtl & 0x000F) == 0)
 
-#endif
+#endif//#ifdef __BIG_ENDIAN
 
 #define IS_LAST_FRAGMENT_PKT(pMACHeader)                                                \
     ((((PS802_11Header) pMACHeader)->wFrameCtl & FC_MOREFRAG) == 0)
@@ -90,8 +91,11 @@
 }
 
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 bool WCTLbIsDuplicate(PSCache pCache, PS802_11Header pMACHeader);
 bool WCTLbHandleFragment(PSDevice pDevice, PS802_11Header pMACHeader,
@@ -99,7 +103,7 @@ bool WCTLbHandleFragment(PSDevice pDevice, PS802_11Header pMACHeader,
 unsigned int WCTLuSearchDFCB(PSDevice pDevice, PS802_11Header pMACHeader);
 unsigned int WCTLuInsertDFCB(PSDevice pDevice, PS802_11Header pMACHeader);
 
-#endif 
+#endif // __WCTL_H__
 
 
 

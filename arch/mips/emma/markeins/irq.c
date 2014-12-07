@@ -174,6 +174,9 @@ static struct irqaction irq_cascade = {
 	   .next = NULL,
 };
 
+/*
+ * the first level int-handler will jump here if it is a emma2rh irq
+ */
 void emma2rh_irq_dispatch(void)
 {
 	u32 intStatus;
@@ -195,7 +198,7 @@ void emma2rh_irq_dispatch(void)
 			}
 		}
 	}
-	
+	/* Skip S/W interrupt */
 	intStatus &= ~(1UL << EMMA2RH_SW_CASCADE);
 #endif
 
@@ -221,7 +224,7 @@ void emma2rh_irq_dispatch(void)
 			}
 		}
 	}
-	
+	/* Skip GPIO interrupt */
 	intStatus &= ~(1UL << (EMMA2RH_GPIO_CASCADE % 32));
 #endif
 
@@ -247,7 +250,7 @@ void __init arch_init_irq(void)
 {
 	u32 reg;
 
-	
+	/* by default, interrupts are disabled. */
 	emma2rh_out32(EMMA2RH_BHIF_INT_EN_0, 0);
 	emma2rh_out32(EMMA2RH_BHIF_INT_EN_1, 0);
 	emma2rh_out32(EMMA2RH_BHIF_INT_EN_2, 0);
@@ -260,28 +263,28 @@ void __init arch_init_irq(void)
 	set_c0_status(0x0400);
 
 #define GPIO_PCI (0xf<<15)
-	
-	
+	/* setup GPIO interrupt for PCI interface */
+	/* direction input */
 	reg = emma2rh_in32(EMMA2RH_GPIO_DIR);
 	emma2rh_out32(EMMA2RH_GPIO_DIR, reg & ~GPIO_PCI);
-	
+	/* disable interrupt */
 	reg = emma2rh_in32(EMMA2RH_GPIO_INT_MASK);
 	emma2rh_out32(EMMA2RH_GPIO_INT_MASK, reg & ~GPIO_PCI);
-	
+	/* level triggerd */
 	reg = emma2rh_in32(EMMA2RH_GPIO_INT_MODE);
 	emma2rh_out32(EMMA2RH_GPIO_INT_MODE, reg | GPIO_PCI);
 	reg = emma2rh_in32(EMMA2RH_GPIO_INT_CND_A);
 	emma2rh_out32(EMMA2RH_GPIO_INT_CND_A, reg & (~GPIO_PCI));
-	
+	/* interrupt clear */
 	emma2rh_out32(EMMA2RH_GPIO_INT_ST, ~GPIO_PCI);
 
-	
+	/* init all controllers */
 	emma2rh_irq_init();
 	emma2rh_sw_irq_init();
 	emma2rh_gpio_irq_init();
 	mips_cpu_irq_init();
 
-	
+	/* setup cascade interrupts */
 	setup_irq(EMMA2RH_IRQ_BASE + EMMA2RH_SW_CASCADE, &irq_cascade);
 	setup_irq(EMMA2RH_IRQ_BASE + EMMA2RH_GPIO_CASCADE, &irq_cascade);
 	setup_irq(MIPS_CPU_IRQ_BASE + 2, &irq_cascade);

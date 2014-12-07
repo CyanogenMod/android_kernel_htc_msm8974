@@ -18,6 +18,7 @@
 #include <mach/msm_bus_board.h>
 #include <mach/rpm-smd.h>
 
+/* Stubs for backward compatibility */
 void msm_bus_rpm_set_mt_mask()
 {
 }
@@ -106,7 +107,7 @@ static int msm_bus_rpm_req(int ctx, uint32_t rsc_type, uint32_t key,
 		MSM_BUS_DBG("Added Key: %d, Val: %llu, size: %d\n", key,
 			hw_info->bw, sizeof(uint64_t));
 	} else {
-		
+		/* Invalidate RPM requests */
 		ret = msm_rpm_add_kvp_data(rpm_req, 0, NULL, 0);
 		if (ret) {
 			MSM_BUS_WARN("RPM: Add KVP failed for RPM Req:%u\n",
@@ -186,6 +187,10 @@ static int msm_bus_rpm_commit_arb(struct msm_bus_fabric_registration
 	return status;
 }
 
+/**
+* msm_bus_remote_hw_commit() - Commit the arbitration data to RPM
+* @fabric: Fabric for which the data should be committed
+**/
 int msm_bus_remote_hw_commit(struct msm_bus_fabric_registration
 	*fab_pdata, void *hw_data, void **cdata)
 {
@@ -199,9 +204,15 @@ int msm_bus_remote_hw_commit(struct msm_bus_fabric_registration
 	dual_cd = (struct commit_data *)cdata[DUAL_CTX];
 	act_cd = (struct commit_data *)cdata[ACTIVE_CTX];
 
+	/*
+	 * If the arb data for active set and sleep set is
+	 * different, commit both sets.
+	 * If the arb data for active set and sleep set is
+	 * the same, invalidate the sleep set.
+	 */
 	ret = msm_bus_rpm_compare_cdata(fab_pdata, act_cd, dual_cd);
 	if (!ret)
-		
+		/* Invalidate sleep set.*/
 		valid = false;
 	else
 		valid = true;

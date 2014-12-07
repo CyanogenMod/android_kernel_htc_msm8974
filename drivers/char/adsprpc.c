@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -37,7 +37,7 @@
 
 #ifndef ION_ADSPRPC_HEAP_ID
 #define ION_ADSPRPC_HEAP_ID ION_AUDIO_HEAP_ID
-#endif 
+#endif /*ION_ADSPRPC_HEAP_ID*/
 
 #define RPC_TIMEOUT	(5 * HZ)
 #define RPC_HASH_BITS	5
@@ -564,10 +564,7 @@ static int get_args(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 		rpra[i].buf.len = pra[i].buf.len;
 		if (!rpra[i].buf.len)
 			continue;
-		if (list[i].num) {
-			rpra[i].buf.pv = pra[i].buf.pv;
-			continue;
-		} else if (me->smmu.enabled && fds && (fds[i] >= 0)) {
+		if (me->smmu.enabled && fds && (fds[i] >= 0)) {
 			len = buf_page_size(pra[i].buf.len);
 			handles[i] = ion_import_dma_buf(me->iclient, fds[i]);
 			VERIFY(err, 0 == IS_ERR_OR_NULL(handles[i]));
@@ -582,6 +579,9 @@ static int get_args(uint32_t kernel, uint32_t sc, remote_arg_t *pra,
 			list[i].num = 1;
 			pages[list[i].pgidx].addr = iova;
 			pages[list[i].pgidx].size = len;
+			continue;
+		} else if (list[i].num) {
+			rpra[i].buf.pv = pra[i].buf.pv;
 			continue;
 		}
 		if (rlen < pra[i].buf.len) {
@@ -1287,6 +1287,9 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	filp->private_data = 0;
 	if (0 != try_module_get(THIS_MODULE)) {
 		struct file_data *fdata = 0;
+		/* This call will cause a dev to be created
+		 * which will addref this module
+		 */
 		VERIFY(err, 0 != (fdata = kzalloc(sizeof(*fdata), GFP_KERNEL)));
 		if (err)
 			goto bail;

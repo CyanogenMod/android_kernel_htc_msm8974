@@ -35,6 +35,7 @@
 #define _SBF(s, v)                      ((v) << (s))
 #define _BIT(b)                         _SBF(b, 1)
 
+/* Feed control registers */
 #define SSS_REG_FCINTSTAT               0x0000
 #define SSS_FCINTSTAT_BRDMAINT          _BIT(3)
 #define SSS_FCINTSTAT_BTDMAINT          _BIT(2)
@@ -103,6 +104,7 @@
 
 #define SSS_REG_FCPKDMAO                0x005C
 
+/* AES registers */
 #define SSS_REG_AES_CONTROL             0x4000
 #define SSS_AES_BYTESWAP_DI             _BIT(11)
 #define SSS_AES_BYTESWAP_DO             _BIT(10)
@@ -134,6 +136,7 @@
 #define SSS_READ(dev, reg)              __raw_readl(SSS_REG(dev, reg))
 #define SSS_WRITE(dev, reg, val)        __raw_writel((val), SSS_REG(dev, reg))
 
+/* HW engine modes */
 #define FLAGS_AES_DECRYPT               _BIT(0)
 #define FLAGS_AES_MODE_MASK             _SBF(1, 0x03)
 #define FLAGS_AES_CBC                   _SBF(1, 0x01)
@@ -188,7 +191,7 @@ static void s5p_set_dma_outdata(struct s5p_aes_dev *dev, struct scatterlist *sg)
 
 static void s5p_aes_complete(struct s5p_aes_dev *dev, int err)
 {
-	
+	/* holding a lock outside */
 	dev->req->base.complete(&dev->req->base, err);
 	dev->busy = false;
 }
@@ -355,7 +358,7 @@ static void s5p_aes_crypt_start(struct s5p_aes_dev *dev, unsigned long mode)
 
 	aes_control |= SSS_AES_FIFO_MODE;
 
-	
+	/* as a variant it is possible to use byte swapping on DMA side */
 	aes_control |= SSS_AES_BYTESWAP_DI
 		    |  SSS_AES_BYTESWAP_DO
 		    |  SSS_AES_BYTESWAP_IV

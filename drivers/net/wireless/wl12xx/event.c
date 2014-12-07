@@ -140,16 +140,25 @@ static int wl1271_event_process(struct wl1271 *wl, struct event_mailbox *mbox)
 		wl12xx_event_soft_gemini_sense(wl,
 					       mbox->soft_gemini_sense_info);
 
+	/*
+	 * The BSS_LOSE_EVENT_ID is only needed while psm (and hence beacon
+	 * filtering) is enabled. Without PSM, the stack will receive all
+	 * beacons and can detect beacon loss by itself.
+	 *
+	 * As there's possibility that the driver disables PSM before receiving
+	 * BSS_LOSE_EVENT, beacon loss has to be reported to the stack.
+	 *
+	 */
 	if (vector & BSS_LOSE_EVENT_ID) {
-		
+		/* TODO: check for multi-role */
 		wl1271_info("Beacon loss detected.");
 
-		
+		/* indicate to the stack, that beacons have been lost */
 		beacon_loss = true;
 	}
 
 	if (vector & RSSI_SNR_TRIGGER_0_EVENT_ID) {
-		
+		/* TODO: check actual multi-role support */
 		wl1271_debug(DEBUG_EVENT, "RSSI_SNR_TRIGGER_0_EVENT");
 		wl12xx_for_each_wlvif_sta(wl, wlvif) {
 			wl1271_event_rssi_trigger(wl, wlvif, mbox);
@@ -176,8 +185,13 @@ static int wl1271_event_process(struct wl1271 *wl, struct event_mailbox *mbox)
 		wl1271_debug(DEBUG_EVENT, "CHANNEL_SWITCH_COMPLETE_EVENT_ID. "
 					  "status = 0x%x",
 					  mbox->channel_switch_status);
+		/*
+		 * That event uses for two cases:
+		 * 1) channel switch complete with status=0
+		 * 2) channel switch failed status=1
+		 */
 
-		
+		/* TODO: configure only the relevant vif */
 		wl12xx_for_each_wlvif_sta(wl, wlvif) {
 			bool success;
 
@@ -197,6 +211,10 @@ static int wl1271_event_process(struct wl1271 *wl, struct event_mailbox *mbox)
 		wl1271_tx_dummy_packet(wl);
 	}
 
+	/*
+	 * "TX retries exceeded" has a different meaning according to mode.
+	 * In AP mode the offending station is disconnected.
+	 */
 	if (vector & MAX_TX_RETRY_EVENT_ID) {
 		wl1271_debug(DEBUG_EVENT, "MAX_TX_RETRY_EVENT_ID");
 		sta_bitmap |= le16_to_cpu(mbox->sta_tx_retry_exceeded);
@@ -217,7 +235,7 @@ static int wl1271_event_process(struct wl1271 *wl, struct event_mailbox *mbox)
 
 		for_each_set_bit(h, &sta_bitmap, WL12XX_MAX_LINKS) {
 			bool found = false;
-			
+			/* find the ap vif connected to this sta */
 			wl12xx_for_each_wlvif_ap(wl, wlvif) {
 				if (!test_bit(h, wlvif->ap.sta_hlid_map))
 					continue;
@@ -279,16 +297,16 @@ int wl1271_event_handle(struct wl1271 *wl, u8 mbox_num)
 	if (mbox_num > 1)
 		return -EINVAL;
 
-	
+	/* first we read the mbox descriptor */
 	wl1271_read(wl, wl->mbox_ptr[mbox_num], &mbox,
 		    sizeof(struct event_mailbox), false);
 
-	
+	/* process the descriptor */
 	ret = wl1271_event_process(wl, &mbox);
 	if (ret < 0)
 		return ret;
 
-	
+	/* then we let the firmware know it can go on...*/
 	wl1271_write32(wl, ACX_REG_INTERRUPT_TRIG, INTR_TRIG_EVENT_ACK);
 
 	return 0;

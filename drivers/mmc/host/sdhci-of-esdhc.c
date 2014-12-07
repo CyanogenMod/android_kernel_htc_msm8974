@@ -40,14 +40,18 @@ static u8 esdhc_readb(struct sdhci_host *host, int reg)
 	int shift = (reg & 0x3) * 8;
 	u8 ret = (in_be32(host->ioaddr + base) >> shift) & 0xff;
 
+	/*
+	 * "DMA select" locates at offset 0x28 in SD specification, but on
+	 * P5020 or P3041, it locates at 0x29.
+	 */
 	if (reg == SDHCI_HOST_CONTROL) {
 		u32 dma_bits;
 
 		dma_bits = in_be32(host->ioaddr + reg);
-		
+		/* DMA select is 22,23 bits in Protocol Control Register */
 		dma_bits = (dma_bits >> 5) & SDHCI_CTRL_DMA_MASK;
 
-		
+		/* fixup the result */
 		ret &= ~SDHCI_CTRL_DMA_MASK;
 		ret |= dma_bits;
 	}
@@ -58,6 +62,11 @@ static u8 esdhc_readb(struct sdhci_host *host, int reg)
 static void esdhc_writew(struct sdhci_host *host, u16 val, int reg)
 {
 	if (reg == SDHCI_BLOCK_SIZE) {
+		/*
+		 * Two last DMA bits are reserved, and first one is used for
+		 * non-standard blksz of 4096 bytes that we don't support
+		 * yet. So clear the DMA boundary bits.
+		 */
 		val &= ~SDHCI_MAKE_BLKSZ(0x7, 0);
 	}
 	sdhci_be32bs_writew(host, val, reg);
@@ -65,10 +74,14 @@ static void esdhc_writew(struct sdhci_host *host, u16 val, int reg)
 
 static void esdhc_writeb(struct sdhci_host *host, u8 val, int reg)
 {
+	/*
+	 * "DMA select" location is offset 0x28 in SD specification, but on
+	 * P5020 or P3041, it's located at 0x29.
+	 */
 	if (reg == SDHCI_HOST_CONTROL) {
 		u32 dma_bits;
 
-		
+		/* DMA select is 22,23 bits in Protocol Control Register */
 		dma_bits = (val & SDHCI_CTRL_DMA_MASK) << 5;
 		clrsetbits_be32(host->ioaddr + reg , SDHCI_CTRL_DMA_MASK << 5,
 			dma_bits);
@@ -76,7 +89,7 @@ static void esdhc_writeb(struct sdhci_host *host, u8 val, int reg)
 		val |= in_be32(host->ioaddr + reg) & SDHCI_CTRL_DMA_MASK;
 	}
 
-	
+	/* Prevent SDHCI core from writing reserved bits (e.g. HISPD). */
 	if (reg == SDHCI_HOST_CONTROL)
 		val &= ~ESDHC_HOST_CONTROL_RES;
 	sdhci_be32bs_writeb(host, val, reg);
@@ -104,7 +117,7 @@ static unsigned int esdhc_of_get_min_clock(struct sdhci_host *host)
 
 static void esdhc_of_set_clock(struct sdhci_host *host, unsigned int clock)
 {
-	
+	/* Workaround to reduce the clock frequency for p1010 esdhc */
 	if (of_find_compatible_node(NULL, NULL, "fsl,p1010-esdhc")) {
 		if (clock > 20000000)
 			clock -= 5000000;
@@ -112,7 +125,7 @@ static void esdhc_of_set_clock(struct sdhci_host *host, unsigned int clock)
 			clock -= 5000000;
 	}
 
-	
+	/* Set the clock */
 	esdhc_set_clock(host, clock);
 }
 
@@ -148,7 +161,7 @@ static struct sdhci_ops sdhci_esdhc_ops = {
 };
 
 static struct sdhci_pltfm_data sdhci_esdhc_pdata = {
-	
+	/* card detection could be handled via GPIO */
 	.quirks = ESDHC_DEFAULT_QUIRKS | SDHCI_QUIRK_BROKEN_CARD_DETECTION
 		| SDHCI_QUIRK_NO_CARD_NO_RESET,
 	.ops = &sdhci_esdhc_ops,

@@ -42,7 +42,8 @@ MODULE_LICENSE("GPL");
 
 #define PRISM2_MAX_FRAME_SIZE 2304
 #define PRISM2_MIN_MTU 256
-#define PRISM2_MAX_MTU (PRISM2_MAX_FRAME_SIZE - (6  + 8 ))
+/* FIX: */
+#define PRISM2_MAX_MTU (PRISM2_MAX_FRAME_SIZE - (6 /* LLC */ + 8 /* WEP */))
 
 
 struct net_device * hostap_add_interface(struct local_info *local,
@@ -124,6 +125,8 @@ void hostap_remove_interface(struct net_device *dev, int rtnl_locked,
 	else
 		unregister_netdev(dev);
 
+	/* dev->destructor = free_netdev() will free the device data, including
+	 * private data, when removing the device */
 }
 
 
@@ -159,7 +162,7 @@ int prism2_wds_add(local_info_t *local, u8 *remote_addr,
 		}
 	}
 	if (!match && empty && !prism2_wds_special_addr(remote_addr)) {
-		
+		/* take pre-allocated entry into use */
 		memcpy(empty->u.wds.remote_addr, remote_addr, ETH_ALEN);
 		read_unlock_bh(&local->iface_lock);
 		printk(KERN_DEBUG "%s: using pre-allocated WDS netdevice %s\n",
@@ -177,7 +180,7 @@ int prism2_wds_add(local_info_t *local, u8 *remote_addr,
 	if (local->wds_connections >= local->wds_max_connections)
 		return -ENOBUFS;
 
-	
+	/* verify that there is room for wds# postfix in the interface name */
 	if (strlen(local->dev->name) >= IFNAMSIZ - 5) {
 		printk(KERN_DEBUG "'%s' too long base device name\n",
 		       local->dev->name);
@@ -283,6 +286,7 @@ int hostap_tx_callback_unregister(local_info_t *local, u16 idx)
 }
 
 
+/* val is in host byte order */
 int hostap_set_word(struct net_device *dev, int rid, u16 val)
 {
 	struct hostap_interface *iface;
@@ -303,7 +307,7 @@ int hostap_set_string(struct net_device *dev, int rid, const char *val)
 	if (len > MAX_SSID_LEN)
 		return -1;
 	memset(buf, 0, sizeof(buf));
-	buf[0] = len; 
+	buf[0] = len; /* little endian 16 bit word */
 	memcpy(buf + 2, val, len);
 
 	return iface->local->func->set_rid(dev, rid, &buf, MAX_SSID_LEN + 2);
@@ -382,11 +386,13 @@ int hostap_set_encryption(local_info_t *local)
 	if (encrypt_type != WEP)
 		return 0;
 
-	keylen = 6; 
+	/* 104-bit support seems to require that all the keys are set to the
+	 * same keylen */
+	keylen = 6; /* first 5 octets */
 	len = local->crypt_info.crypt[idx]->ops->get_key(keybuf, sizeof(keybuf), NULL,
 							   local->crypt_info.crypt[idx]->priv);
 	if (idx >= 0 && idx < WEP_KEYS && len > 5)
-		keylen = WEP_KEY_LEN + 1; 
+		keylen = WEP_KEY_LEN + 1; /* first 13 octets */
 
 	for (i = 0; i < WEP_KEYS; i++) {
 		memset(keybuf, 0, sizeof(keybuf));
@@ -497,6 +503,11 @@ int hostap_set_roaming(local_info_t *local)
 int hostap_set_auth_algs(local_info_t *local)
 {
 	int val = local->auth_algs;
+	/* At least STA f/w v0.6.2 seems to have issues with cnfAuthentication
+	 * set to include both Open and Shared Key flags. It tries to use
+	 * Shared Key authentication in that case even if WEP keys are not
+	 * configured.. STA f/w v0.7.6 is able to handle such configuration,
+	 * but it is unknown when this was fixed between 0.6.2 .. 0.7.6. */
 	if (local->sta_fw_ver < PRISM2_FW_VER(0,7,0) &&
 	    val != PRISM2_AUTH_OPEN && val != PRISM2_AUTH_SHARED_KEY)
 		val = PRISM2_AUTH_OPEN;
@@ -573,7 +584,7 @@ void hostap_dump_tx_header(const char *name, const struct hfa384x_tx_frame *tx)
 static int hostap_80211_header_parse(const struct sk_buff *skb,
 				     unsigned char *haddr)
 {
-	memcpy(haddr, skb_mac_header(skb) + 10, ETH_ALEN); 
+	memcpy(haddr, skb_mac_header(skb) + 10, ETH_ALEN); /* addr2 */
 	return ETH_ALEN;
 }
 
@@ -581,7 +592,7 @@ static int hostap_80211_header_parse(const struct sk_buff *skb,
 int hostap_80211_get_hdrlen(__le16 fc)
 {
 	if (ieee80211_is_data(fc) && ieee80211_has_a4 (fc))
-		return 30; 
+		return 30; /* Addr4 */
 	else if (ieee80211_is_cts(fc) || ieee80211_is_ack(fc))
 		return 10;
 	else if (ieee80211_is_ctl(fc))
@@ -609,7 +620,7 @@ static int prism2_close(struct net_device *dev)
 	    (!local->func->card_present || local->func->card_present(local)) &&
 	    local->hw_ready && local->ap && local->iw_mode == IW_MODE_MASTER)
 		hostap_deauth_all_stas(dev, local->ap, 1);
-#endif 
+#endif /* PRISM2_NO_KERNEL_IEEE80211_MGMT */
 
 	if (dev == local->dev) {
 		local->func->hw_shutdown(dev, HOSTAP_HW_ENABLE_CMDCOMPL);
@@ -634,6 +645,9 @@ static int prism2_close(struct net_device *dev)
 
 	if (dev != local->dev && local->dev->flags & IFF_UP &&
 	    local->master_dev_auto_open && local->num_dev_open == 1) {
+		/* Close master radio interface automatically if it was also
+		 * opened automatically and we are now closing the last
+		 * remaining non-master device. */
 		dev_close(local->dev);
 	}
 
@@ -676,6 +690,8 @@ static int prism2_open(struct net_device *dev)
 	local->dev_enabled = 1;
 
 	if (dev != local->dev && !(local->dev->flags & IFF_UP)) {
+		/* Master radio interface is needed for all operation, so open
+		 * it automatically when any virtual net_device is opened. */
 		local->master_dev_auto_open = 1;
 		dev_open(local->dev);
 	}
@@ -713,6 +729,8 @@ static int prism2_set_mac_address(struct net_device *dev, void *p)
 }
 
 
+/* TODO: to be further implemented as soon as Prism2 fully supports
+ *       GroupAddresses and correct documentation is available */
 void hostap_set_multicast_list_queue(struct work_struct *work)
 {
 	local_info_t *local =
@@ -730,6 +748,10 @@ void hostap_set_multicast_list_queue(struct work_struct *work)
 static void hostap_set_multicast_list(struct net_device *dev)
 {
 #if 0
+	/* FIX: promiscuous mode seems to be causing a lot of problems with
+	 * some station firmware versions (FCSErr frames, invalid MACPort, etc.
+	 * corrupted incoming frames). This code is now commented out while the
+	 * problems are investigated. */
 	struct hostap_interface *iface;
 	local_info_t *local;
 
@@ -835,8 +857,10 @@ void hostap_setup_dev(struct net_device *dev, local_info_t *local,
 	ether_setup(dev);
 	dev->priv_flags &= ~IFF_TX_SKB_SHARING;
 
-	
+	/* kernel callbacks */
 	if (iface) {
+		/* Currently, we point to the proper spy_data only on
+		 * the main_dev. This could be fixed. Jean II */
 		iface->wireless_data.spy_data = &iface->spy_data;
 		dev->wireless_data = &iface->wireless_data;
 	}
@@ -845,7 +869,7 @@ void hostap_setup_dev(struct net_device *dev, local_info_t *local,
 
 	switch(type) {
 	case HOSTAP_INTERFACE_AP:
-		dev->tx_queue_len = 0;	
+		dev->tx_queue_len = 0;	/* use main radio device queue */
 		dev->netdev_ops = &hostap_mgmt_netdev_ops;
 		dev->type = ARPHRD_IEEE80211;
 		dev->header_ops = &hostap_80211_ops;
@@ -854,7 +878,7 @@ void hostap_setup_dev(struct net_device *dev, local_info_t *local,
 		dev->netdev_ops = &hostap_master_ops;
 		break;
 	default:
-		dev->tx_queue_len = 0;	
+		dev->tx_queue_len = 0;	/* use main radio device queue */
 		dev->netdev_ops = &hostap_netdev_ops;
 	}
 

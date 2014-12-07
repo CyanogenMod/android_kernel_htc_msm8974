@@ -107,4 +107,4 @@ static inline int atomic_futex_op_cmpxchg_inatomic(u32 *uval,
 	return ret;
 }
 
-#endif 
+#endif /* __ASM_SH_FUTEX_IRQ_H */

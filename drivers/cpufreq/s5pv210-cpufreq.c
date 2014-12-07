@@ -29,11 +29,18 @@ static struct clk *dmc1_clk;
 static struct cpufreq_freqs freqs;
 static DEFINE_MUTEX(set_freq_lock);
 
+/* APLL M,P,S values for 1G/800Mhz */
 #define APLL_VAL_1000	((1 << 31) | (125 << 16) | (3 << 8) | 1)
 #define APLL_VAL_800	((1 << 31) | (100 << 16) | (3 << 8) | 1)
 
+/* Use 800MHz when entering sleep mode */
 #define SLEEP_FREQ	(800 * 1000)
 
+/*
+ * relation has an additional symantics other than the standard of cpufreq
+ * DISALBE_FURTHER_CPUFREQ: disable further access to target
+ * ENABLE_FURTUER_CPUFREQ: enable access to target
+ */
 enum cpufreq_access {
 	DISABLE_FURTHER_CPUFREQ = 0x10,
 	ENABLE_FURTHER_CPUFREQ = 0x20,
@@ -41,11 +48,16 @@ enum cpufreq_access {
 
 static bool no_cpufreq_access;
 
+/*
+ * DRAM configurations to calculate refresh counter for changing
+ * frequency of memory.
+ */
 struct dram_conf {
-	unsigned long freq;	
-	unsigned long refresh;	
+	unsigned long freq;	/* HZ */
+	unsigned long refresh;	/* DRAM refresh counter * 1000 */
 };
 
+/* DRAM configuration (DMC0 and DMC1) */
 static struct dram_conf s5pv210_dram_conf[2];
 
 enum perf_level {
@@ -76,8 +88,8 @@ static struct regulator *arm_regulator;
 static struct regulator *int_regulator;
 
 struct s5pv210_dvs_conf {
-	int arm_volt;	
-	int int_volt;	
+	int arm_volt;	/* uV */
+	int int_volt;	/* uV */
 };
 
 static const int arm_volt_max = 1350000;
@@ -107,23 +119,35 @@ static struct s5pv210_dvs_conf dvs_conf[] = {
 };
 
 static u32 clkdiv_val[5][11] = {
+	/*
+	 * Clock divider value for following
+	 * { APLL, A2M, HCLK_MSYS, PCLK_MSYS,
+	 *   HCLK_DSYS, PCLK_DSYS, HCLK_PSYS, PCLK_PSYS,
+	 *   ONEDRAM, MFC, G3D }
+	 */
 
-	
+	/* L0 : [1000/200/100][166/83][133/66][200/200] */
 	{0, 4, 4, 1, 3, 1, 4, 1, 3, 0, 0},
 
-	
+	/* L1 : [800/200/100][166/83][133/66][200/200] */
 	{0, 3, 3, 1, 3, 1, 4, 1, 3, 0, 0},
 
-	
+	/* L2 : [400/200/100][166/83][133/66][200/200] */
 	{1, 3, 1, 1, 3, 1, 4, 1, 3, 0, 0},
 
-	
+	/* L3 : [200/200/100][166/83][133/66][200/200] */
 	{3, 3, 1, 1, 3, 1, 4, 1, 3, 0, 0},
 
-	
+	/* L4 : [100/100/100][83/83][66/66][100/100] */
 	{7, 7, 0, 0, 7, 0, 9, 0, 7, 0, 0},
 };
 
+/*
+ * This function set DRAM refresh counter
+ * accoriding to operating frequency of DRAM
+ * ch: DMC port number 0 or 1
+ * freq: Operating frequency of DRAM(KHz)
+ */
 static void s5pv210_set_refresh(enum s5pv210_dmc_port ch, unsigned long freq)
 {
 	unsigned long tmp, tmp1;
@@ -138,7 +162,7 @@ static void s5pv210_set_refresh(enum s5pv210_dmc_port ch, unsigned long freq)
 		return;
 	}
 
-	
+	/* Find current DRAM frequency */
 	tmp = s5pv210_dram_conf[ch].freq;
 
 	do_div(tmp, freq);
@@ -210,7 +234,7 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 	if (freqs.new == freqs.old)
 		goto exit;
 
-	
+	/* Finding current running level index */
 	if (cpufreq_frequency_table_target(policy, s5pv210_freq_table,
 					   freqs.old, relation, &priv_index)) {
 		ret = -EINVAL;
@@ -234,15 +258,20 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
-	
+	/* Check if there need to change PLL */
 	if ((index == L0) || (priv_index == L0))
 		pll_changing = 1;
 
-	
+	/* Check if there need to change System bus clock */
 	if ((index == L4) || (priv_index == L4))
 		bus_speed_changing = 1;
 
 	if (bus_speed_changing) {
+		/*
+		 * Reconfigure DRAM refresh counter value for minimum
+		 * temporary clock while changing divider.
+		 * expected clock is 83Mhz : 7.8usec/(1/83Mhz) = 0x287
+		 */
 		if (pll_changing)
 			s5pv210_set_refresh(DMC1, 83000);
 		else
@@ -251,18 +280,32 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 		s5pv210_set_refresh(DMC0, 83000);
 	}
 
+	/*
+	 * APLL should be changed in this level
+	 * APLL -> MPLL(for stable transition) -> APLL
+	 * Some clock source's clock API are not prepared.
+	 * Do not use clock API in below code.
+	 */
 	if (pll_changing) {
+		/*
+		 * 1. Temporary Change divider for MFC and G3D
+		 * SCLKA2M(200/1=200)->(200/4=50)Mhz
+		 */
 		reg = __raw_readl(S5P_CLK_DIV2);
 		reg &= ~(S5P_CLKDIV2_G3D_MASK | S5P_CLKDIV2_MFC_MASK);
 		reg |= (3 << S5P_CLKDIV2_G3D_SHIFT) |
 			(3 << S5P_CLKDIV2_MFC_SHIFT);
 		__raw_writel(reg, S5P_CLK_DIV2);
 
-		
+		/* For MFC, G3D dividing */
 		do {
 			reg = __raw_readl(S5P_CLKDIV_STAT0);
 		} while (reg & ((1 << 16) | (1 << 17)));
 
+		/*
+		 * 2. Change SCLKA2M(200Mhz)to SCLKMPLL in MFC_MUX, G3D MUX
+		 * (200/4=50)->(667/4=166)Mhz
+		 */
 		reg = __raw_readl(S5P_CLK_SRC2);
 		reg &= ~(S5P_CLKSRC2_G3D_MASK | S5P_CLKSRC2_MFC_MASK);
 		reg |= (1 << S5P_CLKSRC2_G3D_SHIFT) |
@@ -273,10 +316,15 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 			reg = __raw_readl(S5P_CLKMUX_STAT1);
 		} while (reg & ((1 << 7) | (1 << 3)));
 
+		/*
+		 * 3. DMC1 refresh count for 133Mhz if (index == L4) is
+		 * true refresh counter is already programed in upper
+		 * code. 0x287@83Mhz
+		 */
 		if (!bus_speed_changing)
 			s5pv210_set_refresh(DMC1, 133000);
 
-		
+		/* 4. SCLKAPLL -> SCLKMPLL */
 		reg = __raw_readl(S5P_CLK_SRC0);
 		reg &= ~(S5P_CLKSRC0_MUX200_MASK);
 		reg |= (0x1 << S5P_CLKSRC0_MUX200_SHIFT);
@@ -288,7 +336,7 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 
 	}
 
-	
+	/* Change divider */
 	reg = __raw_readl(S5P_CLK_DIV0);
 
 	reg &= ~(S5P_CLKDIV0_APLL_MASK | S5P_CLKDIV0_A2M_MASK |
@@ -311,7 +359,7 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 		reg = __raw_readl(S5P_CLKDIV_STAT0);
 	} while (reg & 0xff);
 
-	
+	/* ARM MCS value changed */
 	reg = __raw_readl(S5P_ARM_MCS_CON);
 	reg &= ~0x3;
 	if (index >= L3)
@@ -322,9 +370,14 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 	__raw_writel(reg, S5P_ARM_MCS_CON);
 
 	if (pll_changing) {
-		
+		/* 5. Set Lock time = 30us*24Mhz = 0x2cf */
 		__raw_writel(0x2cf, S5P_APLL_LOCK);
 
+		/*
+		 * 6. Turn on APLL
+		 * 6-1. Set PMS values
+		 * 6-2. Wait untile the PLL is locked
+		 */
 		if (index == L0)
 			__raw_writel(APLL_VAL_1000, S5P_APLL_CON);
 		else
@@ -334,6 +387,11 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 			reg = __raw_readl(S5P_APLL_CON);
 		} while (!(reg & (0x1 << 29)));
 
+		/*
+		 * 7. Change souce clock from SCLKMPLL(667Mhz)
+		 * to SCLKA2M(200Mhz) in MFC_MUX and G3D MUX
+		 * (667/4=166)->(200/4=50)Mhz
+		 */
 		reg = __raw_readl(S5P_CLK_SRC2);
 		reg &= ~(S5P_CLKSRC2_G3D_MASK | S5P_CLKSRC2_MFC_MASK);
 		reg |= (0 << S5P_CLKSRC2_G3D_SHIFT) |
@@ -344,18 +402,22 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 			reg = __raw_readl(S5P_CLKMUX_STAT1);
 		} while (reg & ((1 << 7) | (1 << 3)));
 
+		/*
+		 * 8. Change divider for MFC and G3D
+		 * (200/4=50)->(200/1=200)Mhz
+		 */
 		reg = __raw_readl(S5P_CLK_DIV2);
 		reg &= ~(S5P_CLKDIV2_G3D_MASK | S5P_CLKDIV2_MFC_MASK);
 		reg |= (clkdiv_val[index][10] << S5P_CLKDIV2_G3D_SHIFT) |
 			(clkdiv_val[index][9] << S5P_CLKDIV2_MFC_SHIFT);
 		__raw_writel(reg, S5P_CLK_DIV2);
 
-		
+		/* For MFC, G3D dividing */
 		do {
 			reg = __raw_readl(S5P_CLKDIV_STAT0);
 		} while (reg & ((1 << 16) | (1 << 17)));
 
-		
+		/* 9. Change MPLL to APLL in MSYS_MUX */
 		reg = __raw_readl(S5P_CLK_SRC0);
 		reg &= ~(S5P_CLKSRC0_MUX200_MASK);
 		reg |= (0x0 << S5P_CLKSRC0_MUX200_SHIFT);
@@ -365,10 +427,19 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 			reg = __raw_readl(S5P_CLKMUX_STAT0);
 		} while (reg & (0x1 << 18));
 
+		/*
+		 * 10. DMC1 refresh counter
+		 * L4 : DMC1 = 100Mhz 7.8us/(1/100) = 0x30c
+		 * Others : DMC1 = 200Mhz 7.8us/(1/200) = 0x618
+		 */
 		if (!bus_speed_changing)
 			s5pv210_set_refresh(DMC1, 200000);
 	}
 
+	/*
+	 * L4 level need to change memory bus speed, hence onedram clock divier
+	 * and memory refresh parameter should be changed
+	 */
 	if (bus_speed_changing) {
 		reg = __raw_readl(S5P_CLK_DIV6);
 		reg &= ~S5P_CLKDIV6_ONEDRAM_MASK;
@@ -379,11 +450,19 @@ static int s5pv210_target(struct cpufreq_policy *policy,
 			reg = __raw_readl(S5P_CLKDIV_STAT1);
 		} while (reg & (1 << 15));
 
-		
+		/* Reconfigure DRAM refresh counter value */
 		if (index != L4) {
+			/*
+			 * DMC0 : 166Mhz
+			 * DMC1 : 200Mhz
+			 */
 			s5pv210_set_refresh(DMC0, 166000);
 			s5pv210_set_refresh(DMC1, 200000);
 		} else {
+			/*
+			 * DMC0 : 83Mhz
+			 * DMC1 : 100Mhz
+			 */
 			s5pv210_set_refresh(DMC0, 83000);
 			s5pv210_set_refresh(DMC1, 100000);
 		}
@@ -454,6 +533,10 @@ static int __init s5pv210_cpu_init(struct cpufreq_policy *policy)
 		goto out_dmc1;
 	}
 
+	/*
+	 * check_mem_type : This driver only support LPDDR & LPDDR2.
+	 * other memory type is not supported.
+	 */
 	mem_type = check_mem_type(S5P_VA_DMC0);
 
 	if ((mem_type != LPDDR) && (mem_type != LPDDR2)) {
@@ -462,7 +545,7 @@ static int __init s5pv210_cpu_init(struct cpufreq_policy *policy)
 		goto out_dmc1;
 	}
 
-	
+	/* Find current refresh counter and frequency each DMC */
 	s5pv210_dram_conf[0].refresh = (__raw_readl(S5P_VA_DMC0 + 0x30) * 1000);
 	s5pv210_dram_conf[0].freq = clk_get_rate(dmc0_clk);
 

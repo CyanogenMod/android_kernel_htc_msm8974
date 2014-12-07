@@ -6,6 +6,7 @@
 #include "flexcop.h"
 
 #if 0
+/*EEPROM (Skystar2 has one "24LC08B" chip on board) */
 static int eeprom_write(struct adapter *adapter, u16 addr, u8 *buf, u16 len)
 {
 	return flex_i2c_write(adapter, 0x20000000, 0x50, addr, buf, len);
@@ -25,6 +26,7 @@ for (i = 0; i < retries; i++) {
 	return 0;
 }
 
+/* These functions could be used to unlock SkyStar2 cards. */
 
 static int eeprom_writeKey(struct adapter *adapter, u8 *key, u32 len)
 {
@@ -125,6 +127,8 @@ static int flexcop_eeprom_lrc_read(struct flexcop_device *fc, u16 addr,
 	return ret;
 }
 
+/* JJ's comment about extended == 1: it is not presently used anywhere but was
+ * added to the low-level functions for possible support of EUI64 */
 int flexcop_eeprom_check_mac_addr(struct flexcop_device *fc, int extended)
 {
 	u8 buf[8];

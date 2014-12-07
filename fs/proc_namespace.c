@@ -1,8 +1,16 @@
+/*
+ * fs/proc_namespace.c - handling of /proc/<pid>/{mounts,mountinfo,mountstats}
+ *
+ * In fact, that's a piece of procfs; it's *almost* isolated from
+ * the rest of fs/proc, but has rather close relationships with
+ * fs/namespace.c, thus here instead of fs/proc
+ *
+ */
 #include <linux/mnt_namespace.h>
 #include <linux/nsproxy.h>
 #include <linux/security.h>
 #include <linux/fs_struct.h>
-#include "proc/internal.h" 
+#include "proc/internal.h" /* only for get_proc_task() in ->open() */
 
 #include "pnode.h"
 #include "internal.h"
@@ -130,7 +138,7 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
 		goto out;
 	seq_putc(m, ' ');
 
-	
+	/* mountpoints outside of chroot jail will give SEQ_SKIP on this */
 	err = seq_path_root(m, &mnt_path, &root, " \t\n\\");
 	if (err)
 		goto out;
@@ -138,7 +146,7 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
 	seq_puts(m, mnt->mnt_flags & MNT_READONLY ? " ro" : " rw");
 	show_mnt_opts(m, mnt);
 
-	
+	/* Tagged fields ("foo:X" or "bar") */
 	if (IS_MNT_SHARED(r))
 		seq_printf(m, " shared:%i", r->mnt_group_id);
 	if (IS_MNT_SLAVE(r)) {
@@ -151,7 +159,7 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
 	if (IS_MNT_UNBINDABLE(r))
 		seq_puts(m, " unbindable");
 
-	
+	/* Filesystem specific data */
 	seq_puts(m, " - ");
 	show_type(m, sb);
 	seq_putc(m, ' ');
@@ -179,7 +187,7 @@ static int show_vfsstat(struct seq_file *m, struct vfsmount *mnt)
 	struct super_block *sb = mnt_path.dentry->d_sb;
 	int err = 0;
 
-	
+	/* device */
 	if (sb->s_op->show_devname) {
 		seq_puts(m, "device ");
 		err = sb->s_op->show_devname(m, mnt_path.dentry);
@@ -191,16 +199,16 @@ static int show_vfsstat(struct seq_file *m, struct vfsmount *mnt)
 			seq_puts(m, "no device");
 	}
 
-	
+	/* mount point */
 	seq_puts(m, " mounted on ");
 	seq_path(m, &mnt_path, " \t\n\\");
 	seq_putc(m, ' ');
 
-	
+	/* file system type */
 	seq_puts(m, "with fstype ");
 	show_type(m, sb);
 
-	
+	/* optional statistics */
 	if (sb->s_op->show_stats) {
 		seq_putc(m, ' ');
 		if (!err)

@@ -21,17 +21,21 @@
 #include <asm/fixmap.h>
 #include <hv/hypervisor.h>
 
+/* Bits for the size of the second-level page table. */
 #define L2_KERNEL_PGTABLE_SHIFT \
   (HV_LOG2_PAGE_SIZE_LARGE - HV_LOG2_PAGE_SIZE_SMALL + HV_LOG2_PTE_SIZE)
 
+/* We currently allocate user L2 page tables by page (unlike kernel L2s). */
 #if L2_KERNEL_PGTABLE_SHIFT < HV_LOG2_PAGE_SIZE_SMALL
 #define L2_USER_PGTABLE_SHIFT HV_LOG2_PAGE_SIZE_SMALL
 #else
 #define L2_USER_PGTABLE_SHIFT L2_KERNEL_PGTABLE_SHIFT
 #endif
 
+/* How many pages do we need, as an "order", for a user L2 page table? */
 #define L2_USER_PGTABLE_ORDER (L2_USER_PGTABLE_SHIFT - HV_LOG2_PAGE_SIZE_SMALL)
 
+/* How big is a kernel L2 page table? */
 #define L2_KERNEL_PGTABLE_SIZE (1 << L2_KERNEL_PGTABLE_SHIFT)
 
 static inline void set_pmd(pmd_t *pmdp, pmd_t pmd)
@@ -57,6 +61,9 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 			      __pgprot(_PAGE_PRESENT)));
 }
 
+/*
+ * Allocate and free page tables.
+ */
 
 extern pgd_t *pgd_alloc(struct mm_struct *mm);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
@@ -83,13 +90,21 @@ extern void __pte_free_tlb(struct mmu_gather *tlb, struct page *pte,
 
 #define check_pgt_cache()	do { } while (0)
 
+/*
+ * Get the small-page pte_t lowmem entry for a given pfn.
+ * This may or may not be in use, depending on whether the initial
+ * huge-page entry for the page has already been shattered.
+ */
 pte_t *get_prealloc_pte(unsigned long pfn);
 
+/* During init, we can shatter kernel huge pages if needed. */
 void shatter_pmd(pmd_t *pmd);
 
+/* After init, a more complex technique is required. */
 void shatter_huge_page(unsigned long addr);
 
 #ifdef __tilegx__
+/* We share a single page allocator for both L1 and L2 page tables. */
 #if HV_L1_SIZE != HV_L2_SIZE
 # error Rework assumption that L1 and L2 page tables are same size.
 #endif
@@ -104,4 +119,4 @@ void shatter_huge_page(unsigned long addr);
   __pte_free_tlb((tlb), virt_to_page(pmdp), (address))
 #endif
 
-#endif 
+#endif /* _ASM_TILE_PGALLOC_H */

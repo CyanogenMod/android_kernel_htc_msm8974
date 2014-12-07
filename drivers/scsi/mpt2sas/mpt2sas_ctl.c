@@ -67,12 +67,29 @@ static DECLARE_WAIT_QUEUE_HEAD(ctl_poll_wait);
 static int _ctl_send_release(struct MPT2SAS_ADAPTER *ioc, u8 buffer_type,
     u8 *issue_reset);
 
+/**
+ * enum block_state - blocking state
+ * @NON_BLOCKING: non blocking
+ * @BLOCKING: blocking
+ *
+ * These states are for ioctls that need to wait for a response
+ * from firmware, so they probably require sleep.
+ */
 enum block_state {
 	NON_BLOCKING,
 	BLOCKING,
 };
 
 #ifdef CONFIG_SCSI_MPT2SAS_LOGGING
+/**
+ * _ctl_sas_device_find_by_handle - sas device search
+ * @ioc: per adapter object
+ * @handle: sas device handle (assigned by firmware)
+ * Context: Calling function should acquire ioc->sas_device_lock
+ *
+ * This searches for sas_device based on sas_address, then return sas_device
+ * object.
+ */
 static struct _sas_device *
 _ctl_sas_device_find_by_handle(struct MPT2SAS_ADAPTER *ioc, u16 handle)
 {
@@ -90,6 +107,17 @@ _ctl_sas_device_find_by_handle(struct MPT2SAS_ADAPTER *ioc, u16 handle)
 	return r;
 }
 
+/**
+ * _ctl_display_some_debug - debug routine
+ * @ioc: per adapter object
+ * @smid: system request message index
+ * @calling_function_name: string pass from calling function
+ * @mpi_reply: reply message frame
+ * Context: none.
+ *
+ * Function for displaying debug info helpful when debugging issues
+ * in this module.
+ */
 static void
 _ctl_display_some_debug(struct MPT2SAS_ADAPTER *ioc, u16 smid,
     char *calling_function_name, MPI2DefaultReply_t *mpi_reply)
@@ -229,6 +257,19 @@ _ctl_display_some_debug(struct MPT2SAS_ADAPTER *ioc, u16 smid,
 }
 #endif
 
+/**
+ * mpt2sas_ctl_done - ctl module completion routine
+ * @ioc: per adapter object
+ * @smid: system request message index
+ * @msix_index: MSIX table index supplied by the OS
+ * @reply: reply message frame(lower 32bit addr)
+ * Context: none.
+ *
+ * The callback handler when using ioc->ctl_cb_idx.
+ *
+ * Return 1 meaning mf should be freed from _base_interrupt
+ *        0 means the mf is freed from this function.
+ */
 u8
 mpt2sas_ctl_done(struct MPT2SAS_ADAPTER *ioc, u16 smid, u8 msix_index,
 	u32 reply)
@@ -247,7 +288,7 @@ mpt2sas_ctl_done(struct MPT2SAS_ADAPTER *ioc, u16 smid, u8 msix_index,
 	if (mpi_reply) {
 		memcpy(ioc->ctl_cmds.reply, mpi_reply, mpi_reply->MsgLength*4);
 		ioc->ctl_cmds.status |= MPT2_CMD_REPLY_VALID;
-		
+		/* get sense data */
 		if (mpi_reply->Function == MPI2_FUNCTION_SCSI_IO_REQUEST ||
 		    mpi_reply->Function ==
 		    MPI2_FUNCTION_RAID_SCSI_IO_PASSTHROUGH) {
@@ -270,6 +311,16 @@ mpt2sas_ctl_done(struct MPT2SAS_ADAPTER *ioc, u16 smid, u8 msix_index,
 	return 1;
 }
 
+/**
+ * _ctl_check_event_type - determines when an event needs logging
+ * @ioc: per adapter object
+ * @event: firmware event
+ *
+ * The bitmask in ioc->event_type[] indicates which events should be
+ * be saved in the driver event_log.  This bitmask is set by application.
+ *
+ * Returns 1 when event should be captured, or zero means no match.
+ */
 static int
 _ctl_check_event_type(struct MPT2SAS_ADAPTER *ioc, u16 event)
 {
@@ -286,6 +337,13 @@ _ctl_check_event_type(struct MPT2SAS_ADAPTER *ioc, u16 event)
 	return desired_event & ioc->event_type[i];
 }
 
+/**
+ * mpt2sas_ctl_add_to_event_log - add event
+ * @ioc: per adapter object
+ * @mpi_reply: reply message frame
+ *
+ * Return nothing.
+ */
 void
 mpt2sas_ctl_add_to_event_log(struct MPT2SAS_ADAPTER *ioc,
     Mpi2EventNotificationReply_t *mpi_reply)
@@ -303,7 +361,7 @@ mpt2sas_ctl_add_to_event_log(struct MPT2SAS_ADAPTER *ioc,
 
 	if (_ctl_check_event_type(ioc, event)) {
 
-		
+		/* insert entry into circular event_log */
 		i = ioc->event_context % MPT2SAS_CTL_EVENT_LOG_SIZE;
 		event_log = ioc->event_log;
 		event_log[i].event = event;
@@ -316,6 +374,10 @@ mpt2sas_ctl_add_to_event_log(struct MPT2SAS_ADAPTER *ioc,
 		send_aen = 1;
 	}
 
+	/* This aen_event_read_flag flag is set until the
+	 * application has read the event log.
+	 * For MPI2_EVENT_LOG_ENTRY_ADDED, we always notify.
+	 */
 	if (event == MPI2_EVENT_LOG_ENTRY_ADDED ||
 	    (send_aen && !ioc->aen_event_read_flag)) {
 		ioc->aen_event_read_flag = 1;
@@ -325,6 +387,19 @@ mpt2sas_ctl_add_to_event_log(struct MPT2SAS_ADAPTER *ioc,
 	}
 }
 
+/**
+ * mpt2sas_ctl_event_callback - firmware event handler (called at ISR time)
+ * @ioc: per adapter object
+ * @msix_index: MSIX table index supplied by the OS
+ * @reply: reply message frame(lower 32bit addr)
+ * Context: interrupt.
+ *
+ * This function merely adds a new work task into ioc->firmware_event_thread.
+ * The tasks are worked from _firmware_event_work in user context.
+ *
+ * Return 1 meaning mf should be freed from _base_interrupt
+ *        0 means the mf is freed from this function.
+ */
 u8
 mpt2sas_ctl_event_callback(struct MPT2SAS_ADAPTER *ioc, u8 msix_index,
 	u32 reply)
@@ -336,6 +411,13 @@ mpt2sas_ctl_event_callback(struct MPT2SAS_ADAPTER *ioc, u8 msix_index,
 	return 1;
 }
 
+/**
+ * _ctl_verify_adapter - validates ioc_number passed from application
+ * @ioc: per adapter object
+ * @iocpp: The ioc pointer is returned in this.
+ *
+ * Return (-1) means error, else ioc_number.
+ */
 static int
 _ctl_verify_adapter(int ioc_number, struct MPT2SAS_ADAPTER **iocpp)
 {
@@ -351,6 +433,16 @@ _ctl_verify_adapter(int ioc_number, struct MPT2SAS_ADAPTER **iocpp)
 	return -1;
 }
 
+/**
+ * mpt2sas_ctl_reset_handler - reset callback handler (for ctl)
+ * @ioc: per adapter object
+ * @reset_phase: phase
+ *
+ * The handler for doing any required cleanup or initialization.
+ *
+ * The reset phase can be MPT2_IOC_PRE_RESET, MPT2_IOC_AFTER_RESET,
+ * MPT2_IOC_DONE_RESET
+ */
 void
 mpt2sas_ctl_reset_handler(struct MPT2SAS_ADAPTER *ioc, int reset_phase)
 {
@@ -398,18 +490,39 @@ mpt2sas_ctl_reset_handler(struct MPT2SAS_ADAPTER *ioc, int reset_phase)
 	}
 }
 
+/**
+ * _ctl_fasync -
+ * @fd -
+ * @filep -
+ * @mode -
+ *
+ * Called when application request fasyn callback handler.
+ */
 static int
 _ctl_fasync(int fd, struct file *filep, int mode)
 {
 	return fasync_helper(fd, filep, mode, &async_queue);
 }
 
+/**
+ * _ctl_release -
+ * @inode -
+ * @filep -
+ *
+ * Called when application releases the fasyn callback handler.
+ */
 static int
 _ctl_release(struct inode *inode, struct file *filep)
 {
 	return fasync_helper(-1, filep, 0, &async_queue);
 }
 
+/**
+ * _ctl_poll -
+ * @file -
+ * @wait -
+ *
+ */
 static unsigned int
 _ctl_poll(struct file *filep, poll_table *wait)
 {
@@ -424,6 +537,15 @@ _ctl_poll(struct file *filep, poll_table *wait)
 	return 0;
 }
 
+/**
+ * _ctl_set_task_mid - assign an active smid to tm request
+ * @ioc: per adapter object
+ * @karg - (struct mpt2_ioctl_command)
+ * @tm_request - pointer to mf from user space
+ *
+ * Returns 0 when an smid if found, else fail.
+ * during failure, the reply frame is filled.
+ */
 static int
 _ctl_set_task_mid(struct MPT2SAS_ADAPTER *ioc, struct mpt2_ioctl_command *karg,
     Mpi2SCSITaskManagementRequest_t *tm_request)
@@ -493,6 +615,13 @@ _ctl_set_task_mid(struct MPT2SAS_ADAPTER *ioc, struct mpt2_ioctl_command *karg,
 	return 0;
 }
 
+/**
+ * _ctl_do_mpt_command - main handler for MPT2COMMAND opcode
+ * @ioc: per adapter object
+ * @karg - (struct mpt2_ioctl_command)
+ * @mf - pointer to mf in user space
+ * @state - NON_BLOCKING or BLOCKING
+ */
 static long
 _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
     struct mpt2_ioctl_command karg, void __user *mf, enum block_state state)
@@ -558,14 +687,14 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		goto out;
 	}
 
-	
+	/* Check for overflow and wraparound */
 	if (karg.data_sge_offset * 4 > ioc->request_sz ||
 	    karg.data_sge_offset > (UINT_MAX / 4)) {
 		ret = -EINVAL;
 		goto out;
 	}
 
-	
+	/* copy in request message frame from user */
 	if (copy_from_user(mpi_request, mf, karg.data_sge_offset*4)) {
 		printk(KERN_ERR "failure at %s:%d/%s()!\n", __FILE__, __LINE__,
 		    __func__);
@@ -612,8 +741,8 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		}
 	}
 
-	
-	if (data_out_sz)  {
+	/* obtain dma-able memory for data transfer */
+	if (data_out_sz) /* WRITE */ {
 		data_out = pci_alloc_consistent(ioc->pdev, data_out_sz,
 		    &data_out_dma);
 		if (!data_out) {
@@ -633,7 +762,7 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		}
 	}
 
-	if (data_in_sz)  {
+	if (data_in_sz) /* READ */ {
 		data_in = pci_alloc_consistent(ioc->pdev, data_in_sz,
 		    &data_in_dma);
 		if (!data_in) {
@@ -645,37 +774,37 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		}
 	}
 
-	
+	/* add scatter gather elements */
 	psge = (void *)request + (karg.data_sge_offset*4);
 
 	if (!data_out_sz && !data_in_sz) {
 		mpt2sas_base_build_zero_len_sge(ioc, psge);
 	} else if (data_out_sz && data_in_sz) {
-		
+		/* WRITE sgel first */
 		sgl_flags = (MPI2_SGE_FLAGS_SIMPLE_ELEMENT |
 		    MPI2_SGE_FLAGS_END_OF_BUFFER | MPI2_SGE_FLAGS_HOST_TO_IOC);
 		sgl_flags = sgl_flags << MPI2_SGE_FLAGS_SHIFT;
 		ioc->base_add_sg_single(psge, sgl_flags |
 		    data_out_sz, data_out_dma);
 
-		
+		/* incr sgel */
 		psge += ioc->sge_size;
 
-		
+		/* READ sgel last */
 		sgl_flags = (MPI2_SGE_FLAGS_SIMPLE_ELEMENT |
 		    MPI2_SGE_FLAGS_LAST_ELEMENT | MPI2_SGE_FLAGS_END_OF_BUFFER |
 		    MPI2_SGE_FLAGS_END_OF_LIST);
 		sgl_flags = sgl_flags << MPI2_SGE_FLAGS_SHIFT;
 		ioc->base_add_sg_single(psge, sgl_flags |
 		    data_in_sz, data_in_dma);
-	} else if (data_out_sz)  {
+	} else if (data_out_sz) /* WRITE */ {
 		sgl_flags = (MPI2_SGE_FLAGS_SIMPLE_ELEMENT |
 		    MPI2_SGE_FLAGS_LAST_ELEMENT | MPI2_SGE_FLAGS_END_OF_BUFFER |
 		    MPI2_SGE_FLAGS_END_OF_LIST | MPI2_SGE_FLAGS_HOST_TO_IOC);
 		sgl_flags = sgl_flags << MPI2_SGE_FLAGS_SHIFT;
 		ioc->base_add_sg_single(psge, sgl_flags |
 		    data_out_sz, data_out_dma);
-	} else if (data_in_sz)  {
+	} else if (data_in_sz) /* READ */ {
 		sgl_flags = (MPI2_SGE_FLAGS_SIMPLE_ELEMENT |
 		    MPI2_SGE_FLAGS_LAST_ELEMENT | MPI2_SGE_FLAGS_END_OF_BUFFER |
 		    MPI2_SGE_FLAGS_END_OF_LIST);
@@ -684,7 +813,7 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		    data_in_sz, data_in_dma);
 	}
 
-	
+	/* send command to firmware */
 #ifdef CONFIG_SCSI_MPT2SAS_LOGGING
 	_ctl_display_some_debug(ioc, smid, "ctl_request", NULL);
 #endif
@@ -737,7 +866,7 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		    (Mpi2SmpPassthroughRequest_t *)mpi_request;
 		u8 *data;
 
-		
+		/* ioc determines which port to use */
 		smp_request->PhysicalPort = 0xFF;
 		if (smp_request->PassthroughFlags &
 		    MPI2_SMP_PT_REQ_PT_FLAGS_IMMEDIATE)
@@ -814,7 +943,7 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		    le32_to_cpu(tm_reply->TerminationCount));
 	}
 #endif
-	
+	/* copy out xdata to user */
 	if (data_in_sz) {
 		if (copy_to_user(karg.data_in_buf_ptr, data_in,
 		    data_in_sz)) {
@@ -825,7 +954,7 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		}
 	}
 
-	
+	/* copy out reply message frame to user */
 	if (karg.max_reply_bytes) {
 		sz = min_t(u32, karg.max_reply_bytes, ioc->reply_sz);
 		if (copy_to_user(karg.reply_frame_buf_ptr, ioc->ctl_cmds.reply,
@@ -837,7 +966,7 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 		}
 	}
 
-	
+	/* copy out sense to user */
 	if (karg.max_sense_bytes && (mpi_request->Function ==
 	    MPI2_FUNCTION_SCSI_IO_REQUEST || mpi_request->Function ==
 	    MPI2_FUNCTION_RAID_SCSI_IO_PASSTHROUGH)) {
@@ -873,7 +1002,7 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 
  out:
 
-	
+	/* free memory associated with sg buffers */
 	if (data_in)
 		pci_free_consistent(ioc->pdev, data_in_sz, data_in,
 		    data_in_dma);
@@ -888,6 +1017,10 @@ _ctl_do_mpt_command(struct MPT2SAS_ADAPTER *ioc,
 	return ret;
 }
 
+/**
+ * _ctl_getiocinfo - main handler for MPT2IOCINFO opcode
+ * @arg - user space buffer containing ioctl content
+ */
 static long
 _ctl_getiocinfo(void __user *arg)
 {
@@ -934,6 +1067,10 @@ _ctl_getiocinfo(void __user *arg)
 	return 0;
 }
 
+/**
+ * _ctl_eventquery - main handler for MPT2EVENTQUERY opcode
+ * @arg - user space buffer containing ioctl content
+ */
 static long
 _ctl_eventquery(void __user *arg)
 {
@@ -963,6 +1100,10 @@ _ctl_eventquery(void __user *arg)
 	return 0;
 }
 
+/**
+ * _ctl_eventenable - main handler for MPT2EVENTENABLE opcode
+ * @arg - user space buffer containing ioctl content
+ */
 static long
 _ctl_eventenable(void __user *arg)
 {
@@ -986,7 +1127,7 @@ _ctl_eventenable(void __user *arg)
 	    MPI2_EVENT_NOTIFY_EVENTMASK_WORDS * sizeof(u32));
 	mpt2sas_base_validate_event_type(ioc, ioc->event_type);
 
-	
+	/* initialize event_log */
 	ioc->event_context = 0;
 	ioc->aen_event_read_flag = 0;
 	ioc->event_log = kcalloc(MPT2SAS_CTL_EVENT_LOG_SIZE,
@@ -999,6 +1140,10 @@ _ctl_eventenable(void __user *arg)
 	return 0;
 }
 
+/**
+ * _ctl_eventreport - main handler for MPT2EVENTREPORT opcode
+ * @arg - user space buffer containing ioctl content
+ */
 static long
 _ctl_eventreport(void __user *arg)
 {
@@ -1023,6 +1168,9 @@ _ctl_eventreport(void __user *arg)
 	max_events = number_bytes/sizeof(struct MPT2_IOCTL_EVENTS);
 	max = min_t(u32, MPT2SAS_CTL_EVENT_LOG_SIZE, max_events);
 
+	/* If fewer than 1 event is requested, there must have
+	 * been some type of error.
+	 */
 	if (!max || !ioc->event_log)
 		return -ENODATA;
 
@@ -1033,11 +1181,15 @@ _ctl_eventreport(void __user *arg)
 		return -EFAULT;
 	}
 
-	
+	/* reset flag so SIGIO can restart */
 	ioc->aen_event_read_flag = 0;
 	return 0;
 }
 
+/**
+ * _ctl_do_reset - main handler for MPT2HARDRESET opcode
+ * @arg - user space buffer containing ioctl content
+ */
 static long
 _ctl_do_reset(void __user *arg)
 {
@@ -1066,6 +1218,11 @@ _ctl_do_reset(void __user *arg)
 	return 0;
 }
 
+/**
+ * _ctl_btdh_search_sas_device - searching for sas device
+ * @ioc: per adapter object
+ * @btdh: btdh ioctl payload
+ */
 static int
 _ctl_btdh_search_sas_device(struct MPT2SAS_ADAPTER *ioc,
     struct mpt2_ioctl_btdh_mapping *btdh)
@@ -1097,6 +1254,11 @@ _ctl_btdh_search_sas_device(struct MPT2SAS_ADAPTER *ioc,
 	return rc;
 }
 
+/**
+ * _ctl_btdh_search_raid_device - searching for raid device
+ * @ioc: per adapter object
+ * @btdh: btdh ioctl payload
+ */
 static int
 _ctl_btdh_search_raid_device(struct MPT2SAS_ADAPTER *ioc,
     struct mpt2_ioctl_btdh_mapping *btdh)
@@ -1128,6 +1290,10 @@ _ctl_btdh_search_raid_device(struct MPT2SAS_ADAPTER *ioc,
 	return rc;
 }
 
+/**
+ * _ctl_btdh_mapping - main handler for MPT2BTDHMAPPING opcode
+ * @arg - user space buffer containing ioctl content
+ */
 static long
 _ctl_btdh_mapping(void __user *arg)
 {
@@ -1158,6 +1324,13 @@ _ctl_btdh_mapping(void __user *arg)
 	return 0;
 }
 
+/**
+ * _ctl_diag_capability - return diag buffer capability
+ * @ioc: per adapter object
+ * @buffer_type: specifies either TRACE, SNAPSHOT, or EXTENDED
+ *
+ * returns 1 when diag buffer support is enabled in firmware
+ */
 static u8
 _ctl_diag_capability(struct MPT2SAS_ADAPTER *ioc, u8 buffer_type)
 {
@@ -1183,6 +1356,12 @@ _ctl_diag_capability(struct MPT2SAS_ADAPTER *ioc, u8 buffer_type)
 	return rc;
 }
 
+/**
+ * _ctl_diag_register_2 - wrapper for registering diag buffer support
+ * @ioc: per adapter object
+ * @diag_register: the diag_register struct passed in from user space
+ *
+ */
 static long
 _ctl_diag_register_2(struct MPT2SAS_ADAPTER *ioc,
     struct mpt2_diag_register *diag_register)
@@ -1284,7 +1463,7 @@ _ctl_diag_register_2(struct MPT2SAS_ADAPTER *ioc,
 	mpi_request->Flags = cpu_to_le32(diag_register->diagnostic_flags);
 	mpi_request->BufferAddress = cpu_to_le64(request_data_dma);
 	mpi_request->BufferLength = cpu_to_le32(request_data_sz);
-	mpi_request->VF_ID = 0; 
+	mpi_request->VF_ID = 0; /* TODO */
 	mpi_request->VP_ID = 0;
 
 	dctlprintk(ioc, printk(MPT2SAS_INFO_FMT "%s: diag_buffer(0x%p), "
@@ -1311,7 +1490,7 @@ _ctl_diag_register_2(struct MPT2SAS_ADAPTER *ioc,
 		goto issue_host_reset;
 	}
 
-	
+	/* process the completed Reply Message Frame */
 	if ((ioc->ctl_cmds.status & MPT2_CMD_REPLY_VALID) == 0) {
 		printk(MPT2SAS_ERR_FMT "%s: no reply message\n",
 		    ioc->name, __func__);
@@ -1349,6 +1528,14 @@ _ctl_diag_register_2(struct MPT2SAS_ADAPTER *ioc,
 	return rc;
 }
 
+/**
+ * mpt2sas_enable_diag_buffer - enabling diag_buffers support driver load time
+ * @ioc: per adapter object
+ * @bits_to_register: bitwise field where trace is bit 0, and snapshot is bit 1
+ *
+ * This is called when command line option diag_buffer_enable is enabled
+ * at driver load time.
+ */
 void
 mpt2sas_enable_diag_buffer(struct MPT2SAS_ADAPTER *ioc, u8 bits_to_register)
 {
@@ -1360,7 +1547,7 @@ mpt2sas_enable_diag_buffer(struct MPT2SAS_ADAPTER *ioc, u8 bits_to_register)
 		printk(MPT2SAS_INFO_FMT "registering trace buffer support\n",
 		    ioc->name);
 		diag_register.buffer_type = MPI2_DIAG_BUF_TYPE_TRACE;
-		
+		/* register for 1MB buffers  */
 		diag_register.requested_buffer_size = (1024 * 1024);
 		diag_register.unique_id = 0x7075900;
 		_ctl_diag_register_2(ioc,  &diag_register);
@@ -1370,7 +1557,7 @@ mpt2sas_enable_diag_buffer(struct MPT2SAS_ADAPTER *ioc, u8 bits_to_register)
 		printk(MPT2SAS_INFO_FMT "registering snapshot buffer support\n",
 		    ioc->name);
 		diag_register.buffer_type = MPI2_DIAG_BUF_TYPE_SNAPSHOT;
-		
+		/* register for 2MB buffers  */
 		diag_register.requested_buffer_size = 2 * (1024 * 1024);
 		diag_register.unique_id = 0x7075901;
 		_ctl_diag_register_2(ioc,  &diag_register);
@@ -1380,13 +1567,21 @@ mpt2sas_enable_diag_buffer(struct MPT2SAS_ADAPTER *ioc, u8 bits_to_register)
 		printk(MPT2SAS_INFO_FMT "registering extended buffer support\n",
 		    ioc->name);
 		diag_register.buffer_type = MPI2_DIAG_BUF_TYPE_EXTENDED;
-		
+		/* register for 2MB buffers  */
 		diag_register.requested_buffer_size = 2 * (1024 * 1024);
 		diag_register.unique_id = 0x7075901;
 		_ctl_diag_register_2(ioc,  &diag_register);
 	}
 }
 
+/**
+ * _ctl_diag_register - application register with driver
+ * @arg - user space buffer containing ioctl content
+ * @state - NON_BLOCKING or BLOCKING
+ *
+ * This will allow the driver to setup any required buffers that will be
+ * needed by firmware to communicate with the driver.
+ */
 static long
 _ctl_diag_register(void __user *arg, enum block_state state)
 {
@@ -1411,6 +1606,13 @@ _ctl_diag_register(void __user *arg, enum block_state state)
 	return rc;
 }
 
+/**
+ * _ctl_diag_unregister - application unregister with driver
+ * @arg - user space buffer containing ioctl content
+ *
+ * This will allow the driver to cleanup any memory allocated for diag
+ * messages and to free up any resources.
+ */
 static long
 _ctl_diag_unregister(void __user *arg)
 {
@@ -1474,6 +1676,14 @@ _ctl_diag_unregister(void __user *arg)
 	return 0;
 }
 
+/**
+ * _ctl_diag_query - query relevant info associated with diag buffers
+ * @arg - user space buffer containing ioctl content
+ *
+ * The application will send only buffer_type and unique_id.  Driver will
+ * inspect unique_id first, if valid, fill in all the info.  If unique_id is
+ * 0x00, the driver will return info specified by Buffer Type.
+ */
 static long
 _ctl_diag_query(void __user *arg)
 {
@@ -1551,6 +1761,13 @@ _ctl_diag_query(void __user *arg)
 	return 0;
 }
 
+/**
+ * _ctl_send_release - Diag Release Message
+ * @ioc: per adapter object
+ * @buffer_type - specifies either TRACE, SNAPSHOT, or EXTENDED
+ * @issue_reset - specifies whether host reset is required.
+ *
+ */
 static int
 _ctl_send_release(struct MPT2SAS_ADAPTER *ioc, u8 buffer_type, u8 *issue_reset)
 {
@@ -1599,7 +1816,7 @@ _ctl_send_release(struct MPT2SAS_ADAPTER *ioc, u8 buffer_type, u8 *issue_reset)
 
 	mpi_request->Function = MPI2_FUNCTION_DIAG_RELEASE;
 	mpi_request->BufferType = buffer_type;
-	mpi_request->VF_ID = 0; 
+	mpi_request->VF_ID = 0; /* TODO */
 	mpi_request->VP_ID = 0;
 
 	init_completion(&ioc->ctl_cmds.done);
@@ -1618,7 +1835,7 @@ _ctl_send_release(struct MPT2SAS_ADAPTER *ioc, u8 buffer_type, u8 *issue_reset)
 		goto out;
 	}
 
-	
+	/* process the completed Reply Message Frame */
 	if ((ioc->ctl_cmds.status & MPT2_CMD_REPLY_VALID) == 0) {
 		printk(MPT2SAS_ERR_FMT "%s: no reply message\n",
 		    ioc->name, __func__);
@@ -1646,6 +1863,15 @@ _ctl_send_release(struct MPT2SAS_ADAPTER *ioc, u8 buffer_type, u8 *issue_reset)
 	return rc;
 }
 
+/**
+ * _ctl_diag_release - request to send Diag Release Message to firmware
+ * @arg - user space buffer containing ioctl content
+ * @state - NON_BLOCKING or BLOCKING
+ *
+ * This allows ownership of the specified buffer to returned to the driver,
+ * allowing an application to read the buffer without fear that firmware is
+ * overwritting information in the buffer.
+ */
 static long
 _ctl_diag_release(void __user *arg, enum block_state state)
 {
@@ -1703,7 +1929,7 @@ _ctl_diag_release(void __user *arg, enum block_state state)
 		return -ENOMEM;
 	}
 
-	
+	/* buffers were released by due to host reset */
 	if ((ioc->diag_buffer_status[buffer_type] &
 	    MPT2_DIAG_BUFFER_IS_DIAG_RESET)) {
 		ioc->diag_buffer_status[buffer_type] |=
@@ -1731,6 +1957,11 @@ _ctl_diag_release(void __user *arg, enum block_state state)
 	return rc;
 }
 
+/**
+ * _ctl_diag_read_buffer - request for copy of the diag buffer
+ * @arg - user space buffer containing ioctl content
+ * @state - NON_BLOCKING or BLOCKING
+ */
 static long
 _ctl_diag_read_buffer(void __user *arg, enum block_state state)
 {
@@ -1795,7 +2026,7 @@ _ctl_diag_read_buffer(void __user *arg, enum block_state state)
 	    "offset(%d), sz(%d)\n", ioc->name, __func__,
 	    diag_data, karg.starting_offset, karg.bytes_to_read));
 
-	
+	/* Truncate data on requests that are too large */
 	if ((diag_data + karg.bytes_to_read < diag_data) ||
 	    (diag_data + karg.bytes_to_read > request_data + request_size))
 		copy_size = request_size - karg.starting_offset;
@@ -1822,6 +2053,8 @@ _ctl_diag_read_buffer(void __user *arg, enum block_state state)
 		     __func__, buffer_type));
 		return 0;
 	}
+	/* Get a free request frame and save the message context.
+	*/
 	if (state == NON_BLOCKING && !mutex_trylock(&ioc->ctl_cmds.mutex))
 		return -EAGAIN;
 	else if (mutex_lock_interruptible(&ioc->ctl_cmds.mutex))
@@ -1857,7 +2090,7 @@ _ctl_diag_read_buffer(void __user *arg, enum block_state state)
 	for (i = 0; i < MPT2_PRODUCT_SPECIFIC_DWORDS; i++)
 		mpi_request->ProductSpecific[i] =
 			cpu_to_le32(ioc->product_specific[buffer_type][i]);
-	mpi_request->VF_ID = 0; 
+	mpi_request->VF_ID = 0; /* TODO */
 	mpi_request->VP_ID = 0;
 
 	init_completion(&ioc->ctl_cmds.done);
@@ -1875,7 +2108,7 @@ _ctl_diag_read_buffer(void __user *arg, enum block_state state)
 		goto issue_host_reset;
 	}
 
-	
+	/* process the completed Reply Message Frame */
 	if ((ioc->ctl_cmds.status & MPT2_CMD_REPLY_VALID) == 0) {
 		printk(MPT2SAS_ERR_FMT "%s: no reply message\n",
 		    ioc->name, __func__);
@@ -1910,6 +2143,12 @@ _ctl_diag_read_buffer(void __user *arg, enum block_state state)
 	return rc;
 }
 
+/**
+ * _ctl_ioctl_main - main ioctl entry point
+ * @file - (struct file)
+ * @cmd - ioctl opcode
+ * @arg -
+ */
 static long
 _ctl_ioctl_main(struct file *file, unsigned int cmd, void __user *arg)
 {
@@ -2012,6 +2251,12 @@ _ctl_ioctl_main(struct file *file, unsigned int cmd, void __user *arg)
 	return ret;
 }
 
+/**
+ * _ctl_ioctl - main ioctl entry point (unlocked)
+ * @file - (struct file)
+ * @cmd - ioctl opcode
+ * @arg -
+ */
 static long
 _ctl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -2024,6 +2269,14 @@ _ctl_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 }
 
 #ifdef CONFIG_COMPAT
+/**
+ * _ctl_compat_mpt_command - convert 32bit pointers to 64bit.
+ * @file - (struct file)
+ * @cmd - ioctl opcode
+ * @arg - (struct mpt2_ioctl_command32)
+ *
+ * MPT2COMMAND32 - Handle 32bit applications running on 64bit os.
+ */
 static long
 _ctl_compat_mpt_command(struct file *file, unsigned cmd, unsigned long arg)
 {
@@ -2068,6 +2321,14 @@ _ctl_compat_mpt_command(struct file *file, unsigned cmd, unsigned long arg)
 	return _ctl_do_mpt_command(ioc, karg, &uarg->mf, state);
 }
 
+/**
+ * _ctl_ioctl_compat - main ioctl entry point (compat)
+ * @file -
+ * @cmd -
+ * @arg -
+ *
+ * This routine handles 32 bit applications in 64bit os.
+ */
 static long
 _ctl_ioctl_compat(struct file *file, unsigned cmd, unsigned long arg)
 {
@@ -2083,7 +2344,15 @@ _ctl_ioctl_compat(struct file *file, unsigned cmd, unsigned long arg)
 }
 #endif
 
+/* scsi host attributes */
 
+/**
+ * _ctl_version_fw_show - firmware version
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_version_fw_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2099,6 +2368,13 @@ _ctl_version_fw_show(struct device *cdev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(version_fw, S_IRUGO, _ctl_version_fw_show, NULL);
 
+/**
+ * _ctl_version_bios_show - bios version
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_version_bios_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2116,6 +2392,13 @@ _ctl_version_bios_show(struct device *cdev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(version_bios, S_IRUGO, _ctl_version_bios_show, NULL);
 
+/**
+ * _ctl_version_mpi_show - MPI (message passing interface) version
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_version_mpi_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2128,6 +2411,13 @@ _ctl_version_mpi_show(struct device *cdev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(version_mpi, S_IRUGO, _ctl_version_mpi_show, NULL);
 
+/**
+ * _ctl_version_product_show - product name
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_version_product_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2140,6 +2430,13 @@ _ctl_version_product_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(version_product, S_IRUGO,
    _ctl_version_product_show, NULL);
 
+/**
+ * _ctl_version_nvdata_persistent_show - ndvata persistent version
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_version_nvdata_persistent_show(struct device *cdev,
     struct device_attribute *attr, char *buf)
@@ -2153,6 +2450,13 @@ _ctl_version_nvdata_persistent_show(struct device *cdev,
 static DEVICE_ATTR(version_nvdata_persistent, S_IRUGO,
     _ctl_version_nvdata_persistent_show, NULL);
 
+/**
+ * _ctl_version_nvdata_default_show - nvdata default version
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_version_nvdata_default_show(struct device *cdev,
     struct device_attribute *attr, char *buf)
@@ -2166,6 +2470,13 @@ _ctl_version_nvdata_default_show(struct device *cdev,
 static DEVICE_ATTR(version_nvdata_default, S_IRUGO,
     _ctl_version_nvdata_default_show, NULL);
 
+/**
+ * _ctl_board_name_show - board name
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_board_name_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2177,6 +2488,13 @@ _ctl_board_name_show(struct device *cdev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(board_name, S_IRUGO, _ctl_board_name_show, NULL);
 
+/**
+ * _ctl_board_assembly_show - board assembly name
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_board_assembly_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2189,6 +2507,13 @@ _ctl_board_assembly_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(board_assembly, S_IRUGO,
     _ctl_board_assembly_show, NULL);
 
+/**
+ * _ctl_board_tracer_show - board tracer number
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_board_tracer_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2201,6 +2526,16 @@ _ctl_board_tracer_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(board_tracer, S_IRUGO,
     _ctl_board_tracer_show, NULL);
 
+/**
+ * _ctl_io_delay_show - io missing delay
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is for firmware implemention for deboucing device
+ * removal events.
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_io_delay_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2213,6 +2548,16 @@ _ctl_io_delay_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(io_delay, S_IRUGO,
     _ctl_io_delay_show, NULL);
 
+/**
+ * _ctl_device_delay_show - device missing delay
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is for firmware implemention for deboucing device
+ * removal events.
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_device_delay_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2225,6 +2570,15 @@ _ctl_device_delay_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(device_delay, S_IRUGO,
     _ctl_device_delay_show, NULL);
 
+/**
+ * _ctl_fw_queue_depth_show - global credits
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is firmware queue depth limit
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_fw_queue_depth_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2237,6 +2591,15 @@ _ctl_fw_queue_depth_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(fw_queue_depth, S_IRUGO,
     _ctl_fw_queue_depth_show, NULL);
 
+/**
+ * _ctl_sas_address_show - sas address
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is the controller sas address
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_host_sas_address_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2250,6 +2613,13 @@ _ctl_host_sas_address_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(host_sas_address, S_IRUGO,
     _ctl_host_sas_address_show, NULL);
 
+/**
+ * _ctl_logging_level_show - logging level
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read/write' shost attribute.
+ */
 static ssize_t
 _ctl_logging_level_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2278,6 +2648,15 @@ _ctl_logging_level_store(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(logging_level, S_IRUGO | S_IWUSR,
     _ctl_logging_level_show, _ctl_logging_level_store);
 
+/* device attributes */
+/*
+ * _ctl_fwfault_debug_show - show/store fwfault_debug
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * mpt2sas_fwfault_debug is command line option
+ * A sysfs 'read/write' shost attribute.
+ */
 static ssize_t
 _ctl_fwfault_debug_show(struct device *cdev,
     struct device_attribute *attr, char *buf)
@@ -2307,6 +2686,15 @@ static DEVICE_ATTR(fwfault_debug, S_IRUGO | S_IWUSR,
     _ctl_fwfault_debug_show, _ctl_fwfault_debug_store);
 
 
+/**
+ * _ctl_ioc_reset_count_show - ioc reset count
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is firmware queue depth limit
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_ioc_reset_count_show(struct device *cdev, struct device_attribute *attr,
     char *buf)
@@ -2319,6 +2707,15 @@ _ctl_ioc_reset_count_show(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(ioc_reset_count, S_IRUGO,
     _ctl_ioc_reset_count_show, NULL);
 
+/**
+ * _ctl_ioc_reply_queue_count_show - number of reply queues
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is number of reply queues
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_ioc_reply_queue_count_show(struct device *cdev,
 	 struct device_attribute *attr, char *buf)
@@ -2346,6 +2743,13 @@ struct DIAG_BUFFER_START {
 	__le32 Reserved2;
 	__le32 Reserved3;
 };
+/**
+ * _ctl_host_trace_buffer_size_show - host buffer size (trace only)
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_host_trace_buffer_size_show(struct device *cdev,
     struct device_attribute *attr, char *buf)
@@ -2381,6 +2785,17 @@ _ctl_host_trace_buffer_size_show(struct device *cdev,
 static DEVICE_ATTR(host_trace_buffer_size, S_IRUGO,
 	 _ctl_host_trace_buffer_size_show, NULL);
 
+/**
+ * _ctl_host_trace_buffer_show - firmware ring buffer (trace only)
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read/write' shost attribute.
+ *
+ * You will only be able to read 4k bytes of ring buffer at a time.
+ * In order to read beyond 4k bytes, you will have to write out the
+ * offset to the same attribute, it will move the pointer.
+ */
 static ssize_t
 _ctl_host_trace_buffer_show(struct device *cdev, struct device_attribute *attr,
      char *buf)
@@ -2430,7 +2845,17 @@ _ctl_host_trace_buffer_store(struct device *cdev, struct device_attribute *attr,
 static DEVICE_ATTR(host_trace_buffer, S_IRUGO | S_IWUSR,
     _ctl_host_trace_buffer_show, _ctl_host_trace_buffer_store);
 
+/*****************************************/
 
+/**
+ * _ctl_host_trace_buffer_enable_show - firmware ring buffer (trace only)
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * A sysfs 'read/write' shost attribute.
+ *
+ * This is a mechnism to post/release host_trace_buffers
+ */
 static ssize_t
 _ctl_host_trace_buffer_enable_show(struct device *cdev,
     struct device_attribute *attr, char *buf)
@@ -2463,7 +2888,7 @@ _ctl_host_trace_buffer_enable_store(struct device *cdev,
 		return -EINVAL;
 
 	if (!strcmp(str, "post")) {
-		
+		/* exit out if host buffers are already posted */
 		if ((ioc->diag_buffer[MPI2_DIAG_BUF_TYPE_TRACE]) &&
 		    (ioc->diag_buffer_status[MPI2_DIAG_BUF_TYPE_TRACE] &
 		    MPT2_DIAG_BUFFER_IS_REGISTERED) &&
@@ -2479,7 +2904,7 @@ _ctl_host_trace_buffer_enable_store(struct device *cdev,
 		ioc->diag_buffer_status[MPI2_DIAG_BUF_TYPE_TRACE] = 0;
 		_ctl_diag_register_2(ioc,  &diag_register);
 	} else if (!strcmp(str, "release")) {
-		
+		/* exit out if host buffers are already released */
 		if (!ioc->diag_buffer[MPI2_DIAG_BUF_TYPE_TRACE])
 			goto out;
 		if ((ioc->diag_buffer_status[MPI2_DIAG_BUF_TYPE_TRACE] &
@@ -2523,6 +2948,15 @@ struct device_attribute *mpt2sas_host_attrs[] = {
 	NULL,
 };
 
+/**
+ * _ctl_device_sas_address_show - sas address
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is the sas address for the target
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_device_sas_address_show(struct device *dev, struct device_attribute *attr,
     char *buf)
@@ -2535,6 +2969,15 @@ _ctl_device_sas_address_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(sas_address, S_IRUGO, _ctl_device_sas_address_show, NULL);
 
+/**
+ * _ctl_device_handle_show - device handle
+ * @cdev - pointer to embedded class device
+ * @buf - the buffer returned
+ *
+ * This is the firmware assigned device handle
+ *
+ * A sysfs 'read-only' shost attribute.
+ */
 static ssize_t
 _ctl_device_handle_show(struct device *dev, struct device_attribute *attr,
     char *buf)
@@ -2571,6 +3014,10 @@ static struct miscdevice ctl_dev = {
 	.fops   = &ctl_fops,
 };
 
+/**
+ * mpt2sas_ctl_init - main entry point for ctl.
+ *
+ */
 void
 mpt2sas_ctl_init(void)
 {
@@ -2582,6 +3029,10 @@ mpt2sas_ctl_init(void)
 	init_waitqueue_head(&ctl_poll_wait);
 }
 
+/**
+ * mpt2sas_ctl_exit - exit point for ctl
+ *
+ */
 void
 mpt2sas_ctl_exit(void)
 {
@@ -2590,7 +3041,7 @@ mpt2sas_ctl_exit(void)
 
 	list_for_each_entry(ioc, &mpt2sas_ioc_list, list) {
 
-		
+		/* free memory associated to diag buffers */
 		for (i = 0; i < MPI2_DIAG_BUF_TYPE_COUNT; i++) {
 			if (!ioc->diag_buffer[i])
 				continue;

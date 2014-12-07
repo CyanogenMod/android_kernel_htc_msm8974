@@ -39,12 +39,22 @@ enum symtype {
 };
 
 static const char * const sym_regex_kernel[S_NSYMTYPES] = {
+/*
+ * Following symbols have been audited. There values are constant and do
+ * not change if bzImage is loaded at a different physical address than
+ * the address for which it has been compiled. Don't warn user about
+ * absolute relocations present w.r.t these symbols.
+ */
 	[S_ABS] =
 	"^(xen_irq_disable_direct_reloc$|"
 	"xen_save_fl_direct_reloc$|"
 	"VDSO|"
 	"__crc_)",
 
+/*
+ * These symbols are known to be relative, even if the linker marks them
+ * as absolute (typically defined outside any section in the linker script.)
+ */
 	[S_REL] =
 	"^(__init_(begin|end)|"
 	"__x86_cpu_dev_(start|end)|"
@@ -55,9 +65,16 @@ static const char * const sym_regex_kernel[S_NSYMTYPES] = {
 
 
 static const char * const sym_regex_realmode[S_NSYMTYPES] = {
+/*
+ * These are 16-bit segment symbols when compiling 16-bit code.
+ */
 	[S_SEG] =
 	"^real_mode_seg$",
 
+/*
+ * These are offsets belonging to segments, as opposed to linear addresses,
+ * when compiling 16-bit code.
+ */
 	[S_LIN] =
 	"^pa_",
 };
@@ -256,7 +273,7 @@ static void read_ehdr(FILE *fp)
 	if (ehdr.e_ident[EI_VERSION] != EV_CURRENT) {
 		die("Unknown ELF version\n");
 	}
-	
+	/* Convert the fields to native endian */
 	ehdr.e_type      = elf16_to_cpu(ehdr.e_type);
 	ehdr.e_machine   = elf16_to_cpu(ehdr.e_machine);
 	ehdr.e_version   = elf32_to_cpu(ehdr.e_version);
@@ -482,6 +499,19 @@ static void print_absolute_relocs(void)
 				continue;
 			}
 
+			/* Absolute symbols are not relocated if bzImage is
+			 * loaded at a non-compiled address. Display a warning
+			 * to user at compile time about the absolute
+			 * relocations present.
+			 *
+			 * User need to audit the code to make sure
+			 * some symbols which should have been section
+			 * relative have not become absolute because of some
+			 * linker optimization or wrong programming usage.
+			 *
+			 * Before warning check if this absolute symbol
+			 * relocation is harmless.
+			 */
 			if (is_reloc(S_ABS, name) || is_reloc(S_REL, name))
 				continue;
 
@@ -510,7 +540,7 @@ static void walk_relocs(void (*visit)(Elf32_Rel *rel, Elf32_Sym *sym),
 			int use_real_mode)
 {
 	int i;
-	
+	/* Walk through the relocations */
 	for (i = 0; i < ehdr.e_shnum; i++) {
 		char *sym_strtab;
 		Elf32_Sym *sh_symtab;
@@ -546,6 +576,10 @@ static void walk_relocs(void (*visit)(Elf32_Rel *rel, Elf32_Sym *sym),
 			case R_386_PC32:
 			case R_386_PC16:
 			case R_386_PC8:
+				/*
+				 * NONE can be ignored and and PC relative
+				 * relocations don't need to be adjusted.
+				 */
 				break;
 
 			case R_386_16:
@@ -604,7 +638,7 @@ static void count_reloc(Elf32_Rel *rel, Elf32_Sym *sym)
 
 static void collect_reloc(Elf32_Rel *rel, Elf32_Sym *sym)
 {
-	
+	/* Remember the address that needs to be adjusted. */
 	if (ELF32_R_TYPE(rel->r_info) == R_386_16)
 		relocs16[reloc16_idx++] = rel->r_offset;
 	else
@@ -629,7 +663,7 @@ static int write32(unsigned int v, FILE *f)
 static void emit_relocs(int as_text, int use_real_mode)
 {
 	int i;
-	
+	/* Count how many relocations I have and allocate space for them. */
 	reloc_count = 0;
 	walk_relocs(count_reloc, use_real_mode);
 	relocs = malloc(reloc_count * sizeof(relocs[0]));
@@ -643,19 +677,22 @@ static void emit_relocs(int as_text, int use_real_mode)
 		die("malloc of %d entries for relocs16 failed\n",
 			reloc16_count);
 	}
-	
+	/* Collect up the relocations */
 	reloc_idx = 0;
 	walk_relocs(collect_reloc, use_real_mode);
 
 	if (reloc16_count && !use_real_mode)
 		die("Segment relocations found but --realmode not specified\n");
 
-	
+	/* Order the relocations for more efficient processing */
 	qsort(relocs, reloc_count, sizeof(relocs[0]), cmp_relocs);
 	qsort(relocs16, reloc16_count, sizeof(relocs16[0]), cmp_relocs);
 
-	
+	/* Print the relocations */
 	if (as_text) {
+		/* Print the relocations in a form suitable that
+		 * gas will like.
+		 */
 		printf(".section \".data.reloc\",\"a\"\n");
 		printf(".balign 4\n");
 		if (use_real_mode) {
@@ -667,7 +704,7 @@ static void emit_relocs(int as_text, int use_real_mode)
 				printf("\t.long 0x%08lx\n", relocs[i]);
 			}
 		} else {
-			
+			/* Print a stop */
 			printf("\t.long 0x%08lx\n", (unsigned long)0);
 			for (i = 0; i < reloc_count; i++) {
 				printf("\t.long 0x%08lx\n", relocs[i]);
@@ -683,14 +720,14 @@ static void emit_relocs(int as_text, int use_real_mode)
 				write32(relocs16[i], stdout);
 			write32(reloc_count, stdout);
 
-			
+			/* Now print each relocation */
 			for (i = 0; i < reloc_count; i++)
 				write32(relocs[i], stdout);
 		} else {
-			
+			/* Print a stop */
 			write32(0, stdout);
 
-			
+			/* Now print each relocation */
 			for (i = 0; i < reloc_count; i++) {
 				write32(relocs[i], stdout);
 			}

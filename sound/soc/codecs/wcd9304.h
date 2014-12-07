@@ -136,8 +136,8 @@ struct sitar_mbhc_btn_detect_cfg {
 	s16 v_btn_press_delta_sta;
 	s16 v_btn_press_delta_cic;
 	u16 t_btn0_timeout;
-	s16 _v_btn_low[0]; 
-	s16 _v_btn_high[0]; 
+	s16 _v_btn_low[0]; /* v_btn_low[num_btn] */
+	s16 _v_btn_high[0]; /* v_btn_high[num_btn] */
 	u8 _n_ready[SITAR_NUM_CLK_FREQS];
 	u8 _n_cic[SITAR_NUM_CLK_FREQS];
 	u8 _gain[SITAR_NUM_CLK_FREQS];
@@ -151,8 +151,8 @@ struct sitar_mbhc_imped_detect_cfg {
 	u16 _t_dac_ramp_time;
 	u16 _rhph_high;
 	u16 _rhph_low;
-	u16 _rload[0]; 
-	u16 _alpha[0]; 
+	u16 _rload[0]; /* rload[n_rload] */
+	u16 _alpha[0]; /* alpha[n_rload] */
 	u16 _beta[3];
 } __packed;
 
@@ -160,6 +160,14 @@ struct sitar_mbhc_config {
 	struct snd_soc_jack *headset_jack;
 	struct snd_soc_jack *button_jack;
 	bool read_fw_bin;
+	/* void* calibration contains:
+	 *  struct tabla_mbhc_general_cfg generic;
+	 *  struct tabla_mbhc_plug_detect_cfg plug_det;
+	 *  struct tabla_mbhc_plug_type_cfg plug_type;
+	 *  struct tabla_mbhc_btn_detect_cfg btn_det;
+	 *  struct tabla_mbhc_imped_detect_cfg imped_det;
+	 * Note: various size depends on btn_det->num_btn
+	 */
 	void *calibration;
 	enum sitar_micbias_num micbias;
 	int (*mclk_cb_fn) (struct snd_soc_codec*, int, bool);
@@ -183,6 +191,8 @@ struct anc_header {
 extern int sitar_mclk_enable(struct snd_soc_codec *codec, int mclk_enable,
 							 bool dapm);
 
+/* Number of input and output Slimbus ports
+ */
 enum {
 	SITAR_RX1 = 0,
 	SITAR_RX2,
@@ -235,6 +245,9 @@ extern void *sitar_mbhc_cal_btn_det_mp(const struct sitar_mbhc_btn_detect_cfg
 	       sizeof(SITAR_MBHC_CAL_BTN_DET_PTR(cali)->_v_btn_high[0])))) \
 	)
 
+/* minimum size of calibration data assuming there is only one button and
+ * one rload.
+ */
 #define SITAR_MBHC_CAL_MIN_SIZE ( \
 	sizeof(struct sitar_mbhc_general_cfg) + \
 	sizeof(struct sitar_mbhc_plug_detect_cfg) + \

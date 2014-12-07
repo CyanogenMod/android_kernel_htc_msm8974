@@ -74,7 +74,7 @@ static void celleb_show_cpuinfo(struct seq_file *m)
 	root = of_find_node_by_path("/");
 	if (root)
 		model = of_get_property(root, "model", NULL);
-	
+	/* using "CHRP" is to trick anaconda into installing FCx into Celleb */
 	seq_printf(m, "machine\t\t: %s %s\n", celleb_machine_type, model);
 	of_node_put(root);
 }
@@ -94,7 +94,7 @@ static void celleb_progress(char *s, unsigned short hex)
 
 static void __init celleb_setup_arch_common(void)
 {
-	
+	/* init to some ~sane value until calibrate_delay() runs */
 	loops_per_jiffy = 50000000;
 
 #ifdef CONFIG_DUMMY_CONSOLE
@@ -104,13 +104,13 @@ static void __init celleb_setup_arch_common(void)
 
 static struct of_device_id celleb_bus_ids[] __initdata = {
 	{ .type = "scc", },
-	{ .type = "ioif", },	
+	{ .type = "ioif", },	/* old style */
 	{},
 };
 
 static int __init celleb_publish_devices(void)
 {
-	
+	/* Publish OF platform devices for southbridge IOs */
 	of_platform_bus_probe(NULL, celleb_bus_ids, NULL);
 
 	return 0;
@@ -119,6 +119,9 @@ machine_device_initcall(celleb_beat, celleb_publish_devices);
 machine_device_initcall(celleb_native, celleb_publish_devices);
 
 
+/*
+ * functions for Celleb-Beat
+ */
 static void __init celleb_setup_arch_beat(void)
 {
 #ifdef CONFIG_SPU_BASE
@@ -144,6 +147,9 @@ static int __init celleb_probe_beat(void)
 }
 
 
+/*
+ * functions for Celleb-native
+ */
 static void __init celleb_init_IRQ_native(void)
 {
 	iic_init_IRQ();
@@ -169,7 +175,7 @@ static void __init celleb_setup_arch_native(void)
 
 	cbe_pervasive_init();
 
-	
+	/* XXX: nvram initialization should be added */
 
 	celleb_setup_arch_common();
 }
@@ -189,6 +195,9 @@ static int __init celleb_probe_native(void)
 }
 
 
+/*
+ * machine definitions
+ */
 define_machine(celleb_beat) {
 	.name			= "Cell Reference Set (Beat)",
 	.probe			= celleb_probe_beat,

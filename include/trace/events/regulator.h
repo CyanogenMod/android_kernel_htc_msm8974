@@ -7,6 +7,10 @@
 #include <linux/ktime.h>
 #include <linux/tracepoint.h>
 
+/*
+ * Events which just log themselves and the regulator name for enable/disable
+ * type tracking.
+ */
 DECLARE_EVENT_CLASS(regulator_basic,
 
 	TP_PROTO(const char *name),
@@ -65,6 +69,10 @@ DEFINE_EVENT(regulator_basic, regulator_disable_complete,
 
 );
 
+/*
+ * Events that take a range of numerical values, mostly for voltages
+ * and so on.
+ */
 DECLARE_EVENT_CLASS(regulator_range,
 
 	TP_PROTO(const char *name, int min, int max),
@@ -96,6 +104,9 @@ DEFINE_EVENT(regulator_range, regulator_set_voltage,
 );
 
 
+/*
+ * Events that take a single value, mostly for readback and refcounts.
+ */
 DECLARE_EVENT_CLASS(regulator_value,
 
 	TP_PROTO(const char *name, unsigned int val),
@@ -124,6 +135,7 @@ DEFINE_EVENT(regulator_value, regulator_set_voltage_complete,
 
 );
 
-#endif 
+#endif /* _TRACE_POWER_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

@@ -169,6 +169,7 @@ arch_initcall(s3c2410a_dma_drvinit);
 #endif
 
 #if defined(CONFIG_CPU_S3C2442)
+/* S3C2442 DMA contains the same selection table as the S3C2410 */
 static struct subsys_interface s3c2442_dma_interface = {
 	.name		= "s3c2442_dma",
 	.subsys		= &s3c2442_subsys,

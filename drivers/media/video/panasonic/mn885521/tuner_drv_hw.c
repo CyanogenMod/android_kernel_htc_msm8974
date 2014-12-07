@@ -69,7 +69,6 @@ int tuner_drv_hw_access( unsigned int uCommand, TUNER_DATA_RW *data,
     unsigned char      write_data;
     unsigned short     loop_cnt;
 
-    DEBUG_PRINT("tuner_drv_hw_access TUNER_CONFIG_I2C_BUSNUM = %x ", TUNER_CONFIG_I2C_BUSNUM);
 
     
     if( data == NULL )
@@ -229,8 +228,8 @@ int tuner_drv_hw_access( unsigned int uCommand, TUNER_DATA_RW *data,
                 }
             }
 
-            DEBUG_PRINT("ioctl(W) slv:0x%02x adr:0x%02x (single) 0x%02x (RMW:0x%02x WDAT:0x%02x)",
-                                addr, buf[ 0 ], data[ loop_cnt ].param, read_data,  buf[ 1 ]);
+            
+            
 
             msgs[ 0 ].addr  = addr;
             msgs[ 0 ].flags = flags;
@@ -271,12 +270,11 @@ int tuner_drv_hw_access( unsigned int uCommand, TUNER_DATA_RW *data,
 
             
             data[ loop_cnt ].param = buf[ 1 ];
-            DEBUG_PRINT("ioctl(R) slv:0x%02x adr:0x%02x (single) 0x%02x (RETURN:0x%02x)",
-                                addr, buf[ 0 ], buf[1], data[ loop_cnt ].param);
+            
+            
 
         }
     }
-	DEBUG_PRINT("tuner_drv_hw_access -6- ");
     i2c_put_adapter( adap );
     return 0;
 }

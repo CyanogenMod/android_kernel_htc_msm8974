@@ -26,9 +26,9 @@
 #ifndef NET_IRDA_H
 #define NET_IRDA_H
 
-#include <linux/skbuff.h>		
+#include <linux/skbuff.h>		/* struct sk_buff */
 #include <linux/kernel.h>
-#include <linux/if.h>			
+#include <linux/if.h>			/* sa_family_t in <linux/irda.h> */
 #include <linux/irda.h>
 
 typedef __u32 magic_t;
@@ -41,11 +41,12 @@ typedef __u32 magic_t;
 #define FALSE 0
 #endif
 
+/* Hack to do small backoff when setting media busy in IrLAP */
 #ifndef SMALL
 #define SMALL 5
 #endif
 
-#ifndef IRDA_MIN 
+#ifndef IRDA_MIN /* Lets not mix this MIN with other header files */
 #define IRDA_MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
@@ -57,6 +58,7 @@ typedef __u32 magic_t;
 
 extern unsigned int irda_debug;
 
+/* use 0 for production, 1 for verification, >2 for debug */
 #define IRDA_DEBUG_LEVEL 0
 
 #define IRDA_DEBUG(n, args...) \
@@ -73,12 +75,16 @@ do { if(!(expr)) { \
 #define IRDA_DEBUG(n, args...) do { } while (0)
 #define IRDA_ASSERT(expr, func) do { (void)(expr); } while (0)
 #define IRDA_ASSERT_LABEL(label)
-#endif 
+#endif /* CONFIG_IRDA_DEBUG */
 
 #define IRDA_WARNING(args...) do { if (net_ratelimit()) printk(KERN_WARNING args); } while (0)
 #define IRDA_MESSAGE(args...) do { if (net_ratelimit()) printk(KERN_INFO args); } while (0)
 #define IRDA_ERROR(args...)   do { if (net_ratelimit()) printk(KERN_ERR args); } while (0)
 
+/*
+ *  Magic numbers used by Linux-IrDA. Random numbers which must be unique to 
+ *  give the best protection
+ */
 
 #define IRTTY_MAGIC        0x2357
 #define LAP_MAGIC          0x1357
@@ -96,7 +102,7 @@ do { if(!(expr)) { \
 #define IAS_ATTRIB_MAGIC   0x45232
 #define IRDA_TASK_MAGIC    0x38423
 
-#define IAS_DEVICE_ID 0x0000 
+#define IAS_DEVICE_ID 0x0000 /* Defined by IrDA, IrLMP section 4.1 (page 68) */
 #define IAS_PNP_ID    0xd342
 #define IAS_OBEX_ID   0x34323
 #define IAS_IRLAN_ID  0x34234
@@ -122,4 +128,4 @@ extern int irlap_driver_rcv(struct sk_buff *skb, struct net_device *dev,
 			    struct packet_type *ptype,
 			    struct net_device *orig_dev);
 
-#endif 
+#endif /* NET_IRDA_H */

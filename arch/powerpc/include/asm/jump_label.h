@@ -42,4 +42,4 @@ struct jump_entry {
 	jump_label_t key;
 };
 
-#endif 
+#endif /* _ASM_POWERPC_JUMP_LABEL_H */

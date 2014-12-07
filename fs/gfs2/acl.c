@@ -253,6 +253,10 @@ static int gfs2_xattr_system_set(struct dentry *dentry, const char *name,
 
 	acl = posix_acl_from_xattr(value, size);
 	if (!acl) {
+		/*
+		 * acl_set_file(3) may request that we set default ACLs with
+		 * zero length -- defend (gracefully) against that here.
+		 */
 		goto out;
 	}
 	if (IS_ERR(acl)) {

@@ -110,6 +110,16 @@ static int adis16400_spi_write_reg_16(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * adis16400_spi_read_reg_16() - read 2 bytes from a 16-bit register
+ * @indio_dev: iio device
+ * @reg_address: the address of the lower of the two registers. Second register
+ *               is assumed to have address one greater.
+ * @val: somewhere to pass back the value read
+ *
+ * At the moment the spi framework doesn't allow global setting of cs_change.
+ * This means that use cannot be made of spi_read.
+ **/
 static int adis16400_spi_read_reg_16(struct iio_dev *indio_dev,
 		u8 lower_reg_address,
 		u16 *val)
@@ -179,7 +189,7 @@ static ssize_t adis16400_read_frequency(struct device *dev,
 }
 
 static const unsigned adis16400_3db_divisors[] = {
-	[0] = 2, 
+	[0] = 2, /* Special case */
 	[1] = 5,
 	[2] = 10,
 	[3] = 50,
@@ -240,7 +250,7 @@ static ssize_t adis16400_write_frequency(struct device *dev,
 			ADIS16400_SMPL_PRD,
 			t);
 
-	
+	/* Also update the filter */
 	mutex_unlock(&indio_dev->mlock);
 
 	return ret ? ret : len;
@@ -300,6 +310,7 @@ error_ret:
 	return ret;
 }
 
+/* Power down the device */
 static int adis16400_stop_device(struct iio_dev *indio_dev)
 {
 	int ret;
@@ -386,7 +397,7 @@ static int adis16400_initial_setup(struct iio_dev *indio_dev)
 	u16 prod_id, smp_prd;
 	struct adis16400_state *st = iio_priv(indio_dev);
 
-	
+	/* use low spi speed for init */
 	st->us->max_speed_hz = ADIS16400_SPI_SLOW;
 	st->us->mode = SPI_MODE_3;
 	spi_setup(st->us);
@@ -427,7 +438,7 @@ static int adis16400_initial_setup(struct iio_dev *indio_dev)
 		       indio_dev->name, prod_id,
 		       st->us->chip_select, st->us->irq);
 	}
-	
+	/* use high spi speed if possible */
 	ret = adis16400_spi_read_reg_16(indio_dev,
 					ADIS16400_SMPL_PRD, &smp_prd);
 	if (!ret && (smp_prd & ADIS16400_SMPL_PRD_DIV_MASK) < 0x0A) {
@@ -504,9 +515,11 @@ static int adis16400_write_raw(struct iio_dev *indio_dev,
 		mutex_unlock(&indio_dev->mlock);
 		return ret;
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
+		/* Need to cache values so we can update if the frequency
+		   changes */
 		mutex_lock(&indio_dev->mlock);
 		st->filt_int = val;
-		
+		/* Work out update to current value */
 		sps = adis16400_get_freq(indio_dev);
 		if (sps < 0) {
 			mutex_unlock(&indio_dev->mlock);
@@ -589,13 +602,13 @@ static int adis16400_read_raw(struct iio_dev *indio_dev,
 		*val = val16;
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_OFFSET:
-		
+		/* currently only temperature */
 		*val = 198;
 		*val2 = 160000;
 		return IIO_VAL_INT_PLUS_MICRO;
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
 		mutex_lock(&indio_dev->mlock);
-		
+		/* Need both the number of taps and the sampling frequency */
 		ret = adis16400_spi_read_reg_16(indio_dev,
 						ADIS16400_SENS_AVG,
 						&val16);
@@ -1115,13 +1128,13 @@ static int __devinit adis16400_probe(struct spi_device *spi)
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 
 	st->us = spi;
 	mutex_init(&st->buf_lock);
 
-	
+	/* setup the industrialio driver allocated elements */
 	st->variant = &adis16400_chips[spi_get_device_id(spi)->driver_data];
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
@@ -1148,7 +1161,7 @@ static int __devinit adis16400_probe(struct spi_device *spi)
 			goto error_uninitialize_ring;
 	}
 
-	
+	/* Get the device into a sane initial state */
 	ret = adis16400_initial_setup(indio_dev);
 	if (ret)
 		goto error_remove_trigger;
@@ -1171,6 +1184,7 @@ error_ret:
 	return ret;
 }
 
+/* fixme, confirm ordering in this function */
 static int adis16400_remove(struct spi_device *spi)
 {
 	int ret;

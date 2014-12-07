@@ -45,6 +45,6 @@ static __inline__ __attribute_const__ __u16 __arch_swab16(__u16 xx)
 }
 #define __arch_swab16 __arch_swab16
 
-#endif 
+#endif /* __GNUC__ */
 
-#endif				
+#endif				/* _BLACKFIN_SWAB_H */

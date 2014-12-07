@@ -5,7 +5,16 @@
  * Venkatesh Pallipadi <venkatesh.pallipadi@intel.com>
  */
 
+/*
+ * Save DIMM power on Intel 7300-based platforms when all CPUs/cores
+ * are idle, using the DIMM thermal throttling capability.
+ *
+ * This driver depends on the Intel integrated DMA controller (I/O AT).
+ * If the driver for I/O AT (drivers/dma/ioatdma*) is also enabled,
+ * this driver should work cooperatively.
+ */
 
+/* #define DEBUG */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -40,6 +49,13 @@ MODULE_PARM_DESC(debug, "Enable driver testing on unvalidated i5000");
 #define dprintk(fmt, arg...) \
 	do { if (debug) printk(KERN_INFO I7300_PRINT fmt, ##arg); } while (0)
 
+/*
+ * Value to set THRTLOW to when initiating throttling
+ *  0 = No throttling
+ *  1 = Throttle when > 4 activations per eval window (Maximum throttling)
+ *  2 = Throttle when > 8 activations
+ *  168 = Throttle when > 672 activations (Minimum throttling)
+ */
 #define MAX_THROTTLE_LOW_LIMIT		168
 static uint throttle_low_limit = 1;
 module_param_named(throttle_low_limit, throttle_low_limit, uint, 0644);
@@ -47,6 +63,9 @@ MODULE_PARM_DESC(throttle_low_limit,
 		"Value for THRTLOWLM activation field "
 		"(0 = disable throttle, 1 = Max throttle, 168 = Min throttle)");
 
+/*
+ * simple invocation and duration statistics
+ */
 static unsigned long total_starts;
 static unsigned long total_us;
 
@@ -69,21 +88,24 @@ static unsigned long avg_idle_us;
 
 static struct dentry *debugfs_dir;
 
+/* Begin: I/O AT Helper routines */
 
 #define IOAT_CHANBASE(ioat_ctl, chan) (ioat_ctl + 0x80 + 0x80 * chan)
+/* Snoop control (disable snoops when coherency is not important) */
 #define IOAT_DESC_SADDR_SNP_CTL (1UL << 1)
 #define IOAT_DESC_DADDR_SNP_CTL (1UL << 2)
 
 static struct pci_dev *ioat_dev;
-static struct ioat_dma_descriptor *ioat_desc; 
+static struct ioat_dma_descriptor *ioat_desc; /* I/O AT desc & data (1 page) */
 static unsigned long ioat_desc_phys;
-static u8 *ioat_iomap; 
+static u8 *ioat_iomap; /* I/O AT memory-mapped control regs (aka CB_BAR) */
 static u8 *ioat_chanbase;
 
+/* Start I/O AT memory copy */
 static int i7300_idle_ioat_start(void)
 {
 	u32 err;
-	
+	/* Clear error (due to circular descriptor pointer) */
 	err = readl(ioat_chanbase + IOAT_CHANERR_OFFSET);
 	if (err)
 		writel(err, ioat_chanbase + IOAT_CHANERR_OFFSET);
@@ -92,6 +114,7 @@ static int i7300_idle_ioat_start(void)
 	return 0;
 }
 
+/* Stop I/O AT memory copy */
 static void i7300_idle_ioat_stop(void)
 {
 	int i;
@@ -117,6 +140,7 @@ static void i7300_idle_ioat_stop(void)
 	}
 }
 
+/* Test I/O AT by copying 1024 byte from 2k to 1k */
 static int __init i7300_idle_ioat_selftest(u8 *ctl,
 		struct ioat_dma_descriptor *desc, unsigned long desc_phys)
 {
@@ -140,7 +164,7 @@ static int __init i7300_idle_ioat_selftest(u8 *ctl,
 			IOAT_CHANSTS_STATUS;
 
 	if (chan_sts != IOAT_CHANSTS_DONE) {
-		
+		/* Not complete, reset the channel */
 		writeb(IOAT_CHANCMD_RESET,
 		       ioat_chanbase + IOAT1_CHANCMD_OFFSET);
 		return -1;
@@ -163,6 +187,11 @@ static struct device dummy_dma_dev = {
 	.dma_mask = &dummy_dma_dev.coherent_dma_mask,
 };
 
+/* Setup and initialize I/O AT */
+/* This driver needs I/O AT as the throttling takes effect only when there is
+ * some memory activity. We use I/O AT to set up a dummy copy, while all CPUs
+ * go idle and memory is throttled.
+ */
 static int __init i7300_idle_ioat_init(void)
 {
 	u8 ver, chan_count, ioat_chan;
@@ -221,7 +250,7 @@ static int __init i7300_idle_ioat_init(void)
 		goto err_free;
 	}
 
-	
+	/* Setup circular I/O AT descriptor chain */
 	ioat_desc[0].ctl = IOAT_DESC_SADDR_SNP_CTL | IOAT_DESC_DADDR_SNP_CTL;
 	ioat_desc[0].src_addr = ioat_desc_phys + 2048;
 	ioat_desc[0].dst_addr = ioat_desc_phys + 3072;
@@ -246,6 +275,7 @@ err_ret:
 	return -ENODEV;
 }
 
+/* Cleanup I/O AT */
 static void __exit i7300_idle_ioat_exit(void)
 {
 	int i;
@@ -253,7 +283,7 @@ static void __exit i7300_idle_ioat_exit(void)
 
 	i7300_idle_ioat_stop();
 
-	
+	/* Wait for a while for the channel to halt before releasing */
 	for (i = 0; i < MAX_STOP_RETRIES; i++) {
 		writeb(IOAT_CHANCMD_RESET,
 		       ioat_chanbase + IOAT1_CHANCMD_OFFSET);
@@ -271,6 +301,11 @@ static void __exit i7300_idle_ioat_exit(void)
 	chan_sts = readq(ioat_chanbase + IOAT1_CHANSTS_OFFSET) &
 			IOAT_CHANSTS_STATUS;
 
+	/*
+	 * We tried to reset multiple times. If IO A/T channel is still active
+	 * flag an error and return without cleanup. Memory leak is better
+	 * than random corruption in that extreme error situation.
+	 */
 	if (chan_sts == IOAT_CHANSTS_ACTIVE) {
 		printk(KERN_ERR I7300_PRINT "Unable to stop IO A/T channels."
 			" Not freeing resources\n");
@@ -281,6 +316,7 @@ static void __exit i7300_idle_ioat_exit(void)
 	iounmap(ioat_iomap);
 }
 
+/* End: I/O AT Helper routines */
 
 #define DIMM_THRTLOW 0x64
 #define DIMM_THRTCTL 0x67
@@ -289,11 +325,24 @@ static void __exit i7300_idle_ioat_exit(void)
 #define DIMM_GTW_MODE (1UL << 17)
 #define DIMM_GBLACT 0x60
 
+/*
+ * Keep track of an exponential-decaying average of recent idle durations.
+ * The latest duration gets DURATION_WEIGHT_PCT percentage weight
+ * in this average, with the old average getting the remaining weight.
+ *
+ * High weights emphasize recent history, low weights include long history.
+ */
 #define DURATION_WEIGHT_PCT 55
 
+/*
+ * When the decaying average of recent durations or the predicted duration
+ * of the next timer interrupt is shorter than duration_threshold, the
+ * driver will decline to throttle.
+ */
 #define DURATION_THRESHOLD_US 100
 
 
+/* Store DIMM thermal throttle configuration */
 static int i7300_idle_thrt_save(void)
 {
 	u32 new_mc_val;
@@ -302,6 +351,19 @@ static int i7300_idle_thrt_save(void)
 	pci_read_config_byte(fbd_dev, DIMM_THRTCTL, &i7300_idle_thrtctl_saved);
 	pci_read_config_byte(fbd_dev, DIMM_THRTLOW, &i7300_idle_thrtlow_saved);
 	pci_read_config_dword(fbd_dev, DIMM_MC, &i7300_idle_mc_saved);
+	/*
+	 * Make sure we have Global Throttling Window Mode set to have a
+	 * "short" window. This (mostly) works around an issue where
+	 * throttling persists until the end of the global throttling window
+	 * size. On the tested system, this was resulting in a maximum of
+	 * 64 ms to exit throttling (average 32 ms). The actual numbers
+	 * depends on system frequencies. Setting the short window reduces
+	 * this by a factor of 4096.
+	 *
+	 * We will only do this only if the system is set for
+	 * unlimited-activations while in open-loop throttling (i.e., when
+	 * Global Activation Throttle Limit is zero).
+	 */
 	pci_read_config_byte(fbd_dev, DIMM_GBLACT, &gblactlm);
 	dprintk("thrtctl_saved = 0x%02x, thrtlow_saved = 0x%02x\n",
 		i7300_idle_thrtctl_saved,
@@ -319,6 +381,7 @@ static int i7300_idle_thrt_save(void)
 	}
 }
 
+/* Restore DIMM thermal throttle configuration */
 static void i7300_idle_thrt_restore(void)
 {
 	pci_write_config_dword(fbd_dev, DIMM_MC, i7300_idle_mc_saved);
@@ -326,6 +389,7 @@ static void i7300_idle_thrt_restore(void)
 	pci_write_config_byte(fbd_dev, DIMM_THRTCTL, i7300_idle_thrtctl_saved);
 }
 
+/* Enable DIMM thermal throttling */
 static void i7300_idle_start(void)
 {
 	u8 new_ctl;
@@ -344,6 +408,7 @@ static void i7300_idle_start(void)
 	pci_write_config_byte(fbd_dev, DIMM_THRTCTL, new_ctl);
 }
 
+/* Disable DIMM thermal throttling */
 static void i7300_idle_stop(void)
 {
 	u8 new_ctl;
@@ -359,6 +424,11 @@ static void i7300_idle_stop(void)
 }
 
 
+/*
+ * i7300_avg_duration_check()
+ * return 0 if the decaying average of recent idle durations is
+ * more than DURATION_THRESHOLD_US
+ */
 static int i7300_avg_duration_check(void)
 {
 	if (avg_idle_us >= DURATION_THRESHOLD_US)
@@ -370,6 +440,7 @@ static int i7300_avg_duration_check(void)
 	return 1;
 }
 
+/* Idle notifier to look at idle CPUs */
 static int i7300_idle_notifier(struct notifier_block *nb, unsigned long val,
 				void *data)
 {
@@ -410,7 +481,7 @@ static int i7300_idle_notifier(struct notifier_block *nb, unsigned long val,
 	} else if (val == IDLE_END) {
 		cpumask_clear_cpu(smp_processor_id(), idle_cpumask);
 		if (cpumask_weight(idle_cpumask) == (num_online_cpus() - 1)) {
-			
+			/* First CPU coming out of idle */
 			u64 idle_duration_us;
 
 			now_ktime = ktime_get();

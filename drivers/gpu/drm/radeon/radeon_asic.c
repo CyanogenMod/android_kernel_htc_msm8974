@@ -37,6 +37,9 @@
 #include "radeon_asic.h"
 #include "atom.h"
 
+/*
+ * Registers accessors functions.
+ */
 static uint32_t radeon_invalid_rreg(struct radeon_device *rdev, uint32_t reg)
 {
 	DRM_ERROR("Invalid callback to read register 0x%04X\n", reg);
@@ -60,13 +63,13 @@ static void radeon_register_accessor_init(struct radeon_device *rdev)
 	rdev->pciep_rreg = &radeon_invalid_rreg;
 	rdev->pciep_wreg = &radeon_invalid_wreg;
 
-	
+	/* Don't change order as we are overridding accessor. */
 	if (rdev->family < CHIP_RV515) {
 		rdev->pcie_reg_mask = 0xff;
 	} else {
 		rdev->pcie_reg_mask = 0x7ff;
 	}
-	
+	/* FIXME: not sure here */
 	if (rdev->family <= CHIP_R580) {
 		rdev->pll_rreg = &r100_pll_rreg;
 		rdev->pll_wreg = &r100_pll_wreg;
@@ -98,6 +101,7 @@ static void radeon_register_accessor_init(struct radeon_device *rdev)
 }
 
 
+/* helper to disable agp */
 void radeon_agp_disable(struct radeon_device *rdev)
 {
 	rdev->flags &= ~RADEON_IS_AGP;
@@ -121,6 +125,9 @@ void radeon_agp_disable(struct radeon_device *rdev)
 	rdev->mc.gtt_size = radeon_gart_size * 1024 * 1024;
 }
 
+/*
+ * ASIC
+ */
 static struct radeon_asic r100_asic = {
 	.init = &r100_init,
 	.fini = &r100_fini,
@@ -1599,7 +1606,7 @@ int radeon_asic_init(struct radeon_device *rdev)
 {
 	radeon_register_accessor_init(rdev);
 
-	
+	/* set the number of crtcs */
 	if (rdev->flags & RADEON_SINGLE_CRTC)
 		rdev->num_crtc = 1;
 	else
@@ -1632,7 +1639,7 @@ int radeon_asic_init(struct radeon_device *rdev)
 	case CHIP_R423:
 	case CHIP_RV410:
 		rdev->asic = &r420_asic;
-		
+		/* handle macs */
 		if (rdev->bios == NULL) {
 			rdev->asic->pm.get_engine_clock = &radeon_legacy_get_engine_clock;
 			rdev->asic->pm.set_engine_clock = &radeon_legacy_set_engine_clock;
@@ -1684,7 +1691,7 @@ int radeon_asic_init(struct radeon_device *rdev)
 	case CHIP_JUNIPER:
 	case CHIP_CYPRESS:
 	case CHIP_HEMLOCK:
-		
+		/* set num crtcs */
 		if (rdev->family == CHIP_CEDAR)
 			rdev->num_crtc = 4;
 		else
@@ -1699,7 +1706,7 @@ int radeon_asic_init(struct radeon_device *rdev)
 	case CHIP_BARTS:
 	case CHIP_TURKS:
 	case CHIP_CAICOS:
-		
+		/* set num crtcs */
 		if (rdev->family == CHIP_CAICOS)
 			rdev->num_crtc = 4;
 		else
@@ -1708,13 +1715,13 @@ int radeon_asic_init(struct radeon_device *rdev)
 		break;
 	case CHIP_CAYMAN:
 		rdev->asic = &cayman_asic;
-		
+		/* set num crtcs */
 		rdev->num_crtc = 6;
 		rdev->vm_manager.funcs = &cayman_vm_funcs;
 		break;
 	case CHIP_ARUBA:
 		rdev->asic = &trinity_asic;
-		
+		/* set num crtcs */
 		rdev->num_crtc = 4;
 		rdev->vm_manager.funcs = &cayman_vm_funcs;
 		break;
@@ -1722,12 +1729,12 @@ int radeon_asic_init(struct radeon_device *rdev)
 	case CHIP_PITCAIRN:
 	case CHIP_VERDE:
 		rdev->asic = &si_asic;
-		
+		/* set num crtcs */
 		rdev->num_crtc = 6;
 		rdev->vm_manager.funcs = &si_vm_funcs;
 		break;
 	default:
-		
+		/* FIXME: not supported yet */
 		return -EINVAL;
 	}
 

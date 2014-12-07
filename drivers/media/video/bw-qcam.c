@@ -1,6 +1,40 @@
+/*
+ *    QuickCam Driver For Video4Linux.
+ *
+ *	Video4Linux conversion work by Alan Cox.
+ *	Parport compatibility by Phil Blundell.
+ *	Busy loop avoidance by Mark Cooke.
+ *
+ *    Module parameters:
+ *
+ *	maxpoll=<1 - 5000>
+ *
+ *	  When polling the QuickCam for a response, busy-wait for a
+ *	  maximum of this many loops. The default of 250 gives little
+ *	  impact on interactive response.
+ *
+ *	  NOTE: If this parameter is set too high, the processor
+ *		will busy wait until this loop times out, and then
+ *		slowly poll for a further 5 seconds before failing
+ *		the transaction. You have been warned.
+ *
+ *	yieldlines=<1 - 250>
+ *
+ *	  When acquiring a frame from the camera, the data gathering
+ *	  loop will yield back to the scheduler after completing
+ *	  this many lines. The default of 4 provides a trade-off
+ *	  between increased frame acquisition time and impact on
+ *	  interactive response.
+ */
+
+/* qcam-lib.c -- Library for programming with the Connectix QuickCam.
+ * See the included documentation for usage instructions and details
+ * of the protocol involved. */
 
 
-
+/* Version 0.5, August 4, 1996 */
+/* Version 0.7, August 27, 1996 */
+/* Version 0.9, November 17, 1996 */
 
 
 /******************************************************************
@@ -44,15 +78,18 @@ OTHER DEALINGS IN THE SOFTWARE.
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-device.h>
 
+/* One from column A... */
 #define QC_NOTSET 0
 #define QC_UNIDIR 1
 #define QC_BIDIR  2
 #define QC_SERIAL 3
 
+/* ... and one from column B */
 #define QC_ANY          0x00
 #define QC_FORCE_UNIDIR 0x10
 #define QC_FORCE_BIDIR  0x20
 #define QC_FORCE_SERIAL 0x30
+/* in the port_mode member */
 
 #define QC_MODE_MASK    0x07
 #define QC_FORCE_MASK   0x70
@@ -60,7 +97,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define MAX_HEIGHT 243
 #define MAX_WIDTH 336
 
-#define QC_PARAM_CHANGE	0x01 
+/* Bit fields for status flags */
+#define QC_PARAM_CHANGE	0x01 /* Camera status change has occurred */
 
 struct qcam {
 	struct v4l2_device v4l2_dev;
@@ -80,15 +118,17 @@ struct qcam {
 	unsigned long in_use;
 };
 
-static unsigned int maxpoll = 250;   
-static unsigned int yieldlines = 4;  
+static unsigned int maxpoll = 250;   /* Maximum busy-loop count for qcam I/O */
+static unsigned int yieldlines = 4;  /* Yield after this many during capture */
 static int video_nr = -1;
-static unsigned int force_init;		
+static unsigned int force_init;		/* Whether to probe aggressively */
 
 module_param(maxpoll, int, 0);
 module_param(yieldlines, int, 0);
 module_param(video_nr, int, 0);
 
+/* Set force_init=1 to avoid detection by polling status register and
+ * immediately attempt to initialize qcam */
 module_param(force_init, int, 0);
 
 #define MAX_CAMS 4
@@ -113,18 +153,22 @@ static inline void write_lpdata(struct qcam *q, int d)
 static void write_lpcontrol(struct qcam *q, int d)
 {
 	if (d & 0x20) {
-		
+		/* Set bidirectional mode to reverse (data in) */
 		parport_data_reverse(q->pport);
 	} else {
-		
+		/* Set bidirectional mode to forward (data out) */
 		parport_data_forward(q->pport);
 	}
 
+	/* Now issue the regular port command, but strip out the
+	 * direction flag */
 	d &= ~0x20;
 	parport_write_control(q->pport, d);
 }
 
 
+/* qc_waithand busy-waits for a handshake signal from the QuickCam.
+ * Almost all communication with the camera requires handshaking. */
 
 static int qc_waithand(struct qcam *q, int val)
 {
@@ -133,18 +177,30 @@ static int qc_waithand(struct qcam *q, int val)
 
 	if (val) {
 		while (!((status = read_lpstatus(q)) & 8)) {
+			/* 1000 is enough spins on the I/O for all normal
+			   cases, at that point we start to poll slowly
+			   until the camera wakes up. However, we are
+			   busy blocked until the camera responds, so
+			   setting it lower is much better for interactive
+			   response. */
 
 			if (runs++ > maxpoll)
 				msleep_interruptible(5);
-			if (runs > (maxpoll + 1000)) 
+			if (runs > (maxpoll + 1000)) /* 5 seconds */
 				return -1;
 		}
 	} else {
 		while (((status = read_lpstatus(q)) & 8)) {
+			/* 1000 is enough spins on the I/O for all normal
+			   cases, at that point we start to poll slowly
+			   until the camera wakes up. However, we are
+			   busy blocked until the camera responds, so
+			   setting it lower is much better for interactive
+			   response. */
 
 			if (runs++ > maxpoll)
 				msleep_interruptible(5);
-			if (runs++ > (maxpoll + 1000)) 
+			if (runs++ > (maxpoll + 1000)) /* 5 seconds */
 				return -1;
 		}
 	}
@@ -152,6 +208,10 @@ static int qc_waithand(struct qcam *q, int val)
 	return status;
 }
 
+/* Waithand2 is used when the qcam is in bidirectional mode, and the
+ * handshaking signal is CamRdy2 (bit 0 of data reg) instead of CamRdy1
+ * (bit 3 of status register).  It also returns the last value read,
+ * since this data is useful. */
 
 static unsigned int qc_waithand2(struct qcam *q, int val)
 {
@@ -160,16 +220,26 @@ static unsigned int qc_waithand2(struct qcam *q, int val)
 
 	do {
 		status = read_lpdata(q);
+		/* 1000 is enough spins on the I/O for all normal
+		   cases, at that point we start to poll slowly
+		   until the camera wakes up. However, we are
+		   busy blocked until the camera responds, so
+		   setting it lower is much better for interactive
+		   response. */
 
 		if (runs++ > maxpoll)
 			msleep_interruptible(5);
-		if (runs++ > (maxpoll + 1000)) 
+		if (runs++ > (maxpoll + 1000)) /* 5 seconds */
 			return 0;
 	} while ((status & 1) != val);
 
 	return status;
 }
 
+/* qc_command is probably a bit of a misnomer -- it's used to send
+ * bytes *to* the camera.  Generally, these bytes are either commands
+ * or arguments to commands, so the name fits, but it still bugs me a
+ * bit.  See the documentation for a list of commands. */
 
 static int qc_command(struct qcam *q, int command)
 {
@@ -204,6 +274,12 @@ static int qc_readparam(struct qcam *q)
 }
 
 
+/* Try to detect a QuickCam.  It appears to flash the upper 4 bits of
+   the status register at 5-10 Hz.  This is only used in the autoprobe
+   code.  Be aware that this isn't the way Connectix detects the
+   camera (they send a reset and try to handshake), but this should be
+   almost completely safe, while their method screws up my printer if
+   I plug it in before the camera. */
 
 static int qc_detect(struct qcam *q)
 {
@@ -226,22 +302,34 @@ static int qc_detect(struct qcam *q)
 
 
 #if 0
+	/* Force camera detection during testing. Sometimes the camera
+	   won't be flashing these bits. Possibly unloading the module
+	   in the middle of a grab? Or some timeout condition?
+	   I've seen this parameter as low as 19 on my 450Mhz box - mpc */
 	printk(KERN_DEBUG "Debugging: QCam detection counter <30-200 counts as detected>: %d\n", count);
 	return 1;
 #endif
 
-	
+	/* Be (even more) liberal in what you accept...  */
 
 	if (count > 20 && count < 400) {
-		return 1;	
+		return 1;	/* found */
 	} else {
 		printk(KERN_ERR "No Quickcam found on port %s\n",
 				q->pport->name);
 		printk(KERN_DEBUG "Quickcam detection counter: %u\n", count);
-		return 0;	
+		return 0;	/* not found */
 	}
 }
 
+/* Decide which scan mode to use.  There's no real requirement that
+ * the scanmode match the resolution in q->height and q-> width -- the
+ * camera takes the picture at the resolution specified in the
+ * "scanmode" and then returns the image at the resolution specified
+ * with the resolution commands.  If the scan is bigger than the
+ * requested resolution, the upper-left hand corner of the scan is
+ * returned.  If the scan is smaller, then the rest of the image
+ * returned contains garbage. */
 
 static int qc_setscanmode(struct qcam *q)
 {
@@ -283,6 +371,10 @@ static int qc_setscanmode(struct qcam *q)
 }
 
 
+/* Reset the QuickCam.  This uses the same sequence the Windows
+ * QuickPic program uses.  Someone with a bi-directional port should
+ * check that bi-directional mode is detected right, and then
+ * implement bi-directional mode in qc_readbyte(). */
 
 static void qc_reset(struct qcam *q)
 {
@@ -309,11 +401,13 @@ static void qc_reset(struct qcam *q)
 	write_lpcontrol(q, 0xb);
 	udelay(250);
 	write_lpcontrol(q, 0xe);
-	qc_setscanmode(q);		
+	qc_setscanmode(q);		/* in case port_mode changed */
 }
 
 
 
+/* Reset the QuickCam and program for brightness, contrast,
+ * white-balance, and resolution. */
 
 static void qc_set(struct qcam *q)
 {
@@ -322,7 +416,9 @@ static void qc_set(struct qcam *q)
 
 	qc_reset(q);
 
-	
+	/* Set the brightness.  Yes, this is repetitive, but it works.
+	 * Shorter versions seem to fail subtly.  Feel free to try :-). */
+	/* I think the problem was in qc_command, not here -- bls */
 
 	qc_command(q, 0xb);
 	qc_command(q, q->brightness);
@@ -331,6 +427,11 @@ static void qc_set(struct qcam *q)
 	qc_command(q, 0x11);
 	qc_command(q, val);
 	if ((q->port_mode & QC_MODE_MASK) == QC_UNIDIR && q->bpp == 6) {
+		/* The normal "transfers per line" calculation doesn't seem to work
+		   as expected here (and yet it works fine in qc_scan).  No idea
+		   why this case is the odd man out.  Fortunately, Laird's original
+		   working version gives me a good way to guess at working values.
+		   -- bls */
 		val = q->width;
 		val2 = q->transfer_scale * 4;
 	} else {
@@ -342,7 +443,7 @@ static void qc_set(struct qcam *q)
 	qc_command(q, 0x13);
 	qc_command(q, val);
 
-	
+	/* Setting top and left -- bls */
 	qc_command(q, 0xd);
 	qc_command(q, q->top);
 	qc_command(q, 0xf);
@@ -353,9 +454,14 @@ static void qc_set(struct qcam *q)
 	qc_command(q, 0x1f);
 	qc_command(q, q->whitebal);
 
+	/* Clear flag that we must update the grabbing parameters on the camera
+	   before we grab the next frame */
 	q->status &= (~QC_PARAM_CHANGE);
 }
 
+/* Qc_readbytes reads some bytes from the QC and puts them in
+   the supplied buffer.  It returns the number of bytes read,
+   or -1 on error. */
 
 static inline int qc_readbytes(struct qcam *q, char buffer[])
 {
@@ -370,7 +476,7 @@ static inline int qc_readbytes(struct qcam *q, char buffer[])
 	}
 
 	switch (q->port_mode & QC_MODE_MASK) {
-	case QC_BIDIR:		
+	case QC_BIDIR:		/* Bi-directional Port */
 		write_lpcontrol(q, 0x26);
 		lo = (qc_waithand2(q, 1) >> 1);
 		hi = (read_lpstatus(q) >> 3) & 0x1f;
@@ -397,7 +503,7 @@ static inline int qc_readbytes(struct qcam *q, char buffer[])
 		}
 		break;
 
-	case QC_UNIDIR:	
+	case QC_UNIDIR:	/* Unidirectional Port */
 		write_lpcontrol(q, 6);
 		lo = (qc_waithand(q, 1) & 0xf0) >> 4;
 		write_lpcontrol(q, 0xe);
@@ -437,6 +543,16 @@ static inline int qc_readbytes(struct qcam *q, char buffer[])
 	return ret;
 }
 
+/* requests a scan from the camera.  It sends the correct instructions
+ * to the camera and then reads back the correct number of bytes.  In
+ * previous versions of this routine the return structure contained
+ * the raw output from the camera, and there was a 'qc_convertscan'
+ * function that converted that to a useful format.  In version 0.3 I
+ * rolled qc_convertscan into qc_scan and now I only return the
+ * converted scan.  The format is just an one-dimensional array of
+ * characters, one for each pixel, with 0=black up to n=white, where
+ * n=2^(bit depth)-1.  Ask me for more details if you don't understand
+ * this. */
 
 static long qc_capture(struct qcam *q, char __user *buf, unsigned long len)
 {
@@ -458,14 +574,14 @@ static long qc_capture(struct qcam *q, char __user *buf, unsigned long len)
 	qc_command(q, q->mode);
 
 	if ((q->port_mode & QC_MODE_MASK) == QC_BIDIR) {
-		write_lpcontrol(q, 0x2e);	
+		write_lpcontrol(q, 0x2e);	/* turn port around */
 		write_lpcontrol(q, 0x26);
 		qc_waithand(q, 1);
 		write_lpcontrol(q, 0x2e);
 		qc_waithand(q, 0);
 	}
 
-	
+	/* strange -- should be 15:63 below, but 4bpp is odd */
 	invert = (q->bpp == 4) ? 16 : 63;
 
 	linestotrans = q->height / q->transfer_scale;
@@ -481,6 +597,8 @@ static long qc_capture(struct qcam *q, char __user *buf, unsigned long len)
 			for (k = 0; k < bytes && (pixels_read + k) < pixels_per_line; k++) {
 				int o;
 				if (buffer[k] == 0 && invert == 16) {
+					/* 4bpp is odd (again) -- inverter is 16, not 15, but output
+					   must be 0-15 -- bls */
 					buffer[k] = 16;
 				}
 				o = i * pixels_per_line + pixels_read + k;
@@ -491,8 +609,14 @@ static long qc_capture(struct qcam *q, char __user *buf, unsigned long len)
 			}
 			pixels_read += bytes;
 		}
-		qc_readbytes(q, NULL);	
+		qc_readbytes(q, NULL);	/* reset state machine */
 
+		/* Grabbing an entire frame from the quickcam is a lengthy
+		   process. We don't (usually) want to busy-block the
+		   processor for the entire frame. yieldlines is a module
+		   parameter. If we yield every line, the minimum frame
+		   time will be 240 / 200 = 1.2 seconds. The compile-time
+		   default is to yield every 4 lines. */
 		if (i >= yield) {
 			msleep_interruptible(5);
 			yield = i + yieldlines;
@@ -510,6 +634,9 @@ static long qc_capture(struct qcam *q, char __user *buf, unsigned long len)
 	return len;
 }
 
+/*
+ *	Video4linux interfacing
+ */
 
 static int qcam_querycap(struct file *file, void  *priv,
 					struct v4l2_capability *vcap)
@@ -624,7 +751,7 @@ static int qcam_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 	pix->field = V4L2_FIELD_NONE;
 	pix->bytesperline = qcam->width;
 	pix->sizeimage = qcam->width * qcam->height;
-	
+	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	return 0;
 }
@@ -649,7 +776,7 @@ static int qcam_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format 
 	pix->field = V4L2_FIELD_NONE;
 	pix->bytesperline = pix->width;
 	pix->sizeimage = pix->width * pix->height;
-	
+	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	return 0;
 }
@@ -677,6 +804,8 @@ static int qcam_s_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *f
 
 	mutex_lock(&qcam->lock);
 	qc_setscanmode(qcam);
+	/* We must update the camera before we grab. We could
+	   just have changed the grab size */
 	qcam->status |= QC_PARAM_CHANGE;
 	mutex_unlock(&qcam->lock);
 	return 0;
@@ -715,7 +844,7 @@ static ssize_t qcam_read(struct file *file, char __user *buf,
 
 	qc_reset(qcam);
 
-	
+	/* Update the camera parameters if we need to */
 	if (qcam->status & QC_PARAM_CHANGE)
 		qc_set(qcam);
 
@@ -747,6 +876,8 @@ static const struct v4l2_ioctl_ops qcam_ioctl_ops = {
 	.vidioc_try_fmt_vid_cap  	    = qcam_try_fmt_vid_cap,
 };
 
+/* Initialize the QuickCam driver control structure.  This is where
+ * defaults are set for people who don't have a config file.*/
 
 static struct qcam *qcam_init(struct parport *port)
 {
@@ -801,16 +932,21 @@ static struct qcam *qcam_init(struct parport *port)
 
 static int qc_calibrate(struct qcam *q)
 {
+	/*
+	 *	Bugfix by Hanno Mueller hmueller@kabel.de, Mai 21 96
+	 *	The white balance is an individual value for each
+	 *	quickcam.
+	 */
 
 	int value;
 	int count = 0;
 
-	qc_command(q, 27);	
-	qc_command(q, 0);	
+	qc_command(q, 27);	/* AutoAdjustOffset */
+	qc_command(q, 0);	/* Dummy Parameter, ignored by the camera */
 
-	
-	
-	
+	/* GetOffset (33) will read 255 until autocalibration */
+	/* is finished. After that, a value of 1-254 will be */
+	/* returned. */
 
 	do {
 		qc_command(q, 33);
@@ -871,6 +1007,9 @@ static void close_bwqcam(struct qcam *qcam)
 	kfree(qcam);
 }
 
+/* The parport parameter controls which parports will be scanned.
+ * Scanning all parports causes some printers to print a garbage page.
+ *       -- March 14, 1999  Billy Donahue <billy@escape.com> */
 #ifdef MODULE
 static char *parport[MAX_CAMS] = { NULL, };
 module_param_array(parport, charp, NULL, 0);
@@ -882,7 +1021,7 @@ static int accept_bwqcam(struct parport *port)
 	int n;
 
 	if (parport[0] && strncmp(parport[0], "auto", 4) != 0) {
-		
+		/* user gave parport parameters */
 		for (n = 0; n < MAX_CAMS && parport[n]; n++) {
 			char *ep;
 			unsigned long r;
@@ -934,7 +1073,7 @@ static void __exit exit_bw_qcams(void)
 static int __init init_bw_qcams(void)
 {
 #ifdef MODULE
-	
+	/* Do some sanity checks on the module parameters. */
 	if (maxpoll > 5000) {
 		printk(KERN_INFO "Connectix Quickcam max-poll was above 5000. Using 5000.\n");
 		maxpoll = 5000;

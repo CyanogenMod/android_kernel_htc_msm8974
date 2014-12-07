@@ -17,6 +17,7 @@
 #include <linux/spi/spi.h>
 #include <sound/asoundef.h>
 
+/* AK4104 registers addresses */
 #define AK4104_REG_CONTROL1		0x00
 #define AK4104_REG_RESERVED		0x01
 #define AK4104_REG_CONTROL2		0x02
@@ -29,6 +30,7 @@
 #define AK4104_WRITE			0xe0
 #define AK4104_RESERVED_VAL		0x5b
 
+/* Bit masks for AK4104 registers */
 #define AK4104_CONTROL1_RSTN		(1 << 0)
 #define AK4104_CONTROL1_PW		(1 << 1)
 #define AK4104_CONTROL1_DIF0		(1 << 2)
@@ -54,7 +56,7 @@ static int ak4104_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	int val = 0;
 	int ret;
 
-	
+	/* set DAI format */
 	switch (format & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_RIGHT_J:
 		break;
@@ -69,7 +71,7 @@ static int ak4104_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* This device can only be slave */
 	if ((format & SND_SOC_DAIFMT_MASTER_MASK) != SND_SOC_DAIFMT_CBS_CFS)
 		return -EINVAL;
 
@@ -143,14 +145,14 @@ static int ak4104_probe(struct snd_soc_codec *codec)
 	if (ret != 0)
 		return ret;
 
-	
+	/* set power-up and non-reset bits */
 	ret = snd_soc_update_bits(codec, AK4104_REG_CONTROL1,
 				  AK4104_CONTROL1_PW | AK4104_CONTROL1_RSTN,
 				  AK4104_CONTROL1_PW | AK4104_CONTROL1_RSTN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* enable transmitter */
 	ret = snd_soc_update_bits(codec, AK4104_REG_TX,
 				  AK4104_TX_TXE, AK4104_TX_TXE);
 	if (ret < 0)
@@ -206,6 +208,9 @@ static int ak4104_spi_probe(struct spi_device *spi)
 		return ret;
 	}
 
+	/* read the 'reserved' register - according to the datasheet, it
+	 * should contain 0x5b. Not a good way to verify the presence of
+	 * the device, but there is no hardware ID register. */
 	ret = regmap_read(ak4104->regmap, AK4104_REG_RESERVED, &val);
 	if (ret != 0)
 		goto err;

@@ -47,6 +47,12 @@
 #include "atmel-pcm.h"
 
 
+/*--------------------------------------------------------------------------*\
+ * Hardware definition
+\*--------------------------------------------------------------------------*/
+/* TODO: These values were taken from the AT91 platform driver, check
+ *	 them against real values for AT32
+ */
 static const struct snd_pcm_hardware atmel_pcm_hardware = {
 	.info			= SNDRV_PCM_INFO_MMAP |
 				  SNDRV_PCM_INFO_MMAP_VALID |
@@ -61,15 +67,18 @@ static const struct snd_pcm_hardware atmel_pcm_hardware = {
 };
 
 
+/*--------------------------------------------------------------------------*\
+ * Data types
+\*--------------------------------------------------------------------------*/
 struct atmel_runtime_data {
 	struct atmel_pcm_dma_params *params;
-	dma_addr_t dma_buffer;		
-	dma_addr_t dma_buffer_end;	
+	dma_addr_t dma_buffer;		/* physical address of dma buffer */
+	dma_addr_t dma_buffer_end;	/* first address beyond DMA buffer */
 	size_t period_size;
 
-	dma_addr_t period_ptr;		
+	dma_addr_t period_ptr;		/* physical address of next period */
 
-	
+	/* PDC register save */
 	u32 pdc_xpr_save;
 	u32 pdc_xcr_save;
 	u32 pdc_xnpr_save;
@@ -77,6 +86,9 @@ struct atmel_runtime_data {
 };
 
 
+/*--------------------------------------------------------------------------*\
+ * Helper functions
+\*--------------------------------------------------------------------------*/
 static int atmel_pcm_preallocate_dma_buffer(struct snd_pcm *pcm,
 	int stream)
 {
@@ -101,6 +113,9 @@ static int atmel_pcm_preallocate_dma_buffer(struct snd_pcm *pcm,
 	buf->bytes = size;
 	return 0;
 }
+/*--------------------------------------------------------------------------*\
+ * ISR
+\*--------------------------------------------------------------------------*/
 static void atmel_pcm_dma_irq(u32 ssc_sr,
 	struct snd_pcm_substream *substream)
 {
@@ -117,7 +132,7 @@ static void atmel_pcm_dma_irq(u32 ssc_sr,
 				? "underrun" : "overrun",
 				params->name, ssc_sr, count);
 
-		
+		/* re-start the PDC */
 		ssc_writex(params->ssc->regs, ATMEL_PDC_PTCR,
 			   params->mask->pdc_disable);
 		prtd->period_ptr += prtd->period_size;
@@ -133,7 +148,7 @@ static void atmel_pcm_dma_irq(u32 ssc_sr,
 	}
 
 	if (ssc_sr & params->mask->ssc_endx) {
-		
+		/* Load the PDC next pointer and counter registers */
 		prtd->period_ptr += prtd->period_size;
 		if (prtd->period_ptr >= prtd->dma_buffer_end)
 			prtd->period_ptr = prtd->dma_buffer;
@@ -148,6 +163,9 @@ static void atmel_pcm_dma_irq(u32 ssc_sr,
 }
 
 
+/*--------------------------------------------------------------------------*\
+ * PCM operations
+\*--------------------------------------------------------------------------*/
 static int atmel_pcm_hw_params(struct snd_pcm_substream *substream,
 	struct snd_pcm_hw_params *params)
 {
@@ -155,6 +173,8 @@ static int atmel_pcm_hw_params(struct snd_pcm_substream *substream,
 	struct atmel_runtime_data *prtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 
+	/* this may get called several times by oss emulation
+	 * with different params */
 
 	snd_pcm_set_runtime_buffer(substream, &substream->dma_buffer);
 	runtime->dma_bytes = params_buffer_bytes(params);
@@ -245,7 +265,7 @@ static int atmel_pcm_trigger(struct snd_pcm_substream *substream,
 		pr_debug("sr=%u imr=%u\n",
 			ssc_readx(params->ssc->regs, SSC_SR),
 			ssc_readx(params->ssc->regs, SSC_IER));
-		break;		
+		break;		/* SNDRV_PCM_TRIGGER_START */
 
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
@@ -293,7 +313,7 @@ static int atmel_pcm_open(struct snd_pcm_substream *substream)
 
 	snd_soc_set_runtime_hwparams(substream, &atmel_pcm_hardware);
 
-	
+	/* ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(runtime,
 						SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
@@ -339,6 +359,9 @@ static struct snd_pcm_ops atmel_pcm_ops = {
 };
 
 
+/*--------------------------------------------------------------------------*\
+ * ASoC platform driver
+\*--------------------------------------------------------------------------*/
 static u64 atmel_pcm_dmamask = DMA_BIT_MASK(32);
 
 static int atmel_pcm_new(struct snd_soc_pcm_runtime *rtd)
@@ -404,7 +427,7 @@ static int atmel_pcm_suspend(struct snd_soc_dai *dai)
 	prtd = runtime->private_data;
 	params = prtd->params;
 
-	
+	/* disable the PDC and save the PDC registers */
 
 	ssc_writel(params->ssc->regs, PDC_PTCR, params->mask->pdc_disable);
 
@@ -428,7 +451,7 @@ static int atmel_pcm_resume(struct snd_soc_dai *dai)
 	prtd = runtime->private_data;
 	params = prtd->params;
 
-	
+	/* restore the PDC registers and enable the PDC */
 	ssc_writex(params->ssc->regs, params->pdc->xpr, prtd->pdc_xpr_save);
 	ssc_writex(params->ssc->regs, params->pdc->xcr, prtd->pdc_xcr_save);
 	ssc_writex(params->ssc->regs, params->pdc->xnpr, prtd->pdc_xnpr_save);

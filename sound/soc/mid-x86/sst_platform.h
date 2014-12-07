@@ -85,14 +85,15 @@ enum sst_audio_device_type {
 	SND_SST_DEVICE_CAPTURE,
 };
 
+/* PCM Parameters */
 struct sst_pcm_params {
-	u16 codec;	
-	u8 num_chan;	
-	u8 pcm_wd_sz;	
-	u32 reserved;	
-	u32 sfreq;	
+	u16 codec;	/* codec type */
+	u8 num_chan;	/* 1=Mono, 2=Stereo */
+	u8 pcm_wd_sz;	/* 16/24 - bit*/
+	u32 reserved;	/* Bitrate in bits per second */
+	u32 sfreq;	/* Sampling rate in Hz */
 	u32 ring_buffer_size;
-	u32 period_count;	
+	u32 period_count;	/* period elapsed in samples*/
 	u32 ring_buffer_addr;
 };
 

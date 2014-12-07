@@ -34,6 +34,14 @@ enum jz4740_fb_lcd_type {
 
 #define JZ4740_FB_SPECIAL_TFT_CONFIG(start, stop) (((start) << 16) | (stop))
 
+/*
+* width: width of the lcd display in mm
+* height: height of the lcd display in mm
+* num_modes: size of modes
+* modes: list of valid video modes
+* bpp: bits per pixel for the lcd
+* lcd_type: lcd type
+*/
 
 struct jz4740_fb_platform_data {
 	unsigned int width;

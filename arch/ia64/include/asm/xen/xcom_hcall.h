@@ -19,6 +19,10 @@
 #ifndef _ASM_IA64_XEN_XCOM_HCALL_H
 #define _ASM_IA64_XEN_XCOM_HCALL_H
 
+/* These function creates inline or mini descriptor for the parameters and
+   calls the corresponding xencomm_arch_hypercall_X.
+   Architectures should defines HYPERVISOR_xxx as xencomm_hypercall_xxx unless
+   they want to use their own wrapper.  */
 extern int xencomm_hypercall_console_io(int cmd, int count, char *str);
 
 extern int xencomm_hypercall_event_channel_op(int cmd, void *op);
@@ -44,4 +48,4 @@ extern long xencomm_hypercall_vcpu_op(int cmd, int cpu, void *arg);
 
 extern long xencomm_hypercall_opt_feature(void *arg);
 
-#endif 
+#endif /* _ASM_IA64_XEN_XCOM_HCALL_H */

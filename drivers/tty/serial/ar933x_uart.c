@@ -36,7 +36,7 @@ static struct uart_driver ar933x_uart_driver;
 
 struct ar933x_uart_port {
 	struct uart_port	port;
-	unsigned int		ier;	
+	unsigned int		ier;	/* shadow Interrupt Enable Register */
 };
 
 static inline unsigned int ar933x_uart_read(struct ar933x_uart_port *up,
@@ -171,11 +171,11 @@ static void ar933x_uart_set_termios(struct uart_port *port,
 	unsigned long flags;
 	unsigned int baud, scale;
 
-	
+	/* Only CS8 is supported */
 	new->c_cflag &= ~CSIZE;
 	new->c_cflag |= CS8;
 
-	
+	/* Only one stop bit is supported */
 	new->c_cflag &= ~CSTOPB;
 
 	cs = 0;
@@ -188,30 +188,34 @@ static void ar933x_uart_set_termios(struct uart_port *port,
 		cs |= AR933X_UART_CS_PARITY_NONE;
 	}
 
-	
+	/* Mark/space parity is not supported */
 	new->c_cflag &= ~CMSPAR;
 
 	baud = uart_get_baud_rate(port, new, old, 0, port->uartclk / 16);
 	scale = (port->uartclk / (16 * baud)) - 1;
 
+	/*
+	 * Ok, we're now changing the port state. Do it with
+	 * interrupts disabled.
+	 */
 	spin_lock_irqsave(&up->port.lock, flags);
 
-	
+	/* Update the per-port timeout. */
 	uart_update_timeout(port, new->c_cflag, baud);
 
 	up->port.ignore_status_mask = 0;
 
-	
+	/* ignore all characters if CREAD is not set */
 	if ((new->c_cflag & CREAD) == 0)
 		up->port.ignore_status_mask |= AR933X_DUMMY_STATUS_RD;
 
 	ar933x_uart_write(up, AR933X_UART_CLOCK_REG,
 			  scale << AR933X_UART_CLOCK_SCALE_S | 8192);
 
-	
+	/* setup configuration register */
 	ar933x_uart_rmw(up, AR933X_UART_CS_REG, AR933X_UART_CS_PARITY_M, cs);
 
-	
+	/* enable host interrupt */
 	ar933x_uart_rmw_set(up, AR933X_UART_CS_REG,
 			    AR933X_UART_CS_HOST_INT_EN);
 
@@ -235,12 +239,12 @@ static void ar933x_uart_rx_chars(struct ar933x_uart_port *up)
 		if ((rdata & AR933X_UART_DATA_RX_CSR) == 0)
 			break;
 
-		
+		/* remove the character from the FIFO */
 		ar933x_uart_write(up, AR933X_UART_DATA_REG,
 				  AR933X_UART_DATA_RX_CSR);
 
 		if (!tty) {
-			
+			/* discard the data if no tty available */
 			continue;
 		}
 
@@ -344,11 +348,11 @@ static int ar933x_uart_startup(struct uart_port *port)
 
 	spin_lock_irqsave(&up->port.lock, flags);
 
-	
+	/* Enable HOST interrupts */
 	ar933x_uart_rmw_set(up, AR933X_UART_CS_REG,
 			    AR933X_UART_CS_HOST_INT_EN);
 
-	
+	/* Enable RX interrupts */
 	up->ier = AR933X_UART_INT_RX_VALID;
 	ar933x_uart_write(up, AR933X_UART_INT_EN_REG, up->ier);
 
@@ -361,11 +365,11 @@ static void ar933x_uart_shutdown(struct uart_port *port)
 {
 	struct ar933x_uart_port *up = (struct ar933x_uart_port *) port;
 
-	
+	/* Disable all interrupts */
 	up->ier = 0;
 	ar933x_uart_write(up, AR933X_UART_INT_EN_REG, up->ier);
 
-	
+	/* Disable break condition */
 	ar933x_uart_rmw_clear(up, AR933X_UART_CS_REG,
 			      AR933X_UART_CS_TX_BREAK);
 
@@ -379,12 +383,12 @@ static const char *ar933x_uart_type(struct uart_port *port)
 
 static void ar933x_uart_release_port(struct uart_port *port)
 {
-	
+	/* Nothing to release ... */
 }
 
 static int ar933x_uart_request_port(struct uart_port *port)
 {
-	
+	/* UARTs always present */
 	return 0;
 }
 
@@ -439,7 +443,7 @@ static void ar933x_uart_wait_xmitr(struct ar933x_uart_port *up)
 	unsigned int status;
 	unsigned int timeout = 60000;
 
-	
+	/* Wait up to 60ms for the character(s) to be sent. */
 	do {
 		status = ar933x_uart_read(up, AR933X_UART_DATA_REG);
 		if (--timeout == 0)
@@ -473,11 +477,18 @@ static void ar933x_uart_console_write(struct console *co, const char *s,
 	else
 		spin_lock(&up->port.lock);
 
+	/*
+	 * First save the IER then disable the interrupts
+	 */
 	int_en = ar933x_uart_read(up, AR933X_UART_INT_EN_REG);
 	ar933x_uart_write(up, AR933X_UART_INT_EN_REG, 0);
 
 	uart_console_write(&up->port, s, count, ar933x_uart_console_putchar);
 
+	/*
+	 * Finally, wait for transmitter to become empty
+	 * and restore the IER
+	 */
 	ar933x_uart_wait_xmitr(up);
 	ar933x_uart_write(up, AR933X_UART_INT_EN_REG, int_en);
 
@@ -533,7 +544,7 @@ static inline void ar933x_uart_add_console_port(struct ar933x_uart_port *up) {}
 
 #define AR933X_SERIAL_CONSOLE	NULL
 
-#endif 
+#endif /* CONFIG_SERIAL_AR933X_CONSOLE */
 
 static struct uart_driver ar933x_uart_driver = {
 	.owner		= THIS_MODULE,

@@ -2,7 +2,7 @@
  *
  * Copyright (C) 2008 Google, Inc.
  * Copyright (C) 2008 HTC Corporation
- * Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -53,7 +53,7 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		pr_err("%s[%p]: AUDIO_START session_id[%d]\n", __func__,
 			audio, audio->ac->session);
 		if (audio->feedback == NON_TUNNEL_MODE) {
-			
+			/* Configure PCM output block */
 			rc = q6asm_enc_cfg_blk_pcm(audio->ac,
 			audio->pcm_cfg.sample_rate,
 			audio->pcm_cfg.channel_count);
@@ -170,8 +170,14 @@ static int audio_open(struct inode *inode, struct file *file)
 		kfree(audio);
 		return -ENOMEM;
 	}
+	rc = audio_aio_open(audio, file);
+	if (rc < 0) {
+		pr_err("%s: audio_aio_open rc=%d\n",
+			__func__, rc);
+		goto fail;
+	}
 
-	
+	/* open in T/NT mode */
 	if ((file->f_mode & FMODE_WRITE) && (file->f_mode & FMODE_READ)) {
 		rc = q6asm_open_read_write(audio->ac, FORMAT_LINEAR_PCM,
 					FORMAT_AMR_WB_PLUS);
@@ -196,11 +202,6 @@ static int audio_open(struct inode *inode, struct file *file)
 	} else {
 		pr_err("audio_amrwbplus Not supported mode\n");
 		rc = -EACCES;
-		goto fail;
-	}
-	rc = audio_aio_open(audio, file);
-	if (rc < 0) {
-		pr_err("audio_aio_open rc=%d\n", rc);
 		goto fail;
 	}
 

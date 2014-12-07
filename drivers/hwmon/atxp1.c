@@ -75,12 +75,12 @@ struct atxp1_data {
 	unsigned long last_updated;
 	u8 valid;
 	struct {
-		u8 vid;		
-		u8 cpu_vid; 
-		u8 gpio1;   
-		u8 gpio2;   
+		u8 vid;		/* VID output register */
+		u8 cpu_vid; /* VID input from CPU */
+		u8 gpio1;   /* General purpose I/O register 1 */
+		u8 gpio2;   /* General purpose I/O register 2 */
 	} reg;
-	u8 vrm;			
+	u8 vrm;			/* Detected CPU VRM */
 };
 
 static struct atxp1_data *atxp1_update_device(struct device *dev)
@@ -95,7 +95,7 @@ static struct atxp1_data *atxp1_update_device(struct device *dev)
 
 	if (time_after(jiffies, data->last_updated + HZ) || !data->valid) {
 
-		
+		/* Update local register data */
 		data->reg.vid = i2c_smbus_read_byte_data(client, ATXP1_VID);
 		data->reg.cpu_vid = i2c_smbus_read_byte_data(client,
 							     ATXP1_CVID);
@@ -110,6 +110,7 @@ static struct atxp1_data *atxp1_update_device(struct device *dev)
 	return data;
 }
 
+/* sys file functions for cpu0_vid */
 static ssize_t atxp1_showvcore(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
@@ -144,7 +145,7 @@ static ssize_t atxp1_storevcore(struct device *dev,
 	vcore /= 25;
 	vcore *= 25;
 
-	
+	/* Calculate VID */
 	vid = vid_to_reg(vcore, data->vrm);
 
 	if (vid < 0) {
@@ -152,18 +153,22 @@ static ssize_t atxp1_storevcore(struct device *dev,
 		return -1;
 	}
 
+	/*
+	 * If output enabled, use control register value.
+	 * Otherwise original CPU VID
+	 */
 	if (data->reg.vid & ATXP1_VIDENA)
 		cvid = data->reg.vid & ATXP1_VIDMASK;
 	else
 		cvid = data->reg.cpu_vid;
 
-	
+	/* Nothing changed, aborting */
 	if (vid == cvid)
 		return count;
 
 	dev_dbg(dev, "Setting VCore to %d mV (0x%02x)\n", (int)vcore, vid);
 
-	
+	/* Write every 25 mV step to increase stability */
 	if (cvid > vid) {
 		for (; cvid >= vid; cvid--)
 			i2c_smbus_write_byte_data(client,
@@ -179,9 +184,14 @@ static ssize_t atxp1_storevcore(struct device *dev,
 	return count;
 }
 
+/*
+ * CPU core reference voltage
+ * unit: millivolt
+ */
 static DEVICE_ATTR(cpu0_vid, S_IRUGO | S_IWUSR, atxp1_showvcore,
 		   atxp1_storevcore);
 
+/* sys file functions for GPIO1 */
 static ssize_t atxp1_showgpio1(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
@@ -224,8 +234,13 @@ static ssize_t atxp1_storegpio1(struct device *dev,
 	return count;
 }
 
+/*
+ * GPIO1 data register
+ * unit: Four bit as hex (e.g. 0x0f)
+ */
 static DEVICE_ATTR(gpio1, S_IRUGO | S_IWUSR, atxp1_showgpio1, atxp1_storegpio1);
 
+/* sys file functions for GPIO2 */
 static ssize_t atxp1_showgpio2(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
@@ -264,6 +279,10 @@ static ssize_t atxp1_storegpio2(struct device *dev,
 	return count;
 }
 
+/*
+ * GPIO2 data register
+ * unit: Eight bit as hex (e.g. 0xff)
+ */
 static DEVICE_ATTR(gpio2, S_IRUGO | S_IWUSR, atxp1_showgpio2, atxp1_storegpio2);
 
 static struct attribute *atxp1_attributes[] = {
@@ -278,6 +297,7 @@ static const struct attribute_group atxp1_group = {
 };
 
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int atxp1_detect(struct i2c_client *new_client,
 			struct i2c_board_info *info)
 {
@@ -288,20 +308,24 @@ static int atxp1_detect(struct i2c_client *new_client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* Detect ATXP1, checking if vendor ID registers are all zero */
 	if (!((i2c_smbus_read_byte_data(new_client, 0x3e) == 0) &&
 	     (i2c_smbus_read_byte_data(new_client, 0x3f) == 0) &&
 	     (i2c_smbus_read_byte_data(new_client, 0xfe) == 0) &&
 	     (i2c_smbus_read_byte_data(new_client, 0xff) == 0)))
 		return -ENODEV;
 
+	/*
+	 * No vendor ID, now checking if registers 0x10,0x11 (non-existent)
+	 * showing the same as register 0x00
+	 */
 	temp = i2c_smbus_read_byte_data(new_client, 0x00);
 
 	if (!((i2c_smbus_read_byte_data(new_client, 0x10) == temp) &&
 	      (i2c_smbus_read_byte_data(new_client, 0x11) == temp)))
 		return -ENODEV;
 
-	
+	/* Get VRM */
 	temp = vid_which_vrm();
 
 	if ((temp != 90) && (temp != 91)) {
@@ -327,7 +351,7 @@ static int atxp1_probe(struct i2c_client *new_client,
 		goto exit;
 	}
 
-	
+	/* Get VRM */
 	data->vrm = vid_which_vrm();
 
 	i2c_set_clientdata(new_client, data);
@@ -335,7 +359,7 @@ static int atxp1_probe(struct i2c_client *new_client,
 
 	mutex_init(&data->update_lock);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&new_client->dev.kobj, &atxp1_group);
 	if (err)
 		goto exit_free;

@@ -20,6 +20,9 @@
 #include "pch_gbe.h"
 #include "pch_gbe_api.h"
 
+/**
+ * pch_gbe_stats - Stats item information
+ */
 struct pch_gbe_stats {
 	char string[ETH_GSTRING_LEN];
 	size_t size;
@@ -33,6 +36,9 @@ struct pch_gbe_stats {
 	.offset = offsetof(struct pch_gbe_hw_stats, m),		\
 }
 
+/**
+ * pch_gbe_gstrings_stats - ethtool information status name list
+ */
 static const struct pch_gbe_stats pch_gbe_gstrings_stats[] = {
 	PCH_GBE_STAT(rx_packets),
 	PCH_GBE_STAT(tx_packets),
@@ -67,6 +73,14 @@ static const struct pch_gbe_stats pch_gbe_gstrings_stats[] = {
 
 #define PCH_GBE_MAC_REGS_LEN    (sizeof(struct pch_gbe_regs) / 4)
 #define PCH_GBE_REGS_LEN        (PCH_GBE_MAC_REGS_LEN + PCH_GBE_PHY_REGS_LEN)
+/**
+ * pch_gbe_get_settings - Get device-specific settings
+ * @netdev: Network interface device structure
+ * @ecmd:   Ethtool command
+ * Returns
+ *	0:			Successful.
+ *	Negative value:		Failed.
+ */
 static int pch_gbe_get_settings(struct net_device *netdev,
 				 struct ethtool_cmd *ecmd)
 {
@@ -82,6 +96,14 @@ static int pch_gbe_get_settings(struct net_device *netdev,
 	return ret;
 }
 
+/**
+ * pch_gbe_set_settings - Set device-specific settings
+ * @netdev: Network interface device structure
+ * @ecmd:   Ethtool command
+ * Returns
+ *	0:			Successful.
+ *	Negative value:		Failed.
+ */
 static int pch_gbe_set_settings(struct net_device *netdev,
 				 struct ethtool_cmd *ecmd)
 {
@@ -92,6 +114,8 @@ static int pch_gbe_set_settings(struct net_device *netdev,
 
 	pch_gbe_hal_write_phy_reg(hw, MII_BMCR, BMCR_RESET);
 
+	/* when set_settings() is called with a ethtool_cmd previously
+	 * filled by get_settings() on a down link, speed is -1: */
 	if (speed == UINT_MAX) {
 		speed = SPEED_1000;
 		ecmd->duplex = DUPLEX_FULL;
@@ -107,7 +131,7 @@ static int pch_gbe_set_settings(struct net_device *netdev,
 	hw->mac.autoneg = ecmd->autoneg;
 	pch_gbe_hal_phy_sw_reset(hw);
 
-	
+	/* reset the link */
 	if (netif_running(adapter->netdev)) {
 		pch_gbe_down(adapter);
 		ret = pch_gbe_up(adapter);
@@ -117,11 +141,21 @@ static int pch_gbe_set_settings(struct net_device *netdev,
 	return ret;
 }
 
+/**
+ * pch_gbe_get_regs_len - Report the size of device registers
+ * @netdev: Network interface device structure
+ * Returns: the size of device registers.
+ */
 static int pch_gbe_get_regs_len(struct net_device *netdev)
 {
 	return PCH_GBE_REGS_LEN * (int)sizeof(u32);
 }
 
+/**
+ * pch_gbe_get_drvinfo - Report driver information
+ * @netdev:  Network interface device structure
+ * @drvinfo: Driver information structure
+ */
 static void pch_gbe_get_drvinfo(struct net_device *netdev,
 				 struct ethtool_drvinfo *drvinfo)
 {
@@ -134,6 +168,12 @@ static void pch_gbe_get_drvinfo(struct net_device *netdev,
 	drvinfo->regdump_len = pch_gbe_get_regs_len(netdev);
 }
 
+/**
+ * pch_gbe_get_regs - Get device registers
+ * @netdev: Network interface device structure
+ * @regs:   Ethtool register structure
+ * @p:      Buffer pointer of read device register date
+ */
 static void pch_gbe_get_regs(struct net_device *netdev,
 				struct ethtool_regs *regs, void *p)
 {
@@ -146,13 +186,18 @@ static void pch_gbe_get_regs(struct net_device *netdev,
 	regs->version = 0x1000000 | (__u32)pdev->revision << 16 | pdev->device;
 	for (i = 0; i < PCH_GBE_MAC_REGS_LEN; i++)
 		*regs_buff++ = ioread32(&hw->reg->INT_ST + i);
-	
+	/* PHY register */
 	for (i = 0; i < PCH_GBE_PHY_REGS_LEN; i++) {
 		pch_gbe_hal_read_phy_reg(&adapter->hw, i, &tmp);
 		*regs_buff++ = tmp;
 	}
 }
 
+/**
+ * pch_gbe_get_wol - Report whether Wake-on-Lan is enabled
+ * @netdev: Network interface device structure
+ * @wol:    Wake-on-Lan information
+ */
 static void pch_gbe_get_wol(struct net_device *netdev,
 				struct ethtool_wolinfo *wol)
 {
@@ -171,6 +216,14 @@ static void pch_gbe_get_wol(struct net_device *netdev,
 		wol->wolopts |= WAKE_MAGIC;
 }
 
+/**
+ * pch_gbe_set_wol - Turn Wake-on-Lan on or off
+ * @netdev: Network interface device structure
+ * @wol:    Pointer of wake-on-Lan information straucture
+ * Returns
+ *	0:			Successful.
+ *	Negative value:		Failed.
+ */
 static int pch_gbe_set_wol(struct net_device *netdev,
 				struct ethtool_wolinfo *wol)
 {
@@ -178,7 +231,7 @@ static int pch_gbe_set_wol(struct net_device *netdev,
 
 	if ((wol->wolopts & (WAKE_PHY | WAKE_ARP | WAKE_MAGICSECURE)))
 		return -EOPNOTSUPP;
-	
+	/* these settings will always override what we currently have */
 	adapter->wake_up_evt = 0;
 
 	if ((wol->wolopts & WAKE_UCAST))
@@ -192,6 +245,13 @@ static int pch_gbe_set_wol(struct net_device *netdev,
 	return 0;
 }
 
+/**
+ * pch_gbe_nway_reset - Restart autonegotiation
+ * @netdev: Network interface device structure
+ * Returns
+ *	0:			Successful.
+ *	Negative value:		Failed.
+ */
 static int pch_gbe_nway_reset(struct net_device *netdev)
 {
 	struct pch_gbe_adapter *adapter = netdev_priv(netdev);
@@ -199,6 +259,11 @@ static int pch_gbe_nway_reset(struct net_device *netdev)
 	return mii_nway_restart(&adapter->mii);
 }
 
+/**
+ * pch_gbe_get_ringparam - Report ring sizes
+ * @netdev:  Network interface device structure
+ * @ring:    Ring param structure
+ */
 static void pch_gbe_get_ringparam(struct net_device *netdev,
 					struct ethtool_ringparam *ring)
 {
@@ -212,6 +277,14 @@ static void pch_gbe_get_ringparam(struct net_device *netdev,
 	ring->tx_pending = txdr->count;
 }
 
+/**
+ * pch_gbe_set_ringparam - Set ring sizes
+ * @netdev:  Network interface device structure
+ * @ring:    Ring param structure
+ * Returns
+ *	0:			Successful.
+ *	Negative value:		Failed.
+ */
 static int pch_gbe_set_ringparam(struct net_device *netdev,
 					struct ethtool_ringparam *ring)
 {
@@ -253,13 +326,15 @@ static int pch_gbe_set_ringparam(struct net_device *netdev,
 	txdr->count = roundup(txdr->count, PCH_GBE_TX_DESC_MULTIPLE);
 
 	if ((netif_running(adapter->netdev))) {
-		
+		/* Try to get new resources before deleting old */
 		err = pch_gbe_setup_rx_resources(adapter, adapter->rx_ring);
 		if (err)
 			goto err_setup_rx;
 		err = pch_gbe_setup_tx_resources(adapter, adapter->tx_ring);
 		if (err)
 			goto err_setup_tx;
+		/* save the new, restore the old in order to free it,
+		 * then restore the new back again */
 #ifdef RINGFREE
 		adapter->rx_ring = rx_old;
 		adapter->tx_ring = tx_old;
@@ -295,6 +370,11 @@ err_alloc_tx:
 	return err;
 }
 
+/**
+ * pch_gbe_get_pauseparam - Report pause parameters
+ * @netdev:  Network interface device structure
+ * @pause:   Pause parameters structure
+ */
 static void pch_gbe_get_pauseparam(struct net_device *netdev,
 				       struct ethtool_pauseparam *pause)
 {
@@ -314,6 +394,14 @@ static void pch_gbe_get_pauseparam(struct net_device *netdev,
 	}
 }
 
+/**
+ * pch_gbe_set_pauseparam - Set pause paramters
+ * @netdev:  Network interface device structure
+ * @pause:   Pause parameters structure
+ * Returns
+ *	0:			Successful.
+ *	Negative value:		Failed.
+ */
 static int pch_gbe_set_pauseparam(struct net_device *netdev,
 				       struct ethtool_pauseparam *pause)
 {
@@ -344,6 +432,13 @@ static int pch_gbe_set_pauseparam(struct net_device *netdev,
 	return ret;
 }
 
+/**
+ * pch_gbe_get_strings - Return a set of strings that describe the requested
+ *			 objects
+ * @netdev:    Network interface device structure
+ * @stringset: Select the stringset. [ETH_SS_TEST] [ETH_SS_STATS]
+ * @data:      Pointer of read string data.
+ */
 static void pch_gbe_get_strings(struct net_device *netdev, u32 stringset,
 					u8 *data)
 {
@@ -361,6 +456,12 @@ static void pch_gbe_get_strings(struct net_device *netdev, u32 stringset,
 	}
 }
 
+/**
+ * pch_gbe_get_ethtool_stats - Return statistics about the device
+ * @netdev: Network interface device structure
+ * @stats:  Ethtool statue structure
+ * @data:   Pointer of read status area
+ */
 static void pch_gbe_get_ethtool_stats(struct net_device *netdev,
 				  struct ethtool_stats *stats, u64 *data)
 {

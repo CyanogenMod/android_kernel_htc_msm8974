@@ -38,6 +38,11 @@
 #include <asm/mmu_context.h>
 #include "spufs.h"
 
+/*
+ * Reads/writes to various problem and priv2 registers require
+ * state changes, i.e.  generate SPU events, modify channel
+ * counts, etc.
+ */
 
 static void gen_spu_event(struct spu_context *ctx, u32 event)
 {
@@ -62,6 +67,10 @@ static int spu_backing_mbox_read(struct spu_context *ctx, u32 * data)
 	spin_lock(&ctx->csa.register_lock);
 	mbox_stat = ctx->csa.prob.mb_stat_R;
 	if (mbox_stat & 0x0000ff) {
+		/* Read the first available word.
+		 * Implementation note: the depth
+		 * of pu_mb_R is currently 1.
+		 */
 		*data = ctx->csa.prob.pu_mb_R;
 		ctx->csa.prob.mb_stat_R &= ~(0x0000ff);
 		ctx->csa.spu_chnlcnt_RW[28] = 1;
@@ -87,6 +96,10 @@ static unsigned int spu_backing_mbox_stat_poll(struct spu_context *ctx,
 	spin_lock_irq(&ctx->csa.register_lock);
 	stat = ctx->csa.prob.mb_stat_R;
 
+	/* if the requested event is there, return the poll
+	   mask, otherwise enable the interrupt to get notified,
+	   but first mark any pending interrupts as done so
+	   we don't get woken up unnecessarily */
 
 	if (events & (POLLIN | POLLRDNORM)) {
 		if (stat & 0xff0000)
@@ -118,13 +131,17 @@ static int spu_backing_ibox_read(struct spu_context *ctx, u32 * data)
 
 	spin_lock(&ctx->csa.register_lock);
 	if (ctx->csa.prob.mb_stat_R & 0xff0000) {
+		/* Read the first available word.
+		 * Implementation note: the depth
+		 * of puint_mb_R is currently 1.
+		 */
 		*data = ctx->csa.priv2.puint_mb_R;
 		ctx->csa.prob.mb_stat_R &= ~(0xff0000);
 		ctx->csa.spu_chnlcnt_RW[30] = 1;
 		gen_spu_event(ctx, MFC_PU_INT_MAILBOX_AVAILABLE_EVENT);
 		ret = 4;
 	} else {
-		
+		/* make sure we get woken up by the interrupt */
 		ctx->csa.priv1.int_mask_class2_RW |= CLASS2_ENABLE_MAILBOX_INTR;
 		ret = 0;
 	}
@@ -141,6 +158,10 @@ static int spu_backing_wbox_write(struct spu_context *ctx, u32 data)
 		int slot = ctx->csa.spu_chnlcnt_RW[29];
 		int avail = (ctx->csa.prob.mb_stat_R & 0x00ff00) >> 8;
 
+		/* We have space to write wbox_data.
+		 * Implementation note: the depth
+		 * of spu_mb_W is currently 4.
+		 */
 		BUG_ON(avail != (4 - slot));
 		ctx->csa.spu_mailbox_data[slot] = data;
 		ctx->csa.spu_chnlcnt_RW[29] = ++slot;
@@ -149,6 +170,8 @@ static int spu_backing_wbox_write(struct spu_context *ctx, u32 data)
 		gen_spu_event(ctx, MFC_SPU_MAILBOX_WRITTEN_EVENT);
 		ret = 4;
 	} else {
+		/* make sure we get woken up by the interrupt when space
+		   becomes available */
 		ctx->csa.priv1.int_mask_class2_RW |=
 			CLASS2_ENABLE_MAILBOX_THRESHOLD_INTR;
 		ret = 0;
@@ -315,9 +338,14 @@ static int spu_backing_set_mfc_query(struct spu_context * ctx, u32 mask,
 	if (prob->dma_querytype_RW)
 		goto out;
 	ret = 0;
-	
+	/* FIXME: what are the side-effects of this? */
 	prob->dma_querymask_RW = mask;
 	prob->dma_querytype_RW = mode;
+	/* In the current implementation, the SPU context is always
+	 * acquired in runnable state when new bits are added to the
+	 * mask (tagwait), so it's sufficient just to mask
+	 * dma_tagstatus_R with the 'mask' parameter here.
+	 */
 	ctx->csa.prob.dma_tagstatus_R &= mask;
 out:
 	spin_unlock(&ctx->csa.register_lock);
@@ -342,7 +370,7 @@ static int spu_backing_send_mfc_command(struct spu_context *ctx,
 
 	spin_lock(&ctx->csa.register_lock);
 	ret = -EAGAIN;
-	
+	/* FIXME: set up priv2->puq */
 	spin_unlock(&ctx->csa.register_lock);
 
 	return ret;

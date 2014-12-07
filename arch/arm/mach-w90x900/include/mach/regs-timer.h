@@ -18,6 +18,7 @@
 #ifndef __ASM_ARCH_REGS_TIMER_H
 #define __ASM_ARCH_REGS_TIMER_H
 
+/* Timer Registers */
 
 #define TMR_BA			W90X900_VA_TIMER
 #define REG_TCSR0		(TMR_BA+0x00)
@@ -38,4 +39,4 @@
 #define REG_TICR4		(TMR_BA+0x48)
 #define REG_TDR4		(TMR_BA+0x50)
 
-#endif 
+#endif /*  __ASM_ARCH_REGS_TIMER_H */

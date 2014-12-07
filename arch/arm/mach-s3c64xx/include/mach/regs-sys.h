@@ -28,4 +28,4 @@
 #define S3C64XX_OTHERS_USBMASK	(1 << 16)
 #define S3C64XX_OTHERS_SYNCMUXSEL	(1 << 6)
 
-#endif 
+#endif /* _PLAT_REGS_SYS_H */

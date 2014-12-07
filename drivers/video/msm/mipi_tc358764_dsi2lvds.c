@@ -11,8 +11,57 @@
  *
  */
 
+/*
+ * Toshiba MIPI-DSI-to-LVDS Bridge driver.
+ * Device Model TC358764XBG/65XBG.
+ * Reference document: TC358764XBG_65XBG_V119.pdf
+ *
+ * The Host sends a DSI Generic Long Write packet (Data ID = 0x29) over the
+ * DSI link for each write access transaction to the chip configuration
+ * registers.
+ * Payload of this packet is 16-bit register address and 32-bit data.
+ * Multiple data values are allowed for sequential addresses.
+ *
+ * The Host sends a DSI Generic Read packet (Data ID = 0x24) over the DSI
+ * link for each read request transaction to the chip configuration
+ * registers. Payload of this packet is further defined as follows:
+ * 16-bit address followed by a 32-bit value (Generic Long Read Response
+ * packet).
+ *
+ * The bridge supports 5 GPIO lines controlled via the GPC register.
+ *
+ * The bridge support I2C Master/Slave.
+ * The I2C slave can be used for read/write to the bridge register instead of
+ * using the DSI interface.
+ * I2C slave address is 0x0F (read/write 0x1F/0x1E).
+ * The I2C Master can be used for communication with the panel if
+ * it has an I2C slave.
+ *
+ * NOTE: The I2C interface is not used in this driver.
+ * Only the DSI interface is used for read/write the bridge registers.
+ *
+ * Pixel data can be transmitted in non-burst or burst fashion.
+ * Non-burst refers to pixel data packet transmission time on DSI link
+ * being roughly the same (to account for packet overhead time)
+ * as active video line time on LVDS output (i.e. DE = 1).
+ * And burst refers to pixel data packet transmission time on DSI link
+ * being less than the active video line time on LVDS output.
+ * Video mode transmission is further differentiated by the types of
+ * timing events being transmitted.
+ * Video pulse mode refers to the case where both sync start and sync end
+ * events (for frame and line) are transmitted.
+ * Video event mode refers to the case where only sync start events
+ * are transmitted.
+ * This is configured via register bit VPCTRL.EVTMODE.
+ *
+ */
 
+/* #define DEBUG 1 */
 
+/**
+ * Use the I2C master to control the panel.
+ */
+/* #define TC358764_USE_I2C_MASTER */
 
 #define DRV_NAME "mipi_tc358764"
 
@@ -25,110 +74,120 @@
 #include "mipi_dsi.h"
 #include "mipi_tc358764_dsi2lvds.h"
 
+/* Registers definition */
 
-#define D0W_DPHYCONTTX	0x0004	
-#define CLW_DPHYCONTRX	0x0020	
-#define D0W_DPHYCONTRX	0x0024	
-#define D1W_DPHYCONTRX	0x0028	
-#define D2W_DPHYCONTRX	0x002C	
-#define D3W_DPHYCONTRX	0x0030	
-#define COM_DPHYCONTRX	0x0038	
-#define CLW_CNTRL	0x0040	
-#define D0W_CNTRL	0x0044	
-#define D1W_CNTRL	0x0048	
-#define D2W_CNTRL	0x004C	
-#define D3W_CNTRL	0x0050	
-#define DFTMODE_CNTRL	0x0054	
+/* DSI D-PHY Layer Registers */
+#define D0W_DPHYCONTTX	0x0004	/* Data Lane 0 DPHY Tx Control */
+#define CLW_DPHYCONTRX	0x0020	/* Clock Lane DPHY Rx Control */
+#define D0W_DPHYCONTRX	0x0024	/* Data Lane 0 DPHY Rx Control */
+#define D1W_DPHYCONTRX	0x0028	/* Data Lane 1 DPHY Rx Control */
+#define D2W_DPHYCONTRX	0x002C	/* Data Lane 2 DPHY Rx Control */
+#define D3W_DPHYCONTRX	0x0030	/* Data Lane 3 DPHY Rx Control */
+#define COM_DPHYCONTRX	0x0038	/* DPHY Rx Common Control */
+#define CLW_CNTRL	0x0040	/* Clock Lane Control */
+#define D0W_CNTRL	0x0044	/* Data Lane 0 Control */
+#define D1W_CNTRL	0x0048	/* Data Lane 1 Control */
+#define D2W_CNTRL	0x004C	/* Data Lane 2 Control */
+#define D3W_CNTRL	0x0050	/* Data Lane 3 Control */
+#define DFTMODE_CNTRL	0x0054	/* DFT Mode Control */
 
-#define PPI_STARTPPI	0x0104	
+/* DSI PPI Layer Registers */
+#define PPI_STARTPPI	0x0104	/* START control bit of PPI-TX function. */
 #define PPI_BUSYPPI	0x0108
-#define PPI_LINEINITCNT	0x0110	
+#define PPI_LINEINITCNT	0x0110	/* Line Initialization Wait Counter  */
 #define PPI_LPTXTIMECNT	0x0114
-#define PPI_LANEENABLE	0x0134	
-#define PPI_TX_RX_TA	0x013C	
+#define PPI_LANEENABLE	0x0134	/* Enables each lane at the PPI layer. */
+#define PPI_TX_RX_TA	0x013C	/* DSI Bus Turn Around timing parameters */
 
-#define PPI_CLS_ATMR	0x0140	
-#define PPI_D0S_ATMR	0x0144	
-#define PPI_D1S_ATMR	0x0148	
-#define PPI_D2S_ATMR	0x014C	
-#define PPI_D3S_ATMR	0x0150	
+/* Analog timer function enable */
+#define PPI_CLS_ATMR	0x0140	/* Delay for Clock Lane in LPRX  */
+#define PPI_D0S_ATMR	0x0144	/* Delay for Data Lane 0 in LPRX */
+#define PPI_D1S_ATMR	0x0148	/* Delay for Data Lane 1 in LPRX */
+#define PPI_D2S_ATMR	0x014C	/* Delay for Data Lane 2 in LPRX */
+#define PPI_D3S_ATMR	0x0150	/* Delay for Data Lane 3 in LPRX */
 #define PPI_D0S_CLRSIPOCOUNT	0x0164
 
-#define PPI_D1S_CLRSIPOCOUNT	0x0168	
-#define PPI_D2S_CLRSIPOCOUNT	0x016C	
-#define PPI_D3S_CLRSIPOCOUNT	0x0170	
+#define PPI_D1S_CLRSIPOCOUNT	0x0168	/* For lane 1 */
+#define PPI_D2S_CLRSIPOCOUNT	0x016C	/* For lane 2 */
+#define PPI_D3S_CLRSIPOCOUNT	0x0170	/* For lane 3 */
 
-#define CLS_PRE		0x0180	
-#define D0S_PRE		0x0184	
-#define D1S_PRE		0x0188	
-#define D2S_PRE		0x018C	
-#define D3S_PRE		0x0190	
-#define CLS_PREP	0x01A0	
-#define D0S_PREP	0x01A4	
-#define D1S_PREP	0x01A8	
-#define D2S_PREP	0x01AC	
-#define D3S_PREP	0x01B0	
-#define CLS_ZERO	0x01C0	
-#define D0S_ZERO	0x01C4	
-#define D1S_ZERO	0x01C8	
-#define D2S_ZERO	0x01CC	
-#define D3S_ZERO	0x01D0	
+#define CLS_PRE		0x0180	/* Digital Counter inside of PHY IO */
+#define D0S_PRE		0x0184	/* Digital Counter inside of PHY IO */
+#define D1S_PRE		0x0188	/* Digital Counter inside of PHY IO */
+#define D2S_PRE		0x018C	/* Digital Counter inside of PHY IO */
+#define D3S_PRE		0x0190	/* Digital Counter inside of PHY IO */
+#define CLS_PREP	0x01A0	/* Digital Counter inside of PHY IO */
+#define D0S_PREP	0x01A4	/* Digital Counter inside of PHY IO */
+#define D1S_PREP	0x01A8	/* Digital Counter inside of PHY IO */
+#define D2S_PREP	0x01AC	/* Digital Counter inside of PHY IO */
+#define D3S_PREP	0x01B0	/* Digital Counter inside of PHY IO */
+#define CLS_ZERO	0x01C0	/* Digital Counter inside of PHY IO */
+#define D0S_ZERO	0x01C4	/* Digital Counter inside of PHY IO */
+#define D1S_ZERO	0x01C8	/* Digital Counter inside of PHY IO */
+#define D2S_ZERO	0x01CC	/* Digital Counter inside of PHY IO */
+#define D3S_ZERO	0x01D0	/* Digital Counter inside of PHY IO */
 
-#define PPI_CLRFLG	0x01E0	
-#define PPI_CLRSIPO	0x01E4	
-#define HSTIMEOUT	0x01F0	
-#define HSTIMEOUTENABLE	0x01F4	
-#define DSI_STARTDSI	0x0204	
+#define PPI_CLRFLG	0x01E0	/* PRE Counters has reached set values */
+#define PPI_CLRSIPO	0x01E4	/* Clear SIPO values, Slave mode use only. */
+#define HSTIMEOUT	0x01F0	/* HS Rx Time Out Counter */
+#define HSTIMEOUTENABLE	0x01F4	/* Enable HS Rx Time Out Counter */
+#define DSI_STARTDSI	0x0204	/* START control bit of DSI-TX function */
 #define DSI_BUSYDSI	0x0208
-#define DSI_LANEENABLE	0x0210	
-#define DSI_LANESTATUS0	0x0214	
-#define DSI_LANESTATUS1	0x0218	
+#define DSI_LANEENABLE	0x0210	/* Enables each lane at the Protocol layer. */
+#define DSI_LANESTATUS0	0x0214	/* Displays lane is in HS RX mode. */
+#define DSI_LANESTATUS1	0x0218	/* Displays lane is in ULPS or STOP state */
 
-#define DSI_INTSTATUS	0x0220	
-#define DSI_INTMASK	0x0224	
-#define DSI_INTCLR	0x0228	
-#define DSI_LPTXTO	0x0230	
+#define DSI_INTSTATUS	0x0220	/* Interrupt Status */
+#define DSI_INTMASK	0x0224	/* Interrupt Mask */
+#define DSI_INTCLR	0x0228	/* Interrupt Clear */
+#define DSI_LPTXTO	0x0230	/* Low Power Tx Time Out Counter */
 
-#define DSIERRCNT	0x0300	
-#define APLCTRL		0x0400	
-#define RDPKTLN		0x0404	
-#define VPCTRL		0x0450	
-#define HTIM1		0x0454	
-#define HTIM2		0x0458	
-#define VTIM1		0x045C	
-#define VTIM2		0x0460	
-#define VFUEN		0x0464	
+#define DSIERRCNT	0x0300	/* DSI Error Count */
+#define APLCTRL		0x0400	/* Application Layer Control */
+#define RDPKTLN		0x0404	/* Command Read Packet Length */
+#define VPCTRL		0x0450	/* Video Path Control */
+#define HTIM1		0x0454	/* Horizontal Timing Control 1 */
+#define HTIM2		0x0458	/* Horizontal Timing Control 2 */
+#define VTIM1		0x045C	/* Vertical Timing Control 1 */
+#define VTIM2		0x0460	/* Vertical Timing Control 2 */
+#define VFUEN		0x0464	/* Video Frame Timing Update Enable */
 
-#define LVMX0003	0x0480	
-#define LVMX0407	0x0484	
-#define LVMX0811	0x0488	
-#define LVMX1215	0x048C	
-#define LVMX1619	0x0490	
-#define LVMX2023	0x0494	
-#define LVMX2427	0x0498	
+/* Mux Input Select for LVDS LINK Input */
+#define LVMX0003	0x0480	/* Bit 0 to 3 */
+#define LVMX0407	0x0484	/* Bit 4 to 7 */
+#define LVMX0811	0x0488	/* Bit 8 to 11 */
+#define LVMX1215	0x048C	/* Bit 12 to 15 */
+#define LVMX1619	0x0490	/* Bit 16 to 19 */
+#define LVMX2023	0x0494	/* Bit 20 to 23 */
+#define LVMX2427	0x0498	/* Bit 24 to 27 */
 
-#define LVCFG		0x049C	
-#define LVPHY0		0x04A0	
-#define LVPHY1		0x04A4	
-#define SYSSTAT		0x0500	
-#define SYSRST		0x0504	
+#define LVCFG		0x049C	/* LVDS Configuration  */
+#define LVPHY0		0x04A0	/* LVDS PHY 0 */
+#define LVPHY1		0x04A4	/* LVDS PHY 1 */
+#define SYSSTAT		0x0500	/* System Status  */
+#define SYSRST		0x0504	/* System Reset  */
 
-#define GPIOC		0x0520	
-#define GPIOO		0x0524	
-#define GPIOI		0x0528	
+/* GPIO Registers */
+#define GPIOC		0x0520	/* GPIO Control  */
+#define GPIOO		0x0524	/* GPIO Output  */
+#define GPIOI		0x0528	/* GPIO Input  */
 
-#define I2CTIMCTRL	0x0540	
-#define I2CMADDR	0x0544	
-#define WDATAQ		0x0548	
-#define RDATAQ		0x054C	
+/* I2C Registers */
+#define I2CTIMCTRL	0x0540	/* I2C IF Timing and Enable Control */
+#define I2CMADDR	0x0544	/* I2C Master Addressing */
+#define WDATAQ		0x0548	/* Write Data Queue */
+#define RDATAQ		0x054C	/* Read Data Queue */
 
+/* Chip ID and Revision ID Register */
 #define IDREG		0x0580
 
 #define TC358764XBG_ID	0x00006500
 
-#define DEBUG00		0x05A0	
-#define DEBUG01		0x05A4	
+/* Debug Registers */
+#define DEBUG00		0x05A0	/* Debug */
+#define DEBUG01		0x05A4	/* LVDS Data */
 
+/* PWM */
 static u32 d2l_pwm_freq_hz = (3.921*1000);
 
 #define PWM_FREQ_HZ	(d2l_pwm_freq_hz)
@@ -140,11 +199,17 @@ static u32 d2l_pwm_freq_hz = (3.921*1000);
 #define KHZ 1000
 #define MHZ (1000*1000)
 
+/**
+ * Command payload for DTYPE_GEN_LWRITE (0x29) / DTYPE_GEN_READ2 (0x24).
+ */
 struct wr_cmd_payload {
 	u16 addr;
 	u32 data;
 } __packed;
 
+/*
+ * Driver state.
+ */
 static struct msm_panel_common_pdata *d2l_common_pdata;
 struct msm_fb_data_type *d2l_mfd;
 static struct dsi_buf d2l_tx_buf;
@@ -167,13 +232,20 @@ static int mipi_d2l_enable_3d(struct msm_fb_data_type *mfd,
 static u32 d2l_i2c_read_reg(struct i2c_client *client, u16 reg);
 static u32 d2l_i2c_write_reg(struct i2c_client *client, u16 reg, u32 val);
 
+/**
+ * Read a bridge register
+ *
+ * @param mfd
+ *
+ * @return register data value
+ */
 static u32 mipi_d2l_read_reg(struct msm_fb_data_type *mfd, u16 reg)
 {
 	u32 data;
 	int len = 4;
 	struct dcs_cmd_req cmdreq;
 	struct dsi_cmd_desc cmd_read_reg = {
-		DTYPE_GEN_READ2, 1, 0, 1, 0, 
+		DTYPE_GEN_READ2, 1, 0, 1, 0, /* cmd 0x24 */
 			sizeof(reg), (char *) &reg};
 
 	mipi_dsi_buf_init(&d2l_rx_buf);
@@ -197,6 +269,13 @@ static u32 mipi_d2l_read_reg(struct msm_fb_data_type *mfd, u16 reg)
 	return data;
 }
 
+/**
+ * Write a bridge register
+ *
+ * @param mfd
+ *
+ * @return int
+ */
 static int mipi_d2l_write_reg(struct msm_fb_data_type *mfd, u16 reg, u32 data)
 {
 	struct wr_cmd_payload payload;
@@ -223,10 +302,10 @@ static int mipi_d2l_write_reg(struct msm_fb_data_type *mfd, u16 reg, u32 data)
 
 static void mipi_d2l_read_status(struct msm_fb_data_type *mfd)
 {
-	mipi_d2l_read_reg(mfd, DSI_LANESTATUS0);	
-	mipi_d2l_read_reg(mfd, DSI_LANESTATUS1);	
-	mipi_d2l_read_reg(mfd, DSI_INTSTATUS);		
-	mipi_d2l_read_reg(mfd, SYSSTAT);		
+	mipi_d2l_read_reg(mfd, DSI_LANESTATUS0);	/* 0x214 */
+	mipi_d2l_read_reg(mfd, DSI_LANESTATUS1);	/* 0x218 */
+	mipi_d2l_read_reg(mfd, DSI_INTSTATUS);		/* 0x220 */
+	mipi_d2l_read_reg(mfd, SYSSTAT);		/* 0x500 */
 }
 
 static void mipi_d2l_read_status_via_i2c(struct i2c_client *client)
@@ -236,13 +315,25 @@ static void mipi_d2l_read_status_via_i2c(struct i2c_client *client)
 	tmp = d2l_i2c_read_reg(client, DSIERRCNT);
 	d2l_i2c_write_reg(client, DSIERRCNT, 0xFFFF0000);
 
-	d2l_i2c_read_reg(client, DSI_LANESTATUS0);	
-	d2l_i2c_read_reg(client, DSI_LANESTATUS1);	
-	d2l_i2c_read_reg(client, DSI_INTSTATUS);	
-	d2l_i2c_read_reg(client, SYSSTAT);		
+	d2l_i2c_read_reg(client, DSI_LANESTATUS0);	/* 0x214 */
+	d2l_i2c_read_reg(client, DSI_LANESTATUS1);	/* 0x218 */
+	d2l_i2c_read_reg(client, DSI_INTSTATUS);	/* 0x220 */
+	d2l_i2c_read_reg(client, SYSSTAT);		/* 0x500 */
 
 	d2l_i2c_write_reg(client, DSIERRCNT, tmp);
 }
+/**
+ * Init the D2L bridge via the DSI interface for Video.
+ *
+ * VPCTRL.EVTMODE (0x20) configuration bit is needed to determine whether
+ * video timing information is delivered in pulse mode or event mode.
+ * In pulse mode, both Sync Start and End packets are required.
+ * In event mode, only Sync Start packets are required.
+ *
+ * @param mfd
+ *
+ * @return int
+ */
 static int mipi_d2l_dsi_init_sequence(struct msm_fb_data_type *mfd)
 {
 	struct mipi_panel_info *mipi = &mfd->panel_info.mipi;
@@ -252,20 +343,20 @@ static int mipi_d2l_dsi_init_sequence(struct msm_fb_data_type *mfd)
 	u32 vtime1;
 	u32 htime2;
 	u32 vtime2;
-	u32 ppi_tx_rx_ta; 
+	u32 ppi_tx_rx_ta; /* BTA Bus-Turn-Around */
 	u32 lvcfg;
-	u32 hbpr;	
-	u32 hpw;	
-	u32 vbpr;	
-	u32 vpw;	
+	u32 hbpr;	/* Horizontal Back Porch */
+	u32 hpw;	/* Horizontal Pulse Width */
+	u32 vbpr;	/* Vertical Back Porch */
+	u32 vpw;	/* Vertical Pulse Width */
 
-	u32 hfpr;	
-	u32 hsize;	
-	u32 vfpr;	
-	u32 vsize;	
+	u32 hfpr;	/* Horizontal Front Porch */
+	u32 hsize;	/* Horizontal Active size */
+	u32 vfpr;	/* Vertical Front Porch */
+	u32 vsize;	/* Vertical Active size */
 	bool vesa_rgb888 = false;
 
-	lanes_enable = 0x01; 
+	lanes_enable = 0x01; /* clock-lane enable */
 	lanes_enable |= (mipi->data_lane0 << 1);
 	lanes_enable |= (mipi->data_lane1 << 2);
 	lanes_enable |= (mipi->data_lane2 << 3);
@@ -310,18 +401,18 @@ static int mipi_d2l_dsi_init_sequence(struct msm_fb_data_type *mfd)
 	htime2 = (hfpr << 16) + hsize;
 	vtime2 = (vfpr << 16) + vsize;
 
-	lvcfg = 0x0003; 
-	vpctrl = 0x01000120; 
+	lvcfg = 0x0003; /* PCLK=DCLK/3, Dual Link, LVEN */
+	vpctrl = 0x01000120; /* Output RGB888 , Event-Mode , */
 	ppi_tx_rx_ta = 0x00040004;
 
 	if (mfd->panel_info.xres == 1366) {
 		ppi_tx_rx_ta = 0x00040004;
-		lvcfg = 0x01; 
+		lvcfg = 0x01; /* LVEN */
 		vesa_rgb888 = true;
 	}
 
 	if (mfd->panel_info.xres == 1200) {
-		lvcfg = 0x0103; 
+		lvcfg = 0x0103; /* PCLK=DCLK/4, Dual Link, LVEN */
 		vesa_rgb888 = true;
 	}
 
@@ -334,7 +425,7 @@ static int mipi_d2l_dsi_init_sequence(struct msm_fb_data_type *mfd)
 	msleep(30);
 
 	if (vesa_rgb888) {
-		
+		/* VESA format instead of JEIDA format for RGB888 */
 		mipi_d2l_write_reg(mfd, LVMX0003, 0x03020100);
 		mipi_d2l_write_reg(mfd, LVMX0407, 0x08050704);
 		mipi_d2l_write_reg(mfd, LVMX0811, 0x0F0E0A09);
@@ -344,7 +435,7 @@ static int mipi_d2l_dsi_init_sequence(struct msm_fb_data_type *mfd)
 		mipi_d2l_write_reg(mfd, LVMX2427, 0x061A1918);
 	}
 
-	mipi_d2l_write_reg(mfd, PPI_TX_RX_TA, ppi_tx_rx_ta); 
+	mipi_d2l_write_reg(mfd, PPI_TX_RX_TA, ppi_tx_rx_ta); /* BTA */
 	mipi_d2l_write_reg(mfd, PPI_LPTXTIMECNT, 0x00000004);
 	mipi_d2l_write_reg(mfd, PPI_D0S_CLRSIPOCOUNT, 0x00000003);
 	mipi_d2l_write_reg(mfd, PPI_D1S_CLRSIPOCOUNT, 0x00000003);
@@ -355,17 +446,25 @@ static int mipi_d2l_dsi_init_sequence(struct msm_fb_data_type *mfd)
 	mipi_d2l_write_reg(mfd, PPI_STARTPPI, 0x00000001);
 	mipi_d2l_write_reg(mfd, DSI_STARTDSI, 0x00000001);
 
-	mipi_d2l_write_reg(mfd, VPCTRL, vpctrl); 
+	mipi_d2l_write_reg(mfd, VPCTRL, vpctrl); /* RGB888 + Event mode */
 	mipi_d2l_write_reg(mfd, HTIM1, htime1);
 	mipi_d2l_write_reg(mfd, VTIM1, vtime1);
 	mipi_d2l_write_reg(mfd, HTIM2, htime2);
 	mipi_d2l_write_reg(mfd, VTIM2, vtime2);
 	mipi_d2l_write_reg(mfd, VFUEN, 0x00000001);
-	mipi_d2l_write_reg(mfd, LVCFG, lvcfg); 
+	mipi_d2l_write_reg(mfd, LVCFG, lvcfg); /* Enables LVDS tx */
 
 	return 0;
 }
 
+/**
+ * Set Backlight level.
+ *
+ * @param pwm
+ * @param level
+ *
+ * @return int
+ */
 static int mipi_d2l_set_backlight_level(struct pwm_device *pwm, int level)
 {
 	int ret = 0;
@@ -393,6 +492,14 @@ static int mipi_d2l_set_backlight_level(struct pwm_device *pwm, int level)
 	return 0;
 }
 
+/**
+ * Set TN CLK.
+ *
+ * @param pwm
+ * @param level
+ *
+ * @return int
+ */
 static int mipi_d2l_set_tn_clk(struct pwm_device *pwm, u32 usec)
 {
 	int ret = 0;
@@ -415,6 +522,16 @@ static int mipi_d2l_set_tn_clk(struct pwm_device *pwm, u32 usec)
 	return 0;
 }
 
+/**
+ * LCD ON.
+ *
+ * Set LCD On via MIPI interface or I2C-Slave interface.
+ * Set Backlight on.
+ *
+ * @param pdev
+ *
+ * @return int
+ */
 static int mipi_d2l_lcd_on(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -423,7 +540,7 @@ static int mipi_d2l_lcd_on(struct platform_device *pdev)
 
 	pr_info("%s.\n", __func__);
 
-	
+	/* wait for valid clock before sending data over DSI or I2C. */
 	msleep(30);
 
 	mfd = platform_get_drvdata(pdev);
@@ -447,15 +564,15 @@ static int mipi_d2l_lcd_on(struct platform_device *pdev)
 		return ret;
 
 	mipi_d2l_write_reg(mfd, GPIOC, d2l_gpio_out_mask);
-	
+	/* Set gpio#4=U/D=0, gpio#3=L/R=1 , gpio#2,1=CABC=0, gpio#0=NA. */
 	mipi_d2l_write_reg(mfd, GPIOO, d2l_gpio_out_val);
 
 	d2l_pwm_freq_hz = (3.921*1000);
 
 	if (bl_level == 0)
-		bl_level = PWM_LEVEL * 2 / 3 ; 
+		bl_level = PWM_LEVEL * 2 / 3 ; /* Default ON value */
 
-	
+	/* Set backlight via PWM */
 	if (bl_pwm) {
 		ret = mipi_d2l_set_backlight_level(bl_pwm, bl_level);
 		if (ret)
@@ -467,7 +584,7 @@ static int mipi_d2l_lcd_on(struct platform_device *pdev)
 
 	mipi_d2l_enable_3d(mfd, false, false);
 
-	
+	/* Add I2C driver only after DSI-CLK is running */
 	if (d2l_i2c_client == NULL)
 		i2c_add_driver(&d2l_i2c_slave_driver);
 
@@ -476,6 +593,13 @@ static int mipi_d2l_lcd_on(struct platform_device *pdev)
 	return ret;
 }
 
+/**
+ * LCD OFF.
+ *
+ * @param pdev
+ *
+ * @return int
+ */
 static int mipi_d2l_lcd_off(struct platform_device *pdev)
 {
 	int ret;
@@ -614,7 +738,7 @@ static struct i2c_driver d2l_i2c_slave_driver = {
 static int mipi_d2l_enable_3d(struct msm_fb_data_type *mfd,
 			      bool enable, bool mode)
 {
-	u32 tn_usec = 1000000 / 66; 
+	u32 tn_usec = 1000000 / 66; /* 66 HZ */
 
 	pr_debug("%s.enable=%d.mode=%d.\n", __func__, enable, mode);
 
@@ -646,9 +770,9 @@ static ssize_t mipi_d2l_enable_3d_write(struct device *dev,
 		ret = -EINVAL;
 	} else {
 		d2l_enable_3d = data;
-		if (data == 1) 
+		if (data == 1) /* LANDSCAPE */
 			mipi_d2l_enable_3d(d2l_mfd, true, true);
-		else if (data == 2) 
+		else if (data == 2) /* PORTRAIT */
 			mipi_d2l_enable_3d(d2l_mfd, true, false);
 		else if (data == 0)
 			mipi_d2l_enable_3d(d2l_mfd, false, false);
@@ -705,6 +829,18 @@ err_device_create_file:
 	return ret;
 }
 
+/**
+ * Probe for device.
+ *
+ * Both the "target" and "panel" device use the same probe function.
+ * "Target" device has id=0, "Panel" devic has non-zero id.
+ * Target device should register first, passing msm_panel_common_pdata.
+ * Panel device passing msm_panel_info.
+ *
+ * @param pdev
+ *
+ * @return int
+ */
 static int __devinit mipi_d2l_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -784,9 +920,16 @@ static int __devinit mipi_d2l_probe(struct platform_device *pdev)
 	return ret;
 }
 
+/**
+ * Device removal notification handler.
+ *
+ * @param pdev
+ *
+ * @return int
+ */
 static int __devexit mipi_d2l_remove(struct platform_device *pdev)
 {
-	
+	/* Note: There are no APIs to remove fb device and free DSI buf. */
 	pr_debug("%s.\n", __func__);
 
 	if (bl_pwm) {
@@ -797,12 +940,21 @@ static int __devexit mipi_d2l_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/**
+ * Register the panel device.
+ *
+ * @param pinfo
+ * @param channel_id
+ * @param panel_id
+ *
+ * @return int
+ */
 int mipi_tc358764_dsi2lvds_register(struct msm_panel_info *pinfo,
 					   u32 channel_id, u32 panel_id)
 {
 	struct platform_device *pdev = NULL;
 	int ret;
-	
+	/* Use DSI-to-LVDS bridge */
 	const char driver_name[] = "mipi_tc358764";
 
 	pr_debug("%s.\n", __func__);
@@ -812,7 +964,7 @@ int mipi_tc358764_dsi2lvds_register(struct msm_panel_info *pinfo,
 		return ret;
 	}
 
-	
+	/* Note: the device id should be non-zero */
 	pdev = platform_device_alloc(driver_name, (panel_id << 8)|channel_id);
 	if (pdev == NULL)
 		return -ENOMEM;
@@ -840,6 +992,11 @@ static struct platform_driver d2l_driver = {
 	},
 };
 
+/**
+ * Module Init
+ *
+ * @return int
+ */
 static int mipi_d2l_init(void)
 {
 	pr_debug("%s.\n", __func__);

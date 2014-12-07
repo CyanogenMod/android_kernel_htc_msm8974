@@ -28,6 +28,11 @@
 #include <linux/taskstats.h>
 #include <linux/cgroupstats.h>
 
+/*
+ * Generic macros for dealing with netlink sockets. Might be duplicated
+ * elsewhere. It is recommended that commercial grade applications use
+ * libnl or libnetlink and use the interfaces provided by the library
+ */
 #define GENLMSG_DATA(glh)	((void *)(NLMSG_DATA(glh) + GENL_HDRLEN))
 #define GENLMSG_PAYLOAD(glh)	(NLMSG_PAYLOAD(glh, 0) - GENL_HDRLEN)
 #define NLA_DATA(na)		((void *)((char*)(na) + NLA_HDRLEN))
@@ -54,7 +59,9 @@ __u64 stime, utime;
 	    }					\
 	}
 
+/* Maximum size of response requested or message sent */
 #define MAX_MSG_SIZE	1024
+/* Maximum number of cpus expected to be specified in a cpumask */
 #define MAX_CPUS	32
 
 struct msgtemplate {
@@ -76,6 +83,9 @@ static void usage(void)
 	fprintf(stderr, "  -C: container path\n");
 }
 
+/*
+ * Create a raw netlink socket and bind
+ */
 static int create_nl_socket(int protocol)
 {
 	int fd;
@@ -147,6 +157,10 @@ static int send_cmd(int sd, __u16 nlmsg_type, __u32 nlmsg_pid,
 }
 
 
+/*
+ * Probe the controller in genetlink to find the family id
+ * for the TASKSTATS family
+ */
 static int get_family_id(int sd)
 {
 	struct {
@@ -164,7 +178,7 @@ static int get_family_id(int sd)
 			CTRL_ATTR_FAMILY_NAME, (void *)name,
 			strlen(TASKSTATS_GENL_NAME)+1);
 	if (rc < 0)
-		return 0;	
+		return 0;	/* sendto() failure? */
 
 	rep_len = recv(sd, &ans, sizeof(ans), 0);
 	if (ans.n.nlmsg_type == NLMSG_ERROR ||
@@ -319,14 +333,14 @@ int main(int argc, char *argv[])
 			break;
 		case 'c':
 
-			
+			/* Block SIGCHLD for sigwait() later */
 			if (sigemptyset(&sigset) == -1)
 				err(1, "Failed to empty sigset");
 			if (sigaddset(&sigset, SIGCHLD))
 				err(1, "Failed to set sigchld in sigset");
 			sigprocmask(SIG_BLOCK, &sigset, NULL);
 
-			
+			/* fork/exec a child */
 			tid = fork();
 			if (tid < 0)
 				err(1, "Fork failed\n");
@@ -335,7 +349,7 @@ int main(int argc, char *argv[])
 				    &argv[optind - 1]) < 0)
 					exit(-1);
 
-			
+			/* Set the command type and avoid further processing */
 			cmd_type = TASKSTATS_CMD_ATTR_PID;
 			forking = 1;
 			break;
@@ -390,6 +404,10 @@ int main(int argc, char *argv[])
 		goto err;
 	}
 
+	/*
+	 * If we forked a child, wait for it to exit. Cannot use waitpid()
+	 * as all the delicious data would be reaped as part of the wait
+	 */
 	if (tid && forking) {
 		int sig_received;
 		sigwait(&sigset, &sig_received);
@@ -452,11 +470,11 @@ int main(int argc, char *argv[])
 			len += NLA_ALIGN(na->nla_len);
 			switch (na->nla_type) {
 			case TASKSTATS_TYPE_AGGR_TGID:
-				
+				/* Fall through */
 			case TASKSTATS_TYPE_AGGR_PID:
 				aggr_len = NLA_PAYLOAD(na->nla_len);
 				len2 = 0;
-				
+				/* For nested attributes, na follows */
 				na = (struct nlattr *) NLA_DATA(na);
 				done = 0;
 				while (len2 < aggr_len) {

@@ -1,4 +1,32 @@
+/* lasi_82596.c -- driver for the intel 82596 ethernet controller, as
+   munged into HPPA boxen .
 
+   This driver is based upon 82596.c, original credits are below...
+   but there were too many hoops which HP wants jumped through to
+   keep this code in there in a sane manner.
+
+   3 primary sources of the mess --
+   1) hppa needs *lots* of cacheline flushing to keep this kind of
+   MMIO running.
+
+   2) The 82596 needs to see all of its pointers as their physical
+   address.  Thus virt_to_bus/bus_to_virt are *everywhere*.
+
+   3) The implementation HP is using seems to be significantly pickier
+   about when and how the command and RX units are started.  some
+   command ordering was changed.
+
+   Examination of the mach driver leads one to believe that there
+   might be a saner way to pull this off...  anyone who feels like a
+   full rewrite can be my guest.
+
+   Split 02/13/2000 Sam Creasey (sammy@oh.verio.com)
+
+   02/01/2000  Initial modifications for parisc by Helge Deller (deller@gmx.de)
+   03/02/2000  changes for better/correct(?) cache-flushing (deller)
+*/
+
+/* 82596.c: A generic 82596 ethernet driver for linux. */
 /*
    Based on Apricot.c
    Written 1994 by Mark Evans.
@@ -58,6 +86,8 @@
 #include <linux/irq.h>
 #include <linux/gfp.h>
 
+/* DEBUG flags
+ */
 
 #define DEB_INIT	0x0001
 #define DEB_PROBE	0x0002
@@ -87,13 +117,16 @@
  * must be word-swapped with the most significant word written first.
  * This only applies to VME boards.
  */
-#define PORT_RESET		0x00	
-#define PORT_SELFTEST		0x01	
-#define PORT_ALTSCP		0x02	
-#define PORT_ALTDUMP		0x03	
+#define PORT_RESET		0x00	/* reset 82596 */
+#define PORT_SELFTEST		0x01	/* selftest */
+#define PORT_ALTSCP		0x02	/* alternate SCB address */
+#define PORT_ALTDUMP		0x03	/* Alternate DUMP address */
 
 static int i596_debug = (DEB_SERIOUS|DEB_PROBE);
 
+/* Copy frames shorter than rx_copybreak, otherwise pass on up in
+ * a full sized sk_buff.  Value of 100 stolen from tulip.c (!alpha).
+ */
 static int rx_copybreak = 100;
 
 #define PKT_BUF_SZ	1536
@@ -103,21 +136,21 @@ static int rx_copybreak = 100;
 
 #define I596_NULL ((u32)0xffffffff)
 
-#define CMD_EOL		0x8000	
-#define CMD_SUSP	0x4000	
-#define CMD_INTR	0x2000	
+#define CMD_EOL		0x8000	/* The last command of the list, stop. */
+#define CMD_SUSP	0x4000	/* Suspend after doing cmd. */
+#define CMD_INTR	0x2000	/* Interrupt after doing cmd. */
 
-#define CMD_FLEX	0x0008	
+#define CMD_FLEX	0x0008	/* Enable flexible memory model */
 
 enum commands {
 	CmdNOp = 0, CmdSASetup = 1, CmdConfigure = 2, CmdMulticastList = 3,
 	CmdTx = 4, CmdTDR = 5, CmdDump = 6, CmdDiagnose = 7
 };
 
-#define STAT_C		0x8000	
-#define STAT_B		0x4000	
-#define STAT_OK		0x2000	
-#define STAT_A		0x1000	
+#define STAT_C		0x8000	/* Set to 0 after execution */
+#define STAT_B		0x4000	/* Command being executed */
+#define STAT_OK		0x2000	/* Command executed ok */
+#define STAT_A		0x1000	/* Command aborted */
 
 #define	 CUC_START	0x0100
 #define	 CUC_RESUME	0x0200
@@ -145,15 +178,24 @@ struct i596_tbd {
 	unsigned short pad;
 	u32            next;
 	u32            data;
-	u32 cache_pad[5];		
+	u32 cache_pad[5];		/* Total 32 bytes... */
 };
 
+/* The command structure has two 'next' pointers; v_next is the address of
+ * the next command as seen by the CPU, b_next is the address of the next
+ * command as seen by the 82596.  The b_next pointer, as used by the 82596
+ * always references the status field of the next command, rather than the
+ * v_next field, because the 82596 is unaware of v_next.  It may seem more
+ * logical to put v_next at the end of the structure, but we cannot do that
+ * because the 82596 expects other fields to be there, depending on command
+ * type.
+ */
 
 struct i596_cmd {
-	struct i596_cmd *v_next;	
+	struct i596_cmd *v_next;	/* Address from CPUs viewpoint */
 	unsigned short status;
 	unsigned short command;
-	u32            b_next;	
+	u32            b_next;	/* Address from i596 viewpoint */
 };
 
 struct tx_cmd {
@@ -161,12 +203,12 @@ struct tx_cmd {
 	u32            tbd;
 	unsigned short size;
 	unsigned short pad;
-	struct sk_buff *skb;		
+	struct sk_buff *skb;		/* So we can free it after tx */
 	dma_addr_t dma_addr;
 #ifdef __LP64__
-	u32 cache_pad[6];		
+	u32 cache_pad[6];		/* Total 64 bytes... */
 #else
-	u32 cache_pad[1];		
+	u32 cache_pad[1];		/* Total 32 bytes... */
 #endif
 };
 
@@ -195,36 +237,37 @@ struct cf_cmd {
 struct i596_rfd {
 	unsigned short stat;
 	unsigned short cmd;
-	u32            b_next;	
+	u32            b_next;	/* Address from i596 viewpoint */
 	u32            rbd;
 	unsigned short count;
 	unsigned short size;
-	struct i596_rfd *v_next;	
+	struct i596_rfd *v_next;	/* Address from CPUs viewpoint */
 	struct i596_rfd *v_prev;
 #ifndef __LP64__
-	u32 cache_pad[2];		
+	u32 cache_pad[2];		/* Total 32 bytes... */
 #endif
 };
 
 struct i596_rbd {
-	
+	/* hardware data */
 	unsigned short count;
 	unsigned short zero1;
 	u32            b_next;
-	u32            b_data;		
+	u32            b_data;		/* Address from i596 viewpoint */
 	unsigned short size;
 	unsigned short zero2;
-	
+	/* driver data */
 	struct sk_buff *skb;
 	struct i596_rbd *v_next;
-	u32            b_addr;		
-	unsigned char *v_data;		
-					
+	u32            b_addr;		/* This rbd addr from i596 view */
+	unsigned char *v_data;		/* Address from CPUs viewpoint */
+					/* Total 32 bytes... */
 #ifdef __LP64__
     u32 cache_pad[4];
 #endif
 };
 
+/* These values as chosen so struct i596_dma fits in one page... */
 
 #define TX_RING_SIZE 32
 #define RX_RING_SIZE 16
@@ -281,7 +324,7 @@ struct i596_private {
 	u32    last_cmd;
 	int next_tx_cmd;
 	int options;
-	spinlock_t lock;       
+	spinlock_t lock;       /* serialize access to chip */
 	dma_addr_t dma_addr;
 	void __iomem *mpu_port;
 	void __iomem *ca;
@@ -289,20 +332,20 @@ struct i596_private {
 
 static const char init_setup[] =
 {
-	0x8E,		
-	0xC8,		
-	0x80,		
-	0x2E,		
-	0x00,		
-	0x60,		
-	0x00,		
-	0xf2,		
-	0x00,		
-	0x00,		
-	0x40,		
+	0x8E,		/* length, prefetch on */
+	0xC8,		/* fifo to 8, monitor off */
+	0x80,		/* don't save bad frames */
+	0x2E,		/* No source address insertion, 8 byte preamble */
+	0x00,		/* priority and backoff defaults */
+	0x60,		/* interframe spacing */
+	0x00,		/* slot time LSB */
+	0xf2,		/* slot time and retries */
+	0x00,		/* promiscuous mode */
+	0x00,		/* collision detect */
+	0x40,		/* minimum frame length */
 	0xff,
 	0x00,
-	0x7f  };
+	0x7f /*  *multi IA */ };
 
 static int i596_open(struct net_device *dev);
 static int i596_start_xmit(struct sk_buff *skb, struct net_device *dev);
@@ -423,7 +466,7 @@ static inline int init_rx_bufs(struct net_device *dev)
 	struct i596_rfd *rfd;
 	struct i596_rbd *rbd;
 
-	
+	/* First build the Receive Buffer Descriptor List */
 
 	for (i = 0, rbd = dma->rbds; i < rx_ring_size; i++, rbd++) {
 		dma_addr_t dma_addr;
@@ -447,7 +490,7 @@ static inline int init_rx_bufs(struct net_device *dev)
 	rbd->v_next = dma->rbds;
 	rbd->b_next = SWAP32(virt_to_dma(lp, dma->rbds));
 
-	
+	/* Now build the Receive Frame Descriptor List */
 
 	for (i = 0, rfd = dma->rfds; i < rx_ring_size; i++, rfd++) {
 		rfd->rbd = I596_NULL;
@@ -493,7 +536,7 @@ static void rebuild_rx_bufs(struct net_device *dev)
 	struct i596_dma *dma = lp->dma;
 	int i;
 
-	
+	/* Ensure rx frame/buffer descriptors are tidy */
 
 	for (i = 0; i < rx_ring_size; i++) {
 		dma->rfds[i].rbd = I596_NULL;
@@ -516,9 +559,9 @@ static int init_i596_mem(struct net_device *dev)
 	unsigned long flags;
 
 	mpu_port(dev, PORT_RESET, 0);
-	udelay(100);			
+	udelay(100);			/* Wait 100us - seems to help */
 
-	
+	/* change the scp address */
 
 	lp->last_cmd = jiffies;
 
@@ -550,7 +593,7 @@ static int init_i596_mem(struct net_device *dev)
 		goto failed;
 	}
 
-	
+	/* Ensure rx frame/buffer descriptors are tidy */
 	rebuild_rx_bufs(dev);
 
 	dma->scb.command = 0;
@@ -615,10 +658,10 @@ static inline int i596_rx(struct net_device *dev)
 				lp->rfd_head, lp->rbd_head));
 
 
-	rfd = lp->rfd_head;		
+	rfd = lp->rfd_head;		/* Ref next frame to check */
 
 	DMA_INV(dev, rfd, sizeof(struct i596_rfd));
-	while (rfd->stat & SWAP16(STAT_C)) {	
+	while (rfd->stat & SWAP16(STAT_C)) {	/* Loop while complete frames */
 		if (rfd->rbd == I596_NULL)
 			rbd = NULL;
 		else if (rfd->rbd == lp->rbd_head->b_addr) {
@@ -626,7 +669,7 @@ static inline int i596_rx(struct net_device *dev)
 			DMA_INV(dev, rbd, sizeof(struct i596_rbd));
 		} else {
 			printk(KERN_ERR "%s: rbd chain broken!\n", dev->name);
-			
+			/* XXX Now what? */
 			rbd = NULL;
 		}
 		DEB(DEB_RXFRAME, printk(KERN_DEBUG
@@ -634,7 +677,7 @@ static inline int i596_rx(struct net_device *dev)
 				      rfd, rfd->rbd, rfd->stat));
 
 		if (rbd != NULL && (rfd->stat & SWAP16(STAT_OK))) {
-			
+			/* a good frame */
 			int pkt_len = SWAP16(rbd->count) & 0x3fff;
 			struct sk_buff *skb = rbd->skb;
 			int rx_in_place = 0;
@@ -642,6 +685,9 @@ static inline int i596_rx(struct net_device *dev)
 			DEB(DEB_RXADDR, print_eth(rbd->v_data, "received"));
 			frames++;
 
+			/* Check if the packet is long enough to just accept
+			 * without copying to a properly sized skbuff.
+			 */
 
 			if (pkt_len > rx_copybreak) {
 				struct sk_buff *newskb;
@@ -650,15 +696,15 @@ static inline int i596_rx(struct net_device *dev)
 				dma_unmap_single(dev->dev.parent,
 						 (dma_addr_t)SWAP32(rbd->b_data),
 						 PKT_BUF_SZ, DMA_FROM_DEVICE);
-				
+				/* Get fresh skbuff to replace filled one. */
 				newskb = netdev_alloc_skb_ip_align(dev,
 								   PKT_BUF_SZ);
 				if (newskb == NULL) {
-					skb = NULL;	
+					skb = NULL;	/* drop pkt */
 					goto memory_squeeze;
 				}
 
-				
+				/* Pass up the skb already on the Rx ring. */
 				skb_put(skb, pkt_len);
 				rx_in_place = 1;
 				rbd->skb = newskb;
@@ -673,14 +719,14 @@ static inline int i596_rx(struct net_device *dev)
 				skb = netdev_alloc_skb_ip_align(dev, pkt_len);
 memory_squeeze:
 			if (skb == NULL) {
-				
+				/* XXX tulip.c can defer packets here!! */
 				printk(KERN_ERR
 				       "%s: i596_rx Memory squeeze, dropping packet.\n",
 				       dev->name);
 				dev->stats.rx_dropped++;
 			} else {
 				if (!rx_in_place) {
-					
+					/* 16 byte align the data fields */
 					dma_sync_single_for_cpu(dev->dev.parent,
 								(dma_addr_t)SWAP32(rbd->b_data),
 								PKT_BUF_SZ, DMA_FROM_DEVICE);
@@ -716,7 +762,7 @@ memory_squeeze:
 				dev->stats.rx_length_errors++;
 		}
 
-		
+		/* Clear the buffer descriptor count and EOF + F flags */
 
 		if (rbd != NULL && (rbd->count & SWAP16(0x4000))) {
 			rbd->count = 0;
@@ -724,20 +770,20 @@ memory_squeeze:
 			DMA_WBACK_INV(dev, rbd, sizeof(struct i596_rbd));
 		}
 
-		
+		/* Tidy the frame descriptor, marking it as end of list */
 
 		rfd->rbd = I596_NULL;
 		rfd->stat = 0;
 		rfd->cmd = SWAP16(CMD_EOL|CMD_FLEX);
 		rfd->count = 0;
 
-		
+		/* Update record of next frame descriptor to process */
 
 		lp->dma->scb.rfd = rfd->b_next;
 		lp->rfd_head = rfd->v_next;
 		DMA_WBACK_INV(dev, rfd, sizeof(struct i596_rfd));
 
-		
+		/* Remove end-of-list from old end descriptor */
 
 		rfd->v_prev->cmd = SWAP16(CMD_FLEX);
 		DMA_WBACK_INV(dev, rfd->v_prev, sizeof(struct i596_rfd));
@@ -776,7 +822,7 @@ static inline void i596_cleanup_cmd(struct net_device *dev, struct i596_private 
 
 				ptr->v_next = NULL;
 				ptr->b_next = I596_NULL;
-				tx_cmd->cmd.command = 0;  
+				tx_cmd->cmd.command = 0;  /* Mark as free */
 				break;
 			}
 		default:
@@ -804,12 +850,12 @@ static inline void i596_reset(struct net_device *dev, struct i596_private *lp)
 
 	netif_stop_queue(dev);
 
-	
+	/* FIXME: this command might cause an lpmc */
 	lp->dma->scb.command = SWAP16(CUC_ABORT | RX_ABORT);
 	DMA_WBACK(dev, &(lp->dma->scb), sizeof(struct i596_scb));
 	ca(dev);
 
-	
+	/* wait for shutdown */
 	wait_cmd(dev, lp->dma, 1000, "i596_reset 2 timed out");
 	spin_unlock_irqrestore (&lp->lock, flags);
 
@@ -896,20 +942,20 @@ static void i596_tx_timeout (struct net_device *dev)
 {
 	struct i596_private *lp = netdev_priv(dev);
 
-	
+	/* Transmitter timeout, serious problems. */
 	DEB(DEB_ERRORS, printk(KERN_DEBUG
 			       "%s: transmit timed out, status resetting.\n",
 			       dev->name));
 
 	dev->stats.tx_errors++;
 
-	
+	/* Try to restart the adaptor */
 	if (lp->last_restart == dev->stats.tx_packets) {
 		DEB(DEB_ERRORS, printk(KERN_DEBUG "Resetting board.\n"));
-		
+		/* Shutdown and restart */
 		i596_reset (dev, lp);
 	} else {
-		
+		/* Issue a channel attention signal */
 		DEB(DEB_ERRORS, printk(KERN_DEBUG "Kicking board.\n"));
 		lp->dma->scb.command = SWAP16(CUC_START | RX_START);
 		DMA_WBACK_INV(dev, &(lp->dma->scb), sizeof(struct i596_scb));
@@ -917,7 +963,7 @@ static void i596_tx_timeout (struct net_device *dev)
 		lp->last_restart = dev->stats.tx_packets;
 	}
 
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue (dev);
 }
 
@@ -1008,7 +1054,7 @@ static int __devinit i82596_probe(struct net_device *dev)
 	struct i596_private *lp = netdev_priv(dev);
 	struct i596_dma *dma;
 
-	
+	/* This lot is ensure things have been cache line aligned. */
 	BUILD_BUG_ON(sizeof(struct i596_rfd) != 32);
 	BUILD_BUG_ON(sizeof(struct i596_rbd) &  31);
 	BUILD_BUG_ON(sizeof(struct tx_cmd)   &  31);
@@ -1152,7 +1198,7 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 						 skb->len, DMA_TO_DEVICE);
 				dev_kfree_skb_irq(skb);
 
-				tx_cmd->cmd.command = 0; 
+				tx_cmd->cmd.command = 0; /* Mark free */
 				break;
 			    }
 			case CmdTDR:
@@ -1184,6 +1230,10 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 				break;
 			    }
 			case CmdConfigure:
+				/*
+				 * Zap command so set_multicast_list() know
+				 * it is free
+				 */
 				ptr->command = 0;
 				break;
 			}
@@ -1193,6 +1243,10 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 			lp->last_cmd = jiffies;
 		}
 
+		/* This mess is arranging that only the last of any outstanding
+		 * commands has the interrupt bit set.  Should probably really
+		 * only add to the cmd queue when the CU is stopped.
+		 */
 		ptr = lp->cmd_head;
 		while ((ptr != NULL) && (ptr != lp->cmd_tail)) {
 			struct i596_cmd *prev = ptr;
@@ -1214,7 +1268,7 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 				   "%s: i596 interrupt received a frame.\n",
 				   dev->name));
 		i596_rx(dev);
-		
+		/* Only RX_START if stopped - RGH 07-07-96 */
 		if (status & 0x1000) {
 			if (netif_running(dev)) {
 				DEB(DEB_ERRORS,
@@ -1232,6 +1286,9 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 	dma->scb.command = SWAP16(ack_cmd);
 	DMA_WBACK(dev, &dma->scb, sizeof(struct i596_scb));
 
+	/* DANGER: I suspect that some kind of interrupt
+	 acknowledgement aside from acking the 82596 might be needed
+	 here...  but it's running acceptably without */
 
 	ca(dev);
 
@@ -1273,6 +1330,9 @@ static int i596_close(struct net_device *dev)
 	return 0;
 }
 
+/*
+ *    Set or clear the multicast filter for this adaptor.
+ */
 
 static void set_multicast_list(struct net_device *dev)
 {

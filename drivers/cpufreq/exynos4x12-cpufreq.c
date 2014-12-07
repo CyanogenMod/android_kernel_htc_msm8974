@@ -59,222 +59,238 @@ static struct cpufreq_frequency_table exynos4x12_freq_table[] = {
 static struct cpufreq_clkdiv exynos4x12_clkdiv_table[CPUFREQ_LEVEL_END];
 
 static unsigned int clkdiv_cpu0_4212[CPUFREQ_LEVEL_END][8] = {
-	
+	/*
+	 * Clock divider value for following
+	 * { DIVCORE, DIVCOREM0, DIVCOREM1, DIVPERIPH,
+	 *		DIVATB, DIVPCLK_DBG, DIVAPLL, DIVCORE2 }
+	 */
+	/* ARM L0: 1500 MHz */
 	{ 0, 3, 7, 0, 6, 1, 2, 0 },
 
-	
+	/* ARM L1: 1400 MHz */
 	{ 0, 3, 7, 0, 6, 1, 2, 0 },
 
-	
+	/* ARM L2: 1300 MHz */
 	{ 0, 3, 7, 0, 5, 1, 2, 0 },
 
-	
+	/* ARM L3: 1200 MHz */
 	{ 0, 3, 7, 0, 5, 1, 2, 0 },
 
-	
+	/* ARM L4: 1100 MHz */
 	{ 0, 3, 6, 0, 4, 1, 2, 0 },
 
-	
+	/* ARM L5: 1000 MHz */
 	{ 0, 2, 5, 0, 4, 1, 1, 0 },
 
-	
+	/* ARM L6: 900 MHz */
 	{ 0, 2, 5, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L7: 800 MHz */
 	{ 0, 2, 5, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L8: 700 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L9: 600 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L10: 500 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L11: 400 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L12: 300 MHz */
 	{ 0, 2, 4, 0, 2, 1, 1, 0 },
 
-	
+	/* ARM L13: 200 MHz */
 	{ 0, 1, 3, 0, 1, 1, 1, 0 },
 };
 
 static unsigned int clkdiv_cpu0_4412[CPUFREQ_LEVEL_END][8] = {
-	
+	/*
+	 * Clock divider value for following
+	 * { DIVCORE, DIVCOREM0, DIVCOREM1, DIVPERIPH,
+	 *		DIVATB, DIVPCLK_DBG, DIVAPLL, DIVCORE2 }
+	 */
+	/* ARM L0: 1500 MHz */
 	{ 0, 3, 7, 0, 6, 1, 2, 0 },
 
-	
+	/* ARM L1: 1400 MHz */
 	{ 0, 3, 7, 0, 6, 1, 2, 0 },
 
-	
+	/* ARM L2: 1300 MHz */
 	{ 0, 3, 7, 0, 5, 1, 2, 0 },
 
-	
+	/* ARM L3: 1200 MHz */
 	{ 0, 3, 7, 0, 5, 1, 2, 0 },
 
-	
+	/* ARM L4: 1100 MHz */
 	{ 0, 3, 6, 0, 4, 1, 2, 0 },
 
-	
+	/* ARM L5: 1000 MHz */
 	{ 0, 2, 5, 0, 4, 1, 1, 0 },
 
-	
+	/* ARM L6: 900 MHz */
 	{ 0, 2, 5, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L7: 800 MHz */
 	{ 0, 2, 5, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L8: 700 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L9: 600 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L10: 500 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L11: 400 MHz */
 	{ 0, 2, 4, 0, 3, 1, 1, 0 },
 
-	
+	/* ARM L12: 300 MHz */
 	{ 0, 2, 4, 0, 2, 1, 1, 0 },
 
-	
+	/* ARM L13: 200 MHz */
 	{ 0, 1, 3, 0, 1, 1, 1, 0 },
 };
 
 static unsigned int clkdiv_cpu1_4212[CPUFREQ_LEVEL_END][2] = {
-	
+	/* Clock divider value for following
+	 * { DIVCOPY, DIVHPM }
+	 */
+	/* ARM L0: 1500 MHz */
 	{ 6, 0 },
 
-	
+	/* ARM L1: 1400 MHz */
 	{ 6, 0 },
 
-	
+	/* ARM L2: 1300 MHz */
 	{ 5, 0 },
 
-	
+	/* ARM L3: 1200 MHz */
 	{ 5, 0 },
 
-	
+	/* ARM L4: 1100 MHz */
 	{ 4, 0 },
 
-	
+	/* ARM L5: 1000 MHz */
 	{ 4, 0 },
 
-	
+	/* ARM L6: 900 MHz */
 	{ 3, 0 },
 
-	
+	/* ARM L7: 800 MHz */
 	{ 3, 0 },
 
-	
+	/* ARM L8: 700 MHz */
 	{ 3, 0 },
 
-	
+	/* ARM L9: 600 MHz */
 	{ 3, 0 },
 
-	
+	/* ARM L10: 500 MHz */
 	{ 3, 0 },
 
-	
+	/* ARM L11: 400 MHz */
 	{ 3, 0 },
 
-	
+	/* ARM L12: 300 MHz */
 	{ 3, 0 },
 
-	
+	/* ARM L13: 200 MHz */
 	{ 3, 0 },
 };
 
 static unsigned int clkdiv_cpu1_4412[CPUFREQ_LEVEL_END][3] = {
-	
+	/* Clock divider value for following
+	 * { DIVCOPY, DIVHPM, DIVCORES }
+	 */
+	/* ARM L0: 1500 MHz */
 	{ 6, 0, 7 },
 
-	
+	/* ARM L1: 1400 MHz */
 	{ 6, 0, 6 },
 
-	
+	/* ARM L2: 1300 MHz */
 	{ 5, 0, 6 },
 
-	
+	/* ARM L3: 1200 MHz */
 	{ 5, 0, 5 },
 
-	
+	/* ARM L4: 1100 MHz */
 	{ 4, 0, 5 },
 
-	
+	/* ARM L5: 1000 MHz */
 	{ 4, 0, 4 },
 
-	
+	/* ARM L6: 900 MHz */
 	{ 3, 0, 4 },
 
-	
+	/* ARM L7: 800 MHz */
 	{ 3, 0, 3 },
 
-	
+	/* ARM L8: 700 MHz */
 	{ 3, 0, 3 },
 
-	
+	/* ARM L9: 600 MHz */
 	{ 3, 0, 2 },
 
-	
+	/* ARM L10: 500 MHz */
 	{ 3, 0, 2 },
 
-	
+	/* ARM L11: 400 MHz */
 	{ 3, 0, 1 },
 
-	
+	/* ARM L12: 300 MHz */
 	{ 3, 0, 1 },
 
-	
+	/* ARM L13: 200 MHz */
 	{ 3, 0, 0 },
 };
 
 static unsigned int exynos4x12_apll_pms_table[CPUFREQ_LEVEL_END] = {
-	
+	/* APLL FOUT L0: 1500 MHz */
 	((250 << 16) | (4 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L1: 1400 MHz */
 	((175 << 16) | (3 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L2: 1300 MHz */
 	((325 << 16) | (6 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L3: 1200 MHz */
 	((200 << 16) | (4 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L4: 1100 MHz */
 	((275 << 16) | (6 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L5: 1000 MHz */
 	((125 << 16) | (3 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L6: 900 MHz */
 	((150 << 16) | (4 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L7: 800 MHz */
 	((100 << 16) | (3 << 8) | (0x0)),
 
-	
+	/* APLL FOUT L8: 700 MHz */
 	((175 << 16) | (3 << 8) | (0x1)),
 
-	
+	/* APLL FOUT L9: 600 MHz */
 	((200 << 16) | (4 << 8) | (0x1)),
 
-	
+	/* APLL FOUT L10: 500 MHz */
 	((125 << 16) | (3 << 8) | (0x1)),
 
-	
+	/* APLL FOUT L11 400 MHz */
 	((100 << 16) | (3 << 8) | (0x1)),
 
-	
+	/* APLL FOUT L12: 300 MHz */
 	((200 << 16) | (4 << 8) | (0x2)),
 
-	
+	/* APLL FOUT L13: 200 MHz */
 	((100 << 16) | (3 << 8) | (0x2)),
 };
 
@@ -288,7 +304,7 @@ static void exynos4x12_set_clkdiv(unsigned int div_index)
 	unsigned int tmp;
 	unsigned int stat_cpu1;
 
-	
+	/* Change Divider - CPU0 */
 
 	tmp = exynos4x12_clkdiv_table[div_index].clkdiv;
 
@@ -297,7 +313,7 @@ static void exynos4x12_set_clkdiv(unsigned int div_index)
 	while (__raw_readl(EXYNOS4_CLKDIV_STATCPU) & 0x11111111)
 		cpu_relax();
 
-	
+	/* Change Divider - CPU1 */
 	tmp = exynos4x12_clkdiv_table[div_index].clkdiv1;
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_CPU1);
@@ -314,7 +330,7 @@ static void exynos4x12_set_apll(unsigned int index)
 {
 	unsigned int tmp, pdiv;
 
-	
+	/* 1. MUX_CORE_SEL = MPLL, ARMCLK uses MPLL for lock time */
 	clk_set_parent(moutcore, mout_mpll);
 
 	do {
@@ -324,24 +340,24 @@ static void exynos4x12_set_apll(unsigned int index)
 		tmp &= 0x7;
 	} while (tmp != 0x2);
 
-	
+	/* 2. Set APLL Lock time */
 	pdiv = ((exynos4x12_apll_pms_table[index] >> 8) & 0x3f);
 
 	__raw_writel((pdiv * 250), EXYNOS4_APLL_LOCK);
 
-	
+	/* 3. Change PLL PMS values */
 	tmp = __raw_readl(EXYNOS4_APLL_CON0);
 	tmp &= ~((0x3ff << 16) | (0x3f << 8) | (0x7 << 0));
 	tmp |= exynos4x12_apll_pms_table[index];
 	__raw_writel(tmp, EXYNOS4_APLL_CON0);
 
-	
+	/* 4. wait_lock_time */
 	do {
 		cpu_relax();
 		tmp = __raw_readl(EXYNOS4_APLL_CON0);
 	} while (!(tmp & (0x1 << EXYNOS4_APLLCON0_LOCKED_SHIFT)));
 
-	
+	/* 5. MUX_CORE_SEL = APLL */
 	clk_set_parent(moutcore, mout_apll);
 
 	do {
@@ -366,35 +382,35 @@ static void exynos4x12_set_frequency(unsigned int old_index,
 
 	if (old_index > new_index) {
 		if (!exynos4x12_pms_change(old_index, new_index)) {
-			
+			/* 1. Change the system clock divider values */
 			exynos4x12_set_clkdiv(new_index);
-			
+			/* 2. Change just s value in apll m,p,s value */
 			tmp = __raw_readl(EXYNOS4_APLL_CON0);
 			tmp &= ~(0x7 << 0);
 			tmp |= (exynos4x12_apll_pms_table[new_index] & 0x7);
 			__raw_writel(tmp, EXYNOS4_APLL_CON0);
 
 		} else {
-			
-			
+			/* Clock Configuration Procedure */
+			/* 1. Change the system clock divider values */
 			exynos4x12_set_clkdiv(new_index);
-			
+			/* 2. Change the apll m,p,s value */
 			exynos4x12_set_apll(new_index);
 		}
 	} else if (old_index < new_index) {
 		if (!exynos4x12_pms_change(old_index, new_index)) {
-			
+			/* 1. Change just s value in apll m,p,s value */
 			tmp = __raw_readl(EXYNOS4_APLL_CON0);
 			tmp &= ~(0x7 << 0);
 			tmp |= (exynos4x12_apll_pms_table[new_index] & 0x7);
 			__raw_writel(tmp, EXYNOS4_APLL_CON0);
-			
+			/* 2. Change the system clock divider values */
 			exynos4x12_set_clkdiv(new_index);
 		} else {
-			
-			
+			/* Clock Configuration Procedure */
+			/* 1. Change the apll m,p,s value */
 			exynos4x12_set_apll(new_index);
-			
+			/* 2. Change the system clock divider values */
 			exynos4x12_set_clkdiv(new_index);
 		}
 	}
@@ -406,7 +422,7 @@ static void __init set_volt_table(void)
 
 	max_support_idx = L1;
 
-	
+	/* Not supported */
 	exynos4x12_freq_table[L0].frequency = CPUFREQ_ENTRY_INVALID;
 
 	for (i = 0 ; i < CPUFREQ_LEVEL_END ; i++)

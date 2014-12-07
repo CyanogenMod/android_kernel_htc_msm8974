@@ -13,6 +13,9 @@
 #include <linux/kernel.h>
 #include <asm/io.h>
 
+/*
+ * output data from a potentially misaligned buffer
+ */
 void __outsl(unsigned long addr, const void *buffer, int count)
 {
 	const unsigned char *buf = buffer;

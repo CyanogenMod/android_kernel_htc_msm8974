@@ -8,6 +8,11 @@
 	use this adapter.
 */
 
+/* Changes:
+
+	1.01	GRG 1998.05.05  init_proto, release_proto
+
+*/
 
 #define COMM_VERSION      "1.01"
 
@@ -21,12 +26,19 @@
 
 #include "paride.h"
 
+/* mode codes:  0  nybble reads, 8-bit writes
+                1  8-bit reads and writes
+                2  8-bit EPP mode
+*/
 
 #define j44(a,b)	(((a>>3)&0x0f)|((b<<1)&0xf0))
 
 #define P1	w2(5);w2(0xd);w2(0xd);w2(5);w2(4);
 #define P2	w2(5);w2(7);w2(7);w2(5);w2(4);
 
+/* cont = 0 - access the IDE register file 
+   cont = 1 - access the IDE command set 
+*/
 
 static int  cont_map[2] = { 0x08, 0x10 };
 
@@ -132,6 +144,7 @@ static void comm_read_block( PIA *pi, char * buf, int count )
 	}
 }
 
+/* NB: Watch out for the byte swapped writes ! */
 
 static void comm_write_block( PIA *pi, char * buf, int count )
 

@@ -14,6 +14,7 @@
 #ifndef __ASM_ARCH_MSM_IRQS_8X60_H
 #define __ASM_ARCH_MSM_IRQS_8X60_H
 
+/* MSM ACPU Interrupt Numbers */
 
 #define INT_DEBUG_TIMER_EXP			(GIC_PPI_START + 0)
 #define INT_GP_TIMER_EXP			(GIC_PPI_START + 1)
@@ -28,6 +29,7 @@
 #define SC_AVSCPUXDOWN				(GIC_PPI_START + 10)
 #define SC_AVSCPUXUP				(GIC_PPI_START + 11)
 #define SC_SICCPUXACGIRPTREQ			(GIC_PPI_START + 12)
+/* PPI 13 to 15 are unused */
 
 
 #define SC_SICMPUIRPTREQ			(GIC_SPI_START + 0)
@@ -249,6 +251,7 @@
 #define NR_BOARD_IRQS (NR_PMIC8058_IRQS + NR_PMIC8901_IRQS +\
 		NR_GPIO_EXPANDER_IRQS)
 
+/* smd/smsm interrupts */
 #define INT_A9_M2A_0                    MARM_SCSS_GP_IRQ_0
 #define INT_A9_M2A_5                    MARM_SCSS_GP_IRQ_1
 #define INT_ADSP_A11                    LPASS_SCSS_GP_HIGH_IRQ

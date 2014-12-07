@@ -39,6 +39,9 @@
 #include <asm/mach/flash.h>
 #include <asm/mach/arch.h>
 
+/*************************************************************************
+ * IXDP2400 timer tick
+ *************************************************************************/
 static void __init ixdp2400_timer_init(void)
 {
 	int numerator, denominator;
@@ -55,6 +58,9 @@ static struct sys_timer ixdp2400_timer = {
 	.offset		= ixp2000_gettimeoffset,
 };
 
+/*************************************************************************
+ * IXDP2400 PCI
+ *************************************************************************/
 void __init ixdp2400_pci_preinit(void)
 {
 	ixp2000_reg_write(IXP2000_PCI_ADDR_EXT, 0x00100000);
@@ -76,6 +82,11 @@ static int __init ixdp2400_pci_map_irq(const struct pci_dev *dev, u8 slot,
 {
 	if (ixdp2x00_master_npu()) {
 
+		/*
+		 * Root bus devices.  Slave NPU is only one with interrupt.
+		 * Everything else, we just return -1 b/c nothing else
+		 * on the root bus has interrupts.
+		 */
 		if(!dev->bus->self) {
 			if(dev->devfn == IXDP2X00_SLAVE_NPU_DEVFN )
 				return IRQ_IXDP2400_INGRESS_NPU;
@@ -83,11 +94,18 @@ static int __init ixdp2400_pci_map_irq(const struct pci_dev *dev, u8 slot,
 			return -1;
 		}
 
+		/*
+		 * Bridge behind the PMC slot.
+		 * NOTE: Only INTA from the PMC slot is routed. VERY BAD.
+		 */
 		if(dev->bus->self->devfn == IXDP2X00_PMC_DEVFN &&
 			dev->bus->parent->self->devfn == IXDP2X00_P2P_DEVFN &&
 			!dev->bus->parent->self->bus->parent)
 				  return IRQ_IXDP2400_PMC;
 
+		/*
+		 * Device behind the first bridge
+		 */
 		if(dev->bus->self->devfn == IXDP2X00_P2P_DEVFN) {
 			switch(dev->devfn) {
 				case IXDP2400_MASTER_ENET_DEVFN:	
@@ -105,7 +123,7 @@ static int __init ixdp2400_pci_map_irq(const struct pci_dev *dev, u8 slot,
 		}
 
 		return -1;
-	} else return IRQ_IXP2000_PCIB; 
+	} else return IRQ_IXP2000_PCIB; /* Slave NIC interrupt */
 }
 
 
@@ -151,7 +169,7 @@ void __init ixdp2400_init_irq(void)
 }
 
 MACHINE_START(IXDP2400, "Intel IXDP2400 Development Platform")
-	
+	/* Maintainer: MontaVista Software, Inc. */
 	.atag_offset	= 0x100,
 	.map_io		= ixdp2x00_map_io,
 	.init_irq	= ixdp2400_init_irq,

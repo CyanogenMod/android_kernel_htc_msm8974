@@ -33,6 +33,7 @@
 
 #include "siu.h"
 
+/* Board specifics */
 #if defined(CONFIG_CPU_SUBTYPE_SH7722)
 # define SIU_MAX_VOLUME		0x1000
 #else
@@ -54,6 +55,11 @@
 #define VOLUME_PLAYBACK		1
 #define DFLT_VOLUME_LEVEL	0x08000800
 
+/*
+ * SPDIF is only available on port A and on some SIU implementations it is only
+ * available for input. Due to the lack of hardware to test it, SPDIF is left
+ * disabled in this driver version
+ */
 struct format_flag {
 	u32	i2s;
 	u32	pcm;
@@ -73,7 +79,7 @@ static struct port_flag siu_flags[SIU_PORT_NUM] = {
 		.playback = {
 			.i2s	= 0x50000000,
 			.pcm	= 0x40000000,
-			.spdif	= 0x80000000,	
+			.spdif	= 0x80000000,	/* not on all SIU versions */
 			.mask	= 0xd0000000,
 		},
 		.capture = {
@@ -87,13 +93,13 @@ static struct port_flag siu_flags[SIU_PORT_NUM] = {
 		.playback = {
 			.i2s	= 0x00500000,
 			.pcm	= 0x00400000,
-			.spdif	= 0,		
+			.spdif	= 0,		/* impossible - turn off */
 			.mask	= 0x00500000,
 		},
 		.capture = {
 			.i2s	= 0x00050000,
 			.pcm	= 0x00040000,
-			.spdif	= 0,		
+			.spdif	= 0,		/* impossible - turn off */
 			.mask	= 0x00050000,
 		},
 	},
@@ -106,34 +112,38 @@ static void siu_dai_start(struct siu_port *port_info)
 
 	dev_dbg(port_info->pcm->card->dev, "%s\n", __func__);
 
-	
+	/* Issue software reset to siu */
 	siu_write32(base + SIU_SRCTL, 0);
 
-	
+	/* Wait for the reset to take effect */
 	udelay(1);
 
 	port_info->stfifo = 0;
 	port_info->trdat = 0;
 
-	
+	/* portA, portB, SIU operate */
 	siu_write32(base + SIU_SRCTL, 0x301);
 
-	
+	/* portA=256fs, portB=256fs */
 	siu_write32(base + SIU_CKCTL, 0x40400000);
 
-	
+	/* portA's BRG does not divide SIUCKA */
 	siu_write32(base + SIU_BRGASEL, 0);
 	siu_write32(base + SIU_BRRA, 0);
 
-	
+	/* portB's BRG divides SIUCKB by half */
 	siu_write32(base + SIU_BRGBSEL, 1);
 	siu_write32(base + SIU_BRRB, 0);
 
 	siu_write32(base + SIU_IFCTL, 0x44440000);
 
-	
+	/* portA: 32 bit/fs, master; portB: 32 bit/fs, master */
 	siu_write32(base + SIU_SFORM, 0x0c0c0000);
 
+	/*
+	 * Volume levels: looks like the DSP firmware implements volume controls
+	 * differently from what's described in the datasheet
+	 */
 	siu_write32(base + SIU_SBDVCA, port_info->playback.volume);
 	siu_write32(base + SIU_SBDVCB, port_info->capture.volume);
 }
@@ -143,7 +153,7 @@ static void siu_dai_stop(struct siu_port *port_info)
 	struct siu_info *info = siu_i2s_data;
 	u32 __iomem *base = info->reg;
 
-	
+	/* SIU software reset */
 	siu_write32(base + SIU_SRCTL, 0);
 }
 
@@ -154,19 +164,19 @@ static void siu_dai_spbAselect(struct siu_port *port_info)
 	u32 *ydef = fw->yram0;
 	u32 idx;
 
-	
+	/* path A use */
 	if (!info->port_id)
-		idx = 1;		
+		idx = 1;		/* portA */
 	else
-		idx = 2;		
+		idx = 2;		/* portB */
 
 	ydef[0] = (fw->spbpar[idx].ab1a << 16) |
 		(fw->spbpar[idx].ab0a << 8) |
 		(fw->spbpar[idx].dir << 7) | 3;
-	ydef[1] = fw->yram0[1];	
+	ydef[1] = fw->yram0[1];	/* 0x03000300 */
 	ydef[2] = (16 / 2) << 24;
-	ydef[3] = fw->yram0[3];	
-	ydef[4] = fw->yram0[4];	
+	ydef[3] = fw->yram0[3];	/* 0 */
+	ydef[4] = fw->yram0[4];	/* 0 */
 	ydef[7] = fw->spbpar[idx].event;
 	port_info->stfifo |= fw->spbpar[idx].stfifo;
 	port_info->trdat |= fw->spbpar[idx].trdat;
@@ -179,11 +189,11 @@ static void siu_dai_spbBselect(struct siu_port *port_info)
 	u32 *ydef = fw->yram0;
 	u32 idx;
 
-	
+	/* path B use */
 	if (!info->port_id)
-		idx = 7;		
+		idx = 7;		/* portA */
 	else
-		idx = 8;		
+		idx = 8;		/* portB */
 
 	ydef[5] = (fw->spbpar[idx].ab1a << 16) |
 		(fw->spbpar[idx].ab0a << 8) | 1;
@@ -203,22 +213,26 @@ static void siu_dai_open(struct siu_stream *siu_stream)
 
 	switch (info->port_id) {
 	case SIU_PORT_A:
-		
+		/* portA operates */
 		srctl |= 0x200;
 		ifctl &= ~0xc2;
 		break;
 	case SIU_PORT_B:
-		
+		/* portB operates */
 		srctl |= 0x100;
 		ifctl &= ~0x31;
 		break;
 	}
 
 	siu_write32(base + SIU_SRCTL, srctl);
-	
+	/* Unmute and configure portA */
 	siu_write32(base + SIU_IFCTL, ifctl);
 }
 
+/*
+ * At the moment only fixed Left-upper, Left-lower, Right-upper, Right-lower
+ * packing is supported
+ */
 static void siu_dai_pcmdatapack(struct siu_stream *siu_stream)
 {
 	struct siu_info *info = siu_i2s_data;
@@ -249,7 +263,7 @@ static int siu_dai_spbstart(struct siu_port *port_info)
 	u32 __iomem *add;
 	u32 *ptr;
 
-	
+	/* Load SPB Program in PRAM */
 	ptr = fw->pram0;
 	add = info->pram;
 	for (cnt = 0; cnt < PRAM0_SIZE; cnt++, add++, ptr++)
@@ -260,22 +274,22 @@ static int siu_dai_spbstart(struct siu_port *port_info)
 	for (cnt = 0; cnt < PRAM1_SIZE; cnt++, add++, ptr++)
 		siu_write32(add, *ptr);
 
-	
+	/* XRAM initialization */
 	add = info->xram;
 	for (cnt = 0; cnt < XRAM0_SIZE + XRAM1_SIZE + XRAM2_SIZE; cnt++, add++)
 		siu_write32(add, 0);
 
-	
+	/* YRAM variable area initialization */
 	add = info->yram;
 	for (cnt = 0; cnt < YRAM_DEF_SIZE; cnt++, add++)
 		siu_write32(add, ydef[cnt]);
 
-	
+	/* YRAM FIR coefficient area initialization */
 	add = info->yram + (0x0200 / sizeof(u32));
 	for (cnt = 0; cnt < YRAM_FIR_SIZE; cnt++, add++)
 		siu_write32(add, fw->yram_fir_coeff[cnt]);
 
-	
+	/* YRAM IIR coefficient area initialization */
 	add = info->yram + (0x0600 / sizeof(u32));
 	for (cnt = 0; cnt < YRAM_IIR_SIZE; cnt++, add++)
 		siu_write32(add, 0);
@@ -284,11 +298,11 @@ static int siu_dai_spbstart(struct siu_port *port_info)
 	port_info->trdat = 0x0;
 
 
-	
+	/* SPB start condition: software */
 	siu_write32(base + SIU_SBACTIV, 0);
-	
+	/* Start SPB */
 	siu_write32(base + SIU_SBCTL, 0xc0000000);
-	
+	/* Wait for program to halt */
 	cnt = 0x10000;
 	while (--cnt && siu_read32(base + SIU_SBCTL) != 0x80000000)
 		cpu_relax();
@@ -296,9 +310,9 @@ static int siu_dai_spbstart(struct siu_port *port_info)
 	if (!cnt)
 		return -EBUSY;
 
-	
+	/* SPB program start address setting */
 	siu_write32(base + SIU_SBPSET, 0x00400000);
-	
+	/* SPB hardware start(FIFOCTL source) */
 	siu_write32(base + SIU_SBACTIV, 0xc0000000);
 
 	return 0;
@@ -310,13 +324,15 @@ static void siu_dai_spbstop(struct siu_port *port_info)
 	u32 __iomem *base = info->reg;
 
 	siu_write32(base + SIU_SBACTIV, 0);
-	
+	/* SPB stop */
 	siu_write32(base + SIU_SBCTL, 0);
 
 	port_info->stfifo = 0;
 }
 
+/*		API functions		*/
 
+/* Playback and capture hardware properties are identical */
 static struct snd_pcm_hardware siu_dai_pcm_hw = {
 	.info			= SNDRV_PCM_INFO_INTERLEAVED,
 	.formats		= SNDRV_PCM_FMTBIT_S16,
@@ -358,13 +374,13 @@ static int siu_dai_get_volume(struct snd_kcontrol *kctrl,
 
 	switch (kctrl->private_value) {
 	case VOLUME_PLAYBACK:
-		
+		/* Playback is always on port 0 */
 		vol = port_info->playback.volume;
 		ucontrol->value.integer.value[0] = vol & 0xffff;
 		ucontrol->value.integer.value[1] = vol >> 16 & 0xffff;
 		break;
 	case VOLUME_CAPTURE:
-		
+		/* Capture is always on port 1 */
 		vol = port_info->capture.volume;
 		ucontrol->value.integer.value[0] = vol & 0xffff;
 		ucontrol->value.integer.value[1] = vol >> 16 & 0xffff;
@@ -399,16 +415,16 @@ static int siu_dai_put_volume(struct snd_kcontrol *kctrl,
 	new_vol = ucontrol->value.integer.value[0] |
 		ucontrol->value.integer.value[1] << 16;
 
-	
+	/* See comment above - DSP firmware implementation */
 	switch (kctrl->private_value) {
 	case VOLUME_PLAYBACK:
-		
+		/* Playback is always on port 0 */
 		cur_vol = port_info->playback.volume;
 		siu_write32(base + SIU_SBDVCA, new_vol);
 		port_info->playback.volume = new_vol;
 		break;
 	case VOLUME_CAPTURE:
-		
+		/* Capture is always on port 1 */
 		cur_vol = port_info->capture.volume;
 		siu_write32(base + SIU_SBDVCB, new_vol);
 		port_info->capture.volume = new_vol;
@@ -460,6 +476,12 @@ int siu_init_port(int port, struct siu_port **port_info, struct snd_card *card)
 	(*port_info)->playback.volume = DFLT_VOLUME_LEVEL;
 	(*port_info)->capture.volume = DFLT_VOLUME_LEVEL;
 
+	/*
+	 * Add mixer support. The SPB is used to change the volume. Both
+	 * ports use the same SPB. Therefore, we only register one
+	 * control instance since it will be used by both channels.
+	 * In error case we continue without controls.
+	 */
 	kctrl = snd_ctl_new1(&playback_controls, *port_info);
 	ret = snd_ctl_add(card, kctrl);
 	if (ret < 0)
@@ -518,15 +540,16 @@ static void siu_dai_shutdown(struct snd_pcm_substream *substream,
 	else
 		port_info->play_cap &= ~CAPTURE_ENABLED;
 
-	
+	/* Stop the siu if the other stream is not using it */
 	if (!port_info->play_cap) {
-		
+		/* during stmread or stmwrite ? */
 		BUG_ON(port_info->playback.rw_flg || port_info->capture.rw_flg);
 		siu_dai_spbstop(port_info);
 		siu_dai_stop(port_info);
 	}
 }
 
+/* PCM part of siu_dai_playback_prepare() / siu_dai_capture_prepare() */
 static int siu_dai_prepare(struct snd_pcm_substream *substream,
 			   struct snd_soc_dai *dai)
 {
@@ -548,9 +571,9 @@ static int siu_dai_prepare(struct snd_pcm_substream *substream,
 		siu_stream = &port_info->capture;
 	}
 
-	
+	/* Set up the siu if not already done */
 	if (!port_info->play_cap) {
-		siu_stream->rw_flg = 0;	
+		siu_stream->rw_flg = 0;	/* stream-data transfer flag */
 
 		siu_dai_spbAselect(port_info);
 		siu_dai_spbBselect(port_info);
@@ -572,6 +595,10 @@ fail:
 	return ret;
 }
 
+/*
+ * SIU can set bus format to I2S / PCM / SPDIF independently for playback and
+ * capture, however, the current API sets the bus format globally for a DAI.
+ */
 static int siu_dai_set_fmt(struct snd_soc_dai *dai,
 			   unsigned int fmt)
 {
@@ -585,7 +612,7 @@ static int siu_dai_set_fmt(struct snd_soc_dai *dai,
 	if (info->port_id < 0)
 		return -ENODEV;
 
-	
+	/* Here select between I2S / PCM / SPDIF */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		ifctl = siu_flags[info->port_id].playback.i2s |
@@ -595,7 +622,7 @@ static int siu_dai_set_fmt(struct snd_soc_dai *dai,
 		ifctl = siu_flags[info->port_id].playback.pcm |
 			siu_flags[info->port_id].capture.pcm;
 		break;
-	
+	/* SPDIF disabled - see comment at the top */
 	default:
 		return -EINVAL;
 	}
@@ -665,7 +692,7 @@ static int siu_dai_set_sysclk(struct snd_soc_dai *dai, int clk_id,
 	if (ret < 0)
 		dev_err(dai->dev, "cannot set SIU clock rate: %d\n", ret);
 
-	
+	/* TODO: when clkdev gets reference counting we'll move these to siu_dai_shutdown() */
 eclksetp:
 	clk_put(parent_clk);
 epclkget:
@@ -716,6 +743,10 @@ static int __devinit siu_probe(struct platform_device *pdev)
 	if (ret)
 		goto ereqfw;
 
+	/*
+	 * Loaded firmware is "const" - read only, but we have to modify it in
+	 * snd_siu_sh7343_spbAselect() and snd_siu_sh7343_spbBselect()
+	 */
 	memcpy(&info->fw, fw_entry->data, fw_entry->size);
 
 	release_firmware(fw_entry);
@@ -751,7 +782,7 @@ static int __devinit siu_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, info);
 
-	
+	/* register using ARRAY version so we can keep dai name */
 	ret = snd_soc_register_dais(&pdev->dev, &siu_i2s_dai, 1);
 	if (ret < 0)
 		goto edaiinit;

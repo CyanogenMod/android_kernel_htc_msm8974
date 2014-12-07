@@ -43,4 +43,4 @@ static inline int rbt_memtype_copy_nth_element(struct memtype *out, loff_t pos)
 { return 0; }
 #endif
 
-#endif 
+#endif /* __PAT_INTERNAL_H_ */

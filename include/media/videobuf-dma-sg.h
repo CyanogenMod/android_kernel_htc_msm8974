@@ -22,23 +22,42 @@
 
 #include <media/videobuf-core.h>
 
+/* --------------------------------------------------------------------- */
 
+/*
+ * A small set of helper functions to manage buffers (both userland
+ * and kernel) for DMA.
+ *
+ * videobuf_dma_init_*()
+ *	creates a buffer.  The userland version takes a userspace
+ *	pointer + length.  The kernel version just wants the size and
+ *	does memory allocation too using vmalloc_32().
+ *
+ * videobuf_dma_*()
+ *	see Documentation/DMA-API-HOWTO.txt, these functions to
+ *	basically the same.  The map function does also build a
+ *	scatterlist for the buffer (and unmap frees it ...)
+ *
+ * videobuf_dma_free()
+ *	no comment ...
+ *
+ */
 
 struct videobuf_dmabuf {
 	u32                 magic;
 
-	
+	/* for userland buffer */
 	int                 offset;
 	size_t		    size;
 	struct page         **pages;
 
-	
+	/* for kernel buffers */
 	void                *vaddr;
 
-	
+	/* for overlay buffers (pci-pci dma) */
 	dma_addr_t          bus_addr;
 
-	
+	/* common */
 	struct scatterlist  *sglist;
 	int                 sglen;
 	int                 nr_pages;
@@ -48,10 +67,20 @@ struct videobuf_dmabuf {
 struct videobuf_dma_sg_memory {
 	u32                 magic;
 
-	
+	/* for mmap'ed buffers */
 	struct videobuf_dmabuf  dma;
 };
 
+/*
+ * Scatter-gather DMA buffer API.
+ *
+ * These functions provide a simple way to create a page list and a
+ * scatter-gather list from a kernel, userspace of physical address and map the
+ * memory for DMA operation.
+ *
+ * Despite the name, this is totally unrelated to videobuf, except that
+ * videobuf-dma-sg uses the same API internally.
+ */
 void videobuf_dma_init(struct videobuf_dmabuf *dma);
 int videobuf_dma_init_user(struct videobuf_dmabuf *dma, int direction,
 			   unsigned long data, unsigned long size);
@@ -77,5 +106,5 @@ void videobuf_queue_sg_init(struct videobuf_queue *q,
 			 void *priv,
 			 struct mutex *ext_lock);
 
-#endif 
+#endif /* _VIDEOBUF_DMA_SG_H */
 

@@ -16,7 +16,7 @@
 static void prom_console_write(struct console *co, const char *s,
 			       unsigned count)
 {
-	
+	/* Do each character */
 	while (count--) {
 		if (*s == '\n')
 			prom_putchar('\r');
@@ -37,6 +37,9 @@ static struct console arc_cons = {
 	.index		= -1,
 };
 
+/*
+ *    Register console.
+ */
 
 static int __init arc_console_init(void)
 {

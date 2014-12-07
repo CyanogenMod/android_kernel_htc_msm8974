@@ -27,28 +27,30 @@ EXPORT_SYMBOL_GPL(rtc_lock);
 void __init
 atari_sched_init(irq_handler_t timer_routine)
 {
-    
+    /* set Timer C data Register */
     st_mfp.tim_dt_c = INT_TICKS;
-    
+    /* start timer C, div = 1:100 */
     st_mfp.tim_ct_cd = (st_mfp.tim_ct_cd & 15) | 0x60;
-    
+    /* install interrupt service routine for MFP Timer C */
     if (request_irq(IRQ_MFP_TIMC, timer_routine, IRQ_TYPE_SLOW,
 		    "timer", timer_routine))
 	pr_err("Couldn't register timer interrupt\n");
 }
 
+/* ++andreas: gettimeoffset fixed to check for pending interrupt */
 
 #define TICK_SIZE 10000
 
+/* This is always executed with interrupts disabled.  */
 unsigned long atari_gettimeoffset (void)
 {
   unsigned long ticks, offset = 0;
 
-  
+  /* read MFP timer C current value */
   ticks = st_mfp.tim_dt_c;
-  
+  /* The probability of underflow is less than 2% */
   if (ticks > INT_TICKS - INT_TICKS / 50)
-    
+    /* Check for pending timer interrupt */
     if (st_mfp.int_pn_b & (1 << 5))
       offset = TICK_SIZE;
 
@@ -68,7 +70,7 @@ static void mste_read(struct MSTE_RTC *val)
 		COPY(weekday) ; COPY(day_ones) ; COPY(day_tens) ;
 		COPY(mon_ones) ; COPY(mon_tens) ; COPY(year_ones) ;
 		COPY(year_tens) ;
-	
+	/* prevent from reading the clock while it changed */
 	} while (val->sec_ones != (mste_rtc.sec_ones & 0xf));
 #undef COPY
 }
@@ -82,7 +84,7 @@ static void mste_write(struct MSTE_RTC *val)
 		COPY(weekday) ; COPY(day_ones) ; COPY(day_tens) ;
 		COPY(mon_ones) ; COPY(mon_tens) ; COPY(year_ones) ;
 		COPY(year_tens) ;
-	
+	/* prevent from writing the clock while it changed */
 	} while (val->sec_ones != (mste_rtc.sec_ones & 0xf));
 #undef COPY
 }
@@ -114,7 +116,7 @@ int atari_mste_hwclk( int op, struct rtc_time *t )
     mste_rtc.mode=(mste_rtc.mode & ~1);
 
     if (op) {
-        
+        /* write: prepare values */
 
         val.sec_ones = t->tm_sec % 10;
         val.sec_tens = t->tm_sec / 10;
@@ -139,7 +141,7 @@ int atari_mste_hwclk( int op, struct rtc_time *t )
         val.weekday = t->tm_wday;
         mste_write(&val);
         mste_rtc.mode=(mste_rtc.mode | 1);
-        val.year_ones = (year % 4);	
+        val.year_ones = (year % 4);	/* leap year register */
         mste_rtc.mode=(mste_rtc.mode & ~1);
     }
     else {
@@ -169,10 +171,11 @@ int atari_tt_hwclk( int op, struct rtc_time *t )
     unsigned char	ctrl;
     int pm = 0;
 
-    ctrl = RTC_READ(RTC_CONTROL); 
+    ctrl = RTC_READ(RTC_CONTROL); /* control registers are
+                                   * independent from the UIP */
 
     if (op) {
-        
+        /* write: prepare values */
 
         sec  = t->tm_sec;
         min  = t->tm_min;
@@ -204,6 +207,17 @@ int atari_tt_hwclk( int op, struct rtc_time *t )
         }
     }
 
+    /* Reading/writing the clock registers is a bit critical due to
+     * the regular update cycle of the RTC. While an update is in
+     * progress, registers 0..9 shouldn't be touched.
+     * The problem is solved like that: If an update is currently in
+     * progress (the UIP bit is set), the process sleeps for a while
+     * (50ms). This really should be enough, since the update cycle
+     * normally needs 2 ms.
+     * If the UIP bit reads as 0, we have at least 244 usecs until the
+     * update starts. This should be enough... But to be sure,
+     * additionally the RTC_SET bit is set to prevent an update cycle.
+     */
 
     while( RTC_READ(RTC_FREQ_SELECT) & RTC_UIP ) {
 	if (in_atomic() || irqs_disabled())
@@ -236,7 +250,7 @@ int atari_tt_hwclk( int op, struct rtc_time *t )
     local_irq_restore(flags);
 
     if (!op) {
-        
+        /* read: adjust values */
 
         if (hour & 0x80) {
 	    hour &= ~0x80;
@@ -302,16 +316,19 @@ int atari_tt_set_clock_mmss (unsigned long nowtime)
     short real_seconds = nowtime % 60, real_minutes = (nowtime / 60) % 60;
     unsigned char save_control, save_freq_select, rtc_minutes;
 
-    save_control = RTC_READ (RTC_CONTROL); 
+    save_control = RTC_READ (RTC_CONTROL); /* tell the clock it's being set */
     RTC_WRITE (RTC_CONTROL, save_control | RTC_SET);
 
-    save_freq_select = RTC_READ (RTC_FREQ_SELECT); 
+    save_freq_select = RTC_READ (RTC_FREQ_SELECT); /* stop and reset prescaler */
     RTC_WRITE (RTC_FREQ_SELECT, save_freq_select | RTC_DIV_RESET2);
 
     rtc_minutes = RTC_READ (RTC_MINUTES);
     if (!(save_control & RTC_DM_BINARY))
 	rtc_minutes = bcd2bin(rtc_minutes);
 
+    /* Since we're only adjusting minutes and seconds, don't interfere
+       with hour overflow.  This avoids messing with unknown time zones
+       but requires your RTC not to be off by more than 30 minutes.  */
     if ((rtc_minutes < real_minutes
          ? real_minutes - rtc_minutes
          : rtc_minutes - real_minutes) < 30)
@@ -332,3 +349,9 @@ int atari_tt_set_clock_mmss (unsigned long nowtime)
     return retval;
 }
 
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  tab-width: 8
+ * End:
+ */

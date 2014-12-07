@@ -64,11 +64,11 @@ static int cfdgml_receive(struct cflayer *layr, struct cfpkt *pkt)
 	}
 
 	switch (cmd) {
-	case DGM_FLOW_OFF:	
+	case DGM_FLOW_OFF:	/* FLOW OFF */
 		layr->ctrlcmd(layr, CAIF_CTRLCMD_FLOW_OFF_IND, 0);
 		cfpkt_destroy(pkt);
 		return 0;
-	case DGM_FLOW_ON:	
+	case DGM_FLOW_ON:	/* FLOW ON */
 		layr->ctrlcmd(layr, CAIF_CTRLCMD_FLOW_ON_IND, 0);
 		cfpkt_destroy(pkt);
 		return 0;
@@ -92,19 +92,22 @@ static int cfdgml_transmit(struct cflayer *layr, struct cfpkt *pkt)
 		return ret;
 	}
 
-	
+	/* STE Modem cannot handle more than 1500 bytes datagrams */
 	if (cfpkt_getlen(pkt) > DGM_MTU) {
 		cfpkt_destroy(pkt);
 		return -EMSGSIZE;
 	}
 
 	cfpkt_add_head(pkt, &zero, 3);
-	packet_type = 0x08; 
+	packet_type = 0x08; /* B9 set - UNCLASSIFIED */
 	cfpkt_add_head(pkt, &packet_type, 1);
 
-	
+	/* Add info for MUX-layer to route the packet out. */
 	info = cfpkt_info(pkt);
 	info->channel_id = service->layer.id;
+	/* To optimize alignment, we add up the size of CAIF header
+	 * before payload.
+	 */
 	info->hdr_len = 4;
 	info->dev_info = &service->dev_info;
 	return layr->dn->transmit(layr->dn, pkt);

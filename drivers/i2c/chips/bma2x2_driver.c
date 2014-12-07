@@ -1,3 +1,7 @@
+/*
+ * Last modified: Sep 20th, 2012
+ * Revision: 1.5.2
+ */
 
 /*
  * This software program is licensed subject to the GNU General Public License
@@ -8,6 +12,10 @@
  */
 
 
+/* file BMA2X2.c
+   brief This file contains all function implementations for the BMA2X2 in linux
+
+*/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -31,6 +39,7 @@
 #define I(x...) printk(KERN_INFO "[GSNR][BMA2X2_BOSCH] " x)
 #define E(x...) printk(KERN_ERR "[GSNR][BMA2X2_BOSCH] " x)
 
+/*#define SENSOR_IDENTIFICATION_ENABLE	1*/
 #define HTC_CALIBRATION 1
 
 #define SENSOR_NAME			"bma2x2"
@@ -46,8 +55,8 @@
 #define SLOPE_Y_INDEX			6
 #define SLOPE_Z_INDEX			7
 #define BMA2X2_MAX_DELAY		200
-#define BMA2X2_RANGE_SET		3  
-#define BMA2X2_BW_SET			12 
+#define BMA2X2_RANGE_SET		3  /* +/- 2G */
+#define BMA2X2_BW_SET			12 /* 125HZ  */
 
 #define LOW_G_INTERRUPT				REL_Z
 #define HIGH_G_INTERRUPT			REL_HWHEEL
@@ -1431,7 +1440,7 @@ static int bma2x2_set_int1_pad_sel(struct i2c_client *client, unsigned char
 
 	return comres;
 }
-#endif 
+#endif /* BMA2X2_ENABLE_INT1 */
 #ifdef BMA2X2_ENABLE_INT2
 static int bma2x2_set_int2_pad_sel(struct i2c_client *client, unsigned char
 		int2sel)
@@ -1505,7 +1514,7 @@ static int bma2x2_set_int2_pad_sel(struct i2c_client *client, unsigned char
 
 	return comres;
 }
-#endif 
+#endif /* BMA2X2_ENABLE_INT2 */
 
 static int bma2x2_set_Int_Enable(struct i2c_client *client, unsigned char
 		InterruptType , unsigned char value)
@@ -1520,70 +1529,70 @@ static int bma2x2_set_Int_Enable(struct i2c_client *client, unsigned char
 	value = value & 1;
 	switch (InterruptType) {
 	case 0:
-		
+		/* Low G Interrupt  */
 		data2 = BMA2X2_SET_BITSLICE(data2, BMA2X2_EN_LOWG_INT, value);
 		break;
 	case 1:
-		
+		/* High G X Interrupt */
 
 		data2 = BMA2X2_SET_BITSLICE(data2, BMA2X2_EN_HIGHG_X_INT,
 				value);
 		break;
 	case 2:
-		
+		/* High G Y Interrupt */
 
 		data2 = BMA2X2_SET_BITSLICE(data2, BMA2X2_EN_HIGHG_Y_INT,
 				value);
 		break;
 	case 3:
-		
+		/* High G Z Interrupt */
 
 		data2 = BMA2X2_SET_BITSLICE(data2, BMA2X2_EN_HIGHG_Z_INT,
 				value);
 		break;
 	case 4:
-		
+		/* New Data Interrupt  */
 
 		data2 = BMA2X2_SET_BITSLICE(data2, BMA2X2_EN_NEW_DATA_INT,
 				value);
 		break;
 	case 5:
-		
+		/* Slope X Interrupt */
 
 		data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_X_INT,
 				value);
 		break;
 	case 6:
-		
+		/* Slope Y Interrupt */
 
 		data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_Y_INT,
 				value);
 		break;
 	case 7:
-		
+		/* Slope Z Interrupt */
 
 		data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SLOPE_Z_INT,
 				value);
 		break;
 	case 8:
-		
+		/* Single Tap Interrupt */
 
 		data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_SINGLE_TAP_INT,
 				value);
 		break;
 	case 9:
-		
+		/* Double Tap Interrupt */
 
 		data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_DOUBLE_TAP_INT,
 				value);
 		break;
 	case 10:
-		
+		/* Orient Interrupt  */
 
 		data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_ORIENT_INT, value);
 		break;
 	case 11:
-		
+		/* Flat Interrupt */
 
 		data1 = BMA2X2_SET_BITSLICE(data1, BMA2X2_EN_FLAT_INT, value);
 		break;
@@ -1733,7 +1742,7 @@ static int bma2x2_get_orient_flat_status(struct i2c_client *client, unsigned
 
 	return comres;
 }
-#endif 
+#endif /* defined(BMA2X2_ENABLE_INT1)||defined(BMA2X2_ENABLE_INT2) */
 static int bma2x2_set_Int_Mode(struct i2c_client *client, unsigned char Mode)
 {
 	int comres = 0;
@@ -2425,42 +2434,42 @@ static int bma2x2_set_bandwidth(struct i2c_client *client, unsigned char BW)
 		case BMA2X2_BW_7_81HZ:
 			Bandwidth = BMA2X2_BW_7_81HZ;
 
-			
+			/*  7.81 Hz      64000 uS   */
 			break;
 		case BMA2X2_BW_15_63HZ:
 			Bandwidth = BMA2X2_BW_15_63HZ;
 
-			
+			/*  15.63 Hz     32000 uS   */
 			break;
 		case BMA2X2_BW_31_25HZ:
 			Bandwidth = BMA2X2_BW_31_25HZ;
 
-			
+			/*  31.25 Hz     16000 uS   */
 			break;
 		case BMA2X2_BW_62_50HZ:
 			Bandwidth = BMA2X2_BW_62_50HZ;
 
-			
+			/*  62.50 Hz     8000 uS   */
 			break;
 		case BMA2X2_BW_125HZ:
 			Bandwidth = BMA2X2_BW_125HZ;
 
-			
+			/*  125 Hz       4000 uS   */
 			break;
 		case BMA2X2_BW_250HZ:
 			Bandwidth = BMA2X2_BW_250HZ;
 
-			
+			/*  250 Hz       2000 uS   */
 			break;
 		case BMA2X2_BW_500HZ:
 			Bandwidth = BMA2X2_BW_500HZ;
 
-			
+			/*  500 Hz       1000 uS   */
 			break;
 		case BMA2X2_BW_1000HZ:
 			Bandwidth = BMA2X2_BW_1000HZ;
 
-			
+			/*  1000 Hz      500 uS   */
 			break;
 		default:
 			break;
@@ -2515,57 +2524,57 @@ int bma2x2_set_sleep_duration(struct i2c_client *client, unsigned char
 		case BMA2X2_SLEEP_DUR_0_5MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_0_5MS;
 
-			
+			/*  0.5 MS   */
 			break;
 		case BMA2X2_SLEEP_DUR_1MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_1MS;
 
-			
+			/*  1 MS  */
 			break;
 		case BMA2X2_SLEEP_DUR_2MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_2MS;
 
-			
+			/*  2 MS  */
 			break;
 		case BMA2X2_SLEEP_DUR_4MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_4MS;
 
-			
+			/*  4 MS   */
 			break;
 		case BMA2X2_SLEEP_DUR_6MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_6MS;
 
-			
+			/*  6 MS  */
 			break;
 		case BMA2X2_SLEEP_DUR_10MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_10MS;
 
-			
+			/*  10 MS  */
 			break;
 		case BMA2X2_SLEEP_DUR_25MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_25MS;
 
-			
+			/*  25 MS  */
 			break;
 		case BMA2X2_SLEEP_DUR_50MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_50MS;
 
-			
+			/*  50 MS   */
 			break;
 		case BMA2X2_SLEEP_DUR_100MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_100MS;
 
-			
+			/*  100 MS  */
 			break;
 		case BMA2X2_SLEEP_DUR_500MS:
 			sleep_duration = BMA2X2_SLEEP_DUR_500MS;
 
-			
+			/*  500 MS   */
 			break;
 		case BMA2X2_SLEEP_DUR_1S:
 			sleep_duration = BMA2X2_SLEEP_DUR_1S;
 
-			
+			/*  1 SECS   */
 			break;
 		default:
 			break;
@@ -3831,26 +3840,28 @@ static ssize_t bma2x2_selftest_store(struct device *dev,
 
 	if ((bma2x2->sensor_type == BMA280_TYPE) ||
 			(bma2x2->sensor_type == BMA255_TYPE)) {
-		
+		/* set to 4 G range */
 		if (bma2x2_set_range(bma2x2->bma2x2_client, 5) < 0)
 			return -EINVAL;
 	}
 
 	if ((bma2x2->sensor_type == BMA250E_TYPE) ||
 			(bma2x2->sensor_type == BMA222E_TYPE)) {
-		
+		/* set to 8 G range */
 		if (bma2x2_set_range(bma2x2->bma2x2_client, 8) < 0)
 			return -EINVAL;
 		if (bma2x2_set_selftest_amp(bma2x2->bma2x2_client, 1) < 0)
 			return -EINVAL;
 	}
 
-	bma2x2_set_selftest_st(bma2x2->bma2x2_client, 1); 
-	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); 
+	bma2x2_set_selftest_st(bma2x2->bma2x2_client, 1); /* 1 for x-axis*/
+	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); /* positive
+							      direction*/
 	mdelay(10);
 	bma2x2_read_accel_x(bma2x2->bma2x2_client,
 					bma2x2->sensor_type, &value1);
-	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); 
+	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); /* negative
+							      direction*/
 	mdelay(10);
 	bma2x2_read_accel_x(bma2x2->bma2x2_client,
 					bma2x2->sensor_type, &value2);
@@ -3876,12 +3887,14 @@ static ssize_t bma2x2_selftest_store(struct device *dev,
 			result |= 1;
 	}
 
-	bma2x2_set_selftest_st(bma2x2->bma2x2_client, 2); 
-	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); 
+	bma2x2_set_selftest_st(bma2x2->bma2x2_client, 2); /* 2 for y-axis*/
+	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); /* positive
+							      direction*/
 	mdelay(10);
 	bma2x2_read_accel_y(bma2x2->bma2x2_client,
 					bma2x2->sensor_type, &value1);
-	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); 
+	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); /* negative
+							      direction*/
 	mdelay(10);
 	bma2x2_read_accel_y(bma2x2->bma2x2_client,
 					bma2x2->sensor_type, &value2);
@@ -3907,12 +3920,14 @@ static ssize_t bma2x2_selftest_store(struct device *dev,
 	}
 
 
-	bma2x2_set_selftest_st(bma2x2->bma2x2_client, 3); 
-	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); 
+	bma2x2_set_selftest_st(bma2x2->bma2x2_client, 3); /* 3 for z-axis*/
+	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); /* positive
+							      direction*/
 	mdelay(10);
 	bma2x2_read_accel_z(bma2x2->bma2x2_client,
 					bma2x2->sensor_type, &value1);
-	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); 
+	bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); /* negative
+							      direction*/
 	mdelay(10);
 	bma2x2_read_accel_z(bma2x2->bma2x2_client,
 					bma2x2->sensor_type, &value2);
@@ -3938,24 +3953,27 @@ static ssize_t bma2x2_selftest_store(struct device *dev,
 			result |= 4;
 	}
 
-	
+	/* self test for bma254 */
 	if ((bma2x2->sensor_type == BMA255_TYPE) && (result > 0)) {
 		result = 0;
 		bma2x2_soft_reset(bma2x2->bma2x2_client);
 		mdelay(5);
 		bma2x2_write_reg(bma2x2->bma2x2_client, 0x32, &clear_value);
-		
+		/* set to 8 G range */
 		if (bma2x2_set_range(bma2x2->bma2x2_client, 8) < 0)
 			return -EINVAL;
 		if (bma2x2_set_selftest_amp(bma2x2->bma2x2_client, 1) < 0)
 			return -EINVAL;
 
-		bma2x2_set_selftest_st(bma2x2->bma2x2_client, 1); 
-		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); 
+		bma2x2_set_selftest_st(bma2x2->bma2x2_client, 1); /* 1
+								for x-axis*/
+		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); /*
+							positive direction*/
 		mdelay(10);
 		bma2x2_read_accel_x(bma2x2->bma2x2_client,
 						bma2x2->sensor_type, &value1);
-		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); 
+		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); /*
+							negative direction*/
 		mdelay(10);
 		bma2x2_read_accel_x(bma2x2->bma2x2_client,
 						bma2x2->sensor_type, &value2);
@@ -3966,12 +3984,15 @@ static ssize_t bma2x2_selftest_store(struct device *dev,
 		if (abs(diff) < 204)
 			result |= 1;
 
-		bma2x2_set_selftest_st(bma2x2->bma2x2_client, 2); 
-		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); 
+		bma2x2_set_selftest_st(bma2x2->bma2x2_client, 2); /* 2
+								for y-axis*/
+		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); /*
+							positive direction*/
 		mdelay(10);
 		bma2x2_read_accel_y(bma2x2->bma2x2_client,
 						bma2x2->sensor_type, &value1);
-		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); 
+		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); /*
+							negative direction*/
 		mdelay(10);
 		bma2x2_read_accel_y(bma2x2->bma2x2_client,
 						bma2x2->sensor_type, &value2);
@@ -3982,12 +4003,15 @@ static ssize_t bma2x2_selftest_store(struct device *dev,
 		if (abs(diff) < 204)
 			result |= 2;
 
-		bma2x2_set_selftest_st(bma2x2->bma2x2_client, 3); 
-		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); 
+		bma2x2_set_selftest_st(bma2x2->bma2x2_client, 3); /* 3
+								for z-axis*/
+		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 0); /*
+							positive direction*/
 		mdelay(10);
 		bma2x2_read_accel_z(bma2x2->bma2x2_client,
 						bma2x2->sensor_type, &value1);
-		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); 
+		bma2x2_set_selftest_stn(bma2x2->bma2x2_client, 1); /*
+							negative direction*/
 		mdelay(10);
 		bma2x2_read_accel_z(bma2x2->bma2x2_client,
 						bma2x2->sensor_type, &value2);
@@ -4521,6 +4545,8 @@ static ssize_t bma2x2_fast_calibration_x_store(struct device *dev,
 		mdelay(2);
 		bma2x2_get_cal_ready(bma2x2->bma2x2_client, &tmp);
 
+/*		printk(KERN_INFO "wait 2ms cal ready flag is %d\n", tmp);
+ */
 		timeout++;
 		if (timeout == 50) {
 			printk(KERN_INFO "get fast calibration ready error\n");
@@ -4575,6 +4601,8 @@ static ssize_t bma2x2_fast_calibration_y_store(struct device *dev,
 		mdelay(2);
 		bma2x2_get_cal_ready(bma2x2->bma2x2_client, &tmp);
 
+/*		printk(KERN_INFO "wait 2ms cal ready flag is %d\n", tmp);
+ */
 		timeout++;
 		if (timeout == 50) {
 			printk(KERN_INFO "get fast calibration ready error\n");
@@ -4629,6 +4657,8 @@ static ssize_t bma2x2_fast_calibration_z_store(struct device *dev,
 		mdelay(2);
 		bma2x2_get_cal_ready(bma2x2->bma2x2_client, &tmp);
 
+/*		printk(KERN_INFO "wait 2ms cal ready flag is %d\n", tmp);
+ */
 		timeout++;
 		if (timeout == 50) {
 			printk(KERN_INFO "get fast calibration ready error\n");
@@ -5404,7 +5434,7 @@ static irqreturn_t bma2x2_irq_handler(int irq, void *handle)
 
 
 }
-#endif 
+#endif /* defined(BMA2X2_ENABLE_INT1)||defined(BMA2X2_ENABLE_INT2) */
 
 
 #ifdef CONFIG_BMA_USE_FIXED_SYSFS_PATH
@@ -5481,7 +5511,7 @@ static int bma2x2_probe(struct i2c_client *client,
 		err = -ENOMEM;
 		goto exit;
 	}
-	
+	/* read chip id */
 	tempvalue = i2c_smbus_read_word_data(client, BMA2X2_CHIP_ID_REG);
 	tmp_chip_id = tempvalue&0x00ff;
 
@@ -5522,14 +5552,17 @@ static int bma2x2_probe(struct i2c_client *client,
 
 
 #if defined(BMA2X2_ENABLE_INT1) || defined(BMA2X2_ENABLE_INT2)
-	bma2x2_set_Int_Mode(client, 1);
+	bma2x2_set_Int_Mode(client, 1);/*latch interrupt 250ms*/
 #endif
+	/*8,single tap
+	  10,orient
+	  11,flat*/
 	bma2x2_set_Int_Enable(client, 8, 1);
 	bma2x2_set_Int_Enable(client, 10, 1);
 	bma2x2_set_Int_Enable(client, 11, 1);
 
 #ifdef BMA2X2_ENABLE_INT1
-	
+	/* maps interrupt to INT1 pin */
 	bma2x2_set_int1_pad_sel(client, PAD_LOWG);
 	bma2x2_set_int1_pad_sel(client, PAD_HIGHG);
 	bma2x2_set_int1_pad_sel(client, PAD_SLOP);
@@ -5540,7 +5573,7 @@ static int bma2x2_probe(struct i2c_client *client,
 #endif
 
 #ifdef BMA2X2_ENABLE_INT2
-	
+	/* maps interrupt to INT2 pin */
 	bma2x2_set_int2_pad_sel(client, PAD_LOWG);
 	bma2x2_set_int2_pad_sel(client, PAD_HIGHG);
 	bma2x2_set_int2_pad_sel(client, PAD_SLOP);
@@ -5725,7 +5758,7 @@ static int bma2x2_resume(struct i2c_client *client)
 #define bma2x2_suspend		NULL
 #define bma2x2_resume		NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id bma2x2_id[] = {
 	{ SENSOR_NAME, 0 },

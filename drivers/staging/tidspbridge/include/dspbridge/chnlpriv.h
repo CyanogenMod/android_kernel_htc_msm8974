@@ -24,45 +24,62 @@
 #include <dspbridge/devdefs.h>
 #include <dspbridge/sync.h>
 
-#define CHNL_MAXCHANNELS    32	
+/* Channel manager limits: */
+#define CHNL_MAXCHANNELS    32	/* Max channels available per transport */
 
-#define CHNL_PCPY       0	
+/*
+ *  Trans port channel Id definitions:(must match dsp-side).
+ *
+ *  For CHNL_MAXCHANNELS = 16:
+ *
+ *  ChnlIds:
+ *      0-15  (PCPY) - transport 0)
+ *      16-31 (DDMA) - transport 1)
+ *      32-47 (ZCPY) - transport 2)
+ */
+#define CHNL_PCPY       0	/* Proc-copy transport 0 */
 
-#define CHNL_STATEREADY		0	
-#define CHNL_STATECANCEL	1	
-#define CHNL_STATEEOS		2	
+/* Higher level channel states: */
+#define CHNL_STATEREADY		0	/* Channel ready for I/O. */
+#define CHNL_STATECANCEL	1	/* I/O was cancelled. */
+#define CHNL_STATEEOS		2	/* End Of Stream reached. */
 
+/* Macros for checking mode: */
 #define CHNL_IS_INPUT(mode)      (mode & CHNL_MODEFROMDSP)
 #define CHNL_IS_OUTPUT(mode)     (!CHNL_IS_INPUT(mode))
 
-#define CHNL_TYPESM         1	
+/* Types of channel class libraries: */
+#define CHNL_TYPESM         1	/* Shared memory driver. */
 
+/* Channel info. */
 struct chnl_info {
-	struct chnl_mgr *chnl_mgr;	
-	u32 cnhl_id;		
-	void *event_obj;	
-	
+	struct chnl_mgr *chnl_mgr;	/* Owning channel manager. */
+	u32 cnhl_id;		/* Channel ID. */
+	void *event_obj;	/* Channel I/O completion event. */
+	/*Abstraction of I/O completion event. */
 	struct sync_object *sync_event;
-	s8 mode;		
-	u8 state;		
-	u32 bytes_tx;		
-	u32 cio_cs;		
-	u32 cio_reqs;		
-	u32 process;		
+	s8 mode;		/* Channel mode. */
+	u8 state;		/* Current channel state. */
+	u32 bytes_tx;		/* Total bytes transferred. */
+	u32 cio_cs;		/* Number of IOCs in queue. */
+	u32 cio_reqs;		/* Number of IO Requests in queue. */
+	u32 process;		/* Process owning this channel. */
 };
 
+/* Channel manager info: */
 struct chnl_mgrinfo {
-	u8 type;		
-	
+	u8 type;		/* Type of channel class library. */
+	/* Channel handle, given the channel id. */
 	struct chnl_object *chnl_obj;
-	u8 open_channels;	
-	u8 max_channels;	
+	u8 open_channels;	/* Number of open channels. */
+	u8 max_channels;	/* total # of chnls supported */
 };
 
+/* Channel Manager Attrs: */
 struct chnl_mgrattrs {
-	
+	/* Max number of channels this manager can use. */
 	u8 max_channels;
-	u32 word_size;		
+	u32 word_size;		/* DSP Word size. */
 };
 
-#endif 
+#endif /* CHNLPRIV_ */

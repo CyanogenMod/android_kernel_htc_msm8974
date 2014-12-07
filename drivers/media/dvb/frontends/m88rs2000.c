@@ -228,7 +228,7 @@ static int m88rs2000_send_diseqc_burst(struct dvb_frontend *fe,
 	msleep(50);
 	reg0 = m88rs2000_demod_read(state, 0xb1);
 	reg1 = m88rs2000_demod_read(state, 0xb2);
-	
+	/* TODO complete this section */
 	m88rs2000_demod_write(state, 0xb2, reg1);
 	m88rs2000_demod_write(state, 0xb1, reg0);
 	m88rs2000_demod_write(state, 0x9a, 0xb0);
@@ -290,7 +290,7 @@ struct inittab m88rs2000_setup[] = {
 	{DEMOD_WRITE, 0xf0, 0x22},
 	{DEMOD_WRITE, 0xf1, 0xbf},
 	{DEMOD_WRITE, 0xb0, 0x45},
-	{DEMOD_WRITE, 0xb2, 0x01}, 
+	{DEMOD_WRITE, 0xb2, 0x01}, /* set voltage pin always set 1*/
 	{DEMOD_WRITE, 0x9a, 0xb0},
 	{0xff, 0xaa, 0xff}
 };
@@ -441,7 +441,7 @@ static int m88rs2000_init(struct dvb_frontend *fe)
 	int ret;
 
 	deb_info("m88rs2000: init chip\n");
-	
+	/* Setup frontend from shutdown/cold */
 	ret = m88rs2000_tab_set(state, m88rs2000_setup);
 
 	return ret;
@@ -451,7 +451,7 @@ static int m88rs2000_sleep(struct dvb_frontend *fe)
 {
 	struct m88rs2000_state *state = fe->demodulator_priv;
 	int ret;
-	
+	/* Shutdown the frondend */
 	ret = m88rs2000_tab_set(state, m88rs2000_shutdown);
 	return ret;
 }
@@ -472,6 +472,7 @@ static int m88rs2000_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	return 0;
 }
 
+/* Extact code for these unknown but lmedm04 driver uses interupt callbacks */
 
 static int m88rs2000_read_ber(struct dvb_frontend *fe, u32 *ber)
 {
@@ -547,10 +548,10 @@ static int m88rs2000_set_tuner(struct dvb_frontend *fe, u16 *offset)
 	u8 lpf_mxdiv, mlpf_max, mlpf_min, nlpf;
 	u8 lo = 0x01, div4 = 0x0;
 
-	
+	/* Reset Tuner */
 	ret = m88rs2000_tab_set(state, tuner_reset);
 
-	
+	/* Calculate frequency divider */
 	if (frequency < 1060000) {
 		lo |= 0x10;
 		div4 = 0x1;
@@ -562,7 +563,7 @@ static int m88rs2000_set_tuner(struct dvb_frontend *fe, u16 *offset)
 
 	ret = m88rs2000_tuner_write(state, 0x10, 0x80 | lo);
 
-	
+	/* Set frequency divider */
 	ret |= m88rs2000_tuner_write(state, 0x01, (ndiv >> 8) & 0xf);
 	ret |= m88rs2000_tuner_write(state, 0x02, ndiv & 0xff);
 
@@ -571,12 +572,12 @@ static int m88rs2000_set_tuner(struct dvb_frontend *fe, u16 *offset)
 	if (ret < 0)
 		return -ENODEV;
 
-	
+	/* Tuner Frequency Range */
 	ret = m88rs2000_tuner_write(state, 0x10, lo);
 
 	ret |= m88rs2000_tuner_gate_ctrl(state, 0x08);
 
-	
+	/* Tuner RF */
 	ret |= m88rs2000_set_tuner_rf(fe);
 
 	gdiv28 = (FE_CRYSTAL_KHZ / 1000 * 1694 + 500) / 1000;
@@ -629,7 +630,7 @@ static int m88rs2000_set_tuner(struct dvb_frontend *fe, u16 *offset)
 	ret |= m88rs2000_tuner_gate_ctrl(state, 0x01);
 
 	msleep(80);
-	
+	/* calculate offset assuming 96000kHz*/
 	offset_khz = (ndiv - ndiv % 2 + 1024) * FE_CRYSTAL_KHZ
 		/ 14 / (div4 + 1) / 2;
 
@@ -656,7 +657,22 @@ static int m88rs2000_set_fec(struct m88rs2000_state *state,
 	int ret;
 	u16 fec_set;
 	switch (fec) {
-	
+	/* This is not confirmed kept for reference */
+/*	case FEC_1_2:
+		fec_set = 0x88;
+		break;
+	case FEC_2_3:
+		fec_set = 0x68;
+		break;
+	case FEC_3_4:
+		fec_set = 0x48;
+		break;
+	case FEC_5_6:
+		fec_set = 0x28;
+		break;
+	case FEC_7_8:
+		fec_set = 0x18;
+		break; */
 	case FEC_AUTO:
 	default:
 		fec_set = 0x08;
@@ -711,30 +727,30 @@ static int m88rs2000_set_frontend(struct dvb_frontend *fe)
 			return -EOPNOTSUPP;
 	}
 
-	
+	/* Set Tuner */
 	ret = m88rs2000_set_tuner(fe, &offset);
 	if (ret < 0)
 		return -ENODEV;
 
 	ret = m88rs2000_demod_write(state, 0x9a, 0x30);
-	
+	/* Unknown usually 0xc6 sometimes 0xc1 */
 	reg = m88rs2000_demod_read(state, 0x86);
 	ret |= m88rs2000_demod_write(state, 0x86, reg);
-	
+	/* Offset lower nibble always 0 */
 	ret |= m88rs2000_demod_write(state, 0x9c, (offset >> 8));
 	ret |= m88rs2000_demod_write(state, 0x9d, offset & 0xf0);
 
 
-	
+	/* Reset Demod */
 	ret = m88rs2000_tab_set(state, fe_reset);
 	if (ret < 0)
 		return -ENODEV;
 
-	
+	/* Unknown */
 	reg = m88rs2000_demod_read(state, 0x70);
 	ret = m88rs2000_demod_write(state, 0x70, reg);
 
-	
+	/* Set FEC */
 	ret |= m88rs2000_set_fec(state, c->fec_inner);
 	ret |= m88rs2000_demod_write(state, 0x85, 0x1);
 	ret |= m88rs2000_demod_write(state, 0x8a, 0xbf);
@@ -745,12 +761,12 @@ static int m88rs2000_set_frontend(struct dvb_frontend *fe)
 	if (ret < 0)
 		return -ENODEV;
 
-	
+	/* Set Symbol Rate */
 	ret = m88rs2000_set_symbolrate(fe, c->symbol_rate);
 	if (ret < 0)
 		return -ENODEV;
 
-	
+	/* Set up Demod */
 	ret = m88rs2000_tab_set(state, fe_trigger);
 	if (ret < 0)
 		return -ENODEV;
@@ -775,7 +791,7 @@ static int m88rs2000_set_frontend(struct dvb_frontend *fe)
 
 	if (status & FE_HAS_LOCK) {
 		state->fec_inner = m88rs2000_get_fec(state);
-		
+		/* Uknown suspect SNR level */
 		reg = m88rs2000_demod_read(state, 0x65);
 	}
 
@@ -818,11 +834,11 @@ static struct dvb_frontend_ops m88rs2000_ops = {
 		.name			= "M88RS2000 DVB-S",
 		.frequency_min		= 950000,
 		.frequency_max		= 2150000,
-		.frequency_stepsize	= 1000,	 
+		.frequency_stepsize	= 1000,	 /* kHz for QPSK frontends */
 		.frequency_tolerance	= 5000,
 		.symbol_rate_min	= 1000000,
 		.symbol_rate_max	= 45000000,
-		.symbol_rate_tolerance	= 500,	
+		.symbol_rate_tolerance	= 500,	/* ppm */
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		      FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 |
 		      FE_CAN_QPSK |
@@ -853,12 +869,12 @@ struct dvb_frontend *m88rs2000_attach(const struct m88rs2000_config *config,
 {
 	struct m88rs2000_state *state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct m88rs2000_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->tuner_frequency = 0;
@@ -868,7 +884,7 @@ struct dvb_frontend *m88rs2000_attach(const struct m88rs2000_config *config,
 	if (m88rs2000_startup(state) < 0)
 		goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &m88rs2000_ops,
 			sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;

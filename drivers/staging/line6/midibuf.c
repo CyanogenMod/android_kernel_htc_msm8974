@@ -21,6 +21,11 @@ static int midibuf_message_length(unsigned char code)
 		static const int length[] = { 3, 3, 3, 3, 2, 2, 3 };
 		return length[(code >> 4) - 8];
 	} else {
+		/*
+		   Note that according to the MIDI specification 0xf2 is
+		   the "Song Position Pointer", but this is used by Line6
+		   to send sysex messages to the host.
+		 */
 		static const int length[] = { -1, 2, -1, 2, -1, -1, 1, 1, 1, 1,
 			1, 1, 1, -1, 1, 1
 		};
@@ -92,7 +97,7 @@ int line6_midibuf_write(struct MidiBuffer *this, unsigned char *data,
 	if (midibuf_is_full(this) || (length <= 0))
 		return 0;
 
-	
+	/* skip trailing active sense */
 	if (data[length - 1] == 0xfe) {
 		--length;
 		skip_active_sense = 1;
@@ -107,11 +112,11 @@ int line6_midibuf_write(struct MidiBuffer *this, unsigned char *data,
 		length1 = this->size - this->pos_write;
 
 		if (length < length1) {
-			
+			/* no buffer wraparound */
 			memcpy(this->buf + this->pos_write, data, length);
 			this->pos_write += length;
 		} else {
-			
+			/* buffer wraparound */
 			length2 = length - length1;
 			memcpy(this->buf + this->pos_write, data, length1);
 			memcpy(this->buf, data + length1, length2);
@@ -134,7 +139,7 @@ int line6_midibuf_read(struct MidiBuffer *this, unsigned char *data, int length)
 	int repeat = 0;
 	int i;
 
-	
+	/* we need to be able to store at least a 3 byte MIDI message */
 	if (length < 3)
 		return -EINVAL;
 
@@ -148,7 +153,7 @@ int line6_midibuf_read(struct MidiBuffer *this, unsigned char *data, int length)
 
 	length1 = this->size - this->pos_read;
 
-	
+	/* check MIDI command length */
 	command = this->buf[this->pos_read];
 
 	if (command & 0x80) {
@@ -169,16 +174,16 @@ int line6_midibuf_read(struct MidiBuffer *this, unsigned char *data, int length)
 	}
 
 	if (midi_length < 0) {
-		
+		/* search for end of message */
 		if (length < length1) {
-			
+			/* no buffer wraparound */
 			for (i = 1; i < length; ++i)
 				if (this->buf[this->pos_read + i] & 0x80)
 					break;
 
 			midi_length = i;
 		} else {
-			
+			/* buffer wraparound */
 			length2 = length - length1;
 
 			for (i = 1; i < length1; ++i)
@@ -197,25 +202,25 @@ int line6_midibuf_read(struct MidiBuffer *this, unsigned char *data, int length)
 		}
 
 		if (midi_length == length)
-			midi_length = -1;	
+			midi_length = -1;	/* end of message not found */
 	}
 
 	if (midi_length < 0) {
 		if (!this->split)
-			return 0;	
+			return 0;	/* command is not yet complete */
 	} else {
 		if (length < midi_length)
-			return 0;	
+			return 0;	/* command is not yet complete */
 
 		length = midi_length;
 	}
 
 	if (length < length1) {
-		
+		/* no buffer wraparound */
 		memcpy(data + repeat, this->buf + this->pos_read, length);
 		this->pos_read += length;
 	} else {
-		
+		/* buffer wraparound */
 		length2 = length - length1;
 		memcpy(data + repeat, this->buf + this->pos_read, length1);
 		memcpy(data + repeat + length1, this->buf, length2);

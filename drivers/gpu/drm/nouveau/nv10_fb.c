@@ -84,7 +84,7 @@ nv10_fb_init(struct drm_device *dev)
 	struct nouveau_fb_engine *pfb = &dev_priv->engine.fb;
 	int i;
 
-	
+	/* Turn all the tiling regions off. */
 	pfb->num_tiles = NV10_PFB_TILE__SIZE;
 	for (i = 0; i < pfb->num_tiles; i++)
 		pfb->set_tile_region(dev, i);

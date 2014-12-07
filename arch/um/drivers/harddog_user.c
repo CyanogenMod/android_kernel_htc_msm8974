@@ -59,7 +59,7 @@ int start_watchdog(int *in_fd_ret, int *out_fd_ret, char *sock)
 		args = mconsole_args;
 	}
 	else {
-		
+		/* XXX The os_getpid() is not SMP correct */
 		sprintf(pid_buf, "%d", os_getpid());
 		args = pid_args;
 	}

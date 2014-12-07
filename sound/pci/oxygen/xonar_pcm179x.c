@@ -16,9 +16,167 @@
  *  along with this driver; if not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * Xonar D2/D2X
+ * ------------
+ *
+ * CMI8788:
+ *
+ *   SPI 0 -> 1st PCM1796 (front)
+ *   SPI 1 -> 2nd PCM1796 (surround)
+ *   SPI 2 -> 3rd PCM1796 (center/LFE)
+ *   SPI 4 -> 4th PCM1796 (back)
+ *
+ *   GPIO 2 -> M0 of CS5381
+ *   GPIO 3 -> M1 of CS5381
+ *   GPIO 5 <- external power present (D2X only)
+ *   GPIO 7 -> ALT
+ *   GPIO 8 -> enable output to speakers
+ *
+ * CM9780:
+ *
+ *   LINE_OUT -> input of ADC
+ *
+ *   AUX_IN   <- aux
+ *   VIDEO_IN <- CD
+ *   FMIC_IN  <- mic
+ *
+ *   GPO 0 -> route line-in (0) or AC97 output (1) to CS5381 input
+ */
 
+/*
+ * Xonar HDAV1.3 (Deluxe)
+ * ----------------------
+ *
+ * CMI8788:
+ *
+ *   I²C <-> PCM1796 (addr 1001100) (front)
+ *
+ *   GPI 0 <- external power present
+ *
+ *   GPIO 0 -> enable HDMI (0) or speaker (1) output
+ *   GPIO 2 -> M0 of CS5381
+ *   GPIO 3 -> M1 of CS5381
+ *   GPIO 4 <- daughterboard detection
+ *   GPIO 5 <- daughterboard detection
+ *   GPIO 6 -> ?
+ *   GPIO 7 -> ?
+ *   GPIO 8 -> route input jack to line-in (0) or mic-in (1)
+ *
+ *   UART <-> HDMI controller
+ *
+ * CM9780:
+ *
+ *   LINE_OUT -> input of ADC
+ *
+ *   AUX_IN <- aux
+ *   CD_IN  <- CD
+ *   MIC_IN <- mic
+ *
+ *   GPO 0 -> route line-in (0) or AC97 output (1) to CS5381 input
+ *
+ * no daughterboard
+ * ----------------
+ *
+ *   GPIO 4 <- 1
+ *
+ * H6 daughterboard
+ * ----------------
+ *
+ *   GPIO 4 <- 0
+ *   GPIO 5 <- 0
+ *
+ *   I²C <-> PCM1796 (addr 1001101) (surround)
+ *       <-> PCM1796 (addr 1001110) (center/LFE)
+ *       <-> PCM1796 (addr 1001111) (back)
+ *
+ * unknown daughterboard
+ * ---------------------
+ *
+ *   GPIO 4 <- 0
+ *   GPIO 5 <- 1
+ *
+ *   I²C <-> CS4362A (addr 0011000) (surround, center/LFE, back)
+ */
 
+/*
+ * Xonar Essence ST (Deluxe)/STX
+ * -----------------------------
+ *
+ * CMI8788:
+ *
+ *   I²C <-> PCM1792A (addr 1001100)
+ *       <-> CS2000 (addr 1001110) (ST only)
+ *
+ *   ADC1 MCLK -> REF_CLK of CS2000 (ST only)
+ *
+ *   GPI 0 <- external power present (STX only)
+ *
+ *   GPIO 0 -> enable output to speakers
+ *   GPIO 1 -> route HP to front panel (0) or rear jack (1)
+ *   GPIO 2 -> M0 of CS5381
+ *   GPIO 3 -> M1 of CS5381
+ *   GPIO 4 <- daughterboard detection
+ *   GPIO 5 <- daughterboard detection
+ *   GPIO 6 -> ?
+ *   GPIO 7 -> route output to speaker jacks (0) or HP (1)
+ *   GPIO 8 -> route input jack to line-in (0) or mic-in (1)
+ *
+ * PCM1792A:
+ *
+ *   SCK <- CLK_OUT of CS2000 (ST only)
+ *
+ * CM9780:
+ *
+ *   LINE_OUT -> input of ADC
+ *
+ *   AUX_IN <- aux
+ *   MIC_IN <- mic
+ *
+ *   GPO 0 -> route line-in (0) or AC97 output (1) to CS5381 input
+ *
+ * H6 daughterboard
+ * ----------------
+ *
+ * GPIO 4 <- 0
+ * GPIO 5 <- 0
+ */
 
+/*
+ * Xonar Xense
+ * -----------
+ *
+ * CMI8788:
+ *
+ *   I²C <-> PCM1796 (addr 1001100) (front)
+ *       <-> CS4362A (addr 0011000) (surround, center/LFE, back)
+ *       <-> CS2000 (addr 1001110)
+ *
+ *   ADC1 MCLK -> REF_CLK of CS2000
+ *
+ *   GPI 0 <- external power present
+ *
+ *   GPIO 0 -> enable output
+ *   GPIO 1 -> route HP to front panel (0) or rear jack (1)
+ *   GPIO 2 -> M0 of CS5381
+ *   GPIO 3 -> M1 of CS5381
+ *   GPIO 4 -> enable output
+ *   GPIO 5 -> enable output
+ *   GPIO 6 -> ?
+ *   GPIO 7 -> route output to HP (0) or speaker (1)
+ *   GPIO 8 -> route input jack to mic-in (0) or line-in (1)
+ *
+ * CM9780:
+ *
+ *   LINE_OUT -> input of ADC
+ *
+ *   AUX_IN   <- aux
+ *   VIDEO_IN <- ?
+ *   FMIC_IN  <- mic
+ *
+ *   GPO 0 -> route line-in (0) or AC97 output (1) to CS5381 input
+ *   GPO 1 -> route mic-in from input jack (0) or front panel header (1)
+ */
 
 #include <linux/pci.h>
 #include <linux/delay.h>
@@ -54,8 +212,8 @@
 #define GPIO_ST_MAGIC		0x0040
 #define GPIO_ST_HP		0x0080
 
-#define I2C_DEVICE_PCM1796(i)	(0x98 + ((i) << 1))	
-#define I2C_DEVICE_CS2000	0x9c			
+#define I2C_DEVICE_PCM1796(i)	(0x98 + ((i) << 1))	/* 10011, ii, /W=0 */
+#define I2C_DEVICE_CS2000	0x9c			/* 100111, 0, /W=0 */
 
 #define PCM1796_REG_BASE	16
 
@@ -82,7 +240,7 @@ struct xonar_hdav {
 static inline void pcm1796_write_spi(struct oxygen *chip, unsigned int codec,
 				     u8 reg, u8 value)
 {
-	
+	/* maps ALSA channel pair number to SPI output */
 	static const u8 codec_map[4] = {
 		0, 1, 2, 4
 	};
@@ -149,7 +307,7 @@ static void pcm1796_registers_init(struct oxygen *chip)
 	msleep(1);
 	gain_offset = data->hp_active ? data->hp_gain_offset : 0;
 	for (i = 0; i < data->dacs; ++i) {
-		
+		/* set ATLD before ATL/ATR */
 		pcm1796_write(chip, i, 18,
 			      data->pcm1796_regs[0][18 - PCM1796_REG_BASE]);
 		pcm1796_write(chip, i, 16, chip->dac_volume[i * 2]
@@ -292,7 +450,7 @@ static void cs2000_registers_init(struct oxygen *chip)
 	cs2000_write(chip, CS2000_DEV_CFG_2,
 		     (0 << CS2000_LOCK_CLK_SHIFT) |
 		     CS2000_FRAC_N_SRC_STATIC);
-	cs2000_write(chip, CS2000_RATIO_0 + 0, 0x00); 
+	cs2000_write(chip, CS2000_RATIO_0 + 0, 0x00); /* 1.0 */
 	cs2000_write(chip, CS2000_RATIO_0 + 1, 0x10);
 	cs2000_write(chip, CS2000_RATIO_0 + 2, 0x00);
 	cs2000_write(chip, CS2000_RATIO_0 + 3, 0x00);
@@ -300,7 +458,7 @@ static void cs2000_registers_init(struct oxygen *chip)
 		     data->cs2000_regs[CS2000_FUN_CFG_1]);
 	cs2000_write(chip, CS2000_FUN_CFG_2, 0);
 	cs2000_write(chip, CS2000_GLOBAL_CFG, CS2000_EN_DEV_CFG_2);
-	msleep(3); 
+	msleep(3); /* PLL lock delay */
 }
 
 static void xonar_st_init(struct oxygen *chip)
@@ -487,7 +645,7 @@ static void update_cs2000_rate(struct oxygen *chip, unsigned int rate)
 	oxygen_write16_masked(chip, OXYGEN_I2S_A_FORMAT, rate_mclk,
 			      OXYGEN_I2S_RATE_MASK | OXYGEN_I2S_MCLK_MASK);
 	cs2000_write_cached(chip, CS2000_FUN_CFG_1, reg);
-	msleep(3); 
+	msleep(3); /* PLL lock delay */
 }
 
 static void set_st_params(struct oxygen *chip,
@@ -718,7 +876,7 @@ static const DECLARE_TLV_DB_SCALE(pcm1796_db_scale, -6000, 50, 0);
 static int xonar_d2_control_filter(struct snd_kcontrol_new *template)
 {
 	if (!strncmp(template->name, "CD Capture ", 11))
-		
+		/* CD in is actually connected to the video in pin */
 		template->private_value ^= AC97_CD ^ AC97_VIDEO;
 	return 0;
 }
@@ -726,7 +884,7 @@ static int xonar_d2_control_filter(struct snd_kcontrol_new *template)
 static int xonar_st_h6_control_filter(struct snd_kcontrol_new *template)
 {
 	if (!strncmp(template->name, "Master Playback ", 16))
-		
+		/* no volume/mute, as I²C to the third DAC does not work */
 		return 1;
 	return 0;
 }

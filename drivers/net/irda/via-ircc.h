@@ -53,27 +53,27 @@ struct st_fifo {
 };
 
 struct frame_cb {
-	void *start;		
-	int len;		
+	void *start;		/* Start of frame in DMA mem */
+	int len;		/* Length of frame in DMA mem */
 };
 
 struct tx_fifo {
-	struct frame_cb queue[MAX_TX_WINDOW + 2];	
-	int ptr;		
-	int len;		
-	int free;		
-	void *tail;		
+	struct frame_cb queue[MAX_TX_WINDOW + 2];	/* Info about frames in queue */
+	int ptr;		/* Currently being sent */
+	int len;		/* Length of queue */
+	int free;		/* Next free slot */
+	void *tail;		/* Next free start in DMA mem */
 };
 
 
-struct eventflag		
+struct eventflag		// for keeping track of Interrupt Events
 {
-	
+	//--------tx part
 	unsigned char TxFIFOUnderRun;
 	unsigned char EOMessage;
 	unsigned char TxFIFOReady;
 	unsigned char EarlyEOM;
-	
+	//--------rx part
 	unsigned char PHYErr;
 	unsigned char CRCErr;
 	unsigned char RxFIFOOverRun;
@@ -81,48 +81,51 @@ struct eventflag
 	unsigned char RxAvail;
 	unsigned char TooLargePacket;
 	unsigned char SIRBad;
-	
+	//--------unknown
 	unsigned char Unknown;
-	
+	//----------
 	unsigned char TimeOut;
 	unsigned char RxDMATC;
 	unsigned char TxDMATC;
 };
 
+/* Private data for each instance */
 struct via_ircc_cb {
-	struct st_fifo st_fifo;	
-	struct tx_fifo tx_fifo;	
+	struct st_fifo st_fifo;	/* Info about received frames */
+	struct tx_fifo tx_fifo;	/* Info about frames to be transmitted */
 
-	struct net_device *netdev;	
+	struct net_device *netdev;	/* Yes! we are some kind of netdevice */
 
-	struct irlap_cb *irlap;	
-	struct qos_info qos;	
+	struct irlap_cb *irlap;	/* The link layer we are binded to */
+	struct qos_info qos;	/* QoS capabilities for this device */
 
-	chipio_t io;		
-	iobuff_t tx_buff;	
-	iobuff_t rx_buff;	
+	chipio_t io;		/* IrDA controller information */
+	iobuff_t tx_buff;	/* Transmit buffer */
+	iobuff_t rx_buff;	/* Receive buffer */
 	dma_addr_t tx_buff_dma;
 	dma_addr_t rx_buff_dma;
 
-	__u8 ier;		
+	__u8 ier;		/* Interrupt enable register */
 
 	struct timeval stamp;
 	struct timeval now;
 
-	spinlock_t lock;	
+	spinlock_t lock;	/* For serializing operations */
 
-	__u32 flags;		
+	__u32 flags;		/* Interface flags */
 	__u32 new_speed;
-	int index;		
+	int index;		/* Instance index */
 
 	struct eventflag EventFlag;
-	unsigned int chip_id;	
+	unsigned int chip_id;	/* to remember chip id */
 	unsigned int RetryCount;
 	unsigned int RxDataReady;
 	unsigned int RxLastCount;
 };
 
 
+//---------I=Infrared,  H=Host, M=Misc, T=Tx, R=Rx, ST=Status,
+//         CF=Config, CT=Control, L=Low, H=High, C=Count
 #define  I_CF_L_0  		0x10
 #define  I_CF_H_0		0x11
 #define  I_SIR_BOF		0x12
@@ -156,14 +159,15 @@ struct via_ircc_cb {
 #define  I_T_C_L		0x34
 #define  I_T_C_H		0x35
 #define  VERSION		0x3f
-#define StartAddr 	0x10	
-#define EndAddr 	0x3f	
+//-------------------------------
+#define StartAddr 	0x10	// the first register address
+#define EndAddr 	0x3f	// the last register address
 #define GetBit(val,bit)  val = (unsigned char) ((val>>bit) & 0x1)
-			
+			// Returns the bit
 #define SetBit(val,bit)  val= (unsigned char ) (val | (0x1 << bit))
-			
+			// Sets bit to 1
 #define ResetBit(val,bit) val= (unsigned char ) (val & ~(0x1 << bit))
-			
+			// Sets bit to 0
 
 #define OFF   0
 #define ON   1
@@ -182,27 +186,27 @@ struct via_ircc_cb {
 
 static void DisableDmaChannel(unsigned int channel)
 {
-	switch (channel) {	
+	switch (channel) {	// 8 Bit DMA channels DMAC1
 	case 0:
-		outb(4, MASK1);	
+		outb(4, MASK1);	//mask channel 0
 		break;
 	case 1:
-		outb(5, MASK1);	
+		outb(5, MASK1);	//Mask channel 1
 		break;
 	case 2:
-		outb(6, MASK1);	
+		outb(6, MASK1);	//Mask channel 2
 		break;
 	case 3:
-		outb(7, MASK1);	
+		outb(7, MASK1);	//Mask channel 3
 		break;
 	case 5:
-		outb(5, MASK2);	
+		outb(5, MASK2);	//Mask channel 5
 		break;
 	case 6:
-		outb(6, MASK2);	
+		outb(6, MASK2);	//Mask channel 6
 		break;
 	case 7:
-		outb(7, MASK2);	
+		outb(7, MASK2);	//Mask channel 7
 		break;
 	default:
 		break;
@@ -273,6 +277,7 @@ static __u8 CheckRegBit(unsigned int BaseAddr, unsigned char RegNum,
 	if (BitPos > 7)
 		return 0xff;
 	if ((RegNum < StartAddr) || (RegNum > EndAddr)) {
+//     printf("what is the register %x!\n",RegNum);
 	}
 	temp = ReadReg(BaseAddr, RegNum);
 	return GetBit(temp, BitPos);
@@ -291,6 +296,7 @@ static void SetMaxRxPacketSize(__u16 iobase, __u16 size)
 
 }
 
+//for both Rx and Tx
 
 static void SetFIFO(__u16 iobase, __u16 value)
 {
@@ -314,69 +320,92 @@ static void SetFIFO(__u16 iobase, __u16 value)
 
 }
 
-#define CRC16(BaseAddr,val)         WriteRegBit(BaseAddr,I_CF_L_0,7,val)	
+#define CRC16(BaseAddr,val)         WriteRegBit(BaseAddr,I_CF_L_0,7,val)	//0 for 32 CRC
+/*
+#define SetVFIR(BaseAddr,val)       WriteRegBit(BaseAddr,I_CF_H_0,5,val)
+#define SetFIR(BaseAddr,val)        WriteRegBit(BaseAddr,I_CF_L_0,6,val)
+#define SetMIR(BaseAddr,val)        WriteRegBit(BaseAddr,I_CF_L_0,5,val)
+#define SetSIR(BaseAddr,val)        WriteRegBit(BaseAddr,I_CF_L_0,4,val)
+*/
 #define SIRFilter(BaseAddr,val)     WriteRegBit(BaseAddr,I_CF_L_0,3,val)
 #define Filter(BaseAddr,val)        WriteRegBit(BaseAddr,I_CF_L_0,2,val)
 #define InvertTX(BaseAddr,val)      WriteRegBit(BaseAddr,I_CF_L_0,1,val)
 #define InvertRX(BaseAddr,val)      WriteRegBit(BaseAddr,I_CF_L_0,0,val)
+//****************************I_CF_H_0
 #define EnableTX(BaseAddr,val)      WriteRegBit(BaseAddr,I_CF_H_0,4,val)
 #define EnableRX(BaseAddr,val)      WriteRegBit(BaseAddr,I_CF_H_0,3,val)
 #define EnableDMA(BaseAddr,val)     WriteRegBit(BaseAddr,I_CF_H_0,2,val)
 #define SIRRecvAny(BaseAddr,val)    WriteRegBit(BaseAddr,I_CF_H_0,1,val)
 #define DiableTrans(BaseAddr,val)   WriteRegBit(BaseAddr,I_CF_H_0,0,val)
+//***************************I_SIR_BOF,I_SIR_EOF
 #define SetSIRBOF(BaseAddr,val)     WriteReg(BaseAddr,I_SIR_BOF,val)
 #define SetSIREOF(BaseAddr,val)     WriteReg(BaseAddr,I_SIR_EOF,val)
 #define GetSIRBOF(BaseAddr)        ReadReg(BaseAddr,I_SIR_BOF)
 #define GetSIREOF(BaseAddr)        ReadReg(BaseAddr,I_SIR_EOF)
+//*******************I_ST_CT_0
 #define EnPhys(BaseAddr,val)   WriteRegBit(BaseAddr,I_ST_CT_0,7,val)
-#define IsModeError(BaseAddr) CheckRegBit(BaseAddr,I_ST_CT_0,6)	
-#define IsVFIROn(BaseAddr)     CheckRegBit(BaseAddr,0x14,0)	
-#define IsFIROn(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,5)	
-#define IsMIROn(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,4)	
-#define IsSIROn(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,3)	
-#define IsEnableTX(BaseAddr)  CheckRegBit(BaseAddr,I_ST_CT_0,2)	
-#define IsEnableRX(BaseAddr)  CheckRegBit(BaseAddr,I_ST_CT_0,1)	
-#define Is16CRC(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,0)	
-#define DisableAdjacentPulseWidth(BaseAddr,val) WriteRegBit(BaseAddr,I_CF_3,5,val)	
-#define DisablePulseWidthAdjust(BaseAddr,val)   WriteRegBit(BaseAddr,I_CF_3,4,val)	
-#define UseOneRX(BaseAddr,val)                  WriteRegBit(BaseAddr,I_CF_3,1,val)	
-#define SlowIRRXLowActive(BaseAddr,val)         WriteRegBit(BaseAddr,I_CF_3,0,val)	
+#define IsModeError(BaseAddr) CheckRegBit(BaseAddr,I_ST_CT_0,6)	//RO
+#define IsVFIROn(BaseAddr)     CheckRegBit(BaseAddr,0x14,0)	//RO for VT1211 only
+#define IsFIROn(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,5)	//RO
+#define IsMIROn(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,4)	//RO
+#define IsSIROn(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,3)	//RO
+#define IsEnableTX(BaseAddr)  CheckRegBit(BaseAddr,I_ST_CT_0,2)	//RO
+#define IsEnableRX(BaseAddr)  CheckRegBit(BaseAddr,I_ST_CT_0,1)	//RO
+#define Is16CRC(BaseAddr)     CheckRegBit(BaseAddr,I_ST_CT_0,0)	//RO
+//***************************I_CF_3
+#define DisableAdjacentPulseWidth(BaseAddr,val) WriteRegBit(BaseAddr,I_CF_3,5,val)	//1 disable
+#define DisablePulseWidthAdjust(BaseAddr,val)   WriteRegBit(BaseAddr,I_CF_3,4,val)	//1 disable
+#define UseOneRX(BaseAddr,val)                  WriteRegBit(BaseAddr,I_CF_3,1,val)	//0 use two RX
+#define SlowIRRXLowActive(BaseAddr,val)         WriteRegBit(BaseAddr,I_CF_3,0,val)	//0 show RX high=1 in SIR
+//***************************H_CT
 #define EnAllInt(BaseAddr,val)   WriteRegBit(BaseAddr,H_CT,7,val)
 #define TXStart(BaseAddr,val)    WriteRegBit(BaseAddr,H_CT,6,val)
 #define RXStart(BaseAddr,val)    WriteRegBit(BaseAddr,H_CT,5,val)
-#define ClearRXInt(BaseAddr,val)   WriteRegBit(BaseAddr,H_CT,4,val)	
+#define ClearRXInt(BaseAddr,val)   WriteRegBit(BaseAddr,H_CT,4,val)	// 1 clear
+//*****************H_ST
 #define IsRXInt(BaseAddr)           CheckRegBit(BaseAddr,H_ST,4)
 #define GetIntIndentify(BaseAddr)   ((ReadReg(BaseAddr,H_ST)&0xf1) >>1)
 #define IsHostBusy(BaseAddr)        CheckRegBit(BaseAddr,H_ST,0)
-#define GetHostStatus(BaseAddr)     ReadReg(BaseAddr,H_ST)	
+#define GetHostStatus(BaseAddr)     ReadReg(BaseAddr,H_ST)	//RO
+//**************************M_CT
 #define EnTXDMA(BaseAddr,val)         WriteRegBit(BaseAddr,M_CT,7,val)
 #define EnRXDMA(BaseAddr,val)         WriteRegBit(BaseAddr,M_CT,6,val)
 #define SwapDMA(BaseAddr,val)         WriteRegBit(BaseAddr,M_CT,5,val)
 #define EnInternalLoop(BaseAddr,val)  WriteRegBit(BaseAddr,M_CT,4,val)
 #define EnExternalLoop(BaseAddr,val)  WriteRegBit(BaseAddr,M_CT,3,val)
-#define EnTXFIFOHalfLevelInt(BaseAddr,val)   WriteRegBit(BaseAddr,TX_CT_1,4,val)	
+//**************************TX_CT_1
+#define EnTXFIFOHalfLevelInt(BaseAddr,val)   WriteRegBit(BaseAddr,TX_CT_1,4,val)	//half empty int (1 half)
 #define EnTXFIFOUnderrunEOMInt(BaseAddr,val) WriteRegBit(BaseAddr,TX_CT_1,5,val)
-#define EnTXFIFOReadyInt(BaseAddr,val)       WriteRegBit(BaseAddr,TX_CT_1,6,val)	
-#define ForceUnderrun(BaseAddr,val)   WriteRegBit(BaseAddr,TX_CT_2,7,val)	
-#define EnTXCRC(BaseAddr,val)         WriteRegBit(BaseAddr,TX_CT_2,6,val)	
-#define ForceBADCRC(BaseAddr,val)     WriteRegBit(BaseAddr,TX_CT_2,5,val)	
-#define SendSIP(BaseAddr,val)         WriteRegBit(BaseAddr,TX_CT_2,4,val)	
-#define ClearEnTX(BaseAddr,val)       WriteRegBit(BaseAddr,TX_CT_2,3,val)	
-#define GetTXStatus(BaseAddr) 	ReadReg(BaseAddr,TX_ST)	
+#define EnTXFIFOReadyInt(BaseAddr,val)       WriteRegBit(BaseAddr,TX_CT_1,6,val)	//int when reach it threshold (setting by bit 4)
+//**************************TX_CT_2
+#define ForceUnderrun(BaseAddr,val)   WriteRegBit(BaseAddr,TX_CT_2,7,val)	// force an underrun int
+#define EnTXCRC(BaseAddr,val)         WriteRegBit(BaseAddr,TX_CT_2,6,val)	//1 for FIR,MIR...0 (not SIR)
+#define ForceBADCRC(BaseAddr,val)     WriteRegBit(BaseAddr,TX_CT_2,5,val)	//force an bad CRC
+#define SendSIP(BaseAddr,val)         WriteRegBit(BaseAddr,TX_CT_2,4,val)	//send indication pulse for prevent SIR disturb
+#define ClearEnTX(BaseAddr,val)       WriteRegBit(BaseAddr,TX_CT_2,3,val)	// opposite to EnTX
+//*****************TX_ST
+#define GetTXStatus(BaseAddr) 	ReadReg(BaseAddr,TX_ST)	//RO
+//**************************RX_CT
 #define EnRXSpecInt(BaseAddr,val)           WriteRegBit(BaseAddr,RX_CT,0,val)
-#define EnRXFIFOReadyInt(BaseAddr,val)      WriteRegBit(BaseAddr,RX_CT,1,val)	
-#define EnRXFIFOHalfLevelInt(BaseAddr,val)  WriteRegBit(BaseAddr,RX_CT,7,val)	
-#define GetRXStatus(BaseAddr) 	ReadReg(BaseAddr,RX_ST)	
+#define EnRXFIFOReadyInt(BaseAddr,val)      WriteRegBit(BaseAddr,RX_CT,1,val)	//enable int when reach it threshold (setting by bit 7)
+#define EnRXFIFOHalfLevelInt(BaseAddr,val)  WriteRegBit(BaseAddr,RX_CT,7,val)	//enable int when (1) half full...or (0) just not full
+//*****************RX_ST
+#define GetRXStatus(BaseAddr) 	ReadReg(BaseAddr,RX_ST)	//RO
+//***********************P_ADDR
 #define SetPacketAddr(BaseAddr,addr)        WriteReg(BaseAddr,P_ADDR,addr)
+//***********************I_CF_4
 #define EnGPIOtoRX2(BaseAddr,val)	WriteRegBit(BaseAddr,I_CF_4,7,val)
 #define EnTimerInt(BaseAddr,val)		WriteRegBit(BaseAddr,I_CF_4,1,val)
 #define ClearTimerInt(BaseAddr,val)	WriteRegBit(BaseAddr,I_CF_4,0,val)
+//***********************I_T_C_L
 #define WriteGIO(BaseAddr,val)	    WriteRegBit(BaseAddr,I_T_C_L,7,val)
 #define ReadGIO(BaseAddr)		    CheckRegBit(BaseAddr,I_T_C_L,7)
-#define ReadRX(BaseAddr)		    CheckRegBit(BaseAddr,I_T_C_L,3)	
+#define ReadRX(BaseAddr)		    CheckRegBit(BaseAddr,I_T_C_L,3)	//RO
 #define WriteTX(BaseAddr,val)		WriteRegBit(BaseAddr,I_T_C_L,0,val)
+//***********************I_T_C_H
 #define EnRX2(BaseAddr,val)		    WriteRegBit(BaseAddr,I_T_C_H,7,val)
 #define ReadRX2(BaseAddr)           CheckRegBit(BaseAddr,I_T_C_H,7)
+//**********************Version
 #define GetFIRVersion(BaseAddr)		ReadReg(BaseAddr,VERSION)
 
 
@@ -441,6 +470,9 @@ static __u16 RxCurCount(__u16 iobase, struct via_ircc_cb * self)
 	return wTmp;
 }
 
+/* This Routine can only use in recevie_complete
+ * for it will update last count.
+ */
 
 static __u16 GetRecvByte(__u16 iobase, struct via_ircc_cb * self)
 {
@@ -459,6 +491,16 @@ static __u16 GetRecvByte(__u16 iobase, struct via_ircc_cb * self)
 		ret = (0x8000 - self->RxLastCount) + wTmp;
 	self->RxLastCount = wTmp;
 
+/* RX_P is more actually the RX_C
+ low=ReadReg(iobase,RX_C_L);
+ high=ReadReg(iobase,RX_C_H);
+
+ if(!(high&0xe000)) {
+	 temp=(high<<8)+low;
+	 return temp;
+ }
+ else return 0;
+*/
 	return ret;
 }
 
@@ -524,6 +566,7 @@ static void ClkTx(__u16 iobase, __u8 Clk, __u8 Tx)
 static void Wr_Byte(__u16 iobase, __u8 data)
 {
 	__u8 bData = data;
+//      __u8 btmp;
 	int i;
 
 	ClkTx(iobase, 0, 1);
@@ -532,16 +575,16 @@ static void Wr_Byte(__u16 iobase, __u8 data)
 	ActClk(iobase, 1);
 	Tdelay(1);
 
-	for (i = 0; i < 8; i++) {	
+	for (i = 0; i < 8; i++) {	//LDN
 
 		if ((bData >> i) & 0x01) {
-			ClkTx(iobase, 0, 1);	
+			ClkTx(iobase, 0, 1);	//bit data = 1;
 		} else {
-			ClkTx(iobase, 0, 0);	
+			ClkTx(iobase, 0, 0);	//bit data = 1;
 		}
 		Tdelay(2);
 		Sdelay(1);
-		ActClk(iobase, 1);	
+		ActClk(iobase, 1);	//clk hi
 		Tdelay(1);
 	}
 }
@@ -651,45 +694,48 @@ static void SetSITmode(__u16 iobase)
 	__u8 bTmp;
 
 	bTmp = ReadLPCReg(0x28);
-	WriteLPCReg(0x28, bTmp | 0x10);	
+	WriteLPCReg(0x28, bTmp | 0x10);	//select ITMOFF
 	bTmp = ReadReg(iobase, 0x35);
-	WriteReg(iobase, 0x35, bTmp | 0x40);	
-	WriteReg(iobase, 0x28, bTmp | 0x80);	
+	WriteReg(iobase, 0x35, bTmp | 0x40);	// Driver ITMOFF
+	WriteReg(iobase, 0x28, bTmp | 0x80);	// enable All interrupt
 }
 
 static void SI_SetMode(__u16 iobase, int mode)
 {
-	
+	//__u32 dTmp;
 	__u8 bTmp;
 
-	WriteLPCReg(0x28, 0x70);	
+	WriteLPCReg(0x28, 0x70);	// S/W Reset
 	SetSITmode(iobase);
 	ResetDongle(iobase);
 	udelay(10);
-	Wr_Indx(iobase, 0x40, 0x0, 0x17);	
-	Wr_Indx(iobase, 0x40, 0x1, mode);	
-	Wr_Indx(iobase, 0x40, 0x2, 0xff);	
+	Wr_Indx(iobase, 0x40, 0x0, 0x17);	//RX ,APEN enable,Normal power
+	Wr_Indx(iobase, 0x40, 0x1, mode);	//Set Mode
+	Wr_Indx(iobase, 0x40, 0x2, 0xff);	//Set power to FIR VFIR > 1m
 	bTmp = Rd_Indx(iobase, 0x40, 1);
 }
 
 static void InitCard(__u16 iobase)
 {
 	ResetChip(iobase, 5);
-	WriteReg(iobase, I_ST_CT_0, 0x00);	
-	SetSIRBOF(iobase, 0xc0);	
+	WriteReg(iobase, I_ST_CT_0, 0x00);	// open CHIP on
+	SetSIRBOF(iobase, 0xc0);	// hardware default value
 	SetSIREOF(iobase, 0xc1);
 }
 
 static void CommonInit(__u16 iobase)
 {
+//  EnTXCRC(iobase,0);
 	SwapDMA(iobase, OFF);
-	SetMaxRxPacketSize(iobase, 0x0fff);	
+	SetMaxRxPacketSize(iobase, 0x0fff);	//set to max:4095
 	EnRXFIFOReadyInt(iobase, OFF);
 	EnRXFIFOHalfLevelInt(iobase, OFF);
 	EnTXFIFOHalfLevelInt(iobase, OFF);
 	EnTXFIFOUnderrunEOMInt(iobase, ON);
+//  EnTXFIFOReadyInt(iobase,ON);
 	InvertTX(iobase, OFF);
 	InvertRX(iobase, OFF);
+//  WriteLPCReg(0xF0,0); //(if VT1211 then do this)
 	if (IsSIROn(iobase)) {
 		SIRFilter(iobase, ON);
 		SIRRecvAny(iobase, ON);
@@ -730,9 +776,9 @@ static void SetBaudRate(__u16 iobase, __u32 rate)
 			break;
 		}
 	} else if (IsMIROn(iobase)) {
-		value = 0;	
+		value = 0;	// will automatically be fixed in 1.152M
 	} else if (IsFIROn(iobase)) {
-		value = 0;	
+		value = 0;	// will automatically be fixed in 4M
 	}
 	temp = (ReadReg(iobase, I_CF_H_1) & 0x03);
 	temp |= value << 2;
@@ -802,4 +848,4 @@ static void SetSIR(__u16 BaseAddr, __u8 val)
 	WriteRegBit(BaseAddr, I_CF_L_0, 4, val);
 }
 
-#endif				
+#endif				/* via_IRCC_H */

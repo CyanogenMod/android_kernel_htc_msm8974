@@ -279,7 +279,7 @@ void fix_range_common(struct mm_struct *mm, unsigned long start_addr,
 	if (!ret)
 		ret = do_ops(&hvc, hvc.index, 1);
 
-	
+	/* This is not an else because ret is modified above */
 	if (ret) {
 		printk(KERN_ERR "fix_range_common: failed, killing current "
 		       "process\n");
@@ -504,6 +504,10 @@ EXPORT_SYMBOL(flush_tlb_range);
 void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
 			unsigned long end)
 {
+	/*
+	 * Don't bother flushing if this address space is about to be
+	 * destroyed.
+	 */
 	if (atomic_read(&mm->mm_users) == 0)
 		return;
 

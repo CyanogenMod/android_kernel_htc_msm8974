@@ -68,6 +68,13 @@ void ieee80211_process_measurement_req(struct ieee80211_sub_if_data *sdata,
 				       struct ieee80211_mgmt *mgmt,
 				       size_t len)
 {
+	/*
+	 * Ignoring measurement request is spec violation.
+	 * Mandatory measurements must be reported optional
+	 * measurements might be refused or reported incapable
+	 * For now just refuse
+	 * TODO: Answer basic measurement as unmeasured
+	 */
 	ieee80211_send_refuse_measurement_request(sdata,
 			&mgmt->u.action.u.measurement.msr_elem,
 			mgmt->sa, mgmt->bssid,

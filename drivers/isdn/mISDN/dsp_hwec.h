@@ -1,3 +1,6 @@
+/*
+ * dsp_hwec.h
+ */
 
 extern struct mISDN_dsp_element *dsp_hwec;
 extern void dsp_hwec_enable(struct dsp *dsp, const char *arg);

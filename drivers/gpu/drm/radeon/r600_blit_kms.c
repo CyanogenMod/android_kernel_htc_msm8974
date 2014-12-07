@@ -32,6 +32,7 @@
 #include "r600_blit_shaders.h"
 #include "radeon_blit_common.h"
 
+/* emits 21 on rv770+, 23 on r600 */
 static void
 set_render_target(struct radeon_device *rdev, int format,
 		  int w, int h, u64 gpu_addr)
@@ -84,6 +85,7 @@ set_render_target(struct radeon_device *rdev, int format,
 	radeon_ring_write(ring, 0);
 }
 
+/* emits 5dw */
 static void
 cp_set_surface_sync(struct radeon_device *rdev,
 		    u32 sync_type, u32 size,
@@ -101,9 +103,10 @@ cp_set_surface_sync(struct radeon_device *rdev,
 	radeon_ring_write(ring, sync_type);
 	radeon_ring_write(ring, cp_coher_size);
 	radeon_ring_write(ring, mc_addr >> 8);
-	radeon_ring_write(ring, 10); 
+	radeon_ring_write(ring, 10); /* poll interval */
 }
 
+/* emits 21dw + 1 surface sync = 26dw */
 static void
 set_shaders(struct radeon_device *rdev)
 {
@@ -111,10 +114,10 @@ set_shaders(struct radeon_device *rdev)
 	u64 gpu_addr;
 	u32 sq_pgm_resources;
 
-	
+	/* setup shader regs */
 	sq_pgm_resources = (1 << 0);
 
-	
+	/* VS */
 	gpu_addr = rdev->r600_blit.shader_gpu_addr + rdev->r600_blit.vs_offset;
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONTEXT_REG, 1));
 	radeon_ring_write(ring, (SQ_PGM_START_VS - PACKET3_SET_CONTEXT_REG_OFFSET) >> 2);
@@ -128,7 +131,7 @@ set_shaders(struct radeon_device *rdev)
 	radeon_ring_write(ring, (SQ_PGM_CF_OFFSET_VS - PACKET3_SET_CONTEXT_REG_OFFSET) >> 2);
 	radeon_ring_write(ring, 0);
 
-	
+	/* PS */
 	gpu_addr = rdev->r600_blit.shader_gpu_addr + rdev->r600_blit.ps_offset;
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONTEXT_REG, 1));
 	radeon_ring_write(ring, (SQ_PGM_START_PS - PACKET3_SET_CONTEXT_REG_OFFSET) >> 2);
@@ -150,6 +153,7 @@ set_shaders(struct radeon_device *rdev)
 	cp_set_surface_sync(rdev, PACKET3_SH_ACTION_ENA, 512, gpu_addr);
 }
 
+/* emits 9 + 1 sync (5) = 14*/
 static void
 set_vtx_resource(struct radeon_device *rdev, u64 gpu_addr)
 {
@@ -184,6 +188,7 @@ set_vtx_resource(struct radeon_device *rdev, u64 gpu_addr)
 				    PACKET3_VC_ACTION_ENA, 48, gpu_addr);
 }
 
+/* emits 9 */
 static void
 set_tex_resource(struct radeon_device *rdev,
 		 int format, int w, int h, int pitch,
@@ -223,6 +228,7 @@ set_tex_resource(struct radeon_device *rdev,
 	radeon_ring_write(ring, SQ_TEX_VTX_VALID_TEXTURE << 30);
 }
 
+/* emits 12 */
 static void
 set_scissors(struct radeon_device *rdev, int x1, int y1,
 	     int x2, int y2)
@@ -244,6 +250,7 @@ set_scissors(struct radeon_device *rdev, int x1, int y1,
 	radeon_ring_write(ring, (x2 << 0) | (y2 << 16));
 }
 
+/* emits 10 */
 static void
 draw_auto(struct radeon_device *rdev)
 {
@@ -268,6 +275,7 @@ draw_auto(struct radeon_device *rdev)
 
 }
 
+/* emits 14 */
 static void
 set_default_state(struct radeon_device *rdev)
 {
@@ -424,7 +432,7 @@ set_default_state(struct radeon_device *rdev)
 	sq_stack_resource_mgmt_2 = (NUM_GS_STACK_ENTRIES(num_gs_stack_entries) |
 				    NUM_ES_STACK_ENTRIES(num_es_stack_entries));
 
-	
+	/* emit an IB pointing at default state */
 	dwords = ALIGN(rdev->r600_blit.state_len, 0x10);
 	gpu_addr = rdev->r600_blit.shader_gpu_addr + rdev->r600_blit.state_offset;
 	radeon_ring_write(ring, PACKET3(PACKET3_INDIRECT_BUFFER, 2));
@@ -436,7 +444,7 @@ set_default_state(struct radeon_device *rdev)
 	radeon_ring_write(ring, upper_32_bits(gpu_addr) & 0xFF);
 	radeon_ring_write(ring, dwords);
 
-	
+	/* SQ config */
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONFIG_REG, 6));
 	radeon_ring_write(ring, (SQ_CONFIG - PACKET3_SET_CONFIG_REG_OFFSET) >> 2);
 	radeon_ring_write(ring, sq_config);
@@ -451,6 +459,17 @@ set_default_state(struct radeon_device *rdev)
 #define I2F_MAX_INPUT  ((1 << I2F_MAX_BITS) - 1)
 #define I2F_SHIFT (24 - I2F_MAX_BITS)
 
+/*
+ * Converts unsigned integer into 32-bit IEEE floating point representation.
+ * Conversion is not universal and only works for the range from 0
+ * to 2^I2F_MAX_BITS-1. Currently we only use it with inputs between
+ * 0 and 16384 (inclusive), so I2F_MAX_BITS=15 is enough. If necessary,
+ * I2F_MAX_BITS can be increased, but that will add to the loop iterations
+ * and slow us down. Conversion is done by shifting the input and counting
+ * down until the first 1 reaches bit position 23. The resulting counter
+ * and the shifted input are, respectively, the exponent and the fraction.
+ * The sign is always zero.
+ */
 static uint32_t i2f(uint32_t input)
 {
 	u32 result, i, exponent, fraction;
@@ -493,19 +512,19 @@ int r600_blit_init(struct radeon_device *rdev)
 	rdev->r600_blit.primitives.draw_auto = draw_auto;
 	rdev->r600_blit.primitives.set_default_state = set_default_state;
 
-	rdev->r600_blit.ring_size_common = 40; 
-	rdev->r600_blit.ring_size_common += 16; 
-	rdev->r600_blit.ring_size_common += 5; 
-	rdev->r600_blit.ring_size_common += 16; 
+	rdev->r600_blit.ring_size_common = 40; /* shaders + def state */
+	rdev->r600_blit.ring_size_common += 16; /* fence emit for VB IB */
+	rdev->r600_blit.ring_size_common += 5; /* done copy */
+	rdev->r600_blit.ring_size_common += 16; /* fence emit for done copy */
 
 	rdev->r600_blit.ring_size_per_loop = 76;
-	
+	/* set_render_target emits 2 extra dwords on rv6xx */
 	if (rdev->family > CHIP_R600 && rdev->family < CHIP_RV770)
 		rdev->r600_blit.ring_size_per_loop += 2;
 
 	rdev->r600_blit.max_dim = 8192;
 
-	
+	/* pin copy shader into vram if already initialized */
 	if (rdev->r600_blit.shader_obj)
 		goto done;
 
@@ -591,6 +610,9 @@ void r600_blit_fini(struct radeon_device *rdev)
 	radeon_ttm_set_active_vram_size(rdev, rdev->mc.visible_vram_size);
 	if (rdev->r600_blit.shader_obj == NULL)
 		return;
+	/* If we can't reserve the bo, unref should be enough to destroy
+	 * it when it becomes idle.
+	 */
 	r = radeon_bo_reserve(rdev->r600_blit.shader_obj, false);
 	if (!r) {
 		radeon_bo_unpin(rdev->r600_blit.shader_obj);
@@ -628,7 +650,7 @@ static unsigned r600_blit_create_rect(unsigned num_gpu_pages,
 	int w, h;
 
 	if (num_gpu_pages == 0) {
-		
+		/* not supposed to be called with no pages, but just in case */
 		h = 0;
 		w = 0;
 		pages = 0;
@@ -656,7 +678,7 @@ static unsigned r600_blit_create_rect(unsigned num_gpu_pages,
 
 	DRM_DEBUG("blit_rectangle: h=%d, w=%d, pages=%d\n", h, w, pages);
 
-	
+	/* return width and height only of the caller wants it */
 	if (height)
 		*height = h;
 	if (width)
@@ -674,7 +696,7 @@ int r600_blit_prepare_copy(struct radeon_device *rdev, unsigned num_gpu_pages)
 	int num_loops = 0;
 	int dwords_per_loop = rdev->r600_blit.ring_size_per_loop;
 
-	
+	/* num loops */
 	while (num_gpu_pages) {
 		num_gpu_pages -=
 			r600_blit_create_rect(num_gpu_pages, NULL, NULL,
@@ -682,12 +704,12 @@ int r600_blit_prepare_copy(struct radeon_device *rdev, unsigned num_gpu_pages)
 		num_loops++;
 	}
 
-	
+	/* 48 bytes for vertex per loop */
 	r = r600_vb_ib_get(rdev, (num_loops*48)+256);
 	if (r)
 		return r;
 
-	
+	/* calculate number of loops correctly */
 	ring_size = num_loops * dwords_per_loop;
 	ring_size += rdev->r600_blit.ring_size_common;
 	r = radeon_ring_lock(rdev, ring, ring_size);

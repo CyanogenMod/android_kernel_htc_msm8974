@@ -54,6 +54,8 @@ module_param(i2c_udelay, int, 0444);
 MODULE_PARM_DESC(i2c_udelay,"soft i2c delay at insmod time, in usecs "
 		"(should be 5 or higher). Lower value means higher bus speed.");
 
+/* ----------------------------------------------------------------------- */
+/* I2C functions - bitbanging adapter (software i2c)                       */
 
 static void bttv_bit_setscl(void *data, int state)
 {
@@ -106,6 +108,8 @@ static struct i2c_algo_bit_data __devinitdata bttv_i2c_algo_bit_template = {
 	.timeout = 200,
 };
 
+/* ----------------------------------------------------------------------- */
+/* I2C functions - hardware i2c                                            */
 
 static u32 functionality(struct i2c_adapter *adap)
 {
@@ -117,7 +121,7 @@ bttv_i2c_wait_done(struct bttv *btv)
 {
 	int rc = 0;
 
-	
+	/* timeout */
 	if (wait_event_interruptible_timeout(btv->i2c_queue,
 	    btv->i2c_done, msecs_to_jiffies(85)) == -ERESTARTSYS)
 		rc = -EIO;
@@ -137,11 +141,11 @@ bttv_i2c_sendbytes(struct bttv *btv, const struct i2c_msg *msg, int last)
 	u32 xmit;
 	int retval,cnt;
 
-	
+	/* sanity checks */
 	if (0 == msg->len)
 		return -EINVAL;
 
-	
+	/* start, address + first byte */
 	xmit = (msg->addr << 25) | (msg->buf[0] << 16) | I2C_HW;
 	if (msg->len > 1 || !last)
 		xmit |= BT878_I2C_NOSTOP;
@@ -156,7 +160,7 @@ bttv_i2c_sendbytes(struct bttv *btv, const struct i2c_msg *msg, int last)
 	}
 
 	for (cnt = 1; cnt < msg->len; cnt++ ) {
-		
+		/* following bytes */
 		xmit = (msg->buf[cnt] << 24) | I2C_HW | BT878_I2C_NOSTART;
 		if (cnt < msg->len-1 || !last)
 			xmit |= BT878_I2C_NOSTOP;
@@ -240,12 +244,12 @@ static int bttv_i2c_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs, int
 	btwrite(BT848_INT_I2CDONE|BT848_INT_RACK, BT848_INT_STAT);
 	for (i = 0 ; i < num; i++) {
 		if (msgs[i].flags & I2C_M_RD) {
-			
+			/* read */
 			retval = bttv_i2c_readbytes(btv, &msgs[i], i+1 == num);
 			if (retval < 0)
 				goto err;
 		} else {
-			
+			/* write */
 			retval = bttv_i2c_sendbytes(btv, &msgs[i], i+1 == num);
 			if (retval < 0)
 				goto err;
@@ -262,7 +266,10 @@ static const struct i2c_algorithm bttv_algo = {
 	.functionality = functionality,
 };
 
+/* ----------------------------------------------------------------------- */
+/* I2C functions - common stuff                                            */
 
+/* read I2C */
 int bttv_I2CRead(struct bttv *btv, unsigned char addr, char *probe_for)
 {
 	unsigned char buffer = 0;
@@ -287,6 +294,7 @@ int bttv_I2CRead(struct bttv *btv, unsigned char addr, char *probe_for)
 	return buffer;
 }
 
+/* write I2C */
 int bttv_I2CWrite(struct bttv *btv, unsigned char addr, unsigned char b1,
 		    unsigned char b2, int both)
 {
@@ -303,6 +311,7 @@ int bttv_I2CWrite(struct bttv *btv, unsigned char addr, unsigned char b1,
 	return 0;
 }
 
+/* read EEPROM content */
 void __devinit bttv_readee(struct bttv *btv, unsigned char *eedata, int addr)
 {
 	memset(eedata, 0, 256);
@@ -337,6 +346,7 @@ static void do_i2c_scan(char *name, struct i2c_client *c)
 	}
 }
 
+/* init + register i2c adapter */
 int __devinit init_bttv_i2c(struct bttv *btv)
 {
 	strlcpy(btv->i2c_client.name, "bttv internal", I2C_NAME_SIZE);
@@ -344,13 +354,13 @@ int __devinit init_bttv_i2c(struct bttv *btv)
 	if (i2c_hw)
 		btv->use_i2c_hw = 1;
 	if (btv->use_i2c_hw) {
-		
+		/* bt878 */
 		strlcpy(btv->c.i2c_adap.name, "bt878",
 			sizeof(btv->c.i2c_adap.name));
 		btv->c.i2c_adap.algo = &bttv_algo;
 	} else {
-		
-	
+		/* bt848 */
+	/* Prevents usage of invalid delay values */
 		if (i2c_udelay<5)
 			i2c_udelay=5;
 

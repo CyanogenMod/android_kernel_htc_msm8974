@@ -81,21 +81,24 @@ static const struct cachefiles_daemon_cmd cachefiles_daemon_cmds[] = {
 };
 
 
+/*
+ * do various checks
+ */
 static int cachefiles_daemon_open(struct inode *inode, struct file *file)
 {
 	struct cachefiles_cache *cache;
 
 	_enter("");
 
-	
+	/* only the superuser may do this */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	
+	/* the cachefiles device may only be open once at a time */
 	if (xchg(&cachefiles_open, 1) == 1)
 		return -EBUSY;
 
-	
+	/* allocate a cache record */
 	cache = kzalloc(sizeof(struct cachefiles_cache), GFP_KERNEL);
 	if (!cache) {
 		cachefiles_open = 0;
@@ -107,6 +110,11 @@ static int cachefiles_daemon_open(struct inode *inode, struct file *file)
 	rwlock_init(&cache->active_lock);
 	init_waitqueue_head(&cache->daemon_pollwq);
 
+	/* set default caching limits
+	 * - limit at 1% free space and/or free files
+	 * - cull below 5% free space and/or free files
+	 * - cease culling above 7% free space and/or free files
+	 */
 	cache->frun_percent = 7;
 	cache->fcull_percent = 5;
 	cache->fstop_percent = 1;
@@ -119,6 +127,9 @@ static int cachefiles_daemon_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * release a cache
+ */
 static int cachefiles_daemon_release(struct inode *inode, struct file *file)
 {
 	struct cachefiles_cache *cache = file->private_data;
@@ -133,7 +144,7 @@ static int cachefiles_daemon_release(struct inode *inode, struct file *file)
 
 	ASSERT(!cache->active_nodes.rb_node);
 
-	
+	/* clean up the control file interface */
 	cache->cachefilesd = NULL;
 	file->private_data = NULL;
 	cachefiles_open = 0;
@@ -144,6 +155,9 @@ static int cachefiles_daemon_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * read the cache state
+ */
 static ssize_t cachefiles_daemon_read(struct file *file, char __user *_buffer,
 				      size_t buflen, loff_t *pos)
 {
@@ -151,15 +165,15 @@ static ssize_t cachefiles_daemon_read(struct file *file, char __user *_buffer,
 	char buffer[256];
 	int n;
 
-	
+	//_enter(",,%zu,", buflen);
 
 	if (!test_bit(CACHEFILES_READY, &cache->flags))
 		return 0;
 
-	
+	/* check how much space the cache has */
 	cachefiles_has_space(cache, 0, 0);
 
-	
+	/* summarise */
 	clear_bit(CACHEFILES_STATE_CHANGED, &cache->flags);
 
 	n = snprintf(buffer, sizeof(buffer),
@@ -188,6 +202,9 @@ static ssize_t cachefiles_daemon_read(struct file *file, char __user *_buffer,
 	return n;
 }
 
+/*
+ * command the cache
+ */
 static ssize_t cachefiles_daemon_write(struct file *file,
 				       const char __user *_data,
 				       size_t datalen,
@@ -198,7 +215,7 @@ static ssize_t cachefiles_daemon_write(struct file *file,
 	ssize_t ret;
 	char *data, *args, *cp;
 
-	
+	//_enter(",,%zu,", datalen);
 
 	ASSERT(cache);
 
@@ -208,7 +225,7 @@ static ssize_t cachefiles_daemon_write(struct file *file,
 	if (datalen < 0 || datalen > PAGE_SIZE - 1)
 		return -EOPNOTSUPP;
 
-	
+	/* drag the command string into the kernel so we can parse it */
 	data = kmalloc(datalen + 1, GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
@@ -223,7 +240,7 @@ static ssize_t cachefiles_daemon_write(struct file *file,
 	if (memchr(data, '\0', datalen))
 		goto error;
 
-	
+	/* strip any newline */
 	cp = memchr(data, '\n', datalen);
 	if (cp) {
 		if (cp == data)
@@ -232,7 +249,7 @@ static ssize_t cachefiles_daemon_write(struct file *file,
 		*cp = '\0';
 	}
 
-	
+	/* parse the command */
 	ret = -EOPNOTSUPP;
 
 	for (args = data; *args; args++)
@@ -245,14 +262,14 @@ static ssize_t cachefiles_daemon_write(struct file *file,
 		args = skip_spaces(++args);
 	}
 
-	
+	/* run the appropriate command handler */
 	for (cmd = cachefiles_daemon_cmds; cmd->name[0]; cmd++)
 		if (strcmp(cmd->name, data) == 0)
 			goto found_command;
 
 error:
 	kfree(data);
-	
+	//_leave(" = %zd", ret);
 	return ret;
 
 found_command:
@@ -269,6 +286,10 @@ found_command:
 	goto error;
 }
 
+/*
+ * poll for culling state
+ * - use POLLOUT to indicate culling state
+ */
 static unsigned int cachefiles_daemon_poll(struct file *file,
 					   struct poll_table_struct *poll)
 {
@@ -287,6 +308,10 @@ static unsigned int cachefiles_daemon_poll(struct file *file,
 	return mask;
 }
 
+/*
+ * give a range error for cache space constraints
+ * - can be tail-called
+ */
 static int cachefiles_daemon_range_error(struct cachefiles_cache *cache,
 					 char *args)
 {
@@ -296,6 +321,10 @@ static int cachefiles_daemon_range_error(struct cachefiles_cache *cache,
 	return -EINVAL;
 }
 
+/*
+ * set the percentage of files at which to stop culling
+ * - command: "frun <N>%"
+ */
 static int cachefiles_daemon_frun(struct cachefiles_cache *cache, char *args)
 {
 	unsigned long frun;
@@ -316,6 +345,10 @@ static int cachefiles_daemon_frun(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the percentage of files at which to start culling
+ * - command: "fcull <N>%"
+ */
 static int cachefiles_daemon_fcull(struct cachefiles_cache *cache, char *args)
 {
 	unsigned long fcull;
@@ -336,6 +369,10 @@ static int cachefiles_daemon_fcull(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the percentage of files at which to stop allocating
+ * - command: "fstop <N>%"
+ */
 static int cachefiles_daemon_fstop(struct cachefiles_cache *cache, char *args)
 {
 	unsigned long fstop;
@@ -356,6 +393,10 @@ static int cachefiles_daemon_fstop(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the percentage of blocks at which to stop culling
+ * - command: "brun <N>%"
+ */
 static int cachefiles_daemon_brun(struct cachefiles_cache *cache, char *args)
 {
 	unsigned long brun;
@@ -376,6 +417,10 @@ static int cachefiles_daemon_brun(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the percentage of blocks at which to start culling
+ * - command: "bcull <N>%"
+ */
 static int cachefiles_daemon_bcull(struct cachefiles_cache *cache, char *args)
 {
 	unsigned long bcull;
@@ -396,6 +441,10 @@ static int cachefiles_daemon_bcull(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the percentage of blocks at which to stop allocating
+ * - command: "bstop <N>%"
+ */
 static int cachefiles_daemon_bstop(struct cachefiles_cache *cache, char *args)
 {
 	unsigned long bstop;
@@ -416,6 +465,10 @@ static int cachefiles_daemon_bstop(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the cache directory
+ * - command: "dir <name>"
+ */
 static int cachefiles_daemon_dir(struct cachefiles_cache *cache, char *args)
 {
 	char *dir;
@@ -440,6 +493,10 @@ static int cachefiles_daemon_dir(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the cache security context
+ * - command: "secctx <ctx>"
+ */
 static int cachefiles_daemon_secctx(struct cachefiles_cache *cache, char *args)
 {
 	char *secctx;
@@ -464,6 +521,10 @@ static int cachefiles_daemon_secctx(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * set the cache tag
+ * - command: "tag <name>"
+ */
 static int cachefiles_daemon_tag(struct cachefiles_cache *cache, char *args)
 {
 	char *tag;
@@ -486,6 +547,10 @@ static int cachefiles_daemon_tag(struct cachefiles_cache *cache, char *args)
 	return 0;
 }
 
+/*
+ * request a node in the cache be culled from the current working directory
+ * - command: "cull <name>"
+ */
 static int cachefiles_daemon_cull(struct cachefiles_cache *cache, char *args)
 {
 	struct path path;
@@ -507,7 +572,7 @@ static int cachefiles_daemon_cull(struct cachefiles_cache *cache, char *args)
 		return -EIO;
 	}
 
-	
+	/* extract the directory dentry from the cwd */
 	get_fs_pwd(current->fs, &path);
 
 	if (!S_ISDIR(path.dentry->d_inode->i_mode))
@@ -531,6 +596,10 @@ inval:
 	return -EINVAL;
 }
 
+/*
+ * set debugging mode
+ * - command: "debug <mask>"
+ */
 static int cachefiles_daemon_debug(struct cachefiles_cache *cache, char *args)
 {
 	unsigned long mask;
@@ -550,13 +619,17 @@ inval:
 	return -EINVAL;
 }
 
+/*
+ * find out whether an object in the current working directory is in use or not
+ * - command: "inuse <name>"
+ */
 static int cachefiles_daemon_inuse(struct cachefiles_cache *cache, char *args)
 {
 	struct path path;
 	const struct cred *saved_cred;
 	int ret;
 
-	
+	//_enter(",%s", args);
 
 	if (strchr(args, '/'))
 		goto inval;
@@ -571,7 +644,7 @@ static int cachefiles_daemon_inuse(struct cachefiles_cache *cache, char *args)
 		return -EIO;
 	}
 
-	
+	/* extract the directory dentry from the cwd */
 	get_fs_pwd(current->fs, &path);
 
 	if (!S_ISDIR(path.dentry->d_inode->i_mode))
@@ -582,7 +655,7 @@ static int cachefiles_daemon_inuse(struct cachefiles_cache *cache, char *args)
 	cachefiles_end_secure(cache, saved_cred);
 
 	path_put(&path);
-	
+	//_leave(" = %d", ret);
 	return ret;
 
 notdir:
@@ -595,6 +668,10 @@ inval:
 	return -EINVAL;
 }
 
+/*
+ * see if we have space for a number of pages and/or a number of files in the
+ * cache
+ */
 int cachefiles_has_space(struct cachefiles_cache *cache,
 			 unsigned fnr, unsigned bnr)
 {
@@ -605,16 +682,16 @@ int cachefiles_has_space(struct cachefiles_cache *cache,
 	};
 	int ret;
 
-	
-	
-	
-	
-	
-	
-	
-	
+	//_enter("{%llu,%llu,%llu,%llu,%llu,%llu},%u,%u",
+	//       (unsigned long long) cache->frun,
+	//       (unsigned long long) cache->fcull,
+	//       (unsigned long long) cache->fstop,
+	//       (unsigned long long) cache->brun,
+	//       (unsigned long long) cache->bcull,
+	//       (unsigned long long) cache->bstop,
+	//       fnr, bnr);
 
-	
+	/* find out how many pages of blockdev are available */
 	memset(&stats, 0, sizeof(stats));
 
 	ret = vfs_statfs(&path, &stats);
@@ -627,11 +704,11 @@ int cachefiles_has_space(struct cachefiles_cache *cache,
 
 	stats.f_bavail >>= cache->bshift;
 
-	
-	
-	
+	//_debug("avail %llu,%llu",
+	//       (unsigned long long) stats.f_ffree,
+	//       (unsigned long long) stats.f_bavail);
 
-	
+	/* see if there is sufficient space */
 	if (stats.f_ffree > fnr)
 		stats.f_ffree -= fnr;
 	else
@@ -661,7 +738,7 @@ int cachefiles_has_space(struct cachefiles_cache *cache,
 		cachefiles_state_changed(cache);
 	}
 
-	
+	//_leave(" = 0");
 	return 0;
 
 begin_cull:

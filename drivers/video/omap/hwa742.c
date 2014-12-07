@@ -72,6 +72,7 @@
 
 #define HWA742_AUTO_UPDATE_TIME		(HZ / 20)
 
+/* Reserve 4 request slots for requests in irq context */
 #define REQ_POOL_SIZE			24
 #define IRQ_REQ_POOL_SIZE		4
 
@@ -637,6 +638,14 @@ static int calc_reg_timing(unsigned long sysclk, int div)
 	struct extif_timings *t;
 	unsigned long systim;
 
+	/* CSOnTime 0, WEOnTime 2 ns, REOnTime 2 ns,
+	 * AccessTime 2 ns + 12.2 ns (regs),
+	 * WEOffTime = WEOnTime + 1 ns,
+	 * REOffTime = REOnTime + 16 ns (regs),
+	 * CSOffTime = REOffTime + 1 ns
+	 * ReadCycle = 2ns + 2*SYSCLK  (regs),
+	 * WriteCycle = 2*SYSCLK + 2 ns,
+	 * CSPulseWidth = 10 ns */
 	systim = 1000000000 / (sysclk / 1000);
 	dev_dbg(hwa742.fbdev->dev, "HWA742 systim %lu ps extif_clk_period %u ps"
 		  "extif_clk_div %d\n", systim, hwa742.extif_clk_period, div);
@@ -675,6 +684,15 @@ static int calc_lut_timing(unsigned long sysclk, int div)
 	struct extif_timings *t;
 	unsigned long systim;
 
+	/* CSOnTime 0, WEOnTime 2 ns, REOnTime 2 ns,
+	 * AccessTime 2 ns + 4 * SYSCLK + 26 (lut),
+	 * WEOffTime = WEOnTime + 1 ns,
+	 * REOffTime = REOnTime + 4*SYSCLK + 26 ns (lut),
+	 * CSOffTime = REOffTime + 1 ns
+	 * ReadCycle = 2ns + 4*SYSCLK + 26 ns (lut),
+	 * WriteCycle = 2*SYSCLK + 2 ns,
+	 * CSPulseWidth = 10 ns
+	 */
 	systim = 1000000000 / (sysclk / 1000);
 	dev_dbg(hwa742.fbdev->dev, "HWA742 systim %lu ps extif_clk_period %u ps"
 		  "extif_clk_div %d\n", systim, hwa742.extif_clk_period, div);
@@ -752,14 +770,14 @@ static void calc_hwa742_clk_rates(unsigned long ext_clk,
 	pix_clk_src = hwa742_read_reg(HWA742_CLK_SRC_REG);
 	pix_div = ((pix_clk_src >> 3) & 0x1f) + 1;
 	if ((pix_clk_src & (0x3 << 1)) == 0) {
-		
+		/* Source is the PLL */
 		sys_div = (hwa742_read_reg(HWA742_PLL_DIV_REG) & 0x3f) + 1;
 		sys_mul = (hwa742_read_reg(HWA742_PLL_4_REG) & 0x7f) + 1;
 		*sys_clk = ext_clk * sys_mul / sys_div;
-	} else	
+	} else	/* else source is ext clk, or oscillator */
 		*sys_clk = ext_clk;
 
-	*pix_clk = *sys_clk / pix_div;			
+	*pix_clk = *sys_clk / pix_div;			/* HZ */
 	dev_dbg(hwa742.fbdev->dev,
 		"ext_clk %ld pix_src %d pix_div %d sys_div %d sys_mul %d\n",
 		ext_clk, pix_clk_src & (0x3 << 1), pix_div, sys_div, sys_mul);
@@ -792,35 +810,51 @@ static int setup_tearsync(unsigned long pix_clk, int extif_div)
 	hndp = hwa742_read_reg(HWA742_H_NDP_REG) & 0x7f;
 	vndp = hwa742_read_reg(HWA742_V_NDP_REG);
 
-	
+	/* time to transfer one pixel (16bpp) in ps */
 	hwa742.pix_tx_time = hwa742.reg_timings.we_cycle_time;
 	if (hwa742.extif->get_max_tx_rate != NULL) {
+		/*
+		 * The external interface might have a rate limitation,
+		 * if so, we have to maximize our transfer rate.
+		 */
 		unsigned long min_tx_time;
 		unsigned long max_tx_rate = hwa742.extif->get_max_tx_rate();
 
 		dev_dbg(hwa742.fbdev->dev, "max_tx_rate %ld HZ\n",
 			max_tx_rate);
-		min_tx_time = 1000000000 / (max_tx_rate / 1000);  
+		min_tx_time = 1000000000 / (max_tx_rate / 1000);  /* ps */
 		if (hwa742.pix_tx_time < min_tx_time)
 			hwa742.pix_tx_time = min_tx_time;
 	}
 
-	
+	/* time to update one line in ps */
 	hwa742.line_upd_time = (hdisp + hndp) * 1000000 / (pix_clk / 1000);
 	hwa742.line_upd_time *= 1000;
 	if (hdisp * hwa742.pix_tx_time > hwa742.line_upd_time)
+		/*
+		 * transfer speed too low, we might have to use both
+		 * HS and VS
+		 */
 		use_hsvs = 1;
 	else
-		
+		/* decent transfer speed, we'll always use only VS */
 		use_hsvs = 0;
 
 	if (use_hsvs && (hs_pol_inv || vs_pol_inv)) {
+		/*
+		 * HS or'ed with VS doesn't work, use the active high
+		 * TE signal based on HNDP / VNDP
+		 */
 		use_ndp = 1;
 		hs_pol_inv = 0;
 		vs_pol_inv = 0;
 		hs = hndp;
 		vs = vndp;
 	} else {
+		/*
+		 * Use HS or'ed with VS as a TE signal if both are needed
+		 * or VNDP if only vsync is needed.
+		 */
 		use_ndp = 0;
 		hs = hsw;
 		vs = vsw;
@@ -830,17 +864,17 @@ static int setup_tearsync(unsigned long pix_clk, int extif_div)
 		}
 	}
 
-	hs = hs * 1000000 / (pix_clk / 1000);			
+	hs = hs * 1000000 / (pix_clk / 1000);			/* ps */
 	hs *= 1000;
 
-	vs = vs * (hdisp + hndp) * 1000000 / (pix_clk / 1000);	
+	vs = vs * (hdisp + hndp) * 1000000 / (pix_clk / 1000);	/* ps */
 	vs *= 1000;
 
 	if (vs <= hs)
 		return -EDOM;
-	
+	/* set VS to 120% of HS to minimize VS detection time */
 	vs = hs * 12 / 10;
-	
+	/* minimize HS too */
 	hs = 10000;
 
 	b = hwa742_read_reg(HWA742_NDP_CTRL);
@@ -877,7 +911,7 @@ static void hwa742_suspend(void)
 {
 	hwa742.update_mode_before_suspend = hwa742.update_mode;
 	hwa742_set_update_mode(OMAPFB_UPDATE_DISABLED);
-	
+	/* Enable sleep mode */
 	hwa742_write_reg(HWA742_POWER_SAVE, 1 << 1);
 	clk_disable(hwa742.sys_ck);
 }
@@ -886,10 +920,10 @@ static void hwa742_resume(void)
 {
 	clk_enable(hwa742.sys_ck);
 
-	
+	/* Disable sleep mode */
 	hwa742_write_reg(HWA742_POWER_SAVE, 0);
 	while (1) {
-		
+		/* Loop until PLL output is stabilized */
 		if (hwa742_read_reg(HWA742_PLL_DIV_REG) & (1 << 7))
 			break;
 		set_current_state(TASK_UNINTERRUPTIBLE);

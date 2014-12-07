@@ -17,7 +17,10 @@
 
 #include "dbx500-prcmu.h"
 
-static int power_state_active_cnt; 
+/*
+ * power state reference count
+ */
+static int power_state_active_cnt; /* will initialize to zero */
 static DEFINE_SPINLOCK(power_state_active_lock);
 
 int power_state_active_get(void)
@@ -92,7 +95,7 @@ static int ux500_regulator_power_state_cnt_print(struct seq_file *s, void *p)
 	struct device *dev = s->private;
 	int err;
 
-	
+	/* print power state count */
 	err = seq_printf(s, "ux500-regulator power state count: %i\n",
 		power_state_active_get());
 	if (err < 0)
@@ -122,7 +125,7 @@ static int ux500_regulator_status_print(struct seq_file *s, void *p)
 	int err;
 	int i;
 
-	
+	/* print dump header */
 	err = seq_printf(s, "ux500-regulator status:\n");
 	if (err < 0)
 		dev_err(dev, "seq_printf overflow\n");
@@ -134,10 +137,10 @@ static int ux500_regulator_status_print(struct seq_file *s, void *p)
 
 	for (i = 0; i < rdebug.num_regulators; i++) {
 		struct dbx500_regulator_info *info;
-		
+		/* Access per-regulator data */
 		info = &rdebug.regulator_array[i];
 
-		
+		/* print status */
 		err = seq_printf(s, "%20s : %8s : %8s : %8s\n", info->desc.name,
 			info->is_enabled ? "enabled" : "disabled",
 			rdebug.state_before_suspend[i] ? "enabled" : "disabled",
@@ -175,19 +178,19 @@ ux500_regulator_debug_init(struct platform_device *pdev,
 	struct dbx500_regulator_info *regulator_info,
 	int num_regulators)
 {
-	
+	/* create directory */
 	rdebug.dir = debugfs_create_dir("ux500-regulator", NULL);
 	if (!rdebug.dir)
 		goto exit_no_debugfs;
 
-	
+	/* create "status" file */
 	rdebug.status_file = debugfs_create_file("status",
 		S_IRUGO, rdebug.dir, &pdev->dev,
 		&ux500_regulator_status_fops);
 	if (!rdebug.status_file)
 		goto exit_destroy_dir;
 
-	
+	/* create "power-state-count" file */
 	rdebug.power_state_cnt_file = debugfs_create_file("power-state-count",
 		S_IRUGO, rdebug.dir, &pdev->dev,
 		&ux500_regulator_power_state_cnt_fops);

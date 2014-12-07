@@ -27,4 +27,4 @@ static inline u32 mfpvr(void)
 register void *__stack_pointer asm("r1");
 #define get_sp()	(__stack_pointer)
 
-#endif	
+#endif	/* _PPC_BOOT_REG_H */

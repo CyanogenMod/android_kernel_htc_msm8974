@@ -3,4 +3,4 @@
 
 #include <asm-generic/bugs.h>
 
-#endif 
+#endif /* _ASM_SCORE_BUGS_H */

@@ -41,8 +41,15 @@
 #define BIT_STU_SENDOVER    0x0001
 #define BIT_STU_RECVFULL    0x0020
 
+/*
+ * All Blackfin system MMRs are padded to 32bits even if the register
+ * itself is only 16bits.  So use a helper macro to streamline this.
+ */
 #define __BFP(m) u16 m; u16 __pad_##m
 
+/*
+ * bfin spi registers layout
+ */
 struct bfin_spi_regs {
 	__BFP(ctl);
 	__BFP(flg);
@@ -55,21 +62,25 @@ struct bfin_spi_regs {
 
 #undef __BFP
 
-#define MAX_CTRL_CS          8  
+#define MAX_CTRL_CS          8  /* cs in spi controller */
 
+/* device.platform_data for SSP controller devices */
 struct bfin5xx_spi_master {
 	u16 num_chipselect;
 	u8 enable_dma;
 	u16 pin_req[7];
 };
 
+/* spi_board_info.controller_data for SPI slave devices,
+ * copied to spi_device.platform_data ... mostly for dma tuning
+ */
 struct bfin5xx_spi_chip {
 	u16 ctl_reg;
 	u8 enable_dma;
-	u16 cs_chg_udelay; 
-	
+	u16 cs_chg_udelay; /* Some devices require 16-bit delays */
+	/* Value to send if no TX value is supplied, usually 0x0 or 0xFFFF */
 	u16 idle_tx_val;
-	u8 pio_interrupt; 
+	u8 pio_interrupt; /* Enable spi data irq */
 };
 
-#endif 
+#endif /* _SPI_CHANNEL_H_ */

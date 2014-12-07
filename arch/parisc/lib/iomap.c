@@ -8,7 +8,29 @@
 #include <linux/export.h>
 #include <asm/io.h>
 
+/*
+ * The iomap space on 32-bit PA-RISC is intended to look like this:
+ * 00000000-7fffffff virtual mapped IO
+ * 80000000-8fffffff ISA/EISA port space that can't be virtually mapped
+ * 90000000-9fffffff Dino port space
+ * a0000000-afffffff Astro port space
+ * b0000000-bfffffff PAT port space
+ * c0000000-cfffffff non-swapped memory IO
+ * f0000000-ffffffff legacy IO memory pointers
+ *
+ * For the moment, here's what it looks like:
+ * 80000000-8fffffff All ISA/EISA port space
+ * f0000000-ffffffff legacy IO memory pointers
+ *
+ * On 64-bit, everything is extended, so:
+ * 8000000000000000-8fffffffffffffff All ISA/EISA port space
+ * f000000000000000-ffffffffffffffff legacy IO memory pointers
+ */
 
+/*
+ * Technically, this should be 'if (VMALLOC_START < addr < VMALLOC_END),
+ * but that's slow and we know it'll be within the first 2GB.
+ */
 #ifdef CONFIG_64BIT
 #define INDIRECT_ADDR(addr)	(((unsigned long)(addr) & 1UL<<63) != 0)
 #define ADDR_TO_REGION(addr)    (((unsigned long)addr >> 60) & 7)
@@ -38,6 +60,7 @@ struct iomap_ops {
 	void (*write32r)(void __iomem *, const void *, unsigned long);
 };
 
+/* Generic ioport ops.  To be replaced later by specific dino/elroy/wax code */
 
 #define ADDR2PORT(addr) ((unsigned long __force)(addr) & 0xffffff)
 
@@ -120,6 +143,7 @@ static const struct iomap_ops ioport_ops = {
 	ioport_write32r,
 };
 
+/* Legacy I/O memory ops */
 
 static unsigned int iomem_read8(void __iomem *addr)
 {
@@ -324,6 +348,7 @@ void iowrite32be(u32 datum, void __iomem *addr)
 	}
 }
 
+/* Repeating interfaces */
 
 void ioread8_rep(void __iomem *addr, void *dst, unsigned long count)
 {
@@ -397,6 +422,7 @@ void iowrite32_rep(void __iomem *addr, const void *src, unsigned long count)
 	}
 }
 
+/* Mapping interfaces */
 
 void __iomem *ioport_map(unsigned long port, unsigned int nr)
 {

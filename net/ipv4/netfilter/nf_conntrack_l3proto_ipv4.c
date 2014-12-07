@@ -76,13 +76,15 @@ static int ipv4_get_l4proto(const struct sk_buff *skb, unsigned int nhoff,
 	if (iph == NULL)
 		return -NF_ACCEPT;
 
+	/* Conntrack defragments packets, we might still see fragments
+	 * inside ICMP packets though. */
 	if (iph->frag_off & htons(IP_OFFSET))
 		return -NF_ACCEPT;
 
 	*dataoff = nhoff + (iph->ihl << 2);
 	*protonum = iph->protocol;
 
-	
+	/* Check bogus IP headers */
 	if (*dataoff > skb->len) {
 		pr_debug("nf_conntrack_ipv4: bogus IPv4 packet: "
 			 "nhoff %u, ihl %u, skblen %u\n",
@@ -105,7 +107,7 @@ static unsigned int ipv4_confirm(unsigned int hooknum,
 	const struct nf_conntrack_helper *helper;
 	unsigned int ret;
 
-	
+	/* This is where we call the helper: as the packet goes out. */
 	ct = nf_ct_get(skb, &ctinfo);
 	if (!ct || ctinfo == IP_CT_RELATED_REPLY)
 		goto out;
@@ -114,7 +116,7 @@ static unsigned int ipv4_confirm(unsigned int hooknum,
 	if (!help)
 		goto out;
 
-	
+	/* rcu_read_lock()ed by nf_hook_slow */
 	helper = rcu_dereference(help->helper);
 	if (!helper)
 		goto out;
@@ -127,7 +129,7 @@ static unsigned int ipv4_confirm(unsigned int hooknum,
 		return ret;
 	}
 
-	
+	/* adjust seqs for loopback traffic only in outgoing direction */
 	if (test_bit(IPS_SEQ_ADJUST_BIT, &ct->status) &&
 	    !nf_is_loopback_packet(skb)) {
 		typeof(nf_nat_seq_adjust_hook) seq_adjust;
@@ -139,7 +141,7 @@ static unsigned int ipv4_confirm(unsigned int hooknum,
 		}
 	}
 out:
-	
+	/* We've seen it coming out the other side: confirm it */
 	return nf_conntrack_confirm(skb);
 }
 
@@ -158,13 +160,15 @@ static unsigned int ipv4_conntrack_local(unsigned int hooknum,
 					 const struct net_device *out,
 					 int (*okfn)(struct sk_buff *))
 {
-	
+	/* root is playing with raw sockets. */
 	if (skb->len < sizeof(struct iphdr) ||
 	    ip_hdrlen(skb) < sizeof(struct iphdr))
 		return NF_ACCEPT;
 	return nf_conntrack_in(dev_net(out), PF_INET, hooknum, skb);
 }
 
+/* Connection tracking may drop packets, but never alters them, so
+   make it the first hook. */
 static struct nf_hook_ops ipv4_conntrack_ops[] __read_mostly = {
 	{
 		.hook		= ipv4_conntrack_in,
@@ -240,8 +244,12 @@ static ctl_table ip_ct_sysctl_table[] = {
 	},
 	{ }
 };
-#endif 
+#endif /* CONFIG_SYSCTL && CONFIG_NF_CONNTRACK_PROC_COMPAT */
 
+/* Fast function for those who don't want to parse /proc (and I don't
+   blame them). */
+/* Reversing the socket's dst/src point of view gives us the reply
+   mapping. */
 static int
 getorigdst(struct sock *sk, int optval, void __user *user, int *len)
 {
@@ -257,7 +265,7 @@ getorigdst(struct sock *sk, int optval, void __user *user, int *len)
 	tuple.src.l3num = PF_INET;
 	tuple.dst.protonum = sk->sk_protocol;
 
-	
+	/* We only do TCP and SCTP at the moment: is there a better way? */
 	if (sk->sk_protocol != IPPROTO_TCP && sk->sk_protocol != IPPROTO_SCTP) {
 		pr_debug("SO_ORIGINAL_DST: Not a TCP/SCTP socket\n");
 		return -ENOPROTOOPT;

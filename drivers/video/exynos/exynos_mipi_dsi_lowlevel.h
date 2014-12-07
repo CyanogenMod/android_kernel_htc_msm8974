@@ -109,4 +109,4 @@ void exynos_mipi_dsi_rd_tx_header(struct mipi_dsim_device *dsim,
 		unsigned int data0, unsigned int data1);
 unsigned int exynos_mipi_dsi_rd_rx_fifo(struct mipi_dsim_device *dsim);
 
-#endif 
+#endif /* _EXYNOS_MIPI_DSI_LOWLEVEL_H */

@@ -20,28 +20,47 @@
 #include "appldata.h"
 
 
+/*
+ * Network data
+ *
+ * This is accessed as binary data by z/VM. If changes to it can't be avoided,
+ * the structure version (product ID, see appldata_base.c) needs to be changed
+ * as well and all documentation and z/VM applications using it must be updated.
+ *
+ * The record layout is documented in the Linux for zSeries Device Drivers
+ * book:
+ * http://oss.software.ibm.com/developerworks/opensource/linux390/index.shtml
+ */
 static struct appldata_net_sum_data {
 	u64 timestamp;
-	u32 sync_count_1;	
-	u32 sync_count_2;	
+	u32 sync_count_1;	/* after VM collected the record data, */
+	u32 sync_count_2;	/* sync_count_1 and sync_count_2 should be the
+				   same. If not, the record has been updated on
+				   the Linux side while VM was collecting the
+				   (possibly corrupt) data */
 
-	u32 nr_interfaces;	
+	u32 nr_interfaces;	/* nr. of network interfaces being monitored */
 
-	u32 padding;		
-				
+	u32 padding;		/* next value is 64-bit aligned, so these */
+				/* 4 byte would be padded out by compiler */
 
-	u64 rx_packets;		
-	u64 tx_packets;		
-	u64 rx_bytes;		
-	u64 tx_bytes;		
-	u64 rx_errors;		
-	u64 tx_errors;		
-	u64 rx_dropped;		
-	u64 tx_dropped;		
-	u64 collisions;		
+	u64 rx_packets;		/* total packets received        */
+	u64 tx_packets;		/* total packets transmitted     */
+	u64 rx_bytes;		/* total bytes received          */
+	u64 tx_bytes;		/* total bytes transmitted       */
+	u64 rx_errors;		/* bad packets received          */
+	u64 tx_errors;		/* packet transmit problems      */
+	u64 rx_dropped;		/* no space in linux buffers     */
+	u64 tx_dropped;		/* no space available in linux   */
+	u64 collisions;		/* collisions while transmitting */
 } __attribute__((packed)) appldata_net_sum_data;
 
 
+/*
+ * appldata_get_net_sum_data()
+ *
+ * gather accumulated network statistics
+ */
 static void appldata_get_net_sum_data(void *data)
 {
 	int i;
@@ -106,15 +125,25 @@ static struct appldata_ops ops = {
 	.callback  = &appldata_get_net_sum_data,
 	.data      = &appldata_net_sum_data,
 	.owner     = THIS_MODULE,
-	.mod_lvl   = {0xF0, 0xF0},		
+	.mod_lvl   = {0xF0, 0xF0},		/* EBCDIC "00" */
 };
 
 
+/*
+ * appldata_net_init()
+ *
+ * init data, register ops
+ */
 static int __init appldata_net_init(void)
 {
 	return appldata_register_ops(&ops);
 }
 
+/*
+ * appldata_net_exit()
+ *
+ * unregister ops
+ */
 static void __exit appldata_net_exit(void)
 {
 	appldata_unregister_ops(&ops);

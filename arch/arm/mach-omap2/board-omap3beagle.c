@@ -53,6 +53,16 @@
 #include "pm.h"
 #include "common-board-devices.h"
 
+/*
+ * OMAP3 Beagle revision
+ * Run time detection of Beagle revision is done by reading GPIO.
+ * GPIO ID -
+ *	AXBX	= GPIO173, GPIO172, GPIO171: 1 1 1
+ *	C1_3	= GPIO173, GPIO172, GPIO171: 1 1 0
+ *	C4	= GPIO173, GPIO172, GPIO171: 1 0 1
+ *	XMA/XMB = GPIO173, GPIO172, GPIO171: 0 0 0
+ *	XMC = GPIO173, GPIO172, GPIO171: 0 1 0
+ */
 enum {
 	OMAP3BEAGLE_BOARD_UNKN = 0,
 	OMAP3BEAGLE_BOARD_AXBX,
@@ -64,6 +74,10 @@ enum {
 
 static u8 omap3_beagle_version;
 
+/*
+ * Board-specific configuration
+ * Defaults to BeagleBoard-xMC
+ */
 static struct {
 	int mmc1_gpio_wp;
 	int usb_pwr_level;
@@ -143,36 +157,37 @@ static void __init omap3_beagle_init_rev(void)
 }
 
 static struct mtd_partition omap3beagle_nand_partitions[] = {
-	
+	/* All the partition sizes are listed in terms of NAND block size */
 	{
 		.name		= "X-Loader",
 		.offset		= 0,
 		.size		= 4 * NAND_BLOCK_SIZE,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "U-Boot",
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x80000 */
 		.size		= 15 * NAND_BLOCK_SIZE,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "U-Boot Env",
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x260000 */
 		.size		= 1 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name		= "Kernel",
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x280000 */
 		.size		= 32 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name		= "File System",
-		.offset		= MTDPART_OFS_APPEND,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x680000 */
 		.size		= MTDPART_SIZ_FULL,
 	},
 };
 
+/* DSS */
 
 static int beagle_enable_dvi(struct omap_dss_device *dssdev)
 {
@@ -240,7 +255,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= -EINVAL,
 		.deferred	= true,
 	},
-	{}	
+	{}	/* Terminator */
 };
 
 static struct regulator_consumer_supply beagle_vmmc1_supply[] = {
@@ -259,12 +274,23 @@ static int beagle_twl_gpio_setup(struct device *dev,
 	int r;
 
 	mmc[0].gpio_wp = beagle_config.mmc1_gpio_wp;
-	
+	/* gpio + 0 is "mmc0_cd" (input/IRQ) */
 	mmc[0].gpio_cd = gpio + 0;
 	omap_hsmmc_late_init(mmc);
 
-	
+	/*
+	 * TWL4030_GPIO_MAX + 0 == ledA, EHCI nEN_USB_PWR (out, XM active
+	 * high / others active low)
+	 * DVI reset GPIO is different between beagle revisions
+	 */
+	/* Valid for all -xM revisions */
 	if (cpu_is_omap3630()) {
+		/*
+		 * gpio + 1 on Xm controls the TFP410's enable line (active low)
+		 * gpio + 2 control varies depending on the board rev as below:
+		 * P7/P8 revisions(prototype): Camera EN
+		 * A2+ revisions (production): LDO (DVI, serial, led blocks)
+		 */
 		r = gpio_request_one(gpio + 1, GPIOF_OUT_INIT_LOW,
 				     "nDVI_PWR_EN");
 		if (r)
@@ -276,6 +302,10 @@ static int beagle_twl_gpio_setup(struct device *dev,
 			pr_err("%s: unable to configure DVI_LDO_EN\n",
 				__func__);
 	} else {
+		/*
+		 * REVISIT: need ehci-omap hooks for external VBUS
+		 * power switch and overcurrent detect
+		 */
 		if (gpio_request_one(gpio + 1, GPIOF_IN, "EHCI_nOC"))
 			pr_err("%s: unable to configure EHCI_nOC\n", __func__);
 	}
@@ -284,7 +314,7 @@ static int beagle_twl_gpio_setup(struct device *dev,
 	gpio_request_one(gpio + TWL4030_GPIO_MAX, beagle_config.usb_pwr_level,
 			"nEN_USB_PWR");
 
-	
+	/* TWL4030_GPIO_MAX + 1 == ledB, PMU_STAT (out, active low LED) */
 	gpio_leds[2].gpio = gpio + TWL4030_GPIO_MAX + 1;
 
 	return 0;
@@ -301,6 +331,7 @@ static struct twl4030_gpio_platform_data beagle_gpio_data = {
 	.setup		= beagle_twl_gpio_setup,
 };
 
+/* VMMC1 for MMC1 pins CMD, CLK, DAT0..DAT3 (20 mA, plus card == max 220 mA) */
 static struct regulator_init_data beagle_vmmc1 = {
 	.constraints = {
 		.min_uV			= 1850000,
@@ -315,6 +346,7 @@ static struct regulator_init_data beagle_vmmc1 = {
 	.consumer_supplies	= beagle_vmmc1_supply,
 };
 
+/* VSIM for MMC1 pins DAT4..DAT7 (2 mA, plus card == max 50 mA) */
 static struct regulator_init_data beagle_vsim = {
 	.constraints = {
 		.min_uV			= 1800000,
@@ -330,7 +362,7 @@ static struct regulator_init_data beagle_vsim = {
 };
 
 static struct twl4030_platform_data beagle_twldata = {
-	
+	/* platform_data for children goes here */
 	.gpio		= &beagle_gpio_data,
 	.vmmc1		= &beagle_vmmc1,
 	.vsim		= &beagle_vsim,
@@ -352,6 +384,8 @@ static int __init omap3_beagle_i2c_init(void)
 	beagle_twldata.vpll2->constraints.name = "VDVI";
 
 	omap3_pmic_init("twl4030", &beagle_twldata);
+	/* Bus 3 is attached to the DVI port where devices like the pico DLP
+	 * projector don't work reliably with 400kHz */
 	omap_register_i2c_bus(3, 100, beagle_i2c_eeprom, ARRAY_SIZE(beagle_i2c_eeprom));
 	return 0;
 }
@@ -369,7 +403,7 @@ static struct gpio_led gpio_leds[] = {
 	},
 	{
 		.name			= "beagleboard::pmu_stat",
-		.gpio			= -EINVAL,	
+		.gpio			= -EINVAL,	/* gets replaced */
 		.active_low		= true,
 	},
 };
@@ -390,7 +424,7 @@ static struct platform_device leds_gpio = {
 static struct gpio_keys_button gpio_buttons[] = {
 	{
 		.code			= BTN_EXTRA,
-		
+		/* Dynamically assigned depending on board */
 		.gpio			= -EINVAL,
 		.desc			= "user",
 		.wakeup			= 1,
@@ -443,13 +477,13 @@ static void __init beagle_opp_init(void)
 {
 	int r = 0;
 
-	
+	/* Initialize the omap3 opp table */
 	if (omap3_opp_init()) {
 		pr_err("%s: opp default init failed\n", __func__);
 		return;
 	}
 
-	
+	/* Custom OPP enabled for all xM versions */
 	if (cpu_is_omap3630()) {
 		struct device *mpu_dev, *iva_dev;
 
@@ -461,16 +495,20 @@ static void __init beagle_opp_init(void)
 				__func__, mpu_dev, iva_dev);
 			return;
 		}
-		
+		/* Enable MPU 1GHz and lower opps */
 		r = opp_enable(mpu_dev, 800000000);
-		
+		/* TODO: MPU 1GHz needs SR and ABB */
 
-		
+		/* Enable IVA 800MHz and lower opps */
 		r |= opp_enable(iva_dev, 660000000);
-		
+		/* TODO: DSP 800MHz needs SR and ABB */
 		if (r) {
 			pr_err("%s: failed to enable higher opp %d\n",
 				__func__, r);
+			/*
+			 * Cleanup - disable the higher freqs - we dont care
+			 * about the results
+			 */
 			opp_disable(mpu_dev, 800000000);
 			opp_disable(iva_dev, 660000000);
 		}
@@ -499,7 +537,7 @@ static void __init omap3_beagle_init(void)
 				  mt46h32m32lf6_sdrc_params);
 
 	omap_mux_init_gpio(170, OMAP_PIN_INPUT);
-	
+	/* REVISIT leave DVI powered down until it's needed ... */
 	gpio_request_one(170, GPIOF_OUT_INIT_HIGH, "DVI_nPD");
 
 	usb_musb_init(NULL);
@@ -507,10 +545,10 @@ static void __init omap3_beagle_init(void)
 	omap_nand_flash_init(NAND_BUSWIDTH_16, omap3beagle_nand_partitions,
 			     ARRAY_SIZE(omap3beagle_nand_partitions));
 
-	
+	/* Ensure msecure is mux'd to be able to set the RTC. */
 	omap_mux_init_signal("sys_drm_msecure", OMAP_PIN_OFF_OUTPUT_HIGH);
 
-	
+	/* Ensure SDRC pins are mux'd for self-refresh */
 	omap_mux_init_signal("sdrc_cke0", OMAP_PIN_OUTPUT);
 	omap_mux_init_signal("sdrc_cke1", OMAP_PIN_OUTPUT);
 
@@ -519,7 +557,7 @@ static void __init omap3_beagle_init(void)
 }
 
 MACHINE_START(OMAP3_BEAGLE, "OMAP3 Beagle Board")
-	
+	/* Maintainer: Syed Mohammed Khasim - http://beagleboard.org */
 	.atag_offset	= 0x100,
 	.reserve	= omap_reserve,
 	.map_io		= omap3_map_io,

@@ -9,6 +9,17 @@
 #ifdef CONFIG_X86_32
 #define asmlinkage CPP_ASMLINKAGE __attribute__((regparm(0)))
 
+/*
+ * Make sure the compiler doesn't do anything stupid with the
+ * arguments on the stack - they are owned by the *caller*, not
+ * the callee. This just fools gcc into not spilling into them,
+ * and keeps it from doing tailcall recursion and/or using the
+ * stack slots for temporaries, since they are live and "used"
+ * all the way to the end of the function.
+ *
+ * NOTE! On x86-64, all the arguments are in registers, so this
+ * only matters on a 32-bit kernel.
+ */
 #define asmlinkage_protect(n, ret, args...) \
 	__asmlinkage_protect##n(ret, ##args)
 #define __asmlinkage_protect_n(ret, args...) \
@@ -31,7 +42,7 @@
 	__asmlinkage_protect_n(ret, "g" (arg1), "g" (arg2), "g" (arg3), \
 			      "g" (arg4), "g" (arg5), "g" (arg6))
 
-#endif 
+#endif /* CONFIG_X86_32 */
 
 #ifdef __ASSEMBLY__
 
@@ -44,7 +55,7 @@
 #define __ALIGN_STR	__stringify(__ALIGN)
 #endif
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_X86_LINKAGE_H */
 

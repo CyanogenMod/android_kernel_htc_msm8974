@@ -31,15 +31,25 @@
  *  675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * This state machine is taken from the state machine in the IPMI spec,
+ * pretty much verbatim.  If you have questions about the states, see
+ * that document.
+ */
 
-#include <linux/kernel.h> 
+#include <linux/kernel.h> /* For printk. */
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/string.h>
 #include <linux/jiffies.h>
-#include <linux/ipmi_msgdefs.h>		
+#include <linux/ipmi_msgdefs.h>		/* for completion codes */
 #include "ipmi_si_sm.h"
 
+/* kcs_debug is a bit-field
+ *	KCS_DEBUG_ENABLE -	turned on for now
+ *	KCS_DEBUG_MSG    -	commands and their responses
+ *	KCS_DEBUG_STATES -	state machine
+ */
 #define KCS_DEBUG_STATES	4
 #define KCS_DEBUG_MSG		2
 #define	KCS_DEBUG_ENABLE	1
@@ -48,16 +58,23 @@ static int kcs_debug;
 module_param(kcs_debug, int, 0644);
 MODULE_PARM_DESC(kcs_debug, "debug bitmask, 1=enable, 2=messages, 4=states");
 
+/* The states the KCS driver may be in. */
 enum kcs_states {
-	
+	/* The KCS interface is currently doing nothing. */
 	KCS_IDLE,
 
+	/*
+	 * We are starting an operation.  The data is in the output
+	 * buffer, but nothing has been done to the interface yet.  This
+	 * was added to the state machine in the spec to wait for the
+	 * initial IBF.
+	 */
 	KCS_START_OP,
 
 	/* We have written a write cmd to the interface. */
 	KCS_WAIT_WRITE_START,
 
-	
+	/* We are writing bytes to the interface. */
 	KCS_WAIT_WRITE,
 
 	/*
@@ -66,11 +83,19 @@ enum kcs_states {
 	 */
 	KCS_WAIT_WRITE_END,
 
-	
+	/* We are waiting to read data from the interface. */
 	KCS_WAIT_READ,
 
+	/*
+	 * State to transition to the error handler, this was added to
+	 * the state machine in the spec to be sure IBF was there.
+	 */
 	KCS_ERROR0,
 
+	/*
+	 * First stage error handler, wait for the interface to
+	 * respond.
+	 */
 	KCS_ERROR1,
 
 	/*
@@ -79,15 +104,20 @@ enum kcs_states {
 	 */
 	KCS_ERROR2,
 
+	/*
+	 * We wrote some data to the interface, wait for it to switch
+	 * to read mode.
+	 */
 	KCS_ERROR3,
 
-	
+	/* The hardware failed to follow the state machine. */
 	KCS_HOSED
 };
 
 #define MAX_KCS_READ_SIZE IPMI_MAX_MSG_LENGTH
 #define MAX_KCS_WRITE_SIZE IPMI_MAX_MSG_LENGTH
 
+/* Timeouts in microseconds. */
 #define IBF_RETRY_TIMEOUT 5000000
 #define OBF_RETRY_TIMEOUT 5000000
 #define MAX_ERROR_RETRIES 10
@@ -124,7 +154,7 @@ static unsigned int init_kcs_data(struct si_sm_data *kcs,
 	kcs->ibf_timeout = IBF_RETRY_TIMEOUT;
 	kcs->obf_timeout = OBF_RETRY_TIMEOUT;
 
-	
+	/* Reserve 2 I/O bytes. */
 	return 2;
 }
 
@@ -148,11 +178,13 @@ static inline void write_data(struct si_sm_data *kcs, unsigned char data)
 	kcs->io->outputb(kcs->io, 0, data);
 }
 
+/* Control codes. */
 #define KCS_GET_STATUS_ABORT	0x60
 #define KCS_WRITE_START		0x61
 #define KCS_WRITE_END		0x62
 #define KCS_READ_BYTE		0x68
 
+/* Status bits. */
 #define GET_STATUS_STATE(status) (((status) >> 6) & 0x03)
 #define KCS_IDLE_STATE	0
 #define KCS_READ_STATE	1
@@ -187,7 +219,7 @@ static inline void start_error_recovery(struct si_sm_data *kcs, char *reason)
 static inline void read_next_byte(struct si_sm_data *kcs)
 {
 	if (kcs->read_pos >= MAX_KCS_READ_SIZE) {
-		
+		/* Throw the data away and mark it truncated. */
 		read_data(kcs);
 		kcs->truncated = 1;
 	} else {
@@ -287,10 +319,17 @@ static int get_kcs_result(struct si_sm_data *kcs, unsigned char *data,
 	memcpy(data, kcs->read_data, kcs->read_pos);
 
 	if ((length >= 3) && (kcs->read_pos < 3)) {
+		/* Guarantee that we return at least 3 bytes, with an
+		   error in the third byte if it is too short. */
 		data[2] = IPMI_ERR_UNSPECIFIED;
 		kcs->read_pos = 3;
 	}
 	if (kcs->truncated) {
+		/*
+		 * Report a truncated error.  We might overwrite
+		 * another error, but that's too bad, the user needs
+		 * to know it was truncated.
+		 */
 		data[2] = IPMI_ERR_MSG_TRUNCATED;
 		kcs->truncated = 0;
 	}
@@ -298,6 +337,11 @@ static int get_kcs_result(struct si_sm_data *kcs, unsigned char *data,
 	return kcs->read_pos;
 }
 
+/*
+ * This implements the state machine defined in the IPMI manual, see
+ * that for details on how this works.  Divide that flowchart into
+ * sections delimited by "Wait for IBF" and this will become clear.
+ */
 static enum si_sm_result kcs_event(struct si_sm_data *kcs, long time)
 {
 	unsigned char status;
@@ -308,16 +352,16 @@ static enum si_sm_result kcs_event(struct si_sm_data *kcs, long time)
 	if (kcs_debug & KCS_DEBUG_STATES)
 		printk(KERN_DEBUG "KCS: State = %d, %x\n", kcs->state, status);
 
-	
+	/* All states wait for ibf, so just do it here. */
 	if (!check_ibf(kcs, status, time))
 		return SI_SM_CALL_WITH_DELAY;
 
-	
+	/* Just about everything looks at the KCS state, so grab that, too. */
 	state = GET_STATUS_STATE(status);
 
 	switch (kcs->state) {
 	case KCS_IDLE:
-		
+		/* If there's and interrupt source, turn it off. */
 		clear_obf(kcs, status);
 
 		if (GET_STATUS_ATN(status))
@@ -394,6 +438,15 @@ static enum si_sm_result kcs_event(struct si_sm_data *kcs, long time)
 				return SI_SM_CALL_WITH_DELAY;
 			read_next_byte(kcs);
 		} else {
+			/*
+			 * We don't implement this exactly like the state
+			 * machine in the spec.  Some broken hardware
+			 * does not write the final dummy byte to the
+			 * read register.  Thus obf will never go high
+			 * here.  We just go straight to idle, and we
+			 * handle clearing out obf in idle state if it
+			 * happens to come in.
+			 */
 			clear_obf(kcs, status);
 			kcs->orig_write_count = 0;
 			kcs->state = KCS_IDLE;
@@ -405,7 +458,7 @@ static enum si_sm_result kcs_event(struct si_sm_data *kcs, long time)
 		clear_obf(kcs, status);
 		status = read_status(kcs);
 		if (GET_STATUS_OBF(status))
-			
+			/* controller isn't responding */
 			if (time_before(jiffies, kcs->error0_timeout))
 				return SI_SM_CALL_WITH_TICK_DELAY;
 		write_cmd(kcs, KCS_GET_STATUS_ABORT);
@@ -470,6 +523,12 @@ static int kcs_size(void)
 
 static int kcs_detect(struct si_sm_data *kcs)
 {
+	/*
+	 * It's impossible for the KCS status register to be all 1's,
+	 * (assuming a properly functioning, self-initialized BMC)
+	 * but that's what you get from reading a bogus address, so we
+	 * test that first.
+	 */
 	if (read_status(kcs) == 0xff)
 		return 1;
 

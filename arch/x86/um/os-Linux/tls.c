@@ -15,9 +15,12 @@
 #define PTRACE_SET_THREAD_AREA 26
 #endif
 
+/* Checks whether host supports TLS, and sets *tls_min according to the value
+ * valid on the host.
+ * i386 host have it == 6; x86_64 host have it == 12, for i386 emulation. */
 void check_host_supports_tls(int *supports_tls, int *tls_min)
 {
-	
+	/* Values for x86 and x86_64.*/
 	int val[] = {GDT_ENTRY_TLS_MIN_I386, GDT_ENTRY_TLS_MIN_X86_64};
 	int i;
 

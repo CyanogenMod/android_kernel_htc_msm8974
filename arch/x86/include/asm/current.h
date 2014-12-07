@@ -16,6 +16,6 @@ static __always_inline struct task_struct *get_current(void)
 
 #define current get_current()
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_X86_CURRENT_H */

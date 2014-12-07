@@ -67,7 +67,7 @@ static int __devinit ad7606_par_probe(struct platform_device *pdev)
 
 	remap_size = resource_size(res);
 
-	
+	/* Request the regions */
 	if (!request_mem_region(res->start, remap_size, "iio-ad7606")) {
 		ret = -EBUSY;
 		goto out1;
@@ -144,7 +144,7 @@ static const struct dev_pm_ops ad7606_pm_ops = {
 
 #else
 #define AD7606_PAR_PM_OPS NULL
-#endif  
+#endif  /* CONFIG_PM */
 
 static struct platform_device_id ad7606_driver_ids[] = {
 	{

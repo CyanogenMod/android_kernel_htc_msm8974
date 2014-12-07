@@ -1,3 +1,4 @@
+/* 8390 core for usual drivers */
 
 static const char version[] =
     "8390.c:v1.10cvs 9/23/94 Donald Becker (becker@cesdis.gsfc.nasa.gov)\n";
@@ -98,5 +99,5 @@ static void __exit ns8390_module_exit(void)
 
 module_init(ns8390_module_init);
 module_exit(ns8390_module_exit);
-#endif 
+#endif /* MODULE */
 MODULE_LICENSE("GPL");

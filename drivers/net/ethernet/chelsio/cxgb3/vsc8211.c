@@ -31,6 +31,7 @@
  */
 #include "common.h"
 
+/* VSC8211 PHY specific registers. */
 enum {
 	VSC8211_SIGDET_CTRL = 19,
 	VSC8211_EXT_CTRL = 23,
@@ -43,25 +44,25 @@ enum {
 
 enum {
 	VSC_INTR_RX_ERR = 1 << 0,
-	VSC_INTR_MS_ERR = 1 << 1,  
-	VSC_INTR_CABLE = 1 << 2,  
-	VSC_INTR_FALSE_CARR = 1 << 3,  
-	VSC_INTR_MEDIA_CHG = 1 << 4,  
-	VSC_INTR_RX_FIFO = 1 << 5,  
-	VSC_INTR_TX_FIFO = 1 << 6,  
-	VSC_INTR_DESCRAMBL = 1 << 7,  
-	VSC_INTR_SYMBOL_ERR = 1 << 8,  
-	VSC_INTR_NEG_DONE = 1 << 10, 
-	VSC_INTR_NEG_ERR = 1 << 11, 
-	VSC_INTR_DPLX_CHG = 1 << 12, 
-	VSC_INTR_LINK_CHG = 1 << 13, 
-	VSC_INTR_SPD_CHG = 1 << 14, 
-	VSC_INTR_ENABLE = 1 << 15, 
+	VSC_INTR_MS_ERR = 1 << 1,  /* master/slave resolution error */
+	VSC_INTR_CABLE = 1 << 2,  /* cable impairment */
+	VSC_INTR_FALSE_CARR = 1 << 3,  /* false carrier */
+	VSC_INTR_MEDIA_CHG = 1 << 4,  /* AMS media change */
+	VSC_INTR_RX_FIFO = 1 << 5,  /* Rx FIFO over/underflow */
+	VSC_INTR_TX_FIFO = 1 << 6,  /* Tx FIFO over/underflow */
+	VSC_INTR_DESCRAMBL = 1 << 7,  /* descrambler lock-lost */
+	VSC_INTR_SYMBOL_ERR = 1 << 8,  /* symbol error */
+	VSC_INTR_NEG_DONE = 1 << 10, /* autoneg done */
+	VSC_INTR_NEG_ERR = 1 << 11, /* autoneg error */
+	VSC_INTR_DPLX_CHG = 1 << 12, /* duplex change */
+	VSC_INTR_LINK_CHG = 1 << 13, /* link change */
+	VSC_INTR_SPD_CHG = 1 << 14, /* speed change */
+	VSC_INTR_ENABLE = 1 << 15, /* interrupt enable */
 };
 
 enum {
-	VSC_CTRL_CLAUSE37_VIEW = 1 << 4,   
-	VSC_CTRL_MEDIA_MODE_HI = 0xf000    
+	VSC_CTRL_CLAUSE37_VIEW = 1 << 4,   /* Switch to Clause 37 view */
+	VSC_CTRL_MEDIA_MODE_HI = 0xf000    /* High part of media mode select */
 };
 
 #define CFG_CHG_INTR_MASK (VSC_INTR_LINK_CHG | VSC_INTR_NEG_ERR | \
@@ -70,6 +71,7 @@ enum {
 #define INTR_MASK (CFG_CHG_INTR_MASK | VSC_INTR_TX_FIFO | VSC_INTR_RX_FIFO | \
 		   VSC_INTR_ENABLE)
 
+/* PHY specific auxiliary control & status register fields */
 #define S_ACSR_ACTIPHY_TMR    0
 #define M_ACSR_ACTIPHY_TMR    0x3
 #define V_ACSR_ACTIPHY_TMR(x) ((x) << S_ACSR_ACTIPHY_TMR)
@@ -84,6 +86,9 @@ enum {
 #define S_ACSR_ACTIPHY 6
 #define F_ACSR_ACTIPHY (1 << S_ACSR_ACTIPHY)
 
+/*
+ * Reset the PHY.  This PHY completes reset immediately so we never wait.
+ */
 static int vsc8211_reset(struct cphy *cphy, int wait)
 {
 	return t3_phy_reset(cphy, MDIO_DEVAD_NONE, 0);
@@ -104,7 +109,7 @@ static int vsc8211_intr_clear(struct cphy *cphy)
 {
 	u32 val;
 
-	
+	/* Clear PHY interrupts by reading the register. */
 	return t3_mdio_read(cphy, MDIO_DEVAD_NONE, VSC8211_INTR_STATUS, &val);
 }
 
@@ -135,6 +140,10 @@ static int vsc8211_get_link_status(struct cphy *cphy, int *link_ok,
 		return err;
 
 	if (link_ok) {
+		/*
+		 * BMSR_LSTATUS is latch-low, so if it is 0 we need to read it
+		 * once more to get the current link state.
+		 */
 		if (!(status & BMSR_LSTATUS))
 			err = t3_mdio_read(cphy, MDIO_DEVAD_NONE, MII_BMSR,
 					   &status);
@@ -207,6 +216,10 @@ static int vsc8211_get_link_status_fiber(struct cphy *cphy, int *link_ok,
 		return err;
 
 	if (link_ok) {
+		/*
+		 * BMSR_LSTATUS is latch-low, so if it is 0 we need to read it
+		 * once more to get the current link state.
+		 */
 		if (!(status & BMSR_LSTATUS))
 			err = t3_mdio_read(cphy, MDIO_DEVAD_NONE, MII_BMSR,
 					   &status);
@@ -259,6 +272,9 @@ static int vsc8211_get_link_status_fiber(struct cphy *cphy, int *link_ok,
 }
 
 #ifdef UNUSED
+/*
+ * Enable/disable auto MDI/MDI-X in forced link speed mode.
+ */
 static int vsc8211_set_automdi(struct cphy *phy, int enable)
 {
 	int err;
@@ -295,7 +311,7 @@ int vsc8211_set_speed_duplex(struct cphy *phy, int speed, int duplex)
 		err = vsc8211_set_automdi(phy, 1);
 	return err;
 }
-#endif 
+#endif /* UNUSED */
 
 static int vsc8211_power_down(struct cphy *cphy, int enable)
 {
@@ -358,13 +374,13 @@ int t3_vsc8211_phy_prep(struct cphy *phy, struct adapter *adapter,
 		  SUPPORTED_10baseT_Full | SUPPORTED_100baseT_Full |
 		  SUPPORTED_1000baseT_Full | SUPPORTED_Autoneg | SUPPORTED_MII |
 		  SUPPORTED_TP | SUPPORTED_IRQ, "10/100/1000BASE-T");
-	msleep(20);       
+	msleep(20);       /* PHY needs ~10ms to start responding to MDIO */
 
 	err = t3_mdio_read(phy, MDIO_DEVAD_NONE, VSC8211_EXT_CTRL, &val);
 	if (err)
 		return err;
 	if (val & VSC_CTRL_MEDIA_MODE_HI) {
-		
+		/* copper interface, just need to configure the LEDs */
 		return t3_mdio_write(phy, MDIO_DEVAD_NONE, VSC8211_LED_CTRL,
 				     0x100);
 	}
@@ -395,6 +411,6 @@ int t3_vsc8211_phy_prep(struct cphy *phy, struct adapter *adapter,
 	if (err)
 		return err;
 
-	udelay(5); 
+	udelay(5); /* delay after reset before next SMI */
 	return 0;
 }

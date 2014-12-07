@@ -17,12 +17,15 @@
 #define FIQ_START               0
 #endif
 
+/* As per QGIC2 PPI 16 aka 0 is reserved */
 #define MSM8625_INT_ARMQC_PERFMON	(GIC_PPI_START + 1)
 #define MSM8625_INT_DEBUG_TIMER_EXP	(GIC_PPI_START + 2)
 #define MSM8625_INT_GP_TIMER_EXP	(GIC_PPI_START + 3)
 #define MSM8625_INT_COMMRX		(GIC_PPI_START + 4)
 #define MSM8625_INT_COMMTX		(GIC_PPI_START + 5)
 
+/* rest of the PPI's not used
+ */
 
 #define MSM8625_INT_A9_M2A_0		(GIC_SPI_START + 0)
 #define MSM8625_INT_A9_M2A_1		(GIC_SPI_START + 1)

@@ -16,4 +16,4 @@
 
 #include <plat/gpio.h>
 
-#endif 
+#endif /* __MACH_GPIO_H */

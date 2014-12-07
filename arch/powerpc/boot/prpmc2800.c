@@ -28,7 +28,7 @@
 #define GHz	(1000U*MHz)
 
 #define BOARD_MODEL	"PrPMC2800"
-#define BOARD_MODEL_MAX	32 
+#define BOARD_MODEL_MAX	32 /* max strlen(BOARD_MODEL) + 1 */
 
 #define EEPROM2_ADDR	0xa4
 #define EEPROM3_ADDR	0xa8
@@ -286,6 +286,7 @@ static struct prpmc2800_board_info *prpmc2800_get_board_info(u8 *vpd)
 	return NULL;
 }
 
+/* Get VPD from i2c eeprom 2, then match it to a board info entry */
 static struct prpmc2800_board_info *prpmc2800_get_bip(void)
 {
 	struct prpmc2800_board_info *bip;
@@ -295,14 +296,14 @@ static struct prpmc2800_board_info *prpmc2800_get_bip(void)
 	if (mv64x60_i2c_open())
 		fatal("Error: Can't open i2c device\n\r");
 
-	
+	/* Get VPD from i2c eeprom-2 */
 	memset(vpd, 0, sizeof(vpd));
 	rc = mv64x60_i2c_read(EEPROM2_ADDR, vpd, 0x1fde, 2, sizeof(vpd));
 	if (rc < 0)
 		fatal("Error: Couldn't read eeprom2\n\r");
 	mv64x60_i2c_close();
 
-	
+	/* Get board type & related info */
 	bip = prpmc2800_get_board_info(vpd);
 	if (bip == NULL) {
 		printf("Error: Unsupported board or corrupted VPD:\n\r");
@@ -342,7 +343,7 @@ static void prpmc2800_bridge_setup(u32 mem_size)
 	mv64x60_config_pci_windows(bridge_base, bridge_pbase, 0, 0, mem_size,
 			acc_bits);
 
-	
+	/* Get the cpu -> pci i/o & mem mappings from the device tree */
 	devp = find_node_by_compatible(NULL, "marvell,mv64360-pci");
 	if (devp == NULL)
 		fatal("Error: Missing marvell,mv64360-pci"
@@ -353,21 +354,21 @@ static void prpmc2800_bridge_setup(u32 mem_size)
 		fatal("Error: Can't find marvell,mv64360-pci ranges"
 				" property\n\r");
 
-	
+	/* Get the cpu -> pci i/o & mem mappings from the device tree */
 	devp = find_node_by_compatible(NULL, "marvell,mv64360");
 	if (devp == NULL)
 		fatal("Error: Missing marvell,mv64360 device tree node\n\r");
 
 	enables = in_le32((u32 *)(bridge_base + MV64x60_CPU_BAR_ENABLE));
-	enables |= 0x0007fe00; 
+	enables |= 0x0007fe00; /* Disable all cpu->pci windows */
 	out_le32((u32 *)(bridge_base + MV64x60_CPU_BAR_ENABLE), enables);
 
 	for (i=0; i<12; i+=6) {
 		switch (v[i] & 0xff000000) {
-		case 0x01000000: 
+		case 0x01000000: /* PCI I/O Space */
 			tbl = mv64x60_cpu2pci_io;
 			break;
-		case 0x02000000: 
+		case 0x02000000: /* PCI MEM Space */
 			tbl = mv64x60_cpu2pci_mem;
 			break;
 		default:
@@ -390,7 +391,7 @@ static void prpmc2800_bridge_setup(u32 mem_size)
 				pci_base_lo, cpu_base, size, tbl);
 	}
 
-	enables &= ~0x00000600; 
+	enables &= ~0x00000600; /* Enable cpu->pci0 i/o, cpu->pci0 mem0 */
 	out_le32((u32 *)(bridge_base + MV64x60_CPU_BAR_ENABLE), enables);
 }
 
@@ -402,16 +403,19 @@ static void prpmc2800_fixups(void)
 	char model[BOARD_MODEL_MAX];
 	struct prpmc2800_board_info *bip;
 
-	bip = prpmc2800_get_bip(); 
+	bip = prpmc2800_get_bip(); /* Get board info based on VPD */
 
 	mem_size = (bip) ? bip->mem_size : mv64x60_get_mem_size(bridge_base);
-	prpmc2800_bridge_setup(mem_size); 
+	prpmc2800_bridge_setup(mem_size); /* Do necessary bridge setup */
 
+	/* If the VPD doesn't match what we know about, just use the
+	 * defaults already in the device tree.
+	 */
 	if (!bip)
 		return;
 
-	
-	
+	/* Know the board type so override device tree defaults */
+	/* Set /model appropriately */
 	devp = finddevice("/");
 	if (devp == NULL)
 		fatal("Error: Missing '/' device tree node\n\r");
@@ -424,14 +428,14 @@ static void prpmc2800_fixups(void)
 	model[l++] = '\0';
 	setprop(devp, "model", model, l);
 
-	
+	/* Set /cpus/PowerPC,7447/clock-frequency */
 	devp = find_node_by_prop_value_str(NULL, "device_type", "cpu");
 	if (devp == NULL)
 		fatal("Error: Missing proper cpu device tree node\n\r");
 	v[0] = bip->core_speed;
 	setprop(devp, "clock-frequency", &v[0], sizeof(v[0]));
 
-	
+	/* Set /memory/reg size */
 	devp = finddevice("/memory");
 	if (devp == NULL)
 		fatal("Error: Missing /memory device tree node\n\r");
@@ -439,7 +443,7 @@ static void prpmc2800_fixups(void)
 	v[1] = bip->mem_size;
 	setprop(devp, "reg", v, sizeof(v));
 
-	
+	/* Update model, if this is a mv64362 */
 	if (bip->bridge_type == BRIDGE_TYPE_MV64362) {
 		devp = find_node_by_compatible(NULL, "marvell,mv64360");
 		if (devp == NULL)
@@ -448,7 +452,7 @@ static void prpmc2800_fixups(void)
 		setprop(devp, "model", "mv64362", strlen("mv64362") + 1);
 	}
 
-	
+	/* Set User FLASH size */
 	devp = find_node_by_compatible(NULL, "direct-mapped");
 	if (devp == NULL)
 		fatal("Error: Missing User FLASH device tree node\n\r");
@@ -516,23 +520,30 @@ void platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	unsigned long vmlinuz_size = _vmlinux_end - _vmlinux_start;
 	char elfheader[256];
 
-	if (dt_size <= 0) 
+	if (dt_size <= 0) /* No fdt */
 		exit();
 
+	/*
+	 * Start heap after end of the kernel (after decompressed to
+	 * address 0) or the end of the zImage, whichever is higher.
+	 * That's so things allocated by simple_alloc won't overwrite
+	 * any part of the zImage and the kernel won't overwrite the dtb
+	 * when decompressed & relocated.
+	 */
 	gunzip_start(&gzstate, vmlinuz_addr, vmlinuz_size);
 	gunzip_exactly(&gzstate, elfheader, sizeof(elfheader));
 
 	if (!parse_elf32(elfheader, &ei))
 		exit();
 
-	heap_start = (char *)(ei.memsize + ei.elfoffset); 
-	heap_start = max(heap_start, (char *)_end); 
+	heap_start = (char *)(ei.memsize + ei.elfoffset); /* end of kernel*/
+	heap_start = max(heap_start, (char *)_end); /* end of zImage */
 
 	if ((unsigned)simple_alloc_init(heap_start, HEAP_SIZE, 2*KB, 16)
 			> (128*MB))
 		exit();
 
-	
+	/* Relocate dtb to safe area past end of zImage & kernel */
 	dtb = malloc(dt_size);
 	if (!dtb)
 		exit();
@@ -548,6 +559,7 @@ void platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 		exit();
 }
 
+/* _zimage_start called very early--need to turn off external interrupts */
 asm ("	.globl _zimage_start\n\
 	_zimage_start:\n\
 		mfmsr	10\n\

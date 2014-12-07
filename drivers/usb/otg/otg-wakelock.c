@@ -28,9 +28,16 @@ static bool enabled = true;
 static struct usb_phy *otgwl_xceiv;
 static struct notifier_block otgwl_nb;
 
+/*
+ * otgwl_spinlock is held while the VBUS lock is grabbed or dropped and the
+ * held field is updated to match.
+ */
 
 static DEFINE_SPINLOCK(otgwl_spinlock);
 
+/*
+ * Only one lock, but since these 3 fields are associated with each other...
+ */
 
 struct otgwl_lock {
 	char name[40];
@@ -38,6 +45,11 @@ struct otgwl_lock {
 	bool held;
 };
 
+/*
+ * VBUS present lock.  Also used as a timed lock on charger
+ * connect/disconnect and USB host disconnect, to allow the system
+ * to react to the change in power.
+ */
 
 static struct otgwl_lock vbus_lock;
 

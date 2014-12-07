@@ -63,6 +63,9 @@
 #define STAGE_CFGREG_NUM       8
 #define SYS_CFGREG_NUM         8
 
+/*
+ * driver information which will be used to maintain the software flow
+ */
 enum ad714x_device_state { IDLE, JITTER, ACTIVE, SPACE };
 
 struct ad714x_slider_drv {
@@ -103,6 +106,10 @@ struct ad714x_touchpad_drv {
 
 struct ad714x_button_drv {
 	enum ad714x_device_state state;
+	/*
+	 * Unlike slider/wheel/touchpad, all buttons point to
+	 * same input_dev instance
+	 */
 	struct input_dev *input;
 };
 
@@ -113,6 +120,10 @@ struct ad714x_driver_data {
 	struct ad714x_button_drv *button;
 };
 
+/*
+ * information to integrate all things which will be private data
+ * of spi/i2c device
+ */
 
 static void ad714x_use_com_int(struct ad714x_chip *ad714x,
 				int start_stage, int end_stage)
@@ -197,6 +208,10 @@ static int ad714x_cal_abs_pos(struct ad714x_chip *ad714x,
 	return (max_coord / (end_stage - start_stage)) * a_param / b_param;
 }
 
+/*
+ * One button can connect to multi positive and negative of CDCs
+ * Multi-buttons can connect to same positive/negative of one CDC
+ */
 static void ad714x_button_state_machine(struct ad714x_chip *ad714x, int idx)
 {
 	struct ad714x_button_plat *hw = &ad714x->hw->button[idx];
@@ -228,6 +243,10 @@ static void ad714x_button_state_machine(struct ad714x_chip *ad714x, int idx)
 	}
 }
 
+/*
+ * The response of a sensor is defined by the absolute number of codes
+ * between the current CDC value and the ambient value.
+ */
 static void ad714x_slider_cal_sensor_val(struct ad714x_chip *ad714x, int idx)
 {
 	struct ad714x_slider_plat *hw = &ad714x->hw->slider[idx];
@@ -258,6 +277,19 @@ static void ad714x_slider_cal_highest_stage(struct ad714x_chip *ad714x, int idx)
 		sw->highest_stage);
 }
 
+/*
+ * The formulae are very straight forward. It uses the sensor with the
+ * highest response and the 2 adjacent ones.
+ * When Sensor 0 has the highest response, only sensor 0 and sensor 1
+ * are used in the calculations. Similarly when the last sensor has the
+ * highest response, only the last sensor and the second last sensors
+ * are used in the calculations.
+ *
+ * For i= idx_of_peak_Sensor-1 to i= idx_of_peak_Sensor+1
+ *         v += Sensor response(i)*i
+ *         w += Sensor response(i)
+ * POS=(Number_of_Positions_Wanted/(Number_of_Sensors_Used-1)) *(v/w)
+ */
 static void ad714x_slider_cal_abs_pos(struct ad714x_chip *ad714x, int idx)
 {
 	struct ad714x_slider_plat *hw = &ad714x->hw->slider[idx];
@@ -270,6 +302,16 @@ static void ad714x_slider_cal_abs_pos(struct ad714x_chip *ad714x, int idx)
 		sw->abs_pos);
 }
 
+/*
+ * To minimise the Impact of the noise on the algorithm, ADI developed a
+ * routine that filters the CDC results after they have been read by the
+ * host processor.
+ * The filter used is an Infinite Input Response(IIR) filter implemented
+ * in firmware and attenuates the noise on the CDC results after they've
+ * been read by the host processor.
+ * Filtered_CDC_result = (Filtered_CDC_result * (10 - Coefficient) +
+ *				Latest_CDC_result * Coefficient)/10
+ */
 static void ad714x_slider_cal_flt_pos(struct ad714x_chip *ad714x, int idx)
 {
 	struct ad714x_slider_drv *sw = &ad714x->sw->slider[idx];
@@ -311,6 +353,9 @@ static void ad714x_slider_state_machine(struct ad714x_chip *ad714x, int idx)
 	case IDLE:
 		if (h_state) {
 			sw->state = JITTER;
+			/* In End of Conversion interrupt mode, the AD714X
+			 * continuously generates hardware interrupts.
+			 */
 			ad714x_slider_use_com_int(ad714x, idx);
 			dev_dbg(ad714x->dev, "slider %d touched\n", idx);
 		}
@@ -336,6 +381,9 @@ static void ad714x_slider_state_machine(struct ad714x_chip *ad714x, int idx)
 				input_report_abs(sw->input, ABS_X, sw->flt_pos);
 				input_report_key(sw->input, BTN_TOUCH, 1);
 			} else {
+				/* When the user lifts off the sensor, configure
+				 * the AD714X back to threshold interrupt mode.
+				 */
 				ad714x_slider_use_thr_int(ad714x, idx);
 				sw->state = IDLE;
 				input_report_key(sw->input, BTN_TOUCH, 0);
@@ -351,6 +399,13 @@ static void ad714x_slider_state_machine(struct ad714x_chip *ad714x, int idx)
 	}
 }
 
+/*
+ * When the scroll wheel is activated, we compute the absolute position based
+ * on the sensor values. To calculate the position, we first determine the
+ * sensor that has the greatest response among the 8 sensors that constitutes
+ * the scrollwheel. Then we determined the 2 sensors on either sides of the
+ * sensor with the highest response and we apply weights to these sensors.
+ */
 static void ad714x_wheel_cal_highest_stage(struct ad714x_chip *ad714x, int idx)
 {
 	struct ad714x_wheel_plat *hw = &ad714x->hw->wheel[idx];
@@ -384,6 +439,14 @@ static void ad714x_wheel_cal_sensor_val(struct ad714x_chip *ad714x, int idx)
 	}
 }
 
+/*
+ * When the scroll wheel is activated, we compute the absolute position based
+ * on the sensor values. To calculate the position, we first determine the
+ * sensor that has the greatest response among the sensors that constitutes
+ * the scrollwheel. Then we determined the sensors on either sides of the
+ * sensor with the highest response and we apply weights to these sensors. The
+ * result of this computation gives us the mean value.
+ */
 
 static void ad714x_wheel_cal_abs_pos(struct ad714x_chip *ad714x, int idx)
 {
@@ -462,6 +525,9 @@ static void ad714x_wheel_state_machine(struct ad714x_chip *ad714x, int idx)
 	case IDLE:
 		if (h_state) {
 			sw->state = JITTER;
+			/* In End of Conversion interrupt mode, the AD714X
+			 * continuously generates hardware interrupts.
+			 */
 			ad714x_wheel_use_com_int(ad714x, idx);
 			dev_dbg(ad714x->dev, "wheel %d touched\n", idx);
 		}
@@ -488,6 +554,9 @@ static void ad714x_wheel_state_machine(struct ad714x_chip *ad714x, int idx)
 					sw->flt_pos);
 				input_report_key(sw->input, BTN_TOUCH, 1);
 			} else {
+				/* When the user lifts off the sensor, configure
+				 * the AD714X back to threshold interrupt mode.
+				 */
 				ad714x_wheel_use_thr_int(ad714x, idx);
 				sw->state = IDLE;
 				input_report_key(sw->input, BTN_TOUCH, 0);
@@ -539,6 +608,12 @@ static void touchpad_cal_highest_stage(struct ad714x_chip *ad714x, int idx)
 		idx, sw->x_highest_stage, sw->y_highest_stage);
 }
 
+/*
+ * If 2 fingers are touching the sensor then 2 peaks can be observed in the
+ * distribution.
+ * The arithmetic doesn't support to get absolute coordinates for multi-touch
+ * yet.
+ */
 static int touchpad_check_second_peak(struct ad714x_chip *ad714x, int idx)
 {
 	struct ad714x_touchpad_plat *hw = &ad714x->hw->touchpad[idx];
@@ -572,6 +647,12 @@ static int touchpad_check_second_peak(struct ad714x_chip *ad714x, int idx)
 	return 0;
 }
 
+/*
+ * If only one finger is used to activate the touch pad then only 1 peak will be
+ * registered in the distribution. This peak and the 2 adjacent sensors will be
+ * used in the calculation of the absolute position. This will prevent hand
+ * shadows to affect the absolute position calculation.
+ */
 static void touchpad_cal_abs_pos(struct ad714x_chip *ad714x, int idx)
 {
 	struct ad714x_touchpad_plat *hw = &ad714x->hw->touchpad[idx];
@@ -599,6 +680,17 @@ static void touchpad_cal_flt_pos(struct ad714x_chip *ad714x, int idx)
 			idx, sw->x_flt_pos, sw->y_flt_pos);
 }
 
+/*
+ * To prevent distortion from showing in the absolute position, it is
+ * necessary to detect the end points. When endpoints are detected, the
+ * driver stops updating the status variables with absolute positions.
+ * End points are detected on the 4 edges of the touchpad sensor. The
+ * method to detect them is the same for all 4.
+ * To detect the end points, the firmware computes the difference in
+ * percent between the sensor on the edge and the adjacent one. The
+ * difference is calculated in percent in order to make the end point
+ * detection independent of the pressure.
+ */
 
 #define LEFT_END_POINT_DETECTION_LEVEL                  550
 #define RIGHT_END_POINT_DETECTION_LEVEL                 750
@@ -612,7 +704,7 @@ static int touchpad_check_endpoint(struct ad714x_chip *ad714x, int idx)
 	struct ad714x_touchpad_drv *sw  = &ad714x->sw->touchpad[idx];
 	int percent_sensor_diff;
 
-	
+	/* left endpoint detect */
 	percent_sensor_diff = (ad714x->sensor_val[hw->x_start_stage] -
 			ad714x->sensor_val[hw->x_start_stage + 1]) * 100 /
 			ad714x->sensor_val[hw->x_start_stage + 1];
@@ -629,7 +721,7 @@ static int touchpad_check_endpoint(struct ad714x_chip *ad714x, int idx)
 			sw->left_ep = 0;
 	}
 
-	
+	/* right endpoint detect */
 	percent_sensor_diff = (ad714x->sensor_val[hw->x_end_stage] -
 			ad714x->sensor_val[hw->x_end_stage - 1]) * 100 /
 			ad714x->sensor_val[hw->x_end_stage - 1];
@@ -646,7 +738,7 @@ static int touchpad_check_endpoint(struct ad714x_chip *ad714x, int idx)
 			sw->right_ep = 0;
 	}
 
-	
+	/* top endpoint detect */
 	percent_sensor_diff = (ad714x->sensor_val[hw->y_start_stage] -
 			ad714x->sensor_val[hw->y_start_stage + 1]) * 100 /
 			ad714x->sensor_val[hw->y_start_stage + 1];
@@ -663,7 +755,7 @@ static int touchpad_check_endpoint(struct ad714x_chip *ad714x, int idx)
 			sw->top_ep = 0;
 	}
 
-	
+	/* bottom endpoint detect */
 	percent_sensor_diff = (ad714x->sensor_val[hw->y_end_stage] -
 		ad714x->sensor_val[hw->y_end_stage - 1]) * 100 /
 		ad714x->sensor_val[hw->y_end_stage - 1];
@@ -717,6 +809,9 @@ static void ad714x_touchpad_state_machine(struct ad714x_chip *ad714x, int idx)
 	case IDLE:
 		if (h_state) {
 			sw->state = JITTER;
+			/* In End of Conversion interrupt mode, the AD714X
+			 * continuously generates hardware interrupts.
+			 */
 			touchpad_use_com_int(ad714x, idx);
 			dev_dbg(ad714x->dev, "touchpad %d touched\n", idx);
 		}
@@ -756,6 +851,9 @@ static void ad714x_touchpad_state_machine(struct ad714x_chip *ad714x, int idx)
 						1);
 				}
 			} else {
+				/* When the user lifts off the sensor, configure
+				 * the AD714X back to threshold interrupt mode.
+				 */
 				touchpad_use_thr_int(ad714x, idx);
 				sw->state = IDLE;
 				input_report_key(sw->input, BTN_TOUCH, 0);
@@ -819,7 +917,7 @@ static void ad714x_hw_init(struct ad714x_chip *ad714x)
 	unsigned short reg_base;
 	unsigned short data;
 
-	
+	/* configuration CDC and interrupts */
 
 	for (i = 0; i < STAGE_NUM; i++) {
 		reg_base = AD714X_STAGECFG_REG + i * STAGE_CFGREG_NUM;
@@ -836,7 +934,7 @@ static void ad714x_hw_init(struct ad714x_chip *ad714x)
 
 	ad714x->write(ad714x, AD714X_STG_CAL_EN_REG, 0xFFF);
 
-	
+	/* clear all interrupts */
 	ad714x->read(ad714x, STG_LOW_INT_STA_REG, &ad714x->l_state, 3);
 }
 
@@ -926,14 +1024,17 @@ struct ad714x_chip *ad714x_probe(struct device *dev, u16 bus_type, int irq,
 	if (error)
 		goto err_free_mem;
 
-	
+	/* initialize and request sw/hw resources */
 
 	ad714x_hw_init(ad714x);
 	mutex_init(&ad714x->mutex);
 
+	/*
+	 * Allocate and register AD714X input device
+	 */
 	alloc_idx = 0;
 
-	
+	/* a slider uses one input_dev instance */
 	if (ad714x->hw->slider_num > 0) {
 		struct ad714x_slider_plat *sd_plat = ad714x->hw->slider;
 
@@ -965,7 +1066,7 @@ struct ad714x_chip *ad714x_probe(struct device *dev, u16 bus_type, int irq,
 		}
 	}
 
-	
+	/* a wheel uses one input_dev instance */
 	if (ad714x->hw->wheel_num > 0) {
 		struct ad714x_wheel_plat *wl_plat = ad714x->hw->wheel;
 
@@ -997,7 +1098,7 @@ struct ad714x_chip *ad714x_probe(struct device *dev, u16 bus_type, int irq,
 		}
 	}
 
-	
+	/* a touchpad uses one input_dev instance */
 	if (ad714x->hw->touchpad_num > 0) {
 		struct ad714x_touchpad_plat *tp_plat = ad714x->hw->touchpad;
 
@@ -1032,7 +1133,7 @@ struct ad714x_chip *ad714x_probe(struct device *dev, u16 bus_type, int irq,
 		}
 	}
 
-	
+	/* all buttons use one input node */
 	if (ad714x->hw->button_num > 0) {
 		struct ad714x_button_plat *bt_plat = ad714x->hw->button;
 
@@ -1093,7 +1194,7 @@ void ad714x_remove(struct ad714x_chip *ad714x)
 
 	free_irq(ad714x->irq, ad714x);
 
-	
+	/* unregister and free all input devices */
 
 	for (i = 0; i < hw->slider_num; i++)
 		input_unregister_device(sw->slider[i].input);
@@ -1135,11 +1236,14 @@ int ad714x_enable(struct ad714x_chip *ad714x)
 
 	mutex_lock(&ad714x->mutex);
 
-	
+	/* resume to non-shutdown mode */
 
 	ad714x->write(ad714x, AD714X_PWR_CTRL,
 			ad714x->hw->sys_cfg_reg[AD714X_PWR_CTRL]);
 
+	/* make sure the interrupt output line is not low level after resume,
+	 * otherwise we will get no chance to enter falling-edge irq again
+	 */
 
 	ad714x->read(ad714x, STG_LOW_INT_STA_REG, &ad714x->l_state, 3);
 

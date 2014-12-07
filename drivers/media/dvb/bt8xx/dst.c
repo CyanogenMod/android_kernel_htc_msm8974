@@ -97,7 +97,7 @@ static int dst_gpio_outb(struct dst_state *state, u32 mask, u32 enbb,
 		return -EREMOTEIO;
 	}
 	udelay(1000);
-	
+	/* because complete disabling means no output, no need to do output packet */
 	if (enbb == 0)
 		return 0;
 	if (delay)
@@ -325,11 +325,11 @@ EXPORT_SYMBOL(read_dst);
 static int dst_set_polarization(struct dst_state *state)
 {
 	switch (state->voltage) {
-	case SEC_VOLTAGE_13:	
+	case SEC_VOLTAGE_13:	/*	Vertical	*/
 		dprintk(verbose, DST_INFO, 1, "Polarization=[Vertical]");
 		state->tx_tuna[8] &= ~0x40;
 		break;
-	case SEC_VOLTAGE_18:	
+	case SEC_VOLTAGE_18:	/*	Horizontal	*/
 		dprintk(verbose, DST_INFO, 1, "Polarization=[Horizontal]");
 		state->tx_tuna[8] |= 0x40;
 		break;
@@ -376,10 +376,10 @@ static int dst_set_freq(struct dst_state *state, u32 freq)
 		state->tx_tuna[2] = (freq >> 16) & 0xff;
 		state->tx_tuna[3] = (freq >>  8) & 0xff;
 		state->tx_tuna[4] = (u8) freq;
-		state->tx_tuna[5] = 0x00;		
+		state->tx_tuna[5] = 0x00;		/*	ATSC	*/
 		state->tx_tuna[6] = 0x00;
 		if (state->dst_hw_cap & DST_TYPE_HAS_ANALOG)
-			state->tx_tuna[7] = 0x00;	
+			state->tx_tuna[7] = 0x00;	/*	Digital	*/
 	} else
 		return -EINVAL;
 
@@ -429,7 +429,7 @@ static int dst_set_inversion(struct dst_state *state, fe_spectral_inversion_t in
 {
 	state->inversion = inversion;
 	switch (inversion) {
-	case INVERSION_OFF:	
+	case INVERSION_OFF:	/*	Inversion = Normal	*/
 		state->tx_tuna[8] &= ~0x80;
 		break;
 	case INVERSION_ON:
@@ -730,6 +730,40 @@ static struct tuner_types tuner_list[] = {
 	},
 };
 
+/*
+	Known cards list
+	Satellite
+	-------------------
+		  200103A
+	VP-1020   DST-MOT	LG(old), TS=188
+
+	VP-1020   DST-03T	LG(new), TS=204
+	VP-1022   DST-03T	LG(new), TS=204
+	VP-1025   DST-03T	LG(new), TS=204
+
+	VP-1030   DSTMCI,	LG(new), TS=188
+	VP-1032   DSTMCI,	LG(new), TS=188
+
+	Cable
+	-------------------
+	VP-2030   DCT-CI,	Samsung, TS=204
+	VP-2021   DCT-CI,	Unknown, TS=204
+	VP-2031   DCT-CI,	Philips, TS=188
+	VP-2040   DCT-CI,	Philips, TS=188, with CA daughter board
+	VP-2040   DCT-CI,	Philips, TS=204, without CA daughter board
+
+	Terrestrial
+	-------------------
+	VP-3050  DTTNXT			 TS=188
+	VP-3040  DTT-CI,	Philips, TS=188
+	VP-3040  DTT-CI,	Philips, TS=204
+
+	ATSC
+	-------------------
+	VP-3220  ATSCDI,		 TS=188
+	VP-3250  ATSCAD,		 TS=188
+
+*/
 
 static struct dst_types dst_tlist[] = {
 	{
@@ -739,7 +773,7 @@ static struct dst_types dst_tlist[] = {
 		.type_flags = DST_TYPE_HAS_SYMDIV | DST_TYPE_HAS_FW_1 | DST_TYPE_HAS_OBS_REGS,
 		.dst_feature = 0,
 		.tuner_type = 0
-	},	
+	},	/*	obsolete	*/
 
 	{
 		.device_id = "DST-020",
@@ -748,7 +782,7 @@ static struct dst_types dst_tlist[] = {
 		.type_flags = DST_TYPE_HAS_SYMDIV | DST_TYPE_HAS_FW_1,
 		.dst_feature = 0,
 		.tuner_type = 0
-	},	
+	},	/*	obsolete	*/
 
 	{
 		.device_id = "DST-030",
@@ -757,7 +791,7 @@ static struct dst_types dst_tlist[] = {
 		.type_flags = DST_TYPE_HAS_TS204 | DST_TYPE_HAS_TS188 | DST_TYPE_HAS_FW_1,
 		.dst_feature = 0,
 		.tuner_type = 0
-	},	
+	},	/*	obsolete	*/
 
 	{
 		.device_id = "DST-03T",
@@ -776,7 +810,7 @@ static struct dst_types dst_tlist[] = {
 		.type_flags = DST_TYPE_HAS_SYMDIV | DST_TYPE_HAS_FW_1,
 		.dst_feature = 0,
 		.tuner_type = 0
-	},	
+	},	/*	obsolete	*/
 
 	{
 		.device_id = "DST-CI",
@@ -785,7 +819,7 @@ static struct dst_types dst_tlist[] = {
 		.type_flags = DST_TYPE_HAS_TS204 | DST_TYPE_HAS_FW_1,
 		.dst_feature = DST_TYPE_HAS_CA,
 		.tuner_type = 0
-	},	
+	},	/*	An OEM board	*/
 
 	{
 		.device_id = "DSTMCI",
@@ -804,7 +838,7 @@ static struct dst_types dst_tlist[] = {
 		.type_flags = DST_TYPE_HAS_TS188 | DST_TYPE_HAS_FW_1,
 		.dst_feature = 0,
 		.tuner_type = 0
-	},	
+	},	/* unknown to vendor	*/
 
 	{
 		.device_id = "DCT-CI",
@@ -1061,24 +1095,24 @@ static int dst_get_device_id(struct dst_state *state)
 	device_type[7] = dst_check_sum(device_type, 7);
 
 	if (write_dst(state, device_type, FIXED_COMM))
-		return -1;		
+		return -1;		/*	Write failed		*/
 	if ((dst_pio_disable(state)) < 0)
 		return -1;
 	if (read_dst(state, &reply, GET_ACK))
-		return -1;		
+		return -1;		/*	Read failure		*/
 	if (reply != ACK) {
 		dprintk(verbose, DST_INFO, 1, "Write not Acknowledged! [Reply=0x%02x]", reply);
-		return -1;		
+		return -1;		/*	Unack'd write		*/
 	}
 	if (!dst_wait_dst_ready(state, DEVICE_INIT))
-		return -1;		
+		return -1;		/*	DST not ready yet	*/
 	if (read_dst(state, state->rxbuffer, FIXED_COMM))
 		return -1;
 
 	dst_pio_disable(state);
 	if (state->rxbuffer[7] != dst_check_sum(state->rxbuffer, 7)) {
 		dprintk(verbose, DST_INFO, 1, "Checksum failure!");
-		return -1;		
+		return -1;		/*	Checksum failure	*/
 	}
 	state->rxbuffer[7] = '\0';
 
@@ -1087,15 +1121,15 @@ static int dst_get_device_id(struct dst_state *state)
 			use_type_flags = p_dst_type->type_flags;
 			use_dst_type = p_dst_type->dst_type;
 
-			
+			/*	Card capabilities	*/
 			state->dst_hw_cap = p_dst_type->dst_feature;
 			dprintk(verbose, DST_ERROR, 1, "Recognise [%s]", p_dst_type->device_id);
 			strncpy(&state->fw_name[0], p_dst_type->device_id, 6);
-			
+			/*	Multiple tuners		*/
 			if (p_dst_type->tuner_type & TUNER_TYPE_MULTI) {
 				switch (use_dst_type) {
 				case DST_TYPE_IS_SAT:
-					
+					/*	STV0299 check	*/
 					if (dst_check_stv0299(state) < 0) {
 						dprintk(verbose, DST_ERROR, 1, "Unsupported");
 						state->tuner_type = TUNER_TYPE_MB86A15;
@@ -1106,7 +1140,7 @@ static int dst_get_device_id(struct dst_state *state)
 				}
 				if (dst_check_mb86a15(state) < 0)
 					dprintk(verbose, DST_ERROR, 1, "Unsupported");
-			
+			/*	Single tuner		*/
 			} else {
 				state->tuner_type = p_dst_type->tuner_type;
 			}
@@ -1252,7 +1286,7 @@ static int dst_get_signal(struct dst_state *state)
 {
 	int retval;
 	u8 get_signal[] = { 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfb };
-	
+	//dprintk("%s: Getting Signal strength and other parameters\n", __func__);
 	if ((state->diseq_flags & ATTEMPT_TUNE) == 0) {
 		state->decode_lock = state->decode_strength = state->decode_snr = 0;
 		return 0;
@@ -1363,6 +1397,7 @@ static int dst_write_tuna(struct dvb_frontend *fe)
 		dprintk(verbose, DST_DEBUG, 1, "DST Communication initialization failed.");
 		goto error;
 	}
+//	if (state->type_flags & DST_TYPE_HAS_NEWTUNE) {
 	if ((state->type_flags & DST_TYPE_HAS_VLF) &&
 		(!(state->dst_type == DST_TYPE_IS_ATSC))) {
 
@@ -1400,6 +1435,19 @@ error:
 	return -EIO;
 }
 
+/*
+ * line22k0    0x00, 0x09, 0x00, 0xff, 0x01, 0x00, 0x00, 0x00
+ * line22k1    0x00, 0x09, 0x01, 0xff, 0x01, 0x00, 0x00, 0x00
+ * line22k2    0x00, 0x09, 0x02, 0xff, 0x01, 0x00, 0x00, 0x00
+ * tone        0x00, 0x09, 0xff, 0x00, 0x01, 0x00, 0x00, 0x00
+ * data        0x00, 0x09, 0xff, 0x01, 0x01, 0x00, 0x00, 0x00
+ * power_off   0x00, 0x09, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00
+ * power_on    0x00, 0x09, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00
+ * Diseqc 1    0x00, 0x08, 0x04, 0xe0, 0x10, 0x38, 0xf0, 0xec
+ * Diseqc 2    0x00, 0x08, 0x04, 0xe0, 0x10, 0x38, 0xf4, 0xe8
+ * Diseqc 3    0x00, 0x08, 0x04, 0xe0, 0x10, 0x38, 0xf8, 0xe4
+ * Diseqc 4    0x00, 0x08, 0x04, 0xe0, 0x10, 0x38, 0xfc, 0xe0
+ */
 
 static int dst_set_diseqc(struct dvb_frontend *fe, struct dvb_diseqc_master_cmd *cmd)
 {
@@ -1533,6 +1581,7 @@ static int dst_read_status(struct dvb_frontend *fe, fe_status_t *status)
 
 	*status = 0;
 	if (state->diseq_flags & HAS_LOCK) {
+//		dst_get_signal(state);	// don't require(?) to ask MCU
 		if (state->decode_lock)
 			*status |= FE_HAS_LOCK | FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_SYNC | FE_HAS_VITERBI;
 	}
@@ -1677,13 +1726,13 @@ static struct dvb_frontend_ops dst_atsc_ops;
 
 struct dst_state *dst_attach(struct dst_state *state, struct dvb_adapter *dvb_adapter)
 {
-	
+	/* check if the ASIC is there */
 	if (dst_probe(state) < 0) {
 		kfree(state);
 		return NULL;
 	}
-	
-	
+	/* determine settings based on type */
+	/* create dvb_frontend */
 	switch (state->dst_type) {
 	case DST_TYPE_IS_TERR:
 		memcpy(&state->frontend.ops, &dst_dvbt_ops, sizeof(struct dvb_frontend_ops));
@@ -1704,7 +1753,7 @@ struct dst_state *dst_attach(struct dst_state *state, struct dvb_adapter *dvb_ad
 	}
 	state->frontend.demodulator_priv = state;
 
-	return state;				
+	return state;				/*	Manu (DST is a card not a frontend)	*/
 }
 
 EXPORT_SYMBOL(dst_attach);
@@ -1744,11 +1793,11 @@ static struct dvb_frontend_ops dst_dvbs_ops = {
 		.name = "DST DVB-S",
 		.frequency_min = 950000,
 		.frequency_max = 2150000,
-		.frequency_stepsize = 1000,	
+		.frequency_stepsize = 1000,	/* kHz for QPSK frontends */
 		.frequency_tolerance = 29500,
 		.symbol_rate_min = 1000000,
 		.symbol_rate_max = 45000000,
-	
+	/*     . symbol_rate_tolerance	=	???,*/
 		.caps = FE_CAN_FEC_AUTO | FE_CAN_QPSK
 	},
 

@@ -110,11 +110,14 @@ static inline void rate_control_remove_sta_debugfs(struct sta_info *sta)
 #endif
 }
 
+/* Get a reference to the rate control algorithm. If `name' is NULL, get the
+ * first available algorithm. */
 int ieee80211_init_rate_ctrl_alg(struct ieee80211_local *local,
 				 const char *name);
 void rate_control_deinitialize(struct ieee80211_local *local);
 
 
+/* Rate control algorithms */
 #ifdef CONFIG_MAC80211_RC_PID
 extern int rc80211_pid_init(void);
 extern void rc80211_pid_exit(void);
@@ -155,4 +158,4 @@ static inline void rc80211_minstrel_ht_exit(void)
 #endif
 
 
-#endif 
+#endif /* IEEE80211_RATE_H */

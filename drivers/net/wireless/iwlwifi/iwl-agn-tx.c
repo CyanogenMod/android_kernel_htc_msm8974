@@ -50,6 +50,9 @@ static void iwlagn_tx_cmd_protection(struct iwl_priv *priv,
 		*tx_flags |= TX_CMD_FLG_PROT_REQUIRE_MSK;
 }
 
+/*
+ * handle build REPLY_TX command notification.
+ */
 static void iwlagn_tx_cmd_build_basic(struct iwl_priv *priv,
 				      struct sk_buff *skb,
 				      struct iwl_tx_cmd *tx_cmd,
@@ -127,10 +130,10 @@ static void iwlagn_tx_cmd_build_rate(struct iwl_priv *priv,
 		rts_retry_limit = IWLAGN_LOW_RETRY_LIMIT;
 		data_retry_limit = IWLAGN_LOW_RETRY_LIMIT;
 	} else {
-		
+		/* Set retry limit on RTS packets */
 		rts_retry_limit = IWLAGN_RTS_DFAULT_RETRY_LIMIT;
 
-		
+		/* Set retry limit on DATA packets and Probe Responses*/
 		if (ieee80211_is_probe_resp(fc)) {
 			data_retry_limit = IWLAGN_MGMT_DFAULT_RETRY_LIMIT;
 			rts_retry_limit =
@@ -144,11 +147,18 @@ static void iwlagn_tx_cmd_build_rate(struct iwl_priv *priv,
 	tx_cmd->data_retry_limit = data_retry_limit;
 	tx_cmd->rts_retry_limit = rts_retry_limit;
 
+	/* DATA packets will use the uCode station table for rate/antenna
+	 * selection */
 	if (ieee80211_is_data(fc)) {
 		tx_cmd->initial_rate_index = 0;
 		tx_cmd->tx_flags |= TX_CMD_FLG_STA_RATE_MSK;
 #ifdef CONFIG_IWLWIFI_DEVICE_TESTMODE
 		if (priv->tm_fixed_rate) {
+			/*
+			 * rate overwrite by testmode
+			 * we not only send lq command to change rate
+			 * we also re-enforce per data pkt base.
+			 */
 			tx_cmd->tx_flags &= ~TX_CMD_FLG_STA_RATE_MSK;
 			memcpy(&tx_cmd->rate_n_flags, &priv->tm_fixed_rate,
 			       sizeof(tx_cmd->rate_n_flags));
@@ -158,28 +168,34 @@ static void iwlagn_tx_cmd_build_rate(struct iwl_priv *priv,
 	} else if (ieee80211_is_back_req(fc))
 		tx_cmd->tx_flags |= TX_CMD_FLG_STA_RATE_MSK;
 
+	/**
+	 * If the current TX rate stored in mac80211 has the MCS bit set, it's
+	 * not really a TX rate.  Thus, we use the lowest supported rate for
+	 * this band.  Also use the lowest supported rate if the stored rate
+	 * index is invalid.
+	 */
 	rate_idx = info->control.rates[0].idx;
 	if (info->control.rates[0].flags & IEEE80211_TX_RC_MCS ||
 			(rate_idx < 0) || (rate_idx > IWL_RATE_COUNT_LEGACY))
 		rate_idx = rate_lowest_index(&priv->bands[info->band],
 				info->control.sta);
-	
+	/* For 5 GHZ band, remap mac80211 rate indices into driver indices */
 	if (info->band == IEEE80211_BAND_5GHZ)
 		rate_idx += IWL_FIRST_OFDM_RATE;
-	
+	/* Get PLCP rate for tx_cmd->rate_n_flags */
 	rate_plcp = iwl_rates[rate_idx].plcp;
-	
+	/* Zero out flags for this packet */
 	rate_flags = 0;
 
-	
+	/* Set CCK flag as needed */
 	if ((rate_idx >= IWL_FIRST_CCK_RATE) && (rate_idx <= IWL_LAST_CCK_RATE))
 		rate_flags |= RATE_MCS_CCK_MSK;
 
-	
+	/* Set up antennas */
 	 if (cfg(priv)->bt_params &&
 	     cfg(priv)->bt_params->advanced_bt_coexist &&
 	     priv->bt_full_concurrent) {
-		
+		/* operated as 1x1 in full concurrency mode */
 		priv->mgmt_tx_ant = iwl_toggle_tx_ant(priv, priv->mgmt_tx_ant,
 				first_antenna(hw_params(priv).valid_tx_ant));
 	} else
@@ -187,7 +203,7 @@ static void iwlagn_tx_cmd_build_rate(struct iwl_priv *priv,
 						hw_params(priv).valid_tx_ant);
 	rate_flags |= iwl_ant_idx_to_flags(priv->mgmt_tx_ant);
 
-	
+	/* Set the rate in the TX cmd */
 	tx_cmd->rate_n_flags = iwl_hw_set_rate_n_flags(rate_plcp, rate_flags);
 }
 
@@ -215,7 +231,7 @@ static void iwlagn_tx_cmd_build_hwcrypto(struct iwl_priv *priv,
 
 	case WLAN_CIPHER_SUITE_WEP104:
 		tx_cmd->sec_ctl |= TX_CMD_SEC_KEY128;
-		
+		/* fall through */
 	case WLAN_CIPHER_SUITE_WEP40:
 		tx_cmd->sec_ctl |= (TX_CMD_SEC_WEP |
 			(keyconf->keyidx & TX_CMD_SEC_MSK) << TX_CMD_SEC_SHIFT);
@@ -232,6 +248,16 @@ static void iwlagn_tx_cmd_build_hwcrypto(struct iwl_priv *priv,
 	}
 }
 
+/**
+ * iwl_sta_id_or_broadcast - return sta_id or broadcast sta
+ * @context: the current context
+ * @sta: mac80211 station
+ *
+ * In certain circumstances mac80211 passes a station pointer
+ * that may be %NULL, for example during TX or key setup. In
+ * that case, we need to use the broadcast station, so this
+ * inline wraps that pattern.
+ */
 static int iwl_sta_id_or_broadcast(struct iwl_rxon_context *context,
 				   struct ieee80211_sta *sta)
 {
@@ -242,11 +268,18 @@ static int iwl_sta_id_or_broadcast(struct iwl_rxon_context *context,
 
 	sta_id = iwl_sta_id(sta);
 
+	/*
+	 * mac80211 should not be passing a partially
+	 * initialised station!
+	 */
 	WARN_ON(sta_id == IWL_INVALID_STATION);
 
 	return sta_id;
 }
 
+/*
+ * start REPLY_TX command process
+ */
 int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
@@ -295,11 +328,11 @@ int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 
 	hdr_len = ieee80211_hdrlen(fc);
 
-	
+	/* For management frames use broadcast id to do not break aggregation */
 	if (!ieee80211_is_data(fc))
 		sta_id = ctx->bcast_sta_id;
 	else {
-		
+		/* Find index into station table for destination station */
 		sta_id = iwl_sta_id_or_broadcast(ctx, info->control.sta);
 		if (sta_id == IWL_INVALID_STATION) {
 			IWL_DEBUG_DROP(priv, "Dropping - INVALID STATION: %pM\n",
@@ -315,6 +348,19 @@ int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 
 	if (sta_priv && sta_priv->asleep &&
 	    (info->flags & IEEE80211_TX_CTL_NO_PS_BUFFER)) {
+		/*
+		 * This sends an asynchronous command to the device,
+		 * but we can rely on it being processed before the
+		 * next frame is processed -- and the next frame to
+		 * this station is the one that will consume this
+		 * counter.
+		 * For now set the counter to just 1 since we do not
+		 * support uAPSD yet.
+		 *
+		 * FIXME: If we get two non-bufferable frames one
+		 * after the other, we might only send out one of
+		 * them because this is racy.
+		 */
 		iwl_sta_modify_sleep_tx_count(priv, sta_id, 1);
 	}
 
@@ -329,14 +375,14 @@ int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 	memset(dev_cmd, 0, sizeof(*dev_cmd));
 	tx_cmd = (struct iwl_tx_cmd *) dev_cmd->payload;
 
-	
+	/* Total # bytes to be transmitted */
 	len = (u16)skb->len;
 	tx_cmd->len = cpu_to_le16(len);
 
 	if (info->control.hw_key)
 		iwlagn_tx_cmd_build_hwcrypto(priv, info, tx_cmd, skb);
 
-	
+	/* TODO need this for burst mode later on */
 	iwlagn_tx_cmd_build_basic(priv, skb, tx_cmd, info, hdr, sta_id);
 	iwl_dbg_log_tx_data_frame(priv, len, hdr);
 
@@ -360,7 +406,7 @@ int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 			goto drop_unlock_sta;
 		tid_data = &priv->tid_data[sta_id][tid];
 
-		
+		/* aggregation is on for this <sta,tid> */
 		if (info->flags & IEEE80211_TX_CTL_AMPDU &&
 		    tid_data->agg.state != IWL_AGG_ON) {
 			IWL_ERR(priv, "TX_CTL_AMPDU while not in AGG:"
@@ -371,6 +417,9 @@ int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 			goto drop_unlock_sta;
 		}
 
+		/* We can receive packets from the stack in IWL_AGG_{ON,OFF}
+		 * only. Check this here.
+		 */
 		if (WARN_ONCE(tid_data->agg.state != IWL_AGG_ON &&
 		    tid_data->agg.state != IWL_AGG_OFF,
 		    "Tx while agg.state = %d", tid_data->agg.state))
@@ -383,7 +432,7 @@ int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 		seq_number += 0x10;
 	}
 
-	
+	/* Copy MAC header from skb into command buffer */
 	memcpy(tx_cmd->hdr, hdr, hdr_len);
 
 	if (iwl_trans_tx(trans(priv), skb, dev_cmd, ctx->ctxid, sta_id, tid))
@@ -395,6 +444,13 @@ int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb)
 
 	spin_unlock(&priv->sta_lock);
 
+	/*
+	 * Avoid atomic ops if it isn't an associated client.
+	 * Also, if this is a packet for aggregation, don't
+	 * increase the counter because the ucode will stop
+	 * aggregation queues when their respective station
+	 * goes to sleep.
+	 */
 	if (sta_priv && sta_priv->client && !is_agg)
 		atomic_inc(&sta_priv->pending_frames);
 
@@ -427,6 +483,12 @@ int iwlagn_tx_agg_stop(struct iwl_priv *priv, struct ieee80211_vif *vif,
 
 	switch (priv->tid_data[sta_id][tid].agg.state) {
 	case IWL_EMPTYING_HW_QUEUE_ADDBA:
+		/*
+		* This can happen if the peer stops aggregation
+		* again before we've had a chance to drain the
+		* queue we selected previously, i.e. before the
+		* session was really started completely.
+		*/
 		IWL_DEBUG_HT(priv, "AGG stop before setup done\n");
 		goto turn_off;
 	case IWL_AGG_ON:
@@ -441,7 +503,7 @@ int iwlagn_tx_agg_stop(struct iwl_priv *priv, struct ieee80211_vif *vif,
 
 	tid_data->agg.ssn = SEQ_TO_SN(tid_data->seq_number);
 
-	
+	/* There are still packets for this RA / TID in the HW */
 	if (tid_data->agg.ssn != tid_data->next_reclaimed) {
 		IWL_DEBUG_TX_QUEUES(priv, "Can't proceed: ssn %d, "
 				    "next_recl = %d",
@@ -541,14 +603,31 @@ int iwlagn_tx_agg_oper(struct iwl_priv *priv, struct ieee80211_vif *vif,
 	iwl_trans_tx_agg_setup(trans(priv), ctx->ctxid, sta_priv->sta_id, tid,
 			       buf_size, ssn);
 
+	/*
+	 * If the limit is 0, then it wasn't initialised yet,
+	 * use the default. We can do that since we take the
+	 * minimum below, and we don't want to go above our
+	 * default due to hardware restrictions.
+	 */
 	if (sta_priv->max_agg_bufsize == 0)
 		sta_priv->max_agg_bufsize =
 			LINK_QUAL_AGG_FRAME_LIMIT_DEF;
 
+	/*
+	 * Even though in theory the peer could have different
+	 * aggregation reorder buffer sizes for different sessions,
+	 * our ucode doesn't allow for that and has a global limit
+	 * for each station. Therefore, use the minimum of all the
+	 * aggregation sessions and our default value.
+	 */
 	sta_priv->max_agg_bufsize =
 		min(sta_priv->max_agg_bufsize, buf_size);
 
 	if (hw_params(priv).use_rts_for_aggregation) {
+		/*
+		 * switch to RTS/CTS if it is the prefer protection
+		 * method for HT traffic
+		 */
 
 		sta_priv->lq_sta.lq.general_params.flags |=
 			LINK_QUAL_FLAGS_SET_STA_TLC_RTS_MSK;
@@ -582,7 +661,7 @@ static void iwlagn_check_ratid_empty(struct iwl_priv *priv, int sta_id, u8 tid)
 
 	switch (priv->tid_data[sta_id][tid].agg.state) {
 	case IWL_EMPTYING_HW_QUEUE_DELBA:
-		
+		/* There are no packets for this RA / TID in the HW any more */
 		if (tid_data->agg.ssn == tid_data->next_reclaimed) {
 			IWL_DEBUG_TX_QUEUES(priv,
 				"Can continue DELBA flow ssn = next_recl ="
@@ -593,7 +672,7 @@ static void iwlagn_check_ratid_empty(struct iwl_priv *priv, int sta_id, u8 tid)
 		}
 		break;
 	case IWL_EMPTYING_HW_QUEUE_ADDBA:
-		
+		/* There are no packets for this RA / TID in the HW any more */
 		if (tid_data->agg.ssn == tid_data->next_reclaimed) {
 			IWL_DEBUG_TX_QUEUES(priv,
 				"Can continue ADDBA flow ssn = next_recl ="
@@ -618,7 +697,7 @@ static void iwlagn_non_agg_tx_status(struct iwl_priv *priv,
 	sta = ieee80211_find_sta(ctx->vif, addr1);
 	if (sta) {
 		sta_priv = (void *)sta->drv_priv;
-		
+		/* avoid atomic ops if this isn't a client */
 		if (sta_priv->client &&
 		    atomic_dec_return(&sta_priv->pending_frames) == 0)
 			ieee80211_sta_block_awake(priv->hw, sta, false);
@@ -626,6 +705,9 @@ static void iwlagn_non_agg_tx_status(struct iwl_priv *priv,
 	rcu_read_unlock();
 }
 
+/**
+ * translate ucode response to mac80211 tx status control values
+ */
 static void iwlagn_hwrate_to_tx_control(struct iwl_priv *priv, u32 rate_n_flags,
 				  struct ieee80211_tx_info *info)
 {
@@ -684,7 +766,7 @@ const char *iwl_get_tx_fail_reason(u32 status)
 #undef TX_STATUS_FAIL
 #undef TX_STATUS_POSTPONE
 }
-#endif 
+#endif /* CONFIG_IWLWIFI_DEBUG */
 
 static void iwlagn_count_agg_tx_err_status(struct iwl_priv *priv, u16 status)
 {
@@ -754,6 +836,10 @@ static void iwl_rx_reply_tx_agg(struct iwl_priv *priv,
 	agg->rate_n_flags = le32_to_cpu(tx_resp->rate_n_flags);
 	agg->wait_for_ba = (tx_resp->frame_count > 1);
 
+	/*
+	 * If the BT kill count is non-zero, we'll get this
+	 * notification again.
+	 */
 	if (tx_resp->bt_kill_count && tx_resp->frame_count == 1 &&
 	    cfg(priv)->bt_params &&
 	    cfg(priv)->bt_params->advanced_bt_coexist) {
@@ -763,7 +849,7 @@ static void iwl_rx_reply_tx_agg(struct iwl_priv *priv,
 	if (tx_resp->frame_count == 1)
 		return;
 
-	
+	/* Construct bit-map of pending frames within Tx window */
 	for (i = 0; i < tx_resp->frame_count; i++) {
 		u16 fstatus = le16_to_cpu(frame_status[i].status);
 
@@ -807,7 +893,7 @@ const char *iwl_get_agg_tx_fail_reason(u16 status)
 
 	return "UNKNOWN";
 }
-#endif 
+#endif /* CONFIG_IWLWIFI_DEBUG */
 
 static inline u32 iwlagn_get_scd_ssn(struct iwlagn_tx_resp *tx_resp)
 {
@@ -956,6 +1042,17 @@ int iwlagn_rx_reply_tx(struct iwl_priv *priv, struct iwl_rx_cmd_buffer *rxb,
 		next_reclaimed = SEQ_TO_SN(next_reclaimed + 0x10);
 
 		if (is_agg) {
+			/* If this is an aggregation queue, we can rely on the
+			 * ssn since the wifi sequence number corresponds to
+			 * the index in the TFD ring (%256).
+			 * The seq_ctl is the sequence control of the packet
+			 * to which this Tx response relates. But if there is a
+			 * hole in the bitmap of the BA we received, this Tx
+			 * response may allow to reclaim the hole and all the
+			 * subsequent packets that were already acked.
+			 * In that case, seq_ctl != ssn, and the next packet
+			 * to be reclaimed will be ssn and not seq_ctl.
+			 */
 			next_reclaimed = ssn;
 		}
 
@@ -966,13 +1063,13 @@ int iwlagn_rx_reply_tx(struct iwl_priv *priv, struct iwl_rx_cmd_buffer *rxb,
 						  next_reclaimed);
 		}
 
-		
+		/*we can free until ssn % q.n_bd not inclusive */
 		WARN_ON(iwl_trans_reclaim(trans(priv), sta_id, tid,
 					  txq_id, ssn, &skbs));
 		iwlagn_check_ratid_empty(priv, sta_id, tid);
 		freed = 0;
 
-		
+		/* process frames */
 		skb_queue_walk(&skbs, skb) {
 			hdr = (struct ieee80211_hdr *)skb->data;
 
@@ -989,7 +1086,7 @@ int iwlagn_rx_reply_tx(struct iwl_priv *priv, struct iwl_rx_cmd_buffer *rxb,
 			if (status == TX_STATUS_FAIL_PASSIVE_NO_RX &&
 			    iwl_is_associated_ctx(ctx) && ctx->vif &&
 			    ctx->vif->type == NL80211_IFTYPE_STATION) {
-				
+				/* block and stop all queues */
 				priv->passive_no_rx = true;
 				IWL_DEBUG_TX_QUEUES(priv, "stop all queues: "
 						    "passive channel");
@@ -1009,7 +1106,7 @@ int iwlagn_rx_reply_tx(struct iwl_priv *priv, struct iwl_rx_cmd_buffer *rxb,
 					   tx_resp->frame_count, cmd_index);
 			}
 
-			
+			/* check if BAR is needed */
 			if (is_agg && !iwl_is_tx_success(status))
 				info->flags |= IEEE80211_TX_STAT_AMPDU_NO_BACK;
 			iwlagn_set_tx_status(priv, IEEE80211_SKB_CB(skb),
@@ -1034,6 +1131,12 @@ int iwlagn_rx_reply_tx(struct iwl_priv *priv, struct iwl_rx_cmd_buffer *rxb,
 	return 0;
 }
 
+/**
+ * iwlagn_rx_reply_compressed_ba - Handler for REPLY_COMPRESSED_BA
+ *
+ * Handles block-acknowledge notification from device, which reports success
+ * of frames sent via aggregation.
+ */
 int iwlagn_rx_reply_compressed_ba(struct iwl_priv *priv,
 				   struct iwl_rx_cmd_buffer *rxb,
 				   struct iwl_device_cmd *cmd)
@@ -1049,9 +1152,11 @@ int iwlagn_rx_reply_compressed_ba(struct iwl_priv *priv,
 	int tid;
 	int freed;
 
-	
+	/* "flow" corresponds to Tx queue */
 	u16 scd_flow = le16_to_cpu(ba_resp->scd_flow);
 
+	/* "ssn" is start of block-ack Tx window, corresponds to index
+	 * (in Tx queue's circular buffer) of first TFD/frame in window */
 	u16 ba_resp_scd_ssn = le16_to_cpu(ba_resp->scd_ssn);
 
 	if (scd_flow >= cfg(priv)->base_params->num_of_queues) {
@@ -1075,6 +1180,9 @@ int iwlagn_rx_reply_compressed_ba(struct iwl_priv *priv,
 
 	__skb_queue_head_init(&reclaimed_skbs);
 
+	/* Release all TFDs before the SSN, i.e. all TFDs in front of
+	 * block-ack window (we assume that they've been successfully
+	 * transmitted ... if not, it's too late anyway). */
 	if (iwl_trans_reclaim(trans(priv), sta_id, tid, scd_flow,
 			      ba_resp_scd_ssn, &reclaimed_skbs)) {
 		spin_unlock(&priv->sta_lock);
@@ -1092,14 +1200,18 @@ int iwlagn_rx_reply_compressed_ba(struct iwl_priv *priv,
 			   (unsigned long long)le64_to_cpu(ba_resp->bitmap),
 			   scd_flow, ba_resp_scd_ssn);
 
-	
+	/* Mark that the expected block-ack response arrived */
 	agg->wait_for_ba = false;
 
-	
+	/* Sanity check values reported by uCode */
 	if (ba_resp->txed_2_done > ba_resp->txed) {
 		IWL_DEBUG_TX_REPLY(priv,
 			"bogus sent(%d) and ack(%d) count\n",
 			ba_resp->txed, ba_resp->txed_2_done);
+		/*
+		 * set txed_2_done = txed,
+		 * so it won't impact rate scale
+		 */
 		ba_resp->txed = ba_resp->txed_2_done;
 	}
 	IWL_DEBUG_HT(priv, "agg frames sent:%d, acked:%d\n",
@@ -1122,8 +1234,8 @@ int iwlagn_rx_reply_compressed_ba(struct iwl_priv *priv,
 		kmem_cache_free(iwl_tx_cmd_pool, (info->driver_data[1]));
 
 		if (freed == 1) {
-			
-			
+			/* this is the first skb we deliver in this batch */
+			/* put the rate scaling data there */
 			info = IEEE80211_SKB_CB(skb);
 			memset(&info->status, 0, sizeof(info->status));
 			info->flags |= IEEE80211_TX_STAT_ACK;

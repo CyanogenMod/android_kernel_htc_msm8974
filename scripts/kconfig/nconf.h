@@ -75,6 +75,7 @@ typedef enum {
 
 void set_colors(void);
 
+/* this changes the windows attributes !!! */
 void print_in_middle(WINDOW *win,
 		int starty,
 		int startx,

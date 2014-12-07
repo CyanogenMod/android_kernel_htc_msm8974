@@ -84,7 +84,7 @@ void __init __sp804_clocksource_and_sched_clock_init(void __iomem *base,
 	if (rate < 0)
 		return;
 
-	
+	/* setup timer 0 as free-running clocksource */
 	writel(0, base + TIMER_CTRL);
 	writel(0xffffffff, base + TIMER_LOAD);
 	writel(0xffffffff, base + TIMER_VALUE);
@@ -104,11 +104,14 @@ void __init __sp804_clocksource_and_sched_clock_init(void __iomem *base,
 static void __iomem *clkevt_base;
 static unsigned long clkevt_reload;
 
+/*
+ * IRQ handler for the timer
+ */
 static irqreturn_t sp804_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = dev_id;
 
-	
+	/* clear the interrupt */
 	writel(1, clkevt_base + TIMER_INTCLR);
 
 	evt->event_handler(evt);
@@ -130,7 +133,7 @@ static void sp804_set_mode(enum clock_event_mode mode,
 		break;
 
 	case CLOCK_EVT_MODE_ONESHOT:
-		
+		/* period set, and timer enabled in 'next_event' hook */
 		ctrl |= TIMER_CTRL_ONESHOT;
 		break;
 

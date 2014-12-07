@@ -31,7 +31,7 @@ struct pcap_ts {
 	u8 read_state;
 };
 
-#define SAMPLE_DELAY	20 
+#define SAMPLE_DELAY	20 /* msecs */
 
 #define X_AXIS_MIN	0
 #define X_AXIS_MAX	1023
@@ -46,7 +46,7 @@ static void pcap_ts_read_xy(void *data, u16 res[2])
 
 	switch (pcap_ts->read_state) {
 	case PCAP_ADC_TS_M_PRESSURE:
-		
+		/* pressure reading is unreliable */
 		if (res[0] > PRESSURE_MIN && res[0] < PRESSURE_MAX)
 			pcap_ts->pressure = res[0];
 		pcap_ts->read_state = PCAP_ADC_TS_M_XY;
@@ -57,21 +57,21 @@ static void pcap_ts_read_xy(void *data, u16 res[2])
 		pcap_ts->x = res[1];
 		if (pcap_ts->x <= X_AXIS_MIN || pcap_ts->x >= X_AXIS_MAX ||
 		    pcap_ts->y <= Y_AXIS_MIN || pcap_ts->y >= Y_AXIS_MAX) {
-			
+			/* pen has been released */
 			input_report_abs(pcap_ts->input, ABS_PRESSURE, 0);
 			input_report_key(pcap_ts->input, BTN_TOUCH, 0);
 
 			pcap_ts->read_state = PCAP_ADC_TS_M_STANDBY;
 			schedule_delayed_work(&pcap_ts->work, 0);
 		} else {
-			
+			/* pen is touching the screen */
 			input_report_abs(pcap_ts->input, ABS_X, pcap_ts->x);
 			input_report_abs(pcap_ts->input, ABS_Y, pcap_ts->y);
 			input_report_key(pcap_ts->input, BTN_TOUCH, 1);
 			input_report_abs(pcap_ts->input, ABS_PRESSURE,
 						pcap_ts->pressure);
 
-			
+			/* switch back to pressure read mode */
 			pcap_ts->read_state = PCAP_ADC_TS_M_PRESSURE;
 			schedule_delayed_work(&pcap_ts->work,
 					msecs_to_jiffies(SAMPLE_DELAY));
@@ -98,7 +98,7 @@ static void pcap_ts_work(struct work_struct *work)
 	if (pcap_ts->read_state == PCAP_ADC_TS_M_STANDBY)
 		return;
 
-	
+	/* start adc conversion */
 	ch[0] = PCAP_ADC_CH_TS_X1;
 	ch[1] = PCAP_ADC_CH_TS_Y1;
 	pcap_adc_async(pcap_ts->pcap, PCAP_ADC_BANK_1, 0, ch,

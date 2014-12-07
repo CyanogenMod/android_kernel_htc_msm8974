@@ -14,11 +14,17 @@
 
 #include <asm/exceptions.h>
 
+/*
+ * register ID numbers in GDB remote protocol
+ */
 
 #define GDB_REGID_PC		9
 #define GDB_REGID_FP		7
 #define GDB_REGID_SP		8
 
+/*
+ * virtual stack layout for the GDB exception handler
+ */
 #define NUMREGS			64
 
 #define GDB_FR_D0		(0 * 4)
@@ -64,15 +70,19 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * This is the same as above, but for the high-level
+ * part of the GDB stub.
+ */
 
 struct gdb_regs {
-	
+	/* saved main processor registers */
 	u32	d0, d1, d2, d3, a0, a1, a2, a3;
 	u32	sp, pc, mdr, epsw, lir, lar, mdrq;
 	u32	e0, e1, e2, e3, e4, e5, e6, e7;
 	u32	ssp, msp, usp, mcrh, mcrl, mcvf;
 
-	
+	/* saved floating point registers */
 	u32	fpcr, _dummy0, _dummy1;
 	u32	fs0,  fs1,  fs2,  fs3,  fs4,  fs5,  fs6,  fs7;
 	u32	fs8,  fs9,  fs10, fs11, fs12, fs13, fs14, fs15;
@@ -80,6 +90,9 @@ struct gdb_regs {
 	u32	fs24, fs25, fs26, fs27, fs28, fs29, fs30, fs31;
 };
 
+/*
+ * Prototypes
+ */
 extern void show_registers_only(struct pt_regs *regs);
 
 extern asmlinkage void gdbstub_init(void);
@@ -103,6 +116,7 @@ extern asmlinkage void gdbstub_purge_cache(void);
 #define gdbstub_purge_cache()	do {} while (0)
 #endif
 
+/* Used to prevent crashes in memory access */
 extern asmlinkage int  gdbstub_read_byte(const u8 *, u8 *);
 extern asmlinkage int  gdbstub_read_word(const u8 *, u8 *);
 extern asmlinkage int  gdbstub_read_dword(const u8 *, u8 *);
@@ -164,5 +178,5 @@ void gdbstub_printk(const char *fmt, ...)
 #define gdbstub_bkpt(FMT, ...) no_printk(FMT, ##__VA_ARGS__)
 #endif
 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* _ASM_GDB_STUB_H */

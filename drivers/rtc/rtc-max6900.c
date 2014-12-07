@@ -19,22 +19,28 @@
 
 #define DRV_VERSION "0.2"
 
-#define MAX6900_REG_SC			0	
-#define MAX6900_REG_MN			1	
-#define MAX6900_REG_HR			2	
-#define MAX6900_REG_DT			3	
-#define MAX6900_REG_MO			4	
-#define MAX6900_REG_DW			5	
-#define MAX6900_REG_YR			6	
-#define MAX6900_REG_CT			7	
-						
-#define MAX6900_REG_CENTURY		9	
+/*
+ * register indices
+ */
+#define MAX6900_REG_SC			0	/* seconds      00-59 */
+#define MAX6900_REG_MN			1	/* minutes      00-59 */
+#define MAX6900_REG_HR			2	/* hours        00-23 */
+#define MAX6900_REG_DT			3	/* day of month 00-31 */
+#define MAX6900_REG_MO			4	/* month        01-12 */
+#define MAX6900_REG_DW			5	/* day of week   1-7  */
+#define MAX6900_REG_YR			6	/* year         00-99 */
+#define MAX6900_REG_CT			7	/* control */
+						/* register 8 is undocumented */
+#define MAX6900_REG_CENTURY		9	/* century */
 #define MAX6900_REG_LEN			10
 
-#define MAX6900_BURST_LEN		8	
+#define MAX6900_BURST_LEN		8	/* can burst r/w first 8 regs */
 
-#define MAX6900_REG_CT_WP		(1 << 7)	
+#define MAX6900_REG_CT_WP		(1 << 7)	/* Write Protect */
 
+/*
+ * register read/write commands
+ */
 #define MAX6900_REG_CONTROL_WRITE	0x8e
 #define MAX6900_REG_CENTURY_WRITE	0x92
 #define MAX6900_REG_CENTURY_READ	0x93
@@ -42,7 +48,7 @@
 #define MAX6900_REG_BURST_WRITE		0xbe
 #define MAX6900_REG_BURST_READ		0xbf
 
-#define MAX6900_IDLE_TIME_AFTER_WRITE	3	
+#define MAX6900_IDLE_TIME_AFTER_WRITE	3	/* specification says 2.5 mS */
 
 static struct i2c_driver max6900_driver;
 
@@ -53,7 +59,7 @@ static int max6900_i2c_read_regs(struct i2c_client *client, u8 *buf)
 	struct i2c_msg msgs[4] = {
 		{
 		 .addr = client->addr,
-		 .flags = 0,	
+		 .flags = 0,	/* write */
 		 .len = sizeof(reg_burst_read),
 		 .buf = reg_burst_read}
 		,
@@ -65,7 +71,7 @@ static int max6900_i2c_read_regs(struct i2c_client *client, u8 *buf)
 		,
 		{
 		 .addr = client->addr,
-		 .flags = 0,	
+		 .flags = 0,	/* write */
 		 .len = sizeof(reg_century_read),
 		 .buf = reg_century_read}
 		,
@@ -92,7 +98,7 @@ static int max6900_i2c_write_regs(struct i2c_client *client, u8 const *buf)
 	struct i2c_msg century_msgs[1] = {
 		{
 		 .addr = client->addr,
-		 .flags = 0,	
+		 .flags = 0,	/* write */
 		 .len = sizeof(i2c_century_buf),
 		 .buf = i2c_century_buf}
 	};
@@ -100,12 +106,18 @@ static int max6900_i2c_write_regs(struct i2c_client *client, u8 const *buf)
 	struct i2c_msg burst_msgs[1] = {
 		{
 		 .addr = client->addr,
-		 .flags = 0,	
+		 .flags = 0,	/* write */
 		 .len = sizeof(i2c_burst_buf),
 		 .buf = i2c_burst_buf}
 	};
 	int rc;
 
+	/*
+	 * We have to make separate calls to i2c_transfer because of
+	 * the need to delay after each write to the chip.  Also,
+	 * we write the century byte first, since we set the write-protect
+	 * bit as part of the burst write.
+	 */
 	i2c_century_buf[1] = buf[MAX6900_REG_CENTURY];
 
 	rc = i2c_transfer(client->adapter, century_msgs,
@@ -180,7 +192,7 @@ max6900_i2c_set_time(struct i2c_client *client, struct rtc_time const *tm)
 	regs[MAX6900_REG_DW] = bin2bcd(tm->tm_wday);
 	regs[MAX6900_REG_YR] = bin2bcd(tm->tm_year % 100);
 	regs[MAX6900_REG_CENTURY] = bin2bcd((tm->tm_year + 1900) / 100);
-	
+	/* set write protect */
 	regs[MAX6900_REG_CT] = MAX6900_REG_CT_WP;
 
 	rc = max6900_i2c_write_regs(client, regs);

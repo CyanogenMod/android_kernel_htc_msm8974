@@ -81,7 +81,7 @@ static void gpio_tilt_polled_open(struct input_polled_dev *dev)
 	if (pdata->enable)
 		pdata->enable(tdev->dev);
 
-	
+	/* report initial state of the axes */
 	tdev->last_state = -1;
 	tdev->count = tdev->threshold;
 	gpio_tilt_polled_poll(tdev->poll_dev);

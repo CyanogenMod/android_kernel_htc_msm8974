@@ -15,6 +15,7 @@
 
 #include <asm/amigayle.h>
 
+/* prototypes */
 
 void pcmcia_reset(void);
 int pcmcia_copy_tuple(unsigned char tuple_id, void *tuple, int max_len);
@@ -50,17 +51,20 @@ static inline void pcmcia_disable_irq(void)
 
 #define PCMCIA_INSERTED	(gayle.cardstatus & GAYLE_CS_CCDET)
 
+/* valid voltages for pcmcia_ProgramVoltage */
 
 #define PCMCIA_0V	0
 #define PCMCIA_5V	5
 #define PCMCIA_12V	12
 
+/* valid speeds for pcmcia_AccessSpeed */
 
 #define PCMCIA_SPEED_100NS	100
 #define PCMCIA_SPEED_150NS	150
 #define PCMCIA_SPEED_250NS	250
 #define PCMCIA_SPEED_720NS	720
 
+/* PCMCIA Tuple codes */
 
 #define CISTPL_NULL		0x00
 #define CISTPL_DEVICE		0x01
@@ -91,6 +95,7 @@ static inline void pcmcia_disable_irq(void)
 #define CISTPL_SWIL		0x23
 #define CISTPL_END		0xff
 
+/* FUNCID */
 
 #define CISTPL_FUNCID_MULTI	0x00
 #define CISTPL_FUNCID_MEMORY	0x01

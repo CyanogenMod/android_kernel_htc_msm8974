@@ -45,15 +45,46 @@ fp_fsqrt(struct fp_ext *dest, struct fp_ext *src)
 	if (IS_INF(dest))
 		return dest;
 
+	/*
+	 *		 sqrt(m) * 2^(p)	, if e = 2*p
+	 * sqrt(m*2^e) =
+	 *		 sqrt(2*m) * 2^(p)	, if e = 2*p + 1
+	 *
+	 * So we use the last bit of the exponent to decide wether to
+	 * use the m or 2*m.
+	 *
+	 * Since only the fractional part of the mantissa is stored and
+	 * the integer part is assumed to be one, we place a 1 or 2 into
+	 * the fixed point representation.
+	 */
 	exp = dest->exp;
 	dest->exp = 0x3FFF;
-	if (!(exp & 1))		
+	if (!(exp & 1))		/* lowest bit of exponent is set */
 		dest->exp++;
 	fp_copy_ext(&src2, dest);
 
+	/*
+	 * The taylor row around a for sqrt(x) is:
+	 *	sqrt(x) = sqrt(a) + 1/(2*sqrt(a))*(x-a) + R
+	 * With a=1 this gives:
+	 *	sqrt(x) = 1 + 1/2*(x-1)
+	 *		= 1/2*(1+x)
+	 */
 	fp_fadd(dest, &fp_one);
-	dest->exp--;		
+	dest->exp--;		/* * 1/2 */
 
+	/*
+	 * We now apply the newton rule to the function
+	 *	f(x) := x^2 - r
+	 * which has a null point on x = sqrt(r).
+	 *
+	 * It gives:
+	 *	x' := x - f(x)/f'(x)
+	 *	    = x - (x^2 -r)/(2*x)
+	 *	    = x - (x - r/x)/2
+	 *          = (2*x - x + r/x)/2
+	 *	    = (x + r/x)/2
+	 */
 	for (i = 0; i < 9; i++) {
 		fp_copy_ext(&tmp, &src2);
 

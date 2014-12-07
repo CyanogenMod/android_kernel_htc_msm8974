@@ -30,11 +30,11 @@
 #define USB_ROC_AHB_MODE     (MSM_USB_BASE + 0x0090)
 #define USB_SBUSCFG          (MSM_USB_BASE + 0x0090)
 
-#define USB_CAPLENGTH        (MSM_USB_BASE + 0x0100) 
-#define USB_HCIVERSION       (MSM_USB_BASE + 0x0102) 
+#define USB_CAPLENGTH        (MSM_USB_BASE + 0x0100) /* 8 bit */
+#define USB_HCIVERSION       (MSM_USB_BASE + 0x0102) /* 16 bit */
 #define USB_HCSPARAMS        (MSM_USB_BASE + 0x0104)
 #define USB_HCCPARAMS        (MSM_USB_BASE + 0x0108)
-#define USB_DCIVERSION       (MSM_USB_BASE + 0x0120) 
+#define USB_DCIVERSION       (MSM_USB_BASE + 0x0120) /* 16 bit */
 #define USB_USBCMD           (MSM_USB_BASE + 0x0140)
 #define USB_USBSTS           (MSM_USB_BASE + 0x0144)
 #define USB_USBINTR          (MSM_USB_BASE + 0x0148)
@@ -59,7 +59,7 @@
 
 #define USBCMD_RESET   2
 #define USBCMD_ATTACH  1
-#define USBCMD_RS	(1 << 0) 
+#define USBCMD_RS	(1 << 0) /* run/stop bit */
 #define USBCMD_ATDTW   (1 << 14)
 #define USBCMD_ITC(n)	(n << 16)
 #define USBCMD_ITC_MASK (0xFF << 16)
@@ -68,16 +68,17 @@
 
 #define USBMODE_DEVICE 2
 #define USBMODE_HOST   3
-#define USBMODE_VBUS	(1 << 5)	
+#define USBMODE_VBUS	(1 << 5)	/* vbus power select */
 
+/* Redefining SDIS bit as it defined incorrectly in ehci.h. */
 #ifdef USBMODE_SDIS
 #undef USBMODE_SDIS
 #endif
-#define USBMODE_SDIS	(1 << 4)	
+#define USBMODE_SDIS	(1 << 4)	/* stream disable */
 
 struct ept_queue_head {
     unsigned config;
-    unsigned active; 
+    unsigned active; /* read-only */
 
     unsigned next;
     unsigned info;
@@ -97,8 +98,8 @@ struct ept_queue_head {
 };
 
 #define CONFIG_MAX_PKT(n)     ((n) << 16)
-#define CONFIG_ZLT            (1 << 29)    
-#define CONFIG_IOS            (1 << 15)    
+#define CONFIG_ZLT            (1 << 29)    /* stop on zero-len xfer */
+#define CONFIG_IOS            (1 << 15)    /* IRQ on setup */
 #define CONFIG_MULT           (3 << 30)
 #define CONFIG_MULT_SHIFT     11
 
@@ -123,16 +124,17 @@ struct ept_queue_item {
 #define INFO_TXN_ERROR        (1 << 3)
 
 
-#define STS_NAKI              (1 << 16)  
-#define STS_SLI               (1 << 8)   
-#define STS_SRI               (1 << 7)   
-#define STS_URI               (1 << 6)   
-#define STS_FRI               (1 << 3)   
-#define STS_PCI               (1 << 2)   
-#define STS_UEI               (1 << 1)   
-#define STS_UI                (1 << 0)   
+#define STS_NAKI              (1 << 16)  /* */
+#define STS_SLI               (1 << 8)   /* R/WC - suspend state entered */
+#define STS_SRI               (1 << 7)   /* R/WC - SOF recv'd */
+#define STS_URI               (1 << 6)   /* R/WC - RESET recv'd */
+#define STS_FRI               (1 << 3)   /* R/WC - Frame List Rollover */
+#define STS_PCI               (1 << 2)   /* R/WC - Port Change Detect */
+#define STS_UEI               (1 << 1)   /* R/WC - USB Error */
+#define STS_UI                (1 << 0)   /* R/WC - USB Transaction Complete */
 
 
+/* bits used in all the endpoint status registers */
 #define EPT_TX(n) (1 << ((n) + 16))
 #define EPT_RX(n) (1 << (n))
 
@@ -199,20 +201,21 @@ struct ept_queue_item {
 #define ULPI_DATA(n)          ((n) & 255)
 #define ULPI_DATA_READ(n)     (((n) >> 8) & 255)
 
+/* USB_PORTSC bits for determining port speed */
 #define PORTSC_PSPD_FS        (0 << 26)
 #define PORTSC_PSPD_LS        (1 << 26)
 #define PORTSC_PSPD_HS        (2 << 26)
 #define PORTSC_PSPD_MASK      (3 << 26)
 
 
-#define OTGSC_BSVIE            (1 << 27) 
-#define OTGSC_DPIE             (1 << 30) 
-#define OTGSC_1MSE             (1 << 29) 
-#define OTGSC_BSEIE            (1 << 28) 
-#define OTGSC_ASVIE            (1 << 26) 
-#define OTGSC_ASEIE            (1 << 25) 
-#define OTGSC_IDIE             (1 << 24) 
-#define OTGSC_BSVIS            (1 << 19) 
+#define OTGSC_BSVIE            (1 << 27) /* R/W - BSV Interrupt Enable */
+#define OTGSC_DPIE             (1 << 30) /* R/W - DataPulse Interrupt Enable */
+#define OTGSC_1MSE             (1 << 29) /* R/W - 1ms Interrupt Enable */
+#define OTGSC_BSEIE            (1 << 28) /* R/W - BSE Interrupt Enable */
+#define OTGSC_ASVIE            (1 << 26) /* R/W - ASV Interrupt Enable */
+#define OTGSC_ASEIE            (1 << 25) /* R/W - ASE Interrupt Enable */
+#define OTGSC_IDIE             (1 << 24) /* R/W - ID Interrupt Enable */
+#define OTGSC_BSVIS            (1 << 19) /* R/W - BSV Interrupt Status */
 #define OTGSC_IDPU	       (1 << 5)
 #define OTGSC_ID               (1 << 8)
 #define OTGSC_IDIS             (1 << 16)
@@ -223,11 +226,11 @@ struct ept_queue_item {
 #define OTGSC_INTR_STS_MASK    (0x7f << 16)
 #define CURRENT_CONNECT_STATUS (1 << 0)
 
-#define PORTSC_FPR             (1 << 6)  
-#define PORTSC_SUSP            (1 << 7)  
-#define PORTSC_LS              (3 << 10) 
-#define PORTSC_PHCD	       (1 << 23) 
-#define PORTSC_CCS	       (1 << 0)  
+#define PORTSC_FPR             (1 << 6)  /* R/W - State normal => suspend */
+#define PORTSC_SUSP            (1 << 7)  /* Read - Port in suspend state */
+#define PORTSC_LS              (3 << 10) /* Read - Port's Line status */
+#define PORTSC_PHCD	       (1 << 23) /* phy suspend mode */
+#define PORTSC_CCS	       (1 << 0)  /* current connect status */
 #define PORTSC_PORT_RESET      0x00000100
 #define PORTSC_PTS		(3 << 30)
 #define PORTSC_PTS_ULPI		(2 << 30)
@@ -252,14 +255,17 @@ struct ept_queue_item {
 #define ULPI_VBUS_VALID_FALL          (1 << 1)
 
 #define ULPI_CHG_DETECT_REG     0x34
+/* control charger detection by ULPI or externally */
 #define ULPI_EXTCHGCTRL_65NM	(1 << 2)
 #define ULPI_EXTCHGCTRL_180NM	(1 << 3)
+/* charger detection power on control */
 #define ULPI_CHGDETON           (1 << 1)
- 
+ /* enable charger detection */
 #define ULPI_CHGDETEN           (1 << 0)
 #define ULPI_CHGTYPE_65NM	(1 << 3)
 #define ULPI_CHGTYPE_180NM	(1 << 4)
 
+/* test mode support */
 #define J_TEST			(0x0100)
 #define K_TEST			(0x0200)
 #define SE0_NAK_TEST		(0x0300)
@@ -279,4 +285,4 @@ struct ept_queue_item {
 #define ULPI_CLOCK_SUSPENDM     (1 << 3)
 #define ULPI_CALIB_STS          (1 << 7)
 #define ULPI_CALIB_VAL(x)       (x & 0x7C)
-#endif 
+#endif /* __LINUX_USB_GADGET_MSM72K_UDC_H__ */

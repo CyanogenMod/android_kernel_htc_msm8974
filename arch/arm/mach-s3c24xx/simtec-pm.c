@@ -36,12 +36,16 @@
 
 #define COPYRIGHT ", Copyright 2005 Simtec Electronics"
 
+/* pm_simtec_init
+ *
+ * enable the power management functions
+*/
 
 static __init int pm_simtec_init(void)
 {
 	unsigned long gstatus4;
 
-	
+	/* check which machine we are running on */
 
 	if (!machine_is_bast() && !machine_is_vr1000() &&
 	    !machine_is_anubis() && !machine_is_osiris() &&

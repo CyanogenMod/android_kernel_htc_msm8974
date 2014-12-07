@@ -66,6 +66,20 @@
 
 #define SCM_Q6_NMI_CMD		0x1
 
+/**
+ * struct q6v3_data - LPASS driver data
+ * @base: register base
+ * @cbase: clock base
+ * @wk_base: wakeup register base
+ * @wd_base: watchdog register base
+ * @irq: watchdog irq
+ * @pil: peripheral handle
+ * @subsys: subsystem restart handle
+ * @subsys_desc: subsystem restart descriptor
+ * @fatal_wrk: fatal error workqueue
+ * @pll: pll clock handle
+ * @ramdump_dev: ramdump device
+ */
 struct q6v3_data {
 	void __iomem *base;
 	void __iomem *cbase;
@@ -105,29 +119,29 @@ static int pil_q6v3_reset(struct pil_desc *pil)
 	struct q6v3_data *drv = dev_get_drvdata(pil->dev);
 	phys_addr_t start_addr = pil_get_entry_addr(pil);
 
-	
+	/* Put Q6 into reset */
 	reg = readl_relaxed(drv->cbase + LCC_Q6_FUNC);
 	reg |= Q6SS_SS_ARES | Q6SS_ISDB_ARES | Q6SS_ETM_ARES | STOP_CORE |
 		CORE_ARES;
 	reg &= ~CORE_GFM4_CLK_EN;
 	writel_relaxed(reg, drv->cbase + LCC_Q6_FUNC);
 
-	
+	/* Wait 8 AHB cycles for Q6 to be fully reset (AHB = 1.5Mhz) */
 	usleep_range(20, 30);
 
-	
+	/* Turn on Q6 memory */
 	reg |= CORE_GFM4_CLK_EN | CORE_L1_MEM_CORE_EN | CORE_TCM_MEM_CORE_EN |
 		CORE_TCM_MEM_PERPH_EN;
 	writel_relaxed(reg, drv->cbase + LCC_Q6_FUNC);
 
-	
+	/* Turn on Q6 core clocks and take core out of reset */
 	reg &= ~(CLAMP_IO | Q6SS_SS_ARES | Q6SS_ISDB_ARES | Q6SS_ETM_ARES |
 			CORE_ARES);
 	writel_relaxed(reg, drv->cbase + LCC_Q6_FUNC);
 
-	
+	/* Wait for clocks to be enabled */
 	mb();
-	
+	/* Program boot address */
 	writel_relaxed((start_addr >> 12) & 0xFFFFF,
 			drv->base + QDSP6SS_RST_EVB);
 
@@ -136,10 +150,10 @@ static int pil_q6v3_reset(struct pil_desc *pil)
 	writel_relaxed(Q6_STRAP_AHB_UPPER | Q6_STRAP_AHB_LOWER,
 			drv->base + QDSP6SS_STRAP_AHB);
 
-	
+	/* Wait for addresses to be programmed before starting Q6 */
 	mb();
 
-	
+	/* Start Q6 instruction execution */
 	reg &= ~STOP_CORE;
 	writel_relaxed(reg, drv->cbase + LCC_Q6_FUNC);
 
@@ -151,17 +165,17 @@ static int pil_q6v3_shutdown(struct pil_desc *pil)
 	u32 reg;
 	struct q6v3_data *drv = dev_get_drvdata(pil->dev);
 
-	
+	/* Put Q6 into reset */
 	reg = readl_relaxed(drv->cbase + LCC_Q6_FUNC);
 	reg |= Q6SS_SS_ARES | Q6SS_ISDB_ARES | Q6SS_ETM_ARES | STOP_CORE |
 		CORE_ARES;
 	reg &= ~CORE_GFM4_CLK_EN;
 	writel_relaxed(reg, drv->cbase + LCC_Q6_FUNC);
 
-	
+	/* Wait 8 AHB cycles for Q6 to be fully reset (AHB = 1.5Mhz) */
 	usleep_range(20, 30);
 
-	
+	/* Turn off Q6 memory */
 	reg &= ~(CORE_L1_MEM_CORE_EN | CORE_TCM_MEM_CORE_EN |
 		CORE_TCM_MEM_PERPH_EN);
 	writel_relaxed(reg, drv->cbase + LCC_Q6_FUNC);
@@ -214,12 +228,12 @@ static void q6_fatal_fn(struct work_struct *work)
 
 static void send_q6_nmi(struct q6v3_data *drv)
 {
-	
+	/* Send NMI to QDSP6 via an SCM call. */
 	scm_call_atomic1(SCM_SVC_UTIL, SCM_Q6_NMI_CMD, 0x1);
 
-	
+	/* Wakeup the Q6 */
 	writel_relaxed(0x2000, drv->wk_base + 0x1c);
-	
+	/* Q6 requires atleast 100ms to dump caches etc.*/
 	mdelay(100);
 	pr_info("Q6 NMI was sent.\n");
 }

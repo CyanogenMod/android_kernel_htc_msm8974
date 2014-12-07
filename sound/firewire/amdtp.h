@@ -5,10 +5,20 @@
 #include <linux/spinlock.h>
 #include "packets-buffer.h"
 
+/**
+ * enum cip_out_flags - describes details of the streaming protocol
+ * @CIP_NONBLOCKING: In non-blocking mode, each packet contains
+ *	sample_rate/8000 samples, with rounding up or down to adjust
+ *	for clock skew and left-over fractional samples.  This should
+ *	be used if supported by the device.
+ */
 enum cip_out_flags {
 	CIP_NONBLOCKING = 0,
 };
 
+/**
+ * enum cip_sfc - a stream's sample rate
+ */
 enum cip_sfc {
 	CIP_SFC_32000  = 0,
 	CIP_SFC_44100  = 1,
@@ -73,35 +83,78 @@ void amdtp_out_stream_set_pcm_format(struct amdtp_out_stream *s,
 				     snd_pcm_format_t format);
 void amdtp_out_stream_pcm_abort(struct amdtp_out_stream *s);
 
+/**
+ * amdtp_out_stream_set_pcm - configure format of PCM samples
+ * @s: the AMDTP output stream to be configured
+ * @pcm_channels: the number of PCM samples in each data block, to be encoded
+ *                as AM824 multi-bit linear audio
+ *
+ * This function must not be called while the stream is running.
+ */
 static inline void amdtp_out_stream_set_pcm(struct amdtp_out_stream *s,
 					    unsigned int pcm_channels)
 {
 	s->pcm_channels = pcm_channels;
 }
 
+/**
+ * amdtp_out_stream_set_midi - configure format of MIDI data
+ * @s: the AMDTP output stream to be configured
+ * @midi_ports: the number of MIDI ports (i.e., MPX-MIDI Data Channels)
+ *
+ * This function must not be called while the stream is running.
+ */
 static inline void amdtp_out_stream_set_midi(struct amdtp_out_stream *s,
 					     unsigned int midi_ports)
 {
 	s->midi_ports = midi_ports;
 }
 
+/**
+ * amdtp_out_streaming_error - check for streaming error
+ * @s: the AMDTP output stream
+ *
+ * If this function returns true, the stream's packet queue has stopped due to
+ * an asynchronous error.
+ */
 static inline bool amdtp_out_streaming_error(struct amdtp_out_stream *s)
 {
 	return s->packet_index < 0;
 }
 
+/**
+ * amdtp_out_stream_pcm_prepare - prepare PCM device for running
+ * @s: the AMDTP output stream
+ *
+ * This function should be called from the PCM device's .prepare callback.
+ */
 static inline void amdtp_out_stream_pcm_prepare(struct amdtp_out_stream *s)
 {
 	s->pcm_buffer_pointer = 0;
 	s->pcm_period_pointer = 0;
 }
 
+/**
+ * amdtp_out_stream_pcm_trigger - start/stop playback from a PCM device
+ * @s: the AMDTP output stream
+ * @pcm: the PCM device to be started, or %NULL to stop the current device
+ *
+ * Call this function on a running isochronous stream to enable the actual
+ * transmission of PCM data.  This function should be called from the PCM
+ * device's .trigger callback.
+ */
 static inline void amdtp_out_stream_pcm_trigger(struct amdtp_out_stream *s,
 						struct snd_pcm_substream *pcm)
 {
 	ACCESS_ONCE(s->pcm) = pcm;
 }
 
+/**
+ * amdtp_out_stream_pcm_pointer - get the PCM buffer position
+ * @s: the AMDTP output stream that transports the PCM data
+ *
+ * Returns the current buffer position, in frames.
+ */
 static inline unsigned long
 amdtp_out_stream_pcm_pointer(struct amdtp_out_stream *s)
 {

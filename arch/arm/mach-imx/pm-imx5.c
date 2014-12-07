@@ -20,13 +20,17 @@
 
 static struct clk *gpc_dvfs_clk;
 
+/*
+ * set cpu low power mode before WFI instruction. This function is called
+ * mx5 because it can be used for mx50, mx51, and mx53.
+ */
 void mx5_cpu_lp_set(enum mxc_cpu_pwr_mode mode)
 {
 	u32 plat_lpc, arm_srpgcr, ccm_clpcr;
 	u32 empgc0, empgc1;
 	int stop_mode = 0;
 
-	
+	/* always allow platform to issue a deep sleep mode request */
 	plat_lpc = __raw_readl(MXC_CORTEXA8_PLAT_LPC) &
 	    ~(MXC_CORTEXA8_PLAT_LPC_DSM);
 	ccm_clpcr = __raw_readl(MXC_CCM_CLPCR) & ~(MXC_CCM_CLPCR_LPM_MASK);
@@ -70,7 +74,7 @@ void mx5_cpu_lp_set(enum mxc_cpu_pwr_mode mode)
 	__raw_writel(ccm_clpcr, MXC_CCM_CLPCR);
 	__raw_writel(arm_srpgcr, MXC_SRPG_ARM_SRPGCR);
 
-	
+	/* Enable NEON SRPG for all but MX50TO1.0. */
 	if (mx50_revision() != IMX_CHIP_REVISION_1_0)
 		__raw_writel(arm_srpgcr, MXC_SRPG_NEON_SRPGCR);
 
@@ -105,7 +109,7 @@ static int mx5_suspend_enter(suspend_state_t state)
 		local_flush_tlb_all();
 		flush_cache_all();
 
-		
+		/*clear the EMPGC0/1 bits */
 		__raw_writel(0, MXC_SRPG_EMPGC0_SRPGCR);
 		__raw_writel(0, MXC_SRPG_EMPGC1_SRPGCR);
 	}

@@ -39,6 +39,11 @@ static struct smsc911x_platform_config gpmc_smsc911x_config = {
 	.irq_type	= SMSC911X_IRQ_TYPE_OPEN_DRAIN,
 };
 
+/*
+ * Initialize smsc911x device connected to the GPMC. Note that we
+ * assume that pin multiplexing is done in the board-*.c file,
+ * or in the bootloader.
+ */
 void __init gpmc_smsc911x_init(struct omap_smsc911x_platform_data *gpmc_cfg)
 {
 	struct platform_device *pdev;

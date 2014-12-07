@@ -22,6 +22,11 @@ File Name:		ilp0100_customer_iq_settings.c
 Author:			author name
 Description: 	definition of structures defined for IQ parameters
 ********************************************************************************/
+/*!
+ * \file	ilp0100_customer_iq_settings.c
+ * \brief	definition of structures defined for IQ parameters
+ * \author	sheena jain
+ */
 
 #include "ilp0100_customer_iq_settings.h"
 

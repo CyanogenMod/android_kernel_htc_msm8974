@@ -37,12 +37,12 @@ static irqreturn_t netx_handler(int irq, struct uio_info *dev_info)
 	void __iomem *int_status_reg = dev_info->mem[0].internal_addr
 					+ DPM_HOST_INT_STAT0;
 
-	
+	/* Is one of our interrupts enabled and active ? */
 	if (!(ioread32(int_enable_reg) & ioread32(int_status_reg)
 		& DPM_HOST_INT_MASK))
 		return IRQ_NONE;
 
-	
+	/* Disable interrupt */
 	iowrite32(ioread32(int_enable_reg) & ~DPM_HOST_INT_GLOBAL_EN,
 		int_enable_reg);
 	return IRQ_HANDLED;
@@ -78,7 +78,7 @@ static int __devinit netx_pci_probe(struct pci_dev *dev,
 		info->name = "netx_plx";
 	}
 
-	
+	/* BAR0 or 2 points to the card's dual port memory */
 	info->mem[0].addr = pci_resource_start(dev, bar);
 	if (!info->mem[0].addr)
 		goto out_release;
@@ -95,7 +95,7 @@ static int __devinit netx_pci_probe(struct pci_dev *dev,
 	info->handler = netx_handler;
 	info->version = "0.0.1";
 
-	
+	/* Make sure all interrupts are disabled */
 	iowrite32(0, info->mem[0].internal_addr + DPM_HOST_INT_EN0);
 
 	if (uio_register_device(&dev->dev, info))
@@ -122,7 +122,7 @@ static void netx_pci_remove(struct pci_dev *dev)
 {
 	struct uio_info *info = pci_get_drvdata(dev);
 
-	
+	/* Disable all interrupts */
 	iowrite32(0, info->mem[0].internal_addr + DPM_HOST_INT_EN0);
 	uio_unregister_device(info);
 	pci_release_regions(dev);

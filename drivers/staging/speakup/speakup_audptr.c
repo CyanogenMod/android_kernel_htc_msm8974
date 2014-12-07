@@ -27,8 +27,8 @@
 #include "serialio.h"
 
 #define DRV_VERSION "2.11"
-#define SYNTH_CLEAR 0x18 
-#define PROCSPEECH '\r' 
+#define SYNTH_CLEAR 0x18 /* flush synth buffer */
+#define PROCSPEECH '\r' /* start synth processing speech char */
 
 static int synth_probe(struct spk_synth *synth);
 static void synth_flush(struct spk_synth *synth);
@@ -45,6 +45,9 @@ static struct var_t vars[] = {
 	V_LAST_VAR
 };
 
+/*
+ * These attributes will appear in /sys/accessibility/speakup/audptr.
+ */
 static struct kobj_attribute caps_start_attribute =
 	__ATTR(caps_start, USER_RW, spk_var_show, spk_var_store);
 static struct kobj_attribute caps_stop_attribute =
@@ -71,6 +74,10 @@ static struct kobj_attribute jiffy_delta_attribute =
 static struct kobj_attribute trigger_time_attribute =
 	__ATTR(trigger_time, ROOT_W, spk_var_show, spk_var_store);
 
+/*
+ * Create a group of attributes so that we can create and destroy them all
+ * at once.
+ */
 static struct attribute *synth_attrs[] = {
 	&caps_start_attribute.attr,
 	&caps_stop_attribute.attr,
@@ -84,7 +91,7 @@ static struct attribute *synth_attrs[] = {
 	&full_time_attribute.attr,
 	&jiffy_delta_attribute.attr,
 	&trigger_time_attribute.attr,
-	NULL,	
+	NULL,	/* need to NULL terminate the list of attributes */
 };
 
 static struct spk_synth synth_audptr = {
@@ -142,7 +149,7 @@ static void synth_version(struct spk_synth *synth)
 	synth_id[test] = spk_serial_in();
 	if (synth_id[test] == 'A') {
 		do {
-			
+			/* read version string from synth */
 			synth_id[++test] = spk_serial_in();
 		} while (synth_id[test] != '\n' && test < 32);
 		synth_id[++test] = 0x00;

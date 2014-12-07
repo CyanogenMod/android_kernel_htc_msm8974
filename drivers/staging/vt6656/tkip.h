@@ -33,12 +33,18 @@
 #include "ttype.h"
 #include "tether.h"
 
+/*---------------------  Export Definitions -------------------------*/
 #define TKIP_KEY_LEN        16
 
+/*---------------------  Export Types  ------------------------------*/
 
+/*---------------------  Export Macros ------------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 void TKIPvMixKey(
     PBYTE   pbyTKey,
@@ -48,4 +54,4 @@ void TKIPvMixKey(
     PBYTE   pbyRC4Key
     );
 
-#endif 
+#endif /* __TKIP_H__ */

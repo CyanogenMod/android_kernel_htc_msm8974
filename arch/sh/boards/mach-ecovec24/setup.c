@@ -41,8 +41,32 @@
 #include <asm/suspend.h>
 #include <cpu/sh7724.h>
 
+/*
+ *  Address      Interface        BusWidth
+ *-----------------------------------------
+ *  0x0000_0000  uboot            16bit
+ *  0x0004_0000  Linux romImage   16bit
+ *  0x0014_0000  MTD for Linux    16bit
+ *  0x0400_0000  Internal I/O     16/32bit
+ *  0x0800_0000  DRAM             32bit
+ *  0x1800_0000  MFI              16bit
+ */
 
+/* SWITCH
+ *------------------------------
+ * DS2[1] = FlashROM write protect  ON     : write protect
+ *                                  OFF    : No write protect
+ * DS2[2] = RMII / TS, SCIF         ON     : RMII
+ *                                  OFF    : TS, SCIF3
+ * DS2[3] = Camera / Video          ON     : Camera
+ *                                  OFF    : NTSC/PAL (IN)
+ * DS2[5] = NTSC_OUT Clock          ON     : On board OSC
+ *                                  OFF    : SH7724 DV_CLK
+ * DS2[6-7] = MMC / SD              ON-OFF : SD
+ *                                  OFF-ON : MMC
+ */
 
+/* Heartbeat */
 static unsigned char led_pos[] = { 0, 1, 2, 3 };
 
 static struct heartbeat_data heartbeat_data = {
@@ -51,7 +75,7 @@ static struct heartbeat_data heartbeat_data = {
 };
 
 static struct resource heartbeat_resource = {
-	.start  = 0xA405012C, 
+	.start  = 0xA405012C, /* PTG */
 	.end    = 0xA405012E - 1,
 	.flags  = IORESOURCE_MEM | IORESOURCE_MEM_8BIT,
 };
@@ -66,12 +90,13 @@ static struct platform_device heartbeat_device = {
 	.resource       = &heartbeat_resource,
 };
 
+/* MTD */
 static struct mtd_partition nor_flash_partitions[] = {
 	{
 		.name = "boot loader",
 		.offset = 0,
 		.size = (5 * 1024 * 1024),
-		.mask_flags = MTD_WRITEABLE,  
+		.mask_flags = MTD_WRITEABLE,  /* force read-only */
 	}, {
 		.name = "free-area",
 		.offset = MTDPART_OFS_APPEND,
@@ -103,6 +128,7 @@ static struct platform_device nor_flash_device = {
 	},
 };
 
+/* SH Eth */
 #define SH_ETH_ADDR	(0xA4600000)
 static struct resource sh_eth_resources[] = {
 	[0] = {
@@ -117,7 +143,7 @@ static struct resource sh_eth_resources[] = {
 };
 
 static struct sh_eth_plat_data sh_eth_plat = {
-	.phy = 0x1f, 
+	.phy = 0x1f, /* SMSC LAN8700 */
 	.edmac_endian = EDMAC_LITTLE_ENDIAN,
 	.register_type = SH_ETH_REG_FAST_SH4,
 	.phy_interface = PHY_INTERFACE_MODE_MII,
@@ -134,6 +160,7 @@ static struct platform_device sh_eth_device = {
 	.resource = sh_eth_resources,
 };
 
+/* USB0 host */
 static void usb0_port_power(int port, int power)
 {
 	gpio_set_value(GPIO_PTB4, power);
@@ -161,7 +188,7 @@ static struct platform_device usb0_host_device = {
 	.name		= "r8a66597_hcd",
 	.id		= 0,
 	.dev = {
-		.dma_mask		= NULL,         
+		.dma_mask		= NULL,         /*  not use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &usb0_host_data,
 	},
@@ -169,6 +196,7 @@ static struct platform_device usb0_host_device = {
 	.resource	= usb0_host_resources,
 };
 
+/* USB1 host/function */
 static void usb1_port_power(int port, int power)
 {
 	gpio_set_value(GPIO_PTB5, power);
@@ -193,10 +221,10 @@ static struct resource usb1_common_resources[] = {
 };
 
 static struct platform_device usb1_common_device = {
-	
+	/* .name will be added in arch_setup */
 	.id		= 1,
 	.dev = {
-		.dma_mask		= NULL,         
+		.dma_mask		= NULL,         /*  not use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &usb1_common_data,
 	},
@@ -204,6 +232,9 @@ static struct platform_device usb1_common_device = {
 	.resource	= usb1_common_resources,
 };
 
+/*
+ * USBHS
+ */
 static int usbhs_get_id(struct platform_device *pdev)
 {
 	return gpio_get_value(GPIO_PTB3);
@@ -240,7 +271,7 @@ static struct platform_device usbhs_device = {
 	.name	= "renesas_usbhs",
 	.id	= 1,
 	.dev = {
-		.dma_mask		= NULL,         
+		.dma_mask		= NULL,         /*  not use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &usbhs_info,
 	},
@@ -248,6 +279,7 @@ static struct platform_device usbhs_device = {
 	.resource	= usbhs_resources,
 };
 
+/* LCDC */
 static const struct fb_videomode ecovec_lcd_modes[] = {
 	{
 		.name		= "Panel",
@@ -259,7 +291,7 @@ static const struct fb_videomode ecovec_lcd_modes[] = {
 		.upper_margin	= 20,
 		.lower_margin	= 5,
 		.vsync_len	= 5,
-		.sync		= 0, 
+		.sync		= 0, /* hsync and vsync are active low */
 	},
 };
 
@@ -274,7 +306,7 @@ static const struct fb_videomode ecovec_dvi_modes[] = {
 		.upper_margin	= 20,
 		.lower_margin	= 5,
 		.vsync_len	= 5,
-		.sync = 0, 
+		.sync = 0, /* hsync and vsync are active low */
 	},
 };
 
@@ -295,7 +327,7 @@ static struct sh_mobile_lcdc_info lcdc_info = {
 		.interface_type = RGB18,
 		.chan = LCDC_CHAN_MAINLCD,
 		.fourcc = V4L2_PIX_FMT_RGB565,
-		.panel_cfg = { 
+		.panel_cfg = { /* 7.0 inch */
 			.width = 152,
 			.height = 91,
 		},
@@ -330,6 +362,7 @@ static struct platform_device lcdc_device = {
 	},
 };
 
+/* CEU0 */
 static struct sh_mobile_ceu_info sh_mobile_ceu0_info = {
 	.flags = SH_CEU_FLAG_USE_8BIT_BUS,
 };
@@ -346,13 +379,13 @@ static struct resource ceu0_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
 static struct platform_device ceu0_device = {
 	.name		= "sh_mobile_ceu",
-	.id             = 0, 
+	.id             = 0, /* "ceu0" clock */
 	.num_resources	= ARRAY_SIZE(ceu0_resources),
 	.resource	= ceu0_resources,
 	.dev	= {
@@ -360,6 +393,7 @@ static struct platform_device ceu0_device = {
 	},
 };
 
+/* CEU1 */
 static struct sh_mobile_ceu_info sh_mobile_ceu1_info = {
 	.flags = SH_CEU_FLAG_USE_8BIT_BUS,
 };
@@ -376,13 +410,13 @@ static struct resource ceu1_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
 static struct platform_device ceu1_device = {
 	.name		= "sh_mobile_ceu",
-	.id             = 1, 
+	.id             = 1, /* "ceu1" clock */
 	.num_resources	= ARRAY_SIZE(ceu1_resources),
 	.resource	= ceu1_resources,
 	.dev	= {
@@ -390,6 +424,7 @@ static struct platform_device ceu1_device = {
 	},
 };
 
+/* I2C device */
 static struct i2c_board_info i2c0_devices[] = {
 	{
 		I2C_BOARD_INFO("da7210", 0x1a),
@@ -406,6 +441,7 @@ static struct i2c_board_info i2c1_devices[] = {
 	}
 };
 
+/* KEYSC */
 static struct sh_keysc_info keysc_info = {
 	.mode		= SH_KEYSC_MODE_1,
 	.scan_timing	= 3,
@@ -434,7 +470,7 @@ static struct resource keysc_resources[] = {
 
 static struct platform_device keysc_device = {
 	.name           = "sh_keysc",
-	.id             = 0, 
+	.id             = 0, /* keysc0 clock */
 	.num_resources  = ARRAY_SIZE(keysc_resources),
 	.resource       = keysc_resources,
 	.dev	= {
@@ -442,6 +478,7 @@ static struct platform_device keysc_device = {
 	},
 };
 
+/* TouchScreen */
 #define IRQ0 32
 static int ts_get_pendown_state(void)
 {
@@ -479,6 +516,7 @@ static struct i2c_board_info ts_i2c_clients = {
 };
 
 #if defined(CONFIG_MMC_SDHI) || defined(CONFIG_MMC_SDHI_MODULE)
+/* SDHI0 */
 static void sdhi0_set_pwr(struct platform_device *pdev, int state)
 {
 	gpio_set_value(GPIO_PTB6, state);
@@ -522,6 +560,7 @@ static struct platform_device sdhi0_device = {
 };
 
 #if !defined(CONFIG_MMC_SH_MMCIF) && !defined(CONFIG_MMC_SH_MMCIF_MODULE)
+/* SDHI1 */
 static void sdhi1_set_pwr(struct platform_device *pdev, int state)
 {
 	gpio_set_value(GPIO_PTB7, state);
@@ -563,10 +602,11 @@ static struct platform_device sdhi1_device = {
 		.platform_data	= &sdhi1_info,
 	},
 };
-#endif 
+#endif /* CONFIG_MMC_SH_MMCIF */
 
 #else
 
+/* MMC SPI */
 static int mmc_spi_get_ro(struct device *dev)
 {
 	return gpio_get_value(GPIO_PTY6);
@@ -586,7 +626,7 @@ static struct mmc_spi_platform_data mmc_spi_info = {
 	.get_ro = mmc_spi_get_ro,
 	.get_cd = mmc_spi_get_cd,
 	.caps = MMC_CAP_NEEDS_POLL,
-	.ocr_mask = MMC_VDD_32_33 | MMC_VDD_33_34, 
+	.ocr_mask = MMC_VDD_32_33 | MMC_VDD_33_34, /* 3.3V only */
 	.setpower = mmc_spi_setpower,
 };
 
@@ -600,6 +640,7 @@ static struct spi_board_info spi_bus[] = {
 	},
 };
 
+/* MSIOF0 */
 static struct sh_msiof_spi_info msiof0_data = {
 	.num_chipselect = 1,
 };
@@ -619,7 +660,7 @@ static struct resource msiof0_resources[] = {
 
 static struct platform_device msiof0_device = {
 	.name		= "spi_sh_msiof",
-	.id		= 0, 
+	.id		= 0, /* MSIOF0 */
 	.dev = {
 		.platform_data = &msiof0_data,
 	},
@@ -629,20 +670,22 @@ static struct platform_device msiof0_device = {
 
 #endif
 
+/* I2C Video/Camera */
 static struct i2c_board_info i2c_camera[] = {
 	{
 		I2C_BOARD_INFO("tw9910", 0x45),
 	},
 	{
-		
+		/* 1st camera */
 		I2C_BOARD_INFO("mt9t112", 0x3c),
 	},
 	{
-		
+		/* 2nd camera */
 		I2C_BOARD_INFO("mt9t112", 0x3c),
 	},
 };
 
+/* tw9910 */
 static int tw9910_power(struct device *dev, int mode)
 {
 	int val = mode ? 0 : 1;
@@ -667,6 +710,7 @@ static struct soc_camera_link tw9910_link = {
 	.priv		= &tw9910_info,
 };
 
+/* mt9t112 */
 static int mt9t112_power1(struct device *dev, int mode)
 {
 	gpio_set_value(GPIO_PTA3, mode);
@@ -678,7 +722,7 @@ static int mt9t112_power1(struct device *dev, int mode)
 
 static struct mt9t112_camera_info mt9t112_info1 = {
 	.flags = MT9T112_FLAG_PCLK_RISING_EDGE | MT9T112_FLAG_DATAWIDTH_8,
-	.divider = { 0x49, 0x6, 0, 6, 0, 9, 9, 6, 0 }, 
+	.divider = { 0x49, 0x6, 0, 6, 0, 9, 9, 6, 0 }, /* for 24MHz */
 };
 
 static struct soc_camera_link mt9t112_link1 = {
@@ -700,7 +744,7 @@ static int mt9t112_power2(struct device *dev, int mode)
 
 static struct mt9t112_camera_info mt9t112_info2 = {
 	.flags = MT9T112_FLAG_PCLK_RISING_EDGE | MT9T112_FLAG_DATAWIDTH_8,
-	.divider = { 0x49, 0x6, 0, 6, 0, 9, 9, 6, 0 }, 
+	.divider = { 0x49, 0x6, 0, 6, 0, 9, 9, 6, 0 }, /* for 24MHz */
 };
 
 static struct soc_camera_link mt9t112_link2 = {
@@ -735,6 +779,7 @@ static struct platform_device camera_devices[] = {
 	},
 };
 
+/* FSI */
 static struct sh_fsi_platform_info fsi_info = {
 	.port_b = {
 		.flags = SH_FSI_BRS_INV,
@@ -764,6 +809,7 @@ static struct platform_device fsi_device = {
 	},
 };
 
+/* IrDA */
 static struct resource irda_resources[] = {
 	[0] = {
 		.name	= "IrDA",
@@ -825,6 +871,7 @@ static struct platform_device vou_device = {
 };
 
 #if defined(CONFIG_MMC_SH_MMCIF) || defined(CONFIG_MMC_SH_MMCIF_MODULE)
+/* SH_MMCIF */
 static void mmcif_set_pwr(struct platform_device *pdev, int state)
 {
 	gpio_set_value(GPIO_PTB7, state);
@@ -843,12 +890,12 @@ static struct resource sh_mmcif_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* MMC2I */
 		.start	= 29,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* MMC3I */
 		.start	= 30,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -857,7 +904,7 @@ static struct resource sh_mmcif_resources[] = {
 static struct sh_mmcif_plat_data sh_mmcif_plat = {
 	.set_pwr	= mmcif_set_pwr,
 	.down_pwr	= mmcif_down_pwr,
-	.sup_pclk	= 0, 
+	.sup_pclk	= 0, /* SH7724: Max Pclk/2 */
 	.caps		= MMC_CAP_4_BIT_DATA |
 			  MMC_CAP_8_BIT_DATA |
 			  MMC_CAP_NEEDS_POLL,
@@ -942,7 +989,7 @@ static void __init sh_eth_init(struct sh_eth_plat_data *pd)
 		return;
 	}
 
-	
+	/* read MAC address from EEPROM */
 	for (i = 0; i < sizeof(pd->mac_addr); i++) {
 		pd->mac_addr[i] = mac_read(a, 0x10 + i);
 		msleep(10);
@@ -970,7 +1017,7 @@ static int __init arch_setup(void)
 	struct clk *clk;
 	bool cn12_enabled = false;
 
-	
+	/* register board specific self-refresh code */
 	sh_mobile_register_self_refresh(SUSP_SH_STANDBY | SUSP_SH_SF |
 					SUSP_SH_RSTANDBY,
 					&ecovec24_sdram_enter_start,
@@ -978,16 +1025,16 @@ static int __init arch_setup(void)
 					&ecovec24_sdram_leave_start,
 					&ecovec24_sdram_leave_end);
 
-	
+	/* enable STATUS0, STATUS2 and PDSTATUS */
 	gpio_request(GPIO_FN_STATUS0, NULL);
 	gpio_request(GPIO_FN_STATUS2, NULL);
 	gpio_request(GPIO_FN_PDSTATUS, NULL);
 
-	
+	/* enable SCIFA0 */
 	gpio_request(GPIO_FN_SCIF0_TXD, NULL);
 	gpio_request(GPIO_FN_SCIF0_RXD, NULL);
 
-	
+	/* enable debug LED */
 	gpio_request(GPIO_PTG0, NULL);
 	gpio_request(GPIO_PTG1, NULL);
 	gpio_request(GPIO_PTG2, NULL);
@@ -998,7 +1045,7 @@ static int __init arch_setup(void)
 	gpio_direction_output(GPIO_PTG3, 0);
 	__raw_writew((__raw_readw(PORT_HIZA) & ~(0x1 << 1)) , PORT_HIZA);
 
-	
+	/* enable SH-Eth */
 	gpio_request(GPIO_PTA1, NULL);
 	gpio_direction_output(GPIO_PTA1, 1);
 	mdelay(20);
@@ -1015,7 +1062,7 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_FN_MDC,          NULL);
 	gpio_request(GPIO_FN_LNKSTA,       NULL);
 
-	
+	/* enable USB */
 	__raw_writew(0x0000, 0xA4D80000);
 	__raw_writew(0x0000, 0xA4D90000);
 	gpio_request(GPIO_PTB3,  NULL);
@@ -1035,7 +1082,7 @@ static int __init arch_setup(void)
 		usb1_common_device.name = "r8a66597_hcd";
 	}
 
-	
+	/* enable LCDC */
 	gpio_request(GPIO_FN_LCDD23,   NULL);
 	gpio_request(GPIO_FN_LCDD22,   NULL);
 	gpio_request(GPIO_FN_LCDD21,   NULL);
@@ -1077,11 +1124,11 @@ static int __init arch_setup(void)
 	gpio_direction_output(GPIO_PTR1, 0);
 	gpio_direction_output(GPIO_PTA2, 0);
 
-	
+	/* I/O buffer drive ability is high */
 	__raw_writew((__raw_readw(IODRIVEA) & ~0x00c0) | 0x0080 , IODRIVEA);
 
 	if (gpio_get_value(GPIO_PTE6)) {
-		
+		/* DVI */
 		lcdc_info.clock_source			= LCDC_CLK_EXTERNAL;
 		lcdc_info.ch[0].clock_divider		= 1;
 		lcdc_info.ch[0].lcd_modes		= ecovec_dvi_modes;
@@ -1090,7 +1137,7 @@ static int __init arch_setup(void)
 		gpio_set_value(GPIO_PTA2, 1);
 		gpio_set_value(GPIO_PTU1, 1);
 	} else {
-		
+		/* Panel */
 		lcdc_info.clock_source			= LCDC_CLK_PERIPHERAL;
 		lcdc_info.ch[0].clock_divider		= 2;
 		lcdc_info.ch[0].lcd_modes		= ecovec_lcd_modes;
@@ -1098,15 +1145,21 @@ static int __init arch_setup(void)
 
 		gpio_set_value(GPIO_PTR1, 1);
 
+		/* FIXME
+		 *
+		 * LCDDON control is needed for Panel,
+		 * but current sh_mobile_lcdc driver doesn't control it.
+		 * It is temporary correspondence
+		 */
 		gpio_request(GPIO_PTF4, NULL);
 		gpio_direction_output(GPIO_PTF4, 1);
 
-		
+		/* enable TouchScreen */
 		i2c_register_board_info(0, &ts_i2c_clients, 1);
 		irq_set_irq_type(IRQ0, IRQ_TYPE_LEVEL_LOW);
 	}
 
-	
+	/* enable CEU0 */
 	gpio_request(GPIO_FN_VIO0_D15, NULL);
 	gpio_request(GPIO_FN_VIO0_D14, NULL);
 	gpio_request(GPIO_FN_VIO0_D13, NULL);
@@ -1129,7 +1182,7 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_FN_VIO0_HD,  NULL);
 	platform_resource_setup_memory(&ceu0_device, "ceu0", 4 << 20);
 
-	
+	/* enable CEU1 */
 	gpio_request(GPIO_FN_VIO1_D7,  NULL);
 	gpio_request(GPIO_FN_VIO1_D6,  NULL);
 	gpio_request(GPIO_FN_VIO1_D5,  NULL);
@@ -1144,7 +1197,7 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_FN_VIO1_CLK, NULL);
 	platform_resource_setup_memory(&ceu1_device, "ceu1", 4 << 20);
 
-	
+	/* enable KEYSC */
 	gpio_request(GPIO_FN_KEYOUT5_IN5, NULL);
 	gpio_request(GPIO_FN_KEYOUT4_IN6, NULL);
 	gpio_request(GPIO_FN_KEYOUT3,     NULL);
@@ -1153,7 +1206,7 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_FN_KEYOUT0,     NULL);
 	gpio_request(GPIO_FN_KEYIN0,      NULL);
 
-	
+	/* enable user debug switch */
 	gpio_request(GPIO_PTR0, NULL);
 	gpio_request(GPIO_PTR4, NULL);
 	gpio_request(GPIO_PTR5, NULL);
@@ -1163,13 +1216,13 @@ static int __init arch_setup(void)
 	gpio_direction_input(GPIO_PTR5);
 	gpio_direction_input(GPIO_PTR6);
 
-	
-	
+	/* SD-card slot CN11 */
+	/* Card-detect, used on CN11, either with SDHI0 or with SPI */
 	gpio_request(GPIO_PTY7, NULL);
 	gpio_direction_input(GPIO_PTY7);
 
 #if defined(CONFIG_MMC_SDHI) || defined(CONFIG_MMC_SDHI_MODULE)
-	
+	/* enable SDHI0 on CN11 (needs DS2.4 set to ON) */
 	gpio_request(GPIO_FN_SDHI0WP,  NULL);
 	gpio_request(GPIO_FN_SDHI0CMD, NULL);
 	gpio_request(GPIO_FN_SDHI0CLK, NULL);
@@ -1180,23 +1233,23 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_PTB6, NULL);
 	gpio_direction_output(GPIO_PTB6, 0);
 #else
-	
+	/* enable MSIOF0 on CN11 (needs DS2.4 set to OFF) */
 	gpio_request(GPIO_FN_MSIOF0_TXD, NULL);
 	gpio_request(GPIO_FN_MSIOF0_RXD, NULL);
 	gpio_request(GPIO_FN_MSIOF0_TSCK, NULL);
-	gpio_request(GPIO_PTM4, NULL); 
-	gpio_direction_output(GPIO_PTM4, 1); 
-	gpio_request(GPIO_PTB6, NULL); 
-	gpio_direction_output(GPIO_PTB6, 0); 
-	gpio_request(GPIO_PTY6, NULL); 
+	gpio_request(GPIO_PTM4, NULL); /* software CS control of TSYNC pin */
+	gpio_direction_output(GPIO_PTM4, 1); /* active low CS */
+	gpio_request(GPIO_PTB6, NULL); /* 3.3V power control */
+	gpio_direction_output(GPIO_PTB6, 0); /* disable power by default */
+	gpio_request(GPIO_PTY6, NULL); /* write protect */
 	gpio_direction_input(GPIO_PTY6);
 
 	spi_register_board_info(spi_bus, ARRAY_SIZE(spi_bus));
 #endif
 
-	
+	/* MMC/SD-card slot CN12 */
 #if defined(CONFIG_MMC_SH_MMCIF) || defined(CONFIG_MMC_SH_MMCIF_MODULE)
-	
+	/* enable MMCIF (needs DS2.6,7 set to OFF,ON) */
 	gpio_request(GPIO_FN_MMC_D7, NULL);
 	gpio_request(GPIO_FN_MMC_D6, NULL);
 	gpio_request(GPIO_FN_MMC_D5, NULL);
@@ -1212,7 +1265,7 @@ static int __init arch_setup(void)
 
 	cn12_enabled = true;
 #elif defined(CONFIG_MMC_SDHI) || defined(CONFIG_MMC_SDHI_MODULE)
-	
+	/* enable SDHI1 on CN12 (needs DS2.6,7 set to ON,OFF) */
 	gpio_request(GPIO_FN_SDHI1WP,  NULL);
 	gpio_request(GPIO_FN_SDHI1CMD, NULL);
 	gpio_request(GPIO_FN_SDHI1CLK, NULL);
@@ -1223,7 +1276,7 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_PTB7, NULL);
 	gpio_direction_output(GPIO_PTB7, 0);
 
-	
+	/* Card-detect, used on CN12 with SDHI1 */
 	gpio_request(GPIO_PTW7, NULL);
 	gpio_direction_input(GPIO_PTW7);
 
@@ -1231,21 +1284,21 @@ static int __init arch_setup(void)
 #endif
 
 	if (cn12_enabled)
-		
+		/* I/O buffer drive ability is high for CN12 */
 		__raw_writew((__raw_readw(IODRIVEA) & ~0x3000) | 0x2000,
 			     IODRIVEA);
 
-	
+	/* enable Video */
 	gpio_request(GPIO_PTU2, NULL);
 	gpio_direction_output(GPIO_PTU2, 1);
 
-	
+	/* enable Camera */
 	gpio_request(GPIO_PTA3, NULL);
 	gpio_request(GPIO_PTA4, NULL);
 	gpio_direction_output(GPIO_PTA3, 0);
 	gpio_direction_output(GPIO_PTA4, 0);
 
-	
+	/* enable FSI */
 	gpio_request(GPIO_FN_FSIMCKB,    NULL);
 	gpio_request(GPIO_FN_FSIIBSD,    NULL);
 	gpio_request(GPIO_FN_FSIOBSD,    NULL);
@@ -1255,17 +1308,17 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_FN_FSIOBLRCK,  NULL);
 	gpio_request(GPIO_FN_CLKAUDIOBO, NULL);
 
-	
+	/* set SPU2 clock to 83.4 MHz */
 	clk = clk_get(NULL, "spu_clk");
 	if (!IS_ERR(clk)) {
 		clk_set_rate(clk, clk_round_rate(clk, 83333333));
 		clk_put(clk);
 	}
 
-	
+	/* change parent of FSI B */
 	clk = clk_get(NULL, "fsib_clk");
 	if (!IS_ERR(clk)) {
-		
+		/* 48kHz dummy clock was used to make sure 1/1 divide */
 		clk_set_rate(&sh7724_fsimckb_clk, 48000);
 		clk_set_parent(clk, &sh7724_fsimckb_clk);
 		clk_set_rate(clk, 48000);
@@ -1276,24 +1329,24 @@ static int __init arch_setup(void)
 	gpio_direction_output(GPIO_PTU0, 0);
 	mdelay(20);
 
-	
+	/* enable motion sensor */
 	gpio_request(GPIO_FN_INTC_IRQ1, NULL);
 	gpio_direction_input(GPIO_FN_INTC_IRQ1);
 
-	
+	/* set VPU clock to 166 MHz */
 	clk = clk_get(NULL, "vpu_clk");
 	if (!IS_ERR(clk)) {
 		clk_set_rate(clk, clk_round_rate(clk, 166000000));
 		clk_put(clk);
 	}
 
-	
+	/* enable IrDA */
 	gpio_request(GPIO_FN_IRDA_OUT, NULL);
 	gpio_request(GPIO_FN_IRDA_IN,  NULL);
 	gpio_request(GPIO_PTU5, NULL);
 	gpio_direction_output(GPIO_PTU5, 0);
 
-	
+	/* enable I2C device */
 	i2c_register_board_info(0, i2c0_devices,
 				ARRAY_SIZE(i2c0_devices));
 
@@ -1301,7 +1354,7 @@ static int __init arch_setup(void)
 				ARRAY_SIZE(i2c1_devices));
 
 #if defined(CONFIG_VIDEO_SH_VOU) || defined(CONFIG_VIDEO_SH_VOU_MODULE)
-	
+	/* VOU */
 	gpio_request(GPIO_FN_DV_D15, NULL);
 	gpio_request(GPIO_FN_DV_D14, NULL);
 	gpio_request(GPIO_FN_DV_D13, NULL);
@@ -1315,22 +1368,22 @@ static int __init arch_setup(void)
 	gpio_request(GPIO_FN_DV_VSYNC, NULL);
 	gpio_request(GPIO_FN_DV_HSYNC, NULL);
 
-	
+	/* AK8813 power / reset sequence */
 	gpio_request(GPIO_PTG4, NULL);
 	gpio_request(GPIO_PTU3, NULL);
-	
+	/* Reset */
 	gpio_direction_output(GPIO_PTG4, 0);
-	
+	/* Power down */
 	gpio_direction_output(GPIO_PTU3, 1);
 
 	udelay(10);
 
-	
+	/* Power up, reset */
 	gpio_set_value(GPIO_PTU3, 0);
 
 	udelay(10);
 
-	
+	/* Remove reset */
 	gpio_set_value(GPIO_PTG4, 1);
 #endif
 

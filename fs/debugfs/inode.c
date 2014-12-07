@@ -62,6 +62,8 @@ static struct inode *debugfs_get_inode(struct super_block *sb, umode_t mode, dev
 			inode->i_fop = fops ? fops : &simple_dir_operations;
 			inode->i_private = data;
 
+			/* directory inodes start off with i_nlink == 2
+			 * (for "." entry) */
 			inc_nlink(inode);
 			break;
 		}
@@ -69,6 +71,7 @@ static struct inode *debugfs_get_inode(struct super_block *sb, umode_t mode, dev
 	return inode; 
 }
 
+/* SMP-safe */
 static int debugfs_mknod(struct inode *dir, struct dentry *dentry,
 			 umode_t mode, dev_t dev, void *data,
 			 const struct file_operations *fops)
@@ -180,6 +183,10 @@ static int debugfs_parse_options(char *data, struct debugfs_mount_opts *opts)
 				return -EINVAL;
 			opts->mode = option & S_IALLUGO;
 			break;
+		/*
+		 * We might like to report bad mount options here;
+		 * but traditionally debugfs has ignored all mount options
+		 */
 		}
 	}
 
@@ -294,6 +301,11 @@ static int debugfs_create_by_name(const char *name, umode_t mode,
 {
 	int error = 0;
 
+	/* If the parent is not specified, we create it in the root.
+	 * We need the root dentry to do this, which is in the super 
+	 * block. A pointer to that is in the struct vfsmount that we
+	 * have around.
+	 */
 	if (!parent)
 		parent = debugfs_mount->mnt_root;
 
@@ -323,6 +335,32 @@ static int debugfs_create_by_name(const char *name, umode_t mode,
 	return error;
 }
 
+/**
+ * debugfs_create_file - create a file in the debugfs filesystem
+ * @name: a pointer to a string containing the name of the file to create.
+ * @mode: the permission that the file should have.
+ * @parent: a pointer to the parent dentry for this file.  This should be a
+ *          directory dentry if set.  If this paramater is NULL, then the
+ *          file will be created in the root of the debugfs filesystem.
+ * @data: a pointer to something that the caller will want to get to later
+ *        on.  The inode.i_private pointer will point to this value on
+ *        the open() call.
+ * @fops: a pointer to a struct file_operations that should be used for
+ *        this file.
+ *
+ * This is the basic "create a file" function for debugfs.  It allows for a
+ * wide range of flexibility in creating a file, or a directory (if you want
+ * to create a directory, the debugfs_create_dir() function is
+ * recommended to be used instead.)
+ *
+ * This function will return a pointer to a dentry if it succeeds.  This
+ * pointer must be passed to the debugfs_remove() function when the file is
+ * to be removed (no automatic cleanup happens if your module is unloaded,
+ * you are responsible here.)  If an error occurs, %NULL will be returned.
+ *
+ * If debugfs is not enabled in the kernel, the value -%ENODEV will be
+ * returned.
+ */
 struct dentry *debugfs_create_file(const char *name, umode_t mode,
 				   struct dentry *parent, void *data,
 				   const struct file_operations *fops)
@@ -349,6 +387,24 @@ exit:
 }
 EXPORT_SYMBOL_GPL(debugfs_create_file);
 
+/**
+ * debugfs_create_dir - create a directory in the debugfs filesystem
+ * @name: a pointer to a string containing the name of the directory to
+ *        create.
+ * @parent: a pointer to the parent dentry for this file.  This should be a
+ *          directory dentry if set.  If this paramater is NULL, then the
+ *          directory will be created in the root of the debugfs filesystem.
+ *
+ * This function creates a directory in debugfs with the given name.
+ *
+ * This function will return a pointer to a dentry if it succeeds.  This
+ * pointer must be passed to the debugfs_remove() function when the file is
+ * to be removed (no automatic cleanup happens if your module is unloaded,
+ * you are responsible here.)  If an error occurs, %NULL will be returned.
+ *
+ * If debugfs is not enabled in the kernel, the value -%ENODEV will be
+ * returned.
+ */
 struct dentry *debugfs_create_dir(const char *name, struct dentry *parent)
 {
 	return debugfs_create_file(name, 
@@ -357,6 +413,29 @@ struct dentry *debugfs_create_dir(const char *name, struct dentry *parent)
 }
 EXPORT_SYMBOL_GPL(debugfs_create_dir);
 
+/**
+ * debugfs_create_symlink- create a symbolic link in the debugfs filesystem
+ * @name: a pointer to a string containing the name of the symbolic link to
+ *        create.
+ * @parent: a pointer to the parent dentry for this symbolic link.  This
+ *          should be a directory dentry if set.  If this paramater is NULL,
+ *          then the symbolic link will be created in the root of the debugfs
+ *          filesystem.
+ * @target: a pointer to a string containing the path to the target of the
+ *          symbolic link.
+ *
+ * This function creates a symbolic link with the given name in debugfs that
+ * links to the given target path.
+ *
+ * This function will return a pointer to a dentry if it succeeds.  This
+ * pointer must be passed to the debugfs_remove() function when the symbolic
+ * link is to be removed (no automatic cleanup happens if your module is
+ * unloaded, you are responsible here.)  If an error occurs, %NULL will be
+ * returned.
+ *
+ * If debugfs is not enabled in the kernel, the value -%ENODEV will be
+ * returned.
+ */
 struct dentry *debugfs_create_symlink(const char *name, struct dentry *parent,
 				      const char *target)
 {
@@ -388,7 +467,7 @@ static int __debugfs_remove(struct dentry *dentry, struct dentry *parent)
 				break;
 			case S_IFLNK:
 				kfree(dentry->d_inode->i_private);
-				
+				/* fall through */
 			default:
 				simple_unlink(parent->d_inode, dentry);
 				break;
@@ -401,6 +480,19 @@ static int __debugfs_remove(struct dentry *dentry, struct dentry *parent)
 	return ret;
 }
 
+/**
+ * debugfs_remove - removes a file or directory from the debugfs filesystem
+ * @dentry: a pointer to a the dentry of the file or directory to be
+ *          removed.
+ *
+ * This function removes a file or directory in debugfs that was previously
+ * created with a call to another debugfs function (like
+ * debugfs_create_file() or variants thereof.)
+ *
+ * This function is required to be called in order for the file to be
+ * removed, no automatic cleanup of files will happen when a module is
+ * removed, you are responsible here.
+ */
 void debugfs_remove(struct dentry *dentry)
 {
 	struct dentry *parent;
@@ -421,6 +513,18 @@ void debugfs_remove(struct dentry *dentry)
 }
 EXPORT_SYMBOL_GPL(debugfs_remove);
 
+/**
+ * debugfs_remove_recursive - recursively removes a directory
+ * @dentry: a pointer to a the dentry of the directory to be removed.
+ *
+ * This function recursively removes a directory tree in debugfs that
+ * was previously created with a call to another debugfs function
+ * (like debugfs_create_file() or variants thereof.)
+ *
+ * This function is required to be called in order for the file to be
+ * removed, no automatic cleanup of files will happen when a module is
+ * removed, you are responsible here.
+ */
 void debugfs_remove_recursive(struct dentry *dentry)
 {
 	struct dentry *child;
@@ -437,6 +541,10 @@ void debugfs_remove_recursive(struct dentry *dentry)
 	mutex_lock(&parent->d_inode->i_mutex);
 
 	while (1) {
+		/*
+		 * When all dentries under "parent" has been removed,
+		 * walk up the tree until we reach our starting point.
+		 */
 		if (list_empty(&parent->d_subdirs)) {
 			mutex_unlock(&parent->d_inode->i_mutex);
 			if (parent == dentry)
@@ -448,6 +556,10 @@ void debugfs_remove_recursive(struct dentry *dentry)
 				d_u.d_child);
  next_sibling:
 
+		/*
+		 * If "child" isn't empty, walk down the tree and
+		 * remove all its descendants first.
+		 */
 		if (!list_empty(&child->d_subdirs)) {
 			mutex_unlock(&parent->d_inode->i_mutex);
 			parent = child;
@@ -456,6 +568,9 @@ void debugfs_remove_recursive(struct dentry *dentry)
 		}
 		__debugfs_remove(child, parent);
 		if (parent->d_subdirs.next == &child->d_u.d_child) {
+			/*
+			 * Try the next sibling.
+			 */
 			if (child->d_u.d_child.next != &parent->d_subdirs) {
 				child = list_entry(child->d_u.d_child.next,
 						   struct dentry,
@@ -463,6 +578,10 @@ void debugfs_remove_recursive(struct dentry *dentry)
 				goto next_sibling;
 			}
 
+			/*
+			 * Avoid infinite loop if we fail to remove
+			 * one dentry.
+			 */
 			mutex_unlock(&parent->d_inode->i_mutex);
 			break;
 		}
@@ -477,6 +596,25 @@ void debugfs_remove_recursive(struct dentry *dentry)
 }
 EXPORT_SYMBOL_GPL(debugfs_remove_recursive);
 
+/**
+ * debugfs_rename - rename a file/directory in the debugfs filesystem
+ * @old_dir: a pointer to the parent dentry for the renamed object. This
+ *          should be a directory dentry.
+ * @old_dentry: dentry of an object to be renamed.
+ * @new_dir: a pointer to the parent dentry where the object should be
+ *          moved. This should be a directory dentry.
+ * @new_name: a pointer to a string containing the target name.
+ *
+ * This function renames a file/directory in debugfs.  The target must not
+ * exist for rename to succeed.
+ *
+ * This function will return a pointer to old_dentry (which is updated to
+ * reflect renaming) if it succeeds. If an error occurs, %NULL will be
+ * returned.
+ *
+ * If debugfs is not enabled in the kernel, the value -%ENODEV will be
+ * returned.
+ */
 struct dentry *debugfs_rename(struct dentry *old_dir, struct dentry *old_dentry,
 		struct dentry *new_dir, const char *new_name)
 {
@@ -485,15 +623,15 @@ struct dentry *debugfs_rename(struct dentry *old_dir, struct dentry *old_dentry,
 	const char *old_name;
 
 	trap = lock_rename(new_dir, old_dir);
-	
+	/* Source or destination directories don't exist? */
 	if (!old_dir->d_inode || !new_dir->d_inode)
 		goto exit;
-	
+	/* Source does not exist, cyclic rename, or mountpoint? */
 	if (!old_dentry->d_inode || old_dentry == trap ||
 	    d_mountpoint(old_dentry))
 		goto exit;
 	dentry = lookup_one_len(new_name, new_dir, strlen(new_name));
-	
+	/* Lookup failed, cyclic rename or target exists? */
 	if (IS_ERR(dentry) || dentry == trap || dentry->d_inode)
 		goto exit;
 
@@ -521,6 +659,9 @@ exit:
 }
 EXPORT_SYMBOL_GPL(debugfs_rename);
 
+/**
+ * debugfs_initialized - Tells whether debugfs has been registered
+ */
 bool debugfs_initialized(void)
 {
 	return debugfs_registered;

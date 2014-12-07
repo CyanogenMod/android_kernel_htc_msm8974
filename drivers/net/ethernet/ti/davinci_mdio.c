@@ -36,12 +36,17 @@
 #include <linux/io.h>
 #include <linux/davinci_emac.h>
 
-#define MDIO_TIMEOUT		100 
+/*
+ * This timeout definition is a worst-case ultra defensive measure against
+ * unexpected controller lock ups.  Ideally, we should never ever hit this
+ * scenario in practice.
+ */
+#define MDIO_TIMEOUT		100 /* msecs */
 
 #define PHY_REG_MASK		0x1f
 #define PHY_ID_MASK		0x1f
 
-#define DEF_OUT_FREQ		2200000		
+#define DEF_OUT_FREQ		2200000		/* 2.2 MHz */
 
 struct davinci_mdio_regs {
 	u32	version;
@@ -85,7 +90,7 @@ struct davinci_mdio_data {
 	struct device	*dev;
 	struct mii_bus	*bus;
 	bool		suspended;
-	unsigned long	access_time; 
+	unsigned long	access_time; /* jiffies */
 };
 
 static void __davinci_mdio_reset(struct davinci_mdio_data *data)
@@ -97,12 +102,24 @@ static void __davinci_mdio_reset(struct davinci_mdio_data *data)
 	if (div > CONTROL_MAX_DIV)
 		div = CONTROL_MAX_DIV;
 
-	
+	/* set enable and clock divider */
 	__raw_writel(div | CONTROL_ENABLE, &data->regs->control);
 
+	/*
+	 * One mdio transaction consists of:
+	 *	32 bits of preamble
+	 *	32 bits of transferred data
+	 *	24 bits of bus yield (not needed unless shared?)
+	 */
 	mdio_out_khz = mdio_in / (1000 * (div + 1));
 	access_time  = (88 * 1000) / mdio_out_khz;
 
+	/*
+	 * In the worst case, we could be kicking off a user-access immediately
+	 * after the mdio bus scan state-machine triggered its own read.  If
+	 * so, our request could get deferred by one access cycle.  We
+	 * defensively allow for 4 access cycles.
+	 */
 	data->access_time = usecs_to_jiffies(access_time * 4);
 	if (!data->access_time)
 		data->access_time = 1;
@@ -115,22 +132,22 @@ static int davinci_mdio_reset(struct mii_bus *bus)
 
 	__davinci_mdio_reset(data);
 
-	
+	/* wait for scan logic to settle */
 	msleep(PHY_MAX_ADDR * data->access_time);
 
-	
+	/* dump hardware version info */
 	ver = __raw_readl(&data->regs->version);
 	dev_info(data->dev, "davinci mdio revision %d.%d\n",
 		 (ver >> 8) & 0xff, ver & 0xff);
 
-	
+	/* get phy mask from the alive register */
 	phy_mask = __raw_readl(&data->regs->alive);
 	if (phy_mask) {
-		
+		/* restrict mdio bus to live phys only */
 		dev_info(data->dev, "detected phy mask %x\n", ~phy_mask);
 		phy_mask = ~phy_mask;
 	} else {
-		
+		/* desperately scan all phys */
 		dev_warn(data->dev, "no live phy, scanning all\n");
 		phy_mask = 0;
 	}
@@ -139,6 +156,7 @@ static int davinci_mdio_reset(struct mii_bus *bus)
 	return 0;
 }
 
+/* wait until hardware is ready for another user access */
 static inline int wait_for_user_access(struct davinci_mdio_data *data)
 {
 	struct davinci_mdio_regs __iomem *regs = data->regs;
@@ -154,6 +172,11 @@ static inline int wait_for_user_access(struct davinci_mdio_data *data)
 		if ((reg & CONTROL_IDLE) == 0)
 			continue;
 
+		/*
+		 * An emac soft_reset may have clobbered the mdio controller's
+		 * state machine.  We need to reset and retry the current
+		 * operation
+		 */
 		dev_warn(data->dev, "resetting idled controller\n");
 		__davinci_mdio_reset(data);
 		return -EAGAIN;
@@ -167,6 +190,7 @@ static inline int wait_for_user_access(struct davinci_mdio_data *data)
 	return -ETIMEDOUT;
 }
 
+/* wait until hardware state machine is idle */
 static inline int wait_for_idle(struct davinci_mdio_data *data)
 {
 	struct davinci_mdio_regs __iomem *regs = data->regs;
@@ -333,12 +357,12 @@ static int __devinit davinci_mdio_probe(struct platform_device *pdev)
 		goto bail_out;
 	}
 
-	
+	/* register the mii bus */
 	ret = mdiobus_register(data->bus);
 	if (ret)
 		goto bail_out;
 
-	
+	/* scan and dump the bus */
 	for (addr = 0; addr < PHY_MAX_ADDR; addr++) {
 		phy = data->bus->phy_map[addr];
 		if (phy) {
@@ -391,7 +415,7 @@ static int davinci_mdio_suspend(struct device *dev)
 
 	spin_lock(&data->lock);
 
-	
+	/* shutdown the scan state machine */
 	ctrl = __raw_readl(&data->regs->control);
 	ctrl &= ~CONTROL_ENABLE;
 	__raw_writel(ctrl, &data->regs->control);
@@ -415,7 +439,7 @@ static int davinci_mdio_resume(struct device *dev)
 	if (data->clk)
 		clk_enable(data->clk);
 
-	
+	/* restart the scan state machine */
 	ctrl = __raw_readl(&data->regs->control);
 	ctrl |= CONTROL_ENABLE;
 	__raw_writel(ctrl, &data->regs->control);

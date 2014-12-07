@@ -51,19 +51,22 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long palmtx_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 	GPIO112_MMC_CMD,
-	GPIO14_GPIO,	
-	GPIO114_GPIO,	
-	GPIO115_GPIO,	
+	GPIO14_GPIO,	/* SD detect */
+	GPIO114_GPIO,	/* SD power */
+	GPIO115_GPIO,	/* SD r/o switch */
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -71,19 +74,19 @@ static unsigned long palmtx_pin_config[] __initdata = {
 	GPIO89_AC97_SYSCLK,
 	GPIO95_AC97_nRESET,
 
-	
-	GPIO40_GPIO,	
+	/* IrDA */
+	GPIO40_GPIO,	/* ir disable */
 	GPIO46_FICP_RXD,
 	GPIO47_FICP_TXD,
 
-	
+	/* PWM */
 	GPIO16_PWM0_OUT,
 
-	
-	GPIO13_GPIO,	
-	GPIO93_GPIO,	
+	/* USB */
+	GPIO13_GPIO,	/* usb detect */
+	GPIO93_GPIO,	/* usb power */
 
-	
+	/* PCMCIA */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -94,11 +97,11 @@ static unsigned long palmtx_pin_config[] __initdata = {
 	GPIO55_nPREG,
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
-	GPIO94_GPIO,	
-	GPIO108_GPIO,	
-	GPIO116_GPIO,	
+	GPIO94_GPIO,	/* wifi power 1 */
+	GPIO108_GPIO,	/* wifi power 2 */
+	GPIO116_GPIO,	/* wifi ready */
 
-	
+	/* MATRIX KEYPAD */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
@@ -107,23 +110,26 @@ static unsigned long palmtx_pin_config[] __initdata = {
 	GPIO104_KP_MKOUT_1,
 	GPIO105_KP_MKOUT_2,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* FFUART */
 	GPIO34_FFUART_RXD,
 	GPIO39_FFUART_TXD,
 
-	
+	/* NAND */
 	GPIO15_nCS_1,
 	GPIO18_RDY,
 
-	
-	GPIO10_GPIO,	
-	GPIO12_GPIO,	
-	GPIO107_GPIO,	
+	/* MISC. */
+	GPIO10_GPIO,	/* hotsync button */
+	GPIO12_GPIO,	/* power detect */
+	GPIO107_GPIO,	/* earphone detect */
 };
 
+/******************************************************************************
+ * NOR Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_PHYSMAP) || defined(CONFIG_MTD_PHYSMAP_MODULE)
 static struct mtd_partition palmtx_partitions[] = {
 	{
@@ -136,7 +142,7 @@ static struct mtd_partition palmtx_partitions[] = {
 
 static struct physmap_flash_data palmtx_flash_data[] = {
 	{
-		.width		= 2,			
+		.width		= 2,			/* bankwidth in bytes */
 		.parts		= palmtx_partitions,
 		.nr_parts	= ARRAY_SIZE(palmtx_partitions)
 	}
@@ -166,6 +172,9 @@ static void __init palmtx_nor_init(void)
 static inline void palmtx_nor_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keyboard
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int palmtx_matrix_keys[] = {
 	KEY(0, 0, KEY_POWER),
@@ -200,6 +209,9 @@ static void __init palmtx_kpc_init(void)
 static inline void palmtx_kpc_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button palmtx_pxa_buttons[] = {
 	{KEY_F8, GPIO_NR_PALMTX_HOTSYNC_BUTTON_N, 1, "HotSync Button" },
@@ -226,6 +238,9 @@ static void __init palmtx_keys_init(void)
 static inline void palmtx_keys_init(void) {}
 #endif
 
+/******************************************************************************
+ * NAND Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_NAND_PLATFORM) || \
 	defined(CONFIG_MTD_NAND_PLATFORM_MODULE)
 static void palmtx_nand_cmd_ctl(struct mtd_info *mtd, int cmd,
@@ -295,6 +310,9 @@ static void __init palmtx_nand_init(void)
 static inline void palmtx_nand_init(void) {}
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static struct map_desc palmtx_io_desc[] __initdata = {
 {
 	.virtual	= (unsigned long)PALMTX_PCMCIA_VIRT,

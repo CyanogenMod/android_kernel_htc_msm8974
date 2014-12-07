@@ -28,7 +28,7 @@
 
 struct arch_hw_breakpoint {
 	bool		extraneous_interrupt;
-	u8		len; 
+	u8		len; /* length of the target data symbol */
 	int		type;
 	unsigned long	address;
 };
@@ -42,6 +42,7 @@ struct pmu;
 struct perf_sample_data;
 
 #define HW_BREAKPOINT_ALIGN 0x7
+/* Maximum permissible length of any HW Breakpoint */
 #define HW_BREAKPOINT_LEN 0x8
 
 extern int hw_breakpoint_slots(int type);
@@ -64,10 +65,10 @@ static inline void hw_breakpoint_disable(void)
 }
 extern void thread_change_pc(struct task_struct *tsk, struct pt_regs *regs);
 
-#else	
+#else	/* CONFIG_HAVE_HW_BREAKPOINT */
 static inline void hw_breakpoint_disable(void) { }
 static inline void thread_change_pc(struct task_struct *tsk,
 					struct pt_regs *regs) { }
-#endif	
-#endif	
-#endif	
+#endif	/* CONFIG_HAVE_HW_BREAKPOINT */
+#endif	/* __KERNEL__ */
+#endif	/* _PPC_BOOK3S_64_HW_BREAKPOINT_H */

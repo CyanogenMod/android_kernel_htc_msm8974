@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -153,7 +153,7 @@ static struct msm_camera_i2c_reg_conf hi256_recommend_settings[] = {
 
 	{0x03, 0x00},
 	{0x10, 0x13},
-	{0x11, 0x90}, 
+	{0x11, 0x90}, /* no H/V flip */
 	{0x12, 0x00},
 	{0x0b, 0xaa},
 	{0x0c, 0xaa},
@@ -1162,7 +1162,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_sharpness[7][9] = {
 		{0x91, 0x00},
 		{0x94, 0x24},
 		{0x95, 0x65},
-	}, 
+	}, /* SHARPNESS LEVEL 0*/
 	{
 		{0x03, 0x13},
 		{0x20, 0x04},
@@ -1173,7 +1173,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_sharpness[7][9] = {
 		{0x91, 0x08},
 		{0x94, 0x24},
 		{0x95, 0x65},
-	}, 
+	}, /* SHARPNESS LEVEL 1*/
 	{
 		{0x03, 0x13},
 		{0x20, 0x08},
@@ -1184,7 +1184,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_sharpness[7][9] = {
 		{0x91, 0x32},
 		{0x94, 0x04},
 		{0x95, 0x0a},
-	}, 
+	}, /* SHARPNESS LEVEL 2*/
 	{
 		{0x03, 0x13},
 		{0x20, 0x15},
@@ -1195,7 +1195,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_sharpness[7][9] = {
 		{0x91, 0x05},
 		{0x94, 0x10},
 		{0x95, 0x5a},
-	}, 
+	}, /* SHARPNESS LEVEL 3*/
 	{
 		{0x03, 0x13},
 		{0x20, 0x15},
@@ -1206,7 +1206,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_sharpness[7][9] = {
 		{0x91, 0xaf},
 		{0x94, 0x24},
 		{0x95, 0x65},
-	}, 
+	}, /* SHARPNESS LEVEL 4*/
 	{
 		{0x03, 0x13},
 		{0x20, 0x20},
@@ -1217,7 +1217,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_sharpness[7][9] = {
 		{0x91, 0xdf},
 		{0x94, 0x24},
 		{0x95, 0x65},
-	}, 
+	}, /* SHARPNESS LEVEL 5*/
 	{
 		{0x03, 0x13},
 		{0x20, 0x25},
@@ -1228,47 +1228,47 @@ static struct msm_camera_i2c_reg_conf HI256_reg_sharpness[7][9] = {
 		{0x91, 0xff},
 		{0x94, 0x24},
 		{0x95, 0x65},
-	}, 
+	}, /* SHARPNESS LEVEL 6*/
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_iso[7][3] = {
-	
+	/* auto */
 	{
 		{0x03, 0x20},
 		{0x10, 0x9c},
 		{0xb0, 0x18},
 	},
-	
+	/* auto hjt */
 	{
 		{0x03, 0x20},
 		{0x10, 0x9c},
 		{0xb0, 0x18},
 	},
-	
+	/* iso 100 */
 	{
 		{0x03, 0x20},
 		{0x10, 0x0c},
 		{0xb0, 0x1B},
 	},
-	
+	/* iso 200 */
 	{
 		{0x03, 0x20},
 		{0x10, 0x0c},
 		{0xb0, 0x35},
 	},
-	
+	/* iso 400 */
 	{
 		{0x03, 0x20},
 		{0x10, 0x0c},
 		{0xb0, 0x65},
 	},
-	
+	/* iso 800 */
 	{
 		{0x03, 0x20},
 		{0x10, 0x0c},
 		{0xb0, 0x95},
 	},
-	
+	/* iso 1600 */
 	{
 		{0x03, 0x20},
 		{0x10, 0x0c},
@@ -1277,27 +1277,27 @@ static struct msm_camera_i2c_reg_conf HI256_reg_iso[7][3] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_exposure_compensation[5][2] = {
-	
+	/* -2 */
 	{
 		{0x03, 0x10},
 		{0x40, 0x94},
 	},
-	
+	/* -1 */
 	{
 		{0x03, 0x10},
 		{0x40, 0x80},
 	},
-	
+	/* 0 */
 	{
 		{0x03, 0x10},
 		{0x40, 0x14},
 	},
-	
+	/* 1 */
 	{
 		{0x03, 0x10},
 		{0x40, 0x24},
 	},
-	
+	/* 2 */
 	{
 		{0x03, 0x10},
 		{0x40, 0x34},
@@ -1305,22 +1305,22 @@ static struct msm_camera_i2c_reg_conf HI256_reg_exposure_compensation[5][2] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_antibanding[][2] = {
-	
+	/* OFF */
 	{
 		{0x03, 0x20},
 		{0x10, 0xcc},
 	},
-	
+	/* 50Hz */
 	{
 		{0x03, 0x20},
 		{0x10, 0x9c},
 	},
-	
+	/* 60Hz */
 	{
 		{0x03, 0x20},
 		{0x10, 0x8c},
 	},
-	
+	/* AUTO */
 	{
 		{0x03, 0x20},
 		{0x10, 0xcc},
@@ -1328,7 +1328,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_antibanding[][2] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_effect_normal[] = {
-	
+	/* normal: */
 	{0x03, 0x20},
 	{0x28, 0xe7},
 	{0x03, 0x10},
@@ -1340,7 +1340,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_effect_normal[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_effect_black_white[] = {
-	
+	/* B&W: */
 	{0x03, 0x20},
 	{0x28, 0xe7},
 	{0x03, 0x10},
@@ -1352,7 +1352,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_effect_black_white[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_effect_negative[] = {
-	
+	/* Negative: */
 	{0x03, 0x20},
 	{0x28, 0xe7},
 	{0x03, 0x10},
@@ -1363,7 +1363,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_effect_negative[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_effect_old_movie[] = {
-	
+	/* Sepia(antique): */
 	{0x03, 0x20},
 	{0x28, 0xe7},
 	{0x03, 0x10},
@@ -1385,7 +1385,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_effect_solarize[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_scene_auto[] = {
-	
+	/* <SCENE_auto> */
 	{0x03, 0x20},
 	{0x10, 0x1c},
 	{0x18, 0x38},
@@ -1397,7 +1397,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_scene_auto[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_scene_portrait[] = {
-	
+	/* <CAMTUNING_SCENE_PORTRAIT> */
 	{0x03, 0x20},
 	{0x10, 0x1c},
 	{0x18, 0x38},
@@ -1409,7 +1409,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_scene_portrait[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_scene_landscape[] = {
-	
+	/* <CAMTUNING_SCENE_LANDSCAPE> */
 	{0x03, 0x20},
 	{0x10, 0x1c},
 	{0x18, 0x38},
@@ -1421,7 +1421,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_scene_landscape[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_scene_night[] = {
-	
+	/* <SCENE_NIGHT> */
 	{0x03, 0x20},
 	{0x10, 0x1c},
 	{0x18, 0x38},
@@ -1433,7 +1433,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_scene_night[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_wb_auto[] = {
-	
+	/* Auto: */
 	{0x03, 0x22},
 	{0x11, 0x2e},
 	{0x83, 0x60},
@@ -1444,7 +1444,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_wb_auto[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_wb_sunny[] = {
-	
+	/* Sunny: */
 	{0x03, 0x22},
 	{0x11, 0x28},
 	{0x80, 0x33},
@@ -1456,7 +1456,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_wb_sunny[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_wb_cloudy[] = {
-	
+	/* Cloudy: */
 	{0x03, 0x22},
 	{0x11, 0x28},
 	{0x80, 0x49},
@@ -1468,7 +1468,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_wb_cloudy[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_wb_office[] = {
-	
+	/* Office: */
 	{0x03, 0x22},
 	{0x11, 0x28},
 	{0x80, 0x20},
@@ -1480,7 +1480,7 @@ static struct msm_camera_i2c_reg_conf HI256_reg_wb_office[] = {
 };
 
 static struct msm_camera_i2c_reg_conf HI256_reg_wb_home[] = {
-	
+	/* Home: */
 	{0x03, 0x22},
 	{0x11, 0x28},
 	{0x80, 0x29},
@@ -1781,6 +1781,10 @@ int32_t hi256_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		for (i = 0; i < SUB_MODULE_MAX; i++)
 			cdata->cfg.sensor_info.subdev_id[i] =
 				s_ctrl->sensordata->sensor_info->subdev_id[i];
+		cdata->cfg.sensor_info.is_mount_angle_valid =
+			s_ctrl->sensordata->sensor_info->is_mount_angle_valid;
+		cdata->cfg.sensor_info.sensor_mount_angle =
+			s_ctrl->sensordata->sensor_info->sensor_mount_angle;
 		CDBG("%s:%d sensor name %s\n", __func__, __LINE__,
 			cdata->cfg.sensor_info.sensor_name);
 		CDBG("%s:%d session id %d\n", __func__, __LINE__,
@@ -1788,6 +1792,10 @@ int32_t hi256_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		for (i = 0; i < SUB_MODULE_MAX; i++)
 			CDBG("%s:%d subdev_id[%d] %d\n", __func__, __LINE__, i,
 				cdata->cfg.sensor_info.subdev_id[i]);
+		CDBG("%s:%d mount angle valid %d value %d\n", __func__,
+			__LINE__, cdata->cfg.sensor_info.is_mount_angle_valid,
+			cdata->cfg.sensor_info.sensor_mount_angle);
+
 		break;
 	case CFG_SET_INIT_SETTING:
 		CDBG("init setting");
@@ -1823,8 +1831,12 @@ int32_t hi256_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			ARRAY_SIZE(hi256_start_settings));
 		break;
 	case CFG_GET_SENSOR_INIT_PARAMS:
-		cdata->cfg.sensor_init_params =
-			*s_ctrl->sensordata->sensor_init_params;
+		cdata->cfg.sensor_init_params.modes_supported =
+			s_ctrl->sensordata->sensor_info->modes_supported;
+		cdata->cfg.sensor_init_params.position =
+			s_ctrl->sensordata->sensor_info->position;
+		cdata->cfg.sensor_init_params.sensor_mount_angle =
+			s_ctrl->sensordata->sensor_info->sensor_mount_angle;
 		CDBG("%s:%d init params mode %d pos %d mount %d\n", __func__,
 			__LINE__,
 			cdata->cfg.sensor_init_params.modes_supported,
@@ -1842,17 +1854,17 @@ int32_t hi256_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			rc = -EFAULT;
 			break;
 		}
-		
+		/* Update sensor slave address */
 		if (sensor_slave_info.slave_addr) {
 			s_ctrl->sensor_i2c_client->cci_client->sid =
 				sensor_slave_info.slave_addr >> 1;
 		}
 
-		
+		/* Update sensor address type */
 		s_ctrl->sensor_i2c_client->addr_type =
 			sensor_slave_info.addr_type;
 
-		
+		/* Update power up / down sequence */
 		s_ctrl->power_setting_array =
 			sensor_slave_info.power_setting_array;
 		power_setting_array = &s_ctrl->power_setting_array;
@@ -1874,7 +1886,6 @@ int32_t hi256_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			rc = -EFAULT;
 			break;
 		}
-		s_ctrl->free_power_setting = true;
 		CDBG("%s sensor id %x\n", __func__,
 			sensor_slave_info.slave_addr);
 		CDBG("%s sensor addr type %d\n", __func__,

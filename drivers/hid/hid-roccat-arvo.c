@@ -11,6 +11,10 @@
  * any later version.
  */
 
+/*
+ * Roccat Arvo is a gamer keyboard with 5 macro keys that can be configured in
+ * 5 profiles.
+ */
 
 #include <linux/device.h>
 #include <linux/input.h>
@@ -120,6 +124,7 @@ static ssize_t arvo_sysfs_set_key_mask(struct device *dev,
 	return size;
 }
 
+/* retval is 1-5 on success, < 0 on error */
 static int arvo_get_actual_profile(struct usb_device *usb_dev)
 {
 	struct arvo_actual_profile temp_buf;

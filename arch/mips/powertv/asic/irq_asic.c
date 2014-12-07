@@ -80,7 +80,7 @@ void __init asic_irq_init(void)
 {
 	int i;
 
-	
+	/* set priority to 0 */
 	write_c0_status(read_c0_status() & ~(0x0000fc00));
 
 	asic_write(0, ien_int_0);
@@ -107,6 +107,9 @@ void __init asic_irq_init(void)
 
 	asic_write(0xf, int_int_scan);
 
+	/*
+	 * Initialize interrupt handlers.
+	 */
 	for (i = 0; i < NR_IRQS; i++)
 		irq_set_chip_and_handler(i, &asic_irq_chip, handle_level_irq);
 }

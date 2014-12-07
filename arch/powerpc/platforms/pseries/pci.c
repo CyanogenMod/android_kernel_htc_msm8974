@@ -35,6 +35,9 @@ void pcibios_name_device(struct pci_dev *dev)
 {
 	struct device_node *dn;
 
+	/*
+	 * Add IBM loc code (slot) as a prefix to the device names for service
+	 */
 	dn = pci_device_to_OF_node(dev);
 	if (dn) {
 		const char *loc_code = of_get_property(dn, "ibm,loc-code", 0);
@@ -73,6 +76,11 @@ void __init pSeries_final_fixup(void)
 	pci_addr_cache_build();
 }
 
+/*
+ * Assume the winbond 82c105 is the IDE controller on a
+ * p610/p615/p630. We should probably be more careful in case
+ * someone tries to plug in a similar adapter.
+ */
 static void fixup_winbond_82c105(struct pci_dev* dev)
 {
 	int i;
@@ -83,11 +91,11 @@ static void fixup_winbond_82c105(struct pci_dev* dev)
 
 	printk("Using INTC for W82c105 IDE controller.\n");
 	pci_read_config_dword(dev, 0x40, &reg);
-	
+	/* Enable LEGIRQ to use INTC instead of ISA interrupts */
 	pci_write_config_dword(dev, 0x40, reg | (1<<11));
 
 	for (i = 0; i < DEVICE_COUNT_RESOURCE; ++i) {
-		
+		/* zap the 2nd function of the winbond chip */
 		if (dev->resource[i].flags & IORESOURCE_IO
 		    && dev->bus->number == 0 && dev->devfn == 0x81)
 			dev->resource[i].flags &= ~IORESOURCE_IO;

@@ -10,7 +10,22 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * SPI driver for Qualcomm MSM platforms.
+ */
 
+/**
+ * msm_spi_platform_data: msm spi-controller's configuration data
+ *
+ * @active_only when set, votes when system active and removes the vote when
+ *       system goes idle (optimises for performance). When unset, voting using
+ *       runtime pm (optimizes for power).
+ * @master_id master id number of the controller's wrapper (BLSP or GSBI).
+ *       When zero, clock path voting is disabled.
+ * @rt when set, spi will pump transaction messages with high (realtime)
+ *	priority to reduce the transfer latency on the bus by minimising
+ *	the delay between a transfer request.
+ */
 struct msm_spi_platform_data {
 	u32 max_clock_speed;
 	bool active_only;
@@ -25,4 +40,5 @@ struct msm_spi_platform_data {
 	bool use_bam;
 	u32  bam_consumer_pipe_index;
 	u32  bam_producer_pipe_index;
+	bool rt_priority;
 };

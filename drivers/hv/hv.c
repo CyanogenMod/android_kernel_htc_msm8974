@@ -29,6 +29,7 @@
 #include <asm/hyperv.h>
 #include "hyperv_vmbus.h"
 
+/* The one and only */
 struct hv_context hv_context = {
 	.synic_initialized	= false,
 	.hypercall_page		= NULL,
@@ -36,6 +37,10 @@ struct hv_context hv_context = {
 	.signal_event_buffer	= NULL,
 };
 
+/*
+ * query_hypervisor_presence
+ * - Query the cpuid for presence of windows hypervisor
+ */
 static int query_hypervisor_presence(void)
 {
 	unsigned int eax;
@@ -54,6 +59,9 @@ static int query_hypervisor_presence(void)
 	return ecx & HV_PRESENT_BIT;
 }
 
+/*
+ * query_hypervisor_info - Get version info of the windows hypervisor
+ */
 static int query_hypervisor_info(void)
 {
 	unsigned int eax;
@@ -63,6 +71,10 @@ static int query_hypervisor_info(void)
 	unsigned int max_leaf;
 	unsigned int op;
 
+	/*
+	* Its assumed that this is called after confirming that Viridian
+	* is present. Query id and revision.
+	*/
 	eax = 0;
 	ebx = 0;
 	ecx = 0;
@@ -90,6 +102,9 @@ static int query_hypervisor_info(void)
 	return max_leaf;
 }
 
+/*
+ * do_hypercall- Invoke the specified hypercall
+ */
 static u64 do_hypercall(u64 control, void *input, void *output)
 {
 #ifdef CONFIG_X86_64
@@ -126,9 +141,14 @@ static u64 do_hypercall(u64 control, void *input, void *output)
 			      "S"(output_address_lo), "m" (hypercall_page));
 
 	return hv_status_lo | ((u64)hv_status_hi << 32);
-#endif 
+#endif /* !x86_64 */
 }
 
+/*
+ * hv_init - Main initialization routine.
+ *
+ * This routine must be called before any other routines in here are called
+ */
 int hv_init(void)
 {
 	int max_leaf;
@@ -144,11 +164,11 @@ int hv_init(void)
 
 	max_leaf = query_hypervisor_info();
 
-	
+	/* Write our OS info */
 	wrmsrl(HV_X64_MSR_GUEST_OS_ID, HV_LINUX_GUEST_ID);
 	hv_context.guestid = HV_LINUX_GUEST_ID;
 
-	
+	/* See if the hypercall page is already set */
 	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 
 	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
@@ -161,7 +181,7 @@ int hv_init(void)
 	hypercall_msr.guest_physical_address = vmalloc_to_pfn(virtaddr);
 	wrmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 
-	
+	/* Confirm that hypercall page did get setup. */
 	hypercall_msr.as_uint64 = 0;
 	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 
@@ -170,7 +190,7 @@ int hv_init(void)
 
 	hv_context.hypercall_page = virtaddr;
 
-	
+	/* Setup the global signal event param for the signal event hypercall */
 	hv_context.signal_event_buffer =
 			kmalloc(sizeof(struct hv_input_signal_event_buffer),
 				GFP_KERNEL);
@@ -203,11 +223,16 @@ cleanup:
 	return -ENOTSUPP;
 }
 
+/*
+ * hv_cleanup - Cleanup routine.
+ *
+ * This routine is called normally during driver unloading or exiting.
+ */
 void hv_cleanup(void)
 {
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 
-	
+	/* Reset our OS id */
 	wrmsrl(HV_X64_MSR_GUEST_OS_ID, 0);
 
 	kfree(hv_context.signal_event_buffer);
@@ -222,6 +247,11 @@ void hv_cleanup(void)
 	}
 }
 
+/*
+ * hv_post_message - Post a message using the hypervisor message IPC.
+ *
+ * This involves a hypercall.
+ */
 u16 hv_post_message(union hv_connection_id connection_id,
 		  enum hv_message_type message_type,
 		  void *payload, size_t payload_size)
@@ -259,6 +289,12 @@ u16 hv_post_message(union hv_connection_id connection_id,
 }
 
 
+/*
+ * hv_signal_event -
+ * Signal an event on the specified connection using the hypervisor event IPC.
+ *
+ * This involves a hypercall.
+ */
 u16 hv_signal_event(void)
 {
 	u16 status;
@@ -269,6 +305,13 @@ u16 hv_signal_event(void)
 	return status;
 }
 
+/*
+ * hv_synic_init - Initialize the Synthethic Interrupt Controller.
+ *
+ * If it is already initialized by another entity (ie x2v shim), we need to
+ * retrieve the initialized message and event pages.  Otherwise, we create and
+ * initialize the message and event pages.
+ */
 void hv_synic_init(void *irqarg)
 {
 	u64 version;
@@ -283,7 +326,7 @@ void hv_synic_init(void *irqarg)
 	if (!hv_context.hypercall_page)
 		return;
 
-	
+	/* Check the version */
 	rdmsrl(HV_X64_MSR_SVERSION, version);
 
 	hv_context.synic_message_page[cpu] =
@@ -302,7 +345,7 @@ void hv_synic_init(void *irqarg)
 		goto cleanup;
 	}
 
-	
+	/* Setup the Synic's message page */
 	rdmsrl(HV_X64_MSR_SIMP, simp.as_uint64);
 	simp.simp_enabled = 1;
 	simp.base_simp_gpa = virt_to_phys(hv_context.synic_message_page[cpu])
@@ -310,7 +353,7 @@ void hv_synic_init(void *irqarg)
 
 	wrmsrl(HV_X64_MSR_SIMP, simp.as_uint64);
 
-	
+	/* Setup the Synic's event page */
 	rdmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
 	siefp.siefp_enabled = 1;
 	siefp.base_siefp_gpa = virt_to_phys(hv_context.synic_event_page[cpu])
@@ -318,17 +361,17 @@ void hv_synic_init(void *irqarg)
 
 	wrmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
 
-	
+	/* Setup the shared SINT. */
 	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
 	shared_sint.as_uint64 = 0;
-	shared_sint.vector = irq_vector; 
+	shared_sint.vector = irq_vector; /* HV_SHARED_SINT_IDT_VECTOR + 0x20; */
 	shared_sint.masked = false;
 	shared_sint.auto_eoi = false;
 
 	wrmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
-	
+	/* Enable the global synic bit */
 	rdmsrl(HV_X64_MSR_SCONTROL, sctrl.as_uint64);
 	sctrl.enable = 1;
 
@@ -346,6 +389,9 @@ cleanup:
 	return;
 }
 
+/*
+ * hv_synic_cleanup - Cleanup routine for hv_synic_init().
+ */
 void hv_synic_cleanup(void *arg)
 {
 	union hv_synic_sint shared_sint;
@@ -360,8 +406,8 @@ void hv_synic_cleanup(void *arg)
 
 	shared_sint.masked = 1;
 
-	
-	
+	/* Need to correctly cleanup in the case of SMP!!! */
+	/* Disable the interrupt */
 	wrmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
 	rdmsrl(HV_X64_MSR_SIMP, simp.as_uint64);

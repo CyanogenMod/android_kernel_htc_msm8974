@@ -27,7 +27,7 @@
 
 struct l64781_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 };
 
@@ -41,6 +41,6 @@ static inline struct dvb_frontend* l64781_attach(const struct l64781_config* con
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_L64781
 
-#endif 
+#endif // L64781_H

@@ -48,22 +48,22 @@ static void toshiba_spi_write_byte(char dc, uint8 data)
 	uint32 bit;
 	int bnum;
 
-	gpio_set_value(spi_sclk, 0); 
-	
+	gpio_set_value(spi_sclk, 0); /* clk low */
+	/* dc: 0 for command, 1 for parameter */
 	gpio_set_value(spi_mosi, dc);
-	udelay(1);	
-	gpio_set_value(spi_sclk, 1); 
-	udelay(1);	
-	bnum = 8;	
+	udelay(1);	/* at least 20 ns */
+	gpio_set_value(spi_sclk, 1); /* clk high */
+	udelay(1);	/* at least 20 ns */
+	bnum = 8;	/* 8 data bits */
 	bit = 0x80;
 	while (bnum) {
-		gpio_set_value(spi_sclk, 0); 
+		gpio_set_value(spi_sclk, 0); /* clk low */
 		if (data & bit)
 			gpio_set_value(spi_mosi, 1);
 		else
 			gpio_set_value(spi_mosi, 0);
 		udelay(1);
-		gpio_set_value(spi_sclk, 1); 
+		gpio_set_value(spi_sclk, 1); /* clk high */
 		udelay(1);
 		bit >>= 1;
 		bnum--;
@@ -93,12 +93,12 @@ static int toshiba_spi_write(char cmd, uint32 data, int num)
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 
-	
+	/* command byte first */
 	final_data |= cmd << 23;
 	t.len = num + 2;
 	if (t.len < 4)
 		t.bits_per_word = 8 * t.len;
-	
+	/* followed by parameter bytes */
 	if (num) {
 		bp = (char *)&data;;
 		bp += (num - 1);
@@ -121,12 +121,12 @@ static int toshiba_spi_write(char cmd, uint32 data, int num)
 		printk(KERN_ERR "spi_sync _write failed %d\n", rc);
 	return rc;
 #else
-	gpio_set_value(spi_cs, 1);	
+	gpio_set_value(spi_cs, 1);	/* cs high */
 
-	
+	/* command byte first */
 	toshiba_spi_write_byte(0, cmd);
 
-	
+	/* followed by parameter bytes */
 	if (num) {
 		bp = (char *)&data;;
 		bp += (num - 1);
@@ -137,7 +137,7 @@ static int toshiba_spi_write(char cmd, uint32 data, int num)
 		}
 	}
 
-	gpio_set_value(spi_cs, 0);	
+	gpio_set_value(spi_cs, 0);	/* cs low */
 	udelay(1);
 	return 0;
 #endif
@@ -165,7 +165,7 @@ static int toshiba_spi_read_bytes(char cmd, uint32 *data, int num)
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 
-	
+	/* command byte first */
 	tx_buf[0] = 0 | ((cmd >> 1) & 0x7f);
 	tx_buf[1] = (cmd & 0x01) << 7;
 	tx_buf[2] = 0;
@@ -185,30 +185,30 @@ static int toshiba_spi_read_bytes(char cmd, uint32 *data, int num)
 	uint32 dbit, bits;
 	int bnum;
 
-	gpio_set_value(spi_cs, 1);	
+	gpio_set_value(spi_cs, 1);	/* cs high */
 
-	
+	/* command byte first */
 	toshiba_spi_write_byte(0, cmd);
 
 	if (num > 1) {
-		
-		gpio_set_value(spi_sclk, 0); 
+		/* extra dc bit */
+		gpio_set_value(spi_sclk, 0); /* clk low */
 		udelay(1);
-		dbit = gpio_get_value(spi_miso);
+		dbit = gpio_get_value(spi_miso);/* dc bit */
 		udelay(1);
-		gpio_set_value(spi_sclk, 1); 
+		gpio_set_value(spi_sclk, 1); /* clk high */
 	}
 
-	
-	bnum = num * 8;	
+	/* followed by data bytes */
+	bnum = num * 8;	/* number of bits */
 	bits = 0;
 	while (bnum) {
 		bits <<= 1;
-		gpio_set_value(spi_sclk, 0); 
+		gpio_set_value(spi_sclk, 0); /* clk low */
 		udelay(1);
 		dbit = gpio_get_value(spi_miso);
 		udelay(1);
-		gpio_set_value(spi_sclk, 1); 
+		gpio_set_value(spi_sclk, 1); /* clk high */
 		bits |= dbit;
 		bnum--;
 	}
@@ -216,7 +216,7 @@ static int toshiba_spi_read_bytes(char cmd, uint32 *data, int num)
 	*data = bits;
 
 	udelay(1);
-	gpio_set_value(spi_cs, 0);	
+	gpio_set_value(spi_cs, 0);	/* cs low */
 	udelay(1);
 	return 0;
 #endif
@@ -225,7 +225,7 @@ static int toshiba_spi_read_bytes(char cmd, uint32 *data, int num)
 #ifndef CONFIG_SPI_QSD
 static void spi_pin_assign(void)
 {
-	
+	/* Setting the Default GPIO's */
 	spi_sclk = *(lcdc_toshiba_pdata->gpio_num);
 	spi_cs   = *(lcdc_toshiba_pdata->gpio_num + 1);
 	spi_mosi  = *(lcdc_toshiba_pdata->gpio_num + 2);
@@ -236,8 +236,8 @@ static void spi_pin_assign(void)
 static void toshiba_disp_powerup(void)
 {
 	if (!toshiba_state.disp_powered_up && !toshiba_state.display_on) {
-		
-		
+		/* Reset the hardware first */
+		/* Include DAC power up implementation here */
 	      toshiba_state.disp_powered_up = TRUE;
 	}
 }
@@ -247,8 +247,8 @@ static void toshiba_disp_on(void)
 	uint32	data;
 
 #ifndef CONFIG_SPI_QSD
-	gpio_set_value(spi_cs, 0);	
-	gpio_set_value(spi_sclk, 1);	
+	gpio_set_value(spi_cs, 0);	/* low */
+	gpio_set_value(spi_sclk, 1);	/* high */
 	gpio_set_value(spi_mosi, 0);
 	gpio_set_value(spi_miso, 0);
 #endif
@@ -270,7 +270,7 @@ static void toshiba_disp_on(void)
 		toshiba_spi_write(0xb3, 0x22, 1);
 		mdelay(1);
 		toshiba_spi_write(0xb4, 0x02, 1);
-		toshiba_spi_write(0xb5, 0x1e, 1); 
+		toshiba_spi_write(0xb5, 0x1e, 1); /* vcs -- adjust brightness */
 		mdelay(1);
 		toshiba_spi_write(0xb6, 0x27, 1);
 		toshiba_spi_write(0xb7, 0x03, 1);
@@ -302,11 +302,11 @@ static void toshiba_disp_on(void)
 		mdelay(1);
 		toshiba_spi_write(0xca, 0x00, 1);
 		mdelay(1);
-		toshiba_spi_write(0xec, 0x02a4, 2);	
+		toshiba_spi_write(0xec, 0x02a4, 2);	/* 0x02a4 */
 		mdelay(1);
 		toshiba_spi_write(0xcf, 0x01, 1);
 		mdelay(1);
-		toshiba_spi_write(0xd0, 0xc003, 2);	
+		toshiba_spi_write(0xd0, 0xc003, 2);	/* c003 */
 		mdelay(1);
 		toshiba_spi_write(0xd1, 0x01, 1);
 		mdelay(1);
@@ -320,7 +320,7 @@ static void toshiba_disp_on(void)
 		mdelay(1);
 		toshiba_spi_write(0xef, 0x3200, 2);
 		mdelay(32);
-		toshiba_spi_write(0xbc, 0x80, 1);	
+		toshiba_spi_write(0xbc, 0x80, 1);	/* wvga pass through */
 		toshiba_spi_write(0x3b, 0x00, 1);
 		mdelay(1);
 		toshiba_spi_write(0xb0, 0x16, 1);
@@ -343,7 +343,7 @@ static void toshiba_disp_on(void)
 static int lcdc_toshiba_panel_on(struct platform_device *pdev)
 {
 	if (!toshiba_state.disp_initialized) {
-		
+		/* Configure reset GPIO that drives DAC */
 		if (lcdc_toshiba_pdata->panel_config_gpio)
 			lcdc_toshiba_pdata->panel_config_gpio(1);
 		toshiba_disp_powerup();
@@ -356,15 +356,15 @@ static int lcdc_toshiba_panel_on(struct platform_device *pdev)
 static int lcdc_toshiba_panel_off(struct platform_device *pdev)
 {
 	if (toshiba_state.disp_powered_up && toshiba_state.display_on) {
-		
+		/* Main panel power off (Deep standby in) */
 
-		toshiba_spi_write(0x28, 0, 0);	
+		toshiba_spi_write(0x28, 0, 0);	/* display off */
 		mdelay(1);
-		toshiba_spi_write(0xb8, 0x8002, 2);	
+		toshiba_spi_write(0xb8, 0x8002, 2);	/* output control */
 		mdelay(1);
-		toshiba_spi_write(0x10, 0x00, 1);	
-		mdelay(85);		
-		toshiba_spi_write(0xb0, 0x00, 1);	
+		toshiba_spi_write(0x10, 0x00, 1);	/* sleep mode in */
+		mdelay(85);		/* wait 85 msec */
+		toshiba_spi_write(0xb0, 0x00, 1);	/* deep standby in */
 		mdelay(1);
 		if (lcdc_toshiba_pdata->panel_config_gpio)
 			lcdc_toshiba_pdata->panel_config_gpio(0);
@@ -476,19 +476,19 @@ static int __init lcdc_toshiba_panel_init(void)
 	pinfo->wait_cycle = 0;
 	pinfo->bpp = 18;
 	pinfo->fb_num = 2;
-	
+	/* 30Mhz mdp_lcdc_pclk and mdp_lcdc_pad_pcl */
 	pinfo->clk_rate = 30720000;
 	pinfo->bl_max = 15;
 	pinfo->bl_min = 1;
 
-	pinfo->lcdc.h_back_porch = 184;	
+	pinfo->lcdc.h_back_porch = 184;	/* hsw = 8 + hbp=184 */
 	pinfo->lcdc.h_front_porch = 4;
 	pinfo->lcdc.h_pulse_width = 8;
-	pinfo->lcdc.v_back_porch = 2;	
+	pinfo->lcdc.v_back_porch = 2;	/* vsw=1 + vbp = 2 */
 	pinfo->lcdc.v_front_porch = 3;
 	pinfo->lcdc.v_pulse_width = 1;
-	pinfo->lcdc.border_clr = 0;     
-	pinfo->lcdc.underflow_clr = 0xff;       
+	pinfo->lcdc.border_clr = 0;     /* blk */
+	pinfo->lcdc.underflow_clr = 0xff;       /* blue */
 	pinfo->lcdc.hsync_skew = 0;
 
 	ret = platform_device_register(&this_device);

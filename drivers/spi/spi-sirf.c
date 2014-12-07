@@ -44,6 +44,7 @@
 #define SIRFSOC_SPI_RXFIFO_DATA		0x0138
 #define SIRFSOC_SPI_DUMMY_DELAY_CTL	0x0144
 
+/* SPI CTRL register defines */
 #define SIRFSOC_SPI_SLV_MODE		BIT(16)
 #define SIRFSOC_SPI_CMD_MODE		BIT(17)
 #define SIRFSOC_SPI_CS_IO_OUT		BIT(18)
@@ -62,6 +63,7 @@
 #define SIRFSOC_SPI_ENA_AUTO_CLR		BIT(30)
 #define SIRFSOC_SPI_MUL_DAT_MODE		BIT(31)
 
+/* Interrupt Enable */
 #define SIRFSOC_SPI_RX_DONE_INT_EN		BIT(0)
 #define SIRFSOC_SPI_TX_DONE_INT_EN		BIT(1)
 #define SIRFSOC_SPI_RX_OFLOW_INT_EN		BIT(2)
@@ -76,6 +78,7 @@
 
 #define SIRFSOC_SPI_INT_MASK_ALL		0x1FFF
 
+/* Interrupt status */
 #define SIRFSOC_SPI_RX_DONE		BIT(0)
 #define SIRFSOC_SPI_TX_DONE		BIT(1)
 #define SIRFSOC_SPI_RX_OFLOW		BIT(2)
@@ -86,6 +89,7 @@
 #define SIRFSOC_SPI_TXFIFO_THD_REACH	BIT(9)
 #define SIRFSOC_SPI_FRM_END		BIT(10)
 
+/* TX RX enable */
 #define SIRFSOC_SPI_RX_EN		BIT(0)
 #define SIRFSOC_SPI_TX_EN		BIT(1)
 #define SIRFSOC_SPI_CMD_TX_EN		BIT(2)
@@ -93,17 +97,21 @@
 #define SIRFSOC_SPI_IO_MODE_SEL		BIT(0)
 #define SIRFSOC_SPI_RX_DMA_FLUSH	BIT(2)
 
+/* FIFO OPs */
 #define SIRFSOC_SPI_FIFO_RESET		BIT(0)
 #define SIRFSOC_SPI_FIFO_START		BIT(1)
 
+/* FIFO CTRL */
 #define SIRFSOC_SPI_FIFO_WIDTH_BYTE	(0 << 0)
 #define SIRFSOC_SPI_FIFO_WIDTH_WORD	(1 << 0)
 #define SIRFSOC_SPI_FIFO_WIDTH_DWORD	(2 << 0)
 
+/* FIFO Status */
 #define	SIRFSOC_SPI_FIFO_LEVEL_MASK	0xFF
 #define SIRFSOC_SPI_FIFO_FULL		BIT(8)
 #define SIRFSOC_SPI_FIFO_EMPTY		BIT(9)
 
+/* 256 bytes rx/tx FIFO */
 #define SIRFSOC_SPI_FIFO_SIZE		256
 #define SIRFSOC_SPI_DAT_FRM_LEN_MAX	(64 * 1024)
 
@@ -117,24 +125,24 @@ struct sirfsoc_spi {
 	struct completion done;
 
 	void __iomem *base;
-	u32 ctrl_freq;  
+	u32 ctrl_freq;  /* SPI controller clock speed */
 	struct clk *clk;
 	struct pinmux *pmx;
 
-	
+	/* rx & tx bufs from the spi_transfer */
 	const void *tx;
 	void *rx;
 
-	
+	/* place received word into rx buffer */
 	void (*rx_word) (struct sirfsoc_spi *);
-	
+	/* get word from tx buffer for sending */
 	void (*tx_word) (struct sirfsoc_spi *);
 
-	
+	/* number of words left to be tranmitted/received */
 	unsigned int left_tx_cnt;
 	unsigned int left_rx_cnt;
 
-	
+	/* tasklet to push tx msg into FIFO */
 	struct tasklet_struct tasklet_tx;
 
 	int chipselect[0];
@@ -232,7 +240,7 @@ static void spi_sirfsoc_tasklet_tx(unsigned long arg)
 {
 	struct sirfsoc_spi *sspi = (struct sirfsoc_spi *)arg;
 
-	
+	/* Fill Tx FIFO while there are left words to be transmitted */
 	while (!((readl(sspi->base + SIRFSOC_SPI_TXFIFO_STATUS) &
 			SIRFSOC_SPI_FIFO_FULL)) &&
 			sspi->left_tx_cnt)
@@ -246,7 +254,7 @@ static irqreturn_t spi_sirfsoc_irq(int irq, void *dev_id)
 
 	writel(spi_stat, sspi->base + SIRFSOC_SPI_INT_STATUS);
 
-	
+	/* Error Conditions */
 	if (spi_stat & SIRFSOC_SPI_RX_OFLOW ||
 			spi_stat & SIRFSOC_SPI_TX_UFLOW) {
 		complete(&sspi->done);
@@ -259,7 +267,7 @@ static irqreturn_t spi_sirfsoc_irq(int irq, void *dev_id)
 				sspi->left_rx_cnt)
 			sspi->rx_word(sspi);
 
-		
+		/* Received all words */
 		if ((sspi->left_rx_cnt == 0) && (sspi->left_tx_cnt == 0)) {
 			complete(&sspi->done);
 			writel(0x0, sspi->base + SIRFSOC_SPI_INT_EN);
@@ -313,7 +321,7 @@ static int spi_sirfsoc_transfer(struct spi_device *spi, struct spi_transfer *t)
 	writel(SIRFSOC_SPI_FIFO_START, sspi->base + SIRFSOC_SPI_RXFIFO_OP);
 	writel(SIRFSOC_SPI_FIFO_START, sspi->base + SIRFSOC_SPI_TXFIFO_OP);
 
-	
+	/* Send the first word to trigger the whole tx/rx process */
 	sspi->tx_word(sspi);
 
 	writel(SIRFSOC_SPI_RX_OFLOW_INT_EN | SIRFSOC_SPI_TX_UFLOW_INT_EN |
@@ -325,7 +333,7 @@ static int spi_sirfsoc_transfer(struct spi_device *spi, struct spi_transfer *t)
 	if (wait_for_completion_timeout(&sspi->done, timeout) == 0)
 		dev_err(&spi->dev, "transfer timeout\n");
 
-	
+	/* TX, RX FIFO stop */
 	writel(0, sspi->base + SIRFSOC_SPI_RXFIFO_OP);
 	writel(0, sspi->base + SIRFSOC_SPI_TXFIFO_OP);
 	writel(0, sspi->base + SIRFSOC_SPI_TX_RX_EN);
@@ -378,7 +386,7 @@ spi_sirfsoc_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 		spi->bits_per_word;
 	hz = t && t->speed_hz ? t->speed_hz : spi->max_speed_hz;
 
-	
+	/* Enable IO mode for RX, TX */
 	writel(SIRFSOC_SPI_IO_MODE_SEL, sspi->base + SIRFSOC_SPI_TX_DMA_IO_CTRL);
 	writel(SIRFSOC_SPI_IO_MODE_SEL, sspi->base + SIRFSOC_SPI_RX_DMA_IO_CTRL);
 	regval = (sspi->ctrl_freq / (2 * hz)) - 1;
@@ -431,6 +439,10 @@ spi_sirfsoc_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 	if (spi->mode & SPI_CPOL)
 		regval |= SIRFSOC_SPI_CLK_IDLE_STAT;
 
+	/*
+	 * Data should be driven at least 1/2 cycle before the fetch edge to make
+	 * sure that data gets stable at the fetch edge.
+	 */
 	if (((spi->mode & SPI_CPOL) && (spi->mode & SPI_CPHA)) ||
 	    (!(spi->mode & SPI_CPOL) && !(spi->mode & SPI_CPHA)))
 		regval &= ~SIRFSOC_SPI_DRV_POS_EDGE;
@@ -509,7 +521,7 @@ static int __devinit spi_sirfsoc_probe(struct platform_device *pdev)
 
 		sspi->chipselect[i] = cs_gpio;
 		if (cs_gpio == 0)
-			continue; 
+			continue; /* use cs from spi controller */
 
 		ret = gpio_request(cs_gpio, DRIVER_NAME);
 		if (ret) {
@@ -572,7 +584,7 @@ static int __devinit spi_sirfsoc_probe(struct platform_device *pdev)
 	writel(SIRFSOC_SPI_FIFO_RESET, sspi->base + SIRFSOC_SPI_TXFIFO_OP);
 	writel(SIRFSOC_SPI_FIFO_START, sspi->base + SIRFSOC_SPI_RXFIFO_OP);
 	writel(SIRFSOC_SPI_FIFO_START, sspi->base + SIRFSOC_SPI_TXFIFO_OP);
-	
+	/* We are not using dummy delay between command and data */
 	writel(0, sspi->base + SIRFSOC_SPI_DUMMY_DELAY_CTL);
 
 	ret = spi_bitbang_start(&sspi->bitbang);

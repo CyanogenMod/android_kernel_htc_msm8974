@@ -32,21 +32,24 @@
 #include "devices-imx1.h"
 
 static const int apf9328_pins[] __initconst = {
-	
+	/* UART1 */
 	PC9_PF_UART1_CTS,
 	PC10_PF_UART1_RTS,
 	PC11_PF_UART1_TXD,
 	PC12_PF_UART1_RXD,
-	
+	/* UART2 */
 	PB28_PF_UART2_CTS,
 	PB29_PF_UART2_RTS,
 	PB30_PF_UART2_TXD,
 	PB31_PF_UART2_RXD,
-	
+	/* I2C */
 	PA15_PF_I2C_SDA,
 	PA16_PF_I2C_SCL,
 };
 
+/*
+ * The APF9328 can have up to 32MB NOR Flash
+ */
 static struct resource flash_resource = {
 	.start	= MX1_CS0_PHYS,
 	.end	= MX1_CS0_PHYS + SZ_32M - 1,
@@ -67,6 +70,9 @@ static struct platform_device apf9328_flash_device = {
 	.num_resources = 1,
 };
 
+/*
+ * APF9328 has a DM9000 Ethernet controller
+ */
 static struct dm9000_plat_data dm9000_setup = {
 	.flags          = DM9000_PLATF_16BITONLY
 };
@@ -136,7 +142,7 @@ static struct sys_timer apf9328_timer = {
 };
 
 MACHINE_START(APF9328, "Armadeus APF9328")
-	
+	/* Maintainer: Gwenhael Goavec-Merou, ARMadeus Systems */
 	.map_io       = mx1_map_io,
 	.init_early   = imx1_init_early,
 	.init_irq     = mx1_init_irq,

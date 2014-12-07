@@ -19,6 +19,7 @@
 #define   IUU_USB_PRODUCT_ID  0x0004
 #define   IUU_USB_OP_TIMEOUT  0x0200
 
+/* Programmer commands */
 
 #define IUU_NO_OPERATION   0x00
 #define IUU_GET_FIRMWARE_VERSION   0x01

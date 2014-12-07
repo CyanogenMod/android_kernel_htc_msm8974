@@ -51,9 +51,21 @@ void irlap_start_query_timer(struct irlap_cb *self, int S, int s)
 {
 	int timeout;
 
+	/* Calculate when the peer discovery should end. Normally, we
+	 * get the end-of-discovery frame, so this is just in case
+	 * we miss it.
+	 * Basically, we multiply the number of remaining slots by our
+	 * slot time, plus add some extra time to properly receive the last
+	 * discovery packet (which is longer due to extra discovery info),
+	 * to avoid messing with for incomming connections requests and
+	 * to accommodate devices that perform discovery slower than us.
+	 * Jean II */
 	timeout = ((sysctl_slot_timeout * HZ / 1000) * (S - s)
 		   + XIDEXTRA_TIMEOUT + SMALLBUSY_TIMEOUT);
 
+	/* Set or re-set the timer. We reset the timer for each received
+	 * discovery query, which allow us to automatically adjust to
+	 * the speed of the peer discovery (faster or slower). Jean II */
 	irda_start_timer( &self->query_timer, timeout, (void *) self,
 			  irlap_query_timer_expired);
 }
@@ -84,9 +96,14 @@ void irlap_start_mbusy_timer(struct irlap_cb *self, int timeout)
 
 void irlap_stop_mbusy_timer(struct irlap_cb *self)
 {
-	
+	/* If timer is activated, kill it! */
 	del_timer(&self->media_busy_timer);
 
+	/* If we are in NDM, there is a bunch of events in LAP that
+	 * that be pending due to the media_busy condition, such as
+	 * CONNECT_REQUEST and SEND_UI_FRAME. If we don't generate
+	 * an event, they will wait forever...
+	 * Jean II */
 	if (self->state == LAP_NDM)
 		irlap_do_event(self, MEDIA_BUSY_TIMER_EXPIRED, NULL, NULL);
 }
@@ -111,10 +128,16 @@ void irlmp_start_idle_timer(struct lap_cb *self, int timeout)
 
 void irlmp_stop_idle_timer(struct lap_cb *self)
 {
-	
+	/* If timer is activated, kill it! */
 	del_timer(&self->idle_timer);
 }
 
+/*
+ * Function irlap_slot_timer_expired (data)
+ *
+ *    IrLAP slot timer has expired
+ *
+ */
 static void irlap_slot_timer_expired(void *data)
 {
 	struct irlap_cb *self = (struct irlap_cb *) data;
@@ -125,6 +148,12 @@ static void irlap_slot_timer_expired(void *data)
 	irlap_do_event(self, SLOT_TIMER_EXPIRED, NULL, NULL);
 }
 
+/*
+ * Function irlap_query_timer_expired (data)
+ *
+ *    IrLAP query timer has expired
+ *
+ */
 static void irlap_query_timer_expired(void *data)
 {
 	struct irlap_cb *self = (struct irlap_cb *) data;
@@ -135,6 +164,12 @@ static void irlap_query_timer_expired(void *data)
 	irlap_do_event(self, QUERY_TIMER_EXPIRED, NULL, NULL);
 }
 
+/*
+ * Function irda_final_timer_expired (data)
+ *
+ *
+ *
+ */
 static void irlap_final_timer_expired(void *data)
 {
 	struct irlap_cb *self = (struct irlap_cb *) data;
@@ -145,6 +180,12 @@ static void irlap_final_timer_expired(void *data)
 	irlap_do_event(self, FINAL_TIMER_EXPIRED, NULL, NULL);
 }
 
+/*
+ * Function irda_wd_timer_expired (data)
+ *
+ *
+ *
+ */
 static void irlap_wd_timer_expired(void *data)
 {
 	struct irlap_cb *self = (struct irlap_cb *) data;
@@ -155,6 +196,12 @@ static void irlap_wd_timer_expired(void *data)
 	irlap_do_event(self, WD_TIMER_EXPIRED, NULL, NULL);
 }
 
+/*
+ * Function irda_backoff_timer_expired (data)
+ *
+ *
+ *
+ */
 static void irlap_backoff_timer_expired(void *data)
 {
 	struct irlap_cb *self = (struct irlap_cb *) data;
@@ -166,6 +213,11 @@ static void irlap_backoff_timer_expired(void *data)
 }
 
 
+/*
+ * Function irtty_media_busy_expired (data)
+ *
+ *
+ */
 static void irlap_media_busy_expired(void *data)
 {
 	struct irlap_cb *self = (struct irlap_cb *) data;
@@ -173,4 +225,7 @@ static void irlap_media_busy_expired(void *data)
 	IRDA_ASSERT(self != NULL, return;);
 
 	irda_device_set_media_busy(self->netdev, FALSE);
+	/* Note : the LAP event will be send in irlap_stop_mbusy_timer(),
+	* to catch other cases where the flag is cleared (for example
+	* after a discovery) - Jean II */
 }

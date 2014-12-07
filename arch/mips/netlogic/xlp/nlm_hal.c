@@ -46,15 +46,17 @@
 #include <asm/netlogic/xlp-hal/pic.h>
 #include <asm/netlogic/xlp-hal/sys.h>
 
+/* These addresses are computed by the nlm_hal_init() */
 uint64_t nlm_io_base;
 uint64_t nlm_sys_base;
 uint64_t nlm_pic_base;
 
+/* Main initialization */
 void nlm_hal_init(void)
 {
 	nlm_io_base = CKSEG1ADDR(XLP_DEFAULT_IO_BASE);
-	nlm_sys_base = nlm_get_sys_regbase(0);	
-	nlm_pic_base = nlm_get_pic_regbase(0);	
+	nlm_sys_base = nlm_get_sys_regbase(0);	/* node 0 */
+	nlm_pic_base = nlm_get_pic_regbase(0);	/* node 0 */
 }
 
 int nlm_irq_to_irt(int irq)

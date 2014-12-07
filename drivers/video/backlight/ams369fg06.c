@@ -126,6 +126,7 @@ static const unsigned short seq_setting[] = {
 	ENDDEF, 0x0000
 };
 
+/* gamma value: 2.2 */
 static const unsigned int ams369fg06_22_250[] = {
 	0x00, 0x3f, 0x2a, 0x27, 0x27, 0x1f, 0x44,
 	0x00, 0x00, 0x17, 0x24, 0x26, 0x1f, 0x43,
@@ -361,7 +362,7 @@ static int ams369fg06_power_on(struct ams369fg06 *lcd)
 		return ret;
 	}
 
-	
+	/* set brightness to current value after power on or resume. */
 	ret = ams369fg06_gamma_ctl(lcd, bd->props.brightness);
 	if (ret) {
 		dev_err(lcd->dev, "lcd gamma setting failed.\n");
@@ -485,7 +486,7 @@ static int __devinit ams369fg06_probe(struct spi_device *spi)
 	if (!lcd)
 		return -ENOMEM;
 
-	
+	/* ams369fg06 lcd panel uses 3-wire 16bits SPI Mode. */
 	spi->bits_per_word = 16;
 
 	ret = spi_setup(spi);
@@ -527,6 +528,11 @@ static int __devinit ams369fg06_probe(struct spi_device *spi)
 	lcd->bd = bd;
 
 	if (!lcd->lcd_pd->lcd_enabled) {
+		/*
+		 * if lcd panel was off from bootloader then
+		 * current lcd status is powerdown and then
+		 * it enables lcd panel.
+		 */
 		lcd->power = FB_BLANK_POWERDOWN;
 
 		ams369fg06_power(lcd, FB_BLANK_UNBLANK);
@@ -570,6 +576,10 @@ static int ams369fg06_suspend(struct spi_device *spi, pm_message_t mesg)
 
 	before_power = lcd->power;
 
+	/*
+	 * when lcd panel is suspend, lcd panel becomes off
+	 * regardless of status.
+	 */
 	ret = ams369fg06_power(lcd, FB_BLANK_POWERDOWN);
 
 	return ret;
@@ -580,6 +590,11 @@ static int ams369fg06_resume(struct spi_device *spi)
 	int ret = 0;
 	struct ams369fg06 *lcd = dev_get_drvdata(&spi->dev);
 
+	/*
+	 * after suspended, if lcd panel status is FB_BLANK_UNBLANK
+	 * (at that time, before_power is FB_BLANK_UNBLANK) then
+	 * it changes that status to FB_BLANK_POWERDOWN to get lcd on.
+	 */
 	if (before_power == FB_BLANK_UNBLANK)
 		lcd->power = FB_BLANK_POWERDOWN;
 

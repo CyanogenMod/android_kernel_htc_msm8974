@@ -18,15 +18,18 @@
 #include <asm/intersil.h>
 
 
+/* bits to set for start/run of the intersil */
 #define STOP_VAL (INTERSIL_STOP | INTERSIL_INT_ENABLE | INTERSIL_24H_MODE)
 #define START_VAL (INTERSIL_RUN | INTERSIL_INT_ENABLE | INTERSIL_24H_MODE)
 
+/* does this need to be implemented? */
 unsigned long sun3_gettimeoffset(void)
 {
   return 1;
 }
 
 
+/* get/set hwclock */
 
 int sun3_hwclk(int set, struct rtc_time *t)
 {
@@ -39,7 +42,7 @@ int sun3_hwclk(int set, struct rtc_time *t)
 
 	intersil_clock->cmd_reg = STOP_VAL;
 
-	
+	/* set or read the clock */
 	if(set) {
 		todintersil->csec = 0;
 		todintersil->hour = t->tm_hour;
@@ -50,7 +53,7 @@ int sun3_hwclk(int set, struct rtc_time *t)
 		todintersil->year = t->tm_year - 68;
 		todintersil->weekday = t->tm_wday;
 	} else {
-		
+		/* read clock */
 		t->tm_sec = todintersil->csec;
 		t->tm_hour = todintersil->hour;
 		t->tm_min = todintersil->minute;

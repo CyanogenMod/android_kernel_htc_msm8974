@@ -210,7 +210,7 @@ static struct platform_device usb_mass_storage_device = {
 };
 
 static struct usb_ether_platform_data rndis_pdata = {
-	
+	/* ethaddr is filled by board_serialno_setup */
 	.vendorID	= 0x05C6,
 	.vendorDescr	= "Qualcomm Incorporated",
 };
@@ -249,9 +249,12 @@ static int __init board_serialno_setup(char *serialno)
 	int i;
 	char *src = serialno;
 
+	/* create a fake MAC address from our serial number.
+	 * first byte is 0x02 to signify locally administered.
+	 */
 	rndis_pdata.ethaddr[0] = 0x02;
 	for (i = 0; *src; i++) {
-		
+		/* XOR the USB serial across the remaining bytes */
 		rndis_pdata.ethaddr[i % (ETH_ALEN - 1) + 1] ^= *src++;
 	}
 
@@ -278,62 +281,63 @@ static struct usb_function_map usb_functions_map[] = {
 	{"ethernet", 5},
 };
 
+/* dynamic composition */
 static struct usb_composition usb_func_composition[] = {
 	{
 		.product_id         = 0x9012,
-		.functions	    = 0x5, 
+		.functions	    = 0x5, /* 0101 */
 	},
 
 	{
 		.product_id         = 0x9013,
-		.functions	    = 0x15, 
+		.functions	    = 0x15, /* 10101 */
 	},
 
 	{
 		.product_id         = 0x9014,
-		.functions	    = 0x30, 
+		.functions	    = 0x30, /* 110000 */
 	},
 
 	{
 		.product_id         = 0x9015,
-		.functions	    = 0x12, 
+		.functions	    = 0x12, /* 10010 */
 	},
 
 	{
 		.product_id         = 0x9016,
-		.functions	    = 0xD, 
+		.functions	    = 0xD, /* 01101 */
 	},
 
 	{
 		.product_id         = 0x9017,
-		.functions	    = 0x1D, 
+		.functions	    = 0x1D, /* 11101 */
 	},
 
 	{
 		.product_id         = 0xF000,
-		.functions	    = 0x10, 
+		.functions	    = 0x10, /* 10000 */
 	},
 
 	{
 		.product_id         = 0xF009,
-		.functions	    = 0x20, 
+		.functions	    = 0x20, /* 100000 */
 	},
 
 	{
 		.product_id         = 0x9018,
-		.functions	    = 0x1F, 
+		.functions	    = 0x1F, /* 011111 */
 	},
 
 	{
 		.product_id         = 0x901A,
-		.functions	    = 0x0F, 
+		.functions	    = 0x0F, /* 01111 */
 	},
 };
 #endif
 
 static struct msm_handset_platform_data hs_platform_data = {
 	.hs_name = "8k_handset",
-	.pwr_key_delay_ms = 500, 
+	.pwr_key_delay_ms = 500, /* 0 will disable end key */
 };
 
 static struct platform_device hs_device = {
@@ -423,6 +427,12 @@ static struct msm_usb_host_platform_data msm_usb_host2_pdata = {
 
 static struct android_pmem_platform_data android_pmem_kernel_ebi1_pdata = {
 	.name = PMEM_KERNEL_EBI1_DATA_NAME,
+	/* if no allocator_type, defaults to PMEM_ALLOCATORTYPE_BITMAP,
+	 * the only valid choice at this time. The board structure is
+	 * set to all zeros by the C runtime initialization and that is now
+	 * the enum value of PMEM_ALLOCATORTYPE_BITMAP, now forced to 0 in
+	 * include/linux/android_pmem.h.
+	 */
 	.cached = 0,
 };
 
@@ -430,6 +440,12 @@ static struct android_pmem_platform_data android_pmem_kernel_ebi1_pdata = {
 
 static struct android_pmem_platform_data android_pmem_kernel_smi_pdata = {
 	.name = PMEM_KERNEL_SMI_DATA_NAME,
+	/* if no allocator_type, defaults to PMEM_ALLOCATORTYPE_BITMAP,
+	 * the only valid choice at this time. The board structure is
+	 * set to all zeros by the C runtime initialization and that is now
+	 * the enum value of PMEM_ALLOCATORTYPE_BITMAP, now forced to 0 in
+	 * include/linux/android_pmem.h.
+	 */
 	.cached = 0,
 };
 
@@ -662,7 +678,7 @@ static int msm_qsd_spi_gpio_config(void)
 	if (rc)
 		return rc;
 
-	
+	/* Set direction for SPI_PWR */
 	gpio_direction_output(21, 1);
 
 	return 0;
@@ -862,15 +878,15 @@ static struct resource msm_audio_resources[] = {
 };
 
 static unsigned audio_gpio_on[] = {
-	GPIO_CFG(68, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
-	GPIO_CFG(69, 1, GPIO_CFG_INPUT,  GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
-	GPIO_CFG(70, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
-	GPIO_CFG(71, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
-	GPIO_CFG(142, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
-	GPIO_CFG(143, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
-	GPIO_CFG(144, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),	
-	GPIO_CFG(145, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
-	GPIO_CFG(146, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	
+	GPIO_CFG(68, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* PCM_DOUT */
+	GPIO_CFG(69, 1, GPIO_CFG_INPUT,  GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* PCM_DIN */
+	GPIO_CFG(70, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* PCM_SYNC */
+	GPIO_CFG(71, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* PCM_CLK */
+	GPIO_CFG(142, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* CC_I2S_CLK */
+	GPIO_CFG(143, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* SADC_WSOUT */
+	GPIO_CFG(144, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),	/* SADC_DIN */
+	GPIO_CFG(145, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* SDAC_DOUT */
+	GPIO_CFG(146, 2, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),	/* MA_CLK_OUT */
 };
 
 static void __init audio_gpio_init(void)
@@ -1031,7 +1047,7 @@ static int bluetooth_power(int on)
 	}
 
 	if (on) {
-		
+		/* units of mV, steps of 50 mV */
 		rc = vreg_set_level(vreg_wlan, PMIC_VREG_WLAN_LEVEL);
 		if (rc) {
 			printk(KERN_ERR "%s: vreg wlan set level failed (%d)\n",
@@ -1067,21 +1083,21 @@ static int bluetooth_power(int on)
 			}
 		}
 
-		gpio_set_value(22, on); 
-		gpio_set_value(18, on); 
+		gpio_set_value(22, on); /* VDD_IO */
+		gpio_set_value(18, on); /* SYSRST */
 
 		if (machine_is_qsd8x50_ffa()) {
-			gpio_set_value(138, 0); 
-			gpio_set_value(113, on); 
+			gpio_set_value(138, 0); /* WLAN: CHIP_PWD */
+			gpio_set_value(113, on); /* WLAN */
 		}
 	} else {
 		if (machine_is_qsd8x50_ffa()) {
-			gpio_set_value(138, on); 
-			gpio_set_value(113, on); 
+			gpio_set_value(138, on); /* WLAN: CHIP_PWD */
+			gpio_set_value(113, on); /* WLAN */
 		}
 
-		gpio_set_value(18, on); 
-		gpio_set_value(22, on); 
+		gpio_set_value(18, on); /* SYSRST */
+		gpio_set_value(22, on); /* VDD_IO */
 
 		rc = vreg_disable(vreg_wlan);
 		if (rc) {
@@ -1124,15 +1140,15 @@ static void __init bt_power_init(void)
 	int rc;
 
 	if (machine_is_qsd8x50_ffa()) {
-		gpio_set_value(138, 0); 
-		gpio_set_value(113, 0); 
+		gpio_set_value(138, 0); /* WLAN: CHIP_PWD */
+		gpio_set_value(113, 0); /* WLAN */
 	}
 
-	gpio_set_value(18, 0); 
-	gpio_set_value(22, 0); 
+	gpio_set_value(18, 0); /* SYSRST */
+	gpio_set_value(22, 0); /* VDD_IO */
 
-	
-	
+	/* do not have vreg bt defined, gp6 is the same */
+	/* vreg_get parameter 1 (struct device *) is ignored */
 	vreg_bt = vreg_get(NULL, "gp6");
 
 	if (IS_ERR(vreg_bt)) {
@@ -1141,7 +1157,7 @@ static void __init bt_power_init(void)
 		goto exit;
 	}
 
-	
+	/* units of mV, steps of 50 mV */
 	rc = vreg_set_level(vreg_bt, PMIC_VREG_GP6_LEVEL);
 	if (rc) {
 		printk(KERN_ERR "%s: vreg bt set level failed (%d)\n",
@@ -1174,6 +1190,7 @@ static struct platform_device msm_device_pmic_leds = {
 	.id	= -1,
 };
 
+/* TSIF begin */
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 
 #define TSIF_A_SYNC      GPIO_CFG(106, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA)
@@ -1195,7 +1212,8 @@ static struct msm_tsif_platform_data tsif_platform_data = {
 	.tsif_ref_clk = "ref_clk",
 };
 
-#endif 
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 static void touchpad_gpio_release(void)
 {
@@ -1301,6 +1319,7 @@ err_gpioconfig:
 	return rc;
 }
 
+/* use gpio output pin to toggle keyboard external reset pin */
 static void kbd_hwreset(int kbd_mclrpin)
 {
 	gpio_direction_output(kbd_mclrpin, 0);
@@ -1361,55 +1380,55 @@ static struct i2c_board_info msm_i2c_board_info[] __initdata = {
 
 #ifdef CONFIG_MSM_CAMERA
 static uint32_t camera_off_gpio_table[] = {
-	
-	GPIO_CFG(0,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(1,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(2,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(3,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(4,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(5,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(6,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(7,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(8,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(9,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(10, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(11, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(12, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(13, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(14, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(15, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 
+	/* parallel CAMERA interfaces */
+	GPIO_CFG(0,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT0 */
+	GPIO_CFG(1,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT1 */
+	GPIO_CFG(2,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT2 */
+	GPIO_CFG(3,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT3 */
+	GPIO_CFG(4,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT4 */
+	GPIO_CFG(5,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT5 */
+	GPIO_CFG(6,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT6 */
+	GPIO_CFG(7,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT7 */
+	GPIO_CFG(8,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT8 */
+	GPIO_CFG(9,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT9 */
+	GPIO_CFG(10, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT10 */
+	GPIO_CFG(11, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT11 */
+	GPIO_CFG(12, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* PCLK */
+	GPIO_CFG(13, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* HSYNC_IN */
+	GPIO_CFG(14, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* VSYNC_IN */
+	GPIO_CFG(15, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), /* MCLK */
 };
 
 static uint32_t camera_on_gpio_table[] = {
-	
-	GPIO_CFG(0,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(1,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(2,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(3,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(4,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(5,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(6,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(7,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(8,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(9,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(10, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(11, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(12, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(13, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(14, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 
-	GPIO_CFG(15, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_16MA), 
+	/* parallel CAMERA interfaces */
+	GPIO_CFG(0,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT0 */
+	GPIO_CFG(1,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT1 */
+	GPIO_CFG(2,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT2 */
+	GPIO_CFG(3,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT3 */
+	GPIO_CFG(4,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT4 */
+	GPIO_CFG(5,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT5 */
+	GPIO_CFG(6,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT6 */
+	GPIO_CFG(7,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT7 */
+	GPIO_CFG(8,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT8 */
+	GPIO_CFG(9,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT9 */
+	GPIO_CFG(10, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT10 */
+	GPIO_CFG(11, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* DAT11 */
+	GPIO_CFG(12, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* PCLK */
+	GPIO_CFG(13, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* HSYNC_IN */
+	GPIO_CFG(14, 1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), /* VSYNC_IN */
+	GPIO_CFG(15, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_16MA), /* MCLK */
 };
 
 static uint32_t camera_on_gpio_ffa_table[] = {
-	
-	GPIO_CFG(95,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA), 
-	GPIO_CFG(96,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA), 
-	
+	/* parallel CAMERA interfaces */
+	GPIO_CFG(95,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA), /* I2C_SCL */
+	GPIO_CFG(96,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA), /* I2C_SDA */
+	/* FFA front Sensor Reset */
 	GPIO_CFG(137,  1, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA),
 };
 
 static uint32_t camera_off_gpio_ffa_table[] = {
-	
+	/* FFA front Sensor Reset */
 	GPIO_CFG(137,  0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_16MA),
 };
 
@@ -1594,7 +1613,7 @@ static struct msm_camera_sensor_info msm_camera_sensor_s5k3e2fx_data = {
 	.sensor_name    = "s5k3e2fx",
 	.sensor_reset   = 17,
 	.sensor_pwd     = 85,
-	  
+	/*.vcm_pwd = 31, */  /* CAM1_VCM_EN, enabled in a9 */
 	.vcm_enable     = 0,
 	.pdata          = &msm_camera_device_data,
 	.resource       = msm_camera_resources,
@@ -1687,7 +1706,7 @@ static struct platform_device msm_camera_sensor_mt9t013 = {
 	},
 };
 #endif
-#endif 
+#endif /*CONFIG_MSM_CAMERA*/
 
 static u32 msm_calculate_batt_capacity(u32 current_voltage);
 
@@ -1839,6 +1858,19 @@ static void usb_mpp_init(void)
 	}
 }
 
+/* TBD: 8x50 FFAs have internal 3p3 voltage regulator as opposed to
+ * external 3p3 voltage regulator on Surf platform. There is no way
+ * s/w can detect fi concerned regulator is internal or external to
+ * to MSM. Internal 3p3 regulator is powered through boost voltage
+ * regulator where as external 3p3 regulator is powered through VPH.
+ * So for internal voltage regulator it is required to power on
+ * boost voltage regulator first. Unfortunately some of the FFAs are
+ * re-worked to install external 3p3 regulator. For now, assuming all
+ * FFAs have 3p3 internal regulators and all SURFs have external 3p3
+ * regulator as there is no way s/w can determine if theregulator is
+ * internal or external. May be, we can implement this flag as kernel
+ * boot parameters so that we can change code behaviour dynamically
+ */
 static int regulator_3p3_is_internal;
 static struct vreg *vreg_5v;
 static struct vreg *vreg_3p3;
@@ -1886,7 +1918,12 @@ static int msm_hsusb_ldo_enable(int enable)
 			if (ret)
 				return ret;
 
-			
+			/* power supply to 3p3 regulator can vary from
+			 * USB VBUS or VREG 5V. If the power supply is
+			 * USB VBUS cable disconnection cannot be
+			 * deteted. Select power supply to VREG 5V
+			 */
+			/* TBD: comeup with a better name */
 			ret = pmic_vote_3p3_pwr_sel_switch(1);
 			if (ret)
 				return ret;
@@ -2333,6 +2370,9 @@ static int __init pmem_kernel_smi_size_setup(char *p)
 {
 	pmem_kernel_smi_size = memparse(p, NULL);
 
+	/* Make sure that we don't allow more SMI memory then is
+	   available - the kernel mapping code has no way of knowing
+	   if it has gone over the edge */
 
 	if (pmem_kernel_smi_size > MSM_PMEM_SMIPOOL_SIZE)
 		pmem_kernel_smi_size = MSM_PMEM_SMIPOOL_SIZE;
@@ -2390,7 +2430,7 @@ static void __init qsd8x50_init(void)
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 	msm_fb_add_devices();
 #ifdef CONFIG_MSM_CAMERA
-	config_camera_off_gpios(); 
+	config_camera_off_gpios(); /* might not be necessary */
 #endif
 	qsd8x50_init_usb();
 	qsd8x50_init_mmc();

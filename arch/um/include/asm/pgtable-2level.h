@@ -10,11 +10,16 @@
 
 #include <asm-generic/pgtable-nopmd.h>
 
+/* PGDIR_SHIFT determines what a third-level page table entry can map */
 
 #define PGDIR_SHIFT	22
 #define PGDIR_SIZE	(1UL << PGDIR_SHIFT)
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
+/*
+ * entries per page directory level: the i386 is two-level, so
+ * we don't really have any PMD directory physically.
+ */
 #define PTRS_PER_PTE	1024
 #define USER_PTRS_PER_PGD ((TASK_SIZE + (PGDIR_SIZE - 1)) / PGDIR_SIZE)
 #define PTRS_PER_PGD	1024
@@ -36,6 +41,9 @@ static inline void pgd_mkuptodate(pgd_t pgd)	{ }
 #define pfn_pte(pfn, prot) __pte(pfn_to_phys(pfn) | pgprot_val(prot))
 #define pfn_pmd(pfn, prot) __pmd(pfn_to_phys(pfn) | pgprot_val(prot))
 
+/*
+ * Bits 0 through 4 are taken
+ */
 #define PTE_FILE_MAX_BITS	27
 
 #define pte_to_pgoff(pte) (pte_val(pte) >> 5)

@@ -30,13 +30,17 @@
 #include "bnx2x_init.h"
 #include "bnx2x_sp.h"
 
+/* Note: in the format strings below %s is replaced by the queue-name which is
+ * either its index or 'fcoe' for the fcoe queue. Make sure the format string
+ * length does not exceed ETH_GSTRING_LEN - MAX_QUEUE_NAME_LEN + 2
+ */
 #define MAX_QUEUE_NAME_LEN	4
 static const struct {
 	long offset;
 	int size;
 	char string[ETH_GSTRING_LEN];
 } bnx2x_q_stats_arr[] = {
-	{ Q_STATS_OFFSET32(total_bytes_received_hi), 8, "[%s]: rx_bytes" },
+/* 1 */	{ Q_STATS_OFFSET32(total_bytes_received_hi), 8, "[%s]: rx_bytes" },
 	{ Q_STATS_OFFSET32(total_unicast_packets_received_hi),
 						8, "[%s]: rx_ucast_packets" },
 	{ Q_STATS_OFFSET32(total_multicast_packets_received_hi),
@@ -51,7 +55,7 @@ static const struct {
 	{ Q_STATS_OFFSET32(hw_csum_err), 4, "[%s]: rx_csum_offload_errors" },
 
 	{ Q_STATS_OFFSET32(total_bytes_transmitted_hi),	8, "[%s]: tx_bytes" },
-{ Q_STATS_OFFSET32(total_unicast_packets_transmitted_hi),
+/* 10 */{ Q_STATS_OFFSET32(total_unicast_packets_transmitted_hi),
 						8, "[%s]: tx_ucast_packets" },
 	{ Q_STATS_OFFSET32(total_multicast_packets_transmitted_hi),
 						8, "[%s]: tx_mcast_packets" },
@@ -75,7 +79,7 @@ static const struct {
 #define STATS_FLAGS_BOTH		(STATS_FLAGS_FUNC | STATS_FLAGS_PORT)
 	char string[ETH_GSTRING_LEN];
 } bnx2x_stats_arr[] = {
-	{ STATS_OFFSET32(total_bytes_received_hi),
+/* 1 */	{ STATS_OFFSET32(total_bytes_received_hi),
 				8, STATS_FLAGS_BOTH, "rx_bytes" },
 	{ STATS_OFFSET32(error_bytes_received_hi),
 				8, STATS_FLAGS_BOTH, "rx_error_bytes" },
@@ -93,7 +97,7 @@ static const struct {
 				8, STATS_FLAGS_PORT, "rx_undersize_packets" },
 	{ STATS_OFFSET32(etherstatsoverrsizepkts_hi),
 				8, STATS_FLAGS_PORT, "rx_oversize_packets" },
-{ STATS_OFFSET32(rx_stat_etherstatsfragments_hi),
+/* 10 */{ STATS_OFFSET32(rx_stat_etherstatsfragments_hi),
 				8, STATS_FLAGS_PORT, "rx_fragments" },
 	{ STATS_OFFSET32(rx_stat_etherstatsjabbers_hi),
 				8, STATS_FLAGS_PORT, "rx_jabbers" },
@@ -117,7 +121,7 @@ static const struct {
 				8, STATS_FLAGS_PORT, "rx_mac_ctrl_frames" },
 	{ STATS_OFFSET32(nig_timer_max),
 			4, STATS_FLAGS_PORT, "rx_constant_pause_events" },
-{ STATS_OFFSET32(rx_err_discard_pkt),
+/* 20 */{ STATS_OFFSET32(rx_err_discard_pkt),
 				4, STATS_FLAGS_BOTH, "rx_phy_ip_err_discards"},
 	{ STATS_OFFSET32(rx_skb_alloc_failed),
 				4, STATS_FLAGS_BOTH, "rx_skb_alloc_discard" },
@@ -138,7 +142,7 @@ static const struct {
 				8, STATS_FLAGS_PORT, "tx_mac_errors" },
 	{ STATS_OFFSET32(rx_stat_dot3statscarriersenseerrors_hi),
 				8, STATS_FLAGS_PORT, "tx_carrier_errors" },
-{ STATS_OFFSET32(tx_stat_dot3statssinglecollisionframes_hi),
+/* 30 */{ STATS_OFFSET32(tx_stat_dot3statssinglecollisionframes_hi),
 				8, STATS_FLAGS_PORT, "tx_single_collisions" },
 	{ STATS_OFFSET32(tx_stat_dot3statsmultiplecollisionframes_hi),
 				8, STATS_FLAGS_PORT, "tx_multi_collisions" },
@@ -158,7 +162,7 @@ static const struct {
 			8, STATS_FLAGS_PORT, "tx_128_to_255_byte_packets" },
 	{ STATS_OFFSET32(tx_stat_etherstatspkts256octetsto511octets_hi),
 			8, STATS_FLAGS_PORT, "tx_256_to_511_byte_packets" },
-{ STATS_OFFSET32(tx_stat_etherstatspkts512octetsto1023octets_hi),
+/* 40 */{ STATS_OFFSET32(tx_stat_etherstatspkts512octetsto1023octets_hi),
 			8, STATS_FLAGS_PORT, "tx_512_to_1023_byte_packets" },
 	{ STATS_OFFSET32(etherstatspkts1024octetsto1522octets_hi),
 			8, STATS_FLAGS_PORT, "tx_1024_to_1522_byte_packets" },
@@ -212,7 +216,7 @@ static int bnx2x_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	struct bnx2x *bp = netdev_priv(dev);
 	int cfg_idx = bnx2x_get_link_cfg_idx(bp);
 
-	
+	/* Dual Media boards present all available port types */
 	cmd->supported = bp->port.supported[cfg_idx] |
 		(bp->port.supported[cfg_idx ^ 1] &
 		 (SUPPORTED_TP | SUPPORTED_FIBRE));
@@ -245,7 +249,7 @@ static int bnx2x_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	else
 		cmd->autoneg = AUTONEG_DISABLE;
 
-	
+	/* Publish LP advertised speeds and FC */
 	if (bp->link_vars.link_status & LINK_STATUS_AUTO_NEGOTIATE_COMPLETE) {
 		u32 status = bp->link_vars.link_status;
 
@@ -308,7 +312,7 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 
 	speed = ethtool_cmd_speed(cmd);
 
-	
+	/* If recieved a request for an unknown duplex, assume full*/
 	if (cmd->duplex == DUPLEX_UNKNOWN)
 		cmd->duplex = DUPLEX_FULL;
 
@@ -316,7 +320,7 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		u32 part;
 		u32 line_speed = bp->link_vars.line_speed;
 
-		
+		/* use 10G if no link detected */
 		if (!line_speed)
 			line_speed = 10000;
 
@@ -336,7 +340,7 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		}
 
 		if (bp->state != BNX2X_STATE_OPEN)
-			
+			/* store value for following "load" */
 			bp->pending_max = part;
 		else
 			bnx2x_update_max_mf_config(bp, part);
@@ -349,7 +353,7 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	switch (cmd->port) {
 	case PORT_TP:
 		if (bp->port.supported[cfg_idx] & SUPPORTED_TP)
-			break; 
+			break; /* no port change */
 
 		if (!(bp->port.supported[0] & SUPPORTED_TP ||
 		      bp->port.supported[1] & SUPPORTED_TP)) {
@@ -369,7 +373,7 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	case PORT_FIBRE:
 	case PORT_DA:
 		if (bp->port.supported[cfg_idx] & SUPPORTED_FIBRE)
-			break; 
+			break; /* no port change */
 
 		if (!(bp->port.supported[0] & SUPPORTED_FIBRE ||
 		      bp->port.supported[1] & SUPPORTED_FIBRE)) {
@@ -390,11 +394,11 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		DP(BNX2X_MSG_ETHTOOL, "Unsupported port type\n");
 		return -EINVAL;
 	}
-	
+	/* Save new config in case command complete successully */
 	new_multi_phy_config = bp->link_params.multi_phy_config;
-	
+	/* Get the new cfg_idx */
 	cfg_idx = bnx2x_get_link_cfg_idx(bp);
-	
+	/* Restore old config in case command failed */
 	bp->link_params.multi_phy_config = old_multi_phy_config;
 	DP(BNX2X_MSG_ETHTOOL, "cfg_idx = %x\n", cfg_idx);
 
@@ -409,7 +413,7 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 			return -EINVAL;
 		}
 
-		
+		/* advertise the requested speed and duplex if supported */
 		if (cmd->advertising & ~an_supported_speed) {
 			DP(BNX2X_MSG_ETHTOOL,
 			   "Advertisement parameters are not supported\n");
@@ -454,8 +458,8 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 				bp->link_params.speed_cap_mask[cfg_idx] |=
 					PORT_HW_CFG_SPEED_CAPABILITY_D0_10G;
 		}
-	} else { 
-		
+	} else { /* forced speed */
+		/* advertise the requested speed and duplex if supported */
 		switch (speed) {
 		case SPEED_10:
 			if (cmd->duplex == DUPLEX_FULL) {
@@ -575,7 +579,7 @@ static int bnx2x_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	   bp->link_params.req_duplex[cfg_idx],
 	   bp->port.advertising[cfg_idx]);
 
-	
+	/* Set new config */
 	bp->link_params.multi_phy_config = new_multi_phy_config;
 	if (netif_running(dev)) {
 		bnx2x_stats_handle(bp, STATS_EVENT_STOP);
@@ -608,6 +612,7 @@ static inline bool bnx2x_is_reg_online(struct bnx2x *bp,
 		return false;
 }
 
+/******* Paged registers info selectors ********/
 static inline const u32 *__bnx2x_get_page_addr_ar(struct bnx2x *bp)
 {
 	if (CHIP_IS_E2(bp))
@@ -702,20 +707,31 @@ static int bnx2x_get_regs_len(struct net_device *dev)
 	return regdump_len;
 }
 
+/**
+ * bnx2x_read_pages_regs - read "paged" registers
+ *
+ * @bp		device handle
+ * @p		output buffer
+ *
+ * Reads "paged" memories: memories that may only be read by first writing to a
+ * specific address ("write address") and then reading from a specific address
+ * ("read address"). There may be more than one write address per "page" and
+ * more than one read address per write address.
+ */
 static inline void bnx2x_read_pages_regs(struct bnx2x *bp, u32 *p)
 {
 	u32 i, j, k, n;
-	
+	/* addresses of the paged registers */
 	const u32 *page_addr = __bnx2x_get_page_addr_ar(bp);
-	
+	/* number of paged registers */
 	int num_pages = __bnx2x_get_page_reg_num(bp);
-	
+	/* write addresses */
 	const u32 *write_addr = __bnx2x_get_page_write_ar(bp);
-	
+	/* number of write addresses */
 	int write_num = __bnx2x_get_page_write_num(bp);
-	
+	/* read addresses info */
 	const struct reg_addr *read_addr = __bnx2x_get_page_read_ar(bp);
-	
+	/* number of read addresses */
 	int read_num = __bnx2x_get_page_read_num(bp);
 
 	for (i = 0; i < num_pages; i++) {
@@ -735,13 +751,13 @@ static inline void __bnx2x_get_regs(struct bnx2x *bp, u32 *p)
 {
 	u32 i, j;
 
-	
+	/* Read the regular registers */
 	for (i = 0; i < REGS_COUNT; i++)
 		if (bnx2x_is_reg_online(bp, &reg_addrs[i]))
 			for (j = 0; j < reg_addrs[i].size; j++)
 				*p++ = REG_RD(bp, reg_addrs[i].addr + j*4);
 
-	
+	/* Read "paged" registes */
 	bnx2x_read_pages_regs(bp, p);
 }
 
@@ -782,10 +798,10 @@ static void bnx2x_get_regs(struct net_device *dev,
 	memcpy(p, &dump_hdr, sizeof(struct dump_hdr));
 	p += dump_hdr.hdr_size + 1;
 
-	
+	/* Actually read the registers */
 	__bnx2x_get_regs(bp, p);
 
-	
+	/* Re-enable parity attentions */
 	bnx2x_clear_blocks_parity(bp);
 	bnx2x_enable_blocks_parity(bp);
 }
@@ -866,7 +882,7 @@ static void bnx2x_set_msglevel(struct net_device *dev, u32 level)
 	struct bnx2x *bp = netdev_priv(dev);
 
 	if (capable(CAP_NET_ADMIN)) {
-		
+		/* dump MCP trace */
 		if (level & BNX2X_MSG_MCP)
 			bnx2x_fw_dump_lvl(bp, KERN_INFO);
 		bp->msg_enable = level;
@@ -905,21 +921,34 @@ static int bnx2x_get_eeprom_len(struct net_device *dev)
 	return bp->common.flash_size;
 }
 
+/* Per pf misc lock must be aquired before the per port mcp lock. Otherwise, had
+ * we done things the other way around, if two pfs from the same port would
+ * attempt to access nvram at the same time, we could run into a scenario such
+ * as:
+ * pf A takes the port lock.
+ * pf B succeeds in taking the same lock since they are from the same port.
+ * pf A takes the per pf misc lock. Performs eeprom access.
+ * pf A finishes. Unlocks the per pf misc lock.
+ * Pf B takes the lock and proceeds to perform it's own access.
+ * pf A unlocks the per port lock, while pf B is still working (!).
+ * mcp takes the per port lock and corrupts pf B's access (and/or has it's own
+ * acess corrupted by pf B).*
+ */
 static int bnx2x_acquire_nvram_lock(struct bnx2x *bp)
 {
 	int port = BP_PORT(bp);
 	int count, i;
 	u32 val;
 
-	
+	/* acquire HW lock: protect against other PFs in PF Direct Assignment */
 	bnx2x_acquire_hw_lock(bp, HW_LOCK_RESOURCE_NVRAM);
 
-	
+	/* adjust timeout for emulation/FPGA */
 	count = BNX2X_NVRAM_TIMEOUT_COUNT;
 	if (CHIP_REV_IS_SLOW(bp))
 		count *= 100;
 
-	
+	/* request access to nvram interface */
 	REG_WR(bp, MCP_REG_MCPR_NVM_SW_ARB,
 	       (MCPR_NVM_SW_ARB_ARB_REQ_SET1 << port));
 
@@ -946,12 +975,12 @@ static int bnx2x_release_nvram_lock(struct bnx2x *bp)
 	int count, i;
 	u32 val;
 
-	
+	/* adjust timeout for emulation/FPGA */
 	count = BNX2X_NVRAM_TIMEOUT_COUNT;
 	if (CHIP_REV_IS_SLOW(bp))
 		count *= 100;
 
-	
+	/* relinquish nvram interface */
 	REG_WR(bp, MCP_REG_MCPR_NVM_SW_ARB,
 	       (MCPR_NVM_SW_ARB_ARB_REQ_CLR1 << port));
 
@@ -969,7 +998,7 @@ static int bnx2x_release_nvram_lock(struct bnx2x *bp)
 		return -EBUSY;
 	}
 
-	
+	/* release HW lock: protect against other PFs in PF Direct Assignment */
 	bnx2x_release_hw_lock(bp, HW_LOCK_RESOURCE_NVRAM);
 	return 0;
 }
@@ -980,7 +1009,7 @@ static void bnx2x_enable_nvram_access(struct bnx2x *bp)
 
 	val = REG_RD(bp, MCP_REG_MCPR_NVM_ACCESS_ENABLE);
 
-	
+	/* enable both bits, even on read */
 	REG_WR(bp, MCP_REG_MCPR_NVM_ACCESS_ENABLE,
 	       (val | MCPR_NVM_ACCESS_ENABLE_EN |
 		      MCPR_NVM_ACCESS_ENABLE_WR_EN));
@@ -992,7 +1021,7 @@ static void bnx2x_disable_nvram_access(struct bnx2x *bp)
 
 	val = REG_RD(bp, MCP_REG_MCPR_NVM_ACCESS_ENABLE);
 
-	
+	/* disable both bits, even after read */
 	REG_WR(bp, MCP_REG_MCPR_NVM_ACCESS_ENABLE,
 	       (val & ~(MCPR_NVM_ACCESS_ENABLE_EN |
 			MCPR_NVM_ACCESS_ENABLE_WR_EN)));
@@ -1004,25 +1033,25 @@ static int bnx2x_nvram_read_dword(struct bnx2x *bp, u32 offset, __be32 *ret_val,
 	int count, i, rc;
 	u32 val;
 
-	
+	/* build the command word */
 	cmd_flags |= MCPR_NVM_COMMAND_DOIT;
 
-	
+	/* need to clear DONE bit separately */
 	REG_WR(bp, MCP_REG_MCPR_NVM_COMMAND, MCPR_NVM_COMMAND_DONE);
 
-	
+	/* address of the NVRAM to read from */
 	REG_WR(bp, MCP_REG_MCPR_NVM_ADDR,
 	       (offset & MCPR_NVM_ADDR_NVM_ADDR_VALUE));
 
-	
+	/* issue a read command */
 	REG_WR(bp, MCP_REG_MCPR_NVM_COMMAND, cmd_flags);
 
-	
+	/* adjust timeout for emulation/FPGA */
 	count = BNX2X_NVRAM_TIMEOUT_COUNT;
 	if (CHIP_REV_IS_SLOW(bp))
 		count *= 100;
 
-	
+	/* wait for completion */
 	*ret_val = 0;
 	rc = -EBUSY;
 	for (i = 0; i < count; i++) {
@@ -1031,6 +1060,9 @@ static int bnx2x_nvram_read_dword(struct bnx2x *bp, u32 offset, __be32 *ret_val,
 
 		if (val & MCPR_NVM_COMMAND_DONE) {
 			val = REG_RD(bp, MCP_REG_MCPR_NVM_READ);
+			/* we read nvram data in cpu order
+			 * but ethtool sees it as an array of bytes
+			 * converting to big-endian will do the work */
 			*ret_val = cpu_to_be32(val);
 			rc = 0;
 			break;
@@ -1063,21 +1095,21 @@ static int bnx2x_nvram_read(struct bnx2x *bp, u32 offset, u8 *ret_buf,
 		return -EINVAL;
 	}
 
-	
+	/* request access to nvram interface */
 	rc = bnx2x_acquire_nvram_lock(bp);
 	if (rc)
 		return rc;
 
-	
+	/* enable access to nvram interface */
 	bnx2x_enable_nvram_access(bp);
 
-	
+	/* read the first word(s) */
 	cmd_flags = MCPR_NVM_COMMAND_FIRST;
 	while ((buf_size > sizeof(u32)) && (rc == 0)) {
 		rc = bnx2x_nvram_read_dword(bp, offset, &val, cmd_flags);
 		memcpy(ret_buf, &val, 4);
 
-		
+		/* advance to the next dword */
 		offset += sizeof(u32);
 		ret_buf += sizeof(u32);
 		buf_size -= sizeof(u32);
@@ -1090,7 +1122,7 @@ static int bnx2x_nvram_read(struct bnx2x *bp, u32 offset, u8 *ret_buf,
 		memcpy(ret_buf, &val, 4);
 	}
 
-	
+	/* disable access to nvram interface */
 	bnx2x_disable_nvram_access(bp);
 	bnx2x_release_nvram_lock(bp);
 
@@ -1114,7 +1146,7 @@ static int bnx2x_get_eeprom(struct net_device *dev,
 	   eeprom->cmd, eeprom->magic, eeprom->offset, eeprom->offset,
 	   eeprom->len, eeprom->len);
 
-	
+	/* parameters already validated in ethtool_get_eeprom */
 
 	rc = bnx2x_nvram_read(bp, eeprom->offset, eebuf, eeprom->len);
 
@@ -1126,28 +1158,28 @@ static int bnx2x_nvram_write_dword(struct bnx2x *bp, u32 offset, u32 val,
 {
 	int count, i, rc;
 
-	
+	/* build the command word */
 	cmd_flags |= MCPR_NVM_COMMAND_DOIT | MCPR_NVM_COMMAND_WR;
 
-	
+	/* need to clear DONE bit separately */
 	REG_WR(bp, MCP_REG_MCPR_NVM_COMMAND, MCPR_NVM_COMMAND_DONE);
 
-	
+	/* write the data */
 	REG_WR(bp, MCP_REG_MCPR_NVM_WRITE, val);
 
-	
+	/* address of the NVRAM to write to */
 	REG_WR(bp, MCP_REG_MCPR_NVM_ADDR,
 	       (offset & MCPR_NVM_ADDR_NVM_ADDR_VALUE));
 
-	
+	/* issue the write command */
 	REG_WR(bp, MCP_REG_MCPR_NVM_COMMAND, cmd_flags);
 
-	
+	/* adjust timeout for emulation/FPGA */
 	count = BNX2X_NVRAM_TIMEOUT_COUNT;
 	if (CHIP_REV_IS_SLOW(bp))
 		count *= 100;
 
-	
+	/* wait for completion */
 	rc = -EBUSY;
 	for (i = 0; i < count; i++) {
 		udelay(5);
@@ -1181,12 +1213,12 @@ static int bnx2x_nvram_write1(struct bnx2x *bp, u32 offset, u8 *data_buf,
 		return -EINVAL;
 	}
 
-	
+	/* request access to nvram interface */
 	rc = bnx2x_acquire_nvram_lock(bp);
 	if (rc)
 		return rc;
 
-	
+	/* enable access to nvram interface */
 	bnx2x_enable_nvram_access(bp);
 
 	cmd_flags = (MCPR_NVM_COMMAND_FIRST | MCPR_NVM_COMMAND_LAST);
@@ -1197,13 +1229,15 @@ static int bnx2x_nvram_write1(struct bnx2x *bp, u32 offset, u8 *data_buf,
 		val &= ~(0xff << BYTE_OFFSET(offset));
 		val |= (*data_buf << BYTE_OFFSET(offset));
 
+		/* nvram data is returned as an array of bytes
+		 * convert it back to cpu order */
 		val = be32_to_cpu(val);
 
 		rc = bnx2x_nvram_write_dword(bp, align_offset, val,
 					     cmd_flags);
 	}
 
-	
+	/* disable access to nvram interface */
 	bnx2x_disable_nvram_access(bp);
 	bnx2x_release_nvram_lock(bp);
 
@@ -1218,7 +1252,7 @@ static int bnx2x_nvram_write(struct bnx2x *bp, u32 offset, u8 *data_buf,
 	u32 val;
 	u32 written_so_far;
 
-	if (buf_size == 1)	
+	if (buf_size == 1)	/* ethtool */
 		return bnx2x_nvram_write1(bp, offset, data_buf, buf_size);
 
 	if ((offset & 0x03) || (buf_size & 0x03) || (buf_size == 0)) {
@@ -1235,12 +1269,12 @@ static int bnx2x_nvram_write(struct bnx2x *bp, u32 offset, u8 *data_buf,
 		return -EINVAL;
 	}
 
-	
+	/* request access to nvram interface */
 	rc = bnx2x_acquire_nvram_lock(bp);
 	if (rc)
 		return rc;
 
-	
+	/* enable access to nvram interface */
 	bnx2x_enable_nvram_access(bp);
 
 	written_so_far = 0;
@@ -1257,14 +1291,14 @@ static int bnx2x_nvram_write(struct bnx2x *bp, u32 offset, u8 *data_buf,
 
 		rc = bnx2x_nvram_write_dword(bp, offset, val, cmd_flags);
 
-		
+		/* advance to the next dword */
 		offset += sizeof(u32);
 		data_buf += sizeof(u32);
 		written_so_far += sizeof(u32);
 		cmd_flags = 0;
 	}
 
-	
+	/* disable access to nvram interface */
 	bnx2x_disable_nvram_access(bp);
 	bnx2x_release_nvram_lock(bp);
 
@@ -1289,9 +1323,9 @@ static int bnx2x_set_eeprom(struct net_device *dev,
 	   eeprom->cmd, eeprom->magic, eeprom->offset, eeprom->offset,
 	   eeprom->len, eeprom->len);
 
-	
+	/* parameters already validated in ethtool_set_eeprom */
 
-	
+	/* PHY eeprom can be accessed only by the PMF */
 	if ((eeprom->magic >= 0x50485900) && (eeprom->magic <= 0x504859FF) &&
 	    !bp->port.pmf) {
 		DP(BNX2X_MSG_ETHTOOL | BNX2X_MSG_NVM,
@@ -1304,7 +1338,7 @@ static int bnx2x_set_eeprom(struct net_device *dev,
 			 dev_info.port_hw_config[port].external_phy_config);
 
 	if (eeprom->magic == 0x50485950) {
-		
+		/* 'PHYP' (0x50485950): prepare phy for FW upgrade */
 		bnx2x_stats_handle(bp, STATS_EVENT_STOP);
 
 		bnx2x_acquire_phy_lock(bp);
@@ -1318,7 +1352,7 @@ static int bnx2x_set_eeprom(struct net_device *dev,
 		bnx2x_link_report(bp);
 
 	} else if (eeprom->magic == 0x50485952) {
-		
+		/* 'PHYR' (0x50485952): re-init link after FW upgrade */
 		if (bp->state == BNX2X_STATE_OPEN) {
 			bnx2x_acquire_phy_lock(bp);
 			rc |= bnx2x_link_reset(&bp->link_params,
@@ -1330,11 +1364,11 @@ static int bnx2x_set_eeprom(struct net_device *dev,
 			bnx2x_calc_fc_adv(bp);
 		}
 	} else if (eeprom->magic == 0x53985943) {
-		
+		/* 'PHYC' (0x53985943): PHY FW upgrade completed */
 		if (XGXS_EXT_PHY_TYPE(ext_phy_config) ==
 				       PORT_HW_CFG_XGXS_EXT_PHY_TYPE_SFX7101) {
 
-			
+			/* DSP Remove Download Mode */
 			bnx2x_set_gpio(bp, MISC_REGISTERS_GPIO_0,
 				       MISC_REGISTERS_GPIO_LOW, port);
 
@@ -1343,7 +1377,7 @@ static int bnx2x_set_eeprom(struct net_device *dev,
 			bnx2x_sfx7101_sp_sw_reset(bp,
 						&bp->link_params.phy[EXT_PHY1]);
 
-			
+			/* wait 0.5 sec to allow it to run */
 			msleep(500);
 			bnx2x_ext_phy_hw_reset(bp, port);
 			msleep(500);
@@ -1541,7 +1575,7 @@ static int bnx2x_test_registers(struct bnx2x *bp)
 		u32 offset1;
 		u32 mask;
 	} reg_tbl[] = {
-		{ BNX2X_CHIP_MASK_ALL,
+/* 0 */		{ BNX2X_CHIP_MASK_ALL,
 			BRB1_REG_PAUSE_LOW_THRESHOLD_0,	4, 0x000003ff },
 		{ BNX2X_CHIP_MASK_ALL,
 			DORQ_REG_DB_ADDR0,		4, 0xffffffff },
@@ -1561,7 +1595,7 @@ static int bnx2x_test_registers(struct bnx2x *bp)
 			PXP2_REG_RQ_CDU0_EFIRST_MEM_ADDR, 8, 0x0003ffff },
 		{ BNX2X_CHIP_MASK_ALL,
 			PXP2_REG_PSWRQ_TM0_L2P,		4, 0x000fffff },
-	{ BNX2X_CHIP_MASK_ALL,
+/* 10 */	{ BNX2X_CHIP_MASK_ALL,
 			PXP2_REG_RQ_USDM0_EFIRST_MEM_ADDR, 8, 0x0003ffff },
 		{ BNX2X_CHIP_MASK_ALL,
 			PXP2_REG_PSWRQ_TSDM0_L2P,	4, 0x000fffff },
@@ -1581,7 +1615,7 @@ static int bnx2x_test_registers(struct bnx2x *bp)
 			XCM_REG_GLB_DEL_ACK_MAX_CNT_0,	4, 0x000000ff },
 		{ BNX2X_CHIP_MASK_ALL,
 			NIG_REG_LLH0_T_BIT,		4, 0x00000001 },
-	{ BNX2X_CHIP_MASK_E1X | BNX2X_CHIP_MASK_E2,
+/* 20 */	{ BNX2X_CHIP_MASK_E1X | BNX2X_CHIP_MASK_E2,
 			NIG_REG_EMAC0_IN_EN,		4, 0x00000001 },
 		{ BNX2X_CHIP_MASK_E1X | BNX2X_CHIP_MASK_E2,
 			NIG_REG_BMAC0_IN_EN,		4, 0x00000001 },
@@ -1601,7 +1635,7 @@ static int bnx2x_test_registers(struct bnx2x *bp)
 			NIG_REG_LLH0_DEST_IP_0_1,	160, 0xffffffff },
 		{ BNX2X_CHIP_MASK_ALL,
 			NIG_REG_LLH0_IPV4_IPV6_0,	160, 0x00000001 },
-	{ BNX2X_CHIP_MASK_ALL,
+/* 30 */	{ BNX2X_CHIP_MASK_ALL,
 			NIG_REG_LLH0_DEST_UDP_0,	160, 0x0000ffff },
 		{ BNX2X_CHIP_MASK_ALL,
 			NIG_REG_LLH0_DEST_TCP_0,	160, 0x0000ffff },
@@ -1635,9 +1669,11 @@ static int bnx2x_test_registers(struct bnx2x *bp)
 		hw = BNX2X_CHIP_MASK_E2;
 	else if (CHIP_IS_E3B0(bp))
 		hw = BNX2X_CHIP_MASK_E3B0;
-	else 
+	else /* e3 A0 */
 		hw = BNX2X_CHIP_MASK_E3;
 
+	/* Repeat the test twice:
+	   First by writing 0x00000000, second by writing 0xffffffff */
 	for (idx = 0; idx < 2; idx++) {
 
 		switch (idx) {
@@ -1663,10 +1699,10 @@ static int bnx2x_test_registers(struct bnx2x *bp)
 
 			val = REG_RD(bp, offset);
 
-			
+			/* Restore the original register's value */
 			REG_WR(bp, offset, save_val);
 
-			
+			/* verify value is as expected */
 			if ((val & mask) != (wr_val & mask)) {
 				DP(BNX2X_MSG_ETHTOOL,
 				   "offset 0x%x: val 0x%x != 0x%x mask 0x%x\n",
@@ -1734,10 +1770,10 @@ static int bnx2x_test_memory(struct bnx2x *bp)
 		index = BNX2X_CHIP_E1H_OFST;
 	else if (CHIP_IS_E2(bp))
 		index = BNX2X_CHIP_E2_OFST;
-	else 
+	else /* e3 */
 		index = BNX2X_CHIP_E3_OFST;
 
-	
+	/* pre-Check the parity status */
 	for (i = 0; prty_tbl[i].offset != 0xffffffff; i++) {
 		val = REG_RD(bp, prty_tbl[i].offset);
 		if (val & ~(prty_tbl[i].hw_mask[index])) {
@@ -1747,12 +1783,12 @@ static int bnx2x_test_memory(struct bnx2x *bp)
 		}
 	}
 
-	
+	/* Go through all the memories */
 	for (i = 0; mem_tbl[i].offset != 0xffffffff; i++)
 		for (j = 0; j < mem_tbl[i].size; j++)
 			REG_RD(bp, mem_tbl[i].offset + j*4);
 
-	
+	/* Check the parity status */
 	for (i = 0; prty_tbl[i].offset != 0xffffffff; i++) {
 		val = REG_RD(bp, prty_tbl[i].offset);
 		if (val & ~(prty_tbl[i].hw_mask[index])) {
@@ -1805,7 +1841,7 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 	u8 *data;
 	struct netdev_queue *txq = netdev_get_tx_queue(bp->dev, txdata->txq_index);
 
-	
+	/* check the loopback mode */
 	switch (loopback_mode) {
 	case BNX2X_PHY_LOOPBACK:
 		if (bp->link_params.loopback_mode != LOOPBACK_XGXS)
@@ -1831,7 +1867,7 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 		return -EINVAL;
 	}
 
-	
+	/* prepare the loopback packet */
 	pkt_size = (((bp->dev->mtu < ETH_MAX_PACKET_SIZE) ?
 		     bp->dev->mtu : ETH_MAX_PACKET_SIZE) + ETH_HLEN);
 	skb = netdev_alloc_skb(bp->dev, fp_rx->rx_buf_size);
@@ -1855,7 +1891,7 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 		goto test_loopback_exit;
 	}
 
-	
+	/* send the loopback packet */
 	num_pkts = 0;
 	tx_start_idx = le16_to_cpu(*txdata->tx_cons_sb);
 	rx_start_idx = le16_to_cpu(*fp_rx->rx_cons_sb);
@@ -1872,7 +1908,7 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 	tx_start_bd = &txdata->tx_desc_ring[bd_prod].start_bd;
 	tx_start_bd->addr_hi = cpu_to_le32(U64_HI(mapping));
 	tx_start_bd->addr_lo = cpu_to_le32(U64_LO(mapping));
-	tx_start_bd->nbd = cpu_to_le16(2); 
+	tx_start_bd->nbd = cpu_to_le16(2); /* start + pbd */
 	tx_start_bd->nbytes = cpu_to_le16(skb_headlen(skb));
 	tx_start_bd->vlan_or_ethertype = cpu_to_le16(pkt_prod);
 	tx_start_bd->bd_flags.as_bitfield = ETH_TX_BD_FLAGS_START_BD;
@@ -1883,7 +1919,7 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 		 ETH_TX_START_BD_HDR_NBDS,
 		 1);
 
-	
+	/* turn on parsing and get a BD */
 	bd_prod = TX_BD(NEXT_TX_IDX(bd_prod));
 
 	pbd_e1x = &txdata->tx_desc_ring[bd_prod].parse_bd_e1x;
@@ -1902,7 +1938,7 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 	barrier();
 
 	num_pkts++;
-	txdata->tx_bd_prod += 2; 
+	txdata->tx_bd_prod += 2; /* start + pbd */
 
 	udelay(100);
 
@@ -1910,7 +1946,15 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 	if (tx_idx != tx_start_idx + num_pkts)
 		goto test_loopback_exit;
 
+	/* Unlike HC IGU won't generate an interrupt for status block
+	 * updates that have been performed while interrupts were
+	 * disabled.
+	 */
 	if (bp->common.int_block == INT_BLOCK_IGU) {
+		/* Disable local BHes to prevent a dead-lock situation between
+		 * sch_direct_xmit() and bnx2x_run_loopback() (calling
+		 * bnx2x_tx_int()), as both are taking netif_tx_lock().
+		 */
 		local_bh_disable();
 		bnx2x_tx_int(bp, txdata);
 		local_bh_enable();
@@ -1948,7 +1992,7 @@ test_loopback_rx_exit:
 	fp_rx->rx_comp_cons = NEXT_RCQ_IDX(fp_rx->rx_comp_cons);
 	fp_rx->rx_comp_prod = NEXT_RCQ_IDX(fp_rx->rx_comp_prod);
 
-	
+	/* Update producers */
 	bnx2x_update_rx_prod(bp, fp_rx, fp_rx->rx_bd_prod, fp_rx->rx_comp_prod,
 			     fp_rx->rx_sge_prod);
 
@@ -1997,12 +2041,12 @@ static int bnx2x_test_nvram(struct bnx2x *bp)
 		int offset;
 		int size;
 	} nvram_tbl[] = {
-		{     0,  0x14 }, 
-		{  0x14,  0xec }, 
-		{ 0x100, 0x350 }, 
-		{ 0x450,  0xf0 }, 
-		{ 0x640,  0x64 }, 
-		{ 0x708,  0x70 }, 
+		{     0,  0x14 }, /* bootstrap */
+		{  0x14,  0xec }, /* dir */
+		{ 0x100, 0x350 }, /* manuf_info */
+		{ 0x450,  0xf0 }, /* feature_info */
+		{ 0x640,  0x64 }, /* upgrade_key_info */
+		{ 0x708,  0x70 }, /* manuf_key_info */
 		{     0,     0 }
 	};
 	__be32 *buf;
@@ -2060,6 +2104,7 @@ test_nvram_exit:
 	return rc;
 }
 
+/* Send an EMPTY ramrod on the first queue */
 static int bnx2x_test_intr(struct bnx2x *bp)
 {
 	struct bnx2x_queue_state_params params = {NULL};
@@ -2095,7 +2140,7 @@ static void bnx2x_self_test(struct net_device *dev,
 	if (!netif_running(dev))
 		return;
 
-	
+	/* offline tests are not supported in MF mode */
 	if (IS_MF(bp))
 		etest->flags &= ~ETH_TEST_FL_OFFLINE;
 	is_serdes = (bp->link_vars.link_status & LINK_STATUS_SERDES_LINK) > 0;
@@ -2105,16 +2150,16 @@ static void bnx2x_self_test(struct net_device *dev,
 		u32 val;
 		u8 link_up;
 
-		
+		/* save current value of input enable for TX port IF */
 		val = REG_RD(bp, NIG_REG_EGRESS_UMP0_IN_EN + port*4);
-		
+		/* disable input for TX port IF */
 		REG_WR(bp, NIG_REG_EGRESS_UMP0_IN_EN + port*4, 0);
 
 		link_up = bp->link_vars.link_up;
 
 		bnx2x_nic_unload(bp, UNLOAD_NORMAL);
 		bnx2x_nic_load(bp, LOAD_DIAG);
-		
+		/* wait until link state is restored */
 		bnx2x_wait_for_link(bp, 1, is_serdes);
 
 		if (bnx2x_test_registers(bp) != 0) {
@@ -2132,11 +2177,11 @@ static void bnx2x_self_test(struct net_device *dev,
 
 		bnx2x_nic_unload(bp, UNLOAD_NORMAL);
 
-		
+		/* restore input for TX port IF */
 		REG_WR(bp, NIG_REG_EGRESS_UMP0_IN_EN + port*4, val);
 
 		bnx2x_nic_load(bp, LOAD_NORMAL);
-		
+		/* wait until link state is restored */
 		bnx2x_wait_for_link(bp, link_up, is_serdes);
 	}
 	if (bnx2x_test_nvram(bp) != 0) {
@@ -2164,6 +2209,9 @@ static void bnx2x_self_test(struct net_device *dev,
 #define IS_MF_MODE_STAT(bp) \
 			(IS_MF(bp) && !(bp->msg_enable & BNX2X_MSG_STATS))
 
+/* ethtool statistics are displayed for all regular ethernet queues and the
+ * fcoe L2 queue if not disabled
+ */
 static inline int bnx2x_num_stat_queues(struct bnx2x *bp)
 {
 	return BNX2X_NUM_ETH_QUEUES(bp);
@@ -2249,18 +2297,18 @@ static void bnx2x_get_ethtool_stats(struct net_device *dev,
 			hw_stats = (u32 *)&bp->fp[i].eth_q_stats;
 			for (j = 0; j < BNX2X_NUM_Q_STATS; j++) {
 				if (bnx2x_q_stats_arr[j].size == 0) {
-					
+					/* skip this counter */
 					buf[k + j] = 0;
 					continue;
 				}
 				offset = (hw_stats +
 					  bnx2x_q_stats_arr[j].offset);
 				if (bnx2x_q_stats_arr[j].size == 4) {
-					
+					/* 4-byte counter */
 					buf[k + j] = (u64) *offset;
 					continue;
 				}
-				
+				/* 8-byte counter */
 				buf[k + j] = HILO_U64(*offset, *(offset + 1));
 			}
 			k += BNX2X_NUM_Q_STATS;
@@ -2272,19 +2320,19 @@ static void bnx2x_get_ethtool_stats(struct net_device *dev,
 		if (IS_MF_MODE_STAT(bp) && IS_PORT_STAT(i))
 			continue;
 		if (bnx2x_stats_arr[i].size == 0) {
-			
+			/* skip this counter */
 			buf[k + j] = 0;
 			j++;
 			continue;
 		}
 		offset = (hw_stats + bnx2x_stats_arr[i].offset);
 		if (bnx2x_stats_arr[i].size == 4) {
-			
+			/* 4-byte counter */
 			buf[k + j] = (u64) *offset;
 			j++;
 			continue;
 		}
-		
+		/* 8-byte counter */
 		buf[k + j] = HILO_U64(*offset, *(offset + 1));
 		j++;
 	}
@@ -2308,7 +2356,7 @@ static int bnx2x_set_phys_id(struct net_device *dev,
 
 	switch (state) {
 	case ETHTOOL_ID_ACTIVE:
-		return 1;	
+		return 1;	/* cycle on/off once per second */
 
 	case ETHTOOL_ID_ON:
 		bnx2x_set_led(&bp->link_params, &bp->link_vars,
@@ -2360,9 +2408,18 @@ static int bnx2x_get_rxfh_indir(struct net_device *dev, u32 *indir)
 	u8 ind_table[T_ETH_INDIRECTION_TABLE_SIZE] = {0};
 	size_t i;
 
-	
+	/* Get the current configuration of the RSS indirection table */
 	bnx2x_get_rss_ind_table(&bp->rss_conf_obj, ind_table);
 
+	/*
+	 * We can't use a memcpy() as an internal storage of an
+	 * indirection table is a u8 array while indir->ring_index
+	 * points to an array of u32.
+	 *
+	 * Indirection table contains the FW Client IDs, so we need to
+	 * align the returned table to the Client ID of the leading RSS
+	 * queue.
+	 */
 	for (i = 0; i < T_ETH_INDIRECTION_TABLE_SIZE; i++)
 		indir[i] = ind_table[i] - bp->fp->cl_id;
 
@@ -2376,6 +2433,15 @@ static int bnx2x_set_rxfh_indir(struct net_device *dev, const u32 *indir)
 	u8 ind_table[T_ETH_INDIRECTION_TABLE_SIZE] = {0};
 
 	for (i = 0; i < T_ETH_INDIRECTION_TABLE_SIZE; i++) {
+		/*
+		 * The same as in bnx2x_get_rxfh_indir: we can't use a memcpy()
+		 * as an internal storage of an indirection table is a u8 array
+		 * while indir->ring_index points to an array of u32.
+		 *
+		 * Indirection table contains the FW Client IDs, so we need to
+		 * align the received table to the Client ID of the leading RSS
+		 * queue
+		 */
 		ind_table[i] = indir[i] + bp->fp->cl_id;
 	}
 

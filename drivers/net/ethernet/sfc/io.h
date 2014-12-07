@@ -83,6 +83,7 @@ static inline __le32 _efx_readd(struct efx_nic *efx, unsigned int reg)
 	return (__force __le32)__raw_readl(efx->membase + reg);
 }
 
+/* Write a normal 128-bit CSR, locking as appropriate. */
 static inline void efx_writeo(struct efx_nic *efx, efx_oword_t *value,
 			      unsigned int reg)
 {
@@ -106,6 +107,7 @@ static inline void efx_writeo(struct efx_nic *efx, efx_oword_t *value,
 	spin_unlock_irqrestore(&efx->biu_lock, flags);
 }
 
+/* Write 64-bit SRAM through the supplied mapping, locking as appropriate. */
 static inline void efx_sram_writeq(struct efx_nic *efx, void __iomem *membase,
 				   efx_qword_t *value, unsigned int index)
 {
@@ -127,6 +129,7 @@ static inline void efx_sram_writeq(struct efx_nic *efx, void __iomem *membase,
 	spin_unlock_irqrestore(&efx->biu_lock, flags);
 }
 
+/* Write a 32-bit CSR or the last dword of a special 128-bit CSR */
 static inline void efx_writed(struct efx_nic *efx, efx_dword_t *value,
 			      unsigned int reg)
 {
@@ -134,10 +137,11 @@ static inline void efx_writed(struct efx_nic *efx, efx_dword_t *value,
 		   "writing register %x with "EFX_DWORD_FMT"\n",
 		   reg, EFX_DWORD_VAL(*value));
 
-	
+	/* No lock required */
 	_efx_writed(efx, value->u32[0], reg);
 }
 
+/* Read a 128-bit CSR, locking as appropriate. */
 static inline void efx_reado(struct efx_nic *efx, efx_oword_t *value,
 			     unsigned int reg)
 {
@@ -155,6 +159,7 @@ static inline void efx_reado(struct efx_nic *efx, efx_oword_t *value,
 		   EFX_OWORD_VAL(*value));
 }
 
+/* Read 64-bit SRAM through the supplied mapping, locking as appropriate. */
 static inline void efx_sram_readq(struct efx_nic *efx, void __iomem *membase,
 				  efx_qword_t *value, unsigned int index)
 {
@@ -175,6 +180,7 @@ static inline void efx_sram_readq(struct efx_nic *efx, void __iomem *membase,
 		   addr, EFX_QWORD_VAL(*value));
 }
 
+/* Read a 32-bit CSR or SRAM */
 static inline void efx_readd(struct efx_nic *efx, efx_dword_t *value,
 				unsigned int reg)
 {
@@ -184,35 +190,42 @@ static inline void efx_readd(struct efx_nic *efx, efx_dword_t *value,
 		   reg, EFX_DWORD_VAL(*value));
 }
 
+/* Write a 128-bit CSR forming part of a table */
 static inline void efx_writeo_table(struct efx_nic *efx, efx_oword_t *value,
 				      unsigned int reg, unsigned int index)
 {
 	efx_writeo(efx, value, reg + index * sizeof(efx_oword_t));
 }
 
+/* Read a 128-bit CSR forming part of a table */
 static inline void efx_reado_table(struct efx_nic *efx, efx_oword_t *value,
 				     unsigned int reg, unsigned int index)
 {
 	efx_reado(efx, value, reg + index * sizeof(efx_oword_t));
 }
 
+/* Write a 32-bit CSR forming part of a table, or 32-bit SRAM */
 static inline void efx_writed_table(struct efx_nic *efx, efx_dword_t *value,
 				       unsigned int reg, unsigned int index)
 {
 	efx_writed(efx, value, reg + index * sizeof(efx_oword_t));
 }
 
+/* Read a 32-bit CSR forming part of a table, or 32-bit SRAM */
 static inline void efx_readd_table(struct efx_nic *efx, efx_dword_t *value,
 				   unsigned int reg, unsigned int index)
 {
 	efx_readd(efx, value, reg + index * sizeof(efx_dword_t));
 }
 
+/* Page-mapped register block size */
 #define EFX_PAGE_BLOCK_SIZE 0x2000
 
+/* Calculate offset to page-mapped register block */
 #define EFX_PAGED_REG(page, reg) \
 	((page) * EFX_PAGE_BLOCK_SIZE + (reg))
 
+/* Write the whole of RX_DESC_UPD or TX_DESC_UPD */
 static inline void _efx_writeo_page(struct efx_nic *efx, efx_oword_t *value,
 				    unsigned int reg, unsigned int page)
 {
@@ -238,6 +251,9 @@ static inline void _efx_writeo_page(struct efx_nic *efx, efx_oword_t *value,
 			 BUILD_BUG_ON_ZERO((reg) != 0x830 && (reg) != 0xa10), \
 			 page)
 
+/* Write a page-mapped 32-bit CSR (EVQ_RPTR or the high bits of
+ * RX_DESC_UPD or TX_DESC_UPD)
+ */
 static inline void _efx_writed_page(struct efx_nic *efx, efx_dword_t *value,
 				    unsigned int reg, unsigned int page)
 {
@@ -250,6 +266,10 @@ static inline void _efx_writed_page(struct efx_nic *efx, efx_dword_t *value,
 					   && (reg) != 0xa1c),		\
 			 page)
 
+/* Write TIMER_COMMAND.  This is a page-mapped 32-bit CSR, but a bug
+ * in the BIU means that writes to TIMER_COMMAND[0] invalidate the
+ * collector register.
+ */
 static inline void _efx_writed_page_locked(struct efx_nic *efx,
 					   efx_dword_t *value,
 					   unsigned int reg,
@@ -270,4 +290,4 @@ static inline void _efx_writed_page_locked(struct efx_nic *efx,
 				reg + BUILD_BUG_ON_ZERO((reg) != 0x420), \
 				page)
 
-#endif 
+#endif /* EFX_IO_H */

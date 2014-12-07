@@ -19,6 +19,6 @@ extern void *memset(void *, int, __kernel_size_t);
 extern void *memcpy(void *, const void *, __kernel_size_t);
 extern void *memmove(void *, const void *, __kernel_size_t);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_MICROBLAZE_STRING_H */

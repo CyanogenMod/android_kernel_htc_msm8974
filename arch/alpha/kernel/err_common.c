@@ -17,9 +17,16 @@
 #include "err_impl.h"
 #include "proto.h"
 
+/*
+ * err_print_prefix -- error handling print routines should prefix
+ * all prints with this
+ */
 char *err_print_prefix = KERN_NOTICE;
 
 
+/*
+ * Generic
+ */
 void
 mchk_dump_mem(void *data, size_t length, char **annotation)
 {
@@ -70,6 +77,10 @@ mchk_dump_logout_frame(struct el_common *mchk_header)
 }
 
 
+/*
+ * Console Data Log
+ */
+/* Data */
 static struct el_subpacket_handler *subpacket_handler_list = NULL;
 static struct el_subpacket_annotation *subpacket_annotation_list = NULL;
 
@@ -116,7 +127,7 @@ el_process_header_subpacket(struct el_subpacket *header)
 		packet_count = 1;
 		timestamp.as_int = 0;
 		break;
-	default: 
+	default: /* Unknown */
 		printk("%s** Unknown header - CLASS %d TYPE %d, aborting\n",
 		       err_print_prefix,
 		       header->class, header->type);
@@ -130,9 +141,12 @@ el_process_header_subpacket(struct el_subpacket *header)
 	       header->class, header->type);
 	el_print_timestamp(&timestamp);
 	
+	/*
+	 * Process the subpackets
+	 */
 	el_process_subpackets(header, packet_count);
 
-	
+	/* return the next header */
 	header = (struct el_subpacket *)
 		((unsigned long)header + header->length + length);
 	return header;
@@ -183,7 +197,7 @@ el_process_subpacket(struct el_subpacket *header)
 
 	switch(header->class) {
 	case EL_CLASS__TERMINATION:
-		
+		/* Termination packet, there are no more */
 		break;
 	case EL_CLASS__HEADER: 
 		next = el_process_header_subpacket(header);
@@ -211,6 +225,9 @@ el_annotate_subpacket(struct el_subpacket *header)
 		if (a->class == header->class &&
 		    a->type == header->type &&
 		    a->revision == header->revision) {
+			/*
+			 * We found the annotation
+			 */
 			annotation = a->annotation;
 			printk("%s  %s\n", err_print_prefix, a->description);
 			break;
@@ -234,7 +251,7 @@ cdl_process_console_data_log(int cpu, struct percpu_struct *pcpu)
 	for (err = 0; header && (header->class != EL_CLASS__TERMINATION); err++)
 		header = el_process_subpacket(header);
 
-	
+	/* let the console know it's ok to clear the error(s) at restart */
 	pcpu->console_data_log_pa = 0;
 
 	printk("%s*** %d total error(s) logged\n"

@@ -2,6 +2,9 @@
  *  Copyright (c) 1999-2001 Vojtech Pavlik
  */
 
+/*
+ * XT keyboard driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify

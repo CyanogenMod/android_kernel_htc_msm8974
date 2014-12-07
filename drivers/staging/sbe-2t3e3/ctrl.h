@@ -72,6 +72,7 @@
 #define SBE_2T3E3_LOG_LEVEL_WARNING			2
 #define SBE_2T3E3_LOG_LEVEL_INFO			3
 
+/* commands */
 #define SBE_2T3E3_PORT_GET				0
 #define SBE_2T3E3_PORT_SET				1
 #define SBE_2T3E3_PORT_GET_STATS			2
@@ -84,23 +85,23 @@
 #define NG_SBE_2T3E3_COOKIE     0x03800891
 
 typedef struct t3e3_param {
-	u_int8_t frame_mode;		
-	u_int8_t crc;			
-	u_int8_t receiver_on;		
-	u_int8_t transmitter_on;	
-	u_int8_t frame_type;		
-	u_int8_t panel;			
-	u_int8_t line_build_out;	
-	u_int8_t receive_equalization;	
-	u_int8_t transmit_all_ones;	
-	u_int8_t loopback;		
-	u_int8_t clock_source;		
-	u_int8_t scrambler;		
-	u_int8_t pad_count;		
-	u_int8_t log_level;		
-	u_int8_t fractional_mode;	
-	u_int8_t bandwidth_start;	
-	u_int8_t bandwidth_stop;	
+	u_int8_t frame_mode;		/* FRAME_MODE_* */
+	u_int8_t crc;			/* CRC_* */
+	u_int8_t receiver_on;		/* ON/OFF */
+	u_int8_t transmitter_on;	/* ON/OFF */
+	u_int8_t frame_type;		/* FRAME_TYPE_* */
+	u_int8_t panel;			/* PANEL_* */
+	u_int8_t line_build_out;	/* ON/OFF */
+	u_int8_t receive_equalization;	/* ON/OFF */
+	u_int8_t transmit_all_ones;	/* ON/OFF */
+	u_int8_t loopback;		/* LOOPBACK_* */
+	u_int8_t clock_source;		/* TIMING_* */
+	u_int8_t scrambler;		/* SCRAMBLER_* */
+	u_int8_t pad_count;		/* PAD_COUNT_* */
+	u_int8_t log_level;		/* LOG_LEVEL_* - unused */
+	u_int8_t fractional_mode;	/* FRACTIONAL_MODE_* */
+	u_int8_t bandwidth_start;	/* 0-255 */
+	u_int8_t bandwidth_stop;	/* 0-255 */
 } t3e3_param_t;
 
 typedef struct t3e3_stats {
@@ -127,4 +128,4 @@ typedef struct t3e3_resp {
 	} u;
 } t3e3_resp_t;
 
-#endif 
+#endif /* CTRL_H */

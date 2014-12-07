@@ -12,4 +12,4 @@
 #define __ALIGN		.align 4
 #define __ALIGN_STR	".align 4"
 
-#endif 
+#endif /* _ASM_MICROBLAZE_LINKAGE_H */

@@ -90,6 +90,8 @@ static int jz4740_wdt_set_timeout(struct watchdog_device *wdt_dev,
 	timeout_value = rtc_clk_rate * new_timeout;
 	while (timeout_value > 0xffff) {
 		if (clock_div == JZ_WDT_CLOCK_DIV_1024) {
+			/* Requested timeout too high;
+			* use highest possible value. */
 			timeout_value = 0xffff;
 			break;
 		}

@@ -27,6 +27,8 @@
 #include <asm/mmu_context.h>
 #include <asm/hw_irq.h>
 
+/* #define DEBUG_MMU */
+/* #define DEBUG_SR */
 
 #ifdef DEBUG_MMU
 #define dprintk_mmu(a, ...) printk(KERN_INFO a, __VA_ARGS__)
@@ -59,17 +61,19 @@ void kvmppc_mmu_invalidate_pte(struct kvm_vcpu *vcpu, struct hpte_cache *pte)
 {
 	volatile u32 *pteg;
 
-	
+	/* Remove from host HTAB */
 	pteg = (u32*)pte->slot;
 	pteg[0] = 0;
 
-	
+	/* And make sure it's gone from the TLB too */
 	asm volatile ("sync");
 	asm volatile ("tlbie %0" : : "r" (pte->pte.eaddr) : "memory");
 	asm volatile ("sync");
 	asm volatile ("tlbsync");
 }
 
+/* We keep 512 gvsid->hvsid entries, mapping the guest ones to the array using
+ * a hash, so we don't waste cycles on looping */
 static u16 kvmppc_sid_hash(struct kvm_vcpu *vcpu, u64 gvsid)
 {
 	return (u16)(((gvsid >> (SID_MAP_BITS * 7)) & SID_MAP_MASK) ^
@@ -149,7 +153,7 @@ int kvmppc_mmu_map_page(struct kvm_vcpu *vcpu, struct kvmppc_pte *orig_pte)
 	struct hpte_cache *pte;
 	int r = 0;
 
-	
+	/* Get host physical address for gpa */
 	hpaddr = kvmppc_gfn_to_pfn(vcpu, orig_pte->raddr >> PAGE_SHIFT);
 	if (is_error_pfn(hpaddr)) {
 		printk(KERN_INFO "Couldn't get guest page for gfn %lx!\n",
@@ -159,7 +163,7 @@ int kvmppc_mmu_map_page(struct kvm_vcpu *vcpu, struct kvmppc_pte *orig_pte)
 	}
 	hpaddr <<= PAGE_SHIFT;
 
-	
+	/* and write the mapping ea -> hpa into the pt */
 	vcpu->arch.mmu.esid_to_vsid(vcpu, orig_pte->eaddr >> SID_SHIFT, &vsid);
 	map = find_sid_vsid(vcpu, vsid);
 	if (!map) {
@@ -180,7 +184,7 @@ next_pteg:
 
 	pteg = kvmppc_mmu_get_pteg(vcpu, vsid, eaddr, primary);
 
-	
+	/* not evicting yet */
 	if (!evict && (pteg[rr] & PTE_V)) {
 		rr += 2;
 		goto next_pteg;
@@ -230,7 +234,7 @@ next_pteg:
 	dprintk_mmu("KVM:   %08x - %08x\n", pteg[14], pteg[15]);
 
 
-	
+	/* Now tell our Shadow PTE code about the new page */
 
 	pte = kvmppc_mmu_hpte_cache_next(vcpu);
 
@@ -261,6 +265,8 @@ static struct kvmppc_sid_map *create_sid_map(struct kvm_vcpu *vcpu, u64 gvsid)
 	if (vcpu->arch.shared->msr & MSR_PR)
 		gvsid |= VSID_PR;
 
+	/* We might get collisions that trap in preceding order, so let's
+	   map them differently */
 
 	sid_map_mask = kvmppc_sid_hash(vcpu, gvsid);
 	if (backwards_map)
@@ -268,10 +274,10 @@ static struct kvmppc_sid_map *create_sid_map(struct kvm_vcpu *vcpu, u64 gvsid)
 
 	map = &to_book3s(vcpu)->sid_map[sid_map_mask];
 
-	
+	/* Make sure we're taking the other map next time */
 	backwards_map = !backwards_map;
 
-	
+	/* Uh-oh ... out of mappings. Let's flush! */
 	if (vcpu_book3s->vsid_next >= VSID_POOL_SIZE) {
 		vcpu_book3s->vsid_next = 0;
 		memset(vcpu_book3s->sid_map, 0,
@@ -298,7 +304,7 @@ int kvmppc_mmu_map_segment(struct kvm_vcpu *vcpu, ulong eaddr)
 	int r = 0;
 
 	if (vcpu->arch.mmu.esid_to_vsid(vcpu, esid, &gvsid)) {
-		
+		/* Invalidate an entry */
 		svcpu->sr[esid] = SR_INVALID;
 		r = -ENOENT;
 		goto out;
@@ -342,6 +348,7 @@ void kvmppc_mmu_destroy(struct kvm_vcpu *vcpu)
 	preempt_enable();
 }
 
+/* From mm/mmu_context_hash32.c */
 #define CTX_TO_VSID(c, id)	((((c) * (897 * 16)) + (id * 0x111)) & 0xffffff)
 
 int kvmppc_mmu_init(struct kvm_vcpu *vcpu)
@@ -358,14 +365,14 @@ int kvmppc_mmu_init(struct kvm_vcpu *vcpu)
 			goto init_fail;
 		vcpu3s->context_id[i] = err;
 
-		
+		/* Remember context id for this combination */
 		for (j = 0; j < 16; j++)
 			vcpu3s->vsid_pool[(i * 16) + j] = CTX_TO_VSID(err, j);
 	}
 
 	vcpu3s->vsid_next = 0;
 
-	
+	/* Remember where the HTAB is */
 	asm ( "mfsdr1 %0" : "=r"(sdr1) );
 	htabmask = ((sdr1 & 0x1FF) << 16) | 0xFFC0;
 	htab = (ulong)__va(sdr1 & 0xffff0000);

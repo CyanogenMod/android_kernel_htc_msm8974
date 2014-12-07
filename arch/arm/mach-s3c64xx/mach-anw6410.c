@@ -54,8 +54,12 @@
 
 #include "common.h"
 
+/* DM9000 */
 #define ANW6410_PA_DM9000	(0x18000000)
 
+/* A hardware buffer to control external devices is mapped at 0x30000000.
+ * It can not be read. So current status must be kept in anw6410_extdev_status.
+ */
 #define ANW6410_VA_EXTDEV	S3C_ADDR(0x02000000)
 #define ANW6410_PA_EXTDEV	(0x30000000)
 
@@ -81,22 +85,26 @@ static struct s3c2410_uartcfg anw6410_uartcfgs[] __initdata = {
 	},
 };
 
+/* framebuffer and LCD setup. */
 static void __init anw6410_lcd_mode_set(void)
 {
 	u32 tmp;
 
-	
+	/* set the LCD type */
 	tmp = __raw_readl(S3C64XX_SPCON);
 	tmp &= ~S3C64XX_SPCON_LCD_SEL_MASK;
 	tmp |= S3C64XX_SPCON_LCD_SEL_RGB;
 	__raw_writel(tmp, S3C64XX_SPCON);
 
-	
+	/* remove the LCD bypass */
 	tmp = __raw_readl(S3C64XX_MODEM_MIFPCON);
 	tmp &= ~MIFPCON_LCD_BYPASS;
 	__raw_writel(tmp, S3C64XX_MODEM_MIFPCON);
 }
 
+/* GPF1 = LCD panel power
+ * GPF4 = LCD backlight control
+ */
 static void anw6410_lcd_power_set(struct plat_lcd_data *pd,
 				   unsigned int power)
 {
@@ -126,7 +134,7 @@ static struct platform_device anw6410_lcd_powerdev = {
 };
 
 static struct s3c_fb_pd_win anw6410_fb_win0 = {
-	
+	/* this is to ensure we use win0 */
 	.win_mode	= {
 		.left_margin	= 8,
 		.right_margin	= 13,
@@ -141,6 +149,7 @@ static struct s3c_fb_pd_win anw6410_fb_win0 = {
 	.default_bpp	= 16,
 };
 
+/* 405566 clocks per frame => 60Hz refresh requires 24333960Hz clock */
 static struct s3c_fb_platdata anw6410_lcd_pdata __initdata = {
 	.setup_gpio	= s3c64xx_fb_gpio_setup_24bpp,
 	.win[0]		= &anw6410_fb_win0,
@@ -148,6 +157,7 @@ static struct s3c_fb_platdata anw6410_lcd_pdata __initdata = {
 	.vidcon1	= VIDCON1_INV_HSYNC | VIDCON1_INV_VSYNC,
 };
 
+/* DM9000AEP 10/100 ethernet controller */
 static void __init anw6410_dm9000_enable(void)
 {
 	anw6410_extdev_status |= (ANW6410_EN_DM9000 << 16);
@@ -174,7 +184,7 @@ static struct resource anw6410_dm9000_resource[] = {
 
 static struct dm9000_plat_data anw6410_dm9000_pdata = {
 	.flags	  = (DM9000_PLATF_16BITONLY | DM9000_PLATF_NO_EEPROM),
-	
+	/* dev_addr can be set to provide hwaddr. */
 };
 
 static struct platform_device anw6410_device_eth = {
@@ -224,7 +234,7 @@ static void __init anw6410_machine_init(void)
 }
 
 MACHINE_START(ANW6410, "A&W6410")
-	
+	/* Maintainer: Kwangwoo Lee <kwangwoo.lee@gmail.com> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s3c6410_init_irq,

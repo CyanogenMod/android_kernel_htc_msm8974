@@ -157,6 +157,10 @@ static int drr_delete_class(struct Qdisc *sch, unsigned long arg)
 	qdisc_class_hash_remove(&q->clhash, &cl->common);
 
 	BUG_ON(--cl->refcnt == 0);
+	/*
+	 * This shouldn't happen: we "hold" one cops->get() when called
+	 * from tc_ctl_tclass; the destroy method is done from cops->put().
+	 */
 
 	sch_tree_unlock(sch);
 	return 0;

@@ -8,6 +8,18 @@
  *  Copyright 2010 Steven Rostedt <srostedt@redhat.com>, Red Hat Inc.
  */
 
+/*
+ * Strategy: alter the .o file in-place.
+ *
+ * Append a new STRTAB that has the new section names, followed by a new array
+ * ElfXX_Shdr[] that has the new section headers, followed by the section
+ * contents for __mcount_loc and its relocations.  The old shstrtab strings,
+ * and the old ElfXX_Shdr[] array, remain as "garbage" (commonly, a couple
+ * kilobytes.)  Subsequent processing by /bin/ld (or the kernel module loader)
+ * will ignore the garbage regions, because they are not designated by the
+ * new .e_shoff nor the new ElfXX_Shdr[].  [In order to remove the garbage,
+ * then use "ld -r" to create a new file that omits the garbage.]
+ */
 
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -21,21 +33,23 @@
 #include <string.h>
 #include <unistd.h>
 
-static int fd_map;	
-static int mmap_failed; 
-static void *ehdr_curr; 
-static char gpfx;	
-static struct stat sb;	
-static jmp_buf jmpenv;	
-static const char *altmcount;	
-static int warn_on_notrace_sect; 
+static int fd_map;	/* File descriptor for file being modified. */
+static int mmap_failed; /* Boolean flag. */
+static void *ehdr_curr; /* current ElfXX_Ehdr *  for resource cleanup */
+static char gpfx;	/* prefix for global symbol name (sometimes '_') */
+static struct stat sb;	/* Remember .st_size, etc. */
+static jmp_buf jmpenv;	/* setjmp/longjmp per-file error escape */
+static const char *altmcount;	/* alternate mcount symbol name */
+static int warn_on_notrace_sect; /* warn when section has mcount not being recorded */
 
+/* setjmp() return values */
 enum {
-	SJ_SETJMP = 0,  
+	SJ_SETJMP = 0,  /* hardwired first return */
 	SJ_FAIL,
 	SJ_SUCCEED
 };
 
+/* Per-file resource cleanup when multiple files. */
 static void
 cleanup(void)
 {
@@ -60,6 +74,7 @@ succeed_file(void)
 	longjmp(jmpenv, SJ_SUCCEED);
 }
 
+/* ulseek, uread, ...:  Check return value for errors. */
 
 static off_t
 ulseek(int const fd, off_t const offset, int const whence)
@@ -118,7 +133,7 @@ static int make_nop_x86(void *map, size_t const offset)
 	uint32_t *ptr;
 	unsigned char *op;
 
-	
+	/* Confirm we have 0xe8 0x0 0x0 0x0 0x0 */
 	ptr = map + offset;
 	if (*ptr != 0)
 		return -1;
@@ -127,12 +142,25 @@ static int make_nop_x86(void *map, size_t const offset)
 	if (*op != 0xe8)
 		return -1;
 
-	
+	/* convert to nop */
 	ulseek(fd_map, offset - 1, SEEK_SET);
 	uwrite(fd_map, ideal_nop, 5);
 	return 0;
 }
 
+/*
+ * Get the whole file as a programming convenience in order to avoid
+ * malloc+lseek+read+free of many pieces.  If successful, then mmap
+ * avoids copying unused pieces; else just read the whole file.
+ * Open for both read and write; new info will be appended to the file.
+ * Use MAP_PRIVATE so that a few changes to the in-memory ElfXX_Ehdr
+ * do not propagate to the file until an explicit overwrite at the last.
+ * This preserves most aspects of consistency (all except .st_size)
+ * for simultaneous readers of the file while we are appending to it.
+ * However, multiple writers still are bad.  We choose not to use
+ * locking because it is expensive and the use case of kernel build
+ * makes multiple writers unlikely.
+ */
 static void *mmap_file(char const *fname)
 {
 	void *addr;
@@ -157,6 +185,7 @@ static void *mmap_file(char const *fname)
 	return addr;
 }
 
+/* w8rev, w8nat, ...: Handle endianness. */
 
 static uint64_t w8rev(uint64_t const x)
 {
@@ -203,6 +232,7 @@ static uint64_t (*w8)(uint64_t);
 static uint32_t (*w)(uint32_t);
 static uint32_t (*w2)(uint16_t);
 
+/* Names of the sections that could contain calls to mcount. */
 static int
 is_mcounted_section_name(char const *const txtname)
 {
@@ -215,21 +245,29 @@ is_mcounted_section_name(char const *const txtname)
 		strcmp(".text.unlikely", txtname) == 0;
 }
 
+/* 32 bit and 64 bit are very similar */
 #include "recordmcount.h"
 #define RECORD_MCOUNT_64
 #include "recordmcount.h"
 
+/* 64-bit EM_MIPS has weird ELF64_Rela.r_info.
+ * http://techpubs.sgi.com/library/manuals/4000/007-4658-001/pdf/007-4658-001.pdf
+ * We interpret Table 29 Relocation Operation (Elf64_Rel, Elf64_Rela) [p.40]
+ * to imply the order of the members; the spec does not say so.
+ *	typedef unsigned char Elf64_Byte;
+ * fails on MIPS64 because their <elf.h> already has it!
+ */
 
-typedef uint8_t myElf64_Byte;		
+typedef uint8_t myElf64_Byte;		/* Type for a 8-bit quantity.  */
 
 union mips_r_info {
 	Elf64_Xword r_info;
 	struct {
-		Elf64_Word r_sym;		
-		myElf64_Byte r_ssym;		
-		myElf64_Byte r_type3;		
-		myElf64_Byte r_type2;		
-		myElf64_Byte r_type;		
+		Elf64_Word r_sym;		/* Symbol index.  */
+		myElf64_Byte r_ssym;		/* Special symbol.  */
+		myElf64_Byte r_type3;		/* Third relocation.  */
+		myElf64_Byte r_type2;		/* Second relocation.  */
+		myElf64_Byte r_type;		/* First relocation.  */
 	} r_mips;
 };
 
@@ -264,7 +302,7 @@ do_file(char const *const fname)
 		break;
 	case ELFDATA2LSB:
 		if (*(unsigned char const *)&endian != 1) {
-			
+			/* main() is big endian, file.o is little endian. */
 			w = w4rev;
 			w2 = w2rev;
 			w8 = w8rev;
@@ -272,13 +310,13 @@ do_file(char const *const fname)
 		break;
 	case ELFDATA2MSB:
 		if (*(unsigned char const *)&endian != 0) {
-			
+			/* main() is little endian, file.o is big endian. */
 			w = w4rev;
 			w2 = w2rev;
 			w8 = w8rev;
 		}
 		break;
-	}  
+	}  /* end switch */
 	if (memcmp(ELFMAG, ehdr->e_ident, SELFMAG) != 0
 	||  w2(ehdr->e_type) != ET_REL
 	||  ehdr->e_ident[EI_VERSION] != EV_CURRENT) {
@@ -303,10 +341,10 @@ do_file(char const *const fname)
 			 altmcount = "__gnu_mcount_nc";
 			 break;
 	case EM_IA_64:	 reltype = R_IA64_IMM64;   gpfx = '_'; break;
-	case EM_MIPS:	  gpfx = '_'; break;
+	case EM_MIPS:	 /* reltype: e_class    */ gpfx = '_'; break;
 	case EM_PPC:	 reltype = R_PPC_ADDR32;   gpfx = '_'; break;
 	case EM_PPC64:	 reltype = R_PPC64_ADDR64; gpfx = '_'; break;
-	case EM_S390:     gpfx = '_'; break;
+	case EM_S390:    /* reltype: e_class    */ gpfx = '_'; break;
 	case EM_SH:	 reltype = R_SH_DIR32;                 break;
 	case EM_SPARCV9: reltype = R_SPARC_64;     gpfx = '_'; break;
 	case EM_X86_64:
@@ -315,7 +353,7 @@ do_file(char const *const fname)
 		reltype = R_X86_64_64;
 		mcount_adjust_64 = -1;
 		break;
-	}  
+	}  /* end switch */
 
 	switch (ehdr->e_ident[EI_CLASS]) {
 	default:
@@ -361,7 +399,7 @@ do_file(char const *const fname)
 		do64(ghdr, fname, reltype);
 		break;
 	}
-	}  
+	}  /* end switch */
 
 	cleanup();
 }
@@ -371,7 +409,7 @@ main(int argc, char *argv[])
 {
 	const char ftrace[] = "/ftrace.o";
 	int ftrace_size = sizeof(ftrace) - 1;
-	int n_error = 0;  
+	int n_error = 0;  /* gcc-4.3.0 false positive complaint */
 	int c;
 	int i;
 
@@ -391,12 +429,17 @@ main(int argc, char *argv[])
 		return 0;
 	}
 
-	
+	/* Process each file in turn, allowing deep failure. */
 	for (i = optind; i < argc; i++) {
 		char *file = argv[i];
 		int const sjval = setjmp(jmpenv);
 		int len;
 
+		/*
+		 * The file kernel/trace/ftrace.o references the mcount
+		 * function but does not call it. Since ftrace.o should
+		 * not be traced anyway, we just skip it.
+		 */
 		len = strlen(file);
 		if (len >= ftrace_size &&
 		    strcmp(file + (len - ftrace_size), ftrace) == 0)
@@ -407,20 +450,20 @@ main(int argc, char *argv[])
 			fprintf(stderr, "internal error: %s\n", file);
 			exit(1);
 			break;
-		case SJ_SETJMP:    
-			
+		case SJ_SETJMP:    /* normal sequence */
+			/* Avoid problems if early cleanup() */
 			fd_map = -1;
 			ehdr_curr = NULL;
 			mmap_failed = 1;
 			do_file(file);
 			break;
-		case SJ_FAIL:    
+		case SJ_FAIL:    /* error in do_file or below */
 			++n_error;
 			break;
-		case SJ_SUCCEED:    
-			
+		case SJ_SUCCEED:    /* premature success */
+			/* do nothing */
 			break;
-		}  
+		}  /* end switch */
 	}
 	return !!n_error;
 }

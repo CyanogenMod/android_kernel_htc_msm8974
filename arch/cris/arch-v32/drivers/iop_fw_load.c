@@ -69,7 +69,7 @@ int iop_fw_load_spu(const unsigned char *fw_name, unsigned int spu_inst)
 	if (spu_inst > 1)
 		return -ENODEV;
 
-	
+	/* get firmware */
 	retval = request_firmware(&fw_entry,
 				  fw_name,
 				  &iop_spu_device[spu_inst]);
@@ -82,7 +82,7 @@ int iop_fw_load_spu(const unsigned char *fw_name, unsigned int spu_inst)
 	}
 	data = (u32 *) fw_entry->data;
 
-	
+	/* acquire ownership of memory controller */
 	switch (spu_inst) {
 	case 0:
 		mc_ctrl.wr_spu0_mem = regk_iop_sw_cpu_yes;
@@ -104,7 +104,7 @@ int iop_fw_load_spu(const unsigned char *fw_name, unsigned int spu_inst)
 		goto out;
 	}
 
-	
+	/* write to SPU memory */
 	for (i = 0; i < (fw_entry->size/4); i++) {
 		switch (spu_inst) {
 		case 0:
@@ -118,7 +118,7 @@ int iop_fw_load_spu(const unsigned char *fw_name, unsigned int spu_inst)
 		data++;
 	}
 
-	
+	/* release ownership of memory controller */
 	(void) REG_RD(iop_sw_cpu, regi_iop_sw_cpu, rs_mc_data);
 
  out:
@@ -134,7 +134,7 @@ int iop_fw_load_mpu(unsigned char *fw_name)
 	u32 *data;
 	int retval, i;
 
-	
+	/* get firmware */
 	retval = request_firmware(&fw_entry, fw_name, &iop_mpu_device);
 	if (retval != 0)
 	{
@@ -145,12 +145,12 @@ int iop_fw_load_mpu(unsigned char *fw_name)
 	}
 	data = (u32 *) fw_entry->data;
 
-	
+	/* disable MPU */
 	mpu_ctrl.en = regk_iop_mpu_no;
 	REG_WR(iop_mpu, regi_iop_mpu, rw_ctrl, mpu_ctrl);
-	
+	/* put start address in R0 */
 	REG_WR_VECT(iop_mpu, regi_iop_mpu, rw_r, 0, start_addr);
-	
+	/* write to memory by executing 'SWX i, 4, R0' for each word */
 	if ((retval = wait_mpu_idle()) != 0)
 		goto out;
 	REG_WR(iop_mpu, regi_iop_mpu, rw_instr, MPU_SWX_IIR_INSTR(0, 4, 0));
@@ -171,23 +171,23 @@ int iop_start_mpu(unsigned int start_addr)
 	reg_iop_mpu_rw_ctrl mpu_ctrl = { .en = regk_iop_mpu_yes };
 	int retval;
 
-	
+	/* disable MPU */
 	if ((retval = wait_mpu_idle()) != 0)
 		goto out;
 	REG_WR(iop_mpu, regi_iop_mpu, rw_instr, MPU_HALT());
 	if ((retval = wait_mpu_idle()) != 0)
 		goto out;
-	
+	/* set PC and wait for it to bite */
 	if ((retval = wait_mpu_idle()) != 0)
 		goto out;
 	REG_WR_INT(iop_mpu, regi_iop_mpu, rw_instr, MPU_BA_I(start_addr));
 	if ((retval = wait_mpu_idle()) != 0)
 		goto out;
-	
+	/* make sure the MPU starts executing with interrupts disabled */
 	REG_WR(iop_mpu, regi_iop_mpu, rw_instr, MPU_DI());
 	if ((retval = wait_mpu_idle()) != 0)
 		goto out;
-	
+	/* enable MPU */
 	REG_WR(iop_mpu, regi_iop_mpu, rw_ctrl, mpu_ctrl);
  out:
 	return retval;
@@ -196,6 +196,12 @@ int iop_start_mpu(unsigned int start_addr)
 static int __init iop_fw_load_init(void)
 {
 #if 0
+	/*
+	 * static struct devices can not be added directly to sysfs by ignoring
+	 * the driver model infrastructure.  To fix this properly, please use
+	 * the platform_bus to register these devices to be able to properly
+	 * use the firmware infrastructure.
+	 */
 	device_initialize(&iop_spu_device[0]);
 	kobject_set_name(&iop_spu_device[0].kobj, "iop-spu0");
 	kobject_add(&iop_spu_device[0].kobj);

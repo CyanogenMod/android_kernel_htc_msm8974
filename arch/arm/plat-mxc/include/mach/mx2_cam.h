@@ -33,9 +33,14 @@
 #define MX2_CAMERA_PCLK_SAMPLE_RISING	(1 << 7)
 #define MX2_CAMERA_PACK_DIR_MSB		(1 << 8)
 
+/**
+ * struct mx2_camera_platform_data - optional platform data for mx2_camera
+ * @flags: any combination of MX2_CAMERA_*
+ * @clk: clock rate of the csi block / 2
+ */
 struct mx2_camera_platform_data {
 	unsigned long flags;
 	unsigned long clk;
 };
 
-#endif 
+#endif /* __MACH_MX2_CAM_H_ */

@@ -43,6 +43,7 @@ static int m66592_queue(struct usb_ep *_ep, struct usb_request *_req,
 static void transfer_complete(struct m66592_ep *ep,
 		struct m66592_request *req, int status);
 
+/*-------------------------------------------------------------------------*/
 static inline u16 get_usb_speed(struct m66592 *m66592)
 {
 	return (m66592_read(m66592, M66592_DVSTCTR) & M66592_RHST);
@@ -246,7 +247,7 @@ static int pipe_buffer_setting(struct m66592 *m66592,
 		buf_bsize = 0;
 		break;
 	case M66592_BULK:
-		
+		/* isochronous pipes may be used as bulk pipes */
 		if (info->pipe >= M66592_BASE_PIPENUM_BULK)
 			bufnum = info->pipe - M66592_BASE_PIPENUM_BULK;
 		else
@@ -472,6 +473,7 @@ static int free_pipe_config(struct m66592_ep *ep)
 	return 0;
 }
 
+/*-------------------------------------------------------------------------*/
 static void pipe_irq_enable(struct m66592 *m66592, u16 pipenum)
 {
 	enable_irq_ready(m66592, pipenum);
@@ -484,6 +486,7 @@ static void pipe_irq_disable(struct m66592 *m66592, u16 pipenum)
 	disable_irq_nrdy(m66592, pipenum);
 }
 
+/* if complete is true, gadget driver complete function is not call */
 static void control_end(struct m66592 *m66592, unsigned ccpl)
 {
 	m66592->ep[0].internal_ccpl = ccpl;
@@ -548,7 +551,7 @@ static void start_packet_read(struct m66592_ep *ep, struct m66592_request *req)
 					/ ep->ep.maxpacket,
 				ep->fifotrn);
 		}
-		pipe_start(m66592, pipenum);	
+		pipe_start(m66592, pipenum);	/* trigger once */
 		pipe_irq_enable(m66592, pipenum);
 	}
 }
@@ -590,16 +593,16 @@ static void init_controller(struct m66592 *m66592)
 
 	if (m66592->pdata->on_chip) {
 		if (m66592->pdata->endian)
-			endian = 0; 
+			endian = 0; /* big endian */
 		else
-			endian = M66592_LITTLE; 
+			endian = M66592_LITTLE; /* little endian */
 
-		m66592_bset(m66592, M66592_HSE, M66592_SYSCFG);	
+		m66592_bset(m66592, M66592_HSE, M66592_SYSCFG);	/* High spd */
 		m66592_bclr(m66592, M66592_USBE, M66592_SYSCFG);
 		m66592_bclr(m66592, M66592_DPRPU, M66592_SYSCFG);
 		m66592_bset(m66592, M66592_USBE, M66592_SYSCFG);
 
-		
+		/* This is a workaound for SH7722 2nd cut */
 		m66592_bset(m66592, 0x8000, M66592_DVSTCTR);
 		m66592_bset(m66592, 0x1000, M66592_TESTMODE);
 		m66592_bclr(m66592, 0x8000, M66592_DVSTCTR);
@@ -614,14 +617,14 @@ static void init_controller(struct m66592 *m66592)
 		unsigned int clock, vif, irq_sense;
 
 		if (m66592->pdata->endian)
-			endian = M66592_BIGEND; 
+			endian = M66592_BIGEND; /* big endian */
 		else
-			endian = 0; 
+			endian = 0; /* little endian */
 
 		if (m66592->pdata->vif)
-			vif = M66592_LDRV; 
+			vif = M66592_LDRV; /* 3.3v */
 		else
-			vif = 0; 
+			vif = 0; /* 1.5v */
 
 		switch (m66592->pdata->xtal) {
 		case M66592_PLATDATA_XTAL_12MHZ:
@@ -653,7 +656,7 @@ static void init_controller(struct m66592 *m66592)
 		m66592_bset(m66592,
 			    (vif & M66592_LDRV) | (endian & M66592_BIGEND),
 			    M66592_PINCFG);
-		m66592_bset(m66592, M66592_HSE, M66592_SYSCFG);	
+		m66592_bset(m66592, M66592_HSE, M66592_SYSCFG);	/* High spd */
 		m66592_mdfy(m66592, clock & M66592_XTAL, M66592_XTAL,
 			    M66592_SYSCFG);
 		m66592_bclr(m66592, M66592_USBE, M66592_SYSCFG);
@@ -701,6 +704,7 @@ static void m66592_start_xclock(struct m66592 *m66592)
 	}
 }
 
+/*-------------------------------------------------------------------------*/
 static void transfer_complete(struct m66592_ep *ep,
 		struct m66592_request *req, int status)
 __releases(m66592->lock)
@@ -759,12 +763,12 @@ static void irq_ep0_write(struct m66592_ep *ep, struct m66592_request *req)
 		ndelay(1);
 	} while ((tmp & M66592_FRDY) == 0);
 
-	
+	/* prepare parameters */
 	bufsize = get_buffer_size(m66592, pipenum);
 	buf = req->req.buf + req->req.actual;
 	size = min(bufsize, req->req.length - req->req.actual);
 
-	
+	/* write fifo */
 	if (req->req.buf) {
 		if (size > 0)
 			m66592_write_fifo(m66592, ep, buf, size);
@@ -772,10 +776,10 @@ static void irq_ep0_write(struct m66592_ep *ep, struct m66592_request *req)
 			m66592_bset(m66592, M66592_BVAL, ep->fifoctr);
 	}
 
-	
+	/* update parameters */
 	req->req.actual += size;
 
-	
+	/* check transfer finish */
 	if ((!req->req.zero && (req->req.actual == req->req.length))
 			|| (size % ep->ep.maxpacket)
 			|| (size == 0)) {
@@ -806,12 +810,12 @@ static void irq_packet_write(struct m66592_ep *ep, struct m66592_request *req)
 		return;
 	}
 
-	
+	/* prepare parameters */
 	bufsize = get_buffer_size(m66592, pipenum);
 	buf = req->req.buf + req->req.actual;
 	size = min(bufsize, req->req.length - req->req.actual);
 
-	
+	/* write fifo */
 	if (req->req.buf) {
 		m66592_write_fifo(m66592, ep, buf, size);
 		if ((size == 0)
@@ -821,9 +825,9 @@ static void irq_packet_write(struct m66592_ep *ep, struct m66592_request *req)
 			m66592_bset(m66592, M66592_BVAL, ep->fifoctr);
 	}
 
-	
+	/* update parameters */
 	req->req.actual += size;
-	
+	/* check transfer finish */
 	if ((!req->req.zero && (req->req.actual == req->req.length))
 			|| (size % ep->ep.maxpacket)
 			|| (size == 0)) {
@@ -855,7 +859,7 @@ static void irq_packet_read(struct m66592_ep *ep, struct m66592_request *req)
 		return;
 	}
 
-	
+	/* prepare parameters */
 	rcv_len = tmp & M66592_DTLN;
 	bufsize = get_buffer_size(m66592, pipenum);
 
@@ -866,10 +870,10 @@ static void irq_packet_read(struct m66592_ep *ep, struct m66592_request *req)
 	else
 		size = min(bufsize, req_len);
 
-	
+	/* update parameters */
 	req->req.actual += size;
 
-	
+	/* check transfer finish */
 	if ((!req->req.zero && (req->req.actual == req->req.length))
 			|| (size % ep->ep.maxpacket)
 			|| (size == 0)) {
@@ -878,7 +882,7 @@ static void irq_packet_read(struct m66592_ep *ep, struct m66592_request *req)
 		finish = 1;
 	}
 
-	
+	/* read fifo */
 	if (req->req.buf) {
 		if (size == 0)
 			m66592_write(m66592, M66592_BCLR, ep->fifoctr);
@@ -984,13 +988,13 @@ __acquires(m66592->lock)
 		break;
 	default:
 		pipe_stall(m66592, 0);
-		return;		
+		return;		/* exit */
 	}
 
 	m66592->ep0_data = cpu_to_le16(status);
 	m66592->ep0_req->buf = &m66592->ep0_data;
 	m66592->ep0_req->length = 2;
-	
+	/* AV: what happens if we get called again before that gets through? */
 	spin_unlock(&m66592->lock);
 	m66592_queue(m66592->gadget.ep0, m66592->ep0_req, GFP_KERNEL);
 	spin_lock(&m66592->lock);
@@ -1043,7 +1047,7 @@ static void set_feature(struct m66592 *m66592, struct usb_ctrlrequest *ctrl)
 		switch (le16_to_cpu(ctrl->wValue)) {
 		case USB_DEVICE_TEST_MODE:
 			control_end(m66592, 1);
-			
+			/* Wait for the completion of status stage */
 			do {
 				tmp = m66592_read(m66592, M66592_INTSTS0) &
 								M66592_CTSQ;
@@ -1079,19 +1083,20 @@ static void set_feature(struct m66592 *m66592, struct usb_ctrlrequest *ctrl)
 	}
 }
 
+/* if return value is true, call class driver's setup() */
 static int setup_packet(struct m66592 *m66592, struct usb_ctrlrequest *ctrl)
 {
 	u16 *p = (u16 *)ctrl;
 	unsigned long offset = M66592_USBREQ;
 	int i, ret = 0;
 
-	
+	/* read fifo */
 	m66592_write(m66592, ~M66592_VALID, M66592_INTSTS0);
 
 	for (i = 0; i < 4; i++)
 		p[i] = m66592_read(m66592, offset + i*2);
 
-	
+	/* check request */
 	if ((ctrl->bRequestType & USB_TYPE_MASK) == USB_TYPE_STANDARD) {
 		switch (ctrl->bRequest) {
 		case USB_REQ_GET_STATUS:
@@ -1136,7 +1141,7 @@ static void irq_device_state(struct m66592 *m66592)
 	dvsq = m66592_read(m66592, M66592_INTSTS0) & M66592_DVSQ;
 	m66592_write(m66592, ~M66592_DVST, M66592_INTSTS0);
 
-	if (dvsq == M66592_DS_DFLT) {	
+	if (dvsq == M66592_DS_DFLT) {	/* bus reset */
 		m66592->driver->disconnect(&m66592->gadget);
 		m66592_update_usb_speed(m66592);
 	}
@@ -1205,6 +1210,11 @@ static irqreturn_t m66592_irq(int irq, void *_m66592)
 	intenb0 = m66592_read(m66592, M66592_INTENB0);
 
 	if (m66592->pdata->on_chip && !intsts0 && !intenb0) {
+		/*
+		 * When USB clock stops, it cannot read register. Even if a
+		 * clock stops, the interrupt occurs. So this driver turn on
+		 * a clock by this timing and do re-reading of register.
+		 */
 		m66592_start_xclock(m66592);
 		intsts0 = m66592_read(m66592, M66592_INTSTS0);
 		intenb0 = m66592_read(m66592, M66592_INTENB0);
@@ -1226,7 +1236,7 @@ static irqreturn_t m66592_irq(int irq, void *_m66592)
 					M66592_INTSTS0);
 			m66592_start_xclock(m66592);
 
-			
+			/* start vbus sampling */
 			m66592->old_vbus = m66592_read(m66592, M66592_INTSTS0)
 					& M66592_VBSTS;
 			m66592->scount = M66592_MAX_SAMPLING;
@@ -1292,6 +1302,7 @@ static void m66592_timer(unsigned long _m66592)
 	spin_unlock_irqrestore(&m66592->lock, flags);
 }
 
+/*-------------------------------------------------------------------------*/
 static int m66592_enable(struct usb_ep *_ep,
 			 const struct usb_endpoint_descriptor *desc)
 {
@@ -1366,7 +1377,7 @@ static int m66592_queue(struct usb_ep *_ep, struct usb_request *_req,
 	req->req.actual = 0;
 	req->req.status = -EINPROGRESS;
 
-	if (ep->desc == NULL)	
+	if (ep->desc == NULL)	/* control */
 		start_ep0(ep, req);
 	else {
 		if (request && !ep->busy)
@@ -1451,6 +1462,7 @@ static struct usb_ep_ops m66592_ep_ops = {
 	.fifo_flush	= m66592_fifo_flush,
 };
 
+/*-------------------------------------------------------------------------*/
 static struct m66592 *the_controller;
 
 static int m66592_start(struct usb_gadget_driver *driver,
@@ -1469,7 +1481,7 @@ static int m66592_start(struct usb_gadget_driver *driver,
 	if (m66592->driver)
 		return -EBUSY;
 
-	
+	/* hook up the driver */
 	driver->driver.bus = NULL;
 	m66592->driver = driver;
 	m66592->gadget.dev.driver = &driver->driver;
@@ -1490,7 +1502,7 @@ static int m66592_start(struct usb_gadget_driver *driver,
 	m66592_bset(m66592, M66592_VBSE | M66592_URST, M66592_INTENB0);
 	if (m66592_read(m66592, M66592_INTSTS0) & M66592_VBSTS) {
 		m66592_start_xclock(m66592);
-		
+		/* start vbus sampling */
 		m66592->old_vbus = m66592_read(m66592,
 					 M66592_INTSTS0) & M66592_VBSTS;
 		m66592->scount = M66592_MAX_SAMPLING;
@@ -1532,6 +1544,7 @@ static int m66592_stop(struct usb_gadget_driver *driver)
 	return 0;
 }
 
+/*-------------------------------------------------------------------------*/
 static int m66592_get_frame(struct usb_gadget *_gadget)
 {
 	struct m66592 *m66592 = gadget_to_m66592(_gadget);
@@ -1623,7 +1636,7 @@ static int __init m66592_probe(struct platform_device *pdev)
 		goto clean_up;
 	}
 
-	
+	/* initialize ucd */
 	m66592 = kzalloc(sizeof(struct m66592), GFP_KERNEL);
 	if (m66592 == NULL) {
 		ret = -ENOMEM;
@@ -1738,6 +1751,7 @@ clean_up:
 	return ret;
 }
 
+/*-------------------------------------------------------------------------*/
 static struct platform_driver m66592_driver = {
 	.remove =	__exit_p(m66592_remove),
 	.driver		= {

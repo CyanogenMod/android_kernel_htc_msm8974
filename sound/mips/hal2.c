@@ -39,8 +39,8 @@
 
 #include "hal2.h"
 
-static int index = SNDRV_DEFAULT_IDX1;  
-static char *id = SNDRV_DEFAULT_STR1;   
+static int index = SNDRV_DEFAULT_IDX1;  /* Index 0-MAX */
+static char *id = SNDRV_DEFAULT_STR1;   /* ID for this card */
 
 module_param(index, int, 0444);
 MODULE_PARM_DESC(index, "Index value for SGI HAL2 soundcard.");
@@ -57,12 +57,12 @@ MODULE_LICENSE("GPL");
 struct hal2_pbus {
 	struct hpc3_pbus_dmacregs *pbus;
 	int pbusnr;
-	unsigned int ctrl;		
+	unsigned int ctrl;		/* Current state of pbus->pbdma_ctrl */
 };
 
 struct hal2_desc {
 	struct hpc_dma_desc desc;
-	u32 pad;			
+	u32 pad;			/* padding */
 };
 
 struct hal2_codec {
@@ -75,11 +75,11 @@ struct hal2_codec {
 	dma_addr_t desc_dma;
 	int desc_count;
 	struct hal2_pbus pbus;
-	int voices;			
+	int voices;			/* mono/stereo */
 	unsigned int sample_rate;
-	unsigned int master;		
-	unsigned short mod;		
-	unsigned short inc;		
+	unsigned int master;		/* Master frequency */
+	unsigned short mod;		/* MOD value */
+	unsigned short inc;		/* INC value */
 };
 
 #define H2_MIX_OUTPUT_ATT	0
@@ -88,10 +88,10 @@ struct hal2_codec {
 struct snd_hal2 {
 	struct snd_card *card;
 
-	struct hal2_ctl_regs *ctl_regs;	
-	struct hal2_aes_regs *aes_regs;	
-	struct hal2_vol_regs *vol_regs;	
-	struct hal2_syn_regs *syn_regs;	
+	struct hal2_ctl_regs *ctl_regs;	/* HAL2 ctl registers */
+	struct hal2_aes_regs *aes_regs;	/* HAL2 aes registers */
+	struct hal2_vol_regs *vol_regs;	/* HAL2 vol registers */
+	struct hal2_syn_regs *syn_regs;	/* HAL2 syn registers */
 
 	struct hal2_codec dac;
 	struct hal2_codec adc;
@@ -284,10 +284,10 @@ static int __devinit hal2_mixer_create(struct snd_hal2 *hal2)
 {
 	int err;
 
-	
+	/* mute DAC */
 	hal2_i_write32(hal2, H2I_DAC_C2,
 		       H2I_C2_L_ATT_M | H2I_C2_R_ATT_M | H2I_C2_MUTE);
-	
+	/* mute ADC */
 	hal2_i_write32(hal2, H2I_ADC_C2, 0);
 
 	err = snd_ctl_add(hal2->card,
@@ -308,7 +308,7 @@ static irqreturn_t hal2_interrupt(int irq, void *dev_id)
 	struct snd_hal2 *hal2 = dev_id;
 	irqreturn_t ret = IRQ_NONE;
 
-	
+	/* decide what caused this interrupt */
 	if (hal2->dac.pbus.pbus->pbdma_ctrl & HPC3_PDMACTRL_INT) {
 		snd_pcm_period_elapsed(hal2->dac.substream);
 		ret = IRQ_HANDLED;
@@ -372,21 +372,23 @@ static void hal2_setup_dac(struct snd_hal2 *hal2)
 	 * endian. The information is written later, on the start call.
 	 */
 	sample_size = 2 * hal2->dac.voices;
-	highwater = (sample_size * 2) >> 1;	
-	fifobeg = 0;				
-	fifoend = (sample_size * 4) >> 3;	
+	/* Fifo should be set to hold exactly four samples. Highwater mark
+	 * should be set to two samples. */
+	highwater = (sample_size * 2) >> 1;	/* halfwords */
+	fifobeg = 0;				/* playback is first */
+	fifoend = (sample_size * 4) >> 3;	/* doublewords */
 	pbus->ctrl = HPC3_PDMACTRL_RT | HPC3_PDMACTRL_LD |
 		     (highwater << 8) | (fifobeg << 16) | (fifoend << 24);
-	
+	/* We disable everything before we do anything at all */
 	pbus->pbus->pbdma_ctrl = HPC3_PDMACTRL_LD;
 	hal2_i_clearbit16(hal2, H2I_DMA_PORT_EN, H2I_DMA_PORT_EN_CODECTX);
-	
+	/* Setup the HAL2 for playback */
 	hal2_set_dac_rate(hal2);
-	
+	/* Set endianess */
 	hal2_i_clearbit16(hal2, H2I_DMA_END, H2I_DMA_END_CODECTX);
-	
+	/* Set DMA bus */
 	hal2_i_setbit16(hal2, H2I_DMA_DRV, (1 << pbus->pbusnr));
-	
+	/* We are using 1st Bresenham clock generator for playback */
 	hal2_i_write16(hal2, H2I_DAC_C1, (pbus->pbusnr << H2I_C1_DMA_SHIFT)
 			| (1 << H2I_C1_CLKID_SHIFT)
 			| (hal2->dac.voices << H2I_C1_DATAT_SHIFT));
@@ -398,20 +400,20 @@ static void hal2_setup_adc(struct snd_hal2 *hal2)
 	struct hal2_pbus *pbus = &hal2->adc.pbus;
 
 	sample_size = 2 * hal2->adc.voices;
-	highwater = (sample_size * 2) >> 1;		
-	fifobeg = (4 * 4) >> 3;				
-	fifoend = (4 * 4 + sample_size * 4) >> 3;	
+	highwater = (sample_size * 2) >> 1;		/* halfwords */
+	fifobeg = (4 * 4) >> 3;				/* record is second */
+	fifoend = (4 * 4 + sample_size * 4) >> 3;	/* doublewords */
 	pbus->ctrl = HPC3_PDMACTRL_RT | HPC3_PDMACTRL_RCV | HPC3_PDMACTRL_LD |
 		     (highwater << 8) | (fifobeg << 16) | (fifoend << 24);
 	pbus->pbus->pbdma_ctrl = HPC3_PDMACTRL_LD;
 	hal2_i_clearbit16(hal2, H2I_DMA_PORT_EN, H2I_DMA_PORT_EN_CODECR);
-	
+	/* Setup the HAL2 for record */
 	hal2_set_adc_rate(hal2);
-	
+	/* Set endianess */
 	hal2_i_clearbit16(hal2, H2I_DMA_END, H2I_DMA_END_CODECR);
-	
+	/* Set DMA bus */
 	hal2_i_setbit16(hal2, H2I_DMA_DRV, (1 << pbus->pbusnr));
-	
+	/* We are using 2nd Bresenham clock generator for record */
 	hal2_i_write16(hal2, H2I_ADC_C1, (pbus->pbusnr << H2I_C1_DMA_SHIFT)
 			| (2 << H2I_C1_CLKID_SHIFT)
 			| (hal2->adc.voices << H2I_C1_DATAT_SHIFT));
@@ -423,7 +425,7 @@ static void hal2_start_dac(struct snd_hal2 *hal2)
 
 	pbus->pbus->pbdma_dptr = hal2->dac.desc_dma;
 	pbus->pbus->pbdma_ctrl = pbus->ctrl | HPC3_PDMACTRL_ACT;
-	
+	/* enable DAC */
 	hal2_i_setbit16(hal2, H2I_DMA_PORT_EN, H2I_DMA_PORT_EN_CODECTX);
 }
 
@@ -433,14 +435,14 @@ static void hal2_start_adc(struct snd_hal2 *hal2)
 
 	pbus->pbus->pbdma_dptr = hal2->adc.desc_dma;
 	pbus->pbus->pbdma_ctrl = pbus->ctrl | HPC3_PDMACTRL_ACT;
-	
+	/* enable ADC */
 	hal2_i_setbit16(hal2, H2I_DMA_PORT_EN, H2I_DMA_PORT_EN_CODECR);
 }
 
 static inline void hal2_stop_dac(struct snd_hal2 *hal2)
 {
 	hal2->dac.pbus.pbus->pbdma_ctrl = HPC3_PDMACTRL_LD;
-	
+	/* The HAL2 itself may remain enabled safely */
 }
 
 static inline void hal2_stop_adc(struct snd_hal2 *hal2)
@@ -736,7 +738,7 @@ static int __devinit hal2_pcm_create(struct snd_hal2 *hal2)
 	struct snd_pcm *pcm;
 	int err;
 
-	
+	/* create first pcm device with one outputs and one input */
 	err = snd_pcm_new(hal2->card, "SGI HAL2 Audio", 0, 1, 1, &pcm);
 	if (err < 0)
 		return err;
@@ -744,7 +746,7 @@ static int __devinit hal2_pcm_create(struct snd_hal2 *hal2)
 	pcm->private_data = hal2;
 	strcpy(pcm->name, "SGI HAL2");
 
-	
+	/* set operators */
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK,
 			&hal2_playback_ops);
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE,
@@ -781,10 +783,10 @@ static int hal2_detect(struct snd_hal2 *hal2)
 	unsigned short board, major, minor;
 	unsigned short rev;
 
-	
+	/* reset HAL2 */
 	hal2_write(0, &hal2->ctl_regs->isr);
 
-	
+	/* release reset */
 	hal2_write(H2_ISR_GLOBAL_RESET_N | H2_ISR_CODEC_RESET_N,
 		   &hal2->ctl_regs->isr);
 
@@ -836,6 +838,14 @@ static int hal2_create(struct snd_card *card, struct snd_hal2 **rchip)
 	hal2_init_codec(&hal2->dac, hpc3, 0);
 	hal2_init_codec(&hal2->adc, hpc3, 1);
 
+	/*
+	 * All DMA channel interfaces in HAL2 are designed to operate with
+	 * PBUS programmed for 2 cycles in D3, 2 cycles in D4 and 2 cycles
+	 * in D5. HAL2 is a 16-bit device which can accept both big and little
+	 * endian format. It assumes that even address bytes are on high
+	 * portion of PBUS (15:8) and assumes that HPC3 is programmed to
+	 * accept a live (unsynchronized) version of P_DREQ_N from HAL2.
+	 */
 #define HAL2_PBUS_DMACFG ((0 << HPC3_DMACFG_D3R_SHIFT) | \
 			  (2 << HPC3_DMACFG_D4R_SHIFT) | \
 			  (2 << HPC3_DMACFG_D5R_SHIFT) | \
@@ -847,6 +857,10 @@ static int hal2_create(struct snd_card *card, struct snd_hal2 **rchip)
 				HPC3_DMACFG_RTIME | \
 			  (8 << HPC3_DMACFG_BURST_SHIFT) | \
 				HPC3_DMACFG_DRQLIVE)
+	/*
+	 * Ignore what's mentioned in the specification and write value which
+	 * works in The Real World (TM)
+	 */
 	hpc3->pbus_dmacfg[hal2->dac.pbus.pbusnr][0] = 0x8208844;
 	hpc3->pbus_dmacfg[hal2->adc.pbus.pbusnr][0] = 0x8208844;
 

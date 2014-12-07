@@ -94,7 +94,7 @@ static struct __initdata platform_device *geos_devs[] = {
 
 static void __init register_geos(void)
 {
-	
+	/* Setup LED control through leds-gpio driver */
 	platform_add_devices(geos_devs, ARRAY_SIZE(geos_devs));
 }
 

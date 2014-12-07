@@ -51,6 +51,7 @@
 #include <plat/gpio-cfg.h>
 #include <plat/gpio-cfg-helpers.h>
 
+/* S3C2442 extended clock support */
 
 static unsigned long s3c2442_camif_upll_round(struct clk *clk,
 					      unsigned long rate)
@@ -66,7 +67,7 @@ static unsigned long s3c2442_camif_upll_round(struct clk *clk,
 	if (div == 3)
 		return parent_rate / 3;
 
-	
+	/* note, we remove the +/- 1 calculations for the divisor */
 
 	div /= 2;
 
@@ -103,6 +104,7 @@ static int s3c2442_camif_upll_setrate(struct clk *clk, unsigned long rate)
 	return 0;
 }
 
+/* Extra S3C2442 clocks */
 
 static struct clk s3c2442_clk_cam = {
 	.name		= "camif",

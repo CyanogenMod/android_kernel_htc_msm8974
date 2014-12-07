@@ -24,6 +24,21 @@ MODULE_LICENSE("GPL");
 
 static struct class *tape_class;
 
+/*
+ * Register a tape device and return a pointer to the cdev structure.
+ *
+ * device
+ *	The pointer to the struct device of the physical (base) device.
+ * drivername
+ *	The pointer to the drivers name for it's character devices.
+ * dev
+ *	The intended major/minor number. The major number may be 0 to
+ *	get a dynamic major number.
+ * fops
+ *	The pointer to the drivers file operations for the tape device.
+ * devname
+ *	The pointer to the name of the character device.
+ */
 struct tape_class_device *register_tape_dev(
 	struct device *		device,
 	dev_t			dev,

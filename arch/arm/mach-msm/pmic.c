@@ -133,6 +133,7 @@
 #define GPIO_SET_VOLTAGE_SOURCE_PROC 112
 #define GPIO_SET_OUTPUT_BUFFER_DRIVE_STRENGTH_PROC 113
 
+/* rpc related */
 #define PMIC_RPC_TIMEOUT (5*HZ)
 
 #define PMIC_PDEV_NAME	"rs00010001:00000000"
@@ -143,13 +144,14 @@
 #define PMIC_RPC_VER_5_1	0x00050001
 #define PMIC_RPC_VER_6_1	0x00060001
 
+/* error bit flags defined by modem side */
 #define PM_ERR_FLAG__PAR1_OUT_OF_RANGE		(0x0001)
 #define PM_ERR_FLAG__PAR2_OUT_OF_RANGE		(0x0002)
 #define PM_ERR_FLAG__PAR3_OUT_OF_RANGE		(0x0004)
 #define PM_ERR_FLAG__PAR4_OUT_OF_RANGE		(0x0008)
 #define PM_ERR_FLAG__PAR5_OUT_OF_RANGE		(0x0010)
 
-#define PM_ERR_FLAG__ALL_PARMS_OUT_OF_RANGE   	(0x001F) 
+#define PM_ERR_FLAG__ALL_PARMS_OUT_OF_RANGE   	(0x001F) /* all 5 previous */
 
 #define PM_ERR_FLAG__SBI_OPT_ERR		(0x0080)
 #define PM_ERR_FLAG__FEATURE_NOT_SUPPORTED	(0x0100)
@@ -157,11 +159,11 @@
 #define	PMIC_BUFF_SIZE		256
 
 struct pmic_buf {
-	char *start;		
-	char *end;		
-	int size;		
-	char *data;		
-	int len;		
+	char *start;		/* buffer start addr */
+	char *end;		/* buffer end addr */
+	int size;		/* buffer size */
+	char *data;		/* payload begin addr */
+	int len;		/* payload len */
 };
 
 static DEFINE_MUTEX(pmic_mtx);
@@ -177,6 +179,7 @@ static struct pmic_ctrl pmic_ctrl = {
 	.inited = -1,
 };
 
+/* Add newer versions at the top of array */
 static const unsigned int rpc_vers[] = {
 	PMIC_RPC_VER_6_1,
 	PMIC_RPC_VER_5_1,
@@ -244,7 +247,7 @@ static int modem_to_linux_err(uint err)
 		return 0;
 
 	if (err & PM_ERR_FLAG__ALL_PARMS_OUT_OF_RANGE)
-		return -EINVAL;	
+		return -EINVAL;	/* PM_ERR_FLAG__PAR[1..5]_OUT_OF_RANGE */
 
 	if (err & PM_ERR_FLAG__SBI_OPT_ERR)
 		return -EIO;
@@ -290,7 +293,36 @@ static int pmic_pull_rx_data(struct pmic_buf *rp, uint *datap)
 }
 
 
+/*
+ *
+ *   +-------------------+
+ *   |  PROC cmd layer   |
+ *   +-------------------+
+ *   |     RPC layer     |
+ *   +-------------------+
+ *
+ * 1) network byte order
+ * 2) RPC request header(40 bytes) and RPC reply header (24 bytes)
+ * 3) each transaction consists of a request and reply
+ * 3) PROC (comamnd) layer has its own sub-protocol defined
+ * 4) sub-protocol can be grouped to follwoing 7 cases:
+ *  	a) set one argument, no get
+ * 	b) set two argument, no get
+ * 	c) set three argument, no get
+ * 	d) set a struct, no get
+ * 	e) set a argument followed by a struct, no get
+ * 	f) set a argument, get a argument
+ * 	g) no set, get either a argument or a struct
+ */
 
+/**
+ * pmic_rpc_req_reply() - send request and wait for reply
+ * @tbuf:	buffer contains arguments
+ * @rbuf:	buffer to be filled with arguments at reply
+ * @proc:	command/request id
+ *
+ * This function send request to modem and wait until reply received
+ */
 static int pmic_rpc_req_reply(struct pmic_buf *tbuf, struct pmic_buf *rbuf,
 	int	proc)
 {
@@ -322,6 +354,11 @@ static int pmic_rpc_req_reply(struct pmic_buf *tbuf, struct pmic_buf *rbuf,
 		return ans;
 	}
 
+	/*
+	* data is point to next available space at this moment,
+	* move it back to beginning of request header and increase
+	* the length
+	*/
 	tbuf->data = tbuf->start;
 
 	len = msm_rpc_call_reply(pm->endpoint, proc,
@@ -331,18 +368,29 @@ static int pmic_rpc_req_reply(struct pmic_buf *tbuf, struct pmic_buf *rbuf,
 
 	if (len <= 0) {
 		printk(KERN_ERR "%s: rpc failed! len = %d\n", __func__, len);
-		pm->endpoint = NULL;	
+		pm->endpoint = NULL;	/* re-connect later ? */
 		return len;
 	}
 
 	rbuf->len = len;
-	
+	/* strip off rpc_reply_hdr */
 	rbuf->data += sizeof(struct rpc_reply_hdr);
 	rbuf->len -= sizeof(struct rpc_reply_hdr);
 
 	return rbuf->len;
 }
 
+/**
+ * pmic_rpc_set_only() - set arguments and no get
+ * @data0:	first argumrnt
+ * @data1:	second argument
+ * @data2:	third argument
+ * @data3:	fourth argument
+ * @num:	number of argument
+ * @proc:	command/request id
+ *
+ * This function covers case a, b, and c
+ */
 static int pmic_rpc_set_only(uint data0, uint data1, uint data2, uint data3,
 		int num, int proc)
 {
@@ -388,13 +436,23 @@ static int pmic_rpc_set_only(uint data0, uint data1, uint data2, uint data3,
 		return stat;
 	}
 
-	pmic_pull_rx_data(rp, &stat);	
+	pmic_pull_rx_data(rp, &stat);	/* result from server */
 
 	mutex_unlock(&pmic_mtx);
 
 	return modem_to_linux_err(stat);
 }
 
+/**
+ * pmic_rpc_set_struct() - set the whole struct
+ * @xflag:	indicates an extra argument
+ * @xdata:	the extra argument
+ * @*data:	starting address of struct
+ * @size:	size of struct
+ * @proc:	command/request id
+ *
+ * This fucntion covers case d and e
+ */
 static int pmic_rpc_set_struct(int xflag, uint xdata, uint *data, uint size,
 	int proc)
 {
@@ -425,7 +483,7 @@ static int pmic_rpc_set_struct(int xflag, uint xdata, uint *data, uint size,
 	if (xflag)
 		pmic_put_tx_data(tp, xdata);
 
-	more_data = 1; 		
+	more_data = 1; 		/* tell server there have more data followed */
 	pmic_put_tx_data(tp, more_data);
 
 	size >>= 2;
@@ -440,13 +498,22 @@ static int pmic_rpc_set_struct(int xflag, uint xdata, uint *data, uint size,
 		return stat;
 	}
 
-	pmic_pull_rx_data(rp, &stat);	
+	pmic_pull_rx_data(rp, &stat);	/* result from server */
 
 	mutex_unlock(&pmic_mtx);
 
 	return modem_to_linux_err(stat);
 }
 
+/**
+ * pmic_rpc_set_get() - set one argument and get one argument
+ * @setdata:	set argument
+ * @*getdata:	memory to store argumnet
+ * @size:	size of memory
+ * @proc:	command/request id
+ *
+ * This function covers case f
+ */
 static int pmic_rpc_set_get(uint setdata, uint *getdata, int size, int proc)
 {
 	struct pmic_ctrl *pm = &pmic_ctrl;
@@ -476,6 +543,10 @@ static int pmic_rpc_set_get(uint setdata, uint *getdata, int size, int proc)
 
 	pmic_put_tx_data(tp, setdata);
 
+	/*
+	* more_data = TRUE to ask server reply with requested datum
+	* otherwise, server will reply without datum
+	*/
 	more_data = (getdata != NULL);
 	pmic_put_tx_data(tp, more_data);
 
@@ -485,15 +556,15 @@ static int pmic_rpc_set_get(uint setdata, uint *getdata, int size, int proc)
 		return stat;
 	}
 
-	pmic_pull_rx_data(rp, &stat);		
+	pmic_pull_rx_data(rp, &stat);		/* result from server */
 	pmic_pull_rx_data(rp, &more_data);
 
-	if (more_data) { 				
+	if (more_data) { 				/* more data followed */
 		size >>= 2;
 		lp = getdata;
 		for (i = 0; i < size; i++) {
 			if (pmic_pull_rx_data(rp, lp++) < 0)
-				break;	
+				break;	/* not supposed to happen */
 		}
 	}
 
@@ -502,6 +573,14 @@ static int pmic_rpc_set_get(uint setdata, uint *getdata, int size, int proc)
 	return modem_to_linux_err(stat);
 }
 
+/**
+ * pmic_rpc_get_only() - get one or more than one arguments
+ * @*getdata:	memory to store arguments
+ * @size:	size of mmory
+ * @proc:	command/request id
+ *
+ * This function covers case g
+ */
 static int pmic_rpc_get_only(uint *getdata, int size, int proc)
 {
 	struct pmic_ctrl *pm = &pmic_ctrl;
@@ -529,6 +608,10 @@ static int pmic_rpc_get_only(uint *getdata, int size, int proc)
 	pmic_buf_reserve(tp, sizeof(struct rpc_request_hdr));
 	pmic_buf_reset(rp);
 
+	/*
+	* more_data = TRUE to ask server reply with requested datum
+	* otherwise, server will reply without datum
+	*/
 	more_data = (getdata != NULL);
 	pmic_put_tx_data(tp, more_data);
 
@@ -538,15 +621,15 @@ static int pmic_rpc_get_only(uint *getdata, int size, int proc)
 		return stat;
 	}
 
-	pmic_pull_rx_data(rp, &stat);		
+	pmic_pull_rx_data(rp, &stat);		/* result from server */
 	pmic_pull_rx_data(rp, &more_data);
 
-	if (more_data) { 				
+	if (more_data) { 				/* more data followed */
 		size >>= 2;
 		lp = getdata;
 		for (i = 0; i < size; i++) {
 			if (pmic_pull_rx_data(rp, lp++) < 0)
-				break;	
+				break;	/* not supposed to happen */
 		}
 	}
 
@@ -664,6 +747,9 @@ int pmic_rtc_get_time_adjust(uint *adjust)
 }
 EXPORT_SYMBOL(pmic_rtc_get_time_adjust);
 
+/*
+ * generic speaker
+ */
 int pmic_speaker_cmd(const enum spkr_cmd cmd)
 {
 	return pmic_rpc_set_only(cmd, 0, 0, 0, 1, SPEAKER_CMD_PROC);
@@ -797,6 +883,9 @@ int pmic_spkr_is_sink_curr_from_ref_volt_cir_en(uint *enabled)
 }
 EXPORT_SYMBOL(pmic_spkr_is_sink_curr_from_ref_volt_cir_en);
 
+/*
+ * 	speaker indexed by left_right
+ */
 int pmic_spkr_en(enum spkr_left_right left_right, uint enable)
 {
 	return pmic_rpc_set_only(left_right, enable, 0, 0, 2, SPKR_EN_PROC);
@@ -873,6 +962,9 @@ int pmic_spkr_bypass_en(enum spkr_left_right left_right, uint enable)
 }
 EXPORT_SYMBOL(pmic_spkr_bypass_en);
 
+/*
+ * 	mic
+ */
 int pmic_mic_en(uint enable)
 {
 	return pmic_rpc_set_only(enable, 0, 0, 0, 1, MIC_EN_PROC);
@@ -1088,6 +1180,9 @@ int pmic_low_current_led_set_current(enum low_current_led led,
 }
 EXPORT_SYMBOL(pmic_low_current_led_set_current);
 
+/*
+ * Head phone speaker
+ */
 int pmic_hp_spkr_mstr_en(enum hp_spkr_left_right left_right, uint enable)
 {
 	return pmic_rpc_set_only(left_right, enable, 0, 0, 2,

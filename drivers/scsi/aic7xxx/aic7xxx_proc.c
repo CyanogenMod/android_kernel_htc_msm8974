@@ -54,31 +54,43 @@ static void	ahc_dump_device_state(struct info_str *info,
 static int	ahc_proc_write_seeprom(struct ahc_softc *ahc,
 				       char *buffer, int length);
 
+/*
+ * Table of syncrates that don't follow the "divisible by 4"
+ * rule. This table will be expanded in future SCSI specs.
+ */
 static const struct {
 	u_int period_factor;
-	u_int period;	
+	u_int period;	/* in 100ths of ns */
 } scsi_syncrates[] = {
-	{ 0x08, 625 },	
-	{ 0x09, 1250 },	
-	{ 0x0a, 2500 },	
-	{ 0x0b, 3030 },	
-	{ 0x0c, 5000 }	
+	{ 0x08, 625 },	/* FAST-160 */
+	{ 0x09, 1250 },	/* FAST-80 */
+	{ 0x0a, 2500 },	/* FAST-40 40MHz */
+	{ 0x0b, 3030 },	/* FAST-40 33MHz */
+	{ 0x0c, 5000 }	/* FAST-20 */
 };
 
+/*
+ * Return the frequency in kHz corresponding to the given
+ * sync period factor.
+ */
 static u_int
 ahc_calc_syncsrate(u_int period_factor)
 {
 	int i;
 
-	
+	/* See if the period is in the "exception" table */
 	for (i = 0; i < ARRAY_SIZE(scsi_syncrates); i++) {
 
 		if (period_factor == scsi_syncrates[i].period_factor) {
-			
+			/* Period in kHz */
 			return (100000000 / scsi_syncrates[i].period);
 		}
 	}
 
+	/*
+	 * Wasn't in the table, so use the standard
+	 * 4 times conversion.
+	 */
 	return (10000000 / (period_factor * 4 * 10));
 }
 
@@ -228,7 +240,7 @@ ahc_proc_write_seeprom(struct ahc_softc *ahc, char *buffer, int length)
 	int paused;
 	int written;
 
-	
+	/* Default to failure. */
 	written = -EINVAL;
 	ahc_lock(ahc, &s);
 	paused = ahc_is_paused(ahc);
@@ -316,6 +328,9 @@ done:
 	return (written);
 }
 
+/*
+ * Return information to handle /proc support for the driver.
+ */
 int
 ahc_linux_proc_info(struct Scsi_Host *shost, char *buffer, char **start,
 		    off_t offset, int length, int inout)

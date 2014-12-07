@@ -3,4 +3,4 @@
 
 #include <asm-generic/resource.h>
 
-#endif 
+#endif /* _H8300_RESOURCE_H */

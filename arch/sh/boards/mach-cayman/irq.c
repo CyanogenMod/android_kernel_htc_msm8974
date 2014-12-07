@@ -16,8 +16,10 @@
 #include <cpu/irq.h>
 #include <asm/page.h>
 
+/* Setup for the SMSC FDC37C935 / LAN91C100FD */
 #define SMSC_IRQ         IRQ_IRL1
 
+/* Setup for PCI Bus 2, which transmits interrupts via the EPLD */
 #define PCI2_IRQ         IRQ_IRL3
 
 unsigned long epld_virt;
@@ -26,6 +28,8 @@ unsigned long epld_virt;
 #define EPLD_STATUS_BASE (epld_virt + 0x10)
 #define EPLD_MASK_BASE   (epld_virt + 0x20)
 
+/* Note the SMSC SuperIO chip and SMSC LAN chip interrupts are all muxed onto
+   the same SH-5 interrupt */
 
 static irqreturn_t cayman_interrupt_smsc(int irq, void *dev_id)
 {
@@ -147,7 +151,7 @@ void init_cayman_irq(void)
 					 &cayman_irq_type, handle_level_irq);
 	}
 
-	
+	/* Setup the SMSC interrupt */
 	setup_irq(SMSC_IRQ, &cayman_action_smsc);
 	setup_irq(PCI2_IRQ, &cayman_action_pci2);
 }

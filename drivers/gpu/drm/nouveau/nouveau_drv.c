@@ -289,11 +289,11 @@ nouveau_pci_resume(struct pci_dev *pdev)
 		return -1;
 	pci_set_master(dev->pdev);
 
-	
+	/* Make sure the AGP controller is in a consistent state */
 	if (dev_priv->gart_info.type == NOUVEAU_GART_AGP)
 		nouveau_mem_reset_agp(dev);
 
-	
+	/* Make the CRTCs accessible */
 	engine->display.early_init(dev);
 
 	NV_INFO(dev, "POSTing device...\n");
@@ -325,7 +325,7 @@ nouveau_pci_resume(struct pci_dev *pdev)
 
 	nouveau_irq_postinstall(dev);
 
-	
+	/* Re-write SKIPS, they'll have been lost over the suspend */
 	if (nouveau_vram_pushbuf) {
 		struct nouveau_channel *chan;
 		int j;
@@ -368,7 +368,7 @@ nouveau_pci_resume(struct pci_dev *pdev)
 
 	nouveau_display_init(dev);
 
-	
+	/* Force CLUT to get re-loaded during modeset */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
 		struct nouveau_crtc *nv_crtc = nouveau_crtc(crtc);
 

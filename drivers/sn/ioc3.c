@@ -28,8 +28,9 @@ static struct ioc3_submodule *ioc3_submodules[IOC3_MAX_SUBMODULES];
 static struct ioc3_submodule *ioc3_ethernet;
 static DEFINE_RWLOCK(ioc3_submodules_lock);
 
+/* NIC probing code */
 
-#define GPCR_MLAN_EN    0x00200000      
+#define GPCR_MLAN_EN    0x00200000      /* enable MCR to pin 8 */
 
 static inline unsigned mcr_pack(unsigned pulse, unsigned sample)
 {
@@ -117,10 +118,10 @@ nic_find(struct ioc3_driver_data *idd, int *last, unsigned long addr)
 
 	nic_reset(idd);
 
-	
+	/* Search ROM.  */
 	nic_write_byte(idd, 0xF0);
 
-	
+	/* Algorithm from ``Book of iButton Standards''.  */
 	for (index = 0, disc = 0; index < 64; index++) {
 		a = nic_read_bit(idd);
 		b = nic_read_bit(idd);
@@ -279,12 +280,12 @@ static void read_nic(struct ioc3_driver_data *idd, unsigned long addr)
 	unsigned char data[64],part[32];
 	int i,j;
 
-	
+	/* read redirections */
 	read_redir_map(idd, addr, redir);
-	
+	/* read data pages */
 	read_redir_page(idd, addr, 0, redir, data);
 	read_redir_page(idd, addr, 1, redir, data+32);
-	
+	/* assemble the part # */
 	j=0;
 	for(i=0;i<19;i++)
 		if(data[i+11] != ' ')
@@ -293,13 +294,13 @@ static void read_nic(struct ioc3_driver_data *idd, unsigned long addr)
 		if(data[i+32] != ' ')
 			part[j++] = data[i+32];
 	part[j] = 0;
-	
+	/* skip Octane power supplies */
 	if(!strncmp(part, "060-0035-", 9))
 		return;
 	if(!strncmp(part, "060-0038-", 9))
 		return;
 	strcpy(idd->nic_part, part);
-	
+	/* assemble the serial # */
 	j=0;
 	for(i=0;i<10;i++)
 		if(data[i+1] != ' ')
@@ -369,6 +370,7 @@ static void probe_nic(struct ioc3_driver_data *idd)
         printk(KERN_ERR "IOC3: CRC error in NIC address\n");
 }
 
+/* Interrupts */
 
 static void write_ireg(struct ioc3_driver_data *idd, uint32_t val, int which)
 {
@@ -407,14 +409,14 @@ static irqreturn_t ioc3_intr_io(int irq, void *arg)
 	read_lock_irqsave(&ioc3_submodules_lock, flags);
 
 	if(idd->dual_irq && readb(&idd->vma->eisr)) {
-		
+		/* send Ethernet IRQ to the driver */
 		if(ioc3_ethernet && idd->active[ioc3_ethernet->id] &&
 						ioc3_ethernet->intr) {
 			handled = handled && !ioc3_ethernet->intr(ioc3_ethernet,
 							idd, 0);
 		}
 	}
-	pending = get_pending_intrs(idd);	
+	pending = get_pending_intrs(idd);	/* look at the IO IRQs */
 
 	for(id=0;id<IOC3_MAX_SUBMODULES;id++) {
 		if(idd->active[id] && ioc3_submodules[id]
@@ -482,6 +484,7 @@ void ioc3_gpcr_set(struct ioc3_driver_data *idd, unsigned int val)
 	spin_unlock_irqrestore(&idd->gpio_lock, flags);
 }
 
+/* Keep it simple, stupid! */
 static int find_slot(void **tab, int max)
 {
 	int i;
@@ -491,6 +494,7 @@ static int find_slot(void **tab, int max)
 	return -1;
 }
 
+/* Register an IOC3 submodule */
 int ioc3_register_submodule(struct ioc3_submodule *is)
 {
 	struct ioc3_driver_data *idd;
@@ -518,13 +522,13 @@ int ioc3_register_submodule(struct ioc3_submodule *is)
 
 	is->id=alloc_id;
 
-	
+	/* Initialize submodule for each IOC3 */
 	if (!is->probe)
 		return 0;
 
 	down_read(&ioc3_devices_rwsem);
 	list_for_each_entry(idd, &ioc3_devices, list) {
-		
+		/* set to 1 for IRQs in probe */
 		idd->active[alloc_id] = 1;
 		idd->active[alloc_id] = !is->probe(is, idd);
 	}
@@ -533,6 +537,7 @@ int ioc3_register_submodule(struct ioc3_submodule *is)
 	return 0;
 }
 
+/* Unregister an IOC3 submodule */
 void ioc3_unregister_submodule(struct ioc3_submodule *is)
 {
 	struct ioc3_driver_data *idd;
@@ -548,7 +553,7 @@ void ioc3_unregister_submodule(struct ioc3_submodule *is)
 		ioc3_ethernet = NULL;
 	write_unlock_irqrestore(&ioc3_submodules_lock, flags);
 
-	
+	/* Remove submodule for each IOC3 */
 	down_read(&ioc3_devices_rwsem);
 	list_for_each_entry(idd, &ioc3_devices, list)
 		if(idd->active[is->id]) {
@@ -566,6 +571,9 @@ void ioc3_unregister_submodule(struct ioc3_submodule *is)
 	up_read(&ioc3_devices_rwsem);
 }
 
+/*********************
+ * Device management *
+ *********************/
 
 static char * __devinitdata
 ioc3_class_names[]={"unknown", "IP27 BaseIO", "IP30 system", "MENET 1/2/3",
@@ -574,7 +582,7 @@ ioc3_class_names[]={"unknown", "IP27 BaseIO", "IP30 system", "MENET 1/2/3",
 static int __devinit ioc3_class(struct ioc3_driver_data *idd)
 {
 	int res = IOC3_CLASS_NONE;
-	
+	/* NIC-based logic */
 	if(!strncmp(idd->nic_part, "030-0891-", 9))
 		res = IOC3_CLASS_BASE_IP30;
 	if(!strncmp(idd->nic_part, "030-1155-", 9))
@@ -583,16 +591,17 @@ static int __devinit ioc3_class(struct ioc3_driver_data *idd)
 		res = IOC3_CLASS_SERIAL;
 	if(!strncmp(idd->nic_part, "030-1664-", 9))
 		res = IOC3_CLASS_SERIAL;
-	
+	/* total random heuristics */
 #ifdef CONFIG_SGI_IP27
 	if(!idd->nic_part[0])
 		res = IOC3_CLASS_BASE_IP27;
 #endif
-	
+	/* print educational message */
 	printk(KERN_INFO "IOC3 part: [%s], serial: [%s] => class %s\n",
 			idd->nic_part, idd->nic_serial, ioc3_class_names[res]);
 	return res;
 }
+/* Adds a new instance of an IOC3 card */
 static int __devinit
 ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 {
@@ -600,7 +609,7 @@ ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 	uint32_t pcmd;
 	int ret, id;
 
-	
+	/* Enable IOC3 and take ownership of it */
 	if ((ret = pci_enable_device(pdev))) {
 		printk(KERN_WARNING
 		       "%s: Failed to enable IOC3 device for pci_dev %s.\n",
@@ -621,7 +630,7 @@ ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 	}
 #endif
 
-	
+	/* Set up per-IOC3 data */
 	idd = kzalloc(sizeof(struct ioc3_driver_data), GFP_KERNEL);
 	if (!idd) {
 		printk(KERN_WARNING
@@ -634,6 +643,9 @@ ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 	spin_lock_init(&idd->gpio_lock);
 	idd->pdev = pdev;
 
+	/* Map all IOC3 registers.  These are shared between subdevices
+	 * so the main IOC3 module manages them.
+	 */
 	idd->pma = pci_resource_start(pdev, 0);
 	if (!idd->pma) {
 		printk(KERN_WARNING
@@ -661,7 +673,7 @@ ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 		goto out_misc_region;
 	}
 
-	
+	/* Track PCI-device specific data */
 	pci_set_drvdata(pdev, idd);
 	down_write(&ioc3_devices_rwsem);
 	list_add_tail(&idd->list, &ioc3_devices);
@@ -670,13 +682,13 @@ ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 
 	idd->gpdr_shadow = readl(&idd->vma->gpdr);
 
-	
+	/* Read IOC3 NIC contents */
 	probe_nic(idd);
 
-	
+	/* Detect IOC3 class */
 	idd->class = ioc3_class(idd);
 
-	
+	/* Initialize IOC3 */
        pci_read_config_dword(pdev, PCI_COMMAND, &pcmd);
        pci_write_config_dword(pdev, PCI_COMMAND,
                                pcmd | PCI_COMMAND_MEMORY |
@@ -686,7 +698,7 @@ ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 	write_ireg(idd, ~0, IOC3_W_IEC);
 	writel(~0, &idd->vma->sio_ir);
 
-	
+	/* Set up IRQs */
 	if(idd->class == IOC3_CLASS_BASE_IP30
 				|| idd->class == IOC3_CLASS_BASE_IP27) {
 		writel(0, &idd->vma->eier);
@@ -720,7 +732,7 @@ ioc3_probe(struct pci_dev *pdev, const struct pci_device_id *pci_id)
 		}
 	}
 
-	
+	/* Add this IOC3 to all submodules */
 	for(id=0;id<IOC3_MAX_SUBMODULES;id++)
 		if(ioc3_submodules[id] && ioc3_submodules[id]->probe) {
 			idd->active[id] = 1;
@@ -742,6 +754,7 @@ out:
 	return ret;
 }
 
+/* Removes a particular instance of an IOC3 card. */
 static void __devexit ioc3_remove(struct pci_dev *pdev)
 {
 	int id;
@@ -749,7 +762,7 @@ static void __devexit ioc3_remove(struct pci_dev *pdev)
 
 	idd = pci_get_drvdata(pdev);
 
-	
+	/* Remove this IOC3 from all submodules */
 	for(id=0;id<IOC3_MAX_SUBMODULES;id++)
 		if(idd->active[id]) {
 			if(ioc3_submodules[id] && ioc3_submodules[id]->remove)
@@ -764,21 +777,21 @@ static void __devexit ioc3_remove(struct pci_dev *pdev)
 			idd->active[id] = 0;
 		}
 
-	
+	/* Clear and disable all IRQs */
 	write_ireg(idd, ~0, IOC3_W_IEC);
 	writel(~0, &idd->vma->sio_ir);
 
-	
+	/* Release resources */
 	free_irq(idd->irq_io, (void *)idd);
 	if(idd->dual_irq)
 		free_irq(idd->irq_eth, (void *)idd);
 	iounmap(idd->vma);
 	release_mem_region(idd->pma, IOC3_PCI_SIZE);
 
-	
+	/* Disable IOC3 and relinquish */
 	pci_disable_device(pdev);
 
-	
+	/* Remove and free driver data */
 	down_write(&ioc3_devices_rwsem);
 	list_del(&idd->list);
 	up_write(&ioc3_devices_rwsem);
@@ -799,7 +812,11 @@ static struct pci_driver ioc3_driver = {
 
 MODULE_DEVICE_TABLE(pci, ioc3_id_table);
 
+/*********************
+ * Module management *
+ *********************/
 
+/* Module load */
 static int __init ioc3_init(void)
 {
 	if (ia64_platform_is("sn2"))
@@ -807,6 +824,7 @@ static int __init ioc3_init(void)
 	return -ENODEV;
 }
 
+/* Module unload */
 static void __exit ioc3_exit(void)
 {
 	pci_unregister_driver(&ioc3_driver);

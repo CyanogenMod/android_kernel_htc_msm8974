@@ -21,11 +21,22 @@
 #include <asm/oplib.h>
 #include <asm/smp.h>
 
+/* Unlike the OBP device tree, the machine description is a full-on
+ * DAG.  An arbitrary number of ARCs are possible from one
+ * node to other nodes and thus we can't use the OBP device_node
+ * data structure to represent these nodes inside of the kernel.
+ *
+ * Actually, it isn't even a DAG, because there are back pointers
+ * which create cycles in the graph.
+ *
+ * mdesc_hdr and mdesc_elem describe the layout of the data structure
+ * we get from the Hypervisor.
+ */
 struct mdesc_hdr {
-	u32	version; 
-	u32	node_sz; 
-	u32	name_sz; 
-	u32	data_sz; 
+	u32	version; /* Transport version */
+	u32	node_sz; /* node block size */
+	u32	name_sz; /* name block size */
+	u32	data_sz; /* data block size */
 } __attribute__((aligned(16)));
 
 struct mdesc_elem {
@@ -238,6 +249,7 @@ static const u64 *parent_cfg_handle(struct mdesc_handle *hp, u64 node)
 	return id;
 }
 
+/* Run 'func' on nodes which are in A but not in B.  */
 static void invoke_on_missing(const char *name,
 			      struct mdesc_handle *a,
 			      struct mdesc_handle *b,
@@ -813,6 +825,10 @@ static void * __cpuinit fill_in_one_cpu(struct mdesc_handle *hp, u64 mp, int cpu
 	u64 a;
 
 #ifndef CONFIG_SMP
+	/* On uniprocessor we only want the values for the
+	 * real physical cpu the kernel booted onto, however
+	 * cpu_data() only has one entry at index 0.
+	 */
 	if (cpuid != real_hard_smp_processor_id())
 		return NULL;
 	cpuid = 0;

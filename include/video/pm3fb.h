@@ -12,6 +12,10 @@
 #ifndef PM3FB_H
 #define PM3FB_H
 
+/**********************************************
+*  GLINT Permedia3 Control Status registers   *
+***********************************************/
+/* Control Status Registers */
 #define PM3ResetStatus						0x0000
 #define PM3IntEnable						0x0008
 #define PM3IntFlags						0x0010
@@ -43,6 +47,9 @@
 #define PM3TexDMAAddress					0x0120
 #define PM3TexFIFOSpace						0x0128
 
+/**********************************************
+*  GLINT Permedia3 Region 0 Bypass Controls   *
+***********************************************/
 #define PM3ByAperture1Mode					0x0300
 	#define PM3ByApertureMode_BYTESWAP_ABCD			(0 << 0)
 	#define PM3ByApertureMode_BYTESWAP_BADC			(1 << 0)
@@ -74,6 +81,9 @@
 
 #define PM3ByAperture2Mode					0x0328
 
+/**********************************************
+*  GLINT Permedia3 Memory Control (0x1000)    *
+***********************************************/
 #define PM3MemCounter						0x1000
 #define PM3MemBypassWriteMask					0x1008
 #define PM3MemScratch						0x1010
@@ -85,6 +95,9 @@
 #define PM3LocalMemPowerDown					0x1038
 #define PM3RemoteMemControl					0x1100
 
+/**********************************************
+*  GLINT Permedia3 Video Control (0x3000)     *
+***********************************************/
 
 #define PM3ScreenBase						0x3000
 #define PM3ScreenStride						0x3008
@@ -231,6 +244,10 @@
 #define PM3VideoOverlayFieldOffset				0x3170
 #define PM3VideoOverlayStatus					0x3178
 
+/**********************************************
+*  GLINT Permedia3 RAMDAC Registers (0x4000)  *
+***********************************************/
+/* Direct Registers */
 #define PM3RD_PaletteWriteAddress				0x4000
 #define PM3RD_PaletteData					0x4008
 #define PM3RD_PixelMask						0x4010
@@ -242,6 +259,7 @@
 #define PM3RD_IndexControl					0x4038
 	#define PM3RD_IndexControl_AUTOINCREMENT_ENABLE		(1 << 0)
 
+/* Indirect Registers */
 #define PM3RD_MiscControl					0x000
 	#define PM3RD_MiscControl_HIGHCOLOR_RES_ENABLE		(1 << 0)
 	#define PM3RD_MiscControl_PIXELDOUBLE_ENABLE		(1 << 1)
@@ -448,9 +466,15 @@
 
 #define PM3RD_CursorPalette(p)				(0x303 + (p))
 #define PM3RD_CursorPattern(p)				(0x400 + (p))
+/******************************************************
+*  GLINT Permedia3 Video Streaming Registers (0x5000) *
+*******************************************************/
 
 #define PM3VSConfiguration					0x5800
 
+/**********************************************
+*  GLINT Permedia3 Core Registers (0x8000+)   *
+***********************************************/
 #define PM3AALineWidth						0x94c0
 #define PM3AAPointsize						0x94a0
 #define PM3AlphaBlendAlphaMode					0xafa8
@@ -467,7 +491,9 @@
 #define PM3AntialiasMode					0x8808
 #define PM3AntialiasModeAnd					0xac00
 #define PM3AntialiasModeOr					0xac08
+/* ... */
 #define PM3BackgroundColor					0xb0c8
+/* ... */
 #define PM3ColorDDAMode						0x87e0
 #define PM3ColorDDAModeAnd					0xabe0
 #define PM3ColorDDAModeOr					0xabe8
@@ -485,18 +511,22 @@
 #define PM3ContinueNewLine					0x8040
 #define PM3ContinueNewSub					0x8050
 #define PM3Count						0x8030
+/* ... */
 #define PM3DeltaControl						0x9350
 #define PM3DeltaControlAnd					0xab20
 #define PM3DeltaControlOr					0xab28
 #define PM3DeltaMode						0x9300
 #define PM3DeltaModeAnd						0xaad0
 #define PM3DeltaModeOr						0xaad8
+/* ... */
 #define PM3DitherMode						0x8818
 #define PM3DitherModeAnd					0xacd0
 #define PM3DitherModeOr						0xacd8
+/* ... */
 #define PM3dXDom						0x8008
 #define PM3dXSub						0x8018
 #define PM3dY							0x8028
+/* ... */
 #define PM3FBBlockColor						0x8ac8
 #define PM3FBBlockColor0					0xb060
 #define PM3FBBlockColor1					0xb068
@@ -636,9 +666,11 @@
 	#define PM3FBWriteMode_Origin2				(1 << 26)
 	#define PM3FBWriteMode_Origin3				(1 << 27)
 #define PM3ForegroundColor					0xb0c0
+/* ... */
 #define PM3GIDMode						0xb538
 #define PM3GIDModeAnd						0xb5b0
 #define PM3GIDModeOr						0xb5b8
+/* ... */
 #define PM3LBDestReadBufferAddr					0xb510
 #define PM3LBDestReadBufferOffset				0xb518
 #define PM3LBDestReadEnables					0xb508
@@ -696,10 +728,12 @@
 	#define PM3LBWriteMode_Origin				(1 << 10)
 	#define PM3LBWriteMode_Packed16				(1 << 11)
 	#define PM3LBWriteMode_Width(w)			(((w) & 0xfff) << 12)
+/* ... */
 #define PM3LineStippleMode					0x81a8
 #define PM3LineStippleModeAnd					0xabc0
 #define PM3LineStippleModeOr					0xabc8
 #define PM3LoadLineStippleCounters				0x81b0
+/* ... */
 #define PM3LogicalOpMode					0x8828
 #define PM3LogicalOpModeAnd					0xace0
 #define PM3LogicalOpModeOr					0xace8
@@ -713,6 +747,7 @@
 	#define PM3LogicalOpMode_Background_LogicOp(op)	(((op) & 0xf) << 7)
 	#define PM3LogicalOpMode_UseConstantSource_Disable	(0 << 11)
 	#define PM3LogicalOpMode_UseConstantSource_Enable	(1 << 11)
+/* ... */
 #define PM3LUT							0x8e80
 #define PM3LUTAddress						0x84d0
 #define PM3LUTData						0x84c8
@@ -721,6 +756,7 @@
 #define PM3LUTModeAnd						0xad70
 #define PM3LUTModeOr						0xad78
 #define PM3LUTTransfer						0x84d8
+/* ... */
 #define PM3PixelSize						0x80c0
 	#define PM3PixelSize_GLOBAL_32BIT			(0 << 0)
 	#define PM3PixelSize_GLOBAL_16BIT			(1 << 0)
@@ -751,6 +787,7 @@
 	#define PM3PixelSize_SETUP_8BIT				(2 << 16)
 	#define PM3PixelSize_GLOBAL				(0 << 31)
 	#define PM3PixelSize_INDIVIDUAL				(1 << 31)
+/* ... */
 #define PM3Render						0x8038
 	#define PM3Render_AreaStipple_Disable			(0 << 0)
 	#define PM3Render_AreaStipple_Enable			(1 << 0)
@@ -809,7 +846,9 @@
 #define PM3StartXDom						0x8000
 #define PM3StartXSub						0x8010
 #define PM3StartY						0x8020
+/* ... */
 #define PM3SpanColorMask					0x8168
+/* ... */
 #define PM3TextureApplicationMode				0x8680
 #define PM3TextureApplicationModeAnd				0xac50
 #define PM3TextureApplicationModeOr				0xac58
@@ -838,6 +877,9 @@
 #define PM3TextureCoordModeAnd					0xac20
 #define PM3TextureCoordModeOr					0xac28
 #define PM3TextureData						0x88e8
+/*
+#define PM3TextureDownloadControl				0x0108
+*/
 #define PM3TextureDownloadOffset				0x88f0
 #define PM3TextureEnvColor					0x8688
 #define PM3TextureFilterMode					0x84e0
@@ -849,6 +891,7 @@
 #define PM3TextureIndexMode1					0xb340
 #define PM3TextureIndexMode1And					0xb3d0
 #define PM3TextureIndexMode1Or					0xb3d8
+/* ... */
 #define PM3TextureMapSize					0xb428
 #define PM3TextureMapWidth0					0x8580
 #define PM3TextureMapWidth1					0x8588
@@ -865,6 +908,7 @@
 #define PM3TextureReadMode1					0xb408
 #define PM3TextureReadMode1And					0xad40
 #define PM3TextureReadMode1Or					0xad48
+/* ... */
 #define PM3WaitForCompletion					0x80b8
 #define PM3Window						0x8980
 	#define PM3Window_ForceLBUpdate				(1 << 3)
@@ -886,6 +930,9 @@
 #define PM3ZStartU						0x89b0
 
 
+/**********************************************
+*  GLINT Permedia3 2D setup Unit	      *
+***********************************************/
 #define PM3Config2D						0xb618
 	#define PM3Config2D_OpaqueSpan				(1 << 0)
 	#define PM3Config2D_MultiRXBlit				(1 << 1)
@@ -941,6 +988,9 @@
 	#define PM3RLCount_Count(c)			((c) & 0x0fff)
 #define PM3RLData						0xb670
 
+/**********************************************
+*  GLINT Permedia3 Alias Register	     *
+***********************************************/
 #define PM3FillBackgroundColor					0x8330
 #define PM3FillConfig2D0					0x8338
 #define PM3FillConfig2D1					0x8360
@@ -975,6 +1025,7 @@
 	#define PM3FillRectanglePosition_XOffset(x)	((x) & 0xffff)
 	#define PM3FillRectanglePosition_YOffset(y)	(((y) & 0xffff) << 16)
 
+/* a few more useful registers & regs value... */
 #define PM3Sync							0x8c40
 	#define PM3Sync_Tag					0x188
 #define PM3FilterMode						0x8c00
@@ -993,11 +1044,18 @@
 #define PM3YUVMode						0x8f00
 #define PM3BitMaskPattern					0x8068
 
-#define PM3FBIO_RESETCHIP		0x504D33FF 
+/* ***************************** */
+/* ***** pm3fb IOCTL const ***** */
+/* ***************************** */
+#define PM3FBIO_RESETCHIP		0x504D33FF /* 'PM3\377' */
 
+/* ***************************************** */
+/* ***** pm3fb useful define and macro ***** */
+/* ***************************************** */
 
+/* fifo size in chip */
 #define PM3_FIFO_SIZE						120
 #define PM3_REGS_SIZE						0x10000
 #define PM3_MAX_PIXCLOCK					300000
 
-#endif 
+#endif /* PM3FB_H */

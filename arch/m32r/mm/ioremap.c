@@ -23,7 +23,19 @@
 #include <linux/io.h>
 #include <asm/pgalloc.h>
 
+/*
+ * Generic mapping function (not visible outside):
+ */
 
+/*
+ * Remap an arbitrary physical address space into the kernel virtual
+ * address space. Needed when the kernel wants to access high addresses
+ * directly.
+ *
+ * NOTE! We need to allow non-page-aligned mappings too: we will obviously
+ * have to convert them into an offset in a page-aligned mapping, but the
+ * caller shouldn't need to know that small detail.
+ */
 
 #define IS_LOW512(addr) (!((unsigned long)(addr) & ~0x1fffffffUL))
 
@@ -35,14 +47,21 @@ __ioremap(unsigned long phys_addr, unsigned long size, unsigned long flags)
 	unsigned long offset, last_addr;
 	pgprot_t pgprot;
 
-	
+	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
+	/*
+	 * Map objects in the low 512mb of address space using KSEG1, otherwise
+	 * map using page tables.
+	 */
 	if (IS_LOW512(phys_addr) && IS_LOW512(phys_addr + size - 1))
 		return (void *) KSEG1ADDR(phys_addr);
 
+	/*
+	 * Don't allow anybody to remap normal RAM that we're using..
+	 */
 	if (phys_addr < virt_to_phys(high_memory)) {
 		char *t_addr, *t_end;
 		struct page *page;
@@ -58,10 +77,16 @@ __ioremap(unsigned long phys_addr, unsigned long size, unsigned long flags)
 	pgprot = __pgprot(_PAGE_GLOBAL | _PAGE_PRESENT | _PAGE_READ
 			  | _PAGE_WRITE | flags);
 
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr + 1) - phys_addr;
 
+	/*
+	 * Ok, go for it..
+	 */
 	area = get_vm_area(size, VM_IOREMAP);
 	if (!area)
 		return NULL;

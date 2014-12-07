@@ -49,4 +49,4 @@ void ib_sysfs_cleanup(void);
 int  ib_cache_setup(void);
 void ib_cache_cleanup(void);
 
-#endif 
+#endif /* _CORE_PRIV_H */

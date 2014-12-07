@@ -17,7 +17,7 @@
 struct qmgr_regs __iomem *qmgr_regs;
 static struct resource *mem_res;
 static spinlock_t qmgr_lock;
-static u32 used_sram_bitmap[4]; 
+static u32 used_sram_bitmap[4]; /* 128 16-dword pages */
 static void (*irq_handlers[QUEUES])(void *pdev);
 static void *irq_pdevs[QUEUES];
 
@@ -35,12 +35,12 @@ void qmgr_set_irq(unsigned int queue, int src,
 		u32 __iomem *reg;
 		int bit;
 		BUG_ON(src > QUEUE_IRQ_SRC_NOT_FULL);
-		reg = &qmgr_regs->irqsrc[queue >> 3]; 
-		bit = (queue % 8) * 4; 
+		reg = &qmgr_regs->irqsrc[queue >> 3]; /* 8 queues per u32 */
+		bit = (queue % 8) * 4; /* 3 bits + 1 reserved bit per queue */
 		__raw_writel((__raw_readl(reg) & ~(7 << bit)) | (src << bit),
 			     reg);
 	} else
-		
+		/* IRQ source for queues 32-63 is fixed */
 		BUG_ON(src != QUEUE_IRQ_SRC_NOT_NEARLY_EMPTY);
 
 	irq_handlers[queue] = handler;
@@ -54,16 +54,16 @@ static irqreturn_t qmgr_irq1_a0(int irq, void *pdev)
 	int i, ret = 0;
 	u32 en_bitmap, src, stat;
 
-	
+	/* ACK - it may clear any bits so don't rely on it */
 	__raw_writel(0xFFFFFFFF, &qmgr_regs->irqstat[0]);
 
 	en_bitmap = qmgr_regs->irqen[0];
 	while (en_bitmap) {
-		i = __fls(en_bitmap); 
+		i = __fls(en_bitmap); /* number of the last "low" queue */
 		en_bitmap &= ~BIT(i);
 		src = qmgr_regs->irqsrc[i >> 3];
 		stat = qmgr_regs->stat1[i >> 3];
-		if (src & 4) 
+		if (src & 4) /* the IRQ condition is inverted */
 			stat = ~stat;
 		if (stat & BIT(src & 3)) {
 			irq_handlers[i](irq_pdevs[i]);
@@ -79,12 +79,12 @@ static irqreturn_t qmgr_irq2_a0(int irq, void *pdev)
 	int i, ret = 0;
 	u32 req_bitmap;
 
-	
+	/* ACK - it may clear any bits so don't rely on it */
 	__raw_writel(0xFFFFFFFF, &qmgr_regs->irqstat[1]);
 
 	req_bitmap = qmgr_regs->irqen[1] & qmgr_regs->statne_h;
 	while (req_bitmap) {
-		i = __fls(req_bitmap); 
+		i = __fls(req_bitmap); /* number of the last "high" queue */
 		req_bitmap &= ~BIT(i);
 		irq_handlers[HALF_QUEUES + i](irq_pdevs[HALF_QUEUES + i]);
 		ret = IRQ_HANDLED;
@@ -100,10 +100,10 @@ static irqreturn_t qmgr_irq(int irq, void *pdev)
 
 	if (!req_bitmap)
 		return 0;
-	__raw_writel(req_bitmap, &qmgr_regs->irqstat[half]); 
+	__raw_writel(req_bitmap, &qmgr_regs->irqstat[half]); /* ACK */
 
 	while (req_bitmap) {
-		i = __fls(req_bitmap); 
+		i = __fls(req_bitmap); /* number of the last queue */
 		req_bitmap &= ~BIT(i);
 		i += half * HALF_QUEUES;
 		irq_handlers[i](irq_pdevs[i]);
@@ -133,7 +133,7 @@ void qmgr_disable_irq(unsigned int queue)
 	spin_lock_irqsave(&qmgr_lock, flags);
 	__raw_writel(__raw_readl(&qmgr_regs->irqen[half]) & ~mask,
 		     &qmgr_regs->irqen[half]);
-	__raw_writel(mask, &qmgr_regs->irqstat[half]); 
+	__raw_writel(mask, &qmgr_regs->irqstat[half]); /* clear */
 	spin_unlock_irqrestore(&qmgr_lock, flags);
 }
 
@@ -146,17 +146,17 @@ static inline void shift_mask(u32 *mask)
 }
 
 #if DEBUG_QMGR
-int qmgr_request_queue(unsigned int queue, unsigned int len ,
+int qmgr_request_queue(unsigned int queue, unsigned int len /* dwords */,
 		       unsigned int nearly_empty_watermark,
 		       unsigned int nearly_full_watermark,
 		       const char *desc_format, const char* name)
 #else
-int __qmgr_request_queue(unsigned int queue, unsigned int len ,
+int __qmgr_request_queue(unsigned int queue, unsigned int len /* dwords */,
 			 unsigned int nearly_empty_watermark,
 			 unsigned int nearly_full_watermark)
 #endif
 {
-	u32 cfg, addr = 0, mask[4]; 
+	u32 cfg, addr = 0, mask[4]; /* in 16-dwords */
 	int err;
 
 	BUG_ON(queue >= QUEUES);
@@ -187,7 +187,7 @@ int __qmgr_request_queue(unsigned int queue, unsigned int len ,
 
 	cfg |= nearly_empty_watermark << 26;
 	cfg |= nearly_full_watermark << 29;
-	len /= 16;		
+	len /= 16;		/* in 16-dwords: 1, 2, 4 or 8 */
 	mask[1] = mask[2] = mask[3] = 0;
 
 	if (!try_module_get(THIS_MODULE))
@@ -204,7 +204,7 @@ int __qmgr_request_queue(unsigned int queue, unsigned int len ,
 		    !(used_sram_bitmap[1] & mask[1]) &&
 		    !(used_sram_bitmap[2] & mask[2]) &&
 		    !(used_sram_bitmap[3] & mask[3]))
-			break; 
+			break; /* found free space */
 
 		addr++;
 		shift_mask(mask);
@@ -240,13 +240,13 @@ void qmgr_release_queue(unsigned int queue)
 {
 	u32 cfg, addr, mask[4];
 
-	BUG_ON(queue >= QUEUES); 
+	BUG_ON(queue >= QUEUES); /* not in valid range */
 
 	spin_lock_irq(&qmgr_lock);
 	cfg = __raw_readl(&qmgr_regs->sram[queue]);
 	addr = (cfg >> 14) & 0xFF;
 
-	BUG_ON(!addr);		
+	BUG_ON(!addr);		/* not requested */
 
 	switch ((cfg >> 24) & 3) {
 	case 0: mask[0] = 0x1; break;
@@ -276,7 +276,7 @@ void qmgr_release_queue(unsigned int queue)
 	used_sram_bitmap[1] &= ~mask[1];
 	used_sram_bitmap[2] &= ~mask[2];
 	used_sram_bitmap[3] &= ~mask[3];
-	irq_handlers[queue] = NULL; 
+	irq_handlers[queue] = NULL; /* catch IRQ bugs */
 	spin_unlock_irq(&qmgr_lock);
 
 	module_put(THIS_MODULE);
@@ -299,14 +299,14 @@ static int qmgr_init(void)
 		goto error_map;
 	}
 
-	
+	/* reset qmgr registers */
 	for (i = 0; i < 4; i++) {
 		__raw_writel(0x33333333, &qmgr_regs->stat1[i]);
 		__raw_writel(0, &qmgr_regs->irqsrc[i]);
 	}
 	for (i = 0; i < 2; i++) {
 		__raw_writel(0, &qmgr_regs->stat2[i]);
-		__raw_writel(0xFFFFFFFF, &qmgr_regs->irqstat[i]); 
+		__raw_writel(0xFFFFFFFF, &qmgr_regs->irqstat[i]); /* clear */
 		__raw_writel(0, &qmgr_regs->irqen[i]);
 	}
 
@@ -338,7 +338,7 @@ static int qmgr_init(void)
 		goto error_irq2;
 	}
 
-	used_sram_bitmap[0] = 0xF; 
+	used_sram_bitmap[0] = 0xF; /* 4 first pages reserved for config */
 	spin_lock_init(&qmgr_lock);
 
 	printk(KERN_INFO "IXP4xx Queue Manager initialized.\n");

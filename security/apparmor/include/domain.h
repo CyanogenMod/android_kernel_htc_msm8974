@@ -33,4 +33,4 @@ int aa_change_hat(const char *hats[], int count, u64 token, bool permtest);
 int aa_change_profile(const char *ns_name, const char *name, bool onexec,
 		      bool permtest);
 
-#endif 
+#endif /* __AA_DOMAIN_H */

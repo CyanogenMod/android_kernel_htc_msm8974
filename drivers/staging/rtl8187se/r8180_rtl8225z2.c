@@ -112,13 +112,13 @@ static const u8 rtl8225_agc[] = {
 };
 
 static const u8 rtl8225_gain[] = {
-	0x23, 0x88, 0x7c, 0xa5,	
-	0x23, 0x88, 0x7c, 0xb5,	
-	0x23, 0x88, 0x7c, 0xc5,	
-	0x33, 0x80, 0x79, 0xc5,	
-	0x43, 0x78, 0x76, 0xc5,	
-	0x53, 0x60, 0x73, 0xc5,	
-	0x63, 0x58, 0x70, 0xc5,	
+	0x23, 0x88, 0x7c, 0xa5,	/* -82dBm */
+	0x23, 0x88, 0x7c, 0xb5,	/* -82dBm */
+	0x23, 0x88, 0x7c, 0xc5,	/* -82dBm */
+	0x33, 0x80, 0x79, 0xc5,	/* -78dBm */
+	0x43, 0x78, 0x76, 0xc5,	/* -74dBm */
+	0x53, 0x60, 0x73, 0xc5,	/* -70dBm */
+	0x63, 0x58, 0x70, 0xc5,	/* -66dBm */
 };
 
 static const u8 rtl8225_tx_gain_cck_ofdm[] = {
@@ -190,7 +190,7 @@ static void rtl8225_SetTXPowerLevel(struct net_device *dev, short ch)
 		write_phy_cck(dev, 0x44 + i, power);
 	}
 
-	
+	/* FIXME Is this delay really needeed ? */
 	force_pci_posting(dev);
 	mdelay(1);
 
@@ -228,23 +228,23 @@ static const u8 rtl8225z2_threshold[] = {
 };
 
 static const u8 rtl8225z2_gain_bg[] = {
-	0x23, 0x15, 0xa5, 
-	0x23, 0x15, 0xb5, 
-	0x23, 0x15, 0xc5, 
-	0x33, 0x15, 0xc5, 
-	0x43, 0x15, 0xc5, 
-	0x53, 0x15, 0xc5, 
-	0x63, 0x15, 0xc5, 
+	0x23, 0x15, 0xa5, /* -82-1dBm */
+	0x23, 0x15, 0xb5, /* -82-2dBm */
+	0x23, 0x15, 0xc5, /* -82-3dBm */
+	0x33, 0x15, 0xc5, /* -78dBm */
+	0x43, 0x15, 0xc5, /* -74dBm */
+	0x53, 0x15, 0xc5, /* -70dBm */
+	0x63, 0x15, 0xc5, /* -66dBm */
 };
 
 static const u8 rtl8225z2_gain_a[] = {
-	0x13, 0x27, 0x5a, 
-	0x23, 0x23, 0x58, 
-	0x33, 0x1f, 0x56, 
-	0x43, 0x1b, 0x54, 
-	0x53, 0x17, 0x51, 
-	0x63, 0x24, 0x4f, 
-	0x73, 0x0f, 0x4c, 
+	0x13, 0x27, 0x5a, /* -82dBm */
+	0x23, 0x23, 0x58, /* -82dBm */
+	0x33, 0x1f, 0x56, /* -82dBm */
+	0x43, 0x1b, 0x54, /* -78dBm */
+	0x53, 0x17, 0x51, /* -74dBm */
+	0x63, 0x24, 0x4f, /* -70dBm */
+	0x73, 0x0f, 0x4c, /* -66dBm */
 };
 
 static const u16 rtl8225z2_rxgain[] = {
@@ -377,6 +377,10 @@ static u32 read_rtl8225(struct net_device *dev, u8 adr)
 	udelay(2);
 	mask = (low2high) ? 0x01 : (((u32)0x01) << (12-1));
 
+	/*
+	 * We must set data pin to HW controlled, otherwise RF can't driver it
+	 * and value RF register won't be able to read back properly.
+	 */
 	write_nic_word(dev, RFPinsEnable, (oval2 & (~0x01)));
 
 	for (i = 0; i < rLength; i++) {
@@ -402,7 +406,7 @@ static u32 read_rtl8225(struct net_device *dev, u8 adr)
 	udelay(2);
 
 	write_nic_word(dev, RFPinsEnable, oval2);
-	write_nic_word(dev, RFPinsSelect, oval3); 
+	write_nic_word(dev, RFPinsSelect, oval3); /* Set To SW Switch */
 	write_nic_word(dev, RFPinsOutput, 0x3a0);
 
 	return dataRead;
@@ -414,11 +418,11 @@ short rtl8225_is_V_z2(struct net_device *dev)
 
 	if (read_rtl8225(dev, 8) != 0x588)
 		vz2 = 0;
-	else	
+	else	/* reg 9 pg 1 = 24 */
 		if (read_rtl8225(dev, 9) != 0x700)
 			vz2 = 0;
 
-	
+	/* sw back to pg 0 */
 	write_rtl8225(dev, 0, 0xb7);
 
 	return vz2;
@@ -435,12 +439,20 @@ void rtl8225z2_rf_close(struct net_device *dev)
 	rtl8185_set_anaparam2(dev, RTL8225z2_ANAPARAM2_OFF);
 }
 
+/*
+ * Map dBm into Tx power index according to current HW model, for example,
+ * RF and PA, and current wireless mode.
+ */
 s8 DbmToTxPwrIdx(struct r8180_priv *priv, WIRELESS_MODE WirelessMode,
 		 s32 PowerInDbm)
 {
 	bool bUseDefault = true;
 	s8 TxPwrIdx = 0;
 
+	/*
+	 * OFDM Power in dBm = Index * 0.5 + 0
+	 * CCK Power in dBm = Index * 0.25 + 13
+	 */
 	s32 tmp = 0;
 
 	if (WirelessMode == WIRELESS_MODE_G) {
@@ -449,7 +461,7 @@ s8 DbmToTxPwrIdx(struct r8180_priv *priv, WIRELESS_MODE WirelessMode,
 
 		if (tmp < 0)
 			TxPwrIdx = 0;
-		else if (tmp > 40) 
+		else if (tmp > 40) /* 40 means 20 dBm. */
 			TxPwrIdx = 40;
 		else
 			TxPwrIdx = (s8)tmp;
@@ -459,12 +471,17 @@ s8 DbmToTxPwrIdx(struct r8180_priv *priv, WIRELESS_MODE WirelessMode,
 
 		if (tmp < 0)
 			TxPwrIdx = 0;
-		else if (tmp > 28) 
+		else if (tmp > 28) /* 28 means 20 dBm. */
 			TxPwrIdx = 28;
 		else
 			TxPwrIdx = (s8)tmp;
 	}
 
+	/*
+	 * TRUE if we want to use a default implementation.
+	 * We shall set it to FALSE when we have exact translation formular
+	 * for target IC. 070622, by rcnjko.
+	 */
 	if (bUseDefault) {
 		if (PowerInDbm < 0)
 			TxPwrIdx = 0;
@@ -571,7 +588,7 @@ static void rtl8225_host_pci_init(struct net_device *dev)
 	force_pci_posting(dev);
 	mdelay(200);
 
-	
+	/* bit 6 is for RF on/off detection */
 	write_nic_word(dev, GP_ENABLE, 0xff & (~(1 << 6)));
 }
 
@@ -671,6 +688,10 @@ void rtl8225z2_rf_init(struct net_device *dev)
 
 	write_rtl8225(dev, 0x2, 0xc4d);
 
+	/* FIXME!! rtl8187 we have to check if calibrarion
+	 * is successful and eventually cal. again (repeat
+	 * the two write on reg 2)
+	 */
 	data = read_rtl8225(dev, 6);
 	if (!(data & 0x00000080)) {
 		write_rtl8225(dev, 0x02, 0x0c4d);
@@ -689,7 +710,7 @@ void rtl8225z2_rf_init(struct net_device *dev)
 	for (i = 0; i < 128; i++) {
 		data = rtl8225_agc[i];
 
-		addr = i + 0x80; 
+		addr = i + 0x80; /* enable writing AGC table */
 		write_phy_ofdm(dev, 0xb, data);
 		mdelay(1);
 
@@ -735,7 +756,7 @@ void rtl8225z2_rf_init(struct net_device *dev)
 	write_phy_ofdm(dev, 0x20, 0x1f); mdelay(1);
 	write_phy_ofdm(dev, 0x21, 0x17); mdelay(1);
 	write_phy_ofdm(dev, 0x22, 0x16); mdelay(1);
-	write_phy_ofdm(dev, 0x23, 0x80); mdelay(1); 
+	write_phy_ofdm(dev, 0x23, 0x80); mdelay(1); /* FIXME maybe not needed */
 	write_phy_ofdm(dev, 0x24, 0x46); mdelay(1);
 	write_phy_ofdm(dev, 0x25, 0x00); mdelay(1);
 	write_phy_ofdm(dev, 0x26, 0x90); mdelay(1);
@@ -757,7 +778,7 @@ void rtl8225z2_rf_init(struct net_device *dev)
 	write_phy_cck(dev, 0x19, 0x00);
 	write_phy_cck(dev, 0x1a, 0xa0);
 	write_phy_cck(dev, 0x1b, 0x08);
-	write_phy_cck(dev, 0x40, 0x86); 
+	write_phy_cck(dev, 0x40, 0x86); /* CCK Carrier Sense Threshold */
 	write_phy_cck(dev, 0x41, 0x8d); mdelay(1);
 	write_phy_cck(dev, 0x42, 0x15); mdelay(1);
 	write_phy_cck(dev, 0x43, 0x18); mdelay(1);
@@ -775,12 +796,15 @@ void rtl8225z2_rf_init(struct net_device *dev)
 
 	rtl8225z2_SetTXPowerLevel(dev, channel);
 
-	
-	write_phy_cck(dev, 0x11, 0x9b); mdelay(1);		
-	write_phy_ofdm(dev, 0x26, 0x90); mdelay(1);		
+	/* RX antenna default to A */
+	write_phy_cck(dev, 0x11, 0x9b); mdelay(1);		/* B: 0xDB */
+	write_phy_ofdm(dev, 0x26, 0x90); mdelay(1);		/* B: 0x10 */
 
-	rtl8185_tx_antenna(dev, 0x03);				
+	rtl8185_tx_antenna(dev, 0x03);				/* B: 0x00 */
 
+	/* switch to high-speed 3-wire
+	 * last digit. 2 for both cck and ofdm
+	 */
 	write_nic_dword(dev, 0x94, 0x15c00002);
 	rtl8185_rf_pins_enable(dev);
 
@@ -856,23 +880,23 @@ bool SetZebraRFPowerState8185(struct net_device *dev,
 	case eRfOn:
 		write_nic_word(dev, 0x37C, 0x00EC);
 
-		
+		/* turn on AFE */
 		write_nic_byte(dev, 0x54, 0x00);
 		write_nic_byte(dev, 0x62, 0x00);
 
-		
+		/* turn on RF */
 		RF_WriteReg(dev, 0x0, 0x009f); udelay(500);
 		RF_WriteReg(dev, 0x4, 0x0972); udelay(500);
 
-		
+		/* turn on RF again */
 		RF_WriteReg(dev, 0x0, 0x009f); udelay(500);
 		RF_WriteReg(dev, 0x4, 0x0972); udelay(500);
 
-		
+		/* turn on BB */
 		write_phy_ofdm(dev, 0x10, 0x40);
 		write_phy_ofdm(dev, 0x12, 0x40);
 
-		
+		/* Avoid power down at init time. */
 		write_nic_byte(dev, CONFIG4, priv->RFProgType);
 
 		u1bTmp = read_nic_byte(dev, 0x24E);
@@ -896,15 +920,15 @@ bool SetZebraRFPowerState8185(struct net_device *dev,
 		}
 
 		if (bActionAllowed) {
-			
+			/* turn off BB RXIQ matrix to cut off rx signal */
 			write_phy_ofdm(dev, 0x10, 0x00);
 			write_phy_ofdm(dev, 0x12, 0x00);
 
-			
+			/* turn off RF */
 			RF_WriteReg(dev, 0x4, 0x0000);
 			RF_WriteReg(dev, 0x0, 0x0000);
 
-			
+			/* turn off AFE except PLL */
 			write_nic_byte(dev, 0x62, 0xff);
 			write_nic_byte(dev, 0x54, 0xec);
 
@@ -934,12 +958,12 @@ bool SetZebraRFPowerState8185(struct net_device *dev,
 			}
 
 			if (bTurnOffBB) {
-				
+				/* turn off BB */
 				u1bTmp = read_nic_byte(dev, 0x24E);
 				write_nic_byte(dev, 0x24E,
 						(u1bTmp | BIT5 | BIT6));
 
-				
+				/* turn off AFE PLL */
 				write_nic_byte(dev, 0x54, 0xFC);
 				write_nic_word(dev, 0x37C, 0x00FC);
 			}
@@ -960,15 +984,15 @@ bool SetZebraRFPowerState8185(struct net_device *dev,
 				break;
 		}
 
-		
+		/* turn off BB RXIQ matrix to cut off rx signal */
 		write_phy_ofdm(dev, 0x10, 0x00);
 		write_phy_ofdm(dev, 0x12, 0x00);
 
-		
+		/* turn off RF */
 		RF_WriteReg(dev, 0x4, 0x0000);
 		RF_WriteReg(dev, 0x0, 0x0000);
 
-		
+		/* turn off AFE except PLL */
 		write_nic_byte(dev, 0x62, 0xff);
 		write_nic_byte(dev, 0x54, 0xec);
 
@@ -995,11 +1019,11 @@ bool SetZebraRFPowerState8185(struct net_device *dev,
 		}
 
 		if (bTurnOffBB) {
-			
+			/* turn off BB */
 			u1bTmp = read_nic_byte(dev, 0x24E);
 			write_nic_byte(dev, 0x24E, (u1bTmp | BIT5 | BIT6));
 
-			
+			/* turn off AFE PLL (80M) */
 			write_nic_byte(dev, 0x54, 0xFC);
 			write_nic_word(dev, 0x37C, 0x00FC);
 		}

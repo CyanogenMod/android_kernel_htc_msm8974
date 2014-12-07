@@ -11,6 +11,9 @@
 #ifndef __WM8978_H__
 #define __WM8978_H__
 
+/*
+ * Register values.
+ */
 #define WM8978_RESET				0x00
 #define WM8978_POWER_MANAGEMENT_1		0x01
 #define WM8978_POWER_MANAGEMENT_2		0x02
@@ -68,6 +71,7 @@
 
 #define WM8978_CACHEREGNUM			58
 
+/* Clock divider Id's */
 enum wm8978_clk_id {
 	WM8978_OPCLKRATE,
 	WM8978_BCLKDIV,
@@ -78,4 +82,4 @@ enum wm8978_sysclk_src {
 	WM8978_MCLK
 };
 
-#endif	
+#endif	/* __WM8978_H__ */

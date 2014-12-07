@@ -19,6 +19,30 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+	Driver architecture
+	*******************
+
+	saa7164_core.c/buffer.c/cards.c/i2c.c/dvb.c
+		|	: Standard Linux driver framework for creating
+		|	: exposing and managing interfaces to the rest
+		|	: of the kernel or userland. Also uses _fw.c to load
+		|	: firmware direct into the PCIe bus, bypassing layers.
+		V
+	saa7164_api..()	: Translate kernel specific functions/features
+		|	: into command buffers.
+		V
+	saa7164_cmd..()	: Manages the flow of command packets on/off,
+		|	: the bus. Deal with bus errors, timeouts etc.
+		V
+	saa7164_bus..() : Manage a read/write memory ring buffer in the
+		|	: PCIe Address space.
+		|
+		|		saa7164_fw...()	: Load any frimware
+		|			|	: direct into the device
+		V			V
+	<- ----------------- PCIe address space -------------------- ->
+*/
 
 #include <linux/pci.h>
 #include <linux/i2c.h>
@@ -64,10 +88,11 @@
 #define SAA7164_MAX_UNITS		8
 #define SAA7164_TS_NUMBER_OF_LINES	312
 #define SAA7164_PS_NUMBER_OF_LINES	256
-#define SAA7164_PT_ENTRIES		16 
-#define SAA7164_MAX_ENCODER_BUFFERS	64 
+#define SAA7164_PT_ENTRIES		16 /* (312 * 188) / 4096 */
+#define SAA7164_MAX_ENCODER_BUFFERS	64 /* max 5secs of latency at 6Mbps */
 #define SAA7164_MAX_VBI_BUFFERS		64
 
+/* Port related defines */
 #define SAA7164_PORT_TS1	(0)
 #define SAA7164_PORT_TS2	(SAA7164_PORT_TS1 + 1)
 #define SAA7164_PORT_ENC1	(SAA7164_PORT_TS2 + 1)
@@ -122,6 +147,14 @@ enum saa7164_unit_type {
 	SAA7164_UNIT_ENCODER,
 };
 
+/* The PCIe bridge doesn't grant direct access to i2c.
+ * Instead, you address i2c devices using a uniqely
+ * allocated 'unitid' value via a messaging API. This
+ * is a problem. The kernel and existing demod/tuner
+ * drivers expect to talk 'i2c', so we have to maintain
+ * a translation layer, and a series of functions to
+ * convert i2c bus + device address into a unit id.
+ */
 struct saa7164_unit {
 	enum saa7164_unit_type type;
 	u8	id;
@@ -173,7 +206,7 @@ struct saa7164_histogram {
 struct saa7164_user_buffer {
 	struct list_head list;
 
-	
+	/* Attributes */
 	u8  *data;
 	u32 pos;
 	u32 actual_size;
@@ -183,7 +216,7 @@ struct saa7164_user_buffer {
 
 struct saa7164_fw_status {
 
-	
+	/* RISC Core details */
 	u32	status;
 	u32	mode;
 	u32	spec;
@@ -191,7 +224,7 @@ struct saa7164_fw_status {
 	u32	cpuload;
 	u32	remainheap;
 
-	
+	/* Firmware version */
 	u32	version;
 	u32	major;
 	u32	sub;
@@ -216,7 +249,7 @@ struct saa7164_i2c {
 
 	enum saa7164_i2c_bus_nr		nr;
 
-	
+	/* I2C I/O */
 	struct i2c_adapter		i2c_adap;
 	struct i2c_algo_bit_data	i2c_algo;
 	struct i2c_client		i2c_client;
@@ -237,10 +270,10 @@ struct saa7164_encoder_params {
 	u32 height;
 	u32 width;
 	u32 is_50hz;
-	u32 bitrate; 
-	u32 bitrate_peak; 
+	u32 bitrate; /* bps */
+	u32 bitrate_peak; /* bps */
 	u32 bitrate_mode;
-	u32 stream_type; 
+	u32 stream_type; /* V4L2_MPEG_STREAM_TYPE_MPEG2_TS */
 
 	u32 audio_sampling_freq;
 	u32 ctl_mute;
@@ -254,10 +287,10 @@ struct saa7164_vbi_params {
 	u32 height;
 	u32 width;
 	u32 is_50hz;
-	u32 bitrate; 
-	u32 bitrate_peak; 
+	u32 bitrate; /* bps */
+	u32 bitrate_peak; /* bps */
 	u32 bitrate_mode;
-	u32 stream_type; 
+	u32 stream_type; /* V4L2_MPEG_STREAM_TYPE_MPEG2_TS */
 
 	u32 audio_sampling_freq;
 	u32 ctl_mute;
@@ -271,27 +304,27 @@ struct saa7164_port;
 struct saa7164_buffer {
 	struct list_head list;
 
-	
+	/* Note of which h/w buffer list index position we occupy */
 	int idx;
 
 	struct saa7164_port *port;
 
-	
-	
-	enum saa7164_buffer_flags flags; 
+	/* Hardware Specific */
+	/* PCI Memory allocations */
+	enum saa7164_buffer_flags flags; /* Free, Busy, Full */
 
-	
-	u32 pci_size;	
-	u64 __iomem *cpu;	
-	dma_addr_t dma;	
-	u32 crc;	
+	/* A block of page align PCI memory */
+	u32 pci_size;	/* PCI allocation size in bytes */
+	u64 __iomem *cpu;	/* Virtual address */
+	dma_addr_t dma;	/* Physical address */
+	u32 crc;	/* Checksum for the entire buffer data */
 
-	
-	u32 pt_size;		
-	u64 __iomem *pt_cpu;		
-	dma_addr_t pt_dma;	
+	/* A page table that splits the block into a number of entries */
+	u32 pt_size;		/* PCI allocation size in bytes */
+	u64 __iomem *pt_cpu;		/* Virtual address */
+	dma_addr_t pt_dma;	/* Physical address */
 
-	
+	/* Encoder fops */
 	u32 pos;
 	u32 actual_size;
 };
@@ -302,15 +335,15 @@ struct saa7164_port {
 	enum port_t type;
 	int nr;
 
-	
+	/* --- Generic port attributes --- */
 
-	
+	/* HW stream parameters */
 	struct tmHWStreamParameters hw_streamingparams;
 
-	
+	/* DMA configuration values, is seeded during initialization */
 	struct tmComResDMATermDescrHeader hwcfg;
 
-	
+	/* hardware specific registers */
 	u32 bufcounter;
 	u32 pitch;
 	u32 bufsize;
@@ -319,7 +352,7 @@ struct saa7164_port {
 	u32 bufptr32h;
 	u64 bufptr64;
 
-	u32 numpte;	
+	u32 numpte;	/* Number of entries in array, only valid in head */
 
 	struct mutex dmaqueue_lock;
 	struct saa7164_buffer dmaqueue;
@@ -338,12 +371,12 @@ struct saa7164_port {
 	struct saa7164_histogram read_interval;
 	struct saa7164_histogram poll_interval;
 
-	
+	/* --- DVB Transport Specific --- */
 	struct saa7164_dvb dvb;
 
-	
-	
-	
+	/* --- Encoder/V4L related attributes --- */
+	/* Encoder */
+	/* Defaults established in saa7164-encoder.c */
 	struct saa7164_tvnorm encodernorm;
 	u32 height;
 	u32 width;
@@ -370,7 +403,7 @@ struct saa7164_port {
 
 	struct work_struct workenc;
 
-	
+	/* V4L Encoder Video */
 	struct saa7164_encoder_params encoder_params;
 	struct video_device *v4l_device;
 	atomic_t v4l_reader_count;
@@ -379,11 +412,11 @@ struct saa7164_port {
 	struct saa7164_buffer list_buf_free;
 	wait_queue_head_t wait_read;
 
-	
+	/* V4L VBI */
 	struct tmComResVBIFormatDescrHeader vbi_fmt_ntsc;
 	struct saa7164_vbi_params vbi_params;
 
-	
+	/* Debug */
 	u32 sync_errors;
 	u32 v_cc_errors;
 	u32 a_cc_errors;
@@ -396,7 +429,7 @@ struct saa7164_dev {
 	struct list_head	devlist;
 	atomic_t		refcount;
 
-	
+	/* pci stuff */
 	struct pci_dev	*pci;
 	unsigned char	pci_rev, pci_lat;
 	int		pci_bus, pci_slot;
@@ -406,13 +439,13 @@ struct saa7164_dev {
 	u8		__iomem *bmmio2;
 	int		pci_irqmask;
 
-	
+	/* board details */
 	int	nr;
 	int	hwrevision;
 	u32	board;
 	char	name[16];
 
-	
+	/* firmware status */
 	struct saa7164_fw_status	fw_status;
 	u32				firmwareloaded;
 
@@ -422,22 +455,25 @@ struct saa7164_dev {
 
 	struct tmComResBusInfo		bus;
 
-	
+	/* Interrupt status and ack registers */
 	u32 int_status;
 	u32 int_ack;
 
 	struct cmd			cmds[SAA_CMD_MAX_MSG_UNITS];
 	struct mutex			lock;
 
-	
+	/* I2c related */
 	struct saa7164_i2c i2c_bus[3];
 
-	
+	/* Transport related */
 	struct saa7164_port ports[SAA7164_MAX_PORTS];
 
-	
+	/* Deferred command/api interrupts handling */
 	struct work_struct workcmd;
 
+	/* A kernel thread to monitor the firmware log, used
+	 * only in debug mode.
+	 */
 	struct task_struct *kthread;
 
 };
@@ -447,19 +483,27 @@ extern unsigned int waitsecs;
 extern unsigned int encoder_buffers;
 extern unsigned int vbi_buffers;
 
+/* ----------------------------------------------------------- */
+/* saa7164-core.c                                              */
 void saa7164_dumpregs(struct saa7164_dev *dev, u32 addr);
 void saa7164_dumphex16(struct saa7164_dev *dev, u8 *buf, int len);
 void saa7164_getfirmwarestatus(struct saa7164_dev *dev);
 u32 saa7164_getcurrentfirmwareversion(struct saa7164_dev *dev);
 void saa7164_histogram_update(struct saa7164_histogram *hg, u32 val);
 
+/* ----------------------------------------------------------- */
+/* saa7164-fw.c                                                */
 int saa7164_downloadfirmware(struct saa7164_dev *dev);
 
+/* ----------------------------------------------------------- */
+/* saa7164-i2c.c                                               */
 extern int saa7164_i2c_register(struct saa7164_i2c *bus);
 extern int saa7164_i2c_unregister(struct saa7164_i2c *bus);
 extern void saa7164_call_i2c_clients(struct saa7164_i2c *bus,
 	unsigned int cmd, void *arg);
 
+/* ----------------------------------------------------------- */
+/* saa7164-bus.c                                               */
 int saa7164_bus_setup(struct saa7164_dev *dev);
 void saa7164_bus_dump(struct saa7164_dev *dev);
 int saa7164_bus_set(struct saa7164_dev *dev, struct tmComResInfo* msg,
@@ -467,12 +511,16 @@ int saa7164_bus_set(struct saa7164_dev *dev, struct tmComResInfo* msg,
 int saa7164_bus_get(struct saa7164_dev *dev, struct tmComResInfo* msg,
 	void *buf, int peekonly);
 
+/* ----------------------------------------------------------- */
+/* saa7164-cmd.c                                               */
 int saa7164_cmd_send(struct saa7164_dev *dev,
 	u8 id, enum tmComResCmd command, u16 controlselector,
 	u16 size, void *buf);
 void saa7164_cmd_signal(struct saa7164_dev *dev, u8 seqno);
 int saa7164_irq_dequeue(struct saa7164_dev *dev);
 
+/* ----------------------------------------------------------- */
+/* saa7164-api.c                                               */
 int saa7164_api_get_fw_version(struct saa7164_dev *dev, u32 *version);
 int saa7164_api_enum_subdevs(struct saa7164_dev *dev);
 int saa7164_api_i2c_read(struct saa7164_i2c *bus, u8 addr, u32 reglen, u8 *reg,
@@ -504,6 +552,8 @@ int saa7164_api_collect_debug(struct saa7164_dev *dev);
 int saa7164_api_get_load_info(struct saa7164_dev *dev,
 	struct tmFwInfoStruct *i);
 
+/* ----------------------------------------------------------- */
+/* saa7164-cards.c                                             */
 extern struct saa7164_board saa7164_boards[];
 extern const unsigned int saa7164_bcount;
 
@@ -518,9 +568,13 @@ extern int saa7164_i2caddr_to_reglen(struct saa7164_i2c *bus, int addr);
 extern int saa7164_i2caddr_to_unitid(struct saa7164_i2c *bus, int addr);
 extern char *saa7164_unitid_name(struct saa7164_dev *dev, u8 unitid);
 
+/* ----------------------------------------------------------- */
+/* saa7164-dvb.c                                               */
 extern int saa7164_dvb_register(struct saa7164_port *port);
 extern int saa7164_dvb_unregister(struct saa7164_port *port);
 
+/* ----------------------------------------------------------- */
+/* saa7164-buffer.c                                            */
 extern struct saa7164_buffer *saa7164_buffer_alloc(
 	struct saa7164_port *port, u32 len);
 extern int saa7164_buffer_dealloc(struct saa7164_buffer *buf);
@@ -532,12 +586,17 @@ extern struct saa7164_user_buffer *saa7164_buffer_alloc_user(
 extern void saa7164_buffer_dealloc_user(struct saa7164_user_buffer *buf);
 extern int saa7164_buffer_zero_offsets(struct saa7164_port *port, int i);
 
+/* ----------------------------------------------------------- */
+/* saa7164-encoder.c                                            */
 int saa7164_encoder_register(struct saa7164_port *port);
 void saa7164_encoder_unregister(struct saa7164_port *port);
 
+/* ----------------------------------------------------------- */
+/* saa7164-vbi.c                                            */
 int saa7164_vbi_register(struct saa7164_port *port);
 void saa7164_vbi_unregister(struct saa7164_port *port);
 
+/* ----------------------------------------------------------- */
 
 extern unsigned int crc_checking;
 

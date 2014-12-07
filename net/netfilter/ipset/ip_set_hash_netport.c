@@ -5,6 +5,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the hash:net,port type */
 
 #include <linux/jhash.h>
 #include <linux/module.h>
@@ -28,6 +29,7 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("hash:net,port type of IP sets");
 MODULE_ALIAS("ip_set_hash:net,port");
 
+/* Type specific function prefix */
 #define TYPE		hash_netport
 
 static bool
@@ -36,9 +38,15 @@ hash_netport_same_set(const struct ip_set *a, const struct ip_set *b);
 #define hash_netport4_same_set	hash_netport_same_set
 #define hash_netport6_same_set	hash_netport_same_set
 
+/* The type variant functions: IPv4 */
 
+/* We squeeze the "nomatch" flag into cidr: we don't support cidr == 0
+ * However this way we have to store internally cidr - 1,
+ * dancing back and forth.
+ */
 #define IP_SET_HASH_WITH_NETS_PACKED
 
+/* Member elements without timeout */
 struct hash_netport4_elem {
 	__be32 ip;
 	__be16 port;
@@ -47,6 +55,7 @@ struct hash_netport4_elem {
 	u8 nomatch:1;
 };
 
+/* Member elements with timeout support */
 struct hash_netport4_telem {
 	__be32 ip;
 	__be16 port;
@@ -305,11 +314,12 @@ hash_netport_same_set(const struct ip_set *a, const struct ip_set *b)
 	const struct ip_set_hash *x = a->data;
 	const struct ip_set_hash *y = b->data;
 
-	
+	/* Resizing changes htable_bits, so we ignore it */
 	return x->maxelem == y->maxelem &&
 	       x->timeout == y->timeout;
 }
 
+/* The type variant functions: IPv6 */
 
 struct hash_netport6_elem {
 	union nf_inet_addr ip;
@@ -554,6 +564,7 @@ hash_netport6_uadt(struct ip_set *set, struct nlattr *tb[],
 	return ret;
 }
 
+/* Create hash:ip type of sets */
 
 static int
 hash_netport_create(struct ip_set *set, struct nlattr *tb[], u32 flags)
@@ -634,9 +645,9 @@ static struct ip_set_type hash_netport_type __read_mostly = {
 	.dimension	= IPSET_DIM_TWO,
 	.family		= NFPROTO_UNSPEC,
 	.revision_min	= 0,
-	
-	
-	.revision_max	= 3,	
+	/*		  1	   SCTP and UDPLITE support added */
+	/*		  2,	   Range as input support for IPv4 added */
+	.revision_max	= 3,	/* nomatch flag support added */
 	.create		= hash_netport_create,
 	.create_policy	= {
 		[IPSET_ATTR_HASHSIZE]	= { .type = NLA_U32 },

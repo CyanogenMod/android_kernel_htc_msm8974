@@ -21,15 +21,23 @@
 #include <linux/pm.h>
 
 #define DRIVER_NAME		"synaptics_i2c"
+/* maximum product id is 15 characters */
 #define PRODUCT_ID_LENGTH	15
 #define REGISTER_LENGTH		8
 
+/*
+ * after soft reset, we should wait for 1 ms
+ * before the device becomes operational
+ */
 #define SOFT_RESET_DELAY_MS	3
+/* and after hard reset, we should wait for max 500ms */
 #define HARD_RESET_DELAY_MS	500
 
+/* Registers by SMBus address */
 #define PAGE_SEL_REG		0xff
 #define DEVICE_STATUS_REG	0x09
 
+/* Registers by RMI address */
 #define DEV_CONTROL_REG		0x0000
 #define INTERRUPT_EN_REG	0x0001
 #define ERR_STAT_REG		0x0002
@@ -86,35 +94,48 @@
 #define SENS_MAX_POS_MSB_REG	0x1046
 #define SENS_MAX_POS_LSB_REG	(SENS_MAX_POS_UPPER_REG + 1)
 
+/* Register bits */
+/* Device Control Register Bits */
 #define REPORT_RATE_1ST_BIT	6
 
+/* Interrupt Enable Register Bits (INTERRUPT_EN_REG) */
 #define F10_ABS_INT_ENA		0
 #define F10_REL_INT_ENA		1
 #define F20_INT_ENA		2
 
+/* Interrupt Request Register Bits (INT_REQ_STAT_REG | DEVICE_STATUS_REG) */
 #define F10_ABS_INT_REQ		0
 #define F10_REL_INT_REQ		1
 #define F20_INT_REQ		2
+/* Device Status Register Bits (DEVICE_STATUS_REG) */
 #define STAT_CONFIGURED		6
 #define STAT_ERROR		7
 
+/* Device Command Register Bits (DEV_COMMAND_REG) */
 #define RESET_COMMAND		0x01
 #define REZERO_COMMAND		0x02
 
+/* Data Register 0 Bits (DATA_REG0) */
 #define GESTURE			3
 
+/* Device Query Registers Bits */
+/* DEV_QUERY_REG3 */
 #define HAS_PALM_DETECT		1
 #define HAS_MULTI_FING		2
 #define HAS_SCROLLER		4
 #define HAS_2D_SCROLL		5
 
+/* General 2D Control Register Bits (GENERAL_2D_CONTROL_REG) */
 #define NO_DECELERATION		1
 #define REDUCE_REPORTING	3
 #define NO_FILTER		5
 
+/* Function Masks */
+/* Device Control Register Masks (DEV_CONTROL_REG) */
 #define REPORT_RATE_MSK		0xc0
 #define SLEEP_MODE_MSK		0x07
 
+/* Device Sleep Modes */
 #define FULL_AWAKE		0x0
 #define NORMAL_OP		0x1
 #define LOW_PWR_OP		0x2
@@ -124,49 +145,76 @@
 #define DEEP_SLEEP		0x6
 #define HIBERNATE		0x7
 
+/* Interrupt Register Mask */
+/* (INT_REQ_STAT_REG | DEVICE_STATUS_REG | INTERRUPT_EN_REG) */
 #define INT_ENA_REQ_MSK		0x07
 #define INT_ENA_ABS_MSK		0x01
 #define INT_ENA_REL_MSK		0x02
 #define INT_ENA_F20_MSK		0x04
 
+/* Device Status Register Masks (DEVICE_STATUS_REG) */
 #define CONFIGURED_MSK		0x40
 #define ERROR_MSK		0x80
 
+/* Data Register 0 Masks */
 #define FINGER_WIDTH_MSK	0xf0
 #define GESTURE_MSK		0x08
 #define SENSOR_STATUS_MSK	0x07
 
+/*
+ * MSB Position Register Masks
+ * ABS_MSB_X_REG | ABS_MSB_Y_REG | SENS_MAX_POS_MSB_REG |
+ * DEV_QUERY_REG3 | DEV_QUERY_REG5
+ */
 #define MSB_POSITION_MSK	0x1f
 
+/* Device Query Registers Masks */
 
+/* DEV_QUERY_REG2 */
 #define NUM_EXTRA_POS_MSK	0x07
 
+/* When in IRQ mode read the device every THREAD_IRQ_SLEEP_SECS */
 #define THREAD_IRQ_SLEEP_SECS	2
 #define THREAD_IRQ_SLEEP_MSECS	(THREAD_IRQ_SLEEP_SECS * MSEC_PER_SEC)
 
+/*
+ * When in Polling mode and no data received for NO_DATA_THRES msecs
+ * reduce the polling rate to NO_DATA_SLEEP_MSECS
+ */
 #define NO_DATA_THRES		(MSEC_PER_SEC)
 #define NO_DATA_SLEEP_MSECS	(MSEC_PER_SEC / 4)
 
+/* Control touchpad's No Deceleration option */
 static bool no_decel = 1;
 module_param(no_decel, bool, 0644);
 MODULE_PARM_DESC(no_decel, "No Deceleration. Default = 1 (on)");
 
+/* Control touchpad's Reduced Reporting option */
 static bool reduce_report;
 module_param(reduce_report, bool, 0644);
 MODULE_PARM_DESC(reduce_report, "Reduced Reporting. Default = 0 (off)");
 
+/* Control touchpad's No Filter option */
 static bool no_filter;
 module_param(no_filter, bool, 0644);
 MODULE_PARM_DESC(no_filter, "No Filter. Default = 0 (off)");
 
+/*
+ * touchpad Attention line is Active Low and Open Drain,
+ * therefore should be connected to pulled up line
+ * and the irq configuration should be set to Falling Edge Trigger
+ */
+/* Control IRQ / Polling option */
 static bool polling_req;
 module_param(polling_req, bool, 0444);
 MODULE_PARM_DESC(polling_req, "Request Polling. Default = 0 (use irq)");
 
+/* Control Polling Rate */
 static int scan_rate = 80;
 module_param(scan_rate, int, 0644);
 MODULE_PARM_DESC(scan_rate, "Polling rate in times/sec. Default = 80");
 
+/* The main device structure */
 struct synaptics_i2c {
 	struct i2c_client	*client;
 	struct input_dev	*input;
@@ -186,6 +234,11 @@ static inline void set_scan_rate(struct synaptics_i2c *touch, int scan_rate)
 	touch->scan_rate_param = scan_rate;
 }
 
+/*
+ * Driver's initial design makes no race condition possible on i2c bus,
+ * so there is no need in any locking.
+ * Keep it in mind, while playing with the code.
+ */
 static s32 synaptics_i2c_reg_get(struct i2c_client *client, u16 reg)
 {
 	int ret;
@@ -224,23 +277,23 @@ static int synaptics_i2c_config(struct i2c_client *client)
 	int ret, control;
 	u8 int_en;
 
-	
+	/* set Report Rate to Device Highest (>=80) and Sleep to normal */
 	ret = synaptics_i2c_reg_set(client, DEV_CONTROL_REG, 0xc1);
 	if (ret)
 		return ret;
 
-	
+	/* set Interrupt Disable to Func20 / Enable to Func10) */
 	int_en = (polling_req) ? 0 : INT_ENA_ABS_MSK | INT_ENA_REL_MSK;
 	ret = synaptics_i2c_reg_set(client, INTERRUPT_EN_REG, int_en);
 	if (ret)
 		return ret;
 
 	control = synaptics_i2c_reg_get(client, GENERAL_2D_CONTROL_REG);
-	
+	/* No Deceleration */
 	control |= no_decel ? 1 << NO_DECELERATION : 0;
-	
+	/* Reduced Reporting */
 	control |= reduce_report ? 1 << REDUCE_REPORTING : 0;
-	
+	/* No Filter */
 	control |= no_filter ? 1 << NO_FILTER : 0;
 	ret = synaptics_i2c_reg_set(client, GENERAL_2D_CONTROL_REG, control);
 	if (ret)
@@ -253,7 +306,7 @@ static int synaptics_i2c_reset_config(struct i2c_client *client)
 {
 	int ret;
 
-	
+	/* Reset the Touchpad */
 	ret = synaptics_i2c_reg_set(client, DEV_COMMAND_REG, RESET_COMMAND);
 	if (ret) {
 		dev_err(&client->dev, "Unable to reset device\n");
@@ -287,24 +340,28 @@ static bool synaptics_i2c_get_input(struct synaptics_i2c *touch)
 	s32 data;
 	s8 x_delta, y_delta;
 
-	
+	/* Deal with spontanious resets and errors */
 	if (synaptics_i2c_check_error(touch->client))
 		return 0;
 
-	
+	/* Get Gesture Bit */
 	data = synaptics_i2c_reg_get(touch->client, DATA_REG0);
 	gesture = (data >> GESTURE) & 0x1;
 
+	/*
+	 * Get Relative axes. we have to get them in one shot,
+	 * so we get 2 bytes starting from REL_X_REG.
+	 */
 	xy_delta = synaptics_i2c_word_get(touch->client, REL_X_REG) & 0xffff;
 
-	
+	/* Separate X from Y */
 	x_delta = xy_delta & 0xff;
 	y_delta = (xy_delta >> REGISTER_LENGTH) & 0xff;
 
-	
+	/* Report the button event */
 	input_report_key(input, BTN_LEFT, gesture);
 
-	
+	/* Report the deltas */
 	input_report_rel(input, REL_X, x_delta);
 	input_report_rel(input, REL_Y, -y_delta);
 	input_sync(input);
@@ -319,6 +376,10 @@ static void synaptics_i2c_reschedule_work(struct synaptics_i2c *touch,
 
 	spin_lock_irqsave(&touch->lock, flags);
 
+	/*
+	 * If work is already scheduled then subsequent schedules will not
+	 * change the scheduled time that's why we have to cancel it first.
+	 */
 	__cancel_delayed_work(&touch->dwork);
 	schedule_delayed_work(&touch->dwork, delay);
 
@@ -360,6 +421,7 @@ static void synaptics_i2c_check_params(struct synaptics_i2c *touch)
 		synaptics_i2c_reset_config(touch->client);
 }
 
+/* Control the Device polling rate / Work Handler sleep time */
 static unsigned long synaptics_i2c_adjust_delay(struct synaptics_i2c *touch,
 						bool have_data)
 {
@@ -383,6 +445,7 @@ static unsigned long synaptics_i2c_adjust_delay(struct synaptics_i2c *touch,
 	}
 }
 
+/* Work Handler */
 static void synaptics_i2c_work_handler(struct work_struct *work)
 {
 	bool have_data;
@@ -395,6 +458,14 @@ static void synaptics_i2c_work_handler(struct work_struct *work)
 	have_data = synaptics_i2c_get_input(touch);
 	delay = synaptics_i2c_adjust_delay(touch, have_data);
 
+	/*
+	 * While interrupt driven, there is no real need to poll the device.
+	 * But touchpads are very sensitive, so there could be errors
+	 * related to physical environment and the attention line isn't
+	 * necessarily asserted. In such case we can lose the touchpad.
+	 * We poll the device once in THREAD_IRQ_SLEEP_SECS and
+	 * if error is detected, we try to reset and reconfigure the touchpad.
+	 */
 	synaptics_i2c_reschedule_work(touch, delay);
 }
 
@@ -423,7 +494,7 @@ static void synaptics_i2c_close(struct input_dev *input)
 
 	cancel_delayed_work_sync(&touch->dwork);
 
-	
+	/* Save some power */
 	synaptics_i2c_reg_set(touch->client, DEV_CONTROL_REG, DEEP_SLEEP);
 }
 
@@ -441,12 +512,12 @@ static void synaptics_i2c_set_input_params(struct synaptics_i2c *touch)
 	input->close = synaptics_i2c_close;
 	input_set_drvdata(input, touch);
 
-	
+	/* Register the device as mouse */
 	__set_bit(EV_REL, input->evbit);
 	__set_bit(REL_X, input->relbit);
 	__set_bit(REL_Y, input->relbit);
 
-	
+	/* Register device's buttons and keys */
 	__set_bit(EV_KEY, input->evbit);
 	__set_bit(BTN_LEFT, input->keybit);
 }
@@ -515,7 +586,7 @@ static int __devinit synaptics_i2c_probe(struct i2c_client *client,
 		dev_dbg(&touch->client->dev,
 			 "Using polling at rate: %d times/sec\n", scan_rate);
 
-	
+	/* Register the device in input subsystem */
 	ret = input_register_device(touch->input);
 	if (ret) {
 		dev_err(&client->dev,
@@ -556,7 +627,7 @@ static int synaptics_i2c_suspend(struct device *dev)
 
 	cancel_delayed_work_sync(&touch->dwork);
 
-	
+	/* Save some power */
 	synaptics_i2c_reg_set(touch->client, DEV_CONTROL_REG, DEEP_SLEEP);
 
 	return 0;

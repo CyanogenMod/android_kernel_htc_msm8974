@@ -42,6 +42,7 @@ struct simtec_i2c_data {
 #define STATE_SDA	(1<<0)
 #define STATE_SCL	(1<<1)
 
+/* i2c bit-bus functions */
 
 static void simtec_i2c_setsda(void *pw, int state)
 {
@@ -67,6 +68,7 @@ static int simtec_i2c_getscl(void *pw)
 	return readb(pd->reg) & STATE_SCL ? 1 : 0;
 }
 
+/* device registration */
 
 static int simtec_i2c_probe(struct platform_device *dev)
 {
@@ -106,7 +108,7 @@ static int simtec_i2c_probe(struct platform_device *dev)
 		goto err_res;
 	}
 
-	
+	/* setup the private data */
 
 	pd->adap.owner = THIS_MODULE;
 	pd->adap.algo_data = &pd->bit;
@@ -154,6 +156,7 @@ static int simtec_i2c_remove(struct platform_device *dev)
 	return 0;
 }
 
+/* device driver */
 
 static struct platform_driver simtec_i2c_driver = {
 	.driver		= {

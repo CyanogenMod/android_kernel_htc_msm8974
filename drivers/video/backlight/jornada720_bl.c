@@ -28,20 +28,20 @@ static int jornada_bl_get_brightness(struct backlight_device *bd)
 {
 	int ret;
 
-	
+	/* check if backlight is on */
 	if (!(PPSR & PPC_LDD1))
 		return 0;
 
 	jornada_ssp_start();
 
-	
+	/* cmd should return txdummy */
 	ret = jornada_ssp_byte(GETBRIGHTNESS);
 
 	if (jornada_ssp_byte(GETBRIGHTNESS) != TXDUMMY) {
 		printk(KERN_ERR "bl : get brightness timeout\n");
 		jornada_ssp_end();
 		return -ETIMEDOUT;
-	} else 
+	} else /* exchange txdummy for value */
 		ret = jornada_ssp_byte(TXDUMMY);
 
 	jornada_ssp_end();
@@ -55,31 +55,38 @@ static int jornada_bl_update_status(struct backlight_device *bd)
 
 	jornada_ssp_start();
 
-	
+	/* If backlight is off then really turn it off */
 	if ((bd->props.power != FB_BLANK_UNBLANK) || (bd->props.fb_blank != FB_BLANK_UNBLANK)) {
 		ret = jornada_ssp_byte(BRIGHTNESSOFF);
 		if (ret != TXDUMMY) {
 			printk(KERN_INFO "bl : brightness off timeout\n");
-			
+			/* turn off backlight */
 			PPSR &= ~PPC_LDD1;
 			PPDR |= PPC_LDD1;
 			ret = -ETIMEDOUT;
 		}
-	} else  
+	} else  /* turn on backlight */
 		PPSR |= PPC_LDD1;
 
-		
+		/* send command to our mcu */
 		if (jornada_ssp_byte(SETBRIGHTNESS) != TXDUMMY) {
 			printk(KERN_INFO "bl : failed to set brightness\n");
 			ret = -ETIMEDOUT;
 			goto out;
 		}
 
+		/* at this point we expect that the mcu has accepted
+		   our command and is waiting for our new value
+		   please note that maximum brightness is 255,
+		   but due to physical layout it is equal to 0, so we simply
+		   invert the value (MAX VALUE - NEW VALUE). */
 		if (jornada_ssp_byte(BL_MAX_BRIGHT - bd->props.brightness) != TXDUMMY) {
 			printk(KERN_ERR "bl : set brightness failed\n");
 			ret = -ETIMEDOUT;
 		}
 
+		/* If infact we get an TXDUMMY as output we are happy and dont
+		   make any further comments about it */
 out:
 	jornada_ssp_end();
 
@@ -112,6 +119,9 @@ static int jornada_bl_probe(struct platform_device *pdev)
 
 	bd->props.power = FB_BLANK_UNBLANK;
 	bd->props.brightness = BL_DEF_BRIGHT;
+	/* note. make sure max brightness is set otherwise
+	   you will get seemingly non-related errors when
+	   trying to change brightness */
 	jornada_bl_update_status(bd);
 
 	platform_set_drvdata(pdev, bd);

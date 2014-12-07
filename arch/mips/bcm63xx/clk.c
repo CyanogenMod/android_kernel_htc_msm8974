@@ -43,6 +43,9 @@ static void bcm_hwclock_set(u32 mask, int enable)
 	bcm_perf_writel(reg, PERF_CKCTL_REG);
 }
 
+/*
+ * Ethernet MAC "misc" clock: dma clocks and main clock on 6348
+ */
 static void enet_misc_set(struct clk *clk, int enable)
 {
 	u32 mask;
@@ -54,7 +57,7 @@ static void enet_misc_set(struct clk *clk, int enable)
 	else if (BCMCPU_IS_6348())
 		mask = CKCTL_6348_ENET_EN;
 	else
-		
+		/* BCMCPU_IS_6358 */
 		mask = CKCTL_6358_EMUSB_EN;
 	bcm_hwclock_set(mask, enable);
 }
@@ -63,6 +66,10 @@ static struct clk clk_enet_misc = {
 	.set	= enet_misc_set,
 };
 
+/*
+ * Ethernet MAC clocks: only revelant on 6358, silently enable misc
+ * clocks
+ */
 static void enetx_set(struct clk *clk, int enable)
 {
 	if (enable)
@@ -91,6 +98,9 @@ static struct clk clk_enet1 = {
 	.set	= enetx_set,
 };
 
+/*
+ * Ethernet PHY clock
+ */
 static void ephy_set(struct clk *clk, int enable)
 {
 	if (!BCMCPU_IS_6358())
@@ -103,6 +113,9 @@ static struct clk clk_ephy = {
 	.set	= ephy_set,
 };
 
+/*
+ * Ethernet switch clock
+ */
 static void enetsw_set(struct clk *clk, int enable)
 {
 	if (!BCMCPU_IS_6368())
@@ -113,7 +126,7 @@ static void enetsw_set(struct clk *clk, int enable)
 	if (enable) {
 		u32 val;
 
-		
+		/* reset switch core afer clock change */
 		val = bcm_perf_readl(PERF_SOFTRESET_6368_REG);
 		val &= ~SOFTRESET_6368_ENETSW_MASK;
 		bcm_perf_writel(val, PERF_SOFTRESET_6368_REG);
@@ -128,6 +141,9 @@ static struct clk clk_enetsw = {
 	.set	= enetsw_set,
 };
 
+/*
+ * PCM clock
+ */
 static void pcm_set(struct clk *clk, int enable)
 {
 	if (!BCMCPU_IS_6358())
@@ -139,6 +155,9 @@ static struct clk clk_pcm = {
 	.set	= pcm_set,
 };
 
+/*
+ * USB host clock
+ */
 static void usbh_set(struct clk *clk, int enable)
 {
 	if (BCMCPU_IS_6348())
@@ -151,6 +170,9 @@ static struct clk clk_usbh = {
 	.set	= usbh_set,
 };
 
+/*
+ * SPI clock
+ */
 static void spi_set(struct clk *clk, int enable)
 {
 	u32 mask;
@@ -160,7 +182,7 @@ static void spi_set(struct clk *clk, int enable)
 	else if (BCMCPU_IS_6348())
 		mask = CKCTL_6348_SPI_EN;
 	else
-		
+		/* BCMCPU_IS_6358 */
 		mask = CKCTL_6358_SPI_EN;
 	bcm_hwclock_set(mask, enable);
 }
@@ -169,6 +191,9 @@ static struct clk clk_spi = {
 	.set	= spi_set,
 };
 
+/*
+ * XTM clock
+ */
 static void xtm_set(struct clk *clk, int enable)
 {
 	if (!BCMCPU_IS_6368())
@@ -180,7 +205,7 @@ static void xtm_set(struct clk *clk, int enable)
 	if (enable) {
 		u32 val;
 
-		
+		/* reset sar core afer clock change */
 		val = bcm_perf_readl(PERF_SOFTRESET_6368_REG);
 		val &= ~SOFTRESET_6368_SAR_MASK;
 		bcm_perf_writel(val, PERF_SOFTRESET_6368_REG);
@@ -196,11 +221,17 @@ static struct clk clk_xtm = {
 	.set	= xtm_set,
 };
 
+/*
+ * Internal peripheral clock
+ */
 static struct clk clk_periph = {
 	.rate	= (50 * 1000 * 1000),
 };
 
 
+/*
+ * Linux clock API implementation
+ */
 int clk_enable(struct clk *clk)
 {
 	mutex_lock(&clocks_mutex);

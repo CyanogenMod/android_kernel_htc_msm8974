@@ -41,6 +41,7 @@ static void increment_scan_progress(struct comedi_subdevice *subd,
 	}
 }
 
+/* Writes an array of data points to comedi's buffer */
 unsigned int cfc_write_array_to_buffer(struct comedi_subdevice *subd,
 				       void *data, unsigned int num_bytes)
 {

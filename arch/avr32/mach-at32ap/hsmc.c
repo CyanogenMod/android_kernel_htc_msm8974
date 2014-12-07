@@ -37,7 +37,7 @@ void smc_set_timing(struct smc_config *config,
 
 	unsigned long mul;
 
-	
+	/* Reset all SMC timings */
 	config->ncs_read_setup	= 0;
 	config->nrd_setup	= 0;
 	config->ncs_write_setup	= 0;
@@ -49,6 +49,11 @@ void smc_set_timing(struct smc_config *config,
 	config->read_cycle	= 0;
 	config->write_cycle	= 0;
 
+	/*
+	 * cycles = x / T = x * f
+	 *   = ((x * 1000000000) * ((f * 65536) / 1000000000)) / 65536
+	 *   = ((x * 1000000000) * (((f / 10000) * 65536) / 100000)) / 65536
+	 */
 	mul = (clk_get_rate(hsmc->mck) / 10000) << 16;
 	mul /= 100000;
 
@@ -84,7 +89,7 @@ void smc_set_timing(struct smc_config *config,
 	if (timing->write_cycle > 0)
 		config->write_cycle = ns2cyc(timing->write_cycle);
 
-	
+	/* Extend read cycle in needed */
 	if (timing->ncs_read_recover > 0)
 		recover = ns2cyc(timing->ncs_read_recover);
 	else
@@ -95,7 +100,7 @@ void smc_set_timing(struct smc_config *config,
 	if (config->read_cycle < cycle)
 		config->read_cycle = cycle;
 
-	
+	/* Extend read cycle in needed */
 	if (timing->nrd_recover > 0)
 		recover = ns2cyc(timing->nrd_recover);
 	else
@@ -106,7 +111,7 @@ void smc_set_timing(struct smc_config *config,
 	if (config->read_cycle < cycle)
 		config->read_cycle = cycle;
 
-	
+	/* Extend write cycle in needed */
 	if (timing->ncs_write_recover > 0)
 		recover = ns2cyc(timing->ncs_write_recover);
 	else
@@ -117,7 +122,7 @@ void smc_set_timing(struct smc_config *config,
 	if (config->write_cycle < cycle)
 		config->write_cycle = cycle;
 
-	
+	/* Extend write cycle in needed */
 	if (timing->nwe_recover > 0)
 		recover = ns2cyc(timing->nwe_recover);
 	else
@@ -203,7 +208,7 @@ int smc_set_configuration(int cs, const struct smc_config *config)
 	hsmc_writel(hsmc, PULSE0 + offset, pulse);
 	hsmc_writel(hsmc, CYCLE0 + offset, cycle);
 	hsmc_writel(hsmc, MODE0 + offset, mode);
-	hsmc_readl(hsmc, MODE0); 
+	hsmc_readl(hsmc, MODE0); /* I/O barrier */
 
 	return 0;
 }

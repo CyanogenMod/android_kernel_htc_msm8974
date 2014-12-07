@@ -236,10 +236,10 @@ isac_retransmit(struct isac_hw *isac)
 	if (test_and_clear_bit(FLG_BUSY_TIMER, &isac->dch.Flags))
 		del_timer(&isac->dch.timer);
 	if (test_bit(FLG_TX_BUSY, &isac->dch.Flags)) {
-		
+		/* Restart frame */
 		isac->dch.tx_idx = 0;
 		isac_fill_fifo(isac);
-	} else if (isac->dch.tx_skb) { 
+	} else if (isac->dch.tx_skb) { /* should not happen */
 		pr_info("%s: tx_skb exist but not busy\n", isac->name);
 		test_and_set_bit(FLG_TX_BUSY, &isac->dch.Flags);
 		isac->dch.tx_idx = 0;
@@ -420,7 +420,7 @@ AfterMOX0:
 			 isac->mon_tx[isac->mon_txp - 1]);
 	}
 AfterMOX1:
-	val = 0; 
+	val = 0; /* dummy to avoid warning */
 #endif
 }
 
@@ -532,31 +532,31 @@ mISDNisac_irq(struct isac_hw *isac, u8 val)
 				isac_empty_fifo(isac, 0x20);
 		}
 	} else {
-		if (val & 0x80)	
+		if (val & 0x80)	/* RME */
 			isac_rme_irq(isac);
-		if (val & 0x40)	
+		if (val & 0x40)	/* RPF */
 			isac_empty_fifo(isac, 32);
-		if (val & 0x10)	
+		if (val & 0x10)	/* XPR */
 			isac_xpr_irq(isac);
-		if (val & 0x04)	
+		if (val & 0x04)	/* CISQ */
 			isac_cisq_irq(isac);
-		if (val & 0x20)	
+		if (val & 0x20)	/* RSC - never */
 			pr_debug("%s: ISAC RSC interrupt\n", isac->name);
-		if (val & 0x02)	
+		if (val & 0x02)	/* SIN - never */
 			pr_debug("%s: ISAC SIN interrupt\n", isac->name);
-		if (val & 0x01) {	
+		if (val & 0x01) {	/* EXI */
 			val = ReadISAC(isac, ISAC_EXIR);
 			pr_debug("%s: ISAC EXIR %02x\n", isac->name, val);
-			if (val & 0x80)	
+			if (val & 0x80)	/* XMR */
 				pr_debug("%s: ISAC XMR\n", isac->name);
-			if (val & 0x40) { 
+			if (val & 0x40) { /* XDU */
 				pr_debug("%s: ISAC XDU\n", isac->name);
 #ifdef ERROR_STATISTIC
 				isac->dch.err_tx++;
 #endif
 				isac_retransmit(isac);
 			}
-			if (val & 0x04)	
+			if (val & 0x04)	/* MOS */
 				isac_mos_irq(isac);
 		}
 	}
@@ -579,8 +579,8 @@ isac_l1hw(struct mISDNchannel *ch, struct sk_buff *skb)
 	case PH_DATA_REQ:
 		spin_lock_irqsave(isac->hwlock, flags);
 		ret = dchannel_senddata(dch, skb);
-		if (ret > 0) { 
-			id = hh->id; 
+		if (ret > 0) { /* direct TX */
+			id = hh->id; /* skb can be freed */
 			isac_fill_fifo(isac);
 			ret = 0;
 			spin_unlock_irqrestore(isac->hwlock, flags);
@@ -612,12 +612,12 @@ isac_ctrl(struct isac_hw *isac, u32 cmd, u_long para)
 	case HW_TESTLOOP:
 		spin_lock_irqsave(isac->hwlock, flags);
 		if (!(isac->type & IPAC_TYPE_ISACX)) {
-			
-			if (para & 1) 
+			/* TODO: implement for IPAC_TYPE_ISACX */
+			if (para & 1) /* B1 */
 				tl |= 0x0c;
-			else if (para & 2) 
+			else if (para & 2) /* B2 */
 				tl |= 0x3;
-			
+			/* we only support IOM2 mode */
 			WriteISAC(isac, ISAC_SPCR, tl);
 			if (tl)
 				WriteISAC(isac, ISAC_ADF1, 0x8);
@@ -732,17 +732,17 @@ dbusy_timer_handler(struct isac_hw *isac)
 		star = ReadISAC(isac, ISAC_STAR);
 		pr_debug("%s: D-Channel Busy RBCH %02x STAR %02x\n",
 			 isac->name, rbch, star);
-		if (rbch & ISAC_RBCH_XAC) 
+		if (rbch & ISAC_RBCH_XAC) /* D-Channel Busy */
 			test_and_set_bit(FLG_L1_BUSY, &isac->dch.Flags);
 		else {
-			
+			/* discard frame; reset transceiver */
 			test_and_clear_bit(FLG_BUSY_TIMER, &isac->dch.Flags);
 			if (isac->dch.tx_idx)
 				isac->dch.tx_idx = 0;
 			else
 				pr_info("%s: ISAC D-Channel Busy no tx_idx\n",
 					isac->name);
-			
+			/* Transmitter reset */
 			WriteISAC(isac, ISAC_CMDR, 0x01);
 		}
 		spin_unlock_irqrestore(isac->hwlock, flags);
@@ -757,7 +757,7 @@ open_dchannel(struct isac_hw *isac, struct channel_req *rq)
 	if (rq->protocol != ISDN_P_TE_S0)
 		return -EINVAL;
 	if (rq->adr.channel == 1)
-		
+		/* E-Channel not supported */
 		return -EINVAL;
 	rq->ch = &isac->dch.dev.D;
 	rq->ch->protocol = rq->protocol;
@@ -789,7 +789,7 @@ isac_init(struct isac_hw *isac)
 	init_timer(&isac->dch.timer);
 	isac->mocr = 0xaa;
 	if (isac->type & IPAC_TYPE_ISACX) {
-		
+		/* Disable all IRQ */
 		WriteISAC(isac, ISACX_MASK, 0xff);
 		val = ReadISAC(isac, ISACX_STARD);
 		pr_debug("%s: ISACX STARD %x\n", isac->name, val);
@@ -797,13 +797,13 @@ isac_init(struct isac_hw *isac)
 		pr_debug("%s: ISACX ISTAD %x\n", isac->name, val);
 		val = ReadISAC(isac, ISACX_ISTA);
 		pr_debug("%s: ISACX ISTA %x\n", isac->name, val);
-		
+		/* clear LDD */
 		WriteISAC(isac, ISACX_TR_CONF0, 0x00);
-		
+		/* enable transmitter */
 		WriteISAC(isac, ISACX_TR_CONF2, 0x00);
-		
+		/* transparent mode 0, RAC, stop/go */
 		WriteISAC(isac, ISACX_MODED, 0xc9);
-		
+		/* all HDLC IRQ unmasked */
 		val = ReadISAC(isac, ISACX_ID);
 		if (isac->dch.debug & DEBUG_HW)
 			pr_notice("%s: ISACX Design ID %x\n",
@@ -815,7 +815,7 @@ isac_init(struct isac_hw *isac)
 		ph_command(isac, ISAC_CMD_RS);
 		WriteISAC(isac, ISACX_MASK, IPACX__ON);
 		WriteISAC(isac, ISACX_MASKD, 0x00);
-	} else { 
+	} else { /* old isac */
 		WriteISAC(isac, ISAC_MASK, 0xff);
 		val = ReadISAC(isac, ISAC_STAR);
 		pr_debug("%s: ISAC STAR %x\n", isac->name, val);
@@ -836,7 +836,7 @@ isac_init(struct isac_hw *isac)
 		isac->type |= ((val >> 5) & 3);
 		if (!isac->adf2)
 			isac->adf2 = 0x80;
-		if (!(isac->adf2 & 0x80)) { 
+		if (!(isac->adf2 & 0x80)) { /* only IOM 2 Mode */
 			pr_info("%s: only support IOM2 mode but adf2=%02x\n",
 				isac->name, isac->adf2);
 			isac_release(isac);
@@ -936,7 +936,7 @@ hscx_empty_fifo(struct hscx_hw *hscx, u8 count)
 		if (!hscx->bch.rx_skb) {
 			pr_info("%s: B receive out of memory\n",
 				hscx->ip->name);
-			hscx_cmdr(hscx, 0x80); 
+			hscx_cmdr(hscx, 0x80); /* RMC */
 			return;
 		}
 	}
@@ -944,7 +944,7 @@ hscx_empty_fifo(struct hscx_hw *hscx, u8 count)
 		pr_debug("%s: overrun %d\n", hscx->ip->name,
 			 hscx->bch.rx_skb->len + count);
 		skb_trim(hscx->bch.rx_skb, 0);
-		hscx_cmdr(hscx, 0x80); 
+		hscx_cmdr(hscx, 0x80); /* RMC */
 		return;
 	}
 	p = skb_put(hscx->bch.rx_skb, count);
@@ -956,7 +956,7 @@ hscx_empty_fifo(struct hscx_hw *hscx, u8 count)
 		hscx->ip->read_fifo(hscx->ip->hw,
 				    hscx->off, p, count);
 
-	hscx_cmdr(hscx, 0x80); 
+	hscx_cmdr(hscx, 0x80); /* RMC */
 
 	if (hscx->bch.debug & DEBUG_HW_BFIFO) {
 		snprintf(hscx->log, 64, "B%1d-recv %s %d ",
@@ -1011,7 +1011,7 @@ hscx_xpr(struct hscx_hw *hx)
 		hscx_fill_fifo(hx);
 	else {
 		if (hx->bch.tx_skb) {
-			
+			/* send confirm, on trans, free on hdlc. */
 			if (test_bit(FLG_TRANSPARENT, &hx->bch.Flags))
 				confirm_Bsend(&hx->bch);
 			dev_kfree_skb(hx->bch.tx_skb);
@@ -1033,7 +1033,7 @@ ipac_rme(struct hscx_hw *hx)
 		rstab = ReadHSCX(hx, IPAC_RSTAB);
 	pr_debug("%s: B%1d RSTAB %02x\n", hx->ip->name, hx->bch.nr, rstab);
 	if ((rstab & 0xf0) != 0xa0) {
-		
+		/* !(VFR && !RDO && CRC && !RAB) */
 		if (!(rstab & 0x80)) {
 			if (hx->bch.debug & DEBUG_HW_BCHANNEL)
 				pr_notice("%s: B%1d invalid frame\n",
@@ -1050,7 +1050,7 @@ ipac_rme(struct hscx_hw *hx)
 				pr_notice("%s: B%1d CRC error\n",
 					  hx->ip->name, hx->bch.nr);
 		}
-		hscx_cmdr(hx, 0x80); 
+		hscx_cmdr(hx, 0x80); /* Do RMC */
 		return;
 	}
 	if (hx->ip->type & IPAC_TYPE_IPACX)
@@ -1088,7 +1088,7 @@ ipac_irq(struct hscx_hw *hx, u8 ista)
 			pr_debug("%s: B%1d EXIRB %02x\n", hx->ip->name,
 				 hx->bch.nr, exirb);
 		}
-	} else if (hx->bch.nr & 2) { 
+	} else if (hx->bch.nr & 2) { /* HSCX B */
 		if (ista & (HSCX__EXA | HSCX__ICA))
 			ipac_irq(&hx->ip->hscx[0], ista);
 		if (ista & HSCX__EXB) {
@@ -1097,7 +1097,7 @@ ipac_irq(struct hscx_hw *hx, u8 ista)
 				 hx->bch.nr, exirb);
 		}
 		istab = ista & 0xF8;
-	} else { 
+	} else { /* HSCX A */
 		istab = ReadHSCX(hx, IPAC_ISTAB);
 		if (ista & HSCX__EXA) {
 			exirb = ReadHSCX(hx, IPAC_EXIRB);
@@ -1121,7 +1121,7 @@ ipac_irq(struct hscx_hw *hx, u8 ista)
 	if (istab & IPACX_B_RPF) {
 		hscx_empty_fifo(hx, hx->fifo_size);
 		if (test_bit(FLG_TRANSPARENT, &hx->bch.Flags)) {
-			
+			/* receive transparent audio data */
 			if (hx->bch.rx_skb)
 				recv_Bchannel(&hx->bch, 0);
 		}
@@ -1129,7 +1129,7 @@ ipac_irq(struct hscx_hw *hx, u8 ista)
 
 	if (istab & IPACX_B_RFO) {
 		pr_debug("%s: B%1d RFO error\n", hx->ip->name, hx->bch.nr);
-		hscx_cmdr(hx, 0x40);	
+		hscx_cmdr(hx, 0x40);	/* RRES */
 	}
 
 	if (istab & IPACX_B_XPR)
@@ -1143,7 +1143,7 @@ ipac_irq(struct hscx_hw *hx, u8 ista)
 		pr_debug("%s: B%1d XDU error at len %d\n", hx->ip->name,
 			 hx->bch.nr, hx->bch.tx_idx);
 		hx->bch.tx_idx = 0;
-		hscx_cmdr(hx, 0x01);	
+		hscx_cmdr(hx, 0x01);	/* XRES */
 	}
 }
 
@@ -1176,7 +1176,7 @@ mISDNipac_irq(struct ipac_hw *ipac, int maxloop)
 				if (istad & IPAC_D_TIN2)
 					pr_debug("%s TIN2 irq\n", ipac->name);
 				if (ista & IPAC__EXD)
-					istad |= 1; 
+					istad |= 1; /* ISAC EXI */
 				mISDNisac_irq(isac, istad);
 			}
 			if (ista & (IPAC__ICA | IPAC__EXA))
@@ -1200,7 +1200,7 @@ mISDNipac_irq(struct ipac_hw *ipac, int maxloop)
 			cnt--;
 		}
 	}
-	if (cnt > maxloop) 
+	if (cnt > maxloop) /* only for ISAC/HSCX without PCI IRQ test */
 		return IRQ_NONE;
 	if (cnt < maxloop)
 		pr_debug("%s: %d irqloops cpu%d\n", ipac->name,
@@ -1218,32 +1218,32 @@ hscx_mode(struct hscx_hw *hscx, u32 bprotocol)
 	pr_debug("%s: HSCX %c protocol %x-->%x ch %d\n", hscx->ip->name,
 		 '@' + hscx->bch.nr, hscx->bch.state, bprotocol, hscx->bch.nr);
 	if (hscx->ip->type & IPAC_TYPE_IPACX) {
-		if (hscx->bch.nr & 1) { 
+		if (hscx->bch.nr & 1) { /* B1 and ICA */
 			WriteIPAC(hscx->ip, ISACX_BCHA_TSDP_BC1, 0x80);
 			WriteIPAC(hscx->ip, ISACX_BCHA_CR, 0x88);
-		} else { 
+		} else { /* B2 and ICB */
 			WriteIPAC(hscx->ip, ISACX_BCHB_TSDP_BC1, 0x81);
 			WriteIPAC(hscx->ip, ISACX_BCHB_CR, 0x88);
 		}
 		switch (bprotocol) {
-		case ISDN_P_NONE: 
-			WriteHSCX(hscx, IPACX_MODEB, 0xC0);	
-			WriteHSCX(hscx, IPACX_EXMB,  0x30);	
-			WriteHSCX(hscx, IPACX_MASKB, 0xFF);	
+		case ISDN_P_NONE: /* init */
+			WriteHSCX(hscx, IPACX_MODEB, 0xC0);	/* rec off */
+			WriteHSCX(hscx, IPACX_EXMB,  0x30);	/* std adj. */
+			WriteHSCX(hscx, IPACX_MASKB, 0xFF);	/* ints off */
 			hscx_cmdr(hscx, 0x41);
 			test_and_clear_bit(FLG_HDLC, &hscx->bch.Flags);
 			test_and_clear_bit(FLG_TRANSPARENT, &hscx->bch.Flags);
 			break;
 		case ISDN_P_B_RAW:
-			WriteHSCX(hscx, IPACX_MODEB, 0x88);	
-			WriteHSCX(hscx, IPACX_EXMB,  0x00);	
+			WriteHSCX(hscx, IPACX_MODEB, 0x88);	/* ex trans */
+			WriteHSCX(hscx, IPACX_EXMB,  0x00);	/* trans */
 			hscx_cmdr(hscx, 0x41);
 			WriteHSCX(hscx, IPACX_MASKB, IPACX_B_ON);
 			test_and_set_bit(FLG_TRANSPARENT, &hscx->bch.Flags);
 			break;
 		case ISDN_P_B_HDLC:
-			WriteHSCX(hscx, IPACX_MODEB, 0xC0);	
-			WriteHSCX(hscx, IPACX_EXMB,  0x00);	
+			WriteHSCX(hscx, IPACX_MODEB, 0xC0);	/* trans */
+			WriteHSCX(hscx, IPACX_EXMB,  0x00);	/* hdlc,crc */
 			hscx_cmdr(hscx, 0x41);
 			WriteHSCX(hscx, IPACX_MASKB, IPACX_B_ON);
 			test_and_set_bit(FLG_HDLC, &hscx->bch.Flags);
@@ -1253,7 +1253,7 @@ hscx_mode(struct hscx_hw *hscx, u32 bprotocol)
 				bprotocol);
 			return -ENOPROTOOPT;
 		}
-	} else if (hscx->ip->type & IPAC_TYPE_IPAC) { 
+	} else if (hscx->ip->type & IPAC_TYPE_IPAC) { /* IPAC */
 		WriteHSCX(hscx, IPAC_CCR1, 0x82);
 		WriteHSCX(hscx, IPAC_CCR2, 0x30);
 		WriteHSCX(hscx, IPAC_XCCR, 0x07);
@@ -1266,12 +1266,12 @@ hscx_mode(struct hscx_hw *hscx, u32 bprotocol)
 			WriteHSCX(hscx, IPAC_TSAR, 0x1F);
 			WriteHSCX(hscx, IPAC_MODEB, 0x84);
 			WriteHSCX(hscx, IPAC_CCR1, 0x82);
-			WriteHSCX(hscx, IPAC_MASKB, 0xFF);	
+			WriteHSCX(hscx, IPAC_MASKB, 0xFF);	/* ints off */
 			test_and_clear_bit(FLG_HDLC, &hscx->bch.Flags);
 			test_and_clear_bit(FLG_TRANSPARENT, &hscx->bch.Flags);
 			break;
 		case ISDN_P_B_RAW:
-			WriteHSCX(hscx, IPAC_MODEB, 0xe4);	
+			WriteHSCX(hscx, IPAC_MODEB, 0xe4);	/* ex trans */
 			WriteHSCX(hscx, IPAC_CCR1, 0x82);
 			hscx_cmdr(hscx, 0x41);
 			WriteHSCX(hscx, IPAC_MASKB, 0);
@@ -1289,7 +1289,7 @@ hscx_mode(struct hscx_hw *hscx, u32 bprotocol)
 				bprotocol);
 			return -ENOPROTOOPT;
 		}
-	} else if (hscx->ip->type & IPAC_TYPE_HSCX) { 
+	} else if (hscx->ip->type & IPAC_TYPE_HSCX) { /* HSCX */
 		WriteHSCX(hscx, IPAC_CCR1, 0x85);
 		WriteHSCX(hscx, IPAC_CCR2, 0x30);
 		WriteHSCX(hscx, IPAC_XCCR, 0x07);
@@ -1302,12 +1302,12 @@ hscx_mode(struct hscx_hw *hscx, u32 bprotocol)
 			WriteHSCX(hscx, IPAC_TSAR, 0x1F);
 			WriteHSCX(hscx, IPAC_MODEB, 0x84);
 			WriteHSCX(hscx, IPAC_CCR1, 0x85);
-			WriteHSCX(hscx, IPAC_MASKB, 0xFF);	
+			WriteHSCX(hscx, IPAC_MASKB, 0xFF);	/* ints off */
 			test_and_clear_bit(FLG_HDLC, &hscx->bch.Flags);
 			test_and_clear_bit(FLG_TRANSPARENT, &hscx->bch.Flags);
 			break;
 		case ISDN_P_B_RAW:
-			WriteHSCX(hscx, IPAC_MODEB, 0xe4);	
+			WriteHSCX(hscx, IPAC_MODEB, 0xe4);	/* ex trans */
 			WriteHSCX(hscx, IPAC_CCR1, 0x85);
 			hscx_cmdr(hscx, 0x41);
 			WriteHSCX(hscx, IPAC_MASKB, 0);
@@ -1345,8 +1345,8 @@ hscx_l2l1(struct mISDNchannel *ch, struct sk_buff *skb)
 	case PH_DATA_REQ:
 		spin_lock_irqsave(hx->ip->hwlock, flags);
 		ret = bchannel_senddata(bch, skb);
-		if (ret > 0) { 
-			id = hh->id; 
+		if (ret > 0) { /* direct TX */
+			id = hh->id; /* skb can be freed */
 			ret = 0;
 			hscx_fill_fifo(hx);
 			spin_unlock_irqrestore(hx->ip->hwlock, flags);
@@ -1394,7 +1394,7 @@ channel_bctrl(struct bchannel *bch, struct mISDN_ctrl_req *cq)
 	case MISDN_CTRL_GETOP:
 		cq->op = 0;
 		break;
-		
+		/* Nothing implemented yet */
 	case MISDN_CTRL_FILL_EMPTY:
 	default:
 		pr_info("%s: unknown Op %x\n", __func__, cq->op);
@@ -1497,7 +1497,7 @@ ipac_init(struct ipac_hw *ipac)
 		if (ipac->hscx[0].bch.debug & DEBUG_HW)
 			pr_notice("%s: IPAC Design ID %02x\n", ipac->name, val);
 	}
-	
+	/* nothing special for IPACX to do here */
 	return isac_init(&ipac->isac);
 }
 
@@ -1512,7 +1512,7 @@ open_bchannel(struct ipac_hw *ipac, struct channel_req *rq)
 		return -EINVAL;
 	bch = &ipac->hscx[rq->adr.channel - 1].bch;
 	if (test_and_set_bit(FLG_OPEN, &bch->Flags))
-		return -EBUSY; 
+		return -EBUSY; /* b-channel can be only open once */
 	test_and_clear_bit(FLG_FILLEMPTY, &bch->Flags);
 	bch->ch.protocol = rq->protocol;
 	rq->ch = &bch->ch;
@@ -1529,7 +1529,7 @@ channel_ctrl(struct ipac_hw *ipac, struct mISDN_ctrl_req *cq)
 		cq->op = MISDN_CTRL_LOOP;
 		break;
 	case MISDN_CTRL_LOOP:
-		
+		/* cq->channel: 0 disable, 1 B1 loop 2 B2 loop, 3 both */
 		if (cq->channel < 0 || cq->channel > 3) {
 			ret = -EINVAL;
 			break;
@@ -1627,6 +1627,8 @@ mISDNipac_init(struct ipac_hw *ipac, void *hw)
 		ipac->hscx[i].bch.ch.ctrl = hscx_bctrl;
 		ipac->hscx[i].bch.hw = hw;
 		ipac->hscx[i].ip = ipac;
+		/* default values for IOM time slots
+		 * can be overwriten by card */
 		ipac->hscx[i].slot = (i == 0) ? 0x2f : 0x03;
 	}
 

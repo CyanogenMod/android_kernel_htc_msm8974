@@ -496,6 +496,11 @@ static ssize_t read_file_base_eeprom(struct file *file, char __user *user_buf,
 	ssize_t retval = 0;
 	char *buf;
 
+	/*
+	 * This can be done since all the 3 EEPROM families have the
+	 * same base header upto a certain point, and we are interested in
+	 * the data only upto that point.
+	 */
 
 	if (AR_SREV_9271(priv->ah))
 		pBase = (struct base_eep_header *)
@@ -581,6 +586,9 @@ static ssize_t read_file_base_eeprom(struct file *file, char __user *user_buf,
 			"Cal Bin Build",
 			(pBase->binBuildNumber >> 8) & 0xFF);
 
+	/*
+	 * UB91 specific data.
+	 */
 	if (AR_SREV_9271(priv->ah)) {
 		struct base_eep_header_4k *pBase4k =
 			&priv->ah->eeprom.map4k.baseEepHeader;
@@ -591,6 +599,9 @@ static ssize_t read_file_base_eeprom(struct file *file, char __user *user_buf,
 				pBase4k->txGainType);
 	}
 
+	/*
+	 * UB95 specific data.
+	 */
 	if (priv->ah->hw_version.usbdev == AR9287_USB) {
 		struct base_eep_ar9287_header *pBase9287 =
 			&priv->ah->eeprom.map9287.baseEepHeader;

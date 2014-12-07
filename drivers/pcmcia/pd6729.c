@@ -30,14 +30,25 @@ MODULE_AUTHOR("Jun Komuro <komurojun-mbn@nifty.com>");
 
 #define MAX_SOCKETS 2
 
+/*
+ * simple helper functions
+ * External clock time, in nanoseconds.  120 ns = 8.33 MHz
+ */
 #define to_cycles(ns)	((ns)/120)
 
 #ifndef NO_IRQ
 #define NO_IRQ	((unsigned int)(0))
 #endif
 
+/*
+ * PARAMETERS
+ *  irq_mode=n
+ *     Specifies the interrupt delivery mode.  The default (1) is to use PCI
+ *     interrupts; a value of 0 selects ISA interrupts. This must be set for
+ *     correct operation of PCI card readers.
+ */
 
-static int irq_mode = 1; 
+static int irq_mode = 1; /* 0 = ISA interrupt, 1 = PCI interrupt */
 
 module_param(irq_mode, int, 0444);
 MODULE_PARM_DESC(irq_mode,
@@ -45,6 +56,7 @@ MODULE_PARM_DESC(irq_mode,
 
 static DEFINE_SPINLOCK(port_lock);
 
+/* basic value read/write functions */
 
 static unsigned char indirect_read(struct pd6729_socket *socket,
 				   unsigned short reg)
@@ -156,6 +168,7 @@ static void indirect_write16(struct pd6729_socket *socket, unsigned short reg,
 	spin_unlock_irqrestore(&port_lock, flags);
 }
 
+/* Interrupt handler functionality */
 
 static irqreturn_t pd6729_interrupt(int irq, void *dev)
 {
@@ -178,9 +191,9 @@ static irqreturn_t pd6729_interrupt(int irq, void *dev)
 		for (i = 0; i < MAX_SOCKETS; i++) {
 			unsigned int csc;
 
-			
+			/* card status change register */
 			csc = indirect_read(&socket[i], I365_CSC);
-			if (csc == 0)  
+			if (csc == 0)  /* no events on this socket */
 				continue;
 
 			handled = 1;
@@ -194,11 +207,11 @@ static irqreturn_t pd6729_interrupt(int irq, void *dev)
 
 			if (indirect_read(&socket[i], I365_INTCTL)
 						& I365_PC_IOCARD) {
-				
+				/* For IO/CARDS, bit 0 means "read the card" */
 				events |= (csc & I365_CSC_STSCHG)
 						? SS_STSCHG : 0;
 			} else {
-				
+				/* Check for battery/ready events */
 				events |= (csc & I365_CSC_BVD1)
 						? SS_BATDEAD : 0;
 				events |= (csc & I365_CSC_BVD2)
@@ -213,12 +226,13 @@ static irqreturn_t pd6729_interrupt(int irq, void *dev)
 			active |= events;
 		}
 
-		if (active == 0) 
+		if (active == 0) /* no more events to handle */
 			break;
 	}
 	return IRQ_RETVAL(handled);
 }
 
+/* socket functions */
 
 static void pd6729_interrupt_wrapper(unsigned long data)
 {
@@ -236,19 +250,23 @@ static int pd6729_get_status(struct pcmcia_socket *sock, u_int *value)
 	unsigned int data;
 	struct pd6729_socket *t;
 
-	
+	/* Interface Status Register */
 	status = indirect_read(socket, I365_STATUS);
 	*value = 0;
 
 	if ((status & I365_CS_DETECT) == I365_CS_DETECT)
 		*value |= SS_DETECT;
 
+	/*
+	 * IO cards have a different meaning of bits 0,1
+	 * Also notice the inverse-logic on the bits
+	 */
 	if (indirect_read(socket, I365_INTCTL) & I365_PC_IOCARD) {
-		
+		/* IO card */
 		if (!(status & I365_CS_STSCHG))
 			*value |= SS_STSCHG;
 	} else {
-		
+		/* non I/O card */
 		if (!(status & I365_CS_BVD1))
 			*value |= SS_BATDEAD;
 		if (!(status & I365_CS_BVD2))
@@ -256,13 +274,13 @@ static int pd6729_get_status(struct pcmcia_socket *sock, u_int *value)
 	}
 
 	if (status & I365_CS_WRPROT)
-		*value |= SS_WRPROT;	
+		*value |= SS_WRPROT;	/* card is write protected */
 
 	if (status & I365_CS_READY)
-		*value |= SS_READY;	
+		*value |= SS_READY;	/* card is not busy */
 
 	if (status & I365_CS_POWERON)
-		*value |= SS_POWERON;	
+		*value |= SS_POWERON;	/* power is applied to the card */
 
 	t = (socket->number) ? socket : socket + 1;
 	indirect_write(t, PD67_EXT_INDEX, PD67_EXTERN_DATA);
@@ -279,34 +297,34 @@ static int pd6729_set_socket(struct pcmcia_socket *sock, socket_state_t *state)
 			= container_of(sock, struct pd6729_socket, socket);
 	unsigned char reg, data;
 
-	
+	/* First, set the global controller options */
 	indirect_write(socket, I365_GBLCTL, 0x00);
 	indirect_write(socket, I365_GENCTL, 0x00);
 
-	
+	/* Values for the IGENC register */
 	socket->card_irq = state->io_irq;
 
 	reg = 0;
-	
+	/* The reset bit has "inverse" logic */
 	if (!(state->flags & SS_RESET))
 		reg |= I365_PC_RESET;
 	if (state->flags & SS_IOCARD)
 		reg |= I365_PC_IOCARD;
 
-	
+	/* IGENC, Interrupt and General Control Register */
 	indirect_write(socket, I365_INTCTL, reg);
 
-	
+	/* Power registers */
 
-	reg = I365_PWR_NORESET; 
+	reg = I365_PWR_NORESET; /* default: disable resetdrv on resume */
 
 	if (state->flags & SS_PWR_AUTO) {
 		dev_dbg(&sock->dev, "Auto power\n");
-		reg |= I365_PWR_AUTO;	
+		reg |= I365_PWR_AUTO;	/* automatic power mngmnt */
 	}
 	if (state->flags & SS_OUTPUT_ENA) {
 		dev_dbg(&sock->dev, "Power Enabled\n");
-		reg |= I365_PWR_OUT;	
+		reg |= I365_PWR_OUT;	/* enable power */
 	}
 
 	switch (state->Vcc) {
@@ -354,12 +372,12 @@ static int pd6729_set_socket(struct pcmcia_socket *sock, socket_state_t *state)
 		return -EINVAL;
 	}
 
-	
+	/* only write if changed */
 	if (reg != indirect_read(socket, I365_POWER))
 		indirect_write(socket, I365_POWER, reg);
 
 	if (irq_mode == 1) {
-		
+		/* all interrupts are to be done as PCI interrupts */
 		data = PD67_EC1_INV_MGMT_IRQ | PD67_EC1_INV_CARD_IRQ;
 	} else
 		data = 0;
@@ -367,7 +385,7 @@ static int pd6729_set_socket(struct pcmcia_socket *sock, socket_state_t *state)
 	indirect_write(socket, PD67_EXT_INDEX, PD67_EXT_CTL_1);
 	indirect_write(socket, PD67_EXT_DATA, data);
 
-	
+	/* Enable specific interrupt events */
 
 	reg = 0x00;
 	if (state->csc_mask & SS_DETECT)
@@ -385,17 +403,17 @@ static int pd6729_set_socket(struct pcmcia_socket *sock, socket_state_t *state)
 			reg |= I365_CSC_READY;
 	}
 	if (irq_mode == 1)
-		reg |= 0x30;	
+		reg |= 0x30;	/* management IRQ: PCI INTA# = "irq 3" */
 	indirect_write(socket, I365_CSCINT, reg);
 
 	reg = indirect_read(socket, I365_INTCTL);
 	if (irq_mode == 1)
-		reg |= 0x03;	
+		reg |= 0x03;	/* card IRQ: PCI INTA# = "irq 3" */
 	else
 		reg |= socket->card_irq;
 	indirect_write(socket, I365_INTCTL, reg);
 
-	
+	/* now clear the (probably bogus) pending stuff by doing a dummy read */
 	(void)indirect_read(socket, I365_CSC);
 
 	return 0;
@@ -410,18 +428,20 @@ static int pd6729_set_io_map(struct pcmcia_socket *sock,
 
 	map = io->map;
 
-	
+	/* Check error conditions */
 	if (map > 1) {
 		dev_dbg(&sock->dev, "pd6729_set_io_map with invalid map\n");
 		return -EINVAL;
 	}
 
-	
+	/* Turn off the window before changing anything */
 	if (indirect_read(socket, I365_ADDRWIN) & I365_ENA_IO(map))
 		indirect_resetbit(socket, I365_ADDRWIN, I365_ENA_IO(map));
 
+	/* dev_dbg(&sock->dev, "set_io_map: Setting range to %x - %x\n",
+	   io->start, io->stop);*/
 
-	
+	/* write the new values */
 	indirect_write16(socket, I365_IO(map)+I365_W_START, io->start);
 	indirect_write16(socket, I365_IO(map)+I365_W_STOP, io->stop);
 
@@ -436,7 +456,7 @@ static int pd6729_set_io_map(struct pcmcia_socket *sock,
 
 	indirect_write(socket, I365_IOCTL, ioctl);
 
-	
+	/* Turn the window back on if needed */
 	if (io->flags & MAP_ACTIVE)
 		indirect_setbit(socket, I365_ADDRWIN, I365_ENA_IO(map));
 
@@ -462,11 +482,11 @@ static int pd6729_set_mem_map(struct pcmcia_socket *sock,
 		return -EINVAL;
 	}
 
-	
+	/* Turn off the window before changing anything */
 	if (indirect_read(socket, I365_ADDRWIN) & I365_ENA_MEM(map))
 		indirect_resetbit(socket, I365_ADDRWIN, I365_ENA_MEM(map));
 
-	
+	/* write the start address */
 	base = I365_MEM(map);
 	i = (mem->res->start >> 12) & 0x0fff;
 	if (mem->flags & MAP_16BIT)
@@ -475,7 +495,7 @@ static int pd6729_set_mem_map(struct pcmcia_socket *sock,
 		i |= I365_MEM_0WS;
 	indirect_write16(socket, base + I365_W_START, i);
 
-	
+	/* write the stop address */
 
 	i = (mem->res->end >> 12) & 0x0fff;
 	switch (to_cycles(mem->speed)) {
@@ -494,22 +514,26 @@ static int pd6729_set_mem_map(struct pcmcia_socket *sock,
 
 	indirect_write16(socket, base + I365_W_STOP, i);
 
-	
+	/* Take care of high byte */
 	indirect_write(socket, PD67_EXT_INDEX, PD67_MEM_PAGE(map));
 	indirect_write(socket, PD67_EXT_DATA, mem->res->start >> 24);
 
-	
+	/* card start */
 
 	i = ((mem->card_start - mem->res->start) >> 12) & 0x3fff;
 	if (mem->flags & MAP_WRPROT)
 		i |= I365_MEM_WRPROT;
 	if (mem->flags & MAP_ATTRIB) {
+		/* dev_dbg(&sock->dev, "requesting attribute memory for "
+		   "socket %i\n", socket->number);*/
 		i |= I365_MEM_REG;
 	} else {
+		/* dev_dbg(&sock->dev, "requesting normal memory for "
+		   "socket %i\n", socket->number);*/
 	}
 	indirect_write16(socket, base + I365_W_OFF, i);
 
-	
+	/* Enable the window if necessary */
 	if (mem->flags & MAP_ACTIVE)
 		indirect_setbit(socket, I365_ADDRWIN, I365_ENA_MEM(map));
 
@@ -537,6 +561,7 @@ static int pd6729_init(struct pcmcia_socket *sock)
 }
 
 
+/* the pccard structure and its functions */
 static struct pccard_operations pd6729_operations = {
 	.init			= pd6729_init,
 	.get_status		= pd6729_get_status,
@@ -577,7 +602,7 @@ static u_int __devinit pd6729_isa_scan(void)
 
 	mask0 = PD67_MASK;
 
-	
+	/* just find interrupts that aren't in use */
 	for (i = 0; i < 16; i++)
 		if ((mask0 & (1 << i)) && (pd6729_check_irq(i) == 0))
 			mask |= (1 << i);
@@ -625,6 +650,10 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 	dev_info(&dev->dev, "Cirrus PD6729 PCI to PCMCIA Bridge at 0x%llx "
 		"on irq %d\n",
 		(unsigned long long)pci_resource_start(dev, 0), dev->irq);
+	/*
+	 * Since we have no memory BARs some firmware may not
+	 * have had PCI_COMMAND_MEMORY enabled, yet the device needs it.
+	 */
 	pci_read_config_byte(dev, PCI_COMMAND, &configbyte);
 	if (!(configbyte & PCI_COMMAND_MEMORY)) {
 		dev_dbg(&dev->dev, "pd6729: Enabling PCI_COMMAND_MEMORY.\n");
@@ -639,7 +668,7 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 	}
 
 	if (dev->irq == NO_IRQ)
-		irq_mode = 0;	
+		irq_mode = 0;	/* fall back to ISA interrupt mode */
 
 	mask = pd6729_isa_scan();
 	if (irq_mode == 0 && mask == 0) {
@@ -666,7 +695,7 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 
 	pci_set_drvdata(dev, socket);
 	if (irq_mode == 1) {
-		
+		/* Register the interrupt handler */
 		ret = request_irq(dev->irq, pd6729_interrupt, IRQF_SHARED,
 				  "pd6729", socket);
 		if (ret) {
@@ -675,7 +704,7 @@ static int __devinit pd6729_pci_probe(struct pci_dev *dev,
 			goto err_out_free_res;
 		}
 	} else {
-		
+		/* poll Card status change */
 		init_timer(&socket->poll_timer);
 		socket->poll_timer.function = pd6729_interrupt_wrapper;
 		socket->poll_timer.data = (unsigned long)socket;
@@ -716,7 +745,7 @@ static void __devexit pd6729_pci_remove(struct pci_dev *dev)
 	struct pd6729_socket *socket = pci_get_drvdata(dev);
 
 	for (i = 0; i < MAX_SOCKETS; i++) {
-		
+		/* Turn off all interrupt sources */
 		indirect_write(&socket[i], I365_CSCINT, 0);
 		indirect_write(&socket[i], I365_INTCTL, 0);
 

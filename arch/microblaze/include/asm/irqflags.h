@@ -27,7 +27,7 @@ static inline notrace unsigned long arch_local_irq_save(void)
 
 static inline notrace void arch_local_irq_disable(void)
 {
-	
+	/* this uses r0 without declaring it - is that correct? */
 	asm volatile("	msrclr r0, %0	\n"
 		     "	nop		\n"
 		     :
@@ -37,7 +37,7 @@ static inline notrace void arch_local_irq_disable(void)
 
 static inline notrace void arch_local_irq_enable(void)
 {
-	
+	/* this uses r0 without declaring it - is that correct? */
 	asm volatile("	msrset	r0, %0	\n"
 		     "	nop		\n"
 		     :
@@ -45,7 +45,7 @@ static inline notrace void arch_local_irq_enable(void)
 		     : "memory");
 }
 
-#else 
+#else /* !CONFIG_XILINX_MICROBLAZE0_USE_MSR_INSTR */
 
 static inline notrace unsigned long arch_local_irq_save(void)
 {
@@ -87,7 +87,7 @@ static inline notrace void arch_local_irq_enable(void)
 		     : "memory");
 }
 
-#endif 
+#endif /* CONFIG_XILINX_MICROBLAZE0_USE_MSR_INSTR */
 
 static inline notrace unsigned long arch_local_save_flags(void)
 {
@@ -119,4 +119,4 @@ static inline notrace bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-#endif 
+#endif /* _ASM_MICROBLAZE_IRQFLAGS_H */

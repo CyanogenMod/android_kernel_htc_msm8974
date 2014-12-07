@@ -25,6 +25,9 @@
 unsigned long PCIBIOS_MIN_IO = 0x0000;
 unsigned long PCIBIOS_MIN_MEM = 0;
 
+/*
+ * The PCI controller list.
+ */
 static struct pci_channel *hose_head, **hose_tail = &hose_head;
 
 static int pci_initialized;
@@ -57,6 +60,8 @@ static void __devinit pcibios_scanbus(struct pci_channel *hose)
 	hose->need_domain_info = need_domain_info;
 	if (bus) {
 		next_busno = bus->subordinate + 1;
+		/* Don't allow 8-bit bus number overflow inside the hose -
+		   reserve some space for bridges. */
 		if (next_busno > 224) {
 			next_busno = 0;
 			need_domain_info = 1;
@@ -70,6 +75,10 @@ static void __devinit pcibios_scanbus(struct pci_channel *hose)
 	}
 }
 
+/*
+ * This interrupt-safe spinlock protects all accesses to PCI
+ * configuration space.
+ */
 DEFINE_RAW_SPINLOCK(pci_config_lock);
 static DEFINE_MUTEX(pci_scan_mutex);
 
@@ -92,13 +101,23 @@ int __devinit register_pci_controller(struct pci_channel *hose)
 	*hose_tail = hose;
 	hose_tail = &hose->next;
 
+	/*
+	 * Do not panic here but later - this might happen before console init.
+	 */
 	if (!hose->io_map_base) {
 		printk(KERN_WARNING
 		       "registering PCI controller with io_map_base unset\n");
 	}
 
+	/*
+	 * Setup the ERR/PERR and SERR timers, if available.
+	 */
 	pcibios_enable_timers(hose);
 
+	/*
+	 * Scan the bus if it is register after the PCI subsystem
+	 * initialization.
+	 */
 	if (pci_initialized) {
 		mutex_lock(&pci_scan_mutex);
 		pcibios_scanbus(hose);
@@ -119,7 +138,7 @@ static int __init pcibios_init(void)
 {
 	struct pci_channel *hose;
 
-	
+	/* Scan all of the recorded PCI controllers.  */
 	for (hose = hose_head; hose; hose = hose->next)
 		pcibios_scanbus(hose);
 
@@ -133,10 +152,20 @@ static int __init pcibios_init(void)
 }
 subsys_initcall(pcibios_init);
 
+/*
+ *  Called after each bus is probed, but before its children
+ *  are examined.
+ */
 void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 {
 }
 
+/*
+ * We need to avoid collisions with `mirrored' VGA ports
+ * and other strange ISA hardware, so we always want the
+ * addresses to be allocated in the 0x000-0x0ff region
+ * modulo 0x400.
+ */
 resource_size_t pcibios_align_resource(void *data, const struct resource *res,
 				resource_size_t size, resource_size_t align)
 {
@@ -148,6 +177,9 @@ resource_size_t pcibios_align_resource(void *data, const struct resource *res,
 		if (start < PCIBIOS_MIN_IO + hose->resources[0].start)
 			start = PCIBIOS_MIN_IO + hose->resources[0].start;
 
+		/*
+                 * Put everything into 0x00-0xff region modulo 0x400.
+		 */
 		if (start & 0x300)
 			start = (start + 0x3ff) & ~0x3ff;
 	}
@@ -198,6 +230,10 @@ pcibios_bus_report_status_early(struct pci_channel *hose,
 	}
 }
 
+/*
+ * We can't use pci_find_device() here since we are
+ * called from interrupt context.
+ */
 static void __init_refok
 pcibios_bus_report_status(struct pci_bus *bus, unsigned int status_mask,
 			  int warn)
@@ -207,6 +243,10 @@ pcibios_bus_report_status(struct pci_bus *bus, unsigned int status_mask,
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		u16 status;
 
+		/*
+		 * ignore host bridge - we handle
+		 * that separately
+		 */
 		if (dev->bus->number == 0 && dev->devfn == 0)
 			continue;
 
@@ -217,7 +257,7 @@ pcibios_bus_report_status(struct pci_bus *bus, unsigned int status_mask,
 		if ((status & status_mask) == 0)
 			continue;
 
-		
+		/* clear the status errors */
 		pci_write_config_word(dev, PCI_STATUS, status & status_mask);
 
 		if (warn)
@@ -245,9 +285,17 @@ void __init_refok pcibios_report_status(unsigned int status_mask, int warn)
 int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 			enum pci_mmap_state mmap_state, int write_combine)
 {
+	/*
+	 * I/O space can be accessed via normal processor loads and stores on
+	 * this platform but for now we elect not to do this and portable
+	 * drivers should not do this anyway.
+	 */
 	if (mmap_state == pci_mmap_io)
 		return -EINVAL;
 
+	/*
+	 * Ignore write-combine; for now only return uncached mappings.
+	 */
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
 	return remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
@@ -279,7 +327,7 @@ void pci_iounmap(struct pci_dev *dev, void __iomem *addr)
 }
 EXPORT_SYMBOL(pci_iounmap);
 
-#endif 
+#endif /* CONFIG_GENERIC_IOMAP */
 
 #ifdef CONFIG_HOTPLUG
 EXPORT_SYMBOL(PCIBIOS_MIN_IO);

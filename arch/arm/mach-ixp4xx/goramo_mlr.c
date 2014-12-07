@@ -16,11 +16,12 @@
 #include <asm/mach/flash.h>
 #include <asm/mach/pci.h>
 
-#define SLOT_ETHA		0x0B	
-#define SLOT_ETHB		0x0C	
-#define SLOT_MPCI		0x0D	
-#define SLOT_NEC		0x0E	
+#define SLOT_ETHA		0x0B	/* IDSEL = AD21 */
+#define SLOT_ETHB		0x0C	/* IDSEL = AD20 */
+#define SLOT_MPCI		0x0D	/* IDSEL = AD19 */
+#define SLOT_NEC		0x0E	/* IDSEL = AD18 */
 
+/* GPIO lines */
 #define GPIO_SCL		0
 #define GPIO_SDA		1
 #define GPIO_STR		2
@@ -36,7 +37,9 @@
 #define GPIO_IRQ_MPCI		12
 #define GPIO_HSS1_RTS_N		13
 #define GPIO_HSS0_RTS_N		14
+/* GPIO15 is not connected */
 
+/* Control outputs from 74HC4094 */
 #define CONTROL_HSS0_CLK_INT	0
 #define CONTROL_HSS1_CLK_INT	1
 #define CONTROL_HSS0_DTR_N	2
@@ -46,16 +49,17 @@
 #define CONTROL_PCI_RESET_N	6
 #define CONTROL_EEPROM_WC_N	7
 
-#define CFG_ETH0_ADDRESS	0x40 
-#define CFG_ETH1_ADDRESS	0x46 
-#define CFG_REV			0x4C 
-#define CFG_SDRAM_SIZE		0x50 
-#define CFG_SDRAM_CONF		0x54 
-#define CFG_SDRAM_MODE		0x58 
-#define CFG_SDRAM_REFRESH	0x5C 
+/* offsets from start of flash ROM = 0x50000000 */
+#define CFG_ETH0_ADDRESS	0x40 /* 6 bytes */
+#define CFG_ETH1_ADDRESS	0x46 /* 6 bytes */
+#define CFG_REV			0x4C /* u32 */
+#define CFG_SDRAM_SIZE		0x50 /* u32 */
+#define CFG_SDRAM_CONF		0x54 /* u32 */
+#define CFG_SDRAM_MODE		0x58 /* u32 */
+#define CFG_SDRAM_REFRESH	0x5C /* u32 */
 
-#define CFG_HW_BITS		0x60 
-#define  CFG_HW_USB_PORTS	0x00000007 
+#define CFG_HW_BITS		0x60 /* u32 */
+#define  CFG_HW_USB_PORTS	0x00000007 /* 0 = no NEC chip, 1-5 = ports # */
 #define  CFG_HW_HAS_PCI_SLOT	0x00000008
 #define  CFG_HW_HAS_ETH0	0x00000010
 #define  CFG_HW_HAS_ETH1	0x00000020
@@ -67,9 +71,9 @@
 
 #define FLASH_CMD_READ_ARRAY	0xFF
 #define FLASH_CMD_READ_ID	0x90
-#define FLASH_SER_OFF		0x102 
+#define FLASH_SER_OFF		0x102 /* 0x81 in 16-bit mode */
 
-static u32 hw_bits = 0xFFFFFFFD;    ;
+static u32 hw_bits = 0xFFFFFFFD;    /* assume all hardware present */;
 static u8 control_value;
 
 static void set_scl(u8 value)
@@ -108,15 +112,15 @@ static void output_control(void)
 
 	for (i = 0; i < 8; i++) {
 		set_scl(0);
-		set_sda(control_value & (0x80 >> i)); 
-		set_scl(1);	
+		set_sda(control_value & (0x80 >> i)); /* MSB first */
+		set_scl(1);	/* active edge */
 	}
 
 	set_str(1);
 	set_str(0);
 
 	set_scl(0);
-	set_sda(1);		
+	set_sda(1);		/* Be ready for START */
 	set_scl(1);
 }
 
@@ -184,7 +188,7 @@ static void hss_close(int port, void *pdev)
 {
 	free_irq(port ? IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N) :
 		 IXP4XX_GPIO_IRQ(GPIO_HSS0_DCD_N), pdev);
-	set_carrier_cb_tab[!!port] = NULL; 
+	set_carrier_cb_tab[!!port] = NULL; /* catch bugs */
 
 	set_control(port ? CONTROL_HSS1_DTR_N : CONTROL_HSS0_DTR_N, 1);
 	output_control();
@@ -192,6 +196,7 @@ static void hss_close(int port, void *pdev)
 }
 
 
+/* Flash memory */
 static struct flash_platform_data flash_data = {
 	.map_name	= "cfi_probe",
 	.width		= 2,
@@ -210,6 +215,7 @@ static struct platform_device device_flash = {
 };
 
 
+/* I^2C interface */
 static struct i2c_gpio_platform_data i2c_data = {
 	.sda_pin	= GPIO_SDA,
 	.scl_pin	= GPIO_SCL,
@@ -222,6 +228,7 @@ static struct platform_device device_i2c = {
 };
 
 
+/* IXP425 2 UART ports */
 static struct resource uart_resources[] = {
 	{
 		.start		= IXP4XX_UART1_BASE_PHYS,
@@ -268,6 +275,7 @@ static struct platform_device device_uarts = {
 };
 
 
+/* Built-in 10/100 Ethernet MAC interfaces */
 static struct eth_plat_info eth_plat[] = {
 	{
 		.phy		= 0,
@@ -293,6 +301,7 @@ static struct platform_device device_eth_tab[] = {
 };
 
 
+/* IXP425 2 synchronous serial ports */
 static struct hss_plat_info hss_plat[] = {
 	{
 		.set_clock	= hss_set_clock,
@@ -321,7 +330,7 @@ static struct platform_device device_hss_tab[] = {
 
 
 static struct platform_device *device_tab[6] __initdata = {
-	&device_flash,		
+	&device_flash,		/* index 0 */
 };
 
 static inline u8 __init flash_readb(u8 __iomem *flash, u32 addr)
@@ -345,7 +354,7 @@ static inline u16 __init flash_readw(u8 __iomem *flash, u32 addr)
 static void __init gmlr_init(void)
 {
 	u8 __iomem *flash;
-	int i, devices = 1; 
+	int i, devices = 1; /* flash */
 
 	ixp4xx_sys_init();
 
@@ -388,20 +397,20 @@ static void __init gmlr_init(void)
 		break;
 	}
 	if (hw_bits & (CFG_HW_HAS_UART0 | CFG_HW_HAS_UART1))
-		device_tab[devices++] = &device_uarts; 
+		device_tab[devices++] = &device_uarts; /* max index 1 */
 
 	if (hw_bits & CFG_HW_HAS_ETH0)
-		device_tab[devices++] = &device_eth_tab[0]; 
+		device_tab[devices++] = &device_eth_tab[0]; /* max index 2 */
 	if (hw_bits & CFG_HW_HAS_ETH1)
-		device_tab[devices++] = &device_eth_tab[1]; 
+		device_tab[devices++] = &device_eth_tab[1]; /* max index 3 */
 
 	if (hw_bits & CFG_HW_HAS_HSS0)
-		device_tab[devices++] = &device_hss_tab[0]; 
+		device_tab[devices++] = &device_hss_tab[0]; /* max index 4 */
 	if (hw_bits & CFG_HW_HAS_HSS1)
-		device_tab[devices++] = &device_hss_tab[1]; 
+		device_tab[devices++] = &device_hss_tab[1]; /* max index 5 */
 
 	if (hw_bits & CFG_HW_HAS_EEPROM)
-		device_tab[devices++] = &device_i2c; 
+		device_tab[devices++] = &device_i2c; /* max index 6 */
 
 	gpio_line_config(GPIO_SCL, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_SDA, IXP4XX_GPIO_OUT);
@@ -419,7 +428,7 @@ static void __init gmlr_init(void)
 	set_control(CONTROL_PCI_RESET_N, 1);
 	output_control();
 
-	msleep(1);	      
+	msleep(1);	      /* Wait for PCI devices to initialize */
 
 	flash_resource.start = IXP4XX_EXP_BUS_BASE(0);
 	flash_resource.end = IXP4XX_EXP_BUS_BASE(0) + ixp4xx_exp_bus_size - 1;
@@ -442,7 +451,7 @@ static void __init gmlr_pci_postinit(void)
 {
 	if ((hw_bits & CFG_HW_USB_PORTS) >= 2 &&
 	    (hw_bits & CFG_HW_USB_PORTS) < 5) {
-		
+		/* need to adjust number of USB ports on NEC chip */
 		u32 value, addr = BIT(32 - SLOT_NEC) | 0xE0;
 		if (!ixp4xx_pci_read(addr, NP_CMD_CONFIGREAD, &value)) {
 			value &= ~7;
@@ -481,11 +490,11 @@ static int __init gmlr_pci_init(void)
 }
 
 subsys_initcall(gmlr_pci_init);
-#endif 
+#endif /* CONFIG_PCI */
 
 
 MACHINE_START(GORAMO_MLR, "MultiLink")
-	
+	/* Maintainer: Krzysztof Halasa */
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,

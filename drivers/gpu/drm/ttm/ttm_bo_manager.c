@@ -24,6 +24,9 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
+/*
+ * Authors: Thomas Hellstrom <thellstrom-at-vmware-dot-com>
+ */
 
 #include "ttm/ttm_module.h"
 #include "ttm/ttm_bo_driver.h"
@@ -33,6 +36,11 @@
 #include <linux/spinlock.h>
 #include <linux/module.h>
 
+/**
+ * Currently we use a spinlock for the lock, but a mutex *may* be
+ * more appropriate to reduce scheduling latency if the range manager
+ * ends up with very fragmented allocation patterns.
+ */
 
 struct ttm_range_manager {
 	struct drm_mm mm;

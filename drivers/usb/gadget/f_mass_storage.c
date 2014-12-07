@@ -83,8 +83,14 @@ static int write_error_after_csw_sent;
 static int csw_hack_sent;
 #endif
 
+static int scsi_adb_state;
+
 struct fsg_dev;
 struct fsg_common;
+
+static struct switch_dev scsi_switch = {
+	.name = "scsi_cmd",
+};
 
 struct fsg_operations {
 	int (*thread_exits)(struct fsg_common *common);
@@ -1368,10 +1374,20 @@ static int do_mode_select(struct fsg_common *common, struct fsg_buffhd *bh)
 }
 int htc_usb_enable_function(char *name, int ebl);
 struct work_struct	ums_do_reserve_work;
+struct work_struct	ums_adb_state_change_work;
 static char usb_function_ebl;
 static void handle_reserve_cmd(struct work_struct *work)
 {
 	htc_usb_enable_function("adb", usb_function_ebl);
+}
+
+char *switch_adb_off_state[3] = { "SWITCH_NAME=scsi_cmd", "SWITCH_STATE=0", NULL };
+char *switch_adb_on_state[3] = { "SWITCH_NAME=scsi_cmd", "SWITCH_STATE=1", NULL };
+static void handle_reserve_cmd_scsi(struct work_struct *work)
+{
+	printk(KERN_NOTICE "[USB] %s: scsi_adb_state=%d\n", __func__, scsi_adb_state);
+	kobject_uevent_env(&scsi_switch.dev->kobj, KOBJ_CHANGE,
+		(scsi_adb_state == 1) ? switch_adb_on_state:switch_adb_off_state );
 }
 
 static int do_reserve(struct fsg_common *common, struct fsg_buffhd *bh)
@@ -1386,6 +1402,7 @@ static int do_reserve(struct fsg_common *common, struct fsg_buffhd *bh)
 	char *argv_stop[] = { exec_path[0], "adbd", NULL, };
 	char *argv_start[] = { exec_path[1], "adbd", NULL, };
 
+
 	if (common->cmnd[1] == ('h'&0x1f) && common->cmnd[2] == 't'
 		&& common->cmnd[3] == 'c') {
 		
@@ -1397,6 +1414,10 @@ static int do_reserve(struct fsg_common *common, struct fsg_buffhd *bh)
 			schedule_work(&ums_do_reserve_work);
 			printk(KERN_NOTICE "[USB] Enable adb daemon from mass_storage %s(%d)\n",
 				(call_us_ret == 0) ? "DONE" : "FAIL", call_us_ret);
+
+			
+			scsi_adb_state = 1;
+			schedule_work(&ums_adb_state_change_work);
 		break;
 		case 0x02: 
 			call_us_ret = call_usermodehelper(exec_path[0],
@@ -1405,10 +1426,22 @@ static int do_reserve(struct fsg_common *common, struct fsg_buffhd *bh)
 			schedule_work(&ums_do_reserve_work);
 			printk(KERN_NOTICE "[USB] Disable adb daemon from mass_storage %s(%d)\n",
 				(call_us_ret == 0) ? "DONE" : "FAIL", call_us_ret);
+
+			
+			scsi_adb_state = 0;
+			schedule_work(&ums_adb_state_change_work);
 		break;
 		case 0x03: 
-			cancel_delayed_work(&common->cdev->cdusbcmd_vzw_unmount_work);
-			printk(KERN_INFO "[USB] cancel unmount cd rom\n");
+			common->cdev->unmount_cdrom_mask &= ~(1<<3);
+			if (!common->cdev->unmount_cdrom_mask)
+				cancel_delayed_work(&common->cdev->cdusbcmd_vzw_unmount_work);
+			printk(KERN_INFO "[USB] cancel unmount BAP cdrom,mask 0x%x\n",common->cdev->unmount_cdrom_mask);
+			break;
+		case 0x04: 
+			common->cdev->unmount_cdrom_mask &= ~(1<<4);
+			if (!common->cdev->unmount_cdrom_mask)
+				cancel_delayed_work(&common->cdev->cdusbcmd_vzw_unmount_work);
+			printk(KERN_INFO "[USB] cancel unmount HSM rom,mask 0x%x\n",common->cdev->unmount_cdrom_mask);
 			break;
 		default:
 			printk(KERN_DEBUG "Unknown hTC specific command..."
@@ -2580,6 +2613,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	struct fsg_lun *curlun;
 	struct fsg_lun_config *lcfg;
 	int nluns, i, rc;
+	int ret;
 	char *pathbuf;
 
 	rc = fsg_num_buffers_validate();
@@ -2738,6 +2772,11 @@ buffhds_first_it:
 	init_waitqueue_head(&common->fsg_wait);
 
 	INIT_WORK(&ums_do_reserve_work, handle_reserve_cmd);
+	INIT_WORK(&ums_adb_state_change_work, handle_reserve_cmd_scsi);
+
+	ret = switch_dev_register(&scsi_switch);
+	if (ret < 0)
+		pr_err("[USB]fail to register scsi_command switch!\n");
 
 	
 	INFO(common, FSG_DRIVER_DESC ", version: " FSG_DRIVER_VERSION "\n");

@@ -14,6 +14,7 @@
 #ifndef _A300_REG_H
 #define _A300_REG_H
 
+/* Interrupt bit positions within RBBM_INT_0 */
 
 #define A3XX_INT_RBBM_GPU_IDLE 0
 #define A3XX_INT_RBBM_AHB_ERROR 1
@@ -40,6 +41,7 @@
 #define A3XX_INT_MISC_HANG_DETECT 24
 #define A3XX_INT_UCHE_OOB_ACCESS 25
 
+/* Register definitions */
 
 #define A3XX_RBBM_HW_VERSION 0x000
 #define A3XX_RBBM_HW_RELEASE 0x001
@@ -52,6 +54,7 @@
 #define A3XX_RBBM_AHB_CMD 0x022
 #define A3XX_RBBM_AHB_ERROR_STATUS 0x027
 #define A3XX_RBBM_GPR0_CTL 0x02E
+/* This the same register as on A2XX, just in a different place */
 #define A3XX_RBBM_STATUS 0x030
 #define A3XX_RBBM_WAIT_IDLE_CLOCKS_CTL 0x33
 #define A3XX_RBBM_INTERFACE_HANG_INT_CTL 0x50
@@ -173,6 +176,7 @@
 #define A3XX_RBBM_EXT_TRACE_PERIOD_CNT 0x121
 #define A3XX_RBBM_EXT_TRACE_CMD 0x122
 
+/* Following two are same as on A2XX, just in a different place */
 #define A3XX_CP_PFP_UCODE_ADDR 0x1C9
 #define A3XX_CP_PFP_UCODE_DATA 0x1CA
 #define A3XX_CP_ROQ_ADDR 0x1CC
@@ -483,13 +487,16 @@
 #define A3XX_VBIF_PERF_PWR_CNT2_LO 0x307b
 #define A3XX_VBIF_PERF_PWR_CNT2_HI 0x307c
 
+/* Bit flags for RBBM_CTL */
 #define RBBM_RBBM_CTL_RESET_PWR_CTR0  BIT(0)
 #define RBBM_RBBM_CTL_RESET_PWR_CTR1  BIT(1)
 #define RBBM_RBBM_CTL_ENABLE_PWR_CTR0  BIT(16)
 #define RBBM_RBBM_CTL_ENABLE_PWR_CTR1  BIT(17)
 
+/* Bit flag for RBMM_PERFCTR_CTL */
 #define RBBM_PERFCTR_CTL_ENABLE BIT(0)
 
+/* Various flags used by the context switch code */
 
 #define SP_MULTI 0
 #define SP_BUFFER_MODE 1
@@ -542,6 +549,11 @@
 #define UCHE_ENTIRE_CACHE 1
 #define UCHE_OP_INVALIDATE 1
 
+/*
+ * The following are bit field shifts within some of the registers defined
+ * above. These are used in the context switch code in conjunction with the
+ * _SET macro
+ */
 
 #define GRAS_CL_CLIP_CNTL_CLIP_DISABLE 16
 #define GRAS_CL_CLIP_CNTL_IJ_PERSP_CENTER 12
@@ -716,6 +728,7 @@
 #define VPC_VPCVARPSREPLMODE_COMPONENT16 28
 #define VPC_VPCVARPSREPLMODE_COMPONENT17 30
 
+/* RBBM Debug bus block IDs */
 #define RBBM_BLOCK_ID_NONE             0x0
 #define RBBM_BLOCK_ID_CP               0x1
 #define RBBM_BLOCK_ID_RBBM             0x2
@@ -745,6 +758,7 @@
 #define RBBM_BLOCK_ID_MARB_2           0x2a
 #define RBBM_BLOCK_ID_MARB_3           0x2b
 
+/* RBBM_CLOCK_CTL default value */
 #define A305_RBBM_CLOCK_CTL_DEFAULT   0xAAAAAAAA
 #define A305C_RBBM_CLOCK_CTL_DEFAULT  0xAAAAAAAA
 #define A320_RBBM_CLOCK_CTL_DEFAULT   0xBFFFFFFF
@@ -755,24 +769,29 @@
 #define A330_RBBM_GPR0_CTL_DEFAULT    0x00000000
 #define A330v2_RBBM_GPR0_CTL_DEFAULT  0x05515455
 
+/* COUNTABLE FOR SP PERFCOUNTER */
 #define SP_FS_FULL_ALU_INSTRUCTIONS    0x0E
 #define SP_ALU_ACTIVE_CYCLES           0x1D
 #define SP0_ICL1_MISSES                0x1A
 #define SP_FS_CFLOW_INSTRUCTIONS       0x0C
 
+/* COUNTABLE FOR TSE PERFCOUNTER */
 #define TSE_INPUT_PRIM_NUM             0x0
 
+/* VBIF PERFCOUNTER ENA/CLR values */
 #define VBIF_PERF_CNT_0 BIT(0)
 #define VBIF_PERF_CNT_1 BIT(1)
 #define VBIF_PERF_PWR_CNT_0 BIT(2)
 #define VBIF_PERF_PWR_CNT_1 BIT(3)
 #define VBIF_PERF_PWR_CNT_2 BIT(4)
 
+/* VBIF PERFCOUNTER SEL values */
 #define VBIF_PERF_CNT_0_SEL 0
 #define VBIF_PERF_CNT_0_SEL_MASK 0x7f
 #define VBIF_PERF_CNT_1_SEL 8
 #define VBIF_PERF_CNT_1_SEL_MASK 0x7f00
 
+/* VBIF countables */
 #define VBIF_AXI_TOTAL_BEATS 85
 #define VBIF_DDR_TOTAL_CYCLES 110
 

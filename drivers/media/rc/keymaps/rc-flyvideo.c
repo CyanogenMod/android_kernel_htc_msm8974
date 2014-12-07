@@ -25,31 +25,31 @@ static struct rc_map_table flyvideo[] = {
 	{ 0x0c, KEY_8 },
 	{ 0x0d, KEY_9 },
 
-	{ 0x0e, KEY_MODE },	
-	{ 0x11, KEY_VIDEO },	
-	{ 0x15, KEY_AUDIO },	
-	{ 0x00, KEY_POWER },	
-	{ 0x18, KEY_TUNER },	
-	{ 0x02, KEY_ZOOM },	
-	{ 0x1a, KEY_LANGUAGE },	
-	{ 0x1b, KEY_MUTE },	
-	{ 0x14, KEY_VOLUMEUP },	
-	{ 0x17, KEY_VOLUMEDOWN },
-	{ 0x12, KEY_CHANNELUP },
-	{ 0x13, KEY_CHANNELDOWN },
-	{ 0x06, KEY_AGAIN },	
-	{ 0x10, KEY_ENTER },	
+	{ 0x0e, KEY_MODE },	/* Air/Cable */
+	{ 0x11, KEY_VIDEO },	/* Video */
+	{ 0x15, KEY_AUDIO },	/* Audio */
+	{ 0x00, KEY_POWER },	/* Power */
+	{ 0x18, KEY_TUNER },	/* AV Source */
+	{ 0x02, KEY_ZOOM },	/* Fullscreen */
+	{ 0x1a, KEY_LANGUAGE },	/* Stereo */
+	{ 0x1b, KEY_MUTE },	/* Mute */
+	{ 0x14, KEY_VOLUMEUP },	/* Volume + */
+	{ 0x17, KEY_VOLUMEDOWN },/* Volume - */
+	{ 0x12, KEY_CHANNELUP },/* Channel + */
+	{ 0x13, KEY_CHANNELDOWN },/* Channel - */
+	{ 0x06, KEY_AGAIN },	/* Recall */
+	{ 0x10, KEY_ENTER },	/* Enter */
 
-	{ 0x19, KEY_BACK },	
-	{ 0x1f, KEY_FORWARD },	
-	{ 0x0a, KEY_ANGLE },	
+	{ 0x19, KEY_BACK },	/* Rewind  ( <<< ) */
+	{ 0x1f, KEY_FORWARD },	/* Forward ( >>> ) */
+	{ 0x0a, KEY_ANGLE },	/* no label, may be used as the PAUSE button */
 };
 
 static struct rc_map_list flyvideo_map = {
 	.map = {
 		.scan    = flyvideo,
 		.size    = ARRAY_SIZE(flyvideo),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_FLYVIDEO,
 	}
 };

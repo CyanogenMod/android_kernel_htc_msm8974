@@ -10,12 +10,32 @@
 
 #include <asm/uaccess.h>
 
+/* Asm:s have been tweaked (within the domain of correctness) to give
+   satisfactory results for "gcc version 3.2.1 Axis release R53/1.53-v32".
+
+   Check regularly...
+
+   Note that for CRISv32, the PC saved at a bus-fault is the address
+   *at* the faulting instruction, with a special case for instructions
+   in delay slots: then it's the address of the branch.  Note also that
+   in contrast to v10, a postincrement in the instruction is *not*
+   performed at a bus-fault; the register is seen having the original
+   value in fault handlers.  */
 
 
+/* Copy to userspace.  This is based on the memcpy used for
+   kernel-to-kernel copying; see "string.c".  */
 
 unsigned long
 __copy_user (void __user *pdst, const void *psrc, unsigned long pn)
 {
+  /* We want the parameters put in special registers.
+     Make sure the compiler is able to make something useful of this.
+     As it is now: r10 -> r13; r11 -> r11 (nop); r12 -> r12 (nop).
+
+     FIXME: Comment for old gcc version.  Check.
+     If gcc was alright, it really would need no temporaries, and no
+     stack space to save stuff on. */
 
   register char *dst __asm__ ("r13") = pdst;
   register const char *src __asm__ ("r11") = psrc;
@@ -23,7 +43,12 @@ __copy_user (void __user *pdst, const void *psrc, unsigned long pn)
   register int retn __asm__ ("r10") = 0;
 
 
+  /* When src is aligned but not dst, this makes a few extra needless
+     cycles.  I believe it would take as many to check that the
+     re-alignment was unnecessary.  */
   if (((unsigned long) dst & 3) != 0
+      /* Don't align if we wouldn't copy more than a few bytes; so we
+	 don't have to check further for overflows.  */
       && n >= 3)
   {
     if ((unsigned long) dst & 1)
@@ -39,10 +64,16 @@ __copy_user (void __user *pdst, const void *psrc, unsigned long pn)
     }
   }
 
+  /* Movem is dirt cheap.  The overheap is low enough to always use the
+     minimum possible block size as the threshold.  */
   if (n >= 44)
   {
-    
+    /* For large copies we use 'movem'.  */
 
+    /* It is not optimal to tell the compiler about clobbering any
+       registers; that will move the saving/restoring of those registers
+       to the function prologue/epilogue, and make non-movem sizes
+       suboptimal.  */
     __asm__ volatile ("\
         ;; Check that the register asm declaration got right.		\n\
         ;; The GCC manual explicitly says TRT will happen.		\n\
@@ -88,8 +119,8 @@ __copy_user (void __user *pdst, const void *psrc, unsigned long pn)
 	.dword 1b,4b							\n\
 	.previous"
 
-      : "=r" (dst), "=r" (src), "=r" (n), "=r" (retn)
-      : "0" (dst), "1" (src), "2" (n), "3" (retn));
+     /* Outputs */ : "=r" (dst), "=r" (src), "=r" (n), "=r" (retn)
+     /* Inputs */ : "0" (dst), "1" (src), "2" (n), "3" (retn));
 
   }
 
@@ -99,6 +130,8 @@ __copy_user (void __user *pdst, const void *psrc, unsigned long pn)
     n -= 16;
   }
 
+  /* Having a separate by-four loops cuts down on cache footprint.
+     FIXME:  Test with and without; increasing switch to be 0..15.  */
   while (n >= 4)
   {
     __asm_copy_to_user_4 (dst, src, retn);
@@ -123,16 +156,29 @@ __copy_user (void __user *pdst, const void *psrc, unsigned long pn)
   return retn;
 }
 
+/* Copy from user to kernel, zeroing the bytes that were inaccessible in
+   userland.  The return-value is the number of bytes that were
+   inaccessible.  */
 
 unsigned long
 __copy_user_zeroing(void *pdst, const void __user *psrc, unsigned long pn)
 {
+  /* We want the parameters put in special registers.
+     Make sure the compiler is able to make something useful of this.
+     As it is now: r10 -> r13; r11 -> r11 (nop); r12 -> r12 (nop).
+
+     FIXME: Comment for old gcc version.  Check.
+     If gcc was alright, it really would need no temporaries, and no
+     stack space to save stuff on.  */
 
   register char *dst __asm__ ("r13") = pdst;
   register const char *src __asm__ ("r11") = psrc;
   register int n __asm__ ("r12") = pn;
   register int retn __asm__ ("r10") = 0;
 
+  /* The best reason to align src is that we then know that a read-fault
+     was for aligned bytes; there's no 1..3 remaining good bytes to
+     pickle.  */
   if (((unsigned long) src & 3) != 0)
   {
     if (((unsigned long) src & 1) && n != 0)
@@ -147,12 +193,21 @@ __copy_user_zeroing(void *pdst, const void __user *psrc, unsigned long pn)
       n -= 2;
     }
 
+    /* We only need one check after the unalignment-adjustments, because
+       if both adjustments were done, either both or neither reference
+       had an exception.  */
     if (retn != 0)
       goto copy_exception_bytes;
   }
 
+  /* Movem is dirt cheap.  The overheap is low enough to always use the
+     minimum possible block size as the threshold.  */
   if (n >= 44)
   {
+    /* It is not optimal to tell the compiler about clobbering any
+       registers; that will move the saving/restoring of those registers
+       to the function prologue/epilogue, and make non-movem sizes
+       suboptimal.  */
     __asm__ volatile ("\
 	.ifnc %0%1%2%3,$r13$r11$r12$r10					\n\
 	.err								\n\
@@ -206,10 +261,18 @@ __copy_user_zeroing(void *pdst, const void __user *psrc, unsigned long pn)
 	.dword 0b,3b							\n\
 	.previous"
 
-      : "=r" (dst), "=r" (src), "=r" (n), "=r" (retn)
-      : "0" (dst), "1" (src), "2" (n), "3" (retn));
+     /* Outputs */ : "=r" (dst), "=r" (src), "=r" (n), "=r" (retn)
+     /* Inputs */ : "0" (dst), "1" (src), "2" (n), "3" (retn));
   }
 
+  /* Either we directly start copying here, using dword copying in a loop,
+     or we copy as much as possible with 'movem' and then the last block
+     (<44 bytes) is copied here.  This will work since 'movem' will have
+     updated src, dst and n.  (Except with failing src.)
+
+     Since we want to keep src accurate, we can't use
+     __asm_copy_from_user_N with N != (1, 2, 4); it updates dst and
+     retn, but not src (by design; it's value is ignored elsewhere).  */
 
   while (n >= 4)
   {
@@ -220,10 +283,15 @@ __copy_user_zeroing(void *pdst, const void __user *psrc, unsigned long pn)
       goto copy_exception_bytes;
   }
 
-  
+  /* If we get here, there were no memory read faults.  */
   switch (n)
   {
+    /* These copies are at least "naturally aligned" (so we don't have
+       to check each byte), due to the src alignment code before the
+       movem loop.  The *_3 case *will* get the correct count for retn.  */
     case 0:
+      /* This case deliberately left in (if you have doubts check the
+	 generated assembly code).  */
       break;
     case 1:
       __asm_copy_from_user_1 (dst, src, retn);
@@ -236,9 +304,15 @@ __copy_user_zeroing(void *pdst, const void __user *psrc, unsigned long pn)
       break;
   }
 
+  /* If we get here, retn correctly reflects the number of failing
+     bytes.  */
   return retn;
 
 copy_exception_bytes:
+  /* We already have "retn" bytes cleared, and need to clear the
+     remaining "n" bytes.  A non-optimized simple byte-for-byte in-line
+     memset is preferred here, since this isn't speed-critical code and
+     we'd rather have this a leaf-function than calling memset.  */
   {
     char *endp;
     for (endp = dst + n; dst < endp; dst++)
@@ -248,10 +322,18 @@ copy_exception_bytes:
   return retn + n;
 }
 
+/* Zero userspace.  */
 
 unsigned long
 __do_clear_user (void __user *pto, unsigned long pn)
 {
+  /* We want the parameters put in special registers.
+     Make sure the compiler is able to make something useful of this.
+      As it is now: r10 -> r13; r11 -> r11 (nop); r12 -> r12 (nop).
+
+     FIXME: Comment for old gcc version.  Check.
+     If gcc was alright, it really would need no temporaries, and no
+     stack space to save stuff on. */
 
   register char *dst __asm__ ("r13") = pto;
   register int n __asm__ ("r12") = pn;
@@ -259,7 +341,7 @@ __do_clear_user (void __user *pto, unsigned long pn)
 
 
   if (((unsigned long) dst & 3) != 0
-     
+     /* Don't align if we wouldn't copy more than a few bytes.  */
       && n >= 3)
   {
     if ((unsigned long) dst & 1)
@@ -275,10 +357,26 @@ __do_clear_user (void __user *pto, unsigned long pn)
     }
   }
 
+  /* Decide which copying method to use.
+     FIXME: This number is from the "ordinary" kernel memset.  */
   if (n >= 48)
   {
-    
+    /* For large clears we use 'movem' */
 
+    /* It is not optimal to tell the compiler about clobbering any
+       call-saved registers; that will move the saving/restoring of
+       those registers to the function prologue/epilogue, and make
+       non-movem sizes suboptimal.
+
+       This method is not foolproof; it assumes that the "asm reg"
+       declarations at the beginning of the function really are used
+       here (beware: they may be moved to temporary registers).
+       This way, we do not have to save/move the registers around into
+       temporaries; we can safely use them straight away.
+
+      If you want to check that the allocation was right; then
+      check the equalities in the first comment.  It should say
+      something like "r13=r13, r11=r11, r12=r12". */
     __asm__ volatile ("\
 	.ifnc %0%1%2,$r13$r12$r10					\n\
 	.err								\n\
@@ -334,9 +432,9 @@ __do_clear_user (void __user *pto, unsigned long pn)
 	.dword 1b,3b							\n\
 	.previous"
 
-      : "=r" (dst), "=r" (n), "=r" (retn)
-      : "0" (dst), "1" (n), "2" (retn)
-      : "r11");
+     /* Outputs */ : "=r" (dst), "=r" (n), "=r" (retn)
+     /* Inputs */ : "0" (dst), "1" (n), "2" (retn)
+     /* Clobber */ : "r11");
   }
 
   while (n >= 16)
@@ -345,6 +443,8 @@ __do_clear_user (void __user *pto, unsigned long pn)
     n -= 16;
   }
 
+  /* Having a separate by-four loops cuts down on cache footprint.
+     FIXME:  Test with and without; increasing switch to be 0..15.  */
   while (n >= 4)
   {
     __asm_clear_4 (dst, retn);

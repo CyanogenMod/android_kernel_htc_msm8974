@@ -88,6 +88,7 @@ static inline void dma_free_attrs(struct device *dev, size_t size,
 		ops->free(dev, size, vaddr, dma_handle, attrs);
 }
 
+/* arch/sh/mm/consistent.c */
 extern void *dma_generic_alloc_coherent(struct device *dev, size_t size,
 					dma_addr_t *dma_addr, gfp_t flag,
 					struct dma_attrs *attrs);
@@ -95,4 +96,4 @@ extern void dma_generic_free_coherent(struct device *dev, size_t size,
 				      void *vaddr, dma_addr_t dma_handle,
 				      struct dma_attrs *attrs);
 
-#endif 
+#endif /* __ASM_SH_DMA_MAPPING_H */

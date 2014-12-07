@@ -14,6 +14,11 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * This machine is known as:
+ *  - i.MX27 3-Stack Development System
+ *  - i.MX27 Platform Development Kit (i.MX27 PDK)
+ */
 
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
@@ -53,12 +58,12 @@
 #define CSI_RESET		IMX_GPIO_NR(3, 6)
 
 static const int mx27pdk_pins[] __initconst = {
-	
+	/* UART1 */
 	PE12_PF_UART1_TXD,
 	PE13_PF_UART1_RXD,
 	PE14_PF_UART1_CTS,
 	PE15_PF_UART1_RTS,
-	
+	/* FEC */
 	PD0_AIN_FEC_TXD0,
 	PD1_AIN_FEC_TXD1,
 	PD2_AIN_FEC_TXD2,
@@ -77,7 +82,7 @@ static const int mx27pdk_pins[] __initconst = {
 	PD15_AOUT_FEC_COL,
 	PD16_AIN_FEC_TX_ER,
 	PF23_AIN_FEC_TX_EN,
-	
+	/* SDHC1 */
 	PE18_PF_SD1_D0,
 	PE19_PF_SD1_D1,
 	PE20_PF_SD1_D2,
@@ -85,7 +90,7 @@ static const int mx27pdk_pins[] __initconst = {
 	PE22_PF_SD1_CMD,
 	PE23_PF_SD1_CLK,
 	SD1_EN_GPIO | GPIO_GPIO | GPIO_OUT,
-	
+	/* OTG */
 	OTG_PHY_RESET_GPIO | GPIO_GPIO | GPIO_OUT,
 	PC7_PF_USBOTG_DATA5,
 	PC8_PF_USBOTG_DATA6,
@@ -99,23 +104,23 @@ static const int mx27pdk_pins[] __initconst = {
 	PE2_PF_USBOTG_DIR,
 	PE24_PF_USBOTG_CLK,
 	PE25_PF_USBOTG_DATA7,
-	
+	/* CSPI1 */
 	PD31_PF_CSPI1_MOSI,
 	PD30_PF_CSPI1_MISO,
 	PD29_PF_CSPI1_SCLK,
 	PD25_PF_CSPI1_RDY,
 	SPI1_SS0 | GPIO_GPIO | GPIO_OUT,
-	
+	/* CSPI2 */
 	PD22_PF_CSPI2_SCLK,
 	PD23_PF_CSPI2_MISO,
 	PD24_PF_CSPI2_MOSI,
 	SPI2_SS0 | GPIO_GPIO | GPIO_OUT,
-	
+	/* I2C1 */
 	PD17_PF_I2C_DATA,
 	PD18_PF_I2C_CLK,
-	
+	/* PMIC INT */
 	PMIC_INT | GPIO_GPIO | GPIO_IN,
-	
+	/* LCD */
 	PA5_PF_LSCLK,
 	PA6_PF_LD0,
 	PA7_PF_LD1,
@@ -140,7 +145,7 @@ static const int mx27pdk_pins[] __initconst = {
 	PA30_PF_CONTRAST,
 	LCD_ENABLE | GPIO_GPIO | GPIO_OUT,
 	LCD_RESET | GPIO_GPIO | GPIO_OUT,
-	
+	/* CSI */
 	PB10_PF_CSI_D0,
 	PB11_PF_CSI_D1,
 	PB12_PF_CSI_D2,
@@ -166,6 +171,9 @@ static const struct imxuart_platform_data uart_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
 
+/*
+ * Matrix keyboard
+ */
 
 static const uint32_t mx27_3ds_keymap[] = {
 	KEY(0, 0, KEY_UP),
@@ -203,7 +211,7 @@ static const struct imxmmc_platform_data sdhc1_pdata __initconst = {
 
 static void mx27_3ds_sdhc1_enable_level_translator(void)
 {
-	
+	/* Turn on TXB0108 OE pin */
 	gpio_request(SD1_EN_GPIO, "sd1_enable");
 	gpio_direction_output(SD1_EN_GPIO, 1);
 }
@@ -248,6 +256,7 @@ static int __init mx27_3ds_otg_mode(char *options)
 }
 __setup("otg_mode=", mx27_3ds_otg_mode);
 
+/* Regulators */
 static struct regulator_init_data gpo_init = {
 	.constraints = {
 		.boot_on = 1,
@@ -310,17 +319,18 @@ static struct mc13xxx_regulator_init_data mx27_3ds_regulators[] = {
 		.id = MC13783_REG_VGEN,
 		.init_data = &vgen_init,
 	}, {
-		.id = MC13783_REG_GPO1, 
+		.id = MC13783_REG_GPO1, /* Turn on 1.8V */
 		.init_data = &gpo_init,
 	}, {
-		.id = MC13783_REG_GPO3, 
+		.id = MC13783_REG_GPO3, /* Turn on 3.3V */
 		.init_data = &gpo_init,
 	}, {
-		.id = MC13783_REG_VVIB,  
+		.id = MC13783_REG_VVIB,  /* Power OV2640 */
 		.init_data = &vvib_init,
 	},
 };
 
+/* MC13783 */
 static struct mc13xxx_platform_data mc13783_pdata = {
 	.regulators = {
 		.regulators = mx27_3ds_regulators,
@@ -330,6 +340,7 @@ static struct mc13xxx_platform_data mc13783_pdata = {
 	.flags  = MC13XXX_USE_TOUCHSCREEN | MC13XXX_USE_RTC,
 };
 
+/* SPI */
 static int spi1_chipselect[] = {SPI1_SS0};
 
 static const struct spi_imx_master spi1_pdata __initconst = {
@@ -346,14 +357,14 @@ static const struct spi_imx_master spi2_pdata __initconst = {
 
 static int mx27_3ds_camera_power(struct device *dev, int on)
 {
-	
+	/* enable or disable the camera */
 	pr_debug("%s: %s the camera\n", __func__, on ? "ENABLE" : "DISABLE");
 	gpio_set_value(CSI_PWRDWN, on ? 0 : 1);
 
 	if (!on)
 		goto out;
 
-	
+	/* If enabled, give a reset impulse */
 	gpio_set_value(CSI_RESET, 0);
 	msleep(20);
 	gpio_set_value(CSI_RESET, 1);
@@ -390,7 +401,7 @@ static struct platform_device mx27_3ds_ov2640 = {
 };
 
 static struct imx_fb_videomode mx27_3ds_modes[] = {
-	{	
+	{	/* 480x640 @ 60 Hz */
 		.mode = {
 			.name		= "Epson-VGA",
 			.refresh	= 60,
@@ -421,6 +432,7 @@ static const struct imx_fb_platform_data mx27_3ds_fb_data __initconst = {
 	.dmacr		= 0x00020010,
 };
 
+/* LCD */
 static struct l4f00242t03_pdata mx27_3ds_lcd_pdata = {
 	.reset_gpio		= LCD_RESET,
 	.data_enable_gpio	= LCD_ENABLE,
@@ -431,7 +443,7 @@ static struct spi_board_info mx27_3ds_spi_devs[] __initdata = {
 		.modalias	= "mc13783",
 		.max_speed_hz	= 1000000,
 		.bus_num	= 1,
-		.chip_select	= 0, 
+		.chip_select	= 0, /* SS0 */
 		.platform_data	= &mc13783_pdata,
 		.irq = IMX_GPIO_TO_IRQ(PMIC_INT),
 		.mode = SPI_CS_HIGH,
@@ -439,7 +451,7 @@ static struct spi_board_info mx27_3ds_spi_devs[] __initdata = {
 		.modalias	= "l4f00242t03",
 		.max_speed_hz	= 5000000,
 		.bus_num	= 0,
-		.chip_select	= 0, 
+		.chip_select	= 0, /* SS0 */
 		.platform_data	= &mx27_3ds_lcd_pdata,
 	},
 };
@@ -513,7 +525,7 @@ static struct sys_timer mx27pdk_timer = {
 };
 
 MACHINE_START(MX27_3DS, "Freescale MX27PDK")
-	
+	/* maintainer: Freescale Semiconductor, Inc. */
 	.atag_offset = 0x100,
 	.map_io = mx27_map_io,
 	.init_early = imx27_init_early,

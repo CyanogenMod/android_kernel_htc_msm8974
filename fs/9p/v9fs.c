@@ -43,19 +43,23 @@ static DEFINE_SPINLOCK(v9fs_sessionlist_lock);
 static LIST_HEAD(v9fs_sessionlist);
 struct kmem_cache *v9fs_inode_cache;
 
+/*
+ * Option Parsing (code inspired by NFS code)
+ *  NOTE: each transport will parse its own options
+ */
 
 enum {
-	
+	/* Options that take integer arguments */
 	Opt_debug, Opt_dfltuid, Opt_dfltgid, Opt_afid,
-	
+	/* String options */
 	Opt_uname, Opt_remotename, Opt_trans, Opt_cache, Opt_cachetag,
-	
+	/* Options that take no arguments */
 	Opt_nodevmap,
-	
+	/* Cache options */
 	Opt_cache_loose, Opt_fscache,
-	
+	/* Access options */
 	Opt_access, Opt_posixacl,
-	
+	/* Error token */
 	Opt_err
 };
 
@@ -76,6 +80,7 @@ static const match_table_t tokens = {
 	{Opt_err, NULL}
 };
 
+/* Interpret mount options for cache mode */
 static int get_cache_mode(char *s)
 {
 	int version = -EINVAL;
@@ -94,6 +99,12 @@ static int get_cache_mode(char *s)
 	return version;
 }
 
+/**
+ * v9fs_parse_options - parse mount options into session structure
+ * @v9ses: existing v9fs session information
+ *
+ * Return 0 upon success, -ERRNO upon failure.
+ */
 
 static int v9fs_parse_options(struct v9fs_session_info *v9ses, char *opts)
 {
@@ -104,7 +115,7 @@ static int v9fs_parse_options(struct v9fs_session_info *v9ses, char *opts)
 	char *s, *e;
 	int ret = 0;
 
-	
+	/* setup defaults */
 	v9ses->afid = ~0;
 	v9ses->debug = 0;
 	v9ses->cache = CACHE_NONE;
@@ -261,6 +272,13 @@ fail_option_alloc:
 	return ret;
 }
 
+/**
+ * v9fs_session_init - initialize session
+ * @v9ses: session information structure
+ * @dev_name: device being mounted
+ * @data: options
+ *
+ */
 
 struct p9_fid *v9fs_session_init(struct v9fs_session_info *v9ses,
 		  const char *dev_name, char *data)
@@ -324,11 +342,15 @@ struct p9_fid *v9fs_session_init(struct v9fs_session_info *v9ses,
 
 	if (!v9fs_proto_dotl(v9ses) &&
 	    ((v9ses->flags & V9FS_ACCESS_MASK) == V9FS_ACCESS_CLIENT)) {
+		/*
+		 * We support ACCESS_CLIENT only for dotl.
+		 * Fall back to ACCESS_USER
+		 */
 		v9ses->flags &= ~V9FS_ACCESS_MASK;
 		v9ses->flags |= V9FS_ACCESS_USER;
 	}
-	
-	
+	/*FIXME !! */
+	/* for legacy mode, fall back to V9FS_ACCESS_ANY */
 	if (!(v9fs_proto_dotu(v9ses) || v9fs_proto_dotl(v9ses)) &&
 		((v9ses->flags&V9FS_ACCESS_MASK) == V9FS_ACCESS_USER)) {
 
@@ -338,6 +360,10 @@ struct p9_fid *v9fs_session_init(struct v9fs_session_info *v9ses,
 	}
 	if (!v9fs_proto_dotl(v9ses) ||
 		!((v9ses->flags & V9FS_ACCESS_MASK) == V9FS_ACCESS_CLIENT)) {
+		/*
+		 * We support ACL checks on clinet only if the protocol is
+		 * 9P2000.L and access is V9FS_ACCESS_CLIENT.
+		 */
 		v9ses->flags &= ~V9FS_ACL_MASK;
 	}
 
@@ -356,7 +382,7 @@ struct p9_fid *v9fs_session_init(struct v9fs_session_info *v9ses,
 		fid->uid = ~0;
 
 #ifdef CONFIG_9P_FSCACHE
-	
+	/* register the session for caching */
 	v9fs_cache_session_get_cookie(v9ses);
 #endif
 
@@ -367,6 +393,11 @@ error:
 	return ERR_PTR(retval);
 }
 
+/**
+ * v9fs_session_close - shutdown a session
+ * @v9ses: session information structure
+ *
+ */
 
 void v9fs_session_close(struct v9fs_session_info *v9ses)
 {
@@ -391,12 +422,24 @@ void v9fs_session_close(struct v9fs_session_info *v9ses)
 	spin_unlock(&v9fs_sessionlist_lock);
 }
 
+/**
+ * v9fs_session_cancel - terminate a session
+ * @v9ses: session to terminate
+ *
+ * mark transport as disconnected and cancel all pending requests.
+ */
 
 void v9fs_session_cancel(struct v9fs_session_info *v9ses) {
 	p9_debug(P9_DEBUG_ERROR, "cancel session %p\n", v9ses);
 	p9_client_disconnect(v9ses->clnt);
 }
 
+/**
+ * v9fs_session_begin_cancel - Begin terminate of a session
+ * @v9ses: session to terminate
+ *
+ * After this call we don't allow any request other than clunk.
+ */
 
 void v9fs_session_begin_cancel(struct v9fs_session_info *v9ses)
 {
@@ -441,7 +484,7 @@ static ssize_t caches_show(struct kobject *kobj,
 }
 
 static struct kobj_attribute v9fs_attr_cache = __ATTR_RO(caches);
-#endif 
+#endif /* CONFIG_9P_FSCACHE */
 
 static struct attribute *v9fs_attrs[] = {
 #ifdef CONFIG_9P_FSCACHE
@@ -454,6 +497,10 @@ static struct attribute_group v9fs_attr_group = {
 	.attrs = v9fs_attrs,
 };
 
+/**
+ * v9fs_sysfs_init - Initialize the v9fs sysfs interface
+ *
+ */
 
 static int v9fs_sysfs_init(void)
 {
@@ -469,6 +516,10 @@ static int v9fs_sysfs_init(void)
 	return 0;
 }
 
+/**
+ * v9fs_sysfs_cleanup - Unregister the v9fs sysfs interface
+ *
+ */
 
 static void v9fs_sysfs_cleanup(void)
 {
@@ -486,6 +537,10 @@ static void v9fs_inode_init_once(void *foo)
 	inode_init_once(&v9inode->vfs_inode);
 }
 
+/**
+ * v9fs_init_inode_cache - initialize a cache for 9P
+ * Returns 0 on success.
+ */
 static int v9fs_init_inode_cache(void)
 {
 	v9fs_inode_cache = kmem_cache_create("v9fs_inode_cache",
@@ -499,6 +554,10 @@ static int v9fs_init_inode_cache(void)
 	return 0;
 }
 
+/**
+ * v9fs_destroy_inode_cache - destroy the cache of 9P inode
+ *
+ */
 static void v9fs_destroy_inode_cache(void)
 {
 	kmem_cache_destroy(v9fs_inode_cache);
@@ -525,12 +584,16 @@ static void v9fs_cache_unregister(void)
 #endif
 }
 
+/**
+ * init_v9fs - Initialize module
+ *
+ */
 
 static int __init init_v9fs(void)
 {
 	int err;
 	pr_info("Installing v9fs 9p2000 file system support\n");
-	
+	/* TODO: Setup list of registered trasnport modules */
 
 	err = v9fs_cache_register();
 	if (err < 0) {
@@ -560,6 +623,10 @@ out_cache:
 	return err;
 }
 
+/**
+ * exit_v9fs - shutdown module
+ *
+ */
 
 static void __exit exit_v9fs(void)
 {

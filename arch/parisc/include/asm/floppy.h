@@ -24,6 +24,14 @@
 #include <linux/vmalloc.h>
 
 
+/*
+ * The DMA channel used by the floppy controller cannot access data at
+ * addresses >= 16MB
+ *
+ * Went back to the 1MB limit, as some people had problems with the floppy
+ * driver otherwise. It doesn't matter much for performance anyway, as most
+ * floppy accesses go through the track buffer.
+ */
 #define _CROSS_64KB(a,s,vdma) \
 (!vdma && ((unsigned long)(a)/K_64 != ((unsigned long)(a) + (s) - 1) / K_64))
 
@@ -215,7 +223,7 @@ static int hard_dma_setup(char *addr, unsigned long size, int mode, int io)
 		return -1;
 	}
 #endif
-	
+	/* actual, physical DMA */
 	doing_pdma = 0;
 	clear_dma_ff(FLOPPY_DMA);
 	set_dma_mode(FLOPPY_DMA,mode);
@@ -249,7 +257,7 @@ static struct fd_routine_l {
 };
 
 
-static int FDC1 = 0x3f0; 
+static int FDC1 = 0x3f0; /* Lies.  Floppy controller is memory mapped, not io mapped */
 static int FDC2 = -1;
 
 #define FLOPPY0_TYPE	0
@@ -260,4 +268,4 @@ static int FDC2 = -1;
 
 #define EXTRA_FLOPPY_PARAMS
 
-#endif 
+#endif /* __ASM_PARISC_FLOPPY_H */

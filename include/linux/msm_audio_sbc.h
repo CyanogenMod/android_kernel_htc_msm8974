@@ -33,4 +33,4 @@ struct msm_audio_sbc_enc_config {
 	uint32_t bit_rate;
 	uint32_t mode;
 };
-#endif 
+#endif /* __MSM_AUDIO_SBC_H */

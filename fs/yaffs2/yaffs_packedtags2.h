@@ -13,6 +13,7 @@
  * Note: Only YAFFS headers are LGPL, YAFFS C code is covered by GPL.
  */
 
+/* This is used to pack YAFFS2 tags, not YAFFS1tags. */
 
 #ifndef __YAFFS_PACKEDTAGS2_H__
 #define __YAFFS_PACKEDTAGS2_H__
@@ -32,11 +33,13 @@ struct yaffs_packed_tags2 {
 	struct yaffs_ecc_other ecc;
 };
 
+/* Full packed tags with ECC, used for oob tags */
 void yaffs_pack_tags2(struct yaffs_packed_tags2 *pt,
 		      const struct yaffs_ext_tags *t, int tags_ecc);
 void yaffs_unpack_tags2(struct yaffs_ext_tags *t, struct yaffs_packed_tags2 *pt,
 			int tags_ecc);
 
+/* Only the tags part (no ECC for use with inband tags */
 void yaffs_pack_tags2_tags_only(struct yaffs_packed_tags2_tags_only *pt,
 				const struct yaffs_ext_tags *t);
 void yaffs_unpack_tags2_tags_only(struct yaffs_ext_tags *t,

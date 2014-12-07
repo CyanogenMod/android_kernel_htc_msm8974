@@ -12,10 +12,12 @@
 #ifndef __ASM_ARCH_GPIO_H
 #define __ASM_ARCH_GPIO_H __FILE__
 
+/* Macro for EXYNOS GPIO numbering */
 
 #define EXYNOS_GPIO_NEXT(__gpio) \
 	((__gpio##_START) + (__gpio##_NR) + CONFIG_S3C_GPIO_SPACE + 1)
 
+/* EXYNOS4 GPIO bank sizes */
 
 #define EXYNOS4_GPIO_A0_NR	(8)
 #define EXYNOS4_GPIO_A1_NR	(6)
@@ -55,6 +57,7 @@
 #define EXYNOS4_GPIO_Y6_NR	(8)
 #define EXYNOS4_GPIO_Z_NR	(7)
 
+/* EXYNOS4 GPIO bank numbers */
 
 enum exynos4_gpio_number {
 	EXYNOS4_GPIO_A0_START	= 0,
@@ -96,6 +99,7 @@ enum exynos4_gpio_number {
 	EXYNOS4_GPIO_Z_START	= EXYNOS_GPIO_NEXT(EXYNOS4_GPIO_Y6),
 };
 
+/* EXYNOS4 GPIO number definitions */
 
 #define EXYNOS4_GPA0(_nr)	(EXYNOS4_GPIO_A0_START + (_nr))
 #define EXYNOS4_GPA1(_nr)	(EXYNOS4_GPIO_A1_START + (_nr))
@@ -135,9 +139,11 @@ enum exynos4_gpio_number {
 #define EXYNOS4_GPY6(_nr)	(EXYNOS4_GPIO_Y6_START + (_nr))
 #define EXYNOS4_GPZ(_nr)	(EXYNOS4_GPIO_Z_START + (_nr))
 
+/* the end of the EXYNOS4 specific gpios */
 
 #define EXYNOS4_GPIO_END	(EXYNOS4_GPZ(EXYNOS4_GPIO_Z_NR) + 1)
 
+/* EXYNOS5 GPIO bank sizes */
 
 #define EXYNOS5_GPIO_A0_NR	(8)
 #define EXYNOS5_GPIO_A1_NR	(6)
@@ -179,6 +185,7 @@ enum exynos4_gpio_number {
 #define EXYNOS5_GPIO_V4_NR	(2)
 #define EXYNOS5_GPIO_Z_NR	(7)
 
+/* EXYNOS5 GPIO bank numbers */
 
 enum exynos5_gpio_number {
 	EXYNOS5_GPIO_A0_START		= 0,
@@ -222,6 +229,7 @@ enum exynos5_gpio_number {
 	EXYNOS5_GPIO_Z_START		= EXYNOS_GPIO_NEXT(EXYNOS5_GPIO_V4),
 };
 
+/* EXYNOS5 GPIO number definitions */
 
 #define EXYNOS5_GPA0(_nr)	(EXYNOS5_GPIO_A0_START + (_nr))
 #define EXYNOS5_GPA1(_nr)	(EXYNOS5_GPIO_A1_START + (_nr))
@@ -263,13 +271,16 @@ enum exynos5_gpio_number {
 #define EXYNOS5_GPV4(_nr)	(EXYNOS5_GPIO_V4_START + (_nr))
 #define EXYNOS5_GPZ(_nr)	(EXYNOS5_GPIO_Z_START + (_nr))
 
+/* the end of the EXYNOS5 specific gpios */
 
 #define EXYNOS5_GPIO_END	(EXYNOS5_GPZ(EXYNOS5_GPIO_Z_NR) + 1)
 
+/* actually, EXYNOS5_GPIO_END is bigger than EXYNOS4 */
 
 #define S3C_GPIO_END		(EXYNOS5_GPIO_END)
 
+/* define the number of gpios */
 
 #define ARCH_NR_GPIOS		(CONFIG_SAMSUNG_GPIO_EXTRA + S3C_GPIO_END)
 
-#endif 
+#endif /* __ASM_ARCH_GPIO_H */

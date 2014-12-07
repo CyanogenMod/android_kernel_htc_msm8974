@@ -29,6 +29,7 @@
 #ifndef _RMI_FUNCTION_34_H
 #define _RMI_FUNCTION_34_H
 
+/* define fn $34 commands */
 #define WRITE_FW_BLOCK            2
 #define ERASE_ALL                 3
 #define READ_CONFIG_BLOCK         5

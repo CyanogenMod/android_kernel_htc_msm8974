@@ -31,4 +31,4 @@
 int zcrypt_pcixcc_init(void);
 void zcrypt_pcixcc_exit(void);
 
-#endif 
+#endif /* _ZCRYPT_PCIXCC_H_ */

@@ -1,3 +1,6 @@
+/*
+ * This is a module which is used for rejecting packets.
+ */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2004 Netfilter Core Team <coreteam@netfilter.org>
@@ -29,6 +32,7 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Netfilter Core Team <coreteam@netfilter.org>");
 MODULE_DESCRIPTION("Xtables: packet \"rejection\" target for IPv4");
 
+/* Send RST reply */
 static void send_reset(struct sk_buff *oldskb, int hook)
 {
 	struct sk_buff *nskb;
@@ -37,7 +41,7 @@ static void send_reset(struct sk_buff *oldskb, int hook)
 	const struct tcphdr *oth;
 	struct tcphdr _otcph, *tcph;
 
-	
+	/* IP header checks: fragment. */
 	if (ip_hdr(oldskb)->frag_off & htons(IP_OFFSET))
 		return;
 
@@ -46,14 +50,14 @@ static void send_reset(struct sk_buff *oldskb, int hook)
 	if (oth == NULL)
 		return;
 
-	
+	/* No RST for RST. */
 	if (oth->rst)
 		return;
 
 	if (skb_rtable(oldskb)->rt_flags & (RTCF_BROADCAST | RTCF_MULTICAST))
 		return;
 
-	
+	/* Check checksum */
 	if (nf_ip_checksum(oldskb, hook, ip_hdrlen(oldskb), IPPROTO_TCP))
 		return;
 	oiph = ip_hdr(oldskb);
@@ -99,7 +103,7 @@ static void send_reset(struct sk_buff *oldskb, int hook)
 	nskb->csum_start = (unsigned char *)tcph - nskb->head;
 	nskb->csum_offset = offsetof(struct tcphdr, check);
 
-	
+	/* ip_route_me_harder expects skb->dst to be set */
 	skb_dst_set_noref(nskb, skb_dst(oldskb));
 
 	nskb->protocol = htons(ETH_P_IP);
@@ -108,7 +112,7 @@ static void send_reset(struct sk_buff *oldskb, int hook)
 
 	niph->ttl	= ip4_dst_hoplimit(skb_dst(nskb));
 
-	
+	/* "Never happens" */
 	if (nskb->len > dst_mtu(skb_dst(nskb)))
 		goto free_nskb;
 
@@ -164,7 +168,7 @@ reject_tg(struct sk_buff *skb, const struct xt_action_param *par)
 	case IPT_TCP_RESET:
 		send_reset(skb, par->hooknum);
 	case IPT_ICMP_ECHOREPLY:
-		
+		/* Doesn't happen. */
 		break;
 	}
 
@@ -180,7 +184,7 @@ static int reject_tg_check(const struct xt_tgchk_param *par)
 		pr_info("ECHOREPLY no longer supported.\n");
 		return -EINVAL;
 	} else if (rejinfo->with == IPT_TCP_RESET) {
-		
+		/* Must specify that it's a TCP packet */
 		if (e->ip.proto != IPPROTO_TCP ||
 		    (e->ip.invflags & XT_INV_PROTO)) {
 			pr_info("TCP_RESET invalid for non-tcp\n");

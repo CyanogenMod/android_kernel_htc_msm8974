@@ -29,4 +29,4 @@ struct tc_csum {
 	__u32 update_flags;
 };
 
-#endif 
+#endif /* __LINUX_TC_CSUM_H */

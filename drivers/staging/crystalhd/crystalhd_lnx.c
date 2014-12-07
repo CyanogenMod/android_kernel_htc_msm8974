@@ -260,6 +260,7 @@ static int chd_dec_api_cmd(struct crystalhd_adp *adp, unsigned long ua,
 	return rc;
 }
 
+/* API interfaces */
 static long chd_dec_ioctl(struct file *fd, unsigned int cmd, unsigned long ua)
 {
 	struct crystalhd_adp *adp = chd_get_adp();
@@ -369,7 +370,7 @@ static int __devinit chd_dec_init_chdev(struct crystalhd_adp *adp)
 		goto fail;
 	}
 
-	
+	/* register crystalhd class */
 	crystalhd_class = class_create(THIS_MODULE, "crystalhd");
 	if (IS_ERR(crystalhd_class)) {
 		BCMLOG_ERR("failed to create class\n");
@@ -389,7 +390,7 @@ static int __devinit chd_dec_init_chdev(struct crystalhd_adp *adp)
 		goto elem_pool_fail;
 	}
 
-	
+	/* Allocate general purpose ioctl pool. */
 	for (i = 0; i < CHD_IODATA_POOL_SZ; i++) {
 		temp = kzalloc(sizeof(struct crystalhd_ioctl_data), GFP_KERNEL);
 		if (!temp) {
@@ -397,7 +398,7 @@ static int __devinit chd_dec_init_chdev(struct crystalhd_adp *adp)
 			rc = -ENOMEM;
 			goto kzalloc_fail;
 		}
-		
+		/* Add to global pool.. */
 		chd_dec_free_iodata(adp, temp, 0);
 	}
 
@@ -420,7 +421,7 @@ static void __devexit chd_dec_release_chdev(struct crystalhd_adp *adp)
 		return;
 
 	if (adp->chd_dec_major > 0) {
-		
+		/* unregister crystalhd class */
 		device_destroy(crystalhd_class, MKDEV(adp->chd_dec_major, 0));
 		unregister_chrdev(adp->chd_dec_major, CRYSTALHD_API_NAME);
 		BCMLOG(BCMLOG_INFO, "released api device - %d\n",
@@ -429,7 +430,7 @@ static void __devexit chd_dec_release_chdev(struct crystalhd_adp *adp)
 	}
 	adp->chd_dec_major = 0;
 
-	
+	/* Clear iodata pool.. */
 	do {
 		temp = chd_dec_alloc_iodata(adp, 0);
 		kfree(temp);
@@ -573,10 +574,10 @@ static int __devinit chd_dec_pci_probe(struct pci_dev *pdev,
 	pinfo->present	= 1;
 	pinfo->drv_data = entry->driver_data;
 
-	
+	/* Setup adapter level lock.. */
 	spin_lock_init(&pinfo->lock);
 
-	
+	/* setup api stuff.. */
 	chd_dec_init_chdev(pinfo);
 	rc = chd_dec_enable_int(pinfo);
 	if (rc) {
@@ -586,7 +587,7 @@ static int __devinit chd_dec_pci_probe(struct pci_dev *pdev,
 		goto err;
 	}
 
-	
+	/* Set dma mask... */
 	if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(64))) {
 		pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64));
 		pinfo->dmabits = 64;
@@ -650,7 +651,7 @@ int chd_dec_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 	chd_dec_disable_int(adp);
 	pci_save_state(pdev);
 
-	
+	/* Disable IO/bus master/irq router */
 	pci_disable_device(pdev);
 	pci_set_power_state(pdev, pci_choose_state(pdev, state));
 	return 0;
@@ -671,7 +672,7 @@ int chd_dec_pci_resume(struct pci_dev *pdev)
 	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
 
-	
+	/* device's irq possibly is changed, driver should take care */
 	if (pci_enable_device(pdev)) {
 		BCMLOG_ERR("Failed to enable PCI device\n");
 		return 1;

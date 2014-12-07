@@ -10,6 +10,11 @@
 #include <linux/init.h>
 #include <linux/highmem.h>
 
+/*
+ * ARMv3 optimised copy_user_highpage
+ *
+ * FIXME: do we need to handle cache stuff...
+ */
 static void __naked
 v3_copy_user_page(void *kto, const void *kfrom)
 {
@@ -44,6 +49,11 @@ void v3_copy_user_highpage(struct page *to, struct page *from,
 	kunmap_atomic(kto);
 }
 
+/*
+ * ARMv3 optimised clear_user_page
+ *
+ * FIXME: do we need to handle cache stuff...
+ */
 void v3_clear_user_highpage(struct page *page, unsigned long vaddr)
 {
 	void *ptr, *kaddr = kmap_atomic(page);

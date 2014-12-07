@@ -24,24 +24,26 @@
 #include "global.h"
 
 static const struct IODATA common_init_data[] = {
-	
+/*  Index, Mask, Value */
+	/* Set panel power sequence timing */
 	{0x10, 0xC0, 0x00},
-	
+	/* T1: VDD on - Data on. Each increment is 1 ms. (50ms = 031h) */
 	{0x0B, 0xFF, 0x40},
-	
+	/* T2: Data on - Backlight on. Each increment is 2 ms. (210ms = 068h) */
 	{0x0C, 0xFF, 0x31},
-	
+	/* T3: Backlight off -Data off. Each increment is 2 ms. (210ms = 068h)*/
 	{0x0D, 0xFF, 0x31},
-	
+	/* T4: Data off - VDD off. Each increment is 1 ms. (50ms = 031h) */
 	{0x0E, 0xFF, 0x68},
-	
+	/* T5: VDD off - VDD on. Each increment is 100 ms. (500ms = 04h) */
 	{0x0F, 0xFF, 0x68},
-	
+	/* LVDS output power up */
 	{0x09, 0xA0, 0xA0},
-	
+	/* turn on back light */
 	{0x10, 0x33, 0x13}
 };
 
+/* Index, Mask, Value */
 static const struct IODATA dual_channel_enable_data = {0x08, 0xF0, 0xE0};
 static const struct IODATA single_channel_enable_data = {0x08, 0xF0, 0x00};
 static const struct IODATA dithering_enable_data = {0x0A, 0x70, 0x50};
@@ -80,13 +82,13 @@ void viafb_init_lvds_vt1636(struct lvds_setting_information
 {
 	int reg_num, i;
 
-	
+	/* Common settings: */
 	reg_num = ARRAY_SIZE(common_init_data);
 	for (i = 0; i < reg_num; i++)
 		viafb_gpio_i2c_write_mask_lvds(plvds_setting_info,
 			plvds_chip_info, common_init_data[i]);
 
-	
+	/* Input Data Mode Select */
 	if (plvds_setting_info->device_lcd_dualedge)
 		viafb_gpio_i2c_write_mask_lvds(plvds_setting_info,
 			plvds_chip_info, dual_channel_enable_data);
@@ -124,11 +126,11 @@ bool viafb_lvds_identify_vt1636(u8 i2c_adapter)
 
 	DEBUG_MSG(KERN_INFO "viafb_lvds_identify_vt1636.\n");
 
-	
+	/* Sense VT1636 LVDS Transmiter */
 	viaparinfo->chip_info->lvds_chip_info.lvds_chip_slave_addr =
 		VT1636_LVDS_I2C_ADDR;
 
-	
+	/* Check vendor ID first: */
 	if (viafb_i2c_readbyte(i2c_adapter, VT1636_LVDS_I2C_ADDR,
 					0x00, &Buffer[0]))
 		return false;
@@ -137,7 +139,7 @@ bool viafb_lvds_identify_vt1636(u8 i2c_adapter)
 	if (!((Buffer[0] == 0x06) && (Buffer[1] == 0x11)))
 		return false;
 
-	
+	/* Check Chip ID: */
 	viafb_i2c_readbyte(i2c_adapter, VT1636_LVDS_I2C_ADDR, 0x02, &Buffer[0]);
 	viafb_i2c_readbyte(i2c_adapter, VT1636_LVDS_I2C_ADDR, 0x03, &Buffer[1]);
 	if ((Buffer[0] == 0x45) && (Buffer[1] == 0x33)) {
@@ -194,12 +196,12 @@ void viafb_vt1636_patch_skew_on_vt3324(
 
 	DEBUG_MSG(KERN_INFO "viafb_vt1636_patch_skew_on_vt3324.\n");
 
-	
+	/* Graphics DPA settings: */
 	index = get_clk_range_index(plvds_setting_info->vclk);
 	viafb_set_dpa_gfx(plvds_chip_info->output_interface,
 		    &GFX_DPA_SETTING_TBL_VT3324[index]);
 
-	
+	/* LVDS Transmitter DPA settings: */
 	if (plvds_setting_info->lcd_panel_hres == 1600 &&
 		plvds_setting_info->lcd_panel_vres == 1200)
 		pdpa = &dpa_16x12;
@@ -218,12 +220,12 @@ void viafb_vt1636_patch_skew_on_vt3327(
 
 	DEBUG_MSG(KERN_INFO "viafb_vt1636_patch_skew_on_vt3327.\n");
 
-	
+	/* Graphics DPA settings: */
 	index = get_clk_range_index(plvds_setting_info->vclk);
 	viafb_set_dpa_gfx(plvds_chip_info->output_interface,
 		    &GFX_DPA_SETTING_TBL_VT3327[index]);
 
-	
+	/* LVDS Transmitter DPA settings: */
 	set_dpa_vt1636(plvds_setting_info, plvds_chip_info, &dpa);
 }
 
@@ -235,7 +237,7 @@ void viafb_vt1636_patch_skew_on_vt3364(
 
 	DEBUG_MSG(KERN_INFO "viafb_vt1636_patch_skew_on_vt3364.\n");
 
-	
+	/* Graphics DPA settings: */
 	index = get_clk_range_index(plvds_setting_info->vclk);
 	viafb_set_dpa_gfx(plvds_chip_info->output_interface,
 		    &GFX_DPA_SETTING_TBL_VT3364[index]);

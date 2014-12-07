@@ -19,8 +19,8 @@ struct cx_id_s {
 
 struct cx_dev {
 	struct cx_id_s cx_id;
-	int bt;				
-	void *soft;			
+	int bt;				/* board/blade type */
+	void *soft;			/* driver specific */
 	struct hubdev_info *hubdev;
 	struct device dev;
 	struct cx_drv *driver;
@@ -39,6 +39,7 @@ struct cx_drv {
 	int (*remove) (struct cx_dev * dev);
 };
 
+/* create DMA address by stripping AS bits */
 #define TIOCX_DMA_ADDR(a) (u64)((u64)(a) & 0xffffcfffffffffUL)
 
 #define TIOCX_TO_TIOCX_DMA_ADDR(a) (u64)(((u64)(a) & 0xfffffffff) |  \
@@ -47,6 +48,7 @@ struct cx_drv {
 #define TIO_CE_ASIC_PARTNUM 0xce00
 #define TIOCX_CORELET 3
 
+/* These are taken from tio_mmr_as.h */
 #define TIO_ICE_FRZ_CFG               TIO_MMR_ADDR_MOD(0x00000000b0008100UL)
 #define TIO_ICE_PMI_TX_CFG            TIO_MMR_ADDR_MOD(0x00000000b000b100UL)
 #define TIO_ICE_PMI_TX_DYN_CREDIT_STAT_CB3 TIO_MMR_ADDR_MOD(0x00000000b000be18UL)
@@ -66,5 +68,5 @@ extern u64 tiocx_swin_base(int nasid);
 extern void tiocx_mmr_store(int nasid, u64 offset, u64 value);
 extern u64 tiocx_mmr_load(int nasid, u64 offset);
 
-#endif				
-#endif				
+#endif				//  __KERNEL__
+#endif				// _ASM_IA64_SN_TIO_TIOCX__

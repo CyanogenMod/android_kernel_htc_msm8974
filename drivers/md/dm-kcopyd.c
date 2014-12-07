@@ -32,6 +32,10 @@
 #define MIN_JOBS	8
 #define RESERVE_PAGES	(DIV_ROUND_UP(SUB_JOB_SIZE << SECTOR_SHIFT, PAGE_SIZE))
 
+/*-----------------------------------------------------------------
+ * Each kcopyd client has its own little pool of preallocated
+ * pages for kcopyd io.
+ *---------------------------------------------------------------*/
 struct dm_kcopyd_client {
 	struct page_list *pages;
 	unsigned nr_reserved_pages;
@@ -47,6 +51,15 @@ struct dm_kcopyd_client {
 	struct workqueue_struct *kcopyd_wq;
 	struct work_struct kcopyd_work;
 
+/*
+ * We maintain three lists of jobs:
+ *
+ * i)   jobs waiting for pages
+ * ii)  jobs that have pages, and are waiting for the io to be issued.
+ * iii) jobs that have completed.
+ *
+ * All three of these are protected by job_lock.
+ */
 	spinlock_t job_lock;
 	struct list_head complete_jobs;
 	struct list_head io_jobs;
@@ -60,6 +73,9 @@ static void wake(struct dm_kcopyd_client *kc)
 	queue_work(kc->kcopyd_wq, &kc->kcopyd_work);
 }
 
+/*
+ * Obtain one page for the use of kcopyd.
+ */
 static struct page_list *alloc_pl(gfp_t gfp)
 {
 	struct page_list *pl;
@@ -83,6 +99,10 @@ static void free_pl(struct page_list *pl)
 	kfree(pl);
 }
 
+/*
+ * Add the provided pages to a client's free page list, releasing
+ * back to the system any beyond the reserved_pages limit.
+ */
 static void kcopyd_put_pages(struct dm_kcopyd_client *kc, struct page_list *pl)
 {
 	struct page_list *next;
@@ -112,7 +132,7 @@ static int kcopyd_get_pages(struct dm_kcopyd_client *kc,
 	do {
 		pl = alloc_pl(__GFP_NOWARN | __GFP_NORETRY);
 		if (unlikely(!pl)) {
-			
+			/* Use reserved pages */
 			pl = kc->pages;
 			if (unlikely(!pl))
 				goto out_of_memory;
@@ -131,6 +151,9 @@ out_of_memory:
 	return -ENOMEM;
 }
 
+/*
+ * These three functions resize the page pool.
+ */
 static void drop_pages(struct page_list *pl)
 {
 	struct page_list *next;
@@ -142,6 +165,9 @@ static void drop_pages(struct page_list *pl)
 	}
 }
 
+/*
+ * Allocate and reserve nr_pages for the use of a specific client.
+ */
 static int client_reserve_pages(struct dm_kcopyd_client *kc, unsigned nr_pages)
 {
 	unsigned i;
@@ -172,25 +198,47 @@ static void client_free_pages(struct dm_kcopyd_client *kc)
 	kc->nr_free_pages = kc->nr_reserved_pages = 0;
 }
 
+/*-----------------------------------------------------------------
+ * kcopyd_jobs need to be allocated by the *clients* of kcopyd,
+ * for this reason we use a mempool to prevent the client from
+ * ever having to do io (which could cause a deadlock).
+ *---------------------------------------------------------------*/
 struct kcopyd_job {
 	struct dm_kcopyd_client *kc;
 	struct list_head list;
 	unsigned long flags;
 
+	/*
+	 * Error state of the job.
+	 */
 	int read_err;
 	unsigned long write_err;
 
+	/*
+	 * Either READ or WRITE
+	 */
 	int rw;
 	struct dm_io_region source;
 
+	/*
+	 * The destinations for the transfer.
+	 */
 	unsigned int num_dests;
 	struct dm_io_region dests[DM_KCOPYD_MAX_REGIONS];
 
 	struct page_list *pages;
 
+	/*
+	 * Set this to ensure you are notified when the job has
+	 * completed.  'context' is for callback to use.
+	 */
 	dm_kcopyd_notify_fn fn;
 	void *context;
 
+	/*
+	 * These fields are only used if the job has been split
+	 * into more manageable parts.
+	 */
 	struct mutex lock;
 	atomic_t sub_jobs;
 	sector_t progress;
@@ -220,6 +268,10 @@ void dm_kcopyd_exit(void)
 	_job_cache = NULL;
 }
 
+/*
+ * Functions to push and pop a job onto the head of a given job
+ * list.
+ */
 static struct kcopyd_job *pop(struct list_head *jobs,
 			      struct dm_kcopyd_client *kc)
 {
@@ -258,6 +310,15 @@ static void push_head(struct list_head *jobs, struct kcopyd_job *job)
 	spin_unlock_irqrestore(&kc->job_lock, flags);
 }
 
+/*
+ * These three functions process 1 item from the corresponding
+ * job list.
+ *
+ * They return:
+ * < 0: error
+ *   0: success
+ * > 0: can't process yet.
+ */
 static int run_complete_job(struct kcopyd_job *job)
 {
 	void *context = job->context;
@@ -268,6 +329,10 @@ static int run_complete_job(struct kcopyd_job *job)
 
 	if (job->pages && job->pages != &zero_page_list)
 		kcopyd_put_pages(kc, job->pages);
+	/*
+	 * If this is the master job, the sub jobs have already
+	 * completed so we can free everything.
+	 */
 	if (job->master_job == job)
 		mempool_free(job, kc->job_pool);
 	fn(read_err, write_err, context);
@@ -307,6 +372,10 @@ static void complete_io(unsigned long error, void *context)
 	wake(kc);
 }
 
+/*
+ * Request io on as many buffer heads as we can currently get for
+ * a particular job.
+ */
 static int run_io_job(struct kcopyd_job *job)
 {
 	int r;
@@ -335,18 +404,22 @@ static int run_pages_job(struct kcopyd_job *job)
 
 	r = kcopyd_get_pages(job->kc, nr_pages, &job->pages);
 	if (!r) {
-		
+		/* this job is ready for io */
 		push(&job->kc->io_jobs, job);
 		return 0;
 	}
 
 	if (r == -ENOMEM)
-		
+		/* can't complete now */
 		return 1;
 
 	return r;
 }
 
+/*
+ * Run through a list for as long as possible.  Returns the count
+ * of successful jobs.
+ */
 static int process_jobs(struct list_head *jobs, struct dm_kcopyd_client *kc,
 			int (*fn) (struct kcopyd_job *))
 {
@@ -358,7 +431,7 @@ static int process_jobs(struct list_head *jobs, struct dm_kcopyd_client *kc,
 		r = fn(job);
 
 		if (r < 0) {
-			
+			/* error this rogue job */
 			if (job->rw == WRITE)
 				job->write_err = (unsigned long) -1L;
 			else
@@ -368,6 +441,10 @@ static int process_jobs(struct list_head *jobs, struct dm_kcopyd_client *kc,
 		}
 
 		if (r > 0) {
+			/*
+			 * We couldn't service this job ATM, so
+			 * push this job back onto the list.
+			 */
 			push_head(jobs, job);
 			break;
 		}
@@ -378,12 +455,22 @@ static int process_jobs(struct list_head *jobs, struct dm_kcopyd_client *kc,
 	return count;
 }
 
+/*
+ * kcopyd does this every time it's woken up.
+ */
 static void do_work(struct work_struct *work)
 {
 	struct dm_kcopyd_client *kc = container_of(work,
 					struct dm_kcopyd_client, kcopyd_work);
 	struct blk_plug plug;
 
+	/*
+	 * The order that these are called is *very* important.
+	 * complete jobs can free some pages for pages jobs.
+	 * Pages jobs when successful will jump onto the io jobs
+	 * list.  io jobs call wake when they complete and it all
+	 * starts again.
+	 */
 	blk_start_plug(&plug);
 	process_jobs(&kc->complete_jobs, kc, run_complete_job);
 	process_jobs(&kc->pages_jobs, kc, run_pages_job);
@@ -391,6 +478,11 @@ static void do_work(struct work_struct *work)
 	blk_finish_plug(&plug);
 }
 
+/*
+ * If we are copying a small region we just dispatch a single job
+ * to do the copy, otherwise the io has to be split up into many
+ * jobs.
+ */
 static void dispatch_job(struct kcopyd_job *job)
 {
 	struct dm_kcopyd_client *kc = job->kc;
@@ -407,7 +499,7 @@ static void dispatch_job(struct kcopyd_job *job)
 static void segment_complete(int read_err, unsigned long write_err,
 			     void *context)
 {
-	
+	/* FIXME: tidy this function */
 	sector_t progress = 0;
 	sector_t count = 0;
 	struct kcopyd_job *sub_job = (struct kcopyd_job *) context;
@@ -416,16 +508,19 @@ static void segment_complete(int read_err, unsigned long write_err,
 
 	mutex_lock(&job->lock);
 
-	
+	/* update the error */
 	if (read_err)
 		job->read_err = 1;
 
 	if (write_err)
 		job->write_err |= write_err;
 
+	/*
+	 * Only dispatch more work if there hasn't been an error.
+	 */
 	if ((!job->read_err && !job->write_err) ||
 	    test_bit(DM_KCOPYD_IGNORE_ERROR, &job->flags)) {
-		
+		/* get the next chunk of work */
 		progress = job->progress;
 		count = job->source.count - progress;
 		if (count) {
@@ -455,11 +550,23 @@ static void segment_complete(int read_err, unsigned long write_err,
 
 	} else if (atomic_dec_and_test(&job->sub_jobs)) {
 
+		/*
+		 * Queue the completion callback to the kcopyd thread.
+		 *
+		 * Some callers assume that all the completions are called
+		 * from a single thread and don't race with each other.
+		 *
+		 * We must not call the callback directly here because this
+		 * code may not be executing in the thread.
+		 */
 		push(&kc->complete_jobs, job);
 		wake(kc);
 	}
 }
 
+/*
+ * Create some sub jobs to share the work between them.
+ */
 static void split_job(struct kcopyd_job *master_job)
 {
 	int i;
@@ -479,8 +586,15 @@ int dm_kcopyd_copy(struct dm_kcopyd_client *kc, struct dm_io_region *from,
 {
 	struct kcopyd_job *job;
 
+	/*
+	 * Allocate an array of jobs consisting of one master job
+	 * followed by SPLIT_COUNT sub jobs.
+	 */
 	job = mempool_alloc(kc->job_pool, GFP_NOIO);
 
+	/*
+	 * set up for the read.
+	 */
 	job->kc = kc;
 	job->flags = flags;
 	job->read_err = 0;
@@ -556,14 +670,21 @@ void dm_kcopyd_do_callback(void *j, int read_err, unsigned long write_err)
 }
 EXPORT_SYMBOL(dm_kcopyd_do_callback);
 
+/*
+ * Cancels a kcopyd job, eg. someone might be deactivating a
+ * mirror.
+ */
 #if 0
 int kcopyd_cancel(struct kcopyd_job *job, int block)
 {
-	
+	/* FIXME: finish */
 	return -1;
 }
-#endif  
+#endif  /*  0  */
 
+/*-----------------------------------------------------------------
+ * Client setup
+ *---------------------------------------------------------------*/
 struct dm_kcopyd_client *dm_kcopyd_client_create(void)
 {
 	int r = -ENOMEM;
@@ -620,7 +741,7 @@ EXPORT_SYMBOL(dm_kcopyd_client_create);
 
 void dm_kcopyd_client_destroy(struct dm_kcopyd_client *kc)
 {
-	
+	/* Wait for completion of all jobs submitted by this client. */
 	wait_event(kc->destroyq, !atomic_read(&kc->nr_jobs));
 
 	BUG_ON(!list_empty(&kc->complete_jobs));

@@ -4,6 +4,10 @@
  * COPYRIGHT (C) by L. Wassmann <LW@KARO-electronics.de>
  */
 
+/* ------------------------------------------------------------------------- */
+/*
+ * Platform specific compile time options
+ */
 #if defined(CONFIG_BLACKFIN)
 
 #include <linux/io.h>
@@ -49,6 +53,7 @@ static inline void delayed_insw(unsigned int addr, void *buf, int len)
 
 #define USE_32BIT		0
 
+/* These options are mutually eclusive */
 #define USE_PLATFORM_DELAY	0
 #define USE_NDELAY		0
 
@@ -57,10 +62,12 @@ static inline void delayed_insw(unsigned int addr, void *buf, int len)
 #endif
 
 
+/* ------------------------------------------------------------------------- */
 
 #define USB_RESET_WIDTH			50
 #define MAX_XFER_SIZE			1023
 
+/* Buffer sizes */
 #define ISP1362_BUF_SIZE		4096
 #define ISP1362_ISTL_BUFSIZE		512
 #define ISP1362_INTL_BLKSIZE		64
@@ -105,6 +112,13 @@ static isp1362_reg_t ISP1362_REG_##name = addr
 #define REG_WIDTH_TEST(r, w)		do {} while (0)
 #endif
 
+/* OHCI compatible registers */
+/*
+ * Note: Some of the ISP1362 'OHCI' registers implement only
+ * a subset of the bits defined in the OHCI spec.
+ *
+ * Bitmasks for the individual bits of these registers are defined in "ohci.h"
+ */
 ISP1362_REG(HCREVISION,	0x00,	REG_WIDTH_32,	REG_ACCESS_R);
 ISP1362_REG(HCCONTROL,	0x01,	REG_WIDTH_32,	REG_ACCESS_RW);
 ISP1362_REG(HCCMDSTAT,	0x02,	REG_WIDTH_32,	REG_ACCESS_RW);
@@ -121,6 +135,7 @@ ISP1362_REG(HCRHSTATUS,	0x14,	REG_WIDTH_32,	REG_ACCESS_RW);
 ISP1362_REG(HCRHPORT1,	0x15,	REG_WIDTH_32,	REG_ACCESS_RW);
 ISP1362_REG(HCRHPORT2,	0x16,	REG_WIDTH_32,	REG_ACCESS_RW);
 
+/* Philips ISP1362 specific registers */
 ISP1362_REG(HCHWCFG,	0x20,	REG_WIDTH_16,	REG_ACCESS_RW);
 #define HCHWCFG_DISABLE_SUSPEND	(1 << 15)
 #define HCHWCFG_GLOBAL_PWRDOWN	(1 << 14)
@@ -171,6 +186,7 @@ ISP1362_REG(HCuPINT,	0x24,	REG_WIDTH_16,	REG_ACCESS_RW);
 #define HCuPINT_OTG		(1 << 9)
 
 ISP1362_REG(HCuPINTENB,	0x25,	REG_WIDTH_16,	REG_ACCESS_RW);
+/* same bit definitions apply as for HCuPINT */
 
 ISP1362_REG(HCCHIPID,	0x27,	REG_WIDTH_16,	REG_ACCESS_R);
 #define HCCHIPID_MASK		0xff00
@@ -232,6 +248,7 @@ ISP1362_REG(OTGINTENB,	0x69,	REG_WIDTH_16,	REG_ACCESS_RW);
 ISP1362_REG(OTGTIMER,	0x6A,	REG_WIDTH_16,	REG_ACCESS_RW);
 ISP1362_REG(OTGALTTMR,	0x6C,	REG_WIDTH_16,	REG_ACCESS_RW);
 
+/* Philips transfer descriptor, cpu-endian */
 struct ptd {
 	u16 count;
 #define	PTD_COUNT_MSK	(0x3ff << 0)
@@ -251,12 +268,18 @@ struct ptd {
 #define	PTD_DIR_IN	(2)
 	u16 faddr;
 #define	PTD_FA_MSK	(0x7f << 0)
+/* PTD Byte 7: [StartingFrame (if ISO PTD) | StartingFrame[0..4], PollingRate[0..2] (if INT PTD)] */
 #define PTD_SF_ISO_MSK	(0xff << 8)
 #define PTD_SF_INT_MSK	(0x1f << 8)
 #define PTD_PR_MSK	(0x07 << 13)
 } __attribute__ ((packed, aligned(2)));
 #define PTD_HEADER_SIZE sizeof(struct ptd)
 
+/* ------------------------------------------------------------------------- */
+/* Copied from ohci.h: */
+/*
+ * Hardware transfer status codes -- CC from PTD
+ */
 #define PTD_CC_NOERROR      0x00
 #define PTD_CC_CRC          0x01
 #define PTD_CC_BITSTUFFING  0x02
@@ -267,91 +290,111 @@ struct ptd {
 #define PTD_UNEXPECTEDPID   0x07
 #define PTD_DATAOVERRUN     0x08
 #define PTD_DATAUNDERRUN    0x09
-    
+    /* 0x0A, 0x0B reserved for hardware */
 #define PTD_BUFFEROVERRUN   0x0C
 #define PTD_BUFFERUNDERRUN  0x0D
-    
+    /* 0x0E, 0x0F reserved for HCD */
 #define PTD_NOTACCESSED     0x0F
 
 
+/* map OHCI TD status codes (CC) to errno values */
 static const int cc_to_error[16] = {
-	               0,
-	               -EILSEQ,
-	               -EPROTO,
-	               -EILSEQ,
-	               -EPIPE,
-	               -ETIMEDOUT,
-	               -EPROTO,
-	               -EPROTO,
-	               -EOVERFLOW,
-	               -EREMOTEIO,
-	               -EIO,
-	               -EIO,
-	               -ECOMM,
-	               -ENOSR,
-	               -EALREADY,
-	               -EALREADY
+	/* No  Error  */               0,
+	/* CRC Error  */               -EILSEQ,
+	/* Bit Stuff  */               -EPROTO,
+	/* Data Togg  */               -EILSEQ,
+	/* Stall      */               -EPIPE,
+	/* DevNotResp */               -ETIMEDOUT,
+	/* PIDCheck   */               -EPROTO,
+	/* UnExpPID   */               -EPROTO,
+	/* DataOver   */               -EOVERFLOW,
+	/* DataUnder  */               -EREMOTEIO,
+	/* (for hw)   */               -EIO,
+	/* (for hw)   */               -EIO,
+	/* BufferOver */               -ECOMM,
+	/* BuffUnder  */               -ENOSR,
+	/* (for HCD)  */               -EALREADY,
+	/* (for HCD)  */               -EALREADY
 };
 
 
-#define OHCI_CTRL_HCFS	(3 << 6)	
-#define OHCI_CTRL_RWC	(1 << 9)	
-#define OHCI_CTRL_RWE	(1 << 10)	
+/*
+ * HcControl (control) register masks
+ */
+#define OHCI_CTRL_HCFS	(3 << 6)	/* host controller functional state */
+#define OHCI_CTRL_RWC	(1 << 9)	/* remote wakeup connected */
+#define OHCI_CTRL_RWE	(1 << 10)	/* remote wakeup enable */
 
+/* pre-shifted values for HCFS */
 #	define OHCI_USB_RESET	(0 << 6)
 #	define OHCI_USB_RESUME	(1 << 6)
 #	define OHCI_USB_OPER	(2 << 6)
 #	define OHCI_USB_SUSPEND	(3 << 6)
 
-#define OHCI_HCR	(1 << 0)	
-#define OHCI_SOC  	(3 << 16)	
+/*
+ * HcCommandStatus (cmdstatus) register masks
+ */
+#define OHCI_HCR	(1 << 0)	/* host controller reset */
+#define OHCI_SOC  	(3 << 16)	/* scheduling overrun count */
 
-#define OHCI_INTR_SO	(1 << 0)	
-#define OHCI_INTR_WDH	(1 << 1)	
-#define OHCI_INTR_SF	(1 << 2)	
-#define OHCI_INTR_RD	(1 << 3)	
-#define OHCI_INTR_UE	(1 << 4)	
-#define OHCI_INTR_FNO	(1 << 5)	
-#define OHCI_INTR_RHSC	(1 << 6)	
-#define OHCI_INTR_OC	(1 << 30)	
-#define OHCI_INTR_MIE	(1 << 31)	
+/*
+ * masks used with interrupt registers:
+ * HcInterruptStatus (intrstatus)
+ * HcInterruptEnable (intrenable)
+ * HcInterruptDisable (intrdisable)
+ */
+#define OHCI_INTR_SO	(1 << 0)	/* scheduling overrun */
+#define OHCI_INTR_WDH	(1 << 1)	/* writeback of done_head */
+#define OHCI_INTR_SF	(1 << 2)	/* start frame */
+#define OHCI_INTR_RD	(1 << 3)	/* resume detect */
+#define OHCI_INTR_UE	(1 << 4)	/* unrecoverable error */
+#define OHCI_INTR_FNO	(1 << 5)	/* frame number overflow */
+#define OHCI_INTR_RHSC	(1 << 6)	/* root hub status change */
+#define OHCI_INTR_OC	(1 << 30)	/* ownership change */
+#define OHCI_INTR_MIE	(1 << 31)	/* master interrupt enable */
 
-#define RH_PS_CCS            0x00000001   	
-#define RH_PS_PES            0x00000002   	
-#define RH_PS_PSS            0x00000004   	
-#define RH_PS_POCI           0x00000008   	
-#define RH_PS_PRS            0x00000010  	
-#define RH_PS_PPS            0x00000100   	
-#define RH_PS_LSDA           0x00000200    	
-#define RH_PS_CSC            0x00010000 	
-#define RH_PS_PESC           0x00020000   	
-#define RH_PS_PSSC           0x00040000    	
-#define RH_PS_OCIC           0x00080000    	
-#define RH_PS_PRSC           0x00100000   	
+/* roothub.portstatus [i] bits */
+#define RH_PS_CCS            0x00000001   	/* current connect status */
+#define RH_PS_PES            0x00000002   	/* port enable status*/
+#define RH_PS_PSS            0x00000004   	/* port suspend status */
+#define RH_PS_POCI           0x00000008   	/* port over current indicator */
+#define RH_PS_PRS            0x00000010  	/* port reset status */
+#define RH_PS_PPS            0x00000100   	/* port power status */
+#define RH_PS_LSDA           0x00000200    	/* low speed device attached */
+#define RH_PS_CSC            0x00010000 	/* connect status change */
+#define RH_PS_PESC           0x00020000   	/* port enable status change */
+#define RH_PS_PSSC           0x00040000    	/* port suspend status change */
+#define RH_PS_OCIC           0x00080000    	/* over current indicator change */
+#define RH_PS_PRSC           0x00100000   	/* port reset status change */
 
-#define RH_HS_LPS	     0x00000001		
-#define RH_HS_OCI	     0x00000002		
-#define RH_HS_DRWE	     0x00008000		
-#define RH_HS_LPSC	     0x00010000		
-#define RH_HS_OCIC	     0x00020000		
-#define RH_HS_CRWE	     0x80000000		
+/* roothub.status bits */
+#define RH_HS_LPS	     0x00000001		/* local power status */
+#define RH_HS_OCI	     0x00000002		/* over current indicator */
+#define RH_HS_DRWE	     0x00008000		/* device remote wakeup enable */
+#define RH_HS_LPSC	     0x00010000		/* local power status change */
+#define RH_HS_OCIC	     0x00020000		/* over current indicator change */
+#define RH_HS_CRWE	     0x80000000		/* clear remote wakeup enable */
 
-#define RH_B_DR		0x0000ffff		
-#define RH_B_PPCM	0xffff0000		
+/* roothub.b masks */
+#define RH_B_DR		0x0000ffff		/* device removable flags */
+#define RH_B_PPCM	0xffff0000		/* port power control mask */
 
-#define	RH_A_NDP	(0xff << 0)		
-#define	RH_A_PSM	(1 << 8)		
-#define	RH_A_NPS	(1 << 9)		
-#define	RH_A_DT		(1 << 10)		
-#define	RH_A_OCPM	(1 << 11)		
-#define	RH_A_NOCP	(1 << 12)		
-#define	RH_A_POTPGT	(0xff << 24)		
+/* roothub.a masks */
+#define	RH_A_NDP	(0xff << 0)		/* number of downstream ports */
+#define	RH_A_PSM	(1 << 8)		/* power switching mode */
+#define	RH_A_NPS	(1 << 9)		/* no power switching */
+#define	RH_A_DT		(1 << 10)		/* device type (mbz) */
+#define	RH_A_OCPM	(1 << 11)		/* over current protection mode */
+#define	RH_A_NOCP	(1 << 12)		/* no over current protection */
+#define	RH_A_POTPGT	(0xff << 24)		/* power on to power good time */
 
-#define	FI			0x2edf		
+#define	FI			0x2edf		/* 12000 bits per frame (-1) */
 #define	FSMP(fi) 		(0x7fff & ((6 * ((fi) - 210)) / 7))
-#define LSTHRESH		0x628		
+#define LSTHRESH		0x628		/* lowspeed bit threshold */
 
+/* ------------------------------------------------------------------------- */
 
+/* PTD accessor macros. */
 #define PTD_GET_COUNT(p)	(((p)->count & PTD_COUNT_MSK) >> 0)
 #define PTD_COUNT(v)		(((v) << 0) & PTD_COUNT_MSK)
 #define PTD_GET_TOGGLE(p)	(((p)->count & PTD_TOGGLE_MSK) >> 10)
@@ -381,56 +424,58 @@ static const int cc_to_error[16] = {
 #define PTD_GET_PR(p)		(((p)->faddr & PTD_PR_MSK) >> 13)
 #define PTD_PR(v)		(((v) << 13) & PTD_PR_MSK)
 
-#define	LOG2_PERIODIC_SIZE	5	
+#define	LOG2_PERIODIC_SIZE	5	/* arbitrary; this matches OHCI */
 #define	PERIODIC_SIZE		(1 << LOG2_PERIODIC_SIZE)
 
 struct isp1362_ep {
 	struct usb_host_endpoint *hep;
 	struct usb_device	*udev;
 
-	
+	/* philips transfer descriptor */
 	struct ptd		ptd;
 
 	u8			maxpacket;
 	u8			epnum;
 	u8			nextpid;
 	u16			error_count;
-	u16			length;		
-	s16			ptd_offset;	
+	u16			length;		/* of current packet */
+	s16			ptd_offset;	/* buffer offset in ISP1362 where
+						   PTD has been stored
+						   (for access thru HCDIRDATA) */
 	int			ptd_index;
 	int num_ptds;
-	void 			*data;		
-	
+	void 			*data;		/* to databuf */
+	/* queue of active EPs (the ones transmitted to the chip) */
 	struct list_head	active;
 
-	
+	/* periodic schedule */
 	u8			branch;
 	u16			interval;
 	u16			load;
 	u16			last_iso;
 
-	
-	struct list_head	schedule;	
+	/* async schedule */
+	struct list_head	schedule;	/* list of all EPs that need processing */
 	struct list_head	remove_list;
 	int			num_req;
 };
 
 struct isp1362_ep_queue {
-	struct list_head	active;		
+	struct list_head	active;		/* list of PTDs currently processed by HC */
 	atomic_t		finishing;
 	unsigned long		buf_map;
 	unsigned long		skip_map;
 	int			free_ptd;
 	u16			buf_start;
 	u16			buf_size;
-	u16			blk_size;	
+	u16			blk_size;	/* PTD buffer block size for ATL and INTL */
 	u8			buf_count;
 	u8			buf_avail;
 	char			name[16];
 
-	
-	u8			stat_maxptds;	
-	u8			ptd_count;	
+	/* for statistical tracking */
+	u8			stat_maxptds;	/* Max # of ptds seen simultaneously in fifo */
+	u8			ptd_count;	/* number of ptds submitted to this queue */
 };
 
 struct isp1362_hcd {
@@ -443,39 +488,39 @@ struct isp1362_hcd {
 	struct proc_dir_entry	*pde;
 	unsigned long		stat1, stat2, stat4, stat8, stat16;
 
-	
-	u32			intenb;		
-	u16			irqenb;		
+	/* HC registers */
+	u32			intenb;		/* "OHCI" interrupts */
+	u16			irqenb;		/* uP interrupts */
 
-	
+	/* Root hub registers */
 	u32			rhdesca;
 	u32			rhdescb;
 	u32			rhstatus;
 	u32			rhport[MAX_ROOT_PORTS];
 	unsigned long		next_statechange;
 
-	
+	/* HC control reg shadow copy */
 	u32			hc_control;
 
-	
+	/* async schedule: control, bulk */
 	struct list_head	async;
 
-	
+	/* periodic schedule: int */
 	u16			load[PERIODIC_SIZE];
 	struct list_head	periodic;
 	u16			fmindex;
 
-	
+	/* periodic schedule: isochronous */
 	struct list_head	isoc;
 	unsigned int		istl_flip:1;
 	unsigned int		irq_active:1;
 
-	
+	/* Schedules for the current frame */
 	struct isp1362_ep_queue atl_queue;
 	struct isp1362_ep_queue intl_queue;
 	struct isp1362_ep_queue istl_queue[2];
 
-	
+	/* list of PTDs retrieved from HC */
 	struct list_head	remove_list;
 	enum {
 		ISP1362_INT_SOF,
@@ -538,6 +583,9 @@ static inline struct usb_hcd *isp1362_hcd_to_hcd(struct isp1362_hcd *isp1362_hcd
 
 #define frame_before(f1, f2)	((s16)((u16)f1 - (u16)f2) < 0)
 
+/*
+ * ISP1362 HW Interface
+ */
 
 #ifdef ISP1362_DEBUG
 #define DBG(level, fmt...) \
@@ -590,9 +638,14 @@ static inline struct usb_hcd *isp1362_hcd_to_hcd(struct isp1362_hcd *isp1362_hcd
 	container_of(ep->hep->urb_list.next, struct urb, urb_list);	\
 })
 
+/* basic access functions for ISP1362 chip registers */
+/* NOTE: The contents of the address pointer register cannot be read back! The driver must ensure,
+ * that all register accesses are performed with interrupts disabled, since the interrupt
+ * handler has no way of restoring the previous state.
+ */
 static void isp1362_write_addr(struct isp1362_hcd *isp1362_hcd, isp1362_reg_t reg)
 {
-	
+	/*_BUG_ON((reg & ISP1362_REG_WRITE_OFFSET) && !(reg & REG_ACCESS_W));*/
 	REG_ACCESS_TEST(reg);
 	_BUG_ON(!irqs_disabled());
 	DUMMY_DELAY_ACCESS;
@@ -650,6 +703,8 @@ static u32 isp1362_read_data32(struct isp1362_hcd *isp1362_hcd)
 	return val;
 }
 
+/* use readsw/writesw to access the fifo whenever possible */
+/* assume HCDIRDATA or XFERCTR & addr_reg have been set up */
 static void isp1362_read_fifo(struct isp1362_hcd *isp1362_hcd, void *buf, u16 len)
 {
 	u8 *dp = buf;
@@ -694,7 +749,7 @@ static void isp1362_write_fifo(struct isp1362_hcd *isp1362_hcd, void *buf, u16 l
 		return;
 
 	if ((unsigned long)dp & 0x1) {
-		
+		/* not aligned */
 		for (; len > 1; len -= 2) {
 			data = *dp++;
 			data |= *dp++ << 8;
@@ -843,6 +898,9 @@ static void __attribute__((__unused__)) isp1362_show_regs(struct isp1362_hcd *is
 	isp1362_show_reg(isp1362_hcd, HCSCRATCH);
 	isp1362_show_reg(isp1362_hcd, HCBUFSTAT);
 	isp1362_show_reg(isp1362_hcd, HCDIRADDR);
+	/* Access would advance fifo
+	 * isp1362_show_reg(isp1362_hcd, HCDIRDATA);
+	 */
 	isp1362_show_reg(isp1362_hcd, HCISTLBUFSZ);
 	isp1362_show_reg(isp1362_hcd, HCISTLRATE);
 	isp1362_show_reg(isp1362_hcd, HCINTLBUFSZ);
@@ -853,6 +911,9 @@ static void __attribute__((__unused__)) isp1362_show_regs(struct isp1362_hcd *is
 	isp1362_show_reg(isp1362_hcd, HCINTLCURR);
 	isp1362_show_reg(isp1362_hcd, HCATLBUFSZ);
 	isp1362_show_reg(isp1362_hcd, HCATLBLKSZ);
+	/* only valid after ATL_DONE interrupt
+	 * isp1362_show_reg(isp1362_hcd, HCATLDONE);
+	 */
 	isp1362_show_reg(isp1362_hcd, HCATLSKIP);
 	isp1362_show_reg(isp1362_hcd, HCATLLAST);
 	isp1362_show_reg(isp1362_hcd, HCATLCURR);

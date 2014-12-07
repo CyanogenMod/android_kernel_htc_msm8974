@@ -22,6 +22,7 @@
 
 #include <linux/timer.h>
 
+/* Statemachine */
 
 struct FsmInst;
 

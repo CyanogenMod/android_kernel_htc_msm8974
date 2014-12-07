@@ -3,6 +3,17 @@
  *  Copyright (C) 1997 Martin Mares
  */
 
+/*
+ * This file builds a disk-image from three different files:
+ *
+ * - bootsect: exactly 512 bytes of 8086 machine code, loads the rest
+ * - setup: 8086 machine code, sets up system parm
+ * - system: 80386 code for actual system
+ *
+ * It does some checking that all files are of the correct type, and
+ * just writes the result to stdout, removing headers and padding to
+ * the right amount. It also writes some system data to stderr.
+ */
 
 /*
  * Changes by tytso to allow root device specification
@@ -25,6 +36,7 @@
 #define DEFAULT_MAJOR_ROOT 0
 #define DEFAULT_MINOR_ROOT 0
 
+/* Minimal number of setup sectors (see also bootsect.S) */
 #define SETUP_SECTS 4
 
 uint8_t buf[1024];
@@ -105,7 +117,7 @@ int main(int argc, char **argv)
 		die("Write call failed");
 	close(fd);
 
-	
+	/* Copy the setup code */
 	file_open(argv[2]);
 	for (i = 0; (c = read(fd, buf, sizeof(buf))) > 0; i += c)
 		if (write(1, buf, c) != c)
@@ -114,9 +126,9 @@ int main(int argc, char **argv)
 		die("read-error on `setup'");
 	close(fd);
 
-	
+	/* Pad unused space with zeros */
 	setup_sectors = (i + 511) / 512;
-	
+	/* for compatibility with ancient versions of LILO. */
 	if (setup_sectors < SETUP_SECTS)
 		setup_sectors = SETUP_SECTS;
 	fprintf(stderr, "Setup is %d bytes.\n", i);
@@ -136,7 +148,7 @@ int main(int argc, char **argv)
 	sz = sb.st_size;
 	fprintf(stderr, "System is %d kB\n", sz / 1024);
 	sys_size = (sz + 15) / 16;
-	
+	/* 0x28000*16 = 2.5 MB, conservative estimate for the current maximum */
 	if (sys_size > (is_big_kernel ? 0x28000 : DEF_SYSSIZE))
 		die("System is too big. Try using %smodules.",
 			is_big_kernel ? "" : "bzImage or ");
@@ -161,7 +173,7 @@ int main(int argc, char **argv)
 	}
 	close(fd);
 
-	
+	/* Write sizes to the bootsector */
 	if (lseek(1, 497, SEEK_SET) != 497)
 		die("Output: seek failed");
 	buf[0] = setup_sectors;

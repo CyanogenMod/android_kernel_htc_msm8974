@@ -58,7 +58,7 @@ static int bf5xx_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 	struct bf5xx_i2s_port *bf5xx_i2s = sport_handle->private_data;
 	int ret = 0;
 
-	
+	/* interface format:support I2S,slave mode */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		bf5xx_i2s->tcr1 |= TFSR | TCKFE;
@@ -129,6 +129,14 @@ static int bf5xx_i2s_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	if (!bf5xx_i2s->configured) {
+		/*
+		 * TX and RX are not independent,they are enabled at the
+		 * same time, even if only one side is running. So, we
+		 * need to configure both of them at the time when the first
+		 * stream is opened.
+		 *
+		 * CPU DAI:slave mode.
+		 */
 		bf5xx_i2s->configured = 1;
 		ret = sport_config_rx(sport_handle, bf5xx_i2s->rcr1,
 				      bf5xx_i2s->rcr2, 0, 0);
@@ -155,7 +163,7 @@ static void bf5xx_i2s_shutdown(struct snd_pcm_substream *substream,
 	struct bf5xx_i2s_port *bf5xx_i2s = sport_handle->private_data;
 
 	pr_debug("%s enter\n", __func__);
-	
+	/* No active stream, SPORT is allowed to be configured again. */
 	if (!dai->active)
 		bf5xx_i2s->configured = 0;
 }
@@ -242,13 +250,13 @@ static int __devinit bf5xx_i2s_probe(struct platform_device *pdev)
 	struct sport_device *sport_handle;
 	int ret;
 
-	
+	/* configure SPORT for I2S */
 	sport_handle = sport_init(pdev, 4, 2 * sizeof(u32),
 		sizeof(struct bf5xx_i2s_port));
 	if (!sport_handle)
 		return -ENODEV;
 
-	
+	/* register with the ASoC layers */
 	ret = snd_soc_register_dai(&pdev->dev, &bf5xx_i2s_dai);
 	if (ret) {
 		pr_err("Failed to register DAI: %d\n", ret);
@@ -282,6 +290,7 @@ static struct platform_driver bfin_i2s_driver = {
 
 module_platform_driver(bfin_i2s_driver);
 
+/* Module information */
 MODULE_AUTHOR("Cliff Cai");
 MODULE_DESCRIPTION("I2S driver for ADI Blackfin");
 MODULE_LICENSE("GPL");

@@ -49,7 +49,7 @@ int flexcop_sram_set_dest(struct flexcop_device *fc, flexcop_sram_dest_t dest,
 		v.sram_dest_reg_714.MEDIA_Dest = target;
 
 	fc->write_ibi_reg(fc,sram_dest_reg_714,v);
-	udelay(1000); 
+	udelay(1000); /* TODO delay really necessary */
 
 	return 0;
 }
@@ -178,6 +178,9 @@ static void sram_read(struct adapter *adapter, u32 addr, u8 *buf, u32 len)
 	u32 length;
 	while (len != 0) {
 		length = len;
+		/* check if the address range belongs to the same
+		 * 32K memory chip. If not, the data is read
+		 * from one chip at a time */
 		if ((addr >> 0x0f) != ((addr + len - 1) >> 0x0f)) {
 			length = (((addr >> 0x0f) + 1) << 0x0f) - addr;
 		}
@@ -278,14 +281,26 @@ static int sram_test_location(struct adapter *adapter, u32 mask, u32 addr)
 static u32 sram_length(struct adapter *adapter)
 {
 	if (adapter->dw_sram_type == 0x10000)
-		return 32768; 
+		return 32768; /* 32K */
 	if (adapter->dw_sram_type == 0x00000)
-		return 65536; 
+		return 65536; /* 64K */
 	if (adapter->dw_sram_type == 0x20000)
-		return 131072; 
-	return 32768; 
+		return 131072; /* 128K */
+	return 32768; /* 32K */
 }
 
+/* FlexcopII can work with 32K, 64K or 128K of external SRAM memory.
+   - for 128K there are 4x32K chips at bank 0,1,2,3.
+   - for  64K there are 2x32K chips at bank 1,2.
+   - for  32K there is one 32K chip at bank 0.
+
+   FlexCop works only with one bank at a time. The bank is selected
+   by bits 28-29 of the 0x700 register.
+
+   bank 0 covers addresses 0x00000-0x07fff
+   bank 1 covers addresses 0x08000-0x0ffff
+   bank 2 covers addresses 0x10000-0x17fff
+   bank 3 covers addresses 0x18000-0x1ffff */
 
 static int flexcop_sram_detect(struct flexcop_device *fc)
 {
@@ -299,7 +314,7 @@ static int flexcop_sram_detect(struct flexcop_device *fc)
 	dprintk("%s: tmp3 = %x\n", __func__, tmp3);
 	write_reg_dw(adapter, 0x71c, tmp2);
 
-	
+	// check for internal SRAM ???
 	tmp3--;
 	if (tmp3 != 0) {
 		sram_set_size(adapter, 0x10000);

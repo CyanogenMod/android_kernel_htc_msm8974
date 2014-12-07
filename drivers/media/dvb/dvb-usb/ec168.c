@@ -23,6 +23,7 @@
 #include "ec100.h"
 #include "mxl5005s.h"
 
+/* debug */
 static int dvb_usb_ec168_debug;
 module_param_named(debug, dvb_usb_ec168_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debugging level" DVB_USB_DEBUG_STATUS);
@@ -80,15 +81,15 @@ static int ec168_rw_udev(struct usb_device *udev, struct ec168_req *req)
 	}
 
 	if (requesttype == (USB_TYPE_VENDOR | USB_DIR_OUT)) {
-		
+		/* write */
 		memcpy(buf, req->data, req->size);
 		pipe = usb_sndctrlpipe(udev, 0);
 	} else {
-		
+		/* read */
 		pipe = usb_rcvctrlpipe(udev, 0);
 	}
 
-	msleep(1); 
+	msleep(1); /* avoid I2C errors */
 
 	ret = usb_control_msg(udev, pipe, request, requesttype, req->value,
 		req->index, buf, req->size, EC168_USB_TIMEOUT);
@@ -101,7 +102,7 @@ static int ec168_rw_udev(struct usb_device *udev, struct ec168_req *req)
 	else
 		ret = 0;
 
-	
+	/* read request, copy returned data to return buf */
 	if (!ret && requesttype == (USB_TYPE_VENDOR | USB_DIR_IN))
 		memcpy(req->data, buf, req->size);
 
@@ -120,6 +121,7 @@ static int ec168_ctrl_msg(struct dvb_usb_device *d, struct ec168_req *req)
 	return ec168_rw_udev(d->udev, req);
 }
 
+/* I2C */
 static int ec168_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 	int num)
 {
@@ -139,8 +141,8 @@ static int ec168_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 			if (msg[i].addr == ec168_ec100_config.demod_address) {
 				req.cmd = READ_DEMOD;
 				req.value = 0;
-				req.index = 0xff00 + msg[i].buf[0]; 
-				req.size = msg[i+1].len; 
+				req.index = 0xff00 + msg[i].buf[0]; /* reg */
+				req.size = msg[i+1].len; /* bytes to read */
 				req.data = &msg[i+1].buf[0];
 				ret = ec168_ctrl_msg(d, &req);
 				i += 2;
@@ -152,16 +154,16 @@ static int ec168_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 		} else {
 			if (msg[i].addr == ec168_ec100_config.demod_address) {
 				req.cmd = WRITE_DEMOD;
-				req.value = msg[i].buf[1]; 
-				req.index = 0xff00 + msg[i].buf[0]; 
+				req.value = msg[i].buf[1]; /* val */
+				req.index = 0xff00 + msg[i].buf[0]; /* reg */
 				req.size = 0;
 				req.data = NULL;
 				ret = ec168_ctrl_msg(d, &req);
 				i += 1;
 			} else {
 				req.cmd = WRITE_I2C;
-				req.value = msg[i].buf[0]; 
-				req.index = 0x0100 + msg[i].addr; 
+				req.value = msg[i].buf[0]; /* val */
+				req.index = 0x0100 + msg[i].addr; /* I2C addr */
 				req.size = msg[i].len-1;
 				req.data = &msg[i].buf[1];
 				ret = ec168_ctrl_msg(d, &req);
@@ -190,8 +192,9 @@ static struct i2c_algorithm ec168_i2c_algo = {
 	.functionality = ec168_i2c_func,
 };
 
+/* Callbacks for DVB USB */
 static struct ec100_config ec168_ec100_config = {
-	.demod_address = 0xff, 
+	.demod_address = 0xff, /* not real address, demod is integrated */
 };
 
 static int ec168_ec100_frontend_attach(struct dvb_usb_adapter *adap)
@@ -242,7 +245,7 @@ static int ec168_download_firmware(struct usb_device *udev,
 	const struct firmware *fw)
 {
 	int i, len, packets, remainder, ret;
-	u16 addr = 0x0000; 
+	u16 addr = 0x0000; /* firmware start address */
 	struct ec168_req req = {DOWNLOAD_FIRMWARE, 0, 0, 0, NULL};
 	deb_info("%s:\n", __func__);
 
@@ -251,7 +254,7 @@ static int ec168_download_firmware(struct usb_device *udev,
 	remainder = fw->size % FW_PACKET_MAX_DATA;
 	len = FW_PACKET_MAX_DATA;
 	for (i = 0; i <= packets; i++) {
-		if (i == packets)  
+		if (i == packets)  /* set size of the last packet */
 			len = remainder;
 
 		req.size = len;
@@ -267,7 +270,7 @@ static int ec168_download_firmware(struct usb_device *udev,
 	}
 	req.size = 0;
 
-	
+	/* set "warm"? */
 	req.cmd = SET_CONFIG;
 	req.value = 0;
 	req.index = 0x0001;
@@ -275,7 +278,7 @@ static int ec168_download_firmware(struct usb_device *udev,
 	if (ret)
 		goto error;
 
-	
+	/* really needed - no idea what does */
 	req.cmd = GPIO;
 	req.value = 0;
 	req.index = 0x0206;
@@ -283,7 +286,7 @@ static int ec168_download_firmware(struct usb_device *udev,
 	if (ret)
 		goto error;
 
-	
+	/* activate tuner I2C? */
 	req.cmd = WRITE_I2C;
 	req.value = 0;
 	req.index = 0x00c6;
@@ -323,6 +326,7 @@ error:
 	return ret;
 }
 
+/* DVB USB Driver stuff */
 static struct dvb_usb_device_properties ec168_properties;
 
 static int ec168_probe(struct usb_interface *intf,
@@ -360,7 +364,7 @@ static struct usb_device_id ec168_id[] = {
 		{USB_DEVICE(USB_VID_E3C, USB_PID_E3C_EC168_4)},
 	[E3C_EC168_1002] =
 		{USB_DEVICE(USB_VID_E3C, USB_PID_E3C_EC168_5)},
-	{} 
+	{} /* terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, ec168_id);

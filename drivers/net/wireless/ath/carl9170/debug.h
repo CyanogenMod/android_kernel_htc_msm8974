@@ -131,4 +131,4 @@ struct ar9170;
 
 void carl9170_debugfs_register(struct ar9170 *ar);
 void carl9170_debugfs_unregister(struct ar9170 *ar);
-#endif 
+#endif /* __DEBUG_H */

@@ -1,3 +1,5 @@
+/* include this file if the platform implements the dma_ DMA Mapping API
+ * and wants to provide the pci_ DMA Mapping API in terms of it */
 
 #ifndef _ASM_GENERIC_PCI_DMA_COMPAT_H
 #define _ASM_GENERIC_PCI_DMA_COMPAT_H

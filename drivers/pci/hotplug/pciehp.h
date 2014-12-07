@@ -33,7 +33,7 @@
 #include <linux/pci.h>
 #include <linux/pci_hotplug.h>
 #include <linux/delay.h>
-#include <linux/sched.h>		
+#include <linux/sched.h>		/* signal_pending() */
 #include <linux/pcieport_if.h>
 #include <linux/mutex.h>
 #include <linux/workqueue.h>
@@ -76,7 +76,7 @@ struct slot {
 	u8 state;
 	struct controller *ctrl;
 	struct hotplug_slot *hotplug_slot;
-	struct delayed_work work;	
+	struct delayed_work work;	/* work for button event */
 	struct mutex lock;
 };
 
@@ -87,10 +87,10 @@ struct event_info {
 };
 
 struct controller {
-	struct mutex ctrl_lock;		
-	struct pcie_device *pcie;	
+	struct mutex ctrl_lock;		/* controller lock */
+	struct pcie_device *pcie;	/* PCI Express port service */
 	struct slot *slot;
-	wait_queue_head_t queue;	
+	wait_queue_head_t queue;	/* sleep & wake process */
 	u32 slot_cap;
 	struct timer_list poll_timer;
 	unsigned int cmd_busy:1;
@@ -183,5 +183,5 @@ static inline int pciehp_acpi_slot_detection_check(struct pci_dev *dev)
 {
 	return 0;
 }
-#endif 				
-#endif				
+#endif 				/* CONFIG_ACPI */
+#endif				/* _PCIEHP_H */

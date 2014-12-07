@@ -17,15 +17,58 @@
  *
  */
 
+/******************************\
+ Hardware Descriptor Functions
+\******************************/
 
 #include "ath5k.h"
 #include "reg.h"
 #include "debug.h"
 
 
+/**
+ * DOC: Hardware descriptor functions
+ *
+ * Here we handle the processing of the low-level hw descriptors
+ * that hw reads and writes via DMA for each TX and RX attempt (that means
+ * we can also have descriptors for failed TX/RX tries). We have two kind of
+ * descriptors for RX and TX, control descriptors tell the hw how to send or
+ * receive a packet where to read/write it from/to etc and status descriptors
+ * that contain information about how the packet was sent or received (errors
+ * included).
+ *
+ * Descriptor format is not exactly the same for each MAC chip version so we
+ * have function pointers on &struct ath5k_hw we initialize at runtime based on
+ * the chip used.
+ */
 
 
+/************************\
+* TX Control descriptors *
+\************************/
 
+/**
+ * ath5k_hw_setup_2word_tx_desc() - Initialize a 2-word tx control descriptor
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @pkt_len: Frame length in bytes
+ * @hdr_len: Header length in bytes (only used on AR5210)
+ * @padsize: Any padding we've added to the frame length
+ * @type: One of enum ath5k_pkt_type
+ * @tx_power: Tx power in 0.5dB steps
+ * @tx_rate0: HW idx for transmission rate
+ * @tx_tries0: Max number of retransmissions
+ * @key_index: Index on key table to use for encryption
+ * @antenna_mode: Which antenna to use (0 for auto)
+ * @flags: One of AR5K_TXDESC_* flags (desc.h)
+ * @rtscts_rate: HW idx for RTS/CTS transmission rate
+ * @rtscts_duration: What to put on duration field on the header of RTS/CTS
+ *
+ * Internal function to initialize a 2-Word TX control descriptor
+ * found on AR5210 and AR5211 MACs chips.
+ *
+ * Returns 0 on success or -EINVAL on false input
+ */
 static int
 ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 			struct ath5k_desc *desc,
@@ -45,6 +88,12 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 
 	tx_ctl = &desc->ud.ds_tx5210.tx_ctl;
 
+	/*
+	 * Validate input
+	 * - Zero retries don't make sense.
+	 * - A zero rate will put the HW into a mode where it continuously sends
+	 *   noise on the channel, so it is important to avoid this.
+	 */
 	if (unlikely(tx_tries0 == 0)) {
 		ATH5K_ERR(ah, "zero retries\n");
 		WARN_ON(1);
@@ -56,14 +105,14 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 		return -EINVAL;
 	}
 
-	
+	/* Clear descriptor */
 	memset(&desc->ud.ds_tx5210, 0, sizeof(struct ath5k_hw_5210_tx_desc));
 
-	
+	/* Setup control descriptor */
 
-	
+	/* Verify and set frame length */
 
-	
+	/* remove padding we might have added before */
 	frame_len = pkt_len - padsize + FCS_LEN;
 
 	if (frame_len & ~AR5K_2W_TX_DESC_CTL0_FRAME_LEN)
@@ -71,9 +120,9 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 
 	tx_ctl->tx_control_0 = frame_len & AR5K_2W_TX_DESC_CTL0_FRAME_LEN;
 
-	
+	/* Verify and set buffer length */
 
-	
+	/* NB: beacon's BufLen must be a multiple of 4 bytes */
 	if (type == AR5K_PKT_TYPE_BEACON)
 		pkt_len = roundup(pkt_len, 4);
 
@@ -82,6 +131,9 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 
 	tx_ctl->tx_control_1 = pkt_len & AR5K_2W_TX_DESC_CTL1_BUF_LEN;
 
+	/*
+	 * Verify and set header length (only 5210)
+	 */
 	if (ah->ah_version == AR5K_AR5210) {
 		if (hdr_len & ~AR5K_2W_TX_DESC_CTL0_HEADER_LEN_5210)
 			return -EINVAL;
@@ -89,7 +141,7 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 			AR5K_REG_SM(hdr_len, AR5K_2W_TX_DESC_CTL0_HEADER_LEN_5210);
 	}
 
-	
+	/*Differences between 5210-5211*/
 	if (ah->ah_version == AR5K_AR5210) {
 		switch (type) {
 		case AR5K_PKT_TYPE_BEACON:
@@ -139,6 +191,9 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 #undef _TX_FLAGS
 #undef _TX_FLAGS_5211
 
+	/*
+	 * WEP crap
+	 */
 	if (key_index != AR5K_TXKEYIX_INVALID) {
 		tx_ctl->tx_control_0 |=
 			AR5K_2W_TX_DESC_CTL0_ENCRYPT_KEY_VALID;
@@ -147,6 +202,9 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 			AR5K_2W_TX_DESC_CTL1_ENC_KEY_IDX);
 	}
 
+	/*
+	 * RTS/CTS Duration [5210 ?]
+	 */
 	if ((ah->ah_version == AR5K_AR5210) &&
 			(flags & (AR5K_TXDESC_RTSENA | AR5K_TXDESC_CTSENA)))
 		tx_ctl->tx_control_1 |= rtscts_duration &
@@ -155,6 +213,28 @@ ath5k_hw_setup_2word_tx_desc(struct ath5k_hw *ah,
 	return 0;
 }
 
+/**
+ * ath5k_hw_setup_4word_tx_desc() - Initialize a 4-word tx control descriptor
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @pkt_len: Frame length in bytes
+ * @hdr_len: Header length in bytes (only used on AR5210)
+ * @padsize: Any padding we've added to the frame length
+ * @type: One of enum ath5k_pkt_type
+ * @tx_power: Tx power in 0.5dB steps
+ * @tx_rate0: HW idx for transmission rate
+ * @tx_tries0: Max number of retransmissions
+ * @key_index: Index on key table to use for encryption
+ * @antenna_mode: Which antenna to use (0 for auto)
+ * @flags: One of AR5K_TXDESC_* flags (desc.h)
+ * @rtscts_rate: HW idx for RTS/CTS transmission rate
+ * @rtscts_duration: What to put on duration field on the header of RTS/CTS
+ *
+ * Internal function to initialize a 4-Word TX control descriptor
+ * found on AR5212 and later MACs chips.
+ *
+ * Returns 0 on success or -EINVAL on false input
+ */
 static int
 ath5k_hw_setup_4word_tx_desc(struct ath5k_hw *ah,
 			struct ath5k_desc *desc,
@@ -171,10 +251,20 @@ ath5k_hw_setup_4word_tx_desc(struct ath5k_hw *ah,
 	struct ath5k_hw_4w_tx_ctl *tx_ctl;
 	unsigned int frame_len;
 
+	/*
+	 * Use local variables for these to reduce load/store access on
+	 * uncached memory
+	 */
 	u32 txctl0 = 0, txctl1 = 0, txctl2 = 0, txctl3 = 0;
 
 	tx_ctl = &desc->ud.ds_tx5212.tx_ctl;
 
+	/*
+	 * Validate input
+	 * - Zero retries don't make sense.
+	 * - A zero rate will put the HW into a mode where it continuously sends
+	 *   noise on the channel, so it is important to avoid this.
+	 */
 	if (unlikely(tx_tries0 == 0)) {
 		ATH5K_ERR(ah, "zero retries\n");
 		WARN_ON(1);
@@ -190,15 +280,15 @@ ath5k_hw_setup_4word_tx_desc(struct ath5k_hw *ah,
 	if (tx_power > AR5K_TUNE_MAX_TXPOWER)
 		tx_power = AR5K_TUNE_MAX_TXPOWER;
 
-	
+	/* Clear descriptor status area */
 	memset(&desc->ud.ds_tx5212.tx_stat, 0,
 	       sizeof(desc->ud.ds_tx5212.tx_stat));
 
-	
+	/* Setup control descriptor */
 
-	
+	/* Verify and set frame length */
 
-	
+	/* remove padding we might have added before */
 	frame_len = pkt_len - padsize + FCS_LEN;
 
 	if (frame_len & ~AR5K_4W_TX_DESC_CTL0_FRAME_LEN)
@@ -206,9 +296,9 @@ ath5k_hw_setup_4word_tx_desc(struct ath5k_hw *ah,
 
 	txctl0 = frame_len & AR5K_4W_TX_DESC_CTL0_FRAME_LEN;
 
-	
+	/* Verify and set buffer length */
 
-	
+	/* NB: beacon's BufLen must be a multiple of 4 bytes */
 	if (type == AR5K_PKT_TYPE_BEACON)
 		pkt_len = roundup(pkt_len, 4);
 
@@ -237,12 +327,18 @@ ath5k_hw_setup_4word_tx_desc(struct ath5k_hw *ah,
 
 #undef _TX_FLAGS
 
+	/*
+	 * WEP crap
+	 */
 	if (key_index != AR5K_TXKEYIX_INVALID) {
 		txctl0 |= AR5K_4W_TX_DESC_CTL0_ENCRYPT_KEY_VALID;
 		txctl1 |= AR5K_REG_SM(key_index,
 				AR5K_4W_TX_DESC_CTL1_ENCRYPT_KEY_IDX);
 	}
 
+	/*
+	 * RTS/CTS
+	 */
 	if (flags & (AR5K_TXDESC_RTSENA | AR5K_TXDESC_CTSENA)) {
 		if ((flags & AR5K_TXDESC_RTSENA) &&
 				(flags & AR5K_TXDESC_CTSENA))
@@ -260,6 +356,23 @@ ath5k_hw_setup_4word_tx_desc(struct ath5k_hw *ah,
 	return 0;
 }
 
+/**
+ * ath5k_hw_setup_mrr_tx_desc() - Initialize an MRR tx control descriptor
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @tx_rate1: HW idx for rate used on transmission series 1
+ * @tx_tries1: Max number of retransmissions for transmission series 1
+ * @tx_rate2: HW idx for rate used on transmission series 2
+ * @tx_tries2: Max number of retransmissions for transmission series 2
+ * @tx_rate3: HW idx for rate used on transmission series 3
+ * @tx_tries3: Max number of retransmissions for transmission series 3
+ *
+ * Multi rate retry (MRR) tx control descriptors are available only on AR5212
+ * MACs, they are part of the normal 4-word tx control descriptor (see above)
+ * but we handle them through a separate function for better abstraction.
+ *
+ * Returns 0 on success or -EINVAL on invalid input
+ */
 int
 ath5k_hw_setup_mrr_tx_desc(struct ath5k_hw *ah,
 			struct ath5k_desc *desc,
@@ -269,10 +382,16 @@ ath5k_hw_setup_mrr_tx_desc(struct ath5k_hw *ah,
 {
 	struct ath5k_hw_4w_tx_ctl *tx_ctl;
 
-	
+	/* no mrr support for cards older than 5212 */
 	if (ah->ah_version < AR5K_AR5212)
 		return 0;
 
+	/*
+	 * Rates can be 0 as long as the retry count is 0 too.
+	 * A zero rate and nonzero retry count will put the HW into a mode where
+	 * it continuously sends noise on the channel, so it is important to
+	 * avoid this.
+	 */
 	if (unlikely((tx_rate1 == 0 && tx_tries1 != 0) ||
 		     (tx_rate2 == 0 && tx_tries2 != 0) ||
 		     (tx_rate3 == 0 && tx_tries3 != 0))) {
@@ -307,7 +426,16 @@ ath5k_hw_setup_mrr_tx_desc(struct ath5k_hw *ah,
 }
 
 
+/***********************\
+* TX Status descriptors *
+\***********************/
 
+/**
+ * ath5k_hw_proc_2word_tx_status() - Process a tx status descriptor on 5210/1
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @ts: The &struct ath5k_tx_status
+ */
 static int
 ath5k_hw_proc_2word_tx_status(struct ath5k_hw *ah,
 				struct ath5k_desc *desc,
@@ -319,17 +447,20 @@ ath5k_hw_proc_2word_tx_status(struct ath5k_hw *ah,
 	tx_ctl = &desc->ud.ds_tx5210.tx_ctl;
 	tx_status = &desc->ud.ds_tx5210.tx_stat;
 
-	
+	/* No frame has been send or error */
 	if (unlikely((tx_status->tx_status_1 & AR5K_DESC_TX_STATUS1_DONE) == 0))
 		return -EINPROGRESS;
 
+	/*
+	 * Get descriptor status
+	 */
 	ts->ts_tstamp = AR5K_REG_MS(tx_status->tx_status_0,
 		AR5K_DESC_TX_STATUS0_SEND_TIMESTAMP);
 	ts->ts_shortretry = AR5K_REG_MS(tx_status->tx_status_0,
 		AR5K_DESC_TX_STATUS0_SHORT_RETRY_COUNT);
 	ts->ts_final_retry = AR5K_REG_MS(tx_status->tx_status_0,
 		AR5K_DESC_TX_STATUS0_LONG_RETRY_COUNT);
-	
+	/*TODO: ts->ts_virtcol + test*/
 	ts->ts_seqnum = AR5K_REG_MS(tx_status->tx_status_1,
 		AR5K_DESC_TX_STATUS1_SEQ_NUM);
 	ts->ts_rssi = AR5K_REG_MS(tx_status->tx_status_1,
@@ -353,6 +484,12 @@ ath5k_hw_proc_2word_tx_status(struct ath5k_hw *ah,
 	return 0;
 }
 
+/**
+ * ath5k_hw_proc_4word_tx_status() - Process a tx status descriptor on 5212
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @ts: The &struct ath5k_tx_status
+ */
 static int
 ath5k_hw_proc_4word_tx_status(struct ath5k_hw *ah,
 				struct ath5k_desc *desc,
@@ -367,12 +504,15 @@ ath5k_hw_proc_4word_tx_status(struct ath5k_hw *ah,
 
 	txstat1 = ACCESS_ONCE(tx_status->tx_status_1);
 
-	
+	/* No frame has been send or error */
 	if (unlikely(!(txstat1 & AR5K_DESC_TX_STATUS1_DONE)))
 		return -EINPROGRESS;
 
 	txstat0 = ACCESS_ONCE(tx_status->tx_status_0);
 
+	/*
+	 * Get descriptor status
+	 */
 	ts->ts_tstamp = AR5K_REG_MS(txstat0,
 		AR5K_DESC_TX_STATUS0_SEND_TIMESTAMP);
 	ts->ts_shortretry = AR5K_REG_MS(txstat0,
@@ -390,7 +530,7 @@ ath5k_hw_proc_4word_tx_status(struct ath5k_hw *ah,
 	ts->ts_final_idx = AR5K_REG_MS(txstat1,
 			AR5K_DESC_TX_STATUS1_FINAL_TS_IX_5212);
 
-	
+	/* TX error */
 	if (!(txstat0 & AR5K_DESC_TX_STATUS0_FRAME_XMIT_OK)) {
 		if (txstat0 & AR5K_DESC_TX_STATUS0_EXCESSIVE_RETRIES)
 			ts->ts_status |= AR5K_TXERR_XRETRY;
@@ -406,7 +546,17 @@ ath5k_hw_proc_4word_tx_status(struct ath5k_hw *ah,
 }
 
 
+/****************\
+* RX Descriptors *
+\****************/
 
+/**
+ * ath5k_hw_setup_rx_desc() - Initialize an rx control descriptor
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @size: RX buffer length in bytes
+ * @flags: One of AR5K_RXDESC_* flags
+ */
 int
 ath5k_hw_setup_rx_desc(struct ath5k_hw *ah,
 			struct ath5k_desc *desc,
@@ -416,12 +566,19 @@ ath5k_hw_setup_rx_desc(struct ath5k_hw *ah,
 
 	rx_ctl = &desc->ud.ds_rx.rx_ctl;
 
+	/*
+	 * Clear the descriptor
+	 * If we don't clean the status descriptor,
+	 * while scanning we get too many results,
+	 * most of them virtual, after some secs
+	 * of scanning system hangs. M.F.
+	*/
 	memset(&desc->ud.ds_rx, 0, sizeof(struct ath5k_hw_all_rx_desc));
 
 	if (unlikely(size & ~AR5K_DESC_RX_CTL1_BUF_LEN))
 		return -EINVAL;
 
-	
+	/* Setup descriptor */
 	rx_ctl->rx_control_1 = size & AR5K_DESC_RX_CTL1_BUF_LEN;
 
 	if (flags & AR5K_RXDESC_INTREQ)
@@ -430,6 +587,18 @@ ath5k_hw_setup_rx_desc(struct ath5k_hw *ah,
 	return 0;
 }
 
+/**
+ * ath5k_hw_proc_5210_rx_status() - Process the rx status descriptor on 5210/1
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @rs: The &struct ath5k_rx_status
+ *
+ * Internal function used to process an RX status descriptor
+ * on AR5210/5211 MAC.
+ *
+ * Returns 0 on success or -EINPROGRESS in case we haven't received the who;e
+ * frame yet.
+ */
 static int
 ath5k_hw_proc_5210_rx_status(struct ath5k_hw *ah,
 				struct ath5k_desc *desc,
@@ -439,13 +608,16 @@ ath5k_hw_proc_5210_rx_status(struct ath5k_hw *ah,
 
 	rx_status = &desc->ud.ds_rx.rx_stat;
 
-	
+	/* No frame received / not ready */
 	if (unlikely(!(rx_status->rx_status_1 &
 			AR5K_5210_RX_DESC_STATUS1_DONE)))
 		return -EINPROGRESS;
 
 	memset(rs, 0, sizeof(struct ath5k_rx_status));
 
+	/*
+	 * Frame receive status
+	 */
 	rs->rs_datalen = rx_status->rx_status_0 &
 		AR5K_5210_RX_DESC_STATUS0_DATA_LEN;
 	rs->rs_rssi = AR5K_REG_MS(rx_status->rx_status_0,
@@ -454,6 +626,11 @@ ath5k_hw_proc_5210_rx_status(struct ath5k_hw *ah,
 		AR5K_5210_RX_DESC_STATUS0_RECEIVE_RATE);
 	rs->rs_more = !!(rx_status->rx_status_0 &
 		AR5K_5210_RX_DESC_STATUS0_MORE);
+	/* TODO: this timestamp is 13 bit, later on we assume 15 bit!
+	 * also the HAL code for 5210 says the timestamp is bits [10..22] of the
+	 * TSF, and extends the timestamp here to 15 bit.
+	 * we need to check on 5210...
+	 */
 	rs->rs_tstamp = AR5K_REG_MS(rx_status->rx_status_1,
 		AR5K_5210_RX_DESC_STATUS1_RECEIVE_TIMESTAMP);
 
@@ -465,19 +642,25 @@ ath5k_hw_proc_5210_rx_status(struct ath5k_hw *ah,
 				AR5K_5210_RX_DESC_STATUS0_RECEIVE_ANT_5210)
 				? 2 : 1;
 
+	/*
+	 * Key table status
+	 */
 	if (rx_status->rx_status_1 & AR5K_5210_RX_DESC_STATUS1_KEY_INDEX_VALID)
 		rs->rs_keyix = AR5K_REG_MS(rx_status->rx_status_1,
 			AR5K_5210_RX_DESC_STATUS1_KEY_INDEX);
 	else
 		rs->rs_keyix = AR5K_RXKEYIX_INVALID;
 
+	/*
+	 * Receive/descriptor errors
+	 */
 	if (!(rx_status->rx_status_1 &
 			AR5K_5210_RX_DESC_STATUS1_FRAME_RECEIVE_OK)) {
 		if (rx_status->rx_status_1 &
 				AR5K_5210_RX_DESC_STATUS1_CRC_ERROR)
 			rs->rs_status |= AR5K_RXERR_CRC;
 
-		
+		/* only on 5210 */
 		if ((ah->ah_version == AR5K_AR5210) &&
 		    (rx_status->rx_status_1 &
 				AR5K_5210_RX_DESC_STATUS1_FIFO_OVERRUN_5210))
@@ -498,6 +681,18 @@ ath5k_hw_proc_5210_rx_status(struct ath5k_hw *ah,
 	return 0;
 }
 
+/**
+ * ath5k_hw_proc_5212_rx_status() - Process the rx status descriptor on 5212
+ * @ah: The &struct ath5k_hw
+ * @desc: The &struct ath5k_desc
+ * @rs: The &struct ath5k_rx_status
+ *
+ * Internal function used to process an RX status descriptor
+ * on AR5212 and later MAC.
+ *
+ * Returns 0 on success or -EINPROGRESS in case we haven't received the who;e
+ * frame yet.
+ */
 static int
 ath5k_hw_proc_5212_rx_status(struct ath5k_hw *ah,
 				struct ath5k_desc *desc,
@@ -509,13 +704,16 @@ ath5k_hw_proc_5212_rx_status(struct ath5k_hw *ah,
 	rx_status = &desc->ud.ds_rx.rx_stat;
 	rxstat1 = ACCESS_ONCE(rx_status->rx_status_1);
 
-	
+	/* No frame received / not ready */
 	if (unlikely(!(rxstat1 & AR5K_5212_RX_DESC_STATUS1_DONE)))
 		return -EINPROGRESS;
 
 	memset(rs, 0, sizeof(struct ath5k_rx_status));
 	rxstat0 = ACCESS_ONCE(rx_status->rx_status_0);
 
+	/*
+	 * Frame receive status
+	 */
 	rs->rs_datalen = rxstat0 & AR5K_5212_RX_DESC_STATUS0_DATA_LEN;
 	rs->rs_rssi = AR5K_REG_MS(rxstat0,
 		AR5K_5212_RX_DESC_STATUS0_RECEIVE_SIGNAL);
@@ -527,12 +725,18 @@ ath5k_hw_proc_5212_rx_status(struct ath5k_hw *ah,
 	rs->rs_tstamp = AR5K_REG_MS(rxstat1,
 		AR5K_5212_RX_DESC_STATUS1_RECEIVE_TIMESTAMP);
 
+	/*
+	 * Key table status
+	 */
 	if (rxstat1 & AR5K_5212_RX_DESC_STATUS1_KEY_INDEX_VALID)
 		rs->rs_keyix = AR5K_REG_MS(rxstat1,
 					   AR5K_5212_RX_DESC_STATUS1_KEY_INDEX);
 	else
 		rs->rs_keyix = AR5K_RXKEYIX_INVALID;
 
+	/*
+	 * Receive/descriptor errors
+	 */
 	if (!(rxstat1 & AR5K_5212_RX_DESC_STATUS1_FRAME_RECEIVE_OK)) {
 		if (rxstat1 & AR5K_5212_RX_DESC_STATUS1_CRC_ERROR)
 			rs->rs_status |= AR5K_RXERR_CRC;
@@ -555,7 +759,18 @@ ath5k_hw_proc_5212_rx_status(struct ath5k_hw *ah,
 }
 
 
+/********\
+* Attach *
+\********/
 
+/**
+ * ath5k_hw_init_desc_functions() - Init function pointers inside ah
+ * @ah: The &struct ath5k_hw
+ *
+ * Maps the internal descriptor functions to the function pointers on ah, used
+ * from above. This is used as an abstraction layer to handle the various chips
+ * the same way.
+ */
 int
 ath5k_hw_init_desc_functions(struct ath5k_hw *ah)
 {

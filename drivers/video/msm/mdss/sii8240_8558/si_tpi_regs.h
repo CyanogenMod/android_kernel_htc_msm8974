@@ -14,6 +14,7 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 
 */
 
+// ===================================================== //
 
 #define REG_TPI_DTD_B0_PIXEL_CLOCK_OVER_1000_LOW    TX_PAGE_TPI , 0x0000
 #define REG_TPI_DTD_B1_PIXEL_CLOCK_OVER_1000_HIGH   TX_PAGE_TPI , 0x0001
@@ -79,6 +80,7 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define TMDS_OUTPUT_MODE_DVI				(0x00)
 #define TMDS_OUTPUT_MODE_HDMI				(0x01)
 
+// ===================================================== //
 
 #define TPI_DEVICE_POWER_STATE_CTRL_REG		TX_PAGE_TPI , 0x001E
 
@@ -127,7 +129,15 @@ typedef enum{
     ,BIT_TPI_CONFIG_3_AUDIO_INTERFACE_HD_AUDIO  = 0xC0
 }TpiConfig3Bits_e;
 
+/*\
+ HDCP Implementation
 
+ HDCP link security logic is implemented in certain transmitters; unique
+   keys are embedded in each chip as part of the solution. The security
+   scheme is fully automatic and handled completely by the hardware.
+\*/
+
+/// HDCP Query Data Register ============================================== ///
 
 #define TPI_HDCP_QUERY_DATA_REG				TX_PAGE_TPI , 0x0029
 
@@ -159,6 +169,7 @@ typedef enum{
 #define PROTECTION_TYPE_NONE				(0x00)
 #define PROTECTION_TYPE_HDCP				(0x02)
 
+/// HDCP Control Data Register ============================================ ///
 
 #define TPI_HDCP_CONTROL_DATA_REG			TX_PAGE_TPI , 0x002A
 
@@ -182,6 +193,7 @@ typedef enum
 #define KSV_FORWARD_ENABLE					(0x10)
 #define KSV_FORWARD_DISABLE					(0x00)
 
+/// HDCP BKSV Registers =================================================== ///
 
 #define TPI_BKSV_1_REG						TX_PAGE_TPI , 0x002B
 #define TPI_BKSV_2_REG						TX_PAGE_TPI , 0x002C
@@ -189,6 +201,7 @@ typedef enum
 #define TPI_BKSV_4_REG						TX_PAGE_TPI , 0x002E
 #define TPI_BKSV_5_REG						TX_PAGE_TPI , 0x002F
 
+/// HDCP Revision Data Register =========================================== ///
 
 #define TPI_HDCP_REVISION_DATA_REG			TX_PAGE_TPI , 0x0030
 
@@ -198,16 +211,19 @@ typedef enum
 #define HDCP_MINOR_REVISION_MASK			(0x0F)
 #define HDCP_MINOR_REVISION_VALUE			(0x02)
 
+/// HDCP KSV and V' Value Data Register =================================== ///
 
 
 #define TPI_V_PRIME_SELECTOR_REG			TX_PAGE_TPI , 0x0031
 
+/// V' Value Readback Registers =========================================== ///
 
 #define TPI_V_PRIME_7_0_REG					TX_PAGE_TPI , 0x0032
 #define TPI_V_PRIME_15_9_REG				TX_PAGE_TPI , 0x0033
 #define TPI_V_PRIME_23_16_REG				TX_PAGE_TPI , 0x0034
 #define TPI_V_PRIME_31_24_REG				TX_PAGE_TPI , 0x0035
 
+/// HDCP AKSV Registers =================================================== ///
 
 #define TPI_AKSV_1_REG						TX_PAGE_TPI , 0x0036
 #define TPI_AKSV_2_REG						TX_PAGE_TPI , 0x0037
@@ -215,10 +231,12 @@ typedef enum
 #define TPI_AKSV_4_REG						TX_PAGE_TPI , 0x0039
 #define TPI_AKSV_5_REG						TX_PAGE_TPI , 0x003A
 
+/// Interrupt Enable Register ============================================= ///
 
 #define REG_TPI_INTR_ST0_ENABLE			        TX_PAGE_TPI , 0x003C
 
 
+/// Interrupt Status Register ============================================= ///
 
 #define REG_TPI_INTR_ST0			TX_PAGE_TPI , 0x003D
 typedef enum{
@@ -250,7 +268,7 @@ typedef enum{
 #define CPI_EVENT_MASK						(0x08)
 #define CPI_EVENT_NO						(0x00)
 #define CPI_EVENT_YES						(0x08)
-#define RX_SENSE_MASK						(0x08)		
+#define RX_SENSE_MASK						(0x08)		/* This bit is dual purpose depending on the value of 0x3C[3] */
 #define RX_SENSE_NOT_ATTACHED				(0x00)
 #define RX_SENSE_ATTACHED					(0x08)
 
@@ -265,8 +283,9 @@ typedef enum{
 #define HOT_PLUG_EVENT_MASK					(0x01)
 #define HOT_PLUG_EVENT_NO					(0x00)
 #define HOT_PLUG_EVENT_YES					(0x01)
-#endif	
+#endif	//	NEVER
 
+// Define the rest here when needed.
 
 #define TPI_REG_HW_OPT1_B9            		TX_PAGE_TPI , 0x00B9
 

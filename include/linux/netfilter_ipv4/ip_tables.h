@@ -1,4 +1,16 @@
+/*
+ * 25-Jul-1998 Major changes to allow for ip chain table
+ *
+ * 3-Jan-2000 Named tables to allow packet selection for different uses.
+ */
 
+/*
+ * 	Format of an IP firewall descriptor
+ *
+ * 	src, dst, src_mask, dst_mask are always stored in network byte order.
+ * 	flags are stored in host byte order (of course).
+ * 	Port numbers are stored in HOST byte order.
+ */
 
 #ifndef _IPTABLES_H
 #define _IPTABLES_H
@@ -30,6 +42,7 @@
 #define IPT_CONTINUE XT_CONTINUE
 #define IPT_RETURN XT_RETURN
 
+/* This group is older than old (iptables < v1.4.0-rc1~89) */
 #include <linux/netfilter/xt_tcpudp.h>
 #define ipt_udp xt_udp
 #define ipt_tcp xt_tcp
@@ -42,68 +55,86 @@
 #define IPT_UDP_INV_DSTPT	XT_UDP_INV_DSTPT
 #define IPT_UDP_INV_MASK	XT_UDP_INV_MASK
 
+/* The argument to IPT_SO_ADD_COUNTERS. */
 #define ipt_counters_info xt_counters_info
+/* Standard return verdict, or do jump. */
 #define IPT_STANDARD_TARGET XT_STANDARD_TARGET
+/* Error verdict. */
 #define IPT_ERROR_TARGET XT_ERROR_TARGET
 
+/* fn returns 0 to continue iteration */
 #define IPT_MATCH_ITERATE(e, fn, args...) \
 	XT_MATCH_ITERATE(struct ipt_entry, e, fn, ## args)
 
+/* fn returns 0 to continue iteration */
 #define IPT_ENTRY_ITERATE(entries, size, fn, args...) \
 	XT_ENTRY_ITERATE(struct ipt_entry, entries, size, fn, ## args)
 #endif
 
+/* Yes, Virginia, you have to zero the padding. */
 struct ipt_ip {
-	
+	/* Source and destination IP addr */
 	struct in_addr src, dst;
-	
+	/* Mask for src and dest IP addr */
 	struct in_addr smsk, dmsk;
 	char iniface[IFNAMSIZ], outiface[IFNAMSIZ];
 	unsigned char iniface_mask[IFNAMSIZ], outiface_mask[IFNAMSIZ];
 
-	
+	/* Protocol, 0 = ANY */
 	__u16 proto;
 
-	
+	/* Flags word */
 	__u8 flags;
-	
+	/* Inverse flags */
 	__u8 invflags;
 };
 
-#define IPT_F_FRAG		0x01	
-#define IPT_F_GOTO		0x02	
-#define IPT_F_MASK		0x03	
+/* Values for "flag" field in struct ipt_ip (general ip structure). */
+#define IPT_F_FRAG		0x01	/* Set if rule is a fragment rule */
+#define IPT_F_GOTO		0x02	/* Set if jump is a goto */
+#define IPT_F_MASK		0x03	/* All possible flag bits mask. */
 
-#define IPT_INV_VIA_IN		0x01	
-#define IPT_INV_VIA_OUT		0x02	
-#define IPT_INV_TOS		0x04	
-#define IPT_INV_SRCIP		0x08	
-#define IPT_INV_DSTIP		0x10	
-#define IPT_INV_FRAG		0x20	
+/* Values for "inv" field in struct ipt_ip. */
+#define IPT_INV_VIA_IN		0x01	/* Invert the sense of IN IFACE. */
+#define IPT_INV_VIA_OUT		0x02	/* Invert the sense of OUT IFACE */
+#define IPT_INV_TOS		0x04	/* Invert the sense of TOS. */
+#define IPT_INV_SRCIP		0x08	/* Invert the sense of SRC IP. */
+#define IPT_INV_DSTIP		0x10	/* Invert the sense of DST OP. */
+#define IPT_INV_FRAG		0x20	/* Invert the sense of FRAG. */
 #define IPT_INV_PROTO		XT_INV_PROTO
-#define IPT_INV_MASK		0x7F	
+#define IPT_INV_MASK		0x7F	/* All possible flag bits mask. */
 
+/* This structure defines each of the firewall rules.  Consists of 3
+   parts which are 1) general IP header stuff 2) match specific
+   stuff 3) the target to perform if the rule matches */
 struct ipt_entry {
 	struct ipt_ip ip;
 
-	
+	/* Mark with fields that we care about. */
 	unsigned int nfcache;
 
-	
+	/* Size of ipt_entry + matches */
 	__u16 target_offset;
-	
+	/* Size of ipt_entry + matches + target */
 	__u16 next_offset;
 
-	
+	/* Back pointer */
 	unsigned int comefrom;
 
-	
+	/* Packet and byte counters. */
 	struct xt_counters counters;
 
-	
+	/* The matches (if any), then the target. */
 	unsigned char elems[0];
 };
 
+/*
+ * New IP firewall options for [gs]etsockopt at the RAW IP level.
+ * Unlike BSD Linux inherits IP options so you don't have to use a raw
+ * socket for this. Instead we check rights in the calls.
+ *
+ * ATTENTION: check linux/in.h before adding new number here.
+ */
 #define IPT_BASE_CTL		64
 
 #define IPT_SO_SET_REPLACE	(IPT_BASE_CTL)
@@ -116,80 +147,91 @@ struct ipt_entry {
 #define IPT_SO_GET_REVISION_TARGET	(IPT_BASE_CTL + 3)
 #define IPT_SO_GET_MAX			IPT_SO_GET_REVISION_TARGET
 
+/* ICMP matching stuff */
 struct ipt_icmp {
-	__u8 type;				
-	__u8 code[2];				
-	__u8 invflags;				
+	__u8 type;				/* type to match */
+	__u8 code[2];				/* range of code */
+	__u8 invflags;				/* Inverse flags */
 };
 
-#define IPT_ICMP_INV	0x01	
+/* Values for "inv" field for struct ipt_icmp. */
+#define IPT_ICMP_INV	0x01	/* Invert the sense of type/code test */
 
+/* The argument to IPT_SO_GET_INFO */
 struct ipt_getinfo {
-	
+	/* Which table: caller fills this in. */
 	char name[XT_TABLE_MAXNAMELEN];
 
-	
-	
+	/* Kernel fills these in. */
+	/* Which hook entry points are valid: bitmask */
 	unsigned int valid_hooks;
 
-	
+	/* Hook entry points: one per netfilter hook. */
 	unsigned int hook_entry[NF_INET_NUMHOOKS];
 
-	
+	/* Underflow points. */
 	unsigned int underflow[NF_INET_NUMHOOKS];
 
-	
+	/* Number of entries */
 	unsigned int num_entries;
 
-	
+	/* Size of entries. */
 	unsigned int size;
 };
 
+/* The argument to IPT_SO_SET_REPLACE. */
 struct ipt_replace {
-	
+	/* Which table. */
 	char name[XT_TABLE_MAXNAMELEN];
 
+	/* Which hook entry points are valid: bitmask.  You can't
+           change this. */
 	unsigned int valid_hooks;
 
-	
+	/* Number of entries */
 	unsigned int num_entries;
 
-	
+	/* Total size of new entries */
 	unsigned int size;
 
-	
+	/* Hook entry points. */
 	unsigned int hook_entry[NF_INET_NUMHOOKS];
 
-	
+	/* Underflow points. */
 	unsigned int underflow[NF_INET_NUMHOOKS];
 
-	
-	
+	/* Information about old entries: */
+	/* Number of counters (must be equal to current number of entries). */
 	unsigned int num_counters;
-	
+	/* The old entries' counters. */
 	struct xt_counters __user *counters;
 
-	
+	/* The entries (hang off end: not really an array). */
 	struct ipt_entry entries[0];
 };
 
+/* The argument to IPT_SO_GET_ENTRIES. */
 struct ipt_get_entries {
-	
+	/* Which table: user fills this in. */
 	char name[XT_TABLE_MAXNAMELEN];
 
-	
+	/* User fills this in: total entry size. */
 	unsigned int size;
 
-	
+	/* The entries. */
 	struct ipt_entry entrytable[0];
 };
 
+/* Helper functions */
 static __inline__ struct xt_entry_target *
 ipt_get_target(struct ipt_entry *e)
 {
 	return (void *)e + e->target_offset;
 }
 
+/*
+ *	Main firewall chains definitions and global var's definitions.
+ */
 #ifdef __KERNEL__
 
 #include <linux/init.h>
@@ -200,6 +242,7 @@ extern struct xt_table *ipt_register_table(struct net *net,
 					   const struct ipt_replace *repl);
 extern void ipt_unregister_table(struct net *net, struct xt_table *table);
 
+/* Standard entry. */
 struct ipt_standard {
 	struct ipt_entry entry;
 	struct xt_standard_target target;
@@ -252,12 +295,13 @@ struct compat_ipt_entry {
 	unsigned char elems[0];
 };
 
+/* Helper functions */
 static inline struct xt_entry_target *
 compat_ipt_get_target(struct compat_ipt_entry *e)
 {
 	return (void *)e + e->target_offset;
 }
 
-#endif 
-#endif 
-#endif 
+#endif /* CONFIG_COMPAT */
+#endif /*__KERNEL__*/
+#endif /* _IPTABLES_H */

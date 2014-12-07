@@ -25,23 +25,28 @@
 #define ____cacheline_aligned_in_smp ____cacheline_aligned
 #else
 #define ____cacheline_aligned_in_smp
-#endif 
+#endif /* CONFIG_SMP */
 #endif
 
 #ifndef __cacheline_aligned
 #define __cacheline_aligned					\
   __attribute__((__aligned__(SMP_CACHE_BYTES),			\
 		 __section__(".data..cacheline_aligned")))
-#endif 
+#endif /* __cacheline_aligned */
 
 #ifndef __cacheline_aligned_in_smp
 #ifdef CONFIG_SMP
 #define __cacheline_aligned_in_smp __cacheline_aligned
 #else
 #define __cacheline_aligned_in_smp
-#endif 
+#endif /* CONFIG_SMP */
 #endif
 
+/*
+ * The maximum alignment needed for some critical structures
+ * These could be inter-node cacheline sizes/L3 cacheline
+ * size etc.  Define this in asm/cache.h for your arch
+ */
 #ifndef INTERNODE_CACHE_SHIFT
 #define INTERNODE_CACHE_SHIFT L1_CACHE_SHIFT
 #endif
@@ -59,4 +64,4 @@
 #define cache_line_size()	L1_CACHE_BYTES
 #endif
 
-#endif 
+#endif /* __LINUX_CACHE_H */

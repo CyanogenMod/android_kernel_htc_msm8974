@@ -34,6 +34,7 @@
 #define GPIO_MASK(gpio)		(0x80000000 >> (gpio))
 #define GPIO_MASK2(gpio)	(0xc0000000 >> ((gpio) * 2))
 
+/* Physical GPIO register layout */
 struct ppc4xx_gpio {
 	__be32 or;
 	__be32 tcr;
@@ -60,6 +61,11 @@ struct ppc4xx_gpio_chip {
 	spinlock_t lock;
 };
 
+/*
+ * GPIO LIB API implementation for GPIOs
+ *
+ * There are a maximum of 32 gpios in each gpio controller.
+ */
 
 static inline struct ppc4xx_gpio_chip *
 to_ppc4xx_gpiochip(struct of_mm_gpio_chip *mm_gc)
@@ -112,13 +118,13 @@ static int ppc4xx_gpio_dir_in(struct gpio_chip *gc, unsigned int gpio)
 
 	spin_lock_irqsave(&chip->lock, flags);
 
-	
+	/* Disable open-drain function */
 	clrbits32(&regs->odr, GPIO_MASK(gpio));
 
-	
+	/* Float the pin */
 	clrbits32(&regs->tcr, GPIO_MASK(gpio));
 
-	
+	/* Bits 0-15 use TSRL/OSRL, bits 16-31 use TSRH/OSRH */
 	if (gpio < 16) {
 		clrbits32(&regs->osrl, GPIO_MASK2(gpio));
 		clrbits32(&regs->tsrl, GPIO_MASK2(gpio));
@@ -142,16 +148,16 @@ ppc4xx_gpio_dir_out(struct gpio_chip *gc, unsigned int gpio, int val)
 
 	spin_lock_irqsave(&chip->lock, flags);
 
-	
+	/* First set initial value */
 	__ppc4xx_gpio_set(gc, gpio, val);
 
-	
+	/* Disable open-drain function */
 	clrbits32(&regs->odr, GPIO_MASK(gpio));
 
-	
+	/* Drive the pin */
 	setbits32(&regs->tcr, GPIO_MASK(gpio));
 
-	
+	/* Bits 0-15 use TSRL, bits 16-31 use TSRH */
 	if (gpio < 16) {
 		clrbits32(&regs->osrl, GPIO_MASK2(gpio));
 		clrbits32(&regs->tsrl, GPIO_MASK2(gpio));
@@ -202,7 +208,7 @@ err:
 		pr_err("%s: registration failed with status %d\n",
 		       np->full_name, ret);
 		kfree(ppc4xx_gc);
-		
+		/* try others anyway */
 	}
 	return 0;
 }

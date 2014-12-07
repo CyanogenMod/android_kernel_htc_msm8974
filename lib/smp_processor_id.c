@@ -1,3 +1,8 @@
+/*
+ * lib/smp_processor_id.c
+ *
+ * DEBUG_PREEMPT variant of smp_processor_id().
+ */
 #include <linux/export.h>
 #include <linux/kallsyms.h>
 #include <linux/sched.h>
@@ -13,12 +18,22 @@ notrace unsigned int debug_smp_processor_id(void)
 	if (irqs_disabled())
 		goto out;
 
+	/*
+	 * Kernel threads bound to a single CPU can safely use
+	 * smp_processor_id():
+	 */
 	if (cpumask_equal(tsk_cpus_allowed(current), cpumask_of(this_cpu)))
 		goto out;
 
+	/*
+	 * It is valid to assume CPU-locality during early bootup:
+	 */
 	if (system_state != SYSTEM_RUNNING)
 		goto out;
 
+	/*
+	 * Avoid recursion:
+	 */
 	preempt_disable_notrace();
 
 	if (!printk_ratelimit())

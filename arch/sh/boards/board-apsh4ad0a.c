@@ -65,21 +65,25 @@ static int apsh4ad0a_mode_pins(void)
 {
 	int value = 0;
 
-	value |=  MODE_PIN0;  
+	/* These are the factory default settings of SW1 and SW2.
+	 * If you change these dip switches then you will need to
+	 * adjust the values below as well.
+	 */
+	value |=  MODE_PIN0;  /* Clock Mode 3 */
 	value |=  MODE_PIN1;
 	value &= ~MODE_PIN2;
 	value &= ~MODE_PIN3;
-	value &= ~MODE_PIN4;  
+	value &= ~MODE_PIN4;  /* 16-bit Area0 bus width  */
 	value |=  MODE_PIN5;
 	value |=  MODE_PIN6;
-	value |=  MODE_PIN7;  
-	value |=  MODE_PIN8;  
-	value |=  MODE_PIN9;  
-	value &= ~MODE_PIN10; 
-	value &= ~MODE_PIN11; 
-	value &= ~MODE_PIN12; 
-	value |=  MODE_PIN13; 
-	value &= ~MODE_PIN14; 
+	value |=  MODE_PIN7;  /* Normal mode */
+	value |=  MODE_PIN8;  /* Little Endian */
+	value |=  MODE_PIN9;  /* Crystal resonator */
+	value &= ~MODE_PIN10; /* 29-bit address mode */
+	value &= ~MODE_PIN11; /* PCI-E Root port */
+	value &= ~MODE_PIN12; /* 4 lane + 1 lane */
+	value |=  MODE_PIN13; /* AUD Enable */
+	value &= ~MODE_PIN14; /* Normal Operation */
 
 	return value;
 }
@@ -98,6 +102,7 @@ static int apsh4ad0a_clk_init(void)
 	return ret;
 }
 
+/* Initialize the board */
 static void __init apsh4ad0a_setup(char **cmdline_p)
 {
 	pr_info("Alpha Project AP-SH4AD-0A support:\n");
@@ -108,6 +113,9 @@ static void __init apsh4ad0a_init_irq(void)
 	plat_irq_setup_pins(IRQ_MODE_IRQ3210);
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_apsh4ad0a __initmv = {
 	.mv_name		= "AP-SH4AD-0A",
 	.mv_setup		= apsh4ad0a_setup,

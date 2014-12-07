@@ -34,33 +34,55 @@
 #include "../cell/spufs/spufs.h"
 #include "platform.h"
 
+/* spu_management_ops */
 
+/**
+ * enum spe_type - Type of spe to create.
+ * @spe_type_logical: Standard logical spe.
+ *
+ * For use with lv1_construct_logical_spe().  The current HV does not support
+ * any types other than those listed.
+ */
 
 enum spe_type {
 	SPE_TYPE_LOGICAL = 0,
 };
 
+/**
+ * struct spe_shadow - logical spe shadow register area.
+ *
+ * Read-only shadow of spe registers.
+ */
 
 struct spe_shadow {
 	u8 padding_0140[0x0140];
-	u64 int_status_class0_RW;       
-	u64 int_status_class1_RW;       
-	u64 int_status_class2_RW;       
+	u64 int_status_class0_RW;       /* 0x0140 */
+	u64 int_status_class1_RW;       /* 0x0148 */
+	u64 int_status_class2_RW;       /* 0x0150 */
 	u8 padding_0158[0x0610-0x0158];
-	u64 mfc_dsisr_RW;               
+	u64 mfc_dsisr_RW;               /* 0x0610 */
 	u8 padding_0618[0x0620-0x0618];
-	u64 mfc_dar_RW;                 
+	u64 mfc_dar_RW;                 /* 0x0620 */
 	u8 padding_0628[0x0800-0x0628];
-	u64 mfc_dsipr_R;                
+	u64 mfc_dsipr_R;                /* 0x0800 */
 	u8 padding_0808[0x0810-0x0808];
-	u64 mfc_lscrr_R;                
+	u64 mfc_lscrr_R;                /* 0x0810 */
 	u8 padding_0818[0x0c00-0x0818];
-	u64 mfc_cer_R;                  
+	u64 mfc_cer_R;                  /* 0x0c00 */
 	u8 padding_0c08[0x0f00-0x0c08];
-	u64 spe_execution_status;       
+	u64 spe_execution_status;       /* 0x0f00 */
 	u8 padding_0f08[0x1000-0x0f08];
 };
 
+/**
+ * enum spe_ex_state - Logical spe execution state.
+ * @spe_ex_state_unexecutable: Uninitialized.
+ * @spe_ex_state_executable: Enabled, not ready.
+ * @spe_ex_state_executed: Ready for use.
+ *
+ * The execution state (status) of the logical spe as reported in
+ * struct spe_shadow:spe_execution_status.
+ */
 
 enum spe_ex_state {
 	SPE_EX_STATE_UNEXECUTABLE = 0,
@@ -68,6 +90,12 @@ enum spe_ex_state {
 	SPE_EX_STATE_EXECUTED = 3,
 };
 
+/**
+ * struct priv1_cache - Cached values of priv1 registers.
+ * @masks[]: Array of cached spe interrupt masks, indexed by class.
+ * @sr1: Cached mfc_sr1 register.
+ * @tclass_id: Cached mfc_tclass_id register.
+ */
 
 struct priv1_cache {
 	u64 masks[3];
@@ -75,6 +103,18 @@ struct priv1_cache {
 	u64 tclass_id;
 };
 
+/**
+ * struct spu_pdata - Platform state variables.
+ * @spe_id: HV spe id returned by lv1_construct_logical_spe().
+ * @resource_id: HV spe resource id returned by
+ * 	ps3_repository_read_spe_resource_id().
+ * @priv2_addr: lpar address of spe priv2 area returned by
+ * 	lv1_construct_logical_spe().
+ * @shadow_addr: lpar address of spe register shadow area returned by
+ * 	lv1_construct_logical_spe().
+ * @shadow: Virtual (ioremap) address of spe register shadow area.
+ * @cache: Cached values of priv1 registers.
+ */
 
 struct spu_pdata {
 	u64 spe_id;
@@ -152,6 +192,15 @@ static void spu_unmap(struct spu *spu)
 	iounmap(spu_pdata(spu)->shadow);
 }
 
+/**
+ * setup_areas - Map the spu regions into the address space.
+ *
+ * The current HV requires the spu shadow regs to be mapped with the
+ * PTE page protection bits set as read-only (PP=3).  This implementation
+ * uses the low level __ioremap() to bypass the page protection settings
+ * inforced by ioremap_prot() to get the needed PTE bits set for the
+ * shadow regs.
+ */
 
 static int __init setup_areas(struct spu *spu)
 {
@@ -314,7 +363,7 @@ static int __init ps3_create_spu(struct spu *spu, void *data)
 
 	spu_pdata(spu)->resource_id = (unsigned long)data;
 
-	
+	/* Init cached reg values to HV defaults. */
 
 	spu_pdata(spu)->cache.sr1 = 0x33;
 
@@ -323,16 +372,16 @@ static int __init ps3_create_spu(struct spu *spu, void *data)
 	if (result)
 		goto fail_construct;
 
-	
+	/* For now, just go ahead and enable it. */
 
 	result = enable_spu(spu);
 
 	if (result)
 		goto fail_enable;
 
-	
+	/* Make sure the spu is in SPE_EX_STATE_EXECUTED. */
 
-	
+	/* need something better here!!! */
 	while (in_be64(&spu_pdata(spu)->shadow->spe_execution_status)
 		!= SPE_EX_STATE_EXECUTED)
 		(void)0;
@@ -357,6 +406,10 @@ static int __init ps3_enumerate_spus(int (*fn)(void *data))
 	pr_debug("%s:%d: num_resource_id %u\n", __func__, __LINE__,
 		num_resource_id);
 
+	/*
+	 * For now, just create logical spus equal to the number
+	 * of physical spus reserved for the partition.
+	 */
 
 	for (i = 0; i < num_resource_id; i++) {
 		enum ps3_spu_resource_type resource_type;
@@ -390,6 +443,18 @@ static int ps3_init_affinity(void)
 	return 0;
 }
 
+/**
+ * ps3_enable_spu - Enable SPU run control.
+ *
+ * An outstanding enhancement for the PS3 would be to add a guard to check
+ * for incorrect access to the spu problem state when the spu context is
+ * disabled.  This check could be implemented with a flag added to the spu
+ * context that would inhibit mapping problem state pages, and a routine
+ * to unmap spu problem state pages.  When the spu is enabled with
+ * ps3_enable_spu() the flag would be set allowing pages to be mapped,
+ * and when the spu is disabled with ps3_disable_spu() the flag would be
+ * cleared and the mapped problem state pages would be unmapped.
+ */
 
 static void ps3_enable_spu(struct spu_context *ctx)
 {
@@ -409,12 +474,13 @@ const struct spu_management_ops spu_management_ps3_ops = {
 	.init_affinity = ps3_init_affinity,
 };
 
+/* spu_priv1_ops */
 
 static void int_mask_and(struct spu *spu, int class, u64 mask)
 {
 	u64 old_mask;
 
-	
+	/* are these serialized by caller??? */
 	old_mask = spu_int_mask_get(spu, class);
 	spu_int_mask_set(spu, class, old_mask & mask);
 }
@@ -441,7 +507,7 @@ static u64 int_mask_get(struct spu *spu, int class)
 
 static void int_stat_clear(struct spu *spu, int class, u64 stat)
 {
-	
+	/* Note that MFC_DSISR will be cleared when class1[MF] is set. */
 
 	lv1_clear_spe_interrupt_status(spu_pdata(spu)->spe_id, class,
 		stat, 0);
@@ -457,7 +523,7 @@ static u64 int_stat_get(struct spu *spu, int class)
 
 static void cpu_affinity_set(struct spu *spu, int cpu)
 {
-	
+	/* No support. */
 }
 
 static u64 mfc_dar_get(struct spu *spu)
@@ -467,7 +533,7 @@ static u64 mfc_dar_get(struct spu *spu)
 
 static void mfc_dsisr_set(struct spu *spu, u64 dsisr)
 {
-	
+	/* Nothing to do, cleared in int_stat_clear(). */
 }
 
 static u64 mfc_dsisr_get(struct spu *spu)
@@ -477,12 +543,12 @@ static u64 mfc_dsisr_get(struct spu *spu)
 
 static void mfc_sdr_setup(struct spu *spu)
 {
-	
+	/* Nothing to do. */
 }
 
 static void mfc_sr1_set(struct spu *spu, u64 sr1)
 {
-	
+	/* Check bits allowed by HV. */
 
 	static const u64 allowed = ~(MFC_STATE1_LOCAL_STORAGE_DECODE_MASK
 		| MFC_STATE1_PROBLEM_STATE_MASK);
@@ -517,27 +583,27 @@ static u64 mfc_tclass_id_get(struct spu *spu)
 
 static void tlb_invalidate(struct spu *spu)
 {
-	
+	/* Nothing to do. */
 }
 
 static void resource_allocation_groupID_set(struct spu *spu, u64 id)
 {
-	
+	/* No support. */
 }
 
 static u64 resource_allocation_groupID_get(struct spu *spu)
 {
-	return 0; 
+	return 0; /* No support. */
 }
 
 static void resource_allocation_enable_set(struct spu *spu, u64 enable)
 {
-	
+	/* No support. */
 }
 
 static u64 resource_allocation_enable_get(struct spu *spu)
 {
-	return 0; 
+	return 0; /* No support. */
 }
 
 const struct spu_priv1_ops spu_priv1_ps3_ops = {

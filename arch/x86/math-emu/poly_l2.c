@@ -20,6 +20,9 @@
 static void log2_kernel(FPU_REG const *arg, u_char argsign,
 			Xsig * accum_result, long int *expon);
 
+/*--- poly_l2() -------------------------------------------------------------+
+ |   Base 2 logarithm by a polynomial approximation.                         |
+ +---------------------------------------------------------------------------*/
 void poly_l2(FPU_REG *st0_ptr, FPU_REG *st1_ptr, u_char st1_sign)
 {
 	long int exponent, expon, expon_expon;
@@ -30,15 +33,15 @@ void poly_l2(FPU_REG *st0_ptr, FPU_REG *st1_ptr, u_char st1_sign)
 
 	exponent = exponent16(st0_ptr);
 
-	
+	/* From st0_ptr, make a number > sqrt(2)/2 and < sqrt(2) */
 	if (st0_ptr->sigh > (unsigned)0xb504f334) {
-		
+		/* Treat as  sqrt(2)/2 < st0_ptr < 1 */
 		significand(&x) = -significand(st0_ptr);
 		setexponent16(&x, -1);
 		exponent++;
 		argsign = SIGN_NEG;
 	} else {
-		
+		/* Treat as  1 <= st0_ptr < sqrt(2) */
 		x.sigh = st0_ptr->sigh - 0x80000000;
 		x.sigl = st0_ptr->sigl;
 		setexponent16(&x, 0);
@@ -89,12 +92,16 @@ void poly_l2(FPU_REG *st0_ptr, FPU_REG *st1_ptr, u_char st1_sign)
 	tag = FPU_round(st1_ptr, 1, 0, FULL_PRECISION, sign ^ st1_sign);
 	FPU_settagi(1, tag);
 
-	set_precision_flag_up();	
+	set_precision_flag_up();	/* 80486 appears to always do this */
 
 	return;
 
 }
 
+/*--- poly_l2p1() -----------------------------------------------------------+
+ |   Base 2 logarithm by a polynomial approximation.                         |
+ |   log2(x+1)                                                               |
+ +---------------------------------------------------------------------------*/
 int poly_l2p1(u_char sign0, u_char sign1,
 	      FPU_REG * st0_ptr, FPU_REG * st1_ptr, FPU_REG * dest)
 {
@@ -122,21 +129,21 @@ int poly_l2p1(u_char sign0, u_char sign1,
 		FPU_settagi(1, tag);
 
 		if (tag == TAG_Valid)
-			set_precision_flag_up();	
+			set_precision_flag_up();	/* 80486 appears to always do this */
 	} else {
-		
+		/* The magnitude of st0_ptr is far too large. */
 
 		if (sign0 != SIGN_POS) {
-			
-#ifdef PECULIAR_486		
+			/* Trying to get the log of a negative number. */
+#ifdef PECULIAR_486		/* Stupid 80486 doesn't worry about log(negative). */
 			changesign(st1_ptr);
 #else
 			if (arith_invalid(1) < 0)
 				return 1;
-#endif 
+#endif /* PECULIAR_486 */
 		}
 
-		
+		/* 80486 appears to do this */
 		if (sign0 == SIGN_NEG)
 			set_precision_flag_down();
 		else
@@ -167,6 +174,10 @@ static const unsigned long long logterms[HIPOWER] = {
 
 static const unsigned long leadterm = 0xb8000000;
 
+/*--- log2_kernel() ---------------------------------------------------------+
+ |   Base 2 logarithm by a polynomial approximation.                         |
+ |   log2(x+1)                                                               |
+ +---------------------------------------------------------------------------*/
 static void log2_kernel(FPU_REG const *arg, u_char argsign, Xsig *accum_result,
 			long int *expon)
 {
@@ -188,7 +199,7 @@ static void log2_kernel(FPU_REG const *arg, u_char argsign, Xsig *accum_result,
 			div_Xsig(&Numer, &Denom, &argSignif);
 			exponent++;
 		} else {
-			
+			/* Denom must be 1.0 */
 			argSignif.lsw = Numer.lsw;
 			argSignif.midw = Numer.midw;
 			argSignif.msw = Numer.msw;
@@ -196,13 +207,13 @@ static void log2_kernel(FPU_REG const *arg, u_char argsign, Xsig *accum_result,
 	}
 
 #ifndef PECULIAR_486
-	
+	/* Should check here that  |local_arg|  is within the valid range */
 	if (exponent >= -2) {
 		if ((exponent > -2) || (argSignif.msw > (unsigned)0xafb0ccc0)) {
-			
+			/* The argument is too large */
 		}
 	}
-#endif 
+#endif /* PECULIAR_486 */
 
 	arg_signif.lsw = argSignif.lsw;
 	XSIG_LL(arg_signif) = XSIG_LL(argSignif);
@@ -216,7 +227,7 @@ static void log2_kernel(FPU_REG const *arg, u_char argsign, Xsig *accum_result,
 		Xsq++;
 
 	accumulator.msw = accumulator.midw = accumulator.lsw = 0;
-	
+	/* Do the basic fixed point polynomial evaluation */
 	polynomial_Xsig(&accumulator, &Xsq, logterms, HIPOWER - 1);
 
 	mul_Xsig_Xsig(&accumulator, &argSignif);

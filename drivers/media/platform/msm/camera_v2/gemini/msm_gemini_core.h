@@ -32,4 +32,4 @@ int msm_gemini_core_fe_start(void);
 
 void msm_gemini_core_release(int);
 void msm_gemini_core_init(void);
-#endif 
+#endif /* MSM_GEMINI_CORE_H */

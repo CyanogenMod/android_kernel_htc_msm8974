@@ -4,12 +4,12 @@
 #include <linux/types.h>
 
 struct stat {
-	unsigned int	st_dev;		
-	ino_t		st_ino;		
-	mode_t		st_mode;	
-	nlink_t		st_nlink;	
-	unsigned short	st_reserved1;	
-	unsigned short	st_reserved2;	
+	unsigned int	st_dev;		/* dev_t is 32 bits on parisc */
+	ino_t		st_ino;		/* 32 bits */
+	mode_t		st_mode;	/* 16 bits */
+	nlink_t		st_nlink;	/* 16 bits */
+	unsigned short	st_reserved1;	/* old st_uid */
+	unsigned short	st_reserved2;	/* old st_gid */
 	unsigned int	st_rdev;
 	off_t		st_size;
 	time_t		st_atime;
@@ -20,11 +20,11 @@ struct stat {
 	unsigned int	st_ctime_nsec;
 	int		st_blksize;
 	int		st_blocks;
-	unsigned int	__unused1;	
-	unsigned int	__unused2;	
-	ino_t		__unused3;	
-	unsigned int	__unused4;	
-	unsigned short	__unused5;	
+	unsigned int	__unused1;	/* ACL stuff */
+	unsigned int	__unused2;	/* network */
+	ino_t		__unused3;	/* network */
+	unsigned int	__unused4;	/* cnodes */
+	unsigned short	__unused5;	/* netsite */
 	short		st_fstype;
 	unsigned int	st_realdev;
 	unsigned short	st_basemode;
@@ -39,12 +39,12 @@ struct stat {
 typedef __kernel_off64_t	off64_t;
 
 struct hpux_stat64 {
-	unsigned int	st_dev;		
-	ino_t           st_ino;         
-	mode_t		st_mode;	
-	nlink_t		st_nlink;	
-	unsigned short	st_reserved1;	
-	unsigned short	st_reserved2;	
+	unsigned int	st_dev;		/* dev_t is 32 bits on parisc */
+	ino_t           st_ino;         /* 32 bits */
+	mode_t		st_mode;	/* 16 bits */
+	nlink_t		st_nlink;	/* 16 bits */
+	unsigned short	st_reserved1;	/* old st_uid */
+	unsigned short	st_reserved2;	/* old st_gid */
 	unsigned int	st_rdev;
 	off64_t		st_size;
 	time_t		st_atime;
@@ -55,11 +55,11 @@ struct hpux_stat64 {
 	unsigned int	st_spare3;
 	int		st_blksize;
 	__u64		st_blocks;
-	unsigned int	__unused1;	
-	unsigned int	__unused2;	
-	ino_t           __unused3;      
-	unsigned int	__unused4;	
-	unsigned short	__unused5;	
+	unsigned int	__unused1;	/* ACL stuff */
+	unsigned int	__unused2;	/* network */
+	ino_t           __unused3;      /* network */
+	unsigned int	__unused4;	/* cnodes */
+	unsigned short	__unused5;	/* netsite */
 	short		st_fstype;
 	unsigned int	st_realdev;
 	unsigned short	st_basemode;
@@ -69,11 +69,15 @@ struct hpux_stat64 {
 	unsigned int	st_spare4[3];
 };
 
+/* This is the struct that 32-bit userspace applications are expecting.
+ * How 64-bit apps are going to be compiled, I have no idea.  But at least
+ * this way, we don't have a wrapper in the kernel.
+ */
 struct stat64 {
 	unsigned long long	st_dev;
 	unsigned int		__pad1;
 
-	unsigned int		__st_ino;	
+	unsigned int		__st_ino;	/* Not actually filled in */
 	unsigned int		st_mode;
 	unsigned int		st_nlink;
 	unsigned int		st_uid;

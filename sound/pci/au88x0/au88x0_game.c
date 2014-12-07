@@ -38,7 +38,7 @@
 
 #if defined(CONFIG_GAMEPORT) || (defined(MODULE) && defined(CONFIG_GAMEPORT_MODULE))
 
-#define VORTEX_GAME_DWAIT	20	
+#define VORTEX_GAME_DWAIT	20	/* 20 ms */
 
 static unsigned char vortex_game_read(struct gameport *gameport)
 {

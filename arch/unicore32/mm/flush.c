@@ -35,7 +35,7 @@ void flush_cache_page(struct vm_area_struct *vma, unsigned long user_addr,
 static void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 			 unsigned long uaddr, void *kaddr, unsigned long len)
 {
-	
+	/* VIPT non-aliasing D-cache */
 	if (vma->vm_flags & VM_EXEC) {
 		unsigned long addr = (unsigned long)kaddr;
 
@@ -43,6 +43,13 @@ static void flush_ptrace_access(struct vm_area_struct *vma, struct page *page,
 	}
 }
 
+/*
+ * Copy user data from/to a page which is mapped into a different
+ * processes address space.  Really, we want to allow our "user
+ * space" model to handle this.
+ *
+ * Note that this code needs to run on the current CPU.
+ */
 void copy_to_user_page(struct vm_area_struct *vma, struct page *page,
 		       unsigned long uaddr, void *dst, const void *src,
 		       unsigned long len)
@@ -53,9 +60,18 @@ void copy_to_user_page(struct vm_area_struct *vma, struct page *page,
 
 void __flush_dcache_page(struct address_space *mapping, struct page *page)
 {
+	/*
+	 * Writeback any data associated with the kernel mapping of this
+	 * page.  This ensures that data in the physical page is mutually
+	 * coherent with the kernels mapping.
+	 */
 	__cpuc_flush_kern_dcache_area(page_address(page), PAGE_SIZE);
 }
 
+/*
+ * Ensure cache coherency between kernel mapping and userspace mapping
+ * of this page.
+ */
 void flush_dcache_page(struct page *page)
 {
 	struct address_space *mapping;

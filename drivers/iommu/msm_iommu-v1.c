@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,14 +10,13 @@
  * GNU General Public License for more details.
  */
 
-#define HTCDEBUG
 #define pr_fmt(fmt)	KBUILD_MODNAME ": " fmt
-#include <linux/delay.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/errno.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
@@ -38,10 +37,6 @@
 #include "msm_iommu_pagetable.h"
 
 #define MSM_IOMMU_PGSIZES	(SZ_4K | SZ_64K | SZ_1M | SZ_16M)
-
-#define IOMMU_MSEC_STEP		20
-#define IOMMU_MSEC_TIMEOUT	1000
-
 
 static DEFINE_MUTEX(msm_iommu_lock);
 struct dump_regs_tbl dump_regs_tbl[MAX_DUMP_REGS];
@@ -148,13 +143,137 @@ struct iommu_access_ops iommu_access_ops_v1 = {
 	.iommu_lock_release = _iommu_lock_release,
 };
 
-void iommu_halt(const struct msm_iommu_drvdata *iommu_drvdata)
+#ifdef CONFIG_MSM_IOMMU_VBIF_CHECK
+
+#define VBIF_XIN_HALT_CTRL0 0x200
+#define VBIF_XIN_HALT_CTRL1 0x204
+#define VBIF_AXI_HALT_CTRL0 0x208
+#define VBIF_AXI_HALT_CTRL1 0x20C
+
+static void __halt_vbif_xin(void __iomem *vbif_base)
+{
+	pr_err("Halting VBIF_XIN\n");
+	writel_relaxed(0xFFFFFFFF, vbif_base + VBIF_XIN_HALT_CTRL0);
+}
+
+static void __dump_vbif_state(void __iomem *base, void __iomem *vbif_base)
+{
+	unsigned int reg_val;
+
+	reg_val = readl_relaxed(base + MICRO_MMU_CTRL);
+	pr_err("Value of SMMU_IMPLDEF_MICRO_MMU_CTRL = 0x%x\n", reg_val);
+
+	reg_val = readl_relaxed(vbif_base + VBIF_XIN_HALT_CTRL0);
+	pr_err("Value of VBIF_XIN_HALT_CTRL0 = 0x%x\n", reg_val);
+	reg_val = readl_relaxed(vbif_base + VBIF_XIN_HALT_CTRL1);
+	pr_err("Value of VBIF_XIN_HALT_CTRL1 = 0x%x\n", reg_val);
+	reg_val = readl_relaxed(vbif_base + VBIF_AXI_HALT_CTRL0);
+	pr_err("Value of VBIF_AXI_HALT_CTRL0 = 0x%x\n", reg_val);
+	reg_val = readl_relaxed(vbif_base + VBIF_AXI_HALT_CTRL1);
+	pr_err("Value of VBIF_AXI_HALT_CTRL1 = 0x%x\n", reg_val);
+}
+
+static int __check_vbif_state(struct msm_iommu_drvdata const *drvdata)
+{
+	phys_addr_t addr = (phys_addr_t) (drvdata->phys_base
+			   - (phys_addr_t) 0x4000);
+	void __iomem *base = ioremap(addr, 0x1000);
+	int ret = 0;
+
+	if (base) {
+		__dump_vbif_state(drvdata->base, base);
+		__halt_vbif_xin(drvdata->base);
+		__dump_vbif_state(drvdata->base, base);
+		iounmap(base);
+	} else {
+		pr_err("%s: Unable to ioremap\n", __func__);
+		ret = -ENOMEM;
+	}
+	return ret;
+}
+
+static void check_halt_state(struct msm_iommu_drvdata const *drvdata)
+{
+	int res;
+	unsigned int val;
+	void __iomem *base = drvdata->base;
+	char const *name = drvdata->name;
+
+	pr_err("Timed out waiting for IOMMU halt to complete for %s\n", name);
+	res = __check_vbif_state(drvdata);
+	if (res)
+		BUG();
+
+	pr_err("Checking if IOMMU halt completed for %s\n", name);
+
+	res = readl_tight_poll_timeout(
+		GLB_REG(MICRO_MMU_CTRL, base), val,
+			(val & MMU_CTRL_IDLE) == MMU_CTRL_IDLE, 5000000);
+
+	if (res) {
+		pr_err("Timed out (again) waiting for IOMMU halt to complete for %s\n",
+			name);
+	} else {
+		pr_err("IOMMU halt completed. VBIF FIFO most likely not getting drained by master\n");
+	}
+	BUG();
+}
+
+static void check_tlb_sync_state(struct msm_iommu_drvdata const *drvdata,
+				int ctx)
+{
+	int res;
+	unsigned int val;
+	void __iomem *base = drvdata->base;
+	char const *name = drvdata->name;
+
+	pr_err("Timed out waiting for TLB SYNC to complete for %s\n", name);
+	res = __check_vbif_state(drvdata);
+	if (res)
+		BUG();
+
+	pr_err("Checking if TLB sync completed for %s\n", name);
+
+	res = readl_tight_poll_timeout(CTX_REG(CB_TLBSTATUS, base, ctx), val,
+				(val & CB_TLBSTATUS_SACTIVE) == 0, 5000000);
+	if (res) {
+		pr_err("Timed out (again) waiting for TLB SYNC to complete for %s\n",
+			name);
+	} else {
+		pr_err("TLB Sync completed. VBIF FIFO most likely not getting drained by master\n");
+	}
+	BUG();
+}
+
+#else
+
+static void check_halt_state(struct msm_iommu_drvdata const *drvdata)
+{
+	BUG();
+}
+
+static void check_tlb_sync_state(struct msm_iommu_drvdata const *drvdata,
+				int ctx)
+{
+	BUG();
+}
+
+#endif
+
+void iommu_halt(struct msm_iommu_drvdata const *iommu_drvdata)
 {
 	if (iommu_drvdata->halt_enabled) {
-		SET_MICRO_MMU_CTRL_HALT_REQ(iommu_drvdata->base, 1);
+		unsigned int val;
+		void __iomem *base = iommu_drvdata->base;
+		int res;
 
-		while (GET_MICRO_MMU_CTRL_IDLE(iommu_drvdata->base) == 0)
-			cpu_relax();
+		SET_MICRO_MMU_CTRL_HALT_REQ(base, 1);
+		res = readl_tight_poll_timeout(
+			GLB_REG(MICRO_MMU_CTRL, base), val,
+			     (val & MMU_CTRL_IDLE) == MMU_CTRL_IDLE, 5000000);
+
+		if (res)
+			check_halt_state(iommu_drvdata);
 		
 		mb();
 	}
@@ -169,147 +288,19 @@ void iommu_resume(const struct msm_iommu_drvdata *iommu_drvdata)
 	}
 }
 
-#ifdef HTCDEBUG
-#define STATUS_TIMEOUT (HZ/10)
-#define FLUSH_TIMEOUT (HZ/5)
-static void __sync_tlb(void __iomem *base, int ctx)
+static void __sync_tlb(struct msm_iommu_drvdata *iommu_drvdata, int ctx)
 {
-	int i = 0, status = 0;
-	static int failcount = 0;
-	unsigned long timeout;
+	unsigned int val;
+	unsigned int res;
+	void __iomem *base = iommu_drvdata->base;
 
 	SET_TLBSYNC(base, ctx, 0);
-
-	for (i = 10; i > 0; i--) {
-		timeout = jiffies + STATUS_TIMEOUT;
-		
-		while (GET_CB_TLBSTATUS_SACTIVE(base, ctx) && time_before(jiffies, timeout))
-			cpu_relax();
-		status = GET_CB_TLBSTATUS_SACTIVE(base, ctx);
-		if (!status)
-			break;
-		pr_warn("%s: %lu: SACTIVE timeout (base:%p, ctx:%d) status=0x%x\n",
-			__func__, jiffies, base, ctx, status);
-		SET_TLBSYNC(base, ctx, 0);
-	}
-
-	if (i == 0) {
-		
-		failcount++;
-		pr_err("%s: fail, counter=%d\n", __func__, failcount);
-		dump_stack();
-		if (failcount > 3) {
-			msleep(1000);
-			panic("IOMMU: __sync_tlb timeout");
-		}
-	}
-
 	
-}
 
-static int __flush_iotlb_va(struct iommu_domain *domain, unsigned int va)
-{
-	struct msm_iommu_priv *priv = domain->priv;
-	struct msm_iommu_drvdata *iommu_drvdata;
-	struct msm_iommu_ctx_drvdata *ctx_drvdata;
-	int ret = 0;
-	unsigned long start0 = jiffies, start = jiffies;
-	int len = 0;
-
-	if (!priv) {
-		ret = -EINVAL;
-		goto fail;
-	}
-
-	list_for_each_entry(ctx_drvdata, &priv->list_attached, attached_elm) {
-		++len;
-		BUG_ON(!ctx_drvdata->pdev || !ctx_drvdata->pdev->dev.parent);
-
-		iommu_drvdata = dev_get_drvdata(ctx_drvdata->pdev->dev.parent);
-		BUG_ON(!iommu_drvdata);
-
-		ret = __enable_clocks(iommu_drvdata);
-		if (ret)
-			goto fail;
-
-		SET_TLBIVA(iommu_drvdata->base, ctx_drvdata->num,
-			   ctx_drvdata->asid | (va & CB_TLBIVA_VA));
-		mb();
-		__sync_tlb(iommu_drvdata->base, ctx_drvdata->num);
-		__disable_clocks(iommu_drvdata);
-
-		if (time_after(jiffies, start + FLUSH_TIMEOUT)) {
-			pr_warn("%s: running too long since %lu to %lu, ctxlength=%d\n",
-				__func__, start0, jiffies, len);
-			pr_warn("%s: domain client: %s, va=0x%x\n",
-				__func__, priv ? priv->client_name : "(null)", va);
-			start = jiffies;
-		}
-	}
-fail:
-	return ret;
-}
-
-static int __flush_iotlb(struct iommu_domain *domain)
-{
-	struct msm_iommu_priv *priv = domain->priv;
-	struct msm_iommu_drvdata *iommu_drvdata;
-	struct msm_iommu_ctx_drvdata *ctx_drvdata;
-	int ret = 0;
-	unsigned long start0 = jiffies, start = jiffies;
-	int len = 0;
-
-	if (!priv) {
-		ret = -EINVAL;
-		goto fail;
-	}
-
-	list_for_each_entry(ctx_drvdata, &priv->list_attached, attached_elm) {
-		++len;
-		BUG_ON(!ctx_drvdata->pdev || !ctx_drvdata->pdev->dev.parent);
-
-		iommu_drvdata = dev_get_drvdata(ctx_drvdata->pdev->dev.parent);
-		BUG_ON(!iommu_drvdata);
-
-		ret = __enable_clocks(iommu_drvdata);
-		if (ret)
-			goto fail;
-
-		SET_TLBIASID(iommu_drvdata->base, ctx_drvdata->num,
-			     ctx_drvdata->asid);
-		mb();
-		__sync_tlb(iommu_drvdata->base, ctx_drvdata->num);
-		__disable_clocks(iommu_drvdata);
-
-		if (time_after(jiffies, start + FLUSH_TIMEOUT)) {
-			pr_warn("%s: running too long since %lu to %lu, ctxlength=%d\n",
-				__func__, start0, jiffies, len);
-			pr_warn("%s: domain client: %s\n",
-				__func__, priv ? priv->client_name : "(null)");
-			start = jiffies;
-		}
-	}
-
-fail:
-	return ret;
-}
-#else
-static void __sync_tlb(void __iomem *base, int ctx)
-{
-	unsigned long timeout = jiffies + msecs_to_jiffies(IOMMU_MSEC_TIMEOUT);
-
-	SET_TLBSYNC(base, ctx, 0);
-
-	
-	do {
-		if (GET_CB_TLBSTATUS_SACTIVE(base, ctx) == 0)
-			break;
-		else
-			msleep(IOMMU_MSEC_STEP);
-	} while (time_before(jiffies, timeout));
-
-	BUG_ON(jiffies >= timeout);
-	
+	res = readl_tight_poll_timeout(CTX_REG(CB_TLBSTATUS, base, ctx), val,
+				(val & CB_TLBSTATUS_SACTIVE) == 0, 5000000);
+	if (res)
+		check_tlb_sync_state(iommu_drvdata, ctx);
 }
 
 static int __flush_iotlb_va(struct iommu_domain *domain, unsigned int va)
@@ -333,7 +324,7 @@ static int __flush_iotlb_va(struct iommu_domain *domain, unsigned int va)
 		SET_TLBIVA(iommu_drvdata->base, ctx_drvdata->num,
 			   ctx_drvdata->asid | (va & CB_TLBIVA_VA));
 		mb();
-		__sync_tlb(iommu_drvdata->base, ctx_drvdata->num);
+		__sync_tlb(iommu_drvdata, ctx_drvdata->num);
 		__disable_clocks(iommu_drvdata);
 	}
 fail:
@@ -360,14 +351,13 @@ static int __flush_iotlb(struct iommu_domain *domain)
 		SET_TLBIASID(iommu_drvdata->base, ctx_drvdata->num,
 			     ctx_drvdata->asid);
 		mb();
-		__sync_tlb(iommu_drvdata->base, ctx_drvdata->num);
+		__sync_tlb(iommu_drvdata, ctx_drvdata->num);
 		__disable_clocks(iommu_drvdata);
 	}
 
 fail:
 	return ret;
 }
-#endif
 
 static void __reset_iommu(void __iomem *base)
 {
@@ -899,7 +889,6 @@ static phys_addr_t msm_iommu_iova_to_phys(struct iommu_domain *domain,
 	void __iomem *base;
 	phys_addr_t ret = 0;
 	int ctx;
-	int i;
 
 	mutex_lock(&msm_iommu_lock);
 
@@ -922,18 +911,8 @@ static phys_addr_t msm_iommu_iova_to_phys(struct iommu_domain *domain,
 
 	SET_ATS1PR(base, ctx, va & CB_ATS1PR_ADDR);
 	mb();
-	for (i = 0; i < IOMMU_MSEC_TIMEOUT; i += IOMMU_MSEC_STEP)
-		if (GET_CB_ATSR_ACTIVE(base, ctx) == 0)
-			break;
-		else
-			msleep(IOMMU_MSEC_STEP);
-
-	if (i >= IOMMU_MSEC_TIMEOUT) {
-		pr_err("%s: iova to phys timed out on %pa for %s (%s)\n",
-			__func__, &va, iommu_drvdata->name, ctx_drvdata->name);
-		ret = 0;
-		goto fail;
-	}
+	while (GET_CB_ATSR_ACTIVE(base, ctx))
+		cpu_relax();
 
 	par = GET_PAR(base, ctx);
 	__disable_clocks(iommu_drvdata);

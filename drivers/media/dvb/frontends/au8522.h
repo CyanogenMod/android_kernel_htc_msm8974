@@ -36,7 +36,7 @@ struct au8522_led_config {
 	u16 qam256_strong;
 
 	u16 gpio_output;
-	
+	/* unset hi bits, set low bits */
 	u16 gpio_output_enable;
 	u16 gpio_output_disable;
 
@@ -46,10 +46,10 @@ struct au8522_led_config {
 };
 
 struct au8522_config {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* Return lock status based on tuner lock, or demod lock */
 #define AU8522_TUNERLOCKING 0
 #define AU8522_DEMODLOCKING 1
 	u8 status_mode;
@@ -72,8 +72,9 @@ struct dvb_frontend *au8522_attach(const struct au8522_config *config,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_AU8522 */
 
+/* Other modes may need to be added later */
 enum au8522_video_input {
 	AU8522_COMPOSITE_CH1 = 1,
 	AU8522_COMPOSITE_CH2,
@@ -89,5 +90,9 @@ enum au8522_audio_input {
 	AU8522_AUDIO_SIF,
 };
 
-#endif 
+#endif /* __AU8522_H__ */
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ */

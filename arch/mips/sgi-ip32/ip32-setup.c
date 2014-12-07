@@ -32,6 +32,10 @@ extern void ip32_be_init(void);
 extern void crime_init(void);
 
 #ifdef CONFIG_SGI_O2MACE_ETH
+/*
+ * This is taken care of in here 'cause they say using Arc later on is
+ * problematic
+ */
 extern char o2meth_eaddr[8];
 static inline unsigned char str2hexnum(unsigned char c)
 {
@@ -39,7 +43,7 @@ static inline unsigned char str2hexnum(unsigned char c)
 		return c - '0';
 	if (c >= 'a' && c <= 'f')
 		return c - 'a' + 10;
-	return 0; 
+	return 0; /* foo */
 }
 
 static inline void str2eaddr(unsigned char *ea, unsigned char *str)
@@ -58,6 +62,7 @@ static inline void str2eaddr(unsigned char *ea, unsigned char *str)
 }
 #endif
 
+/* An arbitrary time; this can be decreased if reliability looks good */
 #define WAIT_MS 10
 
 void __init plat_time_init(void)

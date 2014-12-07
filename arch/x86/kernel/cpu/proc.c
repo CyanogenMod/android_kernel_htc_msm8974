@@ -4,6 +4,9 @@
 #include <linux/seq_file.h>
 #include <linux/cpufreq.h>
 
+/*
+ *	Get CPU information for use by the procfs.
+ */
 static void show_cpuinfo_core(struct seq_file *m, struct cpuinfo_x86 *c,
 			      unsigned int cpu)
 {
@@ -23,6 +26,10 @@ static void show_cpuinfo_core(struct seq_file *m, struct cpuinfo_x86 *c,
 #ifdef CONFIG_X86_32
 static void show_cpuinfo_misc(struct seq_file *m, struct cpuinfo_x86 *c)
 {
+	/*
+	 * We use exception 16 if we have hardware math and we've either seen
+	 * it or the CPU claims it is internal
+	 */
 	int fpu_exception = c->hard_math && (ignore_fpu_irq || cpu_has_fpu);
 	seq_printf(m,
 		   "fdiv_bug\t: %s\n"
@@ -88,7 +95,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 			   freq / 1000, (freq % 1000));
 	}
 
-	
+	/* Cache size */
 	if (c->x86_cache_size >= 0)
 		seq_printf(m, "cache size\t: %d KB\n", c->x86_cache_size);
 
@@ -133,7 +140,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
-	if (*pos == 0)	
+	if (*pos == 0)	/* just in case, cpu 0 is not the first */
 		*pos = cpumask_first(cpu_online_mask);
 	else
 		*pos = cpumask_next(*pos - 1, cpu_online_mask);

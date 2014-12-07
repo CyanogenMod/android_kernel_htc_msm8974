@@ -881,7 +881,7 @@ static int i915_cur_delayinfo(struct seq_file *m, void *unused)
 		u32 rpdownei, rpcurdown, rpprevdown;
 		int max_freq;
 
-		
+		/* RPSTAT1 is in the GT power well */
 		ret = mutex_lock_interruptible(&dev->struct_mutex);
 		if (ret)
 			return ret;
@@ -1080,7 +1080,7 @@ static int gen6_drpc_info(struct seq_file *m)
 		seq_printf(m, "RC information inaccurate because somebody "
 			      "holds a forcewake reference \n");
 	} else {
-		
+		/* NB: we cannot use forcewake, else we read the wrong values */
 		while (count++ < 50 && (I915_READ_NOTRACE(FORCEWAKE_ACK) & 1))
 			udelay(10);
 		seq_printf(m, "RC information accurate: %s\n", yesno(count < 51));
@@ -1605,6 +1605,9 @@ i915_max_freq_write(struct file *filp,
 
 	DRM_DEBUG_DRIVER("Manually setting max freq to %d\n", val);
 
+	/*
+	 * Turbo will still be enabled, but won't go above the set value.
+	 */
 	dev_priv->max_delay = val / 50;
 
 	gen6_set_rps(dev, val / 50);
@@ -1674,7 +1677,7 @@ i915_cache_sharing_write(struct file *filp,
 
 	DRM_DEBUG_DRIVER("Manually setting uncore sharing to %d\n", val);
 
-	
+	/* Update the cache sharing policy here as well */
 	snpcr = I915_READ(GEN6_MBCUNIT_SNPCR);
 	snpcr &= ~GEN6_MBC_SNPCR_MASK;
 	snpcr |= (val << GEN6_MBC_SNPCR_SHIFT);
@@ -1691,6 +1694,8 @@ static const struct file_operations i915_cache_sharing_fops = {
 	.llseek = default_llseek,
 };
 
+/* As the drm_debugfs_init() routines are called before dev->dev_private is
+ * allocated we need to hook into the minor for release. */
 static int
 drm_add_fake_info_node(struct drm_minor *minor,
 		       struct dentry *ent,
@@ -1741,6 +1746,13 @@ int i915_forcewake_release(struct inode *inode, struct file *file)
 	if (INTEL_INFO(dev)->gen < 6)
 		return 0;
 
+	/*
+	 * It's bad that we can potentially hang userspace if struct_mutex gets
+	 * forever stuck.  However, if we cannot acquire this lock it means that
+	 * almost certainly the driver has hung, is not unload-able. Therefore
+	 * hanging here is probably a minor inconvenience not to be seen my
+	 * almost every user.
+	 */
 	mutex_lock(&dev->struct_mutex);
 	gen6_gt_force_wake_put(dev_priv);
 	mutex_unlock(&dev->struct_mutex);
@@ -1875,4 +1887,4 @@ void i915_debugfs_cleanup(struct drm_minor *minor)
 				 1, minor);
 }
 
-#endif 
+#endif /* CONFIG_DEBUG_FS */

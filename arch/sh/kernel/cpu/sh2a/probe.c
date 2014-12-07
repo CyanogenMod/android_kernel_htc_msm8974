@@ -17,7 +17,7 @@ void __cpuinit cpu_probe(void)
 {
 	boot_cpu_data.family			= CPU_FAMILY_SH2A;
 
-	
+	/* All SH-2A CPUs have support for 16 and 32-bit opcodes.. */
 	boot_cpu_data.flags			|= CPU_HAS_OP32;
 
 #if defined(CONFIG_CPU_SUBTYPE_SH7201)
@@ -44,5 +44,11 @@ void __cpuinit cpu_probe(void)
 	boot_cpu_data.dcache.linesz		= L1_CACHE_BYTES;
 	boot_cpu_data.dcache.flags		= 0;
 
+	/*
+	 * The icache is the same as the dcache as far as this setup is
+	 * concerned. The only real difference in hardware is that the icache
+	 * lacks the U bit that the dcache has, none of this has any bearing
+	 * on the cache info.
+	 */
 	boot_cpu_data.icache		= boot_cpu_data.dcache;
 }

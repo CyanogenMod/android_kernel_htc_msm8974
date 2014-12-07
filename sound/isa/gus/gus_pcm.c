@@ -33,6 +33,7 @@
 #include <sound/pcm_params.h>
 #include "gus_tables.h"
 
+/* maximum rate */
 
 #define SNDRV_GF1_PCM_RATE		48000
 
@@ -81,6 +82,10 @@ static int snd_gf1_pcm_block_change(struct snd_pcm_substream *substream,
 
 	count += offset & 31;
 	offset &= ~31;
+	/*
+	snd_printk(KERN_DEBUG "block change - offset = 0x%x, count = 0x%x\n",
+		   offset, count);
+	*/
 	memset(&block, 0, sizeof(block));
 	block.cmd = SNDRV_GF1_DMA_IRQ;
 	if (snd_pcm_format_unsigned(runtime->format))
@@ -120,19 +125,24 @@ static void snd_gf1_pcm_trigger_up(struct snd_pcm_substream *substream)
 	pcmp->final_volume = 0;
 	spin_unlock_irqrestore(&pcmp->lock, flags);
 	rate = snd_gf1_translate_freq(gus, runtime->rate << 4);
-	
+	/* enable WAVE IRQ */
 	voice_ctrl = snd_pcm_format_width(runtime->format) == 16 ? 0x24 : 0x20;
-	
+	/* enable RAMP IRQ + rollover */
 	ramp_ctrl = 0x24;
 	if (pcmp->blocks == 1) {
-		voice_ctrl |= 0x08;	
-		ramp_ctrl &= ~0x04;	
+		voice_ctrl |= 0x08;	/* loop enable */
+		ramp_ctrl &= ~0x04;	/* disable rollover */
 	}
 	for (voice = 0; voice < pcmp->voices; voice++) {
 		begin = pcmp->memory + voice * (pcmp->dma_size / runtime->channels);
 		curr = begin + (pcmp->bpos * pcmp->block_size) / runtime->channels;
 		end = curr + (pcmp->block_size / runtime->channels);
 		end -= snd_pcm_format_width(runtime->format) == 16 ? 2 : 1;
+		/*
+		snd_printk(KERN_DEBUG "init: curr=0x%x, begin=0x%x, end=0x%x, "
+			   "ctrl=0x%x, ramp=0x%x, rate=0x%x\n",
+			   curr, begin, end, voice_ctrl, ramp_ctrl, rate);
+		*/
 		pan = runtime->channels == 2 ? (!voice ? 1 : 14) : 8;
 		vol = !voice ? gus->gf1.pcm_volume_level_left : gus->gf1.pcm_volume_level_right;
 		spin_lock_irqsave(&gus->reg_lock, flags);
@@ -157,7 +167,7 @@ static void snd_gf1_pcm_trigger_up(struct snd_pcm_substream *substream)
 	for (voice = 0; voice < pcmp->voices; voice++) {
 		snd_gf1_select_voice(gus, pcmp->pvoices[voice]->number);
 		if (gus->gf1.enh_mode)
-			snd_gf1_write8(gus, SNDRV_GF1_VB_MODE, 0x00);	
+			snd_gf1_write8(gus, SNDRV_GF1_VB_MODE, 0x00);	/* deactivate voice */
 		snd_gf1_write8(gus, SNDRV_GF1_VB_ADDRESS_CONTROL, voice_ctrl);
 		voice_ctrl &= ~0x20;
 	}
@@ -167,7 +177,7 @@ static void snd_gf1_pcm_trigger_up(struct snd_pcm_substream *substream)
 		for (voice = 0; voice < pcmp->voices; voice++) {
 			snd_gf1_select_voice(gus, pcmp->pvoices[voice]->number);
 			snd_gf1_write8(gus, SNDRV_GF1_VB_ADDRESS_CONTROL, voice_ctrl);
-			voice_ctrl &= ~0x20;	
+			voice_ctrl &= ~0x20;	/* disable IRQ for next voice */
 		}
 	}
 	spin_unlock_irqrestore(&gus->reg_lock, flags);
@@ -211,10 +221,10 @@ static void snd_gf1_pcm_interrupt_wave(struct snd_gus_card * gus,
 #endif
 	pcmp->bpos++;
 	pcmp->bpos %= pcmp->blocks;
-	if (pcmp->bpos + 1 >= pcmp->blocks) {	
-		voice_ctrl |= 0x08;	
+	if (pcmp->bpos + 1 >= pcmp->blocks) {	/* last block? */
+		voice_ctrl |= 0x08;	/* enable loop */
 	} else {
-		ramp_ctrl |= 0x04;	
+		ramp_ctrl |= 0x04;	/* enable rollover */
 	}
 	end = pcmp->memory + (((pcmp->bpos + 1) * pcmp->block_size) / runtime->channels);
 	end -= voice_ctrl & 4 ? 2 : 1;
@@ -265,17 +275,17 @@ static void snd_gf1_pcm_interrupt_volume(struct snd_gus_card * gus,
 	int cvoice;
 	struct gus_pcm_private *pcmp = pvoice->private_data;
 
-	
+	/* stop ramp, but leave rollover bit untouched */
 	spin_lock(&gus->reg_lock);
 	snd_gf1_select_voice(gus, pvoice->number);
 	snd_gf1_ctrl_stop(gus, SNDRV_GF1_VB_VOLUME_CONTROL);
 	spin_unlock(&gus->reg_lock);
 	if (pcmp == NULL)
 		return;
-	
+	/* are we active? */
 	if (!(pcmp->flags & SNDRV_GF1_PCM_PFLG_ACTIVE))
 		return;
-	
+	/* load real volume - better precision */
 	cvoice = pcmp->pvoices[0] == pvoice ? 0 : 1;
 	if (pcmp->substream == NULL)
 		return;
@@ -298,9 +308,14 @@ static int snd_gf1_pcm_poke_block(struct snd_gus_card *gus, unsigned char *buf,
 	unsigned int len;
 	unsigned long flags;
 
+	/*
+	printk(KERN_DEBUG
+	       "poke block; buf = 0x%x, pos = %i, count = %i, port = 0x%x\n",
+	       (int)buf, pos, count, gus->gf1.port);
+	*/
 	while (count > 0) {
 		len = count;
-		if (len > 512)		
+		if (len > 512)		/* limit, to allow IRQ */
 			len = 512;
 		count -= len;
 		if (gus->interwave) {
@@ -410,7 +425,7 @@ static int snd_gf1_pcm_playback_hw_params(struct snd_pcm_substream *substream,
 	
 	if ((err = snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(hw_params))) < 0)
 		return err;
-	if (err > 0) {	
+	if (err > 0) {	/* change */
 		struct snd_gf1_mem_block *block;
 		if (pcmp->memory > 0) {
 			snd_gf1_mem_free(&gus->gf1.mem_alloc, pcmp->memory);
@@ -550,7 +565,7 @@ static int snd_gf1_pcm_capture_hw_params(struct snd_pcm_substream *substream,
 	gus->c_dma_size = params_buffer_bytes(hw_params);
 	gus->c_period_size = params_period_bytes(hw_params);
 	gus->c_pos = 0;
-	gus->gf1.pcm_rcntrl_reg = 0x21;		
+	gus->gf1.pcm_rcntrl_reg = 0x21;		/* IRQ at end, enable & start */
 	if (params_channels(hw_params) > 1)
 		gus->gf1.pcm_rcntrl_reg |= 2;
 	if (gus->gf1.dma2 > 3)
@@ -571,8 +586,8 @@ static int snd_gf1_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RECORD_RATE, runtime->rate_den - 2);
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL, 0);	
-	snd_gf1_i_look8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL, 0);	/* disable sampling */
+	snd_gf1_i_look8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL);	/* Sampling Control Register */
 	snd_dma_program(gus->gf1.dma2, runtime->dma_addr, gus->c_period_size, DMA_MODE_READ);
 	return 0;
 }
@@ -608,8 +623,8 @@ static snd_pcm_uframes_t snd_gf1_pcm_capture_pointer(struct snd_pcm_substream *s
 
 static void snd_gf1_pcm_interrupt_dma_read(struct snd_gus_card * gus)
 {
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL, 0);	
-	snd_gf1_i_look8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL, 0);	/* disable sampling */
+	snd_gf1_i_look8(gus, SNDRV_GF1_GB_REC_DMA_CONTROL);	/* Sampling Control Register */
 	if (gus->pcm_cap_substream != NULL) {
 		snd_gf1_pcm_capture_prepare(gus->pcm_cap_substream); 
 		snd_gf1_pcm_capture_trigger(gus->pcm_cap_substream, SNDRV_PCM_TRIGGER_START);
@@ -770,7 +785,7 @@ static int snd_gf1_pcm_volume_put(struct snd_kcontrol *kcontrol, struct snd_ctl_
 	gus->gf1.pcm_volume_level_left = snd_gf1_lvol_to_gvol_raw(val1 << 9) << 4;
 	gus->gf1.pcm_volume_level_right = snd_gf1_lvol_to_gvol_raw(val2 << 9) << 4;
 	spin_unlock_irqrestore(&gus->pcm_volume_level_lock, flags);
-	
+	/* are we active? */
 	spin_lock_irqsave(&gus->voice_alloc, flags);
 	for (idx = 0; idx < 32; idx++) {
 		pvoice = &gus->gf1.voices[idx];
@@ -779,7 +794,7 @@ static int snd_gf1_pcm_volume_put(struct snd_kcontrol *kcontrol, struct snd_ctl_
 		pcmp = pvoice->private_data;
 		if (!(pcmp->flags & SNDRV_GF1_PCM_PFLG_ACTIVE))
 			continue;
-		
+		/* load real volume - better precision */
 		spin_lock(&gus->reg_lock);
 		snd_gf1_select_voice(gus, pvoice->number);
 		snd_gf1_ctrl_stop(gus, SNDRV_GF1_VB_VOLUME_CONTROL);
@@ -855,7 +870,7 @@ int snd_gf1_pcm_new(struct snd_gus_card * gus, int pcm_dev, int control_index, s
 	if (err < 0)
 		return err;
 	pcm->private_data = gus;
-	
+	/* playback setup */
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &snd_gf1_pcm_playback_ops);
 
 	for (substream = pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream; substream; substream = substream->next)

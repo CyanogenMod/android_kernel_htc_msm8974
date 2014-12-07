@@ -45,6 +45,7 @@
 #define IVTV_DECODE_INIT_MPEG_FILENAME 	"v4l-cx2341x-init.mpg"
 #define IVTV_DECODE_INIT_MPEG_SIZE 	(152*1024)
 
+/* Encoder/decoder firmware sizes */
 #define IVTV_FW_ENC_SIZE 		(376836)
 #define IVTV_FW_DEC_SIZE 		(256*1024)
 
@@ -60,13 +61,17 @@ retry:
 		const u32 *src = (const u32 *)fw->data;
 
 		if (fw->size != size) {
+			/* Due to race conditions in firmware loading (esp. with udev <0.95)
+			   the wrong file was sometimes loaded. So we check filesizes to
+			   see if at least the right-sized file was loaded. If not, then we
+			   retry. */
 			IVTV_INFO("Retry: file loaded was not %s (expected size %ld, got %zd)\n", fn, size, fw->size);
 			release_firmware(fw);
 			retries--;
 			goto retry;
 		}
 		for (i = 0; i < fw->size; i += 4) {
-			
+			/* no need for endianness conversion on the ppc */
 			__raw_writel(*src, dst);
 			dst++;
 			src++;
@@ -136,7 +141,7 @@ void ivtv_firmware_versions(struct ivtv *itv)
 {
 	u32 data[CX2341X_MBOX_MAX_DATA];
 
-	
+	/* Encoder */
 	ivtv_vapi_result(itv, data, CX2341X_ENC_GET_VERSION, 0);
 	IVTV_INFO("Encoder revision: 0x%08x\n", data[0]);
 
@@ -144,7 +149,7 @@ void ivtv_firmware_versions(struct ivtv *itv)
 		IVTV_WARN("Recommended firmware version is 0x02060039.\n");
 
 	if (itv->has_cx23415) {
-		
+		/* Decoder */
 		ivtv_vapi_result(itv, data, CX2341X_DEC_GET_VERSION, 0);
 		IVTV_INFO("Decoder revision: 0x%08x\n", data[0]);
 	}
@@ -174,6 +179,8 @@ static volatile struct ivtv_mailbox __iomem *ivtv_search_mailbox(const volatile 
 {
 	int i;
 
+	/* mailbox is preceded by a 16 byte 'magic cookie' starting at a 256-byte
+	   address boundary */
 	for (i = 0; i < size; i += 0x100) {
 		if (readl(mem + i)      == 0x12345678 &&
 		    readl(mem + i + 4)  == 0x34567812 &&
@@ -191,14 +198,14 @@ int ivtv_firmware_init(struct ivtv *itv)
 
 	ivtv_halt_firmware(itv);
 
-	
+	/* load firmware */
 	err = ivtv_firmware_copy(itv);
 	if (err) {
 		IVTV_DEBUG_WARN("Error %d loading firmware\n", err);
 		return err;
 	}
 
-	
+	/* start firmware */
 	write_reg(read_reg(IVTV_REG_SPU) & IVTV_MASK_SPU_ENABLE, IVTV_REG_SPU);
 	ivtv_msleep_timeout(100, 0);
 	if (itv->has_cx23415)
@@ -207,7 +214,7 @@ int ivtv_firmware_init(struct ivtv *itv)
 		write_reg(read_reg(IVTV_REG_VPU) & IVTV_MASK_VPU_ENABLE16, IVTV_REG_VPU);
 	ivtv_msleep_timeout(100, 0);
 
-	
+	/* find mailboxes and ping firmware */
 	itv->enc_mbox.mbox = ivtv_search_mailbox(itv->enc_mem, IVTV_ENCODER_SIZE);
 	if (itv->enc_mbox.mbox == NULL)
 		IVTV_ERR("Encoder mailbox not found\n");
@@ -228,7 +235,7 @@ int ivtv_firmware_init(struct ivtv *itv)
 		IVTV_ERR("Decoder firmware dead!\n");
 		itv->dec_mbox.mbox = NULL;
 	} else {
-		
+		/* Firmware okay, so check yuv output filter table */
 		ivtv_yuv_filter_check(itv);
 	}
 	return itv->dec_mbox.mbox ? 0 : -ENODEV;
@@ -241,9 +248,10 @@ void ivtv_init_mpeg_decoder(struct ivtv *itv)
 	volatile u8 __iomem *mem_offset;
 
 	data[0] = 0;
-	data[1] = itv->cxhdl.width;	
+	data[1] = itv->cxhdl.width;	/* YUV source width */
 	data[2] = itv->cxhdl.height;
-	data[3] = itv->cxhdl.audio_properties;	
+	data[3] = itv->cxhdl.audio_properties;	/* Audio settings to use,
+							   bitmap. see docs. */
 	if (ivtv_api(itv, CX2341X_DEC_SET_DECODER_SOURCE, 4, data)) {
 		IVTV_ERR("ivtv_init_mpeg_decoder failed to set decoder source\n");
 		return;
@@ -267,13 +275,14 @@ void ivtv_init_mpeg_decoder(struct ivtv *itv)
 	ivtv_vapi(itv, CX2341X_DEC_STOP_PLAYBACK, 4, 0, 0, 0, 1);
 }
 
+/* Try to restart the card & restore previous settings */
 int ivtv_firmware_restart(struct ivtv *itv)
 {
 	int rc = 0;
 	v4l2_std_id std;
 
 	if (itv->v4l2_cap & V4L2_CAP_VIDEO_OUTPUT)
-		
+		/* Display test image during restart */
 		ivtv_call_hw(itv, IVTV_HW_SAA7127, video, s_routing,
 		    SAA7127_INPUT_TYPE_TEST_IMAGE,
 		    itv->card->video_outputs[itv->active_output].video_output,
@@ -287,10 +296,10 @@ int ivtv_firmware_restart(struct ivtv *itv)
 		return rc;
 	}
 
-	
+	/* Allow settings to reload */
 	ivtv_mailbox_cache_invalidate(itv);
 
-	
+	/* Restore encoder video standard */
 	std = itv->std;
 	itv->std = 0;
 	ivtv_s_std_enc(itv, &std);
@@ -298,19 +307,19 @@ int ivtv_firmware_restart(struct ivtv *itv)
 	if (itv->v4l2_cap & V4L2_CAP_VIDEO_OUTPUT) {
 		ivtv_init_mpeg_decoder(itv);
 
-		
+		/* Restore decoder video standard */
 		std = itv->std_out;
 		itv->std_out = 0;
 		ivtv_s_std_dec(itv, &std);
 
-		
+		/* Restore framebuffer if active */
 		if (itv->ivtvfb_restore)
 			itv->ivtvfb_restore(itv);
 
-		
+		/* Restore alpha settings */
 		ivtv_set_osd_alpha(itv);
 
-		
+		/* Restore normal output */
 		ivtv_call_hw(itv, IVTV_HW_SAA7127, video, s_routing,
 		    SAA7127_INPUT_TYPE_NORMAL,
 		    itv->card->video_outputs[itv->active_output].video_output,
@@ -321,17 +330,19 @@ int ivtv_firmware_restart(struct ivtv *itv)
 	return rc;
 }
 
+/* Check firmware running state. The checks fall through
+   allowing multiple failures to be logged. */
 int ivtv_firmware_check(struct ivtv *itv, char *where)
 {
 	int res = 0;
 
-	
+	/* Check encoder is still running */
 	if (ivtv_vapi(itv, CX2341X_ENC_PING_FW, 0) < 0) {
 		IVTV_WARN("Encoder has died : %s\n", where);
 		res = -1;
 	}
 
-	
+	/* Also check audio. Only check if not in use & encoder is okay */
 	if (!res && !atomic_read(&itv->capturing) &&
 	    (!atomic_read(&itv->decoding) ||
 	     (atomic_read(&itv->decoding) < 2 && test_bit(IVTV_F_I_DEC_YUV,
@@ -344,9 +355,9 @@ int ivtv_firmware_check(struct ivtv *itv, char *where)
 	}
 
 	if (itv->v4l2_cap & V4L2_CAP_VIDEO_OUTPUT) {
-		
+		/* Second audio check. Skip if audio already failed */
 		if (res != -2 && read_dec(0x100) != read_dec(0x104)) {
-			
+			/* Wait & try again to be certain. */
 			ivtv_msleep_timeout(14, 0);
 			if (read_dec(0x100) != read_dec(0x104)) {
 				IVTV_WARN("Audio has died (Decoder) : %s\n",
@@ -355,19 +366,24 @@ int ivtv_firmware_check(struct ivtv *itv, char *where)
 			}
 		}
 
-		
+		/* Check decoder is still running */
 		if (ivtv_vapi(itv, CX2341X_DEC_PING_FW, 0) < 0) {
 			IVTV_WARN("Decoder has died : %s\n", where);
 			res = -1;
 		}
 	}
 
-	
+	/* If something failed & currently idle, try to reload */
 	if (res && !atomic_read(&itv->capturing) &&
 						!atomic_read(&itv->decoding)) {
 		IVTV_INFO("Detected in %s that firmware had failed - "
 			  "Reloading\n", where);
 		res = ivtv_firmware_restart(itv);
+		/*
+		 * Even if restarted ok, still signal a problem had occurred.
+		 * The caller can come through this function again to check
+		 * if things are really ok after the restart.
+		 */
 		if (!res) {
 			IVTV_INFO("Firmware restart okay\n");
 			res = -EAGAIN;

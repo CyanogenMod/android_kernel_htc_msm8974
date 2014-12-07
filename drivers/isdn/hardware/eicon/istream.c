@@ -24,7 +24,7 @@
  *
  */
 #include "platform.h"
-#if defined(DIVA_ISTREAM) 
+#if defined(DIVA_ISTREAM) /* { */
 #include "pc.h"
 #include "pr_pc.h"
 #include "di_defs.h"
@@ -50,6 +50,9 @@ int diva_istream_read(void *context,
 		      int *final,
 		      byte *usr1,
 		      byte *usr2);
+/* -------------------------------------------------------------------
+   Does provide iStream interface to the client
+   ------------------------------------------------------------------- */
 void diva_xdi_provide_istream_info(ADAPTER *a,
 				   diva_xdi_stream_interface_t *pi) {
 	pi->provided_service = 0;
@@ -84,9 +87,9 @@ int diva_istream_write(void *context,
 #endif
 			      (dword *)&tmp[0],
 			      1);
-		if (tmp[0] & DIVA_DFIFO_READY) { 
+		if (tmp[0] & DIVA_DFIFO_READY) { /* No free blocks more */
 			if (to_write < 0)
-				return (-1); 
+				return (-1); /* was not able to write       */
 			break;     /* only part of message was written */
 		}
 		to_write = min(length, DIVA_DFIFO_DATA_SZ);
@@ -165,12 +168,12 @@ int diva_istream_read(void *context,
 			      1);
 		if (tmp[1] > max_length) {
 			if (to_read < 0)
-				return (-2); 
+				return (-2); /* was not able to read */
 			break;
 		}
 		if (!(tmp[0] & DIVA_DFIFO_READY)) {
 			if (to_read < 0)
-				return (-1); 
+				return (-1); /* was not able to read */
 			break;
 		}
 		to_read = min(max_length, (int)tmp[1]);
@@ -214,6 +217,10 @@ int diva_istream_read(void *context,
 	}
 	return (read);
 }
+/* ---------------------------------------------------------------------
+   Does check if one of streams had caused interrupt and does
+   wake up corresponding application
+   --------------------------------------------------------------------- */
 void pr_stream(ADAPTER *a) {
 }
-#endif 
+#endif /* } */

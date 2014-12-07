@@ -81,7 +81,7 @@ int omapdss_sdi_display_enable(struct omap_dss_device *dssdev)
 
 	sdi_basic_init(dssdev);
 
-	
+	/* 15.5.9.1.2 */
 	dssdev->panel.config |= OMAP_DSS_LCD_RF | OMAP_DSS_LCD_ONOFF;
 
 	dispc_mgr_set_pol_freq(dssdev->manager->id, dssdev->panel.config,

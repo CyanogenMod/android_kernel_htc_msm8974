@@ -6,4 +6,4 @@ extern void cbe_maintenance_exception(struct pt_regs *regs);
 extern void cbe_thermal_exception(struct pt_regs *regs);
 extern void cbe_ras_init(void);
 
-#endif 
+#endif /* RAS_H */

@@ -1,3 +1,24 @@
+/*
+ * Connection tracking support for PPTP (Point to Point Tunneling Protocol).
+ * PPTP is a a protocol for creating virtual private networks.
+ * It is a specification defined by Microsoft and some vendors
+ * working with Microsoft.  PPTP is built on top of a modified
+ * version of the Internet Generic Routing Encapsulation Protocol.
+ * GRE is defined in RFC 1701 and RFC 1702.  Documentation of
+ * PPTP can be found in RFC 2637
+ *
+ * (C) 2000-2005 by Harald Welte <laforge@gnumonks.org>
+ *
+ * Development of this code funded by Astaro AG (http://www.astaro.com/)
+ *
+ * Limitations:
+ * 	 - We blindly assume that control connections are always
+ * 	   established in PNS->PAC direction.  This is a violation
+ * 	   of RFFC2673
+ * 	 - We can only support one single call within each session
+ * TODO:
+ *	 - testing of incoming PPTP calls
+ */
 
 #include <linux/module.h>
 #include <linux/skbuff.h>
@@ -47,6 +68,7 @@ void
 EXPORT_SYMBOL_GPL(nf_nat_pptp_hook_expectfn);
 
 #if defined(DEBUG) || defined(CONFIG_DYNAMIC_DEBUG)
+/* PptpControlMessageType names */
 const char *const pptp_msg_name[] = {
 	"UNKNOWN_MESSAGE",
 	"START_SESSION_REQUEST",
@@ -82,10 +104,12 @@ static void pptp_expectfn(struct nf_conn *ct,
 	typeof(nf_nat_pptp_hook_expectfn) nf_nat_pptp_expectfn;
 	pr_debug("increasing timeouts\n");
 
-	
+	/* increase timeout of GRE data channel conntrack entry */
 	ct->proto.gre.timeout	     = PPTP_GRE_TIMEOUT;
 	ct->proto.gre.stream_timeout = PPTP_GRE_STREAM_TIMEOUT;
 
+	/* Can you see how rusty this code is, compared with the pre-2.6.11
+	 * one? That's what happened to my shiny newnat of 2002 ;( -HW */
 
 	rcu_read_lock();
 	nf_nat_pptp_expectfn = rcu_dereference(nf_nat_pptp_hook_expectfn);
@@ -95,14 +119,14 @@ static void pptp_expectfn(struct nf_conn *ct,
 		struct nf_conntrack_tuple inv_t;
 		struct nf_conntrack_expect *exp_other;
 
-		
+		/* obviously this tuple inversion only works until you do NAT */
 		nf_ct_invert_tuplepr(&inv_t, &exp->tuple);
 		pr_debug("trying to unexpect other dir: ");
 		nf_ct_dump_tuple(&inv_t);
 
 		exp_other = nf_ct_expect_find_get(net, nf_ct_zone(ct), &inv_t);
 		if (exp_other) {
-			
+			/* delete other expectation.  */
 			pr_debug("found\n");
 			nf_ct_unexpect_related(exp_other);
 			nf_ct_expect_put(exp_other);
@@ -146,6 +170,7 @@ static int destroy_sibling_or_exp(struct net *net, struct nf_conn *ct,
 	return 0;
 }
 
+/* timeout GRE data connections */
 static void pptp_destroy_siblings(struct nf_conn *ct)
 {
 	struct net *net = nf_ct_net(ct);
@@ -159,7 +184,7 @@ static void pptp_destroy_siblings(struct nf_conn *ct)
 
 	nf_ct_gre_keymap_destroy(ct);
 
-	
+	/* try original (pns->pac) tuple */
 	memcpy(&t, &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple, sizeof(t));
 	t.dst.protonum = IPPROTO_GRE;
 	t.src.u.gre.key = help->help.ct_pptp_info.pns_call_id;
@@ -167,7 +192,7 @@ static void pptp_destroy_siblings(struct nf_conn *ct)
 	if (!destroy_sibling_or_exp(net, ct, &t))
 		pr_debug("failed to timeout original pns->pac ct/exp\n");
 
-	
+	/* try reply (pac->pns) tuple */
 	memcpy(&t, &ct->tuplehash[IP_CT_DIR_REPLY].tuple, sizeof(t));
 	t.dst.protonum = IPPROTO_GRE;
 	t.src.u.gre.key = help->help.ct_pptp_info.pac_call_id;
@@ -176,6 +201,7 @@ static void pptp_destroy_siblings(struct nf_conn *ct)
 		pr_debug("failed to timeout reply pac->pns ct/exp\n");
 }
 
+/* expect GRE connections (PNS->PAC and PAC->PNS direction) */
 static int exp_gre(struct nf_conn *ct, __be16 callid, __be16 peer_callid)
 {
 	struct nf_conntrack_expect *exp_orig, *exp_reply;
@@ -191,7 +217,7 @@ static int exp_gre(struct nf_conn *ct, __be16 callid, __be16 peer_callid)
 	if (exp_reply == NULL)
 		goto out_put_orig;
 
-	
+	/* original direction, PNS->PAC */
 	dir = IP_CT_DIR_ORIGINAL;
 	nf_ct_expect_init(exp_orig, NF_CT_EXPECT_CLASS_DEFAULT,
 			  nf_ct_l3num(ct),
@@ -200,7 +226,7 @@ static int exp_gre(struct nf_conn *ct, __be16 callid, __be16 peer_callid)
 			  IPPROTO_GRE, &peer_callid, &callid);
 	exp_orig->expectfn = pptp_expectfn;
 
-	
+	/* reply direction, PAC->PNS */
 	dir = IP_CT_DIR_REPLY;
 	nf_ct_expect_init(exp_reply, NF_CT_EXPECT_CLASS_DEFAULT,
 			  nf_ct_l3num(ct),
@@ -217,7 +243,7 @@ static int exp_gre(struct nf_conn *ct, __be16 callid, __be16 peer_callid)
 	if (nf_ct_expect_related(exp_reply) != 0)
 		goto out_unexpect_orig;
 
-	
+	/* Add GRE keymap entries */
 	if (nf_ct_gre_keymap_add(ct, IP_CT_DIR_ORIGINAL, &exp_orig->tuple) != 0)
 		goto out_unexpect_both;
 	if (nf_ct_gre_keymap_add(ct, IP_CT_DIR_REPLY, &exp_reply->tuple) != 0) {
@@ -258,7 +284,7 @@ pptp_inbound_pkt(struct sk_buff *skb,
 
 	switch (msg) {
 	case PPTP_START_SESSION_REPLY:
-		
+		/* server confirms new control session */
 		if (info->sstate < PPTP_SESSION_REQUESTED)
 			goto invalid;
 		if (pptpReq->srep.resultCode == PPTP_START_OK)
@@ -268,7 +294,7 @@ pptp_inbound_pkt(struct sk_buff *skb,
 		break;
 
 	case PPTP_STOP_SESSION_REPLY:
-		
+		/* server confirms end of control session */
 		if (info->sstate > PPTP_SESSION_STOPREQ)
 			goto invalid;
 		if (pptpReq->strep.resultCode == PPTP_STOP_OK)
@@ -278,7 +304,7 @@ pptp_inbound_pkt(struct sk_buff *skb,
 		break;
 
 	case PPTP_OUT_CALL_REPLY:
-		
+		/* server accepted call, we now expect GRE frames */
 		if (info->sstate != PPTP_SESSION_CONFIRMED)
 			goto invalid;
 		if (info->cstate != PPTP_CALL_OUT_REQ &&
@@ -301,7 +327,7 @@ pptp_inbound_pkt(struct sk_buff *skb,
 		break;
 
 	case PPTP_IN_CALL_REQUEST:
-		
+		/* server tells us about incoming call request */
 		if (info->sstate != PPTP_SESSION_CONFIRMED)
 			goto invalid;
 
@@ -312,7 +338,7 @@ pptp_inbound_pkt(struct sk_buff *skb,
 		break;
 
 	case PPTP_IN_CALL_CONNECT:
-		
+		/* server tells us about incoming call established */
 		if (info->sstate != PPTP_SESSION_CONFIRMED)
 			goto invalid;
 		if (info->cstate != PPTP_CALL_IN_REP &&
@@ -328,17 +354,17 @@ pptp_inbound_pkt(struct sk_buff *skb,
 		pr_debug("%s, PCID=%X\n", pptp_msg_name[msg], ntohs(pcid));
 		info->cstate = PPTP_CALL_IN_CONF;
 
-		
+		/* we expect a GRE connection from PAC to PNS */
 		exp_gre(ct, cid, pcid);
 		break;
 
 	case PPTP_CALL_DISCONNECT_NOTIFY:
-		
+		/* server confirms disconnect */
 		cid = pptpReq->disc.callID;
 		pr_debug("%s, CID=%X\n", pptp_msg_name[msg], ntohs(cid));
 		info->cstate = PPTP_CALL_NONE;
 
-		
+		/* untrack this call id, unexpect GRE packets */
 		pptp_destroy_siblings(ct);
 		break;
 
@@ -346,7 +372,7 @@ pptp_inbound_pkt(struct sk_buff *skb,
 	case PPTP_SET_LINK_INFO:
 	case PPTP_ECHO_REQUEST:
 	case PPTP_ECHO_REPLY:
-		
+		/* I don't have to explain these ;) */
 		break;
 
 	default:
@@ -390,30 +416,30 @@ pptp_outbound_pkt(struct sk_buff *skb,
 
 	switch (msg) {
 	case PPTP_START_SESSION_REQUEST:
-		
+		/* client requests for new control session */
 		if (info->sstate != PPTP_SESSION_NONE)
 			goto invalid;
 		info->sstate = PPTP_SESSION_REQUESTED;
 		break;
 
 	case PPTP_STOP_SESSION_REQUEST:
-		
+		/* client requests end of control session */
 		info->sstate = PPTP_SESSION_STOPREQ;
 		break;
 
 	case PPTP_OUT_CALL_REQUEST:
-		
+		/* client initiating connection to server */
 		if (info->sstate != PPTP_SESSION_CONFIRMED)
 			goto invalid;
 		info->cstate = PPTP_CALL_OUT_REQ;
-		
+		/* track PNS call id */
 		cid = pptpReq->ocreq.callID;
 		pr_debug("%s, CID=%X\n", pptp_msg_name[msg], ntohs(cid));
 		info->pns_call_id = cid;
 		break;
 
 	case PPTP_IN_CALL_REPLY:
-		
+		/* client answers incoming call */
 		if (info->cstate != PPTP_CALL_IN_REQ &&
 		    info->cstate != PPTP_CALL_IN_REP)
 			goto invalid;
@@ -426,7 +452,7 @@ pptp_outbound_pkt(struct sk_buff *skb,
 			 ntohs(cid), ntohs(pcid));
 
 		if (pptpReq->icack.resultCode == PPTP_INCALL_ACCEPT) {
-			
+			/* part two of the three-way handshake */
 			info->cstate = PPTP_CALL_IN_REP;
 			info->pns_call_id = cid;
 		} else
@@ -434,16 +460,19 @@ pptp_outbound_pkt(struct sk_buff *skb,
 		break;
 
 	case PPTP_CALL_CLEAR_REQUEST:
-		
+		/* client requests hangup of call */
 		if (info->sstate != PPTP_SESSION_CONFIRMED)
 			goto invalid;
+		/* FUTURE: iterate over all calls and check if
+		 * call ID is valid.  We don't do this without newnat,
+		 * because we only know about last call */
 		info->cstate = PPTP_CALL_CLEAR_REQ;
 		break;
 
 	case PPTP_SET_LINK_INFO:
 	case PPTP_ECHO_REQUEST:
 	case PPTP_ECHO_REPLY:
-		
+		/* I don't have to explain these ;) */
 		break;
 
 	default:
@@ -480,6 +509,7 @@ static const unsigned int pptp_msg_size[] = {
 	[PPTP_SET_LINK_INFO]	      = sizeof(struct PptpSetLinkInfo),
 };
 
+/* track caller id inside control connection, call expect_related */
 static int
 conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 		    struct nf_conn *ct, enum ip_conntrack_info ctinfo)
@@ -504,7 +534,7 @@ conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 		printk(KERN_ERR "[NET] info is NULL in %s!\n", __func__);
 #endif
 
-	
+	/* don't do any tracking before tcp handshake complete */
 	if (ctinfo != IP_CT_ESTABLISHED && ctinfo != IP_CT_ESTABLISHED_REPLY)
 		return NF_ACCEPT;
 
@@ -522,7 +552,7 @@ conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 	nexthdr_off += sizeof(_pptph);
 	datalen -= sizeof(_pptph);
 
-	
+	/* if it's not a control message we can't do anything with it */
 	if (ntohs(pptph->packetType) != PPTP_PACKET_CONTROL ||
 	    ntohl(pptph->magicCookie) != PPTP_MAGIC_COOKIE) {
 		pr_debug("not a control packet\n");
@@ -551,12 +581,14 @@ conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 
 	spin_lock_bh(&nf_pptp_lock);
 
+	/* FIXME: We just blindly assume that the control connection is always
+	 * established from PNS->PAC.  However, RFC makes no guarantee */
 	if (dir == IP_CT_DIR_ORIGINAL)
-		
+		/* client -> server (PNS -> PAC) */
 		ret = pptp_outbound_pkt(skb, ctlh, pptpReq, reqlen, ct,
 					ctinfo);
 	else
-		
+		/* server -> client (PAC -> PNS) */
 		ret = pptp_inbound_pkt(skb, ctlh, pptpReq, reqlen, ct,
 				       ctinfo);
 	pr_debug("sstate: %d->%d, cstate: %d->%d\n",
@@ -571,6 +603,7 @@ static const struct nf_conntrack_expect_policy pptp_exp_policy = {
 	.timeout	= 5 * 60,
 };
 
+/* control protocol helper */
 static struct nf_conntrack_helper pptp __read_mostly = {
 	.name			= "pptp",
 	.me			= THIS_MODULE,

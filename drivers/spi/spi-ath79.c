@@ -58,7 +58,7 @@ static void ath79_spi_chipselect(struct spi_device *spi, int is_active)
 	int cs_high = (spi->mode & SPI_CS_HIGH) ? is_active : !is_active;
 
 	if (is_active) {
-		
+		/* set initial clock polarity */
 		if (spi->mode & SPI_CPOL)
 			sp->ioc_base |= AR71XX_SPI_IOC_CLK;
 		else
@@ -70,7 +70,7 @@ static void ath79_spi_chipselect(struct spi_device *spi, int is_active)
 	if (spi->chip_select) {
 		struct ath79_spi_controller_data *cdata = spi->controller_data;
 
-		
+		/* SPI is normally active-low */
 		gpio_set_value(cdata->gpio, cs_high);
 	} else {
 		if (cs_high)
@@ -92,14 +92,14 @@ static int ath79_spi_setup_cs(struct spi_device *spi)
 	if (spi->chip_select && !cdata)
 		return -EINVAL;
 
-	
+	/* enable GPIO mode */
 	ath79_spi_wr(sp, AR71XX_SPI_REG_FS, AR71XX_SPI_FS_GPIO);
 
-	
+	/* save CTRL register */
 	sp->reg_ctrl = ath79_spi_rr(sp, AR71XX_SPI_REG_CTRL);
 	sp->ioc_base = ath79_spi_rr(sp, AR71XX_SPI_REG_IOC);
 
-	
+	/* TODO: setup speed? */
 	ath79_spi_wr(sp, AR71XX_SPI_REG_CTRL, 0x43);
 
 	if (spi->chip_select) {
@@ -135,9 +135,9 @@ static void ath79_spi_cleanup_cs(struct spi_device *spi)
 		gpio_free(cdata->gpio);
 	}
 
-	
+	/* restore CTRL register */
 	ath79_spi_wr(sp, AR71XX_SPI_REG_CTRL, sp->reg_ctrl);
-	
+	/* disable GPIO mode */
 	ath79_spi_wr(sp, AR71XX_SPI_REG_FS, 0);
 }
 
@@ -173,7 +173,7 @@ static u32 ath79_spi_txrx_mode0(struct spi_device *spi, unsigned nsecs,
 	struct ath79_spi *sp = ath79_spidev_to_sp(spi);
 	u32 ioc = sp->ioc_base;
 
-	
+	/* clock starts at inactive polarity */
 	for (word <<= (32 - bits); likely(bits); bits--) {
 		u32 out;
 
@@ -182,7 +182,7 @@ static u32 ath79_spi_txrx_mode0(struct spi_device *spi, unsigned nsecs,
 		else
 			out = ioc & ~AR71XX_SPI_IOC_DO;
 
-		
+		/* setup MSB (to slave) on trailing edge */
 		ath79_spi_wr(sp, AR71XX_SPI_REG_IOC, out);
 		ath79_spi_wr(sp, AR71XX_SPI_REG_IOC, out | AR71XX_SPI_IOC_CLK);
 

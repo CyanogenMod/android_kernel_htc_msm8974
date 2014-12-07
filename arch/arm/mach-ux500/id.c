@@ -31,7 +31,7 @@ static unsigned int ux500_read_asicid(phys_addr_t addr)
 
 	iotable_init(&desc, 1);
 
-	
+	/* As in devicemaps_init() */
 	local_flush_tlb_all();
 	flush_cache_all();
 
@@ -59,6 +59,15 @@ static unsigned int partnumber(unsigned int asicid)
 	return (asicid >> 8) & 0xffff;
 }
 
+/*
+ * SOC		MIDR		ASICID ADDRESS		ASICID VALUE
+ * DB8500ed	0x410fc090	0x9001FFF4		0x00850001
+ * DB8500v1	0x411fc091	0x9001FFF4		0x008500A0
+ * DB8500v1.1	0x411fc091	0x9001FFF4		0x008500A1
+ * DB8500v2	0x412fc091	0x9001DBF4		0x008500B0
+ * DB8520v2.2	0x412fc091	0x9001DBF4		0x008500B2
+ * DB5500v1	0x412fc091	0x9001FFF4		0x005500A0
+ */
 
 void __init ux500_map_io(void)
 {
@@ -67,19 +76,19 @@ void __init ux500_map_io(void)
 	phys_addr_t addr = 0;
 
 	switch (cpuid) {
-	case 0x410fc090: 
-	case 0x411fc091: 
+	case 0x410fc090: /* DB8500ed */
+	case 0x411fc091: /* DB8500v1 */
 		addr = 0x9001FFF4;
 		break;
 
-	case 0x412fc091: 
+	case 0x412fc091: /* DB8520 / DB8500v2 / DB5500v1 */
 		asicid = ux500_read_asicid(0x9001DBF4);
 		if (partnumber(asicid) == 0x8500 ||
 		    partnumber(asicid) == 0x8520)
-			
+			/* DB8500v2 */
 			break;
 
-		
+		/* DB5500v1 */
 		addr = 0x9001FFF4;
 		break;
 	}

@@ -20,16 +20,16 @@
 #include <asm/olpc.h>
 
 
-#define EC_BAT_VOLTAGE	0x10	
-#define EC_BAT_CURRENT	0x11	
-#define EC_BAT_ACR	0x12	
-#define EC_BAT_TEMP	0x13	
-#define EC_AMB_TEMP	0x14	
-#define EC_BAT_STATUS	0x15	
-#define EC_BAT_SOC	0x16	
-#define EC_BAT_SERIAL	0x17	
-#define EC_BAT_EEPROM	0x18	
-#define EC_BAT_ERRCODE	0x1f	
+#define EC_BAT_VOLTAGE	0x10	/* uint16_t,	*9.76/32,    mV   */
+#define EC_BAT_CURRENT	0x11	/* int16_t,	*15.625/120, mA   */
+#define EC_BAT_ACR	0x12	/* int16_t,	*6250/15,    µAh  */
+#define EC_BAT_TEMP	0x13	/* uint16_t,	*100/256,   °C  */
+#define EC_AMB_TEMP	0x14	/* uint16_t,	*100/256,   °C  */
+#define EC_BAT_STATUS	0x15	/* uint8_t,	bitmask */
+#define EC_BAT_SOC	0x16	/* uint8_t,	percentage */
+#define EC_BAT_SERIAL	0x17	/* uint8_t[6] */
+#define EC_BAT_EEPROM	0x18	/* uint8_t adr as input, uint8_t output */
+#define EC_BAT_ERRCODE	0x1f	/* uint8_t,	bitmask */
 
 #define BAT_STAT_PRESENT	0x01
 #define BAT_STAT_FULL		0x02
@@ -50,6 +50,9 @@
 
 #define BAT_ADDR_MFR_TYPE	0x5F
 
+/*********************************************************************
+ *		Power
+ *********************************************************************/
 
 static int olpc_ac_get_prop(struct power_supply *psy,
 			    enum power_supply_property psp,
@@ -85,7 +88,7 @@ static struct power_supply olpc_ac = {
 	.get_property = olpc_ac_get_prop,
 };
 
-static char bat_serial[17]; 
+static char bat_serial[17]; /* Ick */
 
 static int olpc_bat_get_status(union power_supply_propval *val, uint8_t ec_byte)
 {
@@ -96,15 +99,15 @@ static int olpc_bat_get_status(union power_supply_propval *val, uint8_t ec_byte)
 			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
 		else if (ec_byte & BAT_STAT_FULL)
 			val->intval = POWER_SUPPLY_STATUS_FULL;
-		else 
+		else /* er,... */
 			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
 	} else {
-		
-		if (!(ec_byte & BAT_STAT_AC)) 
+		/* Older EC didn't report charge/discharge bits */
+		if (!(ec_byte & BAT_STAT_AC)) /* No AC means discharging */
 			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
 		else if (ec_byte & BAT_STAT_FULL)
 			val->intval = POWER_SUPPLY_STATUS_FULL;
-		else 
+		else /* Not _necessarily_ true but EC doesn't tell all yet */
 			val->intval = POWER_SUPPLY_STATUS_CHARGING;
 	}
 
@@ -141,7 +144,7 @@ static int olpc_bat_get_health(union power_supply_propval *val)
 		break;
 
 	default:
-		
+		/* Eep. We don't know this failure code */
 		ret = -EIO;
 	}
 
@@ -218,7 +221,7 @@ static int olpc_bat_get_charge_full_design(union power_supply_propval *val)
 	switch (tech.intval) {
 	case POWER_SUPPLY_TECHNOLOGY_NiMH:
 		switch (mfr) {
-		case 1: 
+		case 1: /* Gold Peak */
 			val->intval = 3000000*.8;
 			break;
 		default:
@@ -228,10 +231,10 @@ static int olpc_bat_get_charge_full_design(union power_supply_propval *val)
 
 	case POWER_SUPPLY_TECHNOLOGY_LiFe:
 		switch (mfr) {
-		case 1: 
+		case 1: /* Gold Peak */
 			val->intval = 2800000;
 			break;
-		case 2: 
+		case 2: /* BYD */
 			val->intval = 3100000;
 			break;
 		default:
@@ -264,6 +267,9 @@ static int olpc_bat_get_charge_now(union power_supply_propval *val)
 	return 0;
 }
 
+/*********************************************************************
+ *		Battery properties
+ *********************************************************************/
 static int olpc_bat_get_property(struct power_supply *psy,
 				 enum power_supply_property psp,
 				 union power_supply_propval *val)
@@ -277,6 +283,12 @@ static int olpc_bat_get_property(struct power_supply *psy,
 	if (ret)
 		return ret;
 
+	/* Theoretically there's a race here -- the battery could be
+	   removed immediately after we check whether it's present, and
+	   then we query for some other property of the now-absent battery.
+	   It doesn't matter though -- the EC will return the last-known
+	   information, and it's as if we just ran that _little_ bit faster
+	   and managed to read it out before the battery went away. */
 	if (!(ec_byte & (BAT_STAT_PRESENT | BAT_STAT_TRICKLE)) &&
 			psp != POWER_SUPPLY_PROP_PRESENT)
 		return -ENODEV;
@@ -418,6 +430,7 @@ static enum power_supply_property olpc_xo1_bat_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 };
 
+/* XO-1.5 does not have ambient temperature property */
 static enum power_supply_property olpc_xo15_bat_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_CHARGE_TYPE,
@@ -438,6 +451,7 @@ static enum power_supply_property olpc_xo15_bat_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_COUNTER,
 };
 
+/* EEPROM reading goes completely around the power_supply API, sadly */
 
 #define EEPROM_START	0x20
 #define EEPROM_END	0x80
@@ -478,6 +492,7 @@ static struct bin_attribute olpc_bat_eeprom = {
 	.read = olpc_bat_eeprom_read,
 };
 
+/* Allow userspace to see the specific error value pulled from the EC */
 
 static ssize_t olpc_bat_error_read(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -500,6 +515,9 @@ static struct device_attribute olpc_bat_error = {
 	.show = olpc_bat_error_read,
 };
 
+/*********************************************************************
+ *		Initialisation
+ *********************************************************************/
 
 static struct power_supply olpc_bat = {
 	.name = "olpc-battery",
@@ -530,6 +548,10 @@ static int __devinit olpc_battery_probe(struct platform_device *pdev)
 	int ret;
 	uint8_t status;
 
+	/*
+	 * We've seen a number of EC protocol changes; this driver requires
+	 * the latest EC protocol, supported by 0x44 and above.
+	 */
 	if (olpc_platform_info.ecver < 0x44) {
 		printk(KERN_NOTICE "OLPC EC version 0x%02x too old for "
 			"battery driver.\n", olpc_platform_info.ecver);
@@ -540,16 +562,16 @@ static int __devinit olpc_battery_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	
+	/* Ignore the status. It doesn't actually matter */
 
 	ret = power_supply_register(&pdev->dev, &olpc_ac);
 	if (ret)
 		return ret;
 
-	if (olpc_board_at_least(olpc_board_pre(0xd0))) { 
+	if (olpc_board_at_least(olpc_board_pre(0xd0))) { /* XO-1.5 */
 		olpc_bat.properties = olpc_xo15_bat_props;
 		olpc_bat.num_properties = ARRAY_SIZE(olpc_xo15_bat_props);
-	} else { 
+	} else { /* XO-1 */
 		olpc_bat.properties = olpc_xo1_bat_props;
 		olpc_bat.num_properties = ARRAY_SIZE(olpc_xo1_bat_props);
 	}

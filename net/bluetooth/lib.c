@@ -22,6 +22,7 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+/* Bluetooth kernel library. */
 
 #include <linux/module.h>
 
@@ -57,6 +58,7 @@ char *batostr(bdaddr_t *ba)
 }
 EXPORT_SYMBOL(batostr);
 
+/* Bluetooth error codes to Unix errno mapping */
 int bt_err(__u16 code)
 {
 	switch (code) {

@@ -85,6 +85,10 @@ static void sja1000_write_cmdreg(struct sja1000_priv *priv, u8 val)
 {
 	unsigned long flags;
 
+	/*
+	 * The command register needs some locking and time to settle
+	 * the write_reg() operation - especially on SMP systems.
+	 */
 	spin_lock_irqsave(&priv->cmdreg_lock, flags);
 	priv->write_reg(priv, REG_CMR, val);
 	priv->read_reg(priv, REG_SR);
@@ -114,17 +118,17 @@ static void set_reset_mode(struct net_device *dev)
 	unsigned char status = priv->read_reg(priv, REG_MOD);
 	int i;
 
-	
+	/* disable interrupts */
 	priv->write_reg(priv, REG_IER, IRQ_OFF);
 
 	for (i = 0; i < 100; i++) {
-		
+		/* check reset bit */
 		if (status & MOD_RM) {
 			priv->can.state = CAN_STATE_STOPPED;
 			return;
 		}
 
-		priv->write_reg(priv, REG_MOD, MOD_RM);	
+		priv->write_reg(priv, REG_MOD, MOD_RM);	/* reset chip */
 		udelay(10);
 		status = priv->read_reg(priv, REG_MOD);
 	}
@@ -139,10 +143,10 @@ static void set_normal_mode(struct net_device *dev)
 	int i;
 
 	for (i = 0; i < 100; i++) {
-		
+		/* check reset bit */
 		if ((status & MOD_RM) == 0) {
 			priv->can.state = CAN_STATE_ERROR_ACTIVE;
-			
+			/* enable interrupts */
 			if (priv->can.ctrlmode & CAN_CTRLMODE_BERR_REPORTING)
 				priv->write_reg(priv, REG_IER, IRQ_ALL);
 			else
@@ -151,7 +155,7 @@ static void set_normal_mode(struct net_device *dev)
 			return;
 		}
 
-		
+		/* set chip to normal mode */
 		priv->write_reg(priv, REG_MOD, 0x00);
 		udelay(10);
 		status = priv->read_reg(priv, REG_MOD);
@@ -164,16 +168,16 @@ static void sja1000_start(struct net_device *dev)
 {
 	struct sja1000_priv *priv = netdev_priv(dev);
 
-	
+	/* leave reset mode */
 	if (priv->can.state != CAN_STATE_STOPPED)
 		set_reset_mode(dev);
 
-	
+	/* Clear error counters and error code capture */
 	priv->write_reg(priv, REG_TXERR, 0x0);
 	priv->write_reg(priv, REG_RXERR, 0x0);
 	priv->read_reg(priv, REG_ECC);
 
-	
+	/* leave reset mode */
 	set_normal_mode(dev);
 }
 
@@ -229,14 +233,22 @@ static int sja1000_get_berr_counter(const struct net_device *dev,
 	return 0;
 }
 
+/*
+ * initialize SJA1000 chip:
+ *   - reset chip
+ *   - set output mode
+ *   - set baudrate
+ *   - enable interrupts
+ *   - start operating mode
+ */
 static void chipset_init(struct net_device *dev)
 {
 	struct sja1000_priv *priv = netdev_priv(dev);
 
-	
+	/* set clock divider and output control register */
 	priv->write_reg(priv, REG_CDR, priv->cdr | CDR_PELICAN);
 
-	
+	/* set acceptance filter (accept all) */
 	priv->write_reg(priv, REG_ACCC0, 0x00);
 	priv->write_reg(priv, REG_ACCC1, 0x00);
 	priv->write_reg(priv, REG_ACCC2, 0x00);
@@ -250,6 +262,12 @@ static void chipset_init(struct net_device *dev)
 	priv->write_reg(priv, REG_OCR, priv->ocr | OCR_MODE_NORMAL);
 }
 
+/*
+ * transmit a CAN message
+ * message layout in the sk_buff should be like this:
+ * xx xx xx xx	 ff	 ll   00 11 22 33 44 55 66 77
+ * [  can-id ] [flags] [len] [can data (up to 8 bytes]
+ */
 static netdev_tx_t sja1000_start_xmit(struct sk_buff *skb,
 					    struct net_device *dev)
 {
@@ -308,7 +326,7 @@ static void sja1000_rx(struct net_device *dev)
 	canid_t id;
 	int i;
 
-	
+	/* create zero'ed CAN frame buffer */
 	skb = alloc_can_skb(dev, &cf);
 	if (skb == NULL)
 		return;
@@ -316,7 +334,7 @@ static void sja1000_rx(struct net_device *dev)
 	fi = priv->read_reg(priv, REG_FI);
 
 	if (fi & FI_FF) {
-		
+		/* extended frame format (EFF) */
 		dreg = EFF_BUF;
 		id = (priv->read_reg(priv, REG_ID1) << (5 + 16))
 		    | (priv->read_reg(priv, REG_ID2) << (5 + 8))
@@ -324,7 +342,7 @@ static void sja1000_rx(struct net_device *dev)
 		    | (priv->read_reg(priv, REG_ID4) >> 3);
 		id |= CAN_EFF_FLAG;
 	} else {
-		
+		/* standard frame format (SFF) */
 		dreg = SFF_BUF;
 		id = (priv->read_reg(priv, REG_ID1) << 3)
 		    | (priv->read_reg(priv, REG_ID2) >> 5);
@@ -340,7 +358,7 @@ static void sja1000_rx(struct net_device *dev)
 
 	cf->can_id = id;
 
-	
+	/* release receive buffer */
 	sja1000_write_cmdreg(priv, CMD_RRB);
 
 	netif_rx(skb);
@@ -363,17 +381,17 @@ static int sja1000_err(struct net_device *dev, uint8_t isrc, uint8_t status)
 		return -ENOMEM;
 
 	if (isrc & IRQ_DOI) {
-		
+		/* data overrun interrupt */
 		netdev_dbg(dev, "data overrun interrupt\n");
 		cf->can_id |= CAN_ERR_CRTL;
 		cf->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
 		stats->rx_over_errors++;
 		stats->rx_errors++;
-		sja1000_write_cmdreg(priv, CMD_CDO);	
+		sja1000_write_cmdreg(priv, CMD_CDO);	/* clear bit */
 	}
 
 	if (isrc & IRQ_EI) {
-		
+		/* error warning interrupt */
 		netdev_dbg(dev, "error warning interrupt\n");
 
 		if (status & SR_BS) {
@@ -386,7 +404,7 @@ static int sja1000_err(struct net_device *dev, uint8_t isrc, uint8_t status)
 			state = CAN_STATE_ERROR_ACTIVE;
 	}
 	if (isrc & IRQ_BEI) {
-		
+		/* bus error interrupt */
 		priv->can.can_stats.bus_error++;
 		stats->rx_errors++;
 
@@ -409,12 +427,12 @@ static int sja1000_err(struct net_device *dev, uint8_t isrc, uint8_t status)
 			cf->data[3] = ecc & ECC_SEG;
 			break;
 		}
-		
+		/* Error occurred during transmission? */
 		if ((ecc & ECC_DIR) == 0)
 			cf->data[2] |= CAN_ERR_PROT_TX;
 	}
 	if (isrc & IRQ_EPI) {
-		
+		/* error passive interrupt */
 		netdev_dbg(dev, "error passive interrupt\n");
 		if (status & SR_ES)
 			state = CAN_STATE_ERROR_PASSIVE;
@@ -422,7 +440,7 @@ static int sja1000_err(struct net_device *dev, uint8_t isrc, uint8_t status)
 			state = CAN_STATE_ERROR_ACTIVE;
 	}
 	if (isrc & IRQ_ALI) {
-		
+		/* arbitration lost interrupt */
 		netdev_dbg(dev, "arbitration lost interrupt\n");
 		alc = priv->read_reg(priv, REG_ALC);
 		priv->can.can_stats.arbitration_lost++;
@@ -469,7 +487,7 @@ irqreturn_t sja1000_interrupt(int irq, void *dev_id)
 	uint8_t isrc, status;
 	int n = 0;
 
-	
+	/* Shared interrupts and IRQ off? */
 	if (priv->read_reg(priv, REG_IER) == IRQ_OFF)
 		return IRQ_NONE;
 
@@ -479,7 +497,7 @@ irqreturn_t sja1000_interrupt(int irq, void *dev_id)
 	while ((isrc = priv->read_reg(priv, REG_IR)) && (n < SJA1000_MAX_IRQ)) {
 		n++;
 		status = priv->read_reg(priv, REG_SR);
-		
+		/* check for absent controller due to hw unplug */
 		if (status == 0xFF && sja1000_is_absent(priv))
 			return IRQ_NONE;
 
@@ -487,24 +505,24 @@ irqreturn_t sja1000_interrupt(int irq, void *dev_id)
 			netdev_warn(dev, "wakeup interrupt\n");
 
 		if (isrc & IRQ_TI) {
-			
+			/* transmission complete interrupt */
 			stats->tx_bytes += priv->read_reg(priv, REG_FI) & 0xf;
 			stats->tx_packets++;
 			can_get_echo_skb(dev, 0);
 			netif_wake_queue(dev);
 		}
 		if (isrc & IRQ_RI) {
-			
+			/* receive interrupt */
 			while (status & SR_RBS) {
 				sja1000_rx(dev);
 				status = priv->read_reg(priv, REG_SR);
-				
+				/* check for absent controller */
 				if (status == 0xFF && sja1000_is_absent(priv))
 					return IRQ_NONE;
 			}
 		}
 		if (isrc & (IRQ_DOI | IRQ_EI | IRQ_BEI | IRQ_EPI | IRQ_ALI)) {
-			
+			/* error interrupt */
 			if (sja1000_err(dev, isrc, status))
 				break;
 		}
@@ -525,15 +543,15 @@ static int sja1000_open(struct net_device *dev)
 	struct sja1000_priv *priv = netdev_priv(dev);
 	int err;
 
-	
+	/* set chip into reset mode */
 	set_reset_mode(dev);
 
-	
+	/* common open */
 	err = open_candev(dev);
 	if (err)
 		return err;
 
-	
+	/* register interrupt handler, if not done by the device driver */
 	if (!(priv->flags & SJA1000_CUSTOM_IRQ_HANDLER)) {
 		err = request_irq(dev->irq, sja1000_interrupt, priv->irq_flags,
 				  dev->name, (void *)dev);
@@ -543,7 +561,7 @@ static int sja1000_open(struct net_device *dev)
 		}
 	}
 
-	
+	/* init and start chi */
 	sja1000_start(dev);
 	priv->open_time = jiffies;
 
@@ -615,7 +633,7 @@ int register_sja1000dev(struct net_device *dev)
 	if (!sja1000_probe_chip(dev))
 		return -ENODEV;
 
-	dev->flags |= IFF_ECHO;	
+	dev->flags |= IFF_ECHO;	/* we support local echo */
 	dev->netdev_ops = &sja1000_netdev_ops;
 
 	set_reset_mode(dev);

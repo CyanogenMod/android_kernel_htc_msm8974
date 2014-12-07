@@ -5,4 +5,4 @@
 extern struct kbdiacruc accent_table[];
 extern unsigned int accent_table_size;
 
-#endif 
+#endif /* _DIACR_H */

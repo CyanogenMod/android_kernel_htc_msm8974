@@ -1,3 +1,9 @@
+/*
+ *
+ * FIXME: Properly make this race free with refcounting etc...
+ *
+ * FIXME: LOCKING !!!
+ */
 
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -10,6 +16,7 @@
 #include <asm/prom.h>
 #include <asm/pmac_pfunc.h>
 
+/* Debug */
 #define LOG_PARSE(fmt...)
 #define LOG_ERROR(fmt...)	printk(fmt)
 #define LOG_BLOB(t,b,c)
@@ -21,6 +28,7 @@
 #define DBG(fmt...)
 #endif
 
+/* Command numbers */
 #define PMF_CMD_LIST			0
 #define PMF_CMD_WRITE_GPIO		1
 #define PMF_CMD_READ_GPIO		2
@@ -56,6 +64,9 @@
 #define PMF_CMD_MASK_AND_COMPARE	32
 #define PMF_CMD_COUNT			33
 
+/* This structure holds the state of the parser while walking through
+ * a function definition
+ */
 struct pmf_cmd {
 	const void		*cmdptr;
 	const void		*cmdend;
@@ -66,6 +77,7 @@ struct pmf_cmd {
 };
 
 #if 0
+/* Debug output */
 static void print_blob(const char *title, const void *blob, int bytes)
 {
 	printk("%s", title);
@@ -77,6 +89,9 @@ static void print_blob(const char *title, const void *blob, int bytes)
 }
 #endif
 
+/*
+ * Parser helpers
+ */
 
 static u32 pmf_next32(struct pmf_cmd *cmd)
 {
@@ -102,6 +117,9 @@ static const void* pmf_next_blob(struct pmf_cmd *cmd, int count)
 	return value;
 }
 
+/*
+ * Individual command parsers
+ */
 
 #define PMF_PARSE_CALL(name, cmd, handlers, p...) \
 	do { \
@@ -499,9 +517,9 @@ static pmf_cmd_parser_t pmf_parsers[PMF_CMD_COUNT] =
 	pmf_parser_read_i2c,
 	pmf_parser_write_i2c,
 	pmf_parser_rmw_i2c,
-	NULL, 
-	NULL, 
-	NULL, 
+	NULL, /* Bogus command */
+	NULL, /* Shift bytes right: NYI */
+	NULL, /* Shift bytes left: NYI */
 	pmf_parser_read_cfg,
 	pmf_parser_write_cfg,
 	pmf_parser_rmw_cfg,
@@ -577,13 +595,13 @@ static int pmf_parse_one(struct pmf_function *func,
 		  func->name, func->length,
 		  handlers ? "executing" : "parsing");
 
-	
+	/* One subcommand to parse for now */
 	count = 1;
 
 	while(count-- && cmd.cmdptr < cmd.cmdend) {
-		
+		/* Get opcode */
 		ccode = pmf_next32(&cmd);
-		
+		/* Check if we are hitting a command list, fetch new count */
 		if (ccode == 0) {
 			count = pmf_next32(&cmd) - 1;
 			ccode = pmf_next32(&cmd);
@@ -608,7 +626,7 @@ static int pmf_parse_one(struct pmf_function *func,
 		}
 	}
 
-	
+	/* We are doing an initial parse pass, we need to adjust the size */
 	if (handlers == NULL)
 		func->length = cmd.cmdptr - func->data;
 
@@ -625,7 +643,7 @@ static int pmf_add_function_prop(struct pmf_device *dev, void *driverdata,
 	DBG("pmf: Adding functions for platform-do-%s\n", name);
 
 	while (length >= 12) {
-		
+		/* Allocate a structure */
 		func = kzalloc(sizeof(struct pmf_function), GFP_KERNEL);
 		if (func == NULL)
 			goto bail;
@@ -797,6 +815,10 @@ struct pmf_function *__pmf_find_function(struct device_node *target,
 	const u32 *prop;
 	u32 ph;
 
+	/*
+	 * Look for a "platform-*" function reference. If we can't find
+	 * one, then we fallback to a direct call attempt
+	 */
 	snprintf(fname, 63, "platform-%s", name);
 	prop = of_get_property(target, fname, NULL);
 	if (prop == NULL)
@@ -805,6 +827,10 @@ struct pmf_function *__pmf_find_function(struct device_node *target,
 	if (ph == 0)
 		goto find_it;
 
+	/*
+	 * Ok, now try to find the actor. If we can't find it, we fail,
+	 * there is no point in falling back there
+	 */
 	of_node_put(actor);
 	actor = of_find_node_by_phandle(ph);
 	if (actor == NULL)
@@ -848,12 +874,12 @@ int pmf_register_irq_client(struct device_node *target,
 	if (func == NULL)
 		return -ENODEV;
 
-	
+	/* guard against manipulations of list */
 	mutex_lock(&pmf_irq_mutex);
 	if (list_empty(&func->irq_clients))
 		func->dev->handlers->irq_enable(func);
 
-	
+	/* guard against pmf_do_irq while changing list */
 	spin_lock_irqsave(&pmf_lock, flags);
 	list_add(&client->link, &func->irq_clients);
 	spin_unlock_irqrestore(&pmf_lock, flags);
@@ -872,11 +898,11 @@ void pmf_unregister_irq_client(struct pmf_irq_client *client)
 
 	BUG_ON(func == NULL);
 
-	
+	/* guard against manipulations of list */
 	mutex_lock(&pmf_irq_mutex);
 	client->func = NULL;
 
-	
+	/* guard against pmf_do_irq while changing list */
 	spin_lock_irqsave(&pmf_lock, flags);
 	list_del(&client->link);
 	spin_unlock_irqrestore(&pmf_lock, flags);
@@ -894,6 +920,9 @@ void pmf_do_irq(struct pmf_function *func)
 	unsigned long flags;
 	struct pmf_irq_client *client;
 
+	/* For now, using a spinlock over the whole function. Can be made
+	 * to drop the lock using 2 lists if necessary
+	 */
 	spin_lock_irqsave(&pmf_lock, flags);
 	list_for_each_entry(client, &func->irq_clients, link) {
 		if (!try_module_get(client->owner))

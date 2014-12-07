@@ -283,6 +283,11 @@ struct ion_prefetch_data {
        unsigned long len;
 };
 
+struct ion_client_name_data {
+	size_t len;
+	const char *name;
+};
+
 #define ION_IOC_MSM_MAGIC 'M'
 
 #define ION_IOC_CLEAN_CACHES	_IOWR(ION_IOC_MSM_MAGIC, 0, \
@@ -298,4 +303,6 @@ struct ion_prefetch_data {
 #define ION_IOC_DRAIN                  _IOWR(ION_IOC_MSM_MAGIC, 4, \
                                                struct ion_prefetch_data)
 
+#define ION_IOC_CLIENT_DEBUG_NAME	_IOWR(ION_IOC_MSM_MAGIC, 5, \
+						struct ion_client_name_data)
 #endif

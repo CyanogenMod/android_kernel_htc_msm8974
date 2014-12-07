@@ -19,6 +19,31 @@
  * file called COPYING.
  */
 
+/*
+ * This code implements the DMA subsystem. It provides a HW-neutral interface
+ * for other kernel code to use asynchronous memory copy capabilities,
+ * if present, and allows different HW DMA drivers to register as providing
+ * this capability.
+ *
+ * Due to the fact we are accelerating what is already a relatively fast
+ * operation, the code goes to great lengths to avoid additional overhead,
+ * such as locking.
+ *
+ * LOCKING:
+ *
+ * The subsystem keeps a global list of dma_device structs it is protected by a
+ * mutex, dma_list_mutex.
+ *
+ * A subsystem can get access to a channel by calling dmaengine_get() followed
+ * by dma_find_channel(), or if it has need for an exclusive channel it can call
+ * dma_request_channel().  Once a channel is allocated a reference is taken
+ * against its corresponding driver to disable removal.
+ *
+ * Each device has a channels list, which runs unlocked but is never modified
+ * once the device is registered, it's just setup by the driver.
+ *
+ * See Documentation/dmaengine.txt for more details
+ */
 
 #include <linux/dma-mapping.h>
 #include <linux/init.h>
@@ -41,7 +66,14 @@ static DEFINE_IDR(dma_idr);
 static LIST_HEAD(dma_device_list);
 static long dmaengine_ref_count;
 
+/* --- sysfs implementation --- */
 
+/**
+ * dev_to_dma_chan - convert a device pointer to the its sysfs container object
+ * @dev - device node
+ *
+ * Must be called under dma_list_mutex
+ */
 static struct dma_chan *dev_to_dma_chan(struct device *dev)
 {
 	struct dma_chan_dev *chan_dev;
@@ -134,6 +166,7 @@ static struct class dma_devclass = {
 	.dev_release	= chan_dev_release,
 };
 
+/* --- client and device registration --- */
 
 #define dma_device_satisfies_mask(device, mask) \
 	__dma_device_satisfies_mask((device), &(mask))
@@ -152,6 +185,12 @@ static struct module *dma_chan_to_owner(struct dma_chan *chan)
 	return chan->device->dev->driver->owner;
 }
 
+/**
+ * balance_ref_count - catch up the channel reference count
+ * @chan - channel to balance ->client_count versus dmaengine_ref_count
+ *
+ * balance_ref_count must be called under dma_list_mutex
+ */
 static void balance_ref_count(struct dma_chan *chan)
 {
 	struct module *owner = dma_chan_to_owner(chan);
@@ -162,6 +201,12 @@ static void balance_ref_count(struct dma_chan *chan)
 	}
 }
 
+/**
+ * dma_chan_get - try to grab a dma channel's parent driver module
+ * @chan - channel to grab
+ *
+ * Must be called under dma_list_mutex
+ */
 static int dma_chan_get(struct dma_chan *chan)
 {
 	int err = -ENODEV;
@@ -176,7 +221,7 @@ static int dma_chan_get(struct dma_chan *chan)
 	if (err == 0)
 		chan->client_count++;
 
-	
+	/* allocate upon first client reference */
 	if (chan->client_count == 1 && err == 0) {
 		int desc_cnt = chan->device->device_alloc_chan_resources(chan);
 
@@ -191,10 +236,16 @@ static int dma_chan_get(struct dma_chan *chan)
 	return err;
 }
 
+/**
+ * dma_chan_put - drop a reference to a dma channel's parent driver module
+ * @chan - channel to release
+ *
+ * Must be called under dma_list_mutex
+ */
 static void dma_chan_put(struct dma_chan *chan)
 {
 	if (!chan->client_count)
-		return; 
+		return; /* this channel failed alloc_chan_resources */
 	chan->client_count--;
 	module_put(dma_chan_to_owner(chan));
 	if (chan->client_count == 0)
@@ -219,12 +270,22 @@ enum dma_status dma_sync_wait(struct dma_chan *chan, dma_cookie_t cookie)
 }
 EXPORT_SYMBOL(dma_sync_wait);
 
+/**
+ * dma_cap_mask_all - enable iteration over all operation types
+ */
 static dma_cap_mask_t dma_cap_mask_all;
 
+/**
+ * dma_chan_tbl_ent - tracks channel allocations per core/operation
+ * @chan - associated channel for this entry
+ */
 struct dma_chan_tbl_ent {
 	struct dma_chan *chan;
 };
 
+/**
+ * channel_table - percpu lookup table for memory-to-memory offload providers
+ */
 static struct dma_chan_tbl_ent __percpu *channel_table[DMA_TX_TYPE_END];
 
 static int __init dma_channel_table_init(void)
@@ -234,6 +295,10 @@ static int __init dma_channel_table_init(void)
 
 	bitmap_fill(dma_cap_mask_all.bits, DMA_TX_TYPE_END);
 
+	/* 'interrupt', 'private', and 'slave' are channel capabilities,
+	 * but are not associated with an operation so they do not need
+	 * an entry in the channel_table
+	 */
 	clear_bit(DMA_INTERRUPT, dma_cap_mask_all.bits);
 	clear_bit(DMA_PRIVATE, dma_cap_mask_all.bits);
 	clear_bit(DMA_SLAVE, dma_cap_mask_all.bits);
@@ -257,12 +322,20 @@ static int __init dma_channel_table_init(void)
 }
 arch_initcall(dma_channel_table_init);
 
+/**
+ * dma_find_channel - find a channel to carry out the operation
+ * @tx_type: transaction type
+ */
 struct dma_chan *dma_find_channel(enum dma_transaction_type tx_type)
 {
 	return this_cpu_read(channel_table[tx_type]->chan);
 }
 EXPORT_SYMBOL(dma_find_channel);
 
+/*
+ * net_dma_find_channel - find a channel for net_dma
+ * net_dma has alignment requirements
+ */
 struct dma_chan *net_dma_find_channel(void)
 {
 	struct dma_chan *chan = dma_find_channel(DMA_MEMCPY);
@@ -273,6 +346,9 @@ struct dma_chan *net_dma_find_channel(void)
 }
 EXPORT_SYMBOL(net_dma_find_channel);
 
+/**
+ * dma_issue_pending_all - flush all pending operations across all channels
+ */
 void dma_issue_pending_all(void)
 {
 	struct dma_device *device;
@@ -290,6 +366,15 @@ void dma_issue_pending_all(void)
 }
 EXPORT_SYMBOL(dma_issue_pending_all);
 
+/**
+ * nth_chan - returns the nth channel of the given capability
+ * @cap: capability to match
+ * @n: nth channel desired
+ *
+ * Defaults to returning the channel with the desired capability and the
+ * lowest reference count when 'n' cannot be satisfied.  Must be called
+ * under dma_list_mutex.
+ */
 static struct dma_chan *nth_chan(enum dma_transaction_type cap, int n)
 {
 	struct dma_device *device;
@@ -311,11 +396,11 @@ static struct dma_chan *nth_chan(enum dma_transaction_type cap, int n)
 
 			if (n-- == 0) {
 				ret = chan;
-				break; 
+				break; /* done */
 			}
 		}
 		if (ret)
-			break; 
+			break; /* done */
 	}
 
 	if (!ret)
@@ -327,6 +412,14 @@ static struct dma_chan *nth_chan(enum dma_transaction_type cap, int n)
 	return ret;
 }
 
+/**
+ * dma_channel_rebalance - redistribute the available channels
+ *
+ * Optimize for cpu isolation (each cpu gets a dedicated channel for an
+ * operation type) in the SMP case,  and operation isolation (avoid
+ * multi-tasking channels) in the non-SMP case.  Must be called under
+ * dma_list_mutex.
+ */
 static void dma_channel_rebalance(void)
 {
 	struct dma_chan *chan;
@@ -335,7 +428,7 @@ static void dma_channel_rebalance(void)
 	int cap;
 	int n;
 
-	
+	/* undo the last distribution */
 	for_each_dma_cap_mask(cap, dma_cap_mask_all)
 		for_each_possible_cpu(cpu)
 			per_cpu_ptr(channel_table[cap], cpu)->chan = NULL;
@@ -347,11 +440,11 @@ static void dma_channel_rebalance(void)
 			chan->table_count = 0;
 	}
 
-	
+	/* don't populate the channel_table if no clients are available */
 	if (!dmaengine_ref_count)
 		return;
 
-	
+	/* redistribute available channels */
 	n = 0;
 	for_each_dma_cap_mask(cap, dma_cap_mask_all)
 		for_each_online_cpu(cpu) {
@@ -373,9 +466,12 @@ static struct dma_chan *private_candidate(dma_cap_mask_t *mask, struct dma_devic
 		pr_debug("%s: wrong capabilities\n", __func__);
 		return NULL;
 	}
+	/* devices with multiple channels need special handling as we need to
+	 * ensure that all channels are either private or public.
+	 */
 	if (dev->chancnt > 1 && !dma_has_cap(DMA_PRIVATE, dev->cap_mask))
 		list_for_each_entry(chan, &dev->channels, device_node) {
-			
+			/* some channels are already publicly allocated */
 			if (chan->client_count)
 				return NULL;
 		}
@@ -397,17 +493,28 @@ static struct dma_chan *private_candidate(dma_cap_mask_t *mask, struct dma_devic
 	return NULL;
 }
 
+/**
+ * dma_request_channel - try to allocate an exclusive channel
+ * @mask: capabilities that the channel must satisfy
+ * @fn: optional callback to disposition available channels
+ * @fn_param: opaque parameter to pass to dma_filter_fn
+ */
 struct dma_chan *__dma_request_channel(dma_cap_mask_t *mask, dma_filter_fn fn, void *fn_param)
 {
 	struct dma_device *device, *_d;
 	struct dma_chan *chan = NULL;
 	int err;
 
-	
+	/* Find a channel */
 	mutex_lock(&dma_list_mutex);
 	list_for_each_entry_safe(device, _d, &dma_device_list, global_node) {
 		chan = private_candidate(mask, device, fn, fn_param);
 		if (chan) {
+			/* Found a suitable channel, try to grab, prep, and
+			 * return it.  We first set DMA_PRIVATE to disable
+			 * balance_ref_count as this channel will not be
+			 * published in the general-purpose allocator
+			 */
 			dma_cap_set(DMA_PRIVATE, device->cap_mask);
 			device->privatecnt++;
 			err = dma_chan_get(chan);
@@ -441,13 +548,16 @@ void dma_release_channel(struct dma_chan *chan)
 	WARN_ONCE(chan->client_count != 1,
 		  "chan reference count %d != 1\n", chan->client_count);
 	dma_chan_put(chan);
-	
+	/* drop PRIVATE cap enabled by __dma_request_channel() */
 	if (--chan->device->privatecnt == 0)
 		dma_cap_clear(DMA_PRIVATE, chan->device->cap_mask);
 	mutex_unlock(&dma_list_mutex);
 }
 EXPORT_SYMBOL_GPL(dma_release_channel);
 
+/**
+ * dmaengine_get - register interest in dma_channels
+ */
 void dmaengine_get(void)
 {
 	struct dma_device *device, *_d;
@@ -457,14 +567,14 @@ void dmaengine_get(void)
 	mutex_lock(&dma_list_mutex);
 	dmaengine_ref_count++;
 
-	
+	/* try to grab channels */
 	list_for_each_entry_safe(device, _d, &dma_device_list, global_node) {
 		if (dma_has_cap(DMA_PRIVATE, device->cap_mask))
 			continue;
 		list_for_each_entry(chan, &device->channels, device_node) {
 			err = dma_chan_get(chan);
 			if (err == -ENODEV) {
-				
+				/* module removed before we could use it */
 				list_del_rcu(&device->global_node);
 				break;
 			} else if (err)
@@ -473,12 +583,19 @@ void dmaengine_get(void)
 		}
 	}
 
+	/* if this is the first reference and there were channels
+	 * waiting we need to rebalance to get those channels
+	 * incorporated into the channel table
+	 */
 	if (dmaengine_ref_count == 1)
 		dma_channel_rebalance();
 	mutex_unlock(&dma_list_mutex);
 }
 EXPORT_SYMBOL(dmaengine_get);
 
+/**
+ * dmaengine_put - let dma drivers be removed when ref_count == 0
+ */
 void dmaengine_put(void)
 {
 	struct dma_device *device;
@@ -487,7 +604,7 @@ void dmaengine_put(void)
 	mutex_lock(&dma_list_mutex);
 	dmaengine_ref_count--;
 	BUG_ON(dmaengine_ref_count < 0);
-	
+	/* drop channel references */
 	list_for_each_entry(device, &dma_device_list, global_node) {
 		if (dma_has_cap(DMA_PRIVATE, device->cap_mask))
 			continue;
@@ -500,6 +617,10 @@ EXPORT_SYMBOL(dmaengine_put);
 
 static bool device_has_all_tx_types(struct dma_device *device)
 {
+	/* A device that satisfies this test has channels that will never cause
+	 * an async_tx channel switch event as all possible operation types can
+	 * be handled.
+	 */
 	#ifdef CONFIG_ASYNC_TX_DMA
 	if (!dma_has_cap(DMA_INTERRUPT, device->cap_mask))
 		return false;
@@ -556,6 +677,10 @@ static int get_dma_id(struct dma_device *device)
 	return 0;
 }
 
+/**
+ * dma_async_device_register - registers DMA devices found
+ * @device: &dma_device
+ */
 int dma_async_device_register(struct dma_device *device)
 {
 	int chancnt = 0, rc;
@@ -565,7 +690,7 @@ int dma_async_device_register(struct dma_device *device)
 	if (!device)
 		return -ENODEV;
 
-	
+	/* validate device routines */
 	BUG_ON(dma_has_cap(DMA_MEMCPY, device->cap_mask) &&
 		!device->device_prep_dma_memcpy);
 	BUG_ON(dma_has_cap(DMA_XOR, device->cap_mask) &&
@@ -595,6 +720,9 @@ int dma_async_device_register(struct dma_device *device)
 	BUG_ON(!device->device_issue_pending);
 	BUG_ON(!device->dev);
 
+	/* note: this only matters in the
+	 * CONFIG_ASYNC_TX_ENABLE_CHANNEL_SWITCH=n case
+	 */
 	if (device_has_all_tx_types(device))
 		dma_cap_set(DMA_ASYNC_TX, device->cap_mask);
 
@@ -609,7 +737,7 @@ int dma_async_device_register(struct dma_device *device)
 
 	atomic_set(idr_ref, 0);
 
-	
+	/* represent channels in sysfs. Probably want devs too */
 	list_for_each_entry(chan, &device->channels, device_node) {
 		rc = -ENOMEM;
 		chan->local = alloc_percpu(typeof(*chan->local));
@@ -645,10 +773,17 @@ int dma_async_device_register(struct dma_device *device)
 	device->chancnt = chancnt;
 
 	mutex_lock(&dma_list_mutex);
-	
+	/* take references on public channels */
 	if (dmaengine_ref_count && !dma_has_cap(DMA_PRIVATE, device->cap_mask))
 		list_for_each_entry(chan, &device->channels, device_node) {
+			/* if clients are already waiting for channels we need
+			 * to take references on their behalf
+			 */
 			if (dma_chan_get(chan) == -ENODEV) {
+				/* note we can only get here for the first
+				 * channel as the remaining channels are
+				 * guaranteed to get a reference
+				 */
 				rc = -ENODEV;
 				mutex_unlock(&dma_list_mutex);
 				goto err_out;
@@ -656,14 +791,14 @@ int dma_async_device_register(struct dma_device *device)
 		}
 	list_add_tail_rcu(&device->global_node, &dma_device_list);
 	if (dma_has_cap(DMA_PRIVATE, device->cap_mask))
-		device->privatecnt++;	
+		device->privatecnt++;	/* Always private */
 	dma_channel_rebalance();
 	mutex_unlock(&dma_list_mutex);
 
 	return 0;
 
 err_out:
-	
+	/* if we never registered a channel just release the idr */
 	if (atomic_read(idr_ref) == 0) {
 		mutex_lock(&dma_list_mutex);
 		idr_remove(&dma_idr, device->dev_id);
@@ -685,6 +820,13 @@ err_out:
 }
 EXPORT_SYMBOL(dma_async_device_register);
 
+/**
+ * dma_async_device_unregister - unregister a DMA device
+ * @device: &dma_device
+ *
+ * This routine is called by dma driver exit routines, dmaengine holds module
+ * references to prevent it being called while channels are in use.
+ */
 void dma_async_device_unregister(struct dma_device *device)
 {
 	struct dma_chan *chan;
@@ -707,6 +849,18 @@ void dma_async_device_unregister(struct dma_device *device)
 }
 EXPORT_SYMBOL(dma_async_device_unregister);
 
+/**
+ * dma_async_memcpy_buf_to_buf - offloaded copy between virtual addresses
+ * @chan: DMA channel to offload copy to
+ * @dest: destination address (virtual)
+ * @src: source address (virtual)
+ * @len: length
+ *
+ * Both @dest and @src must be mappable to a bus address according to the
+ * DMA mapping API rules for streaming mappings.
+ * Both @dest and @src must stay memory resident (kernel memory or locked
+ * user space pages).
+ */
 dma_cookie_t
 dma_async_memcpy_buf_to_buf(struct dma_chan *chan, void *dest,
 			void *src, size_t len)
@@ -742,6 +896,19 @@ dma_async_memcpy_buf_to_buf(struct dma_chan *chan, void *dest,
 }
 EXPORT_SYMBOL(dma_async_memcpy_buf_to_buf);
 
+/**
+ * dma_async_memcpy_buf_to_pg - offloaded copy from address to page
+ * @chan: DMA channel to offload copy to
+ * @page: destination page
+ * @offset: offset in page to copy to
+ * @kdata: source address (virtual)
+ * @len: length
+ *
+ * Both @page/@offset and @kdata must be mappable to a bus address according
+ * to the DMA mapping API rules for streaming mappings.
+ * Both @page/@offset and @kdata must stay memory resident (kernel memory or
+ * locked user space pages)
+ */
 dma_cookie_t
 dma_async_memcpy_buf_to_pg(struct dma_chan *chan, struct page *page,
 			unsigned int offset, void *kdata, size_t len)
@@ -775,6 +942,20 @@ dma_async_memcpy_buf_to_pg(struct dma_chan *chan, struct page *page,
 }
 EXPORT_SYMBOL(dma_async_memcpy_buf_to_pg);
 
+/**
+ * dma_async_memcpy_pg_to_pg - offloaded copy from page to page
+ * @chan: DMA channel to offload copy to
+ * @dest_pg: destination page
+ * @dest_off: offset in page to copy to
+ * @src_pg: source page
+ * @src_off: offset in page to copy from
+ * @len: length
+ *
+ * Both @dest_page/@dest_off and @src_page/@src_off must be mappable to a bus
+ * address according to the DMA mapping API rules for streaming mappings.
+ * Both @dest_page/@dest_off and @src_page/@src_off must stay memory resident
+ * (kernel memory or locked user space pages).
+ */
 dma_cookie_t
 dma_async_memcpy_pg_to_pg(struct dma_chan *chan, struct page *dest_pg,
 	unsigned int dest_off, struct page *src_pg, unsigned int src_off,
@@ -820,6 +1001,9 @@ void dma_async_tx_descriptor_init(struct dma_async_tx_descriptor *tx,
 }
 EXPORT_SYMBOL(dma_async_tx_descriptor_init);
 
+/* dma_wait_for_async_tx - spin wait for a transaction to complete
+ * @tx: in-flight transaction to wait on
+ */
 enum dma_status
 dma_wait_for_async_tx(struct dma_async_tx_descriptor *tx)
 {
@@ -840,6 +1024,10 @@ dma_wait_for_async_tx(struct dma_async_tx_descriptor *tx)
 }
 EXPORT_SYMBOL_GPL(dma_wait_for_async_tx);
 
+/* dma_run_dependencies - helper routine for dma drivers to process
+ *	(start) dependent operations on their target channel
+ * @tx: transaction with dependencies
+ */
 void dma_run_dependencies(struct dma_async_tx_descriptor *tx)
 {
 	struct dma_async_tx_descriptor *dep = txd_next(tx);
@@ -849,18 +1037,22 @@ void dma_run_dependencies(struct dma_async_tx_descriptor *tx)
 	if (!dep)
 		return;
 
-	
+	/* we'll submit tx->next now, so clear the link */
 	txd_clear_next(tx);
 	chan = dep->chan;
 
+	/* keep submitting up until a channel switch is detected
+	 * in that case we will be called again as a result of
+	 * processing the interrupt from async_tx_channel_switch
+	 */
 	for (; dep; dep = dep_next) {
 		txd_lock(dep);
 		txd_clear_parent(dep);
 		dep_next = txd_next(dep);
 		if (dep_next && dep_next->chan == chan)
-			txd_clear_next(dep); 
+			txd_clear_next(dep); /* ->next will be submitted */
 		else
-			dep_next = NULL; 
+			dep_next = NULL; /* submit current dep and terminate */
 		txd_unlock(dep);
 
 		dep->tx_submit(dep);

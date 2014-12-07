@@ -41,6 +41,7 @@
 
 #define MODULE_NAME	VPBE_OSD_SUBDEV_NAME
 
+/* register access routines */
 static inline u32 osd_read(struct osd_state *sd, u32 offset)
 {
 	struct osd_state *osd = sd;
@@ -94,6 +95,7 @@ static inline u32 osd_modify(struct osd_state *sd, u32 mask, u32 val,
 	return new_val;
 }
 
+/* define some macros for layer and pixfmt classification */
 #define is_osd_win(layer) (((layer) == WIN_OSD0) || ((layer) == WIN_OSD1))
 #define is_vid_win(layer) (((layer) == WIN_VID0) || ((layer) == WIN_VID1))
 #define is_rgb_pixfmt(pixfmt) \
@@ -104,6 +106,21 @@ static inline u32 osd_modify(struct osd_state *sd, u32 mask, u32 val,
 #define MAX_WIN_SIZE OSD_VIDWIN0XP_V0X
 #define MAX_LINE_LENGTH (OSD_VIDWIN0OFST_V0LO << 5)
 
+/**
+ * _osd_dm6446_vid0_pingpong() - field inversion fix for DM6446
+ * @sd - ptr to struct osd_state
+ * @field_inversion - inversion flag
+ * @fb_base_phys - frame buffer address
+ * @lconfig - ptr to layer config
+ *
+ * This routine implements a workaround for the field signal inversion silicon
+ * erratum described in Advisory 1.3.8 for the DM6446.  The fb_base_phys and
+ * lconfig parameters apply to the vid0 window.  This routine should be called
+ * whenever the vid0 layer configuration or start address is modified, or when
+ * the OSD field inversion setting is modified.
+ * Returns: 1 if the ping-pong buffers need to be toggled in the vsync isr, or
+ *          0 otherwise
+ */
 static int _osd_dm6446_vid0_pingpong(struct osd_state *sd,
 				     int field_inversion,
 				     unsigned long fb_base_phys,
@@ -159,7 +176,7 @@ static void _osd_set_blink_attribute(struct osd_state *sd, int enable,
 		osdatrmd |= OSD_OSDATRMD_BLNK;
 		osdatrmd |= blink << OSD_OSDATRMD_BLNKINT_SHIFT;
 	}
-	
+	/* caller must ensure that OSD1 is configured in attribute mode */
 	osd_modify(sd, OSD_OSDATRMD_BLNKINT | OSD_OSDATRMD_BLNK, osdatrmd,
 		  OSD_OSDATRMD);
 }
@@ -430,7 +447,7 @@ static void _osd_disable_layer(struct osd_state *sd, enum osd_layer layer)
 		osd_clear(sd, OSD_VIDWINMD_ACT0, OSD_VIDWINMD);
 		break;
 	case WIN_OSD1:
-		
+		/* disable attribute mode as well as disabling the window */
 		osd_clear(sd, OSD_OSDWIN1MD_OASW | OSD_OSDWIN1MD_OACT1,
 			  OSD_OSDWIN1MD);
 		break;
@@ -461,7 +478,7 @@ static void osd_disable_layer(struct osd_state *sd, enum osd_layer layer)
 
 static void _osd_enable_attribute_mode(struct osd_state *sd)
 {
-	
+	/* enable attribute mode for OSD1 */
 	osd_set(sd, OSD_OSDWIN1MD_OASW, OSD_OSDWIN1MD);
 }
 
@@ -475,7 +492,7 @@ static void _osd_enable_layer(struct osd_state *sd, enum osd_layer layer)
 		osd_set(sd, OSD_VIDWINMD_ACT0, OSD_VIDWINMD);
 		break;
 	case WIN_OSD1:
-		
+		/* enable OSD1 and disable attribute mode */
 		osd_modify(sd, OSD_OSDWIN1MD_OASW | OSD_OSDWIN1MD_OACT1,
 			  OSD_OSDWIN1MD_OACT1, OSD_OSDWIN1MD);
 		break;
@@ -495,6 +512,10 @@ static int osd_enable_layer(struct osd_state *sd, enum osd_layer layer,
 
 	spin_lock_irqsave(&osd->lock, flags);
 
+	/*
+	 * use otherwin flag to know this is the other vid window
+	 * in YUV420 mode, if is, skip this check
+	 */
 	if (!otherwin && (!win->is_allocated ||
 			!win->fb_base_phys ||
 			!cfg->line_length ||
@@ -601,11 +622,15 @@ static void _osd_start_layer(struct osd_state *sd, enum osd_layer layer,
 		cbcr_offset_32 += fb_offset_32;
 		fb_offset_32 = fb_offset_32 >> 5;
 		cbcr_offset_32 = cbcr_offset_32 >> 5;
+		/*
+		 * DM365: start address is 27-bit long address b26 - b23 are
+		 * in offset register b12 - b9, and * bit 26 has to be '1'
+		 */
 		if (win->lconfig.pixfmt == PIXFMT_NV12) {
 			switch (layer) {
 			case WIN_VID0:
 			case WIN_VID1:
-				
+				/* Y is in VID0 */
 				osd_modify(sd, OSD_VIDWIN0OFST_V0AH,
 					 ((fb_offset_32 & OSD_SRC_ADDR_HIGH4) >>
 					 (OSD_SRCADD_OFSET_SFT -
@@ -618,7 +643,7 @@ static void _osd_start_layer(struct osd_state *sd, enum osd_layer layer,
 					   OSD_VIDWINADH);
 				osd_write(sd, fb_offset_32 & OSD_WINADL_MASK,
 					  OSD_VIDWIN0ADL);
-				
+				/* CbCr is in VID1 */
 				osd_modify(sd, OSD_VIDWIN1OFST_V1AH,
 					 ((cbcr_offset_32 &
 					 OSD_SRC_ADDR_HIGH4) >>
@@ -741,6 +766,18 @@ static void osd_get_layer_config(struct osd_state *sd, enum osd_layer layer,
 	spin_unlock_irqrestore(&osd->lock, flags);
 }
 
+/**
+ * try_layer_config() - Try a specific configuration for the layer
+ * @sd  - ptr to struct osd_state
+ * @layer - layer to configure
+ * @lconfig - layer configuration to try
+ *
+ * If the requested lconfig is completely rejected and the value of lconfig on
+ * exit is the current lconfig, then try_layer_config() returns 1.  Otherwise,
+ * try_layer_config() returns 0.  A return value of 0 does not necessarily mean
+ * that the value of lconfig on exit is identical to the value of lconfig on
+ * entry, but merely that it represents a change from the current lconfig.
+ */
 static int try_layer_config(struct osd_state *sd, enum osd_layer layer,
 			    struct osd_layer_config *lconfig)
 {
@@ -748,7 +785,7 @@ static int try_layer_config(struct osd_state *sd, enum osd_layer layer,
 	struct osd_window_state *win = &osd->win[layer];
 	int bad_config = 0;
 
-	
+	/* verify that the pixel format is compatible with the layer */
 	switch (lconfig->pixfmt) {
 	case PIXFMT_1BPP:
 	case PIXFMT_2BPP:
@@ -783,12 +820,16 @@ static int try_layer_config(struct osd_state *sd, enum osd_layer layer,
 		break;
 	}
 	if (bad_config) {
+		/*
+		 * The requested pixel format is incompatible with the layer,
+		 * so keep the current layer configuration.
+		 */
 		*lconfig = win->lconfig;
 		return bad_config;
 	}
 
-	
-	
+	/* DM6446: */
+	/* only one OSD window at a time can use RGB pixel formats */
 	  if ((osd->vpbe_type == VPBE_VERSION_1) &&
 		  is_osd_win(layer) && is_rgb_pixfmt(lconfig->pixfmt)) {
 		enum osd_pix_format pixfmt;
@@ -798,12 +839,16 @@ static int try_layer_config(struct osd_state *sd, enum osd_layer layer,
 			pixfmt = osd->win[WIN_OSD0].lconfig.pixfmt;
 
 		if (is_rgb_pixfmt(pixfmt)) {
+			/*
+			 * The other OSD window is already configured for an
+			 * RGB, so keep the current layer configuration.
+			 */
 			*lconfig = win->lconfig;
 			return 1;
 		}
 	}
 
-	
+	/* DM6446: only one video window at a time can use RGB888 */
 	if ((osd->vpbe_type == VPBE_VERSION_1) && is_vid_win(layer) &&
 		lconfig->pixfmt == PIXFMT_RGB888) {
 		enum osd_pix_format pixfmt;
@@ -814,18 +859,22 @@ static int try_layer_config(struct osd_state *sd, enum osd_layer layer,
 			pixfmt = osd->win[WIN_VID0].lconfig.pixfmt;
 
 		if (pixfmt == PIXFMT_RGB888) {
+			/*
+			 * The other video window is already configured for
+			 * RGB888, so keep the current layer configuration.
+			 */
 			*lconfig = win->lconfig;
 			return 1;
 		}
 	}
 
-	
+	/* window dimensions must be non-zero */
 	if (!lconfig->line_length || !lconfig->xsize || !lconfig->ysize) {
 		*lconfig = win->lconfig;
 		return 1;
 	}
 
-	
+	/* round line_length up to a multiple of 32 */
 	lconfig->line_length = ((lconfig->line_length + 31) / 32) * 32;
 	lconfig->line_length =
 	    min(lconfig->line_length, (unsigned)MAX_LINE_LENGTH);
@@ -835,7 +884,7 @@ static int try_layer_config(struct osd_state *sd, enum osd_layer layer,
 	lconfig->ypos = min(lconfig->ypos, (unsigned)MAX_WIN_SIZE);
 	lconfig->interlaced = (lconfig->interlaced != 0);
 	if (lconfig->interlaced) {
-		
+		/* ysize and ypos must be even for interlaced displays */
 		lconfig->ysize &= ~1;
 		lconfig->ypos &= ~1;
 	}
@@ -845,6 +894,12 @@ static int try_layer_config(struct osd_state *sd, enum osd_layer layer,
 
 static void _osd_disable_vid_rgb888(struct osd_state *sd)
 {
+	/*
+	 * The DM6446 supports RGB888 pixel format in a single video window.
+	 * This routine disables RGB888 pixel format for both video windows.
+	 * The caller must ensure that neither video window is currently
+	 * configured for RGB888 pixel format.
+	 */
 	if (sd->vpbe_type == VPBE_VERSION_1)
 		osd_clear(sd, OSD_MISCCTL_RGBEN, OSD_MISCCTL);
 }
@@ -852,6 +907,13 @@ static void _osd_disable_vid_rgb888(struct osd_state *sd)
 static void _osd_enable_vid_rgb888(struct osd_state *sd,
 				   enum osd_layer layer)
 {
+	/*
+	 * The DM6446 supports RGB888 pixel format in a single video window.
+	 * This routine enables RGB888 pixel format for the specified video
+	 * window.  The caller must ensure that the other video window is not
+	 * currently configured for RGB888 pixel format, as this routine will
+	 * disable RGB888 pixel format for the other window.
+	 */
 	if (sd->vpbe_type == VPBE_VERSION_1) {
 		if (layer == WIN_VID0)
 			osd_modify(sd, OSD_MISCCTL_RGBEN | OSD_MISCCTL_RGBWIN,
@@ -866,6 +928,10 @@ static void _osd_enable_vid_rgb888(struct osd_state *sd,
 static void _osd_set_cbcr_order(struct osd_state *sd,
 				enum osd_pix_format pixfmt)
 {
+	/*
+	 * The caller must ensure that all windows using YC pixfmt use the same
+	 * Cb/Cr order.
+	 */
 	if (pixfmt == PIXFMT_YCbCrI)
 		osd_clear(sd, OSD_MODE_CS, OSD_MODE);
 	else if (pixfmt == PIXFMT_YCrCbI)
@@ -950,9 +1016,13 @@ static void _osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 		osd_write(sd, lconfig->line_length >> 5, OSD_VIDWIN0OFST);
 		osd_write(sd, lconfig->xpos, OSD_VIDWIN0XP);
 		osd_write(sd, lconfig->xsize, OSD_VIDWIN0XL);
+		/*
+		 * For YUV420P format the register contents are
+		 * duplicated in both VID registers
+		 */
 		if ((sd->vpbe_type == VPBE_VERSION_2) &&
 				(lconfig->pixfmt == PIXFMT_NV12)) {
-			
+			/* other window also */
 			if (lconfig->interlaced) {
 				winmd_mask |= OSD_VIDWINMD_VFF1;
 				winmd |= OSD_VIDWINMD_VFF1;
@@ -966,6 +1036,11 @@ static void _osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 				  OSD_VIDWIN1OFST);
 			osd_write(sd, lconfig->xpos, OSD_VIDWIN1XP);
 			osd_write(sd, lconfig->xsize, OSD_VIDWIN1XL);
+			/*
+			  * if NV21 pixfmt and line length not 32B
+			  * aligned (e.g. NTSC), Need to set window
+			  * X pixel size to be 32B aligned as well
+			  */
 			if (lconfig->xsize % 32) {
 				osd_write(sd,
 					  ((lconfig->xsize + 31) & ~31),
@@ -1001,6 +1076,11 @@ static void _osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 		}
 		break;
 	case WIN_OSD1:
+		/*
+		 * The caller must ensure that OSD1 is disabled prior to
+		 * switching from a normal mode to attribute mode or from
+		 * attribute mode to a normal mode.
+		 */
 		if (lconfig->pixfmt == PIXFMT_OSD_ATTR) {
 			if (sd->vpbe_type == VPBE_VERSION_1) {
 				winmd_mask |= OSD_OSDWIN1MD_ATN1E |
@@ -1085,9 +1165,13 @@ static void _osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 		osd_write(sd, lconfig->line_length >> 5, OSD_VIDWIN1OFST);
 		osd_write(sd, lconfig->xpos, OSD_VIDWIN1XP);
 		osd_write(sd, lconfig->xsize, OSD_VIDWIN1XL);
+		/*
+		 * For YUV420P format the register contents are
+		 * duplicated in both VID registers
+		 */
 		if (sd->vpbe_type == VPBE_VERSION_2) {
 			if (lconfig->pixfmt == PIXFMT_NV12) {
-				
+				/* other window also */
 				if (lconfig->interlaced) {
 					winmd_mask |= OSD_VIDWINMD_VFF0;
 					winmd |= OSD_VIDWINMD_VFF0;
@@ -1146,10 +1230,14 @@ static int osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 		return reject_config;
 	}
 
-	
+	/* update the current Cb/Cr order */
 	if (is_yc_pixfmt(lconfig->pixfmt))
 		osd->yc_pixfmt = lconfig->pixfmt;
 
+	/*
+	 * If we are switching OSD1 from normal mode to attribute mode or from
+	 * attribute mode to normal mode, then we must disable the window.
+	 */
 	if (layer == WIN_OSD1) {
 		if (((lconfig->pixfmt == PIXFMT_OSD_ATTR) &&
 		  (cfg->pixfmt != PIXFMT_OSD_ATTR)) ||
@@ -1168,6 +1256,13 @@ static int osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 
 		if ((lconfig->pixfmt != PIXFMT_OSD_ATTR) &&
 		  (cfg->pixfmt == PIXFMT_OSD_ATTR)) {
+			/*
+			 * We just switched OSD1 from attribute mode to normal
+			 * mode, so we must initialize the CLUT select, the
+			 * blend factor, transparency colorkey enable, and
+			 * attenuation enable (DM6446 only) bits in the
+			 * OSDWIN1MD register.
+			 */
 			_osd_set_osd_clut(sd, OSDWIN_OSD1,
 						   osdwin_state->clut);
 			_osd_set_blending_factor(sd, OSDWIN_OSD1,
@@ -1184,11 +1279,20 @@ static int osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 						    rec601_attenuation);
 		} else if ((lconfig->pixfmt == PIXFMT_OSD_ATTR) &&
 		  (cfg->pixfmt != PIXFMT_OSD_ATTR)) {
+			/*
+			 * We just switched OSD1 from normal mode to attribute
+			 * mode, so we must initialize the blink enable and
+			 * blink interval bits in the OSDATRMD register.
+			 */
 			_osd_set_blink_attribute(sd, osd->is_blinking,
 							  osd->blink);
 		}
 	}
 
+	/*
+	 * If we just switched to a 1-, 2-, or 4-bits-per-pixel bitmap format
+	 * then configure a default palette map.
+	 */
 	if ((lconfig->pixfmt != cfg->pixfmt) &&
 	  ((lconfig->pixfmt == PIXFMT_1BPP) ||
 	  (lconfig->pixfmt == PIXFMT_2BPP) ||
@@ -1213,6 +1317,11 @@ static int osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 		default:
 			break;
 		}
+		/*
+		 * The default palette map maps the pixel value to the clut
+		 * index, i.e. pixel value 0 maps to clut entry 0, pixel value
+		 * 1 maps to clut entry 1, etc.
+		 */
 		for (clut_index = 0; clut_index < 16; clut_index++) {
 			osdwin_state->palette_map[clut_index] = clut_index;
 			if (clut_index < clut_entries) {
@@ -1224,7 +1333,7 @@ static int osd_set_layer_config(struct osd_state *sd, enum osd_layer layer,
 	}
 
 	*cfg = *lconfig;
-	
+	/* DM6446: configure the RGB888 enable and window selection */
 	if (osd->win[WIN_VID0].lconfig.pixfmt == PIXFMT_RGB888)
 		_osd_enable_vid_rgb888(sd, WIN_VID0);
 	else if (osd->win[WIN_VID1].lconfig.pixfmt == PIXFMT_RGB888)
@@ -1276,6 +1385,11 @@ static void osd_init_layer(struct osd_state *sd, enum osd_layer layer)
 	case WIN_OSD1:
 		osdwin = (layer == WIN_OSD0) ? OSDWIN_OSD0 : OSDWIN_OSD1;
 		osdwin_state = &osd->osdwin[osdwin];
+		/*
+		 * Other code relies on the fact that OSD windows default to a
+		 * bitmap pixel format when they are deallocated, so don't
+		 * change this default pixel format.
+		 */
 		cfg->pixfmt = PIXFMT_8BPP;
 		_osd_set_layer_config(sd, layer, cfg);
 		osdwin_state->clut = RAM_CLUT;
@@ -1375,10 +1489,14 @@ static int osd_initialize(struct osd_state *osd)
 		return -ENODEV;
 	_osd_init(osd);
 
-	
+	/* set default Cb/Cr order */
 	osd->yc_pixfmt = PIXFMT_YCbCrI;
 
 	if (osd->vpbe_type == VPBE_VERSION_3) {
+		/*
+		 * ROM CLUT1 on the DM355 is similar (identical?) to ROM CLUT0
+		 * on the DM6446, so make ROM_CLUT1 the default on the DM355.
+		 */
 		osd->rom_clut = ROM_CLUT1;
 	}
 

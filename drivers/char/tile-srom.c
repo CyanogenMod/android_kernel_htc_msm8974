@@ -21,13 +21,13 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/init.h>
-#include <linux/kernel.h>	
-#include <linux/slab.h>		
-#include <linux/fs.h>		
-#include <linux/errno.h>	
-#include <linux/types.h>	
+#include <linux/kernel.h>	/* printk() */
+#include <linux/slab.h>		/* kmalloc() */
+#include <linux/fs.h>		/* everything... */
+#include <linux/errno.h>	/* error codes */
+#include <linux/types.h>	/* size_t */
 #include <linux/proc_fs.h>
-#include <linux/fcntl.h>	
+#include <linux/fcntl.h>	/* O_ACCMODE */
 #include <linux/aio.h>
 #include <linux/pagemap.h>
 #include <linux/hugetlb.h>
@@ -39,31 +39,50 @@
 #include <linux/delay.h>
 #include <hv/drv_srom_intf.h>
 
+/*
+ * Size of our hypervisor I/O requests.  We break up large transfers
+ * so that we don't spend large uninterrupted spans of time in the
+ * hypervisor.  Erasing an SROM sector takes a significant fraction of
+ * a second, so if we allowed the user to, say, do one I/O to write the
+ * entire ROM, we'd get soft lockup timeouts, or worse.
+ */
 #define SROM_CHUNK_SIZE ((size_t)4096)
 
+/*
+ * When hypervisor is busy (e.g. erasing), poll the status periodically.
+ */
 
+/*
+ * Interval to poll the state in msec
+ */
 #define SROM_WAIT_TRY_INTERVAL 20
 
+/*
+ * Maximum times to poll the state
+ */
 #define SROM_MAX_WAIT_TRY_TIMES 1000
 
 struct srom_dev {
-	int hv_devhdl;			
-	u32 total_size;			
-	u32 sector_size;		
-	u32 page_size;			
-	struct mutex lock;		
+	int hv_devhdl;			/* Handle for hypervisor device */
+	u32 total_size;			/* Size of this device */
+	u32 sector_size;		/* Size of a sector */
+	u32 page_size;			/* Size of a page */
+	struct mutex lock;		/* Allow only one accessor at a time */
 };
 
-static int srom_major;			
+static int srom_major;			/* Dynamic major by default */
 module_param(srom_major, int, 0);
 MODULE_AUTHOR("Tilera Corporation");
 MODULE_LICENSE("GPL");
 
-static int srom_devs;			
+static int srom_devs;			/* Number of SROM partitions */
 static struct cdev srom_cdev;
 static struct class *srom_class;
 static struct srom_dev *srom_devices;
 
+/*
+ * Handle calling the hypervisor and managing EAGAIN/EBUSY.
+ */
 
 static ssize_t _srom_read(int hv_devhdl, void *buf,
 			  loff_t off, size_t count)
@@ -105,6 +124,13 @@ static ssize_t _srom_write(int hv_devhdl, const void *buf,
 	}
 }
 
+/**
+ * srom_open() - Device open routine.
+ * @inode: Inode for this device.
+ * @filp: File for this specific open of the device.
+ *
+ * Returns zero, or an error code.
+ */
 static int srom_open(struct inode *inode, struct file *filp)
 {
 	filp->private_data = &srom_devices[iminor(inode)];
@@ -112,6 +138,13 @@ static int srom_open(struct inode *inode, struct file *filp)
 }
 
 
+/**
+ * srom_release() - Device release routine.
+ * @inode: Inode for this device.
+ * @filp: File for this specific open of the device.
+ *
+ * Returns zero, or an error code.
+ */
 static int srom_release(struct inode *inode, struct file *filp)
 {
 	struct srom_dev *srom = filp->private_data;
@@ -129,6 +162,15 @@ static int srom_release(struct inode *inode, struct file *filp)
 }
 
 
+/**
+ * srom_read() - Read data from the device.
+ * @filp: File for this specific open of the device.
+ * @buf: User's data buffer.
+ * @count: Number of bytes requested.
+ * @f_pos: File position.
+ *
+ * Returns number of bytes read, or an error code.
+ */
 static ssize_t srom_read(struct file *filp, char __user *buf,
 			 size_t count, loff_t *f_pos)
 {
@@ -230,6 +272,7 @@ static ssize_t srom_write(struct file *filp, const char __user *buf,
 	return retval;
 }
 
+/* Provide our own implementation so we can use srom->total_size. */
 loff_t srom_llseek(struct file *filp, loff_t offset, int origin)
 {
 	struct srom_dev *srom = filp->private_data;
@@ -292,6 +335,9 @@ static char *srom_devnode(struct device *dev, umode_t *mode)
 	return kasprintf(GFP_KERNEL, "srom/%s", dev_name(dev));
 }
 
+/*
+ * The fops
+ */
 static const struct file_operations srom_fops = {
 	.owner =     THIS_MODULE,
 	.llseek =    srom_llseek,
@@ -301,6 +347,11 @@ static const struct file_operations srom_fops = {
 	.release =   srom_release,
 };
 
+/**
+ * srom_setup_minor() - Initialize per-minor information.
+ * @srom: Per-device SROM state.
+ * @index: Device to set up.
+ */
 static int srom_setup_minor(struct srom_dev *srom, int index)
 {
 	struct device *dev;
@@ -323,14 +374,19 @@ static int srom_setup_minor(struct srom_dev *srom, int index)
 	return IS_ERR(dev) ? PTR_ERR(dev) : 0;
 }
 
+/** srom_init() - Initialize the driver's module. */
 static int srom_init(void)
 {
 	int result, i;
 	dev_t dev = MKDEV(srom_major, 0);
 
+	/*
+	 * Start with a plausible number of partitions; the krealloc() call
+	 * below will yield about log(srom_devs) additional allocations.
+	 */
 	srom_devices = kzalloc(4 * sizeof(struct srom_dev), GFP_KERNEL);
 
-	
+	/* Discover the number of srom partitions. */
 	for (i = 0; ; i++) {
 		int devhdl;
 		char buf[20];
@@ -354,13 +410,13 @@ static int srom_init(void)
 	}
 	srom_devs = i;
 
-	
+	/* Bail out early if we have no partitions at all. */
 	if (srom_devs == 0) {
 		result = -ENODEV;
 		goto fail_mem;
 	}
 
-	
+	/* Register our major, and accept a dynamic number. */
 	if (srom_major)
 		result = register_chrdev_region(dev, srom_devs, "srom");
 	else {
@@ -370,7 +426,7 @@ static int srom_init(void)
 	if (result < 0)
 		goto fail_mem;
 
-	
+	/* Register a character device. */
 	cdev_init(&srom_cdev, &srom_fops);
 	srom_cdev.owner = THIS_MODULE;
 	srom_cdev.ops = &srom_fops;
@@ -378,7 +434,7 @@ static int srom_init(void)
 	if (result < 0)
 		goto fail_chrdev;
 
-	
+	/* Create a sysfs class. */
 	srom_class = class_create(THIS_MODULE, "srom");
 	if (IS_ERR(srom_class)) {
 		result = PTR_ERR(srom_class);
@@ -387,7 +443,7 @@ static int srom_init(void)
 	srom_class->dev_attrs = srom_dev_attrs;
 	srom_class->devnode = srom_devnode;
 
-	
+	/* Do per-partition initialization */
 	for (i = 0; i < srom_devs; i++) {
 		result = srom_setup_minor(srom_devices + i, i);
 		if (result < 0)
@@ -409,6 +465,7 @@ fail_mem:
 	return result;
 }
 
+/** srom_cleanup() - Clean up the driver's module. */
 static void srom_cleanup(void)
 {
 	int i;

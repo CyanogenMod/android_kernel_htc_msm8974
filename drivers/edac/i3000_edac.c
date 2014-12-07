@@ -24,15 +24,31 @@
 #define I3000_RANKS_PER_CHANNEL	4
 #define I3000_CHANNELS		2
 
+/* Intel 3000 register addresses - device 0 function 0 - DRAM Controller */
 
-#define I3000_MCHBAR		0x44	
+#define I3000_MCHBAR		0x44	/* MCH Memory Mapped Register BAR */
 #define I3000_MCHBAR_MASK	0xffffc000
 #define I3000_MMR_WINDOW_SIZE	16384
 
-#define I3000_EDEAP	0x70	
-#define I3000_DEAP	0x58	
+#define I3000_EDEAP	0x70	/* Extended DRAM Error Address Pointer (8b)
+				 *
+				 * 7:1   reserved
+				 * 0     bit 32 of address
+				 */
+#define I3000_DEAP	0x58	/* DRAM Error Address Pointer (32b)
+				 *
+				 * 31:7  address
+				 * 6:1   reserved
+				 * 0     Error channel 0/1
+				 */
 #define I3000_DEAP_GRAIN 		(1 << 7)
 
+/*
+ * Helper functions to decode the DEAP/EDEAP hardware registers.
+ *
+ * The type promotion here is deliberate; we're deriving an
+ * unsigned long pfn and offset from hardware regs which are u8/u32.
+ */
 
 static inline unsigned long deap_pfn(u8 edeap, u32 deap)
 {
@@ -51,23 +67,74 @@ static inline int deap_channel(u32 deap)
 	return deap & 1;
 }
 
-#define I3000_DERRSYN	0x5c	
+#define I3000_DERRSYN	0x5c	/* DRAM Error Syndrome (8b)
+				 *
+				 *  7:0  DRAM ECC Syndrome
+				 */
 
-#define I3000_ERRSTS	0xc8	
-#define I3000_ERRSTS_BITS	0x0b03	
+#define I3000_ERRSTS	0xc8	/* Error Status Register (16b)
+				 *
+				 * 15:12 reserved
+				 * 11    MCH Thermal Sensor Event
+				 *         for SMI/SCI/SERR
+				 * 10    reserved
+				 *  9    LOCK to non-DRAM Memory Flag (LCKF)
+				 *  8    Received Refresh Timeout Flag (RRTOF)
+				 *  7:2  reserved
+				 *  1    Multi-bit DRAM ECC Error Flag (DMERR)
+				 *  0    Single-bit DRAM ECC Error Flag (DSERR)
+				 */
+#define I3000_ERRSTS_BITS	0x0b03	/* bits which indicate errors */
 #define I3000_ERRSTS_UE		0x0002
 #define I3000_ERRSTS_CE		0x0001
 
-#define I3000_ERRCMD	0xca	
+#define I3000_ERRCMD	0xca	/* Error Command (16b)
+				 *
+				 * 15:12 reserved
+				 * 11    SERR on MCH Thermal Sensor Event
+				 *         (TSESERR)
+				 * 10    reserved
+				 *  9    SERR on LOCK to non-DRAM Memory
+				 *         (LCKERR)
+				 *  8    SERR on DRAM Refresh Timeout
+				 *         (DRTOERR)
+				 *  7:2  reserved
+				 *  1    SERR Multi-Bit DRAM ECC Error
+				 *         (DMERR)
+				 *  0    SERR on Single-Bit ECC Error
+				 *         (DSERR)
+				 */
 
+/* Intel  MMIO register space - device 0 function 0 - MMR space */
 
-#define I3000_DRB_SHIFT 25	
+#define I3000_DRB_SHIFT 25	/* 32MiB grain */
 
-#define I3000_C0DRB	0x100	
-#define I3000_C1DRB	0x180	
+#define I3000_C0DRB	0x100	/* Channel 0 DRAM Rank Boundary (8b x 4)
+				 *
+				 * 7:0   Channel 0 DRAM Rank Boundary Address
+				 */
+#define I3000_C1DRB	0x180	/* Channel 1 DRAM Rank Boundary (8b x 4)
+				 *
+				 * 7:0   Channel 1 DRAM Rank Boundary Address
+				 */
 
-#define I3000_C0DRA	0x108	
-#define I3000_C1DRA	0x188	
+#define I3000_C0DRA	0x108	/* Channel 0 DRAM Rank Attribute (8b x 2)
+				 *
+				 * 7     reserved
+				 * 6:4   DRAM odd Rank Attribute
+				 * 3     reserved
+				 * 2:0   DRAM even Rank Attribute
+				 *
+				 * Each attribute defines the page
+				 * size of the corresponding rank:
+				 *     000: unpopulated
+				 *     001: reserved
+				 *     010: 4 KB
+				 *     011: 8 KB
+				 *     100: 16 KB
+				 *     Others: reserved
+				 */
+#define I3000_C1DRA	0x188	/* Channel 1 DRAM Rank Attribute (8b x 2) */
 
 static inline unsigned char odd_rank_attrib(unsigned char dra)
 {
@@ -79,9 +146,23 @@ static inline unsigned char even_rank_attrib(unsigned char dra)
 	return dra & 0x07;
 }
 
-#define I3000_C0DRC0	0x120	
+#define I3000_C0DRC0	0x120	/* DRAM Controller Mode 0 (32b)
+				 *
+				 * 31:30 reserved
+				 * 29    Initialization Complete (IC)
+				 * 28:11 reserved
+				 * 10:8  Refresh Mode Select (RMS)
+				 * 7     reserved
+				 * 6:4   Mode Select (SMS)
+				 * 3:2   reserved
+				 * 1:0   DRAM Type (DT)
+				 */
 
-#define I3000_C0DRC1	0x124	
+#define I3000_C0DRC1	0x124	/* DRAM Controller Mode 1 (32b)
+				 *
+				 * 31    Enhanced Addressing Enable (ENHADE)
+				 * 30:0  reserved
+				 */
 
 enum i3000p_chips {
 	I3000 = 0,
@@ -128,12 +209,22 @@ static void i3000_get_error_info(struct mem_ctl_info *mci,
 	pci_read_config_byte(pdev, I3000_DERRSYN, &info->derrsyn);
 	pci_read_config_word(pdev, I3000_ERRSTS, &info->errsts2);
 
+	/*
+	 * If the error is the same for both reads then the first set
+	 * of reads is valid.  If there is a change then there is a CE
+	 * with no info and the second set of reads is valid and
+	 * should be UE info.
+	 */
 	if ((info->errsts ^ info->errsts2) & I3000_ERRSTS_BITS) {
 		pci_read_config_byte(pdev, I3000_EDEAP, &info->edeap);
 		pci_read_config_dword(pdev, I3000_DEAP, &info->deap);
 		pci_read_config_byte(pdev, I3000_DERRSYN, &info->derrsyn);
 	}
 
+	/*
+	 * Clear any error bits.
+	 * (Yes, we really clear bits by writing 1 to them.)
+	 */
 	pci_write_bits16(pdev, I3000_ERRSTS, I3000_ERRSTS_BITS,
 			 I3000_ERRSTS_BITS);
 }
@@ -189,12 +280,20 @@ static int i3000_is_interleaved(const unsigned char *c0dra,
 {
 	int i;
 
+	/*
+	 * If the channels aren't populated identically then
+	 * we're not interleaved.
+	 */
 	for (i = 0; i < I3000_RANKS_PER_CHANNEL / 2; i++)
 		if (odd_rank_attrib(c0dra[i]) != odd_rank_attrib(c1dra[i]) ||
 			even_rank_attrib(c0dra[i]) !=
 						even_rank_attrib(c1dra[i]))
 			return 0;
 
+	/*
+	 * If the rank boundaries for the two channels are different
+	 * then we're not interleaved.
+	 */
 	for (i = 0; i < I3000_RANKS_PER_CHANNEL; i++)
 		if (c0drb[i] != c1drb[i])
 			return 0;
@@ -226,10 +325,10 @@ static int i3000_probe1(struct pci_dev *pdev, int dev_idx)
 		return -ENODEV;
 	}
 
-	c0dra[0] = readb(window + I3000_C0DRA + 0);	
-	c0dra[1] = readb(window + I3000_C0DRA + 1);	
-	c1dra[0] = readb(window + I3000_C1DRA + 0);	
-	c1dra[1] = readb(window + I3000_C1DRA + 1);	
+	c0dra[0] = readb(window + I3000_C0DRA + 0);	/* ranks 0,1 */
+	c0dra[1] = readb(window + I3000_C0DRA + 1);	/* ranks 2,3 */
+	c1dra[0] = readb(window + I3000_C1DRA + 0);	/* ranks 0,1 */
+	c1dra[1] = readb(window + I3000_C1DRA + 1);	/* ranks 2,3 */
 
 	for (i = 0; i < I3000_RANKS_PER_CHANNEL; i++) {
 		c0drb[i] = readb(window + I3000_C0DRB + i);
@@ -238,6 +337,14 @@ static int i3000_probe1(struct pci_dev *pdev, int dev_idx)
 
 	iounmap(window);
 
+	/*
+	 * Figure out how many channels we have.
+	 *
+	 * If we have what the datasheet calls "asymmetric channels"
+	 * (essentially the same as what was called "virtual single
+	 * channel mode" in the i82875) then it's a single channel as
+	 * far as EDAC is concerned.
+	 */
 	interleaved = i3000_is_interleaved(c0dra, c1dra, c0drb, c1drb);
 	nr_channels = interleaved ? 2 : 1;
 	mci = edac_mc_alloc(0, I3000_RANKS / nr_channels, nr_channels, 0);
@@ -259,6 +366,15 @@ static int i3000_probe1(struct pci_dev *pdev, int dev_idx)
 	mci->edac_check = i3000_check;
 	mci->ctl_page_to_phys = NULL;
 
+	/*
+	 * The dram rank boundary (DRB) reg values are boundary addresses
+	 * for each DRAM rank with a granularity of 32MB.  DRB regs are
+	 * cumulative; the last one will contain the total memory
+	 * contained in all ranks.
+	 *
+	 * If we're in interleaved mode then we're only walking through
+	 * the ranks of controller 0, so we double all the values we see.
+	 */
 	for (last_cumul_size = i = 0; i < mci->nr_csrows; i++) {
 		u8 value;
 		u32 cumul_size;
@@ -285,6 +401,10 @@ static int i3000_probe1(struct pci_dev *pdev, int dev_idx)
 		csrow->edac_mode = EDAC_UNKNOWN;
 	}
 
+	/*
+	 * Clear any error bits.
+	 * (Yes, we really clear bits by writing 1 to them.)
+	 */
 	pci_write_bits16(pdev, I3000_ERRSTS, I3000_ERRSTS_BITS,
 			 I3000_ERRSTS_BITS);
 
@@ -294,7 +414,7 @@ static int i3000_probe1(struct pci_dev *pdev, int dev_idx)
 		goto fail;
 	}
 
-	
+	/* allocating generic PCI control info */
 	i3000_pci = edac_pci_create_generic_ctl(&pdev->dev, EDAC_MOD_STR);
 	if (!i3000_pci) {
 		printk(KERN_WARNING
@@ -305,7 +425,7 @@ static int i3000_probe1(struct pci_dev *pdev, int dev_idx)
 			__func__);
 	}
 
-	
+	/* get this far and it's successful */
 	debugf3("MC: %s(): success\n", __func__);
 	return 0;
 
@@ -316,6 +436,7 @@ fail:
 	return rc;
 }
 
+/* returns count (>= 0), or negative on error */
 static int __devinit i3000_init_one(struct pci_dev *pdev,
 				const struct pci_device_id *ent)
 {
@@ -355,7 +476,7 @@ static DEFINE_PCI_DEVICE_TABLE(i3000_pci_tbl) = {
 	 I3000},
 	{
 	 0,
-	 }			
+	 }			/* 0 terminated list. */
 };
 
 MODULE_DEVICE_TABLE(pci, i3000_pci_tbl);
@@ -373,7 +494,7 @@ static int __init i3000_init(void)
 
 	debugf3("MC: %s()\n", __func__);
 
-       
+       /* Ensure that the OPSTATE is set correctly for POLL or NMI */
        opstate_init();
 
 	pci_rc = pci_register_driver(&i3000_driver);

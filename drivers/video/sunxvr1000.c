@@ -78,7 +78,7 @@ static int __devinit gfb_set_fbinfo(struct gfb_info *gp)
 
 	info->pseudo_palette = gp->pseudo_palette;
 
-	
+	/* Fill fix common fields */
 	strlcpy(info->fix.id, "gfb", sizeof(info->fix.id));
         info->fix.smem_start = gp->fb_base_phys;
         info->fix.smem_len = gp->fb_size;
@@ -135,7 +135,7 @@ static int __devinit gfb_probe(struct platform_device *op)
 	if (err)
 		goto err_release_fb;
 
-	
+	/* Framebuffer length is the same regardless of resolution. */
 	info->fix.line_length = 16384;
 	gp->fb_size = info->fix.line_length * gp->height;
 

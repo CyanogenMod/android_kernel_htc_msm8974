@@ -27,6 +27,13 @@
 #include <mach/regs-clock.h>
 #include <mach/regs-s3c2443-clock.h>
 
+/* armdiv
+ *
+ * this clock is sourced from msysclk and can have a number of
+ * divider values applied to it to then be fed into armclk.
+ * The real clock definition is done in s3c2443-clock.c,
+ * only the armdiv divisor table must be defined here.
+*/
 
 static unsigned int armdiv[8] = {
 	[0] = 1,
@@ -49,7 +56,7 @@ static struct clksrc_clk hsspi_eplldiv = {
 
 static struct clk *hsspi_sources[] = {
 	[0] = &hsspi_eplldiv.clk,
-	[1] = NULL, 
+	[1] = NULL, /* to fix */
 };
 
 static struct clksrc_clk hsspi_mux = {
@@ -93,7 +100,7 @@ static struct clksrc_clk hsmmc_mux0 = {
 		.nr_sources	= 2,
 		.sources	= (struct clk * []) {
 			[0]	= &hsmmc_div[0].clk,
-			[1]	= NULL, 
+			[1]	= NULL, /* to fix */
 		},
 	},
 	.reg_src = { .reg = S3C2443_CLKSRC, .size = 1, .shift = 16 },
@@ -110,7 +117,7 @@ static struct clksrc_clk hsmmc_mux1 = {
 		.nr_sources	= 2,
 		.sources	= (struct clk * []) {
 			[0]	= &hsmmc_div[1].clk,
-			[1]	= NULL, 
+			[1]	= NULL, /* to fix */
 		},
 	},
 	.reg_src = { .reg = S3C2443_CLKSRC, .size = 1, .shift = 17 },
@@ -145,7 +152,7 @@ void __init s3c2416_init_clocks(int xtal)
 	u32 epllcon1 = __raw_readl(S3C2443_EPLLCON+4);
 	int ptr;
 
-	
+	/* s3c2416 EPLL compatible with s3c64xx */
 	clk_epll.rate = s3c_get_pll6553x(xtal, epllcon, epllcon1);
 
 	clk_epll.parent = &clk_epllref.clk;

@@ -9,6 +9,7 @@
 #include "ql4_glbl.h"
 #include "ql4_dbg.h"
 
+/* Scsi_Host attributes. */
 static ssize_t
 qla4xxx_fw_version_show(struct device *dev,
 			struct device_attribute *attr, char *buf)

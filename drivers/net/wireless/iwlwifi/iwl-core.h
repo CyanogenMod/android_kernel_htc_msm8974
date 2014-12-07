@@ -66,26 +66,32 @@
 #include "iwl-dev.h"
 #include "iwl-io.h"
 
+/************************
+ * forward declarations *
+ ************************/
 struct iwl_host_cmd;
 struct iwl_cmd;
 
 #define TIME_UNIT		1024
 
 struct iwl_lib_ops {
-	
+	/* set hw dependent parameters */
 	void (*set_hw_params)(struct iwl_priv *priv);
 	int (*set_channel_switch)(struct iwl_priv *priv,
 				  struct ieee80211_channel_switch *ch_switch);
-	
+	/* device specific configuration */
 	void (*nic_config)(struct iwl_priv *priv);
 
-	
+	/* eeprom operations (as defined in iwl-eeprom.h) */
 	struct iwl_eeprom_ops eeprom_ops;
 
-	
+	/* temperature */
 	void (*temperature)(struct iwl_priv *priv);
 };
 
+/***************************
+ *   L i b                 *
+ ***************************/
 
 void iwl_set_rxon_hwcrypto(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 			   int hw_decrypt);
@@ -146,11 +152,20 @@ static inline void iwl_update_stats(struct iwl_priv *priv, bool is_tx,
 }
 #endif
 
+/*****************************************************
+* RX
+******************************************************/
 void iwl_chswitch_done(struct iwl_priv *priv, bool is_success);
 
 void iwl_setup_watchdog(struct iwl_priv *priv);
+/*****************************************************
+ * TX power
+ ****************************************************/
 int iwl_set_tx_power(struct iwl_priv *priv, s8 tx_power, bool force);
 
+/*******************************************************************************
+ * Scanning
+ ******************************************************************************/
 void iwl_init_scan_params(struct iwl_priv *priv);
 int iwl_scan_cancel(struct iwl_priv *priv);
 void iwl_scan_cancel_timeout(struct iwl_priv *priv, unsigned long ms);
@@ -165,14 +180,24 @@ int __must_check iwl_scan_initiate(struct iwl_priv *priv,
 				   enum iwl_scan_type scan_type,
 				   enum ieee80211_band band);
 
-#define IWL_ACTIVE_QUIET_TIME       cpu_to_le16(10)  
-#define IWL_PLCP_QUIET_THRESH       cpu_to_le16(1)  
+/* For faster active scanning, scan will move to the next channel if fewer than
+ * PLCP_QUIET_THRESH packets are heard on this channel within
+ * ACTIVE_QUIET_TIME after sending probe request.  This shortens the dwell
+ * time if it's a quiet channel (nothing responded to our probe, and there's
+ * no other traffic).
+ * Disable "quiet" feature by setting PLCP_QUIET_THRESH to 0. */
+#define IWL_ACTIVE_QUIET_TIME       cpu_to_le16(10)  /* msec */
+#define IWL_PLCP_QUIET_THRESH       cpu_to_le16(1)  /* packets */
 
 #define IWL_SCAN_CHECK_WATCHDOG		(HZ * 7)
 
+/* traffic log definitions */
 #define IWL_TRAFFIC_ENTRIES	(256)
 #define IWL_TRAFFIC_ENTRY_SIZE  (64)
 
+/*****************************************************
+ *   S e n d i n g     H o s t     C o m m a n d s   *
+ *****************************************************/
 
 void iwl_bg_watchdog(unsigned long data);
 u32 iwl_usecs_to_beacons(struct iwl_priv *priv, u32 usec, u32 beacon_interval);
@@ -180,6 +205,9 @@ __le32 iwl_add_beacon_time(struct iwl_priv *priv, u32 base,
 			   u32 addon, u32 beacon_interval);
 
 
+/*****************************************************
+*  GEOS
+******************************************************/
 int iwl_init_geos(struct iwl_priv *priv);
 void iwl_free_geos(struct iwl_priv *priv);
 
@@ -203,4 +231,4 @@ static inline bool iwl_advanced_bt_coexist(struct iwl_priv *priv)
 
 extern bool bt_siso_mode;
 
-#endif 
+#endif /* __iwl_core_h__ */

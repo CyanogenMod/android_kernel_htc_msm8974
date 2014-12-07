@@ -74,10 +74,22 @@
 #define bsp_remove_ok	0
 #endif
 
+/*
+ * Store all idle threads, this can be reused instead of creating
+ * a new thread. Also avoids complicated thread destroy functionality
+ * for idle threads.
+ */
 struct task_struct *idle_thread_array[NR_CPUS];
 
+/*
+ * Global array allocated for NR_CPUS at boot time
+ */
 struct sal_to_os_boot sal_boot_rendez_state[NR_CPUS];
 
+/*
+ * start_ap in head.S uses this to store current booting cpu
+ * info.
+ */
 struct sal_to_os_boot *sal_state_for_booting_cpu = &sal_boot_rendez_state[0];
 
 #define set_brendez_area(x) (sal_state_for_booting_cpu = &sal_boot_rendez_state[(x)]);
@@ -93,11 +105,14 @@ struct sal_to_os_boot *sal_state_for_booting_cpu = &sal_boot_rendez_state[0];
 #endif
 
 
+/*
+ * ITC synchronization related stuff:
+ */
 #define MASTER	(0)
 #define SLAVE	(SMP_CACHE_BYTES/8)
 
-#define NUM_ROUNDS	64	
-#define NUM_ITERS	5	
+#define NUM_ROUNDS	64	/* magic value */
+#define NUM_ITERS	5	/* likewise */
 
 static DEFINE_SPINLOCK(itc_sync_lock);
 static volatile unsigned long go[SLAVE + 1];
@@ -109,6 +124,9 @@ extern unsigned long ia64_iobase;
 
 struct task_struct *task_for_booting_cpu;
 
+/*
+ * State for each CPU
+ */
 DEFINE_PER_CPU(int, cpu_state);
 
 cpumask_t cpu_core_map[NR_CPUS] __cacheline_aligned;
@@ -118,6 +136,7 @@ EXPORT_PER_CPU_SYMBOL(cpu_sibling_map);
 
 int smp_num_siblings = 1;
 
+/* which logical CPU number maps to which CPU (physical APIC ID) */
 volatile int ia64_cpu_to_sapicid[NR_CPUS];
 EXPORT_SYMBOL(ia64_cpu_to_sapicid);
 
@@ -125,11 +144,11 @@ static volatile cpumask_t cpu_callin_map;
 
 struct smp_boot_data smp_boot_data __initdata;
 
-unsigned long ap_wakeup_vector = -1; 
+unsigned long ap_wakeup_vector = -1; /* External Int use to wakeup APs */
 
 char __initdata no_int_routing;
 
-unsigned char smp_int_redirect; 
+unsigned char smp_int_redirect; /* are INT and IPI redirectable by the chipset? */
 
 #ifdef CONFIG_FORCE_CPEI_RETARGET
 #define CPEI_OVERRIDE_DEFAULT	(1)
@@ -170,6 +189,9 @@ static void fix_b0_for_bsp(void)
 
 	cpuid = smp_processor_id();
 
+	/*
+	 * Cache the b0 value on the first AP that comes up
+	 */
 	if (!(fix_bsp_b0 && cpuid))
 		return;
 
@@ -199,6 +221,11 @@ sync_master (void *arg)
 	local_irq_restore(flags);
 }
 
+/*
+ * Return the number of cycles by which our itc differs from the itc on the master
+ * (time-keeper) CPU.  A positive number indicates our itc is ahead of the master,
+ * negative that it is behind.
+ */
 static inline long
 get_delta (long *rt, long *master)
 {
@@ -221,13 +248,45 @@ get_delta (long *rt, long *master)
 	*rt = best_t1 - best_t0;
 	*master = best_tm - best_t0;
 
-	
+	/* average best_t0 and best_t1 without overflow: */
 	tcenter = (best_t0/2 + best_t1/2);
 	if (best_t0 % 2 + best_t1 % 2 == 2)
 		++tcenter;
 	return tcenter - best_tm;
 }
 
+/*
+ * Synchronize ar.itc of the current (slave) CPU with the ar.itc of the MASTER CPU
+ * (normally the time-keeper CPU).  We use a closed loop to eliminate the possibility of
+ * unaccounted-for errors (such as getting a machine check in the middle of a calibration
+ * step).  The basic idea is for the slave to ask the master what itc value it has and to
+ * read its own itc before and after the master responds.  Each iteration gives us three
+ * timestamps:
+ *
+ *	slave		master
+ *
+ *	t0 ---\
+ *             ---\
+ *		   --->
+ *			tm
+ *		   /---
+ *	       /---
+ *	t1 <---
+ *
+ *
+ * The goal is to adjust the slave's ar.itc such that tm falls exactly half-way between t0
+ * and t1.  If we achieve this, the clocks are synchronized provided the interconnect
+ * between the slave and the master is symmetric.  Even if the interconnect were
+ * asymmetric, we would still know that the synchronization error is smaller than the
+ * roundtrip latency (t0 - t1).
+ *
+ * When the interconnect is quiet and symmetric, this lets us synchronize the itc to
+ * within one or two cycles.  However, we can only *guarantee* that the synchronization is
+ * accurate to within a round-trip time, which is typically in the range of several
+ * hundred cycles (e.g., ~500 cycles).  In practice, this means that the itc's are usually
+ * almost perfectly synchronized, but we shouldn't assume that the accuracy is much better
+ * than half a micro second or so.
+ */
 void
 ia64_sync_itc (unsigned int master)
 {
@@ -235,13 +294,19 @@ ia64_sync_itc (unsigned int master)
 	unsigned long flags, rt, master_time_stamp, bound;
 #if DEBUG_ITC_SYNC
 	struct {
-		long rt;	
-		long master;	
-		long diff;	
-		long lat;	
+		long rt;	/* roundtrip time */
+		long master;	/* master's timestamp */
+		long diff;	/* difference between midpoint and master's timestamp */
+		long lat;	/* estimate of itc adjustment latency */
 	} t[NUM_ROUNDS];
 #endif
 
+	/*
+	 * Make sure local timer ticks are disabled while we sync.  If
+	 * they were enabled, we'd have to worry about nasty issues
+	 * like setting the ITC ahead of (or a long time before) the
+	 * next scheduled tick.
+	 */
 	BUG_ON((ia64_get_itv() & (1 << 16)) == 0);
 
 	go[MASTER] = 1;
@@ -252,14 +317,14 @@ ia64_sync_itc (unsigned int master)
 	}
 
 	while (go[MASTER])
-		cpu_relax();	
+		cpu_relax();	/* wait for master to be ready */
 
 	spin_lock_irqsave(&itc_sync_lock, flags);
 	{
 		for (i = 0; i < NUM_ROUNDS; ++i) {
 			delta = get_delta(&rt, &master_time_stamp);
 			if (delta == 0) {
-				done = 1;	
+				done = 1;	/* let's lock on to this... */
 				bound = rt;
 			}
 
@@ -292,6 +357,9 @@ ia64_sync_itc (unsigned int master)
 	       "maxerr %lu cycles)\n", smp_processor_id(), master, delta, rt);
 }
 
+/*
+ * Ideally sets up per-cpu profiling hooks.  Doesn't do much now...
+ */
 static inline void __devinit
 smp_setup_percpu_timer (void)
 {
@@ -321,12 +389,15 @@ smp_callin (void)
 
 	fix_b0_for_bsp();
 
+	/*
+	 * numa_node_id() works after this.
+	 */
 	set_numa_node(cpu_to_node_map[cpuid]);
 	set_numa_mem(local_memory_node(cpu_to_node_map[cpuid]));
 
 	ipi_call_lock_irq();
 	spin_lock(&vector_lock);
-	
+	/* Setup the per cpu irq handling data structures */
 	__setup_vector_irq(cpuid);
 	notify_cpu_starting(cpuid);
 	set_cpu_online(cpuid, true);
@@ -336,7 +407,7 @@ smp_callin (void)
 
 	smp_setup_percpu_timer();
 
-	ia64_mca_cmc_vector_setup();	
+	ia64_mca_cmc_vector_setup();	/* Setup vector on AP */
 
 #ifdef CONFIG_PERFMON
 	pfm_init_percpu();
@@ -345,12 +416,25 @@ smp_callin (void)
 	local_irq_enable();
 
 	if (!(sal_platform_features & IA64_SAL_PLATFORM_FEATURE_ITC_DRIFT)) {
+		/*
+		 * Synchronize the ITC with the BP.  Need to do this after irqs are
+		 * enabled because ia64_sync_itc() calls smp_call_function_single(), which
+		 * calls spin_unlock_bh(), which calls spin_unlock_bh(), which calls
+		 * local_bh_enable(), which bugs out if irqs are not enabled...
+		 */
 		Dprintk("Going to syncup ITC with ITC Master.\n");
 		ia64_sync_itc(itc_master);
 	}
 
+	/*
+	 * Get our bogomips.
+	 */
 	ia64_init_itm();
 
+	/*
+	 * Delay calibration can be skipped if new processor is identical to the
+	 * previous processor.
+	 */
 	last_cpuinfo = cpu_data(cpuid - 1);
 	this_cpuinfo = local_cpu_data;
 	if (last_cpuinfo->itc_freq != this_cpuinfo->itc_freq ||
@@ -363,15 +447,21 @@ smp_callin (void)
 		calibrate_delay();
 	local_cpu_data->loops_per_jiffy = loops_per_jiffy;
 
+	/*
+	 * Allow the master to continue.
+	 */
 	cpu_set(cpuid, cpu_callin_map);
 	Dprintk("Stack on CPU %d at about %p\n",cpuid, &cpuid);
 }
 
 
+/*
+ * Activate a secondary processor.  head.S calls this.
+ */
 int __cpuinit
 start_secondary (void *unused)
 {
-	
+	/* Early console may use I/O ports */
 	ia64_set_kr(IA64_KR_IO_BASE, __pa(ia64_iobase));
 #ifndef CONFIG_PRINTK_TIME
 	Dprintk("start_secondary: starting CPU 0x%x\n", hard_smp_processor_id());
@@ -417,6 +507,10 @@ do_boot_cpu (int sapicid, int cpu)
 		.done	= COMPLETION_INITIALIZER(c_idle.done),
 	};
 
+	/*
+	 * We can't use kernel_thread since we must avoid to
+	 * reschedule the child.
+	 */
  	c_idle.idle = get_idle_for_cpu(cpu);
  	if (c_idle.idle) {
 		init_idle(c_idle.idle, cpu);
@@ -439,10 +533,13 @@ do_rest:
 	set_brendez_area(cpu);
 	platform_send_ipi(cpu, ap_wakeup_vector, IA64_IPI_DM_INT, 0);
 
+	/*
+	 * Wait 10s total for the AP to start
+	 */
 	Dprintk("Waiting on callin_map ...");
 	for (timeout = 0; timeout < 100000; timeout++) {
 		if (cpu_isset(cpu, cpu_callin_map))
-			break;  
+			break;  /* It has booted */
 		udelay(100);
 	}
 	Dprintk("\n");
@@ -450,7 +547,7 @@ do_rest:
 	if (!cpu_isset(cpu, cpu_callin_map)) {
 		printk(KERN_ERR "Processor 0x%x/0x%x is stuck.\n", cpu, sapicid);
 		ia64_cpu_to_sapicid[cpu] = -1;
-		set_cpu_online(cpu, false);  
+		set_cpu_online(cpu, false);  /* was set in smp_callin() */
 		return -EINVAL;
 	}
 	return 0;
@@ -466,6 +563,9 @@ decay (char *str)
 
 __setup("decay=", decay);
 
+/*
+ * Initialize the logical CPU number to SAPICID mapping
+ */
 void __init
 smp_build_cpu_map (void)
 {
@@ -490,11 +590,17 @@ smp_build_cpu_map (void)
 	}
 }
 
+/*
+ * Cycle through the APs sending Wakeup IPIs to boot each.
+ */
 void __init
 smp_prepare_cpus (unsigned int max_cpus)
 {
 	int boot_cpu_id = hard_smp_processor_id();
 
+	/*
+	 * Initialize the per-CPU profiling counter/multiplier
+	 */
 
 	smp_setup_percpu_timer();
 
@@ -507,6 +613,9 @@ smp_prepare_cpus (unsigned int max_cpus)
 
 	current_thread_info()->cpu = 0;
 
+	/*
+	 * If SMP should be disabled, then really disable it!
+	 */
 	if (!max_cpus) {
 		printk(KERN_INFO "SMP mode deactivated.\n");
 		init_cpu_online(cpumask_of(0));
@@ -553,7 +662,7 @@ remove_siblinginfo(int cpu)
 
 	last = (cpus_weight(cpu_core_map[cpu]) == 1 ? 1 : 0);
 
-	
+	/* remove it from all sibling map's */
 	clear_cpu_sibling_map(cpu);
 }
 
@@ -566,13 +675,24 @@ int migrate_platform_irqs(unsigned int cpu)
 	const struct cpumask *mask;
 	int 		retval = 0;
 
+	/*
+	 * dont permit CPEI target to removed.
+	 */
 	if (cpe_vector > 0 && is_cpu_cpei_target(cpu)) {
 		printk ("CPU (%d) is CPEI Target\n", cpu);
 		if (can_cpei_retarget()) {
+			/*
+			 * Now re-target the CPEI to a different processor
+			 */
 			new_cpei_cpu = cpumask_any(cpu_online_mask);
 			mask = cpumask_of(new_cpei_cpu);
 			set_cpei_target_cpu(new_cpei_cpu);
 			data = irq_get_irq_data(ia64_cpe_irq);
+			/*
+			 * Switch for now, immediately, we need to do fake intr
+			 * as other interrupts, but need to study CPEI behaviour with
+			 * polling before making changes.
+			 */
 			if (data && data->chip) {
 				data->chip->irq_disable(data);
 				data->chip->irq_set_affinity(data, mask, false);
@@ -588,10 +708,14 @@ int migrate_platform_irqs(unsigned int cpu)
 	return retval;
 }
 
+/* must be called with cpucontrol mutex held */
 int __cpu_disable(void)
 {
 	int cpu = smp_processor_id();
 
+	/*
+	 * dont permit boot processor for now
+	 */
 	if (cpu == 0 && !bsp_remove_ok) {
 		printk ("Your platform does not support removal of BSP\n");
 		return (-EBUSY);
@@ -621,7 +745,7 @@ void __cpu_die(unsigned int cpu)
 	unsigned int i;
 
 	for (i = 0; i < 100; i++) {
-		
+		/* They ack this in play_dead by setting CPU_DEAD */
 		if (per_cpu(cpu_state, cpu) == CPU_DEAD)
 		{
 			printk ("CPU %d is now offline\n", cpu);
@@ -631,7 +755,7 @@ void __cpu_die(unsigned int cpu)
 	}
  	printk(KERN_ERR "CPU %u didn't die...\n", cpu);
 }
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
 void
 smp_cpus_done (unsigned int dummy)
@@ -639,6 +763,9 @@ smp_cpus_done (unsigned int dummy)
 	int cpu;
 	unsigned long bogosum = 0;
 
+	/*
+	 * Allow the user to impress friends.
+	 */
 
 	for_each_online_cpu(cpu) {
 		bogosum += cpu_data(cpu)->loops_per_jiffy;
@@ -675,11 +802,15 @@ __cpu_up (unsigned int cpu)
 	if (sapicid == -1)
 		return -EINVAL;
 
+	/*
+	 * Already booted cpu? not valid anymore since we dont
+	 * do idle loop tightspin anymore.
+	 */
 	if (cpu_isset(cpu, cpu_callin_map))
 		return -EINVAL;
 
 	per_cpu(cpu_state, cpu) = CPU_UP_PREPARE;
-	
+	/* Processor goes to start_secondary(), sets online flag */
 	ret = do_boot_cpu(sapicid, cpu);
 	if (ret < 0)
 		return ret;
@@ -696,6 +827,12 @@ __cpu_up (unsigned int cpu)
 	return 0;
 }
 
+/*
+ * Assume that CPUs have been discovered by some platform-dependent interface.  For
+ * SoftSDV/Lion, that would be ACPI.
+ *
+ * Setup of the IPI irq handler is done in irq.c:init_IRQ_SMP().
+ */
 void __init
 init_smp_config(void)
 {
@@ -705,7 +842,7 @@ init_smp_config(void)
 	} *ap_startup;
 	long sal_ret;
 
-	
+	/* Tell SAL where to drop the APs.  */
 	ap_startup = (struct fptr *) start_ap;
 	sal_ret = ia64_sal_set_vectors(SAL_VECTOR_OS_BOOT_RENDEZ,
 				       ia64_tpa(ap_startup->fp), ia64_tpa(ap_startup->gp), 0, 0, 0, 0);
@@ -714,6 +851,10 @@ init_smp_config(void)
 		       ia64_sal_strerror(sal_ret));
 }
 
+/*
+ * identify_siblings(cpu) gets called from identify_cpu. This populates the 
+ * information related to logical execution units in per_cpu_data structure.
+ */
 void __devinit
 identify_siblings(struct cpuinfo_ia64 *c)
 {
@@ -757,6 +898,12 @@ identify_siblings(struct cpuinfo_ia64 *c)
 	c->thread_id = info.log1_tid;
 }
 
+/*
+ * returns non zero, if multi-threading is enabled
+ * on at least one physical package. Due to hotplug cpu
+ * and (maxcpus=), all threads may not necessarily be enabled
+ * even though the processor supports multi-threading.
+ */
 int is_multithreading_enabled(void)
 {
 	int i, j;

@@ -42,16 +42,16 @@ omap_otg_init(struct omap_usb_config *config)
 	int		status;
 	int		alt_pingroup = 0;
 
-	
+	/* NOTE:  no bus or clock setup (yet?) */
 
 	syscon = omap_readl(OTG_SYSCON_1) & 0xffff;
 	if (!(syscon & OTG_RESET_DONE))
 		pr_debug("USB resets not complete?\n");
 
-	
+	//omap_writew(0, OTG_IRQ_EN);
 
-	
-	if (config->pins[0] > 2)	
+	/* pin muxing and transceiver pinouts */
+	if (config->pins[0] > 2)	/* alt pingroup 2 */
 		alt_pingroup = 1;
 	syscon |= config->usb0_init(config->pins[0], is_usb0_device(config));
 	syscon |= config->usb1_init(config->pins[1]);
@@ -60,7 +60,7 @@ omap_otg_init(struct omap_usb_config *config)
 	omap_writel(syscon, OTG_SYSCON_1);
 
 	syscon = config->hmc_mode;
-	syscon |= USBX_SYNCHRO | (4 << 16) ;
+	syscon |= USBX_SYNCHRO | (4 << 16) /* B_ASE0_BRST */;
 #ifdef	CONFIG_USB_OTG
 	if (config->otg)
 		syscon |= OTG_EN;
@@ -88,7 +88,7 @@ omap_otg_init(struct omap_usb_config *config)
 	if (cpu_class_is_omap1()) {
 		u16 w;
 
-		
+		/* leave USB clocks/controllers off until needed */
 		w = omap_readw(ULPD_SOFT_REQ);
 		w &= ~SOFT_USB_CLK_REQ;
 		omap_writew(w, ULPD_SOFT_REQ);

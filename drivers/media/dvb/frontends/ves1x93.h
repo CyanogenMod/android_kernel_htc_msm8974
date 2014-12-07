@@ -30,13 +30,13 @@
 
 struct ves1x93_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* value of XIN to use */
 	u32 xin;
 
-	
+	/* should PWM be inverted? */
 	u8 invert_pwm:1;
 };
 
@@ -50,6 +50,6 @@ static inline struct dvb_frontend* ves1x93_attach(const struct ves1x93_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_VES1X93
 
-#endif 
+#endif // VES1X93_H

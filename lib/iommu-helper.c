@@ -1,3 +1,6 @@
+/*
+ * IOMMU helper functions for the free area management
+ */
 
 #include <linux/export.h>
 #include <linux/bitmap.h>
@@ -20,13 +23,13 @@ unsigned long iommu_area_alloc(unsigned long *map, unsigned long size,
 {
 	unsigned long index;
 
-	
+	/* We don't want the last of the limit */
 	size -= 1;
 again:
 	index = bitmap_find_next_zero_area(map, size, start, nr, align_mask);
 	if (index < size) {
 		if (iommu_is_span_boundary(index, nr, shift, boundary_size)) {
-			
+			/* we could do more effectively */
 			start = index + 1;
 			goto again;
 		}

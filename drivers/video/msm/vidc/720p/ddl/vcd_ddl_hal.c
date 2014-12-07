@@ -573,7 +573,7 @@ void ddl_encode_init_codec(struct ddl_client_context *ddl)
 			encoder->ext_enc_control_val |= (0x1 << 0x1);
 		}
 	}
-	
+	/* set extended encoder control settings */
 	vidc_720p_encode_set_control_param
 	(encoder->ext_enc_control_val);
 
@@ -945,26 +945,26 @@ u32 ddl_hal_engine_reset(struct ddl_context *ddl_context)
 		channel_id = ddl_context->current_ddl->channel_id;
 
 	interrupt_sel = VIDC_720P_INTERRUPT_LEVEL_SEL;
-	
+	/* Enable all the supported interrupt */
 	intr_mask |= VIDC_720P_INTR_BUFFER_FULL;
 	intr_mask |= VIDC_720P_INTR_FW_DONE;
 	intr_mask |= VIDC_720P_INTR_DMA_DONE;
 	intr_mask |= VIDC_720P_INTR_FRAME_DONE;
 
 	vcd_get_fw_property(VCD_FW_ENDIAN, &fw_endianness);
-	
+	/* Reverse the endianness settings after boot code download */
 	if (fw_endianness == VCD_FW_BIG_ENDIAN)
 		dma_endian = VIDC_720P_LITTLE_ENDIAN;
 	else
 		dma_endian = VIDC_720P_BIG_ENDIAN;
 
-	
+	/* Need to reset MFC silently */
 	eng_reset = vidc_720p_engine_reset(
 		channel_id,
 		dma_endian, interrupt_sel,
 		intr_mask);
 	if (!eng_reset) {
-		
+		/* call the hw fatal callback if engine reset fails */
 		ddl_hw_fatal_cb(ddl_context);
 	}
 	return eng_reset ;

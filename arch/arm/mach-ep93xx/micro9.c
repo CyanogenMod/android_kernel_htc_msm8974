@@ -24,16 +24,24 @@
 
 #include "soc.h"
 
+/*************************************************************************
+ * Micro9 NOR Flash
+ *
+ * Micro9-High has up to 64MB of 32-bit flash on CS1
+ * Micro9-Mid has up to 64MB of either 32-bit or 16-bit flash on CS1
+ * Micro9-Lite uses a separate MTD map driver for flash support
+ * Micro9-Slim has up to 64MB of either 32-bit or 16-bit flash on CS1
+ *************************************************************************/
 static unsigned int __init micro9_detect_bootwidth(void)
 {
 	u32 v;
 
-	
+	/* Detect the bus width of the external flash memory */
 	v = __raw_readl(EP93XX_SYSCON_SYSCFG);
 	if (v & EP93XX_SYSCON_SYSCFG_LCSN7)
-		return 4; 
+		return 4; /* 32-bit */
 	else
-		return 2; 
+		return 2; /* 16-bit */
 }
 
 static void __init micro9_register_flash(void)
@@ -52,6 +60,9 @@ static void __init micro9_register_flash(void)
 }
 
 
+/*************************************************************************
+ * Micro9 Ethernet
+ *************************************************************************/
 static struct ep93xx_eth_data __initdata micro9_eth_data = {
 	.phy_id		= 0x1f,
 };
@@ -67,7 +78,7 @@ static void __init micro9_init_machine(void)
 
 #ifdef CONFIG_MACH_MICRO9H
 MACHINE_START(MICRO9, "Contec Micro9-High")
-	
+	/* Maintainer: Hubert Feurstein <hubert.feurstein@contec.at> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -80,7 +91,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_MICRO9M
 MACHINE_START(MICRO9M, "Contec Micro9-Mid")
-	
+	/* Maintainer: Hubert Feurstein <hubert.feurstein@contec.at> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -93,7 +104,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_MICRO9L
 MACHINE_START(MICRO9L, "Contec Micro9-Lite")
-	
+	/* Maintainer: Hubert Feurstein <hubert.feurstein@contec.at> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -106,7 +117,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_MICRO9S
 MACHINE_START(MICRO9S, "Contec Micro9-Slim")
-	
+	/* Maintainer: Hubert Feurstein <hubert.feurstein@contec.at> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,

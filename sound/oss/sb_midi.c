@@ -19,6 +19,13 @@
 #include "sb.h"
 #undef SB_TEST_IRQ
 
+/*
+ * The DSP channel can be used either for input or output. Variable
+ * 'sb_irq_mode' will be set when the program calls read or write first time
+ * after open. Current version doesn't support mode changes without closing
+ * and reopening the device. Support for this feature may be implemented in a
+ * future version of this driver.
+ */
 
 
 static int sb_midi_open(int dev, int mode,
@@ -46,7 +53,7 @@ static int sb_midi_open(int dev, int mode,
 
 	sb_dsp_reset(devc);
 
-	if (!sb_dsp_command(devc, 0x35))	
+	if (!sb_dsp_command(devc, 0x35))	/* Start MIDI UART mode */
 	{
 		  devc->opened = 0;
 		  return -EIO;
@@ -156,7 +163,7 @@ void sb_dsp_midi_init(sb_devc * devc, struct module *owner)
 {
 	int dev;
 
-	if (devc->model < 2)	
+	if (devc->model < 2)	/* No MIDI support for SB 1.x */
 		return;
 
 	dev = sound_alloc_mididev();

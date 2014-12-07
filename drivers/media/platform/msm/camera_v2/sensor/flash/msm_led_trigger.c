@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/htc_flashlight.h>
 #include "msm_led_flash.h"
+#include <mach/devices_cmdline.h>
 
 #define FLASH_NAME "camera-led-flash"
 
@@ -467,6 +468,10 @@ static int __init msm_led_trigger_add_driver(void)
     #else
 
 	int32_t rc = 0;
+	if (board_mfg_mode() == MFG_MODE_OFFMODE_CHARGING) {
+		pr_err("offmode_charging, skip probe\n");
+		return 0;
+	}
 	pr_info("%s:%d\n", __func__, __LINE__);
 	rc = platform_driver_probe(&msm_led_trigger_driver,
 		msm_led_trigger_probe);

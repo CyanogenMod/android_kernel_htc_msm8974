@@ -39,4 +39,4 @@ struct tdisc_platform_data {
 	struct	tdisc_abs_values *tdisc_abs;
 };
 
-#endif 
+#endif /* _TDISC_SHINETSU_H_ */

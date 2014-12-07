@@ -56,13 +56,13 @@
 #define EFIKAMX_PMIC		IMX_GPIO_NR(1, 6)
 
 static iomux_v3_cfg_t mx51efika_pads[] = {
-	
+	/* UART1 */
 	MX51_PAD_UART1_RXD__UART1_RXD,
 	MX51_PAD_UART1_TXD__UART1_TXD,
 	MX51_PAD_UART1_RTS__UART1_RTS,
 	MX51_PAD_UART1_CTS__UART1_CTS,
 
-	
+	/* SD 1 */
 	MX51_PAD_SD1_CMD__SD1_CMD,
 	MX51_PAD_SD1_CLK__SD1_CLK,
 	MX51_PAD_SD1_DATA0__SD1_DATA0,
@@ -70,7 +70,7 @@ static iomux_v3_cfg_t mx51efika_pads[] = {
 	MX51_PAD_SD1_DATA2__SD1_DATA2,
 	MX51_PAD_SD1_DATA3__SD1_DATA3,
 
-	
+	/* SD 2 */
 	MX51_PAD_SD2_CMD__SD2_CMD,
 	MX51_PAD_SD2_CLK__SD2_CLK,
 	MX51_PAD_SD2_DATA0__SD2_DATA0,
@@ -78,13 +78,13 @@ static iomux_v3_cfg_t mx51efika_pads[] = {
 	MX51_PAD_SD2_DATA2__SD2_DATA2,
 	MX51_PAD_SD2_DATA3__SD2_DATA3,
 
-	
+	/* SD/MMC WP/CD */
 	MX51_PAD_GPIO1_0__SD1_CD,
 	MX51_PAD_GPIO1_1__SD1_WP,
 	MX51_PAD_GPIO1_7__SD2_WP,
 	MX51_PAD_GPIO1_8__SD2_CD,
 
-	
+	/* spi */
 	MX51_PAD_CSPI1_MOSI__ECSPI1_MOSI,
 	MX51_PAD_CSPI1_MISO__ECSPI1_MISO,
 	MX51_PAD_CSPI1_SS0__GPIO4_24,
@@ -93,7 +93,7 @@ static iomux_v3_cfg_t mx51efika_pads[] = {
 	MX51_PAD_CSPI1_SCLK__ECSPI1_SCLK,
 	MX51_PAD_GPIO1_6__GPIO1_6,
 
-	
+	/* USB HOST1 */
 	MX51_PAD_USBH1_CLK__USBH1_CLK,
 	MX51_PAD_USBH1_DIR__USBH1_DIR,
 	MX51_PAD_USBH1_NXT__USBH1_NXT,
@@ -106,21 +106,26 @@ static iomux_v3_cfg_t mx51efika_pads[] = {
 	MX51_PAD_USBH1_DATA6__USBH1_DATA6,
 	MX51_PAD_USBH1_DATA7__USBH1_DATA7,
 
-	
+	/* USB HUB RESET */
 	MX51_PAD_GPIO1_5__GPIO1_5,
 
-	
+	/* WLAN */
 	MX51_PAD_EIM_A22__GPIO2_16,
 	MX51_PAD_EIM_A16__GPIO2_10,
 
-	
+	/* USB PHY RESET */
 	MX51_PAD_EIM_D27__GPIO2_9,
 };
 
+/* Serial ports */
 static const struct imxuart_platform_data uart_pdata = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
 
+/* This function is board specific as the bit mask for the plldiv will also
+ * be different for other Freescale SoCs, thus a common bitmask is not
+ * possible and cannot get place in /plat-mxc/ehci.c.
+ */
 static int initialize_otg_port(struct platform_device *pdev)
 {
 	u32 v;
@@ -131,7 +136,7 @@ static int initialize_otg_port(struct platform_device *pdev)
 		return -ENOMEM;
 	usbother_base = (void __iomem *)(usb_base + MX5_USBOTHER_REGS_OFFSET);
 
-	
+	/* Set the PHY clock to 19.2MHz */
 	v = __raw_readl(usbother_base + MXC_USB_PHY_CTR_FUNC2_OFFSET);
 	v &= ~MX5_USB_UTMI_PHYCTRL1_PLLDIV_MASK;
 	v |= MX51_USB_PLL_DIV_19_2_MHZ;
@@ -166,8 +171,8 @@ static int initialize_usbh1_port(struct platform_device *pdev)
 	usb_base = ioremap(MX51_USB_OTG_BASE_ADDR, SZ_4K);
 	socregs_base = (void __iomem *)(usb_base + MX5_USBOTHER_REGS_OFFSET);
 
-	
-	
+	/* The clock for the USBH1 ULPI port will come externally */
+	/* from the PHY. */
 	v = __raw_readl(socregs_base + MX51_USB_CTRL_1_OFFSET);
 	__raw_writel(v | MX51_USB_CTRL_UH1_EXT_CLK_EN,
 			socregs_base + MX51_USB_CTRL_1_OFFSET);
@@ -201,7 +206,7 @@ static void __init mx51_efika_usb(void)
 {
 	mx51_efika_hubreset();
 
-	
+	/* pulling it low, means no USB at all... */
 	gpio_request(EFIKA_USB_PHY_RESET, "usb_phy_reset");
 	gpio_direction_output(EFIKA_USB_PHY_RESET, 0);
 	msleep(1);
@@ -242,13 +247,13 @@ static struct regulator_consumer_supply sw1_consumers[] = {
 };
 
 static struct regulator_consumer_supply vdig_consumers[] = {
-	
+	/* sgtl5000 */
 	REGULATOR_SUPPLY("VDDA", "1-000a"),
 	REGULATOR_SUPPLY("VDDD", "1-000a"),
 };
 
 static struct regulator_consumer_supply vvideo_consumers[] = {
-	
+	/* sgtl5000 */
 	REGULATOR_SUPPLY("VDDIO", "1-000a"),
 };
 
@@ -603,7 +608,7 @@ void __init efika_board_common_init(void)
 	imx51_add_imx_uart(0, &uart_pdata);
 	mx51_efika_usb();
 
-	
+	/* FIXME: comes from original code. check this. */
 	if (mx51_revision() < IMX_CHIP_REVISION_2_0)
 		sw2_init.constraints.state_mem.uV = 1100000;
 	else if (mx51_revision() == IMX_CHIP_REVISION_2_0) {

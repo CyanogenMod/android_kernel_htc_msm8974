@@ -46,13 +46,18 @@ static inline void omap_serial_outp(struct plat_serial8250_port *p, int offset,
 	__raw_writeb(value, p->membase + offset);
 }
 
+/*
+ * Internal UARTs need to be initialized for the 8250 autoconfig to work
+ * properly. Note that the TX watermark initialization may not be needed
+ * once the 8250.c watermark handling code is merged.
+ */
 static void __init omap_serial_reset(struct plat_serial8250_port *p)
 {
 	omap_serial_outp(p, UART_OMAP_MDR1,
-			UART_OMAP_MDR1_DISABLE);	
-	omap_serial_outp(p, UART_OMAP_SCR, 0x08);	
+			UART_OMAP_MDR1_DISABLE);	/* disable UART */
+	omap_serial_outp(p, UART_OMAP_SCR, 0x08);	/* TX watermark */
 	omap_serial_outp(p, UART_OMAP_MDR1,
-			UART_OMAP_MDR1_16X_MODE);	
+			UART_OMAP_MDR1_16X_MODE);	/* enable UART */
 
 	if (!cpu_is_omap15xx()) {
 		omap_serial_outp(p, UART_OMAP_SYSC, 0x01);
@@ -96,6 +101,11 @@ static struct platform_device serial_device = {
 	},
 };
 
+/*
+ * Note that on Innovator-1510 UART2 pins conflict with USB2.
+ * By default UART2 does not work on Innovator-1510 if you have
+ * USB OHCI enabled. To use UART2, you must disable USB2 first.
+ */
 void __init omap_serial_init(void)
 {
 	int i;
@@ -115,14 +125,14 @@ void __init omap_serial_init(void)
 
 	for (i = 0; i < ARRAY_SIZE(serial_platform_data) - 1; i++) {
 
-		
+		/* Don't look at UARTs higher than 2 for omap7xx */
 		if (cpu_is_omap7xx() && i > 1) {
 			serial_platform_data[i].membase = NULL;
 			serial_platform_data[i].mapbase = 0;
 			continue;
 		}
 
-		
+		/* Static mapping, never released */
 		serial_platform_data[i].membase =
 			ioremap(serial_platform_data[i].mapbase, SZ_2K);
 		if (!serial_platform_data[i].membase) {
@@ -171,10 +181,15 @@ void __init omap_serial_init(void)
 
 static irqreturn_t omap_serial_wake_interrupt(int irq, void *dev_id)
 {
-	
+	/* Need to do something with serial port right after wake-up? */
 	return IRQ_HANDLED;
 }
 
+/*
+ * Reroutes serial RX lines to GPIO lines for the duration of
+ * sleep to allow waking up the device from serial port even
+ * in deep sleep.
+ */
 void omap_serial_wake_trigger(int enable)
 {
 	if (!cpu_is_omap16xx())
@@ -238,7 +253,7 @@ static int __init omap_serial_wakeup_init(void)
 }
 late_initcall(omap_serial_wakeup_init);
 
-#endif	
+#endif	/* CONFIG_OMAP_SERIAL_WAKE */
 
 static int __init omap_init(void)
 {

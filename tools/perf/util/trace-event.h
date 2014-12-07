@@ -269,7 +269,7 @@ unsigned long long eval_flag(const char *flag);
 int read_tracing_data(int fd, struct list_head *pattrs);
 
 struct tracing_data {
-	
+	/* size is only valid if temp is 'true' */
 	ssize_t size;
 	bool temp;
 	char temp_file[50];
@@ -280,6 +280,7 @@ struct tracing_data *tracing_data_get(struct list_head *pattrs,
 void tracing_data_put(struct tracing_data *tdata);
 
 
+/* taken from kernel/trace/trace.h */
 enum trace_flag_type {
 	TRACE_FLAG_IRQS_OFF		= 0x01,
 	TRACE_FLAG_IRQS_NOSUPPORT	= 0x02,
@@ -314,4 +315,4 @@ int common_pc(struct scripting_context *context);
 int common_flags(struct scripting_context *context);
 int common_lock_depth(struct scripting_context *context);
 
-#endif 
+#endif /* __PERF_TRACE_EVENTS_H */

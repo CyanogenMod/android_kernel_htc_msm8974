@@ -46,9 +46,9 @@
 
 #define DRV_VERSION "0.6"
 
-#define PCF2123_REG_CTRL1	(0x00)	
-#define PCF2123_REG_CTRL2	(0x01)	
-#define PCF2123_REG_SC		(0x02)	
+#define PCF2123_REG_CTRL1	(0x00)	/* Control Register 1 */
+#define PCF2123_REG_CTRL2	(0x01)	/* Control Register 2 */
+#define PCF2123_REG_SC		(0x02)	/* datetime */
 #define PCF2123_REG_MN		(0x03)
 #define PCF2123_REG_HR		(0x04)
 #define PCF2123_REG_DM		(0x05)
@@ -72,6 +72,11 @@ struct pcf2123_plat_data {
 	struct pcf2123_sysfs_reg regs[16];
 };
 
+/*
+ * Causes a 30 nanosecond delay to ensure that the PCF2123 chip select
+ * is released properly after an SPI write.  This function should be
+ * called after EVERY read/write call over SPI.
+ */
 static inline void pcf2123_delay_trec(void)
 {
 	ndelay(30);
@@ -139,13 +144,13 @@ static int pcf2123_rtc_read_time(struct device *dev, struct rtc_time *tm)
 
 	tm->tm_sec = bcd2bin(rxbuf[0] & 0x7F);
 	tm->tm_min = bcd2bin(rxbuf[1] & 0x7F);
-	tm->tm_hour = bcd2bin(rxbuf[2] & 0x3F); 
+	tm->tm_hour = bcd2bin(rxbuf[2] & 0x3F); /* rtc hr 0-23 */
 	tm->tm_mday = bcd2bin(rxbuf[3] & 0x3F);
 	tm->tm_wday = rxbuf[4] & 0x07;
-	tm->tm_mon = bcd2bin(rxbuf[5] & 0x1F) - 1; 
+	tm->tm_mon = bcd2bin(rxbuf[5] & 0x1F) - 1; /* rtc mn 1-12 */
 	tm->tm_year = bcd2bin(rxbuf[6]);
 	if (tm->tm_year < 70)
-		tm->tm_year += 100;	
+		tm->tm_year += 100;	/* assume we are in 1970...2069 */
 
 	dev_dbg(dev, "%s: tm is secs=%d, mins=%d, hours=%d, "
 			"mday=%d, mon=%d, year=%d, wday=%d\n",
@@ -153,6 +158,9 @@ static int pcf2123_rtc_read_time(struct device *dev, struct rtc_time *tm)
 			tm->tm_sec, tm->tm_min, tm->tm_hour,
 			tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
+	/* the clock can give out invalid datetime, but we cannot return
+	 * -EINVAL otherwise hwclock will refuse to set the time on bootup.
+	 */
 	if (rtc_valid_tm(tm) < 0)
 		dev_err(dev, "retrieved date/time is not valid.\n");
 
@@ -171,7 +179,7 @@ static int pcf2123_rtc_set_time(struct device *dev, struct rtc_time *tm)
 			tm->tm_sec, tm->tm_min, tm->tm_hour,
 			tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
-	
+	/* Stop the counter first */
 	txbuf[0] = PCF2123_WRITE | PCF2123_REG_CTRL1;
 	txbuf[1] = 0x20;
 	ret = spi_write(spi, txbuf, 2);
@@ -179,14 +187,14 @@ static int pcf2123_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return ret;
 	pcf2123_delay_trec();
 
-	
+	/* Set the new time */
 	txbuf[0] = PCF2123_WRITE | PCF2123_REG_SC;
 	txbuf[1] = bin2bcd(tm->tm_sec & 0x7F);
 	txbuf[2] = bin2bcd(tm->tm_min & 0x7F);
 	txbuf[3] = bin2bcd(tm->tm_hour & 0x3F);
 	txbuf[4] = bin2bcd(tm->tm_mday & 0x3F);
 	txbuf[5] = tm->tm_wday & 0x07;
-	txbuf[6] = bin2bcd((tm->tm_mon + 1) & 0x1F); 
+	txbuf[6] = bin2bcd((tm->tm_mon + 1) & 0x1F); /* rtc mn 1-12 */
 	txbuf[7] = bin2bcd(tm->tm_year < 100 ? tm->tm_year : tm->tm_year - 100);
 
 	ret = spi_write(spi, txbuf, sizeof(txbuf));
@@ -194,7 +202,7 @@ static int pcf2123_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return ret;
 	pcf2123_delay_trec();
 
-	
+	/* Start the counter */
 	txbuf[0] = PCF2123_WRITE | PCF2123_REG_CTRL1;
 	txbuf[1] = 0x00;
 	ret = spi_write(spi, txbuf, 2);
@@ -222,7 +230,7 @@ static int __devinit pcf2123_probe(struct spi_device *spi)
 		return -ENOMEM;
 	spi->dev.platform_data = pdata;
 
-	
+	/* Send a software reset command */
 	txbuf[0] = PCF2123_WRITE | PCF2123_REG_CTRL1;
 	txbuf[1] = 0x58;
 	dev_dbg(&spi->dev, "resetting RTC (0x%02X 0x%02X)\n",
@@ -232,7 +240,7 @@ static int __devinit pcf2123_probe(struct spi_device *spi)
 		goto kfree_exit;
 	pcf2123_delay_trec();
 
-	
+	/* Stop the counter */
 	txbuf[0] = PCF2123_WRITE | PCF2123_REG_CTRL1;
 	txbuf[1] = 0x20;
 	dev_dbg(&spi->dev, "stopping RTC (0x%02X 0x%02X)\n",
@@ -242,7 +250,7 @@ static int __devinit pcf2123_probe(struct spi_device *spi)
 		goto kfree_exit;
 	pcf2123_delay_trec();
 
-	
+	/* See if the counter was actually stopped */
 	txbuf[0] = PCF2123_READ | PCF2123_REG_CTRL1;
 	dev_dbg(&spi->dev, "checking for presence of RTC (0x%02X)\n",
 			txbuf[0]);
@@ -263,7 +271,7 @@ static int __devinit pcf2123_probe(struct spi_device *spi)
 	dev_info(&spi->dev, "spiclk %u KHz.\n",
 			(spi->max_speed_hz + 500) / 1000);
 
-	
+	/* Start the counter */
 	txbuf[0] = PCF2123_WRITE | PCF2123_REG_CTRL1;
 	txbuf[1] = 0x00;
 	ret = spi_write(spi, txbuf, sizeof(txbuf));
@@ -271,7 +279,7 @@ static int __devinit pcf2123_probe(struct spi_device *spi)
 		goto kfree_exit;
 	pcf2123_delay_trec();
 
-	
+	/* Finalize the initialization */
 	rtc = rtc_device_register(pcf2123_driver.driver.name, &spi->dev,
 			&pcf2123_rtc_ops, THIS_MODULE);
 

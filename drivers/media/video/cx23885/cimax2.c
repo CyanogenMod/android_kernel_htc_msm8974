@@ -25,6 +25,21 @@
 
 #include "cx23885.h"
 #include "dvb_ca_en50221.h"
+/**** Bit definitions for MC417_RWD and MC417_OEN registers  ***
+  bits 31-16
++-----------+
+| Reserved  |
++-----------+
+  bit 15  bit 14  bit 13 bit 12  bit 11  bit 10  bit 9   bit 8
++-------+-------+-------+-------+-------+-------+-------+-------+
+|  WR#  |  RD#  |       |  ACK# |  ADHI |  ADLO |  CS1# |  CS0# |
++-------+-------+-------+-------+-------+-------+-------+-------+
+ bit 7   bit 6   bit 5   bit 4   bit 3   bit 2   bit 1   bit 0
++-------+-------+-------+-------+-------+-------+-------+-------+
+|  DATA7|  DATA6|  DATA5|  DATA4|  DATA3|  DATA2|  DATA1|  DATA0|
++-------+-------+-------+-------+-------+-------+-------+-------+
+***/
+/* MC417 */
 #define NETUP_DATA		0x000000ff
 #define NETUP_WR		0x00008000
 #define NETUP_RD		0x00004000
@@ -57,6 +72,7 @@ MODULE_PARM_DESC(ci_irq_enable, "Enable IRQ from CAM");
 
 #define ci_irq_flags() (ci_irq_enable ? NETUP_IRQ_IRQAM : 0)
 
+/* stores all private variables for communication with CI */
 struct netup_ci_state {
 	struct dvb_ca_en50221 ca;
 	struct mutex ca_mutex;
@@ -182,7 +198,7 @@ int netup_ci_op_cam(struct dvb_ca_en50221 *en50221, int slot,
 
 	mutex_lock(&dev->gpio_lock);
 
-	
+	/* write addr */
 	cx_write(MC417_OEN, NETUP_EN_ALL);
 	cx_write(MC417_RWD, NETUP_CTRL_OFF |
 				NETUP_ADLO | (0xff & addr));
@@ -191,15 +207,15 @@ int netup_ci_op_cam(struct dvb_ca_en50221 *en50221, int slot,
 				NETUP_ADHI | (0xff & (addr >> 8)));
 	cx_clear(MC417_RWD, NETUP_ADHI);
 
-	if (read) { 
+	if (read) { /* data in */
 		cx_write(MC417_OEN, NETUP_EN_ALL | NETUP_DATA);
-	} else 
+	} else /* data out */
 		cx_write(MC417_RWD, NETUP_CTRL_OFF | data);
 
-	
+	/* choose chip */
 	cx_clear(MC417_RWD,
 			(state->ci_i2c_addr == 0x40) ? NETUP_CS0 : NETUP_CS1);
-	
+	/* read/write */
 	cx_clear(MC417_RWD, (read) ? NETUP_RD : NETUP_WR);
 	mem = netup_ci_get_mem(dev);
 
@@ -275,7 +291,7 @@ int netup_ci_slot_reset(struct dvb_ca_en50221 *en50221, int slot)
 
 int netup_ci_slot_shutdown(struct dvb_ca_en50221 *en50221, int slot)
 {
-	
+	/* not implemented */
 	return 0;
 }
 
@@ -316,6 +332,7 @@ int netup_ci_slot_ts_ctl(struct dvb_ca_en50221 *en50221, int slot)
 							0, &buf, 1);
 }
 
+/* work handler */
 static void netup_read_ci_status(struct work_struct *work)
 {
 	struct netup_ci_state *state =
@@ -323,9 +340,11 @@ static void netup_read_ci_status(struct work_struct *work)
 	u8 buf[33];
 	int ret;
 
-	
+	/* CAM module IRQ processing. fast operation */
 	dvb_ca_en50221_frda_irq(&state->ca, 0);
 
+	/* CAM module INSERT/REMOVE processing. slow operation because of i2c
+	 * transfers */
 	if (time_after(jiffies, state->next_status_checked_time)
 			|| !state->status) {
 		ret = netup_read_i2c(state->i2c_adap, state->ci_i2c_addr,
@@ -352,6 +371,7 @@ static void netup_read_ci_status(struct work_struct *work)
 	}
 }
 
+/* CI irq handler */
 int netup_ci_slot_status(struct cx23885_dev *dev, u32 pci_status)
 {
 	struct cx23885_tsport *port = NULL;
@@ -396,40 +416,40 @@ int netup_ci_init(struct cx23885_tsport *port)
 {
 	struct netup_ci_state *state;
 	u8 cimax_init[34] = {
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x44, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x44, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x00, 
-		0x02, 
-		0x01, 
-		0x00, 
-		0x00, 
-		ci_irq_flags() | NETUP_IRQ_DETAM, 
-		0x05, 
-		0x00, 
-		0x04, 
-		0x00, 
-		0x33, 
-		0x31, 
+		0x00, /* module A control*/
+		0x00, /* auto select mask high A */
+		0x00, /* auto select mask low A */
+		0x00, /* auto select pattern high A */
+		0x00, /* auto select pattern low A */
+		0x44, /* memory access time A */
+		0x00, /* invert input A */
+		0x00, /* RFU */
+		0x00, /* RFU */
+		0x00, /* module B control*/
+		0x00, /* auto select mask high B */
+		0x00, /* auto select mask low B */
+		0x00, /* auto select pattern high B */
+		0x00, /* auto select pattern low B */
+		0x44, /* memory access time B */
+		0x00, /* invert input B */
+		0x00, /* RFU */
+		0x00, /* RFU */
+		0x00, /* auto select mask high Ext */
+		0x00, /* auto select mask low Ext */
+		0x00, /* auto select pattern high Ext */
+		0x00, /* auto select pattern low Ext */
+		0x00, /* RFU */
+		0x02, /* destination - module A */
+		0x01, /* power on (use it like store place) */
+		0x00, /* RFU */
+		0x00, /* int status read only */
+		ci_irq_flags() | NETUP_IRQ_DETAM, /* DETAM, IRQAM unmasked */
+		0x05, /* EXTINT=active-high, INT=push-pull */
+		0x00, /* USCG1 */
+		0x04, /* ack active low */
+		0x00, /* LOCK = 0 */
+		0x33, /* serial mode, rising in, rising out, MSB first*/
+		0x31, /* synchronization */
 	};
 	int ret;
 
@@ -468,10 +488,10 @@ int netup_ci_init(struct cx23885_tsport *port)
 
 	ret = netup_write_i2c(state->i2c_adap, state->ci_i2c_addr,
 						0, &cimax_init[0], 34);
-	
+	/* lock registers */
 	ret |= netup_write_i2c(state->i2c_adap, state->ci_i2c_addr,
 						0x1f, &cimax_init[0x18], 1);
-	
+	/* power on slots */
 	ret |= netup_write_i2c(state->i2c_adap, state->ci_i2c_addr,
 						0x18, &cimax_init[0x18], 1);
 
@@ -480,8 +500,8 @@ int netup_ci_init(struct cx23885_tsport *port)
 
 	ret = dvb_ca_en50221_init(&port->frontends.adapter,
 				   &state->ca,
-				    0,
-				    1);
+				   /* flags */ 0,
+				   /* n_slots */ 1);
 	if (0 != ret)
 		goto err;
 

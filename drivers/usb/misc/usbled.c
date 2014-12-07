@@ -25,6 +25,7 @@ enum led_type {
 	DREAM_CHEEKY_WEBMAIL_NOTIFIER,
 };
 
+/* table of devices that work with this driver */
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x0fc5, 0x1223),
 			.driver_info = DELCOM_VISUAL_SIGNAL_INDICATOR },
@@ -215,7 +216,7 @@ static void led_disconnect(struct usb_interface *interface)
 	device_remove_file(&interface->dev, &dev_attr_red);
 	device_remove_file(&interface->dev, &dev_attr_green);
 
-	
+	/* first remove the files, then set the pointer to NULL */
 	usb_set_intfdata(interface, NULL);
 
 	usb_put_dev(dev->udev);

@@ -63,7 +63,7 @@ void c2_mq_produce(struct c2_mq *q)
 	if (!c2_mq_full(q)) {
 		q->priv = (q->priv + 1) % q->q_size;
 		q->hint_count++;
-		
+		/* Update peer's offset. */
 		__raw_writew((__force u16) cpu_to_be16(q->priv), &q->peer->shared);
 	}
 }
@@ -104,7 +104,7 @@ void c2_mq_free(struct c2_mq *q)
 		}
 #endif
 		q->priv = (q->priv + 1) % q->q_size;
-		
+		/* Update peer's offset. */
 		__raw_writew((__force u16) cpu_to_be16(q->priv), &q->peer->shared);
 	}
 }
@@ -136,14 +136,14 @@ u32 c2_mq_count(struct c2_mq *q)
 
 	return (u32) count;
 }
-#endif  
+#endif  /*  0  */
 
 void c2_mq_req_init(struct c2_mq *q, u32 index, u32 q_size, u32 msg_size,
 		    u8 __iomem *pool_start, u16 __iomem *peer, u32 type)
 {
 	BUG_ON(!q->shared);
 
-	
+	/* This code assumes the byte swapping has already been done! */
 	q->index = index;
 	q->q_size = q_size;
 	q->msg_size = msg_size;
@@ -160,7 +160,7 @@ void c2_mq_rep_init(struct c2_mq *q, u32 index, u32 q_size, u32 msg_size,
 {
 	BUG_ON(!q->shared);
 
-	
+	/* This code assumes the byte swapping has already been done! */
 	q->index = index;
 	q->q_size = q_size;
 	q->msg_size = msg_size;

@@ -13,6 +13,7 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* AVERTV STUDIO 303 Remote */
 
 static struct rc_map_table avertv_303[] = {
 	{ 0x2a, KEY_1 },
@@ -63,7 +64,7 @@ static struct rc_map_list avertv_303_map = {
 	.map = {
 		.scan    = avertv_303,
 		.size    = ARRAY_SIZE(avertv_303),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_AVERTV_303,
 	}
 };

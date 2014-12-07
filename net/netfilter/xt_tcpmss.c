@@ -1,3 +1,4 @@
+/* Kernel module to match TCP MSS values. */
 
 /* Copyright (C) 2000 Marc Boucher <marc@mbsi.ca>
  * Portions (C) 2005 by Harald Welte <laforge@netfilter.org>
@@ -29,17 +30,17 @@ tcpmss_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	const struct xt_tcpmss_match_info *info = par->matchinfo;
 	const struct tcphdr *th;
 	struct tcphdr _tcph;
-	
+	/* tcp.doff is only 4 bits, ie. max 15 * 4 bytes */
 	const u_int8_t *op;
 	u8 _opt[15 * 4 - sizeof(_tcph)];
 	unsigned int i, optlen;
 
-	
+	/* If we don't have the whole header, drop packet. */
 	th = skb_header_pointer(skb, par->thoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)
 		goto dropit;
 
-	
+	/* Malformed. */
 	if (th->doff*4 < sizeof(*th))
 		goto dropit;
 
@@ -47,7 +48,7 @@ tcpmss_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	if (!optlen)
 		goto out;
 
-	
+	/* Truncated options. */
 	op = skb_header_pointer(skb, par->thoff + sizeof(*th), optlen, _opt);
 	if (op == NULL)
 		goto dropit;

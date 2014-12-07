@@ -28,4 +28,4 @@
 
 void ocfs2_print_version(void);
 
-#endif 
+#endif /* OCFS2_VER_H */

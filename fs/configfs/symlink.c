@@ -32,6 +32,7 @@
 #include <linux/configfs.h>
 #include "configfs_internal.h"
 
+/* Protects attachments of new symlinks */
 DEFINE_MUTEX(configfs_symlink_mutex);
 
 static int item_depth(struct config_item * item)
@@ -61,7 +62,7 @@ static void fill_item_path(struct config_item * item, char * buffer, int length)
 	for (p = item; p && !configfs_is_root(p); p = p->ci_parent) {
 		int cur = strlen(config_item_name(p));
 
-		
+		/* back up enough to print this bus id with '/' */
 		length -= cur;
 		strncpy(buffer + length,config_item_name(p),cur);
 		*(buffer + --length) = '/';
@@ -141,6 +142,10 @@ int configfs_symlink(struct inode *dir, struct dentry *dentry, const char *symna
 	struct config_item_type *type;
 
 	sd = dentry->d_parent->d_fsdata;
+	/*
+	 * Fake invisibility if dir belongs to a group/default groups hierarchy
+	 * being attached
+	 */
 	ret = -ENOENT;
 	if (!configfs_dirent_is_ready(sd))
 		goto out;
@@ -185,7 +190,7 @@ int configfs_unlink(struct inode *dir, struct dentry *dentry)
 	struct config_item_type *type;
 	int ret;
 
-	ret = -EPERM;  
+	ret = -EPERM;  /* What lack-of-symlink returns */
 	if (!(sd->s_type & CONFIGFS_ITEM_LINK))
 		goto out;
 
@@ -201,6 +206,11 @@ int configfs_unlink(struct inode *dir, struct dentry *dentry)
 	dput(dentry);
 	configfs_put(sd);
 
+	/*
+	 * drop_link() must be called before
+	 * list_del_init(&sl->sl_list), so that the order of
+	 * drop_link(this, target) and drop_item(target) is preserved.
+	 */
 	if (type && type->ct_item_ops &&
 	    type->ct_item_ops->drop_link)
 		type->ct_item_ops->drop_link(parent_item,
@@ -210,7 +220,7 @@ int configfs_unlink(struct inode *dir, struct dentry *dentry)
 	list_del_init(&sl->sl_list);
 	spin_unlock(&configfs_dirent_lock);
 
-	
+	/* Put reference from create_link() */
 	config_item_put(sl->sl_target);
 	kfree(sl);
 

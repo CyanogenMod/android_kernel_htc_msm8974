@@ -8,10 +8,19 @@
 #endif
 #include <linux/ioctl.h>
 
+/**
+ * unique magic number of the IPA device
+ */
 #define IPA_IOC_MAGIC 0xCF
 
+/**
+ * name of the default routing tables for v4 and v6
+ */
 #define IPA_DFLT_RT_TBL_NAME "ipa_dflt_rt"
 
+/**
+ *   the commands supported by IPA driver
+ */
 #define IPA_IOCTL_ADD_HDR            0
 #define IPA_IOCTL_DEL_HDR            1
 #define IPA_IOCTL_ADD_RT_RULE        2
@@ -44,12 +53,29 @@
 #define IPA_IOCTL_RM_DEL_DEPENDENCY 30
 #define IPA_IOCTL_MAX            31
 
+/**
+ * max size of the header to be inserted
+ */
 #define IPA_HDR_MAX_SIZE 64
 
+/**
+ * max size of the name of the resource (routing table, header)
+ */
 #define IPA_RESOURCE_NAME_MAX 20
 
+/**
+ * max number of interface properties
+ */
+#define IPA_NUM_PROPS_MAX 20
+
+/**
+ * size of the mac address
+ */
 #define IPA_MAC_ADDR_SIZE  6
 
+/**
+ * the attributes of the rule (routing or filtering)
+ */
 #define IPA_FLT_TOS            (1ul << 0)
 #define IPA_FLT_PROTOCOL       (1ul << 1)
 #define IPA_FLT_SRC_ADDR       (1ul << 2)
@@ -68,6 +94,12 @@
 #define IPA_FLT_FRAGMENT       (1ul << 15)
 #define IPA_FLT_TOS_MASKED     (1ul << 16)
 
+/**
+ * enum ipa_client_type - names for the various IPA "clients"
+ * these are from the perspective of the clients, for e.g.
+ * HSIC1_PROD means HSIC client is the producer and IPA is the
+ * consumer
+ */
 enum ipa_client_type {
 	IPA_CLIENT_PROD,
 	IPA_CLIENT_HSIC1_PROD = IPA_CLIENT_PROD,
@@ -98,12 +130,23 @@ enum ipa_client_type {
 	IPA_CLIENT_MAX,
 };
 
+/**
+ * enum ipa_ip_type - Address family: IPv4 or IPv6
+ */
 enum ipa_ip_type {
 	IPA_IP_v4,
 	IPA_IP_v6,
 	IPA_IP_MAX
 };
 
+/**
+ * enum ipa_flt_action - action field of filtering rule
+ *
+ * Pass to routing: 5'd0
+ * Pass to source NAT: 5'd1
+ * Pass to destination NAT: 5'd2
+ * Pass to default output pipe (e.g., A5): 5'd3
+ */
 enum ipa_flt_action {
 	IPA_PASS_TO_ROUTING,
 	IPA_PASS_TO_SRC_NAT,
@@ -111,6 +154,20 @@ enum ipa_flt_action {
 	IPA_PASS_TO_EXCEPTION
 };
 
+/**
+ * enum ipa_wlan_event - Events for wlan client
+ *
+ * wlan client connect: New wlan client connected
+ * wlan client disconnect: wlan client disconnected
+ * wlan client power save: wlan client moved to power save
+ * wlan client normal: wlan client moved out of power save
+ * sw routing enable: ipa routing is disabled
+ * sw routing disable: ipa routing is enabled
+ * wlan ap connect: wlan AP(access point) is up
+ * wlan ap disconnect: wlan AP(access point) is down
+ * wlan sta connect: wlan STA(station) is up
+ * wlan sta disconnect: wlan STA(station) is down
+ */
 enum ipa_wlan_event {
 	WLAN_CLIENT_CONNECT,
 	WLAN_CLIENT_DISCONNECT,
@@ -125,6 +182,12 @@ enum ipa_wlan_event {
 	IPA_EVENT_MAX
 };
 
+/**
+ * enum ipa_rm_resource_name - IPA RM clients identification names
+ *
+ * Add new mapping to ipa_rm_dep_prod_index() / ipa_rm_dep_cons_index()
+ * when adding new entry to this enum.
+ */
 enum ipa_rm_resource_name {
 	IPA_RM_RESOURCE_PROD = 0,
 	IPA_RM_RESOURCE_BRIDGE_PROD = IPA_RM_RESOURCE_PROD,
@@ -149,6 +212,35 @@ enum ipa_rm_resource_name {
 	IPA_RM_RESOURCE_MAX
 };
 
+/**
+ * struct ipa_rule_attrib - attributes of a routing/filtering
+ * rule, all in LE
+ * @attrib_mask: what attributes are valid
+ * @src_port_lo: low port of src port range
+ * @src_port_hi: high port of src port range
+ * @dst_port_lo: low port of dst port range
+ * @dst_port_hi: high port of dst port range
+ * @type: ICMP/IGMP type
+ * @code: ICMP/IGMP code
+ * @spi: IPSec SPI
+ * @src_port: exact src port
+ * @dst_port: exact dst port
+ * @meta_data: meta-data val
+ * @meta_data_mask: meta-data mask
+ * @u.v4.tos: type of service
+ * @u.v4.protocol: protocol
+ * @u.v4.src_addr: src address value
+ * @u.v4.src_addr_mask: src address mask
+ * @u.v4.dst_addr: dst address value
+ * @u.v4.dst_addr_mask: dst address mask
+ * @u.v6.tc: traffic class
+ * @u.v6.flow_label: flow label
+ * @u.v6.next_hdr: next header
+ * @u.v6.src_addr: src address val
+ * @u.v6.src_addr_mask: src address mask
+ * @u.v6.dst_addr: dst address val
+ * @u.v6.dst_addr_mask: dst address mask
+ */
 struct ipa_rule_attrib {
 	uint32_t attrib_mask;
 	uint16_t src_port_lo;
@@ -185,18 +277,43 @@ struct ipa_rule_attrib {
 	} u;
 };
 
+/**
+ * struct ipa_flt_rule - attributes of a filtering rule
+ * @action: action field
+ * @rt_tbl_hdl: handle of table from "get"
+ * @attrib: attributes of the rule
+ */
 struct ipa_flt_rule {
 	enum ipa_flt_action action;
 	uint32_t rt_tbl_hdl;
 	struct ipa_rule_attrib attrib;
 };
 
+/**
+ * struct ipa_rt_rule - attributes of a routing rule
+ * @dst: dst "client"
+ * @hdr_hdl: handle to the dynamic header
+	it is not an index or an offset
+ * @attrib: attributes of the rule
+ */
 struct ipa_rt_rule {
 	enum ipa_client_type dst;
 	uint32_t hdr_hdl;
 	struct ipa_rule_attrib attrib;
 };
 
+/**
+ * struct ipa_hdr_add - header descriptor includes in and out
+ * parameters
+ * @name: name of the header
+ * @hdr: actual header to be inserted
+ * @hdr_len: size of above header
+ * @is_partial: header not fully specified
+ * @hdr_hdl: out paramerer, handle to header, valid when status is 0
+ * @status:	out paramerer, status of header add operation,
+ *		0 for success,
+ *		-1 for failure
+ */
 struct ipa_hdr_add {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint8_t hdr[IPA_HDR_MAX_SIZE];
@@ -220,6 +337,17 @@ struct ipa_ioc_add_hdr {
 	struct ipa_hdr_add hdr[0];
 };
 
+/**
+ * struct ipa_ioc_copy_hdr - retrieve a copy of the specified
+ * header - caller can then derive the complete header
+ * @name: name of the header resource
+ * @hdr:	out parameter, contents of specified header,
+ *	valid only when ioctl return val is non-negative
+ * @hdr_len: out parameter, size of above header
+ *	valid only when ioctl return val is non-negative
+ * @is_partial:	out parameter, indicates whether specified header is partial
+ *		valid only when ioctl return val is non-negative
+ */
 struct ipa_ioc_copy_hdr {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint8_t hdr[IPA_HDR_MAX_SIZE];
@@ -227,22 +355,56 @@ struct ipa_ioc_copy_hdr {
 	uint8_t is_partial;
 };
 
+/**
+ * struct ipa_ioc_get_hdr - header entry lookup parameters, if lookup was
+ * successful caller must call put to release the reference count when done
+ * @name: name of the header resource
+ * @hdl:	out parameter, handle of header entry
+ *		valid only when ioctl return val is non-negative
+ */
 struct ipa_ioc_get_hdr {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint32_t hdl;
 };
 
+/**
+ * struct ipa_hdr_del - header descriptor includes in and out
+ * parameters
+ *
+ * @hdl: handle returned from header add operation
+ * @status:	out parameter, status of header remove operation,
+ *		0 for success,
+ *		-1 for failure
+ */
 struct ipa_hdr_del {
 	uint32_t hdl;
 	int status;
 };
 
+/**
+ * struct ipa_ioc_del_hdr - header deletion parameters (support
+ * multiple headers and commit)
+ * @commit: should headers be removed from IPA HW also?
+ * @num_hdls: num of headers being removed
+ * @ipa_hdr_del hdl: all handles need to go here back to back, no pointers
+ */
 struct ipa_ioc_del_hdr {
 	uint8_t commit;
 	uint8_t num_hdls;
 	struct ipa_hdr_del hdl[0];
 };
 
+/**
+ * struct ipa_rt_rule_add - routing rule descriptor includes in
+ * and out parameters
+ * @rule: actual rule to be added
+ * @at_rear:	add at back of routing table, it is NOT possible to add rules at
+ *		the rear of the "default" routing tables
+ * @rt_rule_hdl: output parameter, handle to rule, valid when status is 0
+ * @status:	output parameter, status of routing rule add operation,
+ *		0 for success,
+ *		-1 for failure
+ */
 struct ipa_rt_rule_add {
 	struct ipa_rt_rule rule;
 	uint8_t at_rear;
@@ -269,11 +431,27 @@ struct ipa_ioc_add_rt_rule {
 	struct ipa_rt_rule_add rules[0];
 };
 
+/**
+ * struct ipa_rt_rule_del - routing rule descriptor includes in
+ * and out parameters
+ * @hdl: handle returned from route rule add operation
+ * @status:	output parameter, status of route rule delete operation,
+ *		0 for success,
+ *		-1 for failure
+ */
 struct ipa_rt_rule_del {
 	uint32_t hdl;
 	int status;
 };
 
+/**
+ * struct ipa_ioc_del_rt_rule - routing rule deletion parameters (supports
+ * multiple headers and commit)
+ * @commit: should rules be removed from IPA HW also?
+ * @ip: IP family of rules
+ * @num_hdls: num of rules being removed
+ * @ipa_rt_rule_del hdl: all handles need to go back to back here, no pointers
+ */
 struct ipa_ioc_del_rt_rule {
 	uint8_t commit;
 	enum ipa_ip_type ip;
@@ -281,6 +459,17 @@ struct ipa_ioc_del_rt_rule {
 	struct ipa_rt_rule_del hdl[0];
 };
 
+/**
+ * struct ipa_flt_rule_add - filtering rule descriptor includes
+ * in and out parameters
+ * @rule: actual rule to be added
+ * @at_rear: add at back of filtering table?
+ * @flt_rule_hdl: out parameter, handle to rule, valid when status is 0
+ * @status:	output parameter, status of filtering rule add   operation,
+ *		0 for success,
+ *		-1 for failure
+ *
+ */
 struct ipa_flt_rule_add {
 	struct ipa_flt_rule rule;
 	uint8_t at_rear;
@@ -309,11 +498,28 @@ struct ipa_ioc_add_flt_rule {
 	struct ipa_flt_rule_add rules[0];
 };
 
+/**
+ * struct ipa_flt_rule_del - filtering rule descriptor includes
+ * in and out parameters
+ *
+ * @hdl: handle returned from filtering rule add operation
+ * @status:	output parameter, status of filtering rule delete operation,
+ *		0 for success,
+ *		-1 for failure
+ */
 struct ipa_flt_rule_del {
 	uint32_t hdl;
 	int status;
 };
 
+/**
+ * struct ipa_ioc_del_flt_rule - filtering rule deletion parameters (supports
+ * multiple headers and commit)
+ * @commit: should rules be removed from IPA HW also?
+ * @ip: IP family of rules
+ * @num_hdls: num of rules being removed
+ * @hdl: all handles need to go back to back here, no pointers
+ */
 struct ipa_ioc_del_flt_rule {
 	uint8_t commit;
 	enum ipa_ip_type ip;
@@ -321,18 +527,43 @@ struct ipa_ioc_del_flt_rule {
 	struct ipa_flt_rule_del hdl[0];
 };
 
+/**
+ * struct ipa_ioc_get_rt_tbl - routing table lookup parameters, if lookup was
+ * successful caller must call put to release the reference
+ * count when done
+ * @ip: IP family of table
+ * @name: name of routing table resource
+ * @htl:	output parameter, handle of routing table, valid only when ioctl
+ *		return val is non-negative
+ */
 struct ipa_ioc_get_rt_tbl {
 	enum ipa_ip_type ip;
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint32_t hdl;
 };
 
+/**
+ * struct ipa_ioc_query_intf - used to lookup number of tx and
+ * rx properties of interface
+ * @name: name of interface
+ * @num_tx_props:	output parameter, number of tx properties
+ *			valid only when ioctl return val is non-negative
+ * @num_rx_props:	output parameter, number of rx properties
+ *			valid only when ioctl return val is non-negative
+ */
 struct ipa_ioc_query_intf {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint32_t num_tx_props;
 	uint32_t num_rx_props;
 };
 
+/**
+ * struct ipa_ioc_tx_intf_prop - interface tx property
+ * @ip: IP family of routing rule
+ * @attrib: routing rule
+ * @dst_pipe: routing output pipe
+ * @hdr_name: name of associated header if any, empty string when no header
+ */
 struct ipa_ioc_tx_intf_prop {
 	enum ipa_ip_type ip;
 	struct ipa_rule_attrib attrib;
@@ -340,30 +571,67 @@ struct ipa_ioc_tx_intf_prop {
 	char hdr_name[IPA_RESOURCE_NAME_MAX];
 };
 
+/**
+ * struct ipa_ioc_query_intf_tx_props - interface tx propertie
+ * @name: name of interface
+ * @num_tx_props: number of TX properties
+ * @tx[0]: output parameter, the tx properties go here back to back
+ */
 struct ipa_ioc_query_intf_tx_props {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint32_t num_tx_props;
 	struct ipa_ioc_tx_intf_prop tx[0];
 };
 
+/**
+ * struct ipa_ioc_rx_intf_prop - interface rx property
+ * @ip: IP family of filtering rule
+ * @attrib: filtering rule
+ * @src_pipe: input pipe
+ */
 struct ipa_ioc_rx_intf_prop {
 	enum ipa_ip_type ip;
 	struct ipa_rule_attrib attrib;
 	enum ipa_client_type src_pipe;
 };
 
+/**
+ * struct ipa_ioc_query_intf_rx_props - interface rx propertie
+ * @name: name of interface
+ * @num_rx_props: number of RX properties
+ * @rx: output parameter, the rx properties go here back to back
+ */
 struct ipa_ioc_query_intf_rx_props {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint32_t num_rx_props;
 	struct ipa_ioc_rx_intf_prop rx[0];
 };
 
+/**
+ * struct ipa_ioc_nat_alloc_mem - nat table memory allocation
+ * properties
+ * @dev_name: input parameter, the name of table
+ * @size: input parameter, size of table in bytes
+ * @offset: output parameter, offset into page in case of system memory
+ */
 struct ipa_ioc_nat_alloc_mem {
 	char dev_name[IPA_RESOURCE_NAME_MAX];
 	size_t size;
 	off_t offset;
 };
 
+/**
+ * struct ipa_ioc_v4_nat_init - nat table initialization
+ * parameters
+ * @tbl_index: input parameter, index of the table
+ * @ipv4_rules_offset: input parameter, ipv4 rules address offset
+ * @expn_rules_offset: input parameter, ipv4 expansion rules address offset
+ * @index_offset: input parameter, index rules offset
+ * @index_expn_offset: input parameter, index expansion rules offset
+ * @table_entries: input parameter, ipv4 rules table size in entries
+ * @expn_table_entries: input parameter, ipv4 expansion rules table size
+ * @ip_addr: input parameter, public ip address
+ */
 struct ipa_ioc_v4_nat_init {
 	uint8_t tbl_index;
 	uint32_t ipv4_rules_offset;
@@ -377,6 +645,11 @@ struct ipa_ioc_v4_nat_init {
 	uint32_t ip_addr;
 };
 
+/**
+ * struct ipa_ioc_v4_nat_del - nat table delete parameter
+ * @table_index: input parameter, index of the table
+ * @public_ip_addr: input parameter, public ip address
+ */
 struct ipa_ioc_v4_nat_del {
 	uint8_t table_index;
 	uint32_t public_ip_addr;
@@ -399,29 +672,70 @@ struct ipa_ioc_nat_dma_one {
 
 };
 
+/**
+ * struct ipa_ioc_nat_dma_cmd - To hold multiple nat dma commands
+ * @entries: number of dma commands in use
+ * @dma: data pointer to the dma commands
+ */
 struct ipa_ioc_nat_dma_cmd {
 	uint8_t entries;
 	struct ipa_ioc_nat_dma_one dma[0];
 
 };
 
+/**
+ * struct ipa_msg_meta - Format of the message meta-data.
+ * @msg_type: the type of the message
+ * @rsvd: reserved bits for future use.
+ * @msg_len: the length of the message in bytes
+ *
+ * For push model:
+ * Client in user-space should issue a read on the device (/dev/ipa) with a
+ * sufficiently large buffer in a continuous loop, call will block when there is
+ * no message to read. Upon return, client can read the ipa_msg_meta from start
+ * of buffer to find out type and length of message
+ * size of buffer supplied >= (size of largest message + size of metadata)
+ *
+ * For pull model:
+ * Client in user-space can also issue a pull msg IOCTL to device (/dev/ipa)
+ * with a payload containing space for the ipa_msg_meta and the message specific
+ * payload length.
+ * size of buffer supplied == (len of specific message  + size of metadata)
+ */
 struct ipa_msg_meta {
 	uint8_t msg_type;
 	uint8_t rsvd;
 	uint16_t msg_len;
 };
 
+/**
+ * struct ipa_wlan_msg - To hold information about wlan client
+ * @name: name of the wlan interface
+ * @mac_addr: mac address of wlan client
+ *
+ * wlan drivers need to pass name of wlan iface and mac address of
+ * wlan client along with ipa_wlan_event, whenever a wlan client is
+ * connected/disconnected/moved to power save/come out of power save
+ */
 struct ipa_wlan_msg {
 	char name[IPA_RESOURCE_NAME_MAX];
 	uint8_t mac_addr[IPA_MAC_ADDR_SIZE];
 };
 
+/**
+ * struct ipa_ioc_rm_dependency - parameters for add/delete dependency
+ * @resource_name: name of dependent resource
+ * @depends_on_name: name of its dependency
+ */
 struct ipa_ioc_rm_dependency {
 	enum ipa_rm_resource_name resource_name;
 	enum ipa_rm_resource_name depends_on_name;
 };
 
 
+/**
+ *   actual IOCTLs supported by IPA driver
+ */
 #define IPA_IOC_ADD_HDR _IOWR(IPA_IOC_MAGIC, \
 					IPA_IOCTL_ADD_HDR, \
 					struct ipa_ioc_add_hdr *)
@@ -510,8 +824,14 @@ struct ipa_ioc_rm_dependency {
 				IPA_IOCTL_RM_DEL_DEPENDENCY, \
 				struct ipa_ioc_rm_dependency *)
 
+/*
+ * unique magic number of the Tethering bridge ioctls
+ */
 #define TETH_BRIDGE_IOC_MAGIC 0xCE
 
+/*
+ * Ioctls supported by Tethering bridge driver
+ */
 #define TETH_BRIDGE_IOCTL_SET_BRIDGE_MODE	0
 #define TETH_BRIDGE_IOCTL_SET_AGGR_PARAMS	1
 #define TETH_BRIDGE_IOCTL_GET_AGGR_PARAMS	2
@@ -519,12 +839,18 @@ struct ipa_ioc_rm_dependency {
 #define TETH_BRIDGE_IOCTL_MAX			4
 
 
+/**
+ * enum teth_link_protocol_type - link protocol (IP / Ethernet)
+ */
 enum teth_link_protocol_type {
 	TETH_LINK_PROTOCOL_IP,
 	TETH_LINK_PROTOCOL_ETHERNET,
 	TETH_LINK_PROTOCOL_MAX,
 };
 
+/**
+ * enum teth_aggr_protocol_type - Aggregation protocol (MBIM / TLP)
+ */
 enum teth_aggr_protocol_type {
 	TETH_AGGR_PROTOCOL_NONE,
 	TETH_AGGR_PROTOCOL_MBIM,
@@ -532,6 +858,14 @@ enum teth_aggr_protocol_type {
 	TETH_AGGR_PROTOCOL_MAX,
 };
 
+/**
+ * struct teth_aggr_params_link - Aggregation parameters for uplink/downlink
+ * @aggr_prot:			Aggregation protocol (MBIM / TLP)
+ * @max_transfer_size_byte:	Maximal size of aggregated packet in bytes.
+ *				Default value is 16*1024.
+ * @max_datagrams:		Maximal number of IP packets in an aggregated
+ *				packet. Default value is 16
+ */
 struct teth_aggr_params_link {
 	enum teth_aggr_protocol_type aggr_prot;
 	uint32_t max_transfer_size_byte;
@@ -539,11 +873,21 @@ struct teth_aggr_params_link {
 };
 
 
+/**
+ * struct teth_aggr_params - Aggregation parmeters
+ * @ul:	Uplink parameters
+ * @dl: Downlink parmaeters
+ */
 struct teth_aggr_params {
 	struct teth_aggr_params_link ul;
 	struct teth_aggr_params_link dl;
 };
 
+/**
+ * struct teth_aggr_capabilities - Aggregation capabilities
+ * @num_protocols:		Number of protocols described in the array
+ * @prot_caps[]:		Array of aggregation capabilities per protocol
+ */
 struct teth_aggr_capabilities {
 	uint16_t num_protocols;
 	struct teth_aggr_params_link prot_caps[0];
@@ -563,4 +907,4 @@ struct teth_aggr_capabilities {
 				TETH_BRIDGE_IOCTL_GET_AGGR_CAPABILITIES, \
 				struct teth_aggr_capabilities *)
 
-#endif 
+#endif /* _MSM_IPA_H_ */

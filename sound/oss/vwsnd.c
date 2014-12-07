@@ -19,12 +19,127 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#undef VWSND_DEBUG			
+#undef VWSND_DEBUG			/* define for debugging */
 
+/*
+ * XXX to do -
+ *
+ *	External sync.
+ *	Rename swbuf, hwbuf, u&i, hwptr&swptr to something rational.
+ *	Bug - if select() called before read(), pcm_setup() not called.
+ *	Bug - output doesn't stop soon enough if process killed.
+ */
 
+/*
+ * Things to test -
+ *
+ *	Will readv/writev work?  Write a test.
+ *
+ *	insmod/rmmod 100 million times.
+ *
+ *	Run I/O until int ptrs wrap around (roughly 6.2 hours @ DAT
+ *	rate).
+ *
+ *	Concurrent threads banging on mixer simultaneously, both UP
+ *	and SMP kernels.  Especially, watch for thread A changing
+ *	OUTSRC while thread B changes gain -- both write to the same
+ *	ad1843 register.
+ *
+ *	What happens if a client opens /dev/audio then forks?
+ *	Do two procs have /dev/audio open?  Test.
+ *
+ *	Pump audio through the CD, MIC and line inputs and verify that
+ *	they mix/mute into the output.
+ *
+ *	Apps:
+ *		amp
+ *		mpg123
+ *		x11amp
+ *		mxv
+ *		kmedia
+ *		esound
+ *		need more input apps
+ *
+ *	Run tests while bombarding with signals.  setitimer(2) will do it...  */
 
+/*
+ * This driver is organized in nine sections.
+ * The nine sections are:
+ *
+ *	debug stuff
+ * 	low level lithium access
+ *	high level lithium access
+ *	AD1843 access
+ *	PCM I/O
+ *	audio driver
+ *	mixer driver
+ *	probe/attach/unload
+ *	initialization and loadable kernel module interface
+ *
+ * That is roughly the order of increasing abstraction, so forward
+ * dependencies are minimal.
+ */
 
+/*
+ * Locking Notes
+ *
+ *	INC_USE_COUNT and DEC_USE_COUNT keep track of the number of
+ *	open descriptors to this driver. They store it in vwsnd_use_count.
+ * 	The global device list, vwsnd_dev_list,	is immutable when the IN_USE
+ *	is true.
+ *
+ *	devc->open_lock is a semaphore that is used to enforce the
+ *	single reader/single writer rule for /dev/audio.  The rule is
+ *	that each device may have at most one reader and one writer.
+ *	Open will block until the previous client has closed the
+ *	device, unless O_NONBLOCK is specified.
+ *
+ *	The semaphore devc->io_mutex serializes PCM I/O syscalls.  This
+ *	is unnecessary in Linux 2.2, because the kernel lock
+ *	serializes read, write, and ioctl globally, but it's there,
+ *	ready for the brave, new post-kernel-lock world.
+ *
+ *	Locking between interrupt and baselevel is handled by the
+ *	"lock" spinlock in vwsnd_port (one lock each for read and
+ *	write).  Each half holds the lock just long enough to see what
+ *	area it owns and update its pointers.  See pcm_output() and
+ *	pcm_input() for most of the gory stuff.
+ *
+ *	devc->mix_mutex serializes all mixer ioctls.  This is also
+ *	redundant because of the kernel lock.
+ *
+ *	The lowest level lock is lith->lithium_lock.  It is a
+ *	spinlock which is held during the two-register tango of
+ *	reading/writing an AD1843 register.  See
+ *	li_{read,write}_ad1843_reg().
+ */
 
+/*
+ * Sample Format Notes
+ *
+ *	Lithium's DMA engine has two formats: 16-bit 2's complement
+ *	and 8-bit unsigned .  16-bit transfers the data unmodified, 2
+ *	bytes per sample.  8-bit unsigned transfers 1 byte per sample
+ *	and XORs each byte with 0x80.  Lithium can input or output
+ *	either mono or stereo in either format.
+ *
+ *	The AD1843 has four formats: 16-bit 2's complement, 8-bit
+ *	unsigned, 8-bit mu-Law and 8-bit A-Law.
+ *
+ *	This driver supports five formats: AFMT_S8, AFMT_U8,
+ *	AFMT_MU_LAW, AFMT_A_LAW, and AFMT_S16_LE.
+ *
+ *	For AFMT_U8 output, we keep the AD1843 in 16-bit mode, and
+ *	rely on Lithium's XOR to translate between U8 and S8.
+ *
+ *	For AFMT_S8, AFMT_MU_LAW and AFMT_A_LAW output, we have to XOR
+ *	the 0x80 bit in software to compensate for Lithium's XOR.
+ *	This happens in pcm_copy_{in,out}().
+ *
+ * Changes:
+ * 11-10-2000	Bartlomiej Zolnierkiewicz <bkz@linux-ide.org>
+ *		Added some __init/__exit
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -39,12 +154,17 @@
 
 #include "sound_config.h"
 
+/*****************************************************************************/
+/* debug stuff */
 
 #ifdef VWSND_DEBUG
 
 static DEFINE_MUTEX(vwsnd_mutex);
 static int shut_up = 1;
 
+/*
+ * dbgassert - called when an assertion fails.
+ */
 
 static void dbgassert(const char *fcn, int line, const char *expr)
 {
@@ -55,10 +175,25 @@ static void dbgassert(const char *fcn, int line, const char *expr)
 		int x;
 		printk(KERN_ERR "ASSERTION FAILED, %s:%s:%d %s\n",
 		       __FILE__, fcn, line, expr);
-		x = * (volatile int *) 0; 
+		x = * (volatile int *) 0; /* force proc to exit */
 	}
 }
 
+/*
+ * Bunch of useful debug macros:
+ *
+ *	ASSERT	- print unless e nonzero (panic if in interrupt)
+ *	DBGDO	- include arbitrary code if debugging
+ *	DBGX	- debug print raw (w/o function name)
+ *	DBGP	- debug print w/ function name
+ *	DBGE	- debug print function entry
+ *	DBGC	- debug print function call
+ *	DBGR	- debug print function return
+ *	DBGXV	- debug print raw when verbose
+ *	DBGPV	- debug print when verbose
+ *	DBGEV	- debug print function entry when verbose
+ *	DBGRV	- debug print function return when verbose
+ */
 
 #define ASSERT(e)      ((e) ? (void) 0 : dbgassert(__func__, __LINE__, #e))
 #define DBGDO(x)            x
@@ -73,10 +208,10 @@ static void dbgassert(const char *fcn, int line, const char *expr)
 #define DBGCV(rtn)          (shut_up ? 0 : DBGC(rtn))
 #define DBGRV()             (shut_up ? 0 : DBGR())
 
-#else 
+#else /* !VWSND_DEBUG */
 
 #define ASSERT(e)           ((void) 0)
-#define DBGDO(x)            
+#define DBGDO(x)            /* don't */
 #define DBGX(fmt, args...)  ((void) 0)
 #define DBGP(fmt, args...)  ((void) 0)
 #define DBGE(fmt, args...)  ((void) 0)
@@ -88,24 +223,34 @@ static void dbgassert(const char *fcn, int line, const char *expr)
 #define DBGCV(rtn)          ((void) 0)
 #define DBGRV()             ((void) 0)
 
-#endif 
+#endif /* !VWSND_DEBUG */
 
+/*****************************************************************************/
+/* low level lithium access */
 
+/*
+ * We need to talk to Lithium registers on three pages.  Here are
+ * the pages' offsets from the base address (0xFF001000).
+ */
 
 enum {
-	LI_PAGE0_OFFSET = 0x01000 - 0x1000, 
-	LI_PAGE1_OFFSET = 0x0F000 - 0x1000, 
-	LI_PAGE2_OFFSET = 0x10000 - 0x1000, 
+	LI_PAGE0_OFFSET = 0x01000 - 0x1000, /* FF001000 */
+	LI_PAGE1_OFFSET = 0x0F000 - 0x1000, /* FF00F000 */
+	LI_PAGE2_OFFSET = 0x10000 - 0x1000, /* FF010000 */
 };
 
+/* low-level lithium data */
 
 typedef struct lithium {
-	void *		page0;		
+	void *		page0;		/* virtual addresses */
 	void *		page1;
 	void *		page2;
-	spinlock_t	lock;		
+	spinlock_t	lock;		/* protects codec and UST/MSC access */
 } lithium_t;
 
+/*
+ * li_destroy destroys the lithium_t structure and vm mappings.
+ */
 
 static void li_destroy(lithium_t *lith)
 {
@@ -123,6 +268,11 @@ static void li_destroy(lithium_t *lith)
 	}
 }
 
+/*
+ * li_create initializes the lithium_t structure and sets up vm mappings
+ * to access the registers.
+ * Returns 0 on success, -errno on failure.
+ */
 
 static int __init li_create(lithium_t *lith, unsigned long baseaddr)
 {
@@ -137,6 +287,9 @@ static int __init li_create(lithium_t *lith, unsigned long baseaddr)
 	return 0;
 }
 
+/*
+ * basic register accessors - read/write long/byte
+ */
 
 static __inline__ unsigned long li_readl(lithium_t *lith, int off)
 {
@@ -158,8 +311,58 @@ static __inline__ void li_writeb(lithium_t *lith, int off, unsigned char val)
 	* (volatile unsigned char *) (lith->page0 + off) = val;
 }
 
+/*****************************************************************************/
+/* High Level Lithium Access */
 
+/*
+ * Lithium DMA Notes
+ *
+ * Lithium has two dedicated DMA channels for audio.  They are known
+ * as comm1 and comm2 (communication areas 1 and 2).  Comm1 is for
+ * input, and comm2 is for output.  Each is controlled by three
+ * registers: BASE (base address), CFG (config) and CCTL
+ * (config/control).
+ *
+ * Each DMA channel points to a physically contiguous ring buffer in
+ * main memory of up to 8 Kbytes.  (This driver always uses 8 Kb.)
+ * There are three pointers into the ring buffer: read, write, and
+ * trigger.  The pointers are 8 bits each.  Each pointer points to
+ * 32-byte "chunks" of data.  The DMA engine moves 32 bytes at a time,
+ * so there is no finer-granularity control.
+ *
+ * In comm1, the hardware updates the write ptr, and software updates
+ * the read ptr.  In comm2, it's the opposite: hardware updates the
+ * read ptr, and software updates the write ptr.  I designate the
+ * hardware-updated ptr as the hwptr, and the software-updated ptr as
+ * the swptr.
+ *
+ * The trigger ptr and trigger mask are used to trigger interrupts.
+ * From the Lithium spec, section 5.6.8, revision of 12/15/1998:
+ *
+ *	Trigger Mask Value
+ *
+ *	A three bit wide field that represents a power of two mask
+ *	that is used whenever the trigger pointer is compared to its
+ *	respective read or write pointer.  A value of zero here
+ *	implies a mask of 0xFF and a value of seven implies a mask
+ *	0x01.  This value can be used to sub-divide the ring buffer
+ *	into pie sections so that interrupts monitor the progress of
+ *	hardware from section to section.
+ *
+ * My interpretation of that is, whenever the hw ptr is updated, it is
+ * compared with the trigger ptr, and the result is masked by the
+ * trigger mask.  (Actually, by the complement of the trigger mask.)
+ * If the result is zero, an interrupt is triggered.  I.e., interrupt
+ * if ((hwptr & ~mask) == (trptr & ~mask)).  The mask is formed from
+ * the trigger register value as mask = (1 << (8 - tmreg)) - 1.
+ *
+ * In yet different words, setting tmreg to 0 causes an interrupt after
+ * every 256 DMA chunks (8192 bytes) or once per traversal of the
+ * ring buffer.  Setting it to 7 caues an interrupt every 2 DMA chunks
+ * (64 bytes) or 128 times per traversal of the ring buffer.
+ */
 
+/* Lithium register offsets and bit definitions */
 
 #define LI_HOST_CONTROLLER	0x000
 # define LI_HC_RESET		 0x00008000
@@ -190,8 +393,8 @@ static __inline__ void li_writeb(lithium_t *lith, int off, unsigned char val)
 # define LI_CCTL_RESET		 0x80000000
 # define LI_CCTL_SIZE		 0x70000000
 # define LI_CCTL_DMA_ENABLE	 0x08000000
-# define LI_CCTL_TMASK		 0x07000000 
-# define LI_CCTL_TPTR		 0x00FF0000 
+# define LI_CCTL_TMASK		 0x07000000 /* trigger mask */
+# define LI_CCTL_TPTR		 0x00FF0000 /* trigger pointer */
 # define LI_CCTL_RPTR		 0x0000FF00
 # define LI_CCTL_WPTR		 0x000000FF
 #define LI_COMM1_CFG		0x108
@@ -208,28 +411,47 @@ static __inline__ void li_writeb(lithium_t *lith, int off, unsigned char val)
 #  define LI_CCFG_FMT_16BIT	  0x00000001
 #define LI_COMM2_BASE		0x10C
 #define LI_COMM2_CTL		0x110
- 
+ /* bit definitions are the same as LI_COMM1_CTL */
 #define LI_COMM2_CFG		0x114
- 
+ /* bit definitions are the same as LI_COMM1_CFG */
 
-#define LI_UST_LOW		0x200	
-#define LI_UST_HIGH		0x204	
+#define LI_UST_LOW		0x200	/* 64-bit Unadjusted System Time is */
+#define LI_UST_HIGH		0x204	/* microseconds since boot */
 
-#define LI_AUDIO1_UST		0x300	
-#define LI_AUDIO1_MSC		0x304	
-#define LI_AUDIO2_UST		0x308	
-#define LI_AUDIO2_MSC		0x30C	
+#define LI_AUDIO1_UST		0x300	/* UST-MSC pairs */
+#define LI_AUDIO1_MSC		0x304	/* MSC (Media Stream Counter) */
+#define LI_AUDIO2_UST		0x308	/* counts samples actually */
+#define LI_AUDIO2_MSC		0x30C	/* processed as of time UST */
 
+/* 
+ * Lithium's DMA engine operates on chunks of 32 bytes.  We call that
+ * a DMACHUNK.
+ */
 
 #define DMACHUNK_SHIFT 5
 #define DMACHUNK_SIZE (1 << DMACHUNK_SHIFT)
 #define BYTES_TO_CHUNKS(bytes) ((bytes) >> DMACHUNK_SHIFT)
 #define CHUNKS_TO_BYTES(chunks) ((chunks) << DMACHUNK_SHIFT)
 
+/*
+ * Two convenient macros to shift bitfields into/out of position.
+ *
+ * Observe that (mask & -mask) is (1 << low_set_bit_of(mask)).
+ * As long as mask is constant, we trust the compiler will change the
+ * multipy and divide into shifts.
+ */
 
 #define SHIFT_FIELD(val, mask) (((val) * ((mask) & -(mask))) & (mask))
 #define UNSHIFT_FIELD(val, mask) (((val) & (mask)) / ((mask) & -(mask)))
 
+/*
+ * dma_chan_desc is invariant information about a Lithium
+ * DMA channel.  There are two instances, li_comm1 and li_comm2.
+ *
+ * Note that the CCTL register fields are write ptr and read ptr, but what
+ * we care about are which pointer is updated by software and which by
+ * hardware.
+ */
 
 typedef struct dma_chan_desc {
 	int basereg;
@@ -241,35 +463,43 @@ typedef struct dma_chan_desc {
 	int mscreg;
 	unsigned long swptrmask;
 	int ad1843_slot;
-	int direction;			
+	int direction;			/* LI_CCTL_DIR_IN/OUT */
 } dma_chan_desc_t;
 
 static const dma_chan_desc_t li_comm1 = {
-	LI_COMM1_BASE,			
-	LI_COMM1_CFG,			
-	LI_COMM1_CTL,			
-	LI_COMM1_CTL + 0,		
-	LI_COMM1_CTL + 1,		
-	LI_AUDIO1_UST,			
-	LI_AUDIO1_MSC,			
-	LI_CCTL_RPTR,			
-	2,				
-	LI_CCFG_DIR_IN			
+	LI_COMM1_BASE,			/* base register offset */
+	LI_COMM1_CFG,			/* config register offset */
+	LI_COMM1_CTL,			/* control register offset */
+	LI_COMM1_CTL + 0,		/* hw ptr reg offset (write ptr) */
+	LI_COMM1_CTL + 1,		/* sw ptr reg offset (read ptr) */
+	LI_AUDIO1_UST,			/* ust reg offset */
+	LI_AUDIO1_MSC,			/* msc reg offset */
+	LI_CCTL_RPTR,			/* sw ptr bitmask in ctlval */
+	2,				/* ad1843 serial slot */
+	LI_CCFG_DIR_IN			/* direction */
 };
 
 static const dma_chan_desc_t li_comm2 = {
-	LI_COMM2_BASE,			
-	LI_COMM2_CFG,			
-	LI_COMM2_CTL,			
-	LI_COMM2_CTL + 1,		
-	LI_COMM2_CTL + 0,		
-	LI_AUDIO2_UST,			
-	LI_AUDIO2_MSC,			
-	LI_CCTL_WPTR,			
-	2,				
-	LI_CCFG_DIR_OUT			
+	LI_COMM2_BASE,			/* base register offset */
+	LI_COMM2_CFG,			/* config register offset */
+	LI_COMM2_CTL,			/* control register offset */
+	LI_COMM2_CTL + 1,		/* hw ptr reg offset (read ptr) */
+	LI_COMM2_CTL + 0,		/* sw ptr reg offset (writr ptr) */
+	LI_AUDIO2_UST,			/* ust reg offset */
+	LI_AUDIO2_MSC,			/* msc reg offset */
+	LI_CCTL_WPTR,			/* sw ptr bitmask in ctlval */
+	2,				/* ad1843 serial slot */
+	LI_CCFG_DIR_OUT			/* direction */
 };
 
+/*
+ * dma_chan is variable information about a Lithium DMA channel.
+ *
+ * The desc field points to invariant information.
+ * The lith field points to a lithium_t which is passed
+ * to li_read* and li_write* to access the registers.
+ * The *val fields shadow the lithium registers' contents.
+ */
 
 typedef struct dma_chan {
 	const dma_chan_desc_t *desc;
@@ -279,12 +509,23 @@ typedef struct dma_chan {
 	unsigned long	ctlval;
 } dma_chan_t;
 
+/*
+ * ustmsc is a UST/MSC pair (Unadjusted System Time/Media Stream Counter).
+ * UST is time in microseconds since the system booted, and MSC is a
+ * counter that increments with every audio sample.
+ */
 
 typedef struct ustmsc {
 	unsigned long long ust;
 	unsigned long msc;
 } ustmsc_t;
 
+/*
+ * li_ad1843_wait waits until lithium says the AD1843 register
+ * exchange is not busy.  Returns 0 on success, -EBUSY on timeout.
+ *
+ * Locking: must be called with lithium_lock held.
+ */
 
 static int li_ad1843_wait(lithium_t *lith)
 {
@@ -295,6 +536,11 @@ static int li_ad1843_wait(lithium_t *lith)
 	return 0;
 }
 
+/*
+ * li_read_ad1843_reg returns the current contents of a 16 bit AD1843 register.
+ *
+ * Returns unsigned register value on success, -errno on failure.
+ */
 
 static int li_read_ad1843_reg(lithium_t *lith, int reg)
 {
@@ -319,6 +565,9 @@ static int li_read_ad1843_reg(lithium_t *lith, int reg)
 	return val;
 }
 
+/*
+ * li_write_ad1843_reg writes the specified value to a 16 bit AD1843 register.
+ */
 
 static void li_write_ad1843_reg(lithium_t *lith, int reg, int newval)
 {
@@ -332,6 +581,10 @@ static void li_write_ad1843_reg(lithium_t *lith, int reg, int newval)
 	spin_unlock(&lith->lock);
 }
 
+/*
+ * li_setup_dma calculates all the register settings for DMA in a particular
+ * mode.  It takes too many arguments.
+ */
 
 static void li_setup_dma(dma_chan_t *chan,
 			 const dma_chan_desc_t *desc,
@@ -350,7 +603,7 @@ static void li_setup_dma(dma_chan_t *chan,
 	     chan, desc, lith, buffer_paddr,
 	     bufshift, fragshift, channels, sampsize);
 
-	
+	/* Reset the channel first. */
 
 	li_writel(lith, desc->ctlreg, LI_CCTL_RESET);
 
@@ -367,6 +620,11 @@ static void li_setup_dma(dma_chan_t *chan,
 	chan->desc = desc;
 	chan->lith = lith;
 
+	/*
+	 * Lithium DMA address register takes a 40-bit physical
+	 * address, right-shifted by 8 so it fits in 32 bits.  Bit 37
+	 * must be set -- it enables cache coherence.
+	 */
 
 	ASSERT(!(buffer_paddr & 0xFF));
 	chan->baseval = (buffer_paddr >> 8) | 1 << (37 - 8);
@@ -378,7 +636,7 @@ static void li_setup_dma(dma_chan_t *chan,
 			format);
 
 	size = bufshift - 6;
-	tmask = 13 - fragshift;		
+	tmask = 13 - fragshift;		/* See Lithium DMA Notes above. */
 	ASSERT(size >= 2 && size <= 7);
 	ASSERT(tmask >= 1 && tmask <= 7);
 	chan->ctlval = ((chan->ctlval & ~LI_CCTL_RESET) |
@@ -409,11 +667,26 @@ static void li_shutdown_dma(dma_chan_t *chan)
 	DBGPV("ctlreg 0x%x = 0x%lx\n", chan->desc->ctlreg, chan->ctlval);
 	li_writel(lith, chan->desc->ctlreg, chan->ctlval);
 
+	/*
+	 * Offset 0x500 on Lithium page 1 is an undocumented,
+	 * unsupported register that holds the zero sample value.
+	 * Lithium is supposed to output zero samples when DMA is
+	 * inactive, and repeat the last sample when DMA underflows.
+	 * But it has a bug, where, after underflow occurs, the zero
+	 * sample is not reset.
+	 *
+	 * I expect this to break in a future rev of Lithium.
+	 */
 
 	if (lith1 && chan->desc->direction == LI_CCFG_DIR_OUT)
 		* (volatile unsigned long *) (lith1 + 0x500) = 0;
 }
 
+/*
+ * li_activate_dma always starts dma at the beginning of the buffer.
+ *
+ * N.B., these may be called from interrupt.
+ */
 
 static __inline__ void li_activate_dma(dma_chan_t *chan)
 {
@@ -432,6 +705,15 @@ static void li_deactivate_dma(dma_chan_t *chan)
 	DBGPV("ctlreg 0x%x = 0x%lx\n", chan->desc->ctlreg, chan->ctlval);
 	li_writel(lith, chan->desc->ctlreg, chan->ctlval);
 
+	/*
+	 * Offsets 0x98 and 0x9C on Lithium page 2 are undocumented,
+	 * unsupported registers that are internal copies of the DMA
+	 * read and write pointers.  Because of a Lithium bug, these
+	 * registers aren't zeroed correctly when DMA is shut off.  So
+	 * we whack them directly.
+	 *
+	 * I expect this to break in a future rev of Lithium.
+	 */
 
 	if (lith2 && chan->desc->direction == LI_CCFG_DIR_OUT) {
 		* (volatile unsigned long *) (lith2 + 0x98) = 0;
@@ -439,6 +721,10 @@ static void li_deactivate_dma(dma_chan_t *chan)
 	}
 }
 
+/*
+ * read/write the ring buffer pointers.  These routines' arguments and results
+ * are byte offsets from the beginning of the ring buffer.
+ */
 
 static __inline__ int li_read_swptr(dma_chan_t *chan)
 {
@@ -462,6 +748,7 @@ static __inline__ void li_write_swptr(dma_chan_t *chan, int val)
 	li_writeb(chan->lith, chan->desc->swptrreg, val);
 }
 
+/* li_read_USTMSC() returns a UST/MSC pair for the given channel. */
 
 static void li_read_USTMSC(dma_chan_t *chan, ustmsc_t *ustmsc)
 {
@@ -471,10 +758,20 @@ static void li_read_USTMSC(dma_chan_t *chan, ustmsc_t *ustmsc)
 
 	spin_lock(&lith->lock);
 	{
+		/*
+		 * retry until we do all five reads without the
+		 * high word changing.  (High word increments
+		 * every 2^32 microseconds, i.e., not often)
+		 */
 		do {
 			now_high0 = li_readl(lith, LI_UST_HIGH);
 			now_low = li_readl(lith, LI_UST_LOW);
 
+			/*
+			 * Lithium guarantees these two reads will be
+			 * atomic -- ust will not increment after msc
+			 * is read.
+			 */
 
 			ustmsc->msc = li_readl(lith, desc->mscreg);
 			chan_ust = li_readl(lith, desc->ustreg);
@@ -490,11 +787,11 @@ static void li_enable_interrupts(lithium_t *lith, unsigned int mask)
 {
 	DBGEV("(lith=0x%p, mask=0x%x)\n", lith, mask);
 
-	
+	/* clear any already-pending interrupts. */
 
 	li_writel(lith, LI_INTR_STATUS, mask);
 
-	
+	/* enable the interrupts. */
 
 	mask |= li_readl(lith, LI_INTR_MASK);
 	li_writel(lith, LI_INTR_MASK, mask);
@@ -506,16 +803,17 @@ static void li_disable_interrupts(lithium_t *lith, unsigned int mask)
 
 	DBGEV("(lith=0x%p, mask=0x%x)\n", lith, mask);
 
-	
+	/* disable the interrupts */
 
 	keepmask = li_readl(lith, LI_INTR_MASK) & ~mask;
 	li_writel(lith, LI_INTR_MASK, keepmask);
 
-	
+	/* clear any pending interrupts. */
 
 	li_writel(lith, LI_INTR_STATUS, mask);
 }
 
+/* Get the interrupt status and clear all pending interrupts. */
 
 static unsigned int li_get_clear_intr_status(lithium_t *lith)
 {
@@ -528,13 +826,16 @@ static unsigned int li_get_clear_intr_status(lithium_t *lith)
 
 static int li_init(lithium_t *lith)
 {
-	
+	/* 1. System power supplies stabilize. */
 
-	
+	/* 2. Assert the ~RESET signal. */
 
 	li_writel(lith, LI_HOST_CONTROLLER, LI_HC_RESET);
 	udelay(1);
 
+	/* 3. Deassert the ~RESET signal and enter a wait period to allow
+	   the AD1843 internal clocks and the external crystal oscillator
+	   to stabilize. */
 
 	li_writel(lith, LI_HOST_CONTROLLER, LI_HC_LINK_ENABLE);
 	udelay(1);
@@ -542,7 +843,17 @@ static int li_init(lithium_t *lith)
 	return 0;
 }
 
+/*****************************************************************************/
+/* AD1843 access */
 
+/*
+ * AD1843 bitfield definitions.  All are named as in the AD1843 data
+ * sheet, with ad1843_ prepended and individual bit numbers removed.
+ *
+ * E.g., bits LSS0 through LSS2 become ad1843_LSS.
+ *
+ * Only the bitfields we need are defined.
+ */
 
 typedef struct ad1843_bitfield {
 	char reg;
@@ -551,62 +862,67 @@ typedef struct ad1843_bitfield {
 } ad1843_bitfield_t;
 
 static const ad1843_bitfield_t
-	ad1843_PDNO   = {  0, 14,  1 },	
-	ad1843_INIT   = {  0, 15,  1 },	
-	ad1843_RIG    = {  2,  0,  4 },	
-	ad1843_RMGE   = {  2,  4,  1 },	
-	ad1843_RSS    = {  2,  5,  3 },	
-	ad1843_LIG    = {  2,  8,  4 },	
-	ad1843_LMGE   = {  2, 12,  1 },	
-	ad1843_LSS    = {  2, 13,  3 },	
-	ad1843_RX1M   = {  4,  0,  5 },	
-	ad1843_RX1MM  = {  4,  7,  1 },	
-	ad1843_LX1M   = {  4,  8,  5 },	
-	ad1843_LX1MM  = {  4, 15,  1 },	
-	ad1843_RX2M   = {  5,  0,  5 },	
-	ad1843_RX2MM  = {  5,  7,  1 },	
-	ad1843_LX2M   = {  5,  8,  5 },	
-	ad1843_LX2MM  = {  5, 15,  1 },	
-	ad1843_RMCM   = {  7,  0,  5 },	
-	ad1843_RMCMM  = {  7,  7,  1 },	
-	ad1843_LMCM   = {  7,  8,  5 },	
-	ad1843_LMCMM  = {  7, 15,  1 },	
-	ad1843_HPOS   = {  8,  4,  1 },	
-	ad1843_HPOM   = {  8,  5,  1 },	
-	ad1843_RDA1G  = {  9,  0,  6 },	
-	ad1843_RDA1GM = {  9,  7,  1 },	
-	ad1843_LDA1G  = {  9,  8,  6 },	
-	ad1843_LDA1GM = {  9, 15,  1 },	
-	ad1843_RDA1AM = { 11,  7,  1 },	
-	ad1843_LDA1AM = { 11, 15,  1 },	
-	ad1843_ADLC   = { 15,  0,  2 },	
-	ad1843_ADRC   = { 15,  2,  2 },	
-	ad1843_DA1C   = { 15,  8,  2 },	
-	ad1843_C1C    = { 17,  0, 16 },	
-	ad1843_C2C    = { 20,  0, 16 },	
-	ad1843_DAADL  = { 25,  4,  2 },	
-	ad1843_DAADR  = { 25,  6,  2 },	
-	ad1843_DRSFLT = { 25, 15,  1 },	
-	ad1843_ADLF   = { 26,  0,  2 }, 
-	ad1843_ADRF   = { 26,  2,  2 }, 
-	ad1843_ADTLK  = { 26,  4,  1 },	
-	ad1843_SCF    = { 26,  7,  1 },	
-	ad1843_DA1F   = { 26,  8,  2 },	
-	ad1843_DA1SM  = { 26, 14,  1 },	
-	ad1843_ADLEN  = { 27,  0,  1 },	
-	ad1843_ADREN  = { 27,  1,  1 },	
-	ad1843_AAMEN  = { 27,  4,  1 },	
-	ad1843_ANAEN  = { 27,  7,  1 },	
-	ad1843_DA1EN  = { 27,  8,  1 },	
-	ad1843_DA2EN  = { 27,  9,  1 },	
-	ad1843_C1EN   = { 28, 11,  1 },	
-	ad1843_C2EN   = { 28, 12,  1 },	
-	ad1843_PDNI   = { 28, 15,  1 };	
+	ad1843_PDNO   = {  0, 14,  1 },	/* Converter Power-Down Flag */
+	ad1843_INIT   = {  0, 15,  1 },	/* Clock Initialization Flag */
+	ad1843_RIG    = {  2,  0,  4 },	/* Right ADC Input Gain */
+	ad1843_RMGE   = {  2,  4,  1 },	/* Right ADC Mic Gain Enable */
+	ad1843_RSS    = {  2,  5,  3 },	/* Right ADC Source Select */
+	ad1843_LIG    = {  2,  8,  4 },	/* Left ADC Input Gain */
+	ad1843_LMGE   = {  2, 12,  1 },	/* Left ADC Mic Gain Enable */
+	ad1843_LSS    = {  2, 13,  3 },	/* Left ADC Source Select */
+	ad1843_RX1M   = {  4,  0,  5 },	/* Right Aux 1 Mix Gain/Atten */
+	ad1843_RX1MM  = {  4,  7,  1 },	/* Right Aux 1 Mix Mute */
+	ad1843_LX1M   = {  4,  8,  5 },	/* Left Aux 1 Mix Gain/Atten */
+	ad1843_LX1MM  = {  4, 15,  1 },	/* Left Aux 1 Mix Mute */
+	ad1843_RX2M   = {  5,  0,  5 },	/* Right Aux 2 Mix Gain/Atten */
+	ad1843_RX2MM  = {  5,  7,  1 },	/* Right Aux 2 Mix Mute */
+	ad1843_LX2M   = {  5,  8,  5 },	/* Left Aux 2 Mix Gain/Atten */
+	ad1843_LX2MM  = {  5, 15,  1 },	/* Left Aux 2 Mix Mute */
+	ad1843_RMCM   = {  7,  0,  5 },	/* Right Mic Mix Gain/Atten */
+	ad1843_RMCMM  = {  7,  7,  1 },	/* Right Mic Mix Mute */
+	ad1843_LMCM   = {  7,  8,  5 },	/* Left Mic Mix Gain/Atten */
+	ad1843_LMCMM  = {  7, 15,  1 },	/* Left Mic Mix Mute */
+	ad1843_HPOS   = {  8,  4,  1 },	/* Headphone Output Voltage Swing */
+	ad1843_HPOM   = {  8,  5,  1 },	/* Headphone Output Mute */
+	ad1843_RDA1G  = {  9,  0,  6 },	/* Right DAC1 Analog/Digital Gain */
+	ad1843_RDA1GM = {  9,  7,  1 },	/* Right DAC1 Analog Mute */
+	ad1843_LDA1G  = {  9,  8,  6 },	/* Left DAC1 Analog/Digital Gain */
+	ad1843_LDA1GM = {  9, 15,  1 },	/* Left DAC1 Analog Mute */
+	ad1843_RDA1AM = { 11,  7,  1 },	/* Right DAC1 Digital Mute */
+	ad1843_LDA1AM = { 11, 15,  1 },	/* Left DAC1 Digital Mute */
+	ad1843_ADLC   = { 15,  0,  2 },	/* ADC Left Sample Rate Source */
+	ad1843_ADRC   = { 15,  2,  2 },	/* ADC Right Sample Rate Source */
+	ad1843_DA1C   = { 15,  8,  2 },	/* DAC1 Sample Rate Source */
+	ad1843_C1C    = { 17,  0, 16 },	/* Clock 1 Sample Rate Select */
+	ad1843_C2C    = { 20,  0, 16 },	/* Clock 1 Sample Rate Select */
+	ad1843_DAADL  = { 25,  4,  2 },	/* Digital ADC Left Source Select */
+	ad1843_DAADR  = { 25,  6,  2 },	/* Digital ADC Right Source Select */
+	ad1843_DRSFLT = { 25, 15,  1 },	/* Digital Reampler Filter Mode */
+	ad1843_ADLF   = { 26,  0,  2 }, /* ADC Left Channel Data Format */
+	ad1843_ADRF   = { 26,  2,  2 }, /* ADC Right Channel Data Format */
+	ad1843_ADTLK  = { 26,  4,  1 },	/* ADC Transmit Lock Mode Select */
+	ad1843_SCF    = { 26,  7,  1 },	/* SCLK Frequency Select */
+	ad1843_DA1F   = { 26,  8,  2 },	/* DAC1 Data Format Select */
+	ad1843_DA1SM  = { 26, 14,  1 },	/* DAC1 Stereo/Mono Mode Select */
+	ad1843_ADLEN  = { 27,  0,  1 },	/* ADC Left Channel Enable */
+	ad1843_ADREN  = { 27,  1,  1 },	/* ADC Right Channel Enable */
+	ad1843_AAMEN  = { 27,  4,  1 },	/* Analog to Analog Mix Enable */
+	ad1843_ANAEN  = { 27,  7,  1 },	/* Analog Channel Enable */
+	ad1843_DA1EN  = { 27,  8,  1 },	/* DAC1 Enable */
+	ad1843_DA2EN  = { 27,  9,  1 },	/* DAC2 Enable */
+	ad1843_C1EN   = { 28, 11,  1 },	/* Clock Generator 1 Enable */
+	ad1843_C2EN   = { 28, 12,  1 },	/* Clock Generator 2 Enable */
+	ad1843_PDNI   = { 28, 15,  1 };	/* Converter Power Down */
 
+/*
+ * The various registers of the AD1843 use three different formats for
+ * specifying gain.  The ad1843_gain structure parameterizes the
+ * formats.
+ */
 
 typedef struct ad1843_gain {
 
-	int	negative;		
+	int	negative;		/* nonzero if gain is negative. */
 	const ad1843_bitfield_t *lfield;
 	const ad1843_bitfield_t *rfield;
 
@@ -623,6 +939,7 @@ static const ad1843_gain_t ad1843_gain_MIC
 static const ad1843_gain_t ad1843_gain_PCM
 				= { 1, &ad1843_LDA1G, &ad1843_RDA1G };
 
+/* read the current value of an AD1843 bitfield. */
 
 static int ad1843_read_bits(lithium_t *lith, const ad1843_bitfield_t *field)
 {
@@ -635,6 +952,9 @@ static int ad1843_read_bits(lithium_t *lith, const ad1843_bitfield_t *field)
 	return val;
 }
 
+/*
+ * write a new value to an AD1843 bitfield and return the old value.
+ */
 
 static int ad1843_write_bits(lithium_t *lith,
 			     const ad1843_bitfield_t *field,
@@ -655,6 +975,18 @@ static int ad1843_write_bits(lithium_t *lith,
 	return oldval;
 }
 
+/*
+ * ad1843_read_multi reads multiple bitfields from the same AD1843
+ * register.  It uses a single read cycle to do it.  (Reading the
+ * ad1843 requires 256 bit times at 12.288 MHz, or nearly 20
+ * microseconds.)
+ *
+ * Called ike this.
+ *
+ *  ad1843_read_multi(lith, nfields,
+ *		      &ad1843_FIELD1, &val1,
+ *		      &ad1843_FIELD2, &val2, ...);
+ */
 
 static void ad1843_read_multi(lithium_t *lith, int argcount, ...)
 {
@@ -677,6 +1009,16 @@ static void ad1843_read_multi(lithium_t *lith, int argcount, ...)
 	va_end(ap);
 }
 
+/*
+ * ad1843_write_multi stores multiple bitfields into the same AD1843
+ * register.  It uses one read and one write cycle to do it.
+ *
+ * Called like this.
+ *
+ *  ad1843_write_multi(lith, nfields,
+ *		       &ad1843_FIELD1, val1,
+ *		       &ad1843_FIELF2, val2, ...);
+ */
 
 static void ad1843_write_multi(lithium_t *lith, int argcount, ...)
 {
@@ -711,6 +1053,10 @@ static void ad1843_write_multi(lithium_t *lith, int argcount, ...)
 	(void) li_write_ad1843_reg(lith, reg, w);
 }
 
+/*
+ * ad1843_get_gain reads the specified register and extracts the gain value
+ * using the supplied gain type.  It returns the gain in OSS format.
+ */
 
 static int ad1843_get_gain(lithium_t *lith, const ad1843_gain_t *gp)
 {
@@ -727,6 +1073,12 @@ static int ad1843_get_gain(lithium_t *lith, const ad1843_gain_t *gp)
 	return lg << 0 | rg << 8;
 }
 
+/*
+ * Set an audio channel's gain. Converts from OSS format to AD1843's
+ * format.
+ *
+ * Returns the new gain, which may be lower than the old gain.
+ */
 
 static int ad1843_set_gain(lithium_t *lith,
 			   const ad1843_gain_t *gp,
@@ -748,6 +1100,7 @@ static int ad1843_set_gain(lithium_t *lith,
 	return ad1843_get_gain(lith, gp);
 }
 
+/* Returns the current recording source, in OSS format. */
 
 static int ad1843_get_recsrc(lithium_t *lith)
 {
@@ -785,30 +1138,39 @@ static int ad1843_get_recsrc(lithium_t *lith)
 
 static void ad1843_set_resample_mode(lithium_t *lith, int onoff)
 {
-	
+	/* Save DA1 mute and gain (addr 9 is DA1 analog gain/attenuation) */
 	int save_da1 = li_read_ad1843_reg(lith, 9);
 
-	
+	/* Power down A/D and D/A. */
 	ad1843_write_multi(lith, 4,
 			   &ad1843_DA1EN, 0,
 			   &ad1843_DA2EN, 0,
 			   &ad1843_ADLEN, 0,
 			   &ad1843_ADREN, 0);
 
-	
+	/* Switch mode */
 	ASSERT(onoff == 0 || onoff == 1);
 	ad1843_write_bits(lith, &ad1843_DRSFLT, onoff);
 
- 	
+ 	/* Power up A/D and D/A. */
 	ad1843_write_multi(lith, 3,
 			   &ad1843_DA1EN, 1,
 			   &ad1843_ADLEN, 1,
 			   &ad1843_ADREN, 1);
 
-	
+	/* Restore DA1 mute and gain. */
 	li_write_ad1843_reg(lith, 9, save_da1);
 }
 
+/*
+ * Set recording source.  Arg newsrc specifies an OSS channel mask.
+ *
+ * The complication is that when we switch into/out of loopback mode
+ * (i.e., src = SOUND_MASK_PCM), we change the AD1843 into/out of
+ * digital resampling mode.
+ *
+ * Returns newsrc on success, -errno on failure.
+ */
 
 static int ad1843_set_recsrc(lithium_t *lith, int newsrc)
 {
@@ -853,6 +1215,9 @@ static int ad1843_set_recsrc(lithium_t *lith, int newsrc)
 	return newsrc;
 }
 
+/*
+ * Return current output sources, in OSS format.
+ */
 
 static int ad1843_get_outsrc(lithium_t *lith)
 {
@@ -866,6 +1231,11 @@ static int ad1843_get_outsrc(lithium_t *lith)
 	return pcm | line | cd | mic;
 }
 
+/*
+ * Set output sources.  Arg is a mask of active sources in OSS format.
+ *
+ * Returns source mask on success, -errno on failure.
+ */
 
 static int ad1843_set_outsrc(lithium_t *lith, int mask)
 {
@@ -887,6 +1257,7 @@ static int ad1843_set_outsrc(lithium_t *lith, int mask)
 	return mask;
 }
 
+/* Setup ad1843 for D/A conversion. */
 
 static void ad1843_setup_dac(lithium_t *lith,
 			     int framerate,
@@ -950,9 +1321,16 @@ static void ad1843_setup_adc(lithium_t *lith, int framerate, int fmt, int channe
 
 static void ad1843_shutdown_adc(lithium_t *lith)
 {
-	
+	/* nothing to do */
 }
 
+/*
+ * Fully initialize the ad1843.  As described in the AD1843 data
+ * sheet, section "START-UP SEQUENCE".  The numbered comments are
+ * subsection headings from the data sheet.  See the data sheet, pages
+ * 52-54, for more info.
+ *
+ * return 0 on success, -errno on failure.  */
 
 static int __init ad1843_init(lithium_t *lith)
 {
@@ -970,10 +1348,10 @@ static int __init ad1843_init(lithium_t *lith)
 
 	ad1843_write_bits(lith, &ad1843_SCF, 1);
 
-	
+	/* 4. Put the conversion resources into standby. */
 
 	ad1843_write_bits(lith, &ad1843_PDNI, 0);
-	later = jiffies + HZ / 2;	
+	later = jiffies + HZ / 2;	/* roughly half a second */
 	DBGDO(shut_up++);
 	while (ad1843_read_bits(lith, &ad1843_PDNO)) {
 		if (time_after(jiffies, later)) {
@@ -985,20 +1363,20 @@ static int __init ad1843_init(lithium_t *lith)
 	}
 	DBGDO(shut_up--);
 
-	
+	/* 5. Power up the clock generators and enable clock output pins. */
 
 	ad1843_write_multi(lith, 2, &ad1843_C1EN, 1, &ad1843_C2EN, 1);
 
-	
+	/* 6. Configure conversion resources while they are in standby. */
 
- 	
+ 	/* DAC1 uses clock 1 as source, ADC uses clock 2.  Always. */
 
 	ad1843_write_multi(lith, 3,
 			   &ad1843_DA1C, 1,
 			   &ad1843_ADLC, 2,
 			   &ad1843_ADRC, 2);
 
-	
+	/* 7. Enable conversion resources. */
 
 	ad1843_write_bits(lith, &ad1843_ADTLK, 1);
 	ad1843_write_multi(lith, 5,
@@ -1008,40 +1386,45 @@ static int __init ad1843_init(lithium_t *lith)
 			   &ad1843_ADLEN, 1,
 			   &ad1843_ADREN, 1);
 
-	
+	/* 8. Configure conversion resources while they are enabled. */
 
 	ad1843_write_bits(lith, &ad1843_DA1C, 1);
 
-	
+	/* Unmute all channels. */
 
 	ad1843_set_outsrc(lith,
 			  (SOUND_MASK_PCM | SOUND_MASK_LINE |
 			   SOUND_MASK_MIC | SOUND_MASK_CD));
 	ad1843_write_multi(lith, 2, &ad1843_LDA1AM, 0, &ad1843_RDA1AM, 0);
 
+	/* Set default recording source to Line In and set
+	 * mic gain to +20 dB.
+	 */
 
 	ad1843_set_recsrc(lith, SOUND_MASK_LINE);
 	ad1843_write_multi(lith, 2, &ad1843_LMGE, 1, &ad1843_RMGE, 1);
 
-	
+	/* Set Speaker Out level to +/- 4V and unmute it. */
 
 	ad1843_write_multi(lith, 2, &ad1843_HPOS, 1, &ad1843_HPOM, 0);
 
 	return 0;
 }
 
+/*****************************************************************************/
+/* PCM I/O */
 
 #define READ_INTR_MASK  (LI_INTR_COMM1_TRIG | LI_INTR_COMM1_OVERFLOW)
 #define WRITE_INTR_MASK (LI_INTR_COMM2_TRIG | LI_INTR_COMM2_UNDERFLOW)
 
-typedef enum vwsnd_port_swstate {	
+typedef enum vwsnd_port_swstate {	/* software state */
 	SW_OFF,
 	SW_INITIAL,
 	SW_RUN,
 	SW_DRAIN,
 } vwsnd_port_swstate_t;
 
-typedef enum vwsnd_port_hwstate {	
+typedef enum vwsnd_port_hwstate {	/* hardware state */
 	HW_STOPPED,
 	HW_RUNNING,
 } vwsnd_port_hwstate_t;
@@ -1052,7 +1435,7 @@ typedef enum vwsnd_port_hwstate {
 
 typedef enum vwsnd_port_flags {
 	DISABLED = 1 << 0,
-	ERFLOWN  = 1 << 1,		
+	ERFLOWN  = 1 << 1,		/* overflown or underflown */
 	HW_BUSY  = 1 << 2,
 } vwsnd_port_flags_t;
 
@@ -1084,7 +1467,7 @@ typedef struct vwsnd_port {
 	int		sw_framerate;
 	int		sample_size;
 	int		frame_size;
-	unsigned int	zero_word;	
+	unsigned int	zero_word;	/* zero for the sample format */
 
 	int		sw_fragshift;
 	int		sw_fragcount;
@@ -1097,19 +1480,19 @@ typedef struct vwsnd_port {
 	int		hwbuf_size;
 	unsigned long	hwbuf_paddr;
 	unsigned long	hwbuf_vaddr;
-	void *		hwbuf;		
-	int		hwbuf_max;	
+	void *		hwbuf;		/* hwbuf == hwbuf_vaddr */
+	int		hwbuf_max;	/* max bytes to preload */
 
 	void *		swbuf;
-	unsigned int	swbuf_size;	
-	unsigned int	swb_u_idx;	
-	unsigned int	swb_i_idx;	
-	unsigned int	swb_u_avail;	
-	unsigned int	swb_i_avail;	
+	unsigned int	swbuf_size;	/* size in bytes */
+	unsigned int	swb_u_idx;	/* index of next user byte */
+	unsigned int	swb_i_idx;	/* index of next intr byte */
+	unsigned int	swb_u_avail;	/* # bytes avail to user */
+	unsigned int	swb_i_avail;	/* # bytes avail to intr */
 
 	dma_chan_t	chan;
 
-	
+	/* Accounting */
 
 	int		byte_count;
 	int		frag_count;
@@ -1117,11 +1500,12 @@ typedef struct vwsnd_port {
 
 } vwsnd_port_t;
 
+/* vwsnd_dev is the per-device data structure. */
 
 typedef struct vwsnd_dev {
 	struct vwsnd_dev *next_dev;
-	int		audio_minor;	
-	int		mixer_minor;	
+	int		audio_minor;	/* minor number of audio device */
+	int		mixer_minor;	/* minor number of mixer device */
 
 	struct mutex open_mutex;
 	struct mutex io_mutex;
@@ -1135,7 +1519,7 @@ typedef struct vwsnd_dev {
 	vwsnd_port_t	wport;
 } vwsnd_dev_t;
 
-static vwsnd_dev_t *vwsnd_dev_list;	
+static vwsnd_dev_t *vwsnd_dev_list;	/* linked list of all devices */
 
 static atomic_t vwsnd_use_count = ATOMIC_INIT(0);
 
@@ -1143,11 +1527,23 @@ static atomic_t vwsnd_use_count = ATOMIC_INIT(0);
 # define DEC_USE_COUNT (atomic_dec(&vwsnd_use_count))
 # define IN_USE        (atomic_read(&vwsnd_use_count) != 0)
 
+/*
+ * Lithium can only DMA multiples of 32 bytes.  Its DMA buffer may
+ * be up to 8 Kb.  This driver always uses 8 Kb.
+ *
+ * Memory bug workaround -- I'm not sure what's going on here, but
+ * somehow pcm_copy_out() was triggering segv's going on to the next
+ * page of the hw buffer.  So, I make the hw buffer one size bigger
+ * than we actually use.  That way, the following page is allocated
+ * and mapped, and no error.  I suspect that something is broken
+ * in Cobalt, but haven't really investigated.  HBO is the actual
+ * size of the buffer, and HWBUF_ORDER is what we allocate.
+ */
 
 #define HWBUF_SHIFT 13
 #define HWBUF_SIZE (1 << HWBUF_SHIFT)
 # define HBO         (HWBUF_SHIFT > PAGE_SHIFT ? HWBUF_SHIFT - PAGE_SHIFT : 0)
-# define HWBUF_ORDER (HBO + 1)		
+# define HWBUF_ORDER (HBO + 1)		/* next size bigger */
 #define MIN_SPEED 4000
 #define MAX_SPEED 49000
 
@@ -1161,6 +1557,28 @@ static atomic_t vwsnd_use_count = ATOMIC_INIT(0);
 #define DEFAULT_FRAGCOUNT		16
 #define DEFAULT_SUBDIVSHIFT		0
 
+/*
+ * The software buffer (swbuf) is a ring buffer shared between user
+ * level and interrupt level.  Each level owns some of the bytes in
+ * the buffer, and may give bytes away by calling swb_inc_{u,i}().
+ * User level calls _u for user, and interrupt level calls _i for
+ * interrupt.
+ *
+ * port->swb_{u,i}_avail is the number of bytes available to that level.
+ *
+ * port->swb_{u,i}_idx is the index of the first available byte in the
+ * buffer.
+ *
+ * Each level calls swb_inc_{u,i}() to atomically increment its index,
+ * recalculate the number of bytes available for both sides, and
+ * return the number of bytes available.  Since each side can only
+ * give away bytes, the other side can only increase the number of
+ * bytes available to this side.  Each side updates its own index
+ * variable, swb_{u,i}_idx, so no lock is needed to read it.
+ *
+ * To query the number of bytes available, call swb_inc_{u,i} with an
+ * increment of zero.
+ */
 
 static __inline__ unsigned int __swb_inc_u(vwsnd_port_t *port, int inc)
 {
@@ -1210,6 +1628,15 @@ static __inline__ unsigned int swb_inc_i(vwsnd_port_t *port, int inc)
 	return ret;
 }
 
+/*
+ * pcm_setup - this routine initializes all port state after
+ * mode-setting ioctls have been done, but before the first I/O is
+ * done.
+ *
+ * Locking: called with devc->io_mutex held.
+ *
+ * Returns 0 on success, -errno on failure.
+ */
 
 static int pcm_setup(vwsnd_dev_t *devc,
 		     vwsnd_port_t *rport,
@@ -1251,7 +1678,7 @@ static int pcm_setup(vwsnd_dev_t *devc,
 		break;
 
 	default:
-		sample_size = 0;	
+		sample_size = 0;	/* prevent compiler warning */
 		zero_word = 0;
 		ASSERT(0);
 	}
@@ -1298,6 +1725,14 @@ static int pcm_setup(vwsnd_dev_t *devc,
 	aport->swb_i_idx    = 0;
 	aport->byte_count   = 0;
 
+	/*
+	 * Is this a Cobalt bug?  We need to make this buffer extend
+	 * one page further than we actually use -- somehow memcpy
+	 * causes an exceptoin otherwise.  I suspect there's a bug in
+	 * Cobalt (or somewhere) where it's generating a fault on a
+	 * speculative load or something.  Obviously, I haven't taken
+	 * the time to track it down.
+	 */
 
 	aport->swbuf        = vmalloc(aport->swbuf_size + PAGE_SIZE);
 	if (!aport->swbuf)
@@ -1305,7 +1740,7 @@ static int pcm_setup(vwsnd_dev_t *devc,
 	if (rport && wport) {
 		ASSERT(aport == rport);
 		ASSERT(wport->swbuf == NULL);
-		
+		/* One extra page - see comment above. */
 		wport->swbuf = vmalloc(aport->swbuf_size + PAGE_SIZE);
 		if (!wport->swbuf) {
 			vfree(aport->swbuf);
@@ -1374,6 +1809,10 @@ static int pcm_setup(vwsnd_dev_t *devc,
 	return 0;
 }
 
+/*
+ * pcm_shutdown_port - shut down one port (direction) for PCM I/O.
+ * Only called from pcm_shutdown.
+ */
 
 static void pcm_shutdown_port(vwsnd_dev_t *devc,
 			      vwsnd_port_t *aport,
@@ -1401,7 +1840,7 @@ static void pcm_shutdown_port(vwsnd_dev_t *devc,
 	li_disable_interrupts(&devc->lith, mask);
 	if (aport == &devc->rport)
 		ad1843_shutdown_adc(&devc->lith);
-	else 
+	else /* aport == &devc->wport) */
 		ad1843_shutdown_dac(&devc->lith);
 	li_shutdown_dma(&aport->chan);
 	vfree(aport->swbuf);
@@ -1409,6 +1848,10 @@ static void pcm_shutdown_port(vwsnd_dev_t *devc,
 	aport->byte_count = 0;
 }
 
+/*
+ * pcm_shutdown undoes what pcm_setup did.
+ * Also sets the ports' swstate to newstate.
+ */
 
 static void pcm_shutdown(vwsnd_dev_t *devc,
 			 vwsnd_port_t *rport,
@@ -1443,7 +1886,7 @@ static void pcm_copy_in(vwsnd_port_t *rport, int swidx, int hwidx, int nb)
 
 	if (fmt == AFMT_MU_LAW || fmt == AFMT_A_LAW || fmt == AFMT_S8) {
 
-		
+		/* See Sample Format Notes above. */
 
 		char *end = src + nb;
 		while (src < end)
@@ -1466,7 +1909,7 @@ static void pcm_copy_out(vwsnd_port_t *wport, int swidx, int hwidx, int nb)
 	ASSERT(hwidx >= 0 && hwidx + nb <= wport->hwbuf_size);
 	if (fmt == AFMT_MU_LAW || fmt == AFMT_A_LAW || fmt == AFMT_S8) {
 
-		
+		/* See Sample Format Notes above. */
 
 		char *end = src + nb;
 		while (src < end)
@@ -1475,6 +1918,24 @@ static void pcm_copy_out(vwsnd_port_t *wport, int swidx, int hwidx, int nb)
 		memcpy(dst, src, nb);
 }
 
+/*
+ * pcm_output() is called both from baselevel and from interrupt level.
+ * This is where audio frames are copied into the hardware-accessible
+ * ring buffer.
+ *
+ * Locking note: The part of this routine that figures out what to do
+ * holds wport->lock.  The longer part releases wport->lock, but sets
+ * wport->flags & HW_BUSY.  Afterward, it reacquires wport->lock, and
+ * checks for more work to do.
+ *
+ * If another thread calls pcm_output() while HW_BUSY is set, it
+ * returns immediately, knowing that the thread that set HW_BUSY will
+ * look for more work to do before returning.
+ *
+ * This has the advantage that port->lock is held for several short
+ * periods instead of one long period.  Also, when pcm_output is
+ * called from base level, it reenables interrupts.
+ */
 
 static void pcm_output(vwsnd_dev_t *devc, int erflown, int nb)
 {
@@ -1534,15 +1995,20 @@ static void pcm_output(vwsnd_dev_t *devc, int erflown, int nb)
 			break;
 		spin_unlock_irqrestore(&wport->lock, iflags);
 
+		/*
+		 * We gave up the port lock, but we have the HW_BUSY flag.
+		 * Proceed without accessing any nonlocal state.
+		 * Do not exit the loop -- must check for more work.
+		 */
 
 		swidx = wport->swb_i_idx;
 		nb = hw_avail;
 		if (nb > sw_avail)
 			nb = sw_avail;
 		if (nb > hwsize - swptr)
-			nb = hwsize - swptr; 
+			nb = hwsize - swptr; /* don't overflow hwbuf */
 		if (nb > swsize - swidx)
-			nb = swsize - swidx; 
+			nb = swsize - swidx; /* don't overflow swbuf */
 		ASSERT(nb > 0);
 		if (nb % fragsize) {
 			DBGP("nb = %d, fragsize = %d\n", nb, fragsize);
@@ -1576,6 +2042,24 @@ static void pcm_output(vwsnd_dev_t *devc, int erflown, int nb)
 	DBGRV();
 }
 
+/*
+ * pcm_input() is called both from baselevel and from interrupt level.
+ * This is where audio frames are copied out of the hardware-accessible
+ * ring buffer.
+ *
+ * Locking note: The part of this routine that figures out what to do
+ * holds rport->lock.  The longer part releases rport->lock, but sets
+ * rport->flags & HW_BUSY.  Afterward, it reacquires rport->lock, and
+ * checks for more work to do.
+ *
+ * If another thread calls pcm_input() while HW_BUSY is set, it
+ * returns immediately, knowing that the thread that set HW_BUSY will
+ * look for more work to do before returning.
+ *
+ * This has the advantage that port->lock is held for several short
+ * periods instead of one long period.  Also, when pcm_input is
+ * called from base level, it reenables interrupts.
+ */
 
 static void pcm_input(vwsnd_dev_t *devc, int erflown, int nb)
 {
@@ -1627,15 +2111,20 @@ static void pcm_input(vwsnd_dev_t *devc, int erflown, int nb)
 			break;
 		spin_unlock_irqrestore(&rport->lock, iflags);
 
+		/*
+		 * We gave up the port lock, but we have the HW_BUSY flag.
+		 * Proceed without accessing any nonlocal state.
+		 * Do not exit the loop -- must check for more work.
+		 */
 
 		swidx = rport->swb_i_idx;
 		nb = hw_avail;
 		if (nb > sw_avail)
 			nb = sw_avail;
 		if (nb > hwsize - swptr)
-			nb = hwsize - swptr; 
+			nb = hwsize - swptr; /* don't overflow hwbuf */
 		if (nb > swsize - swidx)
-			nb = swsize - swidx; 
+			nb = swsize - swidx; /* don't overflow swbuf */
 		ASSERT(nb > 0);
 		if (nb % fragsize) {
 			DBGP("nb = %d, fragsize = %d\n", nb, fragsize);
@@ -1661,6 +2150,12 @@ static void pcm_input(vwsnd_dev_t *devc, int erflown, int nb)
 	DBGRV();
 }
 
+/*
+ * pcm_flush_frag() writes zero samples to fill the current fragment,
+ * then flushes it to the hardware.
+ *
+ * It is only meaningful to flush output, not input.
+ */
 
 static void pcm_flush_frag(vwsnd_dev_t *devc)
 {
@@ -1684,6 +2179,11 @@ static void pcm_flush_frag(vwsnd_dev_t *devc)
 	DBGRV();
 }
 
+/*
+ * Wait for output to drain.  This sleeps uninterruptibly because
+ * there is nothing intelligent we can do if interrupted.  This
+ * means the process will be delayed in responding to the signal.
+ */
 
 static void pcm_write_sync(vwsnd_dev_t *devc)
 {
@@ -1711,7 +2211,12 @@ static void pcm_write_sync(vwsnd_dev_t *devc)
 	DBGRV();
 }
 
+/*****************************************************************************/
+/* audio driver */
 
+/*
+ * seek on an audio device always fails.
+ */
 
 static void vwsnd_audio_read_intr(vwsnd_dev_t *devc, unsigned int status)
 {
@@ -1791,7 +2296,7 @@ static ssize_t vwsnd_audio_do_read(struct file *file,
 		current->state = TASK_RUNNING;
 		remove_wait_queue(&rport->queue, &wait);
 		pcm_input(devc, 0, 0);
-		
+		/* nb bytes are available in userbuf. */
 		if (nb > count)
 			nb = count;
 		DBGPV("nb = %d\n", nb);
@@ -1866,7 +2371,7 @@ static ssize_t vwsnd_audio_do_write(struct file *file,
 		}
 		current->state = TASK_RUNNING;
 		remove_wait_queue(&wport->queue, &wait);
-		
+		/* nb bytes are available in userbuf. */
 		if (nb > count)
 			nb = count;
 		DBGPV("nb = %d\n", nb);
@@ -1895,6 +2400,7 @@ static ssize_t vwsnd_audio_write(struct file *file,
 	return ret;
 }
 
+/* No kernel lock - fine */
 static unsigned int vwsnd_audio_poll(struct file *file,
 				     struct poll_table_struct *wait)
 {
@@ -1942,34 +2448,34 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 	DBGEV("(file=0x%p, cmd=0x%x, arg=0x%lx)\n",
 	      file, cmd, arg);
 	switch (cmd) {
-	case OSS_GETVERSION:		
+	case OSS_GETVERSION:		/* _SIOR ('M', 118, int) */
 		DBGX("OSS_GETVERSION\n");
 		ival = SOUND_VERSION;
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_GETCAPS:	
+	case SNDCTL_DSP_GETCAPS:	/* _SIOR ('P',15, int) */
 		DBGX("SNDCTL_DSP_GETCAPS\n");
 		ival = DSP_CAP_DUPLEX | DSP_CAP_REALTIME | DSP_CAP_TRIGGER;
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_GETFMTS:	
+	case SNDCTL_DSP_GETFMTS:	/* _SIOR ('P',11, int) */
 		DBGX("SNDCTL_DSP_GETFMTS\n");
 		ival = (AFMT_S16_LE | AFMT_MU_LAW | AFMT_A_LAW |
 			AFMT_U8 | AFMT_S8);
 		return put_user(ival, (int *) arg);
 		break;
 
-	case SOUND_PCM_READ_RATE:	
+	case SOUND_PCM_READ_RATE:	/* _SIOR ('P', 2, int) */
 		DBGX("SOUND_PCM_READ_RATE\n");
 		ival = aport->sw_framerate;
 		return put_user(ival, (int *) arg);
 
-	case SOUND_PCM_READ_CHANNELS:	
+	case SOUND_PCM_READ_CHANNELS:	/* _SIOR ('P', 6, int) */
 		DBGX("SOUND_PCM_READ_CHANNELS\n");
 		ival = aport->sw_channels;
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_SPEED:		
+	case SNDCTL_DSP_SPEED:		/* _SIOWR('P', 2, int) */
 		if (get_user(ival, (int *) arg))
 			return -EFAULT;
 		DBGX("SNDCTL_DSP_SPEED %d\n", ival);
@@ -1991,7 +2497,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 			ival = aport->sw_framerate;
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_STEREO:		
+	case SNDCTL_DSP_STEREO:		/* _SIOWR('P', 3, int) */
 		if (get_user(ival, (int *) arg))
 			return -EFAULT;
 		DBGX("SNDCTL_DSP_STEREO %d\n", ival);
@@ -2005,7 +2511,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 			wport->sw_channels = ival + 1;
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_CHANNELS:	
+	case SNDCTL_DSP_CHANNELS:	/* _SIOWR('P', 6, int) */
 		if (get_user(ival, (int *) arg))
 			return -EFAULT;
 		DBGX("SNDCTL_DSP_CHANNELS %d\n", ival);
@@ -2019,7 +2525,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 			wport->sw_channels = ival;
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_GETBLKSIZE:	
+	case SNDCTL_DSP_GETBLKSIZE:	/* _SIOWR('P', 4, int) */
 		ival = pcm_setup(devc, rport, wport);
 		if (ival < 0) {
 			DBGX("SNDCTL_DSP_GETBLKSIZE failed, errno %d\n", ival);
@@ -2029,7 +2535,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		DBGX("SNDCTL_DSP_GETBLKSIZE returning %d\n", ival);
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_SETFRAGMENT:	
+	case SNDCTL_DSP_SETFRAGMENT:	/* _SIOWR('P',10, int) */
 		if (get_user(ival, (int *) arg))
 			return -EFAULT;
 		DBGX("SNDCTL_DSP_SETFRAGMENT %d:%d\n",
@@ -2068,7 +2574,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		      ival >> 16, ival & 0xFFFF);
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_SUBDIVIDE:	
+	case SNDCTL_DSP_SUBDIVIDE:	/* _SIOWR('P', 9, int) */
                 if (get_user(ival, (int *) arg))
 			return -EFAULT;
 		DBGX("SNDCTL_DSP_SUBDIVIDE %d\n", ival);
@@ -2099,7 +2605,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		}
 		return 0;
 
-	case SNDCTL_DSP_SETFMT:		
+	case SNDCTL_DSP_SETFMT:		/* _SIOWR('P',5, int) */
 		if (get_user(ival, (int *) arg))
 			return -EFAULT;
 		DBGX("SNDCTL_DSP_SETFMT %d\n", ival);
@@ -2127,7 +2633,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		ival = aport->sw_samplefmt;
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_GETOSPACE:	
+	case SNDCTL_DSP_GETOSPACE:	/* _SIOR ('P',12, audio_buf_info) */
 		DBGXV("SNDCTL_DSP_GETOSPACE\n");
 		if (!wport)
 			return -EINVAL;
@@ -2146,7 +2652,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 			return -EFAULT;
 		return 0;
 
-	case SNDCTL_DSP_GETISPACE:	
+	case SNDCTL_DSP_GETISPACE:	/* _SIOR ('P',13, audio_buf_info) */
 		DBGX("SNDCTL_DSP_GETISPACE\n");
 		if (!rport)
 			return -EINVAL;
@@ -2165,15 +2671,20 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 			return -EFAULT;
 		return 0;
 
-	case SNDCTL_DSP_NONBLOCK:	
+	case SNDCTL_DSP_NONBLOCK:	/* _SIO  ('P',14) */
 		DBGX("SNDCTL_DSP_NONBLOCK\n");
 		spin_lock(&file->f_lock);
 		file->f_flags |= O_NONBLOCK;
 		spin_unlock(&file->f_lock);
 		return 0;
 
-	case SNDCTL_DSP_RESET:		
+	case SNDCTL_DSP_RESET:		/* _SIO  ('P', 0) */
 		DBGX("SNDCTL_DSP_RESET\n");
+		/*
+		 * Nothing special needs to be done for input.  Input
+		 * samples sit in swbuf, but it will be reinitialized
+		 * to empty when pcm_setup() is called.
+		 */
 		if (wport && wport->swbuf) {
 			wport->swstate = SW_INITIAL;
 			pcm_output(devc, 0, 0);
@@ -2182,7 +2693,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		pcm_shutdown(devc, rport, wport);
 		return 0;
 
-	case SNDCTL_DSP_SYNC:		
+	case SNDCTL_DSP_SYNC:		/* _SIO  ('P', 1) */
 		DBGX("SNDCTL_DSP_SYNC\n");
 		if (wport) {
 			pcm_flush_frag(devc);
@@ -2191,14 +2702,14 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		pcm_shutdown(devc, rport, wport);
 		return 0;
 
-	case SNDCTL_DSP_POST:		
+	case SNDCTL_DSP_POST:		/* _SIO  ('P', 8) */
 		DBGX("SNDCTL_DSP_POST\n");
 		if (!wport)
 			return -EINVAL;
 		pcm_flush_frag(devc);
 		return 0;
 
-	case SNDCTL_DSP_GETIPTR:	
+	case SNDCTL_DSP_GETIPTR:	/* _SIOR ('P', 17, count_info) */
 		DBGX("SNDCTL_DSP_GETIPTR\n");
 		if (!rport)
 			return -EINVAL;
@@ -2214,7 +2725,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 				info.bytes = rport->byte_count;
 			}
 			info.blocks = rport->frag_count;
-			info.ptr = 0;	
+			info.ptr = 0;	/* not implemented */
 			rport->frag_count = 0;
 		}
 		spin_unlock_irqrestore(&rport->lock, flags);
@@ -2222,7 +2733,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 			return -EFAULT;
 		return 0;
 
-	case SNDCTL_DSP_GETOPTR:	
+	case SNDCTL_DSP_GETOPTR:	/* _SIOR ('P',18, count_info) */
 		DBGX("SNDCTL_DSP_GETOPTR\n");
 		if (!wport)
 			return -EINVAL;
@@ -2238,7 +2749,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 				info.bytes = wport->byte_count;
 			}
 			info.blocks = wport->frag_count;
-			info.ptr = 0;	
+			info.ptr = 0;	/* not implemented */
 			wport->frag_count = 0;
 		}
 		spin_unlock_irqrestore(&wport->lock, flags);
@@ -2246,7 +2757,7 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 			return -EFAULT;
 		return 0;
 
-	case SNDCTL_DSP_GETODELAY:	
+	case SNDCTL_DSP_GETODELAY:	/* _SIOR ('P', 23, int) */
 		DBGX("SNDCTL_DSP_GETODELAY\n");
 		if (!wport)
 			return -EINVAL;
@@ -2272,13 +2783,27 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		spin_unlock_irqrestore(&wport->lock, flags);
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_PROFILE:	
+	case SNDCTL_DSP_PROFILE:	/* _SIOW ('P', 23, int) */
 		DBGX("SNDCTL_DSP_PROFILE\n");
 
+		/*
+		 * Thomas Sailer explains SNDCTL_DSP_PROFILE
+		 * (private email, March 24, 1999):
+		 *
+		 *     This gives the sound driver a hint on what it
+		 *     should do with partial fragments
+		 *     (i.e. fragments partially filled with write).
+		 *     This can direct the driver to zero them or
+		 *     leave them alone.  But don't ask me what this
+		 *     is good for, my driver just zeroes the last
+		 *     fragment before the receiver stops, no idea
+		 *     what good for any other behaviour could
+		 *     be. Implementing it as NOP seems safe.
+		 */
 
 		break;
 
-	case SNDCTL_DSP_GETTRIGGER:	
+	case SNDCTL_DSP_GETTRIGGER:	/* _SIOR ('P',16, int) */
 		DBGX("SNDCTL_DSP_GETTRIGGER\n");
 		ival = 0;
 		if (rport) {
@@ -2299,11 +2824,15 @@ static int vwsnd_audio_do_ioctl(struct file *file,
 		}
 		return put_user(ival, (int *) arg);
 
-	case SNDCTL_DSP_SETTRIGGER:	
+	case SNDCTL_DSP_SETTRIGGER:	/* _SIOW ('P',16, int) */
 		if (get_user(ival, (int *) arg))
 			return -EFAULT;
 		DBGX("SNDCTL_DSP_SETTRIGGER %d\n", ival);
 
+		/*
+		 * If user is disabling I/O and port is not in initial
+		 * state, fail with EINVAL.
+		 */
 
 		if (((rport && !(ival & PCM_ENABLE_INPUT)) ||
 		     (wport && !(ival & PCM_ENABLE_OUTPUT))) &&
@@ -2371,6 +2900,7 @@ static long vwsnd_audio_ioctl(struct file *file,
 	return ret;
 }
 
+/* No mmap. */
 
 static int vwsnd_audio_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -2378,6 +2908,11 @@ static int vwsnd_audio_mmap(struct file *file, struct vm_area_struct *vma)
 	return -ENODEV;
 }
 
+/*
+ * Open the audio device for read and/or write.
+ *
+ * Returns 0 on success, -errno on failure.
+ */
 
 static int vwsnd_audio_open(struct inode *inode, struct file *file)
 {
@@ -2418,7 +2953,7 @@ static int vwsnd_audio_open(struct inode *inode, struct file *file)
 	devc->open_mode |= file->f_mode & (FMODE_READ | FMODE_WRITE);
 	mutex_unlock(&devc->open_mutex);
 
-	
+	/* get default sample format from minor number. */
 
 	sw_samplefmt = 0;
 	if ((minor & 0xF) == SND_DEV_DSP)
@@ -2430,7 +2965,7 @@ static int vwsnd_audio_open(struct inode *inode, struct file *file)
 	else
 		ASSERT(0);
 
-	
+	/* Initialize vwsnd_ports. */
 
 	mutex_lock(&devc->io_mutex);
 	{
@@ -2467,6 +3002,9 @@ static int vwsnd_audio_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * Release (close) the audio device.
+ */
 
 static int vwsnd_audio_release(struct inode *inode, struct file *file)
 {
@@ -2518,7 +3056,10 @@ static const struct file_operations vwsnd_audio_fops = {
 	.release =	vwsnd_audio_release,
 };
 
+/*****************************************************************************/
+/* mixer driver */
 
+/* open the mixer device. */
 
 static int vwsnd_mixer_open(struct inode *inode, struct file *file)
 {
@@ -2542,6 +3083,7 @@ static int vwsnd_mixer_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* release (close) the mixer device. */
 
 static int vwsnd_mixer_release(struct inode *inode, struct file *file)
 {
@@ -2550,6 +3092,7 @@ static int vwsnd_mixer_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* mixer_read_ioctl handles all read ioctls on the mixer device. */
 
 static int mixer_read_ioctl(vwsnd_dev_t *devc, unsigned int nr, void __user *arg)
 {
@@ -2616,6 +3159,7 @@ static int mixer_read_ioctl(vwsnd_dev_t *devc, unsigned int nr, void __user *arg
 	return put_user(val, (int __user *) arg);
 }
 
+/* mixer_write_ioctl handles all write ioctls on the mixer device. */
 
 static int mixer_write_ioctl(vwsnd_dev_t *devc, unsigned int nr, void __user *arg)
 {
@@ -2650,7 +3194,7 @@ static int mixer_write_ioctl(vwsnd_dev_t *devc, unsigned int nr, void __user *ar
 
 	case SOUND_MIXER_RECSRC:
 		if (devc->rport.swbuf || devc->wport.swbuf)
-			return -EBUSY;	
+			return -EBUSY;	/* can't change recsrc while running */
 		val = ad1843_set_recsrc(&devc->lith, val);
 		break;
 
@@ -2666,6 +3210,7 @@ static int mixer_write_ioctl(vwsnd_dev_t *devc, unsigned int nr, void __user *ar
 	return put_user(val, (int __user *) arg);
 }
 
+/* This is the ioctl entry to the mixer driver. */
 
 static long vwsnd_mixer_ioctl(struct file *file,
 			      unsigned int cmd,
@@ -2701,7 +3246,10 @@ static const struct file_operations vwsnd_mixer_fops = {
 	.release =	vwsnd_mixer_release,
 };
 
+/*****************************************************************************/
+/* probe/attach/unload */
 
+/* driver probe routine.  Return nonzero if hardware is found. */
 
 static int __init probe_vwsnd(struct address_info *hw_config)
 {
@@ -2711,7 +3259,7 @@ static int __init probe_vwsnd(struct address_info *hw_config)
 
 	DBGEV("(hw_config=0x%p)\n", hw_config);
 
-	
+	/* XXX verify lithium present (to prevent crash on non-vw) */
 
 	if (li_create(&lith, hw_config->io_base) != 0) {
 		printk(KERN_WARNING "probe_vwsnd: can't map lithium\n");
@@ -2729,6 +3277,9 @@ static int __init probe_vwsnd(struct address_info *hw_config)
 
 	if ((w == LI_HC_LINK_ENABLE) || (w & LI_HC_LINK_CODEC)) {
 
+		/* This may indicate a beta machine with no audio,
+		 * or a future machine with different audio.
+		 * On beta-release 320 w/ no audio, HC == 0x4000 */
 
 		printk(KERN_WARNING "probe_vwsnd: audio codec not found\n");
 		return 0;
@@ -2745,6 +3296,13 @@ static int __init probe_vwsnd(struct address_info *hw_config)
 	return 1;
 }
 
+/*
+ * driver attach routine.  Initialize driver data structures and
+ * initialize hardware.  A new vwsnd_dev_t is allocated and put
+ * onto the global list, vwsnd_dev_list.
+ *
+ * Return +minor_dev on success, -errno on failure.
+ */
 
 static int __init attach_vwsnd(struct address_info *hw_config)
 {
@@ -2770,6 +3328,18 @@ static int __init attach_vwsnd(struct address_info *hw_config)
 	devc->rport.hwbuf = (void *) devc->rport.hwbuf_vaddr;
 	devc->rport.hwbuf_paddr = virt_to_phys(devc->rport.hwbuf);
 
+	/*
+	 * Quote from the NT driver:
+	 *
+	 * // WARNING!!! HACK to setup output dma!!!
+	 * // This is required because even on output there is some data
+	 * // trickling into the input DMA channel.  This is a bug in the
+	 * // Lithium microcode.
+	 * // --sde
+	 *
+	 * We set the input side's DMA base address here.  It will remain
+	 * valid until the driver is unloaded.
+	 */
 
 	li_writel(&devc->lith, LI_COMM1_BASE,
 		  devc->rport.hwbuf_paddr >> 8 | 1 << (37 - 8));
@@ -2788,13 +3358,13 @@ static int __init attach_vwsnd(struct address_info *hw_config)
 	if (err)
 		goto fail4;
 
-	
+	/* install interrupt handler */
 
 	err = request_irq(hw_config->irq, vwsnd_audio_intr, 0, "vwsnd", devc);
 	if (err)
 		goto fail5;
 
-	
+	/* register this device's drivers. */
 
 	devc->audio_minor = register_sound_dsp(&vwsnd_audio_fops, -1);
 	if ((err = devc->audio_minor) < 0) {
@@ -2812,11 +3382,11 @@ static int __init attach_vwsnd(struct address_info *hw_config)
 		goto fail7;
 	}
 
-	
+	/* Squirrel away device indices for unload routine. */
 
 	hw_config->slots[0] = devc->audio_minor;
 
-	
+	/* Initialize as much of *devc as possible */
 
 	mutex_init(&devc->open_mutex);
 	mutex_init(&devc->io_mutex);
@@ -2835,13 +3405,13 @@ static int __init attach_vwsnd(struct address_info *hw_config)
 	devc->wport.flags = 0;
 	devc->wport.swbuf = NULL;
 
-	
+	/* Success.  Link us onto the local device list. */
 
 	devc->next_dev = vwsnd_dev_list;
 	vwsnd_dev_list = devc;
 	return devc->audio_minor;
 
-	
+	/* So many ways to fail.  Undo what we did. */
 
  fail7:
 	unregister_sound_dsp(devc->audio_minor);
@@ -2889,10 +3459,12 @@ static int __exit unload_vwsnd(struct address_info *hw_config)
 	return 0;
 }
 
+/*****************************************************************************/
+/* initialization and loadable kernel module interface */
 
 static struct address_info the_hw_config = {
-	0xFF001000,			
-	CO_IRQ(CO_APIC_LI_AUDIO)	
+	0xFF001000,			/* lithium phys addr  */
+	CO_IRQ(CO_APIC_LI_AUDIO)	/* irq */
 };
 
 MODULE_DESCRIPTION("SGI Visual Workstation sound module");

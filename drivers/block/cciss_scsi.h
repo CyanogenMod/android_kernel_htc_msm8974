@@ -23,21 +23,49 @@
 #ifndef _CCISS_SCSI_H_
 #define _CCISS_SCSI_H_
 
-#include <scsi/scsicam.h> 
+#include <scsi/scsicam.h> /* possibly irrelevant, since we don't show disks */
 
-		
+		/* the scsi id of the adapter... */
 #define SELF_SCSI_ID 15
+		/* 15 is somewhat arbitrary, since the scsi-2 bus
+		   that's presented by the driver to the OS is
+		   fabricated.  The "real" scsi-3 bus the
+		   hardware presents is fabricated too.
+		   The actual, honest-to-goodness physical
+		   bus that the devices are attached to is not
+		   addressible natively, and may in fact turn
+		   out to be not scsi at all. */
 
 
+/* 
+
+If the upper scsi layer tries to track how many commands we have 
+outstanding, it will be operating under the misapprehension that it is
+the only one sending us requests.  We also have the block interface,
+which is where most requests must surely come from, so the upper layer's
+notion of how many requests we have outstanding will be wrong most or
+all of the time. 
+
+Note, the normal SCSI mid-layer error handling doesn't work well
+for this driver because 1) it takes the io_request_lock before
+calling error handlers and uses a local variable to store flags,
+so the io_request_lock cannot be released and interrupts enabled
+inside the error handlers, and, the error handlers cannot poll
+for command completion because they might get commands from the
+block half of the driver completing, and not know what to do
+with them.  That's what we get for making a hybrid scsi/block
+driver, I suppose.
+
+*/
 
 struct cciss_scsi_dev_t {
 	int devtype;
-	int bus, target, lun;		
-	unsigned char scsi3addr[8];	
-	unsigned char device_id[16];	
-	unsigned char vendor[8];	
-	unsigned char model[16];	
-	unsigned char revision[4];	
+	int bus, target, lun;		/* as presented to the OS */
+	unsigned char scsi3addr[8];	/* as presented to the HW */
+	unsigned char device_id[16];	/* from inquiry pg. 0x83 */
+	unsigned char vendor[8];	/* bytes 8-15 of inquiry data */
+	unsigned char model[16];	/* bytes 16-31 of inquiry data */
+	unsigned char revision[4];	/* bytes 32-35 of inquiry data */
 };
 
 struct cciss_scsi_hba_t {
@@ -47,5 +75,5 @@ struct cciss_scsi_hba_t {
 	struct cciss_scsi_dev_t dev[CCISS_MAX_SCSI_DEVS_PER_HBA];
 };
 
-#endif 
-#endif 
+#endif /* _CCISS_SCSI_H_ */
+#endif /* CONFIG_CISS_SCSI_TAPE */

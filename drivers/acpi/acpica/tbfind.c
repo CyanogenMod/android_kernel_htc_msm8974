@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: tbfind   - find table
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -43,6 +48,22 @@
 #define _COMPONENT          ACPI_TABLES
 ACPI_MODULE_NAME("tbfind")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_tb_find_table
+ *
+ * PARAMETERS:  Signature           - String with ACPI table signature
+ *              oem_id              - String with the table OEM ID
+ *              oem_table_id        - String with the OEM Table ID
+ *              table_index         - Where the table index is returned
+ *
+ * RETURN:      Status and table index
+ *
+ * DESCRIPTION: Find an ACPI table (in the RSDT/XSDT) that matches the
+ *              Signature, OEM ID and OEM Table ID. Returns an index that can
+ *              be used to get the table header or entire table.
+ *
+ ******************************************************************************/
 acpi_status
 acpi_tb_find_table(char *signature,
 		   char *oem_id, char *oem_table_id, u32 *table_index)
@@ -53,29 +74,29 @@ acpi_tb_find_table(char *signature,
 
 	ACPI_FUNCTION_TRACE(tb_find_table);
 
-	
+	/* Normalize the input strings */
 
 	ACPI_MEMSET(&header, 0, sizeof(struct acpi_table_header));
 	ACPI_STRNCPY(header.signature, signature, ACPI_NAME_SIZE);
 	ACPI_STRNCPY(header.oem_id, oem_id, ACPI_OEM_ID_SIZE);
 	ACPI_STRNCPY(header.oem_table_id, oem_table_id, ACPI_OEM_TABLE_ID_SIZE);
 
-	
+	/* Search for the table */
 
 	for (i = 0; i < acpi_gbl_root_table_list.current_table_count; ++i) {
 		if (ACPI_MEMCMP(&(acpi_gbl_root_table_list.tables[i].signature),
 				header.signature, ACPI_NAME_SIZE)) {
 
-			
+			/* Not the requested table */
 
 			continue;
 		}
 
-		
+		/* Table with matching signature has been found */
 
 		if (!acpi_gbl_root_table_list.tables[i].pointer) {
 
-			
+			/* Table is not currently mapped, map it */
 
 			status =
 			    acpi_tb_verify_table(&acpi_gbl_root_table_list.
@@ -89,7 +110,7 @@ acpi_tb_find_table(char *signature,
 			}
 		}
 
-		
+		/* Check for table match on all IDs */
 
 		if (!ACPI_MEMCMP
 		    (acpi_gbl_root_table_list.tables[i].pointer->signature,

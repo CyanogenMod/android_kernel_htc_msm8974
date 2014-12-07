@@ -37,13 +37,17 @@ enum rtlx_state {
 
 #define RTLX_BUFFER_SIZE 2048
 
+/* each channel supports read and write.
+   linux (vpe0) reads lx_buffer  and writes rt_buffer
+   SP (vpe1) reads rt_buffer and writes lx_buffer
+*/
 struct rtlx_channel {
 	enum rtlx_state rt_state;
 	enum rtlx_state lx_state;
 
 	int buffer_size;
 
-	
+	/* read and write indexes per buffer */
 	int rt_write, rt_read;
 	char *rt_buffer;
 
@@ -58,4 +62,4 @@ struct rtlx_info {
 	struct rtlx_channel channel[RTLX_CHANNELS];
 };
 
-#endif 
+#endif /* __ASM_RTLX_H_ */

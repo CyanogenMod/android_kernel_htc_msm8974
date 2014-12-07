@@ -26,10 +26,22 @@
 
 #include "kstack.h"
 
+/* We don't have a real NMI on sparc64, but we can fake one
+ * up using profiling counter overflow interrupts and interrupt
+ * levels.
+ *
+ * The profile overflow interrupts at level 15, so we use
+ * level 14 as our IRQ off level.
+ */
 
 static int panic_on_timeout;
 
-atomic_t nmi_active = ATOMIC_INIT(0);		
+/* nmi_active:
+ * >0: the NMI watchdog is active, but can be disabled
+ * <0: the NMI watchdog has not been set up, and cannot be enabled
+ *  0: the NMI watchdog is disabled, but can be enabled
+ */
+atomic_t nmi_active = ATOMIC_INIT(0);		/* oprofile uses this */
 EXPORT_SYMBOL(nmi_active);
 
 static unsigned int nmi_hz = HZ;
@@ -180,7 +192,7 @@ static int __init check_nmi_watchdog(void)
 	for_each_possible_cpu(cpu)
 		prev_nmi_count[cpu] = get_nmi_count(cpu);
 	local_irq_enable();
-	mdelay((20 * 1000) / nmi_hz); 
+	mdelay((20 * 1000) / nmi_hz); /* wait 20 ticks */
 
 	for_each_online_cpu(cpu) {
 		if (!per_cpu(wd_enabled, cpu))

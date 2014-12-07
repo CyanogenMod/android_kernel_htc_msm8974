@@ -202,7 +202,7 @@ static int ipx_seq_socket_show(struct seq_file *seq, void *v)
 #else
 	seq_printf(seq, "%08lX:%04X  ", (unsigned long) ntohl(ipxs->intrfc->if_netnum),
 		   ntohs(ipxs->port));
-#endif	
+#endif	/* CONFIG_IPX_INTERN */
 	if (s->sk_state != TCP_ESTABLISHED)
 		seq_printf(seq, "%-28s", "Not_Connected");
 	else {
@@ -326,7 +326,7 @@ void __exit ipx_proc_exit(void)
 	remove_proc_entry("ipx", init_net.proc_net);
 }
 
-#else 
+#else /* CONFIG_PROC_FS */
 
 int __init ipx_proc_init(void)
 {
@@ -337,4 +337,4 @@ void __exit ipx_proc_exit(void)
 {
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */

@@ -25,20 +25,66 @@
  */
 #ifndef __DIVA_SOFT_DSP_TASK_ENTRY_H__
 #define __DIVA_SOFT_DSP_TASK_ENTRY_H__
+/*
+  The soft DSP image is described by binary header contained on begin of this
+  image:
+  OFFSET FROM IMAGE START |  VARIABLE
+  ------------------------------------------------------------------------
+  DIVA_MIPS_TASK_IMAGE_LINK_OFFS   |  link to the next image
+  ----------------------------------------------------------------------
+  DIVA_MIPS_TASK_IMAGE_GP_OFFS    |  image gp register value, void*
+  ----------------------------------------------------------------------
+  DIVA_MIPS_TASK_IMAGE_ENTRY_OFFS   |  diva_mips_sdp_task_entry_t*
+  ----------------------------------------------------------------------
+  DIVA_MIPS_TASK_IMAGE_LOAD_ADDR_OFFS |  image image start address (void*)
+  ----------------------------------------------------------------------
+  DIVA_MIPS_TASK_IMAGE_END_ADDR_OFFS |  image image end address   (void*)
+  ----------------------------------------------------------------------
+  DIVA_MIPS_TASK_IMAGE_ID_STRING_OFFS |  image id string char[...];
+  ----------------------------------------------------------------------
+*/
 #define DIVA_MIPS_TASK_IMAGE_LINK_OFFS   0x6C
 #define DIVA_MIPS_TASK_IMAGE_GP_OFFS    0x70
 #define DIVA_MIPS_TASK_IMAGE_ENTRY_OFFS   0x74
 #define DIVA_MIPS_TASK_IMAGE_LOAD_ADDR_OFFS 0x78
 #define DIVA_MIPS_TASK_IMAGE_END_ADDR_OFFS 0x7c
 #define DIVA_MIPS_TASK_IMAGE_ID_STRING_OFFS 0x80
+/*
+  This function is called in order to set GP register of this task
+  This function should be always called before any function of the
+  task is called
+*/
 typedef void (*diva_task_set_prog_gp_proc_t)(void *new_gp);
+/*
+  This function is called to clear .bss at task initialization step
+*/
 typedef void (*diva_task_sys_reset_proc_t)(void);
+/*
+  This function is called in order to provide GP of master call to
+  task, that will be used by calls from the task to the master
+*/
 typedef void (*diva_task_set_main_gp_proc_t)(void *main_gp);
+/*
+  This function is called to provide address of 'dprintf' function
+  to the task
+*/
 typedef word (*diva_prt_proc_t)(char *, ...);
 typedef void (*diva_task_set_prt_proc_t)(diva_prt_proc_t fn);
+/*
+  This function is called to set task PID
+*/
 typedef void (*diva_task_set_pid_proc_t)(dword id);
+/*
+  This function is called for run-time task init
+*/
 typedef int (*diva_task_run_time_init_proc_t)(void*, dword);
+/*
+  This function is called from system scheduler or from timer
+*/
 typedef void (*diva_task_callback_proc_t)(void);
+/*
+  This callback is used by task to get current time im mS
+*/
 typedef dword (*diva_task_get_tick_count_proc_t)(void);
 typedef void (*diva_task_set_get_time_proc_t)(\
 	diva_task_get_tick_count_proc_t fn);
@@ -54,6 +100,9 @@ typedef struct _diva_mips_sdp_task_entry {
 	diva_task_set_get_time_proc_t  set_get_time_proc;
 	void *last_entry_proc;
 } diva_mips_sdp_task_entry_t;
+/*
+  'last_entry_proc' should be set to zero and is used for future extensuios
+*/
 typedef struct _diva_mips_sw_task {
 	diva_mips_sdp_task_entry_t  sdp_entry;
 	void *sdp_gp_reg;

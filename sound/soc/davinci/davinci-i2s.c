@@ -29,6 +29,25 @@
 #include "davinci-i2s.h"
 
 
+/*
+ * NOTE:  terminology here is confusing.
+ *
+ *  - This driver supports the "Audio Serial Port" (ASP),
+ *    found on dm6446, dm355, and other DaVinci chips.
+ *
+ *  - But it labels it a "Multi-channel Buffered Serial Port"
+ *    (McBSP) as on older chips like the dm642 ... which was
+ *    backward-compatible, possibly explaining that confusion.
+ *
+ *  - OMAP chips have a controller called McBSP, which is
+ *    incompatible with the DaVinci flavor of McBSP.
+ *
+ *  - Newer DaVinci chips have a controller called McASP,
+ *    incompatible with ASP and with either McBSP.
+ *
+ * In short:  this uses ASP to implement I2S, not McBSP.
+ * And it won't be the only DaVinci implemention of I2S.
+ */
 #define DAVINCI_MCBSP_DRR_REG	0x00
 #define DAVINCI_MCBSP_DXR_REG	0x04
 #define DAVINCI_MCBSP_SPCR_REG	0x08
@@ -111,6 +130,26 @@ struct davinci_mcbsp_dev {
 	int				mode;
 	u32				pcr;
 	struct clk			*clk;
+	/*
+	 * Combining both channels into 1 element will at least double the
+	 * amount of time between servicing the dma channel, increase
+	 * effiency, and reduce the chance of overrun/underrun. But,
+	 * it will result in the left & right channels being swapped.
+	 *
+	 * If relabeling the left and right channels is not possible,
+	 * you may want to let the codec know to swap them back.
+	 *
+	 * It may allow x10 the amount of time to service dma requests,
+	 * if the codec is master and is using an unnecessarily fast bit clock
+	 * (ie. tlvaic23b), independent of the sample rate. So, having an
+	 * entire frame at once means it can be serviced at the sample rate
+	 * instead of the bit clock rate.
+	 *
+	 * In the now unlikely case that an underrun still
+	 * occurs, both the left and right samples will be repeated
+	 * so that no pops are heard, and the left and right channels
+	 * won't end up being swapped because of the underrun.
+	 */
 	unsigned enable_channel_combine:1;
 
 	unsigned int fmt;
@@ -133,6 +172,9 @@ static inline u32 davinci_mcbsp_read_reg(struct davinci_mcbsp_dev *dev, int reg)
 static void toggle_clock(struct davinci_mcbsp_dev *dev, int playback)
 {
 	u32 m = playback ? DAVINCI_MCBSP_PCR_CLKXP : DAVINCI_MCBSP_PCR_CLKRP;
+	/* The clock needs to toggle to complete reset.
+	 * So, fake it by toggling the clk polarity.
+	 */
 	davinci_mcbsp_write_reg(dev, DAVINCI_MCBSP_PCR_REG, dev->pcr ^ m);
 	davinci_mcbsp_write_reg(dev, DAVINCI_MCBSP_PCR_REG, dev->pcr);
 }
@@ -147,21 +189,21 @@ static void davinci_mcbsp_start(struct davinci_mcbsp_dev *dev,
 	u32 mask = playback ? DAVINCI_MCBSP_SPCR_XRST : DAVINCI_MCBSP_SPCR_RRST;
 	spcr = davinci_mcbsp_read_reg(dev, DAVINCI_MCBSP_SPCR_REG);
 	if (spcr & mask) {
-		
+		/* start off disabled */
 		davinci_mcbsp_write_reg(dev, DAVINCI_MCBSP_SPCR_REG,
 				spcr & ~mask);
 		toggle_clock(dev, playback);
 	}
 	if (dev->pcr & (DAVINCI_MCBSP_PCR_FSXM | DAVINCI_MCBSP_PCR_FSRM |
 			DAVINCI_MCBSP_PCR_CLKXM | DAVINCI_MCBSP_PCR_CLKRM)) {
-		
+		/* Start the sample generator */
 		spcr |= DAVINCI_MCBSP_SPCR_GRST;
 		davinci_mcbsp_write_reg(dev, DAVINCI_MCBSP_SPCR_REG, spcr);
 	}
 
 	if (playback) {
-		
-		
+		/* Stop the DMA to avoid data loss */
+		/* while the transmitter is out of reset to handle XSYNCERR */
 		if (platform->driver->ops->trigger) {
 			int ret = platform->driver->ops->trigger(substream,
 				SNDRV_PCM_TRIGGER_STOP);
@@ -169,21 +211,21 @@ static void davinci_mcbsp_start(struct davinci_mcbsp_dev *dev,
 				printk(KERN_DEBUG "Playback DMA stop failed\n");
 		}
 
-		
+		/* Enable the transmitter */
 		spcr = davinci_mcbsp_read_reg(dev, DAVINCI_MCBSP_SPCR_REG);
 		spcr |= DAVINCI_MCBSP_SPCR_XRST;
 		davinci_mcbsp_write_reg(dev, DAVINCI_MCBSP_SPCR_REG, spcr);
 
-		
+		/* wait for any unexpected frame sync error to occur */
 		udelay(100);
 
-		
+		/* Disable the transmitter to clear any outstanding XSYNCERR */
 		spcr = davinci_mcbsp_read_reg(dev, DAVINCI_MCBSP_SPCR_REG);
 		spcr &= ~DAVINCI_MCBSP_SPCR_XRST;
 		davinci_mcbsp_write_reg(dev, DAVINCI_MCBSP_SPCR_REG, spcr);
 		toggle_clock(dev, playback);
 
-		
+		/* Restart the DMA */
 		if (platform->driver->ops->trigger) {
 			int ret = platform->driver->ops->trigger(substream,
 				SNDRV_PCM_TRIGGER_START);
@@ -192,12 +234,12 @@ static void davinci_mcbsp_start(struct davinci_mcbsp_dev *dev,
 		}
 	}
 
-	
+	/* Enable transmitter or receiver */
 	spcr = davinci_mcbsp_read_reg(dev, DAVINCI_MCBSP_SPCR_REG);
 	spcr |= mask;
 
 	if (dev->pcr & (DAVINCI_MCBSP_PCR_FSXM | DAVINCI_MCBSP_PCR_FSRM)) {
-		
+		/* Start frame sync */
 		spcr |= DAVINCI_MCBSP_SPCR_FRST;
 	}
 	davinci_mcbsp_write_reg(dev, DAVINCI_MCBSP_SPCR_REG, spcr);
@@ -207,7 +249,7 @@ static void davinci_mcbsp_stop(struct davinci_mcbsp_dev *dev, int playback)
 {
 	u32 spcr;
 
-	
+	/* Reset transmitter/receiver and sample rate/frame sync generators */
 	spcr = davinci_mcbsp_read_reg(dev, DAVINCI_MCBSP_SPCR_REG);
 	spcr &= ~(DAVINCI_MCBSP_SPCR_GRST | DAVINCI_MCBSP_SPCR_FRST);
 	spcr &= playback ? ~DAVINCI_MCBSP_SPCR_XRST : ~DAVINCI_MCBSP_SPCR_RRST;
@@ -224,16 +266,16 @@ static int davinci_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 	unsigned int pcr;
 	unsigned int srgr;
 	bool inv_fs = false;
-	
+	/* Attention srgr is updated by hw_params! */
 	srgr = DAVINCI_MCBSP_SRGR_FSGM |
 		DAVINCI_MCBSP_SRGR_FPER(DEFAULT_BITPERSAMPLE * 2 - 1) |
 		DAVINCI_MCBSP_SRGR_FWID(DEFAULT_BITPERSAMPLE - 1);
 
 	dev->fmt = fmt;
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
-		
+		/* cpu is master */
 		pcr = DAVINCI_MCBSP_PCR_FSXM |
 			DAVINCI_MCBSP_PCR_FSRM |
 			DAVINCI_MCBSP_PCR_CLKXM |
@@ -241,6 +283,12 @@ static int davinci_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 		break;
 	case SND_SOC_DAIFMT_CBM_CFS:
 		pcr = DAVINCI_MCBSP_PCR_FSRM | DAVINCI_MCBSP_PCR_FSXM;
+		/*
+		 * Selection of the clock input pin that is the
+		 * input for the Sample Rate Generator.
+		 * McBSP FSR and FSX are driven by the Sample Rate
+		 * Generator.
+		 */
 		switch (dev->clk_input_pin) {
 		case MCBSP_CLKS:
 			pcr |= DAVINCI_MCBSP_PCR_CLKXM |
@@ -256,7 +304,7 @@ static int davinci_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
-		
+		/* codec is master */
 		pcr = 0;
 		break;
 	default:
@@ -264,9 +312,25 @@ static int davinci_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 		return -EINVAL;
 	}
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
+		/* Davinci doesn't support TRUE I2S, but some codecs will have
+		 * the left and right channels contiguous. This allows
+		 * dsp_a mode to be used with an inverted normal frame clk.
+		 * If your codec is master and does not have contiguous
+		 * channels, then you will have sound on only one channel.
+		 * Try using a different mode, or codec as slave.
+		 *
+		 * The TLV320AIC33 is an example of a codec where this works.
+		 * It has a variable bit clock frequency allowing it to have
+		 * valid data on every bit clock.
+		 *
+		 * The TLV320AIC23 is an example of a codec where this does not
+		 * work. It has a fixed bit clock frequency with progressively
+		 * more empty bit clock slots between channels as the sample
+		 * rate is lowered.
+		 */
 		inv_fs = true;
 	case SND_SOC_DAIFMT_DSP_A:
 		dev->mode = MOD_DSP_A;
@@ -281,16 +345,52 @@ static int davinci_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
+		/* CLKRP Receive clock polarity,
+		 *	1 - sampled on rising edge of CLKR
+		 *	valid on rising edge
+		 * CLKXP Transmit clock polarity,
+		 *	1 - clocked on falling edge of CLKX
+		 *	valid on rising edge
+		 * FSRP  Receive frame sync pol, 0 - active high
+		 * FSXP  Transmit frame sync pol, 0 - active high
+		 */
 		pcr |= (DAVINCI_MCBSP_PCR_CLKXP | DAVINCI_MCBSP_PCR_CLKRP);
 		break;
 	case SND_SOC_DAIFMT_IB_IF:
+		/* CLKRP Receive clock polarity,
+		 *	0 - sampled on falling edge of CLKR
+		 *	valid on falling edge
+		 * CLKXP Transmit clock polarity,
+		 *	0 - clocked on rising edge of CLKX
+		 *	valid on falling edge
+		 * FSRP  Receive frame sync pol, 1 - active low
+		 * FSXP  Transmit frame sync pol, 1 - active low
+		 */
 		pcr |= (DAVINCI_MCBSP_PCR_FSXP | DAVINCI_MCBSP_PCR_FSRP);
 		break;
 	case SND_SOC_DAIFMT_NB_IF:
+		/* CLKRP Receive clock polarity,
+		 *	1 - sampled on rising edge of CLKR
+		 *	valid on rising edge
+		 * CLKXP Transmit clock polarity,
+		 *	1 - clocked on falling edge of CLKX
+		 *	valid on rising edge
+		 * FSRP  Receive frame sync pol, 1 - active low
+		 * FSXP  Transmit frame sync pol, 1 - active low
+		 */
 		pcr |= (DAVINCI_MCBSP_PCR_CLKXP | DAVINCI_MCBSP_PCR_CLKRP |
 			DAVINCI_MCBSP_PCR_FSXP | DAVINCI_MCBSP_PCR_FSRP);
 		break;
 	case SND_SOC_DAIFMT_IB_NF:
+		/* CLKRP Receive clock polarity,
+		 *	0 - sampled on falling edge of CLKR
+		 *	valid on falling edge
+		 * CLKXP Transmit clock polarity,
+		 *	0 - clocked on rising edge of CLKX
+		 *	valid on falling edge
+		 * FSRP  Receive frame sync pol, 0 - active high
+		 * FSXP  Transmit frame sync pol, 0 - active high
+		 */
 		break;
 	default:
 		return -EINVAL;
@@ -329,7 +429,7 @@ static int davinci_i2s_hw_params(struct snd_pcm_substream *substream,
 	snd_pcm_format_t fmt;
 	unsigned element_cnt = 1;
 
-	
+	/* general line settings */
 	spcr = davinci_mcbsp_read_reg(dev, DAVINCI_MCBSP_SPCR_REG);
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		spcr |= DAVINCI_MCBSP_SPCR_RINTM(3) | DAVINCI_MCBSP_SPCR_FREE;
@@ -361,7 +461,7 @@ static int davinci_i2s_hw_params(struct snd_pcm_substream *substream,
 			clk_div--;
 			srgr |= DAVINCI_MCBSP_SRGR_FPER(framesize - 1);
 		} else {
-			
+			/* symmetric waveforms */
 			clk_div = freq / (mcbsp_word_length * 16) /
 				  params->rate_num * params->rate_den;
 			srgr |= DAVINCI_MCBSP_SRGR_FPER(mcbsp_word_length *
@@ -379,7 +479,7 @@ static int davinci_i2s_hw_params(struct snd_pcm_substream *substream,
 		srgr |= clk_div;
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
-		
+		/* Clock and frame sync given from external sources */
 		i = hw_param_interval(params, SNDRV_PCM_HW_PARAM_SAMPLE_BITS);
 		srgr = DAVINCI_MCBSP_SRGR_FSGM;
 		srgr |= DAVINCI_MCBSP_SRGR_FWID(snd_interval_value(i) - 1);
@@ -403,7 +503,7 @@ static int davinci_i2s_hw_params(struct snd_pcm_substream *substream,
 		rcr |= DAVINCI_MCBSP_RCR_RDATDLY(1);
 		xcr |= DAVINCI_MCBSP_XCR_XDATDLY(1);
 	}
-	
+	/* Determine xfer data type */
 	fmt = params_format(params);
 	if ((fmt > SNDRV_PCM_FORMAT_S32_LE) || !data_type[fmt]) {
 		printk(KERN_WARNING "davinci-i2s: unsupported PCM format\n");
@@ -608,7 +708,7 @@ static int davinci_i2s_probe(struct platform_device *pdev)
 	dev->dma_params[SNDRV_PCM_STREAM_CAPTURE].dma_addr =
 	    (dma_addr_t)(mem->start + DAVINCI_MCBSP_DRR_REG);
 
-	
+	/* first TX, then RX */
 	res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "no DMA resource\n");

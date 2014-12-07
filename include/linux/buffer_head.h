@@ -1,3 +1,8 @@
+/*
+ * include/linux/buffer_head.h
+ *
+ * Everything to do with buffer_heads.
+ */
 
 #ifndef _LINUX_BUFFER_HEAD_H
 #define _LINUX_BUFFER_HEAD_H
@@ -12,23 +17,27 @@
 #ifdef CONFIG_BLOCK
 
 enum bh_state_bits {
-	BH_Uptodate,	
-	BH_Dirty,	
-	BH_Lock,	
-	BH_Req,		
-	BH_Uptodate_Lock,
+	BH_Uptodate,	/* Contains valid data */
+	BH_Dirty,	/* Is dirty */
+	BH_Lock,	/* Is locked */
+	BH_Req,		/* Has been submitted for I/O */
+	BH_Uptodate_Lock,/* Used by the first bh in a page, to serialise
+			  * IO completion of other buffers in the page
+			  */
 
-	BH_Mapped,	
-	BH_New,		
-	BH_Async_Read,	
-	BH_Async_Write,	
-	BH_Delay,	
-	BH_Boundary,	
-	BH_Write_EIO,	
+	BH_Mapped,	/* Has a disk mapping */
+	BH_New,		/* Disk mapping was newly created by get_block */
+	BH_Async_Read,	/* Is under end_buffer_async_read I/O */
+	BH_Async_Write,	/* Is under end_buffer_async_write I/O */
+	BH_Delay,	/* Buffer is not yet allocated on disk */
+	BH_Boundary,	/* Block is followed by a discontiguity */
+	BH_Write_EIO,	/* I/O error on write */
 	BH_Unwritten,	/* Buffer is allocated on disk but not written */
-	BH_Quiet,	
+	BH_Quiet,	/* Buffer Error Prinks to be quiet */
 
-	BH_PrivateStart,
+	BH_PrivateStart,/* not a state bit, but the first bit available
+			 * for private allocation by other entities
+			 */
 };
 
 #define MAX_BUF_PER_PAGE (PAGE_CACHE_SIZE / 512)
@@ -38,23 +47,37 @@ struct buffer_head;
 struct address_space;
 typedef void (bh_end_io_t)(struct buffer_head *bh, int uptodate);
 
+/*
+ * Historically, a buffer_head was used to map a single block
+ * within a page, and of course as the unit of I/O through the
+ * filesystem and block layers.  Nowadays the basic I/O unit
+ * is the bio, and buffer_heads are used for extracting block
+ * mappings (via a get_block_t call), for tracking state within
+ * a page (via a page_mapping) and for wrapping bio submission
+ * for backward compatibility reasons (e.g. submit_bh).
+ */
 struct buffer_head {
-	unsigned long b_state;		
-	struct buffer_head *b_this_page;
-	struct page *b_page;		
+	unsigned long b_state;		/* buffer state bitmap (see above) */
+	struct buffer_head *b_this_page;/* circular list of page's buffers */
+	struct page *b_page;		/* the page this bh is mapped to */
 
-	sector_t b_blocknr;		
-	size_t b_size;			
-	char *b_data;			
+	sector_t b_blocknr;		/* start block number */
+	size_t b_size;			/* size of mapping */
+	char *b_data;			/* pointer to data within the page */
 
 	struct block_device *b_bdev;
-	bh_end_io_t *b_end_io;		
- 	void *b_private;		
-	struct list_head b_assoc_buffers; 
-	struct address_space *b_assoc_map;	
-	atomic_t b_count;		
+	bh_end_io_t *b_end_io;		/* I/O completion */
+ 	void *b_private;		/* reserved for b_end_io */
+	struct list_head b_assoc_buffers; /* associated with another mapping */
+	struct address_space *b_assoc_map;	/* mapping this buffer is
+						   associated with */
+	atomic_t b_count;		/* users using this buffer_head */
 };
 
+/*
+ * macro tricks to expand the set_buffer_foo(), clear_buffer_foo()
+ * and buffer_foo() functions.
+ */
 #define BUFFER_FNS(bit, name)						\
 static inline void set_buffer_##name(struct buffer_head *bh)		\
 {									\
@@ -69,6 +92,9 @@ static inline int buffer_##name(const struct buffer_head *bh)		\
 	return test_bit(BH_##bit, &(bh)->b_state);			\
 }
 
+/*
+ * test_set_buffer_foo() and test_clear_buffer_foo()
+ */
 #define TAS_BUFFER_FNS(bit, name)					\
 static inline int test_set_buffer_##name(struct buffer_head *bh)	\
 {									\
@@ -79,6 +105,11 @@ static inline int test_clear_buffer_##name(struct buffer_head *bh)	\
 	return test_and_clear_bit(BH_##bit, &(bh)->b_state);		\
 }									\
 
+/*
+ * Emit the buffer bitops functions.   Note that there are also functions
+ * of the form "mark_buffer_foo()".  These are higher-level functions which
+ * do something in addition to setting a b_state bit.
+ */
 BUFFER_FNS(Uptodate, uptodate)
 BUFFER_FNS(Dirty, dirty)
 TAS_BUFFER_FNS(Dirty, dirty)
@@ -97,6 +128,7 @@ BUFFER_FNS(Unwritten, unwritten)
 #define bh_offset(bh)		((unsigned long)(bh)->b_data & ~PAGE_MASK)
 #define touch_buffer(bh)	mark_page_accessed(bh->b_page)
 
+/* If we *know* page->private refers to buffer_heads */
 #define page_buffers(page)					\
 	({							\
 		BUG_ON(!PagePrivate(page));			\
@@ -104,6 +136,9 @@ BUFFER_FNS(Unwritten, unwritten)
 	})
 #define page_has_buffers(page)	PagePrivate(page)
 
+/*
+ * Declarations
+ */
 
 void mark_buffer_dirty(struct buffer_head *bh);
 void init_buffer(struct buffer_head *, bh_end_io_t *, void *);
@@ -118,6 +153,7 @@ void end_buffer_read_sync(struct buffer_head *bh, int uptodate);
 void end_buffer_write_sync(struct buffer_head *bh, int uptodate);
 void end_buffer_async_write(struct buffer_head *bh, int uptodate);
 
+/* Things to do with buffers at mapping->private_list */
 void mark_buffer_dirty_inode(struct buffer_head *bh, struct inode *inode);
 int inode_has_buffers(struct inode *);
 void invalidate_inode_buffers(struct inode *);
@@ -153,6 +189,10 @@ int bh_submit_read(struct buffer_head *bh);
 
 extern int buffer_heads_over_limit;
 
+/*
+ * Generic address_space_operations implementations for buffer_head-backed
+ * address_spaces.
+ */
 void block_invalidatepage(struct page *page, unsigned long offset);
 int block_write_full_page(struct page *page, get_block_t *get_block,
 				struct writeback_control *wbc);
@@ -181,6 +221,7 @@ int __block_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf,
 				get_block_t get_block);
 int block_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf,
 				get_block_t get_block);
+/* Convert errno to return value from ->page_mkwrite() call */
 static inline int block_page_mkwrite_return(int err)
 {
 	if (err == 0)
@@ -191,7 +232,7 @@ static inline int block_page_mkwrite_return(int err)
 		return VM_FAULT_OOM;
 	if (err == -EAGAIN)
 		return VM_FAULT_RETRY;
-	
+	/* -ENOSPC, -EDQUOT, -EIO ... */
 	return VM_FAULT_SIGBUS;
 }
 sector_t generic_block_bmap(struct address_space *, sector_t, get_block_t *);
@@ -207,6 +248,9 @@ int nobh_writepage(struct page *page, get_block_t *get_block,
 
 void buffer_init(void);
 
+/*
+ * inline definitions
+ */
 
 static inline void attach_page_buffers(struct page *page,
 		struct buffer_head *head)
@@ -293,7 +337,7 @@ static inline void lock_buffer(struct buffer_head *bh)
 
 extern int __set_page_dirty_buffers(struct page *page);
 
-#else 
+#else /* CONFIG_BLOCK */
 
 static inline void buffer_init(void) {}
 static inline int try_to_free_buffers(struct page *page) { return 1; }
@@ -302,5 +346,5 @@ static inline void invalidate_inode_buffers(struct inode *inode) {}
 static inline int remove_inode_buffers(struct inode *inode) { return 1; }
 static inline int sync_mapping_buffers(struct address_space *mapping) { return 0; }
 
-#endif 
-#endif 
+#endif /* CONFIG_BLOCK */
+#endif /* _LINUX_BUFFER_HEAD_H */

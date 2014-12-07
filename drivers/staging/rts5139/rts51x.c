@@ -89,6 +89,10 @@ static const struct file_operations rts51x_fops = {
 	.release = rts51x_release,
 };
 
+/*
+ * usb class driver info in order to get a minor number from the usb core,
+ * and to have the device registered with the driver core
+ */
 static struct usb_class_driver rts51x_class = {
 	.name = "rts51x%d",
 	.fops = &rts51x_fops,
@@ -96,7 +100,7 @@ static struct usb_class_driver rts51x_class = {
 };
 #endif
 
-#ifdef CONFIG_PM		
+#ifdef CONFIG_PM		/* Minimal support for suspend and resume */
 
 static inline void usb_autopm_enable(struct usb_interface *intf)
 {
@@ -128,7 +132,7 @@ int rts51x_suspend(struct usb_interface *iface, pm_message_t message)
 
 	RTS51X_DEBUGP("%s, message.event = 0x%x\n", __func__, message.event);
 
-	
+	/* Wait until no command is running */
 	mutex_lock(&chip->usb->dev_mutex);
 
 	chip->fake_card_ready = chip->card_ready;
@@ -143,6 +147,8 @@ int rts51x_suspend(struct usb_interface *iface, pm_message_t message)
 		RTS51X_SET_STAT(chip, STAT_SUSPEND);
 	}
 
+	/* When runtime PM is working, we'll set a flag to indicate
+	 * whether we should autoresume when a SCSI request arrives. */
 
 	mutex_unlock(&chip->usb->dev_mutex);
 	return 0;
@@ -159,7 +165,7 @@ int rts51x_resume(struct usb_interface *iface)
 
 		if (chip->option.ss_en) {
 			if (GET_PM_USAGE_CNT(chip) <= 0) {
-				
+				/* Remote wake up, increase pm_usage_cnt */
 				RTS51X_DEBUGP("Incr pm_usage_cnt\n");
 				SET_PM_USAGE_CNT(chip, 1);
 			}
@@ -194,10 +200,12 @@ int rts51x_reset_resume(struct usb_interface *iface)
 
 	mutex_unlock(&chip->usb->dev_mutex);
 
+	/* FIXME: Notify the subdrivers that they need to reinitialize
+	 * the device */
 	return 0;
 }
 
-#else 
+#else /* CONFIG_PM */
 
 void rts51x_try_to_enter_ss(struct rts51x_chip *chip)
 {
@@ -207,8 +215,12 @@ void rts51x_try_to_exit_ss(struct rts51x_chip *chip)
 {
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
+/*
+ * The next two routines get called just before and just after
+ * a USB port reset, whether from this driver or a different one.
+ */
 
 int rts51x_pre_reset(struct usb_interface *iface)
 {
@@ -216,7 +228,7 @@ int rts51x_pre_reset(struct usb_interface *iface)
 
 	RTS51X_DEBUGP("%s\n", __func__);
 
-	
+	/* Make sure no command runs during the reset */
 	mutex_lock(&chip->usb->dev_mutex);
 	return 0;
 }
@@ -227,9 +239,11 @@ int rts51x_post_reset(struct usb_interface *iface)
 
 	RTS51X_DEBUGP("%s\n", __func__);
 
-	
-	
+	/* Report the reset to the SCSI core */
+	/* usb_stor_report_bus_reset(us); */
 
+	/* FIXME: Notify the subdrivers that they need to reinitialize
+	 * the device */
 
 	mutex_unlock(&chip->usb->dev_mutex);
 	return 0;
@@ -249,13 +263,13 @@ static int rts51x_control_thread(void *__chip)
 			break;
 		}
 
-		
+		/* lock the device pointers */
 		mutex_lock(&(chip->usb->dev_mutex));
 
-		
+		/* lock access to the state */
 		scsi_lock(host);
 
-		
+		/* When we are called with no command pending, we're done */
 		if (chip->srb == NULL) {
 			scsi_unlock(host);
 			mutex_unlock(&chip->usb->dev_mutex);
@@ -263,7 +277,7 @@ static int rts51x_control_thread(void *__chip)
 			break;
 		}
 
-		
+		/* has the command timed out *already* ? */
 		if (test_bit(FLIDX_TIMED_OUT, &chip->usb->dflags)) {
 			chip->srb->result = DID_ABORT << 16;
 			goto SkipForAbort;
@@ -271,11 +285,17 @@ static int rts51x_control_thread(void *__chip)
 
 		scsi_unlock(host);
 
+		/* reject the command if the direction indicator
+		 * is UNKNOWN
+		 */
 		if (chip->srb->sc_data_direction == DMA_BIDIRECTIONAL) {
 			RTS51X_DEBUGP("UNKNOWN data direction\n");
 			chip->srb->result = DID_ERROR << 16;
 		}
 
+		/* reject if target != 0 or if LUN is higher than
+		 * the maximum known LUN
+		 */
 		else if (chip->srb->device->id) {
 			RTS51X_DEBUGP("Bad target number (%d:%d)\n",
 				       chip->srb->device->id,
@@ -290,41 +310,53 @@ static int rts51x_control_thread(void *__chip)
 			chip->srb->result = DID_BAD_TARGET << 16;
 		}
 
-		
+		/* we've got a command, let's do it! */
 		else {
 			RTS51X_DEBUG(scsi_show_command(chip->srb));
 			rts51x_invoke_transport(chip->srb, chip);
 		}
 
-		
+		/* lock access to the state */
 		scsi_lock(host);
 
-		
+		/* indicate that the command is done */
 		if (chip->srb->result != DID_ABORT << 16)
 			chip->srb->scsi_done(chip->srb);
 		else
 SkipForAbort :
 			RTS51X_DEBUGP("scsi command aborted\n");
 
+		/* If an abort request was received we need to signal that
+		 * the abort has finished.  The proper test for this is
+		 * the TIMED_OUT flag, not srb->result == DID_ABORT, because
+		 * the timeout might have occurred after the command had
+		 * already completed with a different result code. */
 		if (test_bit(FLIDX_TIMED_OUT, &chip->usb->dflags)) {
 			complete(&(chip->usb->notify));
 
-			
+			/* Allow USB transfers to resume */
 			clear_bit(FLIDX_ABORTING, &chip->usb->dflags);
 			clear_bit(FLIDX_TIMED_OUT, &chip->usb->dflags);
 		}
 
-		
+		/* finished working on this command */
 		chip->srb = NULL;
 		scsi_unlock(host);
 
-		
+		/* unlock the device pointers */
 		mutex_unlock(&chip->usb->dev_mutex);
-	}			
+	}			/* for (;;) */
 
 	complete(&chip->usb->control_exit);
 
-	
+	/* Wait until we are told to stop */
+/*	for (;;) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		if (kthread_should_stop())
+			break;
+		schedule();
+	}
+	__set_current_state(TASK_RUNNING);*/
 	return 0;
 }
 
@@ -333,20 +365,24 @@ static int rts51x_polling_thread(void *__chip)
 	struct rts51x_chip *chip = (struct rts51x_chip *)__chip;
 
 #ifdef SCSI_SCAN_DELAY
-	
+	/* Wait until SCSI scan finished */
 	wait_timeout((delay_use + 5) * HZ);
 #endif
 
 	for (;;) {
 		wait_timeout(POLLING_INTERVAL);
 
-		
+		/* if the device has disconnected, we are free to exit */
 		if (test_bit(FLIDX_DISCONNECTING, &chip->usb->dflags)) {
 			RTS51X_DEBUGP("-- exiting from rts51x-polling\n");
 			break;
 		}
 
-		
+		/* if the device has disconnected, we are free to exit */
+		/* if (kthread_should_stop()) {
+			printk(KERN_INFO "Stop polling thread!\n");
+			break;
+		} */
 
 #ifdef CONFIG_PM
 		if (RTS51X_CHK_STAT(chip, STAT_SS) ||
@@ -361,7 +397,7 @@ static int rts51x_polling_thread(void *__chip)
 				    (ss_delay * 1000 / POLLING_INTERVAL)) {
 					chip->ss_counter++;
 				} else {
-					
+					/* Prepare SS state */
 					RTS51X_SET_STAT(chip, STAT_SS_PRE);
 					rts51x_try_to_enter_ss(chip);
 					continue;
@@ -374,22 +410,30 @@ static int rts51x_polling_thread(void *__chip)
 
 		mspro_polling_format_status(chip);
 
-		
+		/* lock the device pointers */
 		mutex_lock(&(chip->usb->dev_mutex));
 
 		rts51x_polling_func(chip);
 
-		
+		/* unlock the device pointers */
 		mutex_unlock(&chip->usb->dev_mutex);
-	}			
+	}			/* for (;;) */
 
 	complete(&chip->usb->polling_exit);
 
-	
+	/* Wait until we are told to stop */
+	/* for (;;) {
+		set_current_state(TASK_INTERRUPTIBLE);
+		if (kthread_should_stop())
+		break;
+		schedule();
+		}
+	__set_current_state(TASK_RUNNING); */
 	return 0;
 }
 
 #ifdef SCSI_SCAN_DELAY
+/* Thread to carry out delayed SCSI-device scanning */
 static int rts51x_scan_thread(void *__chip)
 {
 	struct rts51x_chip *chip = (struct rts51x_chip *)__chip;
@@ -398,7 +442,7 @@ static int rts51x_scan_thread(void *__chip)
 	       "rts51x: device found at %d\n", chip->usb->pusb_dev->devnum);
 
 	set_freezable();
-	
+	/* Wait for the timeout to expire or for a disconnect */
 	if (delay_use > 0) {
 		printk(KERN_DEBUG "rts51x: waiting for device "
 		       "to settle before scanning\n");
@@ -408,18 +452,19 @@ static int rts51x_scan_thread(void *__chip)
 					     delay_use * HZ);
 	}
 
-	
+	/* If the device is still connected, perform the scanning */
 	if (!test_bit(FLIDX_DONT_SCAN, &chip->usb->dflags)) {
 		scsi_scan_host(rts51x_to_host(chip));
 		printk(KERN_DEBUG "rts51x: device scan complete\n");
 
-		
+		/* Should we unbind if no devices were detected? */
 	}
 
 	complete_and_exit(&chip->usb->scanning_done, 0);
 }
 #endif
 
+/* Associate our private data with the USB device */
 static int associate_dev(struct rts51x_chip *chip, struct usb_interface *intf)
 {
 	struct rts51x_usb *rts51x = chip->usb;
@@ -427,7 +472,7 @@ static int associate_dev(struct rts51x_chip *chip, struct usb_interface *intf)
 	int retval;
 #endif
 
-	
+	/* Fill in the device-related fields */
 	rts51x->pusb_dev = interface_to_usbdev(intf);
 	rts51x->pusb_intf = intf;
 	rts51x->ifnum = intf->cur_altsetting->desc.bInterfaceNumber;
@@ -439,21 +484,21 @@ static int associate_dev(struct rts51x_chip *chip, struct usb_interface *intf)
 		       intf->cur_altsetting->desc.bInterfaceSubClass,
 		       intf->cur_altsetting->desc.bInterfaceProtocol);
 
-	
+	/* Store our private data in the interface */
 	usb_set_intfdata(intf, chip);
 
 #ifdef SUPPORT_FILE_OP
-	
+	/* we can register the device now, as it is ready */
 	retval = usb_register_dev(intf, &rts51x_class);
 	if (retval) {
-		
+		/* something prevented us from registering this driver */
 		RTS51X_DEBUGP("Not able to get a minor for this device.");
 		usb_set_intfdata(intf, NULL);
 		return -ENOMEM;
 	}
 #endif
 
-	
+	/* Allocate the device-related DMA-mapped buffers */
 	rts51x->cr = usb_buffer_alloc(rts51x->pusb_dev, sizeof(*rts51x->cr),
 				      GFP_KERNEL, &rts51x->cr_dma);
 	if (!rts51x->cr) {
@@ -535,6 +580,7 @@ static void rts51x_init_options(struct rts51x_chip *chip)
 	option->led_always_on = 0;
 }
 
+/* Get the pipe settings */
 static int get_pipes(struct rts51x_chip *chip)
 {
 	struct rts51x_usb *rts51x = chip->usb;
@@ -546,6 +592,12 @@ static int get_pipes(struct rts51x_chip *chip)
 	struct usb_endpoint_descriptor *ep_out = NULL;
 	struct usb_endpoint_descriptor *ep_int = NULL;
 
+	/*
+	 * Find the first endpoint of each type we need.
+	 * We are expecting a minimum of 2 endpoints - in and out (bulk).
+	 * An optional interrupt-in is OK (necessary for CBI protocol).
+	 * We will ignore any others.
+	 */
 	for (i = 0; i < altsetting->desc.bNumEndpoints; i++) {
 		ep = &altsetting->endpoint[i].desc;
 
@@ -571,7 +623,7 @@ static int get_pipes(struct rts51x_chip *chip)
 		return -EIO;
 	}
 
-	
+	/* Calculate and store the pipe values */
 	rts51x->send_ctrl_pipe = usb_sndctrlpipe(rts51x->pusb_dev, 0);
 	rts51x->recv_ctrl_pipe = usb_rcvctrlpipe(rts51x->pusb_dev, 0);
 	rts51x->send_bulk_pipe = usb_sndbulkpipe(rts51x->pusb_dev,
@@ -587,6 +639,7 @@ static int get_pipes(struct rts51x_chip *chip)
 	return 0;
 }
 
+/* Initialize all the dynamic resources we need */
 static int rts51x_acquire_resources(struct rts51x_chip *chip)
 {
 	struct rts51x_usb *rts51x = chip->usb;
@@ -608,7 +661,7 @@ static int rts51x_acquire_resources(struct rts51x_chip *chip)
 
 	rts51x_init_options(chip);
 
-	
+	/* Init rts51xx device */
 	retval = rts51x_init_chip(chip);
 	if (retval != STATUS_SUCCESS)
 		return -EIO;
@@ -616,35 +669,43 @@ static int rts51x_acquire_resources(struct rts51x_chip *chip)
 	return 0;
 }
 
+/* Release all our dynamic resources */
 static void rts51x_release_resources(struct rts51x_chip *chip)
 {
 	RTS51X_DEBUGP("-- %s\n", __func__);
 
+	/* Tell the control thread to exit.  The SCSI host must
+	 * already have been removed and the DISCONNECTING flag set
+	 * so that we won't accept any more commands.
+	 */
 	RTS51X_DEBUGP("-- sending exit command to thread\n");
 	complete(&chip->usb->cmnd_ready);
 	if (chip->usb->ctl_thread)
 		wait_for_completion(&chip->usb->control_exit);
-		
+		/* kthread_stop(chip->usb->ctl_thread); */
 	if (chip->usb->polling_thread)
 		wait_for_completion(&chip->usb->polling_exit);
 
+	/* if (chip->usb->polling_thread)
+		kthread_stop(chip->usb->polling_thread); */
 
 	wait_timeout(200);
 
-	
+	/* Release rts51xx device here */
 	rts51x_release_chip(chip);
 
 	usb_free_urb(chip->usb->current_urb);
 	usb_free_urb(chip->usb->intr_urb);
 }
 
+/* Dissociate from the USB device */
 static void dissociate_dev(struct rts51x_chip *chip)
 {
 	struct rts51x_usb *rts51x = chip->usb;
 
 	RTS51X_DEBUGP("-- %s\n", __func__);
 
-	
+	/* Free the device-related DMA-mapped buffers */
 	if (rts51x->cr)
 		usb_buffer_free(rts51x->pusb_dev, sizeof(*rts51x->cr),
 				rts51x->cr, rts51x->cr_dma);
@@ -652,11 +713,11 @@ static void dissociate_dev(struct rts51x_chip *chip)
 		usb_buffer_free(rts51x->pusb_dev, RTS51X_IOBUF_SIZE,
 				rts51x->iobuf, rts51x->iobuf_dma);
 
-	
+	/* Remove our private data from the interface */
 	usb_set_intfdata(rts51x->pusb_intf, NULL);
 
 #ifdef SUPPORT_FILE_OP
-	
+	/* give back our minor */
 	usb_deregister_dev(rts51x->pusb_intf, &rts51x_class);
 #endif
 
@@ -664,23 +725,35 @@ static void dissociate_dev(struct rts51x_chip *chip)
 	chip->usb = NULL;
 }
 
+/* First stage of disconnect processing: stop SCSI scanning,
+ * remove the host, and stop accepting new commands
+ */
 static void quiesce_and_remove_host(struct rts51x_chip *chip)
 {
 	struct rts51x_usb *rts51x = chip->usb;
 	struct Scsi_Host *host = rts51x_to_host(chip);
 
-	
+	/* If the device is really gone, cut short reset delays */
 	if (rts51x->pusb_dev->state == USB_STATE_NOTATTACHED)
 		set_bit(FLIDX_DISCONNECTING, &rts51x->dflags);
 
 #ifdef SCSI_SCAN_DELAY
+	/* Prevent SCSI-scanning (if it hasn't started yet)
+	 * and wait for the SCSI-scanning thread to stop.
+	 */
 	set_bit(FLIDX_DONT_SCAN, &rts51x->dflags);
 	wake_up(&rts51x->delay_wait);
 	wait_for_completion(&rts51x->scanning_done);
 #endif
 
+	/* Removing the host will perform an orderly shutdown: caches
+	 * synchronized, disks spun down, etc.
+	 */
 	scsi_remove_host(host);
 
+	/* Prevent any new commands from being accepted and cut short
+	 * reset delays.
+	 */
 	scsi_lock(host);
 	set_bit(FLIDX_DISCONNECTING, &rts51x->dflags);
 	scsi_unlock(host);
@@ -689,11 +762,14 @@ static void quiesce_and_remove_host(struct rts51x_chip *chip)
 #endif
 }
 
+/* Second stage of disconnect processing: deallocate all resources */
 static void release_everything(struct rts51x_chip *chip)
 {
 	rts51x_release_resources(chip);
 	dissociate_dev(chip);
 
+	/* Drop our reference to the host; the SCSI core will free it
+	 * (and "chip" along with it) when the refcount becomes 0. */
 	scsi_host_put(rts51x_to_host(chip));
 }
 
@@ -715,6 +791,10 @@ static int rts51x_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
+	/*
+	 * Ask the SCSI layer to allocate a host structure, with extra
+	 * space at the end for our private us_data structure.
+	 */
 	host = scsi_host_alloc(&rts51x_host_template, sizeof(*chip));
 	if (!host) {
 		printk(KERN_WARNING RTS51X_TIP
@@ -723,6 +803,9 @@ static int rts51x_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
+	/*
+	 * Allow 16-byte CDBs and thus > 2TB
+	 */
 	host->max_cmd_len = 16;
 	chip = host_to_rts51x(host);
 	memset(chip, 0, sizeof(struct rts51x_chip));
@@ -742,22 +825,22 @@ static int rts51x_probe(struct usb_interface *intf,
 
 	chip->usb = rts51x;
 
-	
+	/* Associate the us_data structure with the USB device */
 	result = associate_dev(chip, intf);
 	if (result)
 		goto BadDevice;
 
-	
+	/* Find the endpoints and calculate pipe values */
 	result = get_pipes(chip);
 	if (result)
 		goto BadDevice;
 
-	
+	/* Acquire all the other resources and add the host */
 	result = rts51x_acquire_resources(chip);
 	if (result)
 		goto BadDevice;
 
-	
+	/* Start up our control thread */
 	th = kthread_run(rts51x_control_thread, chip, RTS51X_CTL_THREAD);
 	if (IS_ERR(th)) {
 		printk(KERN_WARNING RTS51X_TIP
@@ -773,7 +856,7 @@ static int rts51x_probe(struct usb_interface *intf,
 		goto BadDevice;
 	}
 #ifdef SCSI_SCAN_DELAY
-	
+	/* Start up the thread for delayed SCSI-device scanning */
 	th = kthread_create(rts51x_scan_thread, chip, RTS51X_SCAN_THREAD);
 	if (IS_ERR(th)) {
 		printk(KERN_WARNING RTS51X_TIP
@@ -789,7 +872,7 @@ static int rts51x_probe(struct usb_interface *intf,
 	scsi_scan_host(rts51x_to_host(chip));
 #endif
 
-	
+	/* Start up our polling thread */
 	th = kthread_run(rts51x_polling_thread, chip, RTS51X_POLLING_THREAD);
 	if (IS_ERR(th)) {
 		printk(KERN_WARNING RTS51X_TIP
@@ -809,7 +892,7 @@ static int rts51x_probe(struct usb_interface *intf,
 
 	return 0;
 
-	
+	/* We come here if there are any problems */
 BadDevice:
 	RTS51X_DEBUGP("rts51x_probe() failed\n");
 	release_everything(chip);
@@ -825,11 +908,14 @@ static void rts51x_disconnect(struct usb_interface *intf)
 	release_everything(chip);
 }
 
+/***********************************************************************
+ * Initialization and registration
+ ***********************************************************************/
 
 struct usb_device_id rts5139_usb_ids[] = {
 	{USB_DEVICE(0x0BDA, 0x0139)},
 	{USB_DEVICE(0x0BDA, 0x0129)},
-	{}			
+	{}			/* Terminating entry */
 };
 EXPORT_SYMBOL_GPL(rts5139_usb_ids);
 

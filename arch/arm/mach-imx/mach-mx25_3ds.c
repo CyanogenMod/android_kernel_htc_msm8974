@@ -16,6 +16,11 @@
  * Boston, MA  02110-1301, USA.
  */
 
+/*
+ * This machine is known as:
+ *  - i.MX25 3-Stack Development System
+ *  - i.MX25 Platform Development Kit (i.MX25 PDK)
+ */
 
 #include <linux/types.h>
 #include <linux/init.h>
@@ -54,10 +59,10 @@ static iomux_v3_cfg_t mx25pdk_pads[] = {
 	MX25_PAD_FEC_RDATA1__FEC_RDATA1,
 	MX25_PAD_FEC_RX_DV__FEC_RX_DV,
 	MX25_PAD_FEC_TX_CLK__FEC_TX_CLK,
-	MX25_PAD_A17__GPIO_2_3, 
-	MX25_PAD_D12__GPIO_4_8, 
+	MX25_PAD_A17__GPIO_2_3, /* FEC_EN, GPIO 35 */
+	MX25_PAD_D12__GPIO_4_8, /* FEC_RESET_B, GPIO 104 */
 
-	
+	/* LCD */
 	MX25_PAD_LD0__LD0,
 	MX25_PAD_LD1__LD1,
 	MX25_PAD_LD2__LD2,
@@ -82,7 +87,7 @@ static iomux_v3_cfg_t mx25pdk_pads[] = {
 	MX25_PAD_OE_ACD__OE_ACD,
 	MX25_PAD_CONTRAST__CONTRAST,
 
-	
+	/* Keypad */
 	MX25_PAD_KPP_ROW0__KPP_ROW0,
 	MX25_PAD_KPP_ROW1__KPP_ROW1,
 	MX25_PAD_KPP_ROW2__KPP_ROW2,
@@ -92,24 +97,24 @@ static iomux_v3_cfg_t mx25pdk_pads[] = {
 	MX25_PAD_KPP_COL2__KPP_COL2,
 	MX25_PAD_KPP_COL3__KPP_COL3,
 
-	
+	/* SD1 */
 	MX25_PAD_SD1_CMD__SD1_CMD,
 	MX25_PAD_SD1_CLK__SD1_CLK,
 	MX25_PAD_SD1_DATA0__SD1_DATA0,
 	MX25_PAD_SD1_DATA1__SD1_DATA1,
 	MX25_PAD_SD1_DATA2__SD1_DATA2,
 	MX25_PAD_SD1_DATA3__SD1_DATA3,
-	MX25_PAD_A14__GPIO_2_0, 
-	MX25_PAD_A15__GPIO_2_1, 
+	MX25_PAD_A14__GPIO_2_0, /* WriteProtect */
+	MX25_PAD_A15__GPIO_2_1, /* CardDetect */
 
-	
+	/* I2C1 */
 	MX25_PAD_I2C1_CLK__I2C1_CLK,
 	MX25_PAD_I2C1_DAT__I2C1_DAT,
 
-	
+	/* CAN1 */
 	MX25_PAD_GPIO_A__CAN1_TX,
 	MX25_PAD_GPIO_B__CAN1_RX,
-	MX25_PAD_D14__GPIO_4_6,	
+	MX25_PAD_D14__GPIO_4_6,	/* CAN_PWDN */
 };
 
 static const struct fec_platform_data mx25_fec_pdata __initconst = {
@@ -124,11 +129,11 @@ static void __init mx25pdk_fec_reset(void)
 	gpio_request(FEC_ENABLE_GPIO, "FEC PHY enable");
 	gpio_request(FEC_RESET_B_GPIO, "FEC PHY reset");
 
-	gpio_direction_output(FEC_ENABLE_GPIO, 0);  
-	gpio_direction_output(FEC_RESET_B_GPIO, 0); 
+	gpio_direction_output(FEC_ENABLE_GPIO, 0);  /* drop PHY power */
+	gpio_direction_output(FEC_RESET_B_GPIO, 0); /* assert reset */
 	udelay(2);
 
-	
+	/* turn on PHY power and lift reset */
 	gpio_set_value(FEC_ENABLE_GPIO, 1);
 	gpio_set_value(FEC_RESET_B_GPIO, 1);
 }
@@ -257,7 +262,7 @@ static struct sys_timer mx25pdk_timer = {
 };
 
 MACHINE_START(MX25_3DS, "Freescale MX25PDK (3DS)")
-	
+	/* Maintainer: Freescale Semiconductor, Inc. */
 	.atag_offset = 0x100,
 	.map_io = mx25_map_io,
 	.init_early = imx25_init_early,

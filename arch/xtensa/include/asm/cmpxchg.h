@@ -15,6 +15,9 @@
 
 #include <linux/stringify.h>
 
+/*
+ * cmpxchg
+ */
 
 static inline unsigned long
 __cmpxchg_u32(volatile int *p, int old, int new)
@@ -31,6 +34,8 @@ __cmpxchg_u32(volatile int *p, int old, int new)
 		       : "a15", "memory");
   return old;
 }
+/* This function doesn't exist, so you'll get a linker error
+ * if something tries to do an invalid cmpxchg(). */
 
 extern void __cmpxchg_called_with_bad_pointer(void);
 
@@ -67,11 +72,24 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
 	return old;
 }
 
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
 #define cmpxchg_local(ptr, o, n)				  	       \
 	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
 			(unsigned long)(n), sizeof(*(ptr))))
 #define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 
+/*
+ * xchg_u32
+ *
+ * Note that a15 is used here because the register allocation
+ * done by the compiler is not guaranteed and a window overflow
+ * may not occur between the rsil and wsr instructions. By using
+ * a15 in the rsil, the machine is guaranteed to be in a state
+ * where no register reference will cause an overflow.
+ */
 
 static inline unsigned long xchg_u32(volatile int * m, unsigned long val)
 {
@@ -89,6 +107,11 @@ static inline unsigned long xchg_u32(volatile int * m, unsigned long val)
 
 #define xchg(ptr,x) ((__typeof__(*(ptr)))__xchg((unsigned long)(x),(ptr),sizeof(*(ptr))))
 
+/*
+ * This only works if the compiler isn't horribly bad at optimizing.
+ * gcc-2.5.8 reportedly can't handle this, but I define that one to
+ * be dead anyway.
+ */
 
 extern void __xchg_called_with_bad_pointer(void);
 
@@ -103,6 +126,6 @@ __xchg(unsigned long x, volatile void * ptr, int size)
 	return x;
 }
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _XTENSA_CMPXCHG_H */

@@ -87,7 +87,7 @@ void  audio_in_get_dsp_frames(void *priv,
 	audio->out_frame_info[index][0] = payload[9];
 	audio->out_frame_info[index][1] = payload[5];
 
-	
+	/* statistics of read */
 	atomic_add(payload[4], &audio->in_bytes);
 	atomic_add(payload[9], &audio->in_samples);
 

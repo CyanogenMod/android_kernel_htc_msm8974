@@ -70,28 +70,30 @@ MODULE_LICENSE("GPL");
 #define NOTIFY_KBD_BRTUP		0xc4
 #define NOTIFY_KBD_BRTDWN		0xc5
 
-#define ASUS_WMI_METHODID_SPEC	        0x43455053 
-#define ASUS_WMI_METHODID_SFBD		0x44424653 
-#define ASUS_WMI_METHODID_GLCD		0x44434C47 
-#define ASUS_WMI_METHODID_GPID		0x44495047 
-#define ASUS_WMI_METHODID_QMOD		0x444F4D51 
-#define ASUS_WMI_METHODID_SPLV		0x4C425053 
-#define ASUS_WMI_METHODID_SFUN		0x4E554653 
-#define ASUS_WMI_METHODID_SDSP		0x50534453 
-#define ASUS_WMI_METHODID_GDSP		0x50534447 
-#define ASUS_WMI_METHODID_DEVP		0x50564544 
-#define ASUS_WMI_METHODID_OSVR		0x5256534F 
-#define ASUS_WMI_METHODID_DSTS		0x53544344 
-#define ASUS_WMI_METHODID_DSTS2		0x53545344 
-#define ASUS_WMI_METHODID_BSTS		0x53545342 
-#define ASUS_WMI_METHODID_DEVS		0x53564544 
-#define ASUS_WMI_METHODID_CFVS		0x53564643 
-#define ASUS_WMI_METHODID_KBFT		0x5446424B 
-#define ASUS_WMI_METHODID_INIT		0x54494E49 
-#define ASUS_WMI_METHODID_HKEY		0x59454B48 
+/* WMI Methods */
+#define ASUS_WMI_METHODID_SPEC	        0x43455053 /* BIOS SPECification */
+#define ASUS_WMI_METHODID_SFBD		0x44424653 /* Set First Boot Device */
+#define ASUS_WMI_METHODID_GLCD		0x44434C47 /* Get LCD status */
+#define ASUS_WMI_METHODID_GPID		0x44495047 /* Get Panel ID?? (Resol) */
+#define ASUS_WMI_METHODID_QMOD		0x444F4D51 /* Quiet MODe */
+#define ASUS_WMI_METHODID_SPLV		0x4C425053 /* Set Panel Light Value */
+#define ASUS_WMI_METHODID_SFUN		0x4E554653 /* FUNCtionalities */
+#define ASUS_WMI_METHODID_SDSP		0x50534453 /* Set DiSPlay output */
+#define ASUS_WMI_METHODID_GDSP		0x50534447 /* Get DiSPlay output */
+#define ASUS_WMI_METHODID_DEVP		0x50564544 /* DEVice Policy */
+#define ASUS_WMI_METHODID_OSVR		0x5256534F /* OS VeRsion */
+#define ASUS_WMI_METHODID_DSTS		0x53544344 /* Device STatuS */
+#define ASUS_WMI_METHODID_DSTS2		0x53545344 /* Device STatuS #2*/
+#define ASUS_WMI_METHODID_BSTS		0x53545342 /* Bios STatuS ? */
+#define ASUS_WMI_METHODID_DEVS		0x53564544 /* DEVice Set */
+#define ASUS_WMI_METHODID_CFVS		0x53564643 /* CPU Frequency Volt Set */
+#define ASUS_WMI_METHODID_KBFT		0x5446424B /* KeyBoard FilTer */
+#define ASUS_WMI_METHODID_INIT		0x54494E49 /* INITialize */
+#define ASUS_WMI_METHODID_HKEY		0x59454B48 /* Hot KEY ?? */
 
 #define ASUS_WMI_UNSUPPORTED_METHOD	0xFFFFFFFE
 
+/* Wireless */
 #define ASUS_WMI_DEVID_HW_SWITCH	0x00010001
 #define ASUS_WMI_DEVID_WIRELESS_LED	0x00010002
 #define ASUS_WMI_DEVID_CWAP		0x00010003
@@ -102,6 +104,8 @@ MODULE_LICENSE("GPL");
 #define ASUS_WMI_DEVID_WWAN3G		0x00010019
 #define ASUS_WMI_DEVID_UWB		0x00010021
 
+/* Leds */
+/* 0x000200XX and 0x000400XX */
 #define ASUS_WMI_DEVID_LED1		0x00020011
 #define ASUS_WMI_DEVID_LED2		0x00020012
 #define ASUS_WMI_DEVID_LED3		0x00020013
@@ -109,23 +113,30 @@ MODULE_LICENSE("GPL");
 #define ASUS_WMI_DEVID_LED5		0x00020015
 #define ASUS_WMI_DEVID_LED6		0x00020016
 
+/* Backlight and Brightness */
 #define ASUS_WMI_DEVID_BACKLIGHT	0x00050011
 #define ASUS_WMI_DEVID_BRIGHTNESS	0x00050012
 #define ASUS_WMI_DEVID_KBD_BACKLIGHT	0x00050021
-#define ASUS_WMI_DEVID_LIGHT_SENSOR	0x00050022 
+#define ASUS_WMI_DEVID_LIGHT_SENSOR	0x00050022 /* ?? */
 
+/* Misc */
 #define ASUS_WMI_DEVID_CAMERA		0x00060013
 
+/* Storage */
 #define ASUS_WMI_DEVID_CARDREADER	0x00080013
 
+/* Input */
 #define ASUS_WMI_DEVID_TOUCHPAD		0x00100011
 #define ASUS_WMI_DEVID_TOUCHPAD_LED	0x00100012
 
+/* Fan, Thermal */
 #define ASUS_WMI_DEVID_THERMAL_CTRL	0x00110011
 #define ASUS_WMI_DEVID_FAN_CTRL		0x00110012
 
+/* Power */
 #define ASUS_WMI_DEVID_PROCESSOR_STATE	0x00120012
 
+/* DSTS masks */
 #define ASUS_WMI_DSTS_STATUS_BIT	0x00000001
 #define ASUS_WMI_DSTS_UNKNOWN_BIT	0x00000002
 #define ASUS_WMI_DSTS_PRESENCE_BIT	0x00010000
@@ -139,6 +150,15 @@ struct bios_args {
 	u32 arg1;
 } __packed;
 
+/*
+ * <platform>/    - debugfs root directory
+ *   dev_id      - current dev_id
+ *   ctrl_param  - current ctrl_param
+ *   method_id   - current method_id
+ *   devs        - call DEVS(dev_id, ctrl_param) and print result
+ *   dsts        - call DSTS(dev_id)  and print result
+ *   call        - call method_id(dev_id, ctrl_param) and print result
+ */
 struct asus_wmi_debug {
 	struct dentry *root;
 	u32 method_id;
@@ -281,6 +301,7 @@ static int asus_wmi_set_devstate(u32 dev_id, u32 ctrl_param,
 					ctrl_param, retval);
 }
 
+/* Helper for special devices with magic return codes */
 static int asus_wmi_get_devstate_bits(struct asus_wmi *asus,
 				      u32 dev_id, u32 mask)
 {
@@ -309,6 +330,15 @@ static int asus_wmi_get_devstate_simple(struct asus_wmi *asus, u32 dev_id)
 					  ASUS_WMI_DSTS_STATUS_BIT);
 }
 
+/*
+ * LEDs
+ */
+/*
+ * These functions actually update the LED's, and are called from a
+ * workqueue. By doing this as separate work rather than when the LED
+ * subsystem asks, we avoid messing with the Asus ACPI stuff during a
+ * potentially bad time, such as a timer interrupt.
+ */
 static void tpd_led_update(struct work_struct *work)
 {
 	int ctrl_param;
@@ -352,6 +382,10 @@ static void kbd_led_update(struct work_struct *work)
 
 	asus = container_of(work, struct asus_wmi, kbd_led_work);
 
+	/*
+	 * bits 0-2: level
+	 * bit 7: light on/off
+	 */
 	if (asus->kbd_led_wk > 0)
 		ctrl_param = 0x80 | (asus->kbd_led_wk & 0x7F);
 
@@ -362,10 +396,16 @@ static int kbd_led_read(struct asus_wmi *asus, int *level, int *env)
 {
 	int retval;
 
+	/*
+	 * bits 0-2: level
+	 * bit 7: light on/off
+	 * bit 8-10: environment (0: dark, 1: normal, 2: light)
+	 * bit 17: status unknown
+	 */
 	retval = asus_wmi_get_devstate_bits(asus, ASUS_WMI_DEVID_KBD_BACKLIGHT,
 					    0xFFFF);
 
-	
+	/* Unknown status is considered as off */
 	if (retval == 0x8000)
 		retval = 0;
 
@@ -463,6 +503,9 @@ error:
 }
 
 
+/*
+ * PCI hotplug (for wlan rfkill)
+ */
 static bool asus_wlan_rfkill_blocked(struct asus_wmi *asus)
 {
 	int result = asus_wmi_get_devstate_simple(asus, ASUS_WMI_DEVID_WLAN);
@@ -515,7 +558,7 @@ static void asus_rfkill_hotplug(struct asus_wmi *asus)
 		if (!blocked) {
 			dev = pci_get_slot(bus, 0);
 			if (dev) {
-				
+				/* Device already present */
 				pci_dev_put(dev);
 				goto out_unlock;
 			}
@@ -545,6 +588,13 @@ static void asus_rfkill_notify(acpi_handle handle, u32 event, void *data)
 	if (event != ACPI_NOTIFY_BUS_CHECK)
 		return;
 
+	/*
+	 * We can't call directly asus_rfkill_hotplug because most
+	 * of the time WMBC is still being executed and not reetrant.
+	 * There is currently no way to tell ACPICA that  we want this
+	 * method to be serialized, we schedule a asus_rfkill_hotplug
+	 * call later, in a safer context.
+	 */
 	queue_work(asus->hotplug_workqueue, &asus->hotplug_work);
 }
 
@@ -668,6 +718,9 @@ error_workqueue:
 	return ret;
 }
 
+/*
+ * Rfkill devices
+ */
 static int asus_rfkill_set(void *data, bool blocked)
 {
 	struct asus_rfkill *priv = data;
@@ -695,6 +748,13 @@ static int asus_rfkill_wlan_set(void *data, bool blocked)
 	struct asus_wmi *asus = priv->asus;
 	int ret;
 
+	/*
+	 * This handler is enabled only if hotplug is enabled.
+	 * In this case, the asus_wmi_set_devstate() will
+	 * trigger a wmi notification and we need to wait
+	 * this call to finish before being able to call
+	 * any wmi method
+	 */
 	mutex_lock(&asus->wmi_lock);
 	ret = asus_rfkill_set(data, blocked);
 	mutex_unlock(&asus->wmi_lock);
@@ -755,6 +815,10 @@ static void asus_wmi_rfkill_exit(struct asus_wmi *asus)
 		rfkill_destroy(asus->wlan.rfkill);
 		asus->wlan.rfkill = NULL;
 	}
+	/*
+	 * Refresh pci hotplug in case the rfkill state was changed after
+	 * asus_unregister_rfkill_notifier()
+	 */
 	asus_rfkill_hotplug(asus);
 	if (asus->hotplug_slot)
 		pci_hp_deregister(asus->hotplug_slot);
@@ -836,12 +900,20 @@ static int asus_wmi_rfkill_init(struct asus_wmi *asus)
 		goto exit;
 
 	result = asus_setup_pci_hotplug(asus);
+	/*
+	 * If we get -EBUSY then something else is handling the PCI hotplug -
+	 * don't fail in this case
+	 */
 	if (result == -EBUSY)
 		result = 0;
 
 	asus_register_rfkill_notifier(asus, "\\_SB.PCI0.P0P5");
 	asus_register_rfkill_notifier(asus, "\\_SB.PCI0.P0P6");
 	asus_register_rfkill_notifier(asus, "\\_SB.PCI0.P0P7");
+	/*
+	 * Refresh pci hotplug in case the rfkill state was changed during
+	 * setup.
+	 */
 	asus_rfkill_hotplug(asus);
 
 exit:
@@ -854,6 +926,9 @@ exit:
 	return result;
 }
 
+/*
+ * Hwmon device
+ */
 static ssize_t asus_hwmon_pwm1(struct device *dev,
 			       struct device_attribute *attr,
 			       char *buf)
@@ -869,7 +944,7 @@ static ssize_t asus_hwmon_pwm1(struct device *dev,
 
 	value &= 0xFF;
 
-	if (value == 1) 
+	if (value == 1) /* Low Speed */
 		value = 85;
 	else if (value == 2)
 		value = 170;
@@ -937,15 +1012,23 @@ static umode_t asus_hwmon_sysfs_is_visible(struct kobject *kobj,
 		int err = asus_wmi_get_devstate(asus, dev_id, &value);
 
 		if (err < 0)
-			return 0; 
+			return 0; /* can't return negative here */
 	}
 
 	if (dev_id == ASUS_WMI_DEVID_FAN_CTRL) {
+		/*
+		 * We need to find a better way, probably using sfun,
+		 * bits or spec ...
+		 * Currently we disable it if:
+		 * - ASUS_WMI_UNSUPPORTED_METHOD is returned
+		 * - reverved bits are non-zero
+		 * - sfun and presence bit are not set
+		 */
 		if (value == ASUS_WMI_UNSUPPORTED_METHOD || value & 0xFFF80000
 		    || (!asus->sfun && !(value & ASUS_WMI_DSTS_PRESENCE_BIT)))
 			ok = false;
 	} else if (dev_id == ASUS_WMI_DEVID_THERMAL_CTRL) {
-		
+		/* If value is zero, something is clearly wrong */
 		if (value == 0)
 			ok = false;
 	}
@@ -988,6 +1071,9 @@ static int asus_wmi_hwmon_init(struct asus_wmi *asus)
 	return result;
 }
 
+/*
+ * Backlight
+ */
 static int read_backlight_power(struct asus_wmi *asus)
 {
 	int ret;
@@ -1067,6 +1153,8 @@ static int update_bl_status(struct backlight_device *bd)
 		if (asus->driver->quirks->store_backlight_power)
 			asus->driver->panel_power = bd->props.power;
 
+		/* When using scalar brightness, updating the brightness
+		 * will mess with the backlight power */
 		if (asus->driver->quirks->scalar_panel_brightness)
 			return err;
 	}
@@ -1208,6 +1296,9 @@ exit:
 	kfree(obj);
 }
 
+/*
+ * Sys helpers
+ */
 static int parse_arg(const char *buf, unsigned long count, int *val)
 {
 	if (!count)
@@ -1224,7 +1315,7 @@ static ssize_t store_sys_wmi(struct asus_wmi *asus, int devid,
 	int rv, err, value;
 
 	value = asus_wmi_get_devstate_simple(asus, devid);
-	if (value == -ENODEV)	
+	if (value == -ENODEV)	/* Check device presence */
 		return value;
 
 	rv = parse_arg(buf, count, &value);
@@ -1339,25 +1430,41 @@ static int asus_wmi_sysfs_init(struct platform_device *device)
 	return sysfs_create_group(&device->dev.kobj, &platform_attribute_group);
 }
 
+/*
+ * Platform device
+ */
 static int asus_wmi_platform_init(struct asus_wmi *asus)
 {
 	int rv;
 
-	
+	/* INIT enable hotkeys on some models */
 	if (!asus_wmi_evaluate_method(ASUS_WMI_METHODID_INIT, 0, 0, &rv))
 		pr_info("Initialization: %#x", rv);
 
-	
+	/* We don't know yet what to do with this version... */
 	if (!asus_wmi_evaluate_method(ASUS_WMI_METHODID_SPEC, 0, 0x9, &rv)) {
 		pr_info("BIOS WMI version: %d.%d", rv >> 16, rv & 0xFF);
 		asus->spec = rv;
 	}
 
+	/*
+	 * The SFUN method probably allows the original driver to get the list
+	 * of features supported by a given model. For now, 0x0100 or 0x0800
+	 * bit signifies that the laptop is equipped with a Wi-Fi MiniPCI card.
+	 * The significance of others is yet to be found.
+	 */
 	if (!asus_wmi_evaluate_method(ASUS_WMI_METHODID_SFUN, 0, 0, &rv)) {
 		pr_info("SFUN value: %#x", rv);
 		asus->sfun = rv;
 	}
 
+	/*
+	 * Eee PC and Notebooks seems to have different method_id for DSTS,
+	 * but it may also be related to the BIOS's SPEC.
+	 * Note, on most Eeepc, there is no way to check if a method exist
+	 * or note, while on notebooks, they returns 0xFFFFFFFE on failure,
+	 * but once again, SPEC may probably be used for that kind of things.
+	 */
 	if (!asus_wmi_evaluate_method(ASUS_WMI_METHODID_DSTS, 0, 0, NULL))
 		asus->dsts_id = ASUS_WMI_METHODID_DSTS;
 	else if (!asus_wmi_evaluate_method(ASUS_WMI_METHODID_DSTS2, 0, 0, NULL))
@@ -1368,6 +1475,8 @@ static int asus_wmi_platform_init(struct asus_wmi *asus)
 		return -ENODEV;
 	}
 
+	/* CWAP allow to define the behavior of the Fn+F2 key,
+	 * this method doesn't seems to be present on Eee PCs */
 	if (asus->driver->quirks->wapf >= 0)
 		asus_wmi_set_devstate(ASUS_WMI_DEVID_CWAP,
 				      asus->driver->quirks->wapf, NULL);
@@ -1380,6 +1489,9 @@ static void asus_wmi_platform_exit(struct asus_wmi *asus)
 	asus_wmi_sysfs_exit(asus->platform_device);
 }
 
+/*
+ * debugfs
+ */
 struct asus_wmi_debugfs_node {
 	struct asus_wmi *asus;
 	char *name;
@@ -1526,6 +1638,9 @@ error_debugfs:
 	return -ENOMEM;
 }
 
+/*
+ * WMI Driver
+ */
 static int asus_wmi_add(struct platform_device *pdev)
 {
 	struct platform_driver *pdrv = to_platform_driver(pdev->dev.driver);
@@ -1624,6 +1739,9 @@ static int asus_wmi_remove(struct platform_device *device)
 	return 0;
 }
 
+/*
+ * Platform driver - hibernate/resume callbacks
+ */
 static int asus_hotk_thaw(struct device *device)
 {
 	struct asus_wmi *asus = dev_get_drvdata(device);
@@ -1631,6 +1749,11 @@ static int asus_hotk_thaw(struct device *device)
 	if (asus->wlan.rfkill) {
 		bool wlan;
 
+		/*
+		 * Work around bios bug - acpi _PTS turns off the wireless led
+		 * during suspend.  Normally it restores it on resume, but
+		 * we should kick it ourselves in case hibernation is aborted.
+		 */
 		wlan = asus_wmi_get_devstate_simple(asus, ASUS_WMI_DEVID_WLAN);
 		asus_wmi_set_devstate(ASUS_WMI_DEVID_WLAN, wlan, NULL);
 	}
@@ -1643,7 +1766,7 @@ static int asus_hotk_restore(struct device *device)
 	struct asus_wmi *asus = dev_get_drvdata(device);
 	int bl;
 
-	
+	/* Refresh both wlan rfkill state and pci hotplug */
 	if (asus->wlan.rfkill)
 		asus_rfkill_hotplug(asus);
 

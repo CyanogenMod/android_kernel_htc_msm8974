@@ -10,6 +10,7 @@
  *
  */
 
+/* All Registers original Siemens Spec  */
 
 #define HSCX_ISTA 0x20
 #define HSCX_CCR1 0x2f

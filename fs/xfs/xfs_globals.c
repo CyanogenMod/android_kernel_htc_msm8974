@@ -18,8 +18,13 @@
 #include "xfs.h"
 #include "xfs_sysctl.h"
 
+/*
+ * Tunable XFS parameters.  xfs_params is required even when CONFIG_SYSCTL=n,
+ * other XFS code uses these values.  Times are measured in centisecs (i.e.
+ * 100ths of a second).
+ */
 xfs_param_t xfs_params = {
-			  
+			  /*	MIN		DFLT		MAX	*/
 	.sgid_inherit	= {	0,		0,		1	},
 	.symlink_mode	= {	0,		0,		1	},
 	.panic_mask	= {	0,		0,		255	},

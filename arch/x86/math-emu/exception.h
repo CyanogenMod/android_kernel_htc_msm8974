@@ -17,19 +17,21 @@
 
 #ifndef SW_C1
 #include "fpu_emu.h"
-#endif 
+#endif /* SW_C1 */
 
-#define FPU_BUSY        Const_(0x8000)	
-#define EX_ErrorSummary Const_(0x0080)	
-#define	EX_INTERNAL	Const_(0x8000)	
-#define EX_StackOver	Const_(0x0041|SW_C1)	
-#define EX_StackUnder	Const_(0x0041)	
-#define EX_Precision	Const_(0x0020)	
-#define EX_Underflow	Const_(0x0010)	
-#define EX_Overflow	Const_(0x0008)	
-#define EX_ZeroDiv	Const_(0x0004)	
-#define EX_Denormal	Const_(0x0002)	
-#define EX_Invalid	Const_(0x0001)	
+#define FPU_BUSY        Const_(0x8000)	/* FPU busy bit (8087 compatibility) */
+#define EX_ErrorSummary Const_(0x0080)	/* Error summary status */
+/* Special exceptions: */
+#define	EX_INTERNAL	Const_(0x8000)	/* Internal error in wm-FPU-emu */
+#define EX_StackOver	Const_(0x0041|SW_C1)	/* stack overflow */
+#define EX_StackUnder	Const_(0x0041)	/* stack underflow */
+/* Exception flags: */
+#define EX_Precision	Const_(0x0020)	/* loss of precision */
+#define EX_Underflow	Const_(0x0010)	/* underflow */
+#define EX_Overflow	Const_(0x0008)	/* overflow */
+#define EX_ZeroDiv	Const_(0x0004)	/* divide by zero */
+#define EX_Denormal	Const_(0x0002)	/* denormalized operand */
+#define EX_Invalid	Const_(0x0001)	/* invalid operation */
 
 #define PRECISION_LOST_UP    Const_((EX_Precision | SW_C1))
 #define PRECISION_LOST_DOWN  Const_(EX_Precision)
@@ -43,6 +45,6 @@
 #define	EXCEPTION(x)	FPU_exception(x)
 #endif
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _EXCEPTION_H_ */

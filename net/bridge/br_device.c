@@ -22,6 +22,7 @@
 #include <asm/uaccess.h>
 #include "br_private.h"
 
+/* net device transmit always called with BH disabled */
 netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct net_bridge *br = netdev_priv(dev);
@@ -44,7 +45,7 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	u64_stats_update_begin(&brstats->syncp);
 	brstats->tx_packets++;
-	
+	/* Exclude ETH_HLEN from byte stats for consistency with Rx chain */
 	brstats->tx_bytes += skb->len;
 	u64_stats_update_end(&brstats->syncp);
 
@@ -153,13 +154,14 @@ static int br_change_mtu(struct net_device *dev, int new_mtu)
 	dev->mtu = new_mtu;
 
 #ifdef CONFIG_BRIDGE_NETFILTER
-	
+	/* remember the MTU in the rtable for PMTU */
 	dst_metric_set(&br->fake_rtable.dst, RTAX_MTU, new_mtu);
 #endif
 
 	return 0;
 }
 
+/* Allow setting mac address to any valid ethernet address. */
 static int br_set_mac_address(struct net_device *dev, void *p)
 {
 	struct net_bridge *br = netdev_priv(dev);
@@ -269,7 +271,7 @@ void br_netpoll_disable(struct net_bridge_port *p)
 
 	p->np = NULL;
 
-	
+	/* Wait for transmitting packets to finish before freeing. */
 	synchronize_rcu_bh();
 
 	__netpoll_cleanup(np);

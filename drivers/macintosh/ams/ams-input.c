@@ -51,6 +51,7 @@ static void ams_idev_poll(struct input_polled_dev *dev)
 	mutex_unlock(&ams_info.lock);
 }
 
+/* Call with ams_info.lock held! */
 static int ams_input_enable(void)
 {
 	struct input_dev *input;

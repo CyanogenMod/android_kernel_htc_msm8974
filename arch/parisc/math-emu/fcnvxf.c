@@ -18,6 +18,31 @@
  *    along with this program; if not, write to the Free Software
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * BEGIN_DESC
+ *
+ *  File:
+ *	@(#)	pa/spmath/fcnvxf.c		$Revision: 1.1 $
+ *
+ *  Purpose:
+ *	Single Fixed-point to Single Floating-point
+ *	Single Fixed-point to Double Floating-point 
+ *	Double Fixed-point to Single Floating-point 
+ *	Double Fixed-point to Double Floating-point 
+ *
+ *  External Interfaces:
+ *	dbl_to_dbl_fcnvxf(srcptr,nullptr,dstptr,status)
+ *	dbl_to_sgl_fcnvxf(srcptr,nullptr,dstptr,status)
+ *	sgl_to_dbl_fcnvxf(srcptr,nullptr,dstptr,status)
+ *	sgl_to_sgl_fcnvxf(srcptr,nullptr,dstptr,status)
+ *
+ *  Internal Interfaces:
+ *
+ *  Theory:
+ *	<<please update with a overview of the operation of this file>>
+ *
+ * END_DESC
+*/
 
 
 #include "float.h"
@@ -25,6 +50,9 @@
 #include "dbl_float.h"
 #include "cnv_float.h"
 
+/*
+ *  Convert single fixed-point to single floating-point format
+ */
 
 int
 sgl_to_sgl_fcnvxf(
@@ -37,28 +65,39 @@ sgl_to_sgl_fcnvxf(
 	register unsigned int result = 0;
 
 	src = *srcptr;
+	/* 
+	 * set sign bit of result and get magnitude of source 
+	 */
 	if (src < 0) {
 		Sgl_setone_sign(result);  
 		Int_negate(src);
 	}
 	else {
 		Sgl_setzero_sign(result);
-        	 
+        	/* Check for zero */ 
         	if (src == 0) { 
                 	Sgl_setzero(result); 
 			*dstptr = result;
                 	return(NOEXCEPTION); 
         	} 
 	}
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
+	/*
+	 * Check word for most significant bit set.  Returns
+	 * a value in dst_exponent indicating the bit position,
+	 * between -1 and 30.
+	 */
 	Find_ms_one_bit(src,dst_exponent);
-	
+	/*  left justify source, with msb at bit position 1  */
 	if (dst_exponent >= 0) src <<= dst_exponent;
 	else src = 1 << 30;
 	Sgl_set_mantissa(result, src >> (SGL_EXP_LENGTH-1));
 	Sgl_set_exponent(result, 30+SGL_BIAS - dst_exponent);
 
-	
+	/* check for inexact */
 	if (Int_isinexact_to_sgl(src)) {
 		switch (Rounding_mode()) {
 			case ROUNDPLUS: 
@@ -82,6 +121,9 @@ sgl_to_sgl_fcnvxf(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Single Fixed-point to Double Floating-point 
+ */
 
 int
 sgl_to_dbl_fcnvxf(
@@ -94,22 +136,33 @@ sgl_to_dbl_fcnvxf(
 	register unsigned int resultp1 = 0, resultp2 = 0;
 
 	src = *srcptr;
+	/* 
+	 * set sign bit of result and get magnitude of source 
+	 */
 	if (src < 0) {
 		Dbl_setone_sign(resultp1);  
 		Int_negate(src);
 	}
 	else {
 		Dbl_setzero_sign(resultp1);
-        	
+        	/* Check for zero */
         	if (src == 0) {
                 	Dbl_setzero(resultp1,resultp2);
                 	Dbl_copytoptr(resultp1,resultp2,dstptr);
                 	return(NOEXCEPTION);
         	}
 	}
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
+	/*
+	 * Check word for most significant bit set.  Returns
+	 * a value in dst_exponent indicating the bit position,
+	 * between -1 and 30.
+	 */
 	Find_ms_one_bit(src,dst_exponent);
-	
+	/*  left justify source, with msb at bit position 1  */
 	if (dst_exponent >= 0) src <<= dst_exponent;
 	else src = 1 << 30;
 	Dbl_set_mantissap1(resultp1, src >> DBL_EXP_LENGTH - 1);
@@ -119,6 +172,9 @@ sgl_to_dbl_fcnvxf(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Double Fixed-point to Single Floating-point 
+ */
 
 int
 dbl_to_sgl_fcnvxf(
@@ -131,23 +187,34 @@ dbl_to_sgl_fcnvxf(
 	unsigned int result = 0, srcp2;
 
 	Dint_copyfromptr(srcptr,srcp1,srcp2);
+	/* 
+	 * set sign bit of result and get magnitude of source 
+	 */
 	if (srcp1 < 0) {
 		Sgl_setone_sign(result);  
 		Dint_negate(srcp1,srcp2);
 	}
 	else {
 		Sgl_setzero_sign(result);
-        	
+        	/* Check for zero */
         	if (srcp1 == 0 && srcp2 == 0) {
                 	Sgl_setzero(result);
                 	*dstptr = result;
                 	return(NOEXCEPTION);
 		}
         }
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
 	if (srcp1 == 0) {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 */
 		Find_ms_one_bit(srcp2,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 1  */
 		if (dst_exponent >= 0) {
 			srcp1 = srcp2 << dst_exponent;    
 			srcp2 = 0;
@@ -156,22 +223,37 @@ dbl_to_sgl_fcnvxf(
 			srcp1 = srcp2 >> 1;
 			srcp2 <<= 31; 
 		}
+		/*
+		 *  since msb set is in second word, need to 
+		 *  adjust bit position count
+		 */
 		dst_exponent += 32;
 	}
 	else {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 *
+		 */
 		Find_ms_one_bit(srcp1,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 1  */
 		if (dst_exponent > 0) {
 			Variable_shift_double(srcp1,srcp2,(32-dst_exponent),
 			 srcp1); 
 			srcp2 <<= dst_exponent;
 		}
+		/*
+		 * If dst_exponent = 0, we don't need to shift anything.
+		 * If dst_exponent = -1, src = - 2**63 so we won't need to 
+		 * shift srcp2.
+		 */
 		else srcp1 >>= -(dst_exponent);
 	}
 	Sgl_set_mantissa(result, srcp1 >> SGL_EXP_LENGTH - 1);
 	Sgl_set_exponent(result, (62+SGL_BIAS) - dst_exponent);
 
-	
+	/* check for inexact */
 	if (Dint_isinexact_to_sgl(srcp1,srcp2)) {
 		switch (Rounding_mode()) {
 			case ROUNDPLUS: 
@@ -195,6 +277,9 @@ dbl_to_sgl_fcnvxf(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Double Fixed-point to Double Floating-point 
+ */
 
 int
 dbl_to_dbl_fcnvxf(
@@ -207,23 +292,34 @@ dbl_to_dbl_fcnvxf(
 	register unsigned int srcp2, resultp1 = 0, resultp2 = 0;
 
 	Dint_copyfromptr(srcptr,srcp1,srcp2);
+	/* 
+	 * set sign bit of result and get magnitude of source 
+	 */
 	if (srcp1 < 0) {
 		Dbl_setone_sign(resultp1);
 		Dint_negate(srcp1,srcp2);
 	}
 	else {
 		Dbl_setzero_sign(resultp1);
-        	
+        	/* Check for zero */
         	if (srcp1 == 0 && srcp2 ==0) {
                 	Dbl_setzero(resultp1,resultp2);
                 	Dbl_copytoptr(resultp1,resultp2,dstptr);
                 	return(NOEXCEPTION);
 		}
         }
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
 	if (srcp1 == 0) {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 */
 		Find_ms_one_bit(srcp2,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 1  */
 		if (dst_exponent >= 0) {
 			srcp1 = srcp2 << dst_exponent;    
 			srcp2 = 0;
@@ -232,23 +328,37 @@ dbl_to_dbl_fcnvxf(
 			srcp1 = srcp2 >> 1;
 			srcp2 <<= 31;
 		}
+		/*
+		 *  since msb set is in second word, need to 
+		 *  adjust bit position count
+		 */
 		dst_exponent += 32;
 	}
 	else {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 */
 		Find_ms_one_bit(srcp1,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 1  */
 		if (dst_exponent > 0) {
 			Variable_shift_double(srcp1,srcp2,(32-dst_exponent),
 			 srcp1); 
 			srcp2 <<= dst_exponent;
 		}
+		/*
+		 * If dst_exponent = 0, we don't need to shift anything.
+		 * If dst_exponent = -1, src = - 2**63 so we won't need to 
+		 * shift srcp2.
+		 */
 		else srcp1 >>= -(dst_exponent);
 	}
 	Dbl_set_mantissap1(resultp1, srcp1 >> (DBL_EXP_LENGTH-1));
 	Shiftdouble(srcp1,srcp2,DBL_EXP_LENGTH-1,resultp2);
 	Dbl_set_exponent(resultp1, (62+DBL_BIAS) - dst_exponent);
 
-	
+	/* check for inexact */
 	if (Dint_isinexact_to_dbl(srcp2)) {
 		switch (Rounding_mode()) {
 			case ROUNDPLUS: 

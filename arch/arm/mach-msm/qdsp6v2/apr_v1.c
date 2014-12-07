@@ -71,7 +71,7 @@ struct apr_svc *apr_register(char *dest, char *svc_name, apr_fn svc_fn,
 		goto done;
 	}
 
-	
+	/* APRv1 loads ADSP image automatically */
 	apr_load_adsp_image();
 
 	client = apr_get_client(dest_id, client_id);

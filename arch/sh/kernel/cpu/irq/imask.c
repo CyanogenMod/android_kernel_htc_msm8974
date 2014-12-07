@@ -6,6 +6,7 @@
  * Simple interrupt handling using IMASK of SR register.
  *
  */
+/* NOTE: Will not work on level 15 */
 #include <linux/ptrace.h>
 #include <linux/errno.h>
 #include <linux/kernel_stat.h>
@@ -20,6 +21,7 @@
 #include <linux/bitmap.h>
 #include <asm/irq.h>
 
+/* Bitmap of IRQ masked */
 #define IMASK_PRIORITY	15
 
 static DECLARE_BITMAP(imask_mask, IMASK_PRIORITY);

@@ -40,7 +40,7 @@
 #define FEC_RESET_B	IMX_GPIO_NR(4, 12)
 
 static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
-	
+	/* SD1 */
 	MX50_PAD_ECSPI2_SS0__GPIO_4_19,
 	MX50_PAD_EIM_CRE__GPIO_1_27,
 	MX50_PAD_SD1_CMD__SD1_CMD,
@@ -51,7 +51,7 @@ static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
 	MX50_PAD_SD1_D2__SD1_D2,
 	MX50_PAD_SD1_D3__SD1_D3,
 
-	
+	/* SD2 */
 	MX50_PAD_SD2_CD__GPIO_5_17,
 	MX50_PAD_SD2_WP__GPIO_5_16,
 	MX50_PAD_SD2_CMD__SD2_CMD,
@@ -65,7 +65,7 @@ static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
 	MX50_PAD_SD2_D6__SD2_D6,
 	MX50_PAD_SD2_D7__SD2_D7,
 
-	
+	/* SD3 */
 	MX50_PAD_SD3_CMD__SD3_CMD,
 	MX50_PAD_SD3_CLK__SD3_CLK,
 	MX50_PAD_SD3_D0__SD3_D0,
@@ -77,10 +77,10 @@ static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
 	MX50_PAD_SD3_D6__SD3_D6,
 	MX50_PAD_SD3_D7__SD3_D7,
 
-	
+	/* PWR_INT */
 	MX50_PAD_ECSPI2_MISO__GPIO_4_18,
 
-	
+	/* UART pad setting */
 	MX50_PAD_UART1_TXD__UART1_TXD,
 	MX50_PAD_UART1_RXD__UART1_RXD,
 	MX50_PAD_UART1_RTS__UART1_RTS,
@@ -95,8 +95,11 @@ static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
 	MX50_PAD_I2C2_SDA__I2C2_SDA,
 
 	MX50_PAD_EPITO__USBH1_PWR,
+	/* Need to comment below line if
+	 * one needs to debug owire.
+	 */
 	MX50_PAD_OWIRE__USBH1_OC,
-	
+	/* using gpio to control otg pwr */
 	MX50_PAD_PWM2__GPIO_6_25,
 	MX50_PAD_I2C3_SCL__USBOTG_OC,
 
@@ -118,13 +121,13 @@ static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
 	MX50_PAD_CSPI_MOSI__CSPI_MOSI,
 	MX50_PAD_CSPI_MISO__CSPI_MISO,
 
-	
+	/* SGTL500_OSC_EN */
 	MX50_PAD_UART1_CTS__GPIO_6_8,
 
-	
+	/* SGTL_AMP_SHDN */
 	MX50_PAD_UART3_RXD__GPIO_6_15,
 
-	
+	/* Keypad */
 	MX50_PAD_KEY_COL0__KEY_COL0,
 	MX50_PAD_KEY_ROW0__KEY_ROW0,
 	MX50_PAD_KEY_COL1__KEY_COL1,
@@ -141,7 +144,7 @@ static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
 	MX50_PAD_EIM_DA5__KEY_ROW6,
 	MX50_PAD_EIM_DA6__KEY_COL7,
 	MX50_PAD_EIM_DA7__KEY_ROW7,
-	
+	/*EIM pads */
 	MX50_PAD_EIM_DA8__GPIO_1_8,
 	MX50_PAD_EIM_DA9__GPIO_1_9,
 	MX50_PAD_EIM_DA10__GPIO_1_10,
@@ -161,6 +164,7 @@ static iomux_v3_cfg_t mx50_rdp_pads[] __initdata = {
 	MX50_PAD_EIM_OE__GPIO_1_24,
 };
 
+/* Serial ports */
 static const struct imxuart_platform_data uart_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
@@ -183,6 +187,9 @@ static const struct imxi2c_platform_data i2c_data __initconst = {
 	.bitrate = 100000,
 };
 
+/*
+ * Board specific initialization.
+ */
 static void __init mx50_rdp_board_init(void)
 {
 	imx50_soc_init();

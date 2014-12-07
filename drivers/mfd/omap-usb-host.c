@@ -33,7 +33,9 @@
 #define OMAP_EHCI_DEVICE	"ehci-omap"
 #define OMAP_OHCI_DEVICE	"ohci-omap3"
 
+/* OMAP USBHOST Register addresses  */
 
+/* TLL Register Set */
 #define	OMAP_USBTLL_REVISION				(0x00)
 #define	OMAP_USBTLL_SYSCONFIG				(0x10)
 #define	OMAP_USBTLL_SYSCONFIG_CACTIVITY			(1 << 8)
@@ -90,6 +92,7 @@
 #define OMAP_TLL_CHANNEL_2_EN_MASK			(1 << 1)
 #define OMAP_TLL_CHANNEL_3_EN_MASK			(1 << 2)
 
+/* UHH Register Set */
 #define	OMAP_UHH_REVISION				(0x00)
 #define	OMAP_UHH_SYSCONFIG				(0x10)
 #define	OMAP_UHH_SYSCONFIG_MIDLEMODE			(1 << 12)
@@ -114,6 +117,7 @@
 #define OMAP_UHH_HOSTCONFIG_P3_CONNECT_STATUS		(1 << 10)
 #define OMAP4_UHH_HOSTCONFIG_APP_START_CLK		(1 << 31)
 
+/* OMAP4-specific defines */
 #define OMAP4_UHH_SYSCONFIG_IDLEMODE_CLEAR		(3 << 2)
 #define OMAP4_UHH_SYSCONFIG_NOIDLE			(1 << 2)
 #define OMAP4_UHH_SYSCONFIG_STDBYMODE_CLEAR		(3 << 4)
@@ -131,8 +135,9 @@
 
 #define	OMAP_UHH_DEBUG_CSR				(0x44)
 
-#define OMAP_USBHS_REV1		0x00000010	
-#define OMAP_USBHS_REV2		0x50700100	
+/* Values of UHH_REVISION - Note: these are not given in the TRM */
+#define OMAP_USBHS_REV1		0x00000010	/* OMAP3 */
+#define OMAP_USBHS_REV2		0x50700100	/* OMAP4 */
 
 #define is_omap_usbhs_rev1(x)	(x->usbhs_rev == OMAP_USBHS_REV1)
 #define is_omap_usbhs_rev2(x)	(x->usbhs_rev == OMAP_USBHS_REV2)
@@ -162,10 +167,12 @@ struct usbhs_hcd_omap {
 	u32				usbhs_rev;
 	spinlock_t			lock;
 };
+/*-------------------------------------------------------------------------*/
 
 const char usbhs_driver_name[] = USBHS_DRIVER_NAME;
 static u64 usbhs_dmamask = DMA_BIT_MASK(32);
 
+/*-------------------------------------------------------------------------*/
 
 static inline void usbhs_write(void __iomem *base, u32 reg, u32 val)
 {
@@ -187,6 +194,7 @@ static inline u8 usbhs_readb(void __iomem *base, u8 reg)
 	return __raw_readb(base + reg);
 }
 
+/*-------------------------------------------------------------------------*/
 
 static struct platform_device *omap_usbhs_alloc_child(const char *name,
 			struct resource	*res, int num_resources, void *pdata,
@@ -327,6 +335,10 @@ static bool is_ohci_port(enum usbhs_omap_port_mode pmode)
 	}
 }
 
+/*
+ * convert the port-mode enum to a value we can use in the FSLSMODE
+ * field of USBTLL_CHANNEL_CONF
+ */
 static unsigned ohci_omap3_fslsmode(enum usbhs_omap_port_mode mode)
 {
 	switch (mode) {
@@ -373,7 +385,7 @@ static void usbhs_omap_tll_init(struct device *dev, u8 tll_channel_count)
 	unsigned			reg;
 	int				i;
 
-	
+	/* Program Common TLL register */
 	reg = usbhs_read(omap->tll_base, OMAP_TLL_SHARED_CONF);
 	reg |= (OMAP_TLL_SHARED_CONF_FCLK_IS_ON
 		| OMAP_TLL_SHARED_CONF_USB_DIVRATION);
@@ -382,7 +394,7 @@ static void usbhs_omap_tll_init(struct device *dev, u8 tll_channel_count)
 
 	usbhs_write(omap->tll_base, OMAP_TLL_SHARED_CONF, reg);
 
-	
+	/* Enable channels now */
 	for (i = 0; i < tll_channel_count; i++) {
 		reg = usbhs_read(omap->tll_base,
 				OMAP_TLL_CHANNEL_CONF(i));
@@ -393,7 +405,7 @@ static void usbhs_omap_tll_init(struct device *dev, u8 tll_channel_count)
 			reg |= OMAP_TLL_CHANNEL_CONF_CHANMODE_FSLS;
 		} else if (pdata->port_mode[i] == OMAP_EHCI_PORT_MODE_TLL) {
 
-			
+			/* Disable AutoIdle, BitStuffing and use SDR Mode */
 			reg &= ~(OMAP_TLL_CHANNEL_CONF_UTMIAUTOIDLE
 				| OMAP_TLL_CHANNEL_CONF_ULPINOBITSTUFF
 				| OMAP_TLL_CHANNEL_CONF_ULPIDDRMODE);
@@ -494,7 +506,7 @@ static void omap_usbhs_init(struct device *dev)
 	dev_dbg(dev, "OMAP UHH_REVISION 0x%x\n", omap->usbhs_rev);
 
 	reg = usbhs_read(omap->uhh_base, OMAP_UHH_HOSTCONFIG);
-	
+	/* setup ULPI bypass and burst configurations */
 	reg |= (OMAP_UHH_HOSTCONFIG_INCR4_BURST_EN
 			| OMAP_UHH_HOSTCONFIG_INCR8_BURST_EN
 			| OMAP_UHH_HOSTCONFIG_INCR16_BURST_EN);
@@ -509,7 +521,7 @@ static void omap_usbhs_init(struct device *dev)
 		if (pdata->port_mode[2] == OMAP_USBHS_PORT_MODE_UNUSED)
 			reg &= ~OMAP_UHH_HOSTCONFIG_P3_CONNECT_STATUS;
 
-		
+		/* Bypass the TLL module for PHY mode operation */
 		if (cpu_is_omap3430() && (omap_rev() <= OMAP3430_REV_ES2_1)) {
 			dev_dbg(dev, "OMAP3 ES version <= ES2.1\n");
 			if (is_ehci_phy_mode(pdata->port_mode[0]) ||
@@ -534,7 +546,7 @@ static void omap_usbhs_init(struct device *dev)
 				reg |= OMAP_UHH_HOSTCONFIG_ULPI_P3_BYPASS;
 		}
 	} else if (is_omap_usbhs_rev2(omap)) {
-		
+		/* Clear port mode fields for PHY mode*/
 		reg &= ~OMAP4_P1_MODE_CLEAR;
 		reg &= ~OMAP4_P2_MODE_CLEAR;
 
@@ -561,7 +573,7 @@ static void omap_usbhs_init(struct device *dev)
 		(is_ohci_port(pdata->port_mode[1])) ||
 		(is_ohci_port(pdata->port_mode[2]))) {
 
-		
+		/* Enable UTMI mode for required TLL channels */
 		if (is_omap_usbhs_rev2(omap))
 			usbhs_omap_tll_init(dev, OMAP_REV2_TLL_CHANNEL_COUNT);
 		else
@@ -573,6 +585,11 @@ static void omap_usbhs_init(struct device *dev)
 }
 
 
+/**
+ * usbhs_omap_probe - initialize TI-based HCDs
+ *
+ * Allocates basic resources for this USB host controller.
+ */
 static int __devinit usbhs_omap_probe(struct platform_device *pdev)
 {
 	struct device			*dev =  &pdev->dev;
@@ -682,7 +699,7 @@ static int __devinit usbhs_omap_probe(struct platform_device *pdev)
 	}
 
 	if (is_ehci_phy_mode(pdata->port_mode[0])) {
-		
+		/* for OMAP3 , the clk set paretn fails */
 		ret = clk_set_parent(omap->utmi_p1_fck,
 					omap->xclk60mhsp1_ck);
 		if (ret != 0)
@@ -791,6 +808,12 @@ end_probe:
 	return ret;
 }
 
+/**
+ * usbhs_omap_remove - shutdown processing for UHH & TLL HCDs
+ * @pdev: USB Host Controller being removed
+ *
+ * Reverses the effect of usbhs_omap_probe().
+ */
 static int __devexit usbhs_omap_remove(struct platform_device *pdev)
 {
 	struct usbhs_hcd_omap *omap = platform_get_drvdata(pdev);
@@ -837,6 +860,11 @@ static int __init omap_usbhs_drvinit(void)
 	return platform_driver_probe(&usbhs_omap_driver, usbhs_omap_probe);
 }
 
+/*
+ * init before ehci and ohci drivers;
+ * The usbhs core driver should be initialized much before
+ * the omap ehci and ohci probe functions are called.
+ */
 fs_initcall(omap_usbhs_drvinit);
 
 static void __exit omap_usbhs_drvexit(void)

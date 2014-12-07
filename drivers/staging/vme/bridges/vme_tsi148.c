@@ -40,6 +40,7 @@ static void tsi148_remove(struct pci_dev *);
 static void __exit tsi148_exit(void);
 
 
+/* Module parameter */
 static bool err_chk;
 static int geoid;
 
@@ -71,6 +72,9 @@ static void reg_split(unsigned long long variable, unsigned int *high,
 	*high = (unsigned int)(variable >> 32);
 }
 
+/*
+ * Wakes up DMA queue.
+ */
 static u32 tsi148_DMA_irqhandler(struct tsi148_driver *bridge,
 	int channel_mask)
 {
@@ -88,6 +92,9 @@ static u32 tsi148_DMA_irqhandler(struct tsi148_driver *bridge,
 	return serviced;
 }
 
+/*
+ * Wake up location monitor queue
+ */
 static u32 tsi148_LM_irqhandler(struct tsi148_driver *bridge, u32 stat)
 {
 	int i;
@@ -95,7 +102,7 @@ static u32 tsi148_LM_irqhandler(struct tsi148_driver *bridge, u32 stat)
 
 	for (i = 0; i < 4; i++) {
 		if (stat & TSI148_LCSR_INTS_LMS[i]) {
-			
+			/* We only enable interrupts if the callback is set */
 			bridge->lm_callback[i](i);
 			serviced |= TSI148_LCSR_INTC_LMC[i];
 		}
@@ -104,6 +111,11 @@ static u32 tsi148_LM_irqhandler(struct tsi148_driver *bridge, u32 stat)
 	return serviced;
 }
 
+/*
+ * Wake up mail box queue.
+ *
+ * XXX This functionality is not exposed up though API.
+ */
 static u32 tsi148_MB_irqhandler(struct vme_bridge *tsi148_bridge, u32 stat)
 {
 	int i;
@@ -125,6 +137,9 @@ static u32 tsi148_MB_irqhandler(struct vme_bridge *tsi148_bridge, u32 stat)
 	return serviced;
 }
 
+/*
+ * Display error & status message when PERR (PCI) exception interrupt occurs.
+ */
 static u32 tsi148_PERR_irqhandler(struct vme_bridge *tsi148_bridge)
 {
 	struct tsi148_driver *bridge;
@@ -147,6 +162,9 @@ static u32 tsi148_PERR_irqhandler(struct vme_bridge *tsi148_bridge)
 	return TSI148_LCSR_INTC_PERRC;
 }
 
+/*
+ * Save address and status when VME error interrupt occurs.
+ */
 static u32 tsi148_VERR_irqhandler(struct vme_bridge *tsi148_bridge)
 {
 	unsigned int error_addr_high, error_addr_low;
@@ -163,7 +181,7 @@ static u32 tsi148_VERR_irqhandler(struct vme_bridge *tsi148_bridge)
 
 	reg_join(error_addr_high, error_addr_low, &error_addr);
 
-	
+	/* Check for exception register overflow (we have lost error data) */
 	if (error_attrib & TSI148_LCSR_VEAT_VEOF) {
 		dev_err(tsi148_bridge->parent, "VME Bus Exception Overflow "
 			"Occurred\n");
@@ -181,12 +199,15 @@ static u32 tsi148_VERR_irqhandler(struct vme_bridge *tsi148_bridge)
 			"0x%llx, attributes: %08x\n", error_addr, error_attrib);
 	}
 
-	
+	/* Clear Status */
 	iowrite32be(TSI148_LCSR_VEAT_VESCL, bridge->base + TSI148_LCSR_VEAT);
 
 	return TSI148_LCSR_INTC_VERRC;
 }
 
+/*
+ * Wake up IACK queue.
+ */
 static u32 tsi148_IACK_irqhandler(struct tsi148_driver *bridge)
 {
 	wake_up(&bridge->iack_queue);
@@ -194,6 +215,9 @@ static u32 tsi148_IACK_irqhandler(struct tsi148_driver *bridge)
 	return TSI148_LCSR_INTC_IACKC;
 }
 
+/*
+ * Calling VME bus interrupt callback if provided.
+ */
 static u32 tsi148_VIRQ_irqhandler(struct vme_bridge *tsi148_bridge,
 	u32 stat)
 {
@@ -204,6 +228,11 @@ static u32 tsi148_VIRQ_irqhandler(struct vme_bridge *tsi148_bridge,
 
 	for (i = 7; i > 0; i--) {
 		if (stat & (1 << i)) {
+			/*
+			 * Note: Even though the registers are defined as
+			 * 32-bits in the spec, we only want to issue 8-bit
+			 * IACK cycles on the bus, read from offset 3.
+			 */
 			vec = ioread8(bridge->base + TSI148_LCSR_VIACK[i] + 3);
 
 			vme_irq_handler(tsi148_bridge, i, vec);
@@ -215,6 +244,10 @@ static u32 tsi148_VIRQ_irqhandler(struct vme_bridge *tsi148_bridge,
 	return serviced;
 }
 
+/*
+ * Top level interrupt handler.  Clears appropriate interrupt status bits and
+ * then calls appropriate sub handler(s).
+ */
 static irqreturn_t tsi148_irqhandler(int irq, void *ptr)
 {
 	u32 stat, enable, serviced = 0;
@@ -225,51 +258,51 @@ static irqreturn_t tsi148_irqhandler(int irq, void *ptr)
 
 	bridge = tsi148_bridge->driver_priv;
 
-	
+	/* Determine which interrupts are unmasked and set */
 	enable = ioread32be(bridge->base + TSI148_LCSR_INTEO);
 	stat = ioread32be(bridge->base + TSI148_LCSR_INTS);
 
-	
+	/* Only look at unmasked interrupts */
 	stat &= enable;
 
 	if (unlikely(!stat))
 		return IRQ_NONE;
 
-	
-	
+	/* Call subhandlers as appropriate */
+	/* DMA irqs */
 	if (stat & (TSI148_LCSR_INTS_DMA1S | TSI148_LCSR_INTS_DMA0S))
 		serviced |= tsi148_DMA_irqhandler(bridge, stat);
 
-	
+	/* Location monitor irqs */
 	if (stat & (TSI148_LCSR_INTS_LM3S | TSI148_LCSR_INTS_LM2S |
 			TSI148_LCSR_INTS_LM1S | TSI148_LCSR_INTS_LM0S))
 		serviced |= tsi148_LM_irqhandler(bridge, stat);
 
-	
+	/* Mail box irqs */
 	if (stat & (TSI148_LCSR_INTS_MB3S | TSI148_LCSR_INTS_MB2S |
 			TSI148_LCSR_INTS_MB1S | TSI148_LCSR_INTS_MB0S))
 		serviced |= tsi148_MB_irqhandler(tsi148_bridge, stat);
 
-	
+	/* PCI bus error */
 	if (stat & TSI148_LCSR_INTS_PERRS)
 		serviced |= tsi148_PERR_irqhandler(tsi148_bridge);
 
-	
+	/* VME bus error */
 	if (stat & TSI148_LCSR_INTS_VERRS)
 		serviced |= tsi148_VERR_irqhandler(tsi148_bridge);
 
-	
+	/* IACK irq */
 	if (stat & TSI148_LCSR_INTS_IACKS)
 		serviced |= tsi148_IACK_irqhandler(bridge);
 
-	
+	/* VME bus irqs */
 	if (stat & (TSI148_LCSR_INTS_IRQ7S | TSI148_LCSR_INTS_IRQ6S |
 			TSI148_LCSR_INTS_IRQ5S | TSI148_LCSR_INTS_IRQ4S |
 			TSI148_LCSR_INTS_IRQ3S | TSI148_LCSR_INTS_IRQ2S |
 			TSI148_LCSR_INTS_IRQ1S))
 		serviced |= tsi148_VIRQ_irqhandler(tsi148_bridge, stat);
 
-	
+	/* Clear serviced interrupts */
 	iowrite32be(serviced, bridge->base + TSI148_LCSR_INTC);
 
 	return IRQ_HANDLED;
@@ -286,7 +319,7 @@ static int tsi148_irq_init(struct vme_bridge *tsi148_bridge)
 
 	bridge = tsi148_bridge->driver_priv;
 
-	
+	/* Initialise list for VME bus errors */
 	INIT_LIST_HEAD(&tsi148_bridge->vme_errors);
 
 	mutex_init(&tsi148_bridge->irq_mtx);
@@ -301,15 +334,39 @@ static int tsi148_irq_init(struct vme_bridge *tsi148_bridge)
 		return result;
 	}
 
-	
+	/* Enable and unmask interrupts */
 	tmp = TSI148_LCSR_INTEO_DMA1EO | TSI148_LCSR_INTEO_DMA0EO |
 		TSI148_LCSR_INTEO_MB3EO | TSI148_LCSR_INTEO_MB2EO |
 		TSI148_LCSR_INTEO_MB1EO | TSI148_LCSR_INTEO_MB0EO |
 		TSI148_LCSR_INTEO_PERREO | TSI148_LCSR_INTEO_VERREO |
 		TSI148_LCSR_INTEO_IACKEO;
 
+	/* This leaves the following interrupts masked.
+	 * TSI148_LCSR_INTEO_VIEEO
+	 * TSI148_LCSR_INTEO_SYSFLEO
+	 * TSI148_LCSR_INTEO_ACFLEO
+	 */
 
+	/* Don't enable Location Monitor interrupts here - they will be
+	 * enabled when the location monitors are properly configured and
+	 * a callback has been attached.
+	 * TSI148_LCSR_INTEO_LM0EO
+	 * TSI148_LCSR_INTEO_LM1EO
+	 * TSI148_LCSR_INTEO_LM2EO
+	 * TSI148_LCSR_INTEO_LM3EO
+	 */
 
+	/* Don't enable VME interrupts until we add a handler, else the board
+	 * will respond to it and we don't want that unless it knows how to
+	 * properly deal with it.
+	 * TSI148_LCSR_INTEO_IRQ7EO
+	 * TSI148_LCSR_INTEO_IRQ6EO
+	 * TSI148_LCSR_INTEO_IRQ5EO
+	 * TSI148_LCSR_INTEO_IRQ4EO
+	 * TSI148_LCSR_INTEO_IRQ3EO
+	 * TSI148_LCSR_INTEO_IRQ2EO
+	 * TSI148_LCSR_INTEO_IRQ1EO
+	 */
 
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_INTEO);
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_INTEN);
@@ -322,17 +379,20 @@ static void tsi148_irq_exit(struct vme_bridge *tsi148_bridge,
 {
 	struct tsi148_driver *bridge = tsi148_bridge->driver_priv;
 
-	
+	/* Turn off interrupts */
 	iowrite32be(0x0, bridge->base + TSI148_LCSR_INTEO);
 	iowrite32be(0x0, bridge->base + TSI148_LCSR_INTEN);
 
-	
+	/* Clear all interrupts */
 	iowrite32be(0xFFFFFFFF, bridge->base + TSI148_LCSR_INTC);
 
-	
+	/* Detach interrupt handler */
 	free_irq(pdev->irq, tsi148_bridge);
 }
 
+/*
+ * Check to see if an IACk has been received, return true (1) or false (0).
+ */
 static int tsi148_iack_received(struct tsi148_driver *bridge)
 {
 	u32 tmp;
@@ -345,6 +405,9 @@ static int tsi148_iack_received(struct tsi148_driver *bridge)
 		return 1;
 }
 
+/*
+ * Configure VME interrupt
+ */
 static void tsi148_irq_set(struct vme_bridge *tsi148_bridge, int level,
 	int state, int sync)
 {
@@ -354,7 +417,7 @@ static void tsi148_irq_set(struct vme_bridge *tsi148_bridge, int level,
 
 	bridge = tsi148_bridge->driver_priv;
 
-	
+	/* We need to do the ordering differently for enabling and disabling */
 	if (state == 0) {
 		tmp = ioread32be(bridge->base + TSI148_LCSR_INTEN);
 		tmp &= ~TSI148_LCSR_INTEN_IRQEN[level - 1];
@@ -381,6 +444,10 @@ static void tsi148_irq_set(struct vme_bridge *tsi148_bridge, int level,
 	}
 }
 
+/*
+ * Generate a VME bus interrupt at the requested level & vector. Wait for
+ * interrupt to be acked.
+ */
 static int tsi148_irq_generate(struct vme_bridge *tsi148_bridge, int level,
 	int statid)
 {
@@ -391,19 +458,19 @@ static int tsi148_irq_generate(struct vme_bridge *tsi148_bridge, int level,
 
 	mutex_lock(&bridge->vme_int);
 
-	
+	/* Read VICR register */
 	tmp = ioread32be(bridge->base + TSI148_LCSR_VICR);
 
-	
+	/* Set Status/ID */
 	tmp = (tmp & ~TSI148_LCSR_VICR_STID_M) |
 		(statid & TSI148_LCSR_VICR_STID_M);
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_VICR);
 
-	
+	/* Assert VMEbus IRQ */
 	tmp = tmp | TSI148_LCSR_VICR_IRQL[level];
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_VICR);
 
-	
+	/* XXX Consider implementing a timeout? */
 	wait_event_interruptible(bridge->iack_queue,
 		tsi148_iack_received(bridge));
 
@@ -412,6 +479,9 @@ static int tsi148_irq_generate(struct vme_bridge *tsi148_bridge, int level,
 	return 0;
 }
 
+/*
+ * Find the first error in this address range
+ */
 static struct vme_bus_error *tsi148_find_error(struct vme_bridge *tsi148_bridge,
 	u32 aspace, unsigned long long address, size_t count)
 {
@@ -421,8 +491,15 @@ static struct vme_bus_error *tsi148_find_error(struct vme_bridge *tsi148_bridge,
 
 	bound = address + count;
 
+	/*
+	 * XXX We are currently not looking at the address space when parsing
+	 *     for errors. This is because parsing the Address Modifier Codes
+	 *     is going to be quite resource intensive to do properly. We
+	 *     should be OK just looking at the addresses and this is certainly
+	 *     much better than what we had before.
+	 */
 	err_pos = NULL;
-	
+	/* Iterate through errors */
 	list_for_each(err_pos, &tsi148_bridge->vme_errors) {
 		vme_err = list_entry(err_pos, struct vme_bus_error, list);
 		if ((vme_err->address >= address) &&
@@ -436,6 +513,9 @@ static struct vme_bus_error *tsi148_find_error(struct vme_bridge *tsi148_bridge,
 	return valid;
 }
 
+/*
+ * Clear errors in the provided address range.
+ */
 static void tsi148_clear_errors(struct vme_bridge *tsi148_bridge,
 	u32 aspace, unsigned long long address, size_t count)
 {
@@ -445,8 +525,15 @@ static void tsi148_clear_errors(struct vme_bridge *tsi148_bridge,
 
 	bound = address + count;
 
+	/*
+	 * XXX We are currently not looking at the address space when parsing
+	 *     for errors. This is because parsing the Address Modifier Codes
+	 *     is going to be quite resource intensive to do properly. We
+	 *     should be OK just looking at the addresses and this is certainly
+	 *     much better than what we had before.
+	 */
 	err_pos = NULL;
-	
+	/* Iterate through errors */
 	list_for_each_safe(err_pos, temp, &tsi148_bridge->vme_errors) {
 		vme_err = list_entry(err_pos, struct vme_bus_error, list);
 
@@ -459,6 +546,9 @@ static void tsi148_clear_errors(struct vme_bridge *tsi148_bridge,
 	}
 }
 
+/*
+ * Initialize a slave window with the requested attributes.
+ */
 static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 	unsigned long long vme_base, unsigned long long size,
 	dma_addr_t pci_base, u32 aspace, u32 cycle)
@@ -505,9 +595,13 @@ static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 		break;
 	}
 
-	
+	/* Convert 64-bit variables to 2x 32-bit variables */
 	reg_split(vme_base, &vme_base_high, &vme_base_low);
 
+	/*
+	 * Bound address is a valid address for the window, adjust
+	 * accordingly
+	 */
 	vme_bound = vme_base + size - granularity;
 	reg_split(vme_bound, &vme_bound_high, &vme_bound_low);
 	pci_offset = (unsigned long long)pci_base - vme_base;
@@ -527,14 +621,14 @@ static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 		return -EINVAL;
 	}
 
-	
+	/*  Disable while we are mucking around */
 	temp_ctl = ioread32be(bridge->base + TSI148_LCSR_IT[i] +
 		TSI148_LCSR_OFFSET_ITAT);
 	temp_ctl &= ~TSI148_LCSR_ITAT_EN;
 	iowrite32be(temp_ctl, bridge->base + TSI148_LCSR_IT[i] +
 		TSI148_LCSR_OFFSET_ITAT);
 
-	
+	/* Setup mapping */
 	iowrite32be(vme_base_high, bridge->base + TSI148_LCSR_IT[i] +
 		TSI148_LCSR_OFFSET_ITSAU);
 	iowrite32be(vme_base_low, bridge->base + TSI148_LCSR_IT[i] +
@@ -548,7 +642,7 @@ static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 	iowrite32be(pci_offset_low, bridge->base + TSI148_LCSR_IT[i] +
 		TSI148_LCSR_OFFSET_ITOFL);
 
-	
+	/* Setup 2eSST speeds */
 	temp_ctl &= ~TSI148_LCSR_ITAT_2eSSTM_M;
 	switch (cycle & (VME_2eSST160 | VME_2eSST267 | VME_2eSST320)) {
 	case VME_2eSST160:
@@ -562,7 +656,7 @@ static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 		break;
 	}
 
-	
+	/* Setup cycle types */
 	temp_ctl &= ~(0x1F << 7);
 	if (cycle & VME_BLT)
 		temp_ctl |= TSI148_LCSR_ITAT_BLT;
@@ -575,7 +669,7 @@ static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 	if (cycle & VME_2eSSTB)
 		temp_ctl |= TSI148_LCSR_ITAT_2eSSTB;
 
-	
+	/* Setup address space */
 	temp_ctl &= ~TSI148_LCSR_ITAT_AS_M;
 	temp_ctl |= addr;
 
@@ -589,7 +683,7 @@ static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 	if (cycle & VME_DATA)
 		temp_ctl |= TSI148_LCSR_ITAT_DATA;
 
-	
+	/* Write ctl reg without enable */
 	iowrite32be(temp_ctl, bridge->base + TSI148_LCSR_IT[i] +
 		TSI148_LCSR_OFFSET_ITAT);
 
@@ -602,6 +696,9 @@ static int tsi148_slave_set(struct vme_slave_resource *image, int enabled,
 	return 0;
 }
 
+/*
+ * Get slave window configuration.
+ */
 static int tsi148_slave_get(struct vme_slave_resource *image, int *enabled,
 	unsigned long long *vme_base, unsigned long long *size,
 	dma_addr_t *pci_base, u32 *aspace, u32 *cycle)
@@ -617,7 +714,7 @@ static int tsi148_slave_get(struct vme_slave_resource *image, int *enabled,
 
 	i = image->number;
 
-	
+	/* Read registers */
 	ctl = ioread32be(bridge->base + TSI148_LCSR_IT[i] +
 		TSI148_LCSR_OFFSET_ITAT);
 
@@ -634,7 +731,7 @@ static int tsi148_slave_get(struct vme_slave_resource *image, int *enabled,
 	pci_offset_low = ioread32be(bridge->base + TSI148_LCSR_IT[i] +
 		TSI148_LCSR_OFFSET_ITOFL);
 
-	
+	/* Convert 64-bit variables to 2x 32-bit variables */
 	reg_join(vme_base_high, vme_base_low, vme_base);
 	reg_join(vme_bound_high, vme_bound_low, &vme_bound);
 	reg_join(pci_offset_high, pci_offset_low, &pci_offset);
@@ -665,7 +762,7 @@ static int tsi148_slave_get(struct vme_slave_resource *image, int *enabled,
 		*aspace |= VME_A64;
 	}
 
-	
+	/* Need granularity before we set the size */
 	*size = (unsigned long long)((vme_bound - *vme_base) + granularity);
 
 
@@ -699,6 +796,9 @@ static int tsi148_slave_get(struct vme_slave_resource *image, int *enabled,
 	return 0;
 }
 
+/*
+ * Allocate and map PCI Resource
+ */
 static int tsi148_alloc_resource(struct vme_master_resource *image,
 	unsigned long long size)
 {
@@ -714,7 +814,7 @@ static int tsi148_alloc_resource(struct vme_master_resource *image,
 	existing_size = (unsigned long long)(image->bus_resource.end -
 		image->bus_resource.start);
 
-	
+	/* If the existing size is OK, return */
 	if ((size != 0) && (existing_size == (size - 1)))
 		return 0;
 
@@ -726,7 +826,7 @@ static int tsi148_alloc_resource(struct vme_master_resource *image,
 		memset(&image->bus_resource, 0, sizeof(struct resource));
 	}
 
-	
+	/* Exit here if size is zero */
 	if (size == 0)
 		return 0;
 
@@ -777,6 +877,9 @@ err_name:
 	return retval;
 }
 
+/*
+ * Free and unmap PCI Resource
+ */
 static void tsi148_free_resource(struct vme_master_resource *image)
 {
 	iounmap(image->kern_base);
@@ -786,6 +889,9 @@ static void tsi148_free_resource(struct vme_master_resource *image)
 	memset(&image->bus_resource, 0, sizeof(struct resource));
 }
 
+/*
+ * Set the attributes of an outbound window.
+ */
 static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 	unsigned long long vme_base, unsigned long long size, u32 aspace,
 	u32 cycle, u32 dwidth)
@@ -804,7 +910,7 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 
 	bridge = tsi148_bridge->driver_priv;
 
-	
+	/* Verify input data */
 	if (vme_base & 0xFFFF) {
 		dev_err(tsi148_bridge->parent, "Invalid VME Window "
 			"alignment\n");
@@ -821,6 +927,10 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 
 	spin_lock(&image->lock);
 
+	/* Let's allocate the resource here rather than further up the stack as
+	 * it avoids pushing loads of bus dependent stuff up the stack. If size
+	 * is zero, any existing resource will be freed.
+	 */
 	retval = tsi148_alloc_resource(image, size);
 	if (retval) {
 		spin_unlock(&image->lock);
@@ -836,11 +946,15 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 	} else {
 		pci_base = (unsigned long long)image->bus_resource.start;
 
+		/*
+		 * Bound address is a valid address for the window, adjust
+		 * according to window granularity.
+		 */
 		pci_bound = pci_base + (size - 0x10000);
 		vme_offset = vme_base - pci_base;
 	}
 
-	
+	/* Convert 64-bit variables to 2x 32-bit variables */
 	reg_split(pci_base, &pci_base_high, &pci_base_low);
 	reg_split(pci_bound, &pci_bound_high, &pci_bound_low);
 	reg_split(vme_offset, &vme_offset_high, &vme_offset_low);
@@ -867,14 +981,14 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 
 	i = image->number;
 
-	
+	/* Disable while we are mucking around */
 	temp_ctl = ioread32be(bridge->base + TSI148_LCSR_OT[i] +
 		TSI148_LCSR_OFFSET_OTAT);
 	temp_ctl &= ~TSI148_LCSR_OTAT_EN;
 	iowrite32be(temp_ctl, bridge->base + TSI148_LCSR_OT[i] +
 		TSI148_LCSR_OFFSET_OTAT);
 
-	
+	/* Setup 2eSST speeds */
 	temp_ctl &= ~TSI148_LCSR_OTAT_2eSSTM_M;
 	switch (cycle & (VME_2eSST160 | VME_2eSST267 | VME_2eSST320)) {
 	case VME_2eSST160:
@@ -888,7 +1002,7 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 		break;
 	}
 
-	
+	/* Setup cycle types */
 	if (cycle & VME_BLT) {
 		temp_ctl &= ~TSI148_LCSR_OTAT_TM_M;
 		temp_ctl |= TSI148_LCSR_OTAT_TM_BLT;
@@ -912,7 +1026,7 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 		temp_ctl |= TSI148_LCSR_OTAT_TM_2eSSTB;
 	}
 
-	
+	/* Setup data width */
 	temp_ctl &= ~TSI148_LCSR_OTAT_DBW_M;
 	switch (dwidth) {
 	case VME_D16:
@@ -928,7 +1042,7 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 		goto err_dwidth;
 	}
 
-	
+	/* Setup address space */
 	temp_ctl &= ~TSI148_LCSR_OTAT_AMODE_M;
 	switch (aspace) {
 	case VME_A16:
@@ -972,7 +1086,7 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 	if (cycle & VME_PROG)
 		temp_ctl |= TSI148_LCSR_OTAT_PGM;
 
-	
+	/* Setup mapping */
 	iowrite32be(pci_base_high, bridge->base + TSI148_LCSR_OT[i] +
 		TSI148_LCSR_OFFSET_OTSAU);
 	iowrite32be(pci_base_low, bridge->base + TSI148_LCSR_OT[i] +
@@ -986,7 +1100,7 @@ static int tsi148_master_set(struct vme_master_resource *image, int enabled,
 	iowrite32be(vme_offset_low, bridge->base + TSI148_LCSR_OT[i] +
 		TSI148_LCSR_OFFSET_OTOFL);
 
-	
+	/* Write ctl reg without enable */
 	iowrite32be(temp_ctl, bridge->base + TSI148_LCSR_OT[i] +
 		TSI148_LCSR_OFFSET_OTAT);
 
@@ -1009,6 +1123,11 @@ err_window:
 
 }
 
+/*
+ * Set the attributes of an outbound window.
+ *
+ * XXX Not parsing prefetch information.
+ */
 static int __tsi148_master_get(struct vme_master_resource *image, int *enabled,
 	unsigned long long *vme_base, unsigned long long *size, u32 *aspace,
 	u32 *cycle, u32 *dwidth)
@@ -1041,7 +1160,7 @@ static int __tsi148_master_get(struct vme_master_resource *image, int *enabled,
 	vme_offset_low = ioread32be(bridge->base + TSI148_LCSR_OT[i] +
 		TSI148_LCSR_OFFSET_OTOFL);
 
-	
+	/* Convert 64-bit variables to 2x 32-bit variables */
 	reg_join(pci_base_high, pci_base_low, &pci_base);
 	reg_join(pci_bound_high, pci_bound_low, &pci_bound);
 	reg_join(vme_offset_high, vme_offset_low, &vme_offset);
@@ -1057,7 +1176,7 @@ static int __tsi148_master_get(struct vme_master_resource *image, int *enabled,
 	if (ctl & TSI148_LCSR_OTAT_EN)
 		*enabled = 1;
 
-	
+	/* Setup address space */
 	if ((ctl & TSI148_LCSR_OTAT_AMODE_M) == TSI148_LCSR_OTAT_AMODE_A16)
 		*aspace |= VME_A16;
 	if ((ctl & TSI148_LCSR_OTAT_AMODE_M) == TSI148_LCSR_OTAT_AMODE_A24)
@@ -1077,7 +1196,7 @@ static int __tsi148_master_get(struct vme_master_resource *image, int *enabled,
 	if ((ctl & TSI148_LCSR_OTAT_AMODE_M) == TSI148_LCSR_OTAT_AMODE_USER4)
 		*aspace |= VME_USER4;
 
-	
+	/* Setup 2eSST speeds */
 	if ((ctl & TSI148_LCSR_OTAT_2eSSTM_M) == TSI148_LCSR_OTAT_2eSSTM_160)
 		*cycle |= VME_2eSST160;
 	if ((ctl & TSI148_LCSR_OTAT_2eSSTM_M) == TSI148_LCSR_OTAT_2eSSTM_267)
@@ -1085,7 +1204,7 @@ static int __tsi148_master_get(struct vme_master_resource *image, int *enabled,
 	if ((ctl & TSI148_LCSR_OTAT_2eSSTM_M) == TSI148_LCSR_OTAT_2eSSTM_320)
 		*cycle |= VME_2eSST320;
 
-	
+	/* Setup cycle types */
 	if ((ctl & TSI148_LCSR_OTAT_TM_M) == TSI148_LCSR_OTAT_TM_SCT)
 		*cycle |= VME_SCT;
 	if ((ctl & TSI148_LCSR_OTAT_TM_M) == TSI148_LCSR_OTAT_TM_BLT)
@@ -1109,7 +1228,7 @@ static int __tsi148_master_get(struct vme_master_resource *image, int *enabled,
 	else
 		*cycle |= VME_DATA;
 
-	
+	/* Setup data width */
 	if ((ctl & TSI148_LCSR_OTAT_DBW_M) == TSI148_LCSR_OTAT_DBW_16)
 		*dwidth = VME_D16;
 	if ((ctl & TSI148_LCSR_OTAT_DBW_M) == TSI148_LCSR_OTAT_DBW_32)
@@ -1163,7 +1282,7 @@ static ssize_t tsi148_master_read(struct vme_master_resource *image, void *buf,
 		dev_err(image->parent->parent, "First VME read error detected "
 			"an at address 0x%llx\n", vme_err->address);
 		retval = vme_err->address - (vme_base + offset);
-		
+		/* Clear down save errors in this address range */
 		tsi148_clear_errors(tsi148_bridge, aspace, vme_base + offset,
 			count);
 	}
@@ -1209,6 +1328,10 @@ static ssize_t tsi148_master_write(struct vme_master_resource *image, void *buf,
 	if (!err_chk)
 		goto skip_chk;
 
+	/*
+	 * Get window info first, to maximise the time that the buffers may
+	 * fluch on their own
+	 */
 	__tsi148_master_get(image, &enabled, &vme_base, &size, &aspace, &cycle,
 		&dwidth);
 
@@ -1220,7 +1343,7 @@ static ssize_t tsi148_master_write(struct vme_master_resource *image, void *buf,
 		dev_warn(tsi148_bridge->parent, "First VME write error detected"
 			" an at address 0x%llx\n", vme_err->address);
 		retval = vme_err->address - (vme_base + offset);
-		
+		/* Clear down save errors in this address range */
 		tsi148_clear_errors(tsi148_bridge, aspace, vme_base + offset,
 			count);
 	}
@@ -1231,6 +1354,11 @@ skip_chk:
 	return retval;
 }
 
+/*
+ * Perform an RMW cycle on the VME bus.
+ *
+ * Requires a previously configured master window, returns final value.
+ */
 static unsigned int tsi148_master_rmw(struct vme_master_resource *image,
 	unsigned int mask, unsigned int compare, unsigned int swap,
 	loff_t offset)
@@ -1243,13 +1371,13 @@ static unsigned int tsi148_master_rmw(struct vme_master_resource *image,
 
 	bridge = image->parent->driver_priv;
 
-	
+	/* Find the PCI address that maps to the desired VME address */
 	i = image->number;
 
-	
+	/* Locking as we can only do one of these at a time */
 	mutex_lock(&bridge->vme_rmw);
 
-	
+	/* Lock image */
 	spin_lock(&image->lock);
 
 	pci_addr_high = ioread32be(bridge->base + TSI148_LCSR_OT[i] +
@@ -1260,22 +1388,22 @@ static unsigned int tsi148_master_rmw(struct vme_master_resource *image,
 	reg_join(pci_addr_high, pci_addr_low, &pci_addr);
 	reg_split(pci_addr + offset, &pci_addr_high, &pci_addr_low);
 
-	
+	/* Configure registers */
 	iowrite32be(mask, bridge->base + TSI148_LCSR_RMWEN);
 	iowrite32be(compare, bridge->base + TSI148_LCSR_RMWC);
 	iowrite32be(swap, bridge->base + TSI148_LCSR_RMWS);
 	iowrite32be(pci_addr_high, bridge->base + TSI148_LCSR_RMWAU);
 	iowrite32be(pci_addr_low, bridge->base + TSI148_LCSR_RMWAL);
 
-	
+	/* Enable RMW */
 	tmp = ioread32be(bridge->base + TSI148_LCSR_VMCTRL);
 	tmp |= TSI148_LCSR_VMCTRL_RMWEN;
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_VMCTRL);
 
-	
+	/* Kick process off with a read to the required address. */
 	result = ioread32be(image->kern_base + offset);
 
-	
+	/* Disable RMW */
 	tmp = ioread32be(bridge->base + TSI148_LCSR_VMCTRL);
 	tmp &= ~TSI148_LCSR_VMCTRL_RMWEN;
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_VMCTRL);
@@ -1290,7 +1418,7 @@ static unsigned int tsi148_master_rmw(struct vme_master_resource *image,
 static int tsi148_dma_set_vme_src_attributes(struct device *dev, u32 *attr,
 	u32 aspace, u32 cycle, u32 dwidth)
 {
-	
+	/* Setup 2eSST speeds */
 	switch (cycle & (VME_2eSST160 | VME_2eSST267 | VME_2eSST320)) {
 	case VME_2eSST160:
 		*attr |= TSI148_LCSR_DSAT_2eSSTM_160;
@@ -1303,7 +1431,7 @@ static int tsi148_dma_set_vme_src_attributes(struct device *dev, u32 *attr,
 		break;
 	}
 
-	
+	/* Setup cycle types */
 	if (cycle & VME_SCT)
 		*attr |= TSI148_LCSR_DSAT_TM_SCT;
 
@@ -1325,7 +1453,7 @@ static int tsi148_dma_set_vme_src_attributes(struct device *dev, u32 *attr,
 		*attr |= TSI148_LCSR_DSAT_TM_2eSSTB;
 	}
 
-	
+	/* Setup data width */
 	switch (dwidth) {
 	case VME_D16:
 		*attr |= TSI148_LCSR_DSAT_DBW_16;
@@ -1338,7 +1466,7 @@ static int tsi148_dma_set_vme_src_attributes(struct device *dev, u32 *attr,
 		return -EINVAL;
 	}
 
-	
+	/* Setup address space */
 	switch (aspace) {
 	case VME_A16:
 		*attr |= TSI148_LCSR_DSAT_AMODE_A16;
@@ -1384,7 +1512,7 @@ static int tsi148_dma_set_vme_src_attributes(struct device *dev, u32 *attr,
 static int tsi148_dma_set_vme_dest_attributes(struct device *dev, u32 *attr,
 	u32 aspace, u32 cycle, u32 dwidth)
 {
-	
+	/* Setup 2eSST speeds */
 	switch (cycle & (VME_2eSST160 | VME_2eSST267 | VME_2eSST320)) {
 	case VME_2eSST160:
 		*attr |= TSI148_LCSR_DDAT_2eSSTM_160;
@@ -1397,7 +1525,7 @@ static int tsi148_dma_set_vme_dest_attributes(struct device *dev, u32 *attr,
 		break;
 	}
 
-	
+	/* Setup cycle types */
 	if (cycle & VME_SCT)
 		*attr |= TSI148_LCSR_DDAT_TM_SCT;
 
@@ -1419,7 +1547,7 @@ static int tsi148_dma_set_vme_dest_attributes(struct device *dev, u32 *attr,
 		*attr |= TSI148_LCSR_DDAT_TM_2eSSTB;
 	}
 
-	
+	/* Setup data width */
 	switch (dwidth) {
 	case VME_D16:
 		*attr |= TSI148_LCSR_DDAT_DBW_16;
@@ -1432,7 +1560,7 @@ static int tsi148_dma_set_vme_dest_attributes(struct device *dev, u32 *attr,
 		return -EINVAL;
 	}
 
-	
+	/* Setup address space */
 	switch (aspace) {
 	case VME_A16:
 		*attr |= TSI148_LCSR_DDAT_AMODE_A16;
@@ -1475,6 +1603,9 @@ static int tsi148_dma_set_vme_dest_attributes(struct device *dev, u32 *attr,
 	return 0;
 }
 
+/*
+ * Add a link list descriptor to the list
+ */
 static int tsi148_dma_list_add(struct vme_dma_list *list,
 	struct vme_dma_attr *src, struct vme_dma_attr *dest, size_t count)
 {
@@ -1489,7 +1620,7 @@ static int tsi148_dma_list_add(struct vme_dma_list *list,
 
 	tsi148_bridge = list->parent->parent;
 
-	
+	/* Descriptor must be aligned on 64-bit boundaries */
 	entry = kmalloc(sizeof(struct tsi148_dma_entry), GFP_KERNEL);
 	if (entry == NULL) {
 		dev_err(tsi148_bridge->parent, "Failed to allocate memory for "
@@ -1498,7 +1629,7 @@ static int tsi148_dma_list_add(struct vme_dma_list *list,
 		goto err_mem;
 	}
 
-	
+	/* Test descriptor alignment */
 	if ((unsigned long)&entry->descriptor & 0x7) {
 		dev_err(tsi148_bridge->parent, "Descriptor not aligned to 8 "
 			"byte boundary as required: %p\n",
@@ -1507,20 +1638,23 @@ static int tsi148_dma_list_add(struct vme_dma_list *list,
 		goto err_align;
 	}
 
+	/* Given we are going to fill out the structure, we probably don't
+	 * need to zero it, but better safe than sorry for now.
+	 */
 	memset(&entry->descriptor, 0, sizeof(struct tsi148_dma_descriptor));
 
-	
+	/* Fill out source part */
 	switch (src->type) {
 	case VME_DMA_PATTERN:
 		pattern_attr = src->private;
 
 		entry->descriptor.dsal = pattern_attr->pattern;
 		entry->descriptor.dsat = TSI148_LCSR_DSAT_TYP_PAT;
-		
+		/* Default behaviour is 32 bit pattern */
 		if (pattern_attr->type & VME_DMA_PATTERN_BYTE)
 			entry->descriptor.dsat |= TSI148_LCSR_DSAT_PSZ;
 
-		
+		/* It seems that the default behaviour is to increment */
 		if ((pattern_attr->type & VME_DMA_PATTERN_INCREMENT) == 0)
 			entry->descriptor.dsat |= TSI148_LCSR_DSAT_NIN;
 
@@ -1561,7 +1695,7 @@ static int tsi148_dma_list_add(struct vme_dma_list *list,
 	entry->descriptor.dnlal = TSI148_LCSR_DNLAL_LLA;
 
 
-	
+	/* Fill out destination part */
 	switch (dest->type) {
 	case VME_DMA_PCI:
 		pci_attr = dest->private;
@@ -1594,17 +1728,17 @@ static int tsi148_dma_list_add(struct vme_dma_list *list,
 		break;
 	}
 
-	
+	/* Fill out count */
 	entry->descriptor.dcnt = (u32)count;
 
-	
+	/* Add to list */
 	list_add_tail(&entry->list, &list->entries);
 
-	
+	/* Fill out previous descriptors "Next Address" */
 	if (entry->list.prev != &list->entries) {
 		prev = list_entry(entry->list.prev, struct tsi148_dma_entry,
 			list);
-		
+		/* We need the bus address for the pointer */
 		desc_ptr = virt_to_bus(&entry->descriptor);
 		reg_split(desc_ptr, &prev->descriptor.dnlau,
 			&prev->descriptor.dnlal);
@@ -1620,6 +1754,9 @@ err_mem:
 	return retval;
 }
 
+/*
+ * Check to see if the provided DMA channel is busy.
+ */
 static int tsi148_dma_busy(struct vme_bridge *tsi148_bridge, int channel)
 {
 	u32 tmp;
@@ -1637,6 +1774,11 @@ static int tsi148_dma_busy(struct vme_bridge *tsi148_bridge, int channel)
 
 }
 
+/*
+ * Execute a previously generated link list
+ *
+ * XXX Need to provide control register configuration.
+ */
 static int tsi148_dma_list_exec(struct vme_dma_list *list)
 {
 	struct vme_dma_resource *ctrlr;
@@ -1659,14 +1801,19 @@ static int tsi148_dma_list_exec(struct vme_dma_list *list)
 	channel = ctrlr->number;
 
 	if (!list_empty(&ctrlr->running)) {
-		
+		/*
+		 * XXX We have an active DMA transfer and currently haven't
+		 *     sorted out the mechanism for "pending" DMA transfers.
+		 *     Return busy.
+		 */
+		/* Need to add to pending here */
 		mutex_unlock(&ctrlr->mtx);
 		return -EBUSY;
 	} else {
 		list_add(&list->list, &ctrlr->running);
 	}
 
-	
+	/* Get first bus address and write into registers */
 	entry = list_first_entry(&list->entries, struct tsi148_dma_entry,
 		list);
 
@@ -1681,12 +1828,16 @@ static int tsi148_dma_list_exec(struct vme_dma_list *list)
 	iowrite32be(bus_addr_low, bridge->base +
 		TSI148_LCSR_DMA[channel] + TSI148_LCSR_OFFSET_DNLAL);
 
-	
+	/* Start the operation */
 	iowrite32be(dctlreg | TSI148_LCSR_DCTL_DGO, bridge->base +
 		TSI148_LCSR_DMA[channel] + TSI148_LCSR_OFFSET_DCTL);
 
 	wait_event_interruptible(bridge->dma_queue[channel],
 		tsi148_dma_busy(ctrlr->parent, channel));
+	/*
+	 * Read status register, this register is valid until we kick off a
+	 * new transfer.
+	 */
 	val = ioread32be(bridge->base + TSI148_LCSR_DMA[channel] +
 		TSI148_LCSR_OFFSET_DSTA);
 
@@ -1695,7 +1846,7 @@ static int tsi148_dma_list_exec(struct vme_dma_list *list)
 		retval = -EIO;
 	}
 
-	
+	/* Remove list from running list */
 	mutex_lock(&ctrlr->mtx);
 	list_del(&list->list);
 	mutex_unlock(&ctrlr->mtx);
@@ -1703,12 +1854,17 @@ static int tsi148_dma_list_exec(struct vme_dma_list *list)
 	return retval;
 }
 
+/*
+ * Clean up a previously generated link list
+ *
+ * We have a separate function, don't assume that the chain can't be reused.
+ */
 static int tsi148_dma_list_empty(struct vme_dma_list *list)
 {
 	struct list_head *pos, *temp;
 	struct tsi148_dma_entry *entry;
 
-	
+	/* detach and free each entry */
 	list_for_each_safe(pos, temp, &list->entries) {
 		list_del(pos);
 		entry = list_entry(pos, struct tsi148_dma_entry, list);
@@ -1718,6 +1874,13 @@ static int tsi148_dma_list_empty(struct vme_dma_list *list)
 	return 0;
 }
 
+/*
+ * All 4 location monitors reside at the same base - this is therefore a
+ * system wide configuration.
+ *
+ * This does not enable the LM monitor - that should be done when the first
+ * callback is attached and disabled when the last callback is removed.
+ */
 static int tsi148_lm_set(struct vme_lm_resource *lm, unsigned long long lm_base,
 	u32 aspace, u32 cycle)
 {
@@ -1732,7 +1895,7 @@ static int tsi148_lm_set(struct vme_lm_resource *lm, unsigned long long lm_base,
 
 	mutex_lock(&lm->mtx);
 
-	
+	/* If we already have a callback attached, we can't move it! */
 	for (i = 0; i < lm->monitors; i++) {
 		if (bridge->lm_callback[i] != NULL) {
 			mutex_unlock(&lm->mtx);
@@ -1782,6 +1945,9 @@ static int tsi148_lm_set(struct vme_lm_resource *lm, unsigned long long lm_base,
 	return 0;
 }
 
+/* Get configuration of the callback monitor and return whether it is enabled
+ * or disabled.
+ */
 static int tsi148_lm_get(struct vme_lm_resource *lm,
 	unsigned long long *lm_base, u32 *aspace, u32 *cycle)
 {
@@ -1828,6 +1994,11 @@ static int tsi148_lm_get(struct vme_lm_resource *lm,
 	return enabled;
 }
 
+/*
+ * Attach a callback to a specific location monitor.
+ *
+ * Callback will be passed the monitor triggered.
+ */
 static int tsi148_lm_attach(struct vme_lm_resource *lm, int monitor,
 	void (*callback)(int))
 {
@@ -1841,7 +2012,7 @@ static int tsi148_lm_attach(struct vme_lm_resource *lm, int monitor,
 
 	mutex_lock(&lm->mtx);
 
-	
+	/* Ensure that the location monitor is configured - need PGM or DATA */
 	lm_ctl = ioread32be(bridge->base + TSI148_LCSR_LMAT);
 	if ((lm_ctl & (TSI148_LCSR_LMAT_PGM | TSI148_LCSR_LMAT_DATA)) == 0) {
 		mutex_unlock(&lm->mtx);
@@ -1850,17 +2021,17 @@ static int tsi148_lm_attach(struct vme_lm_resource *lm, int monitor,
 		return -EINVAL;
 	}
 
-	
+	/* Check that a callback isn't already attached */
 	if (bridge->lm_callback[monitor] != NULL) {
 		mutex_unlock(&lm->mtx);
 		dev_err(tsi148_bridge->parent, "Existing callback attached\n");
 		return -EBUSY;
 	}
 
-	
+	/* Attach callback */
 	bridge->lm_callback[monitor] = callback;
 
-	
+	/* Enable Location Monitor interrupt */
 	tmp = ioread32be(bridge->base + TSI148_LCSR_INTEN);
 	tmp |= TSI148_LCSR_INTEN_LMEN[monitor];
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_INTEN);
@@ -1869,7 +2040,7 @@ static int tsi148_lm_attach(struct vme_lm_resource *lm, int monitor,
 	tmp |= TSI148_LCSR_INTEO_LMEO[monitor];
 	iowrite32be(tmp, bridge->base + TSI148_LCSR_INTEO);
 
-	
+	/* Ensure that global Location Monitor Enable set */
 	if ((lm_ctl & TSI148_LCSR_LMAT_EN) == 0) {
 		lm_ctl |= TSI148_LCSR_LMAT_EN;
 		iowrite32be(lm_ctl, bridge->base + TSI148_LCSR_LMAT);
@@ -1880,6 +2051,9 @@ static int tsi148_lm_attach(struct vme_lm_resource *lm, int monitor,
 	return 0;
 }
 
+/*
+ * Detach a callback function forn a specific location monitor.
+ */
 static int tsi148_lm_detach(struct vme_lm_resource *lm, int monitor)
 {
 	u32 lm_en, tmp;
@@ -1889,7 +2063,7 @@ static int tsi148_lm_detach(struct vme_lm_resource *lm, int monitor)
 
 	mutex_lock(&lm->mtx);
 
-	
+	/* Disable Location Monitor and ensure previous interrupts are clear */
 	lm_en = ioread32be(bridge->base + TSI148_LCSR_INTEN);
 	lm_en &= ~TSI148_LCSR_INTEN_LMEN[monitor];
 	iowrite32be(lm_en, bridge->base + TSI148_LCSR_INTEN);
@@ -1901,10 +2075,10 @@ static int tsi148_lm_detach(struct vme_lm_resource *lm, int monitor)
 	iowrite32be(TSI148_LCSR_INTC_LMC[monitor],
 		 bridge->base + TSI148_LCSR_INTC);
 
-	
+	/* Detach callback */
 	bridge->lm_callback[monitor] = NULL;
 
-	
+	/* If all location monitors disabled, disable global Location Monitor */
 	if ((lm_en & (TSI148_LCSR_INTS_LM0S | TSI148_LCSR_INTS_LM1S |
 			TSI148_LCSR_INTS_LM2S | TSI148_LCSR_INTS_LM3S)) == 0) {
 		tmp = ioread32be(bridge->base + TSI148_LCSR_LMAT);
@@ -1917,6 +2091,9 @@ static int tsi148_lm_detach(struct vme_lm_resource *lm, int monitor)
 	return 0;
 }
 
+/*
+ * Determine Geographical Addressing
+ */
 static int tsi148_slot_get(struct vme_bridge *tsi148_bridge)
 {
 	u32 slot = 0;
@@ -1938,7 +2115,7 @@ void *tsi148_alloc_consistent(struct device *parent, size_t size,
 {
 	struct pci_dev *pdev;
 
-	
+	/* Find pci_dev container of dev */
 	pdev = container_of(parent, struct pci_dev, dev);
 
 	return pci_alloc_consistent(pdev, size, dma);
@@ -1949,7 +2126,7 @@ void tsi148_free_consistent(struct device *parent, size_t size, void *vaddr,
 {
 	struct pci_dev *pdev;
 
-	
+	/* Find pci_dev container of dev */
 	pdev = container_of(parent, struct pci_dev, dev);
 
 	pci_free_consistent(pdev, size, vaddr, dma);
@@ -1960,6 +2137,18 @@ static int __init tsi148_init(void)
 	return pci_register_driver(&tsi148_driver);
 }
 
+/*
+ * Configure CR/CSR space
+ *
+ * Access to the CR/CSR can be configured at power-up. The location of the
+ * CR/CSR registers in the CR/CSR address space is determined by the boards
+ * Auto-ID or Geographic address. This function ensures that the window is
+ * enabled at an offset consistent with the boards geopgraphic address.
+ *
+ * Each board has a 512kB window, with the highest 4kB being used for the
+ * boards registers, this means there is a fix length 508kB window which must
+ * be mapped onto PCI memory.
+ */
 static int tsi148_crcsr_init(struct vme_bridge *tsi148_bridge,
 	struct pci_dev *pdev)
 {
@@ -1970,7 +2159,7 @@ static int tsi148_crcsr_init(struct vme_bridge *tsi148_bridge,
 
 	bridge = tsi148_bridge->driver_priv;
 
-	
+	/* Allocate mem for CR/CSR image */
 	bridge->crcsr_kernel = pci_alloc_consistent(pdev, VME_CRCSR_BUF_SIZE,
 		&bridge->crcsr_bus);
 	if (bridge->crcsr_kernel == NULL) {
@@ -1986,7 +2175,7 @@ static int tsi148_crcsr_init(struct vme_bridge *tsi148_bridge,
 	iowrite32be(crcsr_bus_high, bridge->base + TSI148_LCSR_CROU);
 	iowrite32be(crcsr_bus_low, bridge->base + TSI148_LCSR_CROL);
 
-	
+	/* Ensure that the CR/CSR is configured at the correct offset */
 	cbar = ioread32be(bridge->base + TSI148_CBAR);
 	cbar = (cbar & TSI148_CRCSR_CBAR_M)>>3;
 
@@ -2007,6 +2196,10 @@ static int tsi148_crcsr_init(struct vme_bridge *tsi148_bridge,
 	} else
 		dev_info(tsi148_bridge->parent, "CR/CSR already enabled\n");
 
+	/* If we want flushed, error-checked writes, set up a window
+	 * over the CR/CSR registers. We read from here to safely flush
+	 * through VME writes.
+	 */
 	if (err_chk) {
 		retval = tsi148_master_set(bridge->flush_image, 1,
 			(vstat * 0x80000), 0x80000, VME_CRCSR, VME_SCT,
@@ -2028,12 +2221,12 @@ static void tsi148_crcsr_exit(struct vme_bridge *tsi148_bridge,
 
 	bridge = tsi148_bridge->driver_priv;
 
-	
+	/* Turn off CR/CSR space */
 	crat = ioread32be(bridge->base + TSI148_LCSR_CRAT);
 	iowrite32be(crat & ~TSI148_LCSR_CRAT_EN,
 		bridge->base + TSI148_LCSR_CRAT);
 
-	
+	/* Free image */
 	iowrite32be(0, bridge->base + TSI148_LCSR_CROU);
 	iowrite32be(0, bridge->base + TSI148_LCSR_CROL);
 
@@ -2053,6 +2246,9 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct vme_dma_resource *dma_ctrlr;
 	struct vme_lm_resource *lm;
 
+	/* If we want to support more than one of each bridge, we need to
+	 * dynamically generate this so we get one per device
+	 */
 	tsi148_bridge = kzalloc(sizeof(struct vme_bridge), GFP_KERNEL);
 	if (tsi148_bridge == NULL) {
 		dev_err(&pdev->dev, "Failed to allocate memory for device "
@@ -2071,21 +2267,21 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	tsi148_bridge->driver_priv = tsi148_device;
 
-	
+	/* Enable the device */
 	retval = pci_enable_device(pdev);
 	if (retval) {
 		dev_err(&pdev->dev, "Unable to enable device\n");
 		goto err_enable;
 	}
 
-	
+	/* Map Registers */
 	retval = pci_request_regions(pdev, driver_name);
 	if (retval) {
 		dev_err(&pdev->dev, "Unable to reserve resources\n");
 		goto err_resource;
 	}
 
-	
+	/* map registers in BAR 0 */
 	tsi148_device->base = ioremap_nocache(pci_resource_start(pdev, 0),
 		4096);
 	if (!tsi148_device->base) {
@@ -2094,7 +2290,7 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_remap;
 	}
 
-	
+	/* Check to see if the mapping worked out */
 	data = ioread32(tsi148_device->base + TSI148_PCFS_ID) & 0x0000FFFF;
 	if (data != PCI_VENDOR_ID_TUNDRA) {
 		dev_err(&pdev->dev, "CRG region check failed\n");
@@ -2102,7 +2298,7 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_test;
 	}
 
-	
+	/* Initialize wait queues & mutual exclusion flags */
 	init_waitqueue_head(&tsi148_device->dma_queue[0]);
 	init_waitqueue_head(&tsi148_device->dma_queue[1]);
 	init_waitqueue_head(&tsi148_device->iack_queue);
@@ -2112,13 +2308,18 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	tsi148_bridge->parent = &pdev->dev;
 	strcpy(tsi148_bridge->name, driver_name);
 
-	
+	/* Setup IRQ */
 	retval = tsi148_irq_init(tsi148_bridge);
 	if (retval != 0) {
 		dev_err(&pdev->dev, "Chip Initialization failed.\n");
 		goto err_irq;
 	}
 
+	/* If we are going to flush writes, we need to read from the VME bus.
+	 * We need to do this safely, thus we read the devices own CR/CSR
+	 * register. To do this we must set up a window in CR/CSR space and
+	 * hence have one less master window resource available.
+	 */
 	master_num = TSI148_MAX_MASTER;
 	if (err_chk) {
 		master_num--;
@@ -2147,7 +2348,7 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		tsi148_device->flush_image->kern_base  = NULL;
 	}
 
-	
+	/* Add master windows to list */
 	INIT_LIST_HEAD(&tsi148_bridge->master_resources);
 	for (i = 0; i < master_num; i++) {
 		master_image = kmalloc(sizeof(struct vme_master_resource),
@@ -2176,7 +2377,7 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			&tsi148_bridge->master_resources);
 	}
 
-	
+	/* Add slave windows to list */
 	INIT_LIST_HEAD(&tsi148_bridge->slave_resources);
 	for (i = 0; i < TSI148_MAX_SLAVE; i++) {
 		slave_image = kmalloc(sizeof(struct vme_slave_resource),
@@ -2202,7 +2403,7 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			&tsi148_bridge->slave_resources);
 	}
 
-	
+	/* Add dma engines to list */
 	INIT_LIST_HEAD(&tsi148_bridge->dma_resources);
 	for (i = 0; i < TSI148_MAX_DMA; i++) {
 		dma_ctrlr = kmalloc(sizeof(struct vme_dma_resource),
@@ -2227,7 +2428,7 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 			&tsi148_bridge->dma_resources);
 	}
 
-	
+	/* Add location monitor to list */
 	INIT_LIST_HEAD(&tsi148_bridge->lm_resources);
 	lm = kmalloc(sizeof(struct vme_lm_resource), GFP_KERNEL);
 	if (lm == NULL) {
@@ -2289,7 +2490,7 @@ static int tsi148_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	pci_set_drvdata(pdev, tsi148_bridge);
 
-	
+	/* Clear VME bus "board fail", and "power-up reset" lines */
 	data = ioread32be(tsi148_device->base + TSI148_LCSR_VSTAT);
 	data &= ~TSI148_LCSR_VSTAT_BRDFL;
 	data |= TSI148_LCSR_VSTAT_CPURST;
@@ -2301,28 +2502,28 @@ err_reg:
 	tsi148_crcsr_exit(tsi148_bridge, pdev);
 err_crcsr:
 err_lm:
-	
+	/* resources are stored in link list */
 	list_for_each(pos, &tsi148_bridge->lm_resources) {
 		lm = list_entry(pos, struct vme_lm_resource, list);
 		list_del(pos);
 		kfree(lm);
 	}
 err_dma:
-	
+	/* resources are stored in link list */
 	list_for_each(pos, &tsi148_bridge->dma_resources) {
 		dma_ctrlr = list_entry(pos, struct vme_dma_resource, list);
 		list_del(pos);
 		kfree(dma_ctrlr);
 	}
 err_slave:
-	
+	/* resources are stored in link list */
 	list_for_each(pos, &tsi148_bridge->slave_resources) {
 		slave_image = list_entry(pos, struct vme_slave_resource, list);
 		list_del(pos);
 		kfree(slave_image);
 	}
 err_master:
-	
+	/* resources are stored in link list */
 	list_for_each(pos, &tsi148_bridge->master_resources) {
 		master_image = list_entry(pos, struct vme_master_resource,
 			list);
@@ -2363,6 +2564,9 @@ static void tsi148_remove(struct pci_dev *pdev)
 
 	dev_dbg(&pdev->dev, "Driver is being unloaded.\n");
 
+	/*
+	 *  Shutdown all inbound and outbound windows.
+	 */
 	for (i = 0; i < 8; i++) {
 		iowrite32be(0, bridge->base + TSI148_LCSR_IT[i] +
 			TSI148_LCSR_OFFSET_ITAT);
@@ -2370,17 +2574,32 @@ static void tsi148_remove(struct pci_dev *pdev)
 			TSI148_LCSR_OFFSET_OTAT);
 	}
 
+	/*
+	 *  Shutdown Location monitor.
+	 */
 	iowrite32be(0, bridge->base + TSI148_LCSR_LMAT);
 
+	/*
+	 *  Shutdown CRG map.
+	 */
 	iowrite32be(0, bridge->base + TSI148_LCSR_CSRAT);
 
+	/*
+	 *  Clear error status.
+	 */
 	iowrite32be(0xFFFFFFFF, bridge->base + TSI148_LCSR_EDPAT);
 	iowrite32be(0xFFFFFFFF, bridge->base + TSI148_LCSR_VEAT);
 	iowrite32be(0x07000700, bridge->base + TSI148_LCSR_PSTAT);
 
+	/*
+	 *  Remove VIRQ interrupt (if any)
+	 */
 	if (ioread32be(bridge->base + TSI148_LCSR_VICR) & 0x800)
 		iowrite32be(0x8000, bridge->base + TSI148_LCSR_VICR);
 
+	/*
+	 *  Map all Interrupts to PCI INTA
+	 */
 	iowrite32be(0x0, bridge->base + TSI148_LCSR_INTM1);
 	iowrite32be(0x0, bridge->base + TSI148_LCSR_INTM2);
 
@@ -2390,21 +2609,21 @@ static void tsi148_remove(struct pci_dev *pdev)
 
 	tsi148_crcsr_exit(tsi148_bridge, pdev);
 
-	
+	/* resources are stored in link list */
 	list_for_each_safe(pos, tmplist, &tsi148_bridge->dma_resources) {
 		dma_ctrlr = list_entry(pos, struct vme_dma_resource, list);
 		list_del(pos);
 		kfree(dma_ctrlr);
 	}
 
-	
+	/* resources are stored in link list */
 	list_for_each_safe(pos, tmplist, &tsi148_bridge->slave_resources) {
 		slave_image = list_entry(pos, struct vme_slave_resource, list);
 		list_del(pos);
 		kfree(slave_image);
 	}
 
-	
+	/* resources are stored in link list */
 	list_for_each_safe(pos, tmplist, &tsi148_bridge->master_resources) {
 		master_image = list_entry(pos, struct vme_master_resource,
 			list);

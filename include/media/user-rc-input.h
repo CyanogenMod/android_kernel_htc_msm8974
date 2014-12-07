@@ -17,5 +17,5 @@
 #define USER_CONTROL_REPEATED   0x02
 #define USER_CONTROL_RELEASED   0x03
 
-#endif 
+#endif /* __USER_RC_INPUT_H__ */
 

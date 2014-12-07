@@ -1,3 +1,4 @@
+/***************************************************************************/
 
 /*
  *	firebee.c -- extra startup code support for the FireBee boards
@@ -5,6 +6,7 @@
  *	Copyright (C) 2011, Greg Ungerer (gerg@snapgear.com)
  */
 
+/***************************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -16,16 +18,20 @@
 #include <asm/coldfire.h>
 #include <asm/mcfsim.h>
 
+/***************************************************************************/
 
-#define	FLASH_PHYS_ADDR		0xe0000000	
-#define	FLASH_PHYS_SIZE		0x00800000	
+/*
+ *	8MB of NOR flash fitted to the FireBee board.
+ */
+#define	FLASH_PHYS_ADDR		0xe0000000	/* Physical address of flash */
+#define	FLASH_PHYS_SIZE		0x00800000	/* Size of flash */
 
-#define	PART_BOOT_START		0x00000000	
-#define	PART_BOOT_SIZE		0x00040000	
-#define	PART_IMAGE_START	0x00040000	
-#define	PART_IMAGE_SIZE		0x006c0000	
-#define	PART_FPGA_START		0x00700000	
-#define	PART_FPGA_SIZE		0x00100000	
+#define	PART_BOOT_START		0x00000000	/* Start at bottom of flash */
+#define	PART_BOOT_SIZE		0x00040000	/* 256k in size */
+#define	PART_IMAGE_START	0x00040000	/* Start after boot loader */
+#define	PART_IMAGE_SIZE		0x006c0000	/* Most of flash */
+#define	PART_FPGA_START		0x00700000	/* Start at offset 7MB */
+#define	PART_FPGA_SIZE		0x00100000	/* 1MB in size */
 
 static struct mtd_partition firebee_flash_parts[] = {
 	{
@@ -67,6 +73,7 @@ static struct platform_device firebee_flash = {
 	.resource	= &firebee_flash_resource,
 };
 
+/***************************************************************************/
 
 static int __init init_firebee(void)
 {
@@ -76,3 +83,4 @@ static int __init init_firebee(void)
 
 arch_initcall(init_firebee);
 
+/***************************************************************************/

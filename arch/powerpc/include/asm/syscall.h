@@ -15,9 +15,10 @@
 
 #include <linux/sched.h>
 
+/* ftrace syscalls requires exporting the sys_call_table */
 #ifdef CONFIG_FTRACE_SYSCALLS
 extern const unsigned long *sys_call_table;
-#endif 
+#endif /* CONFIG_FTRACE_SYSCALLS */
 
 static inline long syscall_get_nr(struct task_struct *task,
 				  struct pt_regs *regs)
@@ -64,6 +65,10 @@ static inline void syscall_get_arguments(struct task_struct *task,
 	BUG_ON(i + n > 6);
 #ifdef CONFIG_PPC64
 	if (test_tsk_thread_flag(task, TIF_32BIT)) {
+		/*
+		 * Zero-extend 32-bit argument values.  The high bits are
+		 * garbage ignored by the actual syscall dispatch.
+		 */
 		while (n-- > 0)
 			args[n] = (u32) regs->gpr[3 + i + n];
 		return;
@@ -81,4 +86,4 @@ static inline void syscall_set_arguments(struct task_struct *task,
 	memcpy(&regs->gpr[3 + i], args, n * sizeof(args[0]));
 }
 
-#endif	
+#endif	/* _ASM_SYSCALL_H */

@@ -550,6 +550,8 @@ static void ipic_mask_irq(struct irq_data *d)
 	temp &= ~(1 << (31 - ipic_info[src].bit));
 	ipic_write(ipic->regs, ipic_info[src].mask, temp);
 
+	/* mb() can't guarantee that masking is finished.  But it does finish
+	 * for nearly all cases. */
 	mb();
 
 	raw_spin_unlock_irqrestore(&ipic_lock, flags);
@@ -567,6 +569,8 @@ static void ipic_ack_irq(struct irq_data *d)
 	temp = 1 << (31 - ipic_info[src].bit);
 	ipic_write(ipic->regs, ipic_info[src].ack, temp);
 
+	/* mb() can't guarantee that ack is finished.  But it does finish
+	 * for nearly all cases. */
 	mb();
 
 	raw_spin_unlock_irqrestore(&ipic_lock, flags);
@@ -588,6 +592,8 @@ static void ipic_mask_irq_and_ack(struct irq_data *d)
 	temp = 1 << (31 - ipic_info[src].bit);
 	ipic_write(ipic->regs, ipic_info[src].ack, temp);
 
+	/* mb() can't guarantee that ack is finished.  But it does finish
+	 * for nearly all cases. */
 	mb();
 
 	raw_spin_unlock_irqrestore(&ipic_lock, flags);
@@ -602,12 +608,14 @@ static int ipic_set_irq_type(struct irq_data *d, unsigned int flow_type)
 	if (flow_type == IRQ_TYPE_NONE)
 		flow_type = IRQ_TYPE_LEVEL_LOW;
 
+	/* ipic supports only low assertion and high-to-low change senses
+	 */
 	if (!(flow_type & (IRQ_TYPE_LEVEL_LOW | IRQ_TYPE_EDGE_FALLING))) {
 		printk(KERN_ERR "ipic: sense type 0x%x not supported\n",
 			flow_type);
 		return -EINVAL;
 	}
-	
+	/* ipic supports only edge mode on external interrupts */
 	if ((flow_type & IRQ_TYPE_EDGE_FALLING) && !ipic_info[src].ack) {
 		printk(KERN_ERR "ipic: edge sense not supported on internal "
 				"interrupts\n");
@@ -624,6 +632,9 @@ static int ipic_set_irq_type(struct irq_data *d, unsigned int flow_type)
 		d->chip = &ipic_edge_irq_chip;
 	}
 
+	/* only EXT IRQ senses are programmable on ipic
+	 * internal IRQ senses are LEVEL_LOW
+	 */
 	if (src == IPIC_IRQ_EXT0)
 		edibit = 15;
 	else
@@ -643,6 +654,7 @@ static int ipic_set_irq_type(struct irq_data *d, unsigned int flow_type)
 	return IRQ_SET_MASK_OK_NOCOPY;
 }
 
+/* level interrupts and edge interrupts have different ack operations */
 static struct irq_chip ipic_level_irq_chip = {
 	.name		= "IPIC",
 	.irq_unmask	= ipic_unmask_irq,
@@ -662,7 +674,7 @@ static struct irq_chip ipic_edge_irq_chip = {
 
 static int ipic_host_match(struct irq_domain *h, struct device_node *node)
 {
-	
+	/* Exact match, unless ipic node is NULL */
 	return h->of_node == NULL || h->of_node == node;
 }
 
@@ -674,7 +686,7 @@ static int ipic_host_map(struct irq_domain *h, unsigned int virq,
 	irq_set_chip_data(virq, ipic);
 	irq_set_chip_and_handler(virq, &ipic_level_irq_chip, handle_level_irq);
 
-	
+	/* Set default irq type */
 	irq_set_irq_type(virq, IRQ_TYPE_NONE);
 
 	return 0;
@@ -709,9 +721,11 @@ struct ipic * __init ipic_init(struct device_node *node, unsigned int flags)
 
 	ipic->regs = ioremap(res.start, resource_size(&res));
 
-	
+	/* init hw */
 	ipic_write(ipic->regs, IPIC_SICNR, 0x0);
 
+	/* default priority scheme is grouped. If spread mode is required
+	 * configure SICFR accordingly */
 	if (flags & IPIC_SPREADMODE_GRP_A)
 		temp |= SICFR_IPSA;
 	if (flags & IPIC_SPREADMODE_GRP_B)
@@ -727,13 +741,13 @@ struct ipic * __init ipic_init(struct device_node *node, unsigned int flags)
 
 	ipic_write(ipic->regs, IPIC_SICFR, temp);
 
-	
+	/* handle MCP route */
 	temp = 0;
 	if (flags & IPIC_DISABLE_MCP_OUT)
 		temp = SERCR_MCPR;
 	ipic_write(ipic->regs, IPIC_SERCR, temp);
 
-	
+	/* handle routing of IRQ0 to MCP */
 	temp = ipic_read(ipic->regs, IPIC_SEMSR);
 
 	if (flags & IPIC_IRQ0_MCP)
@@ -791,7 +805,7 @@ void ipic_set_highest_priority(unsigned int virq)
 
 	temp = ipic_read(ipic->regs, IPIC_SICFR);
 
-	
+	/* clear and set HPI */
 	temp &= 0x7f000000;
 	temp |= (src & 0x7f) << 24;
 
@@ -838,6 +852,7 @@ void ipic_clear_mcp_status(u32 mask)
 	ipic_write(primary_ipic->regs, IPIC_SERMR, mask);
 }
 
+/* Return an interrupt vector or NO_IRQ if no interrupt is pending. */
 unsigned int ipic_get_irq(void)
 {
 	int irq;
@@ -847,7 +862,7 @@ unsigned int ipic_get_irq(void)
 #define IPIC_SIVCR_VECTOR_MASK	0x7f
 	irq = ipic_read(primary_ipic->regs, IPIC_SIVCR) & IPIC_SIVCR_VECTOR_MASK;
 
-	if (irq == 0)    
+	if (irq == 0)    /* 0 --> no irq is pending */
 		return NO_IRQ;
 
 	return irq_linear_revmap(primary_ipic->irqhost, irq);
@@ -884,6 +899,10 @@ static int ipic_suspend(void)
 	ipic_saved_state.sercr = ipic_read(ipic->regs, IPIC_SERCR);
 
 	if (fsl_deep_sleep()) {
+		/* In deep sleep, make sure there can be no
+		 * pending interrupts, as this can cause
+		 * problems on 831x.
+		 */
 		ipic_write(ipic->regs, IPIC_SIMSR_H, 0);
 		ipic_write(ipic->regs, IPIC_SIMSR_L, 0);
 		ipic_write(ipic->regs, IPIC_SEMSR, 0);

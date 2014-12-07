@@ -28,17 +28,21 @@
 #include <linux/msm_ssbi.h>
 #include <linux/remote_spinlock.h>
 
+/* SSBI 2.0 controller registers */
 #define SSBI2_CMD			0x0008
 #define SSBI2_RD			0x0010
 #define SSBI2_STATUS			0x0014
 #define SSBI2_MODE2			0x001C
 
+/* SSBI_CMD fields */
 #define SSBI_CMD_RDWRN			(1 << 24)
 
+/* SSBI_STATUS fields */
 #define SSBI_STATUS_RD_READY		(1 << 2)
 #define SSBI_STATUS_READY		(1 << 1)
 #define SSBI_STATUS_MCHN_BUSY		(1 << 0)
 
+/* SSBI_MODE2 fields */
 #define SSBI_MODE2_REG_ADDR_15_8_SHFT	0x04
 #define SSBI_MODE2_REG_ADDR_15_8_MASK	(0x7f << SSBI_MODE2_REG_ADDR_15_8_SHFT)
 
@@ -46,17 +50,21 @@
 	(((MD) & 0x0F) | ((((AD) >> 8) << SSBI_MODE2_REG_ADDR_15_8_SHFT) & \
 	SSBI_MODE2_REG_ADDR_15_8_MASK))
 
+/* SSBI PMIC Arbiter command registers */
 #define SSBI_PA_CMD			0x0000
 #define SSBI_PA_RD_STATUS		0x0004
 
+/* SSBI_PA_CMD fields */
 #define SSBI_PA_CMD_RDWRN		(1 << 24)
-#define SSBI_PA_CMD_ADDR_MASK		0x7fff 
+#define SSBI_PA_CMD_ADDR_MASK		0x7fff /* REG_ADDR_7_0, REG_ADDR_8_14*/
 
+/* SSBI_PA_RD_STATUS fields */
 #define SSBI_PA_RD_STATUS_TRANS_DONE	(1 << 27)
 #define SSBI_PA_RD_STATUS_TRANS_DENIED	(1 << 26)
 
 #define SSBI_TIMEOUT_US			100
 
+/* SSBI_FSM Read and Write commands for the FSM9xxx SSBI implementation */
 #define SSBI_FSM_CMD_REG_ADDR_SHFT  (0x08)
 
 #define SSBI_FSM_CMD_READ(AD) \

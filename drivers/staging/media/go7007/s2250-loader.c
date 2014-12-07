@@ -79,7 +79,7 @@ static int s2250loader_probe(struct usb_interface *interface,
 		goto failed;
 	}
 
-	
+	/* Allocate dev data structure */
 	s = kmalloc(sizeof(device_extension_t), GFP_KERNEL);
 	if (s == NULL) {
 		printk(KERN_ERR "Out of memory\n");
@@ -148,7 +148,7 @@ static void s2250loader_disconnect(struct usb_interface *interface)
 
 static const struct usb_device_id s2250loader_ids[] = {
 	{USB_DEVICE(0x1943, 0xa250)},
-	{}                          
+	{}                          /* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, s2250loader_ids);

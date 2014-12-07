@@ -4,13 +4,16 @@
 #include <asm/setup.h>
 #include <linux/linkage.h>
 
+/* Status Register bits */
 
+/* accrued exception bits */
 #define FPSR_AEXC_INEX	3
 #define FPSR_AEXC_DZ	4
 #define FPSR_AEXC_UNFL	5
 #define FPSR_AEXC_OVFL	6
 #define FPSR_AEXC_IOP	7
 
+/* exception status bits */
 #define FPSR_EXC_INEX1	8
 #define FPSR_EXC_INEX2	9
 #define FPSR_EXC_DZ	10
@@ -20,25 +23,31 @@
 #define FPSR_EXC_SNAN	14
 #define FPSR_EXC_BSUN	15
 
+/* quotient byte, assumes big-endian, of course */
 #define FPSR_QUOTIENT(fpsr) (*((signed char *) &(fpsr) + 1))
 
+/* condition code bits */
 #define FPSR_CC_NAN	24
 #define FPSR_CC_INF	25
 #define FPSR_CC_Z	26
 #define FPSR_CC_NEG	27
 
 
+/* Control register bits */
 
-#define	FPCR_ROUND_RN	0		
-#define FPCR_ROUND_RZ	1		
-#define FPCR_ROUND_RM	2		
-#define FPCR_ROUND_RP	3		
+/* rounding mode */
+#define	FPCR_ROUND_RN	0		/* round to nearest/even */
+#define FPCR_ROUND_RZ	1		/* round to zero */
+#define FPCR_ROUND_RM	2		/* minus infinity */
+#define FPCR_ROUND_RP	3		/* plus infinity */
 
-#define FPCR_PRECISION_X	0	
-#define FPCR_PRECISION_S	1	
-#define FPCR_PRECISION_D	2	
+/* rounding precision */
+#define FPCR_PRECISION_X	0	/* long double */
+#define FPCR_PRECISION_S	1	/* double */
+#define FPCR_PRECISION_D	2	/* float */
 
 
+/* Flags to select the debugging output */
 #define PDECODE		0
 #define PEXECUTE	1
 #define PCONV		2
@@ -72,6 +81,7 @@ union fp_mant128 {
 	unsigned long m32[4];
 };
 
+/* internal representation of extended fp numbers */
 struct fp_ext {
 	unsigned char lowmant;
 	unsigned char sign;
@@ -79,6 +89,9 @@ struct fp_ext {
 	union fp_mant64 mant;
 };
 
+/* C representation of FPU registers */
+/* NOTE: if you change this, you have to change the assembler offsets
+   below and the size in <asm/fpu.h>, too */
 struct fp_data {
 	struct fp_ext fpreg[8];
 	unsigned int fpcr;
@@ -113,10 +126,11 @@ extern unsigned int fp_debugprint;
 
 #define FPDATA		((struct fp_data *)current->thread.fp)
 
-#else	
+#else	/* __ASSEMBLY__ */
 
 #define FPDATA		%a2
 
+/* offsets from the base register to the floating point data in the task struct */
 #define FPD_FPREG	(TASK_THREAD+THREAD_FPREG+0)
 #define FPD_FPCR	(TASK_THREAD+THREAD_FPREG+96)
 #define FPD_FPSR	(TASK_THREAD+THREAD_FPREG+100)
@@ -127,6 +141,10 @@ extern unsigned int fp_debugprint;
 #define FPD_TEMPFP2	(TASK_THREAD+THREAD_FPREG+124)
 #define FPD_SIZEOF	(TASK_THREAD+THREAD_FPREG+136)
 
+/* offsets on the stack to access saved registers,
+ * these are only used during instruction decoding
+ * where we always know how deep we're on the stack.
+ */
 #define FPS_DO		(PT_OFF_D0)
 #define FPS_D1		(PT_OFF_D1)
 #define FPS_D2		(PT_OFF_D2)
@@ -143,6 +161,11 @@ extern unsigned int fp_debugprint;
 	lea	(%a0,%d0.w*8),%a0
 .endm
 
+/* Macros used to get/put the current program counter.
+ * 020/030 use a different stack frame then 040/060, for the
+ * 040/060 the return pc points already to the next location,
+ * so this only needs to be modified for jump instructions.
+ */
 .macro	fp_get_pc dest
 	move.l	(FPS_PC+4,%sp),\dest
 .endm
@@ -164,6 +187,11 @@ extern unsigned int fp_debugprint;
 	fp_get_instr_data	l,4,\dest,\label,\addr
 .endm
 
+/* These macros are used to read from/write to user space
+ * on error we jump to the fixup section, load the fault
+ * address into %a0 and jump to the exit.
+ * (derived from <asm/uaccess.h>)
+ */
 .macro	getuser	size,src,dest,label,addr
 |	printf	,"[\size<%08x]",1,\addr
 .Lu1\@:	moves\size	\src,\dest
@@ -198,6 +226,7 @@ extern unsigned int fp_debugprint;
 	.previous
 .endm
 
+/* work around binutils idiocy */
 old_gas=-1
 .irp    gas_ident.x .x
 old_gas=old_gas+1
@@ -281,6 +310,6 @@ old_gas=old_gas+1
 .endm
 
 
-#endif	
+#endif	/* __ASSEMBLY__ */
 
-#endif	
+#endif	/* _ASM_M68K_SETUP_H */

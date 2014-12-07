@@ -6,6 +6,9 @@
  *  Derived from the code in h3600_ts.[ch] by Charles Flynn
  */
 
+/*
+ * Driver for the h3600 Touch Screen and other Atmel controlled devices.
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -35,6 +38,7 @@
 #include <linux/init.h>
 #include <linux/delay.h>
 
+/* SA1100 serial defines */
 #include <mach/hardware.h>
 #include <mach/irqs.h>
 
@@ -44,43 +48,55 @@ MODULE_AUTHOR("James Simmons <jsimmons@transvirtual.com>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Definitions & global arrays.
+ */
 
+/* The start and end of frame characters SOF and EOF */
 #define CHAR_SOF                0x02
 #define CHAR_EOF                0x03
-#define FRAME_OVERHEAD          3       
+#define FRAME_OVERHEAD          3       /* CHAR_SOF,CHAR_EOF,LENGTH = 3 */
 
-#define VERSION_ID              0       
-#define KEYBD_ID                2       
-#define TOUCHS_ID               3       
-#define EEPROM_READ_ID          4       
-#define EEPROM_WRITE_ID         5       
-#define THERMAL_ID              6       
-#define NOTIFY_LED_ID           8       
-#define BATTERY_ID              9       
-#define SPI_READ_ID             0x0b    
-#define SPI_WRITE_ID            0x0c    
-#define FLITE_ID                0x0d    
-#define STX_ID                  0xa1    
+/*
+        Atmel events and response IDs contained in frame.
+        Programmer has no control over these numbers.
+        TODO there are holes - specifically  1,7,0x0a
+*/
+#define VERSION_ID              0       /* Get Version (request/response) */
+#define KEYBD_ID                2       /* Keyboard (event) */
+#define TOUCHS_ID               3       /* Touch Screen (event)*/
+#define EEPROM_READ_ID          4       /* (request/response) */
+#define EEPROM_WRITE_ID         5       /* (request/response) */
+#define THERMAL_ID              6       /* (request/response) */
+#define NOTIFY_LED_ID           8       /* (request/response) */
+#define BATTERY_ID              9       /* (request/response) */
+#define SPI_READ_ID             0x0b    /* ( request/response) */
+#define SPI_WRITE_ID            0x0c    /* ( request/response) */
+#define FLITE_ID                0x0d    /* backlight ( request/response) */
+#define STX_ID                  0xa1    /* extension pack status (req/resp) */
 
 #define MAX_ID                  14
 
 #define H3600_MAX_LENGTH 16
 #define H3600_KEY 0xf
 
-#define H3600_SCANCODE_RECORD	1	 
-#define H3600_SCANCODE_CALENDAR 2	 
-#define H3600_SCANCODE_CONTACTS 3	 
-#define H3600_SCANCODE_Q	4	 
-#define	H3600_SCANCODE_START	5	 
-#define	H3600_SCANCODE_UP	6	 
-#define H3600_SCANCODE_RIGHT	7	 
-#define H3600_SCANCODE_LEFT	8	 
-#define H3600_SCANCODE_DOWN	9	 
+#define H3600_SCANCODE_RECORD	1	 /* 1 -> record button */
+#define H3600_SCANCODE_CALENDAR 2	 /* 2 -> calendar */
+#define H3600_SCANCODE_CONTACTS 3	 /* 3 -> contact */
+#define H3600_SCANCODE_Q	4	 /* 4 -> Q button */
+#define	H3600_SCANCODE_START	5	 /* 5 -> start menu */
+#define	H3600_SCANCODE_UP	6	 /* 6 -> up */
+#define H3600_SCANCODE_RIGHT	7	 /* 7 -> right */
+#define H3600_SCANCODE_LEFT	8	 /* 8 -> left */
+#define H3600_SCANCODE_DOWN	9	 /* 9 -> down */
 
+/*
+ * Per-touchscreen data.
+ */
 struct h3600_dev {
 	struct input_dev *dev;
 	struct serio *serio;
-	unsigned char event;	
+	unsigned char event;	/* event ID from packet */
 	unsigned char chksum;
 	unsigned char len;
 	unsigned char idx;
@@ -104,6 +120,10 @@ static irqreturn_t npower_button_handler(int irq, void *dev_id)
 	int down = (GPLR & GPIO_BITSY_NPOWER_BUTTON) ? 0 : 1;
 	struct input_dev *dev = dev_id;
 
+	/*
+	 * This interrupt is only called when we release the key. So we have
+	 * to fake a key press.
+	 */
 	input_report_key(dev, KEY_SUSPEND, 1);
 	input_report_key(dev, KEY_SUSPEND, down);
 	input_sync(dev);
@@ -120,12 +140,14 @@ enum flite_pwr {
 	FLITE_PWR_ON = 1
 };
 
+/*
+ * h3600_flite_power: enables or disables power to frontlight, using last bright */
 unsigned int h3600_flite_power(struct input_dev *dev, enum flite_pwr pwr)
 {
 	unsigned char brightness = (pwr == FLITE_PWR_OFF) ? 0 : flite_brightness;
 	struct h3600_dev *ts = input_get_drvdata(dev);
 
-	
+	/* Must be in this order */
 	serio_write(ts->serio, 1);
 	serio_write(ts->serio, pwr);
 	serio_write(ts->serio, brightness);
@@ -135,6 +157,11 @@ unsigned int h3600_flite_power(struct input_dev *dev, enum flite_pwr pwr)
 
 #endif
 
+/*
+ * This function translates the native event packets to linux input event
+ * packets. Some packets coming from serial are not touchscreen related. In
+ * this case we send them off to be processed elsewhere.
+ */
 static void h3600ts_process_packet(struct h3600_dev *ts)
 {
 	struct input_dev *dev = ts->dev;
@@ -142,6 +169,17 @@ static void h3600ts_process_packet(struct h3600_dev *ts)
 	int key, down = 0;
 
 	switch (ts->event) {
+		/*
+		   Buttons - returned as a single byte
+			7 6 5 4 3 2 1 0
+			S x x x N N N N
+
+		   S       switch state ( 0=pressed 1=released)
+		   x       Unused.
+		   NNNN    switch number 0-15
+
+		   Note: This is true for non interrupt generated key events.
+		*/
 		case KEYBD_ID:
 			down = (ts->buf[0] & 0x80) ? 0 : 1;
 
@@ -179,6 +217,14 @@ static void h3600ts_process_packet(struct h3600_dev *ts)
 			if (key)
 				input_report_key(dev, key, down);
 			break;
+		/*
+		 * Native touchscreen event data is formatted as shown below:-
+		 *
+		 *      +-------+-------+-------+-------+
+		 *      | Xmsb  | Xlsb  | Ymsb  | Ylsb  |
+		 *      +-------+-------+-------+-------+
+		 *       byte 0    1       2       3
+		 */
 		case TOUCHS_ID:
 			if (!touched) {
 				input_report_key(dev, BTN_TOUCH, 1);
@@ -199,13 +245,16 @@ static void h3600ts_process_packet(struct h3600_dev *ts)
 			}
 			break;
 		default:
-			
+			/* Send a non input event elsewhere */
 			break;
 	}
 
 	input_sync(dev);
 }
 
+/*
+ * h3600ts_event() handles events from the input module.
+ */
 static int h3600ts_event(struct input_dev *dev, unsigned int type,
 			 unsigned int code, int value)
 {
@@ -214,7 +263,7 @@ static int h3600ts_event(struct input_dev *dev, unsigned int type,
 
 	switch (type) {
 		case EV_LED: {
-		
+		//	serio_write(ts->serio, SOME_CMD);
 			return 0;
 		}
 	}
@@ -223,19 +272,37 @@ static int h3600ts_event(struct input_dev *dev, unsigned int type,
 	return 0;
 }
 
+/*
+        Frame format
+  byte    1       2               3              len + 4
+        +-------+---------------+---------------+--=------------+
+        |SOF    |id     |len    | len bytes     | Chksum        |
+        +-------+---------------+---------------+--=------------+
+  bit   0     7  8    11 12   15 16
+
+        +-------+---------------+-------+
+        |SOF    |id     |0      |Chksum | - Note Chksum does not include SOF
+        +-------+---------------+-------+
+  bit   0     7  8    11 12   15 16
+
+*/
 
 static int state;
 
-#define STATE_SOF       0       
-#define STATE_ID        1       
-#define STATE_DATA      2       
-#define STATE_EOF       3       
+/* decode States  */
+#define STATE_SOF       0       /* start of FRAME */
+#define STATE_ID        1       /* state where we decode the ID & len */
+#define STATE_DATA      2       /* state where we decode data */
+#define STATE_EOF       3       /* state where we decode checksum or EOF */
 
 static irqreturn_t h3600ts_interrupt(struct serio *serio, unsigned char data,
                                      unsigned int flags)
 {
 	struct h3600_dev *ts = serio_get_drvdata(serio);
 
+	/*
+	 * We have a new frame coming in.
+	 */
 	switch (state) {
 		case STATE_SOF:
 			if (data == CHAR_SOF)
@@ -271,6 +338,11 @@ static irqreturn_t h3600ts_interrupt(struct serio *serio, unsigned char data,
 	return IRQ_HANDLED;
 }
 
+/*
+ * h3600ts_connect() is the routine that is called when someone adds a
+ * new serio device that supports H3600 protocol and registers it as
+ * an input device.
+ */
 static int h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct h3600_dev *ts;
@@ -292,7 +364,7 @@ static int h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 	input_dev->phys = ts->phys;
 	input_dev->id.bustype = BUS_RS232;
 	input_dev->id.vendor = SERIO_H3600;
-	input_dev->id.product = 0x0666;  
+	input_dev->id.product = 0x0666;  /* FIXME !!! We can ask the hardware */
 	input_dev->id.version = 0x0100;
 	input_dev->dev.parent = &serio->dev;
 
@@ -319,7 +391,7 @@ static int h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 	set_bit(KEY_SUSPEND, input_dev->keybit);
 	set_bit(BTN_TOUCH, input_dev->keybit);
 
-	
+	/* Device specific stuff */
 	set_GPIO_IRQ_edge(GPIO_BITSY_ACTION_BUTTON, GPIO_BOTH_EDGES);
 	set_GPIO_IRQ_edge(GPIO_BITSY_NPOWER_BUTTON, GPIO_RISING_EDGE);
 
@@ -343,7 +415,7 @@ static int h3600ts_connect(struct serio *serio, struct serio_driver *drv)
 	if (err)
 		goto fail3;
 
-	
+	//h3600_flite_control(1, 25);     /* default brightness */
 	err = input_register_device(ts->dev);
 	if (err)
 		goto fail4;
@@ -359,6 +431,9 @@ fail1:	input_free_device(input_dev);
 	return err;
 }
 
+/*
+ * h3600ts_disconnect() is the opposite of h3600ts_connect()
+ */
 
 static void h3600ts_disconnect(struct serio *serio)
 {
@@ -374,6 +449,9 @@ static void h3600ts_disconnect(struct serio *serio)
 	kfree(ts);
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id h3600ts_serio_ids[] = {
 	{
@@ -398,6 +476,9 @@ static struct serio_driver h3600ts_drv = {
 	.disconnect	= h3600ts_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init h3600ts_init(void)
 {

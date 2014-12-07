@@ -35,43 +35,44 @@
 #include "wm9090.h"
 
 static const struct reg_default wm9090_reg_defaults[] = {
-	{ 1,  0x0006 },     
-	{ 2,  0x6000 },     
-	{ 3,  0x0000 },     
-	{ 6,  0x01C0 },     
-	{ 22, 0x0003 },     
-	{ 23, 0x0003 },     
-	{ 24, 0x0083 },     
-	{ 25, 0x0083 },     
-	{ 26, 0x0083 },     
-	{ 27, 0x0083 },     
-	{ 28, 0x002D },     
-	{ 29, 0x002D },     
-	{ 34, 0x0100 },     
-	{ 35, 0x0010 },     
-	{ 37, 0x0140 },     
-	{ 38, 0x0039 },     
-	{ 45, 0x0000 },     
-	{ 46, 0x0000 },     
-	{ 47, 0x0100 },     
-	{ 48, 0x0100 },     
-	{ 54, 0x0000 },     
-	{ 57, 0x000D },     
-	{ 70, 0x0000 },     
-	{ 71, 0x0000 },     
-	{ 72, 0x0000 },     
-	{ 73, 0x0000 },     
-	{ 74, 0x0000 },     
-	{ 75, 0x0000 },     
-	{ 76, 0x1F25 },     
-	{ 85, 0x054A },     
-	{ 87, 0x0000 },     
-	{ 96, 0x0100 },     
-	{ 98, 0x8640 },     
-	{ 99, 0xC000 },     
-	{ 100, 0x0200 },     
+	{ 1,  0x0006 },     /* R1   - Power Management (1) */
+	{ 2,  0x6000 },     /* R2   - Power Management (2) */
+	{ 3,  0x0000 },     /* R3   - Power Management (3) */
+	{ 6,  0x01C0 },     /* R6   - Clocking 1 */
+	{ 22, 0x0003 },     /* R22  - IN1 Line Control */
+	{ 23, 0x0003 },     /* R23  - IN2 Line Control */
+	{ 24, 0x0083 },     /* R24  - IN1 Line Input A Volume */
+	{ 25, 0x0083 },     /* R25  - IN1  Line Input B Volume */
+	{ 26, 0x0083 },     /* R26  - IN2 Line Input A Volume */
+	{ 27, 0x0083 },     /* R27  - IN2 Line Input B Volume */
+	{ 28, 0x002D },     /* R28  - Left Output Volume */
+	{ 29, 0x002D },     /* R29  - Right Output Volume */
+	{ 34, 0x0100 },     /* R34  - SPKMIXL Attenuation */
+	{ 35, 0x0010 },     /* R36  - SPKOUT Mixers */
+	{ 37, 0x0140 },     /* R37  - ClassD3 */
+	{ 38, 0x0039 },     /* R38  - Speaker Volume Left */
+	{ 45, 0x0000 },     /* R45  - Output Mixer1 */
+	{ 46, 0x0000 },     /* R46  - Output Mixer2 */
+	{ 47, 0x0100 },     /* R47  - Output Mixer3 */
+	{ 48, 0x0100 },     /* R48  - Output Mixer4 */
+	{ 54, 0x0000 },     /* R54  - Speaker Mixer */
+	{ 57, 0x000D },     /* R57  - AntiPOP2 */
+	{ 70, 0x0000 },     /* R70  - Write Sequencer 0 */
+	{ 71, 0x0000 },     /* R71  - Write Sequencer 1 */
+	{ 72, 0x0000 },     /* R72  - Write Sequencer 2 */
+	{ 73, 0x0000 },     /* R73  - Write Sequencer 3 */
+	{ 74, 0x0000 },     /* R74  - Write Sequencer 4 */
+	{ 75, 0x0000 },     /* R75  - Write Sequencer 5 */
+	{ 76, 0x1F25 },     /* R76  - Charge Pump 1 */
+	{ 85, 0x054A },     /* R85  - DC Servo 1 */
+	{ 87, 0x0000 },     /* R87  - DC Servo 3 */
+	{ 96, 0x0100 },     /* R96  - Analogue HP 0 */
+	{ 98, 0x8640 },     /* R98  - AGC Control 0 */
+	{ 99, 0xC000 },     /* R99  - AGC Control 1 */
+	{ 100, 0x0200 },     /* R100 - AGC Control 2 */
 };
 
+/* This struct is used to save the context */
 struct wm9090_priv {
 	struct wm9090_platform_data pdata;
 	struct regmap *regmap;
@@ -270,6 +271,12 @@ static int hp_ev(struct snd_soc_dapm_widget *w,
 		reg |= WM9090_HPOUT1L_DLY | WM9090_HPOUT1R_DLY;
 		snd_soc_write(codec, WM9090_ANALOGUE_HP_0, reg);
 
+		/* Start the DC servo.  We don't currently use the
+		 * ability to save the state since we don't have full
+		 * control of the analogue paths and they can change
+		 * DC offsets; see the WM8904 driver for an example of
+		 * doing so.
+		 */
 		snd_soc_write(codec, WM9090_DC_SERVO_0,
 			      WM9090_DCS_ENA_CHAN_0 |
 			      WM9090_DCS_ENA_CHAN_1 |
@@ -464,6 +471,10 @@ static int wm9090_add_controls(struct snd_soc_codec *codec)
 
 }
 
+/*
+ * The machine driver should call this from their set_bias_level; if there
+ * isn't one then this can just be set as the set_bias_level function.
+ */
 static int wm9090_set_bias_level(struct snd_soc_codec *codec,
 				 enum snd_soc_bias_level level)
 {
@@ -481,15 +492,19 @@ static int wm9090_set_bias_level(struct snd_soc_codec *codec,
 				    WM9090_VMID_RES_MASK,
 				    WM9090_BIAS_ENA |
 				    1 << WM9090_VMID_RES_SHIFT);
-		msleep(1);  
+		msleep(1);  /* Probably an overestimate */
 		break;
 
 	case SND_SOC_BIAS_STANDBY:
 		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
-			
+			/* Restore the register cache */
 			regcache_sync(wm9090->regmap);
 		}
 
+		/* We keep VMID off during standby since the combination of
+		 * ground referenced outputs and class D speaker mean that
+		 * latency is not an issue.
+		 */
 		snd_soc_update_bits(codec, WM9090_POWER_MANAGEMENT_1,
 				    WM9090_BIAS_ENA | WM9090_VMID_RES_MASK, 0);
 		snd_soc_update_bits(codec, WM9090_ANTIPOP2,

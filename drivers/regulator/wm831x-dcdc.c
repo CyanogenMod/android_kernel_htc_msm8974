@@ -37,12 +37,16 @@
 
 #define WM831X_DCDC_MAX_NAME 6
 
+/* Register offsets in control block */
 #define WM831X_DCDC_CONTROL_1     0
 #define WM831X_DCDC_CONTROL_2     1
 #define WM831X_DCDC_ON_CONFIG     2
 #define WM831X_DCDC_SLEEP_CONTROL 3
 #define WM831X_DCDC_DVS_CONTROL   4
 
+/*
+ * Shared
+ */
 
 struct wm831x_dcdc {
 	char name[WM831X_DCDC_MAX_NAME];
@@ -171,7 +175,7 @@ static int wm831x_dcdc_get_status(struct regulator_dev *rdev)
 	struct wm831x *wm831x = dcdc->wm831x;
 	int ret;
 
-	
+	/* First, check for errors */
 	ret = wm831x_reg_read(wm831x, WM831X_DCDC_UV_STATUS);
 	if (ret < 0)
 		return ret;
@@ -182,7 +186,7 @@ static int wm831x_dcdc_get_status(struct regulator_dev *rdev)
 		return REGULATOR_STATUS_ERROR;
 	}
 
-	
+	/* DCDC1 and DCDC2 can additionally detect high voltage/current */
 	if (rdev_get_id(rdev) < 2) {
 		if (ret & (WM831X_DC1_OV_STS << rdev_get_id(rdev))) {
 			dev_dbg(wm831x->dev, "DCDC%d over voltage\n",
@@ -197,13 +201,15 @@ static int wm831x_dcdc_get_status(struct regulator_dev *rdev)
 		}
 	}
 
-	
+	/* Is the regulator on? */
 	ret = wm831x_reg_read(wm831x, WM831X_DCDC_STATUS);
 	if (ret < 0)
 		return ret;
 	if (!(ret & (1 << rdev_get_id(rdev))))
 		return REGULATOR_STATUS_OFF;
 
+	/* TODO: When we handle hardware control modes so we can report the
+	 * current mode. */
 	return REGULATOR_STATUS_ON;
 }
 
@@ -229,6 +235,9 @@ static irqreturn_t wm831x_dcdc_oc_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * BUCKV specifics
+ */
 
 static int wm831x_buckv_list_voltage(struct regulator_dev *rdev,
 				      unsigned selector)
@@ -268,6 +277,10 @@ static int wm831x_buckv_set_dvs(struct regulator_dev *rdev, int state)
 	dcdc->dvs_gpio_state = state;
 	gpio_set_value(dcdc->dvs_gpio, state);
 
+	/* Should wait for DVS state change to be asserted if we have
+	 * a GPIO for it, for now assume the device is configured
+	 * for the fastest possible transition.
+	 */
 
 	return 0;
 }
@@ -287,14 +300,14 @@ static int wm831x_buckv_set_voltage(struct regulator_dev *rdev,
 
 	*selector = vsel;
 
-	
+	/* If this value is already set then do a GPIO update if we can */
 	if (dcdc->dvs_gpio && dcdc->on_vsel == vsel)
 		return wm831x_buckv_set_dvs(rdev, 0);
 
 	if (dcdc->dvs_gpio && dcdc->dvs_vsel == vsel)
 		return wm831x_buckv_set_dvs(rdev, 1);
 
-	
+	/* Always set the ON status to the minimum voltage */
 	ret = wm831x_set_bits(wm831x, on_reg, WM831X_DC1_ON_VSEL_MASK, vsel);
 	if (ret < 0)
 		return ret;
@@ -303,11 +316,17 @@ static int wm831x_buckv_set_voltage(struct regulator_dev *rdev,
 	if (!dcdc->dvs_gpio)
 		return ret;
 
-	
+	/* Kick the voltage transition now */
 	ret = wm831x_buckv_set_dvs(rdev, 0);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * If this VSEL is higher than the last one we've seen then
+	 * remember it as the DVS VSEL.  This is optimised for CPUfreq
+	 * usage where we want to get to the highest voltage very
+	 * quickly.
+	 */
 	if (vsel > dcdc->dvs_vsel) {
 		ret = wm831x_set_bits(wm831x, dvs_reg,
 				      WM831X_DC1_DVS_VSEL_MASK,
@@ -347,6 +366,7 @@ static int wm831x_buckv_get_voltage_sel(struct regulator_dev *rdev)
 		return dcdc->on_vsel;
 }
 
+/* Current limit options */
 static u16 wm831x_dcdc_ilim[] = {
 	125, 250, 375, 500, 625, 750, 875, 1000
 };
@@ -403,6 +423,10 @@ static struct regulator_ops wm831x_buckv_ops = {
 	.set_suspend_mode = wm831x_dcdc_set_suspend_mode,
 };
 
+/*
+ * Set up DVS control.  We just log errors since we can still run
+ * (with reduced performance) if we fail.
+ */
 static __devinit void wm831x_buckv_dvs_init(struct wm831x_dcdc *dcdc,
 					    struct wm831x_buckv_pdata *pdata)
 {
@@ -420,6 +444,9 @@ static __devinit void wm831x_buckv_dvs_init(struct wm831x_dcdc *dcdc,
 		return;
 	}
 
+	/* gpiolib won't let us read the GPIO status so pick the higher
+	 * of the two existing voltages so we take it as platform data.
+	 */
 	dcdc->dvs_gpio_state = pdata->dvs_init_state;
 
 	ret = gpio_direction_output(pdata->dvs_gpio, dcdc->dvs_gpio_state);
@@ -445,6 +472,9 @@ static __devinit void wm831x_buckv_dvs_init(struct wm831x_dcdc *dcdc,
 		return;
 	}
 
+	/* If DVS_VSEL is set to the minimum value then raise it to ON_VSEL
+	 * to make bootstrapping a bit smoother.
+	 */
 	if (!dcdc->dvs_vsel) {
 		ret = wm831x_set_bits(wm831x,
 				      dcdc->base + WM831X_DCDC_DVS_CONTROL,
@@ -591,6 +621,9 @@ static struct platform_driver wm831x_buckv_driver = {
 	},
 };
 
+/*
+ * BUCKP specifics
+ */
 
 static int wm831x_buckp_list_voltage(struct regulator_dev *rdev,
 				      unsigned selector)
@@ -765,6 +798,9 @@ static struct platform_driver wm831x_buckp_driver = {
 	},
 };
 
+/*
+ * DCDC boost convertors
+ */
 
 static int wm831x_boostp_get_status(struct regulator_dev *rdev)
 {
@@ -772,7 +808,7 @@ static int wm831x_boostp_get_status(struct regulator_dev *rdev)
 	struct wm831x *wm831x = dcdc->wm831x;
 	int ret;
 
-	
+	/* First, check for errors */
 	ret = wm831x_reg_read(wm831x, WM831X_DCDC_UV_STATUS);
 	if (ret < 0)
 		return ret;
@@ -783,7 +819,7 @@ static int wm831x_boostp_get_status(struct regulator_dev *rdev)
 		return REGULATOR_STATUS_ERROR;
 	}
 
-	
+	/* Is the regulator on? */
 	ret = wm831x_reg_read(wm831x, WM831X_DCDC_STATUS);
 	if (ret < 0)
 		return ret;
@@ -890,6 +926,12 @@ static struct platform_driver wm831x_boostp_driver = {
 	},
 };
 
+/*
+ * External Power Enable
+ *
+ * These aren't actually DCDCs but look like them in hardware so share
+ * code.
+ */
 
 #define WM831X_EPE_BASE 6
 
@@ -921,9 +963,12 @@ static __devinit int wm831x_epe_probe(struct platform_device *pdev)
 
 	dcdc->wm831x = wm831x;
 
+	/* For current parts this is correct; probably need to revisit
+	 * in future.
+	 */
 	snprintf(dcdc->name, sizeof(dcdc->name), "EPE%d", id + 1);
 	dcdc->desc.name = dcdc->name;
-	dcdc->desc.id = id + WM831X_EPE_BASE; 
+	dcdc->desc.id = id + WM831X_EPE_BASE; /* Offset in DCDC registers */
 	dcdc->desc.ops = &wm831x_epe_ops;
 	dcdc->desc.type = REGULATOR_VOLTAGE;
 	dcdc->desc.owner = THIS_MODULE;
@@ -999,6 +1044,7 @@ static void __exit wm831x_dcdc_exit(void)
 }
 module_exit(wm831x_dcdc_exit);
 
+/* Module information */
 MODULE_AUTHOR("Mark Brown");
 MODULE_DESCRIPTION("WM831x DC-DC convertor driver");
 MODULE_LICENSE("GPL");

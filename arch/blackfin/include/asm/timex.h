@@ -9,7 +9,7 @@
 #ifndef _ASM_BLACKFIN_TIMEX_H
 #define _ASM_BLACKFIN_TIMEX_H
 
-#define CLOCK_TICK_RATE	1000000	
+#define CLOCK_TICK_RATE	1000000	/* Underlying HZ */
 
 typedef unsigned long long cycles_t;
 

@@ -515,7 +515,6 @@ struct fb_cursor_user {
 #define FB_EVENT_GET_REQ                0x0D
 #define FB_EVENT_FB_UNBIND              0x0E
 #define FB_EVENT_REMAP_ALL_CONSOLE      0x0F
-#define FB_EVENT_PREBLANK               0x10
 
 struct fb_event {
 	struct fb_info *info;

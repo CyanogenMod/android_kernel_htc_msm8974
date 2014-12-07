@@ -1,3 +1,8 @@
+/*  linux/include/linux/tick.h
+ *
+ *  This file contains the structure definitions for tick related functions
+ *
+ */
 #ifndef _LINUX_TICK_H
 #define _LINUX_TICK_H
 
@@ -23,6 +28,25 @@ enum tick_nohz_mode {
 	NOHZ_MODE_HIGHRES,
 };
 
+/**
+ * struct tick_sched - sched tick emulation and no idle tick control/stats
+ * @sched_timer:	hrtimer to schedule the periodic tick in high
+ *			resolution mode
+ * @idle_tick:		Store the last idle tick expiry time when the tick
+ *			timer is modified for idle sleeps. This is necessary
+ *			to resume the tick timer operation in the timeline
+ *			when the CPU returns from idle
+ * @tick_stopped:	Indicator that the idle tick has been stopped
+ * @idle_jiffies:	jiffies at the entry to idle for idle time accounting
+ * @idle_calls:		Total number of idle calls
+ * @idle_sleeps:	Number of idle calls, where the sched tick was stopped
+ * @idle_entrytime:	Time when the idle call was entered
+ * @idle_waketime:	Time when the idle was interrupted
+ * @idle_exittime:	Time when the idle state was left
+ * @idle_sleeptime:	Sum of the time slept in idle with sched tick stopped
+ * @iowait_sleeptime:	Sum of the time slept in idle with sched tick stopped, with IO outstanding
+ * @do_timer_lst:	CPU was the last one doing do_timer before going idle
+ */
 struct tick_sched {
 	struct hrtimer			sched_timer;
 	unsigned long			check_clocks;
@@ -69,7 +93,7 @@ extern struct cpumask *tick_get_broadcast_mask(void);
 extern struct cpumask *tick_get_broadcast_oneshot_mask(void);
 #  endif
 
-# endif 
+# endif /* BROADCAST */
 
 # ifdef CONFIG_TICK_ONESHOT
 extern void tick_clock_notify(void);
@@ -87,14 +111,14 @@ static inline void tick_check_idle(int cpu) { }
 static inline int tick_oneshot_mode_active(void) { return 0; }
 # endif
 
-#else 
+#else /* CONFIG_GENERIC_CLOCKEVENTS */
 static inline void tick_init(void) { }
 static inline void tick_cancel_sched_timer(int cpu) { }
 static inline void tick_clock_notify(void) { }
 static inline int tick_check_oneshot_change(int allow_nohz) { return 0; }
 static inline void tick_check_idle(int cpu) { }
 static inline int tick_oneshot_mode_active(void) { return 0; }
-#endif 
+#endif /* !CONFIG_GENERIC_CLOCKEVENTS */
 
 # ifdef CONFIG_NO_HZ
 extern void tick_nohz_idle_enter(void);
@@ -115,6 +139,6 @@ static inline ktime_t tick_nohz_get_sleep_length(void)
 }
 static inline u64 get_cpu_idle_time_us(int cpu, u64 *unused) { return -1; }
 static inline u64 get_cpu_iowait_time_us(int cpu, u64 *unused) { return -1; }
-# endif 
+# endif /* !NO_HZ */
 
 #endif

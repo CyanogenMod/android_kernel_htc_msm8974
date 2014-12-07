@@ -1,3 +1,6 @@
+/* r128_cce.c -- ATI Rage 128 driver -*- linux-c -*-
+ * Created: Wed Apr  5 19:24:19 2000 by kevin@precisioninsight.com
+ */
 /*
  * Copyright 2000 Precision Insight, Inc., Cedar Park, Texas.
  * Copyright 2000 VA Linux Systems, Inc., Sunnyvale, California.
@@ -68,6 +71,9 @@ static void r128_status(drm_r128_private_t *dev_priv)
 }
 #endif
 
+/* ================================================================
+ * Engine, FIFO control
+ */
 
 static int r128_do_pixcache_flush(drm_r128_private_t *dev_priv)
 {
@@ -128,7 +134,11 @@ static int r128_do_wait_for_idle(drm_r128_private_t *dev_priv)
 	return -EBUSY;
 }
 
+/* ================================================================
+ * CCE control, initialization
+ */
 
+/* Load the microcode for the CCE */
 static int r128_cce_load_microcode(drm_r128_private_t *dev_priv)
 {
 	struct platform_device *pdev;
@@ -175,6 +185,10 @@ out_release:
 	return rc;
 }
 
+/* Flush any pending commands to the CCE.  This should only be used just
+ * prior to a wait for idle, as it informs the engine that the command
+ * stream is ending.
+ */
 static void r128_do_cce_flush(drm_r128_private_t *dev_priv)
 {
 	u32 tmp;
@@ -183,6 +197,8 @@ static void r128_do_cce_flush(drm_r128_private_t *dev_priv)
 	R128_WRITE(R128_PM4_BUFFER_DL_WPTR, tmp);
 }
 
+/* Wait for the CCE to go idle.
+ */
 int r128_do_cce_idle(drm_r128_private_t *dev_priv)
 {
 	int i;
@@ -207,6 +223,8 @@ int r128_do_cce_idle(drm_r128_private_t *dev_priv)
 	return -EBUSY;
 }
 
+/* Start the Concurrent Command Engine.
+ */
 static void r128_do_cce_start(drm_r128_private_t *dev_priv)
 {
 	r128_do_wait_for_idle(dev_priv);
@@ -214,12 +232,16 @@ static void r128_do_cce_start(drm_r128_private_t *dev_priv)
 	R128_WRITE(R128_PM4_BUFFER_CNTL,
 		   dev_priv->cce_mode | dev_priv->ring.size_l2qw
 		   | R128_PM4_BUFFER_CNTL_NOUPDATE);
-	R128_READ(R128_PM4_BUFFER_ADDR);	
+	R128_READ(R128_PM4_BUFFER_ADDR);	/* as per the sample code */
 	R128_WRITE(R128_PM4_MICRO_CNTL, R128_PM4_MICRO_FREERUN);
 
 	dev_priv->cce_running = 1;
 }
 
+/* Reset the Concurrent Command Engine.  This will not flush any pending
+ * commands, so you must wait for the CCE command stream to complete
+ * before calling this routine.
+ */
 static void r128_do_cce_reset(drm_r128_private_t *dev_priv)
 {
 	R128_WRITE(R128_PM4_BUFFER_DL_WPTR, 0);
@@ -227,6 +249,10 @@ static void r128_do_cce_reset(drm_r128_private_t *dev_priv)
 	dev_priv->ring.tail = 0;
 }
 
+/* Stop the Concurrent Command Engine.  This will not flush any pending
+ * commands, so you must flush the command stream and wait for the CCE
+ * to go idle before calling this routine.
+ */
 static void r128_do_cce_stop(drm_r128_private_t *dev_priv)
 {
 	R128_WRITE(R128_PM4_MICRO_CNTL, 0);
@@ -236,6 +262,8 @@ static void r128_do_cce_stop(drm_r128_private_t *dev_priv)
 	dev_priv->cce_running = 0;
 }
 
+/* Reset the engine.  This will stop the CCE if it is running.
+ */
 static int r128_do_engine_reset(struct drm_device *dev)
 {
 	drm_r128_private_t *dev_priv = dev->dev_private;
@@ -251,7 +279,7 @@ static int r128_do_engine_reset(struct drm_device *dev)
 
 	gen_reset_cntl = R128_READ(R128_GEN_RESET_CNTL);
 
-	
+	/* Taken from the sample code - do not change */
 	R128_WRITE(R128_GEN_RESET_CNTL, gen_reset_cntl | R128_SOFT_RESET_GUI);
 	R128_READ(R128_GEN_RESET_CNTL);
 	R128_WRITE(R128_GEN_RESET_CNTL, gen_reset_cntl & ~R128_SOFT_RESET_GUI);
@@ -261,13 +289,13 @@ static int r128_do_engine_reset(struct drm_device *dev)
 	R128_WRITE(R128_CLOCK_CNTL_INDEX, clock_cntl_index);
 	R128_WRITE(R128_GEN_RESET_CNTL, gen_reset_cntl);
 
-	
+	/* Reset the CCE ring */
 	r128_do_cce_reset(dev_priv);
 
-	
+	/* The CCE is no longer running after an engine reset */
 	dev_priv->cce_running = 0;
 
-	
+	/* Reset any pending vertex, indirect buffers */
 	r128_freelist_reset(dev);
 
 	return 0;
@@ -281,6 +309,9 @@ static void r128_cce_init_ring_buffer(struct drm_device *dev,
 
 	DRM_DEBUG("\n");
 
+	/* The manual (p. 2) says this address is in "VM space".  This
+	 * means it's an offset from the start of AGP space.
+	 */
 #if __OS_HAS_AGP
 	if (!dev_priv->is_pci)
 		ring_start = dev_priv->cce_ring->offset - dev->agp->base;
@@ -294,17 +325,17 @@ static void r128_cce_init_ring_buffer(struct drm_device *dev,
 	R128_WRITE(R128_PM4_BUFFER_DL_WPTR, 0);
 	R128_WRITE(R128_PM4_BUFFER_DL_RPTR, 0);
 
-	
+	/* Set watermark control */
 	R128_WRITE(R128_PM4_BUFFER_WM_CNTL,
 		   ((R128_WATERMARK_L / 4) << R128_WMA_SHIFT)
 		   | ((R128_WATERMARK_M / 4) << R128_WMB_SHIFT)
 		   | ((R128_WATERMARK_N / 4) << R128_WMC_SHIFT)
 		   | ((R128_WATERMARK_K / 64) << R128_WB_WM_SHIFT));
 
-	
+	/* Force read.  Why?  Because it's in the examples... */
 	R128_READ(R128_PM4_BUFFER_ADDR);
 
-	
+	/* Turn on bus mastering */
 	tmp = R128_READ(R128_BUS_CNTL) & ~R128_BUS_MASTER_DIS;
 	R128_WRITE(R128_BUS_CNTL, tmp);
 }
@@ -345,8 +376,14 @@ static int r128_do_init_cce(struct drm_device *dev, drm_r128_init_t *init)
 
 	dev_priv->cce_mode = init->cce_mode;
 
+	/* GH: Simple idle check.
+	 */
 	atomic_set(&dev_priv->idle_count, 0);
 
+	/* We don't support anything other than bus-mastering ring mode,
+	 * but the ring can be in either AGP or PCI space for the ring
+	 * read pointer.
+	 */
 	if ((init->cce_mode != R128_PM4_192BM) &&
 	    (init->cce_mode != R128_PM4_128BM_64INDBM) &&
 	    (init->cce_mode != R128_PM4_64BM_128INDBM) &&
@@ -554,6 +591,10 @@ static int r128_do_init_cce(struct drm_device *dev, drm_r128_init_t *init)
 int r128_do_cleanup_cce(struct drm_device *dev)
 {
 
+	/* Make sure interrupts are disabled here because the uninstall ioctl
+	 * may not have been called from userspace and after dev_private
+	 * is freed, it's too late.
+	 */
 	if (dev->irq_enabled)
 		drm_irq_uninstall(dev);
 
@@ -624,6 +665,9 @@ int r128_cce_start(struct drm_device *dev, void *data, struct drm_file *file_pri
 	return 0;
 }
 
+/* Stop the CCE.  The engine must have been idled before calling this
+ * routine.
+ */
 int r128_cce_stop(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_r128_private_t *dev_priv = dev->dev_private;
@@ -635,23 +679,35 @@ int r128_cce_stop(struct drm_device *dev, void *data, struct drm_file *file_priv
 
 	DEV_INIT_TEST_WITH_RETURN(dev_priv);
 
+	/* Flush any pending CCE commands.  This ensures any outstanding
+	 * commands are exectuted by the engine before we turn it off.
+	 */
 	if (stop->flush)
 		r128_do_cce_flush(dev_priv);
 
+	/* If we fail to make the engine go idle, we return an error
+	 * code so that the DRM ioctl wrapper can try again.
+	 */
 	if (stop->idle) {
 		ret = r128_do_cce_idle(dev_priv);
 		if (ret)
 			return ret;
 	}
 
+	/* Finally, we can turn off the CCE.  If the engine isn't idle,
+	 * we will get some dropped triangles as they won't be fully
+	 * rendered before the CCE is shut down.
+	 */
 	r128_do_cce_stop(dev_priv);
 
-	
+	/* Reset the engine */
 	r128_do_engine_reset(dev);
 
 	return 0;
 }
 
+/* Just reset the CCE ring.  Called as part of an X Server engine reset.
+ */
 int r128_cce_reset(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_r128_private_t *dev_priv = dev->dev_private;
@@ -663,7 +719,7 @@ int r128_cce_reset(struct drm_device *dev, void *data, struct drm_file *file_pri
 
 	r128_do_cce_reset(dev_priv);
 
-	
+	/* The CCE is no longer running after an engine reset */
 	dev_priv->cce_running = 0;
 
 	return 0;
@@ -700,6 +756,9 @@ int r128_fullscreen(struct drm_device *dev, void *data, struct drm_file *file_pr
 	return -EINVAL;
 }
 
+/* ================================================================
+ * Freelist management
+ */
 #define R128_BUFFER_USED	0xffffffff
 #define R128_BUFFER_FREE	0
 
@@ -757,7 +816,7 @@ static struct drm_buf *r128_freelist_get(struct drm_device * dev)
 	struct drm_buf *buf;
 	int i, t;
 
-	
+	/* FIXME: Optimize -- use freelist code */
 
 	for (i = 0; i < dma->buf_count; i++) {
 		buf = dma->buflist[i];
@@ -773,6 +832,9 @@ static struct drm_buf *r128_freelist_get(struct drm_device * dev)
 			buf = dma->buflist[i];
 			buf_priv = buf->dev_private;
 			if (buf->pending && buf_priv->age <= done_age) {
+				/* The buffer has been processed, so it
+				 * can now be used.
+				 */
 				buf->pending = 0;
 				return buf;
 			}
@@ -796,6 +858,9 @@ void r128_freelist_reset(struct drm_device *dev)
 	}
 }
 
+/* ================================================================
+ * CCE command submission
+ */
 
 int r128_wait_ring(drm_r128_private_t *dev_priv, int n)
 {
@@ -809,7 +874,7 @@ int r128_wait_ring(drm_r128_private_t *dev_priv, int n)
 		DRM_UDELAY(1);
 	}
 
-	
+	/* FIXME: This is being ignored... */
 	DRM_ERROR("failed!\n");
 	return -EBUSY;
 }
@@ -848,12 +913,16 @@ int r128_cce_buffers(struct drm_device *dev, void *data, struct drm_file *file_p
 
 	LOCK_TEST_WITH_RETURN(dev, file_priv);
 
+	/* Please don't send us buffers.
+	 */
 	if (d->send_count != 0) {
 		DRM_ERROR("Process %d trying to send %d buffers via drmDMA\n",
 			  DRM_CURRENTPID, d->send_count);
 		return -EINVAL;
 	}
 
+	/* We'll send you buffers.
+	 */
 	if (d->request_count < 0 || d->request_count > dma->buf_count) {
 		DRM_ERROR("Process %d trying to get %d buffers (of %d max)\n",
 			  DRM_CURRENTPID, d->request_count, dma->buf_count);

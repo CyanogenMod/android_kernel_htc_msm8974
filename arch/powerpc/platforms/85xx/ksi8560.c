@@ -36,11 +36,11 @@
 
 #include "mpc85xx.h"
 
-#define KSI8560_CPLD_HVR		0x04 
-#define KSI8560_CPLD_PVR		0x08 
-#define KSI8560_CPLD_RCR1		0x30 
+#define KSI8560_CPLD_HVR		0x04 /* Hardware Version Register */
+#define KSI8560_CPLD_PVR		0x08 /* PLD Version Register */
+#define KSI8560_CPLD_RCR1		0x30 /* Reset Command Register 1 */
 
-#define KSI8560_CPLD_RCR1_CPUHR		0x80 
+#define KSI8560_CPLD_RCR1_CPUHR		0x80 /* CPU Hard Reset */
 
 static void __iomem *cpld_base = NULL;
 
@@ -65,22 +65,25 @@ static void __init ksi8560_pic_init(void)
 }
 
 #ifdef CONFIG_CPM2
+/*
+ * Setup I/O ports
+ */
 struct cpm_pin {
 	int port, pin, flags;
 };
 
 static struct cpm_pin __initdata ksi8560_pins[] = {
-	
+	/* SCC1 */
 	{3, 29, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{3, 30, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{3, 31, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* SCC2 */
 	{3, 26, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{3, 27, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{3, 28, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC1 */
 	{0, 14, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 15, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 16, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -95,8 +98,8 @@ static struct cpm_pin __initdata ksi8560_pins[] = {
 	{0, 29, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{0, 30, CPM_PIN_INPUT | CPM_PIN_SECONDARY},
 	{0, 31, CPM_PIN_INPUT | CPM_PIN_SECONDARY},
-	{2, 23, CPM_PIN_INPUT | CPM_PIN_PRIMARY}, 
-	{2, 22, CPM_PIN_INPUT | CPM_PIN_PRIMARY}, 
+	{2, 23, CPM_PIN_INPUT | CPM_PIN_PRIMARY}, /* CLK9 */
+	{2, 22, CPM_PIN_INPUT | CPM_PIN_PRIMARY}, /* CLK10 */
 
 };
 
@@ -118,6 +121,9 @@ static void __init init_ioports(void)
 }
 #endif
 
+/*
+ * Setup the architecture
+ */
 static void __init ksi8560_setup_arch(void)
 {
 	struct device_node *cpld;
@@ -158,13 +164,16 @@ static void ksi8560_show_cpuinfo(struct seq_file *m)
 	seq_printf(m, "PVR\t\t: 0x%x\n", pvid);
 	seq_printf(m, "SVR\t\t: 0x%x\n", svid);
 
-	
+	/* Display cpu Pll setting */
 	phid1 = mfspr(SPRN_HID1);
 	seq_printf(m, "PLL setting\t: 0x%x\n", ((phid1 >> 24) & 0x3f));
 }
 
 machine_device_initcall(ksi8560, mpc85xx_common_publish_devices);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init ksi8560_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

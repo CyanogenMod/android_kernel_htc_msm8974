@@ -54,7 +54,7 @@
 
 #include "atl1e_hw.h"
 
-#define PCI_REG_COMMAND	 0x04    
+#define PCI_REG_COMMAND	 0x04    /* PCI Command Register */
 #define CMD_IO_SPACE	 0x0001
 #define CMD_MEMORY_SPACE 0x0002
 #define CMD_BUS_MASTER   0x0004
@@ -63,16 +63,18 @@
 #define BAR_1   1
 #define BAR_5   5
 
-#define AT_WUFC_LNKC 0x00000001 
-#define AT_WUFC_MAG  0x00000002 
-#define AT_WUFC_EX   0x00000004 
-#define AT_WUFC_MC   0x00000008 
-#define AT_WUFC_BC   0x00000010 
+/* Wake Up Filter Control */
+#define AT_WUFC_LNKC 0x00000001 /* Link Status Change Wakeup Enable */
+#define AT_WUFC_MAG  0x00000002 /* Magic Packet Wakeup Enable */
+#define AT_WUFC_EX   0x00000004 /* Directed Exact Wakeup Enable */
+#define AT_WUFC_MC   0x00000008 /* Multicast Wakeup Enable */
+#define AT_WUFC_BC   0x00000010 /* Broadcast Wakeup Enable */
 
 #define SPEED_0		   0xffff
 #define HALF_DUPLEX        1
 #define FULL_DUPLEX        2
 
+/* Error Codes */
 #define AT_ERR_EEPROM      1
 #define AT_ERR_PHY         2
 #define AT_ERR_CONFIG      3
@@ -113,6 +115,7 @@
 			 ADVERTISE_100_FULL |\
 			 ADVERTISE_1000_FULL)
 
+/* tpd word 2 */
 #define TPD_BUFLEN_MASK 	0x3FFF
 #define TPD_BUFLEN_SHIFT        0
 #define TPD_DMAINT_MASK		0x0001
@@ -122,10 +125,11 @@
 #define TPD_VLANTAG_MASK        0xFFFF
 #define TPD_VLAN_SHIFT          16
 
+/* tpd word 3 bits 0:4 */
 #define TPD_EOP_MASK            0x0001
 #define TPD_EOP_SHIFT           0
 #define TPD_IP_VERSION_MASK	0x0001
-#define TPD_IP_VERSION_SHIFT	1	
+#define TPD_IP_VERSION_SHIFT	1	/* 0 : IPV4, 1 : IPV6 */
 #define TPD_INS_VL_TAG_MASK	0x0001
 #define TPD_INS_VL_TAG_SHIFT	2
 #define TPD_CC_SEGMENT_EN_MASK	0x0001
@@ -133,6 +137,7 @@
 #define TPD_SEGMENT_EN_MASK     0x0001
 #define TPD_SEGMENT_EN_SHIFT    4
 
+/* tdp word 3 bits 5:7 if ip version is 0 */
 #define TPD_IP_CSUM_MASK        0x0001
 #define TPD_IP_CSUM_SHIFT       5
 #define TPD_TCP_CSUM_MASK       0x0001
@@ -140,20 +145,25 @@
 #define TPD_UDP_CSUM_MASK       0x0001
 #define TPD_UDP_CSUM_SHIFT      7
 
+/* tdp word 3 bits 5:7 if ip version is 1 */
 #define TPD_V6_IPHLLO_MASK	0x0007
 #define TPD_V6_IPHLLO_SHIFT	7
 
+/* tpd word 3 bits 8:9 bit */
 #define TPD_VL_TAGGED_MASK      0x0001
 #define TPD_VL_TAGGED_SHIFT     8
 #define TPD_ETHTYPE_MASK        0x0001
 #define TPD_ETHTYPE_SHIFT       9
 
+/* tdp word 3 bits 10:13 if ip version is 0 */
 #define TDP_V4_IPHL_MASK	0x000F
 #define TPD_V4_IPHL_SHIFT	10
 
+/* tdp word 3 bits 10:13 if ip version is 1 */
 #define TPD_V6_IPHLHI_MASK	0x000F
 #define TPD_V6_IPHLHI_SHIFT	10
 
+/* tpd word 3 bit 14:31 if segment enabled */
 #define TPD_TCPHDRLEN_MASK      0x000F
 #define TPD_TCPHDRLEN_SHIFT     14
 #define TPD_HDRFLAG_MASK        0x0001
@@ -161,6 +171,7 @@
 #define TPD_MSS_MASK            0x1FFF
 #define TPD_MSS_SHIFT           19
 
+/* tdp word 3 bit 16:31 if custom csum enabled */
 #define TPD_PLOADOFFSET_MASK    0x00FF
 #define TPD_PLOADOFFSET_SHIFT   16
 #define TPD_CCSUMOFFSET_MASK    0x00FF
@@ -172,9 +183,12 @@ struct atl1e_tpd_desc {
 	__le32 word3;
 };
 
+/* how about 0x2000 */
 #define MAX_TX_BUF_LEN      0x2000
 #define MAX_TX_BUF_SHIFT    13
+/*#define MAX_TX_BUF_LEN  0x3000 */
 
+/* rrs word 1 bit 0:31 */
 #define RRS_RX_CSUM_MASK	0xFFFF
 #define RRS_RX_CSUM_SHIFT	0
 #define RRS_PKT_SIZE_MASK	0x3FFF
@@ -244,62 +258,62 @@ enum atl1e_nic_type {
 };
 
 struct atl1e_hw_stats {
-	
-	unsigned long rx_ok;	      
-	unsigned long rx_bcast;       
-	unsigned long rx_mcast;       
-	unsigned long rx_pause;       
-	unsigned long rx_ctrl;        
-	unsigned long rx_fcs_err;     
-	unsigned long rx_len_err;     
-	unsigned long rx_byte_cnt;    
-	unsigned long rx_runt;        
-	unsigned long rx_frag;        
-	unsigned long rx_sz_64;       
-	unsigned long rx_sz_65_127;   
-	unsigned long rx_sz_128_255;  
-	unsigned long rx_sz_256_511;  
-	unsigned long rx_sz_512_1023; 
-	unsigned long rx_sz_1024_1518;    
-	unsigned long rx_sz_1519_max; 
-	unsigned long rx_sz_ov;       
-	unsigned long rx_rxf_ov;      
-	unsigned long rx_rrd_ov;      
-	unsigned long rx_align_err;   
-	unsigned long rx_bcast_byte_cnt;  
-	unsigned long rx_mcast_byte_cnt;  
-	unsigned long rx_err_addr;    
+	/* rx */
+	unsigned long rx_ok;	      /* The number of good packet received. */
+	unsigned long rx_bcast;       /* The number of good broadcast packet received. */
+	unsigned long rx_mcast;       /* The number of good multicast packet received. */
+	unsigned long rx_pause;       /* The number of Pause packet received. */
+	unsigned long rx_ctrl;        /* The number of Control packet received other than Pause frame. */
+	unsigned long rx_fcs_err;     /* The number of packets with bad FCS. */
+	unsigned long rx_len_err;     /* The number of packets with mismatch of length field and actual size. */
+	unsigned long rx_byte_cnt;    /* The number of bytes of good packet received. FCS is NOT included. */
+	unsigned long rx_runt;        /* The number of packets received that are less than 64 byte long and with good FCS. */
+	unsigned long rx_frag;        /* The number of packets received that are less than 64 byte long and with bad FCS. */
+	unsigned long rx_sz_64;       /* The number of good and bad packets received that are 64 byte long. */
+	unsigned long rx_sz_65_127;   /* The number of good and bad packets received that are between 65 and 127-byte long. */
+	unsigned long rx_sz_128_255;  /* The number of good and bad packets received that are between 128 and 255-byte long. */
+	unsigned long rx_sz_256_511;  /* The number of good and bad packets received that are between 256 and 511-byte long. */
+	unsigned long rx_sz_512_1023; /* The number of good and bad packets received that are between 512 and 1023-byte long. */
+	unsigned long rx_sz_1024_1518;    /* The number of good and bad packets received that are between 1024 and 1518-byte long. */
+	unsigned long rx_sz_1519_max; /* The number of good and bad packets received that are between 1519-byte and MTU. */
+	unsigned long rx_sz_ov;       /* The number of good and bad packets received that are more than MTU size truncated by Selene. */
+	unsigned long rx_rxf_ov;      /* The number of frame dropped due to occurrence of RX FIFO overflow. */
+	unsigned long rx_rrd_ov;      /* The number of frame dropped due to occurrence of RRD overflow. */
+	unsigned long rx_align_err;   /* Alignment Error */
+	unsigned long rx_bcast_byte_cnt;  /* The byte count of broadcast packet received, excluding FCS. */
+	unsigned long rx_mcast_byte_cnt;  /* The byte count of multicast packet received, excluding FCS. */
+	unsigned long rx_err_addr;    /* The number of packets dropped due to address filtering. */
 
-	
-	unsigned long tx_ok;      
-	unsigned long tx_bcast;       
-	unsigned long tx_mcast;       
-	unsigned long tx_pause;       
-	unsigned long tx_exc_defer;   
-	unsigned long tx_ctrl;        
-	unsigned long tx_defer;       
-	unsigned long tx_byte_cnt;    
-	unsigned long tx_sz_64;       
-	unsigned long tx_sz_65_127;   
-	unsigned long tx_sz_128_255;  
-	unsigned long tx_sz_256_511;  
-	unsigned long tx_sz_512_1023; 
-	unsigned long tx_sz_1024_1518;    
-	unsigned long tx_sz_1519_max; 
-	unsigned long tx_1_col;       
-	unsigned long tx_2_col;       
-	unsigned long tx_late_col;    
-	unsigned long tx_abort_col;   
-	unsigned long tx_underrun;    
+	/* tx */
+	unsigned long tx_ok;      /* The number of good packet transmitted. */
+	unsigned long tx_bcast;       /* The number of good broadcast packet transmitted. */
+	unsigned long tx_mcast;       /* The number of good multicast packet transmitted. */
+	unsigned long tx_pause;       /* The number of Pause packet transmitted. */
+	unsigned long tx_exc_defer;   /* The number of packets transmitted with excessive deferral. */
+	unsigned long tx_ctrl;        /* The number of packets transmitted is a control frame, excluding Pause frame. */
+	unsigned long tx_defer;       /* The number of packets transmitted that is deferred. */
+	unsigned long tx_byte_cnt;    /* The number of bytes of data transmitted. FCS is NOT included. */
+	unsigned long tx_sz_64;       /* The number of good and bad packets transmitted that are 64 byte long. */
+	unsigned long tx_sz_65_127;   /* The number of good and bad packets transmitted that are between 65 and 127-byte long. */
+	unsigned long tx_sz_128_255;  /* The number of good and bad packets transmitted that are between 128 and 255-byte long. */
+	unsigned long tx_sz_256_511;  /* The number of good and bad packets transmitted that are between 256 and 511-byte long. */
+	unsigned long tx_sz_512_1023; /* The number of good and bad packets transmitted that are between 512 and 1023-byte long. */
+	unsigned long tx_sz_1024_1518;    /* The number of good and bad packets transmitted that are between 1024 and 1518-byte long. */
+	unsigned long tx_sz_1519_max; /* The number of good and bad packets transmitted that are between 1519-byte and MTU. */
+	unsigned long tx_1_col;       /* The number of packets subsequently transmitted successfully with a single prior collision. */
+	unsigned long tx_2_col;       /* The number of packets subsequently transmitted successfully with multiple prior collisions. */
+	unsigned long tx_late_col;    /* The number of packets transmitted with late collisions. */
+	unsigned long tx_abort_col;   /* The number of transmit packets aborted due to excessive collisions. */
+	unsigned long tx_underrun;    /* The number of transmit packets aborted due to transmit FIFO underrun, or TRD FIFO underrun */
 	unsigned long tx_rd_eop;      /* The number of times that read beyond the EOP into the next frame area when TRD was not written timely */
-	unsigned long tx_len_err;     
-	unsigned long tx_trunc;       
-	unsigned long tx_bcast_byte;  
-	unsigned long tx_mcast_byte;  
+	unsigned long tx_len_err;     /* The number of transmit packets with length field does NOT match the actual frame size. */
+	unsigned long tx_trunc;       /* The number of transmit packets truncated due to size exceeding MTU. */
+	unsigned long tx_bcast_byte;  /* The byte count of broadcast packet transmitted, excluding FCS. */
+	unsigned long tx_mcast_byte;  /* The byte count of multicast packet transmitted, excluding FCS. */
 };
 
 struct atl1e_hw {
-	u8 __iomem      *hw_addr;            
+	u8 __iomem      *hw_addr;            /* inner register address */
 	resource_size_t mem_rang;
 	struct atl1e_adapter *adapter;
 	enum atl1e_nic_type  nic_type;
@@ -328,20 +342,21 @@ struct atl1e_hw {
 #define ADVERTISE_10_FULL               0x0002
 #define ADVERTISE_100_HALF              0x0004
 #define ADVERTISE_100_FULL              0x0008
-#define ADVERTISE_1000_HALF             0x0010 
+#define ADVERTISE_1000_HALF             0x0010 /* Not used, just FYI */
 #define ADVERTISE_1000_FULL             0x0020
 	u16 mii_autoneg_adv_reg;
 	u16 mii_1000t_ctrl_reg;
 
-	u16 imt;        
-	u16 ict;        
+	u16 imt;        /* Interrupt Moderator timer ( 2us resolution) */
+	u16 ict;        /* Interrupt Clear timer (2us resolution) */
 	u32 smb_timer;
-	u16 rrd_thresh; 
+	u16 rrd_thresh; /* Threshold of number of RRD produced to trigger
+			  interrupt request */
 	u16 tpd_thresh;
-	u16 rx_count_down; 
+	u16 rx_count_down; /* 2us resolution */
 	u16 tx_count_down;
 
-	u8 tpd_burst;   
+	u8 tpd_burst;   /* Number of TPD to prefetch in cache-aligned burst. */
 	enum atl1e_rrs_type rrs_type;
 	u32 base_cpu;
 	u32 indirect_tab;
@@ -356,6 +371,10 @@ struct atl1e_hw {
 	bool emi_ca;
 };
 
+/*
+ * wrapper around a pointer to a socket buffer,
+ * so a DMA handle can be stored along with the buffer
+ */
 struct atl1e_tx_buffer {
 	struct sk_buff *skb;
 	u16 flags;
@@ -372,11 +391,13 @@ struct atl1e_tx_buffer {
 	} while (0)
 
 struct atl1e_rx_page {
-	dma_addr_t	dma;    
-	u8		*addr;   
-	dma_addr_t	write_offset_dma;  
-	u32		*write_offset_addr; 
-	u32		read_offset;       
+	dma_addr_t	dma;    /* receive rage DMA address */
+	u8		*addr;   /* receive rage virtual address */
+	dma_addr_t	write_offset_dma;  /* the DMA address which contain the
+					      receive data offset in the page */
+	u32		*write_offset_addr; /* the virtaul address which contain
+					     the receive data offset in the page */
+	u32		read_offset;       /* the offset where we have read */
 };
 
 struct atl1e_rx_page_desc {
@@ -385,10 +406,11 @@ struct atl1e_rx_page_desc {
 	u16 rx_nxseq;
 };
 
+/* transmit packet descriptor (tpd) ring */
 struct atl1e_tx_ring {
-	struct atl1e_tpd_desc *desc;  
-	dma_addr_t	   dma;    
-	u16       	   count;  
+	struct atl1e_tpd_desc *desc;  /* descriptor ring virtual address  */
+	dma_addr_t	   dma;    /* descriptor ring physical address */
+	u16       	   count;  /* the count of transmit rings  */
 	rwlock_t	   tx_lock;
 	u16		   next_to_use;
 	atomic_t	   next_to_clean;
@@ -397,20 +419,22 @@ struct atl1e_tx_ring {
 	u32		   *cmb;
 };
 
+/* receive packet descriptor ring */
 struct atl1e_rx_ring {
 	void        	*desc;
 	dma_addr_t  	dma;
 	int         	size;
-	u32	    	page_size; 
-	u32		real_page_size; 
+	u32	    	page_size; /* bytes length of rxf page */
+	u32		real_page_size; /* real_page_size = page_size + jumbo + aliagn */
 	struct atl1e_rx_page_desc	rx_page_desc[AT_MAX_RECEIVE_QUEUE];
 };
 
+/* board specific private data structure */
 struct atl1e_adapter {
 	struct net_device   *netdev;
 	struct pci_dev      *pdev;
 	struct napi_struct  napi;
-	struct mii_if_info  mii;    
+	struct mii_if_info  mii;    /* MII interface info */
 	struct atl1e_hw        hw;
 	struct atl1e_hw_stats  hw_stats;
 
@@ -428,7 +452,7 @@ struct atl1e_adapter {
 	struct timer_list watchdog_timer;
 	struct timer_list phy_config_timer;
 
-	
+	/* All Descriptor memory */
 	dma_addr_t  	ring_dma;
 	void     	*ring_vir_addr;
 	u32             ring_size;
@@ -441,7 +465,7 @@ struct atl1e_adapter {
 #define __AT_RESETTING      0x0002
 #define __AT_DOWN           0x0003
 
-	u32 bd_number;     
+	u32 bd_number;     /* board number;*/
 	u32 pci_state[16];
 	u32 *config_space;
 };
@@ -482,4 +506,4 @@ extern void atl1e_down(struct atl1e_adapter *adapter);
 extern void atl1e_reinit_locked(struct atl1e_adapter *adapter);
 extern s32 atl1e_reset_hw(struct atl1e_hw *hw);
 extern void atl1e_set_ethtool_ops(struct net_device *netdev);
-#endif 
+#endif /* _ATL1_E_H_ */

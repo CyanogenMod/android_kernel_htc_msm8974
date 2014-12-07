@@ -59,7 +59,7 @@ struct imxmci_host {
 	struct tasklet_struct	tasklet;
 	unsigned int		status_reg;
 	unsigned long		pending_events;
-	
+	/* Next two fields are there for CPU driven transfers to overcome SDHC deficiencies */
 	u16			*data_ptr;
 	unsigned int		data_cnt;
 	atomic_t		stuck_timeout;
@@ -112,7 +112,7 @@ static void imxmci_stop_clock(struct imxmci_host *host)
 
 		reg = readw(host->base + MMC_REG_STATUS);
 		if (!(reg & STATUS_CARD_BUS_CLK_RUN)) {
-			
+			/* Check twice before cut */
 			reg = readw(host->base + MMC_REG_STATUS);
 			if (!(reg & STATUS_CARD_BUS_CLK_RUN))
 				return;
@@ -135,6 +135,11 @@ static int imxmci_start_clock(struct imxmci_host *host)
 
 	clear_bit(IMXMCI_PEND_STARTED_b, &host->pending_events);
 
+	/*
+	 * Command start of the clock, this usually succeeds in less
+	 * then 6 delay loops, but during card detection (low clockrate)
+	 * it takes up to 5000 delay loops and sometimes fails for the first time
+	 */
 	reg = readw(host->base + MMC_REG_STR_STP_CLK);
 	writew(reg | STR_STP_CLK_START_CLK, host->base + MMC_REG_STR_STP_CLK);
 
@@ -144,7 +149,7 @@ static int imxmci_start_clock(struct imxmci_host *host)
 		while (delay--) {
 			reg = readw(host->base + MMC_REG_STATUS);
 			if (reg & STATUS_CARD_BUS_CLK_RUN) {
-				
+				/* Check twice before cut */
 				reg = readw(host->base + MMC_REG_STATUS);
 				if (reg & STATUS_CARD_BUS_CLK_RUN)
 					return 0;
@@ -155,6 +160,12 @@ static int imxmci_start_clock(struct imxmci_host *host)
 		}
 
 		local_irq_save(flags);
+		/*
+		 * Ensure, that request is not doubled under all possible circumstances.
+		 * It is possible, that cock running state is missed, because some other
+		 * IRQ or schedule delays this function execution and the clocks has
+		 * been already stopped by other means (response processing, SDHC HW)
+		 */
 		if (!test_bit(IMXMCI_PEND_STARTED_b, &host->pending_events)) {
 			reg = readw(host->base + MMC_REG_STR_STP_CLK);
 			writew(reg | STR_STP_CLK_START_CLK,
@@ -173,7 +184,7 @@ static void imxmci_softreset(struct imxmci_host *host)
 {
 	int i;
 
-	
+	/* reset sequence */
 	writew(0x08, host->base + MMC_REG_STR_STP_CLK);
 	writew(0x0D, host->base + MMC_REG_STR_STP_CLK);
 
@@ -204,7 +215,7 @@ static int imxmci_busy_wait_for_status(struct imxmci_host *host,
 	if (!loops)
 		return 0;
 
-	
+	/* The busy-wait is expected there for clock <8MHz due to SDHC hardware flaws */
 	if (!(stat_mask & STATUS_END_CMD_RESP) || (host->mmc->ios.clock >= 8000000))
 		dev_info(mmc_dev(host->mmc), "busy wait for %d usec in %s, STATUS = 0x%x (0x%x)\n",
 			 loops, where, *pstat, stat_mask);
@@ -227,19 +238,27 @@ static void imxmci_setup_data(struct imxmci_host *host, struct mmc_data *data)
 	writew(nob, host->base + MMC_REG_NOB);
 	writew(blksz, host->base + MMC_REG_BLK_LEN);
 
+	/*
+	 * DMA cannot be used for small block sizes, we have to use CPU driven transfers otherwise.
+	 * We are in big troubles for non-512 byte transfers according to note in the paragraph
+	 * 20.6.7 of User Manual anyway, but we need to be able to transfer SCR at least.
+	 * The situation is even more complex in reality. The SDHC in not able to handle wll
+	 * partial FIFO fills and reads. The length has to be rounded up to burst size multiple.
+	 * This is required for SCR read at least.
+	 */
 	if (datasz < 512) {
 		host->dma_size = datasz;
 		if (data->flags & MMC_DATA_READ) {
 			host->dma_dir = DMA_FROM_DEVICE;
 
-			
+			/* Hack to enable read SCR */
 			writew(1, host->base + MMC_REG_NOB);
 			writew(512, host->base + MMC_REG_BLK_LEN);
 		} else {
 			host->dma_dir = DMA_TO_DEVICE;
 		}
 
-		
+		/* Convert back to virtual address */
 		host->data_ptr = (u16 *)sg_virt(data->sg);
 		host->data_cnt = 0;
 
@@ -258,7 +277,7 @@ static void imxmci_setup_data(struct imxmci_host *host, struct mmc_data *data)
 				 host->res->start + MMC_REG_BUFFER_ACCESS,
 				 DMA_MODE_READ);
 
-		
+		/*imx_dma_setup_mem2dev_ccr(host->dma, DMA_MODE_READ, IMX_DMA_WIDTH_16, CCR_REN);*/
 		CCR(host->dma) = CCR_DMOD_LINEAR | CCR_DSIZ_32 | CCR_SMOD_FIFO | CCR_SSIZ_16 | CCR_REN;
 	} else {
 		host->dma_dir = DMA_TO_DEVICE;
@@ -270,11 +289,11 @@ static void imxmci_setup_data(struct imxmci_host *host, struct mmc_data *data)
 				 host->res->start + MMC_REG_BUFFER_ACCESS,
 				 DMA_MODE_WRITE);
 
-		
+		/*imx_dma_setup_mem2dev_ccr(host->dma, DMA_MODE_WRITE, IMX_DMA_WIDTH_16, CCR_REN);*/
 		CCR(host->dma) = CCR_SMOD_LINEAR | CCR_SSIZ_32 | CCR_DMOD_FIFO | CCR_DSIZ_16 | CCR_REN;
 	}
 
-#if 1	
+#if 1	/* This code is there only for consistency checking and can be disabled in future */
 	host->dma_size = 0;
 	for (i = 0; i < host->dma_nents; i++)
 		host->dma_size += data->sg[i].length;
@@ -292,7 +311,7 @@ static void imxmci_setup_data(struct imxmci_host *host, struct mmc_data *data)
 	set_bit(IMXMCI_PEND_DMA_DATA_b, &host->pending_events);
 	clear_bit(IMXMCI_PEND_CPU_DATA_b, &host->pending_events);
 
-	
+	/* start DMA engine for read, write is delayed after initial response */
 	if (host->dma_dir == DMA_FROM_DEVICE)
 		imx_dma_enable(host->dma);
 }
@@ -305,21 +324,21 @@ static void imxmci_start_cmd(struct imxmci_host *host, struct mmc_command *cmd, 
 	WARN_ON(host->cmd != NULL);
 	host->cmd = cmd;
 
-	
+	/* Ensure, that clock are stopped else command programming and start fails */
 	imxmci_stop_clock(host);
 
 	if (cmd->flags & MMC_RSP_BUSY)
 		cmdat |= CMD_DAT_CONT_BUSY;
 
 	switch (mmc_resp_type(cmd)) {
-	case MMC_RSP_R1: 
-	case MMC_RSP_R1B:
+	case MMC_RSP_R1: /* short CRC, OPCODE */
+	case MMC_RSP_R1B:/* short CRC, OPCODE, BUSY */
 		cmdat |= CMD_DAT_CONT_RESPONSE_FORMAT_R1;
 		break;
-	case MMC_RSP_R2: 
+	case MMC_RSP_R2: /* long 136 bit + CRC */
 		cmdat |= CMD_DAT_CONT_RESPONSE_FORMAT_R2;
 		break;
-	case MMC_RSP_R3: 
+	case MMC_RSP_R3: /* short */
 		cmdat |= CMD_DAT_CONT_RESPONSE_FORMAT_R3;
 		break;
 	default:
@@ -327,7 +346,7 @@ static void imxmci_start_cmd(struct imxmci_host *host, struct mmc_command *cmd, 
 	}
 
 	if (test_and_clear_bit(IMXMCI_PEND_SET_INIT_b, &host->pending_events))
-		cmdat |= CMD_DAT_CONT_INIT; 
+		cmdat |= CMD_DAT_CONT_INIT; /* This command needs init */
 
 	if (host->actual_bus_width == MMC_BUS_WIDTH_4)
 		cmdat |= CMD_DAT_CONT_BUS_WIDTH_4;
@@ -344,7 +363,7 @@ static void imxmci_start_cmd(struct imxmci_host *host, struct mmc_command *cmd, 
 	imask = IMXMCI_INT_MASK_DEFAULT;
 	imask &= ~INT_MASK_END_CMD_RES;
 	if (cmdat & CMD_DAT_CONT_DATA_ENABLE) {
-		
+		/* imask &= ~INT_MASK_BUF_READY; */
 		imask &= ~INT_MASK_DATA_TRAN;
 		if (cmdat & CMD_DAT_CONT_WRITE)
 			imask &= ~INT_MASK_WRITE_OP_DONE;
@@ -457,7 +476,7 @@ static int imxmci_cmd_done(struct imxmci_host *host, unsigned int stat)
 	if (data && !cmd->error && !(stat & STATUS_ERR_MASK)) {
 		if (host->req->data->flags & MMC_DATA_WRITE) {
 
-			
+			/* Wait for FIFO to be empty before starting DMA write */
 
 			stat = readw(host->base + MMC_REG_STATUS);
 			if (imxmci_busy_wait_for_status(host, &stat,
@@ -529,11 +548,11 @@ static int imxmci_cpu_driven_data(struct imxmci_host *host, unsigned int *pstat)
 	else
 		burst_len = 64;
 
-	
+	/* This is unfortunately required */
 	dev_dbg(mmc_dev(host->mmc), "imxmci_cpu_driven_data running STATUS = 0x%x\n",
 		stat);
 
-	udelay(20);	
+	udelay(20);	/* required for clocks < 8MHz*/
 
 	if (host->dma_dir == DMA_FROM_DEVICE) {
 		imxmci_busy_wait_for_status(host, &stat,
@@ -545,12 +564,12 @@ static int imxmci_cpu_driven_data(struct imxmci_host *host, unsigned int *pstat)
 		       !(stat & STATUS_TIME_OUT_READ) &&
 		       (host->data_cnt < 512)) {
 
-			udelay(20);	
+			udelay(20);	/* required for clocks < 8MHz*/
 
 			for (i = burst_len; i >= 2 ; i -= 2) {
 				u16 data;
 				data = readw(host->base + MMC_REG_BUFFER_ACCESS);
-				udelay(10);	
+				udelay(10);	/* required for clocks < 8MHz*/
 				if (host->data_cnt+2 <= host->dma_size) {
 					*(host->data_ptr++) = data;
 				} else {
@@ -641,7 +660,7 @@ static void imxmci_tasklet_fnc(unsigned long data)
 {
 	struct imxmci_host *host = (struct imxmci_host *)data;
 	u32 stat;
-	unsigned int data_dir_mask = 0;	
+	unsigned int data_dir_mask = 0;	/* STATUS_WR_CRC_ERROR_CODE_MASK */
 	int timeout = 0;
 
 	if (atomic_read(&host->stuck_timeout) > 4) {
@@ -687,6 +706,11 @@ static void imxmci_tasklet_fnc(unsigned long data)
 		clear_bit(IMXMCI_PEND_IRQ_b, &host->pending_events);
 
 		stat = readw(host->base + MMC_REG_STATUS);
+		/*
+		 * This is not required in theory, but there is chance to miss some flag
+		 * which clears automatically by mask write, FreeScale original code keeps
+		 * stat from IRQ time so do I
+		 */
 		stat |= host->status_reg;
 
 		if (test_bit(IMXMCI_PEND_CPU_DATA_b, &host->pending_events))
@@ -721,7 +745,7 @@ static void imxmci_tasklet_fnc(unsigned long data)
 	    !test_bit(IMXMCI_PEND_WAIT_RESP_b, &host->pending_events)) {
 
 		stat = readw(host->base + MMC_REG_STATUS);
-		
+		/* Same as above */
 		stat |= host->status_reg;
 
 		if (host->dma_dir == DMA_TO_DEVICE)
@@ -788,11 +812,11 @@ static void imxmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	if (ios->bus_width == MMC_BUS_WIDTH_4) {
 		host->actual_bus_width = MMC_BUS_WIDTH_4;
 		imx_gpio_mode(PB11_PF_SD_DAT3);
-		BLR(host->dma) = 0;	
+		BLR(host->dma) = 0;	/* burst 64 byte read/write */
 	} else {
 		host->actual_bus_width = MMC_BUS_WIDTH_1;
 		imx_gpio_mode(GPIO_PORTB | GPIO_IN | GPIO_PUEN | 11);
-		BLR(host->dma) = 16;	
+		BLR(host->dma) = 16;	/* burst 16 byte read/write */
 	}
 
 	if (host->power_mode != ios->power_mode) {
@@ -812,6 +836,9 @@ static void imxmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		unsigned int clk;
 		u16 reg;
 
+		/* The prescaler is 5 for PERCLK2 equal to 96MHz
+		 * then 96MHz / 5 = 19.2 MHz
+		 */
 		clk = clk_get_rate(host->clk);
 		prescaler = (clk + (CLK_RATE * 7) / 8) / CLK_RATE;
 		switch (prescaler) {
@@ -839,14 +866,18 @@ static void imxmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 				break;
 		}
 
-		
+		/* enable controller */
 		reg = readw(host->base + MMC_REG_STR_STP_CLK);
 		writew(reg | STR_STP_CLK_ENABLE,
 				host->base + MMC_REG_STR_STP_CLK);
 
 		imxmci_stop_clock(host);
 		writew((prescaler << 3) | clk, host->base + MMC_REG_CLK_RATE);
-		
+		/*
+		 * Under my understanding, clock should not be started there, because it would
+		 * initiate SDHC sequencer and send last or random command into card
+		 */
+		/* imxmci_start_clock(host); */
 
 		dev_dbg(mmc_dev(host->mmc),
 			"MMC_CLK_RATE: 0x%08x\n",
@@ -862,6 +893,10 @@ static int imxmci_get_ro(struct mmc_host *mmc)
 
 	if (host->pdata && host->pdata->get_ro)
 		return !!host->pdata->get_ro(mmc_dev(mmc));
+	/*
+	 * Board doesn't support read only detection; let the mmc core
+	 * decide what to do.
+	 */
 	return -ENOSYS;
 }
 
@@ -930,10 +965,10 @@ static int __init imxmci_probe(struct platform_device *pdev)
 	mmc->ocr_avail = MMC_VDD_32_33;
 	mmc->caps = MMC_CAP_4_BIT_DATA;
 
-	
+	/* MMC core transfer sizes tunable parameters */
 	mmc->max_segs = 64;
-	mmc->max_seg_size = 64*512;	
-	mmc->max_req_size = 64*512;	
+	mmc->max_seg_size = 64*512;	/* default PAGE_CACHE_SIZE */
+	mmc->max_req_size = 64*512;	/* default PAGE_CACHE_SIZE */
 	mmc->max_blk_size = 2048;
 	mmc->max_blk_count = 65535;
 
@@ -964,10 +999,10 @@ static int __init imxmci_probe(struct platform_device *pdev)
 	imx_gpio_mode(PB8_PF_SD_DAT0);
 	imx_gpio_mode(PB9_PF_SD_DAT1);
 	imx_gpio_mode(PB10_PF_SD_DAT2);
-	
-	
+	/* Configured as GPIO with pull-up to ensure right MCC card mode */
+	/* Switched to PB11_PF_SD_DAT3 if 4 bit bus is configured */
 	imx_gpio_mode(GPIO_PORTB | GPIO_IN | GPIO_PUEN | 11);
-	
+	/* imx_gpio_mode(PB11_PF_SD_DAT3); */
 	imx_gpio_mode(PB12_PF_SD_CLK);
 	imx_gpio_mode(PB13_PF_SD_CMD);
 
@@ -980,7 +1015,7 @@ static int __init imxmci_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	
+	/* recommended in data sheet */
 	writew(0x2db4, host->base + MMC_REG_READ_TO);
 
 	host->imask = IMXMCI_INT_MASK_DEFAULT;
@@ -1006,7 +1041,7 @@ static int __init imxmci_probe(struct platform_device *pdev)
 
 	if (host->pdata && host->pdata->card_present)
 		host->present = host->pdata->card_present(mmc_dev(mmc));
-	else	
+	else	/* if there is no way to detect assume that card is present */
 		host->present = 1;
 
 	init_timer(&host->timer);
@@ -1103,7 +1138,7 @@ static int imxmci_resume(struct platform_device *dev)
 #else
 #define imxmci_suspend  NULL
 #define imxmci_resume   NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static struct platform_driver imxmci_driver = {
 	.remove		= __exit_p(imxmci_remove),

@@ -20,10 +20,13 @@
 
 size_t strlen(const char *s)
 {
-	
+	/* Get an aligned pointer. */
 	const uintptr_t s_int = (uintptr_t) s;
 	const uint64_t *p = (const uint64_t *)(s_int & -8);
 
+	/* Read the first word, but force bytes before the string to be nonzero.
+	 * This expression works because we know shift counts are taken mod 64.
+	 */
 	uint64_t v = *p | ((1ULL << (s_int << 3)) - 1);
 
 	uint64_t bits;

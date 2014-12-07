@@ -26,6 +26,7 @@
 struct spu;
 struct spu_context;
 
+/* access to priv1 registers */
 
 struct spu_priv1_ops {
 	void (*int_mask_and) (struct spu *spu, int class, u64 mask);
@@ -172,6 +173,7 @@ spu_resource_allocation_enable_get (struct spu *spu)
 	return spu_priv1_ops->resource_allocation_enable_get(spu);
 }
 
+/* spu management abstraction */
 
 struct spu_management_ops {
 	int (*enumerate_spus)(int (*fn)(void *data));
@@ -220,11 +222,15 @@ spu_disable_spu (struct spu_context *ctx)
 	spu_management_ops->disable_spu(ctx);
 }
 
+/*
+ * The declarations following are put here for convenience
+ * and only intended to be used by the platform setup code.
+ */
 
 extern const struct spu_priv1_ops spu_priv1_mmio_ops;
 extern const struct spu_priv1_ops spu_priv1_beat_ops;
 
 extern const struct spu_management_ops spu_management_of_ops;
 
-#endif 
+#endif /* __KERNEL__ */
 #endif

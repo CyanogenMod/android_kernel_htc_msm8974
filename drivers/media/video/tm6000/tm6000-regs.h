@@ -17,18 +17,21 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * Define TV Master TM5600/TM6000/TM6010 Request codes
+ */
 #define REQ_00_SET_IR_VALUE		0
 #define REQ_01_SET_WAKEUP_IRCODE	1
 #define REQ_02_GET_IR_CODE		2
 #define REQ_03_SET_GET_MCU_PIN		3
 #define REQ_04_EN_DISABLE_MCU_INT	4
 #define REQ_05_SET_GET_USBREG		5
-	
-	
+	/* Write: RegNum, Value, 0 */
+	/* Read : RegNum, Value, 1, RegStatus */
 #define REQ_06_SET_GET_USBREG_BIT	6
 #define REQ_07_SET_GET_AVREG		7
-	
-	
+	/* Write: RegNum, Value, 0 */
+	/* Read : RegNum, Value, 1, RegStatus */
 #define REQ_08_SET_GET_AVREG_BIT	8
 #define REQ_09_SET_GET_TUNER_FQ		9
 #define REQ_10_SET_TUNER_SYSTEM		10
@@ -37,13 +40,13 @@
 #define REQ_13_GET_EEPROM_SEQREAD	13
 #define REQ_14_SET_GET_I2C_WR2_RDN	14
 #define REQ_15_SET_GET_I2CBYTE		15
-	
-	
+	/* Write: Subaddr, Slave Addr, value, 0 */
+	/* Read : Subaddr, Slave Addr, value, 1 */
 #define REQ_16_SET_GET_I2C_WR1_RDN	16
-	
+	/* Subaddr, Slave Addr, 0, length */
 #define REQ_17_SET_GET_I2CFP		17
-	
-	
+	/* Write: Slave Addr, register, value */
+	/* Read : Slave Addr, register, 2, data */
 #define REQ_20_DATA_TRANSFER		20
 #define REQ_30_I2C_WRITE		30
 #define REQ_31_I2C_READ			31
@@ -57,6 +60,9 @@
 #define REQ_55_SPI_INOUTDATA		55
 #define REQ_56_SPI_SETSTOP		56
 
+/*
+ * Define TV Master TM5600/TM6000/TM6010 GPIO lines
+ */
 
 #define TM6000_GPIO_CLK		0x101
 #define TM6000_GPIO_DATA	0x100
@@ -69,6 +75,7 @@
 #define TM6000_GPIO_6		0x304
 #define TM6000_GPIO_7		0x305
 
+/* tm6010 defines GPIO with different values */
 #define TM6010_GPIO_0      0x0102
 #define TM6010_GPIO_1      0x0103
 #define TM6010_GPIO_2      0x0104
@@ -78,6 +85,9 @@
 #define TM6010_GPIO_6      0x0300
 #define TM6010_GPIO_7      0x0301
 #define TM6010_GPIO_9      0x0305
+/*
+ * Define TV Master TM5600/TM6000/TM6010 URB message codes and length
+ */
 
 enum {
 	TM6000_URB_MSG_VIDEO = 1,
@@ -87,6 +97,7 @@ enum {
 	TM6000_URB_MSG_ERR,
 };
 
+/* Define specific TM6000 Video decoder registers */
 #define TM6000_REQ07_RD8_TEST_SEL			0x07, 0xd8
 #define TM6000_REQ07_RD9_A_SIM_SEL			0x07, 0xd9
 #define TM6000_REQ07_RDA_CLK_SEL			0x07, 0xda
@@ -114,6 +125,7 @@ enum {
 #define TM6000_REQ07_RFD_BIST_ERR_VST_LOW		0x07, 0xfd
 #define TM6000_REQ07_RFE_BIST_ERR_VST_HIGH		0x07, 0xfe
 
+/* Define TM6000/TM6010 Video decoder registers */
 #define TM6010_REQ07_R00_VIDEO_CONTROL0			0x07, 0x00
 #define TM6010_REQ07_R01_VIDEO_CONTROL1			0x07, 0x01
 #define TM6010_REQ07_R02_VIDEO_CONTROL2			0x07, 0x02
@@ -244,6 +256,7 @@ enum {
 #define TM6010_REQ07_R8E_CPUMP_ADJ			0x07, 0x8e
 #define TM6010_REQ07_R8F_CPUMP_DELAY			0x07, 0x8f
 
+/* Define TM6000/TM6010 Miscellaneous registers */
 #define TM6010_REQ07_RC0_ACTIVE_VIDEO_SOURCE		0x07, 0xc0
 #define TM6010_REQ07_RC1_TRESHOLD			0x07, 0xc1
 #define TM6010_REQ07_RC2_HSYNC_WIDTH			0x07, 0xc2
@@ -256,6 +269,7 @@ enum {
 #define TM6010_REQ07_RC9_VEND1				0x07, 0xc9
 #define TM6010_REQ07_RCA_VEND0				0x07, 0xca
 #define TM6010_REQ07_RCB_DELAY				0x07, 0xcb
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RCC_ACTIVE_IF			0x07, 0xcc
 #define TM6010_REQ07_RCC_ACTIVE_IF_VIDEO_ENABLE (1 << 5)
 #define TM6010_REQ07_RCC_ACTIVE_IF_AUDIO_ENABLE (1 << 6)
@@ -267,35 +281,63 @@ enum {
 #define TM6010_REQ07_RD5_POWERSAVE			0x07, 0xd5
 #define TM6010_REQ07_RD6_ENDP_REQ1_REQ2			0x07, 0xd6
 #define TM6010_REQ07_RD7_ENDP_REQ3_REQ4			0x07, 0xd7
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RD8_IR				0x07, 0xd8
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RD9_IR_BSIZE			0x07, 0xd9
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RDA_IR_WAKEUP_SEL			0x07, 0xda
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RDB_IR_WAKEUP_ADD			0x07, 0xdb
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RDC_IR_LEADER1			0x07, 0xdc
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RDD_IR_LEADER0			0x07, 0xdd
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RDE_IR_PULSE_CNT1			0x07, 0xde
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RDF_IR_PULSE_CNT0			0x07, 0xdf
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE0_DVIDEO_SOURCE			0x07, 0xe0
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE0_DVIDEO_SOURCE_IF		0x07, 0xe1
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE2_OUT_SEL2			0x07, 0xe2
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE3_OUT_SEL1			0x07, 0xe3
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE4_OUT_SEL0			0x07, 0xe4
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE5_REMOTE_WAKEUP			0x07, 0xe5
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE7_PUB_GPIO			0x07, 0xe7
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE8_TYPESEL_MOS_I2S		0x07, 0xe8
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RE9_TYPESEL_MOS_TS			0x07, 0xe9
+/* ONLY for TM6010 */
 #define TM6010_REQ07_REA_TYPESEL_MOS_CCIR		0x07, 0xea
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF0_BIST_CRC_RESULT0		0x07, 0xf0
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF1_BIST_CRC_RESULT1		0x07, 0xf1
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF2_BIST_CRC_RESULT2		0x07, 0xf2
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF3_BIST_CRC_RESULT3		0x07, 0xf3
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF4_BIST_ERR_VST2			0x07, 0xf4
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF5_BIST_ERR_VST1			0x07, 0xf5
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF6_BIST_ERR_VST0			0x07, 0xf6
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RF7_BIST				0x07, 0xf7
+/* ONLY for TM6010 */
 #define TM6010_REQ07_RFE_POWER_DOWN			0x07, 0xfe
 #define TM6010_REQ07_RFF_SOFT_RESET			0x07, 0xff
 
+/* Define TM6000/TM6010 USB registers */
 #define TM6010_REQ05_R00_MAIN_CTRL		0x05, 0x00
 #define TM6010_REQ05_R01_DEVADDR		0x05, 0x01
 #define TM6010_REQ05_R02_TEST			0x05, 0x02
@@ -493,6 +535,8 @@ enum {
 #define TM6010_REQ05_RC4_DATA_FIFO14		0x05, 0xf8
 #define TM6010_REQ05_RC4_DATA_FIFO15		0x05, 0xfc
 
+/* Define TM6010 Audio decoder registers */
+/* This core available only in TM6010 */
 #define TM6010_REQ08_R00_A_VERSION		0x08, 0x00
 #define TM6010_REQ08_R01_A_INIT			0x08, 0x01
 #define TM6010_REQ08_R02_A_FIX_GAIN_CTRL	0x08, 0x02
@@ -533,6 +577,7 @@ enum {
 #define TM6010_REQ08_R27_A_NOISE_AMP		0x08, 0x27
 #define TM6010_REQ08_R28_A_AUDIO_MODE_RES	0x08, 0x28
 
+/* Define TM6010 Video ADC registers */
 #define TM6010_REQ08_RE0_ADC_REF		0x08, 0xe0
 #define TM6010_REQ08_RE1_DAC_CLMP		0x08, 0xe1
 #define TM6010_REQ08_RE2_POWER_DOWN_CTRL1	0x08, 0xe2
@@ -548,6 +593,7 @@ enum {
 #define TM6010_REQ08_REC_REVERSE_YC_CTRL	0x08, 0xec
 #define TM6010_REQ08_RED_GAIN_SEL		0x08, 0xed
 
+/* Define TM6010 Audio ADC registers */
 #define TM6010_REQ08_RF0_DAUDIO_INPUT_CONFIG	0x08, 0xf0
 #define TM6010_REQ08_RF1_AADC_POWER_DOWN	0x08, 0xf1
 #define TM6010_REQ08_RF2_LEFT_CHANNEL_VOL	0x08, 0xf2

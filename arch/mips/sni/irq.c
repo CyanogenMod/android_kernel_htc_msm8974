@@ -26,6 +26,7 @@ asmlinkage void plat_irq_dispatch(void)
 	sni_hwint();
 }
 
+/* ISA irq handler */
 static irqreturn_t sni_isa_irq_handler(int dummy, void *p)
 {
 	int irq;
@@ -44,9 +45,14 @@ struct irqaction sni_isa_irq = {
 	.flags = IRQF_SHARED
 };
 
+/*
+ * On systems with i8259-style interrupt controllers we assume for
+ * driver compatibility reasons interrupts 0 - 15 to be the i8295
+ * interrupts even if the hardware uses a different interrupt numbering.
+ */
 void __init arch_init_irq(void)
 {
-	init_i8259_irqs();			
+	init_i8259_irqs();			/* Integrated i8259  */
 	switch (sni_brd_type) {
 	case SNI_BRD_10:
 	case SNI_BRD_10NEW:

@@ -26,8 +26,9 @@ MODULE_AUTHOR("Michel Xhaard <mxhaard@users.sourceforge.net>");
 MODULE_DESCRIPTION("TV8532 USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	__u16 exposure;
 	__u16 gain;
@@ -35,6 +36,7 @@ struct sd {
 	__u8 packet;
 };
 
+/* V4L2 controls supported by the driver */
 static int sd_setexposure(struct gspca_dev *gspca_dev, __s32 val);
 static int sd_getexposure(struct gspca_dev *gspca_dev, __s32 *val);
 static int sd_setgain(struct gspca_dev *gspca_dev, __s32 val);
@@ -84,6 +86,7 @@ static const struct v4l2_pix_format sif_mode[] = {
 		.priv = 0},
 };
 
+/* TV-8532A (ICM532A) registers (LE) */
 #define R00_PART_CONTROL 0x00
 #define		LATENT_CHANGE	0x80
 #define		EXPO_CHANGE	0x04
@@ -102,7 +105,7 @@ static const struct v4l2_pix_format sif_mode[] = {
 #define R0F_AD_HEIGHTH	0x0f
 #define R10_AD_COL_BEGINL 0x10
 #define R11_AD_COL_BEGINH 0x11
-#define		MIRROR		0x04	
+#define		MIRROR		0x04	/* [10] */
 #define R14_AD_ROW_BEGINL 0x14
 #define R15_AD_ROWBEGINH  0x15
 #define R1C_AD_EXPOSE_TIMEL 0x1c
@@ -128,13 +131,14 @@ static const struct v4l2_pix_format sif_mode[] = {
 #define R35_VIDH	0x35
 #define R36_PID		0x36
 #define R37_PIDH	0x37
-#define R39_Test1	0x39		
-#define R3B_Test3	0x3b		
+#define R39_Test1	0x39		/* GPIO */
+#define R3B_Test3	0x3b		/* GPIO */
 #define R83_AD_IDH	0x83
 #define R91_AD_SLOPEREG 0x91
 #define R94_AD_BITCONTROL 0x94
 
 static const u8 eeprom_data[][3] = {
+/*	dataH dataM dataL */
 	{0x01, 0x00, 0x01},
 	{0x01, 0x80, 0x11},
 	{0x05, 0x00, 0x14},
@@ -151,6 +155,7 @@ static const u8 eeprom_data[][3] = {
 };
 
 
+/* write 1 byte */
 static void reg_w1(struct gspca_dev *gspca_dev,
 		  __u16 index, __u8 value)
 {
@@ -159,10 +164,11 @@ static void reg_w1(struct gspca_dev *gspca_dev,
 			usb_sndctrlpipe(gspca_dev->dev, 0),
 			0x02,
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			0,	
+			0,	/* value */
 			index, gspca_dev->usb_buf, 1, 500);
 }
 
+/* write 2 bytes */
 static void reg_w2(struct gspca_dev *gspca_dev,
 		  u16 index, u16 value)
 {
@@ -172,7 +178,7 @@ static void reg_w2(struct gspca_dev *gspca_dev,
 			usb_sndctrlpipe(gspca_dev->dev, 0),
 			0x02,
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			0,	
+			0,	/* value */
 			index, gspca_dev->usb_buf, 2, 500);
 }
 
@@ -192,6 +198,7 @@ static void tv_8532WriteEEprom(struct gspca_dev *gspca_dev)
 	reg_w1(gspca_dev, R01_TIMING_CONTROL_LOW, CMD_EEprom_Close);
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 		     const struct usb_device_id *id)
 {
@@ -209,23 +216,24 @@ static int sd_config(struct gspca_dev *gspca_dev,
 
 static void tv_8532_setReg(struct gspca_dev *gspca_dev)
 {
-	reg_w1(gspca_dev, R3B_Test3, 0x0a);	
-	
+	reg_w1(gspca_dev, R3B_Test3, 0x0a);	/* Test0Sel = 10 */
+	/******************************************************/
 	reg_w1(gspca_dev, R0E_AD_HEIGHTL, 0x90);
 	reg_w1(gspca_dev, R0F_AD_HEIGHTH, 0x01);
 	reg_w2(gspca_dev, R1C_AD_EXPOSE_TIMEL, 0x018f);
 	reg_w1(gspca_dev, R10_AD_COL_BEGINL, 0x44);
-						
+						/* begin active line */
 	reg_w1(gspca_dev, R11_AD_COL_BEGINH, 0x00);
-						
+						/* mirror and digital gain */
 	reg_w1(gspca_dev, R14_AD_ROW_BEGINL, 0x0a);
 
 	reg_w1(gspca_dev, R94_AD_BITCONTROL, 0x02);
 	reg_w1(gspca_dev, R91_AD_SLOPEREG, 0x00);
 	reg_w1(gspca_dev, R00_PART_CONTROL, LATENT_CHANGE | EXPO_CHANGE);
-						
+						/* = 0x84 */
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	tv_8532WriteEEprom(gspca_dev);
@@ -239,7 +247,7 @@ static void setexposure(struct gspca_dev *gspca_dev)
 
 	reg_w2(gspca_dev, R1C_AD_EXPOSE_TIMEL, sd->exposure);
 	reg_w1(gspca_dev, R00_PART_CONTROL, LATENT_CHANGE | EXPO_CHANGE);
-						
+						/* 0x84 */
 }
 
 static void setgain(struct gspca_dev *gspca_dev)
@@ -252,27 +260,28 @@ static void setgain(struct gspca_dev *gspca_dev)
 	reg_w2(gspca_dev, R26_GAIN_G2L, sd->gain);
 }
 
+/* -- start the camera -- */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	reg_w1(gspca_dev, R0C_AD_WIDTHL, 0xe8);		
+	reg_w1(gspca_dev, R0C_AD_WIDTHL, 0xe8);		/* 0x20; 0x0c */
 	reg_w1(gspca_dev, R0D_AD_WIDTHH, 0x03);
 
-	
+	/************************************************/
 	reg_w1(gspca_dev, R28_QUANT, 0x90);
-					
+					/* 0x72 compressed mode 0x28 */
 	if (gspca_dev->cam.cam_mode[(int) gspca_dev->curr_mode].priv) {
-		
+		/* 176x144 */
 		reg_w1(gspca_dev, R29_LINE, 0x41);
-					
+					/* CIF - 2 lines/packet */
 	} else {
-		
+		/* 352x288 */
 		reg_w1(gspca_dev, R29_LINE, 0x81);
-					
+					/* CIF - 2 lines/packet */
 	}
-	
-	reg_w1(gspca_dev, R2C_POLARITY, 0x10);		
+	/************************************************/
+	reg_w1(gspca_dev, R2C_POLARITY, 0x10);		/* slow clock */
 	reg_w1(gspca_dev, R2D_POINT, 0x14);
 	reg_w1(gspca_dev, R2E_POINTH, 0x01);
 	reg_w1(gspca_dev, R2F_POINTB, 0x12);
@@ -283,25 +292,25 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	setexposure(gspca_dev);
 	setgain(gspca_dev);
 
-	
-	reg_w1(gspca_dev, R31_UPD, 0x01);	
+	/************************************************/
+	reg_w1(gspca_dev, R31_UPD, 0x01);	/* update registers */
 	msleep(200);
-	reg_w1(gspca_dev, R31_UPD, 0x00);	
+	reg_w1(gspca_dev, R31_UPD, 0x00);	/* end update */
 
-	gspca_dev->empty_packet = 0;		
-	sd->packet = 0;				
+	gspca_dev->empty_packet = 0;		/* check the empty packets */
+	sd->packet = 0;				/* ignore the first packets */
 
 	return 0;
 }
 
 static void sd_stopN(struct gspca_dev *gspca_dev)
 {
-	reg_w1(gspca_dev, R3B_Test3, 0x0b);	
+	reg_w1(gspca_dev, R3B_Test3, 0x0b);	/* Test0Sel = 11 = GPIO */
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	int packet_type0, packet_type1;
@@ -312,11 +321,18 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 		sd->packet = gspca_dev->height / 2;
 		packet_type0 = FIRST_PACKET;
 	} else if (sd->packet == 0)
-		return;			
+		return;			/* 2 more lines in 352x288 ! */
 	sd->packet--;
 	if (sd->packet == 0)
 		packet_type1 = LAST_PACKET;
 
+	/* each packet contains:
+	 * - header 2 bytes
+	 * - RGRG line
+	 * - 4 bytes
+	 * - GBGB line
+	 * - 4 bytes
+	 */
 	gspca_frame_add(gspca_dev, packet_type0,
 			data + 2, gspca_dev->width);
 	gspca_frame_add(gspca_dev, packet_type1,
@@ -359,6 +375,7 @@ static int sd_getgain(struct gspca_dev *gspca_dev, __s32 *val)
 	return 0;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -370,6 +387,7 @@ static const struct sd_desc sd_desc = {
 	.pkt_scan = sd_pkt_scan,
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x046d, 0x0920)},
 	{USB_DEVICE(0x046d, 0x0921)},
@@ -381,6 +399,7 @@ static const struct usb_device_id device_table[] = {
 
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 		    const struct usb_device_id *id)
 {

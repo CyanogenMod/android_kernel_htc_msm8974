@@ -42,6 +42,9 @@
 #include <asm/uaccess.h>
 #include "pegasus.h"
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v0.6.14 (2006/09/27)"
 #define DRIVER_AUTHOR "Petko Manolov <petkan@users.sourceforge.net>"
 #define DRIVER_DESC "Pegasus/Pegasus II USB Ethernet driver"
@@ -71,6 +74,12 @@ static struct usb_eth_dev usb_dev_id[] = {
 static struct usb_device_id pegasus_ids[] = {
 #define	PEGASUS_DEV(pn, vid, pid, flags) \
 	{.match_flags = USB_DEVICE_ID_MATCH_DEVICE, .idVendor = vid, .idProduct = pid},
+/*
+ * The Belkin F8T012xx1 bluetooth adaptor has the same vendor and product
+ * IDs as the Belkin F5D5050, so we need to teach the pegasus driver to
+ * ignore adaptors belonging to the "Wireless" class 0xE0. For this one
+ * case anyway, seeing as the pegasus is for "Wired" adaptors.
+ */
 #define PEGASUS_DEV_CLASS(pn, vid, pid, dclass, flags) \
 	{.match_flags = (USB_DEVICE_ID_MATCH_DEVICE | USB_DEVICE_ID_MATCH_DEV_CLASS), \
 	.idVendor = vid, .idProduct = pid, .bDeviceClass = dclass},
@@ -91,6 +100,7 @@ MODULE_PARM_DESC(loopback, "Enable MAC loopback mode (bit 0)");
 MODULE_PARM_DESC(mii_mode, "Enable HomePNA mode (bit 0),default=MII mode = 0");
 MODULE_PARM_DESC(devid, "The format is: 'DEV_name:VendorID:DeviceID:Flags'");
 
+/* use ethtool to change the level for any given device */
 static int msg_level = -1;
 module_param(msg_level, int, 0);
 MODULE_PARM_DESC(msg_level, "Override default message level");
@@ -99,6 +109,7 @@ MODULE_DEVICE_TABLE(usb, pegasus_ids);
 static const struct net_device_ops pegasus_netdev_ops;
 
 static int update_eth_regs_async(pegasus_t *);
+/* Aargh!!! I _really_ hate such tweaks */
 static void ctrl_callback(struct urb *urb)
 {
 	pegasus_t *pegasus = urb->context;
@@ -165,7 +176,7 @@ static int get_registers(pegasus_t *pegasus, __u16 indx, __u16 size,
 	add_wait_queue(&pegasus->ctrl_wait, &wait);
 	set_current_state(TASK_UNINTERRUPTIBLE);
 
-	
+	/* using ATOMIC, we'd never wake up if we slept */
 	if ((ret = usb_submit_urb(pegasus->ctrl_urb, GFP_ATOMIC))) {
 		set_current_state(TASK_RUNNING);
 		if (ret == -ENODEV)
@@ -314,6 +325,7 @@ static int update_eth_regs_async(pegasus_t *pegasus)
 	return ret;
 }
 
+/* Returns 0 on success, error on failure */
 static int read_mii_word(pegasus_t *pegasus, __u8 phy, __u8 indx, __u16 *regd)
 {
 	int i;
@@ -470,7 +482,7 @@ fail:
 	netif_warn(pegasus, drv, pegasus->net, "%s failed\n", __func__);
 	return -ETIMEDOUT;
 }
-#endif				
+#endif				/* PEGASUS_WRITE_EEPROM */
 
 static inline void get_node_id(pegasus_t *pegasus, __u8 *id)
 {
@@ -544,9 +556,9 @@ static int enable_net_traffic(struct net_device *dev, struct usb_device *usb)
 	data[0] = 0xc9;
 	data[1] = 0;
 	if (linkpart & (ADVERTISE_100FULL | ADVERTISE_10FULL))
-		data[1] |= 0x20;	
+		data[1] |= 0x20;	/* set full duplex */
 	if (linkpart & (ADVERTISE_100FULL | ADVERTISE_100HALF))
-		data[1] |= 0x10;	
+		data[1] |= 0x10;	/* set 100 Mbps */
 	if (mii_mode)
 		data[1] = 0;
 	data[2] = loopback ? 0x09 : 0x01;
@@ -573,6 +585,10 @@ static void fill_skb_pool(pegasus_t *pegasus)
 		if (pegasus->rx_pool[i])
 			continue;
 		pegasus->rx_pool[i] = dev_alloc_skb(PEGASUS_MTU + 2);
+		/*
+		 ** we give up if the allocation fail. the tasklet will be
+		 ** rescheduled again anyway...
+		 */
 		if (pegasus->rx_pool[i] == NULL)
 			return;
 		skb_reserve(pegasus->rx_pool[i], 2);
@@ -629,8 +645,8 @@ static void read_bulk_callback(struct urb *urb)
 		netif_dbg(pegasus, rx_err, net, "reset MAC\n");
 		pegasus->flags &= ~PEGASUS_RX_BUSY;
 		break;
-	case -EPIPE:		
-		
+	case -EPIPE:		/* stall, or disconnect from TT */
+		/* FIXME schedule work to clear the halt */
 		netif_warn(pegasus, rx_err, net, "no rx stall recovery\n");
 		return;
 	case -ENOENT:
@@ -651,11 +667,11 @@ static void read_bulk_callback(struct urb *urb)
 		netif_dbg(pegasus, rx_err, net,
 			  "RX packet error %x\n", rx_status);
 		pegasus->stats.rx_errors++;
-		if (rx_status & 0x06)	
+		if (rx_status & 0x06)	/* long or runt	*/
 			pegasus->stats.rx_length_errors++;
 		if (rx_status & 0x08)
 			pegasus->stats.rx_crc_errors++;
-		if (rx_status & 0x10)	
+		if (rx_status & 0x10)	/* extra bits	*/
 			pegasus->stats.rx_frame_errors++;
 		goto goon;
 	}
@@ -670,9 +686,17 @@ static void read_bulk_callback(struct urb *urb)
 		pkt_len -= 8;
 	}
 
+	/*
+	 * If the packet is unreasonably long, quietly drop it rather than
+	 * kernel panicing by calling skb_put.
+	 */
 	if (pkt_len > PEGASUS_MTU)
 		goto goon;
 
+	/*
+	 * at this point we are sure pegasus->rx_skb != NULL
+	 * so we go ahead and pass up the packet.
+	 */
 	skb_put(pegasus->rx_skb, pkt_len);
 	pegasus->rx_skb->protocol = eth_type_trans(pegasus->rx_skb, net);
 	netif_rx(pegasus->rx_skb);
@@ -765,7 +789,7 @@ static void write_bulk_callback(struct urb *urb)
 
 	switch (status) {
 	case -EPIPE:
-		
+		/* FIXME schedule_work() to clear the tx halt */
 		netif_stop_queue(net);
 		netif_warn(pegasus, tx_err, net, "no tx stall recovery\n");
 		return;
@@ -776,12 +800,12 @@ static void write_bulk_callback(struct urb *urb)
 		return;
 	default:
 		netif_info(pegasus, tx_err, net, "TX status %d\n", status);
-		
+		/* FALL THROUGH */
 	case 0:
 		break;
 	}
 
-	net->trans_start = jiffies; 
+	net->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue(net);
 }
 
@@ -798,18 +822,21 @@ static void intr_callback(struct urb *urb)
 	switch (status) {
 	case 0:
 		break;
-	case -ECONNRESET:	
+	case -ECONNRESET:	/* unlink */
 	case -ENOENT:
 	case -ESHUTDOWN:
 		return;
 	default:
+		/* some Pegasus-I products report LOTS of data
+		 * toggle errors... avoid log spamming
+		 */
 		netif_dbg(pegasus, timer, net, "intr status %d\n", status);
 	}
 
 	if (urb->actual_length >= 6) {
 		u8 *d = urb->transfer_buffer;
 
-		
+		/* byte 0 == tx_status1, reg 2B */
 		if (d[0] & (TX_UNDERRUN|EXCESSIVE_COL
 					|LATE_COL|JABBER_TIMEOUT)) {
 			pegasus->stats.tx_errors++;
@@ -821,8 +848,12 @@ static void intr_callback(struct urb *urb)
 				pegasus->stats.tx_window_errors++;
 		}
 
+		/* d[5].LINK_STATUS lies on some adapters.
+		 * d[0].NO_CARRIER kicks in only with failed TX.
+		 * ... so monitoring with MII may be safest.
+		 */
 
-		
+		/* bytes 3-4 == rx_lostpkt, reg 2E/2F */
 		pegasus->stats.rx_missed_errors += ((d[3] & 0x7f) << 8) | d[4];
 	}
 
@@ -861,10 +892,10 @@ static netdev_tx_t pegasus_start_xmit(struct sk_buff *skb,
 	if ((res = usb_submit_urb(pegasus->tx_urb, GFP_ATOMIC))) {
 		netif_warn(pegasus, tx_err, net, "fail tx, %d\n", res);
 		switch (res) {
-		case -EPIPE:		
-			
+		case -EPIPE:		/* stall, or disconnect from TT */
+			/* cleanup should already have been scheduled */
 			break;
-		case -ENODEV:		
+		case -ENODEV:		/* disconnect() upcoming */
 		case -EPERM:
 			netif_device_detach(pegasus->net);
 			break;
@@ -979,6 +1010,9 @@ static int pegasus_open(struct net_device *net)
 
 	if (pegasus->rx_skb == NULL)
 		pegasus->rx_skb = pull_skb(pegasus);
+	/*
+	 ** Note: no point to free the pool.  it is empty :-)
+	 */
 	if (!pegasus->rx_skb)
 		return -ENOMEM;
 
@@ -1045,6 +1079,7 @@ static void pegasus_get_drvinfo(struct net_device *dev,
 	usb_make_path(pegasus->usb, info->bus_info, sizeof(info->bus_info));
 }
 
+/* also handles three patterns of some kind in hardware */
 #define	WOL_SUPPORTED	(WAKE_MAGIC|WAKE_PHY)
 
 static void
@@ -1069,7 +1104,7 @@ pegasus_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 		reg78 |= 0x80;
 	if (wol->wolopts & WAKE_PHY)
 		reg78 |= 0x40;
-	
+	/* FIXME this 0x10 bit still needs to get set in the chip... */
 	if (wol->wolopts)
 		pegasus->eth_regs[0] |= 0x10;
 	else
@@ -1251,6 +1286,9 @@ static int pegasus_blacklisted(struct usb_device *udev)
 {
 	struct usb_device_descriptor *udd = &udev->descriptor;
 
+	/* Special quirk to keep the driver from handling the Belkin Bluetooth
+	 * dongle which happens to have the same ID.
+	 */
 	if ((udd->idVendor == cpu_to_le16(VENDOR_BELKIN)) &&
 	    (udd->idProduct == cpu_to_le16(0x0121)) &&
 	    (udd->bDeviceClass == USB_CLASS_WIRELESS_CONTROLLER) &&
@@ -1260,6 +1298,9 @@ static int pegasus_blacklisted(struct usb_device *udev)
 	return 0;
 }
 
+/* we rely on probe() and remove() being serialized so we
+ * don't need extra locking on pegasus_count.
+ */
 static void pegasus_dec_workqueue(void)
 {
 	pegasus_count--;
@@ -1457,7 +1498,7 @@ static void __init parse_id(char *id)
 
 	if ((token = strsep(&id, ":")) != NULL)
 		name = token;
-	
+	/* name now points to a null terminated string*/
 	if ((token = strsep(&id, ":")) != NULL)
 		vendor_id = simple_strtoul(token, NULL, 16);
 	if ((token = strsep(&id, ":")) != NULL)

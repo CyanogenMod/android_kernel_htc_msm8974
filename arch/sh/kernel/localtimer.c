@@ -27,6 +27,9 @@
 
 static DEFINE_PER_CPU(struct clock_event_device, local_clockevent);
 
+/*
+ * Used on SMP for either the local timer or SMP_MSG_TIMER
+ */
 void local_timer_interrupt(void)
 {
 	struct clock_event_device *clk = &__get_cpu_var(local_clockevent);

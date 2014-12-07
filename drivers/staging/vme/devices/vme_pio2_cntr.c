@@ -49,7 +49,7 @@ int pio2_cntr_reset(struct pio2_card *card)
 	int i, retval = 0;
 	u8 reg;
 
-	
+	/* Clear down all timers */
 	for (i = 0; i < 6; i++) {
 		card->cntr[i].mode = PIO2_CNTR_MODE5;
 		card->cntr[i].count = 0;
@@ -58,7 +58,7 @@ int pio2_cntr_reset(struct pio2_card *card)
 			return retval;
 	}
 
-	
+	/* Ensure all counter interrupts are cleared */
 	do {
 		retval = vme_master_read(card->window, &reg, 1,
 			PIO2_REGS_INT_STAT_CNTR);

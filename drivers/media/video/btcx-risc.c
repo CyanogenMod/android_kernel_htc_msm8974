@@ -40,6 +40,8 @@ static unsigned int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug,"debug messages, default is 0 (no)");
 
+/* ---------------------------------------------------------- */
+/* allocate/free risc memory                                  */
 
 static int memcnt;
 
@@ -83,13 +85,15 @@ int btcx_riscmem_alloc(struct pci_dev *pci,
 	return 0;
 }
 
+/* ---------------------------------------------------------- */
+/* screen overlay helpers                                     */
 
 int
 btcx_screen_clips(int swidth, int sheight, struct v4l2_rect *win,
 		  struct v4l2_clip *clips, unsigned int n)
 {
 	if (win->left < 0) {
-		
+		/* left */
 		clips[n].c.left = 0;
 		clips[n].c.top = 0;
 		clips[n].c.width  = -win->left;
@@ -97,7 +101,7 @@ btcx_screen_clips(int swidth, int sheight, struct v4l2_rect *win,
 		n++;
 	}
 	if (win->left + win->width > swidth) {
-		
+		/* right */
 		clips[n].c.left   = swidth - win->left;
 		clips[n].c.top    = 0;
 		clips[n].c.width  = win->width - clips[n].c.left;
@@ -105,7 +109,7 @@ btcx_screen_clips(int swidth, int sheight, struct v4l2_rect *win,
 		n++;
 	}
 	if (win->top < 0) {
-		
+		/* top */
 		clips[n].c.left = 0;
 		clips[n].c.top = 0;
 		clips[n].c.width  = win->width;
@@ -113,7 +117,7 @@ btcx_screen_clips(int swidth, int sheight, struct v4l2_rect *win,
 		n++;
 	}
 	if (win->top + win->height > sheight) {
-		
+		/* bottom */
 		clips[n].c.left = 0;
 		clips[n].c.top = sheight - win->top;
 		clips[n].c.width  = win->width;
@@ -129,7 +133,7 @@ btcx_align(struct v4l2_rect *win, struct v4l2_clip *clips, unsigned int n, int m
 	s32 nx,nw,dx;
 	unsigned int i;
 
-	
+	/* fixup window */
 	nx = (win->left + mask) & ~mask;
 	nw = (win->width) & ~mask;
 	if (nx + nw > win->left + win->width)
@@ -141,7 +145,7 @@ btcx_align(struct v4l2_rect *win, struct v4l2_clip *clips, unsigned int n, int m
 		printk(KERN_DEBUG "btcx: window align %dx%d+%d+%d [dx=%d]\n",
 		       win->width, win->height, win->left, win->top, dx);
 
-	
+	/* fixup clips */
 	for (i = 0; i < n; i++) {
 		nx = (clips[i].c.left-dx) & ~mask;
 		nw = (clips[i].c.width) & ~mask;
@@ -191,13 +195,13 @@ btcx_calc_skips(int line, int width, int *maxy,
 	maxline = 9999;
 	for (clip = 0; clip < nclips; clip++) {
 
-		
+		/* sanity checks */
 		if (clips[clip].c.left + clips[clip].c.width <= 0)
 			continue;
 		if (clips[clip].c.left > (signed)width)
 			break;
 
-		
+		/* vertical range */
 		if (line > clips[clip].c.top+clips[clip].c.height-1)
 			continue;
 		if (line < clips[clip].c.top) {
@@ -208,9 +212,9 @@ btcx_calc_skips(int line, int width, int *maxy,
 		if (maxline > clips[clip].c.top+clips[clip].c.height-1)
 			maxline = clips[clip].c.top+clips[clip].c.height-1;
 
-		
+		/* horizontal range */
 		if (0 == skip || clips[clip].c.left > skips[skip-1].end) {
-			
+			/* new one */
 			skips[skip].start = clips[clip].c.left;
 			if (skips[skip].start < 0)
 				skips[skip].start = 0;
@@ -219,7 +223,7 @@ btcx_calc_skips(int line, int width, int *maxy,
 				skips[skip].end = width;
 			skip++;
 		} else {
-			
+			/* overlaps -- expand last one */
 			end = clips[clip].c.left + clips[clip].c.width;
 			if (skips[skip-1].end < end)
 				skips[skip-1].end = end;
@@ -239,6 +243,7 @@ btcx_calc_skips(int line, int width, int *maxy,
 	}
 }
 
+/* ---------------------------------------------------------- */
 
 EXPORT_SYMBOL(btcx_riscmem_alloc);
 EXPORT_SYMBOL(btcx_riscmem_free);
@@ -248,3 +253,8 @@ EXPORT_SYMBOL(btcx_align);
 EXPORT_SYMBOL(btcx_sort_clips);
 EXPORT_SYMBOL(btcx_calc_skips);
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

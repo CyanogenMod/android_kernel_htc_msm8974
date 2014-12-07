@@ -28,6 +28,11 @@ struct mem_pool {
 
 struct alloc {
 	struct rb_node rb_node;
+	/*
+	 * The physical address may be used for lookup in the tree so the
+	 * 'virtual address' needs to be able to accomodate larger physical
+	 * addresses.
+	 */
 	phys_addr_t vaddr;
 	phys_addr_t paddr;
 	struct mem_pool *mpool;
@@ -55,4 +60,4 @@ phys_addr_t memory_pool_node_paddr(void *vaddr);
 unsigned long memory_pool_node_len(void *vaddr);
 
 int memory_pool_init(void);
-#endif	
+#endif	/* _LINUX_MEMALLOC_H */

@@ -30,11 +30,17 @@
 #define crypto_free_tfm crypto_free_tfm_rsl
 #define crypto_alg_available crypto_alg_available_rsl
 
+/*
+ * Algorithm masks and types.
+ */
 #define CRYPTO_ALG_TYPE_MASK		0x000000ff
 #define CRYPTO_ALG_TYPE_CIPHER		0x00000001
 #define CRYPTO_ALG_TYPE_DIGEST		0x00000002
 #define CRYPTO_ALG_TYPE_COMPRESS	0x00000004
 
+/*
+ * Transform masks and values (for crt_flags).
+ */
 #define CRYPTO_TFM_MODE_MASK		0x000000ff
 #define CRYPTO_TFM_REQ_MASK		0x000fff00
 #define CRYPTO_TFM_RES_MASK		0xfff00000
@@ -51,11 +57,18 @@
 #define CRYPTO_TFM_RES_BAD_BLOCK_LEN	0x00800000
 #define CRYPTO_TFM_RES_BAD_FLAGS	0x01000000
 
+/*
+ * Miscellaneous stuff.
+ */
 #define CRYPTO_UNSPEC			0
 #define CRYPTO_MAX_ALG_NAME		64
 
 struct scatterlist;
 
+/*
+ * Algorithms: modular crypto algorithm implementations, managed
+ * via crypto_register_alg() and crypto_unregister_alg().
+ */
 struct cipher_alg {
 	unsigned int cia_min_keysize;
 	unsigned int cia_max_keysize;
@@ -103,11 +116,22 @@ struct crypto_alg {
 	struct module *cra_module;
 };
 
+/*
+ * Algorithm registration interface.
+ */
 int crypto_register_alg(struct crypto_alg *alg);
 int crypto_unregister_alg(struct crypto_alg *alg);
 
+/*
+ * Algorithm query interface.
+ */
 int crypto_alg_available(const char *name, u32 flags);
 
+/*
+ * Transforms: user-instantiated objects which encapsulate algorithms
+ * and core processing logic.  Managed via crypto_alloc_tfm() and
+ * crypto_free_tfm(), as well as the various helpers below.
+ */
 struct crypto_tfm;
 
 struct cipher_tfm {
@@ -172,10 +196,25 @@ struct crypto_tfm {
 	struct crypto_alg *__crt_alg;
 };
 
+/*
+ * Transform user interface.
+ */
 
+/*
+ * crypto_alloc_tfm() will first attempt to locate an already loaded algorithm.
+ * If that fails and the kernel supports dynamically loadable modules, it
+ * will then attempt to load a module of the same name or alias.  A refcount
+ * is grabbed on the algorithm which is then associated with the new transform.
+ *
+ * crypto_free_tfm() frees up the transform and any associated resources,
+ * then drops the refcount on the associated algorithm.
+ */
 struct crypto_tfm *crypto_alloc_tfm(const char *alg_name, u32 tfm_flags);
 void crypto_free_tfm(struct crypto_tfm *tfm);
 
+/*
+ * Transform helpers which query the underlying algorithm.
+ */
 static inline const char *crypto_tfm_alg_name(struct crypto_tfm *tfm)
 {
 	return tfm->__crt_alg->cra_name;
@@ -225,6 +264,9 @@ static inline unsigned int crypto_tfm_alg_digestsize(struct crypto_tfm *tfm)
 	return tfm->__crt_alg->cra_digest.dia_digestsize;
 }
 
+/*
+ * API wrappers.
+ */
 static inline void crypto_digest_init(struct crypto_tfm *tfm)
 {
 	BUG_ON(crypto_tfm_alg_type(tfm) != CRYPTO_ALG_TYPE_DIGEST);
@@ -337,4 +379,4 @@ static inline int crypto_comp_decompress(struct crypto_tfm *tfm,
 	return tfm->crt_compress.cot_decompress(tfm, src, slen, dst, dlen);
 }
 
-#endif	
+#endif	/* _LINUX_CRYPTO_H */

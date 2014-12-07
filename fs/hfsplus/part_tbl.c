@@ -17,29 +17,49 @@
 #include <linux/slab.h>
 #include "hfsplus_fs.h"
 
-#define HFS_DD_BLK		0 
-#define HFS_PMAP_BLK		1 
-#define HFS_MDB_BLK		2 
+/* offsets to various blocks */
+#define HFS_DD_BLK		0 /* Driver Descriptor block */
+#define HFS_PMAP_BLK		1 /* First block of partition map */
+#define HFS_MDB_BLK		2 /* Block (w/i partition) of MDB */
 
-#define HFS_DRVR_DESC_MAGIC	0x4552 
-#define HFS_OLD_PMAP_MAGIC	0x5453 
-#define HFS_NEW_PMAP_MAGIC	0x504D 
-#define HFS_SUPER_MAGIC		0x4244 
-#define HFS_MFS_SUPER_MAGIC	0xD2D7 
+/* magic numbers for various disk blocks */
+#define HFS_DRVR_DESC_MAGIC	0x4552 /* "ER": driver descriptor map */
+#define HFS_OLD_PMAP_MAGIC	0x5453 /* "TS": old-type partition map */
+#define HFS_NEW_PMAP_MAGIC	0x504D /* "PM": new-type partition map */
+#define HFS_SUPER_MAGIC		0x4244 /* "BD": HFS MDB (super block) */
+#define HFS_MFS_SUPER_MAGIC	0xD2D7 /* MFS MDB (super block) */
 
+/*
+ * The new style Mac partition map
+ *
+ * For each partition on the media there is a physical block (512-byte
+ * block) containing one of these structures.  These blocks are
+ * contiguous starting at block 1.
+ */
 struct new_pmap {
-	__be16	pmSig;		
-	__be16	reSigPad;	
-	__be32	pmMapBlkCnt;	
-	__be32	pmPyPartStart;	
-	__be32	pmPartBlkCnt;	
-	u8	pmPartName[32];	
-	u8	pmPartType[32];	
-	
+	__be16	pmSig;		/* signature */
+	__be16	reSigPad;	/* padding */
+	__be32	pmMapBlkCnt;	/* partition blocks count */
+	__be32	pmPyPartStart;	/* physical block start of partition */
+	__be32	pmPartBlkCnt;	/* physical block count of partition */
+	u8	pmPartName[32];	/* (null terminated?) string
+				   giving the name of this
+				   partition */
+	u8	pmPartType[32];	/* (null terminated?) string
+				   giving the type of this
+				   partition */
+	/* a bunch more stuff we don't need */
 } __packed;
 
+/*
+ * The old style Mac partition map
+ *
+ * The partition map consists for a 2-byte signature followed by an
+ * array of these structures.  The map is terminated with an all-zero
+ * one of these.
+ */
 struct old_pmap {
-	__be16		pdSig;	
+	__be16		pdSig;	/* Signature bytes */
 	struct old_pmap_entry {
 		__be32	pdStart;
 		__be32	pdSize;
@@ -57,7 +77,7 @@ static int hfs_parse_old_pmap(struct super_block *sb, struct old_pmap *pm,
 		struct old_pmap_entry *p = &pm->pdEntry[i];
 
 		if (p->pdStart && p->pdSize &&
-		    p->pdFSID == cpu_to_be32(0x54465331) &&
+		    p->pdFSID == cpu_to_be32(0x54465331)/*"TFS1"*/ &&
 		    (sbi->part < 0 || sbi->part == i)) {
 			*part_start += be32_to_cpu(p->pdStart);
 			*part_size = be32_to_cpu(p->pdSize);
@@ -101,6 +121,10 @@ static int hfs_parse_new_pmap(struct super_block *sb, void *buf,
 	return -ENOENT;
 }
 
+/*
+ * Parse the partition map looking for the start and length of a
+ * HFS/HFS+ partition.
+ */
 int hfs_part_find(struct super_block *sb,
 		sector_t *part_start, sector_t *part_size)
 {

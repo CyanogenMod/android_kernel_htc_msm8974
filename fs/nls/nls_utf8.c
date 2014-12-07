@@ -1,3 +1,7 @@
+/*
+ * Module for handling utf8 just like any other charset.
+ * By Urban Widmark 2000
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -29,7 +33,7 @@ static int char2uni(const unsigned char *rawstring, int boundlen, wchar_t *uni)
 
 	n = utf8_to_utf32(rawstring, boundlen, &u);
 	if (n < 0 || u > MAX_WCHAR_T) {
-		*uni = 0x003f;	
+		*uni = 0x003f;	/* ? */
 		return -EINVAL;
 	}
 	*uni = (wchar_t) u;
@@ -40,7 +44,7 @@ static struct nls_table table = {
 	.charset	= "utf8",
 	.uni2char	= uni2char,
 	.char2uni	= char2uni,
-	.charset2lower	= identity,	
+	.charset2lower	= identity,	/* no conversion */
 	.charset2upper	= identity,
 	.owner		= THIS_MODULE,
 };

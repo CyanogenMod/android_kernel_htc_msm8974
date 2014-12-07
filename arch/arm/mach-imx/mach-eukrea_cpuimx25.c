@@ -45,7 +45,7 @@ static const struct imxuart_platform_data uart_pdata __initconst = {
 };
 
 static iomux_v3_cfg_t eukrea_cpuimx25_pads[] = {
-	
+	/* FEC - RMII */
 	MX25_PAD_FEC_MDC__FEC_MDC,
 	MX25_PAD_FEC_MDIO__FEC_MDIO,
 	MX25_PAD_FEC_TDATA0__FEC_TDATA0,
@@ -55,7 +55,7 @@ static iomux_v3_cfg_t eukrea_cpuimx25_pads[] = {
 	MX25_PAD_FEC_RDATA1__FEC_RDATA1,
 	MX25_PAD_FEC_RX_DV__FEC_RX_DV,
 	MX25_PAD_FEC_TX_CLK__FEC_TX_CLK,
-	
+	/* I2C1 */
 	MX25_PAD_I2C1_CLK__I2C1_CLK,
 	MX25_PAD_I2C1_DAT__I2C1_DAT,
 };
@@ -162,7 +162,7 @@ static struct sys_timer eukrea_cpuimx25_timer = {
 };
 
 MACHINE_START(EUKREA_CPUIMX25SD, "Eukrea CPUIMX25")
-	
+	/* Maintainer: Eukrea Electromatique */
 	.atag_offset = 0x100,
 	.map_io = mx25_map_io,
 	.init_early = imx25_init_early,

@@ -1,3 +1,4 @@
+/* drivers/atm/uPD98402.c - NEC uPD98402 (PHY) declarations */
  
 /* Written 1995-2000 by Werner Almesberger, EPFL LRC/ICA */
  
@@ -23,9 +24,9 @@
 
 
 struct uPD98402_priv {
-	struct k_sonet_stats sonet_stats;
-	unsigned char framing;		
-	int loop_mode;			
+	struct k_sonet_stats sonet_stats;/* link diagnostics */
+	unsigned char framing;		/* SONET/SDH framing */
+	int loop_mode;			/* loopback mode */
 	spinlock_t lock;
 };
 
@@ -45,6 +46,8 @@ static int fetch_stats(struct atm_dev *dev,struct sonet_stats __user *arg,int ze
 	sonet_copy_stats(&PRIV(dev)->sonet_stats,&tmp);
 	if (arg) error = copy_to_user(arg,&tmp,sizeof(tmp));
 	if (zero && !error) {
+		/* unused fields are reported as -1, but we must not "adjust"
+		   them */
 		tmp.corr_hcs = tmp.tx_cells = tmp.rx_cells = 0;
 		sonet_subtract_stats(&PRIV(dev)->sonet_stats,&tmp);
 	}
@@ -190,7 +193,7 @@ static void uPD98402_int(struct atm_dev *dev)
 			    dev->type,dev->number);
 		if (reason & uPD98402_INT_PFM) stat_event(dev);
 		if (reason & uPD98402_INT_PCO) {
-			(void) GET(PCOCR); 
+			(void) GET(PCOCR); /* clear interrupt cause */
 			atomic_add(GET(HECCT),
 			    &PRIV(dev)->sonet_stats.uncorr_hcs);
 		}
@@ -211,14 +214,14 @@ static int uPD98402_start(struct atm_dev *dev)
 		return -ENOMEM;
 	spin_lock_init(&PRIV(dev)->lock);
 	memset(&PRIV(dev)->sonet_stats,0,sizeof(struct k_sonet_stats));
-	(void) GET(PCR); 
-	PUT(uPD98402_PFM_FJ,PCMR); 
-	(void) GET(PCOCR); 
+	(void) GET(PCR); /* clear performance events */
+	PUT(uPD98402_PFM_FJ,PCMR); /* ignore frequency adj */
+	(void) GET(PCOCR); /* clear overflows */
 	PUT(~uPD98402_PCO_HECC,PCOMR);
-	(void) GET(PICR); 
+	(void) GET(PICR); /* clear interrupts */
 	PUT(~(uPD98402_INT_PFM | uPD98402_INT_ALM | uPD98402_INT_RFO |
-	  uPD98402_INT_LOS),PIMR); 
-	(void) fetch_stats(dev,NULL,1); 
+	  uPD98402_INT_LOS),PIMR); /* enable them */
+	(void) fetch_stats(dev,NULL,1); /* clear kernel counters */
 	atomic_set(&PRIV(dev)->sonet_stats.corr_hcs,-1);
 	atomic_set(&PRIV(dev)->sonet_stats.tx_cells,-1);
 	atomic_set(&PRIV(dev)->sonet_stats.rx_cells,-1);
@@ -228,7 +231,7 @@ static int uPD98402_start(struct atm_dev *dev)
 
 static int uPD98402_stop(struct atm_dev *dev)
 {
-	
+	/* let SAR driver worry about stopping interrupts */
 	kfree(PRIV(dev));
 	return 0;
 }
@@ -259,3 +262,4 @@ static __init int uPD98402_module_init(void)
 	return 0;
 }
 module_init(uPD98402_module_init);
+/* module_exit not defined so not unloadable */

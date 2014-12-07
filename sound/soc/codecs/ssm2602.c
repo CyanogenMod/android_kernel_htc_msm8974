@@ -50,6 +50,7 @@ enum ssm2602_type {
 	SSM2604,
 };
 
+/* codec private data */
 struct ssm2602_priv {
 	unsigned int sysclk;
 	enum snd_soc_control_type control_type;
@@ -60,6 +61,12 @@ struct ssm2602_priv {
 	unsigned int clk_out_pwr;
 };
 
+/*
+ * ssm2602 register cache
+ * We can't read the ssm2602 register space when we are
+ * using 2 wire for device control, so we cache them instead.
+ * There is no point in caching the reset register
+ */
 static const u16 ssm2602_reg[SSM2602_CACHEREGNUM] = {
 	0x0097, 0x0097, 0x0079, 0x0079,
 	0x000a, 0x0008, 0x009f, 0x000a,
@@ -68,6 +75,7 @@ static const u16 ssm2602_reg[SSM2602_CACHEREGNUM] = {
 
 #define ssm2602_reset(c)	snd_soc_write(c, SSM2602_RESET, 0)
 
+/*Appending several "None"s just for OSS mixer use*/
 static const char *ssm2602_input_select[] = {
 	"Line", "Mic", "None", "None", "None",
 	"None", "None", "None",
@@ -113,12 +121,14 @@ SOC_SINGLE("Mic Boost2 (+20dB)", SSM2602_APANA, 8, 1, 0),
 SOC_SINGLE("Mic Switch", SSM2602_APANA, 1, 1, 1),
 };
 
+/* Output Mixer */
 static const struct snd_kcontrol_new ssm260x_output_mixer_controls[] = {
 SOC_DAPM_SINGLE("Line Bypass Switch", SSM2602_APANA, 3, 1, 0),
 SOC_DAPM_SINGLE("HiFi Playback Switch", SSM2602_APANA, 4, 1, 0),
 SOC_DAPM_SINGLE("Mic Sidetone Switch", SSM2602_APANA, 5, 1, 0),
 };
 
+/* Input mux */
 static const struct snd_kcontrol_new ssm2602_input_mux_controls =
 SOC_DAPM_ENUM("Input Select", ssm2602_enum[0]);
 
@@ -151,7 +161,7 @@ SND_SOC_DAPM_INPUT("MICIN"),
 static const struct snd_soc_dapm_widget ssm2604_dapm_widgets[] = {
 SND_SOC_DAPM_MIXER("Output Mixer", SND_SOC_NOPM, 0, 0,
 	ssm260x_output_mixer_controls,
-	ARRAY_SIZE(ssm260x_output_mixer_controls) - 1), 
+	ARRAY_SIZE(ssm260x_output_mixer_controls) - 1), /* Last element is the mic */
 };
 
 static const struct snd_soc_dapm_route ssm260x_routes[] = {
@@ -193,35 +203,36 @@ struct ssm2602_coeff {
 
 #define SSM2602_COEFF_SRATE(sr, bosr, usb) (((sr) << 2) | ((bosr) << 1) | (usb))
 
+/* codec mclk clock coefficients */
 static const struct ssm2602_coeff ssm2602_coeff_table[] = {
-	
+	/* 48k */
 	{12288000, 48000, SSM2602_COEFF_SRATE(0x0, 0x0, 0x0)},
 	{18432000, 48000, SSM2602_COEFF_SRATE(0x0, 0x1, 0x0)},
 	{12000000, 48000, SSM2602_COEFF_SRATE(0x0, 0x0, 0x1)},
 
-	
+	/* 32k */
 	{12288000, 32000, SSM2602_COEFF_SRATE(0x6, 0x0, 0x0)},
 	{18432000, 32000, SSM2602_COEFF_SRATE(0x6, 0x1, 0x0)},
 	{12000000, 32000, SSM2602_COEFF_SRATE(0x6, 0x0, 0x1)},
 
-	
+	/* 8k */
 	{12288000, 8000, SSM2602_COEFF_SRATE(0x3, 0x0, 0x0)},
 	{18432000, 8000, SSM2602_COEFF_SRATE(0x3, 0x1, 0x0)},
 	{11289600, 8000, SSM2602_COEFF_SRATE(0xb, 0x0, 0x0)},
 	{16934400, 8000, SSM2602_COEFF_SRATE(0xb, 0x1, 0x0)},
 	{12000000, 8000, SSM2602_COEFF_SRATE(0x3, 0x0, 0x1)},
 
-	
+	/* 96k */
 	{12288000, 96000, SSM2602_COEFF_SRATE(0x7, 0x0, 0x0)},
 	{18432000, 96000, SSM2602_COEFF_SRATE(0x7, 0x1, 0x0)},
 	{12000000, 96000, SSM2602_COEFF_SRATE(0x7, 0x0, 0x1)},
 
-	
+	/* 44.1k */
 	{11289600, 44100, SSM2602_COEFF_SRATE(0x8, 0x0, 0x0)},
 	{16934400, 44100, SSM2602_COEFF_SRATE(0x8, 0x1, 0x0)},
 	{12000000, 44100, SSM2602_COEFF_SRATE(0x8, 0x1, 0x1)},
 
-	
+	/* 88.2k */
 	{11289600, 88200, SSM2602_COEFF_SRATE(0xf, 0x0, 0x0)},
 	{16934400, 88200, SSM2602_COEFF_SRATE(0xf, 0x1, 0x0)},
 	{12000000, 88200, SSM2602_COEFF_SRATE(0xf, 0x1, 0x1)},
@@ -259,7 +270,7 @@ static int ssm2602_hw_params(struct snd_pcm_substream *substream,
 
 	snd_soc_write(codec, SSM2602_SRATE, srate);
 
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
@@ -285,6 +296,10 @@ static int ssm2602_startup(struct snd_pcm_substream *substream,
 	struct ssm2602_priv *ssm2602 = snd_soc_codec_get_drvdata(codec);
 	struct snd_pcm_runtime *master_runtime;
 
+	/* The DAI has shared clocks so if we already have a playback or
+	 * capture going then constrain this substream to match it.
+	 * TODO: the ssm2602 allows pairs of non-matching PB/REC rates
+	 */
 	if (ssm2602->master_substream) {
 		master_runtime = ssm2602->master_substream->runtime;
 		dev_dbg(codec->dev, "Constraining to %d bits at %dHz\n",
@@ -391,7 +406,7 @@ static int ssm2602_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	struct snd_soc_codec *codec = codec_dai->codec;
 	u16 iface = 0;
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
 		iface |= 0x0040;
@@ -402,7 +417,7 @@ static int ssm2602_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		iface |= 0x0002;
@@ -422,7 +437,7 @@ static int ssm2602_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		break;
@@ -439,7 +454,7 @@ static int ssm2602_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* set iface */
 	snd_soc_write(codec, SSM2602_IFACE, iface);
 	return 0;
 }
@@ -451,7 +466,7 @@ static int ssm2602_set_bias_level(struct snd_soc_codec *codec,
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		
+		/* vref/mid on, osc and clkout on if enabled */
 		snd_soc_update_bits(codec, SSM2602_PWR,
 			PWR_POWER_OFF | PWR_CLK_OUT_PDN | PWR_OSC_PDN,
 			ssm2602->clk_out_pwr);
@@ -459,13 +474,13 @@ static int ssm2602_set_bias_level(struct snd_soc_codec *codec,
 	case SND_SOC_BIAS_PREPARE:
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		
+		/* everything off except vref/vmid, */
 		snd_soc_update_bits(codec, SSM2602_PWR,
 			PWR_POWER_OFF | PWR_CLK_OUT_PDN | PWR_OSC_PDN,
 			PWR_CLK_OUT_PDN | PWR_OSC_PDN);
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* everything off */
 		snd_soc_update_bits(codec, SSM2602_PWR,
 			PWR_POWER_OFF, PWR_POWER_OFF);
 		break;
@@ -580,12 +595,12 @@ static int ssm260x_probe(struct snd_soc_codec *codec)
 		return ret;
 	}
 
-	
+	/* set the update bits */
 	snd_soc_update_bits(codec, SSM2602_LINVOL,
 			    LINVOL_LRIN_BOTH, LINVOL_LRIN_BOTH);
 	snd_soc_update_bits(codec, SSM2602_RINVOL,
 			    RINVOL_RLIN_BOTH, RINVOL_RLIN_BOTH);
-	
+	/*select Line in as default input*/
 	snd_soc_write(codec, SSM2602_APANA, APANA_SELECT_DAC |
 			APANA_ENABLE_MIC_BOOST);
 
@@ -606,6 +621,7 @@ static int ssm260x_probe(struct snd_soc_codec *codec)
 	return 0;
 }
 
+/* remove everything here */
 static int ssm2602_remove(struct snd_soc_codec *codec)
 {
 	ssm2602_set_bias_level(codec, SND_SOC_BIAS_OFF);
@@ -667,6 +683,12 @@ static struct spi_driver ssm2602_spi_driver = {
 #endif
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
+/*
+ * ssm2602 2 wire address is determined by GPIO5
+ * state during powerup.
+ *    low  = 0x1a
+ *    high = 0x1b
+ */
 static int __devinit ssm2602_i2c_probe(struct i2c_client *i2c,
 			     const struct i2c_device_id *id)
 {
@@ -701,6 +723,7 @@ static const struct i2c_device_id ssm2602_i2c_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ssm2602_i2c_id);
 
+/* corgi i2c codec control layer */
 static struct i2c_driver ssm2602_i2c_driver = {
 	.driver = {
 		.name = "ssm2602",

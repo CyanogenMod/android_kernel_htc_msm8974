@@ -46,31 +46,31 @@
 #define TSL_LOW_A2	(1UL << 1)
 #define TSL_EOS		(1UL << 0)
 
-    
-    
-    
-    
-    
-    
+    /* Audiowerk8 hardware setup: */
+    /*      WS0, SD4, TSL1  - Analog/ digital in */
+    /*      WS1, SD0, TSL1  - Analog out #1, digital out */
+    /*      WS2, SD2, TSL1  - Analog out #2 */
+    /*      WS3, SD1, TSL2  - Analog out #3 */
+    /*      WS4, SD3, TSL2  - Analog out #4 */
 
-    
-    
+    /* Audiowerk8 timing: */
+    /*      Timeslot:     | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | ... */
 
-    
-    
-    
+    /*      A1_INPUT: */
+    /*      SD4:          <_ADC-L_>-------<_ADC-R_>-------< */
+    /*      WS0:          _______________/---------------\_ */
 
-    
-    
-    
-    
-    
+    /*      A1_OUTPUT: */
+    /*      SD0:          <_1-L___>-------<_1-R___>-------< */
+    /*      WS1:          _______________/---------------\_ */
+    /*      SD2:          >-------<_2-L___>-------<_2-R___> */
+    /*      WS2:          -------\_______________/--------- */
 
-    
-    
-    
-    
-    
+    /*      A2_OUTPUT: */
+    /*      SD1:          <_3-L___>-------<_3-R___>-------< */
+    /*      WS3:          _______________/---------------\_ */
+    /*      SD3:          >-------<_4-L___>-------<_4-R___> */
+    /*      WS4:          -------\_______________/--------- */
 
 static int tsl1[8] = {
 	1 * TSL_SDW_A1 | 3 * TSL_BSEL_A1 |

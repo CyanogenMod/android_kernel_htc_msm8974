@@ -1,8 +1,15 @@
+/*
+ */
 
 struct tveeprom {
 	u32 has_radio;
+	/* If has_ir == 0, then it is unknown what the IR capabilities are,
+	   otherwise:
+	   bit 0: 1 (= IR capabilities are known)
+	   bit 1: IR receiver present
+	   bit 2: IR transmitter (blaster) present */
 	u32 has_ir;
-	u32 has_MAC_address; 
+	u32 has_MAC_address; /* 0: no MAC, 1: MAC present, 2: unknown */
 
 	u32 tuner_type;
 	u32 tuner_formats;

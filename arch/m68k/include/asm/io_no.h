@@ -5,7 +5,23 @@
 
 #include <asm/virtconvert.h>
 
+/*
+ * These are for ISA/PCI shared memory _only_ and should never be used
+ * on any other type of memory, including Zorro memory. They are meant to
+ * access the bus in the bus byte order which is little-endian!.
+ *
+ * readX/writeX() are used to access memory mapped devices. On some
+ * architectures the memory mapped IO stuff needs to be accessed
+ * differently. On the m68k architecture, we just read/write the
+ * memory location directly.
+ */
+/* ++roman: The assignments to temp. vars avoid that gcc sometimes generates
+ * two accesses to memory, which may be undesirable for some devices.
+ */
 
+/*
+ * swap functions are sometimes needed to interface little-endian hardware
+ */
 static inline unsigned short _swapw(volatile unsigned short v)
 {
     return ((v << 8) | (v >> 8));
@@ -88,6 +104,10 @@ static inline void io_insl(unsigned int addr, void *buf, int len)
 
 #define mmiowb()
 
+/*
+ *	make the short names macros so specific devices
+ *	can override them as required
+ */
 
 #define memset_io(a,b,c)	memset((void *)(a),(b),(c))
 #define memcpy_fromio(a,b,c)	memcpy((a),(void *)(b),(c))
@@ -118,6 +138,7 @@ static inline void io_insl(unsigned int addr, void *buf, int len)
 #define IO_SPACE_LIMIT 0xffffffff
 
 
+/* Values for nocacheflag and cmode */
 #define IOMAP_FULL_CACHING		0
 #define IOMAP_NOCACHE_SER		1
 #define IOMAP_NOCACHE_NONSER		2
@@ -146,10 +167,17 @@ static inline void *ioremap_fullcache(unsigned long physaddr, unsigned long size
 
 #define	iounmap(addr)	do { } while(0)
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _M68KNOMMU_IO_H */

@@ -15,19 +15,29 @@
 
 #define MAX_HWEVENTS 4
 
+/* event flags */
 #define FSL_EMB_EVENT_VALID      1
 #define FSL_EMB_EVENT_RESTRICTED 2
 
+/* upper half of event flags is PMLCb */
 #define FSL_EMB_EVENT_THRESHMUL  0x0000070000000000ULL
 #define FSL_EMB_EVENT_THRESH     0x0000003f00000000ULL
 
 struct fsl_emb_pmu {
 	const char	*name;
-	int		n_counter; 
+	int		n_counter; /* total number of counters */
 
+	/*
+	 * The number of contiguous counters starting at zero that
+	 * can hold restricted events, or zero if there are no
+	 * restricted events.
+	 *
+	 * This isn't a very flexible method of expressing constraints,
+	 * but it's very simple and is adequate for existing chips.
+	 */
 	int		n_restricted;
 
-	
+	/* Returns event flags and PMLCb (FSL_EMB_EVENT_*) */
 	u64		(*xlate_event)(u64 event_id);
 
 	int		n_generic;

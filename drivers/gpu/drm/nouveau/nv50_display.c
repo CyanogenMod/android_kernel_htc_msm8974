@@ -94,9 +94,17 @@ nv50_display_early_init(struct drm_device *dev)
 	u32 ctrl = nv_rd32(dev, 0x610200);
 	int i;
 
+	/* check if master evo channel is already active, a good a sign as any
+	 * that the display engine is in a weird state (hibernate/kexec), if
+	 * it is, do our best to reset the display engine...
+	 */
 	if ((ctrl & 0x00000003) == 0x00000003) {
 		NV_INFO(dev, "PDISP: EVO(0) 0x%08x, resetting...\n", ctrl);
 
+		/* deactivate both heads first, PDISP will disappear forever
+		 * (well, until you power cycle) on some boards as soon as
+		 * PMC_ENABLE is hit unless they are..
+		 */
 		for (i = 0; i < 2; i++) {
 			evo_icmd(dev, 0, 0x0880 + (i * 0x400), 0x05000000);
 			evo_icmd(dev, 0, 0x089c + (i * 0x400), 0);
@@ -107,7 +115,7 @@ nv50_display_early_init(struct drm_device *dev)
 		}
 		evo_icmd(dev, 0, 0x0080, 0);
 
-		
+		/* reset PDISP */
 		nv_mask(dev, 0x000200, 0x40000000, 0x00000000);
 		nv_mask(dev, 0x000200, 0x40000000, 0x40000000);
 	}
@@ -163,7 +171,11 @@ nv50_display_init(struct drm_device *dev)
 
 	nv_wr32(dev, 0x00610184, nv_rd32(dev, 0x00614004));
 
-	
+	/*
+	 * I think the 0x006101XX range is some kind of main control area
+	 * that enables things.
+	 */
+	/* CRTC? */
 	for (i = 0; i < 2; i++) {
 		val = nv_rd32(dev, 0x00616100 + (i * 0x800));
 		nv_wr32(dev, 0x00610190 + (i * 0x10), val);
@@ -175,19 +187,19 @@ nv50_display_init(struct drm_device *dev)
 		nv_wr32(dev, 0x0061019c + (i * 0x10), val);
 	}
 
-	
+	/* DAC */
 	for (i = 0; i < 3; i++) {
 		val = nv_rd32(dev, 0x0061a000 + (i * 0x800));
 		nv_wr32(dev, 0x006101d0 + (i * 0x04), val);
 	}
 
-	
+	/* SOR */
 	for (i = 0; i < nv50_sor_nr(dev); i++) {
 		val = nv_rd32(dev, 0x0061c000 + (i * 0x800));
 		nv_wr32(dev, 0x006101e0 + (i * 0x04), val);
 	}
 
-	
+	/* EXT */
 	for (i = 0; i < 3; i++) {
 		val = nv_rd32(dev, 0x0061e000 + (i * 0x800));
 		nv_wr32(dev, 0x006101f0 + (i * 0x04), val);
@@ -199,6 +211,9 @@ nv50_display_init(struct drm_device *dev)
 		nv_wr32(dev, NV50_PDISPLAY_DAC_CLK_CTRL1(i), 0x00000001);
 	}
 
+	/* The precise purpose is unknown, i suspect it has something to do
+	 * with text mode.
+	 */
 	if (nv_rd32(dev, NV50_PDISPLAY_INTR_1) & 0x100) {
 		nv_wr32(dev, NV50_PDISPLAY_INTR_1, 0x100);
 		nv_wr32(dev, 0x006194e8, nv_rd32(dev, 0x006194e8) & ~1);
@@ -282,6 +297,9 @@ nv50_display_fini(struct drm_device *dev)
 	}
 	FIRE_RING(evo);
 
+	/* Almost like ack'ing a vblank interrupt, maybe in the spirit of
+	 * cleaning up?
+	 */
 	list_for_each_entry(drm_crtc, &dev->mode_config.crtc_list, head) {
 		struct nouveau_crtc *crtc = nouveau_crtc(drm_crtc);
 		uint32_t mask = NV50_PDISPLAY_INTR_1_VBLANK_CRTC_(crtc->index);
@@ -319,7 +337,7 @@ nv50_display_fini(struct drm_device *dev)
 		}
 	}
 
-	
+	/* disable interrupts. */
 	nv_wr32(dev, NV50_PDISPLAY_INTR_EN_1, 0x00000000);
 }
 
@@ -339,11 +357,11 @@ nv50_display_create(struct drm_device *dev)
 		return -ENOMEM;
 	dev_priv->engine.display.priv = priv;
 
-	
+	/* Create CRTC objects */
 	for (i = 0; i < 2; i++)
 		nv50_crtc_create(dev, i);
 
-	
+	/* We setup the encoders from the BIOS table */
 	for (i = 0 ; i < dcb->entries; i++) {
 		struct dcb_entry *entry = &dcb->entry[i];
 
@@ -447,7 +465,7 @@ nv50_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	if (unlikely(ret))
 		return ret;
 
-	
+	/* synchronise with the rendering channel, if necessary */
 	if (likely(chan)) {
 		ret = RING_SPACE(chan, 10);
 		if (ret) {
@@ -489,7 +507,7 @@ nv50_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 				0xf00d0000 | dispc->sem.value);
 	}
 
-	
+	/* queue the flip on the crtc's "display sync" channel */
 	BEGIN_RING(evo, 0, 0x0100, 1);
 	OUT_RING  (evo, 0xfffe0000);
 	if (chan) {
@@ -498,6 +516,9 @@ nv50_display_flip_next(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	} else {
 		BEGIN_RING(evo, 0, 0x0084, 1);
 		OUT_RING  (evo, 0x00000010);
+		/* allows gamma somehow, PDISP will bitch at you if
+		 * you don't wait for vblank before changing this..
+		 */
 		BEGIN_RING(evo, 0, 0x00e0, 1);
 		OUT_RING  (evo, 0x40000000);
 	}
@@ -559,10 +580,10 @@ nv50_display_script_select(struct drm_device *dev, struct dcb_entry *dcb,
 			if (bios->fp.if_is_24bit)
 				script |= 0x0200;
 		} else {
-			
+			/* determine number of lvds links */
 			if (nv_connector && nv_connector->edid &&
 			    nv_connector->type == DCB_CONNECTOR_LVDS_SPWG) {
-				
+				/* http://www.spwg.org */
 				if (((u8 *)nv_connector->edid)[121] == 2)
 					script |= 0x0100;
 			} else
@@ -570,7 +591,7 @@ nv50_display_script_select(struct drm_device *dev, struct dcb_entry *dcb,
 				script |= 0x0100;
 			}
 
-			
+			/* determine panel depth */
 			if (script & 0x0100) {
 				if (bios->fp.strapless_is_24bit & 2)
 					script |= 0x0200;
@@ -663,16 +684,19 @@ nv50_display_unk10_handler(struct drm_device *dev)
 
 	nv_wr32(dev, 0x619494, nv_rd32(dev, 0x619494) & ~8);
 
+	/* Determine which CRTC we're dealing with, only 1 ever will be
+	 * signalled at the same time with the current nouveau code.
+	 */
 	crtc = ffs((unk30 & 0x00000060) >> 5) - 1;
 	if (crtc < 0)
 		goto ack;
 
-	
+	/* Nothing needs to be done for the encoder */
 	crtc = ffs((unk30 & 0x00000180) >> 7) - 1;
 	if (crtc < 0)
 		goto ack;
 
-	
+	/* Find which encoder was connected to the CRTC */
 	for (i = 0; type == OUTPUT_ANY && i < 3; i++) {
 		mc = nv_rd32(dev, NV50_PDISPLAY_DAC_MODE_CTRL_C(i));
 		NV_DEBUG_KMS(dev, "DAC-%d mc: 0x%08x\n", i, mc);
@@ -717,11 +741,11 @@ nv50_display_unk10_handler(struct drm_device *dev)
 		or = i;
 	}
 
-	
+	/* There was no encoder to disable */
 	if (type == OUTPUT_ANY)
 		goto ack;
 
-	
+	/* Disable the encoder */
 	for (i = 0; i < dev_priv->vbios.dcb.entries; i++) {
 		struct dcb_entry *dcb = &dev_priv->vbios.dcb.entry[i];
 
@@ -754,7 +778,7 @@ nv50_display_unk20_handler(struct drm_device *dev)
 		disp->irq.dcb = NULL;
 	}
 
-	
+	/* CRTC clock change requested? */
 	crtc = ffs((unk30 & 0x00000600) >> 9) - 1;
 	if (crtc >= 0) {
 		pclk  = nv_rd32(dev, NV50_PDISPLAY_CRTC_P(crtc, CLOCK));
@@ -767,13 +791,13 @@ nv50_display_unk20_handler(struct drm_device *dev)
 		nv_wr32(dev, NV50_PDISPLAY_CRTC_CLK_CTRL2(crtc), tmp);
 	}
 
-	
+	/* Nothing needs to be done for the encoder */
 	crtc = ffs((unk30 & 0x00000180) >> 7) - 1;
 	if (crtc < 0)
 		goto ack;
 	pclk  = nv_rd32(dev, NV50_PDISPLAY_CRTC_P(crtc, CLOCK)) & 0x003fffff;
 
-	
+	/* Find which encoder is connected to the CRTC */
 	for (i = 0; type == OUTPUT_ANY && i < 3; i++) {
 		mc = nv_rd32(dev, NV50_PDISPLAY_DAC_MODE_CTRL_P(i));
 		NV_DEBUG_KMS(dev, "DAC-%d mc: 0x%08x\n", i, mc);
@@ -821,7 +845,7 @@ nv50_display_unk20_handler(struct drm_device *dev)
 	if (type == OUTPUT_ANY)
 		goto ack;
 
-	
+	/* Enable the encoder */
 	for (i = 0; i < dev_priv->vbios.dcb.entries; i++) {
 		dcb = &dev_priv->vbios.dcb.entry[i];
 		if (dcb->type == type && (dcb->or & (1 << or)))
@@ -863,6 +887,14 @@ ack:
 	nv_wr32(dev, 0x610030, 0x80000000);
 }
 
+/* If programming a TMDS output on a SOR that can also be configured for
+ * DisplayPort, make sure NV50_SOR_DP_CTRL_ENABLE is forced off.
+ *
+ * It looks like the VBIOS TMDS scripts make an attempt at this, however,
+ * the VBIOS scripts on at least one board I have only switch it off on
+ * link 0, causing a blank display if the output has previously been
+ * programmed for DisplayPort.
+ */
 static void
 nv50_display_unk40_dp_set_tmds(struct drm_device *dev, struct dcb_entry *dcb)
 {

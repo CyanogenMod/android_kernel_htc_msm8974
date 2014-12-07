@@ -102,12 +102,28 @@
  
 */
 
+/* Changes:
+
+	1.01	GRG 1997.01.24	Restored pd_reset()
+				Added eject ioctl
+	1.02    GRG 1998.05.06  SMP spinlock changes, 
+				Added slave support
+	1.03    GRG 1998.06.16  Eliminate an Ugh.
+	1.04	GRG 1998.08.15  Extra debugging, use HZ in loop timing
+	1.05    GRG 1998.09.24  Added jumbo support
+
+*/
 
 #define PD_VERSION      "1.05"
 #define PD_MAJOR	45
 #define PD_NAME		"pd"
 #define PD_UNITS	4
 
+/* Here are things one can override from the insmod command.
+   Most are autoprobed by paride unless set here.  Verbose is off
+   by default.
+
+*/
 #include <linux/types.h>
 
 static bool verbose = 0;
@@ -126,6 +142,7 @@ static int (*drives[4])[8] = {&drive0, &drive1, &drive2, &drive3};
 
 enum {D_PRT, D_PRO, D_UNI, D_MOD, D_GEO, D_SBY, D_DLY, D_SLV};
 
+/* end of parameters */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -133,7 +150,7 @@ enum {D_PRT, D_PRO, D_UNI, D_MOD, D_GEO, D_SBY, D_DLY, D_SLV};
 #include <linux/fs.h>
 #include <linux/delay.h>
 #include <linux/hdreg.h>
-#include <linux/cdrom.h>	
+#include <linux/cdrom.h>	/* for the eject ioctl */
 #include <linux/blkdev.h>
 #include <linux/blkpg.h>
 #include <linux/kernel.h>
@@ -158,6 +175,7 @@ module_param_array(drive3, int, NULL, 0);
 
 #define PD_BITS    4
 
+/* numbers for "SCSI" geometry */
 
 #define PD_LOG_HEADS    64
 #define PD_LOG_SECTS    32
@@ -166,8 +184,8 @@ module_param_array(drive3, int, NULL, 0);
 #define PD_ID_LEN       14
 
 #define PD_MAX_RETRIES  5
-#define PD_TMO          800	
-#define PD_SPIN_DEL     50	
+#define PD_TMO          800	/* interrupt timeout in jiffies */
+#define PD_SPIN_DEL     50	/* spin delay in micro-seconds  */
 
 #define PD_SPIN         (1000000*PD_TMO)/(HZ*PD_SPIN_DEL)
 
@@ -203,26 +221,26 @@ module_param_array(drive3, int, NULL, 0);
 #define PD_NAMELEN	8
 
 struct pd_unit {
-	struct pi_adapter pia;	
+	struct pi_adapter pia;	/* interface to paride layer */
 	struct pi_adapter *pi;
-	int access;		
-	int capacity;		
-	int heads;		
+	int access;		/* count of active opens ... */
+	int capacity;		/* Size of this volume in sectors */
+	int heads;		/* physical geometry */
 	int sectors;
 	int cylinders;
 	int can_lba;
-	int drive;		
-	int changed;		
-	int removable;		
+	int drive;		/* master=0 slave=1 */
+	int changed;		/* Have we seen a disk change ? */
+	int removable;		/* removable media device  ?  */
 	int standby;
 	int alt_geom;
-	char name[PD_NAMELEN];	
+	char name[PD_NAMELEN];	/* pda, pdb, etc ... */
 	struct gendisk *gd;
 };
 
 static struct pd_unit pd[PD_UNITS];
 
-static char pd_scratch[512];	
+static char pd_scratch[512];	/* scratch block buffer */
 
 static char *pd_errs[17] = { "ERR", "INDEX", "ECC", "DRQ", "SEEK", "WRERR",
 	"READY", "BUSY", "AMNF", "TK0NF", "ABRT", "MCR",
@@ -254,6 +272,7 @@ static inline u8 DRIVE(struct pd_unit *disk)
 	return 0xa0+0x10*disk->drive;
 }
 
+/*  ide command interface */
 
 static void pd_print_error(struct pd_unit *disk, char *msg, int status)
 {
@@ -267,7 +286,7 @@ static void pd_print_error(struct pd_unit *disk, char *msg, int status)
 }
 
 static void pd_reset(struct pd_unit *disk)
-{				
+{				/* called only for MASTER drive */
 	write_status(disk, 4);
 	udelay(50);
 	write_status(disk, 0);
@@ -277,7 +296,7 @@ static void pd_reset(struct pd_unit *disk)
 #define DBMSG(msg)	((verbose>1)?(msg):NULL)
 
 static int pd_wait_for(struct pd_unit *disk, int w, char *msg)
-{				
+{				/* polled wait */
 	int k, r, e;
 
 	k = 0;
@@ -299,7 +318,7 @@ static int pd_wait_for(struct pd_unit *disk, int w, char *msg)
 static void pd_send_command(struct pd_unit *disk, int n, int s, int h, int c0, int c1, int func)
 {
 	write_reg(disk, 6, DRIVE(disk) + h);
-	write_reg(disk, 1, 0);		
+	write_reg(disk, 1, 0);		/* the IDE task file */
 	write_reg(disk, 2, n);
 	write_reg(disk, 3, s);
 	write_reg(disk, 4, c0);
@@ -327,10 +346,11 @@ static void pd_ide_command(struct pd_unit *disk, int func, int block, int count)
 	pd_send_command(disk, count, s, h, c0, c1, func);
 }
 
+/* The i/o request engine */
 
 enum action {Fail = 0, Ok = 1, Hold, Wait};
 
-static struct request *pd_req;	
+static struct request *pd_req;	/* current request */
 static enum action (*phase)(void);
 
 static void run_fsm(void);
@@ -362,8 +382,8 @@ static enum action do_pd_write_done(void);
 static struct request_queue *pd_queue;
 static int pd_claimed;
 
-static struct pd_unit *pd_current; 
-static PIA *pi_current; 
+static struct pd_unit *pd_current; /* current request's drive */
+static PIA *pi_current; /* current request's PIA */
 
 static void run_fsm(void)
 {
@@ -413,12 +433,12 @@ static void run_fsm(void)
 	}
 }
 
-static int pd_retries = 0;	
-static int pd_block;		
-static int pd_count;		
-static int pd_run;		
-static int pd_cmd;		
-static char *pd_buf;		
+static int pd_retries = 0;	/* i/o error retry count */
+static int pd_block;		/* address of next requested block */
+static int pd_count;		/* number of blocks still to do */
+static int pd_run;		/* sectors in current cluster */
+static int pd_cmd;		/* current command READ/WRITE */
+static char *pd_buf;		/* buffer for request in progress */
 
 static enum action do_pd_io_start(void)
 {
@@ -556,7 +576,13 @@ static enum action do_pd_write_done(void)
 	return Ok;
 }
 
+/* special io requests */
 
+/* According to the ATA standard, the default CHS geometry should be
+   available following a reset.  Some Western Digital drives come up
+   in a mode where only LBA addresses are accepted until the device
+   parameters are initialised.
+*/
 
 static void pd_init_dev_parms(struct pd_unit *disk)
 {
@@ -603,7 +629,7 @@ static enum action pd_media_check(struct pd_unit *disk)
 		pd_send_command(disk, 1, 1, 0, 0, 0, IDE_READ_VRFY);
 		r = pd_wait_for(disk, STAT_READY, DBMSG("RDY after READ_VRFY"));
 	} else
-		disk->changed = 1;	
+		disk->changed = 1;	/* say changed if other error */
 	if (r & ERR_MC) {
 		disk->changed = 1;
 		pd_send_command(disk, 1, 0, 0, 0, 0, IDE_ACKCHANGE);
@@ -626,6 +652,11 @@ static enum action pd_identify(struct pd_unit *disk)
 	int j;
 	char id[PD_ID_LEN + 1];
 
+/* WARNING:  here there may be dragons.  reset() applies to both drives,
+   but we call it only on probing the MASTER. This should allow most
+   common configurations to work, but be warned that a reset can clear
+   settings on the SLAVE drive.
+*/
 
 	if (disk->drive == 0)
 		pd_reset(disk);
@@ -671,6 +702,7 @@ static enum action pd_identify(struct pd_unit *disk)
 	return Ok;
 }
 
+/* end of io request engine */
 
 static void do_pd_request(struct request_queue * q)
 {
@@ -700,6 +732,7 @@ static int pd_special_command(struct pd_unit *disk,
 	return err;
 }
 
+/* kernel glue structures */
 
 static int pd_open(struct block_device *bdev, fmode_t mode)
 {
@@ -794,6 +827,7 @@ static const struct block_device_operations pd_fops = {
 	.revalidate_disk= pd_revalidate
 };
 
+/* probing */
 
 static void pd_probe_drive(struct pd_unit *disk)
 {
@@ -838,7 +872,7 @@ static int pd_detect(void)
 			pd_drive_count++;
 	}
 
-	if (pd_drive_count == 0) { 
+	if (pd_drive_count == 0) { /* nothing spec'd - so autoprobe for 1 */
 		disk = pd;
 		if (pi_init(disk->pi, 1, -1, -1, -1, -1, -1, pd_scratch,
 			    PI_PD, verbose, disk->name)) {

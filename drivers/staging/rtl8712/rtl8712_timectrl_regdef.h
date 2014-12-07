@@ -36,4 +36,4 @@
 #define BCNERRTH		(RTL8712_TIMECTRL_ + 0x1C)
 #define MLT			(RTL8712_TIMECTRL_ + 0x1D)
 
-#endif 
+#endif /* __RTL8712_TIMECTRL_REGDEF_H__ */

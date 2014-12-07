@@ -67,6 +67,7 @@
 #define NV50_EVO_CRTC_UNK0824                                        0x00000824
 #define NV50_EVO_CRTC_UNK082C                                        0x0000082c
 #define NV50_EVO_CRTC_CLUT_MODE                                      0x00000840
+/* You can't have a palette in 8 bit mode (=OFF) */
 #define NV50_EVO_CRTC_CLUT_MODE_BLANK                                0x00000000
 #define NV50_EVO_CRTC_CLUT_MODE_OFF                                  0x80000000
 #define NV50_EVO_CRTC_CLUT_MODE_ON                                   0xC0000000
@@ -110,6 +111,7 @@
 #define NV50_EVO_CRTC_SCALE_CENTER_OFFSET                            0x000008d4
 #define NV50_EVO_CRTC_SCALE_CENTER_OFFSET_VAL(x, y) \
 	((((unsigned)y << 16) & 0xFFFF0000) | (((unsigned)x) & 0x0000FFFF))
+/* Both of these are needed, otherwise nothing happens. */
 #define NV50_EVO_CRTC_SCALE_RES1                                     0x000008d8
 #define NV50_EVO_CRTC_SCALE_RES2                                     0x000008dc
 #define NV50_EVO_CRTC_UNK900                                         0x00000900

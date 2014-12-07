@@ -25,6 +25,7 @@
 #include <asm/kvm_ppc.h>
 #include "timing.h"
 
+/* interrupt priortity ordering */
 #define BOOKE_IRQPRIO_DATA_STORAGE 0
 #define BOOKE_IRQPRIO_INST_STORAGE 1
 #define BOOKE_IRQPRIO_ALIGNMENT 2
@@ -45,6 +46,7 @@
 #define BOOKE_IRQPRIO_FIT 17
 #define BOOKE_IRQPRIO_DECREMENTER 18
 #define BOOKE_IRQPRIO_PERFORMANCE_MONITOR 19
+/* Internal pseudo-irqprio for level triggered externals */
 #define BOOKE_IRQPRIO_EXTERNAL_LEVEL 20
 #define BOOKE_IRQPRIO_MAX 20
 
@@ -62,9 +64,11 @@ int kvmppc_booke_emulate_op(struct kvm_run *run, struct kvm_vcpu *vcpu,
 int kvmppc_booke_emulate_mfspr(struct kvm_vcpu *vcpu, int sprn, int rt);
 int kvmppc_booke_emulate_mtspr(struct kvm_vcpu *vcpu, int sprn, int rs);
 
+/* low-level asm code to transfer guest state */
 void kvmppc_load_guest_spe(struct kvm_vcpu *vcpu);
 void kvmppc_save_guest_spe(struct kvm_vcpu *vcpu);
 
+/* high-level function, manages flags, host state */
 void kvmppc_vcpu_disable_spe(struct kvm_vcpu *vcpu);
 
-#endif 
+#endif /* __KVM_BOOKE_H__ */

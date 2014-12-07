@@ -7,12 +7,18 @@
 #include "../trigger.h"
 #include "adis16240.h"
 
+/**
+ * adis16240_data_rdy_trig_poll() the event handler for the data rdy trig
+ **/
 static irqreturn_t adis16240_data_rdy_trig_poll(int irq, void *trig)
 {
 	iio_trigger_poll(trig, iio_get_time_ns());
 	return IRQ_HANDLED;
 }
 
+/**
+ * adis16240_data_rdy_trigger_set_state() set datardy interrupt state
+ **/
 static int adis16240_data_rdy_trigger_set_state(struct iio_trigger *trig,
 						bool state)
 {
@@ -51,7 +57,7 @@ int adis16240_probe_trigger(struct iio_dev *indio_dev)
 	st->trig->private_data = indio_dev;
 	ret = iio_trigger_register(st->trig);
 
-	
+	/* select default trigger */
 	indio_dev->trig = st->trig;
 	if (ret)
 		goto error_free_irq;

@@ -66,6 +66,17 @@ static int clear_bits_ll(unsigned long *addr, unsigned long mask_to_clear)
 	return 0;
 }
 
+/*
+ * bitmap_set_ll - set the specified number of bits at the specified position
+ * @map: pointer to a bitmap
+ * @start: a bit position in @map
+ * @nr: number of bits to set
+ *
+ * Set @nr bits start from @start in @map lock-lessly. Several users
+ * can set/clear the same bitmap simultaneously without lock. If two
+ * users set the same bit, one user will return remain bits, otherwise
+ * return 0.
+ */
 static int bitmap_set_ll(unsigned long *map, int start, int nr)
 {
 	unsigned long *p = map + BIT_WORD(start);
@@ -90,6 +101,17 @@ static int bitmap_set_ll(unsigned long *map, int start, int nr)
 	return 0;
 }
 
+/*
+ * bitmap_clear_ll - clear the specified number of bits at the specified position
+ * @map: pointer to a bitmap
+ * @start: a bit position in @map
+ * @nr: number of bits to set
+ *
+ * Clear @nr bits start from @start in @map lock-lessly. Several users
+ * can set/clear the same bitmap simultaneously without lock. If two
+ * users clear the same bit, one user will return remain bits,
+ * otherwise return 0.
+ */
 static int bitmap_clear_ll(unsigned long *map, int start, int nr)
 {
 	unsigned long *p = map + BIT_WORD(start);
@@ -114,6 +136,14 @@ static int bitmap_clear_ll(unsigned long *map, int start, int nr)
 	return 0;
 }
 
+/**
+ * gen_pool_create - create a new special memory pool
+ * @min_alloc_order: log base 2 of number of bytes each bitmap bit represents
+ * @nid: node id of the node the pool structure should be allocated on, or -1
+ *
+ * Create a new special memory pool that can be used to manage special purpose
+ * memory not managed by the regular kmalloc/kfree interface.
+ */
 struct gen_pool *gen_pool_create(int min_alloc_order, int nid)
 {
 	struct gen_pool *pool;
@@ -128,13 +158,26 @@ struct gen_pool *gen_pool_create(int min_alloc_order, int nid)
 }
 EXPORT_SYMBOL(gen_pool_create);
 
+/**
+ * gen_pool_add_virt - add a new chunk of special memory to the pool
+ * @pool: pool to add new memory chunk to
+ * @virt: virtual starting address of memory chunk to add to pool
+ * @phys: physical starting address of memory chunk to add to pool
+ * @size: size in bytes of the memory chunk to add to pool
+ * @nid: node id of the node the chunk structure and bitmap should be
+ *       allocated on, or -1
+ *
+ * Add a new chunk of special memory to the specified pool.
+ *
+ * Returns 0 on success or a -ve errno on failure.
+ */
 int gen_pool_add_virt(struct gen_pool *pool, u64 virt, phys_addr_t phys,
 		 size_t size, int nid)
 {
 	struct gen_pool_chunk *chunk;
 	int nbits = size >> pool->min_alloc_order;
 	int nbytes = sizeof(struct gen_pool_chunk) +
-				(nbits + BITS_PER_BYTE - 1) / BITS_PER_BYTE;
+				BITS_TO_LONGS(nbits) * sizeof(long);
 
 	if (nbytes <= PAGE_SIZE)
 		chunk = kmalloc_node(nbytes, __GFP_ZERO, nid);
@@ -158,6 +201,13 @@ int gen_pool_add_virt(struct gen_pool *pool, u64 virt, phys_addr_t phys,
 }
 EXPORT_SYMBOL(gen_pool_add_virt);
 
+/**
+ * gen_pool_virt_to_phys - return the physical address of memory
+ * @pool: pool to allocate from
+ * @addr: starting address of memory
+ *
+ * Returns the physical address on success, or -1 on error.
+ */
 phys_addr_t gen_pool_virt_to_phys(struct gen_pool *pool, u64 addr)
 {
 	struct gen_pool_chunk *chunk;
@@ -176,6 +226,13 @@ phys_addr_t gen_pool_virt_to_phys(struct gen_pool *pool, u64 addr)
 }
 EXPORT_SYMBOL(gen_pool_virt_to_phys);
 
+/**
+ * gen_pool_destroy - destroy a special memory pool
+ * @pool: pool to destroy
+ *
+ * Destroy the specified special memory pool. Verifies that there are no
+ * outstanding allocations.
+ */
 void gen_pool_destroy(struct gen_pool *pool)
 {
 	struct list_head *_chunk, *_next_chunk;
@@ -190,7 +247,7 @@ void gen_pool_destroy(struct gen_pool *pool)
 
 		end_bit = (chunk->end_addr - chunk->start_addr) >> order;
 		nbytes = sizeof(struct gen_pool_chunk) +
-				(end_bit + BITS_PER_BYTE - 1) / BITS_PER_BYTE;
+				BITS_TO_LONGS(end_bit) * sizeof(long);
 		bit = find_next_bit(chunk->bits, end_bit, 0);
 		BUG_ON(bit < end_bit);
 
@@ -204,6 +261,18 @@ void gen_pool_destroy(struct gen_pool *pool)
 }
 EXPORT_SYMBOL(gen_pool_destroy);
 
+/**
+ * gen_pool_alloc_aligned - allocate special memory from the pool
+ * @pool: pool to allocate from
+ * @size: number of bytes to allocate from the pool
+ * @alignment_order: Order the allocated space should be
+ *                   aligned to (eg. 20 means allocated space
+ *                   must be aligned to 1MiB).
+ *
+ * Allocate the requested number of bytes from the specified pool.
+ * Uses a first-fit algorithm. Can not be used in NMI handler on
+ * architectures without NMI-safe cmpxchg implementation.
+ */
 u64 gen_pool_alloc_aligned(struct gen_pool *pool, size_t size,
 				     unsigned alignment_order)
 {
@@ -255,6 +324,16 @@ retry:
 }
 EXPORT_SYMBOL(gen_pool_alloc_aligned);
 
+/**
+ * gen_pool_free - free allocated special memory back to the pool
+ * @pool: pool to free to
+ * @addr: starting address of memory to free back to pool
+ * @size: size in bytes of memory to free
+ *
+ * Free previously allocated special memory back to the specified
+ * pool.  Can not be used in NMI handler on architectures without
+ * NMI-safe cmpxchg implementation.
+ */
 void gen_pool_free(struct gen_pool *pool, u64 addr, size_t size)
 {
 	struct gen_pool_chunk *chunk;
@@ -284,6 +363,15 @@ void gen_pool_free(struct gen_pool *pool, u64 addr, size_t size)
 }
 EXPORT_SYMBOL(gen_pool_free);
 
+/**
+ * gen_pool_for_each_chunk - call func for every chunk of generic memory pool
+ * @pool:	the generic memory pool
+ * @func:	func to call
+ * @data:	additional data used by @func
+ *
+ * Call @func for every chunk of generic memory pool.  The @func is
+ * called with rcu_read_lock held.
+ */
 void gen_pool_for_each_chunk(struct gen_pool *pool,
 	void (*func)(struct gen_pool *pool, struct gen_pool_chunk *chunk, void *data),
 	void *data)
@@ -297,6 +385,12 @@ void gen_pool_for_each_chunk(struct gen_pool *pool,
 }
 EXPORT_SYMBOL(gen_pool_for_each_chunk);
 
+/**
+ * gen_pool_avail - get available free space of the pool
+ * @pool: pool to get available free space
+ *
+ * Return available free space of the specified pool.
+ */
 size_t gen_pool_avail(struct gen_pool *pool)
 {
 	struct gen_pool_chunk *chunk;
@@ -310,6 +404,12 @@ size_t gen_pool_avail(struct gen_pool *pool)
 }
 EXPORT_SYMBOL_GPL(gen_pool_avail);
 
+/**
+ * gen_pool_size - get size in bytes of memory managed by the pool
+ * @pool: pool to get size
+ *
+ * Return size in bytes of memory managed by the pool.
+ */
 size_t gen_pool_size(struct gen_pool *pool)
 {
 	struct gen_pool_chunk *chunk;

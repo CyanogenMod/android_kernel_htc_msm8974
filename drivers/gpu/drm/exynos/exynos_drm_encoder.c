@@ -36,6 +36,14 @@
 #define to_exynos_encoder(x)	container_of(x, struct exynos_drm_encoder,\
 				drm_encoder)
 
+/*
+ * exynos specific encoder structure.
+ *
+ * @drm_encoder: encoder object.
+ * @manager: specific encoder has its own manager to control a hardware
+ *	appropriately and we can access a hardware drawing on this manager.
+ * @dpms: store the encoder dpms value.
+ */
 struct exynos_drm_encoder {
 	struct drm_encoder		drm_encoder;
 	struct exynos_drm_manager	*manager;
@@ -150,7 +158,7 @@ static void exynos_drm_encoder_prepare(struct drm_encoder *encoder)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* drm framework doesn't check NULL. */
 }
 
 static void exynos_drm_encoder_commit(struct drm_encoder *encoder)
@@ -284,6 +292,10 @@ void exynos_drm_fn_encoder(struct drm_crtc *crtc, void *data,
 	struct exynos_drm_manager *manager;
 
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
+		/*
+		 * if crtc is detached from encoder, check pipe,
+		 * otherwise check crtc attached to encoder
+		 */
 		if (!encoder->crtc) {
 			manager = to_exynos_encoder(encoder)->manager;
 			if (manager->pipe < 0 ||
@@ -350,6 +362,10 @@ void exynos_drm_encoder_crtc_commit(struct drm_encoder *encoder, void *data)
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * when crtc is detached from encoder, this pipe is used
+	 * to select manager operation
+	 */
 	manager->pipe = crtc;
 
 	exynos_drm_encoder_crtc_plane_commit(encoder, &zpos);
@@ -381,10 +397,20 @@ void exynos_drm_encoder_crtc_dpms(struct drm_encoder *encoder, void *data)
 	if (manager_ops && manager_ops->dpms)
 		manager_ops->dpms(manager->dev, mode);
 
+	/*
+	 * set current dpms mode to the connector connected to
+	 * current encoder. connector->dpms would be checked
+	 * at drm_helper_connector_dpms()
+	 */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head)
 		if (connector->encoder == encoder)
 			connector->dpms = mode;
 
+	/*
+	 * if this condition is ok then it means that the crtc is already
+	 * detached from encoder and last function for detaching is properly
+	 * done, so clear pipe from manager to prevent repeated call.
+	 */
 	if (mode > DRM_MODE_DPMS_ON) {
 		if (!encoder->crtc)
 			manager->pipe = -1;

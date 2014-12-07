@@ -12,11 +12,12 @@
  * Ian da Silva and Jeremy Siegel, 2001.
  */
 
+/* Box specific addresses.  */
 
-#define PA_ROM		0x00000000	
-#define PA_ROM_SIZE	0x00400000	
-#define PA_FROM		0x01000000	
-#define PA_FROM_SIZE	0x00400000	
+#define PA_ROM		0x00000000	/* EPROM */
+#define PA_ROM_SIZE	0x00400000	/* EPROM size 4M byte */
+#define PA_FROM		0x01000000	/* EPROM */
+#define PA_FROM_SIZE	0x00400000	/* EPROM size 4M byte */
 #define PA_EXT1		0x04000000
 #define PA_EXT1_SIZE	0x04000000
 #define PA_EXT2		0x08000000
@@ -28,17 +29,17 @@
 #define PA_EXT4_SIZE	0x02000000
 #define PA_EXT5		0x14000000
 #define PA_EXT5_SIZE	0x04000000
-#define PA_PCIC		0x18000000	
+#define PA_PCIC		0x18000000	/* MR-SHPC-01 PCMCIA */
 
-#define PA_DIPSW0	0xb9000000	
-#define PA_DIPSW1	0xb9000002	
-#define PA_LED		0xba000000	
-#define	PA_BCR		0xbb000000	
+#define PA_DIPSW0	0xb9000000	/* Dip switch 5,6 */
+#define PA_DIPSW1	0xb9000002	/* Dip switch 7,8 */
+#define PA_LED		0xba000000	/* LED */
+#define	PA_BCR		0xbb000000	/* FPGA on the MS7751SE01 */
 
-#define PA_MRSHPC	0xb83fffe0	
-#define PA_MRSHPC_MW1	0xb8400000	
-#define PA_MRSHPC_MW2	0xb8500000	
-#define PA_MRSHPC_IO	0xb8600000	
+#define PA_MRSHPC	0xb83fffe0	/* MR-SHPC-01 PCMCIA controller */
+#define PA_MRSHPC_MW1	0xb8400000	/* MR-SHPC-01 memory window base */
+#define PA_MRSHPC_MW2	0xb8500000	/* MR-SHPC-01 attribute window base */
+#define PA_MRSHPC_IO	0xb8600000	/* MR-SHPC-01 I/O window base */
 #define MRSHPC_MODE     (PA_MRSHPC + 4)
 #define MRSHPC_OPTION   (PA_MRSHPC + 6)
 #define MRSHPC_CSR      (PA_MRSHPC + 8)
@@ -69,4 +70,4 @@ void init_7751se_IRQ(void);
 #define __IO_PREFIX	sh7751se
 #include <asm/io_generic.h>
 
-#endif  
+#endif  /* __ASM_SH_HITACHI_7751SE_H */

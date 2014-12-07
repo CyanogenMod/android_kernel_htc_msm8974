@@ -31,7 +31,43 @@
 
 #include <mach/irqs.h>
 
+/* 
+ * A small note about bridges and interrupts.  The DECchip 21050 (and
+ * later) adheres to the PCI-PCI bridge specification.  This says that
+ * the interrupts on the other side of a bridge are swizzled in the
+ * following manner:
+ *
+ * Dev    Interrupt   Interrupt 
+ *        Pin on      Pin on 
+ *        Device      Connector
+ *
+ *   4    A           A
+ *        B           B
+ *        C           C
+ *        D           D
+ * 
+ *   5    A           B
+ *        B           C
+ *        C           D
+ *        D           A
+ *
+ *   6    A           C
+ *        B           D
+ *        C           A
+ *        D           B
+ *
+ *   7    A           D
+ *        B           A
+ *        C           B
+ *        D           C
+ *
+ * Where A = pin 1, B = pin 2 and so on and pin=0 = default = A.
+ * Thus, each swizzle is ((pin-1) + (device#-4)) % 4
+ */
 
+/*
+ * This routine handles multiple bridges.
+ */
 static u8 __init integrator_swizzle(struct pci_dev *dev, u8 *pinp)
 {
 	int pin = *pinp;
@@ -41,6 +77,9 @@ static u8 __init integrator_swizzle(struct pci_dev *dev, u8 *pinp)
 
 	while (dev->bus->self) {
 		pin = pci_swizzle_interrupt_pin(dev, pin);
+		/*
+		 * move up the chain of bridges, swizzling as we go.
+		 */
 		dev = dev->bus->self;
 	}
 	*pinp = pin;
@@ -52,6 +91,10 @@ static int irq_tab[4] __initdata = {
 	IRQ_AP_PCIINT0,	IRQ_AP_PCIINT1,	IRQ_AP_PCIINT2,	IRQ_AP_PCIINT3
 };
 
+/*
+ * map the specified device/slot/pin to an IRQ.  This works out such
+ * that slot 9 pin 1 is INT0, pin 2 is INT1, and slot 10 pin 1 is INT1.
+ */
 static int __init integrator_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int intnr = ((slot - 9) + (pin - 1)) & 3;

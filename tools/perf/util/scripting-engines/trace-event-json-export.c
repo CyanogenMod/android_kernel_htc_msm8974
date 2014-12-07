@@ -123,7 +123,7 @@ static void define_event_symbols(struct event *event,
 		define_event_symbols(event, args->op.right);
 		break;
 	default:
-		
+		/* we should warn... */
 		return;
 	}
 
@@ -192,7 +192,7 @@ static void json_process_field(int indx, void *data, struct format_field *field)
 		} else
 			offset = field->offset;
 		fprintf(ofp, "%s\"%s\"", prefix(indx), (char *)data + offset);
-	} else { 
+	} else { /* FIELD_IS_NUMERIC */
 		val = read_size(data + field->offset, field->size);
 		if (field->flags & FIELD_IS_SIGNED)
 			fprintf(ofp, "%s%lld", prefix(indx),
@@ -241,6 +241,9 @@ static void json_process_event(union perf_event *pevent __unused,
 	fprintf(ofp , "]]");
 }
 
+/*
+ * Start trace script
+ */
 static int json_start_script(const char *script, int argc __unused,
 		const char **argv __unused)
 {
@@ -260,6 +263,9 @@ static int json_start_script(const char *script, int argc __unused,
 	return err;
 }
 
+/*
+ * Stop trace script
+ */
 static int json_stop_script(void)
 {
 	int err = 0;

@@ -27,6 +27,14 @@
 
 
 
+/**
+ * smux_dump_ch() - Dumps the information of a channel to the screen.
+ * @buf:  Buffer for status message.
+ * @max: Size of status queue.
+ * @lch_number:  Number of the logical channel.
+ * @lch:  Pointer to the lch_number'th instance of struct smux_lch_t.
+ *
+ */
 static int smux_dump_ch(char *buf, int max, struct smux_lch_t *lch)
 {
 	int bytes_written;
@@ -65,6 +73,12 @@ static int smux_dump_ch(char *buf, int max, struct smux_lch_t *lch)
 	return bytes_written;
 }
 
+/**
+ * smux_dump_format_ch() - Informs user of format for channel dump
+ * @buf:  Buffer for status message.
+ * @max:  Size of status queue.
+ *
+ */
 static int smux_dump_format_ch(char *buf, int max)
 {
 	return scnprintf(

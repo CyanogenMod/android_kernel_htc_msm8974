@@ -67,7 +67,7 @@ static void snd_usb_caiaq_midi_send(struct snd_usb_caiaqdev *dev,
 	int len, ret;
 
 	dev->midi_out_buf[0] = EP1_CMD_MIDI_WRITE;
-	dev->midi_out_buf[1] = 0; 
+	dev->midi_out_buf[1] = 0; /* port */
 	len = snd_rawmidi_transmit(substream, dev->midi_out_buf + 3,
 				   EP1_BUFSIZE - 3);
 

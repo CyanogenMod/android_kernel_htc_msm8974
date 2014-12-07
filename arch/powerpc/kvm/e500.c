@@ -67,7 +67,7 @@ int kvmppc_core_vcpu_setup(struct kvm_vcpu *vcpu)
 
 	kvmppc_e500_tlb_setup(vcpu_e500);
 
-	
+	/* Registers init */
 	vcpu->arch.pvr = mfspr(SPRN_PVR);
 	vcpu_e500->svr = mfspr(SPRN_SVR);
 
@@ -76,6 +76,7 @@ int kvmppc_core_vcpu_setup(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+/* 'linear_address' is actually an encoding of AS|PID|EADDR . */
 int kvmppc_core_vcpu_translate(struct kvm_vcpu *vcpu,
                                struct kvm_translation *tr)
 {
@@ -95,7 +96,7 @@ int kvmppc_core_vcpu_translate(struct kvm_vcpu *vcpu,
 	}
 
 	tr->physical_address = kvmppc_mmu_xlate(vcpu, index, eaddr);
-	
+	/* XXX what does "writeable" and "usermode" even mean? */
 	tr->valid = 1;
 
 	return 0;
@@ -236,7 +237,7 @@ static int __init kvmppc_e500_init(void)
 	if (r)
 		return r;
 
-	
+	/* copy extra E500 exception handlers */
 	ivor[0] = mfspr(SPRN_IVOR32);
 	ivor[1] = mfspr(SPRN_IVOR33);
 	ivor[2] = mfspr(SPRN_IVOR34);

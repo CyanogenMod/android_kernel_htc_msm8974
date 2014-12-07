@@ -33,11 +33,35 @@ void	xfs_trans_unreserve_and_mod_sb(struct xfs_trans *tp);
 
 void	xfs_trans_committed_bulk(struct xfs_ail *ailp, struct xfs_log_vec *lv,
 				xfs_lsn_t commit_lsn, int aborted);
+/*
+ * AIL traversal cursor.
+ *
+ * Rather than using a generation number for detecting changes in the ail, use
+ * a cursor that is protected by the ail lock. The aild cursor exists in the
+ * struct xfs_ail, but other traversals can declare it on the stack and link it
+ * to the ail list.
+ *
+ * When an object is deleted from or moved int the AIL, the cursor list is
+ * searched to see if the object is a designated cursor item. If it is, it is
+ * deleted from the cursor so that the next time the cursor is used traversal
+ * will return to the start.
+ *
+ * This means a traversal colliding with a removal will cause a restart of the
+ * list scan, rather than any insertion or deletion anywhere in the list. The
+ * low bit of the item pointer is set if the cursor has been invalidated so
+ * that we can tell the difference between invalidation and reaching the end
+ * of the list to trigger traversal restarts.
+ */
 struct xfs_ail_cursor {
 	struct list_head	list;
 	struct xfs_log_item	*item;
 };
 
+/*
+ * Private AIL structures.
+ *
+ * Eventually we need to drive the locking in here as well.
+ */
 struct xfs_ail {
 	struct xfs_mount	*xa_mount;
 	struct task_struct	*xa_task;
@@ -49,6 +73,9 @@ struct xfs_ail {
 	int			xa_log_flush;
 };
 
+/*
+ * From xfs_trans_ail.c
+ */
 void	xfs_trans_ail_update_bulk(struct xfs_ail *ailp,
 				struct xfs_ail_cursor *cur,
 				struct xfs_log_item **log_items, int nr_items,
@@ -95,7 +122,7 @@ xfs_trans_ail_copy_lsn(
 	xfs_lsn_t	*dst,
 	xfs_lsn_t	*src)
 {
-	ASSERT(sizeof(xfs_lsn_t) == 8);	
+	ASSERT(sizeof(xfs_lsn_t) == 8);	/* don't lock if it shrinks */
 	spin_lock(&ailp->xa_lock);
 	*dst = *src;
 	spin_unlock(&ailp->xa_lock);
@@ -111,4 +138,4 @@ xfs_trans_ail_copy_lsn(
 	*dst = *src;
 }
 #endif
-#endif	
+#endif	/* __XFS_TRANS_PRIV_H__ */

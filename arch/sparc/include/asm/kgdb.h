@@ -35,4 +35,4 @@ extern void arch_kgdb_breakpoint(void);
 #define BREAK_INSTR_SIZE	4
 #define CACHE_FLUSH_IS_SAFE	1
 
-#endif 
+#endif /* _SPARC_KGDB_H */

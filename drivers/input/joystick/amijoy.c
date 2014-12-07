@@ -2,6 +2,9 @@
  *  Copyright (c) 1998-2001 Vojtech Pavlik
  */
 
+/*
+ * Driver for Amiga joysticks for Linux/m68k
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify

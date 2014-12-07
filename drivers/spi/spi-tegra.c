@@ -157,6 +157,11 @@ struct spi_tegra_data {
 	unsigned		cur_len;
 	unsigned		cur_bytes_per_word;
 
+	/* The tegra spi controller has a bug which causes the first word
+	 * in PIO transactions to be garbage.  Since packed DMA transactions
+	 * require transfers to be 4 byte aligned we need a bounce buffer
+	 * for the generic case.
+	 */
 	struct tegra_dma_req	rx_dma_req;
 	struct tegra_dma_channel *rx_dma;
 	u32			*rx_bb;
@@ -274,6 +279,10 @@ static void spi_tegra_start_transfer(struct spi_device *spi,
 	val &= ~SLINK_BIT_LENGTH(~0);
 	val |= SLINK_BIT_LENGTH(bits_per_word - 1);
 
+	/* FIXME: should probably control CS manually so that we can be sure
+	 * it does not go low between transfer and to support delay_usecs
+	 * correctly.
+	 */
 	val &= ~SLINK_IDLE_SCLK_MASK & ~SLINK_CK_SDA & ~SLINK_CS_SW;
 
 	if (spi->mode & SPI_CPHA)
@@ -318,6 +327,11 @@ static void tegra_spi_rx_dma_complete(struct tegra_dma_req *req)
 	int timeout = 0;
 	unsigned long val;
 
+	/* the SPI controller may come back with both the BSY and RDY bits
+	 * set.  In this case we need to wait for the BSY bit to clear so
+	 * that we are sure the DMA is finished.  1000 reads was empirically
+	 * determined to be long enough.
+	 */
 	while (timeout++ < 1000) {
 		if (!(spi_tegra_readl(tspi, SLINK_STATUS) & SLINK_BSY))
 			break;
@@ -464,7 +478,7 @@ static int __devinit spi_tegra_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* the spi->mode bits understood by this driver: */
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
 
 	master->bus_num = pdev->id;
@@ -589,9 +603,9 @@ static struct of_device_id spi_tegra_of_match_table[] __devinitdata = {
 	{}
 };
 MODULE_DEVICE_TABLE(of, spi_tegra_of_match_table);
-#else 
+#else /* CONFIG_OF */
 #define spi_tegra_of_match_table NULL
-#endif 
+#endif /* CONFIG_OF */
 
 static struct platform_driver spi_tegra_driver = {
 	.driver = {

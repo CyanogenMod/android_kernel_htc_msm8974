@@ -125,7 +125,7 @@ static int tda9840_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *t)
 	case 0x40:
 		t->rxsubchans = V4L2_TUNER_SUB_STEREO | V4L2_TUNER_SUB_MONO;
 		break;
-	default: 
+	default: /* Incorrect detect */
 		t->rxsubchans = V4L2_TUNER_MODE_MONO;
 		break;
 	}
@@ -139,6 +139,7 @@ static int tda9840_g_chip_ident(struct v4l2_subdev *sd, struct v4l2_dbg_chip_ide
 	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_TDA9840, 0);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops tda9840_core_ops = {
 	.g_chip_ident = tda9840_g_chip_ident,
@@ -154,13 +155,14 @@ static const struct v4l2_subdev_ops tda9840_ops = {
 	.tuner = &tda9840_tuner_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int tda9840_probe(struct i2c_client *client,
 			  const struct i2c_device_id *id)
 {
 	struct v4l2_subdev *sd;
 
-	
+	/* let's see whether this adapter can support what we need */
 	if (!i2c_check_functionality(client->adapter,
 			I2C_FUNC_SMBUS_READ_BYTE_DATA |
 			I2C_FUNC_SMBUS_WRITE_BYTE_DATA))
@@ -174,7 +176,7 @@ static int tda9840_probe(struct i2c_client *client,
 		return -ENOMEM;
 	v4l2_i2c_subdev_init(sd, client, &tda9840_ops);
 
-	
+	/* set initial values for level & stereo - adjustment, mode */
 	tda9840_write(sd, LEVEL_ADJUST, 0);
 	tda9840_write(sd, STEREO_ADJUST, 0);
 	tda9840_write(sd, SWITCH, TDA9840_SET_STEREO);

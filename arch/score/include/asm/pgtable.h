@@ -11,10 +11,15 @@
 extern void load_pgd(unsigned long pg_dir);
 extern pte_t invalid_pte_table[PAGE_SIZE/sizeof(pte_t)];
 
+/* PGDIR_SHIFT determines what a third-level page table entry can map */
 #define PGDIR_SHIFT	22
 #define PGDIR_SIZE	(_AC(1, UL) << PGDIR_SHIFT)
 #define PGDIR_MASK	(~(PGDIR_SIZE - 1))
 
+/*
+ * Entries per page directory level: we use two-level, so
+ * we don't really have any PUD/PMD directory physically.
+ */
 #define PGD_ORDER	0
 #define PTE_ORDER	0
 
@@ -37,6 +42,9 @@ extern pte_t invalid_pte_table[PAGE_SIZE/sizeof(pte_t)];
 	printk(KERN_ERR "%s:%d: bad pgd %08lx.\n", \
 		__FILE__, __LINE__, pgd_val(e))
 
+/*
+ * Empty pgd/pmd entries point to the invalid_pte_table.
+ */
 static inline int pmd_none(pmd_t pmd)
 {
 	return pmd_val(pmd) == (unsigned long) invalid_pte_table;
@@ -63,11 +71,14 @@ static inline void pmd_clear(pmd_t *pmdp)
 #define __pud_offset(address)	(((address) >> PUD_SHIFT) & (PTRS_PER_PUD-1))
 #define __pmd_offset(address)	(((address) >> PMD_SHIFT) & (PTRS_PER_PMD-1))
 
+/* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(address)	pgd_offset(&init_mm, address)
 #define pgd_index(address)	(((address) >> PGDIR_SHIFT) & (PTRS_PER_PGD-1))
 
+/* to find an entry in a page-table-directory */
 #define pgd_offset(mm, addr)	((mm)->pgd + pgd_index(addr))
 
+/* Find an entry in the third-level page table.. */
 #define __pte_offset(address)		\
 	(((address) >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
 #define pte_offset(dir, address)	\
@@ -79,6 +90,10 @@ static inline void pmd_clear(pmd_t *pmdp)
 	((pte_t *)page_address(pmd_page(*(dir))) + __pte_offset(address))
 #define pte_unmap(pte) ((void)(pte))
 
+/*
+ * Bits 9(_PAGE_PRESENT) and 10(_PAGE_FILE)are taken,
+ * split up 30 bits of offset into this range:
+ */
 #define PTE_FILE_MAX_BITS	30
 #define pte_to_pgoff(_pte)		\
 	(((_pte).pte & 0x1ff) | (((_pte).pte >> 11) << 9))
@@ -101,6 +116,11 @@ static inline pte_t pte_mkspecial(pte_t pte) { return pte; }
 #define io_remap_pfn_range(vma, vaddr, pfn, size, prot)		\
 		remap_pfn_range(vma, vaddr, pfn, size, prot)
 
+/*
+ * The "pgd_xxx()" functions here are trivial for a folded two-level
+ * setup: the pgd is never bad, and a pmd always exists (as it's folded
+ * into the pgd entry)
+ */
 #define pgd_present(pgd)	(1)
 #define pgd_none(pgd)		(0)
 #define pgd_bad(pgd)		(0)
@@ -260,6 +280,6 @@ static inline void update_mmu_cache(struct vm_area_struct *vma,
 #include <asm-generic/pgtable.h>
 
 void setup_memory(void);
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_SCORE_PGTABLE_H */

@@ -1,4 +1,8 @@
 /* Copyright (c) 2007 Coraid, Inc.  See COPYING for GPL terms. */
+/*
+ * aoechr.c
+ * AoE character device driver
+ */
 
 #include <linux/hdreg.h>
 #include <linux/blkdev.h>
@@ -11,14 +15,14 @@
 #include "aoe.h"
 
 enum {
-	
+	//MINOR_STAT = 1, (moved to sysfs)
 	MINOR_ERR = 2,
 	MINOR_DISCOVER,
 	MINOR_INTERFACES,
 	MINOR_REVALIDATE,
 	MINOR_FLUSH,
 	MSGSZ = 2048,
-	NMSG = 100,		
+	NMSG = 100,		/* message backlog to retain */
 };
 
 struct aoe_chardev {
@@ -82,7 +86,7 @@ revalidate(const char __user *str, size_t size)
 	if (copy_from_user(buf, str, size))
 		return -EFAULT;
 
-	
+	/* should be e%d.%d format */
 	n = sscanf(buf, "e%d.%d", &major, &minor);
 	if (n != 2) {
 		printk(KERN_ERR "aoe: invalid device specification\n");
@@ -96,6 +100,9 @@ revalidate(const char __user *str, size_t size)
 loop:
 	skb = aoecmd_ata_id(d);
 	spin_unlock_irqrestore(&d->lock, flags);
+	/* try again if we are able to sleep a bit,
+	 * otherwise give up this revalidation
+	 */
 	if (!skb && !msleep_interruptible(200)) {
 		spin_lock_irqsave(&d->lock, flags);
 		goto loop;

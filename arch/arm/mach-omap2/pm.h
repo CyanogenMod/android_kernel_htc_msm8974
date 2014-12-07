@@ -38,10 +38,16 @@ static inline int omap4_opp_init(void)
 }
 #endif
 
+/*
+ * cpuidle mach specific parameters
+ *
+ * The board code can override the default C-states definition using
+ * omap3_pm_init_cpuidle
+ */
 struct cpuidle_params {
-	u32 exit_latency;	
+	u32 exit_latency;	/* exit_latency = sleep + wake-up latencies */
 	u32 target_residency;
-	u8 valid;		
+	u8 valid;		/* validates the C-state */
 };
 
 #if defined(CONFIG_PM) && defined(CONFIG_CPU_IDLE)
@@ -66,8 +72,9 @@ extern u32 enable_off_mode;
 extern void pm_dbg_update_time(struct powerdomain *pwrdm, int prev);
 #else
 #define pm_dbg_update_time(pwrdm, prev) do {} while (0);
-#endif 
+#endif /* CONFIG_PM_DEBUG */
 
+/* 24xx */
 extern void omap24xx_idle_loop_suspend(void);
 extern unsigned int omap24xx_idle_loop_suspend_sz;
 
@@ -75,12 +82,16 @@ extern void omap24xx_cpu_suspend(u32 dll_ctrl, void __iomem *sdrc_dlla_ctrl,
 					void __iomem *sdrc_power);
 extern unsigned int omap24xx_cpu_suspend_sz;
 
+/* 3xxx */
 extern void omap34xx_cpu_suspend(int save_state);
 
+/* omap3_do_wfi function pointer and size, for copy to SRAM */
 extern void omap3_do_wfi(void);
 extern unsigned int omap3_do_wfi_sz;
+/* ... and its pointer from SRAM after copy */
 extern void (*omap3_do_wfi_sram)(void);
 
+/* save_secure_ram_context function pointer and size, for copy to SRAM */
 extern int save_secure_ram_context(u32 *addr);
 extern unsigned int save_secure_ram_context_sz;
 
@@ -96,7 +107,7 @@ extern void enable_omap3630_toggle_l2_on_restore(void);
 #else
 #define IS_PM34XX_ERRATUM(id)		0
 static inline void enable_omap3630_toggle_l2_on_restore(void) { }
-#endif		
+#endif		/* defined(CONFIG_PM) && defined(CONFIG_ARCH_OMAP3) */
 
 #ifdef CONFIG_OMAP_SMARTREFLEX
 extern int omap_devinit_smartreflex(void);

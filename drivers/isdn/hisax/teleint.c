@@ -97,6 +97,7 @@ writefifo(unsigned int ale, unsigned int adr, u_char off, u_char *data, int size
 	}
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -214,10 +215,10 @@ reset_TeleInt(struct IsdnCardState *cs)
 {
 	printk(KERN_INFO "TeleInt: resetting card\n");
 	cs->hw.hfc.cirm |= HFC_RESET;
-	byteout(cs->hw.hfc.addr | 1, cs->hw.hfc.cirm);	
+	byteout(cs->hw.hfc.addr | 1, cs->hw.hfc.cirm);	/* Reset On */
 	mdelay(10);
 	cs->hw.hfc.cirm &= ~HFC_RESET;
-	byteout(cs->hw.hfc.addr | 1, cs->hw.hfc.cirm);	
+	byteout(cs->hw.hfc.addr | 1, cs->hw.hfc.cirm);	/* Reset Off */
 	mdelay(10);
 }
 
@@ -242,7 +243,7 @@ TeleInt_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		inithfc(cs);
 		clear_pending_isac_ints(cs);
 		initisac(cs);
-		
+		/* Reenable all IRQ */
 		cs->writeisac(cs, ISAC_MASK, 0);
 		cs->writeisac(cs, ISAC_CMDR, 0x41);
 		spin_unlock_irqrestore(&cs->lock, flags);
@@ -288,7 +289,7 @@ setup_TeleInt(struct IsdnCard *card)
 		       cs->hw.hfc.addr + 2);
 		return (0);
 	}
-	
+	/* HW IO = IO */
 	byteout(cs->hw.hfc.addr, cs->hw.hfc.addr & 0xff);
 	byteout(cs->hw.hfc.addr | 1, ((cs->hw.hfc.addr & 0x300) >> 8) | 0x54);
 	switch (cs->irq) {

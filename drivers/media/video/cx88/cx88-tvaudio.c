@@ -68,6 +68,7 @@ MODULE_PARM_DESC(radio_deemphasis, "Radio deemphasis time constant, "
 #define dprintk(fmt, arg...)	if (audio_debug) \
 	printk(KERN_DEBUG "%s/0: " fmt, core->name , ## arg)
 
+/* ----------------------------------------------------------- */
 
 static const char * const aud_ctl_names[64] = {
 	[EN_BTSC_FORCE_MONO] = "BTSC_FORCE_MONO",
@@ -123,10 +124,10 @@ static void set_audio_registers(struct cx88_core *core, const struct rlist *l)
 
 static void set_audio_start(struct cx88_core *core, u32 mode)
 {
-	
+	/* mute */
 	cx_write(AUD_VOL_CTL, (1 << 6));
 
-	
+	/* start programming */
 	cx_write(AUD_INIT, mode);
 	cx_write(AUD_INIT_LD, 0x0001);
 	cx_write(AUD_SOFT_RESET, 0x0001);
@@ -136,7 +137,7 @@ static void set_audio_finish(struct cx88_core *core, u32 ctl)
 {
 	u32 volume;
 
-	
+	/* restart dma; This avoids buzz in NICAM and is good in others  */
 	cx88_stop_audio_dma(core);
 	cx_write(AUD_RATE_THRES_DMD, 0x000000C0);
 	cx88_start_audio_dma(core);
@@ -144,27 +145,28 @@ static void set_audio_finish(struct cx88_core *core, u32 ctl)
 	if (core->board.mpeg & CX88_MPEG_BLACKBIRD) {
 		cx_write(AUD_I2SINPUTCNTL, 4);
 		cx_write(AUD_BAUDRATE, 1);
-		
+		/* 'pass-thru mode': this enables the i2s output to the mpeg encoder */
 		cx_set(AUD_CTL, EN_I2SOUT_ENABLE);
 		cx_write(AUD_I2SOUTPUTCNTL, 1);
 		cx_write(AUD_I2SCNTL, 0);
-		
+		/* cx_write(AUD_APB_IN_RATE_ADJ, 0); */
 	}
 	if ((always_analog) || (!(core->board.mpeg & CX88_MPEG_BLACKBIRD))) {
 		ctl |= EN_DAC_ENABLE;
 		cx_write(AUD_CTL, ctl);
 	}
 
-	
+	/* finish programming */
 	cx_write(AUD_SOFT_RESET, 0x0000);
 
-	
+	/* unmute */
 	volume = cx_sread(SHADOW_AUD_VOL_CTL);
 	cx_swrite(SHADOW_AUD_VOL_CTL, AUD_VOL_CTL, volume);
 
 	core->last_change = jiffies;
 }
 
+/* ----------------------------------------------------------- */
 
 static void set_audio_standard_BTSC(struct cx88_core *core, unsigned int sap,
 				    u32 mode)
@@ -204,7 +206,7 @@ static void set_audio_standard_BTSC(struct cx88_core *core, unsigned int sap,
 		{AUD_RDSI_SHIFT, 0x00000000},
 		{AUD_RDSQ_SHIFT, 0x00000000},
 		{AUD_POLYPH80SCALEFAC, 0x00000003},
-		{  },
+		{ /* end of list */ },
 	};
 	static const struct rlist btsc_sap[] = {
 		{AUD_AFE_12DB_EN, 0x00000001},
@@ -258,7 +260,7 @@ static void set_audio_standard_BTSC(struct cx88_core *core, unsigned int sap,
 		{AUD_RDSI_SHIFT, 0x00000000},
 		{AUD_RDSQ_SHIFT, 0x00000000},
 		{AUD_POLYPH80SCALEFAC, 0x00000003},
-		{  },
+		{ /* end of list */ },
 	};
 
 	mode |= EN_FMRADIO_EN_RDS;
@@ -307,7 +309,7 @@ static void set_audio_standard_NICAM(struct cx88_core *core, u32 mode)
 		{AUD_PHACC_FREQ_8LSB, 0x4C},
 		{AUD_DEEMPHGAIN_R, 0x00006680},
 		{AUD_RATE_THRES_DMD, 0x000000C0},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist nicam_bgdki_common[] = {
@@ -330,21 +332,21 @@ static void set_audio_standard_NICAM(struct cx88_core *core, u32 mode)
 		{AUD_PDF_DDS_CNST_BYTE2, 0x06},
 		{AUD_PDF_DDS_CNST_BYTE1, 0x82},
 		{AUD_QAM_MODE, 0x05},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist nicam_i[] = {
 		{AUD_PDF_DDS_CNST_BYTE0, 0x12},
 		{AUD_PHACC_FREQ_8MSB, 0x3a},
 		{AUD_PHACC_FREQ_8LSB, 0x93},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist nicam_default[] = {
 		{AUD_PDF_DDS_CNST_BYTE0, 0x16},
 		{AUD_PHACC_FREQ_8MSB, 0x34},
 		{AUD_PHACC_FREQ_8LSB, 0x4c},
-		{  },
+		{ /* end of list */ },
 	};
 
 	set_audio_start(core,SEL_NICAM);
@@ -434,7 +436,7 @@ static void set_audio_standard_A2(struct cx88_core *core, u32 mode)
 		{AUD_PLL_FRAC, 0x0000e542},
 		{AUD_POLYPH80SCALEFAC, 0x00000001},
 		{AUD_START_TIMER, 0x00000000},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist a2_bg[] = {
@@ -443,7 +445,7 @@ static void set_audio_standard_A2(struct cx88_core *core, u32 mode)
 		{AUD_C1_LO_THR, 0x00005400},
 		{AUD_C2_UP_THR, 0x00005400},
 		{AUD_C2_LO_THR, 0x00003000},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist a2_dk[] = {
@@ -454,7 +456,7 @@ static void set_audio_standard_A2(struct cx88_core *core, u32 mode)
 		{AUD_C2_LO_THR, 0x00003000},
 		{AUD_DN0_FREQ, 0x00003a1c},
 		{AUD_DN2_FREQ, 0x0000d2e0},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist a1_i[] = {
@@ -523,7 +525,7 @@ static void set_audio_standard_A2(struct cx88_core *core, u32 mode)
 		{AUD_DEEMPH1_SRC_SEL, 0x0000000b},
 		{AUD_POLYPH80SCALEFAC, 0x00000001},
 		{AUD_START_TIMER, 0x00000000},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist am_l[] = {
@@ -592,7 +594,7 @@ static void set_audio_standard_A2(struct cx88_core *core, u32 mode)
 		{AUD_RATE_ADJ4, 0x00000400},
 		{AUD_RATE_ADJ5, 0x00000500},
 		{AUD_RATE_THRES_DMD, 0x000000C0},
-		{  },
+		{ /* end of list */ },
 	};
 
 	static const struct rlist a2_deemph50[] = {
@@ -601,7 +603,7 @@ static void set_audio_standard_A2(struct cx88_core *core, u32 mode)
 		{AUD_DEEMPHGAIN_R, 0x000011e1},
 		{AUD_DEEMPHNUMER1_R, 0x0002a7bc},
 		{AUD_DEEMPHNUMER2_R, 0x0003023c},
-		{  },
+		{ /* end of list */ },
 	};
 
 	set_audio_start(core, SEL_A2);
@@ -646,9 +648,9 @@ static void set_audio_standard_A2(struct cx88_core *core, u32 mode)
 static void set_audio_standard_EIAJ(struct cx88_core *core)
 {
 	static const struct rlist eiaj[] = {
-		
+		/* TODO: eiaj register settings are not there yet ... */
 
-		{  },
+		{ /* end of list */ },
 	};
 	dprintk("%s (status: unknown)\n", __func__);
 
@@ -674,7 +676,7 @@ static void set_audio_standard_FM(struct cx88_core *core,
 		{AUD_DEEMPH1_B1, 0x399A},
 
 		{AUD_POLYPH80SCALEFAC, 0x0003},
-		{  },
+		{ /* end of list */ },
 	};
 	static const struct rlist fm_deemph_75[] = {
 		{AUD_DEEMPH0_G0, 0x091B},
@@ -690,14 +692,18 @@ static void set_audio_standard_FM(struct cx88_core *core,
 		{AUD_DEEMPH1_B1, 0x399A},
 
 		{AUD_POLYPH80SCALEFAC, 0x0003},
-		{  },
+		{ /* end of list */ },
 	};
 
-	
+	/* It is enough to leave default values? */
+	/* No, it's not!  The deemphasis registers are reset to the 75us
+	 * values by default.  Analyzing the spectrum of the decoded audio
+	 * reveals that "no deemphasis" is the same as 75 us, while the 50 us
+	 * setting results in less deemphasis.  */
 	static const struct rlist fm_no_deemph[] = {
 
 		{AUD_POLYPH80SCALEFAC, 0x0003},
-		{  },
+		{ /* end of list */ },
 	};
 
 	dprintk("%s (status: unknown)\n", __func__);
@@ -721,6 +727,7 @@ static void set_audio_standard_FM(struct cx88_core *core,
 	set_audio_finish(core, EN_FMRADIO_AUTO_STEREO);
 }
 
+/* ----------------------------------------------------------- */
 
 static int cx88_detect_nicam(struct cx88_core *core)
 {
@@ -729,7 +736,7 @@ static int cx88_detect_nicam(struct cx88_core *core)
 	dprintk("start nicam autodetect.\n");
 
 	for (i = 0; i < 6; i++) {
-		
+		/* if bit1=1 then nicam is detected */
 		j += ((cx_read(AUD_NICAM_STATUS2) & 0x02) >> 1);
 
 		if (j == 1) {
@@ -737,7 +744,7 @@ static int cx88_detect_nicam(struct cx88_core *core)
 			return 1;
 		}
 
-		
+		/* wait a little bit for next reading status */
 		msleep(10);
 	}
 
@@ -756,12 +763,14 @@ void cx88_set_tvaudio(struct cx88_core *core)
 	case WW_M:
 	case WW_I:
 	case WW_L:
-		
+		/* prepare all dsp registers */
 		set_audio_standard_A2(core, EN_A2_FORCE_MONO1);
 
+		/* set nicam mode - otherwise
+		   AUD_NICAM_STATUS2 contains wrong values */
 		set_audio_standard_NICAM(core, EN_NICAM_AUTO_STEREO);
 		if (0 == cx88_detect_nicam(core)) {
-			
+			/* fall back to fm / am mono */
 			set_audio_standard_A2(core, EN_A2_FORCE_MONO1);
 			core->audiomode_current = V4L2_TUNER_MODE_MONO;
 			core->use_nicam = 0;
@@ -777,8 +786,13 @@ void cx88_set_tvaudio(struct cx88_core *core)
 		break;
 	case WW_I2SADC:
 		set_audio_start(core, 0x01);
+		/*
+		 * Slave/Philips/Autobaud
+		 * NB on Nova-S bit1 NPhilipsSony appears to be inverted:
+		 *	0= Sony, 1=Philips
+		 */
 		cx_write(AUD_I2SINPUTCNTL, core->board.i2sinputcntl);
-		
+		/* Switch to "I2S ADC mode" */
 		cx_write(AUD_I2SCNTL, 0x1);
 		set_audio_finish(core, EN_I2SIN_ENABLE);
 		break;
@@ -850,13 +864,15 @@ void cx88_get_stereo(struct cx88_core *core, struct v4l2_tuner *t)
 	case WW_I2SPT:
 	case WW_FM:
 	case WW_I2SADC:
-		
+		/* nothing */
 		break;
 	}
 
-	
+	/* If software stereo detection is not supported... */
 	if (UNSET == t->rxsubchans) {
 		t->rxsubchans = V4L2_TUNER_SUB_MONO;
+		/* If the hardware itself detected stereo, also return
+		   stereo as an available subchannel */
 		if (V4L2_TUNER_MODE_STEREO == t->audmode)
 			t->rxsubchans |= V4L2_TUNER_SUB_STEREO;
 	}
@@ -918,10 +934,10 @@ void cx88_set_stereo(struct cx88_core *core, u32 mode, int manual)
 			}
 		} else {
 			if ((core->tvaudio == WW_I) || (core->tvaudio == WW_L)) {
-				
+				/* fall back to fm / am mono */
 				set_audio_standard_A2(core, EN_A2_FORCE_MONO1);
 			} else {
-				
+				/* TODO: Add A2 autodection */
 				mask = 0x3f;
 				switch (mode) {
 				case V4L2_TUNER_MODE_MONO:
@@ -955,7 +971,7 @@ void cx88_set_stereo(struct cx88_core *core, u32 mode, int manual)
 	case WW_NONE:
 	case WW_EIAJ:
 	case WW_I2SPT:
-		
+		/* DO NOTHING */
 		break;
 	}
 
@@ -992,22 +1008,22 @@ int cx88_audio_thread(void *data)
 			if (core->use_nicam)
 				goto hw_autodetect;
 
-			
+			/* just monitor the audio status for now ... */
 			memset(&t, 0, sizeof(t));
 			cx88_get_stereo(core, &t);
 
 			if (UNSET != core->audiomode_manual)
-				
+				/* manually set, don't do anything. */
 				continue;
 
-			
+			/* monitor signal and set stereo if available */
 			if (t.rxsubchans & V4L2_TUNER_SUB_STEREO)
 				mode = V4L2_TUNER_MODE_STEREO;
 			else
 				mode = V4L2_TUNER_MODE_MONO;
 			if (mode == core->audiomode_current)
 				continue;
-			
+			/* automatically switch to best available mode */
 			cx88_set_stereo(core, mode, 0);
 			break;
 		case WW_NONE:
@@ -1017,6 +1033,8 @@ int cx88_audio_thread(void *data)
 		case WW_FM:
 		case WW_I2SADC:
 hw_autodetect:
+			/* stereo autodetection is supported by hardware so
+			   we don't need to do it manually. Do nothing. */
 			break;
 		}
 	}
@@ -1025,6 +1043,7 @@ hw_autodetect:
 	return 0;
 }
 
+/* ----------------------------------------------------------- */
 
 EXPORT_SYMBOL(cx88_set_tvaudio);
 EXPORT_SYMBOL(cx88_newstation);
@@ -1032,3 +1051,9 @@ EXPORT_SYMBOL(cx88_set_stereo);
 EXPORT_SYMBOL(cx88_get_stereo);
 EXPORT_SYMBOL(cx88_audio_thread);
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ * kate: eol "unix"; indent-width 3; remove-trailing-space on; replace-trailing-space-save on; tab-width 8; replace-tabs off; space-indent off; mixed-indent off
+ */

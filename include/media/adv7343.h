@@ -20,4 +20,4 @@
 #define ADV7343_COMPONENT_ID	(1)
 #define ADV7343_SVIDEO_ID	(2)
 
-#endif				
+#endif				/* End of #ifndef ADV7343_H */

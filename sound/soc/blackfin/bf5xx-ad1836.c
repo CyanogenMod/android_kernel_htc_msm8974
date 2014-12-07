@@ -43,7 +43,7 @@ static int bf5xx_ad1836_hw_params(struct snd_pcm_substream *substream,
 	unsigned int channel_map[] = {0, 4, 1, 5, 2, 6, 3, 7};
 	int ret = 0;
 
-	
+	/* set cpu DAI channel mapping */
 	ret = snd_soc_dai_set_channel_map(cpu_dai, ARRAY_SIZE(channel_map),
 		channel_map, ARRAY_SIZE(channel_map), channel_map);
 	if (ret < 0)
@@ -116,6 +116,7 @@ static void __exit bf5xx_ad1836_exit(void)
 module_init(bf5xx_ad1836_init);
 module_exit(bf5xx_ad1836_exit);
 
+/* Module information */
 MODULE_AUTHOR("Barry Song");
 MODULE_DESCRIPTION("ALSA SoC AD1836 board driver");
 MODULE_LICENSE("GPL");

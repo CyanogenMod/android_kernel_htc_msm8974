@@ -13,13 +13,13 @@
 #define __MV78X00_MPP_H
 
 #define MPP(_num, _sel, _in, _out, _78100_A0) (\
-            ((_num) & 0xff) | \
-            (((_sel) & 0xf) << 8) | \
-        ((!!(_in)) << 12) | \
-        ((!!(_out)) << 13) | \
-        ((!!(_78100_A0)) << 14))
+    /* MPP number */        ((_num) & 0xff) | \
+    /* MPP select value */        (((_sel) & 0xf) << 8) | \
+    /* may be input signal */    ((!!(_in)) << 12) | \
+    /* may be output signal */    ((!!(_out)) << 13) | \
+    /* available on A0 */    ((!!(_78100_A0)) << 14))
 
-                
+                /*   num sel  i  o  78100_A0  */
 
 #define MPP_78100_A0_MASK    MPP(0, 0x0, 0, 0, 1)
 

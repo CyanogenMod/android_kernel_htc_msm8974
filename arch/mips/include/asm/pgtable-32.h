@@ -18,11 +18,23 @@
 
 #include <asm-generic/pgtable-nopmd.h>
 
+/*
+ * Basically we have the same two-level (which is the logical three level
+ * Linux page table layout folded) page tables as the i386.  Some day
+ * when we have proper page coloring support we can have a 1% quicker
+ * tlb refill handling mechanism, but for now it is a bit slower but
+ * works even with the cache aliasing problem the R4k and above have.
+ */
 
+/* PGDIR_SHIFT determines what a third-level page table entry can map */
 #define PGDIR_SHIFT	(2 * PAGE_SHIFT + PTE_ORDER - PTE_T_LOG2)
 #define PGDIR_SIZE	(1UL << PGDIR_SHIFT)
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
+/*
+ * Entries per page directory level: we use two-level, so
+ * we don't really have any PUD/PMD directory physically.
+ */
 #define __PGD_ORDER	(32 - 3 * PAGE_SHIFT + PGD_T_LOG2 + PTE_T_LOG2)
 #define PGD_ORDER	(__PGD_ORDER >= 0 ? __PGD_ORDER : 0)
 #define PUD_ORDER	aieeee_attempt_to_allocate_pud
@@ -59,6 +71,9 @@ extern void load_pgd(unsigned long pg_dir);
 
 extern pte_t invalid_pte_table[PAGE_SIZE/sizeof(pte_t)];
 
+/*
+ * Empty pgd/pmd entries point to the invalid_pte_table.
+ */
 static inline int pmd_none(pmd_t pmd)
 {
 	return pmd_val(pmd) == (unsigned long) invalid_pte_table;
@@ -99,18 +114,21 @@ pfn_pte(unsigned long pfn, pgprot_t prot)
 #define pte_pfn(x)		((unsigned long)((x).pte >> _PFN_SHIFT))
 #define pfn_pte(pfn, prot)	__pte(((unsigned long long)(pfn) << _PFN_SHIFT) | pgprot_val(prot))
 #endif
-#endif 
+#endif /* defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32) */
 
 #define __pgd_offset(address)	pgd_index(address)
 #define __pud_offset(address)	(((address) >> PUD_SHIFT) & (PTRS_PER_PUD-1))
 #define __pmd_offset(address)	(((address) >> PMD_SHIFT) & (PTRS_PER_PMD-1))
 
+/* to find an entry in a kernel page-table-directory */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
 
 #define pgd_index(address)	(((address) >> PGDIR_SHIFT) & (PTRS_PER_PGD-1))
 
+/* to find an entry in a page-table-directory */
 #define pgd_offset(mm, addr)	((mm)->pgd + pgd_index(addr))
 
+/* Find an entry in the third-level page table.. */
 #define __pte_offset(address)						\
 	(((address) >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
 #define pte_offset(dir, address)					\
@@ -124,11 +142,15 @@ pfn_pte(unsigned long pfn, pgprot_t prot)
 
 #if defined(CONFIG_CPU_R3000) || defined(CONFIG_CPU_TX39XX)
 
+/* Swap entries must have VALID bit cleared. */
 #define __swp_type(x)		(((x).val >> 10) & 0x1f)
 #define __swp_offset(x)		((x).val >> 15)
 #define __swp_entry(type,offset)	\
 	((swp_entry_t) { ((type) << 10) | ((offset) << 15) })
 
+/*
+ * Bits 0, 4, 8, and 9 are taken, split up 28 bits of offset into this range:
+ */
 #define PTE_FILE_MAX_BITS	28
 
 #define pte_to_pgoff(_pte)	((((_pte).pte >> 1 ) & 0x07) | \
@@ -142,6 +164,7 @@ pfn_pte(unsigned long pfn, pgprot_t prot)
 
 #else
 
+/* Swap entries must have VALID and GLOBAL bits cleared. */
 #if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32)
 #define __swp_type(x)		(((x).val >> 2) & 0x1f)
 #define __swp_offset(x) 	 ((x).val >> 7)
@@ -152,15 +175,21 @@ pfn_pte(unsigned long pfn, pgprot_t prot)
 #define __swp_offset(x) 	 ((x).val >> 13)
 #define __swp_entry(type,offset)	\
 		((swp_entry_t)  { ((type) << 8) | ((offset) << 13) })
-#endif 
+#endif /* defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32) */
 
 #if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32)
+/*
+ * Bits 0 and 1 of pte_high are taken, use the rest for the page offset...
+ */
 #define PTE_FILE_MAX_BITS	30
 
 #define pte_to_pgoff(_pte)	((_pte).pte_high >> 2)
 #define pgoff_to_pte(off) 	((pte_t) { _PAGE_FILE, (off) << 2 })
 
 #else
+/*
+ * Bits 0, 4, 6, and 7 are taken, split up 28 bits of offset into this range:
+ */
 #define PTE_FILE_MAX_BITS	28
 
 #define pte_to_pgoff(_pte)	((((_pte).pte >> 1) & 0x7) | \
@@ -183,4 +212,4 @@ pfn_pte(unsigned long pfn, pgprot_t prot)
 #define __swp_entry_to_pte(x)	((pte_t) { (x).val })
 #endif
 
-#endif 
+#endif /* _ASM_PGTABLE_32_H */

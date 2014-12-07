@@ -23,6 +23,7 @@
 #undef PROFILE_CHECKSUM
 
 #ifdef PROFILE_CHECKSUM
+/* these are just for profiling the checksum code with an oscillioscope.. uh */
 #if 0
 #define BITOFF *((unsigned char *)0xb0000030) = 0xff
 #define BITON *((unsigned char *)0xb0000030) = 0x0
@@ -39,6 +40,9 @@
 #define CBITON
 #endif
 
+/*
+ * computes a partial checksum, e.g. for TCP/UDP fragments
+ */
 
 #include <asm/delay.h>
 
@@ -46,12 +50,16 @@ __wsum csum_partial(const void *p, int len, __wsum __sum)
 {
 	u32 sum = (__force u32)__sum;
 	const u16 *buff = p;
+	/*
+	* Experiments with ethernet and slip connections show that buff
+	* is aligned on either a 2-byte or 4-byte boundary.
+	*/
 	const void *endMarker = p + len;
 	const void *marker = endMarker - (len % 16);
 #if 0
 	if((int)buff & 0x3)
 		printk("unaligned buff %p\n", buff);
-	__delay(900); 
+	__delay(900); /* extra delay of 90 us to test performance hit */
 #endif
 	BITON;
 	while (buff < marker) {
@@ -69,7 +77,7 @@ __wsum csum_partial(const void *p, int len, __wsum __sum)
 		sum += *buff++;
 
 	if (endMarker > buff)
-		sum += *(const u8 *)buff;	
+		sum += *(const u8 *)buff;	/* add extra byte separately */
 
 	BITOFF;
 	return (__force __wsum)sum;

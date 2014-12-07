@@ -56,41 +56,41 @@ static void snd_sb16_csp_playback_prepare(struct snd_sb *chip, struct snd_pcm_ru
 		struct snd_sb_csp *csp = chip->csp;
 
 		if (csp->running & SNDRV_SB_CSP_ST_LOADED) {
-			
+			/* manually loaded codec */
 			if ((csp->mode & SNDRV_SB_CSP_MODE_DSP_WRITE) &&
 			    ((1U << runtime->format) == csp->acc_format)) {
-				
+				/* Supported runtime PCM format for playback */
 				if (csp->ops.csp_use(csp) == 0) {
-					
+					/* If CSP was successfully acquired */
 					goto __start_CSP;
 				}
 			} else if ((csp->mode & SNDRV_SB_CSP_MODE_QSOUND) && (csp->q_enabled)) {
-				
+				/* QSound decoder is loaded and enabled */
 				if ((1 << runtime->format) & (SNDRV_PCM_FMTBIT_S8 | SNDRV_PCM_FMTBIT_U8 |
 							      SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_U16_LE)) {
-					
+					/* Only for simple PCM formats */
 					if (csp->ops.csp_use(csp) == 0) {
-						
+						/* If CSP was successfully acquired */
 						goto __start_CSP;
 					}
 				}
 			}
 		} else if (csp->ops.csp_use(csp) == 0) {
-			
+			/* Acquire CSP and try to autoload hardware codec */
 			if (csp->ops.csp_autoload(csp, runtime->format, SNDRV_SB_CSP_MODE_DSP_WRITE)) {
-				
+				/* Unsupported format, release CSP */
 				csp->ops.csp_unuse(csp);
 			} else {
 		      __start_CSP:
-				
+				/* Try to start CSP */
 				if (csp->ops.csp_start(csp, (chip->mode & SB_MODE_PLAYBACK_16) ?
 						       SNDRV_SB_CSP_SAMPLE_16BIT : SNDRV_SB_CSP_SAMPLE_8BIT,
 						       (runtime->channels > 1) ?
 						       SNDRV_SB_CSP_STEREO : SNDRV_SB_CSP_MONO)) {
-					
+					/* Failed, release CSP */
 					csp->ops.csp_unuse(csp);
 				} else {
-					
+					/* Success, CSP acquired and running */
 					chip->open = SNDRV_SB_CSP_MODE_DSP_WRITE;
 				}
 			}
@@ -104,31 +104,31 @@ static void snd_sb16_csp_capture_prepare(struct snd_sb *chip, struct snd_pcm_run
 		struct snd_sb_csp *csp = chip->csp;
 
 		if (csp->running & SNDRV_SB_CSP_ST_LOADED) {
-			
+			/* manually loaded codec */
 			if ((csp->mode & SNDRV_SB_CSP_MODE_DSP_READ) &&
 			    ((1U << runtime->format) == csp->acc_format)) {
-				
+				/* Supported runtime PCM format for capture */
 				if (csp->ops.csp_use(csp) == 0) {
-					
+					/* If CSP was successfully acquired */
 					goto __start_CSP;
 				}
 			}
 		} else if (csp->ops.csp_use(csp) == 0) {
-			
+			/* Acquire CSP and try to autoload hardware codec */
 			if (csp->ops.csp_autoload(csp, runtime->format, SNDRV_SB_CSP_MODE_DSP_READ)) {
-				
+				/* Unsupported format, release CSP */
 				csp->ops.csp_unuse(csp);
 			} else {
 		      __start_CSP:
-				
+				/* Try to start CSP */
 				if (csp->ops.csp_start(csp, (chip->mode & SB_MODE_CAPTURE_16) ?
 						       SNDRV_SB_CSP_SAMPLE_16BIT : SNDRV_SB_CSP_SAMPLE_8BIT,
 						       (runtime->channels > 1) ?
 						       SNDRV_SB_CSP_STEREO : SNDRV_SB_CSP_MONO)) {
-					
+					/* Failed, release CSP */
 					csp->ops.csp_unuse(csp);
 				} else {
-					
+					/* Success, CSP acquired and running */
 					chip->open = SNDRV_SB_CSP_MODE_DSP_READ;
 				}
 			}
@@ -151,17 +151,17 @@ static void snd_sb16_csp_update(struct snd_sb *chip)
 
 static void snd_sb16_csp_playback_open(struct snd_sb *chip, struct snd_pcm_runtime *runtime)
 {
-	
+	/* CSP decoders (QSound excluded) support only 16bit transfers */
 	if (chip->hardware == SB_HW_16CSP) {
 		struct snd_sb_csp *csp = chip->csp;
 
 		if (csp->running & SNDRV_SB_CSP_ST_LOADED) {
-			
+			/* manually loaded codec */
 			if (csp->mode & SNDRV_SB_CSP_MODE_DSP_WRITE) {
 				runtime->hw.formats |= csp->acc_format;
 			}
 		} else {
-			
+			/* autoloaded codecs */
 			runtime->hw.formats |= SNDRV_PCM_FMTBIT_MU_LAW | SNDRV_PCM_FMTBIT_A_LAW |
 					       SNDRV_PCM_FMTBIT_IMA_ADPCM;
 		}
@@ -182,17 +182,17 @@ static void snd_sb16_csp_playback_close(struct snd_sb *chip)
 
 static void snd_sb16_csp_capture_open(struct snd_sb *chip, struct snd_pcm_runtime *runtime)
 {
-	
+	/* CSP coders support only 16bit transfers */
 	if (chip->hardware == SB_HW_16CSP) {
 		struct snd_sb_csp *csp = chip->csp;
 
 		if (csp->running & SNDRV_SB_CSP_ST_LOADED) {
-			
+			/* manually loaded codec */
 			if (csp->mode & SNDRV_SB_CSP_MODE_DSP_READ) {
 				runtime->hw.formats |= csp->acc_format;
 			}
 		} else {
-			
+			/* autoloaded codecs */
 			runtime->hw.formats |= SNDRV_PCM_FMTBIT_MU_LAW | SNDRV_PCM_FMTBIT_A_LAW |
 					       SNDRV_PCM_FMTBIT_IMA_ADPCM;
 		}
@@ -211,13 +211,13 @@ static void snd_sb16_csp_capture_close(struct snd_sb *chip)
 	}
 }
 #else
-#define snd_sb16_csp_playback_prepare(chip, runtime)	
-#define snd_sb16_csp_capture_prepare(chip, runtime)	
-#define snd_sb16_csp_update(chip)			
-#define snd_sb16_csp_playback_open(chip, runtime)	
-#define snd_sb16_csp_playback_close(chip)		
-#define snd_sb16_csp_capture_open(chip, runtime)	
-#define snd_sb16_csp_capture_close(chip)      	 	
+#define snd_sb16_csp_playback_prepare(chip, runtime)	/*nop*/
+#define snd_sb16_csp_capture_prepare(chip, runtime)	/*nop*/
+#define snd_sb16_csp_update(chip)			/*nop*/
+#define snd_sb16_csp_playback_open(chip, runtime)	/*nop*/
+#define snd_sb16_csp_playback_close(chip)		/*nop*/
+#define snd_sb16_csp_capture_open(chip, runtime)	/*nop*/
+#define snd_sb16_csp_capture_close(chip)      	 	/*nop*/
 #endif
 
 
@@ -314,7 +314,7 @@ static int snd_sb16_playback_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		snd_sbdsp_command(chip, chip->mode & SB_MODE_PLAYBACK_16 ? SB_DSP_DMA16_OFF : SB_DSP_DMA8_OFF);
-		
+		/* next two lines are needed for some types of DSP4 (SB AWE 32 - 4.13) */
 		if (chip->mode & SB_RATE_LOCK_CAPTURE)
 			snd_sbdsp_command(chip, chip->mode & SB_MODE_CAPTURE_16 ? SB_DSP_DMA16_ON : SB_DSP_DMA8_ON);
 		chip->mode &= ~SB_RATE_LOCK_PLAYBACK;
@@ -383,7 +383,7 @@ static int snd_sb16_capture_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		snd_sbdsp_command(chip, chip->mode & SB_MODE_CAPTURE_16 ? SB_DSP_DMA16_OFF : SB_DSP_DMA8_OFF);
-		
+		/* next two lines are needed for some types of DSP4 (SB AWE 32 - 4.13) */
 		if (chip->mode & SB_RATE_LOCK_PLAYBACK)
 			snd_sbdsp_command(chip, chip->mode & SB_MODE_PLAYBACK_16 ? SB_DSP_DMA16_ON : SB_DSP_DMA8_ON);
 		chip->mode &= ~SB_RATE_LOCK_CAPTURE;
@@ -443,6 +443,9 @@ irqreturn_t snd_sb16dsp_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+
+ */
 
 static snd_pcm_uframes_t snd_sb16_playback_pointer(struct snd_pcm_substream *substream)
 {
@@ -466,6 +469,9 @@ static snd_pcm_uframes_t snd_sb16_capture_pointer(struct snd_pcm_substream *subs
 	return bytes_to_frames(substream->runtime, ptr);
 }
 
+/*
+
+ */
 
 static struct snd_pcm_hardware snd_sb16_playback =
 {
@@ -503,6 +509,9 @@ static struct snd_pcm_hardware snd_sb16_capture =
 	.fifo_size =		0,
 };
 
+/*
+ *  open/close
+ */
 
 static int snd_sb16_playback_open(struct snd_pcm_substream *substream)
 {
@@ -517,14 +526,14 @@ static int snd_sb16_playback_open(struct snd_pcm_substream *substream)
 	}
 	runtime->hw = snd_sb16_playback;
 
-	
+	/* skip if 16 bit DMA was reserved for capture */
 	if (chip->force_mode16 & SB_MODE_CAPTURE_16)
 		goto __skip_16bit;
 
 	if (chip->dma16 >= 0 && !(chip->mode & SB_MODE_CAPTURE_16)) {
 		chip->mode |= SB_MODE_PLAYBACK_16;
 		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_U16_LE;
-		
+		/* Vibra16X hack */
 		if (chip->dma16 <= 3) {
 			runtime->hw.buffer_bytes_max =
 			runtime->hw.period_bytes_max = 64 * 1024;
@@ -537,7 +546,7 @@ static int snd_sb16_playback_open(struct snd_pcm_substream *substream)
       __skip_16bit:
 	if (chip->dma8 >= 0 && !(chip->mode & SB_MODE_CAPTURE_8)) {
 		chip->mode |= SB_MODE_PLAYBACK_8;
-		
+		/* DSP v 4.xx can transfer 16bit data through 8bit DMA channel, SBHWPG 2-7 */
 		if (chip->dma16 < 0) {
 			runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_U16_LE;
 			chip->mode |= SB_MODE_PLAYBACK_16;
@@ -592,14 +601,14 @@ static int snd_sb16_capture_open(struct snd_pcm_substream *substream)
 	}
 	runtime->hw = snd_sb16_capture;
 
-	
+	/* skip if 16 bit DMA was reserved for playback */
 	if (chip->force_mode16 & SB_MODE_PLAYBACK_16)
 		goto __skip_16bit;
 
 	if (chip->dma16 >= 0 && !(chip->mode & SB_MODE_PLAYBACK_16)) {
 		chip->mode |= SB_MODE_CAPTURE_16;
 		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_U16_LE;
-		
+		/* Vibra16X hack */
 		if (chip->dma16 <= 3) {
 			runtime->hw.buffer_bytes_max =
 			runtime->hw.period_bytes_max = 64 * 1024;
@@ -612,7 +621,7 @@ static int snd_sb16_capture_open(struct snd_pcm_substream *substream)
       __skip_16bit:
 	if (chip->dma8 >= 0 && !(chip->mode & SB_MODE_PLAYBACK_8)) {
 		chip->mode |= SB_MODE_CAPTURE_8;
-		
+		/* DSP v 4.xx can transfer 16bit data through 8bit DMA channel, SBHWPG 2-7 */
 		if (chip->dma16 < 0) {
 			runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_U16_LE;
 			chip->mode |= SB_MODE_CAPTURE_16;
@@ -654,6 +663,9 @@ static int snd_sb16_capture_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/*
+ *  DMA control interface
+ */
 
 static int snd_sb16_set_dma_mode(struct snd_sb *chip, int what)
 {
@@ -739,15 +751,18 @@ static struct snd_kcontrol_new snd_sb16_dma_control = {
 	.put = snd_sb16_dma_control_put
 };
 
+/*
+ *  Initialization part
+ */
  
 int snd_sb16dsp_configure(struct snd_sb * chip)
 {
 	unsigned long flags;
 	unsigned char irqreg = 0, dmareg = 0, mpureg;
 	unsigned char realirq, realdma, realmpureg;
-	
+	/* note: mpu register should be present only on SB16 Vibra soundcards */
 
-	
+	// printk(KERN_DEBUG "codec->irq=%i, codec->dma8=%i, codec->dma16=%i\n", chip->irq, chip->dma8, chip->dma16);
 	spin_lock_irqsave(&chip->mixer_lock, flags);
 	mpureg = snd_sbmixer_read(chip, SB_DSP4_MPUSETUP) & ~0x06;
 	spin_unlock_irqrestore(&chip->mixer_lock, flags);
@@ -806,7 +821,7 @@ int snd_sb16dsp_configure(struct snd_sb * chip)
 		mpureg |= 0x00;
 		break;
 	default:
-		mpureg |= 0x02;	
+		mpureg |= 0x02;	/* disable MPU */
 	}
 	spin_lock_irqsave(&chip->mixer_lock, flags);
 
@@ -893,6 +908,9 @@ EXPORT_SYMBOL(snd_sb16dsp_get_pcm_ops);
 EXPORT_SYMBOL(snd_sb16dsp_configure);
 EXPORT_SYMBOL(snd_sb16dsp_interrupt);
 
+/*
+ *  INIT part
+ */
 
 static int __init alsa_sb16_init(void)
 {

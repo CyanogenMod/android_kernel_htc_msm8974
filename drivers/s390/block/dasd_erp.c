@@ -1,3 +1,13 @@
+/*
+ * File...........: linux/drivers/s390/block/dasd.c
+ * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
+ *		    Horst Hummel <Horst.Hummel@de.ibm.com>
+ *		    Carsten Otte <Cotte@de.ibm.com>
+ *		    Martin Schwidefsky <schwidefsky@de.ibm.com>
+ * Bugreports.to..: <Linux390@de.ibm.com>
+ * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 1999-2001
+ *
+ */
 
 #define KMSG_COMPONENT "dasd"
 
@@ -8,6 +18,7 @@
 #include <asm/ebcdic.h>
 #include <asm/uaccess.h>
 
+/* This is ugly... */
 #define PRINTK_HEADER "dasd_erp:"
 
 #include "dasd_int.h"
@@ -21,7 +32,7 @@ dasd_alloc_erp_request(char *magic, int cplength, int datasize,
 	char *data;
 	int size;
 
-	
+	/* Sanity checks */
 	BUG_ON( magic == NULL || datasize > PAGE_SIZE ||
 	     (cplength*sizeof(struct ccw1)) > PAGE_SIZE);
 
@@ -70,6 +81,9 @@ dasd_free_erp_request(struct dasd_ccw_req *cqr, struct dasd_device * device)
 }
 
 
+/*
+ * dasd_default_erp_action just retries the current cqr
+ */
 struct dasd_ccw_req *
 dasd_default_erp_action(struct dasd_ccw_req *cqr)
 {
@@ -77,7 +91,7 @@ dasd_default_erp_action(struct dasd_ccw_req *cqr)
 
 	device = cqr->startdev;
 
-        
+        /* just retry - there is nothing to save ... I got no sense data.... */
         if (cqr->retries > 0) {
 		DBF_DEV_EVENT(DBF_DEBUG, device,
                              "default ERP called (%i retries left)",
@@ -92,8 +106,22 @@ dasd_default_erp_action(struct dasd_ccw_req *cqr)
 		cqr->stopclk = get_clock();
         }
         return cqr;
-}				
+}				/* end dasd_default_erp_action */
 
+/*
+ * DESCRIPTION
+ *   Frees all ERPs of the current ERP Chain and set the status
+ *   of the original CQR either to DASD_CQR_DONE if ERP was successful
+ *   or to DASD_CQR_FAILED if ERP was NOT successful.
+ *   NOTE: This function is only called if no discipline postaction
+ *	   is available
+ *
+ * PARAMETER
+ *   erp		current erp_head
+ *
+ * RETURN VALUES
+ *   cqr		pointer to the original CQR
+ */
 struct dasd_ccw_req *dasd_default_erp_postaction(struct dasd_ccw_req *cqr)
 {
 	int success;
@@ -102,19 +130,19 @@ struct dasd_ccw_req *dasd_default_erp_postaction(struct dasd_ccw_req *cqr)
 
 	success = cqr->status == DASD_CQR_DONE;
 
-	
+	/* free all ERPs - but NOT the original cqr */
 	while (cqr->refers != NULL) {
 		struct dasd_ccw_req *refers;
 
 		refers = cqr->refers;
-		
+		/* remove the request from the block queue */
 		list_del(&cqr->blocklist);
-		
+		/* free the finished erp request */
 		dasd_free_erp_request(cqr, cqr->memdev);
 		cqr = refers;
 	}
 
-	
+	/* set corresponding status to original cqr */
 	if (success)
 		cqr->status = DASD_CQR_DONE;
 	else {
@@ -124,7 +152,7 @@ struct dasd_ccw_req *dasd_default_erp_postaction(struct dasd_ccw_req *cqr)
 
 	return cqr;
 
-}				
+}				/* end default_erp_postaction */
 
 void
 dasd_log_sense(struct dasd_ccw_req *cqr, struct irb *irb)
@@ -132,7 +160,7 @@ dasd_log_sense(struct dasd_ccw_req *cqr, struct irb *irb)
 	struct dasd_device *device;
 
 	device = cqr->startdev;
-	
+	/* dump sense data */
 	if (device->discipline && device->discipline->dump_sense)
 		device->discipline->dump_sense(device, cqr, irb);
 }
@@ -143,7 +171,7 @@ dasd_log_sense_dbf(struct dasd_ccw_req *cqr, struct irb *irb)
 	struct dasd_device *device;
 
 	device = cqr->startdev;
-	
+	/* dump sense data to s390 debugfeature*/
 	if (device->discipline && device->discipline->dump_sense_dbf)
 		device->discipline->dump_sense_dbf(device, irb, "log");
 }

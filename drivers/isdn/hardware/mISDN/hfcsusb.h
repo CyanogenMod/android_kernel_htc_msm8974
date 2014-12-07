@@ -1,3 +1,6 @@
+/*
+ * hfcsusb.h, HFC-S USB mISDN driver
+ */
 
 #ifndef __HFCSUSB_H__
 #define __HFCSUSB_H__
@@ -13,42 +16,45 @@
 
 #define DEFAULT_TRANSP_BURST_SZ 128
 
-#define HFC_CTRL_TIMEOUT	20	
-#define CLKDEL_TE		0x0f	
-#define CLKDEL_NT		0x6c	
+#define HFC_CTRL_TIMEOUT	20	/* 5ms timeout writing/reading regs */
+#define CLKDEL_TE		0x0f	/* CLKDEL in TE mode */
+#define CLKDEL_NT		0x6c	/* CLKDEL in NT mode */
 
+/* hfcsusb Layer1 commands */
 #define HFC_L1_ACTIVATE_TE		1
 #define HFC_L1_ACTIVATE_NT		2
 #define HFC_L1_DEACTIVATE_NT		3
 #define HFC_L1_FORCE_DEACTIVATE_TE	4
 
+/* cmd FLAGS in HFCUSB_STATES register */
 #define HFCUSB_LOAD_STATE	0x10
 #define HFCUSB_ACTIVATE		0x20
 #define HFCUSB_DO_ACTION	0x40
 #define HFCUSB_NT_G2_G3		0x80
 
-#define NT_ACTIVATION_TIMER	0x01	
+/* timers */
+#define NT_ACTIVATION_TIMER	0x01	/* enables NT mode activation Timer */
 #define NT_T1_COUNT		10
 
-#define MAX_BCH_SIZE		2048	
+#define MAX_BCH_SIZE		2048	/* allowed B-channel packet size */
 
-#define HFCUSB_RX_THRESHOLD	64	
-#define HFCUSB_TX_THRESHOLD	96	
+#define HFCUSB_RX_THRESHOLD	64	/* threshold for fifo report bit rx */
+#define HFCUSB_TX_THRESHOLD	96	/* threshold for fifo report bit tx */
 
-#define HFCUSB_CHIP_ID		0x16	
-#define HFCUSB_CIRM		0x00	
-#define HFCUSB_USB_SIZE		0x07	
-#define HFCUSB_USB_SIZE_I	0x06	
-#define HFCUSB_F_CROSS		0x0b	
-#define HFCUSB_CLKDEL		0x37	
-#define HFCUSB_CON_HDLC		0xfa	
+#define HFCUSB_CHIP_ID		0x16	/* Chip ID register index */
+#define HFCUSB_CIRM		0x00	/* cirm register index */
+#define HFCUSB_USB_SIZE		0x07	/* int length register */
+#define HFCUSB_USB_SIZE_I	0x06	/* iso length register */
+#define HFCUSB_F_CROSS		0x0b	/* bit order register */
+#define HFCUSB_CLKDEL		0x37	/* bit delay register */
+#define HFCUSB_CON_HDLC		0xfa	/* channel connect register */
 #define HFCUSB_HDLC_PAR		0xfb
-#define HFCUSB_SCTRL		0x31	
-#define HFCUSB_SCTRL_E		0x32	
-#define HFCUSB_SCTRL_R		0x33	
-#define HFCUSB_F_THRES		0x0c	
-#define HFCUSB_FIFO		0x0f	
-#define HFCUSB_F_USAGE		0x1a	
+#define HFCUSB_SCTRL		0x31	/* S-bus control register (tx) */
+#define HFCUSB_SCTRL_E		0x32	/* same for E and special funcs */
+#define HFCUSB_SCTRL_R		0x33	/* S-bus control register (rx) */
+#define HFCUSB_F_THRES		0x0c	/* threshold register */
+#define HFCUSB_FIFO		0x0f	/* fifo select register */
+#define HFCUSB_F_USAGE		0x1a	/* fifo usage register */
 #define HFCUSB_MST_MODE0	0x14
 #define HFCUSB_MST_MODE1	0x15
 #define HFCUSB_P_DATA		0x1f
@@ -60,11 +66,12 @@
 #define HFCUSB_STATES		0x30
 
 
-#define HFCUSB_CHIPID		0x40	
+#define HFCUSB_CHIPID		0x40	/* ID value of HFC-S USB */
 
-#define HFCUSB_NUM_FIFOS	8	
-#define HFCUSB_B1_TX		0	
-#define HFCUSB_B1_RX		1	
+/* fifo registers */
+#define HFCUSB_NUM_FIFOS	8	/* maximum number of fifos */
+#define HFCUSB_B1_TX		0	/* index for B1 transmit bulk/int */
+#define HFCUSB_B1_RX		1	/* index for B1 receive bulk/int */
 #define HFCUSB_B2_TX		2
 #define HFCUSB_B2_RX		3
 #define HFCUSB_D_TX		4
@@ -81,18 +88,21 @@
 #define ISOC_PACKETS_B	8
 #define ISO_BUFFER_SIZE	128
 
+/* defines how much ISO packets are handled in one URB */
 static int iso_packets[8] =
 { ISOC_PACKETS_B, ISOC_PACKETS_B, ISOC_PACKETS_B, ISOC_PACKETS_B,
   ISOC_PACKETS_D, ISOC_PACKETS_D, ISOC_PACKETS_D, ISOC_PACKETS_D
 };
 
 
+/* Fifo flow Control for TX ISO */
 #define SINK_MAX	68
 #define SINK_MIN	48
 #define SINK_DMIN	12
 #define SINK_DMAX	18
 #define BITLINE_INF	(-96 * 8)
 
+/* HFC-S USB register access by Control-URSs */
 #define write_reg_atomic(a, b, c)					\
 	usb_control_msg((a)->dev, (a)->ctrl_out_pipe, 0, 0x40, (c), (b), \
 			0, 0, HFC_CTRL_TIMEOUT)
@@ -102,10 +112,14 @@ static int iso_packets[8] =
 #define HFC_CTRL_BUFSIZE 64
 
 struct ctrl_buf {
-	__u8 hfcs_reg;		
+	__u8 hfcs_reg;		/* register number */
 	__u8 reg_val;		/* value to be written (or read) */
 };
 
+/*
+ * URB error codes
+ * Used to represent a list of values and their respective symbolic names
+ */
 struct hfcusb_symbolic_list {
 	const int num;
 	const char *name;
@@ -139,16 +153,17 @@ symbolic(struct hfcusb_symbolic_list list[], const int num)
 	return "<unknown USB Error>";
 }
 
-#define CNF_4INT3ISO	1	
-#define CNF_3INT3ISO	2	
-#define CNF_4ISO3ISO	3	
-#define CNF_3ISO3ISO	4	
+/* USB descriptor need to contain one of the following EndPoint combination: */
+#define CNF_4INT3ISO	1	/* 4 INT IN, 3 ISO OUT */
+#define CNF_3INT3ISO	2	/* 3 INT IN, 3 ISO OUT */
+#define CNF_4ISO3ISO	3	/* 4 ISO IN, 3 ISO OUT */
+#define CNF_3ISO3ISO	4	/* 3 ISO IN, 3 ISO OUT */
 
-#define EP_NUL 1	
-#define EP_NOP 2	
-#define EP_ISO 3	
-#define EP_BLK 4	
-#define EP_INT 5	
+#define EP_NUL 1	/* Endpoint at this position not allowed */
+#define EP_NOP 2	/* all type of endpoints allowed at this position */
+#define EP_ISO 3	/* Isochron endpoint mandatory at this position */
+#define EP_BLK 4	/* Bulk endpoint mandatory at this position */
+#define EP_INT 5	/* Interrupt endpoint mandatory at this position */
 
 #define HFC_CHAN_B1	0
 #define HFC_CHAN_B2	1
@@ -156,25 +171,33 @@ symbolic(struct hfcusb_symbolic_list list[], const int num)
 #define HFC_CHAN_E	3
 
 
+/*
+ * List of all supported enpoints configiration sets, used to find the
+ * best matching endpoint configuration within a devices' USB descriptor.
+ * We need at least 3 RX endpoints, and 3 TX endpoints, either
+ * INT-in and ISO-out, or ISO-in and ISO-out)
+ * with 4 RX endpoints even E-Channel logging is possible
+ */
 static int
 validconf[][19] = {
-	
+	/* INT in, ISO out config */
 	{EP_NUL, EP_INT, EP_NUL, EP_INT, EP_NUL, EP_INT, EP_NOP, EP_INT,
 	 EP_ISO, EP_NUL, EP_ISO, EP_NUL, EP_ISO, EP_NUL, EP_NUL, EP_NUL,
 	 CNF_4INT3ISO, 2, 1},
 	{EP_NUL, EP_INT, EP_NUL, EP_INT, EP_NUL, EP_INT, EP_NUL, EP_NUL,
 	 EP_ISO, EP_NUL, EP_ISO, EP_NUL, EP_ISO, EP_NUL, EP_NUL, EP_NUL,
 	 CNF_3INT3ISO, 2, 0},
-	
+	/* ISO in, ISO out config */
 	{EP_NOP, EP_NOP, EP_NOP, EP_NOP, EP_NOP, EP_NOP, EP_NOP, EP_NOP,
 	 EP_ISO, EP_ISO, EP_ISO, EP_ISO, EP_ISO, EP_ISO, EP_NOP, EP_ISO,
 	 CNF_4ISO3ISO, 2, 1},
 	{EP_NUL, EP_NUL, EP_NUL, EP_NUL, EP_NUL, EP_NUL, EP_NUL, EP_NUL,
 	 EP_ISO, EP_ISO, EP_ISO, EP_ISO, EP_ISO, EP_ISO, EP_NUL, EP_NUL,
 	 CNF_3ISO3ISO, 2, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} 
+	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} /* EOL element */
 };
 
+/* string description of chosen config */
 static char *conf_str[] = {
 	"4 Interrupt IN + 3 Isochron OUT",
 	"3 Interrupt IN + 3 Isochron OUT",
@@ -183,9 +206,9 @@ static char *conf_str[] = {
 };
 
 
-#define LED_OFF		0	
-#define LED_SCHEME1	1	
-#define LED_SCHEME2	2	
+#define LED_OFF		0	/* no LED support */
+#define LED_SCHEME1	1	/* LED standard scheme */
+#define LED_SCHEME2	2	/* not used yet... */
 
 #define LED_POWER_ON	1
 #define LED_POWER_OFF	2
@@ -198,9 +221,10 @@ static char *conf_str[] = {
 #define LED_B2_OFF	9
 #define LED_B2_DATA	10
 
-#define LED_NORMAL	0	
-#define LED_INVERTED	1	
+#define LED_NORMAL	0	/* LEDs are normal */
+#define LED_INVERTED	1	/* LEDs are inverted */
 
+/* time in ms to perform a Flashing LED when B-Channel has traffic */
 #define LED_TIME      250
 
 
@@ -208,56 +232,58 @@ static char *conf_str[] = {
 struct hfcsusb;
 struct usb_fifo;
 
+/* structure defining input+output fifos (interrupt/bulk mode) */
 struct iso_urb {
 	struct urb *urb;
-	__u8 buffer[ISO_BUFFER_SIZE];	
-	struct usb_fifo *owner_fifo;	
-	__u8 indx; 
+	__u8 buffer[ISO_BUFFER_SIZE];	/* buffer rx/tx USB URB data */
+	struct usb_fifo *owner_fifo;	/* pointer to owner fifo */
+	__u8 indx; /* Fifos's ISO double buffer 0 or 1 ? */
 #ifdef ISO_FRAME_START_DEBUG
 	int start_frames[ISO_FRAME_START_RING_COUNT];
-	__u8 iso_frm_strt_pos; 
+	__u8 iso_frm_strt_pos; /* index in start_frame[] */
 #endif
 };
 
 struct usb_fifo {
-	int fifonum;		
-	int active;		
-	struct hfcsusb *hw;	
-	int pipe;		
-	__u8 usb_packet_maxlen;	
-	unsigned int max_size;	
-	__u8 intervall;		
-	struct urb *urb;	
-	__u8 buffer[128];	
-	int bit_line;		
+	int fifonum;		/* fifo index attached to this structure */
+	int active;		/* fifo is currently active */
+	struct hfcsusb *hw;	/* pointer to main structure */
+	int pipe;		/* address of endpoint */
+	__u8 usb_packet_maxlen;	/* maximum length for usb transfer */
+	unsigned int max_size;	/* maximum size of receive/send packet */
+	__u8 intervall;		/* interrupt interval */
+	struct urb *urb;	/* transfer structure for usb routines */
+	__u8 buffer[128];	/* buffer USB INT OUT URB data */
+	int bit_line;		/* how much bits are in the fifo? */
 
-	__u8 usb_transfer_mode; 
-	struct iso_urb	iso[2]; 
+	__u8 usb_transfer_mode; /* switched between ISO and INT */
+	struct iso_urb	iso[2]; /* two urbs to have one always
+				   one pending */
 
-	struct dchannel *dch;	
-	struct bchannel *bch;	
-	struct dchannel *ech;	
-	int last_urblen;	
-	__u8 stop_gracefull;	
+	struct dchannel *dch;	/* link to hfcsusb_t->dch */
+	struct bchannel *bch;	/* link to hfcsusb_t->bch */
+	struct dchannel *ech;	/* link to hfcsusb_t->ech, TODO: E-CHANNEL */
+	int last_urblen;	/* remember length of last packet */
+	__u8 stop_gracefull;	/* stops URB retransmission */
 };
 
 struct hfcsusb {
 	struct list_head	list;
 	struct dchannel		dch;
 	struct bchannel		bch[2];
-	struct dchannel		ech; 
+	struct dchannel		ech; /* TODO : wait for struct echannel ;) */
 
-	struct usb_device	*dev;		
-	struct usb_interface	*intf;		
-	int			if_used;	
-	int			alt_used;	
-	int			cfg_used;	
-	int			vend_idx;	
+	struct usb_device	*dev;		/* our device */
+	struct usb_interface	*intf;		/* used interface */
+	int			if_used;	/* used interface number */
+	int			alt_used;	/* used alternate config */
+	int			cfg_used;	/* configuration index used */
+	int			vend_idx;	/* index in hfcsusb_idtab */
 	int			packet_size;
 	int			iso_packet_size;
 	struct usb_fifo		fifos[HFCUSB_NUM_FIFOS];
 
-	
+	/* control pipe background handling */
 	struct ctrl_buf		ctrl_buff[HFC_CTRL_BUFSIZE];
 	int			ctrl_in_idx, ctrl_out_idx, ctrl_cnt;
 	struct urb		*ctrl_urb;
@@ -265,7 +291,7 @@ struct hfcsusb {
 	struct usb_ctrlrequest	ctrl_read;
 	int			ctrl_paksize;
 	int			ctrl_in_pipe, ctrl_out_pipe;
-	spinlock_t		ctrl_lock; 
+	spinlock_t		ctrl_lock; /* lock for ctrl */
 	spinlock_t              lock;
 
 	__u8			threshold_mask;
@@ -279,10 +305,11 @@ struct hfcsusb {
 	char			name[MISDN_MAX_IDLEN];
 };
 
+/* private vendor specific data */
 struct hfcsusb_vdata {
-	__u8		led_scheme;  
-	signed short	led_bits[8]; 
-	char		*vend_name;  
+	__u8		led_scheme;  /* led display scheme */
+	signed short	led_bits[8]; /* array of 8 possible LED bitmask */
+	char		*vend_name;  /* device name */
 };
 
 
@@ -309,6 +336,7 @@ static const char *HFC_NT_LAYER1_STATES[HFC_MAX_NT_LAYER1_STATE + 1] = {
 	"NT G4 - Pending deactivation",
 };
 
+/* supported devices */
 static struct usb_device_id hfcsusb_idtab[] = {
 	{
 		USB_DEVICE(0x0959, 0x2bd0),
@@ -387,4 +415,4 @@ static struct usb_device_id hfcsusb_idtab[] = {
 
 MODULE_DEVICE_TABLE(usb, hfcsusb_idtab);
 
-#endif	
+#endif	/* __HFCSUSB_H__ */

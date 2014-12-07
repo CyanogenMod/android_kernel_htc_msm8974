@@ -24,7 +24,7 @@ static inline int seccomp_mode(seccomp_t *s)
 	return s->mode;
 }
 
-#else 
+#else /* CONFIG_SECCOMP */
 
 #include <linux/errno.h>
 
@@ -47,6 +47,6 @@ static inline int seccomp_mode(seccomp_t *s)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_SECCOMP */
 
-#endif 
+#endif /* _LINUX_SECCOMP_H */

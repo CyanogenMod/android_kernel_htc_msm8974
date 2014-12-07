@@ -17,6 +17,7 @@
 #include "hfsplus_fs.h"
 #include "hfsplus_raw.h"
 
+/* Copy a specified range of bytes from the raw data of a node */
 void hfs_bnode_read(struct hfs_bnode *node, void *buf, int off, int len)
 {
 	struct page **pagep;
@@ -41,7 +42,7 @@ void hfs_bnode_read(struct hfs_bnode *node, void *buf, int off, int len)
 u16 hfs_bnode_read_u16(struct hfs_bnode *node, int off)
 {
 	__be16 data;
-	
+	/* TODO: optimize later... */
 	hfs_bnode_read(node, &data, off, 2);
 	return be16_to_cpu(data);
 }
@@ -49,7 +50,7 @@ u16 hfs_bnode_read_u16(struct hfs_bnode *node, int off)
 u8 hfs_bnode_read_u8(struct hfs_bnode *node, int off)
 {
 	u8 data;
-	
+	/* TODO: optimize later... */
 	hfs_bnode_read(node, &data, off, 1);
 	return data;
 }
@@ -95,7 +96,7 @@ void hfs_bnode_write(struct hfs_bnode *node, void *buf, int off, int len)
 void hfs_bnode_write_u16(struct hfs_bnode *node, int off, u16 data)
 {
 	__be16 v = cpu_to_be16(data);
-	
+	/* TODO: optimize later... */
 	hfs_bnode_write(node, &v, off, 2);
 }
 
@@ -361,7 +362,7 @@ void hfs_bnode_unlink(struct hfs_bnode *node)
 	} else if (node->type == HFS_NODE_LEAF)
 		tree->leaf_tail = node->prev;
 
-	
+	/* move down? */
 	if (!node->prev && !node->next)
 		dprint(DBG_BNODE_MOD, "hfs_btree_del_level\n");
 	if (!node->parent) {
@@ -477,6 +478,7 @@ void hfs_bnode_unhash(struct hfs_bnode *node)
 	node->tree->node_hash_cnt--;
 }
 
+/* Load a particular node out of a tree */
 struct hfs_bnode *hfs_bnode_find(struct hfs_btree *tree, u32 num)
 {
 	struct hfs_bnode *node;
@@ -622,6 +624,7 @@ void hfs_bnode_get(struct hfs_bnode *node)
 	}
 }
 
+/* Dispose of resources used by a node */
 void hfs_bnode_put(struct hfs_bnode *node)
 {
 	if (node) {

@@ -10,6 +10,7 @@
  *
  */
 
+/* All Registers original Siemens Spec  */
 
 #define ISAC_MASK 0x20
 #define ISAC_ISTA 0x20

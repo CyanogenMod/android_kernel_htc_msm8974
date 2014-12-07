@@ -108,7 +108,7 @@ static struct resource usb_resources[] = {
 	},
 
 	[1] = {
-		.name   = "mc", 
+		.name   = "mc", /* hard-coded in musb */
 		.flags	= IORESOURCE_IRQ,
 	},
 };

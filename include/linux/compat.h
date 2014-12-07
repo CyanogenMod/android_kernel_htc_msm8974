@@ -1,15 +1,19 @@
 #ifndef _LINUX_COMPAT_H
 #define _LINUX_COMPAT_H
+/*
+ * These are the type definitions for the architecture specific
+ * syscall compatibility layer.
+ */
 
 #ifdef CONFIG_COMPAT
 
 #include <linux/stat.h>
-#include <linux/param.h>	
+#include <linux/param.h>	/* for HZ */
 #include <linux/sem.h>
 #include <linux/socket.h>
 #include <linux/if.h>
 #include <linux/fs.h>
-#include <linux/aio_abi.h>	
+#include <linux/aio_abi.h>	/* for aio_context_t */
 
 #include <asm/compat.h>
 #include <asm/siginfo.h>
@@ -83,6 +87,9 @@ typedef struct {
 	compat_sigset_word	sig[_COMPAT_NSIG_WORDS];
 } compat_sigset_t;
 
+/*
+ * These functions operate strictly on struct compat_time*
+ */
 extern int get_compat_timespec(struct timespec *,
 			       const struct compat_timespec __user *);
 extern int put_compat_timespec(const struct timespec *,
@@ -91,6 +98,11 @@ extern int get_compat_timeval(struct timeval *,
 			      const struct compat_timeval __user *);
 extern int put_compat_timeval(const struct timeval *,
 			      struct compat_timeval __user *);
+/*
+ * These functions operate on 32- or 64-bit specs depending on
+ * COMPAT_USE_64BIT_TIME, hence the void user pointer arguments and the
+ * naming as compat_get/put_ rather than get/put_compat_.
+ */
 extern int compat_get_timespec(struct timespec *, const void __user *);
 extern int compat_put_timespec(const struct timespec *, void __user *);
 extern int compat_get_timeval(struct timeval *, const void __user *);
@@ -180,14 +192,14 @@ struct compat_ifmap {
 };
 
 struct compat_if_settings {
-	unsigned int type;	
-	unsigned int size;	
-	compat_uptr_t ifs_ifsu;	
+	unsigned int type;	/* Type of physical device or protocol */
+	unsigned int size;	/* Size of the data allocated by the caller */
+	compat_uptr_t ifs_ifsu;	/* union of pointers */
 };
 
 struct compat_ifreq {
 	union {
-		char	ifrn_name[IFNAMSIZ];    
+		char	ifrn_name[IFNAMSIZ];    /* if name, e.g. "en0" */
 	} ifr_ifrn;
 	union {
 		struct	sockaddr ifru_addr;
@@ -199,7 +211,7 @@ struct compat_ifreq {
 		compat_int_t	ifru_ivalue;
 		compat_int_t	ifru_mtu;
 		struct	compat_ifmap ifru_map;
-		char	ifru_slave[IFNAMSIZ];   
+		char	ifru_slave[IFNAMSIZ];   /* Just fits the size */
 		char	ifru_newname[IFNAMSIZ];
 		compat_caddr_t	ifru_data;
 		struct	compat_if_settings ifru_settings;
@@ -207,7 +219,7 @@ struct compat_ifreq {
 };
 
 struct compat_ifconf {
-	compat_int_t	ifc_len;                
+	compat_int_t	ifc_len;                /* size of buffer */
 	compat_caddr_t  ifcbuf;
 };
 
@@ -354,6 +366,9 @@ extern long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 asmlinkage long compat_sys_ptrace(compat_long_t request, compat_long_t pid,
 				  compat_long_t addr, compat_long_t data);
 
+/*
+ * epoll (fs/eventpoll.c) compat bits follow ...
+ */
 struct epoll_event;
 #define compat_epoll_event	epoll_event
 asmlinkage long compat_sys_epoll_pwait(int epfd,
@@ -580,5 +595,5 @@ asmlinkage ssize_t compat_sys_process_vm_writev(compat_pid_t pid,
 
 #define is_compat_task() (0)
 
-#endif 
-#endif 
+#endif /* CONFIG_COMPAT */
+#endif /* _LINUX_COMPAT_H */

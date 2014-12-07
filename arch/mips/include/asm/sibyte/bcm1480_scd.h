@@ -34,12 +34,45 @@
 
 #include "sb1250_defs.h"
 
+/*  *********************************************************************
+    *  Pull in the BCM1250's SCD since lots of stuff is the same.
+    ********************************************************************* */
 
 #include "sb1250_scd.h"
 
+/*  *********************************************************************
+    *  Some general notes:
+    *
+    *  This file is basically a "what's new" header file.  Since the
+    *  BCM1250 and the new BCM1480 (and derivatives) share many common
+    *  features, this file contains only what's new or changed from
+    *  the 1250.  (above, you can see that we include the 1250 symbols
+    *  to get the base functionality).
+    *
+    *  In software, be sure to use the correct symbols, particularly
+    *  for blocks that are different between the two chip families.
+    *  All BCM1480-specific symbols have _BCM1480_ in their names,
+    *  and all BCM1250-specific and "base" functions that are common in
+    *  both chips have no special names (this is for compatibility with
+    *  older include files).  Therefore, if you're working with the
+    *  SCD, which is very different on each chip, A_SCD_xxx implies
+    *  the BCM1250 version and A_BCM1480_SCD_xxx implies the BCM1480
+    *  version.
+    ********************************************************************* */
 
+/*  *********************************************************************
+    *  System control/debug registers
+    ********************************************************************* */
 
+/*
+ * System Identification and Revision Register (Table 12)
+ * Register: SCD_SYSTEM_REVISION
+ * This register is field compatible with the 1250.
+ */
 
+/*
+ * New part definitions
+ */
 
 #define K_SYS_PART_BCM1480          0x1406
 #define K_SYS_PART_BCM1280          0x1206
@@ -47,7 +80,16 @@
 #define K_SYS_PART_BCM1255          0x1257
 #define K_SYS_PART_BCM1158          0x1156
 
+/*
+ * Manufacturing Information Register (Table 14)
+ * Register: SCD_SYSTEM_MANUF
+ */
 
+/*
+ * System Configuration Register (Table 15)
+ * Register: SCD_SYSTEM_CFG
+ * Entire register is different from 1250, all new constants below
+ */
 
 #define M_BCM1480_SYS_RESERVED0             _SB_MAKEMASK1(0)
 #define M_BCM1480_SYS_HT_MINRSTCNT          _SB_MAKEMASK1(1)
@@ -117,14 +159,39 @@
 #define M_BCM1480_SYS_SYSTEM_RESET          _SB_MAKEMASK1(62)
 #define M_BCM1480_SYS_SW_FLAG               _SB_MAKEMASK1(63)
 
+/*
+ * Scratch Register (Table 16)
+ * Register: SCD_SYSTEM_SCRATCH
+ * Same as BCM1250
+ */
 
 
+/*
+ * Mailbox Registers (Table 17)
+ * Registers: SCD_MBOX_{0,1}_CPU_x
+ * Same as BCM1250
+ */
 
 
+/*
+ * See bcm1480_int.h for interrupt mapper registers.
+ */
 
 
+/*
+ * Watchdog Timer Initial Count Registers (Table 23)
+ * Registers: SCD_WDOG_INIT_CNT_x
+ *
+ * The watchdogs are almost the same as the 1250, except
+ * the configuration register has more bits to control the
+ * other CPUs.
+ */
 
 
+/*
+ * Watchdog Timer Configuration Registers (Table 25)
+ * Registers: SCD_WDOG_CFG_x
+ */
 
 #define M_BCM1480_SCD_WDOG_ENABLE           _SB_MAKEMASK1(0)
 
@@ -133,7 +200,7 @@
 #define V_BCM1480_SCD_WDOG_RESET_TYPE(x)    _SB_MAKEVALUE(x, S_BCM1480_SCD_WDOG_RESET_TYPE)
 #define G_BCM1480_SCD_WDOG_RESET_TYPE(x)    _SB_GETVALUE(x, S_BCM1480_SCD_WDOG_RESET_TYPE, M_BCM1480_SCD_WDOG_RESET_TYPE)
 
-#define K_BCM1480_SCD_WDOG_RESET_FULL       0	
+#define K_BCM1480_SCD_WDOG_RESET_FULL       0	/* actually, (x & 1) == 0  */
 #define K_BCM1480_SCD_WDOG_RESET_SOFT       1
 #define K_BCM1480_SCD_WDOG_RESET_CPU0       3
 #define K_BCM1480_SCD_WDOG_RESET_CPU1       5
@@ -144,11 +211,37 @@
 
 #define M_BCM1480_SCD_WDOG_HAS_RESET        _SB_MAKEMASK1(8)
 
+/*
+ * General Timer Initial Count Registers (Table 26)
+ * Registers: SCD_TIMER_INIT_x
+ *
+ * The timer registers are the same as the BCM1250
+ */
 
 
+/*
+ * ZBbus Count Register (Table 29)
+ * Register: ZBBUS_CYCLE_COUNT
+ *
+ * Same as BCM1250
+ */
+
+/*
+ * ZBbus Compare Registers (Table 30)
+ * Registers: ZBBUS_CYCLE_CPx
+ *
+ * Same as BCM1250
+ */
 
 
-
+/*
+ * System Performance Counter Configuration Register (Table 31)
+ * Register: PERF_CNT_CFG_0
+ *
+ * SPC_CFG_SRC[0-3] is the same as the 1250.
+ * SPC_CFG_SRC[4-7] only exist on the 1480
+ * The clear/enable bits are in different locations on the 1250 and 1480.
+ */
 
 #define S_SPC_CFG_SRC4              32
 #define M_SPC_CFG_SRC4              _SB_MAKEMASK(8, S_SPC_CFG_SRC4)
@@ -170,6 +263,11 @@
 #define V_SPC_CFG_SRC7(x)           _SB_MAKEVALUE(x, S_SPC_CFG_SRC7)
 #define G_SPC_CFG_SRC7(x)           _SB_GETVALUE(x, S_SPC_CFG_SRC7, M_SPC_CFG_SRC7)
 
+/*
+ * System Performance Counter Control Register (Table 32)
+ * Register: PERF_CNT_CFG_1
+ * BCM1480 specific
+ */
 #define M_BCM1480_SPC_CFG_CLEAR     _SB_MAKEMASK1(0)
 #define M_BCM1480_SPC_CFG_ENABLE    _SB_MAKEMASK1(1)
 #if SIBYTE_HDR_FEATURE_CHIP(1480)
@@ -177,6 +275,10 @@
 #define M_SPC_CFG_ENABLE		M_BCM1480_SPC_CFG_ENABLE
 #endif
 
+/*
+ * System Performance Counters (Table 33)
+ * Registers: PERF_CNT_x
+ */
 
 #define S_BCM1480_SPC_CNT_COUNT             0
 #define M_BCM1480_SPC_CNT_COUNT             _SB_MAKEMASK(40, S_BCM1480_SPC_CNT_COUNT)
@@ -186,12 +288,39 @@
 #define M_BCM1480_SPC_CNT_OFLOW             _SB_MAKEMASK1(40)
 
 
+/*
+ * Bus Watcher Error Status Register (Tables 36, 37)
+ * Registers: BUS_ERR_STATUS, BUS_ERR_STATUS_DEBUG
+ * Same as BCM1250.
+ */
+
+/*
+ * Bus Watcher Error Data Registers (Table 38)
+ * Registers: BUS_ERR_DATA_x
+ * Same as BCM1250.
+ */
+
+/*
+ * Bus Watcher L2 ECC Counter Register (Table 39)
+ * Register: BUS_L2_ERRORS
+ * Same as BCM1250.
+ */
 
 
+/*
+ * Bus Watcher Memory and I/O Error Counter Register (Table 40)
+ * Register: BUS_MEM_IO_ERRORS
+ * Same as BCM1250.
+ */
 
 
-
-
+/*
+ * Address Trap Registers
+ *
+ * Register layout same as BCM1250, almost.  The bus agents
+ * are different, and the address trap configuration bits are
+ * slightly different.
+ */
 
 #define M_BCM1480_ATRAP_INDEX		  _SB_MAKEMASK(4, 0)
 #define M_BCM1480_ATRAP_ADDRESS		  _SB_MAKEMASK(40, 0)
@@ -237,7 +366,17 @@
 #define M_BCM1480_ATRAP_CFG_CATTRINV        _SB_MAKEMASK1(14)
 
 
+/*
+ * Trace Event Registers (Table 47)
+ * Same as BCM1250.
+ */
 
+/*
+ * Trace Sequence Control Registers (Table 48)
+ * Registers: TRACE_SEQUENCE_x
+ *
+ * Same as BCM1250 except for two new fields.
+ */
 
 
 #define M_BCM1480_SCD_TRSEQ_TID_MATCH_EN    _SB_MAKEMASK1(25)
@@ -247,6 +386,13 @@
 #define V_BCM1480_SCD_TRSEQ_SWFUNC(x)       _SB_MAKEVALUE(x, S_BCM1480_SCD_TRSEQ_SWFUNC)
 #define G_BCM1480_SCD_TRSEQ_SWFUNC(x)       _SB_GETVALUE(x, S_BCM1480_SCD_TRSEQ_SWFUNC, M_BCM1480_SCD_TRSEQ_SWFUNC)
 
+/*
+ * Trace Control Register (Table 49)
+ * Register: TRACE_CFG
+ *
+ * BCM1480 changes to this register (other than location of the CUR_ADDR field)
+ * are defined below.
+ */
 
 #define S_BCM1480_SCD_TRACE_CFG_MODE        16
 #define M_BCM1480_SCD_TRACE_CFG_MODE        _SB_MAKEMASK(2, S_BCM1480_SCD_TRACE_CFG_MODE)
@@ -257,4 +403,4 @@
 #define K_BCM1480_SCD_TRACE_CFG_MODE_BYTEEN_INT	1
 #define K_BCM1480_SCD_TRACE_CFG_MODE_FLOW_ID	2
 
-#endif 
+#endif /* _BCM1480_SCD_H */

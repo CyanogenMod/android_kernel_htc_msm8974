@@ -1,3 +1,11 @@
+/*
+ *      linux/arch/alpha/kernel/irq_i8259.c
+ *
+ * This is the 'legacy' 8259A Programmable Interrupt Controller,
+ * present in the majority of PC/AT boxes.
+ *
+ * Started hacking from linux-2.3.30pre6/arch/i386/kernel/i8259.c.
+ */
 
 #include <linux/init.h>
 #include <linux/cache.h>
@@ -11,6 +19,7 @@
 #include "irq_impl.h"
 
 
+/* Note mask bit is true for DISABLED irqs.  */
 static unsigned int cached_irq_mask = 0xffff;
 static DEFINE_SPINLOCK(i8259_irq_lock);
 
@@ -53,12 +62,12 @@ i8259a_mask_and_ack_irq(struct irq_data *d)
 	spin_lock(&i8259_irq_lock);
 	__i8259a_disable_irq(irq);
 
-	
+	/* Ack the interrupt making it the lowest priority.  */
 	if (irq >= 8) {
-		outb(0xE0 | (irq - 8), 0xa0);   
+		outb(0xE0 | (irq - 8), 0xa0);   /* ack the slave */
 		irq = 2;
 	}
-	outb(0xE0 | irq, 0x20);			
+	outb(0xE0 | irq, 0x20);			/* ack the master */
 	spin_unlock(&i8259_irq_lock);
 }
 
@@ -79,8 +88,8 @@ init_i8259a_irqs(void)
 
 	long i;
 
-	outb(0xff, 0x21);	
-	outb(0xff, 0xA1);	
+	outb(0xff, 0x21);	/* mask all of 8259A-1 */
+	outb(0xff, 0xA1);	/* mask all of 8259A-2 */
 
 	for (i = 0; i < 16; i++) {
 		irq_set_chip_and_handler(i, &i8259a_irq_type, handle_level_irq);
@@ -107,11 +116,19 @@ init_i8259a_irqs(void)
 #elif defined(CONFIG_ALPHA_IRONGATE)
 # define IACK_SC        IRONGATE_IACK_SC
 #endif
+/* Note that CONFIG_ALPHA_POLARIS is intentionally left out here, since
+   sys_rx164 wants to use isa_no_iack_sc_device_interrupt for some reason.  */
 
 #if defined(IACK_SC)
 void
 isa_device_interrupt(unsigned long vector)
 {
+	/*
+	 * Generate a PCI interrupt acknowledge cycle.  The PIC will
+	 * respond with the interrupt vector of the highest priority
+	 * interrupt that is pending.  The PALcode sets up the
+	 * interrupts vectors such that irq level L generates vector L.
+	 */
 	int j = *(vuip) IACK_SC;
 	j &= 0xff;
 	handle_irq(j);
@@ -124,8 +141,21 @@ isa_no_iack_sc_device_interrupt(unsigned long vector)
 {
 	unsigned long pic;
 
-	pic = inb(0x20) | (inb(0xA0) << 8);	
-	pic &= 0xFFFB;				
+	/*
+	 * It seems to me that the probability of two or more *device*
+	 * interrupts occurring at almost exactly the same time is
+	 * pretty low.  So why pay the price of checking for
+	 * additional interrupts here if the common case can be
+	 * handled so much easier?
+	 */
+	/* 
+	 *  The first read of gives you *all* interrupting lines.
+	 *  Therefore, read the mask register and and out those lines
+	 *  not enabled.  Note that some documentation has 21 and a1 
+	 *  write only.  This is not true.
+	 */
+	pic = inb(0x20) | (inb(0xA0) << 8);	/* read isr */
+	pic &= 0xFFFB;				/* mask out cascade & hibits */
 
 	while (pic) {
 		int j = ffz(~pic);

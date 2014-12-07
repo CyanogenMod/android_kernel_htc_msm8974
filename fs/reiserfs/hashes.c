@@ -1,14 +1,32 @@
 
+/*
+ * Keyed 32-bit hash function using TEA in a Davis-Meyer function
+ *   H0 = Key
+ *   Hi = E Mi(Hi-1) + Hi-1
+ *
+ * (see Applied Cryptography, 2nd edition, p448).
+ *
+ * Jeremy Fitzhardinge <jeremy@zip.com.au> 1998
+ *
+ * Jeremy has agreed to the contents of reiserfs/README. -Hans
+ * Yura's function is added (04/07/2000)
+ */
 
+//
+// keyed_hash
+// yura_hash
+// r5_hash
+//
 
 #include <linux/kernel.h>
 #include "reiserfs.h"
 #include <asm/types.h>
 
 #define DELTA 0x9E3779B9
-#define FULLROUNDS 10		
-#define PARTROUNDS 6		
+#define FULLROUNDS 10		/* 32 is overkill, 16 is strong crypto */
+#define PARTROUNDS 6		/* 6 gets complete mixing */
 
+/* a, b, c, d - data; h0, h1 - accumulated hash */
 #define TEACORE(rounds)							\
 	do {								\
 		u32 sum = 0;						\
@@ -38,7 +56,7 @@ u32 keyed_hash(const signed char *msg, int len)
 	u32 pad;
 	int i;
 
-	
+	//      assert(len >= 0 && len < 256);
 
 	pad = (u32) len | ((u32) len << 8);
 	pad |= pad << 16;
@@ -105,6 +123,7 @@ u32 keyed_hash(const signed char *msg, int len)
 
 	TEACORE(FULLROUNDS);
 
+/*	return 0;*/
 	return h0 ^ h1;
 }
 

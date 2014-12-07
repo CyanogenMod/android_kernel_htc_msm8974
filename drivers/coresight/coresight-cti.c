@@ -456,6 +456,10 @@ static ssize_t cti_show_trigin(struct device *dev,
 		ctien = cti_readl(drvdata, CTIINEN(trig));
 		for (ch = 0; ch < CTI_MAX_CHANNELS; ch++) {
 			if (ctien & (1 << ch)) {
+				/* Ensure we do not write more than PAGE_SIZE
+				 * bytes of data including \n character and null
+				 * terminator
+				 */
 				size += scnprintf(&buf[size], PAGE_SIZE - size -
 						  1, " %#lx %#lx,", trig, ch);
 				if (size >= PAGE_SIZE - 2) {
@@ -489,6 +493,10 @@ static ssize_t cti_show_trigout(struct device *dev,
 		ctien = cti_readl(drvdata, CTIOUTEN(trig));
 		for (ch = 0; ch < CTI_MAX_CHANNELS; ch++) {
 			if (ctien & (1 << ch)) {
+				/* Ensure we do not write more than PAGE_SIZE
+				 * bytes of data including \n character and null
+				 * terminator
+				 */
 				size += scnprintf(&buf[size], PAGE_SIZE - size -
 						  1, " %#lx %#lx,", trig, ch);
 				if (size >= PAGE_SIZE - 2) {
@@ -548,7 +556,7 @@ static int __devinit cti_probe(struct platform_device *pdev)
 	drvdata = devm_kzalloc(dev, sizeof(*drvdata), GFP_KERNEL);
 	if (!drvdata)
 		return -ENOMEM;
-	
+	/* Store the driver data pointer for use in exported functions */
 	drvdata->dev = &pdev->dev;
 	platform_set_drvdata(pdev, drvdata);
 

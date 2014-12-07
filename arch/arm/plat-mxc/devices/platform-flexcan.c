@@ -26,7 +26,7 @@ const struct imx_flexcan_data imx25_flexcan_data[] __initconst = {
 	imx25_flexcan_data_entry(0, 1),
 	imx25_flexcan_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX25 */
 
 #ifdef CONFIG_SOC_IMX35
 const struct imx_flexcan_data imx35_flexcan_data[] __initconst = {
@@ -35,7 +35,7 @@ const struct imx_flexcan_data imx35_flexcan_data[] __initconst = {
 	imx35_flexcan_data_entry(0, 1),
 	imx35_flexcan_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX35 */
 
 struct platform_device *__init imx_add_flexcan(
 		const struct imx_flexcan_data *data,

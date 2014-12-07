@@ -1,3 +1,6 @@
+/*
+ * Port F Masks
+ */
 
 #ifndef __BFIN_PERIPHERAL_PORT_F__
 #define __BFIN_PERIPHERAL_PORT_F__

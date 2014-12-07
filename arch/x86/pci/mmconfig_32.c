@@ -5,6 +5,9 @@
  * This code is released under the GNU General Public License version 2.
  */
 
+/*
+ * mmconfig.c - Low-level direct PCI config space access via MMCONFIG
+ */
 
 #include <linux/pci.h>
 #include <linux/init.h>
@@ -12,11 +15,16 @@
 #include <asm/pci_x86.h>
 #include <acpi/acpi.h>
 
+/* Assume systems with more busses have correct MCFG */
 #define mmcfg_virt_addr ((void __iomem *) fix_to_virt(FIX_PCIE_MCFG))
 
+/* The base address of the last MMCONFIG device accessed */
 static u32 mmcfg_last_accessed_device;
 static int mmcfg_last_accessed_cpu;
 
+/*
+ * Functions for accessing PCI configuration space with MMCONFIG accesses
+ */
 static u32 get_base_addr(unsigned int seg, int bus, unsigned devfn)
 {
 	struct pci_mmcfg_region *cfg = pci_mmconfig_lookup(seg, bus);
@@ -26,6 +34,9 @@ static u32 get_base_addr(unsigned int seg, int bus, unsigned devfn)
 	return 0;
 }
 
+/*
+ * This is always called under pci_config_lock
+ */
 static void pci_exp_set_dev_base(unsigned int base, int bus, int devfn)
 {
 	u32 dev_base = base | PCI_MMCFG_BUS_OFFSET(bus) | (devfn << 12);

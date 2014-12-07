@@ -17,12 +17,29 @@
 #include <linux/isdnif.h>
 #include <linux/export.h>
 
-#define SBUFSIZE	4096	
-#define TRANSBUFSIZE	768	
-#define HW_HDR_LEN	2	
-#define MAX_BUF_SIZE	(SBUFSIZE - HW_HDR_LEN)	
+#define SBUFSIZE	4096	/* sk_buff payload size */
+#define TRANSBUFSIZE	768	/* bytes per skb for transparent receive */
+#define HW_HDR_LEN	2	/* Header size used to store ack info */
+#define MAX_BUF_SIZE	(SBUFSIZE - HW_HDR_LEN)	/* max data packet from LL */
 
+/* == Handling of I4L IO =====================================================*/
 
+/* writebuf_from_LL
+ * called by LL to transmit data on an open channel
+ * inserts the buffer data into the send queue and starts the transmission
+ * Note that this operation must not sleep!
+ * When the buffer is processed completely, gigaset_skb_sent() should be called.
+ * parameters:
+ *	driverID	driver ID as assigned by LL
+ *	channel		channel number
+ *	ack		if != 0 LL wants to be notified on completion via
+ *			statcallb(ISDN_STAT_BSENT)
+ *	skb		skb containing data to send
+ * return value:
+ *	number of accepted bytes
+ *	0 if temporarily unable to accept data (out of buffer space)
+ *	<0 on error (eg. -EINVAL)
+ */
 static int writebuf_from_LL(int driverID, int channel, int ack,
 			    struct sk_buff *skb)
 {
@@ -42,7 +59,7 @@ static int writebuf_from_LL(int driverID, int channel, int ack,
 	}
 	bcs = &cs->bcs[channel];
 
-	
+	/* can only handle linear sk_buffs */
 	if (skb_linearize(skb) < 0) {
 		dev_err(cs->dev, "%s: skb_linearize failed\n", __func__);
 		return -ENOMEM;
@@ -65,9 +82,9 @@ static int writebuf_from_LL(int driverID, int channel, int ack,
 		return -EINVAL;
 	}
 
-	
+	/* set up acknowledgement header */
 	if (skb_headroom(skb) < HW_HDR_LEN) {
-		
+		/* should never happen */
 		dev_err(cs->dev, "%s: insufficient skb headroom\n", __func__);
 		return -ENOMEM;
 	}
@@ -83,10 +100,18 @@ static int writebuf_from_LL(int driverID, int channel, int ack,
 	gig_dbg(DEBUG_MCMD, "skb: len=%u, ack=%d: %02x %02x",
 		len, ack, ack_header[0], ack_header[1]);
 
-	
+	/* pass to device-specific module */
 	return cs->ops->send_skb(bcs, skb);
 }
 
+/**
+ * gigaset_skb_sent() - acknowledge sending an skb
+ * @bcs:	B channel descriptor structure.
+ * @skb:	sent data.
+ *
+ * Called by hardware module {bas,ser,usb}_gigaset when the data in a
+ * skb has been successfully sent, for signalling completion to the LL.
+ */
 void gigaset_skb_sent(struct bc_state *bcs, struct sk_buff *skb)
 {
 	isdn_if *iif = bcs->cs->iif;
@@ -114,6 +139,15 @@ void gigaset_skb_sent(struct bc_state *bcs, struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(gigaset_skb_sent);
 
+/**
+ * gigaset_skb_rcvd() - pass received skb to LL
+ * @bcs:	B channel descriptor structure.
+ * @skb:	received data.
+ *
+ * Called by hardware module {bas,ser,usb}_gigaset when user data has
+ * been successfully received, for passing to the LL.
+ * Warning: skb must not be accessed anymore!
+ */
 void gigaset_skb_rcvd(struct bc_state *bcs, struct sk_buff *skb)
 {
 	isdn_if *iif = bcs->cs->iif;
@@ -123,21 +157,28 @@ void gigaset_skb_rcvd(struct bc_state *bcs, struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(gigaset_skb_rcvd);
 
+/**
+ * gigaset_isdn_rcv_err() - signal receive error
+ * @bcs:	B channel descriptor structure.
+ *
+ * Called by hardware module {bas,ser,usb}_gigaset when a receive error
+ * has occurred, for signalling to the LL.
+ */
 void gigaset_isdn_rcv_err(struct bc_state *bcs)
 {
 	isdn_if *iif = bcs->cs->iif;
 	isdn_ctrl response;
 
-	
+	/* if currently ignoring packets, just count down */
 	if (bcs->ignore) {
 		bcs->ignore--;
 		return;
 	}
 
-	
+	/* update statistics */
 	bcs->corrupted++;
 
-	
+	/* error -> LL */
 	gig_dbg(DEBUG_CMD, "sending L1ERR");
 	response.driver = bcs->cs->myid;
 	response.command = ISDN_STAT_L1ERR;
@@ -147,6 +188,10 @@ void gigaset_isdn_rcv_err(struct bc_state *bcs)
 }
 EXPORT_SYMBOL_GPL(gigaset_isdn_rcv_err);
 
+/* This function will be called by LL to send commands
+ * NOTE: LL ignores the returned value, for commands other than ISDN_CMD_IOCTL,
+ * so don't put too much effort into it.
+ */
 static int command_from_LL(isdn_ctrl *cntrl)
 {
 	struct cardstate *cs;
@@ -192,7 +237,7 @@ static int command_from_LL(isdn_ctrl *cntrl)
 		case L2_HDLC:
 			bcs->rx_bufsize = SBUFSIZE;
 			break;
-		default:			
+		default:			/* assume transparent */
 			bcs->rx_bufsize = TRANSBUFSIZE;
 		}
 		dev_kfree_skb(bcs->rx_skb);
@@ -211,7 +256,7 @@ static int command_from_LL(isdn_ctrl *cntrl)
 			goto oom;
 		if (cntrl->parm.setup.phone[0] == '*' &&
 		    cntrl->parm.setup.phone[1] == '*') {
-			
+			/* internal call: translate ** prefix to CTP value */
 			commands[AT_TYPE] = kstrdup("^SCTP=0\r", GFP_ATOMIC);
 			if (!commands[AT_TYPE])
 				goto oom;
@@ -236,20 +281,20 @@ static int command_from_LL(isdn_ctrl *cntrl)
 		}
 
 		switch (cntrl->parm.setup.si1) {
-		case 1:		
-			
+		case 1:		/* audio */
+			/* BC = 9090A3: 3.1 kHz audio, A-law */
 			commands[AT_BC] = kstrdup("^SBC=9090A3\r", GFP_ATOMIC);
 			if (!commands[AT_BC])
 				goto oom;
 			break;
-		case 7:		
-		default:	
-			
+		case 7:		/* data */
+		default:	/* hope the app knows what it is doing */
+			/* BC = 8890: unrestricted digital information */
 			commands[AT_BC] = kstrdup("^SBC=8890\r", GFP_ATOMIC);
 			if (!commands[AT_BC])
 				goto oom;
 		}
-		
+		/* ToDo: other si1 values, inspect si2, set HLC/LLC */
 
 		commands[AT_PROTO] = kmalloc(9, GFP_ATOMIC);
 		if (!commands[AT_PROTO])
@@ -284,7 +329,7 @@ static int command_from_LL(isdn_ctrl *cntrl)
 		case L2_HDLC:
 			bcs->rx_bufsize = SBUFSIZE;
 			break;
-		default:			
+		default:			/* assume transparent */
 			bcs->rx_bufsize = TRANSBUFSIZE;
 		}
 		dev_kfree_skb(bcs->rx_skb);
@@ -309,14 +354,14 @@ static int command_from_LL(isdn_ctrl *cntrl)
 		gigaset_schedule_event(cs);
 
 		break;
-	case ISDN_CMD_CLREAZ: 
+	case ISDN_CMD_CLREAZ: /* Do not signal incoming signals */
 		dev_info(cs->dev, "ignoring ISDN_CMD_CLREAZ\n");
 		break;
-	case ISDN_CMD_SETEAZ: 
+	case ISDN_CMD_SETEAZ: /* Signal incoming calls for given MSN */
 		dev_info(cs->dev, "ignoring ISDN_CMD_SETEAZ (%s)\n",
 			 cntrl->parm.num);
 		break;
-	case ISDN_CMD_SETL2: 
+	case ISDN_CMD_SETL2: /* Set L2 to given protocol */
 		if (ch >= cs->channels) {
 			dev_err(cs->dev,
 				"ISDN_CMD_SETL2: invalid channel (%d)\n", ch);
@@ -344,7 +389,7 @@ static int command_from_LL(isdn_ctrl *cntrl)
 			return -EINVAL;
 		}
 		break;
-	case ISDN_CMD_SETL3: 
+	case ISDN_CMD_SETL3: /* Set L3 to given protocol */
 		gig_dbg(DEBUG_CMD, "ISDN_CMD_SETL3");
 		if (ch >= cs->channels) {
 			dev_err(cs->dev,
@@ -400,6 +445,15 @@ static void gigaset_i4l_channel_cmd(struct bc_state *bcs, int cmd)
 	iif->statcallb(&command);
 }
 
+/**
+ * gigaset_isdn_icall() - signal incoming call
+ * @at_state:	connection state structure.
+ *
+ * Called by main module to notify the LL that an incoming call has been
+ * received. @at_state contains the parameters of the call.
+ *
+ * Return value: call disposition (ICALL_*)
+ */
 int gigaset_isdn_icall(struct at_state_t *at_state)
 {
 	struct cardstate *cs = at_state->cs;
@@ -408,22 +462,22 @@ int gigaset_isdn_icall(struct at_state_t *at_state)
 	isdn_ctrl response;
 	int retval;
 
-	
-	response.parm.setup.si1 = 0;	
+	/* fill ICALL structure */
+	response.parm.setup.si1 = 0;	/* default: unknown */
 	response.parm.setup.si2 = 0;
 	response.parm.setup.screen = 0;
 	response.parm.setup.plan = 0;
 	if (!at_state->str_var[STR_ZBC]) {
-		
+		/* no BC (internal call): assume speech, A-law */
 		response.parm.setup.si1 = 1;
 	} else if (!strcmp(at_state->str_var[STR_ZBC], "8890")) {
-		
+		/* unrestricted digital information */
 		response.parm.setup.si1 = 7;
 	} else if (!strcmp(at_state->str_var[STR_ZBC], "8090A3")) {
-		
+		/* speech, A-law */
 		response.parm.setup.si1 = 1;
 	} else if (!strcmp(at_state->str_var[STR_ZBC], "9090A3")) {
-		
+		/* 3,1 kHz audio, A-law */
 		response.parm.setup.si1 = 1;
 		response.parm.setup.si2 = 2;
 	} else {
@@ -455,20 +509,23 @@ int gigaset_isdn_icall(struct at_state_t *at_state)
 	retval = iif->statcallb(&response);
 	gig_dbg(DEBUG_CMD, "Response: %d", retval);
 	switch (retval) {
-	case 0:	
+	case 0:	/* no takers */
 		return ICALL_IGNORE;
-	case 1:	
+	case 1:	/* alerting */
 		bcs->chstate |= CHS_NOTIFY_LL;
 		return ICALL_ACCEPT;
-	case 2:	
+	case 2:	/* reject */
 		return ICALL_REJECT;
-	case 3:	
+	case 3:	/* incomplete */
 		dev_warn(cs->dev,
 			 "LL requested unsupported feature: Incomplete Number\n");
 		return ICALL_IGNORE;
-	case 4:	
+	case 4:	/* proceeding */
+		/* Gigaset will send ALERTING anyway.
+		 * There doesn't seem to be a way to avoid this.
+		 */
 		return ICALL_ACCEPT;
-	case 5:	
+	case 5:	/* deflect */
 		dev_warn(cs->dev,
 			 "LL requested unsupported feature: Call Deflection\n");
 		return ICALL_IGNORE;
@@ -478,42 +535,91 @@ int gigaset_isdn_icall(struct at_state_t *at_state)
 	}
 }
 
+/**
+ * gigaset_isdn_connD() - signal D channel connect
+ * @bcs:	B channel descriptor structure.
+ *
+ * Called by main module to notify the LL that the D channel connection has
+ * been established.
+ */
 void gigaset_isdn_connD(struct bc_state *bcs)
 {
 	gig_dbg(DEBUG_CMD, "sending DCONN");
 	gigaset_i4l_channel_cmd(bcs, ISDN_STAT_DCONN);
 }
 
+/**
+ * gigaset_isdn_hupD() - signal D channel hangup
+ * @bcs:	B channel descriptor structure.
+ *
+ * Called by main module to notify the LL that the D channel connection has
+ * been shut down.
+ */
 void gigaset_isdn_hupD(struct bc_state *bcs)
 {
 	gig_dbg(DEBUG_CMD, "sending DHUP");
 	gigaset_i4l_channel_cmd(bcs, ISDN_STAT_DHUP);
 }
 
+/**
+ * gigaset_isdn_connB() - signal B channel connect
+ * @bcs:	B channel descriptor structure.
+ *
+ * Called by main module to notify the LL that the B channel connection has
+ * been established.
+ */
 void gigaset_isdn_connB(struct bc_state *bcs)
 {
 	gig_dbg(DEBUG_CMD, "sending BCONN");
 	gigaset_i4l_channel_cmd(bcs, ISDN_STAT_BCONN);
 }
 
+/**
+ * gigaset_isdn_hupB() - signal B channel hangup
+ * @bcs:	B channel descriptor structure.
+ *
+ * Called by main module to notify the LL that the B channel connection has
+ * been shut down.
+ */
 void gigaset_isdn_hupB(struct bc_state *bcs)
 {
 	gig_dbg(DEBUG_CMD, "sending BHUP");
 	gigaset_i4l_channel_cmd(bcs, ISDN_STAT_BHUP);
 }
 
+/**
+ * gigaset_isdn_start() - signal device availability
+ * @cs:		device descriptor structure.
+ *
+ * Called by main module to notify the LL that the device is available for
+ * use.
+ */
 void gigaset_isdn_start(struct cardstate *cs)
 {
 	gig_dbg(DEBUG_CMD, "sending RUN");
 	gigaset_i4l_cmd(cs, ISDN_STAT_RUN);
 }
 
+/**
+ * gigaset_isdn_stop() - signal device unavailability
+ * @cs:		device descriptor structure.
+ *
+ * Called by main module to notify the LL that the device is no longer
+ * available for use.
+ */
 void gigaset_isdn_stop(struct cardstate *cs)
 {
 	gig_dbg(DEBUG_CMD, "sending STOP");
 	gigaset_i4l_cmd(cs, ISDN_STAT_STOP);
 }
 
+/**
+ * gigaset_isdn_regdev() - register to LL
+ * @cs:		device descriptor structure.
+ * @isdnid:	device name.
+ *
+ * Return value: 1 for success, 0 for failure
+ */
 int gigaset_isdn_regdev(struct cardstate *cs, const char *isdnid)
 {
 	isdn_if *iif;
@@ -539,13 +645,13 @@ int gigaset_isdn_regdev(struct cardstate *cs, const char *isdnid)
 		ISDN_FEATURE_L2_X75I |
 		ISDN_FEATURE_L3_TRANS |
 		ISDN_FEATURE_P_EURO;
-	iif->hl_hdrlen = HW_HDR_LEN;		
+	iif->hl_hdrlen = HW_HDR_LEN;		/* Area for storing ack */
 	iif->command = command_from_LL;
 	iif->writebuf_skb = writebuf_from_LL;
-	iif->writecmd = NULL;			
-	iif->readstat = NULL;			
-	iif->rcvcallb_skb = NULL;		
-	iif->statcallb = NULL;			
+	iif->writecmd = NULL;			/* Don't support isdnctrl */
+	iif->readstat = NULL;			/* Don't support isdnctrl */
+	iif->rcvcallb_skb = NULL;		/* Will be set by LL */
+	iif->statcallb = NULL;			/* Will be set by LL */
 
 	if (!register_isdn(iif)) {
 		pr_err("register_isdn failed\n");
@@ -554,11 +660,15 @@ int gigaset_isdn_regdev(struct cardstate *cs, const char *isdnid)
 	}
 
 	cs->iif = iif;
-	cs->myid = iif->channels;		
+	cs->myid = iif->channels;		/* Set my device id */
 	cs->hw_hdr_len = HW_HDR_LEN;
 	return 1;
 }
 
+/**
+ * gigaset_isdn_unregdev() - unregister device from LL
+ * @cs:		device descriptor structure.
+ */
 void gigaset_isdn_unregdev(struct cardstate *cs)
 {
 	gig_dbg(DEBUG_CMD, "sending UNLOAD");
@@ -567,13 +677,19 @@ void gigaset_isdn_unregdev(struct cardstate *cs)
 	cs->iif = NULL;
 }
 
+/**
+ * gigaset_isdn_regdrv() - register driver to LL
+ */
 void gigaset_isdn_regdrv(void)
 {
 	pr_info("ISDN4Linux interface\n");
-	
+	/* nothing to do */
 }
 
+/**
+ * gigaset_isdn_unregdrv() - unregister driver from LL
+ */
 void gigaset_isdn_unregdrv(void)
 {
-	
+	/* nothing to do */
 }

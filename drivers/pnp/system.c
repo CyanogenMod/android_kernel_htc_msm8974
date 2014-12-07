@@ -15,9 +15,9 @@
 #include <linux/ioport.h>
 
 static const struct pnp_device_id pnp_dev_table[] = {
-	
+	/* General ID for reserving resources */
 	{"PNP0c02", 0},
-	
+	/* memory controller */
 	{"PNP0c01", 0},
 	{"", 0}
 };
@@ -43,6 +43,11 @@ static void reserve_range(struct pnp_dev *dev, struct resource *r, int port)
 	else
 		kfree(regionid);
 
+	/*
+	 * Failures at this point are usually harmless. pci quirks for
+	 * example do reserve stuff they know about too, so we may well
+	 * have double reservations.
+	 */
 	dev_info(&dev->dev, "%pR %s reserved\n", r,
 		 res ? "has been" : "could not be");
 }
@@ -56,11 +61,19 @@ static void reserve_resources_of_dev(struct pnp_dev *dev)
 		if (res->flags & IORESOURCE_DISABLED)
 			continue;
 		if (res->start == 0)
-			continue;	
+			continue;	/* disabled */
 		if (res->start < 0x100)
+			/*
+			 * Below 0x100 is only standard PC hardware
+			 * (pics, kbd, timer, dma, ...)
+			 * We should not get resource conflicts there,
+			 * and the kernel reserves these anyway
+			 * (see arch/i386/kernel/setup.c).
+			 * So, do nothing
+			 */
 			continue;
 		if (res->end < res->start)
-			continue;	
+			continue;	/* invalid */
 
 		reserve_range(dev, res, 1);
 	}
@@ -92,4 +105,8 @@ static int __init pnp_system_init(void)
 	return pnp_register_driver(&system_pnp_driver);
 }
 
+/**
+ * Reserve motherboard resources after PCI claim BARs,
+ * but before PCI assign resources for uninitialized PCI devices
+ */
 fs_initcall(pnp_system_init);

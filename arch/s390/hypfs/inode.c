@@ -25,24 +25,25 @@
 #include <asm/ebcdic.h>
 #include "hypfs.h"
 
-#define HYPFS_MAGIC 0x687970	
-#define TMP_SIZE 64		
+#define HYPFS_MAGIC 0x687970	/* ASCII 'hyp' */
+#define TMP_SIZE 64		/* size of temporary buffers */
 
 static struct dentry *hypfs_create_update_file(struct super_block *sb,
 					       struct dentry *dir);
 
 struct hypfs_sb_info {
-	uid_t uid;			
-	gid_t gid;			
-	struct dentry *update_file;	
-	time_t last_update;		
-	struct mutex lock;		
+	uid_t uid;			/* uid used for files and dirs */
+	gid_t gid;			/* gid used for files and dirs */
+	struct dentry *update_file;	/* file to trigger update */
+	time_t last_update;		/* last update time in secs since 1970 */
+	struct mutex lock;		/* lock to protect update process */
 };
 
 static const struct file_operations hypfs_file_ops;
 static struct file_system_type hypfs_type;
 static const struct super_operations hypfs_s_ops;
 
+/* start of list of all dentries, which have to be deleted on update */
 static struct dentry *hypfs_last_dentry;
 
 static void hypfs_update_update(struct super_block *sb)
@@ -54,6 +55,7 @@ static void hypfs_update_update(struct super_block *sb)
 	inode->i_atime = inode->i_mtime = inode->i_ctime = CURRENT_TIME;
 }
 
+/* directory tree removal functions */
 
 static void hypfs_add_dentry(struct dentry *dentry)
 {
@@ -150,7 +152,7 @@ static ssize_t hypfs_aio_read(struct kiocb *iocb, const struct iovec *iov,
 	char *data;
 	ssize_t ret;
 	struct file *filp = iocb->ki_filp;
-	
+	/* XXX: temporary */
 	char __user *buf = iov[0].iov_base;
 	size_t count = iov[0].iov_len;
 
@@ -177,6 +179,16 @@ static ssize_t hypfs_aio_write(struct kiocb *iocb, const struct iovec *iov,
 
 	sb = iocb->ki_filp->f_path.dentry->d_inode->i_sb;
 	fs_info = sb->s_fs_info;
+	/*
+	 * Currently we only allow one update per second for two reasons:
+	 * 1. diag 204 is VERY expensive
+	 * 2. If several processes do updates in parallel and then read the
+	 *    hypfs data, the likelihood of collisions is reduced, if we restrict
+	 *    the minimum update interval. A collision occurs, if during the
+	 *    data gathering of one process another process triggers an update
+	 *    If the first process wants to ensure consistent data, it has
+	 *    to restart data collection in this case.
+	 */
 	mutex_lock(&fs_info->lock);
 	if (fs_info->last_update == get_seconds()) {
 		rc = -EBUSY;
@@ -375,6 +387,11 @@ static struct dentry *hypfs_create_update_file(struct super_block *sb,
 
 	dentry = hypfs_create_file(sb, dir, "update", NULL,
 				   S_IFREG | UPDATE_FILE_MODE);
+	/*
+	 * We do not put the update file on the 'delete' list with
+	 * hypfs_add_dentry(), since it should not be removed when the tree
+	 * is updated.
+	 */
 	return dentry;
 }
 

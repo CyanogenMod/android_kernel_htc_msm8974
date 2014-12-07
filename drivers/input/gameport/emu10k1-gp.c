@@ -2,6 +2,9 @@
  *  Copyright (c) 2001 Vojtech Pavlik
  */
 
+/*
+ * EMU10k1 - SB Live / Audigy - gameport driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -45,10 +48,10 @@ struct emu {
 
 static const struct pci_device_id emu_tbl[] = {
 
-	{ 0x1102, 0x7002, PCI_ANY_ID, PCI_ANY_ID }, 
-	{ 0x1102, 0x7003, PCI_ANY_ID, PCI_ANY_ID }, 
-	{ 0x1102, 0x7004, PCI_ANY_ID, PCI_ANY_ID }, 
-	{ 0x1102, 0x7005, PCI_ANY_ID, PCI_ANY_ID }, 
+	{ 0x1102, 0x7002, PCI_ANY_ID, PCI_ANY_ID }, /* SB Live gameport */
+	{ 0x1102, 0x7003, PCI_ANY_ID, PCI_ANY_ID }, /* Audigy gameport */
+	{ 0x1102, 0x7004, PCI_ANY_ID, PCI_ANY_ID }, /* Dell SB Live */
+	{ 0x1102, 0x7005, PCI_ANY_ID, PCI_ANY_ID }, /* Audigy LS gameport */
 	{ 0, }
 };
 

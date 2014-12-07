@@ -111,7 +111,7 @@ struct ieee_param {
 			u8 set_tx;
 			u32 err;
 			u8 idx;
-			u8 seq[8]; 
+			u8 seq[8]; /* sequence counter (set: RX, get: TX) */
 			u16 key_len;
 			u8 key[0];
 		} crypt;
@@ -119,10 +119,18 @@ struct ieee_param {
 };
 
 #define IEEE80211_DATA_LEN		2304
+/* Maximum size for the MA-UNITDATA primitive, 802.11 standard section
+   6.2.1.1.2.
+
+   The figure in section 7.1.2 suggests a body size of up to 2312
+   bytes is allowed, which is a bit confusing, I suspect this
+   represents the 2304 bytes of real data, plus a possible 8 bytes of
+   WEP IV and ICV. (this interpretation suggested by Ramiro Barreiro) */
 
 #define IEEE80211_HLEN			30
 #define IEEE80211_FRAME_LEN		(IEEE80211_DATA_LEN + IEEE80211_HLEN)
 
+/* this is stolen from ipw2200 driver */
 #define IEEE_IBSS_MAC_HASH_SIZE 31
 
 struct ieee_ibss_seq {
@@ -198,6 +206,7 @@ enum eap_type {
 #define MIN_FRAG_THRESHOLD     256U
 #define	MAX_FRAG_THRESHOLD     2346U
 
+/* Frame control field constants */
 #define IEEE80211_FCTL_VERS		0x0002
 #define IEEE80211_FCTL_FTYPE		0x000c
 #define IEEE80211_FCTL_STYPE		0x00f0
@@ -214,6 +223,7 @@ enum eap_type {
 #define IEEE80211_FTYPE_CTL		0x0004
 #define IEEE80211_FTYPE_DATA		0x0008
 
+/* management */
 #define IEEE80211_STYPE_ASSOC_REQ	0x0000
 #define IEEE80211_STYPE_ASSOC_RESP	0x0010
 #define IEEE80211_STYPE_REASSOC_REQ	0x0020
@@ -226,6 +236,7 @@ enum eap_type {
 #define IEEE80211_STYPE_AUTH		0x00B0
 #define IEEE80211_STYPE_DEAUTH		0x00C0
 
+/* control */
 #define IEEE80211_STYPE_PSPOLL		0x00A0
 #define IEEE80211_STYPE_RTS		0x00B0
 #define IEEE80211_STYPE_CTS		0x00C0
@@ -233,6 +244,7 @@ enum eap_type {
 #define IEEE80211_STYPE_CFEND		0x00E0
 #define IEEE80211_STYPE_CFENDACK	0x00F0
 
+/* data */
 #define IEEE80211_STYPE_DATA		0x0000
 #define IEEE80211_STYPE_DATA_CFACK	0x0010
 #define IEEE80211_STYPE_DATA_CFPOLL	0x0020
@@ -247,16 +259,17 @@ enum eap_type {
 #define IEEE80211_SCTL_FRAG		0x000F
 #define IEEE80211_SCTL_SEQ		0xFFF0
 
+/* QoS,QOS */
 #define NORMAL_ACK			0
 #define NO_ACK				1
 #define NON_EXPLICIT_ACK	2
 #define BLOCK_ACK			3
 
 #ifndef ETH_P_PAE
-#define ETH_P_PAE 0x888E 
-#endif 
+#define ETH_P_PAE 0x888E /* Port Access Entity (IEEE 802.1X) */
+#endif /* ETH_P_PAE */
 
-#define ETH_P_PREAUTH 0x88C7 
+#define ETH_P_PREAUTH 0x88C7 /* IEEE 802.11i pre-authentication */
 
 #define ETH_P_ECONET	0x0018
 
@@ -264,14 +277,15 @@ enum eap_type {
 #define ETH_P_80211_RAW (ETH_P_ECONET + 1)
 #endif
 
+/* IEEE 802.11 defines */
 
 #define P80211_OUI_LEN 3
 
 struct ieee80211_snap_hdr {
-	u8    dsap;   
-	u8    ssap;   
-	u8    ctrl;   
-	u8    oui[P80211_OUI_LEN];    
+	u8    dsap;   /* always 0xAA */
+	u8    ssap;   /* always 0xAA */
+	u8    ctrl;   /* always 0x03 */
+	u8    oui[P80211_OUI_LEN];    /* organizational universal id */
 } __packed;
 
 #define SNAP_SIZE sizeof(struct ieee80211_snap_hdr)
@@ -284,6 +298,7 @@ struct ieee80211_snap_hdr {
 #define WLAN_GET_SEQ_FRAG(seq) ((seq) & IEEE80211_SCTL_FRAG)
 #define WLAN_GET_SEQ_SEQ(seq)  ((seq) & IEEE80211_SCTL_SEQ)
 
+/* Authentication algorithms */
 #define WLAN_AUTH_OPEN 0
 #define WLAN_AUTH_SHARED_KEY 1
 
@@ -299,6 +314,7 @@ struct ieee80211_snap_hdr {
 #define WLAN_CAPABILITY_CHANNEL_AGILITY (1<<7)
 #define WLAN_CAPABILITY_SHORT_SLOT (1<<10)
 
+/* Status codes */
 #define WLAN_STATUS_SUCCESS 0
 #define WLAN_STATUS_UNSPECIFIED_FAILURE 1
 #define WLAN_STATUS_CAPS_UNSUPPORTED 10
@@ -310,10 +326,12 @@ struct ieee80211_snap_hdr {
 #define WLAN_STATUS_AUTH_TIMEOUT 16
 #define WLAN_STATUS_AP_UNABLE_TO_HANDLE_NEW_STA 17
 #define WLAN_STATUS_ASSOC_DENIED_RATES 18
+/* 802.11b */
 #define WLAN_STATUS_ASSOC_DENIED_NOSHORT 19
 #define WLAN_STATUS_ASSOC_DENIED_NOPBCC 20
 #define WLAN_STATUS_ASSOC_DENIED_NOAGILITY 21
 
+/* Reason codes */
 #define WLAN_REASON_UNSPECIFIED 1
 #define WLAN_REASON_PREV_AUTH_NOT_VALID 2
 #define WLAN_REASON_DEAUTH_LEAVING 3
@@ -325,6 +343,7 @@ struct ieee80211_snap_hdr {
 #define WLAN_REASON_STA_REQ_ASSOC_WITHOUT_AUTH 9
 
 
+/* Information Element IDs */
 #define WLAN_EID_SSID 0
 #define WLAN_EID_SUPP_RATES 1
 #define WLAN_EID_FH_PARAMS 2
@@ -413,25 +432,32 @@ struct ieee80211_snap_hdr {
 
 
 
+/* NOTE: This data is for statistical purposes; not all hardware provides this
+ *       information for frames received.  Not setting these will not cause
+ *       any adverse affects. */
 struct ieee80211_rx_stats {
 	s8 rssi;
 	u8 signal;
 	u8 noise;
 	u8 received_channel;
-	u16 rate; 
+	u16 rate; /* in 100 kbps */
 	u8 mask;
 	u8 freq;
 	u16 len;
 };
 
+/* IEEE 802.11 requires that STA supports concurrent reception of at least
+ * three fragmented frames. This define can be increased to support more
+ * concurrent frames, but it should be noted that each entry can consume about
+ * 2 kB of RAM and increasing cache size will slow down frame reassembly. */
 #define IEEE80211_FRAG_CACHE_LEN 4
 
 struct ieee80211_frag_entry {
 	u32 first_frag_time;
 	uint seq;
 	uint last_frag;
-	uint qos;   
-	uint tid;	
+	uint qos;   /*jackson*/
+	uint tid;	/*jackson*/
 	struct sk_buff *skb;
 	u8 src_addr[ETH_ALEN];
 	u8 dst_addr[ETH_ALEN];
@@ -491,11 +517,11 @@ struct ieee80211_softmac_stats {
 #define SEC_LEVEL         (1<<7)
 #define SEC_ENABLED       (1<<8)
 
-#define SEC_LEVEL_0      0 
-#define SEC_LEVEL_1      1 
-#define SEC_LEVEL_2      2 
-#define SEC_LEVEL_2_CKIP 3 
-#define SEC_LEVEL_3      4 
+#define SEC_LEVEL_0      0 /* None */
+#define SEC_LEVEL_1      1 /* WEP 40 and 104 bit */
+#define SEC_LEVEL_2      2 /* Level 1 + TKIP */
+#define SEC_LEVEL_2_CKIP 3 /* Level 1 + CKIP */
+#define SEC_LEVEL_3      4 /* Level 2 + CCMP */
 
 #define WEP_KEYS 4
 #define WEP_KEY_LEN 13
@@ -512,6 +538,20 @@ struct ieee80211_security {
 	u16 flags;
 } __packed;
 
+/*
+
+ 802.11 data frame from AP
+
+      ,-------------------------------------------------------------------.
+Bytes |  2   |  2   |    6    |    6    |    6    |  2   | 0..2312 |   4  |
+      |------|------|---------|---------|---------|------|---------|------|
+Desc. | ctrl | dura |  DA/RA  |   TA    |    SA   | Sequ |  frame  |  fcs |
+      |      | tion | (BSSID) |         |         | ence |  data   |      |
+      `-------------------------------------------------------------------'
+
+Total: 28-2340 bytes
+
+*/
 
 struct ieee80211_header_data {
 	u16 frame_ctl;
@@ -524,6 +564,7 @@ struct ieee80211_header_data {
 
 #define BEACON_PROBE_SSID_ID_POSITION 12
 
+/* Management Frame Information Element Types */
 #define MFIE_TYPE_SSID       0
 #define MFIE_TYPE_RATES      1
 #define MFIE_TYPE_FH_SET     2
@@ -548,6 +589,22 @@ struct ieee80211_info_element {
 	u8 data[0];
 } __packed;
 
+/*
+ * These are the data types that can make up management packets
+ *
+	u16 auth_algorithm;
+	u16 auth_sequence;
+	u16 beacon_interval;
+	u16 capability;
+	u8 current_ap[ETH_ALEN];
+	u16 listen_interval;
+	struct {
+		u16 association_id:14, reserved:2;
+	} __packed;
+	u32 time_stamp[2];
+	u16 reason;
+	u16 status;
+*/
 
 #define IEEE80211_DEFAULT_TX_ESSID "Penguin"
 #define IEEE80211_DEFAULT_BASIC_RATE 10
@@ -594,13 +651,19 @@ struct ieee80211_txb {
 	struct sk_buff *fragments[0];
 };
 
+/* SWEEP TABLE ENTRIES NUMBER*/
 #define MAX_SWEEP_TAB_ENTRIES		  42
 #define MAX_SWEEP_TAB_ENTRIES_PER_PACKET  7
+/* MAX_RATES_LENGTH needs to be 12.  The spec says 8, and many APs
+ * only use 8, and then use extended rates for the remaining supported
+ * rates.  Other APs, however, stick all of their supported rates on the
+ * main rates information element... */
 #define MAX_RATES_LENGTH                  ((u8)12)
 #define MAX_RATES_EX_LENGTH               ((u8)16)
 #define MAX_NETWORK_COUNT                  128
 #define MAX_CHANNEL_NUMBER                 161
 #define IEEE80211_SOFTMAC_SCAN_TIME	  400
+/*(HZ / 2)*/
 #define IEEE80211_SOFTMAC_ASSOC_RETRY_TIME (HZ * 2)
 
 #define CRC_LENGTH                 4U
@@ -620,17 +683,41 @@ struct ieee80211_txb {
 #define IEEE80211_PS_UNICAST IEEE80211_DTIM_UCAST
 #define IEEE80211_PS_MBCAST IEEE80211_DTIM_MBCAST
 #define IW_ESSID_MAX_SIZE 32
+/*
+ * join_res:
+ * -1: authentication fail
+ * -2: association fail
+ * > 0: TID
+ */
 
 enum ieee80211_state {
-	
+	/* the card is not linked at all */
 	IEEE80211_NOLINK = 0,
-	
+	/* IEEE80211_ASSOCIATING* are for BSS client mode
+	 * the driver shall not perform RX filtering unless
+	 * the state is LINKED.
+	 * The driver shall just check for the state LINKED and
+	 * defaults to NOLINK for ALL the other states (including
+	 * LINKED_SCANNING)
+	 */
+	/* the association procedure will start (wq scheduling)*/
 	IEEE80211_ASSOCIATING,
 	IEEE80211_ASSOCIATING_RETRY,
-	
+	/* the association procedure is sending AUTH request*/
 	IEEE80211_ASSOCIATING_AUTHENTICATING,
+	/* the association procedure has successfully authentcated
+	 * and is sending association request
+	 */
 	IEEE80211_ASSOCIATING_AUTHENTICATED,
+	/* the link is ok. the card associated to a BSS or linked
+	 * to a ibss cell or acting as an AP and creating the bss
+	 */
 	IEEE80211_LINKED,
+	/* same as LINKED, but the driver shall apply RX filter
+	 * rules as we are in NO_LINK mode. As the card is still
+	 * logically linked, but it is doing a syncro site survey
+	 * then it will be back to LINKED state.
+	 */
 	IEEE80211_LINKED_SCANNING,
 };
 
@@ -649,10 +736,10 @@ enum ieee80211_state {
 
 extern inline int ieee80211_is_empty_essid(const char *essid, int essid_len)
 {
-	
+	/* Single white space is for Linksys APs */
 	if (essid_len == 1 && essid[0] == ' ')
 		return 1;
-	
+	/* Otherwise, if the entire essid is 0, we assume it is hidden */
 	while (essid_len) {
 		essid_len--;
 		if (essid[essid_len] != '\0')
@@ -670,7 +757,7 @@ extern inline int ieee80211_get_hdrlen(u16 fc)
 		if (fc & IEEE80211_QOS_DATAGRP)
 			hdrlen += 2;
 		if ((fc & IEEE80211_FCTL_FROMDS) && (fc & IEEE80211_FCTL_TODS))
-			hdrlen += 6; 
+			hdrlen += 6; /* Addr4 */
 		break;
 	case IEEE80211_FTYPE_CTL:
 		switch (WLAN_FC_GET_STYPE(fc)) {
@@ -705,5 +792,5 @@ int r8712_generate_ie(struct registry_priv *pregistrypriv);
 uint r8712_is_cckrates_included(u8 *rate);
 uint r8712_is_cckratesonly_included(u8 *rate);
 
-#endif 
+#endif /* IEEE80211_H */
 

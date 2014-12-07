@@ -26,6 +26,9 @@
 #include <asm/fpu.h>
 #include <asm/asm-offsets.h>
 
+/*
+ * translate ptrace register IDs into struct pt_regs offsets
+ */
 static const u8 ptrace_regid_to_frame[] = {
 	[PT_A3 << 2]		= REG_A3,
 	[PT_A2 << 2]		= REG_A2,
@@ -72,6 +75,9 @@ int put_stack_long(struct task_struct *task, int offset, unsigned long data)
 	return 0;
 }
 
+/*
+ * retrieve the contents of MN10300 userspace general registers
+ */
 static int genregs_get(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -80,7 +86,7 @@ static int genregs_get(struct task_struct *target,
 	const struct pt_regs *regs = task_pt_regs(target);
 	int ret;
 
-	
+	/* we need to skip regs->next */
 	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
 				  regs, 0, PT_ORIG_D0 * sizeof(long));
 	if (ret < 0)
@@ -96,6 +102,9 @@ static int genregs_get(struct task_struct *target,
 					NR_PTREGS * sizeof(long), -1);
 }
 
+/*
+ * update the contents of the MN10300 userspace general registers
+ */
 static int genregs_set(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -105,7 +114,7 @@ static int genregs_set(struct task_struct *target,
 	unsigned long tmp;
 	int ret;
 
-	
+	/* we need to skip regs->next */
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 regs, 0, PT_ORIG_D0 * sizeof(long));
 	if (ret < 0)
@@ -117,7 +126,7 @@ static int genregs_set(struct task_struct *target,
 	if (ret < 0)
 		return ret;
 
-	
+	/* we need to mask off changes to EPSW */
 	tmp = regs->epsw;
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 &tmp, PT_EPSW * sizeof(long),
@@ -130,7 +139,7 @@ static int genregs_set(struct task_struct *target,
 	if (ret < 0)
 		return ret;
 
-	
+	/* and finally load the PC */
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 &regs->pc, PT_PC * sizeof(long),
 				 NR_PTREGS * sizeof(long));
@@ -142,6 +151,9 @@ static int genregs_set(struct task_struct *target,
 					 NR_PTREGS * sizeof(long), -1);
 }
 
+/*
+ * retrieve the contents of MN10300 userspace FPU registers
+ */
 static int fpuregs_get(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -161,6 +173,9 @@ static int fpuregs_get(struct task_struct *target,
 					sizeof(*fpregs), -1);
 }
 
+/*
+ * update the contents of the MN10300 userspace FPU registers
+ */
 static int fpuregs_set(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -182,18 +197,30 @@ static int fpuregs_set(struct task_struct *target,
 					 sizeof(fpu_state), -1);
 }
 
+/*
+ * determine if the FPU registers have actually been used
+ */
 static int fpuregs_active(struct task_struct *target,
 			  const struct user_regset *regset)
 {
 	return is_using_fpu(target) ? regset->n : 0;
 }
 
+/*
+ * Define the register sets available on the MN10300 under Linux
+ */
 enum mn10300_regset {
 	REGSET_GENERAL,
 	REGSET_FPU,
 };
 
 static const struct user_regset mn10300_regsets[] = {
+	/*
+	 * General register format is:
+	 *	A3, A2, D3, D2, MCVF, MCRL, MCRH, MDRQ
+	 *	E1, E0, E7...E2, SP, LAR, LIR, MDR
+	 *	A1, A0, D1, D0, ORIG_D0, EPSW, PC
+	 */
 	[REGSET_GENERAL] = {
 		.core_note_type	= NT_PRSTATUS,
 		.n		= ELF_NGREG,
@@ -202,6 +229,10 @@ static const struct user_regset mn10300_regsets[] = {
 		.get		= genregs_get,
 		.set		= genregs_set,
 	},
+	/*
+	 * FPU register format is:
+	 *	FS0-31, FPCR
+	 */
 	[REGSET_FPU] = {
 		.core_note_type	= NT_PRFPREG,
 		.n		= sizeof(struct fpu_state_struct) / sizeof(long),
@@ -225,6 +256,9 @@ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 	return &user_mn10300_native_view;
 }
 
+/*
+ * set the single-step bit
+ */
 void user_enable_single_step(struct task_struct *child)
 {
 #ifndef CONFIG_MN10300_USING_JTAG
@@ -237,6 +271,9 @@ void user_enable_single_step(struct task_struct *child)
 #endif
 }
 
+/*
+ * make sure the single-step bit is not set
+ */
 void user_disable_single_step(struct task_struct *child)
 {
 #ifndef CONFIG_MN10300_USING_JTAG
@@ -254,6 +291,9 @@ void ptrace_disable(struct task_struct *child)
 	user_disable_single_step(child);
 }
 
+/*
+ * handle the arch-specific side of process tracing
+ */
 long arch_ptrace(struct task_struct *child, long request,
 		 unsigned long addr, unsigned long data)
 {
@@ -262,20 +302,20 @@ long arch_ptrace(struct task_struct *child, long request,
 	unsigned long __user *datap = (unsigned long __user *) data;
 
 	switch (request) {
-	
+	/* read the word at location addr in the USER area. */
 	case PTRACE_PEEKUSR:
 		ret = -EIO;
 		if ((addr & 3) || addr > sizeof(struct user) - 3)
 			break;
 
-		tmp = 0;  
+		tmp = 0;  /* Default return condition */
 		if (addr < NR_PTREGS << 2)
 			tmp = get_stack_long(child,
 					     ptrace_regid_to_frame[addr]);
 		ret = put_user(tmp, datap);
 		break;
 
-		
+		/* write the word at location addr in the USER area */
 	case PTRACE_POKEUSR:
 		ret = -EIO;
 		if ((addr & 3) || addr > sizeof(struct user) - 3)
@@ -287,25 +327,25 @@ long arch_ptrace(struct task_struct *child, long request,
 					     data);
 		break;
 
-	case PTRACE_GETREGS:	
+	case PTRACE_GETREGS:	/* Get all integer regs from the child. */
 		return copy_regset_to_user(child, &user_mn10300_native_view,
 					   REGSET_GENERAL,
 					   0, NR_PTREGS * sizeof(long),
 					   datap);
 
-	case PTRACE_SETREGS:	
+	case PTRACE_SETREGS:	/* Set all integer regs in the child. */
 		return copy_regset_from_user(child, &user_mn10300_native_view,
 					     REGSET_GENERAL,
 					     0, NR_PTREGS * sizeof(long),
 					     datap);
 
-	case PTRACE_GETFPREGS:	
+	case PTRACE_GETFPREGS:	/* Get the child FPU state. */
 		return copy_regset_to_user(child, &user_mn10300_native_view,
 					   REGSET_FPU,
 					   0, sizeof(struct fpu_state_struct),
 					   datap);
 
-	case PTRACE_SETFPREGS:	
+	case PTRACE_SETFPREGS:	/* Set the child FPU state. */
 		return copy_regset_from_user(child, &user_mn10300_native_view,
 					     REGSET_FPU,
 					     0, sizeof(struct fpu_state_struct),
@@ -319,14 +359,26 @@ long arch_ptrace(struct task_struct *child, long request,
 	return ret;
 }
 
+/*
+ * handle tracing of system call entry
+ * - return the revised system call number or ULONG_MAX to cause ENOSYS
+ */
 asmlinkage unsigned long syscall_trace_entry(struct pt_regs *regs)
 {
 	if (tracehook_report_syscall_entry(regs))
+		/* tracing decided this syscall should not happen, so
+		 * We'll return a bogus call number to get an ENOSYS
+		 * error, but leave the original number in
+		 * regs->orig_d0
+		 */
 		return ULONG_MAX;
 
 	return regs->orig_d0;
 }
 
+/*
+ * handle tracing of system call exit
+ */
 asmlinkage void syscall_trace_exit(struct pt_regs *regs)
 {
 	tracehook_report_syscall_exit(regs, 0);

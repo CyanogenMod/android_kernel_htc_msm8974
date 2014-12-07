@@ -19,6 +19,13 @@
  * This driver is based upon drivers/rtc/rtc-cmos.c
  */
 
+/*
+ * Note:
+ *  * vRTC only supports binary mode and 24H mode
+ *  * vRTC only support PIE and AIE, no UIE, and its PIE only happens
+ *    at 23:59:59pm everyday, no support for adjustable frequency
+ *  * Alarm function is also limited to hr/min/sec.
+ */
 
 #include <linux/mod_devicetable.h>
 #include <linux/platform_device.h>
@@ -66,6 +73,19 @@ static inline unsigned char vrtc_is_updating(void)
 	return uip;
 }
 
+/*
+ * rtc_time's year contains the increment over 1900, but vRTC's YEAR
+ * register can't be programmed to value larger than 0x64, so vRTC
+ * driver chose to use 1972 (1970 is UNIX time start point) as the base,
+ * and does the translation at read/write time.
+ *
+ * Why not just use 1970 as the offset? it's because using 1972 will
+ * make it consistent in leap year setting for both vrtc and low-level
+ * physical rtc devices. Then why not use 1960 as the offset? If we use
+ * 1960, for a device's first use, its YEAR register is 0 and the system
+ * year will be parsed as 1960 which is not a valid UNIX time and will
+ * cause many applications to fail mysteriously.
+ */
 static int mrst_read_time(struct device *dev, struct rtc_time *time)
 {
 	unsigned long flags;
@@ -82,7 +102,7 @@ static int mrst_read_time(struct device *dev, struct rtc_time *time)
 	time->tm_year = vrtc_cmos_read(RTC_YEAR);
 	spin_unlock_irqrestore(&rtc_lock, flags);
 
-	
+	/* Adjust for the 1972/1900 */
 	time->tm_year += 72;
 	time->tm_mon--;
 	return rtc_valid_tm(time);
@@ -96,7 +116,7 @@ static int mrst_set_time(struct device *dev, struct rtc_time *time)
 	unsigned int yrs;
 
 	yrs = time->tm_year;
-	mon = time->tm_mon + 1;   
+	mon = time->tm_mon + 1;   /* tm_mon starts at zero */
 	day = time->tm_mday;
 	hrs = time->tm_hour;
 	min = time->tm_min;
@@ -129,11 +149,15 @@ static int mrst_read_alarm(struct device *dev, struct rtc_wkalrm *t)
 	if (mrst->irq <= 0)
 		return -EIO;
 
+	/* Basic alarms only support hour, minute, and seconds fields.
+	 * Some also support day and month, for alarms up to a year in
+	 * the future.
+	 */
 	t->time.tm_mday = -1;
 	t->time.tm_mon = -1;
 	t->time.tm_year = -1;
 
-	
+	/* vRTC only supports binary mode */
 	spin_lock_irq(&rtc_lock);
 	t->time.tm_sec = vrtc_cmos_read(RTC_SECONDS_ALARM);
 	t->time.tm_min = vrtc_cmos_read(RTC_MINUTES_ALARM);
@@ -152,6 +176,10 @@ static void mrst_checkintr(struct mrst_rtc *mrst, unsigned char rtc_control)
 {
 	unsigned char	rtc_intr;
 
+	/*
+	 * NOTE after changing RTC_xIE bits we always read INTR_FLAGS;
+	 * allegedly some older rtcs need that to handle irqs properly
+	 */
 	rtc_intr = vrtc_cmos_read(RTC_INTR_FLAGS);
 	rtc_intr &= (rtc_control & RTC_IRQMASK) | RTC_IRQF;
 	if (is_intr(rtc_intr))
@@ -162,6 +190,10 @@ static void mrst_irq_enable(struct mrst_rtc *mrst, unsigned char mask)
 {
 	unsigned char	rtc_control;
 
+	/*
+	 * Flush any pending IRQ status, notably for update irqs,
+	 * before we enable new IRQs
+	 */
 	rtc_control = vrtc_cmos_read(RTC_CONTROL);
 	mrst_checkintr(mrst, rtc_control);
 
@@ -195,10 +227,10 @@ static int mrst_set_alarm(struct device *dev, struct rtc_wkalrm *t)
 	sec = t->time.tm_sec;
 
 	spin_lock_irq(&rtc_lock);
-	
+	/* Next rtc irq must not be from previous alarm setting */
 	mrst_irq_disable(mrst, RTC_AIE);
 
-	
+	/* Update alarm */
 	vrtc_cmos_write(hrs, RTC_HOURS_ALARM);
 	vrtc_cmos_write(min, RTC_MINUTES_ALARM);
 	vrtc_cmos_write(sec, RTC_SECONDS_ALARM);
@@ -218,6 +250,7 @@ static int mrst_set_alarm(struct device *dev, struct rtc_wkalrm *t)
 	return 0;
 }
 
+/* Currently, the vRTC doesn't support UIE ON/OFF */
 static int mrst_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
 {
 	struct mrst_rtc	*mrst = dev_get_drvdata(dev);
@@ -268,12 +301,16 @@ static const struct rtc_class_ops mrst_rtc_ops = {
 
 static struct mrst_rtc	mrst_rtc;
 
+/*
+ * When vRTC IRQ is captured by SCU FW, FW will clear the AIE bit in
+ * Reg B, so no need for this driver to clear it
+ */
 static irqreturn_t mrst_rtc_irq(int irq, void *p)
 {
 	u8 irqstat;
 
 	spin_lock(&rtc_lock);
-	
+	/* This read will clear all IRQ flags inside Reg C */
 	irqstat = vrtc_cmos_read(RTC_INTR_FLAGS);
 	spin_unlock(&rtc_lock);
 
@@ -291,7 +328,7 @@ vrtc_mrst_do_probe(struct device *dev, struct resource *iomem, int rtc_irq)
 	int retval = 0;
 	unsigned char rtc_control;
 
-	
+	/* There can be only one ... */
 	if (mrst_rtc.dev)
 		return -EBUSY;
 
@@ -384,7 +421,7 @@ static int mrst_suspend(struct device *dev, pm_message_t mesg)
 	struct mrst_rtc	*mrst = dev_get_drvdata(dev);
 	unsigned char	tmp;
 
-	
+	/* Only the alarm might be a wakeup event source */
 	spin_lock_irq(&rtc_lock);
 	mrst->suspend_ctrl = tmp = vrtc_cmos_read(RTC_CONTROL);
 	if (tmp & (RTC_PIE | RTC_AIE)) {
@@ -413,6 +450,9 @@ static int mrst_suspend(struct device *dev, pm_message_t mesg)
 	return 0;
 }
 
+/*
+ * We want RTC alarms to wake us from the deep power saving state
+ */
 static inline int mrst_poweroff(struct device *dev)
 {
 	return mrst_suspend(dev, PMSG_HIBERNATE);
@@ -423,7 +463,7 @@ static int mrst_resume(struct device *dev)
 	struct mrst_rtc	*mrst = dev_get_drvdata(dev);
 	unsigned char tmp = mrst->suspend_ctrl;
 
-	
+	/* Re-enable any irqs previously active */
 	if (tmp & RTC_IRQMASK) {
 		unsigned char	mask;
 

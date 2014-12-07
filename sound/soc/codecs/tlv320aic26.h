@@ -8,22 +8,26 @@
 #ifndef _TLV320AIC16_H_
 #define _TLV320AIC16_H_
 
+/* AIC26 Registers */
 #define AIC26_READ_COMMAND_WORD(addr)	((1 << 15) | (addr << 5))
 #define AIC26_WRITE_COMMAND_WORD(addr)	((0 << 15) | (addr << 5))
 #define AIC26_PAGE_ADDR(page, offset)	((page << 6) | offset)
 #define AIC26_NUM_REGS			AIC26_PAGE_ADDR(3, 0)
 
+/* Page 0: Auxiliary data registers */
 #define AIC26_REG_BAT1			AIC26_PAGE_ADDR(0, 0x05)
 #define AIC26_REG_BAT2			AIC26_PAGE_ADDR(0, 0x06)
 #define AIC26_REG_AUX			AIC26_PAGE_ADDR(0, 0x07)
 #define AIC26_REG_TEMP1			AIC26_PAGE_ADDR(0, 0x09)
 #define AIC26_REG_TEMP2			AIC26_PAGE_ADDR(0, 0x0A)
 
+/* Page 1: Auxiliary control registers */
 #define AIC26_REG_AUX_ADC		AIC26_PAGE_ADDR(1, 0x00)
 #define AIC26_REG_STATUS		AIC26_PAGE_ADDR(1, 0x01)
 #define AIC26_REG_REFERENCE		AIC26_PAGE_ADDR(1, 0x03)
 #define AIC26_REG_RESET			AIC26_PAGE_ADDR(1, 0x04)
 
+/* Page 2: Audio control registers */
 #define AIC26_REG_AUDIO_CTRL1		AIC26_PAGE_ADDR(2, 0x00)
 #define AIC26_REG_ADC_GAIN		AIC26_PAGE_ADDR(2, 0x01)
 #define AIC26_REG_DAC_GAIN		AIC26_PAGE_ADDR(2, 0x02)
@@ -58,6 +62,7 @@
 #define AIC26_REG_AUDIO_CTRL4		AIC26_PAGE_ADDR(2, 0x1D)
 #define AIC26_REG_AUDIO_CTRL5		AIC26_PAGE_ADDR(2, 0x1E)
 
+/* fsref dividers; used in register 'Audio Control 1' */
 enum aic26_divisors {
 	AIC26_DIV_1	= 0,
 	AIC26_DIV_1_5	= 1,
@@ -69,13 +74,15 @@ enum aic26_divisors {
 	AIC26_DIV_6	= 7,
 };
 
+/* Digital data format */
 enum aic26_datfm {
 	AIC26_DATFM_I2S		= 0 << 8,
 	AIC26_DATFM_DSP		= 1 << 8,
-	AIC26_DATFM_RIGHTJ	= 2 << 8, 
-	AIC26_DATFM_LEFTJ	= 3 << 8, 
+	AIC26_DATFM_RIGHTJ	= 2 << 8, /* right justified */
+	AIC26_DATFM_LEFTJ	= 3 << 8, /* left justified */
 };
 
+/* Sample word length in bits; used in register 'Audio Control 1' */
 enum aic26_wlen {
 	AIC26_WLEN_16	= 0 << 10,
 	AIC26_WLEN_20	= 1 << 10,
@@ -83,4 +90,4 @@ enum aic26_wlen {
 	AIC26_WLEN_32	= 3 << 10,
 };
 
-#endif 
+#endif /* _TLV320AIC16_H_ */

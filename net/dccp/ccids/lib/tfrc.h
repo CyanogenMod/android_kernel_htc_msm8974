@@ -16,6 +16,7 @@
 #include <linux/math64.h>
 #include "../../dccp.h"
 
+/* internal includes that this library exports: */
 #include "loss_interval.h"
 #include "packet_history.h"
 
@@ -26,6 +27,7 @@ extern bool tfrc_debug;
 #define tfrc_pr_debug(format, a...)
 #endif
 
+/* integer-arithmetic divisions of type (a * 1000000)/b */
 static inline u64 scaled_div(u64 a, u64 b)
 {
 	BUG_ON(b == 0);
@@ -44,6 +46,10 @@ static inline u32 scaled_div32(u64 a, u64 b)
 	return result;
 }
 
+/**
+ * tfrc_ewma  -  Exponentially weighted moving average
+ * @weight: Weight to be used as damping factor, in units of 1/10
+ */
 static inline u32 tfrc_ewma(const u32 avg, const u32 newval, const u8 weight)
 {
 	return avg ? (weight * avg + (10 - weight) * newval) / 10 : newval;
@@ -68,4 +74,4 @@ extern void tfrc_lib_exit(void);
 #define tfrc_lib_init() (0)
 #define tfrc_lib_exit()
 #endif
-#endif 
+#endif /* _TFRC_H_ */

@@ -30,4 +30,4 @@ static inline unsigned long __fls(unsigned long x)
 #include <asm-generic/bitops/__fls.h>
 #endif
 
-#endif 
+#endif /* __ASM_OPENRISC___FLS_H */

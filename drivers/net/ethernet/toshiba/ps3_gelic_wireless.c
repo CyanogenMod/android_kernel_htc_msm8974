@@ -51,7 +51,11 @@ static int gelic_wl_start_scan(struct gelic_wl_info *wl, int always_scan,
 			       u8 *essid, size_t essid_len);
 static int gelic_wl_try_associate(struct net_device *netdev);
 
+/*
+ * tables
+ */
 
+/* 802.11b/g channel to freq in MHz */
 static const int channel_freq[] = {
 	2412, 2417, 2422, 2427, 2432,
 	2437, 2442, 2447, 2452, 2457,
@@ -59,6 +63,7 @@ static const int channel_freq[] = {
 };
 #define NUM_CHANNELS ARRAY_SIZE(channel_freq)
 
+/* in bps */
 static const int bitrate_list[] = {
 	  1000000,
 	  2000000,
@@ -75,6 +80,9 @@ static const int bitrate_list[] = {
 };
 #define NUM_BITRATES ARRAY_SIZE(bitrate_list)
 
+/*
+ * wpa2 support requires the hypervisor version 2.0 or later
+ */
 static inline int wpa2_capable(void)
 {
 	return 0 <= ps3_compare_firmware_version(2, 0, 0);
@@ -84,9 +92,12 @@ static inline int precise_ie(void)
 {
 	return 0 <= ps3_compare_firmware_version(2, 2, 0);
 }
+/*
+ * post_eurus_cmd helpers
+ */
 struct eurus_cmd_arg_info {
-	int pre_arg; 
-	int post_arg; 
+	int pre_arg; /* command requires arg1, arg2 at POST COMMAND */
+	int post_arg; /* command requires arg1, arg2 at GET_RESULT */
 };
 
 static const struct eurus_cmd_arg_info cmd_info[GELIC_EURUS_CMD_MAX_INDEX] = {
@@ -139,6 +150,7 @@ static inline const char *cmdstr(enum gelic_eurus_command ix)
 }
 #endif
 
+/* synchronously do eurus commands */
 static void gelic_eurus_sync_cmd_worker(struct work_struct *work)
 {
 	struct gelic_eurus_cmd *cmd;
@@ -208,12 +220,12 @@ static struct gelic_eurus_cmd *gelic_eurus_sync_cmd(struct gelic_wl_info *wl,
 {
 	struct gelic_eurus_cmd *cmd;
 
-	
+	/* allocate cmd */
 	cmd = kzalloc(sizeof(*cmd), GFP_KERNEL);
 	if (!cmd)
 		return NULL;
 
-	
+	/* initialize members */
 	cmd->cmd = eurus_cmd;
 	cmd->buffer = buffer;
 	cmd->buf_size = buf_size;
@@ -222,7 +234,7 @@ static struct gelic_eurus_cmd *gelic_eurus_sync_cmd(struct gelic_wl_info *wl,
 	init_completion(&cmd->done);
 	queue_work(wl->eurus_cmd_queue, &cmd->work);
 
-	
+	/* wait for command completion */
 	wait_for_completion(&cmd->done);
 
 	return cmd;
@@ -256,7 +268,11 @@ static void gelic_wl_send_iwap_event(struct gelic_wl_info *wl, u8 *bssid)
 			    &data, NULL);
 }
 
+/*
+ * wireless extension handlers and helpers
+ */
 
+/* SIOGIWNAME */
 static int gelic_wl_get_name(struct net_device *dev,
 			     struct iw_request_info *info,
 			     union iwreq_data *iwreq, char *extra)
@@ -276,17 +292,18 @@ static void gelic_wl_get_ch_info(struct gelic_wl_info *wl)
 					 GELIC_LV1_GET_CHANNEL, 0, 0, 0,
 					 &ch_info_raw,
 					 &tmp);
-		
+		/* some fw versions may return error */
 		if (status) {
 			if (status != LV1_NO_ENTRY)
 				pr_info("%s: available ch unknown\n", __func__);
-			wl->ch_info = 0x07ff;
+			wl->ch_info = 0x07ff;/* 11 ch */
 		} else
-			
+			/* 16 bits of MSB has available channels */
 			wl->ch_info = ch_info_raw >> 48;
 	}
 }
 
+/* SIOGIWRANGE */
 static int gelic_wl_get_range(struct net_device *netdev,
 			      struct iw_request_info *info,
 			      union iwreq_data *iwreq, char *extra)
@@ -303,7 +320,7 @@ static int gelic_wl_get_range(struct net_device *netdev,
 	range->we_version_compiled = WIRELESS_EXT;
 	range->we_version_source = 22;
 
-	
+	/* available channels and frequencies */
 	gelic_wl_get_ch_info(wl);
 
 	for (i = 0, chs = 0;
@@ -319,36 +336,36 @@ static int gelic_wl_get_range(struct net_device *netdev,
 	range->num_channels = chs;
 	range->old_num_channels = chs;
 
-	
+	/* bitrates */
 	for (i = 0; i < NUM_BITRATES; i++)
 		range->bitrate[i] = bitrate_list[i];
 	range->num_bitrates = i;
 
-	
-	range->max_qual.qual = 100; 
+	/* signal levels */
+	range->max_qual.qual = 100; /* relative value */
 	range->max_qual.level = 100;
 	range->avg_qual.qual = 50;
 	range->avg_qual.level = 50;
 	range->sensitivity = 0;
 
-	
+	/* Event capability */
 	IW_EVENT_CAPA_SET_KERNEL(range->event_capa);
 	IW_EVENT_CAPA_SET(range->event_capa, SIOCGIWAP);
 	IW_EVENT_CAPA_SET(range->event_capa, SIOCGIWSCAN);
 
-	
+	/* encryption capability */
 	range->enc_capa = IW_ENC_CAPA_WPA |
 		IW_ENC_CAPA_CIPHER_TKIP | IW_ENC_CAPA_CIPHER_CCMP |
 		IW_ENC_CAPA_4WAY_HANDSHAKE;
 	if (wpa2_capable())
 		range->enc_capa |= IW_ENC_CAPA_WPA2;
-	range->encoding_size[0] = 5;	
-	range->encoding_size[1] = 13;	
-	range->encoding_size[2] = 32;	
+	range->encoding_size[0] = 5;	/* 40bit WEP */
+	range->encoding_size[1] = 13;	/* 104bit WEP */
+	range->encoding_size[2] = 32;	/* WPA-PSK */
 	range->num_encoding_sizes = 3;
 	range->max_encoding_tokens = GELIC_WEP_KEYS;
 
-	
+	/* scan capability */
 	range->scan_capa = IW_SCAN_CAPA_ESSID;
 
 	pr_debug("%s: ->\n", __func__);
@@ -356,6 +373,7 @@ static int gelic_wl_get_range(struct net_device *netdev,
 
 }
 
+/* SIOC{G,S}IWSCAN */
 static int gelic_wl_set_scan(struct net_device *netdev,
 			   struct iw_request_info *info,
 			   union iwreq_data *wrqu, char *extra)
@@ -379,6 +397,11 @@ static int gelic_wl_set_scan(struct net_device *netdev,
 static const u8 rsn_oui[OUI_LEN] = { 0x00, 0x0f, 0xac };
 static const u8 wpa_oui[OUI_LEN] = { 0x00, 0x50, 0xf2 };
 
+/*
+ * synthesize WPA/RSN IE data
+ * See WiFi WPA specification and IEEE 802.11-2007 7.3.2.25
+ * for the format
+ */
 static size_t gelic_wl_synthesize_ie(u8 *buf,
 				     struct gelic_eurus_scan_info *scan)
 {
@@ -397,7 +420,7 @@ static size_t gelic_wl_synthesize_ie(u8 *buf,
 		rsn = 1;
 		break;
 	default:
-		
+		/* WEP or none.  No IE returned */
 		return 0;
 	}
 
@@ -425,61 +448,61 @@ static size_t gelic_wl_synthesize_ie(u8 *buf,
 	else
 		oui_header = wpa_oui;
 
-	
+	/* element id */
 	if (rsn)
 		*buf++ = WLAN_EID_RSN;
 	else
 		*buf++ = WLAN_EID_GENERIC;
 
-	
+	/* length filed; set later */
 	buf++;
 
-	
+	/* wpa special header */
 	if (!rsn) {
 		memcpy(buf, wpa_oui, OUI_LEN);
 		buf += OUI_LEN;
 		*buf++ = 0x01;
 	}
 
-	
-	*buf++ = 0x01; 
+	/* version */
+	*buf++ = 0x01; /* version 1.0 */
 	*buf++ = 0x00;
 
-	
+	/* group cipher */
 	memcpy(buf, oui_header, OUI_LEN);
 	buf += OUI_LEN;
 
 	if (ccmp)
-		*buf++ = 0x04; 
+		*buf++ = 0x04; /* CCMP */
 	else
-		*buf++ = 0x02; 
+		*buf++ = 0x02; /* TKIP */
 
-	
+	/* pairwise key count always 1 */
 	*buf++ = 0x01;
 	*buf++ = 0x00;
 
-	
+	/* pairwise key suit */
 	memcpy(buf, oui_header, OUI_LEN);
 	buf += OUI_LEN;
 	if (ccmp)
-		*buf++ = 0x04; 
+		*buf++ = 0x04; /* CCMP */
 	else
-		*buf++ = 0x02; 
+		*buf++ = 0x02; /* TKIP */
 
-	
+	/* AKM count is 1 */
 	*buf++ = 0x01;
 	*buf++ = 0x00;
 
-	
+	/* AKM suite is assumed as PSK*/
 	memcpy(buf, oui_header, OUI_LEN);
 	buf += OUI_LEN;
-	*buf++ = 0x02; 
+	*buf++ = 0x02; /* PSK */
 
-	
+	/* RSN capabilities is 0 */
 	*buf++ = 0x00;
 	*buf++ = 0x00;
 
-	
+	/* set length field */
 	start[1] = (buf - start - 2);
 
 	pr_debug("%s: ->\n", __func__);
@@ -527,7 +550,7 @@ static void gelic_wl_parse_ie(u8 *data, size_t len,
 			break;
 		case WLAN_EID_RSN:
 			ie_info->rsn.data = pos - 2;
-			
+			/* length includes the header */
 			ie_info->rsn.len = item_len + 2;
 			break;
 		default:
@@ -544,6 +567,10 @@ static void gelic_wl_parse_ie(u8 *data, size_t len,
 }
 
 
+/*
+ * translate the scan informations from hypervisor to a
+ * independent format
+ */
 static char *gelic_wl_translate_scan(struct net_device *netdev,
 				     struct iw_request_info *info,
 				     char *ev,
@@ -555,35 +582,35 @@ static char *gelic_wl_translate_scan(struct net_device *netdev,
 	char *tmp;
 	u8 rate;
 	unsigned int i, j, len;
-	u8 buf[64]; 
+	u8 buf[64]; /* arbitrary size large enough */
 
 	pr_debug("%s: <-\n", __func__);
 
-	
+	/* first entry should be AP's mac address */
 	iwe.cmd = SIOCGIWAP;
 	iwe.u.ap_addr.sa_family = ARPHRD_ETHER;
 	memcpy(iwe.u.ap_addr.sa_data, &scan->bssid[2], ETH_ALEN);
 	ev = iwe_stream_add_event(info, ev, stop, &iwe, IW_EV_ADDR_LEN);
 
-	
+	/* ESSID */
 	iwe.cmd = SIOCGIWESSID;
 	iwe.u.data.flags = 1;
 	iwe.u.data.length = strnlen(scan->essid, 32);
 	ev = iwe_stream_add_point(info, ev, stop, &iwe, scan->essid);
 
-	
+	/* FREQUENCY */
 	iwe.cmd = SIOCGIWFREQ;
 	iwe.u.freq.m = be16_to_cpu(scan->channel);
-	iwe.u.freq.e = 0; 
+	iwe.u.freq.e = 0; /* table value in MHz */
 	iwe.u.freq.i = 0;
 	ev = iwe_stream_add_event(info, ev, stop, &iwe, IW_EV_FREQ_LEN);
 
-	
+	/* RATES */
 	iwe.cmd = SIOCGIWRATE;
 	iwe.u.bitrate.fixed = iwe.u.bitrate.disabled = 0;
-	
+	/* to stuff multiple values in one event */
 	tmp = ev + iwe_stream_lcp_len(info);
-	
+	/* put them in ascendant order (older is first) */
 	i = 0;
 	j = 0;
 	pr_debug("%s: rates=%d rate=%d\n", __func__,
@@ -594,7 +621,7 @@ static char *gelic_wl_translate_scan(struct net_device *netdev,
 		    rate = scan->ext_rate[j++] & 0x7f;
 		else
 		    rate = scan->rate[i++] & 0x7f;
-		iwe.u.bitrate.value = rate * 500000; 
+		iwe.u.bitrate.value = rate * 500000; /* 500kbps unit */
 		tmp = iwe_stream_add_value(info, ev, tmp, stop, &iwe,
 					   IW_EV_PARAM_LEN);
 	}
@@ -603,11 +630,11 @@ static char *gelic_wl_translate_scan(struct net_device *netdev,
 		tmp = iwe_stream_add_value(info, ev, tmp, stop, &iwe,
 					   IW_EV_PARAM_LEN);
 	}
-	
+	/* Check if we added any rate */
 	if (iwe_stream_lcp_len(info) < (tmp - ev))
 		ev = tmp;
 
-	
+	/* ENCODE */
 	iwe.cmd = SIOCGIWENCODE;
 	if (be16_to_cpu(scan->capability) & WLAN_CAPABILITY_PRIVACY)
 		iwe.u.data.flags = IW_ENCODE_ENABLED | IW_ENCODE_NOKEY;
@@ -616,7 +643,7 @@ static char *gelic_wl_translate_scan(struct net_device *netdev,
 	iwe.u.data.length = 0;
 	ev = iwe_stream_add_point(info, ev, stop, &iwe, scan->essid);
 
-	
+	/* MODE */
 	iwe.cmd = SIOCGIWMODE;
 	if (be16_to_cpu(scan->capability) &
 	    (WLAN_CAPABILITY_ESS | WLAN_CAPABILITY_IBSS)) {
@@ -627,7 +654,7 @@ static char *gelic_wl_translate_scan(struct net_device *netdev,
 		ev = iwe_stream_add_event(info, ev, stop, &iwe, IW_EV_UINT_LEN);
 	}
 
-	
+	/* QUAL */
 	iwe.cmd = IWEVQUAL;
 	iwe.u.qual.updated  = IW_QUAL_ALL_UPDATED |
 			IW_QUAL_QUAL_INVALID | IW_QUAL_NOISE_INVALID;
@@ -636,10 +663,10 @@ static char *gelic_wl_translate_scan(struct net_device *netdev,
 	iwe.u.qual.noise = 0;
 	ev  = iwe_stream_add_event(info, ev, stop, &iwe, IW_EV_QUAL_LEN);
 
-	
+	/* RSN */
 	memset(&iwe, 0, sizeof(iwe));
 	if (be16_to_cpu(scan->size) <= sizeof(*scan)) {
-		
+		/* If wpa[2] capable station, synthesize IE and put it */
 		len = gelic_wl_synthesize_ie(buf, scan);
 		if (len) {
 			iwe.cmd = IWEVGENIE;
@@ -647,7 +674,7 @@ static char *gelic_wl_translate_scan(struct net_device *netdev,
 			ev = iwe_stream_add_point(info, ev, stop, &iwe, buf);
 		}
 	} else {
-		
+		/* this scan info has IE data */
 		struct ie_info ie_info;
 		size_t data_len;
 
@@ -693,18 +720,18 @@ static int gelic_wl_get_scan(struct net_device *netdev,
 
 	switch (wl->scan_stat) {
 	case GELIC_WL_SCAN_STAT_SCANNING:
-		
+		/* If a scan in progress, caller should call me again */
 		ret = -EAGAIN;
 		goto out;
 		break;
 
 	case GELIC_WL_SCAN_STAT_INIT:
-		
+		/* last scan request failed or never issued */
 		ret = -ENODEV;
 		goto out;
 		break;
 	case GELIC_WL_SCAN_STAT_GOT_LIST:
-		
+		/* ok, use current list */
 		break;
 	}
 
@@ -747,7 +774,7 @@ static void scan_list_dump(struct gelic_wl_info *wl)
 		pr_debug("r_len=%d r_ext_len=%d essid_len=%d\n",
 			 scan_info->rate_len, scan_info->rate_ext_len,
 			 scan_info->essid_len);
-		
+		/* -- */
 		pr_debug("bssid=%pM\n", &scan_info->hwinfo->bssid[2]);
 		pr_debug("essid=%s\n", scan_info->hwinfo->essid);
 	}
@@ -781,6 +808,15 @@ static int gelic_wl_set_auth(struct net_device *netdev,
 			wl->auth_method = GELIC_EURUS_AUTH_OPEN;
 		}
 		if (param->value & IW_AUTH_WPA_VERSION_WPA2) {
+			/*
+			 * As the hypervisor may not tell the cipher
+			 * information of the AP if it is WPA2,
+			 * you will not decide suitable cipher from
+			 * its beacon.
+			 * You should have knowledge about the AP's
+			 * cipher information in other method prior to
+			 * the association.
+			 */
 			if (!precise_ie())
 				pr_info("%s: WPA2 may not work\n", __func__);
 			if (wpa2_capable()) {
@@ -856,7 +892,7 @@ static int gelic_wl_set_auth(struct net_device *netdev,
 	case IW_AUTH_KEY_MGMT:
 		if (param->value & IW_AUTH_KEY_MGMT_PSK)
 			break;
-		
+		/* intentionally fall through */
 	default:
 		ret = -EOPNOTSUPP;
 		break;
@@ -922,6 +958,7 @@ static int gelic_wl_get_auth(struct net_device *netdev,
 	return ret;
 }
 
+/* SIOC{S,G}IWESSID */
 static int gelic_wl_set_essid(struct net_device *netdev,
 			      struct iw_request_info *info,
 			      union iwreq_data *data, char *extra)
@@ -948,7 +985,7 @@ static int gelic_wl_set_essid(struct net_device *netdev,
 	spin_unlock_irqrestore(&wl->lock, irqflag);
 
 
-	gelic_wl_try_associate(netdev); 
+	gelic_wl_try_associate(netdev); /* FIXME */
 	pr_debug("%s: ->\n", __func__);
 	return 0;
 }
@@ -978,6 +1015,7 @@ static int gelic_wl_get_essid(struct net_device *netdev,
 	return 0;
 }
 
+/* SIO{S,G}IWENCODE */
 static int gelic_wl_set_encode(struct net_device *netdev,
 			       struct iw_request_info *info,
 			       union iwreq_data *data, char *extra)
@@ -1010,7 +1048,7 @@ static int gelic_wl_set_encode(struct net_device *netdev,
 	}
 
 	if (flags & IW_ENCODE_NOKEY) {
-		
+		/* if just IW_ENCODE_NOKEY, change current key index */
 		if (!flags && index_specified) {
 			wl->current_key = key_index;
 			goto done;
@@ -1018,11 +1056,11 @@ static int gelic_wl_set_encode(struct net_device *netdev,
 
 		if (flags & IW_ENCODE_DISABLED) {
 			if (!index_specified) {
-				
+				/* disable encryption */
 				wl->group_cipher_method = GELIC_WL_CIPHER_NONE;
 				wl->pairwise_cipher_method =
 					GELIC_WL_CIPHER_NONE;
-				
+				/* invalidate all key */
 				wl->key_enabled = 0;
 			} else
 				clear_bit(key_index, &wl->key_enabled);
@@ -1110,6 +1148,7 @@ done:
 	return ret;
 }
 
+/* SIOC{S,G}IWAP */
 static int gelic_wl_set_ap(struct net_device *netdev,
 			   struct iw_request_info *info,
 			   union iwreq_data *data, char *extra)
@@ -1161,6 +1200,7 @@ static int gelic_wl_get_ap(struct net_device *netdev,
 	return 0;
 }
 
+/* SIOC{S,G}IWENCODEEXT */
 static int gelic_wl_set_encodeext(struct net_device *netdev,
 				  struct iw_request_info *info,
 				  union iwreq_data *data, char *extra)
@@ -1195,7 +1235,7 @@ static int gelic_wl_set_encodeext(struct net_device *netdev,
 		key_index = wl->current_key;
 
 	if (!enc->length && (ext->ext_flags & IW_ENCODE_EXT_SET_TX_KEY)) {
-		
+		/* reques to change default key index */
 		pr_debug("%s: request to change default key to %d\n",
 			 __func__, key_index);
 		wl->current_key = key_index;
@@ -1207,7 +1247,7 @@ static int gelic_wl_set_encodeext(struct net_device *netdev,
 		wl->wpa_level = GELIC_WL_WPA_LEVEL_NONE;
 		wl->group_cipher_method = GELIC_WL_CIPHER_NONE;
 		wl->pairwise_cipher_method = GELIC_WL_CIPHER_NONE;
-		wl->auth_method = GELIC_EURUS_AUTH_OPEN; 
+		wl->auth_method = GELIC_EURUS_AUTH_OPEN; /* should be open */
 	} else if (alg == IW_ENCODE_ALG_WEP) {
 		pr_debug("%s: WEP requested\n", __func__);
 		if (flags & IW_ENCODE_OPEN) {
@@ -1224,12 +1264,12 @@ static int gelic_wl_set_encodeext(struct net_device *netdev,
 			ret = -EINVAL;
 			goto done;
 		}
-		
+		/* OK, update the key */
 		wl->key_len[key_index] = ext->key_len;
 		memset(wl->key[key_index], 0, IW_ENCODING_TOKEN_MAX);
 		memcpy(wl->key[key_index], ext->key, ext->key_len);
 		set_bit(key_index, &wl->key_enabled);
-		
+		/* remember wep info changed */
 		set_bit(GELIC_WL_STAT_CONFIGURED, &wl->stat);
 	} else if (alg == IW_ENCODE_ALG_PMK) {
 		if (ext->key_len != WPA_PSK_LEN) {
@@ -1242,7 +1282,7 @@ static int gelic_wl_set_encodeext(struct net_device *netdev,
 		memcpy(wl->psk, ext->key, ext->key_len);
 		wl->psk_len = ext->key_len;
 		wl->psk_type = GELIC_EURUS_WPA_PSK_BIN;
-		
+		/* remember PSK configured */
 		set_bit(GELIC_WL_STAT_WPA_PSK_SET, &wl->stat);
 	}
 done:
@@ -1321,6 +1361,7 @@ out:
 	pr_debug("%s: ->\n", __func__);
 	return ret;
 }
+/* SIOC{S,G}IWMODE */
 static int gelic_wl_set_mode(struct net_device *netdev,
 			     struct iw_request_info *info,
 			     union iwreq_data *data, char *extra)
@@ -1348,6 +1389,7 @@ static int gelic_wl_get_mode(struct net_device *netdev,
 	return 0;
 }
 
+/* SIOCGIWNICKN */
 static int gelic_wl_get_nick(struct net_device *net_dev,
 				  struct iw_request_info *info,
 				  union iwreq_data *data, char *extra)
@@ -1359,6 +1401,7 @@ static int gelic_wl_get_nick(struct net_device *net_dev,
 }
 
 
+/* --- */
 
 static struct iw_statistics *gelic_wl_get_wireless_stats(
 	struct net_device *netdev)
@@ -1386,7 +1429,7 @@ static struct iw_statistics *gelic_wl_get_wireless_stats(
 		is->qual.updated = IW_QUAL_LEVEL_UPDATED |
 			IW_QUAL_QUAL_INVALID | IW_QUAL_NOISE_INVALID;
 	} else
-		
+		/* not associated */
 		is->qual.updated = IW_QUAL_ALL_INVALID;
 
 	kfree(cmd);
@@ -1395,6 +1438,9 @@ static struct iw_statistics *gelic_wl_get_wireless_stats(
 	return is;
 }
 
+/*
+ *  scanning helpers
+ */
 static int gelic_wl_start_scan(struct gelic_wl_info *wl, int always_scan,
 			       u8 *essid, size_t essid_len)
 {
@@ -1407,12 +1453,19 @@ static int gelic_wl_start_scan(struct gelic_wl_info *wl, int always_scan,
 	if (mutex_lock_interruptible(&wl->scan_lock))
 		return -ERESTARTSYS;
 
+	/*
+	 * If already a scan in progress, do not trigger more
+	 */
 	if (wl->scan_stat == GELIC_WL_SCAN_STAT_SCANNING) {
 		pr_debug("%s: scanning now\n", __func__);
 		goto out;
 	}
 
 	init_completion(&wl->scan_done);
+	/*
+	 * If we have already a bss list, don't try to get new
+	 * unless we are doing an ESSID scan
+	 */
 	if ((!essid_len && !always_scan)
 	    && wl->scan_stat == GELIC_WL_SCAN_STAT_GOT_LIST) {
 		pr_debug("%s: already has the list\n", __func__);
@@ -1420,20 +1473,23 @@ static int gelic_wl_start_scan(struct gelic_wl_info *wl, int always_scan,
 		goto out;
 	}
 
-	
+	/* ESSID scan ? */
 	if (essid_len && essid) {
 		buf = (void *)__get_free_page(GFP_KERNEL);
 		if (!buf) {
 			ret = -ENOMEM;
 			goto out;
 		}
-		len = IW_ESSID_MAX_SIZE; 
+		len = IW_ESSID_MAX_SIZE; /* hypervisor always requires 32 */
 		memset(buf, 0, len);
 		memcpy(buf, essid, essid_len);
 		pr_debug("%s: essid scan='%s'\n", __func__, (char *)buf);
 	} else
 		len = 0;
 
+	/*
+	 * issue start scan request
+	 */
 	wl->scan_stat = GELIC_WL_SCAN_STAT_SCANNING;
 	cmd = gelic_eurus_sync_cmd(wl, GELIC_EURUS_CMD_START_SCAN,
 				   buf, len);
@@ -1451,6 +1507,10 @@ out:
 	return ret;
 }
 
+/*
+ * retrieve scan result from the chip (hypervisor)
+ * this function is invoked by schedule work.
+ */
 static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 {
 	struct gelic_eurus_cmd *cmd = NULL;
@@ -1473,6 +1533,9 @@ static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 	}
 
 	if (wl->scan_stat != GELIC_WL_SCAN_STAT_SCANNING) {
+		/*
+		 * stop() may be called while scanning, ignore result
+		 */
 		pr_debug("%s: scan complete when stat != scanning(%d)\n",
 			 __func__, wl->scan_stat);
 		goto out;
@@ -1490,13 +1553,13 @@ static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 	pr_debug("%s: data_len = %d\n", __func__, data_len);
 	kfree(cmd);
 
-	
+	/* OK, bss list retrieved */
 	wl->scan_stat = GELIC_WL_SCAN_STAT_GOT_LIST;
 
-	
+	/* mark all entries are old */
 	list_for_each_entry_safe(target, tmp, &wl->network_list, list) {
 		target->valid = 0;
-		
+		/* expire too old entries */
 		if (time_before(target->last_scanned + wl->scan_age,
 				this_time)) {
 			kfree(target->hwinfo);
@@ -1505,7 +1568,7 @@ static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 		}
 	}
 
-	
+	/* put them in the network_list */
 	for (i = 0, scan_info_size = 0, scan_info = buf;
 	     scan_info_size < data_len;
 	     i++, scan_info_size += be16_to_cpu(scan_info->size),
@@ -1514,6 +1577,11 @@ static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 			 be16_to_cpu(scan_info->size),
 			 &scan_info->bssid[2], scan_info);
 
+		/*
+		 * The wireless firmware may return invalid channel 0 and/or
+		 * invalid rate if the AP emits zero length SSID ie. As this
+		 * scan information is useless, ignore it
+		 */
 		if (!be16_to_cpu(scan_info->channel) || !scan_info->rate[0]) {
 			pr_debug("%s: invalid scan info\n", __func__);
 			continue;
@@ -1535,9 +1603,9 @@ static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 		}
 
 		if (!found) {
-			
+			/* not found in the list */
 			if (list_empty(&wl->network_free_list)) {
-				
+				/* expire oldest */
 				target = oldest;
 			} else {
 				target = list_entry(wl->network_free_list.next,
@@ -1546,7 +1614,7 @@ static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 			}
 		}
 
-		
+		/* update the item */
 		target->last_scanned = this_time;
 		target->valid = 1;
 		target->eurus_index = i;
@@ -1556,7 +1624,7 @@ static void gelic_wl_scan_complete_event(struct gelic_wl_info *wl)
 		if (!target->hwinfo)
 			continue;
 
-		
+		/* copy hw scan info */
 		memcpy(target->hwinfo, scan_info, scan_info->size);
 		target->essid_len = strnlen(scan_info->essid,
 					    sizeof(scan_info->essid));
@@ -1583,6 +1651,12 @@ out:
 	pr_debug("%s:end\n", __func__);
 }
 
+/*
+ * Select an appropriate bss from current scan list regarding
+ * current settings from userspace.
+ * The caller must hold wl->scan_lock,
+ * and on the state of wl->scan_state == GELIC_WL_SCAN_GOT_LIST
+ */
 static void update_best(struct gelic_wl_scan_info **best,
 			struct gelic_wl_scan_info *candid,
 			int *best_weight,
@@ -1615,7 +1689,7 @@ struct gelic_wl_scan_info *gelic_wl_find_best_bss(struct gelic_wl_info *wl)
 			continue;
 		}
 
-		
+		/* If bss specified, check it only */
 		if (test_bit(GELIC_WL_STAT_BSSID_SET, &wl->stat)) {
 			if (!compare_ether_addr(&scan_info->hwinfo->bssid[2],
 						wl->bssid)) {
@@ -1630,7 +1704,7 @@ struct gelic_wl_scan_info *gelic_wl_find_best_bss(struct gelic_wl_info *wl)
 
 		weight = 0;
 
-		
+		/* security */
 		security = be16_to_cpu(scan_info->hwinfo->security) &
 			GELIC_EURUS_SCAN_SEC_MASK;
 		if (wl->wpa_level == GELIC_WL_WPA_LEVEL_WPA2) {
@@ -1654,7 +1728,7 @@ struct gelic_wl_scan_info *gelic_wl_find_best_bss(struct gelic_wl_info *wl)
 				continue;
 		}
 
-		
+		/* If ESSID is set, check it */
 		if (test_bit(GELIC_WL_STAT_ESSID_SET, &wl->stat)) {
 			if ((scan_info->essid_len == wl->essid_len) &&
 			    !strncmp(wl->essid,
@@ -1677,6 +1751,11 @@ struct gelic_wl_scan_info *gelic_wl_find_best_bss(struct gelic_wl_info *wl)
 	return best_bss;
 }
 
+/*
+ * Setup WEP configuration to the chip
+ * The caller must hold wl->scan_lock,
+ * and on the state of wl->scan_state == GELIC_WL_SCAN_GOT_LIST
+ */
 static int gelic_wl_do_wep_setup(struct gelic_wl_info *wl)
 {
 	unsigned int i;
@@ -1687,7 +1766,7 @@ static int gelic_wl_do_wep_setup(struct gelic_wl_info *wl)
 	int ret = 0;
 
 	pr_debug("%s: <-\n", __func__);
-	
+	/* we can assume no one should uses the buffer */
 	wep = (struct gelic_eurus_wep_cfg *)__get_free_page(GFP_KERNEL);
 	if (!wep)
 		return -ENOMEM;
@@ -1731,7 +1810,7 @@ static int gelic_wl_do_wep_setup(struct gelic_wl_info *wl)
 		wep->security = cpu_to_be16(GELIC_EURUS_WEP_SEC_NONE);
 	}
 
-	
+	/* issue wep setup */
 	cmd = gelic_eurus_sync_cmd(wl, GELIC_EURUS_CMD_SET_WEP_CFG,
 				   wep, sizeof(*wep));
 	if (!cmd)
@@ -1784,7 +1863,7 @@ static int gelic_wl_do_wpa_setup(struct gelic_wl_info *wl)
 	int ret = 0;
 
 	pr_debug("%s: <-\n", __func__);
-	
+	/* we can assume no one should uses the buffer */
 	wpa = (struct gelic_eurus_wpa_cfg *)__get_free_page(GFP_KERNEL);
 	if (!wpa)
 		return -ENOMEM;
@@ -1794,10 +1873,10 @@ static int gelic_wl_do_wpa_setup(struct gelic_wl_info *wl)
 	if (!test_bit(GELIC_WL_STAT_WPA_PSK_SET, &wl->stat))
 		pr_info("%s: PSK not configured yet\n", __func__);
 
-	
+	/* copy key */
 	memcpy(wpa->psk, wl->psk, wl->psk_len);
 
-	
+	/* set security level */
 	if (wl->wpa_level == GELIC_WL_WPA_LEVEL_WPA2) {
 		if (wl->group_cipher_method == GELIC_WL_CIPHER_AES) {
 			security = GELIC_EURUS_WPA_SEC_WPA2_AES_AES;
@@ -1821,7 +1900,7 @@ static int gelic_wl_do_wpa_setup(struct gelic_wl_info *wl)
 	}
 	wpa->security = cpu_to_be16(security);
 
-	
+	/* PSK type */
 	wpa->psk_type = cpu_to_be16(wl->psk_type);
 #ifdef DEBUG
 	pr_debug("%s: sec=%s psktype=%s\n", __func__,
@@ -1829,12 +1908,17 @@ static int gelic_wl_do_wpa_setup(struct gelic_wl_info *wl)
 		 (wpa->psk_type == GELIC_EURUS_WPA_PSK_BIN) ?
 		 "BIN" : "passphrase");
 #if 0
+	/*
+	 * don't enable here if you plan to submit
+	 * the debug log because this dumps your precious
+	 * passphrase/key.
+	 */
 	pr_debug("%s: psk=%s\n", __func__,
 		 (wpa->psk_type == GELIC_EURUS_WPA_PSK_BIN) ?
 		 "N/A" : wpa->psk);
 #endif
 #endif
-	
+	/* issue wpa setup */
 	cmd = gelic_eurus_sync_cmd(wl, GELIC_EURUS_CMD_SET_WPA_CFG,
 				   wpa, sizeof(*wpa));
 	if (!cmd)
@@ -1847,6 +1931,9 @@ static int gelic_wl_do_wpa_setup(struct gelic_wl_info *wl)
 	return ret;
 }
 
+/*
+ * Start association. caller must hold assoc_stat_lock
+ */
 static int gelic_wl_associate_bss(struct gelic_wl_info *wl,
 				  struct gelic_wl_scan_info *bss)
 {
@@ -1857,7 +1944,7 @@ static int gelic_wl_associate_bss(struct gelic_wl_info *wl,
 
 	pr_debug("%s: <-\n", __func__);
 
-	
+	/* do common config */
 	common = (struct gelic_eurus_common_cfg *)__get_free_page(GFP_KERNEL);
 	if (!common)
 		return -ENOMEM;
@@ -1893,10 +1980,10 @@ static int gelic_wl_associate_bss(struct gelic_wl_info *wl,
 	}
 	kfree(cmd);
 
-	
+	/* WEP/WPA */
 	switch (wl->wpa_level) {
 	case GELIC_WL_WPA_LEVEL_NONE:
-		
+		/* If WEP or no security, setup WEP config */
 		ret = gelic_wl_do_wep_setup(wl);
 		break;
 	case GELIC_WL_WPA_LEVEL_WPA:
@@ -1913,7 +2000,7 @@ static int gelic_wl_associate_bss(struct gelic_wl_info *wl,
 		goto out;
 	}
 
-	
+	/* start association */
 	init_completion(&wl->assoc_done);
 	wl->assoc_stat = GELIC_WL_ASSOC_STAT_ASSOCIATING;
 	cmd = gelic_eurus_sync_cmd(wl, GELIC_EURUS_CMD_ASSOC,
@@ -1928,11 +2015,11 @@ static int gelic_wl_associate_bss(struct gelic_wl_info *wl,
 	}
 	kfree(cmd);
 
-	
-	rc = wait_for_completion_timeout(&wl->assoc_done, HZ * 4);
+	/* wait for connected event */
+	rc = wait_for_completion_timeout(&wl->assoc_done, HZ * 4);/*FIXME*/
 
 	if (!rc) {
-		
+		/* timeouted.  Maybe key or cyrpt mode is wrong */
 		pr_info("%s: connect timeout\n", __func__);
 		cmd = gelic_eurus_sync_cmd(wl, GELIC_EURUS_CMD_DISASSOC,
 					   NULL, 0);
@@ -1942,10 +2029,10 @@ static int gelic_wl_associate_bss(struct gelic_wl_info *wl,
 		ret = -ENXIO;
 	} else {
 		wl->assoc_stat = GELIC_WL_ASSOC_STAT_ASSOCIATED;
-		
+		/* copy bssid */
 		memcpy(wl->active_bssid, &bss->hwinfo->bssid[2], ETH_ALEN);
 
-		
+		/* send connect event */
 		gelic_wl_send_iwap_event(wl, wl->active_bssid);
 		pr_info("%s: connected\n", __func__);
 	}
@@ -1955,6 +2042,9 @@ out:
 	return ret;
 }
 
+/*
+ * connected event
+ */
 static void gelic_wl_connected_event(struct gelic_wl_info *wl,
 				     u64 event)
 {
@@ -1979,12 +2069,22 @@ static void gelic_wl_connected_event(struct gelic_wl_info *wl,
 				 __func__, event);
 }
 
+/*
+ * disconnect event
+ */
 static void gelic_wl_disconnect_event(struct gelic_wl_info *wl,
 				      u64 event)
 {
 	struct gelic_eurus_cmd *cmd;
 	int lock;
 
+	/*
+	 * If we fall here in the middle of association,
+	 * associate_bss() should be waiting for complation of
+	 * wl->assoc_done.
+	 * As it waits with timeout, just leave assoc_done
+	 * uncompleted, then it terminates with timeout
+	 */
 	if (!mutex_trylock(&wl->assoc_stat_lock)) {
 		pr_debug("%s: already locked\n", __func__);
 		lock = 0;
@@ -1996,7 +2096,7 @@ static void gelic_wl_disconnect_event(struct gelic_wl_info *wl,
 	cmd = gelic_eurus_sync_cmd(wl, GELIC_EURUS_CMD_DISASSOC, NULL, 0);
 	kfree(cmd);
 
-	
+	/* send disconnected event to the supplicant */
 	if (wl->assoc_stat == GELIC_WL_ASSOC_STAT_ASSOCIATED)
 		gelic_wl_send_iwap_event(wl, NULL);
 
@@ -2006,6 +2106,9 @@ static void gelic_wl_disconnect_event(struct gelic_wl_info *wl,
 	if (lock)
 		mutex_unlock(&wl->assoc_stat_lock);
 }
+/*
+ * event worker
+ */
 #ifdef DEBUG
 static const char *eventstr(enum gelic_lv1_wl_event event)
 {
@@ -2055,7 +2158,7 @@ static void gelic_wl_event_worker(struct work_struct *work)
 			if (status != LV1_NO_ENTRY)
 				pr_debug("%s:wlan event failed %d\n",
 					 __func__, status);
-			
+			/* got all events */
 			pr_debug("%s:end\n", __func__);
 			return;
 		}
@@ -2075,8 +2178,11 @@ static void gelic_wl_event_worker(struct work_struct *work)
 		default:
 			break;
 		}
-	} 
+	} /* while */
 }
+/*
+ * association worker
+ */
 static void gelic_wl_assoc_worker(struct work_struct *work)
 {
 	struct gelic_wl_info *wl;
@@ -2109,13 +2215,19 @@ static void gelic_wl_assoc_worker(struct work_struct *work)
 	ret = gelic_wl_start_scan(wl, 0, essid, essid_len);
 	if (ret == -ERESTARTSYS) {
 		pr_debug("%s: scan start failed association\n", __func__);
-		schedule_delayed_work(&wl->assoc_work, HZ/10); 
+		schedule_delayed_work(&wl->assoc_work, HZ/10); /*FIXME*/
 		goto out;
 	} else if (ret) {
 		pr_info("%s: scan prerequisite failed\n", __func__);
 		goto out;
 	}
 
+	/*
+	 * Wait for bss scan completion
+	 * If we have scan list already, gelic_wl_start_scan()
+	 * returns OK and raises the complete.  Thus,
+	 * it's ok to wait unconditionally here
+	 */
 	wait_for_completion(&wl->scan_done);
 
 	pr_debug("%s: scan done\n", __func__);
@@ -2126,7 +2238,7 @@ static void gelic_wl_assoc_worker(struct work_struct *work)
 		goto scan_lock_out;
 	}
 
-	
+	/* find best matching bss */
 	best_bss = gelic_wl_find_best_bss(wl);
 	if (!best_bss) {
 		gelic_wl_send_iwap_event(wl, NULL);
@@ -2134,7 +2246,7 @@ static void gelic_wl_assoc_worker(struct work_struct *work)
 		goto scan_lock_out;
 	}
 
-	
+	/* ok, do association */
 	ret = gelic_wl_associate_bss(wl, best_bss);
 	if (ret)
 		pr_info("%s: association failed %d\n", __func__, ret);
@@ -2143,6 +2255,11 @@ scan_lock_out:
 out:
 	mutex_unlock(&wl->assoc_stat_lock);
 }
+/*
+ * Interrupt handler
+ * Called from the ethernet interrupt handler
+ * Processes wireless specific virtual interrupts only
+ */
 void gelic_wl_interrupt(struct net_device *netdev, u64 status)
 {
 	struct gelic_wl_info *wl = port_wl(netdev_priv(netdev));
@@ -2158,6 +2275,9 @@ void gelic_wl_interrupt(struct net_device *netdev, u64 status)
 	}
 }
 
+/*
+ * driver helpers
+ */
 static const iw_handler gelic_wl_wext_handler[] =
 {
 	IW_HANDLER(SIOCGIWNAME, gelic_wl_get_name),
@@ -2209,7 +2329,7 @@ static struct net_device * __devinit gelic_wl_alloc(struct gelic_card *card)
 	wl = port_wl(port);
 	pr_debug("%s: wl=%p port=%p\n", __func__, wl, port);
 
-	
+	/* allocate scan list */
 	wl->networks = kzalloc(sizeof(struct gelic_wl_scan_info) *
 			       GELIC_WL_BSS_MAX_ENT, GFP_KERNEL);
 
@@ -2237,14 +2357,14 @@ static struct net_device * __devinit gelic_wl_alloc(struct gelic_card *card)
 	mutex_init(&wl->assoc_stat_lock);
 
 	init_completion(&wl->scan_done);
-	
+	/* for the case that no scan request is issued and stop() is called */
 	complete(&wl->scan_done);
 
 	spin_lock_init(&wl->lock);
 
-	wl->scan_age = 5*HZ; 
+	wl->scan_age = 5*HZ; /* FIXME */
 
-	
+	/* buffer for receiving scanned list etc */
 	BUILD_BUG_ON(PAGE_SIZE <
 		     sizeof(struct gelic_eurus_scan_info) *
 		     GELIC_EURUS_MAX_SCAN);
@@ -2291,8 +2411,8 @@ static int gelic_wl_try_associate(struct net_device *netdev)
 
 	pr_debug("%s: <-\n", __func__);
 
-	
-	
+	/* check constraits for start association */
+	/* for no access restriction AP */
 	if (wl->group_cipher_method == GELIC_WL_CIPHER_NONE) {
 		if (test_bit(GELIC_WL_STAT_CONFIGURED,
 			     &wl->stat))
@@ -2303,9 +2423,9 @@ static int gelic_wl_try_associate(struct net_device *netdev)
 		}
 	}
 
-	
+	/* for WEP, one of four keys should be set */
 	if (wl->group_cipher_method == GELIC_WL_CIPHER_WEP) {
-		
+		/* one of keys set */
 		for (i = 0; i < GELIC_WEP_KEYS; i++) {
 			if (test_bit(i, &wl->key_enabled))
 			    goto do_associate;
@@ -2314,7 +2434,7 @@ static int gelic_wl_try_associate(struct net_device *netdev)
 		return ret;
 	}
 
-	
+	/* for WPA[2], psk should be set */
 	if ((wl->group_cipher_method == GELIC_WL_CIPHER_TKIP) ||
 	    (wl->group_cipher_method == GELIC_WL_CIPHER_AES)) {
 		if (test_bit(GELIC_WL_STAT_WPA_PSK_SET,
@@ -2333,6 +2453,9 @@ do_associate:
 	return ret;
 }
 
+/*
+ * netdev handlers
+ */
 static int gelic_wl_open(struct net_device *netdev)
 {
 	struct gelic_card *card = netdev_card(netdev);
@@ -2341,7 +2464,7 @@ static int gelic_wl_open(struct net_device *netdev)
 
 	gelic_card_up(card);
 
-	
+	/* try to associate */
 	gelic_wl_try_associate(netdev);
 
 	netif_start_queue(netdev);
@@ -2350,18 +2473,21 @@ static int gelic_wl_open(struct net_device *netdev)
 	return 0;
 }
 
+/*
+ * reset state machine
+ */
 static int gelic_wl_reset_state(struct gelic_wl_info *wl)
 {
 	struct gelic_wl_scan_info *target;
 	struct gelic_wl_scan_info *tmp;
 
-	
+	/* empty scan list */
 	list_for_each_entry_safe(target, tmp, &wl->network_list, list) {
 		list_move_tail(&target->list, &wl->network_free_list);
 	}
 	wl->scan_stat = GELIC_WL_SCAN_STAT_INIT;
 
-	
+	/* clear configuration */
 	wl->auth_method = GELIC_EURUS_AUTH_OPEN;
 	wl->group_cipher_method = GELIC_WL_CIPHER_NONE;
 	wl->pairwise_cipher_method = GELIC_WL_CIPHER_NONE;
@@ -2381,17 +2507,24 @@ static int gelic_wl_reset_state(struct gelic_wl_info *wl)
 	wl->assoc_stat = GELIC_WL_ASSOC_STAT_DISCONN;
 
 	memset(&wl->iwstat, 0, sizeof(wl->iwstat));
-	
+	/* all status bit clear */
 	wl->stat = 0;
 	return 0;
 }
 
+/*
+ * Tell eurus to terminate association
+ */
 static void gelic_wl_disconnect(struct net_device *netdev)
 {
 	struct gelic_port *port = netdev_priv(netdev);
 	struct gelic_wl_info *wl = port_wl(port);
 	struct gelic_eurus_cmd *cmd;
 
+	/*
+	 * If scann process is running on chip,
+	 * further requests will be rejected
+	 */
 	if (wl->scan_stat == GELIC_WL_SCAN_STAT_SCANNING)
 		wait_for_completion_timeout(&wl->scan_done, HZ);
 
@@ -2408,12 +2541,16 @@ static int gelic_wl_stop(struct net_device *netdev)
 
 	pr_debug("%s:<-\n", __func__);
 
+	/*
+	 * Cancel pending association work.
+	 * event work can run after netdev down
+	 */
 	cancel_delayed_work(&wl->assoc_work);
 
 	if (wl->assoc_stat == GELIC_WL_ASSOC_STAT_ASSOCIATED)
 		gelic_wl_disconnect(netdev);
 
-	
+	/* reset our state machine */
 	gelic_wl_reset_state(wl);
 
 	netif_stop_queue(netdev);
@@ -2424,6 +2561,7 @@ static int gelic_wl_stop(struct net_device *netdev)
 	return 0;
 }
 
+/* -- */
 
 static const struct net_device_ops gelic_wl_netdevice_ops = {
 	.ndo_open = gelic_wl_open,
@@ -2457,6 +2595,9 @@ static void __devinit gelic_wl_setup_netdev_ops(struct net_device *netdev)
 	netdev->wireless_handlers = &gelic_wl_wext_handler_def;
 }
 
+/*
+ * driver probe/remove
+ */
 int __devinit gelic_wl_driver_probe(struct gelic_card *card)
 {
 	int ret;
@@ -2469,25 +2610,25 @@ int __devinit gelic_wl_driver_probe(struct gelic_card *card)
 	if (!card->vlan[GELIC_PORT_WIRELESS].tx)
 		return 0;
 
-	
+	/* alloc netdevice for wireless */
 	netdev = gelic_wl_alloc(card);
 	if (!netdev)
 		return -ENOMEM;
 
-	
+	/* setup net_device structure */
 	SET_NETDEV_DEV(netdev, &card->dev->core);
 	gelic_wl_setup_netdev_ops(netdev);
 
-	
+	/* setup some of net_device and register it */
 	ret = gelic_net_setup_netdev(netdev, card);
 	if (ret)
 		goto fail_setup;
 	card->netdev[GELIC_PORT_WIRELESS] = netdev;
 
-	
+	/* add enable wireless interrupt */
 	card->irq_mask |= GELIC_CARD_WLAN_EVENT_RECEIVED |
 		GELIC_CARD_WLAN_COMMAND_COMPLETED;
-	
+	/* to allow wireless commands while both interfaces are down */
 	gelic_card_set_irq_mask(card, GELIC_CARD_WLAN_EVENT_RECEIVED |
 				GELIC_CARD_WLAN_COMMAND_COMPLETED);
 	pr_debug("%s:end\n", __func__);
@@ -2514,13 +2655,13 @@ int gelic_wl_driver_remove(struct gelic_card *card)
 	netdev = card->netdev[GELIC_PORT_WIRELESS];
 	wl = port_wl(netdev_priv(netdev));
 
-	
+	/* if the interface was not up, but associated */
 	if (wl->assoc_stat == GELIC_WL_ASSOC_STAT_ASSOCIATED)
 		gelic_wl_disconnect(netdev);
 
 	complete(&wl->cmd_done_intr);
 
-	
+	/* cancel all work queue */
 	cancel_delayed_work(&wl->assoc_work);
 	cancel_delayed_work(&wl->event_work);
 	flush_workqueue(wl->eurus_cmd_queue);
@@ -2528,11 +2669,11 @@ int gelic_wl_driver_remove(struct gelic_card *card)
 
 	unregister_netdev(netdev);
 
-	
+	/* disable wireless interrupt */
 	pr_debug("%s: disable intr\n", __func__);
 	card->irq_mask &= ~(GELIC_CARD_WLAN_EVENT_RECEIVED |
 			    GELIC_CARD_WLAN_COMMAND_COMPLETED);
-	
+	/* free bss list, netdev*/
 	gelic_wl_free(wl);
 	pr_debug("%s:end\n", __func__);
 	return 0;

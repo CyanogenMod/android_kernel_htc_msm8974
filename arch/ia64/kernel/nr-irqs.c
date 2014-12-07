@@ -1,3 +1,9 @@
+/*
+ * calculate
+ * NR_IRQS = max(IA64_NATIVE_NR_IRQS, XEN_NR_IRQS, FOO_NR_IRQS...)
+ * depending on config.
+ * This must be calculated before processing asm-offset.c.
+ */
 
 #define ASM_OFFSETS_C 1
 

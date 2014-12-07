@@ -25,16 +25,19 @@ static inline int get_mem(unsigned long addr, unsigned long *result)
 	return 0;
 }
 
+/*
+ * These two instruction helpers were taken from process.c
+ */
 static inline int is_ra_save_ins(union mips_instruction *ip)
 {
-	
+	/* sw / sd $ra, offset($sp) */
 	return (ip->i_format.opcode == sw_op || ip->i_format.opcode == sd_op)
 		&& ip->i_format.rs == 29 && ip->i_format.rt == 31;
 }
 
 static inline int is_sp_move_ins(union mips_instruction *ip)
 {
-	
+	/* addiu/daddiu sp,sp,-imm */
 	if (ip->i_format.rs != 29 || ip->i_format.rt != 29)
 		return 0;
 	if (ip->i_format.opcode == addiu_op || ip->i_format.opcode == daddiu_op)
@@ -42,17 +45,28 @@ static inline int is_sp_move_ins(union mips_instruction *ip)
 	return 0;
 }
 
+/*
+ * Looks for specific instructions that mark the end of a function.
+ * This usually means we ran into the code area of the previous function.
+ */
 static inline int is_end_of_function_marker(union mips_instruction *ip)
 {
-	
+	/* jr ra */
 	if (ip->r_format.func == jr_op && ip->r_format.rs == 31)
 		return 1;
-	
+	/* lui gp */
 	if (ip->i_format.opcode == lui_op && ip->i_format.rt == 28)
 		return 1;
 	return 0;
 }
 
+/*
+ * TODO for userspace stack unwinding:
+ * - handle cases where the stack is adjusted inside a function
+ *     (generally doesn't happen)
+ * - find optimal value for max_instr_check
+ * - try to find a way to handle leaf functions
+ */
 
 static inline int unwind_user_frame(struct stackframe *old_frame,
 				    const unsigned int max_instr_check)
@@ -75,12 +89,14 @@ static inline int unwind_user_frame(struct stackframe *old_frame,
 		if (is_sp_move_ins(&ip)) {
 			int stack_adjustment = ip.i_format.simmediate;
 			if (stack_adjustment > 0)
+				/* This marks the end of the previous function,
+				   which means we overran. */
 				break;
 			stack_size = (unsigned) stack_adjustment;
 		} else if (is_ra_save_ins(&ip)) {
 			int ra_slot = ip.i_format.simmediate;
 			if (ra_slot < 0)
-				
+				/* This shouldn't happen. */
 				break;
 			ra_offset = ra_slot;
 		} else if (is_end_of_function_marker(&ip))

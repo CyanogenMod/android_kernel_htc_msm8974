@@ -26,7 +26,7 @@ enum {
 
 struct tsv_header {
 	unsigned char type;
-	unsigned char size; 
+	unsigned char size; /* size of data field */
 };
 
 struct encode_context {
@@ -36,33 +36,104 @@ struct encode_context {
 };
 
 struct decode_context {
-	int output_format;      
-	char *buff;             
-	int size;               
+	int output_format;      /* 0 = debugfs */
+	char *buff;             /* output buffer */
+	int size;               /* size of output buffer */
 };
 
 #if defined(CONFIG_MSM_IPC_LOGGING)
+/*
+ * ipc_log_context_create: Create a debug log context
+ *                         Should not be called from atomic context
+ *
+ * @max_num_pages: Number of pages of logging space required (max. 10)
+ * @mod_name     : Name of the directory entry under DEBUGFS
+ *
+ * returns context id on success, NULL on failure
+ */
 void *ipc_log_context_create(int max_num_pages, const char *modname);
 
+/*
+ * msg_encode_start: Start encoding a log message
+ *
+ * @ectxt: Temporary storage to hold the encoded message
+ * @type:  Root event type defined by the module which is logging
+ */
 void msg_encode_start(struct encode_context *ectxt, uint32_t type);
 
+/*
+ * tsv_timestamp_write: Writes the current timestamp count
+ *
+ * @ectxt: Context initialized by calling msg_encode_start()
+ */
 int tsv_timestamp_write(struct encode_context *ectxt);
 
+/*
+ * tsv_pointer_write: Writes a data pointer
+ *
+ * @ectxt:   Context initialized by calling msg_encode_start()
+ * @pointer: Pointer value to write
+ */
 int tsv_pointer_write(struct encode_context *ectxt, void *pointer);
 
+/*
+ * tsv_int32_write: Writes a 32-bit integer value
+ *
+ * @ectxt: Context initialized by calling msg_encode_start()
+ * @n:     Integer to write
+ */
 int tsv_int32_write(struct encode_context *ectxt, int32_t n);
 
+/*
+ * tsv_int32_write: Writes a 32-bit integer value
+ *
+ * @ectxt: Context initialized by calling msg_encode_start()
+ * @n:     Integer to write
+ */
 int tsv_byte_array_write(struct encode_context *ectxt,
 			 void *data, int data_size);
 
+/*
+ * msg_encode_end: Complete the message encode process
+ *
+ * @ectxt: Temporary storage which holds the encoded message
+ */
 void msg_encode_end(struct encode_context *ectxt);
 
+/*
+ * msg_encode_end: Complete the message encode process
+ *
+ * @ectxt: Temporary storage which holds the encoded message
+ */
 void ipc_log_write(void *ctxt, struct encode_context *ectxt);
 
+/*
+ * ipc_log_string: Helper function to log a string
+ *
+ * @ilctxt: Debug Log Context created using ipc_log_context_create()
+ * @fmt:    Data specified using format specifiers
+ */
 int ipc_log_string(void *ilctxt, const char *fmt, ...) __printf(2, 3);
 
+/**
+ * ipc_log_extract - Reads and deserializes log
+ *
+ * @ilctxt:  logging context
+ * @buff:    buffer to receive the data
+ * @size:    size of the buffer
+ * @returns: 0 if no data read; >0 number of bytes read; < 0 error
+ *
+ * If no data is available to be read, then the ilctxt::read_avail
+ * completion is reinitialized.  This allows clients to block
+ * until new log data is save.
+ */
 int ipc_log_extract(void *ilctxt, char *buff, int size);
 
+/*
+ * Print a string to decode context.
+ * @dctxt   Decode context
+ * @args   printf args
+ */
 #define IPC_SPRINTF_DECODE(dctxt, args...) \
 do { \
 	int i; \
@@ -71,22 +142,67 @@ do { \
 	dctxt->size -= i; \
 } while (0)
 
+/*
+ * tsv_timestamp_read: Reads a timestamp
+ *
+ * @ectxt:  Context retrieved by reading from log space
+ * @dctxt:  Temporary storage to hold the decoded message
+ * @format: Output format while dumping through DEBUGFS
+ */
 void tsv_timestamp_read(struct encode_context *ectxt,
 			struct decode_context *dctxt, const char *format);
 
+/*
+ * tsv_pointer_read: Reads a data pointer
+ *
+ * @ectxt:  Context retrieved by reading from log space
+ * @dctxt:  Temporary storage to hold the decoded message
+ * @format: Output format while dumping through DEBUGFS
+ */
 void tsv_pointer_read(struct encode_context *ectxt,
 		      struct decode_context *dctxt, const char *format);
 
+/*
+ * tsv_int32_read: Reads a 32-bit integer value
+ *
+ * @ectxt:  Context retrieved by reading from log space
+ * @dctxt:  Temporary storage to hold the decoded message
+ * @format: Output format while dumping through DEBUGFS
+ */
 int32_t tsv_int32_read(struct encode_context *ectxt,
 		       struct decode_context *dctxt, const char *format);
 
+/*
+ * tsv_int32_read: Reads a 32-bit integer value
+ *
+ * @ectxt:  Context retrieved by reading from log space
+ * @dctxt:  Temporary storage to hold the decoded message
+ * @format: Output format while dumping through DEBUGFS
+ */
 void tsv_byte_array_read(struct encode_context *ectxt,
 			 struct decode_context *dctxt, const char *format);
 
+/*
+ * add_deserialization_func: Register a deserialization function to
+ *                           to unpack the subevents of a main event
+ *
+ * @ctxt: Debug log context to which the deserialization function has
+ *        to be registered
+ * @type: Main/Root event, defined by the module which is logging, to
+ *        which this deserialization function has to be registered.
+ * @dfune: Deserialization function to be registered
+ *
+ * return 0 on success, -ve value on FAILURE
+ */
 int add_deserialization_func(void *ctxt, int type,
 			void (*dfunc)(struct encode_context *,
 				      struct decode_context *));
 
+/*
+ * ipc_log_context_destroy: Destroy debug log context
+ *
+ * @ctxt: debug log context created by calling ipc_log_context_create API.
+ */
 int ipc_log_context_destroy(void *ctxt);
 
 #else

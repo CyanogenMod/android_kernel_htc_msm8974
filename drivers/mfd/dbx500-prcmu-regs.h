@@ -77,16 +77,19 @@
 #define PRCM_A9PL_FORCE_CLKEN_PRCM_A9PL_FORCE_CLKEN BIT(0)
 #define PRCM_A9PL_FORCE_CLKEN_PRCM_A9AXI_FORCE_CLKEN BIT(1)
 
+/* ARM WFI Standby signal register */
 #define PRCM_ARM_WFI_STANDBY    (_PRCMU_BASE + 0x130)
 #define PRCM_ARM_WFI_STANDBY_WFI0               0x08
 #define PRCM_ARM_WFI_STANDBY_WFI1               0x10
 #define PRCM_IOCR		(_PRCMU_BASE + 0x310)
 #define PRCM_IOCR_IOFORCE			0x1
 
+/* CPU mailbox registers */
 #define PRCM_MBOX_CPU_VAL	(_PRCMU_BASE + 0x0fc)
 #define PRCM_MBOX_CPU_SET	(_PRCMU_BASE + 0x100)
 #define PRCM_MBOX_CPU_CLR	(_PRCMU_BASE + 0x104)
 
+/* Dual A9 core interrupt management unit registers */
 #define PRCM_A9_MASK_REQ	(_PRCMU_BASE + 0x328)
 #define PRCM_A9_MASK_REQ_PRCM_A9_MASK_REQ	0x1
 
@@ -123,14 +126,17 @@
 #define PRCM_ITCLEAR5		(_PRCMU_BASE + 0x488)
 #define PRCM_ARMIT_MASKXP70_IT	(_PRCMU_BASE + 0x1018)
 
+/* System reset register */
 #define PRCM_APE_SOFTRST	(_PRCMU_BASE + 0x228)
 
+/* Level shifter and clamp control registers */
 #define PRCM_MMIP_LS_CLAMP_SET     (_PRCMU_BASE + 0x420)
 #define PRCM_MMIP_LS_CLAMP_CLR     (_PRCMU_BASE + 0x424)
 
 #define PRCM_MMIP_LS_CLAMP_DSIPLL_CLAMP		BIT(11)
 #define PRCM_MMIP_LS_CLAMP_DSIPLL_CLAMPI	BIT(22)
 
+/* PRCMU clock/PLL/reset registers */
 #define PRCM_PLLSOC0_FREQ	   (_PRCMU_BASE + 0x080)
 #define PRCM_PLLSOC1_FREQ	   (_PRCMU_BASE + 0x084)
 #define PRCM_PLLDDR_FREQ	   (_PRCMU_BASE + 0x08C)
@@ -185,16 +191,20 @@
 #define PRCM_CLKOCR_CLKOUT1_REF_CLK	(1 << 16)
 #define PRCM_CLKOCR_CLKOUT1_MASK	BITS(16, 29)
 
+/* ePOD and memory power signal control registers */
 #define PRCM_EPOD_C_SET            (_PRCMU_BASE + 0x410)
 #define PRCM_SRAM_LS_SLEEP         (_PRCMU_BASE + 0x304)
 
+/* Debug power control unit registers */
 #define PRCM_POWER_STATE_SET       (_PRCMU_BASE + 0x254)
 
+/* Miscellaneous unit registers */
 #define PRCM_DSI_SW_RESET          (_PRCMU_BASE + 0x324)
 #define PRCM_GPIOCR                (_PRCMU_BASE + 0x138)
 #define PRCM_GPIOCR_DBG_STM_MOD_CMD1            0x800
 #define PRCM_GPIOCR_DBG_UARTMOD_CMD0            0x1
 
+/* PRCMU HW semaphore */
 #define PRCM_SEM                   (_PRCMU_BASE + 0x400)
 #define PRCM_SEM_PRCM_SEM BIT(0)
 
@@ -223,15 +233,18 @@
 #define PRCM_CLK_MGT_CLK38DIV			BIT(11)
 #define PRCM_SGACLK_MGT_SGACLKDIV_BY_2_5_EN	BIT(12)
 
+/* GPIOCR register */
 #define PRCM_GPIOCR_SPI2_SELECT BIT(23)
 
 #define PRCM_DDR_SUBSYS_APE_MINBW	(_PRCMU_BASE + 0x438)
 #define PRCM_CGATING_BYPASS		(_PRCMU_BASE + 0x134)
 #define PRCM_CGATING_BYPASS_ICN2	BIT(6)
 
+/* Miscellaneous unit registers */
 #define PRCM_RESOUTN_SET		(_PRCMU_BASE + 0x214)
 #define PRCM_RESOUTN_CLR		(_PRCMU_BASE + 0x218)
 
+/* System reset register */
 #define PRCM_APE_SOFTRST		(_PRCMU_BASE + 0x228)
 
-#endif 
+#endif /* __DB8500_PRCMU_REGS_H */

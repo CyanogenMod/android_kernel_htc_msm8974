@@ -30,6 +30,7 @@
 #include <cpu/dma-register.h>
 #include <cpu/sh7724.h>
 
+/* DMA */
 static const struct sh_dmae_slave_config sh7724_dmae_slaves[] = {
 	{
 		.slave_id	= SHDMA_SLAVE_SCIF0_TX,
@@ -198,15 +199,16 @@ static struct sh_dmae_pdata dma_platform_data = {
 	.dmaor_init	= DMAOR_INIT,
 };
 
+/* Resource order important! */
 static struct resource sh7724_dmae0_resources[] = {
 	{
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfe008020,
 		.end	= 0xfe00808f,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* DMARSx */
 		.start	= 0xfe009000,
 		.end	= 0xfe00900b,
 		.flags	= IORESOURCE_MEM,
@@ -218,28 +220,29 @@ static struct resource sh7724_dmae0_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 0-3 */
 		.start	= 48,
 		.end	= 51,
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 4-5 */
 		.start	= 76,
 		.end	= 77,
 		.flags	= IORESOURCE_IRQ,
 	},
 };
 
+/* Resource order important! */
 static struct resource sh7724_dmae1_resources[] = {
 	{
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfdc08020,
 		.end	= 0xfdc0808f,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* DMARSx */
 		.start	= 0xfdc09000,
 		.end	= 0xfdc0900b,
 		.flags	= IORESOURCE_MEM,
@@ -251,13 +254,13 @@ static struct resource sh7724_dmae1_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 0-3 */
 		.start	= 40,
 		.end	= 43,
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 4-5 */
 		.start	= 72,
 		.end	= 73,
 		.flags	= IORESOURCE_IRQ,
@@ -284,6 +287,7 @@ static struct platform_device dma1_device = {
 	},
 };
 
+/* Serial */
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase        = 0xffe00000,
 	.port_reg	= SCIx_NOT_SUPPORTED,
@@ -395,6 +399,7 @@ static struct platform_device scif5_device = {
 	},
 };
 
+/* RTC */
 static struct resource rtc_resources[] = {
 	[0] = {
 		.start	= 0xa465fec0,
@@ -402,17 +407,17 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Period IRQ */
 		.start	= 69,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* Carry IRQ */
 		.start	= 70,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
-		
+		/* Alarm IRQ */
 		.start	= 68,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -425,6 +430,7 @@ static struct platform_device rtc_device = {
 	.resource	= rtc_resources,
 };
 
+/* I2C0 */
 static struct resource iic0_resources[] = {
 	[0] = {
 		.name	= "IIC0",
@@ -441,11 +447,12 @@ static struct resource iic0_resources[] = {
 
 static struct platform_device iic0_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 0, 
+	.id             = 0, /* "i2c0" clock */
 	.num_resources  = ARRAY_SIZE(iic0_resources),
 	.resource       = iic0_resources,
 };
 
+/* I2C1 */
 static struct resource iic1_resources[] = {
 	[0] = {
 		.name	= "IIC1",
@@ -462,11 +469,12 @@ static struct resource iic1_resources[] = {
 
 static struct platform_device iic1_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 1, 
+	.id             = 1, /* "i2c1" clock */
 	.num_resources  = ARRAY_SIZE(iic1_resources),
 	.resource       = iic1_resources,
 };
 
+/* VPU */
 static struct uio_info vpu_platform_data = {
 	.name = "VPU5F",
 	.version = "0",
@@ -481,7 +489,7 @@ static struct resource vpu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -495,6 +503,7 @@ static struct platform_device vpu_device = {
 	.num_resources	= ARRAY_SIZE(vpu_resources),
 };
 
+/* VEU0 */
 static struct uio_info veu0_platform_data = {
 	.name = "VEU3F0",
 	.version = "0",
@@ -509,7 +518,7 @@ static struct resource veu0_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -523,6 +532,7 @@ static struct platform_device veu0_device = {
 	.num_resources	= ARRAY_SIZE(veu0_resources),
 };
 
+/* VEU1 */
 static struct uio_info veu1_platform_data = {
 	.name = "VEU3F1",
 	.version = "0",
@@ -537,7 +547,7 @@ static struct resource veu1_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -551,6 +561,7 @@ static struct platform_device veu1_device = {
 	.num_resources	= ARRAY_SIZE(veu1_resources),
 };
 
+/* BEU0 */
 static struct uio_info beu0_platform_data = {
 	.name = "BEU0",
 	.version = "0",
@@ -565,7 +576,7 @@ static struct resource beu0_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -579,6 +590,7 @@ static struct platform_device beu0_device = {
 	.num_resources	= ARRAY_SIZE(beu0_resources),
 };
 
+/* BEU1 */
 static struct uio_info beu1_platform_data = {
 	.name = "BEU1",
 	.version = "0",
@@ -593,7 +605,7 @@ static struct resource beu1_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -801,6 +813,7 @@ static struct platform_device tmu5_device = {
 	.num_resources	= ARRAY_SIZE(tmu5_resources),
 };
 
+/* JPU */
 static struct uio_info jpu_platform_data = {
 	.name = "JPU",
 	.version = "0",
@@ -815,7 +828,7 @@ static struct resource jpu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -829,6 +842,7 @@ static struct platform_device jpu_device = {
 	.num_resources	= ARRAY_SIZE(jpu_resources),
 };
 
+/* SPU2DSP0 */
 static struct uio_info spu0_platform_data = {
 	.name = "SPU2DSP0",
 	.version = "0",
@@ -843,7 +857,7 @@ static struct resource spu0_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -857,6 +871,7 @@ static struct platform_device spu0_device = {
 	.num_resources	= ARRAY_SIZE(spu0_resources),
 };
 
+/* SPU2DSP1 */
 static struct uio_info spu1_platform_data = {
 	.name = "SPU2DSP1",
 	.version = "0",
@@ -871,7 +886,7 @@ static struct resource spu1_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -956,7 +971,7 @@ void __init plat_early_device_setup(void)
 
 void l2_cache_init(void)
 {
-	
+	/* Enable L2 cache */
 	__raw_writel(L2_CACHE_ENABLE, RAMCR);
 }
 
@@ -965,7 +980,7 @@ enum {
 	ENABLED,
 	DISABLED,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	HUDI,
 	DMAC1A_DEI0, DMAC1A_DEI1, DMAC1A_DEI2, DMAC1A_DEI3,
@@ -1004,7 +1019,7 @@ enum {
 	LCDC,
 	TMU1_TUNI0, TMU1_TUNI1, TMU1_TUNI2,
 
-	
+	/* interrupt groups */
 	DMAC1A, _2DG, DMAC0A, VIO, USB, RTC,
 	DMAC1B, DMAC0B, I2C0, I2C1, SDHI0, SDHI1, SPU, MMCIF,
 };
@@ -1128,74 +1143,74 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xa4080080, 0xa40800c0, 8, 
+	{ 0xa4080080, 0xa40800c0, 8, /* IMR0 / IMCR0 */
 	  { 0, TMU1_TUNI2, TMU1_TUNI1, TMU1_TUNI0,
 	    0, ENABLED, ENABLED, ENABLED } },
-	{ 0xa4080084, 0xa40800c4, 8, 
+	{ 0xa4080084, 0xa40800c4, 8, /* IMR1 / IMCR1 */
 	  { VIO_VOU, VIO_VEU1, VIO_BEU0, VIO_CEU0,
 	    DMAC0A_DEI3, DMAC0A_DEI2, DMAC0A_DEI1, DMAC0A_DEI0 } },
-	{ 0xa4080088, 0xa40800c8, 8, 
+	{ 0xa4080088, 0xa40800c8, 8, /* IMR2 / IMCR2 */
 	  { 0, 0, 0, VPU, ATAPI, ETHI, 0, SCIFA3 } },
-	{ 0xa408008c, 0xa40800cc, 8, 
+	{ 0xa408008c, 0xa40800cc, 8, /* IMR3 / IMCR3 */
 	  { DMAC1A_DEI3, DMAC1A_DEI2, DMAC1A_DEI1, DMAC1A_DEI0,
 	    SPU_SPUI1, SPU_SPUI0, BEU1, IRDA } },
-	{ 0xa4080090, 0xa40800d0, 8, 
+	{ 0xa4080090, 0xa40800d0, 8, /* IMR4 / IMCR4 */
 	  { 0, TMU0_TUNI2, TMU0_TUNI1, TMU0_TUNI0,
 	    JPU, 0, 0, LCDC } },
-	{ 0xa4080094, 0xa40800d4, 8, 
+	{ 0xa4080094, 0xa40800d4, 8, /* IMR5 / IMCR5 */
 	  { KEYSC, DMAC0B_DADERR, DMAC0B_DEI5, DMAC0B_DEI4,
 	    VEU0, SCIF_SCIF2, SCIF_SCIF1, SCIF_SCIF0 } },
-	{ 0xa4080098, 0xa40800d8, 8, 
+	{ 0xa4080098, 0xa40800d8, 8, /* IMR6 / IMCR6 */
 	  { 0, 0, ICB, SCIFA4,
 	    CEU1, 0, MSIOF_MSIOFI1, MSIOF_MSIOFI0 } },
-	{ 0xa408009c, 0xa40800dc, 8, 
+	{ 0xa408009c, 0xa40800dc, 8, /* IMR7 / IMCR7 */
 	  { I2C0_DTEI, I2C0_WAITI, I2C0_TACKI, I2C0_ALI,
 	    I2C1_DTEI, I2C1_WAITI, I2C1_TACKI, I2C1_ALI } },
-	{ 0xa40800a0, 0xa40800e0, 8, 
+	{ 0xa40800a0, 0xa40800e0, 8, /* IMR8 / IMCR8 */
 	  { DISABLED, ENABLED, ENABLED, ENABLED,
 	    0, 0, SCIFA5, FSI } },
-	{ 0xa40800a4, 0xa40800e4, 8, 
+	{ 0xa40800a4, 0xa40800e4, 8, /* IMR9 / IMCR9 */
 	  { 0, 0, 0, CMT, 0, USB1, USB0, 0 } },
-	{ 0xa40800a8, 0xa40800e8, 8, 
+	{ 0xa40800a8, 0xa40800e8, 8, /* IMR10 / IMCR10 */
 	  { 0, DMAC1B_DADERR, DMAC1B_DEI5, DMAC1B_DEI4,
 	    0, RTC_CUI, RTC_PRI, RTC_ATI } },
-	{ 0xa40800ac, 0xa40800ec, 8, 
+	{ 0xa40800ac, 0xa40800ec, 8, /* IMR11 / IMCR11 */
 	  { 0, _2DG_CEI, _2DG_INI, _2DG_TRI,
 	    0, TPU, 0, TSIF } },
-	{ 0xa40800b0, 0xa40800f0, 8, 
+	{ 0xa40800b0, 0xa40800f0, 8, /* IMR12 / IMCR12 */
 	  { 0, 0, MMC_MMC3I, MMC_MMC2I, 0, 0, 0, _2DDMAC } },
-	{ 0xa4140044, 0xa4140064, 8, 
+	{ 0xa4140044, 0xa4140064, 8, /* INTMSK00 / INTMSKCLR00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xa4080000, 0, 16, 4,  { TMU0_TUNI0, TMU0_TUNI1,
+	{ 0xa4080000, 0, 16, 4, /* IPRA */ { TMU0_TUNI0, TMU0_TUNI1,
 					     TMU0_TUNI2, IRDA } },
-	{ 0xa4080004, 0, 16, 4,  { JPU, LCDC, DMAC1A, BEU1 } },
-	{ 0xa4080008, 0, 16, 4,  { TMU1_TUNI0, TMU1_TUNI1,
+	{ 0xa4080004, 0, 16, 4, /* IPRB */ { JPU, LCDC, DMAC1A, BEU1 } },
+	{ 0xa4080008, 0, 16, 4, /* IPRC */ { TMU1_TUNI0, TMU1_TUNI1,
 					     TMU1_TUNI2, SPU } },
-	{ 0xa408000c, 0, 16, 4,  { 0, MMCIF, 0, ATAPI } },
-	{ 0xa4080010, 0, 16, 4,  { DMAC0A, VIO, SCIFA3, VPU } },
-	{ 0xa4080014, 0, 16, 4,  { KEYSC, DMAC0B, USB, CMT } },
-	{ 0xa4080018, 0, 16, 4,  { SCIF_SCIF0, SCIF_SCIF1,
+	{ 0xa408000c, 0, 16, 4, /* IPRD */ { 0, MMCIF, 0, ATAPI } },
+	{ 0xa4080010, 0, 16, 4, /* IPRE */ { DMAC0A, VIO, SCIFA3, VPU } },
+	{ 0xa4080014, 0, 16, 4, /* IPRF */ { KEYSC, DMAC0B, USB, CMT } },
+	{ 0xa4080018, 0, 16, 4, /* IPRG */ { SCIF_SCIF0, SCIF_SCIF1,
 					     SCIF_SCIF2, VEU0 } },
-	{ 0xa408001c, 0, 16, 4,  { MSIOF_MSIOFI0, MSIOF_MSIOFI1,
+	{ 0xa408001c, 0, 16, 4, /* IPRH */ { MSIOF_MSIOFI0, MSIOF_MSIOFI1,
 					     I2C1, I2C0 } },
-	{ 0xa4080020, 0, 16, 4,  { SCIFA4, ICB, TSIF, _2DG } },
-	{ 0xa4080024, 0, 16, 4,  { CEU1, ETHI, FSI, SDHI1 } },
-	{ 0xa4080028, 0, 16, 4,  { RTC, DMAC1B, 0, SDHI0 } },
-	{ 0xa408002c, 0, 16, 4,  { SCIFA5, 0, TPU, _2DDMAC } },
-	{ 0xa4140010, 0, 32, 4, 
+	{ 0xa4080020, 0, 16, 4, /* IPRI */ { SCIFA4, ICB, TSIF, _2DG } },
+	{ 0xa4080024, 0, 16, 4, /* IPRJ */ { CEU1, ETHI, FSI, SDHI1 } },
+	{ 0xa4080028, 0, 16, 4, /* IPRK */ { RTC, DMAC1B, 0, SDHI0 } },
+	{ 0xa408002c, 0, 16, 4, /* IPRL */ { SCIFA5, 0, TPU, _2DDMAC } },
+	{ 0xa4140010, 0, 32, 4, /* INTPRI00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_sense_reg sense_registers[] __initdata = {
-	{ 0xa414001c, 16, 2, 
+	{ 0xa414001c, 16, 2, /* ICR1 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_mask_reg ack_registers[] __initdata = {
-	{ 0xa4140024, 0, 8, 
+	{ 0xa4140024, 0, 8, /* INTREQ00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
@@ -1213,7 +1228,7 @@ void __init plat_irq_setup(void)
 }
 
 static struct {
-	
+	/* BSC */
 	unsigned long mmselr;
 	unsigned long cs0bcr;
 	unsigned long cs4bcr;
@@ -1226,7 +1241,7 @@ static struct {
 	unsigned long cs5bwcr;
 	unsigned long cs6awcr;
 	unsigned long cs6bwcr;
-	
+	/* INTC */
 	unsigned short ipra;
 	unsigned short iprb;
 	unsigned short iprc;
@@ -1252,10 +1267,10 @@ static struct {
 	unsigned char imr10;
 	unsigned char imr11;
 	unsigned char imr12;
-	
+	/* RWDT */
 	unsigned short rwtcnt;
 	unsigned short rwtcsr;
-	
+	/* CPG */
 	unsigned long irdaclk;
 	unsigned long spuclk;
 } sh7724_rstandby_state;
@@ -1266,58 +1281,58 @@ static int sh7724_pre_sleep_notifier_call(struct notifier_block *nb,
 	if (!(flags & SUSP_SH_RSTANDBY))
 		return NOTIFY_DONE;
 
-	
-	sh7724_rstandby_state.mmselr = __raw_readl(0xff800020); 
+	/* BCR */
+	sh7724_rstandby_state.mmselr = __raw_readl(0xff800020); /* MMSELR */
 	sh7724_rstandby_state.mmselr |= 0xa5a50000;
-	sh7724_rstandby_state.cs0bcr = __raw_readl(0xfec10004); 
-	sh7724_rstandby_state.cs4bcr = __raw_readl(0xfec10010); 
-	sh7724_rstandby_state.cs5abcr = __raw_readl(0xfec10014); 
-	sh7724_rstandby_state.cs5bbcr = __raw_readl(0xfec10018); 
-	sh7724_rstandby_state.cs6abcr = __raw_readl(0xfec1001c); 
-	sh7724_rstandby_state.cs6bbcr = __raw_readl(0xfec10020); 
-	sh7724_rstandby_state.cs4wcr = __raw_readl(0xfec10030); 
-	sh7724_rstandby_state.cs5awcr = __raw_readl(0xfec10034); 
-	sh7724_rstandby_state.cs5bwcr = __raw_readl(0xfec10038); 
-	sh7724_rstandby_state.cs6awcr = __raw_readl(0xfec1003c); 
-	sh7724_rstandby_state.cs6bwcr = __raw_readl(0xfec10040); 
+	sh7724_rstandby_state.cs0bcr = __raw_readl(0xfec10004); /* CS0BCR */
+	sh7724_rstandby_state.cs4bcr = __raw_readl(0xfec10010); /* CS4BCR */
+	sh7724_rstandby_state.cs5abcr = __raw_readl(0xfec10014); /* CS5ABCR */
+	sh7724_rstandby_state.cs5bbcr = __raw_readl(0xfec10018); /* CS5BBCR */
+	sh7724_rstandby_state.cs6abcr = __raw_readl(0xfec1001c); /* CS6ABCR */
+	sh7724_rstandby_state.cs6bbcr = __raw_readl(0xfec10020); /* CS6BBCR */
+	sh7724_rstandby_state.cs4wcr = __raw_readl(0xfec10030); /* CS4WCR */
+	sh7724_rstandby_state.cs5awcr = __raw_readl(0xfec10034); /* CS5AWCR */
+	sh7724_rstandby_state.cs5bwcr = __raw_readl(0xfec10038); /* CS5BWCR */
+	sh7724_rstandby_state.cs6awcr = __raw_readl(0xfec1003c); /* CS6AWCR */
+	sh7724_rstandby_state.cs6bwcr = __raw_readl(0xfec10040); /* CS6BWCR */
 
-	
-	sh7724_rstandby_state.ipra = __raw_readw(0xa4080000); 
-	sh7724_rstandby_state.iprb = __raw_readw(0xa4080004); 
-	sh7724_rstandby_state.iprc = __raw_readw(0xa4080008); 
-	sh7724_rstandby_state.iprd = __raw_readw(0xa408000c); 
-	sh7724_rstandby_state.ipre = __raw_readw(0xa4080010); 
-	sh7724_rstandby_state.iprf = __raw_readw(0xa4080014); 
-	sh7724_rstandby_state.iprg = __raw_readw(0xa4080018); 
-	sh7724_rstandby_state.iprh = __raw_readw(0xa408001c); 
-	sh7724_rstandby_state.ipri = __raw_readw(0xa4080020); 
-	sh7724_rstandby_state.iprj = __raw_readw(0xa4080024); 
-	sh7724_rstandby_state.iprk = __raw_readw(0xa4080028); 
-	sh7724_rstandby_state.iprl = __raw_readw(0xa408002c); 
-	sh7724_rstandby_state.imr0 = __raw_readb(0xa4080080); 
-	sh7724_rstandby_state.imr1 = __raw_readb(0xa4080084); 
-	sh7724_rstandby_state.imr2 = __raw_readb(0xa4080088); 
-	sh7724_rstandby_state.imr3 = __raw_readb(0xa408008c); 
-	sh7724_rstandby_state.imr4 = __raw_readb(0xa4080090); 
-	sh7724_rstandby_state.imr5 = __raw_readb(0xa4080094); 
-	sh7724_rstandby_state.imr6 = __raw_readb(0xa4080098); 
-	sh7724_rstandby_state.imr7 = __raw_readb(0xa408009c); 
-	sh7724_rstandby_state.imr8 = __raw_readb(0xa40800a0); 
-	sh7724_rstandby_state.imr9 = __raw_readb(0xa40800a4); 
-	sh7724_rstandby_state.imr10 = __raw_readb(0xa40800a8); 
-	sh7724_rstandby_state.imr11 = __raw_readb(0xa40800ac); 
-	sh7724_rstandby_state.imr12 = __raw_readb(0xa40800b0); 
+	/* INTC */
+	sh7724_rstandby_state.ipra = __raw_readw(0xa4080000); /* IPRA */
+	sh7724_rstandby_state.iprb = __raw_readw(0xa4080004); /* IPRB */
+	sh7724_rstandby_state.iprc = __raw_readw(0xa4080008); /* IPRC */
+	sh7724_rstandby_state.iprd = __raw_readw(0xa408000c); /* IPRD */
+	sh7724_rstandby_state.ipre = __raw_readw(0xa4080010); /* IPRE */
+	sh7724_rstandby_state.iprf = __raw_readw(0xa4080014); /* IPRF */
+	sh7724_rstandby_state.iprg = __raw_readw(0xa4080018); /* IPRG */
+	sh7724_rstandby_state.iprh = __raw_readw(0xa408001c); /* IPRH */
+	sh7724_rstandby_state.ipri = __raw_readw(0xa4080020); /* IPRI */
+	sh7724_rstandby_state.iprj = __raw_readw(0xa4080024); /* IPRJ */
+	sh7724_rstandby_state.iprk = __raw_readw(0xa4080028); /* IPRK */
+	sh7724_rstandby_state.iprl = __raw_readw(0xa408002c); /* IPRL */
+	sh7724_rstandby_state.imr0 = __raw_readb(0xa4080080); /* IMR0 */
+	sh7724_rstandby_state.imr1 = __raw_readb(0xa4080084); /* IMR1 */
+	sh7724_rstandby_state.imr2 = __raw_readb(0xa4080088); /* IMR2 */
+	sh7724_rstandby_state.imr3 = __raw_readb(0xa408008c); /* IMR3 */
+	sh7724_rstandby_state.imr4 = __raw_readb(0xa4080090); /* IMR4 */
+	sh7724_rstandby_state.imr5 = __raw_readb(0xa4080094); /* IMR5 */
+	sh7724_rstandby_state.imr6 = __raw_readb(0xa4080098); /* IMR6 */
+	sh7724_rstandby_state.imr7 = __raw_readb(0xa408009c); /* IMR7 */
+	sh7724_rstandby_state.imr8 = __raw_readb(0xa40800a0); /* IMR8 */
+	sh7724_rstandby_state.imr9 = __raw_readb(0xa40800a4); /* IMR9 */
+	sh7724_rstandby_state.imr10 = __raw_readb(0xa40800a8); /* IMR10 */
+	sh7724_rstandby_state.imr11 = __raw_readb(0xa40800ac); /* IMR11 */
+	sh7724_rstandby_state.imr12 = __raw_readb(0xa40800b0); /* IMR12 */
 
-	
-	sh7724_rstandby_state.rwtcnt = __raw_readb(0xa4520000); 
+	/* RWDT */
+	sh7724_rstandby_state.rwtcnt = __raw_readb(0xa4520000); /* RWTCNT */
 	sh7724_rstandby_state.rwtcnt |= 0x5a00;
-	sh7724_rstandby_state.rwtcsr = __raw_readb(0xa4520004); 
+	sh7724_rstandby_state.rwtcsr = __raw_readb(0xa4520004); /* RWTCSR */
 	sh7724_rstandby_state.rwtcsr |= 0xa500;
 	__raw_writew(sh7724_rstandby_state.rwtcsr & 0x07, 0xa4520004);
 
-	
-	sh7724_rstandby_state.irdaclk = __raw_readl(0xa4150018); 
-	sh7724_rstandby_state.spuclk = __raw_readl(0xa415003c); 
+	/* CPG */
+	sh7724_rstandby_state.irdaclk = __raw_readl(0xa4150018); /* IRDACLKCR */
+	sh7724_rstandby_state.spuclk = __raw_readl(0xa415003c); /* SPUCLKCR */
 
 	return NOTIFY_DONE;
 }
@@ -1328,54 +1343,54 @@ static int sh7724_post_sleep_notifier_call(struct notifier_block *nb,
 	if (!(flags & SUSP_SH_RSTANDBY))
 		return NOTIFY_DONE;
 
-	
-	__raw_writel(sh7724_rstandby_state.mmselr, 0xff800020); 
-	__raw_writel(sh7724_rstandby_state.cs0bcr, 0xfec10004); 
-	__raw_writel(sh7724_rstandby_state.cs4bcr, 0xfec10010); 
-	__raw_writel(sh7724_rstandby_state.cs5abcr, 0xfec10014); 
-	__raw_writel(sh7724_rstandby_state.cs5bbcr, 0xfec10018); 
-	__raw_writel(sh7724_rstandby_state.cs6abcr, 0xfec1001c); 
-	__raw_writel(sh7724_rstandby_state.cs6bbcr, 0xfec10020); 
-	__raw_writel(sh7724_rstandby_state.cs4wcr, 0xfec10030); 
-	__raw_writel(sh7724_rstandby_state.cs5awcr, 0xfec10034); 
-	__raw_writel(sh7724_rstandby_state.cs5bwcr, 0xfec10038); 
-	__raw_writel(sh7724_rstandby_state.cs6awcr, 0xfec1003c); 
-	__raw_writel(sh7724_rstandby_state.cs6bwcr, 0xfec10040); 
+	/* BCR */
+	__raw_writel(sh7724_rstandby_state.mmselr, 0xff800020); /* MMSELR */
+	__raw_writel(sh7724_rstandby_state.cs0bcr, 0xfec10004); /* CS0BCR */
+	__raw_writel(sh7724_rstandby_state.cs4bcr, 0xfec10010); /* CS4BCR */
+	__raw_writel(sh7724_rstandby_state.cs5abcr, 0xfec10014); /* CS5ABCR */
+	__raw_writel(sh7724_rstandby_state.cs5bbcr, 0xfec10018); /* CS5BBCR */
+	__raw_writel(sh7724_rstandby_state.cs6abcr, 0xfec1001c); /* CS6ABCR */
+	__raw_writel(sh7724_rstandby_state.cs6bbcr, 0xfec10020); /* CS6BBCR */
+	__raw_writel(sh7724_rstandby_state.cs4wcr, 0xfec10030); /* CS4WCR */
+	__raw_writel(sh7724_rstandby_state.cs5awcr, 0xfec10034); /* CS5AWCR */
+	__raw_writel(sh7724_rstandby_state.cs5bwcr, 0xfec10038); /* CS5BWCR */
+	__raw_writel(sh7724_rstandby_state.cs6awcr, 0xfec1003c); /* CS6AWCR */
+	__raw_writel(sh7724_rstandby_state.cs6bwcr, 0xfec10040); /* CS6BWCR */
 
-	
-	__raw_writew(sh7724_rstandby_state.ipra, 0xa4080000); 
-	__raw_writew(sh7724_rstandby_state.iprb, 0xa4080004); 
-	__raw_writew(sh7724_rstandby_state.iprc, 0xa4080008); 
-	__raw_writew(sh7724_rstandby_state.iprd, 0xa408000c); 
-	__raw_writew(sh7724_rstandby_state.ipre, 0xa4080010); 
-	__raw_writew(sh7724_rstandby_state.iprf, 0xa4080014); 
-	__raw_writew(sh7724_rstandby_state.iprg, 0xa4080018); 
-	__raw_writew(sh7724_rstandby_state.iprh, 0xa408001c); 
-	__raw_writew(sh7724_rstandby_state.ipri, 0xa4080020); 
-	__raw_writew(sh7724_rstandby_state.iprj, 0xa4080024); 
-	__raw_writew(sh7724_rstandby_state.iprk, 0xa4080028); 
-	__raw_writew(sh7724_rstandby_state.iprl, 0xa408002c); 
-	__raw_writeb(sh7724_rstandby_state.imr0, 0xa4080080); 
-	__raw_writeb(sh7724_rstandby_state.imr1, 0xa4080084); 
-	__raw_writeb(sh7724_rstandby_state.imr2, 0xa4080088); 
-	__raw_writeb(sh7724_rstandby_state.imr3, 0xa408008c); 
-	__raw_writeb(sh7724_rstandby_state.imr4, 0xa4080090); 
-	__raw_writeb(sh7724_rstandby_state.imr5, 0xa4080094); 
-	__raw_writeb(sh7724_rstandby_state.imr6, 0xa4080098); 
-	__raw_writeb(sh7724_rstandby_state.imr7, 0xa408009c); 
-	__raw_writeb(sh7724_rstandby_state.imr8, 0xa40800a0); 
-	__raw_writeb(sh7724_rstandby_state.imr9, 0xa40800a4); 
-	__raw_writeb(sh7724_rstandby_state.imr10, 0xa40800a8); 
-	__raw_writeb(sh7724_rstandby_state.imr11, 0xa40800ac); 
-	__raw_writeb(sh7724_rstandby_state.imr12, 0xa40800b0); 
+	/* INTC */
+	__raw_writew(sh7724_rstandby_state.ipra, 0xa4080000); /* IPRA */
+	__raw_writew(sh7724_rstandby_state.iprb, 0xa4080004); /* IPRB */
+	__raw_writew(sh7724_rstandby_state.iprc, 0xa4080008); /* IPRC */
+	__raw_writew(sh7724_rstandby_state.iprd, 0xa408000c); /* IPRD */
+	__raw_writew(sh7724_rstandby_state.ipre, 0xa4080010); /* IPRE */
+	__raw_writew(sh7724_rstandby_state.iprf, 0xa4080014); /* IPRF */
+	__raw_writew(sh7724_rstandby_state.iprg, 0xa4080018); /* IPRG */
+	__raw_writew(sh7724_rstandby_state.iprh, 0xa408001c); /* IPRH */
+	__raw_writew(sh7724_rstandby_state.ipri, 0xa4080020); /* IPRI */
+	__raw_writew(sh7724_rstandby_state.iprj, 0xa4080024); /* IPRJ */
+	__raw_writew(sh7724_rstandby_state.iprk, 0xa4080028); /* IPRK */
+	__raw_writew(sh7724_rstandby_state.iprl, 0xa408002c); /* IPRL */
+	__raw_writeb(sh7724_rstandby_state.imr0, 0xa4080080); /* IMR0 */
+	__raw_writeb(sh7724_rstandby_state.imr1, 0xa4080084); /* IMR1 */
+	__raw_writeb(sh7724_rstandby_state.imr2, 0xa4080088); /* IMR2 */
+	__raw_writeb(sh7724_rstandby_state.imr3, 0xa408008c); /* IMR3 */
+	__raw_writeb(sh7724_rstandby_state.imr4, 0xa4080090); /* IMR4 */
+	__raw_writeb(sh7724_rstandby_state.imr5, 0xa4080094); /* IMR5 */
+	__raw_writeb(sh7724_rstandby_state.imr6, 0xa4080098); /* IMR6 */
+	__raw_writeb(sh7724_rstandby_state.imr7, 0xa408009c); /* IMR7 */
+	__raw_writeb(sh7724_rstandby_state.imr8, 0xa40800a0); /* IMR8 */
+	__raw_writeb(sh7724_rstandby_state.imr9, 0xa40800a4); /* IMR9 */
+	__raw_writeb(sh7724_rstandby_state.imr10, 0xa40800a8); /* IMR10 */
+	__raw_writeb(sh7724_rstandby_state.imr11, 0xa40800ac); /* IMR11 */
+	__raw_writeb(sh7724_rstandby_state.imr12, 0xa40800b0); /* IMR12 */
 
-	
-	__raw_writew(sh7724_rstandby_state.rwtcnt, 0xa4520000); 
-	__raw_writew(sh7724_rstandby_state.rwtcsr, 0xa4520004); 
+	/* RWDT */
+	__raw_writew(sh7724_rstandby_state.rwtcnt, 0xa4520000); /* RWTCNT */
+	__raw_writew(sh7724_rstandby_state.rwtcsr, 0xa4520004); /* RWTCSR */
 
-	
-	__raw_writel(sh7724_rstandby_state.irdaclk, 0xa4150018); 
-	__raw_writel(sh7724_rstandby_state.spuclk, 0xa415003c); 
+	/* CPG */
+	__raw_writel(sh7724_rstandby_state.irdaclk, 0xa4150018); /* IRDACLKCR */
+	__raw_writel(sh7724_rstandby_state.spuclk, 0xa415003c); /* SPUCLKCR */
 
 	return NOTIFY_DONE;
 }

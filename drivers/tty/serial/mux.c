@@ -23,7 +23,7 @@
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
 #include <linux/console.h>
-#include <linux/delay.h> 
+#include <linux/delay.h> /* for udelay */
 #include <linux/device.h>
 #include <asm/io.h>
 #include <asm/irq.h>
@@ -71,56 +71,131 @@ static struct timer_list mux_timer;
 #define UART_PUT_CHAR(p, c) __raw_writel((c), (p)->membase + IO_DATA_REG_OFFSET)
 #define UART_GET_FIFO_CNT(p) __raw_readl((p)->membase + IO_DCOUNT_REG_OFFSET)
 
+/**
+ * get_mux_port_count - Get the number of available ports on the Mux.
+ * @dev: The parisc device.
+ *
+ * This function is used to determine the number of ports the Mux
+ * supports.  The IODC data reports the number of ports the Mux
+ * can support, but there are cases where not all the Mux ports
+ * are connected.  This function can override the IODC and
+ * return the true port count.
+ */
 static int __init get_mux_port_count(struct parisc_device *dev)
 {
 	int status;
 	u8 iodc_data[32];
 	unsigned long bytecnt;
 
+	/* If this is the built-in Mux for the K-Class (Eole CAP/MUX),
+	 * we only need to allocate resources for 1 port since the
+	 * other 7 ports are not connected.
+	 */
 	if(dev->id.hversion == 0x15)
 		return 1;
 
 	status = pdc_iodc_read(&bytecnt, dev->hpa.start, 0, iodc_data, 32);
 	BUG_ON(status != PDC_OK);
 
-	
+	/* Return the number of ports specified in the iodc data. */
 	return ((((iodc_data)[4] & 0xf0) >> 4) * 8) + 8;
 }
 
+/**
+ * mux_tx_empty - Check if the transmitter fifo is empty.
+ * @port: Ptr to the uart_port.
+ *
+ * This function test if the transmitter fifo for the port
+ * described by 'port' is empty.  If it is empty, this function
+ * should return TIOCSER_TEMT, otherwise return 0.
+ */
 static unsigned int mux_tx_empty(struct uart_port *port)
 {
 	return UART_GET_FIFO_CNT(port) ? 0 : TIOCSER_TEMT;
 } 
 
+/**
+ * mux_set_mctrl - Set the current state of the modem control inputs.
+ * @ports: Ptr to the uart_port.
+ * @mctrl: Modem control bits.
+ *
+ * The Serial MUX does not support CTS, DCD or DSR so this function
+ * is ignored.
+ */
 static void mux_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 }
 
+/**
+ * mux_get_mctrl - Returns the current state of modem control inputs.
+ * @port: Ptr to the uart_port.
+ *
+ * The Serial MUX does not support CTS, DCD or DSR so these lines are
+ * treated as permanently active.
+ */
 static unsigned int mux_get_mctrl(struct uart_port *port)
 { 
 	return TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
 }
 
+/**
+ * mux_stop_tx - Stop transmitting characters.
+ * @port: Ptr to the uart_port.
+ *
+ * The Serial MUX does not support this function.
+ */
 static void mux_stop_tx(struct uart_port *port)
 {
 }
 
+/**
+ * mux_start_tx - Start transmitting characters.
+ * @port: Ptr to the uart_port.
+ *
+ * The Serial Mux does not support this function.
+ */
 static void mux_start_tx(struct uart_port *port)
 {
 }
 
+/**
+ * mux_stop_rx - Stop receiving characters.
+ * @port: Ptr to the uart_port.
+ *
+ * The Serial Mux does not support this function.
+ */
 static void mux_stop_rx(struct uart_port *port)
 {
 }
 
+/**
+ * mux_enable_ms - Enable modum status interrupts.
+ * @port: Ptr to the uart_port.
+ *
+ * The Serial Mux does not support this function.
+ */
 static void mux_enable_ms(struct uart_port *port)
 {
 }
 
+/**
+ * mux_break_ctl - Control the transmitssion of a break signal.
+ * @port: Ptr to the uart_port.
+ * @break_state: Raise/Lower the break signal.
+ *
+ * The Serial Mux does not support this function.
+ */
 static void mux_break_ctl(struct uart_port *port, int break_state)
 {
 }
 
+/**
+ * mux_write - Write chars to the mux fifo.
+ * @port: Ptr to the uart_port.
+ *
+ * This function writes all the data from the uart buffer to
+ * the mux fifo.
+ */
 static void mux_write(struct uart_port *port)
 {
 	int count;
@@ -158,6 +233,13 @@ static void mux_write(struct uart_port *port)
 		mux_stop_tx(port);
 }
 
+/**
+ * mux_read - Read chars from the mux fifo.
+ * @port: Ptr to the uart_port.
+ *
+ * This reads all available data from the mux's fifo and pushes
+ * the data to the tty layer.
+ */
 static void mux_read(struct uart_port *port)
 {
 	int data;
@@ -192,42 +274,104 @@ static void mux_read(struct uart_port *port)
 	}
 }
 
+/**
+ * mux_startup - Initialize the port.
+ * @port: Ptr to the uart_port.
+ *
+ * Grab any resources needed for this port and start the
+ * mux timer.
+ */
 static int mux_startup(struct uart_port *port)
 {
 	mux_ports[port->line].enabled = 1;
 	return 0;
 }
 
+/**
+ * mux_shutdown - Disable the port.
+ * @port: Ptr to the uart_port.
+ *
+ * Release any resources needed for the port.
+ */
 static void mux_shutdown(struct uart_port *port)
 {
 	mux_ports[port->line].enabled = 0;
 }
 
+/**
+ * mux_set_termios - Chane port parameters.
+ * @port: Ptr to the uart_port.
+ * @termios: new termios settings.
+ * @old: old termios settings.
+ *
+ * The Serial Mux does not support this function.
+ */
 static void
 mux_set_termios(struct uart_port *port, struct ktermios *termios,
 	        struct ktermios *old)
 {
 }
 
+/**
+ * mux_type - Describe the port.
+ * @port: Ptr to the uart_port.
+ *
+ * Return a pointer to a string constant describing the
+ * specified port.
+ */
 static const char *mux_type(struct uart_port *port)
 {
 	return "Mux";
 }
 
+/**
+ * mux_release_port - Release memory and IO regions.
+ * @port: Ptr to the uart_port.
+ * 
+ * Release any memory and IO region resources currently in use by
+ * the port.
+ */
 static void mux_release_port(struct uart_port *port)
 {
 }
 
+/**
+ * mux_request_port - Request memory and IO regions.
+ * @port: Ptr to the uart_port.
+ *
+ * Request any memory and IO region resources required by the port.
+ * If any fail, no resources should be registered when this function
+ * returns, and it should return -EBUSY on failure.
+ */
 static int mux_request_port(struct uart_port *port)
 {
 	return 0;
 }
 
+/**
+ * mux_config_port - Perform port autoconfiguration.
+ * @port: Ptr to the uart_port.
+ * @type: Bitmask of required configurations.
+ *
+ * Perform any autoconfiguration steps for the port.  This function is
+ * called if the UPF_BOOT_AUTOCONF flag is specified for the port.
+ * [Note: This is required for now because of a bug in the Serial core.
+ *  rmk has already submitted a patch to linus, should be available for
+ *  2.5.47.]
+ */
 static void mux_config_port(struct uart_port *port, int type)
 {
 	port->type = PORT_MUX;
 }
 
+/**
+ * mux_verify_port - Verify the port information.
+ * @port: Ptr to the uart_port.
+ * @ser: Ptr to the serial information.
+ *
+ * Verify the new serial port information contained within serinfo is
+ * suitable for this port type.
+ */
 static int mux_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
 	if(port->membase == NULL)
@@ -236,6 +380,12 @@ static int mux_verify_port(struct uart_port *port, struct serial_struct *ser)
 	return 0;
 }
 
+/**
+ * mux_drv_poll - Mux poll function.
+ * @unused: Unused variable
+ *
+ * This function periodically polls the Serial MUX to check for new data.
+ */
 static void mux_poll(unsigned long unused)
 {  
 	int i;
@@ -255,7 +405,7 @@ static void mux_poll(unsigned long unused)
 #ifdef CONFIG_SERIAL_MUX_CONSOLE
 static void mux_console_write(struct console *co, const char *s, unsigned count)
 {
-	
+	/* Wait until the FIFO drains. */
 	while(UART_GET_FIFO_CNT(&mux_ports[0].port))
 		udelay(1);
 
@@ -312,6 +462,13 @@ static struct uart_ops mux_pops = {
 	.verify_port =		mux_verify_port,
 };
 
+/**
+ * mux_probe - Determine if the Serial Mux should claim this device.
+ * @dev: The parisc device.
+ *
+ * Deterimine if the Serial Mux should claim this chip (return 0)
+ * or not (return 1).
+ */
 static int __init mux_probe(struct parisc_device *dev)
 {
 	int i, status;
@@ -348,6 +505,11 @@ static int __init mux_probe(struct parisc_device *dev)
 		port->flags	= UPF_BOOT_AUTOCONF;
 		port->line	= port_cnt;
 
+		/* The port->timeout needs to match what is present in
+		 * uart_wait_until_sent in serial_core.c.  Otherwise
+		 * the time spent in msleep_interruptable will be very
+		 * long, causing the appearance of a console hang.
+		 */
 		port->timeout   = HZ / 50;
 		spin_lock_init(&port->lock);
 
@@ -363,14 +525,14 @@ static int __devexit mux_remove(struct parisc_device *dev)
 	int i, j;
 	int port_count = (long)dev_get_drvdata(&dev->dev);
 
-	
+	/* Find Port 0 for this card in the mux_ports list. */
 	for(i = 0; i < port_cnt; ++i) {
 		if(mux_ports[i].port.mapbase == dev->hpa.start + MUX_OFFSET)
 			break;
 	}
 	BUG_ON(i + port_count > port_cnt);
 
-	
+	/* Release the resources associated with each port on the device. */
 	for(j = 0; j < port_count; ++j, ++i) {
 		struct uart_port *port = &mux_ports[i].port;
 
@@ -383,9 +545,17 @@ static int __devexit mux_remove(struct parisc_device *dev)
 	return 0;
 }
 
+/* Hack.  This idea was taken from the 8250_gsc.c on how to properly order
+ * the serial port detection in the proper order.   The idea is we always
+ * want the builtin mux to be detected before addin mux cards, so we
+ * specifically probe for the builtin mux cards first.
+ *
+ * This table only contains the parisc_device_id of known builtin mux
+ * devices.  All other mux cards will be detected by the generic mux_tbl.
+ */
 static struct parisc_device_id builtin_mux_tbl[] = {
-	{ HPHW_A_DIRECT, HVERSION_REV_ANY_ID, 0x15, 0x0000D }, 
-	{ HPHW_A_DIRECT, HVERSION_REV_ANY_ID, 0x44, 0x0000D }, 
+	{ HPHW_A_DIRECT, HVERSION_REV_ANY_ID, 0x15, 0x0000D }, /* All K-class */
+	{ HPHW_A_DIRECT, HVERSION_REV_ANY_ID, 0x44, 0x0000D }, /* E35, E45, and E55 */
 	{ 0, }
 };
 
@@ -411,13 +581,18 @@ static struct parisc_driver serial_mux_driver = {
 	.remove =       __devexit_p(mux_remove),
 };
 
+/**
+ * mux_init - Serial MUX initialization procedure.
+ *
+ * Register the Serial MUX driver.
+ */
 static int __init mux_init(void)
 {
 	register_parisc_driver(&builtin_serial_mux_driver);
 	register_parisc_driver(&serial_mux_driver);
 
 	if(port_cnt > 0) {
-		
+		/* Start the Mux timer */
 		init_timer(&mux_timer);
 		mux_timer.function = mux_poll;
 		mod_timer(&mux_timer, jiffies + MUX_POLL_DELAY);
@@ -430,9 +605,14 @@ static int __init mux_init(void)
 	return 0;
 }
 
+/**
+ * mux_exit - Serial MUX cleanup procedure.
+ *
+ * Unregister the Serial MUX driver from the tty layer.
+ */
 static void __exit mux_exit(void)
 {
-	
+	/* Delete the Mux timer. */
 	if(port_cnt > 0) {
 		del_timer(&mux_timer);
 #ifdef CONFIG_SERIAL_MUX_CONSOLE

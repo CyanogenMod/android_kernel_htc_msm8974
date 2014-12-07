@@ -244,7 +244,7 @@ static int g2d_open(struct file *file)
 	if (!ctx)
 		return -ENOMEM;
 	ctx->dev = dev;
-	
+	/* Set default formats */
 	ctx->in		= def_frame;
 	ctx->out	= def_frame;
 
@@ -260,7 +260,7 @@ static int g2d_open(struct file *file)
 
 	g2d_setup_ctrls(ctx);
 
-	
+	/* Write the default values to the ctx struct */
 	v4l2_ctrl_handler_setup(&ctx->ctrl_handler);
 
 	ctx->fh.ctrl_handler = &ctx->ctrl_handler;
@@ -367,6 +367,8 @@ static int vidioc_s_fmt(struct file *file, void *prv, struct v4l2_format *f)
 	struct g2d_fmt *fmt;
 	int ret = 0;
 
+	/* Adjust all values accordingly to the hardware capabilities
+	 * and chosen format. */
 	ret = vidioc_try_fmt(file, prv, f);
 	if (ret)
 		return ret;
@@ -384,7 +386,7 @@ static int vidioc_s_fmt(struct file *file, void *prv, struct v4l2_format *f)
 	frm->width	= f->fmt.pix.width;
 	frm->height	= f->fmt.pix.height;
 	frm->size	= f->fmt.pix.sizeimage;
-	
+	/* Reset crop settings */
 	frm->o_width	= 0;
 	frm->o_height	= 0;
 	frm->c_width	= frm->width;
@@ -544,7 +546,7 @@ static void job_abort(void *prv)
 	struct g2d_dev *dev = ctx->dev;
 	int ret;
 
-	if (dev->curr == 0) 
+	if (dev->curr == 0) /* No job currently running */
 		return;
 
 	ret = wait_event_timeout(dev->irq_queue,

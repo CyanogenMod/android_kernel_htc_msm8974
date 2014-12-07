@@ -36,10 +36,23 @@
 #include <linux/init.h>
 #include "ibmphp.h"
 
+/*
+ * POST builds data blocks(in this data block definition, a char-1
+ * byte, short(or word)-2 byte, long(dword)-4 byte) in the Extended
+ * BIOS Data Area which describe the configuration of the hot-plug
+ * controllers and resources used by the PCI Hot-Plug devices.
+ *
+ * This file walks EBDA, maps data block from physical addr,
+ * reconstruct linked lists about all system resource(MEM, PFM, IO)
+ * already assigned by POST, as well as linked lists about hot plug
+ * controllers (ctlr#, slot#, bus&slot features...)
+ */
 
+/* Global lists */
 LIST_HEAD (ibmphp_ebda_pci_rsrc_head);
 LIST_HEAD (ibmphp_slot_head);
 
+/* Local variables */
 static struct ebda_hpc_list *hpc_list_ptr;
 static struct ebda_rsrc_list *rsrc_list_ptr;
 static struct rio_table_hdr *rio_table_ptr = NULL;
@@ -51,6 +64,7 @@ static LIST_HEAD (opt_vg_head);
 static LIST_HEAD (opt_lo_head);
 static void __iomem *io_mem;
 
+/* Local functions */
 static int ebda_rsrc_controller (void);
 static int ebda_rsrc_rsrc (void);
 static int ebda_rio_table (void);
@@ -263,23 +277,23 @@ int __init ibmphp_access_ebda (void)
 	for (;;) {
 		offset = next_offset;
 
-		
+		/* Make sure what we read is still in the mapped section */
 		if (WARN(offset > (ebda_sz * 1024 - 4),
 			 "ibmphp_ebda: next read is beyond ebda_sz\n"))
 			break;
 
-		next_offset = readw (io_mem + offset);	
+		next_offset = readw (io_mem + offset);	/* offset of next blk */
 
 		offset += 2;
-		if (next_offset == 0)	
+		if (next_offset == 0)	/* 0 indicate it's last blk */
 			break;
-		blk_id = readw (io_mem + offset);	
+		blk_id = readw (io_mem + offset);	/* this blk id */
 
 		offset += 2;
-		
+		/* check if it is hot swap block or rio block */
 		if (blk_id != 0x4853 && blk_id != 0x4752)
 			continue;
-		
+		/* found hs table */
 		if (blk_id == 0x4853) {
 			debug ("now enter hot swap block---\n");
 			debug ("hot blk id: %x\n", blk_id);
@@ -289,19 +303,19 @@ int __init ibmphp_access_ebda (void)
 			if (format != 4)
 				goto error_nodev;
 			debug ("hot blk format: %x\n", format);
-			
+			/* hot swap sub blk */
 			base = offset;
 
 			sub_addr = base;
-			re = readw (io_mem + sub_addr);	
+			re = readw (io_mem + sub_addr);	/* next sub blk */
 
 			sub_addr += 2;
-			rc_id = readw (io_mem + sub_addr); 	
+			rc_id = readw (io_mem + sub_addr); 	/* sub blk id */
 
 			sub_addr += 2;
 			if (rc_id != 0x5243)
 				goto error_nodev;
-			
+			/* rc sub blk signature  */
 			num_ctlrs = readb (io_mem + sub_addr);
 
 			sub_addr += 1;
@@ -312,27 +326,27 @@ int __init ibmphp_access_ebda (void)
 			}
 			hpc_list_ptr->format = format;
 			hpc_list_ptr->num_ctlrs = num_ctlrs;
-			hpc_list_ptr->phys_addr = sub_addr;	
+			hpc_list_ptr->phys_addr = sub_addr;	/*  offset of RSRC_CONTROLLER blk */
 			debug ("info about hpc descriptor---\n");
 			debug ("hot blk format: %x\n", format);
 			debug ("num of controller: %x\n", num_ctlrs);
 			debug ("offset of hpc data structure enteries: %x\n ", sub_addr);
 
-			sub_addr = base + re;	
-			
-			rc = readw (io_mem + sub_addr);	
+			sub_addr = base + re;	/* re sub blk */
+			/* FIXME: rc is never used/checked */
+			rc = readw (io_mem + sub_addr);	/* next sub blk */
 
 			sub_addr += 2;
-			re_id = readw (io_mem + sub_addr);	
+			re_id = readw (io_mem + sub_addr);	/* sub blk id */
 
 			sub_addr += 2;
 			if (re_id != 0x5245)
 				goto error_nodev;
 
-			
+			/* signature of re */
 			num_entries = readw (io_mem + sub_addr);
 
-			sub_addr += 2;	
+			sub_addr += 2;	/* offset of RSRC_ENTRIES blk */
 			rsrc_list_ptr = alloc_ebda_rsrc_list ();
 			if (!rsrc_list_ptr ) {
 				rc = -ENOMEM;
@@ -349,7 +363,7 @@ int __init ibmphp_access_ebda (void)
 
 			hs_complete = 1;
 		} else {
-		
+		/* found rio table, blk_id == 0x4752 */
 			debug ("now enter io table ---\n");
 			debug ("rio blk id: %x\n", blk_id);
 
@@ -395,6 +409,9 @@ out:
 	return rc;
 }
 
+/*
+ * map info of scalability details and rio details from physical address
+ */
 static int __init ebda_rio_table (void)
 {
 	u16 offset;
@@ -404,7 +421,7 @@ static int __init ebda_rio_table (void)
 	offset = rio_table_ptr->offset;
 	offset += 12 * rio_table_ptr->scal_count;
 
-	
+	// we do concern about rio details
 	for (i = 0; i < rio_table_ptr->riodev_count; i++) {
 		rio_detail_ptr = kzalloc(sizeof(struct rio_detail), GFP_KERNEL);
 		if (!rio_detail_ptr)
@@ -421,14 +438,15 @@ static int __init ebda_rio_table (void)
 		rio_detail_ptr->status = readb (io_mem + offset + 12);
 		rio_detail_ptr->wpindex = readb (io_mem + offset + 13);
 		rio_detail_ptr->chassis_num = readb (io_mem + offset + 14);
-		
+//		debug ("rio_node_id: %x\nbbar: %x\nrio_type: %x\nowner_id: %x\nport0_node: %x\nport0_port: %x\nport1_node: %x\nport1_port: %x\nfirst_slot_num: %x\nstatus: %x\n", rio_detail_ptr->rio_node_id, rio_detail_ptr->bbar, rio_detail_ptr->rio_type, rio_detail_ptr->owner_id, rio_detail_ptr->port0_node_connect, rio_detail_ptr->port0_port_connect, rio_detail_ptr->port1_node_connect, rio_detail_ptr->port1_port_connect, rio_detail_ptr->first_slot_num, rio_detail_ptr->status);
+		//create linked list of chassis
 		if (rio_detail_ptr->rio_type == 4 || rio_detail_ptr->rio_type == 5) 
 			list_add (&rio_detail_ptr->rio_detail_list, &rio_vg_head);
-		
+		//create linked list of expansion box				
 		else if (rio_detail_ptr->rio_type == 6 || rio_detail_ptr->rio_type == 7) 
 			list_add (&rio_detail_ptr->rio_detail_list, &rio_lo_head);
 		else 
-			
+			// not in my concern
 			kfree (rio_detail_ptr);
 		offset += 15;
 	}
@@ -437,6 +455,9 @@ static int __init ebda_rio_table (void)
 	return 0;
 }
 
+/*
+ * reorganizing linked list of chassis	 
+ */
 static struct opt_rio *search_opt_vg (u8 chassis_num)
 {
 	struct opt_rio *ptr;
@@ -472,6 +493,9 @@ static int __init combine_wpg_for_chassis (void)
 	return 0;	
 }	
 
+/*
+ * reorganizing linked list of expansion box
+ */
 static struct opt_rio_lo *search_opt_lo (u8 chassis_num)
 {
 	struct opt_rio_lo *ptr;
@@ -510,6 +534,11 @@ static int combine_wpg_for_expansion (void)
 }
 	
 
+/* Since we don't know the max slot number per each chassis, hence go
+ * through the list of all chassis to find out the range
+ * Arguments: slot_num, 1st slot number of the chassis we think we are on, 
+ * var (0 = chassis, 1 = expansion box) 
+ */
 static int first_slot_num (u8 slot_num, u8 first_slot, u8 var)
 {
 	struct opt_rio *opt_vg_ptr = NULL;
@@ -539,7 +568,7 @@ static struct opt_rio_lo * find_rxe_num (u8 slot_num)
 	struct opt_rio_lo *opt_lo_ptr;
 
 	list_for_each_entry(opt_lo_ptr, &opt_lo_head, opt_rio_lo_list) {
-		
+		//check to see if this slot_num belongs to expansion box
 		if ((slot_num >= opt_lo_ptr->first_slot_num) && (!first_slot_num (slot_num, opt_lo_ptr->first_slot_num, 1))) 
 			return opt_lo_ptr;
 	}
@@ -551,13 +580,16 @@ static struct opt_rio * find_chassis_num (u8 slot_num)
 	struct opt_rio *opt_vg_ptr;
 
 	list_for_each_entry(opt_vg_ptr, &opt_vg_head, opt_rio_list) {
-		
+		//check to see if this slot_num belongs to chassis 
 		if ((slot_num >= opt_vg_ptr->first_slot_num) && (!first_slot_num (slot_num, opt_vg_ptr->first_slot_num, 0))) 
 			return opt_vg_ptr;
 	}
 	return NULL;
 }
 
+/* This routine will find out how many slots are in the chassis, so that
+ * the slot numbers for rxe100 would start from 1, and not from 7, or 6 etc
+ */
 static u8 calculate_first_slot (u8 slot_num)
 {
 	u8 first_slot = 1;
@@ -580,8 +612,8 @@ static char *create_file_name (struct slot * slot_cur)
 	struct opt_rio *opt_vg_ptr = NULL;
 	struct opt_rio_lo *opt_lo_ptr = NULL;
 	static char str[SLOT_NAME_SIZE];
-	int which = 0; 
-	u8 number = 1; 
+	int which = 0; /* rxe = 1, chassis = 0 */
+	u8 number = 1; /* either chassis or rxe # */
 	u8 first_slot = 1;
 	u8 slot_num;
 	u8 flag = 0;
@@ -606,7 +638,7 @@ static char *create_file_name (struct slot * slot_cur)
 			if ((slot_num - opt_vg_ptr->first_slot_num) > (slot_num - opt_lo_ptr->first_slot_num)) {
 				number = opt_lo_ptr->chassis_num;
 				first_slot = opt_lo_ptr->first_slot_num;
-				which = 1; 
+				which = 1; /* it is RXE */
 			} else {
 				first_slot = opt_vg_ptr->first_slot_num;
 				number = opt_vg_ptr->chassis_num;
@@ -625,7 +657,7 @@ static char *create_file_name (struct slot * slot_cur)
 		++flag;
 	} else if (rio_table_ptr) {
 		if (rio_table_ptr->ver_num == 3) {
-			
+			/* if both NULL and we DO have correct RIO table in BIOS */
 			return NULL;
 		}
 	} 
@@ -657,20 +689,27 @@ static int fillslotinfo(struct hotplug_slot *hotplug_slot)
 	if (rc)
 		return rc;
 
-	
+	// power - enabled:1  not:0
 	hotplug_slot->info->power_status = SLOT_POWER(slot->status);
 
-	
+	// attention - off:0, on:1, blinking:2
 	hotplug_slot->info->attention_status = SLOT_ATTN(slot->status, slot->ext_status);
 
-	
+	// latch - open:1 closed:0
 	hotplug_slot->info->latch_status = SLOT_LATCH(slot->status);
 
-	
+	// pci board - present:1 not:0
 	if (SLOT_PRESENT (slot->status))
 		hotplug_slot->info->adapter_status = 1;
 	else
 		hotplug_slot->info->adapter_status = 0;
+/*
+	if (slot->bus_on->supported_bus_mode
+		&& (slot->bus_on->supported_speed == BUS_SPEED_66))
+		hotplug_slot->info->max_bus_speed_status = BUS_SPEED_66PCIX;
+	else
+		hotplug_slot->info->max_bus_speed_status = slot->bus_on->supported_speed;
+*/
 
 	return rc;
 }
@@ -688,7 +727,7 @@ static void release_slot(struct hotplug_slot *hotplug_slot)
 	slot->ctrl = NULL;
 	slot->bus_on = NULL;
 
-	
+	/* we don't want to actually remove the resources, since free_resources will do just that */
 	ibmphp_unconfigure_card(&slot, -1);
 
 	kfree (slot);
@@ -696,6 +735,11 @@ static void release_slot(struct hotplug_slot *hotplug_slot)
 
 static struct pci_driver ibmphp_driver;
 
+/*
+ * map info (ctlr-id, slot count, slot#.. bus count, bus#, ctlr type...) of
+ * each hpc from physical address to a list of hot plug controllers based on
+ * hpc descriptors.
+ */
 static int __init ebda_rsrc_controller (void)
 {
 	u16 addr, addr_slot, addr_bus;
@@ -719,18 +763,18 @@ static int __init ebda_rsrc_controller (void)
 		slot_num = readb (io_mem + addr);
 
 		addr += 1;
-		addr_slot = addr;	
+		addr_slot = addr;	/* offset of slot structure */
 		addr += (slot_num * 4);
 
 		bus_num = readb (io_mem + addr);
 
 		addr += 1;
-		addr_bus = addr;	
-		addr += (bus_num * 9);	
+		addr_bus = addr;	/* offset of bus */
+		addr += (bus_num * 9);	/* offset of ctlr_type */
 		temp = readb (io_mem + addr);
 
 		addr += 1;
-		
+		/* init hpc structure */
 		hpc_ptr = alloc_ebda_hpc (slot_num, bus_num);
 		if (!hpc_ptr ) {
 			rc = -ENOMEM;
@@ -746,7 +790,7 @@ static int __init ebda_rsrc_controller (void)
 		debug ("count of slots controlled by this ctlr: %x\n", slot_num);
 		debug ("count of buses controlled by this ctlr: %x\n", bus_num);
 
-		
+		/* init slot structure, fetch slot, bus, cap... */
 		slot_ptr = hpc_ptr->slots;
 		for (slot = 0; slot < slot_num; slot++) {
 			slot_ptr->slot_num = readb (io_mem + addr_slot);
@@ -754,7 +798,7 @@ static int __init ebda_rsrc_controller (void)
 			slot_ptr->ctl_index = readb (io_mem + addr_slot + 2*slot_num);
 			slot_ptr->slot_cap = readb (io_mem + addr_slot + 3*slot_num);
 
-			
+			// create bus_info lined list --- if only one slot per bus: slot_min = slot_max 
 
 			bus_info_ptr2 = ibmphp_find_same_bus_num (slot_ptr->slot_bus_num);
 			if (!bus_info_ptr2) {
@@ -782,13 +826,13 @@ static int __init ebda_rsrc_controller (void)
 
 			}
 
-			
+			// end of creating the bus_info linked list
 
 			slot_ptr++;
 			addr_slot += 1;
 		}
 
-		
+		/* init bus structure */
 		bus_ptr = hpc_ptr->buses;
 		for (bus = 0; bus < bus_num; bus++) {
 			bus_ptr->bus_num = readb (io_mem + addr_bus + bus);
@@ -850,7 +894,7 @@ static int __init ebda_rsrc_controller (void)
 				goto error_no_hp_slot;
 		}
 
-		
+		//reorganize chassis' linked list
 		combine_wpg_for_chassis ();
 		combine_wpg_for_expansion ();
 		hpc_ptr->revision = 0xff;
@@ -858,7 +902,7 @@ static int __init ebda_rsrc_controller (void)
 		hpc_ptr->starting_slot_num = hpc_ptr->slots[0].slot_num;
 		hpc_ptr->ending_slot_num = hpc_ptr->slots[slot_num-1].slot_num;
 
-		
+		// register slots with hpc core as well as create linked list of ibm slot
 		for (index = 0; index < hpc_ptr->slot_count; index++) {
 
 			hp_slot_ptr = kzalloc(sizeof(*hp_slot_ptr), GFP_KERNEL);
@@ -923,7 +967,7 @@ static int __init ebda_rsrc_controller (void)
 				goto error;
 			hp_slot_ptr->ops = &ibmphp_hotplug_slot_ops;
 
-			
+			// end of registering ibm slot with hotplug core
 
 			list_add (& ((struct slot *)(hp_slot_ptr->private))->ibm_slot_list, &ibmphp_slot_head);
 		}
@@ -931,7 +975,7 @@ static int __init ebda_rsrc_controller (void)
 		print_bus_info ();
 		list_add (&hpc_ptr->ebda_hpc_list, &ebda_hpc_head );
 
-	}			
+	}			/* each hpc  */
 
 	list_for_each_entry(tmp_slot, &ibmphp_slot_head, ibm_slot_list) {
 		snprintf(name, SLOT_NAME_SIZE, "%s", create_file_name(tmp_slot));
@@ -956,6 +1000,10 @@ error_no_hpc:
 	return rc;
 }
 
+/* 
+ * map info (bus, devfun, start addr, end addr..) of i/o, memory,
+ * pfm from the physical addr to a list of resource.
+ */
 static int __init ebda_rsrc_rsrc (void)
 {
 	u16 addr;
@@ -1037,6 +1085,12 @@ struct slot *ibmphp_get_slot_from_physical_num (u8 physical_num)
 	return NULL;
 }
 
+/* To find:
+ *	- the smallest slot number
+ *	- the largest slot number
+ *	- the total number of the slots based on each bus
+ *	  (if only one slot per bus slot_min = slot_max )
+ */
 struct bus_info *ibmphp_find_same_bus_num (u32 num)
 {
 	struct bus_info *ptr;
@@ -1048,6 +1102,9 @@ struct bus_info *ibmphp_find_same_bus_num (u32 num)
 	return NULL;
 }
 
+/*  Finding relative bus number, in order to map corresponding
+ *  bus register
+ */
 int ibmphp_get_bus_index (u8 num)
 {
 	struct bus_info *ptr;

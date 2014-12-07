@@ -25,6 +25,7 @@
 #include <sound/pcm_params.h>
 #include <sound/atmel-abdac.h>
 
+/* DAC register offsets */
 #define DAC_DATA                                0x0000
 #define DAC_CTRL                                0x0008
 #define DAC_INT_MASK                            0x000c
@@ -33,16 +34,19 @@
 #define DAC_INT_CLR                             0x0018
 #define DAC_INT_STATUS                          0x001c
 
+/* Bitfields in CTRL */
 #define DAC_SWAP_OFFSET                         30
 #define DAC_SWAP_SIZE                           1
 #define DAC_EN_OFFSET                           31
 #define DAC_EN_SIZE                             1
 
+/* Bitfields in INT_MASK/INT_EN/INT_DIS/INT_STATUS/INT_CLR */
 #define DAC_UNDERRUN_OFFSET                     28
 #define DAC_UNDERRUN_SIZE                       1
 #define DAC_TX_READY_OFFSET                     29
 #define DAC_TX_READY_SIZE                       1
 
+/* Bit manipulation macros */
 #define DAC_BIT(name)					\
 	(1 << DAC_##name##_OFFSET)
 #define DAC_BF(name, value)				\
@@ -56,12 +60,19 @@
 		    << DAC_##name##_OFFSET))		\
 	 | DAC_BF(name, value))
 
+/* Register access macros */
 #define dac_readl(port, reg)				\
 	__raw_readl((port)->regs + DAC_##reg)
 #define dac_writel(port, reg, value)			\
 	__raw_writel((value), (port)->regs + DAC_##reg)
 
+/*
+ * ABDAC supports a maximum of 6 different rates from a generic clock. The
+ * generic clock has a power of two divider, which gives 6 steps from 192 kHz
+ * to 5112 Hz.
+ */
 #define MAX_NUM_RATES	6
+/* ALSA seems to use rates between 192000 Hz and 5112 Hz. */
 #define RATE_MAX	192000
 #define RATE_MIN	5112
 
@@ -94,6 +105,7 @@ struct atmel_abdac {
 
 #define get_dac(card) ((struct atmel_abdac *)(card)->private_data)
 
+/* This function is called by the DMA driver. */
 static void atmel_abdac_dma_period_done(void *arg)
 {
 	struct atmel_abdac *dac = arg;
@@ -109,6 +121,10 @@ static int atmel_abdac_prepare_dma(struct atmel_abdac *dac,
 	struct snd_pcm_runtime		*runtime = substream->runtime;
 	unsigned long			buffer_len, period_len;
 
+	/*
+	 * We don't do DMA on "complex" transfers, i.e. with
+	 * non-halfword-aligned buffers or lengths.
+	 */
 	if (runtime->dma_addr & 1 || runtime->buffer_size & 1) {
 		dev_dbg(&dac->pdev->dev, "too complex transfer\n");
 		return -EINVAL;
@@ -184,7 +200,7 @@ static int atmel_abdac_hw_params(struct snd_pcm_substream *substream,
 			params_buffer_bytes(hw_params));
 	if (retval < 0)
 		return retval;
-	
+	/* snd_pcm_lib_malloc_pages returns 1 if buffer is changed. */
 	if (retval == 1)
 		if (test_and_clear_bit(DMA_READY, &dac->flags))
 			dw_dma_cyclic_free(dac->dma.chan);
@@ -221,8 +237,8 @@ static int atmel_abdac_trigger(struct snd_pcm_substream *substream, int cmd)
 	int retval = 0;
 
 	switch (cmd) {
-	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE: 
-	case SNDRV_PCM_TRIGGER_RESUME: 
+	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE: /* fall through */
+	case SNDRV_PCM_TRIGGER_RESUME: /* fall through */
 	case SNDRV_PCM_TRIGGER_START:
 		clk_enable(dac->sample_clk);
 		retval = dw_dma_cyclic_start(dac->dma.chan);
@@ -230,8 +246,8 @@ static int atmel_abdac_trigger(struct snd_pcm_substream *substream, int cmd)
 			goto out;
 		dac_writel(dac, CTRL, DAC_BIT(EN));
 		break;
-	case SNDRV_PCM_TRIGGER_PAUSE_PUSH: 
-	case SNDRV_PCM_TRIGGER_SUSPEND: 
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH: /* fall through */
+	case SNDRV_PCM_TRIGGER_SUSPEND: /* fall through */
 	case SNDRV_PCM_TRIGGER_STOP:
 		dw_dma_cyclic_stop(dac->dma.chan);
 		dac_writel(dac, DATA, 0);
@@ -335,24 +351,24 @@ static int set_sample_rates(struct atmel_abdac *dac)
 	int retval = -EINVAL;
 	int index = 0;
 
-	
+	/* we start at 192 kHz and work our way down to 5112 Hz */
 	while (new_rate >= RATE_MIN && index < (MAX_NUM_RATES + 1)) {
 		new_rate = clk_round_rate(dac->sample_clk, 256 * new_rate);
 		if (new_rate < 0)
 			break;
-		
+		/* make sure we are below the ABDAC clock */
 		if (new_rate <= clk_get_rate(dac->pclk)) {
 			dac->rates[index] = new_rate / 256;
 			index++;
 		}
-		
+		/* divide by 256 and then by two to get next rate */
 		new_rate /= 256 * 2;
 	}
 
 	if (index) {
 		int i;
 
-		
+		/* reverse array, smallest go first */
 		for (i = 0; i < (index / 2); i++) {
 			unsigned int tmp = dac->rates[index - 1 - i];
 			dac->rates[index - 1 - i] = dac->rates[i];
@@ -439,7 +455,7 @@ static int __devinit atmel_abdac_probe(struct platform_device *pdev)
 		goto out_free_card;
 	}
 
-	
+	/* make sure the DAC is silent and disabled */
 	dac_writel(dac, DATA, 0);
 	dac_writel(dac, CTRL, 0);
 

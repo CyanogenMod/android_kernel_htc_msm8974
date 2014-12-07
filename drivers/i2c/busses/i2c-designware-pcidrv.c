@@ -232,7 +232,7 @@ const struct pci_device_id *id)
 		goto exit;
 	}
 
-	
+	/* Determine the address of the I2C area */
 	start = pci_resource_start(pdev, 0);
 	len = pci_resource_len(pdev, 0);
 	if (!start || len == 0) {
@@ -345,14 +345,15 @@ static void __devexit i2c_dw_pci_remove(struct pci_dev *pdev)
 	pci_release_region(pdev, 0);
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("i2c_designware-pci");
 
 static DEFINE_PCI_DEVICE_TABLE(i2_designware_pci_ids) = {
-	
+	/* Moorestown */
 	{ PCI_VDEVICE(INTEL, 0x0802), moorestown_0 },
 	{ PCI_VDEVICE(INTEL, 0x0803), moorestown_1 },
 	{ PCI_VDEVICE(INTEL, 0x0804), moorestown_2 },
-	
+	/* Medfield */
 	{ PCI_VDEVICE(INTEL, 0x0817), medfield_3,},
 	{ PCI_VDEVICE(INTEL, 0x0818), medfield_4 },
 	{ PCI_VDEVICE(INTEL, 0x0819), medfield_5 },

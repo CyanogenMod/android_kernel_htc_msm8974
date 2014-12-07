@@ -202,7 +202,7 @@ static int __devinit input_fujitsu_setup(struct device *parent,
 	idev->phys = phys;
 	idev->name = name;
 	idev->id.bustype = BUS_HOST;
-	idev->id.vendor  = 0x1734;	
+	idev->id.vendor  = 0x1734;	/* Fujitsu Siemens Computer GmbH */
 	idev->id.product = 0x0001;
 	idev->id.version = 0x0101;
 

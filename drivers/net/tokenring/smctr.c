@@ -57,7 +57,7 @@
 #error FIXME: driver does not support 64-bit platforms
 #endif
 
-#include "smctr.h"               
+#include "smctr.h"               /* Our Stuff */
 
 static const char version[] __initdata =
 	KERN_INFO "smctr.c: v1.4 7/12/00 by jschlst@samba.org\n";
@@ -72,18 +72,28 @@ static unsigned int smctr_posid = 0x6ec6;
 
 static int ringspeed;
 
+/* SMC Name of the Adapter. */
 static char smctr_name[] = "SMC TokenCard";
 static char *smctr_model = "Unknown";
 
+/* Use 0 for production, 1 for verification, 2 for debug, and
+ * 3 for very verbose debug.
+ */
 #ifndef SMCTR_DEBUG
 #define SMCTR_DEBUG 1
 #endif
 static unsigned int smctr_debug = SMCTR_DEBUG;
 
+/* smctr.c prototypes and functions are arranged alphabeticly 
+ * for clearity, maintainability and pure old fashion fun. 
+ */
+/* A */
 static int smctr_alloc_shared_memory(struct net_device *dev);
 
+/* B */
 static int smctr_bypass_state(struct net_device *dev);
 
+/* C */
 static int smctr_checksum_firmware(struct net_device *dev);
 static int __init smctr_chk_isa(struct net_device *dev);
 static int smctr_chg_rx_mask(struct net_device *dev);
@@ -91,17 +101,20 @@ static int smctr_clear_int(struct net_device *dev);
 static int smctr_clear_trc_reset(int ioaddr);
 static int smctr_close(struct net_device *dev);
 
+/* D */
 static int smctr_decode_firmware(struct net_device *dev,
 				 const struct firmware *fw);
 static int smctr_disable_16bit(struct net_device *dev);
 static int smctr_disable_adapter_ctrl_store(struct net_device *dev);
 static int smctr_disable_bic_int(struct net_device *dev);
 
+/* E */
 static int smctr_enable_16bit(struct net_device *dev);
 static int smctr_enable_adapter_ctrl_store(struct net_device *dev);
 static int smctr_enable_adapter_ram(struct net_device *dev);
 static int smctr_enable_bic_int(struct net_device *dev);
 
+/* G */
 static int __init smctr_get_boardid(struct net_device *dev, int mca);
 static int smctr_get_group_address(struct net_device *dev);
 static int smctr_get_functional_address(struct net_device *dev);
@@ -113,8 +126,10 @@ static FCBlock *smctr_get_tx_fcb(struct net_device *dev, __u16 queue,
         __u16 bytes_count);
 static int smctr_get_upstream_neighbor_addr(struct net_device *dev);
 
+/* H */
 static int smctr_hardware_send_packet(struct net_device *dev,
         struct net_local *tp);
+/* I */
 static int smctr_init_acbs(struct net_device *dev);
 static int smctr_init_adapter(struct net_device *dev);
 static int smctr_init_card_real(struct net_device *dev);
@@ -149,8 +164,10 @@ static int smctr_issue_write_byte_cmd(struct net_device *dev,
 static int smctr_issue_write_word_cmd(struct net_device *dev,
         short aword_cnt, void *word);
 
+/* J */
 static int smctr_join_complete_state(struct net_device *dev);
 
+/* L */
 static int smctr_link_tx_fcbs_to_bdbs(struct net_device *dev);
 static int smctr_load_firmware(struct net_device *dev);
 static int smctr_load_node_addr(struct net_device *dev);
@@ -158,6 +175,7 @@ static int smctr_lobe_media_test(struct net_device *dev);
 static int smctr_lobe_media_test_cmd(struct net_device *dev);
 static int smctr_lobe_media_test_state(struct net_device *dev);
 
+/* M */
 static int smctr_make_8025_hdr(struct net_device *dev,
         MAC_HEADER *rmf, MAC_HEADER *tmf, __u16 ac_fc);
 static int smctr_make_access_pri(struct net_device *dev,
@@ -186,14 +204,17 @@ static int smctr_make_upstream_neighbor_addr(struct net_device *dev,
 static int smctr_make_wrap_data(struct net_device *dev,
         MAC_SUB_VECTOR *tsv);
 
+/* O */
 static int smctr_open(struct net_device *dev);
 static int smctr_open_tr(struct net_device *dev);
 
+/* P */
 struct net_device *smctr_probe(int unit);
 static int __init smctr_probe1(struct net_device *dev, int ioaddr);
 static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
         struct net_device *dev, __u16 rx_status);
 
+/* R */
 static int smctr_ram_memory_test(struct net_device *dev);
 static int smctr_rcv_chg_param(struct net_device *dev, MAC_HEADER *rmf,
         __u16 *correlator);
@@ -209,6 +230,7 @@ static int smctr_restart_tx_chain(struct net_device *dev, short queue);
 static int smctr_ring_status_chg(struct net_device *dev);
 static int smctr_rx_frame(struct net_device *dev);
 
+/* S */
 static int smctr_send_dat(struct net_device *dev);
 static netdev_tx_t smctr_send_packet(struct sk_buff *skb,
 					   struct net_device *dev);
@@ -253,6 +275,7 @@ static int smctr_setup_single_cmd_w_data(struct net_device *dev,
 static char *smctr_malloc(struct net_device *dev, __u16 size);
 static int smctr_status_chg(struct net_device *dev);
 
+/* T */
 static void smctr_timeout(struct net_device *dev);
 static int smctr_trc_send_packet(struct net_device *dev, FCBlock *fcb,
         __u16 queue);
@@ -260,11 +283,13 @@ static __u16 smctr_tx_complete(struct net_device *dev, __u16 queue);
 static unsigned short smctr_tx_move_frame(struct net_device *dev,
         struct sk_buff *skb, __u8 *pbuff, unsigned int bytes);
 
+/* U */
 static int smctr_update_err_stats(struct net_device *dev);
 static int smctr_update_rx_chain(struct net_device *dev, __u16 queue);
 static int smctr_update_tx_chain(struct net_device *dev, FCBlock *fcb,
         __u16 queue);
 
+/* W */
 static int smctr_wait_cmd(struct net_device *dev);
 static int smctr_wait_while_cbusy(struct net_device *dev);
 
@@ -272,6 +297,32 @@ static int smctr_wait_while_cbusy(struct net_device *dev);
 #define TO_PARAGRAPH_BOUNDRY(X) (((X + 0x0f) & 0xfff0) - X)
 #define PARAGRAPH_BOUNDRY(X)    smctr_malloc(dev, TO_PARAGRAPH_BOUNDRY(X))
 
+/* Allocate Adapter Shared Memory.
+ * IMPORTANT NOTE: Any changes to this function MUST be mirrored in the
+ * function "get_num_rx_bdbs" below!!!
+ *
+ * Order of memory allocation:
+ *
+ *       0. Initial System Configuration Block Pointer
+ *       1. System Configuration Block
+ *       2. System Control Block
+ *       3. Action Command Block
+ *       4. Interrupt Status Block
+ *
+ *       5. MAC TX FCB'S
+ *       6. NON-MAC TX FCB'S
+ *       7. MAC TX BDB'S
+ *       8. NON-MAC TX BDB'S
+ *       9. MAC RX FCB'S
+ *      10. NON-MAC RX FCB'S
+ *      11. MAC RX BDB'S
+ *      12. NON-MAC RX BDB'S
+ *      13. MAC TX Data Buffer( 1, 256 byte buffer)
+ *      14. MAC RX Data Buffer( 1, 256 byte buffer)
+ *
+ *      15. NON-MAC TX Data Buffer
+ *      16. NON-MAC RX Data Buffer
+ */
 static int smctr_alloc_shared_memory(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -279,10 +330,13 @@ static int smctr_alloc_shared_memory(struct net_device *dev)
         if(smctr_debug > 10)
                 printk(KERN_DEBUG "%s: smctr_alloc_shared_memory\n", dev->name);
 
+        /* Allocate initial System Control Block pointer.
+         * This pointer is located in the last page, last offset - 4.
+         */
         tp->iscpb_ptr = (ISCPBlock *)(tp->ram_access + ((__u32)64 * 0x400)
                 - (long)ISCP_BLOCK_SIZE);
 
-        
+        /* Allocate System Control Blocks. */
         tp->scgb_ptr = (SCGBlock *)smctr_malloc(dev, sizeof(SCGBlock));
         PARAGRAPH_BOUNDRY(tp->sh_mem_used);
 
@@ -299,7 +353,7 @@ static int smctr_alloc_shared_memory(struct net_device *dev)
         tp->misc_command_data = (__u16 *)smctr_malloc(dev, MISC_DATA_SIZE);
         PARAGRAPH_BOUNDRY(tp->sh_mem_used);
 
-        
+        /* Allocate transmit FCBs. */
         tp->tx_fcb_head[MAC_QUEUE] = (FCBlock *)smctr_malloc(dev,
                 sizeof(FCBlock) * tp->num_tx_fcbs[MAC_QUEUE]);
 
@@ -309,7 +363,7 @@ static int smctr_alloc_shared_memory(struct net_device *dev)
         tp->tx_fcb_head[BUG_QUEUE] = (FCBlock *)smctr_malloc(dev,
                 sizeof(FCBlock) * tp->num_tx_fcbs[BUG_QUEUE]);
 
-        
+        /* Allocate transmit BDBs. */
         tp->tx_bdb_head[MAC_QUEUE] = (BDBlock *)smctr_malloc(dev,
                 sizeof(BDBlock) * tp->num_tx_bdbs[MAC_QUEUE]);
 
@@ -319,14 +373,14 @@ static int smctr_alloc_shared_memory(struct net_device *dev)
         tp->tx_bdb_head[BUG_QUEUE] = (BDBlock *)smctr_malloc(dev,
                 sizeof(BDBlock) * tp->num_tx_bdbs[BUG_QUEUE]);
 
-        
+        /* Allocate receive FCBs. */
         tp->rx_fcb_head[MAC_QUEUE] = (FCBlock *)smctr_malloc(dev,
                 sizeof(FCBlock) * tp->num_rx_fcbs[MAC_QUEUE]);
 
         tp->rx_fcb_head[NON_MAC_QUEUE] = (FCBlock *)smctr_malloc(dev,
                 sizeof(FCBlock) * tp->num_rx_fcbs[NON_MAC_QUEUE]);
 
-        
+        /* Allocate receive BDBs. */
         tp->rx_bdb_head[MAC_QUEUE] = (BDBlock *)smctr_malloc(dev,
                 sizeof(BDBlock) * tp->num_rx_bdbs[MAC_QUEUE]);
 
@@ -337,21 +391,31 @@ static int smctr_alloc_shared_memory(struct net_device *dev)
 
         tp->rx_bdb_end[NON_MAC_QUEUE] = (BDBlock *)smctr_malloc(dev, 0);
 
+        /* Allocate MAC transmit buffers.
+         * MAC Tx Buffers doen't have to be on an ODD Boundary.
+         */
         tp->tx_buff_head[MAC_QUEUE]
                 = (__u16 *)smctr_malloc(dev, tp->tx_buff_size[MAC_QUEUE]);
         tp->tx_buff_curr[MAC_QUEUE] = tp->tx_buff_head[MAC_QUEUE];
         tp->tx_buff_end [MAC_QUEUE] = (__u16 *)smctr_malloc(dev, 0);
 
-        
+        /* Allocate BUG transmit buffers. */
         tp->tx_buff_head[BUG_QUEUE]
                 = (__u16 *)smctr_malloc(dev, tp->tx_buff_size[BUG_QUEUE]);
         tp->tx_buff_curr[BUG_QUEUE] = tp->tx_buff_head[BUG_QUEUE];
         tp->tx_buff_end[BUG_QUEUE] = (__u16 *)smctr_malloc(dev, 0);
 
+        /* Allocate MAC receive data buffers.
+         * MAC Rx buffer doesn't have to be on a 256 byte boundary.
+         */
         tp->rx_buff_head[MAC_QUEUE] = (__u16 *)smctr_malloc(dev,
                 RX_DATA_BUFFER_SIZE * tp->num_rx_bdbs[MAC_QUEUE]);
         tp->rx_buff_end[MAC_QUEUE] = (__u16 *)smctr_malloc(dev, 0);
 
+        /* Allocate Non-MAC transmit buffers.
+         * ?? For maximum Netware performance, put Tx Buffers on
+         * ODD Boundary and then restore malloc to Even Boundrys.
+         */
         smctr_malloc(dev, 1L);
         tp->tx_buff_head[NON_MAC_QUEUE]
                 = (__u16 *)smctr_malloc(dev, tp->tx_buff_size[NON_MAC_QUEUE]);
@@ -359,6 +423,12 @@ static int smctr_alloc_shared_memory(struct net_device *dev)
         tp->tx_buff_end [NON_MAC_QUEUE] = (__u16 *)smctr_malloc(dev, 0);
         smctr_malloc(dev, 1L);
 
+        /* Allocate Non-MAC receive data buffers.
+         * To guarantee a minimum of 256 contiguous memory to
+         * UM_Receive_Packet's lookahead pointer, before a page
+         * change or ring end is encountered, place each rx buffer on
+         * a 256 byte boundary.
+         */
         smctr_malloc(dev, TO_256_BYTE_BOUNDRY(tp->sh_mem_used));
         tp->rx_buff_head[NON_MAC_QUEUE] = (__u16 *)smctr_malloc(dev,
                 RX_DATA_BUFFER_SIZE * tp->num_rx_bdbs[NON_MAC_QUEUE]);
@@ -367,6 +437,7 @@ static int smctr_alloc_shared_memory(struct net_device *dev)
         return 0;
 }
 
+/* Enter Bypass state. */
 static int smctr_bypass_state(struct net_device *dev)
 {
         int err;
@@ -432,13 +503,13 @@ static int __init smctr_chk_mca(struct net_device *dev)
 
 	tp->bic_type = BIC_594_CHIP;
 
-	
+	/* IO */
 	r2 = mca_read_stored_pos(tp->slot_num, 2);
 	r2 &= 0xF0;
 	dev->base_addr = ((__u16)r2 << 8) + (__u16)0x800;
 	request_region(dev->base_addr, SMCTR_IO_EXTENT, smctr_name);
 
-	
+	/* IRQ */
 	r5 = mca_read_stored_pos(tp->slot_num, 5);
 	r5 &= 0xC;
         switch(r5)
@@ -464,7 +535,7 @@ static int __init smctr_chk_mca(struct net_device *dev)
 		return -ENODEV;
 	}
 
-	
+	/* Get RAM base */
 	r3 = mca_read_stored_pos(tp->slot_num, 3);
 	tp->ram_base = ((__u32)(r3 & 0x7) << 13) + 0x0C0000;
 	if (r3 & 0x8)
@@ -472,7 +543,7 @@ static int __init smctr_chk_mca(struct net_device *dev)
 	if (r3 & 0x80)
 		tp->ram_base += 0xF00000;
 
-	
+	/* Get Ram Size */
 	r3 &= 0x30;
 	r3 >>= 4;
 
@@ -485,7 +556,7 @@ static int __init smctr_chk_mca(struct net_device *dev)
 	if (r4 & 0x8)
 		tp->rom_base += 0x010000;
 
-	
+	/* Get ROM size. */
 	r4 >>= 4;
 	switch (r4) {
 		case 0:
@@ -501,7 +572,7 @@ static int __init smctr_chk_mca(struct net_device *dev)
 			tp->rom_size = ROM_DISABLE;
 	}
 
-	
+	/* Get Media Type. */
 	r5 = mca_read_stored_pos(tp->slot_num, 5);
 	r5 &= CNFG_MEDIA_TYPE_MASK;
 	switch(r5)
@@ -528,7 +599,7 @@ static int __init smctr_chk_mca(struct net_device *dev)
 	if(!(r2 & 0x02))
 		tp->mode_bits |= EARLY_TOKEN_REL;
 
-	
+	/* Disable slot */
 	outb(CNFG_POS_CONTROL_REG, 0);
 
 	tp->board_id = smctr_get_boardid(dev, 1);
@@ -553,7 +624,7 @@ static int __init smctr_chk_mca(struct net_device *dev)
 	return 0;
 #else
 	return -1;
-#endif 
+#endif /* CONFIG_MCA_LEGACY */
 }
 
 static int smctr_chg_rx_mask(struct net_device *dev)
@@ -638,6 +709,9 @@ static int smctr_clear_trc_reset(int ioaddr)
         return 0;
 }
 
+/*
+ * The inverse routine to smctr_open().
+ */
 static int smctr_close(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -648,7 +722,7 @@ static int smctr_close(struct net_device *dev)
 	
 	tp->cleanup = 1;
 
-        
+        /* Check to see if adapter is already in a closed state. */
         if(tp->status != OPEN)
                 return 0;
 
@@ -740,6 +814,12 @@ static int smctr_disable_16bit(struct net_device *dev)
         return 0;
 }
 
+/*
+ * On Exit, Adapter is:
+ * 1. TRC is in a reset state and un-initialized.
+ * 2. Adapter memory is enabled.
+ * 3. Control Store memory is out of context (-WCSS is 1).
+ */
 static int smctr_disable_adapter_ctrl_store(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -780,6 +860,12 @@ static int smctr_enable_16bit(struct net_device *dev)
         return 0;
 }
 
+/*
+ * To enable the adapter control store memory:
+ * 1. Adapter must be in a RESET state.
+ * 2. Adapter memory must be enabled.
+ * 3. Control Store Memory is in context (-WCSS is 0).
+ */
 static int smctr_enable_adapter_ctrl_store(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -852,13 +938,13 @@ static int __init smctr_chk_isa(struct net_device *dev)
 	if((ioaddr & 0x1F) != 0)
                 goto out;
 
-        
+        /* Grab the region so that no one else tries to probe our ioports. */
 	if (!request_region(ioaddr, SMCTR_IO_EXTENT, smctr_name)) {
 		err = -EBUSY;
 		goto out;
 	}
 
-        
+        /* Checksum SMC node address */
         for(i = 0; i < 8; i++)
         {
                 b = inb(ioaddr + LAR0 + i);
@@ -875,7 +961,7 @@ static int __init smctr_chk_isa(struct net_device *dev)
                 goto out2;
         }
 
-        
+        /* Check for 8115T Board ID */
         r2 = 0;
         for(r = 0; r < 8; r++)
         {
@@ -883,11 +969,11 @@ static int __init smctr_chk_isa(struct net_device *dev)
             r2 += r1;
         }
 
-        
+        /* value of RegF adds up the sum to 0xFF */
         if((r2 != 0xFF) && (r2 != 0xEE))
                 goto out2;
 
-        
+        /* Get adapter ID */
         tp->board_id = smctr_get_boardid(dev, 0);
         switch(tp->board_id & 0xffff)
         {
@@ -907,15 +993,15 @@ static int __init smctr_chk_isa(struct net_device *dev)
                         break;
         }
 
-        
+        /* Store BIC type. */
         tp->bic_type = BIC_584_CHIP;
         tp->nic_type = NIC_825_CHIP;
 
-        
+        /* Copy Ram Size */
         tp->ram_usable  = CNFG_SIZE_16KB;
         tp->ram_size    = CNFG_SIZE_64KB;
 
-        
+        /* Get 58x Ram Base */
         r1 = inb(ioaddr);
         r1 &= 0x3F;
 
@@ -926,13 +1012,13 @@ static int __init smctr_chk_isa(struct net_device *dev)
 
         tp->ram_base = ((__u32)r2 << 16) + (((__u32)(r1 & 0x7)) << 13);
 
-        
+        /* Get 584 Irq */
         r1 = 0;
         r1 = inb(ioaddr + CNFG_ICR_583);
         r1 &= CNFG_ICR_IR2_584;
 
         r2 = inb(ioaddr + CNFG_IRR_583);
-        r2 &= CNFG_IRR_IRQS;     
+        r2 &= CNFG_IRR_IRQS;     /* 0x60 */
         r2 >>= 5;
 
         switch(r2)
@@ -978,14 +1064,14 @@ static int __init smctr_chk_isa(struct net_device *dev)
         if (request_irq(dev->irq, smctr_interrupt, IRQF_SHARED, smctr_name, dev))
                 goto out2;
 
-        
+        /* Get 58x Rom Base */
         r1 = inb(ioaddr + CNFG_BIO_583);
         r1 &= 0x3E;
         r1 |= 0x40;
 
         tp->rom_base = (__u32)r1 << 13;
 
-        
+        /* Get 58x Rom Size */
         r1 = inb(ioaddr + CNFG_BIO_583);
         r1 &= 0xC0;
         if(r1 == 0)
@@ -996,7 +1082,7 @@ static int __init smctr_chk_isa(struct net_device *dev)
                 tp->rom_size = (__u16)CNFG_SIZE_8KB << r1;
         }
 
-        
+        /* Get 58x Boot Status */
         r1 = inb(ioaddr + CNFG_GP2);
 
         tp->mode_bits &= (~BOOT_STATUS_MASK);
@@ -1004,7 +1090,7 @@ static int __init smctr_chk_isa(struct net_device *dev)
         if(r1 & CNFG_GP2_BOOT_NIBBLE)
                 tp->mode_bits |= BOOT_TYPE_1;
 
-        
+        /* Get 58x Zero Wait State */
         tp->mode_bits &= (~ZERO_WAIT_STATE_MASK);
 
         r1 = inb(ioaddr + CNFG_IRR_583);
@@ -1020,14 +1106,14 @@ static int __init smctr_chk_isa(struct net_device *dev)
                         tp->mode_bits |= ZERO_WAIT_STATE_16_BIT;
         }
 
-        
+        /* Get 584 Media Menu */
         tp->media_menu = 14;
         r1 = inb(ioaddr + CNFG_IRR_583);
 
-        tp->mode_bits &= 0xf8ff;       
+        tp->mode_bits &= 0xf8ff;       /* (~CNFG_INTERFACE_TYPE_MASK) */
         if((tp->board_id & TOKEN_MEDIA) == TOKEN_MEDIA)
         {
-                
+                /* Get Advanced Features */
                 if(((r1 & 0x6) >> 1) == 0x3)
                         tp->media_type |= MEDIA_UTP_16;
                 else
@@ -1045,9 +1131,17 @@ static int __init smctr_chk_isa(struct net_device *dev)
                 }
 
                 r1 = inb(ioaddr + CNFG_GP2);
-                if(!(r1 & 0x2) )           
+                if(!(r1 & 0x2) )           /* GP2_ETRD */
                         tp->mode_bits |= EARLY_TOKEN_REL;
 
+                /* see if the chip is corrupted
+                if(smctr_read_584_chksum(ioaddr))
+                {
+                        printk(KERN_ERR "%s: EEPROM Checksum Failure\n", dev->name);
+			free_irq(dev->irq, dev);
+                        goto out2;
+                }
+		*/
         }
 
         return 0;
@@ -1097,9 +1191,12 @@ static int __init smctr_get_boardid(struct net_device *dev, int mca)
 	else
 		tp->adapter_bus = BUS_MCA_TYPE;
 
-        
+        /* Get Board Id Byte */
         IdByte = inb(ioaddr + BID_BOARD_ID_BYTE);
 
+        /* if Major version > 1.0 then
+         *      return;
+         */
         if(IdByte & 0xF8)
                 return -1;
 
@@ -1126,7 +1223,7 @@ static int __init smctr_get_boardid(struct net_device *dev, int mca)
 
         r = inb(ioaddr + BID_LAR_0 + BID_REG_6);
 
-        
+        /* clear chip rev bits */
         tp->extra_info &= ~CHIP_REV_MASK;
         tp->extra_info |= ((r & BID_EEPROM_CHIP_REV_MASK) << 6);
 
@@ -1169,12 +1266,16 @@ static int smctr_get_functional_address(struct net_device *dev)
         return smctr_wait_cmd(dev);
 }
 
+/* Calculate number of Non-MAC receive BDB's and data buffers.
+ * This function must simulate allocateing shared memory exactly
+ * as the allocate_shared_memory function above.
+ */
 static unsigned int smctr_get_num_rx_bdbs(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
         unsigned int mem_used = 0;
 
-        
+        /* Allocate System Control Blocks. */
         mem_used += sizeof(SCGBlock);
 
         mem_used += TO_PARAGRAPH_BOUNDRY(mem_used);
@@ -1189,36 +1290,59 @@ static unsigned int smctr_get_num_rx_bdbs(struct net_device *dev)
         mem_used += TO_PARAGRAPH_BOUNDRY(mem_used);
         mem_used += MISC_DATA_SIZE;
 
-        
+        /* Allocate transmit FCB's. */
         mem_used += TO_PARAGRAPH_BOUNDRY(mem_used);
 
         mem_used += sizeof(FCBlock) * tp->num_tx_fcbs[MAC_QUEUE];
         mem_used += sizeof(FCBlock) * tp->num_tx_fcbs[NON_MAC_QUEUE];
         mem_used += sizeof(FCBlock) * tp->num_tx_fcbs[BUG_QUEUE];
 
-        
+        /* Allocate transmit BDBs. */
         mem_used += sizeof(BDBlock) * tp->num_tx_bdbs[MAC_QUEUE];
         mem_used += sizeof(BDBlock) * tp->num_tx_bdbs[NON_MAC_QUEUE];
         mem_used += sizeof(BDBlock) * tp->num_tx_bdbs[BUG_QUEUE];
 
-        
+        /* Allocate receive FCBs. */
         mem_used += sizeof(FCBlock) * tp->num_rx_fcbs[MAC_QUEUE];
         mem_used += sizeof(FCBlock) * tp->num_rx_fcbs[NON_MAC_QUEUE];
 
-        
+        /* Allocate receive BDBs. */
         mem_used += sizeof(BDBlock) * tp->num_rx_bdbs[MAC_QUEUE];
 
+        /* Allocate MAC transmit buffers.
+         * MAC transmit buffers don't have to be on an ODD Boundary.
+         */
         mem_used += tp->tx_buff_size[MAC_QUEUE];
 
-        
+        /* Allocate BUG transmit buffers. */
         mem_used += tp->tx_buff_size[BUG_QUEUE];
 
+        /* Allocate MAC receive data buffers.
+         * MAC receive buffers don't have to be on a 256 byte boundary.
+         */
         mem_used += RX_DATA_BUFFER_SIZE * tp->num_rx_bdbs[MAC_QUEUE];
 
+        /* Allocate Non-MAC transmit buffers.
+         * For maximum Netware performance, put Tx Buffers on
+         * ODD Boundary,and then restore malloc to Even Boundrys.
+         */
         mem_used += 1L;
         mem_used += tp->tx_buff_size[NON_MAC_QUEUE];
         mem_used += 1L;
 
+        /* CALCULATE NUMBER OF NON-MAC RX BDB'S
+         * AND NON-MAC RX DATA BUFFERS
+         *
+         * Make sure the mem_used offset at this point is the
+         * same as in allocate_shared memory or the following
+         * boundary adjustment will be incorrect (i.e. not allocating
+         * the non-mac receive buffers above cannot change the 256
+         * byte offset).
+         *
+         * Since this cannot be guaranteed, adding the full 256 bytes
+         * to the amount of shared memory used at this point will guaranteed
+         * that the rx data buffers do not overflow shared memory.
+         */
         mem_used += 0x100;
 
         return (0xffff - mem_used) / (RX_DATA_BUFFER_SIZE + sizeof(BDBlock));
@@ -1251,6 +1375,10 @@ static int smctr_get_station_id(struct net_device *dev)
         return smctr_wait_cmd(dev);
 }
 
+/*
+ * Get the current statistics. This may be called with the card open
+ * or closed.
+ */
 static struct net_device_stats *smctr_get_stats(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -1270,21 +1398,25 @@ static FCBlock *smctr_get_tx_fcb(struct net_device *dev, __u16 queue,
         if(smctr_debug > 20)
                 printk(KERN_DEBUG "smctr_get_tx_fcb\n");
 
-        
+        /* check if there is enough FCB blocks */
         if(tp->num_tx_fcbs_used[queue] >= tp->num_tx_fcbs[queue])
                 return (FCBlock *)(-1L);
 
-        
+        /* round off the input pkt size to the nearest even number */
         alloc_size = (bytes_count + 1) & 0xfffe;
 
-        
+        /* check if enough mem */
         if((tp->tx_buff_used[queue] + alloc_size) > tp->tx_buff_size[queue])
                 return (FCBlock *)(-1L);
 
+        /* check if past the end ;
+         * if exactly enough mem to end of ring, alloc from front.
+         * this avoids update of curr when curr = end
+         */
         if(((unsigned long)(tp->tx_buff_curr[queue]) + alloc_size)
                 >= (unsigned long)(tp->tx_buff_end[queue]))
         {
-                
+                /* check if enough memory from ring head */
                 alloc_size = alloc_size +
                         (__u16)((__u32)tp->tx_buff_end[queue]
                         - (__u32)tp->tx_buff_curr[queue]);
@@ -1295,7 +1427,7 @@ static FCBlock *smctr_get_tx_fcb(struct net_device *dev, __u16 queue,
                         return (FCBlock *)(-1L);
                 }
 
-                
+                /* ring wrap */
                 tp->tx_buff_curr[queue] = tp->tx_buff_head[queue];
         }
 
@@ -1343,7 +1475,7 @@ static int smctr_hardware_send_packet(struct net_device *dev,
 
         for(;;)
         {
-                
+                /* Send first buffer from queue */
                 skb = skb_dequeue(&tp->SendSkbQueue);
                 if(skb == NULL)
                         return -1;
@@ -1471,7 +1603,7 @@ static int smctr_init_adapter(struct net_device *dev)
 	smctr_set_rx_look_ahead(dev);
         smctr_load_node_addr(dev);
 
-        
+        /* Initialize adapter for Internal Self Test. */
         smctr_reset_adapter(dev);
         if((err = smctr_init_card_real(dev)))
 	{
@@ -1480,7 +1612,7 @@ static int smctr_init_adapter(struct net_device *dev)
                 return -EINVAL;
         }
 
-        
+        /* This routine clobbers the TRC's internal registers. */
         if((err = smctr_internal_self_test(dev)))
 	{
                 printk(KERN_ERR "%s: Card failed internal self test (%d)\n",
@@ -1488,7 +1620,7 @@ static int smctr_init_adapter(struct net_device *dev)
                 return -EINVAL;
         }
 
-        
+        /* Re-Initialize adapter's internal registers */
         smctr_reset_adapter(dev);
         if((err = smctr_init_card_real(dev)))
 	{
@@ -1518,7 +1650,7 @@ static int smctr_init_card_real(struct net_device *dev)
         tp->sh_mem_used = 0;
         tp->num_acbs    = NUM_OF_ACBS;
 
-        
+        /* Range Check Max Packet Size */
         if(tp->max_packet_size < 256)
                 tp->max_packet_size = 256;
         else
@@ -1538,7 +1670,7 @@ static int smctr_init_card_real(struct net_device *dev)
                         tp->num_of_tx_buffs = 1;
         }
 
-        
+        /* Tx queue constants */
         tp->num_tx_fcbs        [BUG_QUEUE]     = NUM_BUG_TX_FCBS;
         tp->num_tx_bdbs        [BUG_QUEUE]     = NUM_BUG_TX_BDBS;
         tp->tx_buff_size       [BUG_QUEUE]     = BUG_TX_BUFFER_MEMORY;
@@ -1557,14 +1689,14 @@ static int smctr_init_card_real(struct net_device *dev)
         tp->tx_buff_used       [NON_MAC_QUEUE] = 0;
         tp->tx_queue_status    [NON_MAC_QUEUE] = NOT_TRANSMITING;
 
-        
+        /* Receive Queue Constants */
         tp->num_rx_fcbs[MAC_QUEUE] = NUM_MAC_RX_FCBS;
         tp->num_rx_bdbs[MAC_QUEUE] = NUM_MAC_RX_BDBS;
 
         if(tp->extra_info & CHIP_REV_MASK)
-                tp->num_rx_fcbs[NON_MAC_QUEUE] = 78;    
+                tp->num_rx_fcbs[NON_MAC_QUEUE] = 78;    /* 825 Rev. XE */
         else
-                tp->num_rx_fcbs[NON_MAC_QUEUE] = 7;     
+                tp->num_rx_fcbs[NON_MAC_QUEUE] = 7;     /* 825 Rev. XD */
 
         tp->num_rx_bdbs[NON_MAC_QUEUE] = smctr_get_num_rx_bdbs(dev);
 
@@ -1696,13 +1828,13 @@ static int smctr_init_shared_memory(struct net_device *dev)
 
         smctr_set_page(dev, (__u8 *)(unsigned int)tp->iscpb_ptr);
 
-        
+        /* Initialize Initial System Configuration Point. (ISCP) */
         iscpb = (__u32 *)PAGE_POINTER(&tp->iscpb_ptr->trc_scgb_ptr);
         *iscpb = (__u32)(SWAP_WORDS(TRC_POINTER(tp->scgb_ptr)));
 
         smctr_set_page(dev, (__u8 *)tp->ram_access);
 
-        
+        /* Initialize System Configuration Pointers. (SCP) */
         tp->scgb_ptr->config = (SCGB_ADDRESS_POINTER_FORMAT
                 | SCGB_MULTI_WORD_CONTROL | SCGB_DATA_FORMAT
                 | SCGB_BURST_LENGTH);
@@ -1712,14 +1844,14 @@ static int smctr_init_shared_memory(struct net_device *dev)
         tp->scgb_ptr->trc_isb_ptr       = TRC_POINTER(tp->isb_ptr);
         tp->scgb_ptr->isbsiz            = (sizeof(ISBlock)) - 2;
 
-        
+        /* Initialize System Control Block. (SCB) */
         tp->sclb_ptr->valid_command    = SCLB_VALID | SCLB_CMD_NOP;
         tp->sclb_ptr->iack_code        = 0;
         tp->sclb_ptr->resume_control   = 0;
         tp->sclb_ptr->int_mask_control = 0;
         tp->sclb_ptr->int_mask_state   = 0;
 
-        
+        /* Initialize Interrupt Status Block. (ISB) */
         for(i = 0; i < NUM_OF_INTERRUPTS; i++)
         {
                 tp->isb_ptr->IStatus[i].IType = 0xf0;
@@ -1728,15 +1860,15 @@ static int smctr_init_shared_memory(struct net_device *dev)
 
         tp->current_isb_index = 0;
 
-        
+        /* Initialize Action Command Block. (ACB) */
         smctr_init_acbs(dev);
 
-        
+        /* Initialize transmit FCB's and BDB's. */
         smctr_link_tx_fcbs_to_bdbs(dev);
         smctr_init_tx_bdbs(dev);
         smctr_init_tx_fcbs(dev);
 
-        
+        /* Initialize receive FCB's and BDB's. */
         smctr_init_rx_bdbs(dev);
         smctr_init_rx_fcbs(dev);
 
@@ -1847,6 +1979,9 @@ static int smctr_internal_self_test(struct net_device *dev)
         return 0;
 }
 
+/*
+ * The typical workload of the driver: Handle the network interface interrupts.
+ */
 static irqreturn_t smctr_interrupt(int irq, void *dev_id)
 {
         struct net_device *dev = dev_id;
@@ -1870,7 +2005,7 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
 
         smctr_clear_int(dev);
 
-        
+        /* First read the LSB */
         while((tp->isb_ptr->IStatus[tp->current_isb_index].IType & 0xf0) == 0)
         {
                 isb_index       = tp->current_isb_index;
@@ -1932,7 +2067,7 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                                 tp->monitor_state = MS_TRANSMIT_RING_PURGE_STATE;
                                                 break;
 
-                                        case 8:   
+                                        case 8:   /* diagnostic state */
                                                 break;
 
                                         case 9:
@@ -1948,7 +2083,7 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                                         smctr_issue_insert_cmd(dev);
                                                 break;
 
-                                        
+                                        /* case 0x0a-0xff, illegal states */
                                         default:
                                                 break;
                                 }
@@ -1959,41 +2094,60 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 smctr_enable_16bit(dev);
                                 break;
 
+                        /* Type 0x02 - MAC Error Counters Interrupt
+                         * One or more MAC Error Counter is half full
+                         *      MAC Error Counters
+                         *      Lost_FR_Error_Counter
+                         *      RCV_Congestion_Counter
+                         *      FR_copied_Error_Counter
+                         *      FREQ_Error_Counter
+                         *      Token_Error_Counter
+                         *      Line_Error_Counter
+                         *      Internal_Error_Count
+                         */
                         case ISB_IMC_MAC_ERROR_COUNTERS:
-                                
+                                /* Read 802.5 Error Counters */
                                 err = smctr_issue_read_ring_status_cmd(dev);
                                 break;
 
+                        /* Type 0x04 - MAC Type 2 Interrupt
+                         * HOST needs to enqueue MAC Frame for transmission
+                         * SubType Bit 15 - RQ_INIT_PDU( Request Initialization)                         * Changed from RQ_INIT_PDU to
+                         * TRC_Status_Changed_Indicate
+                         */
                         case ISB_IMC_MAC_TYPE_2:
                                 err = smctr_issue_read_ring_status_cmd(dev);
                                 break;
 
 
-                        
+                        /* Type 0x05 - TX Frame Interrupt (FI). */
                         case ISB_IMC_TX_FRAME:
-                                
+                                /* BUG QUEUE for TRC stuck receive BUG */
                                 if(isb_subtype & TX_PENDING_PRIORITY_2)
                                 {
                                         if((err = smctr_tx_complete(dev, BUG_QUEUE)) != SUCCESS)
                                                 break;
                                 }
 
-                                
+                                /* NON-MAC frames only */
                                 if(isb_subtype & TX_PENDING_PRIORITY_1)
                                 {
                                         if((err = smctr_tx_complete(dev, NON_MAC_QUEUE)) != SUCCESS)
                                                 break;
                                 }
 
-                                
+                                /* MAC frames only */
                                 if(isb_subtype & TX_PENDING_PRIORITY_0)
                                         err = smctr_tx_complete(dev, MAC_QUEUE);                                break;
 
-                        
+                        /* Type 0x06 - TX END OF QUEUE (FE) */
                         case ISB_IMC_END_OF_TX_QUEUE:
-                                
+                                /* BUG queue */
                                 if(isb_subtype & TX_PENDING_PRIORITY_2)
                                 {
+                                        /* ok to clear Receive FIFO overrun
+                                         * imask send_BUG now completes.
+                                         */
                                         interrupt_unmask_bits |= 0x800;
 
                                         tp->tx_queue_status[BUG_QUEUE] = NOT_TRANSMITING;
@@ -2003,7 +2157,7 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                                 break;
                                 }
 
-                                
+                                /* NON-MAC queue only */
                                 if(isb_subtype & TX_PENDING_PRIORITY_1)
                                 {
                                         tp->tx_queue_status[NON_MAC_QUEUE] = NOT_TRANSMITING;
@@ -2013,7 +2167,7 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                                 break;
                                 }
 
-                                
+                                /* MAC queue only */
                                 if(isb_subtype & TX_PENDING_PRIORITY_0)
                                 {
                                         tp->tx_queue_status[MAC_QUEUE] = NOT_TRANSMITING;
@@ -2024,6 +2178,12 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 }
                                 break;
 
+                        /* Type 0x07 - NON-MAC RX Resource Interrupt
+                         *   Subtype bit 12 - (BW) BDB warning
+                         *   Subtype bit 13 - (FW) FCB warning
+                         *   Subtype bit 14 - (BE) BDB End of chain
+                         *   Subtype bit 15 - (FE) FCB End of chain
+                         */
                         case ISB_IMC_NON_MAC_RX_RESOURCE:
                                 tp->rx_fifo_overrun_count = 0;
                                 tp->receive_queue_number = NON_MAC_QUEUE;
@@ -2047,6 +2207,12 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 err = err1;
                                 break;
 
+                        /* Type 0x08 - MAC RX Resource Interrupt
+                         *   Subtype bit 12 - (BW) BDB warning
+                         *   Subtype bit 13 - (FW) FCB warning
+                         *   Subtype bit 14 - (BE) BDB End of chain
+                         *   Subtype bit 15 - (FE) FCB End of chain
+                         */
                         case ISB_IMC_MAC_RX_RESOURCE:
                                 tp->receive_queue_number = MAC_QUEUE;
                                 err1 = smctr_rx_frame(dev);
@@ -2071,19 +2237,24 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 err = err1;
                                 break;
 
-                        
+                        /* Type 0x09 - NON_MAC RX Frame Interrupt */
                         case ISB_IMC_NON_MAC_RX_FRAME:
                                 tp->rx_fifo_overrun_count = 0;
                                 tp->receive_queue_number = NON_MAC_QUEUE;
                                 err = smctr_rx_frame(dev);
                                 break;
 
-                        
+                        /* Type 0x0A - MAC RX Frame Interrupt */
                         case ISB_IMC_MAC_RX_FRAME:
                                 tp->receive_queue_number = MAC_QUEUE;
                                 err = smctr_rx_frame(dev);
                                 break;
 
+                        /* Type 0x0B - TRC status
+                         * TRC has encountered an error condition
+                         * subtype bit 14 - transmit FIFO underrun
+                         * subtype bit 15 - receive FIFO overrun
+                         */
                         case ISB_IMC_TRC_FIFO_STATUS:
                                 if(isb_subtype & TRC_FIFO_STATUS_TX_UNDERRUN)
                                 {
@@ -2093,14 +2264,23 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
 
                                 if(isb_subtype & TRC_FIFO_STATUS_RX_OVERRUN)
                                 {
+                                        /* update overrun stuck receive counter
+                                         * if >= 3, has to clear it by sending
+                                         * back to back frames. We pick
+                                         * DAT(duplicate address MAC frame)
+                                         */
                                         tp->rx_fifo_overrun_count++;
 
                                         if(tp->rx_fifo_overrun_count >= 3)
                                         {
                                                 tp->rx_fifo_overrun_count = 0;
 
+                                                /* delay clearing fifo overrun
+                                                 * imask till send_BUG tx
+                                                 * complete posted
+                                                 */
                                                 interrupt_unmask_bits &= (~0x800);
-                                                printk(KERN_CRIT "Jay please send bug\n");
+                                                printk(KERN_CRIT "Jay please send bug\n");//                                              smctr_send_bug(dev);
                                         }
 
                                         if(tp->ptr_rx_fifo_overruns)
@@ -2110,6 +2290,10 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 err = SUCCESS;
                                 break;
 
+                        /* Type 0x0C - Action Command Status Interrupt
+                         * Subtype bit 14 - CB end of command chain (CE)
+                         * Subtype bit 15 - CB command interrupt (CI)
+                         */
                         case ISB_IMC_COMMAND_STATUS:
                                 err = SUCCESS;
                                 if(tp->acb_head->cmd == ACB_CMD_HIC_NOP)
@@ -2117,8 +2301,8 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                         printk(KERN_ERR "i1\n");
                                         smctr_disable_16bit(dev);
 
-                                        
-                                
+                                        /* XXXXXXXXXXXXXXXXX */
+                                /*      err = UM_Interrupt(dev); */
 
                                         smctr_enable_16bit(dev);
                                 }
@@ -2180,6 +2364,15 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 tp->acb_pending = 0;
                                 break;
 
+                        /* Type 0x0D - MAC Type 1 interrupt
+                         * Subtype -- 00 FR_BCN received at S12
+                         *            01 FR_BCN received at S21
+                         *            02 FR_DAT(DA=MA, A<>0) received at S21
+                         *            03 TSM_EXP at S21
+                         *            04 FR_REMOVE received at S42
+                         *            05 TBR_EXP, BR_FLAG_SET at S42
+                         *            06 TBT_EXP at S53
+                         */
                         case ISB_IMC_MAC_TYPE_1:
                                 if(isb_subtype > 8)
                                 {
@@ -2235,6 +2428,9 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 }
                                 break ;
 
+                        /* Type 0x0E - TRC Initialization Sequence Interrupt
+                         * Subtype -- 00-FF Initializatin sequence complete
+                         */
                         case ISB_IMC_TRC_INTRNL_TST_STATUS:
                                 tp->status = INITIALIZED;
                                 smctr_disable_16bit(dev);
@@ -2242,7 +2438,7 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                                 smctr_enable_16bit(dev);
                                 break;
 
-                        
+                        /* other interrupt types, illegal */
                         default:
                                 break;
                 }
@@ -2251,6 +2447,11 @@ static irqreturn_t smctr_interrupt(int irq, void *dev_id)
                         break;
         }
 
+        /* Checking the ack code instead of the unmask bits here is because :
+         * while fixing the stuck receive, DAT frame are sent and mask off
+         * FIFO overrun interrupt temporarily (interrupt_unmask_bits = 0)
+         * but we still want to issue ack to ISB
+         */
         if(!(interrupt_ack_code & 0xff00))
                 smctr_issue_int_ack(dev, interrupt_ack_code, interrupt_unmask_bits);
 
@@ -2286,7 +2487,7 @@ static int smctr_issue_int_ack(struct net_device *dev, __u16 iack_code, __u16 ib
                 return -1;
 
         tp->sclb_ptr->int_mask_control = ibits;
-        tp->sclb_ptr->iack_code = iack_code << 1;         tp->sclb_ptr->resume_control = 0;
+        tp->sclb_ptr->iack_code = iack_code << 1; /* use the offset from base */        tp->sclb_ptr->resume_control = 0;
         tp->sclb_ptr->valid_command = SCLB_VALID | SCLB_IACK_CODE_VALID | SCLB_CMD_CLEAR_INTERRUPT_MASK;
 
         smctr_set_ctrl_attention(dev);
@@ -2371,40 +2572,40 @@ static int smctr_issue_init_timers_cmd(struct net_device *dev)
 	   (tp->media_type == MEDIA_UTP_4) ||
 	   (tp->media_type == MEDIA_STP_4_UTP_4))
         {
-                *pTimer_Struc++ = 0x00FA;       
-                *pTimer_Struc++ = 0x2710;       
-                *pTimer_Struc++ = 0x2710;       
-                *pTimer_Struc++ = 0x0A28;       
-                *pTimer_Struc++ = 0x3E80;       
-                *pTimer_Struc++ = 0x3A98;       
-                *pTimer_Struc++ = 0x1B58;       
-                *pTimer_Struc++ = 0x00C8;       
-                *pTimer_Struc++ = 0x07D0;       
-                *pTimer_Struc++ = 0x000A;       
-                *pTimer_Struc++ = 0x1162;       
-                *pTimer_Struc++ = 0x07D0;       
-                *pTimer_Struc++ = 0x1388;       
-                *pTimer_Struc++ = 0x0000;       
+                *pTimer_Struc++ = 0x00FA;       /* prescale */
+                *pTimer_Struc++ = 0x2710;       /* TPT_limit */
+                *pTimer_Struc++ = 0x2710;       /* TQP_limit */
+                *pTimer_Struc++ = 0x0A28;       /* TNT_limit */
+                *pTimer_Struc++ = 0x3E80;       /* TBT_limit */
+                *pTimer_Struc++ = 0x3A98;       /* TSM_limit */
+                *pTimer_Struc++ = 0x1B58;       /* TAM_limit */
+                *pTimer_Struc++ = 0x00C8;       /* TBR_limit */
+                *pTimer_Struc++ = 0x07D0;       /* TER_limit */
+                *pTimer_Struc++ = 0x000A;       /* TGT_limit */
+                *pTimer_Struc++ = 0x1162;       /* THT_limit */
+                *pTimer_Struc++ = 0x07D0;       /* TRR_limit */
+                *pTimer_Struc++ = 0x1388;       /* TVX_limit */
+                *pTimer_Struc++ = 0x0000;       /* reserved */
         }
         else
         {
-                *pTimer_Struc++ = 0x03E8;       
-                *pTimer_Struc++ = 0x9C40;       
-                *pTimer_Struc++ = 0x9C40;       
-                *pTimer_Struc++ = 0x0A28;       
-                *pTimer_Struc++ = 0x3E80;       
-                *pTimer_Struc++ = 0x3A98;       
-                *pTimer_Struc++ = 0x1B58;       
-                *pTimer_Struc++ = 0x00C8;       
-                *pTimer_Struc++ = 0x07D0;       
-                *pTimer_Struc++ = 0x000A;       
-                *pTimer_Struc++ = 0x4588;       
-                *pTimer_Struc++ = 0x1F40;       
-                *pTimer_Struc++ = 0x4E20;       
-                *pTimer_Struc++ = 0x0000;       
+                *pTimer_Struc++ = 0x03E8;       /* prescale */
+                *pTimer_Struc++ = 0x9C40;       /* TPT_limit */
+                *pTimer_Struc++ = 0x9C40;       /* TQP_limit */
+                *pTimer_Struc++ = 0x0A28;       /* TNT_limit */
+                *pTimer_Struc++ = 0x3E80;       /* TBT_limit */
+                *pTimer_Struc++ = 0x3A98;       /* TSM_limit */
+                *pTimer_Struc++ = 0x1B58;       /* TAM_limit */
+                *pTimer_Struc++ = 0x00C8;       /* TBR_limit */
+                *pTimer_Struc++ = 0x07D0;       /* TER_limit */
+                *pTimer_Struc++ = 0x000A;       /* TGT_limit */
+                *pTimer_Struc++ = 0x4588;       /* THT_limit */
+                *pTimer_Struc++ = 0x1F40;       /* TRR_limit */
+                *pTimer_Struc++ = 0x4E20;       /* TVX_limit */
+                *pTimer_Struc++ = 0x0000;       /* reserved */
         }
 
-        
+        /* Set node address. */
         *pTimer_Struc++ = dev->dev_addr[0] << 8
                 | (dev->dev_addr[1] & 0xFF);
         *pTimer_Struc++ = dev->dev_addr[2] << 8
@@ -2412,7 +2613,7 @@ static int smctr_issue_init_timers_cmd(struct net_device *dev)
         *pTimer_Struc++ = dev->dev_addr[4] << 8
                 | (dev->dev_addr[5] & 0xFF);
 
-        
+        /* Set group address. */
         *pTimer_Struc++ = tp->group_address_0 << 8
                 | tp->group_address_0 >> 8;
         *pTimer_Struc++ = tp->group_address[0] << 8
@@ -2420,7 +2621,7 @@ static int smctr_issue_init_timers_cmd(struct net_device *dev)
         *pTimer_Struc++ = tp->group_address[1] << 8
                 | tp->group_address[1] >> 8;
 
-        
+        /* Set functional address. */
         *pTimer_Struc++ = tp->functional_address_0 << 8
                 | tp->functional_address_0 >> 8;
         *pTimer_Struc++ = tp->functional_address[0] << 8
@@ -2428,21 +2629,21 @@ static int smctr_issue_init_timers_cmd(struct net_device *dev)
         *pTimer_Struc++ = tp->functional_address[1] << 8
                 | tp->functional_address[1] >> 8;
 
-        
+        /* Set Bit-Wise group address. */
         *pTimer_Struc++ = tp->bitwise_group_address[0] << 8
                 | tp->bitwise_group_address[0] >> 8;
         *pTimer_Struc++ = tp->bitwise_group_address[1] << 8
                 | tp->bitwise_group_address[1] >> 8;
 
-        
+        /* Set ring number address. */
         *pTimer_Struc++ = tp->source_ring_number;
         *pTimer_Struc++ = tp->target_ring_number;
 
-        
+        /* Physical drop number. */
         *pTimer_Struc++ = (unsigned short)0;
         *pTimer_Struc++ = (unsigned short)0;
 
-        
+        /* Product instance ID. */
         for(i = 0; i < 9; i++)
                 *pTimer_Struc++ = (unsigned short)0;
 
@@ -2467,20 +2668,26 @@ static int smctr_issue_init_txrx_cmd(struct net_device *dev)
                 return err;
         }
 
+        /* Initialize Transmit Queue Pointers that are used, to point to
+         * a single FCB.
+         */
         for(i = 0; i < NUM_TX_QS_USED; i++)
                 *txrx_ptrs++ = (void *)TRC_POINTER(tp->tx_fcb_head[i]);
 
-        
+        /* Initialize Transmit Queue Pointers that are NOT used to ZERO. */
         for(; i < MAX_TX_QS; i++)
                 *txrx_ptrs++ = (void *)0;
 
+        /* Initialize Receive Queue Pointers (MAC and Non-MAC) that are
+         * used, to point to a single FCB and a BDB chain of buffers.
+         */
         for(i = 0; i < NUM_RX_QS_USED; i++)
         {
                 *txrx_ptrs++ = (void *)TRC_POINTER(tp->rx_fcb_head[i]);
                 *txrx_ptrs++ = (void *)TRC_POINTER(tp->rx_bdb_head[i]);
         }
 
-        
+        /* Initialize Receive Queue Pointers that are NOT used to ZERO. */
         for(; i < MAX_RX_QS; i++)
         {
                 *txrx_ptrs++ = (void *)0;
@@ -2776,13 +2983,13 @@ static int smctr_load_firmware(struct net_device *dev)
         tp->receive_mask        = 0;
         tp->max_packet_size     = 4177;
 
-        
+        /* Can only upload the firmware once per adapter reset. */
         if (tp->microcode_version != 0) {
 		err = (UCODE_PRESENT);
 		goto out;
 	}
 
-        
+        /* Verify the firmware exists and is there in the right amount. */
         if (!fw->data ||
 	    (*(fw->data + UCODE_VERSION_OFFSET) < UCODE_VERSION))
         {
@@ -2790,7 +2997,7 @@ static int smctr_load_firmware(struct net_device *dev)
 		goto out;
         }
 
-        
+        /* UCODE_SIZE is not included in Checksum. */
         for(i = 0; i < *((__u16 *)(fw->data + UCODE_SIZE_OFFSET)); i += 2)
                 checksum += *((__u16 *)(fw->data + 2 + i));
         if (checksum) {
@@ -2798,7 +3005,7 @@ static int smctr_load_firmware(struct net_device *dev)
 		goto out;
 	}
 
-        
+        /* At this point we have a valid firmware image, lets kick it on up. */
         smctr_enable_adapter_ram(dev);
         smctr_enable_16bit(dev);
         smctr_set_page(dev, (__u8 *)tp->ram_access);
@@ -2808,7 +3015,7 @@ static int smctr_load_firmware(struct net_device *dev)
         {
                 smctr_enable_adapter_ctrl_store(dev);
 
-                
+                /* Zero out ram space for firmware. */
                 for(i = 0; i < CS_RAM_SIZE; i += 2)
                         *((__u16 *)(tp->ram_access + i)) = 0;
 
@@ -2849,6 +3056,23 @@ static int smctr_load_node_addr(struct net_device *dev)
         return 0;
 }
 
+/* Lobe Media Test.
+ * During the transmission of the initial 1500 lobe media MAC frames,
+ * the phase lock loop in the 805 chip may lock, and then un-lock, causing
+ * the 825 to go into a PURGE state. When performing a PURGE, the MCT
+ * microcode will not transmit any frames given to it by the host, and
+ * will consequently cause a timeout.
+ *
+ * NOTE 1: If the monitor_state is MS_BEACON_TEST_STATE, all transmit
+ * queues other than the one used for the lobe_media_test should be
+ * disabled.!?
+ *
+ * NOTE 2: If the monitor_state is MS_BEACON_TEST_STATE and the receive_mask
+ * has any multi-cast or promiscuous bits set, the receive_mask needs to
+ * be changed to clear the multi-cast or promiscuous mode bits, the lobe_test
+ * run, and then the receive mask set back to its original value if the test
+ * is successful.
+ */
 static int smctr_lobe_media_test(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -2858,18 +3082,18 @@ static int smctr_lobe_media_test(struct net_device *dev)
         if(smctr_debug > 10)
                 printk(KERN_DEBUG "%s: smctr_lobe_media_test\n", dev->name);
 
-        
+        /* Clear receive mask for lobe test. */
         saved_rcv_mask          = tp->receive_mask;
         tp->receive_mask        = 0;
 
         smctr_chg_rx_mask(dev);
 
-        
+        /* Setup the lobe media test. */
         smctr_lobe_media_test_cmd(dev);
         if(smctr_wait_cmd(dev))
 		goto err;
 
-        
+        /* Tx lobe media test frames. */
         for(i = 0; i < 1500; ++i)
         {
                 if(smctr_send_lobe_media_test(dev))
@@ -2891,12 +3115,12 @@ static int smctr_lobe_media_test(struct net_device *dev)
 			goto err;
         }
 
-        
+        /* Check if any frames received during test. */
         if((tp->rx_fcb_curr[MAC_QUEUE]->frame_status) ||
 	   (tp->rx_fcb_curr[NON_MAC_QUEUE]->frame_status))
 		goto err;
 
-        
+        /* Set receive mask to "Promisc" mode. */
         tp->receive_mask = saved_rcv_mask;
 
         smctr_chg_rx_mask(dev);
@@ -2916,7 +3140,7 @@ static int smctr_lobe_media_test_cmd(struct net_device *dev)
         if(smctr_debug > 10)
                 printk(KERN_DEBUG "%s: smctr_lobe_media_test_cmd\n", dev->name);
 
-        
+        /* Change to lobe media test state. */
         if(tp->monitor_state != MS_BEACON_TEST_STATE)
         {
                 smctr_lobe_media_test_state(dev);
@@ -2946,8 +3170,8 @@ static int smctr_lobe_media_test_state(struct net_device *dev)
 static int smctr_make_8025_hdr(struct net_device *dev,
         MAC_HEADER *rmf, MAC_HEADER *tmf, __u16 ac_fc)
 {
-        tmf->ac = MSB(ac_fc);                 
-        tmf->fc = LSB(ac_fc);                 
+        tmf->ac = MSB(ac_fc);                 /* msb is access control */
+        tmf->fc = LSB(ac_fc);                 /* lsb is frame control */
 
         tmf->sa[0] = dev->dev_addr[0];
         tmf->sa[1] = dev->dev_addr[1];
@@ -2958,7 +3182,7 @@ static int smctr_make_8025_hdr(struct net_device *dev,
 
         switch(tmf->vc)
         {
-		
+		/* Send RQ_INIT to RPS */
                 case RQ_INIT:
                         tmf->da[0] = 0xc0;
                         tmf->da[1] = 0x00;
@@ -2968,7 +3192,7 @@ static int smctr_make_8025_hdr(struct net_device *dev,
                         tmf->da[5] = 0x02;
                         break;
 
-		
+		/* Send RPT_TX_FORWARD to CRS */
                 case RPT_TX_FORWARD:
                         tmf->da[0] = 0xc0;
                         tmf->da[1] = 0x00;
@@ -2978,7 +3202,7 @@ static int smctr_make_8025_hdr(struct net_device *dev,
                         tmf->da[5] = 0x10;
                         break;
 
-		
+		/* Everything else goes to sender */
                 default:
                         tmf->da[0] = rmf->sa[0];
                         tmf->da[1] = rmf->sa[1];
@@ -3075,6 +3299,9 @@ static int smctr_make_group_addr(struct net_device *dev, MAC_SUB_VECTOR *tsv)
         tsv->svv[2] = MSB(tp->misc_command_data[1]);
         tsv->svv[3] = LSB(tp->misc_command_data[1]);
 
+        /* Set Group Address Sub-vector to all zeros if only the
+         * Group Address/Functional Address Indicator is set.
+         */
         if(tsv->svv[0] == 0x80 && tsv->svv[1] == 0x00 &&
 	   tsv->svv[2] == 0x00 && tsv->svv[3] == 0x00)
                 tsv->svv[0] = 0x00;
@@ -3159,20 +3386,20 @@ static int smctr_make_ring_station_version(struct net_device *dev,
         tsv->svi = RING_STATION_VERSION_NUMBER;
         tsv->svl = S_RING_STATION_VERSION_NUMBER;
 
-        tsv->svv[0] = 0xe2;            
-        tsv->svv[1] = 0xd4;            
-        tsv->svv[2] = 0xc3;            
-        tsv->svv[3] = 0x40;            
-        tsv->svv[4] = 0xe5;            
+        tsv->svv[0] = 0xe2;            /* EBCDIC - S */
+        tsv->svv[1] = 0xd4;            /* EBCDIC - M */
+        tsv->svv[2] = 0xc3;            /* EBCDIC - C */
+        tsv->svv[3] = 0x40;            /* EBCDIC -   */
+        tsv->svv[4] = 0xe5;            /* EBCDIC - V */
         tsv->svv[5] = 0xF0 + (tp->microcode_version >> 4);
         tsv->svv[6] = 0xF0 + (tp->microcode_version & 0x0f);
-        tsv->svv[7] = 0x40;            
-        tsv->svv[8] = 0xe7;            
+        tsv->svv[7] = 0x40;            /* EBCDIC -   */
+        tsv->svv[8] = 0xe7;            /* EBCDIC - X */
 
         if(tp->extra_info & CHIP_REV_MASK)
-                tsv->svv[9] = 0xc5;    
+                tsv->svv[9] = 0xc5;    /* EBCDIC - E */
         else
-                tsv->svv[9] = 0xc4;    
+                tsv->svv[9] = 0xc4;    /* EBCDIC - D */
 
         return 0;
 }
@@ -3185,7 +3412,7 @@ static int smctr_make_tx_status_code(struct net_device *dev,
 
 	tsv->svv[0] = ((tx_fstatus & 0x0100 >> 6) | IBM_PASS_SOURCE_ADDR);
 
-        
+        /* Stripped frame status of Transmitted Frame */
         tsv->svv[1] = tx_fstatus & 0xff;
 
         return 0;
@@ -3221,6 +3448,14 @@ static int smctr_make_wrap_data(struct net_device *dev, MAC_SUB_VECTOR *tsv)
         return 0;
 }
 
+/*
+ * Open/initialize the board. This is called sometime after
+ * booting when the 'ifconfig' program is run.
+ *
+ * This routine should set everything up anew at each open, even
+ * registers that "should" only need to be set once at boot, so that
+ * there is non-reboot way to recover if something goes wrong.
+ */
 static int smctr_open(struct net_device *dev)
 {
         int err;
@@ -3235,6 +3470,7 @@ static int smctr_open(struct net_device *dev)
         return err;
 }
 
+/* Interrupt driven open of Token card. */
 static int smctr_open_tr(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -3244,12 +3480,14 @@ static int smctr_open_tr(struct net_device *dev)
         if(smctr_debug > 10)
                 printk(KERN_DEBUG "%s: smctr_open_tr\n", dev->name);
 
-        
+        /* Now we can actually open the adapter. */
         if(tp->status == OPEN)
                 return 0;
         if(tp->status != INITIALIZED)
                 return -1;
 
+	/* FIXME: it would work a lot better if we masked the irq sources
+	   on the card here, then we could skip the locking and poll nicely */
 	spin_lock_irqsave(&tp->lock, flags);
 	
         smctr_set_page(dev, (__u8 *)tp->ram_access);
@@ -3268,7 +3506,7 @@ static int smctr_open_tr(struct net_device *dev)
 
         tp->status = CLOSED;
 
-        
+        /* Insert into the Ring or Enter Loopback Mode. */
         if((tp->mode_bits & LOOPING_MODE_MASK) == LOOPBACK_MODE_1)
         {
                 tp->status = CLOSED;
@@ -3326,6 +3564,9 @@ out:
         return err;
 }
 
+/* Check for a network adapter of this type, 
+ * and return device structure if one exists.
+ */
 struct net_device __init *smctr_probe(int unit)
 {
 	struct net_device *dev = alloc_trdev(sizeof(struct net_local));
@@ -3344,9 +3585,9 @@ struct net_device __init *smctr_probe(int unit)
 		netdev_boot_setup_check(dev);
 	}
 
-        if (dev->base_addr > 0x1ff)    
+        if (dev->base_addr > 0x1ff)    /* Check a single specified location. */
 		err = smctr_probe1(dev, dev->base_addr);
-        else if(dev->base_addr != 0)  
+        else if(dev->base_addr != 0)  /* Don't probe at all. */
                 err =-ENXIO;
 	else {
 		for (port = ports; *port; port++) {
@@ -3397,7 +3638,7 @@ static int __init smctr_probe1(struct net_device *dev, int ioaddr)
         spin_lock_init(&tp->lock);
         dev->base_addr = ioaddr;
 
-	
+	/* Actually detect an adapter now. */
         err = smctr_chk_isa(dev);
         if(err < 0)
         {
@@ -3422,7 +3663,7 @@ static int __init smctr_probe1(struct net_device *dev, int ioaddr)
 		goto out;
         }
 
-	
+	/* Allow user to specify ring speed on module insert. */
 	if(ringspeed == 4)
 		tp->media_type = MEDIA_UTP_4;
 	else
@@ -3455,7 +3696,7 @@ static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
         {
                 switch(rmf->vc)
                 {
-                        
+                        /* Received MAC Frames Processed by RS. */
                         case INIT:
                                 if((rcode = smctr_rcv_init(dev, rmf, &correlator)) == HARDWARE_FAILED)
                                 {
@@ -3571,7 +3812,7 @@ static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
                                 break;
 			}
 
-                        
+                        /* Received MAC Frames Processed by CRS/REM/RPS. */
                         case RSP:
                         case RQ_INIT:
                         case RPT_NEW_MON:
@@ -3584,7 +3825,7 @@ static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
                         case RPT_ADDR:
                                 break;
 
-                        
+                        /* Rcvd Att. MAC Frame (if RXATMAC set) or UNKNOWN */
                         default:
                                 xframe = 0;
                                 if(!(tp->receive_mask & ACCEPT_ATT_MAC_FRAMES))
@@ -3603,6 +3844,9 @@ static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
         }
         else
         {
+                /* 1. DA doesn't match (Promiscuous Mode).
+                 * 2. Parse for Extended MAC Frame Type.
+                 */
                 switch(rmf->vc)
                 {
                         case RSP:
@@ -3628,6 +3872,9 @@ static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
                 }
         }
 
+        /* NOTE: UNKNOWN MAC frames will NOT be passed up unless
+         * ACCEPT_ATT_MAC_FRAMES is set.
+         */
         if(((tp->receive_mask & ACCEPT_ATT_MAC_FRAMES) &&
 	    (xframe == (__u8)0)) ||
 	   ((tp->receive_mask & ACCEPT_EXT_MAC_FRAMES) &&
@@ -3639,15 +3886,15 @@ static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
 			return -ENOMEM;
                 skb->len = size;
 
-                
+                /* Slide data into a sleek skb. */
                 skb_put(skb, skb->len);
                 skb_copy_to_linear_data(skb, rmf, skb->len);
 
-                
+                /* Update Counters */
                 tp->MacStat.rx_packets++;
                 tp->MacStat.rx_bytes += skb->len;
 
-                
+                /* Kick the packet on up. */
                 skb->protocol = tr_type_trans(skb, dev);
                 netif_rx(skb);
                 err = 0;
@@ -3656,6 +3903,7 @@ static int smctr_process_rx_packet(MAC_HEADER *rmf, __u16 size,
         return err;
 }
 
+/* Adapter RAM test. Incremental word ODD boundary data test. */
 static int smctr_ram_memory_test(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -3672,7 +3920,7 @@ static int smctr_ram_memory_test(struct net_device *dev)
         pages_of_ram    = tp->ram_size / tp->ram_usable;
         pword           = tp->ram_access;
 
-        
+        /* Incremental word ODD boundary test. */
         for(page = 0; (page < pages_of_ram) && (~err);
                 page++, start_pattern += 0x8000)
         {
@@ -3700,7 +3948,7 @@ static int smctr_ram_memory_test(struct net_device *dev)
                 }
         }
 
-        
+        /* Zero out memory. */
         for(page = 0; page < pages_of_ram && (~err); page++)
         {
                 smctr_set_page(dev, (__u8 *)(tp->ram_access
@@ -3737,17 +3985,17 @@ static int smctr_rcv_chg_param(struct net_device *dev, MAC_HEADER *rmf,
         __u16 rcode = POSITIVE_ACK;
         unsigned int svectors = F_NO_SUB_VECTORS_FOUND;
 
-        
+        /* This Frame can only come from a CRS */
         if((rmf->dc_sc & SC_MASK) != SC_CRS)
                 return E_INAPPROPRIATE_SOURCE_CLASS;
 
-        
+        /* Remove MVID Length from total length. */
         vlen = (signed short)rmf->vl - 4;
 
-        
+        /* Point to First SVID */
         rsv = (MAC_SUB_VECTOR *)((__u32)rmf + sizeof(MAC_HEADER));
 
-        
+        /* Search for Appropriate SVID's. */
         while((vlen > 0) && (rcode == POSITIVE_ACK))
         {
                 switch(rsv->svi)
@@ -3787,6 +4035,9 @@ static int smctr_rcv_chg_param(struct net_device *dev, MAC_HEADER *rmf,
                                 break;
                 }
 
+                /* Let Sender Know if SUM of SV length's is
+                 * larger then length in MVID length field
+                 */
                 if((vlen -= rsv->svl) < 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
 
@@ -3795,11 +4046,14 @@ static int smctr_rcv_chg_param(struct net_device *dev, MAC_HEADER *rmf,
 
         if(rcode == POSITIVE_ACK)
         {
+                /* Let Sender Know if MVID length field
+                 * is larger then SUM of SV length's
+                 */
                 if(vlen != 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
                 else
 		{
-                	
+                	/* Let Sender Know if Expected SVID Missing */
                 	if((svectors & R_CHG_PARM) ^ R_CHG_PARM)
                         	rcode = E_MISSING_SUB_VECTOR;
 		}
@@ -3816,17 +4070,17 @@ static int smctr_rcv_init(struct net_device *dev, MAC_HEADER *rmf,
         __u16 rcode = POSITIVE_ACK;
         unsigned int svectors = F_NO_SUB_VECTORS_FOUND;
 
-        
+        /* This Frame can only come from a RPS */
         if((rmf->dc_sc & SC_MASK) != SC_RPS)
                 return E_INAPPROPRIATE_SOURCE_CLASS;
 
-        
+        /* Remove MVID Length from total length. */
         vlen = (signed short)rmf->vl - 4;
 
-        
+        /* Point to First SVID */
         rsv = (MAC_SUB_VECTOR *)((__u32)rmf + sizeof(MAC_HEADER));
 
-        
+        /* Search for Appropriate SVID's */
         while((vlen > 0) && (rcode == POSITIVE_ACK))
         {
                 switch(rsv->svi)
@@ -3856,6 +4110,9 @@ static int smctr_rcv_init(struct net_device *dev, MAC_HEADER *rmf,
                                 break;
                 }
 
+                /* Let Sender Know if SUM of SV length's is
+                 * larger then length in MVID length field
+		 */
                 if((vlen -= rsv->svl) < 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
 
@@ -3864,11 +4121,14 @@ static int smctr_rcv_init(struct net_device *dev, MAC_HEADER *rmf,
 
         if(rcode == POSITIVE_ACK)
         {
+                /* Let Sender Know if MVID length field
+                 * is larger then SUM of SV length's
+                 */
                 if(vlen != 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
                 else
 		{
-                	
+                	/* Let Sender Know if Expected SV Missing */
                 	if((svectors & R_INIT) ^ R_INIT)
                         	rcode = E_MISSING_SUB_VECTOR;
 		}
@@ -3884,17 +4144,17 @@ static int smctr_rcv_tx_forward(struct net_device *dev, MAC_HEADER *rmf)
         __u16 rcode = POSITIVE_ACK;
         unsigned int svectors = F_NO_SUB_VECTORS_FOUND;
 
-        
+        /* This Frame can only come from a CRS */
         if((rmf->dc_sc & SC_MASK) != SC_CRS)
                 return E_INAPPROPRIATE_SOURCE_CLASS;
 
-        
+        /* Remove MVID Length from total length */
         vlen = (signed short)rmf->vl - 4;
 
-        
+        /* Point to First SVID */
         rsv = (MAC_SUB_VECTOR *)((__u32)rmf + sizeof(MAC_HEADER));
 
-        
+        /* Search for Appropriate SVID's */
         while((vlen > 0) && (rcode == POSITIVE_ACK))
         {
                 switch(rsv->svi)
@@ -3910,6 +4170,9 @@ static int smctr_rcv_tx_forward(struct net_device *dev, MAC_HEADER *rmf)
                                 break;
                 }
 
+                /* Let Sender Know if SUM of SV length's is
+                 * larger then length in MVID length field
+		 */
                 if((vlen -= rsv->svl) < 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
 
@@ -3918,11 +4181,14 @@ static int smctr_rcv_tx_forward(struct net_device *dev, MAC_HEADER *rmf)
 
         if(rcode == POSITIVE_ACK)
         {
+                /* Let Sender Know if MVID length field
+                 * is larger then SUM of SV length's
+                 */
                 if(vlen != 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
                 else
 		{
-                	
+                	/* Let Sender Know if Expected SV Missing */
                 	if((svectors & R_TX_FORWARD) ^ R_TX_FORWARD)
                         	rcode = E_MISSING_SUB_VECTOR;
 		}
@@ -3939,13 +4205,13 @@ static int smctr_rcv_rq_addr_state_attch(struct net_device *dev,
         __u16 rcode = POSITIVE_ACK;
         unsigned int svectors = F_NO_SUB_VECTORS_FOUND;
 
-        
+        /* Remove MVID Length from total length */
         vlen = (signed short)rmf->vl - 4;
 
-        
+        /* Point to First SVID */
         rsv = (MAC_SUB_VECTOR *)((__u32)rmf + sizeof(MAC_HEADER));
 
-        
+        /* Search for Appropriate SVID's */
         while((vlen > 0) && (rcode == POSITIVE_ACK))
         {
                 switch(rsv->svi)
@@ -3960,6 +4226,9 @@ static int smctr_rcv_rq_addr_state_attch(struct net_device *dev,
                                 break;
                 }
 
+                /* Let Sender Know if SUM of SV length's is
+                 * larger then length in MVID length field
+                 */
                 if((vlen -= rsv->svl) < 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
 
@@ -3968,11 +4237,14 @@ static int smctr_rcv_rq_addr_state_attch(struct net_device *dev,
 
         if(rcode == POSITIVE_ACK)
         {
+                /* Let Sender Know if MVID length field
+                 * is larger then SUM of SV length's
+                 */
                 if(vlen != 0)
                         rcode = E_VECTOR_LENGTH_ERROR;
                 else
 		{
-                	
+                	/* Let Sender Know if Expected SVID Missing */
                 	if((svectors & R_RQ_ATTCH_STATE_ADDR) 
 				^ R_RQ_ATTCH_STATE_ADDR)
                         	rcode = E_MISSING_SUB_VECTOR;
@@ -3990,13 +4262,13 @@ static int smctr_rcv_unknown(struct net_device *dev, MAC_HEADER *rmf,
 
         *correlator = 0;
 
-        
+        /* Remove MVID Length from total length */
         vlen = (signed short)rmf->vl - 4;
 
-        
+        /* Point to First SVID */
         rsv = (MAC_SUB_VECTOR *)((__u32)rmf + sizeof(MAC_HEADER));
 
-        
+        /* Search for CORRELATOR for RSP to UNKNOWN */
         while((vlen > 0) && (*correlator == 0))
         {
                 switch(rsv->svi)
@@ -4016,17 +4288,28 @@ static int smctr_rcv_unknown(struct net_device *dev, MAC_HEADER *rmf,
         return E_UNRECOGNIZED_VECTOR_ID;
 }
 
+/*
+ * Reset the 825 NIC and exit w:
+ * 1. The NIC reset cleared (non-reset state), halted and un-initialized.
+ * 2. TINT masked.
+ * 3. CBUSY masked.
+ * 4. TINT clear.
+ * 5. CBUSY clear.
+ */
 static int smctr_reset_adapter(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
         int ioaddr = dev->base_addr;
 
-                smctr_set_trc_reset(ioaddr);
-        mdelay(200); 
+        /* Reseting the NIC will put it in a halted and un-initialized state. */        smctr_set_trc_reset(ioaddr);
+        mdelay(200); /* ~2 ms */
 
         smctr_clear_trc_reset(ioaddr);
-        mdelay(200); 
+        mdelay(200); /* ~2 ms */
 
+        /* Remove any latched interrupts that occurred prior to reseting the
+         * adapter or possibily caused by line glitches due to the reset.
+         */
         outb(tp->trc_mask | CSR_CLRTINT | CSR_CLRCBUSY, ioaddr + CSR);
 
         return 0;
@@ -4057,6 +4340,11 @@ static int smctr_ring_status_chg(struct net_device *dev)
         if(smctr_debug > 10)
                 printk(KERN_DEBUG "%s: smctr_ring_status_chg\n", dev->name);
 
+        /* Check for ring_status_flag: whenever MONITOR_STATE_BIT
+         * Bit is set, check value of monitor_state, only then we
+         * enable and start transmit/receive timeout (if and only
+         * if it is MS_ACTIVE_MONITOR_STATE or MS_STANDBY_MONITOR_STATE)
+         */
         if(tp->ring_status_flags == MONITOR_STATE_CHANGED)
         {
                 if((tp->monitor_state == MS_ACTIVE_MONITOR_STATE) ||
@@ -4066,9 +4354,13 @@ static int smctr_ring_status_chg(struct net_device *dev)
                 }
                 else
                 {
+                        /* if adapter is NOT in either active monitor
+                         * or standby monitor state => Disable
+                         * transmit/receive timeout.
+                         */
                         tp->monitor_state_ready = 0;
 
-			
+			/* Ring speed problem, switching to auto mode. */
 			if(tp->monitor_state == MS_MONITOR_FSM_INACTIVE &&
 			   !tp->cleanup)
 			{
@@ -4151,7 +4443,7 @@ static int smctr_rx_frame(struct net_device *dev)
                 if(((status & 0x007f) == 0) ||
 		   ((tp->receive_mask & ACCEPT_ERR_PACKETS) != 0))
                 {
-                        
+                        /* frame length less the CRC (4 bytes) + FS (1 byte) */
                         rx_size = tp->rx_fcb_curr[queue]->frame_length - 5;
 
                         pbuff = smctr_get_rx_pointer(dev, queue);
@@ -4159,7 +4451,7 @@ static int smctr_rx_frame(struct net_device *dev)
                         smctr_set_page(dev, pbuff);
                         smctr_disable_16bit(dev);
 
-                        
+                        /* pbuff points to addr within one page */
                         pbuff = (__u8 *)PAGE_POINTER(pbuff);
 
                         if(queue == NON_MAC_QUEUE)
@@ -4172,11 +4464,11 @@ static int smctr_rx_frame(struct net_device *dev)
 
 					skb_copy_to_linear_data(skb, pbuff, rx_size);
 
-                                	
+                                	/* Update Counters */
                                 	tp->MacStat.rx_packets++;
                                 	tp->MacStat.rx_bytes += skb->len;
 
-                                	
+                                	/* Kick the packet on up. */
                                 	skb->protocol = tr_type_trans(skb, dev);
                                 	netif_rx(skb);
 				} else {
@@ -4214,7 +4506,7 @@ static int smctr_send_dat(struct net_device *dev)
                 return OUT_OF_RESOURCES;
         }
 
-        
+        /* Initialize DAT Data Fields. */
         tmf = (MAC_HEADER *)fcb->bdb_ptr->data_block_ptr;
         tmf->ac = MSB(AC_FC_DAT);
         tmf->fc = LSB(AC_FC_DAT);
@@ -4231,11 +4523,11 @@ static int smctr_send_dat(struct net_device *dev)
         tmf->vl        = 4;
         tmf->vl        = SWAP_BYTES(tmf->vl);
 
-        
+        /* Start Transmit. */
         if((err = smctr_trc_send_packet(dev, fcb, MAC_QUEUE)))
                 return err;
 
-        
+        /* Wait for Transmit to Complete */
         for(i = 0; i < 10000; i++)
         {
                 if(fcb->frame_status & FCB_COMMAND_DONE)
@@ -4243,13 +4535,18 @@ static int smctr_send_dat(struct net_device *dev)
                 mdelay(1);
         }
 
-        
+        /* Check if GOOD frame Tx'ed. */
         if(!(fcb->frame_status &  FCB_COMMAND_DONE) ||
 	   fcb->frame_status & (FCB_TX_STATUS_E | FCB_TX_AC_BITS))
         {
                 return INITIALIZE_FAILED;
         }
 
+        /* De-allocated Tx FCB and Frame Buffer
+         * The FCB must be de-allocated manually if executing with
+         * interrupts disabled, other wise the ISR (LM_Service_Events)
+         * will de-allocate it when the interrupt occurs.
+         */
         tp->tx_queue_status[MAC_QUEUE] = NOT_TRANSMITING;
         smctr_update_tx_chain(dev, fcb, MAC_QUEUE);
 
@@ -4258,10 +4555,21 @@ static int smctr_send_dat(struct net_device *dev)
 
 static void smctr_timeout(struct net_device *dev)
 {
-        dev->trans_start = jiffies; 
+	/*
+         * If we get here, some higher level has decided we are broken.
+         * There should really be a "kick me" function call instead.
+         *
+         * Resetting the token ring adapter takes a long time so just
+         * fake transmission time and go on trying. Our own timeout
+         * routine is in sktr_timer_chk()
+         */
+        dev->trans_start = jiffies; /* prevent tx timeout */
         netif_wake_queue(dev);
 }
 
+/*
+ * Gets skb from system, queues it and checks if it can be sent
+ */
 static netdev_tx_t smctr_send_packet(struct sk_buff *skb,
 					   struct net_device *dev)
 {
@@ -4270,11 +4578,14 @@ static netdev_tx_t smctr_send_packet(struct sk_buff *skb,
         if(smctr_debug > 10)
                 printk(KERN_DEBUG "%s: smctr_send_packet\n", dev->name);
 
+        /*
+         * Block a transmit overlap
+         */
          
         netif_stop_queue(dev);
 
         if(tp->QueueSkb == 0)
-                return NETDEV_TX_BUSY;     
+                return NETDEV_TX_BUSY;     /* Return with tbusy set: queue full */
 
         tp->QueueSkb--;
         skb_queue_tail(&tp->SendSkbQueue, skb);
@@ -4303,7 +4614,7 @@ static int smctr_send_lobe_media_test(struct net_device *dev)
                 return OUT_OF_RESOURCES;
         }
 
-        
+        /* Initialize DAT Data Fields. */
         tmf = (MAC_HEADER *)fcb->bdb_ptr->data_block_ptr;
         tmf->ac = MSB(AC_FC_LOBE_MEDIA_TEST);
         tmf->fc = LSB(AC_FC_LOBE_MEDIA_TEST);
@@ -4326,12 +4637,12 @@ static int smctr_send_lobe_media_test(struct net_device *dev)
         smctr_make_wrap_data(dev, tsv);
         tmf->vl += tsv->svl;
 
-        
+        /* Start Transmit. */
         tmf->vl = SWAP_BYTES(tmf->vl);
         if((err = smctr_trc_send_packet(dev, fcb, MAC_QUEUE)))
                 return err;
 
-        
+        /* Wait for Transmit to Complete. (10 ms). */
         for(i=0; i < 10000; i++)
         {
                 if(fcb->frame_status & FCB_COMMAND_DONE)
@@ -4339,13 +4650,18 @@ static int smctr_send_lobe_media_test(struct net_device *dev)
                 mdelay(1);
         }
 
-        
+        /* Check if GOOD frame Tx'ed */
         if(!(fcb->frame_status & FCB_COMMAND_DONE) ||
 	   fcb->frame_status & (FCB_TX_STATUS_E | FCB_TX_AC_BITS))
         {
                 return LOBE_MEDIA_TEST_FAILED;
         }
 
+        /* De-allocated Tx FCB and Frame Buffer
+         * The FCB must be de-allocated manually if executing with
+         * interrupts disabled, other wise the ISR (LM_Service_Events)
+         * will de-allocate it when the interrupt occurs.
+         */
         tp->tx_queue_status[MAC_QUEUE] = NOT_TRANSMITING;
         smctr_update_tx_chain(dev, fcb, MAC_QUEUE);
 
@@ -4399,6 +4715,12 @@ static int smctr_send_rpt_addr(struct net_device *dev, MAC_HEADER *rmf,
 
         tmf->vl += tsv->svl;
 
+        /* Subtract out MVID and MVL which is
+         * include in both vl and MAC_HEADER
+         */
+/*      fcb->frame_length           = tmf->vl + sizeof(MAC_HEADER) - 4;
+        fcb->bdb_ptr->buffer_length = tmf->vl + sizeof(MAC_HEADER) - 4;
+*/
         tmf->vl = SWAP_BYTES(tmf->vl);
 
         return smctr_trc_send_packet(dev, fcb, MAC_QUEUE);
@@ -4447,6 +4769,12 @@ static int smctr_send_rpt_attch(struct net_device *dev, MAC_HEADER *rmf,
 
         tmf->vl += tsv->svl;
 
+        /* Subtract out MVID and MVL which is
+         * include in both vl and MAC_HEADER
+         */
+/*      fcb->frame_length           = tmf->vl + sizeof(MAC_HEADER) - 4;
+        fcb->bdb_ptr->buffer_length = tmf->vl + sizeof(MAC_HEADER) - 4;
+*/
         tmf->vl = SWAP_BYTES(tmf->vl);
 
         return smctr_trc_send_packet(dev, fcb, MAC_QUEUE);
@@ -4491,6 +4819,12 @@ static int smctr_send_rpt_state(struct net_device *dev, MAC_HEADER *rmf,
 
         tmf->vl += tsv->svl;
 
+        /* Subtract out MVID and MVL which is
+         * include in both vl and MAC_HEADER
+         */
+/*      fcb->frame_length           = tmf->vl + sizeof(MAC_HEADER) - 4;
+        fcb->bdb_ptr->buffer_length = tmf->vl + sizeof(MAC_HEADER) - 4;
+*/
         tmf->vl = SWAP_BYTES(tmf->vl);
 
         return smctr_trc_send_packet(dev, fcb, MAC_QUEUE);
@@ -4521,6 +4855,12 @@ static int smctr_send_rpt_tx_forward(struct net_device *dev,
 
         tmf->vl += tsv->svl;
 
+        /* Subtract out MVID and MVL which is
+         * include in both vl and MAC_HEADER
+         */
+/*      fcb->frame_length           = tmf->vl + sizeof(MAC_HEADER) - 4;
+        fcb->bdb_ptr->buffer_length = tmf->vl + sizeof(MAC_HEADER) - 4;
+*/
         tmf->vl = SWAP_BYTES(tmf->vl);
 
         return smctr_trc_send_packet(dev, fcb, MAC_QUEUE);
@@ -4595,12 +4935,18 @@ static int smctr_send_rq_init(struct net_device *dev)
 
                 tmf->vl += tsv->svl;
 
+                /* Subtract out MVID and MVL which is
+                 * include in both vl and MAC_HEADER
+                 */
+/*              fcb->frame_length           = tmf->vl + sizeof(MAC_HEADER) - 4;
+                fcb->bdb_ptr->buffer_length = tmf->vl + sizeof(MAC_HEADER) - 4;
+*/
                 tmf->vl = SWAP_BYTES(tmf->vl);
 
                 if((err = smctr_trc_send_packet(dev, fcb, MAC_QUEUE)))
                         return err;
 
-                
+                /* Wait for Transmit to Complete */
       		for(i = 0; i < 10000; i++) 
 		{
           		if(fcb->frame_status & FCB_COMMAND_DONE)
@@ -4608,7 +4954,7 @@ static int smctr_send_rq_init(struct net_device *dev)
           		mdelay(1);
       		}
 
-                
+                /* Check if GOOD frame Tx'ed */
                 fstatus = fcb->frame_status;
 
                 if(!(fstatus & FCB_COMMAND_DONE))
@@ -4617,6 +4963,11 @@ static int smctr_send_rq_init(struct net_device *dev)
                 if(!(fstatus & FCB_TX_STATUS_E))
                         count++;
 
+                /* De-allocated Tx FCB and Frame Buffer
+                 * The FCB must be de-allocated manually if executing with
+                 * interrupts disabled, other wise the ISR (LM_Service_Events)
+                 * will de-allocate it when the interrupt occurs.
+                 */
                 tp->tx_queue_status[MAC_QUEUE] = NOT_TRANSMITING;
                 smctr_update_tx_chain(dev, fcb, MAC_QUEUE);
         } while(count < 4 && ((fstatus & FCB_TX_AC_BITS) ^ FCB_TX_AC_BITS));
@@ -4632,13 +4983,21 @@ static int smctr_send_tx_forward(struct net_device *dev, MAC_HEADER *rmf,
         unsigned int i;
 	int err;
 
-        
+        /* Check if this is the END POINT of the Transmit Forward Chain. */
         if(rmf->vl <= 18)
                 return 0;
 
+        /* Allocate Transmit FCB only by requesting 0 bytes
+         * of data buffer.
+         */
         if((fcb = smctr_get_tx_fcb(dev, MAC_QUEUE, 0)) == (FCBlock *)(-1L))
                 return 0;
 
+        /* Set pointer to Transmit Frame Buffer to the data
+         * portion of the received TX Forward frame, making
+         * sure to skip over the Vector Code (vc) and Vector
+         * length (vl).
+         */
         fcb->bdb_ptr->trc_data_block_ptr = TRC_POINTER((__u32)rmf 
 		+ sizeof(MAC_HEADER) + 2);
         fcb->bdb_ptr->data_block_ptr     = (__u16 *)((__u32)rmf 
@@ -4650,7 +5009,7 @@ static int smctr_send_tx_forward(struct net_device *dev, MAC_HEADER *rmf,
         if((err = smctr_trc_send_packet(dev, fcb, MAC_QUEUE)))
                 return err;
 
-        
+        /* Wait for Transmit to Complete */
    	for(i = 0; i < 10000; i++) 
 	{
        		if(fcb->frame_status & FCB_COMMAND_DONE)
@@ -4658,7 +5017,7 @@ static int smctr_send_tx_forward(struct net_device *dev, MAC_HEADER *rmf,
         	mdelay(1);
    	}
 
-        
+        /* Check if GOOD frame Tx'ed */
         if(!(fcb->frame_status & FCB_COMMAND_DONE))
         {
                 if((err = smctr_issue_resume_tx_fcb_cmd(dev, MAC_QUEUE)))
@@ -4818,6 +5177,9 @@ static int smctr_set_phy_drop(struct net_device *dev, MAC_SUB_VECTOR *rsv)
         return POSITIVE_ACK;
 }
 
+/* Reset the ring speed to the opposite of what it was. This auto-pilot
+ * mode requires a complete reset and re-init of the adapter.
+ */
 static int smctr_set_ring_speed(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -4830,7 +5192,7 @@ static int smctr_set_ring_speed(struct net_device *dev)
 
         smctr_enable_16bit(dev);
 
-        
+        /* Re-Initialize adapter's internal registers */
         smctr_reset_adapter(dev);
 
         if((err = smctr_init_card_real(dev)))
@@ -4885,6 +5247,9 @@ static int smctr_set_trc_reset(int ioaddr)
         return 0;
 }
 
+/*
+ * This function can be called if the adapter is busy or not.
+ */
 static int smctr_setup_single_cmd(struct net_device *dev,
         __u16 command, __u16 subcommand)
 {
@@ -4909,6 +5274,9 @@ static int smctr_setup_single_cmd(struct net_device *dev,
         return err;
 }
 
+/*
+ * This function can not be called with the adapter busy.
+ */
 static int smctr_setup_single_cmd_w_data(struct net_device *dev,
         __u16 command, __u16 subcommand)
 {
@@ -4949,7 +5317,7 @@ static int smctr_status_chg(struct net_device *dev)
                 case CLOSED:
                         break;
 
-                
+                /* Interrupt driven open() completion. XXX */
                 case INITIALIZED:
                         tp->group_address_0 = 0;
                         tp->group_address[0] = 0;
@@ -5086,6 +5454,7 @@ static unsigned short smctr_tx_move_frame(struct net_device *dev,
         return 0;
 }
 
+/* Update the error statistic counters for this adapter. */
 static int smctr_update_err_stats(struct net_device *dev)
 {
         struct net_local *tp = netdev_priv(dev);
@@ -5144,13 +5513,13 @@ static int smctr_update_rx_chain(struct net_device *dev, __u16 queue)
 
         tp->rx_fcb_curr[queue] = tp->rx_fcb_curr[queue]->next_ptr;
 
-        
+        /* update RX BDBs */
         size = (len >> RX_BDB_SIZE_SHIFT);
         if(len & RX_DATA_BUFFER_SIZE_MASK)
                 size += sizeof(BDBlock);
         size &= (~RX_BDB_SIZE_MASK);
 
-        
+        /* check if wrap around */
         bdb = (BDBlock *)((__u32)(tp->rx_bdb_curr[queue]) + (__u32)(size));
         if((__u32)bdb >= (__u32)tp->rx_bdb_end[queue])
         {
@@ -5185,6 +5554,12 @@ static int smctr_update_tx_chain(struct net_device *dev, FCBlock *fcb,
 
                 tp->tx_buff_used[queue] -= fcb->memory_alloc;
 
+                /* if all transmit buffer are cleared
+                 * need to set the tx_buff_curr[] to tx_buff_head[]
+                 * otherwise, tx buffer will be segregate and cannot
+                 * accommodate and buffer greater than (curr - head) and
+                 * (end - curr) since we do not allow wrap around allocation.
+                 */
                 if(tp->tx_buff_used[queue] == 0)
                         tp->tx_buff_curr[queue] = tp->tx_buff_head[queue];
 
@@ -5339,4 +5714,4 @@ void __exit cleanup_module(void)
 		}
         }
 }
-#endif 
+#endif /* MODULE */

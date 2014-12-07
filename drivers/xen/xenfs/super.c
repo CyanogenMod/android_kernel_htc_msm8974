@@ -1,3 +1,11 @@
+/*
+ *  xenfs.c - a filesystem for passing info between the a domain and
+ *  the hypervisor.
+ *
+ * 2008-10-07  Alex Zeffertt    Replaced /proc/xen/xenbus with xenfs filesystem
+ *                              and /proc/xen compatibility mount point.
+ *                              Turned xenfs into a loadable module.
+ */
 
 #include <linux/kernel.h>
 #include <linux/errno.h>

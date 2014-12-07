@@ -21,6 +21,7 @@ enum nfs4_callback_procnum {
 enum nfs4_callback_opnum {
 	OP_CB_GETATTR = 3,
 	OP_CB_RECALL  = 4,
+/* Callback operations new to NFSv4.1 */
 	OP_CB_LAYOUTRECALL  = 5,
 	OP_CB_NOTIFY        = 6,
 	OP_CB_PUSH_DELEG    = 7,
@@ -45,7 +46,7 @@ struct cb_compound_hdr_arg {
 	unsigned int taglen;
 	const char *tag;
 	unsigned int minorversion;
-	unsigned int cb_ident; 
+	unsigned int cb_ident; /* v4.0 callback identifier */
 	unsigned nops;
 };
 
@@ -184,7 +185,7 @@ extern __be32 nfs4_callback_devicenotify(
 	struct cb_devicenotifyargs *args,
 	void *dummy, struct cb_process_state *cps);
 
-#endif 
+#endif /* CONFIG_NFS_V4_1 */
 extern int check_gss_callback_principal(struct nfs_client *, struct svc_rqst *);
 extern __be32 nfs4_callback_getattr(struct cb_getattrargs *args,
 				    struct cb_getattrres *res,
@@ -197,7 +198,12 @@ extern void nfs_callback_down(int minorversion);
 extern int nfs4_validate_delegation_stateid(struct nfs_delegation *delegation,
 					    const nfs4_stateid *stateid);
 extern int nfs4_set_callback_sessionid(struct nfs_client *clp);
-#endif 
+#endif /* CONFIG_NFS_V4 */
+/*
+ * nfs41: Callbacks are expected to not cause substantial latency,
+ * so we limit their concurrency to 1 by setting up the maximum number
+ * of slots for the backchannel.
+ */
 #define NFS41_BC_MIN_CALLBACKS 1
 #define NFS41_BC_MAX_CALLBACKS 1
 
@@ -205,4 +211,4 @@ extern unsigned int nfs_callback_set_tcpport;
 extern unsigned short nfs_callback_tcpport;
 extern unsigned short nfs_callback_tcpport6;
 
-#endif 
+#endif /* __LINUX_FS_NFS_CALLBACK_H */

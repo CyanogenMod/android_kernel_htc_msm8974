@@ -12,6 +12,10 @@
 #include <linux/module.h>
 #include <asm/trace.h>
 
+/*
+ * Checks to see if the address pointed to is either a
+ * 16-bit CALL instruction, or a 32-bit CALL instruction
+ */
 static bool is_bfin_call(unsigned short *addr)
 {
 	unsigned int opcode;
@@ -36,14 +40,19 @@ void show_stack(struct task_struct *task, unsigned long *stack)
 	char buf[150];
 	unsigned int i, j, ret_addr, frame_no = 0;
 
+	/*
+	 * If we have been passed a specific stack, use that one otherwise
+	 *    if we have been passed a task structure, use that, otherwise
+	 *    use the stack of where the variable "stack" exists
+	 */
 
 	if (stack == NULL) {
 		if (task) {
-			
+			/* We know this is a kernel stack, so this is the start/end */
 			stack = (unsigned long *)task->thread.ksp;
 			endstack = (unsigned int *)(((unsigned int)(stack) & ~(THREAD_SIZE - 1)) + THREAD_SIZE);
 		} else {
-			
+			/* print out the existing stack info */
 			stack = (unsigned long *)&stack;
 			endstack = (unsigned int *)PAGE_ALIGN((unsigned int)stack);
 		}
@@ -59,7 +68,7 @@ void show_stack(struct task_struct *task, unsigned long *stack)
 		return;
 	}
 
-	
+	/* First thing is to look for a frame pointer */
 	for (addr = (unsigned int *)((unsigned int)stack & ~0xF); addr < endstack; addr++) {
 		if (*addr & 0x1)
 			continue;
@@ -69,7 +78,7 @@ void show_stack(struct task_struct *task, unsigned long *stack)
 			fp = addr - 1;
 
 		if (fp) {
-			
+			/* Let's check to see if it is a frame pointer */
 			while (fp >= (addr - 1) && fp < endstack
 			       && fp && ((unsigned int) fp & 0x3) == 0)
 				fp = (unsigned int *)*fp;
@@ -86,8 +95,14 @@ void show_stack(struct task_struct *task, unsigned long *stack)
 	} else
 		frame = 0;
 
+	/*
+	 * Now that we think we know where things are, we
+	 * walk the stack again, this time printing things out
+	 * incase there is no frame pointer, we still look for
+	 * valid return addresses
+	 */
 
-	
+	/* First time print out data, next time, print out symbols */
 	for (j = 0; j <= 1; j++) {
 		if (j)
 			printk(KERN_NOTICE "Return addresses in stack:\n");
@@ -104,13 +119,13 @@ void show_stack(struct task_struct *task, unsigned long *stack)
 			if (!j && i % 8 == 0)
 				printk(KERN_NOTICE "%p:", addr);
 
-			
+			/* if it is an odd address, or zero, just skip it */
 			if (*addr & 0x1 || !*addr)
 				goto print;
 
 			ins_addr = (unsigned short *)*addr;
 
-			
+			/* Go back one instruction, and see if it is a CALL */
 			ins_addr--;
 			ret_addr = is_bfin_call(ins_addr);
  print:

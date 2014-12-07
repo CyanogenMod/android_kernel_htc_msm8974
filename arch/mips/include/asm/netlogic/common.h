@@ -35,6 +35,9 @@
 #ifndef _NETLOGIC_COMMON_H_
 #define _NETLOGIC_COMMON_H_
 
+/*
+ * Common SMP definitions
+ */
 #define	RESET_VEC_PHYS		0x1fc00000
 #define	RESET_DATA_PHYS		(RESET_VEC_PHYS + (1<<10))
 #define	BOOT_THREAD_MODE	0
@@ -61,10 +64,13 @@ nlm_set_nmi_handler(void *handler)
 	*(int64_t *)(reset_data + BOOT_NMI_HANDLER) = (long)handler;
 }
 
+/*
+ * Misc.
+ */
 unsigned int nlm_get_cpu_frequency(void);
 
 extern unsigned long nlm_common_ebase;
 extern int nlm_threads_per_core;
 extern uint32_t nlm_cpumask, nlm_coremask;
 #endif
-#endif 
+#endif /* _NETLOGIC_COMMON_H_ */

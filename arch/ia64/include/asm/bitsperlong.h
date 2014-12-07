@@ -5,4 +5,4 @@
 
 #include <asm-generic/bitsperlong.h>
 
-#endif 
+#endif /* __ASM_IA64_BITSPERLONG_H */

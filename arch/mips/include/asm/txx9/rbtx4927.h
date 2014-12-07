@@ -44,6 +44,7 @@
 #define RBTX4927_BRAMRTC_BASE	(IO_BASE + TXX9_CE(2) + 0x00010000)
 #define RBTX4927_ETHER_BASE	(IO_BASE + TXX9_CE(2) + 0x00020000)
 
+/* Ethernet port address */
 #define RBTX4927_ETHER_ADDR	(RBTX4927_ETHER_BASE + 0x280)
 
 #define rbtx4927_imask_addr	((__u8 __iomem *)RBTX4927_IMASK_ADDR)
@@ -54,6 +55,7 @@
 				((__u8 __iomem *)RBTX4927_SOFTRESETLOCK_ADDR)
 #define rbtx4927_pcireset_addr	((__u8 __iomem *)RBTX4927_PCIRESET_ADDR)
 
+/* bits for ISTAT/IMASK/IMSTAT */
 #define RBTX4927_INTB_PCID	0
 #define RBTX4927_INTB_PCIC	1
 #define RBTX4927_INTB_PCIB	2
@@ -63,7 +65,7 @@
 #define RBTX4927_INTF_PCIB	(1 << RBTX4927_INTB_PCIB)
 #define RBTX4927_INTF_PCIA	(1 << RBTX4927_INTB_PCIA)
 
-#define RBTX4927_NR_IRQ_IOC	8	
+#define RBTX4927_NR_IRQ_IOC	8	/* IOC */
 
 #define RBTX4927_IRQ_IOC	(TXX9_IRQ_BASE + TX4927_NUM_IR)
 #define RBTX4927_IRQ_IOC_PCID	(RBTX4927_IRQ_IOC + RBTX4927_INTB_PCID)
@@ -87,4 +89,4 @@ void rbtx4927_irq_setup(void);
 struct pci_dev;
 int rbtx4927_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 
-#endif 
+#endif /* __ASM_TXX9_RBTX4927_H */

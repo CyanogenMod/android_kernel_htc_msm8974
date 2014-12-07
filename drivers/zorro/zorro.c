@@ -24,18 +24,27 @@
 #include "zorro.h"
 
 
+    /*
+     *  Zorro Expansion Devices
+     */
 
 unsigned int zorro_num_autocon;
 struct zorro_dev zorro_autocon[ZORRO_NUM_AUTO];
 
 
+    /*
+     *  Zorro bus
+     */
 
 struct zorro_bus {
-	struct list_head devices;	
+	struct list_head devices;	/* list of devices on this bus */
 	struct device dev;
 };
 
 
+    /*
+     *  Find Zorro Devices
+     */
 
 struct zorro_dev *zorro_find_device(zorro_id id, struct zorro_dev *from)
 {
@@ -54,6 +63,20 @@ struct zorro_dev *zorro_find_device(zorro_id id, struct zorro_dev *from)
 EXPORT_SYMBOL(zorro_find_device);
 
 
+    /*
+     *  Bitmask indicating portions of available Zorro II RAM that are unused
+     *  by the system. Every bit represents a 64K chunk, for a maximum of 8MB
+     *  (128 chunks, physical 0x00200000-0x009fffff).
+     *
+     *  If you want to use (= allocate) portions of this RAM, you should clear
+     *  the corresponding bits.
+     *
+     *  Possible uses:
+     *      - z2ram device
+     *      - SCSI DMA bounce buffers
+     *
+     *  FIXME: use the normal resource management
+     */
 
 DECLARE_BITMAP(zorro_unused_z2ram, 128);
 EXPORT_SYMBOL(zorro_unused_z2ram);
@@ -108,7 +131,7 @@ static int __init amiga_zorro_probe(struct platform_device *pdev)
 	unsigned int i;
 	int error;
 
-	
+	/* Initialize the Zorro bus */
 	bus = kzalloc(sizeof(*bus), GFP_KERNEL);
 	if (!bus)
 		return -ENOMEM;
@@ -128,12 +151,12 @@ static int __init amiga_zorro_probe(struct platform_device *pdev)
 	pr_info("Zorro: Probing AutoConfig expansion devices: %u device%s\n",
 		 zorro_num_autocon, zorro_num_autocon == 1 ? "" : "s");
 
-	
+	/* First identify all devices ... */
 	for (i = 0; i < zorro_num_autocon; i++) {
 		z = &zorro_autocon[i];
 		z->id = (z->rom.er_Manufacturer<<16) | (z->rom.er_Product<<8);
 		if (z->id == ZORRO_PROD_GVP_EPC_BASE) {
-			
+			/* GVP quirk */
 			unsigned long magic = zorro_resource_start(z)+0x8000;
 			z->id |= *(u16 *)ZTWO_VADDR(magic) & GVP_PRODMASK;
 		}
@@ -151,7 +174,7 @@ static int __init amiga_zorro_probe(struct platform_device *pdev)
 		z->dev.bus = &zorro_bus_type;
 	}
 
-	
+	/* ... then register them */
 	for (i = 0; i < zorro_num_autocon; i++) {
 		z = &zorro_autocon[i];
 		error = device_register(&z->dev);
@@ -166,14 +189,14 @@ static int __init amiga_zorro_probe(struct platform_device *pdev)
 			dev_err(&z->dev, "Error creating sysfs files\n");
 	}
 
-	
+	/* Mark all available Zorro II memory */
 	zorro_for_each_dev(z) {
 		if (z->rom.er_Type & ERTF_MEMLIST)
 			mark_region(zorro_resource_start(z),
 				    zorro_resource_end(z)+1, 1);
 	}
 
-	
+	/* Unmark all used Zorro II memory */
 	for (i = 0; i < m68k_num_memory; i++)
 		if (m68k_memory[i].addr < 16*1024*1024)
 			mark_region(m68k_memory[i].addr,

@@ -1,3 +1,9 @@
+/**
+ * \file radeon_drv.c
+ * ATI Radeon driver
+ *
+ * \author Gareth Hughes <gareth@valinux.com>
+ */
 
 /*
  * Copyright 2000 VA Linux Systems, Inc., Sunnyvale, California.
@@ -33,6 +39,25 @@
 #include <linux/module.h>
 
 
+/*
+ * KMS wrapper.
+ * - 2.0.0 - initial interface
+ * - 2.1.0 - add square tiling interface
+ * - 2.2.0 - add r6xx/r7xx const buffer support
+ * - 2.3.0 - add MSPOS + 3D texture + r500 VAP regs
+ * - 2.4.0 - add crtc id query
+ * - 2.5.0 - add get accel 2 to work around ddx breakage for evergreen
+ * - 2.6.0 - add tiling config query (r6xx+), add initial HiZ support (r300->r500)
+ *   2.7.0 - fixups for r600 2D tiling support. (no external ABI change), add eg dyn gpr regs
+ *   2.8.0 - pageflip support, r500 US_FORMAT regs. r500 ARGB2101010 colorbuf, r300->r500 CMASK, clock crystal query
+ *   2.9.0 - r600 tiling (s3tc,rgtc) working, SET_PREDICATION packet 3 on r600 + eg, backend query
+ *   2.10.0 - fusion 2D tiling
+ *   2.11.0 - backend map, initial compute support for the CS checker
+ *   2.12.0 - RADEON_CS_KEEP_TILING_FLAGS
+ *   2.13.0 - virtual memory support, streamout
+ *   2.14.0 - add evergreen tiling informations
+ *   2.15.0 - add max_pipes query
+ */
 #define KMS_DRIVER_MAJOR	2
 #define KMS_DRIVER_MINOR	15
 #define KMS_DRIVER_PATCHLEVEL	0
@@ -93,7 +118,7 @@ int radeon_dynclks = -1;
 int radeon_r4xx_atom = 0;
 int radeon_agpmode = 0;
 int radeon_vram_limit = 0;
-int radeon_gart_size = 512; 
+int radeon_gart_size = 512; /* default gart size */
 int radeon_benchmarking = 0;
 int radeon_testing = 0;
 int radeon_connector_table = 0;
@@ -159,7 +184,7 @@ static int radeon_suspend(struct drm_device *dev, pm_message_t state)
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
 		return 0;
 
-	
+	/* Disable *all* interrupts */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_RS600)
 		RADEON_WRITE(R500_DxMODE_INT_MASK, 0);
 	RADEON_WRITE(RADEON_GEN_INT_CNTL, 0);
@@ -173,7 +198,7 @@ static int radeon_resume(struct drm_device *dev)
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
 		return 0;
 
-	
+	/* Restore interrupt registers */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_RS600)
 		RADEON_WRITE(R500_DxMODE_INT_MASK, dev_priv->r500_disp_irq_reg);
 	RADEON_WRITE(RADEON_GEN_INT_CNTL, dev_priv->irq_enable_reg);
@@ -259,7 +284,7 @@ static void radeon_kick_out_firmware_fb(struct pci_dev *pdev)
 static int __devinit
 radeon_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	
+	/* Get rid of things like offb */
 	radeon_kick_out_firmware_fb(pdev);
 
 	return drm_get_pci_dev(pdev, ent, &kms_driver);
@@ -378,7 +403,7 @@ static int __init radeon_init(void)
 		radeon_modeset = 0;
 	}
 #endif
-	
+	/* if enabled by default */
 	if (radeon_modeset == -1) {
 #ifdef CONFIG_DRM_RADEON_KMS
 		DRM_INFO("radeon defaulting to kernel modesetting.\n");
@@ -396,6 +421,8 @@ static int __init radeon_init(void)
 		driver->num_ioctls = radeon_max_kms_ioctl;
 		radeon_register_atpx_handler();
 	}
+	/* if the vga console setting is enabled still
+	 * let modprobe override it */
 	return drm_pci_init(driver, pdriver);
 }
 

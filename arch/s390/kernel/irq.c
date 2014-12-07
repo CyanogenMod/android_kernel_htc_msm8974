@@ -58,6 +58,9 @@ static const struct irq_class intrclass_names[] = {
 	{.name = "NMI", .desc = "[NMI] Machine Check" },
 };
 
+/*
+ * show_interrupts is needed by /proc/interrupts.
+ */
 int show_interrupts(struct seq_file *p, void *v)
 {
 	int i = *(loff_t *) v, j;
@@ -86,6 +89,9 @@ int show_interrupts(struct seq_file *p, void *v)
         return 0;
 }
 
+/*
+ * Switch to the asynchronous interrupt stack for softirq execution.
+ */
 asmlinkage void do_softirq(void)
 {
 	unsigned long flags, old, new;
@@ -96,12 +102,12 @@ asmlinkage void do_softirq(void)
 	local_irq_save(flags);
 
 	if (local_softirq_pending()) {
-		
+		/* Get current stack pointer. */
 		asm volatile("la %0,0(15)" : "=a" (old));
-		
+		/* Check against async. stack address range. */
 		new = S390_lowcore.async_stack;
 		if (((new - old) >> (PAGE_SHIFT + THREAD_ORDER)) != 0) {
-			
+			/* Need to switch to the async. stack. */
 			new -= STACK_FRAME_OVERHEAD;
 			((struct stack_frame *) new)->back_chain = old;
 
@@ -113,7 +119,7 @@ asmlinkage void do_softirq(void)
 				     : "0", "1", "2", "3", "4", "5", "14",
 				       "cc", "memory" );
 		} else {
-			
+			/* We are already on the async stack. */
 			__do_softirq();
 		}
 	}
@@ -131,6 +137,10 @@ void init_irq_proc(void)
 }
 #endif
 
+/*
+ * ext_int_hash[index] is the list head for all external interrupts that hash
+ * to this index.
+ */
 static struct list_head ext_int_hash[256];
 
 struct ext_int_info {
@@ -140,6 +150,7 @@ struct ext_int_info {
 	struct rcu_head rcu;
 };
 
+/* ext_int_hash_lock protects the handler lists for external interrupts */
 DEFINE_SPINLOCK(ext_int_hash_lock);
 
 static void __init init_external_interrupts(void)
@@ -203,7 +214,7 @@ void __irq_entry do_extint(struct pt_regs *regs, struct ext_code ext_code,
 	old_regs = set_irq_regs(regs);
 	irq_enter();
 	if (S390_lowcore.int_clock >= S390_lowcore.clock_comparator) {
-		
+		/* Serve timer interrupts first. */
 		clock_comparator_work();
 	}
 	kstat_cpu(smp_processor_id()).irqs[EXTERNAL_INTERRUPT]++;

@@ -14,6 +14,12 @@
 
 #include <linux/rtmutex.h>
 
+/*
+ * The rtmutex in kernel tester is independent of rtmutex debugging. We
+ * call schedule_rt_mutex_test() instead of schedule() for the tasks which
+ * belong to the tester. That way we can delay the wakeup path of those
+ * threads to provoke lock stealing and testing of  complex boosting scenarios.
+ */
 #ifdef CONFIG_RT_MUTEX_TESTER
 
 extern void schedule_rt_mutex_test(struct rt_mutex *lock);
@@ -30,6 +36,14 @@ extern void schedule_rt_mutex_test(struct rt_mutex *lock);
 # define schedule_rt_mutex(_lock)			schedule()
 #endif
 
+/*
+ * This is the control structure for tasks blocked on a rt_mutex,
+ * which is allocated on the kernel stack on of the blocked task.
+ *
+ * @list_entry:		pi node to enqueue into the mutex waiters list
+ * @pi_list_entry:	pi node to enqueue into the mutex owner waiters list
+ * @task:		task reference to the blocked task
+ */
 struct rt_mutex_waiter {
 	struct plist_node	list_entry;
 	struct plist_node	pi_list_entry;
@@ -42,6 +56,9 @@ struct rt_mutex_waiter {
 #endif
 };
 
+/*
+ * Various helpers to access the waiters-plist:
+ */
 static inline int rt_mutex_has_waiters(struct rt_mutex *lock)
 {
 	return !plist_head_empty(&lock->wait_list);
@@ -71,6 +88,9 @@ task_top_pi_waiter(struct task_struct *p)
 				  pi_list_entry);
 }
 
+/*
+ * lock->owner state tracking:
+ */
 #define RT_MUTEX_HAS_WAITERS	1UL
 #define RT_MUTEX_OWNER_MASKALL	1UL
 
@@ -80,6 +100,9 @@ static inline struct task_struct *rt_mutex_owner(struct rt_mutex *lock)
 		((unsigned long)lock->owner & ~RT_MUTEX_OWNER_MASKALL);
 }
 
+/*
+ * PI-futex support (proxy locking functions, etc.):
+ */
 extern struct task_struct *rt_mutex_next_owner(struct rt_mutex *lock);
 extern void rt_mutex_init_proxy_locked(struct rt_mutex *lock,
 				       struct task_struct *proxy_owner);

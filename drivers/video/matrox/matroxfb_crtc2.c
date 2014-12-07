@@ -18,12 +18,14 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
+/* **************************************************** */
 
 static int mem = 8192;
 
 module_param(mem, int, 0);
 MODULE_PARM_DESC(mem, "Memory size reserved for dualhead (default=8MB)");
 
+/* **************************************************** */
 
 static int matroxfb_dh_setcolreg(unsigned regno, unsigned red, unsigned green,
 		unsigned blue, unsigned transp, struct fb_info* info) {
@@ -33,7 +35,7 @@ static int matroxfb_dh_setcolreg(unsigned regno, unsigned red, unsigned green,
 	if (regno >= 16)
 		return 1;
 	if (m2info->fbcon.var.grayscale) {
-		
+		/* gray = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 	red = CNVT_TOHW(red, m2info->fbcon.var.red.length);
@@ -73,33 +75,34 @@ static void matroxfb_dh_restore(struct matroxfb_dh_fb_info* m2info,
 		case 16:
 			tmp = 0x00400000;
 			break;
+/*		case 32: */
 		default:
 			tmp = 0x00800000;
 			break;
 	}
-	tmp |= 0x00000001;	
+	tmp |= 0x00000001;	/* enable CRTC2 */
 	datactl = 0;
 	if (minfo->outputs[1].src == MATROXFB_SRC_CRTC2) {
 		if (minfo->devflags.g450dac) {
-			tmp |= 0x00000006; 
-			
+			tmp |= 0x00000006; /* source from secondary pixel PLL */
+			/* no vidrst when in monitor mode */
 			if (minfo->outputs[1].mode != MATROXFB_OUTPUT_MODE_MONITOR) {
-				tmp |=  0xC0001000; 
+				tmp |=  0xC0001000; /* Enable H/V vidrst */
 			}
 		} else {
-			tmp |= 0x00000002; 
-			tmp |= 0xC0000000; 
-			
+			tmp |= 0x00000002; /* source from VDOCLK */
+			tmp |= 0xC0000000; /* enable vvidrst & hvidrst */
+			/* MGA TVO is our clock source */
 		}
 	} else if (minfo->outputs[0].src == MATROXFB_SRC_CRTC2) {
-		tmp |= 0x00000004; 
-		
+		tmp |= 0x00000004; /* source from pixclock */
+		/* PIXPLL is our clock source */
 	}
 	if (minfo->outputs[0].src == MATROXFB_SRC_CRTC2) {
-		tmp |= 0x00100000;	
+		tmp |= 0x00100000;	/* connect CRTC2 to DAC */
 	}
 	if (mt->interlaced) {
-		tmp |= 0x02000000;	
+		tmp |= 0x02000000;	/* interlaced, second field is bigger, as G450 apparently ignores it */
 		mt->VDisplay >>= 1;
 		mt->VSyncStart >>= 1;
 		mt->VSyncEnd >>= 1;
@@ -109,27 +112,27 @@ static void matroxfb_dh_restore(struct matroxfb_dh_fb_info* m2info,
 		datactl |= 0x00000010;
 		mt->HTotal &= ~7;
 	}
-	tmp |= 0x10000000;	
+	tmp |= 0x10000000;	/* 0x10000000 is VIDRST polarity */
 	mga_outl(0x3C14, ((mt->HDisplay - 8) << 16) | (mt->HTotal - 8));
 	mga_outl(0x3C18, ((mt->HSyncEnd - 8) << 16) | (mt->HSyncStart - 8));
 	mga_outl(0x3C1C, ((mt->VDisplay - 1) << 16) | (mt->VTotal - 1));
 	mga_outl(0x3C20, ((mt->VSyncEnd - 1) << 16) | (mt->VSyncStart - 1));
-	mga_outl(0x3C24, ((mt->VSyncStart) << 16) | (mt->HSyncStart));	
+	mga_outl(0x3C24, ((mt->VSyncStart) << 16) | (mt->HSyncStart));	/* preload */
 	{
 		u_int32_t linelen = m2info->fbcon.var.xres_virtual * (m2info->fbcon.var.bits_per_pixel >> 3);
 		if (tmp & 0x02000000) {
-			
-			mga_outl(0x3C2C, pos);			
-			mga_outl(0x3C28, pos + linelen);	
+			/* field #0 is smaller, so... */
+			mga_outl(0x3C2C, pos);			/* field #1 vmemory start */
+			mga_outl(0x3C28, pos + linelen);	/* field #0 vmemory start */
 			linelen <<= 1;
 			m2info->interlaced = 1;
 		} else {
-			mga_outl(0x3C28, pos);		
+			mga_outl(0x3C28, pos);		/* vmemory start */
 			m2info->interlaced = 0;
 		}
 		mga_outl(0x3C40, linelen);
 	}
-	mga_outl(0x3C4C, datactl);	
+	mga_outl(0x3C4C, datactl);	/* data control */
 	if (tmp & 0x02000000) {
 		int i;
 
@@ -146,7 +149,7 @@ static void matroxfb_dh_restore(struct matroxfb_dh_fb_info* m2info,
 	mga_outl(0x3C10, tmp);
 	minfo->hw.crtc2.ctl = tmp;
 
-	tmp = mt->VDisplay << 16;	
+	tmp = mt->VDisplay << 16;	/* line compare */
 	if (mt->sync & FB_SYNC_HOR_HIGH_ACT)
 		tmp |= 0x00000100;
 	if (mt->sync & FB_SYNC_VERT_HIGH_ACT)
@@ -157,7 +160,7 @@ static void matroxfb_dh_restore(struct matroxfb_dh_fb_info* m2info,
 static void matroxfb_dh_disable(struct matroxfb_dh_fb_info* m2info) {
 	struct matrox_fb_info *minfo = m2info->primary_dev;
 
-	mga_outl(0x3C10, 0x00000004);	
+	mga_outl(0x3C10, 0x00000004);	/* disable CRTC2, CRTC1->DAC1, PLL as clock source */
 	minfo->hw.crtc2.ctl = 0x00000004;
 }
 
@@ -287,6 +290,10 @@ static int matroxfb_dh_release(struct fb_info* info, int user) {
 #undef m2info
 }
 
+/*
+ * This function is called before the register_framebuffer so
+ * no locking is needed.
+ */
 static void matroxfb_dh_init_fix(struct matroxfb_dh_fb_info *m2info)
 {
 	struct fb_fix_screeninfo *fix = &m2info->fbcon.fix;
@@ -297,10 +304,10 @@ static void matroxfb_dh_init_fix(struct matroxfb_dh_fb_info *m2info)
 	fix->smem_len = m2info->video.len_usable;
 	fix->ypanstep = 1;
 	fix->ywrapstep = 0;
-	fix->xpanstep = 8;	
+	fix->xpanstep = 8;	/* TBD */
 	fix->mmio_start = m2info->mmio.base;
 	fix->mmio_len = m2info->mmio.len;
-	fix->accel = 0;		
+	fix->accel = 0;		/* no accel... */
 }
 
 static int matroxfb_dh_check_var(struct fb_var_screeninfo* var, struct fb_info* info) {
@@ -324,7 +331,7 @@ static int matroxfb_dh_set_par(struct fb_info* info) {
 
 	if ((err = matroxfb_dh_decode_var(m2info, var, &visual, &cmap_len, &mode)) != 0)
 		return err;
-	
+	/* cmap */
 	{
 		m2info->fbcon.screen_base = vaddr_va(m2info->video.vbase);
 		m2info->fbcon.fix.visual = visual;
@@ -340,7 +347,7 @@ static int matroxfb_dh_set_par(struct fb_info* info) {
 
 		matroxfb_var2my(&m2info->fbcon.var, &mt);
 		mt.crtc = MATROXFB_SRC_CRTC2;
-		
+		/* CRTC2 delay */
 		mt.delay = 34;
 
 		pos = (m2info->fbcon.var.yoffset * m2info->fbcon.var.xres_virtual + m2info->fbcon.var.xoffset) * m2info->fbcon.var.bits_per_pixel >> 3;
@@ -398,13 +405,15 @@ static int matroxfb_dh_get_vblank(const struct matroxfb_dh_fb_info* m2info, stru
 	matroxfb_enable_irq(minfo, 0);
 	memset(vblank, 0, sizeof(*vblank));
 	vblank->flags = FB_VBLANK_HAVE_VCOUNT | FB_VBLANK_HAVE_VBLANK;
-	
+	/* mask out reserved bits + field number (odd/even) */
 	vblank->vcount = mga_inl(0x3C48) & 0x000007FF;
-	
+	/* compatibility stuff */
 	if (vblank->vcount >= m2info->fbcon.var.yres)
 		vblank->flags |= FB_VBLANK_VBLANKING;
 	if (test_bit(0, &minfo->irq_flags)) {
                 vblank->flags |= FB_VBLANK_HAVE_COUNT;
+                /* Only one writer, aligned int value...
+                   it should work without lock and without atomic_t */
 		vblank->count = minfo->crtc2.vsync.cnt;
         }
 	return 0;
@@ -548,7 +557,7 @@ static int matroxfb_dh_blank(int blank, struct fb_info* info) {
 		case 4:
 		default:;
 	}
-	
+	/* do something... */
 	return 0;
 #undef m2info
 }
@@ -569,20 +578,20 @@ static struct fb_ops matroxfb_dh_ops = {
 };
 
 static struct fb_var_screeninfo matroxfb_dh_defined = {
-		640,480,640,480,
-		0,0,		
-		32,		
-		0,		
-		{0,0,0},	
-		{0,0,0},	
-		{0,0,0},	
-		{0,0,0},	
-		0,		
+		640,480,640,480,/* W,H, virtual W,H */
+		0,0,		/* offset */
+		32,		/* depth */
+		0,		/* gray */
+		{0,0,0},	/* R */
+		{0,0,0},	/* G */
+		{0,0,0},	/* B */
+		{0,0,0},	/* alpha */
+		0,		/* nonstd */
 		FB_ACTIVATE_NOW,
-		-1,-1,		
-		0,		
+		-1,-1,		/* display size */
+		0,		/* accel flags */
 		39721L,48L,16L,33L,10L,
-		96L,2,0,	
+		96L,2,0,	/* no sync info */
 		FB_VMODE_NONINTERLACED,
 };
 
@@ -603,12 +612,12 @@ static int matroxfb_dh_regit(const struct matrox_fb_info *minfo,
 		mem *= 1024;
 	if (mem < 64*1024)
 		mem *= 1024;
-	mem &= ~0x00000FFF;	
+	mem &= ~0x00000FFF;	/* PAGE_MASK? */
 	if (minfo->video.len_usable + mem <= minfo->video.len)
 		m2info->video.offbase = minfo->video.len - mem;
 	else if (minfo->video.len < mem) {
 		return -ENOMEM;
-	} else { 
+	} else { /* check yres on first head... */
 		m2info->video.borrowed = mem;
 		minfo->video.len_usable -= mem;
 		m2info->video.offbase = minfo->video.len_usable;
@@ -638,6 +647,7 @@ static int matroxfb_dh_regit(const struct matrox_fb_info *minfo,
 #undef minfo
 }
 
+/* ************************** */
 
 static int matroxfb_dh_registerfb(struct matroxfb_dh_fb_info* m2info) {
 #define minfo (m2info->primary_dev)
@@ -671,7 +681,7 @@ static void matroxfb_dh_deregisterfb(struct matroxfb_dh_fb_info* m2info) {
 		}
 		id = m2info->fbcon.node;
 		unregister_framebuffer(&m2info->fbcon);
-		
+		/* return memory back to primary head */
 		minfo->video.len_usable += m2info->video.borrowed;
 		printk(KERN_INFO "matroxfb_crtc2: fb%u unregistered\n", id);
 		m2info->fbcon_registered = 0;
@@ -682,7 +692,7 @@ static void matroxfb_dh_deregisterfb(struct matroxfb_dh_fb_info* m2info) {
 static void* matroxfb_crtc2_probe(struct matrox_fb_info* minfo) {
 	struct matroxfb_dh_fb_info* m2info;
 
-	
+	/* hardware is CRTC2 incapable... */
 	if (!minfo->devflags.crtc2)
 		return NULL;
 	m2info = kzalloc(sizeof(*m2info), GFP_KERNEL);
@@ -726,3 +736,4 @@ MODULE_DESCRIPTION("Matrox G400 CRTC2 driver");
 MODULE_LICENSE("GPL");
 module_init(matroxfb_crtc2_init);
 module_exit(matroxfb_crtc2_exit);
+/* we do not have __setup() yet */

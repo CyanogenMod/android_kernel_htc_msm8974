@@ -75,7 +75,7 @@ uint32_t msm_jpeg_platform_v2p(struct msm_jpeg_device *pgmn_dev, int fd,
 		goto error1;
 	}
 
-	
+	/* validate user input */
 	if (len > size) {
 		JPEG_PR_ERR("%s: invalid offset + len\n", __func__);
 		goto error1;
@@ -125,6 +125,8 @@ static void set_vbif_params(struct msm_jpeg_device *pgmn_dev,
 		jpeg_vbif_base + JPEG_VBIF_OUT_AXI_AOOO_EN);
 	writel_relaxed(0x0FFF0FFF,
 		jpeg_vbif_base + JPEG_VBIF_OUT_AXI_AOOO);
+	/*FE and WE QOS configuration need to be set when
+	QOS RR arbitration is enabled*/
 	if (pgmn_dev->hw_version == JPEG_8974_V2)
 		writel_relaxed(0x00000003,
 				jpeg_vbif_base + JPEG_VBIF_ROUND_ROBIN_QOS_ARB);

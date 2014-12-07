@@ -149,6 +149,10 @@ static int mtd_blktrans_thread(void *arg)
 				tr->background(dev);
 				mutex_unlock(&dev->lock);
 				spin_lock_irq(rq->queue_lock);
+				/*
+				 * Do background processing just once per idle
+				 * period.
+				 */
 				background_done = !dev->bg_stop;
 				continue;
 			}
@@ -207,7 +211,7 @@ static int blktrans_open(struct block_device *bdev, fmode_t mode)
 	int ret = 0;
 
 	if (!dev)
-		return -ERESTARTSYS; 
+		return -ERESTARTSYS; /* FIXME: busy loop! -arnd*/
 
 	mutex_lock(&dev->lock);
 
@@ -345,19 +349,19 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 	mutex_lock(&blktrans_ref_mutex);
 	list_for_each_entry(d, &tr->devs, list) {
 		if (new->devnum == -1) {
-			
+			/* Use first free number */
 			if (d->devnum != last_devnum+1) {
-				
+				/* Found a free devnum. Plug it in here */
 				new->devnum = last_devnum+1;
 				list_add_tail(&new->list, &d->list);
 				goto added;
 			}
 		} else if (d->devnum == new->devnum) {
-			
+			/* Required number taken */
 			mutex_unlock(&blktrans_ref_mutex);
 			return -EBUSY;
 		} else if (d->devnum > new->devnum) {
-			
+			/* Required number was free */
 			list_add_tail(&new->list, &d->list);
 			goto added;
 		}
@@ -368,6 +372,9 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 	if (new->devnum == -1)
 		new->devnum = last_devnum+1;
 
+	/* Check that the device and any partitions will get valid
+	 * minor numbers and that the disk naming code below can cope
+	 * with this number. */
 	if (new->devnum > (MINORMASK >> tr->part_bits) ||
 	    (tr->part_bits && new->devnum >= 27 * 26)) {
 		mutex_unlock(&blktrans_ref_mutex);
@@ -383,7 +390,7 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 	if (!tr->writesect)
 		new->readonly = 1;
 
-	
+	/* Create gendisk */
 	ret = -ENOMEM;
 	gd = alloc_disk(1 << tr->part_bits);
 
@@ -411,7 +418,7 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 
 	set_capacity(gd, (new->size * tr->blksize) >> 9);
 
-	
+	/* Create the request queue */
 	spin_lock_init(&new->queue_lock);
 	new->rq = blk_init_queue(mtd_blktrans_request, &new->queue_lock);
 
@@ -420,6 +427,10 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 
 	new->rq->queuedata = new;
 
+	/*
+	 * Empirical measurements revealed that read ahead values larger than
+	 * 4 slowed down boot time, so start out with this small value.
+	 */
 	new->rq->backing_dev_info.ra_pages = (4 * 1024) / PAGE_CACHE_SIZE;
 
 	blk_queue_logical_block_size(new->rq, tr->blksize);
@@ -433,8 +444,8 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 
 	gd->queue = new->rq;
 
-	
-	
+	/* Create processing thread */
+	/* TODO: workqueue ? */
 	new->thread = kthread_run(mtd_blktrans_thread, new,
 			"%s%d", tr->name, new->mtd->index);
 	if (IS_ERR(new->thread)) {
@@ -477,19 +488,21 @@ int del_mtd_blktrans_dev(struct mtd_blktrans_dev *old)
 		sysfs_remove_group(&disk_to_dev(old->disk)->kobj,
 						old->disk_attributes);
 
-	
+	/* Stop new requests to arrive */
 	del_gendisk(old->disk);
 
 
-	
+	/* Stop the thread */
 	kthread_stop(old->thread);
 
-	
+	/* Kill current requests */
 	spin_lock_irqsave(&old->queue_lock, flags);
 	old->rq->queuedata = NULL;
 	blk_start_queue(old->rq);
 	spin_unlock_irqrestore(&old->queue_lock, flags);
 
+	/* If the device is currently open, tell trans driver to close it,
+		then put mtd device, and don't touch it again */
 	mutex_lock(&old->lock);
 	if (old->open) {
 		if (old->tr->release)
@@ -536,6 +549,9 @@ int register_mtd_blktrans(struct mtd_blktrans_ops *tr)
 	struct mtd_info *mtd;
 	int ret;
 
+	/* Register the notifier if/when the first device type is
+	   registered, to prevent the link/init ordering from fucking
+	   us over. */
 	if (!blktrans_notifier.list.next)
 		register_mtd_user(&blktrans_notifier);
 
@@ -572,7 +588,7 @@ int deregister_mtd_blktrans(struct mtd_blktrans_ops *tr)
 
 	mutex_lock(&mtd_table_mutex);
 
-	
+	/* Remove it from the list of active majors */
 	list_del(&tr->list);
 
 	list_for_each_entry_safe(dev, next, &tr->devs, list)
@@ -587,6 +603,8 @@ int deregister_mtd_blktrans(struct mtd_blktrans_ops *tr)
 
 static void __exit mtd_blktrans_exit(void)
 {
+	/* No race here -- if someone's currently in register_mtd_blktrans
+	   we're screwed anyway. */
 	if (blktrans_notifier.list.next)
 		unregister_mtd_user(&blktrans_notifier);
 }

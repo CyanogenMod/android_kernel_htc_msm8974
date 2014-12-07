@@ -15,6 +15,10 @@
 
 #include <linux/bitops.h>
 
+/* Coresight management registers (0xF00-0xFCC)
+ * 0xFA0 - 0xFA4: Management	registers in PFTv1.0
+ *		  Trace		registers in PFTv1.1
+ */
 #define CORESIGHT_ITCTRL	(0xF00)
 #define CORESIGHT_CLAIMSET	(0xFA0)
 #define CORESIGHT_CLAIMCLR	(0xFA4)

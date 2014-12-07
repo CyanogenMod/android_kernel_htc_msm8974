@@ -32,17 +32,23 @@
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 
+/*
+ * common variables
+ */
 static int maxqlen = SNDRV_SEQ_OSS_MAX_QLEN;
 module_param(maxqlen, int, 0444);
 MODULE_PARM_DESC(maxqlen, "maximum queue length");
 
-static int system_client = -1; 
+static int system_client = -1; /* ALSA sequencer client number */
 static int system_port = -1;
 
 static int num_clients;
 static struct seq_oss_devinfo *client_table[SNDRV_SEQ_OSS_MAX_CLIENTS];
 
 
+/*
+ * prototypes
+ */
 static int receive_announce(struct snd_seq_event *ev, int direct, void *private, int atomic, int hop);
 static int translate_mode(struct file *file);
 static int create_port(struct seq_oss_devinfo *dp);
@@ -54,6 +60,9 @@ static void free_devinfo(void *private);
 #define call_ctl(type,rec) snd_seq_kernel_client_ctl(system_client, type, rec)
 
 
+/*
+ * create sequencer client for OSS sequencer
+ */
 int __init
 snd_seq_oss_create_client(void)
 {
@@ -67,7 +76,7 @@ snd_seq_oss_create_client(void)
 		goto __error;
 	}
 
-	
+	/* create ALSA client */
 	rc = snd_seq_create_kernel_client(NULL, SNDRV_SEQ_CLIENT_OSS,
 					  "OSS sequencer");
 	if (rc < 0)
@@ -76,17 +85,20 @@ snd_seq_oss_create_client(void)
 	system_client = rc;
 	debug_printk(("new client = %d\n", rc));
 
-	
+	/* look up midi devices */
 	snd_seq_oss_midi_lookup_ports(system_client);
 
-	
+	/* create annoucement receiver port */
 	memset(port, 0, sizeof(*port));
 	strcpy(port->name, "Receiver");
 	port->addr.client = system_client;
-	port->capability = SNDRV_SEQ_PORT_CAP_WRITE; 
+	port->capability = SNDRV_SEQ_PORT_CAP_WRITE; /* receive only */
 	port->type = 0;
 
 	memset(&port_callback, 0, sizeof(port_callback));
+	/* don't set port_callback.owner here. otherwise the module counter
+	 * is incremented and we can no longer release the module..
+	 */
 	port_callback.event_input = receive_announce;
 	port->kernel = &port_callback;
 	
@@ -109,19 +121,22 @@ snd_seq_oss_create_client(void)
 }
 
 
+/*
+ * receive annoucement from system port, and check the midi device
+ */
 static int
 receive_announce(struct snd_seq_event *ev, int direct, void *private, int atomic, int hop)
 {
 	struct snd_seq_port_info pinfo;
 
 	if (atomic)
-		return 0; 
+		return 0; /* it must not happen */
 
 	switch (ev->type) {
 	case SNDRV_SEQ_EVENT_PORT_START:
 	case SNDRV_SEQ_EVENT_PORT_CHANGE:
 		if (ev->data.addr.client == system_client)
-			break; 
+			break; /* ignore myself */
 		memset(&pinfo, 0, sizeof(pinfo));
 		pinfo.addr = ev->data.addr;
 		if (call_ctl(SNDRV_SEQ_IOCTL_GET_PORT_INFO, &pinfo) >= 0)
@@ -130,7 +145,7 @@ receive_announce(struct snd_seq_event *ev, int direct, void *private, int atomic
 
 	case SNDRV_SEQ_EVENT_PORT_EXIT:
 		if (ev->data.addr.client == system_client)
-			break; 
+			break; /* ignore myself */
 		snd_seq_oss_midi_check_exit_port(ev->data.addr.client,
 						ev->data.addr.port);
 		break;
@@ -139,6 +154,9 @@ receive_announce(struct snd_seq_event *ev, int direct, void *private, int atomic
 }
 
 
+/*
+ * delete OSS sequencer client
+ */
 int
 snd_seq_oss_delete_client(void)
 {
@@ -151,6 +169,9 @@ snd_seq_oss_delete_client(void)
 }
 
 
+/*
+ * open sequencer device
+ */
 int
 snd_seq_oss_open(struct file *file, int level)
 {
@@ -180,17 +201,17 @@ snd_seq_oss_open(struct file *file, int level)
 		goto _error;
 	}
 
-	
+	/* look up synth and midi devices */
 	snd_seq_oss_synth_setup(dp);
 	snd_seq_oss_midi_setup(dp);
 
 	if (dp->synth_opened == 0 && dp->max_mididev == 0) {
-		
+		/* snd_printk(KERN_ERR "no device found\n"); */
 		rc = -ENODEV;
 		goto _error;
 	}
 
-	
+	/* create port */
 	debug_printk(("create new port\n"));
 	rc = create_port(dp);
 	if (rc < 0) {
@@ -198,24 +219,24 @@ snd_seq_oss_open(struct file *file, int level)
 		goto _error;
 	}
 
-	
+	/* allocate queue */
 	debug_printk(("allocate queue\n"));
 	rc = alloc_seq_queue(dp);
 	if (rc < 0)
 		goto _error;
 
-	
+	/* set address */
 	dp->addr.client = dp->cseq;
 	dp->addr.port = dp->port;
-	
-	
+	/*dp->addr.queue = dp->queue;*/
+	/*dp->addr.channel = 0;*/
 
 	dp->seq_mode = level;
 
-	
+	/* set up file mode */
 	dp->file_mode = translate_mode(file);
 
-	
+	/* initialize read queue */
 	debug_printk(("initialize read queue\n"));
 	if (is_read_mode(dp->file_mode)) {
 		dp->readq = snd_seq_oss_readq_new(dp, maxqlen);
@@ -225,7 +246,7 @@ snd_seq_oss_open(struct file *file, int level)
 		}
 	}
 
-	
+	/* initialize write queue */
 	debug_printk(("initialize write queue\n"));
 	if (is_write_mode(dp->file_mode)) {
 		dp->writeq = snd_seq_oss_writeq_new(dp, maxqlen);
@@ -235,7 +256,7 @@ snd_seq_oss_open(struct file *file, int level)
 		}
 	}
 
-	
+	/* initialize timer */
 	debug_printk(("initialize timer\n"));
 	dp->timer = snd_seq_oss_timer_new(dp);
 	if (!dp->timer) {
@@ -245,10 +266,10 @@ snd_seq_oss_open(struct file *file, int level)
 	}
 	debug_printk(("timer initialized\n"));
 
-	
+	/* set private data pointer */
 	file->private_data = dp;
 
-	
+	/* set up for mode2 */
 	if (level == SNDRV_SEQ_OSS_MODE_MUSIC)
 		snd_seq_oss_synth_setup_midi(dp);
 	else if (is_read_mode(dp->file_mode))
@@ -269,6 +290,9 @@ snd_seq_oss_open(struct file *file, int level)
 	return rc;
 }
 
+/*
+ * translate file flags to private mode
+ */
 static int
 translate_mode(struct file *file)
 {
@@ -283,6 +307,9 @@ translate_mode(struct file *file)
 }
 
 
+/*
+ * create sequencer port
+ */
 static int
 create_port(struct seq_oss_devinfo *dp)
 {
@@ -293,7 +320,7 @@ create_port(struct seq_oss_devinfo *dp)
 	memset(&port, 0, sizeof(port));
 	port.addr.client = dp->cseq;
 	sprintf(port.name, "Sequencer-%d", dp->index);
-	port.capability = SNDRV_SEQ_PORT_CAP_READ|SNDRV_SEQ_PORT_CAP_WRITE; 
+	port.capability = SNDRV_SEQ_PORT_CAP_READ|SNDRV_SEQ_PORT_CAP_WRITE; /* no subscription */
 	port.type = SNDRV_SEQ_PORT_TYPE_SPECIFIC;
 	port.midi_channels = 128;
 	port.synth_voices = 128;
@@ -315,6 +342,9 @@ create_port(struct seq_oss_devinfo *dp)
 	return 0;
 }
 
+/*
+ * delete ALSA port
+ */
 static int
 delete_port(struct seq_oss_devinfo *dp)
 {
@@ -327,6 +357,9 @@ delete_port(struct seq_oss_devinfo *dp)
 	return snd_seq_event_port_detach(dp->cseq, dp->port);
 }
 
+/*
+ * allocate a queue
+ */
 static int
 alloc_seq_queue(struct seq_oss_devinfo *dp)
 {
@@ -343,6 +376,9 @@ alloc_seq_queue(struct seq_oss_devinfo *dp)
 	return 0;
 }
 
+/*
+ * release queue
+ */
 static int
 delete_seq_queue(int queue)
 {
@@ -360,6 +396,9 @@ delete_seq_queue(int queue)
 }
 
 
+/*
+ * free device informations - private_free callback of port
+ */
 static void
 free_devinfo(void *private)
 {
@@ -378,6 +417,9 @@ free_devinfo(void *private)
 }
 
 
+/*
+ * close sequencer device
+ */
 void
 snd_seq_oss_release(struct seq_oss_devinfo *dp)
 {
@@ -393,7 +435,7 @@ snd_seq_oss_release(struct seq_oss_devinfo *dp)
 	snd_seq_oss_synth_cleanup(dp);
 	snd_seq_oss_midi_cleanup(dp);
 
-	
+	/* clear slot */
 	debug_printk(("releasing resource..\n"));
 	queue = dp->queue;
 	if (dp->port >= 0)
@@ -404,6 +446,9 @@ snd_seq_oss_release(struct seq_oss_devinfo *dp)
 }
 
 
+/*
+ * Wait until the queue is empty (if we don't have nonblock)
+ */
 void
 snd_seq_oss_drain_write(struct seq_oss_devinfo *dp)
 {
@@ -418,33 +463,39 @@ snd_seq_oss_drain_write(struct seq_oss_devinfo *dp)
 }
 
 
+/*
+ * reset sequencer devices
+ */
 void
 snd_seq_oss_reset(struct seq_oss_devinfo *dp)
 {
 	int i;
 
-	
+	/* reset all synth devices */
 	for (i = 0; i < dp->max_synthdev; i++)
 		snd_seq_oss_synth_reset(dp, i);
 
-	
+	/* reset all midi devices */
 	if (dp->seq_mode != SNDRV_SEQ_OSS_MODE_MUSIC) {
 		for (i = 0; i < dp->max_mididev; i++)
 			snd_seq_oss_midi_reset(dp, i);
 	}
 
-	
+	/* remove queues */
 	if (dp->readq)
 		snd_seq_oss_readq_clear(dp->readq);
 	if (dp->writeq)
 		snd_seq_oss_writeq_clear(dp->writeq);
 
-	
+	/* reset timer */
 	snd_seq_oss_timer_stop(dp->timer);
 }
 
 
 #ifdef CONFIG_PROC_FS
+/*
+ * misc. functions for proc interface
+ */
 char *
 enabled_str(int bool)
 {
@@ -461,6 +512,9 @@ filemode_str(int val)
 }
 
 
+/*
+ * proc interface
+ */
 void
 snd_seq_oss_system_info_read(struct snd_info_buffer *buf)
 {
@@ -489,4 +543,4 @@ snd_seq_oss_system_info_read(struct snd_info_buffer *buf)
 			snd_seq_oss_readq_info_read(dp->readq, buf);
 	}
 }
-#endif 
+#endif /* CONFIG_PROC_FS */

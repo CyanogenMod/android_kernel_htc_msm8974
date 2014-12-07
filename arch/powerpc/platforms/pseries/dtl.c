@@ -42,9 +42,19 @@ struct dtl {
 };
 static DEFINE_PER_CPU(struct dtl, cpu_dtl);
 
+/*
+ * Dispatch trace log event mask:
+ * 0x7: 0x1: voluntary virtual processor waits
+ *      0x2: time-slice preempts
+ *      0x4: virtual partition memory page faults
+ */
 static u8 dtl_event_mask = 0x7;
 
 
+/*
+ * Size of per-cpu log buffers. Firmware requires that the buffer does
+ * not cross a 4k boundary.
+ */
 static int dtl_buf_entries = N_DISPATCH_LOG;
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING
@@ -60,6 +70,10 @@ static DEFINE_PER_CPU(struct dtl_ring, dtl_rings);
 
 static atomic_t dtl_count;
 
+/*
+ * The cpu accounting code controls the DTL ring buffer, and we get
+ * given entries as they are processed.
+ */
 static void consume_dtle(struct dtl_entry *dtle, u64 index)
 {
 	struct dtl_ring *dtlr = &__get_cpu_var(dtl_rings);
@@ -72,7 +86,7 @@ static void consume_dtle(struct dtl_entry *dtle, u64 index)
 	*wp = *dtle;
 	barrier();
 
-	
+	/* check for hypervisor ring buffer overflow, ignore this entry if so */
 	if (index + N_DISPATCH_LOG < vpa->dtl_idx)
 		return;
 
@@ -81,7 +95,7 @@ static void consume_dtle(struct dtl_entry *dtle, u64 index)
 		wp = dtlr->buf;
 	dtlr->write_ptr = wp;
 
-	
+	/* incrementing write_index makes the new entry visible */
 	smp_wmb();
 	++dtlr->write_index;
 }
@@ -94,11 +108,11 @@ static int dtl_start(struct dtl *dtl)
 	dtlr->buf_end = dtl->buf + dtl->buf_entries;
 	dtlr->write_index = 0;
 
-	
+	/* setting write_ptr enables logging into our buffer */
 	smp_wmb();
 	dtlr->write_ptr = dtl->buf;
 
-	
+	/* enable event logging */
 	dtlr->saved_dtl_mask = lppaca_of(dtl->cpu).dtl_enable_mask;
 	lppaca_of(dtl->cpu).dtl_enable_mask |= dtl_event_mask;
 
@@ -116,7 +130,7 @@ static void dtl_stop(struct dtl *dtl)
 
 	dtlr->buf = NULL;
 
-	
+	/* restore dtl_enable_mask */
 	lppaca_of(dtl->cpu).dtl_enable_mask = dtlr->saved_dtl_mask;
 
 	if (atomic_dec_and_test(&dtl_count))
@@ -128,13 +142,15 @@ static u64 dtl_current_index(struct dtl *dtl)
 	return per_cpu(dtl_rings, dtl->cpu).write_index;
 }
 
-#else 
+#else /* CONFIG_VIRT_CPU_ACCOUNTING */
 
 static int dtl_start(struct dtl *dtl)
 {
 	unsigned long addr;
 	int ret, hwcpu;
 
+	/* Register our dtl buffer with the hypervisor. The HV expects the
+	 * buffer size to be passed in the second word of the buffer */
 	((u32 *)dtl->buf)[1] = DISPATCH_LOG_BYTES;
 
 	hwcpu = get_hard_smp_processor_id(dtl->cpu);
@@ -146,12 +162,14 @@ static int dtl_start(struct dtl *dtl)
 		return -EIO;
 	}
 
-	
+	/* set our initial buffer indices */
 	lppaca_of(dtl->cpu).dtl_idx = 0;
 
+	/* ensure that our updates to the lppaca fields have occurred before
+	 * we actually enable the logging */
 	smp_wmb();
 
-	
+	/* enable event logging */
 	lppaca_of(dtl->cpu).dtl_enable_mask = dtl_event_mask;
 
 	return 0;
@@ -170,7 +188,7 @@ static u64 dtl_current_index(struct dtl *dtl)
 {
 	return lppaca_of(dtl->cpu).dtl_idx;
 }
-#endif 
+#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 
 static int dtl_enable(struct dtl *dtl)
 {
@@ -181,7 +199,7 @@ static int dtl_enable(struct dtl *dtl)
 	if (!dtl_cache)
 		return -ENOMEM;
 
-	
+	/* only allow one reader */
 	if (dtl->buf)
 		return -EBUSY;
 
@@ -196,7 +214,7 @@ static int dtl_enable(struct dtl *dtl)
 	spin_lock(&dtl->lock);
 	rc = -EBUSY;
 	if (!dtl->buf) {
-		
+		/* store the original allocation size for use during read */
 		dtl->buf_entries = n_entries;
 		dtl->buf = buf;
 		dtl->last_idx = 0;
@@ -221,6 +239,7 @@ static void dtl_disable(struct dtl *dtl)
 	spin_unlock(&dtl->lock);
 }
 
+/* file interface */
 
 static int dtl_file_open(struct inode *inode, struct file *filp)
 {
@@ -254,10 +273,10 @@ static ssize_t dtl_file_read(struct file *filp, char __user *buf, size_t len,
 
 	dtl = filp->private_data;
 
-	
+	/* requested number of entries to read */
 	n_req = len / sizeof(struct dtl_entry);
 
-	
+	/* actual number of entries read */
 	n_read = 0;
 
 	spin_lock(&dtl->lock);
@@ -281,7 +300,7 @@ static ssize_t dtl_file_read(struct file *filp, char __user *buf, size_t len,
 
 	i = last_idx % dtl->buf_entries;
 
-	
+	/* read the tail of the buffer if we've wrapped */
 	if (i + n_req > dtl->buf_entries) {
 		read_size = dtl->buf_entries - i;
 
@@ -296,7 +315,7 @@ static ssize_t dtl_file_read(struct file *filp, char __user *buf, size_t len,
 		buf += read_size * sizeof(struct dtl_entry);
 	}
 
-	
+	/* .. and now the head */
 	rc = copy_to_user(buf, &dtl->buf[i], n_req * sizeof(struct dtl_entry));
 	if (rc)
 		return -EFAULT;
@@ -336,7 +355,7 @@ static int dtl_init(void)
 	if (!firmware_has_feature(FW_FEATURE_SPLPAR))
 		return -ENODEV;
 
-	
+	/* set up common debugfs structure */
 
 	rc = -ENOMEM;
 	dtl_dir = debugfs_create_dir("dtl", powerpc_debugfs_root);
@@ -356,7 +375,7 @@ static int dtl_init(void)
 		goto err_remove_dir;
 	}
 
-	
+	/* set up the per-cpu log structures */
 	for_each_possible_cpu(i) {
 		struct dtl *dtl = &per_cpu(cpu_dtl, i);
 		spin_lock_init(&dtl->lock);

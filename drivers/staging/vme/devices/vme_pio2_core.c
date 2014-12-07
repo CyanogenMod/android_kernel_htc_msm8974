@@ -46,7 +46,7 @@ static int __devexit pio2_remove(struct vme_dev *);
 
 static int pio2_get_led(struct pio2_card *card)
 {
-	
+	/* Can't read hardware, state saved in structure */
 	return card->led;
 }
 
@@ -57,7 +57,7 @@ static int pio2_set_led(struct pio2_card *card, int state)
 
 	reg = card->irq_level;
 
-	
+	/* Register state inverse of led state */
 	if (!state)
 		reg |= PIO2_LED;
 
@@ -89,7 +89,7 @@ static void pio2_int(int level, int vector, void *ptr)
 	case 2:
 	case 3:
 	case 4:
-		
+		/* Channels 0 to 7 */
 		retval = vme_master_read(card->window, &reg, 1,
 			PIO2_REGS_INT_STAT[vec - 1]);
 		if (retval < 0) {
@@ -111,7 +111,7 @@ static void pio2_int(int level, int vector, void *ptr)
 	case 8:
 	case 9:
 	case 10:
-		
+		/* Counters are dealt with by their own handler */
 		dev_err(&card->vdev->dev,
 			"Counter interrupt\n");
 		break;
@@ -119,27 +119,31 @@ static void pio2_int(int level, int vector, void *ptr)
 }
 
 
+/*
+ * We return whether this has been successful - this is used in the probe to
+ * ensure we have a valid card.
+ */
 static int pio2_reset_card(struct pio2_card *card)
 {
 	int retval = 0;
 	u8 data = 0;
 
-	
+	/* Clear main register*/
 	retval = vme_master_write(card->window, &data, 1, PIO2_REGS_CTRL);
 	if (retval < 0)
 		return retval;
 
-	
+	/* Clear VME vector */
 	retval = vme_master_write(card->window, &data, 1, PIO2_REGS_VME_VECTOR);
 	if (retval < 0)
 		return retval;
 
-	
+	/* Reset GPIO */
 	retval = pio2_gpio_reset(card);
 	if (retval < 0)
 		return retval;
 
-	
+	/* Reset counters */
 	retval = pio2_cntr_reset(card);
 	if (retval < 0)
 		return retval;
@@ -172,7 +176,7 @@ static int __init pio2_init(void)
 		bus_num = PIO2_CARDS_MAX;
 	}
 
-	
+	/* Register the PIO2 driver */
 	retval = vme_register_driver(&pio2_driver, bus_num);
 	if (retval != 0)
 		goto err_reg;
@@ -251,6 +255,10 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		}
 	}
 
+	/*
+	 * Bottom 4 bits of VME interrupt vector used to determine source,
+	 * provided vector should only use upper 4 bits.
+	 */
 	if (card->irq_vector & ~PIO2_VME_VECTOR_MASK) {
 		dev_err(&card->vdev->dev,
 			"Invalid VME IRQ Vector, vector must not use lower 4 bits\n");
@@ -258,6 +266,14 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		goto err_vector;
 	}
 
+	/*
+	 * There is no way to determine the build variant or whether each bank
+	 * is input, output or both at run time. The inputs are also inverted
+	 * if configured as both.
+	 *
+	 * We pass in the board variant and use that to determine the
+	 * configuration of the banks.
+	 */
 	for (i = 1; i < PIO2_VARIANT_LENGTH; i++) {
 		switch (card->variant[i]) {
 		case '0':
@@ -281,7 +297,7 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		}
 	}
 
-	
+	/* Get a master window and position over regs */
 	card->window = vme_master_request(vdev, VME_A24, VME_SCT, VME_D16);
 	if (card->window == NULL) {
 		dev_err(&card->vdev->dev,
@@ -298,6 +314,12 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		goto err_set;
 	}
 
+	/*
+	 * There is also no obvious register which we can probe to determine
+	 * whether the provided base is valid. If we can read the "ID Register"
+	 * offset and the reset function doesn't error, assume we have a valid
+	 * location.
+	 */
 	retval = vme_master_read(card->window, &reg, 1, PIO2_REGS_ID);
 	if (retval < 0) {
 		dev_err(&card->vdev->dev, "Unable to read from device\n");
@@ -306,6 +328,11 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 
 	dev_dbg(&card->vdev->dev, "ID Register:%x\n", reg);
 
+	/*
+	 * Ensure all the I/O is cleared. We can't read back the states, so
+	 * this is the only method we have to ensure that the I/O is in a known
+	 * state.
+	 */
 	retval = pio2_reset_card(card);
 	if (retval) {
 		dev_err(&card->vdev->dev,
@@ -314,7 +341,7 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		goto err_reset;
 	}
 
-	
+	/* Configure VME Interrupts */
 	reg = card->irq_level;
 	if (pio2_get_led(card))
 		reg |= PIO2_LED;
@@ -324,13 +351,13 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 	if (retval < 0)
 		return retval;
 
-	
+	/* Set VME vector */
 	retval = vme_master_write(card->window, &card->irq_vector, 1,
 		PIO2_REGS_VME_VECTOR);
 	if (retval < 0)
 		return retval;
 
-	
+	/* Attach spurious interrupt handler. */
 	vec = card->irq_vector | PIO2_VME_VECTOR_SPUR;
 
 	retval = vme_irq_request(vdev, card->irq_level, vec,
@@ -342,7 +369,7 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		goto err_irq;
 	}
 
-	
+	/* Attach GPIO interrupt handlers. */
 	for (i = 0; i < 4; i++) {
 		vec = card->irq_vector | PIO2_VECTOR_BANK[i];
 
@@ -356,7 +383,7 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		}
 	}
 
-	
+	/* Attach counter interrupt handlers. */
 	for (i = 0; i < 6; i++) {
 		vec = card->irq_vector | PIO2_VECTOR_CNTR[i];
 
@@ -370,7 +397,7 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		}
 	}
 
-	
+	/* Register IO */
 	retval = pio2_gpio_init(card);
 	if (retval < 0) {
 		dev_err(&card->vdev->dev,
@@ -378,7 +405,7 @@ static int __devinit pio2_probe(struct vme_dev *vdev)
 		goto err_gpio;
 	}
 
-	
+	/* Set LED - This also sets interrupt level */
 	retval = pio2_set_led(card, 0);
 	if (retval < 0) {
 		dev_err(&card->vdev->dev, "Unable to set LED\n");
@@ -468,6 +495,7 @@ static void __exit pio2_exit(void)
 }
 
 
+/* These are required for each board */
 MODULE_PARM_DESC(bus, "Enumeration of VMEbus to which the board is connected");
 module_param_array(bus, int, &bus_num, S_IRUGO);
 
@@ -483,6 +511,7 @@ module_param_array(level, int, &level_num, S_IRUGO);
 MODULE_PARM_DESC(variant, "Last 4 characters of PIO2 board variant");
 module_param_array(variant, charp, &variant_num, S_IRUGO);
 
+/* This is for debugging */
 MODULE_PARM_DESC(loopback, "Enable loopback mode on all cards");
 module_param(loopback, bool, S_IRUGO);
 

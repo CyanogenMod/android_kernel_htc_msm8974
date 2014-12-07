@@ -17,6 +17,9 @@
 #include "mcdi.h"
 #include "spi.h"
 
+/*
+ * Falcon hardware control
+ */
 
 enum {
 	EFX_REV_FALCON_A0 = 0,
@@ -32,6 +35,7 @@ static inline int efx_nic_rev(struct efx_nic *efx)
 
 extern u32 efx_nic_fpga_ver(struct efx_nic *efx);
 
+/* NIC has two interlinked PCI functions for the same port. */
 static inline bool efx_nic_is_dual_func(struct efx_nic *efx)
 {
 	return efx_nic_rev(efx) < EFX_REV_FALCON_B0;
@@ -57,9 +61,20 @@ enum {
 #define FALCON_GMAC_LOOPBACKS			\
 	(1 << LOOPBACK_GMAC)
 
+/* Alignment of PCIe DMA boundaries (4KB) */
 #define EFX_PAGE_SIZE	4096
+/* Size and alignment of buffer table entries (same) */
 #define EFX_BUF_SIZE	EFX_PAGE_SIZE
 
+/**
+ * struct falcon_board_type - board operations and type information
+ * @id: Board type id, as found in NVRAM
+ * @init: Allocate resources and initialise peripheral hardware
+ * @init_phy: Do board-specific PHY initialisation
+ * @fini: Shut down hardware and free resources
+ * @set_id_led: Set state of identifying LED or revert to automatic function
+ * @monitor: Board-specific health check function
+ */
 struct falcon_board_type {
 	u8 id;
 	int (*init) (struct efx_nic *nic);
@@ -69,6 +84,16 @@ struct falcon_board_type {
 	int (*monitor) (struct efx_nic *nic);
 };
 
+/**
+ * struct falcon_board - board information
+ * @type: Type of board
+ * @major: Major rev. ('A', 'B' ...)
+ * @minor: Minor rev. (0, 1, ...)
+ * @i2c_adap: I2C adapter for on-board peripherals
+ * @i2c_data: Data for bit-banging algorithm
+ * @hwmon_client: I2C client for hardware monitor
+ * @ioexp_client: I2C client for power/port control
+ */
 struct falcon_board {
 	const struct falcon_board_type *type;
 	int major;
@@ -78,6 +103,20 @@ struct falcon_board {
 	struct i2c_client *hwmon_client, *ioexp_client;
 };
 
+/**
+ * struct falcon_nic_data - Falcon NIC state
+ * @pci_dev2: Secondary function of Falcon A
+ * @board: Board state and functions
+ * @stats_disable_count: Nest count for disabling statistics fetches
+ * @stats_pending: Is there a pending DMA of MAC statistics.
+ * @stats_timer: A timer for regularly fetching MAC statistics.
+ * @stats_dma_done: Pointer to the flag which indicates DMA completion.
+ * @spi_flash: SPI flash device
+ * @spi_eeprom: SPI EEPROM device
+ * @spi_lock: SPI bus lock
+ * @mdio_lock: MDIO bus lock
+ * @xmac_poll_required: XMAC link state needs polling
+ */
 struct falcon_nic_data {
 	struct pci_dev *pci_dev2;
 	struct falcon_board board;
@@ -98,6 +137,12 @@ static inline struct falcon_board *falcon_board(struct efx_nic *efx)
 	return &data->board;
 }
 
+/**
+ * struct siena_nic_data - Siena NIC state
+ * @mcdi: Management-Controller-to-Driver Interface
+ * @wol_filter_id: Wake-on-LAN packet filter id
+ * @hwmon: Hardware monitor state
+ */
 struct siena_nic_data {
 	struct efx_mcdi_iface mcdi;
 	int wol_filter_id;
@@ -116,11 +161,31 @@ static inline struct efx_mcdi_mon *efx_mcdi_mon(struct efx_nic *efx)
 }
 #endif
 
+/*
+ * On the SFC9000 family each port is associated with 1 PCI physical
+ * function (PF) handled by sfc and a configurable number of virtual
+ * functions (VFs) that may be handled by some other driver, often in
+ * a VM guest.  The queue pointer registers are mapped in both PF and
+ * VF BARs such that an 8K region provides access to a single RX, TX
+ * and event queue (collectively a Virtual Interface, VI or VNIC).
+ *
+ * The PF has access to all 1024 VIs while VFs are mapped to VIs
+ * according to VI_BASE and VI_SCALE: VF i has access to VIs numbered
+ * in range [VI_BASE + i << VI_SCALE, VI_BASE + i + 1 << VI_SCALE).
+ * The number of VIs and the VI_SCALE value are configurable but must
+ * be established at boot time by firmware.
+ */
 
+/* Maximum VI_SCALE parameter supported by Siena */
 #define EFX_VI_SCALE_MAX 6
+/* Base VI to use for SR-IOV. Must be aligned to (1 << EFX_VI_SCALE_MAX),
+ * so this is the smallest allowed value. */
 #define EFX_VI_BASE 128U
+/* Maximum number of VFs allowed */
 #define EFX_VF_COUNT_MAX 127
+/* Limit EVQs on VFs to be only 8k to reduce buffer table reservation */
 #define EFX_MAX_VF_EVQ_SIZE 8192UL
+/* The number of buffer table entries reserved for each VI on a VF */
 #define EFX_VF_BUFTBL_PER_VI					\
 	((EFX_MAX_VF_EVQ_SIZE + 2 * EFX_MAX_DMAQ_SIZE) *	\
 	 sizeof(efx_qword_t) / EFX_BUF_SIZE)
@@ -189,15 +254,23 @@ extern const struct efx_nic_type falcon_a1_nic_type;
 extern const struct efx_nic_type falcon_b0_nic_type;
 extern const struct efx_nic_type siena_a0_nic_type;
 
+/**************************************************************************
+ *
+ * Externs
+ *
+ **************************************************************************
+ */
 
 extern int falcon_probe_board(struct efx_nic *efx, u16 revision_info);
 
+/* TX data path */
 extern int efx_nic_probe_tx(struct efx_tx_queue *tx_queue);
 extern void efx_nic_init_tx(struct efx_tx_queue *tx_queue);
 extern void efx_nic_fini_tx(struct efx_tx_queue *tx_queue);
 extern void efx_nic_remove_tx(struct efx_tx_queue *tx_queue);
 extern void efx_nic_push_buffers(struct efx_tx_queue *tx_queue);
 
+/* RX data path */
 extern int efx_nic_probe_rx(struct efx_rx_queue *rx_queue);
 extern void efx_nic_init_rx(struct efx_rx_queue *rx_queue);
 extern void efx_nic_fini_rx(struct efx_rx_queue *rx_queue);
@@ -205,6 +278,7 @@ extern void efx_nic_remove_rx(struct efx_rx_queue *rx_queue);
 extern void efx_nic_notify_rx_desc(struct efx_rx_queue *rx_queue);
 extern void efx_nic_generate_fill_event(struct efx_rx_queue *rx_queue);
 
+/* Event data path */
 extern int efx_nic_probe_eventq(struct efx_channel *channel);
 extern void efx_nic_init_eventq(struct efx_channel *channel);
 extern void efx_nic_fini_eventq(struct efx_channel *channel);
@@ -213,12 +287,14 @@ extern int efx_nic_process_eventq(struct efx_channel *channel, int rx_quota);
 extern void efx_nic_eventq_read_ack(struct efx_channel *channel);
 extern bool efx_nic_event_present(struct efx_channel *channel);
 
+/* MAC/PHY */
 extern void falcon_drain_tx_fifo(struct efx_nic *efx);
 extern void falcon_reconfigure_mac_wrapper(struct efx_nic *efx);
 extern bool falcon_xmac_check_fault(struct efx_nic *efx);
 extern int falcon_reconfigure_xmac(struct efx_nic *efx);
 extern void falcon_update_stats_xmac(struct efx_nic *efx);
 
+/* Interrupts and test events */
 extern int efx_nic_init_interrupt(struct efx_nic *efx);
 extern void efx_nic_enable_interrupts(struct efx_nic *efx);
 extern void efx_nic_event_test_start(struct efx_channel *channel);
@@ -238,6 +314,7 @@ static inline int efx_nic_irq_test_irq_cpu(struct efx_nic *efx)
 	return ACCESS_ONCE(efx->last_irq_cpu);
 }
 
+/* Global Resources */
 extern int efx_nic_flush_queues(struct efx_nic *efx);
 extern void falcon_start_nic_stats(struct efx_nic *efx);
 extern void falcon_stop_nic_stats(struct efx_nic *efx);
@@ -252,6 +329,7 @@ int efx_nic_alloc_buffer(struct efx_nic *efx, struct efx_buffer *buffer,
 			 unsigned int len);
 void efx_nic_free_buffer(struct efx_nic *efx, struct efx_buffer *buffer);
 
+/* Tests */
 struct efx_nic_register_test {
 	unsigned address;
 	efx_oword_t mask;
@@ -263,10 +341,17 @@ extern int efx_nic_test_registers(struct efx_nic *efx,
 extern size_t efx_nic_get_regs_len(struct efx_nic *efx);
 extern void efx_nic_get_regs(struct efx_nic *efx, void *buf);
 
+/**************************************************************************
+ *
+ * Falcon MAC stats
+ *
+ **************************************************************************
+ */
 
 #define FALCON_STAT_OFFSET(falcon_stat) EFX_VAL(falcon_stat, offset)
 #define FALCON_STAT_WIDTH(falcon_stat) EFX_VAL(falcon_stat, WIDTH)
 
+/* Retrieve statistic from statistics block */
 #define FALCON_STAT(efx, falcon_stat, efx_stat) do {		\
 	if (FALCON_STAT_WIDTH(falcon_stat) == 16)		\
 		(efx)->mac_stats.efx_stat += le16_to_cpu(	\
@@ -295,4 +380,4 @@ extern void efx_generate_event(struct efx_nic *efx, unsigned int evq,
 
 extern void falcon_poll_xmac(struct efx_nic *efx);
 
-#endif 
+#endif /* EFX_NIC_H */

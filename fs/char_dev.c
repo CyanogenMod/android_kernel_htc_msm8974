@@ -24,17 +24,24 @@
 
 #include "internal.h"
 
+/*
+ * capabilities for /dev/mem, /dev/kmem and similar directly mappable character
+ * devices
+ * - permits shared-mmap for read, write and/or exec
+ * - does not permit private mmap in NOMMU mode (can't do COW)
+ * - no readahead or I/O queue unplugging required
+ */
 struct backing_dev_info directly_mappable_cdev_bdi = {
 	.name = "char",
 	.capabilities	= (
 #ifdef CONFIG_MMU
-		
+		/* permit private copies of the data to be taken */
 		BDI_CAP_MAP_COPY |
 #endif
-		
+		/* permit direct mmap, for read, write or exec */
 		BDI_CAP_MAP_DIRECT |
 		BDI_CAP_READ_MAP | BDI_CAP_WRITE_MAP | BDI_CAP_EXEC_MAP |
-		
+		/* no writeback happens */
 		BDI_CAP_NO_ACCT_AND_WRITEBACK),
 };
 
@@ -48,9 +55,10 @@ static struct char_device_struct {
 	unsigned int baseminor;
 	int minorct;
 	char name[64];
-	struct cdev *cdev;		
+	struct cdev *cdev;		/* will die */
 } *chrdevs[CHRDEV_MAJOR_HASH_SIZE];
 
+/* index in the above */
 static inline int major_to_index(unsigned major)
 {
 	return major % CHRDEV_MAJOR_HASH_SIZE;
@@ -70,8 +78,19 @@ void chrdev_show(struct seq_file *f, off_t offset)
 	}
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
+/*
+ * Register a single major with a specified minor range.
+ *
+ * If major == 0 this functions will dynamically allocate a major and return
+ * its number.
+ *
+ * If major > 0 this function will attempt to reserve the passed range of
+ * minors and will return zero on success.
+ *
+ * Returns a -ve errno on failure.
+ */
 static struct char_device_struct *
 __register_chrdev_region(unsigned int major, unsigned int baseminor,
 			   int minorct, const char *name)
@@ -86,7 +105,7 @@ __register_chrdev_region(unsigned int major, unsigned int baseminor,
 
 	mutex_lock(&chrdevs_lock);
 
-	
+	/* temporary */
 	if (major == 0) {
 		for (i = ARRAY_SIZE(chrdevs)-1; i > 0; i--) {
 			if (chrdevs[i] == NULL)
@@ -115,20 +134,20 @@ __register_chrdev_region(unsigned int major, unsigned int baseminor,
 		      ((*cp)->baseminor + (*cp)->minorct > baseminor))))
 			break;
 
-	
+	/* Check for overlapping minor ranges.  */
 	if (*cp && (*cp)->major == major) {
 		int old_min = (*cp)->baseminor;
 		int old_max = (*cp)->baseminor + (*cp)->minorct - 1;
 		int new_min = baseminor;
 		int new_max = baseminor + minorct - 1;
 
-		
+		/* New driver overlaps from the left.  */
 		if (new_max >= old_min && new_max <= old_max) {
 			ret = -EBUSY;
 			goto out;
 		}
 
-		
+		/* New driver overlaps from the right.  */
 		if (new_min <= old_max && new_min >= old_min) {
 			ret = -EBUSY;
 			goto out;
@@ -165,6 +184,15 @@ __unregister_chrdev_region(unsigned major, unsigned baseminor, int minorct)
 	return cd;
 }
 
+/**
+ * register_chrdev_region() - register a range of device numbers
+ * @from: the first in the desired range of device numbers; must include
+ *        the major number.
+ * @count: the number of consecutive device numbers required
+ * @name: the name of the device or driver.
+ *
+ * Return value is zero on success, a negative error code on failure.
+ */
 int register_chrdev_region(dev_t from, unsigned count, const char *name)
 {
 	struct char_device_struct *cd;
@@ -190,6 +218,17 @@ fail:
 	return PTR_ERR(cd);
 }
 
+/**
+ * alloc_chrdev_region() - register a range of char device numbers
+ * @dev: output parameter for first assigned number
+ * @baseminor: first of the requested range of minor numbers
+ * @count: the number of minor numbers required
+ * @name: the name of the associated device or driver
+ *
+ * Allocates a range of char device numbers.  The major number will be
+ * chosen dynamically, and returned (along with the first minor number)
+ * in @dev.  Returns zero or a negative error code.
+ */
 int alloc_chrdev_region(dev_t *dev, unsigned baseminor, unsigned count,
 			const char *name)
 {
@@ -201,6 +240,27 @@ int alloc_chrdev_region(dev_t *dev, unsigned baseminor, unsigned count,
 	return 0;
 }
 
+/**
+ * __register_chrdev() - create and register a cdev occupying a range of minors
+ * @major: major device number or 0 for dynamic allocation
+ * @baseminor: first of the requested range of minor numbers
+ * @count: the number of minor numbers required
+ * @name: name of this range of devices
+ * @fops: file operations associated with this devices
+ *
+ * If @major == 0 this functions will dynamically allocate a major and return
+ * its number.
+ *
+ * If @major > 0 this function will attempt to reserve a device with the given
+ * major number and will return zero on success.
+ *
+ * Returns a -ve errno on failure.
+ *
+ * The name of this device has nothing to do with the name of the device in
+ * /dev. It only helps to keep track of the different owners of devices. If
+ * your module name has only one type of devices it's ok to use e.g. the name
+ * of the module here.
+ */
 int __register_chrdev(unsigned int major, unsigned int baseminor,
 		      unsigned int count, const char *name,
 		      const struct file_operations *fops)
@@ -235,6 +295,15 @@ out2:
 	return err;
 }
 
+/**
+ * unregister_chrdev_region() - return a range of device numbers
+ * @from: the first in the range of numbers to unregister
+ * @count: the number of device numbers to unregister
+ *
+ * This function will unregister a range of @count device numbers,
+ * starting with @from.  The caller should normally be the one who
+ * allocated those numbers in the first place...
+ */
 void unregister_chrdev_region(dev_t from, unsigned count)
 {
 	dev_t to = from + count;
@@ -248,6 +317,17 @@ void unregister_chrdev_region(dev_t from, unsigned count)
 	}
 }
 
+/**
+ * __unregister_chrdev - unregister and destroy a cdev
+ * @major: major device number
+ * @baseminor: first of the range of minor numbers
+ * @count: the number of minor numbers this cdev is occupying
+ * @name: name of this range of devices
+ *
+ * Unregister and destroy the cdev occupying the region described by
+ * @major, @baseminor and @count.  This function undoes what
+ * __register_chrdev() did.
+ */
 void __unregister_chrdev(unsigned int major, unsigned int baseminor,
 			 unsigned int count, const char *name)
 {
@@ -283,6 +363,9 @@ void cdev_put(struct cdev *p)
 	}
 }
 
+/*
+ * Called every time a character special file is opened
+ */
 static int chrdev_open(struct inode *inode, struct file *filp)
 {
 	struct cdev *p;
@@ -300,6 +383,8 @@ static int chrdev_open(struct inode *inode, struct file *filp)
 			return -ENXIO;
 		new = container_of(kobj, struct cdev, kobj);
 		spin_lock(&cdev_lock);
+		/* Check i_cdev again in case somebody beat us to it while
+		   we dropped the lock. */
 		p = inode->i_cdev;
 		if (!p) {
 			inode->i_cdev = p = new;
@@ -352,6 +437,11 @@ static void cdev_purge(struct cdev *cdev)
 	spin_unlock(&cdev_lock);
 }
 
+/*
+ * Dummy default file-operations: the only thing this does
+ * is contain the open that then fills in the correct operations
+ * depending on the special file...
+ */
 const struct file_operations def_chr_fops = {
 	.open = chrdev_open,
 	.llseek = noop_llseek,
@@ -369,6 +459,16 @@ static int exact_lock(dev_t dev, void *data)
 	return cdev_get(p) ? 0 : -1;
 }
 
+/**
+ * cdev_add() - add a char device to the system
+ * @p: the cdev structure for the device
+ * @dev: the first device number for which this device is responsible
+ * @count: the number of consecutive minor numbers corresponding to this
+ *         device
+ *
+ * cdev_add() adds the device represented by @p to the system, making it
+ * live immediately.  A negative error code is returned on failure.
+ */
 int cdev_add(struct cdev *p, dev_t dev, unsigned count)
 {
 	p->dev = dev;
@@ -381,6 +481,13 @@ static void cdev_unmap(dev_t dev, unsigned count)
 	kobj_unmap(cdev_map, dev, count);
 }
 
+/**
+ * cdev_del() - remove a cdev from the system
+ * @p: the cdev structure to be removed
+ *
+ * cdev_del() removes @p from the system, possibly freeing the structure
+ * itself.
+ */
 void cdev_del(struct cdev *p)
 {
 	cdev_unmap(p->dev, p->count);
@@ -409,6 +516,11 @@ static struct kobj_type ktype_cdev_dynamic = {
 	.release	= cdev_dynamic_release,
 };
 
+/**
+ * cdev_alloc() - allocate a cdev structure
+ *
+ * Allocates and returns a cdev structure, or NULL on failure.
+ */
 struct cdev *cdev_alloc(void)
 {
 	struct cdev *p = kzalloc(sizeof(struct cdev), GFP_KERNEL);
@@ -419,6 +531,14 @@ struct cdev *cdev_alloc(void)
 	return p;
 }
 
+/**
+ * cdev_init() - initialize a cdev structure
+ * @cdev: the structure to initialize
+ * @fops: the file_operations for this device
+ *
+ * Initializes @cdev, remembering @fops, making it ready to add to the
+ * system with cdev_add().
+ */
 void cdev_init(struct cdev *cdev, const struct file_operations *fops)
 {
 	memset(cdev, 0, sizeof *cdev);
@@ -430,7 +550,7 @@ void cdev_init(struct cdev *cdev, const struct file_operations *fops)
 static struct kobject *base_probe(dev_t dev, int *part, void *data)
 {
 	if (request_module("char-major-%d-%d", MAJOR(dev), MINOR(dev)) > 0)
-		
+		/* Make old-style 2.4 aliases work */
 		request_module("char-major-%d", MAJOR(dev));
 	return NULL;
 }
@@ -442,6 +562,7 @@ void __init chrdev_init(void)
 }
 
 
+/* Let modules do char dev stuff */
 EXPORT_SYMBOL(register_chrdev_region);
 EXPORT_SYMBOL(unregister_chrdev_region);
 EXPORT_SYMBOL(alloc_chrdev_region);

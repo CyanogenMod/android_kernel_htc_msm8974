@@ -98,13 +98,19 @@ struct rdma_bind_list {
 	unsigned short		port;
 };
 
+/*
+ * Device removal can occur at anytime, so we need extra handling to
+ * serialize notifying the user of device removal with other callbacks.
+ * We do this by disabling removal notification while a callback is in process,
+ * and reporting it after the callback completes.
+ */
 struct rdma_id_private {
 	struct rdma_cm_id	id;
 
 	struct rdma_bind_list	*bind_list;
 	struct hlist_node	node;
-	struct list_head	list; 
-	struct list_head	listen_list; 
+	struct list_head	list; /* listen_any_list or cma_device.list */
+	struct list_head	listen_list; /* per device listens */
 	struct cma_device	*cma_dev;
 	struct list_head	mc_list;
 
@@ -176,7 +182,7 @@ union cma_ip_addr {
 
 struct cma_hdr {
 	u8 cma_version;
-	u8 ip_version;	
+	u8 ip_version;	/* IP version: 7:4 */
 	__be16 port;
 	union cma_ip_addr src_addr;
 	union cma_ip_addr dst_addr;
@@ -184,8 +190,8 @@ struct cma_hdr {
 
 struct sdp_hh {
 	u8 bsdh[16];
-	u8 sdp_version; 
-	u8 ip_version;	
+	u8 sdp_version; /* Major version: 7:4 */
+	u8 ip_version;	/* IP version: 7:4 */
 	u8 sdp_specific1[10];
 	__be16 port;
 	__be16 sdp_specific2;
@@ -530,7 +536,7 @@ static int cma_modify_qp_rtr(struct rdma_id_private *id_priv,
 		goto out;
 	}
 
-	
+	/* Need to update QP attributes from default values. */
 	qp_attr.qp_state = IB_QPS_INIT;
 	ret = rdma_init_qp_attr(&id_priv->id, &qp_attr, &qp_attr_mask);
 	if (ret)
@@ -817,13 +823,17 @@ static void cma_cancel_listens(struct rdma_id_private *id_priv)
 {
 	struct rdma_id_private *dev_id_priv;
 
+	/*
+	 * Remove from listen_any_list to prevent added devices from spawning
+	 * additional listen requests.
+	 */
 	mutex_lock(&lock);
 	list_del(&id_priv->list);
 
 	while (!list_empty(&id_priv->listen_list)) {
 		dev_id_priv = list_entry(id_priv->listen_list.next,
 					 struct rdma_id_private, listen_list);
-		
+		/* sync with device removal to avoid duplicate destruction */
 		list_del_init(&dev_id_priv->list);
 		list_del(&dev_id_priv->listen_list);
 		mutex_unlock(&lock);
@@ -901,6 +911,10 @@ void rdma_destroy_id(struct rdma_cm_id *id)
 	state = cma_exch(id_priv, RDMA_CM_DESTROYING);
 	cma_cancel_operation(id_priv, state);
 
+	/*
+	 * Wait for any active callback to finish.  New callbacks will find
+	 * the id_priv state set to destroying and abort.
+	 */
 	mutex_lock(&id_priv->handler_mutex);
 	mutex_unlock(&id_priv->handler_mutex);
 
@@ -1018,7 +1032,7 @@ static int cma_ib_handler(struct ib_cm_id *cm_id, struct ib_cm_event *ib_event)
 		event.event = RDMA_CM_EVENT_ESTABLISHED;
 		break;
 	case IB_CM_DREQ_ERROR:
-		event.status = -ETIMEDOUT; 
+		event.status = -ETIMEDOUT; /* fall through */
 	case IB_CM_DREQ_RECEIVED:
 	case IB_CM_DREP_RECEIVED:
 		if (!cma_comp_exch(id_priv, RDMA_CM_CONNECT,
@@ -1030,7 +1044,7 @@ static int cma_ib_handler(struct ib_cm_id *cm_id, struct ib_cm_event *ib_event)
 		event.event = RDMA_CM_EVENT_TIMEWAIT_EXIT;
 		break;
 	case IB_CM_MRA_RECEIVED:
-		
+		/* ignore event */
 		goto out;
 	case IB_CM_REJ_RECEIVED:
 		cma_modify_qp_err(id_priv);
@@ -1047,7 +1061,7 @@ static int cma_ib_handler(struct ib_cm_id *cm_id, struct ib_cm_event *ib_event)
 
 	ret = id_priv->id.event_handler(&id_priv->id, &event);
 	if (ret) {
-		
+		/* Destroy the CM ID by returning a non-zero value. */
 		id_priv->cm_id.ib = NULL;
 		cma_exch(id_priv, RDMA_CM_DESTROYING);
 		mutex_unlock(&id_priv->handler_mutex);
@@ -1216,9 +1230,17 @@ static int cma_req_handler(struct ib_cm_id *cm_id, struct ib_cm_event *ib_event)
 	cm_id->context = conn_id;
 	cm_id->cm_handler = cma_ib_handler;
 
+	/*
+	 * Protect against the user destroying conn_id from another thread
+	 * until we're done accessing it.
+	 */
 	atomic_inc(&conn_id->refcount);
 	ret = conn_id->id.event_handler(&conn_id->id, &event);
 	if (!ret) {
+		/*
+		 * Acquire mutex to prevent user executing rdma_destroy_id()
+		 * while we're accessing the cm_id.
+		 */
 		mutex_lock(&lock);
 		if (cma_comp(conn_id, RDMA_CM_CONNECT) && (conn_id->id.qp_type != IB_QPT_UD))
 			ib_send_cm_mra(cm_id, CMA_CM_MRA_SETTING, NULL, 0);
@@ -1229,7 +1251,7 @@ static int cma_req_handler(struct ib_cm_id *cm_id, struct ib_cm_event *ib_event)
 	}
 	cma_deref_id(conn_id);
 
-	
+	/* Destroy the CM ID by returning a non-zero value. */
 	conn_id->cm_id.ib = NULL;
 
 release_conn_id:
@@ -1349,7 +1371,7 @@ static int cma_iw_handler(struct iw_cm_id *iw_id, struct iw_cm_event *iw_event)
 	event.param.conn.private_data_len = iw_event->private_data_len;
 	ret = id_priv->id.event_handler(&id_priv->id, &event);
 	if (ret) {
-		
+		/* Destroy the CM ID by returning a non-zero value. */
 		id_priv->cm_id.iw = NULL;
 		cma_exch(id_priv, RDMA_CM_DESTROYING);
 		mutex_unlock(&id_priv->handler_mutex);
@@ -1376,7 +1398,7 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 	if (cma_disable_callback(listen_id, RDMA_CM_LISTEN))
 		return -ECONNABORTED;
 
-	
+	/* Create a new RDMA id for the new IW CM ID */
 	new_cm_id = rdma_create_id(listen_id->id.event_handler,
 				   listen_id->id.context,
 				   RDMA_PS_TCP, IB_QPT_RC);
@@ -1432,10 +1454,14 @@ static int iw_conn_req_handler(struct iw_cm_id *cm_id,
 	event.param.conn.initiator_depth = iw_event->ird;
 	event.param.conn.responder_resources = iw_event->ord;
 
+	/*
+	 * Protect against the user destroying conn_id from another thread
+	 * until we're done accessing it.
+	 */
 	atomic_inc(&conn_id->refcount);
 	ret = conn_id->id.event_handler(&conn_id->id, &event);
 	if (ret) {
-		
+		/* User wants to destroy the CM ID */
 		conn_id->cm_id.iw = NULL;
 		cma_exch(conn_id, RDMA_CM_DESTROYING);
 		mutex_unlock(&conn_id->handler_mutex);
@@ -2123,6 +2149,10 @@ retry:
 	if (last_used_port != rover &&
 	    !idr_find(ps, (unsigned short) rover)) {
 		int ret = cma_alloc_port(ps, id_priv, rover);
+		/*
+		 * Remember previously used port number in order to avoid
+		 * re-using same port immediately after it is closed.
+		 */
 		if (!ret)
 			last_used_port = rover;
 		if (ret != -EADDRNOTAVAIL)
@@ -2137,6 +2167,12 @@ retry:
 	return -EADDRNOTAVAIL;
 }
 
+/*
+ * Check that the requested port is available.  This is called when trying to
+ * bind to a specific port, or when trying to listen on a bound port.  In
+ * the latter case, the provided id_priv may already be on the bind_list, but
+ * we still need to check that it's okay to start listening.
+ */
 static int cma_check_port(struct rdma_bind_list *bind_list,
 			  struct rdma_id_private *id_priv, uint8_t reuseaddr)
 {
@@ -2455,7 +2491,7 @@ static int cma_sidr_rep_handler(struct ib_cm_id *cm_id,
 
 	ret = id_priv->id.event_handler(&id_priv->id, &event);
 	if (ret) {
-		
+		/* Destroy the CM ID by returning a non-zero value. */
 		id_priv->cm_id.ib = NULL;
 		cma_exch(id_priv, RDMA_CM_DESTROYING);
 		mutex_unlock(&id_priv->handler_mutex);
@@ -2859,7 +2895,7 @@ int rdma_disconnect(struct rdma_cm_id *id)
 		ret = cma_modify_qp_err(id_priv);
 		if (ret)
 			goto out;
-		
+		/* Initiate or respond to a disconnect. */
 		if (ib_send_cm_dreq(id_priv->cm_id.ib, NULL, 0))
 			ib_send_cm_drep(id_priv->cm_id.ib, NULL, 0);
 		break;
@@ -2931,17 +2967,17 @@ static void cma_set_mgid(struct rdma_id_private *id_priv,
 	} else if ((addr->sa_family == AF_INET6) &&
 		   ((be32_to_cpu(sin6->sin6_addr.s6_addr32[0]) & 0xFFF0FFFF) ==
 								 0xFF10A01B)) {
-		
+		/* IPv6 address is an SA assigned MGID. */
 		memcpy(mgid, &sin6->sin6_addr, sizeof *mgid);
 	} else if ((addr->sa_family == AF_INET6)) {
 		ipv6_ib_mc_map(&sin6->sin6_addr, dev_addr->broadcast, mc_map);
 		if (id_priv->id.ps == RDMA_PS_UDP)
-			mc_map[7] = 0x01;	
+			mc_map[7] = 0x01;	/* Use RDMA CM signature */
 		*mgid = *(union ib_gid *) (mc_map + 4);
 	} else {
 		ip_ib_mc_map(sin->sin_addr.s_addr, dev_addr->broadcast, mc_map);
 		if (id_priv->id.ps == RDMA_PS_UDP)
-			mc_map[7] = 0x01;	
+			mc_map[7] = 0x01;	/* Use RDMA CM signature */
 		*mgid = *(union ib_gid *) (mc_map + 4);
 	}
 }
@@ -3260,7 +3296,7 @@ static int cma_remove_id_dev(struct rdma_id_private *id_priv)
 	enum rdma_cm_state state;
 	int ret = 0;
 
-	
+	/* Record that we want to remove the device */
 	state = cma_exch(id_priv, RDMA_CM_DEVICE_REMOVAL);
 	if (state == RDMA_CM_DESTROYING)
 		return 0;
@@ -3268,7 +3304,7 @@ static int cma_remove_id_dev(struct rdma_id_private *id_priv)
 	cma_cancel_operation(id_priv, state);
 	mutex_lock(&id_priv->handler_mutex);
 
-	
+	/* Check for destruction from another callback. */
 	if (!cma_comp(id_priv, RDMA_CM_DEVICE_REMOVAL))
 		goto out;
 
@@ -3333,6 +3369,10 @@ static int cma_get_id_stats(struct sk_buff *skb, struct netlink_callback *cb)
 	struct cma_device *cma_dev;
 	int i_dev = 0, i_id = 0;
 
+	/*
+	 * We export all of the IDs as a sequence of messages.  Each
+	 * ID gets its own netlink message.
+	 */
 	mutex_lock(&lock);
 
 	list_for_each_entry(cma_dev, &dev_list, list) {

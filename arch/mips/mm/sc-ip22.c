@@ -16,6 +16,7 @@
 #include <asm/sgi/ip22.h>
 #include <asm/sgi/mc.h>
 
+/* Secondary cache size in bytes, if present.  */
 static unsigned long scache_size;
 
 #undef DEBUG_CACHE
@@ -63,10 +64,10 @@ static void indy_sc_wback_invalidate(unsigned long addr, unsigned long size)
 	printk("indy_sc_wback_invalidate[%08lx,%08lx]", addr, size);
 #endif
 
-	
+	/* Catch bad driver code */
 	BUG_ON(size == 0);
 
-	
+	/* Which lines to flush?  */
 	first_line = SC_INDEX(addr);
 	last_line = SC_INDEX(addr + size - 1);
 
@@ -86,7 +87,7 @@ static void indy_sc_enable(void)
 {
 	unsigned long addr, tmp1, tmp2;
 
-	
+	/* This is really cool... */
 #ifdef DEBUG_CACHE
 	printk("Enabling R4600 SCACHE\n");
 #endif
@@ -157,6 +158,8 @@ static inline int __init indy_sc_probe(void)
 	return 1;
 }
 
+/* XXX Check with wje if the Indy caches can differenciate between
+   writeback + invalidate and just invalidate.  */
 static struct bcache_ops indy_sc_ops = {
 	.bc_enable = indy_sc_enable,
 	.bc_disable = indy_sc_disable,

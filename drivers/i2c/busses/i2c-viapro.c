@@ -19,6 +19,28 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+   Supports the following VIA south bridges:
+
+   Chip name          PCI ID  REV     I2C block
+   VT82C596A          0x3050             no
+   VT82C596B          0x3051             no
+   VT82C686A          0x3057  0x30       no
+   VT82C686B          0x3057  0x40       yes
+   VT8231             0x8235             no?
+   VT8233             0x3074             yes
+   VT8233A            0x3147             yes?
+   VT8235             0x3177             yes
+   VT8237R            0x3227             yes
+   VT8237A            0x3337             yes
+   VT8237S            0x3372             yes
+   VT8251             0x3287             yes
+   CX700              0x8324             yes
+   VX800/VX820        0x8353             yes
+   VX855/VX875        0x8409             yes
+
+   Note: we assume there can only be one device, with one SMBus interface.
+*/
 
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -37,6 +59,7 @@ static struct pci_dev *vt596_pdev;
 #define SMBBA2		0x80
 #define SMBBA3		0xD0
 
+/* SMBus address offsets */
 static unsigned short vt596_smba;
 #define SMBHSTSTS	(vt596_smba + 0)
 #define SMBHSTCNT	(vt596_smba + 2)
@@ -46,12 +69,17 @@ static unsigned short vt596_smba;
 #define SMBHSTDAT1	(vt596_smba + 6)
 #define SMBBLKDAT	(vt596_smba + 7)
 
+/* PCI Address Constants */
 
+/* SMBus data in configuration space can be found in two places,
+   We try to select the better one */
 
 static unsigned short SMBHSTCFG = 0xD2;
 
+/* Other settings */
 #define MAX_TIMEOUT	500
 
+/* VT82C596 constants */
 #define VT596_QUICK		0x00
 #define VT596_BYTE		0x04
 #define VT596_BYTE_DATA		0x08
@@ -61,10 +89,14 @@ static unsigned short SMBHSTCFG = 0xD2;
 #define VT596_I2C_BLOCK_DATA	0x34
 
 
+/* If force is set to anything different from 0, we forcibly enable the
+   VT596. DANGEROUS! */
 static bool force;
 module_param(force, bool, 0);
 MODULE_PARM_DESC(force, "Forcibly enable the SMBus. DANGEROUS!");
 
+/* If force_addr is set to anything different from 0, we forcibly enable
+   the VT596 at the given address. VERY DANGEROUS! */
 static u16 force_addr;
 module_param(force_addr, ushort, 0);
 MODULE_PARM_DESC(force_addr,
@@ -104,6 +136,7 @@ static void vt596_dump_regs(const char *msg, u8 size)
 static inline void vt596_dump_regs(const char *msg, u8 size) { }
 #endif
 
+/* Return -1 on error, 0 on success */
 static int vt596_transaction(u8 size)
 {
 	int temp;
@@ -112,7 +145,7 @@ static int vt596_transaction(u8 size)
 
 	vt596_dump_regs("Transaction (pre)", size);
 
-	
+	/* Make sure the SMBus host is ready to start transmitting */
 	if ((temp = inb_p(SMBHSTSTS)) & 0x1F) {
 		dev_dbg(&vt596_adapter.dev, "SMBus busy (0x%02x). "
 			"Resetting...\n", temp);
@@ -125,16 +158,16 @@ static int vt596_transaction(u8 size)
 		}
 	}
 
-	
+	/* Start the transaction by setting bit 6 */
 	outb_p(0x40 | size, SMBHSTCNT);
 
-	
+	/* We will always wait for a fraction of a second */
 	do {
 		msleep(1);
 		temp = inb_p(SMBHSTSTS);
 	} while ((temp & 0x01) && (++timeout < MAX_TIMEOUT));
 
-	
+	/* If the SMBus is still busy, we give up */
 	if (timeout == MAX_TIMEOUT) {
 		result = -ETIMEDOUT;
 		dev_err(&vt596_adapter.dev, "SMBus timeout!\n");
@@ -156,7 +189,7 @@ static int vt596_transaction(u8 size)
 		dev_dbg(&vt596_adapter.dev, "No response\n");
 	}
 
-	
+	/* Resetting status register */
 	if (temp & 0x1F)
 		outb_p(temp, SMBHSTSTS);
 
@@ -165,6 +198,7 @@ static int vt596_transaction(u8 size)
 	return result;
 }
 
+/* Return negative errno on error, 0 on success */
 static s32 vt596_access(struct i2c_adapter *adap, u16 addr,
 		unsigned short flags, char read_write, u8 command,
 		int size, union i2c_smbus_data *data)
@@ -206,7 +240,7 @@ static s32 vt596_access(struct i2c_adapter *adap, u16 addr,
 			goto exit_unsupported;
 		if (read_write == I2C_SMBUS_READ)
 			outb_p(data->block[0], SMBHSTDAT0);
-		
+		/* Fall through */
 	case I2C_SMBUS_BLOCK_DATA:
 		outb_p(command, SMBHSTCMD);
 		if (read_write == I2C_SMBUS_WRITE) {
@@ -214,7 +248,7 @@ static s32 vt596_access(struct i2c_adapter *adap, u16 addr,
 			if (len > I2C_SMBUS_BLOCK_MAX)
 				len = I2C_SMBUS_BLOCK_MAX;
 			outb_p(len, SMBHSTDAT0);
-			inb_p(SMBHSTCNT);	
+			inb_p(SMBHSTCNT);	/* Reset SMBBLKDAT */
 			for (i = 1; i <= len; i++)
 				outb_p(data->block[i], SMBBLKDAT);
 		}
@@ -251,7 +285,7 @@ static s32 vt596_access(struct i2c_adapter *adap, u16 addr,
 		data->block[0] = inb_p(SMBHSTDAT0);
 		if (data->block[0] > I2C_SMBUS_BLOCK_MAX)
 			data->block[0] = I2C_SMBUS_BLOCK_MAX;
-		inb_p(SMBHSTCNT);	
+		inb_p(SMBHSTCNT);	/* Reset SMBBLKDAT */
 		for (i = 1; i <= data->block[0]; i++)
 			data->block[i] = inb_p(SMBBLKDAT);
 		break;
@@ -292,7 +326,7 @@ static int __devinit vt596_probe(struct pci_dev *pdev,
 	unsigned char temp;
 	int error;
 
-	
+	/* Determine the address of the SMBus areas */
 	if (force_addr) {
 		vt596_smba = force_addr & 0xfff0;
 		force = 0;
@@ -301,13 +335,13 @@ static int __devinit vt596_probe(struct pci_dev *pdev,
 
 	if ((pci_read_config_word(pdev, id->driver_data, &vt596_smba)) ||
 	    !(vt596_smba & 0x0001)) {
-		
+		/* try 2nd address and config reg. for 596 */
 		if (id->device == PCI_DEVICE_ID_VIA_82C596_3 &&
 		    !pci_read_config_word(pdev, SMBBA2, &vt596_smba) &&
 		    (vt596_smba & 0x0001)) {
 			SMBHSTCFG = 0x84;
 		} else {
-			
+			/* no matches at all */
 			dev_err(&pdev->dev, "Cannot configure "
 				"SMBus I/O Base address\n");
 			return -ENODEV;
@@ -334,6 +368,8 @@ found:
 	}
 
 	pci_read_config_byte(pdev, SMBHSTCFG, &temp);
+	/* If force_addr is set, we program the new address here. Just to make
+	   sure, we disable the VT596 first. */
 	if (force_addr) {
 		pci_write_config_byte(pdev, SMBHSTCFG, temp & 0xfe);
 		pci_write_config_word(pdev, id->driver_data, vt596_smba);
@@ -342,6 +378,12 @@ found:
 			 "address 0x%04x!\n", vt596_smba);
 	} else if (!(temp & 0x01)) {
 		if (force) {
+			/* NOTE: This assumes I/O space and other allocations
+			 * WERE done by the Bios!  Don't complain if your
+			 * hardware does weird things after enabling this.
+			 * :') Check for Bios updates before resorting to
+			 * this.
+			 */
 			pci_write_config_byte(pdev, SMBHSTCFG, temp | 0x01);
 			dev_info(&pdev->dev, "Enabling SMBus device\n");
 		} else {
@@ -369,6 +411,8 @@ found:
 		vt596_features |= FEATURE_I2CBLOCK;
 		break;
 	case PCI_DEVICE_ID_VIA_82C686_4:
+		/* The VT82C686B (rev 0x40) does support I2C block
+		   transactions, but the VT82C686A (rev 0x30) doesn't */
 		if (pdev->revision >= 0x40)
 			vt596_features |= FEATURE_I2CBLOCK;
 		break;
@@ -386,6 +430,10 @@ found:
 		goto release_region;
 	}
 
+	/* Always return failure here.  This is to allow other drivers to bind
+	 * to this pci device.  We don't really want to have control over the
+	 * pci device, we only wanted to read as few register values from it.
+	 */
 	return -ENODEV;
 
 release_region:

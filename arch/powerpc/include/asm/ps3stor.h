@@ -50,8 +50,8 @@ struct ps3_storage_device {
 
 	unsigned int num_regions;
 	unsigned long accessible_regions;
-	unsigned int region_idx;		
-	struct ps3_storage_region regions[0];	
+	unsigned int region_idx;		/* first accessible region */
+	struct ps3_storage_region regions[0];	/* Must be last */
 };
 
 static inline struct ps3_storage_device *to_ps3_storage_device(struct device *dev)
@@ -68,4 +68,4 @@ extern u64 ps3stor_read_write_sectors(struct ps3_storage_device *dev, u64 lpar,
 extern u64 ps3stor_send_command(struct ps3_storage_device *dev, u64 cmd,
 				u64 arg1, u64 arg2, u64 arg3, u64 arg4);
 
-#endif 
+#endif /* _ASM_POWERPC_PS3STOR_H_ */

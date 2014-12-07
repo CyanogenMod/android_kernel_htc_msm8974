@@ -27,18 +27,21 @@
 #endif
 
 #define PAS_PCM_INTRBITS (0x08)
+/*
+ * Sample buffer timer interrupt enable
+ */
 
 #define PCM_NON	0
 #define PCM_DAC	1
 #define PCM_ADC	2
 
-static unsigned long pcm_speed; 	
-static unsigned char pcm_channels = 1;	
-static unsigned char pcm_bits = 8;	
-static unsigned char pcm_filter;	
+static unsigned long pcm_speed; 	/* sampling rate */
+static unsigned char pcm_channels = 1;	/* channels (1 or 2) */
+static unsigned char pcm_bits = 8;	/* bits/sample (8 or 16) */
+static unsigned char pcm_filter;	/* filter FLAG */
 static unsigned char pcm_mode = PCM_NON;
 static unsigned long pcm_count;
-static unsigned short pcm_bitsok = 8;	
+static unsigned short pcm_bitsok = 8;	/* mask of OK bits */
 static int      pcm_busy;
 int             pas_audiodev = -1;
 static int      open_mode;
@@ -73,6 +76,18 @@ static int pcm_set_speed(int arg)
 
 	tmp = pas_read(0x0B8A);
 
+	/*
+	 * Set anti-aliasing filters according to sample rate. You really *NEED*
+	 * to enable this feature for all normal recording unless you want to
+	 * experiment with aliasing effects.
+	 * These filters apply to the selected "recording" source.
+	 * I (pfw) don't know the encoding of these 5 bits. The values shown
+	 * come from the SDK found on ftp.uwp.edu:/pub/msdos/proaudio/.
+	 *
+	 * I cleared bit 5 of these values, since that bit controls the master
+	 * mute flag. (Olav Wölfelschneider)
+	 *
+	 */
 #if !defined NO_AUTO_FILTER_SET
 	tmp &= 0xe0;
 	if (pcm_speed >= 2 * 17897)
@@ -114,7 +129,7 @@ static int pcm_set_channels(int arg)
 		pas_write(pas_read(0xF8A) ^ 0x20, 0xF8A);
 
 		pcm_channels = arg;
-		pcm_set_speed(pcm_speed);	
+		pcm_set_speed(pcm_speed);	/* The speed must be reinitialized */
 	}
 	return pcm_channels;
 }
@@ -191,7 +206,7 @@ static void pas_audio_reset(int dev)
 {
 	DEB(printk("pas2_pcm.c: static void pas_audio_reset(void)\n"));
 
-	pas_write(pas_read(0xF8A) & ~0x40, 0xF8A);	
+	pas_write(pas_read(0xF8A) & ~0x40, 0xF8A);	/* Disable PCM */
 }
 
 static int pas_audio_open(int dev, int mode)
@@ -257,7 +272,7 @@ static void pas_audio_output_block(int dev, unsigned long buf, int count,
 	pas_write(pas_read(0xF8A) & ~0x40,
 		  0xF8A);
 
-	
+	/* DMAbuf_start_dma (dev, buf, count, DMA_MODE_WRITE); */
 
 	if (audio_devs[dev]->dmap_out->dma > 3)
 		count >>= 1;
@@ -301,7 +316,7 @@ static void pas_audio_start_input(int dev, unsigned long buf, int count,
 
 	spin_lock_irqsave(&pas_lock, flags);
 
-	
+	/* DMAbuf_start_dma (dev, buf, count, DMA_MODE_READ); */
 
 	if (audio_devs[dev]->dmap_out->dma > 3)
 		count >>= 1;
@@ -397,6 +412,10 @@ void pas_pcm_interrupt(unsigned char status, int cause)
 {
 	if (cause == 1)
 	{
+		/*
+		 * Halt the PCM first. Otherwise we don't have time to start a new
+		 * block before the PCM chip proceeds to the next sample
+		 */
 
 		if (!(audio_devs[pas_audiodev]->flags & DMA_AUTOMODE))
 			pas_write(pas_read(0xF8A) & ~0x40, 0xF8A);

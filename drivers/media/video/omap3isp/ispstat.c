@@ -33,9 +33,14 @@
 
 #define IS_COHERENT_BUF(stat)	((stat)->dma_ch >= 0)
 
+/*
+ * MAGIC_SIZE must always be the greatest common divisor of
+ * AEWB_PACKET_SIZE and AF_PAXEL_SIZE.
+ */
 #define MAGIC_SIZE		16
 #define MAGIC_NUM		0x55
 
+/* HACK: AF module seems to be writing one more paxel data than it should. */
 #define AF_EXTRA_DATA		OMAP3ISP_AF_PAXEL_SIZE
 
 /*
@@ -56,6 +61,10 @@
  */
 #define NUM_H3A_RECOVER_BUFS	10
 
+/*
+ * HACK: Because of HW issues the generic layer sometimes need to have
+ * different behaviour for different statistic modules.
+ */
 #define IS_H3A_AF(stat)		((stat) == &(stat)->isp->isp_af)
 #define IS_H3A_AEWB(stat)	((stat) == &(stat)->isp->isp_aewb)
 #define IS_H3A(stat)		(IS_H3A_AF(stat) || IS_H3A_AEWB(stat))
@@ -72,12 +81,12 @@ static void __isp_stat_buf_sync_magic(struct ispstat *stat,
 	dma_addr_t dma_addr;
 	u32 offset;
 
-	
+	/* Initial magic words */
 	pg = vmalloc_to_page(buf->virt_addr);
 	dma_addr = pfn_to_dma(dev, page_to_pfn(pg));
 	dma_sync(dev, dma_addr, 0, MAGIC_SIZE, dir);
 
-	
+	/* Final magic words */
 	pg = vmalloc_to_page(buf->virt_addr + buf_size);
 	dma_addr = pfn_to_dma(dev, page_to_pfn(pg));
 	offset = ((u32)buf->virt_addr + buf_size) & ~PAGE_MASK;
@@ -119,7 +128,7 @@ static int isp_stat_buf_check_magic(struct ispstat *stat,
 
 	isp_stat_buf_sync_magic_for_cpu(stat, buf, buf_size, DMA_FROM_DEVICE);
 
-	
+	/* Checking initial magic numbers. They shouldn't be here anymore. */
 	for (w = buf->virt_addr, end = w + MAGIC_SIZE; w < end; w++)
 		if (likely(*w != MAGIC_NUM))
 			ret = 0;
@@ -130,7 +139,7 @@ static int isp_stat_buf_check_magic(struct ispstat *stat,
 		return ret;
 	}
 
-	
+	/* Checking magic numbers at the end. They must be still here. */
 	for (w = buf->virt_addr + buf_size, end = w + MAGIC_SIZE;
 	     w < end; w++) {
 		if (unlikely(*w != MAGIC_NUM)) {
@@ -154,6 +163,12 @@ static void isp_stat_buf_insert_magic(struct ispstat *stat,
 
 	isp_stat_buf_sync_magic_for_cpu(stat, buf, buf_size, DMA_FROM_DEVICE);
 
+	/*
+	 * Inserting MAGIC_NUM at the beginning and end of the buffer.
+	 * buf->buf_size is set only after the buffer is queued. For now the
+	 * right buf_size for the current configuration is pointed by
+	 * stat->buf_size.
+	 */
 	memset(buf->virt_addr, MAGIC_NUM, MAGIC_SIZE);
 	memset(buf->virt_addr + buf_size, MAGIC_NUM, MAGIC_SIZE);
 
@@ -198,20 +213,24 @@ __isp_stat_buf_find(struct ispstat *stat, int look_empty)
 	for (i = 0; i < STAT_MAX_BUFS; i++) {
 		struct ispstat_buffer *curr = &stat->buf[i];
 
+		/*
+		 * Don't select the buffer which is being copied to
+		 * userspace or used by the module.
+		 */
 		if (curr == stat->locked_buf || curr == stat->active_buf)
 			continue;
 
-		
+		/* Don't select uninitialised buffers if it's not required */
 		if (!look_empty && curr->empty)
 			continue;
 
-		
+		/* Pick uninitialised buffer over anything else if look_empty */
 		if (curr->empty) {
 			found = curr;
 			break;
 		}
 
-		
+		/* Choose the oldest buffer */
 		if (!found ||
 		    (s32)curr->frame_number - (s32)found->frame_number < 0)
 			found = curr;
@@ -253,10 +272,11 @@ static int isp_stat_buf_queue(struct ispstat *stat)
 	return STAT_BUF_DONE;
 }
 
+/* Get next free buffer to write the statistics to and mark it active. */
 static void isp_stat_buf_next(struct ispstat *stat)
 {
 	if (unlikely(stat->active_buf))
-		
+		/* Overwriting unused active buffer */
 		dev_dbg(stat->isp->dev, "%s: new buffer requested without "
 					"queuing active one.\n",
 					stat->subdev.name);
@@ -274,6 +294,7 @@ static void isp_stat_buf_release(struct ispstat *stat)
 	spin_unlock_irqrestore(&stat->isp->stat_lock, flags);
 }
 
+/* Get buffer to userspace. */
 static struct ispstat_buffer *isp_stat_buf_get(struct ispstat *stat,
 					       struct omap3isp_stat_data *data)
 {
@@ -294,10 +315,10 @@ static struct ispstat_buffer *isp_stat_buf_get(struct ispstat *stat,
 		if (isp_stat_buf_check_magic(stat, buf)) {
 			dev_dbg(stat->isp->dev, "%s: current buffer has "
 				"corrupted data\n.", stat->subdev.name);
-			
+			/* Mark empty because it doesn't have valid data. */
 			buf->empty = 1;
 		} else {
-			
+			/* Buffer isn't corrupted. */
 			break;
 		}
 	}
@@ -449,7 +470,7 @@ static int isp_stat_bufs_alloc(struct ispstat *stat, u32 size)
 
 	BUG_ON(stat->locked_buf != NULL);
 
-	
+	/* Are the old buffers big enough? */
 	if (stat->buf_alloc_size >= size) {
 		spin_unlock_irqrestore(&stat->isp->stat_lock, flags);
 		return 0;
@@ -491,6 +512,12 @@ static void isp_stat_queue_event(struct ispstat *stat, int err)
 }
 
 
+/*
+ * omap3isp_stat_request_statistics - Request statistics.
+ * @data: Pointer to return statistics data.
+ *
+ * Returns 0 if successful.
+ */
 int omap3isp_stat_request_statistics(struct ispstat *stat,
 				     struct omap3isp_stat_data *data)
 {
@@ -521,6 +548,14 @@ int omap3isp_stat_request_statistics(struct ispstat *stat,
 	return 0;
 }
 
+/*
+ * omap3isp_stat_config - Receives new statistic engine configuration.
+ * @new_conf: Pointer to config structure.
+ *
+ * Returns 0 if successful, -EINVAL if new_conf pointer is NULL, -ENOMEM if
+ * was unable to allocate memory for the buffer, or other errors if parameters
+ * are invalid.
+ */
 int omap3isp_stat_config(struct ispstat *stat, void *new_conf)
 {
 	int ret;
@@ -552,9 +587,24 @@ int omap3isp_stat_config(struct ispstat *stat, void *new_conf)
 			"request to 0x%08lx\n", stat->subdev.name,
 			(unsigned long)user_cfg->buf_size);
 
+	/*
+	 * Hack: H3A modules may need a doubled buffer size to avoid access
+	 * to a invalid memory address after a SBL overflow.
+	 * The buffer size is always PAGE_ALIGNED.
+	 * Hack 2: MAGIC_SIZE is added to buf_size so a magic word can be
+	 * inserted at the end to data integrity check purpose.
+	 * Hack 3: AF module writes one paxel data more than it should, so
+	 * the buffer allocation must consider it to avoid invalid memory
+	 * access.
+	 * Hack 4: H3A need to allocate extra space for the recover state.
+	 */
 	if (IS_H3A(stat)) {
 		buf_size = user_cfg->buf_size * 2 + MAGIC_SIZE;
 		if (IS_H3A_AF(stat))
+			/*
+			 * Adding one extra paxel data size for each recover
+			 * buffer + 2 regular ones.
+			 */
 			buf_size += AF_EXTRA_DATA * (NUM_H3A_RECOVER_BUFS + 2);
 		if (stat->recover_priv) {
 			struct ispstat_generic_config *recover_cfg =
@@ -563,7 +613,7 @@ int omap3isp_stat_config(struct ispstat *stat, void *new_conf)
 				    NUM_H3A_RECOVER_BUFS;
 		}
 		buf_size = PAGE_ALIGN(buf_size);
-	} else { 
+	} else { /* Histogram */
 		buf_size = PAGE_ALIGN(user_cfg->buf_size + MAGIC_SIZE);
 	}
 
@@ -577,9 +627,13 @@ int omap3isp_stat_config(struct ispstat *stat, void *new_conf)
 	stat->ops->set_params(stat, new_conf);
 	spin_unlock_irqrestore(&stat->isp->stat_lock, irqflags);
 
+	/*
+	 * Returning the right future config_counter for this setup, so
+	 * userspace can *know* when it has been applied.
+	 */
 	user_cfg->config_counter = stat->config_counter + stat->inc_config;
 
-	
+	/* Module has a valid configuration. */
 	stat->configured = 1;
 	dev_dbg(stat->isp->dev, "%s: module has been successfully "
 		"configured.\n", stat->subdev.name);
@@ -589,6 +643,12 @@ int omap3isp_stat_config(struct ispstat *stat, void *new_conf)
 	return 0;
 }
 
+/*
+ * isp_stat_buf_process - Process statistic buffers.
+ * @buf_state: points out if buffer is ready to be processed. It's necessary
+ *	       because histogram needs to copy the data from internal memory
+ *	       before be able to process the buffer.
+ */
 static int isp_stat_buf_process(struct ispstat *stat, int buf_state)
 {
 	int ret = STAT_NO_BUF;
@@ -613,11 +673,18 @@ int omap3isp_stat_busy(struct ispstat *stat)
 		(stat->state != ISPSTAT_DISABLED);
 }
 
+/*
+ * isp_stat_pcr_enable - Disables/Enables statistic engines.
+ * @pcr_enable: 0/1 - Disables/Enables the engine.
+ *
+ * Must be called from ISP driver when the module is idle and synchronized
+ * with CCDC.
+ */
 static void isp_stat_pcr_enable(struct ispstat *stat, u8 pcr_enable)
 {
 	if ((stat->state != ISPSTAT_ENABLING &&
 	     stat->state != ISPSTAT_ENABLED) && pcr_enable)
-		
+		/* Userspace has disabled the module. Aborting. */
 		return;
 
 	stat->ops->enable(stat, pcr_enable);
@@ -643,7 +710,7 @@ void omap3isp_stat_suspend(struct ispstat *stat)
 
 void omap3isp_stat_resume(struct ispstat *stat)
 {
-	
+	/* Module will be re-enabled with its pipeline */
 	if (stat->state == ISPSTAT_SUSPENDED)
 		stat->state = ISPSTAT_ENABLING;
 }
@@ -653,17 +720,27 @@ static void isp_stat_try_enable(struct ispstat *stat)
 	unsigned long irqflags;
 
 	if (stat->priv == NULL)
-		
+		/* driver wasn't initialised */
 		return;
 
 	spin_lock_irqsave(&stat->isp->stat_lock, irqflags);
 	if (stat->state == ISPSTAT_ENABLING && !stat->buf_processing &&
 	    stat->buf_alloc_size) {
+		/*
+		 * Userspace's requested to enable the engine but it wasn't yet.
+		 * Let's do that now.
+		 */
 		stat->update = 1;
 		isp_stat_buf_next(stat);
 		stat->ops->setup_regs(stat, stat->priv);
 		isp_stat_buf_insert_magic(stat, stat->active_buf);
 
+		/*
+		 * H3A module has some hw issues which forces the driver to
+		 * ignore next buffers even if it was disabled in the meantime.
+		 * On the other hand, Histogram shouldn't ignore buffers anymore
+		 * if it's being enabled.
+		 */
 		if (!IS_H3A(stat))
 			atomic_set(&stat->buf_err, 0);
 
@@ -686,13 +763,30 @@ void omap3isp_stat_sbl_overflow(struct ispstat *stat)
 	unsigned long irqflags;
 
 	spin_lock_irqsave(&stat->isp->stat_lock, irqflags);
+	/*
+	 * Due to a H3A hw issue which prevents the next buffer to start from
+	 * the correct memory address, 2 buffers must be ignored.
+	 */
 	atomic_set(&stat->buf_err, 2);
 
+	/*
+	 * If more than one SBL overflow happen in a row, H3A module may access
+	 * invalid memory region.
+	 * stat->sbl_ovl_recover is set to tell to the driver to temporarily use
+	 * a soft configuration which helps to avoid consecutive overflows.
+	 */
 	if (stat->recover_priv)
 		stat->sbl_ovl_recover = 1;
 	spin_unlock_irqrestore(&stat->isp->stat_lock, irqflags);
 }
 
+/*
+ * omap3isp_stat_enable - Disable/Enable statistic engine as soon as possible
+ * @enable: 0/1 - Disables/Enables the engine.
+ *
+ * Client should configure all the module registers before this.
+ * This function can be called from a userspace request.
+ */
 int omap3isp_stat_enable(struct ispstat *stat, u8 enable)
 {
 	unsigned long irqflags;
@@ -700,7 +794,7 @@ int omap3isp_stat_enable(struct ispstat *stat, u8 enable)
 	dev_dbg(stat->isp->dev, "%s: user wants to %s module.\n",
 		stat->subdev.name, enable ? "enable" : "disable");
 
-	
+	/* Prevent enabling while configuring */
 	mutex_lock(&stat->ioctl_lock);
 
 	spin_lock_irqsave(&stat->isp->stat_lock, irqflags);
@@ -716,17 +810,17 @@ int omap3isp_stat_enable(struct ispstat *stat, u8 enable)
 
 	if (enable) {
 		if (stat->state == ISPSTAT_DISABLING)
-			
+			/* Previous disabling request wasn't done yet */
 			stat->state = ISPSTAT_ENABLED;
 		else if (stat->state == ISPSTAT_DISABLED)
-			
+			/* Module is now being enabled */
 			stat->state = ISPSTAT_ENABLING;
 	} else {
 		if (stat->state == ISPSTAT_ENABLING) {
-			
+			/* Previous enabling request wasn't done yet */
 			stat->state = ISPSTAT_DISABLED;
 		} else if (stat->state == ISPSTAT_ENABLED) {
-			
+			/* Module is now being disabled */
 			stat->state = ISPSTAT_DISABLING;
 			isp_stat_buf_clear(stat);
 		}
@@ -743,15 +837,30 @@ int omap3isp_stat_s_stream(struct v4l2_subdev *subdev, int enable)
 	struct ispstat *stat = v4l2_get_subdevdata(subdev);
 
 	if (enable) {
+		/*
+		 * Only set enable PCR bit if the module was previously
+		 * enabled through ioct.
+		 */
 		isp_stat_try_enable(stat);
 	} else {
 		unsigned long flags;
-		
+		/* Disable PCR bit and config enable field */
 		omap3isp_stat_enable(stat, 0);
 		spin_lock_irqsave(&stat->isp->stat_lock, flags);
 		stat->ops->enable(stat, 0);
 		spin_unlock_irqrestore(&stat->isp->stat_lock, flags);
 
+		/*
+		 * If module isn't busy, a new interrupt may come or not to
+		 * set the state to DISABLED. As Histogram needs to read its
+		 * internal memory to clear it, let interrupt handler
+		 * responsible of changing state to DISABLED. If the last
+		 * interrupt is coming, it's still safe as the handler will
+		 * ignore the second time when state is already set to DISABLED.
+		 * It's necessary to synchronize Histogram with streamoff, once
+		 * the module may be considered idle before last SDMA transfer
+		 * starts if we return here.
+		 */
 		if (!omap3isp_stat_pcr_busy(stat))
 			omap3isp_stat_isr(stat);
 
@@ -762,6 +871,9 @@ int omap3isp_stat_s_stream(struct v4l2_subdev *subdev, int enable)
 	return 0;
 }
 
+/*
+ * __stat_isr - Interrupt handler for statistic drivers
+ */
 static void __stat_isr(struct ispstat *stat, int from_dma)
 {
 	int ret = STAT_BUF_DONE;
@@ -769,6 +881,11 @@ static void __stat_isr(struct ispstat *stat, int from_dma)
 	unsigned long irqflags;
 	struct isp_pipeline *pipe;
 
+	/*
+	 * stat->buf_processing must be set before disable module. It's
+	 * necessary to not inform too early the buffers aren't busy in case
+	 * of SDMA is going to be used.
+	 */
 	spin_lock_irqsave(&stat->isp->stat_lock, irqflags);
 	if (stat->state == ISPSTAT_DISABLED) {
 		spin_unlock_irqrestore(&stat->isp->stat_lock, irqflags);
@@ -787,23 +904,35 @@ static void __stat_isr(struct ispstat *stat, int from_dma)
 			ret = STAT_NO_BUF;
 			goto out;
 		} else {
+			/*
+			 * Interrupt handler was called from streamoff when
+			 * the module wasn't busy anymore to ensure it is being
+			 * disabled after process last buffer. If such buffer
+			 * processing has already started, no need to do
+			 * anything else.
+			 */
 			spin_unlock_irqrestore(&stat->isp->stat_lock, irqflags);
 			return;
 		}
 	}
 	spin_unlock_irqrestore(&stat->isp->stat_lock, irqflags);
 
-	
+	/* If it's busy we can't process this buffer anymore */
 	if (!omap3isp_stat_pcr_busy(stat)) {
 		if (!from_dma && stat->ops->buf_process)
-			
+			/* Module still need to copy data to buffer. */
 			ret = stat->ops->buf_process(stat);
 		if (ret == STAT_BUF_WAITING_DMA)
-			
+			/* Buffer is not ready yet */
 			return;
 
 		spin_lock_irqsave(&stat->isp->stat_lock, irqflags);
 
+		/*
+		 * Histogram needs to read its internal memory to clear it
+		 * before be disabled. For that reason, common statistic layer
+		 * can return only after call stat's buf_process() operator.
+		 */
 		if (stat->state == ISPSTAT_DISABLING) {
 			stat->state = ISPSTAT_DISABLED;
 			spin_unlock_irqrestore(&stat->isp->stat_lock, irqflags);
@@ -813,25 +942,65 @@ static void __stat_isr(struct ispstat *stat, int from_dma)
 		pipe = to_isp_pipeline(&stat->subdev.entity);
 		stat->frame_number = atomic_read(&pipe->frame_number);
 
+		/*
+		 * Before this point, 'ret' stores the buffer's status if it's
+		 * ready to be processed. Afterwards, it holds the status if
+		 * it was processed successfully.
+		 */
 		ret = isp_stat_buf_process(stat, ret);
 
 		if (likely(!stat->sbl_ovl_recover)) {
 			stat->ops->setup_regs(stat, stat->priv);
 		} else {
+			/*
+			 * Using recover config to increase the chance to have
+			 * a good buffer processing and make the H3A module to
+			 * go back to a valid state.
+			 */
 			stat->update = 1;
 			stat->ops->setup_regs(stat, stat->recover_priv);
 			stat->sbl_ovl_recover = 0;
 
+			/*
+			 * Set 'update' in case of the module needs to use
+			 * regular configuration after next buffer.
+			 */
 			stat->update = 1;
 		}
 
 		isp_stat_buf_insert_magic(stat, stat->active_buf);
 
+		/*
+		 * Hack: H3A modules may access invalid memory address or send
+		 * corrupted data to userspace if more than 1 SBL overflow
+		 * happens in a row without re-writing its buffer's start memory
+		 * address in the meantime. Such situation is avoided if the
+		 * module is not immediately re-enabled when the ISR misses the
+		 * timing to process the buffer and to setup the registers.
+		 * Because of that, pcr_enable(1) was moved to inside this 'if'
+		 * block. But the next interruption will still happen as during
+		 * pcr_enable(0) the module was busy.
+		 */
 		isp_stat_pcr_enable(stat, 1);
 		spin_unlock_irqrestore(&stat->isp->stat_lock, irqflags);
 	} else {
+		/*
+		 * If a SBL overflow occurs and the H3A driver misses the timing
+		 * to process the buffer, stat->buf_err is set and won't be
+		 * cleared now. So the next buffer will be correctly ignored.
+		 * It's necessary due to a hw issue which makes the next H3A
+		 * buffer to start from the memory address where the previous
+		 * one stopped, instead of start where it was configured to.
+		 * Do not "stat->buf_err = 0" here.
+		 */
 
 		if (stat->ops->buf_process)
+			/*
+			 * Driver may need to erase current data prior to
+			 * process a new buffer. If it misses the timing, the
+			 * next buffer might be wrong. So should be ignored.
+			 * It happens only for Histogram.
+			 */
 			atomic_set(&stat->buf_err, 1);
 
 		ret = STAT_NO_BUF;
@@ -892,7 +1061,7 @@ static int isp_stat_init_entities(struct ispstat *stat, const char *name,
 
 	v4l2_subdev_init(subdev, sd_ops);
 	snprintf(subdev->name, V4L2_SUBDEV_NAME_SIZE, "OMAP3 ISP %s", name);
-	subdev->grp_id = 1 << 16;	
+	subdev->grp_id = 1 << 16;	/* group ID for isp subdevs */
 	subdev->flags |= V4L2_SUBDEV_FL_HAS_EVENTS | V4L2_SUBDEV_FL_HAS_DEVNODE;
 	v4l2_set_subdevdata(subdev, stat);
 

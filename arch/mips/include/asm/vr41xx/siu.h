@@ -55,4 +55,4 @@ extern void vr41xx_siu_early_setup(struct uart_port *port);
 static inline void vr41xx_siu_early_setup(struct uart_port *port) {}
 #endif
 
-#endif 
+#endif /* __NEC_VR41XX_SIU_H */

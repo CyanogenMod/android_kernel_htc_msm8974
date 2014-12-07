@@ -18,16 +18,22 @@
 
 #define ASB2305_7SEGLEDS	__SYSREG(0xA6F90000, u32)
 
+/* perform a hard reset by driving PIO06 low */
 #define mn10300_unit_hard_reset()		\
 do {						\
 	P0OUT &= 0xbf;				\
 	P0MD = (P0MD & P0MD_6) | P0MD_6_OUT;	\
 } while (0)
 
+/*
+ * use the 7-segment LEDs to indicate states
+ */
+/* indicate double-fault by displaying "db-f" on the LEDs */
 #define mn10300_set_dbfleds			\
 	mov	0x43077f1d,d0		;	\
 	mov	d0,(ASB2305_7SEGLEDS)
 
+/* flip the 7-segment LEDs between "Gdb-" and "----" */
 #define mn10300_set_gdbleds(ONOFF)				\
 do {								\
 	ASB2305_7SEGLEDS = (ONOFF) ? 0x8543077f : 0x7f7f7f7f;	\
@@ -40,6 +46,6 @@ extern void peripheral_leds7x4_display_dec(unsigned int, unsigned int);
 extern void peripheral_leds7x4_display_hex(unsigned int, unsigned int);
 extern void peripheral_leds7x4_display_minssecs(unsigned int, unsigned int);
 extern void peripheral_leds7x4_display_rtc(void);
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_UNIT_LEDS_H */

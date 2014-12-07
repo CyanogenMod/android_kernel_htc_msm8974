@@ -20,7 +20,23 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: ni_6527
+Description: National Instruments 6527
+Author: ds
+Status: works
+Devices: [National Instruments] PCI-6527 (ni6527), PXI-6527
+Updated: Sat, 25 Jan 2003 13:24:40 -0800
 
+
+*/
+
+/*
+   Manuals (available from ftp://ftp.natinst.com/support/manuals)
+
+	370106b.pdf	6527 Register Level Programmer Manual
+
+ */
 
 #define DEBUG 1
 #define DEBUG_FLAGS
@@ -178,6 +194,8 @@ static int ni6527_do_insn_bits(struct comedi_device *dev,
 		s->state &= ~data[0];
 		s->state |= (data[0] & data[1]);
 
+		/* The open relay state on the board cooresponds to 1,
+		 * but in Comedi, it is represented by 0. */
 		if (data[0] & 0x0000ff) {
 			writeb((s->state ^ 0xff),
 			       devpriv->mite->daq_io_addr + Port_Register(3));
@@ -224,7 +242,7 @@ static int ni6527_intr_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -254,13 +272,13 @@ static int ni6527_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
-	
-	
+	/* step 2: make sure trigger sources are unique and */
+	/*         are mutually compatible */
 
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
@@ -287,7 +305,7 @@ static int ni6527_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	if (err)
 		return 4;
@@ -298,7 +316,7 @@ static int ni6527_intr_cmdtest(struct comedi_device *dev,
 static int ni6527_intr_cmd(struct comedi_device *dev,
 			   struct comedi_subdevice *s)
 {
-	
+	/* struct comedi_cmd *cmd = &s->async->cmd; */
 
 	writeb(ClrEdge | ClrOverflow,
 	       devpriv->mite->daq_io_addr + Clear_Register);
@@ -396,7 +414,7 @@ static int ni6527_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
 	s->n_chan = 24;
-	s->range_table = &range_unknown;  
+	s->range_table = &range_unknown;  /* FIXME: actually conductance */
 	s->maxdata = 1;
 	s->insn_bits = ni6527_do_insn_bits;
 

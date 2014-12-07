@@ -9,4 +9,4 @@ extern void time_init(void);
 
 extern struct clock_event_device *global_clock_event;
 
-#endif 
+#endif /* _ASM_X86_TIME_H */

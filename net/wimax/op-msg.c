@@ -85,6 +85,38 @@
 #include "debug-levels.h"
 
 
+/**
+ * wimax_msg_alloc - Create a new skb for sending a message to userspace
+ *
+ * @wimax_dev: WiMAX device descriptor
+ * @pipe_name: "named pipe" the message will be sent to
+ * @msg: pointer to the message data to send
+ * @size: size of the message to send (in bytes), including the header.
+ * @gfp_flags: flags for memory allocation.
+ *
+ * Returns: %0 if ok, negative errno code on error
+ *
+ * Description:
+ *
+ * Allocates an skb that will contain the message to send to user
+ * space over the messaging pipe and initializes it, copying the
+ * payload.
+ *
+ * Once this call is done, you can deliver it with
+ * wimax_msg_send().
+ *
+ * IMPORTANT:
+ *
+ * Don't use skb_push()/skb_pull()/skb_reserve() on the skb, as
+ * wimax_msg_send() depends on skb->data being placed at the
+ * beginning of the user message.
+ *
+ * Unlike other WiMAX stack calls, this call can be used way early,
+ * even before wimax_dev_add() is called, as long as the
+ * wimax_dev->net_dev pointer is set to point to a proper
+ * net_dev. This is so that drivers can use it early in case they need
+ * to send stuff around or communicate with user space.
+ */
 struct sk_buff *wimax_msg_alloc(struct wimax_dev *wimax_dev,
 				const char *pipe_name,
 				const void *msg, size_t size,
@@ -141,6 +173,14 @@ error_new:
 EXPORT_SYMBOL_GPL(wimax_msg_alloc);
 
 
+/**
+ * wimax_msg_data_len - Return a pointer and size of a message's payload
+ *
+ * @msg: Pointer to a message created with wimax_msg_alloc()
+ * @size: Pointer to where to store the message's size
+ *
+ * Returns the pointer to the message data.
+ */
 const void *wimax_msg_data_len(struct sk_buff *msg, size_t *size)
 {
 	struct nlmsghdr *nlh = (void *) msg->head;
@@ -158,6 +198,11 @@ const void *wimax_msg_data_len(struct sk_buff *msg, size_t *size)
 EXPORT_SYMBOL_GPL(wimax_msg_data_len);
 
 
+/**
+ * wimax_msg_data - Return a pointer to a message's payload
+ *
+ * @msg: Pointer to a message created with wimax_msg_alloc()
+ */
 const void *wimax_msg_data(struct sk_buff *msg)
 {
 	struct nlmsghdr *nlh = (void *) msg->head;
@@ -174,6 +219,11 @@ const void *wimax_msg_data(struct sk_buff *msg)
 EXPORT_SYMBOL_GPL(wimax_msg_data);
 
 
+/**
+ * wimax_msg_len - Return a message's payload length
+ *
+ * @msg: Pointer to a message created with wimax_msg_alloc()
+ */
 ssize_t wimax_msg_len(struct sk_buff *msg)
 {
 	struct nlmsghdr *nlh = (void *) msg->head;
@@ -190,6 +240,36 @@ ssize_t wimax_msg_len(struct sk_buff *msg)
 EXPORT_SYMBOL_GPL(wimax_msg_len);
 
 
+/**
+ * wimax_msg_send - Send a pre-allocated message to user space
+ *
+ * @wimax_dev: WiMAX device descriptor
+ *
+ * @skb: &struct sk_buff returned by wimax_msg_alloc(). Note the
+ *     ownership of @skb is transferred to this function.
+ *
+ * Returns: 0 if ok, < 0 errno code on error
+ *
+ * Description:
+ *
+ * Sends a free-form message that was preallocated with
+ * wimax_msg_alloc() and filled up.
+ *
+ * Assumes that once you pass an skb to this function for sending, it
+ * owns it and will release it when done (on success).
+ *
+ * IMPORTANT:
+ *
+ * Don't use skb_push()/skb_pull()/skb_reserve() on the skb, as
+ * wimax_msg_send() depends on skb->data being placed at the
+ * beginning of the user message.
+ *
+ * Unlike other WiMAX stack calls, this call can be used way early,
+ * even before wimax_dev_add() is called, as long as the
+ * wimax_dev->net_dev pointer is set to point to a proper
+ * net_dev. This is so that drivers can use it early in case they need
+ * to send stuff around or communicate with user space.
+ */
 int wimax_msg_send(struct wimax_dev *wimax_dev, struct sk_buff *skb)
 {
 	struct device *dev = wimax_dev_to_dev(wimax_dev);
@@ -206,6 +286,26 @@ int wimax_msg_send(struct wimax_dev *wimax_dev, struct sk_buff *skb)
 EXPORT_SYMBOL_GPL(wimax_msg_send);
 
 
+/**
+ * wimax_msg - Send a message to user space
+ *
+ * @wimax_dev: WiMAX device descriptor (properly referenced)
+ * @pipe_name: "named pipe" the message will be sent to
+ * @buf: pointer to the message to send.
+ * @size: size of the buffer pointed to by @buf (in bytes).
+ * @gfp_flags: flags for memory allocation.
+ *
+ * Returns: %0 if ok, negative errno code on error.
+ *
+ * Description:
+ *
+ * Sends a free-form message to user space on the device @wimax_dev.
+ *
+ * NOTES:
+ *
+ * Once the @skb is given to this function, who will own it and will
+ * release it when done (unless it returns error).
+ */
 int wimax_msg(struct wimax_dev *wimax_dev, const char *pipe_name,
 	      const void *buf, size_t size, gfp_t gfp_flags)
 {
@@ -227,11 +327,19 @@ static const struct nla_policy wimax_gnl_msg_policy[WIMAX_GNL_ATTR_MAX + 1] = {
 		.type = NLA_U32,
 	},
 	[WIMAX_GNL_MSG_DATA] = {
-		.type = NLA_UNSPEC,	
+		.type = NLA_UNSPEC,	/* libnl doesn't grok BINARY yet */
 	},
 };
 
 
+/*
+ * Relays a message from user space to the driver
+ *
+ * The skb is passed to the driver-specific function with the netlink
+ * and generic netlink headers already stripped.
+ *
+ * This call will block while handling/relaying the message.
+ */
 static
 int wimax_gnl_doit_msg_from_user(struct sk_buff *skb, struct genl_info *info)
 {
@@ -257,7 +365,7 @@ int wimax_gnl_doit_msg_from_user(struct sk_buff *skb, struct genl_info *info)
 		goto error_no_wimax_dev;
 	dev = wimax_dev_to_dev(wimax_dev);
 
-	
+	/* Unpack arguments */
 	result = -EINVAL;
 	if (info->attrs[WIMAX_GNL_MSG_DATA] == NULL) {
 		dev_err(dev, "WIMAX_GNL_MSG_FROM_USER: can't find MSG_DATA "
@@ -272,7 +380,7 @@ int wimax_gnl_doit_msg_from_user(struct sk_buff *skb, struct genl_info *info)
 	else {
 		struct nlattr *attr = info->attrs[WIMAX_GNL_MSG_PIPE_NAME];
 		size_t attr_len = nla_len(attr);
-		
+		/* libnl-1.1 does not yet support NLA_NUL_STRING */
 		result = -ENOMEM;
 		pipe_name = kstrndup(nla_data(attr), attr_len + 1, GFP_KERNEL);
 		if (pipe_name == NULL)
@@ -311,6 +419,9 @@ error_no_wimax_dev:
 }
 
 
+/*
+ * Generic Netlink glue
+ */
 
 struct genl_ops wimax_gnl_msg_from_user = {
 	.cmd = WIMAX_GNL_OP_MSG_FROM_USER,

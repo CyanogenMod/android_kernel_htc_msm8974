@@ -14,26 +14,51 @@
 #include <linux/mutex.h>
 
 struct prop_global {
+	/*
+	 * The period over which we differentiate
+	 *
+	 *   period = 2^shift
+	 */
 	int shift;
+	/*
+	 * The total event counter aka 'time'.
+	 *
+	 * Treated as an unsigned long; the lower 'shift - 1' bits are the
+	 * counter bits, the remaining upper bits the period counter.
+	 */
 	struct percpu_counter events;
 };
 
+/*
+ * global proportion descriptor
+ *
+ * this is needed to consitently flip prop_global structures.
+ */
 struct prop_descriptor {
 	int index;
 	struct prop_global pg[2];
-	struct mutex mutex;		
+	struct mutex mutex;		/* serialize the prop_global switch */
 };
 
 int prop_descriptor_init(struct prop_descriptor *pd, int shift);
 void prop_change_shift(struct prop_descriptor *pd, int new_shift);
 
+/*
+ * ----- PERCPU ------
+ */
 
 struct prop_local_percpu {
+	/*
+	 * the local events counter
+	 */
 	struct percpu_counter events;
 
+	/*
+	 * snapshot of the last seen global state
+	 */
 	int shift;
 	unsigned long period;
-	raw_spinlock_t lock;		
+	raw_spinlock_t lock;		/* protect the snapshot state */
 };
 
 int prop_local_init_percpu(struct prop_local_percpu *pl);
@@ -52,6 +77,10 @@ void prop_inc_percpu(struct prop_descriptor *pd, struct prop_local_percpu *pl)
 	local_irq_restore(flags);
 }
 
+/*
+ * Limit the time part in order to ensure there are some bits left for the
+ * cycle counter and fraction multiply.
+ */
 #if BITS_PER_LONG == 32
 #define PROP_MAX_SHIFT (3*BITS_PER_LONG/4)
 #else
@@ -65,13 +94,23 @@ void __prop_inc_percpu_max(struct prop_descriptor *pd,
 			   struct prop_local_percpu *pl, long frac);
 
 
+/*
+ * ----- SINGLE ------
+ */
 
 struct prop_local_single {
+	/*
+	 * the local events counter
+	 */
 	unsigned long events;
 
+	/*
+	 * snapshot of the last seen global state
+	 * and a lock protecting this state
+	 */
 	unsigned long period;
 	int shift;
-	raw_spinlock_t lock;		
+	raw_spinlock_t lock;		/* protect the snapshot state */
 };
 
 #define INIT_PROP_LOCAL_SINGLE(name)			\
@@ -94,4 +133,4 @@ void prop_inc_single(struct prop_descriptor *pd, struct prop_local_single *pl)
 	local_irq_restore(flags);
 }
 
-#endif 
+#endif /* _LINUX_PROPORTIONS_H */

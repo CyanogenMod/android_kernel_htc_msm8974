@@ -101,11 +101,16 @@
 #define BTRFSIC_BLOCK_LINK_MAGIC_NUMBER 0x11070807
 #define BTRFSIC_DEV2STATE_MAGIC_NUMBER 0x20111530
 #define BTRFSIC_BLOCK_STACK_FRAME_MAGIC_NUMBER 20111300
-#define BTRFSIC_TREE_DUMP_MAX_INDENT_LEVEL (200 - 6)	
+#define BTRFSIC_TREE_DUMP_MAX_INDENT_LEVEL (200 - 6)	/* in characters,
+							 * excluding " [...]" */
 #define BTRFSIC_BLOCK_SIZE PAGE_SIZE
 
 #define BTRFSIC_GENERATION_UNKNOWN ((u64)-1)
 
+/*
+ * The definition of the bitmask fields for the print_mask.
+ * They are specified with the mount option check_integrity_print_mask.
+ */
 #define BTRFSIC_PRINT_MASK_SUPERBLOCK_WRITE			0x00000001
 #define BTRFSIC_PRINT_MASK_ROOT_CHUNK_LOG_TREE_LOCATION		0x00000002
 #define BTRFSIC_PRINT_MASK_TREE_AFTER_SB_WRITE			0x00000004
@@ -124,26 +129,28 @@ struct btrfsic_dev_state;
 struct btrfsic_state;
 
 struct btrfsic_block {
-	u32 magic_num;		
-	unsigned int is_metadata:1;	
-	unsigned int is_superblock:1;	
-	unsigned int is_iodone:1;	
-	unsigned int iodone_w_error:1;	
+	u32 magic_num;		/* only used for debug purposes */
+	unsigned int is_metadata:1;	/* if it is meta-data, not data-data */
+	unsigned int is_superblock:1;	/* if it is one of the superblocks */
+	unsigned int is_iodone:1;	/* if is done by lower subsystem */
+	unsigned int iodone_w_error:1;	/* error was indicated to endio */
 	unsigned int never_written:1;	/* block was added because it was
 					 * referenced, not because it was
 					 * written */
-	unsigned int mirror_num:2;	
+	unsigned int mirror_num:2;	/* large enough to hold
+					 * BTRFS_SUPER_MIRROR_MAX */
 	struct btrfsic_dev_state *dev_state;
-	u64 dev_bytenr;		
-	u64 logical_bytenr;	
+	u64 dev_bytenr;		/* key, physical byte num on disk */
+	u64 logical_bytenr;	/* logical byte num on disk */
 	u64 generation;
-	struct btrfs_disk_key disk_key;	
-	struct list_head collision_resolving_node;	
-	struct list_head all_blocks_node;	
+	struct btrfs_disk_key disk_key;	/* extra info to print in case of
+					 * issues, will not always be correct */
+	struct list_head collision_resolving_node;	/* list node */
+	struct list_head all_blocks_node;	/* list node */
 
-	
-	struct list_head ref_to_list;	
-	struct list_head ref_from_list;	
+	/* the following two lists contain block_link items */
+	struct list_head ref_to_list;	/* list */
+	struct list_head ref_from_list;	/* list */
 	struct btrfsic_block *next_in_same_bio;
 	void *orig_bio_bh_private;
 	union {
@@ -154,22 +161,33 @@ struct btrfsic_block {
 	u64 flush_gen; /* only valid if !never_written */
 };
 
+/*
+ * Elements of this type are allocated dynamically and required because
+ * each block object can refer to and can be ref from multiple blocks.
+ * The key to lookup them in the hashtable is the dev_bytenr of
+ * the block ref to plus the one from the block refered from.
+ * The fact that they are searchable via a hashtable and that a
+ * ref_cnt is maintained is not required for the btrfs integrity
+ * check algorithm itself, it is only used to make the output more
+ * beautiful in case that an error is detected (an error is defined
+ * as a write operation to a block while that block is still referenced).
+ */
 struct btrfsic_block_link {
-	u32 magic_num;		
+	u32 magic_num;		/* only used for debug purposes */
 	u32 ref_cnt;
-	struct list_head node_ref_to;	
-	struct list_head node_ref_from;	
-	struct list_head collision_resolving_node;	
+	struct list_head node_ref_to;	/* list node */
+	struct list_head node_ref_from;	/* list node */
+	struct list_head collision_resolving_node;	/* list node */
 	struct btrfsic_block *block_ref_to;
 	struct btrfsic_block *block_ref_from;
 	u64 parent_generation;
 };
 
 struct btrfsic_dev_state {
-	u32 magic_num;		
+	u32 magic_num;		/* only used for debug purposes */
 	struct block_device *bdev;
 	struct btrfsic_state *state;
-	struct list_head collision_resolving_node;	
+	struct list_head collision_resolving_node;	/* list node */
 	struct btrfsic_block dummy_block_for_bio_bh_flush;
 	u64 last_flush_gen;
 	char name[BDEVNAME_SIZE];
@@ -188,14 +206,16 @@ struct btrfsic_dev_state_hashtable {
 };
 
 struct btrfsic_block_data_ctx {
-	u64 start;		
-	u64 dev_bytenr;		
+	u64 start;		/* virtual bytenr */
+	u64 dev_bytenr;		/* physical bytenr on device */
 	u32 len;
 	struct btrfsic_dev_state *dev;
 	char *data;
-	struct buffer_head *bh;	
+	struct buffer_head *bh;	/* do not use if set to NULL */
 };
 
+/* This structure is used to implement recursion without occupying
+ * any stack space, refer to btrfsic_process_metablock() */
 struct btrfsic_stack_frame {
 	u32 magic;
 	u32 nr;
@@ -212,6 +232,7 @@ struct btrfsic_stack_frame {
 	struct btrfsic_stack_frame *prev;
 };
 
+/* Some state per mounted filesystem */
 struct btrfsic_state {
 	u32 print_mask;
 	int include_extent_data;
@@ -776,7 +797,7 @@ static int btrfsic_process_superblock_dev_mirror(
 	int pass;
 	struct block_device *const superblock_bdev = device->bdev;
 
-	
+	/* super block bytenr is always the unmapped device bytenr */
 	dev_bytenr = btrfs_sb_offset(superblock_mirror_num);
 	bh = __bread(superblock_bdev, dev_bytenr / 4096, 4096);
 	if (NULL == bh)
@@ -803,7 +824,7 @@ static int btrfsic_process_superblock_dev_mirror(
 			brelse(bh);
 			return -1;
 		}
-		
+		/* for superblock, only the dev_bytenr makes sense */
 		superblock_tmp->dev_bytenr = dev_bytenr;
 		superblock_tmp->dev_state = dev_state;
 		superblock_tmp->logical_bytenr = dev_bytenr;
@@ -827,7 +848,7 @@ static int btrfsic_process_superblock_dev_mirror(
 					    &state->block_hashtable);
 	}
 
-	
+	/* select the one with the highest generation field */
 	if (btrfs_super_generation(super_tmp) >
 	    state->max_superblock_generation ||
 	    0 == state->max_superblock_generation) {
@@ -1140,7 +1161,7 @@ one_stack_frame_backwards:
 	if (NULL != sf->prev) {
 		struct btrfsic_stack_frame *const prev = sf->prev;
 
-		
+		/* the one for the initial block is freed in the caller */
 		btrfsic_release_block_ctx(sf->block_ctx);
 
 		if (sf->error) {
@@ -1591,6 +1612,10 @@ static void btrfsic_dump_database(struct btrfsic_state *state)
 	}
 }
 
+/*
+ * Test whether the disk block contains a tree block (leaf or node)
+ * (note that this test fails for the super block)
+ */
 static int btrfsic_test_for_metadata(struct btrfsic_state *state,
 				     const u8 *data, unsigned int size)
 {
@@ -1741,7 +1766,7 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 			       (unsigned long long)
 			       le64_to_cpu(((struct btrfs_header *)
 					    mapped_data)->generation));
-			
+			/* it would not be safe to go on */
 			btrfsic_dump_tree(state);
 			return;
 		}
@@ -1783,6 +1808,8 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 			return;
 		}
 		block_ctx.data = mapped_data;
+		/* the following is required in case of writes to mirrors,
+		 * use the same that was used for the lookup */
 		block_ctx.dev = dev_state;
 		block_ctx.dev_bytenr = dev_bytenr;
 
@@ -1848,7 +1875,7 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 					btrfsic_dump_tree_sub(state, block, 0);
 				}
 			} else {
-				block->mirror_num = 0;	
+				block->mirror_num = 0;	/* unknown */
 				ret = btrfsic_process_metablock(
 						state,
 						block,
@@ -1864,7 +1891,7 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 				       (unsigned long long)dev_bytenr);
 		} else {
 			block->is_metadata = 0;
-			block->mirror_num = 0;	
+			block->mirror_num = 0;	/* unknown */
 			block->generation = BTRFSIC_GENERATION_UNKNOWN;
 			if (!state->include_extent_data
 			    && list_empty(&block->ref_from_list)) {
@@ -1881,7 +1908,7 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 		}
 		btrfsic_release_block_ctx(&block_ctx);
 	} else {
-		
+		/* block has not been found in hash table */
 		u64 bytenr;
 
 		if (!is_metadata) {
@@ -1893,7 +1920,9 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 			if (!state->include_extent_data)
 				return;	/* ignore that written D block */
 
-			bytenr = 0;	
+			/* this is getting ugly for the
+			 * include_extent_data case... */
+			bytenr = 0;	/* unknown */
 			block_ctx.start = bytenr;
 			block_ctx.len = len;
 			block_ctx.bh = NULL;
@@ -1922,6 +1951,8 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 			}
 		}
 		block_ctx.data = mapped_data;
+		/* the following is required in case of writes to mirrors,
+		 * use the same that was used for the lookup */
 		block_ctx.dev = dev_state;
 		block_ctx.dev_bytenr = dev_bytenr;
 
@@ -1937,7 +1968,7 @@ static void btrfsic_process_written_block(struct btrfsic_dev_state *dev_state,
 		block->is_metadata = is_metadata;
 		block->never_written = 0;
 		block->iodone_w_error = 0;
-		block->mirror_num = 0;	
+		block->mirror_num = 0;	/* unknown */
 		block->flush_gen = dev_state->last_flush_gen + 1;
 		block->submit_bio_bh_rw = submit_bio_bh_rw;
 		if (NULL != bio) {
@@ -2007,6 +2038,8 @@ static void btrfsic_bio_end_io(struct bio *bp, int bio_error_status)
 	struct btrfsic_block *block = (struct btrfsic_block *)bp->bi_private;
 	int iodone_w_error;
 
+	/* mutex is not held! This is not save if IO is not yet completed
+	 * on umount */
 	iodone_w_error = 0;
 	if (bio_error_status)
 		iodone_w_error = 1;
@@ -2042,8 +2075,9 @@ static void btrfsic_bio_end_io(struct bio *bp, int bio_error_status)
 				       dev_state->last_flush_gen);
 		}
 		if (block->submit_bio_bh_rw & REQ_FUA)
-			block->flush_gen = 0; 
-		block->is_iodone = 1; 
+			block->flush_gen = 0; /* FUA completed means block is
+					       * on disk */
+		block->is_iodone = 1; /* for FLUSH, this releases the block */
 		block = next_block;
 	} while (NULL != block);
 
@@ -2079,11 +2113,11 @@ static void btrfsic_bh_end_io(struct buffer_head *bh, int uptodate)
 			       (unsigned long long)dev_state->last_flush_gen);
 	}
 	if (block->submit_bio_bh_rw & REQ_FUA)
-		block->flush_gen = 0; 
+		block->flush_gen = 0; /* FUA completed means block is on disk */
 
 	bh->b_private = block->orig_bio_bh_private;
 	bh->b_end_io = block->orig_bio_bh_end_io.bh;
-	block->is_iodone = 1; 
+	block->is_iodone = 1; /* for FLUSH, this releases the block */
 	bh->b_end_io(bh, uptodate);
 }
 
@@ -2268,6 +2302,10 @@ static int btrfsic_check_all_ref_blocks(struct btrfsic_state *state,
 		return ret;
 	}
 
+	/*
+	 * This algorithm is recursive because the amount of used stack
+	 * space is very small and the max recursion depth is limited.
+	 */
 	list_for_each(elem_ref_to, &block->ref_to_list) {
 		const struct btrfsic_block_link *const l =
 		    list_entry(elem_ref_to, struct btrfsic_block_link,
@@ -2367,7 +2405,7 @@ static int btrfsic_is_block_ref_by_superblock(
 	struct list_head *elem_ref_from;
 
 	if (recursion_level >= 3 + BTRFS_MAX_LEVEL) {
-		
+		/* refer to comment at "abort cyclic linkage (case 1)" */
 		if (state->print_mask & BTRFSIC_PRINT_MASK_VERBOSE)
 			printk(KERN_INFO
 			       "btrfsic: abort cyclic linkage (case 2).\n");
@@ -2375,6 +2413,10 @@ static int btrfsic_is_block_ref_by_superblock(
 		return 0;
 	}
 
+	/*
+	 * This algorithm is recursive because the amount of used stack space
+	 * is very small and the max recursion depth is limited.
+	 */
 	list_for_each(elem_ref_from, &block->ref_from_list) {
 		const struct btrfsic_block_link *const l =
 		    list_entry(elem_ref_from, struct btrfsic_block_link,
@@ -2481,7 +2523,15 @@ static void btrfsic_dump_tree_sub(const struct btrfsic_state *state,
 	static char buf[80];
 	int cursor_position;
 
+	/*
+	 * Should better fill an on-stack buffer with a complete line and
+	 * dump it at once when it is time to print a newline character.
+	 */
 
+	/*
+	 * This algorithm is recursive because the amount of used stack space
+	 * is very small and the max recursion depth is limited.
+	 */
 	indent_add = sprintf(buf, "%c-%llu(%s/%llu/%d)",
 			     btrfsic_get_block_type(state, block),
 			     (unsigned long long)block->logical_bytenr,
@@ -2711,9 +2761,11 @@ int btrfsic_submit_bh(int rw, struct buffer_head *bh)
 		return submit_bh(rw, bh);
 
 	mutex_lock(&btrfsic_mutex);
+	/* since btrfsic_submit_bh() might also be called before
+	 * btrfsic_mount(), this might return NULL */
 	dev_state = btrfsic_dev_state_lookup(bh->b_bdev);
 
-	
+	/* Only called to write the superblock (incl. FLUSH/FUA) */
 	if (NULL != dev_state &&
 	    (rw & WRITE) && bh->b_size > 0) {
 		u64 dev_bytenr;
@@ -2776,6 +2828,8 @@ void btrfsic_submit_bio(int rw, struct bio *bio)
 	}
 
 	mutex_lock(&btrfsic_mutex);
+	/* since btrfsic_submit_bio() is also called before
+	 * btrfsic_mount(), this might return NULL */
 	dev_state = btrfsic_dev_state_lookup(bio->bi_bdev);
 	if (NULL != dev_state &&
 	    (rw & WRITE) && NULL != bio->bi_io_vec) {
@@ -2968,6 +3022,11 @@ void btrfsic_unmount(struct btrfs_root *root,
 		return;
 	}
 
+	/*
+	 * Don't care about keeping the lists' state up to date,
+	 * just free all memory that was allocated dynamically.
+	 * Free the blocks and the block_links.
+	 */
 	list_for_each_safe(elem_all, tmp_all, &state->all_blocks_list) {
 		struct btrfsic_block *const b_all =
 		    list_entry(elem_all, struct btrfsic_block,

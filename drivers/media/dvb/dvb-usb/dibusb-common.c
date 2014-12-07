@@ -17,6 +17,7 @@ MODULE_LICENSE("GPL");
 
 #define deb_info(args...) dprintk(debug,0x01,args)
 
+/* common stuff used by the different dibusb modules */
 int dibusb_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 {
 	if (adap->priv != NULL) {
@@ -102,8 +103,8 @@ EXPORT_SYMBOL(dibusb2_0_power_ctrl);
 static int dibusb_i2c_msg(struct dvb_usb_device *d, u8 addr,
 			  u8 *wbuf, u16 wlen, u8 *rbuf, u16 rlen)
 {
-	u8 sndbuf[wlen+4]; 
-	
+	u8 sndbuf[wlen+4]; /* lead(1) devaddr,direction(1) addr(2) data(wlen) (len(2) (when reading)) */
+	/* write only ? */
 	int wo = (rbuf == NULL || rlen == 0),
 		len = 2 + wlen + (wo ? 0 : 2);
 
@@ -120,6 +121,9 @@ static int dibusb_i2c_msg(struct dvb_usb_device *d, u8 addr,
 	return dvb_usb_generic_rw(d,sndbuf,len,rbuf,rlen,0);
 }
 
+/*
+ * I2C master xfer function
+ */
 static int dibusb_i2c_xfer(struct i2c_adapter *adap,struct i2c_msg msg[],int num)
 {
 	struct dvb_usb_device *d = i2c_get_adapdata(adap);
@@ -129,7 +133,7 @@ static int dibusb_i2c_xfer(struct i2c_adapter *adap,struct i2c_msg msg[],int num
 		return -EAGAIN;
 
 	for (i = 0; i < num; i++) {
-		
+		/* write/read request */
 		if (i+1 < num && (msg[i].flags & I2C_M_RD) == 0
 					  && (msg[i+1].flags & I2C_M_RD)) {
 			if (dibusb_i2c_msg(d, msg[i].addr, msg[i].buf,msg[i].len,
@@ -140,6 +144,9 @@ static int dibusb_i2c_xfer(struct i2c_adapter *adap,struct i2c_msg msg[],int num
 			if (dibusb_i2c_msg(d, msg[i].addr, msg[i].buf,msg[i].len,NULL,0) < 0)
 				break;
 		} else if (msg[i].addr != 0x50) {
+			/* 0x50 is the address of the eeprom - we need to protect it
+			 * from dibusb's bad i2c implementation: reads without
+			 * writing the offset before are forbidden */
 			if (dibusb_i2c_msg(d, msg[i].addr, NULL, 0, msg[i].buf, msg[i].len) < 0)
 				break;
 		}
@@ -167,6 +174,8 @@ int dibusb_read_eeprom_byte(struct dvb_usb_device *d, u8 offs, u8 *val)
 }
 EXPORT_SYMBOL(dibusb_read_eeprom_byte);
 
+/* 3000MC/P stuff */
+// Config Adjacent channels  Perf -cal22
 static struct dibx000_agc_config dib3000p_mt2060_agc_config = {
 	.band_caps = BAND_VHF | BAND_UHF,
 	.setup     = (1 << 8) | (5 << 5) | (1 << 4) | (1 << 3) | (0 << 2) | (2 << 0),
@@ -278,7 +287,7 @@ int dibusb_dib3000mc_tuner_attach(struct dvb_usb_adapter *adap)
 	u16 if1 = 1220;
 	struct i2c_adapter *tun_i2c;
 
-	
+	// First IF calibration for Liteon Sticks
 	if (adap->dev->udev->descriptor.idVendor  == USB_VID_LITEON &&
 		adap->dev->udev->descriptor.idProduct == USB_PID_LITEON_DVB_T_WARM) {
 
@@ -311,12 +320,12 @@ int dibusb_dib3000mc_tuner_attach(struct dvb_usb_adapter *adap)
 
 	tun_i2c = dib3000mc_get_tuner_i2c_master(adap->fe_adap[0].fe, 1);
 	if (dvb_attach(mt2060_attach, adap->fe_adap[0].fe, tun_i2c, &stk3000p_mt2060_config, if1) == NULL) {
-		
+		/* not found - use panasonic pll parameters */
 		if (dvb_attach(dvb_pll_attach, adap->fe_adap[0].fe, 0x60, tun_i2c, DVB_PLL_ENV57H1XD5) == NULL)
 			return -ENOMEM;
 	} else {
 		st->mt2060_present = 1;
-		
+		/* set the correct parameters for the dib3000p */
 		dib3000mc_set_config(adap->fe_adap[0].fe, &stk3000p_dib3000p_config);
 	}
 	return 0;
@@ -324,8 +333,11 @@ int dibusb_dib3000mc_tuner_attach(struct dvb_usb_adapter *adap)
 EXPORT_SYMBOL(dibusb_dib3000mc_tuner_attach);
 #endif
 
+/*
+ * common remote control stuff
+ */
 struct rc_map_table rc_map_dibusb_table[] = {
-	
+	/* Key codes for the little Artec T1/Twinhan/HAMA/ remote. */
 	{ 0x0016, KEY_POWER },
 	{ 0x0010, KEY_MUTE },
 	{ 0x0003, KEY_1 },
@@ -343,26 +355,26 @@ struct rc_map_table rc_map_dibusb_table[] = {
 	{ 0x001e, KEY_VOLUMEUP },
 	{ 0x000a, KEY_VOLUMEDOWN },
 	{ 0x0011, KEY_RECORD },
-	{ 0x0017, KEY_FAVORITES }, 
+	{ 0x0017, KEY_FAVORITES }, /* Heart symbol - Channel list. */
 	{ 0x0014, KEY_PLAY },
 	{ 0x001a, KEY_STOP },
 	{ 0x0040, KEY_REWIND },
 	{ 0x0012, KEY_FASTFORWARD },
-	{ 0x000e, KEY_PREVIOUS }, 
+	{ 0x000e, KEY_PREVIOUS }, /* Recall - Previous channel. */
 	{ 0x004c, KEY_PAUSE },
-	{ 0x004d, KEY_SCREEN }, 
-	{ 0x0054, KEY_AUDIO }, 
-	
-	{ 0x000c, KEY_CANCEL }, 
-	{ 0x001c, KEY_EPG }, 
-	{ 0x0000, KEY_TAB }, 
-	{ 0x0048, KEY_INFO }, 
-	{ 0x0004, KEY_LIST }, 
-	{ 0x000f, KEY_TEXT }, 
-	
+	{ 0x004d, KEY_SCREEN }, /* Full screen mode. */
+	{ 0x0054, KEY_AUDIO }, /* MTS - Switch to secondary audio. */
+	/* additional keys TwinHan VisionPlus, the Artec seemingly not have */
+	{ 0x000c, KEY_CANCEL }, /* Cancel */
+	{ 0x001c, KEY_EPG }, /* EPG */
+	{ 0x0000, KEY_TAB }, /* Tab */
+	{ 0x0048, KEY_INFO }, /* Preview */
+	{ 0x0004, KEY_LIST }, /* RecordList */
+	{ 0x000f, KEY_TEXT }, /* Teletext */
+	/* Key codes for the KWorld/ADSTech/JetWay remote. */
 	{ 0x8612, KEY_POWER },
-	{ 0x860f, KEY_SELECT }, 
-	{ 0x860c, KEY_UNKNOWN }, 
+	{ 0x860f, KEY_SELECT }, /* source */
+	{ 0x860c, KEY_UNKNOWN }, /* scan */
 	{ 0x860b, KEY_EPG },
 	{ 0x8610, KEY_MUTE },
 	{ 0x8601, KEY_1 },
@@ -376,8 +388,8 @@ struct rc_map_table rc_map_dibusb_table[] = {
 	{ 0x8609, KEY_9 },
 	{ 0x860a, KEY_0 },
 	{ 0x8618, KEY_ZOOM },
-	{ 0x861c, KEY_UNKNOWN }, 
-	{ 0x8613, KEY_UNKNOWN }, 
+	{ 0x861c, KEY_UNKNOWN }, /* preview */
+	{ 0x8613, KEY_UNKNOWN }, /* snap */
 	{ 0x8600, KEY_UNDO },
 	{ 0x861d, KEY_RECORD },
 	{ 0x860d, KEY_STOP },
@@ -385,14 +397,14 @@ struct rc_map_table rc_map_dibusb_table[] = {
 	{ 0x8616, KEY_PLAY },
 	{ 0x8611, KEY_BACK },
 	{ 0x8619, KEY_FORWARD },
-	{ 0x8614, KEY_UNKNOWN }, 
+	{ 0x8614, KEY_UNKNOWN }, /* pip */
 	{ 0x8615, KEY_ESC },
 	{ 0x861a, KEY_UP },
 	{ 0x861e, KEY_DOWN },
 	{ 0x861f, KEY_LEFT },
 	{ 0x861b, KEY_RIGHT },
 
-	
+	/* Key codes for the DiBcom MOD3000 remote. */
 	{ 0x8000, KEY_MUTE },
 	{ 0x8001, KEY_TEXT },
 	{ 0x8002, KEY_HOME },
@@ -405,7 +417,7 @@ struct rc_map_table rc_map_dibusb_table[] = {
 
 	{ 0x8008, KEY_DVD },
 	{ 0x8009, KEY_AUDIO },
-	{ 0x800a, KEY_IMAGES },      
+	{ 0x800a, KEY_IMAGES },      /* Pictures */
 	{ 0x800b, KEY_VIDEO },
 
 	{ 0x800c, KEY_BACK },
@@ -416,11 +428,11 @@ struct rc_map_table rc_map_dibusb_table[] = {
 	{ 0x8010, KEY_LEFT },
 	{ 0x8011, KEY_OK },
 	{ 0x8012, KEY_RIGHT },
-	{ 0x8013, KEY_UNKNOWN },    
+	{ 0x8013, KEY_UNKNOWN },    /* SAP */
 
 	{ 0x8014, KEY_TV },
 	{ 0x8015, KEY_DOWN },
-	{ 0x8016, KEY_MENU },       
+	{ 0x8016, KEY_MENU },       /* DVD Menu */
 	{ 0x8017, KEY_LAST },
 
 	{ 0x8018, KEY_RECORD },

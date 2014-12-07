@@ -51,6 +51,7 @@ int r2net_remote_target_node_set(int node_num)
 	return ret;
 }
 
+/* FIXME following buffer should be per-cpu, protected by preempt_disable */
 static char ramster_async_get_buf[R2NET_MAX_PAYLOAD_BYTES];
 
 static int ramster_remote_async_get_request_handler(struct r2net_msg *msg,
@@ -75,13 +76,13 @@ static int ramster_remote_async_get_request_handler(struct r2net_msg *msg,
 				pdata, &size, 1, get_and_free ? 1 : -1);
 	local_irq_restore(flags);
 	if (found < 0) {
-		
+		/* a zero size indicates the get failed */
 		size = 0;
 	}
 	if (size > RMSTR_R2NET_MAX_LEN)
 		BUG();
 	*ret_data = pdata - sizeof(struct tmem_xhandle);
-	
+	/* now make caller (r2net_process_message) handle specially */
 	r2net_force_data_magic(msg, RMSTR_TMEM_ASYNC_GET_REPLY, RMSTR_KEY);
 	return size + sizeof(struct tmem_xhandle);
 }
@@ -165,7 +166,7 @@ int ramster_remote_async_get(struct tmem_xhandle *xh, bool free, int remotenode,
 	node = r2nm_get_node_by_num(remotenode);
 	if (node == NULL)
 		goto out;
-	xh->client_id = r2nm_this_node(); 
+	xh->client_id = r2nm_this_node(); /* which node is getting */
 	xh->xh_data_cksum = expect_cksum;
 	xh->xh_data_size = expect_size;
 	xh->extra = extra;
@@ -179,7 +180,7 @@ int ramster_remote_async_get(struct tmem_xhandle *xh, bool free, int remotenode,
 					vec, veclen, remotenode, &status);
 	r2nm_node_put(node);
 	if (ret < 0) {
-		
+		/* FIXME handle bad message possibilities here? */
 		pr_err("UNTESTED ret<0 in ramster_remote_async_get\n");
 	}
 	ret = status;
@@ -188,6 +189,7 @@ out:
 }
 
 #ifdef RAMSTER_TESTING
+/* leave me here to see if it catches a weird crash */
 static void ramster_check_irq_counts(void)
 {
 	static int last_hardirq_cnt, last_softirq_cnt, last_preempt_cnt;
@@ -230,7 +232,7 @@ int ramster_remote_put(struct tmem_xhandle *xh, char *data, size_t size,
 #endif
 
 	BUG_ON(size > RMSTR_R2NET_MAX_LEN);
-	xh->client_id = r2nm_this_node(); 
+	xh->client_id = r2nm_this_node(); /* which node is putting */
 	vec[0].iov_len = sizeof(*xh);
 	vec[0].iov_base = xh;
 	vec[1].iov_len = size;
@@ -253,7 +255,7 @@ int ramster_remote_put(struct tmem_xhandle *xh, char *data, size_t size,
 	else
 		msg_type = RMSTR_TMEM_PUT_PERS;
 #ifdef RAMSTER_TESTING
-	
+	/* leave me here to see if it catches a weird crash */
 	ramster_check_irq_counts();
 #endif
 
@@ -290,7 +292,7 @@ int ramster_remote_flush(struct tmem_xhandle *xh, int remotenode)
 
 	node = r2nm_get_node_by_num(remotenode);
 	BUG_ON(node == NULL);
-	xh->client_id = r2nm_this_node(); 
+	xh->client_id = r2nm_this_node(); /* which node is flushing */
 	vec[0].iov_len = sizeof(*xh);
 	vec[0].iov_base = xh;
 	BUG_ON(irqs_disabled());
@@ -310,7 +312,7 @@ int ramster_remote_flush_object(struct tmem_xhandle *xh, int remotenode)
 
 	node = r2nm_get_node_by_num(remotenode);
 	BUG_ON(node == NULL);
-	xh->client_id = r2nm_this_node(); 
+	xh->client_id = r2nm_this_node(); /* which node is flobjing */
 	vec[0].iov_len = sizeof(*xh);
 	vec[0].iov_base = xh;
 	ret = r2net_send_message_vec(RMSTR_TMEM_FLOBJ, RMSTR_KEY,
@@ -319,6 +321,9 @@ int ramster_remote_flush_object(struct tmem_xhandle *xh, int remotenode)
 	return ret;
 }
 
+/*
+ * Handler registration
+ */
 
 static LIST_HEAD(r2net_unreg_list);
 

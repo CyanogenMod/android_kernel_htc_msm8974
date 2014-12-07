@@ -27,6 +27,12 @@
 #include "xfs_trans_priv.h"
 #include "xfs_extfree_item.h"
 
+/*
+ * This routine is called to allocate an "extent free intention"
+ * log item that will hold nextents worth of extents.  The
+ * caller must use all nextents extents, because we are not
+ * flexible about this at all.
+ */
 xfs_efi_log_item_t *
 xfs_trans_get_efi(xfs_trans_t	*tp,
 		  uint		nextents)
@@ -39,10 +45,18 @@ xfs_trans_get_efi(xfs_trans_t	*tp,
 	efip = xfs_efi_init(tp->t_mountp, nextents);
 	ASSERT(efip != NULL);
 
+	/*
+	 * Get a log_item_desc to point at the new item.
+	 */
 	xfs_trans_add_item(tp, &efip->efi_item);
 	return efip;
 }
 
+/*
+ * This routine is called to indicate that the described
+ * extent is to be logged as needing to be freed.  It should
+ * be called once for each extent to be freed.
+ */
 void
 xfs_trans_log_efi_extent(xfs_trans_t		*tp,
 			 xfs_efi_log_item_t	*efip,
@@ -55,6 +69,11 @@ xfs_trans_log_efi_extent(xfs_trans_t		*tp,
 	tp->t_flags |= XFS_TRANS_DIRTY;
 	efip->efi_item.li_desc->lid_flags |= XFS_LID_DIRTY;
 
+	/*
+	 * atomic_inc_return gives us the value after the increment;
+	 * we want to use it as an array index so we need to subtract 1 from
+	 * it.
+	 */
 	next_extent = atomic_inc_return(&efip->efi_next_extent) - 1;
 	ASSERT(next_extent < efip->efi_format.efi_nextents);
 	extp = &(efip->efi_format.efi_extents[next_extent]);
@@ -63,6 +82,12 @@ xfs_trans_log_efi_extent(xfs_trans_t		*tp,
 }
 
 
+/*
+ * This routine is called to allocate an "extent free done"
+ * log item that will hold nextents worth of extents.  The
+ * caller must use all nextents extents, because we are not
+ * flexible about this at all.
+ */
 xfs_efd_log_item_t *
 xfs_trans_get_efd(xfs_trans_t		*tp,
 		  xfs_efi_log_item_t	*efip,
@@ -76,10 +101,18 @@ xfs_trans_get_efd(xfs_trans_t		*tp,
 	efdp = xfs_efd_init(tp->t_mountp, efip, nextents);
 	ASSERT(efdp != NULL);
 
+	/*
+	 * Get a log_item_desc to point at the new item.
+	 */
 	xfs_trans_add_item(tp, &efdp->efd_item);
 	return efdp;
 }
 
+/*
+ * This routine is called to indicate that the described
+ * extent is to be logged as having been freed.  It should
+ * be called once for each extent freed.
+ */
 void
 xfs_trans_log_efd_extent(xfs_trans_t		*tp,
 			 xfs_efd_log_item_t	*efdp,

@@ -92,12 +92,23 @@ static int aac_alloc_comm(struct aac_dev *dev, void **commaddr, unsigned long co
 	init->MiniPortRevision = cpu_to_le32(Sa_MINIPORT_REVISION);
 	init->fsrev = cpu_to_le32(dev->fsrev);
 
+	/*
+	 *	Adapter Fibs are the first thing allocated so that they
+	 *	start page aligned
+	 */
 	dev->aif_base_va = (struct hw_fib *)base;
 	
 	init->AdapterFibsVirtualAddress = 0;
 	init->AdapterFibsPhysicalAddress = cpu_to_le32((u32)phys);
 	init->AdapterFibsSize = cpu_to_le32(fibsize);
 	init->AdapterFibAlign = cpu_to_le32(sizeof(struct hw_fib));
+	/*
+	 * number of 4k pages of host physical memory. The aacraid fw needs
+	 * this number to be less than 4gb worth of pages. New firmware doesn't
+	 * have any issues with the mapping system, but older Firmware did, and
+	 * had *troubles* dealing with the math overloading past 32 bits, thus
+	 * we must limit this field.
+	 */
 	aac_max_hostphysmempages = dma_get_required_mask(&dev->pdev->dev) >> 12;
 	if (aac_max_hostphysmempages < AAC_MAX_HOSTPHYSMEMPAGES)
 		init->HostPhysMemPages = cpu_to_le32(aac_max_hostphysmempages);
@@ -125,17 +136,32 @@ static int aac_alloc_comm(struct aac_dev *dev, void **commaddr, unsigned long co
 	init->HostRRQ_AddrLow = (u32)(dev->host_rrq_pa & 0xffffffff);
 
 
+	/*
+	 * Increment the base address by the amount already used
+	 */
 	base = base + fibsize + host_rrq_size + sizeof(struct aac_init);
 	phys = (dma_addr_t)((ulong)phys + fibsize + host_rrq_size +
 		sizeof(struct aac_init));
 
+	/*
+	 *	Align the beginning of Headers to commalign
+	 */
 	align = (commalign - ((uintptr_t)(base) & (commalign - 1)));
 	base = base + align;
 	phys = phys + align;
+	/*
+	 *	Fill in addresses of the Comm Area Headers and Queues
+	 */
 	*commaddr = base;
 	init->CommHeaderAddress = cpu_to_le32((u32)phys);
+	/*
+	 *	Increment the base address by the size of the CommArea
+	 */
 	base = base + commsize;
 	phys = phys + commsize;
+	/*
+	 *	 Place the Printf buffer area after the Fast I/O comm area.
+	 */
 	dev->printfbuf = (void *)base;
 	init->printfbuf = cpu_to_le32(phys);
 	init->printfbufsiz = cpu_to_le32(printfbufsiz);
@@ -159,6 +185,12 @@ static void aac_queue_init(struct aac_dev * dev, struct aac_queue * q, u32 *mem,
 	q->entries = qsize;
 }
 
+/**
+ *	aac_send_shutdown		-	shutdown an adapter
+ *	@dev: Adapter to shutdown
+ *
+ *	This routine will send a VM_CloseAll (shutdown) request to the adapter.
+ */
 
 int aac_send_shutdown(struct aac_dev * dev)
 {
@@ -180,17 +212,27 @@ int aac_send_shutdown(struct aac_dev * dev)
 			  fibctx,
 			  sizeof(struct aac_close),
 			  FsaNormal,
-			  -2 , 1,
+			  -2 /* Timeout silently */, 1,
 			  NULL, NULL);
 
 	if (status >= 0)
 		aac_fib_complete(fibctx);
-	
+	/* FIB should be freed only after getting the response from the F/W */
 	if (status != -ERESTARTSYS)
 		aac_fib_free(fibctx);
 	return status;
 }
 
+/**
+ *	aac_comm_init	-	Initialise FSA data structures
+ *	@dev:	Adapter to initialise
+ *
+ *	Initializes the data structures that are required for the FSA commuication
+ *	interface to operate. 
+ *	Returns
+ *		1 - if we were able to init the commuication interface.
+ *		0 - If there were errors initing. This is a fatal error.
+ */
  
 static int aac_comm_init(struct aac_dev * dev)
 {
@@ -200,8 +242,18 @@ static int aac_comm_init(struct aac_dev * dev)
 	struct aac_entry * queues;
 	unsigned long size;
 	struct aac_queue_block * comm = dev->queues;
+	/*
+	 *	Now allocate and initialize the zone structures used as our 
+	 *	pool of FIB context records.  The size of the zone is based
+	 *	on the system memory size.  We also initialize the mutex used
+	 *	to protect the zone.
+	 */
 	spin_lock_init(&dev->fib_lock);
 
+	/*
+	 *	Allocate the physically contiguous space for the commuication
+	 *	queue headers. 
+	 */
 
 	size = hdrsize + queuesize;
 
@@ -210,54 +262,54 @@ static int aac_comm_init(struct aac_dev * dev)
 
 	queues = (struct aac_entry *)(((ulong)headers) + hdrsize);
 
-	 
+	/* Adapter to Host normal priority Command queue */ 
 	comm->queue[HostNormCmdQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[HostNormCmdQueue], headers, HOST_NORM_CMD_ENTRIES);
 	queues += HOST_NORM_CMD_ENTRIES;
 	headers += 2;
 
-	
+	/* Adapter to Host high priority command queue */
 	comm->queue[HostHighCmdQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[HostHighCmdQueue], headers, HOST_HIGH_CMD_ENTRIES);
     
 	queues += HOST_HIGH_CMD_ENTRIES;
 	headers +=2;
 
-	
+	/* Host to adapter normal priority command queue */
 	comm->queue[AdapNormCmdQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[AdapNormCmdQueue], headers, ADAP_NORM_CMD_ENTRIES);
     
 	queues += ADAP_NORM_CMD_ENTRIES;
 	headers += 2;
 
-	
+	/* host to adapter high priority command queue */
 	comm->queue[AdapHighCmdQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[AdapHighCmdQueue], headers, ADAP_HIGH_CMD_ENTRIES);
     
 	queues += ADAP_HIGH_CMD_ENTRIES;
 	headers += 2;
 
-	
+	/* adapter to host normal priority response queue */
 	comm->queue[HostNormRespQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[HostNormRespQueue], headers, HOST_NORM_RESP_ENTRIES);
 	queues += HOST_NORM_RESP_ENTRIES;
 	headers += 2;
 
-	
+	/* adapter to host high priority response queue */
 	comm->queue[HostHighRespQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[HostHighRespQueue], headers, HOST_HIGH_RESP_ENTRIES);
    
 	queues += HOST_HIGH_RESP_ENTRIES;
 	headers += 2;
 
-	
+	/* host to adapter normal priority response queue */
 	comm->queue[AdapNormRespQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[AdapNormRespQueue], headers, ADAP_NORM_RESP_ENTRIES);
 
 	queues += ADAP_NORM_RESP_ENTRIES;
 	headers += 2;
 	
-	 
+	/* host to adapter high priority response queue */ 
 	comm->queue[AdapHighRespQueue].base = queues;
 	aac_queue_init(dev, &comm->queue[AdapHighRespQueue], headers, ADAP_HIGH_RESP_ENTRIES);
 
@@ -275,6 +327,9 @@ struct aac_dev *aac_init_adapter(struct aac_dev *dev)
 	struct Scsi_Host * host = dev->scsi_host_ptr;
 	extern int aac_sync_mode;
 
+	/*
+	 *	Check the preferred comm settings, defaults from template.
+	 */
 	dev->management_fib_count = 0;
 	spin_lock_init(&dev->manage_lock);
 	spin_lock_init(&dev->sync_lock);
@@ -297,13 +352,13 @@ struct aac_dev *aac_init_adapter(struct aac_dev *dev)
 				dev->comm_interface = AAC_COMM_MESSAGE;
 				dev->raw_io_interface = 1;
 			if ((status[1] & le32_to_cpu(AAC_OPT_NEW_COMM_TYPE1))) {
-				
+				/* driver supports TYPE1 (Tupelo) */
 				dev->comm_interface = AAC_COMM_MESSAGE_TYPE1;
 			} else if ((status[1] & le32_to_cpu(AAC_OPT_NEW_COMM_TYPE4)) ||
 				  (status[1] & le32_to_cpu(AAC_OPT_NEW_COMM_TYPE3)) ||
 				  (status[1] & le32_to_cpu(AAC_OPT_NEW_COMM_TYPE2))) {
-					
-					
+					/* driver doesn't support TYPE2 (Series7), TYPE3 and TYPE4 */
+					/* switch to sync. mode */
 					dev->comm_interface = AAC_COMM_MESSAGE_TYPE1;
 					dev->sync_mode = 1;
 			}
@@ -313,7 +368,7 @@ struct aac_dev *aac_init_adapter(struct aac_dev *dev)
 			aac_adapter_ioremap(dev, 0);
 			dev->base_size = status[2];
 			if (aac_adapter_ioremap(dev, status[2])) {
-				
+				/* remap failed, go back ... */
 				dev->comm_interface = AAC_COMM_PRODUCER;
 				if (aac_adapter_ioremap(dev, AAC_MIN_FOOTPRINT_SIZE)) {
 					printk(KERN_WARNING
@@ -327,13 +382,26 @@ struct aac_dev *aac_init_adapter(struct aac_dev *dev)
 	  0, 0, 0, 0, 0, 0,
 	  status+0, status+1, status+2, status+3, status+4))
 	 && (status[0] == 0x00000001)) {
+		/*
+		 *	status[1] >> 16		maximum command size in KB
+		 *	status[1] & 0xFFFF	maximum FIB size
+		 *	status[2] >> 16		maximum SG elements to driver
+		 *	status[2] & 0xFFFF	maximum SG elements from driver
+		 *	status[3] & 0xFFFF	maximum number FIBs outstanding
+		 */
 		host->max_sectors = (status[1] >> 16) << 1;
-		
+		/* Multiple of 32 for PMC */
 		dev->max_fib_size = status[1] & 0xFFE0;
 		host->sg_tablesize = status[2] >> 16;
 		dev->sg_tablesize = status[2] & 0xFFFF;
 		host->can_queue = (status[3] & 0xFFFF) - AAC_NUM_MGT_FIB;
 		dev->max_num_aif = status[4] & 0xFFFF;
+		/*
+		 *	NOTE:
+		 *	All these overrides are based on a fixed internal
+		 *	knowledge and understanding of existing adapters,
+		 *	acbsize should be set with caution.
+		 */
 		if (acbsize == 512) {
 			host->max_sectors = AAC_MAX_32BIT_SGBCOUNT;
 			dev->max_fib_size = 512;
@@ -374,6 +442,9 @@ struct aac_dev *aac_init_adapter(struct aac_dev *dev)
 		}
 	}
 
+	/*
+	 *	Ok now init the communication subsystem
+	 */
 
 	dev->queues = kzalloc(sizeof(struct aac_queue_block), GFP_KERNEL);
 	if (dev->queues == NULL) {
@@ -385,6 +456,9 @@ struct aac_dev *aac_init_adapter(struct aac_dev *dev)
 		kfree(dev->queues);
 		return NULL;
 	}
+	/*
+	 *	Initialize the list of fibs
+	 */
 	if (aac_fib_setup(dev) < 0) {
 		kfree(dev->queues);
 		return NULL;

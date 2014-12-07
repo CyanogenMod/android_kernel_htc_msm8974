@@ -27,6 +27,9 @@
 
 #define ACM_CTRL_DTR	(1 << 0)
 
+/* TODO: use separate structures for data and
+ * control paths
+ */
 struct f_gps {
 	struct grmnet			port;
 	u8				port_num;
@@ -37,11 +40,11 @@ struct f_gps {
 
 	spinlock_t			lock;
 
-	
+	/* usb eps */
 	struct usb_ep			*notify;
 	struct usb_request		*notify_req;
 
-	
+	/* control info */
 	struct list_head		cpkt_resp_q;
 	atomic_t			notify_count;
 	unsigned long			cpkts_len;
@@ -59,9 +62,10 @@ static struct usb_interface_descriptor gps_interface_desc = {
 	.bInterfaceClass =	USB_CLASS_VENDOR_SPEC,
 	.bInterfaceSubClass =	USB_CLASS_VENDOR_SPEC,
 	.bInterfaceProtocol =	USB_CLASS_VENDOR_SPEC,
-	
+	/* .iInterface = DYNAMIC */
 };
 
+/* Full speed support */
 static struct usb_endpoint_descriptor gps_fs_notify_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -77,6 +81,7 @@ static struct usb_descriptor_header *gps_fs_function[] = {
 	NULL,
 };
 
+/* High speed support */
 static struct usb_endpoint_descriptor gps_hs_notify_desc  = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -92,6 +97,7 @@ static struct usb_descriptor_header *gps_hs_function[] = {
 	NULL,
 };
 
+/* Super speed support */
 static struct usb_endpoint_descriptor gps_ss_notify_desc  = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -105,9 +111,9 @@ static struct usb_ss_ep_comp_descriptor gps_ss_notify_comp_desc = {
 	.bLength =		sizeof gps_ss_notify_comp_desc,
 	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
 
-	
-	
-	
+	/* the following 3 values can be tweaked if necessary */
+	/* .bMaxBurst =		0, */
+	/* .bmAttributes =	0, */
 	.wBytesPerInterval =	cpu_to_le16(GPS_MAX_NOTIFY_SIZE),
 };
 
@@ -118,14 +124,15 @@ static struct usb_descriptor_header *gps_ss_function[] = {
 	NULL,
 };
 
+/* String descriptors */
 
 static struct usb_string gps_string_defs[] = {
 	[0].s = "GPS",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings gps_string_table = {
-	.language =		0x0409,	
+	.language =		0x0409,	/* en-us */
 	.strings =		gps_string_defs,
 };
 
@@ -136,6 +143,7 @@ static struct usb_gadget_strings *gps_strings[] = {
 
 static void gps_ctrl_response_available(struct f_gps *dev);
 
+/* ------- misc functions --------------------*/
 
 static inline struct f_gps *func_to_gps(struct usb_function *f)
 {
@@ -197,6 +205,7 @@ static void gps_free_ctrl_pkt(struct rmnet_ctrl_pkt *pkt)
 	kfree(pkt);
 }
 
+/* -------------------------------------------*/
 
 static int gps_gport_setup(void)
 {
@@ -309,6 +318,8 @@ gps_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 
 	atomic_set(&dev->online, 1);
 
+	/* In case notifications were aborted, but there are pending control
+	   packets in the response queue, re-add the notifications */
 	list_for_each(cpkt, &dev->cpkt_resp_q)
 		gps_ctrl_response_available(dev);
 
@@ -484,12 +495,12 @@ static void gps_notify_complete(struct usb_ep *ep, struct usb_request *req)
 	switch (status) {
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		atomic_set(&dev->notify_count, 0);
 		break;
 	default:
 		pr_err("gps notify ep error %d\n", status);
-		
+		/* FALLTHROUGH */
 	case 0:
 		if (!atomic_read(&dev->ctrl_online))
 			break;
@@ -583,7 +594,7 @@ invalid:
 			w_value, w_index, w_length);
 	}
 
-	
+	/* respond with data transfer or status phase? */
 	if (ret >= 0) {
 		VDBG(cdev, "gps req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
@@ -648,7 +659,7 @@ static int gps_bind(struct usb_configuration *c, struct usb_function *f)
 		gps_hs_notify_desc.bEndpointAddress =
 				gps_fs_notify_desc.bEndpointAddress;
 
-		
+		/* copy descriptors, and track endpoint copies */
 		f->hs_descriptors = usb_copy_descriptors(gps_hs_function);
 
 		if (!f->hs_descriptors)
@@ -659,7 +670,7 @@ static int gps_bind(struct usb_configuration *c, struct usb_function *f)
 		gps_ss_notify_desc.bEndpointAddress =
 				gps_fs_notify_desc.bEndpointAddress;
 
-		
+		/* copy descriptors, and track endpoint copies */
 		f->ss_descriptors = usb_copy_descriptors(gps_ss_function);
 
 		if (!f->ss_descriptors)

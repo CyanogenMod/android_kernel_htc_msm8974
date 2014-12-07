@@ -48,32 +48,38 @@ static int mqprio_parse_opt(struct net_device *dev, struct tc_mqprio_qopt *qopt)
 {
 	int i, j;
 
-	
+	/* Verify num_tc is not out of max range */
 	if (qopt->num_tc > TC_MAX_QUEUE)
 		return -EINVAL;
 
-	
+	/* Verify priority mapping uses valid tcs */
 	for (i = 0; i < TC_BITMASK + 1; i++) {
 		if (qopt->prio_tc_map[i] >= qopt->num_tc)
 			return -EINVAL;
 	}
 
-	
+	/* net_device does not support requested operation */
 	if (qopt->hw && !dev->netdev_ops->ndo_setup_tc)
 		return -EINVAL;
 
+	/* if hw owned qcount and qoffset are taken from LLD so
+	 * no reason to verify them here
+	 */
 	if (qopt->hw)
 		return 0;
 
 	for (i = 0; i < qopt->num_tc; i++) {
 		unsigned int last = qopt->offset[i] + qopt->count[i];
 
+		/* Verify the queue count is in tx range being equal to the
+		 * real_num_tx_queues indicates the last queue is in use.
+		 */
 		if (qopt->offset[i] >= dev->real_num_tx_queues ||
 		    !qopt->count[i] ||
 		    last > dev->real_num_tx_queues)
 			return -EINVAL;
 
-		
+		/* Verify that the offset and counts do not overlap */
 		for (j = i + 1; j < qopt->num_tc; j++) {
 			if (last > qopt->offset[j])
 				return -EINVAL;
@@ -108,7 +114,7 @@ static int mqprio_init(struct Qdisc *sch, struct nlattr *opt)
 	if (mqprio_parse_opt(dev, qopt))
 		return -EINVAL;
 
-	
+	/* pre-allocate qdisc, attachment can't fail */
 	priv->qdiscs = kcalloc(dev->num_tx_queues, sizeof(priv->qdiscs[0]),
 			       GFP_KERNEL);
 	if (priv->qdiscs == NULL) {
@@ -128,6 +134,10 @@ static int mqprio_init(struct Qdisc *sch, struct nlattr *opt)
 		priv->qdiscs[i] = qdisc;
 	}
 
+	/* If the mqprio options indicate that hardware should own
+	 * the queue mapping then run ndo_setup_tc otherwise use the
+	 * supplied and verified mapping
+	 */
 	if (qopt->hw) {
 		priv->hw_owned = 1;
 		err = dev->netdev_ops->ndo_setup_tc(dev, qopt->num_tc);
@@ -140,7 +150,7 @@ static int mqprio_init(struct Qdisc *sch, struct nlattr *opt)
 					    qopt->count[i], qopt->offset[i]);
 	}
 
-	
+	/* Always use supplied priority mappings */
 	for (i = 0; i < TC_BITMASK + 1; i++)
 		netdev_set_prio_tc_map(dev, i, qopt->prio_tc_map[i]);
 
@@ -159,7 +169,7 @@ static void mqprio_attach(struct Qdisc *sch)
 	struct Qdisc *qdisc;
 	unsigned int ntx;
 
-	
+	/* Attach underlying qdisc */
 	for (ntx = 0; ntx < dev->num_tx_queues; ntx++) {
 		qdisc = priv->qdiscs[ntx];
 		qdisc = dev_graft_qdisc(qdisc->dev_queue, qdisc);
@@ -315,6 +325,11 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 		struct gnet_stats_basic_packed bstats = {0};
 		struct netdev_tc_txq tc = dev->tc_to_txq[cl - 1];
 
+		/* Drop lock here it will be reclaimed before touching
+		 * statistics this is required because the d->lock we
+		 * hold here is the look on dev_queue->qdisc_sleeping
+		 * also acquired below.
+		 */
 		spin_unlock_bh(d->lock);
 
 		for (i = tc.offset; i < tc.offset + tc.count; i++) {
@@ -329,7 +344,7 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 			qstats.overlimits += qdisc->qstats.overlimits;
 			spin_unlock_bh(qdisc_lock(qdisc));
 		}
-		
+		/* Reclaim root sleeping lock before completing stats */
 		spin_lock_bh(d->lock);
 		if (gnet_stats_copy_basic(d, &bstats) < 0 ||
 		    gnet_stats_copy_queue(d, &qstats) < 0)
@@ -354,7 +369,7 @@ static void mqprio_walk(struct Qdisc *sch, struct qdisc_walker *arg)
 	if (arg->stop)
 		return;
 
-	
+	/* Walk hierarchy with a virtual class per tc */
 	arg->count = arg->skip;
 	for (ntx = arg->skip;
 	     ntx < dev->num_tx_queues + netdev_get_num_tc(dev);

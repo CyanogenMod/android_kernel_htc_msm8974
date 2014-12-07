@@ -32,6 +32,7 @@
 #include <sound/initval.h>
 #include "lola.h"
 
+/* Standard options */
 static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;
 static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;
 static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;
@@ -43,11 +44,16 @@ MODULE_PARM_DESC(id, "ID string for Digigram Lola driver.");
 module_param_array(enable, bool, NULL, 0444);
 MODULE_PARM_DESC(enable, "Enable Digigram Lola driver.");
 
+/* Lola-specific options */
 
+/* for instance use always max granularity which is compatible
+ * with all sample rates
+ */
 static int granularity[SNDRV_CARDS] = {
 	[0 ... (SNDRV_CARDS - 1)] = LOLA_GRANULARITY_MAX
 };
 
+/* below a sample_rate of 16kHz the analogue audio quality is NOT excellent */
 static int sample_rate_min[SNDRV_CARDS] = {
 	[0 ... (SNDRV_CARDS - 1) ] = 16000
 };
@@ -57,6 +63,8 @@ MODULE_PARM_DESC(granularity, "Granularity value");
 module_param_array(sample_rate_min, int, NULL, 0444);
 MODULE_PARM_DESC(sample_rate_min, "Minimal sample rate");
 
+/*
+ */
 
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Digigram, Lola}}");
@@ -72,6 +80,9 @@ module_param(debug, int, 0644);
 #define verbose_debug(fmt, args...)
 #endif
 
+/*
+ * pseudo-codec read/write via CORB/RIRB
+ */
 
 static int corb_send_verb(struct lola *chip, unsigned int nid,
 			  unsigned int verb, unsigned int data,
@@ -108,6 +119,7 @@ static void lola_queue_unsol_event(struct lola *chip, unsigned int res,
 	lola_update_ext_clock_freq(chip, res);
 }
 
+/* retrieve RIRB entry - called from interrupt handler */
 static void lola_update_rirb(struct lola *chip)
 {
 	unsigned int rp, wp;
@@ -122,7 +134,7 @@ static void lola_update_rirb(struct lola *chip)
 		chip->rirb.rp++;
 		chip->rirb.rp %= LOLA_CORB_ENTRIES;
 
-		rp = chip->rirb.rp << 1; 
+		rp = chip->rirb.rp << 1; /* an RIRB entry is 8-bytes */
 		res_ex = le32_to_cpu(chip->rirb.buf[rp + 1]);
 		res = le32_to_cpu(chip->rirb.buf[rp]);
 		if (res_ex & LOLA_RIRB_EX_UNSOL_EV)
@@ -179,6 +191,7 @@ static int rirb_get_response(struct lola *chip, unsigned int *val,
 	return -EIO;
 }
 
+/* aynchronous write of a codec verb with data */
 int lola_codec_write(struct lola *chip, unsigned int nid, unsigned int verb,
 		     unsigned int data, unsigned int extdata)
 {
@@ -187,6 +200,7 @@ int lola_codec_write(struct lola *chip, unsigned int nid, unsigned int verb,
 	return corb_send_verb(chip, nid, verb, data, extdata);
 }
 
+/* write a codec verb with data and read the returned status */
 int lola_codec_read(struct lola *chip, unsigned int nid, unsigned int verb,
 		    unsigned int data, unsigned int extdata,
 		    unsigned int *val, unsigned int *extval)
@@ -202,12 +216,16 @@ int lola_codec_read(struct lola *chip, unsigned int nid, unsigned int verb,
 	return err;
 }
 
+/* flush all pending codec writes */
 int lola_codec_flush(struct lola *chip)
 {
 	unsigned int tmp;
 	return rirb_get_response(chip, &tmp, NULL);
 }
 
+/*
+ * interrupt handler
+ */
 static irqreturn_t lola_interrupt(int irq, void *dev_id)
 {
 	struct lola *chip = dev_id;
@@ -228,35 +246,35 @@ static irqreturn_t lola_interrupt(int irq, void *dev_id)
 		in_sts = lola_readl(chip, BAR1, DIINTSTS);
 		out_sts = lola_readl(chip, BAR1, DOINTSTS);
 
-		
+		/* clear Input Interrupts */
 		for (i = 0; in_sts && i < chip->pcm[CAPT].num_streams; i++) {
 			if (!(in_sts & (1 << i)))
 				continue;
 			in_sts &= ~(1 << i);
 			reg = lola_dsd_read(chip, i, STS);
-			if (reg & LOLA_DSD_STS_DESE) 
+			if (reg & LOLA_DSD_STS_DESE) /* error */
 				error_ins |= (1 << i);
-			if (reg & LOLA_DSD_STS_BCIS) 
+			if (reg & LOLA_DSD_STS_BCIS) /* notify */
 				notify_ins |= (1 << i);
-			
+			/* clear */
 			lola_dsd_write(chip, i, STS, reg);
 		}
 
-		
+		/* clear Output Interrupts */
 		for (i = 0; out_sts && i < chip->pcm[PLAY].num_streams; i++) {
 			if (!(out_sts & (1 << i)))
 				continue;
 			out_sts &= ~(1 << i);
 			reg = lola_dsd_read(chip, i + MAX_STREAM_IN_COUNT, STS);
-			if (reg & LOLA_DSD_STS_DESE) 
+			if (reg & LOLA_DSD_STS_DESE) /* error */
 				error_outs |= (1 << i);
-			if (reg & LOLA_DSD_STS_BCIS) 
+			if (reg & LOLA_DSD_STS_BCIS) /* notify */
 				notify_outs |= (1 << i);
 			lola_dsd_write(chip, i + MAX_STREAM_IN_COUNT, STS, reg);
 		}
 
 		if (status & LOLA_DINT_CTRL) {
-			unsigned char rbsts; 
+			unsigned char rbsts; /* ring status is byte access */
 			rbsts = lola_readb(chip, BAR0, RIRBSTS);
 			rbsts &= LOLA_RIRB_INT_MASK;
 			if (rbsts)
@@ -270,7 +288,7 @@ static irqreturn_t lola_interrupt(int irq, void *dev_id)
 		}
 
 		if (status & (LOLA_DINT_FIFOERR | LOLA_DINT_MUERR)) {
-			
+			/* clear global fifo error interrupt */
 			lola_writel(chip, BAR1, DINTSTS,
 				    (status & (LOLA_DINT_FIFOERR | LOLA_DINT_MUERR)));
 		}
@@ -285,13 +303,16 @@ static irqreturn_t lola_interrupt(int irq, void *dev_id)
 }
 
 
+/*
+ * controller
+ */
 static int reset_controller(struct lola *chip)
 {
 	unsigned int gctl = lola_readl(chip, BAR0, GCTL);
 	unsigned long end_time;
 
 	if (gctl) {
-		
+		/* to be sure */
 		lola_writel(chip, BAR1, BOARD_MODE, 0);
 		return 0;
 	}
@@ -316,13 +337,13 @@ static void lola_irq_enable(struct lola *chip)
 {
 	unsigned int val;
 
-	
+	/* enalbe all I/O streams */
 	val = (1 << chip->pcm[PLAY].num_streams) - 1;
 	lola_writel(chip, BAR1, DOINTCTL, val);
 	val = (1 << chip->pcm[CAPT].num_streams) - 1;
 	lola_writel(chip, BAR1, DIINTCTL, val);
 
-	
+	/* enable global irqs */
 	val = LOLA_DINT_GLOBAL | LOLA_DINT_CTRL | LOLA_DINT_FIFOERR |
 		LOLA_DINT_MUERR;
 	lola_writel(chip, BAR1, DINTCTL, val);
@@ -352,7 +373,7 @@ static int setup_corb_rirb(struct lola *chip)
 	chip->rirb.addr = chip->rb.addr + 2048;
 	chip->rirb.buf = (u32 *)(chip->rb.area + 2048);
 
-	
+	/* disable ringbuffer DMAs */
 	lola_writeb(chip, BAR0, RIRBCTL, 0);
 	lola_writeb(chip, BAR0, CORBCTL, 0);
 
@@ -364,35 +385,35 @@ static int setup_corb_rirb(struct lola *chip)
 		msleep(1);
 	} while (time_before(jiffies, end_time));
 
-	
+	/* CORB set up */
 	lola_writel(chip, BAR0, CORBLBASE, (u32)chip->corb.addr);
 	lola_writel(chip, BAR0, CORBUBASE, upper_32_bits(chip->corb.addr));
-	
+	/* set the corb size to 256 entries */
 	lola_writeb(chip, BAR0, CORBSIZE, 0x02);
-	
+	/* set the corb write pointer to 0 */
 	lola_writew(chip, BAR0, CORBWP, 0);
-	
+	/* reset the corb hw read pointer */
 	lola_writew(chip, BAR0, CORBRP, LOLA_RBRWP_CLR);
-	
+	/* enable corb dma */
 	lola_writeb(chip, BAR0, CORBCTL, LOLA_RBCTL_DMA_EN);
-	
+	/* clear flags if set */
 	tmp = lola_readb(chip, BAR0, CORBSTS) & LOLA_CORB_INT_MASK;
 	if (tmp)
 		lola_writeb(chip, BAR0, CORBSTS, tmp);
 	chip->corb.wp = 0;
 
-	
+	/* RIRB set up */
 	lola_writel(chip, BAR0, RIRBLBASE, (u32)chip->rirb.addr);
 	lola_writel(chip, BAR0, RIRBUBASE, upper_32_bits(chip->rirb.addr));
-	
+	/* set the rirb size to 256 entries */
 	lola_writeb(chip, BAR0, RIRBSIZE, 0x02);
-	
+	/* reset the rirb hw write pointer */
 	lola_writew(chip, BAR0, RIRBWP, LOLA_RBRWP_CLR);
-	
+	/* set N=1, get RIRB response interrupt for new entry */
 	lola_writew(chip, BAR0, RINTCNT, 1);
-	
+	/* enable rirb dma and response irq */
 	lola_writeb(chip, BAR0, RIRBCTL, LOLA_RBCTL_DMA_EN | LOLA_RBCTL_IRQ_EN);
-	
+	/* clear flags if set */
 	tmp =  lola_readb(chip, BAR0, RIRBSTS) & LOLA_RIRB_INT_MASK;
 	if (tmp)
 		lola_writeb(chip, BAR0, RIRBSTS, tmp);
@@ -403,25 +424,25 @@ static int setup_corb_rirb(struct lola *chip)
 
 static void stop_corb_rirb(struct lola *chip)
 {
-	
+	/* disable ringbuffer DMAs */
 	lola_writeb(chip, BAR0, RIRBCTL, 0);
 	lola_writeb(chip, BAR0, CORBCTL, 0);
 }
 
 static void lola_reset_setups(struct lola *chip)
 {
-	
+	/* update the granularity */
 	lola_set_granularity(chip, chip->granularity, true);
-	
+	/* update the sample clock */
 	lola_set_clock_index(chip, chip->clock.cur_index);
-	
+	/* enable unsolicited events of the clock widget */
 	lola_enable_clock_events(chip);
-	
-	lola_setup_all_analog_gains(chip, CAPT, false); 
-	
+	/* update the analog gains */
+	lola_setup_all_analog_gains(chip, CAPT, false); /* input, update */
+	/* update SRC configuration if applicable */
 	lola_set_src_config(chip, chip->input_src_mask, false);
-	
-	lola_setup_all_analog_gains(chip, PLAY, false); 
+	/* update the analog outputs */
+	lola_setup_all_analog_gains(chip, PLAY, false); /* output, update */
 }
 
 static int __devinit lola_parse_tree(struct lola *chip)
@@ -496,16 +517,19 @@ static int __devinit lola_parse_tree(struct lola *chip)
 		nid++;
 	}
 
-	
+	/* enable unsolicited events of the clock widget */
 	err = lola_enable_clock_events(chip);
 	if (err < 0)
 		return err;
 
+	/* if last ResetController was not a ColdReset, we don't know
+	 * the state of the card; initialize here again
+	 */
 	if (!chip->cold_reset) {
 		lola_reset_setups(chip);
 		chip->cold_reset = 1;
 	} else {
-		
+		/* set the granularity if it is not the default */
 		if (chip->granularity != LOLA_GRANULARITY_MIN)
 			lola_set_granularity(chip, chip->granularity, true);
 	}
@@ -640,7 +664,7 @@ static int __devinit lola_create(struct snd_card *card, struct pci_dev *pci,
 		    chip->pcm[CAPT].num_streams, chip->pcm[PLAY].num_streams,
 		    chip->version);
 
-	
+	/* Test LOLA_BAR1_DEVER */
 	if (chip->pcm[CAPT].num_streams > MAX_STREAM_IN_COUNT ||
 	    chip->pcm[PLAY].num_streams > MAX_STREAM_OUT_COUNT ||
 	    (!chip->pcm[CAPT].num_streams &&
@@ -738,12 +762,14 @@ static void __devexit lola_remove(struct pci_dev *pci)
 	pci_set_drvdata(pci, NULL);
 }
 
+/* PCI IDs */
 static DEFINE_PCI_DEVICE_TABLE(lola_ids) = {
 	{ PCI_VDEVICE(DIGIGRAM, 0x0001) },
 	{ 0, }
 };
 MODULE_DEVICE_TABLE(pci, lola_ids);
 
+/* pci_driver definition */
 static struct pci_driver driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = lola_ids,

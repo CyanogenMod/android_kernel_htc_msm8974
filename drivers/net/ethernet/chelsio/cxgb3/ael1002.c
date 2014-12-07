@@ -45,25 +45,27 @@ enum {
 	AEL2005_GPIO_CTRL = 0xc214,
 	AEL2005_GPIO_STAT = 0xc215,
 
-	AEL2020_GPIO_INTR   = 0xc103,	
-	AEL2020_GPIO_CTRL   = 0xc108,	
-	AEL2020_GPIO_STAT   = 0xc10c,	
-	AEL2020_GPIO_CFG    = 0xc110,	
+	AEL2020_GPIO_INTR   = 0xc103,	/* Latch High (LH) */
+	AEL2020_GPIO_CTRL   = 0xc108,	/* Store Clear (SC) */
+	AEL2020_GPIO_STAT   = 0xc10c,	/* Read Only (RO) */
+	AEL2020_GPIO_CFG    = 0xc110,	/* Read Write (RW) */
 
-	AEL2020_GPIO_SDA    = 0,	
-	AEL2020_GPIO_MODDET = 1,	
-	AEL2020_GPIO_0      = 3,	
-	AEL2020_GPIO_1      = 2,	
-	AEL2020_GPIO_LSTAT  = AEL2020_GPIO_1, 
+	AEL2020_GPIO_SDA    = 0,	/* IN: i2c serial data */
+	AEL2020_GPIO_MODDET = 1,	/* IN: Module Detect */
+	AEL2020_GPIO_0      = 3,	/* IN: unassigned */
+	AEL2020_GPIO_1      = 2,	/* OUT: unassigned */
+	AEL2020_GPIO_LSTAT  = AEL2020_GPIO_1, /* wired to link status LED */
 };
 
 enum { edc_none, edc_sr, edc_twinax };
 
+/* PHY module I2C device address */
 enum {
 	MODULE_DEV_ADDR	= 0xa0,
 	SFF_DEV_ADDR	= 0xa2,
 };
 
+/* PHY transceiver type */
 enum {
 	phy_transtype_unknown = 0,
 	phy_transtype_sfp     = 3,
@@ -105,6 +107,9 @@ static void ael100x_txon(struct cphy *phy)
 	msleep(30);
 }
 
+/*
+ * Read an 8-bit word from a device attached to the PHY's i2c bus.
+ */
 static int ael_i2c_rd(struct cphy *phy, int dev_addr, int word_addr)
 {
 	int i, err;
@@ -165,6 +170,9 @@ static int ael1002_intr_noop(struct cphy *phy)
 	return 0;
 }
 
+/*
+ * Get link status for a 10GBASE-R device.
+ */
 static int get_link_status_r(struct cphy *phy, int *link_ok, int *speed,
 			     int *duplex, int *fc)
 {
@@ -237,6 +245,9 @@ int t3_ael1006_phy_prep(struct cphy *phy, struct adapter *adapter,
 	return 0;
 }
 
+/*
+ * Decode our module type.
+ */
 static int ael2xxx_get_module_type(struct cphy *phy, int delay_ms)
 {
 	int v;
@@ -244,7 +255,7 @@ static int ael2xxx_get_module_type(struct cphy *phy, int delay_ms)
 	if (delay_ms)
 		msleep(delay_ms);
 
-	
+	/* see SFF-8472 for below */
 	v = ael_i2c_rd(phy, MODULE_DEV_ADDR, 3);
 	if (v < 0)
 		return v;
@@ -276,6 +287,9 @@ unknown:
 	return phy_modtype_unknown;
 }
 
+/*
+ * Code to support the Aeluros/NetLogic 2005 10Gb PHY.
+ */
 static int ael2005_setup_sr_edc(struct cphy *phy)
 {
 	static const struct reg_val regs[] = {
@@ -353,7 +367,7 @@ static int ael2005_get_module_type(struct cphy *phy, int delay_ms)
 	if (v)
 		return v;
 
-	if (stat & (1 << 8))			
+	if (stat & (1 << 8))			/* module absent */
 		return phy_modtype_none;
 
 	return ael2xxx_get_module_type(phy, delay_ms);
@@ -431,7 +445,7 @@ static int ael2005_reset(struct cphy *phy, int wait)
 	if (err)
 		return err;
 
-	
+	/* reset wipes out interrupts, reenable them if they were on */
 	if (lasi_ctrl & 1)
 		err = ael2005_intr_enable(phy);
 	return err;
@@ -452,14 +466,14 @@ static int ael2005_intr_handler(struct cphy *phy)
 		if (ret)
 			return ret;
 
-		
+		/* modules have max 300 ms init time after hot plug */
 		ret = ael2005_get_module_type(phy, 300);
 		if (ret < 0)
 			return ret;
 
 		phy->modtype = ret;
 		if (ret == phy_modtype_none)
-			edc_needed = phy->priv;       
+			edc_needed = phy->priv;       /* on unplug retain EDC */
 		else if (ret == phy_modtype_twinax ||
 			 ret == phy_modtype_twinax_long)
 			edc_needed = edc_twinax;
@@ -503,18 +517,21 @@ int t3_ael2005_phy_prep(struct cphy *phy, struct adapter *adapter,
 				   1 << 5);
 }
 
+/*
+ * Setup EDC and other parameters for operation with an optical module.
+ */
 static int ael2020_setup_sr_edc(struct cphy *phy)
 {
 	static const struct reg_val regs[] = {
-		
+		/* set CDR offset to 10 */
 		{ MDIO_MMD_PMAPMD, 0xcc01, 0xffff, 0x488a },
 
-		
+		/* adjust 10G RX bias current */
 		{ MDIO_MMD_PMAPMD, 0xcb1b, 0xffff, 0x0200 },
 		{ MDIO_MMD_PMAPMD, 0xcb1c, 0xffff, 0x00f0 },
 		{ MDIO_MMD_PMAPMD, 0xcc06, 0xffff, 0x00e0 },
 
-		
+		/* end */
 		{ 0, 0, 0, 0 }
 	};
 	int err;
@@ -528,22 +545,25 @@ static int ael2020_setup_sr_edc(struct cphy *phy)
 	return 0;
 }
 
+/*
+ * Setup EDC and other parameters for operation with an TWINAX module.
+ */
 static int ael2020_setup_twinax_edc(struct cphy *phy, int modtype)
 {
-	
+	/* set uC to 40MHz */
 	static const struct reg_val uCclock40MHz[] = {
 		{ MDIO_MMD_PMAPMD, 0xff28, 0xffff, 0x4001 },
 		{ MDIO_MMD_PMAPMD, 0xff2a, 0xffff, 0x0002 },
 		{ 0, 0, 0, 0 }
 	};
 
-	
+	/* activate uC clock */
 	static const struct reg_val uCclockActivate[] = {
 		{ MDIO_MMD_PMAPMD, 0xd000, 0xffff, 0x5200 },
 		{ 0, 0, 0, 0 }
 	};
 
-	
+	/* set PC to start of SRAM and activate uC */
 	static const struct reg_val uCactivate[] = {
 		{ MDIO_MMD_PMAPMD, 0xd080, 0xffff, 0x0100 },
 		{ MDIO_MMD_PMAPMD, 0xd092, 0xffff, 0x0000 },
@@ -551,7 +571,7 @@ static int ael2020_setup_twinax_edc(struct cphy *phy, int modtype)
 	};
 	int i, err;
 
-	
+	/* set uC clock and activate it */
 	err = set_phy_regs(phy, uCclock40MHz);
 	msleep(500);
 	if (err)
@@ -571,13 +591,16 @@ static int ael2020_setup_twinax_edc(struct cphy *phy, int modtype)
 		err = t3_mdio_write(phy, MDIO_MMD_PMAPMD,
 				    phy->phy_cache[i],
 				    phy->phy_cache[i + 1]);
-	
+	/* activate uC */
 	err = set_phy_regs(phy, uCactivate);
 	if (!err)
 		phy->priv = edc_twinax;
 	return err;
 }
 
+/*
+ * Return Module Type.
+ */
 static int ael2020_get_module_type(struct cphy *phy, int delay_ms)
 {
 	int v;
@@ -588,32 +611,36 @@ static int ael2020_get_module_type(struct cphy *phy, int delay_ms)
 		return v;
 
 	if (stat & (0x1 << (AEL2020_GPIO_MODDET*4))) {
-		
+		/* module absent */
 		return phy_modtype_none;
 	}
 
 	return ael2xxx_get_module_type(phy, delay_ms);
 }
 
+/*
+ * Enable PHY interrupts.  We enable "Module Detection" interrupts (on any
+ * state transition) and then generic Link Alarm Status Interrupt (LASI).
+ */
 static int ael2020_intr_enable(struct cphy *phy)
 {
 	static const struct reg_val regs[] = {
-		
+		/* output Module's Loss Of Signal (LOS) to LED */
 		{ MDIO_MMD_PMAPMD, AEL2020_GPIO_CFG+AEL2020_GPIO_LSTAT,
 			0xffff, 0x4 },
 		{ MDIO_MMD_PMAPMD, AEL2020_GPIO_CTRL,
 			0xffff, 0x8 << (AEL2020_GPIO_LSTAT*4) },
 
-		 
+		 /* enable module detect status change interrupts */
 		{ MDIO_MMD_PMAPMD, AEL2020_GPIO_CTRL,
 			0xffff, 0x2 << (AEL2020_GPIO_MODDET*4) },
 
-		
+		/* end */
 		{ 0, 0, 0, 0 }
 	};
 	int err, link_ok = 0;
 
-	
+	/* set up "link status" LED and enable module change interrupts */
 	err = set_phy_regs(phy, regs);
 	if (err)
 		return err;
@@ -632,23 +659,26 @@ static int ael2020_intr_enable(struct cphy *phy)
 	return 0;
 }
 
+/*
+ * Disable PHY interrupts.  The mirror of the above ...
+ */
 static int ael2020_intr_disable(struct cphy *phy)
 {
 	static const struct reg_val regs[] = {
-		
+		/* reset "link status" LED to "off" */
 		{ MDIO_MMD_PMAPMD, AEL2020_GPIO_CTRL,
 			0xffff, 0xb << (AEL2020_GPIO_LSTAT*4) },
 
-		
+		/* disable module detect status change interrupts */
 		{ MDIO_MMD_PMAPMD, AEL2020_GPIO_CTRL,
 			0xffff, 0x1 << (AEL2020_GPIO_MODDET*4) },
 
-		
+		/* end */
 		{ 0, 0, 0, 0 }
 	};
 	int err;
 
-	
+	/* turn off "link status" LED and disable module change interrupts */
 	err = set_phy_regs(phy, regs);
 	if (err)
 		return err;
@@ -656,34 +686,45 @@ static int ael2020_intr_disable(struct cphy *phy)
 	return t3_phy_lasi_intr_disable(phy);
 }
 
+/*
+ * Clear PHY interrupt state.
+ */
 static int ael2020_intr_clear(struct cphy *phy)
 {
+	/*
+	 * The GPIO Interrupt register on the AEL2020 is a "Latching High"
+	 * (LH) register which is cleared to the current state when it's read.
+	 * Thus, we simply read the register and discard the result.
+	 */
 	unsigned int stat;
 	int err = t3_mdio_read(phy, MDIO_MMD_PMAPMD, AEL2020_GPIO_INTR, &stat);
 	return err ? err : t3_phy_lasi_intr_clear(phy);
 }
 
 static const struct reg_val ael2020_reset_regs[] = {
-	
+	/* Erratum #2: CDRLOL asserted, causing PMA link down status */
 	{ MDIO_MMD_PMAPMD, 0xc003, 0xffff, 0x3101 },
 
-	
+	/* force XAUI to send LF when RX_LOS is asserted */
 	{ MDIO_MMD_PMAPMD, 0xcd40, 0xffff, 0x0001 },
 
-	
+	/* allow writes to transceiver module EEPROM on i2c bus */
 	{ MDIO_MMD_PMAPMD, 0xff02, 0xffff, 0x0023 },
 	{ MDIO_MMD_PMAPMD, 0xff03, 0xffff, 0x0000 },
 	{ MDIO_MMD_PMAPMD, 0xff04, 0xffff, 0x0000 },
 
-	
+	/* end */
 	{ 0, 0, 0, 0 }
 };
+/*
+ * Reset the PHY and put it into a canonical operating state.
+ */
 static int ael2020_reset(struct cphy *phy, int wait)
 {
 	int err;
 	unsigned int lasi_ctrl;
 
-	
+	/* grab current interrupt state */
 	err = t3_mdio_read(phy, MDIO_MMD_PMAPMD, MDIO_PMA_LASI_CTRL,
 			   &lasi_ctrl);
 	if (err)
@@ -694,13 +735,13 @@ static int ael2020_reset(struct cphy *phy, int wait)
 		return err;
 	msleep(100);
 
-	
+	/* basic initialization for all module types */
 	phy->priv = edc_none;
 	err = set_phy_regs(phy, ael2020_reset_regs);
 	if (err)
 		return err;
 
-	
+	/* determine module type and perform appropriate initialization */
 	err = ael2020_get_module_type(phy, 0);
 	if (err < 0)
 		return err;
@@ -712,12 +753,15 @@ static int ael2020_reset(struct cphy *phy, int wait)
 	if (err)
 		return err;
 
-	
+	/* reset wipes out interrupts, reenable them if they were on */
 	if (lasi_ctrl & 1)
 		err = ael2005_intr_enable(phy);
 	return err;
 }
 
+/*
+ * Handle a PHY interrupt.
+ */
 static int ael2020_intr_handler(struct cphy *phy)
 {
 	unsigned int stat;
@@ -728,14 +772,14 @@ static int ael2020_intr_handler(struct cphy *phy)
 		return ret;
 
 	if (stat & (0x1 << AEL2020_GPIO_MODDET)) {
-		
+		/* modules have max 300 ms init time after hot plug */
 		ret = ael2020_get_module_type(phy, 300);
 		if (ret < 0)
 			return ret;
 
 		phy->modtype = (u8)ret;
 		if (ret == phy_modtype_none)
-			edc_needed = phy->priv;       
+			edc_needed = phy->priv;       /* on unplug retain EDC */
 		else if (ret == phy_modtype_twinax ||
 			 ret == phy_modtype_twinax_long)
 			edc_needed = edc_twinax;
@@ -784,6 +828,9 @@ int t3_ael2020_phy_prep(struct cphy *phy, struct adapter *adapter, int phy_addr,
 	return 0;
 }
 
+/*
+ * Get link status for a 10GBASE-X device.
+ */
 static int get_link_status_x(struct cphy *phy, int *link_ok, int *speed,
 			     int *duplex, int *fc)
 {
@@ -829,6 +876,10 @@ int t3_qt2045_phy_prep(struct cphy *phy, struct adapter *adapter,
 		  SUPPORTED_10000baseT_Full | SUPPORTED_AUI | SUPPORTED_TP,
 		  "10GBASE-CX4");
 
+	/*
+	 * Some cards where the PHY is supposed to be at address 0 actually
+	 * have it at 1.
+	 */
 	if (!phy_addr &&
 	    !t3_mdio_read(phy, MDIO_MMD_PMAPMD, MDIO_STAT1, &stat) &&
 	    stat == 0xffff)

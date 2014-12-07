@@ -50,11 +50,24 @@ struct at91_ide_info {
 	void __iomem *alt_addr;
 };
 
+/**
+ * struct smc_range - range of valid values for SMC register.
+ */
 struct smc_range {
 	int min;
 	int max;
 };
 
+/**
+ * adjust_smc_value - adjust value for one of SMC registers.
+ * @value: adjusted value
+ * @range: array of SMC ranges with valid values
+ * @size: SMC ranges array size
+ *
+ * This returns the difference between input and output value or negative
+ * in case of invalid input value.
+ * If negative returned, then output value = maximal possible from ranges.
+ */
 static int adjust_smc_value(int *value, struct smc_range *range, int size)
 {
 	int maximum = (range + size - 1)->max;
@@ -63,7 +76,7 @@ static int adjust_smc_value(int *value, struct smc_range *range, int size)
 	do {
 		if (*value < range->min) {
 			remainder = range->min - *value;
-			*value = range->min; 
+			*value = range->min; /* nearest valid value */
 			return remainder;
 		} else if ((range->min <= *value) && (*value <= range->max))
 			return 0;
@@ -72,27 +85,45 @@ static int adjust_smc_value(int *value, struct smc_range *range, int size)
 	} while (--size);
 	*value = maximum;
 
-	return -1; 
+	return -1; /* invalid value */
 }
 
+/**
+ * calc_smc_vals - calculate SMC register values
+ * @dev: ATA device
+ * @setup: SMC_SETUP register value
+ * @pulse: SMC_PULSE register value
+ * @cycle: SMC_CYCLE register value
+ *
+ * This returns negative in case of invalid values for SMC registers:
+ * -ER_SMC_RECALC - recalculation required for SMC values,
+ * -ER_SMC_CALC - calculation failed (invalid input values).
+ *
+ * SMC use special coding scheme, see "Coding and Range of Timing
+ * Parameters" table from AT91SAM9 datasheets.
+ *
+ *	SMC_SETUP = 128*setup[5] + setup[4:0]
+ *	SMC_PULSE = 256*pulse[6] + pulse[5:0]
+ *	SMC_CYCLE = 256*cycle[8:7] + cycle[6:0]
+ */
 static int calc_smc_vals(struct device *dev,
 		int *setup, int *pulse, int *cycle, int *cs_pulse)
 {
 	int ret_val;
 	int err = 0;
-	struct smc_range range_setup[] = {	
-		{.min = 0,	.max = 31},	
-		{.min = 128,	.max = 159}	
+	struct smc_range range_setup[] = {	/* SMC_SETUP valid values */
+		{.min = 0,	.max = 31},	/* first  range */
+		{.min = 128,	.max = 159}	/* second range */
 	};
-	struct smc_range range_pulse[] = {	
-		{.min = 0,	.max = 63},	
-		{.min = 256,	.max = 319}	
+	struct smc_range range_pulse[] = {	/* SMC_PULSE valid values */
+		{.min = 0,	.max = 63},	/* first  range */
+		{.min = 256,	.max = 319}	/* second range */
 	};
-	struct smc_range range_cycle[] = {	
-		{.min = 0,	.max = 127},	
-		{.min = 256,	.max = 383},	
-		{.min = 512,	.max = 639},	
-		{.min = 768,	.max = 895}	
+	struct smc_range range_cycle[] = {	/* SMC_CYCLE valid values */
+		{.min = 0,	.max = 127},	/* first  range */
+		{.min = 256,	.max = 383},	/* second range */
+		{.min = 512,	.max = 639},	/* third  range */
+		{.min = 768,	.max = 895}	/* fourth range */
 	};
 
 	ret_val = adjust_smc_value(setup, range_setup, ARRAY_SIZE(range_setup));
@@ -130,6 +161,13 @@ static int calc_smc_vals(struct device *dev,
 	return err;
 }
 
+/**
+ * to_smc_format - convert values into SMC format
+ * @setup: SETUP value of SMC Setup Register
+ * @pulse: PULSE value of SMC Pulse Register
+ * @cycle: CYCLE value of SMC Cycle Register
+ * @cs_pulse: NCS_PULSE value of SMC Pulse Register
+ */
 static void to_smc_format(int *setup, int *pulse, int *cycle, int *cs_pulse)
 {
 	*setup = (*setup & 0x1f) | ((*setup & 0x80) >> 2);
@@ -142,26 +180,41 @@ static unsigned long calc_mck_cycles(unsigned long ns, unsigned long mck_hz)
 {
 	unsigned long mul;
 
+	/*
+	* cycles = x [nsec] * f [Hz] / 10^9 [ns in sec] =
+	*     x * (f / 1_000_000_000) =
+	*     x * ((f * 65536) / 1_000_000_000) / 65536 =
+	*     x * (((f / 10_000) * 65536) / 100_000) / 65536 =
+	*/
 
 	mul = (mck_hz / 10000) << 16;
 	mul /= 100000;
 
-	return (ns * mul + 65536) >> 16;    
+	return (ns * mul + 65536) >> 16;    /* rounding */
 }
 
+/**
+ * set_smc_timing - SMC timings setup.
+ * @dev: device
+ * @info: AT91 IDE info
+ * @ata: ATA timings
+ *
+ * Its assumed that write timings are same as read timings,
+ * cs_setup = 0 and cs_pulse = cycle.
+ */
 static void set_smc_timing(struct device *dev, struct ata_device *adev,
 		struct at91_ide_info *info, const struct ata_timing *ata)
 {
 	int ret = 0;
 	int use_iordy;
 	struct sam9_smc_config smc;
-	unsigned int t6z;         
-	unsigned int cycle;       
-	unsigned int setup;       
-	unsigned int pulse;       
-	unsigned int cs_pulse;    
-	unsigned int tdf_cycles;  
-	unsigned long mck_hz;     
+	unsigned int t6z;         /* data tristate time in ns */
+	unsigned int cycle;       /* SMC Cycle width in MCK ticks */
+	unsigned int setup;       /* SMC Setup width in MCK ticks */
+	unsigned int pulse;       /* CFIOR and CFIOW pulse width in MCK ticks */
+	unsigned int cs_pulse;    /* CS4 or CS5 pulse width in MCK ticks*/
+	unsigned int tdf_cycles;  /* SMC TDF MCK ticks */
+	unsigned long mck_hz;     /* MCK frequency in Hz */
 
 	t6z = (ata->mode < XFER_PIO_5) ? 30 : 20;
 	mck_hz = clk_get_rate(info->mck);
@@ -180,7 +233,7 @@ static void set_smc_timing(struct device *dev, struct ata_device *adev,
 	dev_dbg(dev, "SMC Setup=%u, Pulse=%u, Cycle=%u, CS Pulse=%u\n",
 		setup, pulse, cycle, cs_pulse);
 	to_smc_format(&setup, &pulse, &cycle, &cs_pulse);
-	
+	/* disable or enable waiting for IORDY signal */
 	use_iordy = ata_pio_need_iordy(adev);
 	if (use_iordy)
 		info->mode |= AT91_SMC_EXNWMODE_READY;
@@ -192,15 +245,15 @@ static void set_smc_timing(struct device *dev, struct ata_device *adev,
 
 	dev_dbg(dev, "Use IORDY=%u, TDF Cycles=%u\n", use_iordy, tdf_cycles);
 
-	
+	/* SMC Setup Register */
 	smc.nwe_setup = smc.nrd_setup = setup;
 	smc.ncs_write_setup = smc.ncs_read_setup = 0;
-	
+	/* SMC Pulse Register */
 	smc.nwe_pulse = smc.nrd_pulse = pulse;
 	smc.ncs_write_pulse = smc.ncs_read_pulse = cs_pulse;
-	
+	/* SMC Cycle Register */
 	smc.write_cycle = smc.read_cycle = cycle;
-	
+	/* SMC Mode Register*/
 	smc.tdf_cycles = tdf_cycles;
 	smc.mode = info->mode;
 
@@ -213,7 +266,7 @@ static void pata_at91_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	struct ata_timing timing;
 	int ret;
 
-	
+	/* Compute ATA timing and set it to SMC */
 	ret = ata_timing_compute(adev, adev->pio_mode, &timing, 1000, 0);
 	if (ret) {
 		dev_warn(ap->dev, "Failed to compute ATA timing %d, "
@@ -234,7 +287,7 @@ static unsigned int pata_at91_data_xfer_noirq(struct ata_device *dev,
 	local_irq_save(flags);
 	sam9_smc_read_mode(0, info->cs, &smc);
 
-	
+	/* set 16bit mode before writing data */
 	smc.mode = (smc.mode & ~AT91_SMC_DBW) | AT91_SMC_DBW_16;
 	sam9_smc_write_mode(0, info->cs, &smc);
 
@@ -273,7 +326,7 @@ static int __devinit pata_at91_probe(struct platform_device *pdev)
 	int irq = 0;
 	int ret;
 
-	
+	/*  get platform resources: IO/CTL memories and irq/rst pins */
 
 	if (pdev->num_resources != 1) {
 		dev_err(&pdev->dev, "invalid number of resources\n");
@@ -289,7 +342,7 @@ static int __devinit pata_at91_probe(struct platform_device *pdev)
 
 	irq = board->irq_pin;
 
-	
+	/* init ata host */
 
 	host = ata_host_alloc(dev, 1);
 

@@ -19,16 +19,25 @@
 #endif
 
 
+/*
+ * low level task data that entry.S needs immediate access to
+ * - this struct should fit entirely inside of one cache line
+ * - this struct shares the supervisor stack pages
+ * - if the contents of this structure are changed, the assembly constants must also be changed
+ */
 #ifndef __ASSEMBLY__
 struct thread_info {
-	struct task_struct	*task;		
-	struct exec_domain	*exec_domain;	
-	unsigned long		flags;		
-	__u32			cpu;		
-	int			preempt_count;	
-	__u32			tls;		
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain	*exec_domain;	/* execution domain */
+	unsigned long		flags;		/* low level flags */
+	__u32			cpu;		/* current CPU */
+	int			preempt_count;	/* 0 => preemptable, <0 => BUG */
+	__u32			tls;		/* TLS for this thread */
 
-	mm_segment_t		addr_limit;	
+	mm_segment_t		addr_limit;	/* thread address space:
+					 	   0-0xBFFFFFFF for user-thead
+						   0-0xFFFFFFFF for kernel-thread
+						*/
 	struct restart_block    restart_block;
 	__u8			supervisor_stack[0];
 };
@@ -37,6 +46,9 @@ struct thread_info {
 
 #define PREEMPT_ACTIVE		0x10000000
 
+/*
+ * macros/functions for gaining access to the thread information structure
+ */
 #ifndef __ASSEMBLY__
 #define INIT_THREAD_INFO(tsk)				\
 {							\
@@ -54,19 +66,26 @@ struct thread_info {
 #define init_thread_info	(init_thread_union.thread_info)
 
 #define __HAVE_ARCH_THREAD_INFO_ALLOCATOR
+/* thread information allocation */
 #define alloc_thread_info_node(tsk, node)	\
 	((struct thread_info *) __get_free_pages(GFP_KERNEL, 1))
 #define free_thread_info(ti) free_pages((unsigned long) (ti), 1)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#define TIF_SYSCALL_TRACE	0	
-#define TIF_NOTIFY_RESUME	1	
-#define TIF_SIGPENDING		2	
-#define TIF_NEED_RESCHED	3	
-#define TIF_RESTORE_SIGMASK	9	
-#define TIF_POLLING_NRFLAG	16	
-#define TIF_MEMDIE		17	
+/*
+ * thread information flags
+ * - these are process state flags that various assembly files may need to access
+ * - pending work-to-be-done flags are in LSW
+ * - other flags in MSW
+ */
+#define TIF_SYSCALL_TRACE	0	/* syscall trace active */
+#define TIF_NOTIFY_RESUME	1	/* resumption notification requested */
+#define TIF_SIGPENDING		2	/* signal pending */
+#define TIF_NEED_RESCHED	3	/* rescheduling necessary */
+#define TIF_RESTORE_SIGMASK	9	/* restore signal mask in do_signal() */
+#define TIF_POLLING_NRFLAG	16	/* true if poll_idle() is polling TIF_NEED_RESCHED */
+#define TIF_MEMDIE		17	/* is terminating due to OOM killer */
 
 #define _TIF_SYSCALL_TRACE	(1<<TIF_SYSCALL_TRACE)
 #define _TIF_NOTIFY_RESUME	(1<<TIF_NOTIFY_RESUME)
@@ -75,9 +94,9 @@ struct thread_info {
 #define _TIF_RESTORE_SIGMASK	(1<<TIF_RESTORE_SIGMASK)
 #define _TIF_POLLING_NRFLAG	(1<<TIF_POLLING_NRFLAG)
 
-#define _TIF_WORK_MASK		0x0000FFFE	
-#define _TIF_ALLWORK_MASK	0x0000FFFF	
+#define _TIF_WORK_MASK		0x0000FFFE	/* work to do on interrupt/exception return */
+#define _TIF_ALLWORK_MASK	0x0000FFFF	/* work to do on any return to u-space */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_THREAD_INFO_H */

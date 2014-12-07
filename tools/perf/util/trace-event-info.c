@@ -88,6 +88,10 @@ static const char *find_debugfs(void)
 	return path;
 }
 
+/*
+ * Finds the path to the debugfs/tracing
+ * Allocates the string and stores it.
+ */
 static const char *find_tracing_dir(void)
 {
 	static char *tracing;
@@ -154,6 +158,7 @@ int bigendian(void)
 	return *ptr == 0x01020304;
 }
 
+/* unfortunately, you can not stat debugfs or proc files for size */
 static void record_file(const char *file, size_t hdr_sz)
 {
 	unsigned long long size = 0;
@@ -165,7 +170,7 @@ static void record_file(const char *file, size_t hdr_sz)
 	if (fd < 0)
 		die("Can't read '%s'", file);
 
-	
+	/* put in zeros for file size, then fill true size later */
 	if (hdr_sz)
 		write_or_die(&size, hdr_sz);
 
@@ -178,7 +183,7 @@ static void record_file(const char *file, size_t hdr_sz)
 	} while (r > 0);
 	close(fd);
 
-	
+	/* ugh, handle big-endian hdr_size == 4 */
 	sizep = (char*)&size;
 	if (bigendian())
 		sizep += sizeof(u64) - hdr_sz;
@@ -350,7 +355,7 @@ static void read_proc_kallsyms(void)
 
 	ret = stat(path, &st);
 	if (ret < 0) {
-		
+		/* not found */
 		size = 0;
 		write_or_die(&size, 4);
 		return;
@@ -368,7 +373,7 @@ static void read_ftrace_printk(void)
 	path = get_tracing_file("printk_formats");
 	ret = stat(path, &st);
 	if (ret < 0) {
-		
+		/* not found */
 		size = 0;
 		write_or_die(&size, 4);
 		goto out;
@@ -427,7 +432,7 @@ static void tracing_data_header(void)
 {
 	char buf[20];
 
-	
+	/* just guessing this is someone's birthday.. ;) */
 	buf[0] = 23;
 	buf[1] = 8;
 	buf[2] = 68;
@@ -437,7 +442,7 @@ static void tracing_data_header(void)
 
 	write_or_die(VERSION, strlen(VERSION) + 1);
 
-	
+	/* save endian */
 	if (bigendian())
 		buf[0] = 1;
 	else
@@ -445,11 +450,11 @@ static void tracing_data_header(void)
 
 	write_or_die(buf, 1);
 
-	
+	/* save size of long */
 	buf[0] = sizeof(long);
 	write_or_die(buf, 1);
 
-	
+	/* save page_size */
 	page_size = sysconf(_SC_PAGESIZE);
 	write_or_die(&page_size, 4);
 }
@@ -482,6 +487,10 @@ struct tracing_data *tracing_data_get(struct list_head *pattrs,
 		if (temp_fd < 0)
 			die("Can't read '%s'", tdata->temp_file);
 
+		/*
+		 * Set the temp file the default output, so all the
+		 * tracing data are stored into it.
+		 */
 		output_fd = temp_fd;
 	}
 
@@ -492,6 +501,10 @@ struct tracing_data *tracing_data_get(struct list_head *pattrs,
 	read_proc_kallsyms();
 	read_ftrace_printk();
 
+	/*
+	 * All tracing data are stored by now, we can restore
+	 * the default output file in case we used temp file.
+	 */
 	if (temp) {
 		tdata->size = lseek(output_fd, 0, SEEK_CUR);
 		close(output_fd);
@@ -516,6 +529,10 @@ int read_tracing_data(int fd, struct list_head *pattrs)
 {
 	struct tracing_data *tdata;
 
+	/*
+	 * We work over the real file, so we can write data
+	 * directly, no temp file is needed.
+	 */
 	tdata = tracing_data_get(pattrs, fd, false);
 	if (!tdata)
 		return -ENOMEM;

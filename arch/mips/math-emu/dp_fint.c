@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * double precision: common utilities
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -41,7 +44,7 @@ ieee754dp ieee754dp_fint(int x)
 	xs = (x < 0);
 	if (xs) {
 		if (x == (1 << 31))
-			xm = ((unsigned) 1 << 31);	
+			xm = ((unsigned) 1 << 31);	/* max neg can't be safely negated */
 		else
 			xm = -x;
 	} else {
@@ -49,7 +52,7 @@ ieee754dp ieee754dp_fint(int x)
 	}
 
 #if 1
-	
+	/* normalize - result can never be inexact or overflow */
 	xe = DP_MBITS;
 	while ((xm >> DP_MBITS) == 0) {
 		xm <<= 1;
@@ -57,7 +60,7 @@ ieee754dp ieee754dp_fint(int x)
 	}
 	return builddp(xs, xe + DP_EBIAS, xm & ~DP_HIDDEN_BIT);
 #else
-	
+	/* normalize */
 	xe = DP_MBITS + 3;
 	while ((xm >> (DP_MBITS + 3)) == 0) {
 		xm <<= 1;

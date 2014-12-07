@@ -1,3 +1,6 @@
+/*
+ * Handle mapping of the flash on the RPX Lite and CLLF boards
+ */
 
 #include <linux/module.h>
 #include <linux/types.h>

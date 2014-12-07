@@ -10,6 +10,10 @@
 
 #define prepare_to_switch()     do { } while(0)
 
+/*
+ * switch_to(n) should switch tasks to task ptr, first checking that
+ * ptr isn't the current task, in which case it does nothing.
+ */
 
 #include <asm/l1layout.h>
 #include <asm/mem_map.h>
@@ -32,4 +36,4 @@ do {    \
 } while (0)
 #endif
 
-#endif 
+#endif /* _BLACKFIN_SWITCH_TO_H */

@@ -35,9 +35,13 @@
 
 #include "tcrc.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
+/*---------------------  Static Classes  ----------------------------*/
 
+/*---------------------  Static Variables  --------------------------*/
 
+// 32-bit CRC table
 static const unsigned long s_adwCrc32Table[256] = {
     0x00000000L, 0x77073096L, 0xEE0E612CL, 0x990951BAL,
     0x076DC419L, 0x706AF48FL, 0xE963A535L, 0x9E6495A3L,
@@ -105,11 +109,29 @@ static const unsigned long s_adwCrc32Table[256] = {
     0xB40BBE37L, 0xC30C8EA1L, 0x5A05DF1BL, 0x2D02EF8DL
 };
 
+/*---------------------  Static Functions  --------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
 
 
 
 
-
+/*+
+ *
+ * Description:
+ *    Generate a CRC-32 from the data stream
+ *
+ * Parameters:
+ *  In:
+ *      pbyData     - the data stream
+ *      cbByte      - the length of the stream
+ *      dwCrcSeed   - Seed for CRC32
+ *  Out:
+ *      none
+ *
+ * Return Value: CRC-32
+ *
+-*/
 unsigned long CRCdwCrc32 (unsigned char *pbyData, unsigned int cbByte, unsigned long dwCrcSeed)
 {
     unsigned long dwCrc;
@@ -124,12 +146,50 @@ unsigned long CRCdwCrc32 (unsigned char *pbyData, unsigned int cbByte, unsigned 
 }
 
 
+/*+
+ *
+ * Description:
+ * To test CRC generator, input 8 bytes packet
+ *      -- 0xff 0xff 0xff 0xff 0x00 0x00 0x00 0x00
+ * the generated CRC should be
+ *      -- 0xff 0xff 0xff 0xff
+ *
+ * Parameters:
+ *  In:
+ *      pbyData     - the data stream
+ *      cbByte      - the length of the stream
+ *  Out:
+ *      none
+ *
+ * Return Value: CRC-32
+ *
+-*/
 unsigned long CRCdwGetCrc32 (unsigned char *pbyData, unsigned int cbByte)
 {
     return ~CRCdwCrc32(pbyData, cbByte, 0xFFFFFFFFL);
 }
 
 
+/*+
+ *
+ * Description:
+ *
+ * NOTE.... Because CRCdwGetCrc32Ex() is an iteration function,
+ *          this means we will use the output of CRCdwGetCrc32Ex()
+ *          to be a new argument to do next CRCdwGetCrc32Ex() calculation.
+ *          Thus, the final result must be inverted to be the
+ *          correct answer.
+ *
+ * Parameters:
+ *  In:
+ *      pbyData     - the data stream
+ *      cbByte      - the length of the stream
+ *  Out:
+ *      none
+ *
+ * Return Value: CRC-32
+ *
+-*/
 unsigned long CRCdwGetCrc32Ex(unsigned char *pbyData, unsigned int cbByte, unsigned long dwPreCRC)
 {
     return CRCdwCrc32(pbyData, cbByte, dwPreCRC);

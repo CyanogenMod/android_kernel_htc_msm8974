@@ -29,6 +29,10 @@
 #define WDT_TIMEOUT_REG_OFFS	(0x04)
 static void __iomem *wdt_regs;
 
+/*
+ * The machine restart method can be called from an atomic context so we won't
+ * be able to ioremap the regs then.
+ */
 static void picoxcell_setup_restart(void)
 {
 	struct device_node *np = of_find_compatible_node(NULL, NULL,
@@ -66,7 +70,7 @@ static const char *picoxcell_dt_match[] = {
 
 static const struct of_device_id vic_of_match[] __initconst = {
 	{ .compatible = "arm,pl192-vic", .data = vic_of_init, },
-	{  }
+	{ /* Sentinel */ }
 };
 
 static void __init picoxcell_init_irq(void)
@@ -76,10 +80,14 @@ static void __init picoxcell_init_irq(void)
 
 static void picoxcell_wdt_restart(char mode, const char *cmd)
 {
+	/*
+	 * Configure the watchdog to reset with the shortest possible timeout
+	 * and give it chance to do the reset.
+	 */
 	if (wdt_regs) {
 		writel_relaxed(WDT_CTRL_REG_EN_MASK, wdt_regs + WDT_CTRL_REG_OFFS);
 		writel_relaxed(0, wdt_regs + WDT_TIMEOUT_REG_OFFS);
-		
+		/* No sleeping, possibly atomic. */
 		mdelay(500);
 	}
 }

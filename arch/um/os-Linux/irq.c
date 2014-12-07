@@ -12,6 +12,10 @@
 #include "os.h"
 #include "um_malloc.h"
 
+/*
+ * Locked by irq_lock in arch/um/kernel/irq.c.  Changed by os_create_pollfd
+ * and os_free_irq_by_cb, which are called under irq_lock.
+ */
 static struct pollfd *pollfds = NULL;
 static int pollfds_num = 0;
 static int pollfds_size = 0;
@@ -49,20 +53,20 @@ int os_create_pollfd(int fd, int events, void *tmp_pfd, int size_tmpfds)
 {
 	if (pollfds_num == pollfds_size) {
 		if (size_tmpfds <= pollfds_size * sizeof(pollfds[0])) {
-			
+			/* return min size needed for new pollfds area */
 			return (pollfds_size + 1) * sizeof(pollfds[0]);
 		}
 
 		if (pollfds != NULL) {
 			memcpy(tmp_pfd, pollfds,
 			       sizeof(pollfds[0]) * pollfds_size);
-			
+			/* remove old pollfds */
 			kfree(pollfds);
 		}
 		pollfds = tmp_pfd;
 		pollfds_size++;
 	} else
-		kfree(tmp_pfd);	
+		kfree(tmp_pfd);	/* remove not used tmp_pfd */
 
 	pollfds[pollfds_num] = ((struct pollfd) { .fd		= fd,
 						  .events	= events,
@@ -93,6 +97,10 @@ void os_free_irq_by_cb(int (*test)(struct irq_fd *, void *), void *arg,
 
 			pollfds_num--;
 
+			/*
+			 * This moves the *whole* array after pollfds[i]
+			 * (though it doesn't spot as such)!
+			 */
 			memmove(&pollfds[i], &pollfds[i + 1],
 			       (pollfds_num - i) * sizeof(pollfds[0]));
 			if (*last_irq_ptr2 == &old_fd->next)

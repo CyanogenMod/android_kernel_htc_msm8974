@@ -3,4 +3,4 @@
 
 int ocfs2_mmap(struct file *file, struct vm_area_struct *vma);
 
-#endif  
+#endif  /* OCFS2_MMAP_H */

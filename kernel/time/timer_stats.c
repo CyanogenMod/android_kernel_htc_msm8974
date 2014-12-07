@@ -45,31 +45,71 @@
 
 #include <asm/uaccess.h>
 
+/*
+ * This is our basic unit of interest: a timer expiry event identified
+ * by the timer, its start/expire functions and the PID of the task that
+ * started the timer. We count the number of times an event happens:
+ */
 struct entry {
+	/*
+	 * Hash list:
+	 */
 	struct entry		*next;
 
+	/*
+	 * Hash keys:
+	 */
 	void			*timer;
 	void			*start_func;
 	void			*expire_func;
 	pid_t			pid;
 
+	/*
+	 * Number of timeout events:
+	 */
 	unsigned long		count;
 	unsigned int		timer_flag;
 
+	/*
+	 * We save the command-line string to preserve
+	 * this information past task exit:
+	 */
 	char			comm[TASK_COMM_LEN + 1];
 
 } ____cacheline_aligned_in_smp;
 
+/*
+ * Spinlock protecting the tables - not taken during lookup:
+ */
 static DEFINE_RAW_SPINLOCK(table_lock);
 
+/*
+ * Per-CPU lookup locks for fast hash lookup:
+ */
 static DEFINE_PER_CPU(raw_spinlock_t, tstats_lookup_lock);
 
+/*
+ * Mutex to serialize state changes with show-stats activities:
+ */
 static DEFINE_MUTEX(show_mutex);
 
+/*
+ * Collection status, active/inactive:
+ */
 int __read_mostly timer_stats_active;
 
+/*
+ * Beginning/end timestamps of measurement:
+ */
 static ktime_t time_start, time_stop;
 
+/*
+ * tstat entry structs only get allocated while collection is
+ * active and never freed during that time - this simplifies
+ * things quite a bit.
+ *
+ * They get freed when a new collection period is started.
+ */
 #define MAX_ENTRIES_BITS	10
 #define MAX_ENTRIES		(1UL << MAX_ENTRIES_BITS)
 
@@ -78,6 +118,9 @@ static struct entry entries[MAX_ENTRIES];
 
 static atomic_t overflow_count;
 
+/*
+ * The entries are in a hash-table, for fast lookup:
+ */
 #define TSTAT_HASH_BITS		(MAX_ENTRIES_BITS - 1)
 #define TSTAT_HASH_SIZE		(1UL << TSTAT_HASH_BITS)
 #define TSTAT_HASH_MASK		(TSTAT_HASH_SIZE - 1)
@@ -116,6 +159,11 @@ static int match_entries(struct entry *entry1, struct entry *entry2)
 	       entry1->pid	   == entry2->pid;
 }
 
+/*
+ * Look up whether an entry matching this item is present
+ * in the hash already. Must be called with irqs off and the
+ * lookup lock held:
+ */
 static struct entry *tstat_lookup(struct entry *entry, char *comm)
 {
 	struct entry **head, *curr, *prev;
@@ -123,16 +171,27 @@ static struct entry *tstat_lookup(struct entry *entry, char *comm)
 	head = tstat_hashentry(entry);
 	curr = *head;
 
+	/*
+	 * The fastpath is when the entry is already hashed,
+	 * we do this with the lookup lock held, but with the
+	 * table lock not held:
+	 */
 	while (curr) {
 		if (match_entries(curr, entry))
 			return curr;
 
 		curr = curr->next;
 	}
+	/*
+	 * Slowpath: allocate, set up and link a new hash entry:
+	 */
 	prev = NULL;
 	curr = *head;
 
 	raw_spin_lock(&table_lock);
+	/*
+	 * Make sure we have not raced with another CPU:
+	 */
 	while (curr) {
 		if (match_entries(curr, entry))
 			goto out_unlock;
@@ -148,7 +207,7 @@ static struct entry *tstat_lookup(struct entry *entry, char *comm)
 		curr->next = NULL;
 		memcpy(curr->comm, comm, TASK_COMM_LEN);
 
-		smp_mb(); 
+		smp_mb(); /* Ensure that curr is initialized before insert */
 
 		if (prev)
 			prev->next = curr;
@@ -161,10 +220,24 @@ static struct entry *tstat_lookup(struct entry *entry, char *comm)
 	return curr;
 }
 
+/**
+ * timer_stats_update_stats - Update the statistics for a timer.
+ * @timer:	pointer to either a timer_list or a hrtimer
+ * @pid:	the pid of the task which set up the timer
+ * @startf:	pointer to the function which did the timer setup
+ * @timerf:	pointer to the timer callback function of the timer
+ * @comm:	name of the process which set up the timer
+ *
+ * When the timer is already registered, then the event counter is
+ * incremented. Otherwise the timer is registered in a free slot.
+ */
 void timer_stats_update_stats(void *timer, pid_t pid, void *startf,
 			      void *timerf, char *comm,
 			      unsigned int timer_flag)
 {
+	/*
+	 * It doesn't matter which lock we take:
+	 */
 	raw_spinlock_t *lock;
 	struct entry *entry, input;
 	unsigned long flags;
@@ -214,6 +287,9 @@ static int tstats_show(struct seq_file *m, void *v)
 	int i;
 
 	mutex_lock(&show_mutex);
+	/*
+	 * If still active then calculate up to now:
+	 */
 	if (timer_stats_active)
 		time_stop = ktime_get();
 
@@ -262,6 +338,10 @@ static int tstats_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+/*
+ * After a state change, make sure all concurrent lookup/update
+ * activities have stopped:
+ */
 static void sync_access(void)
 {
 	unsigned long flags;
@@ -271,7 +351,7 @@ static void sync_access(void)
 		raw_spinlock_t *lock = &per_cpu(tstats_lookup_lock, cpu);
 
 		raw_spin_lock_irqsave(lock, flags);
-		
+		/* nothing */
 		raw_spin_unlock_irqrestore(lock, flags);
 	}
 }
@@ -297,6 +377,9 @@ void htc_timer_stats_show(u16 water_mark)
         int i;
 
         mutex_lock(&show_mutex);
+        /*
+         * If still active then calculate up to now:
+         */
         if (timer_stats_active)
                 time_stop = ktime_get();
 

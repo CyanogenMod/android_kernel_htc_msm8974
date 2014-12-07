@@ -12,6 +12,7 @@
  *  2 of the License, or (at your option) any later version.
  */
 
+/* Condition Register Bit Fields */
 
 #define	cr0	0
 #define	cr1	1
@@ -23,6 +24,7 @@
 #define	cr7	7
 
 
+/* General Purpose Registers (GPRs) */
 
 #define	r0	0
 #define	r1	1
@@ -57,4 +59,4 @@
 #define	r30	30
 #define	r31	31
 
-#endif 
+#endif /* _PPC64_PPC_ASM_H */

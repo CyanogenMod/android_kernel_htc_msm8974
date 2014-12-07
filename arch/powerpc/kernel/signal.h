@@ -43,7 +43,7 @@ extern int handle_rt_signal64(int signr, struct k_sigaction *ka,
 			      siginfo_t *info, sigset_t *set,
 			      struct pt_regs *regs);
 
-#else 
+#else /* CONFIG_PPC64 */
 
 static inline int handle_rt_signal64(int signr, struct k_sigaction *ka,
 				     siginfo_t *info, sigset_t *set,
@@ -52,6 +52,6 @@ static inline int handle_rt_signal64(int signr, struct k_sigaction *ka,
 	return -EFAULT;
 }
 
-#endif 
+#endif /* !defined(CONFIG_PPC64) */
 
-#endif  
+#endif  /* _POWERPC_ARCH_SIGNAL_H */

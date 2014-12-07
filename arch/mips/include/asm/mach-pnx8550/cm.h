@@ -29,6 +29,7 @@
 #define PNX8550_CM_PLL2_CTL    *(volatile unsigned long *)(PNX8550_CM_BASE + 0x008)
 #define PNX8550_CM_PLL3_CTL    *(volatile unsigned long *)(PNX8550_CM_BASE + 0x00C)
 
+// Table not complete.....
 
 #define PNX8550_CM_PLL_BLOCKED_MASK     0x80000000
 #define PNX8550_CM_PLL_LOCK_MASK        0x40000000

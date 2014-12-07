@@ -1,8 +1,23 @@
+/*
+ * arch/sh/boot/compressed/misc.c
+ *
+ * This is a collection of several routines from gzip-1.0.3
+ * adapted for Linux.
+ *
+ * malloc by Hannu Savolainen 1993 and Matthias Urlichs 1994
+ *
+ * Adapted for SH by Stuart Menefy, Aug 1999
+ *
+ * Modified to use standard LinuxSH BIOS by Greg Banks 7Jul2000
+ */
 
 #include <asm/uaccess.h>
 #include <asm/addrspace.h>
 #include <asm/page.h>
 
+/*
+ * gzip declarations
+ */
 
 #define STATIC static
 
@@ -10,6 +25,7 @@
 #undef memcpy
 #define memzero(s, n)     memset ((s), 0, (n))
 
+/* cache.c */
 #define CACHE_ENABLE      0
 #define CACHE_DISABLE     1
 int cache_control(unsigned int command);
@@ -22,7 +38,7 @@ static void error(char *m);
 
 int puts(const char *);
 
-extern int _text;		
+extern int _text;		/* Defined in vmlinux.lds.S */
 extern int _end;
 static unsigned long free_mem_ptr;
 static unsigned long free_mem_end_ptr;
@@ -55,7 +71,7 @@ static unsigned long free_mem_end_ptr;
 
 int puts(const char *s)
 {
-	
+	/* This should be updated to use the sh-sci routines */
 	return 0;
 }
 
@@ -84,7 +100,7 @@ static void error(char *x)
 	puts(x);
 	puts("\n\n -- System halted");
 
-	while(1);	
+	while(1);	/* Halt */
 }
 
 #ifdef CONFIG_SUPERH64

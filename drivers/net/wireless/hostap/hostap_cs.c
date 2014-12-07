@@ -35,6 +35,7 @@ module_param(ignore_cis_vcc, int, 0444);
 MODULE_PARM_DESC(ignore_cis_vcc, "Ignore broken CIS VCC entry");
 
 
+/* struct local_info::hw_priv */
 struct hostap_cs_priv {
 	struct pcmcia_device *link;
 	int sandisk_connectplus;
@@ -140,7 +141,7 @@ static inline void hfa384x_insw_debug(struct net_device *dev, int a,
 #define HFA384X_OUTSW(a, buf, wc) hfa384x_outsw_debug(dev, (a), (buf), (wc))
 #define HFA384X_INSW(a, buf, wc) hfa384x_insw_debug(dev, (a), (buf), (wc))
 
-#else 
+#else /* PRISM2_IO_DEBUG */
 
 #define HFA384X_OUTB(v,a) outb((v), dev->base_addr + (a))
 #define HFA384X_INB(a) inb(dev->base_addr + (a))
@@ -149,7 +150,7 @@ static inline void hfa384x_insw_debug(struct net_device *dev, int a,
 #define HFA384X_INSW(a, buf, wc) insw(dev->base_addr + (a), buf, wc)
 #define HFA384X_OUTSW(a, buf, wc) outsw(dev->base_addr + (a), buf, wc)
 
-#endif 
+#endif /* PRISM2_IO_DEBUG */
 
 
 static int hfa384x_from_bap(struct net_device *dev, u16 bap, void *buf,
@@ -191,6 +192,7 @@ static int hfa384x_to_bap(struct net_device *dev, u16 bap, void *buf, int len)
 }
 
 
+/* FIX: This might change at some point.. */
 #include "hostap_hw.c"
 
 
@@ -209,6 +211,11 @@ static int prism2_pccard_card_present(local_info_t *local)
 }
 
 
+/*
+ * SanDisk CompactFlash WLAN Flashcard - Product Manual v1.0
+ * Document No. 20-10-00058, January 2004
+ * http://www.sandisk.com/pdf/industrial/ProdManualCFWLANv1.0.pdf
+ */
 #define SANDISK_WLAN_ACTIVATION_OFF 0x40
 #define SANDISK_HCR_OFF 0x42
 
@@ -258,19 +265,19 @@ static int sandisk_enable_wireless(struct net_device *dev)
 	struct hostap_cs_priv *hw_priv = local->hw_priv;
 
 	if (resource_size(hw_priv->link->resource[0]) < 0x42) {
-		
+		/* Not enough ports to be SanDisk multi-function card */
 		ret = -ENODEV;
 		goto done;
 	}
 
 	if (hw_priv->link->manf_id != 0xd601 || hw_priv->link->card_id != 0x0101) {
-		
+		/* No SanDisk manfid found */
 		ret = -ENODEV;
 		goto done;
 	}
 
 	if (hw_priv->link->socket->functions < 2) {
-		
+		/* No multi-function links found */
 		ret = -ENODEV;
 		goto done;
 	}
@@ -288,6 +295,10 @@ static int sandisk_enable_wireless(struct net_device *dev)
 	}
 	mdelay(5);
 
+	/*
+	 * Do not enable interrupts here to avoid some bogus events. Interrupts
+	 * will be enabled during the first cor_sreset call.
+	 */
 	res = pcmcia_write_config_byte(hw_priv->link, CISREG_COR,
 				(COR_LEVEL_REQ | 0x8 | COR_ADDR_DECODE |
 					COR_FUNC_ENA));
@@ -388,7 +399,7 @@ static void prism2_pccard_genesis_reset(local_info_t *local, int hcr)
 
 	mdelay(10);
 
-	
+	/* Setup Genesis mode */
 	res = pcmcia_write_config_byte(hw_priv->link, CISREG_CCSR, hcr);
 	if (res != 0) {
 		printk(KERN_DEBUG "prism2_pccard_genesis_sreset failed 3 "
@@ -418,6 +429,8 @@ static struct prism2_helper_functions prism2_pccard_funcs =
 };
 
 
+/* allocate local data and register with CardServices
+ * initialize dev_link structure, but do not configure the card yet */
 static int hostap_cs_probe(struct pcmcia_device *p_dev)
 {
 	int ret;
@@ -439,7 +452,7 @@ static void prism2_detach(struct pcmcia_device *link)
 
 	prism2_release((u_long)link);
 
-	
+	/* release net devices */
 	if (link->priv) {
 		struct hostap_cs_priv *hw_priv;
 		struct net_device *dev;
@@ -478,7 +491,7 @@ static int prism2_config(struct pcmcia_device *link)
 		goto failed;
 	}
 
-	
+	/* Look for an appropriate configuration table entry in the CIS */
 	link->config_flags |= CONF_AUTO_SET_VPP | CONF_AUTO_AUDIO |
 		CONF_AUTO_CHECK_VCC | CONF_AUTO_SET_IO | CONF_ENABLE_IRQ;
 	if (ignore_cis_vcc)
@@ -492,7 +505,7 @@ static int prism2_config(struct pcmcia_device *link)
 		goto failed;
 	}
 
-	
+	/* Need to allocate net_device before requesting IRQ handler */
 	dev = prism2_init_local_data(&prism2_pccard_funcs, 0,
 				     &link->dev);
 	if (dev == NULL)
@@ -504,6 +517,11 @@ static int prism2_config(struct pcmcia_device *link)
 	local->hw_priv = hw_priv;
 	hw_priv->link = link;
 
+	/*
+	 * We enable IRQ here, but IRQ handler will not proceed
+	 * until dev->base_addr is set below. This protect us from
+	 * receive interrupts when driver is not initialized.
+	 */
 	ret = pcmcia_request_irq(link, prism2_interrupt);
 	if (ret)
 		goto failed;
@@ -618,6 +636,7 @@ static const struct pcmcia_device_id hostap_cs_ids[] = {
 	PCMCIA_DEVICE_MANF_CARD(0x02d2, 0x0001),
 	PCMCIA_DEVICE_MANF_CARD(0x50c2, 0x0001),
 	PCMCIA_DEVICE_MANF_CARD(0x50c2, 0x7300),
+/*	PCMCIA_DEVICE_MANF_CARD(0xc00f, 0x0000),    conflict with pcnet_cs */
 	PCMCIA_DEVICE_MANF_CARD(0xc250, 0x0002),
 	PCMCIA_DEVICE_MANF_CARD(0xd601, 0x0002),
 	PCMCIA_DEVICE_MANF_CARD(0xd601, 0x0005),

@@ -29,9 +29,9 @@
 
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/kernel.h>	
-#include <linux/fs.h>		
-#include <linux/errno.h>	
+#include <linux/kernel.h>	/* printk() */
+#include <linux/fs.h>		/* everything... */
+#include <linux/errno.h>	/* error codes */
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/ioport.h>
@@ -43,28 +43,34 @@
 #include <linux/device.h>
 #include <linux/miscdevice.h>
 #include <linux/platform_device.h>
-#include <asm/io.h>		
+#include <asm/io.h>		/* inb/outb */
 #include <asm/uaccess.h>
 
 MODULE_AUTHOR("Sebastien Bouchard <sebastien.bouchard@ca.kontron.com>");
 MODULE_LICENSE("GPL");
 
+/*Hardware Reset of the PLL */
 #define RESET_ON	0x00
 #define RESET_OFF	0x01
 
+/* MODE SELECT */
 #define NORMAL_MODE 	0x00
 #define HOLDOVER_MODE	0x10
 #define FREERUN_MODE	0x20
 
+/* FILTER SELECT */
 #define FILTER_6HZ	0x04
 #define FILTER_12HZ	0x00
 
+/* SELECT REFERENCE FREQUENCY */
 #define REF_CLK1_8kHz		0x00
 #define REF_CLK2_19_44MHz	0x02
 
+/* Select primary or secondary redundant clock */
 #define PRIMARY_CLOCK	0x00
 #define SECONDARY_CLOCK	0x01
 
+/* CLOCK TRANSMISSION DEFINE */
 #define CLK_8kHz	0xff
 #define CLK_16_384MHz	0xfb
 
@@ -80,20 +86,25 @@ MODULE_LICENSE("GPL");
 #define CLK_34_368MHz	0x0b
 #define CLK_44_736MHz	0x0a
 
+/* RECEIVED REFERENCE */
 #define AMC_B1 0
 #define AMC_B2 1
 
+/* HARDWARE SWITCHING DEFINE */
 #define HW_ENABLE	0x80
 #define HW_DISABLE	0x00
 
+/* HARDWARE SWITCHING MODE DEFINE */
 #define PLL_HOLDOVER	0x40
 #define LOST_CLOCK	0x00
 
+/* ALARMS DEFINE */
 #define UNLOCK_MASK	0x10
 #define HOLDOVER_MASK	0x20
 #define SEC_LOST_MASK	0x40
 #define PRI_LOST_MASK	0x80
 
+/* INTERRUPT CAUSE DEFINE */
 
 #define PRI_LOS_01_MASK		0x01
 #define PRI_LOS_10_MASK		0x02
@@ -120,6 +131,7 @@ struct tlclk_alarms {
 	__u32 pll_lost_sync;
 	__u32 pll_sync;
 };
+/* Telecom clock I/O register definition */
 #define TLCLK_BASE 0xa08
 #define TLCLK_REG0 TLCLK_BASE
 #define TLCLK_REG1 (TLCLK_BASE+1)
@@ -132,13 +144,45 @@ struct tlclk_alarms {
 
 #define SET_PORT_BITS(port, mask, val) outb(((inb(port) & mask) | val), port)
 
+/* 0 = Dynamic allocation of the major device number */
 #define TLCLK_MAJOR 0
 
+/* sysfs interface definition:
+Upon loading the driver will create a sysfs directory under
+/sys/devices/platform/telco_clock.
+
+This directory exports the following interfaces.  There operation is
+documented in the MCPBL0010 TPS under the Telecom Clock API section, 11.4.
+alarms				:
+current_ref			:
+received_ref_clk3a		:
+received_ref_clk3b		:
+enable_clk3a_output		:
+enable_clk3b_output		:
+enable_clka0_output		:
+enable_clka1_output		:
+enable_clkb0_output		:
+enable_clkb1_output		:
+filter_select			:
+hardware_switching		:
+hardware_switching_mode		:
+telclock_version		:
+mode_select			:
+refalign			:
+reset				:
+select_amcb1_transmit_clock	:
+select_amcb2_transmit_clock	:
+select_redundant_clock		:
+select_ref_frequency		:
+
+All sysfs interfaces are integers in hex format, i.e echo 99 > refalign
+has the same effect as echo 0x99 > refalign.
+*/
 
 static unsigned int telclk_interrupt;
 
-static int int_events;		
-static int got_event;		
+static int int_events;		/* Event that generate a interrupt */
+static int got_event;		/* if events processing have been done */
 
 static void switchover_timeout(unsigned long data);
 static struct timer_list switchover_timer =
@@ -165,17 +209,24 @@ static int tlclk_open(struct inode *inode, struct file *filp)
 	mutex_lock(&tlclk_mutex);
 	if (test_and_set_bit(0, &useflags)) {
 		result = -EBUSY;
+		/* this legacy device is always one per system and it doesn't
+		 * know how to handle multiple concurrent clients.
+		 */
 		goto out;
 	}
 
+	/* Make sure there is no interrupt pending while
+	 * initialising interrupt handler */
 	inb(TLCLK_REG6);
 
+	/* This device is wired through the FPGA IO space of the ATCA blade
+	 * we can't share this IRQ */
 	result = request_irq(telclk_interrupt, &tlclk_interrupt,
 			     IRQF_DISABLED, "telco_clock", tlclk_interrupt);
 	if (result == -EBUSY)
 		printk(KERN_ERR "tlclk: Interrupt can't be reserved.\n");
 	else
-		inb(TLCLK_REG6);	
+		inb(TLCLK_REG6);	/* Clear interrupt events */
 
 out:
 	mutex_unlock(&tlclk_mutex);
@@ -716,7 +767,7 @@ static struct attribute *tlclk_sysfs_entries[] = {
 };
 
 static struct attribute_group tlclk_attribute_group = {
-	.name = NULL,		
+	.name = NULL,		/* put in device directory */
 	.attrs = tlclk_sysfs_entries,
 };
 
@@ -736,7 +787,7 @@ static int __init tlclk_init(void)
 	if (!alarm_events)
 		goto out1;
 
-	
+	/* Read telecom clock IRQ number (Set by BIOS) */
 	if (!request_region(TLCLK_BASE, 8, "telco_clock")) {
 		printk(KERN_ERR "tlclk: request_region 0x%X failed.\n",
 			TLCLK_BASE);
@@ -745,7 +796,7 @@ static int __init tlclk_init(void)
 	}
 	telclk_interrupt = (inb(TLCLK_REG7) & 0x0f);
 
-	if (0x0F == telclk_interrupt ) { 
+	if (0x0F == telclk_interrupt ) { /* not MCPBL0010 ? */
 		printk(KERN_ERR "telclk_interrupt = 0x%x non-mcpbl0010 hw.\n",
 			telclk_interrupt);
 		ret = -ENXIO;
@@ -814,7 +865,7 @@ static void switchover_timeout(unsigned long data)
 			alarm_events->switchover_secondary++;
 	}
 
-	
+	/* Alarm processing is done, wake up read task */
 	del_timer(&switchover_timer);
 	got_event = 1;
 	wake_up(&wq);
@@ -825,10 +876,10 @@ static irqreturn_t tlclk_interrupt(int irq, void *dev_id)
 	unsigned long flags;
 
 	spin_lock_irqsave(&event_lock, flags);
-	
+	/* Read and clear interrupt events */
 	int_events = inb(TLCLK_REG6);
 
-	
+	/* Primary_Los changed from 0 to 1 ? */
 	if (int_events & PRI_LOS_01_MASK) {
 		if (inb(TLCLK_REG2) & SEC_LOST_MASK)
 			alarm_events->lost_clocks++;
@@ -836,19 +887,19 @@ static irqreturn_t tlclk_interrupt(int irq, void *dev_id)
 			alarm_events->lost_primary_clock++;
 	}
 
-	
+	/* Primary_Los changed from 1 to 0 ? */
 	if (int_events & PRI_LOS_10_MASK) {
 		alarm_events->primary_clock_back++;
 		SET_PORT_BITS(TLCLK_REG1, 0xFE, 1);
 	}
-	
+	/* Secondary_Los changed from 0 to 1 ? */
 	if (int_events & SEC_LOS_01_MASK) {
 		if (inb(TLCLK_REG2) & PRI_LOST_MASK)
 			alarm_events->lost_clocks++;
 		else
 			alarm_events->lost_secondary_clock++;
 	}
-	
+	/* Secondary_Los changed from 1 to 0 ? */
 	if (int_events & SEC_LOS_10_MASK) {
 		alarm_events->secondary_clock_back++;
 		SET_PORT_BITS(TLCLK_REG1, 0xFE, 0);
@@ -862,11 +913,11 @@ static irqreturn_t tlclk_interrupt(int irq, void *dev_id)
 	if (int_events & UNLOCK_10_MASK)
 		alarm_events->pll_sync++;
 
-	
+	/* Holdover changed from 0 to 1 ? */
 	if (int_events & HOLDOVER_01_MASK) {
 		alarm_events->pll_holdover++;
 
-		
+		/* TIMEOUT in ~10ms */
 		switchover_timer.expires = jiffies + msecs_to_jiffies(10);
 		tlclk_timer_data = inb(TLCLK_REG1);
 		switchover_timer.data = (unsigned long) &tlclk_timer_data;

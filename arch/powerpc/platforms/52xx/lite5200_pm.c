@@ -5,6 +5,7 @@
 #include <asm/mpc52xx.h>
 #include <asm/switch_to.h>
 
+/* defined in lite5200_sleep.S and only used here */
 extern void lite5200_low_power(void __iomem *sram, void __iomem *mbar);
 
 static struct mpc52xx_cdm __iomem *cdm;
@@ -15,7 +16,7 @@ static struct mpc52xx_gpio __iomem *gps;
 static struct mpc52xx_gpio_wkup __iomem *gpw;
 static void __iomem *pci;
 static void __iomem *sram;
-static const int sram_size = 0x4000;	
+static const int sram_size = 0x4000;	/* 16 kBytes */
 static void __iomem *mbar;
 
 static suspend_state_t lite5200_pm_target_state;
@@ -46,21 +47,21 @@ static int lite5200_pm_prepare(void)
 	const struct of_device_id immr_ids[] = {
 		{ .compatible = "fsl,mpc5200-immr", },
 		{ .compatible = "fsl,mpc5200b-immr", },
-		{ .type = "soc", .compatible = "mpc5200", }, 
-		{ .type = "builtin", .compatible = "mpc5200", }, 
+		{ .type = "soc", .compatible = "mpc5200", }, /* lite5200 */
+		{ .type = "builtin", .compatible = "mpc5200", }, /* efika */
 		{}
 	};
 	u64 regaddr64 = 0;
 	const u32 *regaddr_p;
 
-	
+	/* deep sleep? let mpc52xx code handle that */
 	if (lite5200_pm_target_state == PM_SUSPEND_STANDBY)
 		return mpc52xx_pm_prepare();
 
 	if (lite5200_pm_target_state != PM_SUSPEND_MEM)
 		return -EINVAL;
 
-	
+	/* map registers */
 	np = of_find_matching_node(NULL, immr_ids);
 	regaddr_p = of_get_address(np, 0, NULL, NULL);
 	if (regaddr_p)
@@ -85,6 +86,7 @@ static int lite5200_pm_prepare(void)
 	return 0;
 }
 
+/* save and restore registers not bound to any real devices */
 static struct mpc52xx_cdm scdm;
 static struct mpc52xx_intr spic;
 static struct mpc52xx_sdma sbes;
@@ -111,24 +113,28 @@ static void lite5200_restore_regs(void)
 	int i;
 	_memcpy_toio(sram, saved_sram, sram_size);
 
-	
+	/* PCI Configuration */
 	_memcpy_toio(pci, spci, 0x200);
 
+	/*
+	 * GPIOs. Interrupt Master Enable has higher address then other
+	 * registers, so just memcpy is ok.
+	 */
 	_memcpy_toio(gpw, &sgpw, sizeof(*gpw));
 	_memcpy_toio(gps, &sgps, sizeof(*gps));
 
 
-	
+	/* XLB Arbitrer */
 	out_be32(&xlb->snoop_window, sxlb.snoop_window);
 	out_be32(&xlb->master_priority, sxlb.master_priority);
 	out_be32(&xlb->master_pri_enable, sxlb.master_pri_enable);
 
-	
+	/* enable */
 	out_be32(&xlb->int_enable, sxlb.int_enable);
 	out_be32(&xlb->config, sxlb.config);
 
 
-	
+	/* CDM - Clock Distribution Module */
 	out_8(&cdm->ipb_clk_sel, scdm.ipb_clk_sel);
 	out_8(&cdm->pci_clk_sel, scdm.pci_clk_sel);
 
@@ -146,7 +152,7 @@ static void lite5200_restore_regs(void)
 	out_be16(&cdm->mclken_div_psc6, scdm.mclken_div_psc6);
 
 
-	
+	/* BESTCOMM */
 	out_be32(&bes->taskBar, sbes.taskBar);
 	out_be32(&bes->currentPointer, sbes.currentPointer);
 	out_be32(&bes->endPointer, sbes.endPointer);
@@ -170,16 +176,16 @@ static void lite5200_restore_regs(void)
 	out_be32(&bes->Status, sbes.Status);
 	out_be32(&bes->PTDDebug, sbes.PTDDebug);
 
-	
+	/* restore tasks */
 	for (i=0; i<16; i++)
 		out_be16(&bes->tcr[i], sbes.tcr[i]);
 
-	
+	/* enable interrupts */
 	out_be32(&bes->IntPend, sbes.IntPend);
 	out_be32(&bes->IntMask, sbes.IntMask);
 
 
-	
+	/* PIC */
 	out_be32(&pic->per_pri1, spic.per_pri1);
 	out_be32(&pic->per_pri2, spic.per_pri2);
 	out_be32(&pic->per_pri3, spic.per_pri3);
@@ -189,7 +195,7 @@ static void lite5200_restore_regs(void)
 
 	out_be32(&pic->enc_status, spic.enc_status);
 
-	
+	/* unmask and enable interrupts */
 	out_be32(&pic->per_mask, spic.per_mask);
 	out_be32(&pic->main_mask, spic.main_mask);
 	out_be32(&pic->ctrl, spic.ctrl);
@@ -197,14 +203,14 @@ static void lite5200_restore_regs(void)
 
 static int lite5200_pm_enter(suspend_state_t state)
 {
-	
+	/* deep sleep? let mpc52xx code handle that */
 	if (state == PM_SUSPEND_STANDBY) {
 		return mpc52xx_pm_enter(state);
 	}
 
 	lite5200_save_regs();
 
-	
+	/* effectively save FP regs */
 	enable_kernel_fp();
 
 	lite5200_low_power(sram, mbar);
@@ -217,7 +223,7 @@ static int lite5200_pm_enter(suspend_state_t state)
 
 static void lite5200_pm_finish(void)
 {
-	
+	/* deep sleep? let mpc52xx code handle that */
 	if (lite5200_pm_target_state == PM_SUSPEND_STANDBY)
 		mpc52xx_pm_finish();
 }

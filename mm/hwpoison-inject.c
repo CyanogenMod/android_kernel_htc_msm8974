@@ -1,3 +1,4 @@
+/* Inject a hwpoison memory failure on a arbitrary pfn */
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
@@ -26,14 +27,26 @@ static int hwpoison_inject(void *data, u64 val)
 
 	p = pfn_to_page(pfn);
 	hpage = compound_head(p);
+	/*
+	 * This implies unable to support free buddy pages.
+	 */
 	if (!get_page_unless_zero(hpage))
 		return 0;
 
 	if (!PageLRU(p) && !PageHuge(p))
 		shake_page(p, 0);
+	/*
+	 * This implies unable to support non-LRU pages.
+	 */
 	if (!PageLRU(p) && !PageHuge(p))
 		return 0;
 
+	/*
+	 * do a racy check with elevated page count, to make sure PG_hwpoison
+	 * will only be set for the targeted owner (or on a free page).
+	 * We temporarily take page lock for try_get_mem_cgroup_from_page().
+	 * memory_failure() will redo the check reliably inside page lock.
+	 */
 	lock_page(hpage);
 	err = hwpoison_filter(hpage);
 	unlock_page(hpage);
@@ -70,6 +83,11 @@ static int pfn_inject_init(void)
 	if (hwpoison_dir == NULL)
 		return -ENOMEM;
 
+	/*
+	 * Note that the below poison/unpoison interfaces do not involve
+	 * hardware status change, hence do not require hardware support.
+	 * They are mainly for testing hwpoison in software level.
+	 */
 	dentry = debugfs_create_file("corrupt-pfn", 0600, hwpoison_dir,
 					  NULL, &hwpoison_fops);
 	if (!dentry)

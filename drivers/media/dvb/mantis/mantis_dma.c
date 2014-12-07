@@ -48,11 +48,12 @@
 
 #define MANTIS_BUF_SIZE		(64 * 1024)
 #define MANTIS_BLOCK_BYTES      (MANTIS_BUF_SIZE / 4)
-#define MANTIS_DMA_TR_BYTES     (2 * 1024) 
+#define MANTIS_DMA_TR_BYTES     (2 * 1024) /* upper limit: 4095 bytes. */
 #define MANTIS_BLOCK_COUNT	(MANTIS_BUF_SIZE / MANTIS_BLOCK_BYTES)
 
 #define MANTIS_DMA_TR_UNITS     (MANTIS_BLOCK_BYTES / MANTIS_DMA_TR_BYTES)
-#define MANTIS_RISC_SIZE	PAGE_SIZE 
+/* MANTIS_BUF_SIZE / MANTIS_DMA_TR_UNITS must not exceed MANTIS_RISC_SIZE (4k RISC cmd buffer) */
+#define MANTIS_RISC_SIZE	PAGE_SIZE /* RISC program must fit here. */
 
 int mantis_dma_exit(struct mantis_pci *mantis)
 {
@@ -135,7 +136,7 @@ int mantis_dma_init(struct mantis_pci *mantis)
 	if (mantis_alloc_buffers(mantis) < 0) {
 		dprintk(MANTIS_ERROR, 1, "Error allocating DMA buffer");
 
-		
+		/* Stop RISC Engine */
 		mmwrite(0, MANTIS_DMA_CTL);
 
 		goto err;

@@ -125,7 +125,7 @@ enum tegra_pingroup {
 	TEGRA_PINGROUP_UCA,
 	TEGRA_PINGROUP_UCB,
 	TEGRA_PINGROUP_UDA,
-	
+	/* these pin groups only have pullup and pull down control */
 	TEGRA_PINGROUP_CK32,
 	TEGRA_PINGROUP_DDRC,
 	TEGRA_PINGROUP_PMCA,

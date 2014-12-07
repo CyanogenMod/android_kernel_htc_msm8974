@@ -37,9 +37,9 @@
 
 #define PFX KBUILD_MODNAME
 
-#define WDT_HZ		50000000 
-#define WDT_DEFAULT_TIME	30      
-#define WDT_MAX_TIME		256     
+#define WDT_HZ		50000000 /* Fclk */
+#define WDT_DEFAULT_TIME	30      /* seconds */
+#define WDT_MAX_TIME		256     /* seconds */
 
 static struct {
 	void __iomem *regs;
@@ -57,6 +57,7 @@ module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 	__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+/* HW functions */
 static void bcm63xx_wdt_hw_start(void)
 {
 	bcm_writel(0xfffffffe, bcm63xx_wdt_device.regs + WDT_DEFVAL_REG);
@@ -142,7 +143,7 @@ static ssize_t bcm63xx_wdt_write(struct file *file, const char *data,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			expect_close = 0;
 
 			for (i = 0; i != len; i++) {

@@ -77,6 +77,14 @@ nv04_fifo_cache_pull(struct drm_device *dev, bool enable)
 	int pull = nv_mask(dev, NV04_PFIFO_CACHE1_PULL0, 1, enable);
 
 	if (!enable) {
+		/* In some cases the PFIFO puller may be left in an
+		 * inconsistent state if you try to stop it when it's
+		 * busy translating handles. Sometimes you get a
+		 * PFIFO_CACHE_ERROR, sometimes it just fails silently
+		 * sending incorrect instance offsets to PGRAPH after
+		 * it's started up again. To avoid the latter we
+		 * invalidate the most recently calculated instance.
+		 */
 		if (!nv_wait(dev, NV04_PFIFO_CACHE1_PULL0,
 			     NV04_PFIFO_CACHE1_PULL0_HASH_BUSY, 0))
 			NV_ERROR(dev, "Timeout idling the PFIFO puller.\n");
@@ -128,7 +136,7 @@ nv04_fifo_create_context(struct nouveau_channel *chan)
 
 	spin_lock_irqsave(&dev_priv->context_switch_lock, flags);
 
-	
+	/* Setup initial state */
 	RAMFC_WR(DMA_PUT, chan->pushbuf_base);
 	RAMFC_WR(DMA_GET, chan->pushbuf_base);
 	RAMFC_WR(DMA_INSTANCE, chan->pushbuf->pinst >> 4);
@@ -137,7 +145,7 @@ nv04_fifo_create_context(struct nouveau_channel *chan)
 			     NV_PFIFO_CACHE1_DMA_FETCH_MAX_REQS_8 |
 			     DMA_FETCH_ENDIANNESS));
 
-	
+	/* enable the fifo dma operation */
 	nv_wr32(dev, NV04_PFIFO_MODE,
 		nv_rd32(dev, NV04_PFIFO_MODE) | (1 << chan->id));
 
@@ -156,20 +164,20 @@ nv04_fifo_destroy_context(struct nouveau_channel *chan)
 	spin_lock_irqsave(&dev_priv->context_switch_lock, flags);
 	pfifo->reassign(dev, false);
 
-	
+	/* Unload the context if it's the currently active one */
 	if (pfifo->channel_id(dev) == chan->id) {
 		pfifo->disable(dev);
 		pfifo->unload_context(dev);
 		pfifo->enable(dev);
 	}
 
-	
+	/* Keep it from being rescheduled */
 	nv_mask(dev, NV04_PFIFO_MODE, 1 << chan->id, 0);
 
 	pfifo->reassign(dev, true);
 	spin_unlock_irqrestore(&dev_priv->context_switch_lock, flags);
 
-	
+	/* Free the channel resources */
 	if (chan->user) {
 		iounmap(chan->user);
 		chan->user = NULL;
@@ -207,7 +215,7 @@ nv04_fifo_load_context(struct nouveau_channel *chan)
 	nv04_fifo_do_load_context(chan->dev, chan->id);
 	nv_wr32(chan->dev, NV04_PFIFO_CACHE1_DMA_PUSH, 1);
 
-	
+	/* Reset NV04_PFIFO_CACHE1_DMA_CTL_AT_INFO to INVALID */
 	tmp = nv_rd32(chan->dev, NV04_PFIFO_CACHE1_DMA_CTL) & ~(1 << 31);
 	nv_wr32(chan->dev, NV04_PFIFO_CACHE1_DMA_CTL, tmp);
 
@@ -276,7 +284,7 @@ nv04_fifo_init_ramxx(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
-	nv_wr32(dev, NV03_PFIFO_RAMHT, (0x03 << 24)  |
+	nv_wr32(dev, NV03_PFIFO_RAMHT, (0x03 << 24) /* search 128 */ |
 				       ((dev_priv->ramht->bits - 9) << 16) |
 				       (dev_priv->ramht->gpuobj->pinst >> 8));
 	nv_wr32(dev, NV03_PFIFO_RAMRO, dev_priv->ramro->pinst >> 8);
@@ -344,7 +352,7 @@ nouveau_fifo_swmthd(struct drm_device *dev, u32 chid, u32 addr, u32 data)
 		goto out;
 
 	switch (mthd) {
-	case 0x0000: 
+	case 0x0000: /* bind object to subchannel */
 		obj = nouveau_ramht_find(chan, data);
 		if (unlikely(!obj || obj->engine != NVOBJ_ENGINE_SW))
 			break;
@@ -375,7 +383,7 @@ static const char *nv_dma_state_err(u32 state)
 {
 	static const char * const desc[] = {
 		"NONE", "CALL_SUBR_ACTIVE", "INVALID_MTHD", "RET_SUBR_INACTIVE",
-		"INVALID_CMD", "IB_EMPTY", "MEM_FAULT", "UNK"
+		"INVALID_CMD", "IB_EMPTY"/* NV50+ */, "MEM_FAULT", "UNK"
 	};
 	return desc[(state >> 29) & 0x7];
 }
@@ -401,6 +409,12 @@ nv04_fifo_isr(struct drm_device *dev)
 			uint32_t mthd, data;
 			int ptr;
 
+			/* NV_PFIFO_CACHE1_GET actually goes to 0xffc before
+			 * wrapping on my G80 chips, but CACHE1 isn't big
+			 * enough for this much data.. Tests show that it
+			 * wraps around to the start at GET=0x800.. No clue
+			 * as to why..
+			 */
 			ptr = (get & 0x7ff) >> 2;
 
 			if (dev_priv->card_type < NV_40) {
@@ -461,7 +475,7 @@ nv04_fifo_isr(struct drm_device *dev)
 						nv_dma_state_err(state),
 						push);
 
-				
+				/* METHOD_COUNT, in DMA_STATE on earlier chipsets */
 				nv_wr32(dev, 0x003364, 0x00000000);
 				if (dma_get != dma_put || ho_get != ho_put) {
 					nv_wr32(dev, 0x003244, dma_put);

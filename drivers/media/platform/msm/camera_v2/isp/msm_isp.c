@@ -82,6 +82,15 @@ static int __devinit vfe_probe(struct platform_device *pdev)
 		of_property_read_u32((&pdev->dev)->of_node,
 			"cell-index", &pdev->id);
 		match_dev = of_match_device(msm_vfe_dt_match, &pdev->dev);
+
+		
+		if (match_dev == NULL) {
+			pr_err("%s: match_dev is NULL\n", __func__);
+			kfree(vfe_dev);
+			return -EINVAL;
+		}
+		
+
 		vfe_dev->hw_info =
 			(struct msm_vfe_hardware_info *) match_dev->data;
 	} else {
@@ -91,6 +100,7 @@ static int __devinit vfe_probe(struct platform_device *pdev)
 
 	if (!vfe_dev->hw_info) {
 		pr_err("%s: No vfe hardware info\n", __func__);
+		kfree(vfe_dev);
 		return -EINVAL;
 	}
 	ISP_DBG("%s: device id = %d\n", __func__, pdev->id);

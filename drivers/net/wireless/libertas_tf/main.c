@@ -17,10 +17,12 @@
 #include "libertas_tf.h"
 
 #define DRIVER_RELEASE_VERSION "004.p0"
+/* thinfirm version: 5.132.X.pX */
 #define LBTF_FW_VER_MIN		0x05840300
 #define LBTF_FW_VER_MAX		0x0584ffff
 #define QOS_CONTROL_LEN		2
 
+/* Module parameters */
 unsigned int lbtf_debug;
 EXPORT_SYMBOL_GPL(lbtf_debug);
 module_param_named(libertas_tf_debug, lbtf_debug, int, 0644);
@@ -50,6 +52,7 @@ static const struct ieee80211_channel lbtf_channels[] = {
 	{ .center_freq = 2484, .hw_value = 14 },
 };
 
+/* This table contains the hardware specific values for the modulation rates. */
 static const struct ieee80211_rate lbtf_rates[] = {
 	{ .bitrate = 10,
 	  .hw_value = 0, },
@@ -96,7 +99,7 @@ static void lbtf_cmd_work(struct work_struct *work)
 	lbtf_deb_enter(LBTF_DEB_CMD);
 
 	spin_lock_irq(&priv->driver_lock);
-	
+	/* command response? */
 	if (priv->cmd_response_rxed) {
 		priv->cmd_response_rxed = 0;
 		spin_unlock_irq(&priv->driver_lock);
@@ -114,6 +117,8 @@ static void lbtf_cmd_work(struct work_struct *work)
 		} else {
 			priv->cur_cmd = NULL;
 
+			/* Stick it back at the _top_ of the pending
+			 * queue for immediate resubmission */
 			list_add(&cmdnode->list, &priv->cmdpendingq);
 		}
 	}
@@ -125,18 +130,28 @@ static void lbtf_cmd_work(struct work_struct *work)
 		return;
 	}
 
-	
+	/* Execute the next command */
 	if (!priv->cur_cmd)
 		lbtf_execute_next_command(priv);
 
 	lbtf_deb_leave(LBTF_DEB_CMD);
 }
 
+/**
+ *  lbtf_setup_firmware: initialize firmware.
+ *
+ *  @priv    A pointer to struct lbtf_private structure
+ *
+ *  Returns: 0 on success.
+ */
 static int lbtf_setup_firmware(struct lbtf_private *priv)
 {
 	int ret = -1;
 
 	lbtf_deb_enter(LBTF_DEB_FW);
+	/*
+	 * Read priv address from HW
+	 */
 	memset(priv->current_addr, 0xff, ETH_ALEN);
 	ret = lbtf_update_hw_spec(priv);
 	if (ret) {
@@ -153,6 +168,10 @@ done:
 	return ret;
 }
 
+/**
+ *  This function handles the timeout of command sending.
+ *  It will re-send the same command again.
+ */
 static void command_timer_fn(unsigned long data)
 {
 	struct lbtf_private *priv = (struct lbtf_private *)data;
@@ -192,7 +211,7 @@ static int lbtf_init_adapter(struct lbtf_private *priv)
 
 	spin_lock_init(&priv->driver_lock);
 
-	
+	/* Allocate the command buffers */
 	if (lbtf_allocate_cmd_buffer(priv))
 		return -1;
 
@@ -214,6 +233,10 @@ static void lbtf_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 
 	priv->skb_to_tx = skb;
 	queue_work(lbtf_wq, &priv->tx_work);
+	/*
+	 * queue will be restarted when we receive transmission feedback if
+	 * there are no buffered multicast frames to send
+	 */
 	ieee80211_stop_queues(priv->hw);
 }
 
@@ -251,11 +274,11 @@ static void lbtf_tx_work(struct work_struct *work)
 	}
 
 	memset(txpd, 0, sizeof(struct txpd));
-	
+	/* Activate per-packet rate selection */
 	txpd->tx_control |= cpu_to_le32(MRVL_PER_PACKET_RATE |
 			     ieee80211_get_tx_rate(priv->hw, info)->hw_value);
 
-	
+	/* copy destination address from 802.11 header */
 	memcpy(txpd->tx_dest_addr_high, skb->data + sizeof(struct txpd) + 4,
 		ETH_ALEN);
 	txpd->tx_packet_length = cpu_to_le16(len);
@@ -283,11 +306,11 @@ static int lbtf_op_start(struct ieee80211_hw *hw)
 	lbtf_deb_enter(LBTF_DEB_MACOPS);
 
 	if (!priv->fw_ready)
-		
+		/* Upload firmware */
 		if (priv->hw_prog_firmware(card))
 			goto err_prog_firmware;
 
-	
+	/* poke the firmware */
 	priv->capability = WLAN_CAPABILITY_SHORT_PREAMBLE;
 	priv->radioon = RADIO_ON;
 	priv->mac_control = CMD_ACT_MAC_RX_ON | CMD_ACT_MAC_TX_ON;
@@ -321,7 +344,7 @@ static void lbtf_op_stop(struct ieee80211_hw *hw)
 
 	lbtf_deb_enter(LBTF_DEB_MACOPS);
 
-	
+	/* Flush pending command nodes */
 	spin_lock_irqsave(&priv->driver_lock, flags);
 	list_for_each_entry(cmdnode, &priv->cmdpendingq, list) {
 		cmdnode->result = -ENOENT;
@@ -551,7 +574,7 @@ int lbtf_rx(struct lbtf_private *priv, struct sk_buff *skb)
 	stats.band = IEEE80211_BAND_2GHZ;
 	stats.signal = prxpd->snr;
 	priv->noise = prxpd->nf;
-	
+	/* Marvell rate index has a hole at value 4 */
 	if (prxpd->rx_rate > 4)
 		--prxpd->rx_rate;
 	stats.rate_idx = prxpd->rx_rate;
@@ -585,6 +608,13 @@ int lbtf_rx(struct lbtf_private *priv, struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(lbtf_rx);
 
+/**
+ * lbtf_add_card: Add and initialize the card, no fw upload yet.
+ *
+ *  @card    A pointer to card
+ *
+ *  Returns: pointer to struct lbtf_priv.
+ */
 struct lbtf_private *lbtf_add_card(void *card, struct device *dmdev)
 {
 	struct ieee80211_hw *hw;
@@ -663,6 +693,12 @@ void lbtf_send_tx_feedback(struct lbtf_private *priv, u8 retrycnt, u8 fail)
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(priv->tx_skb);
 
 	ieee80211_tx_info_clear_status(info);
+	/*
+	 * Commented out, otherwise we never go beyond 1Mbit/s using mac80211
+	 * default pid rc algorithm.
+	 *
+	 * info->status.retry_count = MRVL_DEFAULT_RETRIES - retrycnt;
+	 */
 	if (!(info->flags & IEEE80211_TX_CTL_NO_ACK) && !fail)
 		info->flags |= IEEE80211_TX_STAT_ACK;
 	skb_pull(priv->tx_skb, sizeof(struct txpd));

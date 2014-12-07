@@ -38,9 +38,14 @@ DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events);
 
 static struct sh_pmu *sh_pmu __read_mostly;
 
+/* Number of perf_events counting hardware events */
 static atomic_t num_events;
+/* Used to avoid races in calling reserve/release_pmc_hardware */
 static DEFINE_MUTEX(pmc_reserve_mutex);
 
+/*
+ * Stub these out for now, do something more profound later.
+ */
 int reserve_pmc_hardware(void)
 {
 	return 0;
@@ -73,6 +78,9 @@ int perf_num_counters(void)
 }
 EXPORT_SYMBOL_GPL(perf_num_counters);
 
+/*
+ * Release the PMU if this is the last perf_event.
+ */
 static void hw_perf_event_destroy(struct perf_event *event)
 {
 	if (!atomic_add_unless(&num_events, -1, 1)) {
@@ -91,7 +99,7 @@ static int hw_perf_cache_event(int config, int *evp)
 	if (!sh_pmu->cache_events)
 		return -EINVAL;
 
-	
+	/* unpack config */
 	type = config & 0xff;
 	op = (config >> 8) & 0xff;
 	result = (config >> 16) & 0xff;
@@ -120,9 +128,21 @@ static int __hw_perf_event_init(struct perf_event *event)
 	if (!sh_pmu_initialized())
 		return -ENODEV;
 
+	/*
+	 * All of the on-chip counters are "limited", in that they have
+	 * no interrupts, and are therefore unable to do sampling without
+	 * further work and timer assistance.
+	 */
 	if (hwc->sample_period)
 		return -EINVAL;
 
+	/*
+	 * See if we need to reserve the counter.
+	 *
+	 * If no events are currently in use, then we have to take a
+	 * mutex to ensure that we don't race with another task doing
+	 * reserve_pmc_hardware or release_pmc_hardware.
+	 */
 	err = 0;
 	if (!atomic_inc_not_zero(&num_events)) {
 		mutex_lock(&pmc_reserve_mutex);
@@ -171,6 +191,18 @@ static void sh_perf_event_update(struct perf_event *event,
 	s64 delta;
 	int shift = 0;
 
+	/*
+	 * Depending on the counter configuration, they may or may not
+	 * be chained, in which case the previous counter value can be
+	 * updated underneath us if the lower-half overflows.
+	 *
+	 * Our tactic to handle this is to first atomically read and
+	 * exchange a new raw count - then add that new-prev delta
+	 * count to the generic counter atomically.
+	 *
+	 * As there is no interrupt associated with the overflow events,
+	 * this is the simplest approach for maintaining consistency.
+	 */
 again:
 	prev_raw_count = local64_read(&hwc->prev_count);
 	new_raw_count = sh_pmu->read(idx);
@@ -179,6 +211,14 @@ again:
 			     new_raw_count) != prev_raw_count)
 		goto again;
 
+	/*
+	 * Now we have the new raw value and have updated the prev
+	 * timestamp already. We can now calculate the elapsed delta
+	 * (counter-)time and add that to the generic counter.
+	 *
+	 * Careful, not all hw sign-extends above the physical width
+	 * of the count.
+	 */
 	delta = (new_raw_count << shift) - (prev_raw_count << shift);
 	delta >>= shift;
 
@@ -270,7 +310,7 @@ static int sh_pmu_event_init(struct perf_event *event)
 {
 	int err;
 
-	
+	/* does not support taken branch sampling */
 	if (has_branch_stack(event))
 		return -EOPNOTSUPP;
 

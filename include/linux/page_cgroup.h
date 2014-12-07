@@ -2,10 +2,10 @@
 #define __LINUX_PAGE_CGROUP_H
 
 enum {
-	
-	PCG_LOCK,  
-	PCG_USED, 
-	PCG_MIGRATION, 
+	/* flags for mem_cgroup */
+	PCG_LOCK,  /* Lock for pc->mem_cgroup and following bits. */
+	PCG_USED, /* this object is in use. */
+	PCG_MIGRATION, /* under page migration */
 	__NR_PCG_FLAGS,
 };
 
@@ -15,6 +15,13 @@ enum {
 #ifdef CONFIG_CGROUP_MEM_RES_CTLR
 #include <linux/bit_spinlock.h>
 
+/*
+ * Page Cgroup can be considered as an extended mem_map.
+ * A page_cgroup page is associated with every page descriptor. The
+ * page_cgroup helps us identify information about the cgroup
+ * All page cgroups are allocated at boot or memory hotplug event,
+ * then the page cgroup for pfn always exists.
+ */
 struct page_cgroup {
 	unsigned long flags;
 	struct mem_cgroup *mem_cgroup;
@@ -63,6 +70,10 @@ TESTPCGFLAG(Migration, MIGRATION)
 
 static inline void lock_page_cgroup(struct page_cgroup *pc)
 {
+	/*
+	 * Don't take this lock in IRQ context.
+	 * This lock is for pc->mem_cgroup, USED, MIGRATION
+	 */
 	bit_spin_lock(PCG_LOCK, &pc->flags);
 }
 
@@ -71,7 +82,7 @@ static inline void unlock_page_cgroup(struct page_cgroup *pc)
 	bit_spin_unlock(PCG_LOCK, &pc->flags);
 }
 
-#else 
+#else /* CONFIG_CGROUP_MEM_RES_CTLR */
 struct page_cgroup;
 
 static inline void __meminit pgdat_page_cgroup_init(struct pglist_data *pgdat)
@@ -91,7 +102,7 @@ static inline void __init page_cgroup_init_flatmem(void)
 {
 }
 
-#endif 
+#endif /* CONFIG_CGROUP_MEM_RES_CTLR */
 
 #include <linux/swap.h>
 
@@ -127,8 +138,8 @@ static inline void swap_cgroup_swapoff(int type)
 	return;
 }
 
-#endif 
+#endif /* CONFIG_CGROUP_MEM_RES_CTLR_SWAP */
 
-#endif 
+#endif /* !__GENERATING_BOUNDS_H */
 
-#endif 
+#endif /* __LINUX_PAGE_CGROUP_H */

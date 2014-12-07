@@ -11,6 +11,9 @@
 #ifndef _ASM_INST_H
 #define _ASM_INST_H
 
+/*
+ * Major opcodes; before MIPS IV cop1x was called cop3.
+ */
 enum major_op {
 	spec_op, bcond_op, j_op, jal_op,
 	beq_op, bne_op, blez_op, bgtz_op,
@@ -30,6 +33,9 @@ enum major_op {
 	scd_op, sdc1_op, sdc2_op, sd_op
 };
 
+/*
+ * func field of spec opcode.
+ */
 enum spec_op {
 	sll_op, movc_op, srl_op, sra_op,
 	sllv_op, pmon_op, srlv_op, srav_op,
@@ -49,14 +55,20 @@ enum spec_op {
 	dsll32_op, spec8_unused_op, dsrl32_op, dsra32_op
 };
 
+/*
+ * func field of spec2 opcode.
+ */
 enum spec2_op {
 	madd_op, maddu_op, mul_op, spec2_3_unused_op,
-	msub_op, msubu_op, 
+	msub_op, msubu_op, /* more unused ops */
 	clz_op = 0x20, clo_op,
 	dclz_op = 0x24, dclo_op,
 	sdbpp_op = 0x3f
 };
 
+/*
+ * func field of spec3 opcode.
+ */
 enum spec3_op {
 	ext_op, dextm_op, dextu_op, dext_op,
 	ins_op, dinsm_op, dinsu_op, dins_op,
@@ -66,6 +78,9 @@ enum spec3_op {
 	rdhwr_op = 0x3b
 };
 
+/*
+ * rt field of bcond opcodes.
+ */
 enum rt_op {
 	bltz_op, bgez_op, bltzl_op, bgezl_op,
 	spimi_op, unused_rt_op_0x05, unused_rt_op_0x06, unused_rt_op_0x07,
@@ -77,6 +92,9 @@ enum rt_op {
 	bposge32_op, rt_op_0x1d, rt_op_0x1e, rt_op_0x1f
 };
 
+/*
+ * rs field of cop opcodes.
+ */
 enum cop_op {
 	mfc_op        = 0x00, dmfc_op       = 0x01,
 	cfc_op        = 0x02, mtc_op        = 0x04,
@@ -85,27 +103,42 @@ enum cop_op {
 	copm_op       = 0x18
 };
 
+/*
+ * rt field of cop.bc_op opcodes
+ */
 enum bcop_op {
 	bcf_op, bct_op, bcfl_op, bctl_op
 };
 
+/*
+ * func field of cop0 coi opcodes.
+ */
 enum cop0_coi_func {
 	tlbr_op       = 0x01, tlbwi_op      = 0x02,
 	tlbwr_op      = 0x06, tlbp_op       = 0x08,
 	rfe_op        = 0x10, eret_op       = 0x18
 };
 
+/*
+ * func field of cop0 com opcodes.
+ */
 enum cop0_com_func {
 	tlbr1_op      = 0x01, tlbw_op       = 0x02,
 	tlbp1_op      = 0x08, dctr_op       = 0x09,
 	dctw_op       = 0x0a
 };
 
+/*
+ * fmt field of cop1 opcodes.
+ */
 enum cop1_fmt {
 	s_fmt, d_fmt, e_fmt, q_fmt,
 	w_fmt, l_fmt
 };
 
+/*
+ * func field of cop1 instructions using d, s or w format.
+ */
 enum cop1_sdw_func {
 	fadd_op      =  0x00, fsub_op      =  0x01,
 	fmul_op      =  0x02, fdiv_op      =  0x03,
@@ -123,6 +156,9 @@ enum cop1_sdw_func {
 	fcmp_op      =  0x30
 };
 
+/*
+ * func field of cop1x opcodes (MIPS IV).
+ */
 enum cop1x_func {
 	lwxc1_op     =  0x00, ldxc1_op     =  0x01,
 	pfetch_op    =  0x07, swxc1_op     =  0x08,
@@ -135,11 +171,17 @@ enum cop1x_func {
 	nmsub_e_op   =  0x3a
 };
 
+/*
+ * func field for mad opcodes (MIPS IV).
+ */
 enum mad_func {
 	madd_fp_op      = 0x08, msub_fp_op      = 0x0a,
 	nmadd_fp_op     = 0x0c, nmsub_fp_op     = 0x0e
 };
 
+/*
+ * func field for special3 lx opcodes (Cavium Octeon).
+ */
 enum lx_func {
 	lwx_op	= 0x00,
 	lhx_op	= 0x04,
@@ -150,27 +192,30 @@ enum lx_func {
 	lbx_op	= 0x16,
 };
 
+/*
+ * Damn ...  bitfields depend from byteorder :-(
+ */
 #ifdef __MIPSEB__
-struct j_format {	
+struct j_format {	/* Jump format */
 	unsigned int opcode : 6;
 	unsigned int target : 26;
 };
 
-struct i_format {	
+struct i_format {	/* Immediate format (addi, lw, ...) */
 	unsigned int opcode : 6;
 	unsigned int rs : 5;
 	unsigned int rt : 5;
 	signed int simmediate : 16;
 };
 
-struct u_format {	
+struct u_format {	/* Unsigned immediate format (ori, xori, ...) */
 	unsigned int opcode : 6;
 	unsigned int rs : 5;
 	unsigned int rt : 5;
 	unsigned int uimmediate : 16;
 };
 
-struct c_format {	
+struct c_format {	/* Cache (>= R6000) format */
 	unsigned int opcode : 6;
 	unsigned int rs : 5;
 	unsigned int c_op : 3;
@@ -178,7 +223,7 @@ struct c_format {
 	unsigned int simmediate : 16;
 };
 
-struct r_format {	
+struct r_format {	/* Register format */
 	unsigned int opcode : 6;
 	unsigned int rs : 5;
 	unsigned int rt : 5;
@@ -187,7 +232,7 @@ struct r_format {
 	unsigned int func : 6;
 };
 
-struct p_format {	
+struct p_format {	/* Performance counter format (R10000) */
 	unsigned int opcode : 6;
 	unsigned int rs : 5;
 	unsigned int rt : 5;
@@ -196,7 +241,7 @@ struct p_format {
 	unsigned int func : 6;
 };
 
-struct f_format {	
+struct f_format {	/* FPU register format */
 	unsigned int opcode : 6;
 	unsigned int : 1;
 	unsigned int fmt : 4;
@@ -206,7 +251,7 @@ struct f_format {
 	unsigned int func : 6;
 };
 
-struct ma_format {	
+struct ma_format {	/* FPU multipy and add format (MIPS IV) */
 	unsigned int opcode : 6;
 	unsigned int fr : 5;
 	unsigned int ft : 5;
@@ -216,7 +261,7 @@ struct ma_format {
 	unsigned int fmt : 2;
 };
 
-struct b_format { 
+struct b_format { /* BREAK and SYSCALL */
 	unsigned int opcode:6;
 	unsigned int code:20;
 	unsigned int func:6;
@@ -224,26 +269,26 @@ struct b_format {
 
 #elif defined(__MIPSEL__)
 
-struct j_format {	
+struct j_format {	/* Jump format */
 	unsigned int target : 26;
 	unsigned int opcode : 6;
 };
 
-struct i_format {	
+struct i_format {	/* Immediate format */
 	signed int simmediate : 16;
 	unsigned int rt : 5;
 	unsigned int rs : 5;
 	unsigned int opcode : 6;
 };
 
-struct u_format {	
+struct u_format {	/* Unsigned immediate format */
 	unsigned int uimmediate : 16;
 	unsigned int rt : 5;
 	unsigned int rs : 5;
 	unsigned int opcode : 6;
 };
 
-struct c_format {	
+struct c_format {	/* Cache (>= R6000) format */
 	unsigned int simmediate : 16;
 	unsigned int cache : 2;
 	unsigned int c_op : 3;
@@ -251,7 +296,7 @@ struct c_format {
 	unsigned int opcode : 6;
 };
 
-struct r_format {	
+struct r_format {	/* Register format */
 	unsigned int func : 6;
 	unsigned int re : 5;
 	unsigned int rd : 5;
@@ -260,7 +305,7 @@ struct r_format {
 	unsigned int opcode : 6;
 };
 
-struct p_format {	
+struct p_format {	/* Performance counter format (R10000) */
 	unsigned int func : 6;
 	unsigned int re : 5;
 	unsigned int rd : 5;
@@ -269,7 +314,7 @@ struct p_format {
 	unsigned int opcode : 6;
 };
 
-struct f_format {	
+struct f_format {	/* FPU register format */
 	unsigned int func : 6;
 	unsigned int re : 5;
 	unsigned int rd : 5;
@@ -279,7 +324,7 @@ struct f_format {
 	unsigned int opcode : 6;
 };
 
-struct ma_format {	
+struct ma_format {	/* FPU multipy and add format (MIPS IV) */
 	unsigned int fmt : 2;
 	unsigned int func : 4;
 	unsigned int fd : 5;
@@ -289,13 +334,13 @@ struct ma_format {
 	unsigned int opcode : 6;
 };
 
-struct b_format { 
+struct b_format { /* BREAK and SYSCALL */
 	unsigned int func:6;
 	unsigned int code:20;
 	unsigned int opcode:6;
 };
 
-#else 
+#else /* !defined (__MIPSEB__) && !defined (__MIPSEL__) */
 #error "MIPS but neither __MIPSEL__ nor __MIPSEB__?"
 #endif
 
@@ -313,7 +358,9 @@ union mips_instruction {
 	struct b_format b_format;
 };
 
+/* HACHACHAHCAHC ...  */
 
+/* In case some other massaging is needed, keep MIPSInst as wrapper */
 
 #define MIPSInst(x) x
 
@@ -371,4 +418,4 @@ union mips_instruction {
 
 typedef unsigned int mips_instruction;
 
-#endif 
+#endif /* _ASM_INST_H */

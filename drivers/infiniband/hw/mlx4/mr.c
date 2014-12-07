@@ -98,6 +98,10 @@ int mlx4_ib_umem_write_mtt(struct mlx4_ib_dev *dev, struct mlx4_mtt *mtt,
 			for (k = 0; k < len; ++k) {
 				pages[i++] = sg_dma_address(&chunk->page_list[j]) +
 					umem->page_size * k;
+				/*
+				 * Be friendly to mlx4_write_mtt() and
+				 * pass it chunks of appropriate size.
+				 */
 				if (i == PAGE_SIZE / sizeof (u64)) {
 					err = mlx4_write_mtt(dev->dev, mtt, n,
 							     i, pages);
@@ -326,6 +330,10 @@ int mlx4_ib_unmap_fmr(struct list_head *fmr_list)
 		mlx4_fmr_unmap(mdev, &ifmr->mfmr, &ifmr->ibfmr.lkey, &ifmr->ibfmr.rkey);
 	}
 
+	/*
+	 * Make sure all MPT status updates are visible before issuing
+	 * SYNC_TPT firmware command.
+	 */
 	wmb();
 
 	err = mlx4_SYNC_TPT(mdev);

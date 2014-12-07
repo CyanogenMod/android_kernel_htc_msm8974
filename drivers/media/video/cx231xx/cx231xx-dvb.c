@@ -56,11 +56,11 @@ if (debug >= level) 						\
 struct cx231xx_dvb {
 	struct dvb_frontend *frontend;
 
-	
+	/* feed count management */
 	struct mutex lock;
 	int nfeeds;
 
-	
+	/* general boilerplate stuff */
 	struct dvb_adapter adapter;
 	struct dvb_demux demux;
 	struct dmxdev dmxdev;
@@ -237,7 +237,7 @@ static inline int dvb_bulk_copy(struct cx231xx *dev, struct urb *urb)
 			return 0;
 	}
 
-	
+	/* Feed the transport payload into the kernel demux */
 	dvb_dmx_swfilter(&dev->dvb->demux,
 		urb->transfer_buffer, urb->actual_length);
 
@@ -332,6 +332,7 @@ static int stop_feed(struct dvb_demux_feed *feed)
 	return err;
 }
 
+/* ------------------------------------------------------------------ */
 static int cx231xx_dvb_bus_ctrl(struct dvb_frontend *fe, int acquire)
 {
 	struct cx231xx *dev = fe->dvb->priv;
@@ -342,6 +343,7 @@ static int cx231xx_dvb_bus_ctrl(struct dvb_frontend *fe, int acquire)
 		return cx231xx_set_mode(dev, CX231XX_SUSPEND);
 }
 
+/* ------------------------------------------------------------------ */
 
 static struct xc5000_config cnxt_rde250_tunerconfig = {
 	.i2c_address = 0x61,
@@ -352,6 +354,7 @@ static struct xc5000_config cnxt_rdu250_tunerconfig = {
 	.if_khz = 3250,
 };
 
+/* ------------------------------------------------------------------ */
 #if 0
 static int attach_xc5000(u8 addr, struct cx231xx *dev)
 {
@@ -396,10 +399,10 @@ int cx231xx_set_analog_freq(struct cx231xx *dev, u32 freq)
 
 			params.frequency = freq;
 			params.std = dev->norm;
-			params.mode = 0;	
-			
+			params.mode = 0;	/* 0- Air; 1 - cable */
+			/*params.audmode = ;       */
 
-			
+			/* Set the analog parameters to set the frequency */
 			dops->set_analog_params(dev->dvb->frontend, &params);
 		}
 
@@ -436,6 +439,7 @@ int cx231xx_reset_analog_tuner(struct cx231xx *dev)
 	return status;
 }
 
+/* ------------------------------------------------------------------ */
 
 static int register_dvb(struct cx231xx_dvb *dvb,
 			struct module *module,
@@ -445,7 +449,7 @@ static int register_dvb(struct cx231xx_dvb *dvb,
 
 	mutex_init(&dvb->lock);
 
-	
+	/* register adapter */
 	result = dvb_register_adapter(&dvb->adapter, dev->name, module, device,
 				      adapter_nr);
 	if (result < 0) {
@@ -455,12 +459,12 @@ static int register_dvb(struct cx231xx_dvb *dvb,
 		goto fail_adapter;
 	}
 
-	
+	/* Ensure all frontends negotiate bus access */
 	dvb->frontend->ops.ts_bus_ctrl = cx231xx_dvb_bus_ctrl;
 
 	dvb->adapter.priv = dev;
 
-	
+	/* register frontend */
 	result = dvb_register_frontend(&dvb->adapter, dvb->frontend);
 	if (result < 0) {
 		printk(KERN_WARNING
@@ -469,7 +473,7 @@ static int register_dvb(struct cx231xx_dvb *dvb,
 		goto fail_frontend;
 	}
 
-	
+	/* register demux stuff */
 	dvb->demux.dmx.capabilities =
 	    DMX_TS_FILTERING | DMX_SECTION_FILTERING |
 	    DMX_MEMORY_BASED_FILTERING;
@@ -522,7 +526,7 @@ static int register_dvb(struct cx231xx_dvb *dvb,
 		goto fail_fe_conn;
 	}
 
-	
+	/* register network adapter */
 	dvb_net_init(&dvb->adapter, &dvb->net, &dvb->demux.dmx);
 	return 0;
 
@@ -561,7 +565,7 @@ static int dvb_init(struct cx231xx *dev)
 	struct cx231xx_dvb *dvb;
 
 	if (!dev->board.has_dvb) {
-		
+		/* This device does not support the extension */
 		return 0;
 	}
 
@@ -578,7 +582,7 @@ static int dvb_init(struct cx231xx *dev)
 	mutex_lock(&dev->lock);
 	cx231xx_set_mode(dev, CX231XX_DIGITAL_MODE);
 	cx231xx_demod_reset(dev);
-	
+	/* init frontend */
 	switch (dev->model) {
 	case CX231XX_BOARD_CNXT_CARRAERA:
 	case CX231XX_BOARD_CNXT_RDE_250:
@@ -594,7 +598,7 @@ static int dvb_init(struct cx231xx *dev)
 			goto out_free;
 		}
 
-		
+		/* define general-purpose callback pointer */
 		dvb->frontend->callback = cx231xx_tuner_callback;
 
 		if (!dvb_attach(xc5000_attach, dev->dvb->frontend,
@@ -619,7 +623,7 @@ static int dvb_init(struct cx231xx *dev)
 			goto out_free;
 		}
 
-		
+		/* define general-purpose callback pointer */
 		dvb->frontend->callback = cx231xx_tuner_callback;
 
 		if (!dvb_attach(xc5000_attach, dev->dvb->frontend,
@@ -642,7 +646,7 @@ static int dvb_init(struct cx231xx *dev)
 			goto out_free;
 		}
 
-		
+		/* define general-purpose callback pointer */
 		dvb->frontend->callback = cx231xx_tuner_callback;
 
 		if (!dvb_attach(tda18271_attach, dev->dvb->frontend,
@@ -665,7 +669,7 @@ static int dvb_init(struct cx231xx *dev)
 			goto out_free;
 		}
 
-		
+		/* define general-purpose callback pointer */
 		dvb->frontend->callback = cx231xx_tuner_callback;
 
 		if (!dvb_attach(tda18271_attach, dev->dvb->frontend,
@@ -691,7 +695,7 @@ static int dvb_init(struct cx231xx *dev)
 			goto out_free;
 		}
 
-		
+		/* define general-purpose callback pointer */
 		dvb->frontend->callback = cx231xx_tuner_callback;
 
 		dvb_attach(tda18271_attach, dev->dvb->frontend,
@@ -716,7 +720,7 @@ static int dvb_init(struct cx231xx *dev)
 			goto out_free;
 		}
 
-		
+		/* define general-purpose callback pointer */
 		dvb->frontend->callback = cx231xx_tuner_callback;
 
 		dvb_attach(tda18271_attach, dev->dvb->frontend,
@@ -736,7 +740,7 @@ static int dvb_init(struct cx231xx *dev)
 		goto out_free;
 	}
 
-	
+	/* register everything */
 	result = register_dvb(dvb, THIS_MODULE, dev, &dev->udev->dev);
 
 	if (result < 0)
@@ -759,7 +763,7 @@ out_free:
 static int dvb_fini(struct cx231xx *dev)
 {
 	if (!dev->board.has_dvb) {
-		
+		/* This device does not support the extension */
 		return 0;
 	}
 

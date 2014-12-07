@@ -36,6 +36,33 @@
  *
  */
 
+/*
+ * iwm Tx theory of operation:
+ *
+ * 1) We receive a 802.3 frame from the stack
+ * 2) We convert it to a 802.11 frame [iwm_xmit_frame]
+ * 3) We queue it to its corresponding tx queue [iwm_xmit_frame]
+ * 4) We schedule the tx worker. There is one worker per tx
+ *    queue. [iwm_xmit_frame]
+ * 5) The tx worker is scheduled
+ * 6) We go through every queued skb on the tx queue, and for each
+ *    and every one of them: [iwm_tx_worker]
+ *    a) We check if we have enough Tx credits (see below for a Tx
+ *       credits description) for the frame length. [iwm_tx_worker]
+ *    b) If we do, we aggregate the Tx frame into a UDMA one, by
+ *       concatenating one REPLY_TX command per Tx frame. [iwm_tx_worker]
+ *    c) When we run out of credits, or when we reach the maximum
+ *       concatenation size, we actually send the concatenated UDMA
+ *       frame. [iwm_tx_worker]
+ *
+ * When we run out of Tx credits, the skbs are filling the tx queue,
+ * and eventually we will stop the netdev queue. [iwm_tx_worker]
+ * The tx queue is emptied as we're getting new tx credits, by
+ * scheduling the tx_worker. [iwm_tx_credit_inc]
+ * The netdev queue is started again when we have enough tx credits,
+ * and when our tx queue has some reasonable amout of space available
+ * (i.e. half of the max size). [iwm_tx_worker]
+ */
 
 #include <linux/slab.h>
 #include <linux/skbuff.h>
@@ -57,13 +84,14 @@
 #define pool_id_to_queue(id)	 ((id < IWM_TX_CMD_QUEUE) ? id : id - 1)
 #define queue_to_pool_id(q)	 ((q < IWM_TX_CMD_QUEUE) ? q : q + 1)
 
+/* require to hold tx_credit lock */
 static int iwm_tx_credit_get(struct iwm_tx_credit *tx_credit, int id)
 {
 	struct pool_entry *pool = &tx_credit->pools[id];
 	struct spool_entry *spool = &tx_credit->spools[pool->sid];
 	int spool_pages;
 
-	
+	/* number of pages can be taken from spool by this pool */
 	spool_pages = spool->max_pages - spool->alloc_pages +
 		      max(pool->min_pages - pool->alloc_pages, 0);
 
@@ -181,6 +209,42 @@ int iwm_tx_credit_alloc(struct iwm_priv *iwm, int id, int nb)
 	return ret;
 }
 
+/*
+ * Since we're on an SDIO or USB bus, we are not sharing memory
+ * for storing to be transmitted frames. The host needs to push
+ * them upstream. As a consequence there needs to be a way for
+ * the target to let us know if it can actually take more TX frames
+ * or not. This is what Tx credits are for.
+ *
+ * For each Tx HW queue, we have a Tx pool, and then we have one
+ * unique super pool (spool), which is actually a global pool of
+ * all the UMAC pages.
+ * For each Tx pool we have a min_pages, a max_pages fields, and a
+ * alloc_pages fields. The alloc_pages tracks the number of pages
+ * currently allocated from the tx pool.
+ * Here are the rules to check if given a tx frame we have enough
+ * tx credits for it:
+ * 1) We translate the frame length into a number of UMAC pages.
+ *    Let's call them n_pages.
+ * 2) For the corresponding tx pool, we check if n_pages +
+ *    pool->alloc_pages is higher than pool->min_pages. min_pages
+ *    represent a set of pre-allocated pages on the tx pool. If
+ *    that's the case, then we need to allocate those pages from
+ *    the spool. We can do so until we reach spool->max_pages.
+ * 3) Each tx pool is not allowed to allocate more than pool->max_pages
+ *    from the spool, so once we're over min_pages, we can allocate
+ *    pages from the spool, but not more than max_pages.
+ *
+ * When the tx code path needs to send a tx frame, it checks first
+ * if it has enough tx credits, following those rules. [iwm_tx_credit_get]
+ * If it does, it then updates the pool and spool counters and
+ * then send the frame. [iwm_tx_credit_alloc and iwm_tx_credit_dec]
+ * On the other side, when the UMAC is done transmitting frames, it
+ * will send a credit update notification to the host. This is when
+ * the pool and spool counters gets to be decreased. [iwm_tx_credit_inc,
+ * called from rx.c:iwm_ntf_tx_credit_update]
+ *
+ */
 void iwm_tx_credit_init_pools(struct iwm_priv *iwm,
 			      struct iwm_umac_notif_alive *alive)
 {
@@ -248,6 +312,8 @@ static __le16 iwm_tx_build_packet(struct iwm_priv *iwm, struct sk_buff *skb,
 
 	udma_cmd.count = cpu_to_le16(skb->len +
 				     sizeof(struct iwm_umac_fw_cmd_hdr));
+	/* set EOP to 0 here. iwm_udma_wifi_hdr_set_eop() will be
+	 * called later to set EOP for the last packet. */
 	udma_cmd.eop = 0;
 	udma_cmd.credit_group = pool_id;
 	udma_cmd.ra_tid = tx_info->sta << 4 | tx_info->tid;
@@ -278,7 +344,7 @@ static int iwm_tx_send_concat_packets(struct iwm_priv *iwm,
 	IWM_DBG_TX(iwm, DBG, "Send concatenated Tx: queue %d, %d bytes\n",
 		   txq->id, txq->concat_count);
 
-	
+	/* mark EOP for the last packet */
 	iwm_udma_wifi_hdr_set_eop(iwm, txq->concat_ptr, 1);
 
 	trace_iwm_tx_packets(iwm, txq->concat_buf, txq->concat_count);
@@ -324,6 +390,13 @@ void iwm_tx_worker(struct work_struct *work)
 
 		mutex_lock(&tid_info->mutex);
 
+		/*
+		 * If the RAxTID is stopped, we queue the skb to the stopped
+		 * queue.
+		 * Whenever we'll get a UMAC notification to resume the tx flow
+		 * for this RAxTID, we'll merge back the stopped queue into the
+		 * regular queue. See iwm_ntf_stop_resume_tx() from rx.c.
+		 */
 		if (tid_info->stopped) {
 			IWM_DBG_TX(iwm, DBG, "%dx%d stopped\n",
 				   tx_info->sta, tx_info->tid);
@@ -396,11 +469,11 @@ int iwm_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	}
 
 	queue = skb_get_queue_mapping(skb);
-	BUG_ON(queue >= IWM_TX_DATA_QUEUES); 
+	BUG_ON(queue >= IWM_TX_DATA_QUEUES); /* no iPAN yet */
 
 	txq = &iwm->txq[queue];
 
-	
+	/* No free space for Tx, tx_worker is too slow */
 	if ((skb_queue_len(&txq->queue) > IWM_TX_LIST_SIZE) ||
 	    (skb_queue_len(&txq->stopped_queue) > IWM_TX_LIST_SIZE)) {
 		IWM_DBG_TX(iwm, DBG, "LINK: stop netif_subqueue[%d]\n", queue);
@@ -433,7 +506,7 @@ int iwm_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	tx_info = skb_to_tx_info(skb);
 	tx_info->sta = sta_id;
 	tx_info->color = sta_info->color;
-	
+	/* UMAC uses TID 8 (vs. 0) for non QoS packets */
 	if (sta_info->qos)
 		tx_info->tid = skb->priority;
 	else

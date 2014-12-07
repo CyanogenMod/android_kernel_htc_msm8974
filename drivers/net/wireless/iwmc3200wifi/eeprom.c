@@ -94,7 +94,7 @@ static int iwm_eeprom_read(struct iwm_priv *iwm, u8 eeprom_id)
 	entry_size = eeprom_map[eeprom_id].length;
 
 	if (eeprom_id >= IWM_EEPROM_INDIRECT_DATA) {
-		
+		/* indirect data */
 		u32 off_id = eeprom_id - IWM_EEPROM_INDIRECT_DATA +
 			     IWM_EEPROM_INDIRECT_OFFSET;
 

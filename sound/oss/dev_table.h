@@ -16,28 +16,39 @@
 #define _DEV_TABLE_H_
 
 #include <linux/spinlock.h>
+/*
+ * Sound card numbers 27 to 999. (1 to 26 are defined in soundcard.h)
+ * Numbers 1000 to N are reserved for driver's internal use.
+ */
 
-#define SNDCARD_DESKPROXL		27	
-#define SNDCARD_VIDC			28	
+#define SNDCARD_DESKPROXL		27	/* Compaq Deskpro XL */
+#define SNDCARD_VIDC			28	/* ARMs VIDC */
 #define SNDCARD_SBPNP			29
 #define SNDCARD_SOFTOSS			36
 #define SNDCARD_VMIDI			37
-#define SNDCARD_OPL3SA1			38	
+#define SNDCARD_OPL3SA1			38	/* Note: clash in msnd.h */
 #define SNDCARD_OPL3SA1_SB		39
 #define SNDCARD_OPL3SA1_MPU		40
 #define SNDCARD_WAVEFRONT               41
 #define SNDCARD_OPL3SA2                 42
 #define SNDCARD_OPL3SA2_MPU             43
-#define SNDCARD_WAVEARTIST              44	
-#define SNDCARD_OPL3SA2_MSS             45	
+#define SNDCARD_WAVEARTIST              44	/* Waveartist */
+#define SNDCARD_OPL3SA2_MSS             45	/* Originally missed */
 #define SNDCARD_AD1816                  88
 
+/*
+ *	NOTE! 	NOTE!	NOTE!	NOTE!
+ *
+ *	If you modify this file, please check the dev_table.c also.
+ *
+ *	NOTE! 	NOTE!	NOTE!	NOTE!
+ */
 
 struct driver_info 
 {
 	char *driver_id;
-	int card_subtype;	
-	int card_type;		
+	int card_subtype;	/* Driver specific. Usually 0 */
+	int card_type;		/*	From soundcard.h	*/
 	char *name;
 	void (*attach) (struct address_info *hw_config);
 	int (*probe) (struct address_info *hw_config);
@@ -46,13 +57,16 @@ struct driver_info
 
 struct card_info 
 {
-	int card_type;	
+	int card_type;	/* Link (search key) to the driver list */
 	struct address_info config;
 	int enabled;
 	void *for_driver_use;
 };
 
 
+/*
+ * Device specific parameters (used only by dmabuf.c)
+ */
 #define MAX_SUB_BUFFERS		(32*MAX_REALTIME_FACTOR)
 
 #define DMODE_NONE		0
@@ -61,14 +75,20 @@ struct card_info
 
 struct dma_buffparms 
 {
-	int      dma_mode;	
+	int      dma_mode;	/* DMODE_INPUT, DMODE_OUTPUT or DMODE_NONE */
 	int	 closing;
 
+	/*
+ 	 * Pointers to raw buffers
+ 	 */
 
   	char     *raw_buf;
     	unsigned long   raw_buf_phys;
 	int buffsize;
 
+     	/*
+         * Device state tables
+         */
 
 	unsigned long flags;
 #define DMA_BUSY	0x00000001
@@ -85,12 +105,15 @@ struct dma_buffparms
 
 	int      open_mode;
 
+	/*
+	 * Queue parameters.
+	 */
 	int      qlen;
 	int      qhead;
 	int      qtail;
 	spinlock_t lock;
 		
-	int	 cfrag;	
+	int	 cfrag;	/* Current incomplete fragment (write) */
 
 	int      nbufs;
 	int      counts[MAX_SUB_BUFFERS];
@@ -106,23 +129,27 @@ struct dma_buffparms
 	unsigned long	 byte_counter;
 	unsigned long	 user_counter;
 	unsigned long	 max_byte_counter;
-	int	 data_rate; 
+	int	 data_rate; /* Bytes/second */
 
 	int	 mapping_flags;
 #define			DMA_MAP_MAPPED		0x00000001
 	char	neutral_byte;
-	int	dma;		
+	int	dma;		/* DMA channel */
 
-	int     applic_profile;	
-	
+	int     applic_profile;	/* Application profile (APF_*) */
+	/* Interrupt callback stuff */
 	void (*audio_callback) (int dev, int parm);
 	int callback_parm;
 
 	int	 buf_flags[MAX_SUB_BUFFERS];
-#define		 BUFF_EOF		0x00000001 
+#define		 BUFF_EOF		0x00000001 /* Increment eof count */
 #define		 BUFF_DIRTY		0x00000002 /* Buffer written */
 };
 
+/*
+ * Structure for use with various microcontrollers and DSP processors 
+ * in the recent sound cards.
+ */
 typedef struct coproc_operations 
 {
 	char name[64];
@@ -132,7 +159,7 @@ typedef struct coproc_operations
 	int (*ioctl) (void *devc, unsigned int cmd, void __user * arg, int local);
 	void (*reset) (void *devc);
 
-	void *devc;		
+	void *devc;		/* Driver specific info */
 } coproc_operations;
 
 struct audio_driver 
@@ -162,7 +189,7 @@ struct audio_driver
 	unsigned int (*set_bits)(int dev, unsigned int bits);
 	short (*set_channels)(int dev, short channels);
 	void (*postprocess_write)(int dev); 	/* Device spesific postprocessing for written data */
-	void (*preprocess_read)(int dev); 	
+	void (*preprocess_read)(int dev); 	/* Device spesific preprocessing for read data */
 	void (*mmap)(int dev);
 };
 
@@ -178,26 +205,26 @@ struct audio_operations
 #define DMA_HARDSTOP		0x10
 #define DMA_EXACT		0x40
 #define DMA_NORESET		0x80
-	int  format_mask;	
-	void *devc;		
+	int  format_mask;	/* Bitmask for supported audio formats */
+	void *devc;		/* Driver specific info */
 	struct audio_driver *d;
-	void *portc;		
+	void *portc;		/* Driver specific info */
 	struct dma_buffparms *dmap_in, *dmap_out;
 	struct coproc_operations *coproc;
 	int mixer_dev;
 	int enable_bits;
  	int open_mode;
 	int go;
-	int min_fragment;	
-	int max_fragment;	
-	int parent_dev;		
+	int min_fragment;	/* 0 == unlimited */
+	int max_fragment;	/* 0 == unlimited */
+	int parent_dev;		/* 0 -> no parent, 1 to n -> parent=parent_dev+1 */
 
-	
+	/* fields formerly in dmabuf.c */
 	wait_queue_head_t in_sleeper;
 	wait_queue_head_t out_sleeper;
 	wait_queue_head_t poll_sleeper;
 
-	
+	/* fields formerly in audio.c */
 	int audio_mode;
 
 #define		AM_NONE		0
@@ -209,7 +236,7 @@ struct audio_operations
 	int local_conversion;
 #define CNV_MU_LAW	0x00000001
 
-	
+	/* large structures at the end to keep offsets small */
 	struct dma_buffparms dmaps[2];
 };
 
@@ -229,7 +256,7 @@ struct mixer_operations
 struct synth_operations 
 {
 	struct module *owner;
-	char *id;	
+	char *id;	/* Unique identifier (ASCII) max 29 char */
 	struct synth_info *info;
 	int midi_dev;
 	int synth_type;
@@ -257,8 +284,8 @@ struct synth_operations
  	struct voice_alloc_info alloc;
  	struct channel_info chn_info[16];
 	int emulation;
-#define	EMU_GM			1	
-#define	EMU_XG			2	
+#define	EMU_GM			1	/* General MIDI */
+#define	EMU_XG			2	/* Yamaha XG */
 #define MAX_SYSEX_BUF	64
 	unsigned char sysex_buf[MAX_SYSEX_BUF];
 	int sysex_ptr;
@@ -266,11 +293,11 @@ struct synth_operations
 
 struct midi_input_info 
 {
-	
+	/* MIDI input scanner variables */
 #define MI_MAX	10
 	volatile int             m_busy;
     	unsigned char   m_buf[MI_MAX];
-	unsigned char	m_prev_status;	
+	unsigned char	m_prev_status;	/* For running status */
     	int             m_ptr;
 #define MST_INIT			0
 #define MST_DATA			1
@@ -359,5 +386,5 @@ int sound_alloc_mixerdev(void);
 int sound_alloc_timerdev(void);
 int sound_alloc_synthdev(void);
 int sound_alloc_mididev(void);
-#endif	
+#endif	/* _DEV_TABLE_H_ */
 

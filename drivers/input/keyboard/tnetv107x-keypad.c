@@ -104,7 +104,7 @@ static irqreturn_t keypad_irq(int irq, void *data)
 	memcpy(kp->prev_keys, curr_keys, sizeof(curr_keys));
 
 	if (irq == kp->irq_press)
-		keypad_write(kp, lock, 0); 
+		keypad_write(kp, lock, 0); /* Allow hardware updates */
 
 	spin_unlock_irqrestore(&kp->lock, flags);
 
@@ -122,7 +122,7 @@ static int keypad_start(struct input_dev *dev)
 
 	spin_lock_irqsave(&kp->lock, flags);
 
-	
+	/* Initialize device registers */
 	keypad_write(kp, mode, 0);
 
 	mask  = BITS(kp->rows) << KEYPAD_COLS;

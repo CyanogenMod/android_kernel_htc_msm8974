@@ -8,7 +8,25 @@
  * for more details.
  */
 
+/*
+ * Linux/m68k support by Hamish Macdonald
+ *
+ * 68060 fixes by Jesper Skov
+ *
+ * 1997-12-01  Modified for POSIX.1b signals by Andreas Schwab
+ *
+ * mathemu support by Roman Zippel
+ *  (Note: fpstate in the signal context is completely ignored for the emulator
+ *         and the internal floating point format is put on stack)
+ */
 
+/*
+ * ++roman (07/09/96): implemented signal stacks (specially for tosemu on
+ * Atari :-) Current limitation: Only one sigstack can be active at one time.
+ * If a second signal with SA_ONSTACK set arrives while working on a sigstack,
+ * SA_ONSTACK is ignored. This behaviour avoids lots of trouble with nested
+ * signal handlers!
+ */
 
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -35,7 +53,7 @@
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
 static const int frame_extra_sizes[16] = {
-  [1]	= -1, 
+  [1]	= -1, /* sizeof(((struct frame *)0)->un.fmt1), */
   [2]	= sizeof(((struct frame *)0)->un.fmt2),
   [3]	= sizeof(((struct frame *)0)->un.fmt3),
 #ifdef CONFIG_COLDFIRE
@@ -43,17 +61,17 @@ static const int frame_extra_sizes[16] = {
 #else
   [4]	= sizeof(((struct frame *)0)->un.fmt4),
 #endif
-  [5]	= -1, 
-  [6]	= -1, 
+  [5]	= -1, /* sizeof(((struct frame *)0)->un.fmt5), */
+  [6]	= -1, /* sizeof(((struct frame *)0)->un.fmt6), */
   [7]	= sizeof(((struct frame *)0)->un.fmt7),
-  [8]	= -1, 
+  [8]	= -1, /* sizeof(((struct frame *)0)->un.fmt8), */
   [9]	= sizeof(((struct frame *)0)->un.fmt9),
   [10]	= sizeof(((struct frame *)0)->un.fmta),
   [11]	= sizeof(((struct frame *)0)->un.fmtb),
-  [12]	= -1, 
-  [13]	= -1, 
-  [14]	= -1, 
-  [15]	= -1, 
+  [12]	= -1, /* sizeof(((struct frame *)0)->un.fmtc), */
+  [13]	= -1, /* sizeof(((struct frame *)0)->un.fmtd), */
+  [14]	= -1, /* sizeof(((struct frame *)0)->un.fmte), */
+  [15]	= -1, /* sizeof(((struct frame *)0)->un.fmtf), */
 };
 
 int handle_kernel_fault(struct pt_regs *regs)
@@ -61,12 +79,12 @@ int handle_kernel_fault(struct pt_regs *regs)
 	const struct exception_table_entry *fixup;
 	struct pt_regs *tregs;
 
-	
+	/* Are we prepared to handle this kernel fault? */
 	fixup = search_exception_tables(regs->pc);
 	if (!fixup)
 		return 0;
 
-	
+	/* Create a new four word stack frame, discarding the old one. */
 	regs->stkadj = frame_extra_sizes[regs->format];
 	tregs =	(struct pt_regs *)((long)regs + regs->stkadj);
 	tregs->vector = regs->vector;
@@ -81,6 +99,9 @@ int handle_kernel_fault(struct pt_regs *regs)
 	return 1;
 }
 
+/*
+ * Atomically swap in the new signal mask, and wait for a signal.
+ */
 asmlinkage int
 sys_sigsuspend(int unused0, int unused1, old_sigset_t mask)
 {
@@ -137,6 +158,12 @@ sys_sigaltstack(const stack_t __user *uss, stack_t __user *uoss)
 }
 
 
+/*
+ * Do a signal return; undo the signal stack.
+ *
+ * Keep the return code on the stack quadword aligned!
+ * That makes the cache flush below easier.
+ */
 
 struct sigframe
 {
@@ -161,21 +188,21 @@ struct rt_sigframe
 };
 
 
-static unsigned char fpu_version;	
+static unsigned char fpu_version;	/* version number of fpu, set by setup_frame */
 
 static inline int restore_fpu_state(struct sigcontext *sc)
 {
 	int err = 1;
 
 	if (FPU_IS_EMU) {
-	    
+	    /* restore registers */
 	    memcpy(current->thread.fpcntl, sc->sc_fpcntl, 12);
 	    memcpy(current->thread.fp, sc->sc_fpregs, 24);
 	    return 0;
 	}
 
 	if (CPU_IS_060 ? sc->sc_fpstate[2] : sc->sc_fpstate[0]) {
-	    
+	    /* Verify the frame format.  */
 	    if (!(CPU_IS_060 || CPU_IS_COLDFIRE) &&
 		 (sc->sc_fpstate[0] != fpu_version))
 		goto out;
@@ -209,7 +236,7 @@ static inline int restore_fpu_state(struct sigcontext *sc)
 				  "fmovel %1,%%fpcr\n\t"
 				  "fmovel %2,%%fpsr\n\t"
 				  "fmovel %3,%%fpiar"
-				  : 
+				  : /* no outputs */
 				  : "m" (sc->sc_fpregs[0]),
 				    "m" (sc->sc_fpcntl[0]),
 				    "m" (sc->sc_fpcntl[1]),
@@ -219,7 +246,7 @@ static inline int restore_fpu_state(struct sigcontext *sc)
 				  "fmovemx %0,%%fp0-%%fp1\n\t"
 				  "fmoveml %1,%%fpcr/%%fpsr/%%fpiar\n\t"
 				  ".chip 68k"
-				  : 
+				  : /* no outputs */
 				  : "m" (*sc->sc_fpregs),
 				    "m" (*sc->sc_fpcntl));
 	    }
@@ -252,11 +279,11 @@ static inline int rt_restore_fpu_state(struct ucontext __user *uc)
 	int err = 1;
 
 	if (FPU_IS_EMU) {
-		
+		/* restore fpu control register */
 		if (__copy_from_user(current->thread.fpcntl,
 				uc->uc_mcontext.fpregs.f_fpcntl, 12))
 			goto out;
-		
+		/* restore all other fpu register */
 		if (__copy_from_user(current->thread.fp,
 				uc->uc_mcontext.fpregs.f_fpregs, 96))
 			goto out;
@@ -268,7 +295,7 @@ static inline int rt_restore_fpu_state(struct ucontext __user *uc)
 	if (CPU_IS_060 ? fpstate[2] : fpstate[0]) {
 		if (!(CPU_IS_060 || CPU_IS_COLDFIRE))
 			context_size = fpstate[1];
-		
+		/* Verify the frame format.  */
 		if (!(CPU_IS_060 || CPU_IS_COLDFIRE) &&
 		     (fpstate[0] != fpu_version))
 			goto out;
@@ -305,7 +332,7 @@ static inline int rt_restore_fpu_state(struct ucontext __user *uc)
 					  "fmovel %1,%%fpcr\n\t"
 					  "fmovel %2,%%fpsr\n\t"
 					  "fmovel %3,%%fpiar"
-					  : 
+					  : /* no outputs */
 					  : "m" (fpregs.f_fpregs[0]),
 					    "m" (fpregs.f_fpcntl[0]),
 					    "m" (fpregs.f_fpcntl[1]),
@@ -315,7 +342,7 @@ static inline int rt_restore_fpu_state(struct ucontext __user *uc)
 					  "fmovemx %0,%%fp0-%%fp7\n\t"
 					  "fmoveml %1,%%fpcr/%%fpsr/%%fpiar\n\t"
 					  ".chip 68k"
-					  : 
+					  : /* no outputs */
 					  : "m" (*fpregs.f_fpregs),
 					    "m" (*fpregs.f_fpcntl));
 		}
@@ -344,6 +371,9 @@ static int mangle_kernel_stack(struct pt_regs *regs, int formatvec,
 {
 	int fsize = frame_extra_sizes[formatvec >> 12];
 	if (fsize < 0) {
+		/*
+		 * user process trying to return with weird frame format
+		 */
 #ifdef DEBUG
 		printk("user process returning with weird frame format\n");
 #endif
@@ -354,13 +384,13 @@ static int mangle_kernel_stack(struct pt_regs *regs, int formatvec,
 		regs->vector = formatvec & 0xfff;
 	} else {
 		struct switch_stack *sw = (struct switch_stack *)regs - 1;
-		unsigned long buf[fsize / 2]; 
+		unsigned long buf[fsize / 2]; /* yes, twice as much */
 
-		
+		/* that'll make sure that expansion won't crap over data */
 		if (copy_from_user(buf + fsize / 4, fp, fsize))
 			return 1;
 
-		
+		/* point of no return */
 		regs->format = formatvec >> 12;
 		regs->vector = formatvec & 0xfff;
 #define frame_offset (sizeof(struct pt_regs)+sizeof(struct switch_stack))
@@ -370,20 +400,20 @@ static int mangle_kernel_stack(struct pt_regs *regs, int formatvec,
 			 "   bra ret_from_signal\n"
 #else
 			 "   movel %0,%/a0\n\t"
-			 "   subl %1,%/a0\n\t"     
-			 "   movel %/a0,%/sp\n\t"  
-			 
+			 "   subl %1,%/a0\n\t"     /* make room on stack */
+			 "   movel %/a0,%/sp\n\t"  /* set stack pointer */
+			 /* move switch_stack and pt_regs */
 			 "1: movel %0@+,%/a0@+\n\t"
 			 "   dbra %2,1b\n\t"
-			 "   lea %/sp@(%c3),%/a0\n\t" 
+			 "   lea %/sp@(%c3),%/a0\n\t" /* add offset of fmt */
 			 "   lsrl  #2,%1\n\t"
 			 "   subql #1,%1\n\t"
-			 
+			 /* copy to the gap we'd made */
 			 "2: movel %4@+,%/a0@+\n\t"
 			 "   dbra %1,2b\n\t"
 			 "   bral ret_from_signal\n"
 #endif
-			 : 
+			 : /* no outputs, it doesn't ever return */
 			 : "a" (sw), "d" (fsize), "d" (frame_offset/4-1),
 			   "n" (frame_offset), "a" (buf + fsize/4)
 			 : "a0");
@@ -399,21 +429,21 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *usc, void __u
 	struct sigcontext context;
 	int err;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
-	
+	/* get previous context */
 	if (copy_from_user(&context, usc, sizeof(context)))
 		goto badframe;
 
-	
+	/* restore passed registers */
 	regs->d0 = context.sc_d0;
 	regs->d1 = context.sc_d1;
 	regs->a0 = context.sc_a0;
 	regs->a1 = context.sc_a1;
 	regs->sr = (regs->sr & 0xff00) | (context.sc_sr & 0xff);
 	regs->pc = context.sc_pc;
-	regs->orig_d0 = -1;		
+	regs->orig_d0 = -1;		/* disable syscall checks */
 	wrusp(context.sc_usp);
 	formatvec = context.sc_formatvec;
 
@@ -437,13 +467,13 @@ rt_restore_ucontext(struct pt_regs *regs, struct switch_stack *sw,
 	unsigned long usp;
 	int err;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 	err = __get_user(temp, &uc->uc_mcontext.version);
 	if (temp != MCONTEXT_VERSION)
 		goto badframe;
-	
+	/* restore passed registers */
 	err |= __get_user(regs->d0, &gregs[0]);
 	err |= __get_user(regs->d1, &gregs[1]);
 	err |= __get_user(regs->d2, &gregs[2]);
@@ -464,7 +494,7 @@ rt_restore_ucontext(struct pt_regs *regs, struct switch_stack *sw,
 	err |= __get_user(regs->pc, &gregs[16]);
 	err |= __get_user(temp, &gregs[17]);
 	regs->sr = (regs->sr & 0xff00) | (temp & 0xff);
-	regs->orig_d0 = -1;		
+	regs->orig_d0 = -1;		/* disable syscall checks */
 	err |= __get_user(temp, &uc->uc_formatvec);
 
 	err |= rt_restore_fpu_state(uc);
@@ -536,11 +566,14 @@ badframe:
 	return 0;
 }
 
+/*
+ * Set up a signal frame.
+ */
 
 static inline void save_fpu_state(struct sigcontext *sc, struct pt_regs *regs)
 {
 	if (FPU_IS_EMU) {
-		
+		/* save registers */
 		memcpy(sc->sc_fpcntl, current->thread.fpcntl, 12);
 		memcpy(sc->sc_fpregs, current->thread.fp, 24);
 		return;
@@ -561,7 +594,7 @@ static inline void save_fpu_state(struct sigcontext *sc, struct pt_regs *regs)
 		if (CPU_IS_020_OR_030 &&
 		    regs->vector >= (VEC_FPBRUC * 4) &&
 		    regs->vector <= (VEC_FPNAN * 4)) {
-			
+			/* Clear pending exception in 68882 idle frame */
 			if (*(unsigned short *) sc->sc_fpstate == 0x1f38)
 				sc->sc_fpstate[0x38] |= 1 << 3;
 		}
@@ -575,7 +608,7 @@ static inline void save_fpu_state(struct sigcontext *sc, struct pt_regs *regs)
 					    "=m" (sc->sc_fpcntl[0]),
 					    "=m" (sc->sc_fpcntl[1]),
 					    "=m" (sc->sc_fpcntl[2])
-					  : 
+					  : /* no inputs */
 					  : "memory");
 		} else {
 			__asm__ volatile (".chip 68k/68881\n\t"
@@ -584,7 +617,7 @@ static inline void save_fpu_state(struct sigcontext *sc, struct pt_regs *regs)
 					  ".chip 68k"
 					  : "=m" (*sc->sc_fpregs),
 					    "=m" (*sc->sc_fpcntl)
-					  : 
+					  : /* no inputs */
 					  : "memory");
 		}
 	}
@@ -597,10 +630,10 @@ static inline int rt_save_fpu_state(struct ucontext __user *uc, struct pt_regs *
 	int err = 0;
 
 	if (FPU_IS_EMU) {
-		
+		/* save fpu control register */
 		err |= copy_to_user(uc->uc_mcontext.fpregs.f_fpcntl,
 				current->thread.fpcntl, 12);
-		
+		/* save all other fpu register */
 		err |= copy_to_user(uc->uc_mcontext.fpregs.f_fpregs,
 				current->thread.fp, 96);
 		return err;
@@ -624,7 +657,7 @@ static inline int rt_save_fpu_state(struct ucontext __user *uc, struct pt_regs *
 		if (CPU_IS_020_OR_030 &&
 		    regs->vector >= (VEC_FPBRUC * 4) &&
 		    regs->vector <= (VEC_FPNAN * 4)) {
-			
+			/* Clear pending exception in 68882 idle frame */
 			if (*(unsigned short *) fpstate == 0x1f38)
 				fpstate[0x38] |= 1 << 3;
 		}
@@ -637,7 +670,7 @@ static inline int rt_save_fpu_state(struct ucontext __user *uc, struct pt_regs *
 					    "=m" (fpregs.f_fpcntl[0]),
 					    "=m" (fpregs.f_fpcntl[1]),
 					    "=m" (fpregs.f_fpcntl[2])
-					  : 
+					  : /* no inputs */
 					  : "memory");
 		} else {
 			__asm__ volatile (".chip 68k/68881\n\t"
@@ -646,7 +679,7 @@ static inline int rt_save_fpu_state(struct ucontext __user *uc, struct pt_regs *
 					  ".chip 68k"
 					  : "=m" (*fpregs.f_fpregs),
 					    "=m" (*fpregs.f_fpcntl)
-					  : 
+					  : /* no inputs */
 					  : "memory");
 		}
 		err |= copy_to_user(&uc->uc_mcontext.fpregs, &fpregs,
@@ -705,6 +738,15 @@ static inline int rt_setup_ucontext(struct ucontext __user *uc, struct pt_regs *
 
 static inline void push_cache (unsigned long vaddr)
 {
+	/*
+	 * Using the old cache_push_v() was really a big waste.
+	 *
+	 * What we are trying to do is to flush 8 bytes to ram.
+	 * Flushing 2 cache lines of 16 bytes is much cheaper than
+	 * flushing 1 or 2 pages, as previously done in
+	 * cache_push_v().
+	 *                                                     Jes
+	 */
 	if (CPU_IS_040) {
 		unsigned long temp;
 
@@ -737,6 +779,11 @@ static inline void push_cache (unsigned long vaddr)
 				      ".chip 68k"
 				      : : "a" (temp));
 	} else if (!CPU_IS_COLDFIRE) {
+		/*
+		 * 68030/68020 have no writeback cache;
+		 * still need to clear icache.
+		 * Note that vaddr is guaranteed to be long word aligned.
+		 */
 		unsigned long temp;
 		asm volatile ("movec %%cacr,%0" : "=r" (temp));
 		temp += 4;
@@ -754,10 +801,10 @@ get_sigframe(struct k_sigaction *ka, struct pt_regs *regs, size_t frame_size)
 {
 	unsigned long usp;
 
-	
+	/* Default to using normal stack.  */
 	usp = rdusp();
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (!sas_ss_flags(usp))
 			usp = current->sas_ss_sp + current->sas_ss_size;
@@ -803,9 +850,9 @@ static int setup_frame (int sig, struct k_sigaction *ka,
 	setup_sigcontext(&context, regs, set->sig[0]);
 	err |= copy_to_user (&frame->sc, &context, sizeof(context));
 
-	
+	/* Set up to return from userspace.  */
 	err |= __put_user(frame->retcode, &frame->pretcode);
-	
+	/* moveq #,d0; trap #0 */
 	err |= __put_user(0x70004e40 + (__NR_sigreturn << 16),
 			  (long __user *)(frame->retcode));
 
@@ -814,19 +861,30 @@ static int setup_frame (int sig, struct k_sigaction *ka,
 
 	push_cache ((unsigned long) &frame->retcode);
 
+	/*
+	 * Set up registers for signal handler.  All the state we are about
+	 * to destroy is successfully copied to sigframe.
+	 */
 	wrusp ((unsigned long) frame);
 	regs->pc = (unsigned long) ka->sa.sa_handler;
 
+	/*
+	 * This is subtle; if we build more than one sigframe, all but the
+	 * first one will see frame format 0 and have fsize == 0, so we won't
+	 * screw stkadj.
+	 */
 	if (fsize)
 		regs->stkadj = fsize;
 
-	
+	/* Prepare to skip over the extra stuff in the exception frame.  */
 	if (regs->stkadj) {
 		struct pt_regs *tregs =
 			(struct pt_regs *)((ulong)regs + regs->stkadj);
 #ifdef DEBUG
 		printk("Performing stackadjust=%04x\n", regs->stkadj);
 #endif
+		/* This must be copied with decreasing addresses to
+                   handle overlaps.  */
 		tregs->vector = 0;
 		tregs->format = 0;
 		tregs->pc = regs->pc;
@@ -869,7 +927,7 @@ static int setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 	err |= __put_user(&frame->uc, &frame->puc);
 	err |= copy_siginfo_to_user(&frame->info, info);
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(NULL, &frame->uc.uc_link);
 	err |= __put_user((void __user *)current->sas_ss_sp,
@@ -880,15 +938,15 @@ static int setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 	err |= rt_setup_ucontext(&frame->uc, regs);
 	err |= copy_to_user (&frame->uc.uc_sigmask, set, sizeof(*set));
 
-	
+	/* Set up to return from userspace.  */
 	err |= __put_user(frame->retcode, &frame->pretcode);
 #ifdef __mcoldfire__
-	
+	/* movel #__NR_rt_sigreturn,d0; trap #0 */
 	err |= __put_user(0x203c0000, (long __user *)(frame->retcode + 0));
 	err |= __put_user(0x00004e40 + (__NR_rt_sigreturn << 16),
 			  (long __user *)(frame->retcode + 4));
 #else
-	
+	/* moveq #,d0; notb d0; trap #0 */
 	err |= __put_user(0x70004600 + ((__NR_rt_sigreturn ^ 0xff) << 16),
 			  (long __user *)(frame->retcode + 0));
 	err |= __put_user(0x4e40, (short __user *)(frame->retcode + 4));
@@ -899,19 +957,30 @@ static int setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 
 	push_cache ((unsigned long) &frame->retcode);
 
+	/*
+	 * Set up registers for signal handler.  All the state we are about
+	 * to destroy is successfully copied to sigframe.
+	 */
 	wrusp ((unsigned long) frame);
 	regs->pc = (unsigned long) ka->sa.sa_handler;
 
+	/*
+	 * This is subtle; if we build more than one sigframe, all but the
+	 * first one will see frame format 0 and have fsize == 0, so we won't
+	 * screw stkadj.
+	 */
 	if (fsize)
 		regs->stkadj = fsize;
 
-	
+	/* Prepare to skip over the extra stuff in the exception frame.  */
 	if (regs->stkadj) {
 		struct pt_regs *tregs =
 			(struct pt_regs *)((ulong)regs + regs->stkadj);
 #ifdef DEBUG
 		printk("Performing stackadjust=%04x\n", regs->stkadj);
 #endif
+		/* This must be copied with decreasing addresses to
+                   handle overlaps.  */
 		tregs->vector = 0;
 		tregs->format = 0;
 		tregs->pc = regs->pc;
@@ -948,7 +1017,7 @@ handle_restart(struct pt_regs *regs, struct k_sigaction *ka, int has_handler)
 			regs->d0 = -EINTR;
 			break;
 		}
-	
+	/* fallthrough */
 	case -ERESTARTNOINTR:
 	do_restart:
 		regs->d0 = regs->orig_d0;
@@ -972,17 +1041,20 @@ void ptrace_signal_deliver(struct pt_regs *regs, void *cookie)
 	}
 }
 
+/*
+ * OK, we're invoking a handler
+ */
 static void
 handle_signal(int sig, struct k_sigaction *ka, siginfo_t *info,
 	      sigset_t *oldset, struct pt_regs *regs)
 {
 	int err;
-	
+	/* are we from a system call? */
 	if (regs->orig_d0 >= 0)
-		
+		/* If so, check system call restarting.. */
 		handle_restart(regs, ka, 1);
 
-	
+	/* set up the stack frame */
 	if (ka->sa.sa_flags & SA_SIGINFO)
 		err = setup_rt_frame(sig, ka, info, oldset, regs);
 	else
@@ -1004,6 +1076,11 @@ handle_signal(int sig, struct k_sigaction *ka, siginfo_t *info,
 	clear_thread_flag(TIF_RESTORE_SIGMASK);
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ */
 asmlinkage void do_signal(struct pt_regs *regs)
 {
 	siginfo_t info;
@@ -1020,17 +1097,17 @@ asmlinkage void do_signal(struct pt_regs *regs)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		
+		/* Whee!  Actually deliver the signal.  */
 		handle_signal(signr, &ka, &info, oldset, regs);
 		return;
 	}
 
-	
+	/* Did we come from a system call? */
 	if (regs->orig_d0 >= 0)
-		
+		/* Restart the system call - no handlers present */
 		handle_restart(regs, NULL, 0);
 
-	
+	/* If there's no signal to deliver, we just restore the saved mask.  */
 	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
 		clear_thread_flag(TIF_RESTORE_SIGMASK);
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);

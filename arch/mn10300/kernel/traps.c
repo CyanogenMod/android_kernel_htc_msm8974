@@ -55,17 +55,17 @@ struct exception_to_signal_map {
 };
 
 static const struct exception_to_signal_map exception_to_signal_map[256] = {
-	
+	/* MMU exceptions */
 	[EXCEP_ITLBMISS >> 3]	= { 0, 0 },
 	[EXCEP_DTLBMISS >> 3]	= { 0, 0 },
 	[EXCEP_IAERROR >> 3]	= { 0, 0 },
 	[EXCEP_DAERROR >> 3]	= { 0, 0 },
 
-	
+	/* system exceptions */
 	[EXCEP_TRAP >> 3]	= { SIGTRAP,	TRAP_BRKPT },
-	[EXCEP_ISTEP >> 3]	= { SIGTRAP,	TRAP_TRACE },	
-	[EXCEP_IBREAK >> 3]	= { SIGTRAP,	TRAP_HWBKPT },	
-	[EXCEP_OBREAK >> 3]	= { SIGTRAP,	TRAP_HWBKPT },	
+	[EXCEP_ISTEP >> 3]	= { SIGTRAP,	TRAP_TRACE },	/* Monitor */
+	[EXCEP_IBREAK >> 3]	= { SIGTRAP,	TRAP_HWBKPT },	/* Monitor */
+	[EXCEP_OBREAK >> 3]	= { SIGTRAP,	TRAP_HWBKPT },	/* Monitor */
 	[EXCEP_PRIVINS >> 3]	= { SIGILL,	ILL_PRVOPC },
 	[EXCEP_UNIMPINS >> 3]	= { SIGILL,	ILL_ILLOPC },
 	[EXCEP_UNIMPEXINS >> 3]	= { SIGILL,	ILL_ILLOPC },
@@ -75,17 +75,17 @@ static const struct exception_to_signal_map exception_to_signal_map[256] = {
 	[EXCEP_ILLINSACC >> 3]	= { SIGSEGV,	SEGV_ACCERR },
 	[EXCEP_ILLDATACC >> 3]	= { SIGSEGV,	SEGV_ACCERR },
 	[EXCEP_IOINSACC >> 3]	= { SIGSEGV,	SEGV_ACCERR },
-	[EXCEP_PRIVINSACC >> 3]	= { SIGSEGV,	SEGV_ACCERR }, 
-	[EXCEP_PRIVDATACC >> 3]	= { SIGSEGV,	SEGV_ACCERR }, 
+	[EXCEP_PRIVINSACC >> 3]	= { SIGSEGV,	SEGV_ACCERR }, /* userspace */
+	[EXCEP_PRIVDATACC >> 3]	= { SIGSEGV,	SEGV_ACCERR }, /* userspace */
 	[EXCEP_DATINSACC >> 3]	= { SIGSEGV,	SEGV_ACCERR },
 	[EXCEP_DOUBLE_FAULT >> 3] = { SIGILL,	ILL_BADSTK },
 
-	
+	/* FPU exceptions */
 	[EXCEP_FPU_DISABLED >> 3] = { SIGILL,	ILL_COPROC },
 	[EXCEP_FPU_UNIMPINS >> 3] = { SIGILL,	ILL_COPROC },
 	[EXCEP_FPU_OPERATION >> 3] = { SIGFPE,	FPE_INTDIV },
 
-	
+	/* interrupts */
 	[EXCEP_WDT >> 3]	= { SIGALRM,	0 },
 	[EXCEP_NMI >> 3]	= { SIGQUIT,	0 },
 	[EXCEP_IRQ_LEVEL0 >> 3]	= { SIGINT,	0 },
@@ -96,7 +96,7 @@ static const struct exception_to_signal_map exception_to_signal_map[256] = {
 	[EXCEP_IRQ_LEVEL5 >> 3]	= { 0, 0 },
 	[EXCEP_IRQ_LEVEL6 >> 3]	= { 0, 0 },
 
-	
+	/* system calls */
 	[EXCEP_SYSCALL0 >> 3]	= { 0, 0 },
 	[EXCEP_SYSCALL1 >> 3]	= { SIGILL,	ILL_ILLTRP },
 	[EXCEP_SYSCALL2 >> 3]	= { SIGILL,	ILL_ILLTRP },
@@ -115,6 +115,12 @@ static const struct exception_to_signal_map exception_to_signal_map[256] = {
 	[EXCEP_SYSCALL15 >> 3]	= { SIGABRT,	0 },
 };
 
+/*
+ * Handle kernel exceptions.
+ *
+ * See if there's a fixup handler we can force a jump to when an exception
+ * happens due to something kernel code did
+ */
 int die_if_no_fixup(const char *str, struct pt_regs *regs,
 		    enum exception_code code)
 {
@@ -130,7 +136,7 @@ int die_if_no_fixup(const char *str, struct pt_regs *regs,
 	si_code = exception_to_signal_map[code >> 3].si_code;
 
 	switch (code) {
-		
+		/* see if we can fixup the kernel accessing memory */
 	case EXCEP_ITLBMISS:
 	case EXCEP_DTLBMISS:
 	case EXCEP_IAERROR:
@@ -162,7 +168,7 @@ int die_if_no_fixup(const char *str, struct pt_regs *regs,
 		break;
 
 	case EXCEP_SYSCALL1 ... EXCEP_SYSCALL14:
-		
+		/* syscall return addr is _after_ the instruction */
 		regs->pc -= 2;
 		break;
 
@@ -170,7 +176,7 @@ int die_if_no_fixup(const char *str, struct pt_regs *regs,
 		if (report_bug(regs->pc, regs) == BUG_TRAP_TYPE_WARN)
 			return 1;
 
-		
+		/* syscall return addr is _after_ the instruction */
 		regs->pc -= 2;
 		break;
 
@@ -184,19 +190,22 @@ int die_if_no_fixup(const char *str, struct pt_regs *regs,
 	if (notify_die(DIE_GPF, str, regs, code, 0, 0))
 		return 1;
 
-	
+	/* make the process die as the last resort */
 	die(str, regs, code);
 }
 
+/*
+ * General exception handler
+ */
 asmlinkage void handle_exception(struct pt_regs *regs, u32 intcode)
 {
 	siginfo_t info;
 
-	
+	/* deal with kernel exceptions here */
 	if (die_if_no_fixup(NULL, regs, intcode))
 		return;
 
-	
+	/* otherwise it's a userspace exception */
 	info.si_signo = exception_to_signal_map[intcode >> 3].signo;
 	info.si_code = exception_to_signal_map[intcode >> 3].si_code;
 	info.si_errno = 0;
@@ -204,9 +213,12 @@ asmlinkage void handle_exception(struct pt_regs *regs, u32 intcode)
 	force_sig_info(info.si_signo, &info, current);
 }
 
+/*
+ * handle NMI
+ */
 asmlinkage void nmi(struct pt_regs *regs, enum exception_code code)
 {
-	
+	/* see if gdbstub wants to deal with it */
 	if (debugger_intercept(code, SIGQUIT, 0, regs))
 		return;
 
@@ -215,13 +227,16 @@ asmlinkage void nmi(struct pt_regs *regs, enum exception_code code)
 	printk(KERN_WARNING "---------------------\n");
 }
 
+/*
+ * show a stack trace from the specified stack pointer
+ */
 void show_trace(unsigned long *sp)
 {
 	unsigned long bottom, stack, addr, fp, raslot;
 
 	printk(KERN_EMERG "\nCall Trace:\n");
 
-	
+	//stack = (unsigned long)sp;
 	asm("mov sp,%0" : "=a"(stack));
 	asm("mov a3,%0" : "=r"(fp));
 
@@ -253,6 +268,9 @@ void show_trace(unsigned long *sp)
 	printk("\n");
 }
 
+/*
+ * show the raw stack from the specified stack pointer
+ */
 void show_stack(struct task_struct *task, unsigned long *sp)
 {
 	unsigned long *stack;
@@ -274,6 +292,9 @@ void show_stack(struct task_struct *task, unsigned long *sp)
 	show_trace(sp);
 }
 
+/*
+ * the architecture-independent dump_stack generator
+ */
 void dump_stack(void)
 {
 	unsigned long stack;
@@ -282,6 +303,9 @@ void dump_stack(void)
 }
 EXPORT_SYMBOL(dump_stack);
 
+/*
+ * dump the register file in the specified exception frame
+ */
 void show_registers_only(struct pt_regs *regs)
 {
 	unsigned long ssp;
@@ -325,6 +349,9 @@ void show_registers_only(struct pt_regs *regs)
 	printk(KERN_EMERG "DPTEU:  %08x  DPTEL2: %08x\n", DPTEU, DPTEL2);
 }
 
+/*
+ * dump the registers and the stack
+ */
 void show_registers(struct pt_regs *regs)
 {
 	unsigned long sp;
@@ -337,6 +364,9 @@ void show_registers(struct pt_regs *regs)
 	else
 		sp = regs->sp;
 
+	/* when in-kernel, we also print out the stack and code at the
+	 * time of the fault..
+	 */
 	if (!user_mode(regs)) {
 		printk(KERN_EMERG "\n");
 		show_stack(current, (unsigned long *) sp);
@@ -367,17 +397,23 @@ bad:
 #endif
 }
 
+/*
+ *
+ */
 void show_trace_task(struct task_struct *tsk)
 {
 	unsigned long sp = tsk->thread.sp;
 
-	
+	/* User space on another CPU? */
 	if ((sp ^ (unsigned long) tsk) & (PAGE_MASK << 1))
 		return;
 
 	show_trace((unsigned long *) sp);
 }
 
+/*
+ * note the untimely death of part of the kernel
+ */
 void die(const char *str, struct pt_regs *regs, enum exception_code code)
 {
 	console_verbose();
@@ -397,6 +433,9 @@ void die(const char *str, struct pt_regs *regs, enum exception_code code)
 	do_exit(SIGSEGV);
 }
 
+/*
+ * display the register file when the stack pointer gets clobbered
+ */
 asmlinkage void do_double_fault(struct pt_regs *regs)
 {
 	struct task_struct *tsk = current;
@@ -408,6 +447,9 @@ asmlinkage void do_double_fault(struct pt_regs *regs)
 	show_registers(regs);
 }
 
+/*
+ * asynchronous bus error (external, usually I/O DMA)
+ */
 asmlinkage void io_bus_error(u32 bcberr, u32 bcbear, struct pt_regs *regs)
 {
 	console_verbose();
@@ -462,11 +504,14 @@ asmlinkage void io_bus_error(u32 bcberr, u32 bcbear, struct pt_regs *regs)
 	panic("Halted due to asynchronous I/O Bus Error\n");
 }
 
+/*
+ * handle an exception for which a handler has not yet been installed
+ */
 asmlinkage void uninitialised_exception(struct pt_regs *regs,
 					enum exception_code code)
 {
 
-	
+	/* see if gdbstub wants to deal with it */
 	if (debugger_intercept(code, SIGSYS, 0, regs) == 0)
 		return;
 
@@ -478,13 +523,17 @@ asmlinkage void uninitialised_exception(struct pt_regs *regs,
 		continue;
 }
 
+/*
+ * set an interrupt stub to jump to a handler
+ * ! NOTE: this does *not* flush the caches
+ */
 void __init __set_intr_stub(enum exception_code code, void *handler)
 {
 	unsigned long addr;
 	u8 *vector = (u8 *)(CONFIG_INTERRUPT_VECTOR_BASE + code);
 
 	addr = (unsigned long) handler - (unsigned long) vector;
-	vector[0] = 0xdc;		
+	vector[0] = 0xdc;		/* JMP handler */
 	vector[1] = addr;
 	vector[2] = addr >> 8;
 	vector[3] = addr >> 16;
@@ -494,6 +543,9 @@ void __init __set_intr_stub(enum exception_code code, void *handler)
 	vector[7] = 0xcb;
 }
 
+/*
+ * set an interrupt stub to jump to a handler
+ */
 void __init set_intr_stub(enum exception_code code, void *handler)
 {
 	unsigned long addr;
@@ -504,7 +556,7 @@ void __init set_intr_stub(enum exception_code code, void *handler)
 
 	flags = arch_local_cli_save();
 
-	vector[0] = 0xdc;		
+	vector[0] = 0xdc;		/* JMP handler */
 	vector[1] = addr;
 	vector[2] = addr >> 8;
 	vector[3] = addr >> 16;
@@ -521,6 +573,9 @@ void __init set_intr_stub(enum exception_code code, void *handler)
 #endif
 }
 
+/*
+ * initialise the exception table
+ */
 void __init trap_init(void)
 {
 	set_excp_vector(EXCEP_TRAP,		handle_exception);
@@ -562,6 +617,9 @@ void __init trap_init(void)
 	set_excp_vector(EXCEP_SYSCALL15,	handle_exception);
 }
 
+/*
+ * determine if a program counter value is a valid bug address
+ */
 int is_valid_bugaddr(unsigned long pc)
 {
 	return pc >= PAGE_OFFSET;

@@ -35,6 +35,9 @@ MODULE_AUTHOR("Brian Johnson <brijohn@gmail.com>, "
 MODULE_DESCRIPTION("GSPCA/SN9C20X USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/*
+ * Pixel format private data
+ */
 #define SCALE_MASK	0x0f
 #define SCALE_160x120	0
 #define SCALE_320x240	1
@@ -58,8 +61,9 @@ MODULE_LICENSE("GPL");
 #define SENSOR_HV7131R	11
 #define SENSOR_MT9VPRB	20
 
+/* camera flags */
 #define HAS_NO_BUTTON	0x1
-#define LED_REVERSE	0x2 
+#define LED_REVERSE	0x2 /* some cameras unset gpio to turn on leds */
 #define FLIP_DETECT	0x4
 
 enum e_ctrl {
@@ -76,9 +80,10 @@ enum e_ctrl {
 	GAIN,
 	AUTOGAIN,
 	QUALITY,
-	NCTRLS		
+	NCTRLS		/* number of controls */
 };
 
+/* specific webcam descriptor */
 struct sd {
 	struct gspca_dev gspca_dev;
 
@@ -87,10 +92,10 @@ struct sd {
 	struct work_struct work;
 	struct workqueue_struct *work_thread;
 
-	u32 pktsz;			
+	u32 pktsz;			/* (used by pkt_scan) */
 	u16 npkt;
 	s8 nchg;
-	u8 fmt;				
+	u8 fmt;				/* (used for JPEG QTAB update */
 
 #define MIN_AVG_LUM 80
 #define MAX_AVG_LUM 130
@@ -780,64 +785,69 @@ static u16 bridge_init[][2] = {
 	{0x1007, 0x00}
 };
 
+/* Gain = (bit[3:0] / 16 + 1) * (bit[4] + 1) * (bit[5] + 1) * (bit[6] + 1) */
 static u8 ov_gain[] = {
-	0x00 , 0x04 , 0x08 , 0x0c ,
-	0x10 , 0x12 , 0x14 , 0x16 ,
-	0x18 , 0x1a , 0x1c , 0x1e ,
-	0x30 , 0x31 , 0x32 , 0x33 ,
-	0x34 , 0x35 , 0x36 , 0x37 ,
-	0x38 , 0x39 , 0x3a , 0x3b ,
-	0x3c , 0x3d , 0x3e , 0x3f ,
-	0x70 
+	0x00 /* 1x */, 0x04 /* 1.25x */, 0x08 /* 1.5x */, 0x0c /* 1.75x */,
+	0x10 /* 2x */, 0x12 /* 2.25x */, 0x14 /* 2.5x */, 0x16 /* 2.75x */,
+	0x18 /* 3x */, 0x1a /* 3.25x */, 0x1c /* 3.5x */, 0x1e /* 3.75x */,
+	0x30 /* 4x */, 0x31 /* 4.25x */, 0x32 /* 4.5x */, 0x33 /* 4.75x */,
+	0x34 /* 5x */, 0x35 /* 5.25x */, 0x36 /* 5.5x */, 0x37 /* 5.75x */,
+	0x38 /* 6x */, 0x39 /* 6.25x */, 0x3a /* 6.5x */, 0x3b /* 6.75x */,
+	0x3c /* 7x */, 0x3d /* 7.25x */, 0x3e /* 7.5x */, 0x3f /* 7.75x */,
+	0x70 /* 8x */
 };
 
+/* Gain = (bit[8] + 1) * (bit[7] + 1) * (bit[6:0] * 0.03125) */
 static u16 micron1_gain[] = {
-	
+	/* 1x   1.25x   1.5x    1.75x */
 	0x0020, 0x0028, 0x0030, 0x0038,
-	
+	/* 2x   2.25x   2.5x    2.75x */
 	0x00a0, 0x00a4, 0x00a8, 0x00ac,
-	
+	/* 3x   3.25x   3.5x    3.75x */
 	0x00b0, 0x00b4, 0x00b8, 0x00bc,
-	
+	/* 4x   4.25x   4.5x    4.75x */
 	0x00c0, 0x00c4, 0x00c8, 0x00cc,
-	
+	/* 5x   5.25x   5.5x    5.75x */
 	0x00d0, 0x00d4, 0x00d8, 0x00dc,
-	
+	/* 6x   6.25x   6.5x    6.75x */
 	0x00e0, 0x00e4, 0x00e8, 0x00ec,
-	
+	/* 7x   7.25x   7.5x    7.75x */
 	0x00f0, 0x00f4, 0x00f8, 0x00fc,
-	
+	/* 8x */
 	0x01c0
 };
 
+/* mt9m001 sensor uses a different gain formula then other micron sensors */
+/* Gain = (bit[6] + 1) * (bit[5-0] * 0.125) */
 static u16 micron2_gain[] = {
-	
+	/* 1x   1.25x   1.5x    1.75x */
 	0x0008, 0x000a, 0x000c, 0x000e,
-	
+	/* 2x   2.25x   2.5x    2.75x */
 	0x0010, 0x0012, 0x0014, 0x0016,
-	
+	/* 3x   3.25x   3.5x    3.75x */
 	0x0018, 0x001a, 0x001c, 0x001e,
-	
+	/* 4x   4.25x   4.5x    4.75x */
 	0x0020, 0x0051, 0x0052, 0x0053,
-	
+	/* 5x   5.25x   5.5x    5.75x */
 	0x0054, 0x0055, 0x0056, 0x0057,
-	
+	/* 6x   6.25x   6.5x    6.75x */
 	0x0058, 0x0059, 0x005a, 0x005b,
-	
+	/* 7x   7.25x   7.5x    7.75x */
 	0x005c, 0x005d, 0x005e, 0x005f,
-	
+	/* 8x */
 	0x0060
 };
 
+/* Gain = .5 + bit[7:0] / 16 */
 static u8 hv7131r_gain[] = {
-	0x08 , 0x0c , 0x10 , 0x14 ,
-	0x18 , 0x1c , 0x20 , 0x24 ,
-	0x28 , 0x2c , 0x30 , 0x34 ,
-	0x38 , 0x3c , 0x40 , 0x44 ,
-	0x48 , 0x4c , 0x50 , 0x54 ,
-	0x58 , 0x5c , 0x60 , 0x64 ,
-	0x68 , 0x6c , 0x70 , 0x74 ,
-	0x78 
+	0x08 /* 1x */, 0x0c /* 1.25x */, 0x10 /* 1.5x */, 0x14 /* 1.75x */,
+	0x18 /* 2x */, 0x1c /* 2.25x */, 0x20 /* 2.5x */, 0x24 /* 2.75x */,
+	0x28 /* 3x */, 0x2c /* 3.25x */, 0x30 /* 3.5x */, 0x34 /* 3.75x */,
+	0x38 /* 4x */, 0x3c /* 4.25x */, 0x40 /* 4.5x */, 0x44 /* 4.75x */,
+	0x48 /* 5x */, 0x4c /* 5.25x */, 0x50 /* 5.5x */, 0x54 /* 5.75x */,
+	0x58 /* 6x */, 0x5c /* 6.25x */, 0x60 /* 6.5x */, 0x64 /* 6.75x */,
+	0x68 /* 7x */, 0x6c /* 7.25x */, 0x70 /* 7.5x */, 0x74 /* 7.75x */,
+	0x78 /* 8x */
 };
 
 static struct i2c_reg_u8 soi968_init[] = {
@@ -858,6 +868,8 @@ static struct i2c_reg_u8 ov7660_init[] = {
 	{0x0e, 0x80}, {0x0d, 0x08}, {0x0f, 0xc3},
 	{0x04, 0xc3}, {0x10, 0x40}, {0x11, 0x40},
 	{0x12, 0x05}, {0x13, 0xba}, {0x14, 0x2a},
+	/* HDG Set hstart and hstop, datasheet default 0x11, 0x61, using
+	   0x10, 0x61 and sd->hstart, vstart = 3, fixes ugly colored borders */
 	{0x17, 0x10}, {0x18, 0x61},
 	{0x37, 0x0f}, {0x38, 0x02}, {0x39, 0x43},
 	{0x3a, 0x00}, {0x69, 0x90}, {0x2d, 0xf6},
@@ -1037,8 +1049,8 @@ static struct i2c_reg_u16 mt9v011_init[] = {
 static struct i2c_reg_u16 mt9m001_init[] = {
 	{0x0d, 0x0001},
 	{0x0d, 0x0000},
-	{0x04, 0x0500},		
-	{0x03, 0x0400},		
+	{0x04, 0x0500},		/* hres = 1280 */
+	{0x03, 0x0400},		/* vres = 1024 */
 	{0x20, 0x1100},
 	{0x06, 0x0010},
 	{0x2b, 0x0024},
@@ -1143,6 +1155,7 @@ static void i2c_w(struct gspca_dev *gspca_dev, const u8 *buffer)
 		msleep(10);
 	}
 	pr_err("i2c_w reg %02x no response\n", buffer[2]);
+/*	gspca_dev->usb_err = -EIO;	fixme: may occur */
 }
 
 static void i2c_w1(struct gspca_dev *gspca_dev, u8 reg, u8 val)
@@ -1150,6 +1163,10 @@ static void i2c_w1(struct gspca_dev *gspca_dev, u8 reg, u8 val)
 	struct sd *sd = (struct sd *) gspca_dev;
 	u8 row[8];
 
+	/*
+	 * from the point of view of the bridge, the length
+	 * includes the address
+	 */
 	row[0] = 0x81 | (2 << 4);
 	row[1] = sd->i2c_addr;
 	row[2] = reg;
@@ -1176,6 +1193,10 @@ static void i2c_w2(struct gspca_dev *gspca_dev, u8 reg, u16 val)
 	struct sd *sd = (struct sd *) gspca_dev;
 	u8 row[8];
 
+	/*
+	 * from the point of view of the bridge, the length
+	 * includes the address
+	 */
 	row[0] = 0x81 | (3 << 4);
 	row[1] = sd->i2c_addr;
 	row[2] = reg;
@@ -1254,7 +1275,7 @@ static void ov9650_init_sensor(struct gspca_dev *gspca_dev)
 		return;
 	}
 
-	i2c_w1(gspca_dev, 0x12, 0x80);		
+	i2c_w1(gspca_dev, 0x12, 0x80);		/* sensor reset */
 	msleep(200);
 	i2c_w1_buf(gspca_dev, ov9650_init, ARRAY_SIZE(ov9650_init));
 	if (gspca_dev->usb_err < 0)
@@ -1267,13 +1288,13 @@ static void ov9655_init_sensor(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	i2c_w1(gspca_dev, 0x12, 0x80);		
+	i2c_w1(gspca_dev, 0x12, 0x80);		/* sensor reset */
 	msleep(200);
 	i2c_w1_buf(gspca_dev, ov9655_init, ARRAY_SIZE(ov9655_init));
 	if (gspca_dev->usb_err < 0)
 		pr_err("OV9655 sensor initialization failed\n");
 
-	
+	/* disable hflip and vflip */
 	gspca_dev->ctrl_dis = (1 << HFLIP) | (1 << VFLIP);
 	sd->hstart = 1;
 	sd->vstart = 2;
@@ -1283,13 +1304,13 @@ static void soi968_init_sensor(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	i2c_w1(gspca_dev, 0x12, 0x80);		
+	i2c_w1(gspca_dev, 0x12, 0x80);		/* sensor reset */
 	msleep(200);
 	i2c_w1_buf(gspca_dev, soi968_init, ARRAY_SIZE(soi968_init));
 	if (gspca_dev->usb_err < 0)
 		pr_err("SOI968 sensor initialization failed\n");
 
-	
+	/* disable hflip and vflip */
 	gspca_dev->ctrl_dis = (1 << HFLIP) | (1 << VFLIP)
 				| (1 << EXPOSURE);
 	sd->hstart = 60;
@@ -1300,7 +1321,7 @@ static void ov7660_init_sensor(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	i2c_w1(gspca_dev, 0x12, 0x80);		
+	i2c_w1(gspca_dev, 0x12, 0x80);		/* sensor reset */
 	msleep(200);
 	i2c_w1_buf(gspca_dev, ov7660_init, ARRAY_SIZE(ov7660_init));
 	if (gspca_dev->usb_err < 0)
@@ -1313,13 +1334,13 @@ static void ov7670_init_sensor(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	i2c_w1(gspca_dev, 0x12, 0x80);		
+	i2c_w1(gspca_dev, 0x12, 0x80);		/* sensor reset */
 	msleep(200);
 	i2c_w1_buf(gspca_dev, ov7670_init, ARRAY_SIZE(ov7670_init));
 	if (gspca_dev->usb_err < 0)
 		pr_err("OV7670 sensor initialization failed\n");
 
-	
+	/* disable hflip and vflip */
 	gspca_dev->ctrl_dis = (1 << HFLIP) | (1 << VFLIP);
 	sd->hstart = 0;
 	sd->vstart = 1;
@@ -1430,7 +1451,7 @@ static void mt9m001_init_sensor(struct gspca_dev *gspca_dev)
 	if (gspca_dev->usb_err < 0)
 		return;
 
-	
+	/* must be 0x8411 or 0x8421 for colour sensor and 8431 for bw */
 	switch (id) {
 	case 0x8411:
 	case 0x8421:
@@ -1449,7 +1470,7 @@ static void mt9m001_init_sensor(struct gspca_dev *gspca_dev)
 	if (gspca_dev->usb_err < 0)
 		pr_err("MT9M001 sensor initialization failed\n");
 
-	
+	/* disable hflip and vflip */
 	gspca_dev->ctrl_dis = (1 << HFLIP) | (1 << VFLIP);
 	sd->hstart = 1;
 	sd->vstart = 1;
@@ -1705,13 +1726,13 @@ static void set_quality(struct gspca_dev *gspca_dev)
 	struct sd *sd = (struct sd *) gspca_dev;
 
 	jpeg_set_qual(sd->jpeg_hdr, sd->ctrls[QUALITY].val);
-	reg_w1(gspca_dev, 0x1061, 0x01);	
-	reg_w1(gspca_dev, 0x10e0, sd->fmt | 0x20); 
+	reg_w1(gspca_dev, 0x1061, 0x01);	/* stop transfer */
+	reg_w1(gspca_dev, 0x10e0, sd->fmt | 0x20); /* write QTAB */
 	reg_w(gspca_dev, 0x1100, &sd->jpeg_hdr[JPEG_QT0_OFFSET], 64);
 	reg_w(gspca_dev, 0x1140, &sd->jpeg_hdr[JPEG_QT1_OFFSET], 64);
-	reg_w1(gspca_dev, 0x1061, 0x03);	
+	reg_w1(gspca_dev, 0x1061, 0x03);	/* restart transfer */
 	reg_w1(gspca_dev, 0x10e0, sd->fmt);
-	sd->fmt ^= 0x0c;			
+	sd->fmt ^= 0x0c;			/* invert QTAB use + write */
 	reg_w1(gspca_dev, 0x10e0, sd->fmt);
 }
 
@@ -1994,6 +2015,11 @@ static int sd_isoc_init(struct gspca_dev *gspca_dev)
 	struct usb_interface *intf;
 	u32 flags = gspca_dev->cam.cam_mode[(int)gspca_dev->curr_mode].priv;
 
+	/*
+	 * When using the SN9C20X_I420 fmt the sn9c20x needs more bandwidth
+	 * than our regular bandwidth calculations reserve, so we force the
+	 * use of a specific altsetting when using the SN9C20X_I420 fmt.
+	 */
 	if (!(flags & (MODE_RAW | MODE_JPEG))) {
 		intf = usb_ifnum_to_if(gspca_dev->dev, gspca_dev->iface);
 
@@ -2006,13 +2032,13 @@ static int sd_isoc_init(struct gspca_dev *gspca_dev)
 		}
 
 		switch (gspca_dev->width) {
-		case 160: 
+		case 160: /* 160x120 */
 			gspca_dev->alt = 2;
 			break;
-		case 320: 
+		case 320: /* 320x240 */
 			gspca_dev->alt = 6;
 			break;
-		default:  
+		default:  /* >= 640x480 */
 			gspca_dev->alt = 9;
 			break;
 		}
@@ -2048,7 +2074,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	else if (mode & MODE_JPEG)
 		fmt = 0x24;
 	else
-		fmt = 0x2f;	
+		fmt = 0x2f;	/* YUV 420 */
 	sd->fmt = fmt;
 
 	switch (mode & SCALE_MASK) {
@@ -2088,7 +2114,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	reg_w1(gspca_dev, 0x1007, 0x20);
 	reg_w1(gspca_dev, 0x1061, 0x03);
 
-	
+	/* if JPEG, prepare the compression quality update */
 	if (mode & MODE_JPEG) {
 		sd->pktsz = sd->npkt = 0;
 		sd->nchg = 0;
@@ -2105,6 +2131,8 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 	reg_w1(gspca_dev, 0x1061, 0x01);
 }
 
+/* called on streamoff with alt==0 and on disconnect */
+/* the usb_lock is held at entry - restore on exit */
 static void sd_stop0(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -2122,6 +2150,11 @@ static void do_autoexposure(struct gspca_dev *gspca_dev, u16 avg_lum)
 	struct sd *sd = (struct sd *) gspca_dev;
 	s16 new_exp;
 
+	/*
+	 * some hardcoded values are present
+	 * like those for maximal/minimal exposure
+	 * and exposure steps
+	 */
 	if (avg_lum < MIN_AVG_LUM) {
 		if (sd->ctrls[EXPOSURE].val > 0x1770)
 			return;
@@ -2195,6 +2228,8 @@ static void sd_dqcallback(struct gspca_dev *gspca_dev)
 		do_autoexposure(gspca_dev, avg_lum);
 }
 
+/* JPEG quality update */
+/* This function is executed from a work queue. */
 static void qual_upd(struct work_struct *work)
 {
 	struct sd *sd = container_of(work, struct sd, work);
@@ -2208,8 +2243,8 @@ static void qual_upd(struct work_struct *work)
 
 #if defined(CONFIG_INPUT) || defined(CONFIG_INPUT_MODULE)
 static int sd_int_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,		
-			int len)		
+			u8 *data,		/* interrupt packet */
+			int len)		/* interrupt packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
@@ -2224,6 +2259,7 @@ static int sd_int_pkt_scan(struct gspca_dev *gspca_dev,
 }
 #endif
 
+/* check the JPEG compression */
 static void transfer_check(struct gspca_dev *gspca_dev,
 			u8 *data)
 {
@@ -2232,13 +2268,13 @@ static void transfer_check(struct gspca_dev *gspca_dev,
 
 	new_qual = 0;
 
-	
-	if (data[6] & 0x08) {				
+	/* if USB error, discard the frame and decrease the quality */
+	if (data[6] & 0x08) {				/* USB FIFO full */
 		gspca_dev->last_packet_type = DISCARD_PACKET;
 		new_qual = -5;
 	} else {
 
-		
+		/* else, compute the filling rate and a new JPEG quality */
 		r = (sd->pktsz * 100) /
 			(sd->npkt *
 				gspca_dev->urb[0]->iso_frame_desc[0].length);
@@ -2268,8 +2304,8 @@ static void transfer_check(struct gspca_dev *gspca_dev,
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	int avg_lum, is_jpeg;
@@ -2325,7 +2361,7 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 				data, len);
 		}
 	} else {
-		
+		/* if JPEG, count the packets and their size */
 		if (is_jpeg) {
 			sd->npkt++;
 			sd->pktsz += len;
@@ -2334,6 +2370,7 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 	}
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = KBUILD_MODNAME,
 	.ctrls = sd_ctrls,
@@ -2403,6 +2440,7 @@ static const struct usb_device_id device_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 		    const struct usb_device_id *id)
 {

@@ -61,7 +61,7 @@ void q6asm_in_cb(uint32_t opcode, uint32_t token,
 	spin_unlock_irqrestore(&audio->dsp_lock, flags);
 }
 
-void  audio_in_get_dsp_frames(void *aud,
+void  audio_in_get_dsp_frames(/*struct q6audio_in *audio,*/void *aud,
 	uint32_t token,	uint32_t *payload)
 {
 	struct q6audio_in *audio = (struct q6audio_in *)aud;
@@ -81,7 +81,7 @@ void  audio_in_get_dsp_frames(void *aud,
 	audio->out_frame_info[index][0] = payload[7];
 	audio->out_frame_info[index][1] = payload[3];
 
-	
+	/* statistics of read */
 	atomic_add(payload[2], &audio->in_bytes);
 	atomic_add(payload[7], &audio->in_samples);
 

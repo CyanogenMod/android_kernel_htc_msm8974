@@ -1,3 +1,14 @@
+/* Works like the fakephp driver used to, except a little better.
+ *
+ * - It's possible to remove devices with subordinate busses.
+ * - New PCI devices that appear via any method, not just a fakephp triggered
+ *   rescan, will be noticed.
+ * - Devices that are removed via any method, not just a fakephp triggered
+ *   removal, will also be noticed.
+ *
+ * Uses nothing from the pci-hotplug subsystem.
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -123,11 +134,11 @@ static int __init init_legacy(void)
 {
 	struct pci_dev *pdev = NULL;
 
-	
+	/* Add existing devices */
 	for_each_pci_dev(pdev)
 		legacy_add_slot(pdev);
 
-	
+	/* Be alerted of any new ones */
 	bus_register_notifier(&pci_bus_type, &legacy_notifier);
 	return 0;
 }

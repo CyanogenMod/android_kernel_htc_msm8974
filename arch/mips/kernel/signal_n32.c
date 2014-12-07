@@ -42,12 +42,16 @@
 
 #include "signal-common.h"
 
+/*
+ * Including <asm/unistd.h> would give use the 64-bit syscall numbers ...
+ */
 #define __NR_N32_restart_syscall	6214
 
 extern int setup_sigcontext(struct pt_regs *, struct sigcontext __user *);
 extern int restore_sigcontext(struct pt_regs *, struct sigcontext __user *);
 
 
+/* IRIX compatible stack_t  */
 typedef struct sigaltstack32 {
 	s32 ss_sp;
 	compat_size_t ss_size;
@@ -59,12 +63,12 @@ struct ucontextn32 {
 	s32                 uc_link;
 	stack32_t           uc_stack;
 	struct sigcontext   uc_mcontext;
-	compat_sigset_t     uc_sigmask;   
+	compat_sigset_t     uc_sigmask;   /* mask last for extensibility */
 };
 
 struct rt_sigframe_n32 {
-	u32 rs_ass[4];			
-	u32 rs_pad[2];			
+	u32 rs_ass[4];			/* argument save space for o32 */
+	u32 rs_pad[2];			/* Was: signal trampoline */
 	struct compat_siginfo rs_info;
 	struct ucontextn32 rs_uc;
 };
@@ -78,7 +82,7 @@ asmlinkage int sysn32_rt_sigsuspend(nabi_no_regargs struct pt_regs regs)
 	size_t sigsetsize;
 	sigset_t newset;
 
-	
+	/* XXX Don't preclude handling different sized sigset_t's.  */
 	sigsetsize = regs.regs[5];
 	if (sigsetsize != sizeof(sigset_t))
 		return -EINVAL;
@@ -122,7 +126,7 @@ asmlinkage void sysn32_rt_sigreturn(nabi_no_regargs struct pt_regs regs)
 	else if (sig)
 		force_sig(sig, current);
 
-	
+	/* The ucontext contains a stack32_t, so we must convert!  */
 	if (__get_user(sp, &frame->rs_uc.uc_stack.ss_sp))
 		goto badframe;
 	st.ss_sp = (void __user *)(long) sp;
@@ -131,18 +135,23 @@ asmlinkage void sysn32_rt_sigreturn(nabi_no_regargs struct pt_regs regs)
 	if (__get_user(st.ss_flags, &frame->rs_uc.uc_stack.ss_flags))
 		goto badframe;
 
+	/* It is more difficult to avoid calling this function than to
+	   call it and ignore errors.  */
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 	do_sigaltstack((stack_t __user *)&st, NULL, regs.regs[29]);
 	set_fs(old_fs);
 
 
+	/*
+	 * Don't let your children do this ...
+	 */
 	__asm__ __volatile__(
 		"move\t$29, %0\n\t"
 		"j\tsyscall_exit"
-		:
+		:/* no outputs */
 		:"r" (&regs));
-	
+	/* Unreached */
 
 badframe:
 	force_sig(SIGSEGV, current);
@@ -159,10 +168,10 @@ static int setup_rt_frame_n32(void *sig_return, struct k_sigaction *ka,
 	if (!access_ok(VERIFY_WRITE, frame, sizeof (*frame)))
 		goto give_sigsegv;
 
-	
+	/* Create siginfo.  */
 	err |= copy_siginfo_to_user32(&frame->rs_info, info);
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->rs_uc.uc_flags);
 	err |= __put_user(0, &frame->rs_uc.uc_link);
 	sp = (int) (long) current->sas_ss_sp;
@@ -178,6 +187,16 @@ static int setup_rt_frame_n32(void *sig_return, struct k_sigaction *ka,
 	if (err)
 		goto give_sigsegv;
 
+	/*
+	 * Arguments to signal handler:
+	 *
+	 *   a0 = signal number
+	 *   a1 = 0 (should be cause)
+	 *   a2 = pointer to ucontext
+	 *
+	 * $25 and c0_epc point to the signal handler, $29 points to
+	 * the struct rt_sigframe.
+	 */
 	regs->regs[ 4] = signr;
 	regs->regs[ 5] = (unsigned long) &frame->rs_info;
 	regs->regs[ 6] = (unsigned long) &frame->rs_uc;

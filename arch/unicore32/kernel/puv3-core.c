@@ -23,17 +23,31 @@
 #include <mach/hardware.h>
 #include <mach/pm.h>
 
+/*
+ * This is the PKUnity sched_clock implementation.  This has
+ * a resolution of 271ns, and a maximum value of 32025597s (370 days).
+ *
+ * The return value is guaranteed to be monotonic in that range as
+ * long as there is always less than 582 seconds between successive
+ * calls to this function.
+ *
+ *  ( * 1E9 / CLOCK_TICK_RATE ) -> about 2235/32
+ */
 unsigned long long sched_clock(void)
 {
 	unsigned long long v = cnt32_to_63(readl(OST_OSCR));
 
+	/* original conservative method, but overflow frequently
+	 * v *= NSEC_PER_SEC >> 12;
+	 * do_div(v, CLOCK_TICK_RATE >> 12);
+	 */
 	v = ((v & 0x7fffffffffffffffULL) * 2235) >> 5;
 
 	return v;
 }
 
 static struct resource puv3_usb_resources[] = {
-	
+	/* order is significant! */
 	{
 		.start		= io_v2p(PKUNITY_USB_BASE),
 		.end		= io_v2p(PKUNITY_USB_BASE) + 0x3ff,
@@ -156,6 +170,11 @@ static struct resource puv3_umal_resources[] = {
 #define SAVE(x)		sleep_save[SLEEP_SAVE_##x] = x
 #define RESTORE(x)	x = sleep_save[SLEEP_SAVE_##x]
 
+/*
+ * List of global PXA peripheral registers to preserve.
+ * More ones like CP and general purpose register values are preserved
+ * with the stack pointer in sleep.S.
+ */
 enum {
 	SLEEP_SAVE_PM_PLLDDRCFG,
 	SLEEP_SAVE_COUNT
@@ -164,26 +183,31 @@ enum {
 
 static void puv3_cpu_pm_save(unsigned long *sleep_save)
 {
+/*	SAVE(PM_PLLDDRCFG); */
 }
 
 static void puv3_cpu_pm_restore(unsigned long *sleep_save)
 {
+/*	RESTORE(PM_PLLDDRCFG); */
 }
 
 static int puv3_cpu_pm_prepare(void)
 {
-	
+	/* set resume return address */
 	writel(virt_to_phys(puv3_cpu_resume), PM_DIVCFG);
 	return 0;
 }
 
 static void puv3_cpu_pm_enter(suspend_state_t state)
 {
-	
+	/* Clear reset status */
 	writel(RESETC_RSSR_HWR | RESETC_RSSR_WDR
 			| RESETC_RSSR_SMR | RESETC_RSSR_SWR, RESETC_RSSR);
 
 	switch (state) {
+/*	case PM_SUSPEND_ON:
+		puv3_cpu_idle();
+		break; */
 	case PM_SUSPEND_MEM:
 		puv3_cpu_pm_prepare();
 		puv3_cpu_suspend(PM_PMCR_SFB);
@@ -198,8 +222,8 @@ static int puv3_cpu_pm_valid(suspend_state_t state)
 
 static void puv3_cpu_pm_finish(void)
 {
-	
-	
+	/* ensure not to come back here if it wasn't intended */
+	/* PSPR = 0; */
 }
 
 static struct puv3_cpu_pm_fns puv3_cpu_pm_fnss = {
@@ -225,7 +249,7 @@ void puv3_ps2_init(void)
 	struct clk *bclk32;
 
 	bclk32 = clk_get(NULL, "BUS32_CLK");
-	writel(clk_get_rate(bclk32) / 200000, PS2_CNT); 
+	writel(clk_get_rate(bclk32) / 200000, PS2_CNT); /* should > 5us */
 }
 
 void __init puv3_core_init(void)

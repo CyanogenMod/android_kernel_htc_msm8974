@@ -32,4 +32,4 @@ struct omap1_cam_platform_data {
 #define OMAP1_CAMERA_RST_LOW		BIT(1)
 #define OMAP1_CAMERA_RST_HIGH		BIT(2)
 
-#endif 
+#endif /* __MEDIA_OMAP1_CAMERA_H_ */

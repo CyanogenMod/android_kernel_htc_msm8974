@@ -33,14 +33,18 @@
 
 #define O2HB_MAX_REGION_NAME_LEN	32
 
+/* number of changes to be seen as live */
 #define O2HB_LIVE_THRESHOLD	   2
+/* number of equal samples to be seen as dead */
 extern unsigned int o2hb_dead_threshold;
 #define O2HB_DEFAULT_DEAD_THRESHOLD	   31
+/* Otherwise MAX_WRITE_TIMEOUT will be zero... */
 #define O2HB_MIN_DEAD_THRESHOLD	  2
 #define O2HB_MAX_WRITE_TIMEOUT_MS (O2HB_REGION_TIMEOUT_MS * (o2hb_dead_threshold - 1))
 
 #define O2HB_CB_MAGIC		0x51d1e4ec
 
+/* callback stuff */
 enum o2hb_callback_type {
 	O2HB_NODE_DOWN_CB = 0,
 	O2HB_NODE_UP_CB,
@@ -82,4 +86,4 @@ void o2hb_stop_all_regions(void);
 int o2hb_get_all_regions(char *region_uuids, u8 numregions);
 int o2hb_global_heartbeat_active(void);
 
-#endif 
+#endif /* O2CLUSTER_HEARTBEAT_H */

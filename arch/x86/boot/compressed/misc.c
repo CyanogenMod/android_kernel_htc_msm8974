@@ -1,8 +1,100 @@
+/*
+ * misc.c
+ *
+ * This is a collection of several routines from gzip-1.0.3
+ * adapted for Linux.
+ *
+ * malloc by Hannu Savolainen 1993 and Matthias Urlichs 1994
+ * puts by Nick Holloway 1993, better puts by Martin Mares 1995
+ * High loaded stuff by Hans Lermen & Werner Almesberger, Feb. 1996
+ */
 
 #include "misc.h"
 
+/* WARNING!!
+ * This code is compiled with -fPIC and it is relocated dynamically
+ * at run time, but no relocation processing is performed.
+ * This means that it is not safe to place pointers in static structures.
+ */
 
+/*
+ * Getting to provable safe in place decompression is hard.
+ * Worst case behaviours need to be analyzed.
+ * Background information:
+ *
+ * The file layout is:
+ *    magic[2]
+ *    method[1]
+ *    flags[1]
+ *    timestamp[4]
+ *    extraflags[1]
+ *    os[1]
+ *    compressed data blocks[N]
+ *    crc[4] orig_len[4]
+ *
+ * resulting in 18 bytes of non compressed data overhead.
+ *
+ * Files divided into blocks
+ * 1 bit (last block flag)
+ * 2 bits (block type)
+ *
+ * 1 block occurs every 32K -1 bytes or when there 50% compression
+ * has been achieved. The smallest block type encoding is always used.
+ *
+ * stored:
+ *    32 bits length in bytes.
+ *
+ * fixed:
+ *    magic fixed tree.
+ *    symbols.
+ *
+ * dynamic:
+ *    dynamic tree encoding.
+ *    symbols.
+ *
+ *
+ * The buffer for decompression in place is the length of the
+ * uncompressed data, plus a small amount extra to keep the algorithm safe.
+ * The compressed data is placed at the end of the buffer.  The output
+ * pointer is placed at the start of the buffer and the input pointer
+ * is placed where the compressed data starts.  Problems will occur
+ * when the output pointer overruns the input pointer.
+ *
+ * The output pointer can only overrun the input pointer if the input
+ * pointer is moving faster than the output pointer.  A condition only
+ * triggered by data whose compressed form is larger than the uncompressed
+ * form.
+ *
+ * The worst case at the block level is a growth of the compressed data
+ * of 5 bytes per 32767 bytes.
+ *
+ * The worst case internal to a compressed block is very hard to figure.
+ * The worst case can at least be boundined by having one bit that represents
+ * 32764 bytes and then all of the rest of the bytes representing the very
+ * very last byte.
+ *
+ * All of which is enough to compute an amount of extra data that is required
+ * to be safe.  To avoid problems at the block level allocating 5 extra bytes
+ * per 32767 bytes of data is sufficient.  To avoind problems internal to a
+ * block adding an extra 32767 bytes (the worst case uncompressed block size)
+ * is sufficient, to ensure that in the worst case the decompressed data for
+ * block will stop the byte before the compressed data for a block begins.
+ * To avoid problems with the compressed data's meta information an extra 18
+ * bytes are needed.  Leading to the formula:
+ *
+ * extra_bytes = (uncompressed_size >> 12) + 32768 + 18 + decompressor_size.
+ *
+ * Adding 8 bytes per 32K is a bit excessive but much easier to calculate.
+ * Adding 32768 instead of 32767 just makes for round numbers.
+ * Adding the decompressor_size is necessary as it musht live after all
+ * of the data as well.  Last I measured the decompressor is about 14K.
+ * 10K of actual data and 4K of bss.
+ *
+ */
 
+/*
+ * gzip declarations
+ */
 #define STATIC		static
 
 #undef memset
@@ -12,7 +104,10 @@
 
 static void error(char *m);
 
-struct boot_params *real_mode;		
+/*
+ * This is set up by the setup-routine at boot-time
+ */
+struct boot_params *real_mode;		/* Pointer to real-mode data */
 static int quiet;
 static int debug;
 
@@ -67,8 +162,8 @@ static void scroll(void)
 
 #define XMTRDY          0x20
 
-#define TXR             0       
-#define LSR             5       
+#define TXR             0       /*  Transmit register (WRITE) */
+#define LSR             5       /*  Line Status               */
 static void serial_putchar(int ch)
 {
 	unsigned timeout = 0xffff;
@@ -126,7 +221,7 @@ void __putstr(int error, const char *s)
 	real_mode->screen_info.orig_x = x;
 	real_mode->screen_info.orig_y = y;
 
-	pos = (x + cols * y) * 2;	
+	pos = (x + cols * y) * 2;	/* Update cursor position */
 	outb(14, vidport);
 	outb(0xff & (pos >> 9), vidport+1);
 	outb(15, vidport);
@@ -227,7 +322,7 @@ static void parse_elf(void *output)
 			       output + phdr->p_offset,
 			       phdr->p_filesz);
 			break;
-		default:  break;
+		default: /* Ignore other PT_* */ break;
 		}
 	}
 
@@ -261,7 +356,7 @@ asmlinkage void decompress_kernel(void *rmode, memptr heap,
 	if (debug)
 		putstr("early console in decompress_kernel\n");
 
-	free_mem_ptr     = heap;	
+	free_mem_ptr     = heap;	/* Heap */
 	free_mem_end_ptr = heap + BOOT_HEAP_SIZE;
 
 	if ((unsigned long)output & (MIN_KERNEL_ALIGN - 1))

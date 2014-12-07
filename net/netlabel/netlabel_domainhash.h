@@ -1,3 +1,14 @@
+/*
+ * NetLabel Domain Hash Table
+ *
+ * This file manages the domain hash table that NetLabel uses to determine
+ * which network labeling protocol to use for a given domain.  The NetLabel
+ * system manages static and dynamic label mappings for network protocols such
+ * as CIPSO and RIPSO.
+ *
+ * Author: Paul Moore <paul@paul-moore.com>
+ *
+ */
 
 /*
  * (c) Copyright Hewlett-Packard Development Company, L.P., 2006, 2008
@@ -27,8 +38,11 @@
 
 #include "netlabel_addrlist.h"
 
+/* Domain hash table size */
+/* XXX - currently this number is an uneducated guess */
 #define NETLBL_DOMHSH_BITSIZE       7
 
+/* Domain mapping definition structures */
 #define netlbl_domhsh_addr4_entry(iter) \
 	container_of(iter, struct netlbl_domaddr4_map, list)
 struct netlbl_domaddr4_map {
@@ -44,6 +58,8 @@ struct netlbl_domaddr4_map {
 struct netlbl_domaddr6_map {
 	u32 type;
 
+	/* NOTE: no 'type_def' union needed at present since we don't currently
+	 *       support any IPv6 labeling protocols */
 
 	struct netlbl_af6list list;
 };
@@ -64,8 +80,10 @@ struct netlbl_dom_map {
 	struct rcu_head rcu;
 };
 
+/* init function */
 int netlbl_domhsh_init(u32 size);
 
+/* Manipulate the domain hash table */
 int netlbl_domhsh_add(struct netlbl_dom_map *entry,
 		      struct netlbl_audit *audit_info);
 int netlbl_domhsh_add_default(struct netlbl_dom_map *entry,
@@ -89,6 +107,6 @@ int netlbl_domhsh_walk(u32 *skip_bkt,
 #if IS_ENABLED(CONFIG_IPV6)
 struct netlbl_domaddr6_map *netlbl_domhsh_getentry_af6(const char *domain,
 						  const struct in6_addr *addr);
-#endif 
+#endif /* IPv6 */
 
 #endif

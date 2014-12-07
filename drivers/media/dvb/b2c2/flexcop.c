@@ -52,6 +52,7 @@ MODULE_PARM_DESC(debug,
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+/* global zero for ibi values */
 flexcop_ibi_value ibi_zero;
 
 static int flexcop_dvb_start_feed(struct dvb_demux_feed *dvbdmxfeed)
@@ -163,6 +164,8 @@ static void flexcop_dvb_exit(struct flexcop_device *fc)
 	fc->init_state &= ~FC_STATE_DVB_INIT;
 }
 
+/* these methods are necessary to achieve the long-term-goal of hiding the
+ * struct flexcop_device from the bus-parts */
 void flexcop_pass_dmx_data(struct flexcop_device *fc, u8 *buf, u32 len)
 {
 	dvb_dmx_swfilter(&fc->demux, buf, len);
@@ -179,7 +182,7 @@ static void flexcop_reset(struct flexcop_device *fc)
 {
 	flexcop_ibi_value v210, v204;
 
-	
+	/* reset the flexcop itself */
 	fc->write_ibi_reg(fc,ctrl_208,ibi_zero);
 
 	v210.raw = 0;
@@ -196,7 +199,7 @@ static void flexcop_reset(struct flexcop_device *fc)
 	fc->write_ibi_reg(fc,sw_reset_210,v210);
 	msleep(1);
 
-	
+	/* reset the periphical devices */
 
 	v204 = fc->read_ibi_reg(fc,misc_204);
 	v204.misc_204.Per_reset_sig = 0;
@@ -266,11 +269,13 @@ int flexcop_device_initialize(struct flexcop_device *fc)
 	if (ret)
 		goto error;
 
+	/* i2c has to be done before doing EEProm stuff -
+	 * because the EEProm is accessed via i2c */
 	ret = flexcop_i2c_init(fc);
 	if (ret)
 		goto error;
 
-	
+	/* do the MAC address reading after initializing the dvb_adapter */
 	if (fc->get_mac_addr(fc, 0) == 0) {
 		u8 *b = fc->dvb_adapter.proposed_mac;
 		info("MAC address = %pM", b);

@@ -13,4 +13,4 @@ enum die_val {
 	DIE_SSTEPBP
 };
 
-#endif 
+#endif /* _ASM_MIPS_KDEBUG_H */

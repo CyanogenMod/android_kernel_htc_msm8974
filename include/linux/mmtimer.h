@@ -20,6 +20,30 @@
 #ifndef _LINUX_MMTIMER_H
 #define _LINUX_MMTIMER_H
 
+/*
+ * Breakdown of the ioctl's available.  An 'optional' next to the command
+ * indicates that supporting this command is optional, while 'required'
+ * commands must be implemented if conformance is desired.
+ *
+ * MMTIMER_GETOFFSET - optional
+ *   Should return the offset (relative to the start of the page where the
+ *   registers are mapped) for the counter in question.
+ *
+ * MMTIMER_GETRES - required
+ *   The resolution of the clock in femto (10^-15) seconds
+ *
+ * MMTIMER_GETFREQ - required
+ *   Frequency of the clock in Hz
+ *
+ * MMTIMER_GETBITS - required
+ *   Number of bits in the clock's counter
+ *
+ * MMTIMER_MMAPAVAIL - required
+ *   Returns nonzero if the registers can be mmap'd into userspace, 0 otherwise
+ *
+ * MMTIMER_GETCOUNTER - required
+ *   Gets the current value in the counter
+ */
 #define MMTIMER_IOCTL_BASE 'm'
 
 #define MMTIMER_GETOFFSET _IO(MMTIMER_IOCTL_BASE, 0)
@@ -29,4 +53,4 @@
 #define MMTIMER_MMAPAVAIL _IO(MMTIMER_IOCTL_BASE, 6)
 #define MMTIMER_GETCOUNTER _IOR(MMTIMER_IOCTL_BASE, 9, unsigned long)
 
-#endif 
+#endif /* _LINUX_MMTIMER_H */

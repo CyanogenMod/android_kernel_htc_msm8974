@@ -60,18 +60,18 @@ static int bf5xx_ad193x_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, clk,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set codec DAI slots, 8 channels, all channels are enabled */
 	ret = snd_soc_dai_set_tdm_slot(codec_dai, 0xFF, 0xFF, 8, 32);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI channel mapping */
 	ret = snd_soc_dai_set_channel_map(cpu_dai, ARRAY_SIZE(channel_map),
 		channel_map, ARRAY_SIZE(channel_map), channel_map);
 	if (ret < 0)
@@ -144,6 +144,7 @@ static void __exit bf5xx_ad193x_exit(void)
 module_init(bf5xx_ad193x_init);
 module_exit(bf5xx_ad193x_exit);
 
+/* Module information */
 MODULE_AUTHOR("Barry Song");
 MODULE_DESCRIPTION("ALSA SoC AD193X board driver");
 MODULE_LICENSE("GPL");

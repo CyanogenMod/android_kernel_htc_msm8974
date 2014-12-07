@@ -1,4 +1,9 @@
 
+/*
+ * sound/oss/pas2_mixer.c
+ *
+ * Mixer routines for the Pro Audio Spectrum cards.
+ */
 
 /*
  * Copyright (C) by Hannu Savolainen 1993-1997
@@ -7,13 +12,17 @@
  * Version 2 (June 1991). See the "COPYING" file distributed with this software
  * for more info.
  */
+/*
+ * Thomas Sailer   : ioctl code reworked (vmalloc/vfree removed)
+ * Bartlomiej Zolnierkiewicz : added __init to pas_init_mixer()
+ */
 #include <linux/init.h>
 #include "sound_config.h"
 
 #include "pas2.h"
 
 #ifndef DEB
-#define DEB(what)		
+#define DEB(what)		/* (what) */
 #endif
 
 extern int      pas_translate_code;
@@ -21,7 +30,7 @@ extern char     pas_model;
 extern int     *pas_osp;
 extern int      pas_audiodev;
 
-static int      rec_devices = (SOUND_MASK_MIC);		
+static int      rec_devices = (SOUND_MASK_MIC);		/* Default recording source */
 static int      mode_control;
 
 #define POSSIBLE_RECORDING_DEVICES	(SOUND_MASK_SYNTH | SOUND_MASK_SPEAKER | SOUND_MASK_LINE | SOUND_MASK_MIC | \
@@ -35,23 +44,30 @@ static int     *levels;
 
 static int      default_levels[32] =
 {
-	0x3232,			
-	0x3232,			
-	0x3232,			
-	0x5050,			
-	0x4b4b,			
-	0x3232,			
-	0x4b4b,			
-	0x4b4b,			
-	0x4b4b,			
-	0x6464,			
-	0x4b4b,			
-	0x6464			
+	0x3232,			/* Master Volume */
+	0x3232,			/* Bass */
+	0x3232,			/* Treble */
+	0x5050,			/* FM */
+	0x4b4b,			/* PCM */
+	0x3232,			/* PC Speaker */
+	0x4b4b,			/* Ext Line */
+	0x4b4b,			/* Mic */
+	0x4b4b,			/* CD */
+	0x6464,			/* Recording monitor */
+	0x4b4b,			/* SB PCM */
+	0x6464			/* Recording level */
 };
 
 void
 mix_write(unsigned char data, int ioaddr)
 {
+	/*
+	 * The Revision D cards have a problem with their MVA508 interface. The
+	 * kludge-o-rama fix is to make a 16-bit quantity with identical LSB and
+	 * MSBs out of the output byte and to do a 16-bit out to the mixer port -
+	 * 1. We need to do this because it isn't timing problem but chip access
+	 * sequence problem.
+	 */
 
 	if (pas_model == 4)
 	  {
@@ -63,7 +79,7 @@ mix_write(unsigned char data, int ioaddr)
 
 static int
 mixer_output(int right_vol, int left_vol, int div, int bits,
-	     int mixer)		
+	     int mixer)		/* Input or output mixer */
 {
 	int             left = left_vol * div / 100;
 	int             right = right_vol * div / 100;
@@ -118,43 +134,47 @@ pas_mixer_set(int whichDev, unsigned int level)
 
 	switch (whichDev)
 	  {
-	  case SOUND_MIXER_VOLUME:	
+	  case SOUND_MIXER_VOLUME:	/* Master volume (0-63) */
 		  levels[whichDev] = mixer_output(right, left, 63, 0x01, 0);
 		  break;
 
-	  case SOUND_MIXER_BASS:	
+		  /*
+		   * Note! Bass and Treble are mono devices. Will use just the left
+		   * channel.
+		   */
+	  case SOUND_MIXER_BASS:	/* Bass (0-12) */
 		  levels[whichDev] = mixer_output(right, left, 12, 0x03, 0);
 		  break;
-	  case SOUND_MIXER_TREBLE:	
+	  case SOUND_MIXER_TREBLE:	/* Treble (0-12) */
 		  levels[whichDev] = mixer_output(right, left, 12, 0x04, 0);
 		  break;
 
-	  case SOUND_MIXER_SYNTH:	
+	  case SOUND_MIXER_SYNTH:	/* Internal synthesizer (0-31) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x00, mixer);
 		  break;
-	  case SOUND_MIXER_PCM:	
+	  case SOUND_MIXER_PCM:	/* PAS PCM (0-31) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x05, mixer);
 		  break;
-	  case SOUND_MIXER_ALTPCM:	
+	  case SOUND_MIXER_ALTPCM:	/* SB PCM (0-31) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x07, mixer);
 		  break;
-	  case SOUND_MIXER_SPEAKER:	
+	  case SOUND_MIXER_SPEAKER:	/* PC speaker (0-31) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x06, mixer);
 		  break;
-	  case SOUND_MIXER_LINE:	
+	  case SOUND_MIXER_LINE:	/* External line (0-31) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x02, mixer);
 		  break;
-	  case SOUND_MIXER_CD:	
+	  case SOUND_MIXER_CD:	/* CD (0-31) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x03, mixer);
 		  break;
-	  case SOUND_MIXER_MIC:	
+	  case SOUND_MIXER_MIC:	/* External microphone (0-31) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x04, mixer);
 		  break;
-	  case SOUND_MIXER_IMIX:	
+	  case SOUND_MIXER_IMIX:	/* Recording monitor (0-31) (Output mixer only) */
 		  levels[whichDev] = mixer_output(right, left, 31, 0x10 | 0x01,
 						  0x00);
 		  break;
-	  case SOUND_MIXER_RECLEV:	
+	  case SOUND_MIXER_RECLEV:	/* Recording level (0-15) */
 		  levels[whichDev] = mixer_output(right, left, 15, 0x02, 0);
 		  break;
 
@@ -180,6 +200,7 @@ pas_mixer_set(int whichDev, unsigned int level)
 	return (levels[whichDev]);
 }
 
+/*****/
 
 static void
 pas_mixer_reset(void)
@@ -200,10 +221,10 @@ static int pas_mixer_ioctl(int dev, unsigned int cmd, void __user *arg)
 	int __user *p = (int __user *)arg;
 
 	DEB(printk("pas2_mixer.c: int pas_mixer_ioctl(unsigned int cmd = %X, unsigned int arg = %X)\n", cmd, arg));
-	if (cmd == SOUND_MIXER_PRIVATE1) { 
+	if (cmd == SOUND_MIXER_PRIVATE1) { /* Set loudness bit */
 		if (get_user(level, p))
 			return -EFAULT;
-		if (level == -1)  
+		if (level == -1)  /* Return current settings */
 			level = (mode_control & 0x04);
 		else {
 			mode_control &= ~0x04;
@@ -214,10 +235,10 @@ static int pas_mixer_ioctl(int dev, unsigned int cmd, void __user *arg)
 		level = !!level;
 		return put_user(level, p);
 	}
-	if (cmd == SOUND_MIXER_PRIVATE2) { 
+	if (cmd == SOUND_MIXER_PRIVATE2) { /* Set enhance bit */
 		if (get_user(level, p))
 			return -EFAULT;
-		if (level == -1) { 
+		if (level == -1) { /* Return current settings */
 			if (!(mode_control & 0x03))
 				level = 0;
 			else
@@ -237,10 +258,10 @@ static int pas_mixer_ioctl(int dev, unsigned int cmd, void __user *arg)
 		}
 		return put_user(level, p);
 	}
-	if (cmd == SOUND_MIXER_PRIVATE3) { 
+	if (cmd == SOUND_MIXER_PRIVATE3) { /* Set mute bit */
 		if (get_user(level, p))
 			return -EFAULT;
-		if (level == -1)	
+		if (level == -1)	/* Return current settings */
 			level = !(pas_read(0x0B8A) & 0x20);
 		else {
 			if (level)
@@ -276,7 +297,7 @@ static int pas_mixer_ioctl(int dev, unsigned int cmd, void __user *arg)
 				break;
 				
 			case SOUND_MIXER_CAPS:
-				v = 0;	
+				v = 0;	/* No special capabilities */
 				break;
 				
 			default:

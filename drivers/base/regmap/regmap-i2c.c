@@ -37,6 +37,9 @@ static int regmap_i2c_gather_write(struct device *dev,
 	struct i2c_msg xfer[2];
 	int ret;
 
+	/* If the I2C controller can't do a gather tell the core, it
+	 * will substitute in a linear write for us.
+	 */
 	if (!i2c_check_functionality(i2c->adapter, I2C_FUNC_PROTOCOL_MANGLING))
 		return -ENOTSUPP;
 
@@ -92,6 +95,15 @@ static struct regmap_bus regmap_i2c = {
 	.read = regmap_i2c_read,
 };
 
+/**
+ * regmap_init_i2c(): Initialise register map
+ *
+ * @i2c: Device that will be interacted with
+ * @config: Configuration for register map
+ *
+ * The return value will be an ERR_PTR() on error or a valid pointer to
+ * a struct regmap.
+ */
 struct regmap *regmap_init_i2c(struct i2c_client *i2c,
 			       const struct regmap_config *config)
 {
@@ -99,6 +111,16 @@ struct regmap *regmap_init_i2c(struct i2c_client *i2c,
 }
 EXPORT_SYMBOL_GPL(regmap_init_i2c);
 
+/**
+ * devm_regmap_init_i2c(): Initialise managed register map
+ *
+ * @i2c: Device that will be interacted with
+ * @config: Configuration for register map
+ *
+ * The return value will be an ERR_PTR() on error or a valid pointer
+ * to a struct regmap.  The regmap will be automatically freed by the
+ * device management code.
+ */
 struct regmap *devm_regmap_init_i2c(struct i2c_client *i2c,
 				    const struct regmap_config *config)
 {

@@ -46,18 +46,18 @@
 
 static void __init picotux200_init_early(void)
 {
-	
+	/* Initialize processor: 18.432 MHz crystal */
 	at91_initialize(18432000);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART1 on ttyS1. (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI) */
 	at91_register_uart(AT91RM9200_ID_US1, 1, ATMEL_UART_CTS | ATMEL_UART_RTS
 			  | ATMEL_UART_DTR | ATMEL_UART_DSR | ATMEL_UART_DCD
 			  | ATMEL_UART_RI);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
@@ -105,23 +105,23 @@ static struct platform_device picotux200_flash = {
 
 static void __init picotux200_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* Ethernet */
 	at91_add_device_eth(&picotux200_eth_data);
-	
+	/* USB Host */
 	at91_add_device_usbh(&picotux200_usbh_data);
-	
+	/* I2C */
 	at91_add_device_i2c(NULL, 0);
-	
-	at91_set_gpio_output(AT91_PIN_PB22, 1);	
+	/* MMC */
+	at91_set_gpio_output(AT91_PIN_PB22, 1);	/* this MMC card slot can optionally use SPI signaling (CS3). */
 	at91_add_device_mmc(0, &picotux200_mmc_data);
-	
+	/* NOR Flash */
 	platform_device_register(&picotux200_flash);
 }
 
 MACHINE_START(PICOTUX2XX, "picotux 200")
-	
+	/* Maintainer: Kleinhenz Elektronik GmbH */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= picotux200_init_early,

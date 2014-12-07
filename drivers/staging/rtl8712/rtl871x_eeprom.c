@@ -162,16 +162,23 @@ void r8712_eeprom_write16(struct _adapter *padapter, u16 reg, u16 data)
 	x |= _EEM1 | _EECS;
 	r8712_write8(padapter, EE_9346CR, x);
 	shift_out_bits(padapter, EEPROM_EWEN_OPCODE, 5);
-	if (padapter->EepromAddressSize == 8)	
+	if (padapter->EepromAddressSize == 8)	/*CF+ and SDIO*/
 		shift_out_bits(padapter, 0, 6);
-	else	
+	else	/* USB */
 		shift_out_bits(padapter, 0, 4);
 	standby(padapter);
+	/* Erase this particular word.  Write the erase opcode and register
+	 * number in that order. The opcode is 3bits in length; reg is 6
+	 * bits long.
+	 */
 	standby(padapter);
+	/* write the new word to the EEPROM
+	 * send the write opcode the EEPORM
+	 */
 	shift_out_bits(padapter, EEPROM_WRITE_OPCODE, 3);
-	
+	/* select which word in the EEPROM that we are writing to. */
 	shift_out_bits(padapter, reg, padapter->EepromAddressSize);
-	
+	/* write the data to the selected EEPROM word. */
 	shift_out_bits(padapter, data, 16);
 	if (wait_eeprom_cmd_done(padapter)) {
 		standby(padapter);
@@ -185,7 +192,7 @@ void r8712_eeprom_write16(struct _adapter *padapter, u16 reg, u16 data)
 		r8712_write8(padapter, 0x102502f1, tmp8_ori);
 }
 
-u16 r8712_eeprom_read16(struct _adapter *padapter, u16 reg) 
+u16 r8712_eeprom_read16(struct _adapter *padapter, u16 reg) /*ReadEEprom*/
 {
 	u16 x;
 	u16 data = 0;
@@ -201,16 +208,19 @@ u16 r8712_eeprom_read16(struct _adapter *padapter, u16 reg)
 		r8712_write8(padapter, 0x10250003, tmp8_clk_new);
 	if (padapter->bSurpriseRemoved == true)
 		goto out;
-	
+	/* select EEPROM, reset bits, set _EECS */
 	x = r8712_read8(padapter, EE_9346CR);
 	if (padapter->bSurpriseRemoved == true)
 		goto out;
 	x &= ~(_EEDI | _EEDO | _EESK | _EEM0);
 	x |= _EEM1 | _EECS;
 	r8712_write8(padapter, EE_9346CR, (unsigned char)x);
+	/* write the read opcode and register number in that order
+	 * The opcode is 3bits in length, reg is 6 bits long
+	 */
 	shift_out_bits(padapter, EEPROM_READ_OPCODE, 3);
 	shift_out_bits(padapter, reg, padapter->EepromAddressSize);
-	
+	/* Now read the data (16 bits) in from the selected EEPROM word */
 	data = shift_in_bits(padapter);
 	eeprom_clean(padapter);
 out:

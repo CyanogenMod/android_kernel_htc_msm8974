@@ -53,12 +53,14 @@
 #include <media/lirc_dev.h>
 
 
+/* module identification */
 #define DRIVER_VERSION		"0.2"
 #define DRIVER_AUTHOR		\
 	"Jan M. Hochstein <hochstein@algo.informatik.tu-darmstadt.de>"
 #define DRIVER_DESC		"Igorplug USB remote driver for LIRC"
 #define DRIVER_NAME		"lirc_igorplugusb"
 
+/* debugging support */
 #ifdef CONFIG_USB_DEBUG
 static bool debug = 1;
 #else
@@ -71,49 +73,133 @@ static bool debug;
 			printk(KERN_DEBUG fmt, ## args);	\
 	} while (0)
 
+/* One mode2 pulse/space has 4 bytes. */
 #define CODE_LENGTH	     sizeof(int)
 
+/* Igor's firmware cannot record bursts longer than 36. */
 #define DEVICE_BUFLEN	   36
 
+/*
+ * Header at the beginning of the device's buffer:
+ *	unsigned char data_length
+ *	unsigned char data_start    (!=0 means ring-buffer overrun)
+ *	unsigned char counter       (incremented by each burst)
+ */
 #define DEVICE_HEADERLEN	3
 
+/* This is for the gap */
 #define ADDITIONAL_LIRC_BYTES   2
 
+/* times to poll per second */
 #define SAMPLE_RATE	     100
 static int sample_rate = SAMPLE_RATE;
 
 
+/**** Igor's USB Request Codes */
 
 #define SET_INFRABUFFER_EMPTY   1
+/**
+ * Params: none
+ * Answer: empty
+ */
 
 #define GET_INFRACODE	   2
+/**
+ * Params:
+ *   wValue: offset to begin reading infra buffer
+ *
+ * Answer: infra data
+ */
 
 #define SET_DATAPORT_DIRECTION  3
+/**
+ * Params:
+ *   wValue: (byte) 1 bit for each data port pin (0=in, 1=out)
+ *
+ * Answer: empty
+ */
 
 #define GET_DATAPORT_DIRECTION  4
+/**
+ * Params: none
+ *
+ * Answer: (byte) 1 bit for each data port pin (0=in, 1=out)
+ */
 
 #define SET_OUT_DATAPORT	5
+/**
+ * Params:
+ *   wValue: byte to write to output data port
+ *
+ * Answer: empty
+ */
 
 #define GET_OUT_DATAPORT	6
+/**
+ * Params: none
+ *
+ * Answer: least significant 3 bits read from output data port
+ */
 
 #define GET_IN_DATAPORT	 7
+/**
+ * Params: none
+ *
+ * Answer: least significant 3 bits read from input data port
+ */
 
 #define READ_EEPROM	     8
+/**
+ * Params:
+ *   wValue: offset to begin reading EEPROM
+ *
+ * Answer: EEPROM bytes
+ */
 
 #define WRITE_EEPROM	    9
+/**
+ * Params:
+ *   wValue: offset to EEPROM byte
+ *   wIndex: byte to write
+ *
+ * Answer: empty
+ */
 
 #define SEND_RS232	      10
+/**
+ * Params:
+ *   wValue: byte to send
+ *
+ * Answer: empty
+ */
 
 #define RECV_RS232	      11
+/**
+ * Params: none
+ *
+ * Answer: byte received
+ */
 
 #define SET_RS232_BAUD	  12
+/**
+ * Params:
+ *   wValue: byte to write to UART bit rate register (UBRR)
+ *
+ * Answer: empty
+ */
 
 #define GET_RS232_BAUD	  13
+/**
+ * Params: none
+ *
+ * Answer: byte read from UART bit rate register (UBRR)
+ */
 
 
+/* data structure for each usb remote */
 struct igorplug {
 
-	
+	/* usb */
 	struct usb_device *usbdev;
 	int devnum;
 
@@ -124,10 +210,10 @@ struct igorplug {
 
 	dma_addr_t dma_in;
 
-	
+	/* lirc */
 	struct lirc_driver *d;
 
-	
+	/* handle sending (init strings) */
 	int send_flags;
 };
 
@@ -195,41 +281,47 @@ static void send_fragment(struct igorplug *ir, struct lirc_buffer *buf,
 {
 	int code;
 
-	
+	/* MODE2: pulse/space (PULSE_BIT) in 1us units */
 	while (i < max) {
-		
+		/* 1 Igor-tick = 85.333333 us */
 		code = (unsigned int)ir->buf_in[i] * 85 +
 			(unsigned int)ir->buf_in[i] / 3;
 		ir->last_time.tv_usec += code;
 		if (ir->in_space)
 			code |= PULSE_BIT;
 		lirc_buffer_write(buf, (unsigned char *)&code);
-		
+		/* 1 chunk = CODE_LENGTH bytes */
 		ir->in_space ^= 1;
 		++i;
 	}
 }
 
+/**
+ * Called in user context.
+ * return 0 if data was added to the buffer and
+ * -ENODATA if none was available. This should add some number of bits
+ * evenly divisible by code_length to the buffer
+ */
 static int igorplugusb_remote_poll(void *data, struct lirc_buffer *buf)
 {
 	int ret;
 	struct igorplug *ir = (struct igorplug *)data;
 
-	if (!ir || !ir->usbdev)  
+	if (!ir || !ir->usbdev)  /* Has the device been removed? */
 		return -ENODEV;
 
 	memset(ir->buf_in, 0, ir->len_in);
 
 	ret = usb_control_msg(ir->usbdev, usb_rcvctrlpipe(ir->usbdev, 0),
 			      GET_INFRACODE, USB_TYPE_VENDOR | USB_DIR_IN,
-			      0, 0,
+			      0/* offset */, /*unused*/0,
 			      ir->buf_in, ir->len_in,
-			      HZ * USB_CTRL_GET_TIMEOUT);
+			      /*timeout*/HZ * USB_CTRL_GET_TIMEOUT);
 	if (ret > 0) {
 		int code, timediff;
 		struct timeval now;
 
-		
+		/* ACK packet has 1 byte --> ignore */
 		if (ret < DEVICE_HEADERLEN)
 			return -ENODATA;
 
@@ -247,18 +339,21 @@ static int igorplugusb_remote_poll(void *data, struct lirc_buffer *buf)
 		ir->last_time.tv_sec = now.tv_sec;
 		ir->last_time.tv_usec = now.tv_usec;
 
-		
+		/* create leading gap  */
 		code = timediff;
 		lirc_buffer_write(buf, (unsigned char *)&code);
-		ir->in_space = 1;   
+		ir->in_space = 1;   /* next comes a pulse */
 
 		if (ir->buf_in[2] == 0)
 			send_fragment(ir, buf, DEVICE_HEADERLEN, ret);
 		else {
 			printk(KERN_WARNING DRIVER_NAME
 			       "[%d]: Device buffer overrun.\n", ir->devnum);
-			ir->buf_in[2] %= ret - DEVICE_HEADERLEN; 
-			
+			/* HHHNNNNNNNNNNNOOOOOOOO H = header
+			      <---[2]--->         N = newer
+			   <---------ret--------> O = older */
+			ir->buf_in[2] %= ret - DEVICE_HEADERLEN; /* sanitize */
+			/* keep even-ness to not desync pulse/pause */
 			send_fragment(ir, buf, DEVICE_HEADERLEN +
 				      ir->buf_in[2] - (ir->buf_in[2] & 1), ret);
 			send_fragment(ir, buf, DEVICE_HEADERLEN,
@@ -268,9 +363,9 @@ static int igorplugusb_remote_poll(void *data, struct lirc_buffer *buf)
 		ret = usb_control_msg(
 		      ir->usbdev, usb_rcvctrlpipe(ir->usbdev, 0),
 		      SET_INFRABUFFER_EMPTY, USB_TYPE_VENDOR|USB_DIR_IN,
-		      0, 0,
-		      ir->buf_in, ir->len_in,
-		      HZ * USB_CTRL_GET_TIMEOUT);
+		      /*unused*/0, /*unused*/0,
+		      /*dummy*/ir->buf_in, /*dummy*/ir->len_in,
+		      /*timeout*/HZ * USB_CTRL_GET_TIMEOUT);
 		if (ret < 0)
 			printk(DRIVER_NAME "[%d]: SET_INFRABUFFER_EMPTY: "
 			       "error %d\n", ir->devnum, ret);
@@ -342,14 +437,14 @@ static int igorplugusb_remote_probe(struct usb_interface *intf,
 
 	strcpy(driver->name, DRIVER_NAME " ");
 	driver->minor = -1;
-	driver->code_length = CODE_LENGTH * 8; 
+	driver->code_length = CODE_LENGTH * 8; /* in bits */
 	driver->features = LIRC_CAN_REC_MODE2;
 	driver->data = ir;
 	driver->chunk_size = CODE_LENGTH;
 	driver->buffer_size = DEVICE_BUFLEN + ADDITIONAL_LIRC_BYTES;
 	driver->set_use_inc = &set_use_inc;
 	driver->set_use_dec = &set_use_dec;
-	driver->sample_rate = sample_rate;    
+	driver->sample_rate = sample_rate;    /* per second */
 	driver->add_to_buf = &igorplugusb_remote_poll;
 	driver->dev = &intf->dev;
 	driver->owner = THIS_MODULE;
@@ -379,7 +474,7 @@ mem_failure_switch:
 	ir->devnum = devnum;
 	ir->usbdev = dev;
 	ir->len_in = DEVICE_BUFLEN + DEVICE_HEADERLEN;
-	ir->in_space = 1; 
+	ir->in_space = 1; /* First mode2 event is a space. */
 	do_gettimeofday(&ir->last_time);
 
 	if (dev->descriptor.iManufacturer
@@ -393,12 +488,12 @@ mem_failure_switch:
 	printk(DRIVER_NAME "[%d]: %s on usb%d:%d\n", devnum, name,
 	       dev->bus->busnum, devnum);
 
-	
+	/* clear device buffer */
 	ret = usb_control_msg(ir->usbdev, usb_rcvctrlpipe(ir->usbdev, 0),
 		SET_INFRABUFFER_EMPTY, USB_TYPE_VENDOR|USB_DIR_IN,
-		0, 0,
-		ir->buf_in, ir->len_in,
-		HZ * USB_CTRL_GET_TIMEOUT);
+		/*unused*/0, /*unused*/0,
+		/*dummy*/ir->buf_in, /*dummy*/ir->len_in,
+		/*timeout*/HZ * USB_CTRL_GET_TIMEOUT);
 	if (ret < 0)
 		printk(DRIVER_NAME "[%d]: SET_INFRABUFFER_EMPTY: error %d\n",
 			devnum, ret);
@@ -430,12 +525,12 @@ static void igorplugusb_remote_disconnect(struct usb_interface *intf)
 }
 
 static struct usb_device_id igorplugusb_remote_id_table[] = {
-	
+	/* Igor Plug USB (Atmel's Manufact. ID) */
 	{ USB_DEVICE(0x03eb, 0x0002) },
-	
+	/* Fit PC2 Infrared Adapter */
 	{ USB_DEVICE(0x03eb, 0x21fe) },
 
-	
+	/* Terminating entry */
 	{ }
 };
 

@@ -49,29 +49,33 @@
 #endif
 #define LCD_CONTROL_DEFAULT_SBPPF LCD_CONTROL_SBPPF_565
 
+/********************************************************************/
 
+/* LCD controller restrictions */
 #define AU1100_LCD_MAX_XRES	800
 #define AU1100_LCD_MAX_YRES	600
 #define AU1100_LCD_MAX_BPP	16
 #define AU1100_LCD_MAX_CLK	48000000
 #define AU1100_LCD_NBR_PALETTE_ENTRIES 256
 
+/* Default number of visible screen buffer to allocate */
 #define AU1100FB_NBR_VIDEO_BUFFERS 4
 
+/********************************************************************/
 
 struct au1100fb_panel
 {
-	const char name[25];		
+	const char name[25];		/* Full name <vendor>_<model> */
 
-	u32   	control_base;		
-	u32	clkcontrol_base;	
+	u32   	control_base;		/* Mode-independent control values */
+	u32	clkcontrol_base;	/* Panel pixclock preferences */
 
 	u32	horztiming;
 	u32	verttiming;
 
-	u32	xres;		
-	u32 	yres;		
-	u32 	bpp;		
+	u32	xres;		/* Maximum horizontal resolution */
+	u32 	yres;		/* Maximum vertical resolution */
+	u32 	bpp;		/* Maximum depth supported */
 };
 
 struct au1100fb_regs
@@ -93,20 +97,21 @@ struct au1100fb_regs
 
 struct au1100fb_device {
 
-	struct fb_info info;			
+	struct fb_info info;			/* FB driver info record */
 
-	struct au1100fb_panel 	*panel;		
+	struct au1100fb_panel 	*panel;		/* Panel connected to this device */
 
-	struct au1100fb_regs* 	regs;		
+	struct au1100fb_regs* 	regs;		/* Registers memory map */
 	size_t       		regs_len;
 	unsigned int 		regs_phys;
 
-	unsigned char* 		fb_mem;		
+	unsigned char* 		fb_mem;		/* FrameBuffer memory map */
 	size_t	      		fb_len;
 	dma_addr_t    		fb_phys;
 	int			panel_idx;
 };
 
+/********************************************************************/
 
 #define LCD_CONTROL                (AU1100_LCD_BASE + 0x0)
   #define LCD_CONTROL_SBB_BIT      21
@@ -247,10 +252,22 @@ struct au1100fb_device {
   #define LCD_PALLETTE_TFT_DC_MASK      (0xFFFF << LCD_PALLETTE_TFT_DC_BIT)
   #define LCD_PALLETTE_TFT_DC_N(N)      (((N)<< LCD_PALLETTE_TFT_DC_BIT) & LCD_PALLETTE_TFT_DC_MASK)
 
+/********************************************************************/
 
+/* List of panels known to work with the AU1100 LCD controller.
+ * To add a new panel, enter the same specifications as the
+ * Generic_TFT one, and MAKE SURE that it doesn't conflicts
+ * with the controller restrictions. Restrictions are:
+ *
+ * STN color panels: max_bpp <= 12
+ * STN mono panels: max_bpp <= 4
+ * TFT panels: max_bpp <= 16
+ * max_xres <= 800
+ * max_yres <= 600
+ */
 static struct au1100fb_panel known_lcd_panels[] =
 {
-	
+	/* 800x600x16bpp CRT */
 	[0] = {
 		.name = "CRT_800x600_16",
 		.xres = 800,
@@ -263,7 +280,7 @@ static struct au1100fb_panel known_lcd_panels[] =
 		.horztiming = 0x005aff1f,
 		.verttiming = 0x16000e57,
 	},
-	
+	/* just the standard LCD */
 	[1] = {
 		.name = "WWPC LCD",
 		.xres = 240,
@@ -274,7 +291,7 @@ static struct au1100fb_panel known_lcd_panels[] =
 		.verttiming = 0x0301013F,
 		.clkcontrol_base = 0x00018001,
 	},
-	
+	/* Sharp 320x240 TFT panel */
 	[2] = {
 		.name = "Sharp_LQ038Q5DR01",
 		.xres = 320,
@@ -301,7 +318,7 @@ static struct au1100fb_panel known_lcd_panels[] =
 		.clkcontrol_base = LCD_CLKCONTROL_PCD_N(1),
 	},
 
-	
+	/* Hitachi SP14Q005 and possibly others */
 	[3] = {
 		.name = "Hitachi_SP14Qxxx",
 		.xres = 320,
@@ -323,7 +340,7 @@ static struct au1100fb_panel known_lcd_panels[] =
 		.clkcontrol_base = LCD_CLKCONTROL_PCD_N(4),
 	},
 
-	
+	/* Generic 640x480 TFT panel */
 	[4] = {
 		.name = "TFT_640x480_16",
 		.xres = 640,
@@ -335,7 +352,7 @@ static struct au1100fb_panel known_lcd_panels[] =
 		.clkcontrol_base = LCD_CLKCONTROL_PCD_N(1),
 	},
 
-	 
+	 /* Pb1100 LCDB 640x480 PrimeView TFT panel */
 	[5] = {
 		.name = "PrimeView_640x480_16",
 		.xres = 640,
@@ -348,11 +365,13 @@ static struct au1100fb_panel known_lcd_panels[] =
 	},
 };
 
+/********************************************************************/
 
+/* Inline helpers */
 
 #define panel_is_dual(panel)  (panel->control_base & LCD_CONTROL_DP)
 #define panel_is_active(panel)(panel->control_base & LCD_CONTROL_PT)
 #define panel_is_color(panel) (panel->control_base & LCD_CONTROL_PC)
 #define panel_swap_rgb(panel) (panel->control_base & LCD_CONTROL_CCO)
 
-#endif 
+#endif /* _AU1100LCD_H */

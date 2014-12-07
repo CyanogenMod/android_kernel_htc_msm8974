@@ -7,6 +7,7 @@
 
 #define CPM_INTERRUPT    4
 
-#define CPM_VECTOR_BASE  0x04           
+/* see MC68360 User's Manual, p. 7-377  */
+#define CPM_VECTOR_BASE  0x04           /* 3 MSbits of CPM vector */
 
-#endif 
+#endif /* CONFIG_M68360 */

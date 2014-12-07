@@ -51,7 +51,7 @@ struct drv_hw_context {
 	, ACCESSORY_MCPC_ACTIVE
 	, ACCESSORY_BOARD
 	, ACCESSORY_OTG_HOST
-	, ACCESSORY_BOOT_DEVICE 
+	, ACCESSORY_BOOT_DEVICE /* this MUST come after ACCESSORY_OTG_HOST */
 	, ACCESSORY_USB_DEVICE
 	, ACCESSORY_DISCONNECTED
 	, ACCESSORY_MHL
@@ -68,9 +68,9 @@ bool si_mhl_tx_set_status(struct mhl_dev_context *dev_context,
 								 uint8_t reg_to_write, uint8_t value);
 int get_device_id(void);
 
-#ifdef DDC_BYPASS_API 
+#ifdef DDC_BYPASS_API //(
 int __si_8240_8558_drv_ddc_bypass_control(char *file,int iLine,struct drv_hw_context *hw_context,int bypass);
 #define si_8240_8558_drv_ddc_bypass_control(hw_context,bypass) __si_8240_8558_drv_ddc_bypass_control(__FILE__,__LINE__,hw_context,bypass)
-#endif 
+#endif //)
 
-#endif 
+#endif /* if !defined(SI_8240_8558_DRV_H) */

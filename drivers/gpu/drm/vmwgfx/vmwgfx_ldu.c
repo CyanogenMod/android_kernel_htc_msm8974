@@ -44,6 +44,9 @@ struct vmw_legacy_display {
 	struct vmw_framebuffer *fb;
 };
 
+/**
+ * Display unit using the legacy register interface.
+ */
 struct vmw_legacy_display_unit {
 	struct vmw_display_unit base;
 
@@ -58,6 +61,9 @@ static void vmw_ldu_destroy(struct vmw_legacy_display_unit *ldu)
 }
 
 
+/*
+ * Legacy Display Unit CRTC functions
+ */
 
 static void vmw_ldu_crtc_destroy(struct drm_crtc *crtc)
 {
@@ -73,6 +79,9 @@ static int vmw_ldu_commit_list(struct vmw_private *dev_priv)
 	struct drm_crtc *crtc = NULL;
 	int i = 0, ret;
 
+	/* If there is no display topology the host just assumes
+	 * that the guest will set the same layout as the host.
+	 */
 	if (!(dev_priv->capabilities & SVGA_CAP_DISPLAY_TOPOLOGY)) {
 		int w = 0, h = 0;
 		list_for_each_entry(entry, &lds->active, active) {
@@ -98,7 +107,7 @@ static int vmw_ldu_commit_list(struct vmw_private *dev_priv)
 				   fb->bits_per_pixel, fb->depth);
 	}
 
-	
+	/* Make sure we always show something. */
 	vmw_write(dev_priv, SVGA_REG_NUM_GUEST_DISPLAYS,
 		  lds->num_active ? lds->num_active : 1);
 
@@ -122,7 +131,7 @@ static int vmw_ldu_commit_list(struct vmw_private *dev_priv)
 	lds->last_num_active = lds->num_active;
 
 
-	
+	/* Find the first du with a cursor. */
 	list_for_each_entry(entry, &lds->active, active) {
 		du = &entry->base;
 
@@ -150,7 +159,7 @@ static int vmw_ldu_del_active(struct vmw_private *vmw_priv,
 	if (list_empty(&ldu->active))
 		return 0;
 
-	
+	/* Must init otherwise list_empty(&ldu->active) will not work. */
 	list_del_init(&ldu->active);
 	if (--(ld->num_active) == 0) {
 		BUG_ON(!ld->fb);
@@ -214,7 +223,7 @@ static int vmw_ldu_crtc_set_config(struct drm_mode_set *set)
 	if (!set->crtc)
 		return -EINVAL;
 
-	
+	/* get the ldu */
 	crtc = set->crtc;
 	ldu = vmw_crtc_to_ldu(crtc);
 	vfb = set->fb ? vmw_framebuffer_to_vfb(set->fb) : NULL;
@@ -232,7 +241,7 @@ static int vmw_ldu_crtc_set_config(struct drm_mode_set *set)
 		return -EINVAL;
 	}
 
-	
+	/* ldu only supports one fb active at the time */
 	if (dev_priv->ldu_priv->fb && vfb &&
 	    !(dev_priv->ldu_priv->num_active == 1 &&
 	      !list_empty(&ldu->active)) &&
@@ -241,11 +250,11 @@ static int vmw_ldu_crtc_set_config(struct drm_mode_set *set)
 		return -EINVAL;
 	}
 
-	
+	/* since they always map one to one these are safe */
 	connector = &ldu->base.connector;
 	encoder = &ldu->base.encoder;
 
-	
+	/* should we turn the crtc off? */
 	if (set->num_connectors == 0 || !set->mode || !set->fb) {
 
 		connector->encoder = NULL;
@@ -258,7 +267,7 @@ static int vmw_ldu_crtc_set_config(struct drm_mode_set *set)
 	}
 
 
-	
+	/* we now know we want to set a mode */
 	mode = set->mode;
 	fb = set->fb;
 
@@ -293,6 +302,9 @@ static struct drm_crtc_funcs vmw_legacy_crtc_funcs = {
 };
 
 
+/*
+ * Legacy Display Unit encoder functions
+ */
 
 static void vmw_ldu_encoder_destroy(struct drm_encoder *encoder)
 {
@@ -303,6 +315,9 @@ static struct drm_encoder_funcs vmw_legacy_encoder_funcs = {
 	.destroy = vmw_ldu_encoder_destroy,
 };
 
+/*
+ * Legacy Display Unit connector functions
+ */
 
 static void vmw_ldu_connector_destroy(struct drm_connector *connector)
 {
@@ -384,7 +399,7 @@ int vmw_kms_init_legacy_display_system(struct vmw_private *dev_priv)
 	dev_priv->ldu_priv->last_num_active = 0;
 	dev_priv->ldu_priv->fb = NULL;
 
-	
+	/* for old hardware without multimon only enable one display */
 	if (dev_priv->capabilities & SVGA_CAP_MULTIMON)
 		ret = drm_vblank_init(dev, VMWGFX_NUM_DISPLAY_UNITS);
 	else

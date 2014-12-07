@@ -76,13 +76,13 @@ int enic_get_vnic_config(struct enic *enic)
 		min_t(u32, ENIC_MAX_WQ_DESCS,
 		max_t(u32, ENIC_MIN_WQ_DESCS,
 		c->wq_desc_count));
-	c->wq_desc_count &= 0xffffffe0; 
+	c->wq_desc_count &= 0xffffffe0; /* must be aligned to groups of 32 */
 
 	c->rq_desc_count =
 		min_t(u32, ENIC_MAX_RQ_DESCS,
 		max_t(u32, ENIC_MIN_RQ_DESCS,
 		c->rq_desc_count));
-	c->rq_desc_count &= 0xffffffe0; 
+	c->rq_desc_count &= 0xffffffe0; /* must be aligned to groups of 32 */
 
 	if (c->mtu == 0)
 		c->mtu = 1500;
@@ -218,6 +218,13 @@ void enic_init_vnic_resources(struct enic *enic)
 
 	intr_mode = vnic_dev_get_intr_mode(enic->vdev);
 
+	/* Init RQ/WQ resources.
+	 *
+	 * RQ[0 - n-1] point to CQ[0 - n-1]
+	 * WQ[0 - m-1] point to CQ[n - n+m-1]
+	 *
+	 * Error interrupt is not enabled for MSI.
+	 */
 
 	switch (intr_mode) {
 	case VNIC_DEV_INTR_MODE_INTX:
@@ -247,6 +254,11 @@ void enic_init_vnic_resources(struct enic *enic)
 			error_interrupt_offset);
 	}
 
+	/* Init CQ resources
+	 *
+	 * CQ[0 - n+m-1] point to INTR[0] for INTx, MSI
+	 * CQ[0 - n+m-1] point to INTR[0 - n+m-1] for MSI-X
+	 */
 
 	for (i = 0; i < enic->cq_count; i++) {
 
@@ -260,18 +272,23 @@ void enic_init_vnic_resources(struct enic *enic)
 		}
 
 		vnic_cq_init(&enic->cq[i],
-			0 ,
-			1 ,
-			0 ,
-			0 ,
-			1 ,
-			1 ,
-			1 ,
-			0 ,
+			0 /* flow_control_enable */,
+			1 /* color_enable */,
+			0 /* cq_head */,
+			0 /* cq_tail */,
+			1 /* cq_tail_color */,
+			1 /* interrupt_enable */,
+			1 /* cq_entry_enable */,
+			0 /* cq_message_enable */,
 			interrupt_offset,
-			0 );
+			0 /* cq_message_addr */);
 	}
 
+	/* Init INTR resources
+	 *
+	 * mask_on_assertion is not used for INTx due to the level-
+	 * triggered nature of INTx
+	 */
 
 	switch (intr_mode) {
 	case VNIC_DEV_INTR_MODE_MSI:
@@ -308,6 +325,8 @@ int enic_alloc_vnic_resources(struct enic *enic)
 		intr_mode == VNIC_DEV_INTR_MODE_MSIX ? "MSI-X" :
 		"unknown");
 
+	/* Allocate queue resources
+	 */
 
 	for (i = 0; i < enic->wq_count; i++) {
 		err = vnic_wq_alloc(enic->vdev, &enic->wq[i], i,
@@ -344,6 +363,8 @@ int enic_alloc_vnic_resources(struct enic *enic)
 			goto err_out_cleanup;
 	}
 
+	/* Hook remaining resource
+	 */
 
 	enic->legacy_pba = vnic_dev_get_res(enic->vdev,
 		RES_TYPE_INTR_PBA_LEGACY, 0);

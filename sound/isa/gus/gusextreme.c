@@ -44,19 +44,19 @@ MODULE_AUTHOR("Jaroslav Kysela <perex@perex.cz>");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Gravis,UltraSound Extreme}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long gf1_port[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS) - 1] = -1}; 
-static long mpu_port[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS) - 1] = -1}; 
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int gf1_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma8[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	/* Enable this card */
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x220,0x240,0x260 */
+static long gf1_port[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS) - 1] = -1}; /* 0x210,0x220,0x230,0x240,0x250,0x260,0x270 */
+static long mpu_port[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS) - 1] = -1}; /* 0x300,0x310,0x320 */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 5,7,9,10 */
+static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 5,7,9,10 */
+static int gf1_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 2,3,5,9,11,12,15 */
+static int dma8[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3 */
 static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;
 static int joystick_dac[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 29};
-				
+				/* 0 to 31, (0.59V-4.52V or 0.389V-2.98V) */
 static int channels[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 24};
 static int pcm_channels[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 2};
 
@@ -162,9 +162,22 @@ static int __devinit snd_gusextreme_detect(struct snd_gus_card *gus,
 	unsigned long flags;
 	unsigned char d;
 
+	/*
+	 * This is main stuff - enable access to GF1 chip...
+	 * I'm not sure, if this will work for card which have
+	 * ES1688 chip in another place than 0x220.
+         *
+         * I used reverse-engineering in DOSEMU. [--jk]
+	 *
+	 * ULTRINIT.EXE:
+	 * 0x230 = 0,2,3
+	 * 0x240 = 2,0,1
+	 * 0x250 = 2,0,3
+	 * 0x260 = 2,2,1
+	 */
 
 	spin_lock_irqsave(&es1688->mixer_lock, flags);
-	snd_es1688_mixer_write(es1688, 0x40, 0x0b);	
+	snd_es1688_mixer_write(es1688, 0x40, 0x0b);	/* don't change!!! */
 	spin_unlock_irqrestore(&es1688->mixer_lock, flags);
 
 	spin_lock_irqsave(&es1688->reg_lock, flags);
@@ -177,13 +190,13 @@ static int __devinit snd_gusextreme_detect(struct snd_gus_card *gus,
 
 	udelay(100);
 
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 0);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 0);	/* reset GF1 */
 	if (((d = snd_gf1_i_look8(gus, SNDRV_GF1_GB_RESET)) & 0x07) != 0) {
 		snd_printdd("[0x%lx] check 1 failed - 0x%x\n", gus->gf1.port, d);
 		return -EIO;
 	}
 	udelay(160);
-	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 1);	
+	snd_gf1_i_write8(gus, SNDRV_GF1_GB_RESET, 1);	/* release reset */
 	udelay(160);
 	if (((d = snd_gf1_i_look8(gus, SNDRV_GF1_GB_RESET)) & 0x07) != 1) {
 		snd_printdd("[0x%lx] check 2 failed - 0x%x\n", gus->gf1.port, d);
@@ -202,14 +215,14 @@ static int __devinit snd_gusextreme_mixer(struct snd_card *card)
 	memset(&id2, 0, sizeof(id2));
 	id1.iface = id2.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
 
-	
+	/* reassign AUX to SYNTHESIZER */
 	strcpy(id1.name, "Aux Playback Volume");
 	strcpy(id2.name, "Synth Playback Volume");
 	error = snd_ctl_rename_id(card, &id1, &id2);
 	if (error < 0)
 		return error;
 
-	
+	/* reassign Master Playback Switch to Synth Playback Switch */
 	strcpy(id1.name, "Master Playback Switch");
 	strcpy(id2.name, "Synth Playback Switch");
 	error = snd_ctl_rename_id(card, &id1, &id2);
@@ -337,7 +350,7 @@ static struct isa_driver snd_gusextreme_driver = {
 	.match		= snd_gusextreme_match,
 	.probe		= snd_gusextreme_probe,
 	.remove		= __devexit_p(snd_gusextreme_remove),
-#if 0	
+#if 0	/* FIXME */
 	.suspend	= snd_gusextreme_suspend,
 	.resume		= snd_gusextreme_resume,
 #endif

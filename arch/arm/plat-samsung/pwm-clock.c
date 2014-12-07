@@ -29,6 +29,49 @@
 #include <plat/regs-timer.h>
 #include <plat/pwm-clock.h>
 
+/* Each of the timers 0 through 5 go through the following
+ * clock tree, with the inputs depending on the timers.
+ *
+ * pclk ---- [ prescaler 0 ] -+---> timer 0
+ *			      +---> timer 1
+ *
+ * pclk ---- [ prescaler 1 ] -+---> timer 2
+ *			      +---> timer 3
+ *			      \---> timer 4
+ *
+ * Which are fed into the timers as so:
+ *
+ * prescaled 0 ---- [ div 2,4,8,16 ] ---\
+ *				       [mux] -> timer 0
+ * tclk 0 ------------------------------/
+ *
+ * prescaled 0 ---- [ div 2,4,8,16 ] ---\
+ *				       [mux] -> timer 1
+ * tclk 0 ------------------------------/
+ *
+ *
+ * prescaled 1 ---- [ div 2,4,8,16 ] ---\
+ *				       [mux] -> timer 2
+ * tclk 1 ------------------------------/
+ *
+ * prescaled 1 ---- [ div 2,4,8,16 ] ---\
+ *				       [mux] -> timer 3
+ * tclk 1 ------------------------------/
+ *
+ * prescaled 1 ---- [ div 2,4,8, 16 ] --\
+ *				       [mux] -> timer 4
+ * tclk 1 ------------------------------/
+ *
+ * Since the mux and the divider are tied together in the
+ * same register space, it is impossible to set the parent
+ * and the rate at the same time. To avoid this, we add an
+ * intermediate 'prescaled-and-divided' clock to select
+ * as the parent for the timer input clock called tdiv.
+ *
+ * prescaled clk --> pwm-tdiv ---\
+ *                             [ mux ] --> timer X
+ * tclk -------------------------/
+*/
 
 static struct clk clk_timer_scaler[];
 
@@ -206,6 +249,8 @@ static int clk_pwm_tdiv_set_rate(struct clk *clk, unsigned long rate)
 
 	divclk->divisor = divisor;
 
+	/* Update the current MUX settings if we are currently
+	 * selected as the clock source for this clock. */
 
 	if (!pwm_cfg_src_is_tclk(tcfg1))
 		clk_pwm_tdiv_update(divclk);
@@ -383,6 +428,15 @@ static __init int clk_pwm_tin_register(struct clk *pwm)
 	return clk_set_parent(pwm, parent);
 }
 
+/**
+ * s3c_pwmclk_init() - initialise pwm clocks
+ *
+ * Initialise and register the clocks which provide the inputs for the
+ * pwm timer blocks.
+ *
+ * Note, this call is required by the time core, so must be called after
+ * the base clocks are added and before any of the initcalls are run.
+ */
 __init void s3c_pwmclk_init(void)
 {
 	struct clk *clk_timers;

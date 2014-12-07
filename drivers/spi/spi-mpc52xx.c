@@ -28,6 +28,7 @@ MODULE_AUTHOR("Grant Likely <grant.likely@secretlab.ca>");
 MODULE_DESCRIPTION("MPC52xx SPI (non-PSC) Driver");
 MODULE_LICENSE("GPL");
 
+/* Register offsets */
 #define SPI_CTRL1	0x00
 #define SPI_CTRL1_SPIE		(1 << 7)
 #define SPI_CTRL1_SPE		(1 << 6)
@@ -49,21 +50,23 @@ MODULE_LICENSE("GPL");
 #define SPI_PORTDATA	0x0d
 #define SPI_DATADIR	0x10
 
-#define FSM_STOP	0	
-				
-				
-#define FSM_POLL	1	
-				
-#define FSM_CONTINUE	2	
+/* FSM state return values */
+#define FSM_STOP	0	/* Nothing more for the state machine to */
+				/* do.  If something interesting happens */
+				/* then an IRQ will be received */
+#define FSM_POLL	1	/* need to poll for completion, an IRQ is */
+				/* not expected */
+#define FSM_CONTINUE	2	/* Keep iterating the state machine */
 
+/* Driver internal data */
 struct mpc52xx_spi {
 	struct spi_master *master;
 	void __iomem *regs;
-	int irq0;	
-	int irq1;	
+	int irq0;	/* MODF irq */
+	int irq1;	/* SPIF irq */
 	unsigned int ipb_freq;
 
-	
+	/* Statistics; not used now, but will be reintroduced for debugfs */
 	int msg_count;
 	int wcol_count;
 	int wcol_ticks;
@@ -71,13 +74,13 @@ struct mpc52xx_spi {
 	int modf_count;
 	int byte_count;
 
-	struct list_head queue;		
+	struct list_head queue;		/* queue of pending messages */
 	spinlock_t lock;
 	struct work_struct work;
 
-	
-	struct spi_message *message;	
-	struct spi_transfer *transfer;	
+	/* Details of current transfer (length, and buffer pointers) */
+	struct spi_message *message;	/* current message */
+	struct spi_transfer *transfer;	/* current transfer */
 	int (*state)(int irq, struct mpc52xx_spi *ms, u8 status, u8 data);
 	int len;
 	int timestamp;
@@ -88,6 +91,9 @@ struct mpc52xx_spi {
 	unsigned int *gpio_cs;
 };
 
+/*
+ * CS control function
+ */
 static void mpc52xx_spi_chipsel(struct mpc52xx_spi *ms, int value)
 {
 	int cs;
@@ -99,18 +105,23 @@ static void mpc52xx_spi_chipsel(struct mpc52xx_spi *ms, int value)
 		out_8(ms->regs + SPI_PORTDATA, value ? 0 : 0x08);
 }
 
+/*
+ * Start a new transfer.  This is called both by the idle state
+ * for the first transfer in a message, and by the wait state when the
+ * previous transfer in a message is complete.
+ */
 static void mpc52xx_spi_start_transfer(struct mpc52xx_spi *ms)
 {
 	ms->rx_buf = ms->transfer->rx_buf;
 	ms->tx_buf = ms->transfer->tx_buf;
 	ms->len = ms->transfer->len;
 
-	
+	/* Activate the chip select */
 	if (ms->cs_change)
 		mpc52xx_spi_chipsel(ms, 1);
 	ms->cs_change = ms->transfer->cs_change;
 
-	
+	/* Write out the first byte */
 	ms->wcol_tx_timestamp = get_tbl();
 	if (ms->tx_buf)
 		out_8(ms->regs + SPI_DATA, *ms->tx_buf++);
@@ -118,11 +129,18 @@ static void mpc52xx_spi_start_transfer(struct mpc52xx_spi *ms)
 		out_8(ms->regs + SPI_DATA, 0);
 }
 
+/* Forward declaration of state handlers */
 static int mpc52xx_spi_fsmstate_transfer(int irq, struct mpc52xx_spi *ms,
 					 u8 status, u8 data);
 static int mpc52xx_spi_fsmstate_wait(int irq, struct mpc52xx_spi *ms,
 				     u8 status, u8 data);
 
+/*
+ * IDLE state
+ *
+ * No transfers are in progress; if another transfer is pending then retrieve
+ * it and kick it off.  Otherwise, stop processing the state machine
+ */
 static int
 mpc52xx_spi_fsmstate_idle(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 {
@@ -134,15 +152,15 @@ mpc52xx_spi_fsmstate_idle(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 		dev_err(&ms->master->dev, "spurious irq, status=0x%.2x\n",
 			status);
 
-	
+	/* Check if there is another transfer waiting. */
 	if (list_empty(&ms->queue))
 		return FSM_STOP;
 
-	
+	/* get the head of the queue */
 	ms->message = list_first_entry(&ms->queue, struct spi_message, queue);
 	list_del_init(&ms->message->queue);
 
-	
+	/* Setup the controller parameters */
 	ctrl1 = SPI_CTRL1_SPIE | SPI_CTRL1_SPE | SPI_CTRL1_MSTR;
 	spi = ms->message->spi;
 	if (spi->mode & SPI_CPHA)
@@ -153,22 +171,24 @@ mpc52xx_spi_fsmstate_idle(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 		ctrl1 |= SPI_CTRL1_LSBFE;
 	out_8(ms->regs + SPI_CTRL1, ctrl1);
 
-	
+	/* Setup the controller speed */
+	/* minimum divider is '2'.  Also, add '1' to force rounding the
+	 * divider up. */
 	sppr = ((ms->ipb_freq / ms->message->spi->max_speed_hz) + 1) >> 1;
 	spr = 0;
 	if (sppr < 1)
 		sppr = 1;
 	while (((sppr - 1) & ~0x7) != 0) {
-		sppr = (sppr + 1) >> 1; 
+		sppr = (sppr + 1) >> 1; /* add '1' to force rounding up */
 		spr++;
 	}
-	sppr--;		
+	sppr--;		/* sppr quantity in register is offset by 1 */
 	if (spr > 7) {
-		
+		/* Don't overrun limits of SPI baudrate register */
 		spr = 7;
 		sppr = 7;
 	}
-	out_8(ms->regs + SPI_BRR, sppr << 4 | spr); 
+	out_8(ms->regs + SPI_BRR, sppr << 4 | spr); /* Set speed */
 
 	ms->cs_change = 1;
 	ms->transfer = container_of(ms->message->transfers.next,
@@ -180,6 +200,14 @@ mpc52xx_spi_fsmstate_idle(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 	return FSM_CONTINUE;
 }
 
+/*
+ * TRANSFER state
+ *
+ * In the middle of a transfer.  If the SPI core has completed processing
+ * a byte, then read out the received data and write out the next byte
+ * (unless this transfer is finished; in which case go on to the wait
+ * state)
+ */
 static int mpc52xx_spi_fsmstate_transfer(int irq, struct mpc52xx_spi *ms,
 					 u8 status, u8 data)
 {
@@ -187,13 +215,20 @@ static int mpc52xx_spi_fsmstate_transfer(int irq, struct mpc52xx_spi *ms,
 		return ms->irq0 ? FSM_STOP : FSM_POLL;
 
 	if (status & SPI_STATUS_WCOL) {
+		/* The SPI controller is stoopid.  At slower speeds, it may
+		 * raise the SPIF flag before the state machine is actually
+		 * finished, which causes a collision (internal to the state
+		 * machine only).  The manual recommends inserting a delay
+		 * between receiving the interrupt and sending the next byte,
+		 * but it can also be worked around simply by retrying the
+		 * transfer which is what we do here. */
 		ms->wcol_count++;
 		ms->wcol_ticks += get_tbl() - ms->wcol_tx_timestamp;
 		ms->wcol_tx_timestamp = get_tbl();
 		data = 0;
 		if (ms->tx_buf)
 			data = *(ms->tx_buf - 1);
-		out_8(ms->regs + SPI_DATA, data); 
+		out_8(ms->regs + SPI_DATA, data); /* try again */
 		return FSM_CONTINUE;
 	} else if (status & SPI_STATUS_MODF) {
 		ms->modf_count++;
@@ -205,12 +240,12 @@ static int mpc52xx_spi_fsmstate_transfer(int irq, struct mpc52xx_spi *ms,
 		return FSM_CONTINUE;
 	}
 
-	
+	/* Read data out of the spi device */
 	ms->byte_count++;
 	if (ms->rx_buf)
 		*ms->rx_buf++ = data;
 
-	
+	/* Is the transfer complete? */
 	ms->len--;
 	if (ms->len == 0) {
 		ms->timestamp = get_tbl();
@@ -219,7 +254,7 @@ static int mpc52xx_spi_fsmstate_transfer(int irq, struct mpc52xx_spi *ms,
 		return FSM_CONTINUE;
 	}
 
-	
+	/* Write out the next byte */
 	ms->wcol_tx_timestamp = get_tbl();
 	if (ms->tx_buf)
 		out_8(ms->regs + SPI_DATA, *ms->tx_buf++);
@@ -229,6 +264,12 @@ static int mpc52xx_spi_fsmstate_transfer(int irq, struct mpc52xx_spi *ms,
 	return FSM_CONTINUE;
 }
 
+/*
+ * WAIT state
+ *
+ * A transfer has completed; need to wait for the delay period to complete
+ * before starting the next transfer
+ */
 static int
 mpc52xx_spi_fsmstate_wait(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 {
@@ -241,6 +282,9 @@ mpc52xx_spi_fsmstate_wait(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 
 	ms->message->actual_length += ms->transfer->len;
 
+	/* Check if there is another transfer in this message.  If there
+	 * aren't then deactivate CS, notify sender, and drop back to idle
+	 * to start the next message. */
 	if (ms->transfer->transfer_list.next == &ms->message->transfers) {
 		ms->msg_count++;
 		mpc52xx_spi_chipsel(ms, 0);
@@ -250,7 +294,7 @@ mpc52xx_spi_fsmstate_wait(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 		return FSM_CONTINUE;
 	}
 
-	
+	/* There is another transfer; kick it off */
 
 	if (ms->cs_change)
 		mpc52xx_spi_chipsel(ms, 0);
@@ -262,12 +306,19 @@ mpc52xx_spi_fsmstate_wait(int irq, struct mpc52xx_spi *ms, u8 status, u8 data)
 	return FSM_CONTINUE;
 }
 
+/**
+ * mpc52xx_spi_fsm_process - Finite State Machine iteration function
+ * @irq: irq number that triggered the FSM or 0 for polling
+ * @ms: pointer to mpc52xx_spi driver data
+ */
 static void mpc52xx_spi_fsm_process(int irq, struct mpc52xx_spi *ms)
 {
 	int rc = FSM_CONTINUE;
 	u8 status, data;
 
 	while (rc == FSM_CONTINUE) {
+		/* Interrupt cleared by read of STATUS followed by
+		 * read of DATA registers */
 		status = in_8(ms->regs + SPI_STATUS);
 		data = in_8(ms->regs + SPI_DATA);
 		rc = ms->state(irq, ms, status, data);
@@ -277,6 +328,9 @@ static void mpc52xx_spi_fsm_process(int irq, struct mpc52xx_spi *ms)
 		schedule_work(&ms->work);
 }
 
+/**
+ * mpc52xx_spi_irq - IRQ handler
+ */
 static irqreturn_t mpc52xx_spi_irq(int irq, void *_ms)
 {
 	struct mpc52xx_spi *ms = _ms;
@@ -286,6 +340,9 @@ static irqreturn_t mpc52xx_spi_irq(int irq, void *_ms)
 	return IRQ_HANDLED;
 }
 
+/**
+ * mpc52xx_spi_wq - Workqueue function for polling the state machine
+ */
 static void mpc52xx_spi_wq(struct work_struct *work)
 {
 	struct mpc52xx_spi *ms = container_of(work, struct mpc52xx_spi, work);
@@ -296,6 +353,9 @@ static void mpc52xx_spi_wq(struct work_struct *work)
 	spin_unlock_irqrestore(&ms->lock, flags);
 }
 
+/*
+ * spi_master ops
+ */
 
 static int mpc52xx_spi_setup(struct spi_device *spi)
 {
@@ -327,6 +387,9 @@ static int mpc52xx_spi_transfer(struct spi_device *spi, struct spi_message *m)
 	return 0;
 }
 
+/*
+ * OF Platform Bus Binding
+ */
 static int __devinit mpc52xx_spi_probe(struct platform_device *op)
 {
 	struct spi_master *master;
@@ -336,19 +399,23 @@ static int __devinit mpc52xx_spi_probe(struct platform_device *op)
 	int rc, i = 0;
 	int gpio_cs;
 
-	
+	/* MMIO registers */
 	dev_dbg(&op->dev, "probing mpc5200 SPI device\n");
 	regs = of_iomap(op->dev.of_node, 0);
 	if (!regs)
 		return -ENODEV;
 
-	
+	/* initialize the device */
 	ctrl1 = SPI_CTRL1_SPIE | SPI_CTRL1_SPE | SPI_CTRL1_MSTR;
 	out_8(regs + SPI_CTRL1, ctrl1);
 	out_8(regs + SPI_CTRL2, 0x0);
-	out_8(regs + SPI_DATADIR, 0xe);	
-	out_8(regs + SPI_PORTDATA, 0x8);	
+	out_8(regs + SPI_DATADIR, 0xe);	/* Set output pins */
+	out_8(regs + SPI_PORTDATA, 0x8);	/* Deassert /SS signal */
 
+	/* Clear the status register and re-read it to check for a MODF
+	 * failure.  This driver cannot currently handle multiple masters
+	 * on the SPI bus.  This fault will also occur if the SPI signals
+	 * are not connected to any pins (port_config setting) */
 	in_8(regs + SPI_STATUS);
 	out_8(regs + SPI_CTRL1, ctrl1);
 
@@ -420,7 +487,7 @@ static int __devinit mpc52xx_spi_probe(struct platform_device *op)
 	INIT_LIST_HEAD(&ms->queue);
 	INIT_WORK(&ms->work, mpc52xx_spi_wq);
 
-	
+	/* Decide if interrupts can be used */
 	if (ms->irq0 && ms->irq1) {
 		rc = request_irq(ms->irq0, mpc52xx_spi_irq, 0,
 				  "mpc5200-spi-modf", ms);
@@ -432,7 +499,7 @@ static int __devinit mpc52xx_spi_probe(struct platform_device *op)
 			ms->irq0 = ms->irq1 = 0;
 		}
 	} else {
-		
+		/* operate in polled mode */
 		ms->irq0 = ms->irq1 = 0;
 	}
 

@@ -35,8 +35,8 @@ static inline unsigned long __cmpxchg_u32(volatile int *m, unsigned long old,
 	retval = *m;
 	if (retval == old)
 		*m = new;
-	local_irq_restore(flags);       
+	local_irq_restore(flags);       /* implies memory barrier  */
 	return retval;
 }
 
-#endif 
+#endif /* __ASM_SH_CMPXCHG_IRQ_H */

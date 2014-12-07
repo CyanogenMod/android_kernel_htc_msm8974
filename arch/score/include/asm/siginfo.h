@@ -3,4 +3,4 @@
 
 #include <asm-generic/siginfo.h>
 
-#endif 
+#endif /* _ASM_SCORE_SIGINFO_H */

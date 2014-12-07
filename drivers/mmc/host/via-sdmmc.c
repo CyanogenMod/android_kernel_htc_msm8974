@@ -27,10 +27,16 @@
 #define VIA_CRDR_MIN_CLOCK	375000
 #define VIA_CRDR_MAX_CLOCK	48000000
 
+/*
+ * PCI registers
+ */
 
 #define VIA_CRDR_PCI_WORK_MODE	0x40
 #define VIA_CRDR_PCI_DBG_MODE	0x41
 
+/*
+ * SDC MMIO Registers
+ */
 
 #define VIA_CRDR_SDCTRL			0x0
 #define VIA_CRDR_SDCTRL_START		0x01
@@ -54,6 +60,13 @@
 #define VIA_CRDR_SDMODE_CLK_ON	0x40
 
 #define VIA_CRDR_SDBLKLEN	0xc
+/*
+ * Bit 0 -Bit 10 : Block length. So, the maximum block length should be 2048.
+ * Bit 11 - Bit 13 : Reserved.
+ * GPIDET : Select GPI pin to detect card, GPI means CR_CD# in top design.
+ * INTEN : Enable SD host interrupt.
+ * Bit 16 - Bit 31 : Block count. So, the maximun block count should be 65536.
+ */
 #define VIA_CRDR_SDBLKLEN_GPIDET	0x2000
 #define VIA_CRDR_SDBLKLEN_INTEN		0x8000
 #define VIA_CRDR_MAX_BLOCK_COUNT	65536
@@ -67,6 +80,18 @@
 #define VIA_CRDR_SDCURBLKCNT	0x20
 
 #define VIA_CRDR_SDINTMASK	0x24
+/*
+ * MBDIE : Multiple Blocks transfer Done Interrupt Enable
+ * BDDIE : Block Data transfer Done Interrupt Enable
+ * CIRIE : Card Insertion or Removal Interrupt Enable
+ * CRDIE : Command-Response transfer Done Interrupt Enable
+ * CRTOIE : Command-Response response TimeOut Interrupt Enable
+ * ASCRDIE : Auto Stop Command-Response transfer Done Interrupt Enable
+ * DTIE : Data access Timeout Interrupt Enable
+ * SCIE : reSponse CRC error Interrupt Enable
+ * RCIE : Read data CRC error Interrupt Enable
+ * WCIE : Write data CRC error Interrupt Enable
+ */
 #define VIA_CRDR_SDINTMASK_MBDIE	0x10
 #define VIA_CRDR_SDINTMASK_BDDIE	0x20
 #define VIA_CRDR_SDINTMASK_CIRIE	0x80
@@ -85,6 +110,24 @@
 	| VIA_CRDR_SDINTMASK_RCIE | VIA_CRDR_SDINTMASK_WCIE)
 
 #define VIA_CRDR_SDSTATUS	0x28
+/*
+ * CECC : Reserved
+ * WP : SD card Write Protect status
+ * SLOTD : Reserved
+ * SLOTG : SD SLOT status(Gpi pin status)
+ * MBD : Multiple Blocks transfer Done interrupt status
+ * BDD : Block Data transfer Done interrupt status
+ * CD : Reserved
+ * CIR : Card Insertion or Removal interrupt detected on GPI pin
+ * IO : Reserved
+ * CRD : Command-Response transfer Done interrupt status
+ * CRTO : Command-Response response TimeOut interrupt status
+ * ASCRDIE : Auto Stop Command-Response transfer Done interrupt status
+ * DT : Data access Timeout interrupt status
+ * SC : reSponse CRC error interrupt status
+ * RC : Read data CRC error interrupt status
+ * WC : Write data CRC error interrupt status
+ */
 #define VIA_CRDR_SDSTS_CECC		0x01
 #define VIA_CRDR_SDSTS_WP		0x02
 #define VIA_CRDR_SDSTS_SLOTD		0x04
@@ -121,6 +164,9 @@
 	| VIA_CRDR_SDSTS_RC | VIA_CRDR_SDSTS_WC)
 
 #define VIA_CRDR_SDSTATUS2	0x2a
+/*
+ * CFE : Enable SD host automatic Clock FReezing
+ */
 #define VIA_CRDR_SDSTS_CFE		0x80
 
 #define VIA_CRDR_SDRSPTMO	0x2C
@@ -136,12 +182,21 @@
 #define VIS_CRDR_SDEXTCTRL_BAD_DATA	0x20
 #define VIS_CRDR_SDEXTCTRL_AUTOSTOP_SPI	0x40
 #define VIA_CRDR_SDEXTCTRL_HISPD	0x80
+/* 0x38-0xFF reserved */
 
+/*
+ * Data DMA Control Registers
+ */
 
 #define VIA_CRDR_DMABASEADD	0x0
 #define VIA_CRDR_DMACOUNTER	0x4
 
 #define VIA_CRDR_DMACTRL	0x8
+/*
+ * DIR :Transaction Direction
+ * 0 : From card to memory
+ * 1 : From memory to card
+ */
 #define VIA_CRDR_DMACTRL_DIR		0x100
 #define VIA_CRDR_DMACTRL_ENIRQ		0x10000
 #define VIA_CRDR_DMACTRL_SFTRST		0x1000000
@@ -149,11 +204,35 @@
 #define VIA_CRDR_DMASTS		0xc
 
 #define VIA_CRDR_DMASTART	0x10
+/*0x14-0xFF reserved*/
 
+/*
+ * PCI Control Registers
+ */
 
+/*0x0 - 0x1 reserved*/
 #define VIA_CRDR_PCICLKGATT	0x2
+/*
+ * SFTRST :
+ * 0 : Soft reset all the controller and it will be de-asserted automatically
+ * 1 : Soft reset is de-asserted
+ */
 #define VIA_CRDR_PCICLKGATT_SFTRST	0x01
+/*
+ * 3V3 : Pad power select
+ * 0 : 1.8V
+ * 1 : 3.3V
+ * NOTE : No mater what the actual value should be, this bit always
+ * read as 0. This is a hardware bug.
+ */
 #define VIA_CRDR_PCICLKGATT_3V3	0x10
+/*
+ * PAD_PWRON : Pad Power on/off select
+ * 0 : Power off
+ * 1 : Power on
+  * NOTE : No mater what the actual value should be, this bit always
+ * read as 0. This is a hardware bug.
+ */
 #define VIA_CRDR_PCICLKGATT_PAD_PWRON	0x20
 
 #define VIA_CRDR_PCISDCCLK	0x5
@@ -176,6 +255,7 @@
 #define VIA_CRDR_PCITMOCTRL_512MS	0x5
 #define VIA_CRDR_PCITMOCTRL_1024MS	0x6
 
+/*0xB-0xFF reserved*/
 
 enum PCI_HOST_CLK_CONTROL {
 	PCI_CLK_375K = 0x03,
@@ -239,6 +319,7 @@ struct via_crdr_mmc_host {
 	unsigned int quirks;
 };
 
+/* some devices need a very long delay for power to stabilize */
 #define VIA_CRDR_QUIRK_300MS_PWRDELAY	0x0001
 
 static struct pci_device_id via_ids[] = {
@@ -385,8 +466,8 @@ static void via_set_ddma(struct via_crdr_mmc_host *host,
 	writel(ctrl_data, addrbase + VIA_CRDR_DMACTRL);
 	writel(0x01, addrbase + VIA_CRDR_DMASTART);
 
-	
-	
+	/* It seems that our DMA can not work normally with 375kHz clock */
+	/* FIXME: don't brute-force 8MHz but use PIO at 375kHz !! */
 	addrbase = host->pcictrl_mmiobase;
 	if (readb(addrbase + VIA_CRDR_PCISDCCLK) == PCI_CLK_375K) {
 		dev_info(host->mmc->parent, "forcing card speed to 8MHz\n");
@@ -403,7 +484,7 @@ static void via_sdc_preparedata(struct via_crdr_mmc_host *host,
 
 	WARN_ON(host->data);
 
-	
+	/* Sanity checks */
 	BUG_ON(data->blksz > host->mmc->max_blk_size);
 	BUG_ON(data->blocks > host->mmc->max_blk_count);
 
@@ -481,10 +562,10 @@ static void via_sdc_send_command(struct via_crdr_mmc_host *host,
 	mod_timer(&host->timer, jiffies + HZ);
 	host->cmd = cmd;
 
-	
+	/*Command index*/
 	cmdctrl = cmd->opcode << 8;
 
-	
+	/*Response type*/
 	switch (mmc_resp_type(cmd)) {
 	case MMC_RSP_NONE:
 		cmdctrl |= VIA_CRDR_SDCTRL_RSP_NONE;
@@ -511,7 +592,7 @@ static void via_sdc_send_command(struct via_crdr_mmc_host *host,
 
 	via_sdc_preparedata(host, data);
 
-	
+	/*Command control*/
 	if (data->blocks > 1) {
 		if (data->flags & MMC_DATA_WRITE) {
 			cmdctrl |= VIA_CRDR_SDCTRL_WRITE;
@@ -966,7 +1047,7 @@ static void via_init_mmc_host(struct via_crdr_mmc_host *host)
 	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_SD_HIGHSPEED;
 	mmc->ops = &via_sdc_ops;
 
-	
+	/*Hardware cannot do scatter lists*/
 	mmc->max_segs = 1;
 
 	mmc->max_blk_size = VIA_CRDR_MAX_BLOCK_LENGTH;
@@ -1073,7 +1154,7 @@ static int __devinit via_sd_probe(struct pci_dev *pcidev,
 	writeb(VIA_CRDR_PCITMOCTRL_1024MS,
 	       sdhost->pcictrl_mmiobase + VIA_CRDR_PCITMOCTRL);
 
-	
+	/* device-specific quirks */
 	if (pcidev->subsystem_vendor == PCI_VENDOR_ID_LENOVO &&
 	    pcidev->subsystem_device == 0x3891)
 		sdhost->quirks = VIA_CRDR_QUIRK_300MS_PWRDELAY;
@@ -1103,10 +1184,10 @@ static void __devexit via_sd_remove(struct pci_dev *pcidev)
 
 	spin_lock_irqsave(&sdhost->lock, flags);
 
-	
+	/* Ensure we don't accept more commands from mmc layer */
 	sdhost->reject = 1;
 
-	
+	/* Disable generating further interrupts */
 	writeb(0x0, sdhost->pcictrl_mmiobase + VIA_CRDR_PCIINTCTRL);
 	mmiowb();
 
@@ -1114,7 +1195,7 @@ static void __devexit via_sd_remove(struct pci_dev *pcidev)
 		pr_err("%s: Controller removed during "
 			"transfer\n", mmc_hostname(sdhost->mmc));
 
-		
+		/* make sure all DMA is stopped */
 		writel(VIA_CRDR_DMACTRL_SFTRST,
 			sdhost->ddma_mmiobase + VIA_CRDR_DMACTRL);
 		mmiowb();
@@ -1133,7 +1214,7 @@ static void __devexit via_sd_remove(struct pci_dev *pcidev)
 
 	tasklet_kill(&sdhost->finish_tasklet);
 
-	
+	/* switch off power */
 	gatt = readb(sdhost->pcictrl_mmiobase + VIA_CRDR_PCICLKGATT);
 	gatt &= ~VIA_CRDR_PCICLKGATT_PAD_PWRON;
 	writeb(gatt, sdhost->pcictrl_mmiobase + VIA_CRDR_PCICLKGATT);
@@ -1240,12 +1321,12 @@ static int via_sd_resume(struct pci_dev *pcidev)
 	return ret;
 }
 
-#else 
+#else /* CONFIG_PM */
 
 #define via_sd_suspend NULL
 #define via_sd_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static struct pci_driver via_sd_driver = {
 	.name = DRV_NAME,

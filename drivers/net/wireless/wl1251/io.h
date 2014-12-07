@@ -67,10 +67,12 @@ static inline void wl1251_write_elp(struct wl1251 *wl, int addr, u32 val)
 		wl->if_ops->write(wl, addr, &val, sizeof(u32));
 }
 
+/* Memory target IO, address is translated to partition 0 */
 void wl1251_mem_read(struct wl1251 *wl, int addr, void *buf, size_t len);
 void wl1251_mem_write(struct wl1251 *wl, int addr, void *buf, size_t len);
 u32 wl1251_mem_read32(struct wl1251 *wl, int addr);
 void wl1251_mem_write32(struct wl1251 *wl, int addr, u32 val);
+/* Registers IO */
 u32 wl1251_reg_read32(struct wl1251 *wl, int addr);
 void wl1251_reg_write32(struct wl1251 *wl, int addr, u32 val);
 

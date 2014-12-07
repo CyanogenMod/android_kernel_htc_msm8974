@@ -37,6 +37,14 @@
 #define AB5500_IT_LATCH0_REG 0x40
 #define AB5500_IT_MASK0_REG 0x60
 
+/*
+ * Permissible register ranges for reading and writing per device and bank.
+ *
+ * The ranges must be listed in increasing address order, and no overlaps are
+ * allowed. It is assumed that write permission implies read permission
+ * (i.e. only RO and RW permissions should be used).  Ranges with write
+ * permission must not be split up.
+ */
 
 #define NO_RANGE {.count = 0, .range = NULL,}
 static struct ab5500_i2c_banks ab5500_bank_ranges[AB5500_NUM_DEVICES] = {
@@ -473,6 +481,8 @@ static struct ab5500_i2c_banks ab5500_bank_ranges[AB5500_NUM_DEVICES] = {
 
 #define AB5500_IRQ(bank, bit)	((bank) * 8 + (bit))
 
+/* I appologize for the resource names beeing a mix of upper case
+ * and lower case but I want them to be exact as the documentation */
 static struct mfd_cell ab5500_devs[AB5500_NUM_DEVICES] = {
 	[AB5500_DEVID_LEDS] = {
 		.name = "ab5500-leds",
@@ -494,8 +504,8 @@ static struct mfd_cell ab5500_devs[AB5500_NUM_DEVICES] = {
 			{
 				.name = "SIMOFF",
 				.flags = IORESOURCE_IRQ,
-				.start = AB5500_IRQ(2, 0), 
-				.end = AB5500_IRQ(2, 1), 
+				.start = AB5500_IRQ(2, 0), /*rising*/
+				.end = AB5500_IRQ(2, 1), /*falling*/
 			},
 		},
 	},
@@ -983,6 +993,9 @@ static struct mfd_cell ab5500_devs[AB5500_NUM_DEVICES] = {
 	},
 };
 
+/*
+ * Functionality for getting/setting register values.
+ */
 int ab5500_get_register_interruptible_raw(struct ab5500 *ab,
 					  u8 bank, u8 reg,
 					  u8 *value)
@@ -1014,7 +1027,7 @@ static int get_register_page_interruptible(struct ab5500 *ab, u8 bank,
 		return err;
 
 	while (numregs) {
-		
+		/* The hardware limit for get page is 4 */
 		u8 curnum = min_t(u8, numregs, 4u);
 
 		err = db5500_prcmu_abb_read(bankinfo[bank].slave_addr,
@@ -1047,9 +1060,9 @@ int ab5500_mask_and_set_register_interruptible_raw(struct ab5500 *ab, u8 bank,
 		if (err)
 			return err;
 
-		if (bitmask == 0xFF) 
+		if (bitmask == 0xFF) /* No need to read in this case. */
 			buf = bitvalues;
-		else { 
+		else { /* Read and modify the register value. */
 			err = db5500_prcmu_abb_read(bankinfo[bank].slave_addr,
 				reg, &buf, 1);
 			if (err)
@@ -1057,7 +1070,7 @@ int ab5500_mask_and_set_register_interruptible_raw(struct ab5500 *ab, u8 bank,
 
 			buf = ((~bitmask & buf) | (bitmask & bitvalues));
 		}
-		
+		/* Write the new value. */
 		err = db5500_prcmu_abb_write(bankinfo[bank].slave_addr, reg,
 					     &buf, 1);
 
@@ -1073,6 +1086,9 @@ set_register_interruptible(struct ab5500 *ab, u8 bank, u8 reg, u8 value)
 							      0xff, value);
 }
 
+/*
+ * Read/write permission checking functions.
+ */
 static const struct ab5500_i2c_ranges *get_bankref(u8 devid, u8 bank)
 {
 	u8 i;
@@ -1088,7 +1104,7 @@ static const struct ab5500_i2c_ranges *get_bankref(u8 devid, u8 bank)
 
 static bool page_write_allowed(u8 devid, u8 bank, u8 first_reg, u8 last_reg)
 {
-	u8 i; 
+	u8 i; /* range loop index */
 	const struct ab5500_i2c_ranges *bankref;
 
 	bankref = get_bankref(devid, bank);
@@ -1120,13 +1136,16 @@ static bool page_read_allowed(u8 devid, u8 bank, u8 first_reg, u8 last_reg)
 		return false;
 
 
-	
+	/* Find the range (if it exists in the list) that includes first_reg. */
 	for (i = 0; i < bankref->nranges; i++) {
 		if (first_reg < bankref->range[i].first)
 			return false;
 		if (first_reg <= bankref->range[i].last)
 			break;
 	}
+	/* Make sure that the entire range up to and including last_reg is
+	 * readable. This may span several of the ranges in the list.
+	 */
 	while ((i < bankref->nranges) &&
 		(bankref->range[i].perm & AB5500_PERM_RD)) {
 		if (last_reg <= bankref->range[i].last)
@@ -1146,6 +1165,9 @@ static bool reg_read_allowed(u8 devid, u8 bank, u8 reg)
 }
 
 
+/*
+ * The exported register access functionality.
+ */
 static int ab5500_get_chip_id(struct device *dev)
 {
 	struct ab5500 *ab = dev_get_drvdata(dev->parent);
@@ -1212,7 +1234,7 @@ ab5500_event_registers_startup_state_get(struct device *dev, u8 *event)
 
 	ab = dev_get_drvdata(dev->parent);
 	if (!ab->startup_events_read)
-		return -EAGAIN; 
+		return -EAGAIN; /* Try again later */
 
 	memcpy(event, ab->startup_events, AB5500_NUM_EVENT_REG);
 	return 0;
@@ -1230,6 +1252,14 @@ static struct abx500_ops ab5500_ops = {
 	.startup_irq_enabled = NULL,
 };
 
+/*
+ * ab5500_setup : Basic set-up, datastructure creation/destruction
+ *		  and I2C interface.This sets up a default config
+ *		  in the AB5500 chip so that it will work as expected.
+ * @ab :	  Pointer to ab5500 structure
+ * @settings :    Pointer to struct abx500_init_settings
+ * @size :        Size of init data
+ */
 static int __init ab5500_setup(struct ab5500 *ab,
 	struct abx500_init_settings *settings, unsigned int size)
 {
@@ -1244,7 +1274,7 @@ static int __init ab5500_setup(struct ab5500 *ab,
 		if (err)
 			goto exit_no_setup;
 
-		
+		/* If event mask register update the event mask in ab5500 */
 		if ((settings[i].bank == AB5500_BANK_IT) &&
 			(AB5500_MASK_BASE <= settings[i].reg) &&
 			(settings[i].reg <= AB5500_MASK_END)) {
@@ -1262,7 +1292,7 @@ struct ab_family_id {
 };
 
 static const struct ab_family_id ids[] __initdata = {
-	
+	/* AB5500 */
 	{
 		.id = AB5500_1_0,
 		.name = "1.0"
@@ -1271,7 +1301,7 @@ static const struct ab_family_id ids[] __initdata = {
 		.id = AB5500_1_1,
 		.name = "1.1"
 	},
-	
+	/* Terminator */
 	{
 		.id = 0x00,
 	}
@@ -1292,14 +1322,14 @@ static int __init ab5500_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Initialize data structure */
 	mutex_init(&ab->access_mutex);
 	mutex_init(&ab->irq_lock);
 	ab->dev = &pdev->dev;
 
 	platform_set_drvdata(pdev, ab);
 
-	
+	/* Read chip ID register */
 	err = ab5500_get_register_interruptible_raw(ab,
 					AB5500_BANK_VIT_IO_I2C_CLK_TST_OTP,
 					AB5500_CHIP_ID, &ab->chip_id);
@@ -1323,7 +1353,7 @@ static int __init ab5500_probe(struct platform_device *pdev)
 		goto exit_no_detect;
 	}
 
-	
+	/* Clear and mask all interrupts */
 	for (i = 0; i < AB5500_NUM_IRQ_REGS; i++) {
 		u8 latchreg = AB5500_IT_LATCH0_REG + i;
 		u8 maskreg = AB5500_IT_MASK0_REG + i;
@@ -1341,7 +1371,7 @@ static int __init ab5500_probe(struct platform_device *pdev)
 		goto exit_no_detect;
 	}
 
-	
+	/* Set up and register the platform devices. */
 	for (i = 0; i < AB5500_NUM_DEVICES; i++) {
 		ab5500_devs[i].platform_data = ab5500_plf_data->dev_data[i];
 		ab5500_devs[i].pdata_size =

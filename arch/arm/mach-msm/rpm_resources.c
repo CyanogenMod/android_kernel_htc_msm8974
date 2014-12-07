@@ -32,6 +32,9 @@
 #include "spm.h"
 #include "idle.h"
 
+/******************************************************************************
+ * Debug Definitions
+ *****************************************************************************/
 
 enum {
 	MSM_RPMRS_DEBUG_OUTPUT = BIT(0),
@@ -153,6 +156,9 @@ static DEFINE_SPINLOCK(msm_rpmrs_lock);
 
 #define MSM_RPMRS_VDD(v)  ((v) & (vdd_mask))
 
+/******************************************************************************
+ * Attribute Definitions
+ *****************************************************************************/
 static struct attribute *msm_rpmrs_attributes[] = {
 	&msm_rpmrs_pxo.ko_attr.attr,
 	&msm_rpmrs_l2_cache.ko_attr.attr,
@@ -177,6 +183,9 @@ static struct attribute_group msm_rpmrs_mode_attribute_group = {
 	(container_of(attr, struct msm_rpmrs_resource, ko_attr))
 
 
+/******************************************************************************
+ * Resource Specific Functions
+ *****************************************************************************/
 
 static void msm_rpmrs_aggregate_sclk(uint32_t sclk_count)
 {
@@ -377,6 +386,9 @@ static void msm_rpmrs_restore_vdd_dig(void)
 		msm_rpmrs_buffer[rs->rs[0].id] = rs->rs[0].value;
 }
 
+/******************************************************************************
+ * Buffering Functions
+ *****************************************************************************/
 
 static bool msm_rpmrs_irqs_detectable(struct msm_rpmrs_limits *limits,
 		bool irqs_detect, bool gpio_detect)
@@ -424,6 +436,12 @@ static void msm_rpmrs_update_levels(void)
 	}
 }
 
+/*
+ * Return value:
+ *   0: no entries in <req> is on our resource list
+ *   1: one or more entries in <req> is on our resource list
+ *   -EINVAL: invalid id in <req> array
+ */
 static int msm_rpmrs_buffer_request(struct msm_rpm_iv_pair *req, int count)
 {
 	bool listed;
@@ -451,6 +469,12 @@ static int msm_rpmrs_buffer_request(struct msm_rpm_iv_pair *req, int count)
 	return listed ? 1 : 0;
 }
 
+/*
+ * Return value:
+ *   0: no entries in <req> is on our resource list
+ *   1: one or more entries in <req> is on our resource list
+ *   -EINVAL: invalid id in <req> array
+ */
 static int msm_rpmrs_clear_buffer(struct msm_rpm_iv_pair *req, int count)
 {
 	bool listed;
@@ -631,6 +655,9 @@ static int msm_rpmrs_clear_common(
 		return msm_rpm_clear(ctx, req, count);
 }
 
+/******************************************************************************
+ * Attribute Functions
+ *****************************************************************************/
 
 static ssize_t msm_rpmrs_resource_attr_show(
 	struct kobject *kobj, struct kobj_attribute *attr, char *buf)
@@ -641,7 +668,7 @@ static ssize_t msm_rpmrs_resource_attr_show(
 	int rc;
 
 	spin_lock_irqsave(&msm_rpmrs_lock, flags);
-	
+	/* special case active-set signal for MSM_RPMRS_ID_RPM_CTL */
 	if (GET_RS_FROM_ATTR(attr)->rs[0].id ==
 			msm_rpmrs_rpm_ctl.rs[0].id)
 		temp = GET_RS_FROM_ATTR(attr)->rs[0].value;
@@ -676,7 +703,7 @@ static ssize_t msm_rpmrs_resource_attr_store(struct kobject *kobj,
 	spin_lock_irqsave(&msm_rpmrs_lock, flags);
 	GET_RS_FROM_ATTR(attr)->enable_low_power = temp;
 
-	
+	/* special case active-set signal for MSM_RPMRS_ID_RPM_CTL */
 	if (GET_RS_FROM_ATTR(attr)->rs[0].id ==
 			msm_rpmrs_rpm_ctl.rs[0].id) {
 		struct msm_rpm_iv_pair req;
@@ -753,6 +780,9 @@ resource_sysfs_add_exit:
 	return rc;
 }
 
+/******************************************************************************
+ * Public Functions
+ *****************************************************************************/
 
 int msm_rpmrs_set(int ctx, struct msm_rpm_iv_pair *req, int count)
 {
@@ -767,6 +797,10 @@ int msm_rpmrs_set_noirq(int ctx, struct msm_rpm_iv_pair *req, int count)
 	return msm_rpmrs_set_common(ctx, req, count, true);
 }
 
+/* Allow individual bits of an rpm resource be set, currently used only for
+ * active context resource viz. RPM_CTL. The API is generic enough to possibly
+ * extend it to other resources as well in the future.
+ */
 int msm_rpmrs_set_bits_noirq(int ctx, struct msm_rpm_iv_pair *req, int count,
 		int *mask)
 {
@@ -860,10 +894,10 @@ s32 msm_cpuidle_get_deep_idle_latency(void)
 			continue;
 		if (level->sleep_mode != MSM_PM_SLEEP_MODE_POWER_COLLAPSE)
 			continue;
-		
+		/* Pick the first power collapse mode by default */
 		if (best->sleep_mode != MSM_PM_SLEEP_MODE_POWER_COLLAPSE)
 			best = level;
-		
+		/* Find the lowest latency for power collapse */
 		if (level->latency_us < best->latency_us)
 			best = level;
 	}
@@ -996,7 +1030,7 @@ static void msm_rpmrs_exit_sleep(void *limits, bool from_idle,
 		bool notify_rpm, bool collapsed)
 {
 
-	
+	/* Disable L2 for now, we dont want L2 to do retention by default */
 	msm_rpmrs_L2_restore(limits, notify_rpm, collapsed);
 
 	if (msm_rpmrs_use_mpm(limits))
@@ -1089,7 +1123,7 @@ int __init msm_rpmrs_levels_init(struct msm_rpmrs_platform_data *data)
 	msm_rpmrs_rpm_ctl.rs[0].id =
 			data->rpmrs_target_id[MSM_RPMRS_ID_RPM_CTL];
 
-	
+	/* Initialize listed bitmap for valid resource IDs */
 	for (i = 0; i < ARRAY_SIZE(msm_rpmrs_resources); i++) {
 		for (k = 0; k < msm_rpmrs_resources[i]->size; k++) {
 			if (msm_rpmrs_resources[i]->rs[k].id >=

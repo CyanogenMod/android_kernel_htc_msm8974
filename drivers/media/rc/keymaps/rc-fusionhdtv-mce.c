@@ -13,6 +13,7 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* DViCO FUSION HDTV MCE remote */
 
 static struct rc_map_table fusionhdtv_mce[] = {
 
@@ -33,22 +34,23 @@ static struct rc_map_table fusionhdtv_mce[] = {
 	{ 0x5b, KEY_LEFT },
 	{ 0x5f, KEY_RIGHT },
 
-	{ 0x02, KEY_TV },		
+	{ 0x02, KEY_TV },		/* Labeled DTV on remote */
 	{ 0x0e, KEY_MP3 },
 	{ 0x1a, KEY_DVD },
-	{ 0x1e, KEY_FAVORITES },	
+	{ 0x1e, KEY_FAVORITES },	/* Labeled CPF on remote */
 	{ 0x16, KEY_SETUP },
-	{ 0x46, KEY_POWER2 },		
-	{ 0x0a, KEY_EPG },		
+	{ 0x46, KEY_POWER2 },		/* TV On/Off button on remote */
+	{ 0x0a, KEY_EPG },		/* Labeled Guide on remote */
 
 	{ 0x49, KEY_BACK },
-	{ 0x59, KEY_INFO },		
-	{ 0x4d, KEY_MENU },		
-	{ 0x55, KEY_CYCLEWINDOWS },	
+	{ 0x59, KEY_INFO },		/* Labeled MORE on remote */
+	{ 0x4d, KEY_MENU },		/* Labeled DVDMENU on remote */
+	{ 0x55, KEY_CYCLEWINDOWS },	/* Labeled ALT-TAB on remote */
 
-	{ 0x0f, KEY_PREVIOUSSONG },	
-	{ 0x12, KEY_NEXTSONG },		
-	{ 0x42, KEY_ENTER },		
+	{ 0x0f, KEY_PREVIOUSSONG },	/* Labeled |<< REPLAY on remote */
+	{ 0x12, KEY_NEXTSONG },		/* Labeled >>| SKIP on remote */
+	{ 0x42, KEY_ENTER },		/* Labeled START with a green
+					   MS windows logo on remote */
 
 	{ 0x15, KEY_VOLUMEUP },
 	{ 0x05, KEY_VOLUMEDOWN },
@@ -59,7 +61,7 @@ static struct rc_map_table fusionhdtv_mce[] = {
 	{ 0x5a, KEY_TUNER },
 	{ 0x19, KEY_OPEN },
 
-	{ 0x13, KEY_MODE },		
+	{ 0x13, KEY_MODE },		/* 4:3 16:9 select */
 	{ 0x1f, KEY_ZOOM },
 
 	{ 0x43, KEY_REWIND },
@@ -75,7 +77,7 @@ static struct rc_map_list fusionhdtv_mce_map = {
 	.map = {
 		.scan    = fusionhdtv_mce,
 		.size    = ARRAY_SIZE(fusionhdtv_mce),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_FUSIONHDTV_MCE,
 	}
 };

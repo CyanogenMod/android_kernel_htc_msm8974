@@ -13,6 +13,7 @@
 #ifndef _WALLCLK_H
 #define _WALLCLK_H
 
+/* wallclock register offset */
 #define CTRL_REG_OFFSET			0x0
 #define PULSE_CNT_REG_OFFSET		0x4
 #define CLK_CNT_SNAPSHOT_REG_OFFSET	0x8
@@ -20,6 +21,7 @@
 #define CLK_BASE_TIME0_OFFSET		0x24
 #define CLK_BASE_TIME1_OFFSET		0x28
 
+/* ctrl register bitmap */
 #define CTRL_TIME_SRC_POS	0
 #define CTRL_TIME_SRC_MASK	0x0000000F
 #define CTRL_SW_BITS_POS	4
@@ -27,8 +29,9 @@
 #define CTRL_ENA_DIS_POS	31
 #define CTRL_ENABLE_MASK	0x80000000
 
-#define CLK_RATE		122880000	
-#define PPNS_PULSE		2		
+/* clock rate from time source */
+#define CLK_RATE		122880000	/* 122.88 Mhz */
+#define PPNS_PULSE		2		/* PP2S */
 
 #define MAX_SFN			1023
 #define SFN_PER_SECOND		100
@@ -40,4 +43,4 @@ extern int wallclk_get_sfn_ref(void);
 extern int wallclk_reg_read(u32 offset, u32 *p);
 extern int wallclk_reg_write(u32 offset, u32 value);
 
-#endif 
+#endif /* _WALLCLK_H */

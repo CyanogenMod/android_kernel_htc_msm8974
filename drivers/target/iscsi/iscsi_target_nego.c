@@ -80,7 +80,7 @@ int extract_param(
 
 	ptr += 1;
 	if (*ptr == '0' && (*(ptr+1) == 'x' || *(ptr+1) == 'X')) {
-		ptr += 2; 
+		ptr += 2; /* skip 0x */
 		*type = HEX;
 	} else
 		*type = DECIMAL;
@@ -114,6 +114,9 @@ static u32 iscsi_handle_authentication(
 	struct se_node_acl *se_nacl;
 
 	if (!sess->sess_ops->SessionType) {
+		/*
+		 * For SessionType=Normal
+		 */
 		se_nacl = conn->sess->se_sess->se_node_acl;
 		if (!se_nacl) {
 			pr_err("Unable to locate struct se_node_acl for"
@@ -130,6 +133,9 @@ static u32 iscsi_handle_authentication(
 
 		auth = ISCSI_NODE_AUTH(iscsi_nacl);
 	} else {
+		/*
+		 * For SessionType=Discovery
+		 */
 		auth = &iscsit_global->discovery_acl.node_auth;
 	}
 
@@ -287,6 +293,11 @@ static int iscsi_target_check_first_request(
 				return -1;
 			}
 
+			/*
+			 * For non-leading connections, double check that the
+			 * received InitiatorName matches the existing session's
+			 * struct iscsi_node_acl.
+			 */
 			if (!login->leading_connection) {
 				se_nacl = conn->sess->se_sess->se_node_acl;
 				if (!se_nacl) {
@@ -436,6 +447,11 @@ static int iscsi_target_get_initial_payload(
 	return 0;
 }
 
+/*
+ *	NOTE: We check for existing sessions or connections AFTER the initiator
+ *	has been successfully authenticated in order to protect against faked
+ *	ISID/TSIH combinations.
+ */
 static int iscsi_target_check_for_existing_instances(
 	struct iscsi_conn *conn,
 	struct iscsi_login *login)
@@ -720,6 +736,9 @@ static void iscsi_initiatorname_tolower(
 	}
 }
 
+/*
+ * Processes the first Login Request..
+ */
 static int iscsi_target_locate_portal(
 	struct iscsi_np *np,
 	struct iscsi_conn *conn,
@@ -763,6 +782,10 @@ static int iscsi_target_locate_portal(
 	start = tmpbuf;
 	end = (start + payload_length);
 
+	/*
+	 * Locate the initial keys expected from the Initiator node in
+	 * the first login request in order to progress with the login phase.
+	 */
 	while (start < end) {
 		if (iscsi_extract_key_value(start, &key, &value) < 0) {
 			ret = -1;
@@ -779,6 +802,9 @@ static int iscsi_target_locate_portal(
 		start += strlen(key) + strlen(value) + 2;
 	}
 
+	/*
+	 * See 5.3.  Login Phase.
+	 */
 	if (!i_buf) {
 		pr_err("InitiatorName key not received"
 			" in first login request.\n");
@@ -787,6 +813,11 @@ static int iscsi_target_locate_portal(
 		ret = -1;
 		goto out;
 	}
+	/*
+	 * Convert the incoming InitiatorName to lowercase following
+	 * RFC-3720 3.2.6.1. section c) that says that iSCSI IQNs
+	 * are NOT case sensitive.
+	 */
 	iscsi_initiatorname_tolower(i_buf);
 
 	if (!s_buf) {
@@ -801,6 +832,9 @@ static int iscsi_target_locate_portal(
 		goto out;
 	}
 
+	/*
+	 * Use default portal group for discovery sessions.
+	 */
 	sessiontype = strncmp(s_buf, DISCOVERY, 9);
 	if (!sessiontype) {
 		conn->tpg = iscsit_global->discovery_tpg;
@@ -808,11 +842,18 @@ static int iscsi_target_locate_portal(
 			goto get_target;
 
 		sess->sess_ops->SessionType = 1;
+		/*
+		 * Setup crc32c modules from libcrypto
+		 */
 		if (iscsi_login_setup_crypto(conn) < 0) {
 			pr_err("iscsi_login_setup_crypto() failed\n");
 			ret = -1;
 			goto out;
 		}
+		/*
+		 * Serialize access across the discovery struct iscsi_portal_group to
+		 * process login attempt.
+		 */
 		if (iscsit_access_np(np, conn->tpg) < 0) {
 			iscsit_tx_login_rsp(conn, ISCSI_STATUS_CLS_TARGET_ERR,
 				ISCSI_LOGIN_STATUS_SVC_UNAVAILABLE);
@@ -834,6 +875,9 @@ get_target:
 		goto out;
 	}
 
+	/*
+	 * Locate Target IQN from Storage Node.
+	 */
 	tiqn = iscsit_get_tiqn_for_login(t_buf);
 	if (!tiqn) {
 		pr_err("Unable to locate Target IQN: %s in"
@@ -845,6 +889,9 @@ get_target:
 	}
 	pr_debug("Located Storage Object: %s\n", tiqn->tiqn);
 
+	/*
+	 * Locate Target Portal Group from Storage Node.
+	 */
 	conn->tpg = iscsit_get_tpg_from_np(tiqn, np);
 	if (!conn->tpg) {
 		pr_err("Unable to locate Target Portal Group"
@@ -856,11 +903,18 @@ get_target:
 		goto out;
 	}
 	pr_debug("Located Portal Group Object: %hu\n", conn->tpg->tpgt);
+	/*
+	 * Setup crc32c modules from libcrypto
+	 */
 	if (iscsi_login_setup_crypto(conn) < 0) {
 		pr_err("iscsi_login_setup_crypto() failed\n");
 		ret = -1;
 		goto out;
 	}
+	/*
+	 * Serialize access across the struct iscsi_portal_group to
+	 * process login attempt.
+	 */
 	if (iscsit_access_np(np, conn->tpg) < 0) {
 		iscsit_put_tiqn_for_login(tiqn);
 		iscsit_tx_login_rsp(conn, ISCSI_STATUS_CLS_TARGET_ERR,
@@ -870,13 +924,24 @@ get_target:
 		goto out;
 	}
 
+	/*
+	 * conn->sess->node_acl will be set when the referenced
+	 * struct iscsi_session is located from received ISID+TSIH in
+	 * iscsi_login_non_zero_tsih_s2().
+	 */
 	if (!login->leading_connection) {
 		ret = 0;
 		goto out;
 	}
 
+	/*
+	 * This value is required in iscsi_login_zero_tsih_s2()
+	 */
 	sess->sess_ops->SessionType = 0;
 
+	/*
+	 * Locate incoming Initiator IQN reference from Storage Node.
+	 */
 	sess->se_sess->se_node_acl = core_tpg_check_initiator_node_acl(
 			&conn->tpg->tpg_se_tpg, i_buf);
 	if (!sess->se_sess->se_node_acl) {
@@ -925,6 +990,15 @@ struct iscsi_login *iscsi_target_init_negotiation(
 				ISCSI_LOGIN_STATUS_NO_RESOURCES);
 		goto out;
 	}
+	/*
+	 * SessionType: Discovery
+	 *
+	 *	Locates Default Portal
+	 *
+	 * SessionType: Normal
+	 *
+	 *	Locates Target Portal from NP -> Target IQN
+	 */
 	if (iscsi_target_locate_portal(np, conn, login) < 0) {
 		pr_err("iSCSI Login negotiation failed.\n");
 		goto out;

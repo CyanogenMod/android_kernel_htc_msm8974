@@ -119,6 +119,9 @@ struct usb_phy {
 	
 	void	(*notify_usb_disabled)(void);
 
+	
+	int	(*set_phy_autosuspend)(struct usb_phy *x,
+					int enable_autosuspend);
 };
 
 
@@ -241,6 +244,15 @@ usb_phy_set_suspend(struct usb_phy *x, int suspend)
 {
 	if (x->set_suspend != NULL)
 		return x->set_suspend(x, suspend);
+	else
+		return 0;
+}
+
+static inline int
+usb_phy_set_autosuspend(struct usb_phy *x, int enable_autosuspend)
+{
+	if (x && x->set_phy_autosuspend != NULL)
+		return x->set_phy_autosuspend(x, enable_autosuspend);
 	else
 		return 0;
 }

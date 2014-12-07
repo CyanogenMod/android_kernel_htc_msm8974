@@ -16,4 +16,4 @@
 #define GCC_REG_ACCUM "accum"
 #endif
 
-#endif 
+#endif /* _ASM_COMPILER_H */

@@ -1,3 +1,11 @@
+/*
+ * File...........: arch/s390/mm/extmem.c
+ * Author(s)......: Carsten Otte <cotte@de.ibm.com>
+ * 		    Rob M van der Heij <rvdheij@nl.ibm.com>
+ * 		    Steven Shultz <shultzss@us.ibm.com>
+ * Bugreports.to..: <Linux390@de.ibm.com>
+ * (C) IBM Corporation 2002-2004
+ */
 
 #define KMSG_COMPONENT "extmem"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
@@ -32,8 +40,8 @@
 #define DCSS_FINDSEGA   0x0c
 
 struct qrange {
-	unsigned long  start; 
-	unsigned long  end;   
+	unsigned long  start; /* last byte type */
+	unsigned long  end;   /* last byte reserved */
 };
 
 struct qout64 {
@@ -46,10 +54,11 @@ struct qout64 {
 
 #ifdef CONFIG_64BIT
 struct qrange_old {
-	unsigned int start; 
-	unsigned int end;   
+	unsigned int start; /* last byte type */
+	unsigned int end;   /* last byte reserved */
 };
 
+/* output area format for the Diag x'64' old subcode x'18' */
 struct qout64_old {
 	int segstart;
 	int segend;
@@ -91,6 +100,7 @@ static int loadshr_scode, loadnsr_scode, findseg_scode;
 static int segext_scode, purgeseg_scode;
 static int scode_set;
 
+/* set correct Diag x'64' subcodes. */
 static int
 dcss_set_subcodes(void)
 {
@@ -117,7 +127,7 @@ dcss_set_subcodes(void)
 		: "+d" (rx), "+d" (ry), "=d" (rc) : : "cc");
 
 	kfree(name);
-	
+	/* Diag x'64' new subcodes are supported, set to new subcodes */
 	if (rc != 3) {
 		loadshr_scode = DCSS_LOADSHRX;
 		loadnsr_scode = DCSS_LOADNSRX;
@@ -127,7 +137,7 @@ dcss_set_subcodes(void)
 		return 0;
 	}
 #endif
-	
+	/* Diag x'64' new subcodes are not supported, set to old subcodes */
 	loadshr_scode = DCSS_LOADNOLY;
 	loadnsr_scode = DCSS_LOADNSR;
 	purgeseg_scode = DCSS_PURGESEG;
@@ -136,6 +146,10 @@ dcss_set_subcodes(void)
 	return 0;
 }
 
+/*
+ * Create the 8 bytes, ebcdic VM segment name from
+ * an ascii name.
+ */
 static void
 dcss_mkname(char *name, char *dcss_name)
 {
@@ -152,6 +166,10 @@ dcss_mkname(char *name, char *dcss_name)
 }
 
 
+/*
+ * search all segments in dcss_list, and return the one
+ * namend *name. If not found, return NULL.
+ */
 static struct dcss_segment *
 segment_by_name (char *name)
 {
@@ -172,6 +190,9 @@ segment_by_name (char *name)
 }
 
 
+/*
+ * Perform a function on a dcss segment.
+ */
 static inline int
 dcss_diag(int *func, void *parameter,
            unsigned long *ret1, unsigned long *ret2)
@@ -189,14 +210,14 @@ dcss_diag(int *func, void *parameter,
 	ry = (unsigned long) *func;
 
 #ifdef CONFIG_64BIT
-	
+	/* 64-bit Diag x'64' new subcode, keep in 64-bit addressing mode */
 	if (*func > DCSS_SEGEXT)
 		asm volatile(
 			"	diag	%0,%1,0x64\n"
 			"	ipm	%2\n"
 			"	srl	%2,28\n"
 			: "+d" (rx), "+d" (ry), "=d" (rc) : : "cc");
-	
+	/* 31-bit Diag x'64' old subcode, switch to 31-bit addressing mode */
 	else
 		asm volatile(
 			"	sam31\n"
@@ -225,6 +246,9 @@ dcss_diag_translate_rc (int vm_rc) {
 }
 
 
+/* do a diag to get info about a segment.
+ * fills start_address, end and vm_segtype fields
+ */
 static int
 query_segment_type (struct dcss_segment *seg)
 {
@@ -240,7 +264,7 @@ query_segment_type (struct dcss_segment *seg)
 		goto out_free;
 	}
 
-	
+	/* initialize diag input parameters */
 	qin->qopcode = DCSS_FINDSEGA;
 	qin->qoutptr = (unsigned long) qout;
 	qin->qoutlen = sizeof(struct qout64);
@@ -259,6 +283,8 @@ query_segment_type (struct dcss_segment *seg)
 	}
 
 #ifdef CONFIG_64BIT
+	/* Only old format of output area of Diagnose x'64' is supported,
+	   copy data for the new format. */
 	if (segext_scode == DCSS_SEGEXT) {
 		struct qout64_old *qout_old;
 		qout_old = kzalloc(sizeof(*qout_old), GFP_KERNEL | GFP_DMA);
@@ -291,6 +317,10 @@ query_segment_type (struct dcss_segment *seg)
 	if (qout->segcnt == 1) {
 		seg->vm_segtype = qout->range[0].start & 0xff;
 	} else {
+		/* multi-part segment. only one type supported here:
+		    - all parts are contiguous
+		    - all parts are either EW or EN type
+		    - maximum 6 parts allowed */
 		unsigned long start = qout->segstart >> PAGE_SHIFT;
 		for (i=0; i<qout->segcnt; i++) {
 			if (((qout->range[i].start & 0xff) != SEG_TYPE_EW) &&
@@ -307,7 +337,7 @@ query_segment_type (struct dcss_segment *seg)
 		seg->vm_segtype = SEG_TYPE_EWEN;
 	}
 
-	
+	/* analyze diag output and update seg */
 	seg->start_addr = qout->segstart;
 	seg->end = qout->segend;
 
@@ -322,6 +352,16 @@ query_segment_type (struct dcss_segment *seg)
 	return rc;
 }
 
+/*
+ * get info about a segment
+ * possible return values:
+ * -ENOSYS  : we are not running on VM
+ * -EIO     : could not perform query diagnose
+ * -ENOENT  : no such segment
+ * -EOPNOTSUPP: multi-part segment cannot be used with linux
+ * -ENOMEM  : out of memory
+ * 0 .. 6   : type of segment as defined in include/asm-s390/extmem.h
+ */
 int
 segment_type (char* name)
 {
@@ -338,6 +378,10 @@ segment_type (char* name)
 	return seg.vm_segtype;
 }
 
+/*
+ * check if segment collides with other segments that are currently loaded
+ * returns 1 if this is the case, 0 if no collision was found
+ */
 static int
 segment_overlaps_others (struct dcss_segment *seg)
 {
@@ -358,6 +402,9 @@ segment_overlaps_others (struct dcss_segment *seg)
 	return 0;
 }
 
+/*
+ * real segment loading function, called from segment_load
+ */
 static int
 __segment_load (char *name, int do_nonshared, unsigned long *addr, unsigned long *end)
 {
@@ -459,6 +506,25 @@ __segment_load (char *name, int do_nonshared, unsigned long *addr, unsigned long
 	return rc;
 }
 
+/*
+ * this function loads a DCSS segment
+ * name         : name of the DCSS
+ * do_nonshared : 0 indicates that the dcss should be shared with other linux images
+ *                1 indicates that the dcss should be exclusive for this linux image
+ * addr         : will be filled with start address of the segment
+ * end          : will be filled with end address of the segment
+ * return values:
+ * -ENOSYS  : we are not running on VM
+ * -EIO     : could not perform query or load diagnose
+ * -ENOENT  : no such segment
+ * -EOPNOTSUPP: multi-part segment cannot be used with linux
+ * -ENOSPC  : segment cannot be used (overlaps with storage)
+ * -EBUSY   : segment can temporarily not be used (overlaps with dcss)
+ * -ERANGE  : segment cannot be used (exceeds kernel mapping range)
+ * -EPERM   : segment is currently loaded with incompatible permissions
+ * -ENOMEM  : out of memory
+ * 0 .. 6   : type of segment as defined in include/asm-s390/extmem.h
+ */
 int
 segment_load (char *name, int do_nonshared, unsigned long *addr,
 		unsigned long *end)
@@ -488,6 +554,19 @@ segment_load (char *name, int do_nonshared, unsigned long *addr,
 	return rc;
 }
 
+/*
+ * this function modifies the shared state of a DCSS segment. note that
+ * name         : name of the DCSS
+ * do_nonshared : 0 indicates that the dcss should be shared with other linux images
+ *                1 indicates that the dcss should be exclusive for this linux image
+ * return values:
+ * -EIO     : could not perform load diagnose (segment gone!)
+ * -ENOENT  : no such segment (segment gone!)
+ * -EAGAIN  : segment is in use by other exploiters, try later
+ * -EINVAL  : no segment with the given name is currently loaded - name invalid
+ * -EBUSY   : segment can temporarily not be used (overlaps with dcss)
+ * 0	    : operation succeeded
+ */
 int
 segment_modify_shared (char *name, int do_nonshared)
 {
@@ -565,6 +644,11 @@ segment_modify_shared (char *name, int do_nonshared)
 	return rc;
 }
 
+/*
+ * Decrease the use count of a DCSS segment and remove
+ * it from the address space if nobody is using it
+ * any longer.
+ */
 void
 segment_unload(char *name)
 {
@@ -592,6 +676,9 @@ out_unlock:
 	mutex_unlock(&dcss_lock);
 }
 
+/*
+ * save segment content permanently
+ */
 void
 segment_save(char *name)
 {
@@ -636,6 +723,10 @@ out:
 	mutex_unlock(&dcss_lock);
 }
 
+/*
+ * print appropriate error message for segment_load()/segment_type()
+ * return code
+ */
 void segment_warning(int rc, char *seg_name)
 {
 	switch (rc) {

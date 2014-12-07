@@ -35,18 +35,22 @@
 #include <sound/apr_audio.h>
 #include "snddev_icodec.h"
 
-#define SNDDEV_ICODEC_PCM_SZ 32 
-#define SNDDEV_ICODEC_MUL_FACTOR 3 
+#define SNDDEV_ICODEC_PCM_SZ 32 /* 16 bit / sample stereo mode */
+#define SNDDEV_ICODEC_MUL_FACTOR 3 /* Multi by 8 Shift by 3  */
 #define SNDDEV_ICODEC_CLK_RATE(freq) \
 	(((freq) * (SNDDEV_ICODEC_PCM_SZ)) << (SNDDEV_ICODEC_MUL_FACTOR))
 #define SNDDEV_LOW_POWER_MODE 0
 #define SNDDEV_HIGH_POWER_MODE 1
+/* Voltage required for S4 in microVolts, 2.2V or 2200000microvolts */
 #define SNDDEV_VREG_8058_S4_VOLTAGE (2200000)
+/* Load Current required for S4 in microAmps,
+   36mA - 56mA */
 #define SNDDEV_VREG_LOW_POWER_LOAD (36000)
 #define SNDDEV_VREG_HIGH_POWER_LOAD (56000)
 
 bool msm_codec_i2s_slave_mode;
 
+/* Context for each internal codec sound device */
 struct snddev_icodec_state {
 	struct snddev_icodec_data *data;
 	struct adie_codec_path *adie_path;
@@ -54,12 +58,13 @@ struct snddev_icodec_state {
 	u32 enabled;
 };
 
+/* Global state for the driver */
 struct snddev_icodec_drv_state {
 	struct mutex rx_lock;
 	struct mutex lb_lock;
 	struct mutex tx_lock;
-	u32 rx_active; 
-	u32 tx_active; 
+	u32 rx_active; /* ensure one rx device at a time */
+	u32 tx_active; /* ensure one tx device at a time */
 	struct clk *rx_osrclk;
 	struct clk *rx_bitclk;
 	struct clk *tx_osrclk;
@@ -68,7 +73,7 @@ struct snddev_icodec_drv_state {
 	struct pm_qos_request rx_pm_qos_req;
 	struct pm_qos_request tx_pm_qos_req;
 
-	
+	/* handle to pmic8058 regulator smps4 */
 	struct regulator *snddev_vreg;
 };
 
@@ -174,7 +179,7 @@ static int get_msm_cdcclk_ctl_gpios(struct platform_device *pdev)
 	int rc = 0;
 	struct resource *res;
 
-	
+	/* Claim all of the GPIOs. */
 	res = platform_get_resource_byname(pdev, IORESOURCE_IO,
 			"msm_snddev_rx_mclk");
 	if (!res) {
@@ -216,6 +221,9 @@ static int snddev_icodec_open_lb(struct snddev_icodec_state *icodec)
 	int trc;
 	struct snddev_icodec_drv_state *drv = &snddev_icodec_drv;
 
+	/* Voting for low power is ok here as all use cases are
+	 * supported in low power mode.
+	 */
 	if (drv->snddev_vreg)
 		vreg_mode_vote(drv->snddev_vreg, 1,
 					SNDDEV_LOW_POWER_MODE);
@@ -255,6 +263,12 @@ static int initialize_msm_icodec_gpios(struct platform_device *pdev)
 				res->start);
 			goto err;
 		} else {
+			/* This platform data structure only works if all gpio
+			 * resources are to be used only in output mode.
+			 * If gpio resources are added which are to be used in
+			 * input mode, then the platform data structure will
+			 * have to be changed.
+			 */
 
 			gpio_direction_output(res->start, reg_defaults[i]);
 			gpio_free(res->start);
@@ -316,6 +330,10 @@ static int snddev_icodec_open_rx(struct snddev_icodec_state *icodec)
 	if (IS_ERR(drv->rx_bitclk))
 		pr_err("%s clock Error\n", __func__);
 
+	/* Master clock = Sample Rate * OSR rate bit clock
+	 * OSR Rate bit clock = bit/sample * channel master
+	 * clock / bit clock = divider value = 8
+	 */
 	if (msm_codec_i2s_slave_mode) {
 		pr_info("%s: configuring bit clock for slave mode\n",
 				__func__);
@@ -332,13 +350,16 @@ static int snddev_icodec_open_rx(struct snddev_icodec_state *icodec)
 	if (icodec->data->voltage_on)
 		icodec->data->voltage_on();
 
-	
+	/* Configure ADIE */
 	trc = adie_codec_open(icodec->data->profile, &icodec->adie_path);
 	if (IS_ERR_VALUE(trc))
 		pr_err("%s: adie codec open failed\n", __func__);
 	else
 		adie_codec_setpath(icodec->adie_path,
 					icodec->sample_rate, 256);
+	/* OSR default to 256, can be changed for power optimization
+	 * If OSR is to be changed, need clock API for setting the divider
+	 */
 
 	switch (icodec->data->channel_mode) {
 	case 2:
@@ -363,7 +384,7 @@ static int snddev_icodec_open_rx(struct snddev_icodec_state *icodec)
 	if (trc < 0)
 		pr_err("%s: afe open failed, trc = %d\n", __func__, trc);
 
-	
+	/* Enable ADIE */
 	if (icodec->adie_path) {
 		adie_codec_proceed_stage(icodec->adie_path,
 					ADIE_CODEC_DIGITAL_READY);
@@ -376,7 +397,7 @@ static int snddev_icodec_open_rx(struct snddev_icodec_state *icodec)
 	else
 		adie_codec_set_master_mode(icodec->adie_path, 0);
 
-	
+	/* Enable power amplifier */
 	if (icodec->data->pamp_on) {
 		if (icodec->data->pamp_on()) {
 			pr_err("%s: Error turning on rx power\n", __func__);
@@ -413,7 +434,7 @@ static int snddev_icodec_open_tx(struct snddev_icodec_state *icodec)
 	if (drv->snddev_vreg)
 		vreg_mode_vote(drv->snddev_vreg, 1, SNDDEV_HIGH_POWER_MODE);
 
-	
+	/* Reuse pamp_on for TX platform-specific setup  */
 	if (icodec->data->pamp_on) {
 		if (icodec->data->pamp_on()) {
 			pr_err("%s: Error turning on tx power\n", __func__);
@@ -439,6 +460,10 @@ static int snddev_icodec_open_tx(struct snddev_icodec_state *icodec)
 	if (IS_ERR(drv->tx_bitclk))
 		pr_err("%s clock Error\n", __func__);
 
+	/* Master clock = Sample Rate * OSR rate bit clock
+	 * OSR Rate bit clock = bit/sample * channel master
+	 * clock / bit clock = divider value = 8
+	 */
 	if (msm_codec_i2s_slave_mode) {
 		pr_info("%s: configuring bit clock for slave mode\n",
 				__func__);
@@ -448,7 +473,7 @@ static int snddev_icodec_open_tx(struct snddev_icodec_state *icodec)
 
 	clk_prepare_enable(drv->tx_bitclk);
 
-	
+	/* Enable ADIE */
 	trc = adie_codec_open(icodec->data->profile, &icodec->adie_path);
 	if (IS_ERR_VALUE(trc))
 		pr_err("%s: adie codec open failed\n", __func__);
@@ -508,7 +533,7 @@ static int snddev_icodec_close_lb(struct snddev_icodec_state *icodec)
 {
 	struct snddev_icodec_drv_state *drv = &snddev_icodec_drv;
 
-	
+	/* Disable power amplifier */
 	if (icodec->data->pamp_off)
 		icodec->data->pamp_off();
 
@@ -538,11 +563,11 @@ static int snddev_icodec_close_rx(struct snddev_icodec_state *icodec)
 	if (drv->snddev_vreg)
 		vreg_mode_vote(drv->snddev_vreg, 0, SNDDEV_HIGH_POWER_MODE);
 
-	
+	/* Disable power amplifier */
 	if (icodec->data->pamp_off)
 		icodec->data->pamp_off();
 
-	
+	/* Disable ADIE */
 	if (icodec->adie_path) {
 		adie_codec_proceed_stage(icodec->adie_path,
 			ADIE_CODEC_DIGITAL_OFF);
@@ -576,7 +601,7 @@ static int snddev_icodec_close_tx(struct snddev_icodec_state *icodec)
 	if (drv->snddev_vreg)
 		vreg_mode_vote(drv->snddev_vreg, 0, SNDDEV_HIGH_POWER_MODE);
 
-	
+	/* Disable ADIE */
 	if (icodec->adie_path) {
 		adie_codec_proceed_stage(icodec->adie_path,
 					ADIE_CODEC_DIGITAL_OFF);
@@ -591,7 +616,7 @@ static int snddev_icodec_close_tx(struct snddev_icodec_state *icodec)
 
 	msm_snddev_tx_mclk_free();
 
-	
+	/* Reuse pamp_off for TX platform-specific setup  */
 	if (icodec->data->pamp_off)
 		icodec->data->pamp_off();
 

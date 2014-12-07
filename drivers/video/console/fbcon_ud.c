@@ -18,6 +18,9 @@
 #include "fbcon.h"
 #include "fbcon_rotate.h"
 
+/*
+ * Rotation 180 degrees
+ */
 
 static void ud_update_attr(u8 *dst, u8 *src, int attribute,
 				  struct vc_data *vc)
@@ -208,6 +211,9 @@ static void ud_putcs(struct vc_data *vc, struct fb_info *info,
 		xx += cnt;
 	}
 
+	/* buf is always NULL except when in monochrome mode, so in this case
+	   it's a gain to check buf against NULL even though kfree() handles
+	   NULL pointers just fine */
 	if (unlikely(buf))
 		kfree(buf);
 

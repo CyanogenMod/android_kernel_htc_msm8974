@@ -13,6 +13,7 @@
 
 #undef	GICISBYTELITTLEENDIAN
 
+/* Constants */
 #define GIC_POL_POS			1
 #define GIC_POL_NEG			0
 #define GIC_TRIG_EDGE			1
@@ -25,6 +26,7 @@
 #define REG(base, offs)		REG32((unsigned long)(base) + offs##_##OFS)
 #define REGP(base, phys)	REG32((unsigned long)(base) + (phys))
 
+/* Accessors */
 #define GIC_REG(segment, offset) \
 	REG32(_gic_base + segment##_##SECTION_OFS + offset##_##OFS)
 #define GIC_REG_ADDR(segment, offset) \
@@ -52,6 +54,7 @@
 #endif
 
 
+/* GIC Address Space */
 #define SHARED_SECTION_OFS		0x0000
 #define SHARED_SECTION_SIZE		0x8000
 #define VPE_LOCAL_SECTION_OFS		0x8000
@@ -61,13 +64,16 @@
 #define USM_VISIBLE_SECTION_OFS		0x10000
 #define USM_VISIBLE_SECTION_SIZE	0x10000
 
+/* Register Map for Shared Section */
 
 #define	GIC_SH_CONFIG_OFS		0x0000
 
+/* Shared Global Counter */
 #define GIC_SH_COUNTER_31_00_OFS	0x0010
 #define GIC_SH_COUNTER_63_32_OFS	0x0014
 #define GIC_SH_REVISIONID_OFS		0x0020
 
+/* Interrupt Polarity */
 #define GIC_SH_POL_31_0_OFS		0x0100
 #define GIC_SH_POL_63_32_OFS		0x0104
 #define GIC_SH_POL_95_64_OFS		0x0108
@@ -77,6 +83,7 @@
 #define GIC_SH_POL_223_192_OFS		0x0118
 #define GIC_SH_POL_255_224_OFS		0x011c
 
+/* Edge/Level Triggering */
 #define GIC_SH_TRIG_31_0_OFS		0x0180
 #define GIC_SH_TRIG_63_32_OFS		0x0184
 #define GIC_SH_TRIG_95_64_OFS		0x0188
@@ -86,6 +93,7 @@
 #define GIC_SH_TRIG_223_192_OFS		0x0198
 #define GIC_SH_TRIG_255_224_OFS		0x019c
 
+/* Dual Edge Triggering */
 #define GIC_SH_DUAL_31_0_OFS		0x0200
 #define GIC_SH_DUAL_63_32_OFS		0x0204
 #define GIC_SH_DUAL_95_64_OFS		0x0208
@@ -95,8 +103,10 @@
 #define GIC_SH_DUAL_223_192_OFS		0x0218
 #define GIC_SH_DUAL_255_224_OFS		0x021c
 
+/* Set/Clear corresponding bit in Edge Detect Register */
 #define GIC_SH_WEDGE_OFS		0x0280
 
+/* Reset Mask - Disables Interrupt */
 #define GIC_SH_RMASK_31_0_OFS		0x0300
 #define GIC_SH_RMASK_63_32_OFS		0x0304
 #define GIC_SH_RMASK_95_64_OFS		0x0308
@@ -106,6 +116,7 @@
 #define GIC_SH_RMASK_223_192_OFS	0x0318
 #define GIC_SH_RMASK_255_224_OFS	0x031c
 
+/* Set Mask (WO) - Enables Interrupt */
 #define GIC_SH_SMASK_31_0_OFS		0x0380
 #define GIC_SH_SMASK_63_32_OFS		0x0384
 #define GIC_SH_SMASK_95_64_OFS		0x0388
@@ -115,6 +126,7 @@
 #define GIC_SH_SMASK_223_192_OFS	0x0398
 #define GIC_SH_SMASK_255_224_OFS	0x039c
 
+/* Global Interrupt Mask Register (RO) - Bit Set == Interrupt enabled */
 #define GIC_SH_MASK_31_0_OFS		0x0400
 #define GIC_SH_MASK_63_32_OFS		0x0404
 #define GIC_SH_MASK_95_64_OFS		0x0408
@@ -124,6 +136,7 @@
 #define GIC_SH_MASK_223_192_OFS		0x0418
 #define GIC_SH_MASK_255_224_OFS		0x041c
 
+/* Pending Global Interrupts (RO) */
 #define GIC_SH_PEND_31_0_OFS		0x0480
 #define GIC_SH_PEND_63_32_OFS		0x0484
 #define GIC_SH_PEND_95_64_OFS		0x0488
@@ -135,28 +148,34 @@
 
 #define GIC_SH_INTR_MAP_TO_PIN_BASE_OFS	0x0500
 
+/* Maps Interrupt X to a Pin */
 #define GIC_SH_MAP_TO_PIN(intr) \
 	(GIC_SH_INTR_MAP_TO_PIN_BASE_OFS + (4 * intr))
 
 #define GIC_SH_INTR_MAP_TO_VPE_BASE_OFS	0x2000
 
+/* Maps Interrupt X to a VPE */
 #define GIC_SH_MAP_TO_VPE_REG_OFF(intr, vpe) \
 	(GIC_SH_INTR_MAP_TO_VPE_BASE_OFS + (32 * (intr)) + (((vpe) / 32) * 4))
 #define GIC_SH_MAP_TO_VPE_REG_BIT(vpe)	(1 << ((vpe) % 32))
 
+/* Convert an interrupt number to a byte offset/bit for multi-word registers */
 #define GIC_INTR_OFS(intr) (((intr) / 32)*4)
 #define GIC_INTR_BIT(intr) ((intr) % 32)
 
+/* Polarity : Reset Value is always 0 */
 #define GIC_SH_SET_POLARITY_OFS		0x0100
 #define GIC_SET_POLARITY(intr, pol) \
 	GICBIS(GIC_REG_ADDR(SHARED, GIC_SH_SET_POLARITY_OFS + \
 		GIC_INTR_OFS(intr)), (pol) << GIC_INTR_BIT(intr))
 
+/* Triggering : Reset Value is always 0 */
 #define GIC_SH_SET_TRIGGER_OFS		0x0180
 #define GIC_SET_TRIGGER(intr, trig) \
 	GICBIS(GIC_REG_ADDR(SHARED, GIC_SH_SET_TRIGGER_OFS + \
 		GIC_INTR_OFS(intr)), (trig) << GIC_INTR_BIT(intr))
 
+/* Mask manipulation */
 #define GIC_SH_SMASK_OFS		0x0380
 #define GIC_SET_INTR_MASK(intr) \
 	GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_SMASK_OFS + \
@@ -166,6 +185,7 @@
 	GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_RMASK_OFS + \
 		GIC_INTR_OFS(intr)), 1 << GIC_INTR_BIT(intr))
 
+/* Register Map for Local Section */
 #define GIC_VPE_CTL_OFS			0x0000
 #define GIC_VPE_PEND_OFS		0x0004
 #define GIC_VPE_MASK_OFS		0x0008
@@ -197,9 +217,11 @@
 #define GIC_VPE_TENABLE_INT_31_0_OFS	0x1080
 #define GIC_VPE_TENABLE_INT_63_32_OFS	0x1084
 
+/* User Mode Visible Section Register Map */
 #define GIC_UMV_SH_COUNTER_31_00_OFS	0x0000
 #define GIC_UMV_SH_COUNTER_63_32_OFS	0x0004
 
+/* Masks */
 #define GIC_SH_CONFIG_COUNTSTOP_SHF	28
 #define GIC_SH_CONFIG_COUNTSTOP_MSK	(MSK(1) << GIC_SH_CONFIG_COUNTSTOP_SHF)
 
@@ -224,6 +246,7 @@
 #define GIC_MAP_SHF			0
 #define GIC_MAP_MSK			(MSK(6) << GIC_MAP_SHF)
 
+/* GIC_VPE_CTL Masks */
 #define GIC_VPE_CTL_PERFCNT_RTBL_SHF	2
 #define GIC_VPE_CTL_PERFCNT_RTBL_MSK	(MSK(1) << GIC_VPE_CTL_PERFCNT_RTBL_SHF)
 #define GIC_VPE_CTL_TIMER_RTBL_SHF	1
@@ -231,6 +254,7 @@
 #define GIC_VPE_CTL_EIC_MODE_SHF	0
 #define GIC_VPE_CTL_EIC_MODE_MSK	(MSK(1) << GIC_VPE_CTL_EIC_MODE_SHF)
 
+/* GIC_VPE_PEND Masks */
 #define GIC_VPE_PEND_WD_SHF		0
 #define GIC_VPE_PEND_WD_MSK		(MSK(1) << GIC_VPE_PEND_WD_SHF)
 #define GIC_VPE_PEND_CMP_SHF		1
@@ -244,6 +268,7 @@
 #define GIC_VPE_PEND_SWINT1_SHF		5
 #define GIC_VPE_PEND_SWINT1_MSK		(MSK(1) << GIC_VPE_PEND_SWINT1_SHF)
 
+/* GIC_VPE_RMASK Masks */
 #define GIC_VPE_RMASK_WD_SHF		0
 #define GIC_VPE_RMASK_WD_MSK		(MSK(1) << GIC_VPE_RMASK_WD_SHF)
 #define GIC_VPE_RMASK_CMP_SHF		1
@@ -257,6 +282,7 @@
 #define GIC_VPE_RMASK_SWINT1_SHF	5
 #define GIC_VPE_RMASK_SWINT1_MSK	(MSK(1) << GIC_VPE_RMASK_SWINT1_SHF)
 
+/* GIC_VPE_SMASK Masks */
 #define GIC_VPE_SMASK_WD_SHF		0
 #define GIC_VPE_SMASK_WD_MSK		(MSK(1) << GIC_VPE_SMASK_WD_SHF)
 #define GIC_VPE_SMASK_CMP_SHF		1
@@ -270,6 +296,9 @@
 #define GIC_VPE_SMASK_SWINT1_SHF	5
 #define GIC_VPE_SMASK_SWINT1_MSK	(MSK(1) << GIC_VPE_SMASK_SWINT1_SHF)
 
+/*
+ * Set the Mapping of Interrupt X to a VPE.
+ */
 #define GIC_SH_MAP_TO_VPE_SMASK(intr, vpe) \
 	GICWRITE(GIC_REG_ADDR(SHARED, GIC_SH_MAP_TO_VPE_REG_OFF(intr, vpe)), \
 		 GIC_SH_MAP_TO_VPE_REG_BIT(vpe))
@@ -286,13 +315,17 @@ struct gic_intrmask_regs {
        DECLARE_BITMAP(intrmask, GIC_NUM_INTRS);
 };
 
+/*
+ * Interrupt Meta-data specification. The ipiflag helps
+ * in building ipi_map.
+ */
 struct gic_intr_map {
-	unsigned int cpunum;	
-#define GIC_UNUSED		0xdead			
-	unsigned int pin;	
-	unsigned int polarity;	
-	unsigned int trigtype;	
-	unsigned int flags;	
+	unsigned int cpunum;	/* Directed to this CPU */
+#define GIC_UNUSED		0xdead			/* Dummy data */
+	unsigned int pin;	/* Directed to this Pin */
+	unsigned int polarity;	/* Polarity : +/-	*/
+	unsigned int trigtype;	/* Trigger  : Edge/Levl */
+	unsigned int flags;	/* Misc flags	*/
 #define GIC_FLAG_IPI           0x01
 #define GIC_FLAG_TRANSPARENT   0x02
 };
@@ -306,4 +339,4 @@ extern void gic_send_ipi(unsigned int intr);
 extern unsigned int plat_ipi_call_int_xlate(unsigned int);
 extern unsigned int plat_ipi_resched_int_xlate(unsigned int);
 
-#endif 
+#endif /* _ASM_GICREGS_H */

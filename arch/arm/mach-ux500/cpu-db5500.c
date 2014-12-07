@@ -30,7 +30,7 @@ static struct map_desc u5500_uart_io_desc[] __initdata = {
 };
 
 static struct map_desc u5500_io_desc[] __initdata = {
-	
+	/* SCU base also covers GIC CPU BASE and TWD with its 4K page */
 	__IO_DEV_DESC(U5500_SCU_BASE, SZ_4K),
 	__IO_DEV_DESC(U5500_GIC_DIST_BASE, SZ_4K),
 	__IO_DEV_DESC(U5500_L2CC_BASE, SZ_4K),
@@ -150,7 +150,7 @@ static resource_size_t __initdata db5500_gpio_base[] = {
 static void __init db5500_add_gpios(struct device *parent)
 {
 	struct nmk_gpio_platform_data pdata = {
-		
+		/* No custom data yet */
 	};
 
 	dbx500_add_gpios(parent, ARRAY_AND_SIZE(db5500_gpio_base),
@@ -159,6 +159,9 @@ static void __init db5500_add_gpios(struct device *parent)
 
 void __init u5500_map_io(void)
 {
+	/*
+	 * Map the UARTs early so that the DEBUG_LL stuff continues to work.
+	 */
 	iotable_init(u5500_uart_io_desc, ARRAY_SIZE(u5500_uart_io_desc));
 
 	ux500_map_io();

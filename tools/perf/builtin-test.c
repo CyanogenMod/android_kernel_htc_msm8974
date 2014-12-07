@@ -1,3 +1,8 @@
+/*
+ * builtin-test.c
+ *
+ * Builtin regression testing command: ever growing number of sanity tests
+ */
 #include "builtin.h"
 
 #include "util/cache.h"
@@ -31,19 +36,45 @@ static int test__vmlinux_matches_kallsyms(void)
 	long page_size = sysconf(_SC_PAGE_SIZE);
 	struct ref_reloc_sym ref_reloc_sym = { .name = "_stext", };
 
+	/*
+	 * Step 1:
+	 *
+	 * Init the machines that will hold kernel, modules obtained from
+	 * both vmlinux + .ko files and from /proc/kallsyms split by modules.
+	 */
 	machine__init(&kallsyms, "", HOST_KERNEL_ID);
 	machine__init(&vmlinux, "", HOST_KERNEL_ID);
 
+	/*
+	 * Step 2:
+	 *
+	 * Create the kernel maps for kallsyms and the DSO where we will then
+	 * load /proc/kallsyms. Also create the modules maps from /proc/modules
+	 * and find the .ko files that match them in /lib/modules/`uname -r`/.
+	 */
 	if (machine__create_kernel_maps(&kallsyms) < 0) {
 		pr_debug("machine__create_kernel_maps ");
 		return -1;
 	}
 
+	/*
+	 * Step 3:
+	 *
+	 * Load and split /proc/kallsyms into multiple maps, one per module.
+	 */
 	if (machine__load_kallsyms(&kallsyms, "/proc/kallsyms", type, NULL) <= 0) {
 		pr_debug("dso__load_kallsyms ");
 		goto out;
 	}
 
+	/*
+	 * Step 4:
+	 *
+	 * kallsyms will be internally on demand sorted by name so that we can
+	 * find the reference relocation * symbol, i.e. the symbol we will use
+	 * to see if the running kernel was relocated by checking if it has the
+	 * same value in the vmlinux file we load.
+	 */
 	kallsyms_map = machine__kernel_map(&kallsyms, type);
 
 	sym = map__find_symbol_by_name(kallsyms_map, ref_reloc_sym.name, NULL);
@@ -54,6 +85,11 @@ static int test__vmlinux_matches_kallsyms(void)
 
 	ref_reloc_sym.addr = sym->start;
 
+	/*
+	 * Step 5:
+	 *
+	 * Now repeat step 2, this time for the vmlinux file we'll auto-locate.
+	 */
 	if (machine__create_kernel_maps(&vmlinux) < 0) {
 		pr_debug("machine__create_kernel_maps ");
 		goto out;
@@ -62,6 +98,17 @@ static int test__vmlinux_matches_kallsyms(void)
 	vmlinux_map = machine__kernel_map(&vmlinux, type);
 	map__kmap(vmlinux_map)->ref_reloc_sym = &ref_reloc_sym;
 
+	/*
+	 * Step 6:
+	 *
+	 * Locate a vmlinux file in the vmlinux path that has a buildid that
+	 * matches the one of the running kernel.
+	 *
+	 * While doing that look if we find the ref reloc symbol, if we find it
+	 * we'll have its ref_reloc_symbol.unrelocated_addr and then
+	 * maps__reloc_vmlinux will notice and set proper ->[un]map_ip routines
+	 * to fixup the symbols.
+	 */
 	if (machine__load_vmlinux_path(&vmlinux, type,
 				       vmlinux_matches_kallsyms_filter) <= 0) {
 		pr_debug("machine__load_vmlinux_path ");
@@ -69,6 +116,13 @@ static int test__vmlinux_matches_kallsyms(void)
 	}
 
 	err = 0;
+	/*
+	 * Step 7:
+	 *
+	 * Now look at the symbols in the vmlinux DSO and check if we find all of them
+	 * in the kallsyms dso. For the ones that are in both, check its names and
+	 * end addresses too.
+	 */
 	for (nd = rb_first(&vmlinux_map->dso->symbols[type]); nd; nd = rb_next(nd)) {
 		struct symbol *pair, *first_pair;
 		bool backwards = true;
@@ -84,6 +138,15 @@ static int test__vmlinux_matches_kallsyms(void)
 		if (pair && pair->start == sym->start) {
 next_pair:
 			if (strcmp(sym->name, pair->name) == 0) {
+				/*
+				 * kallsyms don't have the symbol end, so we
+				 * set that by using the next symbol start - 1,
+				 * in some cases we get this up to a page
+				 * wrong, trace_kmalloc when I was developing
+				 * this code was one such example, 2106 bytes
+				 * off the real size. More than that and we
+				 * _really_ have a problem.
+				 */
 				s64 skew = sym->end - pair->end;
 				if (llabs(skew) < page_size)
 					continue;
@@ -126,6 +189,12 @@ detour:
 
 	for (nd = rb_first(&vmlinux.kmaps.maps[type]); nd; nd = rb_next(nd)) {
 		struct map *pos = rb_entry(nd, struct map, rb_node), *pair;
+		/*
+		 * If it is the kernel, kallsyms is always "[kernel.kallsyms]", while
+		 * the kernel will have the path for the vmlinux file being used,
+		 * so use the short name, less descriptive but the same ("[kernel]" in
+		 * both cases.
+		 */
 		pair = map_groups__find_by_name(&kallsyms.kmaps, type,
 						(pos->dso->kernel ?
 							pos->dso->short_name :
@@ -309,6 +378,12 @@ static int test__open_syscall_event_on_all_cpus(void)
 
 	for (cpu = 0; cpu < cpus->nr; ++cpu) {
 		unsigned int ncalls = nr_open_calls + cpu;
+		/*
+		 * XXX eventually lift this restriction in a way that
+		 * keeps perf building on older glibc installations
+		 * without CPU_ALLOC. 1024 cpus in 2010 still seems
+		 * a reasonable upper limit tho :-)
+		 */
 		if (cpus->map[cpu] >= CPU_SETSIZE) {
 			pr_debug("Ignoring CPU %d\n", cpus->map[cpu]);
 			continue;
@@ -328,6 +403,11 @@ static int test__open_syscall_event_on_all_cpus(void)
 		CPU_CLR(cpus->map[cpu], &cpu_set);
 	}
 
+	/*
+	 * Here we need to explicitely preallocate the counts, as if
+	 * we use the auto allocation it will allocate just for 1 cpu,
+	 * as we start by cpu 0.
+	 */
 	if (perf_evsel__alloc_counts(evsel, cpus->nr) < 0) {
 		pr_debug("perf_evsel__alloc_counts(ncpus=%d)\n", cpus->nr);
 		goto out_close_fd;
@@ -364,6 +444,17 @@ out_thread_map_delete:
 	return err;
 }
 
+/*
+ * This test will generate random numbers of calls to some getpid syscalls,
+ * then establish an mmap for a group of events that are created to monitor
+ * the syscalls.
+ *
+ * It will receive the events, using mmap, use its PERF_SAMPLE_ID generated
+ * sample.id field to map back to its respective perf_evsel instance.
+ *
+ * Then it checks if the number of syscalls reported as perf events by
+ * the kernel corresponds to the number of syscalls made.
+ */
 static int test__basic_mmap(void)
 {
 	int err = -1;
@@ -429,7 +520,7 @@ static int test__basic_mmap(void)
 		goto out_free_cpus;
 	}
 
-	
+	/* anonymous union fields, can't be initialized above */
 	attr.wakeup_events = 1;
 	attr.sample_period = 1;
 
@@ -882,7 +973,7 @@ static int test__checkevent_list(struct perf_evlist *evlist)
 
 	TEST_ASSERT_VAL("wrong number of entries", 3 == evlist->nr_entries);
 
-	
+	/* r1 */
 	evsel = list_entry(evlist->entries.next, struct perf_evsel, node);
 	TEST_ASSERT_VAL("wrong type", PERF_TYPE_RAW == evsel->attr.type);
 	TEST_ASSERT_VAL("wrong config", 1 == evsel->attr.config);
@@ -893,7 +984,7 @@ static int test__checkevent_list(struct perf_evlist *evlist)
 	TEST_ASSERT_VAL("wrong exclude_hv", !evsel->attr.exclude_hv);
 	TEST_ASSERT_VAL("wrong precise_ip", !evsel->attr.precise_ip);
 
-	
+	/* syscalls:sys_enter_open:k */
 	evsel = list_entry(evsel->node.next, struct perf_evsel, node);
 	TEST_ASSERT_VAL("wrong type", PERF_TYPE_TRACEPOINT == evsel->attr.type);
 	TEST_ASSERT_VAL("wrong sample_type",
@@ -905,7 +996,7 @@ static int test__checkevent_list(struct perf_evlist *evlist)
 	TEST_ASSERT_VAL("wrong exclude_hv", evsel->attr.exclude_hv);
 	TEST_ASSERT_VAL("wrong precise_ip", !evsel->attr.precise_ip);
 
-	
+	/* 1:1:hp */
 	evsel = list_entry(evsel->node.next, struct perf_evsel, node);
 	TEST_ASSERT_VAL("wrong type", 1 == evsel->attr.type);
 	TEST_ASSERT_VAL("wrong config", 1 == evsel->attr.config);
@@ -1130,12 +1221,22 @@ static int test__PERF_RECORD(void)
 		goto out;
 	}
 
+	/*
+	 * We need at least one evsel in the evlist, use the default
+	 * one: "cycles".
+	 */
 	err = perf_evlist__add_default(evlist);
 	if (err < 0) {
 		pr_debug("Not enough memory to create evsel\n");
 		goto out_delete_evlist;
 	}
 
+	/*
+	 * Create maps of threads and cpus to monitor. In this case
+	 * we start with all threads and cpus (-1, -1) but then in
+	 * perf_evlist__prepare_workload we'll fill in the only thread
+	 * we're monitoring, the one forked there.
+	 */
 	err = perf_evlist__create_maps(evlist, opts.target_pid,
 				       opts.target_tid, UINT_MAX, opts.cpu_list);
 	if (err < 0) {
@@ -1143,12 +1244,21 @@ static int test__PERF_RECORD(void)
 		goto out_delete_evlist;
 	}
 
+	/*
+	 * Prepare the workload in argv[] to run, it'll fork it, and then wait
+	 * for perf_evlist__start_workload() to exec it. This is done this way
+	 * so that we have time to open the evlist (calling sys_perf_event_open
+	 * on all the fds) and then mmap them.
+	 */
 	err = perf_evlist__prepare_workload(evlist, &opts, argv);
 	if (err < 0) {
 		pr_debug("Couldn't run the workload!\n");
 		goto out_delete_evlist;
 	}
 
+	/*
+	 * Config the evsels, setting attr->comm on the first one, etc.
+	 */
 	evsel = list_entry(evlist->entries.next, struct perf_evsel, node);
 	evsel->attr.sample_type |= PERF_SAMPLE_CPU;
 	evsel->attr.sample_type |= PERF_SAMPLE_TID;
@@ -1164,28 +1274,51 @@ static int test__PERF_RECORD(void)
 
 	cpu = err;
 
+	/*
+	 * So that we can check perf_sample.cpu on all the samples.
+	 */
 	if (sched_setaffinity(evlist->workload.pid, cpu_mask_size, cpu_mask) < 0) {
 		pr_debug("sched_setaffinity: %s\n", strerror(errno));
 		goto out_free_cpu_mask;
 	}
 
+	/*
+	 * Call sys_perf_event_open on all the fds on all the evsels,
+	 * grouping them if asked to.
+	 */
 	err = perf_evlist__open(evlist, opts.group);
 	if (err < 0) {
 		pr_debug("perf_evlist__open: %s\n", strerror(errno));
 		goto out_delete_evlist;
 	}
 
+	/*
+	 * mmap the first fd on a given CPU and ask for events for the other
+	 * fds in the same CPU to be injected in the same mmap ring buffer
+	 * (using ioctl(PERF_EVENT_IOC_SET_OUTPUT)).
+	 */
 	err = perf_evlist__mmap(evlist, opts.mmap_pages, false);
 	if (err < 0) {
 		pr_debug("perf_evlist__mmap: %s\n", strerror(errno));
 		goto out_delete_evlist;
 	}
 
+	/*
+	 * We'll need these two to parse the PERF_SAMPLE_* fields in each
+	 * event.
+	 */
 	sample_type = perf_evlist__sample_type(evlist);
 	sample_size = __perf_evsel__sample_size(sample_type);
 
+	/*
+	 * Now that all is properly set up, enable the events, they will
+	 * count just on workload.pid, which will start...
+	 */
 	perf_evlist__enable(evlist);
 
+	/*
+	 * Now!
+	 */
 	perf_evlist__start_workload(evlist);
 
 	while (1) {
@@ -1282,7 +1415,7 @@ static int test__PERF_RECORD(void)
 					break;
 
 				case PERF_RECORD_SAMPLE:
-					
+					/* Just ignore samples for now */
 					break;
 				default:
 					pr_debug("Unexpected perf_event->header.type %d!\n",
@@ -1292,6 +1425,11 @@ static int test__PERF_RECORD(void)
 			}
 		}
 
+		/*
+		 * We don't use poll here because at least at 3.1 times the
+		 * PERF_RECORD_{!SAMPLE} events don't honour
+		 * perf_event_attr.wakeup_events, just PERF_EVENT_SAMPLE does.
+		 */
 		if (total_events == before && false)
 			poll(evlist->pollfd, evlist->nr_fds, -1);
 
@@ -1413,6 +1551,9 @@ static u64 mmap_read_self(void *addr)
 	return count;
 }
 
+/*
+ * If the RDPMC instruction faults then signal this back to the test parent task:
+ */
 static void segfault_handler(int sig __used, siginfo_t *info __used, void *uc __used)
 {
 	exit(-1);

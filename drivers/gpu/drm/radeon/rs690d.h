@@ -28,6 +28,7 @@
 #ifndef __RS690D_H__
 #define __RS690D_H__
 
+/* Registers */
 #define R_000078_MC_INDEX                            0x000078
 #define   S_000078_MC_IND_ADDR(x)                      (((x) & 0x1FF) << 0)
 #define   G_000078_MC_IND_ADDR(x)                      (((x) >> 0) & 0x1FF)

@@ -24,9 +24,12 @@
 
 #define DRV_NAME "ad2s1200"
 
+/* input pin sample and rdvel is controlled by driver */
 #define AD2S1200_PN	2
 
+/* input clock on serial interface */
 #define AD2S1200_HZ	8192000
+/* clock period in nano second */
 #define AD2S1200_TSCLK	(1000000000/AD2S1200_HZ)
 
 struct ad2s1200_state {
@@ -49,7 +52,7 @@ static int ad2s1200_read_raw(struct iio_dev *indio_dev,
 
 	mutex_lock(&st->lock);
 	gpio_set_value(st->sample, 0);
-	
+	/* delay (6 * AD2S1200_TSCLK + 20) nano seconds */
 	udelay(1);
 	gpio_set_value(st->sample, 1);
 	gpio_set_value(st->rdvel, !!(chan->type == IIO_ANGL));
@@ -71,7 +74,7 @@ static int ad2s1200_read_raw(struct iio_dev *indio_dev,
 		mutex_unlock(&st->lock);
 		return -EINVAL;
 	}
-	
+	/* delay (2 * AD2S1200_TSCLK + 20) ns for sample pulse */
 	udelay(1);
 	mutex_unlock(&st->lock);
 	return IIO_VAL_INT;

@@ -55,4 +55,4 @@ void ib_cancel_rmpp_recvs(struct ib_mad_agent_private *agent);
 
 int ib_retry_rmpp(struct ib_mad_send_wr_private *mad_send_wr);
 
-#endif	
+#endif	/* __MAD_RMPP_H__ */

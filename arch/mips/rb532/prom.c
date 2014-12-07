@@ -51,7 +51,7 @@ static struct resource ddr_reg[] = {
 
 void __init prom_free_prom_memory(void)
 {
-	
+	/* No prom memory to free */
 }
 
 static inline int match_tag(char *arg, const char *tag)
@@ -80,13 +80,16 @@ void __init prom_setup_cmdline(void)
 	prom_envp = (char **) fw_arg2;
 
 	cp = cmd_line;
+		/* Note: it is common that parameters start
+		 * at argv[1] and not argv[0],
+		 * however, our elf loader starts at [0] */
 	for (i = 0; i < prom_argc; i++) {
 		if (match_tag(prom_argv[i], FREQ_TAG)) {
 			idt_cpu_freq = tag2ul(prom_argv[i], FREQ_TAG);
 			continue;
 		}
 #ifdef IGNORE_CMDLINE_MEM
-		
+		/* parses out the "mem=xx" arg */
 		if (match_tag(prom_argv[i], MEM_TAG))
 			continue;
 #endif
@@ -137,5 +140,7 @@ void __init prom_init(void)
 
 	prom_setup_cmdline();
 
+	/* give all RAM to boot allocator,
+	 * except for the first 0x400 and the last 0x200 bytes */
 	add_memory_region(ddrbase + 0x400, memsize - 0x600, BOOT_MEM_RAM);
 }

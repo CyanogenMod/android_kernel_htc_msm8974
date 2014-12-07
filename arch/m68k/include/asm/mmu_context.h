@@ -48,8 +48,14 @@ static inline void get_mmu_context(struct mm_struct *mm)
 	context_mm[ctx] = mm;
 }
 
+/*
+ * Set up the context for a new address space.
+ */
 #define init_new_context(tsk, mm)	(((mm)->context = NO_CONTEXT), 0)
 
+/*
+ * We're finished using the context for an address space.
+ */
 static inline void destroy_context(struct mm_struct *mm)
 {
 	if (mm->context != NO_CONTEXT) {
@@ -71,6 +77,10 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	set_context(tsk->mm->context, next->pgd);
 }
 
+/*
+ * After we have set current->mm to a new value, this activates
+ * the context for the new mm so we see the new mappings.
+ */
 static inline void activate_mm(struct mm_struct *active_mm,
 	struct mm_struct *mm)
 {
@@ -96,7 +106,7 @@ static inline void load_ksp_mmu(struct task_struct *task)
 	local_irq_save(flags);
 	mmuar = task->thread.ksp;
 
-	
+	/* Search for a valid TLB entry, if one is found, don't remap */
 	mmu_write(MMUAR, mmuar);
 	mmu_write(MMUOR, MMUOR_STLB | MMUOR_ADR);
 	if (mmu_read(MMUSR) & MMUSR_HIT)
@@ -154,6 +164,7 @@ end:
 extern unsigned long get_free_context(struct mm_struct *mm);
 extern void clear_context(unsigned long context);
 
+/* set the context for a new task to unmapped */
 static inline int init_new_context(struct task_struct *tsk,
 				   struct mm_struct *mm)
 {
@@ -161,12 +172,15 @@ static inline int init_new_context(struct task_struct *tsk,
 	return 0;
 }
 
+/* find the context given to this process, and if it hasn't already
+   got one, go get one for it. */
 static inline void get_mmu_context(struct mm_struct *mm)
 {
 	if (mm->context == SUN3_INVALID_CONTEXT)
 		mm->context = get_free_context(mm);
 }
 
+/* flush context if allocated... */
 static inline void destroy_context(struct mm_struct *mm)
 {
 	if (mm->context != SUN3_INVALID_CONTEXT)
@@ -217,13 +231,18 @@ static inline void switch_mm_0230(struct mm_struct *mm)
 
 	asm volatile (".chip 68030");
 
-	
+	/* flush MC68030/MC68020 caches (they are virtually addressed) */
 	asm volatile (
 		"movec %%cacr,%0;"
 		"orw %1,%0; "
 		"movec %0,%%cacr"
 		: "=d" (tmp) : "di" (FLUSH_I_AND_D));
 
+	/* Switch the root pointer. For a 030-only kernel,
+	 * avoid flushing the whole ATC, we only need to
+	 * flush the user entries. The 68851 does this by
+	 * itself. Avoid a runtime check here.
+	 */
 	asm volatile (
 #ifdef CPU_M68030_ONLY
 		"pmovefd %0,%%crp; "
@@ -240,16 +259,16 @@ static inline void switch_mm_0460(struct mm_struct *mm)
 {
 	asm volatile (".chip 68040");
 
-	
+	/* flush address translation cache (user entries) */
 	asm volatile ("pflushan");
 
-	
+	/* switch the root pointer */
 	asm volatile ("movec %0,%%urp" : : "r" (mm->context));
 
 	if (CPU_IS_060) {
 		unsigned long tmp;
 
-		
+		/* clear user entries in the branch cache */
 		asm volatile (
 			"movec %%cacr,%0; "
 		        "orl %1,%0; "
@@ -285,7 +304,7 @@ static inline void activate_mm(struct mm_struct *prev_mm,
 
 #endif
 
-#else 
+#else /* !CONFIG_MMU */
 
 static inline int init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 {
@@ -304,5 +323,5 @@ static inline void activate_mm(struct mm_struct *prev_mm, struct mm_struct *next
 {
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_MMU */
+#endif /* __M68K_MMU_CONTEXT_H */

@@ -17,10 +17,13 @@
  *     +1 (416) 297-6433 Facsimile
  */
 
-#include "includes.h"		
+#include "includes.h"		/* This must be first */
 #include "hardware.h"
 #include "card.h"
 
+/*
+ *
+ */
 void memcpy_toshmem(int card, void *dest, const void *src, size_t n)
 {
 	unsigned long flags;
@@ -35,8 +38,14 @@ void memcpy_toshmem(int card, void *dest, const void *src, size_t n)
 	if (n > SRAM_PAGESIZE)
 		return;
 
+	/*
+	 * determine the page to load from the address
+	 */
 	ch = (unsigned long) dest / SRAM_PAGESIZE;
 	pr_debug("%s: loaded page %d\n", sc_adapter[card]->devicename, ch);
+	/*
+	 * Block interrupts and load the page
+	 */
 	spin_lock_irqsave(&sc_adapter[card]->lock, flags);
 
 	outb(((sc_adapter[card]->shmem_magic + ch * SRAM_PAGESIZE) >> 14) | 0x80,
@@ -51,6 +60,9 @@ void memcpy_toshmem(int card, void *dest, const void *src, size_t n)
 		 sc_adapter[card]->rambase + ((unsigned long) dest % 0x4000));
 }
 
+/*
+ * Reverse of above
+ */
 void memcpy_fromshmem(int card, void *dest, const void *src, size_t n)
 {
 	unsigned long flags;
@@ -65,10 +77,16 @@ void memcpy_fromshmem(int card, void *dest, const void *src, size_t n)
 		return;
 	}
 
+	/*
+	 * determine the page to load from the address
+	 */
 	ch = (unsigned long) src / SRAM_PAGESIZE;
 	pr_debug("%s: loaded page %d\n", sc_adapter[card]->devicename, ch);
 
 
+	/*
+	 * Block interrupts and load the page
+	 */
 	spin_lock_irqsave(&sc_adapter[card]->lock, flags);
 
 	outb(((sc_adapter[card]->shmem_magic + ch * SRAM_PAGESIZE) >> 14) | 0x80,
@@ -78,6 +96,9 @@ void memcpy_fromshmem(int card, void *dest, const void *src, size_t n)
 	spin_unlock_irqrestore(&sc_adapter[card]->lock, flags);
 	pr_debug("%s: set page to %#x\n", sc_adapter[card]->devicename,
 		 ((sc_adapter[card]->shmem_magic + ch * SRAM_PAGESIZE) >> 14) | 0x80);
+/*	pr_debug("%s: copying %d bytes from %#x to %#x\n",
+	sc_adapter[card]->devicename, n,
+	sc_adapter[card]->rambase + ((unsigned long) src %0x4000), (unsigned long) dest); */
 }
 
 #if 0
@@ -95,9 +116,15 @@ void memset_shmem(int card, void *dest, int c, size_t n)
 		return;
 	}
 
+	/*
+	 * determine the page to load from the address
+	 */
 	ch = (unsigned long) dest / SRAM_PAGESIZE;
 	pr_debug("%s: loaded page %d\n", sc_adapter[card]->devicename, ch);
 
+	/*
+	 * Block interrupts and load the page
+	 */
 	spin_lock_irqsave(&sc_adapter[card]->lock, flags);
 
 	outb(((sc_adapter[card]->shmem_magic + ch * SRAM_PAGESIZE) >> 14) | 0x80,
@@ -108,4 +135,4 @@ void memset_shmem(int card, void *dest, int c, size_t n)
 		 ((sc_adapter[card]->shmem_magic + ch * SRAM_PAGESIZE) >> 14) | 0x80);
 	spin_unlock_irqrestore(&sc_adapter[card]->lock, flags);
 }
-#endif  
+#endif  /*  0  */

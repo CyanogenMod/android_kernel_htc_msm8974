@@ -170,7 +170,7 @@ int fdtv_dvb_register(struct firedtv *fdtv, const char *name)
 	if (err < 0)
 		goto fail_log;
 
-	
+	/*DMX_TS_FILTERING | DMX_SECTION_FILTERING*/
 	fdtv->demux.dmx.capabilities = 0;
 
 	fdtv->demux.priv	= fdtv;

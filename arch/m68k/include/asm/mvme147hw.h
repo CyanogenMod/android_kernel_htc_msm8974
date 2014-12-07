@@ -77,6 +77,7 @@ struct pcc_regs {
 #define PCC_IRQ_AC_FAIL		(IRQ_USER+0)
 #define PCC_IRQ_BERR		(IRQ_USER+1)
 #define PCC_IRQ_ABORT		(IRQ_USER+2)
+/* #define PCC_IRQ_SERIAL	(IRQ_USER+3) */
 #define PCC_IRQ_PRINTER		(IRQ_USER+7)
 #define PCC_IRQ_TIMER1		(IRQ_USER+8)
 #define PCC_IRQ_TIMER2		(IRQ_USER+9)
@@ -91,6 +92,7 @@ struct pcc_regs {
 #define MVME147_IRQ_SCSI_PORT	(IRQ_USER+0x45)
 #define MVME147_IRQ_SCSI_DMA	(IRQ_USER+0x46)
 
+/* SCC interrupts, for MVME147 */
 
 #define MVME147_IRQ_TYPE_PRIO	0
 #define MVME147_IRQ_SCC_BASE		(IRQ_USER+32)

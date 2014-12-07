@@ -40,6 +40,7 @@
 #include "clock.h"
 #include "nuc9xx.h"
 
+/* Initial IO mappings */
 
 static struct map_desc nuc900_iodesc[] __initdata = {
 	IODESC_ENT(IRQ),
@@ -50,6 +51,7 @@ static struct map_desc nuc900_iodesc[] __initdata = {
 	IODESC_ENT(GPIO),
 };
 
+/* Initial clock declarations. */
 static DEFINE_CLK(lcd, 0);
 static DEFINE_CLK(audio, 1);
 static DEFINE_CLK(fmi, 4);
@@ -104,6 +106,7 @@ static struct clk_lookup nuc900_clkregs[] = {
 	DEF_CLKLOOK(&clk_timer4, NULL, "timer4"),
 };
 
+/* Initial serial platform data */
 
 struct plat_serial8250_port nuc900_uart_data[] = {
 	NUC900_8250PORT(UART0),
@@ -118,6 +121,7 @@ struct platform_device nuc900_serial_device = {
 	},
 };
 
+/*Set NUC900 series cpu frequence*/
 static int __init nuc900_set_clkval(unsigned int cpufreq)
 {
 	unsigned int pllclk, ahbclk, apbclk, val;
@@ -194,6 +198,7 @@ static int __init nuc900_set_cpufreq(char *str)
 
 __setup("cpufreq=", nuc900_set_cpufreq);
 
+/*Init NUC900 evb io*/
 
 void __init nuc900_map_io(struct map_desc *mach_desc, int mach_size)
 {
@@ -213,6 +218,7 @@ void __init nuc900_map_io(struct map_desc *mach_desc, int mach_size)
 		printk(KERN_INFO "CPU type 0x%08lx is NUC960\n", idcode);
 }
 
+/*Init NUC900 clock*/
 
 void __init nuc900_init_clocks(void)
 {
@@ -227,7 +233,7 @@ void __init nuc900_init_clocks(void)
 void nuc9xx_restart(char mode, const char *cmd)
 {
 	if (mode == 's') {
-		
+		/* Jump into ROM at address 0 */
 		soft_restart(0);
 	} else {
 		__raw_writel(WTE | WTRE | WTCLK, WTCR);

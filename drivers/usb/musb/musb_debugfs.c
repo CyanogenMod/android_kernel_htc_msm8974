@@ -100,7 +100,7 @@ static const struct musb_register_map musb_regmap[] = {
 	{ "DMA_CNTLch7",	0x274,	16 },
 	{ "DMA_ADDRch7",	0x278,	32 },
 	{ "DMA_COUNTch7",	0x27C,	32 },
-	{  }	
+	{  }	/* Terminating Entry */
 };
 
 static struct dentry *musb_debugfs_root;
@@ -272,7 +272,7 @@ err0:
 	return ret;
 }
 
-void  musb_exit_debugfs(struct musb *musb)
+void /* __init_or_exit */ musb_exit_debugfs(struct musb *musb)
 {
 	debugfs_remove_recursive(musb_debugfs_root);
 }

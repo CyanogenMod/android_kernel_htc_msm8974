@@ -164,38 +164,39 @@ static const char *help_msg =
 #include <linux/if_bonding.h>
 #include <linux/sockios.h>
 
-typedef unsigned long long u64;	
-typedef __uint32_t u32;		
-typedef __uint16_t u16;		
-typedef __uint8_t u8;		
+typedef unsigned long long u64;	/* hack, so we may include kernel's ethtool.h */
+typedef __uint32_t u32;		/* ditto */
+typedef __uint16_t u16;		/* ditto */
+typedef __uint8_t u8;		/* ditto */
 #include <linux/ethtool.h>
 
 struct option longopts[] = {
-	
-	{"all-interfaces",	0, 0, 'a'},	
-	{"change-active",	0, 0, 'c'},	
-	{"detach",		0, 0, 'd'},	
-	{"force",		0, 0, 'f'},	
-	{"help",		0, 0, 'h'},	
-	{"usage",		0, 0, 'u'},	
-	{"verbose",		0, 0, 'v'},	
-	{"version",		0, 0, 'V'},	
+	/* { name  has_arg  *flag  val } */
+	{"all-interfaces",	0, 0, 'a'},	/* Show all interfaces. */
+	{"change-active",	0, 0, 'c'},	/* Change the active slave.  */
+	{"detach",		0, 0, 'd'},	/* Detach a slave interface. */
+	{"force",		0, 0, 'f'},	/* Force the operation. */
+	{"help",		0, 0, 'h'},	/* Give help */
+	{"usage",		0, 0, 'u'},	/* Give usage */
+	{"verbose",		0, 0, 'v'},	/* Report each action taken. */
+	{"version",		0, 0, 'V'},	/* Emit version information. */
 	{ 0, 0, 0, 0}
 };
 
+/* Command-line flags. */
 unsigned int
-opt_a = 0,	
-opt_c = 0,	
-opt_d = 0,	
-opt_f = 0,	
-opt_h = 0,	
-opt_u = 0,	
-opt_v = 0,	
-opt_V = 0;	
+opt_a = 0,	/* Show-all-interfaces flag. */
+opt_c = 0,	/* Change-active-slave flag. */
+opt_d = 0,	/* Detach a slave interface. */
+opt_f = 0,	/* Force the operation. */
+opt_h = 0,	/* Help */
+opt_u = 0,	/* Usage */
+opt_v = 0,	/* Verbose flag. */
+opt_V = 0;	/* Version */
 
-int skfd = -1;		
-int abi_ver = 0;	
-int hwaddr_set = 0;	
+int skfd = -1;		/* AF_INET socket for ioctl() calls.*/
+int abi_ver = 0;	/* userland - kernel ABI version */
+int hwaddr_set = 0;	/* Master's hwaddr is set */
 int saved_errno;
 
 struct ifreq master_mtu, master_flags, master_hwaddr;
@@ -265,7 +266,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	
+	/* options check */
 	if (exclusive > 1) {
 		fprintf(stderr, "%s", usage_msg);
 		res = 2;
@@ -293,7 +294,7 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
-	
+	/* Open a basic socket */
 	if ((skfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
 		perror("socket");
 		res = 1;
@@ -302,19 +303,19 @@ int main(int argc, char *argv[])
 
 	if (opt_a) {
 		if (optind == argc) {
-			
-			
+			/* No remaining args */
+			/* show all interfaces */
 			if_print((char *)NULL);
 			goto out;
 		} else {
-			
+			/* Just show usage */
 			fprintf(stderr, "%s", usage_msg);
 			res = 2;
 			goto out;
 		}
 	}
 
-	
+	/* Copy the interface name */
 	spp = argv + optind;
 	master_ifname = *spp++;
 
@@ -324,7 +325,7 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
-	
+	/* exchange abi version with bonding module */
 	res = get_drv_info(master_ifname);
 	if (res) {
 		fprintf(stderr,
@@ -343,13 +344,16 @@ int main(int argc, char *argv[])
 			goto out;
 		}
 
+		/* A single arg means show the
+		 * configuration for this interface
+		 */
 		if_print(master_ifname);
 		goto out;
 	}
 
 	res = get_if_settings(master_ifname, master_ifra);
 	if (res) {
-		
+		/* Probably a good reason not to go on */
 		fprintf(stderr,
 			"Master '%s': Error: get settings failed: %s. "
 			"Aborting\n",
@@ -357,6 +361,9 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
+	/* check if master is indeed a master;
+	 * if not then fail any operation
+	 */
 	if (!(master_flags.ifr_flags & IFF_MASTER)) {
 		fprintf(stderr,
 			"Illegal operation; the specified interface '%s' "
@@ -366,7 +373,7 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
-	
+	/* check if master is up; if not then fail any operation */
 	if (!(master_flags.ifr_flags & IFF_UP)) {
 		fprintf(stderr,
 			"Illegal operation; the specified master interface "
@@ -376,13 +383,13 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
-	
+	/* Only for enslaving */
 	if (!opt_c && !opt_d) {
 		sa_family_t master_family = master_hwaddr.ifr_hwaddr.sa_family;
 		unsigned char *hwaddr =
 			(unsigned char *)master_hwaddr.ifr_hwaddr.sa_data;
 
-		
+		/* The family '1' is ARPHRD_ETHER for ethernet. */
 		if (master_family != 1 && !opt_f) {
 			fprintf(stderr,
 				"Illegal operation: The specified master "
@@ -396,7 +403,7 @@ int main(int argc, char *argv[])
 			goto out;
 		}
 
-		
+		/* Check master's hw addr */
 		for (i = 0; i < 6; i++) {
 			if (hwaddr[i] != 0) {
 				hwaddr_set = 1;
@@ -416,9 +423,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	
+	/* Accepts only one slave */
 	if (opt_c) {
-		
+		/* change active slave */
 		res = get_slave_flags(slave_ifname);
 		if (res) {
 			fprintf(stderr,
@@ -435,14 +442,14 @@ int main(int argc, char *argv[])
 				master_ifname, slave_ifname);
 		}
 	} else {
-		
+		/* Accept multiple slaves */
 		do {
 			if (opt_d) {
-				
+				/* detach a slave interface from the master */
 				rv = get_slave_flags(slave_ifname);
 				if (rv) {
-					
-					
+					/* Can't work with this slave. */
+					/* remember the error and skip it*/
 					fprintf(stderr,
 						"Slave '%s': Error: get flags "
 						"failed. Skipping\n",
@@ -459,11 +466,11 @@ int main(int argc, char *argv[])
 					res = rv;
 				}
 			} else {
-				
+				/* attach a slave interface to the master */
 				rv = get_if_settings(slave_ifname, slave_ifra);
 				if (rv) {
-					
-					
+					/* Can't work with this slave. */
+					/* remember the error and skip it*/
 					fprintf(stderr,
 						"Slave '%s': Error: get "
 						"settings failed: %s. "
@@ -494,10 +501,11 @@ out:
 
 static short mif_flags;
 
+/* Get the inteface configuration from the kernel. */
 static int if_getconfig(char *ifname)
 {
 	struct ifreq ifr;
-	int metric, mtu;	
+	int metric, mtu;	/* Parameters of the master interface. */
 	struct sockaddr dstaddr, broadaddr, netmask;
 	unsigned char *hwaddr;
 
@@ -519,7 +527,7 @@ static int if_getconfig(char *ifname)
 	if (ioctl(skfd, SIOCGIFHWADDR, &ifr) < 0)
 		return -1;
 
-	
+	/* Gotta convert from 'char' to unsigned for printf(). */
 	hwaddr = (unsigned char *)ifr.ifr_hwaddr.sa_data;
 	printf("The result of SIOCGIFHWADDR is type %d  "
 	       "%2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x.\n",
@@ -586,7 +594,7 @@ static void if_print(char *ifname)
 			}
 
 			if (((mif_flags & IFF_UP) == 0) && !opt_a) continue;
-			
+			/*ife_print(&ife);*/
 		}
 	} else {
 		if (if_getconfig(ifname) < 0) {
@@ -684,6 +692,9 @@ static int enslave(char *master_ifname, char *slave_ifname)
 	}
 
 	if (abi_ver < 2) {
+		/* Older bonding versions would panic if the slave has no IP
+		 * address, so get the IP setting from the master.
+		 */
 		set_if_addr(master_ifname, slave_ifname);
 	} else {
 		res = clear_if_addr(slave_ifname);
@@ -706,7 +717,14 @@ static int enslave(char *master_ifname, char *slave_ifname)
 	}
 
 	if (hwaddr_set) {
+		/* Master already has an hwaddr
+		 * so set it's hwaddr to the slave
+		 */
 		if (abi_ver < 1) {
+			/* The driver is using an old ABI, so
+			 * the application sets the slave's
+			 * hwaddr
+			 */
 			res = set_slave_hwaddr(slave_ifname,
 					       &(master_hwaddr.ifr_hwaddr));
 			if (res) {
@@ -717,6 +735,9 @@ static int enslave(char *master_ifname, char *slave_ifname)
 				goto undo_mtu;
 			}
 
+			/* For old ABI the application needs to bring the
+			 * slave back up
+			 */
 			res = set_if_up(slave_ifname, slave_flags.ifr_flags);
 			if (res) {
 				fprintf(stderr,
@@ -726,8 +747,19 @@ static int enslave(char *master_ifname, char *slave_ifname)
 				goto undo_slave_mac;
 			}
 		}
+		/* The driver is using a new ABI,
+		 * so the driver takes care of setting
+		 * the slave's hwaddr and bringing
+		 * it up again
+		 */
 	} else {
+		/* No hwaddr for master yet, so
+		 * set the slave's hwaddr to it
+		 */
 		if (abi_ver < 1) {
+			/* For old ABI, the master needs to be
+			 * down before setting its hwaddr
+			 */
 			res = set_if_down(master_ifname, master_flags.ifr_flags);
 			if (res) {
 				fprintf(stderr,
@@ -749,6 +781,9 @@ static int enslave(char *master_ifname, char *slave_ifname)
 		}
 
 		if (abi_ver < 1) {
+			/* For old ABI, bring the master
+			 * back up
+			 */
 			res = set_if_up(master_ifname, master_flags.ifr_flags);
 			if (res) {
 				fprintf(stderr,
@@ -762,7 +797,7 @@ static int enslave(char *master_ifname, char *slave_ifname)
 		hwaddr_set = 1;
 	}
 
-	
+	/* Do the real thing */
 	strncpy(ifr.ifr_name, master_ifname, IFNAMSIZ);
 	strncpy(ifr.ifr_slave, slave_ifname, IFNAMSIZ);
 	if ((ioctl(skfd, SIOCBONDENSLAVE, &ifr) < 0) &&
@@ -779,6 +814,7 @@ static int enslave(char *master_ifname, char *slave_ifname)
 
 	return 0;
 
+/* rollback (best effort) */
 undo_master_mac:
 	set_master_hwaddr(master_ifname, &(master_hwaddr.ifr_hwaddr));
 	hwaddr_set = 0;
@@ -812,6 +848,9 @@ static int release(char *master_ifname, char *slave_ifname)
 			master_ifname, strerror(saved_errno));
 		return 1;
 	} else if (abi_ver < 1) {
+		/* The driver is using an old ABI, so we'll set the interface
+		 * down to avoid any conflicts due to same MAC/IP
+		 */
 		res = set_if_down(slave_ifname, slave_flags.ifr_flags);
 		if (res) {
 			fprintf(stderr,
@@ -821,7 +860,7 @@ static int release(char *master_ifname, char *slave_ifname)
 		}
 	}
 
-	
+	/* set to default mtu */
 	set_slave_mtu(slave_ifname, 1500);
 
 	return res;
@@ -1053,4 +1092,14 @@ static int set_if_addr(char *master_ifname, char *slave_ifname)
 	return 0;
 }
 
+/*
+ * Local variables:
+ *  version-control: t
+ *  kept-new-versions: 5
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ *  tab-width: 4
+ *  compile-command: "gcc -Wall -Wstrict-prototypes -O -I/usr/src/linux/include ifenslave.c -o ifenslave"
+ * End:
+ */
 

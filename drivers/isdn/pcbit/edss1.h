@@ -12,15 +12,16 @@
 #ifndef EDSS1_H
 #define EDSS1_H
 
+/* ISDN states */
 
 #define ST_NULL      0
-#define ST_CALL_INIT 1    
-#define ST_OVER_SEND 2    
-#define ST_CALL_PROC 3    
+#define ST_CALL_INIT 1    /* Call initiated */
+#define ST_OVER_SEND 2    /* Overlap sending - Requests More Info 4 call */
+#define ST_CALL_PROC 3    /* Call Proceeding */
 #define ST_CALL_DELV 4
-#define ST_CALL_PRES 6    
-#define ST_CALL_RECV 7    
-#define ST_CONN_REQ  8    
+#define ST_CALL_PRES 6    /* Call Present - Received CONN.IND */
+#define ST_CALL_RECV 7    /* Alerting sent */
+#define ST_CONN_REQ  8    /* Answered - waiting 4 CONN.CONF */
 #define ST_INCM_PROC 9
 #define ST_ACTIVE    10
 #define ST_DISC_REQ  11
@@ -30,8 +31,8 @@
 #define ST_RELS_REQ  19
 #define ST_OVER_RECV 25
 
-#define ST_ACTIVE_SELP 26 
-#define ST_ACTIVE_ACTV 27 
+#define ST_ACTIVE_SELP 26 /* Select protocol on B-Channel */
+#define ST_ACTIVE_ACTV 27 /* Activate B-channel protocol  */
 
 #define MAX_STATE ST_ACTIVE_ACTV
 
@@ -58,6 +59,10 @@
 #define EV_TIMER              26
 #define EV_ERROR              32
 
+/*
+ *  Cause values
+ *  only the ones we use
+ */
 
 #define CAUSE_NORMAL          0x10U
 #define CAUSE_NOCHAN          0x22U
@@ -82,7 +87,7 @@ struct fsm_entry {
 
 struct fsm_timer_entry {
 	unsigned short init;
-	unsigned long timeout;          
+	unsigned long timeout;          /* in seconds */
 };
 
 extern const char * const isdn_state_table[];

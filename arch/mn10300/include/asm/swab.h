@@ -37,6 +37,6 @@ __u16 __arch_swab16(__u16 x)
 #  define __SWAB_64_THRU_32__
 #endif
 
-#endif 
+#endif /* __GNUC__ */
 
-#endif 
+#endif /* _ASM_SWAB_H */

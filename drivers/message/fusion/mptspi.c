@@ -7,6 +7,7 @@
  *  (mailto:DL-MPTFusionLinux@lsi.com)
  *
  */
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 /*
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -41,6 +42,7 @@
     along with this program; if not, write to the Free Software
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -49,9 +51,9 @@
 #include <linux/errno.h>
 #include <linux/kdev_t.h>
 #include <linux/blkdev.h>
-#include <linux/delay.h>	
-#include <linux/interrupt.h>	
-#include <linux/reboot.h>	
+#include <linux/delay.h>	/* for mdelay */
+#include <linux/interrupt.h>	/* needed for in_interrupt() proto */
+#include <linux/reboot.h>	/* notifier code */
 #include <linux/workqueue.h>
 #include <linux/raid_class.h>
 
@@ -67,6 +69,7 @@
 #include "mptbase.h"
 #include "mptscsih.h"
 
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 #define my_NAME		"Fusion MPT SPI Host driver"
 #define my_VERSION	MPT_LINUX_VERSION_COMMON
 #define MYNAM		"mptspi"
@@ -76,6 +79,7 @@ MODULE_DESCRIPTION(my_NAME);
 MODULE_LICENSE("GPL");
 MODULE_VERSION(my_VERSION);
 
+/* Command line args */
 static int mpt_saf_te = MPTSCSIH_SAF_TE;
 module_param(mpt_saf_te, int, 0);
 MODULE_PARM_DESC(mpt_saf_te, " Force enabling SEP Processor: enable=1  (default=MPTSCSIH_SAF_TE=0)");
@@ -89,8 +93,17 @@ static struct scsi_transport_template *mptspi_transport_template = NULL;
 
 static u8	mptspiDoneCtx = MPT_MAX_PROTOCOL_DRIVERS;
 static u8	mptspiTaskCtx = MPT_MAX_PROTOCOL_DRIVERS;
-static u8	mptspiInternalCtx = MPT_MAX_PROTOCOL_DRIVERS; 
+static u8	mptspiInternalCtx = MPT_MAX_PROTOCOL_DRIVERS; /* Used only for internal commands */
 
+/**
+ * 	mptspi_setTargetNegoParms  - Update the target negotiation parameters
+ *	@hd: Pointer to a SCSI Host Structure
+ *	@target: per target private data
+ *	@sdev: SCSI device
+ *
+ * 	Update the target negotiation parameters based on the the Inquiry
+ *	data, adapter capabilities, and NVRAM settings.
+ **/
 static void
 mptspi_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtTarget *target,
 			    struct scsi_device *sdev)
@@ -140,6 +153,12 @@ mptspi_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtTarget *target,
 			}
 			offset = pspi_data->maxSyncOffset;
 
+			/* If RAID, never disable QAS
+			 * else if non RAID, do not disable
+			 *   QAS if bit 1 is set
+			 * bit 1 QAS support, non-raid only
+			 * bit 0 IU support
+			 */
 			if (target->raidVolume == 1)
 				noQas = 0;
 		} else {
@@ -151,6 +170,8 @@ mptspi_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtTarget *target,
 	if (!sdev->tagged_supported)
 		target->tflags &= ~MPT_TARGET_FLAGS_Q_YES;
 
+	/* Update tflags based on NVRAM settings. (SCSI only)
+	 */
 	if (pspi_data->nvram && (pspi_data->nvram[id] != MPT_HOST_NVRAM_INVALID)) {
 		nvram = pspi_data->nvram[id];
 		nfactor = (nvram & MPT_NVRAM_SYNC_MASK) >> 8;
@@ -159,6 +180,9 @@ mptspi_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtTarget *target,
 			width = nvram & MPT_NVRAM_WIDE_DISABLE ? 0 : 1;
 
 		if (offset > 0) {
+			/* Ensure factor is set to the
+			 * maximum of: adapter, nvram, inquiry
+			 */
 			if (nfactor) {
 				if (nfactor < pspi_data->minSyncFactor )
 					nfactor = pspi_data->minSyncFactor;
@@ -175,9 +199,13 @@ mptspi_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtTarget *target,
 		}
 	}
 
+	/* Make sure data is consistent
+	 */
 	if ((!width) && (factor < MPT_ULTRA2))
 		factor = MPT_ULTRA2;
 
+	/* Save the data to the target structure.
+	 */
 	target->minSyncFactor = factor;
 	target->maxOffset = offset;
 	target->maxWidth = width;
@@ -188,6 +216,8 @@ mptspi_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtTarget *target,
 
 	target->tflags |= MPT_TARGET_FLAGS_VALID_NEGO;
 
+	/* Disable unused features.
+	 */
 	if (!width)
 		target->negoFlags |= MPT_TARGET_NO_NEGO_WIDE;
 
@@ -201,12 +231,25 @@ mptspi_setTargetNegoParms(MPT_SCSI_HOST *hd, VirtTarget *target,
 		pspi_data->noQas |= MPT_TARGET_NO_NEGO_QAS;
 		target->negoFlags |= MPT_TARGET_NO_NEGO_QAS;
 
+		/* Disable QAS in a mixed configuration case
+		 */
 
 		ddvprintk(ioc, printk(MYIOC_s_DEBUG_FMT
 			"Disabling QAS due to noQas=%02x on id=%d!\n", ioc->name, noQas, id));
 	}
 }
 
+/**
+ * 	mptspi_writeIOCPage4  - write IOC Page 4
+ *	@hd: Pointer to a SCSI Host Structure
+ *	@channel: channel number
+ *	@id: write IOC Page4 for this ID & Bus
+ *
+ *	Return: -EAGAIN if unable to obtain a Message Frame
+ *		or 0 if success.
+ *
+ *	Remark: We do not wait for a return, write pages sequentially.
+ **/
 static int
 mptspi_writeIOCPage4(MPT_SCSI_HOST *hd, u8 channel , u8 id)
 {
@@ -220,17 +263,24 @@ mptspi_writeIOCPage4(MPT_SCSI_HOST *hd, u8 channel , u8 id)
 	u32			 flagsLength;
 	int			 ii;
 
+	/* Get a MF for this command.
+	 */
 	if ((mf = mpt_get_msg_frame(ioc->DoneCtx, ioc)) == NULL) {
 		dfailprintk(ioc, printk(MYIOC_s_WARN_FMT
 				"writeIOCPage4 : no msg frames!\n",ioc->name));
 		return -EAGAIN;
 	}
 
+	/* Set the request and the data pointers.
+	 * Place data at end of MF.
+	 */
 	pReq = (Config_t *)mf;
 
 	req_idx = le16_to_cpu(mf->u.frame.hwhdr.msgctxu.fld.req_idx);
 	frameOffset = ioc->req_sz - sizeof(IOCPage4_t);
 
+	/* Complete the request frame (same for all requests).
+	 */
 	pReq->Action = MPI_CONFIG_ACTION_PAGE_WRITE_CURRENT;
 	pReq->Reserved = 0;
 	pReq->ChainOffset = 0;
@@ -250,6 +300,8 @@ mptspi_writeIOCPage4(MPT_SCSI_HOST *hd, u8 channel , u8 id)
 	pReq->Header = IOCPage4Ptr->Header;
 	pReq->PageAddress = cpu_to_le32(id | (channel << 8 ));
 
+	/* Add a SGE to the config request.
+	 */
 	flagsLength = MPT_SGE_FLAGS_SSIMPLE_WRITE |
 		(IOCPage4Ptr->Header.PageLength + ii) * 4;
 
@@ -264,11 +316,27 @@ mptspi_writeIOCPage4(MPT_SCSI_HOST *hd, u8 channel , u8 id)
 	return 0;
 }
 
+/**
+ *	mptspi_initTarget - Target, LUN alloc/free functionality.
+ *	@hd: Pointer to MPT_SCSI_HOST structure
+ *	@vtarget: per target private data
+ *	@sdev: SCSI device
+ *
+ *	NOTE: It's only SAFE to call this routine if data points to
+ *	sane & valid STANDARD INQUIRY data!
+ *
+ *	Allocate and initialize memory for this target.
+ *	Save inquiry data.
+ *
+ **/
 static void
 mptspi_initTarget(MPT_SCSI_HOST *hd, VirtTarget *vtarget,
 		    struct scsi_device *sdev)
 {
 
+	/* Is LUN supported? If so, upper 2 bits will be 0
+	* in first byte of inquiry data.
+	*/
 	if (sdev->inq_periph_qual != 0)
 		return;
 
@@ -278,6 +346,8 @@ mptspi_initTarget(MPT_SCSI_HOST *hd, VirtTarget *vtarget,
 	vtarget->type = sdev->type;
 
 	if ((sdev->type == TYPE_PROCESSOR) && (hd->ioc->spi_data.Saf_Te)) {
+		/* Treat all Processors as SAF-TE if
+		 * command line option is set */
 		vtarget->tflags |= MPT_TARGET_FLAGS_SAF_TE_ISSUED;
 		mptspi_writeIOCPage4(hd, vtarget->channel, vtarget->id);
 	}else if ((sdev->type == TYPE_PROCESSOR) &&
@@ -297,6 +367,16 @@ mptspi_initTarget(MPT_SCSI_HOST *hd, VirtTarget *vtarget,
 	mptspi_setTargetNegoParms(hd, vtarget, sdev);
 }
 
+/**
+ *	mptspi_is_raid - Determines whether target is belonging to volume
+ *	@hd: Pointer to a SCSI HOST structure
+ *	@id: target device id
+ *
+ *	Return:
+ *		non-zero = true
+ *		zero = false
+ *
+ */
 static int
 mptspi_is_raid(struct _MPT_SCSI_HOST *hd, u32 id)
 {
@@ -345,9 +425,9 @@ static int mptspi_target_alloc(struct scsi_target *starget)
 		if (mptscsih_is_phys_disk(ioc, 0, starget->id) == 0)
 			return 0;
 		vtarget->tflags |= MPT_TARGET_FLAGS_RAID_COMPONENT;
-		
+		/* The real channel for this device is zero */
 		vtarget->channel = 0;
-		
+		/* The actual physdisknum (for RAID passthrough) */
 		vtarget->id = mptscsih_raid_id_to_num(ioc, 0,
 		    starget->id);
 	}
@@ -386,6 +466,13 @@ mptspi_target_destroy(struct scsi_target *starget)
 	starget->hostdata = NULL;
 }
 
+/**
+ *	mptspi_print_write_nego - negotiation parameters debug info that is being sent
+ *	@hd: Pointer to a SCSI HOST structure
+ *	@starget: SCSI target
+ *	@ii: negotiation parameters
+ *
+ */
 static void
 mptspi_print_write_nego(struct _MPT_SCSI_HOST *hd, struct scsi_target *starget, u32 ii)
 {
@@ -404,6 +491,13 @@ mptspi_print_write_nego(struct _MPT_SCSI_HOST *hd, struct scsi_target *starget, 
 	    ii & MPI_SCSIDEVPAGE0_NP_PCOMP_EN ? "PCOMP ": ""));
 }
 
+/**
+ *	mptspi_print_read_nego - negotiation parameters debug info that is being read
+ *	@hd: Pointer to a SCSI HOST structure
+ *	@starget: SCSI target
+ *	@ii: negotiation parameters
+ *
+ */
 static void
 mptspi_print_read_nego(struct _MPT_SCSI_HOST *hd, struct scsi_target *starget, u32 ii)
 {
@@ -435,12 +529,17 @@ static int mptspi_read_spi_device_pg0(struct scsi_target *starget,
 	struct _CONFIG_PAGE_HEADER hdr;
 	int err = -EBUSY;
 
-	
+	/* No SPI parameters for RAID devices */
 	if (starget->channel == 0 &&
 	    mptspi_is_raid(hd, starget->id))
 		return -1;
 
 	size = ioc->spi_data.sdp0length * 4;
+	/*
+	if (ioc->spi_data.sdp0length & 1)
+		size += size + 4;
+	size += 2048;
+	*/
 
 	spi_dev_pg0 = dma_alloc_coherent(&ioc->pcidev->dev, size, &spi_dev_pg0_dma, GFP_KERNEL);
 	if (spi_dev_pg0 == NULL) {
@@ -532,6 +631,8 @@ mptscsih_quiesce_raid(MPT_SCSI_HOST *hd, int quiesce, u8 channel, u8 id)
 
 	mutex_lock(&ioc->internal_cmds.mutex);
 
+	/* Get and Populate a free Frame
+	 */
 	if ((mf = mpt_get_msg_frame(ioc->InternalCtx, ioc)) == NULL) {
 		dfailprintk(hd->ioc, printk(MYIOC_s_WARN_FMT
 			"%s: no msg frames!\n", ioc->name, __func__));
@@ -551,7 +652,7 @@ mptscsih_quiesce_raid(MPT_SCSI_HOST *hd, int quiesce, u8 channel, u8 id)
 	pReq->PhysDiskNum = 0;
 	pReq->MsgFlags = 0;
 	pReq->Reserved2 = 0;
-	pReq->ActionDataWord = 0; 
+	pReq->ActionDataWord = 0; /* Reserved for this action */
 
 	ioc->add_sge((char *)&pReq->ActionDataSGE,
 		MPT_SGE_FLAGS_SSIMPLE_READ | 0, (dma_addr_t) -1);
@@ -591,12 +692,12 @@ static void mptspi_dv_device(struct _MPT_SCSI_HOST *hd,
 	VirtTarget *vtarget = scsi_target(sdev)->hostdata;
 	MPT_ADAPTER *ioc = hd->ioc;
 
-	
+	/* no DV on RAID devices */
 	if (sdev->channel == 0 &&
 	    mptspi_is_raid(hd, sdev->id))
 		return;
 
-	
+	/* If this is a piece of a RAID, then quiesce first */
 	if (sdev->channel == 1 &&
 	    mptscsih_quiesce_raid(hd, 1, vtarget->channel, vtarget->id) < 0) {
 		starget_printk(KERN_ERR, scsi_target(sdev), MYIOC_s_FMT
@@ -712,11 +813,11 @@ static void mptspi_slave_destroy(struct scsi_device *sdev)
 	VirtTarget *vtarget = starget->hostdata;
 	VirtDevice *vdevice = sdev->hostdata;
 
-	
+	/* Will this be the last lun on a non-raid device? */
 	if (vtarget->num_luns == 1 && vdevice->configured_lun) {
 		struct _CONFIG_PAGE_SCSI_DEVICE_1 pg1;
 
-		
+		/* Async Narrow */
 		pg1.RequestedParameters = 0;
 		pg1.Reserved = 0;
 		pg1.Configuration = 0;
@@ -771,7 +872,7 @@ static int mptspi_write_spi_device_pg1(struct scsi_target *starget,
 	struct scsi_device *sdev;
 	int i;
 
-	
+	/* don't allow updating nego parameters on RAID devices */
 	if (starget->channel == 0 &&
 	    mptspi_is_raid(hd, starget->id))
 		return -1;
@@ -811,7 +912,7 @@ static int mptspi_write_spi_device_pg1(struct scsi_target *starget,
 	period = (nego_parms & MPI_SCSIDEVPAGE1_RP_MIN_SYNC_PERIOD_MASK) >>
 		MPI_SCSIDEVPAGE1_RP_SHIFT_MIN_SYNC_PERIOD;
 	if (period == 8) {
-		
+		/* Turn on inline data padding for TAPE when running U320 */
 		for (i = 0 ; i < 16; i++) {
 			sdev = scsi_device_lookup_by_target(starget, i);
 			if (sdev && sdev->type == TYPE_TAPE) {
@@ -1037,10 +1138,12 @@ static void mpt_work_wrapper(struct work_struct *work)
 		struct scsi_target *starget = scsi_target(sdev);
 		VirtTarget *vtarget = starget->hostdata;
 
-		
+		/* only want to search RAID components */
 		if (sdev->channel != 1)
 			continue;
 
+		/* The id is the raid PhysDiskNum, even if
+		 * starget->id is the actual target address */
 		if(vtarget->id != disk)
 			continue;
 
@@ -1139,6 +1242,9 @@ static struct spi_function_template mptspi_transport_functions = {
 	.deny_binding	= mptspi_deny_binding,
 };
 
+/****************************************************************************
+ * Supported hardware
+ */
 
 static struct pci_device_id mptspi_pci_table[] = {
 	{ PCI_VENDOR_ID_LSI_LOGIC, MPI_MANUFACTPAGE_DEVID_53C1030,
@@ -1147,11 +1253,14 @@ static struct pci_device_id mptspi_pci_table[] = {
 		PCI_ANY_ID, PCI_ANY_ID },
 	{ PCI_VENDOR_ID_LSI_LOGIC, MPI_MANUFACTPAGE_DEVID_53C1035,
 		PCI_ANY_ID, PCI_ANY_ID },
-	{0}	
+	{0}	/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(pci, mptspi_pci_table);
 
 
+/*
+ * renegotiate for a given target
+ */
 static void
 mptspi_dv_renegotiate_work(struct work_struct *work)
 {
@@ -1197,6 +1306,9 @@ mptspi_dv_renegotiate(struct _MPT_SCSI_HOST *hd)
 	schedule_work(&wqw->work);
 }
 
+/*
+ * spi module reset handler
+ */
 static int
 mptspi_ioc_reset(MPT_ADAPTER *ioc, int reset_phase)
 {
@@ -1206,6 +1318,8 @@ mptspi_ioc_reset(MPT_ADAPTER *ioc, int reset_phase)
 	if ((ioc->bus_type != SPI) || (!rc))
 		return rc;
 
+	/* only try to do a renegotiation if we're properly set up
+	 * if we get an ioc fault on bringup, ioc->sh will be NULL */
 	if (reset_phase == MPT_IOC_POST_RESET &&
 	    ioc->sh) {
 		struct _MPT_SCSI_HOST *hd = shost_priv(ioc->sh);
@@ -1217,6 +1331,9 @@ mptspi_ioc_reset(MPT_ADAPTER *ioc, int reset_phase)
 }
 
 #ifdef CONFIG_PM
+/*
+ * spi module resume handler
+ */
 static int
 mptspi_resume(struct pci_dev *pdev)
 {
@@ -1231,6 +1348,15 @@ mptspi_resume(struct pci_dev *pdev)
 }
 #endif
 
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
+/*
+ *	mptspi_probe - Installs scsi devices per bus.
+ *	@pdev: Pointer to pci_dev structure
+ *
+ *	Returns 0 for success, non-zero for failure.
+ *
+ */
 static int
 mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -1253,6 +1379,8 @@ mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	ioc->TaskCtx = mptspiTaskCtx;
 	ioc->InternalCtx = mptspiInternalCtx;
 
+	/*  Added sanity check on readiness of the MPT adapter.
+	 */
 	if (ioc->last_state != MPI_IOC_STATE_OPERATIONAL) {
 		printk(MYIOC_s_WARN_FMT
 		  "Skipping because it's not operational!\n",
@@ -1268,6 +1396,8 @@ mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto out_mptspi_probe;
 	}
 
+	/*  Sanity check - ensure at least 1 port is INITIATOR capable
+	 */
 	ioc_cap = 0;
 	for (ii=0; ii < ioc->facts.NumberOfPorts; ii++) {
 		if (ioc->pfacts[ii].ProtocolFlags &
@@ -1294,26 +1424,52 @@ mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	spin_lock_irqsave(&ioc->FreeQlock, flags);
 
+	/* Attach the SCSI Host to the IOC structure
+	 */
 	ioc->sh = sh;
 
 	sh->io_port = 0;
 	sh->n_io_port = 0;
 	sh->irq = 0;
 
-	
+	/* set 16 byte cdb's */
 	sh->max_cmd_len = 16;
 
+	/* Yikes!  This is important!
+	 * Otherwise, by default, linux
+	 * only scans target IDs 0-7!
+	 * pfactsN->MaxDevices unreliable
+	 * (not supported in early
+	 *	versions of the FW).
+	 * max_id = 1 + actual max id,
+	 * max_lun = 1 + actual last lun,
+	 *	see hosts.h :o(
+	 */
 	sh->max_id = ioc->devices_per_bus;
 
 	sh->max_lun = MPT_LAST_LUN + 1;
+	/*
+	 * If RAID Firmware Detected, setup virtual channel
+	 */
 	if (ioc->ir_firmware)
 		sh->max_channel = 1;
 	else
 		sh->max_channel = 0;
 	sh->this_id = ioc->pfacts[0].PortSCSIID;
 
+	/* Required entry.
+	 */
 	sh->unique_id = ioc->id;
 
+	/* Verify that we won't exceed the maximum
+	 * number of chain buffers
+	 * We can optimize:  ZZ = req_sz/sizeof(SGE)
+	 * For 32bit SGE's:
+	 *  numSGE = 1 + (ZZ-1)*(maxChain -1) + ZZ
+	 *               + (req_sz - 64)/sizeof(SGE)
+	 * A slightly different algorithm is required for
+	 * 64bit SGEs.
+	 */
 	scale = ioc->req_sz/ioc->SGE_size;
 	if (ioc->sg_addr_size == sizeof(u64)) {
 		numSGE = (scale - 1) *
@@ -1326,7 +1482,7 @@ mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	}
 
 	if (numSGE < sh->sg_tablesize) {
-		
+		/* Reset this value */
 		dprintk(ioc, printk(MYIOC_s_DEBUG_FMT
 		  "Resetting sg_tablesize to %d from %d\n",
 		  ioc->name, numSGE, sh->sg_tablesize));
@@ -1338,6 +1494,9 @@ mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	hd = shost_priv(sh);
 	hd->ioc = ioc;
 
+	/* SCSI needs scsi_cmnd lookup table!
+	 * (with size equal to req_depth*PtrSz!)
+	 */
 	ioc->ScsiLookup = kcalloc(ioc->req_depth, sizeof(void *), GFP_ATOMIC);
 	if (!ioc->ScsiLookup) {
 		error = -ENOMEM;
@@ -1358,6 +1517,8 @@ mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	hd->last_queue_full = 0;
 	hd->spi_pending = 0;
 
+	/* Some versions of the firmware don't support page 0; without
+	 * that we can't get the parameters */
 	if (ioc->spi_data.sdp0length != 0)
 		sh->transportt = mptspi_transport_template;
 
@@ -1368,6 +1529,9 @@ mptspi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto out_mptspi_probe;
 	}
 
+	/*
+	 * issue internal bus reset
+	 */
 	if (ioc->spi_data.bus_reset)
 		mptscsih_IssueTaskMgmt(hd,
 		    MPI_SCSITASKMGMT_TASKTYPE_RESET_BUS,
@@ -1394,6 +1558,12 @@ static struct pci_driver mptspi_driver = {
 #endif
 };
 
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
+/**
+ *	mptspi_init - Register MPT adapter(s) as SCSI host(s) with SCSI mid-layer.
+ *
+ *	Returns 0 for success, non-zero for failure.
+ */
 static int __init
 mptspi_init(void)
 {
@@ -1422,6 +1592,11 @@ mptspi_init(void)
 	return error;
 }
 
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
+/**
+ *	mptspi_exit - Unregisters MPT adapter(s)
+ */
 static void __exit
 mptspi_exit(void)
 {

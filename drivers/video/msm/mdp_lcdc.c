@@ -124,7 +124,7 @@ static int lcdc_hw_init(struct mdp_lcdc_info *lcdc)
 	clk_set_rate(lcdc->pclk, lcdc->parms.clk_rate);
 	clk_set_rate(lcdc->pad_pclk, lcdc->parms.clk_rate);
 
-	
+	/* write the lcdc params */
 	mdp_writel(lcdc->mdp, lcdc->parms.hsync_ctl, MDP_LCDC_HSYNC_CTL);
 	mdp_writel(lcdc->mdp, lcdc->parms.vsync_period, MDP_LCDC_VSYNC_PERIOD);
 	mdp_writel(lcdc->mdp, lcdc->parms.vsync_pulse_width,
@@ -142,7 +142,7 @@ static int lcdc_hw_init(struct mdp_lcdc_info *lcdc)
 	mdp_writel(lcdc->mdp, 0, MDP_LCDC_ACTIVE_V_END);
 	mdp_writel(lcdc->mdp, lcdc->parms.polarity, MDP_LCDC_CTL_POLARITY);
 
-	
+	/* config the dma_p block that drives the lcdc data */
 	mdp_writel(lcdc->mdp, lcdc->fb_start, MDP_DMA_P_IBUF_ADDR);
 	mdp_writel(lcdc->mdp, (((fb_panel->fb_data->yres & 0x7ff) << 16) |
 			       (fb_panel->fb_data->xres & 0x7ff)),
@@ -164,7 +164,7 @@ static int lcdc_hw_init(struct mdp_lcdc_info *lcdc)
 
 	mdp_writel(lcdc->mdp, dma_cfg, MDP_DMA_P_CONFIG);
 
-	
+	/* enable the lcdc timing generation */
 	mdp_writel(lcdc->mdp, 1, MDP_LCDC_EN);
 
 	return 0;
@@ -186,7 +186,7 @@ static void lcdc_request_vsync(struct msm_panel_data *fb_panel,
 {
 	struct mdp_lcdc_info *lcdc = panel_to_lcdc(fb_panel);
 
-	
+	/* the vsync callback will start the dma */
 	vsync_cb->func(vsync_cb);
 	lcdc->got_vsync = 0;
 	mdp_out_if_req_irq(mdp_dev, MSM_LCDC_INTERFACE, MDP_LCDC_FRAME_START,
@@ -201,6 +201,8 @@ static void lcdc_clear_vsync(struct msm_panel_data *fb_panel)
 	mdp_out_if_req_irq(mdp_dev, MSM_LCDC_INTERFACE, 0, NULL);
 }
 
+/* called in irq context with mdp lock held, when mdp gets the
+ * MDP_LCDC_FRAME_START interrupt */
 static void lcdc_frame_start(struct msmfb_callback *cb)
 {
 	struct mdp_lcdc_info *lcdc;
@@ -257,6 +259,8 @@ static void precompute_timing_parms(struct mdp_lcdc_info *lcdc)
 		hsync_period;
 	display_vend += timing->hsync_skew - 1;
 
+	/* register values we pre-compute at init time from the timing
+	 * information in the panel info */
 	lcdc->parms.hsync_ctl = (((hsync_period & 0xfff) << 16) |
 				 (timing->hsync_pulse_width & 0xfff));
 	lcdc->parms.vsync_period = vsync_period & 0xffffff;
@@ -289,7 +293,7 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 	if (!lcdc)
 		return -ENOMEM;
 
-	
+	/* We don't actually own the clocks, the mdp does. */
 	lcdc->mdp_clk = clk_get(mdp_dev->dev.parent, "mdp_clk");
 	if (IS_ERR(lcdc->mdp_clk)) {
 		pr_err("%s: failed to get mdp_clk\n", __func__);
@@ -398,7 +402,7 @@ static struct platform_driver mdp_lcdc_driver = {
 static int mdp_lcdc_add_mdp_device(struct device *dev,
 				   struct class_interface *class_intf)
 {
-	
+	/* might need locking if mulitple mdp devices */
 	if (mdp_dev)
 		return 0;
 	mdp_dev = container_of(dev, struct mdp_device, dev);
@@ -408,7 +412,7 @@ static int mdp_lcdc_add_mdp_device(struct device *dev,
 static void mdp_lcdc_remove_mdp_device(struct device *dev,
 				       struct class_interface *class_intf)
 {
-	
+	/* might need locking if mulitple mdp devices */
 	if (dev != &mdp_dev->dev)
 		return;
 	platform_driver_unregister(&mdp_lcdc_driver);

@@ -1,11 +1,27 @@
+/*
+ * comedi/drivers/pcm3730.c
+ * Driver for PCM3730 and clones
+ * Blaine Lee
+ * from pcl725 by David S.
+ */
+/*
+Driver: pcm3730
+Description: PCM3730
+Author: Blaine Lee
+Devices: [Advantech] PCM-3730 (pcm3730)
+Status: unknown
+
+Configuration options:
+  [0] - I/O port base
+*/
 
 #include "../comedidev.h"
 
 #include <linux/ioport.h>
 
-#define PCM3730_SIZE 4		
+#define PCM3730_SIZE 4		/*  consecutive io port addresses */
 
-#define PCM3730_DOA 0		
+#define PCM3730_DOA 0		/*  offsets for each port */
 #define PCM3730_DOB 2
 #define PCM3730_DOC 3
 #define PCM3730_DIA 0

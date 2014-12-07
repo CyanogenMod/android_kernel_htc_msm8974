@@ -91,6 +91,18 @@
 
 */
 
+/*   Changes:
+
+	1.01	GRG 1998.05.06	Round up transfer size, fix ready_wait,
+			        loosed interpretation of ATAPI standard
+				for clearing error status.
+				Eliminate sti();
+	1.02    GRG 1998.06.16  Eliminate an Ugh.
+	1.03    GRG 1998.08.15  Adjusted PT_TMO, use HZ in loop timing,
+				extra debugging
+	1.04    GRG 1998.09.24  Repair minor coding error, added jumbo support
+	
+*/
 
 #define PT_VERSION      "1.04"
 #define PT_MAJOR	96
@@ -99,6 +111,11 @@
 
 #include <linux/types.h>
 
+/* Here are things one can override from the insmod command.
+   Most are autoprobed by paride unless set here.  Verbose is on
+   by default.
+
+*/
 
 static bool verbose = 0;
 static int major = PT_MAJOR;
@@ -121,6 +138,7 @@ static int (*drives[4])[6] = {&drive0, &drive1, &drive2, &drive3};
 
 #define DU              (*drives[unit])
 
+/* end of parameters */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -129,7 +147,7 @@ static int (*drives[4])[6] = {&drive0, &drive1, &drive2, &drive3};
 #include <linux/slab.h>
 #include <linux/mtio.h>
 #include <linux/device.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* current, TASK_*, schedule_timeout() */
 #include <linux/mutex.h>
 
 #include <asm/uaccess.h>
@@ -145,11 +163,11 @@ module_param_array(drive3, int, NULL, 0);
 #include "paride.h"
 
 #define PT_MAX_RETRIES  5
-#define PT_TMO          3000	
-#define PT_SPIN_DEL     50	
-#define PT_RESET_TMO    30	
-#define PT_READY_TMO	60	
-#define PT_REWIND_TMO	1200	
+#define PT_TMO          3000	/* interrupt timeout in jiffies */
+#define PT_SPIN_DEL     50	/* spin delay in micro-seconds  */
+#define PT_RESET_TMO    30	/* 30 seconds */
+#define PT_READY_TMO	60	/* 60 seconds */
+#define PT_REWIND_TMO	1200	/* 20 minutes */
 
 #define PT_SPIN         ((1000000/(HZ*PT_SPIN_DEL))*PT_TMO)
 
@@ -183,6 +201,7 @@ static ssize_t pt_write(struct file *filp, const char __user *buf,
 			size_t count, loff_t * ppos);
 static int pt_detect(void);
 
+/* bits in tape->flags */
 
 #define PT_MEDIA	1
 #define PT_WRITE_OK	2
@@ -195,25 +214,26 @@ static int pt_detect(void);
 #define PT_BUFSIZE  16384
 
 struct pt_unit {
-	struct pi_adapter pia;	
+	struct pi_adapter pia;	/* interface to paride layer */
 	struct pi_adapter *pi;
-	int flags;		
-	int last_sense;		
-	int drive;		
-	atomic_t available;	
-	int bs;			
-	int capacity;		
-	int present;		
+	int flags;		/* various state flags */
+	int last_sense;		/* result of last request sense */
+	int drive;		/* drive */
+	atomic_t available;	/* 1 if access is available 0 otherwise */
+	int bs;			/* block size */
+	int capacity;		/* Size of tape in KB */
+	int present;		/* device present ? */
 	char *bufptr;
-	char name[PT_NAMELEN];	
+	char name[PT_NAMELEN];	/* pf0, pf1, ... */
 };
 
 static int pt_identify(struct pt_unit *tape);
 
 static struct pt_unit pt[PT_UNITS];
 
-static char pt_scratch[512];	
+static char pt_scratch[512];	/* scratch block buffer */
 
+/* kernel glue structures */
 
 static const struct file_operations pt_fops = {
 	.owner = THIS_MODULE,
@@ -225,6 +245,7 @@ static const struct file_operations pt_fops = {
 	.llseek = noop_llseek,
 };
 
+/* sysfs class support */
 static struct class *pt_class;
 
 static inline int status_reg(struct pi_adapter *pi)
@@ -286,7 +307,7 @@ static int pt_command(struct pt_unit *tape, char *cmd, int dlen, char *fun)
 
 	write_reg(pi, 4, dlen % 256);
 	write_reg(pi, 5, dlen / 256);
-	write_reg(pi, 7, 0xa0);	
+	write_reg(pi, 7, 0xa0);	/* ATAPI packet command */
 
 	if (pt_wait(tape, STAT_BUSY, STAT_DRQ, fun, "command DRQ")) {
 		pi_disconnect(pi);
@@ -476,7 +497,7 @@ static int pt_ready_wait(struct pt_unit *tape, int tmo)
 		k++;
 		pt_sleep(HZ);
 	}
-	return 0x000020;	
+	return 0x000020;	/* timeout */
 }
 
 static void xs(char *buf, char *targ, int offs, int len)
@@ -559,6 +580,10 @@ static int pt_identify(struct pt_unit *tape)
 }
 
 
+/*
+ * returns  0, with id set if drive is detected
+ *	   -1, if drive detection failed
+ */
 static int pt_probe(struct pt_unit *tape)
 {
 	if (tape->drive == -1) {
@@ -695,7 +720,7 @@ static long pt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			return 0;
 
 		default:
-			
+			/* FIXME: rate limit ?? */
 			printk(KERN_DEBUG "%s: Unimplemented mt_op %d\n", tape->name,
 			       mtop.mt_op);
 			return -EINVAL;
@@ -755,9 +780,9 @@ static ssize_t pt_read(struct file *filp, char __user *buf, size_t count, loff_t
 
 		n = count;
 		if (n > 32768)
-			n = 32768;	
+			n = 32768;	/* max per command */
 		b = (n - 1 + tape->bs) / tape->bs;
-		n = b * tape->bs;	
+		n = b * tape->bs;	/* rounded up to even block */
 
 		rd_cmd[4] = b;
 
@@ -856,9 +881,9 @@ static ssize_t pt_write(struct file *filp, const char __user *buf, size_t count,
 
 		n = count;
 		if (n > 32768)
-			n = 32768;	
+			n = 32768;	/* max per command */
 		b = (n - 1 + tape->bs) / tape->bs;
-		n = b * tape->bs;	
+		n = b * tape->bs;	/* rounded up to even block */
 
 		wr_cmd[4] = b;
 
@@ -866,7 +891,7 @@ static ssize_t pt_write(struct file *filp, const char __user *buf, size_t count,
 
 		mdelay(1);
 
-		if (r) {	
+		if (r) {	/* error delivering command only */
 			pt_req_sense(tape, 0);
 			return -EIO;
 		}

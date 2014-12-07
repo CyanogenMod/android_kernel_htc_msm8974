@@ -32,7 +32,7 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evdev = dev_id;
 
-	
+	/* clear timer interrupt flag */
 	outl(1, P_TIMER0_CPP_REG);
 	evdev->event_handler(evdev);
 
@@ -87,7 +87,7 @@ void __init time_init(void)
 	timer_irq.dev_id = &score_clockevent;
 	setup_irq(IRQ_TIMER , &timer_irq);
 
-	
+	/* setup COMPARE clockevent */
 	score_clockevent.mult = div_sc(SYSTEM_CLOCK, NSEC_PER_SEC,
 					score_clockevent.shift);
 	score_clockevent.max_delta_ns = clockevent_delta2ns((u32)~0,

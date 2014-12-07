@@ -15,9 +15,23 @@
 #include <linux/bitmap.h>
 #include <linux/spinlock.h>
 #include <linux/module.h>
-#include "internals.h" 
+#include "internals.h" /* only for activate_irq() damage.. */
 
+/*
+ * The IRQ bitmap provides a global map of bound IRQ vectors for a
+ * given platform. Allocation of IRQs are either static through the CPU
+ * vector map, or dynamic in the case of board mux vectors or MSI.
+ *
+ * As this is a central point for all IRQ controllers on the system,
+ * each of the available sources are mapped out here. This combined with
+ * sparseirq makes it quite trivial to keep the vector map tightly packed
+ * when dynamically creating IRQs, as well as tying in to otherwise
+ * unused irq_desc positions in the sparse array.
+ */
 
+/*
+ * Dynamic IRQ allocation and deallocation
+ */
 unsigned int create_irq_nr(unsigned int irq_want, int node)
 {
 	int irq = irq_alloc_desc_at(irq_want, node);

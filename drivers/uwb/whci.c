@@ -22,6 +22,7 @@ struct whci_card {
 };
 
 
+/* Fix faulty HW :( */
 static
 u64 whci_capdata_quirks(struct whci_card *card, u64 capdata)
 {
@@ -31,9 +32,11 @@ u64 whci_capdata_quirks(struct whci_card *card, u64 capdata)
 	    && (pci_dev->device == 0x0c3b || pci_dev->device == 0004)
 	    && pci_dev->class == 0x0d1010) {
 		switch (UWBCAPDATA_TO_CAP_ID(capdata)) {
-			
+			/* WLP capability has 0x100 bytes of aperture */
 		case 0x80:
 			capdata |= 0x40 << 8; break;
+			/* WUSB capability has 0x80 bytes of aperture
+			 * and ID is 1 */
 		case 0x02:
 			capdata &= ~0xffff;
 			capdata |= 0x2001;
@@ -52,6 +55,11 @@ u64 whci_capdata_quirks(struct whci_card *card, u64 capdata)
 }
 
 
+/**
+ * whci_wait_for - wait for a WHCI register to be set
+ *
+ * Polls (for at most @max_ms ms) until '*@reg & @mask == @result'.
+ */
 int whci_wait_for(struct device *dev, u32 __iomem *reg, u32 mask, u32 result,
 	unsigned long max_ms, const char *tag)
 {
@@ -73,6 +81,14 @@ int whci_wait_for(struct device *dev, u32 __iomem *reg, u32 mask, u32 result,
 EXPORT_SYMBOL_GPL(whci_wait_for);
 
 
+/*
+ * NOTE: the capinfo and capdata registers are slightly different
+ *       (size and cap-id fields). So for cap #0, we need to fill
+ *       in. Size comes from the size of the register block
+ *       (statically calculated); cap_id comes from nowhere, we use
+ *       zero, that is reserved, for the radio controller, because
+ *       none was defined at the spec level.
+ */
 static int whci_add_cap(struct whci_card *card, int n)
 {
 	struct umc_dev *umc;
@@ -88,6 +104,8 @@ static int whci_add_cap(struct whci_card *card, int n)
 	bar = UWBCAPDATA_TO_BAR(capdata) << 1;
 
 	capdata = whci_capdata_quirks(card, capdata);
+	/* Capability 0 is the radio controller. It's size is 32
+	 * bytes (WHCI0.95[2.3, T2-9]). */
 	umc->version         = UWBCAPDATA_TO_VERSION(capdata);
 	umc->cap_id          = n == 0 ? 0 : UWBCAPDATA_TO_CAP_ID(capdata);
 	umc->bar	     = bar;
@@ -174,7 +192,7 @@ static int whci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	if (!card->uwbbase)
 		goto error_iomap;
 
-	
+	/* Add each capability. */
 	for (n = 0; n <= card->n_caps; n++) {
 		err = whci_add_cap(card, n);
 		if (err < 0 && n == 0) {
@@ -210,6 +228,8 @@ static void whci_remove(struct pci_dev *pci)
 	int n;
 
 	pci_set_drvdata(pci, NULL);
+	/* Unregister each capability in reverse (so the master device
+	 * is unregistered last). */
 	for (n = card->n_caps; n >= 0 ; n--)
 		whci_del_cap(card, n);
 	pci_iounmap(pci, card->uwbbase);

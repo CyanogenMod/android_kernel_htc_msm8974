@@ -37,38 +37,38 @@ static struct fb_fix_screeninfo efifb_fix __devinitdata = {
 };
 
 enum {
-	M_I17,		
-	M_I20,		
-	M_I20_SR,	
-	M_I24,		
-	M_I24_8_1,	
-	M_I24_10_1,	
-	M_I27_11_1,	
-	M_MINI,		
-	M_MINI_3_1,	
-	M_MINI_4_1,	
-	M_MB,		
-	M_MB_2,		
-	M_MB_3,		
-	M_MB_5_1,	
-	M_MB_6_1,	
-	M_MB_7_1,	
-	M_MB_SR,	
-	M_MBA,		
-	M_MBA_3,	
-	M_MBP,		
-	M_MBP_2,	
-	M_MBP_2_2,	
-	M_MBP_SR,	
-	M_MBP_4,	
-	M_MBP_5_1,    
-	M_MBP_5_2,	
-	M_MBP_5_3,	
-	M_MBP_6_1,	
-	M_MBP_6_2,	
-	M_MBP_7_1,	
-	M_MBP_8_2,	
-	M_UNKNOWN	
+	M_I17,		/* 17-Inch iMac */
+	M_I20,		/* 20-Inch iMac */
+	M_I20_SR,	/* 20-Inch iMac (Santa Rosa) */
+	M_I24,		/* 24-Inch iMac */
+	M_I24_8_1,	/* 24-Inch iMac, 8,1th gen */
+	M_I24_10_1,	/* 24-Inch iMac, 10,1th gen */
+	M_I27_11_1,	/* 27-Inch iMac, 11,1th gen */
+	M_MINI,		/* Mac Mini */
+	M_MINI_3_1,	/* Mac Mini, 3,1th gen */
+	M_MINI_4_1,	/* Mac Mini, 4,1th gen */
+	M_MB,		/* MacBook */
+	M_MB_2,		/* MacBook, 2nd rev. */
+	M_MB_3,		/* MacBook, 3rd rev. */
+	M_MB_5_1,	/* MacBook, 5th rev. */
+	M_MB_6_1,	/* MacBook, 6th rev. */
+	M_MB_7_1,	/* MacBook, 7th rev. */
+	M_MB_SR,	/* MacBook, 2nd gen, (Santa Rosa) */
+	M_MBA,		/* MacBook Air */
+	M_MBA_3,	/* Macbook Air, 3rd rev */
+	M_MBP,		/* MacBook Pro */
+	M_MBP_2,	/* MacBook Pro 2nd gen */
+	M_MBP_2_2,	/* MacBook Pro 2,2nd gen */
+	M_MBP_SR,	/* MacBook Pro (Santa Rosa) */
+	M_MBP_4,	/* MacBook Pro, 4th gen */
+	M_MBP_5_1,    /* MacBook Pro, 5,1th gen */
+	M_MBP_5_2,	/* MacBook Pro, 5,2th gen */
+	M_MBP_5_3,	/* MacBook Pro, 5,3rd gen */
+	M_MBP_6_1,	/* MacBook Pro, 6,1th gen */
+	M_MBP_6_2,	/* MacBook Pro, 6,2th gen */
+	M_MBP_7_1,	/* MacBook Pro, 7,1th gen */
+	M_MBP_8_2,	/* MacBook Pro, 8,2nd gen */
+	M_UNKNOWN	/* placeholder */
 };
 
 #define OVERRIDE_NONE	0x0
@@ -86,9 +86,9 @@ static struct efifb_dmi_info {
 	int flags;
 } dmi_list[] __initdata = {
 	[M_I17] = { "i17", 0x80010000, 1472 * 4, 1440, 900, OVERRIDE_NONE },
-	[M_I20] = { "i20", 0x80010000, 1728 * 4, 1680, 1050, OVERRIDE_NONE }, 
+	[M_I20] = { "i20", 0x80010000, 1728 * 4, 1680, 1050, OVERRIDE_NONE }, /* guess */
 	[M_I20_SR] = { "imac7", 0x40010000, 1728 * 4, 1680, 1050, OVERRIDE_NONE },
-	[M_I24] = { "i24", 0x80010000, 2048 * 4, 1920, 1200, OVERRIDE_NONE }, 
+	[M_I24] = { "i24", 0x80010000, 2048 * 4, 1920, 1200, OVERRIDE_NONE }, /* guess */
 	[M_I24_8_1] = { "imac8", 0xc0060000, 2048 * 4, 1920, 1200, OVERRIDE_NONE },
 	[M_I24_10_1] = { "imac10", 0xc0010000, 2048 * 4, 1920, 1080, OVERRIDE_NONE },
 	[M_I27_11_1] = { "imac11", 0xc0010000, 2560 * 4, 2560, 1440, OVERRIDE_NONE },
@@ -100,10 +100,10 @@ static struct efifb_dmi_info {
 	[M_MB_6_1] = { "macbook61", 0x80010000, 2048 * 4, 1280, 800, OVERRIDE_NONE },
 	[M_MB_7_1] = { "macbook71", 0x80010000, 2048 * 4, 1280, 800, OVERRIDE_NONE },
 	[M_MBA] = { "mba", 0x80000000, 2048 * 4, 1280, 800, OVERRIDE_NONE },
-	
+	/* 11" Macbook Air 3,1 passes the wrong stride */
 	[M_MBA_3] = { "mba3", 0, 2048 * 4, 0, 0, OVERRIDE_STRIDE },
 	[M_MBP] = { "mbp", 0x80010000, 1472 * 4, 1440, 900, OVERRIDE_NONE },
-	[M_MBP_2] = { "mbp2", 0, 0, 0, 0, OVERRIDE_NONE }, 
+	[M_MBP_2] = { "mbp2", 0, 0, 0, 0, OVERRIDE_NONE }, /* placeholder */
 	[M_MBP_2_2] = { "mbp22", 0x80010000, 1472 * 4, 1440, 900, OVERRIDE_NONE },
 	[M_MBP_SR] = { "mbp3", 0x80030000, 2048 * 4, 1440, 900, OVERRIDE_NONE },
 	[M_MBP_4] = { "mbp4", 0xc0060000, 2048 * 4, 1920, 1200, OVERRIDE_NONE },
@@ -127,10 +127,10 @@ static int set_system(const struct dmi_system_id *id);
 
 static const struct dmi_system_id dmi_system_table[] __initconst = {
 	EFIFB_DMI_SYSTEM_ID("Apple Computer, Inc.", "iMac4,1", M_I17),
-	
+	/* At least one of these two will be right; maybe both? */
 	EFIFB_DMI_SYSTEM_ID("Apple Computer, Inc.", "iMac5,1", M_I20),
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "iMac5,1", M_I20),
-	
+	/* At least one of these two will be right; maybe both? */
 	EFIFB_DMI_SYSTEM_ID("Apple Computer, Inc.", "iMac6,1", M_I24),
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "iMac6,1", M_I24),
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "iMac7,1", M_I20_SR),
@@ -141,10 +141,10 @@ static const struct dmi_system_id dmi_system_table[] __initconst = {
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "Macmini3,1", M_MINI_3_1),
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "Macmini4,1", M_MINI_4_1),
 	EFIFB_DMI_SYSTEM_ID("Apple Computer, Inc.", "MacBook1,1", M_MB),
-	
+	/* At least one of these two will be right; maybe both? */
 	EFIFB_DMI_SYSTEM_ID("Apple Computer, Inc.", "MacBook2,1", M_MB),
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "MacBook2,1", M_MB),
-	
+	/* At least one of these two will be right; maybe both? */
 	EFIFB_DMI_SYSTEM_ID("Apple Computer, Inc.", "MacBook3,1", M_MB),
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "MacBook3,1", M_MB),
 	EFIFB_DMI_SYSTEM_ID("Apple Inc.", "MacBook4,1", M_MB),
@@ -187,7 +187,7 @@ static int set_system(const struct dmi_system_id *id)
 			&& info->stride == 0)
 		return 0;
 
-	
+	/* Trust the bootloader over the DMI tables */
 	if (screen_info.lfb_base == 0) {
 #if defined(CONFIG_PCI)
 		struct pci_dev *dev = NULL;
@@ -199,6 +199,8 @@ static int set_system(const struct dmi_system_id *id)
 				info->flags);
 
 #if defined(CONFIG_PCI)
+			/* make sure that the address in the table is actually
+			 * on a VGA device's PCI BAR */
 
 			for_each_pci_dev(dev) {
 				int i;
@@ -255,6 +257,12 @@ static int efifb_setcolreg(unsigned regno, unsigned red, unsigned green,
 			   unsigned blue, unsigned transp,
 			   struct fb_info *info)
 {
+	/*
+	 *  Set a single color register. The values supplied are
+	 *  already rounded down to the hardware's capabilities
+	 *  (according to the entries in the `var' structure). Return
+	 *  != 0 for invalid regno.
+	 */
 
 	if (regno >= info->cmap.len)
 		return 1;
@@ -340,7 +348,7 @@ static int __init efifb_probe(struct platform_device *dev)
 	}
 	printk(KERN_INFO "efifb: probing for efifb\n");
 
-	
+	/* just assume they're all unset if any are */
 	if (!screen_info.blue_size) {
 		screen_info.blue_size = 8;
 		screen_info.blue_pos = 0;
@@ -358,12 +366,22 @@ static int __init efifb_probe(struct platform_device *dev)
 	efifb_defined.yres = screen_info.lfb_height;
 	efifb_fix.line_length = screen_info.lfb_linelength;
 
+	/*   size_vmode -- that is the amount of memory needed for the
+	 *                 used video mode, i.e. the minimum amount of
+	 *                 memory we need. */
 	size_vmode = efifb_defined.yres * efifb_fix.line_length;
 
+	/*   size_total -- all video memory we have. Used for
+	 *                 entries, ressource allocation and bounds
+	 *                 checking. */
 	size_total = screen_info.lfb_size;
 	if (size_total < size_vmode)
 		size_total = size_vmode;
 
+	/*   size_remap -- the amount of video memory we are going to
+	 *                 use for efifb.  With modern cards it is no
+	 *                 option to simply use size_total as that
+	 *                 wastes plenty of kernel address space. */
 	size_remap  = size_vmode * 2;
 	if (size_remap > size_total)
 		size_remap = size_total;
@@ -374,6 +392,8 @@ static int __init efifb_probe(struct platform_device *dev)
 	if (request_mem_region(efifb_fix.smem_start, size_remap, "efifb")) {
 		request_mem_succeeded = true;
 	} else {
+		/* We cannot make this fatal. Sometimes this comes from magic
+		   spaces our resource handlers simply don't know about */
 		printk(KERN_WARNING
 		       "efifb: cannot reserve video memory at 0x%lx\n",
 			efifb_fix.smem_start);
@@ -420,7 +440,7 @@ static int __init efifb_probe(struct platform_device *dev)
 	printk(KERN_INFO "efifb: scrolling: redraw\n");
 	efifb_defined.yres_virtual = efifb_defined.yres;
 
-	
+	/* some dummy values for timing to make fbset happy */
 	efifb_defined.pixclock     = 10000000 / efifb_defined.xres *
 					1000 / efifb_defined.yres;
 	efifb_defined.left_margin  = (efifb_defined.xres / 8) & 0xf8;
@@ -503,6 +523,10 @@ static int __init efifb_init(void)
 		return -ENODEV;
 	efifb_setup(option);
 
+	/* We don't get linelength from UGA Draw Protocol, only from
+	 * EFI Graphics Protocol.  So if it's not in DMI, and it's not
+	 * passed in from the user, we really can't use the framebuffer.
+	 */
 	if (!screen_info.lfb_linelength)
 		return -ENODEV;
 
@@ -510,6 +534,11 @@ static int __init efifb_init(void)
 	if (ret)
 		return ret;
 
+	/*
+	 * This is not just an optimization.  We will interfere
+	 * with a real driver if we get reprobed, so don't allow
+	 * it.
+	 */
 	ret = platform_driver_probe(&efifb_driver, efifb_probe);
 	if (ret) {
 		platform_device_unregister(&efifb_device);

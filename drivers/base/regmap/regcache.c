@@ -39,7 +39,7 @@ static int regcache_hw_init(struct regmap *map)
 		u32 cache_bypass = map->cache_bypass;
 		dev_warn(map->dev, "No cache defaults, reading back from HW\n");
 
-		
+		/* Bypass the cache access till data read from HW*/
 		map->cache_bypass = 1;
 		tmp_buf = kmalloc(map->cache_size_raw, GFP_KERNEL);
 		if (!tmp_buf)
@@ -55,7 +55,7 @@ static int regcache_hw_init(struct regmap *map)
 		map->cache_free = 1;
 	}
 
-	
+	/* calculate the size of reg_defaults */
 	for (count = 0, i = 0; i < map->num_reg_defaults_raw; i++) {
 		val = regcache_get_val(map->reg_defaults_raw,
 				       i, map->cache_word_size);
@@ -71,7 +71,7 @@ static int regcache_hw_init(struct regmap *map)
 		goto err_free;
 	}
 
-	
+	/* fill the reg_defaults */
 	map->num_reg_defaults = count;
 	for (i = 0, j = 0; i < map->num_reg_defaults_raw; i++) {
 		val = regcache_get_val(map->reg_defaults_raw,
@@ -127,6 +127,10 @@ int regcache_init(struct regmap *map, const struct regmap_config *config)
 	    !map->cache_ops->name)
 		return -EINVAL;
 
+	/* We still need to ensure that the reg_defaults
+	 * won't vanish from under us.  We'll need to make
+	 * a copy of it.
+	 */
 	if (config->reg_defaults) {
 		if (!map->num_reg_defaults)
 			return -EINVAL;
@@ -136,6 +140,10 @@ int regcache_init(struct regmap *map, const struct regmap_config *config)
 			return -ENOMEM;
 		map->reg_defaults = tmp_buf;
 	} else if (map->num_reg_defaults_raw) {
+		/* Some devices such as PMICs don't have cache defaults,
+		 * we cope with this by reading back the HW registers and
+		 * crafting the cache defaults by hand.
+		 */
 		ret = regcache_hw_init(map);
 		if (ret < 0)
 			return ret;
@@ -179,6 +187,15 @@ void regcache_exit(struct regmap *map)
 	}
 }
 
+/**
+ * regcache_read: Fetch the value of a given register from the cache.
+ *
+ * @map: map to configure.
+ * @reg: The register index.
+ * @value: The value to be returned.
+ *
+ * Return a negative value on failure, 0 on success.
+ */
 int regcache_read(struct regmap *map,
 		  unsigned int reg, unsigned int *value)
 {
@@ -201,6 +218,15 @@ int regcache_read(struct regmap *map,
 	return -EINVAL;
 }
 
+/**
+ * regcache_write: Set the value of a given register in the cache.
+ *
+ * @map: map to configure.
+ * @reg: The register index.
+ * @value: The new register value.
+ *
+ * Return a negative value on failure, 0 on success.
+ */
 int regcache_write(struct regmap *map,
 		   unsigned int reg, unsigned int value)
 {
@@ -218,6 +244,17 @@ int regcache_write(struct regmap *map,
 	return 0;
 }
 
+/**
+ * regcache_sync: Sync the register cache with the hardware.
+ *
+ * @map: map to configure.
+ *
+ * Any registers that should not be synced should be marked as
+ * volatile.  In general drivers can choose not to use the provided
+ * syncing functionality if they so require.
+ *
+ * Return a negative value on failure, 0 on success.
+ */
 int regcache_sync(struct regmap *map)
 {
 	int ret = 0;
@@ -228,7 +265,7 @@ int regcache_sync(struct regmap *map)
 	BUG_ON(!map->cache_ops || !map->cache_ops->sync);
 
 	mutex_lock(&map->lock);
-	
+	/* Remember the initial bypass state */
 	bypass = map->cache_bypass;
 	dev_dbg(map->dev, "Syncing %s cache\n",
 		map->cache_ops->name);
@@ -238,7 +275,7 @@ int regcache_sync(struct regmap *map)
 	if (!map->cache_dirty)
 		goto out;
 
-	
+	/* Apply any patch first */
 	map->cache_bypass = 1;
 	for (i = 0; i < map->patch_regs; i++) {
 		ret = _regmap_write(map, map->patch[i].reg, map->patch[i].def);
@@ -257,7 +294,7 @@ int regcache_sync(struct regmap *map)
 
 out:
 	trace_regcache_sync(map->dev, name, "stop");
-	
+	/* Restore the bypass state */
 	map->cache_bypass = bypass;
 	mutex_unlock(&map->lock);
 
@@ -265,6 +302,18 @@ out:
 }
 EXPORT_SYMBOL_GPL(regcache_sync);
 
+/**
+ * regcache_sync_region: Sync part  of the register cache with the hardware.
+ *
+ * @map: map to sync.
+ * @min: first register to sync
+ * @max: last register to sync
+ *
+ * Write all non-default register values in the specified region to
+ * the hardware.
+ *
+ * Return a negative value on failure, 0 on success.
+ */
 int regcache_sync_region(struct regmap *map, unsigned int min,
 			 unsigned int max)
 {
@@ -276,7 +325,7 @@ int regcache_sync_region(struct regmap *map, unsigned int min,
 
 	mutex_lock(&map->lock);
 
-	
+	/* Remember the initial bypass state */
 	bypass = map->cache_bypass;
 
 	name = map->cache_ops->name;
@@ -291,7 +340,7 @@ int regcache_sync_region(struct regmap *map, unsigned int min,
 
 out:
 	trace_regcache_sync(map->dev, name, "stop region");
-	
+	/* Restore the bypass state */
 	map->cache_bypass = bypass;
 	mutex_unlock(&map->lock);
 
@@ -321,6 +370,15 @@ void regcache_cache_only(struct regmap *map, bool enable)
 }
 EXPORT_SYMBOL_GPL(regcache_cache_only);
 
+/**
+ * regcache_mark_dirty: Mark the register cache as dirty
+ *
+ * @map: map to mark
+ *
+ * Mark the register cache as dirty, for example due to the device
+ * having been powered down for suspend.  If the cache is not marked
+ * as dirty then the cache sync will be suppressed.
+ */
 void regcache_mark_dirty(struct regmap *map)
 {
 	mutex_lock(&map->lock);
@@ -403,7 +461,7 @@ unsigned int regcache_get_val(const void *base, unsigned int idx,
 	default:
 		BUG();
 	}
-	
+	/* unreachable */
 	return -1;
 }
 

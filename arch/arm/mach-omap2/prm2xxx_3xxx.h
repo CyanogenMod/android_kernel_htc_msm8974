@@ -27,6 +27,15 @@
 		OMAP2_L4_IO_ADDRESS(OMAP3430_PRM_BASE + (module) + (reg))
 
 
+/*
+ * OMAP2-specific global PRM registers
+ * Use __raw_{read,write}l() with these registers.
+ *
+ * With a few exceptions, these are the register names beginning with
+ * PRCM_* on 24xx.  (The exceptions are the IRQSTATUS and IRQENABLE
+ * bits.)
+ *
+ */
 
 #define OMAP2_PRCM_REVISION_OFFSET	0x0000
 #define OMAP2420_PRCM_REVISION		OMAP2420_PRM_REGADDR(OCP_MOD, 0x0000)
@@ -76,6 +85,14 @@
 #define OMAP2430_PRCM_CLKSSETUP		OMAP2430_PRM_REGADDR(OCP_MOD, 0x0094)
 #define OMAP2430_PRCM_POLCTRL		OMAP2430_PRM_REGADDR(OCP_MOD, 0x0098)
 
+/*
+ * OMAP3-specific global PRM registers
+ * Use __raw_{read,write}l() with these registers.
+ *
+ * With a few exceptions, these are the register names beginning with
+ * PRM_* on 34xx.  (The exceptions are the IRQSTATUS and IRQENABLE
+ * bits.)
+ */
 
 #define OMAP3_PRM_REVISION_OFFSET	0x0004
 #define OMAP3430_PRM_REVISION		OMAP34XX_PRM_REGADDR(OCP_MOD, 0x0004)
@@ -156,7 +173,17 @@
 #define OMAP3_PRM_CLKOUT_CTRL_OFFSET	0x0070
 #define OMAP3430_PRM_CLKOUT_CTRL	OMAP34XX_PRM_REGADDR(OMAP3430_CCR_MOD, 0x0070)
 
+/*
+ * Module specific PRM register offsets from PRM_BASE + domain offset
+ *
+ * Use prm_{read,write}_mod_reg() with these registers.
+ *
+ * With a few exceptions, these are the register names beginning with
+ * {PM,RM}_* on both OMAP2/3 SoC families..  (The exceptions are the
+ * IRQSTATUS and IRQENABLE bits.)
+ */
 
+/* Register offsets appearing on both OMAP2 and OMAP3 */
 
 #define OMAP2_RM_RSTCTRL				0x0050
 #define OMAP2_RM_RSTTIME				0x0054
@@ -173,14 +200,16 @@
 #define PM_EVGENONTIM					0x00d8
 #define PM_EVGENOFFTIM					0x00dc
 
+/* OMAP2xxx specific register offsets */
 #define OMAP24XX_PM_WKEN2				0x00a4
 #define OMAP24XX_PM_WKST2				0x00b4
 
-#define OMAP24XX_PRCM_IRQSTATUS_DSP			0x00f0	
-#define OMAP24XX_PRCM_IRQENABLE_DSP			0x00f4	
+#define OMAP24XX_PRCM_IRQSTATUS_DSP			0x00f0	/* IVA mod */
+#define OMAP24XX_PRCM_IRQENABLE_DSP			0x00f4	/* IVA mod */
 #define OMAP24XX_PRCM_IRQSTATUS_IVA			0x00f8
 #define OMAP24XX_PRCM_IRQENABLE_IVA			0x00fc
 
+/* OMAP3 specific register offsets */
 #define OMAP3430ES2_PM_WKEN3				0x00f0
 #define OMAP3430ES2_PM_WKST3				0x00b8
 
@@ -199,6 +228,10 @@
 
 
 #ifndef __ASSEMBLER__
+/*
+ * Stub omap2xxx/omap3xxx functions so that common files
+ * continue to build when custom builds are used
+ */
 #if defined(CONFIG_ARCH_OMAP4) && !(defined(CONFIG_ARCH_OMAP2) ||	\
 					defined(CONFIG_ARCH_OMAP3))
 static inline u32 omap2_prm_read_mod_reg(s16 module, u16 idx)
@@ -257,6 +290,7 @@ static inline int omap2_prm_deassert_hardreset(s16 prm_mod, u8 rst_shift,
 	return 0;
 }
 #else
+/* Power/reset management domain register get/set */
 extern u32 omap2_prm_read_mod_reg(s16 module, u16 idx);
 extern void omap2_prm_write_mod_reg(u32 val, s16 module, u16 idx);
 extern u32 omap2_prm_rmw_mod_reg_bits(u32 mask, u32 bits, s16 module, s16 idx);
@@ -264,36 +298,57 @@ extern u32 omap2_prm_set_mod_reg_bits(u32 bits, s16 module, s16 idx);
 extern u32 omap2_prm_clear_mod_reg_bits(u32 bits, s16 module, s16 idx);
 extern u32 omap2_prm_read_mod_bits_shift(s16 domain, s16 idx, u32 mask);
 
+/* These omap2_ PRM functions apply to both OMAP2 and 3 */
 extern int omap2_prm_is_hardreset_asserted(s16 prm_mod, u8 shift);
 extern int omap2_prm_assert_hardreset(s16 prm_mod, u8 shift);
 extern int omap2_prm_deassert_hardreset(s16 prm_mod, u8 rst_shift, u8 st_shift);
 
+/* OMAP3-specific VP functions */
 u32 omap3_prm_vp_check_txdone(u8 vp_id);
 void omap3_prm_vp_clear_txdone(u8 vp_id);
 
+/*
+ * OMAP3 access functions for voltage controller (VC) and
+ * voltage proccessor (VP) in the PRM.
+ */
 extern u32 omap3_prm_vcvp_read(u8 offset);
 extern void omap3_prm_vcvp_write(u32 val, u8 offset);
 extern u32 omap3_prm_vcvp_rmw(u32 mask, u32 bits, u8 offset);
 
+/* PRM interrupt-related functions */
 extern void omap3xxx_prm_read_pending_irqs(unsigned long *events);
 extern void omap3xxx_prm_ocp_barrier(void);
 extern void omap3xxx_prm_save_and_clear_irqen(u32 *saved_mask);
 extern void omap3xxx_prm_restore_irqen(u32 *saved_mask);
 
-#endif	
+#endif	/* CONFIG_ARCH_OMAP4 */
 
 #endif
 
+/*
+ * Bits common to specific registers
+ *
+ * The 3430 register and bit names are generally used,
+ * since they tend to make more sense
+ */
 
+/* PM_EVGENONTIM_MPU */
+/* Named PM_EVEGENONTIM_MPU on the 24XX */
 #define OMAP_ONTIMEVAL_SHIFT				0
 #define OMAP_ONTIMEVAL_MASK				(0xffffffff << 0)
 
+/* PM_EVGENOFFTIM_MPU */
+/* Named PM_EVEGENOFFTIM_MPU on the 24XX */
 #define OMAP_OFFTIMEVAL_SHIFT				0
 #define OMAP_OFFTIMEVAL_MASK				(0xffffffff << 0)
 
+/* PRM_CLKSETUP and PRCM_VOLTSETUP */
+/* Named PRCM_CLKSSETUP on the 24XX */
 #define OMAP_SETUP_TIME_SHIFT				0
 #define OMAP_SETUP_TIME_MASK				(0xffff << 0)
 
+/* PRM_CLKSRC_CTRL */
+/* Named PRCM_CLKSRC_CTRL on the 24XX */
 #define OMAP_SYSCLKDIV_SHIFT				6
 #define OMAP_SYSCLKDIV_MASK				(0x3 << 6)
 #define OMAP_AUTOEXTCLKMODE_SHIFT			3
@@ -301,35 +356,92 @@ extern void omap3xxx_prm_restore_irqen(u32 *saved_mask);
 #define OMAP_SYSCLKSEL_SHIFT				0
 #define OMAP_SYSCLKSEL_MASK				(0x3 << 0)
 
+/* PM_EVGENCTRL_MPU */
 #define OMAP_OFFLOADMODE_SHIFT				3
 #define OMAP_OFFLOADMODE_MASK				(0x3 << 3)
 #define OMAP_ONLOADMODE_SHIFT				1
 #define OMAP_ONLOADMODE_MASK				(0x3 << 1)
 #define OMAP_ENABLE_MASK				(1 << 0)
 
+/* PRM_RSTTIME */
+/* Named RM_RSTTIME_WKUP on the 24xx */
 #define OMAP_RSTTIME2_SHIFT				8
 #define OMAP_RSTTIME2_MASK				(0x1f << 8)
 #define OMAP_RSTTIME1_SHIFT				0
 #define OMAP_RSTTIME1_MASK				(0xff << 0)
 
+/* PRM_RSTCTRL */
+/* Named RM_RSTCTRL_WKUP on the 24xx */
+/* 2420 calls RST_DPLL3 'RST_DPLL' */
 #define OMAP_RST_DPLL3_MASK				(1 << 2)
 #define OMAP_RST_GS_MASK				(1 << 1)
 
 
+/*
+ * Bits common to module-shared registers
+ *
+ * Not all registers of a particular type support all of these bits -
+ * check TRM if you are unsure
+ */
 
+/*
+ * 24XX: RM_RSTST_MPU and RM_RSTST_DSP - on 24XX, 'COREDOMAINWKUP_RST' is
+ *	 called 'COREWKUP_RST'
+ *
+ * 3430: RM_RSTST_IVA2, RM_RSTST_MPU, RM_RSTST_GFX, RM_RSTST_DSS,
+ *	 RM_RSTST_CAM, RM_RSTST_PER, RM_RSTST_NEON
+ */
 #define OMAP_COREDOMAINWKUP_RST_MASK			(1 << 3)
 
+/*
+ * 24XX: RM_RSTST_MPU, RM_RSTST_GFX, RM_RSTST_DSP
+ *
+ * 2430: RM_RSTST_MDM
+ *
+ * 3430: RM_RSTST_CORE, RM_RSTST_EMU
+ */
 #define OMAP_DOMAINWKUP_RST_MASK			(1 << 2)
 
+/*
+ * 24XX: RM_RSTST_MPU, RM_RSTST_WKUP, RM_RSTST_DSP
+ *	 On 24XX, 'GLOBALWARM_RST' is called 'GLOBALWMPU_RST'.
+ *
+ * 2430: RM_RSTST_MDM
+ *
+ * 3430: RM_RSTST_CORE, RM_RSTST_EMU
+ */
 #define OMAP_GLOBALWARM_RST_MASK			(1 << 1)
 #define OMAP_GLOBALCOLD_RST_MASK			(1 << 0)
 
+/*
+ * 24XX: PM_WKDEP_GFX, PM_WKDEP_MPU, PM_WKDEP_CORE, PM_WKDEP_DSP
+ *	 2420 TRM sometimes uses "EN_WAKEUP" instead of "EN_WKUP"
+ *
+ * 2430: PM_WKDEP_MDM
+ *
+ * 3430: PM_WKDEP_IVA2, PM_WKDEP_GFX, PM_WKDEP_DSS, PM_WKDEP_CAM,
+ *	 PM_WKDEP_PER
+ */
 #define OMAP_EN_WKUP_SHIFT				4
 #define OMAP_EN_WKUP_MASK				(1 << 4)
 
+/*
+ * 24XX: PM_PWSTCTRL_MPU, PM_PWSTCTRL_CORE, PM_PWSTCTRL_GFX,
+ *	 PM_PWSTCTRL_DSP
+ *
+ * 2430: PM_PWSTCTRL_MDM
+ *
+ * 3430: PM_PWSTCTRL_IVA2, PM_PWSTCTRL_CORE, PM_PWSTCTRL_GFX,
+ *	 PM_PWSTCTRL_DSS, PM_PWSTCTRL_CAM, PM_PWSTCTRL_PER,
+ *	 PM_PWSTCTRL_NEON
+ */
 #define OMAP_LOGICRETSTATE_MASK				(1 << 2)
 
 
+/*
+ * MAX_MODULE_HARDRESET_WAIT: Maximum microseconds to wait for an OMAP
+ * submodule to exit hardreset
+ */
 #define MAX_MODULE_HARDRESET_WAIT		10000
 
 

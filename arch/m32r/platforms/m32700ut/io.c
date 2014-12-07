@@ -28,7 +28,7 @@ extern void pcc_ioread_byte(int, unsigned long, void *, size_t, size_t, int);
 extern void pcc_ioread_word(int, unsigned long, void *, size_t, size_t, int);
 extern void pcc_iowrite_byte(int, unsigned long, void *, size_t, size_t, int);
 extern void pcc_iowrite_word(int, unsigned long, void *, size_t, size_t, int);
-#endif 
+#endif /* CONFIG_PCMCIA && CONFIG_M32R_CFC */
 
 #define PORT2ADDR(port)		_port2addr(port)
 #define PORT2ADDR_USB(port)	_port2addr_usb(port)
@@ -58,6 +58,11 @@ static inline void *__port2addr_ata(unsigned long port)
 }
 #endif
 
+/*
+ * M32700UT-LAN is located in the extended bus space
+ * from 0x10000000 to 0x13ffffff on physical address.
+ * The base address of LAN controller(LAN91C111) is 0x300.
+ */
 #define LAN_IOSTART	(0x300 | NONCACHE_OFFSET)
 #define LAN_IOEND	(0x320 | NONCACHE_OFFSET)
 static inline void *_port2addr_ne(unsigned long port)
@@ -74,6 +79,9 @@ static inline void delay(void)
 	__asm__ __volatile__ ("push r0; \n\t pop r0;" : : :"memory");
 }
 
+/*
+ * NIC I/O function
+ */
 
 #define PORT2ADDR_NE(port)  _port2addr_ne(port)
 
@@ -283,6 +291,10 @@ void _insw(unsigned int port, void *addr, unsigned long count)
 	unsigned short *portp;
 
 	if (port >= LAN_IOSTART && port < LAN_IOEND) {
+		/*
+		 * This portion is only used by smc91111.c to read data
+		 * from the DATA_REG. Do not swap the data.
+		 */
 		portp = PORT2ADDR_NE(port);
 		while (count--)
 			*buf++ = *(volatile unsigned short *)portp;
@@ -347,6 +359,10 @@ void _outsw(unsigned int port, const void *addr, unsigned long count)
 	unsigned short *portp;
 
 	if (port >= LAN_IOSTART && port < LAN_IOEND) {
+		/*
+		 * This portion is only used by smc91111.c to write data
+		 * into the DATA_REG. Do not swap the data.
+		 */
 		portp = PORT2ADDR_NE(port);
 		while (count--)
 			*(volatile unsigned short *)portp = *buf++;

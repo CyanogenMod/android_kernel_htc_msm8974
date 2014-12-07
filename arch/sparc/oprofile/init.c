@@ -11,7 +11,7 @@
 #include <linux/oprofile.h>
 #include <linux/errno.h>
 #include <linux/init.h>
-#include <linux/param.h>	
+#include <linux/param.h>	/* for HZ */
  
 #ifdef CONFIG_SPARC64
 #include <linux/notifier.h>
@@ -53,7 +53,7 @@ static void timer_stop(void)
 {
 	nmi_adjust_hz(1);
 	unregister_die_notifier(&profile_timer_exceptions_nb);
-	synchronize_sched();  
+	synchronize_sched();  /* Allow already-started NMIs to complete. */
 }
 
 static int op_nmi_timer_init(struct oprofile_operations *ops)

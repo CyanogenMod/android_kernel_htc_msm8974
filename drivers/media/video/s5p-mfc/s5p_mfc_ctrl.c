@@ -26,6 +26,7 @@ static void *s5p_mfc_bitproc_buf;
 static size_t s5p_mfc_bitproc_phys;
 static unsigned char *s5p_mfc_bitproc_virt;
 
+/* Allocate and load firmware */
 int s5p_mfc_alloc_and_load_firmware(struct s5p_mfc_dev *dev)
 {
 	struct firmware *fw_blob;
@@ -33,6 +34,8 @@ int s5p_mfc_alloc_and_load_firmware(struct s5p_mfc_dev *dev)
 	void *b_base;
 	int err;
 
+	/* Firmare has to be present as a separate file or compiled
+	 * into kernel. */
 	mfc_debug_enter();
 	err = request_firmware((const struct firmware **)&fw_blob,
 				     "s5p-mfc.fw", dev->v4l2_dev.dev);
@@ -103,11 +106,14 @@ int s5p_mfc_alloc_and_load_firmware(struct s5p_mfc_dev *dev)
 	return 0;
 }
 
+/* Reload firmware to MFC */
 int s5p_mfc_reload_firmware(struct s5p_mfc_dev *dev)
 {
 	struct firmware *fw_blob;
 	int err;
 
+	/* Firmare has to be present as a separate file or compiled
+	 * into kernel. */
 	mfc_debug_enter();
 	err = request_firmware((const struct firmware **)&fw_blob,
 				     "s5p-mfc.fw", dev->v4l2_dev.dev);
@@ -132,8 +138,11 @@ int s5p_mfc_reload_firmware(struct s5p_mfc_dev *dev)
 	return 0;
 }
 
+/* Release firmware memory */
 int s5p_mfc_release_firmware(struct s5p_mfc_dev *dev)
 {
+	/* Before calling this function one has to make sure
+	 * that MFC is no longer processing */
 	if (!s5p_mfc_bitproc_buf)
 		return -EINVAL;
 	vb2_dma_contig_memops.put(s5p_mfc_bitproc_buf);
@@ -143,21 +152,22 @@ int s5p_mfc_release_firmware(struct s5p_mfc_dev *dev)
 	return 0;
 }
 
+/* Reset the device */
 int s5p_mfc_reset(struct s5p_mfc_dev *dev)
 {
 	unsigned int mc_status;
 	unsigned long timeout;
 
 	mfc_debug_enter();
-	
-	
+	/* Stop procedure */
+	/*  reset RISC */
 	mfc_write(dev, 0x3f6, S5P_FIMV_SW_RESET);
-	
+	/*  All reset except for MC */
 	mfc_write(dev, 0x3e2, S5P_FIMV_SW_RESET);
 	mdelay(10);
 
 	timeout = jiffies + msecs_to_jiffies(MFC_BW_TIMEOUT);
-	
+	/* Check MC status */
 	do {
 		if (time_after(jiffies, timeout)) {
 			mfc_err("Timeout while resetting MFC\n");
@@ -189,6 +199,7 @@ static inline void s5p_mfc_clear_cmds(struct s5p_mfc_dev *dev)
 	mfc_write(dev, 0, S5P_FIMV_HOST2RISC_CMD);
 }
 
+/* Initialize hardware */
 int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
 {
 	unsigned int ver;
@@ -198,7 +209,7 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
 	if (!s5p_mfc_bitproc_buf)
 		return -EINVAL;
 
-	
+	/* 0. MFC reset */
 	mfc_debug(2, "MFC reset..\n");
 	s5p_mfc_clock_on();
 	ret = s5p_mfc_reset(dev);
@@ -207,11 +218,11 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
 		return ret;
 	}
 	mfc_debug(2, "Done MFC reset..\n");
-	
+	/* 1. Set DRAM base Addr */
 	s5p_mfc_init_memctrl(dev);
-	
+	/* 2. Initialize registers of channel I/F */
 	s5p_mfc_clear_cmds(dev);
-	
+	/* 3. Release reset signal to the RISC */
 	s5p_mfc_clean_dev_int_flags(dev);
 	mfc_write(dev, 0x3ff, S5P_FIMV_SW_RESET);
 	mfc_debug(2, "Will now wait for completion of firmware transfer\n");
@@ -222,7 +233,7 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
 		return -EIO;
 	}
 	s5p_mfc_clean_dev_int_flags(dev);
-	
+	/* 4. Initialize firmware */
 	ret = s5p_mfc_sys_init_cmd(dev);
 	if (ret) {
 		mfc_err("Failed to send command to MFC - timeout\n");
@@ -240,7 +251,7 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
 	dev->int_cond = 0;
 	if (dev->int_err != 0 || dev->int_type !=
 					S5P_FIMV_R2H_CMD_SYS_INIT_RET) {
-		
+		/* Failure. */
 		mfc_err("Failed to init firmware - error: %d int: %d\n",
 						dev->int_err, dev->int_type);
 		s5p_mfc_reset(dev);
@@ -276,7 +287,7 @@ int s5p_mfc_sleep(struct s5p_mfc_dev *dev)
 	dev->int_cond = 0;
 	if (dev->int_err != 0 || dev->int_type !=
 						S5P_FIMV_R2H_CMD_SLEEP_RET) {
-		
+		/* Failure. */
 		mfc_err("Failed to sleep - error: %d int: %d\n", dev->int_err,
 								dev->int_type);
 		return -EIO;
@@ -290,7 +301,7 @@ int s5p_mfc_wakeup(struct s5p_mfc_dev *dev)
 	int ret;
 
 	mfc_debug_enter();
-	
+	/* 0. MFC reset */
 	mfc_debug(2, "MFC reset..\n");
 	s5p_mfc_clock_on();
 	ret = s5p_mfc_reset(dev);
@@ -299,18 +310,18 @@ int s5p_mfc_wakeup(struct s5p_mfc_dev *dev)
 		return ret;
 	}
 	mfc_debug(2, "Done MFC reset..\n");
-	
+	/* 1. Set DRAM base Addr */
 	s5p_mfc_init_memctrl(dev);
-	
+	/* 2. Initialize registers of channel I/F */
 	s5p_mfc_clear_cmds(dev);
 	s5p_mfc_clean_dev_int_flags(dev);
-	
+	/* 3. Initialize firmware */
 	ret = s5p_mfc_wakeup_cmd(dev);
 	if (ret) {
 		mfc_err("Failed to send command to MFC - timeout\n");
 		return ret;
 	}
-	
+	/* 4. Release reset signal to the RISC */
 	mfc_write(dev, 0x3ff, S5P_FIMV_SW_RESET);
 	mfc_debug(2, "Ok, now will write a command to wakeup the system\n");
 	if (s5p_mfc_wait_for_done_dev(dev, S5P_FIMV_R2H_CMD_WAKEUP_RET)) {
@@ -321,7 +332,7 @@ int s5p_mfc_wakeup(struct s5p_mfc_dev *dev)
 	dev->int_cond = 0;
 	if (dev->int_err != 0 || dev->int_type !=
 						S5P_FIMV_R2H_CMD_WAKEUP_RET) {
-		
+		/* Failure. */
 		mfc_err("Failed to wakeup - error: %d int: %d\n", dev->int_err,
 								dev->int_type);
 		return -EIO;

@@ -7,6 +7,7 @@
 
 #include <linux/mm.h>
 
+/* Cache flush operations. */
 
 
 #define flushi(addr)	__asm__ __volatile__ ("flush %0" : : "r" (addr) : "memory")
@@ -18,6 +19,7 @@ extern void __flushw_user(void);
 #define flush_user_windows flushw_user
 #define flush_register_windows flushw_all
 
+/* These are the same regardless of whether this is an SMP kernel or not. */
 #define flush_cache_mm(__mm) \
 	do { if ((__mm) == current->mm) flushw_user(); } while(0)
 #define flush_cache_dup_mm(mm) flush_cache_mm(mm)
@@ -26,6 +28,11 @@ extern void __flushw_user(void);
 #define flush_cache_page(vma, page, pfn) \
 	flush_cache_mm((vma)->vm_mm)
 
+/*
+ * On spitfire, the icache doesn't snoop local stores and we don't
+ * use block commit stores (which invalidate icache lines) during
+ * module load, so we need this.
+ */
 extern void flush_icache_range(unsigned long start, unsigned long end);
 extern void __flush_icache_page(unsigned long);
 
@@ -71,9 +78,10 @@ extern void flush_ptrace_access(struct vm_area_struct *, struct page *,
 #define flush_cache_vunmap(start, end)		do { } while (0)
 
 #ifdef CONFIG_DEBUG_PAGEALLOC
+/* internal debugging function */
 void kernel_map_pages(struct page *page, int numpages, int enable);
 #endif
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _SPARC64_CACHEFLUSH_H */

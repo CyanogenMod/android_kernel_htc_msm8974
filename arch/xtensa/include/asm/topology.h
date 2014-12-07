@@ -13,4 +13,4 @@
 
 #include <asm-generic/topology.h>
 
-#endif	
+#endif	/* _XTENSA_TOPOLOGY_H */

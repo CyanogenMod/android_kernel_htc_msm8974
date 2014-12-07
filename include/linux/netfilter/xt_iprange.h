@@ -5,10 +5,10 @@
 #include <linux/netfilter.h>
 
 enum {
-	IPRANGE_SRC     = 1 << 0,	
-	IPRANGE_DST     = 1 << 1,	
-	IPRANGE_SRC_INV = 1 << 4,	
-	IPRANGE_DST_INV = 1 << 5,	
+	IPRANGE_SRC     = 1 << 0,	/* match source IP address */
+	IPRANGE_DST     = 1 << 1,	/* match destination IP address */
+	IPRANGE_SRC_INV = 1 << 4,	/* negate the condition */
+	IPRANGE_DST_INV = 1 << 5,	/* -"- */
 };
 
 struct xt_iprange_mtinfo {
@@ -17,4 +17,4 @@ struct xt_iprange_mtinfo {
 	__u8 flags;
 };
 
-#endif 
+#endif /* _LINUX_NETFILTER_XT_IPRANGE_H */

@@ -44,6 +44,18 @@ static u16 bcm_select_queue(struct net_device *dev, struct sk_buff *skb)
 	return ClassifyPacket(netdev_priv(dev), skb);
 }
 
+/*******************************************************************
+* Function    -	bcm_transmit()
+*
+* Description - This is the main transmit function for our virtual
+*		interface(eth0). It handles the ARP packets. It
+*		clones this packet and then Queue it to a suitable
+*		Queue. Then calls the transmit_packet().
+*
+* Parameter   -	 skb - Pointer to the socket buffer structure
+*		 dev - Pointer to the virtual net device structure
+*
+*********************************************************************/
 
 static netdev_tx_t bcm_transmit(struct sk_buff *skb, struct net_device *dev)
 {
@@ -64,7 +76,7 @@ static netdev_tx_t bcm_transmit(struct sk_buff *skb, struct net_device *dev)
 	    SF_MAX_ALLOWED_PACKETS_TO_BACKUP)
 		return NETDEV_TX_BUSY;
 
-	
+	/* Now Enqueue the packet */
 	if (netif_msg_tx_queued(Adapter))
 		pr_info(PFX "%s: enqueueing packet to queue %d\n",
 			dev->name, qindex);
@@ -79,7 +91,7 @@ static netdev_tx_t bcm_transmit(struct sk_buff *skb, struct net_device *dev)
 	atomic_inc(&Adapter->TotalPacketCount);
 	spin_unlock(&Adapter->PackInfo[qindex].SFQueueLock);
 
-	
+	/* FIXME - this is racy and incorrect, replace with work queue */
 	if (!atomic_read(&Adapter->TxPktAvail)) {
 		atomic_set(&Adapter->TxPktAvail, 1);
 		wake_up(&Adapter->tx_packet_wait_queue);
@@ -93,6 +105,10 @@ static netdev_tx_t bcm_transmit(struct sk_buff *skb, struct net_device *dev)
 
 
 
+/**
+@ingroup init_functions
+Register other driver entry points with the kernel
+*/
 static const struct net_device_ops bcmNetDevOps = {
 	.ndo_open		= bcm_open,
 	.ndo_stop		= bcm_close,
@@ -178,7 +194,7 @@ int register_networkdev(PMINI_ADAPTER Adapter)
 
 	net->netdev_ops = &bcmNetDevOps;
 	net->ethtool_ops = &bcm_ethtool_ops;
-	net->mtu = MTU_SIZE;	
+	net->mtu = MTU_SIZE;	/* 1400 Bytes */
 	net->tx_queue_len = TX_QLEN;
 	net->flags |= IFF_NOARP;
 
@@ -186,7 +202,7 @@ int register_networkdev(PMINI_ADAPTER Adapter)
 
 	SET_NETDEV_DEVTYPE(net, &wimax_type);
 
-	
+	/* Read the MAC Address from EEPROM */
 	result = ReadMacAddressFromNVM(Adapter);
 	if (result != STATUS_SUCCESS) {
 		dev_err(&udev->dev,

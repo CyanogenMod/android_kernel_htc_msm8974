@@ -61,17 +61,158 @@
 #include <asm/mach/arch.h>
 #include <asm/mach-types.h>
 
+/*
+ * Address	Interface		BusWidth	note
+ * ------------------------------------------------------------------
+ * 0x0000_0000	NOR Flash ROM (MCP)	16bit		SW7 : bit1 = ON
+ * 0x0800_0000	user area		-
+ * 0x1000_0000	NOR Flash ROM (MCP)	16bit		SW7 : bit1 = OFF
+ * 0x1400_0000	Ether (LAN9220)		16bit
+ * 0x1600_0000	user area		-		cannot use with NAND
+ * 0x1800_0000	user area		-
+ * 0x1A00_0000	-
+ * 0x4000_0000	LPDDR2-SDRAM (POP)	32bit
+ */
 
+/*
+ * CPU mode
+ *
+ * SW4                                     | Boot Area| Master   | Remarks
+ *  1  | 2   | 3   | 4   | 5   | 6   | 8   |          | Processor|
+ * ----+-----+-----+-----+-----+-----+-----+----------+----------+--------------
+ * ON  | ON  | OFF | ON  | ON  | OFF | OFF | External | System   | External ROM
+ * ON  | ON  | ON  | ON  | ON  | OFF | OFF | External | System   | ROM Debug
+ * ON  | ON  | X   | ON  | OFF | OFF | OFF | Built-in | System   | ROM Debug
+ * X   | OFF | X   | X   | X   | X   | OFF | Built-in | System   | MaskROM
+ * OFF | X   | X   | X   | X   | X   | OFF | Built-in | System   | MaskROM
+ * X   | X   | X   | OFF | X   | X   | OFF | Built-in | System   | MaskROM
+ * OFF | ON  | OFF | X   | X   | OFF | ON  | External | System   | Standalone
+ * ON  | OFF | OFF | X   | X   | OFF | ON  | External | Realtime | Standalone
+*/
 
+/*
+ * NOR Flash ROM
+ *
+ *  SW1  |     SW2    | SW7  | NOR Flash ROM
+ *  bit1 | bit1  bit2 | bit1 | Memory allocation
+ * ------+------------+------+------------------
+ *  OFF  | ON     OFF | ON   |    Area 0
+ *  OFF  | ON     OFF | OFF  |    Area 4
+ */
 
+/*
+ * SMSC 9220
+ *
+ *  SW1		SMSC 9220
+ * -----------------------
+ *  ON		access disable
+ *  OFF		access enable
+ */
 
+/*
+ * NAND Flash ROM
+ *
+ *  SW1  |     SW2    | SW7  | NAND Flash ROM
+ *  bit1 | bit1  bit2 | bit2 | Memory allocation
+ * ------+------------+------+------------------
+ *  OFF  | ON     OFF | ON   |    FCE 0
+ *  OFF  | ON     OFF | OFF  |    FCE 1
+ */
 
+/*
+ * External interrupt pin settings
+ *
+ * IRQX  | pin setting        | device             | level
+ * ------+--------------------+--------------------+-------
+ * IRQ0  | ICR1A.IRQ0SA=0010  | SDHI2 card detect  | Low
+ * IRQ6  | ICR1A.IRQ6SA=0011  | Ether(LAN9220)     | High
+ * IRQ7  | ICR1A.IRQ7SA=0010  | LCD Touch Panel    | Low
+ * IRQ8  | ICR2A.IRQ8SA=0010  | MMC/SD card detect | Low
+ * IRQ9  | ICR2A.IRQ9SA=0010  | KEY(TCA6408)       | Low
+ * IRQ21 | ICR4A.IRQ21SA=0011 | Sensor(ADXL345)    | High
+ * IRQ22 | ICR4A.IRQ22SA=0011 | Sensor(AK8975)     | High
+ */
 
+/*
+ * USB
+ *
+ * USB0 : CN22 : Function
+ * USB1 : CN31 : Function/Host *1
+ *
+ * J30 (for CN31) *1
+ * ----------+---------------+-------------
+ * 1-2 short | VBUS 5V       | Host
+ * open      | external VBUS | Function
+ *
+ * CAUTION
+ *
+ * renesas_usbhs driver can use external interrupt mode
+ * (which come from USB-PHY) or autonomy mode (it use own interrupt)
+ * for detecting connection/disconnection when Function.
+ * USB will be power OFF while it has been disconnecting
+ * if external interrupt mode, and it is always power ON if autonomy mode,
+ *
+ * mackerel can not use external interrupt (IRQ7-PORT167) mode on "USB0",
+ * because Touchscreen is using IRQ7-PORT40.
+ * It is impossible to use IRQ7 demux on this board.
+ */
 
+/*
+ * SDHI0 (CN12)
+ *
+ * SW56 : OFF
+ *
+ */
 
+/* MMC /SDHI1 (CN7)
+ *
+ * I/O voltage : 1.8v
+ *
+ * Power voltage : 1.8v or 3.3v
+ *  J22 : select power voltage *1
+ *	1-2 pin : 1.8v
+ *	2-3 pin : 3.3v
+ *
+ * *1
+ * Please change J22 depends the card to be used.
+ * MMC's OCR field set to support either voltage for the card inserted.
+ *
+ *	SW1	|	SW33
+ *		| bit1 | bit2 | bit3 | bit4
+ * -------------+------+------+------+-------
+ * MMC0   OFF	|  OFF |   X  |  ON  |  X       (Use MMCIF)
+ * SDHI1  OFF	|  ON  |   X  |  OFF |  X       (Use MFD_SH_MOBILE_SDHI)
+ *
+ */
 
+/*
+ * SDHI2 (CN23)
+ *
+ * microSD card sloct
+ *
+ */
 
+/*
+ * FSI - AK4642
+ *
+ * it needs amixer settings for playing
+ *
+ * amixer set "Headphone" on
+ * amixer set "HPOUTL Mixer DACH" on
+ * amixer set "HPOUTR Mixer DACH" on
+ */
 
+/*
+ * FIXME !!
+ *
+ * gpio_no_direction
+ * gpio_pull_down
+ * are quick_hack.
+ *
+ * current gpio frame work doesn't have
+ * the method to control only pull up/down/free.
+ * this function should be replaced by correct gpio function
+ */
 static void __init gpio_no_direction(u32 addr)
 {
 	__raw_writeb(0x00, addr);
@@ -87,6 +228,7 @@ static void __init gpio_pull_down(u32 addr)
 	__raw_writeb(data, addr);
 }
 
+/* MTD */
 static struct mtd_partition nor_flash_partitions[] = {
 	{
 		.name		= "loader",
@@ -126,8 +268,8 @@ static struct physmap_flash_data nor_flash_data = {
 
 static struct resource nor_flash_resources[] = {
 	[0]	= {
-		.start	= 0x20000000, 
-		.end	= 0x28000000 - 1, 
+		.start	= 0x20000000, /* CS0 shadow instead of regular CS0 */
+		.end	= 0x28000000 - 1, /* needed by USB MASK ROM boot */
 		.flags	= IORESOURCE_MEM,
 	}
 };
@@ -141,13 +283,14 @@ static struct platform_device nor_flash_device = {
 	.resource	= nor_flash_resources,
 };
 
+/* SMSC */
 static struct resource smc911x_resources[] = {
 	{
 		.start	= 0x14000000,
 		.end	= 0x16000000 - 1,
 		.flags	= IORESOURCE_MEM,
 	}, {
-		.start	= evt2irq(0x02c0) ,
+		.start	= evt2irq(0x02c0) /* IRQ6A */,
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_LOWLEVEL,
 	},
 };
@@ -168,6 +311,7 @@ static struct platform_device smc911x_device = {
 	},
 };
 
+/* MERAM */
 static struct sh_mobile_meram_info mackerel_meram_info = {
 	.addr_mode	= SH_MOBILE_MERAM_MODE1,
 };
@@ -197,6 +341,7 @@ static struct platform_device meram_device = {
 	},
 };
 
+/* LCDC */
 static struct fb_videomode mackerel_lcdc_modes[] = {
 	{
 		.name		= "WVGA Panel",
@@ -281,6 +426,7 @@ static struct platform_device lcdc_device = {
 	},
 };
 
+/* HDMI */
 static struct sh_mobile_hdmi_info hdmi_info = {
 	.flags		= HDMI_SND_SRC_SPDIF,
 };
@@ -293,7 +439,7 @@ static struct resource hdmi_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* There's also an HDMI interrupt on INTCS @ 0x18e0 */
 		.start	= evt2irq(0x17e0),
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -406,6 +552,12 @@ out:
 		clk_put(hdmi_ick);
 }
 
+/* USBHS0 is connected to CN22 which takes a USB Mini-B plug
+ *
+ * The sh7372 SoC has IRQ7 set aside for USBHS0 hotplug,
+ * but on this particular board IRQ7 is already used by
+ * the touch screen. This leaves us with software polling.
+ */
 #define USBHS0_POLL_INTERVAL (HZ * 5)
 
 struct usbhs_private {
@@ -432,7 +584,7 @@ static void usbhs_phy_reset(struct platform_device *pdev)
 {
 	struct usbhs_private *priv = usbhs_get_priv(pdev);
 
-	
+	/* init phy */
 	__raw_writew(0x8a0a, priv->usbcrcaddr);
 }
 
@@ -468,7 +620,7 @@ static void usbhs0_hardware_exit(struct platform_device *pdev)
 }
 
 static struct usbhs_private usbhs0_private = {
-	.usbcrcaddr	= 0xe605810c,		
+	.usbcrcaddr	= 0xe605810c,		/* USBCR2 */
 	.info = {
 		.platform_callback = {
 			.hardware_init	= usbhs0_hardware_init,
@@ -493,7 +645,7 @@ static struct resource usbhs0_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x1ca0) ,
+		.start	= evt2irq(0x1ca0) /* USB0_USB0I0 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -508,6 +660,20 @@ static struct platform_device usbhs0_device = {
 	.resource	= usbhs0_resources,
 };
 
+/* USBHS1 is connected to CN31 which takes a USB Mini-AB plug
+ *
+ * Use J30 to select between Host and Function. This setting
+ * can however not be detected by software. Hotplug of USBHS1
+ * is provided via IRQ8.
+ *
+ * Current USB1 works as "USB Host".
+ *  - set J30 "short"
+ *
+ * If you want to use it as "USB gadget",
+ *  - J30 "open"
+ *  - modify usbhs1_get_id() USBHS_HOST -> USBHS_GADGET
+ *  - add .get_vbus = usbhs_get_vbus in usbhs1_private
+ */
 #define IRQ8 evt2irq(0x0300)
 #define USB_PHY_MODE		(1 << 4)
 #define USB_PHY_INT_EN		((1 << 3) | (1 << 2))
@@ -524,7 +690,7 @@ static irqreturn_t usbhs1_interrupt(int irq, void *data)
 
 	renesas_usbhs_call_notify_hotplug(pdev);
 
-	
+	/* clear status */
 	__raw_writew(__raw_readw(priv->usbphyaddr) | USB_PHY_INT_CLR,
 		     priv->usbphyaddr);
 
@@ -536,7 +702,7 @@ static int usbhs1_hardware_init(struct platform_device *pdev)
 	struct usbhs_private *priv = usbhs_get_priv(pdev);
 	int ret;
 
-	
+	/* clear interrupt status */
 	__raw_writew(USB_PHY_MODE | USB_PHY_INT_CLR, priv->usbphyaddr);
 
 	ret = request_irq(IRQ8, usbhs1_interrupt, IRQF_TRIGGER_HIGH,
@@ -546,7 +712,7 @@ static int usbhs1_hardware_init(struct platform_device *pdev)
 		return ret;
 	}
 
-	
+	/* enable USB phy interrupt */
 	__raw_writew(USB_PHY_MODE | USB_PHY_INT_EN, priv->usbphyaddr);
 
 	return 0;
@@ -556,7 +722,7 @@ static void usbhs1_hardware_exit(struct platform_device *pdev)
 {
 	struct usbhs_private *priv = usbhs_get_priv(pdev);
 
-	
+	/* clear interrupt status */
 	__raw_writew(USB_PHY_MODE | USB_PHY_INT_CLR, priv->usbphyaddr);
 
 	free_irq(IRQ8, pdev);
@@ -587,8 +753,8 @@ static u32 usbhs1_pipe_cfg[] = {
 };
 
 static struct usbhs_private usbhs1_private = {
-	.usbphyaddr	= 0xe60581e2,		
-	.usbcrcaddr	= 0xe6058130,		
+	.usbphyaddr	= 0xe60581e2,		/* USBPHY1INTAP */
+	.usbcrcaddr	= 0xe6058130,		/* USBCR4 */
 	.info = {
 		.platform_callback = {
 			.hardware_init	= usbhs1_hardware_init,
@@ -615,7 +781,7 @@ static struct resource usbhs1_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x1ce0) ,
+		.start	= evt2irq(0x1ce0) /* USB1_USB1I0 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -630,6 +796,7 @@ static struct platform_device usbhs1_device = {
 	.resource	= usbhs1_resources,
 };
 
+/* LED */
 static struct gpio_led mackerel_leds[] = {
 	{
 		.name		= "led0",
@@ -666,6 +833,7 @@ static struct platform_device leds_device = {
 	},
 };
 
+/* FSI */
 #define IRQ_FSI evt2irq(0x1840)
 static int __fsi_set_round_rate(struct clk *clk, long rate, int enable)
 {
@@ -695,14 +863,14 @@ static int fsi_b_set_rate(struct device *dev, int rate, int enable)
 	int ackmd_bpfmd;
 	int ret;
 
-	
+	/* clock start */
 	switch (rate) {
 	case 44100:
 		fsib_rate	= rate * 256;
 		ackmd_bpfmd	= SH_FSI_ACKMD_256 | SH_FSI_BPFMD_64;
 		break;
 	case 48000:
-		fsib_rate	= 85428000; 
+		fsib_rate	= 85428000; /* around 48kHz x 256 x 7 */
 		fdiv_rate	= rate * 256;
 		ackmd_bpfmd	= SH_FSI_ACKMD_256 | SH_FSI_BPFMD_64;
 		break;
@@ -711,20 +879,20 @@ static int fsi_b_set_rate(struct device *dev, int rate, int enable)
 		return -EINVAL;
 	}
 
-	
+	/* FSI B setting */
 	fsib_clk = clk_get(dev, "ickb");
 	if (IS_ERR(fsib_clk))
 		return -EIO;
 
-	
+	/* fsib */
 	ret = __fsi_set_round_rate(fsib_clk, fsib_rate, enable);
 	if (ret < 0)
 		goto fsi_set_rate_end;
 
-	
+	/* FSI DIV */
 	ret = __fsi_set_round_rate(fdiv_clk, fdiv_rate, enable);
 	if (ret < 0) {
-		
+		/* disable FSI B */
 		if (enable)
 			__fsi_set_round_rate(fsib_clk, fsib_rate, 0);
 		goto fsi_set_rate_end;
@@ -789,6 +957,7 @@ static struct platform_device fsi_ak4643_device = {
 	},
 };
 
+/* FLCTL */
 static struct mtd_partition nand_partition_info[] = {
 	{
 		.name	= "system",
@@ -832,11 +1001,16 @@ static struct platform_device nand_flash_device = {
 	},
 };
 
+/*
+ * The card detect pin of the top SD/MMC slot (CN7) is active low and is
+ * connected to GPIO A22 of SH7372 (GPIO_PORT41).
+ */
 static int slot_cn7_get_cd(struct platform_device *pdev)
 {
 	return !gpio_get_value(GPIO_PORT41);
 }
 
+/* SDHI0 */
 static struct sh_mobile_sdhi_info sdhi0_info = {
 	.dma_slave_tx	= SHDMA_SLAVE_SDHI0_TX,
 	.dma_slave_rx	= SHDMA_SLAVE_SDHI0_RX,
@@ -853,15 +1027,15 @@ static struct resource sdhi0_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x0e00) ,
+		.start	= evt2irq(0x0e00) /* SDHI0_SDHI0I0 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		.start	= evt2irq(0x0e20) ,
+		.start	= evt2irq(0x0e20) /* SDHI0_SDHI0I1 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
-		.start	= evt2irq(0x0e40) ,
+		.start	= evt2irq(0x0e40) /* SDHI0_SDHI0I2 */,
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -877,6 +1051,7 @@ static struct platform_device sdhi0_device = {
 };
 
 #if !defined(CONFIG_MMC_SH_MMCIF) && !defined(CONFIG_MMC_SH_MMCIF_MODULE)
+/* SDHI1 */
 static struct sh_mobile_sdhi_info sdhi1_info = {
 	.dma_slave_tx	= SHDMA_SLAVE_SDHI1_TX,
 	.dma_slave_rx	= SHDMA_SLAVE_SDHI1_RX,
@@ -896,17 +1071,17 @@ static struct resource sdhi1_resources[] = {
 	},
 	[1] = {
 		.name	= SH_MOBILE_SDHI_IRQ_CARD_DETECT,
-		.start	= evt2irq(0x0e80), 
+		.start	= evt2irq(0x0e80), /* SDHI1_SDHI1I0 */
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
 		.name	= SH_MOBILE_SDHI_IRQ_SDCARD,
-		.start	= evt2irq(0x0ea0), 
+		.start	= evt2irq(0x0ea0), /* SDHI1_SDHI1I1 */
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
 		.name	= SH_MOBILE_SDHI_IRQ_SDIO,
-		.start	= evt2irq(0x0ec0), 
+		.start	= evt2irq(0x0ec0), /* SDHI1_SDHI1I2 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -922,11 +1097,16 @@ static struct platform_device sdhi1_device = {
 };
 #endif
 
+/*
+ * The card detect pin of the top SD/MMC slot (CN23) is active low and is
+ * connected to GPIO SCIFB_SCK of SH7372 (GPIO_PORT162).
+ */
 static int slot_cn23_get_cd(struct platform_device *pdev)
 {
 	return !gpio_get_value(GPIO_PORT162);
 }
 
+/* SDHI2 */
 static struct sh_mobile_sdhi_info sdhi2_info = {
 	.dma_slave_tx	= SHDMA_SLAVE_SDHI2_TX,
 	.dma_slave_rx	= SHDMA_SLAVE_SDHI2_RX,
@@ -945,17 +1125,17 @@ static struct resource sdhi2_resources[] = {
 	},
 	[1] = {
 		.name	= SH_MOBILE_SDHI_IRQ_CARD_DETECT,
-		.start	= evt2irq(0x1200), 
+		.start	= evt2irq(0x1200), /* SDHI2_SDHI2I0 */
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
 		.name	= SH_MOBILE_SDHI_IRQ_SDCARD,
-		.start	= evt2irq(0x1220), 
+		.start	= evt2irq(0x1220), /* SDHI2_SDHI2I1 */
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
 		.name	= SH_MOBILE_SDHI_IRQ_SDIO,
-		.start	= evt2irq(0x1240), 
+		.start	= evt2irq(0x1240), /* SDHI2_SDHI2I2 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -970,6 +1150,7 @@ static struct platform_device sdhi2_device = {
 	},
 };
 
+/* SH_MMCIF */
 static struct resource sh_mmcif_resources[] = {
 	[0] = {
 		.name	= "MMCIF",
@@ -978,12 +1159,12 @@ static struct resource sh_mmcif_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* MMC ERR */
 		.start	= evt2irq(0x1ac0),
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* MMC NOR */
 		.start	= evt2irq(0x1ae0),
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -1019,7 +1200,7 @@ static void mackerel_camera_del(struct soc_camera_device *icd);
 static int camera_set_capture(struct soc_camera_platform_info *info,
 			      int enable)
 {
-	return 0; 
+	return 0; /* camera sensor always enabled */
 }
 
 static struct soc_camera_platform_info camera_info = {
@@ -1081,13 +1262,13 @@ static struct resource ceu_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
 static struct platform_device ceu_device = {
 	.name		= "sh_mobile_ceu",
-	.id             = 0, 
+	.id             = 0, /* "ceu0" clock */
 	.num_resources	= ARRAY_SIZE(ceu_resources),
 	.resource	= ceu_resources,
 	.dev		= {
@@ -1128,6 +1309,7 @@ static struct platform_device *mackerel_devices[] __initdata = {
 	&meram_device,
 };
 
+/* Keypad Initialization */
 #define KEYPAD_BUTTON(ev_type, ev_code, act_low) \
 {								\
 	.type		= ev_type,				\
@@ -1152,6 +1334,7 @@ static struct tca6416_keys_platform_data mackerel_tca6416_keys_info = {
 	.pinmask	= 0x000F,
 };
 
+/* I2C */
 #define IRQ7 evt2irq(0x02e0)
 #define IRQ9 evt2irq(0x0320)
 
@@ -1159,13 +1342,13 @@ static struct i2c_board_info i2c0_devices[] = {
 	{
 		I2C_BOARD_INFO("ak4643", 0x13),
 	},
-	
+	/* Keypad */
 	{
 		I2C_BOARD_INFO("tca6408-keys", 0x20),
 		.platform_data = &mackerel_tca6416_keys_info,
 		.irq = IRQ9,
 	},
-	
+	/* Touchscreen */
 	{
 		I2C_BOARD_INFO("st1232-ts", 0x55),
 		.irq = IRQ7,
@@ -1175,7 +1358,7 @@ static struct i2c_board_info i2c0_devices[] = {
 #define IRQ21 evt2irq(0x32a0)
 
 static struct i2c_board_info i2c1_devices[] = {
-	
+	/* Accelerometer */
 	{
 		I2C_BOARD_INFO("adxl34x", 0x53),
 		.irq = IRQ21,
@@ -1193,20 +1376,20 @@ static void __init mackerel_init(void)
 	u32 srcr4;
 	struct clk *clk;
 
-	
+	/* External clock source */
 	clk_set_rate(&sh7372_dv_clki_clk, 27000000);
 
 	sh7372_pinmux_init();
 
-	
+	/* enable SCIFA0 */
 	gpio_request(GPIO_FN_SCIFA0_TXD, NULL);
 	gpio_request(GPIO_FN_SCIFA0_RXD, NULL);
 
-	
+	/* enable SMSC911X */
 	gpio_request(GPIO_FN_CS5A,	NULL);
 	gpio_request(GPIO_FN_IRQ6_39,	NULL);
 
-	
+	/* LCDC */
 	gpio_request(GPIO_FN_LCDD23,   NULL);
 	gpio_request(GPIO_FN_LCDD22,   NULL);
 	gpio_request(GPIO_FN_LCDD21,   NULL);
@@ -1234,60 +1417,60 @@ static void __init mackerel_init(void)
 	gpio_request(GPIO_FN_LCDDISP,  NULL);
 	gpio_request(GPIO_FN_LCDDCK,   NULL);
 
-	gpio_request(GPIO_PORT31, NULL); 
-	gpio_direction_output(GPIO_PORT31, 0); 
+	gpio_request(GPIO_PORT31, NULL); /* backlight */
+	gpio_direction_output(GPIO_PORT31, 0); /* off by default */
 
-	gpio_request(GPIO_PORT151, NULL); 
+	gpio_request(GPIO_PORT151, NULL); /* LCDDON */
 	gpio_direction_output(GPIO_PORT151, 1);
 
-	
+	/* USBHS0 */
 	gpio_request(GPIO_FN_VBUS0_0, NULL);
-	gpio_pull_down(GPIO_PORT168CR); 
+	gpio_pull_down(GPIO_PORT168CR); /* VBUS0_0 pull down */
 
-	
+	/* USBHS1 */
 	gpio_request(GPIO_FN_VBUS0_1, NULL);
-	gpio_pull_down(GPIO_PORT167CR); 
+	gpio_pull_down(GPIO_PORT167CR); /* VBUS0_1 pull down */
 	gpio_request(GPIO_FN_IDIN_1_113, NULL);
 
-	
+	/* enable FSI2 port A (ak4643) */
 	gpio_request(GPIO_FN_FSIAIBT,	NULL);
 	gpio_request(GPIO_FN_FSIAILR,	NULL);
 	gpio_request(GPIO_FN_FSIAISLD,	NULL);
 	gpio_request(GPIO_FN_FSIAOSLD,	NULL);
 	gpio_request(GPIO_PORT161,	NULL);
-	gpio_direction_output(GPIO_PORT161, 0); 
+	gpio_direction_output(GPIO_PORT161, 0); /* slave */
 
 	gpio_request(GPIO_PORT9,  NULL);
 	gpio_request(GPIO_PORT10, NULL);
-	gpio_no_direction(GPIO_PORT9CR);  
-	gpio_no_direction(GPIO_PORT10CR); 
+	gpio_no_direction(GPIO_PORT9CR);  /* FSIAOBT needs no direction */
+	gpio_no_direction(GPIO_PORT10CR); /* FSIAOLR needs no direction */
 
-	intc_set_priority(IRQ_FSI, 3); 
+	intc_set_priority(IRQ_FSI, 3); /* irq priority FSI(3) > SMSC911X(2) */
 
-	
+	/* setup FSI2 port B (HDMI) */
 	gpio_request(GPIO_FN_FSIBCK, NULL);
-	__raw_writew(__raw_readw(USCCR1) & ~(1 << 6), USCCR1); 
+	__raw_writew(__raw_readw(USCCR1) & ~(1 << 6), USCCR1); /* use SPDIF */
 
-	
+	/* set SPU2 clock to 119.6 MHz */
 	clk = clk_get(NULL, "spu_clk");
 	if (!IS_ERR(clk)) {
 		clk_set_rate(clk, clk_round_rate(clk, 119600000));
 		clk_put(clk);
 	}
 
-	
+	/* enable Keypad */
 	gpio_request(GPIO_FN_IRQ9_42,	NULL);
 	irq_set_irq_type(IRQ9, IRQ_TYPE_LEVEL_HIGH);
 
-	
+	/* enable Touchscreen */
 	gpio_request(GPIO_FN_IRQ7_40,	NULL);
 	irq_set_irq_type(IRQ7, IRQ_TYPE_LEVEL_LOW);
 
-	
+	/* enable Accelerometer */
 	gpio_request(GPIO_FN_IRQ21,	NULL);
 	irq_set_irq_type(IRQ21, IRQ_TYPE_LEVEL_HIGH);
 
-	
+	/* enable SDHI0 */
 	gpio_request(GPIO_FN_SDHIWP0, NULL);
 	gpio_request(GPIO_FN_SDHICMD0, NULL);
 	gpio_request(GPIO_FN_SDHICLK0, NULL);
@@ -1297,7 +1480,7 @@ static void __init mackerel_init(void)
 	gpio_request(GPIO_FN_SDHID0_0, NULL);
 
 #if !defined(CONFIG_MMC_SH_MMCIF) && !defined(CONFIG_MMC_SH_MMCIF_MODULE)
-	
+	/* enable SDHI1 */
 	gpio_request(GPIO_FN_SDHICMD1, NULL);
 	gpio_request(GPIO_FN_SDHICLK1, NULL);
 	gpio_request(GPIO_FN_SDHID1_3, NULL);
@@ -1305,11 +1488,11 @@ static void __init mackerel_init(void)
 	gpio_request(GPIO_FN_SDHID1_1, NULL);
 	gpio_request(GPIO_FN_SDHID1_0, NULL);
 #endif
-	
+	/* card detect pin for MMC slot (CN7) */
 	gpio_request(GPIO_PORT41, NULL);
 	gpio_direction_input(GPIO_PORT41);
 
-	
+	/* enable SDHI2 */
 	gpio_request(GPIO_FN_SDHICMD2, NULL);
 	gpio_request(GPIO_FN_SDHICLK2, NULL);
 	gpio_request(GPIO_FN_SDHID2_3, NULL);
@@ -1317,11 +1500,11 @@ static void __init mackerel_init(void)
 	gpio_request(GPIO_FN_SDHID2_1, NULL);
 	gpio_request(GPIO_FN_SDHID2_0, NULL);
 
-	
+	/* card detect pin for microSD slot (CN23) */
 	gpio_request(GPIO_PORT162, NULL);
 	gpio_direction_input(GPIO_PORT162);
 
-	
+	/* MMCIF */
 	gpio_request(GPIO_FN_MMCD0_0, NULL);
 	gpio_request(GPIO_FN_MMCD0_1, NULL);
 	gpio_request(GPIO_FN_MMCD0_2, NULL);
@@ -1333,7 +1516,7 @@ static void __init mackerel_init(void)
 	gpio_request(GPIO_FN_MMCCMD0, NULL);
 	gpio_request(GPIO_FN_MMCCLK0, NULL);
 
-	
+	/* FLCTL */
 	gpio_request(GPIO_FN_D0_NAF0, NULL);
 	gpio_request(GPIO_FN_D1_NAF1, NULL);
 	gpio_request(GPIO_FN_D2_NAF2, NULL);
@@ -1357,11 +1540,11 @@ static void __init mackerel_init(void)
 	gpio_request(GPIO_FN_A5_FCDE, NULL);
 	gpio_request(GPIO_FN_RD_FSC, NULL);
 
-	
+	/* enable GPS module (GT-720F) */
 	gpio_request(GPIO_FN_SCIFA2_TXD1, NULL);
 	gpio_request(GPIO_FN_SCIFA2_RXD1, NULL);
 
-	
+	/* CEU */
 	gpio_request(GPIO_FN_VIO_CLK, NULL);
 	gpio_request(GPIO_FN_VIO_VD, NULL);
 	gpio_request(GPIO_FN_VIO_HD, NULL);
@@ -1376,11 +1559,11 @@ static void __init mackerel_init(void)
 	gpio_request(GPIO_FN_VIO_D1, NULL);
 	gpio_request(GPIO_FN_VIO_D0, NULL);
 
-	
+	/* HDMI */
 	gpio_request(GPIO_FN_HDMI_HPD, NULL);
 	gpio_request(GPIO_FN_HDMI_CEC, NULL);
 
-	
+	/* Reset HDMI, must be held at least one EXTALR (32768Hz) period */
 	srcr4 = __raw_readl(SRCR4);
 	__raw_writel(srcr4 | (1 << 13), SRCR4);
 	udelay(50);

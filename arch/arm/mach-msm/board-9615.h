@@ -17,6 +17,9 @@
 #include <linux/mfd/pm8xxx/pm8018.h>
 #include <linux/regulator/msm-gpio-regulator.h>
 
+/*
+ * MDM9x15 I2S.
+ */
 #ifdef CONFIG_I2C
 #define I2C_SURF 1
 #define I2C_FFA  (1 << 1)
@@ -32,12 +35,17 @@ struct i2c_registry {
 	int                    len;
 };
 #endif
+/* Tabla slave address for I2C */
 #define TABLA_I2C_SLAVE_ADDR		0x0d
 #define TABLA_ANALOG_I2C_SLAVE_ADDR	0x77
 #define TABLA_DIGITAL1_I2C_SLAVE_ADDR	0x66
 #define TABLA_DIGITAL2_I2C_SLAVE_ADDR	0x55
 #define MSM_9615_GSBI5_QUP_I2C_BUS_ID 0
+/*
+ * MDM9x15 I2S.
+ */
 
+/* Macros assume PMIC GPIOs and MPPs start at 1 */
 #define PM8018_GPIO_BASE		NR_GPIO_IRQS
 #define PM8018_GPIO_PM_TO_SYS(pm_gpio)	(pm_gpio - 1 + PM8018_GPIO_BASE)
 #define PM8018_MPP_BASE			(PM8018_GPIO_BASE + PM8018_NR_GPIOS)

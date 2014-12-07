@@ -43,19 +43,19 @@
 #include "devices-imx27.h"
 
 static const int eukrea_cpuimx27_pins[] __initconst = {
-	
+	/* UART1 */
 	PE12_PF_UART1_TXD,
 	PE13_PF_UART1_RXD,
 	PE14_PF_UART1_CTS,
 	PE15_PF_UART1_RTS,
-	
+	/* UART4 */
 #if defined(MACH_EUKREA_CPUIMX27_USEUART4)
 	PB26_AF_UART4_RTS,
 	PB28_AF_UART4_TXD,
 	PB29_AF_UART4_CTS,
 	PB31_AF_UART4_RXD,
 #endif
-	
+	/* FEC */
 	PD0_AIN_FEC_TXD0,
 	PD1_AIN_FEC_TXD1,
 	PD2_AIN_FEC_TXD2,
@@ -74,10 +74,10 @@ static const int eukrea_cpuimx27_pins[] __initconst = {
 	PD15_AOUT_FEC_COL,
 	PD16_AIN_FEC_TX_ER,
 	PF23_AIN_FEC_TX_EN,
-	
+	/* I2C1 */
 	PD17_PF_I2C_DATA,
 	PD18_PF_I2C_CLK,
-	
+	/* SDHC2 */
 #if defined(CONFIG_MACH_EUKREA_CPUIMX27_USESDHC2)
 	PB4_PF_SD2_D0,
 	PB5_PF_SD2_D1,
@@ -87,13 +87,13 @@ static const int eukrea_cpuimx27_pins[] __initconst = {
 	PB9_PF_SD2_CLK,
 #endif
 #if defined(CONFIG_SERIAL_8250) || defined(CONFIG_SERIAL_8250_MODULE)
-	
+	/* Quad UART's IRQ */
 	GPIO_PORTB | 22 | GPIO_GPIO | GPIO_IN,
 	GPIO_PORTB | 23 | GPIO_GPIO | GPIO_IN,
 	GPIO_PORTB | 27 | GPIO_GPIO | GPIO_IN,
 	GPIO_PORTB | 30 | GPIO_GPIO | GPIO_IN,
 #endif
-	
+	/* OTG */
 	PC7_PF_USBOTG_DATA5,
 	PC8_PF_USBOTG_DATA6,
 	PC9_PF_USBOTG_DATA0,
@@ -106,7 +106,7 @@ static const int eukrea_cpuimx27_pins[] __initconst = {
 	PE2_PF_USBOTG_DIR,
 	PE24_PF_USBOTG_CLK,
 	PE25_PF_USBOTG_DATA7,
-	
+	/* USBH2 */
 	PA0_PF_USBH2_CLK,
 	PA1_PF_USBH2_DIR,
 	PA2_PF_USBH2_DATA7,
@@ -270,11 +270,11 @@ static void __init eukrea_cpuimx27_init(void)
 	imx27_add_mxc_w1(NULL);
 
 #if defined(CONFIG_MACH_EUKREA_CPUIMX27_USESDHC2)
-	
+	/* SDHC2 can be used for Wifi */
 	imx27_add_mxc_mmc(1, NULL);
 #endif
 #if defined(MACH_EUKREA_CPUIMX27_USEUART4)
-	
+	/* in which case UART4 is also used for Bluetooth */
 	imx27_add_imx_uart3(&uart_pdata);
 #endif
 

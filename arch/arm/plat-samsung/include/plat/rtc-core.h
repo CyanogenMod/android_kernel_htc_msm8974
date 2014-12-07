@@ -12,7 +12,11 @@
 #ifndef __ASM_PLAT_RTC_CORE_H
 #define __ASM_PLAT_RTC_CORE_H __FILE__
 
+/* These functions are only for use with the core support code, such as
+ * the cpu specific initialisation code
+ */
 
+/* re-define device name depending on support. */
 static inline void s3c_rtc_setname(char *name)
 {
 #if defined(CONFIG_SAMSUNG_DEV_RTC) || defined(CONFIG_PLAT_S3C24XX)
@@ -20,4 +24,4 @@ static inline void s3c_rtc_setname(char *name)
 #endif
 }
 
-#endif 
+#endif /* __ASM_PLAT_RTC_CORE_H */

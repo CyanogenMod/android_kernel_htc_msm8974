@@ -71,7 +71,7 @@ union _FP_UNION_Q
       unsigned long frac3 : _FP_FRACBITS_Q - (_FP_IMPLBIT_Q != 0)-(_FP_W_TYPE_SIZE * 3);
       unsigned exp : _FP_EXPBITS_Q;
       unsigned sign : 1;
-#endif 
+#endif /* not bigendian */
    } bits __attribute__((packed));
 };
 
@@ -130,10 +130,10 @@ union _FP_UNION_Q
 #define _FP_FRAC_HIGH_Q(X)	_FP_FRAC_HIGH_4(X)
 #define _FP_FRAC_HIGH_RAW_Q(X)	_FP_FRAC_HIGH_4(X)
 
-#else   
+#else   /* not _FP_W_TYPE_SIZE < 64 */
 union _FP_UNION_Q
 {
-  long double flt  ;
+  long double flt /* __attribute__((mode(TF))) */ ;
   struct {
 #if __BYTE_ORDER == __BIG_ENDIAN
     unsigned sign  : 1;
@@ -203,6 +203,6 @@ union _FP_UNION_Q
 #define _FP_FRAC_HIGH_Q(X)	_FP_FRAC_HIGH_2(X)
 #define _FP_FRAC_HIGH_RAW_Q(X)	_FP_FRAC_HIGH_2(X)
 
-#endif 
+#endif /* not _FP_W_TYPE_SIZE < 64 */
 
-#endif 
+#endif /* __MATH_EMU_QUAD_H__ */

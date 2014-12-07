@@ -44,6 +44,7 @@
  * from this source.  -- Jeff Garzik <jgarzik@pobox.com>, 01/Nov/99 
  */
 
+/* $XFree86: xc/programs/Xserver/hw/xfree86/drivers/nv/riva_hw.c,v 1.33 2002/08/05 20:47:06 mvojkovi Exp $ */
 
 #include <linux/kernel.h>
 #include <linux/pci.h>
@@ -52,6 +53,10 @@
 #include "riva_tbl.h"
 #include "nv_type.h"
 
+/*
+ * This file is an OS-agnostic file used to make RIVA 128 and RIVA TNT
+ * operate identically (except TNT has more memory and better 3D quality.
+ */
 static int nv3Busy
 (
     RIVA_HW_INST *chip
@@ -126,6 +131,13 @@ static int ShowHideCursor
     return (cursor & 0x01);
 }
 
+/****************************************************************************\
+*                                                                            *
+* The video arbitration routines calculate some "magic" numbers.  Fixes      *
+* the snow seen when accessing the framebuffer without it.                   *
+* It just works (I hope).                                                    *
+*                                                                            *
+\****************************************************************************/
 
 #define DEFAULT_GR_LWM 100
 #define DEFAULT_VID_LWM 100
@@ -845,7 +857,7 @@ static void nv10CalcArbitration
     int us_min_mclk_extra;
 
     fifo->valid = 1;
-    pclk_freq = arb->pclk_khz; 
+    pclk_freq = arb->pclk_khz; /* freq in KHz */
     mclk_freq = arb->mclk_khz;
     nvclk_freq = arb->nvclk_khz;
     pagemiss = arb->mem_page_miss;
@@ -862,52 +874,52 @@ static void nv10CalcArbitration
     cbs = 512;
     vbs = 512;
 
-    pclks = 4; 
+    pclks = 4; /* lwm detect. */
 
-    nvclks = 3; 
-    nvclks += 2; 
+    nvclks = 3; /* lwm -> sync. */
+    nvclks += 2; /* fbi bus cycles (1 req + 1 busy) */
 
-    mclks  = 1;   
+    mclks  = 1;   /* 2 edge sync.  may be very close to edge so just put one. */
 
-    mclks += 1;   
-    mclks += 5;   
+    mclks += 1;   /* arb_hp_req */
+    mclks += 5;   /* ap_hp_req   tiling pipeline */
 
-    mclks += 2;    
-    mclks += 2;    
-    mclks += 7;    
+    mclks += 2;    /* tc_req     latency fifo */
+    mclks += 2;    /* fb_cas_n_  memory request to fbio block */
+    mclks += 7;    /* sm_d_rdv   data returned from fbio block */
 
-    
+    /* fb.rd.d.Put_gc   need to accumulate 256 bits for read */
     if (arb->memory_type == 0)
-      if (arb->memory_width == 64) 
+      if (arb->memory_width == 64) /* 64 bit bus */
         mclks += 4;
       else
         mclks += 2;
     else
-      if (arb->memory_width == 64) 
+      if (arb->memory_width == 64) /* 64 bit bus */
         mclks += 2;
       else
         mclks += 1;
 
     if ((!video_enable) && (arb->memory_width == 128))
     {  
-      mclk_extra = (bpp == 32) ? 31 : 42; 
+      mclk_extra = (bpp == 32) ? 31 : 42; /* Margin of error */
       min_mclk_extra = 17;
     }
     else
     {
-      mclk_extra = (bpp == 32) ? 8 : 4; 
-       
+      mclk_extra = (bpp == 32) ? 8 : 4; /* Margin of error */
+      /* mclk_extra = 4; */ /* Margin of error */
       min_mclk_extra = 18;
     }
 
-    nvclks += 1; 
-    nvclks += 1; 
-    nvclks += 1; 
-    nvclks += 1; 
+    nvclks += 1; /* 2 edge sync.  may be very close to edge so just put one. */
+    nvclks += 1; /* fbi_d_rdv_n */
+    nvclks += 1; /* Fbi_d_rdata */
+    nvclks += 1; /* crtfifo load */
 
     if(mp_enable)
-      mclks+=4; 
-    
+      mclks+=4; /* Mp can get in with a burst of 8. */
+    /* Extra clocks determined by heuristics */
 
     nvclks += 0;
     pclks += 0;
@@ -916,61 +928,76 @@ static void nv10CalcArbitration
       fifo->valid = 1;
       found = 1;
       mclk_loop = mclks+mclk_extra;
-      us_m = mclk_loop *1000*1000 / mclk_freq; 
-      us_m_min = mclks * 1000*1000 / mclk_freq; 
+      us_m = mclk_loop *1000*1000 / mclk_freq; /* Mclk latency in us */
+      us_m_min = mclks * 1000*1000 / mclk_freq; /* Minimum Mclk latency in us */
       us_min_mclk_extra = min_mclk_extra *1000*1000 / mclk_freq;
-      us_n = nvclks*1000*1000 / nvclk_freq;
-      us_p = pclks*1000*1000 / pclk_freq;
+      us_n = nvclks*1000*1000 / nvclk_freq;/* nvclk latency in us */
+      us_p = pclks*1000*1000 / pclk_freq;/* nvclk latency in us */
       us_pipe = us_m + us_n + us_p;
       us_pipe_min = us_m_min + us_n + us_p;
       us_extra = 0;
 
-      vus_m = mclk_loop *1000*1000 / mclk_freq; 
-      vus_n = (4)*1000*1000 / nvclk_freq;
-      vus_p = 0*1000*1000 / pclk_freq;
+      vus_m = mclk_loop *1000*1000 / mclk_freq; /* Mclk latency in us */
+      vus_n = (4)*1000*1000 / nvclk_freq;/* nvclk latency in us */
+      vus_p = 0*1000*1000 / pclk_freq;/* pclk latency in us */
       vus_pipe = vus_m + vus_n + vus_p;
 
       if(video_enable) {
-        video_drain_rate = pclk_freq * 4; 
-        crtc_drain_rate = pclk_freq * bpp/8; 
+        video_drain_rate = pclk_freq * 4; /* MB/s */
+        crtc_drain_rate = pclk_freq * bpp/8; /* MB/s */
 
-        vpagemiss = 1; 
-        vpagemiss += 1; 
+        vpagemiss = 1; /* self generating page miss */
+        vpagemiss += 1; /* One higher priority before */
 
-        crtpagemiss = 2; 
+        crtpagemiss = 2; /* self generating page miss */
         if(mp_enable)
-            crtpagemiss += 1; 
+            crtpagemiss += 1; /* if MA0 conflict */
 
         vpm_us = (vpagemiss * pagemiss)*1000*1000/mclk_freq;
 
-        us_video = vpm_us + vus_m; 
+        us_video = vpm_us + vus_m; /* Video has separate read return path */
 
         cpm_us = crtpagemiss  * pagemiss *1000*1000/ mclk_freq;
         us_crt =
-          us_video  
-          +cpm_us 
-          +us_m + us_n +us_p 
+          us_video  /* Wait for video */
+          +cpm_us /* CRT Page miss */
+          +us_m + us_n +us_p /* other latency */
           ;
 
         clwm = us_crt * crtc_drain_rate/(1000*1000);
-        clwm++; 
+        clwm++; /* fixed point <= float_point - 1.  Fixes that */
       } else {
-        crtc_drain_rate = pclk_freq * bpp/8; 
+        crtc_drain_rate = pclk_freq * bpp/8; /* bpp * pclk/8 */
 
-        crtpagemiss = 1; 
-        crtpagemiss += 1; 
+        crtpagemiss = 1; /* self generating page miss */
+        crtpagemiss += 1; /* MA0 page miss */
         if(mp_enable)
-            crtpagemiss += 1; 
+            crtpagemiss += 1; /* if MA0 conflict */
         cpm_us = crtpagemiss  * pagemiss *1000*1000/ mclk_freq;
         us_crt =  cpm_us + us_m + us_n + us_p ;
         clwm = us_crt * crtc_drain_rate/(1000*1000);
-        clwm++; 
+        clwm++; /* fixed point <= float_point - 1.  Fixes that */
 
-          
+  /*
+          //
+          // Another concern, only for high pclks so don't do this
+          // with video:
+          // What happens if the latency to fetch the cbs is so large that
+          // fifo empties.  In that case we need to have an alternate clwm value
+          // based off the total burst fetch
+          //
+          us_crt = (cbs * 1000 * 1000)/ (8*width)/mclk_freq ;
+          us_crt = us_crt + us_m + us_n + us_p + (4 * 1000 * 1000)/mclk_freq;
+          clwm_mt = us_crt * crtc_drain_rate/(1000*1000);
+          clwm_mt ++;
+          if(clwm_mt > clwm)
+              clwm = clwm_mt;
+  */
+          /* Finally, a heuristic check when width == 64 bits */
           if(width == 1){
               nvclk_fill = nvclk_freq * 8;
               if(crtc_drain_rate * 100 >= nvclk_fill * 102)
-                      clwm = 0xfff; 
+                      clwm = 0xfff; /*Large number to fail */
 
               else if(crtc_drain_rate * 100  >= nvclk_fill * 98) {
                   clwm = 1024;
@@ -981,37 +1008,41 @@ static void nv10CalcArbitration
       }
 
 
+      /*
+        Overfill check:
+
+        */
 
       clwm_rnd_down = ((int)clwm/8)*8;
       if (clwm_rnd_down < clwm)
           clwm += 8;
 
-      m1 = clwm + cbs -  1024; 
+      m1 = clwm + cbs -  1024; /* Amount of overfill */
       m2us = us_pipe_min + us_min_mclk_extra;
       pclks_2_top_fifo = (1024-clwm)/(8*width);
 
-      
+      /* pclk cycles to drain */
       p1clk = m2us * pclk_freq/(1000*1000); 
-      p2 = p1clk * bpp / 8; 
+      p2 = p1clk * bpp / 8; /* bytes drained. */
 
       if((p2 < m1) && (m1 > 0)) {
           fifo->valid = 0;
           found = 0;
           if(min_mclk_extra == 0)   {
             if(cbs <= 32) {
-              found = 1; 
+              found = 1; /* Can't adjust anymore! */
             } else {
-              cbs = cbs/2;  
+              cbs = cbs/2;  /* reduce the burst size */
             }
           } else {
             min_mclk_extra--;
           }
       } else {
-        if (clwm > 1023){ 
+        if (clwm > 1023){ /* Have some margin */
           fifo->valid = 0;
           found = 0;
           if(min_mclk_extra == 0)   
-              found = 1; 
+              found = 1; /* Can't adjust anymore! */
           else 
               min_mclk_extra--;
         }
@@ -1020,10 +1051,10 @@ static void nv10CalcArbitration
 
       if(clwm < (1024-cbs+8)) clwm = 1024-cbs+8;
       data = (int)(clwm);
-      
+      /*  printf("CRT LWM: %f bytes, prog: 0x%x, bs: 256\n", clwm, data ); */
       fifo->graphics_lwm = data;   fifo->graphics_burst_size = cbs;
 
-      
+      /*  printf("VID LWM: %f bytes, prog: 0x%x, bs: %d\n, ", vlwm, data, vbs ); */
       fifo->video_lwm = 1024;  fifo->video_burst_size = 512;
     }
 }
@@ -1126,7 +1157,15 @@ static void nForceUpdateArbitrationSettings
     }
 }
 
+/****************************************************************************\
+*                                                                            *
+*                          RIVA Mode State Routines                          *
+*                                                                            *
+\****************************************************************************/
 
+/*
+ * Calculate the Video Clock parameters for the PLL.
+ */
 static int CalcVClock
 (
     int           clockIn,
@@ -1185,9 +1224,13 @@ static int CalcVClock
     }
     }
 
-    
+    /* non-zero: M/N/P/clock values assigned.  zero: error (not set) */
     return (DeltaOld != 0xFFFFFFFF);
 }
+/*
+ * Calculate extended mode parameters (SVGA) and save in a 
+ * mode state structure.
+ */
 int CalcStateExt
 (
     RIVA_HW_INST  *chip,
@@ -1203,9 +1246,15 @@ int CalcStateExt
     int uninitialized_var(VClk),uninitialized_var(m),
         uninitialized_var(n),	uninitialized_var(p);
 
-    state->bpp    = bpp;    
+    /*
+     * Save mode parameters.
+     */
+    state->bpp    = bpp;    /* this is not bitsPerPixel, it's 8,15,16,32 */
     state->width  = width;
     state->height = height;
+    /*
+     * Extended RIVA registers.
+     */
     pixelDepth = (bpp + 1)/8;
     if (!CalcVClock(dotClock, &VClk, &m, &n, &p, chip))
     	return -EINVAL;
@@ -1270,8 +1319,8 @@ int CalcStateExt
             break;
     }
 
-     
-     
+     /* Paul Richards: below if block borks things in kernel for some reason */
+     /* Tony: Below is needed to set hardware in DirectColor */
     if((bpp != 8) && (chip->Architecture != NV_ARCH_03))
 	    state->general |= 0x00000030;
 
@@ -1289,6 +1338,9 @@ int CalcStateExt
 
     return 0;
 }
+/*
+ * Load fixed function state and pre-calculated/stored state.
+ */
 #if 0
 #define LOAD_FIXED_STATE(tbl,dev)                                       \
     for (i = 0; i < sizeof(tbl##Table##dev)/8; i++)                 \
@@ -1340,6 +1392,9 @@ static void UpdateFifoState
         case NV_ARCH_10:
         case NV_ARCH_20:
         case NV_ARCH_30:
+            /*
+             * Initialize state for the RivaTriangle3D05 routines.
+             */
             LOAD_FIXED_STATE(nv10tri05,PGRAPH);
             LOAD_FIXED_STATE(nv10,FIFO);
             chip->Tri03 = NULL;
@@ -1355,11 +1410,17 @@ static void LoadStateExt
 {
     int i;
 
+    /*
+     * Load HW fixed function state.
+     */
     LOAD_FIXED_STATE(Riva,PMC);
     LOAD_FIXED_STATE(Riva,PTIMER);
     switch (chip->Architecture)
     {
         case NV_ARCH_03:
+            /*
+             * Make sure frame buffer config gets set before loading PRAMIN.
+             */
             NV_WR32(chip->PFB, 0x00000200, state->config);
             LOAD_FIXED_STATE(nv3,PFIFO);
             LOAD_FIXED_STATE(nv3,PRAMIN);
@@ -1397,6 +1458,9 @@ static void LoadStateExt
             NV_WR32(chip->PGRAPH, 0x0000065C, state->pitch3);
             break;
         case NV_ARCH_04:
+            /*
+             * Make sure frame buffer config gets set before loading PRAMIN.
+             */
             NV_WR32(chip->PFB, 0x00000200, state->config);
             LOAD_FIXED_STATE(nv4,PFIFO);
             LOAD_FIXED_STATE(nv4,PRAMIN);
@@ -1617,6 +1681,9 @@ static void LoadStateExt
     }
     LOAD_FIXED_STATE(Riva,FIFO);
     UpdateFifoState(chip);
+    /*
+     * Load HW mode state.
+     */
     VGA_WR08(chip->PCIO, 0x03D4, 0x19);
     VGA_WR08(chip->PCIO, 0x03D5, state->repaint0);
     VGA_WR08(chip->PCIO, 0x03D4, 0x1A);
@@ -1650,13 +1717,24 @@ static void LoadStateExt
     }  
     NV_WR32(chip->PRAMDAC, 0x00000600 , state->general);
 
+    /*
+     * Turn off VBlank enable and reset.
+     */
     NV_WR32(chip->PCRTC, 0x00000140, 0);
     NV_WR32(chip->PCRTC, 0x00000100, chip->VBlankBit);
-    
+    /*
+     * Set interrupt enable.
+     */    
     NV_WR32(chip->PMC, 0x00000140, chip->EnableIRQ & 0x01);
+    /*
+     * Set current state pointer.
+     */
     chip->CurrentState = state;
+    /*
+     * Reset FIFO free and empty counts.
+     */
     chip->FifoFreeCount  = 0;
-    
+    /* Free count from first subchannel */
     chip->FifoEmptyCount = NV_RD32(&chip->Rop->FifoFree, 0);
 }
 static void UnloadStateExt
@@ -1665,6 +1743,9 @@ static void UnloadStateExt
     RIVA_HW_STATE *state
 )
 {
+    /*
+     * Save current HW state.
+     */
     VGA_WR08(chip->PCIO, 0x03D4, 0x19);
     state->repaint0     = VGA_RD08(chip->PCIO, 0x03D5);
     VGA_WR08(chip->PCIO, 0x03D4, 0x1A);
@@ -1764,7 +1845,13 @@ static void SetStartAddress3
     int pan    = (start & 3) << 1;
     unsigned char tmp;
 
+    /*
+     * Unlock extended registers.
+     */
     chip->LockUnlock(chip, 0);
+    /*
+     * Set start address.
+     */
     VGA_WR08(chip->PCIO, 0x3D4, 0x0D); VGA_WR08(chip->PCIO, 0x3D5, offset);
     offset >>= 8;
     VGA_WR08(chip->PCIO, 0x3D4, 0x0C); VGA_WR08(chip->PCIO, 0x3D5, offset);
@@ -1773,6 +1860,9 @@ static void SetStartAddress3
     VGA_WR08(chip->PCIO, 0x3D5, (offset & 0x01F) | (tmp & ~0x1F));
     VGA_WR08(chip->PCIO, 0x3D4, 0x2D); tmp = VGA_RD08(chip->PCIO, 0x3D5);
     VGA_WR08(chip->PCIO, 0x3D5, (offset & 0x60) | (tmp & ~0x60));
+    /*
+     * 4 pixel pan register.
+     */
     offset = VGA_RD08(chip->PCIO, chip->IO + 0x0A);
     VGA_WR08(chip->PCIO, 0x3C0, 0x13);
     VGA_WR08(chip->PCIO, 0x3C0, pan);
@@ -1876,17 +1966,28 @@ static void nv10SetSurfaces3D
     NV_WR32(&chip->FIFO[0x00003800], 0, 0x80000014);
 }
 
+/****************************************************************************\
+*                                                                            *
+*                      Probe RIVA Chip Configuration                         *
+*                                                                            *
+\****************************************************************************/
 
 static void nv3GetConfig
 (
     RIVA_HW_INST *chip
 )
 {
+    /*
+     * Fill in chip configuration.
+     */
     if (NV_RD32(&chip->PFB[0x00000000/4], 0) & 0x00000020)
     {
         if (((NV_RD32(chip->PMC, 0x00000000) & 0xF0) == 0x20)
          && ((NV_RD32(chip->PMC, 0x00000000) & 0x0F) >= 0x02))
         {        
+            /*
+             * SDRAM 128 ZX.
+             */
             chip->RamBandwidthKBytesPerSec = 800000;
             switch (NV_RD32(chip->PFB, 0x00000000) & 0x03)
             {
@@ -1909,6 +2010,9 @@ static void nv3GetConfig
     }
     else
     {
+        /*
+         * SGRAM 128.
+         */
         chip->RamBandwidthKBytesPerSec = 1000000;
         switch (NV_RD32(chip->PFB, 0x00000000) & 0x00000003)
         {
@@ -1927,6 +2031,9 @@ static void nv3GetConfig
     chip->CURSOR           = &(chip->PRAMIN[0x00008000/4 - 0x0800/4]);
     chip->VBlankBit        = 0x00000100;
     chip->MaxVClockFreqKHz = 256000;
+    /*
+     * Set chip functions.
+     */
     chip->Busy            = nv3Busy;
     chip->ShowHideCursor  = ShowHideCursor;
     chip->LoadStateExt    = LoadStateExt;
@@ -1941,6 +2048,9 @@ static void nv4GetConfig
     RIVA_HW_INST *chip
 )
 {
+    /*
+     * Fill in chip configuration.
+     */
     if (NV_RD32(chip->PFB, 0x00000000) & 0x00000100)
     {
         chip->RamAmountKBytes = ((NV_RD32(chip->PFB, 0x00000000) >> 12) & 0x0F) * 1024 * 2
@@ -1978,6 +2088,9 @@ static void nv4GetConfig
     chip->CURSOR           = &(chip->PRAMIN[0x00010000/4 - 0x0800/4]);
     chip->VBlankBit        = 0x00000001;
     chip->MaxVClockFreqKHz = 350000;
+    /*
+     * Set chip functions.
+     */
     chip->Busy            = nv4Busy;
     chip->ShowHideCursor  = ShowHideCursor;
     chip->LoadStateExt    = LoadStateExt;
@@ -1997,11 +2110,14 @@ static void nv10GetConfig
     u32 amt;
 
 #ifdef __BIG_ENDIAN
-    
+    /* turn on big endian register access */
     if(!(NV_RD32(chip->PMC, 0x00000004) & 0x01000001))
     	NV_WR32(chip->PMC, 0x00000004, 0x01000001);
 #endif
 
+    /*
+     * Fill in chip configuration.
+     */
     if(chipset == NV_CHIP_IGEFORCE2) {
         dev = pci_get_bus_and_slot(0, 1);
         pci_read_config_dword(dev, 0x7C, &amt);
@@ -2072,9 +2188,12 @@ static void nv10GetConfig
     }
 
     chip->CursorStart      = (chip->RamAmountKBytes - 128) * 1024;
-    chip->CURSOR           = NULL;  
+    chip->CURSOR           = NULL;  /* can't set this here */
     chip->VBlankBit        = 0x00000001;
     chip->MaxVClockFreqKHz = 350000;
+    /*
+     * Set chip functions.
+     */
     chip->Busy            = nv10Busy;
     chip->ShowHideCursor  = ShowHideCursor;
     chip->LoadStateExt    = LoadStateExt;
@@ -2109,7 +2228,13 @@ int RivaGetConfig
     unsigned int chipset
 )
 {
+    /*
+     * Save this so future SW know whats it's dealing with.
+     */
     chip->Version = RIVA_SW_VERSION;
+    /*
+     * Chip specific configuration.
+     */
     switch (chip->Architecture)
     {
         case NV_ARCH_03:
@@ -2127,6 +2252,9 @@ int RivaGetConfig
             return (-1);
     }
     chip->Chipset = chipset;
+    /*
+     * Fill in FIFO pointers.
+     */
     chip->Rop    = (RivaRop __iomem         *)&(chip->FIFO[0x00000000/4]);
     chip->Clip   = (RivaClip __iomem        *)&(chip->FIFO[0x00002000/4]);
     chip->Patt   = (RivaPattern __iomem     *)&(chip->FIFO[0x00004000/4]);

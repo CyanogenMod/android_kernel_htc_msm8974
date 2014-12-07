@@ -9,6 +9,7 @@
 #ifndef __SPARC64_STRING_H__
 #define __SPARC64_STRING_H__
 
+/* Really, userland/ksyms should not see any of this stuff. */
 
 #ifdef __KERNEL__
 
@@ -16,6 +17,7 @@
 
 #ifndef EXPORT_SYMTAB_STROPS
 
+/* First the mem*() things. */
 #define __HAVE_ARCH_MEMMOVE
 extern void *memmove(void *, const void *, __kernel_size_t);
 
@@ -46,14 +48,15 @@ extern void *memmove(void *, const void *, __kernel_size_t);
 #define __HAVE_ARCH_MEMCMP
 extern int memcmp(const void *,const void *,__kernel_size_t);
 
+/* Now the str*() stuff... */
 #define __HAVE_ARCH_STRLEN
 extern __kernel_size_t strlen(const char *);
 
 #define __HAVE_ARCH_STRNCMP
 extern int strncmp(const char *, const char *, __kernel_size_t);
 
-#endif 
+#endif /* !EXPORT_SYMTAB_STROPS */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* !(__SPARC64_STRING_H__) */

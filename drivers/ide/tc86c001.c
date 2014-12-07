@@ -48,16 +48,30 @@ static void tc86c001_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	tc86c001_set_mode(hwif, drive);
 }
 
+/*
+ * HACKITY HACK
+ *
+ * This is a workaround for the limitation 5 of the TC86C001 IDE controller:
+ * if a DMA transfer terminates prematurely, the controller leaves the device's
+ * interrupt request (INTRQ) pending and does not generate a PCI interrupt (or
+ * set the interrupt bit in the DMA status register), thus no PCI interrupt
+ * will occur until a DMA transfer has been successfully completed.
+ *
+ * We work around this by initiating dummy, zero-length DMA transfer on
+ * a DMA timeout expiration. I found no better way to do this with the current
+ * IDE core than to temporarily replace a higher level driver's timer expiry
+ * handler with our own backing up to that handler in case our recovery fails.
+ */
 static int tc86c001_timer_expiry(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif	= drive->hwif;
 	ide_expiry_t *expiry	= ide_get_hwifdata(hwif);
 	u8 dma_stat		= inb(hwif->dma_base + ATA_DMA_STATUS);
 
-	
+	/* Restore a higher level driver's expiry handler first. */
 	hwif->expiry = expiry;
 
-	if ((dma_stat & 5) == 1) {	
+	if ((dma_stat & 5) == 1) {	/* DMA active and no interrupt */
 		unsigned long sc_base	= hwif->config_data;
 		unsigned long twcr_port	= sc_base + (drive->dn ? 0x06 : 0x04);
 		u8 dma_cmd		= inb(hwif->dma_base + ATA_DMA_CMD);
@@ -65,28 +79,33 @@ static int tc86c001_timer_expiry(ide_drive_t *drive)
 		printk(KERN_WARNING "%s: DMA interrupt possibly stuck, "
 		       "attempting recovery...\n", drive->name);
 
-		
+		/* Stop DMA */
 		outb(dma_cmd & ~0x01, hwif->dma_base + ATA_DMA_CMD);
 
-		
-		outw(0, sc_base + 0x0a);	
-		outw(0, twcr_port);	
+		/* Setup the dummy DMA transfer */
+		outw(0, sc_base + 0x0a);	/* Sector Count */
+		outw(0, twcr_port);	/* Transfer Word Count 1 or 2 */
 
-		
+		/* Start the dummy DMA transfer */
 
-		
+		/* clear R_OR_WCTR for write */
 		outb(0x00, hwif->dma_base + ATA_DMA_CMD);
-		
+		/* set START_STOPBM */
 		outb(0x01, hwif->dma_base + ATA_DMA_CMD);
 
+		/*
+		 * If an interrupt was pending, it should come thru shortly.
+		 * If not, a higher level driver's expiry handler should
+		 * eventually cause some kind of recovery from the DMA stall.
+		 */
 		return WAIT_MIN_SLEEP;
 	}
 
-	
+	/* Chain to the restored expiry handler if DMA wasn't active. */
 	if (likely(expiry != NULL))
 		return expiry(drive);
 
-	
+	/* If there was no handler, "emulate" that for ide_timer_expiry()... */
 	return -1;
 }
 
@@ -97,10 +116,15 @@ static void tc86c001_dma_start(ide_drive_t *drive)
 	unsigned long twcr_port	= sc_base + (drive->dn ? 0x06 : 0x04);
 	unsigned long nsectors	= blk_rq_sectors(hwif->rq);
 
-	outw(nsectors, sc_base + 0x0a);	
-	outw(SECTOR_SIZE / 2, twcr_port); 
+	/*
+	 * We have to manually load the sector count and size into
+	 * the appropriate system control registers for DMA to work
+	 * with LBA48 and ATAPI devices...
+	 */
+	outw(nsectors, sc_base + 0x0a);	/* Sector Count */
+	outw(SECTOR_SIZE / 2, twcr_port); /* Transfer Word Count 1/2 */
 
-	
+	/* Install our timeout expiry hook, saving the current handler... */
 	ide_set_hwifdata(hwif, hwif->expiry);
 	hwif->expiry = &tc86c001_timer_expiry;
 
@@ -113,6 +137,10 @@ static u8 tc86c001_cable_detect(ide_hwif_t *hwif)
 	unsigned long sc_base = pci_resource_start(dev, 5);
 	u16 scr1 = inw(sc_base + 0x00);
 
+	/*
+	 * System Control  1 Register bit 13 (PDIAGN):
+	 * 0=80-pin cable, 1=40-pin cable
+	 */
 	return (scr1 & 0x2000) ? ATA_CBL_PATA40 : ATA_CBL_PATA80;
 }
 
@@ -122,24 +150,28 @@ static void __devinit init_hwif_tc86c001(ide_hwif_t *hwif)
 	unsigned long sc_base	= pci_resource_start(dev, 5);
 	u16 scr1		= inw(sc_base + 0x00);
 
-	
+	/* System Control 1 Register bit 15 (Soft Reset) set */
 	outw(scr1 |  0x8000, sc_base + 0x00);
 
-	
+	/* System Control 1 Register bit 14 (FIFO Reset) set */
 	outw(scr1 |  0x4000, sc_base + 0x00);
 
-	
+	/* System Control 1 Register: reset clear */
 	outw(scr1 & ~0xc000, sc_base + 0x00);
 
-	
+	/* Store the system control register base for convenience... */
 	hwif->config_data = sc_base;
 
 	if (!hwif->dma_base)
 		return;
 
+	/*
+	 * Sector Count Control Register bits 0 and 1 set:
+	 * software sets Sector Count Register for master and slave device
+	 */
 	outw(0x0003, sc_base + 0x0c);
 
-	
+	/* Sector Count Register limit */
 	hwif->rqsize	 = 0xffff;
 }
 

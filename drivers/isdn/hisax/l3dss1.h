@@ -14,12 +14,17 @@
 #define T304	30000
 #define T305	30000
 #define T308	4000
+/* for layer 1 certification T309 < layer1 T3 (e.g. 4000) */
+/* This makes some tests easier and quicker */
 #define T309	40000
 #define T310	30000
 #define T313	4000
 #define T318	4000
 #define T319	4000
 
+/*
+ * Message-Types
+ */
 
 #define MT_ALERTING		0x01
 #define MT_CALL_PROCEEDING	0x02
@@ -90,6 +95,7 @@
 #define IE_REPEAT	0xd0
 
 #define IE_MANDATORY	0x0100
+/* mandatory not in every case */
 #define IE_MANDATORY_1	0x0200
 
 #define ERR_IE_COMPREHENSION	 1
@@ -97,20 +103,22 @@
 #define ERR_IE_LENGTH		-2
 #define ERR_IE_SEQUENCE		-3
 
-#else 
+#else /* only l3dss1_process */
 
+/* l3dss1 specific data in l3 process */
 typedef struct
-{ unsigned char invoke_id; 
-	ulong ll_id; 
-	u8 remote_operation; 
-	int proc; 
-	ulong remote_result; 
-	char uus1_data[35]; 
+{ unsigned char invoke_id; /* used invoke id in remote ops, 0 = not active */
+	ulong ll_id; /* remebered ll id */
+	u8 remote_operation; /* handled remote operation, 0 = not active */
+	int proc; /* rememered procedure */
+	ulong remote_result; /* result of remote operation for statcallb */
+	char uus1_data[35]; /* data send during alerting or disconnect */
 } dss1_proc_priv;
 
+/* l3dss1 specific data in protocol stack */
 typedef struct
-{ unsigned char last_invoke_id; 
-	unsigned char invoke_used[32]; 
+{ unsigned char last_invoke_id; /* last used value for invoking */
+	unsigned char invoke_used[32]; /* 256 bits for 256 values */
 } dss1_stk_priv;
 
-#endif 
+#endif /* only l3dss1_process */

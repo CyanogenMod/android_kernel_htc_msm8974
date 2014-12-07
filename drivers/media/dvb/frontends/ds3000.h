@@ -25,10 +25,10 @@
 #include <linux/dvb/frontend.h>
 
 struct ds3000_config {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 	u8 ci_mode;
-	
+	/* Set device param to start dma */
 	int (*set_ts_params)(struct dvb_frontend *fe, int is_punctured);
 };
 
@@ -44,5 +44,5 @@ struct dvb_frontend *ds3000_attach(const struct ds3000_config *config,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
-#endif 
+#endif /* CONFIG_DVB_DS3000 */
+#endif /* DS3000_H */

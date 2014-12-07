@@ -93,7 +93,7 @@ static void __init cerf_init_irq(void)
 }
 
 static struct map_desc cerf_io_desc[] __initdata = {
-  	{	
+  	{	/* Crystal Ethernet Chip */
 		.virtual	=  0xf0000000,
 		.pfn		= __phys_to_pfn(0x08000000),
 		.length		= 0x00100000,
@@ -107,10 +107,10 @@ static void __init cerf_map_io(void)
 	iotable_init(cerf_io_desc, ARRAY_SIZE(cerf_io_desc));
 
 	sa1100_register_uart(0, 3);
-	sa1100_register_uart(1, 2); 
+	sa1100_register_uart(1, 2); /* disable this and the uart2 device for sa1100_fir */
 	sa1100_register_uart(2, 1);
 
-	
+	/* set some GPDR bits here while it's safe */
 	GPDR |= CERF_GPIO_CF_RESET;
 }
 
@@ -128,7 +128,7 @@ static void __init cerf_init(void)
 }
 
 MACHINE_START(CERF, "Intrinsyc CerfBoard/CerfCube")
-	
+	/* Maintainer: support@intrinsyc.com */
 	.map_io		= cerf_map_io,
 	.nr_irqs	= SA1100_NR_IRQS,
 	.init_irq	= cerf_init_irq,

@@ -234,7 +234,7 @@ void __init intc_enable_disable_enum(struct intc_desc *desc,
 {
 	unsigned int i, j, data;
 
-	
+	/* go through and enable/disable all mask bits */
 	i = j = 0;
 	do {
 		data = _intc_mask_data(desc, d, enum_id, &i, &j);
@@ -243,7 +243,7 @@ void __init intc_enable_disable_enum(struct intc_desc *desc,
 		j++;
 	} while (data);
 
-	
+	/* go through and enable/disable all priority fields */
 	i = j = 0;
 	do {
 		data = _intc_prio_data(desc, d, enum_id, &i, &j);
@@ -289,6 +289,9 @@ void intc_set_ack_handle(unsigned int irq, struct intc_desc *desc,
 {
 	unsigned long flags;
 
+	/*
+	 * Nothing to do for this IRQ.
+	 */
 	if (!desc->hw.ack_regs)
 		return;
 

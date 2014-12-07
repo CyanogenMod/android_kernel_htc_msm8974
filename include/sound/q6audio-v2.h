@@ -21,6 +21,8 @@ enum {
 	ULTRA_LOW_LATENCY_PCM_MODE,
 };
 
+#define ELITEMSG_CUSTOM_HTC_NO_SOUND_DET    0x10041001
+extern void htc_nsd_update(void* payload);
 
 int q6audio_get_port_index(u16 port_id);
 

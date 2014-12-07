@@ -3,4 +3,4 @@
 
 #include <asm-generic/fcntl.h>
 
-#endif 
+#endif /* _ASM_SCORE_FCNTL_H */

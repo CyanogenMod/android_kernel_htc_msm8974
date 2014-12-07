@@ -7,6 +7,11 @@
  *
  */
 
+/* Stuff to support the concap_proto by isdn4linux. isdn4linux - specific
+ * stuff goes here. Stuff that depends only on the concap protocol goes to
+ * another -- protocol specific -- source file.
+ *
+ */
 
 
 #include <linux/isdn.h>
@@ -16,6 +21,22 @@
 #include "isdn_concap.h"
 
 
+/* The following set of device service operations are for encapsulation
+   protocols that require for reliable datalink semantics. That means:
+
+   - before any data is to be submitted the connection must explicitly
+   be set up.
+   - after the successful set up of the connection is signalled the
+   connection is considered to be reliably up.
+
+   Auto-dialing ist not compatible with this requirements. Thus, auto-dialing
+   is completely bypassed.
+
+   It might be possible to implement a (non standardized) datalink protocol
+   that provides a reliable data link service while using some auto dialing
+   mechanism. Such a protocol would need an auxiliary channel (i.e. user-user-
+   signaling on the D-channel) while the B-channel is down.
+*/
 
 
 static int isdn_concap_dl_data_req(struct concap_proto *concap, struct sk_buff *skb)
@@ -44,7 +65,7 @@ static int isdn_concap_dl_connect_req(struct concap_proto *concap)
 	int ret;
 	IX25DEBUG("isdn_concap_dl_connect_req: %s \n", ndev->name);
 
-	
+	/* dial ... */
 	ret = isdn_net_dial_req(lp);
 	if (ret) IX25DEBUG("dialing failed\n");
 	return ret;
@@ -64,6 +85,10 @@ struct concap_device_ops isdn_concap_reliable_dl_dops = {
 	&isdn_concap_dl_disconn_req
 };
 
+/* The following should better go into a dedicated source file such that
+   this sourcefile does not need to include any protocol specific header
+   files. For now:
+*/
 struct concap_proto *isdn_concap_new(int encap)
 {
 	switch (encap) {

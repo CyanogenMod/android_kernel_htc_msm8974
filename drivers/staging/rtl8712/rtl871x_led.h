@@ -29,6 +29,10 @@
 #include "osdep_service.h"
 #include "drv_types.h"
 
+/*===========================================================================
+ * LED customization.
+ *===========================================================================
+ */
 enum LED_CTL_MODE {
 	LED_CTL_POWER_ON = 1,
 	LED_CTL_LINK = 2,
@@ -60,47 +64,58 @@ enum LED_PIN_871x {
 	LED_PIN_LED1
 };
 
+/*===========================================================================
+ * LED customization.
+ *===========================================================================
+ */
 enum LED_STRATEGY_871x {
-	SW_LED_MODE0, 
-	SW_LED_MODE1, 
-	SW_LED_MODE2, 
-	SW_LED_MODE3, 
-	SW_LED_MODE4, 
-	SW_LED_MODE5, 
-	SW_LED_MODE6, 
-	HW_LED, 
+	SW_LED_MODE0, /* SW control 1 LED via GPIO0. It is default option. */
+	SW_LED_MODE1, /* 2 LEDs, through LED0 and LED1. For ALPHA. */
+	SW_LED_MODE2, /* SW control 1 LED via GPIO0,
+		       * custom for AzWave 8187 minicard. */
+	SW_LED_MODE3, /* SW control 1 LED via GPIO0,
+		       *  customized for Sercomm Printer Server case.*/
+	SW_LED_MODE4, /*for Edimax / Belkin*/
+	SW_LED_MODE5, /*for Sercomm / Belkin*/
+	SW_LED_MODE6, /*for WNC / Corega*/
+	HW_LED, /* HW control 2 LEDs, LED0 and LED1 (there are 4 different
+		 * control modes, see MAC.CONFIG1 for details.)*/
 };
 
 struct LED_871x {
 	struct _adapter		*padapter;
-	enum LED_PIN_871x	LedPin;	
-	u32			CurrLedState; 
-	u8			bLedOn; 
+	enum LED_PIN_871x	LedPin;	/* Implementation for this SW led. */
+	u32			CurrLedState; /* Current LED state. */
+	u8			bLedOn; /* true if LED is ON */
 	u8			bSWLedCtrl;
-	u8			bLedBlinkInProgress; 
+	u8			bLedBlinkInProgress; /*true if blinking */
 	u8			bLedNoLinkBlinkInProgress;
 	u8			bLedLinkBlinkInProgress;
 	u8			bLedStartToLinkBlinkInProgress;
 	u8			bLedScanBlinkInProgress;
 	u8			bLedWPSBlinkInProgress;
-	u32			BlinkTimes; 
-	u32			BlinkingLedState; 
+	u32			BlinkTimes; /* No. times to toggle for blink.*/
+	u32			BlinkingLedState; /* Next state for blinking,
+						   * either LED_ON or OFF.*/
 
-	struct timer_list	BlinkTimer; 
-	_workitem		BlinkWorkItem; 
+	struct timer_list	BlinkTimer; /* Timer object for led blinking.*/
+	_workitem		BlinkWorkItem; /* Workitem used by BlinkTimer */
 };
 
 struct led_priv {
-	
+	/* add for led control */
 	struct LED_871x		SwLed0;
 	struct LED_871x		SwLed1;
 	enum LED_STRATEGY_871x	LedStrategy;
 	u8			bRegUseLed;
 	void (*LedControlHandler)(struct _adapter *padapter,
 				  enum LED_CTL_MODE LedAction);
-	
+	/* add for led control */
 };
 
+/*===========================================================================
+ * Interface to manipulate LED objects.
+ *===========================================================================*/
 void r8712_InitSwLeds(struct _adapter *padapter);
 void r8712_DeInitSwLeds(struct _adapter *padapter);
 void LedControl871x(struct _adapter *padapter, enum LED_CTL_MODE LedAction);

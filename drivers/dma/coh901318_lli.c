@@ -199,6 +199,12 @@ coh901318_lli_fill_single(struct coh901318_pool *pool,
 		size_t block_size = MAX_DMA_PACKET_SIZE;
 		lli->control = ctrl_chained | MAX_DMA_PACKET_SIZE;
 
+		/* If we are on the next-to-final block and there will
+		 * be less than half a DMA packet left for the last
+		 * block, then we want to make this block a little
+		 * smaller to balance the sizes. This is meant to
+		 * avoid too small transfers if the buffer size is
+		 * (MAX_DMA_PACKET_SIZE*N + 1) */
 		if (s < (MAX_DMA_PACKET_SIZE + MAX_DMA_PACKET_SIZE/2))
 			block_size = MAX_DMA_PACKET_SIZE/2;
 
@@ -251,6 +257,10 @@ coh901318_lli_fill_sg(struct coh901318_pool *pool,
 
 	for_each_sg(sgl, sg, nents, i) {
 		if (sg_is_chain(sg)) {
+			/* sg continues to the next sg-element don't
+			 * send ctrl_finish until the last
+			 * sg-element in the chain
+			 */
 			ctrl_sg = ctrl_chained;
 		} else if (i == nents - 1)
 			ctrl_sg = ctrl_last;
@@ -259,10 +269,10 @@ coh901318_lli_fill_sg(struct coh901318_pool *pool,
 
 
 		if (dir == DMA_MEM_TO_DEV)
-			
+			/* increment source address */
 			src = sg_phys(sg);
 		else
-			
+			/* increment destination address */
 			dst =  sg_phys(sg);
 
 		bytes_to_transfer = sg_dma_len(sg);

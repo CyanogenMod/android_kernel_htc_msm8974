@@ -27,6 +27,14 @@ _raw_compare_and_swap(volatile unsigned int *lock,
 	return old;
 }
 
+/*
+ * Simple spin lock operations.  There are two variants, one clears IRQ's
+ * on the local processor, one does not.
+ *
+ * We make no fairness assumptions. They have a cost.
+ *
+ * (the type definitions are in asm/spinlock_types.h)
+ */
 
 #define arch_spin_is_locked(x) ((x)->owner_cpu != 0)
 #define arch_spin_unlock_wait(lock) \
@@ -74,9 +82,27 @@ static inline void arch_spin_unlock(arch_spinlock_t *lp)
 	_raw_compare_and_swap(&lp->owner_cpu, lp->owner_cpu, 0);
 }
 		
+/*
+ * Read-write spinlocks, allowing multiple readers
+ * but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts
+ * but no interrupt writers. For those circumstances we
+ * can "mix" irq-safe locks - any writer needs to get a
+ * irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ */
 
+/**
+ * read_can_lock - would read_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_read_can_lock(x) ((int)(x)->lock >= 0)
 
+/**
+ * write_can_lock - would write_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_write_can_lock(x) ((x)->lock == 0)
 
 extern void _raw_read_lock_wait(arch_rwlock_t *lp);
@@ -149,4 +175,4 @@ static inline int arch_write_trylock(arch_rwlock_t *rw)
 #define arch_read_relax(lock)	cpu_relax()
 #define arch_write_relax(lock)	cpu_relax()
 
-#endif 
+#endif /* __ASM_SPINLOCK_H */

@@ -28,6 +28,18 @@ struct source_line {
 	char		*path;
 };
 
+/** struct annotated_source - symbols with hits have this attached as in sannotation
+ *
+ * @histogram: Array of addr hit histograms per event being monitored
+ * @lines: If 'print_lines' is specified, per source code line percentages
+ * @source: source parsed from objdump -dS
+ *
+ * lines is allocated, percentages calculated and all sorted by percentage
+ * when the annotation is about to be presented, so the percentages are for
+ * one of the entries in the histogram array, i.e. for the event/counter being
+ * presented. It is deallocated right after symbol__{tui,tty,etc}_annotate
+ * returns.
+ */
 struct annotated_source {
 	struct list_head   source;
 	struct source_line *lines;
@@ -92,4 +104,4 @@ int symbol__tui_annotate(struct symbol *sym, struct map *map, int evidx,
 
 extern const char	*disassembler_style;
 
-#endif	
+#endif	/* __PERF_ANNOTATE_H */

@@ -29,11 +29,13 @@
 #include <linux/b1lli.h>
 #include <linux/b1pcmcia.h>
 
+/*====================================================================*/
 
 MODULE_DESCRIPTION("CAPI4Linux: PCMCIA client driver for AVM B1/M1/M2");
 MODULE_AUTHOR("Carsten Paeth");
 MODULE_LICENSE("GPL");
 
+/*====================================================================*/
 
 static int avmcs_config(struct pcmcia_device *link);
 static void avmcs_release(struct pcmcia_device *link);
@@ -41,19 +43,19 @@ static void avmcs_detach(struct pcmcia_device *p_dev);
 
 static int avmcs_probe(struct pcmcia_device *p_dev)
 {
-	
+	/* General socket configuration */
 	p_dev->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO;
 	p_dev->config_index = 1;
 	p_dev->config_regs = PRESENT_OPTION;
 
 	return avmcs_config(p_dev);
-} 
+} /* avmcs_attach */
 
 
 static void avmcs_detach(struct pcmcia_device *link)
 {
 	avmcs_release(link);
-} 
+} /* avmcs_detach */
 
 static int avmcs_configcheck(struct pcmcia_device *p_dev, void *priv_data)
 {
@@ -75,16 +77,22 @@ static int avmcs_config(struct pcmcia_device *link)
 	if (link->prod_id[1])
 		strlcpy(devname, link->prod_id[1], sizeof(devname));
 
+	/*
+	 * find IO port
+	 */
 	if (pcmcia_loop_config(link, avmcs_configcheck, NULL))
 		return -ENODEV;
 
 	do {
 		if (!link->irq) {
-			
+			/* undo */
 			pcmcia_disable_device(link);
 			break;
 		}
 
+		/*
+		 * configure the PCMCIA socket
+		 */
 		i = pcmcia_enable_device(link);
 		if (i != 0) {
 			pcmcia_disable_device(link);
@@ -108,7 +116,7 @@ static int avmcs_config(struct pcmcia_device *link)
 	} else
 		cardtype = AVM_CARDTYPE_B1;
 
-	
+	/* If any step failed, release any partially configured state */
 	if (i != 0) {
 		avmcs_release(link);
 		return -ENODEV;
@@ -130,14 +138,14 @@ static int avmcs_config(struct pcmcia_device *link)
 	}
 	return 0;
 
-} 
+} /* avmcs_config */
 
 
 static void avmcs_release(struct pcmcia_device *link)
 {
 	b1pcmcia_delcard(link->resource[0]->start, link->irq);
 	pcmcia_disable_device(link);
-} 
+} /* avmcs_release */
 
 
 static const struct pcmcia_device_id avmcs_ids[] = {

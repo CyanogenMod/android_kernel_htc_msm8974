@@ -50,6 +50,26 @@
 #include <linux/clocksource.h>
 #include <linux/ktime.h>
 
+/**
+ * struct timecompare - stores state and configuration for the two clocks
+ *
+ * Initialize to zero, then set source/target/num_samples.
+ *
+ * Transformation between source time and target time is done with:
+ * target_time = source_time + offset +
+ *               (source_time - last_update) * skew /
+ *               TIMECOMPARE_SKEW_RESOLUTION
+ *
+ * @source:          used to get source time stamps via timecounter_read()
+ * @target:          function returning target time (for example, ktime_get
+ *                   for monotonic time, or ktime_get_real for wall clock)
+ * @num_samples:     number of times that source time and target time are to
+ *                   be compared when determining their offset
+ * @offset:          (target time - source time) at the time of the last update
+ * @skew:            average (target time - source time) / delta source time *
+ *                   TIMECOMPARE_SKEW_RESOLUTION
+ * @last_update:     last source time stamp when time offset was measured
+ */
 struct timecompare {
 	struct timecounter *source;
 	ktime_t (*target)(void);
@@ -60,9 +80,25 @@ struct timecompare {
 	u64 last_update;
 };
 
+/**
+ * timecompare_transform - transform source time stamp into target time base
+ * @sync:            context for time sync
+ * @source_tstamp:   the result of timecounter_read() or
+ *                   timecounter_cyc2time()
+ */
 extern ktime_t timecompare_transform(struct timecompare *sync,
 				     u64 source_tstamp);
 
+/**
+ * timecompare_offset - measure current (target time - source time) offset
+ * @sync:            context for time sync
+ * @offset:          average offset during sample period returned here
+ * @source_tstamp:   average source time during sample period returned here
+ *
+ * Returns number of samples used. Might be zero (= no result) in the
+ * unlikely case that target time was monotonically decreasing for all
+ * samples (= broken).
+ */
 extern int timecompare_offset(struct timecompare *sync,
 			      s64 *offset,
 			      u64 *source_tstamp);
@@ -70,6 +106,14 @@ extern int timecompare_offset(struct timecompare *sync,
 extern void __timecompare_update(struct timecompare *sync,
 				 u64 source_tstamp);
 
+/**
+ * timecompare_update - update offset and skew by measuring current offset
+ * @sync:            context for time sync
+ * @source_tstamp:   the result of timecounter_read() or
+ *                   timecounter_cyc2time(), pass zero to force update
+ *
+ * Updates are only done at most once per second.
+ */
 static inline void timecompare_update(struct timecompare *sync,
 				      u64 source_tstamp)
 {
@@ -78,4 +122,4 @@ static inline void timecompare_update(struct timecompare *sync,
 		__timecompare_update(sync, source_tstamp);
 }
 
-#endif 
+#endif /* _LINUX_TIMECOMPARE_H */

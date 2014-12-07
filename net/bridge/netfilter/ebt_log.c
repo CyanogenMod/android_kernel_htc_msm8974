@@ -1,3 +1,13 @@
+/*
+ *  ebt_log
+ *
+ *	Authors:
+ *	Bart De Schuymer <bdschuym@pandora.be>
+ *	Harald Welte <laforge@netfilter.org>
+ *
+ *  April, 2002
+ *
+ */
 #include <linux/module.h>
 #include <linux/ip.h>
 #include <linux/in.h>
@@ -137,6 +147,8 @@ ebt_log_packet(u_int8_t pf, unsigned int hooknum,
 		       ntohs(ah->ar_hrd), ntohs(ah->ar_pro),
 		       ntohs(ah->ar_op));
 
+		/* If it's for Ethernet and the lengths are OK,
+		 * then log the ARP payload */
 		if (ah->ar_hrd == htons(1) &&
 		    ah->ar_hln == ETH_ALEN &&
 		    ah->ar_pln == sizeof(__be32)) {

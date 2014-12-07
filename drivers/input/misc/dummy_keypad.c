@@ -35,9 +35,10 @@ const unsigned short _usb_hut_keymap[29] = {
 	KEY_UP, KEY_LEFT, KEY_RIGHT, KEY_DOWN,
 	KEY_VOLUMEDOWN, KEY_VOLUMEUP,
 	KEY_SEND,
-	
+	/* STAR(*) and POUND(#) */
 	KEY_SWITCHVIDEOMODE, KEY_KBDILLUMTOGGLE
 };
+/* FIXME EVM without SPEEDY MACHINE DEFINE*/
 #if 0
 const unsigned short _usb_hut_keymap_speedy[29] = {
 	KEY_1, KEY_2, KEY_3, KEY_4,
@@ -68,6 +69,7 @@ static int dummy_keypad_init_func(void)
 		goto kzalloc_fail;
 	}
 	dummy_keypad->keypad_name = DRIVER_NAME;
+/* FIXME EVM without SPEEDY MACHINE DEFINE*/
 #if 0
 	if (machine_is_speedy())
 		dummy_keypad->usb_hut_keymap = _usb_hut_keymap_speedy;
@@ -83,7 +85,7 @@ static int dummy_keypad_init_func(void)
 	}
 	dummy_keypad->input_dev->name = DRIVER_NAME;
 	set_bit(EV_KEY, dummy_keypad->input_dev->evbit);
-	
+	/* Setting USB HUT keycode */
 	for (loop_i = 0; loop_i < dummy_keypad->usb_hut_keymap_size; loop_i++)	{
 		if (dummy_keypad->usb_hut_keymap[loop_i])
 			set_bit(dummy_keypad->usb_hut_keymap[loop_i] & KEY_MAX,

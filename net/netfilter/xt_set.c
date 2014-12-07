@@ -8,6 +8,8 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module which implements the set match and SET target
+ * for netfilter/iptables. */
 
 #include <linux/module.h>
 #include <linux/skbuff.h>
@@ -43,6 +45,7 @@ const struct ip_set_adt_opt n = {	\
 	.timeout = t,			\
 }
 
+/* Revision 0 interface: backward compatible with netfilter/iptables */
 
 static bool
 set_match_v0(const struct sk_buff *skb, struct xt_action_param *par)
@@ -60,7 +63,7 @@ compat_flags(struct xt_set_info_v0 *info)
 {
 	u_int8_t i;
 
-	
+	/* Fill out compatibility data according to enum ip_set_kopt */
 	info->u.compat.dim = IPSET_DIM_ZERO;
 	if (info->u.flags[0] & IPSET_MATCH_INV)
 		info->u.compat.flags |= IPSET_INV_MATCH;
@@ -91,7 +94,7 @@ set_match_v0_checkentry(const struct xt_mtchk_param *par)
 		return -ERANGE;
 	}
 
-	
+	/* Fill out compatibility data */
 	compat_flags(&info->match_set);
 
 	return 0;
@@ -158,7 +161,7 @@ set_target_v0_checkentry(const struct xt_tgchk_param *par)
 		return -ERANGE;
 	}
 
-	
+	/* Fill out compatibility data */
 	compat_flags(&info->add_set);
 	compat_flags(&info->del_set);
 
@@ -176,6 +179,7 @@ set_target_v0_destroy(const struct xt_tgdtor_param *par)
 		ip_set_nfnl_put(info->del_set.index);
 }
 
+/* Revision 1 match and target */
 
 static bool
 set_match_v1(const struct sk_buff *skb, struct xt_action_param *par)
@@ -286,6 +290,7 @@ set_target_v1_destroy(const struct xt_tgdtor_param *par)
 		ip_set_nfnl_put(info->del_set.index);
 }
 
+/* Revision 2 target */
 
 static unsigned int
 set_target_v2(struct sk_buff *skb, const struct xt_action_param *par)

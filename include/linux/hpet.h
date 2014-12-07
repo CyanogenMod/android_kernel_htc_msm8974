@@ -5,28 +5,31 @@
 
 #ifdef __KERNEL__
 
+/*
+ * Offsets into HPET Registers
+ */
 
 struct hpet {
-	u64 hpet_cap;		
-	u64 res0;		
-	u64 hpet_config;	
-	u64 res1;		
-	u64 hpet_isr;		
-	u64 res2[25];		
-	union {			
+	u64 hpet_cap;		/* capabilities */
+	u64 res0;		/* reserved */
+	u64 hpet_config;	/* configuration */
+	u64 res1;		/* reserved */
+	u64 hpet_isr;		/* interrupt status reg */
+	u64 res2[25];		/* reserved */
+	union {			/* main counter */
 		u64 _hpet_mc64;
 		u32 _hpet_mc32;
 		unsigned long _hpet_mc;
 	} _u0;
-	u64 res3;		
+	u64 res3;		/* reserved */
 	struct hpet_timer {
-		u64 hpet_config;	
-		union {		
+		u64 hpet_config;	/* configuration/cap */
+		union {		/* timer compare register */
 			u64 _hpet_hc64;
 			u32 _hpet_hc32;
 			unsigned long _hpet_compare;
 		} _u1;
-		u64 hpet_fsb[2];	
+		u64 hpet_fsb[2];	/* FSB route */
 	} hpet_timers[1];
 };
 
@@ -36,6 +39,9 @@ struct hpet {
 #define	HPET_MAX_TIMERS	(32)
 #define	HPET_MAX_IRQ	(32)
 
+/*
+ * HPET general capabilities register
+ */
 
 #define	HPET_COUNTER_CLK_PERIOD_MASK	(0xffffffff00000000ULL)
 #define	HPET_COUNTER_CLK_PERIOD_SHIFT	(32UL)
@@ -46,11 +52,17 @@ struct hpet {
 #define	HPET_NUM_TIM_CAP_MASK		(0x1f00)
 #define	HPET_NUM_TIM_CAP_SHIFT		(8ULL)
 
+/*
+ * HPET general configuration register
+ */
 
 #define	HPET_LEG_RT_CNF_MASK		(2UL)
 #define	HPET_ENABLE_CNF_MASK		(1UL)
 
 
+/*
+ * Timer configuration register
+ */
 
 #define	Tn_INT_ROUTE_CAP_MASK		(0xffffffff00000000ULL)
 #define	Tn_INT_ROUTE_CAP_SHIFT		(32UL)
@@ -68,17 +80,23 @@ struct hpet {
 #define	Tn_INT_ENB_CNF_MASK		(0x0004UL)
 #define	Tn_INT_TYPE_CNF_MASK		(0x0002UL)
 
+/*
+ * Timer FSB Interrupt Route Register
+ */
 
 #define	Tn_FSB_INT_ADDR_MASK		(0xffffffff00000000ULL)
 #define	Tn_FSB_INT_ADDR_SHIFT		(32UL)
 #define	Tn_FSB_INT_VAL_MASK		(0x00000000ffffffffULL)
 
+/*
+ * exported interfaces
+ */
 
 struct hpet_data {
 	unsigned long hd_phys_address;
 	void __iomem *hd_address;
 	unsigned short hd_nirqs;
-	unsigned int hd_state;	
+	unsigned int hd_state;	/* timer allocated */
 	unsigned int hd_irq[HPET_MAX_TIMERS];
 };
 
@@ -90,24 +108,24 @@ static inline void hpet_reserve_timer(struct hpet_data *hd, int timer)
 
 int hpet_alloc(struct hpet_data *);
 
-#endif 
+#endif /* __KERNEL__ */
 
 struct hpet_info {
-	unsigned long hi_ireqfreq;	
-	unsigned long hi_flags;	
+	unsigned long hi_ireqfreq;	/* Hz */
+	unsigned long hi_flags;	/* information */
 	unsigned short hi_hpet;
 	unsigned short hi_timer;
 };
 
-#define HPET_INFO_PERIODIC	0x0010	
+#define HPET_INFO_PERIODIC	0x0010	/* periodic-capable comparator */
 
-#define	HPET_IE_ON	_IO('h', 0x01)	
-#define	HPET_IE_OFF	_IO('h', 0x02)	
+#define	HPET_IE_ON	_IO('h', 0x01)	/* interrupt on */
+#define	HPET_IE_OFF	_IO('h', 0x02)	/* interrupt off */
 #define	HPET_INFO	_IOR('h', 0x03, struct hpet_info)
-#define	HPET_EPI	_IO('h', 0x04)	
-#define	HPET_DPI	_IO('h', 0x05)	
-#define	HPET_IRQFREQ	_IOW('h', 0x6, unsigned long)	
+#define	HPET_EPI	_IO('h', 0x04)	/* enable periodic */
+#define	HPET_DPI	_IO('h', 0x05)	/* disable periodic */
+#define	HPET_IRQFREQ	_IOW('h', 0x6, unsigned long)	/* IRQFREQ usec */
 
-#define MAX_HPET_TBS	8		
+#define MAX_HPET_TBS	8		/* maximum hpet timer blocks */
 
-#endif				
+#endif				/* !__HPET__ */

@@ -219,15 +219,19 @@ nouveau_display_init(struct drm_device *dev)
 	if (ret)
 		return ret;
 
+	/* power on internal panel if it's not already.  the init tables of
+	 * some vbios default this to off for some reason, causing the
+	 * panel to not work after resume
+	 */
 	if (nouveau_gpio_func_get(dev, DCB_GPIO_PANEL_POWER) == 0) {
 		nouveau_gpio_func_set(dev, DCB_GPIO_PANEL_POWER, true);
 		msleep(300);
 	}
 
-	
+	/* enable polling for external displays */
 	drm_kms_helper_poll_enable(dev);
 
-	
+	/* enable hotplug interrupts */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		struct nouveau_connector *conn = nouveau_connector(connector);
 		nouveau_gpio_irq(dev, 0, conn->hpd, 0xff, true);
@@ -243,7 +247,7 @@ nouveau_display_fini(struct drm_device *dev)
 	struct nouveau_display_engine *disp = &dev_priv->engine.display;
 	struct drm_connector *connector;
 
-	
+	/* disable hotplug interrupts */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		struct nouveau_connector *conn = nouveau_connector(connector);
 		nouveau_gpio_irq(dev, 0, conn->hpd, 0xff, false);
@@ -287,13 +291,13 @@ nouveau_display_create(struct drm_device *dev)
 			drm_property_create(dev, DRM_MODE_PROP_RANGE,
 					    "vibrant hue", 2);
 		disp->vibrant_hue_property->values[0] = 0;
-		disp->vibrant_hue_property->values[1] = 180; 
+		disp->vibrant_hue_property->values[1] = 180; /* -90..+90 */
 
 		disp->color_vibrance_property =
 			drm_property_create(dev, DRM_MODE_PROP_RANGE,
 					    "color vibrance", 2);
 		disp->color_vibrance_property->values[0] = 0;
-		disp->color_vibrance_property->values[1] = 200; 
+		disp->color_vibrance_property->values[1] = 200; /* -100..+100 */
 	}
 
 	dev->mode_config.funcs = (void *)&nouveau_mode_config_funcs;
@@ -426,17 +430,17 @@ nouveau_page_flip_emit(struct nouveau_channel *chan,
 	unsigned long flags;
 	int ret;
 
-	
+	/* Queue it to the pending list */
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_add_tail(&s->head, &chan->nvsw.flip);
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
-	
+	/* Synchronize with the old framebuffer */
 	ret = nouveau_fence_sync(old_bo->bo.sync_obj, chan);
 	if (ret)
 		goto fail;
 
-	
+	/* Emit the pageflip */
 	ret = RING_SPACE(chan, 3);
 	if (ret)
 		goto fail;
@@ -484,24 +488,24 @@ nouveau_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	if (!s)
 		return -ENOMEM;
 
-	
+	/* Don't let the buffers go away while we flip */
 	ret = nouveau_page_flip_reserve(old_bo, new_bo);
 	if (ret)
 		goto fail_free;
 
-	
+	/* Initialize a page flip struct */
 	*s = (struct nouveau_page_flip_state)
 		{ { }, event, nouveau_crtc(crtc)->index,
 		  fb->bits_per_pixel, fb->pitches[0], crtc->x, crtc->y,
 		  new_bo->bo.offset };
 
-	
+	/* Choose the channel the flip will be handled in */
 	chan = nouveau_fence_channel(new_bo->bo.sync_obj);
 	if (!chan)
 		chan = nouveau_channel_get_unlocked(dev_priv->channel);
 	mutex_lock(&chan->mutex);
 
-	
+	/* Emit a page flip */
 	if (dev_priv->card_type >= NV_50) {
 		if (dev_priv->card_type >= NV_D0)
 			ret = nvd0_display_flip_next(crtc, fb, chan, 0);
@@ -518,7 +522,7 @@ nouveau_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	if (ret)
 		goto fail_unreserve;
 
-	
+	/* Update the crtc struct and cleanup */
 	crtc->fb = fb;
 
 	nouveau_page_flip_unreserve(old_bo, new_bo, fence);

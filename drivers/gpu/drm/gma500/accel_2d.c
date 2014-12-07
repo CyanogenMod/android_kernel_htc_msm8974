@@ -40,6 +40,14 @@
 #include "psb_reg.h"
 #include "framebuffer.h"
 
+/**
+ *	psb_spank		-	reset the 2D engine
+ *	@dev_priv: our PSB DRM device
+ *
+ *	Soft reset the graphics engine and then reload the necessary registers.
+ *	We use this at initialisation time but it will become relevant for
+ *	accelerated X later
+ */
 void psb_spank(struct drm_psb_private *dev_priv)
 {
 	PSB_WSGX32(_PSB_CS_RESET_BIF_RESET | _PSB_CS_RESET_DPM_RESET |
@@ -64,6 +72,14 @@ void psb_spank(struct drm_psb_private *dev_priv)
 	PSB_WSGX32(dev_priv->gtt.gatt_start, PSB_CR_BIF_TWOD_REQ_BASE);
 }
 
+/**
+ *	psb2_2d_wait_available	-	wait for FIFO room
+ *	@dev_priv: our DRM device
+ *	@size: size (in dwords) of the command we want to issue
+ *
+ *	Wait until there is room to load the FIFO with our data. If the
+ *	device is not responding then reset it
+ */
 static int psb_2d_wait_available(struct drm_psb_private *dev_priv,
 			  unsigned size)
 {
@@ -80,6 +96,15 @@ static int psb_2d_wait_available(struct drm_psb_private *dev_priv,
 	return 0;
 }
 
+/**
+ *	psb_2d_submit		-	submit a 2D command
+ *	@dev_priv: our DRM device
+ *	@cmdbuf: command to issue
+ *	@size: length (in dwords)
+ *
+ *	Issue one or more 2D commands to the accelerator. This needs to be
+ *	serialized later when we add the GEM interfaces for acceleration
+ */
 static int psbfb_2d_submit(struct drm_psb_private *dev_priv, uint32_t *cmdbuf,
 								unsigned size)
 {
@@ -108,6 +133,14 @@ static int psbfb_2d_submit(struct drm_psb_private *dev_priv, uint32_t *cmdbuf,
 }
 
 
+/**
+ *	psb_accel_2d_copy_direction	-	compute blit order
+ *	@xdir: X direction of move
+ *	@ydir: Y direction of move
+ *
+ *	Compute the correct order setings to ensure that an overlapping blit
+ *	correctly copies all the pixels.
+ */
 static u32 psb_accel_2d_copy_direction(int xdir, int ydir)
 {
 	if (xdir < 0)
@@ -118,6 +151,24 @@ static u32 psb_accel_2d_copy_direction(int xdir, int ydir)
 						PSB_2D_COPYORDER_TL2BR;
 }
 
+/**
+ *	psb_accel_2d_copy		-	accelerated 2D copy
+ *	@dev_priv: our DRM device
+ *	@src_offset in bytes
+ *	@src_stride in bytes
+ *	@src_format psb 2D format defines
+ *	@dst_offset in bytes
+ *	@dst_stride in bytes
+ *	@dst_format psb 2D format defines
+ *	@src_x offset in pixels
+ *	@src_y offset in pixels
+ *	@dst_x offset in pixels
+ *	@dst_y offset in pixels
+ *	@size_x of the copied area
+ *	@size_y of the copied area
+ *
+ *	Format and issue a 2D accelerated copy command.
+ */
 static int psb_accel_2d_copy(struct drm_psb_private *dev_priv,
 			     uint32_t src_offset, uint32_t src_stride,
 			     uint32_t src_format, uint32_t dst_offset,
@@ -178,6 +229,13 @@ static int psb_accel_2d_copy(struct drm_psb_private *dev_priv,
 	return psbfb_2d_submit(dev_priv, buffer, buf - buffer);
 }
 
+/**
+ *	psbfb_copyarea_accel	-	copyarea acceleration for /dev/fb
+ *	@info: our framebuffer
+ *	@a: copyarea parameters from the framebuffer core
+ *
+ *	Perform a 2D copy via the accelerator
+ */
 static void psbfb_copyarea_accel(struct fb_info *info,
 				 const struct fb_copyarea *a)
 {
@@ -212,12 +270,12 @@ static void psbfb_copyarea_accel(struct fb_info *info,
 		break;
 	case 24:
 	case 32:
-		
+		/* this is wrong but since we don't do blending its okay */
 		src_format = PSB_2D_SRC_8888ARGB;
 		dst_format = PSB_2D_DST_8888ARGB;
 		break;
 	default:
-		
+		/* software fallback */
 		cfb_copyarea(info, a);
 		return;
 	}
@@ -233,13 +291,21 @@ static void psbfb_copyarea_accel(struct fb_info *info,
 	gma_power_end(dev);
 }
 
+/**
+ *	psbfb_copyarea	-	2D copy interface
+ *	@info: our framebuffer
+ *	@region: region to copy
+ *
+ *	Copy an area of the framebuffer console either by the accelerator
+ *	or directly using the cfb helpers according to the request
+ */
 void psbfb_copyarea(struct fb_info *info,
 			   const struct fb_copyarea *region)
 {
 	if (unlikely(info->state != FBINFO_STATE_RUNNING))
 		return;
 
-	
+	/* Avoid the 8 pixel erratum */
 	if (region->width == 8 || region->height == 8 ||
 		(info->flags & FBINFO_HWACCEL_DISABLED))
 		return cfb_copyarea(info, region);
@@ -247,6 +313,13 @@ void psbfb_copyarea(struct fb_info *info,
 	psbfb_copyarea_accel(info, region);
 }
 
+/**
+ *	psbfb_sync	-	synchronize 2D
+ *	@info: our framebuffer
+ *
+ *	Wait for the 2D engine to quiesce so that we can do CPU
+ *	access to the framebuffer again
+ */
 int psbfb_sync(struct fb_info *info)
 {
 	struct psb_fbdev *fbdev = info->par;
@@ -258,6 +331,9 @@ int psbfb_sync(struct fb_info *info)
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev_priv->lock_2d, flags);
+	/*
+	 * First idle the 2D engine.
+	 */
 
 	if ((PSB_RSGX32(PSB_CR_2D_SOCIF) == _PSB_C2_SOCIF_EMPTY) &&
 	    ((PSB_RSGX32(PSB_CR_2D_BLIT_STATUS) & _PSB_C2B_STATUS_BUSY) == 0))

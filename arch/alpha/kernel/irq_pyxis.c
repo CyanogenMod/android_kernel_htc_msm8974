@@ -17,6 +17,7 @@
 #include "irq_impl.h"
 
 
+/* Note mask bit is true for ENABLED irqs.  */
 static unsigned long cached_irq_mask;
 
 static inline void
@@ -45,13 +46,13 @@ pyxis_mask_and_ack_irq(struct irq_data *d)
 	unsigned long bit = 1UL << (d->irq - 16);
 	unsigned long mask = cached_irq_mask &= ~bit;
 
-	
+	/* Disable the interrupt.  */
 	*(vulp)PYXIS_INT_MASK = mask;
 	wmb();
-	
+	/* Ack PYXIS PCI interrupt.  */
 	*(vulp)PYXIS_INT_REQ = bit;
 	mb();
-	
+	/* Re-read to force both writes.  */
 	*(vulp)PYXIS_INT_MASK;
 }
 
@@ -68,13 +69,17 @@ pyxis_device_interrupt(unsigned long vector)
 	unsigned long pld;
 	unsigned int i;
 
-	
+	/* Read the interrupt summary register of PYXIS */
 	pld = *(vulp)PYXIS_INT_REQ;
 	pld &= cached_irq_mask;
 
+	/*
+	 * Now for every possible bit set, work through them and call
+	 * the appropriate interrupt handler.
+	 */
 	while (pld) {
 		i = ffz(~pld);
-		pld &= pld - 1; 
+		pld &= pld - 1; /* clear least bit set */
 		if (i == 7)
 			isa_device_interrupt(vector);
 		else
@@ -87,11 +92,11 @@ init_pyxis_irqs(unsigned long ignore_mask)
 {
 	long i;
 
-	*(vulp)PYXIS_INT_MASK = 0;		
-	*(vulp)PYXIS_INT_REQ  = -1;		
+	*(vulp)PYXIS_INT_MASK = 0;		/* disable all */
+	*(vulp)PYXIS_INT_REQ  = -1;		/* flush all */
 	mb();
 
-	
+	/* Send -INTA pulses to clear any pending interrupts ...*/
 	*(vuip) CIA_IACK_SC;
 
 	for (i = 16; i < 48; ++i) {

@@ -52,6 +52,8 @@ static void mdfld_init_panel(struct drm_device *dev, int mipi_pipe,
 		mdfld_dsi_output_init(dev, mipi_pipe, &mdfld_tmd_vid_funcs);
 		break;
 	case HDMI:
+/*		if (dev_priv->mdfld_hdmi_present)
+			mdfld_hdmi_init(dev, &dev_priv->mode_dev); */
 		break;
 	}
 }
@@ -61,11 +63,11 @@ int mdfld_output_init(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 
-	
+	/* FIXME: hardcoded for now */
 	dev_priv->mdfld_panel_id = TC35876X;
-	
+	/* MIPI panel 1 */
 	mdfld_init_panel(dev, 0, dev_priv->mdfld_panel_id);
-	
+	/* HDMI panel */
 	mdfld_init_panel(dev, 1, HDMI);
 	return 0;
 }

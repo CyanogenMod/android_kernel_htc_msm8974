@@ -39,6 +39,7 @@ MODULE_AUTHOR("Fabien Marteau <fabien.marteau@armadeus.com>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/* registers */
 #define AS5011_CTRL1		0x76
 #define AS5011_CTRL2		0x75
 #define AS5011_XP		0x43
@@ -50,6 +51,7 @@ MODULE_LICENSE("GPL");
 #define AS5011_X_RES_INT	0x51
 #define AS5011_Y_RES_INT	0x52
 
+/* CTRL1 bits */
 #define AS5011_CTRL1_LP_PULSED		0x80
 #define AS5011_CTRL1_LP_ACTIVE		0x40
 #define AS5011_CTRL1_LP_CONTINUE	0x20
@@ -59,6 +61,7 @@ MODULE_LICENSE("GPL");
 #define AS5011_CTRL1_SOFT_RST		0x02
 #define AS5011_CTRL1_DATA_VALID		0x01
 
+/* CTRL2 bits */
 #define AS5011_CTRL2_EXT_SAMPLE_EN	0x08
 #define AS5011_CTRL2_RC_BIAS_ON		0x04
 #define AS5011_CTRL2_INV_SPINNING	0x02
@@ -148,7 +151,7 @@ static int __devinit as5011_configure_chip(struct as5011_device *as5011,
 	int error;
 	signed char value;
 
-	
+	/* chip soft reset */
 	error = as5011_i2c_write(client, AS5011_CTRL1,
 				 AS5011_CTRL1_SOFT_RST);
 	if (error < 0) {
@@ -174,7 +177,7 @@ static int __devinit as5011_configure_chip(struct as5011_device *as5011,
 		return error;
 	}
 
-	
+	/* write threshold */
 	error = as5011_i2c_write(client, AS5011_XP, plat_dat->xp);
 	if (error < 0) {
 		dev_err(&client->dev, "Can't write threshold\n");
@@ -199,7 +202,7 @@ static int __devinit as5011_configure_chip(struct as5011_device *as5011,
 		return error;
 	}
 
-	
+	/* to free irq gpio in chip */
 	error = as5011_i2c_read(client, AS5011_X_RES_INT, &value);
 	if (error < 0) {
 		dev_err(&client->dev, "Can't read i2c X resolution value\n");

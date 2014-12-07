@@ -17,9 +17,10 @@
 #ifndef INITVALS_9580_1P0_H
 #define INITVALS_9580_1P0_H
 
+/* AR9580 1.0 */
 
 static const u32 ar9580_1p0_modes_fast_clock[][3] = {
-	
+	/* Addr      5G_HT20     5G_HT40   */
 	{0x00001030, 0x00000268, 0x000004d0},
 	{0x00001070, 0x0000018c, 0x00000318},
 	{0x000010b0, 0x00000fd0, 0x00001fa0},
@@ -32,7 +33,7 @@ static const u32 ar9580_1p0_modes_fast_clock[][3] = {
 };
 
 static const u32 ar9580_1p0_radio_postamble[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0001609c, 0x0dd08f29, 0x0dd08f29, 0x0b283f31, 0x0b283f31},
 	{0x000160ac, 0xa4653c00, 0xa4653c00, 0x24652800, 0x24652800},
 	{0x000160b0, 0x03284f3e, 0x03284f3e, 0x05d08f20, 0x05d08f20},
@@ -45,7 +46,7 @@ static const u32 ar9580_1p0_radio_postamble[][5] = {
 };
 
 static const u32 ar9580_1p0_baseband_core[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00009800, 0xafe68e30},
 	{0x00009804, 0xfd14e000},
 	{0x00009808, 0x9c0a9f6b},
@@ -208,7 +209,7 @@ static const u32 ar9580_1p0_baseband_core[][2] = {
 };
 
 static const u32 ar9580_1p0_mac_postamble[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00001030, 0x00000230, 0x00000460, 0x000002c0, 0x00000160},
 	{0x00001070, 0x00000168, 0x000002d0, 0x00000318, 0x0000018c},
 	{0x000010b0, 0x00000e60, 0x00001cc0, 0x00007c70, 0x00003e38},
@@ -220,7 +221,7 @@ static const u32 ar9580_1p0_mac_postamble[][5] = {
 };
 
 static const u32 ar9580_1p0_low_ob_db_tx_gain_table[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a2dc, 0x0380c7fc, 0x0380c7fc, 0x03aaa352, 0x03aaa352},
 	{0x0000a2e0, 0x0000f800, 0x0000f800, 0x03ccc584, 0x03ccc584},
 	{0x0000a2e4, 0x03ff0000, 0x03ff0000, 0x03f0f800, 0x03f0f800},
@@ -326,7 +327,7 @@ static const u32 ar9580_1p0_low_ob_db_tx_gain_table[][5] = {
 };
 
 static const u32 ar9580_1p0_high_power_tx_gain_table[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a2dc, 0x0380c7fc, 0x0380c7fc, 0x03aaa352, 0x03aaa352},
 	{0x0000a2e0, 0x0000f800, 0x0000f800, 0x03ccc584, 0x03ccc584},
 	{0x0000a2e4, 0x03ff0000, 0x03ff0000, 0x03f0f800, 0x03f0f800},
@@ -432,7 +433,7 @@ static const u32 ar9580_1p0_high_power_tx_gain_table[][5] = {
 };
 
 static const u32 ar9580_1p0_lowest_ob_db_tx_gain_table[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a2dc, 0x0380c7fc, 0x0380c7fc, 0x03aaa352, 0x03aaa352},
 	{0x0000a2e0, 0x0000f800, 0x0000f800, 0x03ccc584, 0x03ccc584},
 	{0x0000a2e4, 0x03ff0000, 0x03ff0000, 0x03f0f800, 0x03f0f800},
@@ -538,14 +539,14 @@ static const u32 ar9580_1p0_lowest_ob_db_tx_gain_table[][5] = {
 };
 
 static const u32 ar9580_1p0_baseband_core_txfir_coeff_japan_2484[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000a398, 0x00000000},
 	{0x0000a39c, 0x6f7f0301},
 	{0x0000a3a0, 0xca9228ee},
 };
 
 static const u32 ar9580_1p0_mac_core[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00000008, 0x00000000},
 	{0x00000030, 0x00020085},
 	{0x00000034, 0x00000005},
@@ -702,7 +703,7 @@ static const u32 ar9580_1p0_mac_core[][2] = {
 };
 
 static const u32 ar9580_1p0_mixed_ob_db_tx_gain_table[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a2dc, 0x0380c7fc, 0x0380c7fc, 0x03aaa352, 0x03aaa352},
 	{0x0000a2e0, 0x0000f800, 0x0000f800, 0x03ccc584, 0x03ccc584},
 	{0x0000a2e4, 0x03ff0000, 0x03ff0000, 0x03f0f800, 0x03f0f800},
@@ -808,7 +809,7 @@ static const u32 ar9580_1p0_mixed_ob_db_tx_gain_table[][5] = {
 };
 
 static const u32 ar9580_1p0_wo_xlna_rx_gain_table[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000a000, 0x00010000},
 	{0x0000a004, 0x00030002},
 	{0x0000a008, 0x00050004},
@@ -1068,12 +1069,12 @@ static const u32 ar9580_1p0_wo_xlna_rx_gain_table[][2] = {
 };
 
 static const u32 ar9580_1p0_soc_postamble[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00007010, 0x00000023, 0x00000023, 0x00000023, 0x00000023},
 };
 
 static const u32 ar9580_1p0_high_ob_db_tx_gain_table[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a2dc, 0x01feee00, 0x01feee00, 0x03aaa352, 0x03aaa352},
 	{0x0000a2e0, 0x0000f000, 0x0000f000, 0x03ccc584, 0x03ccc584},
 	{0x0000a2e4, 0x01ff0000, 0x01ff0000, 0x03f0f800, 0x03f0f800},
@@ -1179,7 +1180,7 @@ static const u32 ar9580_1p0_high_ob_db_tx_gain_table[][5] = {
 };
 
 static const u32 ar9580_1p0_soc_preamble[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x000040a4, 0x00a0c1c9},
 	{0x00007008, 0x00000000},
 	{0x00007020, 0x00000000},
@@ -1189,7 +1190,7 @@ static const u32 ar9580_1p0_soc_preamble[][2] = {
 };
 
 static const u32 ar9580_1p0_rx_gain_table[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000a000, 0x00010000},
 	{0x0000a004, 0x00030002},
 	{0x0000a008, 0x00050004},
@@ -1449,7 +1450,7 @@ static const u32 ar9580_1p0_rx_gain_table[][2] = {
 };
 
 static const u32 ar9580_1p0_radio_core[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00016000, 0x36db6db6},
 	{0x00016004, 0x6db6db40},
 	{0x00016008, 0x73f00000},
@@ -1593,7 +1594,7 @@ static const u32 ar9580_1p0_radio_core[][2] = {
 };
 
 static const u32 ar9580_1p0_baseband_postamble[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00009810, 0xd00a8005, 0xd00a8005, 0xd00a8011, 0xd00a8011},
 	{0x00009820, 0x206a022e, 0x206a022e, 0x206a012e, 0x206a012e},
 	{0x00009824, 0x5ac640d0, 0x5ac640d0, 0x5ac640d0, 0x5ac640d0},
@@ -1649,24 +1650,24 @@ static const u32 ar9580_1p0_baseband_postamble[][5] = {
 };
 
 static const u32 ar9580_1p0_pcie_phy_clkreq_enable_L1[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00004040, 0x0835365e},
 	{0x00004040, 0x0008003b},
 	{0x00004044, 0x00000000},
 };
 
 static const u32 ar9580_1p0_pcie_phy_clkreq_disable_L1[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00004040, 0x0831365e},
 	{0x00004040, 0x0008003b},
 	{0x00004044, 0x00000000},
 };
 
 static const u32 ar9580_1p0_pcie_phy_pll_on_clkreq[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00004040, 0x0831265e},
 	{0x00004040, 0x0008003b},
 	{0x00004044, 0x00000000},
 };
 
-#endif 
+#endif /* INITVALS_9580_1P0_H */

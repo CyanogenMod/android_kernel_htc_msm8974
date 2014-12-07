@@ -42,6 +42,9 @@
 #include "isp.h"
 
 
+/* -----------------------------------------------------------------------------
+ * Helper functions
+ */
 
 static struct isp_format_info formats[] = {
 	{ V4L2_MBUS_FMT_Y8_1X8, V4L2_MBUS_FMT_Y8_1X8,
@@ -113,6 +116,16 @@ omap3isp_video_format_info(enum v4l2_mbus_pixelcode code)
 	return NULL;
 }
 
+/*
+ * Decide whether desired output pixel code can be obtained with
+ * the lane shifter by shifting the input pixel code.
+ * @in: input pixelcode to shifter
+ * @out: output pixelcode from shifter
+ * @additional_shift: # of bits the sensor's LSB is offset from CAMEXT[0]
+ *
+ * return true if the combination is possible
+ * return false otherwise
+ */
 static bool isp_video_is_shiftable(enum v4l2_mbus_pixelcode in,
 		enum v4l2_mbus_pixelcode out,
 		unsigned int additional_shift)
@@ -134,6 +147,18 @@ static bool isp_video_is_shiftable(enum v4l2_mbus_pixelcode in,
 	return in_info->bpp - out_info->bpp + additional_shift <= 6;
 }
 
+/*
+ * isp_video_mbus_to_pix - Convert v4l2_mbus_framefmt to v4l2_pix_format
+ * @video: ISP video instance
+ * @mbus: v4l2_mbus_framefmt format (input)
+ * @pix: v4l2_pix_format format (output)
+ *
+ * Fill the output pix structure with information from the input mbus format.
+ * The bytesperline and sizeimage fields are computed from the requested bytes
+ * per line value in the pix format and information from the video instance.
+ *
+ * Return the number of padding bytes at end of line.
+ */
 static unsigned int isp_video_mbus_to_pix(const struct isp_video *video,
 					  const struct v4l2_mbus_framefmt *mbus,
 					  struct v4l2_pix_format *pix)
@@ -156,6 +181,10 @@ static unsigned int isp_video_mbus_to_pix(const struct isp_video *video,
 
 	min_bpl = pix->width * ALIGN(formats[i].bpp, 8) / 8;
 
+	/* Clamp the requested bytes per line value. If the maximum bytes per
+	 * line value is zero, the module doesn't support user configurable line
+	 * sizes. Override the requested value with the minimum in that case.
+	 */
 	if (video->bpl_max)
 		bpl = clamp(bpl, min_bpl, video->bpl_max);
 	else
@@ -182,6 +211,9 @@ static void isp_video_pix_to_mbus(const struct v4l2_pix_format *pix,
 	mbus->width = pix->width;
 	mbus->height = pix->height;
 
+	/* Skip the last format in the loop so that it will be selected if no
+	 * match is found.
+	 */
 	for (i = 0; i < ARRAY_SIZE(formats) - 1; ++i) {
 		if (formats[i].pixelformat == pix->pixelformat)
 			break;
@@ -209,6 +241,7 @@ isp_video_remote_subdev(struct isp_video *video, u32 *pad)
 	return media_entity_to_v4l2_subdev(remote->entity);
 }
 
+/* Return a pointer to the ISP video instance at the far end of the pipeline. */
 static struct isp_video *
 isp_video_far_end(struct isp_video *video)
 {
@@ -238,6 +271,17 @@ isp_video_far_end(struct isp_video *video)
 	return far_end;
 }
 
+/*
+ * Validate a pipeline by checking both ends of all links for format
+ * discrepancies.
+ *
+ * Compute the minimum time per frame value as the maximum of time per frame
+ * limits reported by every block in the pipeline.
+ *
+ * Return 0 if all formats match, or -EPIPE if at least one link is found with
+ * different formats on its two ends or if the pipeline doesn't start with a
+ * video source (either a subdev with no input pad, or a non-subdev entity).
+ */
 static int isp_video_validate_pipeline(struct isp_pipeline *pipe)
 {
 	struct isp_device *isp = pipe->output->isp;
@@ -255,7 +299,7 @@ static int isp_video_validate_pipeline(struct isp_pipeline *pipe)
 
 	while (1) {
 		unsigned int shifter_link;
-		
+		/* Retrieve the sink format */
 		pad = &subdev->entity.pads[0];
 		if (!(pad->flags & MEDIA_PAD_FL_SINK))
 			break;
@@ -266,11 +310,15 @@ static int isp_video_validate_pipeline(struct isp_pipeline *pipe)
 		if (ret < 0 && ret != -ENOIOCTLCMD)
 			return -EPIPE;
 
-		
+		/* Update the maximum frame rate */
 		if (subdev == &isp->isp_res.subdev)
 			omap3isp_resizer_max_rate(&isp->isp_res,
 						  &pipe->max_rate);
 
+		/* Check ccdc maximum data rate when data comes from sensor
+		 * TODO: Include ccdc rate in pipe->max_rate and compare the
+		 *       total pipe rate with the input data rate from sensor.
+		 */
 		if (subdev == &isp->isp_ccdc.subdev && pipe->input == NULL) {
 			unsigned int rate = UINT_MAX;
 
@@ -279,8 +327,14 @@ static int isp_video_validate_pipeline(struct isp_pipeline *pipe)
 				return -ENOSPC;
 		}
 
+		/* If sink pad is on CCDC, the link has the lane shifter
+		 * in the middle of it. */
 		shifter_link = subdev == &isp->isp_ccdc.subdev;
 
+		/* Retrieve the source format. Return an error if no source
+		 * entity can be found, and stop checking the pipeline if the
+		 * source entity isn't a subdev.
+		 */
 		pad = media_entity_remote_source(pad);
 		if (pad == NULL)
 			return -EPIPE;
@@ -296,7 +350,7 @@ static int isp_video_validate_pipeline(struct isp_pipeline *pipe)
 		if (ret < 0 && ret != -ENOIOCTLCMD)
 			return -EPIPE;
 
-		
+		/* Check if the two ends match */
 		if (fmt_source.format.width != fmt_sink.format.width ||
 		    fmt_source.format.height != fmt_sink.format.height)
 			return -EPIPE;
@@ -370,9 +424,21 @@ isp_video_check_format(struct isp_video *video, struct isp_video_fh *vfh)
 	return ret;
 }
 
+/* -----------------------------------------------------------------------------
+ * IOMMU management
+ */
 
 #define IOMMU_FLAG	(IOVMF_ENDIAN_LITTLE | IOVMF_ELSZ_8)
 
+/*
+ * ispmmu_vmap - Wrapper for Virtual memory mapping of a scatter gather list
+ * @dev: Device pointer specific to the OMAP3 ISP.
+ * @sglist: Pointer to source Scatter gather list to allocate.
+ * @sglen: Number of elements of the scatter-gatter list.
+ *
+ * Returns a resulting mapped device address by the ISP MMU, or -ENOMEM if
+ * we ran out of memory.
+ */
 static dma_addr_t
 ispmmu_vmap(struct isp_device *isp, const struct scatterlist *sglist, int sglen)
 {
@@ -394,6 +460,11 @@ ispmmu_vmap(struct isp_device *isp, const struct scatterlist *sglist, int sglen)
 	return da;
 }
 
+/*
+ * ispmmu_vunmap - Unmap a device address from the ISP MMU
+ * @dev: Device pointer specific to the OMAP3 ISP.
+ * @da: Device address generated from a ispmmu_vmap call.
+ */
 static void ispmmu_vunmap(struct isp_device *isp, dma_addr_t da)
 {
 	struct sg_table *sgt;
@@ -402,6 +473,9 @@ static void ispmmu_vunmap(struct isp_device *isp, dma_addr_t da)
 	kfree(sgt);
 }
 
+/* -----------------------------------------------------------------------------
+ * Video queue operations
+ */
 
 static void isp_video_queue_prepare(struct isp_video_queue *queue,
 				    unsigned int *nbuffers, unsigned int *size)
@@ -452,6 +526,15 @@ static int isp_video_buffer_prepare(struct isp_video_buffer *buf)
 	return 0;
 }
 
+/*
+ * isp_video_buffer_queue - Add buffer to streaming queue
+ * @buf: Video buffer
+ *
+ * In memory-to-memory mode, start streaming on the pipeline if buffers are
+ * queued on both the input and the output, if the pipeline isn't already busy.
+ * If the pipeline is busy, it will be restarted in the output module interrupt
+ * handler.
+ */
 static void isp_video_buffer_queue(struct isp_video_buffer *buf)
 {
 	struct isp_video_fh *vfh = isp_video_queue_to_isp_video_fh(buf->queue);
@@ -495,6 +578,22 @@ static const struct isp_video_queue_operations isp_video_queue_ops = {
 	.buffer_cleanup = &isp_video_buffer_cleanup,
 };
 
+/*
+ * omap3isp_video_buffer_next - Complete the current buffer and return the next
+ * @video: ISP video object
+ *
+ * Remove the current video buffer from the DMA queue and fill its timestamp,
+ * field count and state fields before waking up its completion handler.
+ *
+ * For capture video nodes the buffer state is set to ISP_BUF_STATE_DONE if no
+ * error has been flagged in the pipeline, or to ISP_BUF_STATE_ERROR otherwise.
+ * For video output nodes the buffer state is always set to ISP_BUF_STATE_DONE.
+ *
+ * The DMA queue is expected to contain at least one buffer.
+ *
+ * Return a pointer to the next buffer in the DMA queue, or NULL if the queue is
+ * empty.
+ */
 struct isp_buffer *omap3isp_video_buffer_next(struct isp_video *video)
 {
 	struct isp_pipeline *pipe = to_isp_pipeline(&video->video.entity);
@@ -519,12 +618,18 @@ struct isp_buffer *omap3isp_video_buffer_next(struct isp_video *video)
 	buf->vbuf.timestamp.tv_sec = ts.tv_sec;
 	buf->vbuf.timestamp.tv_usec = ts.tv_nsec / NSEC_PER_USEC;
 
+	/* Do frame number propagation only if this is the output video node.
+	 * Frame number either comes from the CSI receivers or it gets
+	 * incremented here if H3A is not active.
+	 * Note: There is no guarantee that the output buffer will finish
+	 * first, so the input number might lag behind by 1 in some cases.
+	 */
 	if (video == pipe->output && !pipe->do_propagation)
 		buf->vbuf.sequence = atomic_inc_return(&pipe->frame_number);
 	else
 		buf->vbuf.sequence = atomic_read(&pipe->frame_number);
 
-	
+	/* Report pipeline errors to userspace on the capture device side. */
 	if (queue->type == V4L2_BUF_TYPE_VIDEO_CAPTURE && pipe->error) {
 		buf->state = ISP_BUF_STATE_ERROR;
 		pipe->error = false;
@@ -562,6 +667,16 @@ struct isp_buffer *omap3isp_video_buffer_next(struct isp_video *video)
 	return to_isp_buffer(buf);
 }
 
+/*
+ * omap3isp_video_resume - Perform resume operation on the buffers
+ * @video: ISP video object
+ * @continuous: Pipeline is in single shot mode if 0 or continuous mode otherwise
+ *
+ * This function is intended to be used on suspend/resume scenario. It
+ * requests video queue layer to discard buffers marked as DONE if it's in
+ * continuous mode and requests ISP modules to queue again the ACTIVE buffer
+ * if there's any.
+ */
 void omap3isp_video_resume(struct isp_video *video, int continuous)
 {
 	struct isp_buffer *buf = NULL;
@@ -580,6 +695,9 @@ void omap3isp_video_resume(struct isp_video *video, int continuous)
 	}
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 ioctls
+ */
 
 static int
 isp_video_querycap(struct file *file, void *fh, struct v4l2_capability *cap)
@@ -626,6 +744,9 @@ isp_video_set_format(struct file *file, void *fh, struct v4l2_format *format)
 
 	mutex_lock(&video->mutex);
 
+	/* Fill the bytesperline and sizeimage fields by converting to media bus
+	 * format and back to pixel format.
+	 */
 	isp_video_pix_to_mbus(&format->fmt.pix, &fmt);
 	isp_video_mbus_to_pix(video, &fmt, &format->fmt.pix);
 
@@ -694,6 +815,9 @@ isp_video_get_crop(struct file *file, void *fh, struct v4l2_crop *crop)
 	if (subdev == NULL)
 		return -EINVAL;
 
+	/* Try the get crop operation first and fallback to get format if not
+	 * implemented.
+	 */
 	ret = v4l2_subdev_call(subdev, video, g_crop, crop);
 	if (ret != -ENOIOCTLCMD)
 		return ret;
@@ -851,10 +975,16 @@ isp_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 		return -EBUSY;
 	}
 
+	/* Start streaming on the pipeline. No link touching an entity in the
+	 * pipeline can be activated or deactivated once streaming is started.
+	 */
 	pipe = video->video.entity.pipe
 	     ? to_isp_pipeline(&video->video.entity) : &video->pipe;
 	media_entity_pipeline_start(&video->video.entity, &pipe->pipe);
 
+	/* Verify that the currently configured format matches the output of
+	 * the connected subdev.
+	 */
 	ret = isp_video_check_format(video, vfh);
 	if (ret < 0)
 		goto error;
@@ -862,6 +992,9 @@ isp_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	video->bpl_padding = ret;
 	video->bpl_value = vfh->format.fmt.pix.bytesperline;
 
+	/* Find the ISP video node connected at the far end of the pipeline and
+	 * update the pipeline.
+	 */
 	far_end = isp_video_far_end(video);
 
 	if (video->type == V4L2_BUF_TYPE_VIDEO_CAPTURE) {
@@ -883,7 +1016,7 @@ isp_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 		video->isp->pdata->set_constraints(video->isp, true);
 	pipe->l3_ick = clk_get_rate(video->isp->clock[ISP_CLK_L3_ICK]);
 
-	
+	/* Validate the pipeline and update its state. */
 	ret = isp_video_validate_pipeline(pipe);
 	if (ret < 0)
 		goto error;
@@ -895,6 +1028,10 @@ isp_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	pipe->state |= state;
 	spin_unlock_irqrestore(&pipe->lock, flags);
 
+	/* Set the maximum time per frame as the value requested by userspace.
+	 * This is a soft limit that can be overridden if the hardware doesn't
+	 * support the request limit.
+	 */
 	if (video->type == V4L2_BUF_TYPE_VIDEO_OUTPUT)
 		pipe->max_timeperframe = vfh->timeperframe;
 
@@ -906,6 +1043,10 @@ isp_video_streamon(struct file *file, void *fh, enum v4l2_buf_type type)
 	if (ret < 0)
 		goto error;
 
+	/* In sensor-to-memory mode, the stream can be started synchronously
+	 * to the stream on command. In memory-to-memory mode, it will be
+	 * started when buffers are queued on both the input and output.
+	 */
 	if (pipe->input == NULL) {
 		ret = omap3isp_pipeline_set_stream(pipe,
 					      ISP_PIPELINE_STREAM_CONTINUOUS);
@@ -923,6 +1064,13 @@ error:
 		if (video->isp->pdata->set_constraints)
 			video->isp->pdata->set_constraints(video->isp, false);
 		media_entity_pipeline_stop(&video->video.entity);
+		/* The DMA queue must be emptied here, otherwise CCDC interrupts
+		 * that will get triggered the next time the CCDC is powered up
+		 * will try to access buffers that might have been freed but
+		 * still present in the DMA queue. This can easily get triggered
+		 * if the above omap3isp_pipeline_set_stream() call fails on a
+		 * system with a free-running sensor.
+		 */
 		INIT_LIST_HEAD(&video->dmaqueue);
 		video->queue = NULL;
 	}
@@ -949,7 +1097,7 @@ isp_video_streamoff(struct file *file, void *fh, enum v4l2_buf_type type)
 
 	mutex_lock(&video->stream_lock);
 
-	
+	/* Make sure we're not streaming yet. */
 	mutex_lock(&vfh->queue.lock);
 	streaming = vfh->queue.streaming;
 	mutex_unlock(&vfh->queue.lock);
@@ -957,7 +1105,7 @@ isp_video_streamoff(struct file *file, void *fh, enum v4l2_buf_type type)
 	if (!streaming)
 		goto done;
 
-	
+	/* Update the pipeline state. */
 	if (video->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		state = ISP_PIPELINE_STREAM_OUTPUT
 		      | ISP_PIPELINE_QUEUE_OUTPUT;
@@ -969,7 +1117,7 @@ isp_video_streamoff(struct file *file, void *fh, enum v4l2_buf_type type)
 	pipe->state &= ~state;
 	spin_unlock_irqrestore(&pipe->lock, flags);
 
-	
+	/* Stop the stream. */
 	omap3isp_pipeline_set_stream(pipe, ISP_PIPELINE_STREAM_STOPPED);
 	omap3isp_video_queue_streamoff(&vfh->queue);
 	video->queue = NULL;
@@ -1034,6 +1182,9 @@ static const struct v4l2_ioctl_ops isp_video_ioctl_ops = {
 	.vidioc_s_input			= isp_video_s_input,
 };
 
+/* -----------------------------------------------------------------------------
+ * V4L2 file operations
+ */
 
 static int isp_video_open(struct file *file)
 {
@@ -1048,7 +1199,7 @@ static int isp_video_open(struct file *file)
 	v4l2_fh_init(&handle->vfh, &video->video);
 	v4l2_fh_add(&handle->vfh);
 
-	
+	/* If this is the first user, initialise the pipeline. */
 	if (omap3isp_get(video->isp) == NULL) {
 		ret = -EBUSY;
 		goto done;
@@ -1086,7 +1237,7 @@ static int isp_video_release(struct file *file)
 	struct v4l2_fh *vfh = file->private_data;
 	struct isp_video_fh *handle = to_isp_video_fh(vfh);
 
-	
+	/* Disable streaming and free the buffers queue resources. */
 	isp_video_streamoff(file, vfh, video->type);
 
 	mutex_lock(&handle->queue.lock);
@@ -1095,7 +1246,7 @@ static int isp_video_release(struct file *file)
 
 	omap3isp_pipeline_pm_use(&video->video.entity, 0);
 
-	
+	/* Release the file handle. */
 	v4l2_fh_del(vfh);
 	kfree(handle);
 	file->private_data = NULL;
@@ -1129,6 +1280,9 @@ static struct v4l2_file_operations isp_video_fops = {
 	.mmap = isp_video_mmap,
 };
 
+/* -----------------------------------------------------------------------------
+ * ISP video core
+ */
 
 static const struct isp_video_operations isp_video_dummy_ops = {
 };
@@ -1162,7 +1316,7 @@ int omap3isp_video_init(struct isp_video *video, const char *name)
 	spin_lock_init(&video->pipe.lock);
 	mutex_init(&video->stream_lock);
 
-	
+	/* Initialize the video device. */
 	if (video->ops == NULL)
 		video->ops = &isp_video_dummy_ops;
 

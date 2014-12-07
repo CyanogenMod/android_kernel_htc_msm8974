@@ -35,6 +35,9 @@ static inline int clz(unsigned long x)
 	return x;
 }
 
+/*
+ * Version of ffs that only looks at bits 12..15.
+ */
 static inline unsigned int irq_ffs(unsigned int pending)
 {
 #if defined(CONFIG_CPU_MIPS32) || defined(CONFIG_CPU_MIPS64)
@@ -57,9 +60,9 @@ static inline unsigned int irq_ffs(unsigned int pending)
 
 	t0 = s0 & 0x8000;
 	t0 = t0 < 1;
-	
+	/* t0 = t0 << 2; */
 	a0 = a0 - t0;
-	
+	/* s0 = s0 << t0; */
 
 	return a0;
 #endif

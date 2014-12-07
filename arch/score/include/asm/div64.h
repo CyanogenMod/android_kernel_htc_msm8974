@@ -3,4 +3,4 @@
 
 #include <asm-generic/div64.h>
 
-#endif 
+#endif /* _ASM_SCORE_DIV64_H */

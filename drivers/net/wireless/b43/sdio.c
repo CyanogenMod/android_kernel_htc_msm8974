@@ -23,9 +23,9 @@
 #include "b43.h"
 
 
-#define HNBU_CHIPID		0x01	
+#define HNBU_CHIPID		0x01	/* vendor & device id */
 
-#define B43_SDIO_BLOCK_SIZE	64	
+#define B43_SDIO_BLOCK_SIZE	64	/* rx fifo max size in bytes */
 
 
 static const struct b43_sdio_quirk {
@@ -101,7 +101,7 @@ static int __devinit b43_sdio_probe(struct sdio_func *func,
 	u16 vendor = 0, device = 0;
 	int error;
 
-	
+	/* Look for the card chip identifier. */
 	tuple = func->tuples;
 	while (tuple) {
 		switch (tuple->code) {
@@ -184,8 +184,8 @@ static void __devexit b43_sdio_remove(struct sdio_func *func)
 }
 
 static const struct sdio_device_id b43_sdio_ids[] = {
-	{ SDIO_DEVICE(0x02d0, 0x044b) }, 
-	{ SDIO_DEVICE(0x0092, 0x0004) }, 
+	{ SDIO_DEVICE(0x02d0, 0x044b) }, /* Nintendo Wii WLAN daughter card */
+	{ SDIO_DEVICE(0x0092, 0x0004) }, /* C-guys, Inc. EW-CG1102GC */
 	{ },
 };
 

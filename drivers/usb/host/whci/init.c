@@ -24,6 +24,9 @@
 
 #include "whcd.h"
 
+/*
+ * Reset the host controller.
+ */
 static void whc_hw_reset(struct whc *whc)
 {
 	le_writel(WUSBCMD_WHCRESET, whc->base + WUSBCMD);
@@ -35,7 +38,7 @@ static void whc_hw_init_di_buf(struct whc *whc)
 {
 	int d;
 
-	
+	/* Disable all entries in the Device Information buffer. */
 	for (d = 0; d < whc->n_devices; d++)
 		whc->di_buf[d].addr_sec_info = WHC_DI_DISABLE;
 
@@ -44,6 +47,8 @@ static void whc_hw_init_di_buf(struct whc *whc)
 
 static void whc_hw_init_dn_buf(struct whc *whc)
 {
+	/* Clear the Device Notification buffer to ensure the V (valid)
+	 * bits are clear.  */
 	memset(whc->dn_buf, 0, 4096);
 
 	le_writeq(whc->dn_buf_dma, whc->base + WUSBDNTSBUFADDR);
@@ -76,7 +81,7 @@ int whc_init(struct whc *whc)
 		INIT_LIST_HEAD(&whc->periodic_list[i]);
 	INIT_LIST_HEAD(&whc->periodic_removed_list);
 
-	
+	/* Map HC registers. */
 	start = whc->umc->resource.start;
 	len   = whc->umc->resource.end - start + 1;
 	if (!request_mem_region(start, len, "whci-hc")) {
@@ -94,7 +99,7 @@ int whc_init(struct whc *whc)
 
 	whc_hw_reset(whc);
 
-	
+	/* Read maximum number of devices, keys and MMC IEs. */
 	whcsparams = le_readl(whc->base + WHCSPARAMS);
 	whc->n_devices = WHCSPARAMS_TO_N_DEVICES(whcsparams);
 	whc->n_keys    = WHCSPARAMS_TO_N_KEYS(whcsparams);
@@ -117,6 +122,9 @@ int whc_init(struct whc *whc)
 	if (ret < 0)
 		goto error;
 
+	/* Allocate and initialize a buffer for generic commands, the
+	   Device Information buffer, and the Device Notification
+	   buffer. */
 
 	whc->gen_cmd_buf = dma_alloc_coherent(&whc->umc->dev, WHC_GEN_CMD_DATA_LEN,
 					      &whc->gen_cmd_buf_dma, GFP_KERNEL);

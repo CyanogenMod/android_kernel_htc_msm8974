@@ -15,10 +15,11 @@ struct wbsoft_priv;
 #define MTO_PREAMBLE_LONG               WLAN_PREAMBLE_TYPE_LONG
 #define MTO_PREAMBLE_SHORT              WLAN_PREAMBLE_TYPE_SHORT
 
+/* Defines the parameters used in the MAC Throughput Optimization algorithm */
 struct wb35_mto_params {
-	u32	TxFlowCount; 
+	u32	TxFlowCount; /* to judge what kind the tx flow(sparse or busy) is */
 
-	
+	/* --------- DTO threshold parameters ------------- */
 	u16	DTO_PeriodicCheckCycle;
 	u16	DTO_RssiThForAntDiv;
 
@@ -31,9 +32,9 @@ struct wb35_mto_params {
 	u16	DTO_TxRateBackOff;
 	u16	DTO_TxRetryRateReduce;
 
-	u16	DTO_TxPowerIndex;		
+	u16	DTO_TxPowerIndex;		/* 0 ~ 31 */
 	u16	reserved_1;
-	
+	/* ------------------------------------------------ */
 
 	u8	PowerChangeEnable;
 	u8	AntDiversityEnable;
@@ -68,7 +69,7 @@ struct wb35_mto_params {
 	u8	RatePolicy;
 	u8	reserved_3[3];
 
-	
+	/* For RSSI turning */
 	s32	RSSI_high;
 	s32	RSSI_low;
 };
@@ -76,12 +77,12 @@ struct wb35_mto_params {
 
 #define MTO_DATA()		(adapter->sMtoPara)
 #define MTO_HAL()		(&adapter->sHwData)
-#define MTO_SET_PREAMBLE_TYPE(x) 
+#define MTO_SET_PREAMBLE_TYPE(x) /* Turbo mark LM_PREAMBLE_TYPE(&pcore_data->lm_data) = (x) */
 #define MTO_ENABLE		(adapter->sLocalPara.TxRateMode == RATE_AUTO)
 #define MTO_TXPOWER_FROM_EEPROM	(adapter->sHwData.PowerIndexFromEEPROM)
 #define LOCAL_ANTENNA_NO()	(adapter->sLocalPara.bAntennaNo)
 #define LOCAL_IS_CONNECTED()	(adapter->sLocalPara.wConnectedSTAindex != 0)
-#define MTO_INITTXRATE_MODE	(adapter->sHwData.SoftwareSet&0x2) 
+#define MTO_INITTXRATE_MODE	(adapter->sHwData.SoftwareSet&0x2) /* bit 1 */
 
 #define MTO_POWER_CHANGE_ENABLE()	MTO_DATA().PowerChangeEnable
 #define MTO_CCA_MODE()			MTO_DATA().CCA_Mode
@@ -108,6 +109,7 @@ struct wb35_mto_params {
 
 #define MTO_TXFLOWCOUNT()		MTO_DATA().TxFlowCount
 
+/* --------- DTO threshold parameters ------------- */
 #define	MTOPARA_PERIODIC_CHECK_CYCLE()		MTO_DATA().DTO_PeriodicCheckCycle
 #define	MTOPARA_RSSI_TH_FOR_ANTDIV()		MTO_DATA().DTO_RssiThForAntDiv
 #define	MTOPARA_TXCOUNT_TH_FOR_CALC_RATE()	MTO_DATA().DTO_TxCountThForCalcNewRate
@@ -117,6 +119,7 @@ struct wb35_mto_params {
 #define	MTOPARA_TXRATE_BACKOFF()		MTO_DATA().DTO_TxRateBackOff
 #define	MTOPARA_TXRETRYRATE_REDUCE()		MTO_DATA().DTO_TxRetryRateReduce
 #define MTOPARA_TXPOWER_INDEX()			MTO_DATA().DTO_TxPowerIndex
+/* ------------------------------------------------ */
 
 
 extern u16 MTO_Frag_Th_Tbl[];
@@ -131,5 +134,5 @@ extern u8 MTO_GetTxRate(struct wbsoft_priv *adapter, u32 fpdu_len);
 extern u8 MTO_GetTxFallbackRate(struct wbsoft_priv *adapter);
 extern void MTO_SetTxCount(struct wbsoft_priv *adapter, u8 t0, u8 index);
 
-#endif 
+#endif /* __MTO_H__ */
 

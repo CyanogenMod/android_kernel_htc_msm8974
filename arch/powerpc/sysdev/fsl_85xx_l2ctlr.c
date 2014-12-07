@@ -121,9 +121,15 @@ static int __devinit mpc85xx_l2ctlr_of_probe(struct platform_device *dev)
 		return -EINVAL;
 	}
 
+	/*
+	 * Write bits[0-17] to srbar0
+	 */
 	out_be32(&l2ctlr->srbar0,
 		sram_params.sram_offset & L2SRAM_BAR_MSK_LO18);
 
+	/*
+	 * Write bits[18-21] to srbare0
+	 */
 #ifdef CONFIG_PHYS_64BIT
 	out_be32(&l2ctlr->srbarea0,
 		(sram_params.sram_offset >> 32) & L2SRAM_BARE_MSK_HI4);

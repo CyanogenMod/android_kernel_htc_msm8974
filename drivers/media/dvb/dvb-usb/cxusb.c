@@ -43,6 +43,7 @@
 #include "lgs8gxx.h"
 #include "atbm8830.h"
 
+/* debug */
 static int dvb_usb_cxusb_debug;
 module_param_named(debug, dvb_usb_cxusb_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debugging level (1=rc (or-able))." DVB_USB_DEBUG_STATUS);
@@ -55,7 +56,7 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 static int cxusb_ctrl_msg(struct dvb_usb_device *d,
 			  u8 cmd, u8 *wbuf, int wlen, u8 *rbuf, int rlen)
 {
-	int wo = (rbuf == NULL || rlen == 0); 
+	int wo = (rbuf == NULL || rlen == 0); /* write-only */
 	u8 sndbuf[1+wlen];
 	memset(sndbuf, 0, 1+wlen);
 
@@ -67,6 +68,7 @@ static int cxusb_ctrl_msg(struct dvb_usb_device *d,
 		return dvb_usb_generic_rw(d, sndbuf, 1+wlen, rbuf, rlen, 0);
 }
 
+/* GPIO */
 static void cxusb_gpio_tuner(struct dvb_usb_device *d, int onoff)
 {
 	struct cxusb_state *st = d->priv;
@@ -91,8 +93,8 @@ static int cxusb_bluebird_gpio_rw(struct dvb_usb_device *d, u8 changemask,
 	u8 o[2], gpio_state;
 	int rc;
 
-	o[0] = 0xff & ~changemask;	
-	o[1] = newval & changemask;	
+	o[0] = 0xff & ~changemask;	/* mask of bits to keep */
+	o[1] = newval & changemask;	/* new values for bits  */
 
 	rc = cxusb_ctrl_msg(d, CMD_BLUEBIRD_GPIO_RW, o, 2, &gpio_state, 1);
 	if (rc < 0 || (gpio_state & changemask) != (newval & changemask))
@@ -132,6 +134,7 @@ static int cxusb_d680_dmb_gpio_tuner(struct dvb_usb_device *d,
 	}
 }
 
+/* I2C */
 static int cxusb_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 			  int num)
 {
@@ -154,7 +157,7 @@ static int cxusb_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 			}
 
 		if (msg[i].flags & I2C_M_RD) {
-			
+			/* read only */
 			u8 obuf[3], ibuf[1+msg[i].len];
 			obuf[0] = 0;
 			obuf[1] = msg[i].len;
@@ -168,7 +171,7 @@ static int cxusb_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 			memcpy(msg[i].buf, &ibuf[1], msg[i].len);
 		} else if (i+1 < num && (msg[i+1].flags & I2C_M_RD) &&
 			   msg[i].addr == msg[i+1].addr) {
-			
+			/* write to then read from same address */
 			u8 obuf[3+msg[i].len], ibuf[1+msg[i+1].len];
 			obuf[0] = msg[i].len;
 			obuf[1] = msg[i+1].len;
@@ -187,7 +190,7 @@ static int cxusb_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[],
 
 			i++;
 		} else {
-			
+			/* write only */
 			u8 obuf[2+msg[i].len], ibuf;
 			obuf[0] = msg[i].addr;
 			obuf[1] = msg[i].len;
@@ -236,6 +239,8 @@ static int cxusb_aver_power_ctrl(struct dvb_usb_device *d, int onoff)
 		   !(ret = cxusb_ctrl_msg(d, 0x15, NULL, 0, NULL, 0)) &&
 		   !(ret = cxusb_ctrl_msg(d, 0x17, NULL, 0, NULL, 0)) && 0);
 	if (!ret) {
+		/* FIXME: We don't know why, but we need to configure the
+		 * lgdt3303 with the register settings below on resume */
 		int i;
 		u8 buf, bufs[] = {
 			0x0e, 0x2, 0x00, 0x7f,
@@ -325,7 +330,7 @@ static void cxusb_d680_dmb_drain_message(struct dvb_usb_device *d)
 	u8        *junk;
 	int       rd_count;
 
-	
+	/* Discard remaining data in video pipe */
 	junk = kmalloc(junk_len, GFP_KERNEL);
 	if (!junk)
 		return;
@@ -348,7 +353,7 @@ static void cxusb_d680_dmb_drain_video(struct dvb_usb_device *d)
 	u8        *junk;
 	int       rd_count;
 
-	
+	/* Discard remaining data in video pipe */
 	junk = kmalloc(junk_len, GFP_KERNEL);
 	if (!junk)
 		return;
@@ -473,15 +478,15 @@ static struct rc_map_table rc_map_dvico_mce_table[] = {
 	{ 0xfe5e, KEY_OK },
 	{ 0xfe59, KEY_INFO },
 	{ 0xfe55, KEY_TAB },
-	{ 0xfe0f, KEY_PREVIOUSSONG },
-	{ 0xfe12, KEY_NEXTSONG },	
-	{ 0xfe42, KEY_ENTER	 },	
+	{ 0xfe0f, KEY_PREVIOUSSONG },/* Replay */
+	{ 0xfe12, KEY_NEXTSONG },	/* Skip */
+	{ 0xfe42, KEY_ENTER	 },	/* Windows/Start */
 	{ 0xfe15, KEY_VOLUMEUP },
 	{ 0xfe05, KEY_VOLUMEDOWN },
 	{ 0xfe11, KEY_CHANNELUP },
 	{ 0xfe09, KEY_CHANNELDOWN },
 	{ 0xfe52, KEY_CAMERA },
-	{ 0xfe5a, KEY_TUNER },	
+	{ 0xfe5a, KEY_TUNER },	/* Live */
 	{ 0xfe19, KEY_OPEN },
 	{ 0xfe0b, KEY_1 },
 	{ 0xfe17, KEY_2 },
@@ -492,7 +497,7 @@ static struct rc_map_table rc_map_dvico_mce_table[] = {
 	{ 0xfe48, KEY_7 },
 	{ 0xfe4c, KEY_8 },
 	{ 0xfe58, KEY_9 },
-	{ 0xfe13, KEY_ANGLE },	
+	{ 0xfe13, KEY_ANGLE },	/* Aspect */
 	{ 0xfe03, KEY_0 },
 	{ 0xfe1f, KEY_ZOOM },
 	{ 0xfe43, KEY_REWIND },
@@ -505,20 +510,20 @@ static struct rc_map_table rc_map_dvico_mce_table[] = {
 };
 
 static struct rc_map_table rc_map_dvico_portable_table[] = {
-	{ 0xfc02, KEY_SETUP },       
+	{ 0xfc02, KEY_SETUP },       /* Profile */
 	{ 0xfc43, KEY_POWER2 },
 	{ 0xfc06, KEY_EPG },
 	{ 0xfc5a, KEY_BACK },
 	{ 0xfc05, KEY_MENU },
 	{ 0xfc47, KEY_INFO },
 	{ 0xfc01, KEY_TAB },
-	{ 0xfc42, KEY_PREVIOUSSONG },
+	{ 0xfc42, KEY_PREVIOUSSONG },/* Replay */
 	{ 0xfc49, KEY_VOLUMEUP },
 	{ 0xfc09, KEY_VOLUMEDOWN },
 	{ 0xfc54, KEY_CHANNELUP },
 	{ 0xfc0b, KEY_CHANNELDOWN },
 	{ 0xfc16, KEY_CAMERA },
-	{ 0xfc40, KEY_TUNER },	
+	{ 0xfc40, KEY_TUNER },	/* ATV/DTV */
 	{ 0xfc45, KEY_OPEN },
 	{ 0xfc19, KEY_1 },
 	{ 0xfc18, KEY_2 },
@@ -529,7 +534,7 @@ static struct rc_map_table rc_map_dvico_portable_table[] = {
 	{ 0xfc15, KEY_7 },
 	{ 0xfc14, KEY_8 },
 	{ 0xfc17, KEY_9 },
-	{ 0xfc44, KEY_ANGLE },	
+	{ 0xfc44, KEY_ANGLE },	/* Aspect */
 	{ 0xfc55, KEY_0 },
 	{ 0xfc07, KEY_ZOOM },
 	{ 0xfc0a, KEY_REWIND },
@@ -539,12 +544,12 @@ static struct rc_map_table rc_map_dvico_portable_table[] = {
 	{ 0xfc04, KEY_STOP },
 	{ 0xfc56, KEY_RECORD },
 	{ 0xfc57, KEY_POWER },
-	{ 0xfc41, KEY_UNKNOWN },    
-	{ 0xfc00, KEY_UNKNOWN },    
+	{ 0xfc41, KEY_UNKNOWN },    /* INPUT */
+	{ 0xfc00, KEY_UNKNOWN },    /* HD */
 };
 
 static struct rc_map_table rc_map_d680_dmb_table[] = {
-	{ 0x0038, KEY_UNKNOWN },	
+	{ 0x0038, KEY_UNKNOWN },	/* TV/AV */
 	{ 0x080c, KEY_ZOOM },
 	{ 0x0800, KEY_0 },
 	{ 0x0001, KEY_1 },
@@ -573,11 +578,11 @@ static struct rc_map_table rc_map_d680_dmb_table[] = {
 	{ 0x000b, KEY_STOP },
 	{ 0x0827, KEY_FASTFORWARD },
 	{ 0x0026, KEY_REWIND },
-	{ 0x081e, KEY_UNKNOWN },    
-	{ 0x000e, KEY_UNKNOWN },    
-	{ 0x082d, KEY_UNKNOWN },    
-	{ 0x000f, KEY_UNKNOWN },    
-	{ 0x0814, KEY_UNKNOWN },    
+	{ 0x081e, KEY_UNKNOWN },    /* Time Shift */
+	{ 0x000e, KEY_UNKNOWN },    /* Snapshot */
+	{ 0x082d, KEY_UNKNOWN },    /* Mouse Cursor */
+	{ 0x000f, KEY_UNKNOWN },    /* Minimize/Maximize */
+	{ 0x0814, KEY_UNKNOWN },    /* Shuffle */
 	{ 0x0025, KEY_POWER },
 };
 
@@ -603,7 +608,7 @@ static int cxusb_dee1601_demod_init(struct dvb_frontend* fe)
 }
 
 static int cxusb_mt352_demod_init(struct dvb_frontend* fe)
-{	
+{	/* used in both lgz201 and th7579 */
 	static u8 clock_config []  = { CLOCK_CTL,  0x38, 0x29 };
 	static u8 reset []         = { RESET,      0x80 };
 	static u8 adc_ctl_1_cfg [] = { ADC_CTL_1,  0x40 };
@@ -649,7 +654,7 @@ static struct zl10353_config cxusb_zl10353_dee1601_config = {
 };
 
 static struct mt352_config cxusb_mt352_config = {
-	
+	/* used in both lgz201 and th7579 */
 	.demod_address = 0x0f,
 	.demod_init    = cxusb_mt352_demod_init,
 };
@@ -676,6 +681,7 @@ static struct mt352_config cxusb_mt352_xc3028_config = {
 	.demod_init = cxusb_mt352_demod_init,
 };
 
+/* FIXME: needs tweaking */
 static struct mxl5005s_config aver_a868r_tuner = {
 	.i2c_address     = 0x63,
 	.if_freq         = 6000000UL,
@@ -693,6 +699,7 @@ static struct mxl5005s_config aver_a868r_tuner = {
 	.AgcMasterByte   = 0x00,
 };
 
+/* FIXME: needs tweaking */
 static struct mxl5005s_config d680_dmb_tuner = {
 	.i2c_address     = 0x63,
 	.if_freq         = 36125000UL,
@@ -715,6 +722,7 @@ static struct max2165_config mygica_d689_max2165_cfg = {
 	.osc_clk = 20
 };
 
+/* Callbacks for DVB USB */
 static int cxusb_fmd1216me_tuner_attach(struct dvb_usb_adapter *adap)
 {
 	dvb_attach(simple_tuner_attach, adap->fe_adap[0].fe,
@@ -786,7 +794,7 @@ static int cxusb_dvico_xc3028_tuner_attach(struct dvb_usb_adapter *adap)
 		.demod       = XC3028_FE_ZARLINK456,
 	};
 
-	
+	/* FIXME: generalize & move to common area */
 	adap->fe_adap[0].fe->callback = dvico_bluebird_xc2028_callback;
 
 	fe = dvb_attach(xc2028_attach, adap->fe_adap[0].fe, &cfg);
@@ -865,7 +873,7 @@ static int cxusb_aver_lgdt3303_frontend_attach(struct dvb_usb_adapter *adap)
 
 static int cxusb_mt352_frontend_attach(struct dvb_usb_adapter *adap)
 {
-	
+	/* used in both lgz201 and th7579 */
 	if (usb_set_interface(adap->dev->udev, 0, 0) < 0)
 		err("set interface failed");
 
@@ -912,7 +920,7 @@ static int cxusb_dualdig4_frontend_attach(struct dvb_usb_adapter *adap)
 
 	cxusb_ctrl_msg(adap->dev, CMD_DIGITAL, NULL, 0, NULL, 0);
 
-	
+	/* reset the tuner and demodulator */
 	cxusb_bluebird_gpio_rw(adap->dev, 0x04, 0);
 	cxusb_bluebird_gpio_pulse(adap->dev, 0x01, 1);
 	cxusb_bluebird_gpio_pulse(adap->dev, 0x02, 1);
@@ -924,7 +932,7 @@ static int cxusb_dualdig4_frontend_attach(struct dvb_usb_adapter *adap)
 	if ((adap->fe_adap[0].fe) == NULL)
 		return -EIO;
 
-	
+	/* try to determine if there is no IR decoder on the I2C bus */
 	for (i = 0; adap->dev->props.rc.legacy.rc_map_table != NULL && i < 5; i++) {
 		msleep(20);
 		if (cxusb_i2c_xfer(&adap->dev->i2c_adap, &msg, 1) != 1)
@@ -945,6 +953,11 @@ no_IR:
 static struct dibx000_agc_config dib7070_agc_config = {
 	.band_caps = BAND_UHF | BAND_VHF | BAND_LBAND | BAND_SBAND,
 
+	/*
+	 * P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=5,
+	 * P_agc_inv_pwm1=0, P_agc_inv_pwm2=0, P_agc_inh_dc_rv_est=0,
+	 * P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5, P_agc_write=0
+	 */
 	.setup = (0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) |
 		 (0 << 8) | (3 << 5) | (0 << 4) | (5 << 1) | (0 << 0),
 	.inv_gain = 600,
@@ -988,7 +1001,7 @@ static struct dibx000_bandwidth_config dib7070_bw_config_12_mhz = {
 	.IO_CLK_en_core = 1,
 	.ADClkSrc = 1,
 	.modulo = 2,
-	
+	/* refsel, sel, freq_15k */
 	.sad_cfg = (3 << 14) | (1 << 12) | (524 << 0),
 	.ifreq = (0 << 25) | 0,
 	.timf = 20452225,
@@ -1099,7 +1112,7 @@ static int cxusb_nano2_frontend_attach(struct dvb_usb_adapter *adap)
 
 	cxusb_ctrl_msg(adap->dev, CMD_DIGITAL, NULL, 0, NULL, 0);
 
-	
+	/* reset the tuner and demodulator */
 	cxusb_bluebird_gpio_rw(adap->dev, 0x04, 0);
 	cxusb_bluebird_gpio_pulse(adap->dev, 0x01, 1);
 	cxusb_bluebird_gpio_pulse(adap->dev, 0x02, 1);
@@ -1125,8 +1138,8 @@ static struct lgs8gxx_config d680_lgs8gl5_cfg = {
 	.serial_ts = 0,
 	.ts_clk_pol = 0,
 	.ts_clk_gated = 1,
-	.if_clk_freq = 30400, 
-	.if_freq = 5725, 
+	.if_clk_freq = 30400, /* 30.4 MHz */
+	.if_freq = 5725, /* 5.725 MHz */
 	.if_neg_center = 0,
 	.ext_adc = 0,
 	.adc_signed = 0,
@@ -1138,11 +1151,11 @@ static int cxusb_d680_dmb_frontend_attach(struct dvb_usb_adapter *adap)
 	struct dvb_usb_device *d = adap->dev;
 	int n;
 
-	
+	/* Select required USB configuration */
 	if (usb_set_interface(d->udev, 0, 0) < 0)
 		err("set interface failed");
 
-	
+	/* Unblock all USB pipes */
 	usb_clear_halt(d->udev,
 		usb_sndbulkpipe(d->udev, d->props.generic_bulk_ctrl_endpoint));
 	usb_clear_halt(d->udev,
@@ -1150,14 +1163,14 @@ static int cxusb_d680_dmb_frontend_attach(struct dvb_usb_adapter *adap)
 	usb_clear_halt(d->udev,
 		usb_rcvbulkpipe(d->udev, d->props.adapter[0].fe[0].stream.endpoint));
 
-	
+	/* Drain USB pipes to avoid hang after reboot */
 	for (n = 0;  n < 5;  n++) {
 		cxusb_d680_dmb_drain_message(d);
 		cxusb_d680_dmb_drain_video(d);
 		msleep(200);
 	}
 
-	
+	/* Reset the tuner */
 	if (cxusb_d680_dmb_gpio_tuner(d, 0x07, 0) < 0) {
 		err("clear tuner gpio failed");
 		return -EIO;
@@ -1169,7 +1182,7 @@ static int cxusb_d680_dmb_frontend_attach(struct dvb_usb_adapter *adap)
 	}
 	msleep(100);
 
-	
+	/* Attach frontend */
 	adap->fe_adap[0].fe = dvb_attach(lgs8gxx_attach, &d680_lgs8gl5_cfg, &d->i2c_adap);
 	if (adap->fe_adap[0].fe == NULL)
 		return -EIO;
@@ -1183,8 +1196,8 @@ static struct atbm8830_config mygica_d689_atbm8830_cfg = {
 	.serial_ts = 0,
 	.ts_sampling_edge = 1,
 	.ts_clk_gated = 0,
-	.osc_clk_freq = 30400, 
-	.if_freq = 0, 
+	.osc_clk_freq = 30400, /* in kHz */
+	.if_freq = 0, /* zero IF */
 	.zif_swap_iq = 1,
 	.agc_min = 0x2E,
 	.agc_max = 0x90,
@@ -1195,11 +1208,11 @@ static int cxusb_mygica_d689_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct dvb_usb_device *d = adap->dev;
 
-	
+	/* Select required USB configuration */
 	if (usb_set_interface(d->udev, 0, 0) < 0)
 		err("set interface failed");
 
-	
+	/* Unblock all USB pipes */
 	usb_clear_halt(d->udev,
 		usb_sndbulkpipe(d->udev, d->props.generic_bulk_ctrl_endpoint));
 	usb_clear_halt(d->udev,
@@ -1208,7 +1221,7 @@ static int cxusb_mygica_d689_frontend_attach(struct dvb_usb_adapter *adap)
 		usb_rcvbulkpipe(d->udev, d->props.adapter[0].fe[0].stream.endpoint));
 
 
-	
+	/* Reset the tuner */
 	if (cxusb_d680_dmb_gpio_tuner(d, 0x07, 0) < 0) {
 		err("clear tuner gpio failed");
 		return -EIO;
@@ -1220,7 +1233,7 @@ static int cxusb_mygica_d689_frontend_attach(struct dvb_usb_adapter *adap)
 	}
 	msleep(100);
 
-	
+	/* Attach frontend */
 	adap->fe_adap[0].fe = dvb_attach(atbm8830_attach, &mygica_d689_atbm8830_cfg,
 		&d->i2c_adap);
 	if (adap->fe_adap[0].fe == NULL)
@@ -1229,6 +1242,12 @@ static int cxusb_mygica_d689_frontend_attach(struct dvb_usb_adapter *adap)
 	return 0;
 }
 
+/*
+ * DViCO has shipped two devices with the same USB ID, but only one of them
+ * needs a firmware download.  Check the device class details to see if they
+ * have non-default values to decide whether the device is actually cold or
+ * not, and forget a match if it turns out we selected the wrong device.
+ */
 static int bluebird_fx2_identify_state(struct usb_device *udev,
 				       struct dvb_usb_device_properties *props,
 				       struct dvb_usb_device_description **desc,
@@ -1246,6 +1265,10 @@ static int bluebird_fx2_identify_state(struct usb_device *udev,
 	return 0;
 }
 
+/*
+ * DViCO bluebird firmware needs the "warm" product ID to be patched into the
+ * firmware file before download.
+ */
 
 static const int dvico_firmware_id_offsets[] = { 6638, 3204 };
 static int bluebird_patch_dvico_firmware_download(struct usb_device *udev,
@@ -1287,6 +1310,7 @@ static int bluebird_patch_dvico_firmware_download(struct usb_device *udev,
 	return -EINVAL;
 }
 
+/* DVB USB Driver stuff */
 static struct dvb_usb_device_properties cxusb_medion_properties;
 static struct dvb_usb_device_properties cxusb_bluebird_lgh064f_properties;
 static struct dvb_usb_device_properties cxusb_bluebird_dee1601_properties;
@@ -1356,7 +1380,7 @@ static struct usb_device_id cxusb_table [] = {
 	{ USB_DEVICE(USB_VID_DVICO, USB_PID_DVICO_BLUEBIRD_DUAL_4_REV_2) },
 	{ USB_DEVICE(USB_VID_CONEXANT, USB_PID_CONEXANT_D680_DMB) },
 	{ USB_DEVICE(USB_VID_CONEXANT, USB_PID_MYGICA_D689) },
-	{}		
+	{}		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE (usb, cxusb_table);
 
@@ -1375,7 +1399,7 @@ static struct dvb_usb_device_properties cxusb_medion_properties = {
 			.streaming_ctrl   = cxusb_streaming_ctrl,
 			.frontend_attach  = cxusb_cx22702_frontend_attach,
 			.tuner_attach     = cxusb_fmd1216me_tuner_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 					.stream = {
 						.type = USB_BULK,
 				.count = 5,
@@ -1410,6 +1434,8 @@ static struct dvb_usb_device_properties cxusb_bluebird_lgh064f_properties = {
 	.usb_ctrl          = DEVICE_SPECIFIC,
 	.firmware          = "dvb-usb-bluebird-01.fw",
 	.download_firmware = bluebird_patch_dvico_firmware_download,
+	/* use usb alt setting 0 for EP4 transfer (dvb-t),
+	   use usb alt setting 7 for EP2 transfer (atsc) */
 
 	.size_of_priv     = sizeof(struct cxusb_state),
 
@@ -1422,7 +1448,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_lgh064f_properties = {
 			.frontend_attach  = cxusb_lgdt3303_frontend_attach,
 			.tuner_attach     = cxusb_lgh064f_tuner_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 					.stream = {
 						.type = USB_BULK,
 				.count = 5,
@@ -1465,6 +1491,8 @@ static struct dvb_usb_device_properties cxusb_bluebird_dee1601_properties = {
 	.usb_ctrl          = DEVICE_SPECIFIC,
 	.firmware          = "dvb-usb-bluebird-01.fw",
 	.download_firmware = bluebird_patch_dvico_firmware_download,
+	/* use usb alt setting 0 for EP4 transfer (dvb-t),
+	   use usb alt setting 7 for EP2 transfer (atsc) */
 
 	.size_of_priv     = sizeof(struct cxusb_state),
 
@@ -1476,7 +1504,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_dee1601_properties = {
 			.streaming_ctrl   = cxusb_streaming_ctrl,
 			.frontend_attach  = cxusb_dee1601_frontend_attach,
 			.tuner_attach     = cxusb_dee1601_tuner_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1527,6 +1555,8 @@ static struct dvb_usb_device_properties cxusb_bluebird_lgz201_properties = {
 	.usb_ctrl          = DEVICE_SPECIFIC,
 	.firmware          = "dvb-usb-bluebird-01.fw",
 	.download_firmware = bluebird_patch_dvico_firmware_download,
+	/* use usb alt setting 0 for EP4 transfer (dvb-t),
+	   use usb alt setting 7 for EP2 transfer (atsc) */
 
 	.size_of_priv     = sizeof(struct cxusb_state),
 
@@ -1539,7 +1569,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_lgz201_properties = {
 			.frontend_attach  = cxusb_mt352_frontend_attach,
 			.tuner_attach     = cxusb_lgz201_tuner_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1580,6 +1610,8 @@ static struct dvb_usb_device_properties cxusb_bluebird_dtt7579_properties = {
 	.usb_ctrl          = DEVICE_SPECIFIC,
 	.firmware          = "dvb-usb-bluebird-01.fw",
 	.download_firmware = bluebird_patch_dvico_firmware_download,
+	/* use usb alt setting 0 for EP4 transfer (dvb-t),
+	   use usb alt setting 7 for EP2 transfer (atsc) */
 
 	.size_of_priv     = sizeof(struct cxusb_state),
 
@@ -1592,7 +1624,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_dtt7579_properties = {
 			.frontend_attach  = cxusb_mt352_frontend_attach,
 			.tuner_attach     = cxusb_dtt7579_tuner_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1643,7 +1675,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_dualdig4_properties = {
 			.streaming_ctrl   = cxusb_streaming_ctrl,
 			.frontend_attach  = cxusb_dualdig4_frontend_attach,
 			.tuner_attach     = cxusb_dvico_xc3028_tuner_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1696,7 +1728,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_nano2_properties = {
 			.streaming_ctrl   = cxusb_streaming_ctrl,
 			.frontend_attach  = cxusb_nano2_frontend_attach,
 			.tuner_attach     = cxusb_dvico_xc3028_tuner_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1751,7 +1783,7 @@ static struct dvb_usb_device_properties cxusb_bluebird_nano2_needsfirmware_prope
 			.streaming_ctrl   = cxusb_streaming_ctrl,
 			.frontend_attach  = cxusb_nano2_frontend_attach,
 			.tuner_attach     = cxusb_dvico_xc3028_tuner_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1803,7 +1835,7 @@ static struct dvb_usb_device_properties cxusb_aver_a868r_properties = {
 			.streaming_ctrl   = cxusb_aver_streaming_ctrl,
 			.frontend_attach  = cxusb_aver_lgdt3303_frontend_attach,
 			.tuner_attach     = cxusb_mxl5003s_tuner_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1849,7 +1881,7 @@ struct dvb_usb_device_properties cxusb_bluebird_dualdig4_rev2_properties = {
 			.streaming_ctrl  = cxusb_streaming_ctrl,
 			.frontend_attach = cxusb_dualdig4_rev2_frontend_attach,
 			.tuner_attach    = cxusb_dualdig4_rev2_tuner_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 7,
@@ -1902,7 +1934,7 @@ static struct dvb_usb_device_properties cxusb_d680_dmb_properties = {
 			.frontend_attach  = cxusb_d680_dmb_frontend_attach,
 			.tuner_attach     = cxusb_d680_dmb_tuner_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,
@@ -1956,7 +1988,7 @@ static struct dvb_usb_device_properties cxusb_mygica_d689_properties = {
 			.frontend_attach  = cxusb_mygica_d689_frontend_attach,
 			.tuner_attach     = cxusb_mygica_d689_tuner_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,

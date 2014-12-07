@@ -41,6 +41,12 @@ mddi_lcd_func_type mddi_lcd;
 extern mddi_client_capability_type mddi_client_capability_pkt;
 
 #ifdef MDDI_HOST_WINDOW_WORKAROUND
+/* Tables showing number of rows that would cause a packet length
+ * ending in 0x02, for each number of columns. These tables have
+ * been generated for MDDI packets that have 16 and 16 bits-per-pixel.
+ * This is a work-around for MDDI clients that declare a CRC error
+ * on MDDI packets where ((length & 0x00ff) == 0x02).
+ */
 static uint16 error_vals_16bpp[] = {
 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 12, 0,
@@ -134,7 +140,7 @@ int mddi_host_register_read(uint32 reg_addr,
 	if (curr_llist_idx == UNASSIGNED_INDEX) {
 		up(&mddi_host_mutex);
 
-		
+		/* need to change this to some sort of wait */
 		MDDI_MSG_ERR("Attempting to queue up more than 1 reg read\n");
 		return -EINVAL;
 	}
@@ -151,15 +157,15 @@ int mddi_host_register_read(uint32 reg_addr,
 	regacc_pkt_ptr = &curr_llist_ptr->packet_header.register_pkt;
 
 	regacc_pkt_ptr->packet_length = curr_llist_ptr->packet_header_count;
-	regacc_pkt_ptr->packet_type = 146;	
+	regacc_pkt_ptr->packet_type = 146;	/* register access packet */
 	regacc_pkt_ptr->bClient_ID = 0;
 	regacc_pkt_ptr->read_write_info = 0x8001;
 	regacc_pkt_ptr->register_address = reg_addr;
 
-	
+	/* now adjust pointers */
 	mddi_queue_forward_packets(curr_llist_idx, curr_llist_idx, wait,
 				   NULL, host);
-	
+	/* need to check if we can write the pointer or not */
 
 	up(&mddi_host_mutex);
 
@@ -192,7 +198,7 @@ int mddi_host_register_read(uint32 reg_addr,
 	MDDI_MSG_DEBUG("Reg Read value=0x%x\n", *reg_value_ptr);
 
 	return ret;
-}				
+}				/* mddi_host_register_read */
 
 int mddi_host_register_write(uint32 reg_addr,
      uint32 reg_val, enum mddi_data_packet_size_type packet_size,
@@ -228,7 +234,7 @@ int mddi_host_register_write(uint32 reg_addr,
 
 	regacc_pkt_ptr->packet_length = curr_llist_ptr->packet_header_count +
 					(uint16)packet_size;
-	regacc_pkt_ptr->packet_type = 146;	
+	regacc_pkt_ptr->packet_type = 146;	/* register access packet */
 	regacc_pkt_ptr->bClient_ID = 0;
 	regacc_pkt_ptr->read_write_info = 0x0001;
 	regacc_pkt_ptr->register_address = reg_addr;
@@ -242,7 +248,7 @@ int mddi_host_register_write(uint32 reg_addr,
 	curr_llist_ptr->packet_data_pointer =
 	    (void *)(&regacc_pkt_ptr->register_data_list[0]);
 
-	
+	/* now adjust pointers */
 	mddi_queue_forward_packets(curr_llist_idx, curr_llist_idx, wait,
 				   done_cb, host);
 
@@ -267,7 +273,7 @@ int mddi_host_register_write(uint32 reg_addr,
 	}
 
 	return ret;
-}				
+}				/* mddi_host_register_write */
 
 boolean mddi_host_register_read_int
     (uint32 reg_addr, uint32 *reg_value_ptr, mddi_host_type host) {
@@ -305,21 +311,21 @@ boolean mddi_host_register_read_int
 	regacc_pkt_ptr = &curr_llist_ptr->packet_header.register_pkt;
 
 	regacc_pkt_ptr->packet_length = curr_llist_ptr->packet_header_count;
-	regacc_pkt_ptr->packet_type = 146;	
+	regacc_pkt_ptr->packet_type = 146;	/* register access packet */
 	regacc_pkt_ptr->bClient_ID = 0;
 	regacc_pkt_ptr->read_write_info = 0x8001;
 	regacc_pkt_ptr->register_address = reg_addr;
 
-	
+	/* now adjust pointers */
 	mddi_queue_forward_packets(curr_llist_idx, curr_llist_idx, FALSE,
 				   NULL, host);
-	
+	/* need to check if we can write the pointer or not */
 
 	up(&mddi_host_mutex);
 
 	return TRUE;
 
-}				
+}				/* mddi_host_register_read */
 
 boolean mddi_host_register_write_int
     (uint32 reg_addr,
@@ -359,7 +365,7 @@ boolean mddi_host_register_write_int
 	regacc_pkt_ptr = &curr_llist_ptr->packet_header.register_pkt;
 
 	regacc_pkt_ptr->packet_length = curr_llist_ptr->packet_header_count + 4;
-	regacc_pkt_ptr->packet_type = 146;	
+	regacc_pkt_ptr->packet_type = 146;	/* register access packet */
 	regacc_pkt_ptr->bClient_ID = 0;
 	regacc_pkt_ptr->read_write_info = 0x0001;
 	regacc_pkt_ptr->register_address = reg_addr;
@@ -369,14 +375,14 @@ boolean mddi_host_register_write_int
 	curr_llist_ptr->packet_data_pointer =
 	    (void *)(&(regacc_pkt_ptr->register_data_list[0]));
 
-	
+	/* now adjust pointers */
 	mddi_queue_forward_packets(curr_llist_idx, curr_llist_idx, FALSE,
 				   done_cb, host);
 	up(&mddi_host_mutex);
 
 	return TRUE;
 
-}				
+}				/* mddi_host_register_write */
 
 void mddi_wait(uint16 time_ms)
 {
@@ -389,6 +395,7 @@ void mddi_client_lcd_vsync_detected(boolean detected)
 		(*mddi_lcd.vsync_detected) (detected);
 }
 
+/* extended version of function includes done callback */
 void mddi_window_adjust_ext(struct msm_fb_data_type *mfd,
 			    uint16 x1,
 			    uint16 x2,
@@ -402,7 +409,7 @@ void mddi_window_adjust_ext(struct msm_fb_data_type *mfd,
 	if (mfd->panel.id == MDDI_LCD_S6D0142)
 		mddi_s6d0142_window_adjust(x1, x2, y1, y2, done_cb);
 #else
-	
+	/* Do nothing then... except avoid lint/compiler warnings */
 	(void)x1;
 	(void)x2;
 	(void)y1;
@@ -487,7 +494,7 @@ int mddi_host_register_multiwrite(uint32 reg_addr,
 
 	regacc_pkt_ptr->packet_length = curr_llist_ptr->packet_header_count
 		+ curr_llist_ptr->packet_data_count;
-	regacc_pkt_ptr->packet_type = 146;	
+	regacc_pkt_ptr->packet_type = 146;	/* register access packet */
 	regacc_pkt_ptr->bClient_ID = 0;
 	regacc_pkt_ptr->read_write_info = value_count;
 	regacc_pkt_ptr->register_address = reg_addr;
@@ -501,7 +508,7 @@ int mddi_host_register_multiwrite(uint32 reg_addr,
 		       regacc_pkt_ptr->register_address,
 		       regacc_pkt_ptr->register_data_list[0]);
 
-	
+	/* now adjust pointers */
 	mddi_queue_forward_packets(curr_llist_idx, curr_llist_idx, wait,
 				   done_cb, host);
 
@@ -557,7 +564,7 @@ int mddi_host_register_multiread(uint32 reg_addr,
 	if (curr_llist_idx == UNASSIGNED_INDEX) {
 		up(&mddi_host_mutex);
 
-		
+		/* need to change this to some sort of wait */
 		MDDI_MSG_ERR("Attempting to queue up more than 1 reg read\n");
 		return -EINVAL;
 	}
@@ -574,15 +581,15 @@ int mddi_host_register_multiread(uint32 reg_addr,
 	regacc_pkt_ptr = &curr_llist_ptr->packet_header.register_pkt;
 
 	regacc_pkt_ptr->packet_length = curr_llist_ptr->packet_header_count;
-	regacc_pkt_ptr->packet_type = 146;	
+	regacc_pkt_ptr->packet_type = 146;	/* register access packet */
 	regacc_pkt_ptr->bClient_ID = 0;
 	regacc_pkt_ptr->read_write_info = 0x8000 | value_count;
 	regacc_pkt_ptr->register_address = reg_addr;
 
-	
+	/* now adjust pointers */
 	mddi_queue_forward_packets(curr_llist_idx, curr_llist_idx, wait,
 				   NULL, host);
-	
+	/* need to check if we can write the pointer or not */
 
 	up(&mddi_host_mutex);
 

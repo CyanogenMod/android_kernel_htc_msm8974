@@ -1,3 +1,9 @@
+/*
+ * June 2006 steve.glendinning@smsc.com
+ *
+ * Polaris-specific resource declaration
+ *
+ */
 
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -82,13 +88,13 @@ static int __init polaris_initialise(void)
 
 	printk(KERN_INFO "Configuring Polaris external bus\n");
 
-	
+	/* Configure area 5 with 2 wait states */
 	wcr = __raw_readw(WCR2);
 	wcr &= (~AREA5_WAIT_CTRL);
 	wcr |= (WAIT_STATES_10 << 10);
 	__raw_writew(wcr, WCR2);
 
-	
+	/* Configure area 5 for 32-bit access */
 	bcr_mask = __raw_readw(BCR2);
 	bcr_mask |= 1 << 10;
 	__raw_writew(bcr_mask, BCR2);
@@ -99,9 +105,9 @@ static int __init polaris_initialise(void)
 arch_initcall(polaris_initialise);
 
 static struct ipr_data ipr_irq_table[] = {
-	
-	{ IRQ0_IRQ, 0,  0,  1, },	
-	{ IRQ1_IRQ, 0,  4,  1, },	
+	/* External IRQs */
+	{ IRQ0_IRQ, 0,  0,  1, },	/* IRQ0 */
+	{ IRQ1_IRQ, 0,  4,  1, },	/* IRQ1 */
 };
 
 static unsigned long ipr_offsets[] = {
@@ -121,7 +127,7 @@ static struct ipr_desc ipr_irq_desc = {
 
 static void __init init_polaris_irq(void)
 {
-	
+	/* Disable all interrupts */
 	__raw_writew(0, BCR_ILCRA);
 	__raw_writew(0, BCR_ILCRB);
 	__raw_writew(0, BCR_ILCRC);

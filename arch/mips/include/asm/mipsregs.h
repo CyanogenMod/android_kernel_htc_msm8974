@@ -17,6 +17,10 @@
 #include <asm/hazards.h>
 #include <asm/war.h>
 
+/*
+ * The following macros are especially useful for __asm__
+ * inline assembler.
+ */
 #ifndef __STR
 #define __STR(x) #x
 #endif
@@ -24,12 +28,18 @@
 #define STR(x) __STR(x)
 #endif
 
+/*
+ *  Configure language
+ */
 #ifdef __ASSEMBLY__
 #define _ULCAST_
 #else
 #define _ULCAST_ (unsigned long)
 #endif
 
+/*
+ * Coprocessor 0 register names
+ */
 #define CP0_INDEX $0
 #define CP0_RANDOM $1
 #define CP0_ENTRYLO0 $2
@@ -64,6 +74,12 @@
 #define CP0_ERROREPC $30
 #define CP0_DESAVE $31
 
+/*
+ * R4640/R4650 cp0 register names.  These registers are listed
+ * here only for completeness; without MMU these CPUs are not useable
+ * by Linux.  A future ELKS port might take make Linux run on them
+ * though ...
+ */
 #define CP0_IBASE $0
 #define CP0_IBOUND $1
 #define CP0_DBASE $2
@@ -72,30 +88,51 @@
 #define CP0_IWATCH $18
 #define CP0_DWATCH $19
 
+/*
+ * Coprocessor 0 Set 1 register names
+ */
 #define CP0_S1_DERRADDR0  $26
 #define CP0_S1_DERRADDR1  $27
 #define CP0_S1_INTCONTROL $20
 
-#define CP0_S2_SRSCTL	  $12	
+/*
+ * Coprocessor 0 Set 2 register names
+ */
+#define CP0_S2_SRSCTL	  $12	/* MIPSR2 */
 
-#define CP0_S3_SRSMAP	  $12	
+/*
+ * Coprocessor 0 Set 3 register names
+ */
+#define CP0_S3_SRSMAP	  $12	/* MIPSR2 */
 
+/*
+ *  TX39 Series
+ */
 #define CP0_TX39_CACHE	$7
 
+/*
+ * Coprocessor 1 (FPU) register names
+ */
 #define CP1_REVISION   $0
 #define CP1_STATUS     $31
 
+/*
+ * FPU Status Register Values
+ */
+/*
+ * Status Register Values
+ */
 
-#define FPU_CSR_FLUSH   0x01000000      
-#define FPU_CSR_COND    0x00800000      
-#define FPU_CSR_COND0   0x00800000      
-#define FPU_CSR_COND1   0x02000000      
-#define FPU_CSR_COND2   0x04000000      
-#define FPU_CSR_COND3   0x08000000      
-#define FPU_CSR_COND4   0x10000000      
-#define FPU_CSR_COND5   0x20000000      
-#define FPU_CSR_COND6   0x40000000      
-#define FPU_CSR_COND7   0x80000000      
+#define FPU_CSR_FLUSH   0x01000000      /* flush denormalised results to 0 */
+#define FPU_CSR_COND    0x00800000      /* $fcc0 */
+#define FPU_CSR_COND0   0x00800000      /* $fcc0 */
+#define FPU_CSR_COND1   0x02000000      /* $fcc1 */
+#define FPU_CSR_COND2   0x04000000      /* $fcc2 */
+#define FPU_CSR_COND3   0x08000000      /* $fcc3 */
+#define FPU_CSR_COND4   0x10000000      /* $fcc4 */
+#define FPU_CSR_COND5   0x20000000      /* $fcc5 */
+#define FPU_CSR_COND6   0x40000000      /* $fcc6 */
+#define FPU_CSR_COND7   0x80000000      /* $fcc7 */
 
 /*
  * Bits 18 - 20 of the FPU Status Register will be read as 0,
@@ -103,6 +140,11 @@
  */
 #define FPU_CSR_RSVD	0x001c0000
 
+/*
+ * X the exception cause indicator
+ * E the exception enable
+ * S the sticky/flag bit
+*/
 #define FPU_CSR_ALL_X   0x0003f000
 #define FPU_CSR_UNI_X   0x00020000
 #define FPU_CSR_INV_X   0x00010000
@@ -125,15 +167,20 @@
 #define FPU_CSR_UDF_S   0x00000008
 #define FPU_CSR_INE_S   0x00000004
 
+/* Bits 0 and 1 of FPU Status Register specify the rounding mode */
 #define FPU_CSR_RM	0x00000003
-#define FPU_CSR_RN      0x0     
-#define FPU_CSR_RZ      0x1     
-#define FPU_CSR_RU      0x2     
-#define FPU_CSR_RD      0x3     
+#define FPU_CSR_RN      0x0     /* nearest */
+#define FPU_CSR_RZ      0x1     /* towards zero */
+#define FPU_CSR_RU      0x2     /* towards +Infinity */
+#define FPU_CSR_RD      0x3     /* towards -Infinity */
 
 
+/*
+ * Values for PageMask register
+ */
 #ifdef CONFIG_CPU_VR41XX
 
+/* Why doesn't stupidity hurt ... */
 
 #define PM_1K		0x00000000
 #define PM_4K		0x00001800
@@ -163,6 +210,9 @@
 
 #endif
 
+/*
+ * Default page size for a given kernel configuration
+ */
 #ifdef CONFIG_PAGE_SIZE_4KB
 #define PM_DEFAULT_MASK	PM_4K
 #elif defined(CONFIG_PAGE_SIZE_8KB)
@@ -177,6 +227,9 @@
 #error Bad page size configuration!
 #endif
 
+/*
+ * Default huge tlb size for a given kernel configuration
+ */
 #ifdef CONFIG_PAGE_SIZE_4KB
 #define PM_HUGE_MASK	PM_1M
 #elif defined(CONFIG_PAGE_SIZE_8KB)
@@ -191,6 +244,9 @@
 #error Bad page size configuration for hugetlbfs!
 #endif
 
+/*
+ * Values used for computation of new tlb entries
+ */
 #define PL_4K		12
 #define PL_16K		14
 #define PL_64K		16
@@ -201,11 +257,17 @@
 #define PL_64M		26
 #define PL_256M		28
 
+/*
+ * PageGrain bits
+ */
 #define PG_RIE		(_ULCAST_(1) <<  31)
 #define PG_XIE		(_ULCAST_(1) <<  30)
 #define PG_ELPA		(_ULCAST_(1) <<  29)
 #define PG_ESP		(_ULCAST_(1) <<  28)
 
+/*
+ * R4x00 interrupt enable / cause bits
+ */
 #define IE_SW0          (_ULCAST_(1) <<  8)
 #define IE_SW1          (_ULCAST_(1) <<  9)
 #define IE_IRQ0         (_ULCAST_(1) << 10)
@@ -215,6 +277,9 @@
 #define IE_IRQ4         (_ULCAST_(1) << 14)
 #define IE_IRQ5         (_ULCAST_(1) << 15)
 
+/*
+ * R4x00 interrupt cause bits
+ */
 #define C_SW0           (_ULCAST_(1) <<  8)
 #define C_SW1           (_ULCAST_(1) <<  9)
 #define C_IRQ0          (_ULCAST_(1) << 10)
@@ -224,6 +289,9 @@
 #define C_IRQ4          (_ULCAST_(1) << 14)
 #define C_IRQ5          (_ULCAST_(1) << 15)
 
+/*
+ * Bitfields in the R4xx0 cp0 status register
+ */
 #define ST0_IE			0x00000001
 #define ST0_EXL			0x00000002
 #define ST0_ERL			0x00000004
@@ -237,24 +305,42 @@
 #define ST0_DE			0x00010000
 #define ST0_CE			0x00020000
 
+/*
+ * Setting c0_status.co enables Hit_Writeback and Hit_Writeback_Invalidate
+ * cacheops in userspace.  This bit exists only on RM7000 and RM9000
+ * processors.
+ */
 #define ST0_CO			0x08000000
 
+/*
+ * Bitfields in the R[23]000 cp0 status register.
+ */
 #define ST0_IEC                 0x00000001
 #define ST0_KUC			0x00000002
 #define ST0_IEP			0x00000004
 #define ST0_KUP			0x00000008
 #define ST0_IEO			0x00000010
 #define ST0_KUO			0x00000020
+/* bits 6 & 7 are reserved on R[23]000 */
 #define ST0_ISC			0x00010000
 #define ST0_SWC			0x00020000
 #define ST0_CM			0x00080000
 
+/*
+ * Bits specific to the R4640/R4650
+ */
 #define ST0_UM			(_ULCAST_(1) <<  4)
 #define ST0_IL			(_ULCAST_(1) << 23)
 #define ST0_DL			(_ULCAST_(1) << 24)
 
+/*
+ * Enable the MIPS MDMX and DSP ASEs
+ */
 #define ST0_MX			0x01000000
 
+/*
+ * Bitfields in the TX39 family CP0 Configuration Register 3
+ */
 #define TX39_CONF_ICS_SHIFT	19
 #define TX39_CONF_ICS_MASK	0x00380000
 #define TX39_CONF_ICS_1KB 	0x00000000
@@ -285,6 +371,9 @@
 #define TX39_CONF_DRSIZE_SHIFT	0
 #define TX39_CONF_DRSIZE_MASK	0x00000003
 
+/*
+ * Status register bits available in all MIPS CPUs.
+ */
 #define ST0_IM			0x0000ff00
 #define  STATUSB_IP0		8
 #define  STATUSF_IP0		(_ULCAST_(1) <<  8)
@@ -330,13 +419,23 @@
 #define ST0_CU1			0x20000000
 #define ST0_CU2			0x40000000
 #define ST0_CU3			0x80000000
-#define ST0_XX			0x80000000	
+#define ST0_XX			0x80000000	/* MIPS IV naming */
 
+/*
+ * Bitfields and bit numbers in the coprocessor 0 IntCtl register. (MIPSR2)
+ *
+ * Refer to your MIPS R4xx0 manual, chapter 5 for explanation.
+ */
 #define INTCTLB_IPPCI		26
 #define INTCTLF_IPPCI		(_ULCAST_(7) << INTCTLB_IPPCI)
 #define INTCTLB_IPTI		29
 #define INTCTLF_IPTI		(_ULCAST_(7) << INTCTLB_IPTI)
 
+/*
+ * Bitfields and bit numbers in the coprocessor 0 cause register.
+ *
+ * Refer to your MIPS R4xx0 manual, chapter 5 for explanation.
+ */
 #define  CAUSEB_EXCCODE		2
 #define  CAUSEF_EXCCODE		(_ULCAST_(31)  <<  2)
 #define  CAUSEB_IP		8
@@ -366,6 +465,10 @@
 #define  CAUSEB_BD		31
 #define  CAUSEF_BD		(_ULCAST_(1)   << 31)
 
+/*
+ * Bits in the coprocessor 0 config register.
+ */
+/* Generic bits.  */
 #define CONF_CM_CACHABLE_NO_WA		0
 #define CONF_CM_CACHABLE_WA		1
 #define CONF_CM_UNCACHED		2
@@ -377,6 +480,7 @@
 #define CONF_CM_CMASK			7
 #define CONF_BE			(_ULCAST_(1) << 15)
 
+/* Bits common to various processors.  */
 #define CONF_CU			(_ULCAST_(1) <<  3)
 #define CONF_DB			(_ULCAST_(1) <<  4)
 #define CONF_IB			(_ULCAST_(1) <<  5)
@@ -391,13 +495,16 @@
 #define CONF_EC			(_ULCAST_(7) << 28)
 #define CONF_CM			(_ULCAST_(1) << 31)
 
+/* Bits specific to the R4xx0.  */
 #define R4K_CONF_SW		(_ULCAST_(1) << 20)
 #define R4K_CONF_SS		(_ULCAST_(1) << 21)
 #define R4K_CONF_SB		(_ULCAST_(3) << 22)
 
+/* Bits specific to the R5000.  */
 #define R5K_CONF_SE		(_ULCAST_(1) << 12)
 #define R5K_CONF_SS		(_ULCAST_(3) << 20)
 
+/* Bits specific to the RM7000.  */
 #define RM7K_CONF_SE		(_ULCAST_(1) <<  3)
 #define RM7K_CONF_TE		(_ULCAST_(1) << 12)
 #define RM7K_CONF_CLK		(_ULCAST_(1) << 16)
@@ -405,6 +512,7 @@
 #define RM7K_CONF_SI		(_ULCAST_(3) << 20)
 #define RM7K_CONF_SC		(_ULCAST_(1) << 31)
 
+/* Bits specific to the R10000.  */
 #define R10K_CONF_DN		(_ULCAST_(3) <<  3)
 #define R10K_CONF_CT		(_ULCAST_(1) <<  5)
 #define R10K_CONF_PE		(_ULCAST_(1) <<  6)
@@ -417,12 +525,14 @@
 #define R10K_CONF_DC		(_ULCAST_(7) << 26)
 #define R10K_CONF_IC		(_ULCAST_(7) << 29)
 
+/* Bits specific to the VR41xx.  */
 #define VR41_CONF_CS		(_ULCAST_(1) << 12)
 #define VR41_CONF_P4K		(_ULCAST_(1) << 13)
 #define VR41_CONF_BP		(_ULCAST_(1) << 16)
 #define VR41_CONF_M16		(_ULCAST_(1) << 20)
 #define VR41_CONF_AD		(_ULCAST_(1) << 23)
 
+/* Bits specific to the R30xx.  */
 #define R30XX_CONF_FDM		(_ULCAST_(1) << 19)
 #define R30XX_CONF_REV		(_ULCAST_(1) << 22)
 #define R30XX_CONF_AC		(_ULCAST_(1) << 23)
@@ -433,16 +543,21 @@
 #define R30XX_CONF_SB		(_ULCAST_(1) << 30)
 #define R30XX_CONF_LOCK		(_ULCAST_(1) << 31)
 
+/* Bits specific to the TX49.  */
 #define TX49_CONF_DC		(_ULCAST_(1) << 16)
-#define TX49_CONF_IC		(_ULCAST_(1) << 17)  
+#define TX49_CONF_IC		(_ULCAST_(1) << 17)  /* conflict with CONF_SC */
 #define TX49_CONF_HALT		(_ULCAST_(1) << 18)
 #define TX49_CONF_CWFON		(_ULCAST_(1) << 27)
 
+/* Bits specific to the MIPS32/64 PRA.  */
 #define MIPS_CONF_MT		(_ULCAST_(7) <<  7)
 #define MIPS_CONF_AR		(_ULCAST_(7) << 10)
 #define MIPS_CONF_AT		(_ULCAST_(3) << 13)
 #define MIPS_CONF_M		(_ULCAST_(1) << 31)
 
+/*
+ * Bits in the MIPS32/64 PRA coprocessor 0 config registers 1 and above.
+ */
 #define MIPS_CONF1_FP		(_ULCAST_(1) <<  0)
 #define MIPS_CONF1_EP		(_ULCAST_(1) <<  1)
 #define MIPS_CONF1_CA		(_ULCAST_(1) <<  2)
@@ -486,6 +601,9 @@
 #define MIPS_CONF7_RPS		(_ULCAST_(1) << 2)
 
 
+/*
+ * Bits in the MIPS32/64 coprocessor 1 (FPU) revision register.
+ */
 #define MIPS_FPIR_S		(_ULCAST_(1) << 16)
 #define MIPS_FPIR_D		(_ULCAST_(1) << 17)
 #define MIPS_FPIR_PS		(_ULCAST_(1) << 18)
@@ -496,6 +614,13 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * Functions to access the R10000 performance counters.  These are basically
+ * mfc0 and mtc0 instructions from and to coprocessor register with a 5-bit
+ * performance counter number encoded into bits 1 ... 5 of the instruction.
+ * Only performance counters 0 to 1 actually exist, so for a non-R10000 aware
+ * disassembler these will look like an access to sel 0 or 1.
+ */
 #define read_r10k_perf_cntr(counter)				\
 ({								\
 	unsigned int __res;					\
@@ -535,6 +660,9 @@ do {								\
 } while (0)
 
 
+/*
+ * Macros to access the system control coprocessor
+ */
 
 #define __read_32bit_c0_register(source, sel)				\
 ({ int __res;								\
@@ -615,6 +743,9 @@ do {									\
 		__write_64bit_c0_register(reg, sel, val);		\
 } while (0)
 
+/*
+ * On RM7000/RM9000 these are uses to access cop0 set 1 registers
+ */
 #define __read_32bit_c0_ctrl_register(source)				\
 ({ int __res;								\
 	__asm__ __volatile__(						\
@@ -630,6 +761,10 @@ do {									\
 		: : "Jr" ((unsigned int)(value)));			\
 } while (0)
 
+/*
+ * These versions are only needed for systems with more than 38 bits of
+ * physical address space running the 32-bit kernel.  That's none atm :-)
+ */
 #define __read_64bit_c0_split(source, sel)				\
 ({									\
 	unsigned long long __val;					\
@@ -719,7 +854,7 @@ do {									\
 
 #define read_c0_info()		__read_32bit_c0_register($7, 0)
 
-#define read_c0_cache()		__read_32bit_c0_register($7, 0)	
+#define read_c0_cache()		__read_32bit_c0_register($7, 0)	/* TX39xx */
 #define write_c0_cache(val)	__write_32bit_c0_register($7, 0, val)
 
 #define read_c0_badvaddr()	__read_ulong_c0_register($8, 0)
@@ -728,10 +863,10 @@ do {									\
 #define read_c0_count()		__read_32bit_c0_register($9, 0)
 #define write_c0_count(val)	__write_32bit_c0_register($9, 0, val)
 
-#define read_c0_count2()	__read_32bit_c0_register($9, 6) 
+#define read_c0_count2()	__read_32bit_c0_register($9, 6) /* pnx8550 */
 #define write_c0_count2(val)	__write_32bit_c0_register($9, 6, val)
 
-#define read_c0_count3()	__read_32bit_c0_register($9, 7) 
+#define read_c0_count3()	__read_32bit_c0_register($9, 7) /* pnx8550 */
 #define write_c0_count3(val)	__write_32bit_c0_register($9, 7, val)
 
 #define read_c0_entryhi()	__read_ulong_c0_register($10, 0)
@@ -740,10 +875,10 @@ do {									\
 #define read_c0_compare()	__read_32bit_c0_register($11, 0)
 #define write_c0_compare(val)	__write_32bit_c0_register($11, 0, val)
 
-#define read_c0_compare2()	__read_32bit_c0_register($11, 6) 
+#define read_c0_compare2()	__read_32bit_c0_register($11, 6) /* pnx8550 */
 #define write_c0_compare2(val)	__write_32bit_c0_register($11, 6, val)
 
-#define read_c0_compare3()	__read_32bit_c0_register($11, 7) 
+#define read_c0_compare3()	__read_32bit_c0_register($11, 7) /* pnx8550 */
 #define write_c0_compare3(val)	__write_32bit_c0_register($11, 7, val)
 
 #define read_c0_status()	__read_32bit_c0_register($12, 0)
@@ -754,8 +889,12 @@ do {									\
 	__ehb();							\
 } while (0)
 #else
+/*
+ * Legacy non-SMTC code, which may be hazardous
+ * but which might not support EHB
+ */
 #define write_c0_status(val)	__write_32bit_c0_register($12, 0, val)
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 
 #define read_c0_cause()		__read_32bit_c0_register($13, 0)
 #define write_c0_cause(val)	__write_32bit_c0_register($13, 0, val)
@@ -782,6 +921,9 @@ do {									\
 #define write_c0_config6(val)	__write_32bit_c0_register($16, 6, val)
 #define write_c0_config7(val)	__write_32bit_c0_register($16, 7, val)
 
+/*
+ * The WatchLo register.  There may be up to 8 of them.
+ */
 #define read_c0_watchlo0()	__read_ulong_c0_register($18, 0)
 #define read_c0_watchlo1()	__read_ulong_c0_register($18, 1)
 #define read_c0_watchlo2()	__read_ulong_c0_register($18, 2)
@@ -799,6 +941,9 @@ do {									\
 #define write_c0_watchlo6(val)	__write_ulong_c0_register($18, 6, val)
 #define write_c0_watchlo7(val)	__write_ulong_c0_register($18, 7, val)
 
+/*
+ * The WatchHi register.  There may be up to 8 of them.
+ */
 #define read_c0_watchhi0()	__read_32bit_c0_register($19, 0)
 #define read_c0_watchhi1()	__read_32bit_c0_register($19, 1)
 #define read_c0_watchhi2()	__read_32bit_c0_register($19, 2)
@@ -826,6 +971,7 @@ do {									\
 #define read_c0_framemask()	__read_32bit_c0_register($21, 0)
 #define write_c0_framemask(val)	__write_32bit_c0_register($21, 0, val)
 
+/* RM9000 PerfControl performance counter control register */
 #define read_c0_perfcontrol()	__read_32bit_c0_register($22, 0)
 #define write_c0_perfcontrol(val) __write_32bit_c0_register($22, 0, val)
 
@@ -853,6 +999,9 @@ do {									\
 #define read_c0_depc()		__read_ulong_c0_register($24, 0)
 #define write_c0_depc(val)	__write_ulong_c0_register($24, 0, val)
 
+/*
+ * MIPS32 / MIPS64 performance counters
+ */
 #define read_c0_perfctrl0()	__read_32bit_c0_register($25, 0)
 #define write_c0_perfctrl0(val)	__write_32bit_c0_register($25, 0, val)
 #define read_c0_perfcntr0()	__read_32bit_c0_register($25, 1)
@@ -878,6 +1027,7 @@ do {									\
 #define read_c0_perfcntr3_64()	__read_64bit_c0_register($25, 7)
 #define write_c0_perfcntr3_64(val) __write_64bit_c0_register($25, 7, val)
 
+/* RM9000 PerfCount performance counter register */
 #define read_c0_perfcount()	__read_64bit_c0_register($25, 0)
 #define write_c0_perfcount(val)	__write_64bit_c0_register($25, 0, val)
 
@@ -910,6 +1060,7 @@ do {									\
 #define read_c0_errorepc()	__read_ulong_c0_register($30, 0)
 #define write_c0_errorepc(val)	__write_ulong_c0_register($30, 0, val)
 
+/* MIPSR2 */
 #define read_c0_hwrena()	__read_32bit_c0_register($7, 0)
 #define write_c0_hwrena(val)	__write_32bit_c0_register($7, 0, val)
 
@@ -926,6 +1077,7 @@ do {									\
 #define write_c0_ebase(val)	__write_32bit_c0_register($15, 1, val)
 
 
+/* Cavium OCTEON (cnMIPS) */
 #define read_c0_cvmcount()	__read_ulong_c0_register($9, 6)
 #define write_c0_cvmcount(val)	__write_ulong_c0_register($9, 6, val)
 
@@ -934,12 +1086,17 @@ do {									\
 
 #define read_c0_cvmmemctl()	__read_64bit_c0_register($11, 7)
 #define write_c0_cvmmemctl(val)	__write_64bit_c0_register($11, 7, val)
+/*
+ * The cacheerr registers are not standardized.  On OCTEON, they are
+ * 64 bits wide.
+ */
 #define read_octeon_c0_icacheerr()	__read_64bit_c0_register($27, 0)
 #define write_octeon_c0_icacheerr(val)	__write_64bit_c0_register($27, 0, val)
 
 #define read_octeon_c0_dcacheerr()	__read_64bit_c0_register($27, 1)
 #define write_octeon_c0_dcacheerr(val)	__write_64bit_c0_register($27, 1, val)
 
+/* BMIPS3300 */
 #define read_c0_brcm_config_0()		__read_32bit_c0_register($22, 0)
 #define write_c0_brcm_config_0(val)	__write_32bit_c0_register($22, 0, val)
 
@@ -949,6 +1106,7 @@ do {									\
 #define read_c0_brcm_reset()		__read_32bit_c0_register($22, 5)
 #define write_c0_brcm_reset(val)	__write_32bit_c0_register($22, 5, val)
 
+/* BMIPS43xx */
 #define read_c0_brcm_cmt_intr()		__read_32bit_c0_register($22, 1)
 #define write_c0_brcm_cmt_intr(val)	__write_32bit_c0_register($22, 1, val)
 
@@ -964,6 +1122,7 @@ do {									\
 #define read_c0_brcm_cbr()		__read_32bit_c0_register($22, 6)
 #define write_c0_brcm_cbr(val)		__write_32bit_c0_register($22, 6, val)
 
+/* BMIPS5000 */
 #define read_c0_brcm_config()		__read_32bit_c0_register($22, 0)
 #define write_c0_brcm_config(val)	__write_32bit_c0_register($22, 0, val)
 
@@ -982,12 +1141,15 @@ do {									\
 #define read_c0_brcm_sleepcount()	__read_32bit_c0_register($22, 7)
 #define write_c0_brcm_sleepcount(val)	__write_32bit_c0_register($22, 7, val)
 
+/*
+ * Macros to access the floating point coprocessor control registers
+ */
 #define read_32bit_cp1_register(source)                         \
 ({ int __res;                                                   \
 	__asm__ __volatile__(                                   \
 	".set\tpush\n\t"					\
 	".set\treorder\n\t"					\
-	 \
+	/* gas fails to assemble cfc1 for some archs (octeon).*/ \
 	".set\tmips1\n\t"					\
         "cfc1\t%0,"STR(source)"\n\t"                            \
 	".set\tpop"						\
@@ -1023,7 +1185,7 @@ do {									\
 	: "r" (val), "i" (mask));					\
 } while (0)
 
-#if 0	
+#if 0	/* Need DSP ASE capable assembler ... */
 #define mflo0() ({ long mflo0; __asm__("mflo %0, $ac0" : "=r" (mflo0)); mflo0;})
 #define mflo1() ({ long mflo1; __asm__("mflo %0, $ac1" : "=r" (mflo1)); mflo1;})
 #define mflo2() ({ long mflo2; __asm__("mflo %0, $ac2" : "=r" (mflo2)); mflo2;})
@@ -1272,6 +1434,11 @@ do {									\
 
 #endif
 
+/*
+ * TLB operations.
+ *
+ * It is responsibility of the caller to take care of any TLB hazards.
+ */
 static inline void tlb_probe(void)
 {
 	__asm__ __volatile__(
@@ -1333,7 +1500,14 @@ static inline void tlb_write_random(void)
 		".set reorder");
 }
 
+/*
+ * Manipulate bits in a c0 register.
+ */
 #ifndef CONFIG_MIPS_MT_SMTC
+/*
+ * SMTC Linux requires shutting-down microthread scheduling
+ * during CP0 register read-modify-write sequences.
+ */
 #define __BUILD_SET_C0(name)					\
 static inline unsigned int					\
 set_c0_##name(unsigned int set)					\
@@ -1372,10 +1546,14 @@ change_c0_##name(unsigned int change, unsigned int val)		\
 	return res;						\
 }
 
-#else 
+#else /* SMTC versions that manage MT scheduling */
 
 #include <linux/irqflags.h>
 
+/*
+ * This is a duplicate of dmt() in mipsmtregs.h to avoid problems with
+ * header file recursion.
+ */
 static inline unsigned int __dmt(void)
 {
 	int res;
@@ -1417,6 +1595,10 @@ static inline void __ehb(void)
 	"	ehb							\n"		"	.set	mips0						\n");
 }
 
+/*
+ * Note that local_irq_save/restore affect TC-specific IXMT state,
+ * not Status.IE as in non-SMTC kernel.
+ */
 
 #define __BUILD_SET_C0(name)					\
 static inline unsigned int					\
@@ -1493,6 +1675,6 @@ __BUILD_SET_C0(brcm_cmt_ctrl)
 __BUILD_SET_C0(brcm_config)
 __BUILD_SET_C0(brcm_mode)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_MIPSREGS_H */

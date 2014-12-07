@@ -21,7 +21,20 @@
 #include "../sysfs.h"
 #include "../events.h"
 
+/*
+ * Simplified handling
+ *
+ * If no events enabled - single polled channel read
+ * If event enabled direct reads disable unless channel
+ * is in the read mask.
+ *
+ * The noise-delayed bit as per datasheet suggestion is always enabled.
+ *
+ */
 
+/*
+ * AD7291 registers definition
+ */
 #define AD7291_COMMAND			0x00
 #define AD7291_VOLTAGE			0x01
 #define AD7291_T_SENSE			0x02
@@ -59,6 +72,9 @@
 #define AD7291_VOLTAGE_LIMIT_COUNT	8
 
 
+/*
+ * AD7291 command
+ */
 #define AD7291_AUTOCYCLE		(1 << 0)
 #define AD7291_RESET			(1 << 1)
 #define AD7291_ALERT_CLEAR		(1 << 2)
@@ -69,6 +85,9 @@
 #define AD7291_VOLTAGE_MASK		0xFF00
 #define AD7291_VOLTAGE_OFFSET		0x8
 
+/*
+ * AD7291 value masks
+ */
 #define AD7291_CHANNEL_MASK		0xF000
 #define AD7291_BITS			12
 #define AD7291_VALUE_MASK		0xFFF
@@ -83,7 +102,7 @@ struct ad7291_chip_info {
 	struct regulator	*reg;
 	u16			int_vref_mv;
 	u16			command;
-	u16			c_mask;	
+	u16			c_mask;	/* Active voltage channels for events */
 	struct mutex		state_lock;
 };
 
@@ -155,7 +174,7 @@ static irqreturn_t ad7291_event_handler(int irq, void *private)
 	command = chip->command & ~AD7291_ALERT_CLEAR;
 	ad7291_i2c_write(chip, AD7291_COMMAND, command);
 
-	
+	/* For now treat t_sense and t_sense_average the same */
 	if ((t_status & (1 << 0)) || (t_status & (1 << 2)))
 		iio_push_event(indio_dev,
 			       IIO_UNMOD_EVENT_CODE(IIO_TEMP,
@@ -275,16 +294,17 @@ static struct attribute *ad7291_event_attributes[] = {
 	NULL,
 };
 
+/* high / low */
 static u8 ad7291_limit_regs[9][2] = {
 	{ AD7291_CH0_DATA_HIGH, AD7291_CH0_DATA_LOW },
 	{ AD7291_CH1_DATA_HIGH, AD7291_CH1_DATA_LOW },
 	{ AD7291_CH2_DATA_HIGH, AD7291_CH2_DATA_LOW },
-	{ AD7291_CH3_DATA_HIGH, AD7291_CH3_DATA_LOW }, 
+	{ AD7291_CH3_DATA_HIGH, AD7291_CH3_DATA_LOW }, /* FIXME: ? */
 	{ AD7291_CH4_DATA_HIGH, AD7291_CH4_DATA_LOW },
 	{ AD7291_CH5_DATA_HIGH, AD7291_CH5_DATA_LOW },
 	{ AD7291_CH6_DATA_HIGH, AD7291_CH6_DATA_LOW },
 	{ AD7291_CH7_DATA_HIGH, AD7291_CH7_DATA_LOW },
-	
+	/* temp */
 	{ AD7291_T_SENSE_HIGH, AD7291_T_SENSE_LOW },
 };
 
@@ -360,6 +380,8 @@ static int ad7291_read_event_config(struct iio_dev *indio_dev,
 				    u64 event_code)
 {
 	struct ad7291_chip_info *chip = iio_priv(indio_dev);
+	/* To be enabled the channel must simply be on. If any are enabled
+	   we are in continuous sampling mode */
 
 	switch (IIO_EVENT_CODE_EXTRACT_CHAN_TYPE(event_code)) {
 	case IIO_VOLTAGE:
@@ -369,7 +391,7 @@ static int ad7291_read_event_config(struct iio_dev *indio_dev,
 		else
 			return 0;
 	case IIO_TEMP:
-		
+		/* always on */
 		return 1;
 	default:
 		return -EINVAL;
@@ -387,6 +409,11 @@ static int ad7291_write_event_config(struct iio_dev *indio_dev,
 
 	mutex_lock(&chip->state_lock);
 	regval = chip->command;
+	/*
+	 * To be enabled the channel must simply be on. If any are enabled
+	 * use continuous sampling mode.
+	 * Possible to disable temp as well but that makes single read tricky.
+	 */
 
 	switch (IIO_EVENT_CODE_EXTRACT_TYPE(event_code)) {
 	case IIO_VOLTAGE:
@@ -403,7 +430,7 @@ static int ad7291_write_event_config(struct iio_dev *indio_dev,
 
 		regval &= ~AD7291_AUTOCYCLE;
 		regval |= chip->c_mask;
-		if (chip->c_mask) 
+		if (chip->c_mask) /* Enable autocycle? */
 			regval |= AD7291_AUTOCYCLE;
 
 		ret = ad7291_i2c_write(chip, AD7291_COMMAND, regval);
@@ -438,12 +465,12 @@ static int ad7291_read_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			mutex_lock(&chip->state_lock);
-			
+			/* If in autocycle mode drop through */
 			if (chip->command & AD7291_AUTOCYCLE) {
 				mutex_unlock(&chip->state_lock);
 				return -EBUSY;
 			}
-			
+			/* Enable this channel alone */
 			regval = chip->command & (~AD7291_VOLTAGE_MASK);
 			regval |= 1 << (15 - chan->channel);
 			ret = ad7291_i2c_write(chip, AD7291_COMMAND, regval);
@@ -451,7 +478,7 @@ static int ad7291_read_raw(struct iio_dev *indio_dev,
 				mutex_unlock(&chip->state_lock);
 				return ret;
 			}
-			
+			/* Read voltage */
 			ret = i2c_smbus_read_word_data(chip->client,
 						       AD7291_VOLTAGE);
 			if (ret < 0) {
@@ -462,7 +489,7 @@ static int ad7291_read_raw(struct iio_dev *indio_dev,
 			mutex_unlock(&chip->state_lock);
 			return IIO_VAL_INT;
 		case IIO_TEMP:
-			
+			/* Assumes tsense bit of command register always set */
 			ret = i2c_smbus_read_word_data(chip->client,
 						       AD7291_T_SENSE);
 			if (ret < 0)
@@ -491,6 +518,11 @@ static int ad7291_read_raw(struct iio_dev *indio_dev,
 			*val2 = (scale_uv % 1000) * 1000;
 			return IIO_VAL_INT_PLUS_MICRO;
 		case IIO_TEMP:
+			/*
+			 * One LSB of the ADC corresponds to 0.25 deg C.
+			 * The temperature reading is in 12-bit twos
+			 * complement format
+			 */
 			*val = 250;
 			return IIO_VAL_INT;
 		default:
@@ -569,20 +601,20 @@ static int __devinit ad7291_probe(struct i2c_client *client,
 	}
 
 	mutex_init(&chip->state_lock);
-	
+	/* this is only used for device removal purposes */
 	i2c_set_clientdata(client, indio_dev);
 
 	chip->client = client;
 
 	chip->command = AD7291_NOISE_DELAY |
-			AD7291_T_SENSE_MASK | 
-			AD7291_ALERT_POLARITY; 
+			AD7291_T_SENSE_MASK | /* Tsense always enabled */
+			AD7291_ALERT_POLARITY; /* set irq polarity low level */
 
 	if (voltage_uv) {
 		chip->int_vref_mv = voltage_uv / 1000;
 		chip->command |= AD7291_EXT_REF;
 	} else {
-		chip->int_vref_mv = 2500; 
+		chip->int_vref_mv = 2500; /* Build-in ref */
 	}
 
 	indio_dev->name = id->name;

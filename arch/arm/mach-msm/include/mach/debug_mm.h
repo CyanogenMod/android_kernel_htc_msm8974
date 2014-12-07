@@ -15,6 +15,10 @@
 
 #include <linux/string.h>
 
+/* The below macro removes the directory path name and retains only the
+ * file name to avoid long path names in log messages that comes as
+ * part of __FILE__ to compiler.
+ */
 #define __MM_FILE__ strrchr(__FILE__, '/') ? (strrchr(__FILE__, '/')+1) : \
 	__FILE__
 
@@ -26,4 +30,4 @@
 
 #define MM_ERR(fmt, args...) pr_err("[%s:%s] " fmt,\
 	       __MM_FILE__, __func__, ##args)
-#endif 
+#endif /* __ARCH_ARM_MACH_MSM_DEBUG_MM_H_ */

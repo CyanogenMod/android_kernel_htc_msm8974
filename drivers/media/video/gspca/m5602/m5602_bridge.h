@@ -24,6 +24,7 @@
 
 #define MODULE_NAME "ALi m5602"
 
+/*****************************************************************************/
 
 #define M5602_XB_SENSOR_TYPE		0x00
 #define M5602_XB_SENSOR_CTRL		0x01
@@ -101,7 +102,9 @@
 
 #define I2C_BUSY 0x80
 
+/*****************************************************************************/
 
+/* Driver info */
 #define DRIVER_AUTHOR "ALi m5602 Linux Driver Project"
 #define DRIVER_DESC "ALi m5602 webcam driver"
 
@@ -110,11 +113,14 @@
 
 #define M5602_URB_MSG_TIMEOUT   5000
 
+/*****************************************************************************/
 
+/* A skeleton used for sending messages to the m5602 bridge */
 static const unsigned char bridge_urb_skeleton[] = {
 	0x13, 0x00, 0x81, 0x00
 };
 
+/* A skeleton used for sending messages to the sensor */
 static const unsigned char sensor_urb_skeleton[] = {
 	0x23, M5602_XB_GPIO_EN_H, 0x81, 0x06,
 	0x23, M5602_XB_MISC_CTRL, 0x81, 0x80,
@@ -127,18 +133,18 @@ static const unsigned char sensor_urb_skeleton[] = {
 struct sd {
 	struct gspca_dev gspca_dev;
 
-	
+	/* A pointer to the currently connected sensor */
 	const struct m5602_sensor *sensor;
 
 	struct sd_desc *desc;
 
-	
+	/* Sensor private data */
 	void *sensor_priv;
 
-	
+	/* The current frame's id, used to detect frame boundaries */
 	u8 frame_id;
 
-	
+	/* The current frame count */
 	u32 frame_count;
 };
 

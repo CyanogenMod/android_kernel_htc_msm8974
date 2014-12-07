@@ -108,6 +108,6 @@ static inline struct new_utsname *init_utsname(void)
 
 extern struct rw_semaphore uts_sem;
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _LINUX_UTSNAME_H */

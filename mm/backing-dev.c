@@ -30,6 +30,11 @@ EXPORT_SYMBOL_GPL(noop_backing_dev_info);
 
 static struct class *bdi_class;
 
+/*
+ * bdi_lock protects updates to bdi_list and bdi_pending_list, as well as
+ * reader side protection for bdi_pending_list. bdi_list has RCU reader side
+ * locking.
+ */
 DEFINE_SPINLOCK(bdi_lock);
 LIST_HEAD(bdi_list);
 LIST_HEAD(bdi_pending_list);
@@ -267,6 +272,12 @@ int bdi_has_dirty_io(struct backing_dev_info *bdi)
 	return wb_has_dirty_io(&bdi->wb);
 }
 
+/*
+ * kupdated() used to do this. We cannot do it from the bdi_forker_thread()
+ * or we risk deadlocking on ->s_umount. The longer term solution would be
+ * to implement sync_supers_bdi() or similar and simply do it from the
+ * bdi writeback thread individually.
+ */
 static int bdi_sync_supers(void *unused)
 {
 	set_user_nice(current, 0);
@@ -275,6 +286,9 @@ static int bdi_sync_supers(void *unused)
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
 
+		/*
+		 * Do this periodically, like kupdated() did before.
+		 */
 		sync_supers();
 	}
 
@@ -307,12 +321,28 @@ static void wakeup_timer_fn(unsigned long data)
 		trace_writeback_wake_thread(bdi);
 		wake_up_process(bdi->wb.task);
 	} else if (bdi->dev) {
+		/*
+		 * When bdi tasks are inactive for long time, they are killed.
+		 * In this case we have to wake-up the forker thread which
+		 * should create and run the bdi thread.
+		 */
 		trace_writeback_wake_forker_thread(bdi);
 		wake_up_process(default_backing_dev_info.wb.task);
 	}
 	spin_unlock_bh(&bdi->wb_lock);
 }
 
+/*
+ * This function is used when the first inode for this bdi is marked dirty. It
+ * wakes-up the corresponding bdi thread which should then take care of the
+ * periodic background write-out of dirty inodes. Since the write-out would
+ * starts only 'dirty_writeback_interval' centisecs from now anyway, we just
+ * set up a timer which wakes the bdi thread up later.
+ *
+ * Note, we wouldn't bother setting up the timer, but this function is on the
+ * fast-path (used by '__mark_inode_dirty()'), so we save few context switches
+ * by delaying the wake-up.
+ */
 void bdi_wakeup_thread_delayed(struct backing_dev_info *bdi)
 {
 	unsigned long timeout;
@@ -321,6 +351,10 @@ void bdi_wakeup_thread_delayed(struct backing_dev_info *bdi)
 	mod_timer(&bdi->wb.wakeup_timer, jiffies + timeout);
 }
 
+/*
+ * Calculate the longest interval (jiffies) bdi threads are allowed to be
+ * inactive.
+ */
 static unsigned long bdi_longest_inactive(void)
 {
 	unsigned long interval;
@@ -329,6 +363,10 @@ static unsigned long bdi_longest_inactive(void)
 	return max(5UL * 60 * HZ, interval);
 }
 
+/*
+ * Clear pending bit and wakeup anybody waiting for flusher thread creation or
+ * shutdown
+ */
 static void bdi_clear_pending(struct backing_dev_info *bdi)
 {
 	clear_bit(BDI_pending, &bdi->state);
@@ -343,23 +381,36 @@ static int bdi_forker_thread(void *ptr)
 	current->flags |= PF_SWAPWRITE;
 	set_freezable();
 
+	/*
+	 * Our parent may run at a different priority, just set us to normal
+	 */
 	set_user_nice(current, 0);
 
 	for (;;) {
 		struct task_struct *task = NULL;
 		struct backing_dev_info *bdi;
 		enum {
-			NO_ACTION,   
-			FORK_THREAD, 
-			KILL_THREAD, 
+			NO_ACTION,   /* Nothing to do */
+			FORK_THREAD, /* Fork bdi thread */
+			KILL_THREAD, /* Kill inactive bdi thread */
 		} action = NO_ACTION;
 
+		/*
+		 * Temporary measure, we want to make sure we don't see
+		 * dirty data on the default backing_dev_info
+		 */
 		if (wb_has_dirty_io(me) || !list_empty(&me->bdi->work_list)) {
 			del_timer(&me->wakeup_timer);
 			wb_do_writeback(me, 0);
 		}
 
 		spin_lock_bh(&bdi_lock);
+		/*
+		 * In the following loop we are going to check whether we have
+		 * some work to do without any synchronization with tasks
+		 * waking us up to do work for them. Set the task state here
+		 * so that we don't miss wakeups after verifying conditions.
+		 */
 		set_current_state(TASK_INTERRUPTIBLE);
 
 		list_for_each_entry(bdi, &bdi_list, bdi_list) {
@@ -375,7 +426,15 @@ static int bdi_forker_thread(void *ptr)
 			have_dirty_io = !list_empty(&bdi->work_list) ||
 					wb_has_dirty_io(&bdi->wb);
 
+			/*
+			 * If the bdi has work to do, but the thread does not
+			 * exist - create it.
+			 */
 			if (!bdi->wb.task && have_dirty_io) {
+				/*
+				 * Set the pending bit - if someone will try to
+				 * unregister this bdi - it'll wait on this bit.
+				 */
 				set_bit(BDI_pending, &bdi->state);
 				action = FORK_THREAD;
 				break;
@@ -383,6 +442,12 @@ static int bdi_forker_thread(void *ptr)
 
 			spin_lock(&bdi->wb_lock);
 
+			/*
+			 * If there is no work to do and the bdi thread was
+			 * inactive long enough - kill it. The wb_lock is taken
+			 * to make sure no-one adds more work to this bdi and
+			 * wakes the bdi thread up.
+			 */
 			if (bdi->wb.task && !have_dirty_io &&
 			    time_after(jiffies, bdi->wb.last_active +
 						bdi_longest_inactive())) {
@@ -397,7 +462,7 @@ static int bdi_forker_thread(void *ptr)
 		}
 		spin_unlock_bh(&bdi_lock);
 
-		
+		/* Keep working if default bdi still has things to do */
 		if (!list_empty(&me->bdi->work_list))
 			__set_current_state(TASK_RUNNING);
 
@@ -407,9 +472,20 @@ static int bdi_forker_thread(void *ptr)
 			task = kthread_create(bdi_writeback_thread, &bdi->wb,
 					      "flush-%s", dev_name(bdi->dev));
 			if (IS_ERR(task)) {
+				/*
+				 * If thread creation fails, force writeout of
+				 * the bdi from the thread. Hopefully 1024 is
+				 * large enough for efficient IO.
+				 */
 				writeback_inodes_wb(&bdi->wb, 1024,
 						    WB_REASON_FORKER_THREAD);
 			} else {
+				/*
+				 * The spinlock makes sure we do not lose
+				 * wake-ups when racing with 'bdi_queue_work()'.
+				 * And as soon as the bdi thread is visible, we
+				 * can start it.
+				 */
 				spin_lock_bh(&bdi->wb_lock);
 				bdi->wb.task = task;
 				spin_unlock_bh(&bdi->wb_lock);
@@ -426,6 +502,13 @@ static int bdi_forker_thread(void *ptr)
 
 		case NO_ACTION:
 			if (!wb_has_dirty_io(me) || !dirty_writeback_interval)
+				/*
+				 * There are no dirty data. The only thing we
+				 * should now care about is checking for
+				 * inactive bdi threads and killing them. Thus,
+				 * let's sleep for longer time, save energy and
+				 * be friendly for battery-driven devices.
+				 */
 				schedule_timeout(bdi_longest_inactive());
 			else
 				schedule_timeout(msecs_to_jiffies(dirty_writeback_interval * 10));
@@ -437,6 +520,9 @@ static int bdi_forker_thread(void *ptr)
 	return 0;
 }
 
+/*
+ * Remove bdi from bdi_list, and ensure that it is no longer visible
+ */
 static void bdi_remove_from_list(struct backing_dev_info *bdi)
 {
 	spin_lock_bh(&bdi_lock);
@@ -452,7 +538,7 @@ int bdi_register(struct backing_dev_info *bdi, struct device *parent,
 	va_list args;
 	struct device *dev;
 
-	if (bdi->dev)	
+	if (bdi->dev)	/* The driver needs to use separate queues per device */
 		return 0;
 
 	va_start(args, fmt);
@@ -463,6 +549,11 @@ int bdi_register(struct backing_dev_info *bdi, struct device *parent,
 
 	bdi->dev = dev;
 
+	/*
+	 * Just start the forker thread for our default backing_dev_info,
+	 * and add other bdi's to the list. They will get a thread created
+	 * on-demand when they need it.
+	 */
 	if (bdi_cap_flush_forker(bdi)) {
 		struct bdi_writeback *wb = &bdi->wb;
 
@@ -490,6 +581,9 @@ int bdi_register_dev(struct backing_dev_info *bdi, dev_t dev)
 }
 EXPORT_SYMBOL(bdi_register_dev);
 
+/*
+ * Remove bdi from the global list and shutdown any threads we have running
+ */
 static void bdi_wb_shutdown(struct backing_dev_info *bdi)
 {
 	struct task_struct *task;
@@ -497,11 +591,21 @@ static void bdi_wb_shutdown(struct backing_dev_info *bdi)
 	if (!bdi_cap_writeback_dirty(bdi))
 		return;
 
+	/*
+	 * Make sure nobody finds us on the bdi_list anymore
+	 */
 	bdi_remove_from_list(bdi);
 
+	/*
+	 * If setup is pending, wait for that to complete first
+	 */
 	wait_on_bit(&bdi->state, BDI_pending, bdi_sched_wait,
 			TASK_UNINTERRUPTIBLE);
 
+	/*
+	 * Finally, kill the kernel thread. We don't need to be RCU
+	 * safe anymore, since the bdi is gone from visibility.
+	 */
 	spin_lock_bh(&bdi->wb_lock);
 	task = bdi->wb.task;
 	bdi->wb.task = NULL;
@@ -511,6 +615,9 @@ static void bdi_wb_shutdown(struct backing_dev_info *bdi)
 		kthread_stop(task);
 }
 
+/*
+ * This bdi is going away now, make sure that no super_blocks point to it
+ */
 static void bdi_prune_sb(struct backing_dev_info *bdi)
 {
 	struct super_block *sb;
@@ -559,6 +666,9 @@ static void bdi_wb_init(struct bdi_writeback *wb, struct backing_dev_info *bdi)
 	setup_timer(&wb->wakeup_timer, wakeup_timer_fn, (unsigned long)bdi);
 }
 
+/*
+ * Initial write bandwidth: 100 MB/s
+ */
 #define INIT_BW		(100 << (20 - PAGE_SHIFT))
 
 int bdi_init(struct backing_dev_info *bdi)
@@ -608,6 +718,10 @@ void bdi_destroy(struct backing_dev_info *bdi)
 {
 	int i;
 
+	/*
+	 * Splice our entries to the default_backing_dev_info, if this
+	 * bdi disappears
+	 */
 	if (bdi_has_dirty_io(bdi)) {
 		struct bdi_writeback *dst = &default_backing_dev_info.wb;
 
@@ -621,6 +735,12 @@ void bdi_destroy(struct backing_dev_info *bdi)
 
 	bdi_unregister(bdi);
 
+	/*
+	 * If bdi_unregister() had already been called earlier, the
+	 * wakeup_timer could still be armed because bdi_prune_sb()
+	 * can race with the bdi_wakeup_thread_delayed() calls from
+	 * __mark_inode_dirty().
+	 */
 	del_timer_sync(&bdi->wb.wakeup_timer);
 
 	for (i = 0; i < NR_BDI_STAT_ITEMS; i++)
@@ -630,6 +750,10 @@ void bdi_destroy(struct backing_dev_info *bdi)
 }
 EXPORT_SYMBOL(bdi_destroy);
 
+/*
+ * For use from filesystems to quickly init and register a bdi associated
+ * with dirty writeback
+ */
 int bdi_setup_and_register(struct backing_dev_info *bdi, char *name,
 			   unsigned int cap)
 {
@@ -683,6 +807,15 @@ void set_bdi_congested(struct backing_dev_info *bdi, int sync)
 }
 EXPORT_SYMBOL(set_bdi_congested);
 
+/**
+ * congestion_wait - wait for a backing_dev to become uncongested
+ * @sync: SYNC or ASYNC IO
+ * @timeout: timeout in jiffies
+ *
+ * Waits for up to @timeout jiffies for a backing_dev (any backing_dev) to exit
+ * write congestion.  If no backing_devs are congested then just wait for the
+ * next write to be completed.
+ */
 long congestion_wait(int sync, long timeout)
 {
 	long ret;
@@ -701,6 +834,24 @@ long congestion_wait(int sync, long timeout)
 }
 EXPORT_SYMBOL(congestion_wait);
 
+/**
+ * wait_iff_congested - Conditionally wait for a backing_dev to become uncongested or a zone to complete writes
+ * @zone: A zone to check if it is heavily congested
+ * @sync: SYNC or ASYNC IO
+ * @timeout: timeout in jiffies
+ *
+ * In the event of a congested backing_dev (any backing_dev) and the given
+ * @zone has experienced recent congestion, this waits for up to @timeout
+ * jiffies for either a BDI to exit congestion of the given @sync queue
+ * or a write to complete.
+ *
+ * In the absence of zone congestion, cond_resched() is called to yield
+ * the processor if necessary but otherwise does not sleep.
+ *
+ * The return value is 0 if the sleep is for the full timeout. Otherwise,
+ * it is the number of jiffies that were still remaining when the function
+ * returned. return_value == timeout implies the function did not sleep.
+ */
 long wait_iff_congested(struct zone *zone, int sync, long timeout)
 {
 	long ret;
@@ -708,11 +859,16 @@ long wait_iff_congested(struct zone *zone, int sync, long timeout)
 	DEFINE_WAIT(wait);
 	wait_queue_head_t *wqh = &congestion_wqh[sync];
 
+	/*
+	 * If there is no congestion, or heavy congestion is not being
+	 * encountered in the current zone, yield if necessary instead
+	 * of sleeping on the congestion queue
+	 */
 	if (atomic_read(&nr_bdi_congested[sync]) == 0 ||
 			!zone_is_reclaim_congested(zone)) {
 		cond_resched();
 
-		
+		/* In case we scheduled, work out time remaining */
 		ret = timeout - (jiffies - start);
 		if (ret < 0)
 			ret = 0;
@@ -720,7 +876,7 @@ long wait_iff_congested(struct zone *zone, int sync, long timeout)
 		goto out;
 	}
 
-	
+	/* Sleep until uncongested or a write happens */
 	prepare_to_wait(wqh, &wait, TASK_UNINTERRUPTIBLE);
 	ret = io_schedule_timeout(timeout);
 	finish_wait(wqh, &wait);

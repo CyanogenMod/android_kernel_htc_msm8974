@@ -26,6 +26,11 @@
  * XXX encode hardware fixed wakeup dependencies -- esp. for 3430 CORE
  */
 
+/*
+ * To-Do List
+ * -> Port the Sleep/Wakeup dependencies for the domains
+ *    from the Power domain framework
+ */
 
 #include <linux/kernel.h>
 #include <linux/io.h>
@@ -36,9 +41,18 @@
 #include "cm-regbits-24xx.h"
 #include "prm-regbits-24xx.h"
 
+/*
+ * Clockdomain dependencies for wkdeps
+ *
+ * XXX Hardware dependencies (e.g., dependencies that cannot be
+ * changed in software) are not included here yet, but should be.
+ */
 
+/* Wakeup dependency source arrays */
 
+/* 2430-specific possible wakeup dependencies */
 
+/* 2430 PM_WKDEP_CORE: DSP, GFX, MPU, WKUP, MDM */
 static struct clkdm_dep core_2430_wkdeps[] = {
 	{ .clkdm_name = "dsp_clkdm" },
 	{ .clkdm_name = "gfx_clkdm" },
@@ -48,6 +62,7 @@ static struct clkdm_dep core_2430_wkdeps[] = {
 	{ NULL },
 };
 
+/* 2430 PM_WKDEP_MPU: CORE, DSP, WKUP, MDM */
 static struct clkdm_dep mpu_2430_wkdeps[] = {
 	{ .clkdm_name = "core_l3_clkdm" },
 	{ .clkdm_name = "core_l4_clkdm" },
@@ -57,6 +72,7 @@ static struct clkdm_dep mpu_2430_wkdeps[] = {
 	{ NULL },
 };
 
+/* 2430 PM_WKDEP_MDM: CORE, MPU, WKUP */
 static struct clkdm_dep mdm_2430_wkdeps[] = {
 	{ .clkdm_name = "core_l3_clkdm" },
 	{ .clkdm_name = "core_l4_clkdm" },
@@ -65,6 +81,9 @@ static struct clkdm_dep mdm_2430_wkdeps[] = {
 	{ NULL },
 };
 
+/*
+ * 2430-only clockdomains
+ */
 
 static struct clockdomain mpu_2430_clkdm = {
 	.name		= "mpu_clkdm",
@@ -74,6 +93,7 @@ static struct clockdomain mpu_2430_clkdm = {
 	.clktrctrl_mask = OMAP24XX_AUTOSTATE_MPU_MASK,
 };
 
+/* Another case of bit name collisions between several registers: EN_MDM */
 static struct clockdomain mdm_clkdm = {
 	.name		= "mdm_clkdm",
 	.pwrdm		= { .name = "mdm_pwrdm" },
@@ -100,6 +120,11 @@ static struct clockdomain gfx_2430_clkdm = {
 	.clktrctrl_mask = OMAP24XX_AUTOSTATE_GFX_MASK,
 };
 
+/*
+ * XXX add usecounting for clkdm dependencies, otherwise the presence
+ * of a single dep bit for core_l3_24xx_clkdm and core_l4_24xx_clkdm
+ * could cause trouble
+ */
 static struct clockdomain core_l3_2430_clkdm = {
 	.name		= "core_l3_clkdm",
 	.pwrdm		= { .name = "core_pwrdm" },
@@ -109,6 +134,11 @@ static struct clockdomain core_l3_2430_clkdm = {
 	.clktrctrl_mask = OMAP24XX_AUTOSTATE_L3_MASK,
 };
 
+/*
+ * XXX add usecounting for clkdm dependencies, otherwise the presence
+ * of a single dep bit for core_l3_24xx_clkdm and core_l4_24xx_clkdm
+ * could cause trouble
+ */
 static struct clockdomain core_l4_2430_clkdm = {
 	.name		= "core_l4_clkdm",
 	.pwrdm		= { .name = "core_pwrdm" },

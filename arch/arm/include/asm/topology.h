@@ -36,4 +36,4 @@ static inline void store_cpu_topology(unsigned int cpuid) { }
 
 #include <asm-generic/topology.h>
 
-#endif 
+#endif /* _ASM_ARM_TOPOLOGY_H */

@@ -18,8 +18,8 @@
 
 
 #define XBOW_WIDGET_PART_NUM    0x0
-#define XXBOW_WIDGET_PART_NUM   0xd000  
-#define BASE_XBOW_PORT  	8     
+#define XXBOW_WIDGET_PART_NUM   0xd000  /* Xbow in Xbridge */
+#define BASE_XBOW_PORT  	8     /* Lowest external port */
 
 extern int bridge_probe(nasid_t nasid, int widget, int masterwid);
 
@@ -55,6 +55,10 @@ static int __cpuinit xbow_probe(nasid_t nasid)
 
 	printk("is xbow\n");
 
+	/*
+	 * found xbow, so may have multiple bridges
+	 * need to probe xbow
+	 */
 	brd = find_lboard((lboard_t *)KL_CONFIG_INFO(nasid), KLTYPE_MIDPLANE8);
 	if (!brd)
 		return -ENODEV;
@@ -63,6 +67,12 @@ static int __cpuinit xbow_probe(nasid_t nasid)
 	if (!xbow_p)
 		return -ENODEV;
 
+	/*
+	 * Okay, here's a xbow. Lets arbitrate and find
+	 * out if we should initialize it. Set enabled
+	 * hub connected at highest or lowest widget as
+	 * master.
+	 */
 #ifdef WIDGET_A
 	i = HUB_WIDGET_ID_MAX + 1;
 	do {
@@ -100,7 +110,7 @@ void __cpuinit xtalk_probe_node(cnodeid_t nid)
 	nasid = COMPACT_TO_NASID_NODEID(nid);
 	hubreg = REMOTE_HUB_L(nasid, IIO_LLP_CSR);
 
-	
+	/* check whether the link is up */
 	if (!(hubreg & IIO_LLP_CSR_IS_UP))
 		return;
 

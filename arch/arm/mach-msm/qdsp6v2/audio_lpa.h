@@ -24,7 +24,7 @@
 struct buffer {
 	void *data;
 	unsigned size;
-	unsigned used;		
+	unsigned used;		/* Input usage actual DSP produced PCM size  */
 	unsigned addr;
 };
 
@@ -43,8 +43,8 @@ struct codec_operations {
 struct audio {
 	spinlock_t dsp_lock;
 
-	uint8_t out_needed; 
-	struct list_head out_queue; 
+	uint8_t out_needed; /* number of buffers the dsp is waiting for */
+	struct list_head out_queue; /* queue to retain output buffers */
 
 	struct mutex lock;
 	struct mutex write_lock;
@@ -52,22 +52,22 @@ struct audio {
 
 	struct audio_client *ac;
 
-	
+	/* configuration to use on next enable */
 	uint32_t out_sample_rate;
 	uint32_t out_channel_mode;
-	uint32_t out_bits; 
+	uint32_t out_bits; /* bits per sample (used by PCM decoder) */
 
-	int32_t phys; 
+	int32_t phys; /* physical address of write buffer */
 
 	uint32_t drv_status;
-	int wflush; 
+	int wflush; /* Write flush */
 	int opened;
 	int out_enabled;
 	int out_prefill;
 	int running;
-	int stopped; 
+	int stopped; /* set when stopped, cleared on flush */
 	int buf_refresh;
-	int teos; 
+	int teos; /* valid only if tunnel mode & no data left for decoder */
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	struct audlpa_suspend_ctl suspend_ctl;
@@ -88,7 +88,7 @@ struct audio {
 
 	uint32_t device_events;
 
-	struct list_head ion_region_queue; 
+	struct list_head ion_region_queue; /* protected by lock */
 	struct ion_client *client;
 
 	int eq_enable;
@@ -102,4 +102,4 @@ struct audio {
 	uint32_t bytes_consumed;
 };
 
-#endif 
+#endif /* !AUDIO_LPA_H */

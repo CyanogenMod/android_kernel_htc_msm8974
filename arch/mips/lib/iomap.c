@@ -9,6 +9,19 @@
 #include <linux/module.h>
 #include <asm/io.h>
 
+/*
+ * Read/write from/to an (offsettable) iomem cookie. It might be a PIO
+ * access or a MMIO access, these functions don't care. The info is
+ * encoded in the hardware mapping set up by the mapping functions
+ * (or the cookie itself, depending on implementation and hw).
+ *
+ * The generic routines don't assume any hardware mappings, and just
+ * encode the PIO/MMIO as part of the cookie. They coldly assume that
+ * the MMIO IO mappings are not in the low address range.
+ *
+ * Architectures for which this is not true can't use this generic
+ * implementation and should do their own copy.
+ */
 
 #define PIO_MASK	0x0ffffUL
 
@@ -82,6 +95,12 @@ void iowrite32be(u32 val, void __iomem *addr)
 
 EXPORT_SYMBOL(iowrite32be);
 
+/*
+ * These are the "repeat MMIO read/write" functions.
+ * Note the "__raw" accesses, since we don't want to
+ * convert to CPU byte order. We write in "IO byte
+ * order" (we also don't have IO barriers).
+ */
 static inline void mmio_insb(void __iomem *addr, u8 *dst, int count)
 {
 	while (--count >= 0) {
@@ -175,6 +194,15 @@ void iowrite32_rep(void __iomem *addr, const void *src, unsigned long count)
 
 EXPORT_SYMBOL(iowrite32_rep);
 
+/*
+ * Create a virtual mapping cookie for an IO port range
+ *
+ * This uses the same mapping are as the in/out family which has to be setup
+ * by the platform initialization code.
+ *
+ * Just to make matters somewhat more interesting on MIPS systems with
+ * multiple host bridge each will have it's own ioport address space.
+ */
 static void __iomem *ioport_map_legacy(unsigned long port, unsigned int nr)
 {
 	return (void __iomem *) (mips_io_port_base + port);
@@ -192,7 +220,7 @@ EXPORT_SYMBOL(ioport_map);
 
 void ioport_unmap(void __iomem *addr)
 {
-	
+	/* Nothing to do */
 }
 
 EXPORT_SYMBOL(ioport_unmap);

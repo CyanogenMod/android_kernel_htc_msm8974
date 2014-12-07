@@ -25,17 +25,30 @@
  */
 
 
+/*
+ * OSS interface version. With versions earlier than 3.6 this value is
+ * an integer with value less than 361. In versions 3.6 and later
+ * it's a six digit hexadecimal value. For example value
+ * of 0x030600 represents OSS version 3.6.0.
+ * Use ioctl(fd, OSS_GETVERSION, &int) to get the version number of
+ * the currently active driver.
+ */
 #define SOUND_VERSION	0x030802
 #define OPEN_SOUND_SYSTEM
 
+/* In Linux we need to be prepared for cross compiling */
 #include <linux/ioctl.h>
 
+/* Endian macros. */
 #ifdef __KERNEL__
 #  include <asm/byteorder.h>
 #else
 #  include <endian.h>
 #endif
 
+/*
+ *	Supported card ID numbers (Should be somewhere else?)
+ */
 
 #define SNDCARD_ADLIB		1
 #define SNDCARD_SB		2
@@ -63,10 +76,15 @@
 #define SNDCARD_PSEUDO_MSS	24
 #define SNDCARD_GUSPNP		25
 #define SNDCARD_UART401		26
+/* Sound card numbers 27 to N are reserved. Don't add more numbers here. */
 
+/***********************************
+ * IOCTL Commands for /dev/sequencer
+ */
 
 #ifndef _SIOWR
 #if defined(_IOWR) && (defined(_AIX) || (!defined(sun) && !defined(sparc) && !defined(__sparc__) && !defined(__INCioctlh) && !defined(__Lynx__)))
+/* Use already defined ioctl defines if they exist (except with Sun or Sparc) */
 #define	SIOCPARM_MASK	IOCPARM_MASK
 #define	SIOC_VOID	IOC_VOID
 #define	SIOC_OUT	IOC_OUT
@@ -83,39 +101,48 @@
 #define	_SIOWR		_IOWR
 #else
 
-#define	SIOCPARM_MASK	0x1fff		
-#define	SIOC_VOID	0x00000000	
-#define	SIOC_OUT	0x20000000	
-#define	SIOC_IN		0x40000000	
+/* Ioctl's have the command encoded in the lower word,
+ * and the size of any in or out parameters in the upper
+ * word.  The high 2 bits of the upper word are used
+ * to encode the in/out status of the parameter; for now
+ * we restrict parameters to at most 8191 bytes.
+ */
+/* #define	SIOCTYPE		(0xff<<8) */
+#define	SIOCPARM_MASK	0x1fff		/* parameters must be < 8192 bytes */
+#define	SIOC_VOID	0x00000000	/* no parameters */
+#define	SIOC_OUT	0x20000000	/* copy out parameters */
+#define	SIOC_IN		0x40000000	/* copy in parameters */
 #define	SIOC_INOUT	(SIOC_IN|SIOC_OUT)
+/* the 0x20000000 is so we can distinguish new ioctl's from old */
 #define	_SIO(x,y)	((int)(SIOC_VOID|(x<<8)|y))
 #define	_SIOR(x,y,t)	((int)(SIOC_OUT|((sizeof(t)&SIOCPARM_MASK)<<16)|(x<<8)|y))
 #define	_SIOW(x,y,t)	((int)(SIOC_IN|((sizeof(t)&SIOCPARM_MASK)<<16)|(x<<8)|y))
+/* this should be _SIORW, but stdio got there first */
 #define	_SIOWR(x,y,t)	((int)(SIOC_INOUT|((sizeof(t)&SIOCPARM_MASK)<<16)|(x<<8)|y))
 #define _SIOC_SIZE(x)	((x>>16)&SIOCPARM_MASK)	
 #define _SIOC_DIR(x)	(x & 0xf0000000)
 #define _SIOC_NONE	SIOC_VOID
 #define _SIOC_READ	SIOC_OUT
 #define _SIOC_WRITE	SIOC_IN
-#  endif 
-#endif  
+#  endif /* _IOWR */
+#endif  /* !_SIOWR */
 
 #define SNDCTL_SEQ_RESET		_SIO  ('Q', 0)
 #define SNDCTL_SEQ_SYNC			_SIO  ('Q', 1)
 #define SNDCTL_SYNTH_INFO		_SIOWR('Q', 2, struct synth_info)
-#define SNDCTL_SEQ_CTRLRATE		_SIOWR('Q', 3, int)	
+#define SNDCTL_SEQ_CTRLRATE		_SIOWR('Q', 3, int)	/* Set/get timer resolution (HZ) */
 #define SNDCTL_SEQ_GETOUTCOUNT		_SIOR ('Q', 4, int)
 #define SNDCTL_SEQ_GETINCOUNT		_SIOR ('Q', 5, int)
 #define SNDCTL_SEQ_PERCMODE		_SIOW ('Q', 6, int)
-#define SNDCTL_FM_LOAD_INSTR		_SIOW ('Q', 7, struct sbi_instrument)	
+#define SNDCTL_FM_LOAD_INSTR		_SIOW ('Q', 7, struct sbi_instrument)	/* Obsolete. Don't use!!!!!! */
 #define SNDCTL_SEQ_TESTMIDI		_SIOW ('Q', 8, int)
 #define SNDCTL_SEQ_RESETSAMPLES		_SIOW ('Q', 9, int)
 #define SNDCTL_SEQ_NRSYNTHS		_SIOR ('Q',10, int)
 #define SNDCTL_SEQ_NRMIDIS		_SIOR ('Q',11, int)
 #define SNDCTL_MIDI_INFO		_SIOWR('Q',12, struct midi_info)
 #define SNDCTL_SEQ_THRESHOLD		_SIOW ('Q',13, int)
-#define SNDCTL_SYNTH_MEMAVL		_SIOWR('Q',14, int)	
-#define SNDCTL_FM_4OP_ENABLE		_SIOW ('Q',15, int)	
+#define SNDCTL_SYNTH_MEMAVL		_SIOWR('Q',14, int)	/* in=dev#, out=memsize */
+#define SNDCTL_FM_4OP_ENABLE		_SIOW ('Q',15, int)	/* in=dev# */
 #define SNDCTL_SEQ_PANIC		_SIO  ('Q',17)
 #define SNDCTL_SEQ_OUTOFBAND		_SIOW ('Q',18, struct seq_event_rec)
 #define SNDCTL_SEQ_GETTIME		_SIOR ('Q',19, int)
@@ -125,15 +152,15 @@
 
 typedef struct synth_control
 {
-	int devno;	
-	char data[4000]; 
+	int devno;	/* Synthesizer # */
+	char data[4000]; /* Device spesific command/data record */
 }synth_control;
 
 typedef struct remove_sample
 {
-	int devno;	
-	int bankno;	
-	int instrno;	
+	int devno;	/* Synthesizer # */
+	int bankno;	/* MIDI bank # (0=General MIDI) */
+	int instrno;	/* MIDI instrument number */
 } remove_sample;
 
 typedef struct seq_event_rec {
@@ -155,6 +182,9 @@ typedef struct seq_event_rec {
 #define SNDCTL_TMR_METRONOME		_SIOW ('T', 7, int)
 #define SNDCTL_TMR_SELECT		_SIOW ('T', 8, int)
 
+/*
+ * Some big endian/little endian handling macros
+ */
 
 #define _LINUX_PATCHKEY_H_INDIRECT
 #include <linux/patchkey.h>
@@ -180,49 +210,86 @@ typedef struct seq_event_rec {
 # endif
 #endif
 
+/*
+ *	Sample loading mechanism for internal synthesizers (/dev/sequencer)
+ *	The following patch_info structure has been designed to support
+ *	Gravis UltraSound. It tries to be universal format for uploading
+ *	sample based patches but is probably too limited.
+ *
+ *      (PBD) As Hannu guessed, the GUS structure is too limited for 
+ *      the WaveFront, but this is the right place for a constant definition.
+ */
 
 struct patch_info {
-		unsigned short key;		
+		unsigned short key;		/* Use WAVE_PATCH here */
 #define WAVE_PATCH	   _PATCHKEY(0x04)
 #define GUS_PATCH	   WAVE_PATCH
 #define WAVEFRONT_PATCH    _PATCHKEY(0x06)
 
-		short device_no;	
-		short instr_no;		
+		short device_no;	/* Synthesizer number */
+		short instr_no;		/* Midi pgm# */
 
 		unsigned int mode;
-#define WAVE_16_BITS	0x01	
-#define WAVE_UNSIGNED	0x02	
-#define WAVE_LOOPING	0x04	
-#define WAVE_BIDIR_LOOP	0x08	
-#define WAVE_LOOP_BACK	0x10	
-#define WAVE_SUSTAIN_ON	0x20	
-#define WAVE_ENVELOPES	0x40	
-#define WAVE_FAST_RELEASE 0x80	
-				
-#define WAVE_VIBRATO	0x00010000	
-#define WAVE_TREMOLO	0x00020000	
-#define WAVE_SCALE	0x00040000	
-#define WAVE_FRACTIONS	0x00080000	
-#define WAVE_ROM	0x40000000	
-#define WAVE_MULAW	0x20000000	
+/*
+ * The least significant byte has the same format than the GUS .PAT
+ * files
+ */
+#define WAVE_16_BITS	0x01	/* bit 0 = 8 or 16 bit wave data. */
+#define WAVE_UNSIGNED	0x02	/* bit 1 = Signed - Unsigned data. */
+#define WAVE_LOOPING	0x04	/* bit 2 = looping enabled-1. */
+#define WAVE_BIDIR_LOOP	0x08	/* bit 3 = Set is bidirectional looping. */
+#define WAVE_LOOP_BACK	0x10	/* bit 4 = Set is looping backward. */
+#define WAVE_SUSTAIN_ON	0x20	/* bit 5 = Turn sustaining on. (Env. pts. 3)*/
+#define WAVE_ENVELOPES	0x40	/* bit 6 = Enable envelopes - 1 */
+#define WAVE_FAST_RELEASE 0x80	/* bit 7 = Shut off immediately after note off */
+				/* 	(use the env_rate/env_offs fields). */
+/* Linux specific bits */
+#define WAVE_VIBRATO	0x00010000	/* The vibrato info is valid */
+#define WAVE_TREMOLO	0x00020000	/* The tremolo info is valid */
+#define WAVE_SCALE	0x00040000	/* The scaling info is valid */
+#define WAVE_FRACTIONS	0x00080000	/* Fraction information is valid */
+/* Reserved bits */
+#define WAVE_ROM	0x40000000	/* For future use */
+#define WAVE_MULAW	0x20000000	/* For future use */
+/* Other bits must be zeroed */
 
-		int len;	
-		int loop_start, loop_end; 
+		int len;	/* Size of the wave data in bytes */
+		int loop_start, loop_end; /* Byte offsets from the beginning */
 
+/* 
+ * The base_freq and base_note fields are used when computing the
+ * playback speed for a note. The base_note defines the tone frequency
+ * which is heard if the sample is played using the base_freq as the
+ * playback speed.
+ *
+ * The low_note and high_note fields define the minimum and maximum note
+ * frequencies for which this sample is valid. It is possible to define
+ * more than one samples for an instrument number at the same time. The
+ * low_note and high_note fields are used to select the most suitable one.
+ *
+ * The fields base_note, high_note and low_note should contain
+ * the note frequency multiplied by 1000. For example value for the
+ * middle A is 440*1000.
+ */
 
 		unsigned int base_freq;
 		unsigned int base_note;
 		unsigned int high_note;
 		unsigned int low_note;
-		int panning;	
+		int panning;	/* -128=left, 127=right */
 		int detuning;
 
+/*	New fields introduced in version 1.99.5	*/
 
-       
-		unsigned char	env_rate[ 6 ];	 
-		unsigned char	env_offset[ 6 ]; 
+       /* Envelope. Enabled by mode bit WAVE_ENVELOPES	*/
+		unsigned char	env_rate[ 6 ];	 /* GUS HW ramping rate */
+		unsigned char	env_offset[ 6 ]; /* 255 == 100% */
 
+	/* 
+	 * The tremolo, vibrato and scale info are not supported yet.
+	 * Enable by setting the mode bits WAVE_TREMOLO, WAVE_VIBRATO or
+	 * WAVE_SCALE
+	 */
 
 		unsigned char	tremolo_sweep;
 		unsigned char	tremolo_rate;
@@ -233,22 +300,22 @@ struct patch_info {
 		unsigned char	vibrato_depth;
 
 		int		scale_frequency;
-		unsigned int	scale_factor;		
+		unsigned int	scale_factor;		/* from 0 to 2048 or 0 to 2 */
 	
 	        int		volume;
 		int		fractions;
 		int		reserved1;
 	        int		spare[2];
-		char data[1];	
+		char data[1];	/* The waveform data starts here */
 	};
 
 struct sysex_info {
-		short key;		
+		short key;		/* Use SYSEX_PATCH or MAUI_PATCH here */
 #define SYSEX_PATCH	_PATCHKEY(0x05)
 #define MAUI_PATCH	_PATCHKEY(0x06)
-		short device_no;	
-		int len;	
-		unsigned char data[1];	
+		short device_no;	/* Synthesizer number */
+		int len;	/* Size of the sysex data in bytes */
+		unsigned char data[1];	/* Sysex data starts here */
 	};
 
 /*
@@ -272,7 +339,7 @@ struct sysex_info {
  * 8 byte one is recommended.
  */
 #define SEQ_NOTEOFF		0
-#define SEQ_FMNOTEOFF		SEQ_NOTEOFF	
+#define SEQ_FMNOTEOFF		SEQ_NOTEOFF	/* Just old name */
 #define SEQ_NOTEON		1
 #define	SEQ_FMNOTEON		SEQ_NOTEON
 #define SEQ_WAIT		TMR_WAIT_ABS
@@ -280,46 +347,73 @@ struct sysex_info {
 #define SEQ_FMPGMCHANGE		SEQ_PGMCHANGE
 #define SEQ_SYNCTIMER		TMR_START
 #define SEQ_MIDIPUTC		5
-#define SEQ_DRUMON		6	
-#define SEQ_DRUMOFF		7	
-#define SEQ_ECHO		TMR_ECHO	
+#define SEQ_DRUMON		6	/*** OBSOLETE ***/
+#define SEQ_DRUMOFF		7	/*** OBSOLETE ***/
+#define SEQ_ECHO		TMR_ECHO	/* For synching programs with output */
 #define SEQ_AFTERTOUCH		9
 #define SEQ_CONTROLLER		10
 
+/*******************************************
+ *	Midi controller numbers
+ *******************************************
+ * Controllers 0 to 31 (0x00 to 0x1f) and
+ * 32 to 63 (0x20 to 0x3f) are continuous
+ * controllers.
+ * In the MIDI 1.0 these controllers are sent using
+ * two messages. Controller numbers 0 to 31 are used
+ * to send the MSB and the controller numbers 32 to 63
+ * are for the LSB. Note that just 7 bits are used in MIDI bytes.
+ */
 
 #define	   CTL_BANK_SELECT		0x00
 #define	   CTL_MODWHEEL			0x01
 #define    CTL_BREATH			0x02
+/*		undefined		0x03 */
 #define    CTL_FOOT			0x04
 #define    CTL_PORTAMENTO_TIME		0x05
 #define    CTL_DATA_ENTRY		0x06
 #define    CTL_MAIN_VOLUME		0x07
 #define    CTL_BALANCE			0x08
+/*		undefined		0x09 */
 #define    CTL_PAN			0x0a
 #define    CTL_EXPRESSION		0x0b
+/*		undefined		0x0c */
+/*		undefined		0x0d */
+/*		undefined		0x0e */
+/*		undefined		0x0f */
 #define    CTL_GENERAL_PURPOSE1	0x10
 #define    CTL_GENERAL_PURPOSE2	0x11
 #define    CTL_GENERAL_PURPOSE3	0x12
 #define    CTL_GENERAL_PURPOSE4	0x13
+/*		undefined		0x14 - 0x1f */
 
+/*		undefined		0x20 */
+/* The controller numbers 0x21 to 0x3f are reserved for the */
+/* least significant bytes of the controllers 0x00 to 0x1f. */
+/* These controllers are not recognised by the driver. */
 
+/* Controllers 64 to 69 (0x40 to 0x45) are on/off switches. */
+/* 0=OFF and 127=ON (intermediate values are possible) */
 #define    CTL_DAMPER_PEDAL		0x40
-#define    CTL_SUSTAIN			0x40	
-#define    CTL_HOLD			0x40	
+#define    CTL_SUSTAIN			0x40	/* Alias */
+#define    CTL_HOLD			0x40	/* Alias */
 #define    CTL_PORTAMENTO		0x41
 #define    CTL_SOSTENUTO		0x42
 #define    CTL_SOFT_PEDAL		0x43
+/*		undefined		0x44 */
 #define    CTL_HOLD2			0x45
+/*		undefined		0x46 - 0x4f */
 
 #define    CTL_GENERAL_PURPOSE5	0x50
 #define    CTL_GENERAL_PURPOSE6	0x51
 #define    CTL_GENERAL_PURPOSE7	0x52
 #define    CTL_GENERAL_PURPOSE8	0x53
+/*		undefined		0x54 - 0x5a */
 #define    CTL_EXT_EFF_DEPTH		0x5b
 #define    CTL_TREMOLO_DEPTH		0x5c
 #define    CTL_CHORUS_DEPTH		0x5d
 #define    CTL_DETUNE_DEPTH		0x5e
-#define    CTL_CELESTE_DEPTH		0x5e	
+#define    CTL_CELESTE_DEPTH		0x5e	/* Alias for the above one */
 #define    CTL_PHASER_DEPTH		0x5f
 #define    CTL_DATA_INCREMENT		0x60
 #define    CTL_DATA_DECREMENT		0x61
@@ -327,21 +421,34 @@ struct sysex_info {
 #define    CTL_NONREG_PARM_NUM_MSB	0x63
 #define    CTL_REGIST_PARM_NUM_LSB	0x64
 #define    CTL_REGIST_PARM_NUM_MSB	0x65
+/*		undefined		0x66 - 0x78 */
+/*		reserved		0x79 - 0x7f */
 
+/* Pseudo controllers (not midi compatible) */
 #define    CTRL_PITCH_BENDER		255
 #define    CTRL_PITCH_BENDER_RANGE	254
-#define    CTRL_EXPRESSION		253	
-#define    CTRL_MAIN_VOLUME		252	
+#define    CTRL_EXPRESSION		253	/* Obsolete */
+#define    CTRL_MAIN_VOLUME		252	/* Obsolete */
 #define SEQ_BALANCE		11
 #define SEQ_VOLMODE             12
 
+/*
+ * Volume mode decides how volumes are used
+ */
 
 #define VOL_METHOD_ADAGIO	1
 #define VOL_METHOD_LINEAR	2
 
+/*
+ * Note! SEQ_WAIT, SEQ_MIDIPUTC and SEQ_ECHO are used also as
+ *	 input events.
+ */
 
+/*
+ * Event codes 0xf0 to 0xfc are reserved for future extensions.
+ */
 
-#define SEQ_FULLSIZE		0xfd	
+#define SEQ_FULLSIZE		0xfd	/* Long events */
 /*
  *	SEQ_FULLSIZE events are used for loading patches/samples to the
  *	synthesizer devices. These events are passed directly to the driver
@@ -362,28 +469,31 @@ struct sysex_info {
  *	For wave table use struct patch_info. Initialize the key field
  *      to WAVE_PATCH.
  */
-#define SEQ_PRIVATE		0xfe	
-#define SEQ_EXTENDED		0xff	
+#define SEQ_PRIVATE		0xfe	/* Low level HW dependent events (8 bytes) */
+#define SEQ_EXTENDED		0xff	/* Extended events (8 bytes) OBSOLETE */
 
+/*
+ * Record for FM patches
+ */
 
 typedef unsigned char sbi_instr_data[32];
 
 struct sbi_instrument {
-		unsigned short	key;	
+		unsigned short	key;	/* FM_PATCH or OPL3_PATCH */
 #define FM_PATCH	_PATCHKEY(0x01)
 #define OPL3_PATCH	_PATCHKEY(0x03)
-		short		device;		
-		int 		channel;	
-		sbi_instr_data	operators;	
+		short		device;		/*	Synth# (0-4)	*/
+		int 		channel;	/*	Program# to be initialized 	*/
+		sbi_instr_data	operators;	/*	Register settings for operator cells (.SBI format)	*/
 	};
 
-struct synth_info {	
+struct synth_info {	/* Read only */
 		char	name[30];
-		int	device;		
+		int	device;		/* 0-N. INITIALIZE BEFORE CALLING */
 		int	synth_type;
 #define SYNTH_TYPE_FM			0
 #define SYNTH_TYPE_SAMPLE		1
-#define SYNTH_TYPE_MIDI			2	
+#define SYNTH_TYPE_MIDI			2	/* Midi interface */
 
 		int	synth_subtype;
 #define FM_TYPE_ADLIB			0x00
@@ -394,15 +504,15 @@ struct synth_info {
 #define SAMPLE_TYPE_GUS			SAMPLE_TYPE_BASIC
 #define SAMPLE_TYPE_WAVEFRONT           0x11
 
-		int	perc_mode;	
+		int	perc_mode;	/* No longer supported */
 		int	nr_voices;
-		int	nr_drums;	
+		int	nr_drums;	/* Obsolete field */
 		int	instr_bank_size;
 		unsigned int	capabilities;	
-#define SYNTH_CAP_PERCMODE		0x00000001 
-#define SYNTH_CAP_OPL3			0x00000002 
-#define SYNTH_CAP_INPUT			0x00000004 
-		int	dummies[19];	
+#define SYNTH_CAP_PERCMODE		0x00000001 /* No longer used */
+#define SYNTH_CAP_OPL3			0x00000002 /* Set if OPL3 supported */
+#define SYNTH_CAP_INPUT			0x00000004 /* Input (MIDI) device */
+		int	dummies[19];	/* Reserve space */
 	};
 
 struct sound_timer_info {
@@ -410,16 +520,19 @@ struct sound_timer_info {
 		int caps;
 	};
 
-#define MIDI_CAP_MPU401		1		
+#define MIDI_CAP_MPU401		1		/* MPU-401 intelligent mode */
 
 struct midi_info {
 		char		name[30];
-		int		device;		
-		unsigned int	capabilities;	
+		int		device;		/* 0-N. INITIALIZE BEFORE CALLING */
+		unsigned int	capabilities;	/* To be defined later */
 		int		dev_type;
-		int		dummies[18];	
+		int		dummies[18];	/* Reserve space */
 	};
 
+/********************************************
+ * ioctl commands for the /dev/midi##
+ */
 typedef struct {
 		unsigned char cmd;
 		char nr_args, nr_returns;
@@ -430,6 +543,9 @@ typedef struct {
 #define SNDCTL_MIDI_MPUMODE		_SIOWR('m', 1, int)
 #define SNDCTL_MIDI_MPUCMD		_SIOWR('m', 2, mpu_command_rec)
 
+/********************************************
+ * IOCTL commands for /dev/dsp and /dev/audio
+ */
 
 #define SNDCTL_DSP_RESET		_SIO  ('P', 0)
 #define SNDCTL_DSP_SYNC			_SIO  ('P', 1)
@@ -444,48 +560,52 @@ typedef struct {
 #define SNDCTL_DSP_SUBDIVIDE		_SIOWR('P', 9, int)
 #define SNDCTL_DSP_SETFRAGMENT		_SIOWR('P',10, int)
 
-#define SNDCTL_DSP_GETFMTS		_SIOR ('P',11, int) 
-#define SNDCTL_DSP_SETFMT		_SIOWR('P',5, int) 
-#	define AFMT_QUERY		0x00000000	
+/*	Audio data formats (Note! U8=8 and S16_LE=16 for compatibility) */
+#define SNDCTL_DSP_GETFMTS		_SIOR ('P',11, int) /* Returns a mask */
+#define SNDCTL_DSP_SETFMT		_SIOWR('P',5, int) /* Selects ONE fmt*/
+#	define AFMT_QUERY		0x00000000	/* Return current fmt */
 #	define AFMT_MU_LAW		0x00000001
 #	define AFMT_A_LAW		0x00000002
 #	define AFMT_IMA_ADPCM		0x00000004
 #	define AFMT_U8			0x00000008
-#	define AFMT_S16_LE		0x00000010	
-#	define AFMT_S16_BE		0x00000020	
+#	define AFMT_S16_LE		0x00000010	/* Little endian signed 16*/
+#	define AFMT_S16_BE		0x00000020	/* Big endian signed 16 */
 #	define AFMT_S8			0x00000040
-#	define AFMT_U16_LE		0x00000080	
-#	define AFMT_U16_BE		0x00000100	
-#	define AFMT_MPEG		0x00000200	
-#	define AFMT_AC3		0x00000400	
+#	define AFMT_U16_LE		0x00000080	/* Little endian U16 */
+#	define AFMT_U16_BE		0x00000100	/* Big endian U16 */
+#	define AFMT_MPEG		0x00000200	/* MPEG (2) audio */
+#	define AFMT_AC3		0x00000400	/* Dolby Digital AC3 */
 
+/*
+ * Buffer status queries.
+ */
 typedef struct audio_buf_info {
-			int fragments;	
-			int fragstotal;	
-			int fragsize;	
+			int fragments;	/* # of available fragments (partially usend ones not counted) */
+			int fragstotal;	/* Total # of fragments allocated */
+			int fragsize;	/* Size of a fragment in bytes */
 
-			int bytes;	
-			
+			int bytes;	/* Available space in bytes (includes partially used fragments) */
+			/* Note! 'bytes' could be more than fragments*fragsize */
 		} audio_buf_info;
 
 #define SNDCTL_DSP_GETOSPACE		_SIOR ('P',12, audio_buf_info)
 #define SNDCTL_DSP_GETISPACE		_SIOR ('P',13, audio_buf_info)
 #define SNDCTL_DSP_NONBLOCK		_SIO  ('P',14)
 #define SNDCTL_DSP_GETCAPS		_SIOR ('P',15, int)
-#	define DSP_CAP_REVISION		0x000000ff	
-#	define DSP_CAP_DUPLEX		0x00000100	
-#	define DSP_CAP_REALTIME		0x00000200	
-#	define DSP_CAP_BATCH		0x00000400	
-							
-							
-							
-#	define DSP_CAP_COPROC		0x00000800	
-							
-							
-#	define DSP_CAP_TRIGGER		0x00001000	
-#	define DSP_CAP_MMAP		0x00002000	
-#	define DSP_CAP_MULTI		0x00004000	
-#	define DSP_CAP_BIND		0x00008000	
+#	define DSP_CAP_REVISION		0x000000ff	/* Bits for revision level (0 to 255) */
+#	define DSP_CAP_DUPLEX		0x00000100	/* Full duplex record/playback */
+#	define DSP_CAP_REALTIME		0x00000200	/* Real time capability */
+#	define DSP_CAP_BATCH		0x00000400	/* Device has some kind of */
+							/* internal buffers which may */
+							/* cause some delays and */
+							/* decrease precision of timing */
+#	define DSP_CAP_COPROC		0x00000800	/* Has a coprocessor */
+							/* Sometimes it's a DSP */
+							/* but usually not */
+#	define DSP_CAP_TRIGGER		0x00001000	/* Supports SETTRIGGER */
+#	define DSP_CAP_MMAP		0x00002000	/* Supports mmap() */
+#	define DSP_CAP_MULTI		0x00004000	/* support multiple open */
+#	define DSP_CAP_BIND		0x00008000	/* channel binding to front/rear/cneter/lfe */
 
 
 #define SNDCTL_DSP_GETTRIGGER		_SIOR ('P',16, int)
@@ -494,9 +614,9 @@ typedef struct audio_buf_info {
 #	define PCM_ENABLE_OUTPUT		0x00000002
 
 typedef struct count_info {
-		int bytes;	
-		int blocks;	
-		int ptr;	
+		int bytes;	/* Total # of bytes processed */
+		int blocks;	/* # of fragment transitions since last time */
+		int ptr;	/* Current DMA pointer value */
 	} count_info;
 
 #define SNDCTL_DSP_GETIPTR		_SIOR ('P',17, count_info)
@@ -536,16 +656,28 @@ typedef struct buffmem_desc {
 #	define SPDIF_DRS	0x4000
 #	define SPDIF_V		0x8000
 
+/*
+ * Application's profile defines the way how playback underrun situations should be handled.
+ * 
+ *	APF_NORMAL (the default) and APF_NETWORK make the driver to cleanup the
+ *	playback buffer whenever an underrun occurs. This consumes some time
+ *	prevents looping the existing buffer.
+ *	APF_CPUINTENS is intended to be set by CPU intensive applications which
+ *	are likely to run out of time occasionally. In this mode the buffer cleanup is
+ *	disabled which saves CPU time but also let's the previous buffer content to
+ *	be played during the "pause" after the underrun.
+ */
 #define SNDCTL_DSP_PROFILE		_SIOW ('P', 23, int)
-#define	  APF_NORMAL	0	
-#define	  APF_NETWORK	1	
-#define   APF_CPUINTENS 2	
+#define	  APF_NORMAL	0	/* Normal applications */
+#define	  APF_NETWORK	1	/* Underruns probably caused by an "external" delay */
+#define   APF_CPUINTENS 2	/* Underruns probably caused by "overheating" the CPU */
 
 #define SOUND_PCM_READ_RATE		_SIOR ('P', 2, int)
 #define SOUND_PCM_READ_CHANNELS		_SIOR ('P', 6, int)
 #define SOUND_PCM_READ_BITS		_SIOR ('P', 5, int)
 #define SOUND_PCM_READ_FILTER		_SIOR ('P', 7, int)
 
+/* Some alias names */
 #define SOUND_PCM_WRITE_BITS		SNDCTL_DSP_SETFMT
 #define SOUND_PCM_WRITE_RATE		SNDCTL_DSP_SPEED
 #define SOUND_PCM_POST			SNDCTL_DSP_POST
@@ -567,25 +699,29 @@ typedef struct buffmem_desc {
 #define SOUND_PCM_MAPINBUF		SNDCTL_DSP_MAPINBUF
 #define SOUND_PCM_MAPOUTBUF		SNDCTL_DSP_MAPOUTBUF
 
+/*
+ * ioctl calls to be used in communication with coprocessors and
+ * DSP chips.
+ */
 
 typedef struct copr_buffer {
-		int command;	
+		int command;	/* Set to 0 if not used */
 		int flags;
 #define CPF_NONE		0x0000
-#define CPF_FIRST		0x0001	
-#define CPF_LAST		0x0002	
+#define CPF_FIRST		0x0001	/* First block */
+#define CPF_LAST		0x0002	/* Last block */
 		int len;
-		int offs;	
+		int offs;	/* If required by the device (0 if not used) */
 
-		unsigned char data[4000]; 
+		unsigned char data[4000]; /* NOTE! 4000 is not 4k */
 	} copr_buffer;
 
 typedef struct copr_debug_buf {
-		int command;	
+		int command;	/* Used internally. Set to 0 */
 		int parm1;
 		int parm2;
 		int flags;	
-		int len;	
+		int len;	/* Length of data in bytes */
 	} copr_debug_buf;
 
 typedef struct copr_msg {
@@ -604,7 +740,18 @@ typedef struct copr_msg {
 #define SNDCTL_COPR_SENDMSG	      _SIOWR('C',  8, copr_msg)
 #define SNDCTL_COPR_RCVMSG	      _SIOR ('C',  9, copr_msg)
 
+/*********************************************
+ * IOCTL commands for /dev/mixer
+ */
 	
+/* 
+ * Mixer devices
+ *
+ * There can be up to 20 different analog mixer channels. The
+ * SOUND_MIXER_NRDEVICES gives the currently supported maximum. 
+ * The SOUND_MIXER_READ_DEVMASK returns a bitmask which tells
+ * the devices supported by the particular mixer.
+ */
 
 #define SOUND_MIXER_NRDEVICES	25
 #define SOUND_MIXER_VOLUME	0
@@ -616,28 +763,41 @@ typedef struct copr_msg {
 #define SOUND_MIXER_LINE	6
 #define SOUND_MIXER_MIC		7
 #define SOUND_MIXER_CD		8
-#define SOUND_MIXER_IMIX	9	
+#define SOUND_MIXER_IMIX	9	/*  Recording monitor  */
 #define SOUND_MIXER_ALTPCM	10
-#define SOUND_MIXER_RECLEV	11	
-#define SOUND_MIXER_IGAIN	12	
-#define SOUND_MIXER_OGAIN	13	
-#define SOUND_MIXER_LINE1	14	
-#define SOUND_MIXER_LINE2	15	
-#define SOUND_MIXER_LINE3	16	
-#define SOUND_MIXER_DIGITAL1	17	
-#define SOUND_MIXER_DIGITAL2	18	
-#define SOUND_MIXER_DIGITAL3	19	
-#define SOUND_MIXER_PHONEIN	20	
-#define SOUND_MIXER_PHONEOUT	21	
-#define SOUND_MIXER_VIDEO	22	
-#define SOUND_MIXER_RADIO	23	
-#define SOUND_MIXER_MONITOR	24	
+#define SOUND_MIXER_RECLEV	11	/* Recording level */
+#define SOUND_MIXER_IGAIN	12	/* Input gain */
+#define SOUND_MIXER_OGAIN	13	/* Output gain */
+/* 
+ * The AD1848 codec and compatibles have three line level inputs
+ * (line, aux1 and aux2). Since each card manufacturer have assigned
+ * different meanings to these inputs, it's inpractical to assign
+ * specific meanings (line, cd, synth etc.) to them.
+ */
+#define SOUND_MIXER_LINE1	14	/* Input source 1  (aux1) */
+#define SOUND_MIXER_LINE2	15	/* Input source 2  (aux2) */
+#define SOUND_MIXER_LINE3	16	/* Input source 3  (line) */
+#define SOUND_MIXER_DIGITAL1	17	/* Digital (input) 1 */
+#define SOUND_MIXER_DIGITAL2	18	/* Digital (input) 2 */
+#define SOUND_MIXER_DIGITAL3	19	/* Digital (input) 3 */
+#define SOUND_MIXER_PHONEIN	20	/* Phone input */
+#define SOUND_MIXER_PHONEOUT	21	/* Phone output */
+#define SOUND_MIXER_VIDEO	22	/* Video/TV (audio) in */
+#define SOUND_MIXER_RADIO	23	/* Radio in */
+#define SOUND_MIXER_MONITOR	24	/* Monitor (usually mic) volume */
 
+/* Some on/off settings (SOUND_SPECIAL_MIN - SOUND_SPECIAL_MAX) */
+/* Not counted to SOUND_MIXER_NRDEVICES, but use the same number space */
 #define SOUND_ONOFF_MIN		28
 #define SOUND_ONOFF_MAX		30
 
+/* Note!	Number 31 cannot be used since the sign bit is reserved */
 #define SOUND_MIXER_NONE	31
 
+/*
+ * The following unsupported macros are no longer functional.
+ * Use SOUND_MIXER_PRIVATE# macros in future.
+ */
 #define SOUND_MIXER_ENHANCE	SOUND_MIXER_NONE
 #define SOUND_MIXER_MUTE	SOUND_MIXER_NONE
 #define SOUND_MIXER_LOUD	SOUND_MIXER_NONE
@@ -653,16 +813,18 @@ typedef struct copr_msg {
 				 "line1", "line2", "line3", "dig1", "dig2", "dig3", \
 				 "phin", "phout", "video", "radio", "monitor"}
 
+/*	Device bitmask identifiers	*/
 
-#define SOUND_MIXER_RECSRC	0xff	
-#define SOUND_MIXER_DEVMASK	0xfe	
-#define SOUND_MIXER_RECMASK	0xfd	
+#define SOUND_MIXER_RECSRC	0xff	/* Arg contains a bit for each recording source */
+#define SOUND_MIXER_DEVMASK	0xfe	/* Arg contains a bit for each supported device */
+#define SOUND_MIXER_RECMASK	0xfd	/* Arg contains a bit for each supported recording source */
 #define SOUND_MIXER_CAPS	0xfc
-#	define SOUND_CAP_EXCL_INPUT	0x00000001	
-#define SOUND_MIXER_STEREODEVS	0xfb	
-#define SOUND_MIXER_OUTSRC	0xfa	
-#define SOUND_MIXER_OUTMASK	0xf9	
+#	define SOUND_CAP_EXCL_INPUT	0x00000001	/* Only one recording source at a time */
+#define SOUND_MIXER_STEREODEVS	0xfb	/* Mixer channels supporting stereo */
+#define SOUND_MIXER_OUTSRC	0xfa	/* Arg contains a bit for each input source to output */
+#define SOUND_MIXER_OUTMASK	0xf9	/* Arg contains a bit for each supported input source to output */
 
+/*	Device mask bits	*/
 
 #define SOUND_MASK_VOLUME	(1 << SOUND_MIXER_VOLUME)
 #define SOUND_MASK_BASS		(1 << SOUND_MIXER_BASS)
@@ -690,6 +852,7 @@ typedef struct copr_msg {
 #define SOUND_MASK_VIDEO	(1 << SOUND_MIXER_VIDEO)
 #define SOUND_MASK_MONITOR	(1 << SOUND_MIXER_MONITOR)
 
+/* Obsolete macros */
 #define SOUND_MASK_MUTE		(1 << SOUND_MIXER_MUTE)
 #define SOUND_MASK_ENHANCE	(1 << SOUND_MIXER_ENHANCE)
 #define SOUND_MASK_LOUD		(1 << SOUND_MIXER_LOUD)
@@ -713,6 +876,7 @@ typedef struct copr_msg {
 #define SOUND_MIXER_READ_LINE2		MIXER_READ(SOUND_MIXER_LINE2)
 #define SOUND_MIXER_READ_LINE3		MIXER_READ(SOUND_MIXER_LINE3)
 
+/* Obsolete macros */
 #define SOUND_MIXER_READ_MUTE		MIXER_READ(SOUND_MIXER_MUTE)
 #define SOUND_MIXER_READ_ENHANCE	MIXER_READ(SOUND_MIXER_ENHANCE)
 #define SOUND_MIXER_READ_LOUD		MIXER_READ(SOUND_MIXER_LOUD)
@@ -742,6 +906,7 @@ typedef struct copr_msg {
 #define SOUND_MIXER_WRITE_LINE2		MIXER_WRITE(SOUND_MIXER_LINE2)
 #define SOUND_MIXER_WRITE_LINE3		MIXER_WRITE(SOUND_MIXER_LINE3)
 
+/* Obsolete macros */
 #define SOUND_MIXER_WRITE_MUTE		MIXER_WRITE(SOUND_MIXER_MUTE)
 #define SOUND_MIXER_WRITE_ENHANCE	MIXER_WRITE(SOUND_MIXER_ENHANCE)
 #define SOUND_MIXER_WRITE_LOUD		MIXER_WRITE(SOUND_MIXER_LOUD)
@@ -756,7 +921,7 @@ typedef struct mixer_info
   int fillers[10];
 } mixer_info;
 
-typedef struct _old_mixer_info 
+typedef struct _old_mixer_info /* Obsolete */
 {
   char id[16];
   char name[32];
@@ -765,22 +930,42 @@ typedef struct _old_mixer_info
 #define SOUND_MIXER_INFO		_SIOR ('M', 101, mixer_info)
 #define SOUND_OLD_MIXER_INFO		_SIOR ('M', 101, _old_mixer_info)
 
+/*
+ * A mechanism for accessing "proprietary" mixer features. This method
+ * permits passing 128 bytes of arbitrary data between a mixer application
+ * and the mixer driver. Interpretation of the record is defined by
+ * the particular mixer driver.
+ */
 typedef unsigned char mixer_record[128];
 
 #define SOUND_MIXER_ACCESS		_SIOWR('M', 102, mixer_record)
 
+/*
+ * Two ioctls for special souncard function
+ */
 #define SOUND_MIXER_AGC  _SIOWR('M', 103, int)
 #define SOUND_MIXER_3DSE  _SIOWR('M', 104, int)
 
+/*
+ * The SOUND_MIXER_PRIVATE# commands can be redefined by low level drivers.
+ * These features can be used when accessing device specific features.
+ */
 #define SOUND_MIXER_PRIVATE1		_SIOWR('M', 111, int)
 #define SOUND_MIXER_PRIVATE2		_SIOWR('M', 112, int)
 #define SOUND_MIXER_PRIVATE3		_SIOWR('M', 113, int)
 #define SOUND_MIXER_PRIVATE4		_SIOWR('M', 114, int)
 #define SOUND_MIXER_PRIVATE5		_SIOWR('M', 115, int)
 
+/*
+ * SOUND_MIXER_GETLEVELS and SOUND_MIXER_SETLEVELS calls can be used
+ * for querying current mixer settings from the driver and for loading
+ * default volume settings _prior_ activating the mixer (loading
+ * doesn't affect current state of the mixer hardware). These calls
+ * are for internal use only.
+ */
 
 typedef struct mixer_vol_table {
-  int num;	
+  int num;	/* Index to volume table */
   char name[32];
   int levels[32];
 } mixer_vol_table;
@@ -788,21 +973,53 @@ typedef struct mixer_vol_table {
 #define SOUND_MIXER_GETLEVELS		_SIOWR('M', 116, mixer_vol_table)
 #define SOUND_MIXER_SETLEVELS		_SIOWR('M', 117, mixer_vol_table)
 
+/* 
+ * An ioctl for identifying the driver version. It will return value
+ * of the SOUND_VERSION macro used when compiling the driver.
+ * This call was introduced in OSS version 3.6 and it will not work
+ * with earlier versions (returns EINVAL).
+ */
 #define OSS_GETVERSION			_SIOR ('M', 118, int)
 
+/*
+ * Level 2 event types for /dev/sequencer
+ */
 
+/*
+ * The 4 most significant bits of byte 0 specify the class of
+ * the event: 
+ *
+ *	0x8X = system level events,
+ *	0x9X = device/port specific events, event[1] = device/port,
+ *		The last 4 bits give the subtype:
+ *			0x02	= Channel event (event[3] = chn).
+ *			0x01	= note event (event[4] = note).
+ *			(0x01 is not used alone but always with bit 0x02).
+ *	       event[2] = MIDI message code (0x80=note off etc.)
+ *
+ */
 
 #define EV_SEQ_LOCAL		0x80
 #define EV_TIMING		0x81
 #define EV_CHN_COMMON		0x92
 #define EV_CHN_VOICE		0x93
 #define EV_SYSEX		0x94
+/*
+ * Event types 200 to 220 are reserved for application use.
+ * These numbers will not be used by the driver.
+ */
 
+/*
+ * Events for event type EV_CHN_VOICE
+ */
 
 #define MIDI_NOTEOFF		0x80
 #define MIDI_NOTEON		0x90
 #define MIDI_KEY_PRESSURE	0xA0
 
+/*
+ * Events for event type EV_CHN_COMMON
+ */
 
 #define MIDI_CTL_CHANGE		0xB0
 #define MIDI_PGM_CHANGE		0xC0
@@ -811,17 +1028,23 @@ typedef struct mixer_vol_table {
 
 #define MIDI_SYSTEM_PREFIX	0xF0
 
-#define TMR_WAIT_REL		1	
-#define TMR_WAIT_ABS		2	
+/*
+ * Timer event types
+ */
+#define TMR_WAIT_REL		1	/* Time relative to the prev time */
+#define TMR_WAIT_ABS		2	/* Absolute time since TMR_START */
 #define TMR_STOP		3
 #define TMR_START		4
 #define TMR_CONTINUE		5
 #define TMR_TEMPO		6
 #define TMR_ECHO		8
-#define TMR_CLOCK		9	
-#define TMR_SPP			10	
-#define TMR_TIMESIG		11	
+#define TMR_CLOCK		9	/* MIDI clock */
+#define TMR_SPP			10	/* Song position pointer */
+#define TMR_TIMESIG		11	/* Time signature */
 
+/*
+ *	Local event types
+ */
 #define LOCL_STARTAUDIO		1
 
 #if !defined(__KERNEL__) || defined(USE_SEQ_MACROS)
@@ -843,7 +1066,7 @@ typedef struct mixer_vol_table {
  */
 #define SEQ_DECLAREBUF()		SEQ_USE_EXTBUF()
 
-void seqbuf_dump(void);	
+void seqbuf_dump(void);	/* This function must be provided by programs */
 
 #define SEQ_PM_DEFINES int __foo_bar___
 
@@ -856,13 +1079,45 @@ void seqbuf_dump(void);
 		_SEQ_EXTERN int _seqbuflen; _SEQ_EXTERN int _seqbufptr
 
 #ifndef USE_SIMPLE_MACROS
+/* Sample seqbuf_dump() implementation:
+ *
+ *	SEQ_DEFINEBUF (2048);	-- Defines a buffer for 2048 bytes
+ *
+ *	int seqfd;		-- The file descriptor for /dev/sequencer.
+ *
+ *	void
+ *	seqbuf_dump ()
+ *	{
+ *	  if (_seqbufptr)
+ *	    if (write (seqfd, _seqbuf, _seqbufptr) == -1)
+ *	      {
+ *		perror ("write /dev/sequencer");
+ *		exit (-1);
+ *	      }
+ *	  _seqbufptr = 0;
+ *	}
+ */
 
 #define SEQ_DEFINEBUF(len)		unsigned char _seqbuf[len]; int _seqbuflen = len;int _seqbufptr = 0
 #define _SEQ_NEEDBUF(len)		if ((_seqbufptr+(len)) > _seqbuflen) seqbuf_dump()
 #define _SEQ_ADVBUF(len)		_seqbufptr += len
 #define SEQ_DUMPBUF			seqbuf_dump
 #else
-#define _SEQ_NEEDBUF(len)	
+/*
+ * This variation of the sequencer macros is used just to format one event
+ * using fixed buffer.
+ * 
+ * The program using the macro library must define the following macros before
+ * using this library.
+ *
+ * #define _seqbuf 		 name of the buffer (unsigned char[]) 
+ * #define _SEQ_ADVBUF(len)	 If the applic needs to know the exact
+ *				 size of the event, this macro can be used.
+ *				 Otherwise this must be defined as empty.
+ * #define _seqbufptr		 Define the name of index variable or 0 if
+ *				 not required. 
+ */
+#define _SEQ_NEEDBUF(len)	/* empty */
 #endif
 
 #define SEQ_VOLUME_MODE(dev, mode)	{_SEQ_NEEDBUF(8);\
@@ -876,6 +1131,9 @@ void seqbuf_dump(void);
 					_seqbuf[_seqbufptr+7] = 0;\
 					_SEQ_ADVBUF(8);}
 
+/*
+ * Midi voice messages
+ */
 
 #define _CHN_VOICE(dev, event, chn, note, parm) \
 					{_SEQ_NEEDBUF(8);\
@@ -898,6 +1156,9 @@ void seqbuf_dump(void);
 #define SEQ_KEY_PRESSURE(dev, chn, note, pressure) \
 		_CHN_VOICE(dev, MIDI_KEY_PRESSURE, chn, note, pressure)
 
+/*
+ * Midi channel messages
+ */
 
 #define _CHN_COMMON(dev, event, chn, p1, p2, w14) \
 					{_SEQ_NEEDBUF(8);\
@@ -909,6 +1170,21 @@ void seqbuf_dump(void);
 					_seqbuf[_seqbufptr+5] = (p2);\
 					*(short *)&_seqbuf[_seqbufptr+6] = (w14);\
 					_SEQ_ADVBUF(8);}
+/*
+ * SEQ_SYSEX permits sending of sysex messages. (It may look that it permits
+ * sending any MIDI bytes but it's absolutely not possible. Trying to do
+ * so _will_ cause problems with MPU401 intelligent mode).
+ *
+ * Sysex messages are sent in blocks of 1 to 6 bytes. Longer messages must be 
+ * sent by calling SEQ_SYSEX() several times (there must be no other events
+ * between them). First sysex fragment must have 0xf0 in the first byte
+ * and the last byte (buf[len-1] of the last fragment must be 0xf7. No byte
+ * between these sysex start and end markers cannot be larger than 0x7f. Also
+ * lengths of each fragments (except the last one) must be 6.
+ *
+ * Breaking the above rules may work with some MIDI ports but is likely to
+ * cause fatal problems with some other devices (such as MPU401).
+ */
 #define SEQ_SYSEX(dev, buf, len) \
 					{int ii, ll=(len); \
 					 unsigned char *bufp=buf;\
@@ -946,12 +1222,19 @@ void seqbuf_dump(void);
 					_seqbuf[_seqbufptr+6] = ((value>>8)&0xff);\
 					_seqbuf[_seqbufptr+7] = 0;\
 					_SEQ_ADVBUF(8);}
+/*
+ * The following 5 macros are incorrectly implemented and obsolete.
+ * Use SEQ_BENDER and SEQ_CONTROL (with proper controller) instead.
+ */
 #define SEQ_PITCHBEND(dev, voice, value) SEQ_V2_X_CONTROL(dev, voice, CTRL_PITCH_BENDER, value)
 #define SEQ_BENDER_RANGE(dev, voice, value) SEQ_V2_X_CONTROL(dev, voice, CTRL_PITCH_BENDER_RANGE, value)
 #define SEQ_EXPRESSION(dev, voice, value) SEQ_CONTROL(dev, voice, CTL_EXPRESSION, value*128)
 #define SEQ_MAIN_VOLUME(dev, voice, value) SEQ_CONTROL(dev, voice, CTL_MAIN_VOLUME, (value*16383)/100)
 #define SEQ_PANNING(dev, voice, pos) SEQ_CONTROL(dev, voice, CTL_PAN, (pos+128) / 2)
 
+/*
+ * Timing and synchronization macros
+ */
 
 #define _TIMER_EVENT(ev, parm)		{_SEQ_NEEDBUF(8);\
 				 	_seqbuf[_seqbufptr+0] = EV_TIMING; \
@@ -971,6 +1254,9 @@ void seqbuf_dump(void);
 #define SEQ_SONGPOS(pos)		_TIMER_EVENT(TMR_SPP, pos)
 #define SEQ_TIME_SIGNATURE(sig)		_TIMER_EVENT(TMR_TIMESIG, sig)
 
+/*
+ * Local control events
+ */
 
 #define _LOCAL_EVENT(ev, parm)		{_SEQ_NEEDBUF(8);\
 				 	_seqbuf[_seqbufptr+0] = EV_SEQ_LOCAL; \
@@ -981,6 +1267,9 @@ void seqbuf_dump(void);
 					_SEQ_ADVBUF(8);}
 
 #define SEQ_PLAYAUDIO(devmask)		_LOCAL_EVENT(LOCL_STARTAUDIO, devmask)
+/*
+ * Events for the level 1 interface only 
+ */
 
 #define SEQ_MIDIOUT(device, byte)	{_SEQ_NEEDBUF(4);\
 					_seqbuf[_seqbufptr] = SEQ_MIDIPUTC;\
@@ -989,6 +1278,9 @@ void seqbuf_dump(void);
 					_seqbuf[_seqbufptr+3] = 0;\
 					_SEQ_ADVBUF(4);}
 
+/*
+ * Patch loading.
+ */
 #define SEQ_WRPATCH(patchx, len) \
 		{if (_seqbufptr) SEQ_DUMPBUF();\
 		 if (write(seqfd, (char*)(patchx), len)==-1) \

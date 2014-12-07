@@ -61,6 +61,11 @@
 #define _minor(v)	(((v) >> 16) & 0xff)
 #define _build(v)	((v) & 0xffff)
 
+/* version in image has weird encoding:
+ *  7:0  - major
+ * 15:8  - minor
+ * 31:16 - build (little endian)
+ */
 #define NETXEN_DECODE_VERSION(v) \
 	NETXEN_VERSION_CODE(((v) & 0xff), (((v) >> 8) & 0xff), ((v) >> 16))
 
@@ -93,6 +98,10 @@
 #define ADDR_IN_RANGE(addr, low, high)	\
 	(((addr) < (high)) && ((addr) >= (low)))
 
+/*
+ * normalize a 64MB crb address to 32MB PCI window
+ * To use NETXEN_CRB_NORMALIZE, window _must_ be set to 1
+ */
 #define NETXEN_CRB_NORMAL(reg)	\
 	((reg) - NETXEN_CRB_PCIX_HOST2 + NETXEN_CRB_PCIX_HOST)
 
@@ -131,7 +140,7 @@
 #define P2_MAX_MTU                     (8000)
 #define P3_MAX_MTU                     (9600)
 #define NX_ETHERMTU                    1500
-#define NX_MAX_ETHERHDR                32 
+#define NX_MAX_ETHERHDR                32 /* This contains some padding */
 
 #define NX_P2_RX_BUF_MAX_LEN           1760
 #define NX_P3_RX_BUF_MAX_LEN           (NX_MAX_ETHERHDR + NX_ETHERMTU)
@@ -142,8 +151,12 @@
 
 #define NX_RX_LRO_BUFFER_LENGTH		(8060)
 
+/*
+ * Maximum number of ring contexts
+ */
 #define MAX_RING_CTX 1
 
+/* Opcodes to be used with the commands */
 #define TX_ETHER_PKT	0x01
 #define TX_TCP_PKT	0x02
 #define TX_UDP_PKT	0x03
@@ -155,6 +168,7 @@
 #define TX_TCPV6_PKT	0x0b
 #define TX_UDPV6_PKT	0x0c
 
+/* The following opcodes are for internal consumption. */
 #define NETXEN_CONTROL_OP	0x10
 #define PEGNET_REQUEST		0x11
 
@@ -167,10 +181,15 @@
 							+ MGMT_CMD_DESC_RESV)
 #define NX_MAX_TX_TIMEOUTS	2
 
+/*
+ * Following are the states of the Phantom. Phantom will set them and
+ * Host will read to check if the fields are correct.
+ */
 #define PHAN_INITIALIZE_START		0xff00
 #define PHAN_INITIALIZE_FAILED		0xffff
 #define PHAN_INITIALIZE_COMPLETE	0xff01
 
+/* Host writes the following to notify that it has done the init-handshake */
 #define PHAN_INITIALIZE_ACK	0xf00f
 
 #define NUM_RCV_DESC_RINGS	3
@@ -214,6 +233,15 @@
 
 #define NX_MAX_PCI_FUNC		8
 
+/*
+ * NetXen host-peg signal message structure
+ *
+ *	Bit 0-1		: peg_id => 0x2 for tx and 01 for rx
+ *	Bit 2		: priv_id => must be 1
+ *	Bit 3-17	: count => for doorbell
+ *	Bit 18-27	: ctx_id => Context id
+ *	Bit 28-31	: opcode
+ */
 
 typedef u32 netxen_ctx_msg;
 
@@ -243,13 +271,13 @@ struct netxen_sts_ring {
 
 struct netxen_ring_ctx {
 
-	
+	/* one command ring */
 	__le64 cmd_consumer_offset;
 	__le64 cmd_ring_addr;
 	__le32 cmd_ring_size;
 	__le32 rsrvd;
 
-	
+	/* three receive rings */
 	struct netxen_rcv_ring rcv_rings[NUM_RCV_DESC_RINGS];
 
 	__le64 sts_ring_addr;
@@ -264,7 +292,16 @@ struct netxen_ring_ctx {
 
 } __attribute__ ((aligned(64)));
 
+/*
+ * Following data structures describe the descriptors that will be used.
+ * Added fileds of tcpHdrSize and ipHdrSize, The driver needs to do it only when
+ * we are doing LSO (above the 1500 size packet) only.
+ */
 
+/*
+ * The size of reference handle been changed to 16 bits to pass the MSS fields
+ * for the LSO packet
+ */
 
 #define FLAGS_CHECKSUM_ENABLED	0x01
 #define FLAGS_LSO_ENABLED	0x02
@@ -293,18 +330,18 @@ struct netxen_ring_ctx {
 	cpu_to_le32(((_frags) & 0xff) | (((_len) & 0xffffff) << 8))
 
 struct cmd_desc_type0 {
-	u8 tcp_hdr_offset;	
-	u8 ip_hdr_offset;	
-	__le16 flags_opcode;	
-	__le32 nfrags__length;	
+	u8 tcp_hdr_offset;	/* For LSO only */
+	u8 ip_hdr_offset;	/* For LSO only */
+	__le16 flags_opcode;	/* 15:13 unused, 12:7 opcode, 6:0 flags */
+	__le32 nfrags__length;	/* 31:8 total len, 7:0 frag count */
 
 	__le64 addr_buffer2;
 
 	__le16 reference_handle;
 	__le16 mss;
-	u8 port_ctxid;		
-	u8 total_hdr_length;	
-	__le16 conn_id;		
+	u8 port_ctxid;		/* 7:4 ctxid 3:0 port */
+	u8 total_hdr_length;	/* LSO only : MAC+IP+TCP Hdr size */
+	__le16 conn_id;		/* IPSec offoad only */
 
 	__le64 addr_buffer3;
 	__le64 addr_buffer1;
@@ -319,25 +356,34 @@ struct cmd_desc_type0 {
 
 } __attribute__ ((aligned(64)));
 
+/* Note: sizeof(rcv_desc) should always be a mutliple of 2 */
 struct rcv_desc {
 	__le16 reference_handle;
 	__le16 reserved;
-	__le32 buffer_length;	
+	__le32 buffer_length;	/* allocated buffer length (usually 2K) */
 	__le64 addr_buffer;
 };
 
+/* opcode field in status_desc */
 #define NETXEN_NIC_SYN_OFFLOAD  0x03
 #define NETXEN_NIC_RXPKT_DESC  0x04
 #define NETXEN_OLD_RXPKT_DESC  0x3f
 #define NETXEN_NIC_RESPONSE_DESC 0x05
 #define NETXEN_NIC_LRO_DESC  	0x12
 
+/* for status field in status_desc */
 #define STATUS_NEED_CKSUM	(1)
 #define STATUS_CKSUM_OK		(2)
 
+/* owner bits of status_desc */
 #define STATUS_OWNER_HOST	(0x1ULL << 56)
 #define STATUS_OWNER_PHANTOM	(0x2ULL << 56)
 
+/* Status descriptor:
+   0-3 port, 4-7 status, 8-11 type, 12-27 total_length
+   28-43 reference_handle, 44-47 protocol, 48-52 pkt_offset
+   53-55 desc_cnt, 56-57 owner, 58-63 opcode
+ */
 #define netxen_get_sts_port(sts_data)	\
 	((sts_data) & 0x0F)
 #define netxen_get_sts_status(sts_data)	\
@@ -379,10 +425,12 @@ struct status_desc {
 	__le64 status_desc_data[2];
 } __attribute__ ((aligned(16)));
 
+/* UNIFIED ROMIMAGE *************************/
 #define NX_UNI_DIR_SECT_PRODUCT_TBL	0x0
 #define NX_UNI_DIR_SECT_BOOTLD		0x6
 #define NX_UNI_DIR_SECT_FW		0x7
 
+/*Offsets */
 #define NX_UNI_CHIP_REV_OFF		10
 #define NX_UNI_FLAGS_OFF		11
 #define NX_UNI_BIOS_VERSION_OFF 	12
@@ -402,11 +450,15 @@ struct uni_data_desc{
 	uint32_t	reserved[5];
 };
 
+/* UNIFIED ROMIMAGE *************************/
 
+/* The version of the main data structure */
 #define	NETXEN_BDINFO_VERSION 1
 
+/* Magic number to let user know flash is programmed */
 #define	NETXEN_BDINFO_MAGIC 0x12345678
 
+/* Max number of Gig ports on a Phantom board */
 #define NETXEN_MAX_PORTS 4
 
 #define NETXEN_BRDTYPE_P1_BD		0x0000
@@ -439,16 +491,17 @@ struct uni_data_desc{
 #define NETXEN_BRDTYPE_P3_10G_XFP	0x0032
 #define NETXEN_BRDTYPE_P3_10G_TP	0x0080
 
-#define NETXEN_CRBINIT_START	0	
-#define NETXEN_BRDCFG_START	0x4000	
-#define NETXEN_INITCODE_START	0x6000	
-#define NETXEN_BOOTLD_START	0x10000	
-#define NETXEN_IMAGE_START	0x43000	
-#define NETXEN_SECONDARY_START	0x200000	
-#define NETXEN_PXE_START	0x3E0000	
-#define NETXEN_USER_START	0x3E8000	
-#define NETXEN_FIXED_START	0x3F0000	
-#define NETXEN_USER_START_OLD	NETXEN_PXE_START 
+/* Flash memory map */
+#define NETXEN_CRBINIT_START	0	/* crbinit section */
+#define NETXEN_BRDCFG_START	0x4000	/* board config */
+#define NETXEN_INITCODE_START	0x6000	/* pegtune code */
+#define NETXEN_BOOTLD_START	0x10000	/* bootld */
+#define NETXEN_IMAGE_START	0x43000	/* compressed image */
+#define NETXEN_SECONDARY_START	0x200000	/* backup images */
+#define NETXEN_PXE_START	0x3E0000	/* PXE boot rom */
+#define NETXEN_USER_START	0x3E8000	/* Firmare info */
+#define NETXEN_FIXED_START	0x3F0000	/* backup of crbinit */
+#define NETXEN_USER_START_OLD	NETXEN_PXE_START /* very old flash */
 
 #define NX_OLD_MAC_ADDR_OFFSET	(NETXEN_USER_START)
 #define NX_FW_VERSION_OFFSET	(NETXEN_USER_START+0x408)
@@ -477,8 +530,13 @@ struct uni_data_desc{
 
 extern char netxen_nic_driver_name[];
 
+/* Number of status descriptors to handle per interrupt */
 #define MAX_STATUS_HANDLE	(64)
 
+/*
+ * netxen_skb_frag{} is to contain mapping info for each SG list. This
+ * has to be freed when DMA is complete. This is part of netxen_tx_buffer{}.
+ */
 struct netxen_skb_frag {
 	u64 dma;
 	u64 length;
@@ -490,15 +548,21 @@ struct netxen_recv_crb {
 	u32 sw_int_mask[NUM_STS_DESC_RINGS];
 };
 
+/*    Following defines are for the state of the buffers    */
 #define	NETXEN_BUFFER_FREE	0
 #define	NETXEN_BUFFER_BUSY	1
 
+/*
+ * There will be one netxen_buffer per skb packet.    These will be
+ * used to save the dma info for pci_unmap_page()
+ */
 struct netxen_cmd_buffer {
 	struct sk_buff *skb;
 	struct netxen_skb_frag frag_array[MAX_SKB_FRAGS + 1];
 	u32 frag_count;
 };
 
+/* In rx_buffer, we do not need multiple fragments as is a single buffer */
 struct netxen_rx_buffer {
 	struct list_head list;
 	struct sk_buff *skb;
@@ -507,9 +571,14 @@ struct netxen_rx_buffer {
 	u16 state;
 };
 
+/* Board types */
 #define	NETXEN_NIC_GBE	0x01
 #define	NETXEN_NIC_XGBE	0x02
 
+/*
+ * One hardware_context{} per adapter
+ * contains interrupt info as well shared hardware info.
+ */
 struct netxen_hardware_context {
 	void __iomem *pci_base0;
 	void __iomem *pci_base1;
@@ -534,7 +603,7 @@ struct netxen_hardware_context {
 	u16 board_type;
 };
 
-#define MINIMUM_ETHERNET_FRAME_SIZE	64	
+#define MINIMUM_ETHERNET_FRAME_SIZE	64	/* With FCS */
 #define ETHERNET_FCS_SIZE		4
 
 struct netxen_adapter_stats {
@@ -549,6 +618,10 @@ struct netxen_adapter_stats {
 	u64  txbytes;
 };
 
+/*
+ * Rcv Descriptor Context. One such per Rcv Descriptor. There may
+ * be one Rcv Descriptor for normal packets, one for jumbo and may be others.
+ */
 struct nx_host_rds_ring {
 	u32 producer;
 	u32 num_desc;
@@ -595,6 +668,12 @@ struct nx_host_tx_ring {
 	dma_addr_t phys_addr;
 };
 
+/*
+ * Receive context. There is one such structure per instance of the
+ * receive processing. Any state information that is relevant to
+ * the receive, and is must be in this structure. The global data may be
+ * present elsewhere.
+ */
 struct netxen_recv_context {
 	u32 state;
 	u16 context_id;
@@ -619,6 +698,7 @@ struct netxen_cmd_args {
 	struct _cdrp_cmd rsp;
 };
 
+/* New HW context creation */
 
 #define NX_OS_CRB_RETRY_COUNT	4000
 #define NX_CDRP_SIGNATURE_MAKE(pcifn, version) \
@@ -627,6 +707,10 @@ struct netxen_cmd_args {
 #define NX_CDRP_CLEAR		0x00000000
 #define NX_CDRP_CMD_BIT		0x80000000
 
+/*
+ * All responses must have the NX_CDRP_CMD_BIT cleared
+ * in the crb NX_CDRP_CRB_OFFSET.
+ */
 #define NX_CDRP_FORM_RSP(rsp)	(rsp)
 #define NX_CDRP_IS_RSP(rsp)	(((rsp) & NX_CDRP_CMD_BIT) == 0)
 
@@ -634,6 +718,10 @@ struct netxen_cmd_args {
 #define NX_CDRP_RSP_FAIL	0x00000002
 #define NX_CDRP_RSP_TIMEOUT	0x00000003
 
+/*
+ * All commands must have the NX_CDRP_CMD_BIT set in
+ * the crb NX_CDRP_CRB_OFFSET.
+ */
 #define NX_CDRP_FORM_CMD(cmd)	(NX_CDRP_CMD_BIT | (cmd))
 #define NX_CDRP_IS_CMD(cmd)	(((cmd) & NX_CDRP_CMD_BIT) != 0)
 
@@ -692,6 +780,9 @@ struct netxen_cmd_args {
 #define NX_DESTROY_CTX_D3_RESET		1
 #define NX_DESTROY_CTX_MAX		2
 
+/*
+ * Capabilities
+ */
 #define NX_CAP_BIT(class, bit)		(1 << bit)
 #define NX_CAP0_LEGACY_CONTEXT		NX_CAP_BIT(0, 0)
 #define NX_CAP0_MULTI_CONTEXT		NX_CAP_BIT(0, 1)
@@ -704,6 +795,9 @@ struct netxen_cmd_args {
 #define NX_CAP0_LRO_CONTIGUOUS		NX_CAP_BIT(0, 8)
 #define NX_CAP0_HW_LRO			NX_CAP_BIT(0, 10)
 
+/*
+ * Context state
+ */
 #define NX_HOST_CTX_STATE_FREED		0
 #define NX_HOST_CTX_STATE_ALLOCATED	1
 #define NX_HOST_CTX_STATE_ACTIVE	2
@@ -711,59 +805,70 @@ struct netxen_cmd_args {
 #define NX_HOST_CTX_STATE_QUIESCED	4
 #define NX_HOST_CTX_STATE_MAX		5
 
+/*
+ * Rx context
+ */
 
 typedef struct {
-	__le64 host_phys_addr;	
-	__le32 ring_size;		
+	__le64 host_phys_addr;	/* Ring base addr */
+	__le32 ring_size;		/* Ring entries */
 	__le16 msi_index;
-	__le16 rsvd;		
+	__le16 rsvd;		/* Padding */
 } nx_hostrq_sds_ring_t;
 
 typedef struct {
-	__le64 host_phys_addr;	
-	__le64 buff_size;		
-	__le32 ring_size;		
-	__le32 ring_kind;		
+	__le64 host_phys_addr;	/* Ring base addr */
+	__le64 buff_size;		/* Packet buffer size */
+	__le32 ring_size;		/* Ring entries */
+	__le32 ring_kind;		/* Class of ring */
 } nx_hostrq_rds_ring_t;
 
 typedef struct {
-	__le64 host_rsp_dma_addr;	
-	__le32 capabilities[4];	
-	__le32 host_int_crb_mode;	
-	__le32 host_rds_crb_mode;	
-	
-	__le32 rds_ring_offset;	
-	__le32 sds_ring_offset;	
-	__le16 num_rds_rings;	
-	__le16 num_sds_rings;	
-	__le16 rsvd1;		
-	__le16 rsvd2;		
-	u8  reserved[128]; 	
+	__le64 host_rsp_dma_addr;	/* Response dma'd here */
+	__le32 capabilities[4];	/* Flag bit vector */
+	__le32 host_int_crb_mode;	/* Interrupt crb usage */
+	__le32 host_rds_crb_mode;	/* RDS crb usage */
+	/* These ring offsets are relative to data[0] below */
+	__le32 rds_ring_offset;	/* Offset to RDS config */
+	__le32 sds_ring_offset;	/* Offset to SDS config */
+	__le16 num_rds_rings;	/* Count of RDS rings */
+	__le16 num_sds_rings;	/* Count of SDS rings */
+	__le16 rsvd1;		/* Padding */
+	__le16 rsvd2;		/* Padding */
+	u8  reserved[128]; 	/* reserve space for future expansion*/
+	/* MUST BE 64-bit aligned.
+	   The following is packed:
+	   - N hostrq_rds_rings
+	   - N hostrq_sds_rings */
 	char data[0];
 } nx_hostrq_rx_ctx_t;
 
 typedef struct {
-	__le32 host_producer_crb;	
-	__le32 rsvd1;		
+	__le32 host_producer_crb;	/* Crb to use */
+	__le32 rsvd1;		/* Padding */
 } nx_cardrsp_rds_ring_t;
 
 typedef struct {
-	__le32 host_consumer_crb;	
-	__le32 interrupt_crb;	
+	__le32 host_consumer_crb;	/* Crb to use */
+	__le32 interrupt_crb;	/* Crb to use */
 } nx_cardrsp_sds_ring_t;
 
 typedef struct {
-	
-	__le32 rds_ring_offset;	
-	__le32 sds_ring_offset;	
-	__le32 host_ctx_state;	
-	__le32 num_fn_per_port;	
-	__le16 num_rds_rings;	
-	__le16 num_sds_rings;	
-	__le16 context_id;		
-	u8  phys_port;		
-	u8  virt_port;		
-	u8  reserved[128];	
+	/* These ring offsets are relative to data[0] below */
+	__le32 rds_ring_offset;	/* Offset to RDS config */
+	__le32 sds_ring_offset;	/* Offset to SDS config */
+	__le32 host_ctx_state;	/* Starting State */
+	__le32 num_fn_per_port;	/* How many PCI fn share the port */
+	__le16 num_rds_rings;	/* Count of RDS rings */
+	__le16 num_sds_rings;	/* Count of SDS rings */
+	__le16 context_id;		/* Handle for context */
+	u8  phys_port;		/* Physical id of port */
+	u8  virt_port;		/* Virtual/Logical id of port */
+	u8  reserved[128];	/* save space for future expansion */
+	/*  MUST BE 64-bit aligned.
+	   The following is packed:
+	   - N cardrsp_rds_rings
+	   - N cardrs_sds_rings */
 	char data[0];
 } nx_cardrsp_rx_ctx_t;
 
@@ -777,45 +882,49 @@ typedef struct {
 	(rds_rings)*(sizeof(nx_cardrsp_rds_ring_t)) + 		\
 	(sds_rings)*(sizeof(nx_cardrsp_sds_ring_t)))
 
+/*
+ * Tx context
+ */
 
 typedef struct {
-	__le64 host_phys_addr;	
-	__le32 ring_size;		
-	__le32 rsvd;		
+	__le64 host_phys_addr;	/* Ring base addr */
+	__le32 ring_size;		/* Ring entries */
+	__le32 rsvd;		/* Padding */
 } nx_hostrq_cds_ring_t;
 
 typedef struct {
-	__le64 host_rsp_dma_addr;	
-	__le64 cmd_cons_dma_addr;	
-	__le64 dummy_dma_addr;	
-	__le32 capabilities[4];	
-	__le32 host_int_crb_mode;	
-	__le32 rsvd1;		
-	__le16 rsvd2;		
+	__le64 host_rsp_dma_addr;	/* Response dma'd here */
+	__le64 cmd_cons_dma_addr;	/*  */
+	__le64 dummy_dma_addr;	/*  */
+	__le32 capabilities[4];	/* Flag bit vector */
+	__le32 host_int_crb_mode;	/* Interrupt crb usage */
+	__le32 rsvd1;		/* Padding */
+	__le16 rsvd2;		/* Padding */
 	__le16 interrupt_ctl;
 	__le16 msi_index;
-	__le16 rsvd3;		
-	nx_hostrq_cds_ring_t cds_ring;	
-	u8  reserved[128];	
+	__le16 rsvd3;		/* Padding */
+	nx_hostrq_cds_ring_t cds_ring;	/* Desc of cds ring */
+	u8  reserved[128];	/* future expansion */
 } nx_hostrq_tx_ctx_t;
 
 typedef struct {
-	__le32 host_producer_crb;	
-	__le32 interrupt_crb;	
+	__le32 host_producer_crb;	/* Crb to use */
+	__le32 interrupt_crb;	/* Crb to use */
 } nx_cardrsp_cds_ring_t;
 
 typedef struct {
-	__le32 host_ctx_state;	
-	__le16 context_id;		
-	u8  phys_port;		
-	u8  virt_port;		
-	nx_cardrsp_cds_ring_t cds_ring;	
-	u8  reserved[128];	
+	__le32 host_ctx_state;	/* Starting state */
+	__le16 context_id;		/* Handle for context */
+	u8  phys_port;		/* Physical id of port */
+	u8  virt_port;		/* Virtual/Logical id of port */
+	nx_cardrsp_cds_ring_t cds_ring;	/* Card cds settings */
+	u8  reserved[128];	/* future expansion */
 } nx_cardrsp_tx_ctx_t;
 
 #define SIZEOF_HOSTRQ_TX(HOSTRQ_TX)	(sizeof(HOSTRQ_TX))
 #define SIZEOF_CARDRSP_TX(CARDRSP_TX)	(sizeof(CARDRSP_TX))
 
+/* CRB */
 
 #define NX_HOST_RDS_CRB_MODE_UNIQUE	0
 #define NX_HOST_RDS_CRB_MODE_SHARED	1
@@ -829,6 +938,7 @@ typedef struct {
 #define NX_HOST_INT_CRB_MODE_NORXTX	4
 
 
+/* MAC */
 
 #define MC_COUNT_P2	16
 #define MC_COUNT_P3	38
@@ -847,6 +957,10 @@ struct nx_vlan_ip_list {
 	__be32 ip_addr;
 };
 
+/*
+ * Interrupt coalescing defaults. The defaults are for 1500 MTU. It is
+ * adjusted based on configured MTU.
+ */
 #define NETXEN_DEFAULT_INTR_COALESCE_RX_TIME_US	3
 #define NETXEN_DEFAULT_INTR_COALESCE_RX_PACKETS	256
 #define NETXEN_DEFAULT_INTR_COALESCE_TX_PACKETS	64
@@ -885,6 +999,9 @@ typedef struct {
 #define NX_IP_UP		2
 #define NX_IP_DOWN		3
 
+/*
+ * Driver --> Firmware
+ */
 #define NX_NIC_H2C_OPCODE_START				0
 #define NX_NIC_H2C_OPCODE_CONFIG_RSS			1
 #define NX_NIC_H2C_OPCODE_CONFIG_RSS_TBL		2
@@ -912,6 +1029,9 @@ typedef struct {
 #define NX_NIC_H2C_OPCODE_CONFIG_HW_LRO			24
 #define NX_NIC_H2C_OPCODE_LAST				25
 
+/*
+ * Firmware --> Driver
+ */
 
 #define NX_NIC_C2H_OPCODE_START				128
 #define NX_NIC_C2H_OPCODE_CONFIG_RSS_RESPONSE		129
@@ -929,9 +1049,9 @@ typedef struct {
 #define NX_NIC_C2H_OPCODE_GET_LINKEVENT_RESPONSE	141
 #define NX_NIC_C2H_OPCODE_LAST				142
 
-#define VPORT_MISS_MODE_DROP		0 
-#define VPORT_MISS_MODE_ACCEPT_ALL	1 
-#define VPORT_MISS_MODE_ACCEPT_MULTI	2 
+#define VPORT_MISS_MODE_DROP		0 /* drop all unmatched */
+#define VPORT_MISS_MODE_ACCEPT_ALL	1 /* accept all packets */
+#define VPORT_MISS_MODE_ACCEPT_MULTI	2 /* accept unmatched multicast */
 
 #define NX_NIC_LRO_REQUEST_FIRST		0
 #define NX_NIC_LRO_REQUEST_ADD_FLOW		1
@@ -954,6 +1074,7 @@ typedef struct {
 #define NX_FW_CAPABILITY_HW_LRO			(1 << 10)
 #define NX_FW_CAPABILITY_GBE_LINK_CFG		(1 << 11)
 
+/* module types */
 #define LINKEVENT_MODULE_NOT_PRESENT			1
 #define LINKEVENT_MODULE_OPTICAL_UNKNOWN		2
 #define LINKEVENT_MODULE_OPTICAL_SRLR			3
@@ -984,6 +1105,16 @@ typedef struct {
 #define AUTO_FW_RESET_ENABLED	0xEF10AF12
 #define AUTO_FW_RESET_DISABLED	0xDCBAAF12
 
+/* firmware response header:
+ *	63:58 - message type
+ *	57:56 - owner
+ *	55:53 - desc count
+ *	52:48 - reserved
+ *	47:40 - completion id
+ *	39:32 - opcode
+ *	31:16 - error code
+ *	15:00 - reserved
+ */
 #define netxen_get_nic_msgtype(msg_hdr)	\
 	((msg_hdr >> 58) & 0x3F)
 #define netxen_get_nic_msg_compid(msg_hdr)	\
@@ -1041,6 +1172,7 @@ typedef struct {
 #define __NX_DEV_UP			1
 #define __NX_RESETTING			2
 
+/* Mini Coredump FW supported version */
 #define NX_MD_SUPPORT_MAJOR		4
 #define NX_MD_SUPPORT_MINOR		0
 #define NX_MD_SUPPORT_SUBVERSION	579
@@ -1049,10 +1181,12 @@ typedef struct {
 #define LSD(x)  ((uint32_t)((uint64_t)(x)))
 #define MSD(x)  ((uint32_t)((((uint64_t)(x)) >> 16) >> 16))
 
+/* Mini Coredump mask level */
 #define	NX_DUMP_MASK_MIN	0x03
 #define	NX_DUMP_MASK_DEF	0x1f
 #define	NX_DUMP_MASK_MAX	0xff
 
+/* Mini Coredump CDRP commands */
 #define NX_CDRP_CMD_TEMP_SIZE           0x0000002f
 #define NX_CDRP_CMD_GET_TEMP_HDR        0x00000030
 
@@ -1060,12 +1194,14 @@ typedef struct {
 #define NX_DUMP_STATE_ARRAY_LEN		16
 #define NX_DUMP_CAP_SIZE_ARRAY_LEN	8
 
+/* Mini Coredump sysfs entries flags*/
 #define NX_FORCE_FW_DUMP_KEY		0xdeadfeed
 #define NX_ENABLE_FW_DUMP               0xaddfeed
 #define NX_DISABLE_FW_DUMP              0xbadfeed
 #define NX_FORCE_FW_RESET               0xdeaddead
 
 
+/* Flash read/write address */
 #define NX_FW_DUMP_REG1         0x00130060
 #define NX_FW_DUMP_REG2         0x001e0000
 #define NX_FLASH_SEM2_LK        0x0013C010
@@ -1074,6 +1210,7 @@ typedef struct {
 #define FLASH_ROM_WINDOW        0x42110030
 #define FLASH_ROM_DATA          0x42150000
 
+/* Mini Coredump register read/write routine */
 #define NX_RD_DUMP_REG(addr, bar0, data) do {                   \
 	writel((addr & 0xFFFF0000), (void __iomem *) (bar0 +            \
 		NX_FW_DUMP_REG1));                                      \
@@ -1091,6 +1228,9 @@ typedef struct {
 } while (0)
 
 
+/*
+Entry Type Defines
+*/
 
 #define RDNOP	0
 #define RDCRB	1
@@ -1131,6 +1271,10 @@ typedef struct {
 #define SQG2Q	104
 #define SQG3Q	105
 
+/*
+* Opcodes for Control Entries.
+* These Flags are bit fields.
+*/
 #define NX_DUMP_WCRB		0x01
 #define NX_DUMP_RWCRB		0x02
 #define NX_DUMP_ANDCRB		0x04
@@ -1140,8 +1284,9 @@ typedef struct {
 #define NX_DUMP_WRT_SAVED	0x40
 #define NX_DUMP_MOD_SAVE_ST	0x80
 
-#define NX_DUMP_SKIP		0x80	
-#define NX_DUMP_SIZE_ERR 0x40	
+/* Driver Flags */
+#define NX_DUMP_SKIP		0x80	/*  driver skipped this entry  */
+#define NX_DUMP_SIZE_ERR 0x40	/*entry size vs capture size mismatch*/
 
 #define NX_PCI_READ_32(ADDR)			readl((ADDR))
 #define NX_PCI_WRITE_32(DATA, ADDR)	writel(DATA, (ADDR))
@@ -1149,18 +1294,18 @@ typedef struct {
 
 
 struct netxen_minidump {
-	u32 pos;			
-	u8  fw_supports_md;		
-	u8  has_valid_dump;		
-	u8  md_capture_mask;		
-	u8  md_enabled;			
-	u32 md_dump_size;		
-	u32 md_capture_size;		
-	u32 md_template_size;		
-	u32 md_template_ver;		
-	u64 md_timestamp;		
-	void *md_template;		
-	void *md_capture_buff;		
+	u32 pos;			/* position in the dump buffer */
+	u8  fw_supports_md;		/* FW supports Mini cordump */
+	u8  has_valid_dump;		/* indicates valid dump */
+	u8  md_capture_mask;		/* driver capture mask */
+	u8  md_enabled;			/* Turn Mini Coredump on/off */
+	u32 md_dump_size;		/* Total FW Mini Coredump size */
+	u32 md_capture_size;		/* FW dump capture size */
+	u32 md_template_size;		/* FW template size */
+	u32 md_template_ver;		/* FW template version */
+	u64 md_timestamp;		/* FW Mini dump timestamp */
+	void *md_template;		/* FW template will be stored */
+	void *md_capture_buff;		/* FW dump will be stored */
 };
 
 
@@ -1183,6 +1328,11 @@ struct netxen_minidump_template_hdr {
 	u32 rsvd[0];
 };
 
+/* Common Entry Header:  Common to All Entry Types */
+/*
+ * Driver Code is for driver to write some info about the entry.
+ * Currently not used.
+ */
 
 struct netxen_common_entry_hdr {
 	u32 entry_type;
@@ -1200,6 +1350,7 @@ struct netxen_common_entry_hdr {
 };
 
 
+/* Generic Entry Including Header */
 struct netxen_minidump_entry {
 	struct netxen_common_entry_hdr hdr;
 	u32 entry_data00;
@@ -1212,6 +1363,7 @@ struct netxen_minidump_entry {
 	u32 entry_data07;
 };
 
+/* Read ROM Header */
 struct netxen_minidump_entry_rdrom {
 	struct netxen_common_entry_hdr h;
 	union {
@@ -1257,6 +1409,7 @@ struct netxen_minidump_entry_rdrom {
 };
 
 
+/* Read CRB and Control Entry Header */
 struct netxen_minidump_entry_crb {
 	struct netxen_common_entry_hdr h;
 	u32 addr;
@@ -1284,6 +1437,7 @@ struct netxen_minidump_entry_crb {
 	u32 value_3;
 };
 
+/* Read Memory and MN Header */
 struct netxen_minidump_entry_rdmem {
 	struct netxen_common_entry_hdr h;
 	union {
@@ -1331,6 +1485,7 @@ struct netxen_minidump_entry_rdmem {
 	u32 read_data_size;
 };
 
+/* Read Cache L1 and L2 Header */
 struct netxen_minidump_entry_cache {
 	struct netxen_common_entry_hdr h;
 	u32 tag_reg_addr;
@@ -1363,6 +1518,7 @@ struct netxen_minidump_entry_cache {
 	};
 };
 
+/* Read OCM Header */
 struct netxen_minidump_entry_rdocm {
 	struct netxen_common_entry_hdr h;
 	u32 rsvd_0;
@@ -1385,6 +1541,7 @@ struct netxen_minidump_entry_rdocm {
 	};
 };
 
+/* Read MUX Header */
 struct netxen_minidump_entry_mux {
 	struct netxen_common_entry_hdr h;
 	u32 select_addr;
@@ -1402,6 +1559,7 @@ struct netxen_minidump_entry_mux {
 	u32 rsvd_1;
 };
 
+/* Read Queue Header */
 struct netxen_minidump_entry_queue {
 	struct netxen_common_entry_hdr h;
 	u32 select_addr;
@@ -1528,11 +1686,11 @@ struct netxen_adapter {
 	nx_nic_intr_coalesce_t coal;
 
 	unsigned long state;
-	__le32 file_prd_off;	
+	__le32 file_prd_off;	/*File fw product offset*/
 	u32 fw_version;
 	const struct firmware *fw;
-	struct netxen_minidump mdump;   
-	int fw_mdump_rdy;	
+	struct netxen_minidump mdump;   /* mdump ptr */
+	int fw_mdump_rdy;	/* for mdump ready */
 };
 
 int nx_fw_cmd_query_phy(struct netxen_adapter *adapter, u32 reg, u32 *val);
@@ -1574,6 +1732,7 @@ void netxen_pcie_sem_unlock(struct netxen_adapter *, int);
 int netxen_nic_get_board_info(struct netxen_adapter *adapter);
 int netxen_nic_wol_supported(struct netxen_adapter *adapter);
 
+/* Functions from netxen_nic_init.c */
 int netxen_init_dummy_dma(struct netxen_adapter *adapter);
 void netxen_free_dummy_dma(struct netxen_adapter *adapter);
 
@@ -1639,15 +1798,19 @@ void netxen_dump_fw(struct netxen_adapter *adapter);
 void netxen_nic_update_cmd_producer(struct netxen_adapter *adapter,
 		struct nx_host_tx_ring *tx_ring);
 
+/* Functions from netxen_nic_main.c */
 int netxen_nic_reset_context(struct netxen_adapter *);
 
 int nx_dev_request_reset(struct netxen_adapter *adapter);
 
+/*
+ * NetXen Board information
+ */
 
 #define NETXEN_MAX_SHORT_NAME 32
 struct netxen_brdinfo {
-	int brdtype;	
-	long ports;		
+	int brdtype;	/* type of board */
+	long ports;		/* max no of physical ports */
 	char short_name[NETXEN_MAX_SHORT_NAME];
 };
 
@@ -1706,4 +1869,4 @@ extern int netxen_rom_fast_read(struct netxen_adapter *adapter, int addr,
 
 extern const struct ethtool_ops netxen_nic_ethtool_ops;
 
-#endif				
+#endif				/* __NETXEN_NIC_H_ */

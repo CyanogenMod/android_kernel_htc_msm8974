@@ -40,12 +40,16 @@ struct msm_iommu_domain_name {
 };
 
 struct msm_iommu_domain {
-	
+	/* iommu domain to map in */
 	struct iommu_domain *domain;
-	
+	/* total number of allocations from this domain */
 	atomic_t allocation_cnt;
-	
+	/* number of iova pools */
 	int npools;
+	/*
+	 * array of gen_pools for allocating iovas.
+	 * behavior is undefined if these overlap
+	 */
 	struct mem_pool *iova_pools;
 };
 

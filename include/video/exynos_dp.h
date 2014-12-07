@@ -128,4 +128,4 @@ struct exynos_dp_platdata {
 	void (*phy_exit)(void);
 };
 
-#endif 
+#endif /* _EXYNOS_DP_H */

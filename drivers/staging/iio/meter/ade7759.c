@@ -224,7 +224,7 @@ static int ade7759_reset(struct device *dev)
 	ade7759_spi_read_reg_16(dev,
 			ADE7759_MODE,
 			&val);
-	val |= 1 << 6; 
+	val |= 1 << 6; /* Software Chip Reset */
 	ret = ade7759_spi_write_reg_16(dev,
 			ADE7759_MODE,
 			val);
@@ -304,7 +304,8 @@ static int ade7759_set_irq(struct device *dev, bool enable)
 		goto error_ret;
 
 	if (enable)
-		irqen |= 1 << 3; 
+		irqen |= 1 << 3; /* Enables an interrupt when a data is
+				    present in the waveform register */
 	else
 		irqen &= ~(1 << 3);
 
@@ -314,6 +315,7 @@ error_ret:
 	return ret;
 }
 
+/* Power down the device */
 static int ade7759_stop_device(struct device *dev)
 {
 	u16 val;
@@ -321,7 +323,7 @@ static int ade7759_stop_device(struct device *dev)
 	ade7759_spi_read_reg_16(dev,
 			ADE7759_MODE,
 			&val);
-	val |= 1 << 4;  
+	val |= 1 << 4;  /* AD converters can be turned off */
 
 	return ade7759_spi_write_reg_16(dev, ADE7759_MODE, val);
 }
@@ -332,11 +334,11 @@ static int ade7759_initial_setup(struct iio_dev *indio_dev)
 	struct ade7759_state *st = iio_priv(indio_dev);
 	struct device *dev = &indio_dev->dev;
 
-	
+	/* use low spi speed for init */
 	st->us->mode = SPI_MODE_3;
 	spi_setup(st->us);
 
-	
+	/* Disable IRQ */
 	ret = ade7759_set_irq(dev, false);
 	if (ret) {
 		dev_err(dev, "disable irq failed");
@@ -460,13 +462,13 @@ static int __devinit ade7759_probe(struct spi_device *spi)
 	struct ade7759_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 
 	st = iio_priv(indio_dev);
@@ -477,7 +479,7 @@ static int __devinit ade7759_probe(struct spi_device *spi)
 	indio_dev->info = &ade7759_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
-	
+	/* Get the device into a sane initial state */
 	ret = ade7759_initial_setup(indio_dev);
 	if (ret)
 		goto error_free_dev;
@@ -494,6 +496,7 @@ error_ret:
 	return ret;
 }
 
+/* fixme, confirm ordering in this function */
 static int ade7759_remove(struct spi_device *spi)
 {
 	int ret;

@@ -13,4 +13,4 @@ extern void pnv_pci_init(void);
 static inline void pnv_pci_init(void) { }
 #endif
 
-#endif 
+#endif /* _POWERNV_H */

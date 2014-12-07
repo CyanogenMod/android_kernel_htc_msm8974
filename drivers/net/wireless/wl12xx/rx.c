@@ -49,7 +49,7 @@ static u32 wl12xx_rx_get_buf_size(struct wl12xx_fw_status *status,
 static bool wl12xx_rx_get_unaligned(struct wl12xx_fw_status *status,
 				    u32 drv_rx_counter)
 {
-	
+	/* Convert the value to bool */
 	return !!(le32_to_cpu(status->rx_pkt_descs[drv_rx_counter]) &
 		RX_BUF_UNALIGNED_PAYLOAD);
 }
@@ -68,12 +68,17 @@ static void wl1271_rx_status(struct wl1271 *wl,
 
 	status->rate_idx = wl1271_rate_to_idx(desc->rate, status->band);
 
-	
+	/* 11n support */
 	if (desc->rate <= CONF_HW_RXTX_RATE_MCS0)
 		status->flag |= RX_FLAG_HT;
 
 	status->signal = desc->rssi;
 
+	/*
+	 * FIXME: In wl1251, the SNR should be divided by two.  In wl1271 we
+	 * need to divide by two for now, but TI has been discussing about
+	 * changing it.  This needs to be rechecked.
+	 */
 	wl->noise = desc->rssi - (desc->snr >> 1);
 
 	status->freq = ieee80211_channel_to_frequency(desc->channel,
@@ -104,10 +109,14 @@ static int wl1271_rx_handle_data(struct wl1271 *wl, u8 *data, u32 length,
 	u8 reserved = unaligned ? NET_IP_ALIGN : 0;
 	u16 seq_num;
 
+	/*
+	 * In PLT mode we seem to get frames and mac80211 warns about them,
+	 * workaround this by not retrieving them at all.
+	 */
 	if (unlikely(wl->plt))
 		return -EINVAL;
 
-	
+	/* the data read starts with the descriptor */
 	desc = (struct wl1271_rx_descriptor *) data;
 
 	if (desc->packet_class == WL12XX_RX_CLASS_LOGGER) {
@@ -118,7 +127,7 @@ static int wl1271_rx_handle_data(struct wl1271 *wl, u8 *data, u32 length,
 	}
 
 	switch (desc->status & WL1271_RX_DESC_STATUS_MASK) {
-	
+	/* discard corrupted packets */
 	case WL1271_RX_DESC_DRIVER_RX_Q_FAIL:
 	case WL1271_RX_DESC_DECRYPT_FAIL:
 		wl1271_warning("corrupted packet in RX with status: 0x%x",
@@ -133,18 +142,24 @@ static int wl1271_rx_handle_data(struct wl1271 *wl, u8 *data, u32 length,
 		return -EINVAL;
 	}
 
-	
+	/* skb length not included rx descriptor */
 	skb = __dev_alloc_skb(length + reserved - sizeof(*desc), GFP_KERNEL);
 	if (!skb) {
 		wl1271_error("Couldn't allocate RX frame");
 		return -ENOMEM;
 	}
 
-	
+	/* reserve the unaligned payload(if any) */
 	skb_reserve(skb, reserved);
 
 	buf = skb_put(skb, length - sizeof(*desc));
 
+	/*
+	 * Copy packets from aggregation buffer to the skbs without rx
+	 * descriptor and with packet payload aligned care. In case of unaligned
+	 * packets copy the packets in offset of 2 bytes guarantee IP header
+	 * payload aligned to 4 bytes.
+	 */
 	memcpy(buf, data + sizeof(*desc), length - sizeof(*desc));
 	*hlid = desc->hlid;
 
@@ -202,6 +217,11 @@ void wl12xx_rx(struct wl1271 *wl, struct wl12xx_fw_status *status)
 		}
 
 		if (wl->chip.id != CHIP_ID_1283_PG20) {
+			/*
+			 * Choose the block we want to read
+			 * For aggregated packets, only the first memory block
+			 * should be retrieved. The FW takes care of the rest.
+			 */
 			mem_block = wl12xx_rx_get_mem_block(status,
 							    drv_rx_counter);
 
@@ -216,11 +236,11 @@ void wl12xx_rx(struct wl1271 *wl, struct wl12xx_fw_status *status)
 				     sizeof(wl->rx_mem_pool_addr), false);
 		}
 
-		
+		/* Read all available packets at once */
 		wl1271_read(wl, WL1271_SLV_MEM_DATA, wl->aggr_buf,
 				buf_size, true);
 
-		
+		/* Split data into separate packets */
 		pkt_offset = 0;
 		while (pkt_offset < buf_size) {
 			pkt_length = wl12xx_rx_get_buf_size(status,
@@ -229,6 +249,11 @@ void wl12xx_rx(struct wl1271 *wl, struct wl12xx_fw_status *status)
 			unaligned = wl12xx_rx_get_unaligned(status,
 					drv_rx_counter);
 
+			/*
+			 * the handle data call can only fail in memory-outage
+			 * conditions, in that case the received frame will just
+			 * be dropped.
+			 */
 			if (wl1271_rx_handle_data(wl,
 						  wl->aggr_buf + pkt_offset,
 						  pkt_length, unaligned,
@@ -248,6 +273,10 @@ void wl12xx_rx(struct wl1271 *wl, struct wl12xx_fw_status *status)
 		}
 	}
 
+	/*
+	 * Write the driver's packet counter to the FW. This is only required
+	 * for older hardware revisions
+	 */
 	if (wl->quirks & WL12XX_QUIRK_END_OF_TRANSACTION)
 		wl1271_write32(wl, RX_DRIVER_COUNTER_ADDRESS, wl->rx_counter);
 

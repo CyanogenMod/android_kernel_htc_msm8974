@@ -27,6 +27,7 @@
 
 #include "dvo.h"
 
+/* register definitions according to the TFP410 data sheet */
 #define TFP410_VID		0x014C
 #define TFP410_DID		0x0410
 
@@ -163,10 +164,11 @@ static int tfp410_getid(struct intel_dvo_device *dvo, int addr)
 	return -1;
 }
 
+/* Ti TFP410 driver for chip on i2c bus */
 static bool tfp410_init(struct intel_dvo_device *dvo,
 			struct i2c_adapter *adapter)
 {
-	
+	/* this will detect the tfp410 chip on the specified i2c bus */
 	struct tfp410_priv *tfp;
 	int id;
 
@@ -223,10 +225,15 @@ static void tfp410_mode_set(struct intel_dvo_device *dvo,
 			    struct drm_display_mode *mode,
 			    struct drm_display_mode *adjusted_mode)
 {
-	
+	/* As long as the basics are set up, since we don't have clock dependencies
+	* in the mode setup, we can just leave the registers alone and everything
+	* will work fine.
+	*/
+	/* don't do much */
 	return;
 }
 
+/* set the tfp410 power state */
 static void tfp410_dpms(struct intel_dvo_device *dvo, int mode)
 {
 	uint8_t ctl1;

@@ -41,11 +41,65 @@
 
 #define DMA_ADDR_INVALID (~((dma_addr_t)0))
 
+/* EP0_MPS_LIMIT
+ *
+ * Unfortunately there seems to be a limit of the amount of data that can
+ * be transferred by IN transactions on EP0. This is either 127 bytes or 3
+ * packets (which practically means 1 packet and 63 bytes of data) when the
+ * MPS is set to 64.
+ *
+ * This means if we are wanting to move >127 bytes of data, we need to
+ * split the transactions up, but just doing one packet at a time does
+ * not work (this may be an implicit DATA0 PID on first packet of the
+ * transaction) and doing 2 packets is outside the controller's limits.
+ *
+ * If we try to lower the MPS size for EP0, then no transfers work properly
+ * for EP0, and the system will fail basic enumeration. As no cause for this
+ * has currently been found, we cannot support any large IN transfers for
+ * EP0.
+ */
 #define EP0_MPS_LIMIT	64
 
 struct s3c_hsotg;
 struct s3c_hsotg_req;
 
+/**
+ * struct s3c_hsotg_ep - driver endpoint definition.
+ * @ep: The gadget layer representation of the endpoint.
+ * @name: The driver generated name for the endpoint.
+ * @queue: Queue of requests for this endpoint.
+ * @parent: Reference back to the parent device structure.
+ * @req: The current request that the endpoint is processing. This is
+ *       used to indicate an request has been loaded onto the endpoint
+ *       and has yet to be completed (maybe due to data move, or simply
+ *	 awaiting an ack from the core all the data has been completed).
+ * @debugfs: File entry for debugfs file for this endpoint.
+ * @lock: State lock to protect contents of endpoint.
+ * @dir_in: Set to true if this endpoint is of the IN direction, which
+ *	    means that it is sending data to the Host.
+ * @index: The index for the endpoint registers.
+ * @name: The name array passed to the USB core.
+ * @halted: Set if the endpoint has been halted.
+ * @periodic: Set if this is a periodic ep, such as Interrupt
+ * @sent_zlp: Set if we've sent a zero-length packet.
+ * @total_data: The total number of data bytes done.
+ * @fifo_size: The size of the FIFO (for periodic IN endpoints)
+ * @fifo_load: The amount of data loaded into the FIFO (periodic IN)
+ * @last_load: The offset of data for the last start of request.
+ * @size_loaded: The last loaded size for DxEPTSIZE for periodic IN
+ *
+ * This is the driver's state for each registered enpoint, allowing it
+ * to keep track of transactions that need doing. Each endpoint has a
+ * lock to protect the state, to try and avoid using an overall lock
+ * for the host controller as much as possible.
+ *
+ * For periodic IN endpoints, we have fifo_size and fifo_load to try
+ * and keep track of the amount of data in the periodic FIFO for each
+ * of these as we don't have a status register that tells us how much
+ * is in each of them. (note, this may actually be useless information
+ * as in shared-fifo mode periodic in acts like a single-frame packet
+ * buffer than a fifo)
+ */
 struct s3c_hsotg_ep {
 	struct usb_ep		ep;
 	struct list_head	queue;
@@ -71,8 +125,26 @@ struct s3c_hsotg_ep {
 	char			name[10];
 };
 
-#define S3C_HSOTG_EPS	(8+1)	
+#define S3C_HSOTG_EPS	(8+1)	/* limit to 9 for the moment */
 
+/**
+ * struct s3c_hsotg - driver state.
+ * @dev: The parent device supplied to the probe function
+ * @driver: USB gadget driver
+ * @plat: The platform specific configuration data.
+ * @regs: The memory area mapped for accessing registers.
+ * @regs_res: The resource that was allocated when claiming register space.
+ * @irq: The IRQ number we are using
+ * @dedicated_fifos: Set if the hardware has dedicated IN-EP fifos.
+ * @debug_root: root directrory for debugfs.
+ * @debug_file: main status file for debugfs.
+ * @debug_fifo: FIFO status file for debugfs.
+ * @ep0_reply: Request used for ep0 reply.
+ * @ep0_buff: Buffer for EP0 reply data, if needed.
+ * @ctrl_buff: Buffer for EP0 control requests.
+ * @ctrl_req: Request for EP0 control packets.
+ * @eps: The endpoints being supplied to the gadget framework
+ */
 struct s3c_hsotg {
 	struct device		 *dev;
 	struct usb_gadget_driver *driver;
@@ -112,6 +184,7 @@ struct s3c_hsotg_req {
 	unsigned char		mapped;
 };
 
+/* conversion functions */
 static inline struct s3c_hsotg_req *our_req(struct usb_request *req)
 {
 	return container_of(req, struct s3c_hsotg_req, req);
@@ -137,13 +210,38 @@ static inline void __bic32(void __iomem *ptr, u32 val)
 	writel(readl(ptr) & ~val, ptr);
 }
 
+/* forward decleration of functions */
 static void s3c_hsotg_dump(struct s3c_hsotg *hsotg);
 
+/**
+ * using_dma - return the DMA status of the driver.
+ * @hsotg: The driver state.
+ *
+ * Return true if we're using DMA.
+ *
+ * Currently, we have the DMA support code worked into everywhere
+ * that needs it, but the AMBA DMA implementation in the hardware can
+ * only DMA from 32bit aligned addresses. This means that gadgets such
+ * as the CDC Ethernet cannot work as they often pass packets which are
+ * not 32bit aligned.
+ *
+ * Unfortunately the choice to use DMA or not is global to the controller
+ * and seems to be only settable when the controller is being put through
+ * a core reset. This means we either need to fix the gadgets to take
+ * account of DMA alignment, or add bounce buffers (yuerk).
+ *
+ * Until this issue is sorted out, we always return 'false'.
+ */
 static inline bool using_dma(struct s3c_hsotg *hsotg)
 {
-	return false;	
+	return false;	/* support is not complete */
 }
 
+/**
+ * s3c_hsotg_en_gsint - enable one or more of the general interrupt
+ * @hsotg: The device state
+ * @ints: A bitmask of the interrupts to enable
+ */
 static void s3c_hsotg_en_gsint(struct s3c_hsotg *hsotg, u32 ints)
 {
 	u32 gsintmsk = readl(hsotg->regs + S3C_GINTMSK);
@@ -157,6 +255,11 @@ static void s3c_hsotg_en_gsint(struct s3c_hsotg *hsotg, u32 ints)
 	}
 }
 
+/**
+ * s3c_hsotg_disable_gsint - disable one or more of the general interrupt
+ * @hsotg: The device state
+ * @ints: A bitmask of the interrupts to enable
+ */
 static void s3c_hsotg_disable_gsint(struct s3c_hsotg *hsotg, u32 ints)
 {
 	u32 gsintmsk = readl(hsotg->regs + S3C_GINTMSK);
@@ -168,6 +271,16 @@ static void s3c_hsotg_disable_gsint(struct s3c_hsotg *hsotg, u32 ints)
 		writel(new_gsintmsk, hsotg->regs + S3C_GINTMSK);
 }
 
+/**
+ * s3c_hsotg_ctrl_epint - enable/disable an endpoint irq
+ * @hsotg: The device state
+ * @ep: The endpoint index
+ * @dir_in: True if direction is in.
+ * @en: The enable value, true to enable
+ *
+ * Set or clear the mask for an individual endpoint's interrupt
+ * request.
+ */
 static void s3c_hsotg_ctrl_epint(struct s3c_hsotg *hsotg,
 				 unsigned int ep, unsigned int dir_in,
 				 unsigned int en)
@@ -189,6 +302,10 @@ static void s3c_hsotg_ctrl_epint(struct s3c_hsotg *hsotg,
 	local_irq_restore(flags);
 }
 
+/**
+ * s3c_hsotg_init_fifo - initialise non-periodic FIFOs
+ * @hsotg: The device instance.
+ */
 static void s3c_hsotg_init_fifo(struct s3c_hsotg *hsotg)
 {
 	unsigned int ep;
@@ -197,19 +314,31 @@ static void s3c_hsotg_init_fifo(struct s3c_hsotg *hsotg)
 	int timeout;
 	u32 val;
 
+	/* the ryu 2.6.24 release ahs
+	   writel(0x1C0, hsotg->regs + S3C_GRXFSIZ);
+	   writel(S3C_GNPTXFSIZ_NPTxFStAddr(0x200) |
+		S3C_GNPTXFSIZ_NPTxFDep(0x1C0),
+		hsotg->regs + S3C_GNPTXFSIZ);
+	*/
 
-	
+	/* set FIFO sizes to 2048/1024 */
 
 	writel(2048, hsotg->regs + S3C_GRXFSIZ);
 	writel(S3C_GNPTXFSIZ_NPTxFStAddr(2048) |
 	       S3C_GNPTXFSIZ_NPTxFDep(1024),
 	       hsotg->regs + S3C_GNPTXFSIZ);
 
+	/* arange all the rest of the TX FIFOs, as some versions of this
+	 * block have overlapping default addresses. This also ensures
+	 * that if the settings have been changed, then they are set to
+	 * known values. */
 
-	
+	/* start at the end of the GNPTXFSIZ, rounded up */
 	addr = 2048 + 1024;
 	size = 768;
 
+	/* currently we allocate TX FIFOs for all possible endpoints,
+	 * and assume that they are all the same size. */
 
 	for (ep = 1; ep <= 15; ep++) {
 		val = addr;
@@ -219,11 +348,13 @@ static void s3c_hsotg_init_fifo(struct s3c_hsotg *hsotg)
 		writel(val, hsotg->regs + S3C_DPTXFSIZn(ep));
 	}
 
+	/* according to p428 of the design guide, we need to ensure that
+	 * all fifos are flushed before continuing */
 
 	writel(S3C_GRSTCTL_TxFNum(0x10) | S3C_GRSTCTL_TxFFlsh |
 	       S3C_GRSTCTL_RxFFlsh, hsotg->regs + S3C_GRSTCTL);
 
-	
+	/* wait until the fifos are both flushed */
 	timeout = 100;
 	while (1) {
 		val = readl(hsotg->regs + S3C_GRSTCTL);
@@ -243,6 +374,12 @@ static void s3c_hsotg_init_fifo(struct s3c_hsotg *hsotg)
 	dev_dbg(hsotg->dev, "FIFOs reset, timeout at %d\n", timeout);
 }
 
+/**
+ * @ep: USB endpoint to allocate request for.
+ * @flags: Allocation flags
+ *
+ * Allocate a new USB request structure appropriate for the specified endpoint
+ */
 static struct usb_request *s3c_hsotg_ep_alloc_request(struct usb_ep *ep,
 						      gfp_t flags)
 {
@@ -258,11 +395,27 @@ static struct usb_request *s3c_hsotg_ep_alloc_request(struct usb_ep *ep,
 	return &req->req;
 }
 
+/**
+ * is_ep_periodic - return true if the endpoint is in periodic mode.
+ * @hs_ep: The endpoint to query.
+ *
+ * Returns true if the endpoint is in periodic mode, meaning it is being
+ * used for an Interrupt or ISO transfer.
+ */
 static inline int is_ep_periodic(struct s3c_hsotg_ep *hs_ep)
 {
 	return hs_ep->periodic;
 }
 
+/**
+ * s3c_hsotg_unmap_dma - unmap the DMA memory being used for the request
+ * @hsotg: The device state.
+ * @hs_ep: The endpoint for the request
+ * @hs_req: The request being processed.
+ *
+ * This is the reverse of s3c_hsotg_map_dma(), called for the completion
+ * of a request to ensure the buffer is ready for access by the caller.
+*/
 static void s3c_hsotg_unmap_dma(struct s3c_hsotg *hsotg,
 				struct s3c_hsotg_ep *hs_ep,
 				struct s3c_hsotg_req *hs_req)
@@ -272,12 +425,12 @@ static void s3c_hsotg_unmap_dma(struct s3c_hsotg *hsotg,
 
 	dir = hs_ep->dir_in ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
 
-	
+	/* ignore this if we're not moving any data */
 	if (hs_req->req.length == 0)
 		return;
 
 	if (hs_req->mapped) {
-		
+		/* we mapped this, so unmap and remove the dma */
 
 		dma_unmap_single(hsotg->dev, req->dma, req->length, dir);
 
@@ -288,6 +441,22 @@ static void s3c_hsotg_unmap_dma(struct s3c_hsotg *hsotg,
 	}
 }
 
+/**
+ * s3c_hsotg_write_fifo - write packet Data to the TxFIFO
+ * @hsotg: The controller state.
+ * @hs_ep: The endpoint we're going to write for.
+ * @hs_req: The request to write data for.
+ *
+ * This is called when the TxFIFO has some space in it to hold a new
+ * transmission and we have something to give it. The actual setup of
+ * the data size is done elsewhere, so all we have to do is to actually
+ * write the data.
+ *
+ * The return value is zero if there is more space (or nothing was done)
+ * otherwise -ENOSPC is returned if the FIFO space was used up.
+ *
+ * This routine is only needed for PIO
+*/
 static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 				struct s3c_hsotg_ep *hs_ep,
 				struct s3c_hsotg_req *hs_req)
@@ -302,7 +471,7 @@ static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 
 	to_write -= (buf_pos - hs_ep->last_load);
 
-	
+	/* if there's nothing to write, get out early */
 	if (to_write == 0)
 		return 0;
 
@@ -311,9 +480,14 @@ static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 		int size_left;
 		int size_done;
 
+		/* work out how much data was loaded so we can calculate
+		 * how much data is left in the fifo. */
 
 		size_left = S3C_DxEPTSIZ_XferSize_GET(epsize);
 
+		/* if shared fifo, we cannot write anything until the
+		 * previous data has been completely sent.
+		 */
 		if (hs_ep->fifo_load != 0) {
 			s3c_hsotg_en_gsint(hsotg, S3C_GINTSTS_PTxFEmp);
 			return -ENOSPC;
@@ -323,10 +497,10 @@ static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 			__func__, size_left,
 			hs_ep->size_loaded, hs_ep->fifo_load, hs_ep->fifo_size);
 
-		
+		/* how much of the data has moved */
 		size_done = hs_ep->size_loaded - size_left;
 
-		
+		/* how much data is left in the fifo */
 		can_write = hs_ep->fifo_load - size_done;
 		dev_dbg(hsotg->dev, "%s: => can_write1=%d\n",
 			__func__, can_write);
@@ -355,15 +529,22 @@ static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 		}
 
 		can_write = S3C_GNPTXSTS_NPTxFSpcAvail_GET(gnptxsts);
-		can_write *= 4;	
+		can_write *= 4;	/* fifo size is in 32bit quantities. */
 	}
 
 	dev_dbg(hsotg->dev, "%s: GNPTXSTS=%08x, can=%d, to=%d, mps %d\n",
 		 __func__, gnptxsts, can_write, to_write, hs_ep->ep.maxpacket);
 
+	/* limit to 512 bytes of data, it seems at least on the non-periodic
+	 * FIFO, requests of >512 cause the endpoint to get stuck with a
+	 * fragment of the end of the transfer in it.
+	 */
 	if (can_write > 512)
 		can_write = 512;
 
+	/* limit the write to one max-packet size worth of data, but allow
+	 * the transfer to return that it did not run out of fifo space
+	 * doing it. */
 	if (to_write > hs_ep->ep.maxpacket) {
 		to_write = hs_ep->ep.maxpacket;
 
@@ -372,16 +553,25 @@ static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 				   S3C_GINTSTS_NPTxFEmp);
 	}
 
-	
+	/* see if we can write data */
 
 	if (to_write > can_write) {
 		to_write = can_write;
 		pkt_round = to_write % hs_ep->ep.maxpacket;
 
+		/* Not sure, but we probably shouldn't be writing partial
+		 * packets into the FIFO, so round the write down to an
+		 * exact number of packets.
+		 *
+		 * Note, we do not currently check to see if we can ever
+		 * write a full packet or not to the FIFO.
+		 */
 
 		if (pkt_round)
 			to_write -= pkt_round;
 
+		/* enable correct FIFO interrupt to alert us when there
+		 * is more room left. */
 
 		s3c_hsotg_en_gsint(hsotg,
 				   periodic ? S3C_GINTSTS_PTxFEmp :
@@ -408,6 +598,13 @@ static int s3c_hsotg_write_fifo(struct s3c_hsotg *hsotg,
 	return (to_write >= can_write) ? -ENOSPC : 0;
 }
 
+/**
+ * get_ep_limit - get the maximum data legnth for this endpoint
+ * @hs_ep: The endpoint
+ *
+ * Return the maximum data that can be queued in one go on a given endpoint
+ * so that transfers that are too long can be split.
+ */
 static unsigned get_ep_limit(struct s3c_hsotg_ep *hs_ep)
 {
 	int index = hs_ep->index;
@@ -425,10 +622,12 @@ static unsigned get_ep_limit(struct s3c_hsotg_ep *hs_ep)
 			maxpkt = 2;
 	}
 
-	
+	/* we made the constant loading easier above by using +1 */
 	maxpkt--;
 	maxsize--;
 
+	/* constrain by packet count if maxpkts*pktsize is greater
+	 * than the length register size. */
 
 	if ((maxpkt * hs_ep->ep.maxpacket) < maxsize)
 		maxsize = maxpkt * hs_ep->ep.maxpacket;
@@ -436,6 +635,16 @@ static unsigned get_ep_limit(struct s3c_hsotg_ep *hs_ep)
 	return maxsize;
 }
 
+/**
+ * s3c_hsotg_start_req - start a USB request from an endpoint's queue
+ * @hsotg: The controller state.
+ * @hs_ep: The endpoint to process a request for
+ * @hs_req: The request to start.
+ * @continuing: True if we are doing more for the current request.
+ *
+ * Start the given request running by setting the endpoint registers
+ * appropriately, and writing any data to the FIFOs.
+ */
 static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 				struct s3c_hsotg_ep *hs_ep,
 				struct s3c_hsotg_req *hs_req,
@@ -472,7 +681,7 @@ static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 		__func__, readl(hsotg->regs + epctrl_reg), index,
 		hs_ep->dir_in ? "in" : "out");
 
-	
+	/* If endpoint is stalled, we will restart request later */
 	ctrl = readl(hsotg->regs + epctrl_reg);
 
 	if (ctrl & S3C_DxEPCTL_Stall) {
@@ -495,7 +704,7 @@ static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 		dev_dbg(hsotg->dev, "%s: length %d, max-req %d, r %d\n",
 			__func__, length, maxreq, round);
 
-		
+		/* round down to multiple of packets */
 		if (round)
 			maxreq -= round;
 
@@ -505,7 +714,7 @@ static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 	if (length)
 		packets = DIV_ROUND_UP(length, hs_ep->ep.maxpacket);
 	else
-		packets = 1;	
+		packets = 1;	/* send one packet if length is zero. */
 
 	if (dir_in && index != 0)
 		epsize = S3C_DxEPTSIZ_MC(1);
@@ -513,6 +722,8 @@ static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 		epsize = 0;
 
 	if (index != 0 && ureq->zero) {
+		/* test for the packets being exactly right for the
+		 * transfer */
 
 		if (length == (packets * hs_ep->ep.maxpacket))
 			packets++;
@@ -524,15 +735,17 @@ static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 	dev_dbg(hsotg->dev, "%s: %d@%d/%d, 0x%08x => 0x%08x\n",
 		__func__, packets, length, ureq->length, epsize, epsize_reg);
 
-	
+	/* store the request as the current one we're doing */
 	hs_ep->req = hs_req;
 
-	
+	/* write size / packets */
 	writel(epsize, hsotg->regs + epsize_reg);
 
 	if (using_dma(hsotg) && !continuing) {
 		unsigned int dma_reg;
 
+		/* write DMA address to control register, buffer already
+		 * synced by s3c_hsotg_ep_queue().  */
 
 		dma_reg = dir_in ? S3C_DIEPDMA(index) : S3C_DOEPDMA(index);
 		writel(ureq->dma, hsotg->regs + dma_reg);
@@ -541,29 +754,36 @@ static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 			__func__, ureq->dma, dma_reg);
 	}
 
-	ctrl |= S3C_DxEPCTL_EPEna;	
+	ctrl |= S3C_DxEPCTL_EPEna;	/* ensure ep enabled */
 	ctrl |= S3C_DxEPCTL_USBActEp;
-	ctrl |= S3C_DxEPCTL_CNAK;	
+	ctrl |= S3C_DxEPCTL_CNAK;	/* clear NAK set by core */
 
 	dev_dbg(hsotg->dev, "%s: DxEPCTL=0x%08x\n", __func__, ctrl);
 	writel(ctrl, hsotg->regs + epctrl_reg);
 
+	/* set these, it seems that DMA support increments past the end
+	 * of the packet buffer so we need to calculate the length from
+	 * this information. */
 	hs_ep->size_loaded = length;
 	hs_ep->last_load = ureq->actual;
 
 	if (dir_in && !using_dma(hsotg)) {
-		
+		/* set these anyway, we may need them for non-periodic in */
 		hs_ep->fifo_load = 0;
 
 		s3c_hsotg_write_fifo(hsotg, hs_ep, hs_req);
 	}
 
+	/* clear the INTknTXFEmpMsk when we start request, more as a aide
+	 * to debugging to see what is going on. */
 	if (dir_in)
 		writel(S3C_DIEPMSK_INTknTXFEmpMsk,
 		       hsotg->regs + S3C_DIEPINT(index));
 
+	/* Note, trying to clear the NAK here causes problems with transmit
+	 * on the S3C6400 ending up with the TXFIFO becoming full. */
 
-	
+	/* check ep is enabled */
 	if (!(readl(hsotg->regs + epctrl_reg) & S3C_DxEPCTL_EPEna))
 		dev_warn(hsotg->dev,
 			 "ep%d: failed to become enabled (DxEPCTL=0x%08x)?\n",
@@ -573,6 +793,18 @@ static void s3c_hsotg_start_req(struct s3c_hsotg *hsotg,
 		__func__, readl(hsotg->regs + epctrl_reg));
 }
 
+/**
+ * s3c_hsotg_map_dma - map the DMA memory being used for the request
+ * @hsotg: The device state.
+ * @hs_ep: The endpoint the request is on.
+ * @req: The request being processed.
+ *
+ * We've been asked to queue a request, so ensure that the memory buffer
+ * is correctly setup for DMA. If we've been passed an extant DMA address
+ * then ensure the buffer has been synced to memory. If our buffer has no
+ * DMA memory, then we map the memory and mark our request to allow us to
+ * cleanup on completion.
+*/
 static int s3c_hsotg_map_dma(struct s3c_hsotg *hsotg,
 			     struct s3c_hsotg_ep *hs_ep,
 			     struct usb_request *req)
@@ -582,7 +814,7 @@ static int s3c_hsotg_map_dma(struct s3c_hsotg *hsotg,
 
 	dir = hs_ep->dir_in ? DMA_TO_DEVICE : DMA_FROM_DEVICE;
 
-	
+	/* if the length is zero, ignore the DMA data */
 	if (hs_req->req.length == 0)
 		return 0;
 
@@ -631,12 +863,12 @@ static int s3c_hsotg_ep_queue(struct usb_ep *ep, struct usb_request *req,
 		ep->name, req, req->length, req->buf, req->no_interrupt,
 		req->zero, req->short_not_ok);
 
-	
+	/* initialise status of the request */
 	INIT_LIST_HEAD(&hs_req->queue);
 	req->actual = 0;
 	req->status = -EINPROGRESS;
 
-	
+	/* if we're using DMA, sync the buffers as necessary */
 	if (using_dma(hs)) {
 		int ret = s3c_hsotg_map_dma(hs, hs_ep, req);
 		if (ret)
@@ -664,6 +896,14 @@ static void s3c_hsotg_ep_free_request(struct usb_ep *ep,
 	kfree(hs_req);
 }
 
+/**
+ * s3c_hsotg_complete_oursetup - setup completion callback
+ * @ep: The endpoint the request was on.
+ * @req: The request completed.
+ *
+ * Called on completion of any requests the driver itself
+ * submitted that need cleaning up.
+ */
 static void s3c_hsotg_complete_oursetup(struct usb_ep *ep,
 					struct usb_request *req)
 {
@@ -675,6 +915,14 @@ static void s3c_hsotg_complete_oursetup(struct usb_ep *ep,
 	s3c_hsotg_ep_free_request(ep, req);
 }
 
+/**
+ * ep_from_windex - convert control wIndex value to endpoint
+ * @hsotg: The driver state.
+ * @windex: The control request wIndex field (in host order).
+ *
+ * Convert the given wIndex into a pointer to an driver endpoint
+ * structure, or return NULL if it is not a valid endpoint.
+*/
 static struct s3c_hsotg_ep *ep_from_windex(struct s3c_hsotg *hsotg,
 					   u32 windex)
 {
@@ -694,6 +942,16 @@ static struct s3c_hsotg_ep *ep_from_windex(struct s3c_hsotg *hsotg,
 	return ep;
 }
 
+/**
+ * s3c_hsotg_send_reply - send reply to control request
+ * @hsotg: The device state
+ * @ep: Endpoint 0
+ * @buff: Buffer for request
+ * @length: Length of reply.
+ *
+ * Create a request and queue it on the given endpoint. This is useful as
+ * an internal method of sending replies to certain control requests, etc.
+ */
 static int s3c_hsotg_send_reply(struct s3c_hsotg *hsotg,
 				struct s3c_hsotg_ep *ep,
 				void *buff,
@@ -713,7 +971,7 @@ static int s3c_hsotg_send_reply(struct s3c_hsotg *hsotg,
 
 	req->buf = hsotg->ep0_buff;
 	req->length = length;
-	req->zero = 1; 
+	req->zero = 1; /* always do zero-length final transfer */
 	req->complete = s3c_hsotg_complete_oursetup;
 
 	if (length)
@@ -730,6 +988,11 @@ static int s3c_hsotg_send_reply(struct s3c_hsotg *hsotg,
 	return 0;
 }
 
+/**
+ * s3c_hsotg_process_req_status - process request GET_STATUS
+ * @hsotg: The device state
+ * @ctrl: USB control request
+ */
 static int s3c_hsotg_process_req_status(struct s3c_hsotg *hsotg,
 					struct usb_ctrlrequest *ctrl)
 {
@@ -747,11 +1010,12 @@ static int s3c_hsotg_process_req_status(struct s3c_hsotg *hsotg,
 
 	switch (ctrl->bRequestType & USB_RECIP_MASK) {
 	case USB_RECIP_DEVICE:
-		reply = cpu_to_le16(0); 
+		reply = cpu_to_le16(0); /* bit 0 => self powered,
+					 * bit 1 => remote wakeup */
 		break;
 
 	case USB_RECIP_INTERFACE:
-		
+		/* currently, the data result should be zero */
 		reply = cpu_to_le16(0);
 		break;
 
@@ -781,6 +1045,12 @@ static int s3c_hsotg_process_req_status(struct s3c_hsotg *hsotg,
 
 static int s3c_hsotg_ep_sethalt(struct usb_ep *ep, int value);
 
+/**
+ * get_ep_head - return the first request on the endpoint
+ * @hs_ep: The controller endpoint to get
+ *
+ * Get the first request on the endpoint.
+ */
 static struct s3c_hsotg_req *get_ep_head(struct s3c_hsotg_ep *hs_ep)
 {
 	if (list_empty(&hs_ep->queue))
@@ -789,6 +1059,11 @@ static struct s3c_hsotg_req *get_ep_head(struct s3c_hsotg_ep *hs_ep)
 	return list_first_entry(&hs_ep->queue, struct s3c_hsotg_req, queue);
 }
 
+/**
+ * s3c_hsotg_process_req_featire - process request {SET,CLEAR}_FEATURE
+ * @hsotg: The device state
+ * @ctrl: USB control request
+ */
 static int s3c_hsotg_process_req_feature(struct s3c_hsotg *hsotg,
 					 struct usb_ctrlrequest *ctrl)
 {
@@ -822,6 +1097,10 @@ static int s3c_hsotg_process_req_feature(struct s3c_hsotg *hsotg,
 			}
 
 			if (!set) {
+				/*
+				 * If we have request in progress,
+				 * then complete it
+				 */
 				if (ep->req) {
 					hs_req = ep->req;
 					ep->req = NULL;
@@ -830,7 +1109,7 @@ static int s3c_hsotg_process_req_feature(struct s3c_hsotg *hsotg,
 							     &hs_req->req);
 				}
 
-				
+				/* If we have pending request, then start it */
 				restart = !list_empty(&ep->queue);
 				if (restart) {
 					hs_req = get_ep_head(ep);
@@ -845,11 +1124,20 @@ static int s3c_hsotg_process_req_feature(struct s3c_hsotg *hsotg,
 			return -ENOENT;
 		}
 	} else
-		return -ENOENT;  
+		return -ENOENT;  /* currently only deal with endpoint */
 
 	return 1;
 }
 
+/**
+ * s3c_hsotg_process_control - process a control request
+ * @hsotg: The device state
+ * @ctrl: The control request received
+ *
+ * The controller has received the SETUP phase of a control request, and
+ * needs to work out what to do next (and whether to pass it on to the
+ * gadget driver).
+ */
 static void s3c_hsotg_process_control(struct s3c_hsotg *hsotg,
 				      struct usb_ctrlrequest *ctrl)
 {
@@ -863,10 +1151,14 @@ static void s3c_hsotg_process_control(struct s3c_hsotg *hsotg,
 		 ctrl->bRequest, ctrl->bRequestType,
 		 ctrl->wValue, ctrl->wLength);
 
+	/* record the direction of the request, for later use when enquing
+	 * packets onto EP0. */
 
 	ep0->dir_in = (ctrl->bRequestType & USB_DIR_IN) ? 1 : 0;
 	dev_dbg(hsotg->dev, "ctrl: dir_in=%d\n", ep0->dir_in);
 
+	/* if we've no data with this request, then the last part of the
+	 * transaction is going to implicitly be IN. */
 	if (ctrl->wLength == 0)
 		ep0->dir_in = 1;
 
@@ -894,7 +1186,7 @@ static void s3c_hsotg_process_control(struct s3c_hsotg *hsotg,
 		}
 	}
 
-	
+	/* as a fallback, try delivering it to the driver to deal with */
 
 	if (ret == 0 && hsotg->driver) {
 		ret = hsotg->driver->setup(&hsotg->gadget, ctrl);
@@ -902,6 +1194,9 @@ static void s3c_hsotg_process_control(struct s3c_hsotg *hsotg,
 			dev_dbg(hsotg->dev, "driver->setup() ret %d\n", ret);
 	}
 
+	/* the request is either unhandlable, or is not formatted correctly
+	 * so respond with a STALL for the status stage to indicate failure.
+	 */
 
 	if (ret < 0) {
 		u32 reg;
@@ -910,6 +1205,8 @@ static void s3c_hsotg_process_control(struct s3c_hsotg *hsotg,
 		dev_dbg(hsotg->dev, "ep0 stall (dir=%d)\n", ep0->dir_in);
 		reg = (ep0->dir_in) ? S3C_DIEPCTL0 : S3C_DOEPCTL0;
 
+		/* S3C_DxEPCTL_Stall will be cleared by EP once it has
+		 * taken effect, so no need to clear later. */
 
 		ctrl = readl(hsotg->regs + reg);
 		ctrl |= S3C_DxEPCTL_Stall;
@@ -920,11 +1217,21 @@ static void s3c_hsotg_process_control(struct s3c_hsotg *hsotg,
 			"written DxEPCTL=0x%08x to %08x (DxEPCTL=0x%08x)\n",
 			ctrl, reg, readl(hsotg->regs + reg));
 
+		/* don't believe we need to anything more to get the EP
+		 * to reply with a STALL packet */
 	}
 }
 
 static void s3c_hsotg_enqueue_setup(struct s3c_hsotg *hsotg);
 
+/**
+ * s3c_hsotg_complete_setup - completion of a setup transfer
+ * @ep: The endpoint the request was on.
+ * @req: The request completed.
+ *
+ * Called on completion of any requests the driver itself submitted for
+ * EP0 setup packets
+ */
 static void s3c_hsotg_complete_setup(struct usb_ep *ep,
 				     struct usb_request *req)
 {
@@ -942,6 +1249,13 @@ static void s3c_hsotg_complete_setup(struct usb_ep *ep,
 		s3c_hsotg_process_control(hsotg, req->buf);
 }
 
+/**
+ * s3c_hsotg_enqueue_setup - start a request for EP0 packets
+ * @hsotg: The device state.
+ *
+ * Enqueue a request on EP0 if necessary to received any SETUP packets
+ * received from the host.
+ */
 static void s3c_hsotg_enqueue_setup(struct s3c_hsotg *hsotg)
 {
 	struct usb_request *req = hsotg->ctrl_req;
@@ -965,9 +1279,24 @@ static void s3c_hsotg_enqueue_setup(struct s3c_hsotg *hsotg)
 	ret = s3c_hsotg_ep_queue(&hsotg->eps[0].ep, req, GFP_ATOMIC);
 	if (ret < 0) {
 		dev_err(hsotg->dev, "%s: failed queue (%d)\n", __func__, ret);
+		/* Don't think there's much we can do other than watch the
+		 * driver fail. */
 	}
 }
 
+/**
+ * s3c_hsotg_complete_request - complete a request given to us
+ * @hsotg: The device state.
+ * @hs_ep: The endpoint the request was on.
+ * @hs_req: The request to complete.
+ * @result: The result code (0 => Ok, otherwise errno)
+ *
+ * The given request has finished, so call the necessary completion
+ * if it has one and then look to see if we can start a new request
+ * on the endpoint.
+ *
+ * Note, expects the ep to already be locked as appropriate.
+*/
 static void s3c_hsotg_complete_request(struct s3c_hsotg *hsotg,
 				       struct s3c_hsotg_ep *hs_ep,
 				       struct s3c_hsotg_req *hs_req,
@@ -983,6 +1312,8 @@ static void s3c_hsotg_complete_request(struct s3c_hsotg *hsotg,
 	dev_dbg(hsotg->dev, "complete: ep %p %s, req %p, %d => %p\n",
 		hs_ep, hs_ep->ep.name, hs_req, result, hs_req->req.complete);
 
+	/* only replace the status if we've not already set an error
+	 * from a previous transaction */
 
 	if (hs_req->req.status == -EINPROGRESS)
 		hs_req->req.status = result;
@@ -993,6 +1324,8 @@ static void s3c_hsotg_complete_request(struct s3c_hsotg *hsotg,
 	if (using_dma(hsotg))
 		s3c_hsotg_unmap_dma(hsotg, hs_ep, hs_req);
 
+	/* call the complete request with the locks off, just in case the
+	 * request tries to queue more work for this endpoint. */
 
 	if (hs_req->req.complete) {
 		spin_unlock(&hs_ep->lock);
@@ -1000,6 +1333,9 @@ static void s3c_hsotg_complete_request(struct s3c_hsotg *hsotg,
 		spin_lock(&hs_ep->lock);
 	}
 
+	/* Look to see if there is anything else to do. Note, the completion
+	 * of the previous request may have caused a new request to be started
+	 * so be careful when doing this. */
 
 	if (!hs_ep->req && result >= 0) {
 		restart = !list_empty(&hs_ep->queue);
@@ -1010,6 +1346,16 @@ static void s3c_hsotg_complete_request(struct s3c_hsotg *hsotg,
 	}
 }
 
+/**
+ * s3c_hsotg_complete_request_lock - complete a request given to us (locked)
+ * @hsotg: The device state.
+ * @hs_ep: The endpoint the request was on.
+ * @hs_req: The request to complete.
+ * @result: The result code (0 => Ok, otherwise errno)
+ *
+ * See s3c_hsotg_complete_request(), but called with the endpoint's
+ * lock held.
+*/
 static void s3c_hsotg_complete_request_lock(struct s3c_hsotg *hsotg,
 					    struct s3c_hsotg_ep *hs_ep,
 					    struct s3c_hsotg_req *hs_req,
@@ -1022,6 +1368,16 @@ static void s3c_hsotg_complete_request_lock(struct s3c_hsotg *hsotg,
 	spin_unlock_irqrestore(&hs_ep->lock, flags);
 }
 
+/**
+ * s3c_hsotg_rx_data - receive data from the FIFO for an endpoint
+ * @hsotg: The device state.
+ * @ep_idx: The endpoint index for the data
+ * @size: The size of data in the fifo, in bytes
+ *
+ * The FIFO status shows there is data to read from the FIFO for a given
+ * endpoint, so sort out whether we need to read the data into a request
+ * that has been made for that endpoint.
+ */
 static void s3c_hsotg_rx_data(struct s3c_hsotg *hsotg, int ep_idx, int size)
 {
 	struct s3c_hsotg_ep *hs_ep = &hsotg->eps[ep_idx];
@@ -1039,7 +1395,7 @@ static void s3c_hsotg_rx_data(struct s3c_hsotg *hsotg, int ep_idx, int size)
 			 "%s: FIFO %d bytes on ep%d but no req (DxEPCTl=0x%08x)\n",
 			 __func__, size, ep_idx, epctl);
 
-		
+		/* dump the data from the FIFO, we've nothing we can do */
 		for (ptr = 0; ptr < size; ptr += 4)
 			(void)readl(fifo);
 
@@ -1056,8 +1412,11 @@ static void s3c_hsotg_rx_data(struct s3c_hsotg *hsotg, int ep_idx, int size)
 		__func__, to_read, max_req, read_ptr, hs_req->req.length);
 
 	if (to_read > max_req) {
+		/* more data appeared than we where willing
+		 * to deal with in this request.
+		 */
 
-		
+		/* currently we don't deal this */
 		WARN_ON_ONCE(1);
 	}
 
@@ -1065,11 +1424,25 @@ static void s3c_hsotg_rx_data(struct s3c_hsotg *hsotg, int ep_idx, int size)
 	hs_req->req.actual += to_read;
 	to_read = DIV_ROUND_UP(to_read, 4);
 
+	/* note, we might over-write the buffer end by 3 bytes depending on
+	 * alignment of the data. */
 	readsl(fifo, hs_req->req.buf + read_ptr, to_read);
 
 	spin_unlock(&hs_ep->lock);
 }
 
+/**
+ * s3c_hsotg_send_zlp - send zero-length packet on control endpoint
+ * @hsotg: The device instance
+ * @req: The request currently on this endpoint
+ *
+ * Generate a zero-length IN packet request for terminating a SETUP
+ * transaction.
+ *
+ * Note, since we don't write any data to the TxFIFO, then it is
+ * currently believed that we do not need to wait for any space in
+ * the TxFIFO.
+ */
 static void s3c_hsotg_send_zlp(struct s3c_hsotg *hsotg,
 			       struct s3c_hsotg_req *req)
 {
@@ -1091,17 +1464,27 @@ static void s3c_hsotg_send_zlp(struct s3c_hsotg *hsotg,
 
 	dev_dbg(hsotg->dev, "sending zero-length packet\n");
 
-	
+	/* issue a zero-sized packet to terminate this */
 	writel(S3C_DxEPTSIZ_MC(1) | S3C_DxEPTSIZ_PktCnt(1) |
 	       S3C_DxEPTSIZ_XferSize(0), hsotg->regs + S3C_DIEPTSIZ(0));
 
 	ctrl = readl(hsotg->regs + S3C_DIEPCTL0);
-	ctrl |= S3C_DxEPCTL_CNAK;  
-	ctrl |= S3C_DxEPCTL_EPEna; 
+	ctrl |= S3C_DxEPCTL_CNAK;  /* clear NAK set by core */
+	ctrl |= S3C_DxEPCTL_EPEna; /* ensure ep enabled */
 	ctrl |= S3C_DxEPCTL_USBActEp;
 	writel(ctrl, hsotg->regs + S3C_DIEPCTL0);
 }
 
+/**
+ * s3c_hsotg_handle_outdone - handle receiving OutDone/SetupDone from RXFIFO
+ * @hsotg: The device instance
+ * @epnum: The endpoint received from
+ * @was_setup: Set if processing a SetupDone event.
+ *
+ * The RXFIFO has delivered an OutDone event, which means that the data
+ * transfer for an OUT endpoint has been completed, either by a short
+ * packet or by the finish of a transfer.
+*/
 static void s3c_hsotg_handle_outdone(struct s3c_hsotg *hsotg,
 				     int epnum, bool was_setup)
 {
@@ -1120,6 +1503,13 @@ static void s3c_hsotg_handle_outdone(struct s3c_hsotg *hsotg,
 	if (using_dma(hsotg)) {
 		unsigned size_done;
 
+		/* Calculate the size of the transfer by checking how much
+		 * is left in the endpoint size register and then working it
+		 * out from the amount we loaded for the transfer.
+		 *
+		 * We need to do this as DMA pointers are always 32bit aligned
+		 * so may overshoot/undershoot the transfer.
+		 */
 
 		size_done = hs_ep->size_loaded - size_left;
 		size_done += hs_ep->last_load;
@@ -1127,7 +1517,7 @@ static void s3c_hsotg_handle_outdone(struct s3c_hsotg *hsotg,
 		req->actual = size_done;
 	}
 
-	
+	/* if there is more request to do, schedule new transfer */
 	if (req->actual < req->length && size_left == 0) {
 		s3c_hsotg_start_req(hsotg, hs_ep, hs_req, true);
 		return;
@@ -1137,6 +1527,8 @@ static void s3c_hsotg_handle_outdone(struct s3c_hsotg *hsotg,
 		dev_dbg(hsotg->dev, "%s: got %d/%d (short not ok) => error\n",
 			__func__, req->actual, req->length);
 
+		/* todo - what should we return here? there's no one else
+		 * even bothering to check the status. */
 	}
 
 	if (epnum == 0) {
@@ -1147,6 +1539,12 @@ static void s3c_hsotg_handle_outdone(struct s3c_hsotg *hsotg,
 	s3c_hsotg_complete_request_lock(hsotg, hs_ep, hs_req, result);
 }
 
+/**
+ * s3c_hsotg_read_frameno - read current frame number
+ * @hsotg: The device instance
+ *
+ * Return the current frame number
+*/
 static u32 s3c_hsotg_read_frameno(struct s3c_hsotg *hsotg)
 {
 	u32 dsts;
@@ -1158,6 +1556,22 @@ static u32 s3c_hsotg_read_frameno(struct s3c_hsotg *hsotg)
 	return dsts;
 }
 
+/**
+ * s3c_hsotg_handle_rx - RX FIFO has data
+ * @hsotg: The device instance
+ *
+ * The IRQ handler has detected that the RX FIFO has some data in it
+ * that requires processing, so find out what is in there and do the
+ * appropriate read.
+ *
+ * The RXFIFO is a true FIFO, the packets coming out are still in packet
+ * chunks, so if you have x packets received on an endpoint you'll get x
+ * FIFO events delivered, each with a packet's worth of data in it.
+ *
+ * When using DMA, we should not be processing events from the RXFIFO
+ * as the actual data should be sent to the memory directly and we turn
+ * on the completion interrupts to get notifications of transfer completion.
+ */
 static void s3c_hsotg_handle_rx(struct s3c_hsotg *hsotg)
 {
 	u32 grxstsr = readl(hsotg->regs + S3C_GRXSTSP);
@@ -1221,6 +1635,10 @@ static void s3c_hsotg_handle_rx(struct s3c_hsotg *hsotg)
 	}
 }
 
+/**
+ * s3c_hsotg_ep0_mps - turn max packet size into register setting
+ * @mps: The maximum packet size in bytes.
+*/
 static u32 s3c_hsotg_ep0_mps(unsigned int mps)
 {
 	switch (mps) {
@@ -1234,11 +1652,20 @@ static u32 s3c_hsotg_ep0_mps(unsigned int mps)
 		return S3C_D0EPCTL_MPS_8;
 	}
 
-	
+	/* bad max packet size, warn and return invalid result */
 	WARN_ON(1);
 	return (u32)-1;
 }
 
+/**
+ * s3c_hsotg_set_ep_maxpacket - set endpoint's max-packet field
+ * @hsotg: The driver state.
+ * @ep: The index number of the endpoint
+ * @mps: The maximum packet size in bytes
+ *
+ * Configure the maximum packet size for the given endpoint, updating
+ * the hardware control registers to reflect this.
+ */
 static void s3c_hsotg_set_ep_maxpacket(struct s3c_hsotg *hsotg,
 				       unsigned int ep, unsigned int mps)
 {
@@ -1248,7 +1675,7 @@ static void s3c_hsotg_set_ep_maxpacket(struct s3c_hsotg *hsotg,
 	u32 reg;
 
 	if (ep == 0) {
-		
+		/* EP0 is a special case */
 		mpsval = s3c_hsotg_ep0_mps(mps);
 		if (mpsval > 3)
 			goto bad_mps;
@@ -1261,6 +1688,8 @@ static void s3c_hsotg_set_ep_maxpacket(struct s3c_hsotg *hsotg,
 
 	hs_ep->ep.maxpacket = mps;
 
+	/* update both the in and out endpoint controldir_ registers, even
+	 * if one of the directions may not be in use. */
 
 	reg = readl(regs + S3C_DIEPCTL(ep));
 	reg &= ~S3C_DxEPCTL_MPS_MASK;
@@ -1280,6 +1709,11 @@ bad_mps:
 	dev_err(hsotg->dev, "ep%d: bad mps of %d\n", ep, mps);
 }
 
+/**
+ * s3c_hsotg_txfifo_flush - flush Tx FIFO
+ * @hsotg: The driver state
+ * @idx: The index for the endpoint (0..15)
+ */
 static void s3c_hsotg_txfifo_flush(struct s3c_hsotg *hsotg, unsigned int idx)
 {
 	int timeout;
@@ -1288,7 +1722,7 @@ static void s3c_hsotg_txfifo_flush(struct s3c_hsotg *hsotg, unsigned int idx)
 	writel(S3C_GRSTCTL_TxFNum(idx) | S3C_GRSTCTL_TxFFlsh,
 		hsotg->regs + S3C_GRSTCTL);
 
-	
+	/* wait until the fifo is flushed */
 	timeout = 100;
 
 	while (1) {
@@ -1307,6 +1741,14 @@ static void s3c_hsotg_txfifo_flush(struct s3c_hsotg *hsotg, unsigned int idx)
 	}
 }
 
+/**
+ * s3c_hsotg_trytx - check to see if anything needs transmitting
+ * @hsotg: The driver state
+ * @hs_ep: The driver endpoint to check.
+ *
+ * Check to see if there is a request that has data to send, and if so
+ * make an attempt to write data into the FIFO.
+ */
 static int s3c_hsotg_trytx(struct s3c_hsotg *hsotg,
 			   struct s3c_hsotg_ep *hs_ep)
 {
@@ -1324,6 +1766,14 @@ static int s3c_hsotg_trytx(struct s3c_hsotg *hsotg,
 	return 0;
 }
 
+/**
+ * s3c_hsotg_complete_in - complete IN transfer
+ * @hsotg: The device state.
+ * @hs_ep: The endpoint that has just completed.
+ *
+ * An IN transfer has been completed, update the transfer's state and then
+ * call the relevant completion routines.
+ */
 static void s3c_hsotg_complete_in(struct s3c_hsotg *hsotg,
 				  struct s3c_hsotg_ep *hs_ep)
 {
@@ -1336,6 +1786,14 @@ static void s3c_hsotg_complete_in(struct s3c_hsotg *hsotg,
 		return;
 	}
 
+	/* Calculate the size of the transfer by checking how much is left
+	 * in the endpoint size register and then working it out from
+	 * the amount we loaded for the transfer.
+	 *
+	 * We do this even for DMA, as the transfer may have incremented
+	 * past the end of the buffer (DMA transfers are always 32bit
+	 * aligned).
+	 */
 
 	size_left = S3C_DxEPTSIZ_XferSize_GET(epsize);
 
@@ -1348,6 +1806,8 @@ static void s3c_hsotg_complete_in(struct s3c_hsotg *hsotg,
 
 	hs_req->req.actual = size_done;
 
+	/* if we did all of the transfer, and there is more data left
+	 * around, then try restarting the rest of the request */
 
 	if (!size_left && hs_req->req.actual < hs_req->req.length) {
 		dev_dbg(hsotg->dev, "%s trying more for req...\n", __func__);
@@ -1356,6 +1816,14 @@ static void s3c_hsotg_complete_in(struct s3c_hsotg *hsotg,
 		s3c_hsotg_complete_request_lock(hsotg, hs_ep, hs_req, 0);
 }
 
+/**
+ * s3c_hsotg_epint - handle an in/out endpoint interrupt
+ * @hsotg: The driver state
+ * @idx: The index for the endpoint (0..15)
+ * @dir_in: Set if this is an IN endpoint
+ *
+ * Process and clear any interrupt pending for an individual endpoint
+*/
 static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 			    int dir_in)
 {
@@ -1367,7 +1835,7 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 
 	ints = readl(hsotg->regs + epint_reg);
 
-	
+	/* Clear endpoint interrupts */
 	writel(ints, hsotg->regs + epint_reg);
 
 	dev_dbg(hsotg->dev, "%s: ep%d(%s) DxEPINT=0x%08x\n",
@@ -1379,12 +1847,16 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 			__func__, readl(hsotg->regs + epctl_reg),
 			readl(hsotg->regs + epsiz_reg));
 
+		/* we get OutDone from the FIFO, so we only need to look
+		 * at completing IN requests here */
 		if (dir_in) {
 			s3c_hsotg_complete_in(hsotg, hs_ep);
 
 			if (idx == 0 && !hs_ep->req)
 				s3c_hsotg_enqueue_setup(hsotg);
 		} else if (using_dma(hsotg)) {
+			/* We're using DMA, we need to fire an OutDone here
+			 * as we ignore the RXFIFO. */
 
 			s3c_hsotg_handle_outdone(hsotg, idx, false);
 		}
@@ -1411,10 +1883,14 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 	if (ints & S3C_DxEPINT_AHBErr)
 		dev_dbg(hsotg->dev, "%s: AHBErr\n", __func__);
 
-	if (ints & S3C_DxEPINT_Setup) {  
+	if (ints & S3C_DxEPINT_Setup) {  /* Setup or Timeout */
 		dev_dbg(hsotg->dev, "%s: Setup/Timeout\n",  __func__);
 
 		if (using_dma(hsotg) && idx == 0) {
+			/* this is the notification we've received a
+			 * setup packet. In non-DMA mode we'd get this
+			 * from the RXFIFO, instead we need to process
+			 * the setup here. */
 
 			if (dir_in)
 				WARN_ON_ONCE(1);
@@ -1427,18 +1903,20 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 		dev_dbg(hsotg->dev, "%s: B2BSetup/INEPNakEff\n", __func__);
 
 	if (dir_in) {
+		/* not sure if this is important, but we'll clear it anyway
+		 */
 		if (ints & S3C_DIEPMSK_INTknTXFEmpMsk) {
 			dev_dbg(hsotg->dev, "%s: ep%d: INTknTXFEmpMsk\n",
 				__func__, idx);
 		}
 
-		
+		/* this probably means something bad is happening */
 		if (ints & S3C_DIEPMSK_INTknEPMisMsk) {
 			dev_warn(hsotg->dev, "%s: ep%d: INTknEP\n",
 				 __func__, idx);
 		}
 
-		
+		/* FIFO has space or is empty (see GAHBCFG) */
 		if (hsotg->dedicated_fifos &&
 		    ints & S3C_DIEPMSK_TxFIFOEmpty) {
 			dev_dbg(hsotg->dev, "%s: ep%d: TxFIFOEmpty\n",
@@ -1449,16 +1927,29 @@ static void s3c_hsotg_epint(struct s3c_hsotg *hsotg, unsigned int idx,
 	}
 }
 
+/**
+ * s3c_hsotg_irq_enumdone - Handle EnumDone interrupt (enumeration done)
+ * @hsotg: The device state.
+ *
+ * Handle updating the device settings after the enumeration phase has
+ * been completed.
+*/
 static void s3c_hsotg_irq_enumdone(struct s3c_hsotg *hsotg)
 {
 	u32 dsts = readl(hsotg->regs + S3C_DSTS);
 	int ep0_mps = 0, ep_mps;
 
+	/* This should signal the finish of the enumeration phase
+	 * of the USB handshaking, so we should now know what rate
+	 * we connected at. */
 
 	dev_dbg(hsotg->dev, "EnumDone (DSTS=0x%08x)\n", dsts);
 
+	/* note, since we're limited by the size of transfer on EP0, and
+	 * it seems IN transfers must be a even number of packets we do
+	 * not advertise a 64byte MPS on EP0. */
 
-	
+	/* catch both EnumSpd_FS and EnumSpd_FS48 */
 	switch (dsts & S3C_DSTS_EnumSpd_MASK) {
 	case S3C_DSTS_EnumSpd_FS:
 	case S3C_DSTS_EnumSpd_FS48:
@@ -1475,11 +1966,17 @@ static void s3c_hsotg_irq_enumdone(struct s3c_hsotg *hsotg)
 
 	case S3C_DSTS_EnumSpd_LS:
 		hsotg->gadget.speed = USB_SPEED_LOW;
+		/* note, we don't actually support LS in this driver at the
+		 * moment, and the documentation seems to imply that it isn't
+		 * supported by the PHYs on some of the devices.
+		 */
 		break;
 	}
 	dev_info(hsotg->dev, "new device is %s\n",
 		 usb_speed_string(hsotg->gadget.speed));
 
+	/* we should now know the maximum packet size for an
+	 * endpoint, so set the endpoints to a default value. */
 
 	if (ep0_mps) {
 		int i;
@@ -1488,7 +1985,7 @@ static void s3c_hsotg_irq_enumdone(struct s3c_hsotg *hsotg)
 			s3c_hsotg_set_ep_maxpacket(hsotg, i, ep_mps);
 	}
 
-	
+	/* ensure after enumeration our EP0 is active */
 
 	s3c_hsotg_enqueue_setup(hsotg);
 
@@ -1497,6 +1994,16 @@ static void s3c_hsotg_irq_enumdone(struct s3c_hsotg *hsotg)
 		readl(hsotg->regs + S3C_DOEPCTL0));
 }
 
+/**
+ * kill_all_requests - remove all requests from the endpoint's queue
+ * @hsotg: The device state.
+ * @ep: The endpoint the requests may be on.
+ * @result: The result code to use.
+ * @force: Force removal of any current requests
+ *
+ * Go through the requests on the given endpoint and mark them
+ * completed with the given result code.
+ */
 static void kill_all_requests(struct s3c_hsotg *hsotg,
 			      struct s3c_hsotg_ep *ep,
 			      int result, bool force)
@@ -1507,6 +2014,8 @@ static void kill_all_requests(struct s3c_hsotg *hsotg,
 	spin_lock_irqsave(&ep->lock, flags);
 
 	list_for_each_entry_safe(req, treq, &ep->queue, queue) {
+		/* currently, we can't do much about an already
+		 * running request on an in endpoint */
 
 		if (ep->req == req && ep->dir_in && !force)
 			continue;
@@ -1523,6 +2032,14 @@ static void kill_all_requests(struct s3c_hsotg *hsotg,
 	    (_hs)->driver && (_hs)->driver->_entry)	\
 		(_hs)->driver->_entry(&(_hs)->gadget);
 
+/**
+ * s3c_hsotg_disconnect_irq - disconnect irq service
+ * @hsotg: The device state.
+ *
+ * A disconnect IRQ has been received, meaning that the host has
+ * lost contact with the bus. Remove all current transactions
+ * and signal the gadget driver that this has happened.
+*/
 static void s3c_hsotg_disconnect_irq(struct s3c_hsotg *hsotg)
 {
 	unsigned ep;
@@ -1533,12 +2050,17 @@ static void s3c_hsotg_disconnect_irq(struct s3c_hsotg *hsotg)
 	call_gadget(hsotg, disconnect);
 }
 
+/**
+ * s3c_hsotg_irq_fifoempty - TX FIFO empty interrupt handler
+ * @hsotg: The device state:
+ * @periodic: True if this is a periodic FIFO interrupt
+ */
 static void s3c_hsotg_irq_fifoempty(struct s3c_hsotg *hsotg, bool periodic)
 {
 	struct s3c_hsotg_ep *ep;
 	int epno, ret;
 
-	
+	/* look through for any more data to transmit */
 
 	for (epno = 0; epno < S3C_HSOTG_EPS; epno++) {
 		ep = &hsotg->eps[epno];
@@ -1558,10 +2080,16 @@ static void s3c_hsotg_irq_fifoempty(struct s3c_hsotg *hsotg, bool periodic)
 
 static struct s3c_hsotg *our_hsotg;
 
+/* IRQ flags which will trigger a retry around the IRQ loop */
 #define IRQ_RETRY_MASK (S3C_GINTSTS_NPTxFEmp | \
 			S3C_GINTSTS_PTxFEmp |  \
 			S3C_GINTSTS_RxFLvl)
 
+/**
+ * s3c_hsotg_irq - handle device interrupt
+ * @irq: The IRQ number triggered
+ * @pw: The pw value when registered the handler.
+ */
 static irqreturn_t s3c_hsotg_irq(int irq, void *pw)
 {
 	struct s3c_hsotg *hsotg = pw;
@@ -1640,17 +2168,25 @@ irq_retry:
 
 		kill_all_requests(hsotg, &hsotg->eps[0], -ECONNRESET, true);
 
+		/* it seems after a reset we can end up with a situation
+		 * where the TXFIFO still has data in it... the docs
+		 * suggest resetting all the fifos, so use the init_fifo
+		 * code to relayout and flush the fifos.
+		 */
 
 		s3c_hsotg_init_fifo(hsotg);
 
 		s3c_hsotg_enqueue_setup(hsotg);
 	}
 
-	
+	/* check both FIFOs */
 
 	if (gintsts & S3C_GINTSTS_NPTxFEmp) {
 		dev_dbg(hsotg->dev, "NPTxFEmp\n");
 
+		/* Disable the interrupt to stop it happening again
+		 * unless one of these endpoint routines decides that
+		 * it needs re-enabling */
 
 		s3c_hsotg_disable_gsint(hsotg, S3C_GINTSTS_NPTxFEmp);
 		s3c_hsotg_irq_fifoempty(hsotg, false);
@@ -1659,13 +2195,16 @@ irq_retry:
 	if (gintsts & S3C_GINTSTS_PTxFEmp) {
 		dev_dbg(hsotg->dev, "PTxFEmp\n");
 
-		
+		/* See note in S3C_GINTSTS_NPTxFEmp */
 
 		s3c_hsotg_disable_gsint(hsotg, S3C_GINTSTS_PTxFEmp);
 		s3c_hsotg_irq_fifoempty(hsotg, true);
 	}
 
 	if (gintsts & S3C_GINTSTS_RxFLvl) {
+		/* note, since GINTSTS_RxFLvl doubles as FIFO-not-empty,
+		 * we need to retry s3c_hsotg_handle_rx if this is still
+		 * set. */
 
 		s3c_hsotg_handle_rx(hsotg);
 	}
@@ -1694,6 +2233,9 @@ irq_retry:
 		writel(S3C_GINTSTS_ErlySusp, hsotg->regs + S3C_GINTSTS);
 	}
 
+	/* these next two seem to crop-up occasionally causing the core
+	 * to shutdown the USB transfer, so try clearing them and logging
+	 * the occurrence. */
 
 	if (gintsts & S3C_GINTSTS_GOUTNakEff) {
 		dev_info(hsotg->dev, "GOUTNakEff triggered\n");
@@ -1711,6 +2253,8 @@ irq_retry:
 		s3c_hsotg_dump(hsotg);
 	}
 
+	/* if we've had fifo events, we should try and go around the
+	 * loop again to see if there's any point in returning yet. */
 
 	if (gintsts & IRQ_RETRY_MASK && --retry_count > 0)
 			goto irq_retry;
@@ -1718,6 +2262,13 @@ irq_retry:
 	return IRQ_HANDLED;
 }
 
+/**
+ * s3c_hsotg_ep_enable - enable the given endpoint
+ * @ep: The USB endpint to configure
+ * @desc: The USB endpoint descriptor to configure with.
+ *
+ * This is called from the USB gadget code's usb_ep_enable().
+*/
 static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 			       const struct usb_endpoint_descriptor *desc)
 {
@@ -1736,7 +2287,7 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 		__func__, ep->name, desc->bEndpointAddress, desc->bmAttributes,
 		desc->wMaxPacketSize, desc->bInterval);
 
-	
+	/* not to be called for EP0 */
 	WARN_ON(index == 0);
 
 	dir_in = (desc->bEndpointAddress & USB_ENDPOINT_DIR_MASK) ? 1 : 0;
@@ -1747,7 +2298,7 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 
 	mps = usb_endpoint_maxp(desc);
 
-	
+	/* note, we handle this here instead of s3c_hsotg_set_ep_maxpacket */
 
 	epctrl_reg = dir_in ? S3C_DIEPCTL(index) : S3C_DOEPCTL(index);
 	epctrl = readl(hsotg->regs + epctrl_reg);
@@ -1760,15 +2311,22 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 	epctrl &= ~(S3C_DxEPCTL_EPType_MASK | S3C_DxEPCTL_MPS_MASK);
 	epctrl |= S3C_DxEPCTL_MPS(mps);
 
+	/* mark the endpoint as active, otherwise the core may ignore
+	 * transactions entirely for this endpoint */
 	epctrl |= S3C_DxEPCTL_USBActEp;
 
+	/* set the NAK status on the endpoint, otherwise we might try and
+	 * do something with data that we've yet got a request to process
+	 * since the RXFIFO will take data for an endpoint even if the
+	 * size register hasn't been set.
+	 */
 
 	epctrl |= S3C_DxEPCTL_SNAK;
 
-	
+	/* update the endpoint state */
 	hs_ep->ep.maxpacket = mps;
 
-	
+	/* default, set to non-periodic */
 	hs_ep->periodic = 0;
 
 	switch (desc->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) {
@@ -1783,6 +2341,10 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 
 	case USB_ENDPOINT_XFER_INT:
 		if (dir_in) {
+			/* Allocate our TxFNum by simply using the index
+			 * of the endpoint for the moment. We could do
+			 * something better if the host indicates how
+			 * many FIFOs we are expecting to use. */
 
 			hs_ep->periodic = 1;
 			epctrl |= S3C_DxEPCTL_TxFNum(index);
@@ -1796,10 +2358,13 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 		break;
 	}
 
+	/* if the hardware has dedicated fifos, we must give each IN EP
+	 * a unique tx-fifo even if it is non-periodic.
+	 */
 	if (dir_in && hsotg->dedicated_fifos)
 		epctrl |= S3C_DxEPCTL_TxFNum(index);
 
-	
+	/* for non control endpoints, set PID to D0 */
 	if (index)
 		epctrl |= S3C_DxEPCTL_SetD0PID;
 
@@ -1810,7 +2375,7 @@ static int s3c_hsotg_ep_enable(struct usb_ep *ep,
 	dev_dbg(hsotg->dev, "%s: read DxEPCTL=0x%08x\n",
 		__func__, readl(hsotg->regs + epctrl_reg));
 
-	
+	/* enable the endpoint interrupt */
 	s3c_hsotg_ctrl_epint(hsotg, index, dir_in, 1);
 
 out:
@@ -1837,7 +2402,7 @@ static int s3c_hsotg_ep_disable(struct usb_ep *ep)
 
 	epctrl_reg = dir_in ? S3C_DIEPCTL(index) : S3C_DOEPCTL(index);
 
-	
+	/* terminate all requests with shutdown */
 	kill_all_requests(hsotg, hs_ep, -ESHUTDOWN, false);
 
 	spin_lock_irqsave(&hs_ep->lock, flags);
@@ -1850,13 +2415,18 @@ static int s3c_hsotg_ep_disable(struct usb_ep *ep)
 	dev_dbg(hsotg->dev, "%s: DxEPCTL=0x%08x\n", __func__, ctrl);
 	writel(ctrl, hsotg->regs + epctrl_reg);
 
-	
+	/* disable endpoint interrupts */
 	s3c_hsotg_ctrl_epint(hsotg, hs_ep->index, hs_ep->dir_in, 0);
 
 	spin_unlock_irqrestore(&hs_ep->lock, flags);
 	return 0;
 }
 
+/**
+ * on_list - check request is on the given endpoint
+ * @ep: The endpoint to check.
+ * @test: The request to test if it is on the endpoint.
+*/
 static bool on_list(struct s3c_hsotg_ep *ep, struct s3c_hsotg_req *test)
 {
 	struct s3c_hsotg_req *req, *treq;
@@ -1905,7 +2475,7 @@ static int s3c_hsotg_ep_sethalt(struct usb_ep *ep, int value)
 
 	spin_lock_irqsave(&hs_ep->lock, irqflags);
 
-	
+	/* write both IN and OUT control registers */
 
 	epreg = S3C_DIEPCTL(index);
 	epctl = readl(hs->regs + epreg);
@@ -1952,9 +2522,15 @@ static struct usb_ep_ops s3c_hsotg_ep_ops = {
 	.queue		= s3c_hsotg_ep_queue,
 	.dequeue	= s3c_hsotg_ep_dequeue,
 	.set_halt	= s3c_hsotg_ep_sethalt,
-	
+	/* note, don't believe we have any call for the fifo routines */
 };
 
+/**
+ * s3c_hsotg_corereset - issue softreset to the core
+ * @hsotg: The device state
+ *
+ * Issue a soft reset to the core, and await the core finishing it.
+*/
 static int s3c_hsotg_corereset(struct s3c_hsotg *hsotg)
 {
 	int timeout;
@@ -1962,7 +2538,7 @@ static int s3c_hsotg_corereset(struct s3c_hsotg *hsotg)
 
 	dev_dbg(hsotg->dev, "resetting core\n");
 
-	
+	/* issue soft reset */
 	writel(S3C_GRSTCTL_CSftRst, hsotg->regs + S3C_GRSTCTL);
 
 	timeout = 1000;
@@ -1990,7 +2566,7 @@ static int s3c_hsotg_corereset(struct s3c_hsotg *hsotg)
 		if (!(grstctl & S3C_GRSTCTL_AHBIdle))
 			continue;
 
-		break;		
+		break;		/* reset done */
 	}
 
 	dev_dbg(hsotg->dev, "reset successful\n");
@@ -2044,24 +2620,26 @@ static int s3c_hsotg_start(struct usb_gadget_driver *driver,
 		goto err;
 	}
 
+	/* we must now enable ep0 ready for host detection and then
+	 * set configuration. */
 
 	s3c_hsotg_corereset(hsotg);
 
-	
+	/* set the PLL on, remove the HNP/SRP and set the PHY */
 	writel(S3C_GUSBCFG_PHYIf16 | S3C_GUSBCFG_TOutCal(7) |
 	       (0x5 << 10), hsotg->regs + S3C_GUSBCFG);
 
-	
+	/* looks like soft-reset changes state of FIFOs */
 	s3c_hsotg_init_fifo(hsotg);
 
 	__orr32(hsotg->regs + S3C_DCTL, S3C_DCTL_SftDiscon);
 
 	writel(1 << 18 | S3C_DCFG_DevSpd_HS,  hsotg->regs + S3C_DCFG);
 
-	
+	/* Clear any pending OTG interrupts */
 	writel(0xffffffff, hsotg->regs + S3C_GOTGINT);
 
-	
+	/* Clear any pending interrupts */
 	writel(0xffffffff, hsotg->regs + S3C_GINTSTS);
 
 	writel(S3C_GINTSTS_DisconnInt | S3C_GINTSTS_SessReqInt |
@@ -2079,6 +2657,9 @@ static int s3c_hsotg_start(struct usb_gadget_driver *driver,
 	else
 		writel(S3C_GAHBCFG_GlblIntrEn, hsotg->regs + S3C_GAHBCFG);
 
+	/* Enabling INTknTXFEmpMsk here seems to be a big mistake, we end
+	 * up being flooded with interrupts if the host is polling the
+	 * endpoint to try and read data. */
 
 	writel(S3C_DIEPMSK_TimeOUTMsk | S3C_DIEPMSK_AHBErrMsk |
 	       S3C_DIEPMSK_INTknEPMisMsk |
@@ -2086,6 +2667,8 @@ static int s3c_hsotg_start(struct usb_gadget_driver *driver,
 	       ((hsotg->dedicated_fifos) ? S3C_DIEPMSK_TxFIFOEmpty : 0),
 	       hsotg->regs + S3C_DIEPMSK);
 
+	/* don't need XferCompl, we get that from RXFIFO in slave mode. In
+	 * DMA mode we may need this. */
 	writel(S3C_DOEPMSK_SetupMsk | S3C_DOEPMSK_AHBErrMsk |
 	       S3C_DOEPMSK_EPDisbldMsk |
 	       (using_dma(hsotg) ? (S3C_DIEPMSK_XferComplMsk |
@@ -2098,24 +2681,29 @@ static int s3c_hsotg_start(struct usb_gadget_driver *driver,
 		readl(hsotg->regs + S3C_DIEPCTL0),
 		readl(hsotg->regs + S3C_DOEPCTL0));
 
-	
+	/* enable in and out endpoint interrupts */
 	s3c_hsotg_en_gsint(hsotg, S3C_GINTSTS_OEPInt | S3C_GINTSTS_IEPInt);
 
+	/* Enable the RXFIFO when in slave mode, as this is how we collect
+	 * the data. In DMA mode, we get events from the FIFO but also
+	 * things we cannot process, so do not use it. */
 	if (!using_dma(hsotg))
 		s3c_hsotg_en_gsint(hsotg, S3C_GINTSTS_RxFLvl);
 
-	
+	/* Enable interrupts for EP0 in and out */
 	s3c_hsotg_ctrl_epint(hsotg, 0, 0, 1);
 	s3c_hsotg_ctrl_epint(hsotg, 0, 1, 1);
 
 	__orr32(hsotg->regs + S3C_DCTL, S3C_DCTL_PWROnPrgDone);
-	udelay(10);  
+	udelay(10);  /* see openiboot */
 	__bic32(hsotg->regs + S3C_DCTL, S3C_DCTL_PWROnPrgDone);
 
 	dev_dbg(hsotg->dev, "DCTL=0x%08x\n", readl(hsotg->regs + S3C_DCTL));
 
+	/* S3C_DxEPCTL_USBActEp says RO in manual, but seems to be set by
+	   writing to the EPCTL register.. */
 
-	
+	/* set to read 1 8byte packet */
 	writel(S3C_DxEPTSIZ_MC(1) | S3C_DxEPTSIZ_PktCnt(1) |
 	       S3C_DxEPTSIZ_XferSize(8), hsotg->regs + DOEPTSIZ0);
 
@@ -2124,7 +2712,7 @@ static int s3c_hsotg_start(struct usb_gadget_driver *driver,
 	       S3C_DxEPCTL_USBActEp,
 	       hsotg->regs + S3C_DOEPCTL0);
 
-	
+	/* enable, but don't activate EP0in */
 	writel(s3c_hsotg_ep0_mps(hsotg->eps[0].ep.maxpacket) |
 	       S3C_DxEPCTL_USBActEp, hsotg->regs + S3C_DIEPCTL0);
 
@@ -2134,17 +2722,17 @@ static int s3c_hsotg_start(struct usb_gadget_driver *driver,
 		readl(hsotg->regs + S3C_DIEPCTL0),
 		readl(hsotg->regs + S3C_DOEPCTL0));
 
-	
+	/* clear global NAKs */
 	writel(S3C_DCTL_CGOUTNak | S3C_DCTL_CGNPInNAK,
 	       hsotg->regs + S3C_DCTL);
 
-	
+	/* must be at-least 3ms to allow bus to see disconnect */
 	msleep(3);
 
-	
+	/* remove the soft-disconnect and let's go */
 	__bic32(hsotg->regs + S3C_DCTL, S3C_DCTL_SftDiscon);
 
-	
+	/* report to the user, and return */
 
 	dev_info(hsotg->dev, "bound driver %s\n", driver->driver.name);
 	return 0;
@@ -2166,7 +2754,7 @@ static int s3c_hsotg_stop(struct usb_gadget_driver *driver)
 	if (!driver || driver != hsotg->driver || !driver->unbind)
 		return -EINVAL;
 
-	
+	/* all endpoints should be shutdown */
 	for (ep = 0; ep < S3C_HSOTG_EPS; ep++)
 		s3c_hsotg_ep_disable(&hsotg->eps[ep].ep);
 
@@ -2195,6 +2783,16 @@ static struct usb_gadget_ops s3c_hsotg_gadget_ops = {
 	.stop		= s3c_hsotg_stop,
 };
 
+/**
+ * s3c_hsotg_initep - initialise a single endpoint
+ * @hsotg: The device state.
+ * @hs_ep: The endpoint to be initialised.
+ * @epnum: The endpoint number
+ *
+ * Initialise the given endpoint (as part of the probe and device state
+ * creation) to give to the gadget driver. Setup the endpoint name, any
+ * direction information and other state that may be required.
+ */
 static void __devinit s3c_hsotg_initep(struct s3c_hsotg *hsotg,
 				       struct s3c_hsotg_ep *hs_ep,
 				       int epnum)
@@ -2220,7 +2818,7 @@ static void __devinit s3c_hsotg_initep(struct s3c_hsotg *hsotg,
 
 	spin_lock_init(&hs_ep->lock);
 
-	
+	/* add to the list of endpoints known by the gadget driver */
 	if (epnum)
 		list_add_tail(&hs_ep->ep.ep_list, &hsotg->gadget.ep_list);
 
@@ -2229,10 +2827,17 @@ static void __devinit s3c_hsotg_initep(struct s3c_hsotg *hsotg,
 	hs_ep->ep.maxpacket = epnum ? 512 : EP0_MPS_LIMIT;
 	hs_ep->ep.ops = &s3c_hsotg_ep_ops;
 
+	/* Read the FIFO size for the Periodic TX FIFO, even if we're
+	 * an OUT endpoint, we may as well do this if in future the
+	 * code is changed to make each endpoint's direction changeable.
+	 */
 
 	ptxfifo = readl(hsotg->regs + S3C_DPTXFSIZn(epnum));
 	hs_ep->fifo_size = S3C_DPTXFSIZn_DPTxFSize_GET(ptxfifo) * 4;
 
+	/* if we're using dma, we need to set the next-endpoint pointer
+	 * to be something valid.
+	 */
 
 	if (using_dma(hsotg)) {
 		u32 next = S3C_DxEPCTL_NextEp((epnum + 1) % 15);
@@ -2241,6 +2846,12 @@ static void __devinit s3c_hsotg_initep(struct s3c_hsotg *hsotg,
 	}
 }
 
+/**
+ * s3c_hsotg_otgreset - reset the OtG phy block
+ * @hsotg: The host state.
+ *
+ * Power up the phy, set the basic configuration and start the PHY.
+ */
 static void s3c_hsotg_otgreset(struct s3c_hsotg *hsotg)
 {
 	struct clk *xusbxti;
@@ -2264,7 +2875,7 @@ static void s3c_hsotg_otgreset(struct s3c_hsotg *hsotg)
 			break;
 		default:
 		case 48*MHZ:
-			
+			/* default reference clock */
 			break;
 		}
 		clk_put(xusbxti);
@@ -2272,10 +2883,10 @@ static void s3c_hsotg_otgreset(struct s3c_hsotg *hsotg)
 
 	writel(osc | 0x10, S3C_PHYCLK);
 
-	
+	/* issue a full set of resets to the otg and core */
 
 	writel(S3C_RSTCON_PHY, S3C_RSTCON);
-	udelay(20);	
+	udelay(20);	/* at-least 10uS */
 	writel(0, S3C_RSTCON);
 }
 
@@ -2284,7 +2895,7 @@ static void s3c_hsotg_init(struct s3c_hsotg *hsotg)
 {
 	u32 cfg4;
 
-	
+	/* unmask subset of endpoint interrupts */
 
 	writel(S3C_DIEPMSK_TimeOUTMsk | S3C_DIEPMSK_AHBErrMsk |
 	       S3C_DIEPMSK_EPDisbldMsk | S3C_DIEPMSK_XferComplMsk,
@@ -2296,16 +2907,16 @@ static void s3c_hsotg_init(struct s3c_hsotg *hsotg)
 
 	writel(0, hsotg->regs + S3C_DAINTMSK);
 
-	
+	/* Be in disconnected state until gadget is registered */
 	__orr32(hsotg->regs + S3C_DCTL, S3C_DCTL_SftDiscon);
 
 	if (0) {
-		
+		/* post global nak until we're ready */
 		writel(S3C_DCTL_SGNPInNAK | S3C_DCTL_SGOUTNak,
 		       hsotg->regs + S3C_DCTL);
 	}
 
-	
+	/* setup fifos */
 
 	dev_dbg(hsotg->dev, "GRXFSIZ=0x%08x, GNPTXFSIZ=0x%08x\n",
 		readl(hsotg->regs + S3C_GRXFSIZ),
@@ -2313,14 +2924,14 @@ static void s3c_hsotg_init(struct s3c_hsotg *hsotg)
 
 	s3c_hsotg_init_fifo(hsotg);
 
-	
+	/* set the PLL on, remove the HNP/SRP and set the PHY */
 	writel(S3C_GUSBCFG_PHYIf16 | S3C_GUSBCFG_TOutCal(7) | (0x5 << 10),
 	       hsotg->regs + S3C_GUSBCFG);
 
 	writel(using_dma(hsotg) ? S3C_GAHBCFG_DMAEn : 0x0,
 	       hsotg->regs + S3C_GAHBCFG);
 
-	
+	/* check hardware configuration */
 
 	cfg4 = readl(hsotg->regs + 0x50);
 	hsotg->dedicated_fifos = (cfg4 >> 25) & 1;
@@ -2347,7 +2958,7 @@ static void s3c_hsotg_dump(struct s3c_hsotg *hsotg)
 	dev_info(dev, "GRXFSIZ=0x%08x, GNPTXFSIZ=0x%08x\n",
 		 readl(regs + S3C_GRXFSIZ), readl(regs + S3C_GNPTXFSIZ));
 
-	
+	/* show periodic fifo settings */
 
 	for (idx = 1; idx <= 15; idx++) {
 		val = readl(regs + S3C_DPTXFSIZn(idx));
@@ -2378,6 +2989,15 @@ static void s3c_hsotg_dump(struct s3c_hsotg *hsotg)
 }
 
 
+/**
+ * state_show - debugfs: show overall driver and device state.
+ * @seq: The seq file to write to.
+ * @v: Unused parameter.
+ *
+ * This debugfs entry shows the overall state of the hardware and
+ * some general information about each of the endpoints available
+ * to the system.
+ */
 static int state_show(struct seq_file *seq, void *v)
 {
 	struct s3c_hsotg *hsotg = seq->private;
@@ -2440,6 +3060,14 @@ static const struct file_operations state_fops = {
 	.release	= single_release,
 };
 
+/**
+ * fifo_show - debugfs: show the fifo information
+ * @seq: The seq_file to write data to.
+ * @v: Unused parameter.
+ *
+ * Show the FIFO information for the overall fifo and all the
+ * periodic transmission FIFOs.
+*/
 static int fifo_show(struct seq_file *seq, void *v)
 {
 	struct s3c_hsotg *hsotg = seq->private;
@@ -2487,6 +3115,14 @@ static const char *decode_direction(int is_in)
 	return is_in ? "in" : "out";
 }
 
+/**
+ * ep_show - debugfs: show the state of an endpoint.
+ * @seq: The seq_file to write data to.
+ * @v: Unused parameter.
+ *
+ * This debugfs entry shows the state of the given endpoint (one is
+ * registered for each available).
+*/
 static int ep_show(struct seq_file *seq, void *v)
 {
 	struct s3c_hsotg_ep *ep = seq->private;
@@ -2500,7 +3136,7 @@ static int ep_show(struct seq_file *seq, void *v)
 	seq_printf(seq, "Endpoint index %d, named %s,  dir %s:\n",
 		   ep->index, ep->ep.name, decode_direction(ep->dir_in));
 
-	
+	/* first show the register state */
 
 	seq_printf(seq, "\tDIEPCTL=0x%08x, DOEPCTL=0x%08x\n",
 		   readl(regs + S3C_DIEPCTL(index)),
@@ -2558,6 +3194,15 @@ static const struct file_operations ep_fops = {
 	.release	= single_release,
 };
 
+/**
+ * s3c_hsotg_create_debug - create debugfs directory and files
+ * @hsotg: The driver state
+ *
+ * Create the debugfs files to allow the user to get information
+ * about the state of the system. The directory name is created
+ * with the same name as the device itself, in case we end up
+ * with multiple blocks in future systems.
+*/
 static void __devinit s3c_hsotg_create_debug(struct s3c_hsotg *hsotg)
 {
 	struct dentry *root;
@@ -2570,7 +3215,7 @@ static void __devinit s3c_hsotg_create_debug(struct s3c_hsotg *hsotg)
 		return;
 	}
 
-	
+	/* create general state file */
 
 	hsotg->debug_file = debugfs_create_file("state", 0444, root,
 						hsotg, &state_fops);
@@ -2584,7 +3229,7 @@ static void __devinit s3c_hsotg_create_debug(struct s3c_hsotg *hsotg)
 	if (IS_ERR(hsotg->debug_fifo))
 		dev_err(hsotg->dev, "%s: failed to create fifo\n", __func__);
 
-	
+	/* create one file for each endpoint */
 
 	for (epidx = 0; epidx < S3C_HSOTG_EPS; epidx++) {
 		struct s3c_hsotg_ep *ep = &hsotg->eps[epidx];
@@ -2598,6 +3243,12 @@ static void __devinit s3c_hsotg_create_debug(struct s3c_hsotg *hsotg)
 	}
 }
 
+/**
+ * s3c_hsotg_delete_debug - cleanup debugfs entries
+ * @hsotg: The driver state
+ *
+ * Cleanup (remove) the debugfs files for use on module exit.
+*/
 static void __devexit s3c_hsotg_delete_debug(struct s3c_hsotg *hsotg)
 {
 	unsigned epidx;
@@ -2612,6 +3263,15 @@ static void __devexit s3c_hsotg_delete_debug(struct s3c_hsotg *hsotg)
 	debugfs_remove(hsotg->debug_root);
 }
 
+/**
+ * s3c_hsotg_gate - set the hardware gate for the block
+ * @pdev: The device we bound to
+ * @on: On or off.
+ *
+ * Set the hardware gate setting into the block. If we end up on
+ * something other than an S3C64XX, then we might need to change this
+ * to using a platform data callback, or some other mechanism.
+ */
 static void s3c_hsotg_gate(struct platform_device *pdev, bool on)
 {
 	unsigned long flags;
@@ -2712,12 +3372,12 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 	hsotg->gadget.dev.parent = dev;
 	hsotg->gadget.dev.dma_mask = dev->dma_mask;
 
-	
+	/* setup endpoint information */
 
 	INIT_LIST_HEAD(&hsotg->gadget.ep_list);
 	hsotg->gadget.ep0 = &hsotg->eps[0].ep;
 
-	
+	/* allocate EP0 request */
 
 	hsotg->ctrl_req = s3c_hsotg_ep_alloc_request(&hsotg->eps[0].ep,
 						     GFP_KERNEL);
@@ -2726,7 +3386,7 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 		goto err_regs;
 	}
 
-	
+	/* reset the system */
 
 	clk_enable(hsotg->clk);
 
@@ -2736,7 +3396,7 @@ static int __devinit s3c_hsotg_probe(struct platform_device *pdev)
 	s3c_hsotg_corereset(hsotg);
 	s3c_hsotg_init(hsotg);
 
-	
+	/* initialise the endpoints now the core has been initialised */
 	for (epnum = 0; epnum < S3C_HSOTG_EPS; epnum++)
 		s3c_hsotg_initep(hsotg, &hsotg->eps[epnum], epnum);
 

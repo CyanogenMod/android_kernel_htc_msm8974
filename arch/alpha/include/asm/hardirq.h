@@ -6,4 +6,4 @@ void ack_bad_irq(unsigned int irq);
 
 #include <asm-generic/hardirq.h>
 
-#endif 
+#endif /* _ALPHA_HARDIRQ_H */

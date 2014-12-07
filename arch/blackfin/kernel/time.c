@@ -20,6 +20,7 @@
 #include <asm/time.h>
 #include <asm/gptimers.h>
 
+/* This is an NTP setting */
 #define	TICK_SIZE (tick_nsec / 1000)
 
 static struct irqaction bfin_timer_irq = {
@@ -29,7 +30,7 @@ static struct irqaction bfin_timer_irq = {
 #if defined(CONFIG_IPIPE)
 void __init setup_system_timer0(void)
 {
-	
+	/* Power down the core timer, just to play safe. */
 	bfin_write_TCNTL(0);
 
 	disable_gptimers(TIMER0bit);
@@ -37,7 +38,7 @@ void __init setup_system_timer0(void)
 	while (get_gptimer_status(0) & TIMER_STATUS_TRUN0)
 		udelay(10);
 
-	set_gptimer_config(0, 0x59); 
+	set_gptimer_config(0, 0x59); /* IRQ enable, periodic, PWM_OUT, SCLKed, OUT PAD disabled */
 	set_gptimer_period(TIMER0_id, get_sclk() / HZ);
 	set_gptimer_pwidth(TIMER0_id, 1);
 	SSYNC();
@@ -48,18 +49,18 @@ void __init setup_core_timer(void)
 {
 	u32 tcount;
 
-	
+	/* power up the timer, but don't enable it just yet */
 	bfin_write_TCNTL(TMPWR);
 	CSYNC();
 
-	
+	/* the TSCALE prescaler counter */
 	bfin_write_TSCALE(TIME_SCALE - 1);
 
 	tcount = ((get_cclk() / (HZ * TIME_SCALE)) - 1);
 	bfin_write_TPERIOD(tcount);
 	bfin_write_TCOUNT(tcount);
 
-	
+	/* now enable the timer */
 	CSYNC();
 
 	bfin_write_TCNTL(TAUTORLD | TMREN | TMPWR);
@@ -81,6 +82,9 @@ time_sched_init(irqreturn_t(*timer_routine) (int, void *))
 }
 
 #ifdef CONFIG_ARCH_USES_GETTIMEOFFSET
+/*
+ * Should return useconds since last timer tick
+ */
 u32 arch_gettimeoffset(void)
 {
 	unsigned long offset;
@@ -98,7 +102,7 @@ u32 arch_gettimeoffset(void)
 	offset = (clocks_per_jiffy - bfin_read_TCOUNT()) / \
 		(((clocks_per_jiffy + 1) * HZ) / USEC_PER_SEC);
 
-	
+	/* Check if we just wrapped the counters and maybe missed a tick */
 	if ((bfin_read_ILAT() & (1 << IRQ_CORETMR))
 		&& (offset < (100000 / HZ / 2)))
 		offset += (USEC_PER_SEC / HZ);
@@ -107,6 +111,10 @@ u32 arch_gettimeoffset(void)
 }
 #endif
 
+/*
+ * timer_interrupt() needs to keep up the real-time clock,
+ * as well as call the "xtime_update()" routine every clocktick
+ */
 #ifdef CONFIG_CORE_TIMER_IRQ_L1
 __attribute__((l1_text))
 #endif
@@ -126,7 +134,7 @@ irqreturn_t timer_interrupt(int irq, void *dummy)
 
 void read_persistent_clock(struct timespec *ts)
 {
-	time_t secs_since_1970 = (365 * 37 + 9) * 24 * 60 * 60;	
+	time_t secs_since_1970 = (365 * 37 + 9) * 24 * 60 * 60;	/* 1 Jan 2007 */
 	ts->tv_sec = secs_since_1970;
 	ts->tv_nsec = 0;
 }
@@ -134,6 +142,10 @@ void read_persistent_clock(struct timespec *ts)
 void __init time_init(void)
 {
 #ifdef CONFIG_RTC_DRV_BFIN
+	/* [#2663] hack to filter junk RTC values that would cause
+	 * userspace to have to deal with time values greater than
+	 * 2^31 seconds (which uClibc cannot cope with yet)
+	 */
 	if ((bfin_read_RTC_STAT() & 0xC0000000) == 0xC0000000) {
 		printk(KERN_NOTICE "bfin-rtc: invalid date; resetting\n");
 		bfin_write_RTC_STAT(0);

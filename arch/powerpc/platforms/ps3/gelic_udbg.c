@@ -40,15 +40,15 @@
 static u64 bus_addr;
 
 struct gelic_descr {
-	
+	/* as defined by the hardware */
 	__be32 buf_addr;
 	__be32 buf_size;
 	__be32 next_descr_addr;
 	__be32 dmac_cmd_status;
 	__be32 result_size;
-	__be32 valid_size;	
+	__be32 valid_size;	/* all zeroes for tx */
 	__be32 data_status;
-	__be32 data_error;	
+	__be32 data_error;	/* all zeroes for tx */
 } __attribute__((aligned(32)));
 
 struct debug_block {

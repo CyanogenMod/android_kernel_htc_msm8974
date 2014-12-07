@@ -41,10 +41,14 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
 
+/*
+ * The parameter save area on the stack is used to store arguments being passed
+ * to callee function and is located at fixed offset from stack pointer.
+ */
 #ifdef CONFIG_PPC32
-#define PARAMETER_SAVE_AREA_OFFSET	24  
-#else 
-#define PARAMETER_SAVE_AREA_OFFSET	48  
+#define PARAMETER_SAVE_AREA_OFFSET	24  /* bytes */
+#else /* CONFIG_PPC32 */
+#define PARAMETER_SAVE_AREA_OFFSET	48  /* bytes */
 #endif
 
 struct pt_regs_offset {
@@ -52,7 +56,7 @@ struct pt_regs_offset {
 	int offset;
 };
 
-#define STR(s)	#s			
+#define STR(s)	#s			/* convert to string */
 #define REG_OFFSET_NAME(r) {.name = #r, .offset = offsetof(struct pt_regs, r)}
 #define GPR_OFFSET_NAME(num)	\
 	{.name = STR(gpr##num), .offset = offsetof(struct pt_regs, gpr[num])}
@@ -108,6 +112,13 @@ static const struct pt_regs_offset regoffset_table[] = {
 	REG_OFFSET_END,
 };
 
+/**
+ * regs_query_register_offset() - query register offset from its name
+ * @name:	the name of a register
+ *
+ * regs_query_register_offset() returns the offset of a register in struct
+ * pt_regs from its name. If the name is invalid, this returns -EINVAL;
+ */
 int regs_query_register_offset(const char *name)
 {
 	const struct pt_regs_offset *roff;
@@ -117,6 +128,13 @@ int regs_query_register_offset(const char *name)
 	return -EINVAL;
 }
 
+/**
+ * regs_query_register_name() - query register name from its offset
+ * @offset:	the offset of a register in struct pt_regs.
+ *
+ * regs_query_register_name() returns the name of a register from its
+ * offset in struct pt_regs. If the @offset is invalid, this returns NULL;
+ */
 const char *regs_query_register_name(unsigned int offset)
 {
 	const struct pt_regs_offset *roff;
@@ -126,13 +144,23 @@ const char *regs_query_register_name(unsigned int offset)
 	return NULL;
 }
 
+/*
+ * does not yet catch signals sent when the child dies.
+ * in exit.c or in signal.c.
+ */
 
+/*
+ * Set of msr bits that gdb can change on behalf of a process.
+ */
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
 #define MSR_DEBUGCHANGE	0
 #else
 #define MSR_DEBUGCHANGE	(MSR_SE | MSR_BE)
 #endif
 
+/*
+ * Max register writeable via put_reg
+ */
 #ifdef CONFIG_PPC32
 #define PT_MAX_PUT_REG	PT_MQ
 #else
@@ -151,12 +179,19 @@ static int set_user_msr(struct task_struct *task, unsigned long msr)
 	return 0;
 }
 
+/*
+ * We prevent mucking around with the reserved area of trap
+ * which are used internally by the kernel.
+ */
 static int set_user_trap(struct task_struct *task, unsigned long trap)
 {
 	task->thread.regs->trap = trap & 0xfff0;
 	return 0;
 }
 
+/*
+ * Get contents of register REGNO in task TASK.
+ */
 unsigned long ptrace_get_reg(struct task_struct *task, int regno)
 {
 	if (task->thread.regs == NULL)
@@ -171,6 +206,9 @@ unsigned long ptrace_get_reg(struct task_struct *task, int regno)
 	return -EIO;
 }
 
+/*
+ * Write contents of register REGNO in task TASK.
+ */
 int ptrace_put_reg(struct task_struct *task, int regno, unsigned long data)
 {
 	if (task->thread.regs == NULL)
@@ -198,7 +236,7 @@ static int gpr_get(struct task_struct *target, const struct user_regset *regset,
 		return -EIO;
 
 	if (!FULL_REGS(target->thread.regs)) {
-		
+		/* We have a partial register set.  Fill 14-31 with bogus values */
 		for (i = 14; i < 32; i++)
 			target->thread.regs->gpr[i] = NV_REG_POISON;
 	}
@@ -295,7 +333,7 @@ static int fpr_get(struct task_struct *target, const struct user_regset *regset,
 	flush_fp_to_thread(target);
 
 #ifdef CONFIG_VSX
-	
+	/* copy to local buffer then write that out */
 	for (i = 0; i < 32 ; i++)
 		buf[i] = target->thread.TS_FPR(i);
 	memcpy(&buf[32], &target->thread.fpscr, sizeof(double));
@@ -321,7 +359,7 @@ static int fpr_set(struct task_struct *target, const struct user_regset *regset,
 	flush_fp_to_thread(target);
 
 #ifdef CONFIG_VSX
-	
+	/* copy to local buffer then write that out */
 	i = user_regset_copyin(&pos, &count, &kbuf, &ubuf, buf, 0, -1);
 	if (i)
 		return i;
@@ -339,6 +377,18 @@ static int fpr_set(struct task_struct *target, const struct user_regset *regset,
 }
 
 #ifdef CONFIG_ALTIVEC
+/*
+ * Get/set all the altivec registers vr0..vr31, vscr, vrsave, in one go.
+ * The transfer totals 34 quadword.  Quadwords 0-31 contain the
+ * corresponding vector registers.  Quadword 32 contains the vscr as the
+ * last word (offset 12) within that quadword.  Quadword 33 contains the
+ * vrsave as the first word (offset 0) within the quadword.
+ *
+ * This definition of the VMX state is compatible with the current PPC32
+ * ptrace interface.  This allows signal handling and ptrace to use the
+ * same structures.  This also simplifies the implementation of a bi-arch
+ * (combined (32- and 64-bit) gdb.
+ */
 
 static int vr_active(struct task_struct *target,
 		     const struct user_regset *regset)
@@ -362,6 +412,9 @@ static int vr_get(struct task_struct *target, const struct user_regset *regset,
 				  &target->thread.vr, 0,
 				  33 * sizeof(vector128));
 	if (!ret) {
+		/*
+		 * Copy out only the low-order word of vrsave.
+		 */
 		union {
 			elf_vrreg_t reg;
 			u32 word;
@@ -389,6 +442,9 @@ static int vr_set(struct task_struct *target, const struct user_regset *regset,
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 &target->thread.vr, 0, 33 * sizeof(vector128));
 	if (!ret && count > 0) {
+		/*
+		 * We use only the first word of vrsave.
+		 */
 		union {
 			elf_vrreg_t reg;
 			u32 word;
@@ -403,9 +459,14 @@ static int vr_set(struct task_struct *target, const struct user_regset *regset,
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_ALTIVEC */
 
 #ifdef CONFIG_VSX
+/*
+ * Currently to set and and get all the vsx state, you need to call
+ * the fp and VMX calls as well.  This only get/sets the lower 32
+ * 128bit VSX registers.
+ */
 
 static int vsr_active(struct task_struct *target,
 		      const struct user_regset *regset)
@@ -448,10 +509,19 @@ static int vsr_set(struct task_struct *target, const struct user_regset *regset,
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_VSX */
 
 #ifdef CONFIG_SPE
 
+/*
+ * For get_evrregs/set_evrregs functions 'data' has the following layout:
+ *
+ * struct {
+ *   u32 evr[32];
+ *   u64 acc;
+ *   u32 spefscr;
+ * }
+ */
 
 static int evr_active(struct task_struct *target,
 		      const struct user_regset *regset)
@@ -505,9 +575,12 @@ static int evr_set(struct task_struct *target, const struct user_regset *regset,
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_SPE */
 
 
+/*
+ * These are our native regset flavors.
+ */
 enum powerpc_regset {
 	REGSET_GPR,
 	REGSET_FPR,
@@ -579,7 +652,7 @@ static int gpr32_get(struct task_struct *target,
 		return -EIO;
 
 	if (!FULL_REGS(target->thread.regs)) {
-		
+		/* We have a partial register set.  Fill 14-31 with bogus values */
 		for (i = 14; i < 32; i++)
 			target->thread.regs->gpr[i] = NV_REG_POISON; 
 	}
@@ -694,6 +767,9 @@ static int gpr32_set(struct task_struct *target,
 					 (PT_TRAP + 1) * sizeof(reg), -1);
 }
 
+/*
+ * These are the regset flavors matching the CONFIG_PPC32 native set.
+ */
 static const struct user_regset compat_regsets[] = {
 	[REGSET_GPR] = {
 		.core_note_type = NT_PRSTATUS, .n = ELF_NGREG,
@@ -725,7 +801,7 @@ static const struct user_regset_view user_ppc_compat_view = {
 	.name = "ppc", .e_machine = EM_PPC, .ei_osabi = ELF_OSABI,
 	.regsets = compat_regsets, .n = ARRAY_SIZE(compat_regsets)
 };
-#endif	
+#endif	/* CONFIG_PPC64 */
 
 const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 {
@@ -777,9 +853,21 @@ void user_disable_single_step(struct task_struct *task)
 
 	if (regs != NULL) {
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
+		/*
+		 * The logic to disable single stepping should be as
+		 * simple as turning off the Instruction Complete flag.
+		 * And, after doing so, if all debug flags are off, turn
+		 * off DBCR0(IDM) and MSR(DE) .... Torez
+		 */
 		task->thread.dbcr0 &= ~DBCR0_IC;
+		/*
+		 * Test to see if any of the DBCR_ACTIVE_EVENTS bits are set.
+		 */
 		if (!DBCR_ACTIVE_EVENTS(task->thread.dbcr0,
 					task->thread.dbcr1)) {
+			/*
+			 * All debug events were off.....
+			 */
 			task->thread.dbcr0 &= ~DBCR0_IDM;
 			regs->msr &= ~MSR_DE;
 		}
@@ -796,11 +884,17 @@ void ptrace_triggered(struct perf_event *bp,
 {
 	struct perf_event_attr attr;
 
+	/*
+	 * Disable the breakpoint request here since ptrace has defined a
+	 * one-shot behaviour for breakpoint exceptions in PPC64.
+	 * The SIGTRAP signal is generated automatically for us in do_dabr().
+	 * We don't have to do anything about that here
+	 */
 	attr = bp->attr;
 	attr.disabled = true;
 	modify_user_hw_breakpoint(bp, &attr);
 }
-#endif 
+#endif /* CONFIG_HAVE_HW_BREAKPOINT */
 
 int ptrace_set_debugreg(struct task_struct *task, unsigned long addr,
 			       unsigned long data)
@@ -810,18 +904,33 @@ int ptrace_set_debugreg(struct task_struct *task, unsigned long addr,
 	struct thread_struct *thread = &(task->thread);
 	struct perf_event *bp;
 	struct perf_event_attr attr;
-#endif 
+#endif /* CONFIG_HAVE_HW_BREAKPOINT */
 
+	/* For ppc64 we support one DABR and no IABR's at the moment (ppc64).
+	 *  For embedded processors we support one DAC and no IAC's at the
+	 *  moment.
+	 */
 	if (addr > 0)
 		return -EINVAL;
 
-	
+	/* The bottom 3 bits in dabr are flags */
 	if ((data & ~0x7UL) >= TASK_SIZE)
 		return -EIO;
 
 #ifndef CONFIG_PPC_ADV_DEBUG_REGS
+	/* For processors using DABR (i.e. 970), the bottom 3 bits are flags.
+	 *  It was assumed, on previous implementations, that 3 bits were
+	 *  passed together with the data address, fitting the design of the
+	 *  DABR register, as follows:
+	 *
+	 *  bit 0: Read flag
+	 *  bit 1: Write flag
+	 *  bit 2: Breakpoint translation
+	 *
+	 *  Thus, we use them here as so.
+	 */
 
-	
+	/* Ensure breakpoint translation bit is set */
 	if (data && !(data & DABR_TRANSLATION))
 		return -EIO;
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
@@ -854,7 +963,7 @@ int ptrace_set_debugreg(struct task_struct *task, unsigned long addr,
 		return 0;
 	}
 
-	
+	/* Create a new breakpoint request if one doesn't exist already */
 	hw_breakpoint_init(&attr);
 	attr.bp_addr = data & ~HW_BREAKPOINT_ALIGN;
 	arch_bp_generic_fields(data & (DABR_DATA_WRITE | DABR_DATA_READ),
@@ -870,13 +979,17 @@ int ptrace_set_debugreg(struct task_struct *task, unsigned long addr,
 
 	ptrace_put_breakpoints(task);
 
-#endif 
+#endif /* CONFIG_HAVE_HW_BREAKPOINT */
 
-	
+	/* Move contents to the DABR register */
 	task->thread.dabr = data;
-#else 
+#else /* CONFIG_PPC_ADV_DEBUG_REGS */
+	/* As described above, it was assumed 3 bits were passed with the data
+	 *  address, but we will assume only the mode bits will be passed
+	 *  as to not cause alignment restrictions for DAC-based processors.
+	 */
 
-	
+	/* DAC's hold the whole address without any mode flags */
 	task->thread.dac1 = data & ~0x3UL;
 
 	if (task->thread.dac1 == 0) {
@@ -889,26 +1002,35 @@ int ptrace_set_debugreg(struct task_struct *task, unsigned long addr,
 		return 0;
 	}
 
-	
+	/* Read or Write bits must be set */
 
 	if (!(data & 0x3UL))
 		return -EINVAL;
 
+	/* Set the Internal Debugging flag (IDM bit 1) for the DBCR0
+	   register */
 	task->thread.dbcr0 |= DBCR0_IDM;
 
+	/* Check for write and read flags and set DBCR0
+	   accordingly */
 	dbcr_dac(task) &= ~(DBCR_DAC1R|DBCR_DAC1W);
 	if (data & 0x1UL)
 		dbcr_dac(task) |= DBCR_DAC1R;
 	if (data & 0x2UL)
 		dbcr_dac(task) |= DBCR_DAC1W;
 	task->thread.regs->msr |= MSR_DE;
-#endif 
+#endif /* CONFIG_PPC_ADV_DEBUG_REGS */
 	return 0;
 }
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* make sure the single step bit is not set. */
 	user_disable_single_step(child);
 }
 
@@ -932,11 +1054,11 @@ static long set_intruction_bp(struct task_struct *child,
 
 	if (bp_info->addr_mode != PPC_BREAKPOINT_MODE_EXACT) {
 
-		
+		/* Make sure range is valid. */
 		if (bp_info->addr2 >= TASK_SIZE)
 			return -EIO;
 
-		
+		/* We need a pair of IAC regsisters */
 		if ((!slot1_in_use) && (!slot2_in_use)) {
 			slot = 1;
 			child->thread.iac1 = bp_info->addr;
@@ -962,7 +1084,14 @@ static long set_intruction_bp(struct task_struct *child,
 		} else
 			return -ENOSPC;
 	} else {
+		/* We only need one.  If possible leave a pair free in
+		 * case a range is needed later
+		 */
 		if (!slot1_in_use) {
+			/*
+			 * Don't use iac1 if iac1-iac2 are free and either
+			 * iac3 or iac4 (but not both) are free
+			 */
 			if (slot2_in_use || (slot3_in_use == slot4_in_use)) {
 				slot = 1;
 				child->thread.iac1 = bp_info->addr;
@@ -1002,7 +1131,7 @@ static int del_instruction_bp(struct task_struct *child, int slot)
 			return -ENOENT;
 
 		if (dbcr_iac_range(child) & DBCR_IAC12MODE) {
-			
+			/* address range - clear slots 1 & 2 */
 			child->thread.iac2 = 0;
 			dbcr_iac_range(child) &= ~DBCR_IAC12MODE;
 		}
@@ -1014,7 +1143,7 @@ static int del_instruction_bp(struct task_struct *child, int slot)
 			return -ENOENT;
 
 		if (dbcr_iac_range(child) & DBCR_IAC12MODE)
-			
+			/* used in a range */
 			return -EINVAL;
 		child->thread.iac2 = 0;
 		child->thread.dbcr0 &= ~DBCR0_IAC2;
@@ -1025,7 +1154,7 @@ static int del_instruction_bp(struct task_struct *child, int slot)
 			return -ENOENT;
 
 		if (dbcr_iac_range(child) & DBCR_IAC34MODE) {
-			
+			/* address range - clear slots 3 & 4 */
 			child->thread.iac4 = 0;
 			dbcr_iac_range(child) &= ~DBCR_IAC34MODE;
 		}
@@ -1037,7 +1166,7 @@ static int del_instruction_bp(struct task_struct *child, int slot)
 			return -ENOENT;
 
 		if (dbcr_iac_range(child) & DBCR_IAC34MODE)
-			
+			/* Used in a range */
 			return -EINVAL;
 		child->thread.iac4 = 0;
 		child->thread.dbcr0 &= ~DBCR0_IAC4;
@@ -1082,7 +1211,7 @@ static int set_dac(struct task_struct *child, struct ppc_hw_breakpoint *bp_info)
 #endif
 #ifdef CONFIG_PPC_ADV_DEBUG_DAC_RANGE
 	} else if (child->thread.dbcr2 & DBCR2_DAC12MODE) {
-		
+		/* Both dac1 and dac2 are part of a range */
 		return -ENOSPC;
 #endif
 	} else if ((dbcr_dac(child) & (DBCR_DAC2R | DBCR_DAC2W)) == 0) {
@@ -1133,7 +1262,7 @@ static int del_dac(struct task_struct *child, int slot)
 
 #ifdef CONFIG_PPC_ADV_DEBUG_DAC_RANGE
 		if (child->thread.dbcr2 & DBCR2_DAC12MODE)
-			
+			/* Part of a range */
 			return -EINVAL;
 		child->thread.dbcr2 &= ~(DBCR2_DVC2M | DBCR2_DVC2BE);
 #endif
@@ -1147,7 +1276,7 @@ static int del_dac(struct task_struct *child, int slot)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PPC_ADV_DEBUG_REGS */
 
 #ifdef CONFIG_PPC_ADV_DEBUG_DAC_RANGE
 static int set_dac_range(struct task_struct *child,
@@ -1155,16 +1284,29 @@ static int set_dac_range(struct task_struct *child,
 {
 	int mode = bp_info->addr_mode & PPC_BREAKPOINT_MODE_MASK;
 
-	
+	/* We don't allow range watchpoints to be used with DVC */
 	if (bp_info->condition_mode)
 		return -EINVAL;
 
+	/*
+	 * Best effort to verify the address range.  The user/supervisor bits
+	 * prevent trapping in kernel space, but let's fail on an obvious bad
+	 * range.  The simple test on the mask is not fool-proof, and any
+	 * exclusive range will spill over into kernel space.
+	 */
 	if (bp_info->addr >= TASK_SIZE)
 		return -EIO;
 	if (mode == PPC_BREAKPOINT_MODE_MASK) {
+		/*
+		 * dac2 is a bitmask.  Don't allow a mask that makes a
+		 * kernel space address from a valid dac1 value
+		 */
 		if (~((unsigned long)bp_info->addr2) >= TASK_SIZE)
 			return -EIO;
 	} else {
+		/*
+		 * For range breakpoints, addr2 must also be a valid address
+		 */
 		if (bp_info->addr2 >= TASK_SIZE)
 			return -EIO;
 	}
@@ -1183,13 +1325,13 @@ static int set_dac_range(struct task_struct *child,
 		child->thread.dbcr2  |= DBCR2_DAC12M;
 	else if (mode == PPC_BREAKPOINT_MODE_RANGE_EXCLUSIVE)
 		child->thread.dbcr2  |= DBCR2_DAC12MX;
-	else	
+	else	/* PPC_BREAKPOINT_MODE_MASK */
 		child->thread.dbcr2  |= DBCR2_DAC12MM;
 	child->thread.regs->msr |= MSR_DE;
 
 	return 5;
 }
-#endif 
+#endif /* CONFIG_PPC_ADV_DEBUG_DAC_RANGE */
 
 static long ppc_set_hwdebug(struct task_struct *child,
 		     struct ppc_hw_breakpoint *bp_info)
@@ -1201,6 +1343,9 @@ static long ppc_set_hwdebug(struct task_struct *child,
 	if (bp_info->version != 1)
 		return -ENOTSUPP;
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
+	/*
+	 * Check for invalid flags and combinations
+	 */
 	if ((bp_info->trigger_type == 0) ||
 	    (bp_info->trigger_type & ~(PPC_BREAKPOINT_TRIGGER_EXECUTE |
 				       PPC_BREAKPOINT_TRIGGER_RW)) ||
@@ -1228,7 +1373,10 @@ static long ppc_set_hwdebug(struct task_struct *child,
 #else
 	return -EINVAL;
 #endif
-#else 
+#else /* !CONFIG_PPC_ADV_DEBUG_DVCS */
+	/*
+	 * We only support one data breakpoint
+	 */
 	if ((bp_info->trigger_type & PPC_BREAKPOINT_TRIGGER_RW) == 0 ||
 	    (bp_info->trigger_type & ~PPC_BREAKPOINT_TRIGGER_RW) != 0 ||
 	    bp_info->addr_mode != PPC_BREAKPOINT_MODE_EXACT ||
@@ -1251,7 +1399,7 @@ static long ppc_set_hwdebug(struct task_struct *child,
 	child->thread.dabr = dabr;
 
 	return 1;
-#endif 
+#endif /* !CONFIG_PPC_ADV_DEBUG_DVCS */
 }
 
 static long ppc_del_hwdebug(struct task_struct *child, long addr, long data)
@@ -1284,28 +1432,32 @@ static long ppc_del_hwdebug(struct task_struct *child, long addr, long data)
 #endif
 }
 
+/*
+ * Here are the old "legacy" powerpc specific getregs/setregs ptrace calls,
+ * we mark them as obsolete now, they will be removed in a future version
+ */
 static long arch_ptrace_old(struct task_struct *child, long request,
 			    unsigned long addr, unsigned long data)
 {
 	void __user *datavp = (void __user *) data;
 
 	switch (request) {
-	case PPC_PTRACE_GETREGS:	
+	case PPC_PTRACE_GETREGS:	/* Get GPRs 0 - 31. */
 		return copy_regset_to_user(child, &user_ppc_native_view,
 					   REGSET_GPR, 0, 32 * sizeof(long),
 					   datavp);
 
-	case PPC_PTRACE_SETREGS:	
+	case PPC_PTRACE_SETREGS:	/* Set GPRs 0 - 31. */
 		return copy_regset_from_user(child, &user_ppc_native_view,
 					     REGSET_GPR, 0, 32 * sizeof(long),
 					     datavp);
 
-	case PPC_PTRACE_GETFPREGS:	
+	case PPC_PTRACE_GETFPREGS:	/* Get FPRs 0 - 31. */
 		return copy_regset_to_user(child, &user_ppc_native_view,
 					   REGSET_FPR, 0, 32 * sizeof(double),
 					   datavp);
 
-	case PPC_PTRACE_SETFPREGS:	
+	case PPC_PTRACE_SETFPREGS:	/* Set FPRs 0 - 31. */
 		return copy_regset_from_user(child, &user_ppc_native_view,
 					     REGSET_FPR, 0, 32 * sizeof(double),
 					     datavp);
@@ -1322,12 +1474,12 @@ long arch_ptrace(struct task_struct *child, long request,
 	unsigned long __user *datalp = datavp;
 
 	switch (request) {
-	
+	/* read the word at location addr in the USER area. */
 	case PTRACE_PEEKUSR: {
 		unsigned long index, tmp;
 
 		ret = -EIO;
-		
+		/* convert to index and check */
 #ifdef CONFIG_PPC32
 		index = addr >> 2;
 		if ((addr & 3) || (index > PT_FPSCR)
@@ -1355,12 +1507,12 @@ long arch_ptrace(struct task_struct *child, long request,
 		break;
 	}
 
-	
+	/* write the word at location addr in the USER area */
 	case PTRACE_POKEUSR: {
 		unsigned long index;
 
 		ret = -EIO;
-		
+		/* convert to index and check */
 #ifdef CONFIG_PPC32
 		index = addr >> 2;
 		if ((addr & 3) || (index > PT_FPSCR)
@@ -1405,7 +1557,7 @@ long arch_ptrace(struct task_struct *child, long request,
 				   PPC_DEBUG_FEATURE_DATA_BP_RANGE |
 				   PPC_DEBUG_FEATURE_DATA_BP_MASK;
 #endif
-#else 
+#else /* !CONFIG_PPC_ADV_DEBUG_REGS */
 		dbginfo.num_instruction_bps = 0;
 		dbginfo.num_data_bps = 1;
 		dbginfo.num_condition_regs = 0;
@@ -1416,7 +1568,7 @@ long arch_ptrace(struct task_struct *child, long request,
 #endif
 		dbginfo.sizeof_condition = 0;
 		dbginfo.features = 0;
-#endif 
+#endif /* CONFIG_PPC_ADV_DEBUG_REGS */
 
 		if (!access_ok(VERIFY_WRITE, datavp,
 			       sizeof(struct ppc_debug_info)))
@@ -1448,7 +1600,7 @@ long arch_ptrace(struct task_struct *child, long request,
 
 	case PTRACE_GET_DEBUGREG: {
 		ret = -EINVAL;
-		
+		/* We only support one DABR and no IABRS at the moment */
 		if (addr > 0)
 			break;
 #ifdef CONFIG_PPC_ADV_DEBUG_REGS
@@ -1466,7 +1618,7 @@ long arch_ptrace(struct task_struct *child, long request,
 #ifdef CONFIG_PPC64
 	case PTRACE_GETREGS64:
 #endif
-	case PTRACE_GETREGS:	
+	case PTRACE_GETREGS:	/* Get all pt_regs from the child. */
 		return copy_regset_to_user(child, &user_ppc_native_view,
 					   REGSET_GPR,
 					   0, sizeof(struct pt_regs),
@@ -1475,19 +1627,19 @@ long arch_ptrace(struct task_struct *child, long request,
 #ifdef CONFIG_PPC64
 	case PTRACE_SETREGS64:
 #endif
-	case PTRACE_SETREGS:	
+	case PTRACE_SETREGS:	/* Set all gp regs in the child. */
 		return copy_regset_from_user(child, &user_ppc_native_view,
 					     REGSET_GPR,
 					     0, sizeof(struct pt_regs),
 					     datavp);
 
-	case PTRACE_GETFPREGS: 
+	case PTRACE_GETFPREGS: /* Get the child FPU state (FPR0...31 + FPSCR) */
 		return copy_regset_to_user(child, &user_ppc_native_view,
 					   REGSET_FPR,
 					   0, sizeof(elf_fpregset_t),
 					   datavp);
 
-	case PTRACE_SETFPREGS: 
+	case PTRACE_SETFPREGS: /* Set the child FPU state (FPR0...31 + FPSCR) */
 		return copy_regset_from_user(child, &user_ppc_native_view,
 					     REGSET_FPR,
 					     0, sizeof(elf_fpregset_t),
@@ -1523,23 +1675,23 @@ long arch_ptrace(struct task_struct *child, long request,
 #endif
 #ifdef CONFIG_SPE
 	case PTRACE_GETEVRREGS:
-		
+		/* Get the child spe register state. */
 		return copy_regset_to_user(child, &user_ppc_native_view,
 					   REGSET_SPE, 0, 35 * sizeof(u32),
 					   datavp);
 
 	case PTRACE_SETEVRREGS:
-		
+		/* Set the child spe register state. */
 		return copy_regset_from_user(child, &user_ppc_native_view,
 					     REGSET_SPE, 0, 35 * sizeof(u32),
 					     datavp);
 #endif
 
-	
-	case PPC_PTRACE_GETREGS: 
-	case PPC_PTRACE_SETREGS: 
-	case PPC_PTRACE_GETFPREGS: 
-	case PPC_PTRACE_SETFPREGS: 
+	/* Old reverse args ptrace callss */
+	case PPC_PTRACE_GETREGS: /* Get GPRs 0 - 31. */
+	case PPC_PTRACE_SETREGS: /* Set GPRs 0 - 31. */
+	case PPC_PTRACE_GETFPREGS: /* Get FPRs 0 - 31. */
+	case PPC_PTRACE_SETFPREGS: /* Get FPRs 0 - 31. */
 		ret = arch_ptrace_old(child, request, addr, data);
 		break;
 
@@ -1550,6 +1702,10 @@ long arch_ptrace(struct task_struct *child, long request,
 	return ret;
 }
 
+/*
+ * We must return the syscall number to actually look up in the table.
+ * This can be -1L to skip running any syscall at all.
+ */
 long do_syscall_trace_enter(struct pt_regs *regs)
 {
 	long ret = 0;
@@ -1558,6 +1714,11 @@ long do_syscall_trace_enter(struct pt_regs *regs)
 
 	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
 	    tracehook_report_syscall_entry(regs))
+		/*
+		 * Tracing decided this syscall should not happen.
+		 * We'll return a bogus call number to get an ENOSYS
+		 * error, but leave the original number in regs->gpr[0].
+		 */
 		ret = -1L;
 
 	if (unlikely(test_thread_flag(TIF_SYSCALL_TRACEPOINT)))

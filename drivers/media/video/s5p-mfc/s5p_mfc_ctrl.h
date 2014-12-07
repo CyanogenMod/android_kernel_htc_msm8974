@@ -26,4 +26,4 @@ int s5p_mfc_wakeup(struct s5p_mfc_dev *dev);
 
 int s5p_mfc_reset(struct s5p_mfc_dev *dev);
 
-#endif 
+#endif /* S5P_MFC_CTRL_H */

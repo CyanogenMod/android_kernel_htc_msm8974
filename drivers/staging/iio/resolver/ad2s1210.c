@@ -53,6 +53,7 @@
 #define AD2S1210_REG_SOFT_RESET		0xF0
 #define AD2S1210_REG_FAULT		0xFF
 
+/* pin SAMPLE, A0, A1, RES0, RES1, is controlled by driver */
 #define AD2S1210_SAA		3
 #define AD2S1210_PN		(AD2S1210_SAA + AD2S1210_RES)
 
@@ -63,7 +64,9 @@
 #define AD2S1210_MIN_FCW	0x4
 #define AD2S1210_MAX_FCW	0x50
 
+/* default input clock on serial interface */
 #define AD2S1210_DEF_CLKIN	8192000
+/* clock period in nano second */
 #define AD2S1210_DEF_TCK	(1000000000/AD2S1210_DEF_CLKIN)
 #define AD2S1210_DEF_EXCIT	10000
 
@@ -103,6 +106,7 @@ static inline void ad2s1210_set_mode(enum ad2s1210_mode mode,
 	st->mode = mode;
 }
 
+/* write 1 bytes (address or data) to the chip */
 static int ad2s1210_config_write(struct ad2s1210_state *st, u8 data)
 {
 	int ret;
@@ -117,6 +121,7 @@ static int ad2s1210_config_write(struct ad2s1210_state *st, u8 data)
 	return 0;
 }
 
+/* read value from one of the registers */
 static int ad2s1210_config_read(struct ad2s1210_state *st,
 		       unsigned char address)
 {
@@ -394,6 +399,7 @@ error_ret:
 	return ret;
 }
 
+/* read the fault register since last sample */
 static ssize_t ad2s1210_show_fault(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -417,7 +423,7 @@ static ssize_t ad2s1210_clear_fault(struct device *dev,
 
 	mutex_lock(&st->lock);
 	gpio_set_value(st->pdata->sample, 0);
-	
+	/* delay (2 * tck + 20) nano seconds */
 	udelay(1);
 	gpio_set_value(st->pdata->sample, 1);
 	ret = ad2s1210_config_read(st, AD2S1210_REG_FAULT);
@@ -481,7 +487,7 @@ static int ad2s1210_read_raw(struct iio_dev *indio_dev,
 
 	mutex_lock(&st->lock);
 	gpio_set_value(st->pdata->sample, 0);
-	
+	/* delay (6 * tck + 20) nano seconds */
 	udelay(1);
 
 	switch (chan->type) {
@@ -527,7 +533,7 @@ static int ad2s1210_read_raw(struct iio_dev *indio_dev,
 
 error_ret:
 	gpio_set_value(st->pdata->sample, 1);
-	
+	/* delay (2 * tck + 20) nano seconds */
 	udelay(1);
 	mutex_unlock(&st->lock);
 	return ret;

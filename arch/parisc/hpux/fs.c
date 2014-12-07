@@ -77,7 +77,7 @@ static int filldir(void * __buf, const char * name, int namlen, loff_t offset,
 	ino_t d_ino;
 	int reclen = ALIGN(NAME_OFFSET(dirent) + namlen + 1, sizeof(long));
 
-	buf->error = -EINVAL;	
+	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
 	d_ino = ino;
@@ -149,7 +149,7 @@ static int cp_hpux_stat(struct kstat *stat, struct hpux_stat64 __user *statbuf)
 {
 	struct hpux_stat64 tmp;
 
-	
+	/* we probably want a different split here - is hpux 12:20? */
 
 	if (!new_valid_dev(stat->dev) || !new_valid_dev(stat->rdev))
 		return -EOVERFLOW;

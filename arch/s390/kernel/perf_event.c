@@ -63,6 +63,7 @@ void perf_event_print_debug(void)
 	local_irq_restore(flags);
 }
 
+/* See also arch/s390/kernel/traps.c */
 static unsigned long __store_trace(struct perf_callchain_entry *entry,
 				   unsigned long sp,
 				   unsigned long low, unsigned long high)
@@ -76,7 +77,7 @@ static unsigned long __store_trace(struct perf_callchain_entry *entry,
 			return sp;
 		sf = (struct stack_frame *) sp;
 		perf_callchain_store(entry, sf->gprs[8] & PSW_ADDR_INSN);
-		
+		/* Follow the backchain. */
 		while (1) {
 			low = sp;
 			sp = sf->back_chain & PSW_ADDR_INSN;
@@ -88,7 +89,7 @@ static unsigned long __store_trace(struct perf_callchain_entry *entry,
 			perf_callchain_store(entry,
 					     sf->gprs[8] & PSW_ADDR_INSN);
 		}
-		
+		/* Zero backchain detected, check for interrupt frame. */
 		sp = (unsigned long) (sf + 1);
 		if (sp <= low || sp > high - sizeof(*regs))
 			return sp;

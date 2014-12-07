@@ -5,6 +5,26 @@
  * License terms: GNU General Public License (GPL), version 2.
  */
 
+/*
+ * Mailbox nomenclature:
+ *
+ *       APE           MODEM
+ *           mbox pairX
+ *   ..........................
+ *   .                       .
+ *   .           peer        .
+ *   .     send  ----        .
+ *   .      -->  |  |        .
+ *   .           |  |        .
+ *   .           ----        .
+ *   .                       .
+ *   .           local       .
+ *   .     rec   ----        .
+ *   .           |  | <--    .
+ *   .           |  |        .
+ *   .           ----        .
+ *   .........................
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -33,6 +53,7 @@
 #define MBOX_ENABLE_IRQ  0x0
 #define MBOX_LATCH 1
 
+/* Global list of all mailboxes */
 static struct list_head mboxs = LIST_HEAD_INIT(mboxs);
 
 static struct mbox *get_mbox_with_id(u8 id)
@@ -57,7 +78,7 @@ int mbox_send(struct mbox *mbox, u32 mbox_msg, bool block)
 		mbox_msg, (u32)mbox, mbox->read_index,
 		mbox->write_index);
 
-	
+	/* Check if write buffer is full */
 	while (((mbox->write_index + 1) % MBOX_BUF_SIZE) == mbox->read_index) {
 		if (!block) {
 			dev_dbg(&(mbox->pdev->dev),
@@ -79,6 +100,10 @@ int mbox_send(struct mbox *mbox, u32 mbox_msg, bool block)
 	mbox->buffer[mbox->write_index] = mbox_msg;
 	mbox->write_index = (mbox->write_index + 1) % MBOX_BUF_SIZE;
 
+	/*
+	 * Indicate that we want an IRQ as soon as there is a slot
+	 * in the FIFO
+	 */
 	writel(MBOX_ENABLE_IRQ, mbox->virtbase_peer + MBOX_FIFO_THRES_FREE);
 
 exit:
@@ -88,6 +113,10 @@ exit:
 EXPORT_SYMBOL(mbox_send);
 
 #if defined(CONFIG_DEBUG_FS)
+/*
+ * Expected input: <value> <nbr sends>
+ * Example: "echo 0xdeadbeef 4 > mbox-node" sends 0xdeadbeef 4 times
+ */
 static ssize_t mbox_write_fifo(struct device *dev,
 			       struct device_attribute *attr,
 			       const char *buf,
@@ -105,7 +134,7 @@ static ssize_t mbox_write_fifo(struct device *dev,
 	strncpy((char *) &int_buf, buf, sizeof(int_buf));
 	token = (char *) &int_buf;
 
-	
+	/* Parse message */
 	val = strsep(&token, " ");
 	if ((val == NULL) || (strict_strtoul(val, 16, &mbox_mess) != 0))
 		mbox_mess = 0xDEADBEEF;
@@ -249,7 +278,15 @@ static irqreturn_t mbox_irq(int irq, void *arg)
 		"mbox IRQ [%d] received. ri = %d, wi = %d\n",
 		irq, mbox->read_index, mbox->write_index);
 
+	/*
+	 * Check if we have any outgoing messages, and if there is space for
+	 * them in the FIFO.
+	 */
 	if (mbox->read_index != mbox->write_index) {
+		/*
+		 * Check by reading FREE for LOCAL since that indicates
+		 * OCCUP for PEER
+		 */
 		nbr_free = (readl(mbox->virtbase_local + MBOX_FIFO_STATUS)
 			    >> 4) & 0x7;
 		dev_dbg(&(mbox->pdev->dev),
@@ -258,7 +295,7 @@ static irqreturn_t mbox_irq(int irq, void *arg)
 
 		while ((nbr_free > 0) &&
 		       (mbox->read_index != mbox->write_index)) {
-			
+			/* Write the message and latch it into the FIFO */
 			writel(mbox->buffer[mbox->read_index],
 			       (mbox->virtbase_peer + MBOX_FIFO_DATA));
 			writel(MBOX_LATCH,
@@ -273,6 +310,10 @@ static irqreturn_t mbox_irq(int irq, void *arg)
 				(mbox->read_index + 1) % MBOX_BUF_SIZE;
 		}
 
+		/*
+		 * Check if we still want IRQ:s when there is free
+		 * space to send
+		 */
 		if (mbox->read_index != mbox->write_index) {
 			dev_dbg(&(mbox->pdev->dev),
 				"Still have messages to send, but FIFO full. "
@@ -287,6 +328,10 @@ static irqreturn_t mbox_irq(int irq, void *arg)
 			       mbox->virtbase_peer + MBOX_FIFO_THRES_FREE);
 		}
 
+		/*
+		 * Check if we can signal any blocked clients that it is OK to
+		 * start buffering again
+		 */
 		if (mbox->client_blocked &&
 		    (((mbox->write_index + 1) % MBOX_BUF_SIZE)
 		     != mbox->read_index)) {
@@ -297,7 +342,7 @@ static irqreturn_t mbox_irq(int irq, void *arg)
 		}
 	}
 
-	
+	/* Check if we have any incoming messages */
 	nbr_occup = readl(mbox->virtbase_local + MBOX_FIFO_STATUS) & 0x7;
 	if (nbr_occup == 0)
 		goto exit;
@@ -308,11 +353,11 @@ static irqreturn_t mbox_irq(int irq, void *arg)
 		goto exit;
 	}
 
-	
+	/* Read and acknowledge the message */
 	mbox_value = readl(mbox->virtbase_local + MBOX_FIFO_DATA);
 	writel(MBOX_LATCH, (mbox->virtbase_local + MBOX_FIFO_REMOVE));
 
-	
+	/* Notify consumer of new mailbox message */
 	dev_dbg(&(mbox->pdev->dev), "Calling callback for message 0x%X!\n",
 		mbox_value);
 	mbox->cb(mbox_value, mbox->client_data);
@@ -325,6 +370,7 @@ exit:
 	return IRQ_HANDLED;
 }
 
+/* Setup is executed once for each mbox pair */
 struct mbox *mbox_setup(u8 mbox_id, mbox_recv_cb_t *mbox_cb, void *priv)
 {
 	struct resource *resource;
@@ -339,6 +385,10 @@ struct mbox *mbox_setup(u8 mbox_id, mbox_recv_cb_t *mbox_cb, void *priv)
 		goto exit;
 	}
 
+	/*
+	 * Check if mailbox has been allocated to someone else,
+	 * otherwise allocate it
+	 */
 	if (mbox->allocated) {
 		dev_err(&(mbox->pdev->dev), "Mailbox number %d is busy!\n",
 			mbox_id);
@@ -353,7 +403,7 @@ struct mbox *mbox_setup(u8 mbox_id, mbox_recv_cb_t *mbox_cb, void *priv)
 	mbox->client_data = priv;
 	mbox->cb = mbox_cb;
 
-	
+	/* Get addr for peer mailbox and ioremap it */
 	resource = platform_get_resource_byname(mbox->pdev,
 						IORESOURCE_MEM,
 						"mbox_peer");
@@ -376,7 +426,7 @@ struct mbox *mbox_setup(u8 mbox_id, mbox_recv_cb_t *mbox_cb, void *priv)
 		"ioremapped peer physical: (0x%X-0x%X) to virtual: 0x%X\n",
 		resource->start, resource->end, (u32) mbox->virtbase_peer);
 
-	
+	/* Get addr for local mailbox and ioremap it */
 	resource = platform_get_resource_byname(mbox->pdev,
 						IORESOURCE_MEM,
 						"mbox_local");
@@ -402,7 +452,7 @@ struct mbox *mbox_setup(u8 mbox_id, mbox_recv_cb_t *mbox_cb, void *priv)
 	init_completion(&mbox->buffer_available);
 	mbox->client_blocked = 0;
 
-	
+	/* Get IRQ for mailbox and allocate it */
 	irq = platform_get_irq_byname(mbox->pdev, "mbox_irq");
 	if (irq < 0) {
 		dev_err(&(mbox->pdev->dev),
@@ -420,9 +470,14 @@ struct mbox *mbox_setup(u8 mbox_id, mbox_recv_cb_t *mbox_cb, void *priv)
 		goto exit;
 	}
 
-	
+	/* Set up mailbox to not launch IRQ on free space in mailbox */
 	writel(MBOX_DISABLE_IRQ, mbox->virtbase_peer + MBOX_FIFO_THRES_FREE);
 
+	/*
+	 * Set up mailbox to launch IRQ on new message if we have
+	 * a callback set. If not, do not raise IRQ, but keep message
+	 * in FIFO for manual retrieval
+	 */
 	if (mbox_cb != NULL)
 		writel(MBOX_ENABLE_IRQ,
 		       mbox->virtbase_local + MBOX_FIFO_THRES_OCCUP);
@@ -458,7 +513,7 @@ int __init mbox_probe(struct platform_device *pdev)
 
 	memset(&local_mbox, 0x0, sizeof(struct mbox));
 
-	
+	/* Associate our mbox data with the platform device */
 	res = platform_device_add_data(pdev,
 				       (void *) &local_mbox,
 				       sizeof(struct mbox));

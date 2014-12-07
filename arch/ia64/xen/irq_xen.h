@@ -31,4 +31,4 @@ extern const struct pv_irq_ops xen_irq_ops __initdata;
 extern void xen_smp_intr_init(void);
 extern void xen_send_ipi(int cpu, int vec);
 
-#endif 
+#endif /* IRQ_XEN_H */

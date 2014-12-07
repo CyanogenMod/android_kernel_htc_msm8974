@@ -17,12 +17,16 @@
 #include <linux/time.h>
 #include <asm/platform.h>
 #include <asm/timex.h>
-#include <asm/param.h>		
+#include <asm/param.h>		/* HZ */
 
 #define _F(r,f,a,b)							\
 	r __platform_##f a b;                                   	\
 	r platform_##f a __attribute__((weak, alias("__platform_"#f)))
 
+/*
+ * Default functions that are used if no platform specific function is defined.
+ * (Please, refer to include/asm-xtensa/platform.h for more information)
+ */
 
 _F(void, setup, (char** cmd), { });
 _F(void, init_irq, (void), { });

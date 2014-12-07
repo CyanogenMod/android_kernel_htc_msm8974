@@ -26,6 +26,10 @@ owner_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	if (skb->sk == NULL || skb->sk->sk_socket == NULL)
 		return (info->match ^ info->invert) == 0;
 	else if (info->match & info->invert & XT_OWNER_SOCKET)
+		/*
+		 * Socket exists but user wanted ! --socket-exists.
+		 * (Single ampersands intended.)
+		 */
 		return false;
 
 	filp = skb->sk->sk_socket->file;

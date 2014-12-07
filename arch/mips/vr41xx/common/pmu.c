@@ -49,6 +49,9 @@ static void vr41xx_cpu_wait(void)
 {
 	local_irq_disable();
 	if (!need_resched())
+		/*
+		 * "standby" sets IE bit of the CP0_STATUS to 1.
+		 */
 		__asm__("standby;\n");
 	else
 		local_irq_enable();

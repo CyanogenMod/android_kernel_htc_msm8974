@@ -18,6 +18,13 @@
 
 #define nop() asm volatile ("nop")
 
+/*
+ * Force strict CPU ordering.
+ * And yes, this is required on UP too when we're talking
+ * to devices.
+ *
+ * This implementation only contains a compiler barrier.
+ */
 
 #define mb()	asm volatile ("": : :"memory")
 #define rmb()	mb()
@@ -39,5 +46,5 @@
 #define read_barrier_depends()		do {} while (0)
 #define smp_read_barrier_depends()	do {} while (0)
 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* __ASM_GENERIC_BARRIER_H */

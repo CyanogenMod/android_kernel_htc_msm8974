@@ -51,6 +51,11 @@ scsi_bus_suspend_common(struct device *dev, int (*cb)(struct device *))
 	int err = 0;
 
 	if (scsi_is_sdev_device(dev)) {
+		/*
+		 * All the high-level SCSI drivers that implement runtime
+		 * PM treat runtime suspend, system suspend, and system
+		 * hibernate identically.
+		 */
 		if (pm_runtime_suspended(dev))
 			return 0;
 
@@ -66,6 +71,12 @@ scsi_bus_resume_common(struct device *dev, int (*cb)(struct device *))
 	int err = 0;
 
 	if (scsi_is_sdev_device(dev)) {
+		/*
+		 * Parent device may have runtime suspended as soon as
+		 * it is woken up during the system resume.
+		 *
+		 * Resume it on behalf of child.
+		 */
 		pm_runtime_get_sync(dev->parent);
 		err = scsi_dev_type_resume(dev, cb);
 		pm_runtime_put_sync(dev->parent);
@@ -82,11 +93,11 @@ scsi_bus_resume_common(struct device *dev, int (*cb)(struct device *))
 static int scsi_bus_prepare(struct device *dev)
 {
 	if (scsi_is_sdev_device(dev)) {
-		
+		/* sd probing uses async_schedule.  Wait until it finishes. */
 		async_synchronize_full();
 
 	} else if (scsi_is_host_device(dev)) {
-		
+		/* Wait until async scanning is finished */
 		scsi_complete_async_scans();
 	}
 	return 0;
@@ -128,7 +139,7 @@ static int scsi_bus_restore(struct device *dev)
 	return scsi_bus_resume_common(dev, pm ? pm->restore : NULL);
 }
 
-#else 
+#else /* CONFIG_PM_SLEEP */
 
 #define scsi_bus_prepare		NULL
 #define scsi_bus_suspend		NULL
@@ -138,7 +149,7 @@ static int scsi_bus_restore(struct device *dev)
 #define scsi_bus_poweroff		NULL
 #define scsi_bus_restore		NULL
 
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 #ifdef CONFIG_PM_RUNTIME
 
@@ -182,7 +193,7 @@ static int scsi_runtime_suspend(struct device *dev)
 	if (scsi_is_sdev_device(dev))
 		err = sdev_runtime_suspend(dev);
 
-	
+	/* Insert hooks here for targets, hosts, and transport classes */
 
 	return err;
 }
@@ -220,7 +231,7 @@ static int scsi_runtime_resume(struct device *dev)
 	if (scsi_is_sdev_device(dev))
 		err = sdev_runtime_resume(dev);
 
-	
+	/* Insert hooks here for targets, hosts, and transport classes */
 
 	return err;
 }
@@ -231,7 +242,7 @@ static int scsi_runtime_idle(struct device *dev)
 
 	dev_dbg(dev, "scsi_runtime_idle\n");
 
-	
+	/* Insert hooks here for targets, hosts, and transport classes */
 
 	if (scsi_is_sdev_device(dev)) {
 		struct scsi_device *sdev = to_scsi_device(dev);
@@ -300,7 +311,7 @@ void scsi_autopm_put_host(struct Scsi_Host *shost)
 #define scsi_runtime_resume	NULL
 #define scsi_runtime_idle	NULL
 
-#endif 
+#endif /* CONFIG_PM_RUNTIME */
 
 const struct dev_pm_ops scsi_bus_pm_ops = {
 	.prepare =		scsi_bus_prepare,

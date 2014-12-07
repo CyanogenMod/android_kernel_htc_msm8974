@@ -32,6 +32,9 @@
 #include "davinci-pcm.h"
 #include "davinci-mcasp.h"
 
+/*
+ * McASP register definitions
+ */
 #define DAVINCI_MCASP_PID_REG		0x00
 #define DAVINCI_MCASP_PWREMUMGT_REG	0x04
 
@@ -81,26 +84,41 @@
 #define DAVINCI_MCASP_TXCLKCHK_REG	0xc8
 #define DAVINCI_MCASP_XEVTCTL_REG	0xcc
 
+/* Left(even TDM Slot) Channel Status Register File */
 #define DAVINCI_MCASP_DITCSRA_REG	0x100
+/* Right(odd TDM slot) Channel Status Register File */
 #define DAVINCI_MCASP_DITCSRB_REG	0x118
+/* Left(even TDM slot) User Data Register File */
 #define DAVINCI_MCASP_DITUDRA_REG	0x130
+/* Right(odd TDM Slot) User Data Register File */
 #define DAVINCI_MCASP_DITUDRB_REG	0x148
 
+/* Serializer n Control Register */
 #define DAVINCI_MCASP_XRSRCTL_BASE_REG	0x180
 #define DAVINCI_MCASP_XRSRCTL_REG(n)	(DAVINCI_MCASP_XRSRCTL_BASE_REG + \
 						(n << 2))
 
+/* Transmit Buffer for Serializer n */
 #define DAVINCI_MCASP_TXBUF_REG		0x200
+/* Receive Buffer for Serializer n */
 #define DAVINCI_MCASP_RXBUF_REG		0x280
 
+/* McASP FIFO Registers */
 #define DAVINCI_MCASP_WFIFOCTL		(0x1010)
 #define DAVINCI_MCASP_WFIFOSTS		(0x1014)
 #define DAVINCI_MCASP_RFIFOCTL		(0x1018)
 #define DAVINCI_MCASP_RFIFOSTS		(0x101C)
 
+/*
+ * DAVINCI_MCASP_PWREMUMGT_REG - Power Down and Emulation Management
+ *     Register Bits
+ */
 #define MCASP_FREE	BIT(0)
 #define MCASP_SOFT	BIT(1)
 
+/*
+ * DAVINCI_MCASP_PFUNC_REG - Pin Function / GPIO Enable Register Bits
+ */
 #define AXR(n)		(1<<n)
 #define PFUNC_AMUTE	BIT(25)
 #define ACLKX		BIT(26)
@@ -110,6 +128,9 @@
 #define AHCLKR		BIT(30)
 #define AFSR		BIT(31)
 
+/*
+ * DAVINCI_MCASP_PDIR_REG - Pin Direction Register Bits
+ */
 #define AXR(n)		(1<<n)
 #define PDIR_AMUTE	BIT(25)
 #define ACLKX		BIT(26)
@@ -119,10 +140,16 @@
 #define AHCLKR		BIT(30)
 #define AFSR		BIT(31)
 
-#define DITEN	BIT(0)	
+/*
+ * DAVINCI_MCASP_TXDITCTL_REG - Transmit DIT Control Register Bits
+ */
+#define DITEN	BIT(0)	/* Transmit DIT mode enable/disable */
 #define VA	BIT(2)
 #define VB	BIT(3)
 
+/*
+ * DAVINCI_MCASP_TXFMT_REG - Transmit Bitstream Format Register Bits
+ */
 #define TXROT(val)	(val)
 #define TXSEL		BIT(3)
 #define TXSSZ(val)	(val<<4)
@@ -131,6 +158,9 @@
 #define TXORD		BIT(15)
 #define FSXDLY(val)	(val<<16)
 
+/*
+ * DAVINCI_MCASP_RXFMT_REG - Receive Bitstream Format Register Bits
+ */
 #define RXROT(val)	(val)
 #define RXSEL		BIT(3)
 #define RXSSZ(val)	(val<<4)
@@ -139,58 +169,96 @@
 #define RXORD		BIT(15)
 #define FSRDLY(val)	(val<<16)
 
+/*
+ * DAVINCI_MCASP_TXFMCTL_REG -  Transmit Frame Control Register Bits
+ */
 #define FSXPOL		BIT(0)
 #define AFSXE		BIT(1)
 #define FSXDUR		BIT(4)
 #define FSXMOD(val)	(val<<7)
 
+/*
+ * DAVINCI_MCASP_RXFMCTL_REG - Receive Frame Control Register Bits
+ */
 #define FSRPOL		BIT(0)
 #define AFSRE		BIT(1)
 #define FSRDUR		BIT(4)
 #define FSRMOD(val)	(val<<7)
 
+/*
+ * DAVINCI_MCASP_ACLKXCTL_REG - Transmit Clock Control Register Bits
+ */
 #define ACLKXDIV(val)	(val)
 #define ACLKXE		BIT(5)
 #define TX_ASYNC	BIT(6)
 #define ACLKXPOL	BIT(7)
 
+/*
+ * DAVINCI_MCASP_ACLKRCTL_REG Receive Clock Control Register Bits
+ */
 #define ACLKRDIV(val)	(val)
 #define ACLKRE		BIT(5)
 #define RX_ASYNC	BIT(6)
 #define ACLKRPOL	BIT(7)
 
+/*
+ * DAVINCI_MCASP_AHCLKXCTL_REG - High Frequency Transmit Clock Control
+ *     Register Bits
+ */
 #define AHCLKXDIV(val)	(val)
 #define AHCLKXPOL	BIT(14)
 #define AHCLKXE		BIT(15)
 
+/*
+ * DAVINCI_MCASP_AHCLKRCTL_REG - High Frequency Receive Clock Control
+ *     Register Bits
+ */
 #define AHCLKRDIV(val)	(val)
 #define AHCLKRPOL	BIT(14)
 #define AHCLKRE		BIT(15)
 
+/*
+ * DAVINCI_MCASP_XRSRCTL_BASE_REG -  Serializer Control Register Bits
+ */
 #define MODE(val)	(val)
 #define DISMOD		(val)(val<<2)
 #define TXSTATE		BIT(4)
 #define RXSTATE		BIT(5)
 
+/*
+ * DAVINCI_MCASP_LBCTL_REG - Loop Back Control Register Bits
+ */
 #define LBEN		BIT(0)
 #define LBORD		BIT(1)
 #define LBGENMODE(val)	(val<<2)
 
+/*
+ * DAVINCI_MCASP_TXTDMSLOT_REG - Transmit TDM Slot Register configuration
+ */
 #define TXTDMS(n)	(1<<n)
 
+/*
+ * DAVINCI_MCASP_RXTDMSLOT_REG - Receive TDM Slot Register configuration
+ */
 #define RXTDMS(n)	(1<<n)
 
-#define RXCLKRST	BIT(0)	
-#define RXHCLKRST	BIT(1)	
-#define RXSERCLR	BIT(2)	
-#define RXSMRST		BIT(3)	
-#define RXFSRST		BIT(4)	
-#define TXCLKRST	BIT(8)	
-#define TXHCLKRST	BIT(9)	
-#define TXSERCLR	BIT(10)	
-#define TXSMRST		BIT(11)	
-#define TXFSRST		BIT(12)	
+/*
+ * DAVINCI_MCASP_GBLCTL_REG -  Global Control Register Bits
+ */
+#define RXCLKRST	BIT(0)	/* Receiver Clock Divider Reset */
+#define RXHCLKRST	BIT(1)	/* Receiver High Frequency Clock Divider */
+#define RXSERCLR	BIT(2)	/* Receiver Serializer Clear */
+#define RXSMRST		BIT(3)	/* Receiver State Machine Reset */
+#define RXFSRST		BIT(4)	/* Frame Sync Generator Reset */
+#define TXCLKRST	BIT(8)	/* Transmitter Clock Divider Reset */
+#define TXHCLKRST	BIT(9)	/* Transmitter High Frequency Clock Divider*/
+#define TXSERCLR	BIT(10)	/* Transmit Serializer Clear */
+#define TXSMRST		BIT(11)	/* Transmitter State Machine Reset */
+#define TXFSRST		BIT(12)	/* Frame Sync Generator Reset */
 
+/*
+ * DAVINCI_MCASP_AMUTE_REG -  Mute Control Register Bits
+ */
 #define MUTENA(val)	(val)
 #define MUTEINPOL	BIT(2)
 #define MUTEINENA	BIT(3)
@@ -204,10 +272,19 @@
 #define MUTERXDMAERR	BIT(11)
 #define MUTETXDMAERR	BIT(12)
 
+/*
+ * DAVINCI_MCASP_REVTCTL_REG - Receiver DMA Event Control Register bits
+ */
 #define RXDATADMADIS	BIT(0)
 
+/*
+ * DAVINCI_MCASP_XEVTCTL_REG - Transmitter DMA Event Control Register bits
+ */
 #define TXDATADMADIS	BIT(0)
 
+/*
+ * DAVINCI_MCASP_W[R]FIFOCTL - Write/Read FIFO Control Register bits
+ */
 #define FIFO_ENABLE	BIT(16)
 #define NUMEVT_MASK	(0xFF << 8)
 #define NUMDMA_MASK	(0xFF)
@@ -245,8 +322,8 @@ static inline void mcasp_set_ctl_reg(void __iomem *regs, u32 val)
 
 	mcasp_set_bits(regs, val);
 
-	
-	
+	/* programming GBLCTL needs to read back from GBLCTL and verfiy */
+	/* loop count is to avoid the lock-up */
 	for (i = 0; i < 1000; i++) {
 		if ((mcasp_get_reg(regs) & val) == val)
 			break;
@@ -291,7 +368,7 @@ static void mcasp_start_tx(struct davinci_audio_dev *dev)
 		}
 	}
 
-	
+	/* wait for TX ready */
 	cnt = 0;
 	while (!(mcasp_get_reg(dev->base + DAVINCI_MCASP_XRSRCTL_REG(offset)) &
 		 TXSTATE) && (cnt < 100000))
@@ -303,12 +380,12 @@ static void mcasp_start_tx(struct davinci_audio_dev *dev)
 static void davinci_mcasp_start(struct davinci_audio_dev *dev, int stream)
 {
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		if (dev->txnumevt)	
+		if (dev->txnumevt)	/* enable FIFO */
 			mcasp_set_bits(dev->base + DAVINCI_MCASP_WFIFOCTL,
 								FIFO_ENABLE);
 		mcasp_start_tx(dev);
 	} else {
-		if (dev->rxnumevt)	
+		if (dev->rxnumevt)	/* enable FIFO */
 			mcasp_set_bits(dev->base + DAVINCI_MCASP_RFIFOCTL,
 								FIFO_ENABLE);
 		mcasp_start_rx(dev);
@@ -330,12 +407,12 @@ static void mcasp_stop_tx(struct davinci_audio_dev *dev)
 static void davinci_mcasp_stop(struct davinci_audio_dev *dev, int stream)
 {
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		if (dev->txnumevt)	
+		if (dev->txnumevt)	/* disable FIFO */
 			mcasp_clr_bits(dev->base + DAVINCI_MCASP_WFIFOCTL,
 								FIFO_ENABLE);
 		mcasp_stop_tx(dev);
 	} else {
-		if (dev->rxnumevt)	
+		if (dev->rxnumevt)	/* disable FIFO */
 			mcasp_clr_bits(dev->base + DAVINCI_MCASP_RFIFOCTL,
 								FIFO_ENABLE);
 		mcasp_stop_rx(dev);
@@ -350,7 +427,7 @@ static int davinci_mcasp_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
-		
+		/* codec is clock and frame slave */
 		mcasp_set_bits(base + DAVINCI_MCASP_ACLKXCTL_REG, ACLKXE);
 		mcasp_set_bits(base + DAVINCI_MCASP_TXFMCTL_REG, AFSXE);
 
@@ -361,7 +438,7 @@ static int davinci_mcasp_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 				ACLKX | AHCLKX | AFSX);
 		break;
 	case SND_SOC_DAIFMT_CBM_CFS:
-		
+		/* codec is clock master and frame slave */
 		mcasp_clr_bits(base + DAVINCI_MCASP_ACLKXCTL_REG, ACLKXE);
 		mcasp_set_bits(base + DAVINCI_MCASP_TXFMCTL_REG, AFSXE);
 
@@ -374,7 +451,7 @@ static int davinci_mcasp_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 				AFSX | AFSR);
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
-		
+		/* codec is clock and frame master */
 		mcasp_clr_bits(base + DAVINCI_MCASP_ACLKXCTL_REG, ACLKXE);
 		mcasp_clr_bits(base + DAVINCI_MCASP_TXFMCTL_REG, AFSXE);
 
@@ -502,10 +579,10 @@ static void davinci_hw_common_param(struct davinci_audio_dev *dev, int stream)
 	u8 tx_ser = 0;
 	u8 rx_ser = 0;
 
-	
+	/* Default configuration */
 	mcasp_set_bits(dev->base + DAVINCI_MCASP_PWREMUMGT_REG, MCASP_SOFT);
 
-	
+	/* All PINS as McASP */
 	mcasp_set_reg(dev->base + DAVINCI_MCASP_PFUNC_REG, 0x00000000);
 
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -565,8 +642,8 @@ static void davinci_hw_param(struct davinci_audio_dev *dev, int stream)
 	mcasp_clr_bits(dev->base + DAVINCI_MCASP_ACLKXCTL_REG, TX_ASYNC);
 
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		
-		
+		/* bit stream is MSB first  with no delay */
+		/* DSP_B mode */
 		mcasp_set_bits(dev->base + DAVINCI_MCASP_AHCLKXCTL_REG,
 				AHCLKXE);
 		mcasp_set_reg(dev->base + DAVINCI_MCASP_TXTDM_REG, mask);
@@ -581,8 +658,8 @@ static void davinci_hw_param(struct davinci_audio_dev *dev, int stream)
 
 		mcasp_clr_bits(dev->base + DAVINCI_MCASP_TXFMCTL_REG, FSXDUR);
 	} else {
-		
-		
+		/* bit stream is MSB first with no delay */
+		/* DSP_B mode */
 		mcasp_set_bits(dev->base + DAVINCI_MCASP_RXFMT_REG, RXORD);
 		mcasp_set_bits(dev->base + DAVINCI_MCASP_AHCLKRCTL_REG,
 				AHCLKRE);
@@ -599,34 +676,37 @@ static void davinci_hw_param(struct davinci_audio_dev *dev, int stream)
 	}
 }
 
+/* S/PDIF */
 static void davinci_hw_dit_param(struct davinci_audio_dev *dev)
 {
-	
+	/* Set the PDIR for Serialiser as output */
 	mcasp_set_bits(dev->base + DAVINCI_MCASP_PDIR_REG, AFSX);
 
-	
+	/* TXMASK for 24 bits */
 	mcasp_set_reg(dev->base + DAVINCI_MCASP_TXMASK_REG, 0x00FFFFFF);
 
+	/* Set the TX format : 24 bit right rotation, 32 bit slot, Pad 0
+	   and LSB first */
 	mcasp_set_bits(dev->base + DAVINCI_MCASP_TXFMT_REG,
 						TXROT(6) | TXSSZ(15));
 
-	
+	/* Set TX frame synch : DIT Mode, 1 bit width, internal, rising edge */
 	mcasp_set_reg(dev->base + DAVINCI_MCASP_TXFMCTL_REG,
 						AFSXE | FSXMOD(0x180));
 
-	
+	/* Set the TX tdm : for all the slots */
 	mcasp_set_reg(dev->base + DAVINCI_MCASP_TXTDM_REG, 0xFFFFFFFF);
 
-	
+	/* Set the TX clock controls : div = 1 and internal */
 	mcasp_set_bits(dev->base + DAVINCI_MCASP_ACLKXCTL_REG,
 						ACLKXE | TX_ASYNC);
 
 	mcasp_clr_bits(dev->base + DAVINCI_MCASP_XEVTCTL_REG, TXDATADMADIS);
 
-	
+	/* Only 44100 and 48000 are valid, both have the same setting */
 	mcasp_set_bits(dev->base + DAVINCI_MCASP_AHCLKXCTL_REG, AHCLKXDIV(3));
 
-	
+	/* Enable the DIT */
 	mcasp_set_bits(dev->base + DAVINCI_MCASP_TXDITCTL_REG, DITEN);
 }
 
@@ -836,7 +916,7 @@ static int davinci_mcasp_probe(struct platform_device *pdev)
 	dma_data->dma_addr = (dma_addr_t) (pdata->tx_dma_offset +
 							mem->start);
 
-	
+	/* first TX, then RX */
 	res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "no DMA resource\n");

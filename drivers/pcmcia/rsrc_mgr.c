@@ -22,6 +22,8 @@
 
 int static_init(struct pcmcia_socket *s)
 {
+	/* the good thing about SS_CAP_STATIC_MAP sockets is
+	 * that they don't need a resource database */
 
 	s->resource_setup_done = 1;
 

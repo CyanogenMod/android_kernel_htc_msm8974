@@ -6,22 +6,25 @@
  * of the GNU General Public License, incorporated herein by reference.
  */
 
-#define SCIOCLOAD	0x01	
-#define SCIOCRESET	0x02	
-#define SCIOCDEBUG	0x03	
-#define SCIOCREV	0x04	
-#define SCIOCSTART	0x05	
-#define SCIOCGETSWITCH	0x06	
-#define SCIOCSETSWITCH	0x07	
-#define SCIOCGETSPID	0x08	
-#define SCIOCSETSPID	0x09	
-#define SCIOCGETDN	0x0A	
-#define SCIOCSETDN	0x0B	
-#define SCIOCTRACE	0x0C	
-#define SCIOCSTAT	0x0D	
-#define SCIOCGETSPEED	0x0E	
-#define SCIOCSETSPEED	0x0F	
-#define SCIOCLOOPTST	0x10	
+/*
+ * IOCTL Command Codes
+ */
+#define SCIOCLOAD	0x01	/* Load a firmware record */
+#define SCIOCRESET	0x02	/* Perform hard reset */
+#define SCIOCDEBUG	0x03	/* Set debug level */
+#define SCIOCREV	0x04	/* Get driver revision(s) */
+#define SCIOCSTART	0x05	/* Start the firmware */
+#define SCIOCGETSWITCH	0x06	/* Get switch type */
+#define SCIOCSETSWITCH	0x07	/* Set switch type */
+#define SCIOCGETSPID	0x08	/* Get channel SPID */
+#define SCIOCSETSPID	0x09	/* Set channel SPID */
+#define SCIOCGETDN	0x0A	/* Get channel DN */
+#define SCIOCSETDN	0x0B	/* Set channel DN */
+#define SCIOCTRACE	0x0C	/* Toggle trace mode */
+#define SCIOCSTAT	0x0D	/* Get line status */
+#define SCIOCGETSPEED	0x0E	/* Set channel speed */
+#define SCIOCSETSPEED	0x0F	/* Set channel speed */
+#define SCIOCLOOPTST	0x10	/* Perform loopback test */
 
 typedef struct {
 	int device;
@@ -30,6 +33,7 @@ typedef struct {
 	void __user *dataptr;
 } scs_ioctl;
 
+/* Size of strings */
 #define SCIOC_SPIDSIZE		49
 #define SCIOC_DNSIZE		SCIOC_SPIDSIZE
 #define SCIOC_REVSIZE		SCIOC_SPIDSIZE
@@ -103,4 +107,4 @@ typedef struct {
 	} info;
 } boardInfo;
 
-#endif  
+#endif  /*  __ISDN_SC_SCIOC_H__  */

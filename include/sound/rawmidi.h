@@ -33,6 +33,9 @@
 #include "seq_device.h"
 #endif
 
+/*
+ *  Raw MIDI interface
+ */
 
 #define SNDRV_RAWMIDI_DEVICES		8
 
@@ -62,43 +65,43 @@ struct snd_rawmidi_global_ops {
 
 struct snd_rawmidi_runtime {
 	struct snd_rawmidi_substream *substream;
-	unsigned int drain: 1,	
-		     oss: 1;	
-	
-	unsigned char *buffer;	
-	size_t buffer_size;	
-	size_t appl_ptr;	
-	size_t hw_ptr;		
-	size_t avail_min;	
-	size_t avail;		
-	size_t xruns;		
-	
+	unsigned int drain: 1,	/* drain stage */
+		     oss: 1;	/* OSS compatible mode */
+	/* midi stream buffer */
+	unsigned char *buffer;	/* buffer for MIDI data */
+	size_t buffer_size;	/* size of buffer */
+	size_t appl_ptr;	/* application pointer */
+	size_t hw_ptr;		/* hardware pointer */
+	size_t avail_min;	/* min avail for wakeup */
+	size_t avail;		/* max used buffer for wakeup */
+	size_t xruns;		/* over/underruns counter */
+	/* misc */
 	spinlock_t lock;
 	wait_queue_head_t sleep;
-	
+	/* event handler (new bytes, input only) */
 	void (*event)(struct snd_rawmidi_substream *substream);
-	
+	/* defers calls to event [input] or ops->trigger [output] */
 	struct work_struct event_work;
-	
+	/* private data */
 	void *private_data;
 	void (*private_free)(struct snd_rawmidi_substream *substream);
 };
 
 struct snd_rawmidi_substream {
-	struct list_head list;		
-	int stream;			
-	int number;			
-	unsigned int opened: 1,		
-		     append: 1,		
-		     active_sensing: 1; 
-	int use_count;			
+	struct list_head list;		/* list of all substream for given stream */
+	int stream;			/* direction */
+	int number;			/* substream number */
+	unsigned int opened: 1,		/* open flag */
+		     append: 1,		/* append flag (merge more streams) */
+		     active_sensing: 1; /* send active sensing when close */
+	int use_count;			/* use counter (for output) */
 	size_t bytes;
 	struct snd_rawmidi *rmidi;
 	struct snd_rawmidi_str *pstr;
 	char name[32];
 	struct snd_rawmidi_runtime *runtime;
 	struct pid *pid;
-	
+	/* hardware layer */
 	struct snd_rawmidi_ops *ops;
 };
 
@@ -117,8 +120,8 @@ struct snd_rawmidi_str {
 struct snd_rawmidi {
 	struct snd_card *card;
 	struct list_head list;
-	unsigned int device;		
-	unsigned int info_flags;	
+	unsigned int device;		/* device number */
+	unsigned int info_flags;	/* SNDRV_RAWMIDI_INFO_XXXX */
 	char id[64];
 	char name[80];
 
@@ -144,6 +147,7 @@ struct snd_rawmidi {
 #endif
 };
 
+/* main rawmidi functions */
 
 int snd_rawmidi_new(struct snd_card *card, char *id, int device,
 		    int output_count, int input_count,
@@ -151,6 +155,7 @@ int snd_rawmidi_new(struct snd_card *card, char *id, int device,
 void snd_rawmidi_set_ops(struct snd_rawmidi *rmidi, int stream,
 			 struct snd_rawmidi_ops *ops);
 
+/* callbacks */
 
 void snd_rawmidi_receive_reset(struct snd_rawmidi_substream *substream);
 int snd_rawmidi_receive(struct snd_rawmidi_substream *substream,
@@ -163,6 +168,7 @@ int snd_rawmidi_transmit_ack(struct snd_rawmidi_substream *substream, int count)
 int snd_rawmidi_transmit(struct snd_rawmidi_substream *substream,
 			 unsigned char *buffer, int count);
 
+/* main midi functions */
 
 int snd_rawmidi_info_select(struct snd_card *card, struct snd_rawmidi_info *info);
 int snd_rawmidi_kernel_open(struct snd_card *card, int device, int subdevice,
@@ -180,4 +186,4 @@ long snd_rawmidi_kernel_read(struct snd_rawmidi_substream *substream,
 long snd_rawmidi_kernel_write(struct snd_rawmidi_substream *substream,
 			      const unsigned char *buf, long count);
 
-#endif 
+#endif /* __SOUND_RAWMIDI_H */

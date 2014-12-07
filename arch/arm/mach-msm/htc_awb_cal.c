@@ -28,7 +28,7 @@ GNU General Public License for more details.
 
 
 #define AWB_CAL_MAX_SIZE	0x4000U     
-#define DUAL_CAL_SIZE 3342
+#define DUAL_CAL_SIZE 4095
 
 #define CALIBRATION_DATA_PATH "/calibration_data"
 #define CAM_AWB_CAL_DATA "cam_awb"
@@ -49,6 +49,7 @@ struct qct_awb_lsc_struct{
 	unsigned long int aec_caBuff[9]; 
 	unsigned long int alight_caBuff[8]; 
 	unsigned long int dualflashcaBuff[12];  
+	unsigned long int awb_verify;
 };
 
 static unsigned char cam_awb_ram[AWB_CAL_MAX_SIZE];
@@ -91,44 +92,6 @@ unsigned char *get_cam_awb_cal( void )
 }
 EXPORT_SYMBOL(get_cam_awb_cal);
 
-#if 0
-static int __init parse_tag_cam_awb_cal(const struct tag *tag)
-{
-	unsigned char *dptr = (unsigned char *)(&tag->u);
-	unsigned size;
-
-	pr_info("[CAM]ALB_DBG, %s\n", __func__);
-
-	size = min((tag->hdr.size - 2) * sizeof(__u32), AWB_CAL_MAX_SIZE);
-
-	printk(KERN_INFO "[CAM]CAM_AWB_CAL Data size = %d , 0x%x, size = %d (%d,%d)\n",
-			tag->hdr.size, tag->hdr.tag, size,
-			((tag->hdr.size - 2) * sizeof(__u32)), (AWB_CAL_MAX_SIZE));
-
-	gCAM_AWB_CAL_LEN = size;
-	memcpy(cam_awb_ram, dummy(dptr), size); 
-
-
-#ifdef ATAG_CAM_AWB_CAL_DEBUG
-   {
-	 int *pint, i;
-
-	 printk(KERN_INFO "[CAM]parse_tag_cam_awb_cal():\n");
-
-	 pint = (int *)cam_awb_ram;
-
-	 for (i = 0; i < 1024; i++)
-	   printk(KERN_INFO "%x\n", pint[i]);
-
-   }
-#endif
-
-	return 0;
-}
-
-__tagtable(ATAG_MSM_AWB_CAL, parse_tag_cam_awb_cal);
-#endif
-
 static ssize_t awb_calibration_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -139,7 +102,6 @@ static ssize_t awb_calibration_show(struct device *dev,
 	
 
 	ret = sizeof(struct qct_awb_lsc_struct);
-	
 	printk(KERN_INFO "[CAM]awb_calibration_show(%d)\n", ret);
 	memcpy(buf, ptr, ret);
 
@@ -163,16 +125,10 @@ static ssize_t awb_calibration_front_show(struct device *dev,
 	ssize_t ret = 0;
 	unsigned char *ptr;
 
-	if (gCAM_AWB_CAL_LEN < AWB_CAL_MAX_SIZE) {
-		pr_err("[CAM]%s: gCAM_AWB_CAL_LEN(%d) < AWB_CAL_MAX_SIZE(%d)\n", __func__, gCAM_AWB_CAL_LEN, AWB_CAL_MAX_SIZE);
-		return 0;
-	}
-
 	ptr = get_cam_awb_cal();
 	
 
 	ret = sizeof(struct qct_awb_lsc_struct);
-	
 	printk(KERN_INFO "[CAM]awb_calibration_front_show(%d)\n", ret);
 	memcpy(buf, ptr + 0x1000U, ret);
 
@@ -197,16 +153,10 @@ static ssize_t awb_calibration_sub_show(struct device *dev,
 	ssize_t ret = 0;
 	unsigned char *ptr;
 
-	if (gCAM_AWB_CAL_LEN < AWB_CAL_MAX_SIZE) {
-		pr_err("[CAM]%s: gCAM_AWB_CAL_LEN(%d) < AWB_CAL_MAX_SIZE(%d)\n", __func__, gCAM_AWB_CAL_LEN, AWB_CAL_MAX_SIZE);
-		return 0;
-	}
-
 	ptr = get_cam_awb_cal();
 	
 
 	ret = sizeof(struct qct_awb_lsc_struct);
-	
 	printk(KERN_INFO "[CAM]awb_calibration_sub_show(%d)\n", ret);
 	memcpy(buf, ptr + 0x2000U, ret);
 

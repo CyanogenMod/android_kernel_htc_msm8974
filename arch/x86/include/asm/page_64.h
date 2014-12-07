@@ -3,4 +3,4 @@
 
 #include <asm/page_64_types.h>
 
-#endif 
+#endif /* _ASM_X86_PAGE_64_H */

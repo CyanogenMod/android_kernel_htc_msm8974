@@ -18,6 +18,19 @@
 #include <linux/platform_device.h>
 #include <linux/sh_dma.h>
 
+/*
+ * MMCIF : CE_CLK_CTRL [19:16]
+ * 1000 : Peripheral clock / 512
+ * 0111 : Peripheral clock / 256
+ * 0110 : Peripheral clock / 128
+ * 0101 : Peripheral clock / 64
+ * 0100 : Peripheral clock / 32
+ * 0011 : Peripheral clock / 16
+ * 0010 : Peripheral clock / 8
+ * 0001 : Peripheral clock / 4
+ * 0000 : Peripheral clock / 2
+ * 1111 : Peripheral clock (sup_pclk set '1')
+ */
 
 struct sh_mmcif_dma {
 	struct sh_dmae_slave chan_priv_tx;
@@ -28,10 +41,10 @@ struct sh_mmcif_plat_data {
 	void (*set_pwr)(struct platform_device *pdev, int state);
 	void (*down_pwr)(struct platform_device *pdev);
 	int (*get_cd)(struct platform_device *pdef);
-	struct sh_mmcif_dma	*dma;		
-	unsigned int		slave_id_tx;	
+	struct sh_mmcif_dma	*dma;		/* Deprecated. Instead */
+	unsigned int		slave_id_tx;	/* use embedded slave_id_[tr]x */
 	unsigned int		slave_id_rx;
-	u8			sup_pclk;	
+	u8			sup_pclk;	/* 1 :SH7757, 0: SH7724/SH7372 */
 	unsigned long		caps;
 	u32			ocr;
 };
@@ -55,22 +68,26 @@ struct sh_mmcif_plat_data {
 #define MMCIF_CE_HOST_STS2	0x0000004C
 #define MMCIF_CE_VERSION	0x0000007C
 
+/* CE_BUF_ACC */
 #define BUF_ACC_DMAWEN		(1 << 25)
 #define BUF_ACC_DMAREN		(1 << 24)
 #define BUF_ACC_BUSW_32		(0 << 17)
 #define BUF_ACC_BUSW_16		(1 << 17)
 #define BUF_ACC_ATYP		(1 << 16)
 
-#define CLK_ENABLE		(1 << 24) 
+/* CE_CLK_CTRL */
+#define CLK_ENABLE		(1 << 24) /* 1: output mmc clock */
 #define CLK_CLEAR		(0xf << 16)
 #define CLK_SUP_PCLK		(0xf << 16)
-#define CLKDIV_4		(1 << 16) 
-#define CLKDIV_256		(7 << 16) 
-#define SRSPTO_256		(2 << 12) 
-#define SRBSYTO_29		(0xf << 8) 
-#define SRWDTO_29		(0xf << 4) 
-#define SCCSTO_29		(0xf << 0) 
+#define CLKDIV_4		(1 << 16) /* mmc clock frequency.
+					   * n: bus clock/(2^(n+1)) */
+#define CLKDIV_256		(7 << 16) /* mmc clock frequency. (see above) */
+#define SRSPTO_256		(2 << 12) /* resp timeout */
+#define SRBSYTO_29		(0xf << 8) /* resp busy timeout */
+#define SRWDTO_29		(0xf << 4) /* read/write timeout */
+#define SCCSTO_29		(0xf << 0) /* ccs timeout */
 
+/* CE_VERSION */
 #define SOFT_RST_ON		(1 << 31)
 #define SOFT_RST_OFF		0
 
@@ -84,7 +101,7 @@ static inline void sh_mmcif_writel(void __iomem *addr, int reg, u32 val)
 	__raw_writel(val, addr + reg);
 }
 
-#define SH_MMCIF_BBS 512 
+#define SH_MMCIF_BBS 512 /* boot block size */
 
 static inline void sh_mmcif_boot_cmd_send(void __iomem *base,
 					  unsigned long cmd, unsigned long arg)
@@ -123,13 +140,13 @@ static inline int sh_mmcif_boot_do_read_single(void __iomem *base,
 {
 	int k;
 
-	
+	/* CMD13 - Status */
 	sh_mmcif_boot_cmd(base, 0x0d400000, 0x00010000);
 
 	if (sh_mmcif_readl(base, MMCIF_CE_RESP0) != 0x0900)
 		return -1;
 
-	
+	/* CMD17 - Read */
 	sh_mmcif_boot_cmd(base, 0x11480000, block_nr * SH_MMCIF_BBS);
 	if (sh_mmcif_boot_cmd_poll(base, 0x00100000) < 0)
 		return -1;
@@ -148,18 +165,18 @@ static inline int sh_mmcif_boot_do_read(void __iomem *base,
 	unsigned long k;
 	int ret = 0;
 
-	
+	/* In data transfer mode: Set clock to Bus clock/4 (about 20Mhz) */
 	sh_mmcif_writel(base, MMCIF_CE_CLK_CTRL,
 			CLK_ENABLE | CLKDIV_4 | SRSPTO_256 |
 			SRBSYTO_29 | SRWDTO_29 | SCCSTO_29);
 
-	
+	/* CMD9 - Get CSD */
 	sh_mmcif_boot_cmd(base, 0x09806000, 0x00010000);
 
-	
+	/* CMD7 - Select the card */
 	sh_mmcif_boot_cmd(base, 0x07400000, 0x00010000);
 
-	
+	/* CMD16 - Set the block size */
 	sh_mmcif_boot_cmd(base, 0x10400000, SH_MMCIF_BBS);
 
 	for (k = 0; !ret && k < nr_blocks; k++)
@@ -171,35 +188,35 @@ static inline int sh_mmcif_boot_do_read(void __iomem *base,
 
 static inline void sh_mmcif_boot_init(void __iomem *base)
 {
-	
+	/* reset */
 	sh_mmcif_writel(base, MMCIF_CE_VERSION, SOFT_RST_ON);
 	sh_mmcif_writel(base, MMCIF_CE_VERSION, SOFT_RST_OFF);
 
-	
+	/* byte swap */
 	sh_mmcif_writel(base, MMCIF_CE_BUF_ACC, BUF_ACC_ATYP);
 
-	
+	/* Set block size in MMCIF hardware */
 	sh_mmcif_writel(base, MMCIF_CE_BLOCK_SET, SH_MMCIF_BBS);
 
-	
+	/* Enable the clock, set it to Bus clock/256 (about 325Khz). */
 	sh_mmcif_writel(base, MMCIF_CE_CLK_CTRL,
 			CLK_ENABLE | CLKDIV_256 | SRSPTO_256 |
 			SRBSYTO_29 | SRWDTO_29 | SCCSTO_29);
 
-	
+	/* CMD0 */
 	sh_mmcif_boot_cmd(base, 0x00000040, 0);
 
-	
+	/* CMD1 - Get OCR */
 	do {
-		sh_mmcif_boot_cmd(base, 0x01405040, 0x40300000); 
+		sh_mmcif_boot_cmd(base, 0x01405040, 0x40300000); /* CMD1 */
 	} while ((sh_mmcif_readl(base, MMCIF_CE_RESP0) & 0x80000000)
 		 != 0x80000000);
 
-	
+	/* CMD2 - Get CID */
 	sh_mmcif_boot_cmd(base, 0x02806040, 0);
 
-	
+	/* CMD3 - Set card relative address */
 	sh_mmcif_boot_cmd(base, 0x03400040, 0x00010000);
 }
 
-#endif 
+#endif /* LINUX_MMC_SH_MMCIF_H */

@@ -33,6 +33,7 @@ sl:	.reg	%r29
 sp:	.reg	%r30
 
 #if 0
+/* PA20_REVISIT */
 arg7:	.reg	r19
 arg6:	.reg	r20
 arg5:	.reg	r21

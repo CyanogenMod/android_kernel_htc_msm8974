@@ -65,29 +65,32 @@ static inline int pciehp_writel(struct controller *ctrl, int reg, u32 value)
 	return pci_write_config_dword(dev, pci_pcie_cap(dev) + reg, value);
 }
 
+/* Power Control Command */
 #define POWER_ON	0
 #define POWER_OFF	PCI_EXP_SLTCTL_PCC
 
 static irqreturn_t pcie_isr(int irq, void *dev_id);
 static void start_int_poll_timer(struct controller *ctrl, int sec);
 
+/* This is the interrupt polling timeout function. */
 static void int_poll_timeout(unsigned long data)
 {
 	struct controller *ctrl = (struct controller *)data;
 
-	
+	/* Poll for interrupt events.  regs == NULL => polling */
 	pcie_isr(0, ctrl);
 
 	init_timer(&ctrl->poll_timer);
 	if (!pciehp_poll_time)
-		pciehp_poll_time = 2; 
+		pciehp_poll_time = 2; /* default polling interval is 2 sec */
 
 	start_int_poll_timer(ctrl, pciehp_poll_time);
 }
 
+/* This function starts the interrupt polling timer. */
 static void start_int_poll_timer(struct controller *ctrl, int sec)
 {
-	
+	/* Clamp to sane value */
 	if ((sec <= 0) || (sec > 60))
         	sec = 2;
 
@@ -101,14 +104,14 @@ static inline int pciehp_request_irq(struct controller *ctrl)
 {
 	int retval, irq = ctrl->pcie->irq;
 
-	
+	/* Install interrupt polling timer. Start with 10 sec delay */
 	if (pciehp_poll_mode) {
 		init_timer(&ctrl->poll_timer);
 		start_int_poll_timer(ctrl, 10);
 		return 0;
 	}
 
-	
+	/* Installs the interrupt handler */
 	retval = request_irq(irq, pcie_isr, IRQF_SHARED, MY_NAME, ctrl);
 	if (retval)
 		ctrl_err(ctrl, "Cannot get irq %d for the hotplug controller\n",
@@ -143,7 +146,7 @@ static int pcie_poll_cmd(struct controller *ctrl)
 			return 1;
 		}
 	}
-	return 0;	
+	return 0;	/* timeout */
 }
 
 static void pcie_wait_cmd(struct controller *ctrl, int poll)
@@ -183,8 +186,18 @@ static int pcie_write_cmd(struct controller *ctrl, u16 cmd, u16 mask)
 
 	if (slot_status & PCI_EXP_SLTSTA_CC) {
 		if (!ctrl->no_cmd_complete) {
+			/*
+			 * After 1 sec and CMD_COMPLETED still not set, just
+			 * proceed forward to issue the next command according
+			 * to spec. Just print out the error message.
+			 */
 			ctrl_dbg(ctrl, "CMD_COMPLETED not clear after 1 sec\n");
 		} else if (!NO_CMD_CMPL(ctrl)) {
+			/*
+			 * This controller semms to notify of command completed
+			 * event even though it supports none of power
+			 * controller, attention led, power led and EMI.
+			 */
 			ctrl_dbg(ctrl, "Unexpected CMD_COMPLETED. Need to "
 				 "wait for command completed event.\n");
 			ctrl->no_cmd_complete = 0;
@@ -208,8 +221,16 @@ static int pcie_write_cmd(struct controller *ctrl, u16 cmd, u16 mask)
 	if (retval)
 		ctrl_err(ctrl, "Cannot write to SLOTCTRL register\n");
 
+	/*
+	 * Wait for command completion.
+	 */
 	if (!retval && !ctrl->no_cmd_complete) {
 		int poll = 0;
+		/*
+		 * if hotplug interrupt is not enabled or command
+		 * completed interrupt is not enabled, we need to poll
+		 * command completed event.
+		 */
 		if (!(slot_ctrl & PCI_EXP_SLTCTL_HPIE) ||
 		    !(slot_ctrl & PCI_EXP_SLTCTL_CCIE))
 			poll = 1;
@@ -294,12 +315,17 @@ int pciehp_check_link_status(struct controller *ctrl)
 	int retval = 0;
 	bool found = false;
 
+        /*
+         * Data Link Layer Link Active Reporting must be capable for
+         * hot-plug capable downstream port. But old controller might
+         * not implement it. In this case, we wait for 1000 ms.
+         */
         if (ctrl->link_active_reporting)
                 pcie_wait_link_active(ctrl);
         else
                 msleep(1000);
 
-	
+	/* wait 100ms before read pci conf, and try in 1s */
 	msleep(100);
 	found = pci_bus_check_dev(ctrl->pcie->port->subordinate,
 					PCI_DEVFN(0, 0));
@@ -382,16 +408,16 @@ int pciehp_get_attention_status(struct slot *slot, u8 *status)
 
 	switch (atten_led_state) {
 	case 0:
-		*status = 0xFF;	
+		*status = 0xFF;	/* Reserved */
 		break;
 	case 1:
-		*status = 1;	
+		*status = 1;	/* On */
 		break;
 	case 2:
-		*status = 2;	
+		*status = 2;	/* Blink */
 		break;
 	case 3:
-		*status = 0;	
+		*status = 0;	/* Off */
 		break;
 	default:
 		*status = 0xFF;
@@ -487,13 +513,13 @@ int pciehp_set_attention_status(struct slot *slot, u8 value)
 
 	cmd_mask = PCI_EXP_SLTCTL_AIC;
 	switch (value) {
-	case 0 :	
+	case 0 :	/* turn off */
 		slot_cmd = 0x00C0;
 		break;
-	case 1:		
+	case 1:		/* turn on */
 		slot_cmd = 0x0040;
 		break;
-	case 2:		
+	case 2:		/* turn blink */
 		slot_cmd = 0x0080;
 		break;
 	default:
@@ -551,7 +577,7 @@ int pciehp_power_on_slot(struct slot * slot)
 	u16 slot_status;
 	int retval = 0;
 
-	
+	/* Clear sticky power-fault bit from previous power failures */
 	retval = pciehp_readw(ctrl, PCI_EXP_SLTSTA, &slot_status);
 	if (retval) {
 		ctrl_err(ctrl, "%s: Cannot read SLOTSTATUS register\n",
@@ -594,9 +620,9 @@ int pciehp_power_off_slot(struct slot * slot)
 	u16 cmd_mask;
 	int retval;
 
-	
+	/* Disable the link at first */
 	pciehp_link_disable(ctrl);
-	
+	/* wait the link is down */
 	if (ctrl->link_active_reporting)
 		pcie_wait_link_not_active(ctrl);
 	else
@@ -620,6 +646,11 @@ static irqreturn_t pcie_isr(int irq, void *dev_id)
 	struct slot *slot = ctrl->slot;
 	u16 detected, intr_loc;
 
+	/*
+	 * In order to guarantee that all interrupt events are
+	 * serviced, we need to re-inspect Slot Status register after
+	 * clearing what is presumed to be the last pending interrupt.
+	 */
 	intr_loc = 0;
 	do {
 		if (pciehp_readw(ctrl, PCI_EXP_SLTSTA, &detected)) {
@@ -644,7 +675,7 @@ static irqreturn_t pcie_isr(int irq, void *dev_id)
 
 	ctrl_dbg(ctrl, "%s: intr_loc %x\n", __func__, intr_loc);
 
-	
+	/* Check Command Complete Interrupt Pending */
 	if (intr_loc & PCI_EXP_SLTSTA_CC) {
 		ctrl->cmd_busy = 0;
 		smp_mb();
@@ -654,19 +685,19 @@ static irqreturn_t pcie_isr(int irq, void *dev_id)
 	if (!(intr_loc & ~PCI_EXP_SLTSTA_CC))
 		return IRQ_HANDLED;
 
-	
+	/* Check MRL Sensor Changed */
 	if (intr_loc & PCI_EXP_SLTSTA_MRLSC)
 		pciehp_handle_switch_change(slot);
 
-	
+	/* Check Attention Button Pressed */
 	if (intr_loc & PCI_EXP_SLTSTA_ABP)
 		pciehp_handle_attention_button(slot);
 
-	
+	/* Check Presence Detect Changed */
 	if (intr_loc & PCI_EXP_SLTSTA_PDC)
 		pciehp_handle_presence_change(slot);
 
-	
+	/* Check Power Fault Detected */
 	if ((intr_loc & PCI_EXP_SLTSTA_PFD) && !ctrl->power_fault_detected) {
 		ctrl->power_fault_detected = 1;
 		pciehp_handle_power_fault(slot);
@@ -779,6 +810,16 @@ int pcie_enable_notification(struct controller *ctrl)
 {
 	u16 cmd, mask;
 
+	/*
+	 * TBD: Power fault detected software notification support.
+	 *
+	 * Power fault detected software notification is not enabled
+	 * now, because it caused power fault detected interrupt storm
+	 * on some machines. On those machines, power fault detected
+	 * bit in the slot status register was set again immediately
+	 * when it is cleared in the interrupt service routine, and
+	 * next power fault detected interrupt was notified again.
+	 */
 	cmd = PCI_EXP_SLTCTL_PDCE;
 	if (ATTN_BUTTN(ctrl))
 		cmd |= PCI_EXP_SLTCTL_ABPE;
@@ -928,11 +969,17 @@ struct controller *pcie_init(struct pcie_device *dev)
 	mutex_init(&ctrl->ctrl_lock);
 	init_waitqueue_head(&ctrl->queue);
 	dbg_ctrl(ctrl);
+	/*
+	 * Controller doesn't notify of command completion if the "No
+	 * Command Completed Support" bit is set in Slot Capability
+	 * register or the controller supports none of power
+	 * controller, attention led, power led and EMI.
+	 */
 	if (NO_CMD_CMPL(ctrl) ||
 	    !(POWER_CTRL(ctrl) | ATTN_LED(ctrl) | PWR_LED(ctrl) | EMI(ctrl)))
 	    ctrl->no_cmd_complete = 1;
 
-        
+        /* Check if Data Link Layer Link Active Reporting is implemented */
         if (pciehp_readl(ctrl, PCI_EXP_LNKCAP, &link_cap)) {
                 ctrl_err(ctrl, "%s: Cannot read LNKCAP register\n", __func__);
                 goto abort_ctrl;
@@ -942,11 +989,11 @@ struct controller *pcie_init(struct pcie_device *dev)
                 ctrl->link_active_reporting = 1;
         }
 
-	
+	/* Clear all remaining event bits in Slot Status register */
 	if (pciehp_writew(ctrl, PCI_EXP_SLTSTA, 0x1f))
 		goto abort_ctrl;
 
-	
+	/* Disable sotfware notification */
 	pcie_disable_notification(ctrl);
 
 	ctrl_info(ctrl, "HPC vendor_id %x device_id %x ss_vid %x ss_did %x\n",

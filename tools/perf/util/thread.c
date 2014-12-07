@@ -67,6 +67,11 @@ struct thread *machine__findnew_thread(struct machine *self, pid_t pid)
 	struct rb_node *parent = NULL;
 	struct thread *th;
 
+	/*
+	 * Font-end cache - PID lookups come in blocks,
+	 * so most of the time we dont have to look up
+	 * the full rbtree:
+	 */
 	if (self->last_match && self->last_match->pid == pid)
 		return self->last_match;
 

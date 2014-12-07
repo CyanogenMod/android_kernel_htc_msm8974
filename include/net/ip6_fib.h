@@ -59,7 +59,7 @@ struct fib6_node {
 #endif
 	struct rt6_info		*leaf;
 
-	__u16			fn_bit;		
+	__u16			fn_bit;		/* bit key */
 	__u16			fn_flags;
 	__u32			fn_sernum;
 	struct rt6_info		*rr_ptr;
@@ -71,6 +71,10 @@ struct fib6_node {
 #define FIB6_SUBTREE(fn)	((fn)->subtree)
 #endif
 
+/*
+ *	routing information
+ *
+ */
 
 struct rt6key {
 	struct in6_addr	addr;
@@ -82,6 +86,11 @@ struct fib6_table;
 struct rt6_info {
 	struct dst_entry		dst;
 
+	/*
+	 * Tail elements of dst_entry (__refcnt etc.)
+	 * and these elements (rarely used in hot path) are in
+	 * the same cache line.
+	 */
 	struct fib6_table		*rt6i_table;
 	struct fib6_node		*rt6i_node;
 
@@ -89,7 +98,7 @@ struct rt6_info {
 
 	atomic_t			rt6i_ref;
 
-	
+	/* These are in a separate cache line. */
 	struct rt6key			rt6i_dst ____cacheline_aligned_in_smp;
 	u32				rt6i_flags;
 	struct rt6key			rt6i_src;
@@ -103,7 +112,7 @@ struct rt6_info {
 #ifdef CONFIG_XFRM
 	u32				rt6i_flow_cache_genid;
 #endif
-	
+	/* more non-fragment space at head required */
 	unsigned short			rt6i_nfheader_len;
 
 	u8				rt6i_protocol;
@@ -137,6 +146,9 @@ static inline void rt6_update_expires(struct rt6_info *rt, int timeout)
 	if (!(rt->rt6i_flags & RTF_EXPIRES)) {
 		if (rt->dst.from)
 			dst_release(rt->dst.from);
+		/* dst_set_expires relies on expires == 0 
+		 * if it has not been set previously.
+		 */
 		rt->dst.expires = 0;
 	}
 
@@ -174,16 +186,20 @@ struct fib6_walker_t {
 struct rt6_statistics {
 	__u32		fib_nodes;
 	__u32		fib_route_nodes;
-	__u32		fib_rt_alloc;		
-	__u32		fib_rt_entries;		
-	__u32		fib_rt_cache;		
+	__u32		fib_rt_alloc;		/* permanent routes	*/
+	__u32		fib_rt_entries;		/* rt entries in table	*/
+	__u32		fib_rt_cache;		/* cache routes		*/
 	__u32		fib_discarded_routes;
 };
 
 #define RTN_TL_ROOT	0x0001
-#define RTN_ROOT	0x0002		
-#define RTN_RTINFO	0x0004		
+#define RTN_ROOT	0x0002		/* tree root node		*/
+#define RTN_RTINFO	0x0004		/* node with valid routing info	*/
 
+/*
+ *	priority levels (or metrics)
+ *
+ */
 
 
 struct fib6_table {
@@ -213,6 +229,9 @@ typedef struct rt6_info *(*pol_lookup_t)(struct net *,
 					 struct fib6_table *,
 					 struct flowi6 *, int);
 
+/*
+ *	exported functions
+ */
 
 extern struct fib6_table        *fib6_get_table(struct net *net, u32 id);
 extern struct fib6_table        *fib6_new_table(struct net *net, u32 id);

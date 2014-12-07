@@ -55,13 +55,14 @@ static u32 sirfsoc_timer_reg_val[SIRFSOC_TIMER_REG_CNT];
 static void __iomem *sirfsoc_timer_base;
 static void __init sirfsoc_of_timer_map(void);
 
+/* timer0 interrupt handler */
 static irqreturn_t sirfsoc_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *ce = dev_id;
 
 	WARN_ON(!(readl_relaxed(sirfsoc_timer_base + SIRFSOC_TIMER_STATUS) & BIT(0)));
 
-	
+	/* clear timer0 interrupt */
 	writel_relaxed(BIT(0), sirfsoc_timer_base + SIRFSOC_TIMER_STATUS);
 
 	ce->event_handler(ce);
@@ -69,11 +70,12 @@ static irqreturn_t sirfsoc_timer_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* read 64-bit timer counter */
 static cycle_t sirfsoc_timer_read(struct clocksource *cs)
 {
 	u64 cycles;
 
-	
+	/* latch the 64-bit timer counter */
 	writel_relaxed(SIRFSOC_TIMER_LATCH_BIT, sirfsoc_timer_base + SIRFSOC_TIMER_LATCH);
 	cycles = readl_relaxed(sirfsoc_timer_base + SIRFSOC_TIMER_LATCHED_HI);
 	cycles = (cycles << 32) | readl_relaxed(sirfsoc_timer_base + SIRFSOC_TIMER_LATCHED_LO);
@@ -163,6 +165,7 @@ static struct irqaction sirfsoc_timer_irq = {
 	.dev_id = &sirfsoc_clockevent,
 };
 
+/* Overwrite weak default sched_clock with more precise one */
 static u32 notrace sirfsoc_read_sched_clock(void)
 {
 	return (u32)(sirfsoc_timer_read(NULL) & 0xffffffff);
@@ -181,11 +184,12 @@ static void __init sirfsoc_clockevent_init(void)
 	clockevents_register_device(&sirfsoc_clockevent);
 }
 
+/* initialize the kernel jiffy timer source */
 static void __init sirfsoc_timer_init(void)
 {
 	unsigned long rate;
 
-	
+	/* timer's input clock is io clock */
 	struct clk *clk = clk_get_sys("io", NULL);
 
 	BUG_ON(IS_ERR(clk));
@@ -228,7 +232,7 @@ static void __init sirfsoc_of_timer_map(void)
 	if (!sirfsoc_timer_base)
 		panic("unable to map timer cpu registers\n");
 
-	
+	/* Get the interrupts property */
 	intspec = of_get_property(np, "interrupts", NULL);
 	BUG_ON(!intspec);
 	sirfsoc_timer_irq.irq = be32_to_cpup(intspec);

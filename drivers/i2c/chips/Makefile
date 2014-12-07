@@ -9,14 +9,24 @@
 # * RTC chip drivers go to drivers/rtc
 # * I/O expander drivers go to drivers/gpio
 #
-proximity-objs := cm3629.o
+#proximity-objs := cm3629.o
 obj-$(CONFIG_SENSORS_NFC_PN544) += pn544.o
 obj-$(CONFIG_AMP_TFA9887)       += tfa9887.o
 obj-$(CONFIG_AMP_TFA9887L)      += tfa9887l.o
 obj-$(CONFIG_AMP_RT5501)	+= rt5501.o
 obj-$(CONFIG_AMP_RT5501_EVM)	+= rt5501_evm.o
 obj-$(CONFIG_AMP_RT5506)	+= rt5506.o
+
+ifeq ($(CONFIG_INPUT_CAPELLA_CM3629),y)
+proximity-objs := cm3629.o
 obj-$(CONFIG_INPUT_CAPELLA_CM3629)      += proximity.o
+endif
+
+ifeq ($(CONFIG_INPUT_CAPELLA_CM36686),y)
+proximity-objs := cm36686.o
+obj-$(CONFIG_INPUT_CAPELLA_CM36686)      += proximity.o
+endif
+
 obj-$(CONFIG_INPUT_CAPELLA_CM32181)     += cm32181.o
 obj-$(CONFIG_SENSORS_AKM8975)   += akm8975.o
 obj-$(CONFIG_SENSORS_AKM8975_PANA_GYRO)   += akm8975_pana_gyro.o

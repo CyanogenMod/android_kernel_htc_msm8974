@@ -122,7 +122,7 @@ int jz_gpio_set_function(int gpio, enum jz_gpio_function function)
 			break;
 		case JZ_GPIO_FUNC3:
 			jz_gpio_write_bit(gpio, JZ_REG_GPIO_TRIGGER_SET);
-		case JZ_GPIO_FUNC2: 
+		case JZ_GPIO_FUNC2: /* Falltrough */
 			jz_gpio_write_bit(gpio, JZ_REG_GPIO_SELECT_SET);
 			break;
 		default:
@@ -328,6 +328,7 @@ static void jz_gpio_irq_unmask(struct irq_data *data)
 	irq_gc_unmask_enable_reg(data);
 };
 
+/* TODO: Check if function is gpio */
 static unsigned int jz_gpio_irq_startup(struct irq_data *data)
 {
 	jz_gpio_set_irq_bit(data, JZ_REG_GPIO_SELECT_SET);
@@ -339,7 +340,7 @@ static void jz_gpio_irq_shutdown(struct irq_data *data)
 {
 	irq_gc_mask_disable_reg(data);
 
-	
+	/* Set direction to input */
 	jz_gpio_set_irq_bit(data, JZ_REG_GPIO_DIRECTION_CLEAR);
 	jz_gpio_set_irq_bit(data, JZ_REG_GPIO_SELECT_CLEAR);
 }

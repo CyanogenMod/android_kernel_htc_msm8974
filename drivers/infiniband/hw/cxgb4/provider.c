@@ -146,6 +146,9 @@ static int c4iw_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 	    (addr < (pci_resource_start(rdev->lldi.pdev, 0) +
 		    pci_resource_len(rdev->lldi.pdev, 0)))) {
 
+		/*
+		 * MA_SYNC register...
+		 */
 		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 		ret = io_remap_pfn_range(vma, vma->vm_start,
 					 addr >> PAGE_SHIFT,
@@ -154,6 +157,9 @@ static int c4iw_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 		   (addr < (pci_resource_start(rdev->lldi.pdev, 2) +
 		    pci_resource_len(rdev->lldi.pdev, 2)))) {
 
+		/*
+		 * Map user DB or OCQP memory...
+		 */
 		if (addr >= rdev->oc_mw_pa)
 			vma->vm_page_prot = t4_pgprot_wc(vma->vm_page_prot);
 		else
@@ -163,6 +169,9 @@ static int c4iw_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 					 len, vma->vm_page_prot);
 	} else {
 
+		/*
+		 * Map WQ or CQ contig dma memory...
+		 */
 		ret = remap_pfn_range(vma, vma->vm_start,
 				      addr >> PAGE_SHIFT,
 				      len, vma->vm_page_prot);

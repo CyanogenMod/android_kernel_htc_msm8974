@@ -33,6 +33,7 @@
 #ifndef _SISFB_ACCEL_H
 #define _SISFB_ACCEL_H
 
+/* Guard accelerator accesses with spin_lock_irqsave? Works well without. */
 #undef SISFB_USE_SPINLOCKS
 
 #ifdef SISFB_USE_SPINLOCKS
@@ -46,55 +47,66 @@
 #define CRITFLAGS
 #endif
 
+/* Definitions for the SIS engine communication. */
 
-#define PATREGSIZE      384  
+#define PATREGSIZE      384  /* Pattern register size. 384 bytes @ 0x8300 */
 #define BR(x)   (0x8200 | (x) << 2)
 #define PBR(x)  (0x8300 | (x) << 2)
 
-#define BITBLT                  0x00000000  
-#define COLOREXP                0x00000001  
-#define ENCOLOREXP              0x00000002  
-#define MULTIPLE_SCANLINE       0x00000003  
-#define LINE                    0x00000004  
-#define TRAPAZOID_FILL          0x00000005  
-#define TRANSPARENT_BITBLT      0x00000006  
+/* SiS300 engine commands */
+#define BITBLT                  0x00000000  /* Blit */
+#define COLOREXP                0x00000001  /* Color expand */
+#define ENCOLOREXP              0x00000002  /* Enhanced color expand */
+#define MULTIPLE_SCANLINE       0x00000003  /* ? */
+#define LINE                    0x00000004  /* Draw line */
+#define TRAPAZOID_FILL          0x00000005  /* Fill trapezoid */
+#define TRANSPARENT_BITBLT      0x00000006  /* Transparent Blit */
 
-#define ALPHA_BLEND		0x00000007  
-#define A3D_FUNCTION		0x00000008  
-#define	CLEAR_Z_BUFFER		0x00000009  
-#define GRADIENT_FILL		0x0000000A  
+/* Additional engine commands for 315 */
+#define ALPHA_BLEND		0x00000007  /* Alpha blend ? */
+#define A3D_FUNCTION		0x00000008  /* 3D command ? */
+#define	CLEAR_Z_BUFFER		0x00000009  /* ? */
+#define GRADIENT_FILL		0x0000000A  /* Gradient fill */
 
-#define SRCVIDEO                0x00000000  
-#define SRCSYSTEM               0x00000010  
-#define SRCCPUBLITBUF           SRCSYSTEM   
-#define SRCAGP                  0x00000020  
+/* source select */
+#define SRCVIDEO                0x00000000  /* source is video RAM */
+#define SRCSYSTEM               0x00000010  /* source is system memory */
+#define SRCCPUBLITBUF           SRCSYSTEM   /* source is CPU-driven BitBuffer (for color expand) */
+#define SRCAGP                  0x00000020  /* source is AGP memory (?) */
 
-#define PATFG                   0x00000000  
-#define PATPATREG               0x00000040  
-#define PATMONO                 0x00000080  
+/* Pattern flags */
+#define PATFG                   0x00000000  /* foreground color */
+#define PATPATREG               0x00000040  /* pattern in pattern buffer (0x8300) */
+#define PATMONO                 0x00000080  /* mono pattern */
 
+/* blitting direction (300 series only) */
 #define X_INC                   0x00010000
 #define X_DEC                   0x00000000
 #define Y_INC                   0x00020000
 #define Y_DEC                   0x00000000
 
+/* Clipping flags */
 #define NOCLIP                  0x00000000
 #define NOMERGECLIP             0x04000000
 #define CLIPENABLE              0x00040000
 #define CLIPWITHOUTMERGE        0x04040000
 
+/* Transparency */
 #define OPAQUE                  0x00000000
 #define TRANSPARENT             0x00100000
 
+/* ? */
 #define DSTAGP                  0x02000000
 #define DSTVIDEO                0x02000000
 
+/* Subfunctions for Color/Enhanced Color Expansion (315 only) */
 #define COLOR_TO_MONO		0x00100000
 #define AA_TEXT			0x00200000
 
+/* Some general registers for 315 series */
 #define SRC_ADDR		0x8200
 #define SRC_PITCH		0x8204
-#define AGP_BASE		0x8206 
+#define AGP_BASE		0x8206 /* color-depth dependent value */
 #define SRC_Y			0x8208
 #define SRC_X			0x820A
 #define DST_Y			0x820C
@@ -116,16 +128,28 @@
 #define COMMAND_READY		0x823C
 #define FIRE_TRIGGER      	0x8240
 
-#define PATTERN_REG		0x8300  
+#define PATTERN_REG		0x8300  /* 384 bytes pattern buffer */
 
+/* Transparent bitblit registers */
 #define TRANS_DST_KEY_HIGH	PAT_FGCOLOR
 #define TRANS_DST_KEY_LOW	PAT_BGCOLOR
 #define TRANS_SRC_KEY_HIGH	SRC_FGCOLOR
 #define TRANS_SRC_KEY_LOW	SRC_BGCOLOR
 
+/* Store queue length in par */
 #define CmdQueLen ivideo->cmdqueuelength
 
+/* ------------- SiS 300 series -------------- */
 
+/* BR(16) (0x8240):
+
+   bit 31 2D engine: 1 is idle,
+   bit 30 3D engine: 1 is idle,
+   bit 29 Command queue: 1 is empty
+   bits 28:24: Current CPU driven BitBlt buffer stage bit[4:0]
+   bits 15:0:  Current command queue length
+
+*/
 
 #define SiS300Idle \
   { \
@@ -134,6 +158,7 @@
   	while((MMIO_IN16(ivideo->mmio_vbase, BR(16)+2) & 0xE000) != 0xE000){}; \
   	CmdQueLen = MMIO_IN16(ivideo->mmio_vbase, 0x8240); \
   }
+/* (do three times, because 2D engine seems quite unsure about whether or not it's idle) */
 
 #define SiS300SetupSRCBase(base) \
 	if(CmdQueLen <= 0) SiS300Idle;\
@@ -195,6 +220,10 @@
 	MMIO_OUT32(ivideo->mmio_vbase, BR(10), color);\
 	CmdQueLen--;
 
+/* 0x8224 src colorkey high */
+/* 0x8228 src colorkey low */
+/* 0x821c dest colorkey high */
+/* 0x8220 dest colorkey low */
 #define SiS300SetupSRCTrans(color) \
 	if(CmdQueLen <= 1) SiS300Idle;\
 	MMIO_OUT32(ivideo->mmio_vbase, 0x8224, color);\
@@ -223,6 +252,7 @@
 	MMIO_OUT32(ivideo->mmio_vbase, BR(14), ((right) & 0xFFFF) | (bottom)<<16 );\
 	CmdQueLen--;
 
+/* General */
 #define SiS300SetupROP(rop) \
 	ivideo->CommandReg = (rop) << 8;
 
@@ -235,7 +265,21 @@
 	MMIO_OUT32(ivideo->mmio_vbase, BR(16), 0);\
 	CmdQueLen -= 2;
 
+/* -------------- SiS 315/330 series --------------- */
 
+/* Q_STATUS:
+   bit 31 = 1: All engines idle and all queues empty
+   bit 30 = 1: Hardware Queue (=HW CQ, 2D queue, 3D queue) empty
+   bit 29 = 1: 2D engine is idle
+   bit 28 = 1: 3D engine is idle
+   bit 27 = 1: HW command queue empty
+   bit 26 = 1: 2D queue empty
+   bit 25 = 1: 3D queue empty
+   bit 24 = 1: SW command queue empty
+   bits 23:16: 2D counter 3
+   bits 15:8:  2D counter 2
+   bits 7:0:   2D counter 1
+*/
 
 #define SiS310Idle \
   { \

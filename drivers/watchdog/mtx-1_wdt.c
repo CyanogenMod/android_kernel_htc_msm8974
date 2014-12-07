@@ -75,7 +75,7 @@ static void mtx1_wdt_trigger(unsigned long unused)
 	if (mtx1_wdt_device.running)
 		ticks--;
 
-	
+	/* toggle wdt gpio */
 	mtx1_wdt_device.gstate = !mtx1_wdt_device.gstate;
 	gpio_set_value(mtx1_wdt_device.gpio, mtx1_wdt_device.gstate);
 
@@ -122,6 +122,7 @@ static int mtx1_wdt_stop(void)
 	return 0;
 }
 
+/* Filesystem functions */
 
 static int mtx1_wdt_open(struct inode *inode, struct file *file)
 {
@@ -234,7 +235,7 @@ static int __devinit mtx1_wdt_probe(struct platform_device *pdev)
 
 static int __devexit mtx1_wdt_remove(struct platform_device *pdev)
 {
-	
+	/* FIXME: do we need to lock this test ? */
 	if (mtx1_wdt_device.queue) {
 		mtx1_wdt_device.queue = 0;
 		wait_for_completion(&mtx1_wdt_device.stop);

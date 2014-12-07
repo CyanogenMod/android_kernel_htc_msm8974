@@ -82,7 +82,7 @@ static int sal_pcibr_error_interrupt(struct pcibus_info *soft)
 u16 sn_ioboard_to_pci_bus(struct pci_bus *pci_bus)
 {
 	long rc;
-	u16 uninitialized_var(ioboard);		
+	u16 uninitialized_var(ioboard);		/* GCC be quiet */
 	nasid_t nasid = NASID_GET(SN_PCIBUS_BUSSOFT(pci_bus)->bs_base);
 
 	rc = ia64_sn_sysctl_ioboard_get(nasid, &ioboard);
@@ -95,6 +95,10 @@ u16 sn_ioboard_to_pci_bus(struct pci_bus *pci_bus)
 	return ioboard;
 }
 
+/* 
+ * PCI Bridge Error interrupt handler.  Gets invoked whenever a PCI 
+ * bridge sends an error interrupt.
+ */
 static irqreturn_t
 pcibr_error_intr_handler(int irq, void *arg)
 {
@@ -119,6 +123,9 @@ pcibr_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 		return NULL;
 	}
 
+	/*
+	 * Allocate kernel bus soft and copy from prom.
+	 */
 
 	soft = kmemdup(prom_bussoft, sizeof(struct pcibus_info), GFP_KERNEL);
 	if (!soft) {
@@ -131,6 +138,9 @@ pcibr_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 
 	spin_lock_init(&soft->pbi_lock);
 
+	/*
+	 * register the bridge's error interrupt handler
+	 */
 	if (request_irq(SGI_PCIASIC_ERROR, pcibr_error_intr_handler,
 			IRQF_SHARED, "PCIBR error", (void *)(soft))) {
 		printk(KERN_WARNING
@@ -139,6 +149,9 @@ pcibr_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 	irq_set_handler(SGI_PCIASIC_ERROR, handle_level_irq);
 	sn_set_err_irq_affinity(SGI_PCIASIC_ERROR);
 
+	/* 
+	 * Update the Bridge with the "kernel" pagesize 
+	 */
 	if (PAGE_SIZE < 16384) {
 		pcireg_control_bit_clr(soft, PCIBR_CTRL_PAGE_SIZE);
 	} else {
@@ -168,7 +181,7 @@ pcibr_bus_fixup(struct pcibus_bussoft *prom_bussoft, struct pci_controller *cont
 		}
 	}
 
-	
+	/* Setup the PMU ATE map */
 	soft->pbi_int_ate_resource.lowest_free_index = 0;
 	soft->pbi_int_ate_resource.ate =
 	    kzalloc(soft->pbi_int_ate_size * sizeof(u64), GFP_KERNEL);
@@ -212,19 +225,22 @@ void pcibr_target_interrupt(struct sn_irq_info *sn_irq_info)
 		    (struct pcibus_info *)pcidev_info->pdi_host_pcidev_info->
 		    pdi_pcibus_info;
 
-		
+		/* Disable the device's IRQ   */
 		pcireg_intr_enable_bit_clr(pcibus_info, (1 << bit));
 
-		
+		/* Change the device's IRQ    */
 		pcireg_intr_addr_addr_set(pcibus_info, bit, xtalk_addr);
 
-		
+		/* Re-enable the device's IRQ */
 		pcireg_intr_enable_bit_set(pcibus_info, (1 << bit));
 
 		pcibr_force_interrupt(sn_irq_info);
 	}
 }
 
+/*
+ * Provider entries for PIC/CP
+ */
 
 struct sn_pcibus_provider pcibr_provider = {
 	.dma_map = pcibr_dma_map,

@@ -78,10 +78,10 @@ static void physmap_set_vpp(struct map_info *map, int state)
 
 	spin_lock_irqsave(&info->vpp_lock, flags);
 	if (state) {
-		if (++info->vpp_refcnt == 1)    
+		if (++info->vpp_refcnt == 1)    /* first nested 'on' */
 			physmap_data->set_vpp(pdev, 1);
 	} else {
-		if (--info->vpp_refcnt == 0)    
+		if (--info->vpp_refcnt == 0)    /* last nested 'off' */
 			physmap_data->set_vpp(pdev, 0);
 	}
 	spin_unlock_irqrestore(&info->vpp_lock, flags);
@@ -178,6 +178,9 @@ static int physmap_flash_probe(struct platform_device *dev)
 	if (devices_found == 1) {
 		info->cmtd = info->mtd[0];
 	} else if (devices_found > 1) {
+		/*
+		 * We detected multiple devices. Concatenate them together.
+		 */
 		info->cmtd = mtd_concat_create(info->mtd, devices_found, dev_name(&dev->dev));
 		if (info->cmtd == NULL)
 			err = -ENXIO;
@@ -276,6 +279,8 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("David Woodhouse <dwmw2@infradead.org>");
 MODULE_DESCRIPTION("Generic configurable MTD map driver");
 
+/* legacy platform drivers can't hotplug or coldplg */
 #ifndef CONFIG_MTD_PHYSMAP_COMPAT
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:physmap-flash");
 #endif

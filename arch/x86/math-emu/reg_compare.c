@@ -10,6 +10,9 @@
  |                                                                           |
  +---------------------------------------------------------------------------*/
 
+/*---------------------------------------------------------------------------+
+ | compare() is the core FPU_REG comparison function                         |
+ +---------------------------------------------------------------------------*/
 
 #include "fpu_system.h"
 #include "exception.h"
@@ -65,12 +68,12 @@ static int compare(FPU_REG const *b, int tagb)
 					 SIGN_POS) ? COMP_A_gt_B : COMP_A_lt_B)
 				    | COMP_Denormal;
 			else if (tagb == TW_Infinity) {
-				
+				/* The 80486 book says that infinities can be equal! */
 				return (st0_sign == signb) ? COMP_A_eq_B :
 				    ((st0_sign ==
 				      SIGN_POS) ? COMP_A_gt_B : COMP_A_lt_B);
 			}
-			
+			/* Fall through to the NaN code */
 		} else if (tagb == TW_Infinity) {
 			if ((st0_tag == TAG_Valid) || (st0_tag == TAG_Zero))
 				return ((signb ==
@@ -79,9 +82,11 @@ static int compare(FPU_REG const *b, int tagb)
 				return ((signb ==
 					 SIGN_POS) ? COMP_A_lt_B : COMP_A_gt_B)
 				    | COMP_Denormal;
-			
+			/* Fall through to the NaN code */
 		}
 
+		/* The only possibility now should be that one of the arguments
+		   is a NaN */
 		if ((st0_tag == TW_NaN) || (tagb == TW_NaN)) {
 			int signalling = 0, unsupported = 0;
 			if (st0_tag == TW_NaN) {
@@ -100,7 +105,7 @@ static int compare(FPU_REG const *b, int tagb)
 			if (signalling || unsupported)
 				return COMP_No_Comp | COMP_SNaN | COMP_NaN;
 			else
-				
+				/* Neither is a signaling NaN */
 				return COMP_No_Comp | COMP_NaN;
 		}
 
@@ -130,11 +135,12 @@ static int compare(FPU_REG const *b, int tagb)
 		EXCEPTION(EX_Invalid);
 	if (!(b->sigh & 0x80000000))
 		EXCEPTION(EX_Invalid);
-#endif 
+#endif /* PARANOID */
 
 	diff = exp0 - expb;
 	if (diff == 0) {
-		diff = st0_ptr->sigh - b->sigh;	
+		diff = st0_ptr->sigh - b->sigh;	/* Works only if ms bits are
+						   identical */
 		if (diff == 0) {
 			diff = st0_ptr->sigl > b->sigl;
 			if (diff == 0)
@@ -159,6 +165,7 @@ static int compare(FPU_REG const *b, int tagb)
 
 }
 
+/* This function requires that st(0) is not empty */
 int FPU_compare_st_data(FPU_REG const *loaded_data, u_char loaded_tag)
 {
 	int f = 0, c;
@@ -187,7 +194,7 @@ int FPU_compare_st_data(FPU_REG const *loaded_data, u_char loaded_tag)
 			EXCEPTION(EX_INTERNAL | 0x121);
 			f = SW_C3 | SW_C2 | SW_C0;
 			break;
-#endif 
+#endif /* PARANOID */
 		}
 	setcc(f);
 	if (c & COMP_Denormal) {
@@ -203,7 +210,7 @@ static int compare_st_st(int nr)
 
 	if (!NOT_EMPTY(0) || !NOT_EMPTY(nr)) {
 		setcc(SW_C3 | SW_C2 | SW_C0);
-		
+		/* Stack fault */
 		EXCEPTION(EX_StackUnder);
 		return !(control_word & CW_Invalid);
 	}
@@ -233,7 +240,7 @@ static int compare_st_st(int nr)
 			EXCEPTION(EX_INTERNAL | 0x122);
 			f = SW_C3 | SW_C2 | SW_C0;
 			break;
-#endif 
+#endif /* PARANOID */
 		}
 	setcc(f);
 	if (c & COMP_Denormal) {
@@ -249,7 +256,7 @@ static int compare_u_st_st(int nr)
 
 	if (!NOT_EMPTY(0) || !NOT_EMPTY(nr)) {
 		setcc(SW_C3 | SW_C2 | SW_C0);
-		
+		/* Stack fault */
 		EXCEPTION(EX_StackUnder);
 		return !(control_word & CW_Invalid);
 	}
@@ -258,7 +265,8 @@ static int compare_u_st_st(int nr)
 	c = compare(st_ptr, FPU_gettagi(nr));
 	if (c & COMP_NaN) {
 		setcc(SW_C3 | SW_C2 | SW_C0);
-		if (c & COMP_SNaN) {	
+		if (c & COMP_SNaN) {	/* This is the only difference between
+					   un-ordered and ordinary comparisons */
 			EXCEPTION(EX_Invalid);
 			return !(control_word & CW_Invalid);
 		}
@@ -282,7 +290,7 @@ static int compare_u_st_st(int nr)
 			EXCEPTION(EX_INTERNAL | 0x123);
 			f = SW_C3 | SW_C2 | SW_C0;
 			break;
-#endif 
+#endif /* PARANOID */
 		}
 	setcc(f);
 	if (c & COMP_Denormal) {
@@ -291,23 +299,24 @@ static int compare_u_st_st(int nr)
 	return 0;
 }
 
+/*---------------------------------------------------------------------------*/
 
 void fcom_st(void)
 {
-	
+	/* fcom st(i) */
 	compare_st_st(FPU_rm);
 }
 
 void fcompst(void)
 {
-	
+	/* fcomp st(i) */
 	if (!compare_st_st(FPU_rm))
 		FPU_pop();
 }
 
 void fcompp(void)
 {
-	
+	/* fcompp */
 	if (FPU_rm != 1) {
 		FPU_illegal();
 		return;
@@ -318,21 +327,21 @@ void fcompp(void)
 
 void fucom_(void)
 {
-	
+	/* fucom st(i) */
 	compare_u_st_st(FPU_rm);
 
 }
 
 void fucomp(void)
 {
-	
+	/* fucomp st(i) */
 	if (!compare_u_st_st(FPU_rm))
 		FPU_pop();
 }
 
 void fucompp(void)
 {
-	
+	/* fucompp */
 	if (FPU_rm == 1) {
 		if (!compare_u_st_st(1))
 			poppop();

@@ -33,12 +33,13 @@
 
 static inline u16 get_order_of_qentries(u16 queue_entries)
 {
-	u8 ld = 1;		
+	u8 ld = 1;		/*  logarithmus dualis */
 	while (((1U << ld) - 1) < queue_entries)
 		ld++;
 	return ld - 1;
 }
 
+/* Defines for H_CALL H_ALLOC_RESOURCE */
 #define H_ALL_RES_TYPE_QP	 1
 #define H_ALL_RES_TYPE_CQ	 2
 #define H_ALL_RES_TYPE_EQ	 3
@@ -81,7 +82,7 @@ static long ehea_plpar_hcall_norets(unsigned long opcode,
 }
 
 static long ehea_plpar_hcall9(unsigned long opcode,
-			      unsigned long *outs, 
+			      unsigned long *outs, /* array of 9 outputs */
 			      unsigned long arg1,
 			      unsigned long arg2,
 			      unsigned long arg3,
@@ -136,14 +137,15 @@ u64 ehea_h_query_ehea_qp(const u64 adapter_handle, const u8 qp_category,
 			 const u64 qp_handle, const u64 sel_mask, void *cb_addr)
 {
 	return ehea_plpar_hcall_norets(H_QUERY_HEA_QP,
-				       adapter_handle,		
-				       qp_category,		
-				       qp_handle,		
-				       sel_mask,		
-				       virt_to_abs(cb_addr),	
+				       adapter_handle,		/* R4 */
+				       qp_category,		/* R5 */
+				       qp_handle,		/* R6 */
+				       sel_mask,		/* R7 */
+				       virt_to_abs(cb_addr),	/* R8 */
 				       0, 0);
 }
 
+/* input param R5 */
 #define H_ALL_RES_QP_EQPO	  EHEA_BMASK_IBM(9, 11)
 #define H_ALL_RES_QP_QPP	  EHEA_BMASK_IBM(12, 12)
 #define H_ALL_RES_QP_RQR	  EHEA_BMASK_IBM(13, 15)
@@ -155,40 +157,53 @@ u64 ehea_h_query_ehea_qp(const u64 adapter_handle, const u8 qp_category,
 #define H_ALL_RES_QP_TENURE	  EHEA_BMASK_IBM(48, 55)
 #define H_ALL_RES_QP_RES_TYP	  EHEA_BMASK_IBM(56, 63)
 
+/* input param R9  */
 #define H_ALL_RES_QP_TOKEN	  EHEA_BMASK_IBM(0, 31)
 #define H_ALL_RES_QP_PD		  EHEA_BMASK_IBM(32, 63)
 
+/* input param R10 */
 #define H_ALL_RES_QP_MAX_SWQE	  EHEA_BMASK_IBM(4, 7)
 #define H_ALL_RES_QP_MAX_R1WQE	  EHEA_BMASK_IBM(12, 15)
 #define H_ALL_RES_QP_MAX_R2WQE	  EHEA_BMASK_IBM(20, 23)
 #define H_ALL_RES_QP_MAX_R3WQE	  EHEA_BMASK_IBM(28, 31)
+/* Max Send Scatter Gather Elements */
 #define H_ALL_RES_QP_MAX_SSGE	  EHEA_BMASK_IBM(37, 39)
 #define H_ALL_RES_QP_MAX_R1SGE	  EHEA_BMASK_IBM(45, 47)
+/* Max Receive SG Elements RQ1 */
 #define H_ALL_RES_QP_MAX_R2SGE	  EHEA_BMASK_IBM(53, 55)
 #define H_ALL_RES_QP_MAX_R3SGE	  EHEA_BMASK_IBM(61, 63)
 
+/* input param R11 */
 #define H_ALL_RES_QP_SWQE_IDL	  EHEA_BMASK_IBM(0, 7)
+/* max swqe immediate data length */
 #define H_ALL_RES_QP_PORT_NUM	  EHEA_BMASK_IBM(48, 63)
 
+/* input param R12 */
 #define H_ALL_RES_QP_TH_RQ2	  EHEA_BMASK_IBM(0, 15)
+/* Threshold RQ2 */
 #define H_ALL_RES_QP_TH_RQ3	  EHEA_BMASK_IBM(16, 31)
+/* Threshold RQ3 */
 
+/* output param R6 */
 #define H_ALL_RES_QP_ACT_SWQE	  EHEA_BMASK_IBM(0, 15)
 #define H_ALL_RES_QP_ACT_R1WQE	  EHEA_BMASK_IBM(16, 31)
 #define H_ALL_RES_QP_ACT_R2WQE	  EHEA_BMASK_IBM(32, 47)
 #define H_ALL_RES_QP_ACT_R3WQE	  EHEA_BMASK_IBM(48, 63)
 
+/* output param, R7 */
 #define H_ALL_RES_QP_ACT_SSGE	  EHEA_BMASK_IBM(0, 7)
 #define H_ALL_RES_QP_ACT_R1SGE	  EHEA_BMASK_IBM(8, 15)
 #define H_ALL_RES_QP_ACT_R2SGE	  EHEA_BMASK_IBM(16, 23)
 #define H_ALL_RES_QP_ACT_R3SGE	  EHEA_BMASK_IBM(24, 31)
 #define H_ALL_RES_QP_ACT_SWQE_IDL EHEA_BMASK_IBM(32, 39)
 
+/* output param R8,R9 */
 #define H_ALL_RES_QP_SIZE_SQ	  EHEA_BMASK_IBM(0, 31)
 #define H_ALL_RES_QP_SIZE_RQ1	  EHEA_BMASK_IBM(32, 63)
 #define H_ALL_RES_QP_SIZE_RQ2	  EHEA_BMASK_IBM(0, 31)
 #define H_ALL_RES_QP_SIZE_RQ3	  EHEA_BMASK_IBM(32, 63)
 
+/* output param R11,R12 */
 #define H_ALL_RES_QP_LIOBN_SQ	  EHEA_BMASK_IBM(0, 31)
 #define H_ALL_RES_QP_LIOBN_RQ1	  EHEA_BMASK_IBM(32, 63)
 #define H_ALL_RES_QP_LIOBN_RQ2	  EHEA_BMASK_IBM(0, 31)
@@ -204,8 +219,8 @@ u64 ehea_h_alloc_resource_qp(const u64 adapter_handle,
 	u64 allocate_controls =
 	    EHEA_BMASK_SET(H_ALL_RES_QP_EQPO, init_attr->low_lat_rq1 ? 1 : 0)
 	    | EHEA_BMASK_SET(H_ALL_RES_QP_QPP, 0)
-	    | EHEA_BMASK_SET(H_ALL_RES_QP_RQR, 6)	
-	    | EHEA_BMASK_SET(H_ALL_RES_QP_EQEG, 0)	
+	    | EHEA_BMASK_SET(H_ALL_RES_QP_RQR, 6)	/* rq1 & rq2 & rq3 */
+	    | EHEA_BMASK_SET(H_ALL_RES_QP_EQEG, 0)	/* EQE gen. disabled */
 	    | EHEA_BMASK_SET(H_ALL_RES_QP_LL_QP, init_attr->low_lat_rq1)
 	    | EHEA_BMASK_SET(H_ALL_RES_QP_DMA128, 0)
 	    | EHEA_BMASK_SET(H_ALL_RES_QP_HSM, 0)
@@ -241,15 +256,15 @@ u64 ehea_h_alloc_resource_qp(const u64 adapter_handle,
 
 	hret = ehea_plpar_hcall9(H_ALLOC_HEA_RESOURCE,
 				 outs,
-				 adapter_handle,		
-				 allocate_controls,		
-				 init_attr->send_cq_handle,	
-				 init_attr->recv_cq_handle,	
-				 init_attr->aff_eq_handle,	
-				 r9_reg,			
-				 max_r10_reg,			
-				 r11_in,			
-				 threshold);			
+				 adapter_handle,		/* R4 */
+				 allocate_controls,		/* R5 */
+				 init_attr->send_cq_handle,	/* R6 */
+				 init_attr->recv_cq_handle,	/* R7 */
+				 init_attr->aff_eq_handle,	/* R8 */
+				 r9_reg,			/* R9 */
+				 max_r10_reg,			/* R10 */
+				 r11_in,			/* R11 */
+				 threshold);			/* R12 */
 
 	*qp_handle = outs[0];
 	init_attr->qp_nr = (u32)outs[1];
@@ -301,12 +316,12 @@ u64 ehea_h_alloc_resource_cq(const u64 adapter_handle,
 
 	hret = ehea_plpar_hcall9(H_ALLOC_HEA_RESOURCE,
 				 outs,
-				 adapter_handle,		
-				 H_ALL_RES_TYPE_CQ,		
-				 cq_attr->eq_handle,		
-				 cq_attr->cq_token,		
-				 cq_attr->max_nr_of_cqes,	
-				 0, 0, 0, 0);			
+				 adapter_handle,		/* R4 */
+				 H_ALL_RES_TYPE_CQ,		/* R5 */
+				 cq_attr->eq_handle,		/* R6 */
+				 cq_attr->cq_token,		/* R7 */
+				 cq_attr->max_nr_of_cqes,	/* R8 */
+				 0, 0, 0, 0);			/* R9-R12 */
 
 	*cq_handle = outs[0];
 	cq_attr->act_nr_of_cqes = outs[3];
@@ -318,31 +333,41 @@ u64 ehea_h_alloc_resource_cq(const u64 adapter_handle,
 	return hret;
 }
 
+/* Defines for H_CALL H_ALLOC_RESOURCE */
 #define H_ALL_RES_TYPE_QP	 1
 #define H_ALL_RES_TYPE_CQ	 2
 #define H_ALL_RES_TYPE_EQ	 3
 #define H_ALL_RES_TYPE_MR	 5
 #define H_ALL_RES_TYPE_MW	 6
 
+/*  input param R5 */
 #define H_ALL_RES_EQ_NEQ	     EHEA_BMASK_IBM(0, 0)
 #define H_ALL_RES_EQ_NON_NEQ_ISN     EHEA_BMASK_IBM(6, 7)
 #define H_ALL_RES_EQ_INH_EQE_GEN     EHEA_BMASK_IBM(16, 16)
 #define H_ALL_RES_EQ_RES_TYPE	     EHEA_BMASK_IBM(56, 63)
+/*  input param R6 */
 #define H_ALL_RES_EQ_MAX_EQE	     EHEA_BMASK_IBM(32, 63)
 
+/*  output param R6 */
 #define H_ALL_RES_EQ_LIOBN	     EHEA_BMASK_IBM(32, 63)
 
+/*  output param R7 */
 #define H_ALL_RES_EQ_ACT_EQE	     EHEA_BMASK_IBM(32, 63)
 
+/*  output param R8 */
 #define H_ALL_RES_EQ_ACT_PS	     EHEA_BMASK_IBM(32, 63)
 
+/*  output param R9 */
 #define H_ALL_RES_EQ_ACT_EQ_IST_C    EHEA_BMASK_IBM(30, 31)
 #define H_ALL_RES_EQ_ACT_EQ_IST_1    EHEA_BMASK_IBM(40, 63)
 
+/*  output param R10 */
 #define H_ALL_RES_EQ_ACT_EQ_IST_2    EHEA_BMASK_IBM(40, 63)
 
+/*  output param R11 */
 #define H_ALL_RES_EQ_ACT_EQ_IST_3    EHEA_BMASK_IBM(40, 63)
 
+/*  output param R12 */
 #define H_ALL_RES_EQ_ACT_EQ_IST_4    EHEA_BMASK_IBM(40, 63)
 
 u64 ehea_h_alloc_resource_eq(const u64 adapter_handle,
@@ -351,7 +376,7 @@ u64 ehea_h_alloc_resource_eq(const u64 adapter_handle,
 	u64 hret, allocate_controls;
 	unsigned long outs[PLPAR_HCALL9_BUFSIZE];
 
-	
+	/* resource type */
 	allocate_controls =
 	    EHEA_BMASK_SET(H_ALL_RES_EQ_RES_TYPE, H_ALL_RES_TYPE_EQ)
 	    | EHEA_BMASK_SET(H_ALL_RES_EQ_NEQ, eq_attr->type ? 1 : 0)
@@ -360,10 +385,10 @@ u64 ehea_h_alloc_resource_eq(const u64 adapter_handle,
 
 	hret = ehea_plpar_hcall9(H_ALLOC_HEA_RESOURCE,
 				 outs,
-				 adapter_handle,		
-				 allocate_controls,		
-				 eq_attr->max_nr_of_eqes,	
-				 0, 0, 0, 0, 0, 0);		
+				 adapter_handle,		/* R4 */
+				 allocate_controls,		/* R5 */
+				 eq_attr->max_nr_of_eqes,	/* R6 */
+				 0, 0, 0, 0, 0, 0);		/* R7-R10 */
 
 	*eq_handle = outs[0];
 	eq_attr->act_nr_of_eqes = outs[3];
@@ -386,12 +411,12 @@ u64 ehea_h_modify_ehea_qp(const u64 adapter_handle, const u8 cat,
 
 	hret = ehea_plpar_hcall9(H_MODIFY_HEA_QP,
 				 outs,
-				 adapter_handle,		
-				 (u64) cat,			
-				 qp_handle,			
-				 sel_mask,			
-				 virt_to_abs(cb_addr),		
-				 0, 0, 0, 0);			
+				 adapter_handle,		/* R4 */
+				 (u64) cat,			/* R5 */
+				 qp_handle,			/* R6 */
+				 sel_mask,			/* R7 */
+				 virt_to_abs(cb_addr),		/* R8 */
+				 0, 0, 0, 0);			/* R9-R12 */
 
 	*inv_attr_id = outs[0];
 	*out_swr = outs[3];
@@ -411,12 +436,12 @@ u64 ehea_h_register_rpage(const u64 adapter_handle, const u8 pagesize,
 		    | EHEA_BMASK_SET(H_REG_RPAGE_QT, queue_type);
 
 	return ehea_plpar_hcall_norets(H_REGISTER_HEA_RPAGES,
-				       adapter_handle,		
-				       reg_control,		
-				       resource_handle,		
-				       log_pageaddr,		
-				       count,			
-				       0, 0);			
+				       adapter_handle,		/* R4 */
+				       reg_control,		/* R5 */
+				       resource_handle,		/* R6 */
+				       log_pageaddr,		/* R7 */
+				       count,			/* R8 */
+				       0, 0);			/* R9-R10 */
 }
 
 u64 ehea_h_register_smr(const u64 adapter_handle, const u64 orig_mr_handle,
@@ -428,12 +453,12 @@ u64 ehea_h_register_smr(const u64 adapter_handle, const u64 orig_mr_handle,
 
 	hret = ehea_plpar_hcall9(H_REGISTER_SMR,
 				 outs,
-				 adapter_handle	      ,		 
-				 orig_mr_handle,		 
-				 vaddr_in,			 
-				 (((u64)access_ctrl) << 32ULL),	 
-				 pd,				 
-				 0, 0, 0, 0);			 
+				 adapter_handle	      ,		 /* R4 */
+				 orig_mr_handle,		 /* R5 */
+				 vaddr_in,			 /* R6 */
+				 (((u64)access_ctrl) << 32ULL),	 /* R7 */
+				 pd,				 /* R8 */
+				 0, 0, 0, 0);			 /* R9-R12 */
 
 	mr->handle = outs[0];
 	mr->lkey = (u32)outs[2];
@@ -447,20 +472,20 @@ u64 ehea_h_disable_and_get_hea(const u64 adapter_handle, const u64 qp_handle)
 
 	return ehea_plpar_hcall9(H_DISABLE_AND_GET_HEA,
 				 outs,
-				 adapter_handle,		
-				 H_DISABLE_GET_EHEA_WQE_P,	
-				 qp_handle,			
-				 0, 0, 0, 0, 0, 0);		
+				 adapter_handle,		/* R4 */
+				 H_DISABLE_GET_EHEA_WQE_P,	/* R5 */
+				 qp_handle,			/* R6 */
+				 0, 0, 0, 0, 0, 0);		/* R7-R12 */
 }
 
 u64 ehea_h_free_resource(const u64 adapter_handle, const u64 res_handle,
 			 u64 force_bit)
 {
 	return ehea_plpar_hcall_norets(H_FREE_RESOURCE,
-				       adapter_handle,	   
-				       res_handle,	   
+				       adapter_handle,	   /* R4 */
+				       res_handle,	   /* R5 */
 				       force_bit,
-				       0, 0, 0, 0);	   
+				       0, 0, 0, 0);	   /* R7-R10 */
 }
 
 u64 ehea_h_alloc_resource_mr(const u64 adapter_handle, const u64 vaddr,
@@ -472,13 +497,13 @@ u64 ehea_h_alloc_resource_mr(const u64 adapter_handle, const u64 vaddr,
 
 	hret = ehea_plpar_hcall9(H_ALLOC_HEA_RESOURCE,
 				 outs,
-				 adapter_handle,		   
-				 5,				   
-				 vaddr,				   
-				 length,			   
-				 (((u64) access_ctrl) << 32ULL),   
-				 pd,				   
-				 0, 0, 0);			   
+				 adapter_handle,		   /* R4 */
+				 5,				   /* R5 */
+				 vaddr,				   /* R6 */
+				 length,			   /* R7 */
+				 (((u64) access_ctrl) << 32ULL),   /* R8 */
+				 pd,				   /* R9 */
+				 0, 0, 0);			   /* R10-R12 */
 
 	*mr_handle = outs[0];
 	*lkey = (u32)outs[2];
@@ -506,9 +531,9 @@ u64 ehea_h_query_ehea(const u64 adapter_handle, void *cb_addr)
 	cb_logaddr = virt_to_abs(cb_addr);
 
 	hret = ehea_plpar_hcall_norets(H_QUERY_HEA,
-				       adapter_handle,		
-				       cb_logaddr,		
-				       0, 0, 0, 0, 0);		
+				       adapter_handle,		/* R4 */
+				       cb_logaddr,		/* R5 */
+				       0, 0, 0, 0, 0);		/* R6-R10 */
 #ifdef DEBUG
 	ehea_dump(cb_addr, sizeof(struct hcp_query_ehea), "hcp_query_ehea");
 #endif
@@ -527,12 +552,12 @@ u64 ehea_h_query_ehea_port(const u64 adapter_handle, const u16 port_num,
 		  | EHEA_BMASK_SET(H_MEHEAPORT_PN, port_num);
 
 	return ehea_plpar_hcall_norets(H_QUERY_HEA_PORT,
-				       adapter_handle,		
-				       port_info,		
-				       select_mask,		
-				       arr_index,		
-				       cb_logaddr,		
-				       0, 0);			
+				       adapter_handle,		/* R4 */
+				       port_info,		/* R5 */
+				       select_mask,		/* R6 */
+				       arr_index,		/* R7 */
+				       cb_logaddr,		/* R8 */
+				       0, 0);			/* R9-R10 */
 }
 
 u64 ehea_h_modify_ehea_port(const u64 adapter_handle, const u16 port_num,
@@ -551,12 +576,12 @@ u64 ehea_h_modify_ehea_port(const u64 adapter_handle, const u16 port_num,
 #endif
 	return ehea_plpar_hcall9(H_MODIFY_HEA_PORT,
 				 outs,
-				 adapter_handle,		
-				 port_info,			
-				 select_mask,			
-				 arr_index,			
-				 cb_logaddr,			
-				 0, 0, 0, 0);			
+				 adapter_handle,		/* R4 */
+				 port_info,			/* R5 */
+				 select_mask,			/* R6 */
+				 arr_index,			/* R7 */
+				 cb_logaddr,			/* R8 */
+				 0, 0, 0, 0);			/* R9-R12 */
 }
 
 u64 ehea_h_reg_dereg_bcmc(const u64 adapter_handle, const u16 port_num,
@@ -572,30 +597,30 @@ u64 ehea_h_reg_dereg_bcmc(const u64 adapter_handle, const u16 port_num,
 	r8_vlan_id = EHEA_BMASK_SET(H_REGBCMC_VLANID, vlan_id);
 
 	return ehea_plpar_hcall_norets(hcall_id,
-				       adapter_handle,		
-				       r5_port_num,		
-				       r6_reg_type,		
-				       r7_mc_mac_addr,		
-				       r8_vlan_id,		
-				       0, 0);			
+				       adapter_handle,		/* R4 */
+				       r5_port_num,		/* R5 */
+				       r6_reg_type,		/* R6 */
+				       r7_mc_mac_addr,		/* R7 */
+				       r8_vlan_id,		/* R8 */
+				       0, 0);			/* R9-R12 */
 }
 
 u64 ehea_h_reset_events(const u64 adapter_handle, const u64 neq_handle,
 			const u64 event_mask)
 {
 	return ehea_plpar_hcall_norets(H_RESET_EVENTS,
-				       adapter_handle,		
-				       neq_handle,		
-				       event_mask,		
-				       0, 0, 0, 0);		
+				       adapter_handle,		/* R4 */
+				       neq_handle,		/* R5 */
+				       event_mask,		/* R6 */
+				       0, 0, 0, 0);		/* R7-R12 */
 }
 
 u64 ehea_h_error_data(const u64 adapter_handle, const u64 ressource_handle,
 		      void *rblock)
 {
 	return ehea_plpar_hcall_norets(H_ERROR_DATA,
-				       adapter_handle,		
-				       ressource_handle,	
-				       virt_to_abs(rblock),	
-				       0, 0, 0, 0);		
+				       adapter_handle,		/* R4 */
+				       ressource_handle,	/* R5 */
+				       virt_to_abs(rblock),	/* R6 */
+				       0, 0, 0, 0);		/* R7-R12 */
 }

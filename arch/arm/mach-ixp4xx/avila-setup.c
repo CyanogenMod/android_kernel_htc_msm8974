@@ -163,7 +163,7 @@ static void __init avila_init(void)
 }
 
 MACHINE_START(AVILA, "Gateworks Avila Network Platform")
-	
+	/* Maintainer: Deepak Saxena <dsaxena@plexity.net> */
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,
@@ -176,9 +176,14 @@ MACHINE_START(AVILA, "Gateworks Avila Network Platform")
 	.restart	= ixp4xx_restart,
 MACHINE_END
 
+ /*
+  * Loft is functionally equivalent to Avila except that it has a
+  * different number for the maximum PCI devices.  The MACHINE
+  * structure below is identical to Avila except for the comment.
+  */
 #ifdef CONFIG_MACH_LOFT
 MACHINE_START(LOFT, "Giant Shoulder Inc Loft board")
-	
+	/* Maintainer: Tom Billman <kernel@giantshoulderinc.com> */
 	.map_io		= ixp4xx_map_io,
 	.init_early	= ixp4xx_init_early,
 	.init_irq	= ixp4xx_init_irq,

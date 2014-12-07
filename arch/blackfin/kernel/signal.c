@@ -21,6 +21,7 @@
 
 #define _BLOCKABLE (~(sigmask(SIGKILL) | sigmask(SIGSTOP)))
 
+/* Location of the trace bit in SYSCFG. */
 #define TRACE_BITS 0x0001
 
 struct fdpic_func_descriptor {
@@ -32,6 +33,8 @@ struct rt_sigframe {
 	int sig;
 	struct siginfo *pinfo;
 	void *puc;
+	/* This is no longer needed by the kernel, but unfortunately userspace
+	 * code expects it to be there.  */
 	char retcode[8];
 	struct siginfo info;
 	struct ucontext uc;
@@ -48,12 +51,12 @@ rt_restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc, int *p
 	unsigned long usp = 0;
 	int err = 0;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 #define RESTORE(x) err |= __get_user(regs->x, &sc->sc_##x)
 
-	
+	/* restore passed registers */
 	RESTORE(r0); RESTORE(r1); RESTORE(r2); RESTORE(r3);
 	RESTORE(r4); RESTORE(r5); RESTORE(r6); RESTORE(r7);
 	RESTORE(p0); RESTORE(p1); RESTORE(p2); RESTORE(p3);
@@ -76,7 +79,7 @@ rt_restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc, int *p
 	RESTORE(lb0); RESTORE(lb1);
 	RESTORE(seqstat);
 
-	regs->orig_p0 = -1;	
+	regs->orig_p0 = -1;	/* disable syscall checks */
 
 	*pr0 = regs->r0;
 	return err;
@@ -149,10 +152,10 @@ static inline void *get_sigframe(struct k_sigaction *ka, struct pt_regs *regs,
 {
 	unsigned long usp;
 
-	
+	/* Default to using normal stack.  */
 	usp = rdusp();
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (!on_sig_stack(usp))
 			usp = current->sas_ss_sp + current->sas_ss_size;
@@ -179,7 +182,7 @@ setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t * info,
 	err |= __put_user(&frame->uc, &frame->puc);
 	err |= copy_siginfo_to_user(&frame->info, info);
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(0, &frame->uc.uc_link);
 	err |=
@@ -192,7 +195,7 @@ setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t * info,
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Set up registers for signal handler */
 	wrusp((unsigned long)frame);
 	if (current->personality & FDPIC_FUNCPTRS) {
 		struct fdpic_func_descriptor __user *funcptr =
@@ -231,7 +234,7 @@ handle_restart(struct pt_regs *regs, struct k_sigaction *ka, int has_handler)
 			regs->r0 = -EINTR;
 			break;
 		}
-		
+		/* fallthrough */
 	case -ERESTARTNOINTR:
  do_restart:
 		regs->p0 = regs->orig_p0;
@@ -246,18 +249,21 @@ handle_restart(struct pt_regs *regs, struct k_sigaction *ka, int has_handler)
 	}
 }
 
+/*
+ * OK, we're invoking a handler
+ */
 static int
 handle_signal(int sig, siginfo_t *info, struct k_sigaction *ka,
 	      sigset_t *oldset, struct pt_regs *regs)
 {
 	int ret;
 
-	
+	/* are we from a system call? to see pt_regs->orig_p0 */
 	if (regs->orig_p0 >= 0)
-		
+		/* If so, check system call restarting.. */
 		handle_restart(regs, ka, 1);
 
-	
+	/* set up the stack frame */
 	ret = setup_rt_frame(sig, ka, info, oldset, regs);
 
 	if (ret == 0) {
@@ -272,6 +278,15 @@ handle_signal(int sig, siginfo_t *info, struct k_sigaction *ka,
 	return ret;
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ *
+ * Note that we go through the signals twice: once to check the signals
+ * that the kernel can handle, and then we build all the user-level signal
+ * handling stack-frames in one go after that.
+ */
 asmlinkage void do_signal(struct pt_regs *regs)
 {
 	siginfo_t info;
@@ -291,8 +306,12 @@ asmlinkage void do_signal(struct pt_regs *regs)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		
+		/* Whee!  Actually deliver the signal.  */
 		if (handle_signal(signr, &info, &ka, oldset, regs) == 0) {
+			/* a signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TIF_RESTORE_SIGMASK flag */
 			if (test_thread_flag(TIF_RESTORE_SIGMASK))
 				clear_thread_flag(TIF_RESTORE_SIGMASK);
 
@@ -304,17 +323,22 @@ asmlinkage void do_signal(struct pt_regs *regs)
 	}
 
  no_signal:
-	
+	/* Did we come from a system call? */
 	if (regs->orig_p0 >= 0)
-		
+		/* Restart the system call - no handlers present */
 		handle_restart(regs, NULL, 0);
 
+	/* if there's no signal to deliver, we just put the saved sigmask
+	 * back */
 	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
 		clear_thread_flag(TIF_RESTORE_SIGMASK);
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
 	}
 }
 
+/*
+ * notification of userspace execution resumption
+ */
 asmlinkage void do_notify_resume(struct pt_regs *regs)
 {
 	if (test_thread_flag(TIF_SIGPENDING) || test_thread_flag(TIF_RESTORE_SIGMASK))

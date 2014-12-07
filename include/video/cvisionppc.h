@@ -34,13 +34,18 @@ struct cvppc_par {
 #define CVPPC_FB_APERTURE_ONE		0xe0000000
 #define CVPPC_FB_APERTURE_TWO		0xe1000000
 #define CVPPC_FB_SIZE			0x00800000
-#define CVPPC_MEM_CONFIG_OLD		0xed61fcaa	
-#define CVPPC_MEM_CONFIG_NEW		0xed41c532	
-#define CVPPC_MEMCLOCK			83000		
+#define CVPPC_MEM_CONFIG_OLD		0xed61fcaa	/* FIXME Fujitsu?? */
+#define CVPPC_MEM_CONFIG_NEW		0xed41c532	/* FIXME USA?? */
+#define CVPPC_MEMCLOCK			83000		/* in KHz */
 
+/* CVPPC_BRIDGE_ENDIAN */
 #define CSPPCF_BRIDGE_BIG_ENDIAN	0x02
 
+/* CVPPC_BRIDGE_INT */
 #define CSPPCF_BRIDGE_ACTIVE_INT2	0x01
 
-#endif	
+#endif	/* CVISIONPPC_H */
 
+/*****************************************************************************
+ * That's all folks!
+ *****************************************************************************/

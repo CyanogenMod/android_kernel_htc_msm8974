@@ -5,6 +5,9 @@
  * Copyright (C) 1999  Niibe Yutaka
  */
 
+/*
+ * This file contains the system call numbers.
+ */
 
 #define __NR_restart_syscall	  0
 #define __NR_exit		  1
@@ -23,7 +26,7 @@
 #define __NR_mknod		 14
 #define __NR_chmod		 15
 #define __NR_lchown		 16
-				 
+				 /* 17 was sys_break */
 #define __NR_oldstat		 18
 #define __NR_lseek		 19
 #define __NR_getpid		 20
@@ -37,11 +40,11 @@
 #define __NR_oldfstat		 28
 #define __NR_pause		 29
 #define __NR_utime		 30
-				 
-				 
+				 /* 31 was sys_stty */
+				 /* 32 was sys_gtty */
 #define __NR_access		 33
 #define __NR_nice		 34
-				 
+				 /* 35 was sys_ftime */
 #define __NR_sync		 36
 #define __NR_kill		 37
 #define __NR_rename		 38
@@ -50,7 +53,7 @@
 #define __NR_dup		 41
 #define __NR_pipe		 42
 #define __NR_times		 43
-				 
+				 /* 44 was sys_prof */
 #define __NR_brk		 45
 #define __NR_setgid		 46
 #define __NR_getgid		 47
@@ -59,13 +62,13 @@
 #define __NR_getegid		 50
 #define __NR_acct		 51
 #define __NR_umount2		 52
-				 
+				 /* 53 was sys_lock */
 #define __NR_ioctl		 54
 #define __NR_fcntl		 55
-				 
+				 /* 56 was sys_mpx */
 #define __NR_setpgid		 57
-				 
-				 
+				 /* 58 was sys_ulimit */
+				 /* 59 was sys_olduname */
 #define __NR_umask		 60
 #define __NR_chroot		 61
 #define __NR_ustat		 62
@@ -82,13 +85,13 @@
 #define __NR_sigpending		 73
 #define __NR_sethostname	 74
 #define __NR_setrlimit		 75
-#define __NR_getrlimit		 76	
+#define __NR_getrlimit		 76	/* Back compatible 2Gig limited rlimit */
 #define __NR_getrusage		 77
 #define __NR_gettimeofday	 78
 #define __NR_settimeofday	 79
 #define __NR_getgroups		 80
 #define __NR_setgroups		 81
-				 
+				 /* 82 was sys_oldselect */
 #define __NR_symlink		 83
 #define __NR_oldlstat		 84
 #define __NR_readlink		 85
@@ -104,10 +107,10 @@
 #define __NR_fchown		 95
 #define __NR_getpriority	 96
 #define __NR_setpriority	 97
-				 
+				 /* 98 was sys_profil */
 #define __NR_statfs		 99
 #define __NR_fstatfs		100
-				
+				/* 101 was sys_ioperm */
 #define __NR_socketcall		102
 #define __NR_syslog		103
 #define __NR_setitimer		104
@@ -116,10 +119,10 @@
 #define __NR_lstat		107
 #define __NR_fstat		108
 #define __NR_olduname		109
-				
+				/* 110 was sys_iopl */
 #define __NR_vhangup		111
-				
-				
+				/* 112 was sys_idle */
+				/* 113 was sys_vm86old */
 #define __NR_wait4		114
 #define __NR_swapoff		115
 #define __NR_sysinfo		116
@@ -133,17 +136,17 @@
 #define __NR_adjtimex		124
 #define __NR_mprotect		125
 #define __NR_sigprocmask	126
-				
+				/* 127 was sys_create_module */
 #define __NR_init_module	128
 #define __NR_delete_module	129
-				
+				/* 130 was sys_get_kernel_syms */
 #define __NR_quotactl		131
 #define __NR_getpgid		132
 #define __NR_fchdir		133
 #define __NR_bdflush		134
 #define __NR_sysfs		135
 #define __NR_personality	136
-				
+				/* 137 was sys_afs_syscall */
 #define __NR_setfsuid		138
 #define __NR_setfsgid		139
 #define __NR__llseek		140
@@ -172,8 +175,8 @@
 #define __NR_mremap		163
 #define __NR_setresuid		164
 #define __NR_getresuid		165
-				
-				
+				/* 166 was sys_vm86 */
+				/* 167 was sys_query_module */
 #define __NR_poll		168
 #define __NR_nfsservctl		169
 #define __NR_setresgid		170
@@ -194,10 +197,10 @@
 #define __NR_capset		185
 #define __NR_sigaltstack	186
 #define __NR_sendfile		187
-				
-				
+				/* 188 reserved for sys_getpmsg */
+				/* 189 reserved for sys_putpmsg */
 #define __NR_vfork		190
-#define __NR_ugetrlimit		191	
+#define __NR_ugetrlimit		191	/* SuS compliant getrlimit */
 #define __NR_mmap2		192
 #define __NR_truncate64		193
 #define __NR_ftruncate64	194
@@ -228,8 +231,8 @@
 #define __NR_madvise		219
 #define __NR_getdents64		220
 #define __NR_fcntl64		221
-				
-				
+				/* 222 is reserved for tux */
+				/* 223 is unused */
 #define __NR_gettid		224
 #define __NR_readahead		225
 #define __NR_setxattr		226
@@ -249,15 +252,15 @@
 #define __NR_futex		240
 #define __NR_sched_setaffinity	241
 #define __NR_sched_getaffinity	242
-				
-				
+				/* 243 is reserved for set_thread_area */
+				/* 244 is reserved for get_thread_area */
 #define __NR_io_setup		245
 #define __NR_io_destroy		246
 #define __NR_io_getevents	247
 #define __NR_io_submit		248
 #define __NR_io_cancel		249
 #define __NR_fadvise64		250
-				
+				/* 251 is unused */
 #define __NR_exit_group		252
 #define __NR_lookup_dcookie	253
 #define __NR_epoll_create	254
@@ -279,7 +282,7 @@
 #define __NR_tgkill		270
 #define __NR_utimes		271
 #define __NR_fadvise64_64	272
-				
+				/* 273 is reserved for vserver */
 #define __NR_mbind              274
 #define __NR_get_mempolicy      275
 #define __NR_set_mempolicy      276
@@ -299,7 +302,7 @@
 #define __NR_inotify_init	290
 #define __NR_inotify_add_watch	291
 #define __NR_inotify_rm_watch	292
-				
+				/* 293 is unused */
 #define __NR_migrate_pages	294
 #define __NR_openat		295
 #define __NR_mkdirat		296
@@ -347,6 +350,7 @@
 #define __NR_fanotify_mark	338
 #define __NR_prlimit64		339
 
+/* Non-multiplexed socket family */
 #define __NR_socket		340
 #define __NR_bind		341
 #define __NR_connect		342
@@ -377,4 +381,4 @@
 
 #define NR_syscalls 367
 
-#endif 
+#endif /* __ASM_SH_UNISTD_32_H */

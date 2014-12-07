@@ -44,7 +44,7 @@ int twl6040_reg_read(struct twl6040 *twl6040, unsigned int reg)
 	unsigned int val;
 
 	mutex_lock(&twl6040->io_mutex);
-	
+	/* Vibra control registers from cache */
 	if (unlikely(reg == TWL6040_REG_VIBCTLL ||
 		     reg == TWL6040_REG_VIBCTLR)) {
 		val = twl6040->vibra_ctrl_cache[VIBRACTRL_MEMBER(reg)];
@@ -67,7 +67,7 @@ int twl6040_reg_write(struct twl6040 *twl6040, unsigned int reg, u8 val)
 
 	mutex_lock(&twl6040->io_mutex);
 	ret = regmap_write(twl6040->regmap, reg, val);
-	
+	/* Cache the vibra control registers */
 	if (reg == TWL6040_REG_VIBCTLL || reg == TWL6040_REG_VIBCTLR)
 		twl6040->vibra_ctrl_cache[VIBRACTRL_MEMBER(reg)] = val;
 	mutex_unlock(&twl6040->io_mutex);
@@ -98,40 +98,41 @@ int twl6040_clear_bits(struct twl6040 *twl6040, unsigned int reg, u8 mask)
 }
 EXPORT_SYMBOL(twl6040_clear_bits);
 
+/* twl6040 codec manual power-up sequence */
 static int twl6040_power_up(struct twl6040 *twl6040)
 {
 	u8 ldoctl, ncpctl, lppllctl;
 	int ret;
 
-	
+	/* enable high-side LDO, reference system and internal oscillator */
 	ldoctl = TWL6040_HSLDOENA | TWL6040_REFENA | TWL6040_OSCENA;
 	ret = twl6040_reg_write(twl6040, TWL6040_REG_LDOCTL, ldoctl);
 	if (ret)
 		return ret;
 	usleep_range(10000, 10500);
 
-	
+	/* enable negative charge pump */
 	ncpctl = TWL6040_NCPENA;
 	ret = twl6040_reg_write(twl6040, TWL6040_REG_NCPCTL, ncpctl);
 	if (ret)
 		goto ncp_err;
 	usleep_range(1000, 1500);
 
-	
+	/* enable low-side LDO */
 	ldoctl |= TWL6040_LSLDOENA;
 	ret = twl6040_reg_write(twl6040, TWL6040_REG_LDOCTL, ldoctl);
 	if (ret)
 		goto lsldo_err;
 	usleep_range(1000, 1500);
 
-	
+	/* enable low-power PLL */
 	lppllctl = TWL6040_LPLLENA;
 	ret = twl6040_reg_write(twl6040, TWL6040_REG_LPPLLCTL, lppllctl);
 	if (ret)
 		goto lppll_err;
 	usleep_range(5000, 5500);
 
-	
+	/* disable internal oscillator */
 	ldoctl &= ~TWL6040_OSCENA;
 	ret = twl6040_reg_write(twl6040, TWL6040_REG_LDOCTL, ldoctl);
 	if (ret)
@@ -155,6 +156,7 @@ ncp_err:
 	return ret;
 }
 
+/* twl6040 manual power-down sequence */
 static void twl6040_power_down(struct twl6040 *twl6040)
 {
 	u8 ncpctl, ldoctl, lppllctl;
@@ -163,24 +165,24 @@ static void twl6040_power_down(struct twl6040 *twl6040)
 	ldoctl = twl6040_reg_read(twl6040, TWL6040_REG_LDOCTL);
 	lppllctl = twl6040_reg_read(twl6040, TWL6040_REG_LPPLLCTL);
 
-	
+	/* enable internal oscillator */
 	ldoctl |= TWL6040_OSCENA;
 	twl6040_reg_write(twl6040, TWL6040_REG_LDOCTL, ldoctl);
 	usleep_range(1000, 1500);
 
-	
+	/* disable low-power PLL */
 	lppllctl &= ~TWL6040_LPLLENA;
 	twl6040_reg_write(twl6040, TWL6040_REG_LPPLLCTL, lppllctl);
 
-	
+	/* disable low-side LDO */
 	ldoctl &= ~TWL6040_LSLDOENA;
 	twl6040_reg_write(twl6040, TWL6040_REG_LDOCTL, ldoctl);
 
-	
+	/* disable negative charge pump */
 	ncpctl &= ~TWL6040_NCPENA;
 	twl6040_reg_write(twl6040, TWL6040_REG_NCPCTL, ncpctl);
 
-	
+	/* disable high-side LDO, reference system and internal oscillator */
 	ldoctl &= ~(TWL6040_HSLDOENA | TWL6040_REFENA | TWL6040_OSCENA);
 	twl6040_reg_write(twl6040, TWL6040_REG_LDOCTL, ldoctl);
 }
@@ -240,14 +242,14 @@ int twl6040_power(struct twl6040 *twl6040, int on)
 	mutex_lock(&twl6040->mutex);
 
 	if (on) {
-		
+		/* already powered-up */
 		if (twl6040->power_count++)
 			goto out;
 
 		if (gpio_is_valid(audpwron)) {
-			
+			/* use AUDPWRON line */
 			gpio_set_value(audpwron, 1);
-			
+			/* wait for power-up completion */
 			ret = twl6040_power_up_completion(twl6040, naudint);
 			if (ret) {
 				dev_err(twl6040->dev,
@@ -256,7 +258,7 @@ int twl6040_power(struct twl6040 *twl6040, int on)
 				goto out;
 			}
 		} else {
-			
+			/* use manual power-up sequence */
 			ret = twl6040_power_up(twl6040);
 			if (ret) {
 				dev_err(twl6040->dev,
@@ -265,12 +267,12 @@ int twl6040_power(struct twl6040 *twl6040, int on)
 				goto out;
 			}
 		}
-		
+		/* Default PLL configuration after power up */
 		twl6040->pll = TWL6040_SYSCLK_SEL_LPPLL;
 		twl6040->sysclk = 19200000;
 		twl6040->mclk = 32768;
 	} else {
-		
+		/* already powered-down */
 		if (!twl6040->power_count) {
 			dev_err(twl6040->dev,
 				"device is already powered-off\n");
@@ -282,13 +284,13 @@ int twl6040_power(struct twl6040 *twl6040, int on)
 			goto out;
 
 		if (gpio_is_valid(audpwron)) {
-			
+			/* use AUDPWRON line */
 			gpio_set_value(audpwron, 0);
 
-			
+			/* power-down sequence latency */
 			usleep_range(500, 700);
 		} else {
-			
+			/* use manual power-down sequence */
 			twl6040_power_down(twl6040);
 		}
 		twl6040->sysclk = 0;
@@ -312,7 +314,7 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 	hppllctl = twl6040_reg_read(twl6040, TWL6040_REG_HPPLLCTL);
 	lppllctl = twl6040_reg_read(twl6040, TWL6040_REG_LPPLLCTL);
 
-	
+	/* Force full reconfiguration when switching between PLL */
 	if (pll_id != twl6040->pll) {
 		twl6040->sysclk = 0;
 		twl6040->mclk = 0;
@@ -320,8 +322,8 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 
 	switch (pll_id) {
 	case TWL6040_SYSCLK_SEL_LPPLL:
-		
-		
+		/* low-power PLL divider */
+		/* Change the sysclk configuration only if it has been canged */
 		if (twl6040->sysclk != freq_out) {
 			switch (freq_out) {
 			case 17640000:
@@ -341,7 +343,7 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 					  lppllctl);
 		}
 
-		
+		/* The PLL in use has not been change, we can exit */
 		if (twl6040->pll == pll_id)
 			break;
 
@@ -366,7 +368,7 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 		}
 		break;
 	case TWL6040_SYSCLK_SEL_HPPLL:
-		
+		/* high-performance PLL can provide only 19.2 MHz */
 		if (freq_out != 19200000) {
 			dev_err(twl6040->dev,
 				"freq_out %d not supported\n", freq_out);
@@ -379,20 +381,25 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 
 			switch (freq_in) {
 			case 12000000:
-				
+				/* PLL enabled, active mode */
 				hppllctl |= TWL6040_MCLK_12000KHZ |
 					    TWL6040_HPLLENA;
 				break;
 			case 19200000:
+				/*
+				* PLL disabled
+				* (enable PLL if MCLK jitter quality
+				*  doesn't meet specification)
+				*/
 				hppllctl |= TWL6040_MCLK_19200KHZ;
 				break;
 			case 26000000:
-				
+				/* PLL enabled, active mode */
 				hppllctl |= TWL6040_MCLK_26000KHZ |
 					    TWL6040_HPLLENA;
 				break;
 			case 38400000:
-				
+				/* PLL enabled, active mode */
 				hppllctl |= TWL6040_MCLK_38400KHZ |
 					    TWL6040_HPLLENA;
 				break;
@@ -403,6 +410,10 @@ int twl6040_set_pll(struct twl6040 *twl6040, int pll_id,
 				goto pll_out;
 			}
 
+			/*
+			 * enable clock slicer to ensure input waveform is
+			 * square
+			 */
 			hppllctl |= TWL6040_HPLLSQRENA;
 
 			twl6040_reg_write(twl6040, TWL6040_REG_HPPLLCTL,
@@ -447,6 +458,7 @@ unsigned int twl6040_get_sysclk(struct twl6040 *twl6040)
 }
 EXPORT_SYMBOL(twl6040_get_sysclk);
 
+/* Get the combined status of the vibra control register */
 int twl6040_get_vibralr_status(struct twl6040 *twl6040)
 {
 	u8 status;
@@ -472,7 +484,7 @@ static struct resource twl6040_codec_rsrc[] = {
 
 static bool twl6040_readable_reg(struct device *dev, unsigned int reg)
 {
-	
+	/* Register 0 is not readable */
 	if (!reg)
 		return false;
 	return true;
@@ -481,7 +493,7 @@ static bool twl6040_readable_reg(struct device *dev, unsigned int reg)
 static struct regmap_config twl6040_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
-	.max_register = TWL6040_REG_STATUS, 
+	.max_register = TWL6040_REG_STATUS, /* 0x2e */
 
 	.readable_reg = twl6040_readable_reg,
 };
@@ -499,7 +511,7 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	
+	/* In order to operate correctly we need valid interrupt config */
 	if (!client->irq || !pdata->irq_base) {
 		dev_err(&client->dev, "Invalid IRQ configuration\n");
 		return -EINVAL;
@@ -530,7 +542,7 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 
 	twl6040->rev = twl6040_reg_read(twl6040, TWL6040_REG_ASICREV);
 
-	
+	/* ERRATA: Automatic power-up is not possible in ES1.0 */
 	if (twl6040_get_revid(twl6040) > TWL6040_REV_ES1_0)
 		twl6040->audpwron = pdata->audpwron_gpio;
 	else
@@ -543,7 +555,7 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 			goto gpio1_err;
 	}
 
-	
+	/* codec interrupt */
 	ret = twl6040_irq_init(twl6040);
 	if (ret)
 		goto gpio2_err;
@@ -557,7 +569,7 @@ static int __devinit twl6040_probe(struct i2c_client *client,
 		goto irq_err;
 	}
 
-	
+	/* dual-access registers controlled by I2C only */
 	twl6040_set_bits(twl6040, TWL6040_REG_ACCCTL, TWL6040_I2CSEL);
 
 	if (pdata->codec) {

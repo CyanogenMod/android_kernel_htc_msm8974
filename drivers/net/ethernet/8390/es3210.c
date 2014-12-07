@@ -70,29 +70,40 @@ static void es_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, i
 static void es_block_input(struct net_device *dev, int count, struct sk_buff *skb, int ring_offset);
 static void es_block_output(struct net_device *dev, int count, const unsigned char *buf, int start_page);
 
-#define ES_START_PG	0x00    
-#define ES_STOP_PG	0x40    
+#define ES_START_PG	0x00    /* First page of TX buffer		*/
+#define ES_STOP_PG	0x40    /* Last page +1 of RX ring		*/
 
-#define ES_IO_EXTENT	0x37	
-#define ES_ID_PORT	0xc80	
-#define ES_SA_PROM	0xc90	
-#define ES_RESET_PORT	0xc84	
-#define ES_NIC_OFFSET	0xca0	
+#define ES_IO_EXTENT	0x37	/* The cfg file says 0xc90 -> 0xcc7	*/
+#define ES_ID_PORT	0xc80	/* Same for all EISA cards 		*/
+#define ES_SA_PROM	0xc90	/* Start of e'net addr.			*/
+#define ES_RESET_PORT	0xc84	/* From the packet driver source	*/
+#define ES_NIC_OFFSET	0xca0	/* Hello, the 8390 is *here*		*/
 
-#define ES_ADDR0	0x02	
+#define ES_ADDR0	0x02	/* 3 byte vendor prefix			*/
 #define ES_ADDR1	0x07
 #define ES_ADDR2	0x01
 
-#define ES_EISA_ID1	0x01012949	
-#define ES_EISA_ID2	0x02012949	
+/*
+ * Two card revisions. EISA ID's are always rev. minor, rev. major,, and
+ * then the three vendor letters stored in 5 bits each, with an "a" = 1.
+ * For eg: "rii" = 10010 01001 01001 = 0x4929, which is how the EISA
+ * config utility determines automagically what config file(s) to use.
+ */
+#define ES_EISA_ID1	0x01012949	/* !rii0101.cfg 		*/
+#define ES_EISA_ID2	0x02012949	/* !rii0102.cfg 		*/
 
-#define ES_CFG1		0xcc0	
+#define ES_CFG1		0xcc0	/* IOPORT(1) --> IOPORT(6) in cfg file	*/
 #define ES_CFG2		0xcc1
 #define ES_CFG3		0xcc2
 #define ES_CFG4		0xcc3
 #define ES_CFG5		0xcc4
-#define ES_CFG6		0xc84	
+#define ES_CFG6		0xc84	/* NB: 0xc84 is also "reset" port.	*/
 
+/*
+ *	You can OR any of the following bits together and assign it
+ *	to ES_DEBUG to get verbose driver info during operation.
+ *	Some of these don't do anything yet.
+ */
 
 #define ES_D_PROBE	0x01
 #define ES_D_RX_PKT	0x02
@@ -104,6 +115,11 @@ static void es_block_output(struct net_device *dev, int count, const unsigned ch
 static unsigned char lo_irq_map[] __initdata = {3, 4, 5, 6, 7, 9, 10};
 static unsigned char hi_irq_map[] __initdata = {11, 12, 0, 14, 0, 0, 0, 15};
 
+/*
+ *	Probe for the card. The best way is to read the EISA ID if it
+ *	is known. Then we check the prefix of the station address
+ *	PROM for a match against the Racal-Interlan assigned value.
+ */
 
 static int __init do_es_probe(struct net_device *dev)
 {
@@ -111,9 +127,9 @@ static int __init do_es_probe(struct net_device *dev)
 	int irq = dev->irq;
 	int mem_start = dev->mem_start;
 
-	if (ioaddr > 0x1ff)		
+	if (ioaddr > 0x1ff)		/* Check a single specified location. */
 		return es_probe1(dev, ioaddr);
-	else if (ioaddr > 0)		
+	else if (ioaddr > 0)		/* Don't probe at all. */
 		return -ENXIO;
 
 	if (!EISA_bus) {
@@ -123,7 +139,7 @@ static int __init do_es_probe(struct net_device *dev)
 		return -ENXIO;
 	}
 
-	
+	/* EISA spec allows for up to 16 slots, but 8 is typical. */
 	for (ioaddr = 0x1000; ioaddr < 0x9000; ioaddr += 0x1000) {
 		if (es_probe1(dev, ioaddr) == 0)
 			return 0;
@@ -171,6 +187,7 @@ static int __init es_probe1(struct net_device *dev, int ioaddr)
 		inb(ioaddr + ES_CFG4), inb(ioaddr + ES_CFG5), inb(ioaddr + ES_CFG6));
 #endif
 
+/*	Check the EISA ID of the card. */
 	eisa_id = inl(ioaddr + ES_ID_PORT);
 	if ((eisa_id != ES_EISA_ID1) && (eisa_id != ES_EISA_ID2)) {
 		retval = -ENODEV;
@@ -180,6 +197,7 @@ static int __init es_probe1(struct net_device *dev, int ioaddr)
 	for (i = 0; i < ETH_ALEN ; i++)
 		dev->dev_addr[i] = inb(ioaddr + ES_SA_PROM + i);
 
+/*	Check the Racal vendor ID as well. */
 	if (dev->dev_addr[0] != ES_ADDR0 ||
 	    dev->dev_addr[1] != ES_ADDR1 ||
 	    dev->dev_addr[2] != ES_ADDR2) {
@@ -192,7 +210,7 @@ static int __init es_probe1(struct net_device *dev, int ioaddr)
 	printk("es3210.c: ES3210 rev. %ld at %#x, node %pM",
 	       eisa_id>>24, ioaddr, dev->dev_addr);
 
-	
+	/* Snarf the interrupt now. */
 	if (dev->irq == 0) {
 		unsigned char hi_irq = inb(ioaddr + ES_CFG2) & 0x07;
 		unsigned char lo_irq = inb(ioaddr + ES_CFG1) & 0xfe;
@@ -211,7 +229,7 @@ static int __init es_probe1(struct net_device *dev, int ioaddr)
 #endif
 	} else {
 		if (dev->irq == 2)
-			dev->irq = 9;			
+			dev->irq = 9;			/* Doh! */
 		printk(" assigning IRQ %d", dev->irq);
 	}
 
@@ -251,7 +269,7 @@ static int __init es_probe1(struct net_device *dev, int ioaddr)
 	if (inb(ioaddr + ES_CFG5))
 		printk("es3210: Warning - DMA channel enabled, but not used here.\n");
 #endif
-	
+	/* Note, point at the 8390, and not the card... */
 	dev->base_addr = ioaddr + ES_NIC_OFFSET;
 
 	ei_status.name = "ES3210";
@@ -282,6 +300,10 @@ out:
 	return retval;
 }
 
+/*
+ *	Reset as per the packet driver method. Judging by the EISA cfg
+ *	file, this just toggles the "Board Enable" bits (bit 2 and 0).
+ */
 
 static void es_reset_8390(struct net_device *dev)
 {
@@ -299,16 +321,34 @@ static void es_reset_8390(struct net_device *dev)
 	if (ei_debug > 1) printk("reset done\n");
 }
 
+/*
+ *	Note: In the following three functions is the implicit assumption
+ *	that the associated memcpy will only use "rep; movsl" as long as
+ *	we keep the counts as some multiple of doublewords. This is a
+ *	requirement of the hardware, and also prevents us from using
+ *	eth_io_copy_and_sum() since we can't guarantee it will limit
+ *	itself to doubleword access.
+ */
 
+/*
+ *	Grab the 8390 specific header. Similar to the block_input routine, but
+ *	we don't need to be concerned with ring wrap as the header will be at
+ *	the start of a page, so we optimize accordingly. (A single doubleword.)
+ */
 
 static void
 es_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_page)
 {
 	void __iomem *hdr_start = ei_status.mem + ((ring_page - ES_START_PG)<<8);
 	memcpy_fromio(hdr, hdr_start, sizeof(struct e8390_pkt_hdr));
-	hdr->count = (hdr->count + 3) & ~3;     
+	hdr->count = (hdr->count + 3) & ~3;     /* Round up allocation. */
 }
 
+/*
+ *	Block input and output are easy on shared memory ethercards, the only
+ *	complication is when the ring buffer wraps. The count will already
+ *	be rounded up to a doubleword value via es_get_8390_hdr() above.
+ */
 
 static void es_block_input(struct net_device *dev, int count, struct sk_buff *skb,
 						  int ring_offset)
@@ -316,13 +356,13 @@ static void es_block_input(struct net_device *dev, int count, struct sk_buff *sk
 	void __iomem *xfer_start = ei_status.mem + ring_offset - ES_START_PG*256;
 
 	if (ring_offset + count > ES_STOP_PG*256) {
-		
+		/* Packet wraps over end of ring buffer. */
 		int semi_count = ES_STOP_PG*256 - ring_offset;
 		memcpy_fromio(skb->data, xfer_start, semi_count);
 		count -= semi_count;
 		memcpy_fromio(skb->data + semi_count, ei_status.mem, count);
 	} else {
-		
+		/* Packet is in one chunk. */
 		memcpy_fromio(skb->data, xfer_start, count);
 	}
 }
@@ -332,13 +372,13 @@ static void es_block_output(struct net_device *dev, int count,
 {
 	void __iomem *shmem = ei_status.mem + ((start_page - ES_START_PG)<<8);
 
-	count = (count + 3) & ~3;     
+	count = (count + 3) & ~3;     /* Round up to doubleword */
 	memcpy_toio(shmem, buf, count);
 }
 
 #ifdef MODULE
-#define MAX_ES_CARDS	4	
-#define NAMELEN		8	
+#define MAX_ES_CARDS	4	/* Max number of ES3210 cards per module */
+#define NAMELEN		8	/* # of chars for storing dev->name */
 static struct net_device *dev_es3210[MAX_ES_CARDS];
 static int io[MAX_ES_CARDS];
 static int irq[MAX_ES_CARDS];
@@ -401,5 +441,5 @@ cleanup_module(void)
 		}
 	}
 }
-#endif 
+#endif /* MODULE */
 

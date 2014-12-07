@@ -12,6 +12,6 @@ struct ci_bridge_platform_data {
 	unsigned int reset_pin;
 	unsigned int interrupt_pin;
 };
-#endif 
+#endif /* __KERNEL__ */
 
 #endif

@@ -8,4 +8,4 @@ struct xt_cpu_info {
 	__u32	invert;
 };
 
-#endif 
+#endif /*_XT_CPU_H*/

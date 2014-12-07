@@ -1,3 +1,18 @@
+/***************************************************************************
+ *            au88x0_eq.c
+ *  Aureal Vortex Hardware EQ control/access.
+ *
+ *  Sun Jun  8 18:19:19 2003
+ *  2003  Manuel Jander (mjander@users.sourceforge.net)
+ *  
+ *  02 July 2003: First time something works :)
+ *  November 2003: A3D Bypass code completed but untested.
+ *
+ *  TODO:
+ *     - Debug (testing)
+ *     - Test peak visualization support.
+ *
+ ****************************************************************************/
 
 /*
  *  This program is free software; you can redistribute it and/or modify
@@ -15,6 +30,11 @@
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+ The Aureal Hardware EQ is found on AU8810 and AU8830 chips only.
+ it has 4 inputs (2 for general mix, 2 for A3D) and 2 outputs (supposed 
+ to be routed to the codec).
+*/
 
 #include "au88x0.h"
 #include "au88x0_eq.h"
@@ -27,6 +47,7 @@
 
 #define VORTEX_BAND_COEFF_SIZE 0x30
 
+/* CEqHw.s */
 static void vortex_EqHw_SetTimeConsts(vortex_t * vortex, u16 gain, u16 level)
 {
 	hwwrite(vortex->mmio, 0x2b3c4, gain);
@@ -35,7 +56,7 @@ static void vortex_EqHw_SetTimeConsts(vortex_t * vortex, u16 gain, u16 level)
 
 static inline u16 sign_invert(u16 a)
 {
-	
+	/* -(-32768) -> -32768 so we do -(-32768) -> 32767 to make the result positive */
 	if (a == (u16)-32768)
 		return 32767;
 	else
@@ -45,7 +66,7 @@ static inline u16 sign_invert(u16 a)
 static void vortex_EqHw_SetLeftCoefs(vortex_t * vortex, u16 coefs[])
 {
 	eqhw_t *eqhw = &(vortex->eq.this04);
-	int i = 0, n ;
+	int i = 0, n /*esp2c */;
 
 	for (n = 0; n < eqhw->this04; n++) {
 		hwwrite(vortex->mmio, 0x2b000 + n * 0x30, coefs[i + 0]);
@@ -67,7 +88,7 @@ static void vortex_EqHw_SetLeftCoefs(vortex_t * vortex, u16 coefs[])
 static void vortex_EqHw_SetRightCoefs(vortex_t * vortex, u16 coefs[])
 {
 	eqhw_t *eqhw = &(vortex->eq.this04);
-	int i = 0, n ;
+	int i = 0, n /*esp2c */;
 
 	for (n = 0; n < eqhw->this04; n++) {
 		hwwrite(vortex->mmio, 0x2b1e0 + n * 0x30, coefs[0 + i]);
@@ -149,6 +170,7 @@ static void vortex_EqHw_GetRightStates(vortex_t * vortex, u16 * a, u16 b[])
 }
 
 #endif
+/* Mix Gains */
 static void vortex_EqHw_SetBypassGain(vortex_t * vortex, u16 a, u16 b)
 {
 	eqhw_t *eqhw = &(vortex->eq.this04);
@@ -298,12 +320,13 @@ static void vortex_EqHw_GetRightGainsCurrent(vortex_t * vortex, u16 a[])
 }
 
 #endif
+/* EQ band levels settings */
 static void vortex_EqHw_SetLevels(vortex_t * vortex, u16 peaks[])
 {
 	eqhw_t *eqhw = &(vortex->eq.this04);
 	int i;
 
-	
+	/* set left peaks */
 	for (i = 0; i < eqhw->this04; i++) {
 		hwwrite(vortex->mmio, 0x2b024 + i * VORTEX_BAND_COEFF_SIZE, peaks[i]);
 	}
@@ -311,7 +334,7 @@ static void vortex_EqHw_SetLevels(vortex_t * vortex, u16 peaks[])
 	hwwrite(vortex->mmio, 0x2b3cc, peaks[eqhw->this04]);
 	hwwrite(vortex->mmio, 0x2b3d8, peaks[eqhw->this04 + 1]);
 
-	
+	/* set right peaks */
 	for (i = 0; i < eqhw->this04; i++) {
 		hwwrite(vortex->mmio, 0x2b204 + i * VORTEX_BAND_COEFF_SIZE,
 			peaks[i + (eqhw->this04 + 2)]);
@@ -353,6 +376,7 @@ static void vortex_EqHw_GetLevels(vortex_t * vortex, u16 a[])
 }
 
 #endif
+/* Global Control */
 static void vortex_EqHw_SetControlReg(vortex_t * vortex, u32 reg)
 {
 	hwwrite(vortex->mmio, 0x2b440, reg);
@@ -385,6 +409,7 @@ static void vortex_EqHw_Disable(vortex_t * vortex)
 	hwwrite(vortex->mmio, VORTEX_EQ_CTRL, 0xf000);
 }
 
+/* Reset (zero) buffers */
 static void vortex_EqHw_ZeroIO(vortex_t * vortex)
 {
 	int i;
@@ -419,14 +444,15 @@ static void vortex_EqHw_ZeroState(vortex_t * vortex)
 	vortex_EqHw_SetRightGainsTarget(vortex, eq_gains_zero);
 
 	vortex_EqHw_SetBypassGain(vortex, 0, 0);
-	
+	//vortex_EqHw_SetCurrBypassGain(vortex, 0, 0);
 	vortex_EqHw_SetA3DBypassGain(vortex, 0, 0);
-	
+	//vortex_EqHw_SetCurrA3DBypassGain(vortex, 0, 0);
 	vortex_EqHw_SetLeftStates(vortex, eq_states_zero, asEqOutStateZeros);
 	vortex_EqHw_SetRightStates(vortex, eq_states_zero, asEqOutStateZeros);
 	vortex_EqHw_SetLevels(vortex, (u16 *) eq_levels);
 }
 
+/* Program coeficients as pass through */
 static void vortex_EqHw_ProgramPipe(vortex_t * vortex)
 {
 	vortex_EqHw_SetTimeConsts(vortex, 0, 0);
@@ -440,6 +466,7 @@ static void vortex_EqHw_ProgramPipe(vortex_t * vortex)
 	vortex_EqHw_SetRightGainsTarget(vortex, eq_gains_current);
 }
 
+/* Program EQ block as 10 band Equalizer */
 static void
 vortex_EqHw_Program10Band(vortex_t * vortex, auxxEqCoeffSet_t * coefset)
 {
@@ -457,6 +484,7 @@ vortex_EqHw_Program10Band(vortex_t * vortex, auxxEqCoeffSet_t * coefset)
 	vortex_EqHw_SetRightGainsCurrent(vortex, coefset->RightGains);
 }
 
+/* Read all EQ peaks. (think VU meter) */
 static void vortex_EqHw_GetTenBandLevels(vortex_t * vortex, u16 peaks[])
 {
 	eqhw_t *eqhw = &(vortex->eq.this04);
@@ -472,6 +500,7 @@ static void vortex_EqHw_GetTenBandLevels(vortex_t * vortex, u16 peaks[])
 		    hwread(vortex->mmio, 0x2B204 + i * 0x30);
 }
 
+/* CEqlzr.s */
 
 static int vortex_Eqlzr_GetLeftGain(vortex_t * vortex, u16 index, u16 * gain)
 {
@@ -616,11 +645,11 @@ static void vortex_Eqlzr_SetBypass(vortex_t * vortex, u32 bp)
 	eqlzr_t *eq = &(vortex->eq);
 	
 	if ((eq->this28) && (bp == 0)) {
-		
+		/* EQ enabled */
 		vortex_Eqlzr_SetAllBandsFromActiveCoeffSet(vortex);
 		vortex_EqHw_SetBypassGain(vortex, eq->this08, eq->this08);
 	} else {
-		
+		/* EQ disabled. */
 		vortex_EqHw_SetLeftGainsTarget(vortex, eq->this14_array);
 		vortex_EqHw_SetRightGainsTarget(vortex, eq->this14_array);
 		vortex_EqHw_SetBypassGain(vortex, eq->this0c, eq->this0c);
@@ -632,9 +661,9 @@ static void vortex_Eqlzr_ReadAndSetActiveCoefSet(vortex_t * vortex)
 {
 	eqlzr_t *eq = &(vortex->eq);
 
-	
+	/* Set EQ BiQuad filter coeficients */
 	memcpy(&(eq->coefset), &asEqCoefsNormal, sizeof(auxxEqCoeffSet_t));
-	
+	/* Set EQ Band gain levels and dump into hardware registers. */
 	vortex_Eqlzr_SetAllBands(vortex, eq_gains_normal, eq->this10 * 2);
 }
 
@@ -661,24 +690,24 @@ static void vortex_Eqlzr_init(vortex_t * vortex)
 {
 	eqlzr_t *eq = &(vortex->eq);
 
-	
-	
-	eq->this08 = 0;		
+	/* Object constructor */
+	//eq->this04 = 0;
+	eq->this08 = 0;		/* Bypass gain with EQ in use. */
 	eq->this0a = 0x5999;
-	eq->this0c = 0x5999;	
+	eq->this0c = 0x5999;	/* Bypass gain with EQ disabled. */
 	eq->this0e = 0x5999;
 
-	eq->this10 = 0xa;	
+	eq->this10 = 0xa;	/* 10 eq frequency bands. */
 	eq->this04.this04 = eq->this10;
-	eq->this28 = 0x1;	
-	eq->this54 = 0x0;	
+	eq->this28 = 0x1;	/* if 1 => Allow read access to this130 (gains) */
+	eq->this54 = 0x0;	/* if 1 => Dont Allow access to hardware (gains) */
 	eq->this58 = 0xffff;
 	eq->this5c = 0xffff;
 
-	
+	/* Set gains. */
 	memset(eq->this14_array, 0, sizeof(eq->this14_array));
 
-	
+	/* Actual init. */
 	vortex_EqHw_ZeroState(vortex);
 	vortex_EqHw_SetSampleRate(vortex, 0x11);
 	vortex_Eqlzr_ReadAndSetActiveCoefSet(vortex);
@@ -696,7 +725,9 @@ static void vortex_Eqlzr_shutdown(vortex_t * vortex)
 	vortex_EqHw_Disable(vortex);
 }
 
+/* ALSA interface */
 
+/* Control interface */
 #define snd_vortex_eqtoggle_info	snd_ctl_boolean_mono_info
 
 static int
@@ -705,7 +736,7 @@ snd_vortex_eqtoggle_get(struct snd_kcontrol *kcontrol,
 {
 	vortex_t *vortex = snd_kcontrol_chip(kcontrol);
 	eqlzr_t *eq = &(vortex->eq);
-	
+	//int i = kcontrol->private_value;
 
 	ucontrol->value.integer.value[0] = eq->this54 ? 0 : 1;
 
@@ -718,12 +749,12 @@ snd_vortex_eqtoggle_put(struct snd_kcontrol *kcontrol,
 {
 	vortex_t *vortex = snd_kcontrol_chip(kcontrol);
 	eqlzr_t *eq = &(vortex->eq);
-	
+	//int i = kcontrol->private_value;
 
 	eq->this54 = ucontrol->value.integer.value[0] ? 0 : 1;
 	vortex_Eqlzr_SetBypass(vortex, eq->this54);
 
-	return 1;		
+	return 1;		/* Allways changes */
 }
 
 static struct snd_kcontrol_new vortex_eqtoggle_kcontrol __devinitdata = {
@@ -831,6 +862,7 @@ static struct snd_kcontrol_new vortex_levels_kcontrol __devinitdata = {
 	.get = snd_vortex_peaks_get,
 };
 
+/* EQ band gain labels. */
 static char *EqBandLabels[10] __devinitdata = {
 	"EQ0 31Hz\0",
 	"EQ1 63Hz\0",
@@ -844,6 +876,7 @@ static char *EqBandLabels[10] __devinitdata = {
 	"EQ9 16KHz\0",
 };
 
+/* ALSA driver entry points. Init and exit. */
 static int __devinit vortex_eq_init(vortex_t * vortex)
 {
 	struct snd_kcontrol *kcontrol;
@@ -858,7 +891,7 @@ static int __devinit vortex_eq_init(vortex_t * vortex)
 	if ((err = snd_ctl_add(vortex->card, kcontrol)) < 0)
 		return err;
 
-	
+	/* EQ gain controls */
 	for (i = 0; i < 10; i++) {
 		if ((kcontrol =
 		     snd_ctl_new1(&vortex_eq_kcontrol, vortex)) == NULL)
@@ -868,9 +901,9 @@ static int __devinit vortex_eq_init(vortex_t * vortex)
 		kcontrol->private_value = i;
 		if ((err = snd_ctl_add(vortex->card, kcontrol)) < 0)
 			return err;
-		
+		//vortex->eqctrl[i] = kcontrol;
 	}
-	
+	/* EQ band levels */
 	if ((kcontrol = snd_ctl_new1(&vortex_levels_kcontrol, vortex)) == NULL)
 		return -ENOMEM;
 	if ((err = snd_ctl_add(vortex->card, kcontrol)) < 0)
@@ -881,7 +914,16 @@ static int __devinit vortex_eq_init(vortex_t * vortex)
 
 static int vortex_eq_free(vortex_t * vortex)
 {
+	/*
+	   //FIXME: segfault because vortex->eqctrl[i] == 4
+	   int i;
+	   for (i=0; i<10; i++) {
+	   if (vortex->eqctrl[i])
+	   snd_ctl_remove(vortex->card, vortex->eqctrl[i]);
+	   }
+	 */
 	vortex_Eqlzr_shutdown(vortex);
 	return 0;
 }
 
+/* End */

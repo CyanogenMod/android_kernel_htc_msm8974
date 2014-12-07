@@ -30,6 +30,7 @@
 #include <asm/processor.h>
 #include <asm/signal.h>
 
+/* cpu depend functions */
 extern long h8300_get_reg(struct task_struct *task, int regno);
 extern int  h8300_put_reg(struct task_struct *task, int regno, unsigned long data);
 
@@ -38,6 +39,10 @@ void user_disable_single_step(struct task_struct *child)
 {
 }
 
+/*
+ * does not yet catch signals sent when the child dies.
+ * in exit.c or in signal.c.
+ */
 
 void ptrace_disable(struct task_struct *child)
 {
@@ -52,7 +57,7 @@ long arch_ptrace(struct task_struct *child, long request,
 	unsigned long __user *datap = (unsigned long __user *) data;
 
 	switch (request) {
-	
+	/* read the word at location addr in the USER area. */
 		case PTRACE_PEEKUSR: {
 			unsigned long tmp = 0;
 			
@@ -61,7 +66,7 @@ long arch_ptrace(struct task_struct *child, long request,
 				break ;
 			}
 			
-		        ret = 0;  
+		        ret = 0;  /* Default return condition */
 
 			if (regno < H8300_REGS_NO)
 				tmp = h8300_get_reg(child, regno);
@@ -88,8 +93,8 @@ long arch_ptrace(struct task_struct *child, long request,
 			break ;
 		}
 
-      
-		case PTRACE_POKEUSR: 
+      /* when I and D space are separate, this will have to be fixed. */
+		case PTRACE_POKEUSR: /* write the word at location addr in the USER area */
 			if ((addr & 3) || addr >= sizeof(struct user)) {
 				ret = -EIO;
 				break ;
@@ -106,7 +111,7 @@ long arch_ptrace(struct task_struct *child, long request,
 			ret = -EIO;
 			break ;
 
-		case PTRACE_GETREGS: { 
+		case PTRACE_GETREGS: { /* Get all gp regs from the child. */
 		  	int i;
 			unsigned long tmp;
 			for (i = 0; i < H8300_REGS_NO; i++) {
@@ -121,7 +126,7 @@ long arch_ptrace(struct task_struct *child, long request,
 			break;
 		}
 
-		case PTRACE_SETREGS: { 
+		case PTRACE_SETREGS: { /* Set all gp regs in the child. */
 			int i;
 			unsigned long tmp;
 			for (i = 0; i < H8300_REGS_NO; i++) {
@@ -151,6 +156,11 @@ asmlinkage void do_syscall_trace(void)
 		return;
 	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
 				 ? 0x80 : 0));
+	/*
+	 * this isn't the same as continuing with a signal, but it will do
+	 * for normal use.  strace only continues with a signal if the
+	 * stopping signal is not SIGTRAP.  -brl
+	 */
 	if (current->exit_code) {
 		send_sig(current->exit_code, current, 1);
 		current->exit_code = 0;

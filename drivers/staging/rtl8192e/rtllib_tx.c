@@ -53,6 +53,102 @@
 
 #include "rtllib.h"
 
+/*
+
+
+802.11 Data Frame
+
+
+802.11 frame_contorl for data frames - 2 bytes
+     ,-----------------------------------------------------------------------------------------.
+bits | 0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |  9  |  a  |  b  |  c  |  d  |  e   |
+     |----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|------|
+val  | 0  |  0  |  0  |  1  |  x  |  0  |  0  |  0  |  1  |  0  |  x  |  x  |  x  |  x  |  x   |
+     |----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|------|
+desc | ^-ver-^  |  ^type-^  |  ^-----subtype-----^  | to  |from |more |retry| pwr |more |wep   |
+     |	  |	   | x=0 data,x=1 data+ack | DS  | DS  |frag |     | mgm |data |      |
+     '-----------------------------------------------------------------------------------------'
+						    /\
+						    |
+802.11 Data Frame				   |
+	   ,--------- 'ctrl' expands to >-----------'
+	  |
+      ,--'---,-------------------------------------------------------------.
+Bytes |  2   |  2   |    6    |    6    |    6    |  2   | 0..2312 |   4  |
+      |------|------|---------|---------|---------|------|---------|------|
+Desc. | ctrl | dura |  DA/RA  |   TA    |    SA   | Sequ |  Frame  |  fcs |
+      |      | tion | (BSSID) |	 |	 | ence |  data   |      |
+      `--------------------------------------------------|	 |------'
+Total: 28 non-data bytes				 `----.----'
+							      |
+       .- 'Frame data' expands to <---------------------------'
+       |
+       V
+      ,---------------------------------------------------.
+Bytes |  1   |  1   |    1    |    3     |  2   |  0-2304 |
+      |------|------|---------|----------|------|---------|
+Desc. | SNAP | SNAP | Control |Eth Tunnel| Type | IP      |
+      | DSAP | SSAP |	 |	  |      | Packet  |
+      | 0xAA | 0xAA |0x03 (UI)|0x00-00-F8|      |	 |
+      `-----------------------------------------|	 |
+Total: 8 non-data bytes			 `----.----'
+						     |
+       .- 'IP Packet' expands, if WEP enabled, to <--'
+       |
+       V
+      ,-----------------------.
+Bytes |  4  |   0-2296  |  4  |
+      |-----|-----------|-----|
+Desc. | IV  | Encrypted | ICV |
+      |     | IP Packet |     |
+      `-----------------------'
+Total: 8 non-data bytes
+
+
+802.3 Ethernet Data Frame
+
+      ,-----------------------------------------.
+Bytes |   6   |   6   |  2   |  Variable |   4  |
+      |-------|-------|------|-----------|------|
+Desc. | Dest. | Source| Type | IP Packet |  fcs |
+      |  MAC  |  MAC  |      |	   |      |
+      `-----------------------------------------'
+Total: 18 non-data bytes
+
+In the event that fragmentation is required, the incoming payload is split into
+N parts of size ieee->fts.  The first fragment contains the SNAP header and the
+remaining packets are just data.
+
+If encryption is enabled, each fragment payload size is reduced by enough space
+to add the prefix and postfix (IV and ICV totalling 8 bytes in the case of WEP)
+So if you have 1500 bytes of payload with ieee->fts set to 500 without
+encryption it will take 3 frames.  With WEP it will take 4 frames as the
+payload of each frame is reduced to 492 bytes.
+
+* SKB visualization
+*
+*  ,- skb->data
+* |
+* |    ETHERNET HEADER	,-<-- PAYLOAD
+* |			   |     14 bytes from skb->data
+* |  2 bytes for Type --> ,T. |     (sizeof ethhdr)
+* |		       | | |
+* |,-Dest.--. ,--Src.---. | | |
+* |  6 bytes| | 6 bytes | | | |
+* v	 | |	 | | | |
+* 0	 | v       1 | v | v	   2
+* 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
+*     ^     | ^	 | ^ |
+*     |     | |	 | | |
+*     |     | |	 | `T' <---- 2 bytes for Type
+*     |     | |	 |
+*     |     | '---SNAP--' <-------- 6 bytes for SNAP
+*     |     |
+*     `-IV--' <-------------------- 4 bytes for IV (WEP)
+*
+*      SNAP HEADER
+*
+*/
 
 static u8 P802_1H_OUI[P80211_OUI_LEN] = { 0x00, 0x00, 0xf8 };
 static u8 RFC1042_OUI[P80211_OUI_LEN] = { 0x00, 0x00, 0x00 };
@@ -92,7 +188,11 @@ int rtllib_encrypt_fragment(struct rtllib_device *ieee, struct sk_buff *frag,
 		printk(KERN_INFO "=========>%s(), crypt is null\n", __func__);
 		return -1;
 	}
+	/* To encrypt, frame format is:
+	 * IV (4 bytes), clear payload (including SNAP), ICV (4 bytes) */
 
+	/* Host-based IEEE 802.11 fragmentation for TX is not yet supported, so
+	 * call both MSDU and MPDU encryption functions from here. */
 	atomic_inc(&crypt->refcnt);
 	res = 0;
 	if (crypt->ops->encrypt_msdu)
@@ -434,15 +534,15 @@ static int wme_downgrade_ac(struct sk_buff *skb)
 	switch (skb->priority) {
 	case 6:
 	case 7:
-		skb->priority = 5; 
+		skb->priority = 5; /* VO -> VI */
 		return 0;
 	case 4:
 	case 5:
-		skb->priority = 3; 
+		skb->priority = 3; /* VI -> BE */
 		return 0;
 	case 0:
 	case 3:
-		skb->priority = 1; 
+		skb->priority = 1; /* BE -> BK */
 		return 0;
 	default:
 		return -1;
@@ -461,7 +561,7 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 	int ether_type = 0, encrypt;
 	int bytes, fc, qos_ctl = 0, hdr_len;
 	struct sk_buff *skb_frag;
-	struct rtllib_hdr_3addrqos header = { 
+	struct rtllib_hdr_3addrqos header = { /* Ensure zero initialized */
 		.duration_id = 0,
 		.seq_ctl = 0,
 		.qos_ctl = 0
@@ -476,6 +576,8 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 
 	spin_lock_irqsave(&ieee->lock, flags);
 
+	/* If there is no driver handler to take the TXB, dont' bother
+	 * creating it... */
 	if ((!ieee->hard_start_xmit && !(ieee->softmac_features &
 	   IEEE_SOFTMAC_TX_QUEUE)) ||
 	   ((!ieee->softmac_data_hard_start_xmit &&
@@ -492,7 +594,7 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 			ieee->dev->name, skb->len);
 			goto success;
 		}
-		
+		/* Save source and destination addresses */
 		memcpy(dest, skb->data, ETH_ALEN);
 		memcpy(src, skb->data+ETH_ALEN, ETH_ALEN);
 
@@ -559,10 +661,10 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 				eap_get_type(eap->type));
 		}
 
-		
+		/* Advance the SKB to the start of the payload */
 		skb_pull(skb, sizeof(struct ethhdr));
 
-		
+		/* Determine total amount of storage required for TXB packets */
 		bytes = skb->len + SNAP_SIZE + sizeof(u16);
 
 		if (encrypt)
@@ -577,6 +679,8 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 
 		if (ieee->iw_mode == IW_MODE_INFRA) {
 			fc |= RTLLIB_FCTL_TODS;
+			/* To DS: Addr1 = BSSID, Addr2 = SA,
+			Addr3 = DA */
 			memcpy(&header.addr1, ieee->current_network.bssid,
 			       ETH_ALEN);
 			memcpy(&header.addr2, &src, ETH_ALEN);
@@ -586,6 +690,8 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 			else
 				memcpy(&header.addr3, &dest, ETH_ALEN);
 		} else if (ieee->iw_mode == IW_MODE_ADHOC) {
+			/* not From/To DS: Addr1 = DA, Addr2 = SA,
+			Addr3 = BSSID */
 			memcpy(&header.addr1, dest, ETH_ALEN);
 			memcpy(&header.addr2, src, ETH_ALEN);
 			memcpy(&header.addr3, ieee->current_network.bssid,
@@ -597,6 +703,8 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 
 		header.frame_ctl = cpu_to_le16(fc);
 
+		/* Determine fragmentation size based on destination (multicast
+		* and broadcast are not fragmented) */
 		if (bIsMulticast) {
 			frag_size = MAX_FRAG_THRESHOLD;
 			qos_ctl |= QOS_CTL_NOTCONTAIN_ACK;
@@ -608,7 +716,7 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 		if (qos_actived) {
 			hdr_len = RTLLIB_3ADDR_LEN + 2;
 
-		
+		/* in case we are a client verify acm is not set for this ac */
 		while (unlikely(ieee->wmm_acm & (0x01 << skb->priority))) {
 			printk(KERN_INFO "skb->priority = %x\n", skb->priority);
 			if (wme_downgrade_ac(skb))
@@ -621,17 +729,25 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 		} else {
 			hdr_len = RTLLIB_3ADDR_LEN;
 		}
+		/* Determine amount of payload per fragment.  Regardless of if
+		 * this stack is providing the full 802.11 header, one will
+		 * eventually be affixed to this fragment -- so we must account
+		 * for it when determining the amount of payload space. */
 		bytes_per_frag = frag_size - hdr_len;
 		if (ieee->config &
 		   (CFG_RTLLIB_COMPUTE_FCS | CFG_RTLLIB_RESERVE_FCS))
 			bytes_per_frag -= RTLLIB_FCS_LEN;
 
+		/* Each fragment may need to have room for encryptiong
+		 * pre/postfix */
 		if (encrypt) {
 			bytes_per_frag -= crypt->ops->extra_mpdu_prefix_len +
 				crypt->ops->extra_mpdu_postfix_len +
 				crypt->ops->extra_msdu_prefix_len +
 				crypt->ops->extra_msdu_postfix_len;
 		}
+		/* Number of fragments is the total bytes_per_frag /
+		* payload_per_fragment */
 		nr_frags = bytes / bytes_per_frag;
 		bytes_last_frag = bytes % bytes_per_frag;
 		if (bytes_last_frag)
@@ -639,6 +755,9 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 		else
 			bytes_last_frag = bytes_per_frag;
 
+		/* When we allocate the TXB we allocate enough space for the
+		 * reserve and full fragment bytes (bytes_per_frag doesn't
+		 * include prefix, postfix, header, FCS, etc.) */
 		txb = rtllib_alloc_txb(nr_frags, frag_size +
 				       ieee->tx_headroom, GFP_ATOMIC);
 		if (unlikely(!txb)) {
@@ -682,13 +801,15 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 				   skb_put(skb_frag, hdr_len);
 			memcpy(frag_hdr, &header, hdr_len);
 
+			/* If this is not the last fragment, then add the
+			 * MOREFRAGS bit to the frame control */
 			if (i != nr_frags - 1) {
 				frag_hdr->frame_ctl = cpu_to_le16(
 					fc | RTLLIB_FCTL_MOREFRAGS);
 				bytes = bytes_per_frag;
 
 			} else {
-				
+				/* The last fragment has the remaining length */
 				bytes = bytes_last_frag;
 			}
 			if ((qos_actived) && (!bIsMulticast)) {
@@ -701,7 +822,7 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 				frag_hdr->seq_ctl =
 					 cpu_to_le16(ieee->seq_ctrl[0]<<4 | i);
 			}
-			
+			/* Put a SNAP header on the first fragment */
 			if (i == 0) {
 				rtllib_put_snap(
 					skb_put(skb_frag, SNAP_SIZE +
@@ -711,9 +832,12 @@ int rtllib_xmit_inter(struct sk_buff *skb, struct net_device *dev)
 
 			memcpy(skb_put(skb_frag, bytes), skb->data, bytes);
 
-			
+			/* Advance the SKB... */
 			skb_pull(skb, bytes);
 
+			/* Encryption routine will move the header forward in
+			 * order to insert the IV between the header and the
+			 * payload */
 			if (encrypt)
 				rtllib_encrypt_fragment(ieee, skb_frag,
 							hdr_len);

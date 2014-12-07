@@ -33,6 +33,12 @@
 #include <asm/machdep.h>
 #include <asm/ppc-pci.h>
 
+/* pci_io_base -- the base address from which io bars are offsets.
+ * This is the lowest I/O base address (so bar values are always positive),
+ * and it *must* be the start of ISA space if an ISA bus exists because
+ * ISA drivers use hard coded offsets.  If no ISA bus exists nothing
+ * is mapped on the first 64K of IO space
+ */
 unsigned long pci_io_base = ISA_IO_BASE;
 EXPORT_SYMBOL(pci_io_base);
 
@@ -42,17 +48,23 @@ static int __init pcibios_init(void)
 
 	printk(KERN_INFO "PCI: Probing PCI hardware\n");
 
+	/* For now, override phys_mem_access_prot. If we need it,g
+	 * later, we may move that initialization to each ppc_md
+	 */
 	ppc_md.phys_mem_access_prot = pci_phys_mem_access_prot;
 
+	/* On ppc64, we always enable PCI domains and we keep domain 0
+	 * backward compatible in /proc for video cards
+	 */
 	pci_add_flags(PCI_ENABLE_PROC_DOMAINS | PCI_COMPAT_DOMAIN_0);
 
-	
+	/* Scan all of the recorded PCI controllers.  */
 	list_for_each_entry_safe(hose, tmp, &hose_list, list_node) {
 		pcibios_scan_phb(hose);
 		pci_bus_add_devices(hose->bus);
 	}
 
-	
+	/* Call common code to handle resource allocation */
 	pcibios_resource_survey();
 
 	printk(KERN_DEBUG "PCI: Probing PCI hardware done\n");
@@ -70,6 +82,16 @@ int pcibios_unmap_io_space(struct pci_bus *bus)
 
 	WARN_ON(bus == NULL);
 
+	/* If this is not a PHB, we only flush the hash table over
+	 * the area mapped by this bridge. We don't play with the PTE
+	 * mappings since we might have to deal with sub-page alignemnts
+	 * so flushing the hash table is the only sane way to make sure
+	 * that no hash entries are covering that removed bridge area
+	 * while still allowing other busses overlapping those pages
+	 *
+	 * Note: If we ever support P2P hotplug on Book3E, we'll have
+	 * to do an appropriate TLB flush here too
+	 */
 	if (bus->self) {
 #ifdef CONFIG_PPC_STD_MMU_64
 		struct resource *res = bus->resource[0];
@@ -85,24 +107,24 @@ int pcibios_unmap_io_space(struct pci_bus *bus)
 		return 0;
 	}
 
-	
+	/* Get the host bridge */
 	hose = pci_bus_to_host(bus);
 
-	
+	/* Check if we have IOs allocated */
 	if (hose->io_base_alloc == 0)
 		return 0;
 
 	pr_debug("IO unmapping for PHB %s\n", hose->dn->full_name);
 	pr_debug("  alloc=0x%p\n", hose->io_base_alloc);
 
-	
+	/* This is a PHB, we fully unmap the IO area */
 	vunmap(hose->io_base_alloc);
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(pcibios_unmap_io_space);
 
-#endif 
+#endif /* CONFIG_HOTPLUG */
 
 static int __devinit pcibios_map_phb_io_space(struct pci_controller *hose)
 {
@@ -114,13 +136,19 @@ static int __devinit pcibios_map_phb_io_space(struct pci_controller *hose)
 	phys_page = _ALIGN_DOWN(hose->io_base_phys, PAGE_SIZE);
 	size_page = _ALIGN_UP(hose->pci_io_size, PAGE_SIZE);
 
-	
+	/* Make sure IO area address is clear */
 	hose->io_base_alloc = NULL;
 
-	
+	/* If there's no IO to map on that bus, get away too */
 	if (hose->pci_io_size == 0 || hose->io_base_phys == 0)
 		return 0;
 
+	/* Let's allocate some IO space for that guy. We don't pass
+	 * VM_IOREMAP because we don't care about alignment tricks that
+	 * the core does in that case. Maybe we should due to stupid card
+	 * with incomplete address decoding but I'd rather not deal with
+	 * those outside of the reserved 64K legacy region.
+	 */
 	area = __get_vm_area(size_page, 0, PHB_IO_BASE, PHB_IO_END);
 	if (area == NULL)
 		return -ENOMEM;
@@ -134,12 +162,12 @@ static int __devinit pcibios_map_phb_io_space(struct pci_controller *hose)
 	pr_debug("  size=0x%016llx (alloc=0x%016lx)\n",
 		 hose->pci_io_size, size_page);
 
-	
+	/* Establish the mapping */
 	if (__ioremap_at(phys_page, area->addr, size_page,
 			 _PAGE_NO_CACHE | _PAGE_GUARDED) == NULL)
 		return -ENOMEM;
 
-	
+	/* Fixup hose IO resource */
 	io_virt_offset = pcibios_io_space_offset(hose);
 	hose->io_resource.start += io_virt_offset;
 	hose->io_resource.end += io_virt_offset;
@@ -153,6 +181,9 @@ int __devinit pcibios_map_io_space(struct pci_bus *bus)
 {
 	WARN_ON(bus == NULL);
 
+	/* If this not a PHB, nothing to do, page tables still exist and
+	 * thus HPTEs will be faulted in when needed
+	 */
 	if (bus->self) {
 		pr_debug("IO mapping for PCI-PCI bridge %s\n",
 			 pci_name(bus->self));
@@ -185,6 +216,11 @@ long sys_pciconfig_iobase(long which, unsigned long in_bus,
 	struct pci_bus *bus = NULL;
 	struct device_node *hose_node;
 
+	/* Argh ! Please forgive me for that hack, but that's the
+	 * simplest way to get existing XFree to not lockup on some
+	 * G5 machines... So when something asks for bus 0 io base
+	 * (bus 0 is HT root), we return the AGP one instead.
+	 */
 	if (in_bus == 0 && of_machine_is_compatible("MacRISC4")) {
 		struct device_node *agp;
 
@@ -194,6 +230,9 @@ long sys_pciconfig_iobase(long which, unsigned long in_bus,
 		of_node_put(agp);
 	}
 
+	/* That syscall isn't quite compatible with PCI domains, but it's
+	 * used on pre-domains setup. We return the first match
+	 */
 
 	for (ln = pci_root_buses.next; ln != &pci_root_buses; ln = ln->next) {
 		bus = pci_bus_b(ln);

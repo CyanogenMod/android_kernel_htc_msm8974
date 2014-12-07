@@ -45,6 +45,7 @@ static struct clk *wm8903_mclk;
 
 static int rx_hw_param_status;
 static int tx_hw_param_status;
+/* Platform specific logic */
 
 enum {
 	GET_ERR,
@@ -74,7 +75,7 @@ static void classd_amp_pwr(int enable)
 
 	pr_debug("%s, enable = %d\n", __func__, enable);
 	if (enable) {
-		
+		/* currently external PA isn't used for LINEOUTL  */
 		rc = gpio_request(MSM_GPIO_CLASS_D0_EN, "CLASSD0_EN");
 		if (rc) {
 			pr_err("%s: spkr PA gpio %d request failed\n",
@@ -193,7 +194,7 @@ static int msm8660_wm8903_enable_mclk(int enable)
 			gpio_free(MSM_CDC_MIC_I2S_MCLK);
 			return IS_ERR(wm8903_mclk);
 		}
-		
+		/* Master clock OSR 256 */
 		clk_set_rate(wm8903_mclk, 48000 * 256);
 		ret = clk_prepare_enable(wm8903_mclk);
 		if (ret != 0) {
@@ -251,7 +252,7 @@ static int msm8660_i2s_hw_params(struct snd_pcm_substream *substream,
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		if (rx_hw_param_status)
 			return 0;
-		
+		/* wm8903 run @ LRC*256 */
 		ret = snd_soc_dai_set_sysclk(codec_dai, 0, rate * 256,
 						SND_SOC_CLOCK_IN);
 		snd_soc_dai_digital_mute(codec_dai, 0);
@@ -260,7 +261,7 @@ static int msm8660_i2s_hw_params(struct snd_pcm_substream *substream,
 			return ret;
 		}
 		clk_set_rate(wm8903_mclk, rate * 256);
-		
+		/* set as slave mode CPU */
 		clk_set_rate(spkr_bit_clk, 0);
 		ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBM_CFM);
 		rx_hw_param_status++;
@@ -289,15 +290,19 @@ static int msm8660_i2s_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 
 	pr_debug("Enter %s\n", __func__);
+	/* ON Dragonboard, I2S between wm8903 and CPU is shared by
+	 * CODEC_SPEAKER and CODEC_MIC therefore CPU only can operate
+	 * as input SLAVE mode.
+	 */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		
+		/* config WM8903 in Mater mode */
 		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_CBM_CFM |
 				SND_SOC_DAIFMT_I2S);
 		if (ret != 0) {
 			pr_err("codec_dai set_fmt error\n");
 			return ret;
 		}
-		
+		/* config CPU in SLAVE mode */
 		ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBM_CFM);
 		if (ret != 0) {
 			pr_err("cpu_dai set_fmt error\n");
@@ -332,14 +337,14 @@ static int msm8660_i2s_startup(struct snd_pcm_substream *substream)
 			return ret;
 		}
 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
-		
+		/* config WM8903 in Mater mode */
 		ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_CBM_CFM |
 				SND_SOC_DAIFMT_I2S);
 		if (ret != 0) {
 			pr_err("codec_dai set_fmt error\n");
 			return ret;
 		}
-		
+		/* config CPU in SLAVE mode */
 		ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBM_CFM);
 		if (ret != 0) {
 			pr_err("codec_dai set_fmt error\n");
@@ -389,25 +394,25 @@ static void msm8660_i2s_shutdown(struct snd_pcm_substream *substream)
 
 static void msm8660_ext_control(struct snd_soc_codec *codec)
 {
-	
+	/* set the enpoints to their new connetion states */
 	if (msm8660_spk_func == FUNC_ON)
 		snd_soc_dapm_enable_pin(&codec->dapm, "Ext Spk");
 	else
 		snd_soc_dapm_disable_pin(&codec->dapm, "Ext Spk");
 
-	
+	/* set the enpoints to their new connetion states */
 	if (msm8660_headset_func == FUNC_ON)
 		snd_soc_dapm_enable_pin(&codec->dapm, "Headset Jack");
 	else
 		snd_soc_dapm_disable_pin(&codec->dapm, "Headset Jack");
 
-	
+	/* set the enpoints to their new connetion states */
 	if (msm8660_headphone_func == FUNC_ON)
 		snd_soc_dapm_enable_pin(&codec->dapm, "Headphone Jack");
 	else
 		snd_soc_dapm_disable_pin(&codec->dapm, "Headphone Jack");
 
-	
+	/* signal a DAPM event */
 	snd_soc_dapm_sync(&codec->dapm);
 }
 
@@ -494,17 +499,20 @@ static const struct snd_soc_dapm_widget msm8660_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("Ext Spk", msm8660_spkramp_event),
 	SND_SOC_DAPM_MIC("Headset Jack", NULL),
 	SND_SOC_DAPM_MIC("Headphone Jack", NULL),
+	/* to fix a bug in wm8903.c, where audio doesn't function
+	 * after suspend/resume
+	 */
 	SND_SOC_DAPM_SUPPLY("CLK_SYS_ENA", WM8903_CLOCK_RATES_2, 2, 0, NULL, 0),
 };
 
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* Match with wm8903 codec line out pin */
 	{"Ext Spk", NULL, "LINEOUTL"},
 	{"Ext Spk", NULL, "LINEOUTR"},
-	
+	/* Headset connects to IN3L with Bias */
 	{"IN3L", NULL, "Mic Bias"},
 	{"Mic Bias", NULL, "Headset Jack"},
-	
+	/* Headphone connects to IN3R with Bias */
 	{"IN3R", NULL, "Mic Bias"},
 	{"Mic Bias", NULL, "Headphone Jack"},
 	{"ADCL", NULL, "CLK_SYS_ENA"},
@@ -559,6 +567,10 @@ static int pri_i2s_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	rate->min = rate->max = 48000;
 	return 0;
 }
+/*
+ * LPA Needs only RX BE DAI links.
+ * Hence define seperate BE list for lpa
+ */
 static const char *lpa_mm_be[] = {
 	LPASS_BE_PRI_I2S_RX,
 };
@@ -589,8 +601,9 @@ static struct snd_soc_dsp_link fe_media = {
 		SND_SOC_DSP_TRIGGER_POST, SND_SOC_DSP_TRIGGER_POST},
 };
 
+/* Digital audio interface glue - connects codec <---> CPU */
 static struct snd_soc_dai_link msm8660_dai[] = {
-	
+	/* FrontEnd DAI Links */
 	{
 		.name = "MSM8660 Media",
 		.stream_name = "MultiMedia",
@@ -609,7 +622,7 @@ static struct snd_soc_dai_link msm8660_dai[] = {
 		.dsp_link = &fe_media,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA2,
 	},
-	
+	/* Backend DAI Links */
 	{
 		.name = LPASS_BE_PRI_I2S_RX,
 		.stream_name = "Primary I2S Playback",
@@ -635,7 +648,7 @@ static struct snd_soc_dai_link msm8660_dai[] = {
 		.be_hw_params_fixup = pri_i2s_be_hw_params_fixup,
 		.be_id = MSM_BACKEND_DAI_PRI_I2S_TX
 	},
-	
+	/* LPA frontend DAI link*/
 	{
 		.name = "MSM8660 LPA",
 		.stream_name = "LPA",
@@ -645,7 +658,7 @@ static struct snd_soc_dai_link msm8660_dai[] = {
 		.dsp_link = &lpa_fe_media,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA3,
 	},
-	
+	/* HDMI backend DAI link */
 	{
 		.name = LPASS_BE_HDMI,
 		.stream_name = "HDMI Playback",
@@ -673,6 +686,8 @@ static int __init msm_audio_init(void)
 	int ret = 0;
 
 	if (machine_is_msm8x60_dragon()) {
+		/* wm8903 audio codec needs to power up and mclk existing
+		before it's probed */
 		ret = msm8660_wm8903_prepare();
 		if (ret) {
 			pr_err("failed to prepare wm8903 audio codec\n");

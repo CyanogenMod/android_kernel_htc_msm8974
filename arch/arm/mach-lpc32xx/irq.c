@@ -28,10 +28,18 @@
 #include <mach/platform.h>
 #include "common.h"
 
+/*
+ * Default value representing the Activation polarity of all internal
+ * interrupt sources
+ */
 #define MIC_APR_DEFAULT		0x3FF0EFE0
 #define SIC1_APR_DEFAULT	0xFBD27186
 #define SIC2_APR_DEFAULT	0x801810C0
 
+/*
+ * Default value representing the Activation Type of all internal
+ * interrupt sources. All are level sensitive.
+ */
 #define MIC_ATR_DEFAULT		0x00000000
 #define SIC1_ATR_DEFAULT	0x00026000
 #define SIC2_ATR_DEFAULT	0x00000000
@@ -62,6 +70,9 @@ struct lpc32xx_event_info {
 	u32 mask;
 };
 
+/*
+ * Maps an IRQ number to and event mask and register
+ */
 static const struct lpc32xx_event_info lpc32xx_events[NR_IRQS] = {
 	[IRQ_LPC32XX_GPI_08] = {
 		.event_group = &lpc32xx_event_pin_regs,
@@ -216,7 +227,7 @@ static void lpc32xx_ack_irq(struct irq_data *d)
 
 	__raw_writel(mask, LPC32XX_INTC_RAW_STAT(ctrl));
 
-	
+	/* Also need to clear pending wake event */
 	if (lpc32xx_events[d->irq].mask != 0)
 		__raw_writel(lpc32xx_events[d->irq].mask,
 			lpc32xx_events[d->irq].event_group->rawstat_reg);
@@ -229,7 +240,7 @@ static void __lpc32xx_set_irq_type(unsigned int irq, int use_high_level,
 
 	get_controller(irq, &ctrl, &mask);
 
-	
+	/* Activation level, high or low */
 	reg = __raw_readl(LPC32XX_INTC_POLAR(ctrl));
 	if (use_high_level)
 		reg |= mask;
@@ -237,7 +248,7 @@ static void __lpc32xx_set_irq_type(unsigned int irq, int use_high_level,
 		reg &= ~mask;
 	__raw_writel(reg, LPC32XX_INTC_POLAR(ctrl));
 
-	
+	/* Activation type, edge or level */
 	reg = __raw_readl(LPC32XX_INTC_ACT_TYPE(ctrl));
 	if (use_edge)
 		reg |= mask;
@@ -245,7 +256,7 @@ static void __lpc32xx_set_irq_type(unsigned int irq, int use_high_level,
 		reg &= ~mask;
 	__raw_writel(reg, LPC32XX_INTC_ACT_TYPE(ctrl));
 
-	
+	/* Use same polarity for the wake events */
 	if (lpc32xx_events[irq].mask != 0) {
 		reg = __raw_readl(lpc32xx_events[irq].event_group->edge_reg);
 
@@ -262,31 +273,31 @@ static int lpc32xx_set_irq_type(struct irq_data *d, unsigned int type)
 {
 	switch (type) {
 	case IRQ_TYPE_EDGE_RISING:
-		
+		/* Rising edge sensitive */
 		__lpc32xx_set_irq_type(d->irq, 1, 1);
 		break;
 
 	case IRQ_TYPE_EDGE_FALLING:
-		
+		/* Falling edge sensitive */
 		__lpc32xx_set_irq_type(d->irq, 0, 1);
 		break;
 
 	case IRQ_TYPE_LEVEL_LOW:
-		
+		/* Low level sensitive */
 		__lpc32xx_set_irq_type(d->irq, 0, 0);
 		break;
 
 	case IRQ_TYPE_LEVEL_HIGH:
-		
+		/* High level sensitive */
 		__lpc32xx_set_irq_type(d->irq, 1, 0);
 		break;
 
-	
+	/* Other modes are not supported */
 	default:
 		return -EINVAL;
 	}
 
-	
+	/* Ok to use the level handler for all types */
 	irq_set_handler(d->irq, handle_level_irq);
 
 	return 0;
@@ -305,6 +316,10 @@ static int lpc32xx_irq_wake(struct irq_data *d, unsigned int state)
 		else {
 			eventreg &= ~lpc32xx_events[d->irq].mask;
 
+			/*
+			 * When disabling the wakeup, clear the latched
+			 * event
+			 */
 			__raw_writel(lpc32xx_events[d->irq].mask,
 				lpc32xx_events[d->irq].
 				event_group->rawstat_reg);
@@ -316,7 +331,7 @@ static int lpc32xx_irq_wake(struct irq_data *d, unsigned int state)
 		return 0;
 	}
 
-	
+	/* Clear event */
 	__raw_writel(lpc32xx_events[d->irq].mask,
 		lpc32xx_events[d->irq].event_group->rawstat_reg);
 
@@ -328,7 +343,7 @@ static void __init lpc32xx_set_default_mappings(unsigned int apr,
 {
 	unsigned int i;
 
-	
+	/* Set activation levels for each interrupt */
 	i = 0;
 	while (i < 32) {
 		__lpc32xx_set_irq_type(offset + i, ((apr >> i) & 0x1),
@@ -375,56 +390,60 @@ void __init lpc32xx_init_irq(void)
 {
 	unsigned int i;
 
-	
+	/* Setup MIC */
 	__raw_writel(0, LPC32XX_INTC_MASK(LPC32XX_MIC_BASE));
 	__raw_writel(MIC_APR_DEFAULT, LPC32XX_INTC_POLAR(LPC32XX_MIC_BASE));
 	__raw_writel(MIC_ATR_DEFAULT, LPC32XX_INTC_ACT_TYPE(LPC32XX_MIC_BASE));
 
-	
+	/* Setup SIC1 */
 	__raw_writel(0, LPC32XX_INTC_MASK(LPC32XX_SIC1_BASE));
 	__raw_writel(SIC1_APR_DEFAULT, LPC32XX_INTC_POLAR(LPC32XX_SIC1_BASE));
 	__raw_writel(SIC1_ATR_DEFAULT,
 				LPC32XX_INTC_ACT_TYPE(LPC32XX_SIC1_BASE));
 
-	
+	/* Setup SIC2 */
 	__raw_writel(0, LPC32XX_INTC_MASK(LPC32XX_SIC2_BASE));
 	__raw_writel(SIC2_APR_DEFAULT, LPC32XX_INTC_POLAR(LPC32XX_SIC2_BASE));
 	__raw_writel(SIC2_ATR_DEFAULT,
 				LPC32XX_INTC_ACT_TYPE(LPC32XX_SIC2_BASE));
 
-	
+	/* Configure supported IRQ's */
 	for (i = 0; i < NR_IRQS; i++) {
 		irq_set_chip_and_handler(i, &lpc32xx_irq_chip,
 					 handle_level_irq);
 		set_irq_flags(i, IRQF_VALID);
 	}
 
-	
+	/* Set default mappings */
 	lpc32xx_set_default_mappings(MIC_APR_DEFAULT, MIC_ATR_DEFAULT, 0);
 	lpc32xx_set_default_mappings(SIC1_APR_DEFAULT, SIC1_ATR_DEFAULT, 32);
 	lpc32xx_set_default_mappings(SIC2_APR_DEFAULT, SIC2_ATR_DEFAULT, 64);
 
-	
+	/* mask all interrupts except SUBIRQ */
 	__raw_writel(0, LPC32XX_INTC_MASK(LPC32XX_MIC_BASE));
 	__raw_writel(0, LPC32XX_INTC_MASK(LPC32XX_SIC1_BASE));
 	__raw_writel(0, LPC32XX_INTC_MASK(LPC32XX_SIC2_BASE));
 
-	
+	/* MIC SUBIRQx interrupts will route handling to the chain handlers */
 	irq_set_chained_handler(IRQ_LPC32XX_SUB1IRQ, lpc32xx_sic1_handler);
 	irq_set_chained_handler(IRQ_LPC32XX_SUB2IRQ, lpc32xx_sic2_handler);
 
-	
+	/* Initially disable all wake events */
 	__raw_writel(0, LPC32XX_CLKPWR_P01_ER);
 	__raw_writel(0, LPC32XX_CLKPWR_INT_ER);
 	__raw_writel(0, LPC32XX_CLKPWR_PIN_ER);
 
+	/*
+	 * Default wake activation polarities, all pin sources are low edge
+	 * triggered
+	 */
 	__raw_writel(LPC32XX_CLKPWR_INTSRC_TS_P_BIT |
 		LPC32XX_CLKPWR_INTSRC_MSTIMER_BIT |
 		LPC32XX_CLKPWR_INTSRC_RTC_BIT,
 		LPC32XX_CLKPWR_INT_AP);
 	__raw_writel(0, LPC32XX_CLKPWR_PIN_AP);
 
-	
+	/* Clear latched wake event states */
 	__raw_writel(__raw_readl(LPC32XX_CLKPWR_PIN_RS),
 		LPC32XX_CLKPWR_PIN_RS);
 	__raw_writel(__raw_readl(LPC32XX_CLKPWR_INT_RS),

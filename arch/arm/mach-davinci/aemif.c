@@ -17,6 +17,7 @@
 
 #include <mach/aemif.h>
 
+/* Timing value configuration */
 
 #define TA(x)		((x) << 2)
 #define RHOLD(x)	((x) << 4)
@@ -42,6 +43,15 @@
 				WSTROBE(WSTROBE_MAX) | \
 				WSETUP(WSETUP_MAX))
 
+/*
+ * aemif_calc_rate - calculate timing data.
+ * @wanted: The cycle time needed in nanoseconds.
+ * @clk: The input clock rate in kHz.
+ * @max: The maximum divider value that can be programmed.
+ *
+ * On success, returns the calculated timing value minus 1 for easy
+ * programming into AEMIF timing registers, else negative errno.
+ */
 static int aemif_calc_rate(int wanted, unsigned long clk, int max)
 {
 	int result;
@@ -50,17 +60,32 @@ static int aemif_calc_rate(int wanted, unsigned long clk, int max)
 
 	pr_debug("%s: result %d from %ld, %d\n", __func__, result, clk, wanted);
 
-	
+	/* It is generally OK to have a more relaxed timing than requested... */
 	if (result < 0)
 		result = 0;
 
-	
+	/* ... But configuring tighter timings is not an option. */
 	else if (result > max)
 		result = -EINVAL;
 
 	return result;
 }
 
+/**
+ * davinci_aemif_setup_timing - setup timing values for a given AEMIF interface
+ * @t: timing values to be progammed
+ * @base: The virtual base address of the AEMIF interface
+ * @cs: chip-select to program the timing values for
+ *
+ * This function programs the given timing values (in real clock) into the
+ * AEMIF registers taking the AEMIF clock into account.
+ *
+ * This function does not use any locking while programming the AEMIF
+ * because it is expected that there is only one user of a given
+ * chip-select.
+ *
+ * Returns 0 on success, else negative errno.
+ */
 int davinci_aemif_setup_timing(struct davinci_aemif_timing *t,
 					void __iomem *base, unsigned cs)
 {
@@ -71,7 +96,7 @@ int davinci_aemif_setup_timing(struct davinci_aemif_timing *t,
 	unsigned long clkrate;
 
 	if (!t)
-		return 0;	
+		return 0;	/* Nothing to do */
 
 	aemif_clk = clk_get(NULL, "aemif");
 	if (IS_ERR(aemif_clk))
@@ -79,7 +104,7 @@ int davinci_aemif_setup_timing(struct davinci_aemif_timing *t,
 
 	clkrate = clk_get_rate(aemif_clk);
 
-	clkrate /= 1000;	
+	clkrate /= 1000;	/* turn clock into kHz for ease of use */
 
 	ta	= aemif_calc_rate(t->ta, clkrate, TA_MAX);
 	rhold	= aemif_calc_rate(t->rhold, clkrate, RHOLD_MAX);

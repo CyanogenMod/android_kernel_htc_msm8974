@@ -12,7 +12,9 @@
 
 #define ia64_barrier()		__memory_barrier()
 
-#define ia64_stop()	
+#define ia64_stop()	/* Nothing: As of now stop bit is generated for each
+		 	 * intrinsic
+		 	 */
 
 #define ia64_native_getreg	__getReg
 #define ia64_native_setreg	__setReg
@@ -109,6 +111,7 @@
 #define ia64_st4_rel		__st4_rel
 #define ia64_st8_rel		__st8_rel
 
+/* FIXME: need st4.rel.nta intrinsic */
 #define ia64_st4_rel_nta	__st4_rel
 
 #define ia64_ld1_acq		__ld1_acq
@@ -131,6 +134,7 @@
 #define ia64_ptrd		__ptrd
 #define ia64_dep_mi		_m64_dep_mi
 
+/* Values for lfhint in __lfetch and __lfetch_fault */
 
 #define ia64_lfhint_none	__lfhint_none
 #define ia64_lfhint_nt1		__lfhint_nt1
@@ -154,4 +158,4 @@ do {							\
 
 #define __builtin_trap()	__break(0);
 
-#endif 
+#endif /* _ASM_IA64_INTEL_INTRIN_H */

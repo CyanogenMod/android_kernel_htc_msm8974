@@ -24,6 +24,7 @@
 #ifndef __TWL4030_CODEC_H__
 #define __TWL4030_CODEC_H__
 
+/* Codec registers */
 #define TWL4030_REG_CODEC_MODE		0x01
 #define TWL4030_REG_OPTION		0x02
 #define TWL4030_REG_UNKNOWN		0x03
@@ -95,7 +96,9 @@
 #define TWL4030_REG_ANAMIC_GAIN		0x48
 #define TWL4030_REG_MISC_SET_2		0x49
 
+/* Bitfield Definitions */
 
+/* TWL4030_CODEC_MODE (0x01) Fields */
 #define TWL4030_APLL_RATE		0xF0
 #define TWL4030_APLL_RATE_8000		0x00
 #define TWL4030_APLL_RATE_11025		0x10
@@ -113,6 +116,7 @@
 #define TWL4030_OPTION_1		(1 << 0)
 #define TWL4030_OPTION_2		(0 << 0)
 
+/* TWL4030_OPTION (0x02) Fields */
 #define TWL4030_ATXL1_EN		(1 << 0)
 #define TWL4030_ATXR1_EN		(1 << 1)
 #define TWL4030_ATXL2_VTXL_EN		(1 << 2)
@@ -122,12 +126,14 @@
 #define TWL4030_ARXL2_EN		(1 << 6)
 #define TWL4030_ARXR2_EN		(1 << 7)
 
+/* TWL4030_REG_MICBIAS_CTL (0x04) Fields */
 #define TWL4030_MICBIAS2_CTL		0x40
 #define TWL4030_MICBIAS1_CTL		0x20
 #define TWL4030_HSMICBIAS_EN		0x04
 #define TWL4030_MICBIAS2_EN		0x02
 #define TWL4030_MICBIAS1_EN		0x01
 
+/* ANAMICL (0x05) Fields */
 #define TWL4030_CNCL_OFFSET_START	0x80
 #define TWL4030_OFFSET_CNCL_SEL		0x60
 #define TWL4030_OFFSET_CNCL_SEL_ARX1	0x00
@@ -140,19 +146,23 @@
 #define TWL4030_HSMIC_EN		0x02
 #define TWL4030_MAINMIC_EN		0x01
 
+/* ANAMICR (0x06) Fields */
 #define TWL4030_MICAMPR_EN		0x10
 #define TWL4030_AUXR_EN			0x04
 #define TWL4030_SUBMIC_EN		0x01
 
+/* AVADC_CTL (0x07) Fields */
 #define TWL4030_ADCL_EN			0x08
 #define TWL4030_AVADC_CLK_PRIORITY	0x04
 #define TWL4030_ADCR_EN			0x02
 
+/* TWL4030_REG_ADCMICSEL (0x08) Fields */
 #define TWL4030_DIGMIC1_EN		0x08
 #define TWL4030_TX2IN_SEL		0x04
 #define TWL4030_DIGMIC0_EN		0x02
 #define TWL4030_TX1IN_SEL		0x01
 
+/* AUDIO_IF (0x0E) Fields */
 #define TWL4030_AIF_SLAVE_EN		0x80
 #define TWL4030_DATA_WIDTH		0x60
 #define TWL4030_DATA_WIDTH_16S_16W	0x00
@@ -167,6 +177,7 @@
 #define TWL4030_CLK256FS_EN		0x02
 #define TWL4030_AIF_EN			0x01
 
+/* VOICE_IF (0x0F) Fields */
 #define TWL4030_VIF_SLAVE_EN		0x80
 #define TWL4030_VIF_DIN_EN		0x40
 #define TWL4030_VIF_DOUT_EN		0x20
@@ -176,8 +187,10 @@
 #define TWL4030_VIF_SUB_EN		0x02
 #define TWL4030_VIF_EN			0x01
 
+/* EAR_CTL (0x21) */
 #define TWL4030_EAR_GAIN		0x30
 
+/* HS_GAIN_SET (0x23) Fields */
 #define TWL4030_HSR_GAIN		0x0C
 #define TWL4030_HSR_GAIN_PWR_DOWN	0x00
 #define TWL4030_HSR_GAIN_PLUS_6DB	0x04
@@ -189,6 +202,7 @@
 #define TWL4030_HSL_GAIN_0DB		0x02
 #define TWL4030_HSL_GAIN_MINUS_6DB	0x03
 
+/* HS_POPN_SET (0x24) Fields */
 #define TWL4030_VMID_EN			0x40
 #define	TWL4030_EXTMUTE			0x20
 #define TWL4030_RAMP_DELAY		0x1C
@@ -202,31 +216,39 @@
 #define TWL4030_RAMP_DELAY_2581MS	0x1C
 #define TWL4030_RAMP_EN			0x02
 
+/* PREDL_CTL (0x25) */
 #define TWL4030_PREDL_GAIN		0x30
 
+/* PREDR_CTL (0x26) */
 #define TWL4030_PREDR_GAIN		0x30
 
+/* PRECKL_CTL (0x27) */
 #define TWL4030_PRECKL_GAIN		0x30
 
+/* PRECKR_CTL (0x28) */
 #define TWL4030_PRECKR_GAIN		0x30
 
+/* HFL_CTL (0x29, 0x2A) Fields */
 #define TWL4030_HF_CTL_HB_EN		0x04
 #define TWL4030_HF_CTL_LOOP_EN		0x08
 #define TWL4030_HF_CTL_RAMP_EN		0x10
 #define TWL4030_HF_CTL_REF_EN		0x20
 
+/* APLL_CTL (0x3A) Fields */
 #define TWL4030_APLL_EN			0x10
 #define TWL4030_APLL_INFREQ		0x0F
 #define TWL4030_APLL_INFREQ_19200KHZ	0x05
 #define TWL4030_APLL_INFREQ_26000KHZ	0x06
 #define TWL4030_APLL_INFREQ_38400KHZ	0x0F
 
+/* REG_MISC_SET_1 (0x3E) Fields */
 #define TWL4030_CLK64_EN		0x80
 #define TWL4030_SCRAMBLE_EN		0x40
 #define TWL4030_FMLOOP_EN		0x20
 #define TWL4030_SMOOTH_ANAVOL_EN	0x02
 #define TWL4030_DIGMIC_LR_SWAP_EN	0x01
 
+/* VIBRA_CTL (0x45) */
 #define TWL4030_VIBRA_EN		0x01
 #define TWL4030_VIBRA_DIR		0x02
 #define TWL4030_VIBRA_AUDIO_SEL_L1	(0x00 << 2)
@@ -236,6 +258,7 @@
 #define TWL4030_VIBRA_SEL		0x10
 #define TWL4030_VIBRA_DIR_SEL		0x20
 
+/* TWL4030 codec resource IDs */
 enum twl4030_audio_res {
 	TWL4030_AUDIO_RES_POWER = 0,
 	TWL4030_AUDIO_RES_APLL,
@@ -246,4 +269,4 @@ int twl4030_audio_disable_resource(enum twl4030_audio_res id);
 int twl4030_audio_enable_resource(enum twl4030_audio_res id);
 unsigned int twl4030_audio_get_mclk(void);
 
-#endif	
+#endif	/* End of __TWL4030_CODEC_H__ */

@@ -1,3 +1,11 @@
+/*
+    comedi/drivers/icp_multi.h
+
+    Stuff for ICP Multi
+
+    Author: Anne Smorthit <anne.smorthit@sfwte.ch>
+
+*/
 
 #ifndef _ICP_MULTI_H_
 #define _ICP_MULTI_H_
@@ -5,6 +13,7 @@
 #include "../comedidev.h"
 #include "comedi_pci.h"
 
+/****************************************************************************/
 
 struct pcilst_struct {
 	struct pcilst_struct *next;
@@ -20,7 +29,9 @@ struct pcilst_struct {
 };
 
 struct pcilst_struct *inova_devices;
+/* ptr to root list of all Inova devices */
 
+/****************************************************************************/
 
 static void pci_card_list_init(unsigned short pci_vendor, char display);
 static void pci_card_list_cleanup(unsigned short pci_vendor);
@@ -46,7 +57,9 @@ static int pci_card_data(struct pcilst_struct *amcc,
 			 unsigned char *pci_func, resource_size_t * io_addr,
 			 unsigned int *irq);
 
+/****************************************************************************/
 
+/* build list of Inova cards in this system */
 static void pci_card_list_init(unsigned short pci_vendor, char display)
 {
 	struct pci_dev *pcidev = NULL;
@@ -79,6 +92,9 @@ static void pci_card_list_init(unsigned short pci_vendor, char display)
 			inova->pci_bus = pcidev->bus->number;
 			inova->pci_slot = PCI_SLOT(pcidev->devfn);
 			inova->pci_func = PCI_FUNC(pcidev->devfn);
+			/* Note: resources may be invalid if PCI device
+			 * not enabled, but they are corrected in
+			 * pci_card_alloc. */
 			for (i = 0; i < 5; i++)
 				inova->io_addr[i] =
 				    pci_resource_start(pcidev, i);
@@ -90,6 +106,8 @@ static void pci_card_list_init(unsigned short pci_vendor, char display)
 		pci_card_list_display();
 }
 
+/****************************************************************************/
+/* free up list of amcc cards in this system */
 static void pci_card_list_cleanup(unsigned short pci_vendor)
 {
 	struct pcilst_struct *inova, *next;
@@ -103,6 +121,8 @@ static void pci_card_list_cleanup(unsigned short pci_vendor)
 	inova_devices = NULL;
 }
 
+/****************************************************************************/
+/* find first unused card with this device_id */
 static struct pcilst_struct *find_free_pci_card_by_device(unsigned short
 							  vendor_id,
 							  unsigned short
@@ -121,6 +141,8 @@ static struct pcilst_struct *find_free_pci_card_by_device(unsigned short
 	return NULL;
 }
 
+/****************************************************************************/
+/* find card on requested position */
 static int find_free_pci_card_by_position(unsigned short vendor_id,
 					  unsigned short device_id,
 					  unsigned short pci_bus,
@@ -137,16 +159,18 @@ static int find_free_pci_card_by_position(unsigned short vendor_id,
 		    && (inova->pci_slot == pci_slot)) {
 			if (!(inova->used)) {
 				*card = inova;
-				return 0;	
+				return 0;	/* ok, card is found */
 			} else {
-				return 2;	
+				return 2;	/* card exist but is used */
 			}
 		}
 	}
 
-	return 1;		
+	return 1;		/* no card found */
 }
 
+/****************************************************************************/
+/* mark card as used */
 static int pci_card_alloc(struct pcilst_struct *inova)
 {
 	int i;
@@ -162,7 +186,7 @@ static int pci_card_alloc(struct pcilst_struct *inova)
 		printk(" - Can't enable PCI device and request regions!\n");
 		return -1;
 	}
-	
+	/* Resources will be accurate now. */
 	for (i = 0; i < 5; i++)
 		inova->io_addr[i] = pci_resource_start(inova->pcidev, i);
 	inova->irq = inova->pcidev->irq;
@@ -170,6 +194,8 @@ static int pci_card_alloc(struct pcilst_struct *inova)
 	return 0;
 }
 
+/****************************************************************************/
+/* mark card as free */
 static int pci_card_free(struct pcilst_struct *inova)
 {
 	if (!inova)
@@ -182,6 +208,8 @@ static int pci_card_free(struct pcilst_struct *inova)
 	return 0;
 }
 
+/****************************************************************************/
+/* display list of found cards */
 static void pci_card_list_display(void)
 {
 	struct pcilst_struct *inova, *next;
@@ -202,6 +230,8 @@ static void pci_card_list_display(void)
 	}
 }
 
+/****************************************************************************/
+/* return all card information for driver */
 static int pci_card_data(struct pcilst_struct *inova,
 			 unsigned char *pci_bus, unsigned char *pci_slot,
 			 unsigned char *pci_func, resource_size_t * io_addr,
@@ -220,6 +250,8 @@ static int pci_card_data(struct pcilst_struct *inova,
 	return 0;
 }
 
+/****************************************************************************/
+/* select and alloc card */
 static struct pcilst_struct *select_and_alloc_pci_card(unsigned short vendor_id,
 						       unsigned short device_id,
 						       unsigned short pci_bus,
@@ -228,7 +260,7 @@ static struct pcilst_struct *select_and_alloc_pci_card(unsigned short vendor_id,
 	struct pcilst_struct *card;
 	int err;
 
-	if ((pci_bus < 1) & (pci_slot < 1)) {	
+	if ((pci_bus < 1) & (pci_slot < 1)) {	/* use autodetection */
 
 		card = find_free_pci_card_by_device(vendor_id, device_id);
 		if (card == NULL) {
@@ -256,7 +288,7 @@ static struct pcilst_struct *select_and_alloc_pci_card(unsigned short vendor_id,
 	if (err != 0) {
 		if (err > 0)
 			printk(" - Can't allocate card!\n");
-		
+		/* else: error already printed. */
 		return NULL;
 	}
 

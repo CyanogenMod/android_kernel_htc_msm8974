@@ -14,6 +14,7 @@
 #include <asm/irq.h>
 #include <asm/hd64461.h>
 
+/* This belongs in cpu specific */
 #define INTC_ICR1 0xA4140010UL
 
 static void hd64461_mask_irq(struct irq_data *data)
@@ -82,12 +83,13 @@ int __init setup_hd64461(void)
 	       HD64461_IOBASE, CONFIG_HD64461_IRQ, HD64461_IRQBASE,
 	       HD64461_IRQBASE + 15);
 
+/* Should be at processor specific part.. */
 #if defined(CONFIG_CPU_SUBTYPE_SH7709)
 	__raw_writew(0x2240, INTC_ICR1);
 #endif
 	__raw_writew(0xffff, HD64461_NIMR);
 
-	
+	/*  IRQ 80 -> 95 belongs to HD64461  */
 	for (i = HD64461_IRQBASE; i < HD64461_IRQBASE + 16; i++) {
 		unsigned int irq;
 

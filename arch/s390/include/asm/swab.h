@@ -39,7 +39,7 @@ static inline void __arch_swab64s(__u64 *x)
 	*x = __arch_swab64p(x);
 }
 #define __arch_swab64s __arch_swab64s
-#endif 
+#endif /* __s390x__ */
 
 static inline __u32 __arch_swab32p(const __u32 *x)
 {
@@ -52,10 +52,10 @@ static inline __u32 __arch_swab32p(const __u32 *x)
 		"	icm	%0,2,%O1+1(%R1)\n"
 		"	ic	%0,%1"
 		: "=&d" (result) : "Q" (*x) : "cc");
-#else 
+#else /* __s390x__ */
 		"	lrv	%0,%1"
 		: "=d" (result) : "m" (*x));
-#endif 
+#endif /* __s390x__ */
 	return result;
 }
 #define __arch_swab32p __arch_swab32p
@@ -69,7 +69,7 @@ static inline __u32 __arch_swab32(__u32 x)
 	return result;
 }
 #define __arch_swab32 __arch_swab32
-#endif 
+#endif /* __s390x__ */
 
 static inline __u16 __arch_swab16p(const __u16 *x)
 {
@@ -80,12 +80,12 @@ static inline __u16 __arch_swab16p(const __u16 *x)
 		"	icm	%0,2,%O1+1(%R1)\n"
 		"	ic	%0,%1\n"
 		: "=&d" (result) : "Q" (*x) : "cc");
-#else 
+#else /* __s390x__ */
 		"	lrvh	%0,%1"
 		: "=d" (result) : "m" (*x));
-#endif 
+#endif /* __s390x__ */
 	return result;
 }
 #define __arch_swab16p __arch_swab16p
 
-#endif 
+#endif /* _S390_SWAB_H */

@@ -16,8 +16,28 @@
 #ifndef __ASM_ARCH_IXP23XX_H
 #define __ASM_ARCH_IXP23XX_H
 
+/*
+ * IXP2300 linux memory map:
+ *
+ * virt		phys		size
+ * fffd0000	a0000000	64K		XSI2CPP_CSR
+ * fffc0000	c4000000	4K		EXP_CFG
+ * fff00000	c8000000	64K		PERIPHERAL
+ * fe000000	1c0000000	16M		CAP_CSR
+ * fd000000	1c8000000	16M		MSF_CSR
+ * fb000000			16M		---
+ * fa000000	1d8000000	32M		PCI_IO
+ * f8000000	1da000000	32M		PCI_CFG
+ * f6000000	1de000000	32M		PCI_CREG
+ * f4000000			32M		---
+ * f0000000	1e0000000	64M		PCI_MEM
+ * e[c-f]000000					per-platform mappings
+ */
 
 
+/****************************************************************************
+ * Static mappings.
+ ****************************************************************************/
 #define IXP23XX_XSI2CPP_CSR_PHYS	0xa0000000
 #define IXP23XX_XSI2CPP_CSR_VIRT	0xfffd0000
 #define IXP23XX_XSI2CPP_CSR_SIZE	0x00010000
@@ -59,6 +79,9 @@
 #define IXP23XX_PCI_MEM_SIZE		0x04000000
 
 
+/****************************************************************************
+ * XSI2CPP CSRs.
+ ****************************************************************************/
 #define IXP23XX_XSI2CPP_REG(x)		((volatile unsigned long *)(IXP23XX_XSI2CPP_CSR_VIRT + (x)))
 #define IXP23XX_CPP2XSI_CURR_XFER_REG3	IXP23XX_XSI2CPP_REG(0xf8)
 #define IXP23XX_CPP2XSI_ADDR_31		(1 << 19)
@@ -66,6 +89,9 @@
 #define IXP23XX_CPP2XSI_COH_OFF		(1 << 21)
 
 
+/****************************************************************************
+ * Expansion Bus Config.
+ ****************************************************************************/
 #define IXP23XX_EXP_CFG_REG(x)		((volatile unsigned long *)(IXP23XX_EXP_CFG_VIRT + (x)))
 #define IXP23XX_EXP_CS0			IXP23XX_EXP_CFG_REG(0x00)
 #define IXP23XX_EXP_CS1			IXP23XX_EXP_CFG_REG(0x04)
@@ -113,6 +139,9 @@
 #define IXP23XX_EXP_BUS_CS7_BASE	(IXP23XX_EXP_BUS_PHYS + 0x07000000)
 
 
+/****************************************************************************
+ * Peripherals.
+ ****************************************************************************/
 #define IXP23XX_UART1_VIRT		(IXP23XX_PERIPHERAL_VIRT + 0x0000)
 #define IXP23XX_UART2_VIRT		(IXP23XX_PERIPHERAL_VIRT + 0x1000)
 #define IXP23XX_PMU_VIRT		(IXP23XX_PERIPHERAL_VIRT + 0x2000)
@@ -144,6 +173,9 @@
 #define IXP23XX_DDRS_PHYS		(IXP23XX_PERIPHERAL_PHYS + 0xD000)
 
 
+/****************************************************************************
+ * Interrupt controller.
+ ****************************************************************************/
 #define IXP23XX_INTC_REG(x)		 ((volatile unsigned long *)(IXP23XX_INTC_VIRT + (x)))
 #define IXP23XX_INTR_ST1		IXP23XX_INTC_REG(0x00)
 #define IXP23XX_INTR_ST2		IXP23XX_INTC_REG(0x04)
@@ -164,6 +196,9 @@
 #define IXP23XX_INTR_IRQ_ENC_ST_OFFSET	0x54
 
 
+/****************************************************************************
+ * GPIO.
+ ****************************************************************************/
 #define IXP23XX_GPIO_REG(x)		((volatile unsigned long *)(IXP23XX_GPIO_VIRT + (x)))
 #define IXP23XX_GPIO_GPOUTR		IXP23XX_GPIO_REG(0x00)
 #define IXP23XX_GPIO_GPOER		IXP23XX_GPIO_REG(0x04)
@@ -184,6 +219,9 @@
 #define IXP23XX_GPIO_STYLE_SIZE		3
 
 
+/****************************************************************************
+ * Timer.
+ ****************************************************************************/
 #define IXP23XX_TIMER_REG(x)		((volatile unsigned long *)(IXP23XX_TIMER_VIRT + (x)))
 #define IXP23XX_TIMER_CONT		IXP23XX_TIMER_REG(0x00)
 #define IXP23XX_TIMER1_TIMESTAMP	IXP23XX_TIMER_REG(0x04)
@@ -200,6 +238,7 @@
 
 #define IXP23XX_TIMER_ENABLE		(1 << 0)
 #define IXP23XX_TIMER_ONE_SHOT		(1 << 1)
+/* Low order bits of reload value ignored */
 #define IXP23XX_TIMER_RELOAD_MASK	(0x3)
 #define IXP23XX_TIMER_DISABLED		(0x0)
 #define IXP23XX_TIMER1_INT_PEND		(1 << 0)
@@ -209,6 +248,9 @@
 #define IXP23XX_TIMER_STATUS_WARM_RESET	(1 << 4)
 
 
+/****************************************************************************
+ * CAP CSRs.
+ ****************************************************************************/
 #define IXP23XX_GLOBAL_REG(x)		((volatile unsigned long *)(IXP23XX_CAP_CSR_VIRT + 0x4a00 + (x)))
 #define IXP23XX_PRODUCT_ID		IXP23XX_GLOBAL_REG(0x00)
 #define IXP23XX_MISC_CONTROL		IXP23XX_GLOBAL_REG(0x04)
@@ -227,6 +269,9 @@
 #define IXP23XX_UENGINE_CSR_VIRT_BASE	(IXP23XX_CAP_CSR_VIRT + 0x18000)
 
 
+/****************************************************************************
+ * PCI CSRs.
+ ****************************************************************************/
 #define IXP23XX_PCI_CREG(x)		((volatile unsigned long *)(IXP23XX_PCI_CREG_VIRT + (x)))
 #define IXP23XX_PCI_CMDSTAT		IXP23XX_PCI_CREG(0x04)
 #define IXP23XX_PCI_SRAM_BAR		IXP23XX_PCI_CREG(0x14)

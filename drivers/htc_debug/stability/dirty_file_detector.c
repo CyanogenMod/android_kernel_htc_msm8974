@@ -35,6 +35,7 @@ static int WriteFile(struct file *fp, const char *buf, int readlen) {
 }
 
 #if 0
+/* nobody use this function yet, comment out */
 static int ReadFile(struct file *fp, char *buf, int readlen)
 {
 	if (fp->f_op && fp->f_op->read)
@@ -57,16 +58,16 @@ int mark_system_dirty(const char *file_name)
 
 	dirty_file_detected = 1;
 
-	
+	/* if the previous file name is the same as this one, return directly */
 	if (likely(!strncmp(tmp_str, file_name, sizeof(tmp_str) - 1))) {
 		printk("%s: duplicated file %s, skip it\n", __func__, file_name);
 		return 0;
 	}
 
-	
+	/* copy previous string to prevent redundant recording */
 	snprintf(tmp_str, sizeof(tmp_str), "%s", file_name);
 
-	
+	/* write file_name into /system/dirty_file */
 	InitKernelEnv();
 	fp = OpenFile(DIRTY_FILE_RECORD, O_RDWR | O_APPEND | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
 	if (fp != NULL) {
@@ -104,6 +105,8 @@ int is_system_dirty(void)
 }
 
 #if 0
+/* nobody use this function yet, comment out */
+/* dump DIRTY_FILE_RECORD in kernel space */
 static void dump_system_dirty_record(void)
 {
 	struct file *fp;

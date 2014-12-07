@@ -24,6 +24,23 @@
 #include "main.h"
 #include "wmm.h"
 
+/*
+ * This function fills the TxPD for tx packets.
+ *
+ * The Tx buffer received by this function should already have the
+ * header space allocated for TxPD.
+ *
+ * This function inserts the TxPD in between interface header and actual
+ * data and adjusts the buffer pointers accordingly.
+ *
+ * The following TxPD fields are set by this function, as required -
+ *      - BSS number
+ *      - Tx packet length and offset
+ *      - Priority
+ *      - Packet delay
+ *      - Priority specific Tx control
+ *      - Flags
+ */
 void *mwifiex_process_sta_txpd(struct mwifiex_private *priv,
 				struct sk_buff *skb)
 {
@@ -38,7 +55,7 @@ void *mwifiex_process_sta_txpd(struct mwifiex_private *priv,
 		return skb->data;
 	}
 
-	
+	/* If skb->data is not aligned; add padding */
 	pad = (4 - (((void *)skb->data - NULL) & 0x3)) % 4;
 
 	BUG_ON(skb_headroom(skb) < (sizeof(*local_tx_pd) + INTF_HEADER_LEN
@@ -59,6 +76,10 @@ void *mwifiex_process_sta_txpd(struct mwifiex_private *priv,
 
 	if (local_tx_pd->priority <
 	    ARRAY_SIZE(priv->wmm.user_pri_pkt_tx_ctrl))
+		/*
+		 * Set the priority specific tx_control field, setting of 0 will
+		 *   cause the default value to be used later in this function
+		 */
 		local_tx_pd->tx_control =
 			cpu_to_le32(priv->wmm.user_pri_pkt_tx_ctrl[local_tx_pd->
 								   priority]);
@@ -71,23 +92,30 @@ void *mwifiex_process_sta_txpd(struct mwifiex_private *priv,
 		}
 	}
 
-	
+	/* Offset of actual data */
 	local_tx_pd->tx_pkt_offset = cpu_to_le16(sizeof(struct txpd) + pad);
 
-	
+	/* make space for INTF_HEADER_LEN */
 	skb_push(skb, INTF_HEADER_LEN);
 
 	if (!local_tx_pd->tx_control)
-		
+		/* TxCtrl set by user or default */
 		local_tx_pd->tx_control = cpu_to_le32(priv->pkt_tx_ctrl);
 
 	return skb->data;
 }
 
+/*
+ * This function tells firmware to send a NULL data packet.
+ *
+ * The function creates a NULL data packet with TxPD and sends to the
+ * firmware for transmission, with highest priority setting.
+ */
 int mwifiex_send_null_packet(struct mwifiex_private *priv, u8 flags)
 {
 	struct mwifiex_adapter *adapter = priv->adapter;
 	struct txpd *local_tx_pd;
+/* sizeof(struct txpd) + Interface specific header */
 #define NULL_PACKET_HDR 64
 	u32 data_len = NULL_PACKET_HDR;
 	struct sk_buff *skb;
@@ -128,7 +156,7 @@ int mwifiex_send_null_packet(struct mwifiex_private *priv, u8 flags)
 	switch (ret) {
 	case -EBUSY:
 		adapter->data_sent = true;
-		
+		/* Fall through FAILURE handling */
 	case -1:
 		dev_kfree_skb_any(skb);
 		dev_err(adapter->dev, "%s: host_to_card failed: ret=%d\n",
@@ -150,6 +178,9 @@ int mwifiex_send_null_packet(struct mwifiex_private *priv, u8 flags)
 	return ret;
 }
 
+/*
+ * This function checks if we need to send last packet indication.
+ */
 u8
 mwifiex_check_last_packet_indication(struct mwifiex_private *priv)
 {

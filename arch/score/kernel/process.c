@@ -31,15 +31,24 @@
 void (*pm_power_off)(void);
 EXPORT_SYMBOL(pm_power_off);
 
+/* If or when software machine-restart is implemented, add code here. */
 void machine_restart(char *command) {}
 
+/* If or when software machine-halt is implemented, add code here. */
 void machine_halt(void) {}
 
+/* If or when software machine-power-off is implemented, add code here. */
 void machine_power_off(void) {}
 
+/*
+ * The idle thread. There's no useful work to be
+ * done, so just try to conserve power and have a
+ * low exit latency (ie sit in a loop waiting for
+ * somebody to say that they'd like to reschedule)
+ */
 void __noreturn cpu_idle(void)
 {
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		while (!need_resched())
 			barrier();
@@ -54,7 +63,7 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 {
 	unsigned long status;
 
-	
+	/* New thread loses kernel privileges. */
 	status = regs->cp0_psr & ~(KU_MASK);
 	status |= KU_USER;
 	regs->cp0_psr = status;
@@ -64,8 +73,16 @@ void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 
 void exit_thread(void) {}
 
+/*
+ * When a process does an "exec", machine state like FPU and debug
+ * registers need to be reset.  This is a hook function for that.
+ * Currently we don't have any such state to reset, so this is empty.
+ */
 void flush_thread(void) {}
 
+/*
+ * set up the kernel stack and exception frames for a new process
+ */
 int copy_thread(unsigned long clone_flags, unsigned long usp,
 		unsigned long unused,
 		struct task_struct *p, struct pt_regs *regs)
@@ -77,14 +94,14 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	p->clear_child_tid = NULL;
 
 	*childregs = *regs;
-	childregs->regs[7] = 0;		
-	childregs->regs[4] = 0;		
+	childregs->regs[7] = 0;		/* Clear error flag */
+	childregs->regs[4] = 0;		/* Child gets zero as return value */
 	regs->regs[4] = p->pid;
 
-	if (childregs->cp0_psr & 0x8) {	
-		childregs->regs[0] = usp;		
+	if (childregs->cp0_psr & 0x8) {	/* test kernel fork or user fork */
+		childregs->regs[0] = usp;		/* user fork */
 	} else {
-		childregs->regs[28] = (unsigned long) ti; 
+		childregs->regs[28] = (unsigned long) ti; /* kernel fork */
 		childregs->regs[0] = (unsigned long) childregs;
 	}
 
@@ -95,6 +112,7 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	return 0;
 }
 
+/* Fill in the fpu structure for a core dump. */
 int dump_fpu(struct pt_regs *regs, elf_fpregset_t *r)
 {
 	return 1;
@@ -107,6 +125,9 @@ kernel_thread_helper(void *unused0, int (*fn)(void *),
 	do_exit(fn(arg));
 }
 
+/*
+ * Create a kernel thread.
+ */
 long kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	struct pt_regs regs;

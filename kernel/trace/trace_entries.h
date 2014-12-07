@@ -1,4 +1,60 @@
+/*
+ * This file defines the trace event structures that go into the ring
+ * buffer directly. They are created via macros so that changes for them
+ * appear in the format file. Using macros will automate this process.
+ *
+ * The macro used to create a ftrace data structure is:
+ *
+ * FTRACE_ENTRY( name, struct_name, id, structure, print )
+ *
+ * @name: the name used the event name, as well as the name of
+ *   the directory that holds the format file.
+ *
+ * @struct_name: the name of the structure that is created.
+ *
+ * @id: The event identifier that is used to detect what event
+ *    this is from the ring buffer.
+ *
+ * @structure: the structure layout
+ *
+ *  - __field(	type,	item	)
+ *	  This is equivalent to declaring
+ *		type	item;
+ *	  in the structure.
+ *  - __array(	type,	item,	size	)
+ *	  This is equivalent to declaring
+ *		type	item[size];
+ *	  in the structure.
+ *
+ *   * for structures within structures, the format of the internal
+ *	structure is laid out. This allows the internal structure
+ *	to be deciphered for the format file. Although these macros
+ *	may become out of sync with the internal structure, they
+ *	will create a compile error if it happens. Since the
+ *	internel structures are just tracing helpers, this is not
+ *	an issue.
+ *
+ *	When an internal structure is used, it should use:
+ *
+ *	__field_struct(	type,	item	)
+ *
+ *	instead of __field. This will prevent it from being shown in
+ *	the output file. The fields in the structure should use.
+ *
+ *	__field_desc(	type,	container,	item		)
+ *	__array_desc(	type,	container,	item,	len	)
+ *
+ *	type, item and len are the same as __field and __array, but
+ *	container is added. This is the name of the item in
+ *	__field_struct that this is describing.
+ *
+ *
+ * @print: the print format shown to users in the format file.
+ */
 
+/*
+ * Function trace entry - function address and parent function address:
+ */
 FTRACE_ENTRY_REG(function, ftrace_entry,
 
 	TRACE_FN,
@@ -15,6 +71,7 @@ FTRACE_ENTRY_REG(function, ftrace_entry,
 	perf_ftrace_event_register
 );
 
+/* Function call entry */
 FTRACE_ENTRY(funcgraph_entry, ftrace_graph_ent_entry,
 
 	TRACE_GRAPH_ENT,
@@ -30,6 +87,7 @@ FTRACE_ENTRY(funcgraph_entry, ftrace_graph_ent_entry,
 	FILTER_OTHER
 );
 
+/* Function return entry */
 FTRACE_ENTRY(funcgraph_exit, ftrace_graph_ret_entry,
 
 	TRACE_GRAPH_RET,
@@ -51,6 +109,12 @@ FTRACE_ENTRY(funcgraph_exit, ftrace_graph_ret_entry,
 	FILTER_OTHER
 );
 
+/*
+ * Context switch trace entry - which task (and prio) we switched from/to:
+ *
+ * This is used for both wakeup and context switches. We only want
+ * to create one structure, but we need two outputs for it.
+ */
 #define FTRACE_CTX_FIELDS					\
 	__field(	unsigned int,	prev_pid	)	\
 	__field(	unsigned int,	next_pid	)	\
@@ -76,6 +140,10 @@ FTRACE_ENTRY(context_switch, ctx_switch_entry,
 	FILTER_OTHER
 );
 
+/*
+ * FTRACE_ENTRY_DUP only creates the format file, it will not
+ *  create another structure.
+ */
 FTRACE_ENTRY_DUP(wakeup, ctx_switch_entry,
 
 	TRACE_WAKE,
@@ -92,6 +160,9 @@ FTRACE_ENTRY_DUP(wakeup, ctx_switch_entry,
 	FILTER_OTHER
 );
 
+/*
+ * Stack-trace entry:
+ */
 
 #define FTRACE_STACK_ENTRIES	8
 
@@ -139,6 +210,9 @@ FTRACE_ENTRY(user_stack, userstack_entry,
 	FILTER_OTHER
 );
 
+/*
+ * trace_printk entry:
+ */
 FTRACE_ENTRY(bprint, bprint_entry,
 
 	TRACE_BPRINT,

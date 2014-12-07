@@ -91,6 +91,13 @@ static int adis16209_spi_write_reg_16(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * adis16209_spi_read_reg_16() - read 2 bytes from a 16-bit register
+ * @indio_dev: iio device associated with device
+ * @reg_address: the address of the lower of the two registers. Second register
+ *               is assumed to have address one greater.
+ * @val: somewhere to pass back the value read
+ **/
 static int adis16209_spi_read_reg_16(struct iio_dev *indio_dev,
 				     u8 lower_reg_address,
 				     u16 *val)
@@ -234,21 +241,21 @@ static int adis16209_initial_setup(struct iio_dev *indio_dev)
 {
 	int ret;
 
-	
+	/* Disable IRQ */
 	ret = adis16209_set_irq(indio_dev, false);
 	if (ret) {
 		dev_err(&indio_dev->dev, "disable irq failed");
 		goto err_ret;
 	}
 
-	
+	/* Do self test */
 	ret = adis16209_self_test(indio_dev);
 	if (ret) {
 		dev_err(&indio_dev->dev, "self test failure");
 		goto err_ret;
 	}
 
-	
+	/* Read status register to check the result */
 	ret = adis16209_check_status(indio_dev);
 	if (ret) {
 		adis16209_reset(indio_dev);
@@ -463,14 +470,14 @@ static int __devinit adis16209_probe(struct spi_device *spi)
 	struct adis16209_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 	st->us = spi;
 	mutex_init(&st->buf_lock);
@@ -500,7 +507,7 @@ static int __devinit adis16209_probe(struct spi_device *spi)
 			goto error_uninitialize_ring;
 	}
 
-	
+	/* Get the device into a sane initial state */
 	ret = adis16209_initial_setup(indio_dev);
 	if (ret)
 		goto error_remove_trigger;

@@ -13,22 +13,22 @@
 
 static struct resource uart0_resources[] = {
 	{
-		
+		/* start & end filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 	{
-		
+		/* start filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 };
 
 static struct resource uart1_resources[] = {
 	{
-		
+		/* start & end filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 	{
-		
+		/* start filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 };

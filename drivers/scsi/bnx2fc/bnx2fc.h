@@ -131,8 +131,8 @@
 #define BNX2FC_MAX_FCP_TGT		256
 #define BNX2FC_MAX_CMD_LEN		16
 
-#define BNX2FC_TM_TIMEOUT		60	
-#define BNX2FC_IO_TIMEOUT		20000UL	
+#define BNX2FC_TM_TIMEOUT		60	/* secs */
+#define BNX2FC_IO_TIMEOUT		20000UL	/* msecs */
 
 #define BNX2FC_WAIT_CNT			1200
 #define BNX2FC_FW_TIMEOUT		(3 * HZ)
@@ -140,6 +140,7 @@
 
 #define CMD_SCSI_STATUS(Cmnd)		((Cmnd)->SCp.Status)
 
+/* FC FCP Status */
 #define	FC_GOOD				0
 
 #define BNX2FC_RNID_HBA			0x7
@@ -151,6 +152,7 @@
 #define BNX2FC_RELOGIN_WAIT_TIME	200
 #define BNX2FC_RELOGIN_WAIT_CNT		10
 
+/* bnx2fc driver uses only one instance of fcoe_percpu_s */
 extern struct fcoe_percpu_s bnx2fc_global;
 
 extern struct workqueue_struct *bnx2fc_wq;
@@ -197,19 +199,19 @@ struct bnx2fc_hba {
 	char *dummy_buffer;
 	dma_addr_t dummy_buf_dma;
 
-	
+	/* Active list of offloaded sessions */
 	struct bnx2fc_rport **tgt_ofld_list;
 
-	
+	/* statistics */
 	struct fcoe_statistics_params *stats_buffer;
 	dma_addr_t stats_buf_dma;
 	struct completion stat_req_done;
 
-	
+	/*destroy handling */
 	struct timer_list destroy_timer;
 	wait_queue_head_t destroy_wait;
 
-	
+	/* linkdown handling */
 	wait_queue_head_t shutdown_wait;
 	int wait_for_link_down;
 	int num_ofld_sess;
@@ -371,6 +373,7 @@ struct bnx2fc_els_cb_arg {
 	enum fc_rctl r_ctl;
 };
 
+/* bnx2fc command structure */
 struct bnx2fc_cmd {
 	struct list_head link;
 	u8 on_active_queue;
@@ -391,7 +394,7 @@ struct bnx2fc_cmd {
 	struct bnx2fc_mp_req mp_req;
 	void (*cb_func)(struct bnx2fc_els_cb_arg *cb_arg);
 	struct bnx2fc_els_cb_arg *cb_arg;
-	struct delayed_work timeout_work; 
+	struct delayed_work timeout_work; /* timer for ULP timeouts */
 	struct completion tm_done;
 	int wait_for_comp;
 	u16 xid;
@@ -421,8 +424,8 @@ struct bnx2fc_cmd {
 	u32 fcp_resid;
 	u32 fcp_rsp_len;
 	u32 fcp_sns_len;
-	u8 cdb_status; 
-	u8 fcp_status; 
+	u8 cdb_status; /* SCSI IO status */
+	u8 fcp_status; /* FCP IO status */
 	u8 fcp_rsp_code;
 	u8 scsi_comp_flags;
 };

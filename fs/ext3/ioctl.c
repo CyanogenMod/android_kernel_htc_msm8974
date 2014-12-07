@@ -47,21 +47,31 @@ long ext3_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		mutex_lock(&inode->i_mutex);
 
-		
+		/* Is it quota file? Do not allow user to mess with it */
 		err = -EPERM;
 		if (IS_NOQUOTA(inode))
 			goto flags_out;
 
 		oldflags = ei->i_flags;
 
-		
+		/* The JOURNAL_DATA flag is modifiable only by root */
 		jflag = flags & EXT3_JOURNAL_DATA_FL;
 
+		/*
+		 * The IMMUTABLE and APPEND_ONLY flags can only be changed by
+		 * the relevant capability.
+		 *
+		 * This test looks nicer. Thanks to Pauline Middelink
+		 */
 		if ((flags ^ oldflags) & (EXT3_APPEND_FL | EXT3_IMMUTABLE_FL)) {
 			if (!capable(CAP_LINUX_IMMUTABLE))
 				goto flags_out;
 		}
 
+		/*
+		 * The JOURNAL_DATA flag can only be changed by
+		 * the relevant capability.
+		 */
 		if ((jflag ^ oldflags) & (EXT3_JOURNAL_DATA_FL)) {
 			if (!capable(CAP_SYS_RESOURCE))
 				goto flags_out;
@@ -170,6 +180,10 @@ setversion_out:
 		if (rsv_window_size > EXT3_MAX_RESERVE_BLOCKS)
 			rsv_window_size = EXT3_MAX_RESERVE_BLOCKS;
 
+		/*
+		 * need to allocate reservation structure for this inode
+		 * before set the window size
+		 */
 		mutex_lock(&ei->truncate_mutex);
 		if (!ei->i_block_alloc_info)
 			ext3_init_block_alloc_info(inode);
@@ -269,7 +283,7 @@ group_add_out:
 #ifdef CONFIG_COMPAT
 long ext3_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	
+	/* These are just misnamed, they actually get/put from/to user an int */
 	switch (cmd) {
 	case EXT3_IOC32_GETFLAGS:
 		cmd = EXT3_IOC_GETFLAGS;

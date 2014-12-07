@@ -84,13 +84,13 @@ void __init plat_time_init(void)
 
 	printk(KERN_WARNING "Clock rate set to %ld\n", cpu_rate);
 
-	
+	/* timer frequency is 1/2 clock rate */
 	mips_hpt_frequency = cpu_rate/2;
 }
 
 unsigned int __cpuinit get_c0_compare_int(void)
 {
-	
+	/* MIPS_MT modes may want timer for second VPE */
 	if ((get_current_vpe()) && !tim_installed) {
 		memcpy(&timer_vpe1, &c0_compare_irqaction, sizeof(timer_vpe1));
 		setup_irq(MSP_INT_VPE1_TIMER, &timer_vpe1);

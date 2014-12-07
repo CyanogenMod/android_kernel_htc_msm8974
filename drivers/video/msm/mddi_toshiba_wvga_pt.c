@@ -44,9 +44,9 @@ static int __init mddi_toshiba_wvga_pt_init(void)
 	pinfo.wait_cycle = 0;
 	pinfo.bpp = 18;
 	pinfo.lcd.vsync_enable = TRUE;
-	pinfo.lcd.refx100 = 6102; 
+	pinfo.lcd.refx100 = 6102; /* adjust refx100 to prevent tearing */
 	pinfo.mddi.is_type1 = TRUE;
-	pinfo.lcd.v_back_porch = 8;     
+	pinfo.lcd.v_back_porch = 8;     /* vsw=10 + vbp = 8 */
 	pinfo.lcd.v_front_porch = 2;
 	pinfo.lcd.v_pulse_width = 10;
 	pinfo.lcd.hw_vsync_mode = FALSE;

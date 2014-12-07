@@ -80,8 +80,14 @@ nv50_fb_init(struct drm_device *dev)
 	}
 	priv = dev_priv->engine.fb.priv;
 
+	/* Not a clue what this is exactly.  Without pointing it at a
+	 * scratch page, VRAM->GART blits with M2MF (as in DDX DFS)
+	 * cause IOMMU "read from address 0" errors (rh#561267)
+	 */
 	nv_wr32(dev, 0x100c08, priv->r100c08 >> 8);
 
+	/* This is needed to get meaningful information from 100c90
+	 * on traps. No idea what these values mean exactly. */
 	switch (dev_priv->chipset) {
 	case 0x50:
 		nv_wr32(dev, 0x100c90, 0x000707ff);
@@ -227,7 +233,7 @@ nv50_fb_vm_trap(struct drm_device *dev, int display)
 	if (!display)
 		return;
 
-	
+	/* lookup channel id */
 	chinst = (trap[2] << 16) | trap[1];
 	spin_lock_irqsave(&dev_priv->channels.lock, flags);
 	for (ch = 0; ch < dev_priv->engine.fifo.channels; ch++) {
@@ -241,7 +247,7 @@ nv50_fb_vm_trap(struct drm_device *dev, int display)
 	}
 	spin_unlock_irqrestore(&dev_priv->channels.lock, flags);
 
-	
+	/* decode status bits into something more useful */
 	if (dev_priv->chipset  < 0xa3 ||
 	    dev_priv->chipset == 0xaa || dev_priv->chipset == 0xac) {
 		st0 = (trap[0] & 0x0000000f) >> 0;

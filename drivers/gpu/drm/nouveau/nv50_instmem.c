@@ -37,7 +37,7 @@
 #define BAR3_VM_SIZE pci_resource_len(dev->pdev, 3)
 
 struct nv50_instmem_priv {
-	uint32_t save1700[5]; 
+	uint32_t save1700[5]; /* 0x1700->0x1710 */
 
 	struct nouveau_gpuobj *bar1_dmaobj;
 	struct nouveau_gpuobj *bar3_dmaobj;
@@ -138,18 +138,18 @@ nv50_instmem_init(struct drm_device *dev)
 		return -ENOMEM;
 	dev_priv->engine.instmem.priv = priv;
 
-	
+	/* Save state, will restore at takedown. */
 	for (i = 0x1700; i <= 0x1710; i += 4)
 		priv->save1700[(i-0x1700)/4] = nv_rd32(dev, i);
 
-	
+	/* Global PRAMIN heap */
 	ret = drm_mm_init(&dev_priv->ramin_heap, 0, dev_priv->ramin_size);
 	if (ret) {
 		NV_ERROR(dev, "Failed to init RAMIN heap\n");
 		goto error;
 	}
 
-	
+	/* BAR3 */
 	ret = nouveau_vm_new(dev, BAR3_VM_BASE, BAR3_VM_SIZE, BAR3_VM_BASE,
 			     &dev_priv->bar3_vm);
 	if (ret)
@@ -193,7 +193,7 @@ nv50_instmem_init(struct drm_device *dev)
 	}
 	nv_wo32(chan->ramin, 0, tmp);
 
-	
+	/* BAR1 */
 	ret = nouveau_vm_new(dev, BAR1_VM_BASE, BAR1_VM_SIZE, BAR1_VM_BASE, &vm);
 	if (ret)
 		goto error;
@@ -214,6 +214,9 @@ nv50_instmem_init(struct drm_device *dev)
 	for (i = 0; i < 8; i++)
 		nv_wr32(dev, 0x1900 + (i*4), 0);
 
+	/* Create shared channel VM, space is reserved at the beginning
+	 * to catch "NULL pointer" references
+	 */
 	ret = nouveau_vm_new(dev, 0, (1ULL << 40), 0x0020000000ULL,
 			     &dev_priv->chan_vm);
 	if (ret)
@@ -280,7 +283,7 @@ nv50_instmem_resume(struct drm_device *dev)
 	struct nouveau_channel *chan = dev_priv->channels.ptr[0];
 	int i;
 
-	
+	/* Poke the relevant regs, and pray it works :) */
 	nv_wr32(dev, NV50_PUNK_BAR_CFG_BASE, (chan->ramin->vinst >> 12));
 	nv_wr32(dev, NV50_PUNK_UNK1710, 0);
 	nv_wr32(dev, NV50_PUNK_BAR_CFG_BASE, (chan->ramin->vinst >> 12) |

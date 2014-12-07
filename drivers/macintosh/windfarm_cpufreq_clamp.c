@@ -75,7 +75,7 @@ static int __init wf_cpufreq_clamp_init(void)
 {
 	struct wf_control *clamp;
 
-	
+	/* Don't register on old machines that use therm_pm72 for now */
 	if (of_machine_is_compatible("PowerMac7,2") ||
 	    of_machine_is_compatible("PowerMac7,3") ||
 	    of_machine_is_compatible("RackMac3,1"))

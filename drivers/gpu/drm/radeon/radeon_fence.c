@@ -23,6 +23,11 @@
  * of the Software.
  *
  */
+/*
+ * Authors:
+ *    Jerome Glisse <glisse@freedesktop.org>
+ *    Dave Airlie
+ */
 #include <linux/seq_file.h>
 #include <linux/atomic.h>
 #include <linux/wait.h>
@@ -67,6 +72,9 @@ int radeon_fence_emit(struct radeon_device *rdev, struct radeon_fence *fence)
 	}
 	fence->seq = atomic_add_return(1, &rdev->fence_drv[fence->ring].seq);
 	if (!rdev->ring[fence->ring].ready)
+		/* FIXME: cp is not running assume everythings is done right
+		 * away
+		 */
 		radeon_fence_write(rdev, fence->seq, fence->ring);
 	else
 		radeon_fence_ring_emit(rdev, fence->ring, fence);
@@ -96,12 +104,18 @@ static bool radeon_fence_poll_locked(struct radeon_device *rdev, int ring)
 		if (time_after(cjiffies, rdev->fence_drv[ring].last_jiffies)) {
 			cjiffies -= rdev->fence_drv[ring].last_jiffies;
 			if (time_after(rdev->fence_drv[ring].last_timeout, cjiffies)) {
-				
+				/* update the timeout */
 				rdev->fence_drv[ring].last_timeout -= cjiffies;
 			} else {
+				/* the 500ms timeout is elapsed we should test
+				 * for GPU lockup
+				 */
 				rdev->fence_drv[ring].last_timeout = 1;
 			}
 		} else {
+			/* wrap around update last jiffies, we will just wait
+			 * a little longer
+			 */
 			rdev->fence_drv[ring].last_jiffies = cjiffies;
 		}
 		return false;
@@ -114,7 +128,7 @@ static bool radeon_fence_poll_locked(struct radeon_device *rdev, int ring)
 			break;
 		}
 	}
-	
+	/* all fence previous to this one are considered as signaled */
 	if (n) {
 		i = n;
 		do {
@@ -182,7 +196,7 @@ bool radeon_fence_signaled(struct radeon_fence *fence)
 
 	write_lock_irqsave(&fence->rdev->fence_lock, irq_flags);
 	signaled = fence->signaled;
-	
+	/* if we are shuting down report all fence as signaled */
 	if (fence->rdev->shutdown) {
 		signaled = true;
 	}
@@ -215,7 +229,7 @@ int radeon_fence_wait(struct radeon_fence *fence, bool intr)
 	}
 	timeout = rdev->fence_drv[fence->ring].last_timeout;
 retry:
-	
+	/* save current sequence used to check for GPU lockup */
 	seq = rdev->fence_drv[fence->ring].last_seq;
 	trace_radeon_fence_wait_begin(rdev->ddev, seq);
 	if (intr) {
@@ -234,15 +248,24 @@ retry:
 	}
 	trace_radeon_fence_wait_end(rdev->ddev, seq);
 	if (unlikely(!radeon_fence_signaled(fence))) {
+		/* we were interrupted for some reason and fence isn't
+		 * isn't signaled yet, resume wait
+		 */
 		if (r) {
 			timeout = r;
 			goto retry;
 		}
+		/* don't protect read access to rdev->fence_drv[t].last_seq
+		 * if we experiencing a lockup the value doesn't change
+		 */
 		if (seq == rdev->fence_drv[fence->ring].last_seq &&
 		    radeon_gpu_is_lockup(rdev, &rdev->ring[fence->ring])) {
-			
+			/* good news we believe it's a lockup */
 			printk(KERN_WARNING "GPU lockup (waiting for 0x%08X last fence id 0x%08X)\n",
 			     fence->seq, seq);
+			/* FIXME: what should we do ? marking everyone
+			 * as signaled for now
+			 */
 			rdev->gpu_lockup = true;
 			r = radeon_gpu_reset(rdev);
 			if (r)
@@ -349,7 +372,7 @@ int radeon_fence_count_emitted(struct radeon_device *rdev, int ring)
 	if (!list_empty(&rdev->fence_drv[ring].emitted)) {
 		struct list_head *ptr;
 		list_for_each(ptr, &rdev->fence_drv[ring].emitted) {
-			
+			/* count up to 3, that's enought info */
 			if (++not_processed >= 3)
 				break;
 		}
@@ -437,6 +460,9 @@ void radeon_fence_driver_fini(struct radeon_device *rdev)
 }
 
 
+/*
+ * Fence debugfs
+ */
 #if defined(CONFIG_DEBUG_FS)
 static int radeon_debugfs_fence_info(struct seq_file *m, void *data)
 {

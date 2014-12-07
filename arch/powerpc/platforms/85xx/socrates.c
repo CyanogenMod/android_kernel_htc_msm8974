@@ -61,6 +61,9 @@ static void __init socrates_pic_init(void)
 	of_node_put(np);
 }
 
+/*
+ * Setup the architecture
+ */
 static void __init socrates_setup_arch(void)
 {
 #ifdef CONFIG_PCI
@@ -78,6 +81,9 @@ static void __init socrates_setup_arch(void)
 
 machine_device_initcall(socrates, mpc85xx_common_publish_devices);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init socrates_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

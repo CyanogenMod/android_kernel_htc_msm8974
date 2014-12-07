@@ -176,6 +176,8 @@ static int go7007_snd_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
+		/* Just set a flag to indicate we should signal ALSA when
+		 * sound comes in */
 		gosnd->capturing = 1;
 		return 0;
 	case SNDRV_PCM_TRIGGER_STOP:

@@ -49,7 +49,7 @@ static int __find_main_battery(struct device *dev, void *data)
 	bp->bat = dev_get_drvdata(dev);
 
 	if (bp->bat->use_for_apm) {
-		
+		/* nice, we explicitly asked to report this battery. */
 		bp->main = bp->bat;
 		return 1;
 	}
@@ -88,7 +88,7 @@ static void find_main_battery(void)
 
 	if ((bp.max_energy_bat && bp.max_charge_bat) &&
 			(bp.max_energy_bat != bp.max_charge_bat)) {
-		
+		/* try guess battery with more capacity */
 		if (!PSY_PROP(bp.max_charge_bat, VOLTAGE_MAX_DESIGN,
 			      &bp.full)) {
 			if (bp.max_energy > bp.max_charge * bp.full.intval)
@@ -102,7 +102,7 @@ static void find_main_battery(void)
 			else
 				main_battery = bp.max_energy_bat;
 		} else {
-			
+			/* give up, choice any */
 			main_battery = bp.max_energy_bat;
 		}
 	} else if (bp.max_charge_bat) {
@@ -110,7 +110,7 @@ static void find_main_battery(void)
 	} else if (bp.max_energy_bat) {
 		main_battery = bp.max_energy_bat;
 	} else {
-		
+		/* give up, try the last if any */
 		main_battery = bp.bat;
 	}
 }
@@ -129,7 +129,7 @@ static int do_calculate_time(int status, enum apm_source source)
 	enum power_supply_property cur_now_prop;
 
 	if (MPSY_PROP(CURRENT_AVG, &I)) {
-		
+		/* if battery can't report average value, use momentary */
 		if (MPSY_PROP(CURRENT_NOW, &I))
 			return -1;
 	}
@@ -168,19 +168,19 @@ static int do_calculate_time(int status, enum apm_source source)
 	}
 
 	if (_MPSY_PROP(full_prop, &full)) {
-		
+		/* if battery can't report this property, use design value */
 		if (_MPSY_PROP(full_design_prop, &full))
 			return -1;
 	}
 
 	if (_MPSY_PROP(empty_prop, &empty)) {
-		
+		/* if battery can't report this property, use design value */
 		if (_MPSY_PROP(empty_design_prop, &empty))
 			empty.intval = 0;
 	}
 
 	if (_MPSY_PROP(cur_avg_prop, &cur)) {
-		
+		/* if battery can't report average value, use momentary */
 		if (_MPSY_PROP(cur_now_prop, &cur))
 			return -1;
 	}
@@ -249,19 +249,19 @@ static int calculate_capacity(enum apm_source source)
 	}
 
 	if (_MPSY_PROP(full_prop, &full)) {
-		
+		/* if battery can't report this property, use design value */
 		if (_MPSY_PROP(full_design_prop, &full))
 			return -1;
 	}
 
 	if (_MPSY_PROP(avg_prop, &cur)) {
-		
+		/* if battery can't report average value, use momentary */
 		if (_MPSY_PROP(now_prop, &cur))
 			return -1;
 	}
 
 	if (_MPSY_PROP(empty_prop, &empty)) {
-		
+		/* if battery can't report this property, use design value */
 		if (_MPSY_PROP(empty_design_prop, &empty))
 			empty.intval = 0;
 	}
@@ -292,12 +292,12 @@ static void apm_battery_apm_get_power_status(struct apm_power_info *info)
 		return;
 	}
 
-	
+	/* status */
 
 	if (MPSY_PROP(STATUS, &status))
 		status.intval = POWER_SUPPLY_STATUS_UNKNOWN;
 
-	
+	/* ac line status */
 
 	if ((status.intval == POWER_SUPPLY_STATUS_CHARGING) ||
 	    (status.intval == POWER_SUPPLY_STATUS_NOT_CHARGING) ||
@@ -306,21 +306,21 @@ static void apm_battery_apm_get_power_status(struct apm_power_info *info)
 	else
 		info->ac_line_status = APM_AC_OFFLINE;
 
-	
+	/* battery life (i.e. capacity, in percents) */
 
 	if (MPSY_PROP(CAPACITY, &capacity) == 0) {
 		info->battery_life = capacity.intval;
 	} else {
-		
+		/* try calculate using energy */
 		info->battery_life = calculate_capacity(SOURCE_ENERGY);
-		
+		/* if failed try calculate using charge instead */
 		if (info->battery_life == -1)
 			info->battery_life = calculate_capacity(SOURCE_CHARGE);
 		if (info->battery_life == -1)
 			info->battery_life = calculate_capacity(SOURCE_VOLTAGE);
 	}
 
-	
+	/* charging status */
 
 	if (status.intval == POWER_SUPPLY_STATUS_CHARGING) {
 		info->battery_status = APM_BATTERY_STATUS_CHARGING;
@@ -334,7 +334,7 @@ static void apm_battery_apm_get_power_status(struct apm_power_info *info)
 	}
 	info->battery_flag = info->battery_status;
 
-	
+	/* time */
 
 	info->units = APM_UNITS_MINS;
 

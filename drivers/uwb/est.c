@@ -57,6 +57,11 @@ static u8 uwb_est_size;
 static u8 uwb_est_used;
 static DEFINE_RWLOCK(uwb_est_lock);
 
+/**
+ * WUSB Standard Event Size Table, HWA-RC interface
+ *
+ * Sizes for events and notifications type 0 (general), high nibble 0.
+ */
 static
 struct uwb_est_entry uwb_est_00_00xx[] = {
 	[UWB_RC_EVT_IE_RCV] = {
@@ -166,6 +171,13 @@ struct uwb_est_entry uwb_est_01_00xx[] = {
 	},
 };
 
+/**
+ * Initialize the EST subsystem
+ *
+ * Register the standard tables also.
+ *
+ * FIXME: tag init
+ */
 int uwb_est_create(void)
 {
 	int result;
@@ -187,6 +199,7 @@ out:
 }
 
 
+/** Clean it up */
 void uwb_est_destroy(void)
 {
 	kfree(uwb_est);
@@ -195,6 +208,11 @@ void uwb_est_destroy(void)
 }
 
 
+/**
+ * Double the capacity of the EST table
+ *
+ * @returns 0 if ok, < 0 errno no error.
+ */
 static
 int uwb_est_grow(void)
 {
@@ -211,6 +229,30 @@ int uwb_est_grow(void)
 }
 
 
+/**
+ * Register an event size table
+ *
+ * Makes room for it if the table is full, and then inserts  it in the
+ * right position (entries are sorted by type, event_high, vendor and
+ * then product).
+ *
+ * @vendor:  vendor code for matching against the device (0x0000 and
+ *           0xffff mean any); use 0x0000 to force all to match without
+ *           checking possible vendor specific ones, 0xfffff to match
+ *           after checking vendor specific ones.
+ *
+ * @product: product code from that vendor; same matching rules, use
+ *           0x0000 for not allowing vendor specific matches, 0xffff
+ *           for allowing.
+ *
+ * This arragement just makes the tables sort differenty. Because the
+ * table is sorted by growing type-event_high-vendor-product, a zero
+ * vendor will match before than a 0x456a vendor, that will match
+ * before a 0xfffff vendor.
+ *
+ * @returns 0 if ok, < 0 errno on error (-ENOENT if not found).
+ */
+/* FIXME: add bus type to vendor/product code */
 int uwb_est_register(u8 type, u8 event_high, u16 vendor, u16 product,
 		     const struct uwb_est_entry *entry, size_t entries)
 {
@@ -225,7 +267,7 @@ int uwb_est_register(u8 type, u8 event_high, u16 vendor, u16 product,
 		if (result < 0)
 			goto out;
 	}
-	
+	/* Find the right spot to insert it in */
 	type_event_high = type << 8 | event_high;
 	for (itr = 0; itr < uwb_est_used; itr++)
 		if (uwb_est[itr].type_event_high < type
@@ -233,7 +275,7 @@ int uwb_est_register(u8 type, u8 event_high, u16 vendor, u16 product,
 		    && uwb_est[itr].product < product)
 			break;
 
-	
+	/* Shift others to make room for the new one? */
 	if (itr < uwb_est_used)
 		memmove(&uwb_est[itr+1], &uwb_est[itr], uwb_est_used - itr);
 	uwb_est[itr].type_event_high = type << 8 | event_high;
@@ -249,6 +291,19 @@ out:
 EXPORT_SYMBOL_GPL(uwb_est_register);
 
 
+/**
+ * Unregister an event size table
+ *
+ * This just removes the specified entry and moves the ones after it
+ * to fill in the gap. This is needed to keep the list sorted; no
+ * reallocation is done to reduce the size of the table.
+ *
+ * We unregister by all the data we used to register instead of by
+ * pointer to the @entry array because we might have used the same
+ * table for a bunch of IDs (for example).
+ *
+ * @returns 0 if ok, < 0 errno on error (-ENOENT if not found).
+ */
 int uwb_est_unregister(u8 type, u8 event_high, u16 vendor, u16 product,
 		       const struct uwb_est_entry *entry, size_t entries)
 {
@@ -269,7 +324,7 @@ int uwb_est_unregister(u8 type, u8 event_high, u16 vendor, u16 product,
 	return -ENOENT;
 
 found:
-	if (itr < uwb_est_used - 1)	
+	if (itr < uwb_est_used - 1)	/* Not last one? move ones above */
 		memmove(&uwb_est[itr], &uwb_est[itr+1], uwb_est_used - itr - 1);
 	uwb_est_used--;
 	write_unlock_irqrestore(&uwb_est_lock, flags);
@@ -278,6 +333,23 @@ found:
 EXPORT_SYMBOL_GPL(uwb_est_unregister);
 
 
+/**
+ * Get the size of an event from a table
+ *
+ * @rceb: pointer to the buffer with the event
+ * @rceb_size: size of the area pointed to by @rceb in bytes.
+ * @returns: > 0      Size of the event
+ *	     -ENOSPC  An area big enough was not provided to look
+ *		      ahead into the event's guts and guess the size.
+ *	     -EINVAL  Unknown event code (wEvent).
+ *
+ * This will look at the received RCEB and guess what is the total
+ * size. For variable sized events, it will look further ahead into
+ * their length field to see how much data should be read.
+ *
+ * Note this size is *not* final--the neh (Notification/Event Handle)
+ * might specificy an extra size to add.
+ */
 static
 ssize_t uwb_est_get_size(struct uwb_rc *uwb_rc, struct uwb_est *est,
 			 u8 event_low, const struct uwb_rceb *rceb,
@@ -289,7 +361,7 @@ ssize_t uwb_est_get_size(struct uwb_rc *uwb_rc, struct uwb_est *est,
 	const struct uwb_est_entry *entry;
 
 	size = -ENOENT;
-	if (event_low >= est->entries) {	
+	if (event_low >= est->entries) {	/* in range? */
 		dev_err(dev, "EST %p 0x%04x/%04x/%04x[%u]: event %u out of range\n",
 			est, est->type_event_high, est->vendor, est->product,
 			est->entries, event_low);
@@ -297,21 +369,21 @@ ssize_t uwb_est_get_size(struct uwb_rc *uwb_rc, struct uwb_est *est,
 	}
 	size = -ENOENT;
 	entry = &est->entry[event_low];
-	if (entry->size == 0 && entry->offset == 0) {	
+	if (entry->size == 0 && entry->offset == 0) {	/* unknown? */
 		dev_err(dev, "EST %p 0x%04x/%04x/%04x[%u]: event %u unknown\n",
 			est, est->type_event_high, est->vendor,	est->product,
 			est->entries, event_low);
 		goto out;
 	}
-	offset = entry->offset;	
+	offset = entry->offset;	/* extra fries with that? */
 	if (offset == 0)
 		size = entry->size;
 	else {
-		
+		/* Ops, got an extra size field at 'offset'--read it */
 		const void *ptr = rceb;
 		size_t type_size = 0;
 		offset--;
-		size = -ENOSPC;			
+		size = -ENOSPC;			/* enough data for more? */
 		switch (entry->type) {
 		case UWB_EST_16:  type_size = sizeof(__le16); break;
 		case UWB_EST_8:   type_size = sizeof(u8);     break;
@@ -337,10 +409,28 @@ out:
 }
 
 
+/**
+ * Guesses the size of a WA event
+ *
+ * @rceb: pointer to the buffer with the event
+ * @rceb_size: size of the area pointed to by @rceb in bytes.
+ * @returns: > 0      Size of the event
+ *	     -ENOSPC  An area big enough was not provided to look
+ *		      ahead into the event's guts and guess the size.
+ *	     -EINVAL  Unknown event code (wEvent).
+ *
+ * This will look at the received RCEB and guess what is the total
+ * size by checking all the tables registered with
+ * uwb_est_register(). For variable sized events, it will look further
+ * ahead into their length field to see how much data should be read.
+ *
+ * Note this size is *not* final--the neh (Notification/Event Handle)
+ * might specificy an extra size to add or replace.
+ */
 ssize_t uwb_est_find_size(struct uwb_rc *rc, const struct uwb_rceb *rceb,
 			  size_t rceb_size)
 {
-	
+	/* FIXME: add vendor/product data */
 	ssize_t size;
 	struct device *dev = &rc->uwb_dev.dev;
 	unsigned long flags;
@@ -359,7 +449,7 @@ ssize_t uwb_est_find_size(struct uwb_rc *rc, const struct uwb_rceb *rceb,
 			continue;
 		size = uwb_est_get_size(rc, &uwb_est[itr],
 					event & 0x00ff, rceb, rceb_size);
-		
+		/* try more tables that might handle the same type */
 		if (size != -ENOENT)
 			goto out;
 	}

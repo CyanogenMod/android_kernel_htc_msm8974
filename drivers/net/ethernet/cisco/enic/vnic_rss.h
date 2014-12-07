@@ -19,6 +19,7 @@
 #ifndef _VNIC_RSS_H_
 #define _VNIC_RSS_H_
 
+/* RSS key array */
 union vnic_rss_key {
 	struct {
 		u8 b[10];
@@ -27,6 +28,7 @@ union vnic_rss_key {
 	u64 raw[8];
 };
 
+/* RSS cpu array */
 union vnic_rss_cpu {
 	struct {
 		u8 b[4] ;
@@ -35,4 +37,4 @@ union vnic_rss_cpu {
 	u64 raw[32];
 };
 
-#endif 
+#endif /* _VNIC_RSS_H_ */

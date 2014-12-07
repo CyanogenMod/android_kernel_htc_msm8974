@@ -45,6 +45,7 @@
 #define MIXART_REG(mgr,x)	((mgr)->mem[1].virt + (x))
 
 
+/* Daughter board Type */
 #define DAUGHTER_TYPE_MASK     0x0F 
 #define DAUGHTER_VER_MASK      0xF0 
 #define DAUGHTER_TYPEVER_MASK  (DAUGHTER_TYPE_MASK|DAUGHTER_VER_MASK)
@@ -55,52 +56,75 @@
 
 
 
-#define MIXART_BA0_SIZE 	(16 * 1024 * 1024) 
-#define MIXART_BA1_SIZE 	(4  * 1024)        
+#define MIXART_BA0_SIZE 	(16 * 1024 * 1024) /* 16M */
+#define MIXART_BA1_SIZE 	(4  * 1024)        /* 4k */
 
-#define  MIXART_PSEUDOREG                          0x2000                    
+/*
+ * -----------BAR 0 --------------------------------------------------------------------------------------------------------
+ */
+#define  MIXART_PSEUDOREG                          0x2000                    /* base address for pseudoregister */
 
-#define  MIXART_PSEUDOREG_BOARDNUMBER              MIXART_PSEUDOREG+0        
+#define  MIXART_PSEUDOREG_BOARDNUMBER              MIXART_PSEUDOREG+0        /* board number */
 
-#define  MIXART_PSEUDOREG_PERF_STREAM_LOAD_OFFSET  MIXART_PSEUDOREG+0x70     
-#define  MIXART_PSEUDOREG_PERF_SYSTEM_LOAD_OFFSET  MIXART_PSEUDOREG+0x78     
-#define  MIXART_PSEUDOREG_PERF_MAILBX_LOAD_OFFSET  MIXART_PSEUDOREG+0x7C     
-#define  MIXART_PSEUDOREG_PERF_INTERR_LOAD_OFFSET  MIXART_PSEUDOREG+0x74     
+/* perfmeter (available when elf loaded)*/
+#define  MIXART_PSEUDOREG_PERF_STREAM_LOAD_OFFSET  MIXART_PSEUDOREG+0x70     /* streaming load */
+#define  MIXART_PSEUDOREG_PERF_SYSTEM_LOAD_OFFSET  MIXART_PSEUDOREG+0x78     /* system load (reference)*/
+#define  MIXART_PSEUDOREG_PERF_MAILBX_LOAD_OFFSET  MIXART_PSEUDOREG+0x7C     /* mailbox load */
+#define  MIXART_PSEUDOREG_PERF_INTERR_LOAD_OFFSET  MIXART_PSEUDOREG+0x74     /* interrupt handling  load */
 
-#define  MIXART_PSEUDOREG_MXLX_BASE_ADDR_OFFSET    MIXART_PSEUDOREG+0x9C      
-#define  MIXART_PSEUDOREG_MXLX_SIZE_OFFSET         MIXART_PSEUDOREG+0xA0      
-#define  MIXART_PSEUDOREG_MXLX_STATUS_OFFSET       MIXART_PSEUDOREG+0xA4      
+/* motherboard xilinx loader info */
+#define  MIXART_PSEUDOREG_MXLX_BASE_ADDR_OFFSET    MIXART_PSEUDOREG+0x9C     /* 0x00600000 */ 
+#define  MIXART_PSEUDOREG_MXLX_SIZE_OFFSET         MIXART_PSEUDOREG+0xA0     /* xilinx size in bytes */ 
+#define  MIXART_PSEUDOREG_MXLX_STATUS_OFFSET       MIXART_PSEUDOREG+0xA4     /* status = EMBEBBED_STAT_XXX */ 
 
-#define  MIXART_PSEUDOREG_ELF_STATUS_OFFSET        MIXART_PSEUDOREG+0xB0      
+/* elf loader info */
+#define  MIXART_PSEUDOREG_ELF_STATUS_OFFSET        MIXART_PSEUDOREG+0xB0     /* status = EMBEBBED_STAT_XXX */ 
 
+/* 
+*  after the elf code is loaded, and the flowtable info was passed to it,
+*  the driver polls on this address, until it shows 1 (presence) or 2 (absence)
+*  once it is non-zero, the daughter board type may be read
+*/
 #define  MIXART_PSEUDOREG_DBRD_PRESENCE_OFFSET     MIXART_PSEUDOREG+0x990   
 
-#define  MIXART_PSEUDOREG_DBRD_TYPE_OFFSET         MIXART_PSEUDOREG+0x994    
+/* Global info structure */
+#define  MIXART_PSEUDOREG_DBRD_TYPE_OFFSET         MIXART_PSEUDOREG+0x994    /* Type and version of daughterboard  */
 
 
-#define  MIXART_PSEUDOREG_DXLX_BASE_ADDR_OFFSET    MIXART_PSEUDOREG+0x998     
-#define  MIXART_PSEUDOREG_DXLX_SIZE_OFFSET         MIXART_PSEUDOREG+0x99C     
-#define  MIXART_PSEUDOREG_DXLX_STATUS_OFFSET       MIXART_PSEUDOREG+0x9A0     
+/* daughterboard xilinx loader info */
+#define  MIXART_PSEUDOREG_DXLX_BASE_ADDR_OFFSET    MIXART_PSEUDOREG+0x998    /* get the address here where to write the file */ 
+#define  MIXART_PSEUDOREG_DXLX_SIZE_OFFSET         MIXART_PSEUDOREG+0x99C    /* xilinx size in bytes */ 
+#define  MIXART_PSEUDOREG_DXLX_STATUS_OFFSET       MIXART_PSEUDOREG+0x9A0    /* status = EMBEBBED_STAT_XXX */ 
 
-#define  MIXART_FLOWTABLE_PTR                      0x3000                    
+/*  */
+#define  MIXART_FLOWTABLE_PTR                      0x3000                    /* pointer to flow table */
+
+/* mailbox addresses  */
+
+/* message DRV -> EMB */
+#define MSG_INBOUND_POST_HEAD       0x010008	/* DRV posts MF + increment4 */
+#define	MSG_INBOUND_POST_TAIL       0x01000C	/* EMB gets MF + increment4 */
+/* message EMB -> DRV */
+#define	MSG_OUTBOUND_POST_TAIL      0x01001C	/* DRV gets MF + increment4 */
+#define	MSG_OUTBOUND_POST_HEAD      0x010018	/* EMB posts MF + increment4 */
+/* Get Free Frames */
+#define MSG_INBOUND_FREE_TAIL       0x010004	/* DRV gets MFA + increment4 */
+#define MSG_OUTBOUND_FREE_TAIL      0x010014	/* EMB gets MFA + increment4 */
+/* Put Free Frames */
+#define MSG_OUTBOUND_FREE_HEAD      0x010010	/* DRV puts MFA + increment4 */
+#define MSG_INBOUND_FREE_HEAD       0x010000    /* EMB puts MFA + increment4 */
+
+/* firmware addresses of the message fifos */
+#define MSG_BOUND_STACK_SIZE        0x004000    /* size of each following stack */
+/* posted messages */
+#define MSG_OUTBOUND_POST_STACK     0x108000    /* stack of messages to the DRV */
+#define MSG_INBOUND_POST_STACK      0x104000    /* stack of messages to the EMB */
+/* available empty messages */
+#define MSG_OUTBOUND_FREE_STACK     0x10C000    /* stack of free enveloped for EMB */
+#define MSG_INBOUND_FREE_STACK      0x100000    /* stack of free enveloped for DRV */
 
 
-#define MSG_INBOUND_POST_HEAD       0x010008	
-#define	MSG_INBOUND_POST_TAIL       0x01000C	
-#define	MSG_OUTBOUND_POST_TAIL      0x01001C	
-#define	MSG_OUTBOUND_POST_HEAD      0x010018	
-#define MSG_INBOUND_FREE_TAIL       0x010004	
-#define MSG_OUTBOUND_FREE_TAIL      0x010014	
-#define MSG_OUTBOUND_FREE_HEAD      0x010010	
-#define MSG_INBOUND_FREE_HEAD       0x010000    
-
-#define MSG_BOUND_STACK_SIZE        0x004000    
-#define MSG_OUTBOUND_POST_STACK     0x108000    
-#define MSG_INBOUND_POST_STACK      0x104000    
-#define MSG_OUTBOUND_FREE_STACK     0x10C000    
-#define MSG_INBOUND_FREE_STACK      0x100000    
-
-
+/* defines for mailbox message frames */
 #define MSG_FRAME_OFFSET            0x64
 #define MSG_FRAME_SIZE              0x6400
 #define MSG_FRAME_NUMBER            32
@@ -110,18 +134,22 @@
 #define MSG_AGENT_RSC_PROTECTION    (MSG_HOST_RSC_PROTECTION + 4)
 
 
+/*
+ * -----------BAR 1 --------------------------------------------------------------------------------------------------------
+ */
 
-#define MIXART_PCI_OMIMR_OFFSET                 0x34    
-#define MIXART_PCI_OMISR_OFFSET                 0x30    
-#define MIXART_PCI_ODBR_OFFSET                  0x60    
+/* interrupt addresses and constants */
+#define MIXART_PCI_OMIMR_OFFSET                 0x34    /* outbound message interrupt mask register */
+#define MIXART_PCI_OMISR_OFFSET                 0x30    /* outbound message interrupt status register */
+#define MIXART_PCI_ODBR_OFFSET                  0x60    /* outbound doorbell register */
 
-#define MIXART_BA1_BRUTAL_RESET_OFFSET          0x68    
+#define MIXART_BA1_BRUTAL_RESET_OFFSET          0x68    /* write 1 in LSBit to reset board */
 
-#define MIXART_HOST_ALL_INTERRUPT_MASKED        0x02B   
-#define MIXART_ALLOW_OUTBOUND_DOORBELL          0x023   
-#define MIXART_OIDI                             0x008   
+#define MIXART_HOST_ALL_INTERRUPT_MASKED        0x02B   /* 0000 0010 1011 */
+#define MIXART_ALLOW_OUTBOUND_DOORBELL          0x023   /* 0000 0010 0011 */
+#define MIXART_OIDI                             0x008   /* 0000 0000 1000 */
 
 
 int snd_mixart_setup_firmware(struct mixart_mgr *mgr);
 
-#endif 
+#endif /* __SOUND_MIXART_HWDEP_H */

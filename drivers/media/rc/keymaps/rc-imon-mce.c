@@ -12,8 +12,9 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* mce-mode imon mce remote key table */
 static struct rc_map_table imon_mce[] = {
-	
+	/* keys sorted mostly by frequency of use to optimize lookups */
 	{ 0x800ff415, KEY_REWIND },
 	{ 0x800ff414, KEY_FASTFORWARD },
 	{ 0x800ff41b, KEY_PREVIOUS },
@@ -34,14 +35,16 @@ static struct rc_map_table imon_mce[] = {
 	{ 0x800ff420, KEY_LEFT },
 	{ 0x800ff421, KEY_RIGHT },
 
-	
+	/* 0x800ff40b also KEY_NUMERIC_POUND on some receivers */
 	{ 0x800ff40b, KEY_ENTER },
 	{ 0x02000028, KEY_ENTER },
+/* the OK and Enter buttons decode to the same value on some remotes
+	{ 0x02000028, KEY_OK }, */
 	{ 0x800ff422, KEY_OK },
 	{ 0x0200002a, KEY_EXIT },
 	{ 0x800ff423, KEY_EXIT },
 	{ 0x02000029, KEY_DELETE },
-	
+	/* 0x800ff40a also KEY_NUMERIC_STAR on some receivers */
 	{ 0x800ff40a, KEY_DELETE },
 
 	{ 0x800ff40e, KEY_MUTE },
@@ -74,24 +77,24 @@ static struct rc_map_table imon_mce[] = {
 
 	{ 0x02200025, KEY_NUMERIC_STAR },
 	{ 0x02200020, KEY_NUMERIC_POUND },
-	
+	/* 0x800ff41d also KEY_BLUE on some receivers */
 	{ 0x800ff41d, KEY_NUMERIC_STAR },
-	
+	/* 0x800ff41c also KEY_PREVIOUS on some receivers */
 	{ 0x800ff41c, KEY_NUMERIC_POUND },
 
 	{ 0x800ff446, KEY_TV },
-	{ 0x800ff447, KEY_AUDIO }, 
-	{ 0x800ff448, KEY_PVR }, 
+	{ 0x800ff447, KEY_AUDIO }, /* My Music */
+	{ 0x800ff448, KEY_PVR }, /* RecordedTV */
 	{ 0x800ff449, KEY_CAMERA },
 	{ 0x800ff44a, KEY_VIDEO },
-	
+	/* 0x800ff424 also KEY_MENU on some receivers */
 	{ 0x800ff424, KEY_DVD },
-	
-	{ 0x800ff425, KEY_TUNER }, 
+	/* 0x800ff425 also KEY_GREEN on some receivers */
+	{ 0x800ff425, KEY_TUNER }, /* LiveTV */
 	{ 0x800ff450, KEY_RADIO },
 
 	{ 0x800ff44c, KEY_LANGUAGE },
-	{ 0x800ff427, KEY_ZOOM }, 
+	{ 0x800ff427, KEY_ZOOM }, /* Aspect */
 
 	{ 0x800ff45b, KEY_RED },
 	{ 0x800ff45c, KEY_GREEN },
@@ -99,17 +102,17 @@ static struct rc_map_table imon_mce[] = {
 	{ 0x800ff45e, KEY_BLUE },
 
 	{ 0x800ff466, KEY_RED },
-	
+	/* { 0x800ff425, KEY_GREEN }, */
 	{ 0x800ff468, KEY_YELLOW },
-	
+	/* { 0x800ff41d, KEY_BLUE }, */
 
 	{ 0x800ff40f, KEY_INFO },
-	{ 0x800ff426, KEY_EPG }, 
-	{ 0x800ff45a, KEY_SUBTITLE }, 
+	{ 0x800ff426, KEY_EPG }, /* Guide */
+	{ 0x800ff45a, KEY_SUBTITLE }, /* Caption/Teletext */
 	{ 0x800ff44d, KEY_TITLE },
 
 	{ 0x800ff40c, KEY_POWER },
-	{ 0x800ff40d, KEY_MEDIA }, 
+	{ 0x800ff40d, KEY_MEDIA }, /* Windows MCE button */
 
 };
 
@@ -117,7 +120,7 @@ static struct rc_map_list imon_mce_map = {
 	.map = {
 		.scan    = imon_mce,
 		.size    = ARRAY_SIZE(imon_mce),
-		
+		/* its RC6, but w/a hardware decoder */
 		.rc_type = RC_TYPE_RC6,
 		.name    = RC_MAP_IMON_MCE,
 	}

@@ -50,7 +50,7 @@ static inline unsigned int pll_freq_delta(unsigned int f1, unsigned int f2) {
 }
 
 #define NO_MORE_MNP	0x01FFFFFF
-#define G450_MNP_FREQBITS	(0xFFFFFF43)	
+#define G450_MNP_FREQBITS	(0xFFFFFF43)	/* do not mask high byte so we'll catch NO_MORE_MNP */
 
 static unsigned int g450_nextpll(const struct matrox_fb_info *minfo,
 				 const struct matrox_pll_limits *pi,
@@ -82,6 +82,7 @@ static unsigned int g450_nextpll(const struct matrox_fb_info *minfo,
 
 			p &= 0x43;
 			if (tvco < 550000) {
+/*				p |= 0x00; */
 			} else if (tvco < 700000) {
 				p |= 0x08;
 			} else if (tvco < 1000000) {
@@ -220,7 +221,7 @@ static inline int g450_isplllocked(const struct matrox_fb_info *minfo,
 			}
 			return r >= (90 * 0x40);
 		}
-		
+		/* udelay(1)... but DAC_in is much slower... */
 	}
 	return 0;
 }
@@ -357,6 +358,8 @@ static int __g450_setclk(struct matrox_fb_info *minfo, unsigned int fout,
 					tmp |= M1064_XPIXCLKCTRL_PLL_UP;
 				}
 				matroxfb_DAC_out(minfo, M1064_XPIXCLKCTRL, tmp);
+				/* DVI PLL preferred for frequencies up to
+				   panel link max, standard PLL otherwise */
 				if (fout >= minfo->max_pixel_clock_panellink)
 					tmp = 0;
 				else tmp =
@@ -365,8 +368,8 @@ static int __g450_setclk(struct matrox_fb_info *minfo, unsigned int fout,
 					M1064_XDVICLKCTRL_C1DVICLKEN |
 					M1064_XDVICLKCTRL_DVILOOPCTL |
 					M1064_XDVICLKCTRL_P1LOOPBWDTCTL;
-                                
-				
+                                /* Setting this breaks PC systems so don't do it */
+				/* matroxfb_DAC_out(minfo, M1064_XDVICLKCTRL, tmp); */
 				matroxfb_DAC_out(minfo, M1064_XPWRCTRL,
 						 xpwrctrl);
 
@@ -459,7 +462,15 @@ static int __g450_setclk(struct matrox_fb_info *minfo, unsigned int fout,
 #endif			
 			delta = pll_freq_delta(fout, g450_vco2f(mnp, vco));
 			for (idx = mnpcount; idx > 0; idx--) {
+				/* == is important; due to nextpll algorithm we get
+				   sorted equally good frequencies from lower VCO 
+				   frequency to higher - with <= lowest wins, while
+				   with < highest one wins */
 				if (delta <= deltaarray[idx-1]) {
+					/* all else being equal except VCO,
+					 * choose VCO not near (within 1/16th or so) VCOmin
+					 * (freqs near VCOmin aren't as stable)
+					 */
 					if (delta == deltaarray[idx-1]
 					    && vco != g450_mnp2vco(minfo, mnparray[idx-1])
 					    && vco < (pi->vcomin * 17 / 16)) {
@@ -476,7 +487,7 @@ static int __g450_setclk(struct matrox_fb_info *minfo, unsigned int fout,
 			mnpcount++;
 		}
 	}
-	
+	/* VideoPLL and PixelPLL matched: do nothing... In all other cases we should get at least one frequency */
 	if (!mnpcount) {
 		return -EBUSY;
 	}
@@ -498,6 +509,8 @@ static int __g450_setclk(struct matrox_fb_info *minfo, unsigned int fout,
 	}
 }
 
+/* It must be greater than number of possible PLL values.
+ * Currently there is 5(p) * 10(m) = 50 possible values. */
 #define MNP_TABLE_SIZE  64
 
 int matroxfb_g450_setclk(struct matrox_fb_info *minfo, unsigned int fout,

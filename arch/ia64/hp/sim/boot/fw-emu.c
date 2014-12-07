@@ -39,14 +39,18 @@ static char fw_mem[(  sizeof(struct ia64_boot_param)
 #define SECS_PER_HOUR   (60 * 60)
 #define SECS_PER_DAY    (SECS_PER_HOUR * 24)
 
+/* Compute the `struct tm' representation of *T,
+   offset OFFSET seconds east of UTC,
+   and store year, yday, mon, mday, wday, hour, min, sec into *TP.
+   Return nonzero if successful.  */
 int
 offtime (unsigned long t, efi_time_t *tp)
 {
 	const unsigned short int __mon_yday[2][13] =
 	{
-		
+		/* Normal years.  */
 		{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365 },
-		
+		/* Leap years.  */
 		{ 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366 }
 	};
 	long int days, rem, y;
@@ -66,7 +70,7 @@ offtime (unsigned long t, efi_time_t *tp)
 	rem %= SECS_PER_HOUR;
 	tp->minute = rem / 60;
 	tp->second = rem % 60;
-	
+	/* January 1, 1970 was a Thursday.  */
 	y = 1970;
 
 #	define DIV(a, b) ((a) / (b) - ((a) % (b) < 0))
@@ -75,10 +79,10 @@ offtime (unsigned long t, efi_time_t *tp)
 	  ((year) % 4 == 0 && ((year) % 100 != 0 || (year) % 400 == 0))
 
 	while (days < 0 || days >= (__isleap (y) ? 366 : 365)) {
-		
+		/* Guess a corrected year, assuming 365 days per year.  */
 		long int yg = y + days / 365 - (days % 365 < 0);
 
-		
+		/* Adjust DAYS and Y to match the guessed year.  */
 		days -= ((yg - y) * 365 + LEAPS_THRU_END_OF (yg - 1)
 			 - LEAPS_THRU_END_OF (y - 1));
 		y = yg;
@@ -95,6 +99,7 @@ offtime (unsigned long t, efi_time_t *tp)
 
 extern void pal_emulator_static (void);
 
+/* Macro to emulate SAL call using legacy IN and OUT calls to CF8, CFC etc.. */
 
 #define BUILD_CMD(addr)		((0x80000000 | (addr)) & ~3)
 
@@ -107,7 +112,7 @@ fw_efi_get_time (efi_time_t *tm, efi_time_cap_t *tc)
 {
 #if defined(CONFIG_IA64_HP_SIM) || defined(CONFIG_IA64_GENERIC)
 	struct {
-		int tv_sec;	
+		int tv_sec;	/* must be 32bits to work */
 		int tv_usec;
 	} tv32bits;
 
@@ -150,11 +155,20 @@ sal_emulator (long index, unsigned long in1, unsigned long in2,
 	long r11 = 0;
 	long status;
 
+	/*
+	 * Don't do a "switch" here since that gives us code that
+	 * isn't self-relocatable.
+	 */
 	status = 0;
 	if (index == SAL_FREQ_BASE) {
 		if (in1 == SAL_FREQ_BASE_PLATFORM)
 			r9 = 200000000;
 		else if (in1 == SAL_FREQ_BASE_INTERVAL_TIMER) {
+			/*
+			 * Is this supposed to be the cr.itc frequency
+			 * or something platform specific?  The SAL
+			 * doc ain't exactly clear on this...
+			 */
 			r9 = 700000000;
 		} else if (in1 == SAL_FREQ_BASE_REALTIME_CLOCK)
 			r9 = 1;
@@ -178,12 +192,17 @@ sal_emulator (long index, unsigned long in1, unsigned long in2,
 		;
 #ifdef CONFIG_PCI
 	} else if (index == SAL_PCI_CONFIG_READ) {
+		/*
+		 * in1 contains the PCI configuration address and in2
+		 * the size of the read.  The value that is read is
+		 * returned via the general register r9.
+		 */
                 outl(BUILD_CMD(in1), 0xCF8);
-                if (in2 == 1)                           
+                if (in2 == 1)                           /* Reading byte  */
                         r9 = inb(0xCFC + ((REG_OFFSET(in1) & 3)));
-                else if (in2 == 2)                      
+                else if (in2 == 2)                      /* Reading word  */
                         r9 = inw(0xCFC + ((REG_OFFSET(in1) & 2)));
-                else                                    
+                else                                    /* Reading dword */
                         r9 = inl(0xCFC);
                 status = PCIBIOS_SUCCESSFUL;
 	} else if (index == SAL_PCI_CONFIG_WRITE) {
@@ -193,14 +212,14 @@ sal_emulator (long index, unsigned long in1, unsigned long in2,
 		 * written out.
 		 */
                 outl(BUILD_CMD(in1), 0xCF8);
-                if (in2 == 1)                           
+                if (in2 == 1)                           /* Writing byte  */
                         outb(in3, 0xCFC + ((REG_OFFSET(in1) & 3)));
-                else if (in2 == 2)                      
+                else if (in2 == 2)                      /* Writing word  */
                         outw(in3, 0xCFC + ((REG_OFFSET(in1) & 2)));
-                else                                    
+                else                                    /* Writing dword */
                         outl(in3, 0xCFC);
                 status = PCIBIOS_SUCCESSFUL;
-#endif 
+#endif /* CONFIG_PCI */
 	} else if (index == SAL_UPDATE_PAL) {
 		;
 	} else {
@@ -285,7 +304,7 @@ sys_fw_init (const char *args, int arglen)
 	efi_tables->guid = SAL_SYSTEM_TABLE_GUID;
 	efi_tables->table = __pa(sal_systab);
 
-	
+	/* fill in the SAL system table: */
 	memcpy(sal_systab->signature, "SST_", 4);
 	sal_systab->size = sizeof(*sal_systab);
 	sal_systab->sal_rev_minor = 1;
@@ -302,7 +321,7 @@ sys_fw_init (const char *args, int arglen)
 	strcpy(sal_systab->product_id, "HP-simulator");
 #endif
 
-	
+	/* fill in an entry point: */
 	sal_ed->type = SAL_DESC_ENTRY_POINT;
 	sal_ed->pal_proc = __pa(pal_desc[0]);
 	sal_ed->sal_proc = __pa(sal_desc[0]);
@@ -314,7 +333,7 @@ sys_fw_init (const char *args, int arglen)
 	sal_systab->checksum = -checksum;
 
 #if SIMPLE_MEMMAP
-	
+	/* simulate free memory at physical address zero */
 	MAKE_MD(EFI_BOOT_SERVICES_DATA,		EFI_MEMORY_WB,    0*MB,    1*MB);
 	MAKE_MD(EFI_PAL_CODE,			EFI_MEMORY_WB,    1*MB,    2*MB);
 	MAKE_MD(EFI_CONVENTIONAL_MEMORY,	EFI_MEMORY_WB,    2*MB,  130*MB);

@@ -11,4 +11,4 @@
 #define TIME_HELPER_IOCXMONOTONIC2REALTIME   _IOWR(TIME_HELPER_IOC_MAGIC, 1, struct timespec)
 #define TIME_HELPER_IOC_MAXNR               1
 
-#endif 
+#endif // _TIME_HELPER_H_

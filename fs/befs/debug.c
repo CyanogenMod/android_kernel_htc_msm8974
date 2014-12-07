@@ -19,7 +19,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 
-#endif				
+#endif				/* __KERNEL__ */
 
 #include "befs.h"
 
@@ -87,7 +87,7 @@ befs_debug(const struct super_block *sb, const char *fmt, ...)
 		kfree(err_buf);
 	}
 
-#endif				
+#endif				//CONFIG_BEFS_DEBUG
 }
 
 void
@@ -167,9 +167,12 @@ befs_dump_inode(const struct super_block *sb, befs_inode * inode)
 			   fs64_to_cpu(sb, inode->data.datastream.size));
 	}
 
-#endif				
+#endif				//CONFIG_BEFS_DEBUG
 }
 
+/*
+ * Display super block structure for debug.
+ */
 
 void
 befs_dump_super_block(const struct super_block *sb, befs_super_block * sup)
@@ -216,15 +219,17 @@ befs_dump_super_block(const struct super_block *sb, befs_super_block * sup)
 	befs_debug(sb, "  indices %u, %hu, %hu",
 		   tmp_run.allocation_group, tmp_run.start, tmp_run.len);
 
-#endif				
+#endif				//CONFIG_BEFS_DEBUG
 }
 
 #if 0
+/* unused */
 void
 befs_dump_small_data(const struct super_block *sb, befs_small_data * sd)
 {
 }
 
+/* unused */
 void
 befs_dump_run(const struct super_block *sb, befs_disk_block_run run)
 {
@@ -234,9 +239,9 @@ befs_dump_run(const struct super_block *sb, befs_disk_block_run run)
 
 	befs_debug(sb, "[%u, %hu, %hu]", n.allocation_group, n.start, n.len);
 
-#endif				
+#endif				//CONFIG_BEFS_DEBUG
 }
-#endif  
+#endif  /*  0  */
 
 void
 befs_dump_index_entry(const struct super_block *sb, befs_disk_btree_super * super)
@@ -256,7 +261,7 @@ befs_dump_index_entry(const struct super_block *sb, befs_disk_btree_super * supe
 	befs_debug(sb, "  maximum size %016LX",
 		   fs64_to_cpu(sb, super->max_size));
 
-#endif				
+#endif				//CONFIG_BEFS_DEBUG
 }
 
 void
@@ -273,5 +278,5 @@ befs_dump_index_node(const struct super_block *sb, befs_btree_nodehead * node)
 	befs_debug(sb, "  all_key_length %hu",
 		   fs16_to_cpu(sb, node->all_key_length));
 
-#endif				
+#endif				//CONFIG_BEFS_DEBUG
 }

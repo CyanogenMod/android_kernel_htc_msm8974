@@ -185,6 +185,15 @@ drm_ioctl_compat_t *r128_compat_ioctls[] = {
 	[DRM_R128_GETPARAM] = compat_r128_getparam,
 };
 
+/**
+ * Called whenever a 32-bit process running under a 64-bit kernel
+ * performs an ioctl on /dev/dri/card<n>.
+ *
+ * \param filp file pointer.
+ * \param cmd command.
+ * \param arg user argument.
+ * \return zero on success or negative number on failure.
+ */
 long r128_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	unsigned int nr = DRM_IOCTL_NR(cmd);

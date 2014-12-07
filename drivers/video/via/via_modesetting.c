@@ -19,6 +19,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * basic modesetting functions
+ */
 
 #include <linux/kernel.h>
 #include <linux/via-core.h>
@@ -44,7 +47,7 @@ void via_set_primary_timing(const struct display_timing *timing)
 	raw.ver_sync_start = timing->ver_sync_start - 1;
 	raw.ver_sync_end = timing->ver_sync_end - 1;
 
-	
+	/* unlock timing registers */
 	via_write_reg_mask(VIACR, 0x11, 0x00, 0x80);
 
 	via_write_reg(VIACR, 0x00, raw.hor_total & 0xFF);
@@ -77,10 +80,10 @@ void via_set_primary_timing(const struct display_timing *timing)
 		| (raw.ver_blank_start >> (10 - 3) & 0x08), 0x0F);
 	via_write_reg_mask(VIACR, 0x36, raw.hor_total >> (8 - 3) & 0x08, 0x08);
 
-	
+	/* lock timing registers */
 	via_write_reg_mask(VIACR, 0x11, 0x80, 0x80);
 
-	
+	/* reset timing control */
 	via_write_reg_mask(VIACR, 0x17, 0x00, 0x80);
 	via_write_reg_mask(VIACR, 0x17, 0x80, 0x80);
 }
@@ -142,7 +145,7 @@ void via_set_primary_address(u32 addr)
 void via_set_secondary_address(u32 addr)
 {
 	DEBUG_MSG(KERN_DEBUG "via_set_secondary_address(0x%08X)\n", addr);
-	
+	/* secondary display supports only quadword aligned memory */
 	via_write_reg_mask(VIACR, 0x62, (addr >> 2) & 0xFE, 0xFE);
 	via_write_reg(VIACR, 0x63, (addr >> 10) & 0xFF);
 	via_write_reg(VIACR, 0x64, (addr >> 18) & 0xFF);
@@ -152,6 +155,9 @@ void via_set_secondary_address(u32 addr)
 void via_set_primary_pitch(u32 pitch)
 {
 	DEBUG_MSG(KERN_DEBUG "via_set_primary_pitch(0x%08X)\n", pitch);
+	/* spec does not say that first adapter skips 3 bits but old
+	 * code did it and seems to be reasonable in analogy to 2nd adapter
+	 */
 	pitch = pitch >> 3;
 	via_write_reg(VIACR, 0x13, pitch & 0xFF);
 	via_write_reg_mask(VIACR, 0x35, (pitch >> (8 - 5)) & 0xE0, 0xE0);

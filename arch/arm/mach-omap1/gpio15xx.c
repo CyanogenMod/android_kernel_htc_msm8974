@@ -21,6 +21,7 @@
 #define OMAP1_MPUIO_VBASE		OMAP1_MPUIO_BASE
 #define OMAP1510_GPIO_BASE		0xFFFCE000
 
+/* gpio1 */
 static struct __initdata resource omap15xx_mpu_gpio_resources[] = {
 	{
 		.start	= OMAP1_MPUIO_VBASE,
@@ -62,6 +63,7 @@ static struct platform_device omap15xx_mpu_gpio = {
 	.resource = omap15xx_mpu_gpio_resources,
 };
 
+/* gpio2 */
 static struct __initdata resource omap15xx_gpio_resources[] = {
 	{
 		.start	= OMAP1510_GPIO_BASE,
@@ -102,6 +104,11 @@ static struct platform_device omap15xx_gpio = {
 	.resource = omap15xx_gpio_resources,
 };
 
+/*
+ * omap15xx_gpio_init needs to be done before
+ * machine_init functions access gpio APIs.
+ * Hence omap15xx_gpio_init is a postcore_initcall.
+ */
 static int __init omap15xx_gpio_init(void)
 {
 	if (!cpu_is_omap15xx())

@@ -25,6 +25,9 @@
 #define KWQ_CID 		24
 #define KCQ_CID 		25
 
+/*
+ *	krnlq_context definition
+ */
 #define L5_KRNLQ_FLAGS	0x00000000
 #define L5_KRNLQ_SIZE	0x00000000
 #define L5_KRNLQ_TYPE	0x00000000
@@ -261,7 +264,7 @@ struct cnic_local {
 		void				*gen;
 		struct status_block_msix	*bnx2;
 		struct host_hc_status_block_e1x	*bnx2x_e1x;
-		
+		/* index values - which counter to update */
 		#define SM_RX_ID		0
 		#define SM_TX_ID		1
 	} status_blk;
@@ -293,7 +296,7 @@ struct cnic_local {
 
 	u32			max_cid_space;
 
-	
+	/* per connection parameters */
 	int			num_iscsi_tasks;
 	int			num_ccells;
 	int			task_array_size;

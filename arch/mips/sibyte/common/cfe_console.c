@@ -16,7 +16,7 @@ static void cfe_console_write(struct console *cons, const char *str,
 
 	for (i=0, last=0; i<count; i++) {
 		if (!str[i])
-			
+			/* XXXKW can/should this ever happen? */
 			return;
 		if (str[i] == '\n') {
 			do {
@@ -43,8 +43,8 @@ static void cfe_console_write(struct console *cons, const char *str,
 static int cfe_console_setup(struct console *cons, char *str)
 {
 	char consdev[32];
-	
-	
+	/* XXXKW think about interaction with 'console=' cmdline arg */
+	/* If none of the console options are configured, the build will break. */
 	if (cfe_getenv("BOOT_CONSOLE", consdev, 32) >= 0) {
 #ifdef CONFIG_SERIAL_SB1250_DUART
 		if (!strcmp(consdev, "uart0")) {

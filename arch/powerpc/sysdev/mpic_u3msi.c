@@ -20,6 +20,7 @@
 
 #include "mpic.h"
 
+/* A bit ugly, can we get this from the pci_dev somehow? */
 static struct mpic *msi_mpic;
 
 static void mpic_u3msi_mask_irq(struct irq_data *data)
@@ -81,6 +82,22 @@ static u64 find_u4_magic_addr(struct pci_dev *pdev, unsigned int hwirq)
 {
 	struct pci_controller *hose = pci_bus_to_host(pdev->bus);
 
+	/* U4 PCIe MSIs need to write to the special register in
+	 * the bridge that generates interrupts. There should be
+	 * theorically a register at 0xf8005000 where you just write
+	 * the MSI number and that triggers the right interrupt, but
+	 * unfortunately, this is busted in HW, the bridge endian swaps
+	 * the value and hits the wrong nibble in the register.
+	 *
+	 * So instead we use another register set which is used normally
+	 * for converting HT interrupts to MPIC interrupts, which decodes
+	 * the interrupt number as part of the low address bits
+	 *
+	 * This will not work if we ever use more than one legacy MSI in
+	 * a block but we never do. For one MSI or multiple MSI-X where
+	 * each interrupt address can be specified separately, it works
+	 * just fine.
+	 */
 	if (of_device_is_compatible(hose->dn, "u4-pcie") ||
 	    of_device_is_compatible(hose->dn, "U4-pcie"))
 		return 0xf8004000 | (hwirq << 4);
@@ -93,7 +110,7 @@ static int u3msi_msi_check_device(struct pci_dev *pdev, int nvec, int type)
 	if (type == PCI_CAP_ID_MSIX)
 		pr_debug("u3msi: MSI-X untested, trying anyway.\n");
 
-	
+	/* If we can't find a magic address then MSI ain't gonna work */
 	if (find_ht_magic_addr(pdev, 0) == 0 &&
 	    find_u4_magic_addr(pdev, 0) == 0) {
 		pr_debug("u3msi: no magic address found for %s\n",

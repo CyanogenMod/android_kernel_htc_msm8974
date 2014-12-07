@@ -33,6 +33,7 @@
 #define DT3155_VENDOR_ID 0x8086
 #define DT3155_DEVICE_ID 0x1223
 
+/* DT3155_CHUNK_SIZE is 4M (2^22) 8 full size buffers */
 #define DT3155_CHUNK_SIZE (1U << 22)
 
 #define DT3155_COH_FLAGS (GFP_KERNEL | GFP_DMA32 | __GFP_COLD | __GFP_NOWARN)
@@ -45,6 +46,7 @@
 #define DT3155_CAPTURE_METHOD V4L2_CAP_READWRITE
 #endif
 
+/*  global initializers (for all boards)  */
 #ifdef CONFIG_DT3155_CCIR
 static const u8 csr2_init = VT_50HZ;
 #define DT3155_CURRENT_NORM V4L2_STD_625_50
@@ -81,6 +83,19 @@ static const struct v4l2_fmtdesc frame_std[] = {
 
 static u8 config_init = ACQ_MODE_EVEN;
 
+/**
+ * read_i2c_reg - reads an internal i2c register
+ *
+ * @addr:	dt3155 mmio base address
+ * @index:	index (internal address) of register to read
+ * @data:	pointer to byte the read data will be placed in
+ *
+ * returns:	zero on success or error code
+ *
+ * This function starts reading the specified (by index) register
+ * and busy waits for the process to finish. The result is placed
+ * in a byte pointed by data.
+ */
 static int
 read_i2c_reg(void __iomem *addr, u8 index, u8 *data)
 {
@@ -88,14 +103,14 @@ read_i2c_reg(void __iomem *addr, u8 index, u8 *data)
 
 	iowrite32((tmp<<17) | IIC_READ, addr + IIC_CSR2);
 	mmiowb();
-	udelay(45); 
+	udelay(45); /* wait at least 43 usec for NEW_CYCLE to clear */
 	if (ioread32(addr + IIC_CSR2) & NEW_CYCLE)
-		return -EIO; 
+		return -EIO; /* error: NEW_CYCLE not cleared */
 	tmp = ioread32(addr + IIC_CSR1);
 	if (tmp & DIRECT_ABORT) {
-		
+		/* reset DIRECT_ABORT bit */
 		iowrite32(DIRECT_ABORT, addr + IIC_CSR1);
-		return -EIO; 
+		return -EIO; /* error: DIRECT_ABORT set */
 	}
 	*data = tmp>>24;
 	return 0;
@@ -120,13 +135,13 @@ write_i2c_reg(void __iomem *addr, u8 index, u8 data)
 
 	iowrite32((tmp<<17) | IIC_WRITE | data, addr + IIC_CSR2);
 	mmiowb();
-	udelay(65); 
+	udelay(65); /* wait at least 63 usec for NEW_CYCLE to clear */
 	if (ioread32(addr + IIC_CSR2) & NEW_CYCLE)
-		return -EIO; 
+		return -EIO; /* error: NEW_CYCLE not cleared */
 	if (ioread32(addr + IIC_CSR1) & DIRECT_ABORT) {
-		
+		/* reset DIRECT_ABORT bit */
 		iowrite32(DIRECT_ABORT, addr + IIC_CSR1);
-		return -EIO; 
+		return -EIO; /* error: DIRECT_ABORT set */
 	}
 	return 0;
 }
@@ -149,16 +164,25 @@ static void write_i2c_reg_nowait(void __iomem *addr, u8 index, u8 data)
 	mmiowb();
 }
 
+/**
+ * wait_i2c_reg - waits the read/write to finish
+ *
+ * @addr:	dt3155 mmio base address
+ *
+ * returns:	zero on success or error code
+ *
+ * This function waits reading/writting to finish.
+ */
 static int wait_i2c_reg(void __iomem *addr)
 {
 	if (ioread32(addr + IIC_CSR2) & NEW_CYCLE)
-		udelay(65); 
+		udelay(65); /* wait at least 63 usec for NEW_CYCLE to clear */
 	if (ioread32(addr + IIC_CSR2) & NEW_CYCLE)
-		return -EIO; 
+		return -EIO; /* error: NEW_CYCLE not cleared */
 	if (ioread32(addr + IIC_CSR1) & DIRECT_ABORT) {
-		
+		/* reset DIRECT_ABORT bit */
 		iowrite32(DIRECT_ABORT, addr + IIC_CSR1);
-		return -EIO; 
+		return -EIO; /* error: DIRECT_ABORT set */
 	}
 	return 0;
 }
@@ -174,7 +198,7 @@ dt3155_start_acq(struct dt3155_priv *pd)
 	iowrite32(dma_addr + img_width, pd->regs + ODD_DMA_START);
 	iowrite32(img_width, pd->regs + EVEN_DMA_STRIDE);
 	iowrite32(img_width, pd->regs + ODD_DMA_STRIDE);
-	
+	/* enable interrupts, clear all irq flags */
 	iowrite32(FLD_START_EN | FLD_END_ODD_EN | FLD_START |
 			FLD_END_EVEN | FLD_END_ODD, pd->regs + INT_CSR);
 	iowrite32(FIFO_EN | SRST | FLD_CRPT_ODD | FLD_CRPT_EVEN |
@@ -185,11 +209,14 @@ dt3155_start_acq(struct dt3155_priv *pd)
 	write_i2c_reg(pd->regs, EVEN_CSR, CSR_ERROR | CSR_DONE);
 	write_i2c_reg(pd->regs, ODD_CSR, CSR_ERROR | CSR_DONE);
 
-	
+	/*  start the board  */
 	write_i2c_reg(pd->regs, CSR2, pd->csr2 | BUSY_EVEN | BUSY_ODD);
-	return 0; 
+	return 0; /* success  */
 }
 
+/*
+ *	driver-specific callbacks (vb2_ops)
+ */
 static int
 dt3155_queue_setup(struct vb2_queue *q, const struct v4l2_format *fmt,
 		unsigned int *num_buffers, unsigned int *num_planes,
@@ -248,7 +275,7 @@ dt3155_stop_streaming(struct vb2_queue *q)
 		vb2_buffer_done(vb, VB2_BUF_STATE_ERROR);
 	}
 	spin_unlock_irq(&pd->lock);
-	msleep(45); 
+	msleep(45); /* irq hendler will stop the hardware */
 	return 0;
 }
 
@@ -257,7 +284,7 @@ dt3155_buf_queue(struct vb2_buffer *vb)
 {
 	struct dt3155_priv *pd = vb2_get_drv_priv(vb->vb2_queue);
 
-	
+	/*  pd->q->streaming = 1 when dt3155_buf_queue() is invoked  */
 	spin_lock_irq(&pd->lock);
 	if (pd->curr_buf)
 		list_add_tail(&vb->done_entry, &pd->dmaq);
@@ -267,6 +294,9 @@ dt3155_buf_queue(struct vb2_buffer *vb)
 	}
 	spin_unlock_irq(&pd->lock);
 }
+/*
+ *	end driver-specific callbacks
+ */
 
 const struct vb2_ops q_ops = {
 	.queue_setup = dt3155_queue_setup,
@@ -287,16 +317,18 @@ dt3155_irq_handler_even(int irq, void *dev_id)
 
 	tmp = ioread32(ipd->regs + INT_CSR) & (FLD_START | FLD_END_ODD);
 	if (!tmp)
-		return IRQ_NONE;  
+		return IRQ_NONE;  /* not our irq */
 	if ((tmp & FLD_START) && !(tmp & FLD_END_ODD)) {
 		iowrite32(FLD_START_EN | FLD_END_ODD_EN | FLD_START,
 							ipd->regs + INT_CSR);
 		ipd->field_count++;
-		return IRQ_HANDLED; 
+		return IRQ_HANDLED; /* start of field irq */
 	}
 	if ((tmp & FLD_START) && (tmp & FLD_END_ODD))
 		ipd->stats.start_before_end++;
-	
+	/*	check for corrupted fields     */
+/*	write_i2c_reg(ipd->regs, EVEN_CSR, CSR_ERROR | CSR_DONE);	*/
+/*	write_i2c_reg(ipd->regs, ODD_CSR, CSR_ERROR | CSR_DONE);	*/
 	tmp = ioread32(ipd->regs + CSR1) & (FLD_CRPT_EVEN | FLD_CRPT_ODD);
 	if (tmp) {
 		ipd->stats.corrupted_fields++;
@@ -325,7 +357,7 @@ dt3155_irq_handler_even(int irq, void *dev_id)
 	iowrite32(img_width, ipd->regs + EVEN_DMA_STRIDE);
 	iowrite32(img_width, ipd->regs + ODD_DMA_STRIDE);
 	mmiowb();
-	
+	/* enable interrupts, clear all irq flags */
 	iowrite32(FLD_START_EN | FLD_END_ODD_EN | FLD_START |
 			FLD_END_EVEN | FLD_END_ODD, ipd->regs + INT_CSR);
 	spin_unlock(&ipd->lock);
@@ -333,11 +365,11 @@ dt3155_irq_handler_even(int irq, void *dev_id)
 
 stop_dma:
 	ipd->curr_buf = NULL;
-	
+	/* stop the board */
 	write_i2c_reg_nowait(ipd->regs, CSR2, ipd->csr2);
 	iowrite32(FIFO_EN | SRST | FLD_CRPT_ODD | FLD_CRPT_EVEN |
 		  FLD_DN_ODD | FLD_DN_EVEN, ipd->regs + CSR1);
-	
+	/* disable interrupts, clear all irq flags */
 	iowrite32(FLD_START | FLD_END_EVEN | FLD_END_ODD, ipd->regs + INT_CSR);
 	spin_unlock(&ipd->lock);
 	return IRQ_HANDLED;
@@ -362,10 +394,10 @@ dt3155_open(struct file *filp)
 		pd->q->drv_priv = pd;
 		pd->curr_buf = NULL;
 		pd->field_count = 0;
-		vb2_queue_init(pd->q); 
+		vb2_queue_init(pd->q); /* cannot fail */
 		INIT_LIST_HEAD(&pd->dmaq);
 		spin_lock_init(&pd->lock);
-		
+		/* disable all irqs, clear all irq flags */
 		iowrite32(FLD_START | FLD_END_EVEN | FLD_END_ODD,
 						pd->regs + INT_CSR);
 		ret = request_irq(pd->pdev->irq, dt3155_irq_handler_even,
@@ -374,7 +406,7 @@ dt3155_open(struct file *filp)
 			goto err_request_irq;
 	}
 	pd->users++;
-	return 0; 
+	return 0; /* success */
 err_request_irq:
 	kfree(pd->q);
 	pd->q = NULL;
@@ -430,7 +462,7 @@ static const struct v4l2_file_operations dt3155_fops = {
 	.release = dt3155_release,
 	.read = dt3155_read,
 	.poll = dt3155_poll,
-	.unlocked_ioctl = video_ioctl2, 
+	.unlocked_ioctl = video_ioctl2, /* V4L2 ioctl handler */
 	.mmap = dt3155_mmap,
 };
 
@@ -573,8 +605,13 @@ dt3155_ioc_enum_input(struct file *filp, void *p, struct v4l2_input *input)
 		return -EINVAL;
 	strcpy(input->name, "Coax in");
 	input->type = V4L2_INPUT_TYPE_CAMERA;
+	/*
+	 * FIXME: input->std = 0 according to v4l2 API
+	 * VIDIOC_G_STD, VIDIOC_S_STD, VIDIOC_QUERYSTD and VIDIOC_ENUMSTD
+	 * should return -EINVAL
+	 */
 	input->std = DT3155_CURRENT_NORM;
-	input->status = 0;
+	input->status = 0;/* FIXME: add sync detection & V4L2_IN_ST_NO_H_LOCK */
 	return 0;
 }
 
@@ -603,7 +640,7 @@ dt3155_ioc_g_parm(struct file *filp, void *p, struct v4l2_streamparm *parms)
 	parms->parm.capture.timeperframe.numerator = 1001;
 	parms->parm.capture.timeperframe.denominator = frames_per_sec * 1000;
 	parms->parm.capture.extendedmode = 0;
-	parms->parm.capture.readbuffers = 1; 
+	parms->parm.capture.readbuffers = 1; /* FIXME: 2 buffers? */
 	return 0;
 }
 
@@ -617,7 +654,7 @@ dt3155_ioc_s_parm(struct file *filp, void *p, struct v4l2_streamparm *parms)
 	parms->parm.capture.timeperframe.numerator = 1001;
 	parms->parm.capture.timeperframe.denominator = frames_per_sec * 1000;
 	parms->parm.capture.extendedmode = 0;
-	parms->parm.capture.readbuffers = 1; 
+	parms->parm.capture.readbuffers = 1; /* FIXME: 2 buffers? */
 	return 0;
 }
 
@@ -625,6 +662,10 @@ static const struct v4l2_ioctl_ops dt3155_ioctl_ops = {
 	.vidioc_streamon = dt3155_ioc_streamon,
 	.vidioc_streamoff = dt3155_ioc_streamoff,
 	.vidioc_querycap = dt3155_ioc_querycap,
+/*
+	.vidioc_g_priority = dt3155_ioc_g_priority,
+	.vidioc_s_priority = dt3155_ioc_s_priority,
+*/
 	.vidioc_enum_fmt_vid_cap = dt3155_ioc_enum_fmt_vid_cap,
 	.vidioc_try_fmt_vid_cap = dt3155_ioc_try_fmt_vid_cap,
 	.vidioc_g_fmt_vid_cap = dt3155_ioc_g_fmt_vid_cap,
@@ -639,8 +680,23 @@ static const struct v4l2_ioctl_ops dt3155_ioctl_ops = {
 	.vidioc_enum_input = dt3155_ioc_enum_input,
 	.vidioc_g_input = dt3155_ioc_g_input,
 	.vidioc_s_input = dt3155_ioc_s_input,
+/*
+	.vidioc_queryctrl = dt3155_ioc_queryctrl,
+	.vidioc_g_ctrl = dt3155_ioc_g_ctrl,
+	.vidioc_s_ctrl = dt3155_ioc_s_ctrl,
+	.vidioc_querymenu = dt3155_ioc_querymenu,
+	.vidioc_g_ext_ctrls = dt3155_ioc_g_ext_ctrls,
+	.vidioc_s_ext_ctrls = dt3155_ioc_s_ext_ctrls,
+*/
 	.vidioc_g_parm = dt3155_ioc_g_parm,
 	.vidioc_s_parm = dt3155_ioc_s_parm,
+/*
+	.vidioc_cropcap = dt3155_ioc_cropcap,
+	.vidioc_g_crop = dt3155_ioc_g_crop,
+	.vidioc_s_crop = dt3155_ioc_s_crop,
+	.vidioc_enum_framesizes = dt3155_ioc_enum_framesizes,
+	.vidioc_enum_frameintervals = dt3155_ioc_enum_frameintervals,
+*/
 };
 
 static int __devinit
@@ -652,15 +708,15 @@ dt3155_init_board(struct pci_dev *pdev)
 	int i;
 	u8 tmp;
 
-	pci_set_master(pdev); 
+	pci_set_master(pdev); /* dt3155 needs it */
 
-	
+	/*  resetting the adapter  */
 	iowrite32(FLD_CRPT_ODD | FLD_CRPT_EVEN | FLD_DN_ODD | FLD_DN_EVEN,
 							pd->regs + CSR1);
 	mmiowb();
 	msleep(20);
 
-	
+	/*  initializing adaper registers  */
 	iowrite32(FIFO_EN | SRST, pd->regs + CSR1);
 	mmiowb();
 	iowrite32(0xEEEEEE01, pd->regs + EVEN_PIXEL_FMT);
@@ -676,18 +732,18 @@ dt3155_init_board(struct pci_dev *pdev)
 	iowrite32(0x01010101, pd->regs + IIC_CLK_DUR);
 	mmiowb();
 
-	
+	/* verifying that we have a DT3155 board (not just a SAA7116 chip) */
 	read_i2c_reg(pd->regs, DT_ID, &tmp);
 	if (tmp != DT3155_ID)
 		return -ENODEV;
 
-	
+	/* initialize AD LUT */
 	write_i2c_reg(pd->regs, AD_ADDR, 0);
 	for (i = 0; i < 256; i++)
 		write_i2c_reg(pd->regs, AD_LUT, i);
 
-	
-	
+	/* initialize ADC references */
+	/* FIXME: pos_ref & neg_ref depend on VT_50HZ */
 	write_i2c_reg(pd->regs, AD_ADDR, AD_CMD_REG);
 	write_i2c_reg(pd->regs, AD_CMD, VIDEO_CNL_1 | SYNC_CNL_1 | SYNC_LVL_3);
 	write_i2c_reg(pd->regs, AD_ADDR, AD_POS_REF);
@@ -695,7 +751,7 @@ dt3155_init_board(struct pci_dev *pdev)
 	write_i2c_reg(pd->regs, AD_ADDR, AD_NEG_REF);
 	write_i2c_reg(pd->regs, AD_CMD, 0);
 
-	
+	/* initialize PM LUT */
 	write_i2c_reg(pd->regs, CONFIG, pd->config | PM_LUT_PGM);
 	for (i = 0; i < 256; i++) {
 		write_i2c_reg(pd->regs, PM_LUT_ADDR, i);
@@ -706,13 +762,13 @@ dt3155_init_board(struct pci_dev *pdev)
 		write_i2c_reg(pd->regs, PM_LUT_ADDR, i);
 		write_i2c_reg(pd->regs, PM_LUT_DATA, i);
 	}
-	write_i2c_reg(pd->regs, CONFIG, pd->config); 
+	write_i2c_reg(pd->regs, CONFIG, pd->config); /*  ACQ_MODE_EVEN  */
 
-	
+	/* select chanel 1 for input and set sync level */
 	write_i2c_reg(pd->regs, AD_ADDR, AD_CMD_REG);
 	write_i2c_reg(pd->regs, AD_CMD, VIDEO_CNL_1 | SYNC_CNL_1 | SYNC_LVL_3);
 
-	
+	/* allocate memory, and initialize the DMA machine */
 	buf_cpu = dma_alloc_coherent(&pdev->dev, DT3155_BUF_SIZE, &buf_dma,
 								GFP_KERNEL);
 	if (!buf_cpu)
@@ -722,7 +778,7 @@ dt3155_init_board(struct pci_dev *pdev)
 	iowrite32(0, pd->regs + EVEN_DMA_STRIDE);
 	iowrite32(0, pd->regs + ODD_DMA_STRIDE);
 
-	
+	/*  Perform a pseudo even field acquire    */
 	iowrite32(FIFO_EN | SRST | CAP_CONT_ODD, pd->regs + CSR1);
 	write_i2c_reg(pd->regs, CSR2, pd->csr2 | SYNC_SNTL);
 	write_i2c_reg(pd->regs, CONFIG, pd->config);
@@ -735,7 +791,7 @@ dt3155_init_board(struct pci_dev *pdev)
 	write_i2c_reg(pd->regs, CSR2, pd->csr2);
 	iowrite32(FIFO_EN | SRST | FLD_DN_EVEN | FLD_DN_ODD, pd->regs + CSR1);
 
-	
+	/*  deallocate memory  */
 	dma_free_coherent(&pdev->dev, DT3155_BUF_SIZE, buf_cpu, buf_dma);
 	if (tmp & BUSY_EVEN)
 		return -EIO;
@@ -752,6 +808,7 @@ static struct video_device dt3155_vdev = {
 	.current_norm = DT3155_CURRENT_NORM,
 };
 
+/* same as in drivers/base/dma-coherent.c */
 struct dma_coherent_mem {
 	void		*virt_base;
 	dma_addr_t	device_base;
@@ -786,7 +843,7 @@ dt3155_alloc_coherent(struct device *dev, size_t size, int flags)
 	if (!mem->bitmap)
 		goto err_bitmap;
 
-	
+	/* coherent_dma_mask is already set to 32 bits */
 	mem->device_base = dev_base;
 	mem->size = pages;
 	mem->flags = flags;
@@ -834,13 +891,13 @@ dt3155_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!pd->vdev)
 		goto err_video_device_alloc;
 	*pd->vdev = dt3155_vdev;
-	pci_set_drvdata(pdev, pd);    
-	video_set_drvdata(pd->vdev, pd);  
+	pci_set_drvdata(pdev, pd);    /* for use in dt3155_remove() */
+	video_set_drvdata(pd->vdev, pd);  /* for use in video_fops */
 	pd->users = 0;
 	pd->pdev = pdev;
 	INIT_LIST_HEAD(&pd->dmaq);
 	mutex_init(&pd->mux);
-	pd->vdev->lock = &pd->mux; 
+	pd->vdev->lock = &pd->mux; /* for locking v4l2_file_operations */
 	spin_lock_init(&pd->lock);
 	pd->csr2 = csr2_init;
 	pd->config = config_init;
@@ -865,7 +922,7 @@ dt3155_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 							DMA_MEMORY_MAP))
 		dev_info(&pdev->dev, "preallocated 8 buffers\n");
 	dev_info(&pdev->dev, "/dev/video%i is ready\n", pd->vdev->minor);
-	return 0;  
+	return 0;  /*   success   */
 
 err_init_board:
 	pci_iounmap(pdev, pd->regs);
@@ -890,12 +947,16 @@ dt3155_remove(struct pci_dev *pdev)
 	pci_iounmap(pdev, pd->regs);
 	pci_release_region(pdev, 0);
 	pci_disable_device(pdev);
+	/*
+	 * video_device_release() is invoked automatically
+	 * see: struct video_device dt3155_vdev
+	 */
 	kfree(pd);
 }
 
 static DEFINE_PCI_DEVICE_TABLE(pci_ids) = {
 	{ PCI_DEVICE(DT3155_VENDOR_ID, DT3155_DEVICE_ID) },
-	{ 0,  },
+	{ 0, /* zero marks the end */ },
 };
 MODULE_DEVICE_TABLE(pci, pci_ids);
 

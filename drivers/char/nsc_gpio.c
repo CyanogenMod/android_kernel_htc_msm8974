@@ -21,19 +21,19 @@
 
 void nsc_gpio_dump(struct nsc_gpio_ops *amp, unsigned index)
 {
-	
+	/* retrieve current config w/o changing it */
 	u32 config = amp->gpio_config(index, ~0, 0);
 
-	
+	/* user requested via 'v' command, so its INFO */
 	dev_info(amp->dev, "io%02u: 0x%04x %s %s %s %s %s %s %s\tio:%d/%d\n",
 		 index, config,
-		 (config & 1) ? "OE" : "TS",      
-		 (config & 2) ? "PP" : "OD",      
-		 (config & 4) ? "PUE" : "PUD",    
-		 (config & 8) ? "LOCKED" : "",    
-		 (config & 16) ? "LEVEL" : "EDGE",
-		 (config & 32) ? "HI" : "LO",     
-		 (config & 64) ? "DEBOUNCE" : "", 
+		 (config & 1) ? "OE" : "TS",      /* output-enabled/tristate */
+		 (config & 2) ? "PP" : "OD",      /* push pull / open drain */
+		 (config & 4) ? "PUE" : "PUD",    /* pull up enabled/disabled */
+		 (config & 8) ? "LOCKED" : "",    /* locked / unlocked */
+		 (config & 16) ? "LEVEL" : "EDGE",/* level/edge input */
+		 (config & 32) ? "HI" : "LO",     /* trigger on rise/fall edge */
+		 (config & 64) ? "DEBOUNCE" : "", /* debounce */
 
 		 amp->gpio_get(index), amp->gpio_current(index));
 }
@@ -83,11 +83,11 @@ ssize_t nsc_gpio_write(struct file *file, const char __user *data,
 			amp->gpio_config(m, ~4, 0);
 			break;
 		case 'v':
-			
+			/* View Current pin settings */
 			amp->gpio_dump(amp, m);
 			break;
 		case '\n':
-			
+			/* end of settings string, do nothing */
 			break;
 		default:
 			dev_err(dev, "io%2d bad setting: chr<0x%2x>\n",
@@ -96,7 +96,7 @@ ssize_t nsc_gpio_write(struct file *file, const char __user *data,
 		}
 	}
 	if (err)
-		return -EINVAL;	
+		return -EINVAL;	/* full string handled, report error */
 
 	return len;
 }
@@ -115,6 +115,7 @@ ssize_t nsc_gpio_read(struct file *file, char __user * buf,
 	return 1;
 }
 
+/* common file-ops routines for both scx200_gpio and pc87360_gpio */
 EXPORT_SYMBOL(nsc_gpio_write);
 EXPORT_SYMBOL(nsc_gpio_read);
 EXPORT_SYMBOL(nsc_gpio_dump);

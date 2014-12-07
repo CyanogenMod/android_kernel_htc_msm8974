@@ -31,6 +31,7 @@
 #include "serial.h"
 #include "clock.h"
 
+/* OHCI controller */
 static struct resource jz4740_usb_ohci_resources[] = {
 	{
 		.start	= JZ4740_UHC_BASE_ADDR,
@@ -55,6 +56,7 @@ struct platform_device jz4740_usb_ohci_device = {
 	.resource	= jz4740_usb_ohci_resources,
 };
 
+/* UDC (USB gadget controller) */
 static struct resource jz4740_usb_gdt_resources[] = {
 	{
 		.start	= JZ4740_UDC_BASE_ADDR,
@@ -79,6 +81,7 @@ struct platform_device jz4740_udc_device = {
 	.resource	= jz4740_usb_gdt_resources,
 };
 
+/* MMC/SD controller */
 static struct resource jz4740_mmc_resources[] = {
 	{
 		.start	= JZ4740_MSC_BASE_ADDR,
@@ -103,6 +106,7 @@ struct platform_device jz4740_mmc_device = {
 	.resource	= jz4740_mmc_resources,
 };
 
+/* RTC controller */
 static struct resource jz4740_rtc_resources[] = {
 	{
 		.start	= JZ4740_RTC_BASE_ADDR,
@@ -123,6 +127,7 @@ struct platform_device jz4740_rtc_device = {
 	.resource	= jz4740_rtc_resources,
 };
 
+/* I2C controller */
 static struct resource jz4740_i2c_resources[] = {
 	{
 		.start	= JZ4740_I2C_BASE_ADDR,
@@ -143,6 +148,7 @@ struct platform_device jz4740_i2c_device = {
 	.resource	= jz4740_i2c_resources,
 };
 
+/* NAND controller */
 static struct resource jz4740_nand_resources[] = {
 	{
 		.name	= "mmio",
@@ -164,6 +170,7 @@ struct platform_device jz4740_nand_device = {
 	.resource = jz4740_nand_resources,
 };
 
+/* LCD controller */
 static struct resource jz4740_framebuffer_resources[] = {
 	{
 		.start	= JZ4740_LCD_BASE_ADDR,
@@ -183,6 +190,7 @@ struct platform_device jz4740_framebuffer_device = {
 	},
 };
 
+/* I2S controller */
 static struct resource jz4740_i2s_resources[] = {
 	{
 		.start	= JZ4740_AIC_BASE_ADDR,
@@ -198,11 +206,13 @@ struct platform_device jz4740_i2s_device = {
 	.resource	= jz4740_i2s_resources,
 };
 
+/* PCM */
 struct platform_device jz4740_pcm_device = {
 	.name		= "jz4740-pcm-audio",
 	.id		= -1,
 };
 
+/* Codec */
 static struct resource jz4740_codec_resources[] = {
 	{
 		.start	= JZ4740_AIC_BASE_ADDR + 0x80,
@@ -218,6 +228,7 @@ struct platform_device jz4740_codec_device = {
 	.resource	= jz4740_codec_resources,
 };
 
+/* ADC controller */
 static struct resource jz4740_adc_resources[] = {
 	{
 		.start	= JZ4740_SADC_BASE_ADDR,
@@ -243,6 +254,7 @@ struct platform_device jz4740_adc_device = {
 	.resource	= jz4740_adc_resources,
 };
 
+/* Serial */
 #define JZ4740_UART_DATA(_id) \
 	{ \
 		.flags = UPF_SKIP_TEST | UPF_IOREMAP | UPF_FIXED_TYPE, \
@@ -278,6 +290,7 @@ void jz4740_serial_device_register(void)
 	platform_device_register(&jz4740_uart_device);
 }
 
+/* Watchdog */
 static struct resource jz4740_wdt_resources[] = {
 	{
 		.start = JZ4740_WDT_BASE_ADDR,

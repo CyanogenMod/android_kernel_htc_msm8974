@@ -21,6 +21,7 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+/* Bluetooth HCI Management interface */
 
 #include <linux/uaccess.h>
 #include <linux/interrupt.h>
@@ -382,6 +383,9 @@ static int set_powered(struct sock *sk, u16 index, unsigned char *data, u16 len)
 		err = cmd_status(sk, index, MGMT_OP_SET_POWERED, EBUSY);
 		goto failed;
 	}
+	/* Avoid queing power_on/off when the set up is going on via
+	 * hci_register_dev
+	 */
 	if (!test_bit(HCI_SETUP, &hdev->flags)) {
 		cmd = mgmt_pending_add(sk, MGMT_OP_SET_POWERED, index, data,
 									len);
@@ -459,7 +463,7 @@ static int set_limited_discoverable(struct sock *sk, u16 index,
 	struct hci_cp_write_current_iac_lap dcp;
 	int update_cod;
 	int err = 0;
-	
+	/* General Inquiry LAP: 0x9E8B33, Limited Inquiry LAP: 0x9E8B00 */
 	u8 lap[] = { 0x33, 0x8b, 0x9e, 0x00, 0x8b, 0x9e };
 
 	cp = (void *) data;
@@ -733,17 +737,17 @@ failed:
 	return err;
 }
 
-#define EIR_FLAGS		0x01 
-#define EIR_UUID16_SOME		0x02 
-#define EIR_UUID16_ALL		0x03 
-#define EIR_UUID32_SOME		0x04 
-#define EIR_UUID32_ALL		0x05 
-#define EIR_UUID128_SOME	0x06 
-#define EIR_UUID128_ALL		0x07 
-#define EIR_NAME_SHORT		0x08 
-#define EIR_NAME_COMPLETE	0x09 
-#define EIR_TX_POWER		0x0A 
-#define EIR_DEVICE_ID		0x10 
+#define EIR_FLAGS		0x01 /* flags */
+#define EIR_UUID16_SOME		0x02 /* 16-bit UUID, more available */
+#define EIR_UUID16_ALL		0x03 /* 16-bit UUID, all listed */
+#define EIR_UUID32_SOME		0x04 /* 32-bit UUID, more available */
+#define EIR_UUID32_ALL		0x05 /* 32-bit UUID, all listed */
+#define EIR_UUID128_SOME	0x06 /* 128-bit UUID, more available */
+#define EIR_UUID128_ALL		0x07 /* 128-bit UUID, all listed */
+#define EIR_NAME_SHORT		0x08 /* shortened local name */
+#define EIR_NAME_COMPLETE	0x09 /* complete local name */
+#define EIR_TX_POWER		0x0A /* transmit power level */
+#define EIR_DEVICE_ID		0x10 /* device ID */
 
 #define PNP_INFO_SVCLASS_ID		0x1200
 
@@ -783,14 +787,14 @@ static void create_eir(struct hci_dev *hdev, u8 *data)
 	name_len = strnlen(hdev->dev_name, HCI_MAX_EIR_LENGTH);
 
 	if (name_len > 0) {
-		
+		/* EIR Data type */
 		if (name_len > 48) {
 			name_len = 48;
 			ptr[1] = EIR_NAME_SHORT;
 		} else
 			ptr[1] = EIR_NAME_COMPLETE;
 
-		
+		/* EIR Data length */
 		ptr[0] = name_len + 1;
 
 		memcpy(ptr + 2, hdev->dev_name, name_len);
@@ -801,7 +805,7 @@ static void create_eir(struct hci_dev *hdev, u8 *data)
 
 	memset(uuid16_list, 0, sizeof(uuid16_list));
 
-	
+	/* Group all UUID16 types */
 	list_for_each(p, &hdev->uuids) {
 		struct bt_uuid *uuid = list_entry(p, struct bt_uuid, list);
 		u16 uuid16;
@@ -816,13 +820,13 @@ static void create_eir(struct hci_dev *hdev, u8 *data)
 		if (uuid16 == PNP_INFO_SVCLASS_ID)
 			continue;
 
-		
+		/* Stop if not enough space to put next UUID */
 		if (eir_len + 2 + sizeof(u16) > HCI_MAX_EIR_LENGTH) {
 			truncated = 1;
 			break;
 		}
 
-		
+		/* Check for duplicates */
 		for (i = 0; uuid16_list[i] != 0; i++)
 			if (uuid16_list[i] == uuid16)
 				break;
@@ -836,7 +840,7 @@ static void create_eir(struct hci_dev *hdev, u8 *data)
 	if (uuid16_list[0] != 0) {
 		u8 *length = ptr;
 
-		
+		/* EIR Data type */
 		ptr[1] = truncated ? EIR_UUID16_SOME : EIR_UUID16_ALL;
 
 		ptr += 2;
@@ -847,7 +851,7 @@ static void create_eir(struct hci_dev *hdev, u8 *data)
 			*ptr++ = (uuid16_list[i] & 0xff00) >> 8;
 		}
 
-		
+		/* EIR Data length */
 		*length = (i * sizeof(u16)) + 1;
 	}
 }
@@ -1179,7 +1183,7 @@ static int remove_key(struct sock *sk, u16 index, unsigned char *data, u16 len)
 		struct hci_cp_disconnect dc;
 
 		put_unaligned_le16(conn->handle, &dc.handle);
-		dc.reason = 0x13; 
+		dc.reason = 0x13; /* Remote User Terminated Connection */
 		err = hci_send_cmd(hdev, HCI_OP_DISCONNECT, 0, NULL);
 	}
 
@@ -1239,7 +1243,7 @@ static int disconnect(struct sock *sk, u16 index, unsigned char *data, u16 len)
 	}
 
 	put_unaligned_le16(conn->handle, &dc.handle);
-	dc.reason = 0x13; 
+	dc.reason = 0x13; /* Remote User Terminated Connection */
 
 	err = hci_send_cmd(hdev, HCI_OP_DISCONNECT, sizeof(dc), &dc);
 	if (err < 0)
@@ -1706,7 +1710,7 @@ static void pairing_complete(struct pending_cmd *cmd, u8 status)
 
 	cmd_complete(cmd->sk, cmd->index, MGMT_OP_PAIR_DEVICE, &rp, sizeof(rp));
 
-	
+	/* So we don't get further callbacks for this connection */
 	conn->connect_cfm_cb = NULL;
 	conn->security_cfm_cb = NULL;
 	conn->disconn_cfm_cb = NULL;
@@ -1823,7 +1827,7 @@ static int pair_device(struct sock *sk, u16 index, unsigned char *data, u16 len)
 		conn = hci_le_connect(hdev, 0, &cp->bdaddr, sec_level,
 							auth_type, NULL);
 	} else {
-		
+		/* ACL-SSP does not support io_cap 0x04 (KeyboadDisplay) */
 		if (io_cap == 0x04)
 			io_cap = 0x01;
 		conn = hci_connect(hdev, ACL_LINK, 0, &cp->bdaddr, sec_level,
@@ -2331,7 +2335,7 @@ void mgmt_disco_le_timeout(unsigned long data)
 			hci_send_cmd(hdev, HCI_OP_LE_SET_SCAN_ENABLE,
 					sizeof(le_cp), &le_cp);
 
-	
+	/* re-start BR scan */
 		if (hdev->disco_state != SCAN_IDLE) {
 			struct hci_cp_inquiry cp = {{0x33, 0x8b, 0x9e}, 4, 0};
 			hdev->disco_int_phase *= 2;
@@ -2373,21 +2377,23 @@ static int start_discovery(struct sock *sk, u16 index)
 		goto failed;
 	}
 
-	
+	/* If LE Capable, we will alternate between BR/EDR and LE */
 	if (lmp_le_capable(hdev)) {
 		struct hci_cp_le_set_scan_parameters le_cp;
 
-		
+		/* Shorten BR scan params */
 		cp.num_rsp = 1;
 		cp.length /= 2;
 
-		
+		/* Setup LE scan params */
 		memset(&le_cp, 0, sizeof(le_cp));
-		le_cp.type = 0x01;		
+		le_cp.type = 0x01;		/* Active scanning */
+		/* The recommended value for scan interval and window is
+		 * 11.25 msec. It is calculated by: time = n * 0.625 msec */
 		le_cp.interval = cpu_to_le16(0x0012);
 		le_cp.window = cpu_to_le16(0x0012);
-		le_cp.own_bdaddr_type = 0;	
-		le_cp.filter = 0;		
+		le_cp.own_bdaddr_type = 0;	/* Public address */
+		le_cp.filter = 0;		/* Accept all adv packets */
 
 		hci_send_cmd(hdev, HCI_OP_LE_SET_SCAN_PARAMETERS,
 						sizeof(le_cp), &le_cp);
@@ -3096,7 +3102,7 @@ int mgmt_user_confirm_request(u16 index, u8 event,
 		goto no_auto_confirm;
 	}
 
-	
+	/* Show bonding dialog if neither side requires no bonding */
 	if ((conn->auth_type > 0x01) && (conn->remote_auth > 0x01)) {
 		if (!loc_mitm && !rem_mitm)
 			value = 0;
@@ -3330,17 +3336,17 @@ int mgmt_device_found(u16 index, bdaddr_t *bdaddr, u8 type, u8 le,
 	hdev->disco_int_count++;
 
 	if (hdev->disco_int_count >= hdev->disco_int_phase) {
-		
+		/* Inquiry scan for General Discovery LAP */
 		struct hci_cp_inquiry cp = {{0x33, 0x8b, 0x9e}, 4, 0};
 		struct hci_cp_le_set_scan_enable le_cp = {0, 0};
 
 		hdev->disco_int_phase *= 2;
 		hdev->disco_int_count = 0;
 		if (hdev->disco_state == SCAN_LE) {
-			
+			/* cancel LE scan */
 			hci_send_cmd(hdev, HCI_OP_LE_SET_SCAN_ENABLE,
 					sizeof(le_cp), &le_cp);
-			
+			/* start BR scan */
 			cp.num_rsp = (u8) hdev->disco_int_phase;
 			hci_send_cmd(hdev, HCI_OP_INQUIRY,
 					sizeof(cp), &cp);

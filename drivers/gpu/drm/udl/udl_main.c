@@ -13,6 +13,7 @@
 #include "drmP.h"
 #include "udl_drv.h"
 
+/* -BULK_SIZE as per usb-skeleton. Can we get full page and avoid overhead? */
 #define BULK_SIZE 512
 
 #define MAX_TRANSFER (PAGE_SIZE*16 - BULK_SIZE)
@@ -37,7 +38,7 @@ static int udl_parse_vendor_descriptor(struct drm_device *dev,
 		return false;
 	desc = buf;
 
-	total_len = usb_get_descriptor(usbdev, 0x5f, 
+	total_len = usb_get_descriptor(usbdev, 0x5f, /* vendor specific */
 				    0, desc, MAX_VENDOR_DESCRIPTOR_SIZE);
 	if (total_len > 5) {
 		DRM_INFO("vendor descriptor length:%x data:%02x %02x %02x %02x" \
@@ -46,15 +47,15 @@ static int udl_parse_vendor_descriptor(struct drm_device *dev,
 			desc[1], desc[2], desc[3], desc[4], desc[5], desc[6],
 			desc[7], desc[8], desc[9], desc[10]);
 
-		if ((desc[0] != total_len) || 
-		    (desc[1] != 0x5f) ||   
-		    (desc[2] != 0x01) ||   
+		if ((desc[0] != total_len) || /* descriptor length */
+		    (desc[1] != 0x5f) ||   /* vendor descriptor type */
+		    (desc[2] != 0x01) ||   /* version (2 bytes) */
 		    (desc[3] != 0x00) ||
-		    (desc[4] != total_len - 2)) 
+		    (desc[4] != total_len - 2)) /* length after type */
 			goto unrecognized;
 
 		desc_end = desc + total_len;
-		desc += 5; 
+		desc += 5; /* the fixed header we've already parsed */
 
 		while (desc < desc_end) {
 			u8 length;
@@ -66,7 +67,7 @@ static int udl_parse_vendor_descriptor(struct drm_device *dev,
 			desc++;
 
 			switch (key) {
-			case 0x0200: { 
+			case 0x0200: { /* max_area */
 				u32 max_area;
 				max_area = le32_to_cpu(*((u32 *)desc));
 				DRM_DEBUG("DL chip limited to %d pixel modes\n",
@@ -84,7 +85,7 @@ static int udl_parse_vendor_descriptor(struct drm_device *dev,
 	goto success;
 
 unrecognized:
-	
+	/* allow udlfb to load for now even if firmware unrecognized */
 	DRM_ERROR("Unrecognized vendor firmware descriptor\n");
 
 success:
@@ -106,7 +107,7 @@ void udl_urb_completion(struct urb *urb)
 	struct udl_device *udl = unode->dev;
 	unsigned long flags;
 
-	
+	/* sync/async unlink faults aren't errors */
 	if (urb->status) {
 		if (!(urb->status == -ENOENT ||
 		    urb->status == -ECONNRESET ||
@@ -117,7 +118,7 @@ void udl_urb_completion(struct urb *urb)
 		}
 	}
 
-	urb->transfer_buffer_length = udl->urbs.size; 
+	urb->transfer_buffer_length = udl->urbs.size; /* reset to actual */
 
 	spin_lock_irqsave(&udl->urbs.lock, flags);
 	list_add_tail(&unode->entry, &udl->urbs.list);
@@ -125,6 +126,10 @@ void udl_urb_completion(struct urb *urb)
 	spin_unlock_irqrestore(&udl->urbs.lock, flags);
 
 #if 0
+	/*
+	 * When using fb_defio, we deadlock if up() is called
+	 * while another is waiting. So queue to another process.
+	 */
 	if (fb_defio)
 		schedule_delayed_work(&unode->release_urb_work, 0);
 	else
@@ -144,17 +149,17 @@ static void udl_free_urb_list(struct drm_device *dev)
 
 	DRM_DEBUG("Waiting for completes and freeing all render urbs\n");
 
-	
+	/* keep waiting and freeing, until we've got 'em all */
 	while (count--) {
 
-		
+		/* Getting interrupted means a leak, but ok at shutdown*/
 		ret = down_interruptible(&udl->urbs.limit_sem);
 		if (ret)
 			break;
 
 		spin_lock_irqsave(&udl->urbs.lock, flags);
 
-		node = udl->urbs.list.next; 
+		node = udl->urbs.list.next; /* have reserved one with sem */
 		list_del_init(node);
 
 		spin_unlock_irqrestore(&udl->urbs.lock, flags);
@@ -162,7 +167,7 @@ static void udl_free_urb_list(struct drm_device *dev)
 		unode = list_entry(node, struct urb_node, entry);
 		urb = unode->urb;
 
-		
+		/* Free each separately allocated piece */
 		usb_free_coherent(urb->dev, udl->urbs.size,
 				  urb->transfer_buffer, urb->transfer_dma);
 		usb_free_urb(urb);
@@ -208,7 +213,7 @@ static int udl_alloc_urb_list(struct drm_device *dev, int count, size_t size)
 			break;
 		}
 
-		
+		/* urb->transfer_buffer_length set to actual before submit */
 		usb_fill_bulk_urb(urb, udl->ddev->usbdev, usb_sndbulkpipe(udl->ddev->usbdev, 1),
 			buf, size, udl_urb_completion, unode);
 		urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
@@ -236,7 +241,7 @@ struct urb *udl_get_urb(struct drm_device *dev)
 	struct urb *urb = NULL;
 	unsigned long flags;
 
-	
+	/* Wait for an in-flight buffer to complete and get re-queued */
 	ret = down_timeout(&udl->urbs.limit_sem, GET_URB_TIMEOUT);
 	if (ret) {
 		atomic_set(&udl->lost_pixels, 1);
@@ -247,7 +252,7 @@ struct urb *udl_get_urb(struct drm_device *dev)
 
 	spin_lock_irqsave(&udl->urbs.lock, flags);
 
-	BUG_ON(list_empty(&udl->urbs.list)); 
+	BUG_ON(list_empty(&udl->urbs.list)); /* reserved one with limit_sem */
 	entry = udl->urbs.list.next;
 	list_del_init(entry);
 	udl->urbs.available--;
@@ -268,10 +273,10 @@ int udl_submit_urb(struct drm_device *dev, struct urb *urb, size_t len)
 
 	BUG_ON(len > udl->urbs.size);
 
-	urb->transfer_buffer_length = len; 
+	urb->transfer_buffer_length = len; /* set to actual payload len */
 	ret = usb_submit_urb(urb, GFP_ATOMIC);
 	if (ret) {
-		udl_urb_completion(urb); 
+		udl_urb_completion(urb); /* because no one else will */
 		atomic_set(&udl->lost_pixels, 1);
 		DRM_ERROR("usb_submit_urb error %x\n", ret);
 	}

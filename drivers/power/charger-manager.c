@@ -23,10 +23,20 @@
 #include <linux/power/charger-manager.h>
 #include <linux/regulator/consumer.h>
 
+/*
+ * Regard CM_JIFFIES_SMALL jiffies is small enough to ignore for
+ * delayed works so that we can run delayed works with CM_JIFFIES_SMALL
+ * without any delays.
+ */
 #define	CM_JIFFIES_SMALL	(2)
 
+/* If y is valid (> 0) and smaller than x, do x = y */
 #define CM_MIN_VALID(x, y)	x = (((y > 0) && ((x) > (y))) ? (y) : (x))
 
+/*
+ * Regard CM_RTC_SMALL (sec) is small enough to ignore error in invoking
+ * rtc alarm. It should be 2 or larger
+ */
 #define CM_RTC_SMALL		(2)
 
 #define UEVENT_BUF_SIZE		32
@@ -34,15 +44,26 @@
 static LIST_HEAD(cm_list);
 static DEFINE_MUTEX(cm_list_mtx);
 
+/* About in-suspend (suspend-again) monitoring */
 static struct rtc_device *rtc_dev;
+/*
+ * Backup RTC alarm
+ * Save the wakeup alarm before entering suspend-to-RAM
+ */
 static struct rtc_wkalrm rtc_wkalarm_save;
+/* Backup RTC alarm time in terms of seconds since 01-01-1970 00:00:00 */
 static unsigned long rtc_wkalarm_save_time;
 static bool cm_suspended;
 static bool cm_rtc_set;
 static unsigned long cm_suspend_duration_ms;
 
-static struct charger_global_desc *g_desc; 
+/* Global charger-manager description */
+static struct charger_global_desc *g_desc; /* init with setup_charger_manager */
 
+/**
+ * is_batt_present - See if the battery presents in place.
+ * @cm: the Charger Manager representing the battery.
+ */
 static bool is_batt_present(struct charger_manager *cm)
 {
 	union power_supply_propval val;
@@ -72,13 +93,21 @@ static bool is_batt_present(struct charger_manager *cm)
 	return present;
 }
 
+/**
+ * is_ext_pwr_online - See if an external power source is attached to charge
+ * @cm: the Charger Manager representing the battery.
+ *
+ * Returns true if at least one of the chargers of the battery has an external
+ * power source attached to charge the battery regardless of whether it is
+ * actually charging or not.
+ */
 static bool is_ext_pwr_online(struct charger_manager *cm)
 {
 	union power_supply_propval val;
 	bool online = false;
 	int i, ret;
 
-	
+	/* If at least one of them has one, it's yes. */
 	for (i = 0; cm->charger_stat[i]; i++) {
 		ret = cm->charger_stat[i]->get_property(
 				cm->charger_stat[i],
@@ -92,6 +121,14 @@ static bool is_ext_pwr_online(struct charger_manager *cm)
 	return online;
 }
 
+/**
+ * get_batt_uV - Get the voltage level of the battery
+ * @cm: the Charger Manager representing the battery.
+ * @uV: the voltage level returned.
+ *
+ * Returns 0 if there is no error.
+ * Returns a negative value on error.
+ */
 static int get_batt_uV(struct charger_manager *cm, int *uV)
 {
 	union power_supply_propval val;
@@ -109,25 +146,29 @@ static int get_batt_uV(struct charger_manager *cm, int *uV)
 	return 0;
 }
 
+/**
+ * is_charging - Returns true if the battery is being charged.
+ * @cm: the Charger Manager representing the battery.
+ */
 static bool is_charging(struct charger_manager *cm)
 {
 	int i, ret;
 	bool charging = false;
 	union power_supply_propval val;
 
-	
+	/* If there is no battery, it cannot be charged */
 	if (!is_batt_present(cm))
 		return false;
 
-	
+	/* If at least one of the charger is charging, return yes */
 	for (i = 0; cm->charger_stat[i]; i++) {
-		
+		/* 1. The charger sholuld not be DISABLED */
 		if (cm->emergency_stop)
 			continue;
 		if (!cm->charger_enabled)
 			continue;
 
-		
+		/* 2. The charger should be online (ext-power) */
 		ret = cm->charger_stat[i]->get_property(
 				cm->charger_stat[i],
 				POWER_SUPPLY_PROP_ONLINE, &val);
@@ -139,6 +180,10 @@ static bool is_charging(struct charger_manager *cm)
 		if (val.intval == 0)
 			continue;
 
+		/*
+		 * 3. The charger should not be FULL, DISCHARGING,
+		 * or NOT_CHARGING.
+		 */
 		ret = cm->charger_stat[i]->get_property(
 				cm->charger_stat[i],
 				POWER_SUPPLY_PROP_STATUS, &val);
@@ -152,7 +197,7 @@ static bool is_charging(struct charger_manager *cm)
 				val.intval == POWER_SUPPLY_STATUS_NOT_CHARGING)
 			continue;
 
-		
+		/* Then, this is charging. */
 		charging = true;
 		break;
 	}
@@ -160,6 +205,10 @@ static bool is_charging(struct charger_manager *cm)
 	return charging;
 }
 
+/**
+ * is_polling_required - Return true if need to continue polling for this CM.
+ * @cm: the Charger Manager representing the battery.
+ */
 static bool is_polling_required(struct charger_manager *cm)
 {
 	switch (cm->desc->polling_mode) {
@@ -179,12 +228,22 @@ static bool is_polling_required(struct charger_manager *cm)
 	return false;
 }
 
+/**
+ * try_charger_enable - Enable/Disable chargers altogether
+ * @cm: the Charger Manager representing the battery.
+ * @enable: true: enable / false: disable
+ *
+ * Note that Charger Manager keeps the charger enabled regardless whether
+ * the charger is charging or not (because battery is full or no external
+ * power source exists) except when CM needs to disable chargers forcibly
+ * bacause of emergency causes; when the battery is overheated or too cold.
+ */
 static int try_charger_enable(struct charger_manager *cm, bool enable)
 {
 	int err = 0, i;
 	struct charger_desc *desc = cm->desc;
 
-	
+	/* Ignore if it's redundent command */
 	if (enable == cm->charger_enabled)
 		return 0;
 
@@ -194,6 +253,10 @@ static int try_charger_enable(struct charger_manager *cm, bool enable)
 		err = regulator_bulk_enable(desc->num_charger_regulators,
 					desc->charger_regulators);
 	} else {
+		/*
+		 * Abnormal battery state - Stop charging forcibly,
+		 * even if charger was enabled at the other places
+		 */
 		err = regulator_bulk_disable(desc->num_charger_regulators,
 					desc->charger_regulators);
 
@@ -215,28 +278,40 @@ static int try_charger_enable(struct charger_manager *cm, bool enable)
 	return err;
 }
 
+/**
+ * uevent_notify - Let users know something has changed.
+ * @cm: the Charger Manager representing the battery.
+ * @event: the event string.
+ *
+ * If @event is null, it implies that uevent_notify is called
+ * by resume function. When called in the resume function, cm_suspended
+ * should be already reset to false in order to let uevent_notify
+ * notify the recent event during the suspend to users. While
+ * suspended, uevent_notify does not notify users, but tracks
+ * events so that uevent_notify can notify users later after resumed.
+ */
 static void uevent_notify(struct charger_manager *cm, const char *event)
 {
 	static char env_str[UEVENT_BUF_SIZE + 1] = "";
 	static char env_str_save[UEVENT_BUF_SIZE + 1] = "";
 
 	if (cm_suspended) {
-		
+		/* Nothing in suspended-event buffer */
 		if (env_str_save[0] == 0) {
 			if (!strncmp(env_str, event, UEVENT_BUF_SIZE))
-				return; 
+				return; /* status not changed */
 			strncpy(env_str_save, event, UEVENT_BUF_SIZE);
 			return;
 		}
 
 		if (!strncmp(env_str_save, event, UEVENT_BUF_SIZE))
-			return; 
+			return; /* Duplicated. */
 		strncpy(env_str_save, event, UEVENT_BUF_SIZE);
 		return;
 	}
 
 	if (event == NULL) {
-		
+		/* No messages pending */
 		if (!env_str_save[0])
 			return;
 
@@ -247,17 +322,24 @@ static void uevent_notify(struct charger_manager *cm, const char *event)
 		return;
 	}
 
-	
+	/* status not changed */
 	if (!strncmp(env_str, event, UEVENT_BUF_SIZE))
 		return;
 
-	
+	/* save the status and notify the update */
 	strncpy(env_str, event, UEVENT_BUF_SIZE);
 	kobject_uevent(&cm->dev->kobj, KOBJ_CHANGE);
 
 	dev_info(cm->dev, event);
 }
 
+/**
+ * _cm_monitor - Monitor the temperature and return true for exceptions.
+ * @cm: the Charger Manager representing the battery.
+ *
+ * Returns true if there is an event to notify for the battery.
+ * (True if the status of "emergency_stop" changes)
+ */
 static bool _cm_monitor(struct charger_manager *cm)
 {
 	struct charger_desc *desc = cm->desc;
@@ -266,7 +348,7 @@ static bool _cm_monitor(struct charger_manager *cm)
 	dev_dbg(cm->dev, "monitoring (%2.2d.%3.3dC)\n",
 		cm->last_temp_mC / 1000, cm->last_temp_mC % 1000);
 
-	
+	/* It has been stopped or charging already */
 	if (!!temp == !!cm->emergency_stop)
 		return false;
 
@@ -287,6 +369,12 @@ static bool _cm_monitor(struct charger_manager *cm)
 	return true;
 }
 
+/**
+ * cm_monitor - Monitor every battery.
+ *
+ * Returns true if there is an event to notify from any of the batteries.
+ * (True if the status of "emergency_stop" changes)
+ */
 static bool cm_monitor(void)
 {
 	bool stop = false;
@@ -345,7 +433,7 @@ static int charger_get_property(struct power_supply *psy,
 				POWER_SUPPLY_PROP_CURRENT_NOW, val);
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
-		
+		/* in thenth of centigrade */
 		if (cm->last_temp_mC == INT_MIN)
 			desc->temperature_out_of_range(&cm->last_temp_mC);
 		val->intval = cm->last_temp_mC / 100;
@@ -353,7 +441,7 @@ static int charger_get_property(struct power_supply *psy,
 			ret = -ENODEV;
 		break;
 	case POWER_SUPPLY_PROP_TEMP_AMBIENT:
-		
+		/* in thenth of centigrade */
 		if (cm->last_temp_mC == INT_MIN)
 			desc->temperature_out_of_range(&cm->last_temp_mC);
 		val->intval = cm->last_temp_mC / 100;
@@ -367,7 +455,7 @@ static int charger_get_property(struct power_supply *psy,
 		}
 
 		if (!is_batt_present(cm)) {
-			
+			/* There is no battery. Assume 100% */
 			val->intval = 100;
 			break;
 		}
@@ -384,13 +472,17 @@ static int charger_get_property(struct power_supply *psy,
 		if (val->intval < 0)
 			val->intval = 0;
 
-		
+		/* Do not adjust SOC when charging: voltage is overrated */
 		if (is_charging(cm))
 			break;
 
+		/*
+		 * If the capacity value is inconsistent, calibrate it base on
+		 * the battery voltage values and the thresholds given as desc
+		 */
 		ret = get_batt_uV(cm, &uV);
 		if (ret) {
-			
+			/* Voltage information not available. No calibration */
 			ret = 0;
 			break;
 		}
@@ -416,18 +508,22 @@ static int charger_get_property(struct power_supply *psy,
 		}
 
 		if (is_ext_pwr_online(cm)) {
-			
+			/* Not full if it's charging. */
 			if (is_charging(cm)) {
 				val->intval = 0;
 				break;
 			}
+			/*
+			 * Full if it's powered but not charging andi
+			 * not forced stop by emergency
+			 */
 			if (!cm->emergency_stop) {
 				val->intval = 1;
 				break;
 			}
 		}
 
-		
+		/* Full if it's over the fullbatt voltage */
 		ret = get_batt_uV(cm, &uV);
 		if (!ret && desc->fullbatt_uV > 0 && uV >= desc->fullbatt_uV &&
 		    !is_charging(cm)) {
@@ -435,7 +531,7 @@ static int charger_get_property(struct power_supply *psy,
 			break;
 		}
 
-		
+		/* Full if the cap is 100 */
 		if (cm->fuel_gauge) {
 			ret = cm->fuel_gauge->get_property(cm->fuel_gauge,
 					POWER_SUPPLY_PROP_CAPACITY, val);
@@ -457,7 +553,7 @@ static int charger_get_property(struct power_supply *psy,
 				val->intval = 1;
 				ret = 0;
 			} else {
-				
+				/* If CHARGE_NOW is supplied, use it */
 				val->intval = (val->intval > 0) ?
 						val->intval : 1;
 			}
@@ -473,7 +569,7 @@ static int charger_get_property(struct power_supply *psy,
 
 #define NUM_CHARGER_PSY_OPTIONAL	(4)
 static enum power_supply_property default_charger_props[] = {
-	
+	/* Guaranteed to provide */
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_HEALTH,
 	POWER_SUPPLY_PROP_PRESENT,
@@ -481,6 +577,13 @@ static enum power_supply_property default_charger_props[] = {
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_CHARGE_FULL,
+	/*
+	 * Optional properties are:
+	 * POWER_SUPPLY_PROP_CHARGE_NOW,
+	 * POWER_SUPPLY_PROP_CURRENT_NOW,
+	 * POWER_SUPPLY_PROP_TEMP, and
+	 * POWER_SUPPLY_PROP_TEMP_AMBIENT,
+	 */
 };
 
 static struct power_supply psy_default = {
@@ -491,6 +594,16 @@ static struct power_supply psy_default = {
 	.get_property = charger_get_property,
 };
 
+/**
+ * cm_setup_timer - For in-suspend monitoring setup wakeup alarm
+ *		    for suspend_again.
+ *
+ * Returns true if the alarm is set for Charger Manager to use.
+ * Returns false if
+ *	cm_setup_timer fails to set an alarm,
+ *	cm_setup_timer does not need to set an alarm for Charger Manager,
+ *	or an alarm previously configured is to be used.
+ */
 static bool cm_setup_timer(void)
 {
 	struct charger_manager *cm;
@@ -500,7 +613,7 @@ static bool cm_setup_timer(void)
 	mutex_lock(&cm_list_mtx);
 
 	list_for_each_entry(cm, &cm_list, entry) {
-		
+		/* Skip if polling is not required for this CM */
 		if (!is_polling_required(cm) && !cm->emergency_stop)
 			continue;
 		if (cm->desc->polling_interval_ms == 0)
@@ -517,6 +630,12 @@ static bool cm_setup_timer(void)
 			unsigned long time, now;
 			unsigned long add = DIV_ROUND_UP(wakeup_ms, 1000);
 
+			/*
+			 * Set alarm with the polling interval (wakeup_ms)
+			 * except when rtc_wkalarm_save comes first.
+			 * However, the alarm time should be NOW +
+			 * CM_RTC_SMALL or later.
+			 */
 			tmp.enabled = 1;
 			rtc_read_time(rtc_dev, &tmp.time);
 			rtc_tm_to_time(&tmp.time, &now);
@@ -534,7 +653,7 @@ static bool cm_setup_timer(void)
 				else
 					time = rtc_wkalarm_save_time;
 
-				
+				/* The timer is not appointed by CM */
 				ret = false;
 			}
 
@@ -553,6 +672,12 @@ static bool cm_setup_timer(void)
 	return false;
 }
 
+/**
+ * cm_suspend_again - Determine whether suspend again or not
+ *
+ * Returns true if the system should be suspended again
+ * Returns false if the system should be woken up
+ */
 bool cm_suspend_again(void)
 {
 	struct charger_manager *cm;
@@ -578,7 +703,7 @@ bool cm_suspend_again(void)
 
 	cm_rtc_set = cm_setup_timer();
 out:
-	
+	/* It's about the time when the non-CM appointed timer goes off */
 	if (rtc_wkalarm_save.enabled) {
 		unsigned long now;
 		struct rtc_time tmp;
@@ -594,6 +719,10 @@ out:
 }
 EXPORT_SYMBOL_GPL(cm_suspend_again);
 
+/**
+ * setup_charger_manager - initialize charger_global_desc data
+ * @gd: pointer to instance of charger_global_desc
+ */
 int setup_charger_manager(struct charger_global_desc *gd)
 {
 	if (!gd)
@@ -613,7 +742,7 @@ int setup_charger_manager(struct charger_global_desc *gd)
 		rtc_dev = rtc_class_open(gd->rtc_name);
 		if (IS_ERR_OR_NULL(rtc_dev)) {
 			rtc_dev = NULL;
-			
+			/* Retry at probe. RTC may be not registered yet */
 		}
 	} else {
 		pr_warn("No wakeup timer is given for charger manager."
@@ -656,7 +785,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 		goto err_alloc;
 	}
 
-	
+	/* Basic Values. Unspecified are Null or 0 */
 	cm->dev = &pdev->dev;
 	cm->desc = kzalloc(sizeof(struct charger_desc), GFP_KERNEL);
 	if (!cm->desc) {
@@ -665,7 +794,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 		goto err_alloc_desc;
 	}
 	memcpy(cm->desc, desc, sizeof(struct charger_desc));
-	cm->last_temp_mC = INT_MIN; 
+	cm->last_temp_mC = INT_MIN; /* denotes "unmeasured, yet" */
 
 	if (!desc->charger_regulators || desc->num_charger_regulators < 1) {
 		ret = -EINVAL;
@@ -679,7 +808,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 		goto err_no_charger_stat;
 	}
 
-	
+	/* Counting index only */
 	while (desc->psy_charger_stat[i])
 		i++;
 
@@ -734,7 +863,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 	}
 	cm->charger_psy.name = cm->psy_name_buf;
 
-	
+	/* Allocate for psy properties because they may vary */
 	cm->charger_psy.properties = kzalloc(sizeof(enum power_supply_property)
 				* (ARRAY_SIZE(default_charger_props) +
 				NUM_CHARGER_PSY_OPTIONAL),
@@ -749,7 +878,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 		ARRAY_SIZE(default_charger_props));
 	cm->charger_psy.num_properties = psy_default.num_properties;
 
-	
+	/* Find which optional psy-properties are available */
 	if (!cm->fuel_gauge->get_property(cm->fuel_gauge,
 					  POWER_SUPPLY_PROP_CHARGE_NOW, &val)) {
 		cm->charger_psy.properties[cm->charger_psy.num_properties] =
@@ -794,7 +923,7 @@ static int charger_manager_probe(struct platform_device *pdev)
 		goto err_chg_enable;
 	}
 
-	
+	/* Add to the list */
 	mutex_lock(&cm_list_mtx);
 	list_add(&cm->entry, &cm_list);
 	mutex_unlock(&cm_list_mtx);
@@ -824,7 +953,7 @@ static int __devexit charger_manager_remove(struct platform_device *pdev)
 	struct charger_manager *cm = platform_get_drvdata(pdev);
 	struct charger_desc *desc = cm->desc;
 
-	
+	/* Remove from the list */
 	mutex_lock(&cm_list_mtx);
 	list_del(&cm->entry);
 	mutex_unlock(&cm_list_mtx);

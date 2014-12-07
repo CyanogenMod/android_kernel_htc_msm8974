@@ -28,6 +28,10 @@
 static char *opt_coax_texts[2] = { "Optical", "Coax" };
 static char *line_phono_texts[2] = { "Line", "Phono" };
 
+/*
+ * data that needs to be sent to device. sets up card internal stuff.
+ * values dumped from windows driver and filtered by trial'n'error.
+ */
 static const struct {
 	u8 type;
 	u8 reg;
@@ -42,10 +46,11 @@ init_data[] = {
 	{ 0x12, 0x0d, 0x38 }, { 0x12, 0x21, 0x82 }, { 0x12, 0x22, 0x80 },
 	{ 0x12, 0x23, 0x00 }, { 0x12, 0x06, 0x02 }, { 0x12, 0x03, 0x00 },
 	{ 0x12, 0x02, 0x00 }, { 0x22, 0x03, 0x01 },
-	{ 0 } 
+	{ 0 } /* TERMINATING ENTRY */
 };
 
 static const int rates_altsetting[] = { 1, 1, 2, 2, 3, 3 };
+/* values to write to soundcard register for all samplerates */
 static const u16 rates_6fire_vl[] = {0x00, 0x01, 0x00, 0x01, 0x00, 0x01};
 static const u16 rates_6fire_vh[] = {0x11, 0x11, 0x10, 0x10, 0x00, 0x00};
 
@@ -123,7 +128,7 @@ static int usb6fire_control_set_rate(struct control_runtime *rt, int rate)
 	if (ret < 0)
 		return ret;
 
-	
+	/* set soundcard clock */
 	ret = comm_rt->write16(comm_rt, 0x02, 0x01, rates_6fire_vl[rate],
 			rates_6fire_vh[rate]);
 	if (ret < 0)
@@ -139,14 +144,16 @@ static int usb6fire_control_set_channels(
 	int ret;
 	struct comm_runtime *comm_rt = rt->chip->comm;
 
+	/* enable analog inputs and outputs
+	 * (one bit per stereo-channel) */
 	ret = comm_rt->write16(comm_rt, 0x02, 0x02,
 			(1 << (n_analog_out / 2)) - 1,
 			(1 << (n_analog_in / 2)) - 1);
 	if (ret < 0)
 		return ret;
 
-	
-	
+	/* disable digital inputs and outputs */
+	/* TODO: use spdif_x to enable/disable digital channels */
 	ret = comm_rt->write16(comm_rt, 0x02, 0x03, 0x00, 0x00);
 	if (ret < 0)
 		return ret;

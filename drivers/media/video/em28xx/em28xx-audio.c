@@ -91,14 +91,14 @@ static void em28xx_audio_isocirq(struct urb *urb)
 	struct snd_pcm_runtime   *runtime;
 
 	switch (urb->status) {
-	case 0:             
-	case -ETIMEDOUT:    
+	case 0:             /* success */
+	case -ETIMEDOUT:    /* NAK */
 		break;
-	case -ECONNRESET:   
+	case -ECONNRESET:   /* kill */
 	case -ENOENT:
 	case -ESHUTDOWN:
 		return;
-	default:            
+	default:            /* error */
 		dprintk("urb completition error %d.\n", urb->status);
 		break;
 	}
@@ -260,11 +260,11 @@ static struct snd_pcm_hardware snd_em28xx_hw_capture = {
 	.rate_max = 48000,
 	.channels_min = 2,
 	.channels_max = 2,
-	.buffer_bytes_max = 62720 * 8,	
-	.period_bytes_min = 64,		
+	.buffer_bytes_max = 62720 * 8,	/* just about the value in usbaudio.c */
+	.period_bytes_min = 64,		/* 12544/2, */
 	.period_bytes_max = 12544,
 	.periods_min = 2,
-	.periods_max = 98,		
+	.periods_max = 98,		/* 12544, */
 };
 
 static int snd_em28xx_capture_open(struct snd_pcm_substream *substream)
@@ -292,7 +292,7 @@ static int snd_em28xx_capture_open(struct snd_pcm_substream *substream)
 			dev->audio_ifnum, dev->alt);
 		usb_set_interface(dev->udev, dev->audio_ifnum, dev->alt);
 
-		
+		/* Sets volume, mute, etc */
 		dev->mute = 0;
 		mutex_lock(&dev->lock);
 		ret = em28xx_audio_analog_set(dev);
@@ -356,6 +356,9 @@ static int snd_em28xx_hw_capture_params(struct snd_pcm_substream *substream,
 	rate = params_rate(hw_params);
 	channels = params_channels(hw_params);
 
+	/* TODO: set up em28xx audio chip to deliver the correct audio format,
+	   current default is 48000hz multiplexed => 96000hz mono
+	   which shouldn't matter since analogue TV only supports mono */
 	return 0;
 }
 
@@ -403,13 +406,13 @@ static int snd_em28xx_capture_trigger(struct snd_pcm_substream *substream,
 	int retval = 0;
 
 	switch (cmd) {
-	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE: 
-	case SNDRV_PCM_TRIGGER_RESUME: 
+	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE: /* fall through */
+	case SNDRV_PCM_TRIGGER_RESUME: /* fall through */
 	case SNDRV_PCM_TRIGGER_START:
 		atomic_set(&dev->stream_started, 1);
 		break;
-	case SNDRV_PCM_TRIGGER_PAUSE_PUSH: 
-	case SNDRV_PCM_TRIGGER_SUSPEND: 
+	case SNDRV_PCM_TRIGGER_PAUSE_PUSH: /* fall through */
+	case SNDRV_PCM_TRIGGER_SUSPEND: /* fall through */
 	case SNDRV_PCM_TRIGGER_STOP:
 		atomic_set(&dev->stream_started, 0);
 		break;
@@ -443,6 +446,9 @@ static struct page *snd_pcm_get_vmalloc_page(struct snd_pcm_substream *subs,
 	return vmalloc_to_page(pageptr);
 }
 
+/*
+ * AC97 volume control support
+ */
 static int em28xx_vol_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *info)
 {
@@ -467,7 +473,7 @@ static int em28xx_vol_put(struct snd_kcontrol *kcontrol,
 	if (rc < 0)
 		goto err;
 
-	val |= rc & 0x8000;	
+	val |= rc & 0x8000;	/* Preserve the mute flag */
 
 	rc = em28xx_write_ac97(dev, kcontrol->private_value, val);
 	if (rc < 0)
@@ -577,7 +583,7 @@ static int em28xx_cvol_new(struct snd_card *card, struct em28xx *dev,
 	tmp.private_value = id,
 	tmp.name  = ctl_name,
 
-	
+	/* Add Mute Control */
 	sprintf(ctl_name, "%s Switch", name);
 	tmp.get  = em28xx_vol_get_mute;
 	tmp.put  = em28xx_vol_put_mute;
@@ -594,7 +600,7 @@ static int em28xx_cvol_new(struct snd_card *card, struct em28xx *dev,
 	tmp.private_value = id,
 	tmp.name  = ctl_name,
 
-	
+	/* Add Volume Control */
 	sprintf(ctl_name, "%s Volume", name);
 	tmp.get   = em28xx_vol_get;
 	tmp.put   = em28xx_vol_put;
@@ -610,6 +616,9 @@ static int em28xx_cvol_new(struct snd_card *card, struct em28xx *dev,
 	return 0;
 }
 
+/*
+ * register/unregister code and data
+ */
 static struct snd_pcm_ops snd_em28xx_pcm_capture = {
 	.open      = snd_em28xx_capture_open,
 	.close     = snd_em28xx_pcm_close,
@@ -631,6 +640,9 @@ static int em28xx_audio_init(struct em28xx *dev)
 	int                 err;
 
 	if (!dev->has_alsa_audio || dev->audio_ifnum < 0) {
+		/* This device does not support the extension (in this case
+		   the device is expecting the snd-usb-audio module or
+		   doesn't have analog audio support at all) */
 		return 0;
 	}
 
@@ -696,6 +708,9 @@ static int em28xx_audio_fini(struct em28xx *dev)
 		return 0;
 
 	if (dev->has_alsa_audio != 1) {
+		/* This device does not support the extension (in this case
+		   the device is expecting the snd-usb-audio module or
+		   doesn't have analog audio support at all) */
 		return 0;
 	}
 

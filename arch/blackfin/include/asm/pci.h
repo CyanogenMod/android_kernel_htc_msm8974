@@ -1,3 +1,4 @@
+/* Changed from asm-m68k version, Lineo Inc. 	May 2001	*/
 
 #ifndef _ASM_BFIN_PCI_H
 #define _ASM_BFIN_PCI_H
@@ -11,7 +12,7 @@
 
 static inline void pcibios_penalize_isa_irq(int irq)
 {
-	
+	/* We don't do dynamic PCI IRQ allocation */
 }
 
-#endif				
+#endif				/* _ASM_BFIN_PCI_H */

@@ -61,6 +61,11 @@ u64 __read_mostly hw_cache_extra_regs
 				[PERF_COUNT_HW_CACHE_OP_MAX]
 				[PERF_COUNT_HW_CACHE_RESULT_MAX];
 
+/*
+ * Propagate event elapsed time into the generic event.
+ * Can only be executed on the CPU where the event is active.
+ * Returns the delta events processed.
+ */
 u64 x86_perf_event_update(struct perf_event *event)
 {
 	struct hw_perf_event *hwc = &event->hw;
@@ -72,6 +77,13 @@ u64 x86_perf_event_update(struct perf_event *event)
 	if (idx == X86_PMC_IDX_FIXED_BTS)
 		return 0;
 
+	/*
+	 * Careful: an NMI might modify the previous event value.
+	 *
+	 * Our tactic to handle this is to first atomically read and
+	 * exchange a new raw count - then add that new-prev delta
+	 * count to the generic event atomically:
+	 */
 again:
 	prev_raw_count = local64_read(&hwc->prev_count);
 	rdmsrl(hwc->event_base, new_raw_count);
@@ -80,6 +92,14 @@ again:
 					new_raw_count) != prev_raw_count)
 		goto again;
 
+	/*
+	 * Now we have the new raw value and have updated the prev
+	 * timestamp already. We can now calculate the elapsed delta
+	 * (event-)time and add that to the generic event.
+	 *
+	 * Careful, not all hw sign-extends above the physical width
+	 * of the count.
+	 */
 	delta = (new_raw_count << shift) - (prev_raw_count << shift);
 	delta >>= shift;
 
@@ -89,6 +109,9 @@ again:
 	return new_raw_count;
 }
 
+/*
+ * Find and validate any extra registers to set up.
+ */
 static int x86_pmu_extra_regs(u64 config, struct perf_event *event)
 {
 	struct hw_perf_event_extra *reg;
@@ -169,6 +192,10 @@ static bool check_hw_exists(void)
 	u64 val, val_new = 0;
 	int i, reg, ret = 0;
 
+	/*
+	 * Check to see if the BIOS enabled any of the counters, if so
+	 * complain and bail.
+	 */
 	for (i = 0; i < x86_pmu.num_counters; i++) {
 		reg = x86_pmu_config_addr(i);
 		ret = rdmsrl_safe(reg, &val);
@@ -189,6 +216,11 @@ static bool check_hw_exists(void)
 		}
 	}
 
+	/*
+	 * Now write a value and read it back to see if it matches,
+	 * this is needed to detect certain hardware emulators (qemu/kvm)
+	 * that don't trap on the MSR access and always return 0s.
+	 */
 	val = 0xabcdUL;
 	ret = checking_wrmsrl(x86_pmu_event_addr(0), val);
 	ret |= rdmsrl_safe(x86_pmu_event_addr(0), &val_new);
@@ -198,6 +230,9 @@ static bool check_hw_exists(void)
 	return true;
 
 bios_fail:
+	/*
+	 * We still allow the PMU driver to operate:
+	 */
 	printk(KERN_CONT "Broken BIOS detected, complain to your hardware vendor.\n");
 	printk(KERN_ERR FW_BUG "the BIOS has corrupted hw-PMU resources (MSR %x is %Lx)\n", reg, val);
 
@@ -268,6 +303,12 @@ int x86_setup_perfctr(struct perf_event *event)
 		hwc->last_period = hwc->sample_period;
 		local64_set(&hwc->period_left, hwc->sample_period);
 	} else {
+		/*
+		 * If we have a PMU initialized but no APIC
+		 * interrupts, we cannot sample hardware
+		 * events (user-space has to fall back and
+		 * sample via a hrtimer based software event):
+		 */
 		if (!x86_pmu.apic)
 			return -EOPNOTSUPP;
 	}
@@ -281,6 +322,9 @@ int x86_setup_perfctr(struct perf_event *event)
 	if (attr->config >= x86_pmu.max_events)
 		return -EINVAL;
 
+	/*
+	 * The generic map:
+	 */
 	config = x86_pmu.event_map(attr->config);
 
 	if (config == 0)
@@ -289,13 +333,16 @@ int x86_setup_perfctr(struct perf_event *event)
 	if (config == -1LL)
 		return -EINVAL;
 
+	/*
+	 * Branch tracing:
+	 */
 	if (attr->config == PERF_COUNT_HW_BRANCH_INSTRUCTIONS &&
 	    !attr->freq && hwc->sample_period == 1) {
-		
+		/* BTS is not supported by this architecture. */
 		if (!x86_pmu.bts_active)
 			return -EOPNOTSUPP;
 
-		
+		/* BTS is currently only allowed for user-mode. */
 		if (!attr->exclude_kernel)
 			return -EOPNOTSUPP;
 	}
@@ -305,12 +352,18 @@ int x86_setup_perfctr(struct perf_event *event)
 	return 0;
 }
 
+/*
+ * check that branch_sample_type is compatible with
+ * settings needed for precise_ip > 1 which implies
+ * using the LBR to capture ALL taken branches at the
+ * priv levels of the measurement
+ */
 static inline int precise_br_compat(struct perf_event *event)
 {
 	u64 m = event->attr.branch_sample_type;
 	u64 b = 0;
 
-	
+	/* must capture all branches */
 	if (!(m & PERF_SAMPLE_BRANCH_ANY))
 		return 0;
 
@@ -322,6 +375,9 @@ static inline int precise_br_compat(struct perf_event *event)
 	if (!event->attr.exclude_kernel)
 		b |= PERF_SAMPLE_BRANCH_KERNEL;
 
+	/*
+	 * ignore PERF_SAMPLE_BRANCH_HV, not supported on x86
+	 */
 
 	return m == b;
 }
@@ -331,17 +387,21 @@ int x86_pmu_hw_config(struct perf_event *event)
 	if (event->attr.precise_ip) {
 		int precise = 0;
 
-		
+		/* Support for constant skid */
 		if (x86_pmu.pebs_active) {
 			precise++;
 
-			
+			/* Support for IP fixup */
 			if (x86_pmu.lbr_nr)
 				precise++;
 		}
 
 		if (event->attr.precise_ip > precise)
 			return -EOPNOTSUPP;
+		/*
+		 * check that PEBS LBR correction does not conflict with
+		 * whatever the user is asking with attr->branch_sample_type
+		 */
 		if (event->attr.precise_ip > 1) {
 			u64 *br_type = &event->attr.branch_sample_type;
 
@@ -349,9 +409,16 @@ int x86_pmu_hw_config(struct perf_event *event)
 				if (!precise_br_compat(event))
 					return -EOPNOTSUPP;
 
-				
+				/* branch_sample_type is compatible */
 
 			} else {
+				/*
+				 * user did not specify  branch_sample_type
+				 *
+				 * For PEBS fixups, we capture all
+				 * the branches at the priv level of the
+				 * event.
+				 */
 				*br_type = PERF_SAMPLE_BRANCH_ANY;
 
 				if (!event->attr.exclude_user)
@@ -363,8 +430,15 @@ int x86_pmu_hw_config(struct perf_event *event)
 		}
 	}
 
+	/*
+	 * Generate PMC IRQs:
+	 * (keep 'enabled' bit clear for now)
+	 */
 	event->hw.config = ARCH_PERFMON_EVENTSEL_INT;
 
+	/*
+	 * Count user and OS events unless requested not to
+	 */
 	if (!event->attr.exclude_user)
 		event->hw.config |= ARCH_PERFMON_EVENTSEL_USR;
 	if (!event->attr.exclude_kernel)
@@ -376,6 +450,9 @@ int x86_pmu_hw_config(struct perf_event *event)
 	return x86_setup_perfctr(event);
 }
 
+/*
+ * Setup the hardware configuration for a given attr_type
+ */
 static int __x86_pmu_event_init(struct perf_event *event)
 {
 	int err;
@@ -405,10 +482,10 @@ static int __x86_pmu_event_init(struct perf_event *event)
 	event->hw.last_cpu = -1;
 	event->hw.last_tag = ~0ULL;
 
-	
+	/* mark unused */
 	event->hw.extra_reg.idx = EXTRA_REG_NONE;
 
-	
+	/* mark not used */
 	event->hw.extra_reg.idx = EXTRA_REG_NONE;
 	event->hw.branch_reg.idx = EXTRA_REG_NONE;
 
@@ -472,14 +549,22 @@ static inline int is_x86_event(struct perf_event *event)
 	return event->pmu == &pmu;
 }
 
+/*
+ * Event scheduler state:
+ *
+ * Assign events iterating over all events and counters, beginning
+ * with events with least weights first. Keep the current iterator
+ * state in struct sched_state.
+ */
 struct sched_state {
 	int	weight;
-	int	event;		
-	int	counter;	
-	int	unassigned;	
+	int	event;		/* event index */
+	int	counter;	/* counter index */
+	int	unassigned;	/* number of events to be assigned left */
 	unsigned long used[BITS_TO_LONGS(X86_PMC_IDX_MAX)];
 };
 
+/* Total max is X86_PMC_IDX_MAX, but we are O(n!) limited */
 #define	SCHED_STATES_MAX	2
 
 struct perf_sched {
@@ -491,6 +576,9 @@ struct perf_sched {
 	struct sched_state	saved[SCHED_STATES_MAX];
 };
 
+/*
+ * Initialize interator that runs through all events and counters.
+ */
 static void perf_sched_init(struct perf_sched *sched, struct event_constraint **c,
 			    int num, int wmin, int wmax)
 {
@@ -506,7 +594,7 @@ static void perf_sched_init(struct perf_sched *sched, struct event_constraint **
 			break;
 	}
 
-	sched->state.event	= idx;		
+	sched->state.event	= idx;		/* start with min weight */
 	sched->state.weight	= wmin;
 	sched->state.unassigned	= num;
 }
@@ -528,12 +616,16 @@ static bool perf_sched_restore_state(struct perf_sched *sched)
 	sched->saved_states--;
 	sched->state = sched->saved[sched->saved_states];
 
-	
+	/* continue with next counter: */
 	clear_bit(sched->state.counter++, sched->state.used);
 
 	return true;
 }
 
+/*
+ * Select a counter for the current event to schedule. Return true on
+ * success.
+ */
 static bool __perf_sched_find_counter(struct perf_sched *sched)
 {
 	struct event_constraint *c;
@@ -547,7 +639,7 @@ static bool __perf_sched_find_counter(struct perf_sched *sched)
 
 	c = sched->constraints[sched->state.event];
 
-	
+	/* Prefer fixed purpose counters */
 	if (x86_pmu.num_counters_fixed) {
 		idx = X86_PMC_IDX_FIXED;
 		for_each_set_bit_from(idx, c->idxmsk, X86_PMC_IDX_MAX) {
@@ -555,7 +647,7 @@ static bool __perf_sched_find_counter(struct perf_sched *sched)
 				goto done;
 		}
 	}
-	
+	/* Grab the first unused counter starting with idx */
 	idx = sched->state.counter;
 	for_each_set_bit_from(idx, c->idxmsk, X86_PMC_IDX_FIXED) {
 		if (!__test_and_set_bit(idx, sched->state.used))
@@ -583,6 +675,10 @@ static bool perf_sched_find_counter(struct perf_sched *sched)
 	return true;
 }
 
+/*
+ * Go through all unassigned events and find the next one to schedule.
+ * Take events with the least weight first. Return true on success.
+ */
 static bool perf_sched_next_event(struct perf_sched *sched)
 {
 	struct event_constraint *c;
@@ -591,10 +687,10 @@ static bool perf_sched_next_event(struct perf_sched *sched)
 		return false;
 
 	do {
-		
+		/* next event */
 		sched->state.event++;
 		if (sched->state.event >= sched->max_events) {
-			
+			/* next weight */
 			sched->state.event = 0;
 			sched->state.weight++;
 			if (sched->state.weight > sched->max_weight)
@@ -603,11 +699,14 @@ static bool perf_sched_next_event(struct perf_sched *sched)
 		c = sched->constraints[sched->state.event];
 	} while (c->weight != sched->state.weight);
 
-	sched->state.counter = 0;	
+	sched->state.counter = 0;	/* start with first counter */
 
 	return true;
 }
 
+/*
+ * Assign a counter for each event.
+ */
 static int perf_assign_events(struct event_constraint **constraints, int n,
 			      int wmin, int wmax, int *assign)
 {
@@ -617,7 +716,7 @@ static int perf_assign_events(struct event_constraint **constraints, int n,
 
 	do {
 		if (!perf_sched_find_counter(&sched))
-			break;	
+			break;	/* failed */
 		if (assign)
 			assign[sched.state.event] = sched.state.counter;
 	} while (perf_sched_next_event(&sched));
@@ -641,19 +740,22 @@ int x86_schedule_events(struct cpu_hw_events *cpuc, int n, int *assign)
 		wmax = max(wmax, c->weight);
 	}
 
+	/*
+	 * fastpath, try to reuse previous register
+	 */
 	for (i = 0; i < n; i++) {
 		hwc = &cpuc->event_list[i]->hw;
 		c = constraints[i];
 
-		
+		/* never assigned */
 		if (hwc->idx == -1)
 			break;
 
-		
+		/* constraint still honored */
 		if (!test_bit(hwc->idx, c->idxmsk))
 			break;
 
-		
+		/* not already used */
 		if (test_bit(hwc->idx, used_mask))
 			break;
 
@@ -662,10 +764,14 @@ int x86_schedule_events(struct cpu_hw_events *cpuc, int n, int *assign)
 			assign[i] = hwc->idx;
 	}
 
-	
+	/* slow path */
 	if (i != n)
 		num = perf_assign_events(constraints, n, wmin, wmax, assign);
 
+	/*
+	 * scheduling failed or is just a simulation,
+	 * free resources if necessary
+	 */
 	if (!assign || num) {
 		for (i = 0; i < n; i++) {
 			if (x86_pmu.put_event_constraints)
@@ -675,6 +781,10 @@ int x86_schedule_events(struct cpu_hw_events *cpuc, int n, int *assign)
 	return num ? -EINVAL : 0;
 }
 
+/*
+ * dogrp: true if must collect siblings events (group)
+ * returns total number of events and error code
+ */
 static int collect_events(struct cpu_hw_events *cpuc, struct perf_event *leader, bool dogrp)
 {
 	struct perf_event *event;
@@ -682,7 +792,7 @@ static int collect_events(struct cpu_hw_events *cpuc, struct perf_event *leader,
 
 	max_count = x86_pmu.num_counters + x86_pmu.num_counters_fixed;
 
-	
+	/* current number of events already accepted */
 	n = cpuc->n_events;
 
 	if (is_x86_event(leader)) {
@@ -755,14 +865,31 @@ static void x86_pmu_enable(struct pmu *pmu)
 
 	if (cpuc->n_added) {
 		int n_running = cpuc->n_events - cpuc->n_added;
+		/*
+		 * apply assignment obtained either from
+		 * hw_perf_group_sched_in() or x86_pmu_enable()
+		 *
+		 * step1: save events moving to new counters
+		 * step2: reprogram moved events into new counters
+		 */
 		for (i = 0; i < n_running; i++) {
 			event = cpuc->event_list[i];
 			hwc = &event->hw;
 
+			/*
+			 * we can avoid reprogramming counter if:
+			 * - assigned same counter as last time
+			 * - running on same CPU as last time
+			 * - no other event has used the counter since
+			 */
 			if (hwc->idx == -1 ||
 			    match_prev_assignment(hwc, cpuc, i))
 				continue;
 
+			/*
+			 * Ensure we don't accidentally enable a stopped
+			 * counter simply because we rescheduled.
+			 */
 			if (hwc->state & PERF_HES_STOPPED)
 				hwc->state |= PERF_HES_ARCH;
 
@@ -795,6 +922,10 @@ static void x86_pmu_enable(struct pmu *pmu)
 
 static DEFINE_PER_CPU(u64 [X86_PMC_IDX_MAX], pmc_prev_left);
 
+/*
+ * Set the next IRQ period, based on the hwc->period_left value.
+ * To be called with the event disabled in hw:
+ */
 int x86_perf_event_set_period(struct perf_event *event)
 {
 	struct hw_perf_event *hwc = &event->hw;
@@ -805,6 +936,9 @@ int x86_perf_event_set_period(struct perf_event *event)
 	if (idx == X86_PMC_IDX_FIXED_BTS)
 		return 0;
 
+	/*
+	 * If we are way outside a reasonable range then just skip forward:
+	 */
 	if (unlikely(left <= -period)) {
 		left = period;
 		local64_set(&hwc->period_left, left);
@@ -818,6 +952,9 @@ int x86_perf_event_set_period(struct perf_event *event)
 		hwc->last_period = period;
 		ret = 1;
 	}
+	/*
+	 * Quirk: certain CPUs dont like it if just 1 hw_event is left:
+	 */
 	if (unlikely(left < 2))
 		left = 2;
 
@@ -826,10 +963,19 @@ int x86_perf_event_set_period(struct perf_event *event)
 
 	per_cpu(pmc_prev_left[idx], smp_processor_id()) = left;
 
+	/*
+	 * The hw event starts counting from this event offset,
+	 * mark it to be able to extra future deltas:
+	 */
 	local64_set(&hwc->prev_count, (u64)-left);
 
 	wrmsrl(hwc->event_base, (u64)(-left) & x86_pmu.cntval_mask);
 
+	/*
+	 * Due to erratum on certan cpu we need
+	 * a second write to be sure the register
+	 * is updated properly
+	 */
 	if (x86_pmu.perfctr_second_write) {
 		wrmsrl(hwc->event_base,
 			(u64)(-left) & x86_pmu.cntval_mask);
@@ -847,6 +993,12 @@ void x86_pmu_enable_event(struct perf_event *event)
 				       ARCH_PERFMON_EVENTSEL_ENABLE);
 }
 
+/*
+ * Add a single event to the PMU.
+ *
+ * The event is added to the group of enabled events
+ * but only if it can be scehduled with existing events.
+ */
 static int x86_pmu_add(struct perf_event *event, int flags)
 {
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
@@ -866,12 +1018,21 @@ static int x86_pmu_add(struct perf_event *event, int flags)
 	if (!(flags & PERF_EF_START))
 		hwc->state |= PERF_HES_ARCH;
 
+	/*
+	 * If group events scheduling transaction was started,
+	 * skip the schedulability test here, it will be performed
+	 * at commit time (->commit_txn) as a whole
+	 */
 	if (cpuc->group_flag & PERF_EVENT_TXN)
 		goto done_collect;
 
 	ret = x86_pmu.schedule_events(cpuc, n, assign);
 	if (ret)
 		goto out;
+	/*
+	 * copy new assignment, now we know it is possible
+	 * will be used by hw_perf_enable()
+	 */
 	memcpy(cpuc->assign, assign, n*sizeof(int));
 
 done_collect:
@@ -977,6 +1138,10 @@ void x86_pmu_stop(struct perf_event *event, int flags)
 	}
 
 	if ((flags & PERF_EF_UPDATE) && !(hwc->state & PERF_HES_UPTODATE)) {
+		/*
+		 * Drain the remaining delta count out of a event
+		 * that we are disabling:
+		 */
 		x86_perf_event_update(event);
 		hwc->state |= PERF_HES_UPTODATE;
 	}
@@ -987,6 +1152,11 @@ static void x86_pmu_del(struct perf_event *event, int flags)
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
 	int i;
 
+	/*
+	 * If we're called during a txn, we don't need to do anything.
+	 * The events never got scheduled and ->cancel_txn will truncate
+	 * the event_list.
+	 */
 	if (cpuc->group_flag & PERF_EVENT_TXN)
 		return;
 
@@ -1020,10 +1190,23 @@ int x86_pmu_handle_irq(struct pt_regs *regs)
 
 	cpuc = &__get_cpu_var(cpu_hw_events);
 
+	/*
+	 * Some chipsets need to unmask the LVTPC in a particular spot
+	 * inside the nmi handler.  As a result, the unmasking was pushed
+	 * into all the nmi handlers.
+	 *
+	 * This generic handler doesn't seem to have any issues where the
+	 * unmasking occurs so it was left at the top.
+	 */
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 
 	for (idx = 0; idx < x86_pmu.num_counters; idx++) {
 		if (!test_bit(idx, cpuc->active_mask)) {
+			/*
+			 * Though we deactivated the counter some cpus
+			 * might still deliver spurious interrupts still
+			 * in flight. Catch them:
+			 */
 			if (__test_and_clear_bit(idx, cpuc->running))
 				handled++;
 			continue;
@@ -1035,6 +1218,9 @@ int x86_pmu_handle_irq(struct pt_regs *regs)
 		if (val & (1ULL << (x86_pmu.cntval_bits - 1)))
 			continue;
 
+		/*
+		 * event overflow
+		 */
 		handled++;
 		data.period	= event->hw.last_period;
 
@@ -1056,6 +1242,9 @@ void perf_events_lapic_init(void)
 	if (!x86_pmu.apic || !x86_pmu_initialized())
 		return;
 
+	/*
+	 * Always use NMI for PMU
+	 */
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 }
 
@@ -1154,7 +1343,7 @@ static int __init init_hw_perf_events(void)
 
 	pmu_check_apic();
 
-	
+	/* sanity check that the hardware exists or is emulated */
 	if (!check_hw_exists())
 		return 0;
 
@@ -1187,6 +1376,10 @@ static int __init init_hw_perf_events(void)
 				   0, x86_pmu.num_counters, 0);
 
 	if (x86_pmu.event_constraints) {
+		/*
+		 * event on fixed counter2 (REF_CYCLES) only works on this
+		 * counter, so do not extend mask to generic counters
+		 */
 		for_each_event_constraint(c, x86_pmu.event_constraints) {
 			if (c->cmask != X86_RAW_EVENT_MASK
 			    || c->idxmsk64 == X86_PMC_MSK_FIXED_REF_CYCLES) {
@@ -1198,7 +1391,7 @@ static int __init init_hw_perf_events(void)
 		}
 	}
 
-	x86_pmu.attr_rdpmc = 1; 
+	x86_pmu.attr_rdpmc = 1; /* enable userspace RDPMC usage by default */
 	x86_pmu_format_group.attrs = x86_pmu.format_attrs;
 
 	pr_info("... version:                %d\n",     x86_pmu.version);
@@ -1221,6 +1414,11 @@ static inline void x86_pmu_read(struct perf_event *event)
 	x86_perf_event_update(event);
 }
 
+/*
+ * Start group events scheduling transaction
+ * Set the flag to make pmu::enable() not perform the
+ * schedulability test, it will be performed at commit time
+ */
 static void x86_pmu_start_txn(struct pmu *pmu)
 {
 	perf_pmu_disable(pmu);
@@ -1228,14 +1426,27 @@ static void x86_pmu_start_txn(struct pmu *pmu)
 	__this_cpu_write(cpu_hw_events.n_txn, 0);
 }
 
+/*
+ * Stop group events scheduling transaction
+ * Clear the flag and pmu::enable() will perform the
+ * schedulability test.
+ */
 static void x86_pmu_cancel_txn(struct pmu *pmu)
 {
 	__this_cpu_and(cpu_hw_events.group_flag, ~PERF_EVENT_TXN);
+	/*
+	 * Truncate the collected events.
+	 */
 	__this_cpu_sub(cpu_hw_events.n_added, __this_cpu_read(cpu_hw_events.n_txn));
 	__this_cpu_sub(cpu_hw_events.n_events, __this_cpu_read(cpu_hw_events.n_txn));
 	perf_pmu_enable(pmu);
 }
 
+/*
+ * Commit group events scheduling transaction
+ * Perform the group schedulability test as a whole
+ * Return 0 if success
+ */
 static int x86_pmu_commit_txn(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
@@ -1251,12 +1462,24 @@ static int x86_pmu_commit_txn(struct pmu *pmu)
 	if (ret)
 		return ret;
 
+	/*
+	 * copy new assignment, now we know it is possible
+	 * will be used by hw_perf_enable()
+	 */
 	memcpy(cpuc->assign, assign, n*sizeof(int));
 
 	cpuc->group_flag &= ~PERF_EVENT_TXN;
 	perf_pmu_enable(pmu);
 	return 0;
 }
+/*
+ * a fake_cpuc is used to validate event groups. Due to
+ * the extra reg logic, we need to also allocate a fake
+ * per_core and per_cpu structure. Otherwise, group events
+ * using extra reg may conflict without the kernel being
+ * able to catch this when the last event gets added to
+ * the group.
+ */
 static void free_fake_cpuc(struct cpu_hw_events *cpuc)
 {
 	kfree(cpuc->shared_regs);
@@ -1272,7 +1495,7 @@ static struct cpu_hw_events *allocate_fake_cpuc(void)
 	if (!cpuc)
 		return ERR_PTR(-ENOMEM);
 
-	
+	/* only needed, if we have extra_regs */
 	if (x86_pmu.extra_regs) {
 		cpuc->shared_regs = allocate_shared_regs(cpu);
 		if (!cpuc->shared_regs)
@@ -1284,6 +1507,9 @@ error:
 	return ERR_PTR(-ENOMEM);
 }
 
+/*
+ * validate that we can schedule this event
+ */
 static int validate_event(struct perf_event *event)
 {
 	struct cpu_hw_events *fake_cpuc;
@@ -1307,6 +1533,17 @@ static int validate_event(struct perf_event *event)
 	return ret;
 }
 
+/*
+ * validate a single event group
+ *
+ * validation include:
+ *	- check events are compatible which each other
+ *	- events do not compete for the same counter
+ *	- number of events <= number of counters
+ *
+ * validation ensures the group can be loaded onto the
+ * PMU if it was the only group available.
+ */
 static int validate_group(struct perf_event *event)
 {
 	struct perf_event *leader = event->group_leader;
@@ -1316,6 +1553,12 @@ static int validate_group(struct perf_event *event)
 	fake_cpuc = allocate_fake_cpuc();
 	if (IS_ERR(fake_cpuc))
 		return PTR_ERR(fake_cpuc);
+	/*
+	 * the event is not yet connected with its
+	 * siblings therefore we must first collect
+	 * existing siblings, then add the new event
+	 * before we can simulate the scheduling
+	 */
 	n = collect_events(fake_cpuc, leader, true);
 	if (n < 0)
 		goto out;
@@ -1351,6 +1594,11 @@ static int x86_pmu_event_init(struct perf_event *event)
 
 	err = __x86_pmu_event_init(event);
 	if (!err) {
+		/*
+		 * we temporarily connect event to its pmu
+		 * such that validate_group() can classify
+		 * it as an x86 event using is_x86_event()
+		 */
 		tmp = event->pmu;
 		event->pmu = &pmu;
 
@@ -1478,6 +1726,9 @@ void arch_perf_update_userpage(struct perf_event_mmap_page *userpg, u64 now)
 	userpg->time_offset = this_cpu_read(cyc2ns_offset) - now;
 }
 
+/*
+ * callchain support
+ */
 
 static int backtrace_stack(void *data, char *name)
 {
@@ -1501,7 +1752,7 @@ void
 perf_callchain_kernel(struct perf_callchain_entry *entry, struct pt_regs *regs)
 {
 	if (perf_guest_cbs && perf_guest_cbs->is_in_guest()) {
-		
+		/* TODO: We don't support guest os callchain now */
 		return;
 	}
 
@@ -1517,7 +1768,7 @@ perf_callchain_kernel(struct perf_callchain_entry *entry, struct pt_regs *regs)
 static inline int
 perf_callchain_user32(struct pt_regs *regs, struct perf_callchain_entry *entry)
 {
-	
+	/* 32-bit process in 64-bit kernel. */
 	struct stack_frame_ia32 frame;
 	const void __user *fp;
 
@@ -1557,7 +1808,7 @@ perf_callchain_user(struct perf_callchain_entry *entry, struct pt_regs *regs)
 	const void __user *fp;
 
 	if (perf_guest_cbs && perf_guest_cbs->is_in_guest()) {
-		
+		/* TODO: We don't support guest os callchain now */
 		return;
 	}
 

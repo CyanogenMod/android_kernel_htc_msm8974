@@ -38,12 +38,15 @@
 #include <plat/pm.h>
 #include <plat/irq.h>
 
+/* camera irq */
 
 static void s3c_irq_demux_cam(unsigned int irq,
 			      struct irq_desc *desc)
 {
 	unsigned int subsrc, submsk;
 
+	/* read the current pending interrupts, and the mask
+	 * for what it is available */
 
 	subsrc = __raw_readl(S3C2410_SUBSRCPND);
 	submsk = __raw_readl(S3C2410_INTSUBMSK);
@@ -96,7 +99,7 @@ static int s3c244x_irq_add(struct device *dev, struct subsys_interface *sif)
 				 handle_level_irq);
 	set_irq_flags(IRQ_NFCON, IRQF_VALID);
 
-	
+	/* add chained handler for camera */
 
 	irq_set_chip_and_handler(IRQ_CAM, &s3c_irq_level_chip,
 				 handle_level_irq);

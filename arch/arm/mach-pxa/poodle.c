@@ -54,32 +54,32 @@
 #include "devices.h"
 
 static unsigned long poodle_pin_config[] __initdata = {
-	
+	/* I/O */
 	GPIO79_nCS_3,
 	GPIO80_nCS_4,
 	GPIO18_RDY,
 
-	
+	/* Clock */
 	GPIO12_32KHz,
 
-	
+	/* SSP1 */
 	GPIO23_SSP1_SCLK,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
-	GPIO24_GPIO,	
+	GPIO24_GPIO,	/* POODLE_GPIO_TP_CS - SFRM as chip select */
 
-	
+	/* I2S */
 	GPIO28_I2S_BITCLK_OUT,
 	GPIO29_I2S_SDATA_IN,
 	GPIO30_I2S_SDATA_OUT,
 	GPIO31_I2S_SYNC,
 	GPIO32_I2S_SYSCLK,
 
-	
+	/* Infra-Red */
 	GPIO47_FICP_TXD,
 	GPIO46_FICP_RXD,
 
-	
+	/* FFUART */
 	GPIO40_FFUART_DTR,
 	GPIO41_FFUART_RTS,
 	GPIO39_FFUART_TXD,
@@ -87,10 +87,10 @@ static unsigned long poodle_pin_config[] __initdata = {
 	GPIO34_FFUART_RXD,
 	GPIO35_FFUART_CTS,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* PC Card */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -102,18 +102,18 @@ static unsigned long poodle_pin_config[] __initdata = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* MMC */
 	GPIO6_MMC_CLK,
 	GPIO8_MMC_CS0,
 
-	
-	GPIO9_GPIO,	
-	GPIO7_GPIO,	
-	GPIO3_GPIO,	
-	GPIO33_GPIO,	
+	/* GPIO */
+	GPIO9_GPIO,	/* POODLE_GPIO_nSD_DETECT */
+	GPIO7_GPIO,	/* POODLE_GPIO_nSD_WP */
+	GPIO3_GPIO,	/* POODLE_GPIO_SD_PWR */
+	GPIO33_GPIO,	/* POODLE_GPIO_SD_PWR1 */
 
-	GPIO20_GPIO,	
-	GPIO22_GPIO,	
+	GPIO20_GPIO,	/* POODLE_GPIO_USB_PULLUP */
+	GPIO22_GPIO,	/* POODLE_GPIO_IR_ON */
 };
 
 static struct resource poodle_scoop_resources[] = {
@@ -162,6 +162,7 @@ static struct platform_device poodle_audio_device = {
 	.id	= -1,
 };
 
+/* LoCoMo device */
 static struct resource locomo_resources[] = {
 	[0] = {
 		.start		= 0x10000000,
@@ -228,6 +229,12 @@ static void __init poodle_init_spi(void)
 static inline void poodle_init_spi(void) {}
 #endif
 
+/*
+ * MMC/SD Device
+ *
+ * The card detect interrupt isn't debounced so we delay it by 250ms
+ * to give the card a chance to fully insert/eject.
+ */
 static int poodle_mci_init(struct device *dev, irq_handler_t poodle_detect_int, void *data)
 {
 	int err;
@@ -283,18 +290,25 @@ static struct pxamci_platform_data poodle_mci_platform_data = {
 };
 
 
+/*
+ * Irda
+ */
 static struct pxaficp_platform_data poodle_ficp_platform_data = {
 	.gpio_pwdown		= POODLE_GPIO_IR_ON,
 	.transceiver_cap	= IR_SIRMODE | IR_OFF,
 };
 
 
+/*
+ * USB Device Controller
+ */
 static struct pxa2xx_udc_mach_info udc_info __initdata = {
-	
+	/* no connect GPIO; poodle can't tell connection status */
 	.gpio_pullup	= POODLE_GPIO_USB_PULLUP,
 };
 
 
+/* PXAFB device */
 static struct pxafb_mode_info poodle_fb_mode = {
 	.pixclock	= 144700,
 	.xres		= 320,
@@ -452,7 +466,7 @@ static void __init fixup_poodle(struct tag *tags, char **cmdline,
 MACHINE_START(POODLE, "SHARP Poodle")
 	.fixup		= fixup_poodle,
 	.map_io		= pxa25x_map_io,
-	.nr_irqs	= POODLE_NR_IRQS,	
+	.nr_irqs	= POODLE_NR_IRQS,	/* 4 for LoCoMo */
 	.init_irq	= pxa25x_init_irq,
 	.handle_irq	= pxa25x_handle_irq,
 	.timer		= &pxa_timer,

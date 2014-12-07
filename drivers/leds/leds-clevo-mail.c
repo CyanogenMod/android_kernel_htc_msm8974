@@ -30,6 +30,15 @@ static int __init clevo_mail_led_dmi_callback(const struct dmi_system_id *id)
 	return 1;
 }
 
+/*
+ * struct mail_led_whitelist - List of known good models
+ *
+ * Contains the known good models this driver is compatible with.
+ * When adding a new model try to be as strict as possible. This
+ * makes it possible to keep the false positives (the model is
+ * detected as working, but in reality it is not) as low as
+ * possible.
+ */
 static struct dmi_system_id __initdata mail_led_whitelist[] = {
 	{
 		.callback = clevo_mail_led_dmi_callback,
@@ -105,19 +114,23 @@ static int clevo_mail_led_blink(struct led_classdev *led_cdev,
 
 	i8042_lock_chip();
 
-	if (*delay_on == 0  && *delay_off == 0 ) {
-		*delay_on = 1000; 
-		*delay_off = 1000; 
+	if (*delay_on == 0 /* ms */ && *delay_off == 0 /* ms */) {
+		/* Special case: the leds subsystem requested us to
+		 * chose one user friendly blinking of the LED, and
+		 * start it. Let's blink the led slowly (0.5Hz).
+		 */
+		*delay_on = 1000; /* ms */
+		*delay_off = 1000; /* ms */
 		i8042_command(NULL, CLEVO_MAIL_LED_BLINK_0_5HZ);
 		status = 0;
 
-	} else if (*delay_on == 500  && *delay_off == 500 ) {
-		
+	} else if (*delay_on == 500 /* ms */ && *delay_off == 500 /* ms */) {
+		/* blink the led with 1Hz */
 		i8042_command(NULL, CLEVO_MAIL_LED_BLINK_1HZ);
 		status = 0;
 
-	} else if (*delay_on == 1000  && *delay_off == 1000 ) {
-		
+	} else if (*delay_on == 1000 /* ms */ && *delay_off == 1000 /* ms */) {
+		/* blink the led with 0.5Hz */
 		i8042_command(NULL, CLEVO_MAIL_LED_BLINK_0_5HZ);
 		status = 0;
 
@@ -165,7 +178,7 @@ static int __init clevo_mail_led_init(void)
 	int error = 0;
 	int count = 0;
 
-	
+	/* Check with the help of DMI if we are running on supported hardware */
 	if (!nodetect) {
 		count = dmi_check_system(mail_led_whitelist);
 	} else {

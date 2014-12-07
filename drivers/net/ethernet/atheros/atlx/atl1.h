@@ -55,6 +55,7 @@ MODULE_DESCRIPTION("Atheros L1 Gigabit Ethernet Driver");
 struct atl1_adapter;
 struct atl1_hw;
 
+/* function prototypes needed by multiple files */
 static u32 atl1_hash_mc_addr(struct atl1_hw *hw, u8 *mc_addr);
 static void atl1_hash_set(struct atl1_hw *hw, u32 hash_value);
 static void atl1_set_mac_addr(struct atl1_hw *hw);
@@ -62,7 +63,9 @@ static int atl1_mii_ioctl(struct net_device *netdev, struct ifreq *ifr,
 	int cmd);
 static u32 atl1_check_link(struct atl1_adapter *adapter);
 
+/* hardware definitions specific to L1 */
 
+/* Block IDLE Status Register */
 #define IDLE_STATUS_RXMAC			0x1
 #define IDLE_STATUS_TXMAC			0x2
 #define IDLE_STATUS_RXQ				0x4
@@ -72,8 +75,10 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define IDLE_STATUS_SMB				0x40
 #define IDLE_STATUS_CMB				0x80
 
+/* MDIO Control Register */
 #define MDIO_WAIT_TIMES				30
 
+/* MAC Control Register */
 #define MAC_CTRL_TX_PAUSE			0x10000
 #define MAC_CTRL_SCNT				0x20000
 #define MAC_CTRL_SRST_TX			0x40000
@@ -87,12 +92,14 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define MAC_CTRL_RX_CHKSUM_EN			0x1000000
 #define MAC_CTRL_DBG				0x8000000
 
+/* Wake-On-Lan control register */
 #define WOL_CLK_SWITCH_EN			0x8000
 #define WOL_PT5_EN				0x200000
 #define WOL_PT6_EN				0x400000
 #define WOL_PT5_MATCH				0x8000000
 #define WOL_PT6_MATCH				0x10000000
 
+/* WOL Length ( 2 DWORD ) */
 #define REG_WOL_PATTERN_LEN			0x14A4
 #define WOL_PT_LEN_MASK				0x7F
 #define WOL_PT0_LEN_SHIFT			0
@@ -103,6 +110,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define WOL_PT5_LEN_SHIFT			8
 #define WOL_PT6_LEN_SHIFT			16
 
+/* Internal SRAM Partition Registers, low 32 bits */
 #define REG_SRAM_RFD_LEN			0x1504
 #define REG_SRAM_RRD_ADDR			0x1508
 #define REG_SRAM_RRD_LEN			0x150C
@@ -120,8 +128,10 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define SRAM_PATH_ADDR_MASK			0xFFF
 #define SRAM_PATH_ADDR_SHIFT			16
 
+/* Load Ptr Register */
 #define REG_LOAD_PTR				0x1534
 
+/* Descriptor Control registers, low 32 bits */
 #define REG_DESC_RFD_ADDR_LO			0x1544
 #define REG_DESC_RRD_ADDR_LO			0x1548
 #define REG_DESC_TPD_ADDR_LO			0x154C
@@ -136,6 +146,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define DESC_TPD_RING_SIZE_MASK			0x3FF
 #define DESC_TPD_RING_SIZE_SHIFT		0
 
+/* TXQ Control Register */
 #define REG_TXQ_CTRL				0x1580
 #define TXQ_CTRL_TPD_BURST_NUM_SHIFT		0
 #define TXQ_CTRL_TPD_BURST_NUM_MASK		0x1F
@@ -146,12 +157,14 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define TXQ_CTRL_TXF_BURST_NUM_SHIFT		16
 #define TXQ_CTRL_TXF_BURST_NUM_MASK		0xFFFF
 
+/* Jumbo packet Threshold for task offload */
 #define REG_TX_JUMBO_TASK_TH_TPD_IPG		0x1584
 #define TX_JUMBO_TASK_TH_MASK			0x7FF
 #define TX_JUMBO_TASK_TH_SHIFT			0
 #define TX_TPD_MIN_IPG_MASK			0x1F
 #define TX_TPD_MIN_IPG_SHIFT			16
 
+/* RXQ Control Register */
 #define REG_RXQ_CTRL				0x15A0
 #define RXQ_CTRL_RFD_BURST_NUM_SHIFT		0
 #define RXQ_CTRL_RFD_BURST_NUM_MASK		0xFF
@@ -162,6 +175,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define RXQ_CTRL_CUT_THRU_EN			0x40000000
 #define RXQ_CTRL_EN				0x80000000
 
+/* Rx jumbo packet threshold and rrd  retirement timer */
 #define REG_RXQ_JMBOSZ_RRDTIM			0x15A4
 #define RXQ_JMBOSZ_TH_MASK			0x7FF
 #define RXQ_JMBOSZ_TH_SHIFT			0
@@ -170,18 +184,21 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define RXQ_RRD_TIMER_MASK			0xFFFF
 #define RXQ_RRD_TIMER_SHIFT			16
 
+/* RFD flow control register */
 #define REG_RXQ_RXF_PAUSE_THRESH		0x15A8
 #define RXQ_RXF_PAUSE_TH_HI_SHIFT		16
 #define RXQ_RXF_PAUSE_TH_HI_MASK		0xFFF
 #define RXQ_RXF_PAUSE_TH_LO_SHIFT		0
 #define RXQ_RXF_PAUSE_TH_LO_MASK		0xFFF
 
+/* RRD flow control register */
 #define REG_RXQ_RRD_PAUSE_THRESH		0x15AC
 #define RXQ_RRD_PAUSE_TH_HI_SHIFT		0
 #define RXQ_RRD_PAUSE_TH_HI_MASK		0xFFF
 #define RXQ_RRD_PAUSE_TH_LO_SHIFT		16
 #define RXQ_RRD_PAUSE_TH_LO_MASK		0xFFF
 
+/* DMA Engine Control Register */
 #define REG_DMA_CTRL				0x15C0
 #define DMA_CTRL_DMAR_IN_ORDER			0x1
 #define DMA_CTRL_DMAR_ENH_ORDER			0x2
@@ -194,30 +211,37 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define DMA_CTRL_DMAR_EN			0x400
 #define DMA_CTRL_DMAW_EN			0x800
 
+/* CMB/SMB Control Register */
 #define REG_CSMB_CTRL				0x15D0
 #define CSMB_CTRL_CMB_NOW			1
 #define CSMB_CTRL_SMB_NOW			2
 #define CSMB_CTRL_CMB_EN			4
 #define CSMB_CTRL_SMB_EN			8
 
+/* CMB DMA Write Threshold Register */
 #define REG_CMB_WRITE_TH			0x15D4
 #define CMB_RRD_TH_SHIFT			0
 #define CMB_RRD_TH_MASK				0x7FF
 #define CMB_TPD_TH_SHIFT			16
 #define CMB_TPD_TH_MASK				0x7FF
 
+/* RX/TX count-down timer to trigger CMB-write. 2us resolution. */
 #define REG_CMB_WRITE_TIMER			0x15D8
 #define CMB_RX_TM_SHIFT				0
 #define CMB_RX_TM_MASK				0xFFFF
 #define CMB_TX_TM_SHIFT				16
 #define CMB_TX_TM_MASK				0xFFFF
 
+/* Number of packet received since last CMB write */
 #define REG_CMB_RX_PKT_CNT			0x15DC
 
+/* Number of packet transmitted since last CMB write */
 #define REG_CMB_TX_PKT_CNT			0x15E0
 
+/* SMB auto DMA timer register */
 #define REG_SMB_TIMER				0x15E4
 
+/* Mailbox Register */
 #define REG_MAILBOX				0x15F0
 #define MB_RFD_PROD_INDX_SHIFT			0
 #define MB_RFD_PROD_INDX_MASK			0x7FF
@@ -226,6 +250,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define MB_TPD_PROD_INDX_SHIFT			22
 #define MB_TPD_PROD_INDX_MASK			0x3FF
 
+/* Interrupt Status Register */
 #define ISR_SMB					0x1
 #define ISR_TIMER				0x2
 #define ISR_MANUAL				0x4
@@ -250,6 +275,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define ISR_DIS_SMB				0x20000000
 #define ISR_DIS_DMA				0x40000000
 
+/* Normal Interrupt mask  */
 #define IMR_NORMAL_MASK	(\
 	ISR_SMB		|\
 	ISR_GPHY	|\
@@ -259,6 +285,7 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 	ISR_CMB_TX	|\
 	ISR_CMB_RX)
 
+/* Debug Interrupt Mask  (enable all interrupt) */
 #define IMR_DEBUG_MASK	(\
 	ISR_SMB		|\
 	ISR_TIMER	|\
@@ -281,81 +308,90 @@ static u32 atl1_check_link(struct atl1_adapter *adapter);
 #define MEDIA_TYPE_10M_FULL			4
 #define MEDIA_TYPE_10M_HALF			5
 
-#define AUTONEG_ADVERTISE_SPEED_DEFAULT		0x002F	
+#define AUTONEG_ADVERTISE_SPEED_DEFAULT		0x002F	/* All but 1000-Half */
 
 #define MAX_JUMBO_FRAME_SIZE			10240
 
 #define ATL1_EEDUMP_LEN				48
 
+/* Statistics counters collected by the MAC */
 struct stats_msg_block {
-	
-	u32 rx_ok;		
-	u32 rx_bcast;		
-	u32 rx_mcast;		
-	u32 rx_pause;		
-	u32 rx_ctrl;		
-	u32 rx_fcs_err;		
-	u32 rx_len_err;		
-	u32 rx_byte_cnt;	
-	u32 rx_runt;		
-	u32 rx_frag;		
-	u32 rx_sz_64;		
+	/* rx */
+	u32 rx_ok;		/* good RX packets */
+	u32 rx_bcast;		/* good RX broadcast packets */
+	u32 rx_mcast;		/* good RX multicast packets */
+	u32 rx_pause;		/* RX pause frames */
+	u32 rx_ctrl;		/* RX control packets other than pause frames */
+	u32 rx_fcs_err;		/* RX packets with bad FCS */
+	u32 rx_len_err;		/* RX packets with length != actual size */
+	u32 rx_byte_cnt;	/* good bytes received. FCS is NOT included */
+	u32 rx_runt;		/* RX packets < 64 bytes with good FCS */
+	u32 rx_frag;		/* RX packets < 64 bytes with bad FCS */
+	u32 rx_sz_64;		/* 64 byte RX packets */
 	u32 rx_sz_65_127;
 	u32 rx_sz_128_255;
 	u32 rx_sz_256_511;
 	u32 rx_sz_512_1023;
 	u32 rx_sz_1024_1518;
-	u32 rx_sz_1519_max;	
-	u32 rx_sz_ov;		
-	u32 rx_rxf_ov;		
-	u32 rx_rrd_ov;		
-	u32 rx_align_err;	
-	u32 rx_bcast_byte_cnt;	
-	u32 rx_mcast_byte_cnt;	
-	u32 rx_err_addr;	
+	u32 rx_sz_1519_max;	/* 1519 byte to MTU RX packets */
+	u32 rx_sz_ov;		/* truncated RX packets > MTU */
+	u32 rx_rxf_ov;		/* frames dropped due to RX FIFO overflow */
+	u32 rx_rrd_ov;		/* frames dropped due to RRD overflow */
+	u32 rx_align_err;	/* alignment errors */
+	u32 rx_bcast_byte_cnt;	/* RX broadcast bytes, excluding FCS */
+	u32 rx_mcast_byte_cnt;	/* RX multicast bytes, excluding FCS */
+	u32 rx_err_addr;	/* packets dropped due to address filtering */
 
-	
-	u32 tx_ok;		
-	u32 tx_bcast;		
-	u32 tx_mcast;		
-	u32 tx_pause;		
-	u32 tx_exc_defer;	
-	u32 tx_ctrl;		
-	u32 tx_defer;		
-	u32 tx_byte_cnt;	
-	u32 tx_sz_64;		
+	/* tx */
+	u32 tx_ok;		/* good TX packets */
+	u32 tx_bcast;		/* good TX broadcast packets */
+	u32 tx_mcast;		/* good TX multicast packets */
+	u32 tx_pause;		/* TX pause frames */
+	u32 tx_exc_defer;	/* TX packets deferred excessively */
+	u32 tx_ctrl;		/* TX control frames, excluding pause frames */
+	u32 tx_defer;		/* TX packets deferred */
+	u32 tx_byte_cnt;	/* bytes transmitted, FCS is NOT included */
+	u32 tx_sz_64;		/* 64 byte TX packets */
 	u32 tx_sz_65_127;
 	u32 tx_sz_128_255;
 	u32 tx_sz_256_511;
 	u32 tx_sz_512_1023;
 	u32 tx_sz_1024_1518;
-	u32 tx_sz_1519_max;	
-	u32 tx_1_col;		
-	u32 tx_2_col;		
-	u32 tx_late_col;	
-	u32 tx_abort_col;	
-	u32 tx_underrun;	
+	u32 tx_sz_1519_max;	/* 1519 byte to MTU TX packets */
+	u32 tx_1_col;		/* packets TX after a single collision */
+	u32 tx_2_col;		/* packets TX after multiple collisions */
+	u32 tx_late_col;	/* TX packets with late collisions */
+	u32 tx_abort_col;	/* TX packets aborted w/excessive collisions */
+	u32 tx_underrun;	/* TX packets aborted due to TX FIFO underrun
+				 * or TRD FIFO underrun */
 	u32 tx_rd_eop;		/* reads beyond the EOP into the next frame
 				 * when TRD was not written timely */
-	u32 tx_len_err;		
-	u32 tx_trunc;		
-	u32 tx_bcast_byte;	
-	u32 tx_mcast_byte;	
-	u32 smb_updated;	
+	u32 tx_len_err;		/* TX packets where length != actual size */
+	u32 tx_trunc;		/* TX packets truncated due to size > MTU */
+	u32 tx_bcast_byte;	/* broadcast bytes transmitted, excluding FCS */
+	u32 tx_mcast_byte;	/* multicast bytes transmitted, excluding FCS */
+	u32 smb_updated;	/* 1: SMB Updated. This is used by software to
+				 * indicate the statistics update. Software
+				 * should clear this bit after retrieving the
+				 * statistics information. */
 };
 
+/* Coalescing Message Block */
 struct coals_msg_block {
-	u32 int_stats;		
-	u16 rrd_prod_idx;	
-	u16 rfd_cons_idx;	
-	u16 update;		
-	u16 tpd_cons_idx;	
+	u32 int_stats;		/* interrupt status */
+	u16 rrd_prod_idx;	/* TRD Producer Index. */
+	u16 rfd_cons_idx;	/* RFD Consumer Index. */
+	u16 update;		/* Selene sets this bit every time it DMAs the
+				 * CMB to host memory. Software should clear
+				 * this bit when CMB info is processed. */
+	u16 tpd_cons_idx;	/* TPD Consumer Index. */
 };
 
+/* RRD descriptor */
 struct rx_return_desc {
-	u8 num_buf;	
+	u8 num_buf;	/* Number of RFD buffers used by the received packet */
 	u8 resved;
-	u16 buf_indx;	
+	u16 buf_indx;	/* RFD Index of the first buffer */
 	union {
 		u32 valid;
 		struct {
@@ -364,10 +400,10 @@ struct rx_return_desc {
 		} xsum_sz;
 	} xsz;
 
-	u16 pkt_flg;	
-	u16 err_flg;	
+	u16 pkt_flg;	/* Packet flags */
+	u16 err_flg;	/* Error flags */
 	u16 resved2;
-	u16 vlan_tag;	
+	u16 vlan_tag;	/* VLAN TAG */
 };
 
 #define PACKET_FLAG_ETH_TYPE	0x0080
@@ -391,14 +427,73 @@ struct rx_return_desc {
 #define ERR_FLAG_LEN		0x0100
 #define ERR_FLAG_DES_ADDR	0x0200
 
+/* RFD descriptor */
 struct rx_free_desc {
-	__le64 buffer_addr;	
-	__le16 buf_len;		
-	u16 coalese;		
-	
+	__le64 buffer_addr;	/* Address of the descriptor's data buffer */
+	__le16 buf_len;		/* Size of the receive buffer in host memory */
+	u16 coalese;		/* Update consumer index to host after the
+				 * reception of this frame */
+	/* __packed is required */
 } __packed;
 
+/*
+ * The L1 transmit packet descriptor is comprised of four 32-bit words.
+ *
+ *	31					0
+ *	+---------------------------------------+
+ *      |	Word 0: Buffer addr lo 		|
+ *      +---------------------------------------+
+ *      |	Word 1: Buffer addr hi		|
+ *      +---------------------------------------+
+ *      |		Word 2			|
+ *      +---------------------------------------+
+ *      |		Word 3			|
+ *      +---------------------------------------+
+ *
+ * Words 0 and 1 combine to form a 64-bit buffer address.
+ *
+ * Word 2 is self explanatory in the #define block below.
+ *
+ * Word 3 has two forms, depending upon the state of bits 3 and 4.
+ * If bits 3 and 4 are both zero, then bits 14:31 are unused by the
+ * hardware.  Otherwise, if either bit 3 or 4 is set, the definition
+ * of bits 14:31 vary according to the following depiction.
+ *
+ *	0	End of packet			0	End of packet
+ *	1	Coalesce			1	Coalesce
+ *	2	Insert VLAN tag			2	Insert VLAN tag
+ *	3	Custom csum enable = 0		3	Custom csum enable = 1
+ *	4	Segment enable = 1		4	Segment enable = 0
+ *	5	Generate IP checksum		5	Generate IP checksum
+ *	6	Generate TCP checksum		6	Generate TCP checksum
+ *	7	Generate UDP checksum		7	Generate UDP checksum
+ *	8	VLAN tagged			8	VLAN tagged
+ *	9	Ethernet frame type		9	Ethernet frame type
+ *	10-+ 					10-+
+ *	11 |	IP hdr length (10:13)		11 |	IP hdr length (10:13)
+ *	12 |	(num 32-bit words)		12 |	(num 32-bit words)
+ *	13-+					13-+
+ *	14-+					14	Unused
+ *	15 |	TCP hdr length (14:17)		15	Unused
+ *	16 |	(num 32-bit words)		16-+
+ *	17-+					17 |
+ *	18	Header TPD flag			18 |
+ *	19-+					19 |	Payload offset
+ *	20 |					20 |	    (16:23)
+ *	21 |					21 |
+ *	22 |					22 |
+ *	23 |					23-+
+ *	24 |					24-+
+ *	25 |	MSS (19:31)			25 |
+ *	26 |					26 |
+ *	27 |					27 |	Custom csum offset
+ *	28 |					28 |	     (24:31)
+ *	29 |					29 |
+ *	30 |					30 |
+ *	31-+					31-+
+ */
 
+/* tpd word 2 */
 #define TPD_BUFLEN_MASK		0x3FFF
 #define TPD_BUFLEN_SHIFT	0
 #define TPD_DMAINT_MASK		0x0001
@@ -408,6 +503,7 @@ struct rx_free_desc {
 #define TPD_VLANTAG_MASK	0xFFFF
 #define TPD_VLANTAG_SHIFT	16
 
+/* tpd word 3 bits 0:13 */
 #define TPD_EOP_MASK		0x0001
 #define TPD_EOP_SHIFT		0
 #define TPD_COALESCE_MASK	0x0001
@@ -431,6 +527,7 @@ struct rx_free_desc {
 #define TPD_IPHL_MASK		0x000F
 #define TPD_IPHL_SHIFT		10
 
+/* tpd word 3 bits 14:31 if segment enabled */
 #define TPD_TCPHDRLEN_MASK	0x000F
 #define TPD_TCPHDRLEN_SHIFT	14
 #define TPD_HDRFLAG_MASK	0x0001
@@ -438,6 +535,7 @@ struct rx_free_desc {
 #define TPD_MSS_MASK		0x1FFF
 #define TPD_MSS_SHIFT		19
 
+/* tpd word 3 bits 16:31 if custom csum enabled */
 #define TPD_PLOADOFFSET_MASK	0x00FF
 #define TPD_PLOADOFFSET_SHIFT	16
 #define TPD_CCSUMOFFSET_MASK	0x00FF
@@ -449,6 +547,7 @@ struct tx_packet_desc {
 	__le32 word3;
 };
 
+/* DMA Order Settings */
 enum atl1_dma_order {
 	atl1_dma_ord_in = 1,
 	atl1_dma_ord_enh = 2,
@@ -470,7 +569,7 @@ enum atl1_dma_req_block {
 };
 
 #define ATL1_MAX_INTR		3
-#define ATL1_MAX_TX_BUF_LEN	0x3000	
+#define ATL1_MAX_TX_BUF_LEN	0x3000	/* 12288 bytes */
 
 #define ATL1_DEFAULT_TPD	256
 #define ATL1_MAX_TPD		1024
@@ -485,59 +584,74 @@ enum atl1_dma_req_block {
 #define ATL1_TPD_DESC(R, i)	ATL1_GET_DESC(R, i, struct tx_packet_desc)
 #define ATL1_RRD_DESC(R, i)	ATL1_GET_DESC(R, i, struct rx_return_desc)
 
+/*
+ * atl1_ring_header represents a single, contiguous block of DMA space
+ * mapped for the three descriptor rings (tpd, rfd, rrd) and the two
+ * message blocks (cmb, smb) described below
+ */
 struct atl1_ring_header {
-	void *desc;		
-	dma_addr_t dma;		
-	unsigned int size;	
+	void *desc;		/* virtual address */
+	dma_addr_t dma;		/* physical address*/
+	unsigned int size;	/* length in bytes */
 };
 
+/*
+ * atl1_buffer is wrapper around a pointer to a socket buffer
+ * so a DMA handle can be stored along with the skb
+ */
 struct atl1_buffer {
-	struct sk_buff *skb;	
-	u16 length;		
-	u16 alloced;		
+	struct sk_buff *skb;	/* socket buffer */
+	u16 length;		/* rx buffer length */
+	u16 alloced;		/* 1 if skb allocated */
 	dma_addr_t dma;
 };
 
+/* transmit packet descriptor (tpd) ring */
 struct atl1_tpd_ring {
-	void *desc;		
-	dma_addr_t dma;		
-	u16 size;		
-	u16 count;		
-	u16 hw_idx;		
+	void *desc;		/* descriptor ring virtual address */
+	dma_addr_t dma;		/* descriptor ring physical address */
+	u16 size;		/* descriptor ring length in bytes */
+	u16 count;		/* number of descriptors in the ring */
+	u16 hw_idx;		/* hardware index */
 	atomic_t next_to_clean;
 	atomic_t next_to_use;
 	struct atl1_buffer *buffer_info;
 };
 
+/* receive free descriptor (rfd) ring */
 struct atl1_rfd_ring {
-	void *desc;		
-	dma_addr_t dma;		
-	u16 size;		
-	u16 count;		
+	void *desc;		/* descriptor ring virtual address */
+	dma_addr_t dma;		/* descriptor ring physical address */
+	u16 size;		/* descriptor ring length in bytes */
+	u16 count;		/* number of descriptors in the ring */
 	atomic_t next_to_use;
 	u16 next_to_clean;
 	struct atl1_buffer *buffer_info;
 };
 
+/* receive return descriptor (rrd) ring */
 struct atl1_rrd_ring {
-	void *desc;		
-	dma_addr_t dma;		
-	unsigned int size;	
-	u16 count;		
+	void *desc;		/* descriptor ring virtual address */
+	dma_addr_t dma;		/* descriptor ring physical address */
+	unsigned int size;	/* descriptor ring length in bytes */
+	u16 count;		/* number of descriptors in the ring */
 	u16 next_to_use;
 	atomic_t next_to_clean;
 };
 
+/* coalescing message block (cmb) */
 struct atl1_cmb {
 	struct coals_msg_block *cmb;
 	dma_addr_t dma;
 };
 
+/* statistics message block (smb) */
 struct atl1_smb {
 	struct stats_msg_block *smb;
 	dma_addr_t dma;
 };
 
+/* Statistics counters */
 struct atl1_sft_stats {
 	u64 rx_packets;
 	u64 tx_packets;
@@ -556,19 +670,21 @@ struct atl1_sft_stats {
 	u64 tx_aborted_errors;
 	u64 tx_window_errors;
 	u64 tx_carrier_errors;
-	u64 tx_pause;		
-	u64 excecol;		
-	u64 deffer;		
-	u64 scc;		
-	u64 mcc;		
-	u64 latecol;		
-	u64 tx_underun;		
-	u64 tx_trunc;		
-	u64 rx_pause;		
+	u64 tx_pause;		/* TX pause frames */
+	u64 excecol;		/* TX packets w/ excessive collisions */
+	u64 deffer;		/* TX packets deferred */
+	u64 scc;		/* packets TX after a single collision */
+	u64 mcc;		/* packets TX after multiple collisions */
+	u64 latecol;		/* TX packets w/ late collisions */
+	u64 tx_underun;		/* TX packets aborted due to TX FIFO underrun
+				 * or TRD FIFO underrun */
+	u64 tx_trunc;		/* TX packets truncated due to size > MTU */
+	u64 rx_pause;		/* num Pause packets received. */
 	u64 rx_rrd_ov;
 	u64 rx_trunc;
 };
 
+/* hardware structure */
 struct atl1_hw {
 	u8 __iomem *hw_addr;
 	struct atl1_adapter *back;
@@ -578,23 +694,34 @@ struct atl1_hw {
 	enum atl1_dma_req_block dmaw_block;
 	u8 preamble_len;
 	u8 max_retry;
-	u8 jam_ipg;		
-	u8 ipgt;		
-	u8 min_ifg;		
-	u8 ipgr1;		
-	u8 ipgr2;		
-	u8 tpd_burst;		
-	u8 rfd_burst;		
+	u8 jam_ipg;		/* IPG to start JAM for collision based flow
+				 * control in half-duplex mode. In units of
+				 * 8-bit time */
+	u8 ipgt;		/* Desired back to back inter-packet gap.
+				 * The default is 96-bit time */
+	u8 min_ifg;		/* Minimum number of IFG to enforce in between
+				 * receive frames. Frame gap below such IFP
+				 * is dropped */
+	u8 ipgr1;		/* 64bit Carrier-Sense window */
+	u8 ipgr2;		/* 96-bit IPG window */
+	u8 tpd_burst;		/* Number of TPD to prefetch in cache-aligned
+				 * burst. Each TPD is 16 bytes long */
+	u8 rfd_burst;		/* Number of RFD to prefetch in cache-aligned
+				 * burst. Each RFD is 12 bytes long */
 	u8 rfd_fetch_gap;
-	u8 rrd_burst;		
+	u8 rrd_burst;		/* Threshold number of RRDs that can be retired
+				 * in a burst. Each RRD is 16 bytes long */
 	u8 tpd_fetch_th;
 	u8 tpd_fetch_gap;
 	u16 tx_jumbo_task_th;
-	u16 txf_burst;		
-	u16 rx_jumbo_th;	
+	u16 txf_burst;		/* Number of data bytes to read in a cache-
+				 * aligned burst. Each SRAM entry is 8 bytes */
+	u16 rx_jumbo_th;	/* Jumbo packet size for non-VLAN packet. VLAN
+				 * packets should add 4 bytes */
 	u16 rx_jumbo_lkah;
-	u16 rrd_ret_timer;	
-	u16 lcol;		
+	u16 rrd_ret_timer;	/* RRD retirement timer. Decrement by 1 after
+				 * every 512ns passes. */
+	u16 lcol;		/* Collision Window */
 
 	u16 cmb_tpd;
 	u16 cmb_rrd;
@@ -612,7 +739,7 @@ struct atl1_hw {
 
 	u16 dev_rev;
 
-	
+	/* spi flash */
 	u8 flash_vendor;
 
 	u8 mac_addr[ETH_ALEN];
@@ -637,28 +764,28 @@ struct atl1_adapter {
 	struct timer_list phy_config_timer;
 	bool phy_timer_pending;
 
-	
+	/* all descriptor rings' memory */
 	struct atl1_ring_header ring_header;
 
-	
+	/* TX */
 	struct atl1_tpd_ring tpd_ring;
 	spinlock_t mb_lock;
 
-	
+	/* RX */
 	struct atl1_rfd_ring rfd_ring;
 	struct atl1_rrd_ring rrd_ring;
 	u64 hw_csum_err;
 	u64 hw_csum_good;
 	u32 msg_enable;
-	u16 imt;		
-	u16 ict;		
-	struct mii_if_info mii;	
+	u16 imt;		/* interrupt moderator timer (2us resolution) */
+	u16 ict;		/* interrupt clear timer (2us resolution */
+	struct mii_if_info mii;	/* MII interface info */
 
-	u32 bd_number;		
+	u32 bd_number;		/* board number */
 	bool pci_using_64;
 	struct atl1_hw hw;
 	struct atl1_smb smb;
 	struct atl1_cmb cmb;
 };
 
-#endif 
+#endif /* ATL1_H */

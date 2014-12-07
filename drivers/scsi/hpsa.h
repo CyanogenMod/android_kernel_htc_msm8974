@@ -39,13 +39,13 @@ struct access_method {
 
 struct hpsa_scsi_dev_t {
 	int devtype;
-	int bus, target, lun;		
-	unsigned char scsi3addr[8];	
+	int bus, target, lun;		/* as presented to the OS */
+	unsigned char scsi3addr[8];	/* as presented to the HW */
 #define RAID_CTLR_LUNID "\0\0\0\0\0\0\0\0"
-	unsigned char device_id[16];    
-	unsigned char vendor[8];        
-	unsigned char model[16];        
-	unsigned char raid_level;	
+	unsigned char device_id[16];    /* from inquiry pg. 0x83 */
+	unsigned char vendor[8];        /* bytes 8-15 of inquiry data */
+	unsigned char model[16];        /* bytes 16-31 of inquiry data */
+	unsigned char raid_level;	/* from inquiry page 0xC1 */
 };
 
 struct ctlr_info {
@@ -56,14 +56,14 @@ struct ctlr_info {
 	u32	board_id;
 	void __iomem *vaddr;
 	unsigned long paddr;
-	int 	nr_cmds; 
+	int 	nr_cmds; /* Number of commands allowed on this controller */
 	struct CfgTable __iomem *cfgtable;
 	int	interrupts_enabled;
 	int	major;
 	int 	max_commands;
 	int	commands_outstanding;
-	int 	max_outstanding; 
-	int	usage_count;  
+	int 	max_outstanding; /* Debug */
+	int	usage_count;  /* number of opens all all minor devices */
 #	define PERF_MODE_INT	0
 #	define DOORBELL_INT	1
 #	define SIMPLE_MODE_INT	2
@@ -71,10 +71,10 @@ struct ctlr_info {
 	unsigned int intr[4];
 	unsigned int msix_vector;
 	unsigned int msi_vector;
-	int intr_mode; 
+	int intr_mode; /* either PERF_MODE_INT or SIMPLE_MODE_INT */
 	struct access_method access;
 
-	
+	/* queue and queue Info */
 	struct list_head reqQ;
 	struct list_head cmpQ;
 	unsigned int Qdepth;
@@ -86,7 +86,7 @@ struct ctlr_info {
 	int chainsize;
 	struct SGDescriptor **cmd_sg_list;
 
-	
+	/* pointers to command and error info pool */
 	struct CommandList 	*cmd_pool;
 	dma_addr_t		cmd_pool_dhandle;
 	struct ErrorInfo 	*errinfo_pool;
@@ -99,14 +99,20 @@ struct ctlr_info {
 	wait_queue_head_t	scan_wait_queue;
 
 	struct Scsi_Host *scsi_host;
-	spinlock_t devlock; 
-	int ndevices; 
+	spinlock_t devlock; /* to protect hba[ctlr]->dev[];  */
+	int ndevices; /* number of used elements in .dev[] array. */
 	struct hpsa_scsi_dev_t *dev[HPSA_MAX_DEVICES];
+	/*
+	 * Performant mode tables.
+	 */
 	u32 trans_support;
 	u32 trans_offset;
 	struct TransTable_struct *transtable;
 	unsigned long transMethod;
 
+	/*
+	 * Performant mode completion buffer
+	 */
 	u64 *reply_pool;
 	dma_addr_t reply_pool_dhandle;
 	u64 *reply_pool_head;
@@ -129,11 +135,28 @@ struct ctlr_info {
 #define HPSA_MSG_SEND_RETRY_LIMIT 10
 #define HPSA_MSG_SEND_RETRY_INTERVAL_MSECS (10000)
 
+/* Maximum time in seconds driver will wait for command completions
+ * when polling before giving up.
+ */
 #define HPSA_MAX_POLL_TIME_SECS (20)
 
+/* During SCSI error recovery, HPSA_TUR_RETRY_LIMIT defines
+ * how many times to retry TEST UNIT READY on a device
+ * while waiting for it to become ready before giving up.
+ * HPSA_MAX_WAIT_INTERVAL_SECS is the max wait interval
+ * between sending TURs while waiting for a device
+ * to become ready.
+ */
 #define HPSA_TUR_RETRY_LIMIT (20)
 #define HPSA_MAX_WAIT_INTERVAL_SECS (30)
 
+/* HPSA_BOARD_READY_WAIT_SECS is how long to wait for a board
+ * to become ready, in seconds, before giving up on it.
+ * HPSA_BOARD_READY_POLL_INTERVAL_MSECS * is how long to wait
+ * between polling the board to see if it is ready, in
+ * milliseconds.  HPSA_BOARD_READY_POLL_INTERVAL and
+ * HPSA_BOARD_READY_ITERATIONS are derived from those.
+ */
 #define HPSA_BOARD_READY_WAIT_SECS (120)
 #define HPSA_BOARD_NOT_READY_WAIT_SECS (100)
 #define HPSA_BOARD_READY_POLL_INTERVAL_MSECS (100)
@@ -148,6 +171,10 @@ struct ctlr_info {
 #define HPSA_POST_RESET_PAUSE_MSECS (3000)
 #define HPSA_POST_RESET_NOOP_RETRIES (12)
 
+/*  Defining the diffent access_menthods */
+/*
+ * Memory mapped FIFO interface (SMART 53xx cards)
+ */
 #define SA5_DOORBELL	0x20
 #define SA5_REQUEST_PORT_OFFSET	0x40
 #define SA5_REPLY_INTR_MASK_OFFSET	0x34
@@ -163,10 +190,11 @@ struct ctlr_info {
 #define SA5_INTR_PENDING	0x08
 #define SA5B_INTR_PENDING	0x04
 #define FIFO_EMPTY		0xffffffff
-#define HPSA_FIRMWARE_READY	0xffff0000 
+#define HPSA_FIRMWARE_READY	0xffff0000 /* value in scratchpad register */
 
 #define HPSA_ERROR_BIT		0x02
 
+/* Performant mode flags */
 #define SA5_PERF_INTR_PENDING   0x04
 #define SA5_PERF_INTR_OFF       0x05
 #define SA5_OUTDB_STATUS_PERF_BIT       0x01
@@ -178,6 +206,9 @@ struct ctlr_info {
 
 #define HPSA_INTR_ON 	1
 #define HPSA_INTR_OFF	0
+/*
+	Send the command to the hardware
+*/
 static void SA5_submit_command(struct ctlr_info *h,
 	struct CommandList *c)
 {
@@ -190,13 +221,18 @@ static void SA5_submit_command(struct ctlr_info *h,
 		h->max_outstanding = h->commands_outstanding;
 }
 
+/*
+ *  This card is the opposite of the other cards.
+ *   0 turns interrupts on...
+ *   0x08 turns them off...
+ */
 static void SA5_intr_mask(struct ctlr_info *h, unsigned long val)
 {
-	if (val) { 
+	if (val) { /* Turn interrupts on */
 		h->interrupts_enabled = 1;
 		writel(0, h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
 		(void) readl(h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
-	} else { 
+	} else { /* Turn them off */
 		h->interrupts_enabled = 0;
 		writel(SA5_INTR_OFF,
 			h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
@@ -206,7 +242,7 @@ static void SA5_intr_mask(struct ctlr_info *h, unsigned long val)
 
 static void SA5_performant_intr_mask(struct ctlr_info *h, unsigned long val)
 {
-	if (val) { 
+	if (val) { /* turn on interrupts */
 		h->interrupts_enabled = 1;
 		writel(0, h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
 		(void) readl(h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
@@ -222,10 +258,16 @@ static unsigned long SA5_performant_completed(struct ctlr_info *h)
 {
 	unsigned long register_value = FIFO_EMPTY;
 
+	/* flush the controller write of the reply queue by reading
+	 * outbound doorbell status register.
+	 */
 	register_value = readl(h->vaddr + SA5_OUTDB_STATUS);
-	
+	/* msi auto clears the interrupt pending bit. */
 	if (!(h->msi_vector || h->msix_vector)) {
 		writel(SA5_OUTDB_CLEAR_PERF_BIT, h->vaddr + SA5_OUTDB_CLEAR);
+		/* Do a read in order to flush the write to the controller
+		 * (as per spec.)
+		 */
 		register_value = readl(h->vaddr + SA5_OUTDB_STATUS);
 	}
 
@@ -236,7 +278,7 @@ static unsigned long SA5_performant_completed(struct ctlr_info *h)
 	} else {
 		register_value = FIFO_EMPTY;
 	}
-	
+	/* Check for wraparound */
 	if (h->reply_pool_head == (h->reply_pool + h->max_commands)) {
 		h->reply_pool_head = h->reply_pool;
 		h->reply_pool_wraparound ^= 1;
@@ -245,6 +287,10 @@ static unsigned long SA5_performant_completed(struct ctlr_info *h)
 	return register_value;
 }
 
+/*
+ *  Returns true if fifo is full.
+ *
+ */
 static unsigned long SA5_fifo_full(struct ctlr_info *h)
 {
 	if (h->commands_outstanding >= h->max_commands)
@@ -253,6 +299,10 @@ static unsigned long SA5_fifo_full(struct ctlr_info *h)
 		return 0;
 
 }
+/*
+ *   returns value read from hardware.
+ *     returns FIFO_EMPTY if there is nothing to read
+ */
 static unsigned long SA5_completed(struct ctlr_info *h)
 {
 	unsigned long register_value
@@ -271,6 +321,9 @@ static unsigned long SA5_completed(struct ctlr_info *h)
 
 	return register_value;
 }
+/*
+ *	Returns true if an interrupt is pending..
+ */
 static bool SA5_intr_pending(struct ctlr_info *h)
 {
 	unsigned long register_value  =
@@ -289,7 +342,7 @@ static bool SA5_performant_intr_pending(struct ctlr_info *h)
 	if (h->msi_vector || h->msix_vector)
 		return true;
 
-	
+	/* Read outbound doorbell to flush */
 	register_value = readl(h->vaddr + SA5_OUTDB_STATUS);
 	return register_value & SA5_OUTDB_STATUS_PERF_BIT;
 }
@@ -316,5 +369,5 @@ struct board_type {
 	struct access_method *access;
 };
 
-#endif 
+#endif /* HPSA_H */
 

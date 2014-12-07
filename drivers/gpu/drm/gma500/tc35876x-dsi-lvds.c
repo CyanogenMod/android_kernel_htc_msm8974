@@ -37,6 +37,7 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define FLD_MASK(start, end)	(((1 << ((start) - (end) + 1)) - 1) << (end))
 #define FLD_VAL(val, start, end) (((val) << (end)) & FLD_MASK(start, end))
 
+/* DSI D-PHY Layer Registers */
 #define D0W_DPHYCONTTX		0x0004
 #define CLW_DPHYCONTRX		0x0020
 #define D0W_DPHYCONTRX		0x0024
@@ -51,6 +52,7 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define D3W_CNTRL		0x0050
 #define DFTMODE_CNTRL		0x0054
 
+/* DSI PPI Layer Registers */
 #define PPI_STARTPPI		0x0104
 #define PPI_BUSYPPI		0x0108
 #define PPI_LINEINITCNT		0x0110
@@ -86,6 +88,7 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define HSTIMEOUT		0x01F0
 #define HSTIMEOUTENABLE		0x01F4
 
+/* DSI Protocol Layer Registers */
 #define DSI_STARTDSI		0x0204
 #define DSI_BUSYDSI		0x0208
 #define DSI_LANEENABLE		0x0210
@@ -96,11 +99,14 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define DSI_INTCLR		0x0228
 #define DSI_LPTXTO		0x0230
 
+/* DSI General Registers */
 #define DSIERRCNT		0x0300
 
+/* DSI Application Layer Registers */
 #define APLCTRL			0x0400
 #define RDPKTLN			0x0404
 
+/* Video Path Registers */
 #define VPCTRL			0x0450
 #define HTIM1			0x0454
 #define HTIM2			0x0458
@@ -108,6 +114,7 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define VTIM2			0x0460
 #define VFUEN			0x0464
 
+/* LVDS Registers */
 #define LVMX0003		0x0480
 #define LVMX0407		0x0484
 #define LVMX0811		0x0488
@@ -119,22 +126,29 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define LVPHY0			0x04A0
 #define LVPHY1			0x04A4
 
+/* System Registers */
 #define SYSSTAT			0x0500
 #define SYSRST			0x0504
 
+/* GPIO Registers */
+/*#define GPIOC			0x0520*/
 #define GPIOO			0x0524
 #define GPIOI			0x0528
 
+/* I2C Registers */
 #define I2CTIMCTRL		0x0540
 #define I2CMADDR		0x0544
 #define WDATAQ			0x0548
 #define RDATAQ			0x054C
 
+/* Chip/Rev Registers */
 #define IDREG			0x0580
 
+/* Debug Registers */
 #define DEBUG00			0x05A0
 #define DEBUG01			0x05A4
 
+/* Panel CABC registers */
 #define PANEL_PWM_CONTROL	0x90
 #define PANEL_FREQ_DIVIDER_HI	0x91
 #define PANEL_FREQ_DIVIDER_LO	0x92
@@ -147,6 +161,7 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define PANEL_ALLOW_DISTORT	0x9A
 #define PANEL_BYPASS_PWMI	0x9B
 
+/* Panel color management registers */
 #define PANEL_CM_ENABLE		0x700
 #define PANEL_CM_HUE		0x701
 #define PANEL_CM_SATURATION	0x702
@@ -156,10 +171,11 @@ static struct i2c_client *cmi_lcd_i2c_client;
 #define PANEL_CM_PEAK_EN	0x710
 #define PANEL_CM_GAIN		0x711
 #define PANEL_CM_HUETABLE_START	0x730
-#define PANEL_CM_HUETABLE_END	0x747 
+#define PANEL_CM_HUETABLE_END	0x747 /* inclusive */
 
+/* Input muxing for registers LVMX0003...LVMX2427 */
 enum {
-	INPUT_R0,	
+	INPUT_R0,	/* 0 */
 	INPUT_R1,
 	INPUT_R2,
 	INPUT_R3,
@@ -167,7 +183,7 @@ enum {
 	INPUT_R5,
 	INPUT_R6,
 	INPUT_R7,
-	INPUT_G0,	
+	INPUT_G0,	/* 8 */
 	INPUT_G1,
 	INPUT_G2,
 	INPUT_G3,
@@ -175,7 +191,7 @@ enum {
 	INPUT_G5,
 	INPUT_G6,
 	INPUT_G7,
-	INPUT_B0,	
+	INPUT_B0,	/* 16 */
 	INPUT_B1,
 	INPUT_B2,
 	INPUT_B3,
@@ -183,22 +199,30 @@ enum {
 	INPUT_B5,
 	INPUT_B6,
 	INPUT_B7,
-	INPUT_HSYNC,	
+	INPUT_HSYNC,	/* 24 */
 	INPUT_VSYNC,
 	INPUT_DE,
 	LOGIC_0,
-	
+	/* 28...31 undefined */
 };
 
 #define INPUT_MUX(lvmx03, lvmx02, lvmx01, lvmx00)		\
 	(FLD_VAL(lvmx03, 29, 24) | FLD_VAL(lvmx02, 20, 16) |	\
 	FLD_VAL(lvmx01, 12, 8) | FLD_VAL(lvmx00, 4, 0))
 
+/**
+ * tc35876x_regw - Write DSI-LVDS bridge register using I2C
+ * @client: struct i2c_client to use
+ * @reg: register address
+ * @value: value to write
+ *
+ * Returns 0 on success, or a negative error value.
+ */
 static int tc35876x_regw(struct i2c_client *client, u16 reg, u32 value)
 {
 	int r;
 	u8 tx_data[] = {
-		
+		/* NOTE: Register address big-endian, data little-endian. */
 		(reg >> 8) & 0xff,
 		reg & 0xff,
 		value & 0xff,
@@ -234,6 +258,14 @@ static int tc35876x_regw(struct i2c_client *client, u16 reg, u32 value)
 	return 0;
 }
 
+/**
+ * tc35876x_regr - Read DSI-LVDS bridge register using I2C
+ * @client: struct i2c_client to use
+ * @reg: register address
+ * @value: pointer for storing the value
+ *
+ * Returns 0 on success, or a negative error value.
+ */
 static int tc35876x_regr(struct i2c_client *client, u16 reg, u32 *value)
 {
 	int r;
@@ -297,10 +329,10 @@ void tc35876x_set_bridge_reset_state(struct drm_device *dev, int state)
 		gpio_set_value_cansleep(pdata->gpio_bridge_reset, 0);
 		mdelay(10);
 	} else {
-		
+		/* Pull MIPI Bridge reset pin to Low */
 		gpio_set_value_cansleep(pdata->gpio_bridge_reset, 0);
 		mdelay(20);
-		
+		/* Pull MIPI Bridge reset pin to High */
 		gpio_set_value_cansleep(pdata->gpio_bridge_reset, 1);
 		mdelay(40);
 	}
@@ -336,7 +368,7 @@ void tc35876x_configure_lvds_bridge(struct drm_device *dev)
 	tc35876x_regw(i2c, PPI_D2S_CLRSIPOCOUNT, FLD_VAL(1, 5, 0));
 	tc35876x_regw(i2c, PPI_D3S_CLRSIPOCOUNT, FLD_VAL(1, 5, 0));
 
-	
+	/* Enabling MIPI & PPI lanes, Enable 4 lanes */
 	tc35876x_regw(i2c, PPI_LANEENABLE,
 		BIT(4) | BIT(3) | BIT(2) | BIT(1) | BIT(0));
 	tc35876x_regw(i2c, DSI_LANEENABLE,
@@ -344,32 +376,32 @@ void tc35876x_configure_lvds_bridge(struct drm_device *dev)
 	tc35876x_regw(i2c, PPI_STARTPPI, BIT(0));
 	tc35876x_regw(i2c, DSI_STARTDSI, BIT(0));
 
-	
+	/* Setting LVDS output frequency */
 	tc35876x_regw(i2c, LVPHY0, FLD_VAL(1, 20, 16) |
-		FLD_VAL(2, 15, 14) | FLD_VAL(6, 4, 0)); 
+		FLD_VAL(2, 15, 14) | FLD_VAL(6, 4, 0)); /* 0x00048006 */
 
-	
+	/* Setting video panel control register,0x00000120 VTGen=ON ?!?!? */
 	tc35876x_regw(i2c, VPCTRL, BIT(8) | BIT(5));
 
-	
+	/* Horizontal back porch and horizontal pulse width. 0x00280028 */
 	tc35876x_regw(i2c, HTIM1, FLD_VAL(40, 24, 16) | FLD_VAL(40, 8, 0));
 
-	
+	/* Horizontal front porch and horizontal active video size. 0x00500500*/
 	tc35876x_regw(i2c, HTIM2, FLD_VAL(80, 24, 16) | FLD_VAL(1280, 10, 0));
 
-	
+	/* Vertical back porch and vertical sync pulse width. 0x000e000a */
 	tc35876x_regw(i2c, VTIM1, FLD_VAL(14, 23, 16) | FLD_VAL(10, 7, 0));
 
-	
+	/* Vertical front porch and vertical display size. 0x000e0320 */
 	tc35876x_regw(i2c, VTIM2, FLD_VAL(14, 23, 16) | FLD_VAL(800, 10, 0));
 
-	
+	/* Set above HTIM1, HTIM2, VTIM1, and VTIM2 at next VSYNC. */
 	tc35876x_regw(i2c, VFUEN, BIT(0));
 
-	
+	/* Soft reset LCD controller. */
 	tc35876x_regw(i2c, SYSRST, BIT(2));
 
-	
+	/* LVDS-TX input muxing */
 	tc35876x_regw(i2c, LVMX0003,
 		INPUT_MUX(INPUT_R5, INPUT_R4, INPUT_R3, INPUT_R2));
 	tc35876x_regw(i2c, LVMX0407,
@@ -385,19 +417,22 @@ void tc35876x_configure_lvds_bridge(struct drm_device *dev)
 	tc35876x_regw(i2c, LVMX2427,
 		INPUT_MUX(INPUT_R0, INPUT_DE, INPUT_VSYNC, INPUT_HSYNC));
 
-	
+	/* Enable LVDS transmitter. */
 	tc35876x_regw(i2c, LVCFG, BIT(0));
 
+	/* Clear notifications. Don't write reserved bits. Was write 0xffffffff
+	 * to 0x0288, must be in error?! */
 	tc35876x_regw(i2c, DSI_INTCLR, FLD_MASK(31, 30) | FLD_MASK(22, 0));
 }
 
 #define GPIOPWMCTRL	0x38F
-#define PWM0CLKDIV0	0x62 
-#define PWM0CLKDIV1	0x61 
+#define PWM0CLKDIV0	0x62 /* low byte */
+#define PWM0CLKDIV1	0x61 /* high byte */
 
-#define SYSTEMCLK	19200000UL 
-#define PWM_FREQUENCY	9600 
+#define SYSTEMCLK	19200000UL /* 19.2 MHz */
+#define PWM_FREQUENCY	9600 /* Hz */
 
+/* f = baseclk / (clkdiv + 1) => clkdiv = (baseclk - f) / f */
 static inline u16 calc_clkdiv(unsigned long baseclk, unsigned int f)
 {
 	return (baseclk - f) / f;
@@ -409,6 +444,9 @@ static void tc35876x_brightness_init(struct drm_device *dev)
 	u8 pwmctrl;
 	u16 clkdiv;
 
+	/* Make sure the PWM reference is the 19.2 MHz system clock. Read first
+	 * instead of setting directly to catch potential conflicts between PWM
+	 * users. */
 	ret = intel_scu_ipc_ioread8(GPIOPWMCTRL, &pwmctrl);
 	if (ret || pwmctrl != 0x01) {
 		if (ret)
@@ -444,9 +482,12 @@ void tc35876x_brightness_control(struct drm_device *dev, int level)
 
 	level = clamp(level, 0, MDFLD_DSI_BRIGHTNESS_MAX_LEVEL);
 
-	
+	/* PWM duty cycle 0x00...0x63 corresponds to 0...99% */
 	duty_val = level * 0x63 / MDFLD_DSI_BRIGHTNESS_MAX_LEVEL;
 
+	/* I won't pretend to understand this formula. The panel spec is quite
+	 * bad engrish.
+	 */
 	panel_duty_val = (2 * level - 100) * 0xA9 /
 			 MDFLD_DSI_BRIGHTNESS_MAX_LEVEL + 0x56;
 
@@ -502,6 +543,13 @@ void tc35876x_toshiba_bridge_panel_on(struct drm_device *dev)
 	if (cmi_lcd_i2c_client) {
 		int ret;
 		dev_dbg(&cmi_lcd_i2c_client->dev, "setting TCON\n");
+		/* Bit 4 is average_saving. Setting it to 1, the brightness is
+		 * referenced to the average of the frame content. 0 means
+		 * reference to the maximum of frame contents. Bits 3:0 are
+		 * allow_distort. When set to a nonzero value, all color values
+		 * between 255-allow_distort*2 and 255 are mapped to the
+		 * 255-allow_distort*2 value.
+		 */
 		ret = i2c_smbus_write_byte_data(cmi_lcd_i2c_client,
 						PANEL_ALLOW_DISTORT, 0x10);
 		if (ret < 0)
@@ -512,7 +560,7 @@ void tc35876x_toshiba_bridge_panel_on(struct drm_device *dev)
 		if (ret < 0)
 			dev_err(&cmi_lcd_i2c_client->dev,
 				"i2c write failed (%d)\n", ret);
-		
+		/* Set minimum brightness value - this is tunable */
 		ret = i2c_smbus_write_byte_data(cmi_lcd_i2c_client,
 						PANEL_PWM_MIN, 0x35);
 		if (ret < 0)
@@ -536,7 +584,7 @@ static struct drm_display_mode *tc35876x_get_config_mode(struct drm_device *dev)
 	if (!mode)
 		return NULL;
 
-	
+	/* FIXME: do this properly. */
 	mode->hdisplay = 1280;
 	mode->vdisplay = 800;
 	mode->hsync_start = 1360;
@@ -565,6 +613,7 @@ static struct drm_display_mode *tc35876x_get_config_mode(struct drm_device *dev)
 	return mode;
 }
 
+/* DV1 Active area 216.96 x 135.6 mm */
 #define DV1_PANEL_WIDTH 217
 #define DV1_PANEL_HEIGHT 136
 
@@ -654,6 +703,7 @@ static struct i2c_driver tc35876x_bridge_i2c_driver = {
 	.remove = __devexit_p(tc35876x_bridge_remove),
 };
 
+/* LCD panel I2C */
 static int cmi_lcd_i2c_probe(struct i2c_client *client,
 			     const struct i2c_device_id *id)
 {
@@ -694,6 +744,7 @@ static struct i2c_driver cmi_lcd_i2c_driver = {
 	.remove = __devexit_p(cmi_lcd_i2c_remove),
 };
 
+/* HACK to create I2C device while it's not created by platform code */
 #define CMI_LCD_I2C_ADAPTER	2
 #define CMI_LCD_I2C_ADDR	0x60
 

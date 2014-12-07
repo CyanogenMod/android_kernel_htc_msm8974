@@ -27,6 +27,7 @@
 #include <linux/list.h>
 #include <linux/rtc.h>
 
+/* Register definitions */
 #define RX8025_REG_SEC		0x00
 #define RX8025_REG_MIN		0x01
 #define RX8025_REG_HOUR		0x02
@@ -40,10 +41,12 @@
 #define RX8025_REG_ALWWDAY	0x0a
 #define RX8025_REG_ALDMIN	0x0b
 #define RX8025_REG_ALDHOUR	0x0c
+/* 0x0d is reserved */
 #define RX8025_REG_CTRL1	0x0e
 #define RX8025_REG_CTRL2	0x0f
 
 #define RX8025_BIT_CTRL1_CT	(7 << 0)
+/* 1 Hz periodic level irq */
 #define RX8025_BIT_CTRL1_CT_1HZ	4
 #define RX8025_BIT_CTRL1_TEST	(1 << 3)
 #define RX8025_BIT_CTRL1_1224	(1 << 5)
@@ -57,7 +60,8 @@
 #define RX8025_BIT_CTRL2_XST	(1 << 5)
 #define RX8025_BIT_CTRL2_VDET	(1 << 6)
 
-#define RX8025_ADJ_RESOLUTION	3050 
+/* Clock precision adjustment */
+#define RX8025_ADJ_RESOLUTION	3050 /* in ppb */
 #define RX8025_ADJ_DATA_MAX	62
 #define RX8025_ADJ_DATA_MIN	-62
 
@@ -155,7 +159,7 @@ static void rx8025_work(struct work_struct *work)
 			 "you may have to readjust the clock\n");
 
 	if (status & RX8025_BIT_CTRL2_CTFG) {
-		
+		/* periodic */
 		status &= ~RX8025_BIT_CTRL2_CTFG;
 		local_irq_disable();
 		rtc_update_irq(rx8025->rtc, 1, RTC_PF | RTC_IRQF);
@@ -163,7 +167,7 @@ static void rx8025_work(struct work_struct *work)
 	}
 
 	if (status & RX8025_BIT_CTRL2_DAFG) {
-		
+		/* alarm */
 		status &= RX8025_BIT_CTRL2_DAFG;
 		if (rx8025_write_reg(client, RX8025_REG_CTRL1,
 				     rx8025->ctrl1 & ~RX8025_BIT_CTRL1_DALE))
@@ -173,7 +177,7 @@ static void rx8025_work(struct work_struct *work)
 		local_irq_enable();
 	}
 
-	
+	/* acknowledge IRQ */
 	rx8025_write_reg(client, RX8025_REG_CTRL2,
 			 status | RX8025_BIT_CTRL2_XST);
 
@@ -226,6 +230,11 @@ static int rx8025_set_time(struct device *dev, struct rtc_time *dt)
 	struct rx8025_data *rx8025 = dev_get_drvdata(dev);
 	u8 date[7];
 
+	/*
+	 * BUG: The HW assumes every year that is a multiple of 4 to be a leap
+	 * year.  Next time this is wrong is 2100, which will not be a leap
+	 * year.
+	 */
 
 	/*
 	 * Here the read-only bits are written as "0".  I'm not sure if that
@@ -263,7 +272,7 @@ static int rx8025_init_client(struct i2c_client *client, int *need_reset)
 	if (err)
 		goto out;
 
-	
+	/* Keep test bit zero ! */
 	rx8025->ctrl1 = ctrl[0] & ~RX8025_BIT_CTRL1_TEST;
 
 	if (ctrl[1] & RX8025_BIT_CTRL2_PON) {
@@ -305,6 +314,7 @@ out:
 	return err;
 }
 
+/* Alarm support */
 static int rx8025_read_alarm(struct device *dev, struct rtc_wkalrm *t)
 {
 	struct rx8025_data *rx8025 = dev_get_drvdata(dev);
@@ -326,7 +336,7 @@ static int rx8025_read_alarm(struct device *dev, struct rtc_wkalrm *t)
 	dev_dbg(dev, "%s: read alarm 0x%02x 0x%02x ctrl2 %02x\n",
 		__func__, ald[0], ald[1], ctrl2);
 
-	
+	/* Hardware alarms precision is 1 minute! */
 	t->time.tm_sec = 0;
 	t->time.tm_min = bcd2bin(ald[0] & 0x7f);
 	if (rx8025->ctrl1 & RX8025_BIT_CTRL1_1224)
@@ -360,7 +370,7 @@ static int rx8025_set_alarm(struct device *dev, struct rtc_wkalrm *t)
 	if (client->irq <= 0)
 		return -EINVAL;
 
-	
+	/* Hardware alarm precision is 1 minute! */
 	ald[0] = bin2bcd(t->time.tm_min);
 	if (rx8025->ctrl1 & RX8025_BIT_CTRL1_1224)
 		ald[1] = bin2bcd(t->time.tm_hour);
@@ -422,6 +432,23 @@ static struct rtc_class_ops rx8025_rtc_ops = {
 	.alarm_irq_enable = rx8025_alarm_irq_enable,
 };
 
+/*
+ * Clock precision adjustment support
+ *
+ * According to the RX8025 SA/NB application manual the frequency and
+ * temperature characteristics can be approximated using the following
+ * equation:
+ *
+ *   df = a * (ut - t)**2
+ *
+ *   df: Frequency deviation in any temperature
+ *   a : Coefficient = (-35 +-5) * 10**-9
+ *   ut: Ultimate temperature in degree = +25 +-5 degree
+ *   t : Any temperature in degree
+ *
+ * Note that the clock adjustment in ppb must be entered (which is
+ * the negative value of the deviation).
+ */
 static int rx8025_get_clock_adjust(struct device *dev, int *adj)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -541,7 +568,7 @@ static int __devinit rx8025_probe(struct i2c_client *client,
 		struct rtc_time tm;
 		dev_info(&client->dev,
 			 "bad conditions detected, resetting date\n");
-		rtc_time_to_tm(0, &tm);	
+		rtc_time_to_tm(0, &tm);	/* 1970/1/1 */
 		rx8025_set_time(&client->dev, &tm);
 	}
 

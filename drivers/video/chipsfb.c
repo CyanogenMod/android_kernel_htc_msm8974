@@ -33,6 +33,10 @@
 #include <asm/backlight.h>
 #endif
 
+/*
+ * Since we access the display with inb/outb to fixed port numbers,
+ * we can only handle one 6555x chip.  -- paulus
+ */
 #define write_ind(num, val, ap, dp)	do { \
 	outb((num), (ap)); outb((val), (dp)); \
 } while (0)
@@ -40,16 +44,22 @@
 	outb((num), (ap)); var = inb((dp)); \
 } while (0)
 
+/* extension registers */
 #define write_xr(num, val)	write_ind(num, val, 0x3d6, 0x3d7)
 #define read_xr(num, var)	read_ind(num, var, 0x3d6, 0x3d7)
+/* flat panel registers */
 #define write_fr(num, val)	write_ind(num, val, 0x3d0, 0x3d1)
 #define read_fr(num, var)	read_ind(num, var, 0x3d0, 0x3d1)
+/* CRTC registers */
 #define write_cr(num, val)	write_ind(num, val, 0x3d4, 0x3d5)
 #define read_cr(num, var)	read_ind(num, var, 0x3d4, 0x3d5)
+/* graphics registers */
 #define write_gr(num, val)	write_ind(num, val, 0x3ce, 0x3cf)
 #define read_gr(num, var)	read_ind(num, var, 0x3ce, 0x3cf)
+/* sequencer registers */
 #define write_sr(num, val)	write_ind(num, val, 0x3c4, 0x3c5)
 #define read_sr(num, var)	read_ind(num, var, 0x3c4, 0x3c5)
+/* attribute registers - slightly strange */
 #define write_ar(num, val)	do { \
 	inb(0x3da); write_ind(num, val, 0x3c0, 0x3c0); \
 } while (0)
@@ -57,6 +67,9 @@
 	inb(0x3da); read_ind(num, var, 0x3c0, 0x3c1); \
 } while (0)
 
+/*
+ * Exported functions
+ */
 int chips_init(void);
 
 static int chipsfb_pci_init(struct pci_dev *dp, const struct pci_device_id *);
@@ -97,10 +110,10 @@ static int chipsfb_check_var(struct fb_var_screeninfo *var,
 static int chipsfb_set_par(struct fb_info *info)
 {
 	if (info->var.bits_per_pixel == 16) {
-		write_cr(0x13, 200);		
-		write_xr(0x81, 0x14);		
-		write_xr(0x82, 0x00);		
-		write_xr(0x20, 0x10);		
+		write_cr(0x13, 200);		// Set line length (doublewords)
+		write_xr(0x81, 0x14);		// 15 bit (555) color mode
+		write_xr(0x82, 0x00);		// Disable palettes
+		write_xr(0x20, 0x10);		// 16 bit blitter mode
 
 		info->fix.line_length = 800*2;
 		info->fix.visual = FB_VISUAL_TRUECOLOR;
@@ -112,11 +125,11 @@ static int chipsfb_set_par(struct fb_info *info)
 			info->var.blue.length = 5;
 		
 	} else {
-		
-		write_cr(0x13, 100);		
-		write_xr(0x81, 0x12);		
-		write_xr(0x82, 0x08);		
-		write_xr(0x20, 0x00);		
+		/* p->var.bits_per_pixel == 8 */
+		write_cr(0x13, 100);		// Set line length (doublewords)
+		write_xr(0x81, 0x12);		// 8 bit color mode
+		write_xr(0x82, 0x08);		// Graphics gamma enable
+		write_xr(0x20, 0x00);		// 8 bit blitter mode
 
 		info->fix.line_length = 800;
 		info->fix.visual = FB_VISUAL_PSEUDOCOLOR;		
@@ -132,7 +145,7 @@ static int chipsfb_set_par(struct fb_info *info)
 
 static int chipsfb_blank(int blank, struct fb_info *info)
 {
-	return 1;	
+	return 1;	/* get fb_blank to set the colormap to all black */
 }
 
 static int chipsfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
@@ -217,7 +230,7 @@ static struct chips_init_reg chips_init_fr[] = {
 	{ 0x0b, 0x11 },
 	{ 0x10, 0x0c },
 	{ 0x11, 0xe0 },
-	
+	/* { 0x12, 0x40 }, -- 3400 needs 40, 2400 needs 48, no way to tell */
 	{ 0x20, 0x63 },
 	{ 0x21, 0x68 },
 	{ 0x22, 0x19 },
@@ -236,8 +249,8 @@ static struct chips_init_reg chips_init_fr[] = {
 };
 
 static struct chips_init_reg chips_init_xr[] = {
-	{ 0xce, 0x00 },		
-	{ 0xcc, 0x43 },		
+	{ 0xce, 0x00 },		/* set default memory clock */
+	{ 0xcc, 0x43 },		/* memory clock ratio */
 	{ 0xcd, 0x18 },
 	{ 0xce, 0xa1 },
 	{ 0xc8, 0x84 },
@@ -266,7 +279,7 @@ static void __init chips_hw_init(void)
 
 	for (i = 0; i < ARRAY_SIZE(chips_init_xr); ++i)
 		write_xr(chips_init_xr[i].addr, chips_init_xr[i].data);
-	outb(0x29, 0x3c2); 
+	outb(0x29, 0x3c2); /* set misc output reg */
 	for (i = 0; i < ARRAY_SIZE(chips_init_sr); ++i)
 		write_sr(chips_init_sr[i].addr, chips_init_sr[i].data);
 	for (i = 0; i < ARRAY_SIZE(chips_init_gr); ++i)
@@ -286,7 +299,14 @@ static struct fb_fix_screeninfo chipsfb_fix __devinitdata = {
 	.accel =	FB_ACCEL_NONE,
 	.line_length =	800,
 
-	.smem_len =	0x100000,	
+// FIXME: Assumes 1MB frame buffer, but 65550 supports 1MB or 2MB.
+// * "3500" PowerBook G3 (the original PB G3) has 2MB.
+// * 2400 has 1MB composed of 2 Mitsubishi M5M4V4265CTP DRAM chips.
+//   Motherboard actually supports 2MB -- there are two blank locations
+//   for a second pair of DRAMs.  (Thanks, Apple!)
+// * 3400 has 1MB (I think).  Don't know if it's expandable.
+// -- Tim Seufert
+	.smem_len =	0x100000,	/* 1MB */
 };
 
 static struct fb_var_screeninfo chipsfb_var __devinitdata = {
@@ -361,22 +381,25 @@ chipsfb_pci_init(struct pci_dev *dp, const struct pci_device_id *ent)
 	}
 
 #ifdef __BIG_ENDIAN
-	addr += 0x800000;	
+	addr += 0x800000;	// Use big-endian aperture
 #endif
 
+	/* we should use pci_enable_device here, but,
+	   the device doesn't declare its I/O ports in its BARs
+	   so pci_enable_device won't turn on I/O responses */
 	pci_read_config_word(dp, PCI_COMMAND, &cmd);
-	cmd |= 3;	
+	cmd |= 3;	/* enable memory and IO space */
 	pci_write_config_word(dp, PCI_COMMAND, cmd);
 
 #ifdef CONFIG_PMAC_BACKLIGHT
-	
+	/* turn on the backlight */
 	mutex_lock(&pmac_backlight_mutex);
 	if (pmac_backlight) {
 		pmac_backlight->props.power = FB_BLANK_UNBLANK;
 		backlight_update_status(pmac_backlight);
 	}
 	mutex_unlock(&pmac_backlight_mutex);
-#endif 
+#endif /* CONFIG_PMAC_BACKLIGHT */
 
 #ifdef CONFIG_PPC
 	p->screen_base = __ioremap(addr, 0x200000, _PAGE_NO_CACHE);
@@ -458,7 +481,7 @@ static int chipsfb_pci_resume(struct pci_dev *pdev)
 	pdev->dev.power.power_state = PMSG_ON;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 
 static struct pci_device_id chipsfb_pci_tbl[] = {

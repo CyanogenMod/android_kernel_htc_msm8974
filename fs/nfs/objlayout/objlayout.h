@@ -45,18 +45,21 @@
 #include <linux/pnfs_osd_xdr.h>
 #include "../pnfs.h"
 
+/*
+ * per-inode layout
+ */
 struct objlayout {
 	struct pnfs_layout_hdr pnfs_layout;
 
-	 
+	 /* for layout_commit */
 	enum osd_delta_space_valid_enum {
 		OBJ_DSU_INIT = 0,
 		OBJ_DSU_VALID,
 		OBJ_DSU_INVALID,
 	} delta_space_valid;
-	s64 delta_space_used;  
+	s64 delta_space_used;  /* consumed by write ops */
 
-	 
+	 /* for layout_return */
 	spinlock_t lock;
 	struct list_head err_list;
 };
@@ -67,16 +70,25 @@ OBJLAYOUT(struct pnfs_layout_hdr *lo)
 	return container_of(lo, struct objlayout, pnfs_layout);
 }
 
+/*
+ * per-I/O operation state
+ * embedded in objects provider io_state data structure
+ */
 struct objlayout_io_res {
 	struct objlayout *objlay;
 
 	void *rpcdata;
-	int status;             
-	int committed;          
+	int status;             /* res */
+	int committed;          /* res */
 
-	
+	/* Error reporting (layout_return) */
 	struct list_head err_list;
 	unsigned num_comps;
+	/* Pointer to array of error descriptors of size num_comps.
+	 * It should contain as many entries as devices in the osd_layout
+	 * that participate in the I/O. It is up to the io_engine to allocate
+	 * needed space and set num_comps.
+	 */
 	struct pnfs_osd_ioerr *ioerrs;
 };
 
@@ -92,6 +104,9 @@ void objlayout_init_ioerrs(struct objlayout_io_res *oir, unsigned num_comps,
 	oir->ioerrs = ioerrs;
 }
 
+/*
+ * Raid engine I/O API
+ */
 extern int objio_alloc_lseg(struct pnfs_layout_segment **outp,
 	struct pnfs_layout_hdr *pnfslay,
 	struct pnfs_layout_range *range,
@@ -99,11 +114,17 @@ extern int objio_alloc_lseg(struct pnfs_layout_segment **outp,
 	gfp_t gfp_flags);
 extern void objio_free_lseg(struct pnfs_layout_segment *lseg);
 
+/* objio_free_result will free these @oir structs recieved from
+ * objlayout_{read,write}_done
+ */
 extern void objio_free_result(struct objlayout_io_res *oir);
 
 extern int objio_read_pagelist(struct nfs_read_data *rdata);
 extern int objio_write_pagelist(struct nfs_write_data *wdata, int how);
 
+/*
+ * callback API
+ */
 extern void objlayout_io_set_result(struct objlayout_io_res *oir,
 			unsigned index, struct pnfs_osd_objid *pooid,
 			int osd_error, u64 offset, u64 length, bool is_write);
@@ -111,6 +132,10 @@ extern void objlayout_io_set_result(struct objlayout_io_res *oir,
 static inline void
 objlayout_add_delta_space_used(struct objlayout *objlay, s64 space_used)
 {
+	/* If one of the I/Os errored out and the delta_space_used was
+	 * invalid we render the complete report as invalid. Protocol mandate
+	 * the DSU be accurate or not reported.
+	 */
 	spin_lock(&objlay->lock);
 	if (objlay->delta_space_valid != OBJ_DSU_INVALID) {
 		objlay->delta_space_valid = OBJ_DSU_VALID;
@@ -129,6 +154,9 @@ extern int objlayout_get_deviceinfo(struct pnfs_layout_hdr *pnfslay,
 	gfp_t gfp_flags);
 extern void objlayout_put_deviceinfo(struct pnfs_osd_deviceaddr *deviceaddr);
 
+/*
+ * exported generic objects function vectors
+ */
 
 extern struct pnfs_layout_hdr *objlayout_alloc_layout_hdr(struct inode *, gfp_t gfp_flags);
 extern void objlayout_free_layout_hdr(struct pnfs_layout_hdr *);
@@ -158,4 +186,4 @@ extern void objlayout_encode_layoutreturn(
 
 extern int objlayout_autologin(struct pnfs_osd_deviceaddr *deviceaddr);
 
-#endif 
+#endif /* _OBJLAYOUT_H */

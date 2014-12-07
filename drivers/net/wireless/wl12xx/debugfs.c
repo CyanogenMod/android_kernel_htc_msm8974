@@ -33,8 +33,10 @@
 #include "io.h"
 #include "tx.h"
 
+/* ms */
 #define WL1271_DEBUGFS_STATS_LIFETIME 1000
 
+/* debugfs macros idea from mac80211 */
 #define DEBUGFS_FORMAT_BUFFER_SIZE 100
 static int wl1271_format_buffer(char __user *userbuf, size_t count,
 				    loff_t *ppos, char *fmt, ...)
@@ -161,6 +163,7 @@ DEBUGFS_FWSTATS_FILE(isr, low_rssi, "%u");
 
 DEBUGFS_FWSTATS_FILE(wep, addr_key_count, "%u");
 DEBUGFS_FWSTATS_FILE(wep, default_key_count, "%u");
+/* skipping wep.reserved */
 DEBUGFS_FWSTATS_FILE(wep, key_not_found, "%u");
 DEBUGFS_FWSTATS_FILE(wep, decrypt_fail, "%u");
 DEBUGFS_FWSTATS_FILE(wep, packets, "%u");
@@ -178,6 +181,7 @@ DEBUGFS_FWSTATS_FILE(pwr, power_save_off, "%u");
 DEBUGFS_FWSTATS_FILE(pwr, enable_ps, "%u");
 DEBUGFS_FWSTATS_FILE(pwr, disable_ps, "%u");
 DEBUGFS_FWSTATS_FILE(pwr, fix_tsf_ps, "%u");
+/* skipping cont_miss_bcns_spread for now */
 DEBUGFS_FWSTATS_FILE(pwr, rcvd_awake_beacons, "%u");
 
 DEBUGFS_FWSTATS_FILE(mic, rx_pkts, "%u");
@@ -343,6 +347,9 @@ static ssize_t dynamic_ps_timeout_write(struct file *file,
 	if (ret < 0)
 		goto out;
 
+	/* In case we're already in PSM, trigger it again to set new timeout
+	 * immediately without waiting for re-association
+	 */
 
 	wl12xx_for_each_wlvif_sta(wl, wlvif) {
 		if (test_bit(WLVIF_FLAG_IN_PS, &wlvif->flags))
@@ -407,6 +414,9 @@ static ssize_t forced_ps_write(struct file *file,
 	if (ret < 0)
 		goto out;
 
+	/* In case we're already in PSM, trigger it again to switch mode
+	 * immediately without waiting for re-association
+	 */
 
 	ps_mode = value ? STATION_POWER_SAVE_MODE : STATION_AUTO_PS_MODE;
 
@@ -700,12 +710,16 @@ static ssize_t dtim_interval_write(struct file *file,
 	mutex_lock(&wl->mutex);
 
 	wl->conf.conn.listen_interval = value;
-	
+	/* for some reason there are different event types for 1 and >1 */
 	if (value == 1)
 		wl->conf.conn.wake_up_event = CONF_WAKE_UP_EVENT_DTIM;
 	else
 		wl->conf.conn.wake_up_event = CONF_WAKE_UP_EVENT_N_DTIM;
 
+	/*
+	 * we don't reconfigure ACX_WAKE_UP_CONDITIONS now, so it will only
+	 * take effect on the next time we enter psm.
+	 */
 	mutex_unlock(&wl->mutex);
 	return count;
 }
@@ -757,7 +771,7 @@ static ssize_t suspend_dtim_interval_write(struct file *file,
 	mutex_lock(&wl->mutex);
 
 	wl->conf.conn.suspend_listen_interval = value;
-	
+	/* for some reason there are different event types for 1 and >1 */
 	if (value == 1)
 		wl->conf.conn.suspend_wake_up_event = CONF_WAKE_UP_EVENT_DTIM;
 	else
@@ -812,12 +826,16 @@ static ssize_t beacon_interval_write(struct file *file,
 	mutex_lock(&wl->mutex);
 
 	wl->conf.conn.listen_interval = value;
-	
+	/* for some reason there are different event types for 1 and >1 */
 	if (value == 1)
 		wl->conf.conn.wake_up_event = CONF_WAKE_UP_EVENT_BEACON;
 	else
 		wl->conf.conn.wake_up_event = CONF_WAKE_UP_EVENT_N_BEACONS;
 
+	/*
+	 * we don't reconfigure ACX_WAKE_UP_CONDITIONS now, so it will only
+	 * take effect on the next time we enter psm.
+	 */
 	mutex_unlock(&wl->mutex);
 	return count;
 }
@@ -844,7 +862,7 @@ static ssize_t rx_streaming_interval_write(struct file *file,
 		return -EINVAL;
 	}
 
-	
+	/* valid values: 0, 10-100 */
 	if (value && (value < 10 || value > 100)) {
 		wl1271_warning("value is not in range!");
 		return -ERANGE;
@@ -899,7 +917,7 @@ static ssize_t rx_streaming_always_write(struct file *file,
 		return -EINVAL;
 	}
 
-	
+	/* valid values: 0, 10-100 */
 	if (!(value == 0 || value == 1)) {
 		wl1271_warning("value is not in valid!");
 		return -EINVAL;
@@ -1032,7 +1050,7 @@ static int wl1271_debugfs_add_files(struct wl1271 *wl,
 
 	DEBUGFS_FWSTATS_ADD(wep, addr_key_count);
 	DEBUGFS_FWSTATS_ADD(wep, default_key_count);
-	
+	/* skipping wep.reserved */
 	DEBUGFS_FWSTATS_ADD(wep, key_not_found);
 	DEBUGFS_FWSTATS_ADD(wep, decrypt_fail);
 	DEBUGFS_FWSTATS_ADD(wep, packets);
@@ -1050,7 +1068,7 @@ static int wl1271_debugfs_add_files(struct wl1271 *wl,
 	DEBUGFS_FWSTATS_ADD(pwr, enable_ps);
 	DEBUGFS_FWSTATS_ADD(pwr, disable_ps);
 	DEBUGFS_FWSTATS_ADD(pwr, fix_tsf_ps);
-	
+	/* skipping cont_miss_bcns_spread for now */
 	DEBUGFS_FWSTATS_ADD(pwr, rcvd_awake_beacons);
 
 	DEBUGFS_FWSTATS_ADD(mic, rx_pkts);

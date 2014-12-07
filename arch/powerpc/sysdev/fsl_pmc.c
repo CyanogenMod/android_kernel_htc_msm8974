@@ -37,9 +37,9 @@ static int pmc_suspend_enter(suspend_state_t state)
 	int ret;
 
 	setbits32(&pmc_regs->pmcsr, PMCSR_SLP);
-	
+	/* At this point, the CPU is asleep. */
 
-	
+	/* Upon resume, wait for SLP bit to be clear. */
 	ret = spin_event_timeout((in_be32(&pmc_regs->pmcsr) & PMCSR_SLP) == 0,
 				 10000, 10) ? 0 : -ETIMEDOUT;
 	if (ret)

@@ -19,6 +19,9 @@
 #include <linux/kernel.h>
 
 
+/* ======================================================================== */
+/* Structures mapping & Defines for PCI Unit                                */
+/* ======================================================================== */
 
 #define MPC52xx_PCI_GSCR_BM		0x40000000
 #define MPC52xx_PCI_GSCR_PE		0x20000000
@@ -58,43 +61,47 @@
 #define MPC52xx_PCI_TBATR_ENABLE	0x1
 
 struct mpc52xx_pci {
-	u32	idr;		
-	u32	scr;		
-	u32	ccrir;		
-	u32	cr1;		
-	u32	bar0;		
-	u32	bar1;		
-	u8	reserved1[16];	
-	u32	ccpr;		
-	u32	sid;		
-	u32	erbar;		
-	u32	cpr;		
-	u8	reserved2[4];	
-	u32	cr2;		
-	u8	reserved3[32];	
-	u32	gscr;		
-	u32	tbatr0;		
-	u32	tbatr1;		
-	u32	tcr;		
-	u32	iw0btar;	
-	u32	iw1btar;	
-	u32	iw2btar;	
-	u8	reserved4[4];	
-	u32	iwcr;		
-	u32	icr;		
-	u32	isr;		
-	u32	arb;		
-	u8	reserved5[104];	
-	u32	car;		
-	u8	reserved6[4];	
+	u32	idr;		/* PCI + 0x00 */
+	u32	scr;		/* PCI + 0x04 */
+	u32	ccrir;		/* PCI + 0x08 */
+	u32	cr1;		/* PCI + 0x0C */
+	u32	bar0;		/* PCI + 0x10 */
+	u32	bar1;		/* PCI + 0x14 */
+	u8	reserved1[16];	/* PCI + 0x18 */
+	u32	ccpr;		/* PCI + 0x28 */
+	u32	sid;		/* PCI + 0x2C */
+	u32	erbar;		/* PCI + 0x30 */
+	u32	cpr;		/* PCI + 0x34 */
+	u8	reserved2[4];	/* PCI + 0x38 */
+	u32	cr2;		/* PCI + 0x3C */
+	u8	reserved3[32];	/* PCI + 0x40 */
+	u32	gscr;		/* PCI + 0x60 */
+	u32	tbatr0;		/* PCI + 0x64 */
+	u32	tbatr1;		/* PCI + 0x68 */
+	u32	tcr;		/* PCI + 0x6C */
+	u32	iw0btar;	/* PCI + 0x70 */
+	u32	iw1btar;	/* PCI + 0x74 */
+	u32	iw2btar;	/* PCI + 0x78 */
+	u8	reserved4[4];	/* PCI + 0x7C */
+	u32	iwcr;		/* PCI + 0x80 */
+	u32	icr;		/* PCI + 0x84 */
+	u32	isr;		/* PCI + 0x88 */
+	u32	arb;		/* PCI + 0x8C */
+	u8	reserved5[104];	/* PCI + 0x90 */
+	u32	car;		/* PCI + 0xF8 */
+	u8	reserved6[4];	/* PCI + 0xFC */
 };
 
+/* MPC5200 device tree match tables */
 const struct of_device_id mpc52xx_pci_ids[] __initconst = {
 	{ .type = "pci", .compatible = "fsl,mpc5200-pci", },
 	{ .type = "pci", .compatible = "mpc5200-pci", },
 	{}
 };
 
+/* ======================================================================== */
+/* PCI configuration access                                                 */
+/* ======================================================================== */
 
 static int
 mpc52xx_pci_read_config(struct pci_bus *bus, unsigned int devfn,
@@ -116,6 +123,8 @@ mpc52xx_pci_read_config(struct pci_bus *bus, unsigned int devfn,
 
 #if defined(CONFIG_PPC_MPC5200_BUGFIX)
 	if (bus->number) {
+		/* workaround for the bug 435 of the MPC5200 (L25R);
+		 * Don't do 32 bits config access during type-1 cycles */
 		switch (len) {
 		      case 1:
 			value = in_8(((u8 __iomem *)hose->cfg_data) +
@@ -171,6 +180,8 @@ mpc52xx_pci_write_config(struct pci_bus *bus, unsigned int devfn,
 
 #if defined(CONFIG_PPC_MPC5200_BUGFIX)
 	if (bus->number) {
+		/* workaround for the bug 435 of the MPC5200 (L25R);
+		 * Don't do 32 bits config access during type-1 cycles */
 		switch (len) {
 		      case 1:
 			out_8(((u8 __iomem *)hose->cfg_data) +
@@ -219,6 +230,9 @@ static struct pci_ops mpc52xx_pci_ops = {
 };
 
 
+/* ======================================================================== */
+/* PCI setup                                                                */
+/* ======================================================================== */
 
 static void __init
 mpc52xx_pci_setup(struct pci_controller *hose,
@@ -230,15 +244,17 @@ mpc52xx_pci_setup(struct pci_controller *hose,
 
 	pr_debug("mpc52xx_pci_setup(hose=%p, pci_regs=%p)\n", hose, pci_regs);
 
+	/* pci_process_bridge_OF_ranges() found all our addresses for us;
+	 * now store them in the right places */
 	hose->cfg_addr = &pci_regs->car;
 	hose->cfg_data = hose->io_base_virt;
 
-	
+	/* Control regs */
 	tmp = in_be32(&pci_regs->scr);
 	tmp |= PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY;
 	out_be32(&pci_regs->scr, tmp);
 
-	
+	/* Memory windows */
 	res = &hose->mem_resources[0];
 	if (res->flags) {
 		pr_debug("mem_resource[0] = "
@@ -270,7 +286,7 @@ mpc52xx_pci_setup(struct pci_controller *hose,
 			iwcr1 |= MPC52xx_PCI_IWCR_READ;
 	}
 
-	
+	/* IO resources */
 	res = &hose->io_resource;
 	if (!res) {
 		printk(KERN_ERR "%s: Didn't find IO resources\n", __FILE__);
@@ -287,15 +303,15 @@ mpc52xx_pci_setup(struct pci_controller *hose,
 						resource_size(res)));
 	iwcr2 = MPC52xx_PCI_IWCR_ENABLE | MPC52xx_PCI_IWCR_IO;
 
-	
+	/* Set all the IWCR fields at once; they're in the same reg */
 	out_be32(&pci_regs->iwcr, MPC52xx_PCI_IWCR_PACK(iwcr0, iwcr1, iwcr2));
 
-	
-	pci_phys &= 0xfffc0000; 
+	/* Map IMMR onto PCI bus */
+	pci_phys &= 0xfffc0000; /* bar0 has only 14 significant bits */
 	out_be32(&pci_regs->tbatr0, MPC52xx_PCI_TBATR_ENABLE | pci_phys);
 	out_be32(&pci_regs->bar0, PCI_BASE_ADDRESS_MEM_PREFETCH | pci_phys);
 
-	
+	/* Map memory onto PCI bus */
 	out_be32(&pci_regs->tbatr1, MPC52xx_PCI_TBATR_ENABLE);
 	out_be32(&pci_regs->bar1, PCI_BASE_ADDRESS_MEM_PREFETCH);
 
@@ -303,12 +319,15 @@ mpc52xx_pci_setup(struct pci_controller *hose,
 
 	tmp = in_be32(&pci_regs->gscr);
 #if 0
-	
+	/* Reset the exteral bus ( internal PCI controller is NOT resetted ) */
+	/* Not necessary and can be a bad thing if for example the bootloader
+	   is displaying a splash screen or ... Just left here for
+	   documentation purpose if anyone need it */
 	out_be32(&pci_regs->gscr, tmp | MPC52xx_PCI_GSCR_PR);
 	udelay(50);
 #endif
 
-	
+	/* Make sure the PCI bridge is out of reset */
 	out_be32(&pci_regs->gscr, tmp & ~MPC52xx_PCI_GSCR_PR);
 }
 
@@ -320,15 +339,19 @@ mpc52xx_pci_fixup_resources(struct pci_dev *dev)
 	pr_debug("mpc52xx_pci_fixup_resources() %.4x:%.4x\n",
 	         dev->vendor, dev->device);
 
+	/* We don't rely on boot loader for PCI and resets all
+	   devices */
 	for (i = 0; i < DEVICE_COUNT_RESOURCE; i++) {
 		struct resource *res = &dev->resource[i];
-		if (res->end > res->start) {	
+		if (res->end > res->start) {	/* Only valid resources */
 			res->end -= res->start;
 			res->start = 0;
 			res->flags |= IORESOURCE_UNSET;
 		}
 	}
 
+	/* The PCI Host bridge of MPC52xx has a prefetch memory resource
+	   fixed to 1Gb. Doesn't fit in the resource system so we remove it */
 	if ( (dev->vendor == PCI_VENDOR_ID_MOTOROLA) &&
 	     (   dev->device == PCI_DEVICE_ID_MOTOROLA_MPC5200
 	      || dev->device == PCI_DEVICE_ID_MOTOROLA_MPC5200B) ) {
@@ -362,8 +385,14 @@ mpc52xx_add_bridge(struct device_node *node)
 		bus_range = NULL;
 	}
 
+	/* There are some PCI quirks on the 52xx, register the hook to
+	 * fix them. */
 	ppc_md.pcibios_fixup_resources = mpc52xx_pci_fixup_resources;
 
+	/* Alloc and initialize the pci controller.  Values in the device
+	 * tree are needed to configure the 52xx PCI controller.  Rather
+	 * than parse the tree here, let pci_process_bridge_OF_ranges()
+	 * do it for us and extract the values after the fact */
 	hose = pcibios_alloc_controller(node);
 	if (!hose)
 		return -ENOMEM;
@@ -379,6 +408,8 @@ mpc52xx_add_bridge(struct device_node *node)
 
 	pci_process_bridge_OF_ranges(hose, node, 1);
 
+	/* Finish setting up PCI using values obtained by
+	 * pci_proces_bridge_OF_ranges */
 	mpc52xx_pci_setup(hose, pci_regs, rsrc.start);
 
 	return 0;

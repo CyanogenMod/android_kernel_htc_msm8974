@@ -17,20 +17,33 @@
   $
  */
 
+/**
+ *  @addtogroup MLDL
+ *
+ *  @{
+ *      @file   mldl_cfg.h
+ *      @brief  The Motion Library Driver Layer Configuration header file.
+ */
 
 #ifndef __MLDL_CFG_H__
 #define __MLDL_CFG_H__
 
 #include <mach/rpm-regulator.h>
 
+/* ------------------ */
+/* - Include Files. - */
+/* ------------------ */
 
 #include "mlsl.h"
 #include "mpu.h"
 
+/* --------------------- */
+/* -    Defines.       - */
+/* --------------------- */
 
-    
-    
-    
+    /*************************************************************************/
+    /*  Sensors                                                              */
+    /*************************************************************************/
 
 #define ML_X_GYRO			(0x0001)
 #define ML_Y_GYRO			(0x0002)
@@ -74,9 +87,13 @@
 	(((((mldl_cfg)->lpf) == 0) || (((mldl_cfg)->lpf) == 7))		\
 		? (8000)						\
 		: (1000)))
+/* --------------------- */
+/* -    Variables.     - */
+/* --------------------- */
 
+/* Platform data for the MPU */
 struct mldl_cfg {
-	
+	/* MPU related configuration */
 	unsigned long requested_sensors;
 	unsigned char addr;
 	unsigned char int_config;
@@ -94,12 +111,12 @@ struct mldl_cfg {
 	unsigned short offset[MPU_NUM_AXES];
 	unsigned char ram[MPU_MEM_NUM_RAM_BANKS][MPU_MEM_BANK_SIZE];
 
-	
+	/* MPU Related stored status and info */
 	unsigned char silicon_revision;
 	unsigned char product_id;
 	unsigned short trim;
 
-	
+	/* Driver/Kernel related state information */
 	int gyro_is_bypassed;
 	int dmp_is_running;
 	int gyro_is_suspended;
@@ -108,12 +125,12 @@ struct mldl_cfg {
 	int pressure_is_suspended;
 	int gyro_needs_reset;
 
-	
+	/* Slave related information */
 	struct ext_slave_descr *accel;
 	struct ext_slave_descr *compass;
 	struct ext_slave_descr *pressure;
 
-	
+	/* Platform Data */
 	struct mpu3050_platform_data *pdata;
 
 	struct regulator        *sr_1v8;
@@ -179,5 +196,8 @@ int mpu3050_get_config_pressure(struct mldl_cfg *mldl_cfg,
 				struct ext_slave_config *data);
 
 
-#endif				
+#endif				/* __MLDL_CFG_H__ */
 
+/**
+ *@}
+ */

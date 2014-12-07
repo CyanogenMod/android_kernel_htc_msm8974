@@ -18,12 +18,17 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM	ftrace
 
+/*
+ * The FTRACE_ENTRY_REG macro allows ftrace entry to define register
+ * function and thus become accesible via perf.
+ */
 #undef FTRACE_ENTRY_REG
 #define FTRACE_ENTRY_REG(name, struct_name, id, tstruct, print, \
 			 filter, regfn) \
 	FTRACE_ENTRY(name, struct_name, id, PARAMS(tstruct), PARAMS(print), \
 		     filter)
 
+/* not needed for this file */
 #undef __field_struct
 #define __field_struct(type, item)
 
@@ -57,7 +62,7 @@ static void __always_unused ____ftrace_check_##name(void)		\
 {									\
 	struct ____ftrace_##name *__entry = NULL;			\
 									\
-				\
+	/* force compile-time check on F_printk() */			\
 	printk(print);							\
 }
 

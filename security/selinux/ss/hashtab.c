@@ -1,3 +1,8 @@
+/*
+ * Implementation of the hash table type.
+ *
+ * Author : Stephen Smalley, <sds@epoch.ncsc.mil>
+ */
 #include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/errno.h>

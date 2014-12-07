@@ -25,6 +25,9 @@
 
 #include "local.h"
 
+/*
+ * Debug macros
+ */
 #define DEBUG
 
 int pm_do_suspend(void)
@@ -33,7 +36,7 @@ int pm_do_suspend(void)
 
 	__set_LEDS(0xb1);
 
-	
+	/* go zzz */
 	frv_cpu_suspend(pdm_suspend_mode);
 
 	__set_LEDS(0xb2);
@@ -45,18 +48,27 @@ int pm_do_suspend(void)
 
 static unsigned long __irq_mask;
 
+/*
+ * Setup interrupt masks, etc to enable wakeup by power switch
+ */
 static void __default_power_switch_setup(void)
 {
-	
+	/* default is to mask all interrupt sources. */
 	__irq_mask = *(unsigned long *)0xfeff9820;
 	*(unsigned long *)0xfeff9820 = 0xfffe0000;
 }
 
+/*
+ * Cleanup interrupt masks, etc after wakeup by power switch
+ */
 static void __default_power_switch_cleanup(void)
 {
 	*(unsigned long *)0xfeff9820 = __irq_mask;
 }
 
+/*
+ * Return non-zero if wakeup irq was caused by power switch
+ */
 static int __default_power_switch_check(void)
 {
 	return 1;
@@ -70,16 +82,31 @@ int pm_do_bus_sleep(void)
 {
 	local_irq_disable();
 
+	/*
+         * Here is where we need some platform-dependent setup
+	 * of the interrupt state so that appropriate wakeup
+	 * sources are allowed and all others are masked.
+	 */
 	__power_switch_wake_setup();
 
 	__set_LEDS(0xa1);
 
+	/* go zzz
+	 *
+	 * This is in a loop in case power switch shares an irq with other
+	 * devices. The wake_check() tells us if we need to finish waking
+	 * or go back to sleep.
+	 */
 	do {
 		frv_cpu_suspend(HSR0_PDM_BUS_SLEEP);
 	} while (__power_switch_wake_check && !__power_switch_wake_check());
 
 	__set_LEDS(0xa2);
 
+	/*
+         * Here is where we need some platform-dependent restore
+	 * of the interrupt state prior to being called.
+	 */
 	__power_switch_wake_cleanup();
 
 	local_irq_enable();
@@ -93,6 +120,10 @@ unsigned long sleep_phys_sp(void *sp)
 }
 
 #ifdef CONFIG_SYSCTL
+/*
+ * Use a temporary sysctl number. Horrid, but will be cleaned up in 2.6
+ * when all the PM interfaces exist nicely.
+ */
 #define CTL_PM_SUSPEND 1
 #define CTL_PM_CMODE 2
 #define CTL_PM_P0 4
@@ -116,6 +147,9 @@ static int user_atoi(char __user *ubuf, size_t len)
 	return ret;
 }
 
+/*
+ * Send us to sleep.
+ */
 static int sysctl_pm_do_suspend(ctl_table *ctl, int write,
 				void __user *buffer, size_t *lenp, loff_t *fpos)
 {
@@ -145,7 +179,7 @@ static int try_set_cmode(int new_cmode)
 	if (!(clock_cmodes_permitted & (1<<new_cmode)))
 		return -EINVAL;
 
-	
+	/* now change cmode */
 	local_irq_disable();
 	frv_dma_pause_all();
 
@@ -227,7 +261,7 @@ static int try_set_cm(int new_cm)
 	determine_clocks(0);
 	time_divisor_init();
 
-#if 1 
+#if 1 //def DEBUG
 	determine_clocks(1);
 #endif
 
@@ -305,6 +339,9 @@ static struct ctl_table pm_dir_table[] =
 	{ }
 };
 
+/*
+ * Initialize power interface
+ */
 static int __init pm_init(void)
 {
 	register_sysctl_table(pm_dir_table);

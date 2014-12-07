@@ -29,8 +29,9 @@ static DECLARE_FAULT_ATTR(fail_default_attr);
 static char *fail_request;
 module_param(fail_request, charp, 0);
 
-#endif 
+#endif /* CONFIG_FAIL_MMC_REQUEST */
 
+/* The debugfs functions are optimized away when CONFIG_DEBUG_FS isn't set. */
 static int mmc_ios_show(struct seq_file *s, void *data)
 {
 	static const char *vdd_str[] = {
@@ -172,7 +173,7 @@ static int mmc_clock_opt_set(void *data, u64 val)
 {
 	struct mmc_host *host = data;
 
-	
+	/* We need this check due to input value is u64 */
 	if (val > host->f_max)
 		return -EINVAL;
 
@@ -236,9 +237,11 @@ void mmc_add_host_debugfs(struct mmc_host *host)
 
 	root = debugfs_create_dir(mmc_hostname(host), NULL);
 	if (IS_ERR(root))
-		
+		/* Don't complain -- debugfs just isn't enabled */
 		return;
 	if (!root)
+		/* Complain -- debugfs is enabled, but it failed to
+		 * create the directory. */
 		goto err_root;
 
 	host->debugfs_root = root;
@@ -677,9 +680,11 @@ void mmc_add_card_debugfs(struct mmc_card *card)
 
 	root = debugfs_create_dir(mmc_card_id(card), host->debugfs_root);
 	if (IS_ERR(root))
-		
+		/* Don't complain -- debugfs just isn't enabled */
 		return;
 	if (!root)
+		/* Complain -- debugfs is enabled, but it failed to
+		 * create the directory. */
 		goto err;
 
 	card->debugfs_root = root;

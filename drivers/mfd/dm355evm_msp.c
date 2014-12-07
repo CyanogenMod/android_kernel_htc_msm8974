@@ -21,6 +21,17 @@
 #include <linux/i2c/dm355evm_msp.h>
 
 
+/*
+ * The DM355 is a DaVinci chip with video support but no C64+ DSP.  Its
+ * EVM board has an MSP430 programmed with firmware for various board
+ * support functions.  This driver exposes some of them directly, and
+ * supports other drivers (e.g. RTC, input) for more complex access.
+ *
+ * Because this firmware is entirely board-specific, this file embeds
+ * knowledge that would be passed as platform_data in a generic driver.
+ *
+ * This driver was tested with firmware revision A4.
+ */
 
 #if defined(CONFIG_INPUT_DM355EVM) || defined(CONFIG_INPUT_DM355EVM_MODULE)
 #define msp_has_keyboard()	true
@@ -47,7 +58,9 @@
 #endif
 
 
+/*----------------------------------------------------------------------*/
 
+/* REVISIT for paranoia's sake, retry reads/writes on error */
 
 static struct i2c_client *msp430;
 
@@ -64,28 +77,47 @@ int dm355evm_msp_write(u8 value, u8 reg)
 }
 EXPORT_SYMBOL(dm355evm_msp_write);
 
+/**
+ * dm355evm_msp_read - Reads a register from dm355evm_msp
+ * @reg: register address
+ *
+ * Returns result of operation - value, or negative errno
+ */
 int dm355evm_msp_read(u8 reg)
 {
 	return i2c_smbus_read_byte_data(msp430, reg);
 }
 EXPORT_SYMBOL(dm355evm_msp_read);
 
+/*----------------------------------------------------------------------*/
 
+/*
+ * Many of the msp430 pins are just used as fixed-direction GPIOs.
+ * We could export a few more of them this way, if we wanted.
+ */
 #define MSP_GPIO(bit,reg)	((DM355EVM_MSP_ ## reg) << 3 | (bit))
 
 static const u8 msp_gpios[] = {
-	
+	/* eight leds */
 	MSP_GPIO(0, LED), MSP_GPIO(1, LED),
 	MSP_GPIO(2, LED), MSP_GPIO(3, LED),
 	MSP_GPIO(4, LED), MSP_GPIO(5, LED),
 	MSP_GPIO(6, LED), MSP_GPIO(7, LED),
-	
+	/* SW6 and the NTSC/nPAL jumper */
 	MSP_GPIO(0, SWITCH1), MSP_GPIO(1, SWITCH1),
 	MSP_GPIO(2, SWITCH1), MSP_GPIO(3, SWITCH1),
 	MSP_GPIO(4, SWITCH1),
-	
-	MSP_GPIO(2, SDMMC), MSP_GPIO(1, SDMMC),	
-	MSP_GPIO(4, SDMMC), MSP_GPIO(3, SDMMC),	
+	/* switches on MMC/SD sockets */
+	/*
+	 * Note: EVMDM355_ECP_VA4.pdf suggests that Bit 2 and 4 should be
+	 * checked for card detection. However on the EVM bit 1 and 3 gives
+	 * this status, for 0 and 1 instance respectively. The pdf also
+	 * suggests that Bit 1 and 3 should be checked for write protection.
+	 * However on the EVM bit 2 and 4 gives this status,for 0 and 1
+	 * instance respectively.
+	 */
+	MSP_GPIO(2, SDMMC), MSP_GPIO(1, SDMMC),	/* mmc0 WP, nCD */
+	MSP_GPIO(4, SDMMC), MSP_GPIO(3, SDMMC),	/* mmc1 WP, nCD */
 };
 
 #define MSP_GPIO_REG(offset)	(msp_gpios[(offset)] >> 3)
@@ -122,6 +154,10 @@ static int msp_gpio_out(struct gpio_chip *chip, unsigned offset, int value)
 {
 	int mask, bits;
 
+	/* NOTE:  there are some other signals that could be
+	 * packaged as output GPIOs, but they aren't as useful
+	 * as the LEDs ... so for now we don't.
+	 */
 	if (MSP_GPIO_REG(offset) != DM355EVM_MSP_LED)
 		return -EINVAL;
 
@@ -148,11 +184,12 @@ static struct gpio_chip dm355evm_msp_gpio = {
 	.get			= msp_gpio_get,
 	.direction_output	= msp_gpio_out,
 	.set			= msp_gpio_set,
-	.base			= -EINVAL,		
+	.base			= -EINVAL,		/* dynamic assignment */
 	.ngpio			= ARRAY_SIZE(msp_gpios),
 	.can_sleep		= true,
 };
 
+/*----------------------------------------------------------------------*/
 
 static struct device *add_child(struct i2c_client *client, const char *name,
 		void *pdata, unsigned pdata_len,
@@ -209,7 +246,7 @@ static int add_children(struct i2c_client *client)
 		int offset;
 		char *label;
 	} config_inputs[] = {
-		
+		/* 8 == right after the LEDs */
 		{ 8 + 0, "sw6_1", },
 		{ 8 + 1, "sw6_2", },
 		{ 8 + 2, "sw6_3", },
@@ -221,13 +258,13 @@ static int add_children(struct i2c_client *client)
 	int		status;
 	int		i;
 
-	
+	/* GPIO-ish stuff */
 	dm355evm_msp_gpio.dev = &client->dev;
 	status = gpiochip_add(&dm355evm_msp_gpio);
 	if (status < 0)
 		return status;
 
-	
+	/* LED output */
 	if (msp_has_leds()) {
 #define GPIO_LED(l)	.name = l, .active_low = true
 		static struct gpio_led evm_leds[] = {
@@ -236,7 +273,7 @@ static int add_children(struct i2c_client *client)
 			{ GPIO_LED("dm355evm::ds15"),
 				.default_trigger = "mmc0", },
 			{ GPIO_LED("dm355evm::ds16"),
-				
+				/* could also be a CE-ATA drive */
 				.default_trigger = "mmc1", },
 			{ GPIO_LED("dm355evm::ds17"),
 				.default_trigger = "nand-disk", },
@@ -255,6 +292,11 @@ static int add_children(struct i2c_client *client)
 		for (i = 0; i < ARRAY_SIZE(evm_leds); i++)
 			evm_leds[i].gpio = i + dm355evm_msp_gpio.base;
 
+		/* NOTE:  these are the only fully programmable LEDs
+		 * on the board, since GPIO-61/ds22 (and many signals
+		 * going to DC7) must be used for AEMIF address lines
+		 * unless the top 1 GB of NAND is unused...
+		 */
 		child = add_child(client, "leds-gpio",
 				&evm_led_data, sizeof(evm_led_data),
 				false, 0);
@@ -262,24 +304,24 @@ static int add_children(struct i2c_client *client)
 			return PTR_ERR(child);
 	}
 
-	
+	/* configuration inputs */
 	for (i = 0; i < ARRAY_SIZE(config_inputs); i++) {
 		int gpio = dm355evm_msp_gpio.base + config_inputs[i].offset;
 
 		gpio_request_one(gpio, GPIOF_IN, config_inputs[i].label);
 
-		
+		/* make it easy for userspace to see these */
 		gpio_export(gpio, false);
 	}
 
-	
+	/* MMC/SD inputs -- right after the last config input */
 	if (client->dev.platform_data) {
 		void (*mmcsd_setup)(unsigned) = client->dev.platform_data;
 
 		mmcsd_setup(dm355evm_msp_gpio.base + 8 + 5);
 	}
 
-	
+	/* RTC is a 32 bit counter, no alarm */
 	if (msp_has_rtc()) {
 		child = add_child(client, "rtc-dm355evm",
 				NULL, 0, false, 0);
@@ -287,7 +329,7 @@ static int add_children(struct i2c_client *client)
 			return PTR_ERR(child);
 	}
 
-	
+	/* input from buttons and IR remote (uses the IRQ) */
 	if (msp_has_keyboard()) {
 		child = add_child(client, "dm355evm_keys",
 				NULL, 0, true, client->irq);
@@ -298,6 +340,7 @@ static int add_children(struct i2c_client *client)
 	return 0;
 }
 
+/*----------------------------------------------------------------------*/
 
 static void dm355evm_command(unsigned command)
 {
@@ -331,43 +374,43 @@ dm355evm_msp_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		return -EBUSY;
 	msp430 = client;
 
-	
+	/* display revision status; doubles as sanity check */
 	status = dm355evm_msp_read(DM355EVM_MSP_FIRMREV);
 	if (status < 0)
 		goto fail;
 	dev_info(&client->dev, "firmware v.%02X, %s as video-in\n",
 			status, video);
 
-	
+	/* mux video input:  either tvp5146 or some external imager */
 	status = dm355evm_msp_write(msp_has_tvp() ? 0 : MSP_VIDEO_IMAGER,
 			DM355EVM_MSP_VIDEO_IN);
 	if (status < 0)
 		dev_warn(&client->dev, "error %d muxing %s as video-in\n",
 			status, video);
 
-	
+	/* init LED cache, and turn off the LEDs */
 	msp_led_cache = 0xff;
 	dm355evm_msp_write(msp_led_cache, DM355EVM_MSP_LED);
 
-	
+	/* export capabilities we support */
 	status = add_children(client);
 	if (status < 0)
 		goto fail;
 
-	
+	/* PM hookup */
 	pm_power_off = dm355evm_power_off;
 
 	return 0;
 
 fail:
-	
+	/* FIXME remove children ... */
 	dm355evm_msp_remove(client);
 	return status;
 }
 
 static const struct i2c_device_id dm355evm_msp_ids[] = {
 	{ "dm355evm_msp", 0 },
-	{  },
+	{ /* end of list */ },
 };
 MODULE_DEVICE_TABLE(i2c, dm355evm_msp_ids);
 

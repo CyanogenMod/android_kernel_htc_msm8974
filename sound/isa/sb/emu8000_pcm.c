@@ -24,7 +24,27 @@
 #include <sound/initval.h>
 #include <sound/pcm.h>
 
+/*
+ * define the following if you want to use this pcm with non-interleaved mode
+ */
+/* #define USE_NONINTERLEAVE */
 
+/* NOTE: for using the non-interleaved mode with alsa-lib, you have to set
+ * mmap_emulation flag to 1 in your .asoundrc, such like
+ *
+ *	pcm.emu8k {
+ *		type plug
+ *		slave.pcm {
+ *			type hw
+ *			card 0
+ *			device 1
+ *			mmap_emulation 1
+ *		}
+ *	}
+ *
+ * besides, for the time being, the non-interleaved mode doesn't work well on
+ * alsa-lib...
+ */
 
 
 struct snd_emu8k_pcm {
@@ -52,17 +72,20 @@ struct snd_emu8k_pcm {
 #define LOOP_BLANK_SIZE		8
 
 
+/*
+ * open up channels for the simultaneous data transfer and playback
+ */
 static int
 emu8k_open_dram_for_pcm(struct snd_emu8000 *emu, int channels)
 {
 	int i;
 
-	
+	/* reserve up to 2 voices for playback */
 	snd_emux_lock_voice(emu->emu, 0);
 	if (channels > 1)
 		snd_emux_lock_voice(emu->emu, 1);
 
-	
+	/* reserve 28 voices for loading */
 	for (i = channels + 1; i < EMU8000_DRAM_VOICES; i++) {
 		unsigned int mode = EMU8000_RAM_WRITE;
 		snd_emux_lock_voice(emu->emu, i);
@@ -73,7 +96,7 @@ emu8k_open_dram_for_pcm(struct snd_emu8000 *emu, int channels)
 		snd_emu8000_dma_chan(emu, i, mode);
 	}
 
-	
+	/* assign voice 31 and 32 to ROM */
 	EMU8000_VTFT_WRITE(emu, 30, 0);
 	EMU8000_PSST_WRITE(emu, 30, 0x1d8);
 	EMU8000_CSL_WRITE(emu, 30, 0x1e0);
@@ -86,6 +109,8 @@ emu8k_open_dram_for_pcm(struct snd_emu8000 *emu, int channels)
 	return 0;
 }
 
+/*
+ */
 static void
 snd_emu8000_write_wait(struct snd_emu8000 *emu, int can_schedule)
 {
@@ -98,6 +123,9 @@ snd_emu8000_write_wait(struct snd_emu8000 *emu, int can_schedule)
 	}
 }
 
+/*
+ * close all channels
+ */
 static void
 emu8k_close_dram(struct snd_emu8000 *emu)
 {
@@ -111,8 +139,11 @@ emu8k_close_dram(struct snd_emu8000 *emu)
 	}
 }
 
+/*
+ * convert Hz to AWE32 rate offset (see emux/soundfont.c)
+ */
 
-#define OFFSET_SAMPLERATE	1011119		
+#define OFFSET_SAMPLERATE	1011119		/* base = 44100 */
 #define SAMPLERATE_RATIO	4096
 
 static int calc_rate_offset(int hz)
@@ -121,6 +152,8 @@ static int calc_rate_offset(int hz)
 }
 
 
+/*
+ */
 
 static struct snd_pcm_hardware emu8k_pcm_hw = {
 #ifdef USE_NONINTERLEAVE
@@ -143,6 +176,9 @@ static struct snd_pcm_hardware emu8k_pcm_hw = {
 
 };
 
+/*
+ * get the current position at the given channel from CCCA register
+ */
 static inline int emu8k_get_curpos(struct snd_emu8k_pcm *rec, int ch)
 {
 	int val = EMU8000_CCCA_READ(rec->emu, ch) & 0xfffffff;
@@ -151,13 +187,17 @@ static inline int emu8k_get_curpos(struct snd_emu8k_pcm *rec, int ch)
 }
 
 
+/*
+ * timer interrupt handler
+ * check the current position and update the period if necessary.
+ */
 static void emu8k_pcm_timer_func(unsigned long data)
 {
 	struct snd_emu8k_pcm *rec = (struct snd_emu8k_pcm *)data;
 	int ptr, delta;
 
 	spin_lock(&rec->timer_lock);
-	
+	/* update the current pointer */
 	ptr = emu8k_get_curpos(rec, 0);
 	if (ptr < rec->last_ptr)
 		delta = ptr + rec->buf_size - rec->last_ptr;
@@ -166,11 +206,11 @@ static void emu8k_pcm_timer_func(unsigned long data)
 	rec->period_pos += delta;
 	rec->last_ptr = ptr;
 
-	
+	/* reprogram timer */
 	rec->timer.expires = jiffies + 1;
 	add_timer(&rec->timer);
 
-	
+	/* update period */
 	if (rec->period_pos >= (int)rec->period_size) {
 		rec->period_pos %= rec->period_size;
 		spin_unlock(&rec->timer_lock);
@@ -181,6 +221,10 @@ static void emu8k_pcm_timer_func(unsigned long data)
 }
 
 
+/*
+ * open pcm
+ * creating an instance here
+ */
 static int emu8k_pcm_open(struct snd_pcm_substream *subs)
 {
 	struct snd_emu8000 *emu = snd_pcm_substream_chip(subs);
@@ -204,7 +248,7 @@ static int emu8k_pcm_open(struct snd_pcm_substream *subs)
 	runtime->hw.buffer_bytes_max = emu->mem_size - LOOP_BLANK_SIZE * 3;
 	runtime->hw.period_bytes_max = runtime->hw.buffer_bytes_max / 2;
 
-	
+	/* use timer to update periods.. (specified in msec) */
 	snd_pcm_hw_constraint_minmax(runtime, SNDRV_PCM_HW_PARAM_PERIOD_TIME,
 				     (1000000 + HZ - 1) / HZ, UINT_MAX);
 
@@ -219,6 +263,9 @@ static int emu8k_pcm_close(struct snd_pcm_substream *subs)
 	return 0;
 }
 
+/*
+ * calculate pitch target
+ */
 static int calc_pitch_target(int pitch)
 {
 	int ptarget = 1 << (pitch >> 12);
@@ -230,54 +277,62 @@ static int calc_pitch_target(int pitch)
 	return ptarget;
 }
 
+/*
+ * set up the voice
+ */
 static void setup_voice(struct snd_emu8k_pcm *rec, int ch)
 {
 	struct snd_emu8000 *hw = rec->emu;
 	unsigned int temp;
 
-	
+	/* channel to be silent and idle */
 	EMU8000_DCYSUSV_WRITE(hw, ch, 0x0080);
 	EMU8000_VTFT_WRITE(hw, ch, 0x0000FFFF);
 	EMU8000_CVCF_WRITE(hw, ch, 0x0000FFFF);
 	EMU8000_PTRX_WRITE(hw, ch, 0);
 	EMU8000_CPF_WRITE(hw, ch, 0);
 
-	
+	/* pitch offset */
 	EMU8000_IP_WRITE(hw, ch, rec->pitch);
-	
+	/* set envelope parameters */
 	EMU8000_ENVVAL_WRITE(hw, ch, 0x8000);
 	EMU8000_ATKHLD_WRITE(hw, ch, 0x7f7f);
 	EMU8000_DCYSUS_WRITE(hw, ch, 0x7f7f);
 	EMU8000_ENVVOL_WRITE(hw, ch, 0x8000);
 	EMU8000_ATKHLDV_WRITE(hw, ch, 0x7f7f);
-	
+	/* decay/sustain parameter for volume envelope is used
+	   for triggerg the voice */
+	/* modulation envelope heights */
 	EMU8000_PEFE_WRITE(hw, ch, 0x0);
-	
+	/* lfo1/2 delay */
 	EMU8000_LFO1VAL_WRITE(hw, ch, 0x8000);
 	EMU8000_LFO2VAL_WRITE(hw, ch, 0x8000);
-	
+	/* lfo1 pitch & cutoff shift */
 	EMU8000_FMMOD_WRITE(hw, ch, 0);
-	
+	/* lfo1 volume & freq */
 	EMU8000_TREMFRQ_WRITE(hw, ch, 0);
-	
+	/* lfo2 pitch & freq */
 	EMU8000_FM2FRQ2_WRITE(hw, ch, 0);
-	
+	/* pan & loop start */
 	temp = rec->panning[ch];
 	temp = (temp <<24) | ((unsigned int)rec->loop_start[ch] - 1);
 	EMU8000_PSST_WRITE(hw, ch, temp);
-	
-	temp = 0; 
+	/* chorus & loop end (chorus 8bit, MSB) */
+	temp = 0; // chorus
 	temp = (temp << 24) | ((unsigned int)rec->loop_start[ch] + rec->buf_size - 1);
 	EMU8000_CSL_WRITE(hw, ch, temp);
-	
-	temp = 0; 
+	/* Q & current address (Q 4bit value, MSB) */
+	temp = 0; // filterQ
 	temp = (temp << 28) | ((unsigned int)rec->loop_start[ch] - 1);
 	EMU8000_CCCA_WRITE(hw, ch, temp);
-	
+	/* clear unknown registers */
 	EMU8000_00A0_WRITE(hw, ch, 0);
 	EMU8000_0080_WRITE(hw, ch, 0);
 }
 
+/*
+ * trigger the voice
+ */
 static void start_voice(struct snd_emu8k_pcm *rec, int ch)
 {
 	unsigned long flags;
@@ -285,14 +340,14 @@ static void start_voice(struct snd_emu8k_pcm *rec, int ch)
 	unsigned int temp, aux;
 	int pt = calc_pitch_target(rec->pitch);
 
-	
+	/* cutoff and volume */
 	EMU8000_IFATN_WRITE(hw, ch, 0xff00);
 	EMU8000_VTFT_WRITE(hw, ch, 0xffff);
 	EMU8000_CVCF_WRITE(hw, ch, 0xffff);
-	
+	/* trigger envelope */
 	EMU8000_DCYSUSV_WRITE(hw, ch, 0x7f7f);
-	
-	temp = 0; 
+	/* set reverb and pitch target */
+	temp = 0; // reverb
 	if (rec->panning[ch] == 0)
 		aux = 0xff;
 	else
@@ -301,7 +356,7 @@ static void start_voice(struct snd_emu8k_pcm *rec, int ch)
 	EMU8000_PTRX_WRITE(hw, ch, temp);
 	EMU8000_CPF_WRITE(hw, ch, pt << 16);
 
-	
+	/* start timer */
 	spin_lock_irqsave(&rec->timer_lock, flags);
 	if (! rec->timer_running) {
 		rec->timer.expires = jiffies + 1;
@@ -311,6 +366,9 @@ static void start_voice(struct snd_emu8k_pcm *rec, int ch)
 	spin_unlock_irqrestore(&rec->timer_lock, flags);
 }
 
+/*
+ * stop the voice immediately
+ */
 static void stop_voice(struct snd_emu8k_pcm *rec, int ch)
 {
 	unsigned long flags;
@@ -318,7 +376,7 @@ static void stop_voice(struct snd_emu8k_pcm *rec, int ch)
 
 	EMU8000_DCYSUSV_WRITE(hw, ch, 0x807F);
 
-	
+	/* stop timer */
 	spin_lock_irqsave(&rec->timer_lock, flags);
 	if (rec->timer_running) {
 		del_timer(&rec->timer);
@@ -350,7 +408,15 @@ static int emu8k_pcm_trigger(struct snd_pcm_substream *subs, int cmd)
 }
 
 
+/*
+ * copy / silence ops
+ */
 
+/*
+ * this macro should be inserted in the copy/silence loops
+ * to reduce the latency.  without this, the system will hang up
+ * during the whole loop.
+ */
 #define CHECK_SCHEDULER() \
 do { \
 	cond_resched();\
@@ -360,6 +426,7 @@ do { \
 
 
 #ifdef USE_NONINTERLEAVE
+/* copy one channel block */
 static int emu8k_transfer_block(struct snd_emu8000 *emu, int offset, unsigned short *buf, int count)
 {
 	EMU8000_SMALW_WRITE(emu, offset);
@@ -401,6 +468,7 @@ static int emu8k_pcm_copy(struct snd_pcm_substream *subs,
 	}
 }
 
+/* make a channel block silence */
 static int emu8k_silence_block(struct snd_emu8000 *emu, int offset, int count)
 {
 	EMU8000_SMALW_WRITE(emu, offset);
@@ -434,8 +502,12 @@ static int emu8k_pcm_silence(struct snd_pcm_substream *subs,
 	}
 }
 
-#else 
+#else /* interleave */
 
+/*
+ * copy the interleaved data can be done easily by using
+ * DMA "left" and "right" channels on emu8k engine.
+ */
 static int emu8k_pcm_copy(struct snd_pcm_substream *subs,
 			  int voice,
 			  snd_pcm_uframes_t pos,
@@ -494,13 +566,16 @@ static int emu8k_pcm_silence(struct snd_pcm_substream *subs,
 #endif
 
 
+/*
+ * allocate a memory block
+ */
 static int emu8k_pcm_hw_params(struct snd_pcm_substream *subs,
 			       struct snd_pcm_hw_params *hw_params)
 {
 	struct snd_emu8k_pcm *rec = subs->runtime->private_data;
 
 	if (rec->block) {
-		
+		/* reallocation - release the old block */
 		snd_util_mem_free(rec->emu->memhdr, rec->block);
 		rec->block = NULL;
 	}
@@ -509,13 +584,16 @@ static int emu8k_pcm_hw_params(struct snd_pcm_substream *subs,
 	rec->block = snd_util_mem_alloc(rec->emu->memhdr, rec->allocated_bytes);
 	if (! rec->block)
 		return -ENOMEM;
-	rec->offset = EMU8000_DRAM_OFFSET + (rec->block->offset >> 1); 
-	
+	rec->offset = EMU8000_DRAM_OFFSET + (rec->block->offset >> 1); /* in word */
+	/* at least dma_bytes must be set for non-interleaved mode */
 	subs->dma_buffer.bytes = params_buffer_bytes(hw_params);
 
 	return 0;
 }
 
+/*
+ * free the memory block
+ */
 static int emu8k_pcm_hw_free(struct snd_pcm_substream *subs)
 {
 	struct snd_emu8k_pcm *rec = subs->runtime->private_data;
@@ -523,7 +601,7 @@ static int emu8k_pcm_hw_free(struct snd_pcm_substream *subs)
 	if (rec->block) {
 		int ch;
 		for (ch = 0; ch < rec->voices; ch++)
-			stop_voice(rec, ch); 
+			stop_voice(rec, ch); // to be sure
 		if (rec->dram_opened)
 			emu8k_close_dram(rec->emu);
 		snd_util_mem_free(rec->emu->memhdr, rec->block);
@@ -532,6 +610,8 @@ static int emu8k_pcm_hw_free(struct snd_pcm_substream *subs)
 	return 0;
 }
 
+/*
+ */
 static int emu8k_pcm_prepare(struct snd_pcm_substream *subs)
 {
 	struct snd_emu8k_pcm *rec = subs->runtime->private_data;
@@ -560,7 +640,7 @@ static int emu8k_pcm_prepare(struct snd_pcm_substream *subs)
 			return err;
 		rec->dram_opened = 1;
 
-		
+		/* clear loop blanks */
 		snd_emu8000_write_wait(rec->emu, 0);
 		EMU8000_SMALW_WRITE(rec->emu, rec->offset);
 		for (i = 0; i < LOOP_BLANK_SIZE; i++)

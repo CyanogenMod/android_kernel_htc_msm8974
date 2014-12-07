@@ -24,6 +24,11 @@
 #include "msdos.h"
 #include "efi.h"
 
+/*
+ * Many architectures don't like unaligned accesses, while
+ * the nr_sects and start_sect partition table entries are
+ * at a 2 (mod 4) address.
+ */
 #include <asm/unaligned.h>
 
 #define SYS_IND(p)	get_unaligned(&p->sys_ind)
@@ -54,6 +59,7 @@ msdos_magic_present(unsigned char *p)
 	return (p[0] == MSDOS_LABEL_MAGIC1 && p[1] == MSDOS_LABEL_MAGIC2);
 }
 
+/* Value is EBCDIC 'IBMA' */
 #define AIX_LABEL_MAGIC1	0xC9
 #define AIX_LABEL_MAGIC2	0xC2
 #define AIX_LABEL_MAGIC3	0xD4
@@ -70,7 +76,7 @@ static int aix_magic_present(struct parsed_partitions *state, unsigned char *p)
 		p[2] == AIX_LABEL_MAGIC3 &&
 		p[3] == AIX_LABEL_MAGIC4))
 		return 0;
-	
+	/* Assume the partition table is valid if Linux partitions exists */
 	for (slot = 1; slot <= 4; slot++, pt++) {
 		if (pt->sys_ind == LINUX_SWAP_PARTITION ||
 			pt->sys_ind == LINUX_RAID_PARTITION ||
@@ -88,6 +94,16 @@ static int aix_magic_present(struct parsed_partitions *state, unsigned char *p)
 	return ret;
 }
 
+/*
+ * Create devices for each logical partition in an extended partition.
+ * The logical partitions form a linked list, with each entry being
+ * a partition table with two entries.  The first entry
+ * is the real data partition (with a start relative to the partition
+ * table start).  The second is a pointer to the next logical partition
+ * (with a start relative to the entire extended partition).
+ * We do not create a Linux partition for the partition tables, but
+ * only for the actual data partitions.
+ */
 
 static void parse_extended(struct parsed_partitions *state,
 			   sector_t first_sector, sector_t first_size)
@@ -97,7 +113,8 @@ static void parse_extended(struct parsed_partitions *state,
 	unsigned char *data;
 	sector_t this_sector, this_size;
 	sector_t sector_size = bdev_logical_block_size(state->bdev) / 512;
-	int loopct = 0;		
+	int loopct = 0;		/* number of links followed
+				   without finding a data partition */
 	int i;
 
 	this_sector = first_sector;
@@ -117,12 +134,25 @@ static void parse_extended(struct parsed_partitions *state,
 
 		p = (struct partition *) (data + 0x1be);
 
+		/*
+		 * Usually, the first entry is the real data partition,
+		 * the 2nd entry is the next extended partition, or empty,
+		 * and the 3rd and 4th entries are unused.
+		 * However, DRDOS sometimes has the extended partition as
+		 * the first entry (when the data partition is empty),
+		 * and OS/2 seems to use all four entries.
+		 */
 
+		/* 
+		 * First process the data partition(s)
+		 */
 		for (i=0; i<4; i++, p++) {
 			sector_t offs, size, next;
 			if (!nr_sects(p) || is_extended_partition(p))
 				continue;
 
+			/* Check the 3rd and 4th entries -
+			   these sometimes contain random garbage */
 			offs = start_sect(p)*sector_size;
 			size = nr_sects(p)*sector_size;
 			next = this_sector + offs;
@@ -142,12 +172,19 @@ static void parse_extended(struct parsed_partitions *state,
 			if (++state->next == state->limit)
 				goto done;
 		}
+		/*
+		 * Next, process the (first) extended partition, if present.
+		 * (So far, there seems to be no reason to make
+		 *  parse_extended()  recursive and allow a tree
+		 *  of extended partitions.)
+		 * It should be a link to the next logical partition.
+		 */
 		p -= 4;
 		for (i=0; i<4; i++, p++)
 			if (nr_sects(p) && is_extended_partition(p))
 				break;
 		if (i == 4)
-			goto done;	 
+			goto done;	 /* nothing left to do */
 
 		this_sector = first_sector + start_sect(p) * sector_size;
 		this_size = nr_sects(p) * sector_size;
@@ -157,6 +194,8 @@ done:
 	put_dev_sector(sect);
 }
 
+/* james@bpgc.com: Solaris has a nasty indicator: 0x82 which also
+   indicates linux swap.  Be careful before believing this is Solaris. */
 
 static void parse_solaris_x86(struct parsed_partitions *state,
 			      sector_t offset, sector_t size, int origin)
@@ -189,7 +228,7 @@ static void parse_solaris_x86(struct parsed_partitions *state,
 		put_dev_sector(sect);
 		return;
 	}
-	
+	/* Ensure we can handle previous case of VTOC with 8 entries gracefully */
 	max_nparts = le16_to_cpu (v->v_nparts) > 8 ? SOLARIS_X86_NUMSLICE : 8;
 	for (i=0; i<max_nparts && state->next<state->limit; i++) {
 		struct solaris_x86_slice *s = &v->v_slice[i];
@@ -199,6 +238,8 @@ static void parse_solaris_x86(struct parsed_partitions *state,
 			continue;
 		snprintf(tmp, sizeof(tmp), " [s%d]", i);
 		strlcat(state->pp_buf, tmp, PAGE_SIZE);
+		/* solaris partitions are relative to current MS-DOS
+		 * one; must add the offset of the current partition */
 		put_partition(state, state->next++,
 				 le32_to_cpu(s->s_start)+offset,
 				 le32_to_cpu(s->s_size));
@@ -209,6 +250,10 @@ static void parse_solaris_x86(struct parsed_partitions *state,
 }
 
 #if defined(CONFIG_BSD_DISKLABEL)
+/* 
+ * Create devices for BSD partitions listed in a disklabel, under a
+ * dos-like partition. See parse_extended() for more information.
+ */
 static void parse_bsd(struct parsed_partitions *state,
 		      sector_t offset, sector_t size, int origin, char *flavour,
 		      int max_partitions)
@@ -241,7 +286,7 @@ static void parse_bsd(struct parsed_partitions *state,
 		bsd_start = le32_to_cpu(p->p_offset);
 		bsd_size = le32_to_cpu(p->p_size);
 		if (offset == bsd_start && size == bsd_size)
-			
+			/* full parent partition, we have it already */
 			continue;
 		if (offset > bsd_start || offset+size < bsd_start+bsd_size) {
 			strlcat(state->pp_buf, "bad subpartition - ignored\n", PAGE_SIZE);
@@ -284,6 +329,10 @@ static void parse_openbsd(struct parsed_partitions *state,
 #endif
 }
 
+/*
+ * Create devices for Unixware partitions listed in a disklabel, under a
+ * dos-like partition. See parse_extended() for more information.
+ */
 static void parse_unixware(struct parsed_partitions *state,
 			   sector_t offset, sector_t size, int origin)
 {
@@ -307,7 +356,7 @@ static void parse_unixware(struct parsed_partitions *state,
 		strlcat(state->pp_buf, tmp, PAGE_SIZE);
 	}
 	p = &l->vtoc.v_slice[1];
-	
+	/* I omit the 0th slice as it is the same as whole disk. */
 	while (p - &l->vtoc.v_slice[0] < UNIXWARE_NUMSLICE) {
 		if (state->next == state->limit)
 			break;
@@ -323,6 +372,11 @@ static void parse_unixware(struct parsed_partitions *state,
 #endif
 }
 
+/*
+ * Minix 2.0.0/2.0.2 subpartition support.
+ * Anand Krishnamurthy <anandk@wiproge.med.ge.com>
+ * Rajeev V. Pillai    <rajeevvp@yahoo.com>
+ */
 static void parse_minix(struct parsed_partitions *state,
 			sector_t offset, sector_t size, int origin)
 {
@@ -338,8 +392,11 @@ static void parse_minix(struct parsed_partitions *state,
 
 	p = (struct partition *)(data + 0x1be);
 
+	/* The first sector of a Minix partition can have either
+	 * a secondary MBR describing its subpartitions, or
+	 * the normal boot sector. */
 	if (msdos_magic_present (data + 510) &&
-	    SYS_IND(p) == MINIX_PARTITION) { 
+	    SYS_IND(p) == MINIX_PARTITION) { /* subpartition table present */
 		char tmp[1 + BDEVNAME_SIZE + 10 + 9 + 1];
 
 		snprintf(tmp, sizeof(tmp), " %s%d: <minix:", state->name, origin);
@@ -347,7 +404,7 @@ static void parse_minix(struct parsed_partitions *state,
 		for (i = 0; i < MINIX_NR_SUBPARTITIONS; i++, p++) {
 			if (state->next == state->limit)
 				break;
-			
+			/* add each partition in use */
 			if (SYS_IND(p) == MINIX_PARTITION)
 				put_partition(state, state->next++,
 					      start_sect(p), nr_sects(p));
@@ -355,7 +412,7 @@ static void parse_minix(struct parsed_partitions *state,
 		strlcat(state->pp_buf, " >\n", PAGE_SIZE);
 	}
 	put_dev_sector(sect);
-#endif 
+#endif /* CONFIG_MINIX_SUBPARTITION */
 }
 
 static struct {
@@ -395,9 +452,20 @@ int msdos_partition(struct parsed_partitions *state)
 		return 0;
 	}
 
+	/*
+	 * Now that the 55aa signature is present, this is probably
+	 * either the boot sector of a FAT filesystem or a DOS-type
+	 * partition table. Reject this in case the boot indicator
+	 * is not 0 or 0x80.
+	 */
 	p = (struct partition *) (data + 0x1be);
 	for (slot = 1; slot <= 4; slot++, p++) {
 		if (p->boot_ind != 0 && p->boot_ind != 0x80) {
+			/*
+			 * Even without a valid boot inidicator value
+			 * its still possible this is valid FAT filesystem
+			 * without a partition table.
+			 */
 			fb = (struct fat_boot_sector *) data;
 			if (slot == 1 && fb->reserved && fb->fats
 				&& fat_valid_media(fb->media)) {
@@ -414,7 +482,7 @@ int msdos_partition(struct parsed_partitions *state)
 #ifdef CONFIG_EFI_PARTITION
 	p = (struct partition *) (data + 0x1be);
 	for (slot = 1 ; slot <= 4 ; slot++, p++) {
-		
+		/* If this is an EFI GPT disk, msdos should ignore it. */
 		if (SYS_IND(p) == EFI_PMBR_OSTYPE_EFI_GPT) {
 			put_dev_sector(sect);
 			return 0;
@@ -423,6 +491,11 @@ int msdos_partition(struct parsed_partitions *state)
 #endif
 	p = (struct partition *) (data + 0x1be);
 
+	/*
+	 * Look for partitions in two passes:
+	 * First find the primary and DOS-type extended partitions.
+	 * On the second pass look inside *BSD, Unixware and Solaris partitions.
+	 */
 
 	state->next = 5;
 	for (slot = 1 ; slot <= 4 ; slot++, p++) {
@@ -431,6 +504,12 @@ int msdos_partition(struct parsed_partitions *state)
 		if (!size)
 			continue;
 		if (is_extended_partition(p)) {
+			/*
+			 * prevent someone doing mkfs or mkswap on an
+			 * extended partition, but leave room for LILO
+			 * FIXME: this uses one logical sector for > 512b
+			 * sector, although it may not be enough/proper.
+			 */
 			sector_t n = 2;
 			n = min(size, max(sector_size, n));
 			put_partition(state, slot, start, n);
@@ -451,7 +530,7 @@ int msdos_partition(struct parsed_partitions *state)
 
 	strlcat(state->pp_buf, "\n", PAGE_SIZE);
 
-	
+	/* second pass - output for each on a separate line */
 	p = (struct partition *) (0x1be + data);
 	for (slot = 1 ; slot <= 4 ; slot++, p++) {
 		unsigned char id = SYS_IND(p);

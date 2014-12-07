@@ -83,4 +83,4 @@ void tegra_ehci_phy_restore_end(struct tegra_usb_phy *phy);
 
 void tegra_usb_phy_close(struct tegra_usb_phy *phy);
 
-#endif 
+#endif /* __MACH_USB_PHY_H */

@@ -20,8 +20,14 @@
 # define NFSDBG_FACILITY	NFSDBG_MOUNT
 #endif
 
+/*
+ * Defined by RFC 1094, section A.3; and RFC 1813, section 5.1.4
+ */
 #define MNTPATHLEN		(1024)
 
+/*
+ * XDR data type sizes
+ */
 #define encode_dirpath_sz	(1 + XDR_QUADLEN(MNTPATHLEN))
 #define MNT_status_sz		(1)
 #define MNT_fhs_status_sz	(1)
@@ -29,11 +35,17 @@
 #define MNT_fhandle3_sz		(1 + XDR_QUADLEN(NFS3_FHSIZE))
 #define MNT_authflav3_sz	(1 + NFS_MAX_SECFLAVORS)
 
+/*
+ * XDR argument and result sizes
+ */
 #define MNT_enc_dirpath_sz	encode_dirpath_sz
 #define MNT_dec_mountres_sz	(MNT_status_sz + MNT_fhandle_sz)
 #define MNT_dec_mountres3_sz	(MNT_status_sz + MNT_fhandle_sz + \
 				 MNT_authflav3_sz)
 
+/*
+ * Defined by RFC 1094, section A.5
+ */
 enum {
 	MOUNTPROC_NULL		= 0,
 	MOUNTPROC_MNT		= 1,
@@ -43,6 +55,9 @@ enum {
 	MOUNTPROC_EXPORT	= 5,
 };
 
+/*
+ * Defined by RFC 1813, section 5.2
+ */
 enum {
 	MOUNTPROC3_NULL		= 0,
 	MOUNTPROC3_MNT		= 1,
@@ -54,6 +69,9 @@ enum {
 
 static const struct rpc_program mnt_program;
 
+/*
+ * Defined by OpenGroup XNFS Version 3W, chapter 8
+ */
 enum mountstat {
 	MNT_OK			= 0,
 	MNT_EPERM		= 1,
@@ -73,17 +91,20 @@ static struct {
 	{ .status = MNT_EINVAL,			.errno = -EINVAL,	},
 };
 
+/*
+ * Defined by RFC 1813, section 5.1.5
+ */
 enum mountstat3 {
-	MNT3_OK			= 0,		
-	MNT3ERR_PERM		= 1,		
-	MNT3ERR_NOENT		= 2,		
-	MNT3ERR_IO		= 5,		
-	MNT3ERR_ACCES		= 13,		
-	MNT3ERR_NOTDIR		= 20,		
-	MNT3ERR_INVAL		= 22,		
-	MNT3ERR_NAMETOOLONG	= 63,		
-	MNT3ERR_NOTSUPP		= 10004,	
-	MNT3ERR_SERVERFAULT	= 10006,	
+	MNT3_OK			= 0,		/* no error */
+	MNT3ERR_PERM		= 1,		/* Not owner */
+	MNT3ERR_NOENT		= 2,		/* No such file or directory */
+	MNT3ERR_IO		= 5,		/* I/O error */
+	MNT3ERR_ACCES		= 13,		/* Permission denied */
+	MNT3ERR_NOTDIR		= 20,		/* Not a directory */
+	MNT3ERR_INVAL		= 22,		/* Invalid argument */
+	MNT3ERR_NAMETOOLONG	= 63,		/* Filename too long */
+	MNT3ERR_NOTSUPP		= 10004,	/* Operation not supported */
+	MNT3ERR_SERVERFAULT	= 10006,	/* A failure on the server */
 };
 
 static struct {
@@ -114,6 +135,12 @@ struct mnt_fhstatus {
 	struct nfs_fh *fh;
 };
 
+/**
+ * nfs_mount - Obtain an NFS file handle for the given host and path
+ * @info: pointer to mount request arguments
+ *
+ * Uses default timeout parameters specified by underlying transport.
+ */
 int nfs_mount(struct nfs_mount_request *info)
 {
 	struct mountres	result = {
@@ -183,6 +210,13 @@ out_mnt_err:
 	goto out;
 }
 
+/**
+ * nfs_umount - Notify a server that we have unmounted this export
+ * @info: pointer to umount request arguments
+ *
+ * MOUNTPROC_UMNT is advisory, so we set a short timeout, and always
+ * use UDP.
+ */
 void nfs_umount(const struct nfs_mount_request *info)
 {
 	static const struct rpc_timeout nfs_umnt_timeout = {
@@ -240,6 +274,9 @@ out_call_err:
 	dprintk("NFS: UMNT request failed, status=%d\n", status);
 }
 
+/*
+ * XDR encode/decode functions for MOUNT
+ */
 
 static void encode_mntdirpath(struct xdr_stream *xdr, const char *pathname)
 {
@@ -257,6 +294,15 @@ static void mnt_xdr_enc_dirpath(struct rpc_rqst *req, struct xdr_stream *xdr,
 	encode_mntdirpath(xdr, dirpath);
 }
 
+/*
+ * RFC 1094: "A non-zero status indicates some sort of error.  In this
+ * case, the status is a UNIX error number."  This can be problematic
+ * if the server and client use different errno values for the same
+ * error.
+ *
+ * However, the OpenGroup XNFS spec provides a simple mapping that is
+ * independent of local errno values on the server and the client.
+ */
 static int decode_status(struct xdr_stream *xdr, struct mountres *res)
 {
 	unsigned int i;

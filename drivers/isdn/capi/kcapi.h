@@ -20,7 +20,7 @@
 		printk(KERN_DEBUG "%s: " format "\n" , __func__ , ## arg); \
 	} while (0)
 #else
-#define DBG(format, arg...) 
+#define DBG(format, arg...) /* */
 #endif
 
 enum {

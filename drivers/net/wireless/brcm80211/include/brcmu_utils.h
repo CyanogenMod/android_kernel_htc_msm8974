@@ -19,6 +19,11 @@
 
 #include <linux/skbuff.h>
 
+/*
+ * Spin at most 'us' microseconds while 'exp' is true.
+ * Caller should explicitly test 'exp' when this completes
+ * and take appropriate error action if 'exp' is still true.
+ */
 #define SPINWAIT(exp, us) { \
 	uint countdown = (us) + 9; \
 	while ((exp) && (countdown >= 10)) {\
@@ -27,22 +32,24 @@
 	} \
 }
 
-#define PKTQ_LEN_DEFAULT        128	
-#define PKTQ_MAX_PREC           16	
+/* osl multi-precedence packet queue */
+#define PKTQ_LEN_DEFAULT        128	/* Max 128 packets */
+#define PKTQ_MAX_PREC           16	/* Maximum precedence levels */
 
-#define BCME_STRLEN		64	
+#define BCME_STRLEN		64	/* Max string length for BCM errors */
 
+/* the largest reasonable packet buffer driver uses for ethernet MTU in bytes */
 #define	PKTBUFSZ	2048
 
 #ifndef setbit
-#ifndef NBBY			
-#define	NBBY	8		
-#endif				
+#ifndef NBBY			/* the BSD family defines NBBY */
+#define	NBBY	8		/* 8 bits per byte */
+#endif				/* #ifndef NBBY */
 #define	setbit(a, i)	(((u8 *)a)[(i)/NBBY] |= 1<<((i)%NBBY))
 #define	clrbit(a, i)	(((u8 *)a)[(i)/NBBY] &= ~(1<<((i)%NBBY)))
 #define	isset(a, i)	(((const u8 *)a)[(i)/NBBY] & (1<<((i)%NBBY)))
 #define	isclr(a, i)	((((const u8 *)a)[(i)/NBBY] & (1<<((i)%NBBY))) == 0)
-#endif				
+#endif				/* setbit */
 
 #define	NBITS(type)	(sizeof(type) * 8)
 #define NBITVAL(nbits)	(1 << (nbits))
@@ -50,24 +57,32 @@
 #define	NBITMASK(nbits)	MAXBITVAL(nbits)
 #define MAXNBVAL(nbyte)	MAXBITVAL((nbyte) * 8)
 
-#define CRC16_INIT_VALUE 0xffff	
-#define CRC16_GOOD_VALUE 0xf0b8	
+/* crc defines */
+#define CRC16_INIT_VALUE 0xffff	/* Initial CRC16 checksum value */
+#define CRC16_GOOD_VALUE 0xf0b8	/* Good final CRC16 checksum value */
 
+/* 18-bytes of Ethernet address buffer length */
 #define ETHER_ADDR_STR_LEN	18
 
 struct pktq_prec {
 	struct sk_buff_head skblist;
-	u16 max;		
+	u16 max;		/* maximum number of queued packets */
 };
 
+/* multi-priority pkt queue */
 struct pktq {
-	u16 num_prec;	
-	u16 hi_prec;	
-	u16 max;	
-	u16 len;	
+	u16 num_prec;	/* number of precedences in use */
+	u16 hi_prec;	/* rapid dequeue hint (>= highest non-empty prec) */
+	u16 max;	/* total max packets */
+	u16 len;	/* total number of packets */
+	/*
+	 * q array must be last since # of elements can be either
+	 * PKTQ_MAX_PREC or 1
+	 */
 	struct pktq_prec q[PKTQ_MAX_PREC];
 };
 
+/* operations on a specific precedence in packet queue */
 
 static inline int pktq_plen(struct pktq *pq, int prec)
 {
@@ -106,17 +121,22 @@ extern struct sk_buff *brcmu_pktq_penq_head(struct pktq *pq, int prec,
 extern struct sk_buff *brcmu_pktq_pdeq(struct pktq *pq, int prec);
 extern struct sk_buff *brcmu_pktq_pdeq_tail(struct pktq *pq, int prec);
 
+/* packet primitives */
 extern struct sk_buff *brcmu_pkt_buf_get_skb(uint len);
 extern void brcmu_pkt_buf_free_skb(struct sk_buff *skb);
 
+/* Empty the queue at particular precedence level */
+/* callback function fn(pkt, arg) returns true if pkt belongs to if */
 extern void brcmu_pktq_pflush(struct pktq *pq, int prec,
 	bool dir, bool (*fn)(struct sk_buff *, void *), void *arg);
 
+/* operations on a set of precedences in packet queue */
 
 extern int brcmu_pktq_mlen(struct pktq *pq, uint prec_bmp);
 extern struct sk_buff *brcmu_pktq_mdeq(struct pktq *pq, uint prec_bmp,
 	int *prec_out);
 
+/* operations on packet queue as a whole */
 
 static inline int pktq_len(struct pktq *pq)
 {
@@ -144,18 +164,23 @@ static inline bool pktq_empty(struct pktq *pq)
 }
 
 extern void brcmu_pktq_init(struct pktq *pq, int num_prec, int max_len);
+/* prec_out may be NULL if caller is not interested in return value */
 extern struct sk_buff *brcmu_pktq_peek_tail(struct pktq *pq, int *prec_out);
 extern void brcmu_pktq_flush(struct pktq *pq, bool dir,
 		bool (*fn)(struct sk_buff *, void *), void *arg);
 
+/* externs */
+/* ip address */
 struct ipv4_addr;
 
 
+/* externs */
+/* format/print */
 #ifdef DEBUG
 extern void brcmu_prpkt(const char *msg, struct sk_buff *p0);
 #else
 #define brcmu_prpkt(a, b)
-#endif				
+#endif				/* DEBUG */
 
 #ifdef DEBUG
 extern __printf(3, 4)
@@ -168,4 +193,4 @@ void brcmu_dbg_hex_dump(const void *data, size_t size, const char *fmt, ...)
 }
 #endif
 
-#endif				
+#endif				/* _BRCMU_UTILS_H_ */

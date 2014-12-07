@@ -1,3 +1,6 @@
+/*
+ * MCP23S08 SPI/GPIO gpio expander driver
+ */
 
 #include <linux/kernel.h>
 #include <linux/device.h>
@@ -10,12 +13,20 @@
 #include <linux/slab.h>
 #include <asm/byteorder.h>
 
+/**
+ * MCP types supported by driver
+ */
 #define MCP_TYPE_S08	0
 #define MCP_TYPE_S17	1
 #define MCP_TYPE_008	2
 #define MCP_TYPE_017	3
 
-#define MCP_IODIR	0x00		
+/* Registers are all 8 bits wide.
+ *
+ * The mcp23s17 has twice as many bits, and can be configured to work
+ * with either 16 bit registers or with two adjacent 8 bit banks.
+ */
+#define MCP_IODIR	0x00		/* init/reset:  all ones */
 #define MCP_IPOL	0x01
 #define MCP_GPINTEN	0x02
 #define MCP_DEFVAL	0x03
@@ -44,21 +55,27 @@ struct mcp23s08 {
 	u8			addr;
 
 	u16			cache[11];
-	
+	/* lock protects the cached values */
 	struct mutex		lock;
 
 	struct gpio_chip	chip;
 
 	const struct mcp23s08_ops	*ops;
-	void			*data; 
+	void			*data; /* ops specific data */
 };
 
+/* A given spi_device can represent up to eight mcp23sxx chips
+ * sharing the same chipselect but using different addresses
+ * (e.g. chips #0 and #3 might be populated, but not #1 or $2).
+ * Driver data holds all the per-chip data.
+ */
 struct mcp23s08_driver_data {
 	unsigned		ngpio;
 	struct mcp23s08		*mcp[8];
 	struct mcp23s08		chip[];
 };
 
+/*----------------------------------------------------------------------*/
 
 #ifdef CONFIG_I2C
 
@@ -120,8 +137,9 @@ static const struct mcp23s08_ops mcp23017_ops = {
 	.read_regs	= mcp23017_read_regs,
 };
 
-#endif 
+#endif /* CONFIG_I2C */
 
+/*----------------------------------------------------------------------*/
 
 #ifdef CONFIG_SPI_MASTER
 
@@ -161,7 +179,7 @@ mcp23s08_read_regs(struct mcp23s08 *mcp, unsigned reg, u16 *vals, unsigned n)
 	status = spi_write_then_read(mcp->data, tx, sizeof tx, tmp, n);
 	if (status >= 0) {
 		while (n--)
-			vals[n] = tmp[n]; 
+			vals[n] = tmp[n]; /* expand to 16bit */
 	}
 	return status;
 }
@@ -221,8 +239,9 @@ static const struct mcp23s08_ops mcp23s17_ops = {
 	.read_regs	= mcp23s17_read_regs,
 };
 
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
+/*----------------------------------------------------------------------*/
 
 static int mcp23s08_direction_input(struct gpio_chip *chip, unsigned offset)
 {
@@ -243,7 +262,7 @@ static int mcp23s08_get(struct gpio_chip *chip, unsigned offset)
 
 	mutex_lock(&mcp->lock);
 
-	
+	/* REVISIT reading this clears any IRQ ... */
 	status = mcp->ops->read(mcp, MCP_GPIO);
 	if (status < 0)
 		status = 0;
@@ -294,11 +313,16 @@ mcp23s08_direction_output(struct gpio_chip *chip, unsigned offset, int value)
 	return status;
 }
 
+/*----------------------------------------------------------------------*/
 
 #ifdef CONFIG_DEBUG_FS
 
 #include <linux/seq_file.h>
 
+/*
+ * This shows more info than the generic gpio dump code:
+ * pullups, deglitching, open drain drive.
+ */
 static void mcp23s08_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 {
 	struct mcp23s08	*mcp;
@@ -308,7 +332,7 @@ static void mcp23s08_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 
 	mcp = container_of(chip, struct mcp23s08, chip);
 
-	
+	/* NOTE: we only handle one bank for now ... */
 	bank = '0' + ((mcp->addr >> 1) & 0x7);
 
 	mutex_lock(&mcp->lock);
@@ -330,7 +354,7 @@ static void mcp23s08_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 			(mcp->cache[MCP_IODIR] & mask) ? "in " : "out",
 			(mcp->cache[MCP_GPIO] & mask) ? "hi" : "lo",
 			(mcp->cache[MCP_GPPU] & mask) ? "  " : "up");
-		
+		/* NOTE:  ignoring the irq-related registers */
 		seq_printf(s, "\n");
 	}
 done:
@@ -341,6 +365,7 @@ done:
 #define mcp23s08_dbg_show	NULL
 #endif
 
+/*----------------------------------------------------------------------*/
 
 static int mcp23s08_probe_one(struct mcp23s08 *mcp, struct device *dev,
 			      void *data, unsigned addr,
@@ -372,7 +397,7 @@ static int mcp23s08_probe_one(struct mcp23s08 *mcp, struct device *dev,
 		mcp->chip.ngpio = 16;
 		mcp->chip.label = "mcp23s17";
 		break;
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
 #ifdef CONFIG_I2C
 	case MCP_TYPE_008:
@@ -386,7 +411,7 @@ static int mcp23s08_probe_one(struct mcp23s08 *mcp, struct device *dev,
 		mcp->chip.ngpio = 16;
 		mcp->chip.label = "mcp23017";
 		break;
-#endif 
+#endif /* CONFIG_I2C */
 
 	default:
 		dev_err(dev, "invalid device type (%d)\n", type);
@@ -398,11 +423,14 @@ static int mcp23s08_probe_one(struct mcp23s08 *mcp, struct device *dev,
 	mcp->chip.dev = dev;
 	mcp->chip.owner = THIS_MODULE;
 
+	/* verify MCP_IOCON.SEQOP = 0, so sequential reads work,
+	 * and MCP_IOCON.HAEN = 1, so we work with all chips.
+	 */
 	status = mcp->ops->read(mcp, MCP_IOCON);
 	if (status < 0)
 		goto fail;
 	if ((status & IOCON_SEQOP) || !(status & IOCON_HAEN)) {
-		
+		/* mcp23s17 has IOCON twice, make sure they are in sync */
 		status &= ~(IOCON_SEQOP | (IOCON_SEQOP << 8));
 		status |= IOCON_HAEN | (IOCON_HAEN << 8);
 		status = mcp->ops->write(mcp, MCP_IOCON, status);
@@ -410,7 +438,7 @@ static int mcp23s08_probe_one(struct mcp23s08 *mcp, struct device *dev,
 			goto fail;
 	}
 
-	
+	/* configure ~100K pullups */
 	status = mcp->ops->write(mcp, MCP_GPPU, pullups);
 	if (status < 0)
 		goto fail;
@@ -419,7 +447,7 @@ static int mcp23s08_probe_one(struct mcp23s08 *mcp, struct device *dev,
 	if (status < 0)
 		goto fail;
 
-	
+	/* disable inverter on input */
 	if (mcp->cache[MCP_IPOL] != 0) {
 		mcp->cache[MCP_IPOL] = 0;
 		status = mcp->ops->write(mcp, MCP_IPOL, 0);
@@ -427,7 +455,7 @@ static int mcp23s08_probe_one(struct mcp23s08 *mcp, struct device *dev,
 			goto fail;
 	}
 
-	
+	/* disable irqs */
 	if (mcp->cache[MCP_GPINTEN] != 0) {
 		mcp->cache[MCP_GPINTEN] = 0;
 		status = mcp->ops->write(mcp, MCP_GPINTEN, 0);
@@ -443,6 +471,7 @@ fail:
 	return status;
 }
 
+/*----------------------------------------------------------------------*/
 
 #ifdef CONFIG_I2C
 
@@ -523,8 +552,9 @@ static void mcp23s08_i2c_exit(void)
 static int __init mcp23s08_i2c_init(void) { return 0; }
 static void mcp23s08_i2c_exit(void) { }
 
-#endif 
+#endif /* CONFIG_I2C */
 
+/*----------------------------------------------------------------------*/
 
 #ifdef CONFIG_SPI_MASTER
 
@@ -580,6 +610,10 @@ static int mcp23s08_probe(struct spi_device *spi)
 	}
 	data->ngpio = base - pdata->base;
 
+	/* NOTE:  these chips have a relatively sane IRQ framework, with
+	 * per-signal masking and level/edge triggering.  It's not yet
+	 * handled here...
+	 */
 
 	return 0;
 
@@ -652,8 +686,9 @@ static void mcp23s08_spi_exit(void)
 static int __init mcp23s08_spi_init(void) { return 0; }
 static void mcp23s08_spi_exit(void) { }
 
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
+/*----------------------------------------------------------------------*/
 
 static int __init mcp23s08_init(void)
 {
@@ -674,6 +709,9 @@ static int __init mcp23s08_init(void)
  spi_fail:
 	return ret;
 }
+/* register after spi/i2c postcore initcall and before
+ * subsys initcalls that may rely on these GPIOs
+ */
 subsys_initcall(mcp23s08_init);
 
 static void __exit mcp23s08_exit(void)

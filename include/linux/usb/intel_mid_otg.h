@@ -26,8 +26,10 @@
 
 struct intel_mid_otg_xceiv;
 
+/* This is a common data structure for Intel MID platform to
+ * save values of the OTG state machine */
 struct otg_hsm {
-	
+	/* Input */
 	int a_bus_resume;
 	int a_bus_suspend;
 	int a_conn;
@@ -42,6 +44,7 @@ struct otg_hsm {
 	int b_sess_end;
 	int b_sess_vld;
 	int id;
+/* id values */
 #define ID_B		0x05
 #define ID_A		0x04
 #define ID_ACA_C	0x03
@@ -51,13 +54,13 @@ struct otg_hsm {
 	int adp_change;
 	int test_device;
 
-	
+	/* Internal variables */
 	int a_set_b_hnp_en;
 	int b_srp_done;
 	int b_hnp_enable;
 	int hnp_poll_enable;
 
-	
+	/* Timeout indicator for timers */
 	int a_wait_vrise_tmout;
 	int a_wait_bcon_tmout;
 	int a_aidl_bdis_tmout;
@@ -71,7 +74,7 @@ struct otg_hsm {
 	int b_srp_fail_tmr;
 	int b_adp_sense_tmout;
 
-	
+	/* Informative variables */
 	int a_bus_drop;
 	int a_bus_req;
 	int a_clr_err;
@@ -79,15 +82,17 @@ struct otg_hsm {
 	int a_suspend_req;
 	int b_bus_suspend_vld;
 
-	
+	/* Output */
 	int drv_vbus;
 	int loc_conn;
 	int loc_sof;
 
-	
+	/* Others */
 	int vbus_srp_up;
 };
 
+/* must provide ULPI access function to read/write registers implemented in
+ * ULPI address space */
 struct iotg_ulpi_access_ops {
 	int	(*read)(struct intel_mid_otg_xceiv *iotg, u8 reg, u8 *val);
 	int	(*write)(struct intel_mid_otg_xceiv *iotg, u8 reg, u8 val);
@@ -96,35 +101,41 @@ struct iotg_ulpi_access_ops {
 #define OTG_A_DEVICE	0x0
 #define OTG_B_DEVICE	0x1
 
+/*
+ * the Intel MID (Langwell/Penwell) otg transceiver driver needs to interact
+ * with device and host drivers to implement the USB OTG related feature. More
+ * function members are added based on usb_phy data structure for this
+ * purpose.
+ */
 struct intel_mid_otg_xceiv {
 	struct usb_phy		otg;
 	struct otg_hsm		hsm;
 
-	
+	/* base address */
 	void __iomem		*base;
 
-	
+	/* ops to access ulpi */
 	struct iotg_ulpi_access_ops	ulpi_ops;
 
-	
+	/* atomic notifier for interrupt context */
 	struct atomic_notifier_head	iotg_notifier;
 
-	
+	/* start/stop USB Host function */
 	int	(*start_host)(struct intel_mid_otg_xceiv *iotg);
 	int	(*stop_host)(struct intel_mid_otg_xceiv *iotg);
 
-	
+	/* start/stop USB Peripheral function */
 	int	(*start_peripheral)(struct intel_mid_otg_xceiv *iotg);
 	int	(*stop_peripheral)(struct intel_mid_otg_xceiv *iotg);
 
-	
+	/* start/stop ADP sense/probe function */
 	int	(*set_adp_probe)(struct intel_mid_otg_xceiv *iotg,
 					bool enabled, int dev);
 	int	(*set_adp_sense)(struct intel_mid_otg_xceiv *iotg,
 					bool enabled);
 
 #ifdef CONFIG_PM
-	
+	/* suspend/resume USB host function */
 	int	(*suspend_host)(struct intel_mid_otg_xceiv *iotg,
 					pm_message_t message);
 	int	(*resume_host)(struct intel_mid_otg_xceiv *iotg);
@@ -166,4 +177,4 @@ intel_mid_otg_unregister_notifier(struct intel_mid_otg_xceiv *iotg,
 	atomic_notifier_chain_unregister(&iotg->iotg_notifier, nb);
 }
 
-#endif 
+#endif /* __INTEL_MID_OTG_H */

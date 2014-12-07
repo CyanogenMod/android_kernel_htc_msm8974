@@ -90,5 +90,5 @@
 
 #include "generic.h"
 
-#endif 
+#endif /* _LINUX_BYTEORDER_BIG_ENDIAN_H */
 

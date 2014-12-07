@@ -15,19 +15,24 @@ static struct nand_ecclayout nand_oob_sm = {
 	.eccbytes = 6,
 	.eccpos = {8, 9, 10, 13, 14, 15},
 	.oobfree = {
-		{.offset = 0 , .length = 4}, 
-		{.offset = 6 , .length = 2}, 
-		{.offset = 11, .length = 2}  
+		{.offset = 0 , .length = 4}, /* reserved */
+		{.offset = 6 , .length = 2}, /* LBA1 */
+		{.offset = 11, .length = 2}  /* LBA2 */
 	}
 };
 
+/* NOTE: This layout is is not compatabable with SmartMedia, */
+/* because the 256 byte devices have page depenent oob layout */
+/* However it does preserve the bad block markers */
+/* If you use smftl, it will bypass this and work correctly */
+/* If you not, then you break SmartMedia compliance anyway */
 
 static struct nand_ecclayout nand_oob_sm_small = {
 	.eccbytes = 3,
 	.eccpos = {0, 1, 2},
 	.oobfree = {
-		{.offset = 3 , .length = 2}, 
-		{.offset = 6 , .length = 2}, 
+		{.offset = 3 , .length = 2}, /* reserved */
+		{.offset = 6 , .length = 2}, /* LBA1 */
 	}
 };
 
@@ -41,6 +46,8 @@ static int sm_block_markbad(struct mtd_info *mtd, loff_t ofs)
 	memset(&oob, -1, SM_OOB_SIZE);
 	oob.block_status = 0x0F;
 
+	/* As long as this function is called on erase block boundaries
+		it will work correctly for 256 byte nand */
 	ops.mode = MTD_OPS_PLACE_OOB;
 	ops.ooboffs = 0;
 	ops.ooblen = mtd->oobsize;
@@ -108,19 +115,19 @@ int sm_register_device(struct mtd_info *mtd, int smartmedia)
 
 	chip->options |= NAND_SKIP_BBTSCAN;
 
-	
+	/* Scan for card properties */
 	ret = nand_scan_ident(mtd, 1, smartmedia ?
 		nand_smartmedia_flash_ids : nand_xd_flash_ids);
 
 	if (ret)
 		return ret;
 
-	
+	/* Bad block marker position */
 	chip->badblockpos = 0x05;
 	chip->badblockbits = 7;
 	chip->block_markbad = sm_block_markbad;
 
-	
+	/* ECC layout */
 	if (mtd->writesize == SM_SECTOR_SIZE)
 		chip->ecc.layout = &nand_oob_sm;
 	else if (mtd->writesize == SM_SMALL_PAGE)

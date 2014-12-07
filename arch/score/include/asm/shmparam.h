@@ -3,4 +3,4 @@
 
 #include <asm-generic/shmparam.h>
 
-#endif 
+#endif /* _ASM_SCORE_SHMPARAM_H */

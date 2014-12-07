@@ -3,10 +3,13 @@
 
 #include <linux/netfilter.h>
 
-#define NF_LOG_TCPSEQ		0x01	
-#define NF_LOG_TCPOPT		0x02	
-#define NF_LOG_IPOPT		0x04	
-#define NF_LOG_UID		0x08	
+/* those NF_LOG_* defines and struct nf_loginfo are legacy definitios that will
+ * disappear once iptables is replaced with pkttables.  Please DO NOT use them
+ * for any new code! */
+#define NF_LOG_TCPSEQ		0x01	/* Log TCP sequence numbers */
+#define NF_LOG_TCPOPT		0x02	/* Log TCP options */
+#define NF_LOG_IPOPT		0x04	/* Log IP options */
+#define NF_LOG_UID		0x08	/* Log UID owning local socket */
 #define NF_LOG_MASK		0x0f
 
 #define NF_LOG_TYPE_LOG		0x01
@@ -42,12 +45,14 @@ struct nf_logger {
 	struct list_head	list[NFPROTO_NUMPROTO];
 };
 
+/* Function to register/unregister log function. */
 int nf_log_register(u_int8_t pf, struct nf_logger *logger);
 void nf_log_unregister(struct nf_logger *logger);
 
 int nf_log_bind_pf(u_int8_t pf, const struct nf_logger *logger);
 void nf_log_unbind_pf(u_int8_t pf);
 
+/* Calls the registered backend logging function */
 __printf(7, 8)
 void nf_log_packet(u_int8_t pf,
 		   unsigned int hooknum,
@@ -57,4 +62,4 @@ void nf_log_packet(u_int8_t pf,
 		   const struct nf_loginfo *li,
 		   const char *fmt, ...);
 
-#endif 
+#endif /* _NF_LOG_H */

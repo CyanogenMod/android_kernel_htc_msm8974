@@ -35,7 +35,7 @@ static irqreturn_t hilscher_handler(int irq, struct uio_info *dev_info)
 	    != INT1_ENABLED_AND_ACTIVE)
 		return IRQ_NONE;
 
-	
+	/* Disable interrupt */
 	iowrite8(ioread8(plx_intscr) & ~INTSCR_INT1_ENABLE, plx_intscr);
 	return IRQ_HANDLED;
 }

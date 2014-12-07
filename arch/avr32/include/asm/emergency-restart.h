@@ -3,4 +3,4 @@
 
 #include <asm-generic/emergency-restart.h>
 
-#endif 
+#endif /* __ASM_AVR32_EMERGENCY_RESTART_H */

@@ -30,6 +30,10 @@ void request_event_sources_irqs(struct device_node *np,
 	unsigned int opicplen;
 	unsigned int virqs[16];
 
+	/* Check for obsolete "open-pic-interrupt" property. If present, then
+	 * map those interrupts using the default interrupt host and default
+	 * trigger
+	 */
 	opicprop = of_get_property(np, "open-pic-interrupt", &opicplen);
 	if (opicprop) {
 		opicplen /= sizeof(u32);
@@ -48,9 +52,9 @@ void request_event_sources_irqs(struct device_node *np,
 
 		}
 	}
-	
+	/* Else use normal interrupt tree parsing */
 	else {
-		
+		/* First try to do a proper OF tree parsing */
 		for (index = 0; of_irq_map_one(np, index, &oirq) == 0;
 		     index++) {
 			if (count > 15)
@@ -69,7 +73,7 @@ void request_event_sources_irqs(struct device_node *np,
 		}
 	}
 
-	
+	/* Now request them */
 	for (i = 0; i < count; i++) {
 		if (request_irq(virqs[i], handler, 0, name, NULL)) {
 			pr_err("event-sources: Unable to request interrupt "

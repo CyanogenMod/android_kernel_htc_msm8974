@@ -11,6 +11,10 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * SATA init module.
+ * To be used with SATA interface on MSM targets.
+ */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -26,6 +30,7 @@
 #include <linux/ahci_platform.h>
 #include <mach/clk.h>
 
+/* PHY registers */
 #define UNIPHY_PLL_REFCLK_CFG		0x000
 #define UNIPHY_PLL_POSTDIV1_CFG		0x004
 #define UNIPHY_PLL_CHGPUMP_CFG		0x008
@@ -167,7 +172,7 @@ struct msm_sata_hba {
 
 static inline void msm_sata_delay_us(unsigned int delay)
 {
-	
+	/* sleep for max. 50us more to combine processor wakeups */
 	usleep_range(delay, delay + 50);
 }
 
@@ -243,41 +248,49 @@ static int msm_sata_clk_init(struct device *dev)
 	int ret = 0;
 	struct msm_sata_hba *hba = dev_get_drvdata(dev);
 
-	
+	/* Enable AHB clock for system fabric slave port connected to SATA */
 	ret = msm_sata_clk_get_prepare_enable(dev,
 			"slave_iface_clk", &hba->slave_iface_clk);
 	if (ret)
 		goto out;
 
-	
+	/* Enable AHB clock for system fabric and SATA core interface */
 	ret = msm_sata_clk_get_prepare_enable(dev,
 			"iface_clk", &hba->iface_clk);
 	if (ret)
 		goto put_dis_slave_iface_clk;
 
-	
+	/* Enable AXI clock for SATA AXI master and slave interfaces */
 	ret = msm_sata_clk_get_prepare_enable(dev,
 			"bus_clk", &hba->bus_clk);
 	if (ret)
 		goto put_dis_iface_clk;
 
-	
+	/* Enable the source clock for pmalive, rxoob and phy ref clocks */
 	ret = msm_sata_clk_get_prepare_enable_set_rate(dev,
 			"src_clk", &hba->src_clk, 100000000);
 	if (ret)
 		goto put_dis_bus_clk;
 
+	/*
+	 * Enable RX OOB detection clock. The clock rate is
+	 * same as PHY reference clock (100MHz).
+	 */
 	ret = msm_sata_clk_get_prepare_enable(dev,
 			"core_rxoob_clk", &hba->rxoob_clk);
 	if (ret)
 		goto put_dis_src_clk;
 
+	/*
+	 * Enable power management always-on clock. The clock rate
+	 * is same as PHY reference clock (100MHz).
+	 */
 	ret = msm_sata_clk_get_prepare_enable(dev,
 			"core_pmalive_clk", &hba->pmalive_clk);
 	if (ret)
 		goto put_dis_rxoob_clk;
 
-	
+	/* Enable PHY configuration AHB clock, fixed 64MHz clock */
 	ret = msm_sata_clk_get_prepare_enable(dev,
 			"cfg_clk", &hba->cfg_clk);
 	if (ret)
@@ -342,6 +355,10 @@ static int msm_sata_vreg_get_enable_set_vdd(struct device *dev,
 					name, hpm_uA, ret);
 			goto err;
 		} else {
+			/*
+			 * regulator_set_optimum_mode() can return non zero
+			 * value even for success case.
+			 */
 			ret = 0;
 		}
 	}
@@ -388,6 +405,10 @@ static int msm_sata_vreg_put_disable(struct device *dev,
 					name, ret);
 			goto err;
 		} else {
+			/*
+			 * regulator_set_optimum_mode() can return non zero
+			 * value even for success case.
+			 */
 			ret = 0;
 		}
 	}
@@ -402,18 +423,22 @@ static int msm_sata_vreg_init(struct device *dev)
 	int ret = 0;
 	struct msm_sata_hba *hba = dev_get_drvdata(dev);
 
+	/*
+	 * The SATA clock generator needs 3.3V supply and can consume
+	 * max. 850mA during functional mode.
+	 */
 	ret = msm_sata_vreg_get_enable_set_vdd(dev, "sata_ext_3p3v",
 				&hba->clk_pwr, 3300000, 3300000, 850000);
 	if (ret)
 		goto out;
 
-	
+	/* Add 1ms regulator ramp-up delay */
 	msm_sata_delay_us(1000);
 
-	
+	/* Read AHCI capability register to check if PMP is supported.*/
 	if (readl_relaxed(hba->ahci_base +
 				AHCI_HOST_CAP) & AHCI_HOST_CAP_PMP) {
-		
+		/* Power up port-multiplier */
 		ret = msm_sata_vreg_get_enable_set_vdd(dev, "sata_pmp_pwr",
 				&hba->pmp_pwr, 1800000, 1800000, 200000);
 		if (ret) {
@@ -422,7 +447,7 @@ static int msm_sata_vreg_init(struct device *dev)
 			goto out;
 		}
 
-		
+		/* Add 1ms regulator ramp-up delay */
 		msm_sata_delay_us(1000);
 	}
 
@@ -446,11 +471,11 @@ static void msm_sata_phy_deinit(struct device *dev)
 {
 	struct msm_sata_hba *hba = dev_get_drvdata(dev);
 
-	
+	/* Power down PHY */
 	writel_relaxed(0xF8, hba->phy_base + SATA_PHY_POW_DWN_CTRL0);
 	writel_relaxed(0xFE, hba->phy_base + SATA_PHY_POW_DWN_CTRL1);
 
-	
+	/* Power down PLL block */
 	writel_relaxed(0x00, hba->phy_base + UNIPHY_PLL_GLB_CFG);
 	mb();
 
@@ -477,7 +502,7 @@ static int msm_sata_phy_init(struct device *dev)
 		return -ENOMEM;
 	}
 
-	
+	/* SATA phy initialization */
 
 	writel_relaxed(0x01, hba->phy_base + SATA_PHY_SER_CTRL);
 
@@ -491,7 +516,7 @@ static int msm_sata_phy_init(struct device *dev)
 	writel_relaxed(0x01, hba->phy_base + SATA_PHY_TX_IMCAL0);
 	writel_relaxed(0x02, hba->phy_base + SATA_PHY_TX_IMCAL2);
 
-	
+	/* Write UNIPHYPLL registers to configure PLL */
 	writel_relaxed(0x04, hba->phy_base + UNIPHY_PLL_REFCLK_CFG);
 	writel_relaxed(0x00, hba->phy_base + UNIPHY_PLL_PWRGEN_CFG);
 
@@ -526,7 +551,7 @@ static int msm_sata_phy_init(struct device *dev)
 	writel_relaxed(0x05, hba->phy_base + UNIPHY_PLL_LKDET_CFG2);
 	mb();
 
-	
+	/* poll for ready status, timeout after 1 sec */
 	ret = readl_poll_timeout(hba->phy_base + UNIPHY_PLL_STATUS, reg,
 			(reg & 1 << 0), 100, 1000000);
 	if (ret) {
@@ -548,7 +573,7 @@ static int msm_sata_phy_init(struct device *dev)
 		goto out;
 	}
 
-	
+	/* SATA phy calibrated succesfully, power up to functional mode */
 	writel_relaxed(0x3E, hba->phy_base + SATA_PHY_POW_DWN_CTRL1);
 	writel_relaxed(0x01, hba->phy_base + SATA_PHY_RX_IMCAL0);
 	writel_relaxed(0x01, hba->phy_base + SATA_PHY_TX_IMCAL0);
@@ -573,7 +598,7 @@ static int msm_sata_phy_init(struct device *dev)
 	dev_dbg(dev, "SATA PHY powered up in functional mode\n");
 
 out:
-	
+	/* power down PHY in case of failure */
 	if (ret)
 		msm_sata_phy_deinit(dev);
 
@@ -586,7 +611,7 @@ int msm_sata_init(struct device *ahci_dev, void __iomem *mmio)
 	struct device *dev = ahci_dev->parent;
 	struct msm_sata_hba *hba = dev_get_drvdata(dev);
 
-	
+	/* Save ahci mmio to access vendor specific registers */
 	hba->ahci_base = mmio;
 
 	ret = msm_sata_clk_init(dev);
@@ -638,10 +663,16 @@ static int msm_sata_resume(struct device *ahci_dev)
 	ret = msm_sata_clk_init(dev);
 	if (ret) {
 		dev_err(dev, "SATA clk init failed with err=%d\n", ret);
+		/*
+		 * If clock initialization failed, that means ahci driver
+		 * cannot access any register going further. Since there is
+		 * no check within ahci driver to check for clock failures,
+		 * panic here instead of making an unclocked register access.
+		 */
 		BUG();
 	}
 
-	
+	/* Issue asynchronous reset to reset PHY */
 	ret = msm_sata_hard_reset(dev);
 	if (ret)
 		goto out;
@@ -649,14 +680,14 @@ static int msm_sata_resume(struct device *ahci_dev)
 	ret = msm_sata_vreg_init(dev);
 	if (ret) {
 		dev_err(dev, "SATA vreg init failed with err=%d\n", ret);
-		
+		/* Do not turn off clks, AHCI driver might do register access */
 		goto out;
 	}
 
 	ret = msm_sata_phy_init(dev);
 	if (ret) {
 		dev_err(dev, "SATA PHY init failed with err=%d\n", ret);
-		
+		/* Do not turn off clks, AHCI driver might do register access */
 		msm_sata_vreg_deinit(dev);
 		goto out;
 	}

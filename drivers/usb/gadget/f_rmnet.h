@@ -16,4 +16,4 @@
 
 int rmnet_function_add(struct usb_configuration *c);
 
-#endif 
+#endif /* __F_RMNET_H */

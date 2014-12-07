@@ -82,6 +82,7 @@ static struct acpuclk_state drv_state = {
 	.current_speed = &(struct clkctl_acpu_speed){ 0 },
 };
 
+/* Instantaneous bandwidth requests in MB/s. */
 #define BW_MBPS(_bw) \
 	{ \
 		.vectors = &(struct msm_bus_vectors){ \
@@ -93,12 +94,12 @@ static struct acpuclk_state drv_state = {
 		.num_paths = 1, \
 	}
 static struct msm_bus_paths bw_level_tbl[] = {
-	[0] =  BW_MBPS(152), 
-	[1] =  BW_MBPS(368), 
-	[2] =  BW_MBPS(552), 
-	[3] =  BW_MBPS(736), 
-	[4] = BW_MBPS(1064), 
-	[5] = BW_MBPS(1536), 
+	[0] =  BW_MBPS(152), /* At least  19 MHz on bus. */
+	[1] =  BW_MBPS(368), /* At least  46 MHz on bus. */
+	[2] =  BW_MBPS(552), /* At least  69 MHz on bus. */
+	[3] =  BW_MBPS(736), /* At least  92 MHz on bus. */
+	[4] = BW_MBPS(1064), /* At least 133 MHz on bus. */
+	[5] = BW_MBPS(1536), /* At least 192 MHz on bus. */
 };
 
 static struct msm_bus_scale_pdata bus_client_pdata = {
@@ -115,7 +116,7 @@ static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 1, 138000, SRC_PLL0, 6, 1, RPM_VREG_CORNER_LOW,     1050000, 2 },
 	{ 1, 276000, SRC_PLL0, 6, 0, RPM_VREG_CORNER_NOMINAL, 1050000, 2 },
 	{ 1, 384000, SRC_PLL8, 3, 0, RPM_VREG_CORNER_HIGH,    1150000, 4 },
-	
+	/* The row below may be changed at runtime depending on hw rev. */
 	{ 1, 440000, SRC_PLL9, 2, 0, RPM_VREG_CORNER_HIGH,    1150000, 4 },
 	{ 0 }
 };
@@ -131,22 +132,23 @@ static void select_clk_source_div(struct clkctl_acpu_speed *s)
 	writel_relaxed(s->src_div, div_reg[next_bank]);
 	writel_relaxed(next_bank, REG_CLKOUTSEL);
 
-	
+	/* Wait for switch to complete. */
 	mb();
 	udelay(1);
 }
 
+/* Update the bus bandwidth request. */
 static void set_bus_bw(unsigned int bw)
 {
 	int ret;
 
-	
+	/* Bounds check. */
 	if (bw >= ARRAY_SIZE(bw_level_tbl)) {
 		pr_err("invalid bandwidth request (%d)\n", bw);
 		return;
 	}
 
-	
+	/* Update bandwidth if request has changed. This may sleep. */
 	ret = msm_bus_scale_client_update_request(bus_perf_client, bw);
 	if (ret)
 		pr_err("bandwidth request failed (%d)\n", ret);
@@ -154,10 +156,15 @@ static void set_bus_bw(unsigned int bw)
 	return;
 }
 
+/* Apply any per-cpu voltage increases. */
 static int increase_vdd(unsigned int vdd_cpu, unsigned int vdd_mem)
 {
 	int rc = 0;
 
+	/*
+	 * Increase vdd_mem active-set before vdd_cpu.
+	 * vdd_mem should be >= vdd_cpu.
+	 */
 	rc = rpm_vreg_set_voltage(RPM_VREG_ID_PM8018_L9, RPM_VREG_VOTER1,
 				  vdd_mem, MAX_VDD_MEM, 0);
 	if (rc) {
@@ -173,11 +180,12 @@ static int increase_vdd(unsigned int vdd_cpu, unsigned int vdd_mem)
 	return rc;
 }
 
+/* Apply any per-cpu voltage decreases. */
 static void decrease_vdd(unsigned int vdd_cpu, unsigned int vdd_mem)
 {
 	int ret;
 
-	
+	/* Update CPU voltage. */
 	ret = rpm_vreg_set_voltage(RPM_VREG_ID_PM8018_VDD_DIG_CORNER,
 		RPM_VREG_VOTER1, vdd_cpu, RPM_VREG_CORNER_HIGH, 0);
 
@@ -186,6 +194,10 @@ static void decrease_vdd(unsigned int vdd_cpu, unsigned int vdd_mem)
 		return;
 	}
 
+	/*
+	 * Decrease vdd_mem active-set after vdd_cpu.
+	 * vdd_mem should be >= vdd_cpu.
+	 */
 	ret = rpm_vreg_set_voltage(RPM_VREG_ID_PM8018_L9, RPM_VREG_VOTER1,
 				  vdd_mem, MAX_VDD_MEM, 0);
 	if (ret)
@@ -203,11 +215,11 @@ static int acpuclk_9615_set_rate(int cpu, unsigned long rate,
 
 	strt_s = drv_state.current_speed;
 
-	
+	/* Return early if rate didn't change. */
 	if (rate == strt_s->khz)
 		goto out;
 
-	
+	/* Find target frequency. */
 	for (tgt_s = acpu_freq_tbl; tgt_s->khz != 0; tgt_s++)
 		if (tgt_s->khz == rate)
 			break;
@@ -216,7 +228,7 @@ static int acpuclk_9615_set_rate(int cpu, unsigned long rate,
 		goto out;
 	}
 
-	
+	/* Increase VDD levels if needed. */
 	if ((reason == SETRATE_CPUFREQ || reason == SETRATE_INIT)
 			&& (tgt_s->khz > strt_s->khz)) {
 		rc = increase_vdd(tgt_s->vdd_cpu, tgt_s->vdd_mem);
@@ -227,7 +239,7 @@ static int acpuclk_9615_set_rate(int cpu, unsigned long rate,
 	pr_debug("Switching from CPU rate %u KHz -> %u KHz\n",
 		strt_s->khz, tgt_s->khz);
 
-	
+	/* Switch CPU speed. */
 	clk_enable(clocks[tgt_s->src].clk);
 	select_clk_source_div(tgt_s);
 	clk_disable(clocks[strt_s->src].clk);
@@ -235,14 +247,14 @@ static int acpuclk_9615_set_rate(int cpu, unsigned long rate,
 	drv_state.current_speed = tgt_s;
 	pr_debug("CPU speed change complete\n");
 
-	
+	/* Nothing else to do for SWFI or power-collapse. */
 	if (reason == SETRATE_SWFI || reason == SETRATE_PC)
 		goto out;
 
-	
+	/* Update bus bandwith request. */
 	set_bus_bw(tgt_s->bw_level);
 
-	
+	/* Drop VDD levels if we can. */
 	if (tgt_s->khz < strt_s->khz)
 		decrease_vdd(tgt_s->vdd_cpu, tgt_s->vdd_mem);
 
@@ -264,7 +276,7 @@ static void __init cpufreq_table_init(void)
 {
 	int i, freq_cnt = 0;
 
-	
+	/* Construct the freq_table tables from acpu_freq_tbl. */
 	for (i = 0; acpu_freq_tbl[i].khz != 0
 			&& freq_cnt < ARRAY_SIZE(freq_table); i++) {
 		if (acpu_freq_tbl[i].use_for_scaling) {
@@ -274,7 +286,7 @@ static void __init cpufreq_table_init(void)
 			freq_cnt++;
 		}
 	}
-	
+	/* freq_table not big enough to store all usable freqs. */
 	BUG_ON(acpu_freq_tbl[i].khz != 0);
 
 	freq_table[freq_cnt].index = freq_cnt;
@@ -282,7 +294,7 @@ static void __init cpufreq_table_init(void)
 
 	pr_info("CPU: %d scaling frequencies supported.\n", freq_cnt);
 
-	
+	/* Register table with CPUFreq. */
 	cpufreq_frequency_table_get_attr(freq_table, smp_processor_id());
 }
 #else
@@ -313,11 +325,15 @@ static int __init acpuclk_9615_probe(struct platform_device *pdev)
 		if (clocks[i].name) {
 			clocks[i].clk = clk_get_sys("acpu", clocks[i].name);
 			BUG_ON(IS_ERR(clocks[i].clk));
+			/*
+			 * Prepare the PLLs because we enable/disable them
+			 * in atomic context during power collapse/restore.
+			 */
 			BUG_ON(clk_prepare(clocks[i].clk));
 		}
 	}
 
-	
+	/* Determine the rate of PLL9 and fixup tables accordingly */
 	if (clk_get_rate(clocks[SRC_PLL9].clk) == 550000000) {
 		for (i = 0; i < ARRAY_SIZE(acpu_freq_tbl); i++)
 			if (acpu_freq_tbl[i].src == SRC_PLL9) {
@@ -326,7 +342,7 @@ static int __init acpuclk_9615_probe(struct platform_device *pdev)
 			}
 	}
 
-	
+	/* Improve boot time by ramping up CPU immediately. */
 	for (i = 0; acpu_freq_tbl[i].khz != 0; i++)
 		max_cpu_khz = acpu_freq_tbl[i].khz;
 	acpuclk_9615_set_rate(smp_processor_id(), max_cpu_khz, SETRATE_INIT);

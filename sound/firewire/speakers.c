@@ -23,6 +23,7 @@
 #include "lib.h"
 
 #define OXFORD_FIRMWARE_ID_ADDRESS	(CSR_REGISTER_BASE + 0x50000)
+/* 0x970?vvvv or 0x971?vvvv, where vvvv = firmware version */
 
 #define OXFORD_HARDWARE_ID_ADDRESS	(CSR_REGISTER_BASE + 0x90020)
 #define OXFORD_HARDWARE_ID_OXFW970	0x39443841
@@ -72,7 +73,7 @@ static int firewave_rate_constraint(struct snd_pcm_hw_params *params,
 	struct snd_interval *rate =
 			hw_param_interval(params, SNDRV_PCM_HW_PARAM_RATE);
 
-	
+	/* two channels work only at 48/96 kHz */
 	if (snd_interval_max(channels) < 6)
 		return snd_interval_list(rate, 2, stereo_rates, 0);
 	return 0;
@@ -87,7 +88,7 @@ static int firewave_channels_constraint(struct snd_pcm_hw_params *params,
 	struct snd_interval *channels =
 			hw_param_interval(params, SNDRV_PCM_HW_PARAM_CHANNELS);
 
-	
+	/* 32/44.1 kHz work only with all six channels */
 	if (snd_interval_max(rate) < 48000)
 		return snd_interval_refine(channels, &all_channels);
 	return 0;
@@ -204,20 +205,20 @@ static int fwspk_set_rate(struct fwspk *fwspk, unsigned int sfc)
 	if (!buf)
 		return -ENOMEM;
 
-	buf[0] = 0x00;		
-	buf[1] = 0xff;		
-	buf[2] = 0x19;		
-	buf[3] = 0x00;		
-	buf[4] = 0x90;		
-	buf[5] = 0x00 | sfc;	
-	buf[6] = 0xff;		
+	buf[0] = 0x00;		/* AV/C, CONTROL */
+	buf[1] = 0xff;		/* unit */
+	buf[2] = 0x19;		/* INPUT PLUG SIGNAL FORMAT */
+	buf[3] = 0x00;		/* plug 0 */
+	buf[4] = 0x90;		/* format: audio */
+	buf[5] = 0x00 | sfc;	/* AM824, frequency */
+	buf[6] = 0xff;		/* SYT (not used) */
 	buf[7] = 0xff;
 
 	err = fcp_avc_transaction(fwspk->unit, buf, 8, buf, 8,
 				  BIT(1) | BIT(2) | BIT(3) | BIT(4) | BIT(5));
 	if (err < 0)
 		goto error;
-	if (err < 6 || buf[0] != 0x09 ) {
+	if (err < 6 || buf[0] != 0x09 /* ACCEPTED */) {
 		dev_err(&fwspk->unit->device, "failed to set sample rate\n");
 		err = -EIO;
 		goto error;
@@ -386,21 +387,21 @@ static int fwspk_mute_command(struct fwspk *fwspk, bool *value,
 		return -ENOMEM;
 
 	if (action == CTL_READ) {
-		buf[0] = 0x01;		
-		response_ok = 0x0c;	
+		buf[0] = 0x01;		/* AV/C, STATUS */
+		response_ok = 0x0c;	/*       STABLE */
 	} else {
-		buf[0] = 0x00;		
-		response_ok = 0x09;	
+		buf[0] = 0x00;		/* AV/C, CONTROL */
+		response_ok = 0x09;	/*       ACCEPTED */
 	}
-	buf[1] = 0x08;			
-	buf[2] = 0xb8;			
-	buf[3] = 0x81;			
-	buf[4] = fwspk->device_info->mute_fb_id; 
-	buf[5] = 0x10;			
-	buf[6] = 0x02;			
-	buf[7] = 0x00;			
-	buf[8] = 0x01;			
-	buf[9] = 0x01;			
+	buf[1] = 0x08;			/* audio unit 0 */
+	buf[2] = 0xb8;			/* FUNCTION BLOCK */
+	buf[3] = 0x81;			/* function block type: feature */
+	buf[4] = fwspk->device_info->mute_fb_id; /* function block ID */
+	buf[5] = 0x10;			/* control attribute: current */
+	buf[6] = 0x02;			/* selector length */
+	buf[7] = 0x00;			/* audio channel number */
+	buf[8] = 0x01;			/* control selector: mute */
+	buf[9] = 0x01;			/* control data length */
 	if (action == CTL_READ)
 		buf[10] = 0xff;
 	else
@@ -444,21 +445,21 @@ static int fwspk_volume_command(struct fwspk *fwspk, s16 *value,
 		return -ENOMEM;
 
 	if (action == CTL_READ) {
-		buf[0] = 0x01;		
-		response_ok = 0x0c;	
+		buf[0] = 0x01;		/* AV/C, STATUS */
+		response_ok = 0x0c;	/*       STABLE */
 	} else {
-		buf[0] = 0x00;		
-		response_ok = 0x09;	
+		buf[0] = 0x00;		/* AV/C, CONTROL */
+		response_ok = 0x09;	/*       ACCEPTED */
 	}
-	buf[1] = 0x08;			
-	buf[2] = 0xb8;			
-	buf[3] = 0x81;			
-	buf[4] = fwspk->device_info->volume_fb_id; 
-	buf[5] = attribute;		
-	buf[6] = 0x02;			
-	buf[7] = channel;		
-	buf[8] = 0x02;			
-	buf[9] = 0x02;			
+	buf[1] = 0x08;			/* audio unit 0 */
+	buf[2] = 0xb8;			/* FUNCTION BLOCK */
+	buf[3] = 0x81;			/* function block type: feature */
+	buf[4] = fwspk->device_info->volume_fb_id; /* function block ID */
+	buf[5] = attribute;		/* control attribute */
+	buf[6] = 0x02;			/* selector length */
+	buf[7] = channel;		/* audio channel number */
+	buf[8] = 0x02;			/* control selector: volume */
+	buf[9] = 0x02;			/* control data length */
 	if (action == CTL_READ) {
 		buf[10] = 0xff;
 		buf[11] = 0xff;

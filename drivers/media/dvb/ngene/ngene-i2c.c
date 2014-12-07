@@ -27,6 +27,7 @@
  * Or, point your browser to http://www.gnu.org/copyleft/gpl.html
  */
 
+/* FIXME - some of these can probably be removed */
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/delay.h>
@@ -43,6 +44,7 @@
 
 #include "ngene.h"
 
+/* Firmware command for i2c operations */
 static int ngene_command_i2c_read(struct ngene *dev, u8 adr,
 			   u8 *out, u8 outlen, u8 *in, u8 inlen, int flag)
 {

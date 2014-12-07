@@ -67,17 +67,17 @@ void exynos_dp_lane_swap(struct exynos_dp_device *dp, bool enable)
 
 void exynos_dp_init_interrupt(struct exynos_dp_device *dp)
 {
-	
+	/* Set interrupt pin assertion polarity as high */
 	writel(INT_POL, dp->reg_base + EXYNOS_DP_INT_CTL);
 
-	
+	/* Clear pending regisers */
 	writel(0xff, dp->reg_base + EXYNOS_DP_COMMON_INT_STA_1);
 	writel(0x4f, dp->reg_base + EXYNOS_DP_COMMON_INT_STA_2);
 	writel(0xe0, dp->reg_base + EXYNOS_DP_COMMON_INT_STA_3);
 	writel(0xe7, dp->reg_base + EXYNOS_DP_COMMON_INT_STA_4);
 	writel(0x63, dp->reg_base + EXYNOS_DP_INT_STA);
 
-	
+	/* 0:mask,1: unmask */
 	writel(0x00, dp->reg_base + EXYNOS_DP_COMMON_INT_MASK_1);
 	writel(0x00, dp->reg_base + EXYNOS_DP_COMMON_INT_MASK_2);
 	writel(0x00, dp->reg_base + EXYNOS_DP_COMMON_INT_MASK_3);
@@ -138,7 +138,7 @@ void exynos_dp_config_interrupt(struct exynos_dp_device *dp)
 {
 	u32 reg;
 
-	
+	/* 0: mask, 1: unmask */
 	reg = COMMON_INT_MASK_1;
 	writel(reg, dp->reg_base + EXYNOS_DP_COMMON_INT_MASK_1);
 
@@ -281,11 +281,11 @@ void exynos_dp_init_analog_func(struct exynos_dp_device *dp)
 	reg &= ~(F_PLL_LOCK | PLL_LOCK_CTRL);
 	writel(reg, dp->reg_base + EXYNOS_DP_DEBUG_CTL);
 
-	
+	/* Power up PLL */
 	if (exynos_dp_get_pll_lock_status(dp) == PLL_UNLOCKED)
 		exynos_dp_set_pll_power_down(dp, 0);
 
-	
+	/* Enable Serdes FIFO function and Link symbol clock domain module */
 	reg = readl(dp->reg_base + EXYNOS_DP_FUNC_EN_2);
 	reg &= ~(SERDES_FIFO_FUNC_EN_N | LS_CLK_DOMAIN_FUNC_EN_N
 		| AUX_FUNC_EN_N);
@@ -311,7 +311,7 @@ void exynos_dp_reset_aux(struct exynos_dp_device *dp)
 {
 	u32 reg;
 
-	
+	/* Disable AUX channel module */
 	reg = readl(dp->reg_base + EXYNOS_DP_FUNC_EN_2);
 	reg |= AUX_FUNC_EN_N;
 	writel(reg, dp->reg_base + EXYNOS_DP_FUNC_EN_2);
@@ -321,22 +321,22 @@ void exynos_dp_init_aux(struct exynos_dp_device *dp)
 {
 	u32 reg;
 
-	
+	/* Clear inerrupts related to AUX channel */
 	reg = RPLY_RECEIV | AUX_ERR;
 	writel(reg, dp->reg_base + EXYNOS_DP_INT_STA);
 
 	exynos_dp_reset_aux(dp);
 
-	
+	/* Disable AUX transaction H/W retry */
 	reg = AUX_BIT_PERIOD_EXPECTED_DELAY(3) | AUX_HW_RETRY_COUNT_SEL(0)|
 		AUX_HW_RETRY_INTERVAL_600_MICROSECONDS;
 	writel(reg, dp->reg_base + EXYNOS_DP_AUX_HW_RETRY_CTL) ;
 
-	
+	/* Receive AUX Channel DEFER commands equal to DEFFER_COUNT*64 */
 	reg = DEFER_CTRL_EN | DEFER_COUNT(1);
 	writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_DEFER_CTL);
 
-	
+	/* Enable AUX channel module */
 	reg = readl(dp->reg_base + EXYNOS_DP_FUNC_EN_2);
 	reg &= ~AUX_FUNC_EN_N;
 	writel(reg, dp->reg_base + EXYNOS_DP_FUNC_EN_2);
@@ -367,27 +367,27 @@ int exynos_dp_start_aux_transaction(struct exynos_dp_device *dp)
 	int reg;
 	int retval = 0;
 
-	
+	/* Enable AUX CH operation */
 	reg = readl(dp->reg_base + EXYNOS_DP_AUX_CH_CTL_2);
 	reg |= AUX_EN;
 	writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_2);
 
-	
+	/* Is AUX CH command reply received? */
 	reg = readl(dp->reg_base + EXYNOS_DP_INT_STA);
 	while (!(reg & RPLY_RECEIV))
 		reg = readl(dp->reg_base + EXYNOS_DP_INT_STA);
 
-	
+	/* Clear interrupt source for AUX CH command reply */
 	writel(RPLY_RECEIV, dp->reg_base + EXYNOS_DP_INT_STA);
 
-	
+	/* Clear interrupt source for AUX CH access error */
 	reg = readl(dp->reg_base + EXYNOS_DP_INT_STA);
 	if (reg & AUX_ERR) {
 		writel(AUX_ERR, dp->reg_base + EXYNOS_DP_INT_STA);
 		return -EREMOTEIO;
 	}
 
-	
+	/* Check AUX CH error access status */
 	reg = readl(dp->reg_base + EXYNOS_DP_AUX_CH_STA);
 	if ((reg & AUX_STATUS_MASK) != 0) {
 		dev_err(dp->dev, "AUX CH error happens: %d\n\n",
@@ -407,11 +407,11 @@ int exynos_dp_write_byte_to_dpcd(struct exynos_dp_device *dp,
 	int retval;
 
 	for (i = 0; i < 3; i++) {
-		
+		/* Clear AUX CH data buffer */
 		reg = BUF_CLR;
 		writel(reg, dp->reg_base + EXYNOS_DP_BUFFER_DATA_CTL);
 
-		
+		/* Select DPCD device address */
 		reg = AUX_ADDR_7_0(reg_addr);
 		writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_7_0);
 		reg = AUX_ADDR_15_8(reg_addr);
@@ -419,14 +419,19 @@ int exynos_dp_write_byte_to_dpcd(struct exynos_dp_device *dp,
 		reg = AUX_ADDR_19_16(reg_addr);
 		writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_19_16);
 
-		
+		/* Write data buffer */
 		reg = (unsigned int)data;
 		writel(reg, dp->reg_base + EXYNOS_DP_BUF_DATA_0);
 
+		/*
+		 * Set DisplayPort transaction and write 1 byte
+		 * If bit 3 is 1, DisplayPort transaction.
+		 * If Bit 3 is 0, I2C transaction.
+		 */
 		reg = AUX_TX_COMM_DP_TRANSACTION | AUX_TX_COMM_WRITE;
 		writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_1);
 
-		
+		/* Start AUX transaction */
 		retval = exynos_dp_start_aux_transaction(dp);
 		if (retval == 0)
 			break;
@@ -446,11 +451,11 @@ int exynos_dp_read_byte_from_dpcd(struct exynos_dp_device *dp,
 	int retval;
 
 	for (i = 0; i < 10; i++) {
-		
+		/* Clear AUX CH data buffer */
 		reg = BUF_CLR;
 		writel(reg, dp->reg_base + EXYNOS_DP_BUFFER_DATA_CTL);
 
-		
+		/* Select DPCD device address */
 		reg = AUX_ADDR_7_0(reg_addr);
 		writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_7_0);
 		reg = AUX_ADDR_15_8(reg_addr);
@@ -458,10 +463,15 @@ int exynos_dp_read_byte_from_dpcd(struct exynos_dp_device *dp,
 		reg = AUX_ADDR_19_16(reg_addr);
 		writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_19_16);
 
+		/*
+		 * Set DisplayPort transaction and read 1 byte
+		 * If bit 3 is 1, DisplayPort transaction.
+		 * If Bit 3 is 0, I2C transaction.
+		 */
 		reg = AUX_TX_COMM_DP_TRANSACTION | AUX_TX_COMM_READ;
 		writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_1);
 
-		
+		/* Start AUX transaction */
 		retval = exynos_dp_start_aux_transaction(dp);
 		if (retval == 0)
 			break;
@@ -469,7 +479,7 @@ int exynos_dp_read_byte_from_dpcd(struct exynos_dp_device *dp,
 			dev_err(dp->dev, "Aux Transaction fail!\n");
 	}
 
-	
+	/* Read data buffer */
 	reg = readl(dp->reg_base + EXYNOS_DP_BUF_DATA_0);
 	*data = (unsigned char)(reg & 0xff);
 
@@ -488,20 +498,20 @@ int exynos_dp_write_bytes_to_dpcd(struct exynos_dp_device *dp,
 	int i;
 	int retval = 0;
 
-	
+	/* Clear AUX CH data buffer */
 	reg = BUF_CLR;
 	writel(reg, dp->reg_base + EXYNOS_DP_BUFFER_DATA_CTL);
 
 	start_offset = 0;
 	while (start_offset < count) {
-		
+		/* Buffer size of AUX CH is 16 * 4bytes */
 		if ((count - start_offset) > 16)
 			cur_data_count = 16;
 		else
 			cur_data_count = count - start_offset;
 
 		for (i = 0; i < 10; i++) {
-			
+			/* Select DPCD device address */
 			reg = AUX_ADDR_7_0(reg_addr + start_offset);
 			writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_7_0);
 			reg = AUX_ADDR_15_8(reg_addr + start_offset);
@@ -516,11 +526,16 @@ int exynos_dp_write_bytes_to_dpcd(struct exynos_dp_device *dp,
 							  + 4 * cur_data_idx);
 			}
 
+			/*
+			 * Set DisplayPort transaction and write
+			 * If bit 3 is 1, DisplayPort transaction.
+			 * If Bit 3 is 0, I2C transaction.
+			 */
 			reg = AUX_LENGTH(cur_data_count) |
 				AUX_TX_COMM_DP_TRANSACTION | AUX_TX_COMM_WRITE;
 			writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_1);
 
-			
+			/* Start AUX transaction */
 			retval = exynos_dp_start_aux_transaction(dp);
 			if (retval == 0)
 				break;
@@ -546,21 +561,21 @@ int exynos_dp_read_bytes_from_dpcd(struct exynos_dp_device *dp,
 	int i;
 	int retval = 0;
 
-	
+	/* Clear AUX CH data buffer */
 	reg = BUF_CLR;
 	writel(reg, dp->reg_base + EXYNOS_DP_BUFFER_DATA_CTL);
 
 	start_offset = 0;
 	while (start_offset < count) {
-		
+		/* Buffer size of AUX CH is 16 * 4bytes */
 		if ((count - start_offset) > 16)
 			cur_data_count = 16;
 		else
 			cur_data_count = count - start_offset;
 
-		
+		/* AUX CH Request Transaction process */
 		for (i = 0; i < 10; i++) {
-			
+			/* Select DPCD device address */
 			reg = AUX_ADDR_7_0(reg_addr + start_offset);
 			writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_7_0);
 			reg = AUX_ADDR_15_8(reg_addr + start_offset);
@@ -568,11 +583,16 @@ int exynos_dp_read_bytes_from_dpcd(struct exynos_dp_device *dp,
 			reg = AUX_ADDR_19_16(reg_addr + start_offset);
 			writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_19_16);
 
+			/*
+			 * Set DisplayPort transaction and read
+			 * If bit 3 is 1, DisplayPort transaction.
+			 * If Bit 3 is 0, I2C transaction.
+			 */
 			reg = AUX_LENGTH(cur_data_count) |
 				AUX_TX_COMM_DP_TRANSACTION | AUX_TX_COMM_READ;
 			writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_1);
 
-			
+			/* Start AUX transaction */
 			retval = exynos_dp_start_aux_transaction(dp);
 			if (retval == 0)
 				break;
@@ -601,20 +621,25 @@ int exynos_dp_select_i2c_device(struct exynos_dp_device *dp,
 	u32 reg;
 	int retval;
 
-	
+	/* Set EDID device address */
 	reg = device_addr;
 	writel(reg, dp->reg_base + EXYNOS_DP_AUX_ADDR_7_0);
 	writel(0x0, dp->reg_base + EXYNOS_DP_AUX_ADDR_15_8);
 	writel(0x0, dp->reg_base + EXYNOS_DP_AUX_ADDR_19_16);
 
-	
+	/* Set offset from base address of EDID device */
 	writel(reg_addr, dp->reg_base + EXYNOS_DP_BUF_DATA_0);
 
+	/*
+	 * Set I2C transaction and write address
+	 * If bit 3 is 1, DisplayPort transaction.
+	 * If Bit 3 is 0, I2C transaction.
+	 */
 	reg = AUX_TX_COMM_I2C_TRANSACTION | AUX_TX_COMM_MOT |
 		AUX_TX_COMM_WRITE;
 	writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_1);
 
-	
+	/* Start AUX transaction */
 	retval = exynos_dp_start_aux_transaction(dp);
 	if (retval != 0)
 		dev_err(dp->dev, "Aux Transaction fail!\n");
@@ -632,22 +657,27 @@ int exynos_dp_read_byte_from_i2c(struct exynos_dp_device *dp,
 	int retval;
 
 	for (i = 0; i < 10; i++) {
-		
+		/* Clear AUX CH data buffer */
 		reg = BUF_CLR;
 		writel(reg, dp->reg_base + EXYNOS_DP_BUFFER_DATA_CTL);
 
-		
+		/* Select EDID device */
 		retval = exynos_dp_select_i2c_device(dp, device_addr, reg_addr);
 		if (retval != 0) {
 			dev_err(dp->dev, "Select EDID device fail!\n");
 			continue;
 		}
 
+		/*
+		 * Set I2C transaction and read data
+		 * If bit 3 is 1, DisplayPort transaction.
+		 * If Bit 3 is 0, I2C transaction.
+		 */
 		reg = AUX_TX_COMM_I2C_TRANSACTION |
 			AUX_TX_COMM_READ;
 		writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_1);
 
-		
+		/* Start AUX transaction */
 		retval = exynos_dp_start_aux_transaction(dp);
 		if (retval == 0)
 			break;
@@ -655,7 +685,7 @@ int exynos_dp_read_byte_from_i2c(struct exynos_dp_device *dp,
 			dev_err(dp->dev, "Aux Transaction fail!\n");
 	}
 
-	
+	/* Read data */
 	if (retval == 0)
 		*data = readl(dp->reg_base + EXYNOS_DP_BUF_DATA_0);
 
@@ -676,15 +706,19 @@ int exynos_dp_read_bytes_from_i2c(struct exynos_dp_device *dp,
 
 	for (i = 0; i < count; i += 16) {
 		for (j = 0; j < 100; j++) {
-			
+			/* Clear AUX CH data buffer */
 			reg = BUF_CLR;
 			writel(reg, dp->reg_base + EXYNOS_DP_BUFFER_DATA_CTL);
 
-			
+			/* Set normal AUX CH command */
 			reg = readl(dp->reg_base + EXYNOS_DP_AUX_CH_CTL_2);
 			reg &= ~ADDR_ONLY;
 			writel(reg, dp->reg_base + EXYNOS_DP_AUX_CH_CTL_2);
 
+			/*
+			 * If Rx sends defer, Tx sends only reads
+			 * request without sending addres
+			 */
 			if (!defer)
 				retval = exynos_dp_select_i2c_device(dp,
 						device_addr, reg_addr + i);
@@ -692,20 +726,25 @@ int exynos_dp_read_bytes_from_i2c(struct exynos_dp_device *dp,
 				defer = 0;
 
 			if (retval == 0) {
+				/*
+				 * Set I2C transaction and write data
+				 * If bit 3 is 1, DisplayPort transaction.
+				 * If Bit 3 is 0, I2C transaction.
+				 */
 				reg = AUX_LENGTH(16) |
 					AUX_TX_COMM_I2C_TRANSACTION |
 					AUX_TX_COMM_READ;
 				writel(reg, dp->reg_base +
 					EXYNOS_DP_AUX_CH_CTL_1);
 
-				
+				/* Start AUX transaction */
 				retval = exynos_dp_start_aux_transaction(dp);
 				if (retval == 0)
 					break;
 				else
 					dev_err(dp->dev, "Aux Transaction fail!\n");
 			}
-			
+			/* Check if Rx sends defer */
 			reg = readl(dp->reg_base + EXYNOS_DP_AUX_RX_COMM);
 			if (reg == AUX_RX_COMM_AUX_DEFER ||
 				reg == AUX_RX_COMM_I2C_DEFER) {
@@ -913,7 +952,7 @@ void exynos_dp_reset_macro(struct exynos_dp_device *dp)
 	reg |= MACRO_RST;
 	writel(reg, dp->reg_base + EXYNOS_DP_PHY_TEST);
 
-	
+	/* 10 us is the minimum reset time. */
 	udelay(10);
 
 	reg &= ~MACRO_RST;
@@ -950,13 +989,13 @@ void exynos_dp_set_video_color_format(struct exynos_dp_device *dp,
 {
 	u32 reg;
 
-	
+	/* Configure the input color depth, color space, dynamic range */
 	reg = (dynamic_range << IN_D_RANGE_SHIFT) |
 		(color_depth << IN_BPC_SHIFT) |
 		(color_space << IN_COLOR_F_SHIFT);
 	writel(reg, dp->reg_base + EXYNOS_DP_VIDEO_CTL_2);
 
-	
+	/* Set Input Color YCbCr Coefficients to ITU601 or ITU709 */
 	reg = readl(dp->reg_base + EXYNOS_DP_VIDEO_CTL_3);
 	reg &= ~IN_YC_COEFFI_MASK;
 	if (ycbcr_coeff)

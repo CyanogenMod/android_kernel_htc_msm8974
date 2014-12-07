@@ -44,7 +44,7 @@ int ivtv_udma_fill_sg_list (struct ivtv_user_dma *dma, struct ivtv_dma_page_info
 
 	offset = dma_page->offset;
 
-	
+	/* Fill SG Array with new values */
 	for (i = 0; i < dma_page->page_count; i++) {
 		unsigned int len = (i == dma_page->page_count - 1) ?
 			dma_page->tail : PAGE_SIZE - offset;
@@ -88,10 +88,11 @@ void ivtv_udma_fill_sg_array (struct ivtv_user_dma *dma, u32 buffer_offset, u32 
 	}
 }
 
+/* User DMA Buffers */
 void ivtv_udma_alloc(struct ivtv *itv)
 {
 	if (itv->udma.SG_handle == 0) {
-		
+		/* Map DMA Page Array Buffer */
 		itv->udma.SG_handle = pci_map_single(itv->pdev, itv->udma.SGarray,
 			   sizeof(itv->udma.SGarray), PCI_DMA_TODEVICE);
 		ivtv_udma_sync_for_cpu(itv);
@@ -107,7 +108,7 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 
 	IVTV_DEBUG_DMA("ivtv_udma_setup, dst: 0x%08x\n", (unsigned int)ivtv_dest_addr);
 
-	
+	/* Still in USE */
 	if (dma->SG_length || dma->page_count) {
 		IVTV_DEBUG_WARN("ivtv_udma_setup: SG_length %d page_count %d still full?\n",
 			   dma->SG_length, dma->page_count);
@@ -122,7 +123,7 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 		return -EINVAL;
 	}
 
-	
+	/* Get user pages for DMA Xfer */
 	down_read(&current->mm->mmap_sem);
 	err = get_user_pages(current, current->mm,
 			user_dma.uaddr, user_dma.page_count, 0, 1, dma->map, NULL);
@@ -141,7 +142,7 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 
 	dma->page_count = user_dma.page_count;
 
-	
+	/* Fill SG List with new values */
 	if (ivtv_udma_fill_sg_list(dma, &user_dma, 0) < 0) {
 		for (i = 0; i < dma->page_count; i++) {
 			put_page(dma->map[i]);
@@ -150,13 +151,13 @@ int ivtv_udma_setup(struct ivtv *itv, unsigned long ivtv_dest_addr,
 		return -ENOMEM;
 	}
 
-	
+	/* Map SG List */
 	dma->SG_length = pci_map_sg(itv->pdev, dma->SGlist, dma->page_count, PCI_DMA_TODEVICE);
 
-	
+	/* Fill SG Array with new values */
 	ivtv_udma_fill_sg_array (dma, ivtv_dest_addr, 0, -1);
 
-	
+	/* Tag SG Array with Interrupt Bit */
 	dma->SGarray[dma->SG_length - 1].size |= cpu_to_le32(0x80000000);
 
 	ivtv_udma_sync_for_device(itv);
@@ -170,19 +171,19 @@ void ivtv_udma_unmap(struct ivtv *itv)
 
 	IVTV_DEBUG_INFO("ivtv_unmap_user_dma\n");
 
-	
+	/* Nothing to free */
 	if (dma->page_count == 0)
 		return;
 
-	
+	/* Unmap Scatterlist */
 	if (dma->SG_length) {
 		pci_unmap_sg(itv->pdev, dma->SGlist, dma->page_count, PCI_DMA_TODEVICE);
 		dma->SG_length = 0;
 	}
-	
+	/* sync DMA */
 	ivtv_udma_sync_for_cpu(itv);
 
-	
+	/* Release User Pages */
 	for (i = 0; i < dma->page_count; i++) {
 		put_page(dma->map[i]);
 	}
@@ -193,13 +194,13 @@ void ivtv_udma_free(struct ivtv *itv)
 {
 	int i;
 
-	
+	/* Unmap SG Array */
 	if (itv->udma.SG_handle) {
 		pci_unmap_single(itv->pdev, itv->udma.SG_handle,
 			 sizeof(itv->udma.SGarray), PCI_DMA_TODEVICE);
 	}
 
-	
+	/* Unmap Scatterlist */
 	if (itv->udma.SG_length) {
 		pci_unmap_sg(itv->pdev, itv->udma.SGlist, itv->udma.page_count, PCI_DMA_TODEVICE);
 	}

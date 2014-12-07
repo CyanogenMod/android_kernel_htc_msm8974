@@ -4,6 +4,7 @@
 #include <linux/fb.h>
 #include <video/sh_mobile_meram.h>
 
+/* Register definitions */
 #define _LDDCKR			0x410
 #define LDDCKR_ICKSEL_BUS	(0 << 16)
 #define LDDCKR_ICKSEL_MIPI	(1 << 16)
@@ -101,25 +102,25 @@
 #define LDDRAR_RA		(1 << 0)
 
 enum {
-	RGB8	= LDMT1R_MIFTYP_RGB8,	
-	RGB9	= LDMT1R_MIFTYP_RGB9,	
-	RGB12A	= LDMT1R_MIFTYP_RGB12A,	
-	RGB12B	= LDMT1R_MIFTYP_RGB12B,	
-	RGB16	= LDMT1R_MIFTYP_RGB16,	
-	RGB18	= LDMT1R_MIFTYP_RGB18,	
-	RGB24	= LDMT1R_MIFTYP_RGB24,	
-	YUV422	= LDMT1R_MIFTYP_YCBCR,	
-	SYS8A	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8A,	
-	SYS8B	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8B,	
-	SYS8C	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8C,	
-	SYS8D	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8D,	
-	SYS9	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS9,	
-	SYS12	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS12,	
-	SYS16A	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS16A,	
-	SYS16B	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS16B,	
-	SYS16C	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS16C,	
-	SYS18	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS18,	
-	SYS24	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS24,	
+	RGB8	= LDMT1R_MIFTYP_RGB8,	/* 24bpp, 8:8:8 */
+	RGB9	= LDMT1R_MIFTYP_RGB9,	/* 18bpp, 9:9 */
+	RGB12A	= LDMT1R_MIFTYP_RGB12A,	/* 24bpp, 12:12 */
+	RGB12B	= LDMT1R_MIFTYP_RGB12B,	/* 12bpp */
+	RGB16	= LDMT1R_MIFTYP_RGB16,	/* 16bpp */
+	RGB18	= LDMT1R_MIFTYP_RGB18,	/* 18bpp */
+	RGB24	= LDMT1R_MIFTYP_RGB24,	/* 24bpp */
+	YUV422	= LDMT1R_MIFTYP_YCBCR,	/* 16bpp */
+	SYS8A	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8A,	/* 24bpp, 8:8:8 */
+	SYS8B	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8B,	/* 18bpp, 8:8:2 */
+	SYS8C	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8C,	/* 18bpp, 2:8:8 */
+	SYS8D	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS8D,	/* 16bpp, 8:8 */
+	SYS9	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS9,	/* 18bpp, 9:9 */
+	SYS12	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS12,	/* 24bpp, 12:12 */
+	SYS16A	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS16A,	/* 16bpp */
+	SYS16B	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS16B,	/* 18bpp, 16:2 */
+	SYS16C	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS16C,	/* 18bpp, 2:16 */
+	SYS18	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS18,	/* 18bpp */
+	SYS24	= LDMT1R_IFM | LDMT1R_MIFTYP_SYS24,	/* 24bpp */
 };
 
 enum { LCDC_CHAN_DISABLED = 0,
@@ -128,11 +129,11 @@ enum { LCDC_CHAN_DISABLED = 0,
 
 enum { LCDC_CLK_BUS, LCDC_CLK_PERIPHERAL, LCDC_CLK_EXTERNAL };
 
-#define LCDC_FLAGS_DWPOL (1 << 0) 
-#define LCDC_FLAGS_DIPOL (1 << 1) 
-#define LCDC_FLAGS_DAPOL (1 << 2) 
-#define LCDC_FLAGS_HSCNT (1 << 3) 
-#define LCDC_FLAGS_DWCNT (1 << 4) 
+#define LCDC_FLAGS_DWPOL (1 << 0) /* Rising edge dot clock data latch */
+#define LCDC_FLAGS_DIPOL (1 << 1) /* Active low display enable polarity */
+#define LCDC_FLAGS_DAPOL (1 << 2) /* Active low display data polarity */
+#define LCDC_FLAGS_HSCNT (1 << 3) /* Disable HSYNC during VBLANK */
+#define LCDC_FLAGS_DWCNT (1 << 4) /* Disable dotclock during blanking */
 
 struct sh_mobile_lcdc_sys_bus_cfg {
 	unsigned long ldmt2r;
@@ -147,8 +148,8 @@ struct sh_mobile_lcdc_sys_bus_ops {
 };
 
 struct sh_mobile_lcdc_panel_cfg {
-	unsigned long width;		
-	unsigned long height;		
+	unsigned long width;		/* Panel width in mm */
+	unsigned long height;		/* Panel height in mm */
 	int (*setup_sys)(void *sys_ops_handle,
 			 struct sh_mobile_lcdc_sys_bus_ops *sys_ops);
 	void (*start_transfer)(void *sys_ops_handle,
@@ -157,6 +158,7 @@ struct sh_mobile_lcdc_panel_cfg {
 	void (*display_off)(void);
 };
 
+/* backlight info */
 struct sh_mobile_lcdc_bl_info {
 	const char *name;
 	int max_brightness;
@@ -168,17 +170,17 @@ struct sh_mobile_lcdc_chan_cfg {
 	int chan;
 	int fourcc;
 	int colorspace;
-	int interface_type; 
+	int interface_type; /* selects RGBn or SYSn I/F, see above */
 	int clock_divider;
-	unsigned long flags; 
+	unsigned long flags; /* LCDC_FLAGS_... */
 	const struct fb_videomode *lcd_modes;
 	int num_modes;
 	struct sh_mobile_lcdc_panel_cfg panel_cfg;
 	struct sh_mobile_lcdc_bl_info bl_info;
-	struct sh_mobile_lcdc_sys_bus_cfg sys_bus_cfg; 
+	struct sh_mobile_lcdc_sys_bus_cfg sys_bus_cfg; /* only for SYSn I/F */
 	const struct sh_mobile_meram_cfg *meram_cfg;
 
-	struct platform_device *tx_dev;	
+	struct platform_device *tx_dev;	/* HDMI/DSI transmitter device */
 };
 
 struct sh_mobile_lcdc_info {
@@ -187,4 +189,4 @@ struct sh_mobile_lcdc_info {
 	struct sh_mobile_meram_info *meram_dev;
 };
 
-#endif 
+#endif /* __ASM_SH_MOBILE_LCDC_H__ */

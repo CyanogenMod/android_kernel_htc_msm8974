@@ -27,6 +27,9 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * Veritas filesystem driver - support for 'immed' inodes.
+ */
 #include <linux/fs.h>
 #include <linux/pagemap.h>
 #include <linux/namei.h>
@@ -40,15 +43,36 @@ static void *	vxfs_immed_follow_link(struct dentry *, struct nameidata *);
 
 static int	vxfs_immed_readpage(struct file *, struct page *);
 
+/*
+ * Inode operations for immed symlinks.
+ *
+ * Unliked all other operations we do not go through the pagecache,
+ * but do all work directly on the inode.
+ */
 const struct inode_operations vxfs_immed_symlink_iops = {
 	.readlink =		generic_readlink,
 	.follow_link =		vxfs_immed_follow_link,
 };
 
+/*
+ * Address space operations for immed files and directories.
+ */
 const struct address_space_operations vxfs_immed_aops = {
 	.readpage =		vxfs_immed_readpage,
 };
 
+/**
+ * vxfs_immed_follow_link - follow immed symlink
+ * @dp:		dentry for the link
+ * @np:		pathname lookup data for the current path walk
+ *
+ * Description:
+ *   vxfs_immed_follow_link restarts the pathname lookup with
+ *   the data obtained from @dp.
+ *
+ * Returns:
+ *   Zero on success, else a negative error code.
+ */
 static void *
 vxfs_immed_follow_link(struct dentry *dp, struct nameidata *np)
 {
@@ -57,6 +81,21 @@ vxfs_immed_follow_link(struct dentry *dp, struct nameidata *np)
 	return NULL;
 }
 
+/**
+ * vxfs_immed_readpage - read part of an immed inode into pagecache
+ * @file:	file context (unused)
+ * @page:	page frame to fill in.
+ *
+ * Description:
+ *   vxfs_immed_readpage reads a part of the immed area of the
+ *   file that hosts @pp into the pagecache.
+ *
+ * Returns:
+ *   Zero on success, else a negative error code.
+ *
+ * Locking status:
+ *   @page is locked and will be unlocked.
+ */
 static int
 vxfs_immed_readpage(struct file *fp, struct page *pp)
 {

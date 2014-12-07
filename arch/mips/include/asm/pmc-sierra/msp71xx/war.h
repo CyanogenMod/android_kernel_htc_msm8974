@@ -27,4 +27,4 @@
 #define MIPS34K_MISSED_ITLB_WAR         0
 #endif
 
-#endif 
+#endif /* __ASM_MIPS_PMC_SIERRA_WAR_H */

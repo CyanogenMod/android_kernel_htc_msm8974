@@ -39,16 +39,23 @@ __x2apic_send_IPI_mask(const struct cpumask *mask, int vector, int apic_dest)
 
 	this_cpu = smp_processor_id();
 
+	/*
+	 * We are to modify mask, so we need an own copy
+	 * and be sure it's manipulated with irq off.
+	 */
 	ipi_mask_ptr = __raw_get_cpu_var(ipi_mask);
 	cpumask_copy(ipi_mask_ptr, mask);
 
+	/*
+	 * The idea is to send one IPI per cluster.
+	 */
 	for_each_cpu(cpu, ipi_mask_ptr) {
 		unsigned long i;
 
 		cpus_in_cluster_ptr = per_cpu(cpus_in_cluster, cpu);
 		dest = 0;
 
-		
+		/* Collect cpus in cluster. */
 		for_each_cpu_and(i, ipi_mask_ptr, cpus_in_cluster_ptr) {
 			if (apic_dest == APIC_DEST_ALLINC || i != this_cpu)
 				dest |= per_cpu(x86_cpu_to_logical_apicid, i);
@@ -58,6 +65,10 @@ __x2apic_send_IPI_mask(const struct cpumask *mask, int vector, int apic_dest)
 			continue;
 
 		__x2apic_send_IPI_dest(dest, vector, apic->dest_logical);
+		/*
+		 * Cluster sibling cpus should be discared now so
+		 * we would not send IPI them second time.
+		 */
 		cpumask_andnot(ipi_mask_ptr, ipi_mask_ptr, cpus_in_cluster_ptr);
 	}
 
@@ -87,6 +98,10 @@ static void x2apic_send_IPI_all(int vector)
 
 static unsigned int x2apic_cpu_mask_to_apicid(const struct cpumask *cpumask)
 {
+	/*
+	 * We're using fixed IRQ delivery, can only return one logical APIC ID.
+	 * May as well be the first.
+	 */
 	int cpu = cpumask_first(cpumask);
 
 	if ((unsigned)cpu < nr_cpu_ids)
@@ -101,6 +116,10 @@ x2apic_cpu_mask_to_apicid_and(const struct cpumask *cpumask,
 {
 	int cpu;
 
+	/*
+	 * We're using fixed IRQ delivery, can only return one logical APIC ID.
+	 * May as well be the first.
+	 */
 	for_each_cpu_and(cpu, cpumask, andmask) {
 		if (cpumask_test_cpu(cpu, cpu_online_mask))
 			break;
@@ -125,6 +144,9 @@ static void init_x2apic_ldr(void)
 	}
 }
 
+ /*
+  * At CPU state changes, update the x2apic cluster sibling info.
+  */
 static int __cpuinit
 update_clusterinfo(struct notifier_block *nfb, unsigned long action, void *hcpu)
 {
@@ -195,7 +217,7 @@ static struct apic apic_x2apic_cluster = {
 	.apic_id_registered		= x2apic_apic_id_registered,
 
 	.irq_delivery_mode		= dest_LowestPrio,
-	.irq_dest_mode			= 1, 
+	.irq_dest_mode			= 1, /* logical */
 
 	.target_cpus			= x2apic_target_cpus,
 	.disable_esr			= 0,

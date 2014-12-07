@@ -38,7 +38,7 @@ static struct sched_watchdog wdt;
 static __kernel_time_t wdt_expires;
 static bool is_active, expect_release;
 
-#define WATCHDOG_TIMEOUT 60 
+#define WATCHDOG_TIMEOUT 60 /* in seconds */
 static unsigned int timeout = WATCHDOG_TIMEOUT;
 module_param(timeout, uint, S_IRUGO);
 MODULE_PARM_DESC(timeout, "Watchdog timeout in seconds "
@@ -120,7 +120,7 @@ static int xen_wdt_open(struct inode *inode, struct file *file)
 {
 	int err;
 
-	
+	/* /dev/watchdog can only be opened once */
 	if (xchg(&is_active, true))
 		return -EBUSY;
 
@@ -148,14 +148,16 @@ static int xen_wdt_release(struct inode *inode, struct file *file)
 static ssize_t xen_wdt_write(struct file *file, const char __user *data,
 			     size_t len, loff_t *ppos)
 {
-	
+	/* See if we got the magic character 'V' and reload the timer */
 	if (len) {
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* in case it was set long ago */
 			expect_release = false;
 
+			/* scan to see whether or not we got the magic
+			   character */
 			for (i = 0; i != len; i++) {
 				char c;
 				if (get_user(c, data + i))
@@ -165,7 +167,7 @@ static ssize_t xen_wdt_write(struct file *file, const char __user *data,
 			}
 		}
 
-		
+		/* someone wrote to us, we should reload the timer */
 		xen_wdt_kick();
 	}
 	return len;
@@ -215,7 +217,7 @@ static long xen_wdt_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 		timeout = new_timeout;
 		xen_wdt_kick();
-		
+		/* fall through */
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout, argp);
 
@@ -280,7 +282,7 @@ static int __devinit xen_wdt_probe(struct platform_device *dev)
 
 static int __devexit xen_wdt_remove(struct platform_device *dev)
 {
-	
+	/* Stop the timer before we leave */
 	if (!nowayout)
 		xen_wdt_stop();
 

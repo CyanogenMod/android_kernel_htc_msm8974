@@ -51,7 +51,7 @@
 #include "hcp_if.h"
 
 #define MAX_MC_LID 0xFFFE
-#define MIN_MC_LID 0xC000	
+#define MIN_MC_LID 0xC000	/* Multicast limits */
 #define EHCA_VALID_MULTICAST_GID(gid)  ((gid)[0] == 0xFF)
 #define EHCA_VALID_MULTICAST_LID(lid) \
 	(((lid) >= MIN_MC_LID) && ((lid) <= MAX_MC_LID))

@@ -103,7 +103,7 @@ prog_pll(struct drm_device *dev, struct nv04_pm_clock *clk)
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	u32 reg = clk->pll.reg;
 
-	
+	/* thank the insane nouveau_hw_setpll() interface for this */
 	if (dev_priv->card_type >= NV_40)
 		reg += 4;
 
@@ -125,7 +125,7 @@ nv04_pm_clocks_set(struct drm_device *dev, void *pre_state)
 			if (dev_priv->card_type == NV_20)
 				nv_mask(dev, 0x1002c4, 0, 1 << 20);
 
-			
+			/* Reset the DLLs */
 			nv_mask(dev, 0x1002c0, 0, 1 << 8);
 		}
 	}

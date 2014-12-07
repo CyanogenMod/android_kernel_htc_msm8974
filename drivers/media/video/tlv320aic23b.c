@@ -38,6 +38,7 @@ MODULE_AUTHOR("Scott Alfter, Ulf Eklund, Hans Verkuil");
 MODULE_LICENSE("GPL");
 
 
+/* ----------------------------------------------------------------------- */
 
 struct tlv320aic23b_state {
 	struct v4l2_subdev sd;
@@ -75,13 +76,13 @@ static int tlv320aic23b_write(struct v4l2_subdev *sd, int reg, u16 val)
 static int tlv320aic23b_s_clock_freq(struct v4l2_subdev *sd, u32 freq)
 {
 	switch (freq) {
-	case 32000: 
+	case 32000: /* set sample rate to 32 kHz */
 		tlv320aic23b_write(sd, 8, 0x018);
 		break;
-	case 44100: 
+	case 44100: /* set sample rate to 44.1 kHz */
 		tlv320aic23b_write(sd, 8, 0x022);
 		break;
-	case 48000: 
+	case 48000: /* set sample rate to 48 kHz */
 		tlv320aic23b_write(sd, 8, 0x000);
 		break;
 	default:
@@ -96,8 +97,8 @@ static int tlv320aic23b_s_ctrl(struct v4l2_ctrl *ctrl)
 
 	switch (ctrl->id) {
 	case V4L2_CID_AUDIO_MUTE:
-		tlv320aic23b_write(sd, 0, 0x180); 
-		
+		tlv320aic23b_write(sd, 0, 0x180); /* mute both channels */
+		/* set gain on both channels to +3.0 dB */
 		if (!ctrl->val)
 			tlv320aic23b_write(sd, 0, 0x119);
 		return 0;
@@ -113,6 +114,7 @@ static int tlv320aic23b_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_ctrl_ops tlv320aic23b_ctrl_ops = {
 	.s_ctrl = tlv320aic23b_s_ctrl,
@@ -138,8 +140,14 @@ static const struct v4l2_subdev_ops tlv320aic23b_ops = {
 	.audio = &tlv320aic23b_audio_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
+/* i2c implementation */
 
+/*
+ * Generic i2c probe
+ * concerning the addresses: i2c wants 7 bit (without the r/w bit), so '>>1'
+ */
 
 static int tlv320aic23b_probe(struct i2c_client *client,
 			      const struct i2c_device_id *id)
@@ -147,7 +155,7 @@ static int tlv320aic23b_probe(struct i2c_client *client,
 	struct tlv320aic23b_state *state;
 	struct v4l2_subdev *sd;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -160,19 +168,19 @@ static int tlv320aic23b_probe(struct i2c_client *client,
 	sd = &state->sd;
 	v4l2_i2c_subdev_init(sd, client, &tlv320aic23b_ops);
 
-	
+	/* Initialize tlv320aic23b */
 
-	
+	/* RESET */
 	tlv320aic23b_write(sd, 15, 0x000);
-	
+	/* turn off DAC & mic input */
 	tlv320aic23b_write(sd, 6, 0x00A);
-	
+	/* left-justified, 24-bit, master mode */
 	tlv320aic23b_write(sd, 7, 0x049);
-	
+	/* set gain on both channels to +3.0 dB */
 	tlv320aic23b_write(sd, 0, 0x119);
-	
+	/* set sample rate to 48 kHz */
 	tlv320aic23b_write(sd, 8, 0x000);
-	
+	/* activate digital interface */
 	tlv320aic23b_write(sd, 9, 0x001);
 
 	v4l2_ctrl_handler_init(&state->hdl, 1);
@@ -201,6 +209,7 @@ static int tlv320aic23b_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id tlv320aic23b_id[] = {
 	{ "tlv320aic23b", 0 },

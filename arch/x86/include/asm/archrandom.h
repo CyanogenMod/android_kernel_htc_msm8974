@@ -66,10 +66,10 @@ GET_RANDOM(arch_get_random_int, unsigned int, RDRAND_INT, ASM_NOP4);
 GET_RANDOM(arch_get_random_long, unsigned long, RDRAND_LONG, ASM_NOP3);
 GET_RANDOM(arch_get_random_int, unsigned int, RDRAND_INT, ASM_NOP3);
 
-#endif 
+#endif /* CONFIG_X86_64 */
 
-#endif  
+#endif  /* CONFIG_ARCH_RANDOM */
 
 extern void x86_init_rdrand(struct cpuinfo_x86 *c);
 
-#endif 
+#endif /* ASM_X86_ARCHRANDOM_H */

@@ -1,3 +1,14 @@
+/*
+ *
+ * Hardware accelerated Matrox Millennium I, II, Mystique, G100, G200, G400 and G450.
+ *
+ * (c) 1998-2002 Petr Vandrovec <vandrove@vc.cvut.cz>
+ *
+ * Version: 1.64 2002/06/10
+ *
+ * See matroxfb_base.c for contributors.
+ *
+ */
 
 #include "matroxfb_base.h"
 #include "matroxfb_maven.h"
@@ -5,15 +16,20 @@
 #include <linux/slab.h>
 #include <linux/i2c-algo-bit.h>
 
+/* MGA-TVO I2C for G200, G400 */
 #define MAT_CLK		0x20
 #define MAT_DATA	0x10
+/* primary head DDC for Mystique(?), G100, G200, G400 */
 #define DDC1_CLK	0x08
 #define DDC1_DATA	0x02
+/* primary head DDC for Millennium, Millennium II */
 #define DDC1B_CLK	0x10
 #define DDC1B_DATA	0x04
+/* secondary head DDC for G400 */
 #define DDC2_CLK	0x04
 #define DDC2_DATA	0x01
 
+/******************************************************/
 
 struct matroxfb_dh_maven_info {
 	struct i2c_bit_adapter	maven;
@@ -38,11 +54,12 @@ static void matroxfb_set_gpio(struct matrox_fb_info* minfo, int mask, int val) {
 	matroxfb_DAC_lock_irqsave(flags);
 	v = (matroxfb_DAC_in(minfo, DAC_XGENIOCTRL) & mask) | val;
 	matroxfb_DAC_out(minfo, DAC_XGENIOCTRL, v);
-	
+	/* We must reset GENIODATA very often... XFree plays with this register */
 	matroxfb_DAC_out(minfo, DAC_XGENIODATA, 0x00);
 	matroxfb_DAC_unlock_irqrestore(flags);
 }
 
+/* software I2C functions */
 static inline void matroxfb_i2c_set(struct matrox_fb_info* minfo, int mask, int state) {
 	if (state)
 		state = 0;
@@ -160,7 +177,7 @@ static void* i2c_matroxfb_probe(struct matrox_fb_info* minfo) {
 			printk(KERN_INFO "i2c-matroxfb: VGA->TV plug detected, DDC unavailable.\n");
 		} else if (err)
 			printk(KERN_INFO "i2c-matroxfb: Could not register secondary output i2c bus. Continuing anyway.\n");
-		
+		/* Register maven bus even on G450/G550 */
 		err = i2c_bus_reg(&m2info->maven, minfo,
 				  MAT_DATA, MAT_CLK, "MAVEN:fb%u", 0);
 		if (err)
@@ -217,4 +234,5 @@ MODULE_DESCRIPTION("Support module providing I2C buses present on Matrox videoca
 
 module_init(i2c_matroxfb_init);
 module_exit(i2c_matroxfb_exit);
+/* no __setup required */
 MODULE_LICENSE("GPL");

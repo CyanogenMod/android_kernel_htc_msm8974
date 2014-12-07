@@ -92,6 +92,15 @@ struct netfront_info {
 	struct xen_netif_tx_front_ring tx;
 	int tx_ring_ref;
 
+	/*
+	 * {tx,rx}_skbs store outstanding skbuffs. Free tx_skb entries
+	 * are linked from tx_skb_freelist through skb_entry.link.
+	 *
+	 *  NB. Freelist index entries are always going to be less than
+	 *  PAGE_OFFSET, whereas pointers to skbs will always be equal or
+	 *  greater than PAGE_OFFSET: we use this property to distinguish
+	 *  them.
+	 */
 	union skb_entry {
 		struct sk_buff *skb;
 		unsigned long link;
@@ -104,7 +113,7 @@ struct netfront_info {
 	struct xen_netif_rx_front_ring rx;
 	int rx_ring_ref;
 
-	
+	/* Receive-ring batched refills. */
 #define RX_MIN_TARGET 8
 #define RX_DFL_MIN_TARGET 64
 #define RX_MAX_TARGET min_t(int, NET_RX_RING_SIZE, 256)
@@ -121,7 +130,7 @@ struct netfront_info {
 	struct multicall_entry rx_mcl[NET_RX_RING_SIZE+1];
 	struct mmu_update rx_mmu[NET_RX_RING_SIZE];
 
-	
+	/* Statistics */
 	struct netfront_stats __percpu *stats;
 
 	unsigned long rx_gso_checksum_fixup;
@@ -143,6 +152,9 @@ static int skb_entry_is_link(const union skb_entry *list)
 	return (unsigned long)list->skb < PAGE_OFFSET;
 }
 
+/*
+ * Access macros for acquiring freeing slots in tx_skbs[].
+ */
 
 static void add_id_to_freelist(unsigned *head, union skb_entry *list,
 			       unsigned short id)
@@ -185,7 +197,7 @@ static grant_ref_t xennet_get_rx_ref(struct netfront_info *np,
 #ifdef CONFIG_SYSFS
 static int xennet_sysfs_addif(struct net_device *netdev);
 static void xennet_sysfs_delif(struct net_device *netdev);
-#else 
+#else /* !CONFIG_SYSFS */
 #define xennet_sysfs_addif(dev) (0)
 #define xennet_sysfs_delif(dev) do { } while (0)
 #endif
@@ -235,6 +247,12 @@ static void xennet_alloc_rx_buffers(struct net_device *dev)
 	if (unlikely(!netif_carrier_ok(dev)))
 		return;
 
+	/*
+	 * Allocate skbuffs greedily, even though we batch updates to the
+	 * receive ring. This creates a less bursty demand on the memory
+	 * allocator, so should reduce the chance of failed allocation requests
+	 * both for ourself and for other kernel subsystems.
+	 */
 	batch_target = np->rx_target - (req_prod - np->rx.rsp_cons);
 	for (i = skb_queue_len(&np->rx_batch); i < batch_target; i++) {
 		skb = __netdev_alloc_skb(dev, RX_COPY_THRESHOLD + NET_IP_ALIGN,
@@ -242,17 +260,17 @@ static void xennet_alloc_rx_buffers(struct net_device *dev)
 		if (unlikely(!skb))
 			goto no_skb;
 
-		
+		/* Align ip header to a 16 bytes boundary */
 		skb_reserve(skb, NET_IP_ALIGN);
 
 		page = alloc_page(GFP_ATOMIC | __GFP_NOWARN);
 		if (!page) {
 			kfree_skb(skb);
 no_skb:
-			
+			/* Any skbuffs queued for refill? Force them out. */
 			if (i != 0)
 				goto refill;
-			
+			/* Could not allocate any skbuffs. Try again later. */
 			mod_timer(&np->rx_refill_timer,
 				  jiffies + (HZ/10));
 			break;
@@ -263,14 +281,14 @@ no_skb:
 		__skb_queue_tail(&np->rx_batch, skb);
 	}
 
-	
+	/* Is the batch large enough to be worthwhile? */
 	if (i < (np->rx_target/2)) {
 		if (req_prod > np->rx.sring->req_prod)
 			goto push;
 		return;
 	}
 
-	
+	/* Adjust our fill target if we risked running out of buffers. */
 	if (((req_prod - np->rx.sring->rsp_prod) < (np->rx_target / 4)) &&
 	    ((np->rx_target *= 2) > np->rx_max_target))
 		np->rx_target = np->rx_max_target;
@@ -305,9 +323,9 @@ no_skb:
 		req->gref = ref;
 	}
 
-	wmb();		
+	wmb();		/* barrier so backend seens requests */
 
-	
+	/* Above is a suitable barrier to ensure backend will see requests. */
 	np->rx.req_prod_pvt = req_prod + i;
  push:
 	RING_PUSH_REQUESTS_AND_CHECK_NOTIFY(&np->rx, notify);
@@ -346,7 +364,7 @@ static void xennet_tx_buf_gc(struct net_device *dev)
 
 	do {
 		prod = np->tx.sring->rsp_prod;
-		rmb(); 
+		rmb(); /* Ensure we see responses up to 'rp'. */
 
 		for (cons = np->tx.rsp_cons; cons != prod; cons++) {
 			struct xen_netif_tx_response *txrsp;
@@ -375,9 +393,17 @@ static void xennet_tx_buf_gc(struct net_device *dev)
 
 		np->tx.rsp_cons = prod;
 
+		/*
+		 * Set a new event, then check for race with update of tx_cons.
+		 * Note that it is essential to schedule a callback, no matter
+		 * how few buffers are pending. Even if there is space in the
+		 * transmit ring, higher layers may be blocked because too much
+		 * data is outstanding: in such cases notification from Xen is
+		 * likely to be the only kick that we'll get.
+		 */
 		np->tx.sring->rsp_event =
 			prod + ((np->tx.sring->req_prod - prod) >> 1) + 1;
-		mb();		
+		mb();		/* update shared area */
 	} while ((cons == prod) && (prod != np->tx.sring->rsp_prod));
 
 	xennet_maybe_wake_tx(dev);
@@ -397,6 +423,8 @@ static void xennet_make_frags(struct sk_buff *skb, struct net_device *dev,
 	grant_ref_t ref;
 	int i;
 
+	/* While the header overlaps a page boundary (including being
+	   larger than a page), split it it into page-sized chunks. */
 	while (len > PAGE_SIZE - offset) {
 		tx->size = PAGE_SIZE - offset;
 		tx->flags |= XEN_NETTXF_more_data;
@@ -421,7 +449,7 @@ static void xennet_make_frags(struct sk_buff *skb, struct net_device *dev,
 		tx->flags = 0;
 	}
 
-	
+	/* Grant backend access to each skb fragment page. */
 	for (i = 0; i < frags; i++) {
 		skb_frag_t *frag = skb_shinfo(skb)->frags + i;
 
@@ -501,10 +529,10 @@ static int xennet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	tx->flags = 0;
 	if (skb->ip_summed == CHECKSUM_PARTIAL)
-		
+		/* local packet? */
 		tx->flags |= XEN_NETTXF_csum_blank | XEN_NETTXF_data_validated;
 	else if (skb->ip_summed == CHECKSUM_UNNECESSARY)
-		
+		/* remote but checksummed. */
 		tx->flags |= XEN_NETTXF_data_validated;
 
 	if (skb_shinfo(skb)->gso_size) {
@@ -542,7 +570,7 @@ static int xennet_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	stats->tx_packets++;
 	u64_stats_update_end(&stats->syncp);
 
-	
+	/* Note: It is not safe to access skb after xennet_tx_buf_gc()! */
 	xennet_tx_buf_gc(dev);
 
 	if (!netfront_tx_slot_available(np))
@@ -654,6 +682,11 @@ static int xennet_get_responses(struct netfront_info *np,
 			goto next;
 		}
 
+		/*
+		 * This definitely indicates a bug, either in this driver or in
+		 * the backend driver. In future this should flag the bad
+		 * situation to the system controller to reboot the backed.
+		 */
 		if (ref == GRANT_INVALID_REF) {
 			if (net_ratelimit())
 				dev_warn(dev, "Bad rx response id %d.\n",
@@ -707,7 +740,7 @@ static int xennet_set_skb_gso(struct sk_buff *skb,
 		return -EINVAL;
 	}
 
-	
+	/* Currently only TCPv4 S.O. is supported. */
 	if (gso->u.gso.type != XEN_NETIF_GSO_TYPE_TCPV4) {
 		if (net_ratelimit())
 			printk(KERN_WARNING "Bad GSO type %d.\n", gso->u.gso.type);
@@ -717,7 +750,7 @@ static int xennet_set_skb_gso(struct sk_buff *skb,
 	skb_shinfo(skb)->gso_size = gso->u.gso.size;
 	skb_shinfo(skb)->gso_type = SKB_GSO_TCPV4;
 
-	
+	/* Header must be checked, and gso_segs computed. */
 	skb_shinfo(skb)->gso_type |= SKB_GSO_DODGY;
 	skb_shinfo(skb)->gso_segs = 0;
 
@@ -761,6 +794,12 @@ static int checksum_setup(struct net_device *dev, struct sk_buff *skb)
 	int err = -EPROTO;
 	int recalculate_partial_csum = 0;
 
+	/*
+	 * A GSO SKB must be CHECKSUM_PARTIAL. However some buggy
+	 * peers can fail to set NETRXF_csum_blank when sending a GSO
+	 * frame. In this case force the SKB to CHECKSUM_PARTIAL and
+	 * recalculate the partial checksum.
+	 */
 	if (skb->ip_summed != CHECKSUM_PARTIAL && skb_is_gso(skb)) {
 		struct netfront_info *np = netdev_priv(dev);
 		np->rx_gso_checksum_fixup++;
@@ -768,7 +807,7 @@ static int checksum_setup(struct net_device *dev, struct sk_buff *skb)
 		recalculate_partial_csum = 1;
 	}
 
-	
+	/* A non-CHECKSUM_PARTIAL SKB does not require setup. */
 	if (skb->ip_summed != CHECKSUM_PARTIAL)
 		return 0;
 
@@ -838,7 +877,7 @@ static int handle_incoming_queue(struct net_device *dev,
 		if (page != skb_frag_page(&skb_shinfo(skb)->frags[0]))
 			__free_page(page);
 
-		
+		/* Ethernet work: Delayed to here as it peeks the header. */
 		skb->protocol = eth_type_trans(skb, dev);
 
 		if (checksum_setup(dev, skb)) {
@@ -853,7 +892,7 @@ static int handle_incoming_queue(struct net_device *dev,
 		stats->rx_bytes += skb->len;
 		u64_stats_update_end(&stats->syncp);
 
-		
+		/* Pass it up. */
 		netif_receive_skb(skb);
 	}
 
@@ -884,7 +923,7 @@ static int xennet_poll(struct napi_struct *napi, int budget)
 	skb_queue_head_init(&tmpq);
 
 	rp = np->rx.sring->rsp_prod;
-	rmb(); 
+	rmb(); /* Ensure we see queued responses up to 'rp'. */
 
 	i = np->rx.rsp_cons;
 	work_done = 0;
@@ -937,6 +976,29 @@ err:
 
 		i = xennet_fill_frags(np, skb, &tmpq);
 
+		/*
+		 * Truesize approximates the size of true data plus
+		 * any supervisor overheads. Adding hypervisor
+		 * overheads has been shown to significantly reduce
+		 * achievable bandwidth with the default receive
+		 * buffer size. It is therefore not wise to account
+		 * for it here.
+		 *
+		 * After alloc_skb(RX_COPY_THRESHOLD), truesize is set
+		 * to RX_COPY_THRESHOLD + the supervisor
+		 * overheads. Here, we add the size of the data pulled
+		 * in xennet_fill_frags().
+		 *
+		 * We also adjust for any unused space in the main
+		 * data area by subtracting (RX_COPY_THRESHOLD -
+		 * len). This is especially important with drivers
+		 * which split incoming packets into header and data,
+		 * using only 66 bytes of the main data area (see the
+		 * e1000 driver for example.)  On such systems,
+		 * without this last adjustement, our achievable
+		 * receive throughout using the standard receive
+		 * buffer size was cut by 25%(!!!).
+		 */
 		skb->truesize += skb->data_len - (RX_COPY_THRESHOLD - len);
 		skb->len += skb->data_len;
 
@@ -955,8 +1017,8 @@ err:
 
 	work_done -= handle_incoming_queue(dev, &rxq);
 
-	
-	
+	/* If we get a callback with very few responses, reduce fill target. */
+	/* NB. Note exponential increase, linear decrease. */
 	if (((np->rx.req_prod_pvt - np->rx.sring->rsp_prod) >
 	     ((3*np->rx_target) / 4)) &&
 	    (--np->rx_target < np->rx_min_target))
@@ -1029,7 +1091,7 @@ static void xennet_release_tx_bufs(struct netfront_info *np)
 	int i;
 
 	for (i = 0; i < NET_TX_RING_SIZE; i++) {
-		
+		/* Skip over entries which are actually freelist references */
 		if (skb_entry_is_link(&np->tx_skbs[i]))
 			continue;
 
@@ -1082,7 +1144,7 @@ static void xennet_release_rx_bufs(struct netfront_info *np)
 		}
 
 		if (!xen_feature(XENFEAT_auto_translated_physmap)) {
-			
+			/* Remap the page. */
 			const struct page *page =
 				skb_frag_page(&skb_shinfo(skb)->frags[0]);
 			unsigned long pfn = page_to_pfn(page);
@@ -1108,7 +1170,7 @@ static void xennet_release_rx_bufs(struct netfront_info *np)
 
 	if (xfer) {
 		if (!xen_feature(XENFEAT_auto_translated_physmap)) {
-			
+			/* Do all the remapping work and M2P updates. */
 			MULTI_mmu_update(mcl, np->rx_mmu, mmu - np->rx_mmu,
 					 NULL, DOMID_SELF);
 			mcl++;
@@ -1178,7 +1240,7 @@ static irqreturn_t xennet_interrupt(int irq, void *dev_id)
 
 	if (likely(netif_carrier_ok(dev))) {
 		xennet_tx_buf_gc(dev);
-		
+		/* Under tx_lock: protects access to rx shared-ring indexes. */
 		if (RING_HAS_UNCONSUMED_RESPONSES(&np->rx))
 			napi_schedule(&np->napi);
 	}
@@ -1241,27 +1303,27 @@ static struct net_device * __devinit xennet_create_dev(struct xenbus_device *dev
 	if (np->stats == NULL)
 		goto exit;
 
-	
+	/* Initialise tx_skbs as a free chain containing every entry. */
 	np->tx_skb_freelist = 0;
 	for (i = 0; i < NET_TX_RING_SIZE; i++) {
 		skb_entry_set_link(&np->tx_skbs[i], i+1);
 		np->grant_tx_ref[i] = GRANT_INVALID_REF;
 	}
 
-	
+	/* Clear out rx_skbs */
 	for (i = 0; i < NET_RX_RING_SIZE; i++) {
 		np->rx_skbs[i] = NULL;
 		np->grant_rx_ref[i] = GRANT_INVALID_REF;
 	}
 
-	
+	/* A grant for every tx ring slot */
 	if (gnttab_alloc_grant_references(TX_MAX_TARGET,
 					  &np->gref_tx_head) < 0) {
 		printk(KERN_ALERT "#### netfront can't alloc tx grant refs\n");
 		err = -ENOMEM;
 		goto exit_free_stats;
 	}
-	
+	/* A grant for every rx ring slot */
 	if (gnttab_alloc_grant_references(RX_MAX_TARGET,
 					  &np->gref_rx_head) < 0) {
 		printk(KERN_ALERT "#### netfront can't alloc rx grant refs\n");
@@ -1276,6 +1338,12 @@ static struct net_device * __devinit xennet_create_dev(struct xenbus_device *dev
 				  NETIF_F_GSO_ROBUST;
 	netdev->hw_features	= NETIF_F_IP_CSUM | NETIF_F_SG | NETIF_F_TSO;
 
+	/*
+         * Assume that all hw features are available for now. This set
+         * will be adjusted by the call to netdev_update_features() in
+         * xennet_connect() which is the earliest point where we can
+         * negotiate with the backend regarding supported features.
+         */
 	netdev->features |= netdev->hw_features;
 
 	SET_ETHTOOL_OPS(netdev, &xennet_ethtool_ops);
@@ -1296,6 +1364,11 @@ static struct net_device * __devinit xennet_create_dev(struct xenbus_device *dev
 	return ERR_PTR(err);
 }
 
+/**
+ * Entry point to this code when a new device is created.  Allocate the basic
+ * structures and the ring buffers for communication with the backend, and
+ * inform the backend of the appropriate details for those.
+ */
 static int __devinit netfront_probe(struct xenbus_device *dev,
 				    const struct xenbus_device_id *id)
 {
@@ -1338,14 +1411,14 @@ static int __devinit netfront_probe(struct xenbus_device *dev,
 
 static void xennet_end_access(int ref, void *page)
 {
-	
+	/* This frees the page as a side-effect */
 	if (ref != GRANT_INVALID_REF)
 		gnttab_end_foreign_access(ref, 0, (unsigned long)page);
 }
 
 static void xennet_disconnect_backend(struct netfront_info *info)
 {
-	
+	/* Stop old i/f to prevent errors whilst we rebuild the state. */
 	spin_lock_bh(&info->rx_lock);
 	spin_lock_irq(&info->tx_lock);
 	netif_carrier_off(info->netdev);
@@ -1356,7 +1429,7 @@ static void xennet_disconnect_backend(struct netfront_info *info)
 		unbind_from_irqhandler(info->netdev->irq, info->netdev);
 	info->evtchn = info->netdev->irq = 0;
 
-	
+	/* End access and free the pages */
 	xennet_end_access(info->tx_ring_ref, info->tx.sring);
 	xennet_end_access(info->rx_ring_ref, info->rx.sring);
 
@@ -1366,6 +1439,12 @@ static void xennet_disconnect_backend(struct netfront_info *info)
 	info->rx.sring = NULL;
 }
 
+/**
+ * We are reconnecting to the backend, due to a suspend/resume, or a backend
+ * driver restart.  We tear down our netif structure and recreate it, but
+ * leave the device-layer structures intact so that this is transparent to the
+ * rest of the kernel.
+ */
 static int netfront_resume(struct xenbus_device *dev)
 {
 	struct netfront_info *info = dev_get_drvdata(&dev->dev);
@@ -1464,6 +1543,7 @@ static int setup_netfront(struct xenbus_device *dev, struct netfront_info *info)
 	return err;
 }
 
+/* Common code used when first setting up, and when resuming. */
 static int talk_to_netback(struct xenbus_device *dev,
 			   struct netfront_info *info)
 {
@@ -1471,7 +1551,7 @@ static int talk_to_netback(struct xenbus_device *dev,
 	struct xenbus_transaction xbt;
 	int err;
 
-	
+	/* Create shared ring, alloc event channel. */
 	err = setup_netfront(dev, info);
 	if (err)
 		goto out;
@@ -1577,10 +1657,10 @@ static int xennet_connect(struct net_device *dev)
 	spin_lock_bh(&np->rx_lock);
 	spin_lock_irq(&np->tx_lock);
 
-	
+	/* Step 1: Discard all pending TX packet fragments. */
 	xennet_release_tx_bufs(np);
 
-	
+	/* Step 2: Rebuild the RX buffer freelist and the RX ring itself. */
 	for (requeue_idx = 0, i = 0; i < NET_RX_RING_SIZE; i++) {
 		skb_frag_t *frag;
 		const struct page *page;
@@ -1605,6 +1685,12 @@ static int xennet_connect(struct net_device *dev)
 
 	np->rx.req_prod_pvt = requeue_idx;
 
+	/*
+	 * Step 3: All public and private state should now be sane.  Get
+	 * ready to start sending and receiving packets and give the driver
+	 * domain a kick because we've probably just requeued some
+	 * packets.
+	 */
 	netif_carrier_on(np->netdev);
 	notify_remote_via_irq(np->netdev->irq);
 	xennet_tx_buf_gc(dev);
@@ -1616,6 +1702,9 @@ static int xennet_connect(struct net_device *dev)
 	return 0;
 }
 
+/**
+ * Callback received when the backend's state changes.
+ */
 static void netback_changed(struct xenbus_device *dev,
 			    enum xenbus_state backend_state)
 {
@@ -1832,7 +1921,7 @@ static void xennet_sysfs_delif(struct net_device *netdev)
 		device_remove_file(&netdev->dev, &xennet_attrs[i]);
 }
 
-#endif 
+#endif /* CONFIG_SYSFS */
 
 static const struct xenbus_device_id netfront_ids[] = {
 	{ "vif" },

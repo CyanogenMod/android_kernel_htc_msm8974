@@ -29,6 +29,7 @@
 
 #include "../comedidev.h"
 
+/* Writes an array of data points to comedi's buffer */
 extern unsigned int cfc_write_array_to_buffer(struct comedi_subdevice *subd,
 					      void *data,
 					      unsigned int num_bytes);
@@ -72,4 +73,4 @@ static inline unsigned int cfc_bytes_per_scan(struct comedi_subdevice *subd)
 	return num_samples * bytes_per_sample(subd);
 }
 
-#endif 
+#endif /* _COMEDI_FC_H */

@@ -1,3 +1,9 @@
+/*
+ * This file is only included exactly once!
+ *
+ * The tables here are derived from the tas3004 datasheet,
+ * modulo typo corrections and some smoothing...
+ */
 
 #define TAS3004_TREBLE_MIN	0
 #define TAS3004_TREBLE_MAX	72
@@ -7,7 +13,7 @@
 #define TAS3004_BASS_ZERO	36
 
 static u8 tas3004_treble_table[] = {
-	150, 
+	150, /* -18 dB */
 	149,
 	148,
 	147,
@@ -43,7 +49,7 @@ static u8 tas3004_treble_table[] = {
 	117,
 	116,
 	115,
-	114, 
+	114, /* 0 dB */
 	113,
 	112,
 	111,
@@ -79,7 +85,7 @@ static u8 tas3004_treble_table[] = {
 	10,
 	4,
 	2,
-	1, 
+	1, /* +18 dB */
 };
 
 static inline u8 tas3004_treble(int idx)
@@ -87,8 +93,13 @@ static inline u8 tas3004_treble(int idx)
 	return tas3004_treble_table[idx];
 }
 
+/* I only save the difference here to the treble table
+ * so that the binary is smaller...
+ * I have also ignored completely differences of
+ * +/- 1
+ */
 static s8 tas3004_bass_diff_to_treble[] = {
-	2, 
+	2, /* 7 dB, offset 50 */
 	2,
 	2,
 	2,
@@ -110,7 +121,7 @@ static s8 tas3004_bass_diff_to_treble[] = {
 	14,
 	13,
 	8,
-	1, 
+	1, /* 18 dB */
 };
 
 static inline u8 tas3004_bass(int idx)

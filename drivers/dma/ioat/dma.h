@@ -42,8 +42,31 @@
 
 #define chan_num(ch) ((int)((ch)->reg_base - (ch)->device->reg_base) / 0x80)
 
+/*
+ * workaround for IOAT ver.3.0 null descriptor issue
+ * (channel returns error when size is 0)
+ */
 #define NULL_DESC_BUFFER_SIZE 1
 
+/**
+ * struct ioatdma_device - internal representation of a IOAT device
+ * @pdev: PCI-Express device
+ * @reg_base: MMIO register space base address
+ * @dma_pool: for allocating DMA descriptors
+ * @common: embedded struct dma_device
+ * @version: version of ioatdma device
+ * @msix_entries: irq handlers
+ * @idx: per channel data
+ * @dca: direct cache access context
+ * @intr_quirk: interrupt setup quirk (for ioat_v1 devices)
+ * @enumerate_channels: hw version specific channel enumeration
+ * @reset_hw: hw version specific channel (re)initialization
+ * @cleanup_fn: select between the v2 and v3 cleanup routines
+ * @timer_fn: select between the v2 and v3 timer watchdog routines
+ * @self_test: hardware version specific self test for each supported op type
+ *
+ * Note: the v3 cleanup routine supports raid operations
+ */
 struct ioatdma_device {
 	struct pci_dev *pdev;
 	void __iomem *reg_base;
@@ -90,10 +113,13 @@ struct ioat_sysfs_entry {
 	ssize_t (*show)(struct dma_chan *, char *);
 };
 
+/**
+ * struct ioat_dma_chan - internal representation of a DMA channel
+ */
 struct ioat_dma_chan {
 	struct ioat_chan_common base;
 
-	size_t xfercap;	
+	size_t xfercap;	/* XFERCAP register value expanded out */
 
 	spinlock_t desc_lock;
 	struct list_head free_desc;
@@ -116,7 +142,16 @@ static inline struct ioat_dma_chan *to_ioat_chan(struct dma_chan *c)
 	return container_of(chan, struct ioat_dma_chan, base);
 }
 
+/* wrapper around hardware descriptor format + additional software fields */
 
+/**
+ * struct ioat_desc_sw - wrapper around hardware descriptor
+ * @hw: hardware DMA descriptor (for memcpy)
+ * @node: this descriptor will either be on the free list,
+ *     or attached to a transaction list (tx_list)
+ * @txd: the generic software descriptor for all engines
+ * @id: identifier for debug
+ */
 struct ioat_desc_sw {
 	struct ioat_dma_descriptor *hw;
 	struct list_head node;
@@ -171,6 +206,9 @@ static inline u64 ioat_chansts(struct ioat_chan_common *chan)
 	u64 status;
 	u32 status_lo;
 
+	/* We need to read the low address first as this causes the
+	 * chipset to latch the upper bits for the subsequent read
+	 */
 	status_lo = readl(chan->reg_base + IOAT_CHANSTS_OFFSET_LOW(ver));
 	status = readl(chan->reg_base + IOAT_CHANSTS_OFFSET_HIGH(ver));
 	status <<= 32;
@@ -249,6 +287,7 @@ static inline bool is_ioat_suspended(unsigned long status)
 	return ((status & IOAT_CHANSTS_STATUS) == IOAT_CHANSTS_SUSPENDED);
 }
 
+/* channel was fatally programmed */
 static inline bool is_ioat_bug(unsigned long err)
 {
 	return !!err;
@@ -285,4 +324,4 @@ void ioat_kobject_del(struct ioatdma_device *device);
 extern const struct sysfs_ops ioat_sysfs_ops;
 extern struct ioat_sysfs_entry ioat_version_attr;
 extern struct ioat_sysfs_entry ioat_cap_attr;
-#endif 
+#endif /* IOATDMA_H */

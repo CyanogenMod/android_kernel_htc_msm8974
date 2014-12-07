@@ -66,10 +66,15 @@ static int mmio_print_pcidev(struct trace_seq *s, const struct pci_dev *dev)
 	resource_size_t start, end;
 	const struct pci_driver *drv = pci_dev_driver(dev);
 
-	
+	/* XXX: incomplete checks for trace_seq_printf() return value */
 	ret += trace_seq_printf(s, "PCIDEV %02x%02x %04x%04x %x",
 				dev->bus->number, dev->devfn,
 				dev->vendor, dev->device, dev->irq);
+	/*
+	 * XXX: is pci_resource_to_user() appropriate, since we are
+	 * supposed to interpret the __ioremap() phys_addr argument based on
+	 * these printed values?
+	 */
 	for (i = 0; i < 7; i++) {
 		pci_resource_to_user(dev, i, &dev->resource[i], &start, &end);
 		ret += trace_seq_printf(s, " %llx",
@@ -112,6 +117,7 @@ static void mmio_pipe_open(struct trace_iterator *iter)
 	iter->private = hiter;
 }
 
+/* XXX: This is not called when the pipe is closed! */
 static void mmio_close(struct trace_iterator *iter)
 {
 	struct header_iter *hiter = iter->private;
@@ -140,7 +146,7 @@ static ssize_t mmio_read(struct trace_iterator *iter, struct file *filp,
 
 	n = count_overruns(iter);
 	if (n) {
-		
+		/* XXX: This is later than where events were lost. */
 		trace_seq_printf(s, "MARK 0.000000 Lost %lu events.\n", n);
 		if (!overrun_detected)
 			pr_warning("mmiotrace has lost events.\n");
@@ -258,7 +264,7 @@ static enum print_line_t mmio_print_mark(struct trace_iterator *iter)
 	unsigned secs		= (unsigned long)t;
 	int ret;
 
-	
+	/* The trailing newline must be in the message. */
 	ret = trace_seq_printf(s, "MARK %u.%06lu %s", secs, usec_rem, msg);
 	if (!ret)
 		return TRACE_TYPE_PARTIAL_LINE;
@@ -276,7 +282,7 @@ static enum print_line_t mmio_print_line(struct trace_iterator *iter)
 	case TRACE_PRINT:
 		return mmio_print_mark(iter);
 	default:
-		return TRACE_TYPE_HANDLED; 
+		return TRACE_TYPE_HANDLED; /* ignore unknown entries */
 	}
 }
 

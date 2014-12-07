@@ -19,8 +19,10 @@
 #ifndef __MACH_MXS_GPMI_NAND_H__
 #define __MACH_MXS_GPMI_NAND_H__
 
+/* The size of the resources is fixed. */
 #define GPMI_NAND_RES_SIZE	6
 
+/* Resource names for the GPMI NAND driver. */
 #define GPMI_NAND_GPMI_REGS_ADDR_RES_NAME  "GPMI NAND GPMI Registers"
 #define GPMI_NAND_GPMI_INTERRUPT_RES_NAME  "GPMI NAND GPMI Interrupt"
 #define GPMI_NAND_BCH_REGS_ADDR_RES_NAME   "GPMI NAND BCH Registers"
@@ -28,16 +30,38 @@
 #define GPMI_NAND_DMA_CHANNELS_RES_NAME    "GPMI NAND DMA Channels"
 #define GPMI_NAND_DMA_INTERRUPT_RES_NAME   "GPMI NAND DMA Interrupt"
 
+/**
+ * struct gpmi_nand_platform_data - GPMI NAND driver platform data.
+ *
+ * This structure communicates platform-specific information to the GPMI NAND
+ * driver that can't be expressed as resources.
+ *
+ * @platform_init:           A pointer to a function the driver will call to
+ *                           initialize the platform (e.g., set up the pin mux).
+ * @min_prop_delay_in_ns:    Minimum propagation delay of GPMI signals to and
+ *                           from the NAND Flash device, in nanoseconds.
+ * @max_prop_delay_in_ns:    Maximum propagation delay of GPMI signals to and
+ *                           from the NAND Flash device, in nanoseconds.
+ * @max_chip_count:          The maximum number of chips for which the driver
+ *                           should configure the hardware. This value most
+ *                           likely reflects the number of pins that are
+ *                           connected to a NAND Flash device. If this is
+ *                           greater than the SoC hardware can support, the
+ *                           driver will print a message and fail to initialize.
+ * @partitions:              An optional pointer to an array of partition
+ *                           descriptions.
+ * @partition_count:         The number of elements in the partitions array.
+ */
 struct gpmi_nand_platform_data {
-	
+	/* SoC hardware information. */
 	int		(*platform_init)(void);
 
-	
+	/* NAND Flash information. */
 	unsigned int	min_prop_delay_in_ns;
 	unsigned int	max_prop_delay_in_ns;
 	unsigned int	max_chip_count;
 
-	
+	/* Medium information. */
 	struct		mtd_partition *partitions;
 	unsigned	partition_count;
 };

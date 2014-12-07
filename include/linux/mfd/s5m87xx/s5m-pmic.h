@@ -13,6 +13,7 @@
 
 #include <linux/regulator/machine.h>
 
+/* S5M8767 regulator ids */
 enum s5m8767_regulators {
 	S5M8767_LDO1,
 	S5M8767_LDO2,
@@ -57,6 +58,7 @@ enum s5m8767_regulators {
 	S5M8767_REG_MAX,
 };
 
+/* S5M8763 regulator ids */
 enum s5m8763_regulators {
 	S5M8763_LDO1,
 	S5M8763_LDO2,
@@ -85,9 +87,14 @@ enum s5m8763_regulators {
 	S5M8763_ESAFEUSB2,
 };
 
+/**
+ * s5m87xx_regulator_data - regulator data
+ * @id: regulator id
+ * @initdata: regulator init data (contraints, supplies, ...)
+ */
 struct s5m_regulator_data {
 	int				id;
 	struct regulator_init_data	*initdata;
 };
 
-#endif 
+#endif /*  __LINUX_MFD_S5M_PMIC_H */

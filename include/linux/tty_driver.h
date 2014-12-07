@@ -292,27 +292,33 @@ struct tty_operations {
 };
 
 struct tty_driver {
-	int	magic;		
-	struct kref kref;	
+	int	magic;		/* magic number for this structure */
+	struct kref kref;	/* Reference management */
 	struct cdev cdev;
 	struct module	*owner;
 	const char	*driver_name;
 	const char	*name;
-	int	name_base;	
-	int	major;		
-	int	minor_start;	
-	int	num;		
-	short	type;		
-	short	subtype;	
-	struct ktermios init_termios; 
-	int	flags;		
-	struct proc_dir_entry *proc_entry; 
-	struct tty_driver *other; 
+	int	name_base;	/* offset of printed name */
+	int	major;		/* major device number */
+	int	minor_start;	/* start of minor device number */
+	int	num;		/* number of devices allocated */
+	short	type;		/* type of tty driver */
+	short	subtype;	/* subtype of tty driver */
+	struct ktermios init_termios; /* Initial termios */
+	int	flags;		/* tty driver flags */
+	struct proc_dir_entry *proc_entry; /* /proc fs entry */
+	struct tty_driver *other; /* only used for the PTY driver */
 
+	/*
+	 * Pointer to the tty data structures
+	 */
 	struct tty_struct **ttys;
 	struct ktermios **termios;
 	void *driver_state;
 
+	/*
+	 * Driver methods
+	 */
 
 	const struct tty_operations *ops;
 	struct list_head tty_drivers;
@@ -336,8 +342,45 @@ static inline struct tty_driver *tty_driver_kref_get(struct tty_driver *d)
 	return d;
 }
 
+/* tty driver magic number */
 #define TTY_DRIVER_MAGIC		0x5402
 
+/*
+ * tty driver flags
+ * 
+ * TTY_DRIVER_RESET_TERMIOS --- requests the tty layer to reset the
+ * 	termios setting when the last process has closed the device.
+ * 	Used for PTY's, in particular.
+ * 
+ * TTY_DRIVER_REAL_RAW --- if set, indicates that the driver will
+ * 	guarantee never not to set any special character handling
+ * 	flags if ((IGNBRK || (!BRKINT && !PARMRK)) && (IGNPAR ||
+ * 	!INPCK)).  That is, if there is no reason for the driver to
+ * 	send notifications of parity and break characters up to the
+ * 	line driver, it won't do so.  This allows the line driver to
+ *	optimize for this case if this flag is set.  (Note that there
+ * 	is also a promise, if the above case is true, not to signal
+ * 	overruns, either.)
+ *
+ * TTY_DRIVER_DYNAMIC_DEV --- if set, the individual tty devices need
+ *	to be registered with a call to tty_register_device() when the
+ *	device is found in the system and unregistered with a call to
+ *	tty_unregister_device() so the devices will be show up
+ *	properly in sysfs.  If not set, driver->num entries will be
+ *	created by the tty core in sysfs when tty_register_driver() is
+ *	called.  This is to be used by drivers that have tty devices
+ *	that can appear and disappear while the main tty driver is
+ *	registered with the tty core.
+ *
+ * TTY_DRIVER_DEVPTS_MEM -- don't use the standard arrays, instead
+ *	use dynamic memory keyed through the devpts filesystem.  This
+ *	is only applicable to the pty driver.
+ *
+ * TTY_DRIVER_HARDWARE_BREAK -- hardware handles break signals. Pass
+ *	the requested timeout to the caller instead of using a simple
+ *	on/off interface.
+ *
+ */
 #define TTY_DRIVER_INSTALLED		0x0001
 #define TTY_DRIVER_RESET_TERMIOS	0x0002
 #define TTY_DRIVER_REAL_RAW		0x0004
@@ -345,21 +388,25 @@ static inline struct tty_driver *tty_driver_kref_get(struct tty_driver *d)
 #define TTY_DRIVER_DEVPTS_MEM		0x0010
 #define TTY_DRIVER_HARDWARE_BREAK	0x0020
 
+/* tty driver types */
 #define TTY_DRIVER_TYPE_SYSTEM		0x0001
 #define TTY_DRIVER_TYPE_CONSOLE		0x0002
 #define TTY_DRIVER_TYPE_SERIAL		0x0003
 #define TTY_DRIVER_TYPE_PTY		0x0004
-#define TTY_DRIVER_TYPE_SCC		0x0005	
+#define TTY_DRIVER_TYPE_SCC		0x0005	/* scc driver */
 #define TTY_DRIVER_TYPE_SYSCONS		0x0006
 
+/* system subtypes (magic, used by tty_io.c) */
 #define SYSTEM_TYPE_TTY			0x0001
 #define SYSTEM_TYPE_CONSOLE		0x0002
 #define SYSTEM_TYPE_SYSCONS		0x0003
 #define SYSTEM_TYPE_SYSPTMX		0x0004
 
+/* pty subtypes (magic, used by tty_io.c) */
 #define PTY_TYPE_MASTER			0x0001
 #define PTY_TYPE_SLAVE			0x0002
 
+/* serial subtype definitions */
 #define SERIAL_TYPE_NORMAL	1
 
-#endif 
+#endif /* #ifdef _LINUX_TTY_DRIVER_H */

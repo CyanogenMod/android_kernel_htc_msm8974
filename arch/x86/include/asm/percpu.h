@@ -11,15 +11,27 @@
 
 #ifdef __ASSEMBLY__
 
+/*
+ * PER_CPU finds an address of a per-cpu variable.
+ *
+ * Args:
+ *    var - variable name
+ *    reg - 32bit register
+ *
+ * The resulting address is stored in the "reg" argument.
+ *
+ * Example:
+ *    PER_CPU(cpu_gdt_descr, %ebx)
+ */
 #ifdef CONFIG_SMP
 #define PER_CPU(var, reg)						\
 	__percpu_mov_op %__percpu_seg:this_cpu_off, reg;		\
 	lea var(reg), reg
 #define PER_CPU_VAR(var)	%__percpu_seg:var
-#else 
+#else /* ! SMP */
 #define PER_CPU(var, reg)	__percpu_mov_op $var, reg
 #define PER_CPU_VAR(var)	var
-#endif	
+#endif	/* SMP */
 
 #ifdef CONFIG_X86_64_SMP
 #define INIT_PER_CPU_VAR(var)  init_per_cpu__##var
@@ -27,7 +39,7 @@
 #define INIT_PER_CPU_VAR(var)  var
 #endif
 
-#else 
+#else /* ...!ASSEMBLY */
 
 #include <linux/kernel.h>
 #include <linux/stringify.h>
@@ -36,6 +48,10 @@
 #define __percpu_prefix		"%%"__stringify(__percpu_seg)":"
 #define __my_cpu_offset		percpu_read(this_cpu_off)
 
+/*
+ * Compared to the generic __my_cpu_offset version, the following
+ * saves one instruction and avoids clobbering a temp register.
+ */
 #define __this_cpu_ptr(ptr)				\
 ({							\
 	unsigned long tcp_ptr__;			\
@@ -51,6 +67,13 @@
 
 #define __percpu_arg(x)		__percpu_prefix "%P" #x
 
+/*
+ * Initialized pointers to per-cpu variables needed for the boot
+ * processor need to use these macros to get the proper address
+ * offset from __per_cpu_load on SMP.
+ *
+ * There also must be an entry in vmlinux_64.lds.S
+ */
 #define DECLARE_INIT_PER_CPU(var) \
        extern typeof(var) init_per_cpu_var(var)
 
@@ -60,6 +83,8 @@
 #define init_per_cpu_var(var)  var
 #endif
 
+/* For arch-specific code, we can use direct single-insn ops (they
+ * don't give an lvalue though). */
 extern void __bad_percpu_size(void);
 
 #define percpu_to_op(op, var, val)			\
@@ -95,6 +120,10 @@ do {							\
 	}						\
 } while (0)
 
+/*
+ * Generate a percpu add to memory instruction and optimize code
+ * if one is added or subtracted.
+ */
 #define percpu_add_op(var, val)						\
 do {									\
 	typedef typeof(var) pao_T__;					\
@@ -202,6 +231,9 @@ do {									\
 	}						\
 })
 
+/*
+ * Add return operation
+ */
 #define percpu_add_return_op(var, val)					\
 ({									\
 	typeof(var) paro_ret__ = val;					\
@@ -232,6 +264,11 @@ do {									\
 	paro_ret__;							\
 })
 
+/*
+ * xchg is implemented using cmpxchg without a lock prefix. xchg is
+ * expensive due to the implied lock prefix.  The processor cannot prefetch
+ * cachelines if xchg is used.
+ */
 #define percpu_xchg_op(var, nval)					\
 ({									\
 	typeof(var) pxo_ret__;						\
@@ -274,6 +311,10 @@ do {									\
 	pxo_ret__;							\
 })
 
+/*
+ * cmpxchg has no such implied lock semantics as a result it is much
+ * more efficient for cpu local operations.
+ */
 #define percpu_cmpxchg_op(var, oval, nval)				\
 ({									\
 	typeof(var) pco_ret__;						\
@@ -309,6 +350,15 @@ do {									\
 	pco_ret__;							\
 })
 
+/*
+ * percpu_read() makes gcc load the percpu variable every time it is
+ * accessed while percpu_read_stable() allows the value to be cached.
+ * percpu_read_stable() is more efficient and can be used if its value
+ * is guaranteed to be valid across cpus.  The current users include
+ * get_current() and get_thread_info() both of which are actually
+ * per-thread variables implemented as per-cpu variables and thus
+ * stable for the duration of the respective task.
+ */
 #define percpu_read(var)		percpu_from_op("mov", var, "m" (var))
 #define percpu_read_stable(var)		percpu_from_op("mov", var, "p" (&(var)))
 #define percpu_write(var, val)		percpu_to_op("mov", var, val)
@@ -379,7 +429,7 @@ do {									\
 #define this_cpu_cmpxchg_2(pcp, oval, nval)	percpu_cmpxchg_op(pcp, oval, nval)
 #define this_cpu_cmpxchg_4(pcp, oval, nval)	percpu_cmpxchg_op(pcp, oval, nval)
 
-#endif 
+#endif /* !CONFIG_M386 */
 
 #ifdef CONFIG_X86_CMPXCHG64
 #define percpu_cmpxchg8b_double(pcp1, pcp2, o1, o2, n1, n2)		\
@@ -395,8 +445,12 @@ do {									\
 
 #define __this_cpu_cmpxchg_double_4	percpu_cmpxchg8b_double
 #define this_cpu_cmpxchg_double_4	percpu_cmpxchg8b_double
-#endif 
+#endif /* CONFIG_X86_CMPXCHG64 */
 
+/*
+ * Per cpu atomic 64 bit operations are only available under 64 bit.
+ * 32 bit must fall back to generic operations.
+ */
 #ifdef CONFIG_X86_64
 #define __this_cpu_read_8(pcp)		percpu_from_op("mov", (pcp), "m"(pcp))
 #define __this_cpu_write_8(pcp, val)	percpu_to_op("mov", (pcp), val)
@@ -418,6 +472,12 @@ do {									\
 #define this_cpu_xchg_8(pcp, nval)	percpu_xchg_op(pcp, nval)
 #define this_cpu_cmpxchg_8(pcp, oval, nval)	percpu_cmpxchg_op(pcp, oval, nval)
 
+/*
+ * Pretty complex macro to generate cmpxchg16 instruction.  The instruction
+ * is not supported on early AMD64 processors so we must be able to emulate
+ * it in software.  The address used in the cmpxchg16 instruction must be
+ * aligned to a 16 byte boundary.
+ */
 #define percpu_cmpxchg16b_double(pcp1, pcp2, o1, o2, n1, n2)		\
 ({									\
 	bool __ret;							\
@@ -437,6 +497,7 @@ do {									\
 
 #endif
 
+/* This is not atomic against other CPUs -- CPU preemption needs to be off */
 #define x86_test_and_clear_bit_percpu(bit, var)				\
 ({									\
 	int old__;							\
@@ -475,12 +536,18 @@ static inline int x86_this_cpu_variable_test_bit(int nr,
 
 #include <asm-generic/percpu.h>
 
+/* We can use this directly for local CPU (faster). */
 DECLARE_PER_CPU(unsigned long, this_cpu_off);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #ifdef CONFIG_SMP
 
+/*
+ * Define the "EARLY_PER_CPU" macros.  These are used for some per_cpu
+ * variables that are initialized and accessed before there are per_cpu
+ * areas allocated.
+ */
 
 #define	DEFINE_EARLY_PER_CPU(_type, _name, _initvalue)			\
 	DEFINE_PER_CPU(_type, _name) = _initvalue;			\
@@ -503,7 +570,7 @@ DECLARE_PER_CPU(unsigned long, this_cpu_off);
 		&early_per_cpu_ptr(_name)[_cpu] :		\
 		&per_cpu(_name, _cpu))
 
-#else	
+#else	/* !CONFIG_SMP */
 #define	DEFINE_EARLY_PER_CPU(_type, _name, _initvalue)		\
 	DEFINE_PER_CPU(_type, _name) = _initvalue
 
@@ -515,7 +582,8 @@ DECLARE_PER_CPU(unsigned long, this_cpu_off);
 
 #define	early_per_cpu(_name, _cpu) per_cpu(_name, _cpu)
 #define	early_per_cpu_ptr(_name) NULL
+/* no early_per_cpu_map() */
 
-#endif	
+#endif	/* !CONFIG_SMP */
 
-#endif 
+#endif /* _ASM_X86_PERCPU_H */

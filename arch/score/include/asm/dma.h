@@ -5,4 +5,4 @@
 
 #define MAX_DMA_ADDRESS		(0)
 
-#endif 
+#endif /* _ASM_SCORE_DMA_H */

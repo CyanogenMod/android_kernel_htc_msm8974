@@ -60,9 +60,11 @@
 #define S5P64X0_CLKDIV0_HCLK_SHIFT	(8)
 #define S5P64X0_CLKDIV0_HCLK_MASK	(0xF << S5P64X0_CLKDIV0_HCLK_SHIFT)
 
+/* HCLK GATE Registers */
 #define S5P64X0_CLK_GATE_HCLK1_FIMGVG	(1 << 2)
 #define S5P64X0_CLK_GATE_SCLK1_FIMGVG	(1 << 2)
 
+/* PCLK GATE Registers */
 #define S5P64X0_CLK_GATE_PCLK_UART3	(1 << 4)
 #define S5P64X0_CLK_GATE_PCLK_UART2	(1 << 3)
 #define S5P64X0_CLK_GATE_PCLK_UART1	(1 << 2)
@@ -85,6 +87,7 @@
 #define S5P64X0_OTHERS_RET_MMC0		(1 << 24)
 #define S5P64X0_OTHERS_USB_SIG_MASK	(1 << 16)
 
+/* Compatibility defines */
 
 #define ARM_CLK_DIV			S5P64X0_CLK_DIV0
 #define ARM_DIV_RATIO_SHIFT		0
@@ -92,4 +95,4 @@
 
 #define S5P_EPLL_CON			S5P64X0_EPLL_CON
 
-#endif 
+#endif /* __ASM_ARCH_REGS_CLOCK_H */

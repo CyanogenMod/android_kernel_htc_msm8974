@@ -86,6 +86,7 @@
 
 #define MX27_AVIC_BASE_ADDR		0x10040000
 
+/* ROM patch */
 #define MX27_ROMP_BASE_ADDR		0x10041000
 
 #define MX27_SAHB1_BASE_ADDR		0x80000000
@@ -93,6 +94,7 @@
 #define MX27_CSI_BASE_ADDR			(MX27_SAHB1_BASE_ADDR + 0x0000)
 #define MX27_ATA_BASE_ADDR			(MX27_SAHB1_BASE_ADDR + 0x1000)
 
+/* Memory regions and CS */
 #define MX27_SDRAM_BASE_ADDR		0xa0000000
 #define MX27_CSD1_BASE_ADDR		0xb0000000
 
@@ -103,6 +105,7 @@
 #define MX27_CS4_BASE_ADDR		0xd4000000
 #define MX27_CS5_BASE_ADDR		0xd6000000
 
+/* NAND, SDRAM, WEIM, M3IF, EMI controllers */
 #define MX27_X_MEMC_BASE_ADDR		0xd8000000
 #define MX27_X_MEMC_SIZE		SZ_1M
 #define MX27_NFC_BASE_ADDR			(MX27_X_MEMC_BASE_ADDR)
@@ -118,11 +121,13 @@
 
 #define MX27_PCMCIA_MEM_BASE_ADDR	0xdc000000
 
-#define MX27_IRAM_BASE_ADDR		0xffff4c00	
+/* IRAM */
+#define MX27_IRAM_BASE_ADDR		0xffff4c00	/* internal ram */
 
 #define MX27_IO_P2V(x)			IMX_IO_P2V(x)
 #define MX27_IO_ADDRESS(x)		IOMEM(MX27_IO_P2V(x))
 
+/* fixed interrupt numbers */
 #define MX27_INT_I2C2		1
 #define MX27_INT_GPT6		2
 #define MX27_INT_GPT5		3
@@ -187,6 +192,7 @@
 #define MX27_INT_IIM		62
 #define MX27_INT_CCM		63
 
+/* fixed DMA request numbers */
 #define MX27_DMA_REQ_CSPI3_RX	1
 #define MX27_DMA_REQ_CSPI3_TX	2
 #define MX27_DMA_REQ_EXT	3
@@ -228,4 +234,4 @@
 extern int mx27_revision(void);
 #endif
 
-#endif 
+#endif /* ifndef __MACH_MX27_H__ */

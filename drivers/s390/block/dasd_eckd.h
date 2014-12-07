@@ -1,7 +1,18 @@
+/*
+ * File...........: linux/drivers/s390/block/dasd_eckd.h
+ * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
+ *		    Horst Hummel <Horst.Hummel@de.ibm.com>
+ * Bugreports.to..: <Linux390@de.ibm.com>
+ * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 1999,2000
+ *
+ */
 
 #ifndef DASD_ECKD_H
 #define DASD_ECKD_H
 
+/*****************************************************************************
+ * SECTION: CCW Definitions
+ ****************************************************************************/
 #define DASD_ECKD_CCW_WRITE		 0x05
 #define DASD_ECKD_CCW_READ		 0x06
 #define DASD_ECKD_CCW_WRITE_HOME_ADDRESS 0x09
@@ -38,9 +49,15 @@
 #define DASD_ECKD_CCW_RSCK		 0xF9
 #define DASD_ECKD_CCW_RCD		 0xFA
 
+/*
+ * Perform Subsystem Function / Sub-Orders
+ */
 #define PSF_ORDER_PRSSD 0x18
 #define PSF_ORDER_SSC	0x1D
 
+/*
+ * Size that is reportet for large volumes in the old 16-bit no_cyl field
+ */
 #define LV_COMPAT_CYL 0xFFFE
 
 
@@ -48,6 +65,9 @@
 #define DASD_ECKD_RCD_DATA_SIZE 256
 
 
+/*****************************************************************************
+ * SECTION: Type Definitions
+ ****************************************************************************/
 
 struct eckd_count {
 	__u16 cyl;
@@ -93,31 +113,31 @@ struct eckd_home {
 
 struct DE_eckd_data {
 	struct {
-		unsigned char perm:2;	
+		unsigned char perm:2;	/* Permissions on this extent */
 		unsigned char reserved:1;
-		unsigned char seek:2;	
-		unsigned char auth:2;	
-		unsigned char pci:1;	
+		unsigned char seek:2;	/* Seek control */
+		unsigned char auth:2;	/* Access authorization */
+		unsigned char pci:1;	/* PCI Fetch mode */
 	} __attribute__ ((packed)) mask;
 	struct {
-		unsigned char mode:2;	
-		unsigned char ckd:1;	
-		unsigned char operation:3;	
-		unsigned char cfw:1;	
-		unsigned char dfw:1;	
+		unsigned char mode:2;	/* Architecture mode */
+		unsigned char ckd:1;	/* CKD Conversion */
+		unsigned char operation:3;	/* Operation mode */
+		unsigned char cfw:1;	/* Cache fast write */
+		unsigned char dfw:1;	/* DASD fast write */
 	} __attribute__ ((packed)) attributes;
-	__u16 blk_size;		
+	__u16 blk_size;		/* Blocksize */
 	__u16 fast_write_id;
-	__u8 ga_additional;	
-	__u8 ga_extended;	
+	__u8 ga_additional;	/* Global Attributes Additional */
+	__u8 ga_extended;	/* Global Attributes Extended	*/
 	struct ch_t beg_ext;
 	struct ch_t end_ext;
-	unsigned long long ep_sys_time; 
-	__u8 ep_format;        
-	__u8 ep_prio;          
-	__u8 ep_reserved1;     
-	__u8 ep_rec_per_track; 
-	__u8 ep_reserved[4];   
+	unsigned long long ep_sys_time; /* Ext Parameter - System Time Stamp */
+	__u8 ep_format;        /* Extended Parameter format byte       */
+	__u8 ep_prio;          /* Extended Parameter priority I/O byte */
+	__u8 ep_reserved1;     /* Extended Parameter Reserved	       */
+	__u8 ep_rec_per_track; /* Number of records on a track	       */
+	__u8 ep_reserved[4];   /* Extended Parameter Reserved	       */
 } __attribute__ ((packed));
 
 struct LO_eckd_data {
@@ -164,6 +184,7 @@ struct LRE_eckd_data {
 	__u8 extended_parameter[0];
 } __attribute__ ((packed));
 
+/* Prefix data for format 0x00 and 0x01 */
 struct PFX_eckd_data {
 	unsigned char format;
 	struct {
@@ -255,6 +276,7 @@ struct dasd_eckd_characteristics {
 	__u32 long_no_cyl;
 } __attribute__ ((packed));
 
+/* elements of the configuration data */
 struct dasd_ned {
 	struct {
 		__u8 identifier:2;
@@ -284,10 +306,10 @@ struct dasd_sneq {
 	} __attribute__ ((packed)) flags;
 	__u8 res1;
 	__u16 format;
-	__u8 res2[4];		
-	__u8 sua_flags;		
-	__u8 base_unit_addr;	
-	__u8 res3[22];		
+	__u8 res2[4];		/* byte  4- 7 */
+	__u8 sua_flags;		/* byte  8    */
+	__u8 base_unit_addr;	/* byte  9    */
+	__u8 res3[22];		/* byte 10-31 */
 } __attribute__ ((packed));
 
 struct vd_sneq {
@@ -297,9 +319,9 @@ struct vd_sneq {
 	} __attribute__ ((packed)) flags;
 	__u8 res1;
 	__u16 format;
-	__u8 res2[4];	
-	__u8 uit[16];	
-	__u8 res3[8];	
+	__u8 res2[4];	/* byte  4- 7 */
+	__u8 uit[16];	/* byte  8-23 */
+	__u8 res3[8];	/* byte 24-31 */
 } __attribute__ ((packed));
 
 struct dasd_gneq {
@@ -322,6 +344,9 @@ struct dasd_rssd_features {
 } __attribute__((packed));
 
 
+/*
+ * Perform Subsystem Function - Prepare for Read Subsystem Data
+ */
 struct dasd_psf_prssd_data {
 	unsigned char order;
 	unsigned char flags;
@@ -330,6 +355,9 @@ struct dasd_psf_prssd_data {
 	unsigned char varies[5];
 } __attribute__ ((packed));
 
+/*
+ * Perform Subsystem Function - Set Subsystem Characteristics
+ */
 struct dasd_psf_ssc_data {
 	unsigned char order;
 	unsigned char flags;
@@ -339,6 +367,9 @@ struct dasd_psf_ssc_data {
 } __attribute__((packed));
 
 
+/*
+ * some structures and definitions for alias handling
+ */
 struct dasd_unit_address_configuration {
 	struct {
 		char ua_type;
@@ -349,6 +380,7 @@ struct dasd_unit_address_configuration {
 
 #define MAX_DEVICES_PER_LCU 256
 
+/* flags on the LCU  */
 #define NEED_UAC_UPDATE  0x01
 #define UPDATE_PENDING	0x02
 
@@ -406,7 +438,7 @@ struct dasd_eckd_private {
 	struct dasd_eckd_characteristics rdc_data;
 	u8 *conf_data;
 	int conf_len;
-	
+	/* pointers to specific parts in the conf_data */
 	struct dasd_ned *ned;
 	struct dasd_sneq *sneq;
 	struct vd_sneq *vdsneq;
@@ -415,11 +447,11 @@ struct dasd_eckd_private {
 	struct eckd_count count_area[5];
 	int init_cqr_status;
 	int uses_cdl;
-	struct attrib_data_t attrib;	
+	struct attrib_data_t attrib;	/* e.g. cache operations */
 	struct dasd_rssd_features features;
 	u32 real_cyl;
 
-	
+	/* alias managemnet */
 	struct dasd_uid uid;
 	struct alias_pav_group *pavgroup;
 	struct alias_lcu *lcu;
@@ -440,4 +472,4 @@ void dasd_eckd_reset_ccw_to_base_io(struct dasd_ccw_req *);
 void dasd_alias_lcu_setup_complete(struct dasd_device *);
 void dasd_alias_wait_for_lcu_setup(struct dasd_device *);
 int dasd_alias_update_add_device(struct dasd_device *);
-#endif				
+#endif				/* DASD_ECKD_H */

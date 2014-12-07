@@ -3,4 +3,4 @@
 struct map;
 
 int map__browse(struct map *self);
-#endif 
+#endif /* _PERF_UI_MAP_BROWSER_H_ */

@@ -1,6 +1,14 @@
 #ifndef _ASM_POWERPC_TYPES_H
 #define _ASM_POWERPC_TYPES_H
 
+/*
+ * This is here because we used to use l64 for 64bit powerpc
+ * and we don't want to impact user mode with our change to ll64
+ * in the kernel.
+ *
+ * However, some user programs are fine with this.  They can
+ * flag __SANE_USERSPACE_TYPES__ to get int-ll64.h here.
+ */
 #if !defined(__SANE_USERSPACE_TYPES__) && defined(__powerpc64__) && !defined(__KERNEL__)
 # include <asm-generic/int-l64.h>
 #else
@@ -26,7 +34,7 @@ typedef struct {
 	__u32 u[4];
 } __attribute__((aligned(16))) __vector128;
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #ifdef __KERNEL__
 #ifndef __ASSEMBLY__
@@ -39,8 +47,8 @@ typedef struct {
 	unsigned long env;
 } func_descr_t;
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_POWERPC_TYPES_H */

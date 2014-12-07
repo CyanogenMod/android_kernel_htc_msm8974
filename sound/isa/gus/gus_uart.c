@@ -35,18 +35,18 @@ static void snd_gf1_interrupt_midi_in(struct snd_gus_card * gus)
 	while (count) {
 		spin_lock_irqsave(&gus->uart_cmd_lock, flags);
 		stat = snd_gf1_uart_stat(gus);
-		if (!(stat & 0x01)) {	
+		if (!(stat & 0x01)) {	/* data in Rx FIFO? */
 			spin_unlock_irqrestore(&gus->uart_cmd_lock, flags);
 			count--;
 			continue;
 		}
-		count = 100;	
+		count = 100;	/* arm counter to new value */
 		data = snd_gf1_uart_get(gus);
 		if (!(gus->gf1.uart_cmd & 0x80)) {
 			spin_unlock_irqrestore(&gus->uart_cmd_lock, flags);
 			continue;
 		}			
-		if (stat & 0x10) {	
+		if (stat & 0x10) {	/* framing error */
 			gus->gf1.uart_framing++;
 			spin_unlock_irqrestore(&gus->uart_cmd_lock, flags);
 			continue;
@@ -65,14 +65,14 @@ static void snd_gf1_interrupt_midi_out(struct snd_gus_card * gus)
 	char byte;
 	unsigned long flags;
 
-	
+	/* try unlock output */
 	if (snd_gf1_uart_stat(gus) & 0x01)
 		snd_gf1_interrupt_midi_in(gus);
 
 	spin_lock_irqsave(&gus->uart_cmd_lock, flags);
-	if (snd_gf1_uart_stat(gus) & 0x02) {	
-		if (snd_rawmidi_transmit(gus->midi_substream_output, &byte, 1) != 1) {	
-			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd & ~0x20); 
+	if (snd_gf1_uart_stat(gus) & 0x02) {	/* Tx FIFO free? */
+		if (snd_rawmidi_transmit(gus->midi_substream_output, &byte, 1) != 1) {	/* no other bytes or error */
+			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd & ~0x20); /* disable Tx interrupt */
 		} else {
 			snd_gf1_uart_put(gus, byte);
 		}
@@ -82,10 +82,10 @@ static void snd_gf1_interrupt_midi_out(struct snd_gus_card * gus)
 
 static void snd_gf1_uart_reset(struct snd_gus_card * gus, int close)
 {
-	snd_gf1_uart_cmd(gus, 0x03);	
+	snd_gf1_uart_cmd(gus, 0x03);	/* reset */
 	if (!close && gus->uart_enable) {
 		udelay(160);
-		snd_gf1_uart_cmd(gus, 0x00);	
+		snd_gf1_uart_cmd(gus, 0x00);	/* normal operations */
 	}
 }
 
@@ -96,7 +96,7 @@ static int snd_gf1_uart_output_open(struct snd_rawmidi_substream *substream)
 
 	gus = substream->rmidi->private_data;
 	spin_lock_irqsave(&gus->uart_cmd_lock, flags);
-	if (!(gus->gf1.uart_cmd & 0x80)) {	
+	if (!(gus->gf1.uart_cmd & 0x80)) {	/* input active? */
 		snd_gf1_uart_reset(gus, 0);
 	}
 	gus->gf1.interrupt_handler_midi_out = snd_gf1_interrupt_midi_out;
@@ -123,7 +123,7 @@ static int snd_gf1_uart_input_open(struct snd_rawmidi_substream *substream)
 	gus->midi_substream_input = substream;
 	if (gus->uart_enable) {
 		for (i = 0; i < 1000 && (snd_gf1_uart_stat(gus) & 0x01); i++)
-			snd_gf1_uart_get(gus);	
+			snd_gf1_uart_get(gus);	/* clean Rx */
 		if (i >= 1000)
 			snd_printk(KERN_ERR "gus midi uart init read - cleanup error\n");
 	}
@@ -181,10 +181,10 @@ static void snd_gf1_uart_input_trigger(struct snd_rawmidi_substream *substream, 
 	spin_lock_irqsave(&gus->uart_cmd_lock, flags);
 	if (up) {
 		if ((gus->gf1.uart_cmd & 0x80) == 0)
-			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd | 0x80); 
+			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd | 0x80); /* enable Rx interrupts */
 	} else {
 		if (gus->gf1.uart_cmd & 0x80)
-			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd & ~0x80); 
+			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd & ~0x80); /* disable Rx interrupts */
 	}
 	spin_unlock_irqrestore(&gus->uart_cmd_lock, flags);
 }
@@ -202,10 +202,10 @@ static void snd_gf1_uart_output_trigger(struct snd_rawmidi_substream *substream,
 	if (up) {
 		if ((gus->gf1.uart_cmd & 0x20) == 0) {
 			spin_unlock_irqrestore(&gus->uart_cmd_lock, flags);
-			
+			/* wait for empty Rx - Tx is probably unlocked */
 			timeout = 10000;
 			while (timeout-- > 0 && snd_gf1_uart_stat(gus) & 0x01);
-			
+			/* Tx FIFO free? */
 			spin_lock_irqsave(&gus->uart_cmd_lock, flags);
 			if (gus->gf1.uart_cmd & 0x20) {
 				spin_unlock_irqrestore(&gus->uart_cmd_lock, flags);
@@ -218,7 +218,7 @@ static void snd_gf1_uart_output_trigger(struct snd_rawmidi_substream *substream,
 				}
 				snd_gf1_uart_put(gus, byte);
 			}
-			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd | 0x20);	
+			snd_gf1_uart_cmd(gus, gus->gf1.uart_cmd | 0x20);	/* enable Tx interrupt */
 		}
 	} else {
 		if (gus->gf1.uart_cmd & 0x20)

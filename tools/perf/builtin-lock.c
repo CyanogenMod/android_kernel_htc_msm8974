@@ -26,6 +26,7 @@
 
 static struct perf_session *session;
 
+/* based on kernel/lockdep.c */
 #define LOCKHASH_BITS		12
 #define LOCKHASH_SIZE		(1UL << LOCKHASH_BITS)
 
@@ -36,10 +37,15 @@ static struct list_head lockhash_table[LOCKHASH_SIZE];
 
 struct lock_stat {
 	struct list_head	hash_entry;
-	struct rb_node		rb;		
+	struct rb_node		rb;		/* used for sorting */
 
-	void			*addr;		
-	char			*name;		
+	/*
+	 * FIXME: raw_field_value() returns unsigned long long,
+	 * so address of lockdep_map should be dealed as 64bit.
+	 * Is there more better solution?
+	 */
+	void			*addr;		/* address of lockdep_map, used as ID */
+	char			*name;		/* for strcpy(), we cannot use const */
 
 	unsigned int		nr_acquire;
 	unsigned int		nr_acquired;
@@ -48,23 +54,44 @@ struct lock_stat {
 
 	unsigned int		nr_readlock;
 	unsigned int		nr_trylock;
-	
+	/* these times are in nano sec. */
 	u64			wait_time_total;
 	u64			wait_time_min;
 	u64			wait_time_max;
 
-	int			discard; 
+	int			discard; /* flag of blacklist */
 };
 
-#define SEQ_STATE_UNINITIALIZED      0	       
+/*
+ * States of lock_seq_stat
+ *
+ * UNINITIALIZED is required for detecting first event of acquire.
+ * As the nature of lock events, there is no guarantee
+ * that the first event for the locks are acquire,
+ * it can be acquired, contended or release.
+ */
+#define SEQ_STATE_UNINITIALIZED      0	       /* initial state */
 #define SEQ_STATE_RELEASED	1
 #define SEQ_STATE_ACQUIRING	2
 #define SEQ_STATE_ACQUIRED	3
 #define SEQ_STATE_READ_ACQUIRED	4
 #define SEQ_STATE_CONTENDED	5
 
+/*
+ * MAX_LOCK_DEPTH
+ * Imported from include/linux/sched.h.
+ * Should this be synchronized?
+ */
 #define MAX_LOCK_DEPTH 48
 
+/*
+ * struct lock_seq_stat:
+ * Place to put on state of one lock sequence
+ * 1) acquire -> acquired -> release
+ * 2) acquire -> contended -> acquired -> release
+ * 3) acquire (with read or try) -> release
+ * 4) Are there other patterns?
+ */
 struct lock_seq_stat {
 	struct list_head        list;
 	int			state;
@@ -165,6 +192,7 @@ static struct thread_stat *thread_stat_findnew_first(u32 tid)
 	return st;
 }
 
+/* build simple key function one is bigger than two */
 #define SINGLE_KEY(member)						\
 	static int lock_stat_key_ ## member(struct lock_stat *one,	\
 					 struct lock_stat *two)		\
@@ -190,6 +218,11 @@ static int lock_stat_key_wait_time_min(struct lock_stat *one,
 }
 
 struct lock_key {
+	/*
+	 * name: the value for specify by user
+	 * this should be simpler than raw name of member
+	 * e.g. nr_acquired -> acquired, wait_time_total -> wait_total
+	 */
 	const char		*name;
 	int			(*key)(struct lock_stat*, struct lock_stat*);
 };
@@ -198,7 +231,7 @@ static const char		*sort_key = "acquired";
 
 static int			(*compare)(struct lock_stat *, struct lock_stat *);
 
-static struct rb_root		result;	
+static struct rb_root		result;	/* place to store sorted data */
 
 #define DEF_KEY_LOCK(name, fn_suffix)	\
 	{ #name, lock_stat_key_ ## fn_suffix }
@@ -209,7 +242,7 @@ struct lock_key keys[] = {
 	DEF_KEY_LOCK(wait_min, wait_time_min),
 	DEF_KEY_LOCK(wait_max, wait_time_max),
 
-	
+	/* extra comparisons much complicated should be here */
 
 	{ NULL, NULL }
 };
@@ -249,6 +282,7 @@ static void insert_to_result(struct lock_stat *st,
 	rb_insert_color(&st->rb, &result);
 }
 
+/* returns left most element of result, and erase it */
 static struct lock_stat *pop_from_result(void)
 {
 	struct rb_node *node = result.rb_node;
@@ -426,7 +460,7 @@ report_lock_acquire_event(struct trace_acquire_event *acquire_event,
 	case SEQ_STATE_ACQUIRING:
 	case SEQ_STATE_CONTENDED:
 broken:
-		
+		/* broken lock sequence, discard it */
 		ls->discard = 1;
 		bad_hist[BROKEN_ACQUIRE]++;
 		list_del(&seq->list);
@@ -465,7 +499,7 @@ report_lock_acquired_event(struct trace_acquired_event *acquired_event,
 
 	switch (seq->state) {
 	case SEQ_STATE_UNINITIALIZED:
-		
+		/* orphan event, do nothing */
 		return;
 	case SEQ_STATE_ACQUIRING:
 		break;
@@ -480,7 +514,7 @@ report_lock_acquired_event(struct trace_acquired_event *acquired_event,
 	case SEQ_STATE_RELEASED:
 	case SEQ_STATE_ACQUIRED:
 	case SEQ_STATE_READ_ACQUIRED:
-		
+		/* broken lock sequence, discard it */
 		ls->discard = 1;
 		bad_hist[BROKEN_ACQUIRED]++;
 		list_del(&seq->list);
@@ -520,7 +554,7 @@ report_lock_contended_event(struct trace_contended_event *contended_event,
 
 	switch (seq->state) {
 	case SEQ_STATE_UNINITIALIZED:
-		
+		/* orphan event, do nothing */
 		return;
 	case SEQ_STATE_ACQUIRING:
 		break;
@@ -528,7 +562,7 @@ report_lock_contended_event(struct trace_contended_event *contended_event,
 	case SEQ_STATE_ACQUIRED:
 	case SEQ_STATE_READ_ACQUIRED:
 	case SEQ_STATE_CONTENDED:
-		
+		/* broken lock sequence, discard it */
 		ls->discard = 1;
 		bad_hist[BROKEN_CONTENDED]++;
 		list_del(&seq->list);
@@ -582,7 +616,7 @@ report_lock_release_event(struct trace_release_event *release_event,
 	case SEQ_STATE_ACQUIRING:
 	case SEQ_STATE_CONTENDED:
 	case SEQ_STATE_RELEASED:
-		
+		/* broken lock sequence, discard it */
 		ls->discard = 1;
 		bad_hist[BROKEN_RELEASE]++;
 		goto free_seq;
@@ -600,6 +634,8 @@ end:
 	return;
 }
 
+/* lock oriented handlers */
+/* TODO: handlers for CPU oriented, thread oriented */
 static struct trace_lock_handler report_lock_ops  = {
 	.acquire_event		= report_lock_acquire_event,
 	.acquired_event		= report_lock_acquired_event,
@@ -617,7 +653,7 @@ process_lock_acquire_event(void *data,
 			   struct thread *thread __used)
 {
 	struct trace_acquire_event acquire_event;
-	u64 tmp;		
+	u64 tmp;		/* this is required for casting... */
 
 	tmp = raw_field_value(event, "lockdep_addr", data);
 	memcpy(&acquire_event.addr, &tmp, sizeof(void *));
@@ -636,7 +672,7 @@ process_lock_acquired_event(void *data,
 			    struct thread *thread __used)
 {
 	struct trace_acquired_event acquired_event;
-	u64 tmp;		
+	u64 tmp;		/* this is required for casting... */
 
 	tmp = raw_field_value(event, "lockdep_addr", data);
 	memcpy(&acquired_event.addr, &tmp, sizeof(void *));
@@ -654,7 +690,7 @@ process_lock_contended_event(void *data,
 			     struct thread *thread __used)
 {
 	struct trace_contended_event contended_event;
-	u64 tmp;		
+	u64 tmp;		/* this is required for casting... */
 
 	tmp = raw_field_value(event, "lockdep_addr", data);
 	memcpy(&contended_event.addr, &tmp, sizeof(void *));
@@ -672,7 +708,7 @@ process_lock_release_event(void *data,
 			   struct thread *thread __used)
 {
 	struct trace_release_event release_event;
-	u64 tmp;		
+	u64 tmp;		/* this is required for casting... */
 
 	tmp = raw_field_value(event, "lockdep_addr", data);
 	memcpy(&release_event.addr, &tmp, sizeof(void *));
@@ -703,7 +739,7 @@ process_raw_event(void *data, int cpu, u64 timestamp, struct thread *thread)
 
 static void print_bad_events(int bad, int total)
 {
-	
+	/* Output for debug, this have to be removed */
 	int i;
 	const char *name[4] =
 		{ "acquire", "acquired", "contended", "release" };
@@ -716,6 +752,7 @@ static void print_bad_events(int bad, int total)
 		pr_info(" %10s: %d\n", name[i], bad_hist[i]);
 }
 
+/* TODO: various way to print, coloring, nano or milli sec */
 static void print_result(void)
 {
 	struct lock_stat *st;
@@ -742,7 +779,7 @@ static void print_result(void)
 		bzero(cut_name, 20);
 
 		if (strlen(st->name) < 16) {
-			
+			/* output raw name */
 			pr_info("%20s ", st->name);
 		} else {
 			strncpy(cut_name, st->name, 16);
@@ -750,7 +787,7 @@ static void print_result(void)
 			cut_name[17] = '.';
 			cut_name[18] = '.';
 			cut_name[19] = '\0';
-			
+			/* cut off name for saving output style */
 			pr_info("%20s ", cut_name);
 		}
 
@@ -872,7 +909,7 @@ static const char * const report_usage[] = {
 static const struct option report_options[] = {
 	OPT_STRING('k', "key", &sort_key, "acquired",
 		    "key for sorting (acquired / contended / wait_total / wait_max / wait_min)"),
-	
+	/* TODO: type */
 	OPT_END()
 };
 
@@ -960,7 +997,7 @@ int cmd_lock(int argc, const char **argv, const char *prefix __used)
 		}
 		__cmd_report();
 	} else if (!strcmp(argv[0], "script")) {
-		
+		/* Aliased to 'perf script' */
 		return cmd_script(argc, argv, prefix);
 	} else if (!strcmp(argv[0], "info")) {
 		if (argc) {
@@ -969,7 +1006,7 @@ int cmd_lock(int argc, const char **argv, const char *prefix __used)
 			if (argc)
 				usage_with_options(info_usage, info_options);
 		}
-		
+		/* recycling report_lock_ops */
 		trace_handler = &report_lock_ops;
 		setup_pager();
 		read_events();

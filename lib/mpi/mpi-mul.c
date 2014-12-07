@@ -95,6 +95,8 @@ int mpi_mul_2exp(MPI w, MPI u, unsigned long cnt)
 		MPN_COPY_DECR(wp + limb_cnt, u->d, usize);
 	}
 
+	/* Zero all whole limbs at low end.  Do it here and not before calling
+	 * mpn_lshift, not to lose for U == W.  */
 	MPN_ZERO(wp, limb_cnt);
 
 	w->nlimbs = wsize;
@@ -112,7 +114,7 @@ int mpi_mul(MPI w, MPI u, MPI v)
 	int assign_wp = 0;
 	mpi_ptr_t tmp_limb = NULL;
 
-	if (u->nlimbs < v->nlimbs) {	
+	if (u->nlimbs < v->nlimbs) {	/* Swap U and V. */
 		usize = v->nlimbs;
 		usign = v->sign;
 		up = v->d;
@@ -130,7 +132,7 @@ int mpi_mul(MPI w, MPI u, MPI v)
 	sign_product = usign ^ vsign;
 	wp = w->d;
 
-	
+	/* Ensure W has space enough to store the result.  */
 	wsize = usize + vsize;
 	if (w->alloced < (size_t) wsize) {
 		if (wp == up || wp == vp) {
@@ -143,23 +145,23 @@ int mpi_mul(MPI w, MPI u, MPI v)
 				goto nomem;
 			wp = w->d;
 		}
-	} else {		
+	} else {		/* Make U and V not overlap with W.      */
 		if (wp == up) {
-			
+			/* W and U are identical.  Allocate temporary space for U.      */
 			up = tmp_limb = mpi_alloc_limb_space(usize);
 			if (!up)
 				goto nomem;
-			
+			/* Is V identical too?  Keep it identical with U.  */
 			if (wp == vp)
 				vp = up;
-			
+			/* Copy to the temporary space.  */
 			MPN_COPY(up, wp, usize);
 		} else if (wp == vp) {
-			
+			/* W and V are identical.  Allocate temporary space for V.      */
 			vp = tmp_limb = mpi_alloc_limb_space(vsize);
 			if (!vp)
 				goto nomem;
-			
+			/* Copy to the temporary space.  */
 			MPN_COPY(vp, wp, vsize);
 		}
 	}

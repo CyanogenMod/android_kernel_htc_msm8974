@@ -17,6 +17,8 @@
 
 #ifdef CONFIG_COMPAT
 
+/* Note to the author of this code: did it ever occur to
+   you why the ifdefs are needed? Think about it again. -AK */
 #if defined(CONFIG_X86_64) || defined(CONFIG_TILE)
 #  define INPUT_COMPAT_TEST is_compat_task()
 #elif defined(CONFIG_S390)
@@ -58,7 +60,7 @@ struct ff_effect_compat {
 		struct ff_constant_effect constant;
 		struct ff_ramp_effect ramp;
 		struct ff_periodic_effect_compat periodic;
-		struct ff_condition_effect condition[2]; 
+		struct ff_condition_effect condition[2]; /* One for each axis */
 		struct ff_rumble_effect rumble;
 	} u;
 };
@@ -76,7 +78,7 @@ static inline size_t input_event_size(void)
 	return sizeof(struct input_event);
 }
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
 int input_event_from_user(const char __user *buffer,
 			 struct input_event *event);
@@ -87,4 +89,4 @@ int input_event_to_user(char __user *buffer,
 int input_ff_effect_from_user(const char __user *buffer, size_t size,
 			      struct ff_effect *effect);
 
-#endif 
+#endif /* _INPUT_COMPAT_H */

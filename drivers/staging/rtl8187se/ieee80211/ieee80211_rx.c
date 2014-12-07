@@ -22,6 +22,7 @@
 
 
 #include <linux/compiler.h>
+//#include <linux/config.h>
 #include <linux/errno.h>
 #include <linux/if_arp.h>
 #include <linux/in6.h>
@@ -61,6 +62,7 @@ static inline void ieee80211_monitor_rx(struct ieee80211_device *ieee,
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static struct ieee80211_frag_entry *
 ieee80211_frag_cache_find(struct ieee80211_device *ieee, unsigned int seq,
 			  unsigned int frag, u8 tid,u8 *src, u8 *dst)
@@ -90,6 +92,7 @@ ieee80211_frag_cache_find(struct ieee80211_device *ieee, unsigned int seq,
 	return NULL;
 }
 
+/* Called only as a tasklet (software IRQ) */
 static struct sk_buff *
 ieee80211_frag_cache_get(struct ieee80211_device *ieee,
 			 struct ieee80211_hdr_4addr *hdr)
@@ -119,14 +122,14 @@ ieee80211_frag_cache_get(struct ieee80211_device *ieee,
 	}
 
 	if (frag == 0) {
-		
+		/* Reserve enough space to fit maximum frame length */
 		skb = dev_alloc_skb(ieee->dev->mtu +
 				    sizeof(struct ieee80211_hdr_4addr) +
-				    8  +
-				    2  +
-				    8  +
-				    ETH_ALEN  +
-				    (IEEE80211_QOS_HAS_SEQ(fc)?2:0) );
+				    8 /* LLC */ +
+				    2 /* alignment */ +
+				    8 /* WEP */ +
+				    ETH_ALEN /* WDS */ +
+				    (IEEE80211_QOS_HAS_SEQ(fc)?2:0) /* QOS Control */);
 		if (skb == NULL)
 			return NULL;
 
@@ -145,6 +148,8 @@ ieee80211_frag_cache_get(struct ieee80211_device *ieee,
 		memcpy(entry->src_addr, hdr->addr2, ETH_ALEN);
 		memcpy(entry->dst_addr, hdr->addr1, ETH_ALEN);
 	} else {
+		/* received a fragment of a frame for which the head fragment
+		 * should have already been received */
 		entry = ieee80211_frag_cache_find(ieee, seq, frag, tid,hdr->addr2,
 						  hdr->addr1);
 		if (entry != NULL) {
@@ -157,6 +162,7 @@ ieee80211_frag_cache_get(struct ieee80211_device *ieee,
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static int ieee80211_frag_cache_invalidate(struct ieee80211_device *ieee,
 					   struct ieee80211_hdr_4addr *hdr)
 {
@@ -198,6 +204,11 @@ static int ieee80211_frag_cache_invalidate(struct ieee80211_device *ieee,
 
 
 
+/* ieee80211_rx_frame_mgtmt
+ *
+ * Responsible for handling management control frames
+ *
+ * Called by ieee80211_rx */
 static inline int
 ieee80211_rx_frame_mgmt(struct ieee80211_device *ieee, struct sk_buff *skb,
 			struct ieee80211_rx_stats *rx_stats, u16 type,
@@ -205,7 +216,7 @@ ieee80211_rx_frame_mgmt(struct ieee80211_device *ieee, struct sk_buff *skb,
 {
 	struct ieee80211_hdr_4addr *hdr;
 
-	
+	// cheat the the hdr type
 	hdr = (struct ieee80211_hdr_4addr *)skb->data;
 
 	/* On the struct stats definition there is written that
@@ -231,11 +242,16 @@ ieee80211_rx_frame_mgmt(struct ieee80211_device *ieee, struct sk_buff *skb,
 
 
 
+/* See IEEE 802.1H for LLC/SNAP encapsulation/decapsulation */
+/* Ethernet-II snap header (RFC1042 for most EtherTypes) */
 static unsigned char rfc1042_header[] =
 { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
+/* Bridge-Tunnel header (for EtherTypes ETH_P_AARP and ETH_P_IPX) */
 static unsigned char bridge_tunnel_header[] =
 { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0xf8 };
+/* No encapsulation header if EtherType < 0x600 (=length) */
 
+/* Called by ieee80211_rx_frame_decrypt */
 static int ieee80211_is_eapol_frame(struct ieee80211_device *ieee,
 				    struct sk_buff *skb, size_t hdrlen)
 {
@@ -250,23 +266,24 @@ static int ieee80211_is_eapol_frame(struct ieee80211_device *ieee,
 	hdr = (struct ieee80211_hdr_4addr *)skb->data;
 	fc = le16_to_cpu(hdr->frame_ctl);
 
-	
+	/* check that the frame is unicast frame to us */
 	if ((fc & (IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS)) ==
 	    IEEE80211_FCTL_TODS &&
 	    memcmp(hdr->addr1, dev->dev_addr, ETH_ALEN) == 0 &&
 	    memcmp(hdr->addr3, dev->dev_addr, ETH_ALEN) == 0) {
-		
+		/* ToDS frame with own addr BSSID and DA */
 	} else if ((fc & (IEEE80211_FCTL_TODS | IEEE80211_FCTL_FROMDS)) ==
 		   IEEE80211_FCTL_FROMDS &&
 		   memcmp(hdr->addr1, dev->dev_addr, ETH_ALEN) == 0) {
-		
+		/* FromDS frame with own addr as DA */
 	} else
 		return 0;
 
 	if (skb->len < 24 + 8)
 		return 0;
 
-	
+	/* check for port access entity Ethernet type */
+//	pos = skb->data + 24;
 	pos = skb->data + hdrlen;
 	ethertype = (pos[6] << 8) | pos[7];
 	if (ethertype == ETH_P_PAE)
@@ -275,6 +292,7 @@ static int ieee80211_is_eapol_frame(struct ieee80211_device *ieee,
 	return 0;
 }
 
+/* Called only as a tasklet (software IRQ), by ieee80211_rx */
 static inline int
 ieee80211_rx_frame_decrypt(struct ieee80211_device* ieee, struct sk_buff *skb,
 			   struct ieee80211_crypt_data *crypt)
@@ -319,6 +337,7 @@ ieee80211_rx_frame_decrypt(struct ieee80211_device* ieee, struct sk_buff *skb,
 }
 
 
+/* Called only as a tasklet (software IRQ), by ieee80211_rx */
 static inline int
 ieee80211_rx_frame_decrypt_msdu(struct ieee80211_device* ieee, struct sk_buff *skb,
 			     int keyidx, struct ieee80211_crypt_data *crypt)
@@ -346,6 +365,7 @@ ieee80211_rx_frame_decrypt_msdu(struct ieee80211_device* ieee, struct sk_buff *s
 }
 
 
+/* this function is stolen from ipw2200 driver*/
 #define IEEE_PACKET_RETRY_TIME (5*HZ)
 static int is_duplicate_packet(struct ieee80211_device *ieee,
 				      struct ieee80211_hdr_4addr *header)
@@ -360,18 +380,18 @@ static int is_duplicate_packet(struct ieee80211_device *ieee,
 	struct ieee80211_hdr_4addrqos *hdr_4addrqos;
 	u8 tid;
 
-	
+	//TO2DS and QoS
 	if(((fc & IEEE80211_FCTL_DSTODS) == IEEE80211_FCTL_DSTODS)&&IEEE80211_QOS_HAS_SEQ(fc)) {
 	  hdr_4addrqos = (struct ieee80211_hdr_4addrqos *)header;
 	  tid = le16_to_cpu(hdr_4addrqos->qos_ctl) & IEEE80211_QOS_TID;
 	  tid = UP2AC(tid);
 	  tid ++;
-	} else if(IEEE80211_QOS_HAS_SEQ(fc)) { 
+	} else if(IEEE80211_QOS_HAS_SEQ(fc)) { //QoS
 	  hdr_3addrqos = (struct ieee80211_hdr_3addrqos *)header;
 	  tid = le16_to_cpu(hdr_3addrqos->qos_ctl) & IEEE80211_QOS_TID;
 	  tid = UP2AC(tid);
 	  tid ++;
-	} else { 
+	} else { // no QoS
 	  tid = 0;
 	}
 	switch (ieee->iw_mode) {
@@ -381,13 +401,13 @@ static int is_duplicate_packet(struct ieee80211_device *ieee,
 		struct ieee_ibss_seq *entry = NULL;
 		u8 *mac = header->addr2;
 		int index = mac[5] % IEEE_IBSS_MAC_HASH_SIZE;
-		
+		//for (pos = (head)->next; pos != (head); pos = pos->next)
 		__list_for_each(p, &ieee->ibss_mac_hash[index]) {
 			entry = list_entry(p, struct ieee_ibss_seq, list);
 			if (!memcmp(entry->mac, mac, ETH_ALEN))
 				break;
 		}
-	
+	//	if (memcmp(entry->mac, mac, ETH_ALEN)){
 		if (p == &ieee->ibss_mac_hash[index]) {
 			entry = kmalloc(sizeof(struct ieee_ibss_seq), GFP_ATOMIC);
 			if (!entry) {
@@ -417,16 +437,19 @@ static int is_duplicate_packet(struct ieee80211_device *ieee,
 		return 0;
 	}
 
+//	if(tid != 0) {
+//		printk(KERN_WARNING ":)))))))))))%x %x %x, fc(%x)\n", tid, *last_seq, seq, header->frame_ctl);
+//	}
 	if ((*last_seq == seq) &&
 	    time_after(*last_time + IEEE_PACKET_RETRY_TIME, jiffies)) {
 		if (*last_frag == frag){
-			
+			//printk(KERN_WARNING "[1] go drop!\n");
 			goto drop;
 
 		}
 		if (*last_frag + 1 != frag)
-			
-			
+			/* out-of-order fragment */
+			//printk(KERN_WARNING "[2] go drop!\n");
 			goto drop;
 	} else
 		*last_seq = seq;
@@ -436,16 +459,21 @@ static int is_duplicate_packet(struct ieee80211_device *ieee,
 	return 0;
 
 drop:
+//	BUG_ON(!(fc & IEEE80211_FCTL_RETRY));
+//	printk("DUP\n");
 
 	return 1;
 }
 
 
+/* All received frames are sent to this function. @skb contains the frame in
+ * IEEE 802.11 format, i.e., in the format it was sent over air.
+ * This function is called only as a tasklet (software IRQ). */
 int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 		 struct ieee80211_rx_stats *rx_stats)
 {
 	struct net_device *dev = ieee->dev;
-	
+	//struct r8180_priv *priv = (struct r8180_priv *)ieee80211_priv(dev);
 	struct ieee80211_hdr_4addr *hdr;
 
 	size_t hdrlen;
@@ -460,7 +488,7 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 	struct ieee80211_crypt_data *crypt = NULL;
 	int keyidx = 0;
 
-	
+	// cheat the the hdr type
 	hdr = (struct ieee80211_hdr_4addr *)skb->data;
 	stats = &ieee->stats;
 
@@ -477,6 +505,7 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 
 	frag = WLAN_GET_SEQ_FRAG(sc);
 
+//YJ,add,080828,for keep alive
 	if((fc & IEEE80211_FCTL_TODS) != IEEE80211_FCTL_TODS)
 	{
 		if(!memcmp(hdr->addr1,dev->dev_addr, ETH_ALEN))
@@ -491,6 +520,7 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 			ieee->NumRxUnicast++;
 		}
 	}
+//YJ,add,080828,for keep alive,end
 
 	hdrlen = ieee80211_get_hdrlen(fc);
 
@@ -508,11 +538,17 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 			idx = skb->data[hdrlen + 3] >> 6;
 		crypt = ieee->crypt[idx];
 
+		/* allow NULL decrypt to indicate an station specific override
+		 * for default encryption */
 		if (crypt && (crypt->ops == NULL ||
 			      crypt->ops->decrypt_mpdu == NULL))
 			crypt = NULL;
 
 		if (!crypt && (fc & IEEE80211_FCTL_WEP)) {
+			/* This seems to be triggered by some (multicast?)
+			 * frames from other than current BSS, so just drop the
+			 * frames silently instead of filling system log with
+			 * these reports. */
 			IEEE80211_DEBUG_DROP("Decryption failed (not set)"
 					     " (SA=%pM)\n",
 					     hdr->addr2);
@@ -524,7 +560,7 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 	if (skb->len < IEEE80211_DATA_HDR3_LEN)
 		goto rx_dropped;
 
-	
+	// if QoS enabled, should check the sequence for each of the AC
 	if (is_duplicate_packet(ieee, hdr))
 		goto rx_dropped;
 
@@ -536,7 +572,7 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 			goto rx_exit;
 	}
 
-	
+	/* Data frame - extract src/dst addresses */
 	switch (fc & (IEEE80211_FCTL_FROMDS | IEEE80211_FCTL_TODS)) {
 	case IEEE80211_FCTL_FROMDS:
 		memcpy(dst, hdr->addr1, ETH_ALEN);
@@ -566,11 +602,13 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 	dev->last_rx = jiffies;
 
 
+	/* Nullfunc frames may have PS-bit set, so they must be passed to
+	 * hostap_handle_sta_rx() before being dropped here. */
 	if (stype != IEEE80211_STYPE_DATA &&
 	    stype != IEEE80211_STYPE_DATA_CFACK &&
 	    stype != IEEE80211_STYPE_DATA_CFPOLL &&
 	    stype != IEEE80211_STYPE_DATA_CFACKPOLL&&
-	    stype != IEEE80211_STYPE_QOS_DATA
+	    stype != IEEE80211_STYPE_QOS_DATA//add by David,2006.8.4
 	    ) {
 		if (stype != IEEE80211_STYPE_NULLFUNC)
 			IEEE80211_DEBUG_DROP(
@@ -586,7 +624,7 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 
 	ieee->NumRxDataInPeriod++;
 	ieee->NumRxOkTotal++;
-	
+	/* skb: hdr + (possibly fragmented, possibly encrypted) payload */
 
 	if (ieee->host_decrypt && (fc & IEEE80211_FCTL_WEP) &&
 	    (keyidx = ieee80211_rx_frame_decrypt(ieee, skb, crypt)) < 0)
@@ -594,9 +632,9 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 
 	hdr = (struct ieee80211_hdr_4addr *)skb->data;
 
-	
-	
-	
+	/* skb: hdr + (possibly fragmented) plaintext payload */
+	// PR: FIXME: hostap has additional conditions in the "if" below:
+	// ieee->host_decrypt && (fc & IEEE80211_FCTL_WEP) &&
 	if ((frag != 0 || (fc & IEEE80211_FCTL_MOREFRAGS))) {
 		int flen;
 		struct sk_buff *frag_skb = ieee80211_frag_cache_get(ieee, hdr);
@@ -623,8 +661,12 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 		}
 
 		if (frag == 0) {
+			/* copy first fragment (including full headers) into
+			 * beginning of the fragment cache skb */
 			memcpy(skb_put(frag_skb, flen), skb->data, flen);
 		} else {
+			/* append frame payload to the end of the fragment
+			 * cache skb */
 			memcpy(skb_put(frag_skb, flen), skb->data + hdrlen,
 			       flen);
 		}
@@ -632,24 +674,33 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 		skb = NULL;
 
 		if (fc & IEEE80211_FCTL_MOREFRAGS) {
+			/* more fragments expected - leave the skb in fragment
+			 * cache for now; it will be delivered to upper layers
+			 * after all fragments have been received */
 			goto rx_exit;
 		}
 
+		/* this was the last fragment and the frame will be
+		 * delivered, so remove skb from fragment cache */
 		skb = frag_skb;
 		hdr = (struct ieee80211_hdr_4addr *)skb->data;
 		ieee80211_frag_cache_invalidate(ieee, hdr);
 	}
 
+	/* skb: hdr + (possible reassembled) full MSDU payload; possibly still
+	 * encrypted/authenticated */
 	if (ieee->host_decrypt && (fc & IEEE80211_FCTL_WEP) &&
 	    ieee80211_rx_frame_decrypt_msdu(ieee, skb, keyidx, crypt))
 		goto rx_dropped;
 
 	hdr = (struct ieee80211_hdr_4addr *)skb->data;
 	if (crypt && !(fc & IEEE80211_FCTL_WEP) && !ieee->open_wep) {
-		if (
+		if (/*ieee->ieee802_1x &&*/
 		    ieee80211_is_eapol_frame(ieee, skb, hdrlen)) {
 
 #ifdef CONFIG_IEEE80211_DEBUG
+			/* pass unencrypted EAPOL frames even if encryption is
+			 * configured */
 			struct eapol *eap = (struct eapol *)(skb->data +
 				24);
 			IEEE80211_DEBUG_EAP("RX: IEEE 802.1X EAPOL frame: %s\n",
@@ -683,22 +734,29 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 			hdr->addr2);
 		goto rx_dropped;
 	}
-	
+/*
+	if(ieee80211_is_eapol_frame(ieee, skb, hdrlen)) {
+		printk(KERN_WARNING "RX: IEEE802.1X EPAOL frame!\n");
+	}
+*/
+	/* skb: hdr + (possible reassembled) full plaintext payload */
 	payload = skb->data + hdrlen;
 	ethertype = (payload[6] << 8) | payload[7];
 
 
-	
+	/* convert hdr + possible LLC headers into Ethernet header */
 	if (skb->len - hdrlen >= 8 &&
 	    ((memcmp(payload, rfc1042_header, SNAP_SIZE) == 0 &&
 	      ethertype != ETH_P_AARP && ethertype != ETH_P_IPX) ||
 	     memcmp(payload, bridge_tunnel_header, SNAP_SIZE) == 0)) {
+		/* remove RFC1042 or Bridge-Tunnel encapsulation and
+		 * replace EtherType */
 		skb_pull(skb, hdrlen + SNAP_SIZE);
 		memcpy(skb_push(skb, ETH_ALEN), src, ETH_ALEN);
 		memcpy(skb_push(skb, ETH_ALEN), dst, ETH_ALEN);
 	} else {
 		u16 len;
-		
+		/* Leave Ethernet header part of hdr and full payload */
 		skb_pull(skb, hdrlen);
 		len = htons(skb->len);
 		memcpy(skb_push(skb, 2), &len, 2);
@@ -714,7 +772,7 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
 		skb->protocol = eth_type_trans(skb, dev);
 		memset(skb->cb, 0, sizeof(skb->cb));
 		skb->dev = dev;
-		skb->ip_summed = CHECKSUM_NONE; 
+		skb->ip_summed = CHECKSUM_NONE; /* 802.11 crc not sufficient */
 		ieee->last_rx_ps_time = jiffies;
 		netif_rx(skb);
 	}
@@ -725,6 +783,9 @@ int ieee80211_rtl_rx(struct ieee80211_device *ieee, struct sk_buff *skb,
  rx_dropped:
 	stats->rx_dropped++;
 
+	/* Returning 0 indicates to caller that we have not handled the SKB--
+	 * so it is still allocated and can be used again by underlying
+	 * hardware as a DMA target */
 	return 0;
 }
 
@@ -752,7 +813,7 @@ static inline int ieee80211_SignalStrengthTranslate(
 {
 	int RetSS;
 
-	
+	// Step 1. Scale mapping.
 	if(CurrSS >= 71 && CurrSS <= 100)
 	{
 		RetSS = 90 + ((CurrSS - 70) / 3);
@@ -793,11 +854,11 @@ static inline int ieee80211_SignalStrengthTranslate(
 	{
 		RetSS = CurrSS;
 	}
-	
+	//RT_TRACE(COMP_DBG, DBG_LOUD, ("##### After Mapping:  LastSS: %d, CurrSS: %d, RetSS: %d\n", LastSS, CurrSS, RetSS));
 
-	
+	// Step 2. Smoothing.
 
-	
+	//RT_TRACE(COMP_DBG, DBG_LOUD, ("$$$$$ After Smoothing:  LastSS: %d, CurrSS: %d, RetSS: %d\n", LastSS, CurrSS, RetSS));
 
 	return RetSS;
 }
@@ -822,11 +883,11 @@ static inline void ieee80211_extract_country_ie(
 			}
 		}
 
-		
-		
-		
-		
-		
+		//
+		// 070305, rcnjko: I update country IE watch dog here because
+		// some AP (e.g. Cisco 1242) don't include country IE in their
+		// probe response frame.
+		//
 		if(IS_EQUAL_CIE_SRC(ieee, addr2) )
 		{
 			UPDATE_CIE_WATCHDOG(ieee);
@@ -837,12 +898,12 @@ static inline void ieee80211_extract_country_ie(
 
 int
 ieee80211_TranslateToDbm(
-	unsigned char SignalStrengthIndex	
+	unsigned char SignalStrengthIndex	// 0-100 index.
 	)
 {
-	unsigned char SignalPower; 
+	unsigned char SignalPower; // in dBm.
 
-	
+	// Translate to dBm (x=0.5y-95).
 	SignalPower = (int)SignalStrengthIndex * 7 / 10;
 	SignalPower -= 95;
 
@@ -864,14 +925,14 @@ inline int ieee80211_network_init(
 	short offset;
 	u8 curRate = 0,hOpRate = 0,curRate_ex = 0;
 
-	
+	/* Pull out fixed field data */
 	memcpy(network->bssid, beacon->header.addr3, ETH_ALEN);
 	network->capability = beacon->capability;
 	network->last_scanned = jiffies;
 	network->time_stamp[0] = beacon->time_stamp[0];
 	network->time_stamp[1] = beacon->time_stamp[1];
 	network->beacon_interval = beacon->beacon_interval;
-	
+	/* Where to pull this? beacon->listen_interval;*/
 	network->listen_interval = 0x0A;
 	network->rates_len = network->rates_ex_len = 0;
 	network->last_associate = 0;
@@ -879,13 +940,15 @@ inline int ieee80211_network_init(
 	network->flags = 0;
 	network->atim_window = 0;
 	network->QoS_Enable = 0;
+//by amy 080312
 	network->HighestOperaRate = 0;
+//by amy 080312
 	network->Turbo_Enable = 0;
 	network->CountryIeLen = 0;
 	memset(network->CountryIeBuf, 0, MAX_IE_LEN);
 
 	if (stats->freq == IEEE80211_52GHZ_BAND) {
-		
+		/* for A band (No DS info) */
 		network->channel = stats->received_channel;
 	} else
 		network->flags |= NETWORK_HAS_CCK;
@@ -1012,19 +1075,19 @@ inline int ieee80211_network_init(
 
 			offset = (info_element->data[2] >> 1)*2;
 
-			
+			//printk("offset1:%x aid:%x\n",offset, ieee->assoc_id);
 
-			
+			/* add and modified for ps 2008.1.22 */
 			if(ieee->assoc_id < 8*offset ||
 				ieee->assoc_id > 8*(offset + info_element->len -3)) {
 				break;
 			}
 
-			offset = (ieee->assoc_id/8) - offset;
+			offset = (ieee->assoc_id/8) - offset;// + ((aid % 8)? 0 : 1) ;
 
-		
-			
-			
+		//	printk("offset:%x data:%x, ucast:%d\n", offset,
+			//	info_element->data[3+offset] ,
+			//	info_element->data[3+offset] & (1<<(ieee->assoc_id%8)));
 
 			if(info_element->data[3+offset] & (1<<(ieee->assoc_id%8))) {
 				network->dtim_data |= IEEE80211_DTIM_UCAST;
@@ -1040,7 +1103,7 @@ inline int ieee80211_network_init(
 			break;
 
 		case MFIE_TYPE_GENERIC:
-			
+			//nic is 87B
 			IEEE80211_DEBUG_SCAN("MFIE_TYPE_GENERIC: %d bytes\n",
 					     info_element->len);
 			if (info_element->len >= 4  &&
@@ -1062,7 +1125,7 @@ inline int ieee80211_network_init(
 			    info_element->data[4] == 0x02) {
 				network->Turbo_Enable = 1;
 			}
-			if (1 == stats->nic_type) {
+			if (1 == stats->nic_type) {//nic 87
 				break;
 			}
 
@@ -1072,8 +1135,8 @@ inline int ieee80211_network_init(
 			    info_element->data[2] == 0xf2 &&
 			    info_element->data[3] == 0x02 &&
 			    info_element->data[4] == 0x00) {
-				
-				
+				//printk(KERN_WARNING "wmm info updated: %x\n", info_element->data[6]);
+				//WMM Information Element
 				network->wmm_info = info_element->data[6];
 				network->QoS_Enable = 1;
 			}
@@ -1084,11 +1147,11 @@ inline int ieee80211_network_init(
 			    info_element->data[2] == 0xf2 &&
 			    info_element->data[3] == 0x02 &&
 			    info_element->data[4] == 0x01) {
-				
-				
-				
+				// Not care about version at present.
+				//WMM Information Element
+				//printk(KERN_WARNING "wmm info&param updated: %x\n", info_element->data[6]);
 				network->wmm_info = info_element->data[6];
-				
+				//WMM Parameter Element
 				memcpy(network->wmm_param, (u8 *)(info_element->data + 8),(info_element->len - 8));
 				network->QoS_Enable = 1;
 			}
@@ -1105,6 +1168,7 @@ inline int ieee80211_network_init(
 		case MFIE_TYPE_COUNTRY:
 			IEEE80211_DEBUG_SCAN("MFIE_TYPE_COUNTRY: %d bytes\n",
 					     info_element->len);
+//			printk("=====>Receive <%s> Country IE\n",network->ssid);
 			ieee80211_extract_country_ie(ieee, info_element, network, beacon->header.addr2);
 			break;
 		default:
@@ -1118,7 +1182,9 @@ inline int ieee80211_network_init(
 		info_element = (struct ieee80211_info_element *)
                 	&info_element->data[info_element->len];
   	}
+//by amy 080312
 	network->HighestOperaRate = hOpRate;
+//by amy 080312
 	network->mode = 0;
 	if (stats->freq == IEEE80211_52GHZ_BAND)
 		network->mode = IEEE_A;
@@ -1142,7 +1208,7 @@ inline int ieee80211_network_init(
 		network->flags |= NETWORK_EMPTY_ESSID;
 
 	stats->signal = ieee80211_TranslateToDbm(stats->signalstrength);
-	
+	//stats->noise = stats->signal - stats->noise;
 	stats->noise = ieee80211_TranslateToDbm(100 - stats->signalstrength) - 25;
 	memcpy(&network->stats, stats, sizeof(network->stats));
 
@@ -1153,12 +1219,16 @@ static inline int is_same_network(struct ieee80211_network *src,
 				  struct ieee80211_network *dst,
 				  struct ieee80211_device * ieee)
 {
-	return (((src->ssid_len == dst->ssid_len) || (ieee->iw_mode == IW_MODE_INFRA)) &&  
-		
+	/* A network is only a duplicate if the channel, BSSID, ESSID
+	 * and the capability field (in particular IBSS and BSS) all match.
+	 * We treat all <hidden> with the same BSSID and channel
+	 * as one network */
+	return (((src->ssid_len == dst->ssid_len) || (ieee->iw_mode == IW_MODE_INFRA)) &&  //YJ,mod,080819,for hidden ap
+		//((src->ssid_len == dst->ssid_len) &&
 		(src->channel == dst->channel) &&
 		!memcmp(src->bssid, dst->bssid, ETH_ALEN) &&
-		(!memcmp(src->ssid, dst->ssid, src->ssid_len) || (ieee->iw_mode == IW_MODE_INFRA)) && 
-		
+		(!memcmp(src->ssid, dst->ssid, src->ssid_len) || (ieee->iw_mode == IW_MODE_INFRA)) && //YJ,mod,080819,for hidden ap
+		//!memcmp(src->ssid, dst->ssid, src->ssid_len) &&
 		((src->capability & WLAN_CAPABILITY_IBSS) ==
 		(dst->capability & WLAN_CAPABILITY_IBSS)) &&
 		((src->capability & WLAN_CAPABILITY_BSS) ==
@@ -1175,13 +1245,15 @@ inline void update_network(struct ieee80211_network *dst,
                 quality = (dst->stats.signalstrength * 5 + src->stats.signalstrength + 5)/6;
         }
 	signal = ieee80211_TranslateToDbm(quality);
-	
+	//noise = signal - src->stats.noise;
 	if(dst->stats.noise > 0)
 		noise = (dst->stats.noise * 5 + src->stats.noise)/6;
-        
+        //if(strcmp(dst->ssid, "linksys_lzm000") == 0)
+//	printk("ssid:%s, quality:%d, signal:%d\n", dst->ssid, quality, signal);
 	memcpy(&dst->stats, &src->stats, sizeof(struct ieee80211_rx_stats));
 	dst->stats.signalstrength = quality;
 	dst->stats.signal = signal;
+//	printk("==================>stats.signal is %d\n",dst->stats.signal);
 	dst->stats.noise = noise;
 
 
@@ -1191,18 +1263,18 @@ inline void update_network(struct ieee80211_network *dst,
 	memcpy(dst->rates_ex, src->rates_ex, src->rates_ex_len);
 	dst->rates_ex_len = src->rates_ex_len;
 	dst->HighestOperaRate= src->HighestOperaRate;
-	
+	//printk("==========>in %s: src->ssid is %s,chan is %d\n",__func__,src->ssid,src->channel);
 
-	
+	//YJ,add,080819,for hidden ap
 	if(src->ssid_len > 0)
 	{
-		
-		
+		//if(src->ssid_len == 13)
+		//	printk("=====================>>>>>>>> Dst ssid: %s Src ssid: %s\n", dst->ssid, src->ssid);
 		memset(dst->ssid, 0, dst->ssid_len);
 		dst->ssid_len = src->ssid_len;
 		memcpy(dst->ssid, src->ssid, src->ssid_len);
 	}
-	
+	//YJ,add,080819,for hidden ap,end
 
 	dst->channel = src->channel;
 	dst->mode = src->mode;
@@ -1217,6 +1289,7 @@ inline void update_network(struct ieee80211_network *dst,
 	dst->dtim_data = src->dtim_data;
 	dst->last_dtim_sta_time[0] = src->last_dtim_sta_time[0];
 	dst->last_dtim_sta_time[1] = src->last_dtim_sta_time[1];
+//	printk("update:%s, dtim_period:%x, dtim_data:%x\n", src->ssid, src->dtim_period, src->dtim_data);
 	memcpy(dst->wpa_ie, src->wpa_ie, src->wpa_ie_len);
 	dst->wpa_ie_len = src->wpa_ie_len;
 	memcpy(dst->rsn_ie, src->rsn_ie, src->rsn_ie_len);
@@ -1224,8 +1297,14 @@ inline void update_network(struct ieee80211_network *dst,
 
 	dst->last_scanned = jiffies;
 	/* dst->last_associate is not overwritten */
+// disable QoS process now, added by David 2006/7/25
 #if 1
-	dst->wmm_info = src->wmm_info; 
+	dst->wmm_info = src->wmm_info; //sure to exist in beacon or probe response frame.
+/*
+	if((dst->wmm_info^src->wmm_info)&0x0f) {//Param Set Count change, update Parameter
+	  memcpy(dst->wmm_param, src->wmm_param, IEEE80211_AC_PRAM_LEN);
+	}
+*/
 	if(src->wmm_param[0].ac_aci_acm_aifsn|| \
 	   src->wmm_param[1].ac_aci_acm_aifsn|| \
 	   src->wmm_param[2].ac_aci_acm_aifsn|| \
@@ -1234,7 +1313,7 @@ inline void update_network(struct ieee80211_network *dst,
 	}
 	dst->QoS_Enable = src->QoS_Enable;
 #else
-	dst->QoS_Enable = 1;
+	dst->QoS_Enable = 1;//for Rtl8187 simulation
 #endif
 	dst->SignalStrength = src->SignalStrength;
 	dst->Turbo_Enable = src->Turbo_Enable;
@@ -1257,7 +1336,7 @@ inline void ieee80211_process_probe_response(
 	unsigned long flags;
 	short renew;
 	u8 wmm_info;
-	u8 is_beacon = (WLAN_FC_GET_STYPE(beacon->header.frame_ctl) == IEEE80211_STYPE_BEACON)? 1:0;  
+	u8 is_beacon = (WLAN_FC_GET_STYPE(beacon->header.frame_ctl) == IEEE80211_STYPE_BEACON)? 1:0;  //YJ,add,080819,for hidden ap
 
 	memset(&network, 0, sizeof(struct ieee80211_network));
 
@@ -1293,17 +1372,17 @@ inline void ieee80211_process_probe_response(
 		return;
 	}
 
-	
-	
-	
-	
-	
-	
+	// For Asus EeePc request,
+	// (1) if wireless adapter receive get any 802.11d country code in AP beacon,
+	//	   wireless adapter should follow the country code.
+	// (2)  If there is no any country code in beacon,
+	//       then wireless adapter should do active scan from ch1~11 and
+	//       passive scan from ch12~14
 	if(ieee->bGlobalDomain)
 	{
 		if (WLAN_FC_GET_STYPE(beacon->header.frame_ctl) == IEEE80211_STYPE_PROBE_RESP)
 		{
-			
+			// Case 1: Country code
 			if(IS_COUNTRY_IE_VALID(ieee) )
 			{
 				if( !IsLegalChannel(ieee, network.channel) )
@@ -1312,10 +1391,10 @@ inline void ieee80211_process_probe_response(
 					return;
 				}
 			}
-			
+			// Case 2: No any country code.
 			else
 			{
-				
+				// Filter over channel ch12~14
 				if(network.channel > 11)
 				{
 					printk("GetScanInfo(): For Global Domain, filter probe response at channel(%d).\n", network.channel);
@@ -1325,7 +1404,7 @@ inline void ieee80211_process_probe_response(
 		}
 		else
 		{
-			
+			// Case 1: Country code
 			if(IS_COUNTRY_IE_VALID(ieee) )
 			{
 				if( !IsLegalChannel(ieee, network.channel) )
@@ -1334,10 +1413,10 @@ inline void ieee80211_process_probe_response(
 					return;
 				}
 			}
-			
+			// Case 2: No any country code.
 			else
 			{
-				
+				// Filter over channel ch12~14
 				if(network.channel > 14)
 				{
 					printk("GetScanInfo(): For Global Domain, filter beacon at channel(%d).\n",network.channel);
@@ -1346,19 +1425,27 @@ inline void ieee80211_process_probe_response(
 			}
 		}
 	}
+	/* The network parsed correctly -- so now we scan our known networks
+	 * to see if we can find it in our list.
+	 *
+	 * NOTE:  This search is definitely not optimized.  Once its doing
+	 *        the "right thing" we'll optimize it for efficiency if
+	 *        necessary */
 
+	/* Search for this entry in the list and update it if it is
+	 * already there. */
 
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	if(is_same_network(&ieee->current_network, &network, ieee)) {
 		wmm_info = ieee->current_network.wmm_info;
-		
+		//YJ,add,080819,for hidden ap
 		if(is_beacon == 0)
 			network.flags = (~NETWORK_EMPTY_ESSID & network.flags)|(NETWORK_EMPTY_ESSID & ieee->current_network.flags);
 		else if(ieee->state == IEEE80211_LINKED)
 			ieee->NumRxBcnInPeriod++;
-		
-		
+		//YJ,add,080819,for hidden ap,end
+		//printk("====>network.ssid=%s cur_ssid=%s\n", network.ssid, ieee->current_network.ssid);
 		update_network(&ieee->current_network, &network);
 	}
 
@@ -1370,9 +1457,11 @@ inline void ieee80211_process_probe_response(
 			oldest = target;
 	}
 
+	/* If we didn't find a match, then get a new network slot to initialize
+	 * with this beacon's information */
 	if (&target->list == &ieee->network_list) {
 		if (list_empty(&ieee->network_free_list)) {
-			
+			/* If there are no more slots, expire the oldest */
 			list_del(&oldest->list);
 			target = oldest;
 			IEEE80211_DEBUG_SCAN("Expired '%s' (%pM) from "
@@ -1381,7 +1470,7 @@ inline void ieee80211_process_probe_response(
 							  target->ssid_len),
 					     target->bssid);
 		} else {
-			
+			/* Otherwise just pull from the free list */
 			target = list_entry(ieee->network_free_list.next,
 					    struct ieee80211_network, list);
 			list_del(ieee->network_free_list.next);
@@ -1409,17 +1498,21 @@ inline void ieee80211_process_probe_response(
 				     IEEE80211_STYPE_PROBE_RESP ?
 				     "PROBE RESPONSE" : "BEACON");
 
+		/* we have an entry and we are going to update it. But this entry may
+		 * be already expired. In this case we do the same as we found a new
+		 * net and call the new_net handler
+		 */
 		renew = !time_after(target->last_scanned + ieee->scan_age, jiffies);
-		
+		//YJ,add,080819,for hidden ap
 		if(is_beacon == 0)
 			network.flags = (~NETWORK_EMPTY_ESSID & network.flags)|(NETWORK_EMPTY_ESSID & target->flags);
-		
-		
+		//if(strncmp(network.ssid, "linksys-c",9) == 0)
+		//	printk("====>2 network.ssid=%s FLAG=%d target.ssid=%s FLAG=%d\n", network.ssid, network.flags, target->ssid, target->flags);
 		if(((network.flags & NETWORK_EMPTY_ESSID) == NETWORK_EMPTY_ESSID) \
 		    && (((network.ssid_len > 0) && (strncmp(target->ssid, network.ssid, network.ssid_len)))\
 		    ||((ieee->current_network.ssid_len == network.ssid_len)&&(strncmp(ieee->current_network.ssid, network.ssid, network.ssid_len) == 0)&&(ieee->state == IEEE80211_NOLINK))))
 			renew = 1;
-		
+		//YJ,add,080819,for hidden ap,end
 		update_network(target, &network);
 	}
 

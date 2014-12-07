@@ -23,9 +23,12 @@
 
 #include <asm-generic/siginfo.h>
 
-#define ILL_DBLFLT	(__SI_FAULT|9)	
-#define ILL_HARDWALL	(__SI_FAULT|10)	
+/*
+ * Additional Tile-specific SIGILL si_codes
+ */
+#define ILL_DBLFLT	(__SI_FAULT|9)	/* double fault */
+#define ILL_HARDWALL	(__SI_FAULT|10)	/* user networks hardwall violation */
 #undef NSIGILL
 #define NSIGILL		10
 
-#endif 
+#endif /* _ASM_TILE_SIGINFO_H */

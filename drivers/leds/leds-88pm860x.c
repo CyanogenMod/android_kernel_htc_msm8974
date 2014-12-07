@@ -55,6 +55,7 @@ struct pm860x_led {
 	int blink_off;
 };
 
+/* return offset of color register */
 static inline int __led_off(int port)
 {
 	int ret = -EINVAL;
@@ -74,6 +75,7 @@ static inline int __led_off(int port)
 	return ret;
 }
 
+/* return offset of blink register */
 static inline int __blink_off(int port)
 {
 	int ret = -EINVAL;
@@ -164,7 +166,7 @@ static void pm860x_led_work(struct work_struct *work)
 		ret |= buf[1] & LED_PWM_MASK;
 		ret |= buf[2] & LED_PWM_MASK;
 		if (ret == 0) {
-			
+			/* unset current since no led is lighting */
 			pm860x_set_bits(led->i2c, __led_off(led->port),
 					LED_CURRENT_MASK, 0);
 			mask = __blink_ctl_mask(led->port);

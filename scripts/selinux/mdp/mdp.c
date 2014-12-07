@@ -35,6 +35,7 @@ static void usage(char *name)
 	exit(1);
 }
 
+/* Class/perm mapping support */
 struct security_class_mapping {
 	const char *name;
 	const char *perms[sizeof(unsigned) * 8 + 1];
@@ -67,18 +68,18 @@ int main(int argc, char *argv[])
 		usage(argv[0]);
 	}
 
-	
+	/* print out the classes */
 	for (i = 0; secclass_map[i].name; i++)
 		fprintf(fout, "class %s\n", secclass_map[i].name);
 	fprintf(fout, "\n");
 
 	initial_sid_to_string_len = sizeof(initial_sid_to_string) / sizeof (char *);
-	
+	/* print out the sids */
 	for (i = 1; i < initial_sid_to_string_len; i++)
 		fprintf(fout, "sid %s\n", initial_sid_to_string[i]);
 	fprintf(fout, "\n");
 
-	
+	/* print out the class permissions */
 	for (i = 0; secclass_map[i].name; i++) {
 		struct security_class_mapping *map = &secclass_map[i];
 		fprintf(fout, "class %s\n", map->name);
@@ -89,13 +90,13 @@ int main(int argc, char *argv[])
 	}
 	fprintf(fout, "\n");
 
-	
+	/* NOW PRINT OUT MLS STUFF */
 	if (mls) {
 		printf("MLS not yet implemented\n");
 		exit(1);
 	}
 
-	
+	/* types, roles, and allows */
 	fprintf(fout, "type base_t;\n");
 	fprintf(fout, "role base_r types { base_t };\n");
 	for (i = 0; secclass_map[i].name; i++)
@@ -104,7 +105,7 @@ int main(int argc, char *argv[])
 	fprintf(fout, "user user_u roles { base_r };\n");
 	fprintf(fout, "\n");
 
-	
+	/* default sids */
 	for (i = 1; i < initial_sid_to_string_len; i++)
 		fprintf(fout, "sid %s user_u:base_r:base_t\n", initial_sid_to_string[i]);
 	fprintf(fout, "\n");

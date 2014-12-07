@@ -1,8 +1,8 @@
 #define _LINUX_STRING_H_
 
-#include <linux/compiler.h>	
-#include <linux/types.h>	
-#include <linux/stddef.h>	
+#include <linux/compiler.h>	/* for inline */
+#include <linux/types.h>	/* for size_t */
+#include <linux/stddef.h>	/* for NULL */
 #include <linux/linkage.h>
 #include <asm/string.h>
 
@@ -11,10 +11,11 @@ extern unsigned long free_mem_end_ptr;
 extern void error(char *);
 
 #define STATIC static
-#define STATIC_RW_DATA	
+#define STATIC_RW_DATA	/* non-static please */
 
 #define ARCH_HAS_DECOMP_WDOG
 
+/* Diagnostic functions */
 #ifdef DEBUG
 #  define Assert(cond,msg) {if(!(cond)) error(msg);}
 #  define Trace(x) fprintf x

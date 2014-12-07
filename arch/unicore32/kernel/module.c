@@ -76,7 +76,7 @@ apply_relocate(Elf32_Shdr *sechdrs, const char *strtab, unsigned int symindex,
 
 		switch (ELF32_R_TYPE(rel->r_info)) {
 		case R_UNICORE_NONE:
-			
+			/* ignore */
 			break;
 
 		case R_UNICORE_ABS32:

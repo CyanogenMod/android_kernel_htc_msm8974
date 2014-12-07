@@ -41,4 +41,4 @@ void sysfs_del_hardif(struct kobject **hardif_obj);
 int throw_uevent(struct bat_priv *bat_priv, enum uev_type type,
 		 enum uev_action action, const char *data);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_SYSFS_H_ */

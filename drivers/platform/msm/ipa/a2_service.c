@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  */
 
+/*
+ *  A2 service component
+ */
 
 #include <net/ip.h>
 #include <linux/delay.h>
@@ -199,7 +202,7 @@ static void release_wakelock(void)
 
 static void toggle_apps_ack(void)
 {
-	static unsigned int clear_bit; 
+	static unsigned int clear_bit; /* 0 = set the bit, else clear bit */
 
 	IPADBG("%s: apps ack %d->%d\n", __func__,
 			clear_bit & 0x1, ~clear_bit & 0x1);
@@ -252,6 +255,10 @@ static void ul_wakeup(void)
 		return;
 	}
 	if (a2_mux_ctx->a2_pc_disabled) {
+		/*
+		 * don't grab the wakelock the first time because it is
+		 * already grabbed when a2 powers on
+		 */
 		if (likely(a2_mux_ctx->a2_pc_disabled_wakelock_skipped))
 			grab_wakelock();
 		else
@@ -259,6 +266,11 @@ static void ul_wakeup(void)
 		mutex_unlock(&a2_mux_ctx->wakeup_lock);
 		return;
 	}
+	/*
+	 * must wait for the previous power down request to have been acked
+	 * chances are it already came in and this will just fall through
+	 * instead of waiting
+	 */
 	if (a2_mux_ctx->wait_for_ack) {
 		IPADBG("%s waiting for previous ack\n", __func__);
 		ret = wait_for_completion_timeout(
@@ -846,7 +858,7 @@ static void handle_a2_mux_cmd(struct sk_buff *rx_skb)
 		dev_kfree_skb_any(rx_skb);
 		break;
 	case BAM_MUX_HDR_CMD_CLOSE:
-		
+		/* probably should drop pending write */
 		IPADBG("%s: closing cid %d\n", __func__,
 				rx_hdr->ch_id);
 		spin_lock_irqsave(&a2_mux_ctx->bam_ch[rx_hdr->ch_id].lock,
@@ -907,6 +919,15 @@ static int a2_mux_write_cmd(void *data, u32 len)
 	return rc;
 }
 
+/**
+ * a2_mux_get_tethered_client_handles() - provide the tethred
+ *		pipe handles for post setup configuration
+ * @lcid: logical channel ID
+ * @clnt_cons_handle: [out] consumer pipe handle
+ * @clnt_prod_handle: [out] producer pipe handle
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int a2_mux_get_tethered_client_handles(enum a2_mux_logical_channel_id lcid,
 		unsigned int *clnt_cons_handle,
 		unsigned int *clnt_prod_handle)
@@ -920,6 +941,14 @@ int a2_mux_get_tethered_client_handles(enum a2_mux_logical_channel_id lcid,
 	return 0;
 }
 
+/**
+ * a2_mux_write() - send the packet to A2,
+ *		add MUX header acc to lcid provided
+ * @id: logical channel ID
+ * @skb: SKB to write
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int a2_mux_write(enum a2_mux_logical_channel_id id, struct sk_buff *skb)
 {
 	int rc = 0;
@@ -957,6 +986,10 @@ int a2_mux_write(enum a2_mux_logical_channel_id id, struct sk_buff *skb)
 	if (!is_connected)
 		return -ENODEV;
 	if (id != A2_MUX_TETHERED_0) {
+		/*
+		 * if skb do not have any tailroom for padding
+		 * copy the skb into a new expanded skb
+		 */
 		if ((skb->len & 0x3) &&
 		    (skb_tailroom(skb) < A2_MUX_PADDING_LENGTH(skb->len))) {
 			new_skb = skb_copy_expand(skb, skb_headroom(skb),
@@ -972,6 +1005,10 @@ int a2_mux_write(enum a2_mux_logical_channel_id id, struct sk_buff *skb)
 		}
 		hdr = (struct bam_mux_hdr *)skb_push(
 					skb, sizeof(struct bam_mux_hdr));
+		/*
+		 * caller should allocate for hdr and padding
+		 * hdr is fine, padding is tricky
+		 */
 		hdr->magic_num = BAM_MUX_HDR_MAGIC_NO;
 		hdr->cmd = BAM_MUX_HDR_CMD_DATA;
 		hdr->reserved = 0;
@@ -1029,6 +1066,13 @@ write_fail:
 	return rc;
 }
 
+/**
+ * a2_mux_add_hdr() - called when MUX header should
+ *		be added
+ * @lcid: logical channel ID
+ *
+ * Returns: 0 on success, negative on failure
+ */
 static int a2_mux_add_hdr(enum a2_mux_logical_channel_id lcid)
 {
 	struct ipa_ioc_add_hdr *hdrs;
@@ -1063,7 +1107,7 @@ static int a2_mux_add_hdr(enum a2_mux_logical_channel_id lcid)
 	dmux_hdr->reserved = 0;
 	dmux_hdr->ch_id = lcid;
 
-	
+	/* Packet lenght is added by IPA */
 	dmux_hdr->pkt_len = 0;
 	dmux_hdr->pad_len = 0;
 
@@ -1082,7 +1126,7 @@ static int a2_mux_add_hdr(enum a2_mux_logical_channel_id lcid)
 	dmux_hdr->reserved = 0;
 	dmux_hdr->ch_id = lcid;
 
-	
+	/* Packet lenght is added by IPA */
 	dmux_hdr->pkt_len = 0;
 	dmux_hdr->pad_len = 0;
 
@@ -1125,6 +1169,13 @@ bail:
 	return rc;
 }
 
+/**
+ * a2_mux_del_hdr() - called when MUX header should
+ *		be removed
+ * @lcid: logical channel ID
+ *
+ * Returns: 0 on success, negative on failure
+ */
 static int a2_mux_del_hdr(enum a2_mux_logical_channel_id lcid)
 {
 	struct ipa_ioc_del_hdr *hdrs;
@@ -1185,6 +1236,15 @@ bail:
 
 }
 
+/**
+ * a2_mux_open_channel() - opens logical channel
+ *		to A2
+ * @lcid: logical channel ID
+ * @user_data: user provided data for below CB
+ * @notify_cb: user provided notification CB
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int a2_mux_open_channel(enum a2_mux_logical_channel_id lcid,
 			void *user_data,
 			a2_mux_notify_cb notify_cb)
@@ -1275,6 +1335,13 @@ open_done:
 	return rc;
 }
 
+/**
+ * a2_mux_close_channel() - closes logical channel
+ *		to A2
+ * @lcid: logical channel ID
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int a2_mux_close_channel(enum a2_mux_logical_channel_id lcid)
 {
 	struct bam_mux_hdr *hdr;
@@ -1338,6 +1405,14 @@ int a2_mux_close_channel(enum a2_mux_logical_channel_id lcid)
 	return 0;
 }
 
+/**
+ * a2_mux_is_ch_full() - checks if channel is above predefined WM,
+ *		used for flow control implementation
+ * @lcid: logical channel ID
+ *
+ * Returns: true if the channel is above predefined WM,
+ *		false otherwise
+ */
 int a2_mux_is_ch_full(enum a2_mux_logical_channel_id lcid)
 {
 	unsigned long flags;
@@ -1362,6 +1437,14 @@ int a2_mux_is_ch_full(enum a2_mux_logical_channel_id lcid)
 	return ret;
 }
 
+/**
+ * a2_mux_is_ch_low() - checks if channel is below predefined WM,
+ *		used for flow control implementation
+ * @lcid: logical channel ID
+ *
+ * Returns: true if the channel is below predefined WM,
+ *		false otherwise
+ */
 int a2_mux_is_ch_low(enum a2_mux_logical_channel_id lcid)
 {
 	unsigned long flags;
@@ -1386,6 +1469,13 @@ int a2_mux_is_ch_low(enum a2_mux_logical_channel_id lcid)
 	return ret;
 }
 
+/**
+ * a2_mux_is_ch_empty() - checks if channel is empty.
+ * @lcid: logical channel ID
+ *
+ * Returns: true if the channel is empty,
+ *		false otherwise
+ */
 int a2_mux_is_ch_empty(enum a2_mux_logical_channel_id lcid)
 {
 	unsigned long flags;
@@ -1453,6 +1543,11 @@ static int a2_mux_initialize_context(int handle)
 	return 0;
 }
 
+/**
+ * a2_mux_init() - initialize A2 MUX component
+ *
+ * Returns: 0 on success, negative otherwise
+ */
 int a2_mux_init(void)
 {
 	int rc;
@@ -1489,7 +1584,7 @@ int a2_mux_init(void)
 	a2_props.num_pipes		= A2_NUM_PIPES;
 	a2_props.summing_threshold	= A2_SUMMING_THRESHOLD;
 	a2_props.manage                 = SPS_BAM_MGR_DEVICE_REMOTE;
-	
+	/* need to free on tear down */
 	rc = sps_register_bam_device(&a2_props, &h);
 	if (rc < 0) {
 		IPAERR("%s: register bam error %d\n", __func__, rc);
@@ -1532,6 +1627,10 @@ int a2_mux_init(void)
 	if (smsm_get_state(SMSM_MODEM_STATE) & SMSM_A2_POWER_CONTROL)
 		a2_mux_smsm_cb(NULL, 0, smsm_get_state(SMSM_MODEM_STATE));
 
+	/*
+	 * Set remote channel open for tethered channel since there is
+	 *  no actual remote tethered channel
+	 */
 	a2_mux_ctx->bam_ch[A2_MUX_TETHERED_0].status |= BAM_CH_REMOTE_OPEN;
 
 	rc = 0;
@@ -1549,6 +1648,11 @@ bail:
 	return rc;
 }
 
+/**
+ * a2_mux_exit() - destroy A2 MUX component
+ *
+ * Returns: 0 on success, negative otherwise
+ */
 int a2_mux_exit(void)
 {
 	smsm_state_cb_deregister(SMSM_MODEM_STATE,

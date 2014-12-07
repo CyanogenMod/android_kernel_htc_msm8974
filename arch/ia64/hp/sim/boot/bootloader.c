@@ -9,7 +9,7 @@
  *
  * 01/07/99 S.Eranian modified to pass command line arguments to kernel
  */
-struct task_struct;	
+struct task_struct;	/* forward declaration for elf.h */
 
 #include <linux/elf.h>
 #include <linux/init.h>
@@ -61,7 +61,7 @@ start_bootloader (void)
 	struct disk_req req;
 	struct disk_stat stat;
 	struct elfhdr *elf;
-	struct elf_phdr *elf_phdr;	
+	struct elf_phdr *elf_phdr;	/* program header */
 	unsigned long e_entry, e_phoff, e_phnum;
 	register struct ia64_boot_param *bp;
 	char *kpath, *args;
@@ -69,6 +69,15 @@ start_bootloader (void)
 
 	ssc(0, 0, 0, 0, SSC_CONSOLE_INIT);
 
+	/*
+	 * S.Eranian: extract the commandline argument from the simulator
+	 *
+	 * The expected format is as follows:
+         *
+	 *	kernelname args...
+	 *
+	 * Both are optional but you can't have the second one without the first.
+	 */
 	arglen = ssc((long) buffer, 0, 0, 0, SSC_GET_ARGS);
 
 	kpath = "vmlinux";
@@ -150,7 +159,7 @@ start_bootloader (void)
 
 	cons_write("starting kernel...\n");
 
-	
+	/* fake an I/O base address: */
 	ia64_setreg(_IA64_REG_AR_KR0, 0xffffc000000UL);
 
 	bp = sys_fw_init(args, arglen);

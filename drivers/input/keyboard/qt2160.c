@@ -53,7 +53,7 @@ struct qt2160_data {
 	struct i2c_client *client;
 	struct input_dev *input;
 	struct delayed_work dwork;
-	spinlock_t lock;        
+	spinlock_t lock;        /* Protects canceling/rescheduling of dwork */
 	unsigned short keycodes[ARRAY_SIZE(qt2160_key2code)];
 	u16 key_matrix;
 };
@@ -63,6 +63,11 @@ static int qt2160_read_block(struct i2c_client *client,
 {
 	int error, idx = 0;
 
+	/*
+	 * Can't use SMBus block data read. Check for I2C functionality to speed
+	 * things up whenever possible. Otherwise we will be forced to read
+	 * sequentially.
+	 */
 	if (i2c_check_functionality(client->adapter, I2C_FUNC_I2C))	{
 
 		error = i2c_smbus_write_byte(client, inireg + idx);
@@ -114,6 +119,10 @@ static int qt2160_get_key_matrix(struct qt2160_data *qt2160)
 
 	dev_dbg(&client->dev, "requesting keys...\n");
 
+	/*
+	 * Read all registers from General Status Register
+	 * to GPIOs register
+	 */
 	ret = qt2160_read_block(client, QT2160_CMD_GSTAT, regs, 6);
 	if (ret) {
 		dev_err(&client->dev,
@@ -171,7 +180,7 @@ static void qt2160_worker(struct work_struct *work)
 
 	qt2160_get_key_matrix(qt2160);
 
-	
+	/* Avoid device lock up by checking every so often */
 	qt2160_schedule_read(qt2160);
 }
 
@@ -222,21 +231,21 @@ static bool __devinit qt2160_identify(struct i2c_client *client)
 {
 	int id, ver, rev;
 
-	
+	/* Read Chid ID to check if chip is valid */
 	id = qt2160_read(client, QT2160_CMD_CHIPID);
 	if (id != QT2160_VALID_CHIPID) {
 		dev_err(&client->dev, "ID %d not supported\n", id);
 		return false;
 	}
 
-	
+	/* Read chip firmware version */
 	ver = qt2160_read(client, QT2160_CMD_CODEVER);
 	if (ver < 0) {
 		dev_err(&client->dev, "could not get firmware version\n");
 		return false;
 	}
 
-	
+	/* Read chip firmware revision */
 	rev = qt2160_read(client, QT2160_CMD_SUBVER);
 	if (rev < 0) {
 		dev_err(&client->dev, "could not get firmware revision\n");
@@ -257,7 +266,7 @@ static int __devinit qt2160_probe(struct i2c_client *client,
 	int i;
 	int error;
 
-	
+	/* Check functionality */
 	error = i2c_check_functionality(client->adapter,
 			I2C_FUNC_SMBUS_BYTE);
 	if (!error) {
@@ -269,7 +278,7 @@ static int __devinit qt2160_probe(struct i2c_client *client,
 	if (!qt2160_identify(client))
 		return -ENODEV;
 
-	
+	/* Chip is valid and active. Allocate structure */
 	qt2160 = kzalloc(sizeof(struct qt2160_data), GFP_KERNEL);
 	input = input_allocate_device();
 	if (!qt2160 || !input) {
@@ -298,7 +307,7 @@ static int __devinit qt2160_probe(struct i2c_client *client,
 	}
 	__clear_bit(KEY_RESERVED, input->keybit);
 
-	
+	/* Calibrate device */
 	error = qt2160_write(client, QT2160_CMD_CALIBRATE, 1);
 	if (error) {
 		dev_err(&client->dev, "failed to calibrate device\n");
@@ -340,7 +349,7 @@ static int __devexit qt2160_remove(struct i2c_client *client)
 {
 	struct qt2160_data *qt2160 = i2c_get_clientdata(client);
 
-	
+	/* Release IRQ so no queue will be scheduled */
 	if (client->irq)
 		free_irq(client->irq, qt2160);
 

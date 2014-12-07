@@ -19,9 +19,27 @@
 #include "xattr.h"
 #include "acl.h"
 
+/*
+ * ialloc.c contains the inodes allocation and deallocation routines
+ */
+
+/*
+ * The free inodes are managed by bitmaps.  A file system contains several
+ * blocks groups.  Each group contains 1 bitmap block for blocks, 1 bitmap
+ * block for inodes, N blocks for the inode table and data blocks.
+ *
+ * The file system contains group descriptors which are located after the
+ * super block.  Each descriptor contains the number of the bitmap block and
+ * the free blocks count in the block.
+ */
 
 
-
+/*
+ * Read the inode allocation bitmap for a given block_group, reading
+ * into the specified slot in the superblock's bitmap cache.
+ *
+ * Return buffer_head of bitmap on success or NULL.
+ */
 static struct buffer_head *
 read_inode_bitmap(struct super_block * sb, unsigned long block_group)
 {
@@ -42,6 +60,22 @@ error_out:
 	return bh;
 }
 
+/*
+ * NOTE! When we get the inode, we're the only people
+ * that have access to it, and as such there are no
+ * race conditions we have to worry about. The inode
+ * is not on the hash-lists, and it cannot be reached
+ * through the filesystem because the directory entry
+ * has been deleted earlier.
+ *
+ * HOWEVER: we must make sure that we get no aliases,
+ * which means that we have to call "clear_inode()"
+ * _before_ we mark the inode not in use in the inode
+ * bitmaps. Otherwise a newly created file might use
+ * the same inode number (not actually the same pointer
+ * though), and then we'd have two inodes sharing the
+ * same inode number and space on the harddisk.
+ */
 void ext3_free_inode (handle_t *handle, struct inode * inode)
 {
 	struct super_block * sb = inode->i_sb;
@@ -95,7 +129,7 @@ void ext3_free_inode (handle_t *handle, struct inode * inode)
 	if (fatal)
 		goto error_return;
 
-	
+	/* Ok, now we can actually update the inode bitmaps.. */
 	if (!ext3_clear_bit_atomic(sb_bgl_lock(sbi, block_group),
 					bit, bitmap_bh->b_data))
 		ext3_error (sb, "ext3_free_inode",
@@ -132,6 +166,30 @@ error_return:
 	ext3_std_error(sb, fatal);
 }
 
+/*
+ * Orlov's allocator for directories.
+ *
+ * We always try to spread first-level directories.
+ *
+ * If there are blockgroups with both free inodes and free blocks counts
+ * not worse than average we return one with smallest directory count.
+ * Otherwise we simply return a random group.
+ *
+ * For the rest rules look so:
+ *
+ * It's OK to put directory into a group unless
+ * it has too many directories already (max_dirs) or
+ * it has too few free inodes left (min_inodes) or
+ * it has too few free blocks left (min_blocks) or
+ * it's already running too large debt (max_debt).
+ * Parent's group is preferred, if it doesn't satisfy these
+ * conditions we search cyclically through the rest. If none
+ * of the groups look good we just look for a group with more
+ * free inodes than average (starting at parent's group).
+ *
+ * Debt is incremented each time we allocate a directory and decremented
+ * when we allocate an inode, within 0--255.
+ */
 
 #define INODE_COST 64
 #define BLOCK_COST 256
@@ -223,6 +281,10 @@ fallback:
 	}
 
 	if (avefreei) {
+		/*
+		 * The free-inodes counter is approximate, and for really small
+		 * filesystems the above test can fail to find any blockgroups
+		 */
 		avefreei = 0;
 		goto fallback;
 	}
@@ -237,14 +299,30 @@ static int find_group_other(struct super_block *sb, struct inode *parent)
 	struct ext3_group_desc *desc;
 	int group, i;
 
+	/*
+	 * Try to place the inode in its parent directory
+	 */
 	group = parent_group;
 	desc = ext3_get_group_desc (sb, group, NULL);
 	if (desc && le16_to_cpu(desc->bg_free_inodes_count) &&
 			le16_to_cpu(desc->bg_free_blocks_count))
 		return group;
 
+	/*
+	 * We're going to place this inode in a different blockgroup from its
+	 * parent.  We want to cause files in a common directory to all land in
+	 * the same blockgroup.  But we want files which are in a different
+	 * directory which shares a blockgroup with our parent to land in a
+	 * different blockgroup.
+	 *
+	 * So add our directory's i_ino into the starting point for the hash.
+	 */
 	group = (group + parent->i_ino) % ngroups;
 
+	/*
+	 * Use a quadratic hash to find a group with a free inode and some free
+	 * blocks.
+	 */
 	for (i = 1; i < ngroups; i <<= 1) {
 		group += i;
 		if (group >= ngroups)
@@ -255,6 +333,10 @@ static int find_group_other(struct super_block *sb, struct inode *parent)
 			return group;
 	}
 
+	/*
+	 * That failed: try linear search for a free inode, even if that group
+	 * has no free blocks.
+	 */
 	group = parent_group;
 	for (i = 0; i < ngroups; i++) {
 		if (++group >= ngroups)
@@ -267,6 +349,16 @@ static int find_group_other(struct super_block *sb, struct inode *parent)
 	return -1;
 }
 
+/*
+ * There are two policies for allocating an inode.  If the new inode is
+ * a directory, then a forward search is made for a block group with both
+ * free space and a low directory-to-inode ratio; if that fails, then of
+ * the groups with above-average free space, that group with the fewest
+ * directories already is chosen.
+ *
+ * For other inodes, search forward from the parent directory's block
+ * group to find a free inode.
+ */
 struct inode *ext3_new_inode(handle_t *handle, struct inode * dir,
 			     const struct qstr *qstr, umode_t mode)
 {
@@ -284,7 +376,7 @@ struct inode *ext3_new_inode(handle_t *handle, struct inode * dir,
 	struct inode *ret;
 	int i;
 
-	
+	/* Cannot create files in a deleted directory */
 	if (!dir || !dir->i_nlink)
 		return ERR_PTR(-EPERM);
 
@@ -332,7 +424,7 @@ repeat_in_this_group:
 
 			if (!ext3_set_bit_atomic(sb_bgl_lock(sbi, group),
 						ino, bitmap_bh->b_data)) {
-				
+				/* we won it */
 				BUFFER_TRACE(bitmap_bh,
 					"call ext3_journal_dirty_metadata");
 				err = ext3_journal_dirty_metadata(handle,
@@ -341,13 +433,20 @@ repeat_in_this_group:
 					goto fail;
 				goto got;
 			}
-			
+			/* we lost it */
 			journal_release_buffer(handle, bitmap_bh);
 
 			if (++ino < EXT3_INODES_PER_GROUP(sb))
 				goto repeat_in_this_group;
 		}
 
+		/*
+		 * This case is possible in concurrent environment.  It is very
+		 * rare.  We cannot repeat the find_group_xxx() call because
+		 * that will simply return the same blockgroup, because the
+		 * group descriptor metadata has not yet been updated.
+		 * So we just go onto the next blockgroup.
+		 */
 		if (++group == sbi->s_groups_count)
 			group = 0;
 	}
@@ -390,7 +489,7 @@ got:
 		inode_init_owner(inode, dir, mode);
 
 	inode->i_ino = ino;
-	
+	/* This is the optimal IO size (for stat), not the fs block size */
 	inode->i_blocks = 0;
 	inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME_SEC;
 
@@ -415,6 +514,10 @@ got:
 	if (IS_DIRSYNC(inode))
 		handle->h_sync = 1;
 	if (insert_inode_locked(inode) < 0) {
+		/*
+		 * Likely a bitmap corruption causing inode to be allocated
+		 * twice.
+		 */
 		err = -EIO;
 		goto fail;
 	}
@@ -425,7 +528,7 @@ got:
 	ei->i_state_flags = 0;
 	ext3_set_inode_state(inode, EXT3_STATE_NEW);
 
-	
+	/* See comment in ext3_iget for explanation */
 	if (ino >= EXT3_FIRST_INO(sb) + 1 &&
 	    EXT3_INODE_SIZE(sb) > EXT3_GOOD_OLD_INODE_SIZE) {
 		ei->i_extra_isize =
@@ -479,6 +582,7 @@ fail_drop:
 	return ERR_PTR(err);
 }
 
+/* Verify that we are loading a valid orphan from disk */
 struct inode *ext3_orphan_get(struct super_block *sb, unsigned long ino)
 {
 	unsigned long max_ino = le32_to_cpu(EXT3_SB(sb)->s_es->s_inodes_count);
@@ -488,7 +592,7 @@ struct inode *ext3_orphan_get(struct super_block *sb, unsigned long ino)
 	struct inode *inode = NULL;
 	long err = -EIO;
 
-	
+	/* Error cases - e2fsck has already cleaned up for us */
 	if (ino > max_ino) {
 		ext3_warning(sb, __func__,
 			     "bad orphan ino %lu!  e2fsck was run?", ino);
@@ -504,6 +608,10 @@ struct inode *ext3_orphan_get(struct super_block *sb, unsigned long ino)
 		goto error;
 	}
 
+	/* Having the inode bit set should be a 100% indicator that this
+	 * is a valid orphan (no e2fsck run on fs).  Orphans also include
+	 * inodes that were being truncated, so we can't check i_nlink==0.
+	 */
 	if (!ext3_test_bit(bit, bitmap_bh->b_data))
 		goto bad_orphan;
 
@@ -511,6 +619,11 @@ struct inode *ext3_orphan_get(struct super_block *sb, unsigned long ino)
 	if (IS_ERR(inode))
 		goto iget_failed;
 
+	/*
+	 * If the orphans has i_nlinks > 0 then it should be able to be
+	 * truncated, otherwise it won't be removed from the orphan list
+	 * during processing and an infinite loop will result.
+	 */
 	if (inode->i_nlink && !ext3_can_truncate(inode))
 		goto bad_orphan;
 
@@ -536,7 +649,7 @@ bad_orphan:
 		       NEXT_ORPHAN(inode));
 		printk(KERN_NOTICE "max_ino=%lu\n", max_ino);
 		printk(KERN_NOTICE "i_nlink=%u\n", inode->i_nlink);
-		
+		/* Avoid freeing blocks if we got a bad deleted inode */
 		if (inode->i_nlink == 0)
 			inode->i_blocks = 0;
 		iput(inode);
@@ -592,6 +705,7 @@ unsigned long ext3_count_free_inodes (struct super_block * sb)
 #endif
 }
 
+/* Called at mount-time, super-block is locked */
 unsigned long ext3_count_dirs (struct super_block * sb)
 {
 	unsigned long count = 0;

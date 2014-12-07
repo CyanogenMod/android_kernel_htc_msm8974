@@ -28,7 +28,13 @@
 #ifndef __ASM_ARCH_OMAP850_H
 #define __ASM_ARCH_OMAP850_H
 
+/*
+ * ----------------------------------------------------------------------------
+ * Base addresses
+ * ----------------------------------------------------------------------------
+ */
 
+/* Syntax: XX_BASE = Virtual base address, XX_START = Physical base address */
 
 #define OMAP850_DSP_BASE	0xE0000000
 #define OMAP850_DSP_SIZE	0x50000
@@ -38,6 +44,11 @@
 #define OMAP850_DSPREG_SIZE	SZ_128K
 #define OMAP850_DSPREG_START	0xE1000000
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP850 specific configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP850_CONFIG_BASE	0xfffe1000
 #define OMAP850_IO_CONF_0	0xfffe1070
 #define OMAP850_IO_CONF_1	0xfffe1074
@@ -57,19 +68,35 @@
 #define OMAP850_MODE_1		0xfffe1010
 #define OMAP850_MODE_2		0xfffe1014
 
+/* CSMI specials: in terms of base + offset */
 #define OMAP850_MODE2_OFFSET	0x14
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP850 traffic controller configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP850_FLASH_CFG_0	0xfffecc10
 #define OMAP850_FLASH_ACFG_0	0xfffecc50
 #define OMAP850_FLASH_CFG_1	0xfffecc14
 #define OMAP850_FLASH_ACFG_1	0xfffecc54
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP850 DSP control registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP850_ICR_BASE	0xfffbb800
 #define OMAP850_DSP_M_CTL	0xfffbb804
 #define OMAP850_DSP_MMU_BASE	0xfffed200
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP850 PCC_UPLD configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP850_PCC_UPLD_CTRL_BASE	(0xfffe0900)
 #define OMAP850_PCC_UPLD_CTRL		(OMAP850_PCC_UPLD_CTRL_BASE + 0x00)
 
-#endif 
+#endif /*  __ASM_ARCH_OMAP850_H */
 

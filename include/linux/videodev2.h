@@ -218,6 +218,11 @@ struct v4l2_capability {
 	__u32	reserved[3];
 };
 
+struct htc_callingpid_data {
+        pid_t call_pid;
+        const char *process_name;
+};
+
 #define V4L2_CAP_VIDEO_CAPTURE		0x00000001  
 #define V4L2_CAP_VIDEO_OUTPUT		0x00000002  
 #define V4L2_CAP_VIDEO_OVERLAY		0x00000004  
@@ -518,7 +523,7 @@ struct v4l2_plane {
 };
 
 struct v4l2_buffer {
-	__u32			index;
+	int			index;
 	enum v4l2_buf_type      type;
 	__u32			bytesused;
 	__u32			flags;
@@ -2307,6 +2312,8 @@ struct v4l2_create_buffers {
 
 #define VIDIOC_DECODER_CMD	_IOWR('V', 96, struct v4l2_decoder_cmd)
 #define VIDIOC_TRY_DECODER_CMD	_IOWR('V', 97, struct v4l2_decoder_cmd)
+
+#define VIDIOC_HTC_SET_CALLPIDNAME _IOW('V', 99, struct htc_callingpid_data)
 
 
 #define BASE_VIDIOC_PRIVATE	192		

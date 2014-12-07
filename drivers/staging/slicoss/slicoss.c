@@ -36,6 +36,23 @@
  *
  **************************************************************************/
 
+/*
+ * FILENAME: slicoss.c
+ *
+ * The SLICOSS driver for Alacritech's IS-NIC products.
+ *
+ * This driver is supposed to support:
+ *
+ *      Mojave cards (single port PCI Gigabit) both copper and fiber
+ *      Oasis cards (single and dual port PCI-x Gigabit) copper and fiber
+ *      Kalahari cards (dual and quad port PCI-e Gigabit) copper and fiber
+ *
+ * The driver was acutally tested on Oasis and Kalahari cards.
+ *
+ *
+ * NOTE: This is the standard, non-accelerated version of Alacritech's
+ *       IS-NIC driver.
+ */
 
 
 #define KLUDGE_FOR_4GB_BOUNDARY         1
@@ -199,15 +216,30 @@ static inline void slic_reg64_write(struct adapter *adapter, void __iomem *reg,
 				adapter->bit64reglock.flags);
 }
 
-static u32 slic_crc_table[256];	
-static u32 slic_crc_init;	
+/*
+ * Functions to obtain the CRC corresponding to the destination mac address.
+ * This is a standard ethernet CRC in that it is a 32-bit, reflected CRC using
+ * the polynomial:
+ *   x^32 + x^26 + x^23 + x^22 + x^16 + x^12 + x^11 + x^10 + x^8 + x^7 + x^5 +
+ *   x^4 + x^2 + x^1.
+ *
+ * After the CRC for the 6 bytes is generated (but before the value is
+ * complemented),
+ * we must then transpose the value and return bits 30-23.
+ *
+ */
+static u32 slic_crc_table[256];	/* Table of CRCs for all possible byte values */
+static u32 slic_crc_init;	/* Is table initialized */
 
+/*
+ *  Contruct the CRC32 table
+ */
 static void slic_mcast_init_crc32(void)
 {
-	u32 c;		
-	u32 e = 0;		
-	int i;			
-	int k;			
+	u32 c;		/*  CRC shit reg                 */
+	u32 e = 0;		/*  Poly X-or pattern            */
+	int i;			/*  counter                      */
+	int k;			/*  byte being shifted into crc  */
 
 	static int p[] = { 0, 1, 2, 4, 5, 7, 8, 10, 11, 12, 16, 22, 23, 26 };
 
@@ -222,6 +254,9 @@ static void slic_mcast_init_crc32(void)
 	}
 }
 
+/*
+ *  Return the MAC hast as described above.
+ */
 static unsigned char slic_mcast_get_mac_hash(char *macaddr)
 {
 	u32 crc;
@@ -234,11 +269,11 @@ static unsigned char slic_mcast_get_mac_hash(char *macaddr)
 		slic_crc_init = 1;
 	}
 
-	crc = 0xFFFFFFFF;	
+	crc = 0xFFFFFFFF;	/* Preload shift register, per crc-32 spec */
 	for (i = 0, p = macaddr; i < 6; ++p, ++i)
 		crc = (crc >> 8) ^ slic_crc_table[(crc ^ *p) & 0xFF];
 
-	
+	/* Return bits 1-8, transposed */
 	for (i = 1; i < 9; i++)
 		machash |= (((crc >> i) & 1) << (8 - i));
 
@@ -249,12 +284,15 @@ static void slic_mcast_set_bit(struct adapter *adapter, char *address)
 {
 	unsigned char crcpoly;
 
-	
+	/* Get the CRC polynomial for the mac address */
 	crcpoly = slic_mcast_get_mac_hash(address);
 
+	/* We only have space on the SLIC for 64 entries.  Lop
+	 * off the top two bits. (2^6 = 64)
+	 */
 	crcpoly &= 0x3F;
 
-	
+	/* OR in the new bit into our 64 bit mask. */
 	adapter->mcastmask |= (u64) 1 << crcpoly;
 }
 
@@ -263,10 +301,18 @@ static void slic_mcast_set_mask(struct adapter *adapter)
 	__iomem struct slic_regs *slic_regs = adapter->slic_regs;
 
 	if (adapter->macopts & (MAC_ALLMCAST | MAC_PROMISC)) {
+		/* Turn on all multicast addresses. We have to do this for
+		 * promiscuous mode as well as ALLMCAST mode.  It saves the
+		 * Microcode from having to keep state about the MAC
+		 * configuration.
+		 */
 		slic_reg32_write(&slic_regs->slic_mcastlow, 0xFFFFFFFF, FLUSH);
 		slic_reg32_write(&slic_regs->slic_mcasthigh, 0xFFFFFFFF,
 				 FLUSH);
 	} else {
+		/* Commit our multicast mast to the SLIC by writing to the
+		 * multicast address mask registers
+		 */
 		slic_reg32_write(&slic_regs->slic_mcastlow,
 			(u32)(adapter->mcastmask & 0xFFFFFFFF), FLUSH);
 		slic_reg32_write(&slic_regs->slic_mcasthigh,
@@ -296,6 +342,12 @@ static void slic_unmap_mmio_space(struct adapter *adapter)
 	adapter->slic_regs = NULL;
 }
 
+/*
+ *  slic_link_config
+ *
+ *  Write phy control to configure link duplex/speed
+ *
+ */
 static void slic_link_config(struct adapter *adapter,
 		      u32 linkspeed, u32 linkduplex)
 {
@@ -321,64 +373,82 @@ static void slic_link_config(struct adapter *adapter,
 
 	if ((linkspeed == LINK_AUTOSPEED) || (linkspeed == LINK_1000MB)) {
 		if (adapter->flags & ADAPT_FLAGS_FIBERMEDIA) {
+			/*  We've got a fiber gigabit interface, and register
+			 *  4 is different in fiber mode than in copper mode
+			 */
 
-			
+			/* advertise FD only @1000 Mb */
 			phy_advreg = (MIICR_REG_4 | (PAR_ADV1000XFD));
-			
+			/* enable PAUSE frames        */
 			phy_advreg |= PAR_ASYMPAUSE_FIBER;
 			slic_reg32_write(wphy, phy_advreg, FLUSH);
 
 			if (linkspeed == LINK_AUTOSPEED) {
-				
+				/* reset phy, enable auto-neg  */
 				phy_config =
 				    (MIICR_REG_PCR |
 				     (PCR_RESET | PCR_AUTONEG |
 				      PCR_AUTONEG_RST));
 				slic_reg32_write(wphy, phy_config, FLUSH);
-			} else {	
+			} else {	/* forced 1000 Mb FD*/
+				/* power down phy to break link
+				   this may not work) */
 				phy_config = (MIICR_REG_PCR | PCR_POWERDOWN);
 				slic_reg32_write(wphy, phy_config, FLUSH);
+				/* wait, Marvell says 1 sec,
+				   try to get away with 10 ms  */
 				mdelay(10);
 
+				/* disable auto-neg, set speed/duplex,
+				   soft reset phy, powerup */
 				phy_config =
 				    (MIICR_REG_PCR |
 				     (PCR_RESET | PCR_SPEED_1000 |
 				      PCR_DUPLEX_FULL));
 				slic_reg32_write(wphy, phy_config, FLUSH);
 			}
-		} else {	
+		} else {	/* copper gigabit */
 
+			/* Auto-Negotiate or 1000 Mb must be auto negotiated
+			 * We've got a copper gigabit interface, and
+			 * register 4 is different in copper mode than
+			 * in fiber mode
+			 */
 			if (linkspeed == LINK_AUTOSPEED) {
-				
+				/* advertise 10/100 Mb modes   */
 				phy_advreg =
 				    (MIICR_REG_4 |
 				     (PAR_ADV100FD | PAR_ADV100HD | PAR_ADV10FD
 				      | PAR_ADV10HD));
 			} else {
+			/* linkspeed == LINK_1000MB -
+			   don't advertise 10/100 Mb modes  */
 				phy_advreg = MIICR_REG_4;
 			}
-			
+			/* enable PAUSE frames  */
 			phy_advreg |= PAR_ASYMPAUSE;
-			
+			/* required by the Cicada PHY  */
 			phy_advreg |= PAR_802_3;
 			slic_reg32_write(wphy, phy_advreg, FLUSH);
-			
+			/* advertise FD only @1000 Mb  */
 			phy_gctlreg = (MIICR_REG_9 | (PGC_ADV1000FD));
 			slic_reg32_write(wphy, phy_gctlreg, FLUSH);
 
 			if (adapter->subsysid != SLIC_1GB_CICADA_SUBSYS_ID) {
+				/* if a Marvell PHY
+				   enable auto crossover */
 				phy_config =
 				    (MIICR_REG_16 | (MRV_REG16_XOVERON));
 				slic_reg32_write(wphy, phy_config, FLUSH);
 
-				
+				/* reset phy, enable auto-neg  */
 				phy_config =
 				    (MIICR_REG_PCR |
 				     (PCR_RESET | PCR_AUTONEG |
 				      PCR_AUTONEG_RST));
 				slic_reg32_write(wphy, phy_config, FLUSH);
-			} else {	
-				
+			} else {	/* it's a Cicada PHY  */
+				/* enable and restart auto-neg (don't reset)  */
 				phy_config =
 				    (MIICR_REG_PCR |
 				     (PCR_AUTONEG | PCR_AUTONEG_RST));
@@ -386,7 +456,7 @@ static void slic_link_config(struct adapter *adapter,
 			}
 		}
 	} else {
-		
+		/* Forced 10/100  */
 		if (linkspeed == LINK_10MB)
 			speed = 0;
 		else
@@ -397,23 +467,28 @@ static void slic_link_config(struct adapter *adapter,
 			duplex = PCR_DUPLEX_FULL;
 
 		if (adapter->subsysid != SLIC_1GB_CICADA_SUBSYS_ID) {
+			/* if a Marvell PHY
+			   disable auto crossover  */
 			phy_config = (MIICR_REG_16 | (MRV_REG16_XOVEROFF));
 			slic_reg32_write(wphy, phy_config, FLUSH);
 		}
 
-		
+		/* power down phy to break link (this may not work)  */
 		phy_config = (MIICR_REG_PCR | (PCR_POWERDOWN | speed | duplex));
 		slic_reg32_write(wphy, phy_config, FLUSH);
 
-		
+		/* wait, Marvell says 1 sec, try to get away with 10 ms */
 		mdelay(10);
 
 		if (adapter->subsysid != SLIC_1GB_CICADA_SUBSYS_ID) {
+			/* if a Marvell PHY
+			   disable auto-neg, set speed,
+			   soft reset phy, powerup */
 			phy_config =
 			    (MIICR_REG_PCR | (PCR_RESET | speed | duplex));
 			slic_reg32_write(wphy, phy_config, FLUSH);
-		} else {	
-			
+		} else {	/* it's a Cicada PHY  */
+			/* disable auto-neg, set speed, powerup  */
 			phy_config = (MIICR_REG_PCR | (speed | duplex));
 			slic_reg32_write(wphy, phy_config, FLUSH);
 		}
@@ -465,26 +540,26 @@ static int slic_card_download_gbrcv(struct adapter *adapter)
 		ASSERT(0);
 		break;
 	}
-	
+	/* start download */
 	slic_reg32_write(&slic_regs->slic_rcv_wcs, SLIC_RCVWCS_BEGIN, FLUSH);
-	
+	/* download the rcv sequencer ucode */
 	for (codeaddr = 0; codeaddr < rcvucodelen; codeaddr++) {
-		
+		/* write out instruction address */
 		slic_reg32_write(&slic_regs->slic_rcv_wcs, codeaddr, FLUSH);
 
 		instruction = *(u32 *)(fw->data + index);
 		index += 4;
-		
+		/* write out the instruction data low addr */
 		slic_reg32_write(&slic_regs->slic_rcv_wcs, instruction, FLUSH);
 
 		instruction = *(u8 *)(fw->data + index);
 		index++;
-		
+		/* write out the instruction data high addr */
 		slic_reg32_write(&slic_regs->slic_rcv_wcs, (u8)instruction,
 				 FLUSH);
 	}
 
-	
+	/* download finished */
 	release_firmware(fw);
 	slic_reg32_write(&slic_regs->slic_rcv_wcs, SLIC_RCVWCS_FINISH, FLUSH);
 	return 0;
@@ -546,15 +621,15 @@ static int slic_card_download(struct adapter *adapter)
 		thissectionsize = sectsize[section] >> 3;
 
 		for (codeaddr = 0; codeaddr < thissectionsize; codeaddr++) {
-			
+			/* Write out instruction address */
 			slic_reg32_write(&slic_regs->slic_wcs,
 					 baseaddress + codeaddr, FLUSH);
-			
+			/* Write out instruction to low addr */
 			slic_reg32_write(&slic_regs->slic_wcs, instruction, FLUSH);
 			instruction = *(u32 *)(fw->data + index);
 			index += 4;
 
-			
+			/* Write out instruction to high addr */
 			slic_reg32_write(&slic_regs->slic_wcs, instruction, FLUSH);
 			instruction = *(u32 *)(fw->data + index);
 			index += 4;
@@ -569,29 +644,36 @@ static int slic_card_download(struct adapter *adapter)
 		thissectionsize = sectsize[section] >> 3;
 
 		for (codeaddr = 0; codeaddr < thissectionsize; codeaddr++) {
-			
+			/* Write out instruction address */
 			slic_reg32_write(&slic_regs->slic_wcs,
 				SLIC_WCS_COMPARE | (baseaddress + codeaddr),
 				FLUSH);
-			
+			/* Write out instruction to low addr */
 			slic_reg32_write(&slic_regs->slic_wcs, instruction,
 					 FLUSH);
 			instruction = *(u32 *)(fw->data + index);
 			index += 4;
-			
+			/* Write out instruction to high addr */
 			slic_reg32_write(&slic_regs->slic_wcs, instruction,
 					 FLUSH);
 			instruction = *(u32 *)(fw->data + index);
 			index += 4;
 
-			
+			/* Check SRAM location zero. If it is non-zero. Abort.*/
+/*			failure = readl((u32 __iomem *)&slic_regs->slic_reset);
+			if (failure) {
+				release_firmware(fw);
+				return -EIO;
+			}*/
 		}
 	}
 	release_firmware(fw);
-	
+	/* Everything OK, kick off the card */
 	mdelay(10);
 	slic_reg32_write(&slic_regs->slic_wcs, SLIC_WCS_START, FLUSH);
 
+	/* stall for 20 ms, long enough for ucode to init card
+	   and reach mainloop */
 	mdelay(20);
 
 	return 0;
@@ -655,9 +737,9 @@ static void slic_mac_address_config(struct adapter *adapter)
 	slic_reg32_write(&slic_regs->slic_wraddrah, value2, FLUSH);
 	slic_reg32_write(&slic_regs->slic_wraddrbh, value2, FLUSH);
 
-	
-	
-	
+	/* Write our multicast mask out to the card.  This is done */
+	/* here in addition to the slic_mcast_addr_set routine     */
+	/* because ALL_MCAST may have been enabled or disabled     */
 	slic_mcast_set_mask(adapter);
 }
 
@@ -666,7 +748,7 @@ static void slic_mac_config(struct adapter *adapter)
 	u32 value;
 	__iomem struct slic_regs *slic_regs = adapter->slic_regs;
 
-	
+	/* Setup GMAC gaps */
 	if (adapter->linkspeed == LINK_1000MB) {
 		value = ((GMCR_GAPBB_1000 << GMCR_GAPBB_SHIFT) |
 			 (GMCR_GAPR1_1000 << GMCR_GAPR1_SHIFT) |
@@ -677,20 +759,20 @@ static void slic_mac_config(struct adapter *adapter)
 			 (GMCR_GAPR2_100 << GMCR_GAPR2_SHIFT));
 	}
 
-	
+	/* enable GMII */
 	if (adapter->linkspeed == LINK_1000MB)
 		value |= GMCR_GBIT;
 
-	
+	/* enable fullduplex */
 	if ((adapter->linkduplex == LINK_FULLD)
 	    || (adapter->macopts & MAC_LOOPBACK)) {
 		value |= GMCR_FULLD;
 	}
 
-	
+	/* write mac config */
 	slic_reg32_write(&slic_regs->slic_wmcfg, value, FLUSH);
 
-	
+	/* setup mac addresses */
 	slic_mac_address_config(adapter);
 }
 
@@ -701,7 +783,7 @@ static void slic_config_set(struct adapter *adapter, bool linkchange)
 	__iomem struct slic_regs *slic_regs = adapter->slic_regs;
 
 	if (linkchange) {
-		
+		/* Setup MAC */
 		slic_mac_config(adapter);
 		RcrReset = GRCR_RESET;
 	} else {
@@ -710,35 +792,35 @@ static void slic_config_set(struct adapter *adapter, bool linkchange)
 	}
 
 	if (adapter->linkduplex == LINK_FULLD) {
-		
-		value = (GXCR_RESET |	
-			 GXCR_XMTEN |	
-			 GXCR_PAUSEEN);	
+		/* setup xmtcfg */
+		value = (GXCR_RESET |	/* Always reset     */
+			 GXCR_XMTEN |	/* Enable transmit  */
+			 GXCR_PAUSEEN);	/* Enable pause     */
 
 		slic_reg32_write(&slic_regs->slic_wxcfg, value, FLUSH);
 
-		
-		value = (RcrReset |	
-			 GRCR_CTLEN |	
-			 GRCR_ADDRAEN |	
-			 GRCR_RCVBAD |	
+		/* Setup rcvcfg last */
+		value = (RcrReset |	/* Reset, if linkchange */
+			 GRCR_CTLEN |	/* Enable CTL frames    */
+			 GRCR_ADDRAEN |	/* Address A enable     */
+			 GRCR_RCVBAD |	/* Rcv bad frames       */
 			 (GRCR_HASHSIZE << GRCR_HASHSIZE_SHIFT));
 	} else {
-		
-		value = (GXCR_RESET |	
-			 GXCR_XMTEN);	
+		/* setup xmtcfg */
+		value = (GXCR_RESET |	/* Always reset     */
+			 GXCR_XMTEN);	/* Enable transmit  */
 
 		slic_reg32_write(&slic_regs->slic_wxcfg, value, FLUSH);
 
-		
-		value = (RcrReset |	
-			 GRCR_ADDRAEN |	
-			 GRCR_RCVBAD |	
+		/* Setup rcvcfg last */
+		value = (RcrReset |	/* Reset, if linkchange */
+			 GRCR_ADDRAEN |	/* Address A enable     */
+			 GRCR_RCVBAD |	/* Rcv bad frames       */
 			 (GRCR_HASHSIZE << GRCR_HASHSIZE_SHIFT));
 	}
 
 	if (adapter->state != ADAPT_DOWN) {
-		
+		/* Only enable receive if we are restarting or running */
 		value |= GRCR_RCVEN;
 	}
 
@@ -748,26 +830,29 @@ static void slic_config_set(struct adapter *adapter, bool linkchange)
 	slic_reg32_write(&slic_regs->slic_wrcfg, value, FLUSH);
 }
 
+/*
+ *  Turn off RCV and XMT, power down PHY
+ */
 static void slic_config_clear(struct adapter *adapter)
 {
 	u32 value;
 	u32 phy_config;
 	__iomem struct slic_regs *slic_regs = adapter->slic_regs;
 
-	
-	value = (GXCR_RESET |	
-		 GXCR_PAUSEEN);	
+	/* Setup xmtcfg */
+	value = (GXCR_RESET |	/* Always reset */
+		 GXCR_PAUSEEN);	/* Enable pause */
 
 	slic_reg32_write(&slic_regs->slic_wxcfg, value, FLUSH);
 
-	value = (GRCR_RESET |	
-		 GRCR_CTLEN |	
-		 GRCR_ADDRAEN |	
+	value = (GRCR_RESET |	/* Always reset      */
+		 GRCR_CTLEN |	/* Enable CTL frames */
+		 GRCR_ADDRAEN |	/* Address A enable  */
 		 (GRCR_HASHSIZE << GRCR_HASHSIZE_SHIFT));
 
 	slic_reg32_write(&slic_regs->slic_wrcfg, value, FLUSH);
 
-	
+	/* power down phy */
 	phy_config = (MIICR_REG_PCR | (PCR_POWERDOWN));
 	slic_reg32_write(&slic_regs->slic_wphy, phy_config, FLUSH);
 }
@@ -936,6 +1021,11 @@ static void slic_upr_start(struct adapter *adapter)
 {
 	struct slic_upr *upr;
 	__iomem struct slic_regs *slic_regs = adapter->slic_regs;
+/*
+    char * ptr1;
+    char * ptr2;
+    uint cmdoffset;
+*/
 	upr = adapter->upr_list;
 	if (!upr)
 		return;
@@ -1045,27 +1135,27 @@ static void slic_link_upr_complete(struct adapter *adapter, u32 isr)
 	if ((adapter->linkstate == LINK_DOWN) && (linkup == LINK_DOWN))
 		return;
 
-	
+	/* link up event, but nothing has changed */
 	if ((adapter->linkstate == LINK_UP) &&
 	    (linkup == LINK_UP) &&
 	    (adapter->linkspeed == linkspeed) &&
 	    (adapter->linkduplex == linkduplex))
 		return;
 
-	
+	/* link has changed at this point */
 
-	
+	/* link has gone from up to down */
 	if (linkup == LINK_DOWN) {
 		adapter->linkstate = LINK_DOWN;
 		return;
 	}
 
-	
+	/* link has gone from down to up */
 	adapter->linkspeed = linkspeed;
 	adapter->linkduplex = linkduplex;
 
 	if (adapter->linkstate != LINK_UP) {
-		
+		/* setup the mac */
 		slic_config_set(adapter, true);
 		adapter->linkstate = LINK_UP;
 		netif_start_queue(adapter->netdev);
@@ -1205,6 +1295,11 @@ static void slic_config_get(struct adapter *adapter, u32 config,
 	ASSERT(status == 0);
 }
 
+/*
+ *  this is here to checksum the eeprom, there is some ucode bug
+ *  which prevens us from using the ucode result.
+ *  remove this once ucode is fixed.
+ */
 static ushort slic_eeprom_cksum(char *m, int len)
 {
 #define ADDCARRY(x)  (x > 65535 ? x -= 65535 : x)
@@ -1244,7 +1339,7 @@ static ushort slic_eeprom_cksum(char *m, int len)
 		byte_swapped = 1;
 	}
 
-	
+	/* Unroll the loop to make overhead from branches &c small. */
 	while ((len -= 32) >= 0) {
 		sum += w[0];
 		sum += w[1];
@@ -1262,7 +1357,7 @@ static ushort slic_eeprom_cksum(char *m, int len)
 		sum += w[13];
 		sum += w[14];
 		sum += w[15];
-		w = (u16 *)((ulong) w + 16);	
+		w = (u16 *)((ulong) w + 16);	/* verify */
 	}
 	len += 32;
 	while ((len -= 8) >= 0) {
@@ -1270,13 +1365,13 @@ static ushort slic_eeprom_cksum(char *m, int len)
 		sum += w[1];
 		sum += w[2];
 		sum += w[3];
-		w = (u16 *)((ulong) w + 4);	
+		w = (u16 *)((ulong) w + 4);	/* verify */
 	}
 	len += 8;
 	if (len != 0 || byte_swapped != 0) {
 		REDUCE;
 		while ((len -= 2) >= 0)
-			sum += *w++;	
+			sum += *w++;	/* verify */
 		if (byte_swapped) {
 			REDUCE;
 			sum <<= 8;
@@ -1342,6 +1437,8 @@ static int slic_rspqueue_init(struct adapter *adapter)
 			slic_rspqueue_free(adapter);
 			return -ENOMEM;
 		}
+		/* FIXME:
+		 * do we really need this assertions (4K PAGE_SIZE aligned addr)? */
 #if 0
 #ifndef CONFIG_X86_64
 		ASSERT(((u32) rspq->vaddr[i] & 0xFFFFF000) ==
@@ -1499,7 +1596,7 @@ static void slic_cmdq_addcmdpage(struct adapter *adapter, u32 *page)
 	tail = cmd;
 	while ((cmdcnt < SLIC_CMDQ_CMDSINPAGE) &&
 	       (adapter->slic_handle_ix < 256)) {
-		
+		/* Allocate and initialize a SLIC_HANDLE for this command */
 		SLIC_GET_SLIC_HANDLE(adapter, pslic_handle);
 		if (pslic_handle == NULL)
 			ASSERT(0);
@@ -1528,12 +1625,12 @@ static void slic_cmdq_addcmdpage(struct adapter *adapter, u32 *page)
 	}
 
 	cmdq = &adapter->cmdq_all;
-	cmdq->count += cmdcnt;	
+	cmdq->count += cmdcnt;	/*  SLIC_CMDQ_CMDSINPAGE;   mooktodo */
 	tail->next_all = cmdq->head;
 	cmdq->head = prev;
 	cmdq = &adapter->cmdq_free;
 	spin_lock_irqsave(&cmdq->lock.lock, cmdq->lock.flags);
-	cmdq->count += cmdcnt;	
+	cmdq->count += cmdcnt;	/*  SLIC_CMDQ_CMDSINPAGE;   mooktodo */
 	tail->next = cmdq->head;
 	cmdq->head = prev;
 	spin_unlock_irqrestore(&cmdq->lock.lock, cmdq->lock.flags);
@@ -2330,13 +2427,23 @@ static void slic_debug_cleanup(void)
 	}
 }
 
+/*
+ * slic_link_event_handler -
+ *
+ * Initiate a link configuration sequence.  The link configuration begins
+ * by issuing a READ_LINK_STATUS command to the Utility Processor on the
+ * SLIC.  Since the command finishes asynchronously, the slic_upr_comlete
+ * routine will follow it up witha UP configuration write command, which
+ * will also complete asynchronously.
+ *
+ */
 static void slic_link_event_handler(struct adapter *adapter)
 {
 	int status;
 	struct slic_shmem *pshmem;
 
 	if (adapter->state != ADAPT_UP) {
-		
+		/* Adapter is not operational.  Ignore.  */
 		return;
 	}
 
@@ -2350,7 +2457,7 @@ static void slic_link_event_handler(struct adapter *adapter)
 				  0, 0);
 #else
 	status = slic_upr_request(adapter, SLIC_UPR_RLSR,
-		(u32) &pshmem->linkstatus,	
+		(u32) &pshmem->linkstatus,	/* no 4GB wrap guaranteed */
 				  0, 0, 0);
 #endif
 	ASSERT(status == 0);
@@ -2381,11 +2488,15 @@ static void slic_init_cleanup(struct adapter *adapter)
 	slic_rcvqueue_free(adapter);
 }
 
+/*
+ *  Allocate a mcast_address structure to hold the multicast address.
+ *  Link it in.
+ */
 static int slic_mcast_add_list(struct adapter *adapter, char *address)
 {
 	struct mcast_address *mcaddr, *mlist;
 
-	
+	/* Check to see if it already exists */
 	mlist = adapter->mcastaddrs;
 	while (mlist) {
 		if (!compare_ether_addr(mlist->address, address))
@@ -2393,7 +2504,7 @@ static int slic_mcast_add_list(struct adapter *adapter, char *address)
 		mlist = mlist->next;
 	}
 
-	
+	/* Doesn't already exist.  Allocate a structure to hold it */
 	mcaddr = kmalloc(sizeof(struct mcast_address), GFP_ATOMIC);
 	if (mcaddr == NULL)
 		return 1;
@@ -2667,6 +2778,9 @@ static void slic_xmit_complete(struct adapter *adapter)
 			break;
 		adapter->xmit_completes++;
 		adapter->card->events++;
+		/*
+		 Get the complete host command buffer
+		*/
 		slic_handle_word.handle_token = rspbuf->hosthandle;
 		ASSERT(slic_handle_word.handle_index);
 		ASSERT(slic_handle_word.handle_index <= SLIC_CMDQ_MAXCMDS);
@@ -2674,6 +2788,7 @@ static void slic_xmit_complete(struct adapter *adapter)
 		    (struct slic_hostcmd *)
 			adapter->slic_handles[slic_handle_word.handle_index].
 									address;
+/*      hcmd = (struct slic_hostcmd *) rspbuf->hosthandle; */
 		ASSERT(hcmd);
 		ASSERT(hcmd->pslic_handle ==
 		       &adapter->slic_handles[slic_handle_word.handle_index]);
@@ -2834,7 +2949,7 @@ static netdev_tx_t slic_xmit_start(struct sk_buff *skb, struct net_device *dev)
 		ihcmd = &hcmd->cmd64;
 
 		ihcmd->flags |= 0x40;
-		adapter->kill_card = 0;	
+		adapter->kill_card = 0;	/* only do this once */
 	}
 #endif
 	if (hcmd->paddrh == 0) {
@@ -2896,6 +3011,12 @@ static int slic_adapter_allocresources(struct adapter *adapter)
 	return 0;
 }
 
+/*
+ *  slic_if_init
+ *
+ *  Perform initialization of our slic interface.
+ *
+ */
 static int slic_if_init(struct adapter *adapter)
 {
 	struct sliccard *card = adapter->card;
@@ -2906,7 +3027,7 @@ static int slic_if_init(struct adapter *adapter)
 
 	ASSERT(card);
 
-	
+	/* adapter should be down at this point */
 	if (adapter->state != ADAPT_DOWN) {
 		dev_err(&dev->dev, "%s: adapter->state != ADAPT_DOWN\n",
 			__func__);
@@ -2992,6 +3113,9 @@ static int slic_if_init(struct adapter *adapter)
 		adapter->card->pingstatus = ISR_PINGMASK;
 	}
 
+	/*
+	 *    clear any pending events, then enable interrupts
+	 */
 	adapter->isrcopy = 0;
 	adapter->pshmem->isr = 0;
 	slic_reg32_write(&slic_regs->slic_isr, 0, FLUSH);
@@ -3083,7 +3207,7 @@ static void __devexit slic_entry_remove(struct pci_dev *pcidev)
 	release_mem_region(mmio_start, mmio_len);
 
 	iounmap((void __iomem *)dev->base_addr);
-	
+	/* free multicast addresses */
 	mlist = adapter->mcastaddrs;
 	while (mlist) {
 		mcaddr = mlist;
@@ -3141,6 +3265,9 @@ static int slic_entry_halt(struct net_device *dev)
 #ifdef AUTOMATIC_RESET
 	slic_reg32_write(&slic_regs->slic_reset_iface, 0, FLUSH);
 #endif
+	/*
+	 *  Reset the adapter's cmd queues
+	 */
 	slic_cmdq_reset(adapter);
 
 #ifdef AUTOMATIC_RESET
@@ -3336,10 +3463,10 @@ static int slic_card_init(struct sliccard *card, struct adapter *adapter)
 	struct atk_fru *patkfru;
 	union oemfru *poemfru;
 
-	
+	/* Reset everything except PCI configuration space */
 	slic_soft_reset(adapter);
 
-	
+	/* Download the microcode */
 	status = slic_card_download(adapter);
 
 	if (status != 0) {
@@ -3415,9 +3542,9 @@ static int slic_card_init(struct sliccard *card, struct adapter *adapter)
 		}
 
 		switch (adapter->devid) {
-		
+		/* Oasis card */
 		case SLIC_2GB_DEVICE_ID:
-			
+			/* extract EEPROM data and pointers to EEPROM data */
 			pOeeprom = (struct oslic_eeprom *) peeprom;
 			eecodesize = pOeeprom->EecodeSize;
 			dramsize = pOeeprom->DramSize;
@@ -3427,9 +3554,13 @@ static int slic_card_init(struct sliccard *card, struct adapter *adapter)
 			oemfruformat = pOeeprom->OemFruFormat;
 			poemfru = &pOeeprom->OemFru;
 			macaddrs = 2;
+			/* Minor kludge for Oasis card
+			     get 2 MAC addresses from the
+			     EEPROM to ensure that function 1
+			     gets the Port 1 MAC address */
 			break;
 		default:
-			
+			/* extract EEPROM data and pointers to EEPROM data */
 			eecodesize = peeprom->EecodeSize;
 			dramsize = peeprom->DramSize;
 			pmac = peeprom->u2.mac.MacInfo;
@@ -3442,28 +3573,35 @@ static int slic_card_init(struct sliccard *card, struct adapter *adapter)
 
 		card->config.EepromValid = false;
 
-		
+		/*  see if the EEPROM is valid by checking it's checksum */
 		if ((eecodesize <= MAX_EECODE_SIZE) &&
 		    (eecodesize >= MIN_EECODE_SIZE)) {
 
 			ee_chksum =
 			    *(u16 *) ((char *) peeprom + (eecodesize - 2));
+			/*
+			    calculate the EEPROM checksum
+			*/
 			calc_chksum =
 			    ~slic_eeprom_cksum((char *) peeprom,
 					       (eecodesize - 2));
+			/*
+			    if the ucdoe chksum flag bit worked,
+			    we wouldn't need this shit
+			*/
 			if (ee_chksum == calc_chksum)
 				card->config.EepromValid = true;
 		}
-		
+		/*  copy in the DRAM size */
 		card->config.DramSize = dramsize;
 
-		
+		/*  copy in the MAC address(es) */
 		for (i = 0; i < macaddrs; i++) {
 			memcpy(&card->config.MacInfo[i],
 			       &pmac[i], sizeof(struct slic_config_mac));
 		}
 
-		
+		/*  copy the Alacritech FRU information */
 		card->config.FruFormat = fruformat;
 		memcpy(&card->config.AtkFru, patkfru,
 						sizeof(struct atk_fru));
@@ -3496,8 +3634,14 @@ static int slic_card_init(struct sliccard *card, struct adapter *adapter)
 	else
 		slic_intagg_set(adapter, intagg_delay);
 
+	/*
+	 *  Initialize ping status to "ok"
+	 */
 	card->pingstatus = ISR_PINGMASK;
 
+	/*
+	 * Lastly, mark our card state as up and return success
+	 */
 	card->state = CARD_UP;
 	card->reset_in_progress = 0;
 
@@ -3522,6 +3666,7 @@ static void slic_init_adapter(struct net_device *netdev,
 	struct slic_handle *pslic_handle;
 	struct adapter *adapter = netdev_priv(netdev);
 
+/*	adapter->pcidev = pcidev;*/
 	adapter->vendid = pci_tbl_entry->vendor;
 	adapter->devid = pci_tbl_entry->device;
 	adapter->subsysid = pci_tbl_entry->subdevice;
@@ -3531,10 +3676,11 @@ static void slic_init_adapter(struct net_device *netdev,
 	adapter->memorylength = pci_resource_len(pcidev, 0);
 	adapter->slic_regs = (__iomem struct slic_regs *)memaddr;
 	adapter->irq = pcidev->irq;
+/*	adapter->netdev = netdev;*/
 	adapter->next_netdevice = head_netdevice;
 	head_netdevice = netdev;
 	adapter->chipid = chip_idx;
-	adapter->port = 0;	
+	adapter->port = 0;	/*adapter->functionnumber;*/
 	adapter->cardindex = adapter->port;
 	adapter->memorybase = memaddr;
 	spin_lock_init(&adapter->upr_lock.lock);
@@ -3544,7 +3690,13 @@ static void slic_init_adapter(struct net_device *netdev,
 	spin_lock_init(&adapter->handle_lock.lock);
 
 	adapter->card_size = 1;
+	/*
+	  Initialize slic_handle array
+	*/
 	ASSERT(SLIC_CMDQ_MAXCMDS <= 0xFFFF);
+	/*
+	 Start with 1.  0 is an invalid host handle.
+	*/
 	for (index = 1, pslic_handle = &adapter->slic_handles[1];
 	     index < SLIC_CMDQ_MAXCMDS; index++, pslic_handle++) {
 
@@ -3602,10 +3754,10 @@ static u32 slic_card_locate(struct adapter *adapter)
 	    (u16 __iomem *) (((u8 __iomem *) (adapter->slic_regs)) +
 	    rdhostid_offset);
 
-	
+	/* read the 16 bit hostid from SRAM */
 	card_hostid = (ushort) readw(hostid_reg);
 
-	
+	/* Initialize a new card structure if need be */
 	if (card_hostid == SLIC_HOSTID_DEFAULT) {
 		card = kzalloc(sizeof(struct sliccard), GFP_KERNEL);
 		if (card == NULL)
@@ -3616,7 +3768,7 @@ static u32 slic_card_locate(struct adapter *adapter)
 		card->busnumber = adapter->busnumber;
 		card->slotnumber = adapter->slotnumber;
 
-		
+		/* Find an available cardnum */
 		for (i = 0; i < SLIC_MAX_CARDS; i++) {
 			if (slic_global.cardnuminuse[i] == 0) {
 				slic_global.cardnuminuse[i] = 1;
@@ -3628,7 +3780,7 @@ static u32 slic_card_locate(struct adapter *adapter)
 
 		slic_debug_card_create(card);
 	} else {
-		
+		/* Card exists, find the card this adapter belongs to */
 		while (card) {
 			if (card->cardnum == card_hostid)
 				break;
@@ -3639,14 +3791,14 @@ static u32 slic_card_locate(struct adapter *adapter)
 	ASSERT(card);
 	if (!card)
 		return -ENXIO;
-	
+	/* Put the adapter in the card's adapter list */
 	ASSERT(card->adapter[adapter->port] == NULL);
 	if (!card->adapter[adapter->port]) {
 		card->adapter[adapter->port] = adapter;
 		adapter->card = card;
 	}
 
-	card->card_size = 1;	
+	card->card_size = 1;	/* one port per *logical* card */
 
 	while (physcard) {
 		for (i = 0; i < SLIC_MAX_PORTS; i++) {
@@ -3661,7 +3813,7 @@ static u32 slic_card_locate(struct adapter *adapter)
 		physcard = physcard->next;
 	}
 	if (!physcard) {
-		
+		/* no structure allocated for this physical card yet */
 		physcard = kzalloc(sizeof(struct physcard), GFP_ATOMIC);
 		ASSERT(physcard);
 
@@ -3671,7 +3823,7 @@ static u32 slic_card_locate(struct adapter *adapter)
 	} else {
 		physcard->adapters_allocd++;
 	}
-	
+	/* Note - this is ZERO relative */
 	adapter->physport = physcard->adapters_allocd - 1;
 
 	ASSERT(physcard->adapter[adapter->physport] == NULL);
@@ -3750,6 +3902,7 @@ static int __devinit slic_entry_probe(struct pci_dev *pcidev,
 	mmio_len = pci_resource_len(pcidev, 0);
 
 
+/*	memmapped_ioaddr =  (u32)ioremap_nocache(mmio_start, mmio_len);*/
 	memmapped_ioaddr = ioremap(mmio_start, mmio_len);
 	if (!memmapped_ioaddr) {
 		dev_err(&pcidev->dev, "cannot remap MMIO region %lx @ %lx\n",

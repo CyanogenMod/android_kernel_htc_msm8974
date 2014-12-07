@@ -1,3 +1,6 @@
+/*
+ * Fujitsu MB862xx Graphics Controller Registers/Bits
+ */
 
 #ifndef _MB862XX_REG_H
 #define _MB862XX_REG_H
@@ -12,6 +15,7 @@
 #define MB862XX_PIO_BASE	0x00038000
 #define MB862XX_MMIO_SIZE	0x40000
 
+/* Host interface/pio registers */
 #define GC_IST			0x00000020
 #define GC_IMASK		0x00000024
 #define GC_SRST			0x0000002c
@@ -28,10 +32,13 @@
 #define GC_CID_CNAME_MSK	0x0000ff00
 #define GC_CID_VERSION_MSK	0x000000ff
 
+/* define enabled interrupts hereby */
 #define GC_INT_EN		0x00000000
 
+/* Memory interface mode register */
 #define GC_MMR			0x0000fffc
 
+/* Display Controller registers */
 #define GC_DCM0			0x00000000
 #define GC_HTP			0x00000004
 #define GC_HDB_HDP		0x00000008
@@ -85,11 +92,12 @@
 
 #define GC_DISP_REFCLK_400	400
 
-#define GC_I2C_BSR		0x00000000	
-#define GC_I2C_BCR		0x00000004	
-#define GC_I2C_CCR		0x00000008	
-#define GC_I2C_ADR		0x0000000C	
-#define GC_I2C_DAR		0x00000010	
+/* I2C */
+#define GC_I2C_BSR		0x00000000	/* BSR */
+#define GC_I2C_BCR		0x00000004	/* BCR */
+#define GC_I2C_CCR		0x00000008	/* CCR */
+#define GC_I2C_ADR		0x0000000C	/* ADR */
+#define GC_I2C_DAR		0x00000010	/* DAR */
 
 #define I2C_DISABLE		0x00000000
 #define I2C_STOP		0x00000000
@@ -105,6 +113,7 @@
 #define I2C_TRX			0x80
 #define I2C_LRB			0x10
 
+/* Capture registers and bits */
 #define GC_CAP_VCM		0x00000000
 #define GC_CAP_CSC		0x00000004
 #define GC_CAP_VCS		0x00000008
@@ -123,6 +132,7 @@
 #define GC_CBM_HRV		0x00000010
 #define GC_CBM_CBST		0x00000001
 
+/* Carmine specific */
 #define MB86297_DRAW_BASE		0x00020000
 #define MB86297_DISP0_BASE		0x00100000
 #define MB86297_DISP1_BASE		0x00140000
@@ -146,8 +156,10 @@
 #define GC_2D3D_REV			0x000004b4
 #define GC_RE_REVISION			0x24240200
 
+/* define enabled interrupts hereby */
 #define GC_CARMINE_INT_EN		0x00000004
 
+/* DRAM controller */
 #define GC_DCTL_MODE_ADD		0x00000000
 #define GC_DCTL_SETTIME1_EMODE		0x00000004
 #define GC_DCTL_REFRESH_SETTIME2	0x00000008
@@ -160,6 +172,7 @@
 #define GC_DCTL_INIT_WAIT_CNT		3000
 #define GC_DCTL_INIT_WAIT_INTERVAL	1
 
+/* DRAM ctrl values for Carmine PCI Eval. board */
 #define GC_EVB_DCTL_MODE_ADD		0x012105c3
 #define GC_EVB_DCTL_MODE_ADD_AFT_RST	0x002105c3
 #define GC_EVB_DCTL_SETTIME1_EMODE	0x47498000

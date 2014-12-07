@@ -36,6 +36,6 @@ extern void debug_exception_vector(void);
 extern void general_exception_vector(void);
 extern void interrupt_exception_vector(void);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_SCORE_SETUP_H */

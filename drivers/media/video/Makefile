@@ -213,7 +213,10 @@ obj-$(CONFIG_ARCH_OMAP)	+= omap/
 
 obj-$(CONFIG_VIDEO_NMI) += nmi/
 
+#++ DTV_PCN1000006_HTC_PANASONIC_MAKEFILE
+# [HTC]  Panasonic makefile
 obj-$(CONFIG_VIDEO_PANASONIC) += panasonic/
+#-- DTV_PCN1000006_HTC_PANASONIC_MAKEFILE
 
 ccflags-y += -I$(srctree)/drivers/media/dvb/dvb-core
 ccflags-y += -I$(srctree)/drivers/media/dvb/frontends

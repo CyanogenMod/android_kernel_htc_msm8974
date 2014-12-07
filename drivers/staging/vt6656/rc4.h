@@ -32,6 +32,8 @@
 
 #include "ttype.h"
 
+/*---------------------  Export Definitions -------------------------*/
+/*---------------------  Export Types  ------------------------------*/
 typedef struct {
     unsigned int ux;
     unsigned int uy;
@@ -43,4 +45,4 @@ unsigned int rc4_byte(PRC4Ext pRC4);
 void rc4_encrypt(PRC4Ext pRC4, PBYTE pbyDest, PBYTE pbySrc,
 		 unsigned int cbData_len);
 
-#endif 
+#endif /* __RC4_H__ */

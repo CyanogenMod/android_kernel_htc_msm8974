@@ -16,21 +16,30 @@
 #include <asm/ptrace.h>
 #include <asm/user.h>
 
-#define R_MN10300_NONE		0	
-#define R_MN10300_32		1	
-#define R_MN10300_16		2	
-#define R_MN10300_8		3	
-#define R_MN10300_PCREL32	4	
-#define R_MN10300_PCREL16	5	
-#define R_MN10300_PCREL8	6	
-#define R_MN10300_24		9	
-#define R_MN10300_RELATIVE	23	
-#define R_MN10300_SYM_DIFF	33	
-#define R_MN10300_ALIGN 	34	
+/*
+ * AM33 relocations
+ */
+#define R_MN10300_NONE		0	/* No reloc.  */
+#define R_MN10300_32		1	/* Direct 32 bit.  */
+#define R_MN10300_16		2	/* Direct 16 bit.  */
+#define R_MN10300_8		3	/* Direct 8 bit.  */
+#define R_MN10300_PCREL32	4	/* PC-relative 32-bit.  */
+#define R_MN10300_PCREL16	5	/* PC-relative 16-bit signed.  */
+#define R_MN10300_PCREL8	6	/* PC-relative 8-bit signed.  */
+#define R_MN10300_24		9	/* Direct 24 bit.  */
+#define R_MN10300_RELATIVE	23	/* Adjust by program base.  */
+#define R_MN10300_SYM_DIFF	33	/* Adjustment when relaxing. */
+#define R_MN10300_ALIGN 	34	/* Alignment requirement. */
 
-#define HWCAP_MN10300_ATOMIC_OP_UNIT	1	
+/*
+ * AM33/AM34 HW Capabilities
+ */
+#define HWCAP_MN10300_ATOMIC_OP_UNIT	1	/* Has AM34 Atomic Operations */
 
 
+/*
+ * ELF register definitions..
+ */
 typedef unsigned long elf_greg_t;
 
 #define ELF_NGREG ((sizeof(struct pt_regs) / sizeof(elf_greg_t)) - 1)
@@ -44,14 +53,23 @@ typedef struct {
 	u_int32_t	fpcr;
 } elf_fpregset_t;
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture
+ */
 #define elf_check_arch(x) \
 	(((x)->e_machine == EM_CYGNUS_MN10300) ||	\
 	 ((x)->e_machine == EM_MN10300))
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #define ELF_CLASS	ELFCLASS32
 #define ELF_DATA	ELFDATA2LSB
 #define ELF_ARCH	EM_MN10300
 
+/*
+ * ELF process initialiser
+ */
 #define ELF_PLAT_INIT(_r, load_addr)					\
 do {									\
 	struct pt_regs *_ur = current->thread.uregs;			\
@@ -66,8 +84,20 @@ do {									\
 #define CORE_DUMP_USE_REGSET
 #define ELF_EXEC_PAGESIZE	4096
 
+/*
+ * This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+ * use of this is to invoke "./ld.so someprog" to test out a new version of
+ * the loader.  We need to make sure that it is out of the way of the program
+ * that it will "exec", and that there is sufficient room for the brk.
+ * - must clear the VMALLOC area
+ */
 #define ELF_ET_DYN_BASE         0x04000000
 
+/*
+ * regs is struct pt_regs, pr_reg is elf_gregset_t (which is
+ * now struct user_regs, they are different)
+ * - ELF_CORE_COPY_REGS has been guessed, and may be wrong
+ */
 #define ELF_CORE_COPY_REGS(pr_reg, regs)	\
 do {						\
 	pr_reg[0]	= regs->a3;		\
@@ -99,16 +129,29 @@ do {						\
 	pr_reg[26]	= regs->pc;		\
 } while (0);
 
+/*
+ * This yields a mask that user programs can use to figure out what
+ * instruction set this CPU supports.  This could be done in user space,
+ * but it's not easy, and we've already done it here.
+ */
 #ifdef CONFIG_MN10300_HAS_ATOMIC_OPS_UNIT
 #define ELF_HWCAP	(HWCAP_MN10300_ATOMIC_OP_UNIT)
 #else
 #define ELF_HWCAP	(0)
 #endif
 
+/*
+ * This yields a string that ld.so will use to load implementation
+ * specific libraries for optimization.  This is more specific in
+ * intent than poking at uname or /proc/cpuinfo.
+ *
+ * For the moment, we have only optimizations for the Intel generations,
+ * but that could change...
+ */
 #define ELF_PLATFORM  (NULL)
 
 #ifdef __KERNEL__
 #define SET_PERSONALITY(ex) set_personality(PER_LINUX)
 #endif
 
-#endif 
+#endif /* _ASM_ELF_H */

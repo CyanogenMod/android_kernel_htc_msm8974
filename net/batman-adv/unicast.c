@@ -42,7 +42,7 @@ static struct sk_buff *frag_merge_packet(struct list_head *head,
 	int hdr_len = sizeof(*unicast_packet);
 	int uni_diff = sizeof(*up) - hdr_len;
 
-	
+	/* set skb to the first part and tmp_skb to the second part */
 	if (up->flags & UNI_FRAG_HEAD) {
 		tmp_skb = tfp->skb;
 	} else {
@@ -57,7 +57,7 @@ static struct sk_buff *frag_merge_packet(struct list_head *head,
 	if (pskb_expand_head(skb, 0, tmp_skb->len, GFP_ATOMIC) < 0)
 		goto err;
 
-	
+	/* move free entry to end */
 	tfp->skb = NULL;
 	tfp->seqno = 0;
 	list_move_tail(&tfp->list, head);
@@ -72,7 +72,7 @@ static struct sk_buff *frag_merge_packet(struct list_head *head,
 	return skb;
 
 err:
-	
+	/* free buffered skb, skb will be freed later */
 	kfree_skb(tfp->skb);
 	return NULL;
 }
@@ -83,7 +83,7 @@ static void frag_create_entry(struct list_head *head, struct sk_buff *skb)
 	struct unicast_frag_packet *up =
 		(struct unicast_frag_packet *)skb->data;
 
-	
+	/* free and oldest packets stand at the end */
 	tfp = list_entry((head)->prev, typeof(*tfp), list);
 	kfree_skb(tfp->skb);
 
@@ -166,6 +166,12 @@ void frag_list_free(struct list_head *head)
 	return;
 }
 
+/* frag_reassemble_skb():
+ * returns NET_RX_DROP if the operation failed - skb is left intact
+ * returns NET_RX_SUCCESS if the fragment was buffered (skb_new will be NULL)
+ * or the skb could be reassembled (skb_new will point to the new packet and
+ * skb was freed)
+ */
 int frag_reassemble_skb(struct sk_buff *skb, struct bat_priv *bat_priv,
 			struct sk_buff **new_skb)
 {
@@ -200,7 +206,7 @@ int frag_reassemble_skb(struct sk_buff *skb, struct bat_priv *bat_priv,
 
 	*new_skb = frag_merge_packet(&orig_node->frag_list, tmp_frag_entry,
 				     skb);
-	
+	/* if not, merge failed */
 	if (*new_skb)
 		ret = NET_RX_SUCCESS;
 
@@ -286,17 +292,24 @@ int unicast_send_skb(struct sk_buff *skb, struct bat_priv *bat_priv)
 	int data_len = skb->len;
 	int ret = 1;
 
-	
+	/* get routing information */
 	if (is_multicast_ether_addr(ethhdr->h_dest)) {
 		orig_node = gw_get_selected_orig(bat_priv);
 		if (orig_node)
 			goto find_router;
 	}
 
+	/* check for tt host - increases orig_node refcount.
+	 * returns NULL in case of AP isolation */
 	orig_node = transtable_search(bat_priv, ethhdr->h_source,
 				      ethhdr->h_dest);
 
 find_router:
+	/**
+	 * find_router():
+	 *  - if orig_node is NULL it returns NULL
+	 *  - increases neigh_nodes refcount if found.
+	 */
 	neigh_node = find_router(bat_priv, orig_node, NULL);
 
 	if (!neigh_node)
@@ -308,20 +321,20 @@ find_router:
 	unicast_packet = (struct unicast_packet *)skb->data;
 
 	unicast_packet->header.version = COMPAT_VERSION;
-	
+	/* batman packet type: unicast */
 	unicast_packet->header.packet_type = BAT_UNICAST;
-	
+	/* set unicast ttl */
 	unicast_packet->header.ttl = TTL;
-	
+	/* copy the destination for faster routing */
 	memcpy(unicast_packet->dest, orig_node->orig, ETH_ALEN);
-	
+	/* set the destination tt version number */
 	unicast_packet->ttvn =
 		(uint8_t)atomic_read(&orig_node->last_ttvn);
 
 	if (atomic_read(&bat_priv->fragmentation) &&
 	    data_len + sizeof(*unicast_packet) >
 				neigh_node->if_incoming->net_dev->mtu) {
-		
+		/* send frag skb decreases ttl */
 		unicast_packet->header.ttl++;
 		ret = frag_send_skb(skb, bat_priv,
 				    neigh_node->if_incoming, neigh_node->addr);

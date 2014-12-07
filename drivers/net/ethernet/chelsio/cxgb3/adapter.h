@@ -30,6 +30,7 @@
  * SOFTWARE.
  */
 
+/* This file should not be included directly.  Include common.h instead. */
 
 #ifndef __T3_ADAPTER_H__
 #define __T3_ADAPTER_H__
@@ -76,10 +77,10 @@ struct port_info {
 	__be32 iscsi_ipv4addr;
 	struct iscsi_config iscsic;
 
-	int link_fault; 
+	int link_fault; /* link fault was detected */
 };
 
-enum {				
+enum {				/* adapter flags */
 	FULL_INIT_DONE = (1 << 0),
 	USING_MSI = (1 << 1),
 	USING_MSIX = (1 << 2),
@@ -99,56 +100,61 @@ struct fl_pg_chunk {
 struct rx_desc;
 struct rx_sw_desc;
 
-struct sge_fl {                     
-	unsigned int buf_size;      
-	unsigned int credits;       
-	unsigned int pend_cred;     
-	unsigned int size;          
-	unsigned int cidx;          
-	unsigned int pidx;          
-	unsigned int gen;           
-	struct fl_pg_chunk pg_chunk;
-	unsigned int use_pages;     
-	unsigned int order;	    
-	unsigned int alloc_size;    
-	struct rx_desc *desc;       
-	struct rx_sw_desc *sdesc;   
-	dma_addr_t   phys_addr;     
-	unsigned int cntxt_id;      
-	unsigned long empty;        
-	unsigned long alloc_failed; 
+struct sge_fl {                     /* SGE per free-buffer list state */
+	unsigned int buf_size;      /* size of each Rx buffer */
+	unsigned int credits;       /* # of available Rx buffers */
+	unsigned int pend_cred;     /* new buffers since last FL DB ring */
+	unsigned int size;          /* capacity of free list */
+	unsigned int cidx;          /* consumer index */
+	unsigned int pidx;          /* producer index */
+	unsigned int gen;           /* free list generation */
+	struct fl_pg_chunk pg_chunk;/* page chunk cache */
+	unsigned int use_pages;     /* whether FL uses pages or sk_buffs */
+	unsigned int order;	    /* order of page allocations */
+	unsigned int alloc_size;    /* size of allocated buffer */
+	struct rx_desc *desc;       /* address of HW Rx descriptor ring */
+	struct rx_sw_desc *sdesc;   /* address of SW Rx descriptor ring */
+	dma_addr_t   phys_addr;     /* physical address of HW ring start */
+	unsigned int cntxt_id;      /* SGE context id for the free list */
+	unsigned long empty;        /* # of times queue ran out of buffers */
+	unsigned long alloc_failed; /* # of times buffer allocation failed */
 };
 
+/*
+ * Bundle size for grouping offload RX packets for delivery to the stack.
+ * Don't make this too big as we do prefetch on each packet in a bundle.
+ */
 # define RX_BUNDLE_SIZE 8
 
 struct rsp_desc;
 
-struct sge_rspq {		
-	unsigned int credits;	
-	unsigned int size;	
-	unsigned int cidx;	
-	unsigned int gen;	
-	unsigned int polling;	
-	unsigned int holdoff_tmr;	
-	unsigned int next_holdoff;	
-	unsigned int rx_recycle_buf; 
-	struct rsp_desc *desc;	
-	dma_addr_t phys_addr;	
-	unsigned int cntxt_id;	
-	spinlock_t lock;	
-	struct sk_buff_head rx_queue; 
-	struct sk_buff *pg_skb; 
+struct sge_rspq {		/* state for an SGE response queue */
+	unsigned int credits;	/* # of pending response credits */
+	unsigned int size;	/* capacity of response queue */
+	unsigned int cidx;	/* consumer index */
+	unsigned int gen;	/* current generation bit */
+	unsigned int polling;	/* is the queue serviced through NAPI? */
+	unsigned int holdoff_tmr;	/* interrupt holdoff timer in 100ns */
+	unsigned int next_holdoff;	/* holdoff time for next interrupt */
+	unsigned int rx_recycle_buf; /* whether recycling occurred
+					within current sop-eop */
+	struct rsp_desc *desc;	/* address of HW response ring */
+	dma_addr_t phys_addr;	/* physical address of the ring */
+	unsigned int cntxt_id;	/* SGE context id for the response q */
+	spinlock_t lock;	/* guards response processing */
+	struct sk_buff_head rx_queue; /* offload packet receive queue */
+	struct sk_buff *pg_skb; /* used to build frag list in napi handler */
 
 	unsigned long offload_pkts;
 	unsigned long offload_bundles;
-	unsigned long eth_pkts;	
-	unsigned long pure_rsps;	
-	unsigned long imm_data;	
-	unsigned long rx_drops;	
-	unsigned long async_notif; 
-	unsigned long empty;	
-	unsigned long nomem;	
-	unsigned long unhandled_irqs;	
+	unsigned long eth_pkts;	/* # of ethernet packets */
+	unsigned long pure_rsps;	/* # of pure (non-data) responses */
+	unsigned long imm_data;	/* responses with immediate data */
+	unsigned long rx_drops;	/* # of packets dropped due to no mem */
+	unsigned long async_notif; /* # of asynchronous notification events */
+	unsigned long empty;	/* # of times queue ran out of credits */
+	unsigned long nomem;	/* # of responses deferred due to no mem */
+	unsigned long unhandled_irqs;	/* # of spurious intrs */
 	unsigned long starved;
 	unsigned long restarted;
 };
@@ -156,42 +162,42 @@ struct sge_rspq {
 struct tx_desc;
 struct tx_sw_desc;
 
-struct sge_txq {		
-	unsigned long flags;	
-	unsigned int in_use;	
-	unsigned int size;	
-	unsigned int processed;	
-	unsigned int cleaned;	
-	unsigned int stop_thres;	
-	unsigned int cidx;	
-	unsigned int pidx;	
-	unsigned int gen;	
-	unsigned int unacked;	
-	struct tx_desc *desc;	
-	struct tx_sw_desc *sdesc;	
-	spinlock_t lock;	
-	unsigned int token;	
-	dma_addr_t phys_addr;	
-	struct sk_buff_head sendq;	
-	struct tasklet_struct qresume_tsk;	
-	unsigned int cntxt_id;	
-	unsigned long stops;	
-	unsigned long restarts;	
+struct sge_txq {		/* state for an SGE Tx queue */
+	unsigned long flags;	/* HW DMA fetch status */
+	unsigned int in_use;	/* # of in-use Tx descriptors */
+	unsigned int size;	/* # of descriptors */
+	unsigned int processed;	/* total # of descs HW has processed */
+	unsigned int cleaned;	/* total # of descs SW has reclaimed */
+	unsigned int stop_thres;	/* SW TX queue suspend threshold */
+	unsigned int cidx;	/* consumer index */
+	unsigned int pidx;	/* producer index */
+	unsigned int gen;	/* current value of generation bit */
+	unsigned int unacked;	/* Tx descriptors used since last COMPL */
+	struct tx_desc *desc;	/* address of HW Tx descriptor ring */
+	struct tx_sw_desc *sdesc;	/* address of SW Tx descriptor ring */
+	spinlock_t lock;	/* guards enqueueing of new packets */
+	unsigned int token;	/* WR token */
+	dma_addr_t phys_addr;	/* physical address of the ring */
+	struct sk_buff_head sendq;	/* List of backpressured offload packets */
+	struct tasklet_struct qresume_tsk;	/* restarts the queue */
+	unsigned int cntxt_id;	/* SGE context id for the Tx q */
+	unsigned long stops;	/* # of times q has been stopped */
+	unsigned long restarts;	/* # of queue restarts */
 };
 
-enum {				
-	SGE_PSTAT_TSO,		
-	SGE_PSTAT_RX_CSUM_GOOD,	
-	SGE_PSTAT_TX_CSUM,	
-	SGE_PSTAT_VLANEX,	
-	SGE_PSTAT_VLANINS,	
+enum {				/* per port SGE statistics */
+	SGE_PSTAT_TSO,		/* # of TSO requests */
+	SGE_PSTAT_RX_CSUM_GOOD,	/* # of successful RX csum offloads */
+	SGE_PSTAT_TX_CSUM,	/* # of TX checksum offloads */
+	SGE_PSTAT_VLANEX,	/* # of VLAN tag extractions */
+	SGE_PSTAT_VLANINS,	/* # of VLAN tag insertions */
 
-	SGE_PSTAT_MAX		
+	SGE_PSTAT_MAX		/* must be last */
 };
 
 struct napi_gro_fraginfo;
 
-struct sge_qset {		
+struct sge_qset {		/* an SGE queue set */
 	struct adapter *adap;
 	struct napi_struct napi;
 	struct sge_rspq rspq;
@@ -200,16 +206,16 @@ struct sge_qset {
 	int nomem;
 	void *lro_va;
 	struct net_device *netdev;
-	struct netdev_queue *tx_q;	
-	unsigned long txq_stopped;	
-	struct timer_list tx_reclaim_timer;	
-	struct timer_list rx_reclaim_timer;	
+	struct netdev_queue *tx_q;	/* associated netdev TX queue */
+	unsigned long txq_stopped;	/* which Tx queues are stopped */
+	struct timer_list tx_reclaim_timer;	/* reclaims TX buffers */
+	struct timer_list rx_reclaim_timer;	/* reclaims RX buffers */
 	unsigned long port_stats[SGE_PSTAT_MAX];
 } ____cacheline_aligned;
 
 struct sge {
 	struct sge_qset qs[SGE_QSETS];
-	spinlock_t reg_lock;	
+	spinlock_t reg_lock;	/* guards non-atomic SGE registers (eg context) */
 };
 
 struct adapter {
@@ -235,7 +241,7 @@ struct adapter {
 		char desc[22];
 	} msix_info[SGE_QSETS + 1];
 
-	
+	/* T3 modules */
 	struct sge sge;
 	struct mc7 pmrx;
 	struct mc7 pmtx;
@@ -325,4 +331,4 @@ extern struct workqueue_struct *cxgb3_wq;
 
 int t3_get_edc_fw(struct cphy *phy, int edc_idx, int size);
 
-#endif				
+#endif				/* __T3_ADAPTER_H__ */

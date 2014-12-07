@@ -140,7 +140,7 @@ static int loop_tx_ir(struct rc_dev *dev, unsigned *txbuf, unsigned count)
 			ir_raw_event_store_with_filter(dev, &rawir);
 	}
 
-	
+	/* Fake a silence long enough to cause us to go idle */
 	rawir.pulse = false;
 	rawir.duration = dev->timeout;
 	ir_raw_event_store_with_filter(dev, &rawir);
@@ -148,7 +148,7 @@ static int loop_tx_ir(struct rc_dev *dev, unsigned *txbuf, unsigned count)
 	ir_raw_event_handle(dev);
 
 out:
-	
+	/* Lirc expects this function to take as long as the total duration */
 	set_current_state(TASK_INTERRUPTIBLE);
 	schedule_timeout(usecs_to_jiffies(total_duration));
 	return count;
@@ -208,7 +208,7 @@ static int __init loop_init(void)
 	rc->priv		= &loopdev;
 	rc->driver_type		= RC_DRIVER_IR_RAW;
 	rc->allowed_protos	= RC_TYPE_ALL;
-	rc->timeout		= 100 * 1000 * 1000; 
+	rc->timeout		= 100 * 1000 * 1000; /* 100 ms */
 	rc->min_timeout		= 1;
 	rc->max_timeout		= UINT_MAX;
 	rc->rx_resolution	= 1000;

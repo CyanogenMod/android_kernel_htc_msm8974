@@ -21,14 +21,15 @@
 
 struct mddi_info;
 
+/* output interface format */
 #define MSM_MDP_OUT_IF_FMT_RGB565 0
 #define MSM_MDP_OUT_IF_FMT_RGB666 1
 
 struct msm_fb_data {
-	int xres;	
-	int yres;	
-	int width;	
-	int height;	
+	int xres;	/* x resolution in pixels */
+	int yres;	/* y resolution in pixels */
+	int width;	/* disply width in mm */
+	int height;	/* display height in mm */
 	unsigned output_format;
 };
 
@@ -48,23 +49,23 @@ enum {
 #define MSMFB_CAP_PARTIAL_UPDATES	(1 << 0)
 
 struct msm_panel_data {
-	
+	/* turns off the fb memory */
 	int (*suspend)(struct msm_panel_data *);
-	
+	/* turns on the fb memory */
 	int (*resume)(struct msm_panel_data *);
-	
+	/* turns off the panel */
 	int (*blank)(struct msm_panel_data *);
-	
+	/* turns on the panel */
 	int (*unblank)(struct msm_panel_data *);
 	void (*wait_vsync)(struct msm_panel_data *);
 	void (*request_vsync)(struct msm_panel_data *, struct msmfb_callback *);
 	void (*clear_vsync)(struct msm_panel_data *);
-	
+	/* from the enum above */
 	unsigned interface_type;
-	
+	/* data to be passed to the fb driver */
 	struct msm_fb_data *fb_data;
 
-	
+	/* capabilities supported by the panel */
 	uint32_t caps;
 };
 
@@ -76,9 +77,11 @@ struct msm_mddi_client_data {
 			     uint32_t reg);
 	uint32_t (*remote_read)(struct msm_mddi_client_data *, uint32_t reg);
 	void (*auto_hibernate)(struct msm_mddi_client_data *, int);
+	/* custom data that needs to be passed from the board file to a
+	 * particular client */
 	void *private_client_data;
 	struct resource *fb_resource;
-	
+	/* from the list above */
 	unsigned interface_type;
 };
 
@@ -86,35 +89,47 @@ struct msm_mddi_platform_data {
 	unsigned int clk_rate;
 	void (*power_client)(struct msm_mddi_client_data *, int on);
 
-	
+	/* fixup the mfr name, product id */
 	void (*fixup)(uint16_t *mfr_name, uint16_t *product_id);
 
 	int vsync_irq;
 
-	struct resource *fb_resource; 
-	
+	struct resource *fb_resource; /*optional*/
+	/* number of clients in the list that follows */
 	int num_clients;
-	
+	/* array of client information of clients */
 	struct {
-		unsigned product_id; 
-		char *name;	
-		unsigned id;	
-		void *client_data;	
-		unsigned int clk_rate;	
+		unsigned product_id; /* mfr id in top 16 bits, product id
+				      * in lower 16 bits
+				      */
+		char *name;	/* the device name will be the platform
+				 * device name registered for the client,
+				 * it should match the name of the associated
+				 * driver
+				 */
+		unsigned id;	/* id for mddi client device node, will also
+				 * be used as device id of panel devices, if
+				 * the client device will have multiple panels
+				 * space must be left here for them
+				 */
+		void *client_data;	/* required private client data */
+		unsigned int clk_rate;	/* optional: if the client requires a
+					* different mddi clk rate
+					*/
 	} client_platform_data[];
 };
 
 struct msm_lcdc_timing {
-	unsigned int clk_rate;		
-	unsigned int hsync_pulse_width;	
-	unsigned int hsync_back_porch;	
-	unsigned int hsync_front_porch;	
-	unsigned int hsync_skew;	
-	unsigned int vsync_pulse_width;	
-	unsigned int vsync_back_porch;	
-	unsigned int vsync_front_porch;	
+	unsigned int clk_rate;		/* dclk freq */
+	unsigned int hsync_pulse_width;	/* in dclks */
+	unsigned int hsync_back_porch;	/* in dclks */
+	unsigned int hsync_front_porch;	/* in dclks */
+	unsigned int hsync_skew;	/* in dclks */
+	unsigned int vsync_pulse_width;	/* in lines */
+	unsigned int vsync_back_porch;	/* in lines */
+	unsigned int vsync_front_porch;	/* in lines */
 
-	
+	/* control signal polarity */
 	unsigned int vsync_act_low:1;
 	unsigned int hsync_act_low:1;
 	unsigned int den_act_low:1;
@@ -153,21 +168,22 @@ struct mdp_device {
 struct class_interface;
 int register_mdp_client(struct class_interface *class_intf);
 
+/**** private client data structs go below this line ***/
 
 struct msm_mddi_bridge_platform_data {
-	
+	/* from board file */
 	int (*init)(struct msm_mddi_bridge_platform_data *,
 		    struct msm_mddi_client_data *);
 	int (*uninit)(struct msm_mddi_bridge_platform_data *,
 		      struct msm_mddi_client_data *);
-	
+	/* passed to panel for use by the fb driver */
 	int (*blank)(struct msm_mddi_bridge_platform_data *,
 		     struct msm_mddi_client_data *);
 	int (*unblank)(struct msm_mddi_bridge_platform_data *,
 		       struct msm_mddi_client_data *);
 	struct msm_fb_data fb_data;
 
-	
+	/* board file will identify what capabilities the panel supports */
 	uint32_t panel_caps;
 };
 

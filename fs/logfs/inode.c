@@ -10,6 +10,21 @@
 #include <linux/writeback.h>
 #include <linux/backing-dev.h>
 
+/*
+ * How soon to reuse old inode numbers?  LogFS doesn't store deleted inodes
+ * on the medium.  It therefore also lacks a method to store the previous
+ * generation number for deleted inodes.  Instead a single generation number
+ * is stored which will be used for new inodes.  Being just a 32bit counter,
+ * this can obvious wrap relatively quickly.  So we only reuse inodes if we
+ * know that a fair number of inodes can be created before we have to increment
+ * the generation again - effectively adding some bits to the counter.
+ * But being too aggressive here means we keep a very large and very sparse
+ * inode file, wasting space on indirect blocks.
+ * So what is a good value?  Beats me.  64k seems moderately bad on both
+ * fronts, so let's use that for now...
+ *
+ * NFS sucks, as everyone already knows.
+ */
 #define INOS_PER_WRAP (0x10000)
 
 /*
@@ -52,9 +67,9 @@ static void logfs_inode_setops(struct inode *inode)
 		inode->i_op = &logfs_symlink_iops;
 		inode->i_mapping->a_ops = &logfs_reg_aops;
 		break;
-	case S_IFSOCK:	
-	case S_IFBLK:	
-	case S_IFCHR:	
+	case S_IFSOCK:	/* fall through */
+	case S_IFBLK:	/* fall through */
+	case S_IFCHR:	/* fall through */
 	case S_IFIFO:
 		init_special_inode(inode, inode->i_mode, inode->i_rdev);
 		break;
@@ -75,7 +90,9 @@ static struct inode *__logfs_iget(struct super_block *sb, ino_t ino)
 
 	err = logfs_read_inode(inode);
 	if (err || inode->i_nlink == 0) {
-		
+		/* inode->i_nlink == 0 can be true when called from
+		 * block validator */
+		/* set i_nlink to 0 to prevent caching */
 		clear_nlink(inode);
 		logfs_inode(inode)->li_flags |= LOGFS_IF_ZOMBIE;
 		iget_failed(inode);
@@ -96,6 +113,10 @@ struct inode *logfs_iget(struct super_block *sb, ino_t ino)
 	return __logfs_iget(sb, ino);
 }
 
+/*
+ * is_cached is set to 1 if we hand out a cached inode, 0 otherwise.
+ * this allows logfs_iput to do the right thing later
+ */
 struct inode *logfs_safe_iget(struct super_block *sb, ino_t ino, int *is_cached)
 {
 	struct logfs_super *super = logfs_super(sb);
@@ -261,7 +282,7 @@ static int logfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	int ret;
 	long flags = WF_LOCK;
 
-	
+	/* Can only happen if creat() failed.  Safe to skip. */
 	if (logfs_inode(inode)->li_flags & LOGFS_IF_STILLBORN)
 		return 0;
 
@@ -270,6 +291,7 @@ static int logfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 	return ret;
 }
 
+/* called with inode->i_lock held */
 static int logfs_drop_inode(struct inode *inode)
 {
 	struct logfs_super *super = logfs_super(inode->i_sb);
@@ -312,7 +334,7 @@ struct inode *logfs_new_inode(struct inode *dir, umode_t mode)
 
 	logfs_init_inode(sb, inode);
 
-	
+	/* inherit parent flags */
 	logfs_inode(inode)->li_flags |=
 		logfs_inode(dir)->li_flags & LOGFS_FL_INHERITED;
 
@@ -350,7 +372,7 @@ static int logfs_sync_fs(struct super_block *sb, int wait)
 static void logfs_put_super(struct super_block *sb)
 {
 	struct logfs_super *super = logfs_super(sb);
-	
+	/* kill the meta-inodes */
 	iput(super->s_master_inode);
 	iput(super->s_segfile_inode);
 	iput(super->s_mapping_inode);

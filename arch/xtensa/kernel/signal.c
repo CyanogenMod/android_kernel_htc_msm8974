@@ -50,6 +50,10 @@ struct rt_sigframe
 	unsigned int window[4];
 };
 
+/* 
+ * Flush register windows stored in pt_regs to stack.
+ * Returns 1 for errors.
+ */
 
 int
 flush_window_regs_user(struct pt_regs *regs)
@@ -61,54 +65,54 @@ flush_window_regs_user(struct pt_regs *regs)
 	int err = 1;
 	int base;
 
-	
+	/* Return if no other frames. */
 
 	if (regs->wmask == 1)
 		return 0;
 
-	
+	/* Rotate windowmask and skip empty frames. */
 
 	wm = (ws >> wb) | (ws << (XCHAL_NUM_AREGS / 4 - wb));
 	base = (XCHAL_NUM_AREGS / 4) - (regs->wmask >> 4);
 		
-	
+	/* For call8 or call12 frames, we need the previous stack pointer. */
 
 	if ((regs->wmask & 2) == 0)
 		if (__get_user(sp, (int*)(regs->areg[base * 4 + 1] - 12)))
 			goto errout;
 
-	
+	/* Spill frames to stack. */
 
 	while (base < XCHAL_NUM_AREGS / 4) {
 
 		int m = (wm >> base);
 		int inc = 0;
 
-		
+		/* Save registers a4..a7 (call8) or a4...a11 (call12) */
 
-		if (m & 2) {			
+		if (m & 2) {			/* call4 */
 			inc = 1;
 
-		} else if (m & 4) {		
+		} else if (m & 4) {		/* call8 */
 			if (copy_to_user((void*)(sp - 32),
 					   &regs->areg[(base + 1) * 4], 16))
 				goto errout;
 			inc = 2;
 
-		} else if (m & 8) {	
+		} else if (m & 8) {	/* call12 */
 			if (copy_to_user((void*)(sp - 48),
 					   &regs->areg[(base + 1) * 4], 32))
 				goto errout;
 			inc = 3;
 		}
 
-		
+		/* Save current frame a0..a3 under next SP */
 
 		sp = regs->areg[((base + inc) * 4 + 1) % XCHAL_NUM_AREGS];
 		if (copy_to_user((void*)(sp - 16), &regs->areg[base * 4], 16))
 			goto errout;
 
-		
+		/* Get current stack pointer for next loop iteration. */
 
 		sp = regs->areg[base * 4 + 1];
 		base += inc;
@@ -123,6 +127,13 @@ errout:
 	return err;
 }
 
+/*
+ * Note: We don't copy double exception 'regs', we have to finish double exc. 
+ * first before we return to signal handler! This dbl.exc.handler might cause 
+ * another double exception, but I think we are fine as the situation is the 
+ * same as if we had returned to the signal handerl and got an interrupt 
+ * immediately...
+ */
 
 static int
 setup_sigcontext(struct rt_sigframe __user *frame, struct pt_regs *regs)
@@ -179,18 +190,22 @@ restore_sigcontext(struct pt_regs *regs, struct rt_sigframe __user *frame)
 	COPY(sar);
 #undef COPY
 
-	
+	/* All registers were flushed to stack. Start with a prestine frame. */
 
 	regs->wmask = 1;
 	regs->windowbase = 0;
 	regs->windowstart = 1;
 
-	regs->syscall = -1;		
+	regs->syscall = -1;		/* disable syscall checks */
 
+	/* For PS, restore only PS.CALLINC.
+	 * Assume that all other bits are either the same as for the signal
+	 * handler, or the user mode value doesn't matter (e.g. PS.OWB).
+	 */
 	err |= __get_user(ps, &sc->sc_ps);
 	regs->ps = (regs->ps & ~PS_CALLINC_MASK) | (ps & PS_CALLINC_MASK);
 
-	
+	/* Additional corruption checks */
 
 	if ((regs->lcount > 0)
 	    && ((regs->lbeg > TASK_SIZE) || (regs->lend > TASK_SIZE)) )
@@ -201,6 +216,12 @@ restore_sigcontext(struct pt_regs *regs, struct rt_sigframe __user *frame)
 	if (err)
 		return err;
 
+ 	/* The signal handler may have used coprocessors in which
+	 * case they are still enabled.  We disable them to force a
+	 * reloading of the original task's CP state by the lazy
+	 * context-switching mechanisms of CP exception handling.
+	 * Also, we essentially discard any coprocessor state that the
+	 * signal handler created. */
 
 #if XTENSA_HAVE_COPROCESSORS
 	coprocessor_release_all(ti);
@@ -216,6 +237,9 @@ restore_sigcontext(struct pt_regs *regs, struct rt_sigframe __user *frame)
 }
 
 
+/*
+ * Do a signal return; undo the signal stack.
+ */
 
 asmlinkage long xtensa_rt_sigreturn(long a0, long a1, long a2, long a3,
 				    long a4, long a5, struct pt_regs *regs)
@@ -255,33 +279,42 @@ badframe:
 
 
 
+/*
+ * Set up a signal frame.
+ */
 
 static int
 gen_return_code(unsigned char *codemem)
 {
 	int err = 0;
 
+	/*
+	 * The 12-bit immediate is really split up within the 24-bit MOVI
+	 * instruction.  As long as the above system call numbers fit within
+	 * 8-bits, the following code works fine. See the Xtensa ISA for
+	 * details.
+	 */
 
 #if __NR_rt_sigreturn > 255
 # error Generating the MOVI instruction below breaks!
 #endif
 
-#ifdef __XTENSA_EB__   
-	
+#ifdef __XTENSA_EB__   /* Big Endian version */
+	/* Generate instruction:  MOVI a2, __NR_rt_sigreturn */
 	err |= __put_user(0x22, &codemem[0]);
 	err |= __put_user(0x0a, &codemem[1]);
 	err |= __put_user(__NR_rt_sigreturn, &codemem[2]);
-	
+	/* Generate instruction:  SYSCALL */
 	err |= __put_user(0x00, &codemem[3]);
 	err |= __put_user(0x05, &codemem[4]);
 	err |= __put_user(0x00, &codemem[5]);
 
-#elif defined __XTENSA_EL__   
-	
+#elif defined __XTENSA_EL__   /* Little Endian version */
+	/* Generate instruction:  MOVI a2, __NR_rt_sigreturn */
 	err |= __put_user(0x22, &codemem[0]);
 	err |= __put_user(0xa0, &codemem[1]);
 	err |= __put_user(__NR_rt_sigreturn, &codemem[2]);
-	
+	/* Generate instruction:  SYSCALL */
 	err |= __put_user(0x00, &codemem[3]);
 	err |= __put_user(0x50, &codemem[4]);
 	err |= __put_user(0x00, &codemem[5]);
@@ -289,7 +322,7 @@ gen_return_code(unsigned char *codemem)
 # error Must use compiler for Xtensa processors.
 #endif
 
-	
+	/* Flush generated code out of the data cache */
 
 	if (err == 0) {
 		__invalidate_icache_range((unsigned long)codemem, 6UL);
@@ -333,7 +366,7 @@ static int setup_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		err |= copy_siginfo_to_user(&frame->info, info);
 	}
 
-	
+	/* Create the user context.  */
 
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(0, &frame->uc.uc_link);
@@ -349,7 +382,7 @@ static int setup_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		ra = (unsigned long)ka->sa.sa_restorer;
 	} else {
 
-		
+		/* Create sys_rt_sigreturn syscall in stack frame */
 
 		err |= gen_return_code(frame->retcode);
 
@@ -359,16 +392,26 @@ static int setup_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 		ra = (unsigned long) frame->retcode;
 	}
 
+	/* 
+	 * Create signal handler execution context.
+	 * Return context not modified until this point.
+	 */
 
-	
+	/* Set up registers for signal handler */
 	start_thread(regs, (unsigned long) ka->sa.sa_handler, 
 		     (unsigned long) frame);
 
+	/* Set up a stack frame for a call4
+	 * Note: PS.CALLINC is set to one by start_thread
+	 */
 	regs->areg[4] = (((unsigned long) ra) & 0x3fffffff) | 0x40000000;
 	regs->areg[6] = (unsigned long) signal;
 	regs->areg[7] = (unsigned long) &frame->info;
 	regs->areg[8] = (unsigned long) &frame->uc;
 
+	/* Set access mode to USER_DS.  Nomenclature is outdated, but
+	 * functionality is used in uaccess.h
+	 */
 	set_fs(USER_DS);
 
 #if DEBUG_SIG
@@ -383,6 +426,9 @@ give_sigsegv:
 	return -EFAULT;
 }
 
+/*
+ * Atomically swap in the new signal mask, and wait for a signal.
+ */
 
 asmlinkage long xtensa_rt_sigsuspend(sigset_t __user *unewset, 
     				     size_t sigsetsize,
@@ -391,7 +437,7 @@ asmlinkage long xtensa_rt_sigsuspend(sigset_t __user *unewset,
 {
 	sigset_t saveset, newset;
 
-	
+	/* XXX: Don't preclude handling different sized sigset_t's.  */
 	if (sigsetsize != sizeof(sigset_t))
 		return -EINVAL;
 
@@ -421,6 +467,15 @@ asmlinkage long xtensa_sigaltstack(const stack_t __user *uss,
 
 
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ *
+ * Note that we go through the signals twice: once to check the signals that
+ * the kernel can handle, and then we build all the user-level signal handling
+ * stack-frames in one go after that.
+ */
 int do_signal(struct pt_regs *regs, sigset_t *oldset)
 {
 	siginfo_t info;
@@ -443,11 +498,11 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset)
 	if (signr > 0) {
 		int ret;
 
-		
+		/* Are we from a system call? */
 
 		if ((signed)regs->syscall >= 0) {
 
-			
+			/* If so, check system call restarting.. */
 
 			switch (regs->areg[2]) {
 				case -ERESTARTNOHAND:
@@ -460,21 +515,21 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset)
 						regs->areg[2] = -EINTR;
 						break;
 					}
-					
+					/* fallthrough */
 				case -ERESTARTNOINTR:
 					regs->areg[2] = regs->syscall;
 					regs->pc -= 3;
 					break;
 
 				default:
-					
+					/* nothing to do */
 					if (regs->areg[2] != 0)
 					break;
 			}
 		}
 
-		
-		
+		/* Whee!  Actually deliver the signal.  */
+		/* Set up the stack frame */
 		ret = setup_frame(signr, &ka, &info, oldset, regs);
 		if (ret)
 			return ret;
@@ -487,9 +542,9 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset)
 	}
 
 no_signal:
-	
+	/* Did we come from a system call? */
 	if ((signed) regs->syscall >= 0) {
-		
+		/* Restart the system call - no handlers present */
 		switch (regs->areg[2]) {
 		case -ERESTARTNOHAND:
 		case -ERESTARTSYS:

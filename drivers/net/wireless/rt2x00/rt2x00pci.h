@@ -18,6 +18,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00pci
+	Abstract: Data structures for the rt2x00pci module.
+ */
 
 #ifndef RT2X00PCI_H
 #define RT2X00PCI_H
@@ -25,8 +29,15 @@
 #include <linux/io.h>
 #include <linux/pci.h>
 
+/*
+ * This variable should be used with the
+ * pci_driver structure initialization.
+ */
 #define PCI_DEVICE_DATA(__ops)	.driver_data = (kernel_ulong_t)(__ops)
 
+/*
+ * Register access.
+ */
 static inline void rt2x00pci_register_read(struct rt2x00_dev *rt2x00dev,
 					   const unsigned int offset,
 					   u32 *value)
@@ -56,23 +67,65 @@ static inline void rt2x00pci_register_multiwrite(struct rt2x00_dev *rt2x00dev,
 	__iowrite32_copy(rt2x00dev->csr.base + offset, value, length >> 2);
 }
 
+/**
+ * rt2x00pci_regbusy_read - Read from register with busy check
+ * @rt2x00dev: Device pointer, see &struct rt2x00_dev.
+ * @offset: Register offset
+ * @field: Field to check if register is busy
+ * @reg: Pointer to where register contents should be stored
+ *
+ * This function will read the given register, and checks if the
+ * register is busy. If it is, it will sleep for a couple of
+ * microseconds before reading the register again. If the register
+ * is not read after a certain timeout, this function will return
+ * FALSE.
+ */
 int rt2x00pci_regbusy_read(struct rt2x00_dev *rt2x00dev,
 			   const unsigned int offset,
 			   const struct rt2x00_field32 field,
 			   u32 *reg);
 
+/**
+ * struct queue_entry_priv_pci: Per entry PCI specific information
+ *
+ * @desc: Pointer to device descriptor
+ * @desc_dma: DMA pointer to &desc.
+ * @data: Pointer to device's entry memory.
+ * @data_dma: DMA pointer to &data.
+ */
 struct queue_entry_priv_pci {
 	__le32 *desc;
 	dma_addr_t desc_dma;
 };
 
+/**
+ * rt2x00pci_rxdone - Handle RX done events
+ * @rt2x00dev: Device pointer, see &struct rt2x00_dev.
+ *
+ * Returns true if there are still rx frames pending and false if all
+ * pending rx frames were processed.
+ */
 bool rt2x00pci_rxdone(struct rt2x00_dev *rt2x00dev);
 
+/**
+ * rt2x00pci_flush_queue - Flush data queue
+ * @queue: Data queue to stop
+ * @drop: True to drop all pending frames.
+ *
+ * This will wait for a maximum of 100ms, waiting for the queues
+ * to become empty.
+ */
 void rt2x00pci_flush_queue(struct data_queue *queue, bool drop);
 
+/*
+ * Device initialization handlers.
+ */
 int rt2x00pci_initialize(struct rt2x00_dev *rt2x00dev);
 void rt2x00pci_uninitialize(struct rt2x00_dev *rt2x00dev);
 
+/*
+ * PCI driver handlers.
+ */
 int rt2x00pci_probe(struct pci_dev *pci_dev, const struct rt2x00_ops *ops);
 void rt2x00pci_remove(struct pci_dev *pci_dev);
 #ifdef CONFIG_PM
@@ -81,6 +134,6 @@ int rt2x00pci_resume(struct pci_dev *pci_dev);
 #else
 #define rt2x00pci_suspend	NULL
 #define rt2x00pci_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
-#endif 
+#endif /* RT2X00PCI_H */

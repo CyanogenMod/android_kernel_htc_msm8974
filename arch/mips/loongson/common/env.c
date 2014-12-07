@@ -37,13 +37,13 @@ do {									\
 
 void __init prom_init_env(void)
 {
-	
+	/* pmon passes arguments in 32bit pointers */
 	int *_prom_envp;
 	unsigned long bus_clock;
 	unsigned int processor_id;
 	long l;
 
-	
+	/* firmware arguments are initialized in head.S */
 	_prom_envp = (int *)fw_arg2;
 
 	l = (long)*_prom_envp;

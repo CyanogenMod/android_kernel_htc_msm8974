@@ -33,8 +33,10 @@
 #include <linux/sysfs.h>
 #include <linux/mutex.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x2c, 0x2d, I2C_CLIENT_END };
 
+/* SMSC47M192 registers */
 #define SMSC47M192_REG_IN(nr)		((nr) < 6 ? (0x20 + (nr)) : \
 					(0x50 + (nr) - 6))
 #define SMSC47M192_REG_IN_MAX(nr)	((nr) < 6 ? (0x2b + (nr) * 2) : \
@@ -54,6 +56,7 @@ static u8 SMSC47M192_REG_TEMP_MIN[3] =	{ 0x3A, 0x38, 0x59 };
 #define SMSC47M192_REG_COMPANY_ID	0x3e
 #define SMSC47M192_REG_VERSION		0x3f
 
+/* generalised scaling with integer rounding */
 static inline int SCALE(long val, int mul, int div)
 {
 	if (val < 0)
@@ -62,7 +65,9 @@ static inline int SCALE(long val, int mul, int div)
 		return (val * mul + div / 2) / div;
 }
 
+/* Conversions */
 
+/* smsc47m192 internally scales voltage measurements */
 static const u16 nom_mv[] = { 2500, 2250, 3300, 5000, 12000, 3300, 1500, 1800 };
 
 static inline unsigned int IN_FROM_REG(u8 reg, int n)
@@ -75,6 +80,10 @@ static inline u8 IN_TO_REG(unsigned long val, int n)
 	return SENSORS_LIMIT(SCALE(val, 192, nom_mv[n]), 0, 255);
 }
 
+/*
+ * TEMP: 0.001 degC units (-128C to +127C)
+ * REG: 1C/bit, two's complement
+ */
 static inline s8 TEMP_TO_REG(int val)
 {
 	return SENSORS_LIMIT(SCALE(val, 1, 1000), -128000, 127000);
@@ -88,18 +97,18 @@ static inline int TEMP_FROM_REG(s8 val)
 struct smsc47m192_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid;		
-	unsigned long last_updated;	
+	char valid;		/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
 
-	u8 in[8];		
-	u8 in_max[8];		
-	u8 in_min[8];		
-	s8 temp[3];		
-	s8 temp_max[3];		
-	s8 temp_min[3];		
-	s8 temp_offset[3];	
-	u16 alarms;		
-	u8 vid;			
+	u8 in[8];		/* Register value */
+	u8 in_max[8];		/* Register value */
+	u8 in_min[8];		/* Register value */
+	s8 temp[3];		/* Register value */
+	s8 temp_max[3];		/* Register value */
+	s8 temp_min[3];		/* Register value */
+	s8 temp_offset[3];	/* Register value */
+	u16 alarms;		/* Register encoding, combined */
+	u8 vid;			/* Register encoding, combined */
 	u8 vrm;
 };
 
@@ -128,6 +137,7 @@ static struct i2c_driver smsc47m192_driver = {
 	.address_list	= normal_i2c,
 };
 
+/* Voltages */
 static ssize_t show_in(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
@@ -216,6 +226,7 @@ show_in_offset(5)
 show_in_offset(6)
 show_in_offset(7)
 
+/* Temperatures */
 static ssize_t show_temp(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
@@ -317,6 +328,10 @@ static ssize_t set_temp_offset(struct device *dev, struct device_attribute
 		i2c_smbus_write_byte_data(client,
 			SMSC47M192_REG_TEMP_OFFSET(nr), data->temp_offset[nr]);
 	else if (data->temp_offset[nr] != 0) {
+		/*
+		 * offset[0] and offset[1] share the same register,
+		 * SFR bit 4 activates offset[0]
+		 */
 		i2c_smbus_write_byte_data(client, SMSC47M192_REG_SFR,
 					(sfr & 0xef) | (nr == 0 ? 0x10 : 0));
 		data->temp_offset[1-nr] = 0;
@@ -343,6 +358,7 @@ show_temp_index(1)
 show_temp_index(2)
 show_temp_index(3)
 
+/* VID */
 static ssize_t show_vid(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
@@ -374,6 +390,7 @@ static ssize_t set_vrm(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(vrm, S_IRUGO | S_IWUSR, show_vrm, set_vrm);
 
+/* Alarms */
 static ssize_t show_alarm(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
@@ -472,11 +489,11 @@ static void smsc47m192_init_client(struct i2c_client *client)
 	u8 config = i2c_smbus_read_byte_data(client, SMSC47M192_REG_CONFIG);
 	u8 sfr = i2c_smbus_read_byte_data(client, SMSC47M192_REG_SFR);
 
-	
+	/* select cycle mode (pause 1 sec between updates) */
 	i2c_smbus_write_byte_data(client, SMSC47M192_REG_SFR,
 						(sfr & 0xfd) | 0x02);
 	if (!(config & 0x01)) {
-		
+		/* initialize alarm limits */
 		for (i = 0; i < 8; i++) {
 			i2c_smbus_write_byte_data(client,
 				SMSC47M192_REG_IN_MIN(i), 0);
@@ -490,12 +507,13 @@ static void smsc47m192_init_client(struct i2c_client *client)
 				SMSC47M192_REG_TEMP_MAX[i], 0x7f);
 		}
 
-		
+		/* start monitoring */
 		i2c_smbus_write_byte_data(client, SMSC47M192_REG_CONFIG,
 						(config & 0xf7) | 0x01);
 	}
 }
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int smsc47m192_detect(struct i2c_client *client,
 			     struct i2c_board_info *info)
 {
@@ -505,7 +523,7 @@ static int smsc47m192_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* Detection criteria from sensors_detect script */
 	version = i2c_smbus_read_byte_data(client, SMSC47M192_REG_VERSION);
 	if (i2c_smbus_read_byte_data(client,
 				SMSC47M192_REG_COMPANY_ID) == 0x55
@@ -546,15 +564,15 @@ static int smsc47m192_probe(struct i2c_client *client,
 	data->vrm = vid_which_vrm();
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the SMSC47M192 chip */
 	smsc47m192_init_client(client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &smsc47m192_group);
 	if (err)
 		goto exit_free;
 
-	
+	/* Pin 110 is either in4 (+12V) or VID4 */
 	config = i2c_smbus_read_byte_data(client, SMSC47M192_REG_CONFIG);
 	if (!(config & 0x20)) {
 		err = sysfs_create_group(&client->dev.kobj,
@@ -626,6 +644,10 @@ static struct smsc47m192_data *smsc47m192_update_device(struct device *dev)
 		for (i = 1; i < 3; i++)
 			data->temp_offset[i] = i2c_smbus_read_byte_data(client,
 						SMSC47M192_REG_TEMP_OFFSET(i));
+		/*
+		 * first offset is temp_offset[0] if SFR bit 4 is set,
+		 * temp_offset[1] otherwise
+		 */
 		if (sfr & 0x10) {
 			data->temp_offset[0] = data->temp_offset[1];
 			data->temp_offset[1] = 0;

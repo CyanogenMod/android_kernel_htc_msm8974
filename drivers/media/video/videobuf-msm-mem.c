@@ -84,7 +84,7 @@ static void videobuf_vm_close(struct vm_area_struct *vma)
 		D("munmap %p q=%p\n", map, q);
 		mutex_lock(&q->vb_lock);
 
-		
+		/* We need first to cancel streams, before unmapping */
 		if (q->streaming)
 			videobuf_queue_cancel(q);
 
@@ -97,9 +97,17 @@ static void videobuf_vm_close(struct vm_area_struct *vma)
 
 			mem = q->bufs[i]->priv;
 			if (mem) {
+				/* This callback is called only if kernel has
+				 * allocated memory and this memory is mmapped.
+				 * In this case, memory should be freed,
+				 * in order to do memory unmap.
+				 */
 
 				MAGIC_CHECK(mem->magic, MAGIC_PMEM);
 
+				/* vfree is not atomic - can't be
+				 called with IRQ's disabled
+				 */
 				D("buf[%d] freeing physical %d\n",
 					i, mem->phyaddr);
 
@@ -120,6 +128,9 @@ static void videobuf_vm_close(struct vm_area_struct *vma)
 
 		mutex_unlock(&q->vb_lock);
 
+		/* deallocate the q->bufs[i] structure not a good solution
+		 as it will result in unnecessary iterations but right now
+		 this looks like the only cleaner way  */
 		videobuf_mmap_free(q);
 	}
 }
@@ -167,7 +178,7 @@ static int __videobuf_iolock(struct videobuf_queue *q,
 	case V4L2_MEMORY_MMAP:
 		D("%s memory method MMAP\n", __func__);
 
-		
+		/* All handling should be done by __videobuf_mmap_mapper() */
 		break;
 	case V4L2_MEMORY_OVERLAY:
 	default:
@@ -189,7 +200,7 @@ static int __videobuf_mmap_mapper(struct videobuf_queue *q,
 
 	D("%s\n", __func__);
 
-	
+	/* create mapping + update buffer list */
 	map = kzalloc(sizeof(struct videobuf_mapping), GFP_KERNEL);
 	if (!map) {
 		pr_err("%s: kzalloc failed.\n", __func__);
@@ -223,7 +234,7 @@ static int __videobuf_mmap_mapper(struct videobuf_queue *q,
 		goto error;
 	}
 
-	
+	/* Try to remap memory */
 	size = vma->vm_end - vma->vm_start;
 	size = (size < mem->size) ? size : mem->size;
 
@@ -301,6 +312,12 @@ int videobuf_pmem_contig_free(struct videobuf_queue *q,
 {
 	struct videobuf_contig_pmem *mem = buf->priv;
 
+	/* mmapped memory can't be freed here, otherwise mmapped region
+	 would be released, while still needed. In this case, the memory
+	 release should happen inside videobuf_vm_close().
+	 So, it should free memory only if the memory were allocated for
+	 read() operation.
+	*/
 	if (buf->memory != V4L2_MEMORY_USERPTR)
 		return -EINVAL;
 
@@ -309,11 +326,11 @@ int videobuf_pmem_contig_free(struct videobuf_queue *q,
 
 	MAGIC_CHECK(mem->magic, MAGIC_PMEM);
 
-	
+	/* handle user space pointer case */
 	if (buf->baddr) {
 		return 0;
 	} else {
-		
+		/* don't support read() method */
 		return -EINVAL;
 	}
 }

@@ -11,6 +11,11 @@
 
 #include "xen-ops.h"
 
+/*
+ * Force a proper event-channel callback from Xen after clearing the
+ * callback mask. We do this in a very simple manner, by making a call
+ * down into Xen. The pending flag will be checked by Xen on return.
+ */
 void xen_force_evtchn_callback(void)
 {
 	(void)HYPERVISOR_xen_version(0, NULL);
@@ -23,9 +28,13 @@ static unsigned long xen_save_fl(void)
 
 	vcpu = this_cpu_read(xen_vcpu);
 
-	
+	/* flag has opposite sense of mask */
 	flags = !vcpu->evtchn_upcall_mask;
 
+	/* convert to IF type flag
+	   -0 -> 0x00000000
+	   -1 -> 0xffffffff
+	*/
 	return (-flags) & X86_EFLAGS_IF;
 }
 PV_CALLEE_SAVE_REGS_THUNK(xen_save_fl);
@@ -34,18 +43,23 @@ static void xen_restore_fl(unsigned long flags)
 {
 	struct vcpu_info *vcpu;
 
-	
+	/* convert from IF type flag */
 	flags = !(flags & X86_EFLAGS_IF);
 
+	/* There's a one instruction preempt window here.  We need to
+	   make sure we're don't switch CPUs between getting the vcpu
+	   pointer and updating the mask. */
 	preempt_disable();
 	vcpu = this_cpu_read(xen_vcpu);
 	vcpu->evtchn_upcall_mask = flags;
 	preempt_enable_no_resched();
 
+	/* Doesn't matter if we get preempted here, because any
+	   pending event will get dealt with anyway. */
 
 	if (flags == 0) {
 		preempt_check_resched();
-		barrier(); 
+		barrier(); /* unmask then check (avoid races) */
 		if (unlikely(vcpu->evtchn_upcall_pending))
 			xen_force_evtchn_callback();
 	}
@@ -54,6 +68,9 @@ PV_CALLEE_SAVE_REGS_THUNK(xen_restore_fl);
 
 static void xen_irq_disable(void)
 {
+	/* There's a one instruction preempt window here.  We need to
+	   make sure we're don't switch CPUs between getting the vcpu
+	   pointer and updating the mask. */
 	preempt_disable();
 	this_cpu_read(xen_vcpu)->evtchn_upcall_mask = 1;
 	preempt_enable_no_resched();
@@ -64,12 +81,18 @@ static void xen_irq_enable(void)
 {
 	struct vcpu_info *vcpu;
 
+	/* We don't need to worry about being preempted here, since
+	   either a) interrupts are disabled, so no preemption, or b)
+	   the caller is confused and is trying to re-enable interrupts
+	   on an indeterminate processor. */
 
 	vcpu = this_cpu_read(xen_vcpu);
 	vcpu->evtchn_upcall_mask = 0;
 
+	/* Doesn't matter if we get preempted here, because any
+	   pending event will get dealt with anyway. */
 
-	barrier(); 
+	barrier(); /* unmask then check (avoid races) */
 	if (unlikely(vcpu->evtchn_upcall_pending))
 		xen_force_evtchn_callback();
 }
@@ -77,7 +100,7 @@ PV_CALLEE_SAVE_REGS_THUNK(xen_irq_enable);
 
 static void xen_safe_halt(void)
 {
-	
+	/* Blocking includes an implicit local_irq_enable(). */
 	if (HYPERVISOR_sched_op(SCHEDOP_block, NULL) != 0)
 		BUG();
 }

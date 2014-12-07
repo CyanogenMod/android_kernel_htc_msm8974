@@ -101,6 +101,7 @@ static int tpo_vid_get_panel_info(struct drm_device *dev,
 	return 0;
 }
 
+/*TPO DPI encoder helper funcs*/
 static const struct drm_encoder_helper_funcs
 				mdfld_tpo_dpi_encoder_helper_funcs = {
 	.dpms = mdfld_dsi_dpi_dpms,
@@ -110,6 +111,7 @@ static const struct drm_encoder_helper_funcs
 	.commit = mdfld_dsi_dpi_commit,
 };
 
+/*TPO DPI encoder funcs*/
 static const struct drm_encoder_funcs mdfld_tpo_dpi_encoder_funcs = {
 	.destroy = drm_encoder_cleanup,
 };

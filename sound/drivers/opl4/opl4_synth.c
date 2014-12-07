@@ -36,6 +36,7 @@
 #include <asm/io.h>
 #include <sound/asoundef.h>
 
+/* GM2 controllers */
 #ifndef MIDI_CTL_RELEASE_TIME
 #define MIDI_CTL_RELEASE_TIME	0x48
 #define MIDI_CTL_ATTACK_TIME	0x49
@@ -45,6 +46,9 @@
 #define MIDI_CTL_VIBRATO_DELAY	0x4e
 #endif
 
+/*
+ * This table maps 100/128 cents to F_NUMBER.
+ */
 static const s16 snd_opl4_pitch_map[0x600] = {
 	0x000,0x000,0x001,0x001,0x002,0x002,0x003,0x003,
 	0x004,0x004,0x005,0x005,0x006,0x006,0x006,0x007,
@@ -240,6 +244,10 @@ static const s16 snd_opl4_pitch_map[0x600] = {
 	0x3f9,0x3fa,0x3fa,0x3fb,0x3fc,0x3fd,0x3fe,0x3ff
 };
 
+/*
+ * Attenuation according to GM recommendations, in -0.375 dB units.
+ * table[v] = 40 * log(v / 127) / -0.375
+ */
 static unsigned char snd_opl4_volume_table[128] = {
 	255,224,192,173,160,150,141,134,
 	128,122,117,113,109,105,102, 99,
@@ -259,6 +267,9 @@ static unsigned char snd_opl4_volume_table[128] = {
 	  2,  2,  2,  1,  1,  0,  0,  0
 };
 
+/*
+ * Initializes all voices.
+ */
 void snd_opl4_synth_reset(struct snd_opl4 *opl4)
 {
 	unsigned long flags;
@@ -280,6 +291,9 @@ void snd_opl4_synth_reset(struct snd_opl4 *opl4)
 	snd_midi_channel_set_clear(opl4->chset);
 }
 
+/*
+ * Shuts down all voices.
+ */
 void snd_opl4_synth_shutdown(struct snd_opl4 *opl4)
 {
 	unsigned long flags;
@@ -292,6 +306,9 @@ void snd_opl4_synth_shutdown(struct snd_opl4 *opl4)
 	spin_unlock_irqrestore(&opl4->reg_lock, flags);
 }
 
+/*
+ * Executes the callback for all voices playing the specified note.
+ */
 static void snd_opl4_do_for_note(struct snd_opl4 *opl4, int note, struct snd_midi_channel *chan,
 				 void (*func)(struct snd_opl4 *opl4, struct opl4_voice *voice))
 {
@@ -309,6 +326,9 @@ static void snd_opl4_do_for_note(struct snd_opl4 *opl4, int note, struct snd_mid
 	spin_unlock_irqrestore(&opl4->reg_lock, flags);
 }
 
+/*
+ * Executes the callback for all voices of to the specified channel.
+ */
 static void snd_opl4_do_for_channel(struct snd_opl4 *opl4,
 				    struct snd_midi_channel *chan,
 				    void (*func)(struct snd_opl4 *opl4, struct opl4_voice *voice))
@@ -327,6 +347,9 @@ static void snd_opl4_do_for_channel(struct snd_opl4 *opl4,
 	spin_unlock_irqrestore(&opl4->reg_lock, flags);
 }
 
+/*
+ * Executes the callback for all active voices.
+ */
 static void snd_opl4_do_for_all(struct snd_opl4 *opl4,
 				void (*func)(struct snd_opl4 *opl4, struct opl4_voice *voice))
 {
@@ -400,6 +423,10 @@ static void snd_opl4_update_pitch(struct snd_opl4 *opl4,
 	int note, pitch, octave;
 
 	note = chan->drum_channel ? 60 : voice->note;
+	/*
+	 * pitch is in 100/128 cents, so 0x80 is one semitone and
+	 * 0x600 is one octave.
+	 */
 	pitch = ((note - 60) << 7) * voice->sound->key_scaling / 100 + (60 << 7);
 	pitch += voice->sound->pitch_offset;
 	if (!chan->drum_channel)
@@ -433,12 +460,13 @@ static void snd_opl4_update_tone_parameters(struct snd_opl4 *opl4,
 		       voice->sound->reg_tremolo);
 }
 
+/* allocate one voice */
 static struct opl4_voice *snd_opl4_get_voice(struct snd_opl4 *opl4)
 {
-	
+	/* first, try to get the oldest key-off voice */
 	if (!list_empty(&opl4->off_voices))
 		return list_entry(opl4->off_voices.next, struct opl4_voice, list);
-	
+	/* then get the oldest key-on voice */
 	snd_BUG_ON(list_empty(&opl4->on_voices));
 	return list_entry(opl4->on_voices.next, struct opl4_voice, list);
 }
@@ -460,7 +488,7 @@ void snd_opl4_note_on(void *private_data, int note, int vel, struct snd_midi_cha
 	int voices = 0, i;
 	unsigned long flags;
 
-	
+	/* determine the number of voices and voice parameters */
 	i = chan->drum_channel ? 0x80 : (chan->midi_program & 0x7f);
 	regions = &snd_yrw801_regions[i];
 	for (i = 0; i < regions->count; i++) {
@@ -472,7 +500,7 @@ void snd_opl4_note_on(void *private_data, int note, int vel, struct snd_midi_cha
 		}
 	}
 
-	
+	/* allocate and initialize the needed voices */
 	spin_lock_irqsave(&opl4->reg_lock, flags);
 	for (i = 0; i < voices; i++) {
 		voice[i] = snd_opl4_get_voice(opl4);
@@ -484,7 +512,7 @@ void snd_opl4_note_on(void *private_data, int note, int vel, struct snd_midi_cha
 		voice[i]->sound = sound[i];
 	}
 
-	
+	/* set tone number (triggers header loading) */
 	for (i = 0; i < voices; i++) {
 		voice[i]->reg_f_number =
 			(sound[i]->tone >> 8) & OPL4_TONE_NUMBER_BIT8;
@@ -494,7 +522,7 @@ void snd_opl4_note_on(void *private_data, int note, int vel, struct snd_midi_cha
 			       sound[i]->tone & 0xff);
 	}
 
-	
+	/* set parameters which can be set while loading */
 	for (i = 0; i < voices; i++) {
 		voice[i]->reg_misc = OPL4_LFO_RESET_BIT;
 		snd_opl4_update_pan(opl4, voice[i]);
@@ -504,10 +532,10 @@ void snd_opl4_note_on(void *private_data, int note, int vel, struct snd_midi_cha
 	}
 	spin_unlock_irqrestore(&opl4->reg_lock, flags);
 
-	
+	/* wait for completion of loading */
 	snd_opl4_wait_for_wave_headers(opl4);
 
-	
+	/* set remaining parameters */
 	spin_lock_irqsave(&opl4->reg_lock, flags);
 	for (i = 0; i < voices; i++) {
 		snd_opl4_update_tone_parameters(opl4, voice[i]);
@@ -515,7 +543,7 @@ void snd_opl4_note_on(void *private_data, int note, int vel, struct snd_midi_cha
 		snd_opl4_update_vibrato_depth(opl4, voice[i]);
 	}
 
-	
+	/* finally, switch on all voices */
 	for (i = 0; i < voices; i++) {
 		voice[i]->reg_misc =
 			(voice[i]->reg_misc & 0x1f) | OPL4_KEY_ON_BIT;
@@ -576,15 +604,19 @@ void snd_opl4_control(void *private_data, int type, struct snd_midi_channel *cha
 		snd_opl4_do_for_channel(opl4, chan, snd_opl4_update_volume);
 		break;
 	case MIDI_CTL_VIBRATO_RATE:
-		
+		/* not yet supported */
 		break;
 	case MIDI_CTL_VIBRATO_DEPTH:
 		snd_opl4_do_for_channel(opl4, chan, snd_opl4_update_vibrato_depth);
 		break;
 	case MIDI_CTL_VIBRATO_DELAY:
-		
+		/* not yet supported */
 		break;
 	case MIDI_CTL_E1_REVERB_DEPTH:
+		/*
+		 * Each OPL4 voice has a bit called "Pseudo-Reverb", but
+		 * IMHO _not_ using it enhances the listening experience.
+		 */
 		break;
 	case MIDI_CTL_PITCHBEND:
 		snd_opl4_do_for_channel(opl4, chan, snd_opl4_update_pitch);

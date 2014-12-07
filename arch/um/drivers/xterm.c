@@ -39,6 +39,7 @@ static void *xterm_init(char *str, int device, const struct chan_opts *opts)
 	return data;
 }
 
+/* Only changed by xterm_setup, which is a setup */
 static char *terminal_emulator = "xterm";
 static char *title_switch = "-T";
 static char *exec_switch = "-e";
@@ -93,11 +94,21 @@ static int xterm_open(int input, int output, int primary, void *d,
 	if (access(argv[4], X_OK) < 0)
 		argv[4] = "port-helper";
 
+	/*
+	 * Check that DISPLAY is set, this doesn't guarantee the xterm
+	 * will work but w/o it we can be pretty sure it won't.
+	 */
 	if (getenv("DISPLAY") == NULL) {
 		printk(UM_KERN_ERR "xterm_open: $DISPLAY not set.\n");
 		return -ENODEV;
 	}
 
+	/*
+	 * This business of getting a descriptor to a temp file,
+	 * deleting the file and closing the descriptor is just to get
+	 * a known-unused name for the Unix socket that we really
+	 * want.
+	 */
 	fd = mkstemp(file);
 	if (fd < 0) {
 		err = -errno;

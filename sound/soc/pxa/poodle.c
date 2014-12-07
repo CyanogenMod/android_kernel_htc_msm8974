@@ -37,7 +37,7 @@
 #define POODLE_SPK_ON    1
 #define POODLE_SPK_OFF   0
 
- 
+ /* audio clock in Hz - rounded from 12.235MHz */
 #define POODLE_AUDIO_CLOCK 12288000
 
 static int poodle_jack_func;
@@ -45,9 +45,9 @@ static int poodle_spk_func;
 
 static void poodle_ext_control(struct snd_soc_dapm_context *dapm)
 {
-	
+	/* set up jack connection */
 	if (poodle_jack_func == POODLE_HP) {
-		
+		/* set = unmute headphone */
 		locomo_gpio_write(&poodle_locomo_device.dev,
 			POODLE_LOCOMO_GPIO_MUTE_L, 1);
 		locomo_gpio_write(&poodle_locomo_device.dev,
@@ -61,13 +61,13 @@ static void poodle_ext_control(struct snd_soc_dapm_context *dapm)
 		snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
 	}
 
-	
+	/* set the enpoints to their new connetion states */
 	if (poodle_spk_func == POODLE_SPK_ON)
 		snd_soc_dapm_enable_pin(dapm, "Ext Spk");
 	else
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk");
 
-	
+	/* signal a DAPM event */
 	snd_soc_dapm_sync(dapm);
 }
 
@@ -78,7 +78,7 @@ static int poodle_startup(struct snd_pcm_substream *substream)
 
 	mutex_lock(&codec->mutex);
 
-	
+	/* check the jack status at stream startup */
 	poodle_ext_control(&codec->dapm);
 
 	mutex_unlock(&codec->mutex);
@@ -86,9 +86,10 @@ static int poodle_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/* we need to unmute the HP at shutdown as the mute burns power on poodle */
 static void poodle_shutdown(struct snd_pcm_substream *substream)
 {
-	
+	/* set = unmute headphone */
 	locomo_gpio_write(&poodle_locomo_device.dev,
 		POODLE_LOCOMO_GPIO_MUTE_L, 1);
 	locomo_gpio_write(&poodle_locomo_device.dev,
@@ -118,13 +119,13 @@ static int poodle_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8731_SYSCLK_XTAL, clk,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the I2S system clock as input (unused) */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, PXA2XX_I2S_SYSCLK, 0,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -192,18 +193,20 @@ static int poodle_amp_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* poodle machine dapm widgets */
 static const struct snd_soc_dapm_widget wm8731_dapm_widgets[] = {
 SND_SOC_DAPM_HP("Headphone Jack", NULL),
 SND_SOC_DAPM_SPK("Ext Spk", poodle_amp_event),
 };
 
+/* Corgi machine connections to the codec pins */
 static const struct snd_soc_dapm_route poodle_audio_map[] = {
 
-	
+	/* headphone connected to LHPOUT1, RHPOUT1 */
 	{"Headphone Jack", NULL, "LHPOUT"},
 	{"Headphone Jack", NULL, "RHPOUT"},
 
-	
+	/* speaker connected to LOUT, ROUT */
 	{"Ext Spk", NULL, "ROUT"},
 	{"Ext Spk", NULL, "LOUT"},
 };
@@ -222,6 +225,9 @@ static const struct snd_kcontrol_new wm8731_poodle_controls[] = {
 		poodle_set_spk),
 };
 
+/*
+ * Logic for a wm8731 as connected on a Sharp SL-C7x0 Device
+ */
 static int poodle_wm8731_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
@@ -234,6 +240,7 @@ static int poodle_wm8731_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* poodle digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link poodle_dai = {
 	.name = "WM8731",
 	.stream_name = "WM8731",
@@ -247,6 +254,7 @@ static struct snd_soc_dai_link poodle_dai = {
 	.ops = &poodle_ops,
 };
 
+/* poodle audio machine driver */
 static struct snd_soc_card poodle = {
 	.name = "Poodle",
 	.dai_link = &poodle_dai,
@@ -268,7 +276,7 @@ static int __devinit poodle_probe(struct platform_device *pdev)
 
 	locomo_gpio_set_dir(&poodle_locomo_device.dev,
 		POODLE_LOCOMO_GPIO_AMP_ON, 0);
-	
+	/* should we mute HP at startup - burning power ?*/
 	locomo_gpio_set_dir(&poodle_locomo_device.dev,
 		POODLE_LOCOMO_GPIO_MUTE_L, 0);
 	locomo_gpio_set_dir(&poodle_locomo_device.dev,
@@ -302,6 +310,7 @@ static struct platform_driver poodle_driver = {
 
 module_platform_driver(poodle_driver);
 
+/* Module information */
 MODULE_AUTHOR("Richard Purdie");
 MODULE_DESCRIPTION("ALSA SoC Poodle");
 MODULE_LICENSE("GPL");

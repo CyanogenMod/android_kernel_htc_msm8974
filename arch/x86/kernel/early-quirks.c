@@ -1,3 +1,13 @@
+/* Various workarounds for chipset bugs.
+   This code runs very early and can't use the regular PCI subsystem
+   The entries are keyed to PCI bridges which usually identify chipsets
+   uniquely.
+   This is only for whole classes of chipsets with specific problems which
+   need early invasive action (e.g. before the timers are initialized).
+   Most PCI device specific workarounds can be done later and should be
+   in standard PCI quirks
+   Mainboard specific bugs should be handled by DMI entries.
+   CPU specific bugs in setup.c */
 
 #include <linux/pci.h>
 #include <linux/acpi.h>
@@ -12,6 +22,12 @@
 static void __init fix_hypertransport_config(int num, int slot, int func)
 {
 	u32 htcfg;
+	/*
+	 * we found a hypertransport bus
+	 * make sure that we are broadcasting
+	 * interrupts to all cpus on the ht bus
+	 * if we're using extended apic ids
+	 */
 	htcfg = read_pci_config(num, slot, func, 0x68);
 	if (htcfg & (1 << 18)) {
 		printk(KERN_INFO "Detected use of extended apic ids "
@@ -49,13 +65,20 @@ static int __init nvidia_hpet_check(struct acpi_table_header *header)
 {
 	return 0;
 }
-#endif 
-#endif 
+#endif /* CONFIG_X86_IO_APIC */
+#endif /* CONFIG_ACPI */
 
 static void __init nvidia_bugs(int num, int slot, int func)
 {
 #ifdef CONFIG_ACPI
 #ifdef CONFIG_X86_IO_APIC
+	/*
+	 * All timer overrides on Nvidia are
+	 * wrong unless HPET is enabled.
+	 * Unfortunately that's not true on many Asus boards.
+	 * We don't know yet how to detect this automatically, but
+	 * at least allow a command line override.
+	 */
 	if (acpi_use_timer_override)
 		return;
 
@@ -69,7 +92,7 @@ static void __init nvidia_bugs(int num, int slot, int func)
 	}
 #endif
 #endif
-	
+	/* RED-PEN skip them on mptables too? */
 
 }
 
@@ -104,7 +127,7 @@ static void __init ati_bugs(int num, int slot, int func)
 	if (d  < 0x82)
 		acpi_skip_timer_override = 1;
 	else {
-		
+		/* check for IRQ0 interrupt swap */
 		outb(0x72, 0xcd6); b = inb(0xcd7);
 		if (!(b & 0x2))
 			acpi_skip_timer_override = 1;
@@ -136,13 +159,18 @@ static void __init ati_bugs_contd(int num, int slot, int func)
 	if (rev >= 0x40)
 		acpi_fix_pin2_polarity = 1;
 
+	/*
+	 * SB600: revisions 0x11, 0x12, 0x13, 0x14, ...
+	 * SB700: revisions 0x39, 0x3a, ...
+	 * SB800: revisions 0x40, 0x41, ...
+	 */
 	if (rev >= 0x39)
 		return;
 
 	if (acpi_use_timer_override)
 		return;
 
-	
+	/* check for IRQ0 interrupt swap */
 	d = read_pci_config(num, slot, func, 0x64);
 	if (!(d & (1<<14)))
 		acpi_skip_timer_override = 1;
@@ -176,6 +204,12 @@ struct chipset {
 	void (*f)(int num, int slot, int func);
 };
 
+/*
+ * Only works for devices on the root bus. If you add any devices
+ * not on bus 0 readd another loop level in early_quirks(). But
+ * be careful because at least the Nvidia quirk here relies on
+ * only matching on bus 0.
+ */
 static struct chipset early_qrk[] __initdata = {
 	{ PCI_VENDOR_ID_NVIDIA, PCI_ANY_ID,
 	  PCI_CLASS_BRIDGE_PCI, PCI_ANY_ID, QFLAG_APPLY_ONCE, nvidia_bugs },
@@ -190,6 +224,17 @@ static struct chipset early_qrk[] __initdata = {
 	{}
 };
 
+/**
+ * check_dev_quirk - apply early quirks to a given PCI device
+ * @num: bus number
+ * @slot: slot number
+ * @func: PCI function
+ *
+ * Check the vendor & device ID against the early quirks table.
+ *
+ * If the device is single function, let early_quirks() know so we don't
+ * poke at this device again.
+ */
 static int __init check_dev_quirk(int num, int slot, int func)
 {
 	u16 class;
@@ -201,7 +246,7 @@ static int __init check_dev_quirk(int num, int slot, int func)
 	class = read_pci_config_16(num, slot, func, PCI_CLASS_DEVICE);
 
 	if (class == 0xffff)
-		return -1; 
+		return -1; /* no class, treat as single function */
 
 	vendor = read_pci_config_16(num, slot, func, PCI_VENDOR_ID);
 
@@ -236,11 +281,11 @@ void __init early_quirks(void)
 	if (!early_pci_allowed())
 		return;
 
-	
-	
+	/* Poor man's PCI discovery */
+	/* Only scan the root bus */
 	for (slot = 0; slot < 32; slot++)
 		for (func = 0; func < 8; func++) {
-			
+			/* Only probe function 0 on single fn devices */
 			if (check_dev_quirk(0, slot, func))
 				break;
 		}

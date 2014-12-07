@@ -1,6 +1,7 @@
 #ifndef _ASM_SCORE_CACHEFLUSH_H
 #define _ASM_SCORE_CACHEFLUSH_H
 
+/* Keep includes the same across arches. */
 #include <linux/mm.h>
 
 extern void flush_cache_all(void);
@@ -44,4 +45,4 @@ static inline void flush_icache_page(struct vm_area_struct *vma,
 			flush_cache_page(vma, vaddr, page_to_pfn(page));\
 	} while (0)
 
-#endif 
+#endif /* _ASM_SCORE_CACHEFLUSH_H */

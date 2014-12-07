@@ -46,9 +46,17 @@ MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{ForteMedia,FM801},"
 		"{Genius,SoundMaker Live 5.1}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
+/*
+ *  Enable TEA575x tuner
+ *    1 = MediaForte 256-PCS
+ *    2 = MediaForte 256-PCP
+ *    3 = MediaForte 64-PCR
+ *   16 = setup tuner only (this is additional bit), i.e. SF64-PCR FM card
+ *  High 16-bits are video (radio) device number + 1
+ */
 static int tea575x_tuner[SNDRV_CARDS];
 static int radio_nr[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = -1};
 
@@ -68,44 +76,49 @@ MODULE_PARM_DESC(radio_nr, "Radio device numbers");
 #define TUNER_ONLY		(1<<4)
 #define TUNER_TYPE_MASK		(~TUNER_ONLY & 0xFFFF)
 
+/*
+ *  Direct registers
+ */
 
 #define FM801_REG(chip, reg)	(chip->port + FM801_##reg)
 
-#define FM801_PCM_VOL		0x00	
-#define FM801_FM_VOL		0x02	
-#define FM801_I2S_VOL		0x04	
-#define FM801_REC_SRC		0x06	
-#define FM801_PLY_CTRL		0x08	
-#define FM801_PLY_COUNT		0x0a	
-#define FM801_PLY_BUF1		0x0c	
-#define FM801_PLY_BUF2		0x10	
-#define FM801_CAP_CTRL		0x14	
-#define FM801_CAP_COUNT		0x16	
-#define FM801_CAP_BUF1		0x18	
-#define FM801_CAP_BUF2		0x1c	
-#define FM801_CODEC_CTRL	0x22	
-#define FM801_I2S_MODE		0x24	
-#define FM801_VOLUME		0x26	
-#define FM801_I2C_CTRL		0x29	
-#define FM801_AC97_CMD		0x2a	
-#define FM801_AC97_DATA		0x2c	
-#define FM801_MPU401_DATA	0x30	
-#define FM801_MPU401_CMD	0x31	
-#define FM801_GPIO_CTRL		0x52	
-#define FM801_GEN_CTRL		0x54	
-#define FM801_IRQ_MASK		0x56	
-#define FM801_IRQ_STATUS	0x5a	
-#define FM801_OPL3_BANK0	0x68	
-#define FM801_OPL3_DATA0	0x69	
-#define FM801_OPL3_BANK1	0x6a	
-#define FM801_OPL3_DATA1	0x6b	
-#define FM801_POWERDOWN		0x70	
+#define FM801_PCM_VOL		0x00	/* PCM Output Volume */
+#define FM801_FM_VOL		0x02	/* FM Output Volume */
+#define FM801_I2S_VOL		0x04	/* I2S Volume */
+#define FM801_REC_SRC		0x06	/* Record Source */
+#define FM801_PLY_CTRL		0x08	/* Playback Control */
+#define FM801_PLY_COUNT		0x0a	/* Playback Count */
+#define FM801_PLY_BUF1		0x0c	/* Playback Bufer I */
+#define FM801_PLY_BUF2		0x10	/* Playback Buffer II */
+#define FM801_CAP_CTRL		0x14	/* Capture Control */
+#define FM801_CAP_COUNT		0x16	/* Capture Count */
+#define FM801_CAP_BUF1		0x18	/* Capture Buffer I */
+#define FM801_CAP_BUF2		0x1c	/* Capture Buffer II */
+#define FM801_CODEC_CTRL	0x22	/* Codec Control */
+#define FM801_I2S_MODE		0x24	/* I2S Mode Control */
+#define FM801_VOLUME		0x26	/* Volume Up/Down/Mute Status */
+#define FM801_I2C_CTRL		0x29	/* I2C Control */
+#define FM801_AC97_CMD		0x2a	/* AC'97 Command */
+#define FM801_AC97_DATA		0x2c	/* AC'97 Data */
+#define FM801_MPU401_DATA	0x30	/* MPU401 Data */
+#define FM801_MPU401_CMD	0x31	/* MPU401 Command */
+#define FM801_GPIO_CTRL		0x52	/* General Purpose I/O Control */
+#define FM801_GEN_CTRL		0x54	/* General Control */
+#define FM801_IRQ_MASK		0x56	/* Interrupt Mask */
+#define FM801_IRQ_STATUS	0x5a	/* Interrupt Status */
+#define FM801_OPL3_BANK0	0x68	/* OPL3 Status Read / Bank 0 Write */
+#define FM801_OPL3_DATA0	0x69	/* OPL3 Data 0 Write */
+#define FM801_OPL3_BANK1	0x6a	/* OPL3 Bank 1 Write */
+#define FM801_OPL3_DATA1	0x6b	/* OPL3 Bank 1 Write */
+#define FM801_POWERDOWN		0x70	/* Blocks Power Down Control */
 
-#define FM801_AC97_READ		(1<<7)	
-#define FM801_AC97_VALID	(1<<8)	
-#define FM801_AC97_BUSY		(1<<9)	
-#define FM801_AC97_ADDR_SHIFT	10	
+/* codec access */
+#define FM801_AC97_READ		(1<<7)	/* read=1, write=0 */
+#define FM801_AC97_VALID	(1<<8)	/* port valid=1 */
+#define FM801_AC97_BUSY		(1<<9)	/* busy=1 */
+#define FM801_AC97_ADDR_SHIFT	10	/* codec id (2bit) */
 
+/* playback and record control register bits */
 #define FM801_BUF1_LAST		(1<<1)
 #define FM801_BUF2_LAST		(1<<2)
 #define FM801_START		(1<<5)
@@ -113,46 +126,51 @@ MODULE_PARM_DESC(radio_nr, "Radio device numbers");
 #define FM801_IMMED_STOP	(1<<7)
 #define FM801_RATE_SHIFT	8
 #define FM801_RATE_MASK		(15 << FM801_RATE_SHIFT)
-#define FM801_CHANNELS_4	(1<<12)	
-#define FM801_CHANNELS_6	(2<<12)	
-#define FM801_CHANNELS_6MS	(3<<12)	
+#define FM801_CHANNELS_4	(1<<12)	/* playback only */
+#define FM801_CHANNELS_6	(2<<12)	/* playback only */
+#define FM801_CHANNELS_6MS	(3<<12)	/* playback only */
 #define FM801_CHANNELS_MASK	(3<<12)
 #define FM801_16BIT		(1<<14)
 #define FM801_STEREO		(1<<15)
 
+/* IRQ status bits */
 #define FM801_IRQ_PLAYBACK	(1<<8)
 #define FM801_IRQ_CAPTURE	(1<<9)
 #define FM801_IRQ_VOLUME	(1<<14)
 #define FM801_IRQ_MPU		(1<<15)
 
-#define FM801_GPIO_GP0		(1<<0)	
+/* GPIO control register */
+#define FM801_GPIO_GP0		(1<<0)	/* read/write */
 #define FM801_GPIO_GP1		(1<<1)
 #define FM801_GPIO_GP2		(1<<2)
 #define FM801_GPIO_GP3		(1<<3)
 #define FM801_GPIO_GP(x)	(1<<(0+(x)))
-#define FM801_GPIO_GD0		(1<<8)	
+#define FM801_GPIO_GD0		(1<<8)	/* directions: 1 = input, 0 = output*/
 #define FM801_GPIO_GD1		(1<<9)
 #define FM801_GPIO_GD2		(1<<10)
 #define FM801_GPIO_GD3		(1<<11)
 #define FM801_GPIO_GD(x)	(1<<(8+(x)))
-#define FM801_GPIO_GS0		(1<<12)	
-#define FM801_GPIO_GS1		(1<<13)	
-#define FM801_GPIO_GS2		(1<<14)	
+#define FM801_GPIO_GS0		(1<<12)	/* function select: */
+#define FM801_GPIO_GS1		(1<<13)	/*    1 = GPIO */
+#define FM801_GPIO_GS2		(1<<14)	/*    0 = other (S/PDIF, VOL) */
 #define FM801_GPIO_GS3		(1<<15)
 #define FM801_GPIO_GS(x)	(1<<(12+(x)))
 	
+/*
+
+ */
 
 struct fm801 {
 	int irq;
 
-	unsigned long port;	
-	unsigned int multichannel: 1,	
-		     secondary: 1;	
-	unsigned char secondary_addr;	
-	unsigned int tea575x_tuner;	
+	unsigned long port;	/* I/O port number */
+	unsigned int multichannel: 1,	/* multichannel support */
+		     secondary: 1;	/* secondary codec */
+	unsigned char secondary_addr;	/* address of the secondary codec */
+	unsigned int tea575x_tuner;	/* tuner access method & flags */
 
-	unsigned short ply_ctrl; 
-	unsigned short cap_ctrl; 
+	unsigned short ply_ctrl; /* playback control */
+	unsigned short cap_ctrl; /* capture control */
 
 	unsigned long ply_buffer;
 	unsigned int ply_buf;
@@ -193,13 +211,16 @@ struct fm801 {
 };
 
 static DEFINE_PCI_DEVICE_TABLE(snd_fm801_ids) = {
-	{ 0x1319, 0x0801, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_MULTIMEDIA_AUDIO << 8, 0xffff00, 0, },   
-	{ 0x5213, 0x0510, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_MULTIMEDIA_AUDIO << 8, 0xffff00, 0, },   
+	{ 0x1319, 0x0801, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_MULTIMEDIA_AUDIO << 8, 0xffff00, 0, },   /* FM801 */
+	{ 0x5213, 0x0510, PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_MULTIMEDIA_AUDIO << 8, 0xffff00, 0, },   /* Gallant Odyssey Sound 4 */
 	{ 0, }
 };
 
 MODULE_DEVICE_TABLE(pci, snd_fm801_ids);
 
+/*
+ *  common I/O routines
+ */
 
 static int snd_fm801_update_bits(struct fm801 *chip, unsigned short reg,
 				 unsigned short mask, unsigned short value)
@@ -225,6 +246,9 @@ static void snd_fm801_codec_write(struct snd_ac97 *ac97,
 	struct fm801 *chip = ac97->private_data;
 	int idx;
 
+	/*
+	 *  Wait until the codec interface is not ready..
+	 */
 	for (idx = 0; idx < 100; idx++) {
 		if (!(inw(FM801_REG(chip, AC97_CMD)) & FM801_AC97_BUSY))
 			goto ok1;
@@ -234,9 +258,12 @@ static void snd_fm801_codec_write(struct snd_ac97 *ac97,
 	return;
 
  ok1:
-	
+	/* write data and address */
 	outw(val, FM801_REG(chip, AC97_DATA));
 	outw(reg | (ac97->addr << FM801_AC97_ADDR_SHIFT), FM801_REG(chip, AC97_CMD));
+	/*
+	 *  Wait until the write command is not completed..
+         */
 	for (idx = 0; idx < 1000; idx++) {
 		if (!(inw(FM801_REG(chip, AC97_CMD)) & FM801_AC97_BUSY))
 			return;
@@ -250,6 +277,9 @@ static unsigned short snd_fm801_codec_read(struct snd_ac97 *ac97, unsigned short
 	struct fm801 *chip = ac97->private_data;
 	int idx;
 
+	/*
+	 *  Wait until the codec interface is not ready..
+	 */
 	for (idx = 0; idx < 100; idx++) {
 		if (!(inw(FM801_REG(chip, AC97_CMD)) & FM801_AC97_BUSY))
 			goto ok1;
@@ -259,7 +289,7 @@ static unsigned short snd_fm801_codec_read(struct snd_ac97 *ac97, unsigned short
 	return 0;
 
  ok1:
-	
+	/* read command */
 	outw(reg | (ac97->addr << FM801_AC97_ADDR_SHIFT) | FM801_AC97_READ,
 	     FM801_REG(chip, AC97_CMD));
 	for (idx = 0; idx < 100; idx++) {
@@ -305,6 +335,9 @@ static struct snd_pcm_hw_constraint_list hw_constraints_channels = {
 	.mask = 0,
 };
 
+/*
+ *  Sample rate routines
+ */
 
 static unsigned short snd_fm801_rate_bits(unsigned int rate)
 {
@@ -317,6 +350,9 @@ static unsigned short snd_fm801_rate_bits(unsigned int rate)
 	return ARRAY_SIZE(rates) - 1;
 }
 
+/*
+ *  PCM part
+ */
 
 static int snd_fm801_playback_trigger(struct snd_pcm_substream *substream,
 				      int cmd)
@@ -501,7 +537,7 @@ static irqreturn_t snd_fm801_interrupt(int irq, void *dev_id)
 	status &= FM801_IRQ_PLAYBACK|FM801_IRQ_CAPTURE|FM801_IRQ_MPU|FM801_IRQ_VOLUME;
 	if (! status)
 		return IRQ_NONE;
-	
+	/* ack first */
 	outw(status, FM801_REG(chip, IRQ_STATUS));
 	if (chip->pcm && (status & FM801_IRQ_PLAYBACK) && chip->playback_substream) {
 		spin_lock(&chip->reg_lock);
@@ -534,7 +570,7 @@ static irqreturn_t snd_fm801_interrupt(int irq, void *dev_id)
 	if (chip->rmidi && (status & FM801_IRQ_MPU))
 		snd_mpu401_uart_interrupt(irq, chip->rmidi->private_data);
 	if (status & FM801_IRQ_VOLUME)
-		;
+		;/* TODO */
 
 	return IRQ_HANDLED;
 }
@@ -680,9 +716,13 @@ static int __devinit snd_fm801_pcm(struct fm801 *chip, int device, struct snd_pc
 	return 0;
 }
 
+/*
+ *  TEA5757 radio
+ */
 
 #ifdef CONFIG_SND_FM801_TEA575X_BOOL
 
+/* GPIO to TEA575x maps */
 struct snd_fm801_tea575x_gpio {
 	u8 data, clk, wren, most;
 	char *name;
@@ -709,7 +749,7 @@ static void snd_fm801_tea575x_set_pins(struct snd_tea575x *tea, u8 pins)
 
 	reg |= (pins & TEA575X_DATA) ? FM801_GPIO_GP(gpio.data) : 0;
 	reg |= (pins & TEA575X_CLK)  ? FM801_GPIO_GP(gpio.clk) : 0;
-	
+	/* WRITE_ENABLE is inverted */
 	reg |= (pins & TEA575X_WREN) ? 0 : FM801_GPIO_GP(gpio.wren);
 
 	outw(reg, FM801_REG(chip, GPIO_CTRL));
@@ -731,14 +771,14 @@ static void snd_fm801_tea575x_set_direction(struct snd_tea575x *tea, bool output
 	unsigned short reg = inw(FM801_REG(chip, GPIO_CTRL));
 	struct snd_fm801_tea575x_gpio gpio = *get_tea575x_gpio(chip);
 
-	
+	/* use GPIO lines and set write enable bit */
 	reg |= FM801_GPIO_GS(gpio.data) |
 	       FM801_GPIO_GS(gpio.wren) |
 	       FM801_GPIO_GS(gpio.clk) |
 	       FM801_GPIO_GS(gpio.most);
 	if (output) {
-		
-		
+		/* all of lines are in the write direction */
+		/* clear data and clock lines */
 		reg &= ~(FM801_GPIO_GD(gpio.data) |
 			 FM801_GPIO_GD(gpio.wren) |
 			 FM801_GPIO_GD(gpio.clk) |
@@ -746,14 +786,14 @@ static void snd_fm801_tea575x_set_direction(struct snd_tea575x *tea, bool output
 			 FM801_GPIO_GP(gpio.clk) |
 			 FM801_GPIO_GP(gpio.wren));
 	} else {
-		
+		/* use GPIO lines, set data direction to input */
 		reg |= FM801_GPIO_GD(gpio.data) |
 		       FM801_GPIO_GD(gpio.most) |
 		       FM801_GPIO_GP(gpio.data) |
 		       FM801_GPIO_GP(gpio.most) |
 		       FM801_GPIO_GP(gpio.wren);
-		
-		
+		/* all of lines are in the write direction, except data */
+		/* clear data, write enable and clock lines */
 		reg &= ~(FM801_GPIO_GD(gpio.wren) |
 			 FM801_GPIO_GD(gpio.clk) |
 			 FM801_GPIO_GP(gpio.clk));
@@ -769,6 +809,9 @@ static struct snd_tea575x_ops snd_fm801_tea_ops = {
 };
 #endif
 
+/*
+ *  Mixer routines
+ */
 
 #define FM801_SINGLE(xname, reg, shift, mask, invert) \
 { .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, .info = snd_fm801_info_single, \
@@ -1009,6 +1052,9 @@ static int __devinit snd_fm801_mixer(struct fm801 *chip)
 	return 0;
 }
 
+/*
+ *  initialization routines
+ */
 
 static int wait_for_codec(struct fm801 *chip, unsigned int codec_id,
 			  unsigned short reg, unsigned long waits)
@@ -1034,9 +1080,9 @@ static int snd_fm801_chip_init(struct fm801 *chip, int resume)
 	if (chip->tea575x_tuner & TUNER_ONLY)
 		goto __ac97_ok;
 
-	
+	/* codec cold reset + AC'97 warm reset */
 	outw((1<<5) | (1<<6), FM801_REG(chip, CODEC_CTRL));
-	inw(FM801_REG(chip, CODEC_CTRL)); 
+	inw(FM801_REG(chip, CODEC_CTRL)); /* flush posting data */
 	udelay(100);
 	outw(0, FM801_REG(chip, CODEC_CTRL));
 
@@ -1053,8 +1099,8 @@ static int snd_fm801_chip_init(struct fm801 *chip, int resume)
 			wait_for_codec(chip, chip->secondary_addr,
 				       AC97_VENDOR_ID1, msecs_to_jiffies(50));
 		} else {
-			
-			
+			/* my card has the secondary codec */
+			/* at address #3, so the loop is inverted */
 			int i;
 			for (i = 3; i > 0; i--) {
 				if (!wait_for_codec(chip, i, AC97_VENDOR_ID1,
@@ -1069,30 +1115,30 @@ static int snd_fm801_chip_init(struct fm801 *chip, int resume)
 			}
 		}
 
-		
-		
+		/* the recovery phase, it seems that probing for non-existing codec might */
+		/* cause timeout problems */
 		wait_for_codec(chip, 0, AC97_VENDOR_ID1, msecs_to_jiffies(750));
 	}
 
       __ac97_ok:
 
-	
+	/* init volume */
 	outw(0x0808, FM801_REG(chip, PCM_VOL));
 	outw(0x9f1f, FM801_REG(chip, FM_VOL));
 	outw(0x8808, FM801_REG(chip, I2S_VOL));
 
-	
+	/* I2S control - I2S mode */
 	outw(0x0003, FM801_REG(chip, I2S_MODE));
 
-	
+	/* interrupt setup */
 	cmdw = inw(FM801_REG(chip, IRQ_MASK));
 	if (chip->irq < 0)
-		cmdw |= 0x00c3;		
+		cmdw |= 0x00c3;		/* mask everything, no PCM nor MPU */
 	else
-		cmdw &= ~0x0083;	
+		cmdw &= ~0x0083;	/* unmask MPU, PLAYBACK & CAPTURE */
 	outw(cmdw, FM801_REG(chip, IRQ_MASK));
 
-	
+	/* interrupt clear */
 	outw(FM801_IRQ_PLAYBACK|FM801_IRQ_CAPTURE|FM801_IRQ_MPU, FM801_REG(chip, IRQ_STATUS));
 
 	return 0;
@@ -1106,7 +1152,7 @@ static int snd_fm801_free(struct fm801 *chip)
 	if (chip->irq < 0)
 		goto __end_hw;
 
-	
+	/* interrupt setup - mask everything */
 	cmdw = inw(FM801_REG(chip, IRQ_MASK));
 	cmdw |= 0x00c3;
 	outw(cmdw, FM801_REG(chip, IRQ_MASK));
@@ -1175,11 +1221,11 @@ static int __devinit snd_fm801_create(struct snd_card *card,
 		pci_set_master(pci);
 	}
 
-	if (pci->revision >= 0xb1)	
+	if (pci->revision >= 0xb1)	/* FM801-AU */
 		chip->multichannel = 1;
 
 	snd_fm801_chip_init(chip, 0);
-	
+	/* init might set tuner access method */
 	tea575x_tuner = chip->tea575x_tuner;
 
 	if (chip->irq >= 0 && (tea575x_tuner & TUNER_ONLY)) {
@@ -1214,7 +1260,7 @@ static int __devinit snd_fm801_create(struct snd_card *card,
 			return -ENODEV;
 		}
 	} else if ((tea575x_tuner & TUNER_TYPE_MASK) == 0) {
-		
+		/* autodetect tuner connection */
 		for (tea575x_tuner = 1; tea575x_tuner <= 3; tea575x_tuner++) {
 			chip->tea575x_tuner = tea575x_tuner;
 			if (!snd_tea575x_init(&chip->tea)) {
@@ -1335,7 +1381,7 @@ static int snd_fm801_suspend(struct pci_dev *pci, pm_message_t state)
 	snd_ac97_suspend(chip->ac97_sec);
 	for (i = 0; i < ARRAY_SIZE(saved_regs); i++)
 		chip->saved_regs[i] = inw(chip->port + saved_regs[i]);
-	
+	/* FIXME: tea575x suspend */
 
 	pci_disable_device(pci);
 	pci_save_state(pci);

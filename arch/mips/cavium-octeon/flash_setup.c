@@ -25,12 +25,29 @@ static const char *part_probe_types[] = {
 	NULL
 };
 
+/**
+ * Module/ driver initialization.
+ *
+ * Returns Zero on success
+ */
 static int __init flash_init(void)
 {
+	/*
+	 * Read the bootbus region 0 setup to determine the base
+	 * address of the flash.
+	 */
 	union cvmx_mio_boot_reg_cfgx region_cfg;
 	region_cfg.u64 = cvmx_read_csr(CVMX_MIO_BOOT_REG_CFGX(0));
 	if (region_cfg.s.en) {
-		
+		/*
+		 * The bootloader always takes the flash and sets its
+		 * address so the entire flash fits below
+		 * 0x1fc00000. This way the flash aliases to
+		 * 0x1fc00000 for booting. Software can access the
+		 * full flash at the true address, while core boot can
+		 * access 4MB.
+		 */
+		/* Use this name so old part lines work */
 		flash_map.name = "phys_mapped_flash";
 		flash_map.phys = region_cfg.s.base << 16;
 		flash_map.size = 0x1fc00000 - flash_map.phys;

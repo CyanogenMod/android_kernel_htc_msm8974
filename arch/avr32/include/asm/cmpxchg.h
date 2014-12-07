@@ -66,6 +66,8 @@ extern unsigned long __cmpxchg_u64_unsupported_on_32bit_kernels(
         volatile int * m, unsigned long old, unsigned long new);
 #define __cmpxchg_u64 __cmpxchg_u64_unsupported_on_32bit_kernels
 
+/* This function doesn't exist, so you'll get a linker error
+   if something tries to do an invalid cmpxchg().  */
 extern void __cmpxchg_called_with_bad_pointer(void);
 
 #define __HAVE_ARCH_CMPXCHG 1
@@ -112,4 +114,4 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
 
 #define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 
-#endif 
+#endif /* __ASM_AVR32_CMPXCHG_H */

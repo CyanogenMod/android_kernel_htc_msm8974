@@ -1,3 +1,19 @@
+/*
+ * INET		An implementation of the TCP/IP protocol suite for the LINUX
+ *		operating system.  INET is implemented using the  BSD Socket
+ *		interface as the means of communication with the user level.
+ *
+ *		The IP to API glue.
+ *
+ * Authors:	see ip.c
+ *
+ * Fixes:
+ *		Many		:	Split from ip.c , see ip.c for history.
+ *		Martin Mares	:	TOS setting fixed.
+ *		Alan Cox	:	Fixed a couple of oopses in Martin's
+ *					TOS tweaks.
+ *		Mike McLagan	:	Routing by source
+ */
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -36,6 +52,9 @@
 #define IP_CMSG_PASSSEC		32
 #define IP_CMSG_ORIGDSTADDR     64
 
+/*
+ *	SOL_IP control messages.
+ */
 #define PKTINFO_SKB_CB(__skb) ((struct in_pktinfo *)((__skb)->cb))
 
 static void ip_cmsg_recv_pktinfo(struct msghdr *msg, struct sk_buff *skb)
@@ -130,7 +149,7 @@ void ip_cmsg_recv(struct msghdr *msg, struct sk_buff *skb)
 	struct inet_sock *inet = inet_sk(skb->sk);
 	unsigned flags = inet->cmsg_flags;
 
-	
+	/* Ordered by supposed usage frequency */
 	if (flags & 1)
 		ip_cmsg_recv_pktinfo(msg, skb);
 	if ((flags >>= 1) == 0)
@@ -203,6 +222,16 @@ int ip_cmsg_send(struct net *net, struct msghdr *msg, struct ipcm_cookie *ipc)
 }
 
 
+/* Special input handler for packets caught by router alert option.
+   They are selected only by protocol field, and then processed likely
+   local ones; but only if someone wants them! Otherwise, router
+   not running rsvpd will kill RSVP.
+
+   It is user level problem, what it will make with them.
+   I have no idea, how it will masquearde or NAT them (it is joke, joke :-)),
+   but receiver should be enough clever f.e. to forward mtrace requests,
+   sent to multicast group to reach destination designated router.
+ */
 struct ip_ra_chain __rcu *ip_ra_chain;
 static DEFINE_SPINLOCK(ip_ra_lock);
 
@@ -237,13 +266,18 @@ int ip_ra_control(struct sock *sk, unsigned char on,
 				kfree(new_ra);
 				return -EADDRINUSE;
 			}
-			
+			/* dont let ip_call_ra_chain() use sk again */
 			ra->sk = NULL;
 			rcu_assign_pointer(*rap, ra->next);
 			spin_unlock_bh(&ip_ra_lock);
 
 			if (ra->destructor)
 				ra->destructor(sk);
+			/*
+			 * Delay sock_put(sk) and kfree(ra) after one rcu grace
+			 * period. This guarantee ip_call_ra_chain() dont need
+			 * to mess with socket refcounts.
+			 */
 			ra->saved_sk = sk;
 			call_rcu(&ra->rcu, ip_ra_destroy_rcu);
 			return 0;
@@ -330,6 +364,9 @@ void ip_local_error(struct sock *sk, int err, __be32 daddr, __be16 port, u32 inf
 		kfree_skb(skb);
 }
 
+/*
+ *	Handle MSG_ERRQUEUE
+ */
 int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 {
 	struct sock_exterr_skb *serr;
@@ -385,12 +422,12 @@ int ip_recv_error(struct sock *sk, struct msghdr *msg, int len)
 
 	put_cmsg(msg, SOL_IP, IP_RECVERR, sizeof(errhdr), &errhdr);
 
-	
+	/* Now we could try to dump offended packet options */
 
 	msg->msg_flags |= MSG_ERRQUEUE;
 	err = copied;
 
-	
+	/* Reset and regenerate socket error */
 	spin_lock_bh(&sk->sk_error_queue.lock);
 	sk->sk_err = 0;
 	skb2 = skb_peek(&sk->sk_error_queue);
@@ -408,6 +445,10 @@ out:
 }
 
 
+/*
+ *	Socket option code for IP. This is the end of the line after any
+ *	TCP,UDP etc options on an IP socket.
+ */
 
 static int do_ip_setsockopt(struct sock *sk, int level,
 			    int optname, char __user *optval, unsigned int optlen)
@@ -440,7 +481,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 		}
 	}
 
-	
+	/* If optlen==0, it is equivalent to val == 0 */
 
 	if (ip_mroute_opt(optname))
 		return ip_mroute_setsockopt(sk, optname, optval, optlen);
@@ -525,7 +566,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 		else
 			inet->cmsg_flags &= ~IP_CMSG_ORIGDSTADDR;
 		break;
-	case IP_TOS:	
+	case IP_TOS:	/* This sets both TOS and Precedence */
 		if (sk->sk_type == SOCK_STREAM) {
 			val &= ~INET_ECN_MASK;
 			val |= inet->tos & INET_ECN_MASK;
@@ -619,6 +660,9 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 
 		if (sk->sk_type == SOCK_STREAM)
 			goto e_inval;
+		/*
+		 *	Check the arguments are allowable
+		 */
 
 		if (optlen < sizeof(struct in_addr))
 			goto e_inval;
@@ -712,7 +756,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 			kfree(msf);
 			break;
 		}
-		
+		/* numsrc >= (1G-4) overflow in 32 bits */
 		if (msf->imsf_numsrc >= 0x3ffffffcU ||
 		    msf->imsf_numsrc > sysctl_igmp_max_msf) {
 			kfree(msf);
@@ -759,7 +803,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 				break;
 			omode = MCAST_INCLUDE;
 			add = 1;
-		} else  {
+		} else /* IP_DROP_SOURCE_MEMBERSHIP */ {
 			omode = MCAST_INCLUDE;
 			add = 0;
 		}
@@ -816,7 +860,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 		mreqs.imr_multiaddr = psin->sin_addr.s_addr;
 		psin = (struct sockaddr_in *)&greqs.gsr_source;
 		mreqs.imr_sourceaddr = psin->sin_addr.s_addr;
-		mreqs.imr_interface = 0; 
+		mreqs.imr_interface = 0; /* use index for mc_source */
 
 		if (optname == MCAST_BLOCK_SOURCE) {
 			omode = MCAST_EXCLUDE;
@@ -837,7 +881,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 			greqs.gsr_interface = mreq.imr_ifindex;
 			omode = MCAST_INCLUDE;
 			add = 1;
-		} else  {
+		} else /* MCAST_LEAVE_SOURCE_GROUP */ {
 			omode = MCAST_INCLUDE;
 			add = 0;
 		}
@@ -867,7 +911,7 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 		if (copy_from_user(gsf, optval, optlen))
 			goto mc_msf_out;
 
-		
+		/* numsrc >= (4G-140)/128 overflow in 32 bits */
 		if (gsf->gf_numsrc >= 0x1ffffff ||
 		    gsf->gf_numsrc > sysctl_igmp_max_msf) {
 			err = -ENOBUFS;
@@ -965,6 +1009,15 @@ e_inval:
 	return -EINVAL;
 }
 
+/**
+ * ipv4_pktinfo_prepare - transfert some info from rtable to skb
+ * @sk: socket
+ * @skb: buffer
+ *
+ * To support IP_CMSG_PKTINFO option, we store rt_iif and rt_spec_dst
+ * in skb->cb[] before dst drop.
+ * This way, receiver doesnt make cache line misses to read rtable.
+ */
 void ipv4_pktinfo_prepare(struct sk_buff *skb)
 {
 	struct in_pktinfo *pktinfo = PKTINFO_SKB_CB(skb);
@@ -990,7 +1043,7 @@ int ip_setsockopt(struct sock *sk, int level,
 
 	err = do_ip_setsockopt(sk, level, optname, optval, optlen);
 #ifdef CONFIG_NETFILTER
-	
+	/* we need to exclude all possible ENOPROTOOPTs except default case */
 	if (err == -ENOPROTOOPT && optname != IP_HDRINCL &&
 			optname != IP_IPSEC_POLICY &&
 			optname != IP_XFRM_POLICY &&
@@ -1019,7 +1072,7 @@ int compat_ip_setsockopt(struct sock *sk, int level, int optname,
 
 	err = do_ip_setsockopt(sk, level, optname, optval, optlen);
 #ifdef CONFIG_NETFILTER
-	
+	/* we need to exclude all possible ENOPROTOOPTs except default case */
 	if (err == -ENOPROTOOPT && optname != IP_HDRINCL &&
 			optname != IP_IPSEC_POLICY &&
 			optname != IP_XFRM_POLICY &&
@@ -1035,6 +1088,10 @@ int compat_ip_setsockopt(struct sock *sk, int level, int optname,
 EXPORT_SYMBOL(compat_ip_setsockopt);
 #endif
 
+/*
+ *	Get the options. Note for future reference. The GET of IP options gets
+ *	the _received_ ones. The set sets the _sent_ ones.
+ */
 
 static int do_ip_getsockopt(struct sock *sk, int level, int optname,
 			    char __user *optval, int __user *optlen, unsigned flags)
@@ -1273,7 +1330,7 @@ int ip_getsockopt(struct sock *sk, int level,
 
 	err = do_ip_getsockopt(sk, level, optname, optval, optlen, 0);
 #ifdef CONFIG_NETFILTER
-	
+	/* we need to exclude all possible ENOPROTOOPTs except default case */
 	if (err == -ENOPROTOOPT && optname != IP_PKTOPTIONS &&
 			!ip_mroute_opt(optname)) {
 		int len;
@@ -1308,7 +1365,7 @@ int compat_ip_getsockopt(struct sock *sk, int level, int optname,
 		MSG_CMSG_COMPAT);
 
 #ifdef CONFIG_NETFILTER
-	
+	/* we need to exclude all possible ENOPROTOOPTs except default case */
 	if (err == -ENOPROTOOPT && optname != IP_PKTOPTIONS &&
 			!ip_mroute_opt(optname)) {
 		int len;

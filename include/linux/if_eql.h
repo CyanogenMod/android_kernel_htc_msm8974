@@ -61,7 +61,7 @@ typedef struct equalizer {
 	struct timer_list	timer;
 } equalizer_t;  
 
-#endif 
+#endif /* __KERNEL__ */
 
 typedef struct master_config {
 	char	master_name[16];
@@ -80,4 +80,4 @@ typedef struct slaving_request {
 } slaving_request_t;
 
 
-#endif 
+#endif /* _LINUX_EQL_H */

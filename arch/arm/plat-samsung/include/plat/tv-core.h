@@ -14,7 +14,12 @@
 #ifndef __SAMSUNG_PLAT_TV_H
 #define __SAMSUNG_PLAT_TV_H __FILE__
 
+/*
+ * These functions are only for use with the core support code, such as
+ * the CPU-specific initialization code.
+ */
 
+/* Re-define device name to differentiate the subsystem in various SoCs. */
 static inline void s5p_hdmi_setname(char *name)
 {
 #ifdef CONFIG_S5P_DEV_TV
@@ -36,4 +41,4 @@ static inline void s5p_sdo_setname(char *name)
 #endif
 }
 
-#endif 
+#endif /* __SAMSUNG_PLAT_TV_H */

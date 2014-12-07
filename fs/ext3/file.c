@@ -23,13 +23,18 @@
 #include "xattr.h"
 #include "acl.h"
 
+/*
+ * Called when an inode is released. Note that this is different
+ * from ext3_file_open: open gets called at every open, but release
+ * gets called only when /all/ the files are closed.
+ */
 static int ext3_release_file (struct inode * inode, struct file * filp)
 {
 	if (ext3_test_inode_state(inode, EXT3_STATE_FLUSH_ON_CLOSE)) {
 		filemap_flush(inode->i_mapping);
 		ext3_clear_inode_state(inode, EXT3_STATE_FLUSH_ON_CLOSE);
 	}
-	
+	/* if we are the last writer on the inode, drop the block reservation */
 	if ((filp->f_mode & FMODE_WRITE) &&
 			(atomic_read(&inode->i_writecount) == 1))
 	{

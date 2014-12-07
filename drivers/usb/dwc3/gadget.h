@@ -47,6 +47,7 @@ struct dwc3;
 #define to_dwc3_ep(ep)		(container_of(ep, struct dwc3_ep, endpoint))
 #define gadget_to_dwc(g)	(container_of(g, struct dwc3, gadget))
 
+/* DEPCFG parameter 1 */
 #define DWC3_DEPCFG_INT_NUM(n)		((n) << 0)
 #define DWC3_DEPCFG_XFER_COMPLETE_EN	(1 << 8)
 #define DWC3_DEPCFG_XFER_IN_PROGRESS_EN	(1 << 9)
@@ -59,16 +60,20 @@ struct dwc3;
 #define DWC3_DEPCFG_BULK_BASED		(1 << 30)
 #define DWC3_DEPCFG_FIFO_BASED		(1 << 31)
 
+/* DEPCFG parameter 0 */
 #define DWC3_DEPCFG_EP_TYPE(n)		((n) << 1)
 #define DWC3_DEPCFG_MAX_PACKET_SIZE(n)	((n) << 3)
 #define DWC3_DEPCFG_FIFO_NUMBER(n)	((n) << 17)
 #define DWC3_DEPCFG_BURST_SIZE(n)	((n) << 22)
 #define DWC3_DEPCFG_DATA_SEQ_NUM(n)	((n) << 26)
+/* This applies for core versions earlier than 1.94a */
 #define DWC3_DEPCFG_IGN_SEQ_NUM		(1 << 31)
+/* These apply for core versions 1.94a and later */
 #define DWC3_DEPCFG_ACTION_INIT		(0 << 30)
 #define DWC3_DEPCFG_ACTION_RESTORE	(1 << 30)
 #define DWC3_DEPCFG_ACTION_MODIFY	(2 << 30)
 
+/* DEPXFERCFG parameter 0 */
 #define DWC3_DEPXFERCFG_NUM_XFER_RES(n)	((n) & 0xffff)
 
 struct dwc3_gadget_ep_cmd_params {
@@ -77,6 +82,7 @@ struct dwc3_gadget_ep_cmd_params {
 	u32	param0;
 };
 
+/* -------------------------------------------------------------------------- */
 
 #define to_dwc3_request(r)	(container_of(r, struct dwc3_request, request))
 
@@ -123,6 +129,13 @@ int dwc3_send_gadget_generic_command(struct dwc3 *dwc, int cmd, u32 param);
 dma_addr_t dwc3_trb_dma_offset(struct dwc3_ep *dep,
 		struct dwc3_trb *trb);
 
+/**
+ * dwc3_gadget_ep_get_transfer_index - Gets transfer index from HW
+ * @dwc: DesignWare USB3 Pointer
+ * @number: DWC endpoint number
+ *
+ * Caller should take care of locking
+ */
 static inline u32 dwc3_gadget_ep_get_transfer_index(struct dwc3 *dwc, u8 number)
 {
 	u32			res_id;
@@ -132,6 +145,10 @@ static inline u32 dwc3_gadget_ep_get_transfer_index(struct dwc3 *dwc, u8 number)
 	return DWC3_DEPCMD_GET_RSC_IDX(res_id);
 }
 
+/**
+ * dwc3_gadget_event_string - returns event name
+ * @event: the event code
+ */
 static inline const char *dwc3_gadget_event_string(u8 event)
 {
 	switch (event) {
@@ -160,6 +177,10 @@ static inline const char *dwc3_gadget_event_string(u8 event)
 	return "UNKNOWN";
 }
 
+/**
+ * dwc3_ep_event_string - returns event name
+ * @event: then event code
+ */
 static inline const char *dwc3_ep_event_string(u8 event)
 {
 	switch (event) {
@@ -180,4 +201,4 @@ static inline const char *dwc3_ep_event_string(u8 event)
 	return "UNKNOWN";
 }
 
-#endif 
+#endif /* __DRIVERS_USB_DWC3_GADGET_H */

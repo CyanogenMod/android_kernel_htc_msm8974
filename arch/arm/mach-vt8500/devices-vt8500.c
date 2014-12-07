@@ -62,7 +62,7 @@ void __init vt8500_set_resources(void)
 
 static void __init vt8500_set_externs(void)
 {
-	
+	/* Non-resource-aware stuff */
 	wmt_ic_base = VT8500_IC_BASE;
 	wmt_gpio_base = VT8500_GPIO_BASE;
 	wmt_pmc_base = VT8500_PMC_BASE;
@@ -86,6 +86,6 @@ void __init vt8500_map_io(void)
 {
 	iotable_init(wmt_io_desc, ARRAY_SIZE(wmt_io_desc));
 
-	
+	/* Should be done before interrupts and timers are initialized */
 	vt8500_set_externs();
 }

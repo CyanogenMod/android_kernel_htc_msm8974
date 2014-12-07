@@ -43,6 +43,10 @@ irqreturn_t t3e3_intr(int irq, void *dev_instance)
 		ret = IRQ_HANDLED;
 	}
 
+	/*
+	  we don't care about other interrupt sources (DMO, LOS, LCV) because
+	  they are handled by Framer too
+	*/
 
 	sc->interrupt_active = 0;
 	return ret;
@@ -52,8 +56,8 @@ void dc_intr(struct channel *sc)
 {
 	u32 val;
 
-	
-	
+	/* disable ethernet interrupts */
+	/* grrr this clears interrupt summary bits !!! */
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_INTERRUPT_ENABLE, 0);
 
 	while ((val = dc_read(sc->addr, SBE_2T3E3_21143_REG_STATUS)) &
@@ -105,7 +109,7 @@ void dc_intr(struct channel *sc)
 		}
 	}
 
-	
+	/* enable ethernet interrupts */
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_INTERRUPT_ENABLE,
 		 sc->ether.interrupt_enable_mask);
 }
@@ -118,12 +122,12 @@ void dc_intr_rx(struct channel *sc)
 	struct sk_buff *m, *m2;
 	unsigned rcv_len;
 
-	sc->rcv_count++; 
+	sc->rcv_count++; /* for the activity LED */
 
 	current_read = sc->ether.rx_ring_current_read;
 	dev_dbg(&sc->pdev->dev, "intr_rx current_read = %d\n", current_read);
 
-	
+	/* when ethernet loopback is set, ignore framer signals */
 	if ((sc->p.loopback != SBE_2T3E3_LOOPBACK_ETHERNET) && sc->s.OOF) {
 		while (!(sc->ether.rx_ring[current_read].rdes0 &
 			 SBE_2T3E3_RX_DESC_21143_OWN)) {
@@ -165,7 +169,7 @@ void dc_intr_rx(struct channel *sc)
 
 		if (current_desc->rdes0 & SBE_2T3E3_RX_DESC_LAST_DESC) {
 
-			
+			/* TODO: is collision possible? */
 			error_mask = SBE_2T3E3_RX_DESC_DESC_ERROR |
 				SBE_2T3E3_RX_DESC_COLLISION_SEEN |
 				SBE_2T3E3_RX_DESC_DRIBBLING_BIT;
@@ -263,7 +267,7 @@ void dc_intr_rx(struct channel *sc)
 				m->protocol = hdlc_type_trans(m, m->dev);
 				netif_rx(m);
 
-				
+				/* good packet was received so we will show error messages again... */
 				if (sc->r.flags & SBE_2T3E3_FLAG_NO_ERROR_MESSAGES) {
 					dev_dbg(&sc->pdev->dev,
 						"setting ERROR_MESSAGES->0\n");
@@ -380,7 +384,7 @@ void dc_intr_tx(struct channel *sc)
 
 	sc->ether.tx_ring_current_read = current_read;
 
-	
+	/* Relieve flow control when the TX queue is drained at least half way */
 	if (sc->ether.tx_full &&
 	    (sc->ether.tx_free_cnt >= (SBE_2T3E3_TX_DESC_RING_SIZE / 2))) {
 		sc->ether.tx_full = 0;
@@ -431,7 +435,7 @@ void exar7250_intr(struct channel *sc)
 	u32 status, old_OOF;
 
 #if 0
-	
+	/* disable interrupts */
 	exar7250_write(sc, SBE_2T3E3_FRAMER_REG_BLOCK_INTERRUPT_ENABLE, 0);
 #endif
 
@@ -459,12 +463,12 @@ void exar7250_intr(struct channel *sc)
 		if (sc->s.OOF) {
 			if (sc->p.loopback == SBE_2T3E3_LOOPBACK_NONE) {
 				dev_dbg(&sc->pdev->dev, "SBE 2T3E3: Disabling eth interrupts\n");
-				
+				/* turn off ethernet interrupts */
 				dc_stop_intr(sc);
 			}
 		} else if (sc->r.flags & SBE_2T3E3_FLAG_NETWORK_UP) {
 			dev_dbg(&sc->pdev->dev, "SBE 2T3E3: Enabling eth interrupts\n");
-			
+			/* start interrupts */
 			sc->s.OOF = 1;
 			dc_intr_rx(sc);
 			sc->s.OOF = 0;
@@ -476,7 +480,7 @@ void exar7250_intr(struct channel *sc)
 		}
 	}
 #if 0
-	
+	/* reenable interrupts */
 	exar7250_write(sc, SBE_2T3E3_FRAMER_REG_BLOCK_INTERRUPT_ENABLE,
 		       SBE_2T3E3_FRAMER_VAL_RX_INTERRUPT_ENABLE |
 		       SBE_2T3E3_FRAMER_VAL_TX_INTERRUPT_ENABLE

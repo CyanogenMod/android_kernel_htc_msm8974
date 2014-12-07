@@ -68,10 +68,20 @@ static void setup_apic_flat_routing(void)
 
 static void default_vector_allocation_domain(int cpu, struct cpumask *retmask)
 {
+	/*
+	 * Careful. Some cpus do not strictly honor the set of cpus
+	 * specified in the interrupt destination when using lowest
+	 * priority interrupt delivery mode.
+	 *
+	 * In particular there was a hyperthreading cpu observed to
+	 * deliver interrupts to the wrong hyperthread when only one
+	 * hyperthread was specified in the interrupt desitination.
+	 */
 	cpumask_clear(retmask);
 	cpumask_bits(retmask)[0] = APIC_ALL_CPUS;
 }
 
+/* should be called last. */
 static int probe_default(void)
 {
 	return 1;
@@ -86,7 +96,7 @@ static struct apic apic_default = {
 	.apic_id_registered		= default_apic_id_registered,
 
 	.irq_delivery_mode		= dest_LowestPrio,
-	
+	/* logical delivery broadcast to all CPUs: */
 	.irq_dest_mode			= 1,
 
 	.target_cpus			= default_target_cpus,
@@ -161,7 +171,7 @@ static int __init parse_apic(char *arg)
 		}
 	}
 
-	
+	/* Parsed again by __setup for debug/verbose */
 	return 0;
 }
 early_param("apic", parse_apic);
@@ -177,13 +187,19 @@ void __init default_setup_apic_routing(void)
 				def_to_bigsmp = 0;
 				break;
 			}
-			
+			/* If P4 and above fall through */
 		case X86_VENDOR_AMD:
 			def_to_bigsmp = 1;
 		}
 	}
 
 #ifdef CONFIG_X86_BIGSMP
+	/*
+	 * This is used to switch to bigsmp mode when
+	 * - There is no apic= option specified by the user
+	 * - generic_apic_probe() has chosen apic_default as the sub_arch
+	 * - we find more than 8 CPUs in acpi LAPIC listing with xAPIC support
+	 */
 
 	if (!cmdline_apic && apic == &apic_default)
 		generic_bigsmp_probe();
@@ -204,13 +220,14 @@ void __init generic_apic_probe(void)
 				break;
 			}
 		}
-		
+		/* Not visible without early console */
 		if (drv == __apicdrivers_end)
 			panic("Didn't find an APIC driver");
 	}
 	printk(KERN_INFO "Using APIC driver %s\n", apic->name);
 }
 
+/* These functions can switch the APIC even after the initial ->probe() */
 
 int __init
 generic_mps_oem_check(struct mpc_table *mpc, char *oem, char *productid)

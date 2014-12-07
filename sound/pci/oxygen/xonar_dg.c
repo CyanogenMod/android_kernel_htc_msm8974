@@ -16,6 +16,34 @@
  *  along with this driver; if not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * Xonar DG
+ * --------
+ *
+ * CMI8788:
+ *
+ *   SPI 0 -> CS4245
+ *
+ *   I²S 1 -> CS4245
+ *   I²S 2 -> CS4361 (center/LFE)
+ *   I²S 3 -> CS4361 (surround)
+ *   I²S 4 -> CS4361 (front)
+ *
+ *   GPIO 3 <- ?
+ *   GPIO 4 <- headphone detect
+ *   GPIO 5 -> route input jack to line-in (0) or mic-in (1)
+ *   GPIO 6 -> route input jack to line-in (0) or mic-in (1)
+ *   GPIO 7 -> enable rear headphone amp
+ *   GPIO 8 -> enable output to speakers
+ *
+ * CS4245:
+ *
+ *   input 1 <- aux
+ *   input 2 <- front mic
+ *   input 4 <- line/mic
+ *   DAC out -> headphones
+ *   aux out -> front panel headphones
+ */
 
 #include <linux/pci.h>
 #include <linux/delay.h>

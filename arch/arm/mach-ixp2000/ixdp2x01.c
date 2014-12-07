@@ -44,6 +44,9 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 
+/*************************************************************************
+ * IXDP2x01 IRQ Handling
+ *************************************************************************/
 static void ixdp2x01_irq_mask(struct irq_data *d)
 {
 	ixp2000_reg_wrb(IXDP2X01_INT_MASK_SET_REG,
@@ -88,11 +91,16 @@ static struct irq_chip ixdp2x01_irq_chip = {
 	.irq_unmask	= ixdp2x01_irq_unmask
 };
 
+/*
+ * We only do anything if we are the master NPU on the board.
+ * The slave NPU only has the ethernet chip going directly to
+ * the PCIB interrupt input.
+ */
 void __init ixdp2x01_init_irq(void)
 {
 	int irq = 0;
 
-	
+	/* initialize chip specific interrupts */
 	ixp2000_init_irq();
 
 	if (machine_is_ixdp2401())
@@ -100,7 +108,7 @@ void __init ixdp2x01_init_irq(void)
 	else
 		valid_irq_mask = IXDP2801_VALID_IRQ_MASK;
 
-	
+	/* Mask all interrupts from CPLD, disable simulation */
 	ixp2000_reg_write(IXDP2X01_INT_MASK_SET_REG, 0xffffffff);
 	ixp2000_reg_wrb(IXDP2X01_INT_SIM_REG, 0);
 
@@ -114,11 +122,14 @@ void __init ixdp2x01_init_irq(void)
 		}
 	}
 
-	
+	/* Hook into PCI interrupts */
 	irq_set_chained_handler(IRQ_IXP2000_PCIB, ixdp2x01_irq_handler);
 }
 
 
+/*************************************************************************
+ * IXDP2x01 memory map
+ *************************************************************************/
 static struct map_desc ixdp2x01_io_desc __initdata = {
 	.virtual	= IXDP2X01_VIRT_CPLD_BASE, 
 	.pfn		= __phys_to_pfn(IXDP2X01_PHYS_CPLD_BASE),
@@ -133,6 +144,9 @@ static void __init ixdp2x01_map_io(void)
 }
 
 
+/*************************************************************************
+ * IXDP2x01 serial ports
+ *************************************************************************/
 static struct plat_serial8250_port ixdp2x01_serial_port1[] = {
 	{
 		.mapbase	= (unsigned long)IXDP2X01_UART1_PHYS_BASE,
@@ -198,6 +212,9 @@ static void ixdp2x01_uart_init(void)
 }
 
 
+/*************************************************************************
+ * IXDP2x01 timer tick configuration
+ *************************************************************************/
 static unsigned int ixdp2x01_clock;
 
 static int __init ixdp2x01_clock_setup(char *str)
@@ -222,6 +239,9 @@ static struct sys_timer ixdp2x01_timer = {
 	.offset		= ixp2000_gettimeoffset,
 };
 
+/*************************************************************************
+ * IXDP2x01 PCI
+ *************************************************************************/
 void __init ixdp2x01_pci_preinit(void)
 {
 	ixp2000_reg_write(IXP2000_PCI_ADDR_EXT, 0x00000000);
@@ -238,55 +258,55 @@ static int __init ixdp2x01_pci_map_irq(const struct pci_dev *dev, u8 slot,
 	u32 devpin = DEVPIN(PCI_SLOT(dev->devfn), pin);
 	struct pci_bus *tmp_bus = dev->bus;
 
-	
+	/* Primary bus, no interrupts here */
 	if (bus == 0) {
 		return -1;
 	}
 
-	
+	/* Lookup first leaf in bus tree */
 	while ((tmp_bus->parent != NULL) && (tmp_bus->parent->parent != NULL)) {
 		tmp_bus = tmp_bus->parent;
 	}
 
-	
+	/* Select between known bridges */
 	switch (tmp_bus->self->devfn | (tmp_bus->self->bus->number << 8)) {
-	
+	/* Device is located after first MB bridge */
 	case 0x0008:
 		if (tmp_bus == dev->bus) {
-			
+			/* Device is located directly after first MB bridge */
 			switch (devpin) {
-			case DEVPIN(1, 1):	
+			case DEVPIN(1, 1):	/* Onboard 82546 ch 0 */
 				if (machine_is_ixdp2401())
 					return IRQ_IXDP2401_INTA_82546;
 				return -1;
-			case DEVPIN(1, 2):	
+			case DEVPIN(1, 2):	/* Onboard 82546 ch 1 */
 				if (machine_is_ixdp2401())
 					return IRQ_IXDP2401_INTB_82546;
 				return -1;
-			case DEVPIN(0, 1):	
+			case DEVPIN(0, 1):	/* PMC INTA# */
 				return IRQ_IXDP2X01_SPCI_PMC_INTA;
-			case DEVPIN(0, 2):	
+			case DEVPIN(0, 2):	/* PMC INTB# */
 				return IRQ_IXDP2X01_SPCI_PMC_INTB;
-			case DEVPIN(0, 3):	
+			case DEVPIN(0, 3):	/* PMC INTC# */
 				return IRQ_IXDP2X01_SPCI_PMC_INTC;
-			case DEVPIN(0, 4):	
+			case DEVPIN(0, 4):	/* PMC INTD# */
 				return IRQ_IXDP2X01_SPCI_PMC_INTD;
 			}
 		}
 		break;
 	case 0x0010:
 		if (tmp_bus == dev->bus) {
-			
-			
+			/* Device is located directly after second MB bridge */
+			/* Secondary bus of second bridge */
 			switch (devpin) {
-			case DEVPIN(0, 1):	
+			case DEVPIN(0, 1):	/* DB#0 */
 				return IRQ_IXDP2X01_SPCI_DB_0;
-			case DEVPIN(1, 1):	
+			case DEVPIN(1, 1):	/* DB#1 */
 				return IRQ_IXDP2X01_SPCI_DB_1;
 			}
 		} else {
-			
-			
+			/* Device is located indirectly after second MB bridge */
+			/* Not supported now */
 		}
 		break;
 	}
@@ -324,6 +344,9 @@ int __init ixdp2x01_pci_init(void)
 
 subsys_initcall(ixdp2x01_pci_init);
 
+/*************************************************************************
+ * IXDP2x01 Machine Initialization
+ *************************************************************************/
 static struct flash_platform_data ixdp2x01_flash_platform_data = {
 	.map_name	= "cfi_probe",
 	.width		= 1,
@@ -391,6 +414,10 @@ static void __init ixdp2x01_init_machine(void)
 
 static void ixdp2401_restart(char mode, const char *cmd)
 {
+	/*
+	 * Reset flash banking register so that we are pointing at
+	 * RedBoot bank.
+	 */
 	ixp2000_reg_write(IXDP2X01_CPLD_FLASH_REG,
 				((0 >> IXDP2X01_FLASH_WINDOW_BITS)
 					| IXDP2X01_CPLD_FLASH_INTERN));
@@ -401,6 +428,11 @@ static void ixdp2401_restart(char mode, const char *cmd)
 
 static void ixdp280x_restart(char mode, const char *cmd)
 {
+	/*
+	 * On IXDP2801 we need to write this magic sequence to the CPLD
+	 * to cause a complete reset of the CPU and all external devices
+	 * and move the flash bank register back to 0.
+	 */
 	unsigned long reset_reg = *IXDP2X01_CPLD_RESET_REG;
 
 	reset_reg = 0x55AA0000 | (reset_reg & 0x0000FFFF);
@@ -412,7 +444,7 @@ static void ixdp280x_restart(char mode, const char *cmd)
 
 #ifdef CONFIG_ARCH_IXDP2401
 MACHINE_START(IXDP2401, "Intel IXDP2401 Development Platform")
-	
+	/* Maintainer: MontaVista Software, Inc. */
 	.atag_offset	= 0x100,
 	.map_io		= ixdp2x01_map_io,
 	.init_irq	= ixdp2x01_init_irq,
@@ -424,7 +456,7 @@ MACHINE_END
 
 #ifdef CONFIG_ARCH_IXDP2801
 MACHINE_START(IXDP2801, "Intel IXDP2801 Development Platform")
-	
+	/* Maintainer: MontaVista Software, Inc. */
 	.atag_offset	= 0x100,
 	.map_io		= ixdp2x01_map_io,
 	.init_irq	= ixdp2x01_init_irq,
@@ -433,8 +465,12 @@ MACHINE_START(IXDP2801, "Intel IXDP2801 Development Platform")
 	.restart	= ixdp280x_restart,
 MACHINE_END
 
+/*
+ * IXDP28x5 is basically an IXDP2801 with a different CPU but Intel
+ * changed the machine ID in the bootloader
+ */
 MACHINE_START(IXDP28X5, "Intel IXDP2805/2855 Development Platform")
-	
+	/* Maintainer: MontaVista Software, Inc. */
 	.atag_offset	= 0x100,
 	.map_io		= ixdp2x01_map_io,
 	.init_irq	= ixdp2x01_init_irq,

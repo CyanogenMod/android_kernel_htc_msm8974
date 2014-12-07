@@ -19,7 +19,7 @@
 
 #define RPC_GSS_VERSION		1
 
-#define MAXSEQ 0x80000000 
+#define MAXSEQ 0x80000000 /* maximum legal sequence number, from rfc 2203 */
 
 enum rpc_gss_proc {
 	RPC_GSS_PROC_DATA = 0,
@@ -34,27 +34,35 @@ enum rpc_gss_svc {
 	RPC_GSS_SVC_PRIVACY = 3
 };
 
+/* on-the-wire gss cred: */
 struct rpc_gss_wire_cred {
-	u32			gc_v;		
-	u32			gc_proc;	
-	u32			gc_seq;		
-	u32			gc_svc;		
-	struct xdr_netobj	gc_ctx;		
+	u32			gc_v;		/* version */
+	u32			gc_proc;	/* control procedure */
+	u32			gc_seq;		/* sequence number */
+	u32			gc_svc;		/* service */
+	struct xdr_netobj	gc_ctx;		/* context handle */
 };
 
+/* on-the-wire gss verifier: */
 struct rpc_gss_wire_verf {
 	u32			gv_flavor;
 	struct xdr_netobj	gv_verf;
 };
 
+/* return from gss NULL PROC init sec context */
 struct rpc_gss_init_res {
-	struct xdr_netobj	gr_ctx;		
-	u32			gr_major;	
-	u32			gr_minor;	
-	u32			gr_win;		
-	struct xdr_netobj	gr_token;	
+	struct xdr_netobj	gr_ctx;		/* context handle */
+	u32			gr_major;	/* major status */
+	u32			gr_minor;	/* minor status */
+	u32			gr_win;		/* sequence window */
+	struct xdr_netobj	gr_token;	/* token */
 };
 
+/* The gss_cl_ctx struct holds all the information the rpcsec_gss client
+ * code needs to know about a single security context.  In particular,
+ * gc_gss_ctx is the context handle that is used to do gss-api calls, while
+ * gc_wire_ctx is the context handle that is used to identify the context on
+ * the wire when communicating with a server. */
 
 struct gss_cl_ctx {
 	atomic_t		count;
@@ -78,6 +86,6 @@ struct gss_cred {
 	unsigned long		gc_upcall_timestamp;
 };
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _LINUX_SUNRPC_AUTH_GSS_H */
 

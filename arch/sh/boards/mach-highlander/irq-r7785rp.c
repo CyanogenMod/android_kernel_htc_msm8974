@@ -17,15 +17,15 @@
 enum {
 	UNUSED = 0,
 
-	
-	CF,		
-	SMBUS,		
-	TP,		
-	RTC,		
-	TH_ALERT,	
-	AX88796,	
+	/* FPGA specific interrupt sources */
+	CF,		/* Compact Flash */
+	SMBUS,		/* SMBUS */
+	TP,		/* Touch panel */
+	RTC,		/* RTC Alarm */
+	TH_ALERT,	/* Temperature sensor */
+	AX88796,	/* Ethernet controller */
 
-	
+	/* external bus connector */
 	EXT0, EXT1, EXT2, EXT3, EXT4, EXT5, EXT6, EXT7,
 };
 
@@ -46,10 +46,10 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xa4000010, 0, 16, 
+	{ 0xa4000010, 0, 16, /* IRLMCR1 */
 	  { 0, 0, 0, 0, CF, AX88796, SMBUS, TP,
 	    RTC, 0, TH_ALERT, 0, 0, 0, 0, 0 } },
-	{ 0xa4000012, 0, 16, 
+	{ 0xa4000012, 0, 16, /* IRLMCR2 */
 	  { 0, 0, 0, 0, 0, 0, 0, 0,
 	    EXT7, EXT6, EXT5, EXT4, EXT3, EXT2, EXT1, EXT0 } },
 };
@@ -71,15 +71,15 @@ unsigned char * __init highlander_plat_irq_setup(void)
 
 	printk(KERN_INFO "Using r7785rp interrupt controller.\n");
 
-	__raw_writew(0x0000, PA_IRLSSR1);	
+	__raw_writew(0x0000, PA_IRLSSR1);	/* FPGA IRLSSR1(CF_CD clear) */
 
-	
-	__raw_writew(0x0000, PA_IRLPRA);	
-	__raw_writew(0xe598, PA_IRLPRB);	
-	__raw_writew(0x7060, PA_IRLPRC);	
-	__raw_writew(0x0000, PA_IRLPRD);	
-	__raw_writew(0x4321, PA_IRLPRE);	
-	__raw_writew(0xdcba, PA_IRLPRF);	
+	/* Setup the FPGA IRL */
+	__raw_writew(0x0000, PA_IRLPRA);	/* FPGA IRLA */
+	__raw_writew(0xe598, PA_IRLPRB);	/* FPGA IRLB */
+	__raw_writew(0x7060, PA_IRLPRC);	/* FPGA IRLC */
+	__raw_writew(0x0000, PA_IRLPRD);	/* FPGA IRLD */
+	__raw_writew(0x4321, PA_IRLPRE);	/* FPGA IRLE */
+	__raw_writew(0xdcba, PA_IRLPRF);	/* FPGA IRLF */
 
 	register_intc_controller(&intc_desc);
 	return irl2irq;

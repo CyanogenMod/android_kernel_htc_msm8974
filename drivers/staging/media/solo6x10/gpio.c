@@ -30,7 +30,7 @@ static void solo_gpio_mode(struct solo_dev *solo_dev,
 
 	ret = solo_reg_read(solo_dev, SOLO_GPIO_CONFIG_0);
 
-	
+	/* To set gpio */
 	for (port = 0; port < 16; port++) {
 		if (!((1 << port) & port_mask))
 			continue;
@@ -41,7 +41,7 @@ static void solo_gpio_mode(struct solo_dev *solo_dev,
 
 	solo_reg_write(solo_dev, SOLO_GPIO_CONFIG_0, ret);
 
-	
+	/* To set extended gpio - sensor */
 	ret = solo_reg_read(solo_dev, SOLO_GPIO_CONFIG_1);
 
 	for (port = 0; port < 16; port++) {
@@ -71,19 +71,21 @@ static void solo_gpio_clear(struct solo_dev *solo_dev, unsigned int value)
 
 static void solo_gpio_config(struct solo_dev *solo_dev)
 {
-	
+	/* Video reset */
 	solo_gpio_mode(solo_dev, 0x30, 1);
 	solo_gpio_clear(solo_dev, 0x30);
 	udelay(100);
 	solo_gpio_set(solo_dev, 0x30);
 	udelay(100);
 
+	/* Warning: Don't touch the next line unless you're sure of what
+	 * you're doing: first four gpio [0-3] are used for video. */
 	solo_gpio_mode(solo_dev, 0x0f, 2);
 
-	
+	/* We use bit 8-15 of SOLO_GPIO_CONFIG_0 for relay purposes */
 	solo_gpio_mode(solo_dev, 0xff00, 1);
 
-	
+	/* Initially set relay status to 0 */
 	solo_gpio_clear(solo_dev, 0xff00);
 }
 

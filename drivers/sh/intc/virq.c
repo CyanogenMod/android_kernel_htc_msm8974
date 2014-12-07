@@ -27,6 +27,9 @@ struct intc_virq_list {
 #define for_each_virq(entry, head) \
 	for (entry = head; entry; entry = entry->next)
 
+/*
+ * Tags for the radix tree
+ */
 #define INTC_TAG_VIRQ_NEEDS_ALLOC	0
 
 void intc_irq_xlate_set(unsigned int irq, intc_enum id, struct intc_desc_int *d)
@@ -56,6 +59,12 @@ int intc_irq_lookup(const char *chipname, intc_enum enum_id)
 		if (strcmp(d->chip.name, chipname) != 0)
 			continue;
 
+		/*
+		 * Catch early lookups for subgroup VIRQs that have not
+		 * yet been allocated an IRQ. This already includes a
+		 * fast-path out if the tree is untagged, so there is no
+		 * need to explicitly test the root tree.
+		 */
 		tagged = radix_tree_tag_get(&d->tree, enum_id,
 					    INTC_TAG_VIRQ_NEEDS_ALLOC);
 		if (unlikely(tagged))
@@ -77,7 +86,7 @@ static int add_virq_to_pirq(unsigned int irq, unsigned int virq)
 	struct intc_virq_list **last, *entry;
 	struct irq_data *data = irq_get_irq_data(irq);
 
-	
+	/* scan for duplicates */
 	last = (struct intc_virq_list **)&data->handler_data;
 	for_each_virq(entry, data->handler_data) {
 		if (entry->irq == virq)
@@ -227,6 +236,9 @@ restart:
 
 		irq_set_handler_data(irq, (void *)entry->handle);
 
+		/*
+		 * Set the virtual IRQ as non-threadable.
+		 */
 		irq_set_nothread(irq);
 
 		irq_set_chained_handler(entry->pirq, intc_virq_handler);

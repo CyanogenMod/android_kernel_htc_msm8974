@@ -1,3 +1,6 @@
+/*
+ * bioscalls.c - the lowlevel layer of the PnPBIOS driver
+ */
 
 #include <linux/types.h>
 #include <linux/module.h>
@@ -23,6 +26,16 @@ static struct {
 	u16 segment;
 } pnp_bios_callpoint;
 
+/*
+ * These are some opcodes for a "static asmlinkage"
+ * As this code is *not* executed inside the linux kernel segment, but in a
+ * alias at offset 0, we need a far return that can not be compiled by
+ * default (please, prove me wrong! this is *really* ugly!)
+ * This is the only way to get the bios to return into the kernel code,
+ * because the bios code runs in 16 bit protected mode and therefore can only
+ * return to the caller if the call is within the first 64kB, and the linux
+ * kernel begins at offset 3GB...
+ */
 
 asmlinkage void pnp_bios_callfunc(void);
 
@@ -48,6 +61,10 @@ do { \
 static struct desc_struct bad_bios_desc = GDT_ENTRY_INIT(0x4092,
 			(unsigned long)__va(0x400UL), PAGE_SIZE - 0x400 - 1);
 
+/*
+ * At some point we want to use this stack frame pointer to unwind
+ * after PnP BIOS oopses.
+ */
 
 u32 pnp_bios_fault_esp;
 u32 pnp_bios_fault_eip;
@@ -55,6 +72,9 @@ u32 pnp_bios_is_utter_crap = 0;
 
 static spinlock_t pnp_bios_lock;
 
+/*
+ * Support Functions
+ */
 
 static inline u16 call_pnp_bios(u16 func, u16 arg1, u16 arg2, u16 arg3,
 				u16 arg4, u16 arg5, u16 arg6, u16 arg7,
@@ -66,6 +86,10 @@ static inline u16 call_pnp_bios(u16 func, u16 arg1, u16 arg2, u16 arg3,
 	struct desc_struct save_desc_40;
 	int cpu;
 
+	/*
+	 * PnP BIOSes are generally not terribly re-entrant.
+	 * Also, don't rely on them to save everything correctly.
+	 */
 	if (pnp_bios_is_utter_crap)
 		return PNP_FUNCTION_NOT_SUPPORTED;
 
@@ -73,10 +97,10 @@ static inline u16 call_pnp_bios(u16 func, u16 arg1, u16 arg2, u16 arg3,
 	save_desc_40 = get_cpu_gdt_table(cpu)[0x40 / 8];
 	get_cpu_gdt_table(cpu)[0x40 / 8] = bad_bios_desc;
 
-	
+	/* On some boxes IRQ's during PnP BIOS calls are deadly.  */
 	spin_lock_irqsave(&pnp_bios_lock, flags);
 
-	
+	/* The lock prevents us bouncing CPU here */
 	if (ts1_size)
 		Q2_SET_SEL(smp_processor_id(), PNP_TS1, ts1_base, ts1_size);
 	if (ts2_size)
@@ -112,7 +136,7 @@ static inline u16 call_pnp_bios(u16 func, u16 arg1, u16 arg2, u16 arg3,
 	get_cpu_gdt_table(cpu)[0x40 / 8] = save_desc_40;
 	put_cpu();
 
-	
+	/* If we get here and this is set then the PnP BIOS faulted on us. */
 	if (pnp_bios_is_utter_crap) {
 		printk(KERN_ERR
 		       "PnPBIOS: Warning! Your PnP BIOS caused a fatal error. Attempting to continue\n");
@@ -204,6 +228,9 @@ void pnpbios_print_status(const char *module, u16 status)
 	}
 }
 
+/*
+ * PnP BIOS Low Level Calls
+ */
 
 #define PNP_GET_NUM_SYS_DEV_NODES		0x00
 #define PNP_GET_SYS_DEV_NODE			0x01
@@ -219,6 +246,9 @@ void pnpbios_print_status(const char *module, u16 status)
 #define PNP_READ_ESCD				0x42
 #define PNP_WRITE_ESCD				0x43
 
+/*
+ * Call PnP BIOS with function 0x00, "get number of system device nodes"
+ */
 static int __pnp_bios_dev_node_info(struct pnp_dev_node_info *data)
 {
 	u16 status;
@@ -241,7 +271,20 @@ int pnp_bios_dev_node_info(struct pnp_dev_node_info *data)
 	return status;
 }
 
+/*
+ * Note that some PnP BIOSes (e.g., on Sony Vaio laptops) die a horrible
+ * death if they are asked to access the "current" configuration.
+ * Therefore, if it's a matter of indifference, it's better to call
+ * get_dev_node() and set_dev_node() with boot=1 rather than with boot=0.
+ */
 
+/* 
+ * Call PnP BIOS with function 0x01, "get system device node"
+ * Input: *nodenum = desired node,
+ *        boot = whether to get nonvolatile boot (!=0)
+ *               or volatile current (0) config
+ * Output: *nodenum=next node or 0xff if no more nodes
+ */
 static int __pnp_bios_get_dev_node(u8 *nodenum, char boot,
 				   struct pnp_bios_node *data)
 {
@@ -270,6 +313,12 @@ int pnp_bios_get_dev_node(u8 *nodenum, char boot, struct pnp_bios_node *data)
 	return status;
 }
 
+/*
+ * Call PnP BIOS with function 0x02, "set system device node"
+ * Input: *nodenum = desired node, 
+ *        boot = whether to set nonvolatile boot (!=0)
+ *               or volatile current (0) config
+ */
 static int __pnp_bios_set_dev_node(u8 nodenum, char boot,
 				   struct pnp_bios_node *data)
 {
@@ -294,7 +343,7 @@ int pnp_bios_set_dev_node(u8 nodenum, char boot, struct pnp_bios_node *data)
 		pnpbios_print_status("set_dev_node", status);
 		return status;
 	}
-	if (!boot) {		
+	if (!boot) {		/* Update devlist */
 		status = pnp_bios_get_dev_node(&nodenum, boot, data);
 		if (status)
 			return status;
@@ -302,6 +351,9 @@ int pnp_bios_set_dev_node(u8 nodenum, char boot, struct pnp_bios_node *data)
 	return status;
 }
 
+/*
+ * Call PnP BIOS with function 0x05, "get docking station information"
+ */
 int pnp_bios_dock_station_info(struct pnp_docking_station_info *data)
 {
 	u16 status;
@@ -315,6 +367,10 @@ int pnp_bios_dock_station_info(struct pnp_docking_station_info *data)
 	return status;
 }
 
+/*
+ * Call PnP BIOS with function 0x0a, "get statically allocated resource
+ * information"
+ */
 static int __pnp_bios_get_stat_res(char *info)
 {
 	u16 status;
@@ -336,6 +392,9 @@ int pnp_bios_get_stat_res(char *info)
 	return status;
 }
 
+/*
+ * Call PnP BIOS with function 0x40, "get isa pnp configuration structure"
+ */
 static int __pnp_bios_isapnp_config(struct pnp_isa_config_struc *data)
 {
 	u16 status;
@@ -358,6 +417,9 @@ int pnp_bios_isapnp_config(struct pnp_isa_config_struc *data)
 	return status;
 }
 
+/*
+ * Call PnP BIOS with function 0x41, "get ESCD info"
+ */
 static int __pnp_bios_escd_info(struct escd_info_struc *data)
 {
 	u16 status;
@@ -380,6 +442,10 @@ int pnp_bios_escd_info(struct escd_info_struc *data)
 	return status;
 }
 
+/*
+ * Call PnP BIOS function 0x42, "read ESCD"
+ * nvram_base is determined by calling escd_info
+ */
 static int __pnp_bios_read_escd(char *data, u32 nvram_base)
 {
 	u16 status;

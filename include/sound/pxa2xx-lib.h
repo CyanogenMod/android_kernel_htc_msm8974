@@ -4,12 +4,13 @@
 #include <linux/platform_device.h>
 #include <sound/ac97_codec.h>
 
+/* PCM */
 
 struct pxa2xx_pcm_dma_params {
-	char *name;			
-	u32 dcmd;			
-	volatile u32 *drcmr;		
-	u32 dev_addr;			
+	char *name;			/* stream identifier */
+	u32 dcmd;			/* DMA descriptor dcmd field */
+	volatile u32 *drcmr;		/* the DMA request channel to use */
+	u32 dev_addr;			/* device physical address for DMA */
 };
 
 extern int __pxa2xx_pcm_hw_params(struct snd_pcm_substream *substream,
@@ -26,6 +27,7 @@ extern int pxa2xx_pcm_mmap(struct snd_pcm_substream *substream,
 extern int pxa2xx_pcm_preallocate_dma_buffer(struct snd_pcm *pcm, int stream);
 extern void pxa2xx_pcm_free_dma_buffers(struct snd_pcm *pcm);
 
+/* AC97 */
 
 extern unsigned short pxa2xx_ac97_read(struct snd_ac97 *ac97, unsigned short reg);
 extern void pxa2xx_ac97_write(struct snd_ac97 *ac97, unsigned short reg, unsigned short val);

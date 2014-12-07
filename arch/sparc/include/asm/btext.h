@@ -3,4 +3,4 @@
 
 extern int btext_find_display(void);
 
-#endif 
+#endif /* _SPARC_BTEXT_H */

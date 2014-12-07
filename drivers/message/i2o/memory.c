@@ -17,8 +17,16 @@
 #include <linux/slab.h>
 #include "core.h"
 
+/* Protects our 32/64bit mask switching */
 static DEFINE_MUTEX(mem_lock);
 
+/**
+ *	i2o_sg_tablesize - Calculate the maximum number of elements in a SGL
+ *	@c: I2O controller for which the calculation should be done
+ *	@body_size: maximum body size used for message in 32-bit words.
+ *
+ *	Return the maximum number of SG elements in a SG list.
+ */
 u16 i2o_sg_tablesize(struct i2o_controller *c, u16 body_size)
 {
 	i2o_status_block *sb = c->status_block.virt;
@@ -27,6 +35,10 @@ u16 i2o_sg_tablesize(struct i2o_controller *c, u16 body_size)
 	    body_size;
 
 	if (c->pae_support) {
+		/*
+		 * for 64-bit a SG attribute element must be added and each
+		 * SG element needs 12 bytes instead of 8.
+		 */
 		sg_count -= 2;
 		sg_count /= 3;
 	} else
@@ -40,6 +52,22 @@ u16 i2o_sg_tablesize(struct i2o_controller *c, u16 body_size)
 EXPORT_SYMBOL_GPL(i2o_sg_tablesize);
 
 
+/**
+ *	i2o_dma_map_single - Map pointer to controller and fill in I2O message.
+ *	@c: I2O controller
+ *	@ptr: pointer to the data which should be mapped
+ *	@size: size of data in bytes
+ *	@direction: DMA_TO_DEVICE / DMA_FROM_DEVICE
+ *	@sg_ptr: pointer to the SG list inside the I2O message
+ *
+ *	This function does all necessary DMA handling and also writes the I2O
+ *	SGL elements into the I2O message. For details on DMA handling see also
+ *	dma_map_single(). The pointer sg_ptr will only be set to the end of the
+ *	SG list if the allocation was successful.
+ *
+ *	Returns DMA address which must be checked for failures using
+ *	dma_mapping_error().
+ */
 dma_addr_t i2o_dma_map_single(struct i2o_controller *c, void *ptr,
 					    size_t size,
 					    enum dma_data_direction direction,
@@ -81,6 +109,21 @@ dma_addr_t i2o_dma_map_single(struct i2o_controller *c, void *ptr,
 }
 EXPORT_SYMBOL_GPL(i2o_dma_map_single);
 
+/**
+ *	i2o_dma_map_sg - Map a SG List to controller and fill in I2O message.
+ *	@c: I2O controller
+ *	@sg: SG list to be mapped
+ *	@sg_count: number of elements in the SG list
+ *	@direction: DMA_TO_DEVICE / DMA_FROM_DEVICE
+ *	@sg_ptr: pointer to the SG list inside the I2O message
+ *
+ *	This function does all necessary DMA handling and also writes the I2O
+ *	SGL elements into the I2O message. For details on DMA handling see also
+ *	dma_map_sg(). The pointer sg_ptr will only be set to the end of the SG
+ *	list if the allocation was successful.
+ *
+ *	Returns 0 on failure or 1 on success.
+ */
 int i2o_dma_map_sg(struct i2o_controller *c, struct scatterlist *sg,
 	    int sg_count, enum dma_data_direction direction, u32 ** sg_ptr)
 {
@@ -126,6 +169,16 @@ int i2o_dma_map_sg(struct i2o_controller *c, struct scatterlist *sg,
 }
 EXPORT_SYMBOL_GPL(i2o_dma_map_sg);
 
+/**
+ *	i2o_dma_alloc - Allocate DMA memory
+ *	@dev: struct device pointer to the PCI device of the I2O controller
+ *	@addr: i2o_dma struct which should get the DMA buffer
+ *	@len: length of the new DMA memory
+ *
+ *	Allocate a coherent DMA memory and write the pointers into addr.
+ *
+ *	Returns 0 on success or -ENOMEM on failure.
+ */
 int i2o_dma_alloc(struct device *dev, struct i2o_dma *addr, size_t len)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);
@@ -158,6 +211,13 @@ int i2o_dma_alloc(struct device *dev, struct i2o_dma *addr, size_t len)
 EXPORT_SYMBOL_GPL(i2o_dma_alloc);
 
 
+/**
+ *	i2o_dma_free - Free DMA memory
+ *	@dev: struct device pointer to the PCI device of the I2O controller
+ *	@addr: i2o_dma struct which contains the DMA buffer
+ *
+ *	Free a coherent DMA memory and set virtual address of addr to NULL.
+ */
 void i2o_dma_free(struct device *dev, struct i2o_dma *addr)
 {
 	if (addr->virt) {
@@ -172,6 +232,18 @@ void i2o_dma_free(struct device *dev, struct i2o_dma *addr)
 EXPORT_SYMBOL_GPL(i2o_dma_free);
 
 
+/**
+ *	i2o_dma_realloc - Realloc DMA memory
+ *	@dev: struct device pointer to the PCI device of the I2O controller
+ *	@addr: pointer to a i2o_dma struct DMA buffer
+ *	@len: new length of memory
+ *
+ *	If there was something allocated in the addr, free it first. If len > 0
+ *	than try to allocate it and write the addresses back to the addr
+ *	structure. If len == 0 set the virtual address to NULL.
+ *
+ *	Returns the 0 on success or negative error code on failure.
+ */
 int i2o_dma_realloc(struct device *dev, struct i2o_dma *addr, size_t len)
 {
 	i2o_dma_free(dev, addr);
@@ -183,6 +255,18 @@ int i2o_dma_realloc(struct device *dev, struct i2o_dma *addr, size_t len)
 }
 EXPORT_SYMBOL_GPL(i2o_dma_realloc);
 
+/*
+ *	i2o_pool_alloc - Allocate an slab cache and mempool
+ *	@mempool: pointer to struct i2o_pool to write data into.
+ *	@name: name which is used to identify cache
+ *	@size: size of each object
+ *	@min_nr: minimum number of objects
+ *
+ *	First allocates a slab cache with name and size. Then allocates a
+ *	mempool which uses the slab cache for allocation and freeing.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 int i2o_pool_alloc(struct i2o_pool *pool, const char *name,
 				 size_t size, int min_nr)
 {
@@ -213,6 +297,13 @@ exit:
 }
 EXPORT_SYMBOL_GPL(i2o_pool_alloc);
 
+/*
+ *	i2o_pool_free - Free slab cache and mempool again
+ *	@mempool: pointer to struct i2o_pool which should be freed
+ *
+ *	Note that you have to return all objects to the mempool again before
+ *	calling i2o_pool_free().
+ */
 void i2o_pool_free(struct i2o_pool *pool)
 {
 	mempool_destroy(pool->mempool);

@@ -762,11 +762,11 @@ static int khazad_setkey(struct crypto_tfm *tfm, const u8 *in_key,
 	const u64 *S = T7;
 	u64 K2, K1;
 
-	
+	/* key is supposed to be 32-bit aligned */
 	K2 = ((u64)be32_to_cpu(key[0]) << 32) | be32_to_cpu(key[1]);
 	K1 = ((u64)be32_to_cpu(key[2]) << 32) | be32_to_cpu(key[3]);
 
-	
+	/* setup the encrypt key */
 	for (r = 0; r <= KHAZAD_ROUNDS; r++) {
 		ctx->E[r] = T0[(int)(K1 >> 56)       ] ^
 			    T1[(int)(K1 >> 48) & 0xff] ^
@@ -780,7 +780,7 @@ static int khazad_setkey(struct crypto_tfm *tfm, const u8 *in_key,
 		K2 = K1; 
 		K1 = ctx->E[r];
 	}
-	
+	/* Setup the decrypt key */
 	ctx->D[0] = ctx->E[KHAZAD_ROUNDS];
 	for (r = 1; r < KHAZAD_ROUNDS; r++) {
 		K1 = ctx->E[KHAZAD_ROUNDS - r];

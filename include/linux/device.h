@@ -51,6 +51,43 @@ extern int __must_check bus_create_file(struct bus_type *,
 					struct bus_attribute *);
 extern void bus_remove_file(struct bus_type *, struct bus_attribute *);
 
+/**
+ * struct bus_type - The bus type of the device
+ *
+ * @name:	The name of the bus.
+ * @dev_name:	Used for subsystems to enumerate devices like ("foo%u", dev->id).
+ * @dev_root:	Default device to use as the parent.
+ * @bus_attrs:	Default attributes of the bus.
+ * @dev_attrs:	Default attributes of the devices on the bus.
+ * @drv_attrs:	Default attributes of the device drivers on the bus.
+ * @match:	Called, perhaps multiple times, whenever a new device or driver
+ *		is added for this bus. It should return a nonzero value if the
+ *		given device can be handled by the given driver.
+ * @uevent:	Called when a device is added, removed, or a few other things
+ *		that generate uevents to add the environment variables.
+ * @probe:	Called when a new device or driver add to this bus, and callback
+ *		the specific driver's probe to initial the matched device.
+ * @remove:	Called when a device removed from this bus.
+ * @shutdown:	Called at shut-down time to quiesce the device.
+ * @suspend:	Called when a device on this bus wants to go to sleep mode.
+ * @resume:	Called to bring a device on this bus out of sleep mode.
+ * @pm:		Power management operations of this bus, callback the specific
+ *		device driver's pm-ops.
+ * @iommu_ops:  IOMMU specific operations for this bus, used to attach IOMMU
+ *              driver implementations to a bus and allow the driver to do
+ *              bus-specific setup
+ * @p:		The private data of the driver core, only the driver core can
+ *		touch this.
+ *
+ * A bus is a channel between the processor and one or more devices. For the
+ * purposes of the device model, all devices are connected via a bus, even if
+ * it is an internal, virtual, "platform" bus. Buses can plug into each other.
+ * A USB controller is usually a PCI device, for example. The device model
+ * represents the actual connections between buses and the devices they control.
+ * A bus is represented by the bus_type structure. It contains the name, the
+ * default attributes, the bus' methods, PM operations, and the driver core's
+ * private data.
+ */
 struct bus_type {
 	const char		*name;
 	const char		*dev_name;
@@ -75,6 +112,8 @@ struct bus_type {
 	struct subsys_private *p;
 };
 
+/* This is a #define to keep the compiler from merging different
+ * instances of the __key variable */
 #define bus_register(subsys)			\
 ({						\
 	static struct lock_class_key __key;	\
@@ -86,6 +125,7 @@ extern void bus_unregister(struct bus_type *bus);
 
 extern int __must_check bus_rescan_devices(struct bus_type *bus);
 
+/* iterator helpers for buses */
 struct subsys_dev_iter {
 	struct klist_iter		ki;
 	const struct device_type	*type;
@@ -112,6 +152,12 @@ int bus_for_each_drv(struct bus_type *bus, struct device_driver *start,
 void bus_sort_breadthfirst(struct bus_type *bus,
 			   int (*compare)(const struct device *a,
 					  const struct device *b));
+/*
+ * Bus notifiers: Get notified of addition/removal of devices
+ * and binding/unbinding of drivers to devices.
+ * In the long run, it should be a replacement for the platform
+ * notify hooks.
+ */
 struct notifier_block;
 
 extern int bus_register_notifier(struct bus_type *bus,
@@ -119,24 +165,62 @@ extern int bus_register_notifier(struct bus_type *bus,
 extern int bus_unregister_notifier(struct bus_type *bus,
 				   struct notifier_block *nb);
 
-#define BUS_NOTIFY_ADD_DEVICE		0x00000001 
-#define BUS_NOTIFY_DEL_DEVICE		0x00000002 
-#define BUS_NOTIFY_BIND_DRIVER		0x00000003 
-#define BUS_NOTIFY_BOUND_DRIVER		0x00000004 
-#define BUS_NOTIFY_UNBIND_DRIVER	0x00000005 
-#define BUS_NOTIFY_UNBOUND_DRIVER	0x00000006 
+/* All 4 notifers below get called with the target struct device *
+ * as an argument. Note that those functions are likely to be called
+ * with the device lock held in the core, so be careful.
+ */
+#define BUS_NOTIFY_ADD_DEVICE		0x00000001 /* device added */
+#define BUS_NOTIFY_DEL_DEVICE		0x00000002 /* device removed */
+#define BUS_NOTIFY_BIND_DRIVER		0x00000003 /* driver about to be
+						      bound */
+#define BUS_NOTIFY_BOUND_DRIVER		0x00000004 /* driver bound to device */
+#define BUS_NOTIFY_UNBIND_DRIVER	0x00000005 /* driver about to be
+						      unbound */
+#define BUS_NOTIFY_UNBOUND_DRIVER	0x00000006 /* driver is unbound
+						      from the device */
 
 extern struct kset *bus_get_kset(struct bus_type *bus);
 extern struct klist *bus_get_device_klist(struct bus_type *bus);
 
+/**
+ * struct device_driver - The basic device driver structure
+ * @name:	Name of the device driver.
+ * @bus:	The bus which the device of this driver belongs to.
+ * @owner:	The module owner.
+ * @mod_name:	Used for built-in modules.
+ * @suppress_bind_attrs: Disables bind/unbind via sysfs.
+ * @of_match_table: The open firmware table.
+ * @probe:	Called to query the existence of a specific device,
+ *		whether this driver can work with it, and bind the driver
+ *		to a specific device.
+ * @remove:	Called when the device is removed from the system to
+ *		unbind a device from this driver.
+ * @shutdown:	Called at shut-down time to quiesce the device.
+ * @suspend:	Called to put the device to sleep mode. Usually to a
+ *		low power state.
+ * @resume:	Called to bring a device from sleep mode.
+ * @groups:	Default attributes that get created by the driver core
+ *		automatically.
+ * @pm:		Power management operations of the device which matched
+ *		this driver.
+ * @p:		Driver core's private data, no one other than the driver
+ *		core can touch this.
+ *
+ * The device driver-model tracks all of the drivers known to the system.
+ * The main reason for this tracking is to enable the driver core to match
+ * up drivers with new devices. Once drivers are known objects within the
+ * system, however, a number of other things become possible. Device drivers
+ * can export information and configuration variables that are independent
+ * of any specific device.
+ */
 struct device_driver {
 	const char		*name;
 	struct bus_type		*bus;
 
 	struct module		*owner;
-	const char		*mod_name;	
+	const char		*mod_name;	/* used for built-in modules */
 
-	bool suppress_bind_attrs;	
+	bool suppress_bind_attrs;	/* disables bind/unbind via sysfs */
 
 	const struct of_device_id	*of_match_table;
 
@@ -162,6 +246,7 @@ extern int driver_probe_done(void);
 extern void wait_for_device_probe(void);
 
 
+/* sysfs interface for exporting driver attributes */
 
 struct driver_attribute {
 	struct attribute attr;
@@ -188,6 +273,19 @@ struct device *driver_find_device(struct device_driver *drv,
 				  struct device *start, void *data,
 				  int (*match)(struct device *dev, void *data));
 
+/**
+ * struct subsys_interface - interfaces to device functions
+ * @name:       name of the device function
+ * @subsys:     subsytem of the devices to attach to
+ * @node:       the list of functions registered at the subsystem
+ * @add_dev:    device hookup to device function handler
+ * @remove_dev: device hookup to device function handler
+ *
+ * Simple interfaces attached to a subsystem. Multiple interfaces can
+ * attach to a subsystem and its devices. Unlike drivers, they do not
+ * exclusively claim or control devices. Interfaces usually represent
+ * a specific functionality of a subsystem/class of devices.
+ */
 struct subsys_interface {
 	const char *name;
 	struct bus_type *subsys;
@@ -202,6 +300,35 @@ void subsys_interface_unregister(struct subsys_interface *sif);
 int subsys_system_register(struct bus_type *subsys,
 			   const struct attribute_group **groups);
 
+/**
+ * struct class - device classes
+ * @name:	Name of the class.
+ * @owner:	The module owner.
+ * @class_attrs: Default attributes of this class.
+ * @dev_attrs:	Default attributes of the devices belong to the class.
+ * @dev_bin_attrs: Default binary attributes of the devices belong to the class.
+ * @dev_kobj:	The kobject that represents this class and links it into the hierarchy.
+ * @dev_uevent:	Called when a device is added, removed from this class, or a
+ *		few other things that generate uevents to add the environment
+ *		variables.
+ * @devnode:	Callback to provide the devtmpfs.
+ * @class_release: Called to release this class.
+ * @dev_release: Called to release the device.
+ * @suspend:	Used to put the device to sleep mode, usually to a low power
+ *		state.
+ * @resume:	Used to bring the device from the sleep mode.
+ * @ns_type:	Callbacks so sysfs can detemine namespaces.
+ * @namespace:	Namespace of the device belongs to this class.
+ * @pm:		The default device power management operations of this class.
+ * @p:		The private data of the driver core, no one other than the
+ *		driver core can touch this.
+ *
+ * A class is a higher-level view of a device that abstracts out low-level
+ * implementation details. Drivers may see a SCSI disk or an ATA disk, but,
+ * at the class level, they are all simply disks. Classes allow user space
+ * to work with devices based on what they do, rather than how they are
+ * connected or how they work.
+ */
 struct class {
 	const char		*name;
 	struct module		*owner;
@@ -239,6 +366,8 @@ extern int __must_check __class_register(struct class *class,
 					 struct lock_class_key *key);
 extern void class_unregister(struct class *class);
 
+/* This is a #define to keep the compiler from merging different
+ * instances of the __key variable */
 #define class_register(class)			\
 ({						\
 	static struct lock_class_key __key;	\
@@ -285,12 +414,14 @@ extern int __must_check class_create_file(struct class *class,
 extern void class_remove_file(struct class *class,
 			      const struct class_attribute *attr);
 
+/* Simple class attribute that is just a static string */
 
 struct class_attribute_string {
 	struct class_attribute attr;
 	char *str;
 };
 
+/* Currently read-only only */
 #define _CLASS_ATTR_STRING(_name, _mode, _str) \
 	{ __ATTR(_name, _mode, show_class_attr_string, NULL), _str }
 #define CLASS_ATTR_STRING(_name, _mode, _str) \
@@ -316,12 +447,23 @@ extern struct class * __must_check __class_create(struct module *owner,
 						  struct lock_class_key *key);
 extern void class_destroy(struct class *cls);
 
+/* This is a #define to keep the compiler from merging different
+ * instances of the __key variable */
 #define class_create(owner, name)		\
 ({						\
 	static struct lock_class_key __key;	\
 	__class_create(owner, name, &__key);	\
 })
 
+/*
+ * The type of device, "struct device" is embedded in. A class
+ * or bus can contain devices of different types
+ * like "partitions" and "disks", "mouse" and "event".
+ * This identifies the device type and carries type-specific
+ * information, equivalent to the kobj_type of a kobject.
+ * If "name" is specified, the uevent will contain it in
+ * the DEVTYPE variable.
+ */
 struct device_type {
 	const char *name;
 	const struct attribute_group **groups;
@@ -332,6 +474,7 @@ struct device_type {
 	const struct dev_pm_ops *pm;
 };
 
+/* interface for exporting device attributes */
 struct device_attribute {
 	struct attribute	attr;
 	ssize_t (*show)(struct device *dev, struct device_attribute *attr,
@@ -374,9 +517,11 @@ extern void device_remove_bin_file(struct device *dev,
 extern int device_schedule_callback_owner(struct device *dev,
 		void (*func)(struct device *dev), struct module *owner);
 
+/* This is a macro to avoid include problems with THIS_MODULE */
 #define device_schedule_callback(dev, func)			\
 	device_schedule_callback_owner(dev, func, THIS_MODULE)
 
+/* device resource management */
 typedef void (*dr_release_t)(struct device *dev, void *res);
 typedef int (*dr_match_t)(struct device *dev, void *res, void *match_data);
 
@@ -399,12 +544,14 @@ extern void *devres_remove(struct device *dev, dr_release_t release,
 extern int devres_destroy(struct device *dev, dr_release_t release,
 			  dr_match_t match, void *match_data);
 
+/* devres group */
 extern void * __must_check devres_open_group(struct device *dev, void *id,
 					     gfp_t gfp);
 extern void devres_close_group(struct device *dev, void *id);
 extern void devres_remove_group(struct device *dev, void *id);
 extern int devres_release_group(struct device *dev, void *id);
 
+/* managed kzalloc/kfree for device drivers, no kmalloc, always use kzalloc */
 extern void *devm_kzalloc(struct device *dev, size_t size, gfp_t gfp);
 extern void devm_kfree(struct device *dev, void *p);
 
@@ -413,24 +560,93 @@ void __iomem *devm_request_and_ioremap(struct device *dev,
 			struct resource *res);
 
 struct device_dma_parameters {
+	/*
+	 * a low level driver may set these to teach IOMMU code about
+	 * sg limitations.
+	 */
 	unsigned int max_segment_size;
 	unsigned long segment_boundary_mask;
 };
 
+/**
+ * struct device - The basic device structure
+ * @parent:	The device's "parent" device, the device to which it is attached.
+ * 		In most cases, a parent device is some sort of bus or host
+ * 		controller. If parent is NULL, the device, is a top-level device,
+ * 		which is not usually what you want.
+ * @p:		Holds the private data of the driver core portions of the device.
+ * 		See the comment of the struct device_private for detail.
+ * @kobj:	A top-level, abstract class from which other classes are derived.
+ * @init_name:	Initial name of the device.
+ * @type:	The type of device.
+ * 		This identifies the device type and carries type-specific
+ * 		information.
+ * @mutex:	Mutex to synchronize calls to its driver.
+ * @bus:	Type of bus device is on.
+ * @driver:	Which driver has allocated this
+ * @platform_data: Platform data specific to the device.
+ * 		Example: For devices on custom boards, as typical of embedded
+ * 		and SOC based hardware, Linux often uses platform_data to point
+ * 		to board-specific structures describing devices and how they
+ * 		are wired.  That can include what ports are available, chip
+ * 		variants, which GPIO pins act in what additional roles, and so
+ * 		on.  This shrinks the "Board Support Packages" (BSPs) and
+ * 		minimizes board-specific #ifdefs in drivers.
+ * @power:	For device power management.
+ * 		See Documentation/power/devices.txt for details.
+ * @pm_domain:	Provide callbacks that are executed during system suspend,
+ * 		hibernation, system resume and during runtime PM transitions
+ * 		along with subsystem-level and driver-level callbacks.
+ * @pins:	For device pin management.
+ *		See Documentation/pinctrl.txt for details.
+ * @numa_node:	NUMA node this device is close to.
+ * @dma_mask:	Dma mask (if dma'ble device).
+ * @coherent_dma_mask: Like dma_mask, but for alloc_coherent mapping as not all
+ * 		hardware supports 64-bit addresses for consistent allocations
+ * 		such descriptors.
+ * @dma_parms:	A low level driver may set these to teach IOMMU code about
+ * 		segment limitations.
+ * @dma_pools:	Dma pools (if dma'ble device).
+ * @dma_mem:	Internal for coherent mem override.
+ * @archdata:	For arch-specific additions.
+ * @of_node:	Associated device tree node.
+ * @devt:	For creating the sysfs "dev".
+ * @id:		device instance
+ * @devres_lock: Spinlock to protect the resource of the device.
+ * @devres_head: The resources list of the device.
+ * @knode_class: The node used to add the device to the class list.
+ * @class:	The class of the device.
+ * @groups:	Optional attribute groups.
+ * @release:	Callback to free the device after all references have
+ * 		gone away. This should be set by the allocator of the
+ * 		device (i.e. the bus driver that discovered the device).
+ *
+ * At the lowest level, every device in a Linux system is represented by an
+ * instance of struct device. The device structure contains the information
+ * that the device model core needs to model the system. Most subsystems,
+ * however, track additional information about the devices they host. As a
+ * result, it is rare for devices to be represented by bare device structures;
+ * instead, that structure, like kobject structures, is usually embedded within
+ * a higher-level representation of the device.
+ */
 struct device {
 	struct device		*parent;
 
 	struct device_private	*p;
 
 	struct kobject kobj;
-	const char		*init_name; 
+	const char		*init_name; /* initial name of the device */
 	const struct device_type *type;
 
-	struct mutex		mutex;	
+	struct mutex		mutex;	/* mutex to synchronize calls to
+					 * its driver.
+					 */
 
-	struct bus_type	*bus;		
-	struct device_driver *driver;	
-	void		*platform_data;	
+	struct bus_type	*bus;		/* type of bus device is on */
+	struct device_driver *driver;	/* which driver has allocated this
+					   device */
+	void		*platform_data;	/* Platform specific data, device
+					   core doesn't touch it */
 	struct dev_pm_info	power;
 	struct dev_pm_domain	*pm_domain;
 
@@ -439,43 +655,50 @@ struct device {
 #endif
 
 #ifdef CONFIG_NUMA
-	int		numa_node;	
+	int		numa_node;	/* NUMA node this device is close to */
 #endif
-	u64		*dma_mask;	
-	u64		coherent_dma_mask;
+	u64		*dma_mask;	/* dma mask (if dma'able device) */
+	u64		coherent_dma_mask;/* Like dma_mask, but for
+					     alloc_coherent mappings as
+					     not all hardware supports
+					     64 bit addresses for consistent
+					     allocations such descriptors. */
 
 	struct device_dma_parameters *dma_parms;
 
-	struct list_head	dma_pools;	
+	struct list_head	dma_pools;	/* dma pools (if dma'ble) */
 
-	struct dma_coherent_mem	*dma_mem; 
+	struct dma_coherent_mem	*dma_mem; /* internal for coherent mem
+					     override */
 #ifdef CONFIG_CMA
-	struct cma *cma_area;		
+	struct cma *cma_area;		/* contiguous memory area for dma
+					   allocations */
 #endif
-	
+	/* arch specific additions */
 	struct dev_archdata	archdata;
 
-	struct device_node	*of_node; 
+	struct device_node	*of_node; /* associated device tree node */
 
-	dev_t			devt;	
-	u32			id;	
+	dev_t			devt;	/* dev_t, creates the sysfs "dev" */
+	u32			id;	/* device instance */
 
 	spinlock_t		devres_lock;
 	struct list_head	devres_head;
 
 	struct klist_node	knode_class;
 	struct class		*class;
-	const struct attribute_group **groups;	
+	const struct attribute_group **groups;	/* optional groups */
 
 	void	(*release)(struct device *dev);
 	struct iommu_group	*iommu_group;
 };
 
+/* Get the wakeup routines, which depend on struct device */
 #include <linux/pm_wakeup.h>
 
 static inline const char *dev_name(const struct device *dev)
 {
-	
+	/* Use the init name until the kobject becomes available */
 	if (dev->init_name)
 		return dev->init_name;
 
@@ -563,6 +786,9 @@ static inline void device_unlock(struct device *dev)
 
 void driver_init(void);
 
+/*
+ * High level routines for use by the bus drivers
+ */
 extern int __must_check device_register(struct device *dev);
 extern void device_unregister(struct device *dev);
 extern void device_initialize(struct device *dev);
@@ -580,9 +806,16 @@ extern const char *device_get_devnode(struct device *dev,
 extern void *dev_get_drvdata(const struct device *dev);
 extern int dev_set_drvdata(struct device *dev, void *data);
 
+/*
+ * Root device objects for grouping under /sys/devices
+ */
 extern struct device *__root_device_register(const char *name,
 					     struct module *owner);
 
+/*
+ * This is a macro to avoid include problems with THIS_MODULE,
+ * just as per what is done for device_schedule_callback() above.
+ */
 #define root_device_register(name) \
 	__root_device_register(name, THIS_MODULE)
 
@@ -593,12 +826,19 @@ static inline void *dev_get_platdata(const struct device *dev)
 	return dev->platform_data;
 }
 
+/*
+ * Manual binding of a device to driver. See drivers/base/bus.c
+ * for information on use.
+ */
 extern int __must_check device_bind_driver(struct device *dev);
 extern void device_release_driver(struct device *dev);
 extern int  __must_check device_attach(struct device *dev);
 extern int __must_check driver_attach(struct device_driver *drv);
 extern int __must_check device_reprobe(struct device *dev);
 
+/*
+ * Easy functions for dynamically creating devices on the fly
+ */
 extern struct device *device_create_vargs(struct class *cls,
 					  struct device *parent,
 					  dev_t devt,
@@ -611,11 +851,21 @@ struct device *device_create(struct class *cls, struct device *parent,
 			     const char *fmt, ...);
 extern void device_destroy(struct class *cls, dev_t devt);
 
+/*
+ * Platform "fixup" functions - allow the platform to have their say
+ * about devices and actions that the general device layer doesn't
+ * know about.
+ */
+/* Notify platform of device discovery */
 extern int (*platform_notify)(struct device *dev);
 
 extern int (*platform_notify_remove)(struct device *dev);
 
 
+/*
+ * get_device - atomically increment the reference count for the device.
+ *
+ */
 extern struct device *get_device(struct device *dev);
 extern void put_device(struct device *dev);
 
@@ -631,8 +881,10 @@ static inline int devtmpfs_delete_node(struct device *dev) { return 0; }
 static inline int devtmpfs_mount(const char *mountpoint) { return 0; }
 #endif
 
+/* drivers/base/power/shutdown.c */
 extern void device_shutdown(void);
 
+/* debugging and troubleshooting/diagnostic helpers. */
 extern const char *dev_driver_string(const struct device *dev);
 
 
@@ -693,6 +945,12 @@ int _dev_info(const struct device *dev, const char *fmt, ...)
 
 #endif
 
+/*
+ * Stupid hackaround for existing uses of non-printk uses dev_info
+ *
+ * Note that the definition of dev_info below is actually _dev_info
+ * and a macro is used to avoid redefining dev_info
+ */
 
 #define dev_info(dev, fmt, arg...) _dev_info(dev, fmt, ##arg)
 
@@ -724,6 +982,11 @@ do {						     \
 })
 #endif
 
+/*
+ * dev_WARN*() acts like dev_printk(), but with the key difference
+ * of using a WARN/WARN_ON to get the message out, including the
+ * file/line information and a backtrace.
+ */
 #define dev_WARN(dev, format, arg...) \
 	WARN(1, "Device: %s\n" format, dev_driver_string(dev), ## arg);
 
@@ -731,6 +994,7 @@ do {						     \
 	WARN_ONCE(condition, "Device %s\n" format, \
 			dev_driver_string(dev), ## arg)
 
+/* Create alias, so I can be autoloaded. */
 #define MODULE_ALIAS_CHARDEV(major,minor) \
 	MODULE_ALIAS("char-major-" __stringify(major) "-" __stringify(minor))
 #define MODULE_ALIAS_CHARDEV_MAJOR(major) \
@@ -742,6 +1006,20 @@ extern long sysfs_deprecated;
 #define sysfs_deprecated 0
 #endif
 
+/**
+ * module_driver() - Helper macro for drivers that don't do anything
+ * special in module init/exit. This eliminates a lot of boilerplate.
+ * Each module may only use this macro once, and calling it replaces
+ * module_init() and module_exit().
+ *
+ * @__driver: driver name
+ * @__register: register function for this driver type
+ * @__unregister: unregister function for this driver type
+ * @...: Additional arguments to be passed to __register and __unregister.
+ *
+ * Use this macro to construct bus specific macros for registering
+ * drivers, and do not use it on its own.
+ */
 #define module_driver(__driver, __register, __unregister, ...) \
 static int __init __driver##_init(void) \
 { \
@@ -754,4 +1032,4 @@ static void __exit __driver##_exit(void) \
 } \
 module_exit(__driver##_exit);
 
-#endif 
+#endif /* _DEVICE_H_ */

@@ -30,27 +30,27 @@ MODULE_LICENSE("GPL v2");
 
 struct jornada_ts {
 	struct input_dev *dev;
-	int x_data[4];		
-	int y_data[4];		
+	int x_data[4];		/* X sample values */
+	int y_data[4];		/* Y sample values */
 };
 
 static void jornada720_ts_collect_data(struct jornada_ts *jornada_ts)
 {
 
-    
+    /* 3 low word X samples */
     jornada_ts->x_data[0] = jornada_ssp_byte(TXDUMMY);
     jornada_ts->x_data[1] = jornada_ssp_byte(TXDUMMY);
     jornada_ts->x_data[2] = jornada_ssp_byte(TXDUMMY);
 
-    
+    /* 3 low word Y samples */
     jornada_ts->y_data[0] = jornada_ssp_byte(TXDUMMY);
     jornada_ts->y_data[1] = jornada_ssp_byte(TXDUMMY);
     jornada_ts->y_data[2] = jornada_ssp_byte(TXDUMMY);
 
-    
+    /* combined x samples bits */
     jornada_ts->x_data[3] = jornada_ssp_byte(TXDUMMY);
 
-    
+    /* combined y samples bits */
     jornada_ts->y_data[3] = jornada_ssp_byte(TXDUMMY);
 }
 
@@ -72,14 +72,14 @@ static irqreturn_t jornada720_ts_interrupt(int irq, void *dev_id)
 	struct input_dev *input = jornada_ts->dev;
 	int x, y;
 
-	
+	/* If GPIO_GPIO9 is set to high then report pen up */
 	if (GPLR & GPIO_GPIO(9)) {
 		input_report_key(input, BTN_TOUCH, 0);
 		input_sync(input);
 	} else {
 		jornada_ssp_start();
 
-		
+		/* proper reply to request is always TXDUMMY */
 		if (jornada_ssp_inout(GETTOUCHSAMPLES) == TXDUMMY) {
 			jornada720_ts_collect_data(jornada_ts);
 
@@ -162,6 +162,7 @@ static int __devexit jornada720_ts_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:jornada_ts");
 
 static struct platform_driver jornada720_ts_driver = {

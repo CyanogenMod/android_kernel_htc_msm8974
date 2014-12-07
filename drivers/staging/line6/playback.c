@@ -21,13 +21,16 @@
 #include "pod.h"
 #include "playback.h"
 
+/*
+	Software stereo volume control.
+*/
 static void change_volume(struct urb *urb_out, int volume[],
 			  int bytes_per_frame)
 {
 	int chn = 0;
 
 	if (volume[0] == 256 && volume[1] == 256)
-		return;		
+		return;		/* maximum volume - no change */
 
 	if (bytes_per_frame == 4) {
 		short *p, *buf_end;
@@ -57,6 +60,9 @@ static void change_volume(struct urb *urb_out, int volume[],
 
 #ifdef CONFIG_LINE6_USB_IMPULSE_RESPONSE
 
+/*
+	Create signal for impulse response test.
+*/
 static void create_impulse_test_signal(struct snd_line6_pcm *line6pcm,
 				       struct urb *urb_out, int bytes_per_frame)
 {
@@ -99,11 +105,14 @@ static void create_impulse_test_signal(struct snd_line6_pcm *line6pcm,
 
 #endif
 
+/*
+	Add signal to buffer for software monitoring.
+*/
 static void add_monitor_signal(struct urb *urb_out, unsigned char *signal,
 			       int volume, int bytes_per_frame)
 {
 	if (volume == 0)
-		return;		
+		return;		/* zero volume - no change */
 
 	if (bytes_per_frame == 4) {
 		short *pi, *po, *buf_end;
@@ -115,8 +124,15 @@ static void add_monitor_signal(struct urb *urb_out, unsigned char *signal,
 			*po += (*pi * volume) >> 8;
 	}
 
+	/*
+	   We don't need to handle devices with 6 bytes per frame here
+	   since they all support hardware monitoring.
+	 */
 }
 
+/*
+	Find a free URB, prepare audio data, and submit URB.
+*/
 static int submit_audio_out_urb(struct snd_line6_pcm *line6pcm)
 {
 	int index;
@@ -145,7 +161,7 @@ static int submit_audio_out_urb(struct snd_line6_pcm *line6pcm)
 	urb_size = 0;
 
 	for (i = 0; i < LINE6_ISO_PACKETS; ++i) {
-		
+		/* compute frame size for given sampling rate */
 		int fsize = 0;
 		struct usb_iso_packet_descriptor *fout =
 		    &urb_out->iso_frame_desc[i];
@@ -167,9 +183,9 @@ static int submit_audio_out_urb(struct snd_line6_pcm *line6pcm)
 	}
 
 	if (urb_size == 0) {
-		
+		/* can't determine URB size */
 		spin_unlock_irqrestore(&line6pcm->lock_audio_out, flags);
-		dev_err(line6pcm->line6->ifcdev, "driver bug: urb_size = 0\n");	
+		dev_err(line6pcm->line6->ifcdev, "driver bug: urb_size = 0\n");	/* this is somewhat paranoid */
 		return -EINVAL;
 	}
 
@@ -186,6 +202,10 @@ static int submit_audio_out_urb(struct snd_line6_pcm *line6pcm)
 		    get_substream(line6pcm, SNDRV_PCM_STREAM_PLAYBACK)->runtime;
 
 		if (line6pcm->pos_out + urb_frames > runtime->buffer_size) {
+			/*
+			   The transferred area goes over buffer boundary,
+			   copy the data to the temp buffer.
+			 */
 			int len;
 			len = runtime->buffer_size - line6pcm->pos_out;
 
@@ -198,7 +218,7 @@ static int submit_audio_out_urb(struct snd_line6_pcm *line6pcm)
 				       len * bytes_per_frame, runtime->dma_area,
 				       (urb_frames - len) * bytes_per_frame);
 			} else
-				dev_err(line6pcm->line6->ifcdev, "driver bug: len = %d\n", len);	
+				dev_err(line6pcm->line6->ifcdev, "driver bug: len = %d\n", len);	/* this is somewhat paranoid */
 		} else {
 			memcpy(urb_out->transfer_buffer,
 			       runtime->dma_area +
@@ -265,6 +285,9 @@ static int submit_audio_out_urb(struct snd_line6_pcm *line6pcm)
 	return 0;
 }
 
+/*
+	Submit all currently available playback URBs.
+*/
 int line6_submit_audio_out_all_urbs(struct snd_line6_pcm *line6pcm)
 {
 	int ret, i;
@@ -278,6 +301,9 @@ int line6_submit_audio_out_all_urbs(struct snd_line6_pcm *line6pcm)
 	return 0;
 }
 
+/*
+	Unlink all currently active playback URBs.
+*/
 void line6_unlink_audio_out_urbs(struct snd_line6_pcm *line6pcm)
 {
 	unsigned int i;
@@ -292,6 +318,9 @@ void line6_unlink_audio_out_urbs(struct snd_line6_pcm *line6pcm)
 	}
 }
 
+/*
+	Wait until unlinking of all currently active playback URBs has been finished.
+*/
 void line6_wait_clear_audio_out_urbs(struct snd_line6_pcm *line6pcm)
 {
 	int timeout = HZ;
@@ -313,6 +342,9 @@ void line6_wait_clear_audio_out_urbs(struct snd_line6_pcm *line6pcm)
 		snd_printk(KERN_ERR "timeout: still %d active urbs..\n", alive);
 }
 
+/*
+	Unlink all currently active playback URBs, and wait for finishing.
+*/
 void line6_unlink_wait_clear_audio_out_urbs(struct snd_line6_pcm *line6pcm)
 {
 	line6_unlink_audio_out_urbs(line6pcm);
@@ -325,6 +357,9 @@ void line6_free_playback_buffer(struct snd_line6_pcm *line6pcm)
 	line6pcm->buffer_out = NULL;
 }
 
+/*
+	Callback for completed playback URB.
+*/
 static void audio_out_callback(struct urb *urb)
 {
 	int i, index, length = 0, shutdown = 0;
@@ -340,13 +375,13 @@ static void audio_out_callback(struct urb *urb)
 
 	line6pcm->last_frame_out = urb->start_frame;
 
-	
+	/* find index of URB */
 	for (index = LINE6_ISO_BUFFERS; index--;)
 		if (urb == line6pcm->urb_audio_out[index])
 			break;
 
 	if (index < 0)
-		return;		
+		return;		/* URB has been unlinked asynchronously */
 
 	for (i = LINE6_ISO_PACKETS; i--;)
 		length += urb->iso_frame_desc[i].length;
@@ -388,6 +423,7 @@ static void audio_out_callback(struct urb *urb)
 	}
 }
 
+/* open playback callback */
 static int snd_line6_playback_open(struct snd_pcm_substream *substream)
 {
 	int err;
@@ -404,19 +440,21 @@ static int snd_line6_playback_open(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/* close playback callback */
 static int snd_line6_playback_close(struct snd_pcm_substream *substream)
 {
 	return 0;
 }
 
+/* hw_params playback callback */
 static int snd_line6_playback_hw_params(struct snd_pcm_substream *substream,
 					struct snd_pcm_hw_params *hw_params)
 {
 	int ret;
 	struct snd_line6_pcm *line6pcm = snd_pcm_substream_chip(substream);
 
-	
-	
+	/* -- Florian Demski [FD] */
+	/* don't ask me why, but this fixes the bug on my machine */
 	if (line6pcm == NULL) {
 		if (substream->pcm == NULL)
 			return -ENOMEM;
@@ -425,7 +463,7 @@ static int snd_line6_playback_hw_params(struct snd_pcm_substream *substream,
 		substream->private_data = substream->pcm->private_data;
 		line6pcm = snd_pcm_substream_chip(substream);
 	}
-	
+	/* -- [FD] end */
 
 	ret = line6_pcm_acquire(line6pcm, LINE6_BIT_PCM_ALSA_PLAYBACK_BUFFER);
 
@@ -443,6 +481,7 @@ static int snd_line6_playback_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/* hw_free playback callback */
 static int snd_line6_playback_hw_free(struct snd_pcm_substream *substream)
 {
 	struct snd_line6_pcm *line6pcm = snd_pcm_substream_chip(substream);
@@ -450,6 +489,7 @@ static int snd_line6_playback_hw_free(struct snd_pcm_substream *substream)
 	return snd_pcm_lib_free_pages(substream);
 }
 
+/* trigger playback callback */
 int snd_line6_playback_trigger(struct snd_line6_pcm *line6pcm, int cmd)
 {
 	int err;
@@ -492,6 +532,7 @@ int snd_line6_playback_trigger(struct snd_line6_pcm *line6pcm, int cmd)
 	return 0;
 }
 
+/* playback pointer callback */
 static snd_pcm_uframes_t
 snd_line6_playback_pointer(struct snd_pcm_substream *substream)
 {
@@ -499,6 +540,7 @@ snd_line6_playback_pointer(struct snd_pcm_substream *substream)
 	return line6pcm->pos_out_done;
 }
 
+/* playback operators */
 struct snd_pcm_ops snd_line6_playback_ops = {
 	.open = snd_line6_playback_open,
 	.close = snd_line6_playback_close,
@@ -514,11 +556,11 @@ int line6_create_audio_out_urbs(struct snd_line6_pcm *line6pcm)
 {
 	int i;
 
-	
+	/* create audio URBs and fill in constant values: */
 	for (i = 0; i < LINE6_ISO_BUFFERS; ++i) {
 		struct urb *urb;
 
-		
+		/* URB for audio out: */
 		urb = line6pcm->urb_audio_out[i] =
 		    usb_alloc_urb(LINE6_ISO_PACKETS, GFP_KERNEL);
 

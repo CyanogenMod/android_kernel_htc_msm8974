@@ -23,12 +23,12 @@ struct dib0090_io_config {
 	u8 pll_prediv:6;
 	u8 pll_loopdiv:6;
 
-	u8 adc_clock_ratio;	
+	u8 adc_clock_ratio;	/* valid is 8, 7 ,6 */
 	u16 pll_int_loop_filt;
 };
 
 struct dib0090_wbd_slope {
-	u16 max_freq;		
+	u16 max_freq;		/* for every frequency less than or equal to that field: this information is correct */
 	u16 slope_cold;
 	u16 offset_cold;
 	u16 slope_hot;
@@ -47,17 +47,17 @@ struct dib0090_config {
 	int (*reset) (struct dvb_frontend *, int);
 	int (*sleep) (struct dvb_frontend *, int);
 
-	
+	/*  offset in kHz */
 	int freq_offset_khz_uhf;
 	int freq_offset_khz_vhf;
 
 	int (*get_adc_power) (struct dvb_frontend *);
 
-	u8 clkouttobamse:1;	
+	u8 clkouttobamse:1;	/* activate or deactivate clock output */
 	u8 analog_output;
 
 	u8 i2c_address;
-	
+	/* add drives and other things if necessary */
 	u16 wbd_vhf_offset;
 	u16 wbd_cband_offset;
 	u8 use_pwm_agc;

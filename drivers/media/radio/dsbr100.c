@@ -99,6 +99,9 @@
 #include <media/v4l2-ioctl.h>
 #include <linux/usb.h>
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "0.4.7"
 
 #define DRIVER_AUTHOR "Markus Demleitner <msdemlei@tucana.harvard.edu>"
@@ -107,15 +110,19 @@
 #define DSB100_VENDOR 0x04b4
 #define DSB100_PRODUCT 0x1002
 
+/* Commands the device appears to understand */
 #define DSB100_TUNE 1
 #define DSB100_ONOFF 2
 
 #define TB_LEN 16
 
+/* Frequency limits in MHz -- these are European values.  For Japanese
+devices, that would be 76 and 91.  */
 #define FREQ_MIN  87.5
 #define FREQ_MAX 108.0
 #define FREQ_MUL 16000
 
+/* defines for radio->status */
 #define STARTED	0
 #define STOPPED	1
 
@@ -131,6 +138,7 @@ static int usb_dsbr100_resume(struct usb_interface *intf);
 static int radio_nr = -1;
 module_param(radio_nr, int, 0);
 
+/* Data for one (physical) device */
 struct dsbr100_device {
 	struct usb_device *usbdev;
 	struct video_device videodev;
@@ -145,11 +153,12 @@ struct dsbr100_device {
 
 static struct usb_device_id usb_dsbr100_device_table [] = {
 	{ USB_DEVICE(DSB100_VENDOR, DSB100_PRODUCT) },
-	{ }						
+	{ }						/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE (usb, usb_dsbr100_device_table);
 
+/* USB subsystem interface */
 static struct usb_driver usb_dsbr100_driver = {
 	.name			= "dsbr100",
 	.probe			= usb_dsbr100_probe,
@@ -161,7 +170,9 @@ static struct usb_driver usb_dsbr100_driver = {
 	.supports_autosuspend	= 0,
 };
 
+/* Low-level device interface begins here */
 
+/* switch on radio */
 static int dsbr100_start(struct dsbr100_device *radio)
 {
 	int retval;
@@ -200,6 +211,7 @@ usb_control_msg_failed:
 
 }
 
+/* switch off radio */
 static int dsbr100_stop(struct dsbr100_device *radio)
 {
 	int retval;
@@ -238,6 +250,7 @@ usb_control_msg_failed:
 
 }
 
+/* set a frequency, freq is defined by v4l's TUNER_LOW, i.e. 1/16th kHz */
 static int dsbr100_setfreq(struct dsbr100_device *radio)
 {
 	int retval;
@@ -289,6 +302,8 @@ usb_control_msg_failed:
 	return retval;
 }
 
+/* return the device status.  This is, in effect, just whether it
+sees a stereo signal or not.  Pity. */
 static void dsbr100_getstat(struct dsbr100_device *radio)
 {
 	int retval;
@@ -340,7 +355,7 @@ static int vidioc_g_tuner(struct file *file, void *priv,
 		v->audmode = V4L2_TUNER_MODE_STEREO;
 	else
 		v->audmode = V4L2_TUNER_MODE_MONO;
-	v->signal = 0xffff;     
+	v->signal = 0xffff;     /* We can't get the signal strength */
 	return 0;
 }
 
@@ -454,7 +469,14 @@ static int vidioc_s_audio(struct file *file, void *priv,
 	return a->index ? -EINVAL : 0;
 }
 
+/* USB subsystem interface begins here */
 
+/*
+ * Handle unplugging of the device.
+ * We call video_unregister_device in any case.
+ * The last function called in this procedure is
+ * usb_dsbr100_video_device_release
+ */
 static void usb_dsbr100_disconnect(struct usb_interface *intf)
 {
 	struct dsbr100_device *radio = usb_get_intfdata(intf);
@@ -469,6 +491,7 @@ static void usb_dsbr100_disconnect(struct usb_interface *intf)
 }
 
 
+/* Suspend device - stop device. */
 static int usb_dsbr100_suspend(struct usb_interface *intf, pm_message_t message)
 {
 	struct dsbr100_device *radio = usb_get_intfdata(intf);
@@ -480,6 +503,11 @@ static int usb_dsbr100_suspend(struct usb_interface *intf, pm_message_t message)
 		if (retval < 0)
 			dev_warn(&intf->dev, "dsbr100_stop failed\n");
 
+		/* After dsbr100_stop() status set to STOPPED.
+		 * If we want driver to start radio on resume
+		 * we set status equal to STARTED.
+		 * On resume we will check status and run radio if needed.
+		 */
 		radio->status = STARTED;
 	}
 	mutex_unlock(&radio->v4l2_lock);
@@ -489,6 +517,7 @@ static int usb_dsbr100_suspend(struct usb_interface *intf, pm_message_t message)
 	return 0;
 }
 
+/* Resume device - start device. */
 static int usb_dsbr100_resume(struct usb_interface *intf)
 {
 	struct dsbr100_device *radio = usb_get_intfdata(intf);
@@ -507,6 +536,7 @@ static int usb_dsbr100_resume(struct usb_interface *intf)
 	return 0;
 }
 
+/* free data structures */
 static void usb_dsbr100_release(struct v4l2_device *v4l2_dev)
 {
 	struct dsbr100_device *radio = v4l2_dev_to_radio(v4l2_dev);
@@ -516,6 +546,7 @@ static void usb_dsbr100_release(struct v4l2_device *v4l2_dev)
 	kfree(radio);
 }
 
+/* File system interface */
 static const struct v4l2_file_operations usb_dsbr100_fops = {
 	.owner		= THIS_MODULE,
 	.unlocked_ioctl	= video_ioctl2,
@@ -536,6 +567,7 @@ static const struct v4l2_ioctl_ops usb_dsbr100_ioctl_ops = {
 	.vidioc_s_input     = vidioc_s_input,
 };
 
+/* check if the device is present and register with v4l and usb if it is */
 static int usb_dsbr100_probe(struct usb_interface *intf,
 				const struct usb_device_id *id)
 {

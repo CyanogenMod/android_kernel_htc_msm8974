@@ -56,6 +56,9 @@ MODULE_FIRMWARE("sb16/ima_adpcm_capture.csp");
 #define INIT_HEADER	CSP_HDR_VALUE('i', 'n', 'i', 't')
 #define MAIN_HEADER	CSP_HDR_VALUE('m', 'a', 'i', 'n')
 
+/*
+ * RIFF data format
+ */
 struct riff_header {
 	__u32 name;
 	__u32 len;
@@ -71,6 +74,9 @@ struct desc_header {
 	__u16 flags_rates;
 };
 
+/*
+ * prototypes
+ */
 static void snd_sb_csp_free(struct snd_hwdep *hw);
 static int snd_sb_csp_open(struct snd_hwdep * hw, struct file *file);
 static int snd_sb_csp_ioctl(struct snd_hwdep * hw, struct file *file, unsigned int cmd, unsigned long arg);
@@ -104,6 +110,9 @@ static int snd_sb_csp_qsound_transfer(struct snd_sb_csp * p);
 static int init_proc_entry(struct snd_sb_csp * p, int device);
 static void info_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer);
 
+/*
+ * Detect CSP chip and create a new instance
+ */
 int snd_sb_csp_new(struct snd_sb *chip, int device, struct snd_hwdep ** rhwdep)
 {
 	struct snd_sb_csp *p;
@@ -127,7 +136,7 @@ int snd_sb_csp_new(struct snd_sb *chip, int device, struct snd_hwdep ** rhwdep)
 	p->chip = chip;
 	p->version = version;
 
-	
+	/* CSP operators */
 	p->ops.csp_use = snd_sb_csp_use;
 	p->ops.csp_unuse = snd_sb_csp_unuse;
 	p->ops.csp_autoload = snd_sb_csp_autoload;
@@ -141,18 +150,21 @@ int snd_sb_csp_new(struct snd_sb *chip, int device, struct snd_hwdep ** rhwdep)
 	hw->private_data = p;
 	hw->private_free = snd_sb_csp_free;
 
-	
+	/* operators - only write/ioctl */
 	hw->ops.open = snd_sb_csp_open;
 	hw->ops.ioctl = snd_sb_csp_ioctl;
 	hw->ops.release = snd_sb_csp_release;
 
-	
+	/* create a proc entry */
 	init_proc_entry(p, device);
 	if (rhwdep)
 		*rhwdep = hw;
 	return 0;
 }
 
+/*
+ * free_private for hwdep instance
+ */
 static void snd_sb_csp_free(struct snd_hwdep *hwdep)
 {
 	int i;
@@ -166,13 +178,20 @@ static void snd_sb_csp_free(struct snd_hwdep *hwdep)
 	}
 }
 
+/* ------------------------------ */
 
+/*
+ * open the device exclusively
+ */
 static int snd_sb_csp_open(struct snd_hwdep * hw, struct file *file)
 {
 	struct snd_sb_csp *p = hw->private_data;
 	return (snd_sb_csp_use(p));
 }
 
+/*
+ * ioctl for hwdep device:
+ */
 static int snd_sb_csp_ioctl(struct snd_hwdep * hw, struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct snd_sb_csp *p = hw->private_data;
@@ -187,7 +206,7 @@ static int snd_sb_csp_ioctl(struct snd_hwdep * hw, struct file *file, unsigned i
 		return -ENODEV;
 
 	switch (cmd) {
-		
+		/* get information */
 	case SNDRV_SB_CSP_IOCTL_INFO:
 		*info.codec_name = *p->codec_name;
 		info.func_nr = p->func_nr;
@@ -206,7 +225,7 @@ static int snd_sb_csp_ioctl(struct snd_hwdep * hw, struct file *file, unsigned i
 			err = 0;
 		break;
 
-		
+		/* load CSP microcode */
 	case SNDRV_SB_CSP_IOCTL_LOAD_CODE:
 		err = (p->running & SNDRV_SB_CSP_ST_RUNNING ?
 		       -EBUSY : snd_sb_csp_riff_load(p, (struct snd_sb_csp_microcode __user *) arg));
@@ -216,7 +235,7 @@ static int snd_sb_csp_ioctl(struct snd_hwdep * hw, struct file *file, unsigned i
 		       -EBUSY : snd_sb_csp_unload(p));
 		break;
 
-		
+		/* change CSP running state */
 	case SNDRV_SB_CSP_IOCTL_START:
 		if (copy_from_user(&start_info, (void __user *) arg, sizeof(start_info)))
 			err = -EFAULT;
@@ -240,13 +259,20 @@ static int snd_sb_csp_ioctl(struct snd_hwdep * hw, struct file *file, unsigned i
 	return err;
 }
 
+/*
+ * close the device
+ */
 static int snd_sb_csp_release(struct snd_hwdep * hw, struct file *file)
 {
 	struct snd_sb_csp *p = hw->private_data;
 	return (snd_sb_csp_unuse(p));
 }
 
+/* ------------------------------ */
 
+/*
+ * acquire device
+ */
 static int snd_sb_csp_use(struct snd_sb_csp * p)
 {
 	mutex_lock(&p->access_mutex);
@@ -261,6 +287,9 @@ static int snd_sb_csp_use(struct snd_sb_csp * p)
 
 }
 
+/*
+ * release device
+ */
 static int snd_sb_csp_unuse(struct snd_sb_csp * p)
 {
 	mutex_lock(&p->access_mutex);
@@ -270,6 +299,10 @@ static int snd_sb_csp_unuse(struct snd_sb_csp * p)
 	return 0;
 }
 
+/*
+ * load microcode via ioctl: 
+ * code is user-space pointer
+ */
 static int snd_sb_csp_riff_load(struct snd_sb_csp * p,
 				struct snd_sb_csp_microcode __user * mcode)
 {
@@ -325,25 +358,25 @@ static int snd_sb_csp_riff_load(struct snd_sb_csp * p,
 			break;
 		case CODE_HEADER:
 			if (func_nr != info.func_req)
-				break;	
+				break;	/* not required function, try next */
 			data_ptr += sizeof(item_type);
 
-			
+			/* destroy QSound mixer element */
 			if (p->mode == SNDRV_SB_CSP_MODE_QSOUND) {
 				snd_sb_qsound_destroy(p);
 			}
-			
+			/* Clear all flags */
 			p->running = 0;
 			p->mode = 0;
 
-			
+			/* load microcode blocks */
 			for (;;) {
 				if (data_ptr >= data_end)
 					return -EINVAL;
 				if (copy_from_user(&code_h, data_ptr, sizeof(code_h)))
 					return -EFAULT;
 
-				
+				/* init microcode blocks */
 				if (code_h.name != INIT_HEADER)
 					break;
 				data_ptr += sizeof(code_h);
@@ -353,7 +386,7 @@ static int snd_sb_csp_riff_load(struct snd_sb_csp * p,
 					return err;
 				data_ptr += le32_to_cpu(code_h.len);
 			}
-			
+			/* main microcode block */
 			if (copy_from_user(&code_h, data_ptr, sizeof(code_h)))
 				return -EFAULT;
 
@@ -367,38 +400,38 @@ static int snd_sb_csp_riff_load(struct snd_sb_csp * p,
 			if (err)
 				return err;
 
-			
+			/* fill in codec header */
 			strlcpy(p->codec_name, info.codec_name, sizeof(p->codec_name));
 			p->func_nr = func_nr;
 			p->mode = le16_to_cpu(funcdesc_h.flags_play_rec);
 			switch (le16_to_cpu(funcdesc_h.VOC_type)) {
-			case 0x0001:	
+			case 0x0001:	/* QSound decoder */
 				if (le16_to_cpu(funcdesc_h.flags_play_rec) == SNDRV_SB_CSP_MODE_DSP_WRITE) {
 					if (snd_sb_qsound_build(p) == 0)
-						
+						/* set QSound flag and clear all other mode flags */
 						p->mode = SNDRV_SB_CSP_MODE_QSOUND;
 				}
 				p->acc_format = 0;
 				break;
-			case 0x0006:	
+			case 0x0006:	/* A Law codec */
 				p->acc_format = SNDRV_PCM_FMTBIT_A_LAW;
 				break;
-			case 0x0007:	
+			case 0x0007:	/* Mu Law codec */
 				p->acc_format = SNDRV_PCM_FMTBIT_MU_LAW;
 				break;
-			case 0x0011:	
-			case 0x0200:	
+			case 0x0011:	/* what Creative thinks is IMA ADPCM codec */
+			case 0x0200:	/* Creative ADPCM codec */
 				p->acc_format = SNDRV_PCM_FMTBIT_IMA_ADPCM;
 				break;
-			case    201:	
-				
+			case    201:	/* Text 2 Speech decoder */
+				/* TODO: Text2Speech handling routines */
 				p->acc_format = 0;
 				break;
-			case 0x0202:	
-			case 0x0203:	
+			case 0x0202:	/* Fast Speech 8 codec */
+			case 0x0203:	/* Fast Speech 10 codec */
 				p->acc_format = SNDRV_PCM_FMTBIT_SPECIAL;
 				break;
-			default:	
+			default:	/* other codecs are unsupported */
 				p->acc_format = p->acc_width = p->acc_rates = 0;
 				p->mode = 0;
 				snd_printd("%s: Unsupported CSP codec type: 0x%04x\n",
@@ -410,14 +443,14 @@ static int snd_sb_csp_riff_load(struct snd_sb_csp * p,
 			p->acc_width = le16_to_cpu(funcdesc_h.flags_16bit_8bit);
 			p->acc_rates = le16_to_cpu(funcdesc_h.flags_rates);
 
-			
+			/* Decouple CSP from IRQ and DMAREQ lines */
 			spin_lock_irqsave(&p->chip->reg_lock, flags);
 			set_mode_register(p->chip, 0xfc);
 			set_mode_register(p->chip, 0x00);
 			spin_unlock_irqrestore(&p->chip->reg_lock, flags);
 
-			
-			p->running = SNDRV_SB_CSP_ST_LOADED;	
+			/* finished loading successfully */
+			p->running = SNDRV_SB_CSP_ST_LOADED;	/* set LOADED flag */
 			return 0;
 		}
 	}
@@ -425,6 +458,9 @@ static int snd_sb_csp_riff_load(struct snd_sb_csp * p,
 	return -EINVAL;
 }
 
+/*
+ * unload CSP microcode
+ */
 static int snd_sb_csp_unload(struct snd_sb_csp * p)
 {
 	if (p->running & SNDRV_SB_CSP_ST_RUNNING)
@@ -432,19 +468,22 @@ static int snd_sb_csp_unload(struct snd_sb_csp * p)
 	if (!(p->running & SNDRV_SB_CSP_ST_LOADED))
 		return -ENXIO;
 
-	
+	/* clear supported formats */
 	p->acc_format = 0;
 	p->acc_channels = p->acc_width = p->acc_rates = 0;
-	
+	/* destroy QSound mixer element */
 	if (p->mode == SNDRV_SB_CSP_MODE_QSOUND) {
 		snd_sb_qsound_destroy(p);
 	}
-	
+	/* clear all flags */
 	p->running = 0;
 	p->mode = 0;
 	return 0;
 }
 
+/*
+ * send command sequence to DSP
+ */
 static inline int command_seq(struct snd_sb *chip, const unsigned char *seq, int size)
 {
 	int i;
@@ -455,49 +494,66 @@ static inline int command_seq(struct snd_sb *chip, const unsigned char *seq, int
 	return 0;
 }
 
+/*
+ * set CSP codec parameter
+ */
 static int set_codec_parameter(struct snd_sb *chip, unsigned char par, unsigned char val)
 {
 	unsigned char dsp_cmd[3];
 
-	dsp_cmd[0] = 0x05;	
-	dsp_cmd[1] = val;	
-	dsp_cmd[2] = par;	
+	dsp_cmd[0] = 0x05;	/* CSP set codec parameter */
+	dsp_cmd[1] = val;	/* Parameter value */
+	dsp_cmd[2] = par;	/* Parameter */
 	command_seq(chip, dsp_cmd, 3);
-	snd_sbdsp_command(chip, 0x03);	
+	snd_sbdsp_command(chip, 0x03);	/* DSP read? */
 	if (snd_sbdsp_get_byte(chip) != par)
 		return -EIO;
 	return 0;
 }
 
+/*
+ * set CSP register
+ */
 static int set_register(struct snd_sb *chip, unsigned char reg, unsigned char val)
 {
 	unsigned char dsp_cmd[3];
 
-	dsp_cmd[0] = 0x0e;	
-	dsp_cmd[1] = reg;	
-	dsp_cmd[2] = val;	
+	dsp_cmd[0] = 0x0e;	/* CSP set register */
+	dsp_cmd[1] = reg;	/* CSP Register */
+	dsp_cmd[2] = val;	/* value */
 	return command_seq(chip, dsp_cmd, 3);
 }
 
+/*
+ * read CSP register
+ * return < 0 -> error
+ */
 static int read_register(struct snd_sb *chip, unsigned char reg)
 {
 	unsigned char dsp_cmd[2];
 
-	dsp_cmd[0] = 0x0f;	
-	dsp_cmd[1] = reg;	
+	dsp_cmd[0] = 0x0f;	/* CSP read register */
+	dsp_cmd[1] = reg;	/* CSP Register */
 	command_seq(chip, dsp_cmd, 2);
-	return snd_sbdsp_get_byte(chip);	
+	return snd_sbdsp_get_byte(chip);	/* Read DSP value */
 }
 
+/*
+ * set CSP mode register
+ */
 static int set_mode_register(struct snd_sb *chip, unsigned char mode)
 {
 	unsigned char dsp_cmd[2];
 
-	dsp_cmd[0] = 0x04;	
-	dsp_cmd[1] = mode;	
+	dsp_cmd[0] = 0x04;	/* CSP set mode register */
+	dsp_cmd[1] = mode;	/* mode */
 	return command_seq(chip, dsp_cmd, 2);
 }
 
+/*
+ * Detect CSP
+ * return 0 if CSP exists.
+ */
 static int csp_detect(struct snd_sb *chip, int *version)
 {
 	unsigned char csp_test1, csp_test2;
@@ -507,7 +563,7 @@ static int csp_detect(struct snd_sb *chip, int *version)
 	spin_lock_irqsave(&chip->reg_lock, flags);
 
 	set_codec_parameter(chip, 0x00, 0x00);
-	set_mode_register(chip, 0xfc);		
+	set_mode_register(chip, 0xfc);		/* 0xfc = ?? */
 
 	csp_test1 = read_register(chip, 0x83);
 	set_register(chip, 0x83, ~csp_test1);
@@ -520,29 +576,35 @@ static int csp_detect(struct snd_sb *chip, int *version)
 	if (csp_test2 != csp_test1)
 		goto __fail;
 
-	set_mode_register(chip, 0x00);		
+	set_mode_register(chip, 0x00);		/* 0x00 = ? */
 
 	*version = get_version(chip);
-	snd_sbdsp_reset(chip);	
+	snd_sbdsp_reset(chip);	/* reset DSP after getversion! */
 	if (*version >= 0x10 && *version <= 0x1f)
-		result = 0;		
+		result = 0;		/* valid version id */
 
       __fail:
 	spin_unlock_irqrestore(&chip->reg_lock, flags);
 	return result;
 }
 
+/*
+ * get CSP version number
+ */
 static int get_version(struct snd_sb *chip)
 {
 	unsigned char dsp_cmd[2];
 
-	dsp_cmd[0] = 0x08;	
-	dsp_cmd[1] = 0x03;	
+	dsp_cmd[0] = 0x08;	/* SB_DSP_!something! */
+	dsp_cmd[1] = 0x03;	/* get chip version id? */
 	command_seq(chip, dsp_cmd, 2);
 
 	return (snd_sbdsp_get_byte(chip));
 }
 
+/*
+ * check if the CSP version is valid
+ */
 static int snd_sb_csp_check_version(struct snd_sb_csp * p)
 {
 	if (p->version < 0x10 || p->version > 0x1f) {
@@ -552,6 +614,9 @@ static int snd_sb_csp_check_version(struct snd_sb_csp * p)
 	return 0;
 }
 
+/*
+ * download microcode to CSP (microcode should have one "main" block).
+ */
 static int snd_sb_csp_load(struct snd_sb_csp * p, const unsigned char *buf, int size, int load_flags)
 {
 	int status, i;
@@ -560,17 +625,17 @@ static int snd_sb_csp_load(struct snd_sb_csp * p, const unsigned char *buf, int 
 	unsigned long flags;
 
 	spin_lock_irqsave(&p->chip->reg_lock, flags);
-	snd_sbdsp_command(p->chip, 0x01);	
+	snd_sbdsp_command(p->chip, 0x01);	/* CSP download command */
 	if (snd_sbdsp_get_byte(p->chip)) {
 		snd_printd("%s: Download command failed\n", __func__);
 		goto __fail;
 	}
-	
+	/* Send CSP low byte (size - 1) */
 	snd_sbdsp_command(p->chip, (unsigned char)(size - 1));
-	
+	/* Send high byte */
 	snd_sbdsp_command(p->chip, (unsigned char)((size - 1) >> 8));
-	
-	
+	/* send microcode sequence */
+	/* load from kernel space */
 	while (size--) {
 		if (!snd_sbdsp_command(p->chip, *buf++))
 			goto __fail;
@@ -580,7 +645,7 @@ static int snd_sb_csp_load(struct snd_sb_csp * p, const unsigned char *buf, int 
 
 	if (load_flags & SNDRV_SB_CSP_LOAD_INITBLOCK) {
 		i = 0;
-		
+		/* some codecs (FastSpeech) take some time to initialize */
 		while (1) {
 			snd_sbdsp_command(p->chip, 0x03);
 			status = snd_sbdsp_get_byte(p->chip);
@@ -593,17 +658,22 @@ static int snd_sb_csp_load(struct snd_sb_csp * p, const unsigned char *buf, int 
 			goto __fail;
 		}
 	} else {
+		/*
+		 * Read mixer register SB_DSP4_DMASETUP after loading 'main' code.
+		 * Start CSP chip if no 16bit DMA channel is set - some kind
+		 * of autorun or perhaps a bugfix?
+		 */
 		spin_lock(&p->chip->mixer_lock);
 		status = snd_sbmixer_read(p->chip, SB_DSP4_DMASETUP);
 		spin_unlock(&p->chip->mixer_lock);
 		if (!(status & (SB_DMASETUP_DMA7 | SB_DMASETUP_DMA6 | SB_DMASETUP_DMA5))) {
 			err = (set_codec_parameter(p->chip, 0xaa, 0x00) ||
 			       set_codec_parameter(p->chip, 0xff, 0x00));
-			snd_sbdsp_reset(p->chip);		
+			snd_sbdsp_reset(p->chip);		/* really! */
 			if (err)
 				goto __fail;
-			set_mode_register(p->chip, 0xc0);	
-			set_mode_register(p->chip, 0x70);	
+			set_mode_register(p->chip, 0xc0);	/* c0 = STOP */
+			set_mode_register(p->chip, 0x70);	/* 70 = RUN */
 		}
 	}
 	result = 0;
@@ -651,16 +721,20 @@ static int snd_sb_csp_firmware_load(struct snd_sb_csp *p, int index, int flags)
 	return snd_sb_csp_load(p, program->data, program->size, flags);
 }
 
+/*
+ * autoload hardware codec if necessary
+ * return 0 if CSP is loaded and ready to run (p->running != 0)
+ */
 static int snd_sb_csp_autoload(struct snd_sb_csp * p, int pcm_sfmt, int play_rec_mode)
 {
 	unsigned long flags;
 	int err = 0;
 
-	
+	/* if CSP is running or manually loaded then exit */
 	if (p->running & (SNDRV_SB_CSP_ST_RUNNING | SNDRV_SB_CSP_ST_LOADED)) 
 		return -EBUSY;
 
-	
+	/* autoload microcode only if requested hardware codec is not already loaded */
 	if (((1 << pcm_sfmt) & p->acc_format) && (play_rec_mode & p->mode)) {
 		p->running = SNDRV_SB_CSP_ST_AUTO;
 	} else {
@@ -692,13 +766,13 @@ static int snd_sb_csp_autoload(struct snd_sb_csp * p, int pcm_sfmt, int play_rec
 			p->acc_format = SNDRV_PCM_FMTBIT_IMA_ADPCM;
 			break;				  
 		default:
-			
+			/* Decouple CSP from IRQ and DMAREQ lines */
 			if (p->running & SNDRV_SB_CSP_ST_AUTO) {
 				spin_lock_irqsave(&p->chip->reg_lock, flags);
 				set_mode_register(p->chip, 0xfc);
 				set_mode_register(p->chip, 0x00);
 				spin_unlock_irqrestore(&p->chip->reg_lock, flags);
-				p->running = 0;			
+				p->running = 0;			/* clear autoloaded flag */
 			}
 			return -EINVAL;
 		}
@@ -706,23 +780,26 @@ static int snd_sb_csp_autoload(struct snd_sb_csp * p, int pcm_sfmt, int play_rec
 			p->acc_format = 0;
 			p->acc_channels = p->acc_width = p->acc_rates = 0;
 
-			p->running = 0;				
+			p->running = 0;				/* clear autoloaded flag */
 			p->mode = 0;
 			return (err);
 		} else {
-			p->running = SNDRV_SB_CSP_ST_AUTO;	
-			p->acc_width = SNDRV_SB_CSP_SAMPLE_16BIT;	
+			p->running = SNDRV_SB_CSP_ST_AUTO;	/* set autoloaded flag */
+			p->acc_width = SNDRV_SB_CSP_SAMPLE_16BIT;	/* only 16 bit data */
 			p->acc_channels = SNDRV_SB_CSP_MONO | SNDRV_SB_CSP_STEREO;
-			p->acc_rates = SNDRV_SB_CSP_RATE_ALL;	
+			p->acc_rates = SNDRV_SB_CSP_RATE_ALL;	/* HW codecs accept all rates */
 		}   
 
 	}
 	return (p->running & SNDRV_SB_CSP_ST_AUTO) ? 0 : -ENXIO;
 }
 
+/*
+ * start CSP
+ */
 static int snd_sb_csp_start(struct snd_sb_csp * p, int sample_width, int channels)
 {
-	unsigned char s_type;	
+	unsigned char s_type;	/* sample type */
 	unsigned char mixL, mixR;
 	int result = -EIO;
 	unsigned long flags;
@@ -744,7 +821,7 @@ static int snd_sb_csp_start(struct snd_sb_csp * p, int sample_width, int channel
 		return -EINVAL;
 	}
 
-	
+	/* Mute PCM volume */
 	spin_lock_irqsave(&p->chip->mixer_lock, flags);
 	mixL = snd_sbmixer_read(p->chip, SB_DSP4_PCM_DEV);
 	mixR = snd_sbmixer_read(p->chip, SB_DSP4_PCM_DEV + 1);
@@ -752,14 +829,14 @@ static int snd_sb_csp_start(struct snd_sb_csp * p, int sample_width, int channel
 	snd_sbmixer_write(p->chip, SB_DSP4_PCM_DEV + 1, mixR & 0x7);
 
 	spin_lock(&p->chip->reg_lock);
-	set_mode_register(p->chip, 0xc0);	
-	set_mode_register(p->chip, 0x70);	
+	set_mode_register(p->chip, 0xc0);	/* c0 = STOP */
+	set_mode_register(p->chip, 0x70);	/* 70 = RUN */
 
 	s_type = 0x00;
 	if (channels == SNDRV_SB_CSP_MONO)
-		s_type = 0x11;	
+		s_type = 0x11;	/* 000n 000n    (n = 1 if mono) */
 	if (sample_width == SNDRV_SB_CSP_SAMPLE_8BIT)
-		s_type |= 0x22;	
+		s_type |= 0x22;	/* 00dX 00dX    (d = 1 if 8 bit samples) */
 
 	if (set_codec_parameter(p->chip, 0x81, s_type)) {
 		snd_printd("%s: Set sample type command failed\n", __func__);
@@ -776,11 +853,11 @@ static int snd_sb_csp_start(struct snd_sb_csp * p, int sample_width, int channel
 
 	if (p->mode & SNDRV_SB_CSP_MODE_QSOUND) {
 		set_codec_parameter(p->chip, 0xe0, 0x01);
-		
+		/* enable QSound decoder */
 		set_codec_parameter(p->chip, 0x00, 0xff);
 		set_codec_parameter(p->chip, 0x01, 0xff);
 		p->running |= SNDRV_SB_CSP_ST_QSOUND;
-		
+		/* set QSound startup value */
 		snd_sb_csp_qsound_transfer(p);
 	}
 	result = 0;
@@ -788,7 +865,7 @@ static int snd_sb_csp_start(struct snd_sb_csp * p, int sample_width, int channel
       __fail:
 	spin_unlock(&p->chip->reg_lock);
 
-	
+	/* restore PCM volume */
 	snd_sbmixer_write(p->chip, SB_DSP4_PCM_DEV, mixL);
 	snd_sbmixer_write(p->chip, SB_DSP4_PCM_DEV + 1, mixR);
 	spin_unlock_irqrestore(&p->chip->mixer_lock, flags);
@@ -796,6 +873,9 @@ static int snd_sb_csp_start(struct snd_sb_csp * p, int sample_width, int channel
 	return result;
 }
 
+/*
+ * stop CSP
+ */
 static int snd_sb_csp_stop(struct snd_sb_csp * p)
 {
 	int result;
@@ -805,7 +885,7 @@ static int snd_sb_csp_stop(struct snd_sb_csp * p)
 	if (!(p->running & SNDRV_SB_CSP_ST_RUNNING))
 		return 0;
 
-	
+	/* Mute PCM volume */
 	spin_lock_irqsave(&p->chip->mixer_lock, flags);
 	mixL = snd_sbmixer_read(p->chip, SB_DSP4_PCM_DEV);
 	mixR = snd_sbmixer_read(p->chip, SB_DSP4_PCM_DEV + 1);
@@ -815,16 +895,16 @@ static int snd_sb_csp_stop(struct snd_sb_csp * p)
 	spin_lock(&p->chip->reg_lock);
 	if (p->running & SNDRV_SB_CSP_ST_QSOUND) {
 		set_codec_parameter(p->chip, 0xe0, 0x01);
-		
+		/* disable QSound decoder */
 		set_codec_parameter(p->chip, 0x00, 0x00);
 		set_codec_parameter(p->chip, 0x01, 0x00);
 
 		p->running &= ~SNDRV_SB_CSP_ST_QSOUND;
 	}
-	result = set_mode_register(p->chip, 0xc0);	
+	result = set_mode_register(p->chip, 0xc0);	/* c0 = STOP */
 	spin_unlock(&p->chip->reg_lock);
 
-	
+	/* restore PCM volume */
 	snd_sbmixer_write(p->chip, SB_DSP4_PCM_DEV, mixL);
 	snd_sbmixer_write(p->chip, SB_DSP4_PCM_DEV + 1, mixR);
 	spin_unlock_irqrestore(&p->chip->mixer_lock, flags);
@@ -834,6 +914,9 @@ static int snd_sb_csp_stop(struct snd_sb_csp * p)
 	return result;
 }
 
+/*
+ * pause CSP codec and hold DMA transfer
+ */
 static int snd_sb_csp_pause(struct snd_sb_csp * p)
 {
 	int result;
@@ -851,6 +934,9 @@ static int snd_sb_csp_pause(struct snd_sb_csp * p)
 	return result;
 }
 
+/*
+ * restart CSP codec and resume DMA transfer
+ */
 static int snd_sb_csp_restart(struct snd_sb_csp * p)
 {
 	int result;
@@ -868,7 +954,11 @@ static int snd_sb_csp_restart(struct snd_sb_csp * p)
 	return result;
 }
 
+/* ------------------------------ */
 
+/*
+ * QSound mixer control for PCM
+ */
 
 #define snd_sb_qsound_switch_info	snd_ctl_boolean_mono_info
 
@@ -997,12 +1087,16 @@ static void snd_sb_qsound_destroy(struct snd_sb_csp * p)
 		snd_ctl_remove(card, p->qsound_space);
 	up_write(&card->controls_rwsem);
 
-	
+	/* cancel pending transfer of QSound parameters */
 	spin_lock_irqsave (&p->q_lock, flags);
 	p->qpos_changed = 0;
 	spin_unlock_irqrestore (&p->q_lock, flags);
 }
 
+/*
+ * Transfer qsound parameters to CSP,
+ * function should be called from interrupt routine
+ */
 static int snd_sb_csp_qsound_transfer(struct snd_sb_csp * p)
 {
 	int err = -ENXIO;
@@ -1010,10 +1104,10 @@ static int snd_sb_csp_qsound_transfer(struct snd_sb_csp * p)
 	spin_lock(&p->q_lock);
 	if (p->running & SNDRV_SB_CSP_ST_QSOUND) {
 		set_codec_parameter(p->chip, 0xe0, 0x01);
-		
+		/* left channel */
 		set_codec_parameter(p->chip, 0x00, p->qpos_left);
 		set_codec_parameter(p->chip, 0x02, 0x00);
-		
+		/* right channel */
 		set_codec_parameter(p->chip, 0x00, p->qpos_right);
 		set_codec_parameter(p->chip, 0x03, 0x00);
 		err = 0;
@@ -1023,7 +1117,11 @@ static int snd_sb_csp_qsound_transfer(struct snd_sb_csp * p)
 	return err;
 }
 
+/* ------------------------------ */
 
+/*
+ * proc interface
+ */
 static int init_proc_entry(struct snd_sb_csp * p, int device)
 {
 	char name[16];
@@ -1083,9 +1181,13 @@ static void info_read(struct snd_info_entry *entry, struct snd_info_buffer *buff
 	}
 }
 
+/* */
 
 EXPORT_SYMBOL(snd_sb_csp_new);
 
+/*
+ * INIT part
+ */
 
 static int __init alsa_sb_csp_init(void)
 {

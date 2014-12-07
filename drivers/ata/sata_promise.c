@@ -52,55 +52,55 @@
 enum {
 	PDC_MAX_PORTS		= 4,
 	PDC_MMIO_BAR		= 3,
-	PDC_MAX_PRD		= LIBATA_MAX_PRD - 1, 
+	PDC_MAX_PRD		= LIBATA_MAX_PRD - 1, /* -1 for ASIC PRD bug workaround */
 
-	
-	PDC_INT_SEQMASK		= 0x40,	
-	PDC_FLASH_CTL		= 0x44, 
-	PDC_PCI_CTL		= 0x48, 
-	PDC_SATA_PLUG_CSR	= 0x6C, 
-	PDC2_SATA_PLUG_CSR	= 0x60, 
-	PDC_TBG_MODE		= 0x41C, 
-	PDC_SLEW_CTL		= 0x470, 
+	/* host register offsets (from host->iomap[PDC_MMIO_BAR]) */
+	PDC_INT_SEQMASK		= 0x40,	/* Mask of asserted SEQ INTs */
+	PDC_FLASH_CTL		= 0x44, /* Flash control register */
+	PDC_PCI_CTL		= 0x48, /* PCI control/status reg */
+	PDC_SATA_PLUG_CSR	= 0x6C, /* SATA Plug control/status reg */
+	PDC2_SATA_PLUG_CSR	= 0x60, /* SATAII Plug control/status reg */
+	PDC_TBG_MODE		= 0x41C, /* TBG mode (not SATAII) */
+	PDC_SLEW_CTL		= 0x470, /* slew rate control reg (not SATAII) */
 
-	
-	PDC_FEATURE		= 0x04, 
-	PDC_SECTOR_COUNT	= 0x08, 
-	PDC_SECTOR_NUMBER	= 0x0C, 
-	PDC_CYLINDER_LOW	= 0x10, 
-	PDC_CYLINDER_HIGH	= 0x14, 
-	PDC_DEVICE		= 0x18, 
-	PDC_COMMAND		= 0x1C, 
-	PDC_ALTSTATUS		= 0x38, 
-	PDC_PKT_SUBMIT		= 0x40, 
-	PDC_GLOBAL_CTL		= 0x48, 
-	PDC_CTLSTAT		= 0x60,	
+	/* per-port ATA register offsets (from ap->ioaddr.cmd_addr) */
+	PDC_FEATURE		= 0x04, /* Feature/Error reg (per port) */
+	PDC_SECTOR_COUNT	= 0x08, /* Sector count reg (per port) */
+	PDC_SECTOR_NUMBER	= 0x0C, /* Sector number reg (per port) */
+	PDC_CYLINDER_LOW	= 0x10, /* Cylinder low reg (per port) */
+	PDC_CYLINDER_HIGH	= 0x14, /* Cylinder high reg (per port) */
+	PDC_DEVICE		= 0x18, /* Device/Head reg (per port) */
+	PDC_COMMAND		= 0x1C, /* Command/status reg (per port) */
+	PDC_ALTSTATUS		= 0x38, /* Alternate-status/device-control reg (per port) */
+	PDC_PKT_SUBMIT		= 0x40, /* Command packet pointer addr */
+	PDC_GLOBAL_CTL		= 0x48, /* Global control/status (per port) */
+	PDC_CTLSTAT		= 0x60,	/* IDE control and status (per port) */
 
-	
+	/* per-port SATA register offsets (from ap->ioaddr.scr_addr) */
 	PDC_SATA_ERROR		= 0x04,
 	PDC_PHYMODE4		= 0x14,
 	PDC_LINK_LAYER_ERRORS	= 0x6C,
 	PDC_FPDMA_CTLSTAT	= 0xD8,
-	PDC_INTERNAL_DEBUG_1	= 0xF8,	
-	PDC_INTERNAL_DEBUG_2	= 0xFC,	
+	PDC_INTERNAL_DEBUG_1	= 0xF8,	/* also used for PATA */
+	PDC_INTERNAL_DEBUG_2	= 0xFC,	/* also used for PATA */
 
-	
+	/* PDC_FPDMA_CTLSTAT bit definitions */
 	PDC_FPDMA_CTLSTAT_RESET			= 1 << 3,
 	PDC_FPDMA_CTLSTAT_DMASETUP_INT_FLAG	= 1 << 10,
 	PDC_FPDMA_CTLSTAT_SETDB_INT_FLAG	= 1 << 11,
 
-	
-	PDC_PH_ERR		= (1 <<  8), 
-	PDC_SH_ERR		= (1 <<  9), 
-	PDC_DH_ERR		= (1 << 10), 
-	PDC2_HTO_ERR		= (1 << 12), 
-	PDC2_ATA_HBA_ERR	= (1 << 13), 
-	PDC2_ATA_DMA_CNT_ERR	= (1 << 14), 
-	PDC_OVERRUN_ERR		= (1 << 19), 
-	PDC_UNDERRUN_ERR	= (1 << 20), 
-	PDC_DRIVE_ERR		= (1 << 21), 
-	PDC_PCI_SYS_ERR		= (1 << 22), 
-	PDC1_PCI_PARITY_ERR	= (1 << 23), 
+	/* PDC_GLOBAL_CTL bit definitions */
+	PDC_PH_ERR		= (1 <<  8), /* PCI error while loading packet */
+	PDC_SH_ERR		= (1 <<  9), /* PCI error while loading S/G table */
+	PDC_DH_ERR		= (1 << 10), /* PCI error while loading data */
+	PDC2_HTO_ERR		= (1 << 12), /* host bus timeout */
+	PDC2_ATA_HBA_ERR	= (1 << 13), /* error during SATA DATA FIS transmission */
+	PDC2_ATA_DMA_CNT_ERR	= (1 << 14), /* DMA DATA FIS size differs from S/G count */
+	PDC_OVERRUN_ERR		= (1 << 19), /* S/G byte count larger than HD requires */
+	PDC_UNDERRUN_ERR	= (1 << 20), /* S/G byte count less than HD requires */
+	PDC_DRIVE_ERR		= (1 << 21), /* drive error */
+	PDC_PCI_SYS_ERR		= (1 << 22), /* PCI system error */
+	PDC1_PCI_PARITY_ERR	= (1 << 23), /* PCI parity error (from SATA150 driver) */
 	PDC1_ERR_MASK		= PDC1_PCI_PARITY_ERR,
 	PDC2_ERR_MASK		= PDC2_HTO_ERR | PDC2_ATA_HBA_ERR |
 				  PDC2_ATA_DMA_CNT_ERR,
@@ -109,37 +109,37 @@ enum {
 				  PDC_DRIVE_ERR | PDC_PCI_SYS_ERR |
 				  PDC1_ERR_MASK | PDC2_ERR_MASK,
 
-	board_2037x		= 0,	
-	board_2037x_pata	= 1,	
-	board_20319		= 2,	
-	board_20619		= 3,	
-	board_2057x		= 4,	
-	board_2057x_pata	= 5,	
-	board_40518		= 6,	
+	board_2037x		= 0,	/* FastTrak S150 TX2plus */
+	board_2037x_pata	= 1,	/* FastTrak S150 TX2plus PATA port */
+	board_20319		= 2,	/* FastTrak S150 TX4 */
+	board_20619		= 3,	/* FastTrak TX4000 */
+	board_2057x		= 4,	/* SATAII150 Tx2plus */
+	board_2057x_pata	= 5,	/* SATAII150 Tx2plus PATA port */
+	board_40518		= 6,	/* SATAII150 Tx4 */
 
-	PDC_HAS_PATA		= (1 << 1), 
+	PDC_HAS_PATA		= (1 << 1), /* PDC20375/20575 has PATA */
 
-	
-	PDC_SEQCNTRL_INT_MASK	= (1 << 5), 
+	/* Sequence counter control registers bit definitions */
+	PDC_SEQCNTRL_INT_MASK	= (1 << 5), /* Sequence Interrupt Mask */
 
-	
-	PDC_FEATURE_ATAPI_PIO	= 0x00, 
-	PDC_FEATURE_ATAPI_DMA	= 0x01, 
+	/* Feature register values */
+	PDC_FEATURE_ATAPI_PIO	= 0x00, /* ATAPI data xfer by PIO */
+	PDC_FEATURE_ATAPI_DMA	= 0x01, /* ATAPI data xfer by DMA */
 
-	
-	PDC_DEVICE_SATA		= 0xE0, 
+	/* Device/Head register values */
+	PDC_DEVICE_SATA		= 0xE0, /* Device/Head value for SATA devices */
 
-	
+	/* PDC_CTLSTAT bit definitions */
 	PDC_DMA_ENABLE		= (1 << 7),
 	PDC_IRQ_DISABLE		= (1 << 10),
-	PDC_RESET		= (1 << 11), 
+	PDC_RESET		= (1 << 11), /* HDMA reset */
 
 	PDC_COMMON_FLAGS	= ATA_FLAG_PIO_POLLING,
 
-	
+	/* ap->flags bits */
 	PDC_FLAG_GEN_II		= (1 << 24),
-	PDC_FLAG_SATA_PATA	= (1 << 25), 
-	PDC_FLAG_4_PORTS	= (1 << 26), 
+	PDC_FLAG_SATA_PATA	= (1 << 25), /* supports SATA + PATA */
+	PDC_FLAG_4_PORTS	= (1 << 26), /* 4 ports */
 };
 
 struct pdc_port_priv {
@@ -205,6 +205,8 @@ static struct ata_port_operations pdc_sata_ops = {
 	.hardreset		= pdc_sata_hardreset,
 };
 
+/* First-generation chips need a more restrictive ->check_atapi_dma op,
+   and ->freeze/thaw that ignore the hotplug controls. */
 static struct ata_port_operations pdc_old_sata_ops = {
 	.inherits		= &pdc_sata_ops,
 	.freeze			= pdc_freeze,
@@ -313,7 +315,7 @@ static const struct pci_device_id pdc_ata_pci_tbl[] = {
 
 	{ PCI_VDEVICE(PROMISE, 0x6629), board_20619 },
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver pdc_ata_pci_driver = {
@@ -329,7 +331,7 @@ static int pdc_common_port_start(struct ata_port *ap)
 	struct pdc_port_priv *pp;
 	int rc;
 
-	
+	/* we use the same prd table as bmdma, allocate it */
 	rc = ata_bmdma_port_start(ap);
 	if (rc)
 		return rc;
@@ -355,13 +357,13 @@ static int pdc_sata_port_start(struct ata_port *ap)
 	if (rc)
 		return rc;
 
-	
+	/* fix up PHYMODE4 align timing */
 	if (ap->flags & PDC_FLAG_GEN_II) {
 		void __iomem *sata_mmio = ap->ioaddr.scr_addr;
 		unsigned int tmp;
 
 		tmp = readl(sata_mmio + PDC_PHYMODE4);
-		tmp = (tmp & ~3) | 1;	
+		tmp = (tmp & ~3) | 1;	/* set bits 1:0 = 0:1 */
 		writel(tmp, sata_mmio + PDC_PHYMODE4);
 	}
 
@@ -377,8 +379,10 @@ static void pdc_fpdma_clear_interrupt_flag(struct ata_port *ap)
 	tmp |= PDC_FPDMA_CTLSTAT_DMASETUP_INT_FLAG;
 	tmp |= PDC_FPDMA_CTLSTAT_SETDB_INT_FLAG;
 
+	/* It's not allowed to write to the entire FPDMA_CTLSTAT register
+	   when NCQ is running. So do a byte-sized write to bits 10 and 11. */
 	writeb(tmp >> 8, sata_mmio + PDC_FPDMA_CTLSTAT + 1);
-	readb(sata_mmio + PDC_FPDMA_CTLSTAT + 1); 
+	readb(sata_mmio + PDC_FPDMA_CTLSTAT + 1); /* flush */
 }
 
 static void pdc_fpdma_reset(struct ata_port *ap)
@@ -390,11 +394,11 @@ static void pdc_fpdma_reset(struct ata_port *ap)
 	tmp &= 0x7F;
 	tmp |= PDC_FPDMA_CTLSTAT_RESET;
 	writeb(tmp, sata_mmio + PDC_FPDMA_CTLSTAT);
-	readl(sata_mmio + PDC_FPDMA_CTLSTAT); 
+	readl(sata_mmio + PDC_FPDMA_CTLSTAT); /* flush */
 	udelay(100);
 	tmp &= ~PDC_FPDMA_CTLSTAT_RESET;
 	writeb(tmp, sata_mmio + PDC_FPDMA_CTLSTAT);
-	readl(sata_mmio + PDC_FPDMA_CTLSTAT); 
+	readl(sata_mmio + PDC_FPDMA_CTLSTAT); /* flush */
 
 	pdc_fpdma_clear_interrupt_flag(ap);
 }
@@ -405,7 +409,7 @@ static void pdc_not_at_command_packet_phase(struct ata_port *ap)
 	unsigned int i;
 	u32 tmp;
 
-	
+	/* check not at ASIC packet command phase */
 	for (i = 0; i < 100; ++i) {
 		writel(0, sata_mmio + PDC_INTERNAL_DEBUG_1);
 		tmp = readl(sata_mmio + PDC_INTERNAL_DEBUG_2);
@@ -449,7 +453,7 @@ static void pdc_reset_port(struct ata_port *ap)
 
 	tmp &= ~PDC_RESET;
 	writel(tmp, ata_ctlstat_mmio);
-	readl(ata_ctlstat_mmio);	
+	readl(ata_ctlstat_mmio);	/* flush */
 
 	if (sata_scr_valid(&ap->link) && (ap->flags & PDC_FLAG_GEN_II)) {
 		pdc_fpdma_reset(ap);
@@ -502,6 +506,9 @@ static void pdc_atapi_pkt(struct ata_queued_cmd *qc)
 	__le32 *buf32 = (__le32 *) buf;
 	unsigned int dev_sel, feature;
 
+	/* set control bits (byte 0), zero delay seq id (byte 3),
+	 * and seq id (byte 2)
+	 */
 	switch (qc->tf.protocol) {
 	case ATAPI_PROT_DMA:
 		if (!(qc->tf.flags & ATA_TFLAG_WRITE))
@@ -516,10 +523,10 @@ static void pdc_atapi_pkt(struct ata_queued_cmd *qc)
 		BUG();
 		break;
 	}
-	buf32[1] = cpu_to_le32(sg_table);	
-	buf32[2] = 0;				
+	buf32[1] = cpu_to_le32(sg_table);	/* S/G table addr */
+	buf32[2] = 0;				/* no next-packet */
 
-	
+	/* select drive */
 	if (sata_scr_valid(&ap->link))
 		dev_sel = PDC_DEVICE_SATA;
 	else
@@ -528,14 +535,14 @@ static void pdc_atapi_pkt(struct ata_queued_cmd *qc)
 	buf[12] = (1 << 5) | ATA_REG_DEVICE;
 	buf[13] = dev_sel;
 	buf[14] = (1 << 5) | ATA_REG_DEVICE | PDC_PKT_CLEAR_BSY;
-	buf[15] = dev_sel; 
+	buf[15] = dev_sel; /* once more, waiting for BSY to clear */
 
 	buf[16] = (1 << 5) | ATA_REG_NSECT;
 	buf[17] = qc->tf.nsect;
 	buf[18] = (1 << 5) | ATA_REG_LBAL;
 	buf[19] = qc->tf.lbal;
 
-	
+	/* set feature and byte counter registers */
 	if (qc->tf.protocol != ATAPI_PROT_DMA)
 		feature = PDC_FEATURE_ATAPI_PIO;
 	else
@@ -548,22 +555,34 @@ static void pdc_atapi_pkt(struct ata_queued_cmd *qc)
 	buf[24] = (1 << 5) | ATA_REG_BYTEH;
 	buf[25] = qc->tf.lbah;
 
-	
+	/* send ATAPI packet command 0xA0 */
 	buf[26] = (1 << 5) | ATA_REG_CMD;
 	buf[27] = qc->tf.command;
 
-	
+	/* select drive and check DRQ */
 	buf[28] = (1 << 5) | ATA_REG_DEVICE | PDC_PKT_WAIT_DRDY;
 	buf[29] = dev_sel;
 
-	
+	/* we can represent cdb lengths 2/4/6/8/10/12/14/16 */
 	BUG_ON(cdb_len & ~0x1E);
 
-	
+	/* append the CDB as the final part */
 	buf[30] = (((cdb_len >> 1) & 7) << 5) | ATA_REG_DATA | PDC_LAST_REG;
 	memcpy(buf+31, cdb, cdb_len);
 }
 
+/**
+ *	pdc_fill_sg - Fill PCI IDE PRD table
+ *	@qc: Metadata associated with taskfile to be transferred
+ *
+ *	Fill PCI IDE PRD (scatter-gather) table with segments
+ *	associated with the current disk command.
+ *	Make sure hardware does not choke on it.
+ *
+ *	LOCKING:
+ *	spin_lock_irqsave(host lock)
+ *
+ */
 static void pdc_fill_sg(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
@@ -581,6 +600,10 @@ static void pdc_fill_sg(struct ata_queued_cmd *qc)
 		u32 addr, offset;
 		u32 sg_len;
 
+		/* determine if physical DMA addr spans 64K boundary.
+		 * Note h/w doesn't support 64-bit, so we unconditionally
+		 * truncate dma_addr_t to u32.
+		 */
 		addr = (u32) sg_dma_address(sg);
 		sg_len = sg_dma_len(sg);
 
@@ -633,7 +656,7 @@ static void pdc_qc_prep(struct ata_queued_cmd *qc)
 	switch (qc->tf.protocol) {
 	case ATA_PROT_DMA:
 		pdc_fill_sg(qc);
-		
+		/*FALLTHROUGH*/
 	case ATA_PROT_NODATA:
 		i = pdc_pkt_header(&qc->tf, qc->ap->bmdma_prd_dma,
 				   qc->dev->devno, pp->pkt);
@@ -648,7 +671,7 @@ static void pdc_qc_prep(struct ata_queued_cmd *qc)
 		break;
 	case ATAPI_PROT_DMA:
 		pdc_fill_sg(qc);
-		
+		/*FALLTHROUGH*/
 	case ATAPI_PROT_NODATA:
 		pdc_atapi_pkt(qc);
 		break;
@@ -696,7 +719,7 @@ static void pdc_freeze(struct ata_port *ap)
 	tmp |= PDC_IRQ_DISABLE;
 	tmp &= ~PDC_DMA_ENABLE;
 	writel(tmp, ata_mmio + PDC_CTLSTAT);
-	readl(ata_mmio + PDC_CTLSTAT); 
+	readl(ata_mmio + PDC_CTLSTAT); /* flush */
 }
 
 static void pdc_sata_freeze(struct ata_port *ap)
@@ -707,10 +730,17 @@ static void pdc_sata_freeze(struct ata_port *ap)
 	unsigned int ata_no = pdc_sata_ata_port_to_ata_no(ap);
 	u32 hotplug_status;
 
+	/* Disable hotplug events on this port.
+	 *
+	 * Locking:
+	 * 1) hotplug register accesses must be serialised via host->lock
+	 * 2) ap->lock == &ap->host->lock
+	 * 3) ->freeze() and ->thaw() are called with ap->lock held
+	 */
 	hotplug_status = readl(host_mmio + hotplug_offset);
 	hotplug_status |= 0x11 << (ata_no + 16);
 	writel(hotplug_status, host_mmio + hotplug_offset);
-	readl(host_mmio + hotplug_offset); 
+	readl(host_mmio + hotplug_offset); /* flush */
 
 	pdc_freeze(ap);
 }
@@ -720,14 +750,14 @@ static void pdc_thaw(struct ata_port *ap)
 	void __iomem *ata_mmio = ap->ioaddr.cmd_addr;
 	u32 tmp;
 
-	
+	/* clear IRQ */
 	readl(ata_mmio + PDC_COMMAND);
 
-	
+	/* turn IRQ back on */
 	tmp = readl(ata_mmio + PDC_CTLSTAT);
 	tmp &= ~PDC_IRQ_DISABLE;
 	writel(tmp, ata_mmio + PDC_CTLSTAT);
-	readl(ata_mmio + PDC_CTLSTAT); 
+	readl(ata_mmio + PDC_CTLSTAT); /* flush */
 }
 
 static void pdc_sata_thaw(struct ata_port *ap)
@@ -740,11 +770,14 @@ static void pdc_sata_thaw(struct ata_port *ap)
 
 	pdc_thaw(ap);
 
+	/* Enable hotplug events on this port.
+	 * Locking: see pdc_sata_freeze().
+	 */
 	hotplug_status = readl(host_mmio + hotplug_offset);
 	hotplug_status |= 0x11 << ata_no;
 	hotplug_status &= ~(0x11 << (ata_no + 16));
 	writel(hotplug_status, host_mmio + hotplug_offset);
-	readl(host_mmio + hotplug_offset); 
+	readl(host_mmio + hotplug_offset); /* flush */
 }
 
 static int pdc_pata_softreset(struct ata_link *link, unsigned int *class,
@@ -759,7 +792,7 @@ static unsigned int pdc_ata_port_to_ata_no(const struct ata_port *ap)
 	void __iomem *ata_mmio = ap->ioaddr.cmd_addr;
 	void __iomem *host_mmio = ap->host->iomap[PDC_MMIO_BAR];
 
-	
+	/* ata_mmio == host_mmio + 0x200 + ata_no * 0x80 */
 	return (ata_mmio - host_mmio - 0x200) / 0x80;
 }
 
@@ -775,11 +808,11 @@ static void pdc_hard_reset_port(struct ata_port *ap)
 	tmp = readb(pcictl_b1_mmio);
 	tmp &= ~(0x10 << ata_no);
 	writeb(tmp, pcictl_b1_mmio);
-	readb(pcictl_b1_mmio); 
+	readb(pcictl_b1_mmio); /* flush */
 	udelay(100);
 	tmp |= (0x10 << ata_no);
 	writeb(tmp, pcictl_b1_mmio);
-	readb(pcictl_b1_mmio); 
+	readb(pcictl_b1_mmio); /* flush */
 
 	spin_unlock(&ap->host->lock);
 }
@@ -789,10 +822,14 @@ static int pdc_sata_hardreset(struct ata_link *link, unsigned int *class,
 {
 	if (link->ap->flags & PDC_FLAG_GEN_II)
 		pdc_not_at_command_packet_phase(link->ap);
-	
+	/* hotplug IRQs should have been masked by pdc_sata_freeze() */
 	pdc_hard_reset_port(link->ap);
 	pdc_reset_port(link->ap);
 
+	/* sata_promise can't reliably acquire the first D2H Reg FIS
+	 * after hardreset.  Do non-waiting hardreset and request
+	 * follow-up SRST.
+	 */
 	return sata_std_hardreset(link, class, deadline);
 }
 
@@ -808,7 +845,7 @@ static void pdc_post_internal_cmd(struct ata_queued_cmd *qc)
 {
 	struct ata_port *ap = qc->ap;
 
-	
+	/* make DMA engine forget about the failed command */
 	if (qc->flags & ATA_QCFLAG_FAILED)
 		pdc_reset_port(ap);
 }
@@ -912,17 +949,17 @@ static irqreturn_t pdc_interrupt(int irq, void *dev_instance)
 
 	spin_lock(&host->lock);
 
-	
+	/* read and clear hotplug flags for all ports */
 	if (host->ports[0]->flags & PDC_FLAG_GEN_II) {
 		hotplug_offset = PDC2_SATA_PLUG_CSR;
 		hotplug_status = readl(host_mmio + hotplug_offset);
 		if (hotplug_status & 0xff)
 			writel(hotplug_status | 0xff, host_mmio + hotplug_offset);
-		hotplug_status &= 0xff;	
+		hotplug_status &= 0xff;	/* clear uninteresting bits */
 	} else
 		hotplug_status = 0;
 
-	
+	/* reading should also clear interrupts */
 	mask = readl(host_mmio + PDC_INT_SEQMASK);
 
 	if (mask == 0xffffffff && hotplug_status == 0) {
@@ -930,7 +967,7 @@ static irqreturn_t pdc_interrupt(int irq, void *dev_instance)
 		goto done_irq;
 	}
 
-	mask &= 0xffff;		
+	mask &= 0xffff;		/* only 16 SEQIDs possible */
 	if (mask == 0 && hotplug_status == 0) {
 		VPRINTK("QUICK EXIT 3\n");
 		goto done_irq;
@@ -944,7 +981,7 @@ static irqreturn_t pdc_interrupt(int irq, void *dev_instance)
 		VPRINTK("port %u\n", i);
 		ap = host->ports[i];
 
-		
+		/* check for a plug or unplug event */
 		ata_no = pdc_port_no_to_ata_no(i, is_sataii_tx4);
 		tmp = hotplug_status & (0x11 << ata_no);
 		if (tmp) {
@@ -957,7 +994,7 @@ static irqreturn_t pdc_interrupt(int irq, void *dev_instance)
 			continue;
 		}
 
-		
+		/* check for a packet interrupt */
 		tmp = mask & (1 << (i + 1));
 		if (tmp) {
 			struct ata_queued_cmd *qc;
@@ -987,12 +1024,12 @@ static void pdc_packet_start(struct ata_queued_cmd *qc)
 	VPRINTK("ENTER, ap %p\n", ap);
 
 	writel(0x00000001, host_mmio + (seq * 4));
-	readl(host_mmio + (seq * 4));	
+	readl(host_mmio + (seq * 4));	/* flush */
 
 	pp->pkt[2] = seq;
-	wmb();			
+	wmb();			/* flush PRD, pkt writes */
 	writel(pp->pkt_dma, ata_mmio + PDC_PKT_SUBMIT);
-	readl(ata_mmio + PDC_PKT_SUBMIT); 
+	readl(ata_mmio + PDC_PKT_SUBMIT); /* flush */
 }
 
 static unsigned int pdc_qc_issue(struct ata_queued_cmd *qc)
@@ -1001,11 +1038,11 @@ static unsigned int pdc_qc_issue(struct ata_queued_cmd *qc)
 	case ATAPI_PROT_NODATA:
 		if (qc->dev->flags & ATA_DFLAG_CDB_INTR)
 			break;
-		
+		/*FALLTHROUGH*/
 	case ATA_PROT_NODATA:
 		if (qc->tf.flags & ATA_TFLAG_POLLING)
 			break;
-		
+		/*FALLTHROUGH*/
 	case ATAPI_PROT_DMA:
 	case ATA_PROT_DMA:
 		pdc_packet_start(qc);
@@ -1032,9 +1069,9 @@ static void pdc_exec_command_mmio(struct ata_port *ap,
 static int pdc_check_atapi_dma(struct ata_queued_cmd *qc)
 {
 	u8 *scsicmd = qc->scsicmd->cmnd;
-	int pio = 1; 
+	int pio = 1; /* atapi dma off by default */
 
-	
+	/* Whitelist commands that may use DMA. */
 	switch (scsicmd[0]) {
 	case WRITE_12:
 	case WRITE_10:
@@ -1042,11 +1079,11 @@ static int pdc_check_atapi_dma(struct ata_queued_cmd *qc)
 	case READ_12:
 	case READ_10:
 	case READ_6:
-	case 0xad: 
-	case 0xbe: 
+	case 0xad: /* READ_DVD_STRUCTURE */
+	case 0xbe: /* READ_CD */
 		pio = 0;
 	}
-	
+	/* -45150 (FFFF4FA2) to -1 (FFFFFFFF) shall use PIO mode */
 	if (scsicmd[0] == WRITE_10) {
 		unsigned int lba =
 			(scsicmd[2] << 24) |
@@ -1061,7 +1098,7 @@ static int pdc_check_atapi_dma(struct ata_queued_cmd *qc)
 
 static int pdc_old_sata_check_atapi_dma(struct ata_queued_cmd *qc)
 {
-	
+	/* First generation chips cannot use ATAPI DMA on SATA ports */
 	return 1;
 }
 
@@ -1096,41 +1133,46 @@ static void pdc_host_init(struct ata_host *host)
 	else
 		hotplug_offset = PDC_SATA_PLUG_CSR;
 
+	/*
+	 * Except for the hotplug stuff, this is voodoo from the
+	 * Promise driver.  Label this entire section
+	 * "TODO: figure out why we do this"
+	 */
 
-	
+	/* enable BMR_BURST, maybe change FIFO_SHD to 8 dwords */
 	tmp = readl(host_mmio + PDC_FLASH_CTL);
-	tmp |= 0x02000;	
+	tmp |= 0x02000;	/* bit 13 (enable bmr burst) */
 	if (!is_gen2)
-		tmp |= 0x10000;	
+		tmp |= 0x10000;	/* bit 16 (fifo threshold at 8 dw) */
 	writel(tmp, host_mmio + PDC_FLASH_CTL);
 
-	
+	/* clear plug/unplug flags for all ports */
 	tmp = readl(host_mmio + hotplug_offset);
 	writel(tmp | 0xff, host_mmio + hotplug_offset);
 
 	tmp = readl(host_mmio + hotplug_offset);
-	if (is_gen2)	
+	if (is_gen2)	/* unmask plug/unplug ints */
 		writel(tmp & ~0xff0000, host_mmio + hotplug_offset);
-	else		
+	else		/* mask plug/unplug ints */
 		writel(tmp | 0xff0000, host_mmio + hotplug_offset);
 
-	
+	/* don't initialise TBG or SLEW on 2nd generation chips */
 	if (is_gen2)
 		return;
 
-	
+	/* reduce TBG clock to 133 Mhz. */
 	tmp = readl(host_mmio + PDC_TBG_MODE);
-	tmp &= ~0x30000; 
-	tmp |= 0x10000;  
+	tmp &= ~0x30000; /* clear bit 17, 16*/
+	tmp |= 0x10000;  /* set bit 17:16 = 0:1 */
 	writel(tmp, host_mmio + PDC_TBG_MODE);
 
-	readl(host_mmio + PDC_TBG_MODE);	
+	readl(host_mmio + PDC_TBG_MODE);	/* flush */
 	msleep(10);
 
-	
+	/* adjust slew rate control register. */
 	tmp = readl(host_mmio + PDC_SLEW_CTL);
-	tmp &= 0xFFFFF03F; 
-	tmp  |= 0x00000900; 
+	tmp &= 0xFFFFF03F; /* clear bit 11 ~ 6 */
+	tmp  |= 0x00000900; /* set bit 11-9 = 100b , bit 8-6 = 100 */
 	writel(tmp, host_mmio + PDC_SLEW_CTL);
 }
 
@@ -1146,7 +1188,7 @@ static int pdc_ata_init_one(struct pci_dev *pdev,
 
 	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
-	
+	/* enable and acquire resources */
 	rc = pcim_enable_device(pdev);
 	if (rc)
 		return rc;
@@ -1158,7 +1200,7 @@ static int pdc_ata_init_one(struct pci_dev *pdev,
 		return rc;
 	host_mmio = pcim_iomap_table(pdev)[PDC_MMIO_BAR];
 
-	
+	/* determine port configuration and setup host */
 	n_ports = 2;
 	if (pi->flags & PDC_FLAG_4_PORTS)
 		n_ports = 4;
@@ -1191,7 +1233,7 @@ static int pdc_ata_init_one(struct pci_dev *pdev,
 		ata_port_pbar_desc(ap, PDC_MMIO_BAR, ata_offset, "ata");
 	}
 
-	
+	/* initialize adapter */
 	pdc_host_init(host);
 
 	rc = pci_set_dma_mask(pdev, ATA_DMA_MASK);
@@ -1201,7 +1243,7 @@ static int pdc_ata_init_one(struct pci_dev *pdev,
 	if (rc)
 		return rc;
 
-	
+	/* start host, request IRQ and attach */
 	pci_set_master(pdev);
 	return ata_host_activate(host, pdev->irq, pdc_interrupt, IRQF_SHARED,
 				 &pdc_ata_sht);

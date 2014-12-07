@@ -24,11 +24,16 @@
 #include <mach/misc_regs.h>
 
 #define IN0_MEM_SIZE	(200 * 1024 * 1024 - 1)
+/* In current implementation address translation is done using IN0 only.
+ * So IN1 start address and IN0 end address has been kept same
+*/
 #define IN1_MEM_SIZE	(0 * 1024 * 1024 - 1)
 #define IN_IO_SIZE	(20 * 1024 * 1024 - 1)
 #define IN_CFG0_SIZE	(12 * 1024 * 1024 - 1)
 #define IN_CFG1_SIZE	(12 * 1024 * 1024 - 1)
 #define IN_MSG_SIZE	(12 * 1024 * 1024 - 1)
+/* Keep default BAR size as 4K*/
+/* AORAM would be mapped by default*/
 #define INBOUND_ADDR_MASK	(SPEAR13XX_SYSRAM1_SIZE - 1)
 
 #define INT_TYPE_NO_INT	0
@@ -62,7 +67,7 @@ struct pcie_gadget_target_attr {
 
 static void enable_dbi_access(struct pcie_app_reg __iomem *app_reg)
 {
-	
+	/* Enable DBI access */
 	writel(readl(&app_reg->slv_armisc) | (1 << AXI_OP_DBI_ACCESS_ID),
 			&app_reg->slv_armisc);
 	writel(readl(&app_reg->slv_awmisc) | (1 << AXI_OP_DBI_ACCESS_ID),
@@ -72,7 +77,7 @@ static void enable_dbi_access(struct pcie_app_reg __iomem *app_reg)
 
 static void disable_dbi_access(struct pcie_app_reg __iomem *app_reg)
 {
-	
+	/* disable DBI access */
 	writel(readl(&app_reg->slv_armisc) & ~(1 << AXI_OP_DBI_ACCESS_ID),
 			&app_reg->slv_armisc);
 	writel(readl(&app_reg->slv_awmisc) & ~(1 << AXI_OP_DBI_ACCESS_ID),
@@ -86,7 +91,7 @@ static void spear_dbi_read_reg(struct spear_pcie_gadget_config *config,
 	struct pcie_app_reg __iomem *app_reg = config->va_app_base;
 	ulong va_address;
 
-	
+	/* Enable DBI access */
 	enable_dbi_access(app_reg);
 
 	va_address = (ulong)config->va_dbi_base + (where & ~0x3);
@@ -98,7 +103,7 @@ static void spear_dbi_read_reg(struct spear_pcie_gadget_config *config,
 	else if (size == 2)
 		*val = (*val >> (8 * (where & 3))) & 0xffff;
 
-	
+	/* Disable DBI access */
 	disable_dbi_access(app_reg);
 }
 
@@ -108,7 +113,7 @@ static void spear_dbi_write_reg(struct spear_pcie_gadget_config *config,
 	struct pcie_app_reg __iomem *app_reg = config->va_app_base;
 	ulong va_address;
 
-	
+	/* Enable DBI access */
 	enable_dbi_access(app_reg);
 
 	va_address = (ulong)config->va_dbi_base + (where & ~0x3);
@@ -120,7 +125,7 @@ static void spear_dbi_write_reg(struct spear_pcie_gadget_config *config,
 	else if (size == 1)
 		writeb(val, va_address + (where & 3));
 
-	
+	/* Disable DBI access */
 	disable_dbi_access(app_reg);
 }
 
@@ -176,6 +181,21 @@ static int pci_find_own_cap_start(struct spear_pcie_gadget_config *config,
 	return 0;
 }
 
+/*
+ * Tell if a device supports a given PCI capability.
+ * Returns the address of the requested capability structure within the
+ * device's PCI configuration space or 0 in case the device does not
+ * support it. Possible values for @cap:
+ *
+ * %PCI_CAP_ID_PM	Power Management
+ * %PCI_CAP_ID_AGP	Accelerated Graphics Port
+ * %PCI_CAP_ID_VPD	Vital Product Data
+ * %PCI_CAP_ID_SLOTID	Slot Identification
+ * %PCI_CAP_ID_MSI	Message Signalled Interrupts
+ * %PCI_CAP_ID_CHSWP	CompactPCI HotSwap
+ * %PCI_CAP_ID_PCIX	PCI-X
+ * %PCI_CAP_ID_EXP	PCI Express
+ */
 static int pci_find_own_capability(struct spear_pcie_gadget_config *config,
 		int cap)
 {
@@ -196,6 +216,9 @@ static irqreturn_t spear_pcie_gadget_irq(int irq, void *dev_id)
 	return 0;
 }
 
+/*
+ * configfs interfaces show/store functions
+ */
 static ssize_t pcie_gadget_show_link(
 		struct spear_pcie_gadget_config *config,
 		char *buf)
@@ -346,7 +369,7 @@ static ssize_t pcie_gadget_store_send_msi(
 	ven_msi &= ~VEN_MSI_VECTOR_MASK;
 	ven_msi |= vector << VEN_MSI_VECTOR_ID;
 
-	
+	/* generating interrupt for msi vector */
 	ven_msi |= VEN_MSI_REQ_EN;
 	writel(ven_msi, &app_reg->ven_msi_1);
 	udelay(1);
@@ -423,10 +446,10 @@ static ssize_t pcie_gadget_store_bar0_size(
 
 	if (strict_strtoul(buf, 0, &size))
 		return -EINVAL;
-	
+	/* min bar size is 256 */
 	if (size <= 0x100)
 		size = 0x100;
-	
+	/* max bar size is 1MB*/
 	else if (size >= 0x100000)
 		size = 0x100000;
 	else {
@@ -538,6 +561,9 @@ static ssize_t pcie_gadget_store_bar0_data(
 	return count;
 }
 
+/*
+ * Attribute definitions.
+ */
 
 #define PCIE_GADGET_TARGET_ATTR_RO(_name)				\
 static struct pcie_gadget_target_attr pcie_gadget_target_##_name =	\
@@ -585,6 +611,9 @@ static struct pcie_gadget_target *to_target(struct config_item *item)
 				struct pcie_gadget_target, subsys) : NULL;
 }
 
+/*
+ * Item operations and type for pcie_gadget_target.
+ */
 
 static ssize_t pcie_gadget_target_attr_show(struct config_item *item,
 					   struct configfs_attribute *attr,
@@ -630,7 +659,7 @@ static void spear13xx_pcie_device_init(struct spear_pcie_gadget_config *config)
 {
 	struct pcie_app_reg __iomem *app_reg = config->va_app_base;
 
-	
+	/*setup registers for outbound translation */
 
 	writel(config->base, &app_reg->in0_mem_addr_start);
 	writel(app_reg->in0_mem_addr_start + IN0_MEM_SIZE,
@@ -655,9 +684,9 @@ static void spear13xx_pcie_device_init(struct spear_pcie_gadget_config *config)
 	writel(app_reg->in1_mem_addr_start, &app_reg->pom1_mem_addr_start);
 	writel(app_reg->in_io_addr_start, &app_reg->pom_io_addr_start);
 
-	
+	/*setup registers for inbound translation */
 
-	
+	/* Keep AORAM mapped at BAR0 as default */
 	config->bar0_size = INBOUND_ADDR_MASK + 1;
 	spear_dbi_write_reg(config, PCIE_BAR0_MASK_REG, 4, INBOUND_ADDR_MASK);
 	spear_dbi_write_reg(config, PCI_BASE_ADDRESS_0, 4, 0xC);
@@ -675,10 +704,10 @@ static void spear13xx_pcie_device_init(struct spear_pcie_gadget_config *config)
 	writel(DEVICE_TYPE_EP | (1 << MISCTRL_EN_ID)
 			| ((u32)1 << REG_TRANSLATION_ENABLE),
 			&app_reg->app_ctrl_0);
-	
+	/* disable all rx interrupts */
 	writel(0, &app_reg->int_mask);
 
-	
+	/* Select INTA as default*/
 	spear_dbi_write_reg(config, PCI_INTERRUPT_LINE, 1, 1);
 }
 
@@ -693,7 +722,7 @@ static int __devinit spear_pcie_gadget_probe(struct platform_device *pdev)
 	struct config_item		*cg_item;
 	struct configfs_subsystem *subsys;
 
-	
+	/* get resource for application registers*/
 
 	res0 = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res0) {
@@ -705,7 +734,7 @@ static int __devinit spear_pcie_gadget_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "pcie gadget region already	claimed\n");
 		return -EBUSY;
 	}
-	
+	/* get resource for dbi registers*/
 
 	res1 = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (!res1) {
@@ -763,7 +792,7 @@ static int __devinit spear_pcie_gadget_probe(struct platform_device *pdev)
 		goto err_iounmap;
 	}
 
-	
+	/* Register configfs hooks */
 	subsys = &target->subsys;
 	config_group_init(&subsys->su_group);
 	mutex_init(&subsys->su_mutex);
@@ -771,7 +800,17 @@ static int __devinit spear_pcie_gadget_probe(struct platform_device *pdev)
 	if (status)
 		goto err_irq;
 
+	/*
+	 * init basic pcie application registers
+	 * do not enable clock if it is PCIE0.Ideally , all controller should
+	 * have been independent from others with respect to clock. But PCIE1
+	 * and 2 depends on PCIE0.So PCIE0 clk is provided during board init.
+	 */
 	if (pdev->id == 1) {
+		/*
+		 * Ideally CFG Clock should have been also enabled here. But
+		 * it is done currently during board init routne
+		 */
 		clk = clk_get_sys("pcie1", NULL);
 		if (IS_ERR(clk)) {
 			pr_err("%s:couldn't get clk for pcie1\n", __func__);
@@ -782,6 +821,10 @@ static int __devinit spear_pcie_gadget_probe(struct platform_device *pdev)
 			goto err_irq;
 		}
 	} else if (pdev->id == 2) {
+		/*
+		 * Ideally CFG Clock should have been also enabled here. But
+		 * it is done currently during board init routne
+		 */
 		clk = clk_get_sys("pcie2", NULL);
 		if (IS_ERR(clk)) {
 			pr_err("%s:couldn't get clk for pcie2\n", __func__);

@@ -68,6 +68,7 @@ static inline uint32_t H(uint32_t x, uint32_t y, uint32_t z)
 #define ROUND2(a,b,c,d,k,s) (a = lshift(a + G(b,c,d) + k + (uint32_t)0x5A827999,s))
 #define ROUND3(a,b,c,d,k,s) (a = lshift(a + H(b,c,d) + k + (uint32_t)0x6ED9EBA1,s))
 
+/* XXX: this stuff can be optimized */
 static inline void le32_to_cpu_array(uint32_t *buf, unsigned int words)
 {
 	while (words--) {
@@ -251,6 +252,7 @@ static int parse_comment(const char *file, unsigned long len)
 	return i;
 }
 
+/* FIXME: Handle .s files differently (eg. # starts comments) --RR */
 static int parse_file(const char *fname, struct md4_ctx *md)
 {
 	char *file;
@@ -261,23 +263,23 @@ static int parse_file(const char *fname, struct md4_ctx *md)
 		return 0;
 
 	for (i = 0; i < len; i++) {
-		
+		/* Collapse and ignore \ and CR. */
 		if (file[i] == '\\' && (i+1 < len) && file[i+1] == '\n') {
 			i++;
 			continue;
 		}
 
-		
+		/* Ignore whitespace */
 		if (isspace(file[i]))
 			continue;
 
-		
+		/* Handle strings as whole units */
 		if (file[i] == '"') {
 			i += parse_string(file+i, len - i, md);
 			continue;
 		}
 
-		
+		/* Comments: ignore */
 		if (file[i] == '/' && file[i+1] == '*') {
 			i += parse_comment(file+i, len - i);
 			continue;
@@ -288,6 +290,7 @@ static int parse_file(const char *fname, struct md4_ctx *md)
 	release_file(file, len);
 	return 1;
 }
+/* Check whether the file is a static library or not */
 static int is_static_library(const char *objfile)
 {
 	int len = strlen(objfile);
@@ -297,6 +300,8 @@ static int is_static_library(const char *objfile)
 		return 0;
 }
 
+/* We have dir/file.o.  Open dir/.file.o.cmd, look for source_ and deps_ line
+ * to figure out source files. */
 static int parse_source_files(const char *objfile, struct md4_ctx *md)
 {
 	char *cmd, *file, *line, *dir;
@@ -325,6 +330,14 @@ static int parse_source_files(const char *objfile, struct md4_ctx *md)
 		goto out;
 	}
 
+	/* There will be a line like so:
+		deps_drivers/net/dummy.o := \
+		  drivers/net/dummy.c \
+		    $(wildcard include/config/net/fastroute.h) \
+		  include/linux/module.h \
+
+	   Sum all files in the same dir or subdirs.
+	*/
 	while ((line = get_next_line(&pos, file, flen)) != NULL) {
 		char* p = line;
 
@@ -349,10 +362,10 @@ static int parse_source_files(const char *objfile, struct md4_ctx *md)
 		if (!check_files)
 			continue;
 
-		
+		/* Continue until line does not end with '\' */
 		if ( *(p + strlen(p)-1) != '\\')
 			break;
-		
+		/* Terminate line at first space, to get rid of final ' \' */
 		while (*p) {
                        if (isspace(*p)) {
 				*p = '\0';
@@ -361,7 +374,7 @@ static int parse_source_files(const char *objfile, struct md4_ctx *md)
 			p++;
 		}
 
-		
+		/* Check if this file is in same dir as objfile */
 		if ((strstr(line, dir)+strlen(dir)-1) == strrchr(line, '/')) {
 			if (!parse_file(line, md)) {
 				warn("could not open %s: %s\n",
@@ -373,7 +386,7 @@ static int parse_source_files(const char *objfile, struct md4_ctx *md)
 
 	}
 
-	
+	/* Everyone parsed OK */
 	ret = 1;
 out_file:
 	release_file(file, flen);
@@ -383,6 +396,7 @@ out:
 	return ret;
 }
 
+/* Calc and record src checksum. */
 void get_src_version(const char *modname, char sum[], unsigned sumlen)
 {
 	void *file;
@@ -396,6 +410,8 @@ void get_src_version(const char *modname, char sum[], unsigned sumlen)
 	if (!modverdir)
 		modverdir = ".";
 
+	/* Source files for module are in .tmp_versions/modname.mod,
+	   after the first line. */
 	if (strrchr(modname, '/'))
 		basename = strrchr(modname, '/') + 1;
 	else
@@ -405,7 +421,7 @@ void get_src_version(const char *modname, char sum[], unsigned sumlen)
 
 	file = grab_file(filelist, &len);
 	if (!file)
-		
+		/* not a module or .mod file missing - ignore */
 		return;
 
 	sources = strchr(file, '\n');
@@ -470,9 +486,11 @@ static int strip_rcs_crap(char *version)
 	if (strncmp(version, "$Revision", strlen("$Revision")) != 0)
 		return 0;
 
-	
+	/* Space for version string follows. */
 	full_len = strlen(version) + strlen(version + strlen(version) + 1) + 2;
 
+	/* Move string to start with version number: prefix will be
+	 * $Revision$ or $Revision: */
 	len = strlen("$Revision");
 	if (version[len] == ':' || version[len] == '$')
 		len++;
@@ -481,7 +499,7 @@ static int strip_rcs_crap(char *version)
 	memmove(version, version+len, full_len-len);
 	full_len -= len;
 
-	
+	/* Preserve up to next whitespace. */
 	len = 0;
 	while (version[len] && !isspace(version[len]))
 		len++;
@@ -490,6 +508,7 @@ static int strip_rcs_crap(char *version)
 	return 1;
 }
 
+/* Clean up RCS-style version numbers. */
 void maybe_frob_rcs_version(const char *modfilename,
 			    char *version,
 			    void *modinfo,

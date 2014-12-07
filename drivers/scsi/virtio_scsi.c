@@ -26,6 +26,7 @@
 
 #define VIRTIO_SCSI_MEMPOOL_SZ 64
 
+/* Command queue element */
 struct virtio_scsi_cmd {
 	struct scsi_cmnd *sc;
 	struct completion *comp;
@@ -42,8 +43,9 @@ struct virtio_scsi_cmd {
 	} resp;
 } ____cacheline_aligned_in_smp;
 
+/* Driver instance state */
 struct virtio_scsi {
-	
+	/* Protects ctrl_vq, req_vq and sg[] */
 	spinlock_t vq_lock;
 
 	struct virtio_device *vdev;
@@ -51,7 +53,7 @@ struct virtio_scsi {
 	struct virtqueue *event_vq;
 	struct virtqueue *req_vq;
 
-	
+	/* For sglist construction when adding commands to the virtqueue.  */
 	struct scatterlist sg[];
 };
 
@@ -77,6 +79,11 @@ static void virtscsi_compute_resid(struct scsi_cmnd *sc, u32 resid)
 	scsi_out(sc)->resid = resid - scsi_in(sc)->resid;
 }
 
+/**
+ * virtscsi_complete_cmd - finish a scsi_cmd and invoke scsi_done
+ *
+ * Called with vq_lock held.
+ */
 static void virtscsi_complete_cmd(void *buf)
 {
 	struct virtio_scsi_cmd *cmd = buf;
@@ -120,7 +127,7 @@ static void virtscsi_complete_cmd(void *buf)
 	default:
 		scmd_printk(KERN_WARNING, sc, "Unknown response %d",
 			    resp->response);
-		
+		/* fall through */
 	case VIRTIO_SCSI_S_FAILURE:
 		set_host_byte(sc, DID_ERROR);
 		break;
@@ -196,6 +203,17 @@ static void virtscsi_map_sgl(struct scatterlist *sg, unsigned int *p_idx,
 	*p_idx = idx;
 }
 
+/**
+ * virtscsi_map_cmd - map a scsi_cmd to a virtqueue scatterlist
+ * @vscsi	: virtio_scsi state
+ * @cmd		: command structure
+ * @out_num	: number of read-only elements
+ * @in_num	: number of write-only elements
+ * @req_size	: size of the request buffer
+ * @resp_size	: size of the response buffer
+ *
+ * Called with vq_lock held.
+ */
 static void virtscsi_map_cmd(struct virtio_scsi *vscsi,
 			     struct virtio_scsi_cmd *cmd,
 			     unsigned *out_num, unsigned *in_num,
@@ -209,23 +227,23 @@ static void virtscsi_map_cmd(struct virtio_scsi *vscsi,
 		struct Scsi_Host *shost = virtio_scsi_host(vscsi->vdev);
 		BUG_ON(scsi_sg_count(sc) > shost->sg_tablesize);
 
-		
+		/* TODO: check feature bit and fail if unsupported?  */
 		BUG_ON(sc->sc_data_direction == DMA_BIDIRECTIONAL);
 	}
 
-	
+	/* Request header.  */
 	sg_set_buf(&sg[idx++], &cmd->req, req_size);
 
-	
+	/* Data-out buffer.  */
 	if (sc && sc->sc_data_direction != DMA_FROM_DEVICE)
 		virtscsi_map_sgl(sg, &idx, scsi_out(sc));
 
 	*out_num = idx;
 
-	
+	/* Response header.  */
 	sg_set_buf(&sg[idx++], &cmd->resp, resp_size);
 
-	
+	/* Data-in buffer */
 	if (sc && sc->sc_data_direction != DMA_TO_DEVICE)
 		virtscsi_map_sgl(sg, &idx, scsi_in(sc));
 
@@ -406,7 +424,7 @@ static int virtscsi_init(struct virtio_device *vdev,
 		"request"
 	};
 
-	
+	/* Discover virtqueues and write information to configuration.  */
 	err = vdev->config->find_vqs(vdev, 3, vqs, callbacks, names);
 	if (err)
 		return err;
@@ -428,9 +446,12 @@ static int __devinit virtscsi_probe(struct virtio_device *vdev)
 	u32 sg_elems;
 	u32 cmd_per_lun;
 
+	/* We need to know how many segments before we allocate.
+	 * We need an extra sg elements at head and tail.
+	 */
 	sg_elems = virtscsi_config_get(vdev, seg_max) ?: 1;
 
-	
+	/* Allocate memory and link the structs together.  */
 	shost = scsi_host_alloc(&virtscsi_host_template,
 		sizeof(*vscsi) + sizeof(vscsi->sg[0]) * (sg_elems + 2));
 
@@ -442,7 +463,7 @@ static int __devinit virtscsi_probe(struct virtio_device *vdev)
 	vscsi->vdev = vdev;
 	vdev->priv = shost;
 
-	
+	/* Random initializations.  */
 	spin_lock_init(&vscsi->vq_lock);
 	sg_init_table(vscsi->sg, sg_elems + 2);
 
@@ -474,7 +495,7 @@ virtscsi_init_failed:
 
 static void virtscsi_remove_vqs(struct virtio_device *vdev)
 {
-	
+	/* Stop all the virtqueues. */
 	vdev->config->reset(vdev);
 
 	vdev->config->del_vqs(vdev);

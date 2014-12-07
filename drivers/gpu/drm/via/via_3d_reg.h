@@ -32,6 +32,8 @@
 #define HC_Para_MASK            0x00ffffff
 #define HC_SubA_MASK            0xff000000
 #define HC_SubA_SHIFT           24
+/* Transmission Setting
+ */
 #define HC_REG_TRANS_SET        0x003c
 #define HC_ParaSubType_MASK     0xff000000
 #define HC_ParaType_MASK        0x00ff0000
@@ -49,14 +51,20 @@
 #define HC_ParaType_PreCR       0x0010
 #define HC_ParaType_Auto        0x00fe
 
+/* Transmission Space
+ */
 #define HC_REG_Hpara0           0x0040
 #define HC_REG_HpataAF          0x02fc
 
+/* Read
+ */
 #define HC_REG_HREngSt          0x0000
 #define HC_REG_HRFIFOempty      0x0004
 #define HC_REG_HRFIFOfull       0x0008
 #define HC_REG_HRErr            0x000c
 #define HC_REG_FIFOstatus       0x0010
+/* HC_REG_HREngSt          0x0000
+ */
 #define HC_HDASZC_MASK          0x00010000
 #define HC_HSGEMI_MASK          0x0000f000
 #define HC_HLGEMISt_MASK        0x00000f00
@@ -68,18 +76,26 @@
 #define HC_HBESt_MASK           0x00000004
 #define HC_HE2St_MASK           0x00000002
 #define HC_HE3St_MASK           0x00000001
+/* HC_REG_HRFIFOempty      0x0004
+ */
 #define HC_HRZDempty_MASK       0x00000010
 #define HC_HRTXAempty_MASK      0x00000008
 #define HC_HRTXDempty_MASK      0x00000004
 #define HC_HWZDempty_MASK       0x00000002
 #define HC_HWCDempty_MASK       0x00000001
+/* HC_REG_HRFIFOfull       0x0008
+ */
 #define HC_HRZDfull_MASK        0x00000010
 #define HC_HRTXAfull_MASK       0x00000008
 #define HC_HRTXDfull_MASK       0x00000004
 #define HC_HWZDfull_MASK        0x00000002
 #define HC_HWCDfull_MASK        0x00000001
+/* HC_REG_HRErr            0x000c
+ */
 #define HC_HAGPCMErr_MASK       0x80000000
 #define HC_HAGPCMErrC_MASK      0x70000000
+/* HC_REG_FIFOstatus       0x0010
+ */
 #define HC_HRFIFOATall_MASK     0x80000000
 #define HC_HRFIFOATbusy_MASK    0x40000000
 #define HC_HRATFGMDo_MASK       0x00000100
@@ -92,24 +108,34 @@
 #define HC_HRATTXTAG_MASK       0x00000002
 #define HC_HRATTXCH_MASK        0x00000001
 
+/* AGP Command Setting
+ */
 #define HC_SubA_HAGPBstL        0x0060
 #define HC_SubA_HAGPBendL       0x0061
 #define HC_SubA_HAGPCMNT        0x0062
 #define HC_SubA_HAGPBpL         0x0063
 #define HC_SubA_HAGPBpH         0x0064
+/* HC_SubA_HAGPCMNT        0x0062
+ */
 #define HC_HAGPCMNT_MASK        0x00800000
 #define HC_HCmdErrClr_MASK      0x00400000
 #define HC_HAGPBendH_MASK       0x0000ff00
 #define HC_HAGPBstH_MASK        0x000000ff
 #define HC_HAGPBendH_SHIFT      8
 #define HC_HAGPBstH_SHIFT       0
+/* HC_SubA_HAGPBpL         0x0063
+ */
 #define HC_HAGPBpL_MASK         0x00fffffc
 #define HC_HAGPBpID_MASK        0x00000003
 #define HC_HAGPBpID_PAUSE       0x00000000
 #define HC_HAGPBpID_JUMP        0x00000001
 #define HC_HAGPBpID_STOP        0x00000002
+/* HC_SubA_HAGPBpH         0x0064
+ */
 #define HC_HAGPBpH_MASK         0x00ffffff
 
+/* Miscellaneous Settings
+ */
 #define HC_SubA_HClipTB         0x0070
 #define HC_SubA_HClipLR         0x0071
 #define HC_SubA_HFPClipTL       0x0072
@@ -147,7 +173,10 @@
 #define HC_HSPXOS_SHIFT         12
 #define HC_HSPYOS_MASK          0x00000fff
 
-#define HC_HCmdHeader_MASK      0xfe000000	
+/* Command
+ * Command A
+ */
+#define HC_HCmdHeader_MASK      0xfe000000	/*0xffe00000 */
 #define HC_HE3Fire_MASK         0x00100000
 #define HC_HPMType_MASK         0x000f0000
 #define HC_HEFlag_MASK          0x0000e000
@@ -188,6 +217,8 @@
 #define HC_HVCycle_CB           0x00000002
 #define HC_HVCycle_CC           0x00000003
 
+/* Command B
+ */
 #define HC_HLPrst_MASK          0x00010000
 #define HC_HLLastP_MASK         0x00008000
 #define HC_HVPMSK_MASK          0x00007f80
@@ -202,6 +233,8 @@
 #define HC_HVPMSK_S             0x00000100
 #define HC_HVPMSK_T             0x00000080
 
+/* Enable Setting
+ */
 #define HC_SubA_HEnable         0x0000
 #define HC_HenTXEnvMap_MASK     0x00200000
 #define HC_HenVertexCNT_MASK    0x00100000
@@ -226,6 +259,8 @@
 #define HC_HenABL_MASK          0x00000002
 #define HC_HenDT_MASK           0x00000001
 
+/* Z Setting
+ */
 #define HC_SubA_HZWBBasL        0x0010
 #define HC_SubA_HZWBBasH        0x0011
 #define HC_SubA_HZWBType        0x0012
@@ -236,6 +271,8 @@
 #define HC_SubA_HZWCTAGnum      0x0017
 #define HC_SubA_HZCYNum         0x0018
 #define HC_SubA_HZWCFire        0x0019
+/* HC_SubA_HZWBType
+ */
 #define HC_HZWBType_MASK        0x00800000
 #define HC_HZBiasedWB_MASK      0x00400000
 #define HC_HZONEasFF_MASK       0x00200000
@@ -248,9 +285,13 @@
 #define HC_HZWBFM_24            0x00030000
 #define HC_HZWBLoc_Local        0x00000000
 #define HC_HZWBLoc_SyS          0x00004000
+/* HC_SubA_HZWBend
+ */
 #define HC_HZWBend_MASK         0x00ffe000
 #define HC_HZBiasH_MASK         0x000000ff
 #define HC_HZWBend_SHIFT        10
+/* HC_SubA_HZWTMD
+ */
 #define HC_HZWTMD_MASK          0x00070000
 #define HC_HEBEBias_MASK        0x00007f00
 #define HC_HZNF_MASK            0x000000ff
@@ -263,29 +304,45 @@
 #define HC_HZWTMD_GE            0x00060000
 #define HC_HZWTMD_AllPass       0x00070000
 #define HC_HEBEBias_SHIFT       8
+/* HC_SubA_HZWCDL          0x0016
+ */
 #define HC_HZWCDL_MASK          0x00ffffff
+/* HC_SubA_HZWCTAGnum      0x0017
+ */
 #define HC_HZWCTAGnum_MASK      0x00ff0000
 #define HC_HZWCTAGnum_SHIFT     16
 #define HC_HZWCDH_MASK          0x000000ff
 #define HC_HZWCDH_SHIFT         0
+/* HC_SubA_HZCYNum         0x0018
+ */
 #define HC_HZCYNum_MASK         0x00030000
 #define HC_HZCYNum_SHIFT        16
 #define HC_HZWCQWnum_MASK       0x00003fff
 #define HC_HZWCQWnum_SHIFT      0
+/* HC_SubA_HZWCFire        0x0019
+ */
 #define HC_ZWCFire_MASK         0x00010000
 #define HC_HZWCQWnumLast_MASK   0x00003fff
 #define HC_HZWCQWnumLast_SHIFT  0
 
+/* Stencil Setting
+ */
 #define HC_SubA_HSTREF          0x0023
 #define HC_SubA_HSTMD           0x0024
+/* HC_SubA_HSBFM
+ */
 #define HC_HSBFM_MASK           0x00030000
 #define HC_HSBLoc_MASK          0x0000c000
 #define HC_HSBPit_MASK          0x00003fff
+/* HC_SubA_HSTREF
+ */
 #define HC_HSTREF_MASK          0x00ff0000
 #define HC_HSTOPMSK_MASK        0x0000ff00
 #define HC_HSTBMSK_MASK         0x000000ff
 #define HC_HSTREF_SHIFT         16
 #define HC_HSTOPMSK_SHIFT       8
+/* HC_SubA_HSTMD
+ */
 #define HC_HSTMD_MASK           0x00070000
 #define HC_HSTOPSF_MASK         0x000001c0
 #define HC_HSTOPSPZF_MASK       0x00000038
@@ -323,6 +380,8 @@
 #define HC_HSTOPSPZP_INCR       0x00000006
 #define HC_HSTOPSPZP_DECR       0x00000007
 
+/* Alpha Setting
+ */
 #define HC_SubA_HABBasL         0x0030
 #define HC_SubA_HABBasH         0x0031
 #define HC_SubA_HABFM           0x0032
@@ -338,9 +397,13 @@
 #define HC_SubA_HABLRFCb        0x003c
 #define HC_SubA_HABLRAa         0x003d
 #define HC_SubA_HABLRAb         0x003e
+/* HC_SubA_HABFM
+ */
 #define HC_HABFM_MASK           0x00030000
 #define HC_HABLoc_MASK          0x0000c000
 #define HC_HABPit_MASK          0x000007ff
+/* HC_SubA_HATMD
+ */
 #define HC_HATMD_MASK           0x00000700
 #define HC_HATREF_MASK          0x000000ff
 #define HC_HATMD_NeverPass      0x00000000
@@ -351,6 +414,8 @@
 #define HC_HATMD_NE             0x00000500
 #define HC_HATMD_GE             0x00000600
 #define HC_HATMD_AllPass        0x00000700
+/* HC_SubA_HABLCsat
+ */
 #define HC_HABLCsat_MASK        0x00010000
 #define HC_HABLCa_MASK          0x0000fc00
 #define HC_HABLCa_C_MASK        0x0000c000
@@ -361,6 +426,8 @@
 #define HC_HABLCbias_MASK       0x0000000f
 #define HC_HABLCbias_C_MASK     0x00000008
 #define HC_HABLCbias_OPC_MASK   0x00000007
+/*-- Define the input color.
+ */
 #define HC_XC_Csrc              0x00000000
 #define HC_XC_Cdst              0x00000001
 #define HC_XC_Asrc              0x00000002
@@ -373,6 +440,8 @@
 #define HC_XC_OPC               0x00000000
 #define HC_XC_InvOPC            0x00000010
 #define HC_XC_OPCp5             0x00000020
+/*-- Define the input Alpha
+ */
 #define HC_XA_OPA               0x00000000
 #define HC_XA_InvOPA            0x00000010
 #define HC_XA_OPAp5             0x00000020
@@ -387,6 +456,8 @@
 #define HC_XA_HABLRA            0x00000008
 #define HC_XA_minAsrcInvAdst    0x00000008
 #define HC_XA_HABLFRA           0x00000009
+/*--
+ */
 #define HC_HABLCa_OPC           (HC_XC_OPC << 10)
 #define HC_HABLCa_InvOPC        (HC_XC_InvOPC << 10)
 #define HC_HABLCa_OPCp5         (HC_XC_OPCp5 << 10)
@@ -415,6 +486,8 @@
 #define HC_HABLCbias_Adst       0x00000002
 #define HC_HABLCbias_Fog        0x00000003
 #define HC_HABLCbias_Cin        0x00000004
+/* HC_SubA_HABLCop         0x0035
+ */
 #define HC_HABLdot_MASK         0x00010000
 #define HC_HABLCop_MASK         0x00004000
 #define HC_HABLCb_MASK          0x00003f00
@@ -447,6 +520,8 @@
 #define HC_HABLFCb_minSrcDst        (HC_XC_minSrcDst << 2)
 #define HC_HABLFCb_maxSrcDst        (HC_XC_maxSrcDst << 2)
 #define HC_HABLFCb_mimAsrcInvAdst   (HC_XC_mimAsrcInvAdst << 2)
+/* HC_SubA_HABLAsat        0x0036
+ */
 #define HC_HABLAsat_MASK        0x00010000
 #define HC_HABLAa_MASK          0x0000fc00
 #define HC_HABLAa_A_MASK        0x0000c000
@@ -487,6 +562,8 @@
 #define HC_HABLAbias_Adst       0x00000002
 #define HC_HABLAbias_Fog        0x00000003
 #define HC_HABLAbias_Aaa        0x00000004
+/* HC_SubA_HABLAop         0x0037
+ */
 #define HC_HABLAop_MASK         0x00004000
 #define HC_HABLAb_MASK          0x00003f00
 #define HC_HABLAb_OPA_MASK      0x00000f00
@@ -518,20 +595,28 @@
 #define HC_HABLFAb_maxAsrcAdst  (HC_XA_maxAsrcAdst << 2)
 #define HC_HABLFAb_minAsrcInvAdst   (HC_XA_minAsrcInvAdst << 2)
 #define HC_HABLFAb_HABLFRA          (HC_XA_HABLFRA << 2)
+/* HC_SubA_HABLRAa         0x003d
+ */
 #define HC_HABLRAa_MASK         0x00ff0000
 #define HC_HABLRFAa_MASK        0x0000ff00
 #define HC_HABLRAbias_MASK      0x000000ff
 #define HC_HABLRAa_SHIFT        16
 #define HC_HABLRFAa_SHIFT       8
+/* HC_SubA_HABLRAb         0x003e
+ */
 #define HC_HABLRAb_MASK         0x0000ff00
 #define HC_HABLRFAb_MASK        0x000000ff
 #define HC_HABLRAb_SHIFT        8
 
+/* Destination Setting
+ */
 #define HC_SubA_HDBBasL         0x0040
 #define HC_SubA_HDBBasH         0x0041
 #define HC_SubA_HDBFM           0x0042
 #define HC_SubA_HFBBMSKL        0x0043
 #define HC_SubA_HROP            0x0044
+/* HC_SubA_HDBFM           0x0042
+ */
 #define HC_HDBFM_MASK           0x001f0000
 #define HC_HDBLoc_MASK          0x0000c000
 #define HC_HDBPit_MASK          0x00003fff
@@ -549,6 +634,8 @@
 #define HC_HDBFM_ABGR8888       0x000b0000
 #define HC_HDBLoc_Local         0x00000000
 #define HC_HDBLoc_Sys           0x00004000
+/* HC_SubA_HROP            0x0044
+ */
 #define HC_HROP_MASK            0x00000f00
 #define HC_HFBBMSKH_MASK        0x000000ff
 #define HC_HROP_BLACK           0x00000000
@@ -568,6 +655,8 @@
 #define HC_HROP_DPo             0x00000e00
 #define HC_HROP_WHITE           0x00000f00
 
+/* Fog Setting
+ */
 #define HC_SubA_HFogLF          0x0050
 #define HC_SubA_HFogCL          0x0051
 #define HC_SubA_HFogCH          0x0052
@@ -577,6 +666,8 @@
 #define HC_SubA_HFogOOdEF       0x0056
 #define HC_SubA_HFogEndL        0x0057
 #define HC_SubA_HFogDenst       0x0058
+/* HC_SubA_FogLF           0x0050
+ */
 #define HC_FogLF_MASK           0x00000010
 #define HC_FogEq_MASK           0x00000008
 #define HC_FogMD_MASK           0x00000007
@@ -584,14 +675,21 @@
 #define HC_FogMD_LinearFog       0x00000002
 #define HC_FogMD_ExponentialFog  0x00000004
 #define HC_FogMD_Exponential2Fog 0x00000005
+/* #define HC_FogMD_FogTable       0x00000003 */
 
+/* HC_SubA_HFogDenst        0x0058
+ */
 #define HC_FogDenst_MASK        0x001fff00
 #define HC_FogEndL_MASK         0x000000ff
 
+/* Texture subtype definitions
+ */
 #define HC_SubType_Tex0         0x00000000
 #define HC_SubType_Tex1         0x00000001
 #define HC_SubType_TexGeneral   0x000000fe
 
+/* Attribute of texture n
+ */
 #define HC_SubA_HTXnL0BasL      0x0000
 #define HC_SubA_HTXnL1BasL      0x0001
 #define HC_SubA_HTXnL2BasL      0x0002
@@ -665,40 +763,56 @@
 #define HC_SubA_HTXnBumpM11     0x0093
 #define HC_SubA_HTXnLScale      0x0094
 #define HC_SubA_HTXSMD          0x0000
+/* HC_SubA_HTXnL012BasH    0x0020
+ */
 #define HC_HTXnL0BasH_MASK      0x000000ff
 #define HC_HTXnL1BasH_MASK      0x0000ff00
 #define HC_HTXnL2BasH_MASK      0x00ff0000
 #define HC_HTXnL1BasH_SHIFT     8
 #define HC_HTXnL2BasH_SHIFT     16
+/* HC_SubA_HTXnL345BasH    0x0021
+ */
 #define HC_HTXnL3BasH_MASK      0x000000ff
 #define HC_HTXnL4BasH_MASK      0x0000ff00
 #define HC_HTXnL5BasH_MASK      0x00ff0000
 #define HC_HTXnL4BasH_SHIFT     8
 #define HC_HTXnL5BasH_SHIFT     16
+/* HC_SubA_HTXnL678BasH    0x0022
+ */
 #define HC_HTXnL6BasH_MASK      0x000000ff
 #define HC_HTXnL7BasH_MASK      0x0000ff00
 #define HC_HTXnL8BasH_MASK      0x00ff0000
 #define HC_HTXnL7BasH_SHIFT     8
 #define HC_HTXnL8BasH_SHIFT     16
+/* HC_SubA_HTXnL9abBasH    0x0023
+ */
 #define HC_HTXnL9BasH_MASK      0x000000ff
 #define HC_HTXnLaBasH_MASK      0x0000ff00
 #define HC_HTXnLbBasH_MASK      0x00ff0000
 #define HC_HTXnLaBasH_SHIFT     8
 #define HC_HTXnLbBasH_SHIFT     16
+/* HC_SubA_HTXnLcdeBasH    0x0024
+ */
 #define HC_HTXnLcBasH_MASK      0x000000ff
 #define HC_HTXnLdBasH_MASK      0x0000ff00
 #define HC_HTXnLeBasH_MASK      0x00ff0000
 #define HC_HTXnLdBasH_SHIFT     8
 #define HC_HTXnLeBasH_SHIFT     16
+/* HC_SubA_HTXnLcdeBasH    0x0025
+ */
 #define HC_HTXnLfBasH_MASK      0x000000ff
 #define HC_HTXnL10BasH_MASK      0x0000ff00
 #define HC_HTXnL11BasH_MASK      0x00ff0000
 #define HC_HTXnL10BasH_SHIFT     8
 #define HC_HTXnL11BasH_SHIFT     16
+/* HC_SubA_HTXnL0Pit       0x002b
+ */
 #define HC_HTXnLnPit_MASK       0x00003fff
 #define HC_HTXnEnPit_MASK       0x00080000
 #define HC_HTXnLnPitE_MASK      0x00f00000
 #define HC_HTXnLnPitE_SHIFT     20
+/* HC_SubA_HTXnL0_5WE      0x004b
+ */
 #define HC_HTXnL0WE_MASK        0x0000000f
 #define HC_HTXnL1WE_MASK        0x000000f0
 #define HC_HTXnL2WE_MASK        0x00000f00
@@ -710,6 +824,8 @@
 #define HC_HTXnL3WE_SHIFT       12
 #define HC_HTXnL4WE_SHIFT       16
 #define HC_HTXnL5WE_SHIFT       20
+/* HC_SubA_HTXnL6_bWE      0x004c
+ */
 #define HC_HTXnL6WE_MASK        0x0000000f
 #define HC_HTXnL7WE_MASK        0x000000f0
 #define HC_HTXnL8WE_MASK        0x00000f00
@@ -721,6 +837,8 @@
 #define HC_HTXnL9WE_SHIFT       12
 #define HC_HTXnLaWE_SHIFT       16
 #define HC_HTXnLbWE_SHIFT       20
+/* HC_SubA_HTXnLc_11WE      0x004d
+ */
 #define HC_HTXnLcWE_MASK        0x0000000f
 #define HC_HTXnLdWE_MASK        0x000000f0
 #define HC_HTXnLeWE_MASK        0x00000f00
@@ -732,6 +850,8 @@
 #define HC_HTXnLfWE_SHIFT       12
 #define HC_HTXnL10WE_SHIFT      16
 #define HC_HTXnL11WE_SHIFT      20
+/* HC_SubA_HTXnL0_5HE      0x0051
+ */
 #define HC_HTXnL0HE_MASK        0x0000000f
 #define HC_HTXnL1HE_MASK        0x000000f0
 #define HC_HTXnL2HE_MASK        0x00000f00
@@ -743,6 +863,8 @@
 #define HC_HTXnL3HE_SHIFT       12
 #define HC_HTXnL4HE_SHIFT       16
 #define HC_HTXnL5HE_SHIFT       20
+/* HC_SubA_HTXnL6_bHE      0x0052
+ */
 #define HC_HTXnL6HE_MASK        0x0000000f
 #define HC_HTXnL7HE_MASK        0x000000f0
 #define HC_HTXnL8HE_MASK        0x00000f00
@@ -754,6 +876,8 @@
 #define HC_HTXnL9HE_SHIFT       12
 #define HC_HTXnLaHE_SHIFT       16
 #define HC_HTXnLbHE_SHIFT       20
+/* HC_SubA_HTXnLc_11HE      0x0053
+ */
 #define HC_HTXnLcHE_MASK        0x0000000f
 #define HC_HTXnLdHE_MASK        0x000000f0
 #define HC_HTXnLeHE_MASK        0x00000f00
@@ -765,11 +889,15 @@
 #define HC_HTXnLfHE_SHIFT       12
 #define HC_HTXnL10HE_SHIFT      16
 #define HC_HTXnL11HE_SHIFT      20
+/* HC_SubA_HTXnL0OS        0x0077
+ */
 #define HC_HTXnL0OS_MASK        0x003ff000
 #define HC_HTXnLVmax_MASK       0x00000fc0
 #define HC_HTXnLVmin_MASK       0x0000003f
 #define HC_HTXnL0OS_SHIFT       12
 #define HC_HTXnLVmax_SHIFT      6
+/* HC_SubA_HTXnTB          0x0078
+ */
 #define HC_HTXnTB_MASK          0x00f00000
 #define HC_HTXnFLSe_MASK        0x0000e000
 #define HC_HTXnFLSs_MASK        0x00001c00
@@ -807,6 +935,8 @@
 #define HC_HTXnFLDs_ConstLOD    0x00000005
 #define HC_HTXnFLDs_Ani         0x00000006
 #define HC_HTXnFLDs_AniDither   0x00000007
+/* HC_SubA_HTXnMPMD        0x0079
+ */
 #define HC_HTXnMPMD_SMASK       0x00070000
 #define HC_HTXnMPMD_TMASK       0x00380000
 #define HC_HTXnLODDTf_MASK      0x00000007
@@ -821,9 +951,13 @@
 #define HC_HTXnMPMD_Srepeat     0x00020000
 #define HC_HTXnMPMD_Smirror     0x00030000
 #define HC_HTXnMPMD_Swrap       0x00040000
+/* HC_SubA_HTXnCLODu       0x007a
+ */
 #define HC_HTXnCLODu_MASK       0x000ffc00
 #define HC_HTXnCLODd_MASK       0x000003ff
 #define HC_HTXnCLODu_SHIFT      10
+/* HC_SubA_HTXnFM          0x007b
+ */
 #define HC_HTXnFM_MASK          0x00ff0000
 #define HC_HTXnLoc_MASK         0x00000003
 #define HC_HTXnFM_INDEX         0x00000000
@@ -889,11 +1023,16 @@
 #define HC_HTXnLoc_Local        0x00000000
 #define HC_HTXnLoc_Sys          0x00000002
 #define HC_HTXnLoc_AGP          0x00000003
+/* HC_SubA_HTXnTRAH        0x007f
+ */
 #define HC_HTXnTRAH_MASK        0x00ff0000
 #define HC_HTXnTRAL_MASK        0x0000ff00
 #define HC_HTXnTBA_MASK         0x000000ff
 #define HC_HTXnTRAH_SHIFT       16
 #define HC_HTXnTRAL_SHIFT       8
+/* HC_SubA_HTXnTBLCsat     0x0080
+ *-- Define the input texture.
+ */
 #define HC_XTC_TOPC             0x00000000
 #define HC_XTC_InvTOPC          0x00000010
 #define HC_XTC_TOPCp5           0x00000020
@@ -910,6 +1049,8 @@
 #define HC_XTC_Acur             0x00000008
 #define HC_XTC_HTXnTBLRC        0x00000009
 #define HC_XTC_Ctexnext         0x0000000a
+/*--
+ */
 #define HC_HTXnTBLCsat_MASK     0x00800000
 #define HC_HTXnTBLCa_MASK       0x000fc000
 #define HC_HTXnTBLCb_MASK       0x00001f80
@@ -956,6 +1097,8 @@
 #define HC_HTXnTBLCc_Acur       (HC_XTC_Acur << 0)
 #define HC_HTXnTBLCc_HTXnTBLRC  (HC_XTC_HTXnTBLRC << 0)
 #define HC_HTXnTBLCc_Ctexnext   (HC_XTC_Ctexnext << 0)
+/* HC_SubA_HTXnTBLCop      0x0081
+ */
 #define HC_HTXnTBLdot_MASK      0x00c00000
 #define HC_HTXnTBLCop_MASK      0x00380000
 #define HC_HTXnTBLCbias_MASK    0x0007c000
@@ -984,6 +1127,7 @@
 #define HC_HTXnTBLCshift_2      0x00000800
 #define HC_HTXnTBLCshift_No     0x00001000
 #define HC_HTXnTBLCshift_DotP   0x00001800
+/*=* John Sheng [2003.7.18] texture combine *=*/
 #define HC_HTXnTBLDOT3   0x00080000
 #define HC_HTXnTBLDOT4   0x000C0000
 
@@ -1001,6 +1145,9 @@
 #define HC_HTXnTBLAshift_1      0x00000000
 #define HC_HTXnTBLAshift_2      0x00000001
 #define HC_HTXnTBLAshift_No     0x00000002
+/* #define HC_HTXnTBLAshift_DotP   0x00000003 */
+/* HC_SubA_HTXnTBLMPFog    0x0082
+ */
 #define HC_HTXnTBLMPfog_MASK    0x00e00000
 #define HC_HTXnTBLMPfog_0       0x00000000
 #define HC_HTXnTBLMPfog_Adif    0x00200000
@@ -1008,6 +1155,9 @@
 #define HC_HTXnTBLMPfog_Atex    0x00600000
 #define HC_HTXnTBLMPfog_Acur    0x00800000
 #define HC_HTXnTBLMPfog_GHTXnTBLRFog    0x00a00000
+/* HC_SubA_HTXnTBLAsat     0x0083
+ *-- Define the texture alpha input.
+ */
 #define HC_XTA_TOPA             0x00000000
 #define HC_XTA_InvTOPA          0x00000008
 #define HC_XTA_TOPAp5           0x00000010
@@ -1017,6 +1167,8 @@
 #define HC_XTA_HTXnTBLRA        0x00000003
 #define HC_XTA_Atex             0x00000004
 #define HC_XTA_Atexnext         0x00000005
+/*--
+ */
 #define HC_HTXnTBLAsat_MASK     0x00800000
 #define HC_HTXnTBLAMB_MASK      0x00700000
 #define HC_HTXnTBLAa_MASK       0x0007c000
@@ -1050,19 +1202,27 @@
 #define HC_HTXnTBLAc_HTXnTBLRA  (HC_XTA_HTXnTBLRA << 0)
 #define HC_HTXnTBLAc_Atex       (HC_XTA_Atex << 0)
 #define HC_HTXnTBLAc_Atexnext   (HC_XTA_Atexnext << 0)
+/* HC_SubA_HTXnTBLRAa      0x0089
+ */
 #define HC_HTXnTBLRAa_MASK      0x00ff0000
 #define HC_HTXnTBLRAb_MASK      0x0000ff00
 #define HC_HTXnTBLRAc_MASK      0x000000ff
 #define HC_HTXnTBLRAa_SHIFT     16
 #define HC_HTXnTBLRAb_SHIFT     8
 #define HC_HTXnTBLRAc_SHIFT     0
+/* HC_SubA_HTXnTBLRFog     0x008a
+ */
 #define HC_HTXnTBLRFog_MASK     0x0000ff00
 #define HC_HTXnTBLRAbias_MASK   0x000000ff
 #define HC_HTXnTBLRFog_SHIFT    8
 #define HC_HTXnTBLRAbias_SHIFT  0
+/* HC_SubA_HTXnLScale      0x0094
+ */
 #define HC_HTXnLScale_MASK      0x0007fc00
 #define HC_HTXnLOff_MASK        0x000001ff
 #define HC_HTXnLScale_SHIFT     10
+/* HC_SubA_HTXSMD          0x0000
+ */
 #define HC_HTXSMD_MASK          0x00000080
 #define HC_HTXTMD_MASK          0x00000040
 #define HC_HTXNum_MASK          0x00000038
@@ -1070,14 +1230,20 @@
 #define HC_HTXCHCLR_MASK        0x00000001
 #define HC_HTXNum_SHIFT         3
 
+/* Texture Palette n
+ */
 #define HC_SubType_TexPalette0  0x00000000
 #define HC_SubType_TexPalette1  0x00000001
 #define HC_SubType_FogTable     0x00000010
 #define HC_SubType_Stipple      0x00000014
+/* HC_SubA_TexPalette0     0x0000
+ */
 #define HC_HTPnA_MASK           0xff000000
 #define HC_HTPnR_MASK           0x00ff0000
 #define HC_HTPnG_MASK           0x0000ff00
 #define HC_HTPnB_MASK           0x000000ff
+/* HC_SubA_FogTable        0x0010
+ */
 #define HC_HFPn3_MASK           0xff000000
 #define HC_HFPn2_MASK           0x00ff0000
 #define HC_HFPn1_MASK           0x0000ff00
@@ -1086,22 +1252,30 @@
 #define HC_HFPn2_SHIFT          16
 #define HC_HFPn1_SHIFT          8
 
+/* Auto Testing & Security
+ */
 #define HC_SubA_HenFIFOAT       0x0000
 #define HC_SubA_HFBDrawFirst    0x0004
 #define HC_SubA_HFBBasL         0x0005
 #define HC_SubA_HFBDst          0x0006
+/* HC_SubA_HenFIFOAT       0x0000
+ */
 #define HC_HenFIFOAT_MASK       0x00000020
 #define HC_HenGEMILock_MASK     0x00000010
 #define HC_HenFBASwap_MASK      0x00000008
 #define HC_HenOT_MASK           0x00000004
 #define HC_HenCMDQ_MASK         0x00000002
 #define HC_HenTXCTSU_MASK       0x00000001
+/* HC_SubA_HFBDrawFirst    0x0004
+ */
 #define HC_HFBDrawFirst_MASK    0x00000800
 #define HC_HFBQueue_MASK        0x00000400
 #define HC_HFBLock_MASK         0x00000200
 #define HC_HEOF_MASK            0x00000100
 #define HC_HFBBasH_MASK         0x000000ff
 
+/* GEMI Setting
+ */
 #define HC_SubA_HTArbRCM        0x0008
 #define HC_SubA_HTArbRZ         0x000a
 #define HC_SubA_HTArbWZ         0x000b
@@ -1116,24 +1290,49 @@
 #define HC_SubA_HCMDQstL        0x0050
 #define HC_SubA_HCMDQendL       0x0051
 #define HC_SubA_HCMDQLen        0x0052
+/* HC_SubA_HTArbRCM        0x0008
+ */
 #define HC_HTArbRCM_MASK        0x0000ffff
+/* HC_SubA_HTArbRZ         0x000a
+ */
 #define HC_HTArbRZ_MASK         0x0000ffff
+/* HC_SubA_HTArbWZ         0x000b
+ */
 #define HC_HTArbWZ_MASK         0x0000ffff
+/* HC_SubA_HTArbRTX        0x000c
+ */
 #define HC_HTArbRTX_MASK        0x0000ffff
+/* HC_SubA_HTArbRCW        0x000d
+ */
 #define HC_HTArbRCW_MASK        0x0000ffff
+/* HC_SubA_HTArbE2         0x000e
+ */
 #define HC_HTArbE2_MASK         0x0000ffff
+/* HC_SubA_HArbRQCM        0x0010
+ */
 #define HC_HTArbRQCM_MASK       0x0000ffff
+/* HC_SubA_HArbWQCM        0x0011
+ */
 #define HC_HArbWQCM_MASK        0x0000ffff
+/* HC_SubA_HGEMITout       0x0020
+ */
 #define HC_HGEMITout_MASK       0x000f0000
 #define HC_HNPArbZC_MASK        0x0000ffff
 #define HC_HGEMITout_SHIFT      16
+/* HC_SubA_HFthRTXD        0x0040
+ */
 #define HC_HFthRTXD_MASK        0x00ff0000
 #define HC_HFthRZD_MASK         0x0000ff00
 #define HC_HFthWZD_MASK         0x000000ff
 #define HC_HFthRTXD_SHIFT       16
 #define HC_HFthRZD_SHIFT        8
+/* HC_SubA_HFthRTXA        0x0044
+ */
 #define HC_HFthRTXA_MASK        0x000000ff
 
+/******************************************************************************
+** Define the Halcyon Internal register access constants. For simulator only.
+******************************************************************************/
 #define HC_SIMA_HAGPBstL        0x0000
 #define HC_SIMA_HAGPBendL       0x0001
 #define HC_SIMA_HAGPCMNT        0x0002
@@ -1165,6 +1364,9 @@
 #define HC_SIMA_HZWCTAGnum      0x001c
 #define HC_SIMA_HZCYNum         0x001d
 #define HC_SIMA_HZWCFire        0x001e
+/* #define HC_SIMA_HSBBasL         0x001d */
+/* #define HC_SIMA_HSBBasH         0x001e */
+/* #define HC_SIMA_HSBFM           0x001f */
 #define HC_SIMA_HSTREF          0x0020
 #define HC_SIMA_HSTMD           0x0021
 #define HC_SIMA_HABBasL         0x0022
@@ -1196,6 +1398,8 @@
 #define HC_SIMA_HFogOOdEF       0x003c
 #define HC_SIMA_HFogEndL        0x003d
 #define HC_SIMA_HFogDenst       0x003e
+/*---- start of texture 0 setting ----
+ */
 #define HC_SIMA_HTX0L0BasL      0x0040
 #define HC_SIMA_HTX0L1BasL      0x0041
 #define HC_SIMA_HTX0L2BasL      0x0042
@@ -1268,7 +1472,11 @@
 #define HC_SIMA_HTX0BumpM10     0x0085
 #define HC_SIMA_HTX0BumpM11     0x0086
 #define HC_SIMA_HTX0LScale      0x0087
+/*---- end of texture 0 setting ----      0x008f
+ */
 #define HC_SIMA_TX0TX1_OFF      0x0050
+/*---- start of texture 1 setting ----
+ */
 #define HC_SIMA_HTX1L0BasL      (HC_SIMA_HTX0L0BasL + HC_SIMA_TX0TX1_OFF)
 #define HC_SIMA_HTX1L1BasL      (HC_SIMA_HTX0L1BasL + HC_SIMA_TX0TX1_OFF)
 #define HC_SIMA_HTX1L2BasL      (HC_SIMA_HTX0L2BasL + HC_SIMA_TX0TX1_OFF)
@@ -1343,6 +1551,8 @@
 #define HC_SIMA_HTX1BumpM10     (HC_SIMA_HTX0BumpM10 + HC_SIMA_TX0TX1_OFF)
 #define HC_SIMA_HTX1BumpM11     (HC_SIMA_HTX0BumpM11 + HC_SIMA_TX0TX1_OFF)
 #define HC_SIMA_HTX1LScale      (HC_SIMA_HTX0LScale + HC_SIMA_TX0TX1_OFF)
+/*---- end of texture 1 setting ---- 0xaf
+ */
 #define HC_SIMA_HTXSMD          0x00b0
 #define HC_SIMA_HenFIFOAT       0x00b1
 #define HC_SIMA_HFBDrawFirst    0x00b2
@@ -1356,6 +1566,8 @@
 #define HC_SIMA_HGEMITout       0x00ba
 #define HC_SIMA_HFthRTXD        0x00bb
 #define HC_SIMA_HFthRTXA        0x00bc
+/* Define the texture palette 0
+ */
 #define HC_SIMA_HTP0            0x0100
 #define HC_SIMA_HTP1            0x0200
 #define HC_SIMA_FOGTABLE        0x0300
@@ -1368,6 +1580,9 @@
 #define HC_SIMA_HRErr           0x0445
 #define HC_SIMA_FIFOstatus      0x0446
 
+/******************************************************************************
+** Define the AGP command header.
+******************************************************************************/
 #define HC_ACMD_MASK            0xfe000000
 #define HC_ACMD_SUB_MASK        0x0c000000
 #define HC_ACMD_HCmdA           0xee000000
@@ -1390,9 +1605,18 @@
 #define HC_ACMD_H4COUNT_MASK    0x01fffe00
 #define HC_ACMD_H4COUNT_SHIFT   9
 
+/********************************************************************************
+** Define Header
+********************************************************************************/
 #define HC_HEADER2		0xF210F110
 
+/********************************************************************************
+** Define Dummy Value
+********************************************************************************/
 #define HC_DUMMY		0xCCCCCCCC
+/********************************************************************************
+** Define for DMA use
+********************************************************************************/
 #define HALCYON_HEADER2     0XF210F110
 #define HALCYON_FIRECMD     0XEE100000
 #define HALCYON_FIREMASK    0XFFF00000

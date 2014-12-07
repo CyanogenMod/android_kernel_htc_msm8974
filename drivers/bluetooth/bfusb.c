@@ -43,10 +43,10 @@
 static struct usb_driver bfusb_driver;
 
 static struct usb_device_id bfusb_table[] = {
-	
+	/* AVM BlueFRITZ! USB */
 	{ USB_DEVICE(0x057c, 0x2200) },
 
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, bfusb_table);
@@ -497,12 +497,12 @@ static int bfusb_send_frame(struct sk_buff *skb)
 		break;
 	};
 
-	
+	/* Prepend skb with frame type */
 	memcpy(skb_push(skb, 1), &bt_cb(skb)->pkt_type, 1);
 
 	count = skb->len;
 
-	
+	/* Max HCI frame size seems to be 1511 + 1 */
 	nskb = bt_skb_alloc(count + 32, GFP_ATOMIC);
 	if (!nskb) {
 		BT_ERR("Can't allocate memory for new packet");
@@ -525,7 +525,7 @@ static int bfusb_send_frame(struct sk_buff *skb)
 		count -= size;
 	}
 
-	
+	/* Don't send frame with multiple size of bulk max packet */
 	if ((nskb->len % data->bulk_pkt_size) == 0) {
 		buf[0] = 0xdd;
 		buf[1] = 0x00;
@@ -648,7 +648,7 @@ static int bfusb_probe(struct usb_interface *intf, const struct usb_device_id *i
 
 	BT_DBG("intf %p id %p", intf, id);
 
-	
+	/* Check number of endpoints */
 	if (intf->cur_altsetting->desc.bNumEndpoints < 2)
 		return -EIO;
 
@@ -660,7 +660,7 @@ static int bfusb_probe(struct usb_interface *intf, const struct usb_device_id *i
 		goto done;
 	}
 
-	
+	/* Initialize control structure and load firmware */
 	data = kzalloc(sizeof(struct bfusb_data), GFP_KERNEL);
 	if (!data) {
 		BT_ERR("Can't allocate memory for control structure");
@@ -694,7 +694,7 @@ static int bfusb_probe(struct usb_interface *intf, const struct usb_device_id *i
 
 	release_firmware(firmware);
 
-	
+	/* Initialize and register HCI device */
 	hdev = hci_alloc_dev();
 	if (!hdev) {
 		BT_ERR("Can't allocate HCI device");

@@ -61,7 +61,7 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 	if (pwm == NULL || period_ns == 0 || duty_ns > period_ns)
 		return -EINVAL;
 
-	c = 25000000/2; 
+	c = 25000000/2; /* wild guess --- need to implement clocks */
 	c = c * period_ns;
 	do_div(c, 1000000000);
 	period_cycles = c;

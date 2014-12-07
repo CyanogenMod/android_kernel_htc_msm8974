@@ -1,3 +1,11 @@
+/*
+ * Frame buffer driver for the Carmine GPU.
+ *
+ * The driver configures the GPU as follows
+ * - FB0 is display 0 with unique memory area
+ * - FB1 is display 1 with unique memory area
+ * - both display use 32 bit colors
+ */
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/fb.h>
@@ -13,6 +21,15 @@
 #error  "The endianness of the target host has not been defined."
 #endif
 
+/*
+ * The initial video mode can be supplied via two different ways:
+ * - as a string that is passed to fb_find_mode() (module option fb_mode_str)
+ * - as an integer that picks the video mode from carmine_modedb[] (module
+ *   option fb_mode)
+ *
+ * If nothing is used than the initial video mode will be the
+ * CARMINEFB_DEFAULT_VIDEO_MODE member of the carmine_modedb[].
+ */
 #define CARMINEFB_DEFAULT_VIDEO_MODE	1
 
 static unsigned int fb_mode = CARMINEFB_DEFAULT_VIDEO_MODE;
@@ -23,6 +40,12 @@ static char *fb_mode_str;
 module_param(fb_mode_str, charp, 0444);
 MODULE_PARM_DESC(fb_mode_str, "Initial video mode in characters.");
 
+/*
+ * Carminefb displays:
+ * 0b000 None
+ * 0b001 Display 0
+ * 0b010 Display 1
+ */
 static int fb_displays = CARMINE_USE_DISPLAY0 | CARMINE_USE_DISPLAY1;
 module_param(fb_displays, int, 0444);
 MODULE_PARM_DESC(fb_displays, "Bit mode, which displays are used");
@@ -76,7 +99,7 @@ static const struct fb_videomode carmine_modedb[] = {
 
 static struct carmine_resolution car_modes[] = {
 	{
-		
+		/* 640x480 */
 		.htp = 800,
 		.hsp = 672,
 		.hsw = 96,
@@ -88,7 +111,7 @@ static struct carmine_resolution car_modes[] = {
 		.disp_mode = 0x1400,
 	},
 	{
-		
+		/* 800x600 */
 		.htp = 1060,
 		.hsp = 864,
 		.hsw = 72,
@@ -208,11 +231,11 @@ static void carmine_init_display_param(struct carmine_fb *par)
 			CARMINE_CURSOR1_PRIORITY_MASK |
 			CARMINE_CURSOR_CUTZ_MASK);
 
-	
+	/* Set default cursor position */
 	c_set_disp_reg(par, CARMINE_DISP_REG_CUR1_POS, 0 << 16 | 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_CUR2_POS, 0 << 16 | 0);
 
-	
+	/* Set default display mode */
 	c_set_disp_reg(par, CARMINE_DISP_REG_L0_EXT_MODE, CARMINE_WINDOW_MODE |
 			CARMINE_EXT_CMODE_DIRECT24_RGBA);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L1_EXT_MODE,
@@ -230,7 +253,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_EXT_MODE, CARMINE_EXTEND_MODE |
 			CARMINE_EXT_CMODE_DIRECT24_RGBA);
 
-	
+	/* Set default frame size to layer mode register */
 	width = par->res->hdp * 4 / CARMINE_DISP_WIDTH_UNIT;
 	width = width << CARMINE_DISP_WIDTH_SHIFT;
 
@@ -246,7 +269,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_L6_MODE_W_H, param);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_MODE_W_H, param);
 
-	
+	/* Set default pos and size */
 	window_size = (par->res->vdp - 1) << CARMINE_DISP_WIN_H_SHIFT;
 	window_size |= par->res->hdp;
 
@@ -267,7 +290,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_WIN_POS, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_WIN_SIZE, window_size);
 
-	
+	/* Set default origin address */
 	c_set_disp_reg(par, CARMINE_DISP_REG_L0_ORG_ADR, soffset);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L1_ORG_ADR, soffset);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L2_ORG_ADR1, soffset);
@@ -277,7 +300,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_L6_ORG_ADR1, soffset);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_ORG_ADR1, soffset);
 
-	
+	/* Set default display address */
 	c_set_disp_reg(par, CARMINE_DISP_REG_L0_DISP_ADR, soffset);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L2_DISP_ADR1, soffset);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L3_DISP_ADR1, soffset);
@@ -286,7 +309,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_L6_DISP_ADR0, soffset);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_DISP_ADR0, soffset);
 
-	
+	/* Set default display position */
 	c_set_disp_reg(par, CARMINE_DISP_REG_L0_DISP_POS, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L2_DISP_POS, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L3_DISP_POS, 0);
@@ -295,7 +318,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_L6_DISP_POS, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_DISP_POS, 0);
 
-	
+	/* Set default blend mode */
 	c_set_disp_reg(par, CARMINE_DISP_REG_BLEND_MODE_L0, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_BLEND_MODE_L1, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_BLEND_MODE_L2, 0);
@@ -305,7 +328,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_BLEND_MODE_L6, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_BLEND_MODE_L7, 0);
 
-	
+	/* default transparency mode */
 	c_set_disp_reg(par, CARMINE_DISP_REG_L0_TRANS, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L1_TRANS, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L2_TRANS, 0);
@@ -315,7 +338,7 @@ static void carmine_init_display_param(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_L6_TRANS, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L7_TRANS, 0);
 
-	
+	/* Set default read skip parameter */
 	c_set_disp_reg(par, CARMINE_DISP_REG_L0RM, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L2RM, 0);
 	c_set_disp_reg(par, CARMINE_DISP_REG_L3RM, 0);
@@ -346,6 +369,10 @@ static void set_display_parameters(struct carmine_fb *par)
 	u32 mode;
 	u32 hdp, vdp, htp, hsp, hsw, vtr, vsp, vsw;
 
+	/*
+	 * display timing. Parameters are decreased by one because hardware
+	 * spec is 0 to (n - 1)
+	 * */
 	hdp = par->res->hdp - 1;
 	vdp = par->res->vdp - 1;
 	htp = par->res->htp - 1;
@@ -368,11 +395,11 @@ static void set_display_parameters(struct carmine_fb *par)
 	c_set_disp_reg(par, CARMINE_DISP_REG_V_PERIOD_POS,
 			(vdp << CARMINE_DISP_VDP_SHIFT) | vsp);
 
-	
+	/* clock */
 	mode = c_get_disp_reg(par, CARMINE_DISP_REG_DCM1);
 	mode = (mode & ~CARMINE_DISP_DCM_MASK) |
 		(par->res->disp_mode & CARMINE_DISP_DCM_MASK);
-	
+	/* enable video output and layer 0 */
 	mode |= CARMINE_DEN | CARMINE_L0E;
 	c_set_disp_reg(par, CARMINE_DISP_REG_DCM1, mode);
 }
@@ -406,26 +433,26 @@ static int init_hardware(struct carmine_hw *hw)
 	u32 loops;
 	u32 ret;
 
-	
-	
+	/* Initialize Carmine */
+	/* Sets internal clock */
 	c_set_hw_reg(hw, CARMINE_CTL_REG + CARMINE_CTL_REG_CLOCK_ENABLE,
 			CARMINE_DFLT_IP_CLOCK_ENABLE);
 
-	
+	/* Video signal output is turned off */
 	c_set_hw_reg(hw, CARMINE_DISP0_REG + CARMINE_DISP_REG_DCM1, 0);
 	c_set_hw_reg(hw, CARMINE_DISP1_REG + CARMINE_DISP_REG_DCM1, 0);
 
-	
+	/* Software reset */
 	c_set_hw_reg(hw, CARMINE_CTL_REG + CARMINE_CTL_REG_SOFTWARE_RESET, 1);
 	c_set_hw_reg(hw, CARMINE_CTL_REG + CARMINE_CTL_REG_SOFTWARE_RESET, 0);
 
-	
+	/* I/O mode settings */
 	flags = CARMINE_DFLT_IP_DCTL_IO_CONT1 << 16 |
 		CARMINE_DFLT_IP_DCTL_IO_CONT0;
 	c_set_hw_reg(hw, CARMINE_DCTL_REG + CARMINE_DCTL_REG_IOCONT1_IOCONT0,
 			flags);
 
-	
+	/* DRAM initial sequence */
 	flags = CARMINE_DFLT_IP_DCTL_MODE << 16 | CARMINE_DFLT_IP_DCTL_ADD;
 	c_set_hw_reg(hw, CARMINE_DCTL_REG + CARMINE_DCTL_REG_MODE_ADD,
 			flags);
@@ -453,7 +480,7 @@ static int init_hardware(struct carmine_hw *hw)
 	c_set_hw_reg(hw, CARMINE_DCTL_REG + CARMINE_DCTL_REG_RSV0_STATES,
 			flags);
 
-	
+	/* Executes DLL reset */
 	if (CARMINE_DCTL_DLL_RESET) {
 		for (loops = 0; loops < CARMINE_DCTL_INIT_WAIT_LIMIT; loops++) {
 
@@ -481,15 +508,15 @@ static int init_hardware(struct carmine_hw *hw)
 	c_set_hw_reg(hw, CARMINE_DCTL_REG + CARMINE_DCTL_REG_RSV0_STATES,
 			flags);
 
-	
+	/* Initialize the write back register */
 	c_set_hw_reg(hw, CARMINE_WB_REG + CARMINE_WB_REG_WBM,
 			CARMINE_WB_REG_WBM_DEFAULT);
 
-	
+	/* Initialize the Kottos registers */
 	c_set_hw_reg(hw, CARMINE_GRAPH_REG + CARMINE_GRAPH_REG_VRINTM, 0);
 	c_set_hw_reg(hw, CARMINE_GRAPH_REG + CARMINE_GRAPH_REG_VRERRM, 0);
 
-	
+	/* Set DC offsets */
 	c_set_hw_reg(hw, CARMINE_GRAPH_REG + CARMINE_GRAPH_REG_DC_OFFSET_PX, 0);
 	c_set_hw_reg(hw, CARMINE_GRAPH_REG + CARMINE_GRAPH_REG_DC_OFFSET_PY, 0);
 	c_set_hw_reg(hw, CARMINE_GRAPH_REG + CARMINE_GRAPH_REG_DC_OFFSET_LX, 0);
@@ -617,6 +644,10 @@ static int __devinit carminefb_probe(struct pci_dev *dev,
 	carminefb_fix.smem_start = pci_resource_start(dev, CARMINE_MEMORY_BAR);
 	carminefb_fix.smem_len = pci_resource_len(dev, CARMINE_MEMORY_BAR);
 
+	/* The memory area tends to be very large (256 MiB). Remap only what
+	 * is required for that largest resolution to avoid remaps at run
+	 * time
+	 */
 	if (carminefb_fix.smem_len > CARMINE_TOTAL_DIPLAY_MEM)
 		carminefb_fix.smem_len = CARMINE_TOTAL_DIPLAY_MEM;
 
@@ -673,7 +704,7 @@ static int __devinit carminefb_probe(struct pci_dev *dev,
 err_cleanup_fb0:
 	cleanup_fb_device(hw->fb[0]);
 err_deinit_hw:
-	
+	/* disable clock, etc */
 	c_set_hw_reg(hw, CARMINE_CTL_REG + CARMINE_CTL_REG_CLOCK_ENABLE, 0);
 err_unmap_screen:
 	iounmap(hw->screen_mem);
@@ -696,13 +727,13 @@ static void __devexit carminefb_remove(struct pci_dev *dev)
 	struct fb_fix_screeninfo fix;
 	int i;
 
-	
+	/* in case we use only fb1 and not fb1 */
 	if (hw->fb[0])
 		fix = hw->fb[0]->fix;
 	else
 		fix = hw->fb[1]->fix;
 
-	
+	/* deactivate display(s) and switch clocks */
 	c_set_hw_reg(hw, CARMINE_DISP0_REG + CARMINE_DISP_REG_DCM1, 0);
 	c_set_hw_reg(hw, CARMINE_DISP1_REG + CARMINE_DISP_REG_DCM1, 0);
 	c_set_hw_reg(hw, CARMINE_CTL_REG + CARMINE_CTL_REG_CLOCK_ENABLE, 0);

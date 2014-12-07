@@ -72,7 +72,7 @@ int mdp4_atv_on(struct platform_device *pdev)
 		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_ATV);
 		mdp4_overlay_format2pipe(pipe);
 
-		atv_pipe = pipe; 
+		atv_pipe = pipe; /* keep it */
 	} else {
 		pipe = atv_pipe;
 	}
@@ -80,15 +80,17 @@ int mdp4_atv_on(struct platform_device *pdev)
 	printk(KERN_INFO "mdp4_atv_overlay: pipe=%x ndx=%d\n",
 					(int)pipe, pipe->pipe_ndx);
 
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
+	/* Turn the next panel on, get correct resolution
+		before configuring overlay pipe */
 	ret = panel_next_on(pdev);
 
 	pr_info("%s: fbi->var.yres: %d | fbi->var.xres: %d",
 			__func__, fbi->var.yres, fbi->var.xres);
 
-	
+	/* MDP4 Config */
 	pipe->src_height = fbi->var.yres;
 	pipe->src_width = fbi->var.xres;
 	pipe->src_h = fbi->var.yres;
@@ -106,7 +108,7 @@ int mdp4_atv_on(struct platform_device *pdev)
 
 	pipe->srcp0_ystride = fbi->fix.line_length;
 
-	mdp4_overlay_dmae_xy(pipe);	
+	mdp4_overlay_dmae_xy(pipe);	/* dma_e */
 	mdp4_overlay_dmae_cfg(mfd, 1);
 	mdp4_overlay_rgb_setup(pipe);
 
@@ -120,7 +122,7 @@ int mdp4_atv_on(struct platform_device *pdev)
 	if (ret == 0)
 		mdp_pipe_ctrl(MDP_OVERLAY1_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
 	return ret;
@@ -134,10 +136,10 @@ int mdp4_atv_off(struct platform_device *pdev)
 
 	ret = panel_next_off(pdev);
 
-	
+	/* delay to make sure the last frame finishes */
 	msleep(100);
 
-	
+	/* dis-engage rgb2 from mixer1 */
 	if (atv_pipe) {
 		mdp4_mixer_stage_down(atv_pipe, 1);
 		mdp4_iommu_unmap(atv_pipe);
@@ -146,6 +148,9 @@ int mdp4_atv_off(struct platform_device *pdev)
 	return ret;
 }
 
+/*
+ * mdp4_overlay1_done_atv: called from isr
+ */
 void mdp4_overlay1_done_atv()
 {
 	complete(&atv_pipe->comp);
@@ -163,7 +168,7 @@ void mdp4_atv_overlay(struct msm_fb_data_type *mfd)
 	if (!mfd->panel_power_on)
 		return;
 
-	
+	/* no need to power on cmd block since it's lcdc mode */
 	bpp = fbi->var.bits_per_pixel / 8;
 	buf = (uint8 *) fbi->fix.smem_start;
 	buf_offset = calc_fb_offset(mfd, fbi, bpp);
@@ -191,7 +196,7 @@ void mdp4_atv_overlay(struct msm_fb_data_type *mfd)
 	printk(KERN_INFO "mdp4_atv_overlay: pipe=%x ndx=%d\n",
 					(int)pipe, pipe->pipe_ndx);
 
-	
+	/* enable irq */
 	spin_lock_irqsave(&mdp_spin_lock, flag);
 	mdp_enable_irq(MDP_OVERLAY1_TERM);
 	INIT_COMPLETION(atv_pipe->comp);

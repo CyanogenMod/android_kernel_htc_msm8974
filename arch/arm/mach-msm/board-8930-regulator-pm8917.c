@@ -11,6 +11,10 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * This file contains regulator configuration and mappings for targets
+ * consisting of MSM8930 and PM8917.
+ */
 
 #include <linux/regulator/pm8xxx-regulator.h>
 
@@ -19,6 +23,10 @@
 #define VREG_CONSUMERS(_id) \
 	static struct regulator_consumer_supply vreg_consumers_##_id[]
 
+/*
+ * Consumer specific regulator names:
+ *			 regulator name		consumer dev_name
+ */
 VREG_CONSUMERS(L1) = {
 	REGULATOR_SUPPLY("8917_l1",		NULL),
 };
@@ -332,6 +340,7 @@ VREG_CONSUMERS(VDD_DIG_CORNER) = {
 		REGULATOR_CHANGE_VOLTAGE | REGULATOR_CHANGE_STATUS, 0, 0, \
 		_always_on, _supply_regulator, 0, _enable_time, _reg_id)
 
+/* Pin control initialization */
 #define PM8XXX_PC(_id, _name, _always_on, _pin_fn, _pin_ctrl, \
 		  _supply_regulator, _reg_id) \
 	{ \
@@ -440,6 +449,7 @@ VREG_CONSUMERS(VDD_DIG_CORNER) = {
 		 RPM_VREG_STATE_OFF, _sleep_selectable, _always_on, \
 		 _supply_regulator, 0)
 
+/* Pin control initialization */
 #define RPM_PC_INIT(_id, _always_on, _pin_fn, _pin_ctrl, _supply_regulator) \
 	{ \
 		.init_data = { \
@@ -486,19 +496,26 @@ VREG_CONSUMERS(VDD_DIG_CORNER) = {
 		.consumer_supplies	= vreg_consumers_##_id, \
 	}
 
+/* GPIO regulator constraints */
 struct gpio_regulator_platform_data
 msm8930_pm8917_gpio_regulator_pdata[] __devinitdata = {
-	
+	/*        ID          vreg_name     gpio_label     gpio  supply */
 };
 
+/* SAW regulator constraints */
 struct regulator_init_data msm8930_pm8917_saw_regulator_core0_pdata =
-	
+	/*	      ID  vreg_name	       min_uV   max_uV */
 	SAW_VREG_INIT(S5, "8917_s5",	       850000, 1300000);
 struct regulator_init_data msm8930_pm8917_saw_regulator_core1_pdata =
 	SAW_VREG_INIT(S6, "8917_s6",	       850000, 1300000);
 
+/* PM8917 regulator constraints */
 struct pm8xxx_regulator_platform_data
 msm8930_pm8917_regulator_pdata[] __devinitdata = {
+	/*
+	 *               ID  name always_on pd min_uV   max_uV   en_t supply
+	 *	system_uA reg_ID
+	 */
 	PM8XXX_NLDO1200(L26, "8921_l26", 0, 1,  375000, 1050000, 200, "8917_s7",
 		0, 0),
 	PM8XXX_NLDO1200(L27, "8921_l27", 0, 1,  375000, 1050000, 200, "8917_s7",
@@ -521,15 +538,18 @@ msm8930_pm8917_regulator_pdata[] __devinitdata = {
 		0, 9),
 	PM8XXX_LDO(L36,      "8917_l36", 0, 1, 1800000, 1800000, 200, NULL,
 		0, 10),
+	/*
+	 *           ID     name  always_on   min_uV   max_uV en_t supply reg_ID
+	 */
 	PM8XXX_BOOST(BOOST, "8917_boost", 0,  5000000, 5000000, 500, NULL, 11),
 
-	
+	/*	     ID        name      always_on pd en_t supply    reg_ID */
 	PM8XXX_VS300(USB_OTG,  "8921_usb_otg",  0, 1, 0,   "8917_boost", 12),
 };
 
 static struct rpm_regulator_init_data
 msm8930_rpm_regulator_init_data[] __devinitdata = {
-	
+	/*	ID a_on pd ss min_uV   max_uV  supply sys_uA  freq  fm  ss_fm */
 	RPM_SMPS(S1, 1, 1, 0, 1300000, 1300000, NULL, 100000, 3p20, NONE, NONE),
 	RPM_SMPS(S2, 0, 1, 0, 1300000, 1300000, NULL,      0, 1p60, NONE, NONE),
 	RPM_SMPS(S3, 0, 1, 1,  500000, 1150000, NULL, 100000, 4p80, NONE, NONE),
@@ -537,7 +557,7 @@ msm8930_rpm_regulator_init_data[] __devinitdata = {
 	RPM_SMPS(S7, 0, 1, 0, 1150000, 1150000, NULL, 100000, 3p20, AUTO, AUTO),
 	RPM_SMPS(S8, 1, 1, 1, 2050000, 2050000, NULL, 100000, 1p60, NONE, NONE),
 
-	
+	/*	ID     a_on pd ss min_uV   max_uV  supply  sys_uA init_ip */
 	RPM_LDO(L1,	 0, 1, 0, 1050000, 1050000, "8917_s4", 0, 10000),
 	RPM_LDO(L2,	 0, 1, 0, 1200000, 1200000, "8917_s4", 0, 0),
 	RPM_LDO(L3,	 0, 1, 0, 3075000, 3075000, NULL,      0, 0),
@@ -561,7 +581,7 @@ msm8930_rpm_regulator_init_data[] __devinitdata = {
 	RPM_LDO(L24,	 0, 1, 1,  500000, 1150000, "8917_s1", 10000, 10000),
 	RPM_LDO(L25,	 1, 1, 0, 1250000, 1250000, "8917_s1", 10000, 10000),
 
-	
+	/*	ID     a_on pd ss		    supply */
 	RPM_VS(LVS1,	 0, 1, 0,		    "8917_s4"),
 	RPM_VS(LVS3,	 0, 1, 0,		    "8917_s4"),
 	RPM_VS(LVS4,	 0, 1, 0,		    "8917_s4"),
@@ -569,7 +589,7 @@ msm8930_rpm_regulator_init_data[] __devinitdata = {
 	RPM_VS(LVS6,	 0, 1, 0,		    "8917_s4"),
 	RPM_VS(LVS7,	 0, 1, 0,		    "8917_s4"),
 
-	
+	/*	   ID            a_on ss min_corner  max_corner  supply */
 	RPM_CORNER(VDD_DIG_CORNER, 0, 1, RPM_VREG_CORNER_NONE,
 		RPM_VREG_CORNER_HIGH, NULL),
 };

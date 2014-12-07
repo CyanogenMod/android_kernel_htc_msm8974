@@ -42,10 +42,10 @@ static void tosa_bl_set_backlight(struct tosa_bl_data *data, int brightness)
 
 	i2c_smbus_write_byte_data(data->i2c, DAC_CH1, data->comadj);
 
-	
+	/* SetBacklightDuty */
 	i2c_smbus_write_byte_data(data->i2c, DAC_CH2, (u8)(brightness & 0xff));
 
-	
+	/* SetBacklightVR */
 	gpio_set_value(TOSA_GPIO_BL_C20MA, brightness & 0x100);
 
 	tosa_bl_enable(spi, brightness);

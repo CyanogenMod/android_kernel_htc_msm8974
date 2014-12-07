@@ -21,4 +21,4 @@ struct siu_platform {
 	unsigned int dma_slave_rx_b;
 };
 
-#endif 
+#endif /* ASM_SIU_H */

@@ -12,6 +12,9 @@
 #include <linux/felica.h>
 
 
+/******************************************************************************
+ * global variable
+ ******************************************************************************/
 
 static struct class *felica_class;
 
@@ -23,6 +26,7 @@ static int felica_rfs_pin;
 static int felica_int_pin;
 static int felica_con_pin;
 
+/* storages for communicate to netlink */
 static int gfa_open_cnt;
 static int gfa_pid;
 static int gfa_connect_flag;
@@ -31,13 +35,17 @@ static char gfa_send_str[FELICA_NL_MSG_SIZE];
 static char gfa_rcv_str[FELICA_NL_MSG_SIZE];
 static int gfa_wait_flag;
 
+/* I2C power control information storage for CEN terminal */
 static struct regulator *felica_cen_ldo17_2p85 = NULL;
 static unsigned int gfelica_cen_opencnt;
 
+/* FeliCaLock status storage */
 static char gfelica_cen_status;
 
+/* R/W functions availability information storage */
 static char gfelica_rw_status;
 
+/* IRQ data storage for INT terminal monitoring */
 struct felica_int_irqdata
 {
 	struct delayed_work	work;
@@ -48,19 +56,25 @@ struct felica_int_irqdata
 static struct felica_int_irqdata	gint_irq;
 static struct felica_int_irqdata	*pgint_irq = &gint_irq;
 
+/* storages for access restriction */
 static uid_t gmfc_uid  = -1;
 static uid_t gmfl_uid  = -1;
 static uid_t grwm_uid  = -1;
 static uid_t gdiag_uid = -1;
 static uid_t gdtl_uid  = -1;
 
+/* package name's storage for access restriction */
 static char gdiag_name[DIAG_NAME_MAXSIZE+1];
 
 
 
 
 
+/******************************************************************************
+ * /dev/felica
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_uart;
 static struct cdev cdev_felica_uart;
 static const struct file_operations fops_felica_uart = {
@@ -73,11 +87,15 @@ static const struct file_operations fops_felica_uart = {
 	.unlocked_ioctl		= felica_uart_ioctl,
 };
 
+/* add mechanism to fix race condition issue */
 struct felica_sem_data {
 	struct semaphore felica_sem;
 };
 static struct felica_sem_data *dev_sem;
 
+/*
+ * initialize device
+ */
 void felica_uart_init(void)
 {
 	int ret;
@@ -117,7 +135,7 @@ void felica_uart_init(void)
 		return;
 	}
 	gfa_open_cnt=0;
-	
+	/* fix race condition issue */
 	dev_sem = kmalloc(sizeof(struct felica_sem_data), GFP_KERNEL);
 	if (dev_sem == NULL) {
 		FELICA_LOG_ERR("[FELICA_DD] %s ERROR(dev_sem malloc)", __func__);
@@ -130,10 +148,13 @@ void felica_uart_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_uart), MINOR(devid_felica_uart));
 }
 
+/*
+ * finalize device
+ */
 void felica_uart_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* fix race condition issue */
 	kfree(dev_sem);
 
 	device_destroy(felica_class, devid_felica_uart);
@@ -143,6 +164,9 @@ void felica_uart_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_uart_open(struct inode *inode, struct file *file)
 {
 #ifdef FELICA_CONFIG_ACCESS_RESTRICTION
@@ -161,7 +185,7 @@ int felica_uart_open(struct inode *inode, struct file *file)
 	}
 
 #endif
-	
+	/* fix race condition issue */
 	if (down_interruptible(&dev_sem->felica_sem)) {
 		return -ERESTARTSYS;
 	}
@@ -177,13 +201,13 @@ int felica_uart_open(struct inode *inode, struct file *file)
 		if( gfa_rcv_str[1] == FELICA_NL_EFAILED )
 		{
 			FELICA_LOG_ERR("[FELICA_DD] %s Open Fail", __func__);
-			
+			/* fix race condition issue */
 			up(&dev_sem->felica_sem);
 			return -EFAULT;
 		}
 	}
 	gfa_open_cnt++;
-	
+	/* fix race condition issue */
 	up(&dev_sem->felica_sem);
 	FELICA_LOG_DEBUG("[FELICA_DD] %s UP SEM", __func__);
 
@@ -191,10 +215,13 @@ int felica_uart_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_uart_close(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* fix race condition issue */
 	if (down_interruptible(&dev_sem->felica_sem)) {
 		return -ERESTARTSYS;
 	}
@@ -216,7 +243,7 @@ int felica_uart_close(struct inode *inode, struct file *file)
 			return -EFAULT;
 		}
 	}
-	
+	/* fix race condition issue */
 	up(&dev_sem->felica_sem);
 	FELICA_LOG_DEBUG("[FELICA_DD] %s UP SEM", __func__);
 
@@ -224,6 +251,9 @@ int felica_uart_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * read operation
+ */
 ssize_t felica_uart_read(struct file *file, char __user *buf, size_t len, loff_t *ppos)
 {
 
@@ -236,7 +266,7 @@ ssize_t felica_uart_read(struct file *file, char __user *buf, size_t len, loff_t
 		return 0;
 	}
 
-	
+	/* fix race condition issue */
 	if (down_interruptible(&dev_sem->felica_sem)) {
 		return -ERESTARTSYS;
 	}
@@ -264,7 +294,7 @@ ssize_t felica_uart_read(struct file *file, char __user *buf, size_t len, loff_t
 		if( ret != 0 )
 		{
 			FELICA_LOG_ERR("[FELICA_DD] %s ERROR(copy_from_user), ret=[%d]", __func__, ret);
-			
+			/* fix race condition issue */
 			up(&dev_sem->felica_sem);
 			return -EFAULT;
 		}
@@ -273,20 +303,23 @@ ssize_t felica_uart_read(struct file *file, char __user *buf, size_t len, loff_t
 	else
 	{
 		FELICA_LOG_ERR(" %s FAIL", __func__);
-		
+		/* fix race condition issue */
 		up(&dev_sem->felica_sem);
 		return -EFAULT;
 	}
 
 	FELICA_LOG_DEBUG("[FELICA_DD] %s Success = %d, [0x%x, 0x%x]", __func__, wk_len, buf[1], buf[3]);
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
-	
+	/* fix race condition issue */
 	up(&dev_sem->felica_sem);
 	FELICA_LOG_DEBUG("[FELICA_DD] %s UP SEM", __func__);
 
 	return (ssize_t)wk_len;
 }
 
+/*
+ * write operation
+ */
 ssize_t felica_uart_write(struct file *file, const char __user *data, size_t len, loff_t *ppos)
 {
 	int ret=0;
@@ -296,7 +329,7 @@ ssize_t felica_uart_write(struct file *file, const char __user *data, size_t len
 		FELICA_LOG_ERR("[FELICA_DD] %s START, (len <=0 ), return", __func__);
 		return 0;
 	}
-	
+	/* fix race condition issue */
 	if (down_interruptible(&dev_sem->felica_sem)) {
 		return -ERESTARTSYS;
 	}
@@ -316,17 +349,17 @@ ssize_t felica_uart_write(struct file *file, const char __user *data, size_t len
 	if( ret != 0 )
 	{
 		FELICA_LOG_ERR("[FELICA_DD] %s ERROR(copy_from_user), ret=[%d]", __func__, ret);
-		
+		/* fix race condition issue */
 		up(&dev_sem->felica_sem);
 		return -EFAULT;
 	}
 	felica_nl_send_msg(3+len);
 	felica_nl_wait_ret_msg();
-	wk_len = ( ( (int)gfa_rcv_str[2] << 8 ) & 0xFF00 ) | (int)gfa_rcv_str[3]; 
+	wk_len = ( ( (int)gfa_rcv_str[2] << 8 ) & 0xFF00 ) | (int)gfa_rcv_str[3]; /* add for AndroidOS update. */
 	if( gfa_rcv_str[1] == FELICA_NL_EFAILED )
 	{
 		FELICA_LOG_ERR("[FELICA_DD] %s Write Fail", __func__);
-		
+		/* fix race condition issue */
 		up(&dev_sem->felica_sem);
 		return -EINVAL;
 	}
@@ -334,12 +367,15 @@ ssize_t felica_uart_write(struct file *file, const char __user *data, size_t len
 
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 
-	
+	/* fix race condition issue */
 	up(&dev_sem->felica_sem);
 	FELICA_LOG_DEBUG("[FELICA_DD] %s UP SEM", __func__);
-	return (ssize_t)wk_len; 
+	return (ssize_t)wk_len; /* add for AndroidOS update. */
 }
 
+/*
+ * sync operation
+ */
 int felica_uart_sync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -347,11 +383,14 @@ int felica_uart_sync(struct file *file, loff_t start, loff_t end, int datasync)
 	return 0;
 }
 
+/*
+ * available operation
+ */
 long felica_uart_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	unsigned int ret_str = 0;
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* fix race condition issue */
 	if (down_interruptible(&dev_sem->felica_sem)) {
 		return -ERESTARTSYS;
 	}
@@ -363,25 +402,28 @@ long felica_uart_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	felica_nl_wait_ret_msg();
 	if( gfa_rcv_str[1] == FELICA_NL_SUCCESS )
 	{
-		
+		/* create response data */
 		ret_str = ( ( (unsigned int)gfa_rcv_str[2] << 8 ) & 0xFF00 ) | (unsigned int) gfa_rcv_str[3];
 		FELICA_LOG_DEBUG("Available Success data size [%d]", ret_str);
 	}
 	else
 	{
 		FELICA_LOG_ERR("[FELICA_DD] %s Available Fail", __func__);
-		
+		/* fix race condition issue */
 		up(&dev_sem->felica_sem);
 		return -EINVAL;
 	}
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
-	
+	/* fix race condition issue */
 	up(&dev_sem->felica_sem);
 	FELICA_LOG_DEBUG("[FELICA_DD] %s UP SEM", __func__);
 	return put_user(ret_str, (unsigned int __user *) arg);
 	
 }
 
+/*
+ * create netlink socket
+ */
 void felica_nl_init(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -398,6 +440,9 @@ void felica_nl_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * release netlink socket
+ */
 void felica_nl_exit(void)
 {
 
@@ -406,6 +451,9 @@ void felica_nl_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * send message to FeliCa-Agent
+ */
 void felica_nl_send_msg(int len)
 {
 
@@ -437,11 +485,14 @@ void felica_nl_send_msg(int len)
 	NETLINK_CB(skb_out).dst_group = 0;
 	memcpy(NLMSG_DATA(nlh), gfa_send_str, msg_size);
 
-	
+	// "skb_out" will release by netlink.
 	nlmsg_unicast(gfanl_sk, skb_out, gfa_pid);
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * receive message from FeliCa-Agent
+ */
 void felica_nl_recv_msg(struct sk_buff *skb)
 {
 
@@ -462,13 +513,13 @@ void felica_nl_recv_msg(struct sk_buff *skb)
 		memcpy(gfa_rcv_str, NLMSG_DATA(nlh), sizeof(gfa_rcv_str));
 		if( ( gfa_rcv_str[0] == FELICA_NL_CONNECT_MSG ) && ( gfa_connect_flag == 0 ) )
 		{
-			
+			/* pid of sending process */
 			gfa_pid = nlh->nlmsg_pid;
 			gfa_connect_flag = 1;
 		}
 		else if( ( gfa_rcv_str[0] == FELICA_NL_RESPONCE ) && ( gfa_pid == nlh->nlmsg_pid ) )
 		{
-			
+			/* wake up */
 			gfa_wait_flag = 1;
 		}
 		else
@@ -484,6 +535,9 @@ void felica_nl_recv_msg(struct sk_buff *skb)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * waiting to receive messages from FeliCa-Agent
+ */
 void felica_nl_wait_ret_msg(void)
 {
 	unsigned int cnt=0;
@@ -504,7 +558,11 @@ void felica_nl_wait_ret_msg(void)
 
 
 
+/******************************************************************************
+ * /dev/felica_pon
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_pon;
 static struct cdev cdev_felica_pon;
 static struct file_operations fops_felica_pon = {
@@ -515,6 +573,9 @@ static struct file_operations fops_felica_pon = {
 	.write		= felica_pon_write,
 };
 
+/*
+ * initialize device
+ */
 void felica_pon_init(void)
 {
 	int ret;
@@ -557,6 +618,9 @@ void felica_pon_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_pon), MINOR(devid_felica_pon));
 }
 
+/*
+ * finalize device
+ */
 void felica_pon_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -568,6 +632,9 @@ void felica_pon_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_pon_open(struct inode *inode, struct file *file)
 {
 #ifdef FELICA_CONFIG_ACCESS_RESTRICTION
@@ -589,6 +656,9 @@ int felica_pon_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_pon_close(struct inode *inode, struct file *file)
 {
 	uid_t uid;
@@ -606,6 +676,9 @@ int felica_pon_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * read operation
+ */
 ssize_t felica_pon_read(struct file *file, char __user *buf, size_t len, loff_t *ppos)
 {
 	int ret;
@@ -642,6 +715,9 @@ ssize_t felica_pon_read(struct file *file, char __user *buf, size_t len, loff_t 
 	return FELICA_PON_DATA_LEN;
 }
 
+/*
+ * write operation
+ */
 ssize_t felica_pon_write(struct file *file, const char __user *data, size_t len, loff_t *ppos)
 {
 	char pon;
@@ -682,7 +758,11 @@ ssize_t felica_pon_write(struct file *file, const char __user *data, size_t len,
 
 
 
+/******************************************************************************
+ * /dev/felica_cen
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_cen;
 static struct cdev cdev_felica_cen;
 static struct file_operations fops_felica_cen = {
@@ -693,6 +773,9 @@ static struct file_operations fops_felica_cen = {
 	.write		= felica_cen_write,
 };
 
+/*
+ * initialize device
+ */
 void felica_cen_init(void)
 {
 	int ret;
@@ -738,6 +821,9 @@ void felica_cen_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_cen), MINOR(devid_felica_cen));
 }
 
+/*
+ * finalize device
+ */
 void felica_cen_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -749,6 +835,9 @@ void felica_cen_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_cen_open(struct inode *inode, struct file *file)
 {
 #ifdef FELICA_CONFIG_ACCESS_RESTRICTION
@@ -797,6 +886,9 @@ int felica_cen_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_cen_close(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -814,6 +906,9 @@ int felica_cen_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * read operation
+ */
 ssize_t felica_cen_read(struct file *file, char __user *buf, size_t len, loff_t *ppos)
 {
 	int ret;
@@ -848,6 +943,9 @@ ssize_t felica_cen_read(struct file *file, char __user *buf, size_t len, loff_t 
 	return FELICA_CEN_DATA_LEN;
 }
 
+/*
+ * write operation
+ */
 ssize_t felica_cen_write(struct file *file, const char __user *data, size_t len, loff_t *ppos)
 {
 	char cen;
@@ -887,9 +985,12 @@ ssize_t felica_cen_write(struct file *file, const char __user *data, size_t len,
 	gfelica_cen_status = setparam;
 
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
-	return FELICA_CEN_DATA_LEN;	
+	return FELICA_CEN_DATA_LEN;	/* add for AndroidOS update. */
 }
 
+/*
+ * configure gpio to communicate CEN terminal
+ */
 int felica_cen_dtype_gpio_config(void)
 {
 	int ret = 0;
@@ -905,7 +1006,7 @@ int felica_cen_dtype_gpio_config(void)
 	};
 
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	//Enable LDO17
 	felica_cen_ldo17_2p85 = regulator_get(NULL, "8921_l17");
 	if (IS_ERR(felica_cen_ldo17_2p85))
 	{
@@ -922,7 +1023,7 @@ int felica_cen_dtype_gpio_config(void)
 		FELICA_LOG_ERR("[FELICA_DD] %s Failed to run regulator_enable(ldo17 2.85v)\n",__func__);
 	}
 
-	
+	/* Configure GPIO_OUT_FELICA_DTYPE_D and GPIO_OUT_FELICA_DTYPE_CP */
 	ret = pm8xxx_gpio_config(felica_cen_dtyp_d, &felica_cen_dtype);
 	if (ret)
 	{
@@ -969,7 +1070,11 @@ int felica_cen_dtype_gpio_config(void)
 
 
 
+/******************************************************************************
+ * /dev/felica_rfs
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_rfs;
 static struct cdev cdev_felica_rfs;
 static struct file_operations fops_felica_rfs = {
@@ -979,6 +1084,9 @@ static struct file_operations fops_felica_rfs = {
 	.read		= felica_rfs_read,
 };
 
+/*
+ * initialize device
+ */
 void felica_rfs_init(void)
 {
 	int ret;
@@ -1021,6 +1129,9 @@ void felica_rfs_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_rfs), MINOR(devid_felica_rfs));
 }
 
+/*
+ * finalize device
+ */
 void felica_rfs_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1032,6 +1143,9 @@ void felica_rfs_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_rfs_open(struct inode *inode, struct file *file)
 {
 #ifdef FELICA_CONFIG_ACCESS_RESTRICTION
@@ -1055,14 +1169,20 @@ int felica_rfs_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_rfs_close(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* no operation */
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 	return 0;
 }
 
+/*
+ * read operation
+ */
 ssize_t felica_rfs_read(struct file *file, char __user *buf, size_t len, loff_t *ppos)
 {
 	int ret;
@@ -1101,7 +1221,11 @@ ssize_t felica_rfs_read(struct file *file, char __user *buf, size_t len, loff_t 
 
 
 
+/******************************************************************************
+ * /dev/felica_rws
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_rws;
 static struct cdev cdev_felica_rws;
 static struct file_operations fops_felica_rws = {
@@ -1112,6 +1236,9 @@ static struct file_operations fops_felica_rws = {
 	.write		= felica_rws_write,
 };
 
+/*
+ * initialize device
+ */
 void felica_rws_init(void)
 {
 	int ret;
@@ -1156,6 +1283,9 @@ void felica_rws_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_rws), MINOR(devid_felica_rws));
 }
 
+/*
+ * finalize device
+ */
 void felica_rws_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1167,6 +1297,9 @@ void felica_rws_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_rws_open(struct inode *inode, struct file *file)
 {
 #ifdef FELICA_CONFIG_ACCESS_RESTRICTION
@@ -1200,14 +1333,20 @@ int felica_rws_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_rws_close(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* no operation */
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 	return 0;
 }
 
+/*
+ * read operation
+ */
 ssize_t felica_rws_read(struct file *file, char __user *buf, size_t len, loff_t *ppos)
 {
 	int ret;
@@ -1242,6 +1381,9 @@ ssize_t felica_rws_read(struct file *file, char __user *buf, size_t len, loff_t 
 	return FELICA_RWS_DATA_LEN;
 }
 
+/*
+ * write operation
+ */
 ssize_t felica_rws_write(struct file *file, const char __user *data, size_t len, loff_t *ppos)
 {
 	char work;
@@ -1272,14 +1414,18 @@ ssize_t felica_rws_write(struct file *file, const char __user *data, size_t len,
 	gfelica_rw_status = work;
 
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
-	return (ssize_t)FELICA_RWS_DATA_LEN; 
+	return (ssize_t)FELICA_RWS_DATA_LEN; /* add for AndroidOS update. */
 }
 
 
 
 
 
+/******************************************************************************
+ * /dev/felica_int
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_int;
 static struct cdev cdev_felica_int;
 static struct file_operations fops_felica_int = {
@@ -1289,6 +1435,9 @@ static struct file_operations fops_felica_int = {
 	.read		= felica_int_read,
 };
 
+/*
+ * initialize device
+ */
 void felica_int_init(void)
 {
 	int ret;
@@ -1331,6 +1480,9 @@ void felica_int_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_int), MINOR(devid_felica_int));
 }
 
+/*
+ * finalize device
+ */
 void felica_int_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1342,6 +1494,9 @@ void felica_int_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_int_open(struct inode *inode, struct file *file)
 {
 #ifdef FELICA_CONFIG_ACCESS_RESTRICTION
@@ -1363,14 +1518,20 @@ int felica_int_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_int_close(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* no operation */
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 	return 0;
 }
 
+/*
+ * read operation
+ */
 ssize_t felica_int_read(struct file *file, char __user * buf, size_t len, loff_t * ppos)
 {
 	int ret;
@@ -1408,7 +1569,11 @@ ssize_t felica_int_read(struct file *file, char __user * buf, size_t len, loff_t
 }
 
 
+/******************************************************************************
+ * /dev/felica_int_poll
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_int_poll;
 static struct cdev cdev_felica_int_poll;
 static struct file_operations fops_felica_int_poll = {
@@ -1419,6 +1584,9 @@ static struct file_operations fops_felica_int_poll = {
 	.poll		= felica_int_poll_poll,
 };
 
+/*
+ * top half of irq_handler
+ */
 irqreturn_t felica_int_irq_handler(int irq, void *dev_id)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1431,6 +1599,9 @@ irqreturn_t felica_int_irq_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * bottom half of irq_handler
+ */
 void felica_int_irq_work(struct work_struct *work)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1443,6 +1614,9 @@ void felica_int_irq_work(struct work_struct *work)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * initialize device
+ */
 void felica_int_poll_init(void)
 {
 	int ret;
@@ -1516,6 +1690,9 @@ void felica_int_poll_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_int_poll), MINOR(devid_felica_int_poll));
 }
 
+/*
+ * finalize device
+ */
 void felica_int_poll_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1531,22 +1708,31 @@ void felica_int_poll_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_int_poll_open(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* no operation */
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_int_poll_close(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* no operation */
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 	return 0;
 }
 
+/*
+ * read operation
+ */
 ssize_t felica_int_poll_read(struct file *file, char __user * buf, size_t len, loff_t * ppos)
 {
 	int ret;
@@ -1595,6 +1781,9 @@ ssize_t felica_int_poll_read(struct file *file, char __user * buf, size_t len, l
 	return FELICA_INT_DATA_LEN;
 }
 
+/*
+ * poll operation
+ */
 unsigned int felica_int_poll_poll(struct file *file, poll_table *wait)
 {
 	unsigned int mask = 0;
@@ -1612,7 +1801,11 @@ unsigned int felica_int_poll_poll(struct file *file, poll_table *wait)
 }
 
 
+/******************************************************************************
+ * /dev/felica_uid
+ ******************************************************************************/
 
+/* character device definition */
 static dev_t devid_felica_uid;
 static struct cdev cdev_felica_uid;
 static struct file_operations fops_felica_uid = {
@@ -1622,6 +1815,9 @@ static struct file_operations fops_felica_uid = {
 	.unlocked_ioctl		= felica_uid_ioctl,
 };
 
+/*
+ * initialize device
+ */
 void felica_uid_init(void)
 {
 	int ret;
@@ -1666,6 +1862,9 @@ void felica_uid_init(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END, major=[%d], minor=[%d]", __func__, MAJOR(devid_felica_uid), MINOR(devid_felica_uid));
 }
 
+/*
+ * finalize device
+ */
 void felica_uid_exit(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1677,6 +1876,9 @@ void felica_uid_exit(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
 }
 
+/*
+ * open device
+ */
 int felica_uid_open(struct inode *inode, struct file *file)
 {
 	char* cmdpos;
@@ -1708,14 +1910,20 @@ int felica_uid_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * close device
+ */
 int felica_uid_close(struct inode *inode, struct file *file)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
-	
+	/* no operation */
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 	return 0;
 }
 
+/*
+ * uid registration
+ */
 long felica_uid_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START, cmd=[%d]", __func__, cmd);
@@ -1762,7 +1970,13 @@ long felica_uid_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 
 
+/******************************************************************************
+ * Mobile FeliCa device driver initialization / termination function
+ ******************************************************************************/
 
+/*
+ * to set initial value to each terminal
+ */
 void felica_initialize_pin(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1772,6 +1986,9 @@ void felica_initialize_pin(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * to set final value to each terminal
+ */
 void felica_finalize_pin(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1781,6 +1998,9 @@ void felica_finalize_pin(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * device driver registration
+ */
 void felica_register_device(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1797,6 +2017,9 @@ void felica_register_device(void)
 	FELICA_LOG_DEBUG("[FELICA_DD] %s END", __func__);
 }
 
+/*
+ * device driver deregistration
+ */
 void felica_deregister_device(void)
 {
 	FELICA_LOG_DEBUG("[FELICA_DD] %s START", __func__);
@@ -1875,7 +2098,7 @@ static int felica_probe(struct platform_device *pdev)
 	felica_initialize_pin();
 	felica_register_device();
 	felica_nl_init();
-	
+	// MFC UID registration
 	schedule_delayed_work(&pgint_irq->work, msecs_to_jiffies(10));
 
 	FELICA_LOG_INFO("[FELICA_DD] %s()-\n", __func__);
@@ -1913,11 +2136,17 @@ static struct platform_driver felica_driver = {
 #endif
 };
 
+/*
+ * The entry point for initialization module
+ */
 int __init felica_init(void)
 {
 	return platform_driver_register(&felica_driver);
 }
 
+/*
+ * The entry point for the termination module
+ */
 void __exit felica_exit(void)
 {
 	platform_driver_unregister(&felica_driver);
@@ -1929,4 +2158,4 @@ module_exit(felica_exit);
 MODULE_DESCRIPTION("felica_dd");
 MODULE_LICENSE("GPL v2");
 
-#endif
+#endif/* CONFIG_FELICA_DD */

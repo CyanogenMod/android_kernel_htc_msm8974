@@ -29,9 +29,9 @@ typedef struct { } arch_spinlock_t;
 #endif
 
 typedef struct {
-	
+	/* no debug version on UP */
 } arch_rwlock_t;
 
 #define __ARCH_RW_LOCK_UNLOCKED { }
 
-#endif 
+#endif /* __LINUX_SPINLOCK_TYPES_UP_H */

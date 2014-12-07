@@ -35,12 +35,12 @@ MODULE_LICENSE("GPL");
 #define PT2258_CMD_MUTE 0xf9
 
 static const unsigned char pt2258_channel_code[12] = {
-	0x80, 0x90,		
-	0x40, 0x50,		
-	0x00, 0x10,		
-	0x20, 0x30,		
-	0x60, 0x70,		
-	0xa0, 0xb0		
+	0x80, 0x90,		/* channel 1: -10dB, -1dB */
+	0x40, 0x50,		/* channel 2: -10dB, -1dB */
+	0x00, 0x10,		/* channel 3: -10dB, -1dB */
+	0x20, 0x30,		/* channel 4: -10dB, -1dB */
+	0x60, 0x70,		/* channel 5: -10dB, -1dB */
+	0xa0, 0xb0		/* channel 6: -10dB, -1dB */
 };
 
 int snd_pt2258_reset(struct snd_pt2258 *pt)
@@ -48,14 +48,14 @@ int snd_pt2258_reset(struct snd_pt2258 *pt)
 	unsigned char bytes[2];
 	int i;
 
-	
+	/* reset chip */
 	bytes[0] = PT2258_CMD_RESET;
 	snd_i2c_lock(pt->i2c_bus);
 	if (snd_i2c_sendbytes(pt->i2c_dev, bytes, 1) != 1)
 		goto __error;
 	snd_i2c_unlock(pt->i2c_bus);
 
-	
+	/* mute all channels */
 	pt->mute = 1;
 	bytes[0] = PT2258_CMD_MUTE;
 	snd_i2c_lock(pt->i2c_bus);
@@ -63,7 +63,7 @@ int snd_pt2258_reset(struct snd_pt2258 *pt)
 		goto __error;
 	snd_i2c_unlock(pt->i2c_bus);
 
-	
+	/* set all channels to 0dB */
 	for (i = 0; i < 6; ++i)
 		pt->volume[i] = 0;
 	bytes[0] = 0xd0;
@@ -97,7 +97,7 @@ static int pt2258_stereo_volume_get(struct snd_kcontrol *kcontrol,
 	struct snd_pt2258 *pt = kcontrol->private_data;
 	int base = kcontrol->private_value;
 
-	
+	/* chip does not support register reads */
 	ucontrol->value.integer.value[0] = 79 - pt->volume[base];
 	ucontrol->value.integer.value[1] = 79 - pt->volume[base + 1];
 	return 0;

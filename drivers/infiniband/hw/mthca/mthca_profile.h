@@ -56,4 +56,4 @@ s64 mthca_make_profile(struct mthca_dev *mdev,
 		       struct mthca_dev_lim *dev_lim,
 		       struct mthca_init_hca_param *init_hca);
 
-#endif 
+#endif /* MTHCA_PROFILE_H */

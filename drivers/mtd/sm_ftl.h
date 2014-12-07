@@ -21,42 +21,42 @@
 
 struct ftl_zone {
 	bool initialized;
-	int16_t *lba_to_phys_table;		
-	struct kfifo free_sectors;	
+	int16_t *lba_to_phys_table;		/* LBA to physical table */
+	struct kfifo free_sectors;	/* queue of free sectors */
 };
 
 struct sm_ftl {
 	struct mtd_blktrans_dev *trans;
 
-	struct mutex mutex;		
-	struct ftl_zone *zones;		
+	struct mutex mutex;		/* protects the structure */
+	struct ftl_zone *zones;		/* FTL tables for each zone */
 
-	
-	int block_size;			
-	int zone_size;			
-	int zone_count;			
-	int max_lba;			
-	int smallpagenand;		
-	bool readonly;			
+	/* Media information */
+	int block_size;			/* block size in bytes */
+	int zone_size;			/* zone size in blocks */
+	int zone_count;			/* number of zones */
+	int max_lba;			/* maximum lba in a zone */
+	int smallpagenand;		/* 256 bytes/page nand */
+	bool readonly;			/* is FS readonly */
 	bool unstable;
-	int cis_block;			
-	int cis_boffset;		
-	int cis_page_offset;		
-	void *cis_buffer;		
+	int cis_block;			/* CIS block location */
+	int cis_boffset;		/* CIS offset in the block */
+	int cis_page_offset;		/* CIS offset in the page */
+	void *cis_buffer;		/* tmp buffer for cis reads */
 
-	
-	int cache_block;		
-	int cache_zone;			
-	unsigned char *cache_data;	
+	/* Cache */
+	int cache_block;		/* block number of cached block */
+	int cache_zone;			/* zone of cached block */
+	unsigned char *cache_data;	/* cached block data */
 	long unsigned int cache_data_invalid_bitmap;
 	bool cache_clean;
 	struct work_struct flush_work;
 	struct timer_list timer;
 
-	
+	/* Async erase stuff */
 	struct completion erase_completion;
 
-	
+	/* Geometry stuff */
 	int heads;
 	int sectors;
 	int cylinders;

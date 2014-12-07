@@ -1,3 +1,6 @@
+/*
+ * Common values for RIPEMD algorithms
+ */
 
 #ifndef _CRYPTO_RMD_H
 #define _CRYPTO_RMD_H
@@ -14,6 +17,7 @@
 #define RMD320_DIGEST_SIZE      40
 #define RMD320_BLOCK_SIZE       64
 
+/* initial values  */
 #define RMD_H0  0x67452301UL
 #define RMD_H1  0xefcdab89UL
 #define RMD_H2  0x98badcfeUL
@@ -25,6 +29,7 @@
 #define RMD_H8  0x01234567UL
 #define RMD_H9  0x3c2d1e0fUL
 
+/* constants */
 #define RMD_K1  0x00000000UL
 #define RMD_K2  0x5a827999UL
 #define RMD_K3  0x6ed9eba1UL

@@ -34,19 +34,24 @@ static void disable_ipr_irq(struct irq_data *data)
 {
 	struct ipr_data *p = irq_data_get_irq_chip_data(data);
 	unsigned long addr = get_ipr_desc(data)->ipr_offsets[p->ipr_idx];
-	
+	/* Set the priority in IPR to 0 */
 	__raw_writew(__raw_readw(addr) & (0xffff ^ (0xf << p->shift)), addr);
-	(void)__raw_readw(addr);	
+	(void)__raw_readw(addr);	/* Read back to flush write posting */
 }
 
 static void enable_ipr_irq(struct irq_data *data)
 {
 	struct ipr_data *p = irq_data_get_irq_chip_data(data);
 	unsigned long addr = get_ipr_desc(data)->ipr_offsets[p->ipr_idx];
-	
+	/* Set priority in IPR back to original value */
 	__raw_writew(__raw_readw(addr) | (p->priority << p->shift), addr);
 }
 
+/*
+ * The shift value is now the number of bits to shift, not the number of
+ * bits/4. This is to make it easier to read the value directly from the
+ * datasheets. The IPR address is calculated using the ipr_offset table.
+ */
 void register_ipr_controller(struct ipr_desc *desc)
 {
 	int i;

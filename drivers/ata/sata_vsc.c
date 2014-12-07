@@ -52,11 +52,11 @@
 enum {
 	VSC_MMIO_BAR			= 0,
 
-	
+	/* Interrupt register offsets (from chip base address) */
 	VSC_SATA_INT_STAT_OFFSET	= 0x00,
 	VSC_SATA_INT_MASK_OFFSET	= 0x04,
 
-	
+	/* Taskfile registers offsets */
 	VSC_SATA_TF_CMD_OFFSET		= 0x00,
 	VSC_SATA_TF_DATA_OFFSET		= 0x00,
 	VSC_SATA_TF_ERROR_OFFSET	= 0x04,
@@ -71,20 +71,20 @@ enum {
 	VSC_SATA_TF_ALTSTATUS_OFFSET	= 0x28,
 	VSC_SATA_TF_CTL_OFFSET		= 0x29,
 
-	
+	/* DMA base */
 	VSC_SATA_UP_DESCRIPTOR_OFFSET	= 0x64,
 	VSC_SATA_UP_DATA_BUFFER_OFFSET	= 0x6C,
 	VSC_SATA_DMA_CMD_OFFSET		= 0x70,
 
-	
+	/* SCRs base */
 	VSC_SATA_SCR_STATUS_OFFSET	= 0x100,
 	VSC_SATA_SCR_ERROR_OFFSET	= 0x104,
 	VSC_SATA_SCR_CONTROL_OFFSET	= 0x108,
 
-	
+	/* Port stride */
 	VSC_SATA_PORT_OFFSET		= 0x200,
 
-	
+	/* Error interrupt status bit offsets */
 	VSC_SATA_INT_ERROR_CRC		= 0x40,
 	VSC_SATA_INT_ERROR_T		= 0x20,
 	VSC_SATA_INT_ERROR_P		= 0x10,
@@ -161,6 +161,12 @@ static void vsc_sata_tf_load(struct ata_port *ap, const struct ata_taskfile *tf)
 	struct ata_ioports *ioaddr = &ap->ioaddr;
 	unsigned int is_addr = tf->flags & ATA_TFLAG_ISADDR;
 
+	/*
+	 * The only thing the ctl register is used for is SRST.
+	 * That is not enabled or disabled via tf_load.
+	 * However, if ATA_NIEN is changed, then we need to change
+	 * the interrupt register.
+	 */
 	if ((tf->ctl & ATA_NIEN) != (ap->last_ctl & ATA_NIEN)) {
 		ap->last_ctl = tf->ctl;
 		vsc_intr_mask_update(ap, tf->ctl & ATA_NIEN);
@@ -241,10 +247,21 @@ static void vsc_port_intr(u8 port_status, struct ata_port *ap)
 	if (qc && likely(!(qc->tf.flags & ATA_TFLAG_POLLING)))
 		handled = ata_bmdma_port_intr(ap, qc);
 
+	/* We received an interrupt during a polled command,
+	 * or some other spurious condition.  Interrupt reporting
+	 * with this hardware is fairly reliable so it is safe to
+	 * simply clear the interrupt
+	 */
 	if (unlikely(!handled))
 		ap->ops->sff_check_status(ap);
 }
 
+/*
+ * vsc_sata_interrupt
+ *
+ * Read the interrupt register and process for the devices that have
+ * them pending.
+ */
 static irqreturn_t vsc_sata_interrupt(int irq, void *dev_instance)
 {
 	struct ata_host *host = dev_instance;
@@ -284,6 +301,8 @@ static struct scsi_host_template vsc_sata_sht = {
 
 static struct ata_port_operations vsc_sata_ops = {
 	.inherits		= &ata_bmdma_port_ops,
+	/* The IRQ handling is not quite standard SFF behaviour so we
+	   cannot use the default lost interrupt handler */
 	.lost_interrupt		= ATA_OP_NULL,
 	.sff_tf_load		= vsc_sata_tf_load,
 	.sff_tf_read		= vsc_sata_tf_read,
@@ -334,7 +353,7 @@ static int __devinit vsc_sata_init_one(struct pci_dev *pdev,
 
 	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
-	
+	/* allocate host */
 	host = ata_host_alloc_pinfo(&pdev->dev, ppi, 4);
 	if (!host)
 		return -ENOMEM;
@@ -343,11 +362,11 @@ static int __devinit vsc_sata_init_one(struct pci_dev *pdev,
 	if (rc)
 		return rc;
 
-	
+	/* check if we have needed resource mapped */
 	if (pci_resource_len(pdev, 0) == 0)
 		return -ENODEV;
 
-	
+	/* map IO regions and initialize host accordingly */
 	rc = pcim_iomap_regions(pdev, 1 << VSC_MMIO_BAR, DRV_NAME);
 	if (rc == -EBUSY)
 		pcim_pin_device(pdev);
@@ -367,6 +386,9 @@ static int __devinit vsc_sata_init_one(struct pci_dev *pdev,
 		ata_port_pbar_desc(ap, VSC_MMIO_BAR, offset, "port");
 	}
 
+	/*
+	 * Use 32 bit DMA mask, because 64 bit address support is poor.
+	 */
 	rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (rc)
 		return rc;
@@ -374,6 +396,10 @@ static int __devinit vsc_sata_init_one(struct pci_dev *pdev,
 	if (rc)
 		return rc;
 
+	/*
+	 * Due to a bug in the chip, the default cache line size can't be
+	 * used (unless the default is non-zero).
+	 */
 	pci_read_config_byte(pdev, PCI_CACHE_LINE_SIZE, &cls);
 	if (cls == 0x00)
 		pci_write_config_byte(pdev, PCI_CACHE_LINE_SIZE, 0x80);
@@ -381,6 +407,12 @@ static int __devinit vsc_sata_init_one(struct pci_dev *pdev,
 	if (pci_enable_msi(pdev) == 0)
 		pci_intx(pdev, 0);
 
+	/*
+	 * Config offset 0x98 is "Extended Control and Status Register 0"
+	 * Default value is (1 << 28).  All bits except bit 28 are reserved in
+	 * DPA mode.  If bit 28 is set, LED 0 reflects all ports' activity.
+	 * If bit 28 is clear, each port has its own LED.
+	 */
 	pci_write_config_dword(pdev, 0x98, 0);
 
 	pci_set_master(pdev);
@@ -394,7 +426,7 @@ static const struct pci_device_id vsc_sata_pci_tbl[] = {
 	{ PCI_VENDOR_ID_INTEL, 0x3200,
 	  PCI_ANY_ID, PCI_ANY_ID, 0x10600, 0xFFFFFF, 0 },
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver vsc_sata_pci_driver = {

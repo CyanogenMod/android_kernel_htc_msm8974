@@ -208,7 +208,7 @@ static void debug_log_cleanup(struct bat_priv *bat_priv)
 	kfree(bat_priv->debug_log);
 	bat_priv->debug_log = NULL;
 }
-#else 
+#else /* CONFIG_BATMAN_ADV_DEBUG */
 static int debug_log_setup(struct bat_priv *bat_priv)
 {
 	bat_priv->debug_log = NULL;
@@ -365,7 +365,7 @@ out:
 	return -ENOMEM;
 #else
 	return 0;
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 }
 
 void debugfs_del_meshif(struct net_device *dev)

@@ -49,6 +49,10 @@ struct twl4030_audio {
 	struct mfd_cell cells[TWL4030_AUDIO_CELLS];
 };
 
+/*
+ * Modify the resource, the function returns the content of the register
+ * after the modification.
+ */
 static int twl4030_audio_set_resource(enum twl4030_audio_res id, int enable)
 {
 	struct twl4030_audio *audio = platform_get_drvdata(twl4030_audio_dev);
@@ -79,6 +83,10 @@ static inline int twl4030_audio_get_resource(enum twl4030_audio_res id)
 	return val;
 }
 
+/*
+ * Enable the resource.
+ * The function returns with error or the content of the register
+ */
 int twl4030_audio_enable_resource(enum twl4030_audio_res id)
 {
 	struct twl4030_audio *audio = platform_get_drvdata(twl4030_audio_dev);
@@ -92,7 +100,7 @@ int twl4030_audio_enable_resource(enum twl4030_audio_res id)
 
 	mutex_lock(&audio->mutex);
 	if (!audio->resource[id].request_count)
-		
+		/* Resource was disabled, enable it */
 		val = twl4030_audio_set_resource(id, 1);
 	else
 		val = twl4030_audio_get_resource(id);
@@ -104,6 +112,10 @@ int twl4030_audio_enable_resource(enum twl4030_audio_res id)
 }
 EXPORT_SYMBOL_GPL(twl4030_audio_enable_resource);
 
+/*
+ * Disable the resource.
+ * The function returns with error or the content of the register
+ */
 int twl4030_audio_disable_resource(unsigned id)
 {
 	struct twl4030_audio *audio = platform_get_drvdata(twl4030_audio_dev);
@@ -125,7 +137,7 @@ int twl4030_audio_disable_resource(unsigned id)
 	audio->resource[id].request_count--;
 
 	if (!audio->resource[id].request_count)
-		
+		/* Resource can be disabled now */
 		val = twl4030_audio_set_resource(id, 0);
 	else
 		val = twl4030_audio_get_resource(id);
@@ -157,7 +169,7 @@ static int __devinit twl4030_audio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* Configure APLL_INFREQ and disable APLL if enabled */
 	val = 0;
 	switch (pdata->audio_mclk) {
 	case 19200000:
@@ -186,11 +198,11 @@ static int __devinit twl4030_audio_probe(struct platform_device *pdev)
 	mutex_init(&audio->mutex);
 	audio->audio_mclk = pdata->audio_mclk;
 
-	
+	/* Codec power */
 	audio->resource[TWL4030_AUDIO_RES_POWER].reg = TWL4030_REG_CODEC_MODE;
 	audio->resource[TWL4030_AUDIO_RES_POWER].mask = TWL4030_CODECPDZ;
 
-	
+	/* PLL */
 	audio->resource[TWL4030_AUDIO_RES_APLL].reg = TWL4030_REG_APLL_CTL;
 	audio->resource[TWL4030_AUDIO_RES_APLL].mask = TWL4030_APLL_EN;
 

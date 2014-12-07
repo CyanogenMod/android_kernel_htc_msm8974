@@ -43,13 +43,13 @@ struct max17040_chip {
 	struct power_supply		battery;
 	struct max17040_platform_data	*pdata;
 
-	
+	/* State Of Connect */
 	int online;
-	
+	/* battery voltage */
 	int vcell;
-	
+	/* battery capacity */
 	int soc;
-	
+	/* State Of Charge */
 	int status;
 };
 
@@ -272,7 +272,7 @@ static int max17040_resume(struct i2c_client *client)
 #define max17040_suspend NULL
 #define max17040_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id max17040_id[] = {
 	{ "max17040", 0 },

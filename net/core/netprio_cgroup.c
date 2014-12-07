@@ -199,6 +199,9 @@ static int write_priomap(struct cgroup *cgrp, struct cftype *cft,
 	if (!devname)
 		return -ENOMEM;
 
+	/*
+	 * Minimally sized valid priomap string
+	 */
 	if (strlen(devname) < 3)
 		goto out_free_devname;
 
@@ -206,9 +209,17 @@ static int write_priomap(struct cgroup *cgrp, struct cftype *cft,
 	if (!priostr)
 		goto out_free_devname;
 
+	/*
+	 *Separate the devname from the associated priority
+	 *and advance the priostr poitner to the priority value
+	 */
 	*priostr = '\0';
 	priostr++;
 
+	/*
+	 * If the priostr points to NULL, we're at the end of the passed
+	 * in string, and its not a valid write
+	 */
 	if (*priostr == '\0')
 		goto out_free_devname;
 
@@ -259,6 +270,10 @@ static int netprio_device_event(struct notifier_block *unused,
 	struct net_device *dev = ptr;
 	struct netprio_map *old;
 
+	/*
+	 * Note this is called with rtnl_lock held so we have update side
+	 * protection on our rcu assignments
+	 */
 
 	switch (event) {
 	case NETDEV_UNREGISTER:

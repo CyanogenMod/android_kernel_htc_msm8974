@@ -32,19 +32,21 @@
 #define CX18_AI1_MUX_I2S2    0x10
 #define CX18_AI1_MUX_843_I2S 0x20
 
+/* Selects the audio input and output according to the current
+   settings. */
 int cx18_audio_set_io(struct cx18 *cx)
 {
 	const struct cx18_card_audio_input *in;
 	u32 u, v;
 	int err;
 
-	
+	/* Determine which input to use */
 	if (test_bit(CX18_F_I_RADIO_USER, &cx->i_flags))
 		in = &cx->card->radio_input;
 	else
 		in = &cx->card->audio_inputs[cx->audio_input];
 
-	
+	/* handle muxer chips */
 	v4l2_subdev_call(cx->sd_extmux, audio, s_routing,
 			 (u32) in->muxer_input, 0, 0);
 
@@ -53,7 +55,7 @@ int cx18_audio_set_io(struct cx18 *cx)
 	if (err)
 		return err;
 
-	
+	/* FIXME - this internal mux should be abstracted to a subdev */
 	u = cx18_read_reg(cx, CX18_AUDIO_ENABLE);
 	v = u & ~CX18_AI1_MUX_MASK;
 	switch (in->audio_input) {
@@ -68,7 +70,7 @@ int cx18_audio_set_io(struct cx18 *cx)
 		break;
 	}
 	if (v == u) {
-		
+		/* force a toggle of some AI1 MUX control bits */
 		u &= ~CX18_AI1_MUX_MASK;
 		switch (in->audio_input) {
 		case CX18_AV_AUDIO_SERIAL1:

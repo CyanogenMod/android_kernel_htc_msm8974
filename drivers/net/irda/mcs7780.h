@@ -34,15 +34,18 @@
 
 #define MCS_CTRL_TIMEOUT	500
 #define MCS_XMIT_TIMEOUT	500
-#define MCS_TSC_VISHAY		0	
-#define MCS_TSC_AGILENT		1	
-#define MCS_TSC_SHARP		2	
+/* Possible transceiver types */
+#define MCS_TSC_VISHAY		0	/* Vishay TFD, default choice */
+#define MCS_TSC_AGILENT		1	/* Agilent 3602/3600 */
+#define MCS_TSC_SHARP		2	/* Sharp GP2W1000YP */
 
+/* Requests */
 #define MCS_RD_RTYPE 0xC0
 #define MCS_WR_RTYPE 0x40
 #define MCS_RDREQ    0x0F
 #define MCS_WRREQ    0x0E
 
+/* Register 0x00 */
 #define MCS_MODE_REG	0
 #define MCS_FIR		((__u16)0x0001)
 #define MCS_SIR16US	((__u16)0x0002)
@@ -50,6 +53,7 @@
 #define MCS_ASK		((__u16)0x0008)
 #define MCS_PARITY	((__u16)0x0010)
 
+/* SIR/MIR speed constants */
 #define MCS_SPEED_SHIFT	    5
 #define MCS_SPEED_MASK	    ((__u16)0x00E0)
 #define MCS_SPEED(x)	    ((x & MCS_SPEED_MASK) >> MCS_SPEED_SHIFT)
@@ -71,11 +75,13 @@
 #define MCS_CHGDIR	((__u16)0x4000)
 #define MCS_RESET	((__u16)0x8000)
 
+/* Register 0x02 */
 #define MCS_XCVR_REG	2
 #define MCS_MODE0	((__u16)0x0001)
 #define MCS_STFIR	((__u16)0x0002)
 #define MCS_XCVR_CONF	((__u16)0x0004)
 #define MCS_RXFAST	((__u16)0x0008)
+/* TXCUR [6:4] */
 #define MCS_TXCUR_SHIFT	4
 #define MCS_TXCUR_MASK	((__u16)0x0070)
 #define MCS_TXCUR(x)	((x & MCS_TXCUR_MASK) >> MCS_TXCUR_SHIFT)
@@ -95,21 +101,21 @@
 #define MCS_IRINRX	((__u16)0x0002)
 
 struct mcs_cb {
-	struct usb_device *usbdev;	
-	struct net_device *netdev;	
-	struct irlap_cb *irlap;	
+	struct usb_device *usbdev;	/* init: probe_irda */
+	struct net_device *netdev;	/* network layer */
+	struct irlap_cb *irlap;	/* The link layer we are binded to */
 	struct qos_info qos;
-	unsigned int speed;	
-	unsigned int new_speed;	
+	unsigned int speed;	/* Current speed */
+	unsigned int new_speed;	/* new speed */
 
-	struct work_struct work; 
+	struct work_struct work; /* Change speed work */
 
 	struct sk_buff *tx_pending;
-	char in_buf[4096];	
-	char out_buf[4096];	
+	char in_buf[4096];	/* transmit/receive buffer */
+	char out_buf[4096];	/* transmit/receive buffer */
 	__u8 *fifo_status;
 
-	iobuff_t rx_buff;	
+	iobuff_t rx_buff;	/* receive unwrap state machine */
 	struct timeval rx_time;
 	spinlock_t lock;
 	int receiving;
@@ -157,4 +163,4 @@ static int mcs_probe(struct usb_interface *intf,
 		     const struct usb_device_id *id);
 static void mcs_disconnect(struct usb_interface *intf);
 
-#endif				
+#endif				/* _MCS7780_H */

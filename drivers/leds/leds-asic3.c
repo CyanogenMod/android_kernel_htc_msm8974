@@ -16,10 +16,19 @@
 #include <linux/mfd/core.h>
 #include <linux/module.h>
 
+/*
+ *	The HTC ASIC3 LED GPIOs are inputs, not outputs.
+ *	Hence we turn the LEDs on/off via the TimeBase register.
+ */
 
+/*
+ *	When TimeBase is 4 the clock resolution is about 32Hz.
+ *	This driver supports hardware blinking with an on+off
+ *	period from 62ms (2 clocks) to 125s (4000 clocks).
+ */
 #define MS_TO_CLK(ms)	DIV_ROUND_CLOSEST(((ms)*1024), 32000)
 #define CLK_TO_MS(clk)	(((clk)*32000)/1024)
-#define MAX_CLK		4000            
+#define MAX_CLK		4000            /* Fits into 12-bit Time registers */
 #define MAX_MS		CLK_TO_MS(MAX_CLK)
 
 static const unsigned int led_n_base[ASIC3_NUM_LEDS] = {
@@ -61,7 +70,7 @@ static int blink_set(struct led_classdev *cdev,
 		return -EINVAL;
 
 	if (*delay_on == 0 && *delay_off == 0) {
-		
+		/* If both are zero then a sensible default should be chosen */
 		on = MS_TO_CLK(500);
 		off = MS_TO_CLK(500);
 	} else {

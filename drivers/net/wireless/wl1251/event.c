@@ -80,7 +80,7 @@ static int wl1251_event_process(struct wl1251 *wl, struct event_mailbox *mbox)
 	    wl->station_mode != STATION_ACTIVE_MODE) {
 		wl1251_debug(DEBUG_EVENT, "SYNCHRONIZATION_TIMEOUT_EVENT");
 
-		
+		/* indicate to the stack, that beacons have been lost */
 		ieee80211_beacon_loss(wl->vif);
 	}
 
@@ -113,6 +113,10 @@ static int wl1251_event_process(struct wl1251 *wl, struct event_mailbox *mbox)
 	return 0;
 }
 
+/*
+ * Poll the mailbox event field until any of the bits in the mask is set or a
+ * timeout occurs (WL1251_EVENT_TIMEOUT in msecs)
+ */
 int wl1251_event_wait(struct wl1251 *wl, u32 mask, int timeout_ms)
 {
 	u32 events_vector, event;
@@ -126,7 +130,7 @@ int wl1251_event_wait(struct wl1251 *wl, u32 mask, int timeout_ms)
 
 		msleep(1);
 
-		
+		/* read from both event fields */
 		wl1251_mem_read(wl, wl->mbox_ptr[0], &events_vector,
 				sizeof(events_vector));
 		event = events_vector & mask;
@@ -168,16 +172,16 @@ int wl1251_event_handle(struct wl1251 *wl, u8 mbox_num)
 	if (mbox_num > 1)
 		return -EINVAL;
 
-	
+	/* first we read the mbox descriptor */
 	wl1251_mem_read(wl, wl->mbox_ptr[mbox_num], &mbox,
 			    sizeof(struct event_mailbox));
 
-	
+	/* process the descriptor */
 	ret = wl1251_event_process(wl, &mbox);
 	if (ret < 0)
 		return ret;
 
-	
+	/* then we let the firmware know it can go on...*/
 	wl1251_reg_write32(wl, ACX_REG_INTERRUPT_TRIG, INTR_TRIG_EVENT_ACK);
 
 	return 0;

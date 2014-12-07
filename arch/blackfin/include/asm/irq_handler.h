@@ -11,6 +11,7 @@
 #include <linux/linkage.h>
 #include <mach/irq.h>
 
+/* init functions only */
 extern int __init init_arch_irq(void);
 extern void init_exception_vectors(void);
 extern void __init program_IAR(void);
@@ -20,6 +21,7 @@ extern void __init init_mach_irq(void);
 # define init_mach_irq()
 #endif
 
+/* BASE LEVEL interrupt handler routines */
 asmlinkage void evt_exception(void);
 asmlinkage void trap(void);
 asmlinkage void evt_ivhw(void);

@@ -13,6 +13,15 @@
 
 */
 
+/* Changes:
+
+        1.01    GRG 1998.05.06 init_proto, release_proto
+			       fix chip detect
+			       added EPP-16 and EPP-32
+	1.02    GRG 1998.09.23 added hard reset to initialisation process
+	1.03    GRG 1998.12.14 made hard reset conditional
+
+*/
 
 #define	FRPW_VERSION	"1.03" 
 
@@ -29,6 +38,9 @@
 #define cec4		w2(0xc);w2(0xe);w2(0xe);w2(0xc);w2(4);w2(4);w2(4);
 #define j44(l,h)	(((l>>4)&0x0f)|(h&0xf0))
 
+/* cont = 0 - access the IDE register file 
+   cont = 1 - access the IDE command set 
+*/
 
 static int  cont_map[2] = { 0x08, 0x10 };
 
@@ -172,14 +184,18 @@ static void frpw_disconnect ( PIA *pi )
         w2(pi->saved_r2);
 } 
 
+/* Stub logic to see if PNP string is available - used to distinguish
+   between the Xilinx and ASIC implementations of the Freecom adapter.
+*/
 
 static int frpw_test_pnp ( PIA *pi )
 
+/*  returns chip_type:   0 = Xilinx, 1 = ASIC   */
 
 {	int olddelay, a, b;
 
 #ifdef FRPW_HARD_RESET
-        w0(0); w2(8); udelay(50); w2(0xc);   
+        w0(0); w2(8); udelay(50); w2(0xc);   /* parallel bus reset */
         mdelay(1500);
 #endif
 
@@ -200,6 +216,10 @@ static int frpw_test_pnp ( PIA *pi )
 	return ((~a&0x40) && (b&0x40));
 } 
 
+/* We use the pi->private to remember the result of the PNP test.
+   To make this work, private = port*2 + chip.  Yes, I know it's
+   a hack :-(
+*/
 
 static int frpw_test_proto( PIA *pi, char * scratch, int verbose )
 

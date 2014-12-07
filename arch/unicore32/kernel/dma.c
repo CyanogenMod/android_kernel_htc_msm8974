@@ -40,14 +40,14 @@ int puv3_request_dma(char *name, puv3_dma_prio prio,
 	unsigned long flags;
 	int i, found = 0;
 
-	
+	/* basic sanity checks */
 	if (!name)
 		return -EINVAL;
 
 	local_irq_save(flags);
 
 	do {
-		
+		/* try grabbing a DMA channel with the requested priority */
 		for (i = 0; i < MAX_DMA_CHANNELS; i++) {
 			if ((dma_channels[i].prio == prio) &&
 			    !dma_channels[i].name) {
@@ -55,7 +55,7 @@ int puv3_request_dma(char *name, puv3_dma_prio prio,
 				break;
 			}
 		}
-		
+		/* if requested prio group is full, try a hier priority */
 	} while (!found && prio--);
 
 	if (found) {
@@ -101,13 +101,17 @@ static irqreturn_t dma_irq_handler(int irq, void *dev_id)
 		if (dint & DMAC_CHANNEL(i)) {
 			struct dma_channel *channel = &dma_channels[i];
 
-			
+			/* Clear TC interrupt of channel i */
 			writel(DMAC_CHANNEL(i), DMAC_ITCCR);
 			writel(0, DMAC_ITCCR);
 
 			if (channel->name && channel->irq_handler) {
 				channel->irq_handler(i, channel->data);
 			} else {
+				/*
+				 * IRQ for an unregistered DMA channel:
+				 * let's clear the interrupts and disable it.
+				 */
 				printk(KERN_WARNING "spurious IRQ for"
 						" DMA channel %d\n", i);
 			}
@@ -125,13 +129,17 @@ static irqreturn_t dma_err_handler(int irq, void *dev_id)
 		if (dint & DMAC_CHANNEL(i)) {
 			struct dma_channel *channel = &dma_channels[i];
 
-			
+			/* Clear Err interrupt of channel i */
 			writel(DMAC_CHANNEL(i), DMAC_IECR);
 			writel(0, DMAC_IECR);
 
 			if (channel->name && channel->err_handler) {
 				channel->err_handler(i, channel->data);
 			} else {
+				/*
+				 * IRQ for an unregistered DMA channel:
+				 * let's clear the interrupts and disable it.
+				 */
 				printk(KERN_WARNING "spurious IRQ for"
 						" DMA channel %d\n", i);
 			}
@@ -144,6 +152,11 @@ int __init puv3_init_dma(void)
 {
 	int i, ret;
 
+	/* dma channel priorities on v8 processors:
+	 * ch 0 - 1  <--> (0) DMA_PRIO_HIGH
+	 * ch 2 - 3  <--> (1) DMA_PRIO_MEDIUM
+	 * ch 4 - 5  <--> (2) DMA_PRIO_LOW
+	 */
 	for (i = 0; i < MAX_DMA_CHANNELS; i++) {
 		puv3_stop_dma(i);
 		dma_channels[i].name = NULL;

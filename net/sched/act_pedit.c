@@ -169,7 +169,7 @@ static int tcf_pedit(struct sk_buff *skb, const struct tc_action *a,
 			ptr = skb_header_pointer(skb, off + offset, 4, &_data);
 			if (!ptr)
 				goto bad;
-			
+			/* just do it, baby */
 			*ptr = ((*ptr & tkey->mask) ^ tkey->val);
 			if (ptr == &_data)
 				skb_store_bits(skb, off + offset, ptr, 4);
@@ -201,7 +201,7 @@ static int tcf_pedit_dump(struct sk_buff *skb, struct tc_action *a,
 
 	s = sizeof(*opt) + p->tcfp_nkeys * sizeof(struct tc_pedit_key);
 
-	
+	/* netlink spinlocks held above us - must use ATOMIC */
 	opt = kzalloc(s, GFP_ATOMIC);
 	if (unlikely(!opt))
 		return -ENOBUFS;

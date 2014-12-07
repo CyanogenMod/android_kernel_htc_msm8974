@@ -37,6 +37,14 @@
 #include "core.h"
 #include "addr.h"
 
+/**
+ * tipc_addr_domain_valid - validates a network domain address
+ *
+ * Accepts <Z.C.N>, <Z.C.0>, <Z.0.0>, and <0.0.0>,
+ * where Z, C, and N are non-zero.
+ *
+ * Returns 1 if domain address is valid, otherwise 0
+ */
 
 int tipc_addr_domain_valid(u32 addr)
 {
@@ -51,6 +59,13 @@ int tipc_addr_domain_valid(u32 addr)
 	return 1;
 }
 
+/**
+ * tipc_addr_node_valid - validates a proposed network address for this node
+ *
+ * Accepts <Z.C.N>, where Z, C, and N are non-zero.
+ *
+ * Returns 1 if address can be used, otherwise 0
+ */
 
 int tipc_addr_node_valid(u32 addr)
 {
@@ -61,13 +76,16 @@ int tipc_in_scope(u32 domain, u32 addr)
 {
 	if (!domain || (domain == addr))
 		return 1;
-	if (domain == tipc_cluster_mask(addr)) 
+	if (domain == tipc_cluster_mask(addr)) /* domain <Z.C.0> */
 		return 1;
-	if (domain == tipc_zone_mask(addr)) 
+	if (domain == tipc_zone_mask(addr)) /* domain <Z.0.0> */
 		return 1;
 	return 0;
 }
 
+/**
+ * tipc_addr_scope - convert message lookup domain to a 2-bit scope value
+ */
 
 int tipc_addr_scope(u32 domain)
 {

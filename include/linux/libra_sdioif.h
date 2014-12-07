@@ -14,11 +14,17 @@
 #ifndef __LIBRA_SDIOIF_H__
 #define __LIBRA_SDIOIF_H__
 
+/*
+ * Header for SDIO Card Interface Functions
+ */
 #include <linux/kthread.h>
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio_func.h>
 
+/*
+ * Common Defines
+ */
 #define LIBRA_MAN_ID              0x70
 #define LIBRA_REV_1_0_CARD_ID     0x0
 
@@ -74,4 +80,4 @@ int libra_sdio_notify_card_removal(
 		notify_card_removal_t *libra_sdio_notify_card_removal_hdlr);
 int libra_sdio_register_shutdown_hdlr(
 		shutdown_handler_t *libra_shutdown_hdlr);
-#endif 
+#endif /* __LIBRA_SDIOIF_H__ */

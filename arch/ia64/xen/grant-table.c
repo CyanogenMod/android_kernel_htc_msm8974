@@ -31,6 +31,10 @@
 
 #include <asm/xen/hypervisor.h>
 
+/****************************************************************************
+ * grant table hack
+ * cmd: GNTTABOP_xxx
+ */
 
 int arch_gnttab_map_shared(unsigned long *frames, unsigned long nr_gframes,
 			   unsigned long max_nr_gframes,
@@ -43,7 +47,7 @@ int arch_gnttab_map_shared(unsigned long *frames, unsigned long nr_gframes,
 void arch_gnttab_unmap_shared(struct grant_entry *shared,
 			      unsigned long nr_gframes)
 {
-	
+	/* nothing */
 }
 
 static void
@@ -68,7 +72,7 @@ gnttab_map_grant_ref_pre(struct gnttab_map_grant_ref *uop)
 		}
 	} else if (flags & GNTMAP_device_map) {
 		printk("GNTMAP_device_map is not supported yet 0x%x\n", flags);
-		BUG();	
+		BUG();	/* not yet. actually this flag is not used. */
 	} else {
 		BUG();
 	}

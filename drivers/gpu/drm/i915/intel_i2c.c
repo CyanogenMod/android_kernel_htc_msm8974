@@ -35,6 +35,7 @@
 #include "i915_drm.h"
 #include "i915_drv.h"
 
+/* Intel GPIO access functions */
 
 #define I2C_RISEFALL_TIME 10
 
@@ -58,7 +59,7 @@ static void intel_i2c_quirk_set(struct drm_i915_private *dev_priv, bool enable)
 {
 	u32 val;
 
-	
+	/* When using bit bashing for I2C, this bit needs to be set to 1 */
 	if (!IS_PINEVIEW(dev_priv->dev))
 		return;
 
@@ -76,7 +77,7 @@ static u32 get_reserved(struct intel_gmbus *bus)
 	struct drm_device *dev = dev_priv->dev;
 	u32 reserved = 0;
 
-	
+	/* On most chips, these bits must be preserved in software. */
 	if (!IS_I830(dev) && !IS_845G(dev))
 		reserved = I915_READ_NOTRACE(bus->gpio_reg) &
 					     (GPIO_DATA_PULLUP_DISABLE |
@@ -290,10 +291,18 @@ gmbus_xfer(struct i2c_adapter *adapter,
 	goto done;
 
 clear_err:
+	/* Toggle the Software Clear Interrupt bit. This has the effect
+	 * of resetting the GMBUS controller and so clearing the
+	 * BUS_ERROR raised by the slave's NAK.
+	 */
 	I915_WRITE(GMBUS1 + reg_offset, GMBUS_SW_CLR_INT);
 	I915_WRITE(GMBUS1 + reg_offset, 0);
 
 done:
+	/* Mark the GMBUS interface as disabled after waiting for idle.
+	 * We will re-enable it at the start of the next xfer,
+	 * till then let it sleep.
+	 */
 	if (wait_for((I915_READ(GMBUS2 + reg_offset) & GMBUS_ACTIVE) == 0, 10))
 		DRM_INFO("GMBUS timed out waiting for idle\n");
 	I915_WRITE(GMBUS0 + reg_offset, 0);
@@ -305,7 +314,7 @@ timeout:
 		 bus->reg0 & 0xff, bus->adapter.name);
 	I915_WRITE(GMBUS0 + reg_offset, 0);
 
-	
+	/* Hardware may not support GMBUS over these pins? Try GPIO bitbanging instead. */
 	if (!bus->has_gpio) {
 		ret = -EIO;
 	} else {
@@ -321,7 +330,7 @@ static u32 gmbus_func(struct i2c_adapter *adapter)
 {
 	return i2c_bit_algo.functionality(adapter) &
 		(I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL |
-		
+		/* I2C_FUNC_10BIT_ADDR | */
 		I2C_FUNC_SMBUS_READ_BLOCK_DATA |
 		I2C_FUNC_SMBUS_BLOCK_PROC_CALL);
 }
@@ -331,6 +340,10 @@ static const struct i2c_algorithm gmbus_algorithm = {
 	.functionality	= gmbus_func
 };
 
+/**
+ * intel_gmbus_setup - instantiate all Intel i2c GMBuses
+ * @dev: DRM device
+ */
 int intel_setup_gmbus(struct drm_device *dev)
 {
 	static const char *names[GMBUS_NUM_PORTS] = {
@@ -371,12 +384,12 @@ int intel_setup_gmbus(struct drm_device *dev)
 		if (ret)
 			goto err;
 
-		
+		/* By default use a conservative clock rate */
 		bus->reg0 = i | GMBUS_RATE_100KHZ;
 
 		bus->has_gpio = intel_gpio_setup(bus, i);
 
-		
+		/* XXX force bit banging until GMBUS is fully debugged */
 		if (bus->has_gpio)
 			bus->force_bit = true;
 	}

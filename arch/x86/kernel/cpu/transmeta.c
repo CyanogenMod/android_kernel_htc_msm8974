@@ -9,7 +9,7 @@ static void __cpuinit early_init_transmeta(struct cpuinfo_x86 *c)
 {
 	u32 xlvl;
 
-	
+	/* Transmeta-defined flags: level 0x80860001 */
 	xlvl = cpuid_eax(0x80860000);
 	if ((xlvl & 0xffff0000) == 0x80860000) {
 		if (xlvl >= 0x80860001)
@@ -28,7 +28,7 @@ static void __cpuinit init_transmeta(struct cpuinfo_x86 *c)
 
 	cpu_detect_cache_sizes(c);
 
-	
+	/* Print CMS and CPU revision */
 	max = cpuid_eax(0x80860000);
 	cpu_rev = 0;
 	if (max >= 0x80860001) {
@@ -80,16 +80,20 @@ static void __cpuinit init_transmeta(struct cpuinfo_x86 *c)
 		printk(KERN_INFO "CPU: %s\n", cpu_info);
 	}
 
-	
+	/* Unhide possibly hidden capability flags */
 	rdmsr(0x80860004, cap_mask, uk);
 	wrmsr(0x80860004, ~0, uk);
 	c->x86_capability[0] = cpuid_edx(0x00000001);
 	wrmsr(0x80860004, cap_mask, uk);
 
-	
+	/* All Transmeta CPUs have a constant TSC */
 	set_cpu_cap(c, X86_FEATURE_CONSTANT_TSC);
 
 #ifdef CONFIG_SYSCTL
+	/*
+	 * randomize_va_space slows us down enormously;
+	 * it probably triggers retranslation of x86->native bytecode
+	 */
 	randomize_va_space = 0;
 #endif
 }

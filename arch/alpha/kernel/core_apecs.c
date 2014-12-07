@@ -26,7 +26,15 @@
 #include "proto.h"
 #include "pci_impl.h"
 
+/*
+ * NOTE: Herein lie back-to-back mb instructions.  They are magic. 
+ * One plausible explanation is that the i/o controller does not properly
+ * handle the system transaction.  Another involves timing.  Ho hum.
+ */
 
+/*
+ * BIOS32-style PCI interface:
+ */
 
 #define DEBUG_CONFIG 0
 
@@ -38,6 +46,47 @@
 
 #define vuip	volatile unsigned int  *
 
+/*
+ * Given a bus, device, and function number, compute resulting
+ * configuration space address and setup the APECS_HAXR2 register
+ * accordingly.  It is therefore not safe to have concurrent
+ * invocations to configuration space access routines, but there
+ * really shouldn't be any need for this.
+ *
+ * Type 0:
+ *
+ *  3 3|3 3 2 2|2 2 2 2|2 2 2 2|1 1 1 1|1 1 1 1|1 1 
+ *  3 2|1 0 9 8|7 6 5 4|3 2 1 0|9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | | | | | | | | | | | | | | | | | | | | | | | |F|F|F|R|R|R|R|R|R|0|0|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *	31:11	Device select bit.
+ * 	10:8	Function number
+ * 	 7:2	Register number
+ *
+ * Type 1:
+ *
+ *  3 3|3 3 2 2|2 2 2 2|2 2 2 2|1 1 1 1|1 1 1 1|1 1 
+ *  3 2|1 0 9 8|7 6 5 4|3 2 1 0|9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | | | | | | | | | | |B|B|B|B|B|B|B|B|D|D|D|D|D|F|F|F|R|R|R|R|R|R|0|1|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *	31:24	reserved
+ *	23:16	bus number (8 bits = 128 possible buses)
+ *	15:11	Device number (5 bits)
+ *	10:8	function number
+ *	 7:2	register number
+ *  
+ * Notes:
+ *	The function number selects which function of a multi-function device 
+ *	(e.g., SCSI and Ethernet).
+ * 
+ *	The register selects a DWORD (32 bit) register offset.  Hence it
+ *	doesn't get shifted by 2 bits as we want to "drop" the bottom two
+ *	bits.
+ */
 
 static int
 mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
@@ -53,7 +102,7 @@ mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
 	if (bus == 0) {
 		int device = device_fn >> 3;
 
-		
+		/* type 0 configuration cycle: */
 
 		if (device > 20) {
 			DBGC(("mk_conf_addr: device (%d) > 20, returning -1\n",
@@ -64,7 +113,7 @@ mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
 		*type1 = 0;
 		addr = (device_fn << 8) | (where);
 	} else {
-		
+		/* type 1 configuration cycle: */
 		*type1 = 1;
 		addr = (bus << 16) | (device_fn << 8) | (where);
 	}
@@ -80,17 +129,17 @@ conf_read(unsigned long addr, unsigned char type1)
 	unsigned int stat0, value;
 	unsigned int haxr2 = 0;
 
-	local_irq_save(flags);	
+	local_irq_save(flags);	/* avoid getting hit by machine check */
 
 	DBGC(("conf_read(addr=0x%lx, type1=%d)\n", addr, type1));
 
-	
+	/* Reset status register to avoid losing errors.  */
 	stat0 = *(vuip)APECS_IOC_DCSR;
 	*(vuip)APECS_IOC_DCSR = stat0;
 	mb();
 	DBGC(("conf_read: APECS DCSR was 0x%x\n", stat0));
 
-	
+	/* If Type1 access, must set HAE #2. */
 	if (type1) {
 		haxr2 = *(vuip)APECS_IOC_HAXR2;
 		mb();
@@ -103,9 +152,9 @@ conf_read(unsigned long addr, unsigned char type1)
 	mcheck_taken(0) = 0;
 	mb();
 
-	
+	/* Access configuration space.  */
 
-	
+	/* Some SRMs step on these registers during a machine check.  */
 	asm volatile("ldl %0,%1; mb; mb" : "=r"(value) : "m"(*(vuip)addr)
 		     : "$9", "$10", "$11", "$12", "$13", "$14", "memory");
 
@@ -118,28 +167,34 @@ conf_read(unsigned long addr, unsigned char type1)
 	mb();
 
 #if 1
+	/*
+	 * david.rusling@reo.mts.dec.com.  This code is needed for the
+	 * EB64+ as it does not generate a machine check (why I don't
+	 * know).  When we build kernels for one particular platform
+	 * then we can make this conditional on the type.
+	 */
 	draina();
 
-	
+	/* Now look for any errors.  */
 	stat0 = *(vuip)APECS_IOC_DCSR;
 	DBGC(("conf_read: APECS DCSR after read 0x%x\n", stat0));
 
-	
+	/* Is any error bit set? */
 	if (stat0 & 0xffe0U) {
-		
+		/* If not NDEV, print status.  */
 		if (!(stat0 & 0x0800)) {
 			printk("apecs.c:conf_read: got stat0=%x\n", stat0);
 		}
 
-		
+		/* Reset error status.  */
 		*(vuip)APECS_IOC_DCSR = stat0;
 		mb();
-		wrmces(0x7);			
+		wrmces(0x7);			/* reset machine check */
 		value = 0xffffffff;
 	}
 #endif
 
-	
+	/* If Type1 access, must reset HAE #2 so normal IO space ops work.  */
 	if (type1) {
 		*(vuip)APECS_IOC_HAXR2 = haxr2 & ~1;
 		mb();
@@ -156,14 +211,14 @@ conf_write(unsigned long addr, unsigned int value, unsigned char type1)
 	unsigned int stat0;
 	unsigned int haxr2 = 0;
 
-	local_irq_save(flags);	
+	local_irq_save(flags);	/* avoid getting hit by machine check */
 
-	
+	/* Reset status register to avoid losing errors.  */
 	stat0 = *(vuip)APECS_IOC_DCSR;
 	*(vuip)APECS_IOC_DCSR = stat0;
 	mb();
 
-	
+	/* If Type1 access, must set HAE #2. */
 	if (type1) {
 		haxr2 = *(vuip)APECS_IOC_HAXR2;
 		mb();
@@ -174,34 +229,40 @@ conf_write(unsigned long addr, unsigned int value, unsigned char type1)
 	mcheck_expected(0) = 1;
 	mb();
 
-	
+	/* Access configuration space.  */
 	*(vuip)addr = value;
 	mb();
-	mb();  
+	mb();  /* magic */
 	mcheck_expected(0) = 0;
 	mb();
 
 #if 1
+	/*
+	 * david.rusling@reo.mts.dec.com.  This code is needed for the
+	 * EB64+ as it does not generate a machine check (why I don't
+	 * know).  When we build kernels for one particular platform
+	 * then we can make this conditional on the type.
+	 */
 	draina();
 
-	
+	/* Now look for any errors.  */
 	stat0 = *(vuip)APECS_IOC_DCSR;
 
-	
+	/* Is any error bit set? */
 	if (stat0 & 0xffe0U) {
-		
+		/* If not NDEV, print status.  */
 		if (!(stat0 & 0x0800)) {
 			printk("apecs.c:conf_write: got stat0=%x\n", stat0);
 		}
 
-		
+		/* Reset error status.  */
 		*(vuip)APECS_IOC_DCSR = stat0;
 		mb();
-		wrmces(0x7);			
+		wrmces(0x7);			/* reset machine check */
 	}
 #endif
 
-	
+	/* If Type1 access, must reset HAE #2 so normal IO space ops work.  */
 	if (type1) {
 		*(vuip)APECS_IOC_HAXR2 = haxr2 & ~1;
 		mb();
@@ -264,6 +325,9 @@ apecs_init_arch(void)
 {
 	struct pci_controller *hose;
 
+	/*
+	 * Create our single hose.
+	 */
 
 	pci_isa_hose = hose = alloc_pci_controller();
 	hose->io_space = &ioport_resource;
@@ -275,6 +339,12 @@ apecs_init_arch(void)
 	hose->sparse_io_base = APECS_IO - IDENT_ADDR;
 	hose->dense_io_base = 0;
 
+	/*
+	 * Set up the PCI to main memory translation windows.
+	 *
+	 * Window 1 is direct access 1GB at 1GB
+	 * Window 2 is scatter-gather 8MB at 8MB (for isa)
+	 */
 	hose->sg_isa = iommu_arena_new(hose, 0x00800000, 0x00800000, 0);
 	hose->sg_pci = NULL;
 	__direct_map_base = 0x40000000;
@@ -290,6 +360,12 @@ apecs_init_arch(void)
 
 	apecs_pci_tbi(hose, 0, -1);
 
+	/*
+	 * Finally, clear the HAXR2 register, which gets used
+	 * for PCI Config Space accesses. That is the way
+	 * we want to use it, and we do not want to depend on
+	 * what ARC or SRM might have left behind...
+	 */
 	*(vuip)APECS_IOC_HAXR2 = 0;
 	mb();
 }
@@ -328,12 +404,12 @@ apecs_machine_check(unsigned long vector, unsigned long la_ptr)
 		(la_ptr + mchk_header->sys_offset);
 
 
-	
+	/* Clear the error before any reporting.  */
 	mb();
-	mb(); 
+	mb(); /* magic */
 	draina();
 	apecs_pci_clr_err();
-	wrmces(0x7);		
+	wrmces(0x7);		/* reset machine check pending flag */
 	mb();
 
 	process_mcheck_info(vector, la_ptr, "APECS",

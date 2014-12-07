@@ -57,33 +57,35 @@ void __init sun3_init(void)
 
 	m68k_machtype= MACH_SUN3;
 	m68k_cputype = CPU_68020;
-	m68k_fputype = FPU_68881; 
+	m68k_fputype = FPU_68881; /* mc68881 actually */
 	m68k_mmutype = MMU_SUN3;
-	clock_va    =          (char *) 0xfe06000;	
-	sun3_intreg = (unsigned char *) 0xfe0a000;	
+	clock_va    =          (char *) 0xfe06000;	/* dark  */
+	sun3_intreg = (unsigned char *) 0xfe0a000;	/* magic */
 	sun3_disable_interrupts();
 
 	prom_init((void *)LINUX_OPPROM_BEGVM);
 
 	GET_CONTROL_BYTE(AC_SENABLE,enable_register);
-	enable_register |= 0x50; 
+	enable_register |= 0x50; /* Enable FPU */
 	SET_CONTROL_BYTE(AC_SENABLE,enable_register);
 	GET_CONTROL_BYTE(AC_SENABLE,enable_register);
 
+	/* This code looks suspicious, because it doesn't subtract
+           memory belonging to the kernel from the available space */
 
 
 	memset(sun3_reserved_pmeg, 0, sizeof(sun3_reserved_pmeg));
 
-	
-	
+	/* Reserve important PMEGS */
+	/* FIXME: These should be probed instead of hardcoded */
 
-	for (i=0; i<8; i++)		
+	for (i=0; i<8; i++)		/* Kernel PMEGs */
 		sun3_reserved_pmeg[i] = 1;
 
-	sun3_reserved_pmeg[247] = 1;	
-	sun3_reserved_pmeg[248] = 1;	
-	sun3_reserved_pmeg[251] = 1;	
-	sun3_reserved_pmeg[254] = 1;	
+	sun3_reserved_pmeg[247] = 1;	/* ROM mapping  */
+	sun3_reserved_pmeg[248] = 1;	/* AMD Ethernet */
+	sun3_reserved_pmeg[251] = 1;	/* VB area      */
+	sun3_reserved_pmeg[254] = 1;	/* main I/O     */
 
 	sun3_reserved_pmeg[249] = 1;
 	sun3_reserved_pmeg[252] = 1;
@@ -91,6 +93,7 @@ void __init sun3_init(void)
 	set_fs(KERNEL_DS);
 }
 
+/* Without this, Bad Things happen when something calls arch_reset. */
 static void sun3_reboot (void)
 {
 	prom_reboot ("vmlinux");
@@ -101,13 +104,14 @@ static void sun3_halt (void)
 	prom_halt ();
 }
 
+/* sun3 bootmem allocation */
 
 static void __init sun3_bootmem_alloc(unsigned long memory_start,
 				      unsigned long memory_end)
 {
 	unsigned long start_page;
 
-	
+	/* align start/end to page boundaries */
 	memory_start = ((memory_start + (PAGE_SIZE-1)) & PAGE_MASK);
 	memory_end = memory_end & PAGE_MASK;
 
@@ -132,7 +136,7 @@ void __init config_sun3(void)
 	printk("ARCH: SUN3\n");
 	idprom_init();
 
-	
+	/* Subtract kernel memory from available memory */
 
         mach_sched_init      =  sun3_sched_init;
         mach_init_IRQ        =  sun3_init_IRQ;
@@ -144,6 +148,7 @@ void __init config_sun3(void)
 	mach_get_hardware_list = sun3_get_hardware_list;
 
 	memory_start = ((((unsigned long)_end) + 0x2000) & ~0x1fff);
+// PROM seems to want the last couple of physical pages. --m
 	memory_end   = *(romvec->pv_sun3mem) + PAGE_OFFSET - 2*PAGE_SIZE;
 
 	m68k_num_memory=1;

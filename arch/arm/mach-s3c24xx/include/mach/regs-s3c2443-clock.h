@@ -77,6 +77,7 @@
 #define S3C2443_CLKDIV0_ARMDIV_12	(13<<9)
 #define S3C2443_CLKDIV0_ARMDIV_16	(15<<9)
 
+/* S3C2443_CLKDIV1 removed, only used in clock.c code */
 
 #define S3C2443_CLKCON_NAND
 
@@ -189,5 +190,5 @@ s3c2443_get_epll(unsigned int pllval, unsigned int baseclk)
 	return (unsigned int)fvco;
 }
 
-#endif 
+#endif /*  __ASM_ARM_REGS_S3C2443_CLOCK */
 

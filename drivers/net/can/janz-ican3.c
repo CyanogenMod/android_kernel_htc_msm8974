@@ -24,18 +24,21 @@
 #include <linux/mfd/janz.h>
 #include <asm/io.h>
 
+/* the DPM has 64k of memory, organized into 256x 256 byte pages */
 #define DPM_NUM_PAGES		256
 #define DPM_PAGE_SIZE		256
 #define DPM_PAGE_ADDR(p)	((p) * DPM_PAGE_SIZE)
 
+/* JANZ ICAN3 "old-style" host interface queue page numbers */
 #define QUEUE_OLD_CONTROL	0
 #define QUEUE_OLD_RB0		1
 #define QUEUE_OLD_RB1		2
 #define QUEUE_OLD_WB0		3
 #define QUEUE_OLD_WB1		4
 
-#define MSYNC_PEER		0x00		
-#define MSYNC_LOCL		0x01		
+/* Janz ICAN3 "old-style" host interface control registers */
+#define MSYNC_PEER		0x00		/* ICAN only */
+#define MSYNC_LOCL		0x01		/* host only */
 #define TARGET_RUNNING		0x02
 
 #define MSYNC_RB0		0x01
@@ -48,19 +51,23 @@
 #define MSYNC_WBLW		0x40
 #define MSYNC_WB_MASK		(MSYNC_WB0 | MSYNC_WB1)
 
+/* Janz ICAN3 "new-style" host interface queue page numbers */
 #define QUEUE_TOHOST		5
 #define QUEUE_FROMHOST_MID	6
 #define QUEUE_FROMHOST_HIGH	7
 #define QUEUE_FROMHOST_LOW	8
 
+/* The first free page in the DPM is #9 */
 #define DPM_FREE_START		9
 
+/* Janz ICAN3 "new-style" and "fast" host interface descriptor flags */
 #define DESC_VALID		0x80
 #define DESC_WRAP		0x40
 #define DESC_INTERRUPT		0x20
 #define DESC_IVALID		0x10
 #define DESC_LEN(len)		(len)
 
+/* Janz ICAN3 Firmware Messages */
 #define MSG_CONNECTI		0x02
 #define MSG_DISCONNECT		0x03
 #define MSG_IDVERS		0x04
@@ -77,16 +84,27 @@
 #define MSG_CONREQ		0x43
 #define MSG_CCONFREQ		0x47
 
+/*
+ * Janz ICAN3 CAN Inquiry Message Types
+ *
+ * NOTE: there appears to be a firmware bug here. You must send
+ * NOTE: INQUIRY_STATUS and expect to receive an INQUIRY_EXTENDED
+ * NOTE: response. The controller never responds to a message with
+ * NOTE: the INQUIRY_EXTENDED subspec :(
+ */
 #define INQUIRY_STATUS		0x00
 #define INQUIRY_TERMINATION	0x01
 #define INQUIRY_EXTENDED	0x04
 
+/* Janz ICAN3 CAN Set Acceptance Filter Mask Message Types */
 #define SETAFILMASK_REJECT	0x00
 #define SETAFILMASK_FASTIF	0x02
 
+/* Janz ICAN3 CAN Hardware Configuration Message Types */
 #define HWCONF_TERMINATE_ON	0x01
 #define HWCONF_TERMINATE_OFF	0x00
 
+/* Janz ICAN3 CAN Event Indication Message Types */
 #define CEVTIND_EI		0x01
 #define CEVTIND_DOI		0x02
 #define CEVTIND_LOST		0x04
@@ -97,6 +115,7 @@
 
 #define ICAN3_BUSERR_QUOTA_MAX	255
 
+/* Janz ICAN3 CAN Frame Conversion */
 #define ICAN3_ECHO	0x10
 #define ICAN3_EFF_RTR	0x40
 #define ICAN3_SFF_RTR	0x10
@@ -108,7 +127,13 @@
 
 #define ICAN3_CAN_DLC_MASK	0x0f
 
+/*
+ * SJA1000 Status and Error Register Definitions
+ *
+ * Copied from drivers/net/can/sja1000/sja1000.h
+ */
 
+/* status register content */
 #define SR_BS		0x80
 #define SR_ES		0x40
 #define SR_TS		0x20
@@ -120,6 +145,7 @@
 
 #define SR_CRIT (SR_BS|SR_ES)
 
+/* ECC register */
 #define ECC_SEG		0x1F
 #define ECC_DIR		0x20
 #define ECC_ERR		6
@@ -128,78 +154,93 @@
 #define ECC_STUFF	0x80
 #define ECC_MASK	0xc0
 
+/* Number of buffers for use in the "new-style" host interface */
 #define ICAN3_NEW_BUFFERS	16
 
+/* Number of buffers for use in the "fast" host interface */
 #define ICAN3_TX_BUFFERS	512
 #define ICAN3_RX_BUFFERS	1024
 
+/* SJA1000 Clock Input */
 #define ICAN3_CAN_CLOCK		8000000
 
+/* Driver Name */
 #define DRV_NAME "janz-ican3"
 
+/* DPM Control Registers -- starts at offset 0x100 in the MODULbus registers */
 struct ican3_dpm_control {
-	
+	/* window address register */
 	u8 window_address;
 	u8 unused1;
 
+	/*
+	 * Read access: clear interrupt from microcontroller
+	 * Write access: send interrupt to microcontroller
+	 */
 	u8 interrupt;
 	u8 unused2;
 
-	
+	/* write-only: reset all hardware on the module */
 	u8 hwreset;
 	u8 unused3;
 
-	
+	/* write-only: generate an interrupt to the TPU */
 	u8 tpuinterrupt;
 };
 
 struct ican3_dev {
 
-	
+	/* must be the first member */
 	struct can_priv can;
 
-	
+	/* CAN network device */
 	struct net_device *ndev;
 	struct napi_struct napi;
 
-	
+	/* Device for printing */
 	struct device *dev;
 
-	
+	/* module number */
 	unsigned int num;
 
-	
+	/* base address of registers and IRQ */
 	struct janz_cmodio_onboard_regs __iomem *ctrl;
 	struct ican3_dpm_control __iomem *dpmctrl;
 	void __iomem *dpm;
 	int irq;
 
-	
+	/* CAN bus termination status */
 	struct completion termination_comp;
 	bool termination_enabled;
 
-	
+	/* CAN bus error status registers */
 	struct completion buserror_comp;
 	struct can_berr_counter bec;
 
-	
+	/* old and new style host interface */
 	unsigned int iftype;
 
+	/*
+	 * Any function which changes the current DPM page must hold this
+	 * lock while it is performing data accesses. This ensures that the
+	 * function will not be preempted and end up reading data from a
+	 * different DPM page than it expects.
+	 */
 	spinlock_t lock;
 
-	
+	/* new host interface */
 	unsigned int rx_int;
 	unsigned int rx_num;
 	unsigned int tx_num;
 
-	
+	/* fast host interface */
 	unsigned int fastrx_start;
 	unsigned int fastrx_int;
 	unsigned int fastrx_num;
 	unsigned int fasttx_start;
 	unsigned int fasttx_num;
 
-	
+	/* first free DPM page */
 	unsigned int free_page;
 };
 
@@ -221,19 +262,30 @@ struct ican3_fast_desc {
 	u8 data[14];
 };
 
+/* write to the window basic address register */
 static inline void ican3_set_page(struct ican3_dev *mod, unsigned int page)
 {
 	BUG_ON(page >= DPM_NUM_PAGES);
 	iowrite8(page, &mod->dpmctrl->window_address);
 }
 
+/*
+ * ICAN3 "old-style" host interface
+ */
 
+/*
+ * Receive a message from the ICAN3 "old-style" firmware interface
+ *
+ * LOCKING: must hold mod->lock
+ *
+ * returns 0 on success, -ENOMEM when no message exists
+ */
 static int ican3_old_recv_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 {
 	unsigned int mbox, mbox_page;
 	u8 locl, peer, xord;
 
-	
+	/* get the MSYNC registers */
 	ican3_set_page(mod, QUEUE_OLD_CONTROL);
 	peer = ioread8(mod->dpm + MSYNC_PEER);
 	locl = ioread8(mod->dpm + MSYNC_LOCL);
@@ -244,17 +296,21 @@ static int ican3_old_recv_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 		return -ENOMEM;
 	}
 
-	
+	/* find the first free mbox to read */
 	if ((xord & MSYNC_RB_MASK) == MSYNC_RB_MASK)
 		mbox = (xord & MSYNC_RBLW) ? MSYNC_RB0 : MSYNC_RB1;
 	else
 		mbox = (xord & MSYNC_RB0) ? MSYNC_RB0 : MSYNC_RB1;
 
-	
+	/* copy the message */
 	mbox_page = (mbox == MSYNC_RB0) ? QUEUE_OLD_RB0 : QUEUE_OLD_RB1;
 	ican3_set_page(mod, mbox_page);
 	memcpy_fromio(msg, mod->dpm, sizeof(*msg));
 
+	/*
+	 * notify the firmware that the read buffer is available
+	 * for it to fill again
+	 */
 	locl ^= mbox;
 
 	ican3_set_page(mod, QUEUE_OLD_CONTROL);
@@ -262,12 +318,19 @@ static int ican3_old_recv_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 	return 0;
 }
 
+/*
+ * Send a message through the "old-style" firmware interface
+ *
+ * LOCKING: must hold mod->lock
+ *
+ * returns 0 on success, -ENOMEM when no free space exists
+ */
 static int ican3_old_send_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 {
 	unsigned int mbox, mbox_page;
 	u8 locl, peer, xord;
 
-	
+	/* get the MSYNC registers */
 	ican3_set_page(mod, QUEUE_OLD_CONTROL);
 	peer = ioread8(mod->dpm + MSYNC_PEER);
 	locl = ioread8(mod->dpm + MSYNC_LOCL);
@@ -278,10 +341,10 @@ static int ican3_old_send_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 		return -ENOMEM;
 	}
 
-	
+	/* calculate a free mbox to use */
 	mbox = (xord & MSYNC_WB0) ? MSYNC_WB1 : MSYNC_WB0;
 
-	
+	/* copy the message to the DPM */
 	mbox_page = (mbox == MSYNC_WB0) ? QUEUE_OLD_WB0 : QUEUE_OLD_WB1;
 	ican3_set_page(mod, mbox_page);
 	memcpy_toio(mod->dpm, msg, sizeof(*msg));
@@ -295,6 +358,9 @@ static int ican3_old_send_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 	return 0;
 }
 
+/*
+ * ICAN3 "new-style" Host Interface Setup
+ */
 
 static void __devinit ican3_init_new_host_interface(struct ican3_dev *mod)
 {
@@ -305,20 +371,20 @@ static void __devinit ican3_init_new_host_interface(struct ican3_dev *mod)
 
 	spin_lock_irqsave(&mod->lock, flags);
 
-	
+	/* setup the internal datastructures for RX */
 	mod->rx_num = 0;
 	mod->rx_int = 0;
 
-	
+	/* tohost queue descriptors are in page 5 */
 	ican3_set_page(mod, QUEUE_TOHOST);
 	dst = mod->dpm;
 
-	
+	/* initialize the tohost (rx) queue descriptors: pages 9-24 */
 	for (i = 0; i < ICAN3_NEW_BUFFERS; i++) {
-		desc.control = DESC_INTERRUPT | DESC_LEN(1); 
+		desc.control = DESC_INTERRUPT | DESC_LEN(1); /* I L=1 */
 		desc.pointer = mod->free_page;
 
-		
+		/* set wrap flag on last buffer */
 		if (i == ICAN3_NEW_BUFFERS - 1)
 			desc.control |= DESC_WRAP;
 
@@ -327,19 +393,19 @@ static void __devinit ican3_init_new_host_interface(struct ican3_dev *mod)
 		mod->free_page++;
 	}
 
-	
+	/* fromhost (tx) mid queue descriptors are in page 6 */
 	ican3_set_page(mod, QUEUE_FROMHOST_MID);
 	dst = mod->dpm;
 
-	
+	/* setup the internal datastructures for TX */
 	mod->tx_num = 0;
 
-	
+	/* initialize the fromhost mid queue descriptors: pages 25-40 */
 	for (i = 0; i < ICAN3_NEW_BUFFERS; i++) {
-		desc.control = DESC_VALID | DESC_LEN(1); 
+		desc.control = DESC_VALID | DESC_LEN(1); /* V L=1 */
 		desc.pointer = mod->free_page;
 
-		
+		/* set wrap flag on last buffer */
 		if (i == ICAN3_NEW_BUFFERS - 1)
 			desc.control |= DESC_WRAP;
 
@@ -348,22 +414,22 @@ static void __devinit ican3_init_new_host_interface(struct ican3_dev *mod)
 		mod->free_page++;
 	}
 
-	
+	/* fromhost hi queue descriptors are in page 7 */
 	ican3_set_page(mod, QUEUE_FROMHOST_HIGH);
 	dst = mod->dpm;
 
-	
-	desc.control = DESC_VALID | DESC_WRAP | DESC_LEN(1); 
+	/* initialize only a single buffer in the fromhost hi queue (unused) */
+	desc.control = DESC_VALID | DESC_WRAP | DESC_LEN(1); /* VW L=1 */
 	desc.pointer = mod->free_page;
 	memcpy_toio(dst, &desc, sizeof(desc));
 	mod->free_page++;
 
-	
+	/* fromhost low queue descriptors are in page 8 */
 	ican3_set_page(mod, QUEUE_FROMHOST_LOW);
 	dst = mod->dpm;
 
-	
-	desc.control = DESC_VALID | DESC_WRAP | DESC_LEN(1); 
+	/* initialize only a single buffer in the fromhost low queue (unused) */
+	desc.control = DESC_VALID | DESC_WRAP | DESC_LEN(1); /* VW L=1 */
 	desc.pointer = mod->free_page;
 	memcpy_toio(dst, &desc, sizeof(desc));
 	mod->free_page++;
@@ -371,6 +437,9 @@ static void __devinit ican3_init_new_host_interface(struct ican3_dev *mod)
 	spin_unlock_irqrestore(&mod->lock, flags);
 }
 
+/*
+ * ICAN3 Fast Host Interface Setup
+ */
 
 static void __devinit ican3_init_fast_host_interface(struct ican3_dev *mod)
 {
@@ -382,69 +451,69 @@ static void __devinit ican3_init_fast_host_interface(struct ican3_dev *mod)
 
 	spin_lock_irqsave(&mod->lock, flags);
 
-	
+	/* save the start recv page */
 	mod->fastrx_start = mod->free_page;
 	mod->fastrx_num = 0;
 	mod->fastrx_int = 0;
 
-	
+	/* build a single fast tohost queue descriptor */
 	memset(&desc, 0, sizeof(desc));
 	desc.control = 0x00;
 	desc.command = 1;
 
-	
+	/* build the tohost queue descriptor ring in memory */
 	addr = 0;
 	for (i = 0; i < ICAN3_RX_BUFFERS; i++) {
 
-		
+		/* set the wrap bit on the last buffer */
 		if (i == ICAN3_RX_BUFFERS - 1)
 			desc.control |= DESC_WRAP;
 
-		
+		/* switch to the correct page */
 		ican3_set_page(mod, mod->free_page);
 
-		
+		/* copy the descriptor to the DPM */
 		dst = mod->dpm + addr;
 		memcpy_toio(dst, &desc, sizeof(desc));
 		addr += sizeof(desc);
 
-		
+		/* move to the next page if necessary */
 		if (addr >= DPM_PAGE_SIZE) {
 			addr = 0;
 			mod->free_page++;
 		}
 	}
 
-	
+	/* make sure we page-align the next queue */
 	if (addr != 0)
 		mod->free_page++;
 
-	
+	/* save the start xmit page */
 	mod->fasttx_start = mod->free_page;
 	mod->fasttx_num = 0;
 
-	
+	/* build a single fast fromhost queue descriptor */
 	memset(&desc, 0, sizeof(desc));
 	desc.control = DESC_VALID;
 	desc.command = 1;
 
-	
+	/* build the fromhost queue descriptor ring in memory */
 	addr = 0;
 	for (i = 0; i < ICAN3_TX_BUFFERS; i++) {
 
-		
+		/* set the wrap bit on the last buffer */
 		if (i == ICAN3_TX_BUFFERS - 1)
 			desc.control |= DESC_WRAP;
 
-		
+		/* switch to the correct page */
 		ican3_set_page(mod, mod->free_page);
 
-		
+		/* copy the descriptor to the DPM */
 		dst = mod->dpm + addr;
 		memcpy_toio(dst, &desc, sizeof(desc));
 		addr += sizeof(desc);
 
-		
+		/* move to the next page if necessary */
 		if (addr >= DPM_PAGE_SIZE) {
 			addr = 0;
 			mod->free_page++;
@@ -454,13 +523,19 @@ static void __devinit ican3_init_fast_host_interface(struct ican3_dev *mod)
 	spin_unlock_irqrestore(&mod->lock, flags);
 }
 
+/*
+ * ICAN3 "new-style" Host Interface Message Helpers
+ */
 
+/*
+ * LOCKING: must hold mod->lock
+ */
 static int ican3_new_send_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 {
 	struct ican3_new_desc desc;
 	void __iomem *desc_addr = mod->dpm + (mod->tx_num * sizeof(desc));
 
-	
+	/* switch to the fromhost mid queue, and read the buffer descriptor */
 	ican3_set_page(mod, QUEUE_FROMHOST_MID);
 	memcpy_fromio(&desc, desc_addr, sizeof(desc));
 
@@ -469,26 +544,29 @@ static int ican3_new_send_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 		return -ENOMEM;
 	}
 
-	
+	/* switch to the data page, copy the data */
 	ican3_set_page(mod, desc.pointer);
 	memcpy_toio(mod->dpm, msg, sizeof(*msg));
 
-	
+	/* switch back to the descriptor, set the valid bit, write it back */
 	ican3_set_page(mod, QUEUE_FROMHOST_MID);
 	desc.control ^= DESC_VALID;
 	memcpy_toio(desc_addr, &desc, sizeof(desc));
 
-	
+	/* update the tx number */
 	mod->tx_num = (desc.control & DESC_WRAP) ? 0 : (mod->tx_num + 1);
 	return 0;
 }
 
+/*
+ * LOCKING: must hold mod->lock
+ */
 static int ican3_new_recv_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 {
 	struct ican3_new_desc desc;
 	void __iomem *desc_addr = mod->dpm + (mod->rx_num * sizeof(desc));
 
-	
+	/* switch to the tohost queue, and read the buffer descriptor */
 	ican3_set_page(mod, QUEUE_TOHOST);
 	memcpy_fromio(&desc, desc_addr, sizeof(desc));
 
@@ -497,20 +575,23 @@ static int ican3_new_recv_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 		return -ENOMEM;
 	}
 
-	
+	/* switch to the data page, copy the data */
 	ican3_set_page(mod, desc.pointer);
 	memcpy_fromio(msg, mod->dpm, sizeof(*msg));
 
-	
+	/* switch back to the descriptor, toggle the valid bit, write it back */
 	ican3_set_page(mod, QUEUE_TOHOST);
 	desc.control ^= DESC_VALID;
 	memcpy_toio(desc_addr, &desc, sizeof(desc));
 
-	
+	/* update the rx number */
 	mod->rx_num = (desc.control & DESC_WRAP) ? 0 : (mod->rx_num + 1);
 	return 0;
 }
 
+/*
+ * Message Send / Recv Helpers
+ */
 
 static int ican3_send_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 {
@@ -544,6 +625,9 @@ static int ican3_recv_msg(struct ican3_dev *mod, struct ican3_msg *msg)
 	return ret;
 }
 
+/*
+ * Quick Pre-constructed Messages
+ */
 
 static int __devinit ican3_msg_connect(struct ican3_dev *mod)
 {
@@ -576,14 +660,14 @@ static int __devinit ican3_msg_newhostif(struct ican3_dev *mod)
 	msg.spec = MSG_NEWHOSTIF;
 	msg.len = cpu_to_le16(0);
 
-	
+	/* If we're not using the old interface, switching seems bogus */
 	WARN_ON(mod->iftype != 0);
 
 	ret = ican3_send_msg(mod, &msg);
 	if (ret)
 		return ret;
 
-	
+	/* mark the module as using the new host interface */
 	mod->iftype = 1;
 	return 0;
 }
@@ -597,67 +681,74 @@ static int __devinit ican3_msg_fasthostif(struct ican3_dev *mod)
 	msg.spec = MSG_INITFDPMQUEUE;
 	msg.len = cpu_to_le16(8);
 
-	
+	/* write the tohost queue start address */
 	addr = DPM_PAGE_ADDR(mod->fastrx_start);
 	msg.data[0] = addr & 0xff;
 	msg.data[1] = (addr >> 8) & 0xff;
 	msg.data[2] = (addr >> 16) & 0xff;
 	msg.data[3] = (addr >> 24) & 0xff;
 
-	
+	/* write the fromhost queue start address */
 	addr = DPM_PAGE_ADDR(mod->fasttx_start);
 	msg.data[4] = addr & 0xff;
 	msg.data[5] = (addr >> 8) & 0xff;
 	msg.data[6] = (addr >> 16) & 0xff;
 	msg.data[7] = (addr >> 24) & 0xff;
 
-	
+	/* If we're not using the new interface yet, we cannot do this */
 	WARN_ON(mod->iftype != 1);
 
 	return ican3_send_msg(mod, &msg);
 }
 
+/*
+ * Setup the CAN filter to either accept or reject all
+ * messages from the CAN bus.
+ */
 static int __devinit ican3_set_id_filter(struct ican3_dev *mod, bool accept)
 {
 	struct ican3_msg msg;
 	int ret;
 
-	
+	/* Standard Frame Format */
 	memset(&msg, 0, sizeof(msg));
 	msg.spec = MSG_SETAFILMASK;
 	msg.len = cpu_to_le16(5);
-	msg.data[0] = 0x00; 
-	msg.data[1] = 0x00; 
-	msg.data[2] = 0xff; 
-	msg.data[3] = 0x07; 
+	msg.data[0] = 0x00; /* IDLo LSB */
+	msg.data[1] = 0x00; /* IDLo MSB */
+	msg.data[2] = 0xff; /* IDHi LSB */
+	msg.data[3] = 0x07; /* IDHi MSB */
 
-	
+	/* accept all frames for fast host if, or reject all frames */
 	msg.data[4] = accept ? SETAFILMASK_FASTIF : SETAFILMASK_REJECT;
 
 	ret = ican3_send_msg(mod, &msg);
 	if (ret)
 		return ret;
 
-	
+	/* Extended Frame Format */
 	memset(&msg, 0, sizeof(msg));
 	msg.spec = MSG_SETAFILMASK;
 	msg.len = cpu_to_le16(13);
-	msg.data[0] = 0;    
-	msg.data[1] = 0x00; 
+	msg.data[0] = 0;    /* MUX = 0 */
+	msg.data[1] = 0x00; /* IDLo LSB */
 	msg.data[2] = 0x00;
 	msg.data[3] = 0x00;
-	msg.data[4] = 0x20; 
-	msg.data[5] = 0xff; 
+	msg.data[4] = 0x20; /* IDLo MSB */
+	msg.data[5] = 0xff; /* IDHi LSB */
 	msg.data[6] = 0xff;
 	msg.data[7] = 0xff;
-	msg.data[8] = 0x3f; 
+	msg.data[8] = 0x3f; /* IDHi MSB */
 
-	
+	/* accept all frames for fast host if, or reject all frames */
 	msg.data[9] = accept ? SETAFILMASK_FASTIF : SETAFILMASK_REJECT;
 
 	return ican3_send_msg(mod, &msg);
 }
 
+/*
+ * Bring the CAN bus online or offline
+ */
 static int ican3_set_bus_state(struct ican3_dev *mod, bool on)
 {
 	struct ican3_msg msg;
@@ -708,6 +799,9 @@ static int ican3_set_buserror(struct ican3_dev *mod, u8 quota)
 	return ican3_send_msg(mod, &msg);
 }
 
+/*
+ * ICAN3 to Linux CAN Frame Conversion
+ */
 
 static void ican3_to_can_frame(struct ican3_dev *mod,
 			       struct ican3_fast_desc *desc,
@@ -728,13 +822,13 @@ static void ican3_to_can_frame(struct ican3_dev *mod,
 
 		if (desc->data[0] & ICAN3_EFF) {
 			cf->can_id |= CAN_EFF_FLAG;
-			cf->can_id |= desc->data[2] << 21; 
-			cf->can_id |= desc->data[3] << 13; 
-			cf->can_id |= desc->data[4] << 5;  
+			cf->can_id |= desc->data[2] << 21; /* 28-21 */
+			cf->can_id |= desc->data[3] << 13; /* 20-13 */
+			cf->can_id |= desc->data[4] << 5;  /* 12-5  */
 			cf->can_id |= (desc->data[5] & 0xf8) >> 3;
 		} else {
-			cf->can_id |= desc->data[2] << 3;  
-			cf->can_id |= desc->data[3] >> 5;  
+			cf->can_id |= desc->data[2] << 3;  /* 10-3  */
+			cf->can_id |= desc->data[3] >> 5;  /* 2-0   */
 		}
 
 		memcpy(cf->data, &desc->data[6], sizeof(cf->data));
@@ -745,10 +839,10 @@ static void can_frame_to_ican3(struct ican3_dev *mod,
 			       struct can_frame *cf,
 			       struct ican3_fast_desc *desc)
 {
-	
+	/* clear out any stale data in the descriptor */
 	memset(desc->data, 0, sizeof(desc->data));
 
-	
+	/* we always use the extended format, with the ECHO flag set */
 	desc->command = ICAN3_CAN_TYPE_EFF;
 	desc->data[0] |= cf->can_dlc;
 	desc->data[1] |= ICAN3_ECHO;
@@ -756,23 +850,31 @@ static void can_frame_to_ican3(struct ican3_dev *mod,
 	if (cf->can_id & CAN_RTR_FLAG)
 		desc->data[0] |= ICAN3_EFF_RTR;
 
-	
+	/* pack the id into the correct places */
 	if (cf->can_id & CAN_EFF_FLAG) {
 		desc->data[0] |= ICAN3_EFF;
-		desc->data[2] = (cf->can_id & 0x1fe00000) >> 21; 
-		desc->data[3] = (cf->can_id & 0x001fe000) >> 13; 
-		desc->data[4] = (cf->can_id & 0x00001fe0) >> 5;  
-		desc->data[5] = (cf->can_id & 0x0000001f) << 3;  
+		desc->data[2] = (cf->can_id & 0x1fe00000) >> 21; /* 28-21 */
+		desc->data[3] = (cf->can_id & 0x001fe000) >> 13; /* 20-13 */
+		desc->data[4] = (cf->can_id & 0x00001fe0) >> 5;  /* 12-5  */
+		desc->data[5] = (cf->can_id & 0x0000001f) << 3;  /* 4-0   */
 	} else {
-		desc->data[2] = (cf->can_id & 0x7F8) >> 3; 
-		desc->data[3] = (cf->can_id & 0x007) << 5; 
+		desc->data[2] = (cf->can_id & 0x7F8) >> 3; /* bits 10-3 */
+		desc->data[3] = (cf->can_id & 0x007) << 5; /* bits 2-0  */
 	}
 
-	
+	/* copy the data bits into the descriptor */
 	memcpy(&desc->data[6], cf->data, sizeof(cf->data));
 }
 
+/*
+ * Interrupt Handling
+ */
 
+/*
+ * Handle an ID + Version message response from the firmware. We never generate
+ * this message in production code, but it is very useful when debugging to be
+ * able to display this message.
+ */
 static void ican3_handle_idvers(struct ican3_dev *mod, struct ican3_msg *msg)
 {
 	dev_dbg(mod->dev, "IDVERS response: %s\n", msg->data);
@@ -785,11 +887,24 @@ static void ican3_handle_msglost(struct ican3_dev *mod, struct ican3_msg *msg)
 	struct can_frame *cf;
 	struct sk_buff *skb;
 
+	/*
+	 * Report that communication messages with the microcontroller firmware
+	 * are being lost. These are never CAN frames, so we do not generate an
+	 * error frame for userspace
+	 */
 	if (msg->spec == MSG_MSGLOST) {
 		dev_err(mod->dev, "lost %d control messages\n", msg->data[0]);
 		return;
 	}
 
+	/*
+	 * Oops, this indicates that we have lost messages in the fast queue,
+	 * which are exclusively CAN messages. Our driver isn't reading CAN
+	 * frames fast enough.
+	 *
+	 * We'll pretend that the SJA1000 told us that it ran out of buffer
+	 * space, because there is not a better message for this.
+	 */
 	skb = alloc_can_err_skb(dev, &cf);
 	if (skb) {
 		cf->can_id |= CAN_ERR_CRTL;
@@ -800,6 +915,13 @@ static void ican3_handle_msglost(struct ican3_dev *mod, struct ican3_msg *msg)
 	}
 }
 
+/*
+ * Handle CAN Event Indication Messages from the firmware
+ *
+ * The ICAN3 firmware provides the values of some SJA1000 registers when it
+ * generates this message. The code below is largely copied from the
+ * drivers/net/can/sja1000/sja1000.c file, and adapted as necessary
+ */
 static int ican3_handle_cevtind(struct ican3_dev *mod, struct ican3_msg *msg)
 {
 	struct net_device *dev = mod->ndev;
@@ -809,13 +931,13 @@ static int ican3_handle_cevtind(struct ican3_dev *mod, struct ican3_msg *msg)
 	struct can_frame *cf;
 	struct sk_buff *skb;
 
-	
+	/* we can only handle the SJA1000 part */
 	if (msg->data[1] != CEVTIND_CHIP_SJA1000) {
 		dev_err(mod->dev, "unable to handle errors on non-SJA1000\n");
 		return -ENODEV;
 	}
 
-	
+	/* check the message length for sanity */
 	if (le16_to_cpu(msg->len) < 6) {
 		dev_err(mod->dev, "error message too short\n");
 		return -EINVAL;
@@ -830,7 +952,7 @@ static int ican3_handle_cevtind(struct ican3_dev *mod, struct ican3_msg *msg)
 	rxerr = msg->data[4];
 	txerr = msg->data[5];
 
-	
+	/* data overrun interrupt */
 	if (isrc == CEVTIND_DOI || isrc == CEVTIND_LOST) {
 		dev_dbg(mod->dev, "data overrun interrupt\n");
 		cf->can_id |= CAN_ERR_CRTL;
@@ -839,7 +961,7 @@ static int ican3_handle_cevtind(struct ican3_dev *mod, struct ican3_msg *msg)
 		stats->rx_errors++;
 	}
 
-	
+	/* error warning + passive interrupt */
 	if (isrc == CEVTIND_EI) {
 		dev_dbg(mod->dev, "error warning + passive interrupt\n");
 		if (status & SR_BS) {
@@ -856,7 +978,7 @@ static int ican3_handle_cevtind(struct ican3_dev *mod, struct ican3_msg *msg)
 		}
 	}
 
-	
+	/* bus error interrupt */
 	if (isrc == CEVTIND_BEI) {
 		u8 ecc = msg->data[2];
 
@@ -940,6 +1062,9 @@ static void ican3_handle_unknown_message(struct ican3_dev *mod,
 			   msg->spec, le16_to_cpu(msg->len));
 }
 
+/*
+ * Handle a control message from the firmware
+ */
 static void ican3_handle_message(struct ican3_dev *mod, struct ican3_msg *msg)
 {
 	dev_dbg(mod->dev, "%s: modno %d spec 0x%.2x len %d bytes\n", __func__,
@@ -965,23 +1090,33 @@ static void ican3_handle_message(struct ican3_dev *mod, struct ican3_msg *msg)
 	}
 }
 
+/*
+ * Check that there is room in the TX ring to transmit another skb
+ *
+ * LOCKING: must hold mod->lock
+ */
 static bool ican3_txok(struct ican3_dev *mod)
 {
 	struct ican3_fast_desc __iomem *desc;
 	u8 control;
 
-	
+	/* copy the control bits of the descriptor */
 	ican3_set_page(mod, mod->fasttx_start + (mod->fasttx_num / 16));
 	desc = mod->dpm + ((mod->fasttx_num % 16) * sizeof(*desc));
 	control = ioread8(&desc->control);
 
-	
+	/* if the control bits are not valid, then we have no more space */
 	if (!(control & DESC_VALID))
 		return false;
 
 	return true;
 }
 
+/*
+ * Receive one CAN frame from the hardware
+ *
+ * CONTEXT: must be called from user context
+ */
 static int ican3_recv_skb(struct ican3_dev *mod)
 {
 	struct net_device *ndev = mod->ndev;
@@ -994,34 +1129,34 @@ static int ican3_recv_skb(struct ican3_dev *mod)
 
 	spin_lock_irqsave(&mod->lock, flags);
 
-	
+	/* copy the whole descriptor */
 	ican3_set_page(mod, mod->fastrx_start + (mod->fastrx_num / 16));
 	desc_addr = mod->dpm + ((mod->fastrx_num % 16) * sizeof(desc));
 	memcpy_fromio(&desc, desc_addr, sizeof(desc));
 
 	spin_unlock_irqrestore(&mod->lock, flags);
 
-	
+	/* check that we actually have a CAN frame */
 	if (!(desc.control & DESC_VALID))
 		return -ENOBUFS;
 
-	
+	/* allocate an skb */
 	skb = alloc_can_skb(ndev, &cf);
 	if (unlikely(skb == NULL)) {
 		stats->rx_dropped++;
 		goto err_noalloc;
 	}
 
-	
+	/* convert the ICAN3 frame into Linux CAN format */
 	ican3_to_can_frame(mod, &desc, cf);
 
-	
+	/* receive the skb, update statistics */
 	netif_receive_skb(skb);
 	stats->rx_packets++;
 	stats->rx_bytes += cf->can_dlc;
 
 err_noalloc:
-	
+	/* toggle the valid bit and return the descriptor to the ring */
 	desc.control ^= DESC_VALID;
 
 	spin_lock_irqsave(&mod->lock, flags);
@@ -1029,11 +1164,11 @@ err_noalloc:
 	ican3_set_page(mod, mod->fastrx_start + (mod->fastrx_num / 16));
 	memcpy_toio(desc_addr, &desc, 1);
 
-	
+	/* update the next buffer pointer */
 	mod->fastrx_num = (desc.control & DESC_WRAP) ? 0
 						     : (mod->fastrx_num + 1);
 
-	
+	/* there are still more buffers to process */
 	spin_unlock_irqrestore(&mod->lock, flags);
 	return 0;
 }
@@ -1046,7 +1181,7 @@ static int ican3_napi(struct napi_struct *napi, int budget)
 	int received = 0;
 	int ret;
 
-	
+	/* process all communication messages */
 	while (true) {
 		ret = ican3_recv_msg(mod, &msg);
 		if (ret)
@@ -1055,7 +1190,7 @@ static int ican3_napi(struct napi_struct *napi, int budget)
 		ican3_handle_message(mod, &msg);
 	}
 
-	
+	/* process all CAN frames from the fast interface */
 	while (received < budget) {
 		ret = ican3_recv_skb(mod);
 		if (ret)
@@ -1064,18 +1199,20 @@ static int ican3_napi(struct napi_struct *napi, int budget)
 		received++;
 	}
 
+	/* We have processed all packets that the adapter had, but it
+	 * was less than our budget, stop polling */
 	if (received < budget)
 		napi_complete(napi);
 
 	spin_lock_irqsave(&mod->lock, flags);
 
-	
+	/* Wake up the transmit queue if necessary */
 	if (netif_queue_stopped(mod->ndev) && ican3_txok(mod))
 		netif_wake_queue(mod->ndev);
 
 	spin_unlock_irqrestore(&mod->lock, flags);
 
-	
+	/* re-enable interrupt generation */
 	iowrite8(1 << mod->num, &mod->ctrl->int_enable);
 	return received;
 }
@@ -1085,40 +1222,52 @@ static irqreturn_t ican3_irq(int irq, void *dev_id)
 	struct ican3_dev *mod = dev_id;
 	u8 stat;
 
+	/*
+	 * The interrupt status register on this device reports interrupts
+	 * as zeroes instead of using ones like most other devices
+	 */
 	stat = ioread8(&mod->ctrl->int_disable) & (1 << mod->num);
 	if (stat == (1 << mod->num))
 		return IRQ_NONE;
 
-	
+	/* clear the MODULbus interrupt from the microcontroller */
 	ioread8(&mod->dpmctrl->interrupt);
 
-	
+	/* disable interrupt generation, schedule the NAPI poller */
 	iowrite8(1 << mod->num, &mod->ctrl->int_disable);
 	napi_schedule(&mod->napi);
 	return IRQ_HANDLED;
 }
 
+/*
+ * Firmware reset, startup, and shutdown
+ */
 
+/*
+ * Reset an ICAN module to its power-on state
+ *
+ * CONTEXT: no network device registered
+ */
 static int ican3_reset_module(struct ican3_dev *mod)
 {
 	u8 val = 1 << mod->num;
 	unsigned long start;
 	u8 runold, runnew;
 
-	
+	/* disable interrupts so no more work is scheduled */
 	iowrite8(1 << mod->num, &mod->ctrl->int_disable);
 
-	
+	/* the first unallocated page in the DPM is #9 */
 	mod->free_page = DPM_FREE_START;
 
 	ican3_set_page(mod, QUEUE_OLD_CONTROL);
 	runold = ioread8(mod->dpm + TARGET_RUNNING);
 
-	
+	/* reset the module */
 	iowrite8(val, &mod->ctrl->reset_assert);
 	iowrite8(val, &mod->ctrl->reset_deassert);
 
-	
+	/* wait until the module has finished resetting and is running */
 	start = jiffies;
 	do {
 		ican3_set_page(mod, QUEUE_OLD_CONTROL);
@@ -1139,6 +1288,9 @@ static void __devexit ican3_shutdown_module(struct ican3_dev *mod)
 	ican3_reset_module(mod);
 }
 
+/*
+ * Startup an ICAN module, bringing it into fast mode
+ */
 static int __devinit ican3_startup_module(struct ican3_dev *mod)
 {
 	int ret;
@@ -1149,7 +1301,7 @@ static int __devinit ican3_startup_module(struct ican3_dev *mod)
 		return ret;
 	}
 
-	
+	/* re-enable interrupts so we can send messages */
 	iowrite8(1 << mod->num, &mod->ctrl->int_enable);
 
 	ret = ican3_msg_connect(mod);
@@ -1165,14 +1317,14 @@ static int __devinit ican3_startup_module(struct ican3_dev *mod)
 		return ret;
 	}
 
-	
+	/* default to "termination on" */
 	ret = ican3_set_termination(mod, true);
 	if (ret) {
 		dev_err(mod->dev, "unable to enable termination\n");
 		return ret;
 	}
 
-	
+	/* default to "bus errors enabled" */
 	ret = ican3_set_buserror(mod, ICAN3_BUSERR_QUOTA_MAX);
 	if (ret) {
 		dev_err(mod->dev, "unable to set bus-error\n");
@@ -1195,6 +1347,9 @@ static int __devinit ican3_startup_module(struct ican3_dev *mod)
 	return 0;
 }
 
+/*
+ * CAN Network Device
+ */
 
 static int ican3_open(struct net_device *ndev)
 {
@@ -1202,14 +1357,14 @@ static int ican3_open(struct net_device *ndev)
 	u8 quota;
 	int ret;
 
-	
+	/* open the CAN layer */
 	ret = open_candev(ndev);
 	if (ret) {
 		dev_err(mod->dev, "unable to start CAN layer\n");
 		return ret;
 	}
 
-	
+	/* set the bus error generation state appropriately */
 	if (mod->can.ctrlmode & CAN_CTRLMODE_BERR_REPORTING)
 		quota = ICAN3_BUSERR_QUOTA_MAX;
 	else
@@ -1222,7 +1377,7 @@ static int ican3_open(struct net_device *ndev)
 		return ret;
 	}
 
-	
+	/* bring the bus online */
 	ret = ican3_set_bus_state(mod, true);
 	if (ret) {
 		dev_err(mod->dev, "unable to set bus-on\n");
@@ -1230,7 +1385,7 @@ static int ican3_open(struct net_device *ndev)
 		return ret;
 	}
 
-	
+	/* start up the network device */
 	mod->can.state = CAN_STATE_ERROR_ACTIVE;
 	netif_start_queue(ndev);
 
@@ -1242,18 +1397,18 @@ static int ican3_stop(struct net_device *ndev)
 	struct ican3_dev *mod = netdev_priv(ndev);
 	int ret;
 
-	
+	/* stop the network device xmit routine */
 	netif_stop_queue(ndev);
 	mod->can.state = CAN_STATE_STOPPED;
 
-	
+	/* bring the bus offline, stop receiving packets */
 	ret = ican3_set_bus_state(mod, false);
 	if (ret) {
 		dev_err(mod->dev, "unable to set bus-off\n");
 		return ret;
 	}
 
-	
+	/* close the CAN layer */
 	close_candev(ndev);
 	return 0;
 }
@@ -1269,7 +1424,7 @@ static int ican3_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 	spin_lock_irqsave(&mod->lock, flags);
 
-	
+	/* check that we can actually transmit */
 	if (!ican3_txok(mod)) {
 		dev_err(mod->dev, "no free descriptors, stopping queue\n");
 		netif_stop_queue(ndev);
@@ -1277,35 +1432,46 @@ static int ican3_xmit(struct sk_buff *skb, struct net_device *ndev)
 		return NETDEV_TX_BUSY;
 	}
 
-	
+	/* copy the control bits of the descriptor */
 	ican3_set_page(mod, mod->fasttx_start + (mod->fasttx_num / 16));
 	desc_addr = mod->dpm + ((mod->fasttx_num % 16) * sizeof(desc));
 	memset(&desc, 0, sizeof(desc));
 	memcpy_fromio(&desc, desc_addr, 1);
 
-	
+	/* convert the Linux CAN frame into ICAN3 format */
 	can_frame_to_ican3(mod, cf, &desc);
 
+	/*
+	 * the programming manual says that you must set the IVALID bit, then
+	 * interrupt, then set the valid bit. Quite weird, but it seems to be
+	 * required for this to work
+	 */
 	desc.control |= DESC_IVALID;
 	memcpy_toio(desc_addr, &desc, sizeof(desc));
 
-	
+	/* generate a MODULbus interrupt to the microcontroller */
 	iowrite8(0x01, &mod->dpmctrl->interrupt);
 
 	desc.control ^= DESC_VALID;
 	memcpy_toio(desc_addr, &desc, sizeof(desc));
 
-	
+	/* update the next buffer pointer */
 	mod->fasttx_num = (desc.control & DESC_WRAP) ? 0
 						     : (mod->fasttx_num + 1);
 
-	
+	/* update statistics */
 	stats->tx_packets++;
 	stats->tx_bytes += cf->can_dlc;
 	kfree_skb(skb);
 
+	/*
+	 * This hardware doesn't have TX-done notifications, so we'll try and
+	 * emulate it the best we can using ECHO skbs. Get the next TX
+	 * descriptor, and see if we have room to send. If not, stop the queue.
+	 * It will be woken when the ECHO skb for the current packet is recv'd.
+	 */
 
-	
+	/* copy the control bits of the descriptor */
 	if (!ican3_txok(mod))
 		netif_stop_queue(ndev);
 
@@ -1319,7 +1485,11 @@ static const struct net_device_ops ican3_netdev_ops = {
 	.ndo_start_xmit	= ican3_xmit,
 };
 
+/*
+ * Low-level CAN Device
+ */
 
+/* This structure was stolen from drivers/net/can/sja1000/sja1000.c */
 static struct can_bittiming_const ican3_bittiming_const = {
 	.name = DRV_NAME,
 	.tseg1_min = 1,
@@ -1332,6 +1502,12 @@ static struct can_bittiming_const ican3_bittiming_const = {
 	.brp_inc = 1,
 };
 
+/*
+ * This routine was stolen from drivers/net/can/sja1000/sja1000.c
+ *
+ * The bittiming register command for the ICAN3 just sets the bit timing
+ * registers on the SJA1000 chip directly
+ */
 static int ican3_set_bittiming(struct net_device *ndev)
 {
 	struct ican3_dev *mod = netdev_priv(ndev);
@@ -1364,14 +1540,14 @@ static int ican3_set_mode(struct net_device *ndev, enum can_mode mode)
 	if (mode != CAN_MODE_START)
 		return -ENOTSUPP;
 
-	
+	/* bring the bus online */
 	ret = ican3_set_bus_state(mod, true);
 	if (ret) {
 		dev_err(mod->dev, "unable to set bus-on\n");
 		return ret;
 	}
 
-	
+	/* start up the network device */
 	mod->can.state = CAN_STATE_ERROR_ACTIVE;
 
 	if (netif_queue_stopped(ndev))
@@ -1401,6 +1577,9 @@ static int ican3_get_berr_counter(const struct net_device *ndev,
 	return 0;
 }
 
+/*
+ * Sysfs Attributes
+ */
 
 static ssize_t ican3_sysfs_show_term(struct device *dev,
 				     struct device_attribute *attr,
@@ -1452,6 +1631,9 @@ static struct attribute_group ican3_sysfs_attr_group = {
 	.attrs = ican3_sysfs_attrs,
 };
 
+/*
+ * PCI Subsystem
+ */
 
 static int __devinit ican3_probe(struct platform_device *pdev)
 {
@@ -1468,10 +1650,10 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 
 	dev_dbg(&pdev->dev, "probe: module number %d\n", pdata->modno);
 
-	
+	/* save the struct device for printing */
 	dev = &pdev->dev;
 
-	
+	/* allocate the CAN device and private data */
 	ndev = alloc_candev(sizeof(*mod), 0);
 	if (!ndev) {
 		dev_err(dev, "unable to allocate CANdev\n");
@@ -1489,10 +1671,10 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 	init_completion(&mod->termination_comp);
 	init_completion(&mod->buserror_comp);
 
-	
+	/* setup device-specific sysfs attributes */
 	ndev->sysfs_groups[0] = &ican3_sysfs_attr_group;
 
-	
+	/* the first unallocated page in the DPM is 9 */
 	mod->free_page = DPM_FREE_START;
 
 	ndev->netdev_ops = &ican3_netdev_ops;
@@ -1507,7 +1689,7 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 	mod->can.ctrlmode_supported = CAN_CTRLMODE_3_SAMPLES
 				    | CAN_CTRLMODE_BERR_REPORTING;
 
-	
+	/* find our IRQ number */
 	mod->irq = platform_get_irq(pdev, 0);
 	if (mod->irq < 0) {
 		dev_err(dev, "IRQ line not found\n");
@@ -1517,7 +1699,7 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 
 	ndev->irq = mod->irq;
 
-	
+	/* get access to the MODULbus registers for this module */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(dev, "MODULbus registers not found\n");
@@ -1534,7 +1716,7 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 
 	mod->dpmctrl = mod->dpm + DPM_PAGE_SIZE;
 
-	
+	/* get access to the control registers for this module */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (!res) {
 		dev_err(dev, "CONTROL registers not found\n");
@@ -1549,7 +1731,7 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 		goto out_iounmap_dpm;
 	}
 
-	
+	/* disable our IRQ, then hookup the IRQ handler */
 	iowrite8(1 << mod->num, &mod->ctrl->int_disable);
 	ret = request_irq(mod->irq, ican3_irq, IRQF_SHARED, DRV_NAME, mod);
 	if (ret) {
@@ -1557,7 +1739,7 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 		goto out_iounmap_ctrl;
 	}
 
-	
+	/* reset and initialize the CAN controller into fast mode */
 	napi_enable(&mod->napi);
 	ret = ican3_startup_module(mod);
 	if (ret) {
@@ -1565,7 +1747,7 @@ static int __devinit ican3_probe(struct platform_device *pdev)
 		goto out_free_irq;
 	}
 
-	
+	/* register with the Linux CAN layer */
 	ret = register_candev(ndev);
 	if (ret) {
 		dev_err(dev, "%s: unable to register CANdev\n", __func__);
@@ -1594,16 +1776,16 @@ static int __devexit ican3_remove(struct platform_device *pdev)
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct ican3_dev *mod = netdev_priv(ndev);
 
-	
+	/* unregister the netdevice, stop interrupts */
 	unregister_netdev(ndev);
 	napi_disable(&mod->napi);
 	iowrite8(1 << mod->num, &mod->ctrl->int_disable);
 	free_irq(mod->irq, mod);
 
-	
+	/* put the module into reset */
 	ican3_shutdown_module(mod);
 
-	
+	/* unmap all registers */
 	iounmap(mod->ctrl);
 	iounmap(mod->dpm);
 

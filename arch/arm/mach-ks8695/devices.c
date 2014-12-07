@@ -31,6 +31,9 @@
 #include <mach/regs-misc.h>
 
 
+/* --------------------------------------------------------------------
+ *  Ethernet
+ * -------------------------------------------------------------------- */
 
 static u64 eth_dmamask = 0xffffffffUL;
 
@@ -163,6 +166,9 @@ void __init ks8696_add_device_hpna(void)
 }
 
 
+/* --------------------------------------------------------------------
+ *  Watchdog
+ * -------------------------------------------------------------------- */
 
 static struct platform_device ks8695_wdt_device = {
 	.name		= "ks8695_wdt",
@@ -176,6 +182,9 @@ static void __init ks8695_add_device_watchdog(void)
 }
 
 
+/* --------------------------------------------------------------------
+ *  LEDs
+ * -------------------------------------------------------------------- */
 
 #if defined(CONFIG_LEDS)
 short ks8695_leds_cpu = -1;
@@ -183,7 +192,7 @@ short ks8695_leds_timer = -1;
 
 void __init ks8695_init_leds(u8 cpu_led, u8 timer_led)
 {
-	
+	/* Enable GPIO to access the LEDs */
 	gpio_direction_output(cpu_led, 1);
 	gpio_direction_output(timer_led, 1);
 
@@ -194,7 +203,12 @@ void __init ks8695_init_leds(u8 cpu_led, u8 timer_led)
 void __init ks8695_init_leds(u8 cpu_led, u8 timer_led) {}
 #endif
 
+/* -------------------------------------------------------------------- */
 
+/*
+ * These devices are always present and don't need any board-specific
+ * setup.
+ */
 static int __init ks8695_add_standard_devices(void)
 {
 	ks8695_add_device_watchdog();

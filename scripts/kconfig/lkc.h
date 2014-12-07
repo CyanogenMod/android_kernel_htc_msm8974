@@ -74,6 +74,7 @@ void zconf_nextfile(const char *name);
 int zconf_lineno(void);
 const char *zconf_curname(void);
 
+/* confdata.c */
 const char *conf_get_configname(void);
 const char *conf_get_autoconfig_name(void);
 char *conf_get_default_confname(void);
@@ -86,6 +87,7 @@ struct conf_printer {
 	void (*print_comment)(FILE *, const char *, void *);
 };
 
+/* confdata.c and expr.c */
 static inline void xfwrite(const void *str, size_t len, size_t count, FILE *out)
 {
 	assert(len != 0);
@@ -94,6 +96,7 @@ static inline void xfwrite(const void *str, size_t len, size_t count, FILE *out)
 		fprintf(stderr, "Error in writing or end of file.\n");
 }
 
+/* menu.c */
 void _menu_init(void);
 void menu_warn(struct menu *menu, const char *fmt, ...);
 struct menu *menu_add_menu(void);
@@ -110,12 +113,17 @@ void menu_add_option(int token, char *arg);
 void menu_finalize(struct menu *parent);
 void menu_set_type(int type);
 
+/* util.c */
 struct file *file_lookup(const char *name);
 int file_write_dep(const char *name);
 
 struct gstr {
 	size_t len;
 	char  *s;
+	/*
+	* when max_width is not zero long lines in string s (if any) get
+	* wrapped not to exceed the max_width value
+	*/
 	int max_width;
 };
 struct gstr str_new(void);
@@ -125,6 +133,7 @@ void str_append(struct gstr *gs, const char *s);
 void str_printf(struct gstr *gs, const char *fmt, ...);
 const char *str_get(struct gstr *gs);
 
+/* symbol.c */
 extern struct expr *sym_env_list;
 
 void sym_init(void);
@@ -178,4 +187,4 @@ static inline bool sym_has_value(struct symbol *sym)
 }
 #endif
 
-#endif 
+#endif /* LKC_H */

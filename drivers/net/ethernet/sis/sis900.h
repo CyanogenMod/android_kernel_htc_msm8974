@@ -10,48 +10,54 @@
  *   http://www.sis.com.tw/support/databook.htm
  */
 
+/*
+ * SiS 7016 and SiS 900 ethernet controller registers
+ */
 
+/* The I/O extent, SiS 900 needs 256 bytes of io address */
 #define SIS900_TOTAL_SIZE 0x100
 
+/* Symbolic offsets to registers. */
 enum sis900_registers {
-	cr=0x0,                 
-	cfg=0x4,                
-	mear=0x8,               
-	ptscr=0xc,              
-	isr=0x10,               
-	imr=0x14,               
-	ier=0x18,               
-	epar=0x18,              
-	txdp=0x20,              
-        txcfg=0x24,             
-        rxdp=0x30,              
-        rxcfg=0x34,             
-        flctrl=0x38,            
-        rxlen=0x3c,             
-        rfcr=0x48,              
-        rfdr=0x4C,              
-        pmctrl=0xB0,            
-        pmer=0xB4               
+	cr=0x0,                 //Command Register
+	cfg=0x4,                //Configuration Register
+	mear=0x8,               //EEPROM Access Register
+	ptscr=0xc,              //PCI Test Control Register
+	isr=0x10,               //Interrupt Status Register
+	imr=0x14,               //Interrupt Mask Register
+	ier=0x18,               //Interrupt Enable Register
+	epar=0x18,              //Enhanced PHY Access Register
+	txdp=0x20,              //Transmit Descriptor Pointer Register
+        txcfg=0x24,             //Transmit Configuration Register
+        rxdp=0x30,              //Receive Descriptor Pointer Register
+        rxcfg=0x34,             //Receive Configuration Register
+        flctrl=0x38,            //Flow Control Register
+        rxlen=0x3c,             //Receive Packet Length Register
+        rfcr=0x48,              //Receive Filter Control Register
+        rfdr=0x4C,              //Receive Filter Data Register
+        pmctrl=0xB0,            //Power Management Control Register
+        pmer=0xB4               //Power Management Wake-up Event Register
 };
 
+/* Symbolic names for bits in various registers */
 enum sis900_command_register_bits {
-	RELOAD  = 0x00000400, ACCESSMODE = 0x00000200,
+	RELOAD  = 0x00000400, ACCESSMODE = 0x00000200,/* ET */
 	RESET   = 0x00000100, SWI = 0x00000080, RxRESET = 0x00000020,
 	TxRESET = 0x00000010, RxDIS = 0x00000008, RxENA = 0x00000004,
 	TxDIS   = 0x00000002, TxENA = 0x00000001
 };
 
 enum sis900_configuration_register_bits {
-	DESCRFMT = 0x00000100 , REQALG = 0x00000080,
+	DESCRFMT = 0x00000100 /* 7016 specific */, REQALG = 0x00000080,
 	SB    = 0x00000040, POW = 0x00000020, EXD = 0x00000010,
 	PESEL = 0x00000008, LPM = 0x00000004, BEM = 0x00000001,
-	
+	/* 635 & 900B Specific */
 	RND_CNT = 0x00000400, FAIR_BACKOFF = 0x00000200,
 	EDB_MASTER_EN = 0x00002000
 };
 
 enum sis900_eeprom_access_reigster_bits {
-	MDC  = 0x00000040, MDDIR = 0x00000020, MDIO = 0x00000010, 
+	MDC  = 0x00000040, MDDIR = 0x00000020, MDIO = 0x00000010, /* 7016 specific */
 	EECS = 0x00000008, EECLK = 0x00000004, EEDO = 0x00000002,
 	EEDI = 0x00000001
 };
@@ -71,7 +77,8 @@ enum sis900_interrupt_enable_reigster_bits {
 	IE = 0x00000001
 };
 
-#define MAX_DMA_RANGE	7	
+/* maximum dma burst for transmission and receive */
+#define MAX_DMA_RANGE	7	/* actually 0 means MAXIMUM !! */
 #define TxMXDMA_shift   	20
 #define RxMXDMA_shift    20
 
@@ -79,11 +86,12 @@ enum sis900_tx_rx_dma{
 	DMA_BURST_512 = 0,	DMA_BURST_64 = 5
 };
 
-#define TX_FILL_THRESH   16	
+/* transmit FIFO thresholds */
+#define TX_FILL_THRESH   16	/* 1/4 FIFO size */
 #define TxFILLT_shift   	8
 #define TxDRNT_shift    	0
-#define TxDRNT_100      	48	
-#define TxDRNT_10		16 	
+#define TxDRNT_100      	48	/* 3/4 FIFO size */
+#define TxDRNT_10		16 	/* 1/2 FIFO size */
 
 enum sis900_transmit_config_register_bits {
 	TxCSI = 0x80000000, TxHBI = 0x40000000, TxMLB = 0x20000000,
@@ -91,9 +99,10 @@ enum sis900_transmit_config_register_bits {
 	TxDRNT = 0x0000003F
 };
 
+/* recevie FIFO thresholds */
 #define RxDRNT_shift     1
-#define RxDRNT_100	16	
-#define RxDRNT_10		24 	
+#define RxDRNT_100	16	/* 1/2 FIFO size */
+#define RxDRNT_10		24 	/* 3/4 FIFO size */
 
 enum sis900_reveive_config_register_bits {
 	RxAEP  = 0x80000000, RxARP = 0x40000000, RxATX = 0x10000000,
@@ -112,11 +121,13 @@ enum sis900_reveive_filter_data_mask {
 	RFDAT =  0x0000FFFF
 };
 
+/* EEPROM Addresses */
 enum sis900_eeprom_address {
 	EEPROMSignature = 0x00, EEPROMVendorID = 0x02, EEPROMDeviceID = 0x03,
 	EEPROMMACAddr   = 0x08, EEPROMChecksum = 0x0b
 };
 
+/* The EEPROM commands include the alway-set leading bit. Refer to NM93Cxx datasheet */
 enum sis900_eeprom_command {
 	EEread     = 0x0180, EEwrite    = 0x0140, EEerase = 0x01C0,
 	EEwriteEnable = 0x0130, EEwriteDisable = 0x0100,
@@ -124,15 +135,18 @@ enum sis900_eeprom_command {
 	EEaddrMask = 0x013F, EEcmdShift = 16
 };
 
+/* For SiS962 or SiS963, request the eeprom software access */
 enum sis96x_eeprom_command {
 	EEREQ = 0x00000400, EEDONE = 0x00000200, EEGNT = 0x00000100
 };
 
+/* PCI Registers */
 enum sis900_pci_registers {
 	CFGPMC 	 = 0x40,
 	CFGPMCSR = 0x44
 };
 
+/* Power management capabilities bits */
 enum sis900_cfgpmc_register_bits {
 	PMVER	= 0x00070000,
 	DSI	= 0x00100000,
@@ -147,12 +161,14 @@ enum sis900_pmesp_bits {
 	PME_D3C = 0x10
 };
 
+/* Power management control/status bits */
 enum sis900_cfgpmcsr_register_bits {
 	PMESTS = 0x00004000,
-	PME_EN = 0x00000100, 
-	PWR_STA = 0x00000003 
+	PME_EN = 0x00000100, // Power management enable
+	PWR_STA = 0x00000003 // Current power state
 };
 
+/* Wake-on-LAN support. */
 enum sis900_power_management_control_register_bits {
 	LINKLOSS  = 0x00000001,
 	LINKON    = 0x00000002,
@@ -168,6 +184,7 @@ enum sis900_power_management_control_register_bits {
 	GATECLK   = 0x80000000
 };
 
+/* Management Data I/O (mdio) frame */
 #define MIIread         0x6000
 #define MIIwrite        0x5002
 #define MIIpmdShift     7
@@ -175,11 +192,13 @@ enum sis900_power_management_control_register_bits {
 #define MIIcmdLen       16
 #define MIIcmdShift     16
 
+/* Buffer Descriptor Status*/
 enum sis900_buffer_status {
 	OWN    = 0x80000000, MORE   = 0x40000000, INTR = 0x20000000,
 	SUPCRC = 0x10000000, INCCRC = 0x10000000,
 	OK     = 0x08000000, DSIZE  = 0x00000FFF
 };
+/* Status for TX Buffers */
 enum sis900_tx_buffer_status {
 	ABORT   = 0x04000000, UNDERRUN = 0x02000000, NOCARRIER = 0x01000000,
 	DEFERD  = 0x00800000, EXCDEFER = 0x00400000, OWCOLL    = 0x00200000,
@@ -193,26 +212,31 @@ enum sis900_rx_buffer_status {
 	FAERR   = 0x00040000, LOOPBK   = 0x00020000, RXCOL   = 0x00010000
 };
 
+/* MII register offsets */
 enum mii_registers {
 	MII_CONTROL = 0x0000, MII_STATUS = 0x0001, MII_PHY_ID0 = 0x0002,
 	MII_PHY_ID1 = 0x0003, MII_ANADV  = 0x0004, MII_ANLPAR  = 0x0005,
 	MII_ANEXT   = 0x0006
 };
 
+/* mii registers specific to SiS 900 */
 enum sis_mii_registers {
 	MII_CONFIG1 = 0x0010, MII_CONFIG2 = 0x0011, MII_STSOUT = 0x0012,
 	MII_MASK    = 0x0013, MII_RESV    = 0x0014
 };
 
+/* mii registers specific to ICS 1893 */
 enum ics_mii_registers {
 	MII_EXTCTRL  = 0x0010, MII_QPDSTS = 0x0011, MII_10BTOP = 0x0012,
 	MII_EXTCTRL2 = 0x0013
 };
 
+/* mii registers specific to AMD 79C901 */
 enum amd_mii_registers {
 	MII_STATUS_SUMMARY = 0x0018
 };
 
+/* MII Control register bit definitions. */
 enum mii_control_register_bits {
 	MII_CNTL_FDX     = 0x0100, MII_CNTL_RST_AUTO = 0x0200,
 	MII_CNTL_ISOLATE = 0x0400, MII_CNTL_PWRDWN   = 0x0800,
@@ -220,6 +244,7 @@ enum mii_control_register_bits {
 	MII_CNTL_LPBK    = 0x4000, MII_CNTL_RESET    = 0x8000
 };
 
+/* MII Status register bit  */
 enum mii_status_register_bits {
 	MII_STAT_EXT    = 0x0001, MII_STAT_JAB        = 0x0002,
 	MII_STAT_LINK   = 0x0004, MII_STAT_CAN_AUTO   = 0x0008,
@@ -229,10 +254,13 @@ enum mii_status_register_bits {
 	MII_STAT_CAN_T4 = 0x8000
 };
 
-#define		MII_ID1_OUI_LO		0xFC00	
-#define		MII_ID1_MODEL		0x03F0	
-#define		MII_ID1_REV		0x000F	
+#define		MII_ID1_OUI_LO		0xFC00	/* low bits of OUI mask */
+#define		MII_ID1_MODEL		0x03F0	/* model number */
+#define		MII_ID1_REV		0x000F	/* model number */
 
+/* MII NWAY Register Bits ...
+   valid for the ANAR (Auto-Negotiation Advertisement) and
+   ANLPAR (Auto-Negotiation Link Partner) registers */
 enum mii_nway_register_bits {
 	MII_NWAY_NODE_SEL = 0x001f, MII_NWAY_CSMA_CD = 0x0001,
 	MII_NWAY_T	  = 0x0020, MII_NWAY_T_FDX   = 0x0040,
@@ -286,15 +314,16 @@ enum sis630_revision_id {
 #define MAX_FRAME_SIZE  (1518 + 4)
 #else
 #define MAX_FRAME_SIZE  1518
-#endif 
+#endif /* CONFIG_VLAN_802_1Q */
 
 #define TX_BUF_SIZE     (MAX_FRAME_SIZE+18)
 #define RX_BUF_SIZE     (MAX_FRAME_SIZE+18)
 
-#define NUM_TX_DESC     16      	
-#define NUM_RX_DESC     16       	
+#define NUM_TX_DESC     16      	/* Number of Tx descriptor registers. */
+#define NUM_RX_DESC     16       	/* Number of Rx descriptor registers. */
 #define TX_TOTAL_SIZE	NUM_TX_DESC*sizeof(BufferDesc)
 #define RX_TOTAL_SIZE	NUM_RX_DESC*sizeof(BufferDesc)
 
+/* PCI stuff, should be move to pci.h */
 #define SIS630_VENDOR_ID        0x1039
 #define SIS630_DEVICE_ID        0x0630

@@ -65,12 +65,35 @@ static const struct proto_ops msm_ipc_proto_ops;
 static void *ipc_req_resp_log_txt;
 static void *ipc_ind_log_txt;
 
+/**
+ * msm_ipc_router_ipc_log() - Pass log data to IPC logging framework
+ * @tran:	Identifies the data to be a receive or send.
+ * @ipc_buf:	Buffer to extract the log data.
+ * @port_ptr:	IPC Router port corresponding to the current log data.
+ *
+ * This function builds the data the would be passed on to the IPC logging
+ * framework. The data that would be passed corresponds to the information
+ * that is exchanged between the IPC Router and user space modules during
+ * request/response/indication transactions.
+ */
 
 static void msm_ipc_router_ipc_log(uint8_t tran,
 			struct sk_buff *ipc_buf, struct msm_ipc_port *port_ptr)
 {
 	struct qmi_header *hdr = (struct qmi_header *)ipc_buf->data;
 
+	/*
+	 * IPC Logging format is as below:-
+	 * <Name>(Name of the User Space Process):
+	 * <PID> (PID of the user space process) :
+	 * <TID> (TID of the user space thread)  :
+	 * <User Space Module>(CLNT or  SERV)    :
+	 * <Opertaion Type> (Transmit)		 :
+	 * <Control Flag> (Req/Resp/Ind)	 :
+	 * <Transaction ID>			 :
+	 * <Message ID>				 :
+	 * <Message Length>			 :
+	 */
 	if (ipc_req_resp_log_txt &&
 		(((uint8_t) hdr->cntl_flag == QMI_REQUEST_CONTROL_FLAG) ||
 		((uint8_t) hdr->cntl_flag == QMI_RESPONSE_CONTROL_FLAG)) &&
@@ -592,6 +615,13 @@ static struct proto msm_ipc_proto = {
 	.obj_size       = sizeof(struct msm_ipc_sock),
 };
 
+/**
+ * msm_ipc_router_ipc_log_init() - Init function for IPC Logging
+ *
+ * Initialize the buffers to be used to provide the log information
+ * pertaining to the request, response and indication data flow that
+ * happens between user and kernel spaces.
+ */
 void msm_ipc_router_ipc_log_init(void)
 {
 	ipc_req_resp_log_txt =

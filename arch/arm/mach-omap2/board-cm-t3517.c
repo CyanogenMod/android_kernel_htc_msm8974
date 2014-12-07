@@ -208,28 +208,28 @@ static inline int cm_t3517_init_usbh(void)
 static struct mtd_partition cm_t3517_nand_partitions[] = {
 	{
 		.name           = "xloader",
-		.offset         = 0,			
+		.offset         = 0,			/* Offset = 0x00000 */
 		.size           = 4 * NAND_BLOCK_SIZE,
 		.mask_flags     = MTD_WRITEABLE
 	},
 	{
 		.name           = "uboot",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x80000 */
 		.size           = 15 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name           = "uboot environment",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x260000 */
 		.size           = 2 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name           = "linux",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x2A0000 */
 		.size           = 32 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name           = "rootfs",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x6A0000 */
 		.size           = MTDPART_SIZ_FULL,
 	},
 };
@@ -254,26 +254,26 @@ static struct omap_board_config_kernel cm_t3517_config[] __initdata = {
 
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
-	
+	/* GPIO186 - Green LED */
 	OMAP3_MUX(SYS_CLKOUT2, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
 
-	
-	
+	/* RTC GPIOs: */
+	/* IO - GPIO153 */
 	OMAP3_MUX(MCBSP4_DR, OMAP_MUX_MODE4 | OMAP_PIN_INPUT),
-	
+	/* WR# - GPIO154 */
 	OMAP3_MUX(MCBSP4_DX, OMAP_MUX_MODE4 | OMAP_PIN_INPUT),
-	
+	/* RD# - GPIO53 */
 	OMAP3_MUX(GPMC_NCS2, OMAP_MUX_MODE4 | OMAP_PIN_INPUT),
-	
+	/* CS# - GPIO163 */
 	OMAP3_MUX(UART3_CTS_RCTX, OMAP_MUX_MODE4 | OMAP_PIN_INPUT),
-	
+	/* CS EN - GPIO160 */
 	OMAP3_MUX(MCBSP_CLKS, OMAP_MUX_MODE4 | OMAP_PIN_INPUT),
 
-	
+	/* HSUSB1 RESET */
 	OMAP3_MUX(UART2_TX, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
-	
+	/* HSUSB2 RESET */
 	OMAP3_MUX(UART2_RX, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
-	
+	/* CM-T3517 USB HUB nRESET */
 	OMAP3_MUX(MCBSP4_CLKX, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
 
 	{ .reg_offset = OMAP_MUX_TERMINATOR },

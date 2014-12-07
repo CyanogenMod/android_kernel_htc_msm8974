@@ -43,7 +43,8 @@ module_param_named(debug_mask, debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP);
 	ANDROID_ALARM_RTC_WAKEUP_MASK | \
 	ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP_MASK)
 
-#define ANDROID_ALARM_SET_OLD               _IOW('a', 2, time_t) 
+/* support old usespace code */
+#define ANDROID_ALARM_SET_OLD               _IOW('a', 2, time_t) /* set alarm */
 #define ANDROID_ALARM_SET_AND_WAIT_OLD      _IOW('a', 3, time_t)
 
 static int alarm_opened;
@@ -127,7 +128,7 @@ from_old_alarm_set:
 		if (ANDROID_ALARM_BASE_CMD(cmd) != ANDROID_ALARM_SET_AND_WAIT(0)
 		    && cmd != ANDROID_ALARM_SET_AND_WAIT_OLD)
 			break;
-		
+		/* fall though */
 	case ANDROID_ALARM_WAIT:
 		spin_lock_irqsave(&alarm_slock, flags);
 		pr_alarm(IO, "alarm wait\n");
@@ -246,10 +247,11 @@ static void alarm_triggered(struct alarm *alarm)
 	spin_unlock_irqrestore(&alarm_slock, flags);
 }
 
+/* For off-mode alarm */
 static int offalarm_enabled;
 int htc_is_offalarm_enabled(void)
 {
-#if 0 
+#if 0 /* no check cid since Sense 5 */
 	return offalarm_enabled;
 #else
 	return 1;

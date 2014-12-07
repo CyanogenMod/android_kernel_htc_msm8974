@@ -72,21 +72,23 @@ MODULE_PARM_DESC(rmnet_data_ch, "RmNet data SMD channel");
 
 #define RMNET_TXN_MAX	 		2048
 
+/* QMI requests & responses buffer*/
 struct qmi_buf {
 	void *buf;
 	int len;
 	struct list_head list;
 };
 
+/* Control & data SMD channel private data */
 struct rmnet_smd_ch_info {
 	struct smd_channel 	*ch;
 	struct tasklet_struct	tx_tlet;
 	struct tasklet_struct	rx_tlet;
 #define CH_OPENED	0
 	unsigned long		flags;
-	
+	/* pending rx packet length */
 	atomic_t		rx_pkt;
-	
+	/* wait for smd open event*/
 	wait_queue_head_t	wait;
 };
 
@@ -100,12 +102,12 @@ struct rmnet_smd_dev {
 	struct usb_request 	*notify_req;
 
 	u8			ifc_id;
-	
+	/* QMI lists */
 	struct list_head	qmi_req_pool;
 	struct list_head	qmi_resp_pool;
 	struct list_head	qmi_req_q;
 	struct list_head	qmi_resp_q;
-	
+	/* Tx/Rx lists */
 	struct list_head 	tx_idle;
 	struct list_head 	rx_idle;
 	struct list_head	rx_queue;
@@ -139,14 +141,15 @@ static struct rmnet_smd_dev *rmnet_smd;
 static struct usb_interface_descriptor rmnet_smd_interface_desc = {
 	.bLength =		USB_DT_INTERFACE_SIZE,
 	.bDescriptorType =	USB_DT_INTERFACE,
-	
+	/* .bInterfaceNumber = DYNAMIC */
 	.bNumEndpoints =	3,
 	.bInterfaceClass =	USB_CLASS_VENDOR_SPEC,
 	.bInterfaceSubClass =	USB_CLASS_VENDOR_SPEC,
 	.bInterfaceProtocol =	USB_CLASS_VENDOR_SPEC,
-	
+	/* .iInterface = DYNAMIC */
 };
 
+/* Full speed support */
 static struct usb_endpoint_descriptor rmnet_smd_fs_notify_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -181,6 +184,7 @@ static struct usb_descriptor_header *rmnet_smd_fs_function[] = {
 	NULL,
 };
 
+/* High speed support */
 static struct usb_endpoint_descriptor rmnet_smd_hs_notify_desc  = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -215,14 +219,15 @@ static struct usb_descriptor_header *rmnet_smd_hs_function[] = {
 	NULL,
 };
 
+/* String descriptors */
 
 static struct usb_string rmnet_smd_string_defs[] = {
 	[0].s = "QMI RmNet",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings rmnet_smd_string_table = {
-	.language =		0x0409,	
+	.language =		0x0409,	/* en-us */
 	.strings =		rmnet_smd_string_defs,
 };
 
@@ -253,6 +258,10 @@ static void rmnet_smd_free_qmi(struct qmi_buf *qmi)
 	kfree(qmi->buf);
 	kfree(qmi);
 }
+/*
+ * Allocate a usb_request and its buffer.  Returns a pointer to the
+ * usb_request or a error code if there is an error.
+ */
 static struct usb_request *
 rmnet_smd_alloc_req(struct usb_ep *ep, unsigned len, gfp_t kmalloc_flags)
 {
@@ -272,6 +281,9 @@ rmnet_smd_alloc_req(struct usb_ep *ep, unsigned len, gfp_t kmalloc_flags)
 	return req ? req : ERR_PTR(-ENOMEM);
 }
 
+/*
+ * Free a usb_request and its buffer.
+ */
 static void rmnet_smd_free_req(struct usb_ep *ep, struct usb_request *req)
 {
 	kfree(req->buf);
@@ -288,16 +300,19 @@ static void rmnet_smd_notify_complete(struct usb_ep *ep,
 	switch (status) {
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		atomic_set(&dev->notify_count, 0);
 		break;
 	default:
 		ERROR(cdev, "rmnet notify ep error %d\n", status);
-		
+		/* FALLTHROUGH */
 	case 0:
 		if (ep != dev->epnotify)
 			break;
 
+		/* handle multiple pending QMI_RESPONSE_AVAILABLE
+		 * notifications by resending until we're done
+		 */
 		if (atomic_dec_and_test(&dev->notify_count))
 			break;
 
@@ -318,7 +333,7 @@ static void qmi_smd_response_available(struct rmnet_smd_dev *dev)
 	struct usb_cdc_notification	*event = req->buf;
 	int status;
 
-	
+	/* Response will be sent later */
 	if (atomic_inc_return(&dev->notify_count) != 1)
 		return;
 
@@ -336,6 +351,9 @@ static void qmi_smd_response_available(struct rmnet_smd_dev *dev)
 	}
 }
 
+/* TODO
+ * handle modem restart events
+ */
 static void rmnet_smd_event_notify(void *priv, unsigned event)
 {
 	struct rmnet_smd_ch_info *smd_info = priv;
@@ -356,10 +374,17 @@ static void rmnet_smd_event_notify(void *priv, unsigned event)
 		break;
 	}
 	case SMD_EVENT_OPEN:
+		/* usb endpoints are not enabled untill smd channels
+		 * are opened. wake up worker thread to continue
+		 * connection processing
+		 */
 		set_bit(CH_OPENED, &smd_info->flags);
 		wake_up(&smd_info->wait);
 		break;
 	case SMD_EVENT_CLOSE:
+		/* We will never come here.
+		 * reset flags after closing smd channel
+		 * */
 		clear_bit(CH_OPENED, &smd_info->flags);
 		break;
 	}
@@ -456,7 +481,7 @@ static void rmnet_smd_command_complete(struct usb_ep *ep,
 
 	spin_lock(&dev->lock);
 	dev->cpkts_from_host++;
-	
+	/* no pending control rx packet */
 	if (!atomic_read(&dev->smd_ctl.rx_pkt)) {
 		if (smd_write_avail(dev->smd_ctl.ch) < req->actual) {
 			atomic_set(&dev->smd_ctl.rx_pkt, req->actual);
@@ -464,7 +489,7 @@ static void rmnet_smd_command_complete(struct usb_ep *ep,
 		}
 		spin_unlock(&dev->lock);
 		ret = smd_write(dev->smd_ctl.ch, req->buf, req->actual);
-		
+		/* This should never happen */
 		if (ret != req->actual)
 			ERROR(cdev, "rmnet control smd write failed\n");
 		spin_lock(&dev->lock);
@@ -559,6 +584,15 @@ rmnet_smd_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 		break;
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 			| USB_CDC_REQ_SET_CONTROL_LINE_STATE:
+		/* This is a workaround for RmNet and is borrowed from the
+		 * CDC/ACM standard. The host driver will issue the above ACM
+		 * standard request to the RmNet interface in the following
+		 * scenario: Once the network adapter is disabled from device
+		 * manager, the above request will be sent from the qcusbnet
+		 * host driver, with DTR being '0'. Once network adapter is
+		 * enabled from device manager (or during enumeration), the
+		 * request will be sent with DTR being '1'.
+		 */
 		if (w_value & RMNET_SMD_ACM_CTRL_DTR)
 			ret = smd_tiocmset(dev->smd_ctl.ch, TIOCM_DTR, 0);
 		else
@@ -573,7 +607,7 @@ invalid:
 			w_value, w_index, w_length);
 	}
 
-	
+	/* respond with data transfer or status phase? */
 	if (ret >= 0) {
 		VDBG(cdev, "rmnet req%02x.%02x v%04x i%04x l%d\n",
 			ctrl->bRequestType, ctrl->bRequest,
@@ -692,10 +726,15 @@ static void rmnet_data_rx_tlet(unsigned long arg)
 	}
 	spin_unlock_irqrestore(&dev->lock, flags);
 
-	
+	/* We have free rx data requests. */
 	rmnet_smd_start_rx(dev);
 }
 
+/* If SMD has enough room to accommodate a data rx packet,
+ * write into SMD directly. Otherwise enqueue to rx_queue.
+ * We will not write into SMD directly untill rx_queue is
+ * empty to strictly follow the ordering requests.
+ */
 static void rmnet_smd_complete_epout(struct usb_ep *ep, struct usb_request *req)
 {
 	struct rmnet_smd_dev *dev = req->context;
@@ -705,17 +744,17 @@ static void rmnet_smd_complete_epout(struct usb_ep *ep, struct usb_request *req)
 
 	switch (status) {
 	case 0:
-		
+		/* normal completion */
 		break;
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		spin_lock(&dev->lock);
 		list_add_tail(&req->list, &dev->rx_idle);
 		spin_unlock(&dev->lock);
 		return;
 	default:
-		
+		/* unexpected failure */
 		ERROR(cdev, "RMNET %s response error %d, %d/%d\n",
 			ep->name, status,
 			req->actual, req->length);
@@ -734,10 +773,10 @@ static void rmnet_smd_complete_epout(struct usb_ep *ep, struct usb_request *req)
 		}
 		spin_unlock(&dev->lock);
 		ret = smd_write(dev->smd_data.ch, req->buf, req->actual);
-		
+		/* This should never happen */
 		if (ret != req->actual)
 			ERROR(cdev, "rmnet data smd write failed\n");
-		
+		/* Restart Rx */
 		spin_lock(&dev->lock);
 		dev->dpkts_to_modem++;
 		list_add_tail(&req->list, &dev->rx_idle);
@@ -760,14 +799,14 @@ static void rmnet_smd_complete_epin(struct usb_ep *ep, struct usb_request *req)
 	switch (status) {
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		spin_lock(&dev->lock);
 		list_add_tail(&req->list, &dev->tx_idle);
 		spin_unlock(&dev->lock);
 		break;
 	default:
 		ERROR(cdev, "rmnet data tx ep error %d\n", status);
-		
+		/* FALLTHROUGH */
 	case 0:
 		spin_lock(&dev->lock);
 		if (list_empty(&dev->tx_idle))
@@ -827,6 +866,9 @@ static void rmnet_smd_disconnect_work(struct work_struct *w)
 	}
 }
 
+/* SMD close may sleep
+ * schedule a work to close smd channels
+ */
 static void rmnet_smd_disable(struct usb_function *f)
 {
 	struct rmnet_smd_dev *dev = container_of(f, struct rmnet_smd_dev,
@@ -842,7 +884,7 @@ static void rmnet_smd_disable(struct usb_function *f)
 	usb_ep_fifo_flush(dev->epin);
 	usb_ep_disable(dev->epin);
 
-	
+	/* cleanup work */
 	queue_work(dev->wq, &dev->disconnect_work);
 }
 
@@ -853,11 +895,15 @@ static void rmnet_smd_connect_work(struct work_struct *w)
 	struct usb_composite_dev *cdev = dev->cdev;
 	int ret = 0;
 
-	
+	/* Control channel for QMI messages */
 	ret = smd_open(rmnet_ctl_ch, &dev->smd_ctl.ch,
 			&dev->smd_ctl, rmnet_smd_event_notify);
 	if (ret) {
 		ERROR(cdev, "Unable to open control smd channel: %d\n", ret);
+		/*
+		 * Register platform driver to be notified in case SMD channels
+		 * later becomes ready to be opened.
+		 */
 		if (!dev->is_pdrv_used) {
 			ret = platform_driver_register(&dev->pdrv);
 			if (ret)
@@ -871,7 +917,7 @@ static void rmnet_smd_connect_work(struct work_struct *w)
 	wait_event(dev->smd_ctl.wait, test_bit(CH_OPENED,
 				&dev->smd_ctl.flags));
 
-	
+	/* Data channel for network packets */
 	ret = smd_open(rmnet_data_ch, &dev->smd_data.ch,
 			&dev->smd_data, rmnet_smd_event_notify);
 	if (ret) {
@@ -883,7 +929,7 @@ static void rmnet_smd_connect_work(struct work_struct *w)
 				&dev->smd_data.flags));
 
 	atomic_set(&dev->online, 1);
-	
+	/* Queue Rx data requests */
 	rmnet_smd_start_rx(dev);
 }
 
@@ -896,6 +942,10 @@ static int rmnet_smd_ch_probe(struct platform_device *pdev)
 	return 0;
 }
 
+/* SMD open may sleep.
+ * Schedule a work to open smd channels and enable
+ * endpoints if smd channels are opened successfully.
+ */
 static int rmnet_smd_set_alt(struct usb_function *f,
 		unsigned intf, unsigned alt)
 {
@@ -904,7 +954,7 @@ static int rmnet_smd_set_alt(struct usb_function *f,
 	struct usb_composite_dev *cdev = dev->cdev;
 	int ret = 0;
 
-	
+	/* Enable epin endpoint */
 	ret = config_ep_by_speed(cdev->gadget, f, dev->epin);
 	if (ret) {
 		dev->epin->desc = NULL;
@@ -919,7 +969,7 @@ static int rmnet_smd_set_alt(struct usb_function *f,
 		return ret;
 	}
 
-	
+	/* Enable epout endpoint */
 	ret = config_ep_by_speed(cdev->gadget, f, dev->epout);
 	if (ret) {
 		dev->epout->desc = NULL;
@@ -937,7 +987,7 @@ static int rmnet_smd_set_alt(struct usb_function *f,
 		return ret;
 	}
 
-	
+	/* Enable epnotify endpoint */
 	ret = config_ep_by_speed(cdev->gadget, f, dev->epnotify);
 	if (ret) {
 		dev->epnotify->desc = NULL;
@@ -975,28 +1025,28 @@ static void rmnet_smd_free_buf(struct rmnet_smd_dev *dev)
 	dev->cpkts_from_modem = 0;
 	dev->cpkts_from_host = 0;
 	dev->cpkts_to_modem = 0;
-	
+	/* free all usb requests in tx pool */
 	list_for_each_safe(act, tmp, &dev->tx_idle) {
 		req = list_entry(act, struct usb_request, list);
 		list_del(&req->list);
 		rmnet_smd_free_req(dev->epout, req);
 	}
 
-	
+	/* free all usb requests in rx pool */
 	list_for_each_safe(act, tmp, &dev->rx_idle) {
 		req = list_entry(act, struct usb_request, list);
 		list_del(&req->list);
 		rmnet_smd_free_req(dev->epin, req);
 	}
 
-	
+	/* free all buffers in qmi request pool */
 	list_for_each_safe(act, tmp, &dev->qmi_req_pool) {
 		qmi = list_entry(act, struct qmi_buf, list);
 		list_del(&qmi->list);
 		rmnet_smd_free_qmi(qmi);
 	}
 
-	
+	/* free all buffers in qmi request pool */
 	list_for_each_safe(act, tmp, &dev->qmi_resp_pool) {
 		qmi = list_entry(act, struct qmi_buf, list);
 		list_del(&qmi->list);
@@ -1017,7 +1067,7 @@ static int rmnet_smd_bind(struct usb_configuration *c, struct usb_function *f)
 
 	dev->cdev = cdev;
 
-	
+	/* allocate interface ID */
 	id = usb_interface_id(c, f);
 	if (id < 0)
 		return id;
@@ -1027,21 +1077,25 @@ static int rmnet_smd_bind(struct usb_configuration *c, struct usb_function *f)
 	ep = usb_ep_autoconfig(cdev->gadget, &rmnet_smd_fs_in_desc);
 	if (!ep)
 		return -ENODEV;
-	ep->driver_data = cdev; 
+	ep->driver_data = cdev; /* claim endpoint */
 	dev->epin = ep;
 
 	ep = usb_ep_autoconfig(cdev->gadget, &rmnet_smd_fs_out_desc);
 	if (!ep)
 		return -ENODEV;
-	ep->driver_data = cdev; 
+	ep->driver_data = cdev; /* claim endpoint */
 	dev->epout = ep;
 
 	ep = usb_ep_autoconfig(cdev->gadget, &rmnet_smd_fs_notify_desc);
 	if (!ep)
 		return -ENODEV;
-	ep->driver_data = cdev; 
+	ep->driver_data = cdev; /* clain endpoint */
 	dev->epnotify = ep;
 
+	/* support all relevant hardware speeds... we expect that when
+	 * hardware is dual speed, all bulk-capable endpoints work at
+	 * both speeds
+	 */
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 		rmnet_smd_hs_in_desc.bEndpointAddress =
 				rmnet_smd_fs_in_desc.bEndpointAddress;
@@ -1052,7 +1106,7 @@ static int rmnet_smd_bind(struct usb_configuration *c, struct usb_function *f)
 
 	}
 
-	
+	/* allocate notification */
 	dev->notify_req = rmnet_smd_alloc_req(dev->epnotify,
 					RMNET_SMD_MAX_NOTIFY_SIZE, GFP_KERNEL);
 	if (IS_ERR(dev->notify_req))
@@ -1062,7 +1116,7 @@ static int rmnet_smd_bind(struct usb_configuration *c, struct usb_function *f)
 	dev->notify_req->context = dev;
 	dev->notify_req->length = RMNET_SMD_MAX_NOTIFY_SIZE;
 
-	
+	/* Allocate the qmi request and response buffers */
 	for (i = 0; i < QMI_REQ_MAX; i++) {
 		qmi = rmnet_smd_alloc_qmi(QMI_REQ_SIZE, GFP_KERNEL);
 		if (IS_ERR(qmi)) {
@@ -1081,7 +1135,7 @@ static int rmnet_smd_bind(struct usb_configuration *c, struct usb_function *f)
 		list_add_tail(&qmi->list, &dev->qmi_resp_pool);
 	}
 
-	
+	/* Allocate bulk in/out requests for data transfer */
 	for (i = 0; i < RMNET_RX_REQ_MAX; i++) {
 		req = rmnet_smd_alloc_req(dev->epout, RMNET_RX_REQ_SIZE,
 								 GFP_KERNEL);
@@ -1111,7 +1165,7 @@ static int rmnet_smd_bind(struct usb_configuration *c, struct usb_function *f)
 
 free_buf:
 	rmnet_smd_free_buf(dev);
-	dev->epout = dev->epin = dev->epnotify = NULL; 
+	dev->epout = dev->epin = dev->epnotify = NULL; /* release endpoints */
 	return ret;
 }
 
@@ -1254,7 +1308,7 @@ rmnet_smd_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	flush_workqueue(dev->wq);
 	rmnet_smd_free_buf(dev);
-	dev->epout = dev->epin = dev->epnotify = NULL; 
+	dev->epout = dev->epin = dev->epnotify = NULL; /* release endpoints */
 
 	destroy_workqueue(dev->wq);
 

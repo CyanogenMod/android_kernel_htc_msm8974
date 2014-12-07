@@ -52,6 +52,9 @@ struct serio_raw_client {
 static DEFINE_MUTEX(serio_raw_mutex);
 static LIST_HEAD(serio_raw_list);
 
+/*********************************************************************
+ *             Interface with userspace (file operations)            *
+ *********************************************************************/
 
 static int serio_raw_fasync(int fd, struct file *file, int on)
 {
@@ -254,6 +257,9 @@ static const struct file_operations serio_raw_fops = {
 };
 
 
+/*********************************************************************
+ *                   Interface with serio port                       *
+ *********************************************************************/
 
 static irqreturn_t serio_raw_interrupt(struct serio *serio, unsigned char data,
 					unsigned int dfl)
@@ -262,7 +268,7 @@ static irqreturn_t serio_raw_interrupt(struct serio *serio, unsigned char data,
 	struct serio_raw_client *client;
 	unsigned int head = serio_raw->head;
 
-	
+	/* we are holding serio->lock here so we are protected */
 	serio_raw->queue[head] = data;
 	head = (head + 1) % SERIO_RAW_QUEUE_LEN;
 	if (likely(head != serio_raw->tail)) {
@@ -352,9 +358,17 @@ static int serio_raw_reconnect(struct serio *serio)
 		return -1;
 	}
 
+	/*
+	 * Nothing needs to be done here, we just need this method to
+	 * keep the same device.
+	 */
 	return 0;
 }
 
+/*
+ * Wake up users waiting for IO so they can disconnect from
+ * dead device.
+ */
 static void serio_raw_hangup(struct serio_raw *serio_raw)
 {
 	struct serio_raw_client *client;

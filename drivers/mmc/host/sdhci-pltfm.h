@@ -22,14 +22,18 @@ struct sdhci_pltfm_data {
 
 struct sdhci_pltfm_host {
 	struct clk *clk;
-	void *priv; 
+	void *priv; /* to handle quirks across io-accessor calls */
 
-	
+	/* migrate from sdhci_of_host */
 	unsigned int clock;
 	u16 xfer_mode_shadow;
 };
 
 #ifdef CONFIG_MMC_SDHCI_BIG_ENDIAN_32BIT_BYTE_SWAPPER
+/*
+ * These accessors are designed for big endian hosts doing I/O to
+ * little endian controllers incorporating a 32-bit hardware byte swapper.
+ */
 static inline u32 sdhci_be32bs_readl(struct sdhci_host *host, int reg)
 {
 	return in_be32(host->ioaddr + reg);
@@ -60,6 +64,10 @@ static inline void sdhci_be32bs_writew(struct sdhci_host *host,
 
 	switch (reg) {
 	case SDHCI_TRANSFER_MODE:
+		/*
+		 * Postpone this write, we must do it together with a
+		 * command write that is down below.
+		 */
 		pltfm_host->xfer_mode_shadow = val;
 		return;
 	case SDHCI_COMMAND:
@@ -78,7 +86,7 @@ static inline void sdhci_be32bs_writeb(struct sdhci_host *host, u8 val, int reg)
 
 	clrsetbits_be32(host->ioaddr + base , 0xff << shift, val << shift);
 }
-#endif 
+#endif /* CONFIG_MMC_SDHCI_BIG_ENDIAN_32BIT_BYTE_SWAPPER */
 
 extern void sdhci_get_of_property(struct platform_device *pdev);
 
@@ -97,4 +105,4 @@ extern const struct dev_pm_ops sdhci_pltfm_pmops;
 #define SDHCI_PLTFM_PMOPS NULL
 #endif
 
-#endif 
+#endif /* _DRIVERS_MMC_SDHCI_PLTFM_H */

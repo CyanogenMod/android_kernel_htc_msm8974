@@ -45,6 +45,7 @@
 #define CAL_TRIGGER	7
 #define PER_TRIGGER	6
 
+/* phyter seems to miss the mark by 16 ns */
 #define ADJTIME_FIX	16
 
 #if defined(__BIG_ENDIAN)
@@ -56,19 +57,19 @@
 #define SKB_PTP_TYPE(__skb) (*(unsigned int *)((__skb)->cb))
 
 struct phy_rxts {
-	u16 ns_lo;   
-	u16 ns_hi;   
-	u16 sec_lo;  
-	u16 sec_hi;  
-	u16 seqid;   
-	u16 msgtype; 
+	u16 ns_lo;   /* ns[15:0] */
+	u16 ns_hi;   /* overflow[1:0], ns[29:16] */
+	u16 sec_lo;  /* sec[15:0] */
+	u16 sec_hi;  /* sec[31:16] */
+	u16 seqid;   /* sequenceId[15:0] */
+	u16 msgtype; /* messageType[3:0], hash[11:0] */
 };
 
 struct phy_txts {
-	u16 ns_lo;   
-	u16 ns_hi;   
-	u16 sec_lo;  
-	u16 sec_hi;  
+	u16 ns_lo;   /* ns[15:0] */
+	u16 ns_hi;   /* overflow[1:0], ns[29:16] */
+	u16 sec_lo;  /* sec[15:0] */
+	u16 sec_hi;  /* sec[31:16] */
 };
 
 struct rxts {
@@ -91,42 +92,43 @@ struct dp83640_private {
 	int hwts_rx_en;
 	int layer;
 	int version;
-	
+	/* remember state of cfg0 during calibration */
 	int cfg0;
-	
+	/* remember the last event time stamp */
 	struct phy_txts edata;
-	
+	/* list of rx timestamps */
 	struct list_head rxts;
 	struct list_head rxpool;
 	struct rxts rx_pool_data[MAX_RXTS];
-	
+	/* protects above three fields from concurrent access */
 	spinlock_t rx_lock;
-	
+	/* queues of incoming and outgoing packets */
 	struct sk_buff_head rx_queue;
 	struct sk_buff_head tx_queue;
 };
 
 struct dp83640_clock {
-	
+	/* keeps the instance in the 'phyter_clocks' list */
 	struct list_head list;
-	
+	/* we create one clock instance per MII bus */
 	struct mii_bus *bus;
-	
+	/* protects extended registers from concurrent access */
 	struct mutex extreg_lock;
-	
+	/* remembers which page was last selected */
 	int page;
-	
+	/* our advertised capabilities */
 	struct ptp_clock_info caps;
-	
+	/* protects the three fields below from concurrent access */
 	struct mutex clock_lock;
-	
+	/* the one phyter from which we shall read */
 	struct dp83640_private *chosen;
-	
+	/* list of the other attached phyters, not chosen */
 	struct list_head phylist;
-	
+	/* reference to our PTP hardware clock */
 	struct ptp_clock *ptp_clock;
 };
 
+/* globals */
 
 enum {
 	CALIBRATE_GPIO,
@@ -153,11 +155,13 @@ MODULE_PARM_DESC(chosen_phy, \
 MODULE_PARM_DESC(gpio_tab, \
 	"Which GPIO line to use for which purpose: cal,perout,extts1,...,extts6");
 
+/* a list of clocks and a mutex to protect it */
 static LIST_HEAD(phyter_clocks);
 static DEFINE_MUTEX(phyter_clocks_lock);
 
 static void rx_timestamp_work(struct work_struct *work);
 
+/* extended register access functions */
 
 #define BROADCAST_ADDR 31
 
@@ -166,6 +170,7 @@ static inline int broadcast_write(struct mii_bus *bus, u32 regnum, u16 val)
 	return mdiobus_write(bus, BROADCAST_ADDR, regnum, val);
 }
 
+/* Caller must hold extreg_lock. */
 static int ext_read(struct phy_device *phydev, int page, u32 regnum)
 {
 	struct dp83640_private *dp83640 = phydev->priv;
@@ -180,6 +185,7 @@ static int ext_read(struct phy_device *phydev, int page, u32 regnum)
 	return val;
 }
 
+/* Caller must hold extreg_lock. */
 static void ext_write(int broadcast, struct phy_device *phydev,
 		      int page, u32 regnum, u16 val)
 {
@@ -195,19 +201,21 @@ static void ext_write(int broadcast, struct phy_device *phydev,
 		phy_write(phydev, regnum, val);
 }
 
+/* Caller must hold extreg_lock. */
 static int tdr_write(int bc, struct phy_device *dev,
 		     const struct timespec *ts, u16 cmd)
 {
-	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_nsec & 0xffff);
-	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_nsec >> 16);   
-	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_sec & 0xffff); 
-	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_sec >> 16);    
+	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_nsec & 0xffff);/* ns[15:0]  */
+	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_nsec >> 16);   /* ns[31:16] */
+	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_sec & 0xffff); /* sec[15:0] */
+	ext_write(bc, dev, PAGE4, PTP_TDR, ts->tv_sec >> 16);    /* sec[31:16]*/
 
 	ext_write(bc, dev, PAGE4, PTP_CTL, cmd);
 
 	return 0;
 }
 
+/* convert phy timestamps into driver timestamps */
 
 static void phy2rxts(struct phy_rxts *p, struct rxts *rxts)
 {
@@ -277,17 +285,17 @@ static void periodic_output(struct dp83640_clock *clock,
 
 	ext_write(0, phydev, PAGE5, PTP_TRIG, ptp_trig);
 
-	
+	/*load trigger*/
 	val |= TRIG_LOAD;
 	ext_write(0, phydev, PAGE4, PTP_CTL, val);
-	ext_write(0, phydev, PAGE4, PTP_TDR, nsec & 0xffff);   
-	ext_write(0, phydev, PAGE4, PTP_TDR, nsec >> 16);      
-	ext_write(0, phydev, PAGE4, PTP_TDR, sec & 0xffff);    
-	ext_write(0, phydev, PAGE4, PTP_TDR, sec >> 16);       
-	ext_write(0, phydev, PAGE4, PTP_TDR, period & 0xffff); 
-	ext_write(0, phydev, PAGE4, PTP_TDR, period >> 16);    
+	ext_write(0, phydev, PAGE4, PTP_TDR, nsec & 0xffff);   /* ns[15:0] */
+	ext_write(0, phydev, PAGE4, PTP_TDR, nsec >> 16);      /* ns[31:16] */
+	ext_write(0, phydev, PAGE4, PTP_TDR, sec & 0xffff);    /* sec[15:0] */
+	ext_write(0, phydev, PAGE4, PTP_TDR, sec >> 16);       /* sec[31:16] */
+	ext_write(0, phydev, PAGE4, PTP_TDR, period & 0xffff); /* ns[15:0] */
+	ext_write(0, phydev, PAGE4, PTP_TDR, period >> 16);    /* ns[31:16] */
 
-	
+	/*enable trigger*/
 	val &= ~TRIG_LOAD;
 	val |= TRIG_EN;
 	ext_write(0, phydev, PAGE4, PTP_CTL, val);
@@ -295,6 +303,7 @@ static void periodic_output(struct dp83640_clock *clock,
 	mutex_unlock(&clock->extreg_lock);
 }
 
+/* ptp clock methods */
 
 static int ptp_dp83640_adjfreq(struct ptp_clock_info *ptp, s32 ppb)
 {
@@ -361,10 +370,10 @@ static int ptp_dp83640_gettime(struct ptp_clock_info *ptp, struct timespec *ts)
 
 	ext_write(0, phydev, PAGE4, PTP_CTL, PTP_RD_CLK);
 
-	val[0] = ext_read(phydev, PAGE4, PTP_TDR); 
-	val[1] = ext_read(phydev, PAGE4, PTP_TDR); 
-	val[2] = ext_read(phydev, PAGE4, PTP_TDR); 
-	val[3] = ext_read(phydev, PAGE4, PTP_TDR); 
+	val[0] = ext_read(phydev, PAGE4, PTP_TDR); /* ns[15:0] */
+	val[1] = ext_read(phydev, PAGE4, PTP_TDR); /* ns[31:16] */
+	val[2] = ext_read(phydev, PAGE4, PTP_TDR); /* sec[15:0] */
+	val[3] = ext_read(phydev, PAGE4, PTP_TDR); /* sec[31:16] */
 
 	mutex_unlock(&clock->extreg_lock);
 
@@ -473,6 +482,7 @@ static int expired(struct rxts *rxts)
 	return time_after(jiffies, rxts->tmo);
 }
 
+/* Caller must hold rx_lock. */
 static void prune_rx_ts(struct dp83640_private *dp83640)
 {
 	struct list_head *this, *next;
@@ -487,6 +497,7 @@ static void prune_rx_ts(struct dp83640_private *dp83640)
 	}
 }
 
+/* synchronize the phyters so they act as one clock */
 
 static void enable_broadcast(struct phy_device *phydev, int init_page, int on)
 {
@@ -516,6 +527,9 @@ static void recalibrate(struct dp83640_clock *clock)
 
 	mutex_lock(&clock->extreg_lock);
 
+	/*
+	 * enable broadcast, disable status frames, enable ptp clock
+	 */
 	list_for_each(this, &clock->phylist) {
 		tmp = list_entry(this, struct dp83640_private, list);
 		enable_broadcast(tmp->phydev, clock->page, 1);
@@ -528,6 +542,9 @@ static void recalibrate(struct dp83640_clock *clock)
 	ext_write(0, master, PAGE5, PSF_CFG0, 0);
 	ext_write(0, master, PAGE4, PTP_CTL, PTP_ENABLE);
 
+	/*
+	 * enable an event timestamp
+	 */
 	evnt = EVNT_WR | EVNT_RISE | EVNT_SINGLE;
 	evnt |= (CAL_EVENT & EVNT_SEL_MASK) << EVNT_SEL_SHIFT;
 	evnt |= (cal_gpio & EVNT_GPIO_MASK) << EVNT_GPIO_SHIFT;
@@ -538,26 +555,32 @@ static void recalibrate(struct dp83640_clock *clock)
 	}
 	ext_write(0, master, PAGE5, PTP_EVNT, evnt);
 
+	/*
+	 * configure a trigger
+	 */
 	ptp_trig = TRIG_WR | TRIG_IF_LATE | TRIG_PULSE;
 	ptp_trig |= (trigger  & TRIG_CSEL_MASK) << TRIG_CSEL_SHIFT;
 	ptp_trig |= (cal_gpio & TRIG_GPIO_MASK) << TRIG_GPIO_SHIFT;
 	ext_write(0, master, PAGE5, PTP_TRIG, ptp_trig);
 
-	
+	/* load trigger */
 	val = (trigger & TRIG_SEL_MASK) << TRIG_SEL_SHIFT;
 	val |= TRIG_LOAD;
 	ext_write(0, master, PAGE4, PTP_CTL, val);
 
-	
+	/* enable trigger */
 	val &= ~TRIG_LOAD;
 	val |= TRIG_EN;
 	ext_write(0, master, PAGE4, PTP_CTL, val);
 
-	
+	/* disable trigger */
 	val = (trigger & TRIG_SEL_MASK) << TRIG_SEL_SHIFT;
 	val |= TRIG_DIS;
 	ext_write(0, master, PAGE4, PTP_CTL, val);
 
+	/*
+	 * read out and correct offsets
+	 */
 	val = ext_read(master, PAGE4, PTP_STS);
 	pr_info("master PTP_STS  0x%04hx", val);
 	val = ext_read(master, PAGE4, PTP_ESTS);
@@ -585,6 +608,9 @@ static void recalibrate(struct dp83640_clock *clock)
 		tdr_write(0, tmp->phydev, &ts, PTP_STEP_CLK);
 	}
 
+	/*
+	 * restore status frames
+	 */
 	list_for_each(this, &clock->phylist) {
 		tmp = list_entry(this, struct dp83640_private, list);
 		ext_write(0, tmp->phydev, PAGE5, PSF_CFG0, tmp->cfg0);
@@ -594,6 +620,7 @@ static void recalibrate(struct dp83640_clock *clock)
 	mutex_unlock(&clock->extreg_lock);
 }
 
+/* time stamping methods */
 
 static inline u16 exts_chan_to_edata(int ch)
 {
@@ -616,7 +643,7 @@ static int decode_evnt(struct dp83640_private *dp83640,
 
 	phy_txts = data;
 
-	switch (words) { 
+	switch (words) { /* fall through in every case */
 	case 3:
 		dp83640->edata.sec_hi = phy_txts->sec_hi;
 	case 2:
@@ -677,7 +704,7 @@ static void decode_txts(struct dp83640_private *dp83640,
 	struct sk_buff *skb;
 	u64 ns;
 
-	
+	/* We must already have the skb that triggered this. */
 
 	skb = skb_dequeue(&dp83640->tx_queue);
 
@@ -775,7 +802,7 @@ static int match(struct sk_buff *skb, unsigned int type, struct rxts *rxts)
 	unsigned int offset;
 	u8 *msgtype, *data = skb_mac_header(skb);
 
-	
+	/* check sequenceID, messageType, 12 bit hash of offset 20-29 */
 
 	switch (type) {
 	case PTP_CLASS_V1_IPV4:
@@ -852,6 +879,9 @@ static void dp83640_clock_init(struct dp83640_clock *clock, struct mii_bus *bus)
 	clock->caps.gettime	= ptp_dp83640_gettime;
 	clock->caps.settime	= ptp_dp83640_settime;
 	clock->caps.enable	= ptp_dp83640_enable;
+	/*
+	 * Get a reference to this bus instance.
+	 */
 	get_device(&bus->dev);
 }
 
@@ -874,6 +904,10 @@ static struct dp83640_clock *dp83640_clock_get(struct dp83640_clock *clock)
 	return clock;
 }
 
+/*
+ * Look up and lock a clock by bus instance.
+ * If there is no clock for this bus, then create it first.
+ */
 static struct dp83640_clock *dp83640_clock_get_bus(struct mii_bus *bus)
 {
 	struct dp83640_clock *clock = NULL, *tmp;
@@ -1015,7 +1049,7 @@ static int dp83640_hwtstamp(struct phy_device *phydev, struct ifreq *ifr)
 	if (copy_from_user(&cfg, ifr->ifr_data, sizeof(cfg)))
 		return -EFAULT;
 
-	if (cfg.flags) 
+	if (cfg.flags) /* reserved for future extensions */
 		return -EINVAL;
 
 	if (cfg.tx_type < 0 || cfg.tx_type > HWTSTAMP_TX_ONESTEP_SYNC)
@@ -1108,7 +1142,7 @@ static void rx_timestamp_work(struct work_struct *work)
 	unsigned int type;
 	unsigned long flags;
 
-	
+	/* Deliver each deferred packet, with or without a time stamp. */
 
 	while ((skb = skb_dequeue(&dp83640->rx_queue)) != NULL) {
 		type = SKB_PTP_TYPE(skb);
@@ -1128,7 +1162,7 @@ static void rx_timestamp_work(struct work_struct *work)
 		netif_rx_ni(skb);
 	}
 
-	
+	/* Clear out expired time stamps. */
 
 	spin_lock_irqsave(&dp83640->rx_lock, flags);
 	prune_rx_ts(dp83640);
@@ -1168,7 +1202,7 @@ static void dp83640_txtstamp(struct phy_device *phydev,
 			skb_complete_tx_timestamp(skb, NULL);
 			return;
 		}
-		
+		/* fall through */
 	case HWTSTAMP_TX_ON:
 		skb_queue_tail(&dp83640->tx_queue, skb);
 		schedule_work(&dp83640->ts_work);

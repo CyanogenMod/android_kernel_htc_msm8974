@@ -419,7 +419,7 @@ static int __init mtd_oobtest_init(void)
 	use_len_max = mtd->ecclayout->oobavail;
 	vary_offset = 0;
 
-	
+	/* First test: write all OOB, read it back and verify */
 	printk(PRINT_PREF "test 1 of 5\n");
 
 	err = erase_whole_device();
@@ -436,6 +436,10 @@ static int __init mtd_oobtest_init(void)
 	if (err)
 		goto out;
 
+	/*
+	 * Second test: write all OOB, a block at a time, read it back and
+	 * verify.
+	 */
 	printk(PRINT_PREF "test 2 of 5\n");
 
 	err = erase_whole_device();
@@ -447,7 +451,7 @@ static int __init mtd_oobtest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Check all eraseblocks */
 	simple_srand(3);
 	printk(PRINT_PREF "verifying all eraseblocks\n");
 	for (i = 0; i < ebcnt; ++i) {
@@ -462,13 +466,17 @@ static int __init mtd_oobtest_init(void)
 	}
 	printk(PRINT_PREF "verified %u eraseblocks\n", i);
 
+	/*
+	 * Third test: write OOB at varying offsets and lengths, read it back
+	 * and verify.
+	 */
 	printk(PRINT_PREF "test 3 of 5\n");
 
 	err = erase_whole_device();
 	if (err)
 		goto out;
 
-	
+	/* Write all eraseblocks */
 	use_offset = 0;
 	use_len = mtd->ecclayout->oobavail;
 	use_len_max = mtd->ecclayout->oobavail;
@@ -479,7 +487,7 @@ static int __init mtd_oobtest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Check all eraseblocks */
 	use_offset = 0;
 	use_len = mtd->ecclayout->oobavail;
 	use_len_max = mtd->ecclayout->oobavail;
@@ -494,7 +502,7 @@ static int __init mtd_oobtest_init(void)
 	use_len_max = mtd->ecclayout->oobavail;
 	vary_offset = 0;
 
-	
+	/* Fourth test: try to write off end of device */
 	printk(PRINT_PREF "test 4 of 5\n");
 
 	err = erase_whole_device();
@@ -505,7 +513,7 @@ static int __init mtd_oobtest_init(void)
 	for (i = 0; i < ebcnt && bbt[i]; ++i)
 		addr0 += mtd->erasesize;
 
-	
+	/* Attempt to write off end of OOB */
 	ops.mode      = MTD_OPS_AUTO_OOB;
 	ops.len       = 0;
 	ops.retlen    = 0;
@@ -525,7 +533,7 @@ static int __init mtd_oobtest_init(void)
 		errcnt += 1;
 	}
 
-	
+	/* Attempt to read off end of OOB */
 	ops.mode      = MTD_OPS_AUTO_OOB;
 	ops.len       = 0;
 	ops.retlen    = 0;
@@ -549,7 +557,7 @@ static int __init mtd_oobtest_init(void)
 		printk(PRINT_PREF "skipping end of device tests because last "
 		       "block is bad\n");
 	else {
-		
+		/* Attempt to write off end of device */
 		ops.mode      = MTD_OPS_AUTO_OOB;
 		ops.len       = 0;
 		ops.retlen    = 0;
@@ -569,7 +577,7 @@ static int __init mtd_oobtest_init(void)
 			errcnt += 1;
 		}
 
-		
+		/* Attempt to read off end of device */
 		ops.mode      = MTD_OPS_AUTO_OOB;
 		ops.len       = 0;
 		ops.retlen    = 0;
@@ -593,7 +601,7 @@ static int __init mtd_oobtest_init(void)
 		if (err)
 			goto out;
 
-		
+		/* Attempt to write off end of device */
 		ops.mode      = MTD_OPS_AUTO_OOB;
 		ops.len       = 0;
 		ops.retlen    = 0;
@@ -613,7 +621,7 @@ static int __init mtd_oobtest_init(void)
 			errcnt += 1;
 		}
 
-		
+		/* Attempt to read off end of device */
 		ops.mode      = MTD_OPS_AUTO_OOB;
 		ops.len       = 0;
 		ops.retlen    = 0;
@@ -634,15 +642,15 @@ static int __init mtd_oobtest_init(void)
 		}
 	}
 
-	
+	/* Fifth test: write / read across block boundaries */
 	printk(PRINT_PREF "test 5 of 5\n");
 
-	
+	/* Erase all eraseblocks */
 	err = erase_whole_device();
 	if (err)
 		goto out;
 
-	
+	/* Write all eraseblocks */
 	simple_srand(11);
 	printk(PRINT_PREF "writing OOBs of whole device\n");
 	for (i = 0; i < ebcnt - 1; ++i) {
@@ -674,7 +682,7 @@ static int __init mtd_oobtest_init(void)
 	}
 	printk(PRINT_PREF "written %u eraseblocks\n", i);
 
-	
+	/* Check all eraseblocks */
 	simple_srand(11);
 	printk(PRINT_PREF "verifying all eraseblocks\n");
 	for (i = 0; i < ebcnt - 1; ++i) {

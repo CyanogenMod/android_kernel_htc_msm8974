@@ -45,8 +45,8 @@ static unsigned long long _text;
 static struct text_range text_ranges[] = {
 	{ "_stext",     "_etext"     },
 	{ "_sinittext", "_einittext" },
-	{ "_stext_l1",  "_etext_l1"  },	
-	{ "_stext_l2",  "_etext_l2"  },	
+	{ "_stext_l1",  "_etext_l1"  },	/* Blackfin on-chip L1 inst SRAM */
+	{ "_stext_l2",  "_etext_l2"  },	/* Blackfin on-chip L2 SRAM */
 };
 #define text_range_text     (&text_ranges[0])
 #define text_range_inittext (&text_ranges[1])
@@ -59,6 +59,7 @@ static unsigned long long kernel_start_addr = 0;
 
 int token_profit[0x10000];
 
+/* the table that holds the result of the compression */
 unsigned char best_table[256][2];
 unsigned char best_table_len[256];
 
@@ -72,6 +73,10 @@ static void usage(void)
 	exit(1);
 }
 
+/*
+ * This ignores the intensely annoying "mapping symbols" found
+ * in ARM ELF files: $a, $t and $d.
+ */
 static inline int is_arm_mapping_symbol(const char *str)
 {
 	return str[0] == '$' && strchr("atd", str[1])
@@ -112,18 +117,18 @@ static int read_symbol(FILE *in, struct sym_entry *s)
 	}
 
 	sym = str;
-	
+	/* skip prefix char */
 	if (symbol_prefix_char && str[0] == symbol_prefix_char)
 		sym++;
 
-	
+	/* Ignore most absolute/undefined (?) symbols. */
 	if (strcmp(sym, "_text") == 0)
 		_text = s->addr;
 	else if (read_symbol_tr(sym, s->addr) == 0)
-		;
+		/* nothing to do */;
 	else if (toupper(stype) == 'A')
 	{
-		
+		/* Keep these useful absolute symbols */
 		if (strcmp(sym, "__kernel_syscall_via_break") &&
 		    strcmp(sym, "__kernel_syscall_via_epc") &&
 		    strcmp(sym, "__kernel_sigtramp") &&
@@ -134,13 +139,15 @@ static int read_symbol(FILE *in, struct sym_entry *s)
 	else if (toupper(stype) == 'U' ||
 		 is_arm_mapping_symbol(sym))
 		return -1;
-	
+	/* exclude also MIPS ELF local symbols ($L123 instead of .L123) */
 	else if (str[0] == '$')
 		return -1;
-	
+	/* exclude debugging symbols */
 	else if (stype == 'N')
 		return -1;
 
+	/* include the type field in the symbol name, so that it gets
+	 * compressed together */
 	s->len = strlen(str) + 1;
 	s->sym = malloc(s->len + 1);
 	if (!s->sym) {
@@ -171,6 +178,11 @@ static int symbol_valid_tr(struct sym_entry *s)
 
 static int symbol_valid(struct sym_entry *s)
 {
+	/* Symbols which vary between passes.  Passes 1 and 2 must have
+	 * identical symbol lists.  The kallsyms_* symbols below are only added
+	 * after pass 1, they would be included in pass 2 when --all-symbols is
+	 * specified so exclude them to get a stable symbol list.
+	 */
 	static char *special_symbols[] = {
 		"kallsyms_addresses",
 		"kallsyms_num_syms",
@@ -179,9 +191,9 @@ static int symbol_valid(struct sym_entry *s)
 		"kallsyms_token_table",
 		"kallsyms_token_index",
 
-	
-		"_SDA_BASE_",		
-		"_SDA2_BASE_",		
+	/* Exclude linker generated symbols which vary between passes */
+		"_SDA_BASE_",		/* ppc */
+		"_SDA2_BASE_",		/* ppc */
 		NULL };
 	int i;
 	int offset = 1;
@@ -189,13 +201,21 @@ static int symbol_valid(struct sym_entry *s)
 	if (s->addr < kernel_start_addr)
 		return 0;
 
-	
+	/* skip prefix char */
 	if (symbol_prefix_char && *(s->sym + 1) == symbol_prefix_char)
 		offset++;
 
+	/* if --all-symbols is not specified, then symbols outside the text
+	 * and inittext sections are discarded */
 	if (!all_symbols) {
 		if (symbol_valid_tr(s) == 0)
 			return 0;
+		/* Corner case.  Discard any symbols with the same value as
+		 * _etext _einittext; they can move between pass 1 and 2 when
+		 * the kallsyms data are added.  If these symbols move then
+		 * they may get dropped in pass 2, which breaks the kallsyms
+		 * rules.
+		 */
 		if ((s->addr == text_range_text->end &&
 				strcmp((char *)s->sym + offset, text_range_text->etext)) ||
 		    (s->addr == text_range_inittext->end &&
@@ -203,7 +223,7 @@ static int symbol_valid(struct sym_entry *s)
 			return 0;
 	}
 
-	
+	/* Exclude symbols which vary between passes. */
 	if (strstr((char *)s->sym + offset, "_compiled."))
 		return 0;
 
@@ -245,17 +265,21 @@ static void output_label(char *label)
 		printf("%s:\n", label);
 }
 
+/* uncompress a compressed symbol. When this function is called, the best table
+ * might still be compressed itself, so the function needs to be recursive */
 static int expand_symbol(unsigned char *data, int len, char *result)
 {
 	int c, rlen, total=0;
 
 	while (len) {
 		c = *data;
+		/* if the table holds a single char that is the same as the one
+		 * we are looking for, then end the search */
 		if (best_table[c][0]==c && best_table_len[c]==1) {
 			*result++ = c;
 			total++;
 		} else {
-			
+			/* if not, recurse and expand */
 			rlen = expand_symbol(best_table[c], best_table_len[c], result);
 			total += rlen;
 			result += rlen;
@@ -286,6 +310,13 @@ static void write_src(void)
 
 	printf("\t.section .rodata, \"a\"\n");
 
+	/* Provide proper symbols relocatability by their '_text'
+	 * relativeness.  The symbol names cannot be used to construct
+	 * normal symbol references as the list of symbols contains
+	 * symbols that are declared static and are private to their
+	 * .o files.  This prevents .tmp_kallsyms.o or any other
+	 * object from referencing them.
+	 */
 	output_label("kallsyms_addresses");
 	for (i = 0; i < table_cnt; i++) {
 		if (toupper(table[i].sym[0]) != 'A') {
@@ -305,6 +336,8 @@ static void write_src(void)
 	printf("\tPTR\t%d\n", table_cnt);
 	printf("\n");
 
+	/* table of offset markers, that give the offset in the compressed stream
+	 * every 256 symbols */
 	markers = malloc(sizeof(unsigned int) * ((table_cnt + 255) / 256));
 	if (!markers) {
 		fprintf(stderr, "kallsyms failure: "
@@ -351,7 +384,9 @@ static void write_src(void)
 }
 
 
+/* table lookup compression functions */
 
+/* count all the possible tokens in a symbol */
 static void learn_symbol(unsigned char *symbol, int len)
 {
 	int i;
@@ -360,6 +395,7 @@ static void learn_symbol(unsigned char *symbol, int len)
 		token_profit[ symbol[i] + (symbol[i + 1] << 8) ]++;
 }
 
+/* decrease the count for all the possible tokens in a symbol */
 static void forget_symbol(unsigned char *symbol, int len)
 {
 	int i;
@@ -368,6 +404,7 @@ static void forget_symbol(unsigned char *symbol, int len)
 		token_profit[ symbol[i] + (symbol[i + 1] << 8) ]--;
 }
 
+/* remove all the invalid symbols from the table and do the initial token count */
 static void build_initial_tok_table(void)
 {
 	unsigned int i, pos;
@@ -395,6 +432,8 @@ static void *find_token(unsigned char *str, int len, unsigned char *token)
 	return NULL;
 }
 
+/* replace a given token in all the valid symbols. Use the sampled symbols
+ * to update the counts */
 static void compress_symbols(unsigned char *str, int idx)
 {
 	unsigned int i, len, size;
@@ -405,11 +444,11 @@ static void compress_symbols(unsigned char *str, int idx)
 		len = table[i].len;
 		p1 = table[i].sym;
 
-		
+		/* find the token on the symbol */
 		p2 = find_token(p1, len, str);
 		if (!p2) continue;
 
-		
+		/* decrease the counts for this symbol's tokens */
 		forget_symbol(table[i].sym, len);
 
 		size = len;
@@ -424,18 +463,19 @@ static void compress_symbols(unsigned char *str, int idx)
 
 			if (size < 2) break;
 
-			
+			/* find the token on the symbol */
 			p2 = find_token(p1, size, str);
 
 		} while (p2);
 
 		table[i].len = len;
 
-		
+		/* increase the counts for this symbol's new tokens */
 		learn_symbol(table[i].sym, len);
 	}
 }
 
+/* search the token with the maximum profit */
 static int find_best_token(void)
 {
 	int i, best, bestprofit;
@@ -452,30 +492,36 @@ static int find_best_token(void)
 	return best;
 }
 
+/* this is the core of the algorithm: calculate the "best" table */
 static void optimize_result(void)
 {
 	int i, best;
 
+	/* using the '\0' symbol last allows compress_symbols to use standard
+	 * fast string functions */
 	for (i = 255; i >= 0; i--) {
 
+		/* if this table slot is empty (it is not used by an actual
+		 * original char code */
 		if (!best_table_len[i]) {
 
-			
+			/* find the token with the breates profit value */
 			best = find_best_token();
 			if (token_profit[best] == 0)
 				break;
 
-			
+			/* place it in the "best" table */
 			best_table_len[i] = 2;
 			best_table[i][0] = best & 0xFF;
 			best_table[i][1] = (best >> 8) & 0xFF;
 
-			
+			/* replace this token in all the valid symbols */
 			compress_symbols(best_table[i], i);
 		}
 	}
 }
 
+/* start by placing the symbols that are actually used on the table */
 static void insert_real_symbols_in_table(void)
 {
 	unsigned int i, j, c;
@@ -498,7 +544,7 @@ static void optimize_token_table(void)
 
 	insert_real_symbols_in_table();
 
-	
+	/* When valid symbol is not registered, exit to error */
 	if (!table_cnt) {
 		fprintf(stderr, "No valid symbol.\n");
 		exit(1);
@@ -507,6 +553,7 @@ static void optimize_token_table(void)
 	optimize_result();
 }
 
+/* guess for "linker script provide" symbol */
 static int may_be_linker_script_provide_symbol(const struct sym_entry *se)
 {
 	const char *symbol = (char *)se->sym + 1;
@@ -518,23 +565,23 @@ static int may_be_linker_script_provide_symbol(const struct sym_entry *se)
 	if (symbol[0] != '_' || symbol[1] != '_')
 		return 0;
 
-	
+	/* __start_XXXXX */
 	if (!memcmp(symbol + 2, "start_", 6))
 		return 1;
 
-	
+	/* __stop_XXXXX */
 	if (!memcmp(symbol + 2, "stop_", 5))
 		return 1;
 
-	
+	/* __end_XXXXX */
 	if (!memcmp(symbol + 2, "end_", 4))
 		return 1;
 
-	
+	/* __XXXXX_start */
 	if (!memcmp(symbol + len - 6, "_start", 6))
 		return 1;
 
-	
+	/* __XXXXX_end */
 	if (!memcmp(symbol + len - 4, "_end", 4))
 		return 1;
 
@@ -560,31 +607,31 @@ static int compare_symbols(const void *a, const void *b)
 	sa = a;
 	sb = b;
 
-	
+	/* sort by address first */
 	if (sa->addr > sb->addr)
 		return 1;
 	if (sa->addr < sb->addr)
 		return -1;
 
-	
+	/* sort by "weakness" type */
 	wa = (sa->sym[0] == 'w') || (sa->sym[0] == 'W');
 	wb = (sb->sym[0] == 'w') || (sb->sym[0] == 'W');
 	if (wa != wb)
 		return wa - wb;
 
-	
+	/* sort by "linker script provide" type */
 	wa = may_be_linker_script_provide_symbol(sa);
 	wb = may_be_linker_script_provide_symbol(sb);
 	if (wa != wb)
 		return wa - wb;
 
-	
+	/* sort by the number of prefix underscores */
 	wa = prefix_underscores_count((const char *)sa->sym + 1);
 	wb = prefix_underscores_count((const char *)sb->sym + 1);
 	if (wa != wb)
 		return wa - wb;
 
-	
+	/* sort by initial order, so that other symbols are left undisturbed */
 	return sa->start_pos - sb->start_pos;
 }
 
@@ -602,7 +649,7 @@ int main(int argc, char **argv)
 				all_symbols = 1;
 			else if (strncmp(argv[i], "--symbol-prefix=", 16) == 0) {
 				char *p = &argv[i][16];
-				
+				/* skip quote */
 				if ((*p == '"' && *(p+2) == '"') || (*p == '\'' && *(p+2) == '\''))
 					p++;
 				symbol_prefix_char = *p;

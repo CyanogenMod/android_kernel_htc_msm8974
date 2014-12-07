@@ -48,6 +48,12 @@
 #define MLOG_MASK_PREFIX (ML_DLM|ML_DLM_DOMAIN)
 #include "cluster/masklog.h"
 
+/*
+ * ocfs2 node maps are array of long int, which limits to send them freely
+ * across the wire due to endianness issues. To workaround this, we convert
+ * long ints to byte arrays. Following 3 routines are helper functions to
+ * set/test/copy bits within those array of bytes
+ */
 static inline void byte_set_bit(u8 nr, u8 map[])
 {
 	map[nr >> 3] |= (1UL << (nr & 7));
@@ -100,11 +106,35 @@ out_free:
 	return NULL;
 }
 
+/*
+ *
+ * spinlock lock ordering: if multiple locks are needed, obey this ordering:
+ *    dlm_domain_lock
+ *    struct dlm_ctxt->spinlock
+ *    struct dlm_lock_resource->spinlock
+ *    struct dlm_ctxt->master_lock
+ *    struct dlm_ctxt->ast_lock
+ *    dlm_master_list_entry->spinlock
+ *    dlm_lock->spinlock
+ *
+ */
 
 DEFINE_SPINLOCK(dlm_domain_lock);
 LIST_HEAD(dlm_domains);
 static DECLARE_WAIT_QUEUE_HEAD(dlm_domain_events);
 
+/*
+ * The supported protocol version for DLM communication.  Running domains
+ * will have a negotiated version with the same major number and a minor
+ * number equal or smaller.  The dlm_ctxt->dlm_locking_proto field should
+ * be used to determine what a running domain is actually using.
+ *
+ * New in version 1.1:
+ *	- Message DLM_QUERY_REGION added to support global heartbeat
+ *	- Message DLM_QUERY_NODEINFO added to allow online node removes
+ * New in version 1.2:
+ * 	- Message DLM_BEGIN_EXIT_DOMAIN_MSG added to mark start of exit domain
+ */
 static const struct dlm_protocol_version dlm_protocol = {
 	.pv_major = 1,
 	.pv_minor = 2,
@@ -148,7 +178,7 @@ void __dlm_insert_lockres(struct dlm_ctxt *dlm, struct dlm_lock_resource *res)
 	q = &res->lockname;
 	bucket = dlm_lockres_hash(dlm, q->hash);
 
-	
+	/* get a reference for our hashtable */
 	dlm_lockres_get(res);
 
 	hlist_add_head(&res->hash_node, bucket);
@@ -186,6 +216,12 @@ struct dlm_lock_resource * __dlm_lookup_lockres_full(struct dlm_ctxt *dlm,
 	return NULL;
 }
 
+/* intended to be called by functions which do not care about lock
+ * resources which are being purged (most net _handler functions).
+ * this will return NULL for any lock resource which is found but
+ * currently in the process of dropping its mastery reference.
+ * use __dlm_lookup_lockres_full when you need the lock resource
+ * regardless (e.g. dlm_get_lock_resource) */
 struct dlm_lock_resource * __dlm_lookup_lockres(struct dlm_ctxt *dlm,
 						const char *name,
 						unsigned int len,
@@ -231,6 +267,8 @@ static struct dlm_ctxt * __dlm_lookup_domain_full(const char *domain, int len)
 
 	assert_spin_locked(&dlm_domain_lock);
 
+	/* tmp->name here is always NULL terminated,
+	 * but domain may not be! */
 	list_for_each(iter, &dlm_domains) {
 		tmp = list_entry (iter, struct dlm_ctxt, list);
 		if (strlen(tmp->name) == len &&
@@ -242,6 +280,7 @@ static struct dlm_ctxt * __dlm_lookup_domain_full(const char *domain, int len)
 	return tmp;
 }
 
+/* For null terminated domain strings ONLY */
 static struct dlm_ctxt * __dlm_lookup_domain(const char *domain)
 {
 	assert_spin_locked(&dlm_domain_lock);
@@ -250,6 +289,9 @@ static struct dlm_ctxt * __dlm_lookup_domain(const char *domain)
 }
 
 
+/* returns true on one of two conditions:
+ * 1) the domain does not exist
+ * 2) the domain exists and it's state is "joined" */
 static int dlm_wait_on_domain_helper(const char *domain)
 {
 	int ret = 0;
@@ -283,6 +325,9 @@ static void dlm_free_ctxt_mem(struct dlm_ctxt *dlm)
 	kfree(dlm);
 }
 
+/* A little strange - this function will be called while holding
+ * dlm_domain_lock and is expected to be holding it on the way out. We
+ * will however drop and reacquire it multiple times */
 static void dlm_ctxt_release(struct kref *kref)
 {
 	struct dlm_ctxt *dlm;
@@ -292,7 +337,7 @@ static void dlm_ctxt_release(struct kref *kref)
 	BUG_ON(dlm->num_joins);
 	BUG_ON(dlm->dlm_state == DLM_CTXT_JOINED);
 
-	
+	/* we may still be in the list if we hit an error during join. */
 	list_del_init(&dlm->list);
 
 	spin_unlock(&dlm_domain_lock);
@@ -318,6 +363,9 @@ static void __dlm_get(struct dlm_ctxt *dlm)
 	kref_get(&dlm->dlm_refs);
 }
 
+/* given a questionable reference to a dlm object, gets a reference if
+ * it can find it in the list, otherwise returns NULL in which case
+ * you shouldn't trust your pointer. */
 struct dlm_ctxt *dlm_grab(struct dlm_ctxt *dlm)
 {
 	struct list_head *iter;
@@ -370,11 +418,14 @@ static void dlm_complete_dlm_shutdown(struct dlm_ctxt *dlm)
 	dlm_complete_recovery_thread(dlm);
 	dlm_destroy_dlm_worker(dlm);
 
+	/* We've left the domain. Now we can take ourselves out of the
+	 * list and allow the kref stuff to help us free the
+	 * memory. */
 	spin_lock(&dlm_domain_lock);
 	list_del_init(&dlm->list);
 	spin_unlock(&dlm_domain_lock);
 
-	
+	/* Wake up anyone waiting for us to remove this domain */
 	wake_up(&dlm_domain_events);
 }
 
@@ -400,6 +451,8 @@ redo_bucket:
 			res = hlist_entry(iter, struct dlm_lock_resource,
 					  hash_node);
 			dlm_lockres_get(res);
+			/* migrate, if necessary.  this will drop the dlm
+			 * spinlock and retake it if it does migration. */
 			dropped = dlm_empty_lockres(dlm, res);
 
 			spin_lock(&res->spinlock);
@@ -422,6 +475,8 @@ redo_bucket:
 	spin_unlock(&dlm->spinlock);
 	wake_up(&dlm->dlm_thread_wq);
 
+	/* let the dlm thread take care of purging, keep scanning until
+	 * nothing remains in the hash */
 	if (num) {
 		mlog(0, "%s: %d lock resources in hash last pass\n",
 		     dlm->name, num);
@@ -466,6 +521,8 @@ static int dlm_begin_exit_domain_handler(struct o2net_msg *msg, u32 len,
 
 static void dlm_mark_domain_leaving(struct dlm_ctxt *dlm)
 {
+	/* Yikes, a double spinlock! I need domain_lock for the dlm
+	 * state and the dlm spinlock for join state... Sorry! */
 again:
 	spin_lock(&dlm_domain_lock);
 	spin_lock(&dlm->spinlock);
@@ -520,7 +577,7 @@ static int dlm_exit_domain_handler(struct o2net_msg *msg, u32 len, void *data,
 	printk(KERN_NOTICE "o2dlm: Node %u leaves domain %s ", node, dlm->name);
 	__dlm_print_nodes(dlm);
 
-	
+	/* notify anything attached to the heartbeat events */
 	dlm_hb_event_notify_attached(dlm, node, 0);
 
 	spin_unlock(&dlm->spinlock);
@@ -556,11 +613,16 @@ static void dlm_begin_exit_domain(struct dlm_ctxt *dlm)
 {
 	int node = -1;
 
-	
+	/* Support for begin exit domain was added in 1.2 */
 	if (dlm->dlm_locking_proto.pv_major == 1 &&
 	    dlm->dlm_locking_proto.pv_minor < 2)
 		return;
 
+	/*
+	 * Unlike DLM_EXIT_DOMAIN_MSG, DLM_BEGIN_EXIT_DOMAIN_MSG is purely
+	 * informational. Meaning if a node does not receive the message,
+	 * so be it.
+	 */
 	spin_lock(&dlm->spinlock);
 	while (1) {
 		node = find_next_bit(dlm->domain_map, O2NM_MAX_NODES, node + 1);
@@ -580,12 +642,22 @@ static void dlm_leave_domain(struct dlm_ctxt *dlm)
 {
 	int node, clear_node, status;
 
+	/* At this point we've migrated away all our locks and won't
+	 * accept mastership of new ones. The dlm is responsible for
+	 * almost nothing now. We make sure not to confuse any joining
+	 * nodes and then commence shutdown procedure. */
 
 	spin_lock(&dlm->spinlock);
-	
+	/* Clear ourselves from the domain map */
 	clear_bit(dlm->node_num, dlm->domain_map);
 	while ((node = find_next_bit(dlm->domain_map, O2NM_MAX_NODES,
 				     0)) < O2NM_MAX_NODES) {
+		/* Drop the dlm spinlock. This is safe wrt the domain_map.
+		 * -nodes cannot be added now as the
+		 *   query_join_handlers knows to respond with OK_NO_MAP
+		 * -we catch the right network errors if a node is
+		 *   removed from the map while we're sending him the
+		 *   exit message. */
 		spin_unlock(&dlm->spinlock);
 
 		clear_node = 1;
@@ -598,11 +670,16 @@ static void dlm_leave_domain(struct dlm_ctxt *dlm)
 			mlog(ML_NOTICE, "Error %d sending domain exit message "
 			     "to node %d\n", status, node);
 
+			/* Not sure what to do here but lets sleep for
+			 * a bit in case this was a transient
+			 * error... */
 			msleep(DLM_DOMAIN_BACKOFF_MS);
 			clear_node = 0;
 		}
 
 		spin_lock(&dlm->spinlock);
+		/* If we're not clearing the node bit then we intend
+		 * to loop back around to try again. */
 		if (clear_node)
 			clear_bit(node, dlm->domain_map);
 	}
@@ -648,6 +725,12 @@ void dlm_unregister_domain(struct dlm_ctxt *dlm)
 
 	dlm->num_joins--;
 	if (!dlm->num_joins) {
+		/* We mark it "in shutdown" now so new register
+		 * requests wait until we've completely left the
+		 * domain. Don't use DLM_CTXT_LEAVING yet as we still
+		 * want new domain joins to communicate with us at
+		 * least until we've completed migration of our
+		 * resources. */
 		dlm->dlm_state = DLM_CTXT_IN_SHUTDOWN;
 		leave = 1;
 	}
@@ -657,16 +740,16 @@ void dlm_unregister_domain(struct dlm_ctxt *dlm)
 		mlog(0, "shutting down domain %s\n", dlm->name);
 		dlm_begin_exit_domain(dlm);
 
-		
+		/* We changed dlm state, notify the thread */
 		dlm_kick_thread(dlm, NULL);
 
 		while (dlm_migrate_all_locks(dlm)) {
-			
+			/* Give dlm_thread time to purge the lockres' */
 			msleep(500);
 			mlog(0, "%s: more migration to do\n", dlm->name);
 		}
 
-		
+		/* This list should be empty. If not, print remaining lockres */
 		if (!list_empty(&dlm->tracking_list)) {
 			mlog(ML_ERROR, "Following lockres' are still on the "
 			     "tracking list:\n");
@@ -716,6 +799,19 @@ static int dlm_query_join_proto_check(char *proto_type, int node,
 	return rc;
 }
 
+/*
+ * struct dlm_query_join_packet is made up of four one-byte fields.  They
+ * are effectively in big-endian order already.  However, little-endian
+ * machines swap them before putting the packet on the wire (because
+ * query_join's response is a status, and that status is treated as a u32
+ * on the wire).  Thus, a big-endian and little-endian machines will treat
+ * this structure differently.
+ *
+ * The solution is to have little-endian machines swap the structure when
+ * converting from the structure to the u32 representation.  This will
+ * result in the structure having the correct format on the wire no matter
+ * the host endian format.
+ */
 static void dlm_query_join_packet_to_wire(struct dlm_query_join_packet *packet,
 					  u32 *wire)
 {
@@ -750,6 +846,11 @@ static int dlm_query_join_handler(struct o2net_msg *msg, u32 len, void *data,
 	mlog(0, "node %u wants to join domain %s\n", query->node_idx,
 		  query->domain);
 
+	/*
+	 * If heartbeat doesn't consider the node live, tell it
+	 * to back off and try again.  This gives heartbeat a chance
+	 * to catch up.
+	 */
 	if (!o2hb_check_node_heartbeating(query->node_idx)) {
 		mlog(0, "node %u is not in our live map yet\n",
 		     query->node_idx);
@@ -765,6 +866,11 @@ static int dlm_query_join_handler(struct o2net_msg *msg, u32 len, void *data,
 	if (!dlm)
 		goto unlock_respond;
 
+	/*
+	 * There is a small window where the joining node may not see the
+	 * node(s) that just left but still part of the cluster. DISALLOW
+	 * join request if joining node has different node map.
+	 */
 	nodenum=0;
 	while (nodenum < O2NM_MAX_NODES) {
 		if (test_bit(nodenum, dlm->domain_map)) {
@@ -779,15 +885,22 @@ static int dlm_query_join_handler(struct o2net_msg *msg, u32 len, void *data,
 		nodenum++;
 	}
 
+	/* Once the dlm ctxt is marked as leaving then we don't want
+	 * to be put in someone's domain map.
+	 * Also, explicitly disallow joining at certain troublesome
+	 * times (ie. during recovery). */
 	if (dlm && dlm->dlm_state != DLM_CTXT_LEAVING) {
 		int bit = query->node_idx;
 		spin_lock(&dlm->spinlock);
 
 		if (dlm->dlm_state == DLM_CTXT_NEW &&
 		    dlm->joining_node == DLM_LOCK_RES_OWNER_UNKNOWN) {
+			/*If this is a brand new context and we
+			 * haven't started our join process yet, then
+			 * the other node won the race. */
 			packet.code = JOIN_OK_NO_MAP;
 		} else if (dlm->joining_node != DLM_LOCK_RES_OWNER_UNKNOWN) {
-			
+			/* Disallow parallel joins. */
 			packet.code = JOIN_DISALLOW;
 		} else if (dlm->reco.state & DLM_RECO_STATE_ACTIVE) {
 			mlog(0, "node %u trying to join, but recovery "
@@ -803,8 +916,12 @@ static int dlm_query_join_handler(struct o2net_msg *msg, u32 len, void *data,
 			     bit);
 			packet.code = JOIN_DISALLOW;
 		} else {
+			/* Alright we're fully a part of this domain
+			 * so we keep some state as to who's joining
+			 * and indicate to him that needs to be fixed
+			 * up. */
 
-			
+			/* Make sure we speak compatible locking protocols.  */
 			if (dlm_query_join_proto_check("DLM", bit,
 						       &dlm->dlm_locking_proto,
 						       &query->dlm_proto)) {
@@ -846,10 +963,13 @@ static int dlm_assert_joined_handler(struct o2net_msg *msg, u32 len, void *data,
 
 	spin_lock(&dlm_domain_lock);
 	dlm = __dlm_lookup_domain_full(assert->domain, assert->name_len);
-	
+	/* XXX should we consider no dlm ctxt an error? */
 	if (dlm) {
 		spin_lock(&dlm->spinlock);
 
+		/* Alright, this node has officially joined our
+		 * domain. Set him in the map and clean up our
+		 * leftover join state. */
 		BUG_ON(dlm->joining_node != assert->node_idx);
 		set_bit(assert->node_idx, dlm->domain_map);
 		clear_bit(assert->node_idx, dlm->exit_domain_map);
@@ -859,7 +979,7 @@ static int dlm_assert_joined_handler(struct o2net_msg *msg, u32 len, void *data,
 		       assert->node_idx, dlm->name);
 		__dlm_print_nodes(dlm);
 
-		
+		/* notify anything attached to the heartbeat events */
 		dlm_hb_event_notify_attached(dlm, assert->node_idx, 1);
 
 		spin_unlock(&dlm->spinlock);
@@ -905,7 +1025,7 @@ static int dlm_match_regions(struct dlm_ctxt *dlm,
 	localnr = min(O2NM_MAX_REGIONS, locallen/O2HB_MAX_REGION_NAME_LEN);
 	localnr = o2hb_get_all_regions(local, (u8)localnr);
 
-	
+	/* compare local regions with remote */
 	l = local;
 	for (i = 0; i < localnr; ++i) {
 		foundit = 0;
@@ -928,7 +1048,7 @@ static int dlm_match_regions(struct dlm_ctxt *dlm,
 		l += O2HB_MAX_REGION_NAME_LEN;
 	}
 
-	
+	/* compare remote with local regions */
 	r = remote;
 	for (i = 0; i < qr->qr_numregions; ++i) {
 		foundit = 0;
@@ -974,7 +1094,7 @@ static int dlm_send_regions(struct dlm_ctxt *dlm, unsigned long *node_map)
 	qr->qr_node = dlm->node_num;
 	qr->qr_namelen = strlen(dlm->name);
 	memcpy(qr->qr_domain, dlm->name, qr->qr_namelen);
-	
+	/* if local hb, the numregions will be zero */
 	if (o2hb_global_heartbeat_active())
 		qr->qr_numregions = o2hb_get_all_regions(qr->qr_regions,
 							 O2NM_MAX_REGIONS);
@@ -1022,7 +1142,7 @@ static int dlm_query_region_handler(struct o2net_msg *msg, u32 len,
 	mlog(0, "Node %u queries hb regions on domain %s\n", qr->qr_node,
 	     qr->qr_domain);
 
-	
+	/* buffer used in dlm_mast_regions() */
 	local = kmalloc(sizeof(qr->qr_regions), GFP_KERNEL);
 	if (!local) {
 		status = -ENOMEM;
@@ -1048,7 +1168,7 @@ static int dlm_query_region_handler(struct o2net_msg *msg, u32 len,
 		goto bail;
 	}
 
-	
+	/* Support for global heartbeat was added in 1.1 */
 	if (dlm->dlm_locking_proto.pv_major == 1 &&
 	    dlm->dlm_locking_proto.pv_minor == 0) {
 		mlog(ML_ERROR, "Node %d queried hb regions on domain %s "
@@ -1217,7 +1337,7 @@ static int dlm_query_nodeinfo_handler(struct o2net_msg *msg, u32 len,
 		goto bail;
 	}
 
-	
+	/* Support for node query was added in 1.1 */
 	if (dlm->dlm_locking_proto.pv_major == 1 &&
 	    dlm->dlm_locking_proto.pv_minor == 0) {
 		mlog(ML_ERROR, "Node %d queried nodes on domain %s "
@@ -1254,6 +1374,8 @@ static int dlm_cancel_join_handler(struct o2net_msg *msg, u32 len, void *data,
 	if (dlm) {
 		spin_lock(&dlm->spinlock);
 
+		/* Yikes, this guy wants to cancel his join. No
+		 * problem, we simply cleanup our join state. */
 		BUG_ON(dlm->joining_node != cancel->node_idx);
 		__dlm_set_joining_node(dlm, DLM_LOCK_RES_OWNER_UNKNOWN);
 
@@ -1289,6 +1411,7 @@ bail:
 	return status;
 }
 
+/* map_size should be in bytes. */
 static int dlm_send_join_cancels(struct dlm_ctxt *dlm,
 				 unsigned long *node_map,
 				 unsigned int map_size)
@@ -1343,7 +1466,7 @@ static int dlm_request_join(struct dlm_ctxt *dlm,
 	join_msg.dlm_proto = dlm->dlm_locking_proto;
 	join_msg.fs_proto = dlm->fs_locking_proto;
 
-	
+	/* copy live node map to join message */
 	byte_copymap(join_msg.node_map, dlm->live_nodes_map, O2NM_MAX_NODES);
 
 	status = o2net_send_message(DLM_QUERY_JOIN_MSG, DLM_MOD_KEY, &join_msg,
@@ -1356,6 +1479,10 @@ static int dlm_request_join(struct dlm_ctxt *dlm,
 	}
 	dlm_query_join_wire_to_packet(join_resp, &packet);
 
+	/* -ENOPROTOOPT from the net code means the other side isn't
+	    listening for our message type -- that's fine, it means
+	    his dlm isn't up, so we can consider him a 'yes' but not
+	    joined into the domain.  */
 	if (status == -ENOPROTOOPT) {
 		status = 0;
 		*response = JOIN_OK_NO_MAP;
@@ -1377,7 +1504,7 @@ static int dlm_request_join(struct dlm_ctxt *dlm,
 		*response = packet.code;
 	} else if (packet.code == JOIN_OK) {
 		*response = packet.code;
-		
+		/* Use the same locking protocol as the remote node */
 		dlm->dlm_locking_proto.pv_minor = packet.dlm_minor;
 		dlm->fs_locking_proto.pv_minor = packet.fs_minor;
 		mlog(0,
@@ -1438,6 +1565,9 @@ static void dlm_send_join_asserts(struct dlm_ctxt *dlm,
 			continue;
 
 		do {
+			/* It is very important that this message be
+			 * received so we spin until either the node
+			 * has died or it gets the message. */
 			status = dlm_send_one_join_assert(dlm, node);
 
 			spin_lock(&dlm->spinlock);
@@ -1448,7 +1578,7 @@ static void dlm_send_join_asserts(struct dlm_ctxt *dlm,
 				mlog(ML_ERROR, "Error return %d asserting "
 				     "join on node %d\n", status, node);
 
-				
+				/* give us some time between errors... */
 				if (live)
 					msleep(DLM_DOMAIN_BACKOFF_MS);
 			}
@@ -1473,6 +1603,8 @@ static int dlm_should_restart_join(struct dlm_ctxt *dlm,
 	}
 
 	spin_lock(&dlm->spinlock);
+	/* For now, we restart the process if the node maps have
+	 * changed at all */
 	ret = memcmp(ctxt->live_map, dlm->live_nodes_map,
 		     sizeof(dlm->live_nodes_map));
 	spin_unlock(&dlm->spinlock);
@@ -1498,6 +1630,9 @@ static int dlm_try_to_join_domain(struct dlm_ctxt *dlm)
 		goto bail;
 	}
 
+	/* group sem locking should work for us here -- we're already
+	 * registered for heartbeat events so filling this should be
+	 * atomic wrt getting those handlers called. */
 	o2hb_fill_node_map(dlm->live_nodes_map, sizeof(dlm->live_nodes_map));
 
 	spin_lock(&dlm->spinlock);
@@ -1519,6 +1654,8 @@ static int dlm_try_to_join_domain(struct dlm_ctxt *dlm)
 			goto bail;
 		}
 
+		/* Ok, either we got a response or the node doesn't have a
+		 * dlm up. */
 		if (response == JOIN_OK)
 			set_bit(node, ctxt->yes_resp_map);
 
@@ -1530,13 +1667,17 @@ static int dlm_try_to_join_domain(struct dlm_ctxt *dlm)
 
 	mlog(0, "Yay, done querying nodes!\n");
 
+	/* Yay, everyone agree's we can join the domain. My domain is
+	 * comprised of all nodes who were put in the
+	 * yes_resp_map. Copy that into our domain map and send a join
+	 * assert message to clean up everyone elses state. */
 	spin_lock(&dlm->spinlock);
 	memcpy(dlm->domain_map, ctxt->yes_resp_map,
 	       sizeof(ctxt->yes_resp_map));
 	set_bit(dlm->node_num, dlm->domain_map);
 	spin_unlock(&dlm->spinlock);
 
-	
+	/* Support for global heartbeat and node info was added in 1.1 */
 	if (dlm->dlm_locking_proto.pv_major > 1 ||
 	    dlm->dlm_locking_proto.pv_minor > 0) {
 		status = dlm_send_nodeinfo(dlm, ctxt->yes_resp_map);
@@ -1553,6 +1694,10 @@ static int dlm_try_to_join_domain(struct dlm_ctxt *dlm)
 
 	dlm_send_join_asserts(dlm, ctxt->yes_resp_map);
 
+	/* Joined state *must* be set before the joining node
+	 * information, otherwise the query_join handler may read no
+	 * current joiner but a state of NEW and tell joining nodes
+	 * we're not in the domain. */
 	spin_lock(&dlm_domain_lock);
 	dlm->dlm_state = DLM_CTXT_JOINED;
 	dlm->num_joins++;
@@ -1568,7 +1713,7 @@ bail:
 	spin_unlock(&dlm->spinlock);
 
 	if (ctxt) {
-		
+		/* Do we need to send a cancel message to any nodes? */
 		if (status < 0) {
 			tmpstat = dlm_send_join_cancels(dlm,
 							ctxt->yes_resp_map,
@@ -1772,6 +1917,9 @@ static int dlm_join_domain(struct dlm_ctxt *dlm)
 	do {
 		status = dlm_try_to_join_domain(dlm);
 
+		/* If we're racing another node to the join, then we
+		 * need to back off temporarily and let them
+		 * complete. */
 #define	DLM_JOIN_TIMEOUT_MSECS	90000
 		if (status == -EAGAIN) {
 			if (signal_pending(current)) {
@@ -1788,6 +1936,13 @@ static int dlm_join_domain(struct dlm_ctxt *dlm)
 				goto bail;
 			}
 
+			/*
+			 * <chip> After you!
+			 * <dale> No, after you!
+			 * <chip> I insist!
+			 * <dale> But you first!
+			 * ...
+			 */
 			backoff = (unsigned int)(jiffies & 0x3);
 			backoff *= DLM_DOMAIN_BACKOFF_MS;
 			total_backoff += backoff;
@@ -1939,6 +2094,14 @@ leave:
 	return dlm;
 }
 
+/*
+ * Compare a requested locking protocol version against the current one.
+ *
+ * If the major numbers are different, they are incompatible.
+ * If the current minor is greater than the request, they are incompatible.
+ * If the current minor is less than or equal to the request, they are
+ * compatible, and the requester should run at the current minor version.
+ */
 static int dlm_protocol_compare(struct dlm_protocol_version *existing,
 				struct dlm_protocol_version *request)
 {
@@ -1954,6 +2117,13 @@ static int dlm_protocol_compare(struct dlm_protocol_version *existing,
 	return 0;
 }
 
+/*
+ * dlm_register_domain: one-time setup per "domain".
+ *
+ * The filesystem passes in the requested locking version via proto.
+ * If registration was successful, proto will contain the negotiated
+ * locking protocol.
+ */
 struct dlm_ctxt * dlm_register_domain(const char *domain,
 			       u32 key,
 			       struct dlm_protocol_version *fs_proto)
@@ -2011,7 +2181,7 @@ retry:
 		goto leave;
 	}
 
-	
+	/* doesn't exist */
 	if (!new_ctxt) {
 		spin_unlock(&dlm_domain_lock);
 
@@ -2024,14 +2194,18 @@ retry:
 		goto leave;
 	}
 
-	
+	/* a little variable switch-a-roo here... */
 	dlm = new_ctxt;
 	new_ctxt = NULL;
 
-	
+	/* add the new domain */
 	list_add_tail(&dlm->list, &dlm_domains);
 	spin_unlock(&dlm_domain_lock);
 
+	/*
+	 * Pass the locking protocol version into the join.  If the join
+	 * succeeds, it will have the negotiated protocol set.
+	 */
 	dlm->dlm_locking_proto = dlm_protocol;
 	dlm->fs_locking_proto = *fs_proto;
 
@@ -2042,7 +2216,7 @@ retry:
 		goto leave;
 	}
 
-	
+	/* Tell the caller what locking protocol we negotiated */
 	*fs_proto = dlm->fs_locking_proto;
 
 	ret = 0;
@@ -2108,7 +2282,17 @@ bail:
 	return status;
 }
 
+/* Domain eviction callback handling.
+ *
+ * The file system requires notification of node death *before* the
+ * dlm completes it's recovery work, otherwise it may be able to
+ * acquire locks on resources requiring recovery. Since the dlm can
+ * evict a node from it's domain *before* heartbeat fires, a similar
+ * mechanism is required. */
 
+/* Eviction is not expected to happen often, so a per-domain lock is
+ * not necessary. Eviction callbacks are allowed to sleep for short
+ * periods of time. */
 static DECLARE_RWSEM(dlm_callback_sem);
 
 void dlm_fire_domain_eviction_callbacks(struct dlm_ctxt *dlm,

@@ -6,27 +6,40 @@
 
 extern struct bus_type macio_bus_type;
 
+/* MacIO device driver is defined later */
 struct macio_driver;
 struct macio_chip;
 
 #define MACIO_DEV_COUNT_RESOURCES	8
 #define MACIO_DEV_COUNT_IRQS		8
 
+/*
+ * the macio_bus structure is used to describe a "virtual" bus
+ * within a MacIO ASIC. It's typically provided by a macio_pci_asic
+ * PCI device, but could be provided differently as well (nubus
+ * machines using a fake OF tree).
+ *
+ * The pdev field can be NULL on non-PCI machines
+ */
 struct macio_bus
 {
-	struct macio_chip	*chip;		
-	int			index;		
+	struct macio_chip	*chip;		/* macio_chip (private use) */
+	int			index;		/* macio chip index in system */
 #ifdef CONFIG_PCI
-	struct pci_dev		*pdev;		
+	struct pci_dev		*pdev;		/* PCI device hosting this bus */
 #endif
 };
 
+/*
+ * the macio_dev structure is used to describe a device
+ * within an Apple MacIO ASIC.
+ */
 struct macio_dev
 {
-	struct macio_bus	*bus;		
-	struct macio_dev	*media_bay;	
+	struct macio_bus	*bus;		/* macio bus this device is on */
+	struct macio_dev	*media_bay;	/* Device is part of a media bay */
 	struct platform_device	ofdev;
-	struct device_dma_parameters dma_parms; 
+	struct device_dma_parameters dma_parms; /* ide needs that */
 	int			n_resources;
 	struct resource		resource[MACIO_DEV_COUNT_RESOURCES];
 	int			n_interrupts;
@@ -38,6 +51,10 @@ struct macio_dev
 extern struct macio_dev *macio_dev_get(struct macio_dev *dev);
 extern void macio_dev_put(struct macio_dev *dev);
 
+/*
+ * Accessors to resources & interrupts and other device
+ * fields
+ */
 
 static inline int macio_resource_count(struct macio_dev *dev)
 {
@@ -101,6 +118,9 @@ static inline struct pci_dev *macio_get_pci_dev(struct macio_dev *mdev)
 }
 #endif
 
+/*
+ * A driver for a mac-io chip based device
+ */
 struct macio_driver
 {
 	int	(*probe)(struct macio_dev* dev, const struct of_device_id *match);
@@ -120,5 +140,5 @@ struct macio_driver
 extern int macio_register_driver(struct macio_driver *);
 extern void macio_unregister_driver(struct macio_driver *);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __MACIO_ASIC_H__ */

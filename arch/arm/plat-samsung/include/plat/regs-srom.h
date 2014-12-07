@@ -25,6 +25,7 @@
 #define S5P_SROM_BC4		S5P_SROMREG(0x14)
 #define S5P_SROM_BC5		S5P_SROMREG(0x18)
 
+/* one register BW holds 4 x 4-bit packed settings for NCS0 - NCS3 */
 
 #define S5P_SROM_BW__DATAWIDTH__SHIFT		0
 #define S5P_SROM_BW__ADDRMODE__SHIFT		1
@@ -40,6 +41,7 @@
 #define S5P_SROM_BW__NCS4__SHIFT		16
 #define S5P_SROM_BW__NCS5__SHIFT		20
 
+/* applies to same to BCS0 - BCS3 */
 
 #define S5P_SROM_BCX__PMC__SHIFT		0
 #define S5P_SROM_BCX__TACP__SHIFT		4
@@ -49,4 +51,4 @@
 #define S5P_SROM_BCX__TCOS__SHIFT		24
 #define S5P_SROM_BCX__TACS__SHIFT		28
 
-#endif 
+#endif /* __PLAT_SAMSUNG_REGS_SROM_H */

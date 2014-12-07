@@ -24,6 +24,7 @@
 #include "board-8960.h"
 #include "board-storage-common-a.h"
 
+/* MSM8960 has 5 SDCC controllers */
 enum sdcc_controllers {
 	SDCC1,
 	SDCC2,
@@ -33,8 +34,9 @@ enum sdcc_controllers {
 	MAX_SDCC_CONTROLLER
 };
 
+/* All SDCC controllers require VDD/VCC voltage */
 static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : eMMC card connected */
 	[SDCC1] = {
 		.name = "sdc_vdd",
 		.high_vol_level = 2950000,
@@ -42,9 +44,9 @@ static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
 		.always_on = 1,
 		.lpm_sup = 1,
 		.lpm_uA = 9000,
-		.hpm_uA = 200000, 
+		.hpm_uA = 200000, /* 200mA */
 	},
-	
+	/* SDCC2 : SDIO slot connected */
 	[SDCC2] = {
 		.name = "sdc_vdd",
 		.high_vol_level = 1800000,
@@ -52,70 +54,77 @@ static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
 		.always_on = 1,
 		.lpm_sup = 1,
 		.lpm_uA = 9000,
-		.hpm_uA = 200000, 
+		.hpm_uA = 200000, /* 200mA */
 	},
-	
+	/* SDCC3 : External card slot connected */
 	[SDCC3] = {
 		.name = "sdc_vdd",
 		.high_vol_level = 2950000,
 		.low_vol_level = 2950000,
-		.hpm_uA = 600000, 
+		.hpm_uA = 600000, /* 600mA */
 	}
 };
 
+/* SDCC controllers may require voting for IO operating voltage */
 static struct msm_mmc_reg_data mmc_vdd_io_reg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : eMMC card connected */
 	[SDCC1] = {
 		.name = "sdc_vdd_io",
 		.always_on = 1,
 		.high_vol_level = 1800000,
 		.low_vol_level = 1800000,
-		.hpm_uA = 200000, 
+		.hpm_uA = 200000, /* 200mA */
 	},
-	
+	/* SDCC3 : External card slot connected */
 	[SDCC3] = {
 		.name = "sdc_vdd_io",
 		.high_vol_level = 2950000,
 		.low_vol_level = 1850000,
 		.always_on = 1,
 		.lpm_sup = 1,
-		
+		/* Max. Active current required is 16 mA */
 		.hpm_uA = 16000,
+		/*
+		 * Sleep current required is ~300 uA. But min. vote can be
+		 * in terms of mA (min. 1 mA). So let's vote for 2 mA
+		 * during sleep.
+		 */
 		.lpm_uA = 2000,
 	},
-	
+	/* SDCC4 : SDIO slot connected */
 	[SDCC4] = {
 		.name = "sdc_vdd_io",
 		.high_vol_level = 1800000,
 		.low_vol_level = 1800000,
 		.always_on = 1,
 		.lpm_sup = 1,
-		.hpm_uA = 200000, 
+		.hpm_uA = 200000, /* 200mA */
 		.lpm_uA = 2000,
 	},
 };
 
 static struct msm_mmc_slot_reg_data mmc_slot_vreg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : eMMC card connected */
 	[SDCC1] = {
 		.vdd_data = &mmc_vdd_reg_data[SDCC1],
 		.vdd_io_data = &mmc_vdd_io_reg_data[SDCC1],
 	},
-	
+	/* SDCC2 : SDIO card slot connected */
 	[SDCC2] = {
 		.vdd_data = &mmc_vdd_reg_data[SDCC2],
 	},
-	
+	/* SDCC3 : External card slot connected */
 	[SDCC3] = {
 		.vdd_data = &mmc_vdd_reg_data[SDCC3],
 		.vdd_io_data = &mmc_vdd_io_reg_data[SDCC3],
 	},
-	
+	/* SDCC4 : SDIO card slot connected */
 	[SDCC4] = {
 		.vdd_io_data = &mmc_vdd_io_reg_data[SDCC4],
 	},
 };
 
+/* SDC1 pad data */
 static struct msm_mmc_pad_drv sdc1_pad_drv_on_cfg[] = {
 	{TLMM_HDRV_SDC1_CLK, GPIO_CFG_16MA},
 	{TLMM_HDRV_SDC1_CMD, GPIO_CFG_10MA},
@@ -140,6 +149,7 @@ static struct msm_mmc_pad_pull sdc1_pad_pull_off_cfg[] = {
 	{TLMM_PULL_SDC1_DATA, GPIO_CFG_PULL_UP}
 };
 
+/* SDC3 pad data */
 static struct msm_mmc_pad_drv sdc3_pad_drv_on_cfg[] = {
 	{TLMM_HDRV_SDC3_CLK, GPIO_CFG_8MA},
 	{TLMM_HDRV_SDC3_CMD, GPIO_CFG_8MA},
@@ -160,7 +170,17 @@ static struct msm_mmc_pad_pull sdc3_pad_pull_on_cfg[] = {
 
 static struct msm_mmc_pad_pull sdc3_pad_pull_off_cfg[] = {
 	{TLMM_PULL_SDC3_CLK, GPIO_CFG_NO_PULL},
+	/*
+	 * SDC3 CMD line should be PULLed UP otherwise fluid platform will
+	 * see transitions (1 -> 0 and 0 -> 1) on card detection line,
+	 * which would result in false card detection interrupts.
+	 */
 	{TLMM_PULL_SDC3_CMD, GPIO_CFG_PULL_UP},
+	/*
+	 * Keeping DATA lines status to PULL UP will make sure that
+	 * there is no current leak during sleep if external pull up
+	 * is connected to DATA lines.
+	 */
 	{TLMM_PULL_SDC3_DATA, GPIO_CFG_PULL_UP}
 };
 
@@ -342,22 +362,29 @@ static struct mmc_platform_data msm8960_sdc4_data = {
 void __init msm8960_init_mmc(void)
 {
 #ifdef CONFIG_MMC_MSM_SDC1_SUPPORT
+	/*
+	 * When eMMC runs in DDR mode on CDP platform, we have
+	 * seen instability due to DATA CRC errors. These errors are
+	 * attributed to long physical path between MSM and eMMC on CDP.
+	 * So let's not enable the DDR mode on CDP platform but let other
+	 * platforms take advantage of eMMC DDR mode.
+	 */
 	if (!machine_is_msm8960_cdp())
 		msm8960_sdc1_data.uhs_caps |= (MMC_CAP_1_8V_DDR |
 					       MMC_CAP_UHS_DDR50);
-	
+	/* SDC1 : eMMC card connected */
 	msm_add_sdcc(1, &msm8960_sdc1_data);
 #endif
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
-	
+	/* SDC2: SDIO slot for WLAN*/
 	msm_add_sdcc(2, &msm8960_sdc2_data);
 #endif
 #ifdef CONFIG_MMC_MSM_SDC3_SUPPORT
-	
+	/* SDC3: External card slot */
 	msm_add_sdcc(3, &msm8960_sdc3_data);
 #endif
 #ifdef CONFIG_MMC_MSM_SDC4_SUPPORT
-	
+	/* SDC4: SDIO slot for WLAN */
 	msm_add_sdcc(4, &msm8960_sdc4_data);
 #endif
 }

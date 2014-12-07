@@ -15,6 +15,7 @@
 #include <linux/gpio.h>
 #include "msm_fb.h"
 
+/* registers */
 #define GORDON_REG_NOP          0x00
 #define GORDON_REG_IMGCTL1      0x10
 #define GORDON_REG_IMGCTL2      0x11
@@ -84,14 +85,14 @@ static int spi_sdo;
 static int spi_sdi;
 static int spi_dac;
 static int bl_level;
-static unsigned char bit_shift[8] = { (1 << 7),	
+static unsigned char bit_shift[8] = { (1 << 7),	/* MSB */
 	(1 << 6),
 	(1 << 5),
 	(1 << 4),
 	(1 << 3),
 	(1 << 2),
 	(1 << 1),
-	(1 << 0)		               
+	(1 << 0)		               /* LSB */
 };
 
 struct gordon_state_type{
@@ -108,42 +109,42 @@ static void serigo(uint16 reg, uint8 data)
 	unsigned int tx_val = ((0x00FF & reg) << 8) | data;
 	unsigned char i, val = 0;
 
-	
+	/* Enable the Chip Select */
 	gpio_set_value(spi_cs, 1);
 	udelay(33);
 
-	
+	/* Transmit it in two parts, Higher Byte first, then Lower Byte */
 	val = (unsigned char)((tx_val & 0xFF00) >> 8);
 
-	
+	/* Clock should be Low before entering ! */
 	for (i = 0; i < 8; i++) {
-		
+		/* #1: Drive the Data (High or Low) */
 		if (val & bit_shift[i])
 			gpio_set_value(spi_sdi, 1);
 		else
 			gpio_set_value(spi_sdi, 0);
 
-		
+		/* #2: Drive the Clk High and then Low */
 		udelay(33);
 		gpio_set_value(spi_sclk, 1);
 		udelay(33);
 		gpio_set_value(spi_sclk, 0);
 	}
 
-	
+	/* Idle state of SDO (MOSI) is Low */
 	gpio_set_value(spi_sdi, 0);
-	
+	/* ..then Lower Byte */
 	val = (uint8) (tx_val & 0x00FF);
-	
+	/* Before we enter here the Clock should be Low ! */
 
 	for (i = 0; i < 8; i++) {
-		
+		/* #1: Drive the Data (High or Low) */
 		if (val & bit_shift[i])
 			gpio_set_value(spi_sdi, 1);
 		else
 			gpio_set_value(spi_sdi, 0);
 
-		
+		/* #2: Drive the Clk High and then Low */
 		udelay(33);
 
 		gpio_set_value(spi_sclk, 1);
@@ -151,27 +152,27 @@ static void serigo(uint16 reg, uint8 data)
 		gpio_set_value(spi_sclk, 0);
 	}
 
-	
+	/* Idle state of SDO (MOSI) is Low */
 	gpio_set_value(spi_sdi, 0);
 
-	
+	/* Now Disable the Chip Select */
 	udelay(33);
 	gpio_set_value(spi_cs, 0);
 }
 
 static void spi_init(void)
 {
-	
+	/* Setting the Default GPIO's */
 	spi_sclk = *(lcdc_gordon_pdata->gpio_num);
 	spi_cs   = *(lcdc_gordon_pdata->gpio_num + 1);
 	spi_sdi  = *(lcdc_gordon_pdata->gpio_num + 2);
 	spi_sdo  = *(lcdc_gordon_pdata->gpio_num + 3);
 
-	
+	/* Set the output so that we dont disturb the slave device */
 	gpio_set_value(spi_sclk, 0);
 	gpio_set_value(spi_sdi, 0);
 
-	
+	/* Set the Chip Select De-asserted */
 	gpio_set_value(spi_cs, 0);
 
 }
@@ -179,23 +180,23 @@ static void spi_init(void)
 static void gordon_disp_powerup(void)
 {
 	if (!gordon_state.disp_powered_up && !gordon_state.display_on) {
-		
-		
+		/* Reset the hardware first */
+		/* Include DAC power up implementation here */
 	      gordon_state.disp_powered_up = TRUE;
 	}
 }
 
 static void gordon_init(void)
 {
-	
+	/* Image interface settings */
 	serigo(GORDON_REG_IMGCTL2, 0x00);
 	serigo(GORDON_REG_IMGSET1, 0x00);
 
-	
+	/* Exchange the RGB signal for J510(Softbank mobile) */
 	serigo(GORDON_REG_IMGSET2, 0x12);
 	serigo(GORDON_REG_LCDIFSET1, 0x00);
 
-	
+	/* Pre-charge settings */
 	serigo(GORDON_REG_PCCTL, 0x09);
 	serigo(GORDON_REG_LCDIFCTL2, 0x7B);
 
@@ -207,7 +208,7 @@ static void gordon_disp_on(void)
 	if (gordon_state.disp_powered_up && !gordon_state.display_on) {
 		gordon_init();
 		mdelay(20);
-		
+		/* gordon_dispmode setting */
 		serigo(GORDON_REG_TPARAM1, 0x30);
 		serigo(GORDON_REG_TLCDIF1, 0x00);
 		serigo(GORDON_REG_TSSPB_ST1, 0x8B);
@@ -231,7 +232,7 @@ static void gordon_disp_on(void)
 		serigo(GORDON_REG_EVNL1, 0x48);
 		serigo(GORDON_REG_TBIAS1, 0x88);
 
-		
+		/* QVGA settings */
 		serigo(GORDON_REG_TPARAM2, 0x28);
 		serigo(GORDON_REG_TLCDIF2, 0x14);
 		serigo(GORDON_REG_TSSPB_ST2, 0x49);
@@ -250,19 +251,19 @@ static void gordon_disp_on(void)
 		serigo(GORDON_REG_THBP2, 0x4D);
 		serigo(GORDON_REG_TPHCTL2, 0x1A);
 
-		
+		/* VGA settings */
 		serigo(GORDON_REG_IVBP1, 0x02);
 		serigo(GORDON_REG_IHBP1, 0x90);
 		serigo(GORDON_REG_IVNUM1, 0xA0);
 		serigo(GORDON_REG_IHNUM1, 0x78);
 
-		
+		/* QVGA settings */
 		serigo(GORDON_REG_IVBP2, 0x02);
 		serigo(GORDON_REG_IHBP2, 0x48);
 		serigo(GORDON_REG_IVNUM2, 0x50);
 		serigo(GORDON_REG_IHNUM2, 0x3C);
 
-		
+		/* Gordon Charge pump settings and ON */
 		serigo(GORDON_REG_POWCTL, 0x03);
 		mdelay(15);
 		serigo(GORDON_REG_POWCTL, 0x07);
@@ -304,22 +305,22 @@ static void gordon_disp_on(void)
 static int lcdc_gordon_panel_on(struct platform_device *pdev)
 {
 	if (!gordon_state.disp_initialized) {
-		
+		/* Configure reset GPIO that drives DAC */
 		lcdc_gordon_pdata->panel_config_gpio(1);
 		spi_dac = *(lcdc_gordon_pdata->gpio_num + 4);
 		gpio_set_value(spi_dac, 0);
 		udelay(15);
 		gpio_set_value(spi_dac, 1);
-		spi_init();	
+		spi_init();	/* LCD needs SPI */
 		gordon_disp_powerup();
 		gordon_disp_on();
 		if (bl_level <= 1) {
-			
+			/* keep back light OFF */
 			serigo(GORDON_REG_LCDIFCTL2, 0x0B);
 			udelay(15);
 			serigo(GORDON_REG_VALTRAN, 0x01);
 		} else {
-			
+			/* keep back light ON */
 			serigo(GORDON_REG_LCDIFCTL2, 0x7B);
 			udelay(15);
 			serigo(GORDON_REG_VALTRAN, 0x01);
@@ -366,12 +367,12 @@ static void lcdc_gordon_set_backlight(struct msm_fb_data_type *mfd)
 
 		if (gordon_state.disp_initialized) {
 			if (bl_level <= 1) {
-				
+				/* keep back light OFF */
 				serigo(GORDON_REG_LCDIFCTL2, 0x0B);
 				udelay(15);
 				serigo(GORDON_REG_VALTRAN, 0x01);
 			} else {
-				
+				/* keep back light ON */
 				serigo(GORDON_REG_LCDIFCTL2, 0x7B);
 				udelay(15);
 				serigo(GORDON_REG_VALTRAN, 0x01);
@@ -442,8 +443,8 @@ static int __init lcdc_gordon_panel_init(void)
 	pinfo->lcdc.v_back_porch = 0;
 	pinfo->lcdc.v_front_porch = 2;
 	pinfo->lcdc.v_pulse_width = 2;
-	pinfo->lcdc.border_clr = 0;     
-	pinfo->lcdc.underflow_clr = 0xff;       
+	pinfo->lcdc.border_clr = 0;     /* blk */
+	pinfo->lcdc.underflow_clr = 0xff;       /* blue */
 	pinfo->lcdc.hsync_skew = 0;
 
 	ret = platform_device_register(&this_device);

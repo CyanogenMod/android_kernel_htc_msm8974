@@ -36,7 +36,7 @@ struct lxfb_par {
 #ifdef CONFIG_PM
 	int powered_down;
 
-	
+	/* register state, for power mgmt functionality */
 	struct {
 		uint64_t padsel;
 		uint64_t dotpll;
@@ -74,6 +74,7 @@ int lx_powerup(struct fb_info *info);
 #endif
 
 
+/* Graphics Processor registers (table 6-29 from the data book) */
 enum gp_registers {
 	GP_DST_OFFSET = 0,
 	GP_SRC_OFFSET,
@@ -112,13 +113,14 @@ enum gp_registers {
 
 	GP_LUT_INDEX,
 	GP_LUT_DATA,
-	GP_INT_CNTRL, 
+	GP_INT_CNTRL, /* 0x78 */
 };
 
-#define GP_BLT_STATUS_CE		(1 << 4)	
-#define GP_BLT_STATUS_PB		(1 << 0)	
+#define GP_BLT_STATUS_CE		(1 << 4)	/* cmd buf empty */
+#define GP_BLT_STATUS_PB		(1 << 0)	/* primitive busy */
 
 
+/* Display Controller registers (table 6-47 from the data book) */
 enum dc_registers {
 	DC_UNLOCK = 0,
 	DC_GENERAL_CFG,
@@ -193,11 +195,11 @@ enum dc_registers {
 	DC_VID_EVEN_V_ST_OFFSET,
 	DC_V_ACTIVE_EVEN_TIMING,
 	DC_V_BLANK_EVEN_TIMING,
-	DC_V_SYNC_EVEN_TIMING,	
+	DC_V_SYNC_EVEN_TIMING,	/* 0xec */
 };
 
 #define DC_UNLOCK_LOCK			0x00000000
-#define DC_UNLOCK_UNLOCK		0x00004758	
+#define DC_UNLOCK_UNLOCK		0x00004758	/* magic value */
 
 #define DC_GENERAL_CFG_FDTY		(1 << 17)
 #define DC_GENERAL_CFG_DFHPEL_SHIFT	(12)
@@ -232,8 +234,8 @@ enum dc_registers {
 
 #define DC_CLR_KEY_CLR_KEY_EN		(1 << 24)
 
-#define DC_IRQ_VIP_VSYNC_IRQ_STATUS	(1 << 21)	
-#define DC_IRQ_STATUS			(1 << 20)	
+#define DC_IRQ_VIP_VSYNC_IRQ_STATUS	(1 << 21)	/* undocumented? */
+#define DC_IRQ_STATUS			(1 << 20)	/* undocumented? */
 #define DC_IRQ_VIP_VSYNC_LOSS_IRQ_MASK	(1 << 1)
 #define DC_IRQ_MASK			(1 << 0)
 
@@ -243,6 +245,12 @@ enum dc_registers {
 #define DC_GENLK_CTL_GENLK_EN		(1 << 18)
 
 
+/*
+ * Video Processor registers (table 6-71).
+ * There is space for 64 bit values, but we never use more than the
+ * lower 32 bits.  The actual register save/restore code only bothers
+ * to restore those 32 bits.
+ */
 enum vp_registers {
 	VP_VCFG = 0,
 	VP_DCFG,
@@ -307,16 +315,16 @@ enum vp_registers {
 	VP_A1YE,
 	VP_A2YE,
 
-	VP_A3YE,	
+	VP_A3YE,	/* 0x150 */
 
-	VP_VCR = 0x1000, 
+	VP_VCR = 0x1000, /* 0x1000 - 0x1fff */
 };
 
 #define VP_VCFG_VID_EN			(1 << 0)
 
 #define VP_DCFG_GV_GAM			(1 << 21)
 #define VP_DCFG_PWR_SEQ_DELAY		((1 << 17) | (1 << 18) | (1 << 19))
-#define VP_DCFG_PWR_SEQ_DELAY_DEFAULT	(1 << 19)	
+#define VP_DCFG_PWR_SEQ_DELAY_DEFAULT	(1 << 19)	/* undocumented */
 #define VP_DCFG_CRT_SYNC_SKW		((1 << 14) | (1 << 15) | (1 << 16))
 #define VP_DCFG_CRT_SYNC_SKW_DEFAULT	(1 << 16)
 #define VP_DCFG_CRT_VSYNC_POL		(1 << 9)
@@ -331,7 +339,12 @@ enum vp_registers {
 #define VP_MISC_BYP_BOTH		(1 << 0)
 
 
+/*
+ * Flat Panel registers (table 6-71).
+ * Also 64 bit registers; see above note about 32-bit handling.
+ */
 
+/* we're actually in the VP register space, starting at address 0x400 */
 #define VP_FP_START	0x400
 
 enum fp_registers {
@@ -351,22 +364,23 @@ enum fp_registers {
 	FP_DCA,
 
 	FP_DMD,
-	FP_CRC, 
+	FP_CRC, /* 0x458 */
 };
 
 #define FP_PT2_HSP			(1 << 22)
 #define FP_PT2_VSP			(1 << 23)
-#define FP_PT2_SCRC			(1 << 27)	
+#define FP_PT2_SCRC			(1 << 27)	/* shfclk free */
 
-#define FP_PM_P				(1 << 24)	
-#define FP_PM_PANEL_PWR_UP		(1 << 3)	
-#define FP_PM_PANEL_PWR_DOWN		(1 << 2)	
-#define FP_PM_PANEL_OFF			(1 << 1)	
-#define FP_PM_PANEL_ON			(1 << 0)	
+#define FP_PM_P				(1 << 24)	/* panel power ctl */
+#define FP_PM_PANEL_PWR_UP		(1 << 3)	/* r/o */
+#define FP_PM_PANEL_PWR_DOWN		(1 << 2)	/* r/o */
+#define FP_PM_PANEL_OFF			(1 << 1)	/* r/o */
+#define FP_PM_PANEL_ON			(1 << 0)	/* r/o */
 
 #define FP_DFC_BC			((1 << 4) | (1 << 5) | (1 << 6))
 
 
+/* register access functions */
 
 static inline uint32_t read_gp(struct lxfb_par *par, int reg)
 {
@@ -409,28 +423,30 @@ static inline void write_fp(struct lxfb_par *par, int reg, uint32_t val)
 }
 
 
+/* MSRs are defined in linux/cs5535.h; their bitfields are here */
 
-#define MSR_GLCP_DOTPLL_LOCK		(1 << 25)	
+#define MSR_GLCP_DOTPLL_LOCK		(1 << 25)	/* r/o */
 #define MSR_GLCP_DOTPLL_HALFPIX		(1 << 24)
 #define MSR_GLCP_DOTPLL_BYPASS		(1 << 15)
 #define MSR_GLCP_DOTPLL_DOTRESET	(1 << 0)
 
+/* note: this is actually the VP's GLD_MSR_CONFIG */
 #define MSR_LX_GLD_MSR_CONFIG_FMT	((1 << 3) | (1 << 4) | (1 << 5))
 #define MSR_LX_GLD_MSR_CONFIG_FMT_FP	(1 << 3)
 #define MSR_LX_GLD_MSR_CONFIG_FMT_CRT	(0)
-#define MSR_LX_GLD_MSR_CONFIG_FPC	(1 << 15)	
+#define MSR_LX_GLD_MSR_CONFIG_FPC	(1 << 15)	/* FP *and* CRT */
 
-#define MSR_LX_MSR_PADSEL_TFT_SEL_LOW	0xDFFFFFFF	
-#define MSR_LX_MSR_PADSEL_TFT_SEL_HIGH	0x0000003F	
+#define MSR_LX_MSR_PADSEL_TFT_SEL_LOW	0xDFFFFFFF	/* ??? */
+#define MSR_LX_MSR_PADSEL_TFT_SEL_HIGH	0x0000003F	/* ??? */
 
-#define MSR_LX_SPARE_MSR_DIS_CFIFO_HGO	(1 << 11)	
-#define MSR_LX_SPARE_MSR_VFIFO_ARB_SEL	(1 << 10)	
-#define MSR_LX_SPARE_MSR_WM_LPEN_OVRD	(1 << 9)	
-#define MSR_LX_SPARE_MSR_LOAD_WM_LPEN_M	(1 << 8)	
-#define MSR_LX_SPARE_MSR_DIS_INIT_V_PRI	(1 << 7)	
+#define MSR_LX_SPARE_MSR_DIS_CFIFO_HGO	(1 << 11)	/* undocumented */
+#define MSR_LX_SPARE_MSR_VFIFO_ARB_SEL	(1 << 10)	/* undocumented */
+#define MSR_LX_SPARE_MSR_WM_LPEN_OVRD	(1 << 9)	/* undocumented */
+#define MSR_LX_SPARE_MSR_LOAD_WM_LPEN_M	(1 << 8)	/* undocumented */
+#define MSR_LX_SPARE_MSR_DIS_INIT_V_PRI	(1 << 7)	/* undocumented */
 #define MSR_LX_SPARE_MSR_DIS_VIFO_WM	(1 << 6)
-#define MSR_LX_SPARE_MSR_DIS_CWD_CHECK	(1 << 5)	
-#define MSR_LX_SPARE_MSR_PIX8_PAN_FIX	(1 << 4)	
-#define MSR_LX_SPARE_MSR_FIRST_REQ_MASK	(1 << 1)	
+#define MSR_LX_SPARE_MSR_DIS_CWD_CHECK	(1 << 5)	/* undocumented */
+#define MSR_LX_SPARE_MSR_PIX8_PAN_FIX	(1 << 4)	/* undocumented */
+#define MSR_LX_SPARE_MSR_FIRST_REQ_MASK	(1 << 1)	/* undocumented */
 
 #endif

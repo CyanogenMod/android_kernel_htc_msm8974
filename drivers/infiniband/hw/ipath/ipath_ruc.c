@@ -37,46 +37,58 @@
 #include "ipath_verbs.h"
 #include "ipath_kernel.h"
 
+/*
+ * Convert the AETH RNR timeout code into the number of milliseconds.
+ */
 const u32 ib_ipath_rnr_table[32] = {
-	656,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	1,			
-	2,			
-	2,			
-	3,			
-	4,			
-	6,			
-	8,			
-	11,			
-	16,			
-	21,			
-	31,			
-	41,			
-	62,			
-	82,			
-	123,			
-	164,			
-	246,			
-	328,			
-	492			
+	656,			/* 0 */
+	1,			/* 1 */
+	1,			/* 2 */
+	1,			/* 3 */
+	1,			/* 4 */
+	1,			/* 5 */
+	1,			/* 6 */
+	1,			/* 7 */
+	1,			/* 8 */
+	1,			/* 9 */
+	1,			/* A */
+	1,			/* B */
+	1,			/* C */
+	1,			/* D */
+	2,			/* E */
+	2,			/* F */
+	3,			/* 10 */
+	4,			/* 11 */
+	6,			/* 12 */
+	8,			/* 13 */
+	11,			/* 14 */
+	16,			/* 15 */
+	21,			/* 16 */
+	31,			/* 17 */
+	41,			/* 18 */
+	62,			/* 19 */
+	82,			/* 1A */
+	123,			/* 1B */
+	164,			/* 1C */
+	246,			/* 1D */
+	328,			/* 1E */
+	492			/* 1F */
 };
 
+/**
+ * ipath_insert_rnr_queue - put QP on the RNR timeout list for the device
+ * @qp: the QP
+ *
+ * Called with the QP s_lock held and interrupts disabled.
+ * XXX Use a simple list for now.  We might need a priority
+ * queue if we have lots of QPs waiting for RNR timeouts
+ * but that should be rare.
+ */
 void ipath_insert_rnr_queue(struct ipath_qp *qp)
 {
 	struct ipath_ibdev *dev = to_idev(qp->ibqp.device);
 
-	
+	/* We already did a spin_lock_irqsave(), so just use spin_lock */
 	spin_lock(&dev->pending_lock);
 	if (list_empty(&dev->rnrwait))
 		list_add(&qp->timerwait, &dev->rnrwait);
@@ -102,6 +114,12 @@ void ipath_insert_rnr_queue(struct ipath_qp *qp)
 	spin_unlock(&dev->pending_lock);
 }
 
+/**
+ * ipath_init_sge - Validate a RWQE and fill in the SGE state
+ * @qp: the QP
+ *
+ * Return 1 if OK.
+ */
 int ipath_init_sge(struct ipath_qp *qp, struct ipath_rwqe *wqe,
 		   u32 *lengthp, struct ipath_sge_state *ss)
 {
@@ -112,7 +130,7 @@ int ipath_init_sge(struct ipath_qp *qp, struct ipath_rwqe *wqe,
 	for (i = j = 0; i < wqe->num_sge; i++) {
 		if (wqe->sg_list[i].length == 0)
 			continue;
-		
+		/* Check LKEY */
 		if (!ipath_lkey_ok(qp, j ? &ss->sg_list[j - 1] : &ss->sge,
 				   &wqe->sg_list[i], IB_ACCESS_LOCAL_WRITE))
 			goto bad_lkey;
@@ -129,13 +147,22 @@ bad_lkey:
 	wc.status = IB_WC_LOC_PROT_ERR;
 	wc.opcode = IB_WC_RECV;
 	wc.qp = &qp->ibqp;
-	
+	/* Signal solicited completion event. */
 	ipath_cq_enter(to_icq(qp->ibqp.recv_cq), &wc, 1);
 	ret = 0;
 bail:
 	return ret;
 }
 
+/**
+ * ipath_get_rwqe - copy the next RWQE into the QP's RWQE
+ * @qp: the QP
+ * @wr_id_only: update qp->r_wr_id only, not qp->r_sge
+ *
+ * Return 0 if no RWQE is available, otherwise return 1.
+ *
+ * Can be called from interrupt level.
+ */
 int ipath_get_rwqe(struct ipath_qp *qp, int wr_id_only)
 {
 	unsigned long flags;
@@ -165,7 +192,7 @@ int ipath_get_rwqe(struct ipath_qp *qp, int wr_id_only)
 
 	wq = rq->wq;
 	tail = wq->tail;
-	
+	/* Validate tail before using it since it is user writable. */
 	if (tail >= rq->size)
 		tail = 0;
 	do {
@@ -173,7 +200,7 @@ int ipath_get_rwqe(struct ipath_qp *qp, int wr_id_only)
 			ret = 0;
 			goto unlock;
 		}
-		
+		/* Make sure entry is read after head index is read. */
 		smp_rmb();
 		wqe = get_rwqe_ptr(rq, tail);
 		if (++tail >= rq->size)
@@ -190,6 +217,10 @@ int ipath_get_rwqe(struct ipath_qp *qp, int wr_id_only)
 	if (handler) {
 		u32 n;
 
+		/*
+		 * validate head pointer value and compute
+		 * the number of remaining WQEs.
+		 */
 		n = wq->head;
 		if (n >= rq->size)
 			n = 0;
@@ -215,6 +246,17 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_ruc_loopback - handle UC and RC lookback requests
+ * @sqp: the sending QP
+ *
+ * This is called from ipath_do_send() to
+ * forward a WQE addressed to the same HCA.
+ * Note that although we are single threaded due to the tasklet, we still
+ * have to protect against post_send().  We don't have to worry about
+ * receive interrupts since this is a connected protocol and all packets
+ * will pass through here.
+ */
 static void ipath_ruc_loopback(struct ipath_qp *sqp)
 {
 	struct ipath_ibdev *dev = to_idev(sqp->ibqp.device);
@@ -227,11 +269,15 @@ static void ipath_ruc_loopback(struct ipath_qp *sqp)
 	atomic64_t *maddr;
 	enum ib_wc_status send_status;
 
+	/*
+	 * Note that we check the responder QP state after
+	 * checking the requester's state.
+	 */
 	qp = ipath_lookup_qpn(&dev->qp_table, sqp->remote_qpn);
 
 	spin_lock_irqsave(&sqp->s_lock, flags);
 
-	
+	/* Return if we are already busy processing a work request. */
 	if ((sqp->s_flags & (IPATH_S_BUSY | IPATH_S_ANY_WAIT)) ||
 	    !(ib_ipath_state_ops[sqp->state] & IPATH_PROCESS_OR_FLUSH_SEND))
 		goto unlock;
@@ -243,15 +289,20 @@ again:
 		goto clr_busy;
 	wqe = get_swqe_ptr(sqp, sqp->s_last);
 
-	
+	/* Return if it is not OK to start a new work reqeust. */
 	if (!(ib_ipath_state_ops[sqp->state] & IPATH_PROCESS_NEXT_SEND_OK)) {
 		if (!(ib_ipath_state_ops[sqp->state] & IPATH_FLUSH_SEND))
 			goto clr_busy;
-		
+		/* We are in the error state, flush the work request. */
 		send_status = IB_WC_WR_FLUSH_ERR;
 		goto flush_send;
 	}
 
+	/*
+	 * We can rely on the entry not changing without the s_lock
+	 * being held until we update s_last.
+	 * We increment s_cur to indicate s_last is in progress.
+	 */
 	if (sqp->s_last == sqp->s_cur) {
 		if (++sqp->s_cur >= sqp->s_size)
 			sqp->s_cur = 0;
@@ -260,6 +311,10 @@ again:
 
 	if (!qp || !(ib_ipath_state_ops[qp->state] & IPATH_PROCESS_RECV_OK)) {
 		dev->n_pkt_drops++;
+		/*
+		 * For RC, the requester would timeout and retry so
+		 * shortcut the timeouts and just signal too many retries.
+		 */
 		if (sqp->ibqp.qp_type == IB_QPT_RC)
 			send_status = IB_WC_RETRY_EXC_ERR;
 		else
@@ -278,7 +333,7 @@ again:
 	case IB_WR_SEND_WITH_IMM:
 		wc.wc_flags = IB_WC_WITH_IMM;
 		wc.ex.imm_data = wqe->wr.ex.imm_data;
-		
+		/* FALLTHROUGH */
 	case IB_WR_SEND:
 		if (!ipath_get_rwqe(qp, 0))
 			goto rnr_nak;
@@ -291,7 +346,7 @@ again:
 		wc.ex.imm_data = wqe->wr.ex.imm_data;
 		if (!ipath_get_rwqe(qp, 1))
 			goto rnr_nak;
-		
+		/* FALLTHROUGH */
 	case IB_WR_RDMA_WRITE:
 		if (unlikely(!(qp->qp_access_flags & IB_ACCESS_REMOTE_WRITE)))
 			goto inv_err;
@@ -326,7 +381,7 @@ again:
 					    wqe->wr.wr.atomic.rkey,
 					    IB_ACCESS_REMOTE_ATOMIC)))
 			goto acc_err;
-		
+		/* Perform atomic OP and save result. */
 		maddr = (atomic64_t *) qp->r_sge.sge.vaddr;
 		sdata = wqe->wr.wr.atomic.compare_add;
 		*(u64 *) sqp->s_sge.sge.vaddr =
@@ -386,7 +441,7 @@ again:
 	wc.slid = qp->remote_ah_attr.dlid;
 	wc.sl = qp->remote_ah_attr.sl;
 	wc.port_num = 1;
-	
+	/* Signal completion event if the solicited bit is set. */
 	ipath_cq_enter(to_icq(qp->ibqp.recv_cq), &wc,
 		       wqe->wr.send_flags & IB_SEND_SOLICITED);
 
@@ -398,9 +453,13 @@ flush_send:
 	goto again;
 
 rnr_nak:
-	
+	/* Handle RNR NAK */
 	if (qp->ibqp.qp_type == IB_QPT_UC)
 		goto send_comp;
+	/*
+	 * Note: we don't need the s_lock held since the BUSY flag
+	 * makes this single threaded.
+	 */
 	if (sqp->s_rnr_retry == 0) {
 		send_status = IB_WC_RNR_RETRY_EXC_ERR;
 		goto serr;
@@ -425,7 +484,7 @@ acc_err:
 	send_status = IB_WC_REM_ACCESS_ERR;
 	wc.status = IB_WC_LOC_PROT_ERR;
 err:
-	
+	/* responder goes to error state */
 	ipath_rc_error(qp, wc.status);
 
 serr:
@@ -470,12 +529,27 @@ static void want_buffer(struct ipath_devdata *dd, struct ipath_qp *qp)
 	}
 }
 
+/**
+ * ipath_no_bufs_available - tell the layer driver we need buffers
+ * @qp: the QP that caused the problem
+ * @dev: the device we ran out of buffers on
+ *
+ * Called when we run out of PIO buffers.
+ * If we are now in the error state, return zero to flush the
+ * send work request.
+ */
 static int ipath_no_bufs_available(struct ipath_qp *qp,
 				    struct ipath_ibdev *dev)
 {
 	unsigned long flags;
 	int ret = 1;
 
+	/*
+	 * Note that as soon as want_buffer() is called and
+	 * possibly before it returns, ipath_ib_piobufavail()
+	 * could be called. Therefore, put QP on the piowait list before
+	 * enabling the PIO avail interrupt.
+	 */
 	spin_lock_irqsave(&qp->s_lock, flags);
 	if (ib_ipath_state_ops[qp->state] & IPATH_PROCESS_SEND_OK) {
 		dev->n_piowait++;
@@ -493,6 +567,16 @@ static int ipath_no_bufs_available(struct ipath_qp *qp,
 	return ret;
 }
 
+/**
+ * ipath_make_grh - construct a GRH header
+ * @dev: a pointer to the ipath device
+ * @hdr: a pointer to the GRH header being constructed
+ * @grh: the global route address to send to
+ * @hwords: the number of 32 bit words of header being sent
+ * @nwords: the number of 32 bit words of data being sent
+ *
+ * Return the size of the header in 32 bit words.
+ */
 u32 ipath_make_grh(struct ipath_ibdev *dev, struct ib_grh *hdr,
 		   struct ib_global_route *grh, u32 hwords, u32 nwords)
 {
@@ -501,15 +585,15 @@ u32 ipath_make_grh(struct ipath_ibdev *dev, struct ib_grh *hdr,
 			    (grh->traffic_class << 20) |
 			    grh->flow_label);
 	hdr->paylen = cpu_to_be16((hwords - 2 + nwords + SIZE_OF_CRC) << 2);
-	
+	/* next_hdr is defined by C8-7 in ch. 8.4.1 */
 	hdr->next_hdr = 0x1B;
 	hdr->hop_limit = grh->hop_limit;
-	
+	/* The SGID is 32-bit aligned. */
 	hdr->sgid.global.subnet_prefix = dev->gid_prefix;
 	hdr->sgid.global.interface_id = dev->dd->ipath_guid;
 	hdr->dgid = grh->dgid;
 
-	
+	/* GRH header size in 32-bit words. */
 	return sizeof(struct ib_grh) / sizeof(u32);
 }
 
@@ -521,7 +605,7 @@ void ipath_make_ruc_header(struct ipath_ibdev *dev, struct ipath_qp *qp,
 	u32 nwords;
 	u32 extra_bytes;
 
-	
+	/* Construct the header. */
 	extra_bytes = -qp->s_cur_size & 3;
 	nwords = (qp->s_cur_size + extra_bytes) >> 2;
 	lrh0 = IPATH_LRH_BTH;
@@ -544,6 +628,14 @@ void ipath_make_ruc_header(struct ipath_ibdev *dev, struct ipath_qp *qp,
 	ohdr->bth[2] = cpu_to_be32(bth2);
 }
 
+/**
+ * ipath_do_send - perform a send on a QP
+ * @data: contains a pointer to the QP
+ *
+ * Process entries in the send work queue until credit or queue is
+ * exhausted.  Only allow one CPU to send a packet per QP (tasklet).
+ * Otherwise, two threads could send packets out of order.
+ */
 void ipath_do_send(unsigned long data)
 {
 	struct ipath_qp *qp = (struct ipath_qp *)data;
@@ -567,7 +659,7 @@ void ipath_do_send(unsigned long data)
 
 	spin_lock_irqsave(&qp->s_lock, flags);
 
-	
+	/* Return if we are already busy processing a work request. */
 	if ((qp->s_flags & (IPATH_S_BUSY | IPATH_S_ANY_WAIT)) ||
 	    !(ib_ipath_state_ops[qp->state] & IPATH_PROCESS_OR_FLUSH_SEND)) {
 		spin_unlock_irqrestore(&qp->s_lock, flags);
@@ -579,15 +671,19 @@ void ipath_do_send(unsigned long data)
 	spin_unlock_irqrestore(&qp->s_lock, flags);
 
 again:
-	
+	/* Check for a constructed packet to be sent. */
 	if (qp->s_hdrwords != 0) {
+		/*
+		 * If no PIO bufs are available, return.  An interrupt will
+		 * call ipath_ib_piobufavail() when one is available.
+		 */
 		if (ipath_verbs_send(qp, &qp->s_hdr, qp->s_hdrwords,
 				     qp->s_cur_sge, qp->s_cur_size)) {
 			if (ipath_no_bufs_available(qp, dev))
 				goto bail;
 		}
 		dev->n_unicast_xmit++;
-		
+		/* Record that we sent the packet and s_hdr is empty. */
 		qp->s_hdrwords = 0;
 	}
 
@@ -597,6 +693,9 @@ again:
 bail:;
 }
 
+/*
+ * This should be called with s_lock held.
+ */
 void ipath_send_complete(struct ipath_qp *qp, struct ipath_swqe *wqe,
 			 enum ib_wc_status status)
 {
@@ -605,7 +704,7 @@ void ipath_send_complete(struct ipath_qp *qp, struct ipath_swqe *wqe,
 	if (!(ib_ipath_state_ops[qp->state] & IPATH_PROCESS_OR_FLUSH_SEND))
 		return;
 
-	
+	/* See ch. 11.2.4.1 and 10.7.3.1 */
 	if (!(qp->s_flags & IPATH_S_SIGNAL_REQ_WR) ||
 	    (wqe->wr.send_flags & IB_SEND_SIGNALED) ||
 	    status != IB_WC_SUCCESS) {

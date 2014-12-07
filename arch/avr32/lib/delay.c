@@ -48,10 +48,10 @@ inline void __const_udelay(unsigned long xloops)
 
 void __udelay(unsigned long usecs)
 {
-	__const_udelay(usecs * 0x000010c7); 
+	__const_udelay(usecs * 0x000010c7); /* 2**32 / 1000000 (rounded up) */
 }
 
 void __ndelay(unsigned long nsecs)
 {
-	__const_udelay(nsecs * 0x00005); 
+	__const_udelay(nsecs * 0x00005); /* 2**32 / 1000000000 (rounded up) */
 }

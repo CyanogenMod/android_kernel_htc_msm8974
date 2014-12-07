@@ -14,7 +14,14 @@
 #include <linux/interrupt.h>
 #include "../aoa.h"
 
+/* TODO: these are lots of global variables
+ * that aren't used on most machines...
+ * Move them into a dynamically allocated
+ * structure and use that.
+ */
 
+/* these are the GPIO numbers (register addresses as offsets into
+ * the GPIO space) */
 static int headphone_mute_gpio;
 static int master_mute_gpio;
 static int amp_mute_gpio;
@@ -24,6 +31,7 @@ static int lineout_detect_gpio;
 static int headphone_detect_gpio;
 static int linein_detect_gpio;
 
+/* see the SWITCH_GPIO macro */
 static int headphone_mute_gpio_activestate;
 static int master_mute_gpio_activestate;
 static int amp_mute_gpio_activestate;
@@ -33,6 +41,8 @@ static int lineout_detect_gpio_activestate;
 static int headphone_detect_gpio_activestate;
 static int linein_detect_gpio_activestate;
 
+/* node pointers that we save when getting the GPIO number
+ * to get the interrupt later */
 static struct device_node *lineout_detect_node;
 static struct device_node *linein_detect_node;
 static struct device_node *headphone_detect_node;
@@ -52,9 +62,13 @@ static struct device_node *get_gpio(char *name,
 
 	*gpioptr = -1;
 
-	
+	/* check if we can get it the easy way ... */
 	np = of_find_node_by_name(NULL, name);
 	if (!np) {
+		/* some machines have only gpioX/extint-gpioX nodes,
+		 * and an audio-gpio property saying what it is ...
+		 * So what we have to do is enumerate all children
+		 * of the gpio node and check them all. */
 		gpio = of_find_node_by_name(NULL, "gpio");
 		if (!gpio)
 			return NULL;
@@ -67,7 +81,7 @@ static struct device_node *get_gpio(char *name,
 			if (altname && (strcmp(audio_gpio, altname) == 0))
 				break;
 		}
-		
+		/* still not found, assume not there */
 		if (!np)
 			return NULL;
 	}
@@ -78,11 +92,19 @@ static struct device_node *get_gpio(char *name,
 
 	*gpioptr = *reg;
 
+	/* this is a hack, usually the GPIOs 'reg' property
+	 * should have the offset based from the GPIO space
+	 * which is at 0x50, but apparently not always... */
 	if (*gpioptr < 0x50)
 		*gpioptr += 0x50;
 
 	reg = of_get_property(np, "audio-gpio-active-state", NULL);
 	if (!reg)
+		/* Apple seems to default to 1, but
+		 * that doesn't seem right at least on most
+		 * machines. So until proven that the opposite
+		 * is necessary, we default to 0
+		 * (which, incidentally, snd-powermac also does...) */
 		*gpioactiveptr = 0;
 	else
 		*gpioactiveptr = *reg;
@@ -98,6 +120,7 @@ static void get_irq(struct device_node * np, int *irqptr)
 		*irqptr = NO_IRQ;
 }
 
+/* 0x4 is outenable, 0x1 is out, thus 4 or 5 */
 #define SWITCH_GPIO(name, v, on)				\
 	(((v)&~1) | ((on)?					\
 			(name##_gpio_activestate==0?4:5):	\
@@ -117,7 +140,7 @@ static void ftr_gpio_set_##name(struct gpio_runtime *rt, int on)\
 			      name##_mute_gpio,			\
 			      0);				\
 								\
-						\
+	/* muted = !on... */					\
 	v = SWITCH_GPIO(name##_mute, v, !on);			\
 								\
 	pmac_call_feature(PMAC_FTR_WRITE_GPIO, NULL,		\
@@ -199,7 +222,7 @@ static void gpio_enable_dual_edge(int gpio)
 	if (gpio == -1)
 		return;
 	v = pmac_call_feature(PMAC_FTR_READ_GPIO, NULL, gpio, 0);
-	v |= 0x80; 
+	v |= 0x80; /* enable dual edge */
 	pmac_call_feature(PMAC_FTR_WRITE_GPIO, NULL, gpio, v);
 }
 
@@ -227,6 +250,8 @@ static void ftr_gpio_init(struct gpio_runtime *rt)
 	headphone_detect_node = get_gpio("headphone-detect", NULL,
 					 &headphone_detect_gpio,
 					 &headphone_detect_gpio_activestate);
+	/* go Apple, and thanks for giving these different names
+	 * across the board... */
 	lineout_detect_node = get_gpio("lineout-detect", "line-output-detect",
 				       &lineout_detect_gpio,
 				       &lineout_detect_gpio_activestate);

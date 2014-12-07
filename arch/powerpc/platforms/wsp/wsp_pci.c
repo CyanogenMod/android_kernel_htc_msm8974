@@ -34,6 +34,10 @@
 #include "msi.h"
 
 
+/* Max number of TVTs for one table. Only 32-bit tables can use
+ * multiple TVTs and so the max currently supported is thus 8
+ * since only 2G of DMA space is supported
+ */
 #define MAX_TABLE_TVT_COUNT		8
 
 struct wsp_dma_table {
@@ -43,11 +47,46 @@ struct wsp_dma_table {
 	struct page		*tces[MAX_TABLE_TVT_COUNT];
 };
 
+/* We support DMA regions from 0...2G in 32bit space (no support for
+ * 64-bit DMA just yet). Each device gets a separate TCE table (TVT
+ * entry) with validation enabled (though not supported by SimiCS
+ * just yet).
+ *
+ * To simplify things, we divide this 2G space into N regions based
+ * on the constant below which could be turned into a tunable eventually
+ *
+ * We then assign dynamically those regions to devices as they show up.
+ *
+ * We use a bitmap as an allocator for these.
+ *
+ * Tables are allocated/created dynamically as devices are discovered,
+ * multiple TVT entries are used if needed
+ *
+ * When 64-bit DMA support is added we should simply use a separate set
+ * of larger regions (the HW supports 64 TVT entries). We can
+ * additionally create a bypass region in 64-bit space for performances
+ * though that would have a cost in term of security.
+ *
+ * If you set NUM_DMA32_REGIONS to 1, then a single table is shared
+ * for all devices and bus/dev/fn validation is disabled
+ *
+ * Note that a DMA32 region cannot be smaller than 256M so the max
+ * supported here for now is 8. We don't yet support sharing regions
+ * between multiple devices so the max number of devices supported
+ * is MAX_TABLE_TVT_COUNT.
+ */
 #define NUM_DMA32_REGIONS	1
 
 struct wsp_phb {
 	struct pci_controller	*hose;
 
+	/* Lock controlling access to the list of dma tables.
+	 * It does -not- protect against dma_* operations on
+	 * those tables, those should be stopped before an entry
+	 * is removed from the list.
+	 *
+	 * The lock is also used for error handling operations
+	 */
 	spinlock_t		lock;
 	struct list_head	dma_tables;
 	unsigned long		dma32_map;
@@ -55,13 +94,14 @@ struct wsp_phb {
 	unsigned int		dma32_num_regions;
 	unsigned long		dma32_region_size;
 
-	
+	/* Debugfs stuff */
 	struct dentry		*ddir;
 
 	struct list_head	all;
 };
 static LIST_HEAD(wsp_phbs);
 
+//#define cfg_debug(fmt...)	pr_debug(fmt)
 #define cfg_debug(fmt...)
 
 
@@ -83,6 +123,10 @@ static int wsp_pcie_read_config(struct pci_bus *bus, unsigned int devfn,
 		((u64)offset & ~3) << PCIE_REG_CA_REG_SHIFT;
 	suboff = offset & 3;
 
+	/*
+	 * Note: the caller has already checked that offset is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 
 	switch (len) {
 	case 1:
@@ -133,6 +177,10 @@ static int wsp_pcie_write_config(struct pci_bus *bus, unsigned int devfn,
 		((u64)offset & ~3) << PCIE_REG_CA_REG_SHIFT;
 	suboff = offset & 3;
 
+	/*
+	 * Note: the caller has already checked that offset is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 	switch (len) {
 	case 1:
 		addr |= (0x8ul >> suboff) << PCIE_REG_CA_BE_SHIFT;
@@ -172,11 +220,12 @@ static struct pci_ops wsp_pcie_pci_ops =
 
 #define TCE_SHIFT		12
 #define TCE_PAGE_SIZE		(1 << TCE_SHIFT)
-#define TCE_PCI_WRITE		0x2		 
-#define TCE_PCI_READ		0x1	 	 
-#define TCE_RPN_MASK		0x3fffffffffful  
+#define TCE_PCI_WRITE		0x2		 /* write from PCI allowed */
+#define TCE_PCI_READ		0x1	 	 /* read from PCI allowed */
+#define TCE_RPN_MASK		0x3fffffffffful  /* 42-bit RPN (4K pages) */
 #define TCE_RPN_SHIFT		12
 
+//#define dma_debug(fmt...)	pr_debug(fmt)
 #define dma_debug(fmt...)
 
 static int tce_build_wsp(struct iommu_table *tbl, long index, long npages,
@@ -198,12 +247,15 @@ static int tce_build_wsp(struct iommu_table *tbl, long index, long npages,
 		proto_tce |= TCE_PCI_WRITE;
 #endif
 
+	/* XXX Make this faster by factoring out the page address for
+	 * within a TCE table
+	 */
 	while (npages--) {
-		
+		/* We don't use it->base as the table can be scattered */
 		tcep = (u64 *)page_address(ptbl->tces[index >> 16]);
 		tcep += (index & 0xffff);
 
-		
+		/* can't move this out since we might cross LMB boundary */
 		rpn = __pa(uaddr) >> TCE_SHIFT;
 		*tcep = proto_tce | (rpn & TCE_RPN_MASK) << TCE_RPN_SHIFT;
 
@@ -226,14 +278,18 @@ static void tce_free_wsp(struct iommu_table *tbl, long index, long npages)
 #endif
 	u64 *tcep;
 
+	/* XXX Make this faster by factoring out the page address for
+	 * within a TCE table. Also use line-kill option to kill multiple
+	 * TCEs at once
+	 */
 	while (npages--) {
-		
+		/* We don't use it->base as the table can be scattered */
 		tcep = (u64 *)page_address(ptbl->tces[index >> 16]);
 		tcep += (index & 0xffff);
 		dma_debug("[DMA] TCE %p cleared\n", tcep);
 		*tcep = 0;
 #ifndef CONFIG_WSP_DD1_WORKAROUND_DD1_TCE_BUGS
-		
+		/* Don't write there since it would pollute other MMIO accesses */
 		out_be64(hose->cfg_data + PCIE_REG_TCE_KILL,
 			 PCIE_REG_TCEKILL_SINGLE | PCIE_REG_TCEKILL_PS_4K |
 			 (__pa(tcep) & PCIE_REG_TCEKILL_ADDR_MASK));
@@ -255,11 +311,14 @@ static struct wsp_dma_table *wsp_pci_create_dma32_table(struct wsp_phb *phb,
 
 	nid = of_node_to_nid(phb->hose->dn);
 
-	
+	/* Calculate how many TVTs are needed */
 	tvts_per_table = size / 0x10000000;
 	if (tvts_per_table == 0)
 		tvts_per_table = 1;
 
+	/* Calculate the base TVT index. We know all tables have the same
+	 * size so we just do a simple multiply here
+	 */
 	tvt = region * tvts_per_table;
 
 	pr_debug("         Region : %d\n", region);
@@ -273,10 +332,13 @@ static struct wsp_dma_table *wsp_pci_create_dma32_table(struct wsp_phb *phb,
 		return ERR_PTR(-ENOMEM);
 	tbl->phb = phb;
 
-	
+	/* Create as many TVTs as needed, each represents 256M at most */
 	for (i = 0; i < tvts_per_table; i++) {
 		u64 tvt_data1, tvt_data0;
 
+		/* Allocate table. We use a 4K TCE size for now always so
+		 * one table is always 8 * (258M / 4K) == 512K
+		 */
 		tbl->tces[i] = alloc_pages_node(nid, GFP_KERNEL, get_order(0x80000));
 		if (tbl->tces[i] == NULL)
 			goto fail;
@@ -284,13 +346,17 @@ static struct wsp_dma_table *wsp_pci_create_dma32_table(struct wsp_phb *phb,
 
 		pr_debug(" TCE table %d at : %p\n", i, page_address(tbl->tces[i]));
 
-		
+		/* Table size. We currently set it to be the whole 256M region */
 		tvt_data0 = 2ull << IODA_TVT0_TCE_TABLE_SIZE_SHIFT;
-		
+		/* IO page size set to 4K */
 		tvt_data1 = 1ull << IODA_TVT1_IO_PAGE_SIZE_SHIFT;
-		
+		/* Shift in the address */
 		tvt_data0 |= __pa(page_address(tbl->tces[i])) << IODA_TVT0_TTA_SHIFT;
 
+		/* Validation stuff. We only validate fully bus/dev/fn for now
+		 * one day maybe we can group devices but that isn't the case
+		 * at the moment
+		 */
 		if (validate) {
 			tvt_data0 |= IODA_TVT0_BUSNUM_VALID_MASK;
 			tvt_data0 |= validate->bus->number;
@@ -302,9 +368,9 @@ static struct wsp_dma_table *wsp_pci_create_dma32_table(struct wsp_phb *phb,
 				<< IODA_TVT1_FUNCNUM_VALUE_SHIFT;
 		}
 
-		
+		/* XX PE number is always 0 for now */
 
-		
+		/* Program the values using the PHB lock */
 		spin_lock_irqsave(&phb->lock, flags);
 		out_be64(hose->cfg_data + PCIE_REG_IODA_ADDR,
 			 (tvt + i) | PCIE_REG_IODA_AD_TBL_TVT);
@@ -313,11 +379,15 @@ static struct wsp_dma_table *wsp_pci_create_dma32_table(struct wsp_phb *phb,
 		spin_unlock_irqrestore(&phb->lock, flags);
 	}
 
-	
+	/* Init bits and pieces */
 	tbl->table.it_blocksize = 16;
 	tbl->table.it_offset = addr >> IOMMU_PAGE_SHIFT;
 	tbl->table.it_size = size >> IOMMU_PAGE_SHIFT;
 
+	/*
+	 * It's already blank but we clear it anyway.
+	 * Consider an aditiona interface that makes cleaing optional
+	 */
 	iommu_init_table(&tbl->table, nid);
 
 	list_add(&tbl->link, &phb->dma_tables);
@@ -341,7 +411,7 @@ static void __devinit wsp_pci_dma_dev_setup(struct pci_dev *pdev)
 	unsigned long flags;
 	int i;
 
-	
+	/* Don't assign an iommu table to a bridge */
 	if (pdev->hdr_type == PCI_HEADER_TYPE_BRIDGE)
 		return;
 
@@ -349,7 +419,7 @@ static void __devinit wsp_pci_dma_dev_setup(struct pci_dev *pdev)
 
 	spin_lock_irqsave(&phb->lock, flags);
 
-	
+	/* If only one region, check if it already exist */
 	if (phb->dma32_num_regions == 1) {
 		spin_unlock_irqrestore(&phb->lock, flags);
 		if (list_empty(&phb->dma_tables))
@@ -359,7 +429,7 @@ static void __devinit wsp_pci_dma_dev_setup(struct pci_dev *pdev)
 						 struct wsp_dma_table,
 						 link);
 	} else {
-		
+		/* else find a free region */
 		for (i = 0; i < phb->dma32_num_regions && !table; i++) {
 			if (__test_and_set_bit(i, &phb->dma32_map))
 				continue;
@@ -368,14 +438,14 @@ static void __devinit wsp_pci_dma_dev_setup(struct pci_dev *pdev)
 		}
 	}
 
-	
+	/* Check if we got an error */
 	if (IS_ERR(table)) {
 		pr_err("%s: Failed to create DMA table, err %ld !\n",
 		       pci_name(pdev), PTR_ERR(table));
 		return;
 	}
 
-	
+	/* Or a valid table */
 	if (table) {
 		pr_info("%s: Setup iommu: 32-bit DMA region 0x%08lx..0x%08lx\n",
 			pci_name(pdev),
@@ -386,7 +456,7 @@ static void __devinit wsp_pci_dma_dev_setup(struct pci_dev *pdev)
 		return;
 	}
 
-	
+	/* Or no room */
 	spin_unlock_irqrestore(&phb->lock, flags);
 	pr_err("%s: Out of DMA space !\n", pci_name(pdev));
 }
@@ -399,6 +469,10 @@ static void __init wsp_pcie_configure_hw(struct pci_controller *hose)
 #define DUMP_REG(x) \
 	pr_debug("%-30s : 0x%016llx\n", #x, in_be64(hose->cfg_data + x))
 
+	/*
+	 * Some WSP variants  has a bogus class code by default in the PCI-E
+	 * root complex's built-in P2P bridge
+	 */
 	val = in_be64(hose->cfg_data + PCIE_REG_SYS_CFG1);
 	pr_debug("PCI-E SYS_CFG1 : 0x%llx\n", val);
 	out_be64(hose->cfg_data + PCIE_REG_SYS_CFG1,
@@ -406,13 +480,13 @@ static void __init wsp_pcie_configure_hw(struct pci_controller *hose)
 	pr_debug("PCI-E SYS_CFG1 : 0x%llx\n", in_be64(hose->cfg_data + PCIE_REG_SYS_CFG1));
 
 #ifdef CONFIG_WSP_DD1_WORKAROUND_DD1_TCE_BUGS
-	
+	/* XXX Disable TCE caching, it doesn't work on DD1 */
 	out_be64(hose->cfg_data + 0xe50,
 		 in_be64(hose->cfg_data + 0xe50) | (3ull << 62));
 	printk("PCI-E DEBUG CONTROL 5 = 0x%llx\n", in_be64(hose->cfg_data + 0xe50));
 #endif
 
-	
+	/* Configure M32A and IO. IO is hard wired to be 1M for now */
 	out_be64(hose->cfg_data + PCIE_REG_IO_BASE_ADDR, hose->io_base_phys);
 	out_be64(hose->cfg_data + PCIE_REG_IO_BASE_MASK,
 		 (~(hose->io_resource.end - hose->io_resource.start)) &
@@ -430,6 +504,10 @@ static void __init wsp_pcie_configure_hw(struct pci_controller *hose)
 	out_be64(hose->cfg_data + PCIE_REG_M32A_START_ADDR,
 		 (hose->mem_resources[0].start - hose->pci_mem_offset) | 1);
 
+	/* Clear all TVT entries
+	 *
+	 * XX Might get TVT count from device-tree
+	 */
 	for (i = 0; i < IODA_TVT_COUNT; i++) {
 		out_be64(hose->cfg_data + PCIE_REG_IODA_ADDR,
 			 PCIE_REG_IODA_AD_TBL_TVT | i);
@@ -437,12 +515,12 @@ static void __init wsp_pcie_configure_hw(struct pci_controller *hose)
 		out_be64(hose->cfg_data + PCIE_REG_IODA_DATA0, 0);
 	}
 
-	
+	/* Kill the TCE cache */
 	out_be64(hose->cfg_data + PCIE_REG_PHB_CONFIG,
 		 in_be64(hose->cfg_data + PCIE_REG_PHB_CONFIG) |
 		 PCIE_REG_PHBC_64B_TCE_EN);
 
-	
+	/* Enable 32 & 64-bit MSIs, IO space and M32A */
 	val = PCIE_REG_PHBC_32BIT_MSI_EN |
 	      PCIE_REG_PHBC_IO_EN |
 	      PCIE_REG_PHBC_64BIT_MSI_EN |
@@ -452,13 +530,23 @@ static void __init wsp_pcie_configure_hw(struct pci_controller *hose)
 	pr_debug("Will write config: 0x%llx\n", val);
 	out_be64(hose->cfg_data + PCIE_REG_PHB_CONFIG, val);
 
-	
+	/* Enable error reporting */
 	out_be64(hose->cfg_data + 0xe00,
 		 in_be64(hose->cfg_data + 0xe00) | 0x0008000000000000ull);
 
+	/* Mask an error that's generated when doing config space probe
+	 *
+	 * XXX Maybe we should only mask it around config space cycles... that or
+	 * ignore it when we know we had a config space cycle recently ?
+	 */
 	out_be64(hose->cfg_data + PCIE_REG_DMA_ERR_STATUS_MASK, 0x8000000000000000ull);
 	out_be64(hose->cfg_data + PCIE_REG_DMA_ERR1_STATUS_MASK, 0x8000000000000000ull);
 
+	/* Enable UTL errors, for now, all of them got to UTL irq 1
+	 *
+	 * We similarily mask one UTL error caused apparently during normal
+	 * probing. We also mask the link up error
+	 */
 	out_be64(hose->cfg_data + PCIE_UTL_SYS_BUS_AGENT_ERR_SEV, 0);
 	out_be64(hose->cfg_data + PCIE_UTL_RC_ERR_SEVERITY, 0);
 	out_be64(hose->cfg_data + PCIE_UTL_PCIE_PORT_ERROR_SEV, 0);
@@ -570,7 +658,7 @@ static int __init wsp_setup_one_phb(struct device_node *np)
 		return -ENOMEM;
 	hose = pcibios_alloc_controller(np);
 	if (!hose) {
-		
+		/* Can't really free the phb */
 		return -ENOMEM;
 	}
 	hose->private_data = phb;
@@ -579,22 +667,24 @@ static int __init wsp_setup_one_phb(struct device_node *np)
 	INIT_LIST_HEAD(&phb->dma_tables);
 	spin_lock_init(&phb->lock);
 
-	
+	/* XXX Use bus-range property ? */
 	hose->first_busno = 0;
 	hose->last_busno = 0xff;
 
+	/* We use cfg_data as the address for the whole bridge MMIO space
+	 */
 	hose->cfg_data = of_iomap(hose->dn, 0);
 
 	pr_debug("PCIe registers mapped at 0x%p\n", hose->cfg_data);
 
-	
+	/* Get the ranges of the device-tree */
 	pci_process_bridge_OF_ranges(hose, np, 0);
 
-	
+	/* XXX Force re-assigning of everything for now */
 	pci_add_flags(PCI_REASSIGN_ALL_BUS | PCI_REASSIGN_ALL_RSRC |
 		      PCI_ENABLE_PROC_DOMAINS);
 
-	
+	/* Calculate how the TCE space is divided */
 	phb->dma32_base		= 0;
 	phb->dma32_num_regions	= NUM_DMA32_REGIONS;
 	if (phb->dma32_num_regions > MAX_TABLE_TVT_COUNT) {
@@ -606,19 +696,19 @@ static int __init wsp_setup_one_phb(struct device_node *np)
 
 	BUG_ON(!is_power_of_2(phb->dma32_region_size));
 
-	
+	/* Setup config ops */
 	hose->ops = &wsp_pcie_pci_ops;
 
-	
+	/* Configure the HW */
 	wsp_pcie_configure_hw(hose);
 
-	
+	/* Instanciate IO workarounds */
 	iowa_register_bus(hose, &wsp_pci_iops, NULL, phb);
 #ifdef CONFIG_PCI_MSI
 	wsp_setup_phb_msi(hose);
 #endif
 
-	
+	/* Add to global list */
 	list_add(&phb->all, &wsp_phbs);
 
 	return 0;
@@ -629,7 +719,7 @@ void __init wsp_setup_pci(void)
 	struct device_node *np;
 	int rc;
 
-	
+	/* Find host bridges */
 	for_each_compatible_node(np, "pciex", PCIE_COMPATIBLE) {
 		rc = wsp_setup_one_phb(np);
 		if (rc)
@@ -637,10 +727,10 @@ void __init wsp_setup_pci(void)
 			       np->full_name, rc);
 	}
 
-	
+	/* Establish device-tree linkage */
 	pci_devs_phb_init();
 
-	
+	/* Set DMA ops to use TCEs */
 	if (iommu_is_off) {
 		pr_info("PCI-E: Disabled TCEs, using direct DMA\n");
 		set_pci_dma_ops(&dma_direct_ops);
@@ -653,26 +743,27 @@ void __init wsp_setup_pci(void)
 }
 
 #define err_debug(fmt...)	pr_debug(fmt)
+//#define err_debug(fmt...)
 
 static int __init wsp_pci_get_err_irq_no_dt(struct device_node *np)
 {
 	const u32 *prop;
 	int hw_irq;
 
-	
+	/* Ok, no interrupts property, let's try to find our child P2P */
 	np = of_get_next_child(np, NULL);
 	if (np == NULL)
 		return 0;
 
-	
+	/* Grab it's interrupt map */
 	prop = of_get_property(np, "interrupt-map", NULL);
 	if (prop == NULL)
 		return 0;
 
-	
+	/* Grab one of the interrupts in there, keep the low 4 bits */
 	hw_irq = prop[5] & 0xf;
 
-	
+	/* 0..4 for PHB 0 and 5..9 for PHB 1 */
 	if (hw_irq < 5)
 		hw_irq = 4;
 	else
@@ -690,6 +781,9 @@ static const struct {
 } wsp_pci_regs[] = {
 #define DREG(x) { PCIE_REG_##x, #x }
 #define DUTL(x) { PCIE_UTL_##x, "UTL_" #x }
+	/* Architected registers except CONFIG_ and IODA
+         * to avoid side effects
+	 */
 	DREG(DMA_CHAN_STATUS),
 	DREG(CPU_LOADSTORE_STATUS),
 	DREG(LOCK0),
@@ -717,7 +811,7 @@ static const struct {
 	DREG(PAPR_ERR_INJ_ADDR),
 	DREG(PAPR_ERR_INJ_MASK),
 
-	
+	/* UTL core regs */
 	DUTL(SYS_BUS_CONTROL),
 	DUTL(STATUS),
 	DUTL(SYS_BUS_AGENT_STATUS),
@@ -747,7 +841,7 @@ static const struct {
 	DUTL(PCI_PM_CTRL1),
 	DUTL(PCI_PM_CTRL2),
 
-	
+	/* PCIe stack regs */
 	DREG(SYSTEM_CONFIG1),
 	DREG(SYSTEM_CONFIG2),
 	DREG(EP_SYSTEM_CONFIG),
@@ -769,7 +863,7 @@ static const struct {
 	DREG(PORT_NUMBER),
 	DREG(POR_SYSTEM_CONFIG),
 
-	
+	/* Internal logic regs */
 	DREG(PHB_VERSION),
 	DREG(RESET),
 	DREG(PHB_CONTROL),
@@ -778,7 +872,7 @@ static const struct {
 	DREG(PHB_DMA_READ_TAG_ACTV),
 	DREG(PHB_TCE_READ_TAG_ACTV),
 
-	
+	/* FIR registers */
 	DREG(LEM_FIR_ACCUM),
 	DREG(LEM_FIR_AND_MASK),
 	DREG(LEM_FIR_OR_MASK),
@@ -788,7 +882,7 @@ static const struct {
 	DREG(LEM_ERROR_AND_MASK),
 	DREG(LEM_ERROR_OR_MASK),
 
-	
+	/* Error traps registers */
 	DREG(PHB_ERR_STATUS),
 	DREG(PHB_ERR_STATUS),
 	DREG(PHB_ERR1_STATUS),
@@ -824,7 +918,7 @@ static const struct {
 	DREG(DMA_ERR_STATUS_MASK),
 	DREG(DMA_ERR1_STATUS_MASK),
 
-	
+	/* Debug and Trace registers */
 	DREG(PHB_DEBUG_CONTROL0),
 	DREG(PHB_DEBUG_STATUS0),
 	DREG(PHB_DEBUG_CONTROL1),
@@ -838,6 +932,10 @@ static const struct {
 	DREG(PHB_DEBUG_CONTROL5),
 	DREG(PHB_DEBUG_STATUS5),
 
+	/* Don't seem to exist ...
+	DREG(PHB_DEBUG_CONTROL6),
+	DREG(PHB_DEBUG_STATUS6),
+	*/
 };
 
 static int wsp_pci_regs_show(struct seq_file *m, void *private)
@@ -847,7 +945,7 @@ static int wsp_pci_regs_show(struct seq_file *m, void *private)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(wsp_pci_regs); i++) {
-		
+		/* Skip write-only regs */
 		if (wsp_pci_regs[i].offset == 0xc08 ||
 		    wsp_pci_regs[i].offset == 0xc10 ||
 		    wsp_pci_regs[i].offset == 0xc38 ||
@@ -899,7 +997,7 @@ static irqreturn_t wsp_pci_err_irq(int irq, void *dev_id)
  again:
 	memset(&ed, 0, sizeof(ed));
 
-	
+	/* Read and clear UTL errors */
 	ed.utl_sys_err = in_be64(hose->cfg_data + PCIE_UTL_SYS_BUS_AGENT_STATUS);
 	if (ed.utl_sys_err)
 		out_be64(hose->cfg_data + PCIE_UTL_SYS_BUS_AGENT_STATUS, ed.utl_sys_err);
@@ -910,7 +1008,7 @@ static irqreturn_t wsp_pci_err_irq(int irq, void *dev_id)
 	if (ed.utl_rc_err)
 		out_be64(hose->cfg_data + PCIE_UTL_RC_STATUS, ed.utl_rc_err);
 
-	
+	/* Read and clear main trap errors */
 	ed.phb_err = in_be64(hose->cfg_data + PCIE_REG_PHB_ERR_STATUS);
 	if (ed.phb_err) {
 		ed.phb_err1 = in_be64(hose->cfg_data + PCIE_REG_PHB_ERR1_STATUS);
@@ -936,7 +1034,7 @@ static irqreturn_t wsp_pci_err_irq(int irq, void *dev_id)
 		out_be64(hose->cfg_data + PCIE_REG_DMA_ERR_STATUS, 0);
 	}
 
-	
+	/* Now print things out */
 	if (ed.phb_err) {
 		pr_err("   PHB Error Status      : 0x%016llx\n", ed.phb_err);
 		pr_err("   PHB First Error Status: 0x%016llx\n", ed.phb_err1);
@@ -962,6 +1060,10 @@ static irqreturn_t wsp_pci_err_irq(int irq, void *dev_id)
 	if (ed.utl_rc_err)
 		pr_err("   UTL RC Error Status   : 0x%016llx\n", ed.utl_rc_err);
 
+	/* Interrupts are caused by the error traps. If we had any error there
+	 * we loop again in case the UTL buffered some new stuff between
+	 * going there and going to the traps
+	 */
 	if (ed.dma_err || ed.mmio_err || ed.phb_err) {
 		handled = IRQ_HANDLED;
 		goto again;
@@ -975,11 +1077,11 @@ static void __init wsp_setup_pci_err_reporting(struct wsp_phb *phb)
 	int err_irq, i, rc;
 	char fname[16];
 
-	
+	/* Create a debugfs file for that PHB */
 	sprintf(fname, "phb%d", phb->hose->global_number);
 	phb->ddir = debugfs_create_dir(fname, powerpc_debugfs_root);
 
-	
+	/* Some useful debug output */
 	if (phb->ddir) {
 		struct dentry *d = debugfs_create_dir("regs", phb->ddir);
 		char tmp[64];
@@ -994,28 +1096,31 @@ static void __init wsp_setup_pci_err_reporting(struct wsp_phb *phb)
 		debugfs_create_file("all_regs", 0600, phb->ddir, phb, &wsp_pci_regs_fops);
 	}
 
-	
+	/* Find the IRQ number for that PHB */
 	err_irq = irq_of_parse_and_map(hose->dn, 0);
 	if (err_irq == 0)
-		
+		/* XXX Error IRQ lacking from device-tree */
 		err_irq = wsp_pci_get_err_irq_no_dt(hose->dn);
 	if (err_irq == 0) {
 		pr_err("PCI: Failed to fetch error interrupt for %s\n",
 		       hose->dn->full_name);
 		return;
 	}
-	
+	/* Request it */
 	rc = request_irq(err_irq, wsp_pci_err_irq, 0, "wsp_pci error", phb);
 	if (rc) {
 		pr_err("PCI: Failed to request interrupt for %s\n",
 		       hose->dn->full_name);
 	}
-	
+	/* Enable interrupts for all errors for now */
 	out_be64(hose->cfg_data + PCIE_REG_PHB_ERR_IRQ_ENABLE, 0xffffffffffffffffull);
 	out_be64(hose->cfg_data + PCIE_REG_MMIO_ERR_IRQ_ENABLE, 0xffffffffffffffffull);
 	out_be64(hose->cfg_data + PCIE_REG_DMA_ERR_IRQ_ENABLE, 0xffffffffffffffffull);
 }
 
+/*
+ * This is called later to hookup with the error interrupt
+ */
 static int __init wsp_setup_pci_late(void)
 {
 	struct wsp_phb *phb;

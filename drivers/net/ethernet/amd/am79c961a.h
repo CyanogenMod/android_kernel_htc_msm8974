@@ -9,6 +9,7 @@
 #ifndef _LINUX_am79c961a_H
 #define _LINUX_am79c961a_H
 
+/* use 0 for production, 1 for verification, >2 for debug. debug flags: */
 #define DEBUG_TX	 2
 #define DEBUG_RX	 4
 #define DEBUG_INT	 8
@@ -23,6 +24,9 @@
 #define NET_RESET	0x14
 #define NET_IDP		0x16
 
+/*
+ * RAP registers
+ */
 #define CSR0		0
 #define CSR0_INIT	0x0001
 #define CSR0_STRT	0x0002

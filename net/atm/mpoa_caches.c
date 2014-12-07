@@ -6,10 +6,14 @@
 #include "mpoa_caches.h"
 #include "mpc.h"
 
+/*
+ * mpoa_caches.c: Implementation of ingress and egress cache
+ * handling functions
+ */
 
 #if 0
 #define dprintk(format, args...)					\
-	printk(KERN_DEBUG "mpoa:%s: " format, __FILE__, ##args)  
+	printk(KERN_DEBUG "mpoa:%s: " format, __FILE__, ##args)  /* debug */
 #else
 #define dprintk(format, args...)					\
 	do { if (0)							\
@@ -19,7 +23,7 @@
 
 #if 0
 #define ddprintk(format, args...)					\
-	printk(KERN_DEBUG "mpoa:%s: " format, __FILE__, ##args)  
+	printk(KERN_DEBUG "mpoa:%s: " format, __FILE__, ##args)  /* debug */
 #else
 #define ddprintk(format, args...)					\
 	do { if (0)							\
@@ -180,6 +184,9 @@ static void in_cache_put(in_cache_entry *entry)
 	}
 }
 
+/*
+ * This should be called with write lock on
+ */
 static void in_cache_remove_entry(in_cache_entry *entry,
 				  struct mpoa_client *client)
 {
@@ -202,7 +209,7 @@ static void in_cache_remove_entry(in_cache_entry *entry,
 		msg_to_mpoad(&msg, client);
 	}
 
-	
+	/* Check if the egress side still uses this VCC */
 	if (vcc != NULL) {
 		eg_cache_entry *eg_entry = client->eg_ops->get_by_vcc(vcc,
 								      client);
@@ -214,6 +221,8 @@ static void in_cache_remove_entry(in_cache_entry *entry,
 	}
 }
 
+/* Call this every MPC-p2 seconds... Not exactly correct solution,
+   but an easy one... */
 static void clear_count_and_expired(struct mpoa_client *client)
 {
 	in_cache_entry *entry, *next_entry;
@@ -237,6 +246,7 @@ static void clear_count_and_expired(struct mpoa_client *client)
 	write_unlock_bh(&client->ingress_lock);
 }
 
+/* Call this every MPC-p4 seconds. */
 static void check_resolving_entries(struct mpoa_client *client)
 {
 
@@ -253,19 +263,23 @@ static void check_resolving_entries(struct mpoa_client *client)
 		if (entry->entry_state == INGRESS_RESOLVING) {
 			if ((now.tv_sec - entry->hold_down.tv_sec) <
 			    client->parameters.mpc_p6) {
-				entry = entry->next;	
+				entry = entry->next;	/* Entry in hold down */
 				continue;
 			}
 			if ((now.tv_sec - entry->reply_wait.tv_sec) >
 			    entry->retry_time) {
 				entry->retry_time = MPC_C1 * (entry->retry_time);
+				/*
+				 * Retry time maximum exceeded,
+				 * put entry in hold down.
+				 */
 				if (entry->retry_time > client->parameters.mpc_p5) {
 					do_gettimeofday(&(entry->hold_down));
 					entry->retry_time = client->parameters.mpc_p4;
 					entry = entry->next;
 					continue;
 				}
-				
+				/* Ask daemon to send a resolution request. */
 				memset(&(entry->hold_down), 0, sizeof(struct timeval));
 				msg.type = SND_MPOA_RES_RTRY;
 				memcpy(msg.MPS_ctrl, client->mps_ctrl_addr, ATM_ESA_LEN);
@@ -282,6 +296,7 @@ static void check_resolving_entries(struct mpoa_client *client)
 	read_unlock_bh(&client->ingress_lock);
 }
 
+/* Call this every MPC-p5 seconds. */
 static void refresh_entries(struct mpoa_client *client)
 {
 	struct timeval now;
@@ -335,6 +350,7 @@ static eg_cache_entry *eg_cache_get_by_cache_id(__be32 cache_id,
 	return NULL;
 }
 
+/* This can be called from any context since it saves CPU flags */
 static eg_cache_entry *eg_cache_get_by_tag(__be32 tag, struct mpoa_client *mpc)
 {
 	unsigned long flags;
@@ -355,6 +371,7 @@ static eg_cache_entry *eg_cache_get_by_tag(__be32 tag, struct mpoa_client *mpc)
 	return NULL;
 }
 
+/* This can be called from any context since it saves CPU flags */
 static eg_cache_entry *eg_cache_get_by_vcc(struct atm_vcc *vcc,
 					   struct mpoa_client *mpc)
 {
@@ -404,6 +421,9 @@ static void eg_cache_put(eg_cache_entry *entry)
 	}
 }
 
+/*
+ * This should be called with write lock on
+ */
 static void eg_cache_remove_entry(eg_cache_entry *entry,
 				  struct mpoa_client *client)
 {
@@ -424,7 +444,7 @@ static void eg_cache_remove_entry(eg_cache_entry *entry,
 		msg_to_mpoad(&msg, client);
 	}
 
-	
+	/* Check if the ingress side still uses this VCC */
 	if (vcc != NULL) {
 		in_cache_entry *in_entry = client->in_ops->get_by_vcc(vcc, client);
 		if (in_entry != NULL) {
@@ -515,30 +535,30 @@ static void eg_destroy_cache(struct mpoa_client *mpc)
 
 
 static struct in_cache_ops ingress_ops = {
-	in_cache_add_entry,               
-	in_cache_get,                     
-	in_cache_get_with_mask,           
-	in_cache_get_by_vcc,              
-	in_cache_put,                     
-	in_cache_remove_entry,            
-	cache_hit,                        
-	clear_count_and_expired,          
-	check_resolving_entries,          
-	refresh_entries,                  
-	in_destroy_cache                  
+	in_cache_add_entry,               /* add_entry       */
+	in_cache_get,                     /* get             */
+	in_cache_get_with_mask,           /* get_with_mask   */
+	in_cache_get_by_vcc,              /* get_by_vcc      */
+	in_cache_put,                     /* put             */
+	in_cache_remove_entry,            /* remove_entry    */
+	cache_hit,                        /* cache_hit       */
+	clear_count_and_expired,          /* clear_count     */
+	check_resolving_entries,          /* check_resolving */
+	refresh_entries,                  /* refresh         */
+	in_destroy_cache                  /* destroy_cache   */
 };
 
 static struct eg_cache_ops egress_ops = {
-	eg_cache_add_entry,               
-	eg_cache_get_by_cache_id,         
-	eg_cache_get_by_tag,              
-	eg_cache_get_by_vcc,              
-	eg_cache_get_by_src_ip,           
-	eg_cache_put,                     
-	eg_cache_remove_entry,            
-	update_eg_cache_entry,            
-	clear_expired,                    
-	eg_destroy_cache                  
+	eg_cache_add_entry,               /* add_entry        */
+	eg_cache_get_by_cache_id,         /* get_by_cache_id  */
+	eg_cache_get_by_tag,              /* get_by_tag       */
+	eg_cache_get_by_vcc,              /* get_by_vcc       */
+	eg_cache_get_by_src_ip,           /* get_by_src_ip    */
+	eg_cache_put,                     /* put              */
+	eg_cache_remove_entry,            /* remove_entry     */
+	update_eg_cache_entry,            /* update           */
+	clear_expired,                    /* clear_expired    */
+	eg_destroy_cache                  /* destroy_cache    */
 };
 
 

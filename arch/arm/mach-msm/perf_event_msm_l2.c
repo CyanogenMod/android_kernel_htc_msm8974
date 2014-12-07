@@ -20,7 +20,7 @@
 
 #define SCORPION_L2CYCLE_CTR_BIT 31
 #define SCORPION_L2CYCLE_CTR_RAW_CODE 0xfe
-#define SCORPIONL2_PMNC_E       (1 << 0)	
+#define SCORPIONL2_PMNC_E       (1 << 0)	/* Enable all counters */
 #define SCORPION_L2_EVT_PREFIX 3
 #define SCORPION_MAX_L2_REG 4
 
@@ -32,6 +32,10 @@
 #define PMCR_NUM_EV_SHIFT 11
 #define PMCR_NUM_EV_MASK 0x1f
 
+/*
+ * The L2 PMU is shared between all CPU's, so protect
+ * its bitmap access.
+ */
 struct pmu_constraints {
 	u64 pmu_bitmap;
 	u8 codes[64];
@@ -42,6 +46,7 @@ struct pmu_constraints {
 	.lock = __RAW_SPIN_LOCK_UNLOCKED(l2_pmu_constraints.lock),
 };
 
+/* NRCCG format for perf RAW codes. */
 PMU_FORMAT_ATTR(l2_prefix,	"config:16-19");
 PMU_FORMAT_ATTR(l2_reg,		"config:12-15");
 PMU_FORMAT_ATTR(l2_code,	"config:4-11");
@@ -55,6 +60,10 @@ static struct attribute *msm_l2_ev_formats[] = {
 	NULL,
 };
 
+/*
+ * Format group is essential to access PMU's from userspace
+ * via their .name field.
+ */
 static struct attribute_group msm_l2_pmu_format_group = {
 	.name = "format",
 	.attrs = msm_l2_ev_formats,
@@ -74,6 +83,7 @@ static struct arm_pmu scorpion_l2_pmu;
 
 static u32 l2_orig_filter_prefix = 0x000f0030;
 
+/* L2 slave port traffic filtering */
 static u32 l2_slv_filter_prefix = 0x000f0010;
 
 static struct perf_event *l2_events[MAX_SCORPION_L2_CTRS];
@@ -476,10 +486,10 @@ static void scorpion_l2_set_evcntcr(void)
 
 static inline void scorpion_l2_set_evtyper(int ctr, int val)
 {
-	
+	/* select ctr */
 	asm volatile ("mcr p15, 3, %0, c15, c6, 0" : : "r" (ctr));
 
-	
+	/* write into EVTYPER */
 	asm volatile ("mcr p15, 3, %0, c15, c6, 7" : : "r" (val));
 }
 
@@ -555,7 +565,7 @@ static u32 scorpion_l2_read_counter(int idx)
 				iflags);
 		asm volatile ("mcr p15, 3, %0, c15, c6, 0" : : "r" (idx));
 
-		
+		/* read val from counter */
 		asm volatile ("mrc p15, 3, %0, c15, c6, 5" : "=r" (val));
 		raw_spin_unlock_irqrestore(&scorpion_l2_pmu_hw_events.pmu_lock,
 				iflags);
@@ -574,10 +584,10 @@ static void scorpion_l2_write_counter(int idx, u32 val)
 		raw_spin_lock_irqsave(&scorpion_l2_pmu_hw_events.pmu_lock,
 				iflags);
 
-		
+		/* select counter */
 		asm volatile ("mcr p15, 3, %0, c15, c6, 0" : : "r" (idx));
 
-		
+		/* write val into counter */
 		asm volatile ("mcr p15, 3, %0, c15, c6, 5" : : "r" (val));
 		raw_spin_unlock_irqrestore(&scorpion_l2_pmu_hw_events.pmu_lock,
 				iflags);
@@ -606,7 +616,7 @@ static void scorpion_l2_enable(struct hw_perf_event *hwc, int idx, int cpu)
 	if (hwc->config_base == SCORPION_L2CYCLE_CTR_RAW_CODE)
 		goto out;
 
-	
+	/* Check if user requested any special origin filtering. */
 	evt_prefix = (hwc->config_base &
 			L2_EVT_PREFIX_MASK) >> L2_EVT_PREFIX_SHIFT;
 
@@ -677,13 +687,13 @@ static int scorpion_l2_get_event_idx(struct pmu_hw_events *cpuc,
 static void scorpion_l2_start(void)
 {
 	isb();
-	
+	/* Enable all counters */
 	scorpion_l2_pmnc_write(scorpion_l2_pmnc_read() | SCORPIONL2_PMNC_E);
 }
 
 static void scorpion_l2_stop(void)
 {
-	
+	/* Disable all counters */
 	scorpion_l2_pmnc_write(scorpion_l2_pmnc_read() & ~SCORPIONL2_PMNC_E);
 	isb();
 }
@@ -692,10 +702,10 @@ static inline u32 scorpion_l2_get_reset_pmovsr(void)
 {
 	u32 val;
 
-	
+	/* Read */
 	asm volatile ("mrc p15, 3, %0, c15, c4, 1" : "=r" (val));
 
-	
+	/* Write to clear flags */
 	val &= 0xffffffff;
 	asm volatile ("mcr p15, 3, %0, c15, c4, 1" : : "r" (val));
 
@@ -794,6 +804,10 @@ static int msm_l2_test_set_ev_constraint(struct perf_event *event)
 
 	if (!prefix)
 		return 0;
+	/*
+	 * Cycle counter collision is detected in
+	 * get_event_idx().
+	 */
 	if (evt_type == SCORPION_L2CYCLE_CTR_RAW_CODE)
 		return err;
 
@@ -808,9 +822,20 @@ static int msm_l2_test_set_ev_constraint(struct perf_event *event)
 		l2_pmu_constraints.codes[shift_idx] = code;
 		goto out;
 	} else {
+		/*
+		 * If NRCCG's are identical,
+		 * its not column exclusion.
+		 */
 		if (l2_pmu_constraints.codes[shift_idx] != code)
 			err = -EPERM;
 		else
+			/*
+			 * If the event is counted in syswide mode
+			 * then we want to count only on one CPU
+			 * and set its filter to count from all.
+			 * This sets the event OFF on all but one
+			 * CPU.
+			 */
 			if (!(event->cpu < 0))
 				event->state = PERF_EVENT_STATE_OFF;
 	}
@@ -839,7 +864,7 @@ static int msm_l2_clear_ev_constraint(struct perf_event *event)
 
 	bitmap_t = 1 << shift_idx;
 
-	
+	/* Clear constraint bit. */
 	l2_pmu_constraints.pmu_bitmap &= ~bitmap_t;
 
 	raw_spin_unlock_irqrestore(&l2_pmu_constraints.lock, flags);
@@ -851,6 +876,10 @@ static int get_num_events(void)
 	int val;
 
 	val = scorpion_l2_pmnc_read();
+	/*
+	 * Read bits 15:11 of the L2PMCR and add 1
+	 * for the cycle counter.
+	 */
 	return ((val >> PMCR_NUM_EV_SHIFT) & PMCR_NUM_EV_MASK) + 1;
 }
 
@@ -895,7 +924,7 @@ static struct platform_driver scorpion_l2_pmu_driver = {
 
 static int __init register_scorpion_l2_pmu_driver(void)
 {
-	
+	/* Avoid spurious interrupt if any */
 	scorpion_l2_get_reset_pmovsr();
 
 	total_l2_ctrs = get_num_events();
@@ -904,6 +933,12 @@ static int __init register_scorpion_l2_pmu_driver(void)
 	pr_info("Detected %d counters on the L2CC PMU.\n",
 			total_l2_ctrs);
 
+	/*
+	 * The L2 cycle counter index in the used_mask
+	 * bit stream is always after the other counters.
+	 * Counter indexes begin from 0 to keep it consistent
+	 * with the h/w.
+	 */
 	l2_cycle_ctr_idx = total_l2_ctrs - 1;
 
 	return platform_driver_register(&scorpion_l2_pmu_driver);

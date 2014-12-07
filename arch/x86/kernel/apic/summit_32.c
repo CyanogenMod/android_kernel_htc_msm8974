@@ -31,6 +31,9 @@
 #include <asm/io.h>
 #include <asm/bios_ebda.h>
 
+/*
+ * APIC driver for the IBM "Summit" chipset.
+ */
 #include <linux/threads.h>
 #include <linux/cpumask.h>
 #include <asm/mpspec.h>
@@ -82,20 +85,21 @@ static int summit_mps_oem_check(struct mpc_table *mpc, char *oem,
 			 || !strncmp(productid, "EXA", 3)
 			 || !strncmp(productid, "RUTHLESS SMP", 12))){
 		mark_tsc_unstable("Summit based system");
-		use_cyclone = 1; 
+		use_cyclone = 1; /*enable cyclone-timer*/
 		setup_summit();
 		return 1;
 	}
 	return 0;
 }
 
+/* Hook from generic ACPI tables.c */
 static int summit_acpi_madt_oem_check(char *oem_id, char *oem_table_id)
 {
 	if (!strncmp(oem_id, "IBM", 3) &&
 	    (!strncmp(oem_table_id, "SERVIGIL", 8)
 	     || !strncmp(oem_table_id, "EXA", 3))){
 		mark_tsc_unstable("Summit based system");
-		use_cyclone = 1; 
+		use_cyclone = 1; /*enable cyclone-timer*/
 		setup_summit();
 		return 1;
 	}
@@ -103,64 +107,64 @@ static int summit_acpi_madt_oem_check(char *oem_id, char *oem_table_id)
 }
 
 struct rio_table_hdr {
-	unsigned char version;      
-	                            
-	unsigned char num_scal_dev; 
-	unsigned char num_rio_dev;  
+	unsigned char version;      /* Version number of this data structure           */
+	                            /* Version 3 adds chassis_num & WP_index           */
+	unsigned char num_scal_dev; /* # of Scalability devices (Twisters for Vigil)   */
+	unsigned char num_rio_dev;  /* # of RIO I/O devices (Cyclones and Winnipegs)   */
 } __attribute__((packed));
 
 struct scal_detail {
-	unsigned char node_id;      
-	unsigned long CBAR;         
-	unsigned char port0node;    
-	unsigned char port0port;    
-	unsigned char port1node;    
-	unsigned char port1port;    
-	unsigned char port2node;    
-	unsigned char port2port;    
-	unsigned char chassis_num;  
+	unsigned char node_id;      /* Scalability Node ID                             */
+	unsigned long CBAR;         /* Address of 1MB register space                   */
+	unsigned char port0node;    /* Node ID port connected to: 0xFF=None            */
+	unsigned char port0port;    /* Port num port connected to: 0,1,2, or 0xFF=None */
+	unsigned char port1node;    /* Node ID port connected to: 0xFF = None          */
+	unsigned char port1port;    /* Port num port connected to: 0,1,2, or 0xFF=None */
+	unsigned char port2node;    /* Node ID port connected to: 0xFF = None          */
+	unsigned char port2port;    /* Port num port connected to: 0,1,2, or 0xFF=None */
+	unsigned char chassis_num;  /* 1 based Chassis number (1 = boot node)          */
 } __attribute__((packed));
 
 struct rio_detail {
-	unsigned char node_id;      
-	unsigned long BBAR;         
-	unsigned char type;         
-	unsigned char owner_id;     
-	                            
-	unsigned char port0node;    
-	unsigned char port0port;    
-	unsigned char port1node;    
-	unsigned char port1port;    
-	unsigned char first_slot;   
-	                            
-	unsigned char status;       
-	                            
-	                            
-	                            
-	                            
-	unsigned char WP_index;     
-	                            
-	                            
-	unsigned char chassis_num;  
-	                            
-	                            
-	                            
-	                            
-	                            
-	                            
-	                            
+	unsigned char node_id;      /* RIO Node ID                                     */
+	unsigned long BBAR;         /* Address of 1MB register space                   */
+	unsigned char type;         /* Type of device                                  */
+	unsigned char owner_id;     /* For WPEG: Node ID of Cyclone that owns this WPEG*/
+	                            /* For CYC:  Node ID of Twister that owns this CYC */
+	unsigned char port0node;    /* Node ID port connected to: 0xFF=None            */
+	unsigned char port0port;    /* Port num port connected to: 0,1,2, or 0xFF=None */
+	unsigned char port1node;    /* Node ID port connected to: 0xFF=None            */
+	unsigned char port1port;    /* Port num port connected to: 0,1,2, or 0xFF=None */
+	unsigned char first_slot;   /* For WPEG: Lowest slot number below this WPEG    */
+	                            /* For CYC:  0                                     */
+	unsigned char status;       /* For WPEG: Bit 0 = 1 : the XAPIC is used         */
+	                            /*                 = 0 : the XAPIC is not used, ie:*/
+	                            /*                     ints fwded to another XAPIC */
+	                            /*           Bits1:7 Reserved                      */
+	                            /* For CYC:  Bits0:7 Reserved                      */
+	unsigned char WP_index;     /* For WPEG: WPEG instance index - lower ones have */
+	                            /*           lower slot numbers/PCI bus numbers    */
+	                            /* For CYC:  No meaning                            */
+	unsigned char chassis_num;  /* 1 based Chassis number                          */
+	                            /* For LookOut WPEGs this field indicates the      */
+	                            /* Expansion Chassis #, enumerated from Boot       */
+	                            /* Node WPEG external port, then Boot Node CYC     */
+	                            /* external port, then Next Vigil chassis WPEG     */
+	                            /* external port, etc.                             */
+	                            /* Shared Lookouts have only 1 chassis number (the */
+	                            /* first one assigned)                             */
 } __attribute__((packed));
 
 
 typedef enum {
-	CompatTwister = 0,  
-	AltTwister    = 1,  
-	CompatCyclone = 2,  
-	AltCyclone    = 3,  
-	CompatWPEG    = 4,  
-	AltWPEG       = 5,  
-	LookOutAWPEG  = 6,  
-	LookOutBWPEG  = 7,  
+	CompatTwister = 0,  /* Compatibility Twister               */
+	AltTwister    = 1,  /* Alternate Twister of internal 8-way */
+	CompatCyclone = 2,  /* Compatibility Cyclone               */
+	AltCyclone    = 3,  /* Alternate Cyclone of internal 8-way */
+	CompatWPEG    = 4,  /* Compatibility WPEG                  */
+	AltWPEG       = 5,  /* Second Planar WPEG                  */
+	LookOutAWPEG  = 6,  /* LookOut WPEG                        */
+	LookOutBWPEG  = 7,  /* LookOut WPEG                        */
 } node_type;
 
 static inline int is_WPEG(struct rio_detail *rio){
@@ -172,6 +176,10 @@ static inline int is_WPEG(struct rio_detail *rio){
 
 static const struct cpumask *summit_target_cpus(void)
 {
+	/* CPU_MASK_ALL (0xff) has undefined behaviour with
+	 * dest_LowestPrio mode logical clustered apic interrupt routing
+	 * Just start on cpu 0.  IRQ balancing will spread load
+	 */
 	return cpumask_of(0);
 }
 
@@ -180,6 +188,7 @@ static unsigned long summit_check_apicid_used(physid_mask_t *map, int apicid)
 	return 0;
 }
 
+/* we don't use the phys_cpu_present_map to indicate apicid presence */
 static unsigned long summit_check_apicid_present(int bit)
 {
 	return 1;
@@ -194,13 +203,15 @@ static int summit_early_logical_apicid(int cpu)
 	u8 lid;
 	int i;
 
-	
+	/* Create logical APIC IDs by counting CPUs already in cluster. */
 	for (count = 0, i = nr_cpu_ids; --i >= 0; ) {
 		lid = early_per_cpu(x86_cpu_to_logical_apicid, i);
 		if (lid != BAD_APICID && APIC_CLUSTER(lid) == my_cluster)
 			++count;
 	}
 #endif
+	/* We only have a 4 wide bitmap in cluster mode.  If a deranged
+	 * BIOS puts 5 CPUs in one APIC cluster, we're hosed. */
 	BUG_ON(count >= XAPIC_DEST_CPUS_SHIFT);
 	return my_cluster | (1UL << count);
 }
@@ -238,7 +249,7 @@ static int summit_cpu_present_to_apicid(int mps_cpu)
 
 static void summit_ioapic_phys_id_map(physid_mask_t *phys_id_map, physid_mask_t *retmap)
 {
-	
+	/* For clustered we don't have a good way to do this yet - hack */
 	physids_promote(0x0FL, retmap);
 }
 
@@ -257,6 +268,9 @@ static unsigned int summit_cpu_mask_to_apicid(const struct cpumask *cpumask)
 	unsigned int round = 0;
 	int cpu, apicid = 0;
 
+	/*
+	 * The cpus in the mask must all be on the apic cluster.
+	 */
 	for_each_cpu(cpu, cpumask) {
 		int new_apicid = early_per_cpu(x86_cpu_to_logical_apicid, cpu);
 
@@ -288,6 +302,13 @@ static unsigned int summit_cpu_mask_to_apicid_and(const struct cpumask *inmask,
 	return apicid;
 }
 
+/*
+ * cpuid returns the value latched in the HW at reset, not the APIC ID
+ * register's value.  For any box whose BIOS changes APIC IDs, like
+ * clustered APIC systems, we must use hard_smp_processor_id.
+ *
+ * See Intel's IA-32 SW Dev's Manual Vol2 under CPUID.
+ */
 static int summit_phys_pkg_id(int cpuid_apic, int index_msb)
 {
 	return hard_smp_processor_id() >> index_msb;
@@ -295,12 +316,20 @@ static int summit_phys_pkg_id(int cpuid_apic, int index_msb)
 
 static int probe_summit(void)
 {
-	
+	/* probed later in mptable/ACPI hooks */
 	return 0;
 }
 
 static void summit_vector_allocation_domain(int cpu, struct cpumask *retmask)
 {
+	/* Careful. Some cpus do not strictly honor the set of cpus
+	 * specified in the interrupt destination when using lowest
+	 * priority interrupt delivery mode.
+	 *
+	 * In particular there was a hyperthreading cpu observed to
+	 * deliver interrupts to the wrong hyperthread when only one
+	 * hyperthread was specified in the interrupt desitination.
+	 */
 	cpumask_clear(retmask);
 	cpumask_bits(retmask)[0] = APIC_ALL_CPUS;
 }
@@ -343,13 +372,27 @@ static int setup_pci_node_map_for_wpeg(int wpeg_num, int last_bus)
 
 	switch (rio_devs[wpeg_num]->type) {
 	case CompatWPEG:
+		/*
+		 * The Compatibility Winnipeg controls the 2 legacy buses,
+		 * the 66MHz PCI bus [2 slots] and the 2 "extra" buses in case
+		 * a PCI-PCI bridge card is used in either slot: total 5 buses.
+		 */
 		num_buses = 5;
 		break;
 	case AltWPEG:
+		/*
+		 * The Alternate Winnipeg controls the 2 133MHz buses [1 slot
+		 * each], their 2 "extra" buses, the 100MHz bus [2 slots] and
+		 * the "extra" buses for each of those slots: total 7 buses.
+		 */
 		num_buses = 7;
 		break;
 	case LookOutAWPEG:
 	case LookOutBWPEG:
+		/*
+		 * A Lookout Winnipeg controls 3 100MHz buses [2 slots each]
+		 * & the "extra" buses for each of those slots: total 9 buses.
+		 */
 		num_buses = 9;
 		break;
 	default:
@@ -402,20 +445,20 @@ void setup_summit(void)
 	unsigned short		offset;
 	int			i, next_wpeg, next_bus = 0;
 
-	
+	/* The pointer to the EBDA is stored in the word @ phys 0x40E(40:0E) */
 	ptr = get_bios_ebda();
 	ptr = (unsigned long)phys_to_virt(ptr);
 
 	rio_table_hdr = NULL;
 	offset = 0x180;
 	while (offset) {
-		
+		/* The block id is stored in the 2nd word */
 		if (*((unsigned short *)(ptr + offset + 2)) == 0x4752) {
-			
+			/* set the pointer past the offset & block id */
 			rio_table_hdr = (struct rio_table_hdr *)(ptr + offset + 4);
 			break;
 		}
-		
+		/* The next offset is stored in the 1st word.  0 means no more */
 		offset = *((unsigned short *)(ptr + offset));
 	}
 	if (!rio_table_hdr) {
@@ -426,17 +469,22 @@ void setup_summit(void)
 	if (!build_detail_arrays())
 		return;
 
-	
+	/* The first Winnipeg we're looking for has an index of 0 */
 	next_wpeg = 0;
 	do {
 		for (i = 0; i < rio_table_hdr->num_rio_dev; i++) {
 			if (is_WPEG(rio_devs[i]) && rio_devs[i]->WP_index == next_wpeg) {
-				
+				/* It's the Winnipeg we're looking for! */
 				next_bus = setup_pci_node_map_for_wpeg(i, next_bus);
 				next_wpeg++;
 				break;
 			}
 		}
+		/*
+		 * If we go through all Rio devices and don't find one with
+		 * the next index, it means we've found all the Winnipegs,
+		 * and thus all the PCI buses.
+		 */
 		if (i == rio_table_hdr->num_rio_dev)
 			next_wpeg = 0;
 	} while (next_wpeg != 0);
@@ -452,7 +500,7 @@ static struct apic apic_summit = {
 	.apic_id_registered		= summit_apic_id_registered,
 
 	.irq_delivery_mode		= dest_LowestPrio,
-	
+	/* logical delivery broadcast to all CPUs: */
 	.irq_dest_mode			= 1,
 
 	.target_cpus			= summit_target_cpus,

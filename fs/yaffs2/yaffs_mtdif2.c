@@ -11,6 +11,7 @@
  * published by the Free Software Foundation.
  */
 
+/* mtd interface for YAFFS2 */
 
 #include "yportenv.h"
 #include "yaffs_trace.h"
@@ -25,6 +26,10 @@
 
 #include "yaffs_linux.h"
 
+/* NB For use with inband tags....
+ * We assume that the data buffer is of size total_bytes_per_chunk so that we can also
+ * use it to load the tags.
+ */
 int nandmtd2_write_chunk_tags(struct yaffs_dev *dev, int nand_chunk,
 			      const u8 * data,
 			      const struct yaffs_ext_tags *tags)
@@ -48,6 +53,10 @@ int nandmtd2_write_chunk_tags(struct yaffs_dev *dev, int nand_chunk,
 
 	addr = ((loff_t) nand_chunk) * dev->param.total_bytes_per_chunk;
 
+	/* For yaffs2 writing there must be both data and tags.
+	 * If we're using inband tags, then the tags are stuffed into
+	 * the end of the data buffer.
+	 */
 	if (!data || !tags)
 		BUG();
 	else if (dev->param.inband_tags) {

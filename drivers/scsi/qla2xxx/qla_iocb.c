@@ -12,6 +12,12 @@
 #include <scsi/scsi_tcq.h>
 
 static void qla25xx_set_que(srb_t *, struct rsp_que **);
+/**
+ * qla2x00_get_cmd_direction() - Determine control_flag data direction.
+ * @cmd: SCSI command
+ *
+ * Returns the proper CF_* direction based on CDB.
+ */
 static inline uint16_t
 qla2x00_get_cmd_direction(srb_t *sp)
 {
@@ -20,7 +26,7 @@ qla2x00_get_cmd_direction(srb_t *sp)
 
 	cflags = 0;
 
-	
+	/* Set transfer direction */
 	if (cmd->sc_data_direction == DMA_TO_DEVICE) {
 		cflags = CF_WRITE;
 		sp->fcport->vha->hw->qla_stats.output_bytes +=
@@ -33,6 +39,14 @@ qla2x00_get_cmd_direction(srb_t *sp)
 	return (cflags);
 }
 
+/**
+ * qla2x00_calc_iocbs_32() - Determine number of Command Type 2 and
+ * Continuation Type 0 IOCBs to allocate.
+ *
+ * @dsds: number of data segment decriptors needed
+ *
+ * Returns the number of IOCB entries needed to store @dsds.
+ */
 uint16_t
 qla2x00_calc_iocbs_32(uint16_t dsds)
 {
@@ -47,6 +61,14 @@ qla2x00_calc_iocbs_32(uint16_t dsds)
 	return (iocbs);
 }
 
+/**
+ * qla2x00_calc_iocbs_64() - Determine number of Command Type 3 and
+ * Continuation Type 1 IOCBs to allocate.
+ *
+ * @dsds: number of data segment decriptors needed
+ *
+ * Returns the number of IOCB entries needed to store @dsds.
+ */
 uint16_t
 qla2x00_calc_iocbs_64(uint16_t dsds)
 {
@@ -61,12 +83,18 @@ qla2x00_calc_iocbs_64(uint16_t dsds)
 	return (iocbs);
 }
 
+/**
+ * qla2x00_prep_cont_type0_iocb() - Initialize a Continuation Type 0 IOCB.
+ * @ha: HA context
+ *
+ * Returns a pointer to the Continuation Type 0 IOCB packet.
+ */
 static inline cont_entry_t *
 qla2x00_prep_cont_type0_iocb(struct scsi_qla_host *vha)
 {
 	cont_entry_t *cont_pkt;
 	struct req_que *req = vha->req;
-	
+	/* Adjust ring index. */
 	req->ring_index++;
 	if (req->ring_index == req->length) {
 		req->ring_index = 0;
@@ -77,19 +105,25 @@ qla2x00_prep_cont_type0_iocb(struct scsi_qla_host *vha)
 
 	cont_pkt = (cont_entry_t *)req->ring_ptr;
 
-	
+	/* Load packet defaults. */
 	*((uint32_t *)(&cont_pkt->entry_type)) =
 	    __constant_cpu_to_le32(CONTINUE_TYPE);
 
 	return (cont_pkt);
 }
 
+/**
+ * qla2x00_prep_cont_type1_iocb() - Initialize a Continuation Type 1 IOCB.
+ * @ha: HA context
+ *
+ * Returns a pointer to the continuation type 1 IOCB packet.
+ */
 static inline cont_a64_entry_t *
 qla2x00_prep_cont_type1_iocb(scsi_qla_host_t *vha, struct req_que *req)
 {
 	cont_a64_entry_t *cont_pkt;
 
-	
+	/* Adjust ring index. */
 	req->ring_index++;
 	if (req->ring_index == req->length) {
 		req->ring_index = 0;
@@ -100,7 +134,7 @@ qla2x00_prep_cont_type1_iocb(scsi_qla_host_t *vha, struct req_que *req)
 
 	cont_pkt = (cont_a64_entry_t *)req->ring_ptr;
 
-	
+	/* Load packet defaults. */
 	*((uint32_t *)(&cont_pkt->entry_type)) =
 	    __constant_cpu_to_le32(CONTINUE_A64_TYPE);
 
@@ -113,17 +147,17 @@ qla24xx_configure_prot_mode(srb_t *sp, uint16_t *fw_prot_opts)
 	struct scsi_cmnd *cmd = GET_CMD_SP(sp);
 	uint8_t	guard = scsi_host_get_guard(cmd->device->host);
 
-	
+	/* We only support T10 DIF right now */
 	if (guard != SHOST_DIX_GUARD_CRC) {
 		ql_dbg(ql_dbg_io, sp->fcport->vha, 0x3007,
 		    "Unsupported guard: %d for cmd=%p.\n", guard, cmd);
 		return 0;
 	}
 
-	
+	/* We always use DIFF Bundling for best performance */
 	*fw_prot_opts = 0;
 
-	
+	/* Translate SCSI opcode to a protection opcode */
 	switch (scsi_get_prot_op(cmd)) {
 	case SCSI_PROT_READ_STRIP:
 		*fw_prot_opts |= PO_MODE_DIF_REMOVE;
@@ -143,7 +177,7 @@ qla24xx_configure_prot_mode(srb_t *sp, uint16_t *fw_prot_opts)
 	case SCSI_PROT_WRITE_PASS:
 		*fw_prot_opts |= PO_MODE_DIF_PASS;
 		break;
-	default:	
+	default:	/* Normal Request */
 		*fw_prot_opts |= PO_MODE_DIF_PASS;
 		break;
 	}
@@ -151,6 +185,14 @@ qla24xx_configure_prot_mode(srb_t *sp, uint16_t *fw_prot_opts)
 	return scsi_prot_sg_count(cmd);
 }
 
+/*
+ * qla2x00_build_scsi_iocbs_32() - Build IOCB command utilizing 32bit
+ * capable IOCB types.
+ *
+ * @sp: SRB command to process
+ * @cmd_pkt: Command type 2 IOCB
+ * @tot_dsds: Total number of segments to transfer
+ */
 void qla2x00_build_scsi_iocbs_32(srb_t *sp, cmd_entry_t *cmd_pkt,
     uint16_t tot_dsds)
 {
@@ -163,11 +205,11 @@ void qla2x00_build_scsi_iocbs_32(srb_t *sp, cmd_entry_t *cmd_pkt,
 
 	cmd = GET_CMD_SP(sp);
 
-	
+	/* Update entry type to indicate Command Type 2 IOCB */
 	*((uint32_t *)(&cmd_pkt->entry_type)) =
 	    __constant_cpu_to_le32(COMMAND_TYPE);
 
-	
+	/* No data transfer */
 	if (!scsi_bufflen(cmd) || cmd->sc_data_direction == DMA_NONE) {
 		cmd_pkt->byte_count = __constant_cpu_to_le32(0);
 		return;
@@ -176,16 +218,20 @@ void qla2x00_build_scsi_iocbs_32(srb_t *sp, cmd_entry_t *cmd_pkt,
 	vha = sp->fcport->vha;
 	cmd_pkt->control_flags |= cpu_to_le16(qla2x00_get_cmd_direction(sp));
 
-	
+	/* Three DSDs are available in the Command Type 2 IOCB */
 	avail_dsds = 3;
 	cur_dsd = (uint32_t *)&cmd_pkt->dseg_0_address;
 
-	
+	/* Load data segments */
 	scsi_for_each_sg(cmd, sg, tot_dsds, i) {
 		cont_entry_t *cont_pkt;
 
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
+			/*
+			 * Seven DSDs are available in the Continuation
+			 * Type 0 IOCB.
+			 */
 			cont_pkt = qla2x00_prep_cont_type0_iocb(vha);
 			cur_dsd = (uint32_t *)&cont_pkt->dseg_0_address;
 			avail_dsds = 7;
@@ -197,6 +243,14 @@ void qla2x00_build_scsi_iocbs_32(srb_t *sp, cmd_entry_t *cmd_pkt,
 	}
 }
 
+/**
+ * qla2x00_build_scsi_iocbs_64() - Build IOCB command utilizing 64bit
+ * capable IOCB types.
+ *
+ * @sp: SRB command to process
+ * @cmd_pkt: Command type 3 IOCB
+ * @tot_dsds: Total number of segments to transfer
+ */
 void qla2x00_build_scsi_iocbs_64(srb_t *sp, cmd_entry_t *cmd_pkt,
     uint16_t tot_dsds)
 {
@@ -209,11 +263,11 @@ void qla2x00_build_scsi_iocbs_64(srb_t *sp, cmd_entry_t *cmd_pkt,
 
 	cmd = GET_CMD_SP(sp);
 
-	
+	/* Update entry type to indicate Command Type 3 IOCB */
 	*((uint32_t *)(&cmd_pkt->entry_type)) =
 	    __constant_cpu_to_le32(COMMAND_A64_TYPE);
 
-	
+	/* No data transfer */
 	if (!scsi_bufflen(cmd) || cmd->sc_data_direction == DMA_NONE) {
 		cmd_pkt->byte_count = __constant_cpu_to_le32(0);
 		return;
@@ -222,17 +276,21 @@ void qla2x00_build_scsi_iocbs_64(srb_t *sp, cmd_entry_t *cmd_pkt,
 	vha = sp->fcport->vha;
 	cmd_pkt->control_flags |= cpu_to_le16(qla2x00_get_cmd_direction(sp));
 
-	
+	/* Two DSDs are available in the Command Type 3 IOCB */
 	avail_dsds = 2;
 	cur_dsd = (uint32_t *)&cmd_pkt->dseg_0_address;
 
-	
+	/* Load data segments */
 	scsi_for_each_sg(cmd, sg, tot_dsds, i) {
 		dma_addr_t	sle_dma;
 		cont_a64_entry_t *cont_pkt;
 
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
+			/*
+			 * Five DSDs are available in the Continuation
+			 * Type 1 IOCB.
+			 */
 			cont_pkt = qla2x00_prep_cont_type1_iocb(vha, vha->req);
 			cur_dsd = (uint32_t *)cont_pkt->dseg_0_address;
 			avail_dsds = 5;
@@ -246,6 +304,12 @@ void qla2x00_build_scsi_iocbs_64(srb_t *sp, cmd_entry_t *cmd_pkt,
 	}
 }
 
+/**
+ * qla2x00_start_scsi() - Send a SCSI command to the ISP
+ * @sp: command to send to the ISP
+ *
+ * Returns non-zero if a failure occurred, else zero.
+ */
 int
 qla2x00_start_scsi(srb_t *sp)
 {
@@ -266,7 +330,7 @@ qla2x00_start_scsi(srb_t *sp)
 	struct rsp_que *rsp;
 	char		tag[2];
 
-	
+	/* Setup device pointers. */
 	ret = 0;
 	vha = sp->fcport->vha;
 	ha = vha->hw;
@@ -274,10 +338,10 @@ qla2x00_start_scsi(srb_t *sp)
 	cmd = GET_CMD_SP(sp);
 	req = ha->req_q_map[0];
 	rsp = ha->rsp_q_map[0];
-	
+	/* So we know we haven't pci_map'ed anything yet */
 	tot_dsds = 0;
 
-	
+	/* Send marker if required */
 	if (vha->marker_needed != 0) {
 		if (qla2x00_marker(vha, req, rsp, 0, 0, MK_SYNC_ALL) !=
 		    QLA_SUCCESS) {
@@ -286,10 +350,10 @@ qla2x00_start_scsi(srb_t *sp)
 		vha->marker_needed = 0;
 	}
 
-	
+	/* Acquire ring specific lock */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
-	
+	/* Check for room in outstanding command list. */
 	handle = req->current_outstanding_cmd;
 	for (index = 1; index < MAX_OUTSTANDING_COMMANDS; index++) {
 		handle++;
@@ -301,7 +365,7 @@ qla2x00_start_scsi(srb_t *sp)
 	if (index == MAX_OUTSTANDING_COMMANDS)
 		goto queuing_error;
 
-	
+	/* Map the sg table so we have an accurate count of sg entries needed */
 	if (scsi_sg_count(cmd)) {
 		nseg = dma_map_sg(&ha->pdev->dev, scsi_sglist(cmd),
 		    scsi_sg_count(cmd), cmd->sc_data_direction);
@@ -312,7 +376,7 @@ qla2x00_start_scsi(srb_t *sp)
 
 	tot_dsds = nseg;
 
-	
+	/* Calculate the number of request entries needed. */
 	req_cnt = ha->isp_ops->calc_req_entries(tot_dsds);
 	if (req->cnt < (req_cnt + 2)) {
 		cnt = RD_REG_WORD_RELAXED(ISP_REQ_Q_OUT(ha, reg));
@@ -325,7 +389,7 @@ qla2x00_start_scsi(srb_t *sp)
 	if (req->cnt < (req_cnt + 2))
 		goto queuing_error;
 
-	
+	/* Build command packet */
 	req->current_outstanding_cmd = handle;
 	req->outstanding_cmds[handle] = sp;
 	sp->handle = handle;
@@ -334,16 +398,16 @@ qla2x00_start_scsi(srb_t *sp)
 
 	cmd_pkt = (cmd_entry_t *)req->ring_ptr;
 	cmd_pkt->handle = handle;
-	
+	/* Zero out remaining portion of packet. */
 	clr_ptr = (uint32_t *)cmd_pkt + 2;
 	memset(clr_ptr, 0, REQUEST_ENTRY_SIZE - 8);
 	cmd_pkt->dseg_count = cpu_to_le16(tot_dsds);
 
-	
+	/* Set target ID and LUN number*/
 	SET_TARGET_ID(ha, cmd_pkt->target, sp->fcport->loop_id);
 	cmd_pkt->lun = cpu_to_le16(cmd->device->lun);
 
-	
+	/* Update tagged queuing modifier */
 	if (scsi_populate_tag_msg(cmd, tag)) {
 		switch (tag[0]) {
 		case HEAD_OF_QUEUE_TAG:
@@ -361,18 +425,18 @@ qla2x00_start_scsi(srb_t *sp)
 		}
 	}
 
-	
+	/* Load SCSI command packet. */
 	memcpy(cmd_pkt->scsi_cdb, cmd->cmnd, cmd->cmd_len);
 	cmd_pkt->byte_count = cpu_to_le32((uint32_t)scsi_bufflen(cmd));
 
-	
+	/* Build IOCB segments */
 	ha->isp_ops->build_iocbs(sp, cmd_pkt, tot_dsds);
 
-	
+	/* Set total data segment count. */
 	cmd_pkt->entry_count = (uint8_t)req_cnt;
 	wmb();
 
-	
+	/* Adjust ring index. */
 	req->ring_index++;
 	if (req->ring_index == req->length) {
 		req->ring_index = 0;
@@ -382,11 +446,11 @@ qla2x00_start_scsi(srb_t *sp)
 
 	sp->flags |= SRB_DMA_VALID;
 
-	
+	/* Set chip new ring index. */
 	WRT_REG_WORD(ISP_REQ_Q_IN(ha, reg), req->ring_index);
-	RD_REG_WORD_RELAXED(ISP_REQ_Q_IN(ha, reg));	
+	RD_REG_WORD_RELAXED(ISP_REQ_Q_IN(ha, reg));	/* PCI Posting. */
 
-	
+	/* Manage unprocessed RIO/ZIO commands in response queue. */
 	if (vha->flags.process_response_queue &&
 	    rsp->ring_ptr->signature != RESPONSE_PROCESSED)
 		qla2x00_process_response_queue(rsp);
@@ -403,6 +467,9 @@ queuing_error:
 	return (QLA_FUNCTION_FAILED);
 }
 
+/**
+ * qla2x00_start_iocbs() - Execute the IOCB command
+ */
 static void
 qla2x00_start_iocbs(struct scsi_qla_host *vha, struct req_que *req)
 {
@@ -412,7 +479,7 @@ qla2x00_start_iocbs(struct scsi_qla_host *vha, struct req_que *req)
 	if (IS_QLA82XX(ha)) {
 		qla82xx_start_iocbs(vha);
 	} else {
-		
+		/* Adjust ring index. */
 		req->ring_index++;
 		if (req->ring_index == req->length) {
 			req->ring_index = 0;
@@ -420,7 +487,7 @@ qla2x00_start_iocbs(struct scsi_qla_host *vha, struct req_que *req)
 		} else
 			req->ring_ptr++;
 
-		
+		/* Set chip new ring index. */
 		if (ha->mqenable || IS_QLA83XX(ha)) {
 			WRT_REG_DWORD(req->req_q_in, req->ring_index);
 			RD_REG_DWORD_RELAXED(&ha->iobase->isp24.hccr);
@@ -435,6 +502,17 @@ qla2x00_start_iocbs(struct scsi_qla_host *vha, struct req_que *req)
 	}
 }
 
+/**
+ * qla2x00_marker() - Send a marker IOCB to the firmware.
+ * @ha: HA context
+ * @loop_id: loop ID
+ * @lun: LUN
+ * @type: marker modifier
+ *
+ * Can be called from both normal and interrupt context.
+ *
+ * Returns non-zero if a failure occurred, else zero.
+ */
 static int
 __qla2x00_marker(struct scsi_qla_host *vha, struct req_que *req,
 			struct rsp_que *rsp, uint16_t loop_id,
@@ -493,6 +571,14 @@ qla2x00_marker(struct scsi_qla_host *vha, struct req_que *req,
 	return (ret);
 }
 
+/**
+ * qla24xx_calc_iocbs() - Determine number of Command Type 3 and
+ * Continuation Type 1 IOCBs to allocate.
+ *
+ * @dsds: number of data segment decriptors needed
+ *
+ * Returns the number of IOCB entries needed to store @dsds.
+ */
 inline uint16_t
 qla24xx_calc_iocbs(scsi_qla_host_t *vha, uint16_t dsds)
 {
@@ -526,11 +612,11 @@ qla24xx_build_scsi_type_6_iocbs(srb_t *sp, struct cmd_type_6 *cmd_pkt,
 
 	cmd = GET_CMD_SP(sp);
 
-	
+	/* Update entry type to indicate Command Type 3 IOCB */
 	*((uint32_t *)(&cmd_pkt->entry_type)) =
 		__constant_cpu_to_le32(COMMAND_TYPE_6);
 
-	
+	/* No data transfer */
 	if (!scsi_bufflen(cmd) || cmd->sc_data_direction == DMA_NONE) {
 		cmd_pkt->byte_count = __constant_cpu_to_le32(0);
 		return 0;
@@ -539,7 +625,7 @@ qla24xx_build_scsi_type_6_iocbs(srb_t *sp, struct cmd_type_6 *cmd_pkt,
 	vha = sp->fcport->vha;
 	ha = vha->hw;
 
-	
+	/* Set transfer direction */
 	if (cmd->sc_data_direction == DMA_TO_DEVICE) {
 		cmd_pkt->control_flags =
 		    __constant_cpu_to_le16(CF_WRITE_DATA);
@@ -592,7 +678,7 @@ qla24xx_build_scsi_type_6_iocbs(srb_t *sp, struct cmd_type_6 *cmd_pkt,
 		}
 	}
 
-	
+	/* Null termination */
 	*cur_dsd++ =  0;
 	*cur_dsd++ = 0;
 	*cur_dsd++ = 0;
@@ -600,6 +686,14 @@ qla24xx_build_scsi_type_6_iocbs(srb_t *sp, struct cmd_type_6 *cmd_pkt,
 	return 0;
 }
 
+/*
+ * qla24xx_calc_dsd_lists() - Determine number of DSD list required
+ * for Command Type 6.
+ *
+ * @dsds: number of data segment decriptors needed
+ *
+ * Returns the number of dsd list needed to store @dsds.
+ */
 inline uint16_t
 qla24xx_calc_dsd_lists(uint16_t dsds)
 {
@@ -612,6 +706,14 @@ qla24xx_calc_dsd_lists(uint16_t dsds)
 }
 
 
+/**
+ * qla24xx_build_scsi_iocbs() - Build IOCB command utilizing Command Type 7
+ * IOCB types.
+ *
+ * @sp: SRB command to process
+ * @cmd_pkt: Command type 3 IOCB
+ * @tot_dsds: Total number of segments to transfer
+ */
 inline void
 qla24xx_build_scsi_iocbs(srb_t *sp, struct cmd_type_7 *cmd_pkt,
     uint16_t tot_dsds)
@@ -626,11 +728,11 @@ qla24xx_build_scsi_iocbs(srb_t *sp, struct cmd_type_7 *cmd_pkt,
 
 	cmd = GET_CMD_SP(sp);
 
-	
+	/* Update entry type to indicate Command Type 3 IOCB */
 	*((uint32_t *)(&cmd_pkt->entry_type)) =
 	    __constant_cpu_to_le32(COMMAND_TYPE_7);
 
-	
+	/* No data transfer */
 	if (!scsi_bufflen(cmd) || cmd->sc_data_direction == DMA_NONE) {
 		cmd_pkt->byte_count = __constant_cpu_to_le32(0);
 		return;
@@ -639,7 +741,7 @@ qla24xx_build_scsi_iocbs(srb_t *sp, struct cmd_type_7 *cmd_pkt,
 	vha = sp->fcport->vha;
 	req = vha->req;
 
-	
+	/* Set transfer direction */
 	if (cmd->sc_data_direction == DMA_TO_DEVICE) {
 		cmd_pkt->task_mgmt_flags =
 		    __constant_cpu_to_le16(TMF_WRITE_DATA);
@@ -652,18 +754,22 @@ qla24xx_build_scsi_iocbs(srb_t *sp, struct cmd_type_7 *cmd_pkt,
 		    scsi_bufflen(cmd);
 	}
 
-	
+	/* One DSD is available in the Command Type 3 IOCB */
 	avail_dsds = 1;
 	cur_dsd = (uint32_t *)&cmd_pkt->dseg_0_address;
 
-	
+	/* Load data segments */
 
 	scsi_for_each_sg(cmd, sg, tot_dsds, i) {
 		dma_addr_t	sle_dma;
 		cont_a64_entry_t *cont_pkt;
 
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
+			/*
+			 * Five DSDs are available in the Continuation
+			 * Type 1 IOCB.
+			 */
 			cont_pkt = qla2x00_prep_cont_type1_iocb(vha, vha->req);
 			cur_dsd = (uint32_t *)cont_pkt->dseg_0_address;
 			avail_dsds = 5;
@@ -680,10 +786,14 @@ qla24xx_build_scsi_iocbs(srb_t *sp, struct cmd_type_7 *cmd_pkt,
 struct fw_dif_context {
 	uint32_t ref_tag;
 	uint16_t app_tag;
-	uint8_t ref_tag_mask[4];	
-	uint8_t app_tag_mask[2];	
+	uint8_t ref_tag_mask[4];	/* Validation/Replacement Mask*/
+	uint8_t app_tag_mask[2];	/* Validation/Replacement Mask*/
 };
 
+/*
+ * qla24xx_set_t10dif_tags_from_cmd - Extract Ref and App tags from SCSI command
+ *
+ */
 static inline void
 qla24xx_set_t10dif_tags(srb_t *sp, struct fw_dif_context *pkt,
     unsigned int protcnt)
@@ -693,6 +803,10 @@ qla24xx_set_t10dif_tags(srb_t *sp, struct fw_dif_context *pkt,
 
 	switch (scsi_get_prot_type(cmd)) {
 	case SCSI_PROT_DIF_TYPE0:
+		/*
+		 * No check for ql2xenablehba_err_chk, as it would be an
+		 * I/O error if hba tag generation is not done.
+		 */
 		pkt->ref_tag = cpu_to_le32((uint32_t)
 		    (0xffffffff & scsi_get_lba(cmd)));
 
@@ -705,6 +819,10 @@ qla24xx_set_t10dif_tags(srb_t *sp, struct fw_dif_context *pkt,
 		pkt->ref_tag_mask[3] = 0xff;
 		break;
 
+	/*
+	 * For TYPE 2 protection: 16 bit GUARD + 32 bit REF tag has to
+	 * match LBA in CDB + N
+	 */
 	case SCSI_PROT_DIF_TYPE2:
 		pkt->app_tag = __constant_cpu_to_le16(0);
 		pkt->app_tag_mask[0] = 0x0;
@@ -716,20 +834,24 @@ qla24xx_set_t10dif_tags(srb_t *sp, struct fw_dif_context *pkt,
 		if (!qla2x00_hba_err_chk_enabled(sp))
 			break;
 
-		
+		/* enable ALL bytes of the ref tag */
 		pkt->ref_tag_mask[0] = 0xff;
 		pkt->ref_tag_mask[1] = 0xff;
 		pkt->ref_tag_mask[2] = 0xff;
 		pkt->ref_tag_mask[3] = 0xff;
 		break;
 
-	
+	/* For Type 3 protection: 16 bit GUARD only */
 	case SCSI_PROT_DIF_TYPE3:
 		pkt->ref_tag_mask[0] = pkt->ref_tag_mask[1] =
 			pkt->ref_tag_mask[2] = pkt->ref_tag_mask[3] =
 								0x00;
 		break;
 
+	/*
+	 * For TYpe 1 protection: 16 bit GUARD tag, 32 bit REF tag, and
+	 * 16 bit app tag.
+	 */
 	case SCSI_PROT_DIF_TYPE1:
 		pkt->ref_tag = cpu_to_le32((uint32_t)
 		    (0xffffffff & scsi_get_lba(cmd)));
@@ -740,7 +862,7 @@ qla24xx_set_t10dif_tags(srb_t *sp, struct fw_dif_context *pkt,
 		if (!qla2x00_hba_err_chk_enabled(sp))
 			break;
 
-		
+		/* enable ALL bytes of the ref tag */
 		pkt->ref_tag_mask[0] = 0xff;
 		pkt->ref_tag_mask[1] = 0xff;
 		pkt->ref_tag_mask[2] = 0xff;
@@ -756,18 +878,18 @@ qla24xx_set_t10dif_tags(srb_t *sp, struct fw_dif_context *pkt,
 }
 
 struct qla2_sgx {
-	dma_addr_t		dma_addr;	
-	uint32_t		dma_len;	
+	dma_addr_t		dma_addr;	/* OUT */
+	uint32_t		dma_len;	/* OUT */
 
-	uint32_t		tot_bytes;	
-	struct scatterlist	*cur_sg;	
+	uint32_t		tot_bytes;	/* IN */
+	struct scatterlist	*cur_sg;	/* IN */
 
-	
+	/* for book keeping, bzero on initial invocation */
 	uint32_t		bytes_consumed;
 	uint32_t		num_bytes;
 	uint32_t		tot_partial;
 
-	
+	/* for debugging */
 	uint32_t		num_sg;
 	srb_t			*sp;
 };
@@ -847,24 +969,28 @@ qla24xx_walk_and_build_sglist_no_difb(struct qla_hw_data *ha, srb_t *sp,
 		sle_dma = sgx.dma_addr;
 		sle_dma_len = sgx.dma_len;
 alloc_and_fill:
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
 			avail_dsds = (used_dsds > QLA_DSDS_PER_IOCB) ?
 					QLA_DSDS_PER_IOCB : used_dsds;
 			dsd_list_len = (avail_dsds + 1) * 12;
 			used_dsds -= avail_dsds;
 
-			
+			/* allocate tracking DS */
 			dsd_ptr = kzalloc(sizeof(struct dsd_dma), GFP_ATOMIC);
 			if (!dsd_ptr)
 				return 1;
 
-			
+			/* allocate new list */
 			dsd_ptr->dsd_addr = next_dsd =
 			    dma_pool_alloc(ha->dl_dma_pool, GFP_ATOMIC,
 				&dsd_ptr->dsd_list_dma);
 
 			if (!next_dsd) {
+				/*
+				 * Need to cleanup only this dsd_ptr, rest
+				 * will be done by sp_free_dma()
+				 */
 				kfree(dsd_ptr);
 				return 1;
 			}
@@ -874,7 +1000,7 @@ alloc_and_fill:
 
 			sp->flags |= SRB_CRC_CTX_DSD_VALID;
 
-			
+			/* add new list to cmd iocb or last list */
 			*cur_dsd++ = cpu_to_le32(LSD(dsd_ptr->dsd_list_dma));
 			*cur_dsd++ = cpu_to_le32(MSD(dsd_ptr->dsd_list_dma));
 			*cur_dsd++ = dsd_list_len;
@@ -886,7 +1012,7 @@ alloc_and_fill:
 		avail_dsds--;
 
 		if (partial == 0) {
-			
+			/* Got a full protection interval */
 			sle_dma = sg_dma_address(sg_prot) + tot_prot_dma_len;
 			sle_dma_len = 8;
 
@@ -896,11 +1022,11 @@ alloc_and_fill:
 				sg_prot = sg_next(sg_prot);
 			}
 
-			partial = 1; 
+			partial = 1; /* So as to not re-enter this block */
 			goto alloc_and_fill;
 		}
 	}
-	
+	/* Null termination */
 	*cur_dsd++ = 0;
 	*cur_dsd++ = 0;
 	*cur_dsd++ = 0;
@@ -927,24 +1053,28 @@ qla24xx_walk_and_build_sglist(struct qla_hw_data *ha, srb_t *sp, uint32_t *dsd,
 	scsi_for_each_sg(cmd, sg, tot_dsds, i) {
 		dma_addr_t	sle_dma;
 
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
 			avail_dsds = (used_dsds > QLA_DSDS_PER_IOCB) ?
 					QLA_DSDS_PER_IOCB : used_dsds;
 			dsd_list_len = (avail_dsds + 1) * 12;
 			used_dsds -= avail_dsds;
 
-			
+			/* allocate tracking DS */
 			dsd_ptr = kzalloc(sizeof(struct dsd_dma), GFP_ATOMIC);
 			if (!dsd_ptr)
 				return 1;
 
-			
+			/* allocate new list */
 			dsd_ptr->dsd_addr = next_dsd =
 			    dma_pool_alloc(ha->dl_dma_pool, GFP_ATOMIC,
 				&dsd_ptr->dsd_list_dma);
 
 			if (!next_dsd) {
+				/*
+				 * Need to cleanup only this dsd_ptr, rest
+				 * will be done by sp_free_dma()
+				 */
 				kfree(dsd_ptr);
 				return 1;
 			}
@@ -954,7 +1084,7 @@ qla24xx_walk_and_build_sglist(struct qla_hw_data *ha, srb_t *sp, uint32_t *dsd,
 
 			sp->flags |= SRB_CRC_CTX_DSD_VALID;
 
-			
+			/* add new list to cmd iocb or last list */
 			*cur_dsd++ = cpu_to_le32(LSD(dsd_ptr->dsd_list_dma));
 			*cur_dsd++ = cpu_to_le32(MSD(dsd_ptr->dsd_list_dma));
 			*cur_dsd++ = dsd_list_len;
@@ -975,7 +1105,7 @@ qla24xx_walk_and_build_sglist(struct qla_hw_data *ha, srb_t *sp, uint32_t *dsd,
 			    "User data buffer=%p for cmd=%p.\n", cp, cmd);
 		}
 	}
-	
+	/* Null termination */
 	*cur_dsd++ = 0;
 	*cur_dsd++ = 0;
 	*cur_dsd++ = 0;
@@ -1003,24 +1133,28 @@ qla24xx_walk_and_build_prot_sglist(struct qla_hw_data *ha, srb_t *sp,
 	scsi_for_each_prot_sg(cmd, sg, tot_dsds, i) {
 		dma_addr_t	sle_dma;
 
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
 			avail_dsds = (used_dsds > QLA_DSDS_PER_IOCB) ?
 						QLA_DSDS_PER_IOCB : used_dsds;
 			dsd_list_len = (avail_dsds + 1) * 12;
 			used_dsds -= avail_dsds;
 
-			
+			/* allocate tracking DS */
 			dsd_ptr = kzalloc(sizeof(struct dsd_dma), GFP_ATOMIC);
 			if (!dsd_ptr)
 				return 1;
 
-			
+			/* allocate new list */
 			dsd_ptr->dsd_addr = next_dsd =
 			    dma_pool_alloc(ha->dl_dma_pool, GFP_ATOMIC,
 				&dsd_ptr->dsd_list_dma);
 
 			if (!next_dsd) {
+				/*
+				 * Need to cleanup only this dsd_ptr, rest
+				 * will be done by sp_free_dma()
+				 */
 				kfree(dsd_ptr);
 				return 1;
 			}
@@ -1030,7 +1164,7 @@ qla24xx_walk_and_build_prot_sglist(struct qla_hw_data *ha, srb_t *sp,
 
 			sp->flags |= SRB_CRC_CTX_DSD_VALID;
 
-			
+			/* add new list to cmd iocb or last list */
 			*cur_dsd++ = cpu_to_le32(LSD(dsd_ptr->dsd_list_dma));
 			*cur_dsd++ = cpu_to_le32(MSD(dsd_ptr->dsd_list_dma));
 			*cur_dsd++ = dsd_list_len;
@@ -1056,13 +1190,21 @@ qla24xx_walk_and_build_prot_sglist(struct qla_hw_data *ha, srb_t *sp,
 		}
 		avail_dsds--;
 	}
-	
+	/* Null termination */
 	*cur_dsd++ = 0;
 	*cur_dsd++ = 0;
 	*cur_dsd++ = 0;
 	return 0;
 }
 
+/**
+ * qla24xx_build_scsi_crc_2_iocbs() - Build IOCB command utilizing Command
+ *							Type 6 IOCB types.
+ *
+ * @sp: SRB command to process
+ * @cmd_pkt: Command type 3 IOCB
+ * @tot_dsds: Total number of segments to transfer
+ */
 static inline int
 qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
     uint16_t tot_dsds, uint16_t tot_prot_dsds, uint16_t fw_prot_opts)
@@ -1089,14 +1231,14 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 	cmd = GET_CMD_SP(sp);
 
 	sgc = 0;
-	
+	/* Update entry type to indicate Command Type CRC_2 IOCB */
 	*((uint32_t *)(&cmd_pkt->entry_type)) =
 	    __constant_cpu_to_le32(COMMAND_TYPE_CRC_2);
 
 	vha = sp->fcport->vha;
 	ha = vha->hw;
 
-	
+	/* No data transfer */
 	data_bytes = scsi_bufflen(cmd);
 	if (!data_bytes || cmd->sc_data_direction == DMA_NONE) {
 		cmd_pkt->byte_count = __constant_cpu_to_le32(0);
@@ -1105,7 +1247,7 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 
 	cmd_pkt->vp_index = sp->fcport->vp_idx;
 
-	
+	/* Set transfer direction */
 	if (cmd->sc_data_direction == DMA_TO_DEVICE) {
 		cmd_pkt->control_flags =
 		    __constant_cpu_to_le16(CF_WRITE_DATA);
@@ -1120,14 +1262,14 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 	    (scsi_get_prot_op(cmd) == SCSI_PROT_WRITE_INSERT))
 		bundling = 0;
 
-	
+	/* Allocate CRC context from global pool */
 	crc_ctx_pkt = sp->u.scmd.ctx =
 	    dma_pool_alloc(ha->dl_dma_pool, GFP_ATOMIC, &crc_ctx_dma);
 
 	if (!crc_ctx_pkt)
 		goto crc_queuing_error;
 
-	
+	/* Zero out CTX area. */
 	clr_ptr = (uint8_t *)crc_ctx_pkt;
 	memset(clr_ptr, 0, sizeof(*crc_ctx_pkt));
 
@@ -1135,7 +1277,7 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 
 	sp->flags |= SRB_CRC_CTX_DMA_VALID;
 
-	
+	/* Set handle */
 	crc_ctx_pkt->handle = cmd_pkt->handle;
 
 	INIT_LIST_HEAD(&crc_ctx_pkt->dsd_list);
@@ -1147,11 +1289,11 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 	cmd_pkt->crc_context_address[1] = cpu_to_le32(MSD(crc_ctx_dma));
 	cmd_pkt->crc_context_len = CRC_CONTEXT_LEN_FW;
 
-	
+	/* Determine SCSI command length -- align to 4 byte boundary */
 	if (cmd->cmd_len > 16) {
 		additional_fcpcdb_len = cmd->cmd_len - 16;
 		if ((cmd->cmd_len % 4) != 0) {
-			
+			/* SCSI cmd > 16 bytes must be multiple of 4 */
 			goto crc_queuing_error;
 		}
 		fcp_cmnd_len = 12 + cmd->cmd_len + 4;
@@ -1177,6 +1319,9 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 	    MSD(crc_ctx_dma + CRC_CONTEXT_FCPCMND_OFF));
 	fcp_cmnd->task_management = 0;
 
+	/*
+	 * Update tagged queuing modifier if using command tag queuing
+	 */
 	if (scsi_populate_tag_msg(cmd, tag)) {
 		switch (tag[0]) {
 		case HEAD_OF_QUEUE_TAG:
@@ -1193,9 +1338,9 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 		fcp_cmnd->task_attribute = 0;
 	}
 
-	cmd_pkt->fcp_rsp_dseg_len = 0; 
+	cmd_pkt->fcp_rsp_dseg_len = 0; /* Let response come in status iocb */
 
-	
+	/* Compute dif len and adjust data len to incude protection */
 	dif_bytes = 0;
 	blk_size = cmd->device->sector_size;
 	dif_bytes = (data_bytes / blk_size) * 8;
@@ -1218,11 +1363,15 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 	}
 
 	if (!qla2x00_hba_err_chk_enabled(sp))
-		fw_prot_opts |= 0x10; 
+		fw_prot_opts |= 0x10; /* Disable Guard tag checking */
 
 	if (!bundling) {
 		cur_dsd = (uint32_t *) &crc_ctx_pkt->u.nobundling.data_address;
 	} else {
+		/*
+		 * Configure Bundling if we need to fetch interlaving
+		 * protection PCI accesses
+		 */
 		fw_prot_opts |= PO_ENABLE_DIF_BUNDLING;
 		crc_ctx_pkt->u.bundling.dif_byte_count = cpu_to_le32(dif_bytes);
 		crc_ctx_pkt->u.bundling.dseg_count = cpu_to_le16(tot_dsds -
@@ -1230,12 +1379,12 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 		cur_dsd = (uint32_t *) &crc_ctx_pkt->u.bundling.data_address;
 	}
 
-	
+	/* Finish the common fields of CRC pkt */
 	crc_ctx_pkt->blk_size = cpu_to_le16(blk_size);
 	crc_ctx_pkt->prot_opts = cpu_to_le16(fw_prot_opts);
 	crc_ctx_pkt->byte_count = cpu_to_le32(data_bytes);
 	crc_ctx_pkt->guard_seed = __constant_cpu_to_le16(0);
-	
+	/* Fibre channel byte count */
 	cmd_pkt->byte_count = cpu_to_le32(total_bytes);
 	fcp_dl = (uint32_t *)(crc_ctx_pkt->fcp_cmnd.cdb + 16 +
 	    additional_fcpcdb_len);
@@ -1245,7 +1394,7 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 		cmd_pkt->byte_count = __constant_cpu_to_le32(0);
 		return QLA_SUCCESS;
 	}
-	
+	/* Walks data segments */
 
 	cmd_pkt->control_flags |=
 	    __constant_cpu_to_le16(CF_DATA_SEG_DESCR_ENABLE);
@@ -1259,7 +1408,7 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 		goto crc_queuing_error;
 
 	if (bundling && tot_prot_dsds) {
-		
+		/* Walks dif segments */
 		cur_seg = scsi_prot_sglist(cmd);
 		cmd_pkt->control_flags |=
 			__constant_cpu_to_le16(CF_DIF_SEG_DESCR_ENABLE);
@@ -1271,11 +1420,17 @@ qla24xx_build_scsi_crc_2_iocbs(srb_t *sp, struct cmd_type_crc_2 *cmd_pkt,
 	return QLA_SUCCESS;
 
 crc_queuing_error:
-	
+	/* Cleanup will be performed by the caller */
 
 	return QLA_FUNCTION_FAILED;
 }
 
+/**
+ * qla24xx_start_scsi() - Send a SCSI command to the ISP
+ * @sp: command to send to the ISP
+ *
+ * Returns non-zero if a failure occurred, else zero.
+ */
 int
 qla24xx_start_scsi(srb_t *sp)
 {
@@ -1295,16 +1450,16 @@ qla24xx_start_scsi(srb_t *sp)
 	struct qla_hw_data *ha = vha->hw;
 	char		tag[2];
 
-	
+	/* Setup device pointers. */
 	ret = 0;
 
 	qla25xx_set_que(sp, &rsp);
 	req = vha->req;
 
-	
+	/* So we know we haven't pci_map'ed anything yet */
 	tot_dsds = 0;
 
-	
+	/* Send marker if required */
 	if (vha->marker_needed != 0) {
 		if (qla2x00_marker(vha, req, rsp, 0, 0, MK_SYNC_ALL) !=
 		    QLA_SUCCESS)
@@ -1312,10 +1467,10 @@ qla24xx_start_scsi(srb_t *sp)
 		vha->marker_needed = 0;
 	}
 
-	
+	/* Acquire ring specific lock */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
-	
+	/* Check for room in outstanding command list. */
 	handle = req->current_outstanding_cmd;
 	for (index = 1; index < MAX_OUTSTANDING_COMMANDS; index++) {
 		handle++;
@@ -1328,7 +1483,7 @@ qla24xx_start_scsi(srb_t *sp)
 		goto queuing_error;
 	}
 
-	
+	/* Map the sg table so we have an accurate count of sg entries needed */
 	if (scsi_sg_count(cmd)) {
 		nseg = dma_map_sg(&ha->pdev->dev, scsi_sglist(cmd),
 		    scsi_sg_count(cmd), cmd->sc_data_direction);
@@ -1351,7 +1506,7 @@ qla24xx_start_scsi(srb_t *sp)
 	if (req->cnt < (req_cnt + 2))
 		goto queuing_error;
 
-	
+	/* Build command packet. */
 	req->current_outstanding_cmd = handle;
 	req->outstanding_cmds[handle] = sp;
 	sp->handle = handle;
@@ -1361,13 +1516,13 @@ qla24xx_start_scsi(srb_t *sp)
 	cmd_pkt = (struct cmd_type_7 *)req->ring_ptr;
 	cmd_pkt->handle = MAKE_HANDLE(req->id, handle);
 
-	
-	
+	/* Zero out remaining portion of packet. */
+	/*    tagged queuing modifier -- default is TSK_SIMPLE (0). */
 	clr_ptr = (uint32_t *)cmd_pkt + 2;
 	memset(clr_ptr, 0, REQUEST_ENTRY_SIZE - 8);
 	cmd_pkt->dseg_count = cpu_to_le16(tot_dsds);
 
-	
+	/* Set NPORT-ID and LUN number*/
 	cmd_pkt->nport_handle = cpu_to_le16(sp->fcport->loop_id);
 	cmd_pkt->port_id[0] = sp->fcport->d_id.b.al_pa;
 	cmd_pkt->port_id[1] = sp->fcport->d_id.b.area;
@@ -1377,7 +1532,7 @@ qla24xx_start_scsi(srb_t *sp)
 	int_to_scsilun(cmd->device->lun, &cmd_pkt->lun);
 	host_to_fcp_swap((uint8_t *)&cmd_pkt->lun, sizeof(cmd_pkt->lun));
 
-	
+	/* Update tagged queuing modifier -- default is TSK_SIMPLE (0). */
 	if (scsi_populate_tag_msg(cmd, tag)) {
 		switch (tag[0]) {
 		case HEAD_OF_QUEUE_TAG:
@@ -1389,21 +1544,21 @@ qla24xx_start_scsi(srb_t *sp)
 		}
 	}
 
-	
+	/* Load SCSI command packet. */
 	memcpy(cmd_pkt->fcp_cdb, cmd->cmnd, cmd->cmd_len);
 	host_to_fcp_swap(cmd_pkt->fcp_cdb, sizeof(cmd_pkt->fcp_cdb));
 
 	cmd_pkt->byte_count = cpu_to_le32((uint32_t)scsi_bufflen(cmd));
 
-	
+	/* Build IOCB segments */
 	qla24xx_build_scsi_iocbs(sp, cmd_pkt, tot_dsds);
 
-	
+	/* Set total data segment count. */
 	cmd_pkt->entry_count = (uint8_t)req_cnt;
-	
+	/* Specify response queue number where completion should happen */
 	cmd_pkt->entry_status = (uint8_t) rsp->id;
 	wmb();
-	
+	/* Adjust ring index. */
 	req->ring_index++;
 	if (req->ring_index == req->length) {
 		req->ring_index = 0;
@@ -1413,11 +1568,11 @@ qla24xx_start_scsi(srb_t *sp)
 
 	sp->flags |= SRB_DMA_VALID;
 
-	
+	/* Set chip new ring index. */
 	WRT_REG_DWORD(req->req_q_in, req->ring_index);
 	RD_REG_DWORD_RELAXED(&ha->iobase->isp24.hccr);
 
-	
+	/* Manage unprocessed RIO/ZIO commands in response queue. */
 	if (vha->flags.process_response_queue &&
 		rsp->ring_ptr->signature != RESPONSE_PROCESSED)
 		qla24xx_process_response_queue(vha, rsp);
@@ -1435,6 +1590,12 @@ queuing_error:
 }
 
 
+/**
+ * qla24xx_dif_start_scsi() - Send a SCSI command to the ISP
+ * @sp: command to send to the ISP
+ *
+ * Returns non-zero if a failure occurred, else zero.
+ */
 int
 qla24xx_dif_start_scsi(srb_t *sp)
 {
@@ -1458,21 +1619,21 @@ qla24xx_dif_start_scsi(srb_t *sp)
 
 #define QDSS_GOT_Q_SPACE	BIT_0
 
-	
+	/* Only process protection or >16 cdb in this routine */
 	if (scsi_get_prot_op(cmd) == SCSI_PROT_NORMAL) {
 		if (cmd->cmd_len <= 16)
 			return qla24xx_start_scsi(sp);
 	}
 
-	
+	/* Setup device pointers. */
 
 	qla25xx_set_que(sp, &rsp);
 	req = vha->req;
 
-	
+	/* So we know we haven't pci_map'ed anything yet */
 	tot_dsds = 0;
 
-	
+	/* Send marker if required */
 	if (vha->marker_needed != 0) {
 		if (qla2x00_marker(vha, req, rsp, 0, 0, MK_SYNC_ALL) !=
 		    QLA_SUCCESS)
@@ -1480,10 +1641,10 @@ qla24xx_dif_start_scsi(srb_t *sp)
 		vha->marker_needed = 0;
 	}
 
-	
+	/* Acquire ring specific lock */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
-	
+	/* Check for room in outstanding command list. */
 	handle = req->current_outstanding_cmd;
 	for (index = 1; index < MAX_OUTSTANDING_COMMANDS; index++) {
 		handle++;
@@ -1496,8 +1657,8 @@ qla24xx_dif_start_scsi(srb_t *sp)
 	if (index == MAX_OUTSTANDING_COMMANDS)
 		goto queuing_error;
 
-	
-	
+	/* Compute number of required data segments */
+	/* Map the sg table so we have an accurate count of sg entries needed */
 	if (scsi_sg_count(cmd)) {
 		nseg = dma_map_sg(&ha->pdev->dev, scsi_sglist(cmd),
 		    scsi_sg_count(cmd), cmd->sc_data_direction);
@@ -1524,10 +1685,10 @@ qla24xx_dif_start_scsi(srb_t *sp)
 	} else
 		nseg = 0;
 
-	
+	/* number of required data segments */
 	tot_dsds = nseg;
 
-	
+	/* Compute number of required protection segments */
 	if (qla24xx_configure_prot_mode(sp, &fw_prot_opts)) {
 		nseg = dma_map_sg(&ha->pdev->dev, scsi_prot_sglist(cmd),
 		    scsi_prot_sg_count(cmd), cmd->sc_data_direction);
@@ -1545,7 +1706,7 @@ qla24xx_dif_start_scsi(srb_t *sp)
 	}
 
 	req_cnt = 1;
-	
+	/* Total Data and protection sg segment(s) */
 	tot_prot_dsds = nseg;
 	tot_dsds += nseg;
 	if (req->cnt < (req_cnt + 2)) {
@@ -1563,21 +1724,21 @@ qla24xx_dif_start_scsi(srb_t *sp)
 
 	status |= QDSS_GOT_Q_SPACE;
 
-	
+	/* Build header part of command packet (excluding the OPCODE). */
 	req->current_outstanding_cmd = handle;
 	req->outstanding_cmds[handle] = sp;
 	sp->handle = handle;
 	cmd->host_scribble = (unsigned char *)(unsigned long)handle;
 	req->cnt -= req_cnt;
 
-	
+	/* Fill-in common area */
 	cmd_pkt = (struct cmd_type_crc_2 *)req->ring_ptr;
 	cmd_pkt->handle = MAKE_HANDLE(req->id, handle);
 
 	clr_ptr = (uint32_t *)cmd_pkt + 2;
 	memset(clr_ptr, 0, REQUEST_ENTRY_SIZE - 8);
 
-	
+	/* Set NPORT-ID and LUN number*/
 	cmd_pkt->nport_handle = cpu_to_le16(sp->fcport->loop_id);
 	cmd_pkt->port_id[0] = sp->fcport->d_id.b.al_pa;
 	cmd_pkt->port_id[1] = sp->fcport->d_id.b.area;
@@ -1586,22 +1747,22 @@ qla24xx_dif_start_scsi(srb_t *sp)
 	int_to_scsilun(cmd->device->lun, &cmd_pkt->lun);
 	host_to_fcp_swap((uint8_t *)&cmd_pkt->lun, sizeof(cmd_pkt->lun));
 
-	
+	/* Total Data and protection segment(s) */
 	cmd_pkt->dseg_count = cpu_to_le16(tot_dsds);
 
-	
+	/* Build IOCB segments and adjust for data protection segments */
 	if (qla24xx_build_scsi_crc_2_iocbs(sp, (struct cmd_type_crc_2 *)
 	    req->ring_ptr, tot_dsds, tot_prot_dsds, fw_prot_opts) !=
 		QLA_SUCCESS)
 		goto queuing_error;
 
 	cmd_pkt->entry_count = (uint8_t)req_cnt;
-	
+	/* Specify response queue number where completion should happen */
 	cmd_pkt->entry_status = (uint8_t) rsp->id;
 	cmd_pkt->timeout = __constant_cpu_to_le16(0);
 	wmb();
 
-	
+	/* Adjust ring index. */
 	req->ring_index++;
 	if (req->ring_index == req->length) {
 		req->ring_index = 0;
@@ -1609,11 +1770,11 @@ qla24xx_dif_start_scsi(srb_t *sp)
 	} else
 		req->ring_ptr++;
 
-	
+	/* Set chip new ring index. */
 	WRT_REG_DWORD(req->req_q_in, req->ring_index);
 	RD_REG_DWORD_RELAXED(&ha->iobase->isp24.hccr);
 
-	
+	/* Manage unprocessed RIO/ZIO commands in response queue. */
 	if (vha->flags.process_response_queue &&
 	    rsp->ring_ptr->signature != RESPONSE_PROCESSED)
 		qla24xx_process_response_queue(vha, rsp);
@@ -1627,7 +1788,7 @@ queuing_error:
 		req->outstanding_cmds[handle] = NULL;
 		req->cnt += req_cnt;
 	}
-	
+	/* Cleanup will be performed by the caller (queuecommand) */
 
 	spin_unlock_irqrestore(&ha->hardware_lock, flags);
 	return QLA_FUNCTION_FAILED;
@@ -1647,6 +1808,7 @@ static void qla25xx_set_que(srb_t *sp, struct rsp_que **rsp)
 		*rsp = ha->rsp_q_map[0];
 }
 
+/* Generic Control-SRB manipulation functions. */
 void *
 qla2x00_alloc_iocbs(scsi_qla_host_t *vha, srb_t *sp)
 {
@@ -1664,7 +1826,7 @@ qla2x00_alloc_iocbs(scsi_qla_host_t *vha, srb_t *sp)
 	if (!sp)
 		goto skip_cmd_array;
 
-	
+	/* Check for room in outstanding command list. */
 	handle = req->current_outstanding_cmd;
 	for (index = 1; index < MAX_OUTSTANDING_COMMANDS; index++) {
 		handle++;
@@ -1679,17 +1841,17 @@ qla2x00_alloc_iocbs(scsi_qla_host_t *vha, srb_t *sp)
 		goto queuing_error;
 	}
 
-	
+	/* Prep command array. */
 	req->current_outstanding_cmd = handle;
 	req->outstanding_cmds[handle] = sp;
 	sp->handle = handle;
 
-	
+	/* Adjust entry-counts as needed. */
 	if (sp->type != SRB_SCSI_CMD)
 		req_cnt = sp->iocbs;
 
 skip_cmd_array:
-	
+	/* Check for room on request queue. */
 	if (req->cnt < req_cnt) {
 		if (ha->mqenable || IS_QLA83XX(ha))
 			cnt = RD_REG_DWORD(&reg->isp25mq.req_q_out);
@@ -1710,7 +1872,7 @@ skip_cmd_array:
 	if (req->cnt < req_cnt)
 		goto queuing_error;
 
-	
+	/* Prep packet */
 	req->cnt -= req_cnt;
 	pkt = req->ring_ptr;
 	memset(pkt, 0, REQUEST_ENTRY_SIZE);
@@ -1791,7 +1953,7 @@ qla2x00_logout_iocb(srb_t *sp, struct mbx_entry *mbx)
 	mbx->mb3 = cpu_to_le16(sp->fcport->d_id.b.area << 8 |
 	    sp->fcport->d_id.b.al_pa);
 	mbx->mb9 = cpu_to_le16(sp->fcport->vp_idx);
-	
+	/* Implicit: mbx->mbx10 = 0. */
 }
 
 static void
@@ -1953,8 +2115,12 @@ qla2x00_ct_iocb(srb_t *sp, ms_iocb_entry_t *ct_iocb)
 		dma_addr_t       sle_dma;
 		cont_a64_entry_t *cont_pkt;
 
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
+			/*
+			* Five DSDs are available in the Cont.
+			* Type 1 IOCB.
+			       */
 			cont_pkt = qla2x00_prep_cont_type1_iocb(vha,
 			    vha->hw->req_q_map[0]);
 			cur_dsd = (uint32_t *) cont_pkt->dseg_0_address;
@@ -2022,8 +2188,12 @@ qla24xx_ct_iocb(srb_t *sp, struct ct_entry_24xx *ct_iocb)
 		dma_addr_t       sle_dma;
 		cont_a64_entry_t *cont_pkt;
 
-		
+		/* Allocate additional continuation packets? */
 		if (avail_dsds == 0) {
+			/*
+			* Five DSDs are available in the Cont.
+			* Type 1 IOCB.
+			       */
 			cont_pkt = qla2x00_prep_cont_type1_iocb(vha,
 			    ha->req_q_map[0]);
 			cur_dsd = (uint32_t *) cont_pkt->dseg_0_address;
@@ -2042,6 +2212,12 @@ qla24xx_ct_iocb(srb_t *sp, struct ct_entry_24xx *ct_iocb)
         ct_iocb->entry_count = entry_count;
 }
 
+/*
+ * qla82xx_start_scsi() - Send a SCSI command to the ISP
+ * @sp: command to send to the ISP
+ *
+ * Returns non-zero if a failure occurred, else zero.
+ */
 int
 qla82xx_start_scsi(srb_t *sp)
 {
@@ -2065,19 +2241,19 @@ qla82xx_start_scsi(srb_t *sp)
 	struct rsp_que *rsp = NULL;
 	char tag[2];
 
-	
+	/* Setup device pointers. */
 	ret = 0;
 	reg = &ha->iobase->isp82;
 	cmd = GET_CMD_SP(sp);
 	req = vha->req;
 	rsp = ha->rsp_q_map[0];
 
-	
+	/* So we know we haven't pci_map'ed anything yet */
 	tot_dsds = 0;
 
 	dbval = 0x04 | (ha->portnum << 5);
 
-	
+	/* Send marker if required */
 	if (vha->marker_needed != 0) {
 		if (qla2x00_marker(vha, req,
 			rsp, 0, 0, MK_SYNC_ALL) != QLA_SUCCESS) {
@@ -2088,10 +2264,10 @@ qla82xx_start_scsi(srb_t *sp)
 		vha->marker_needed = 0;
 	}
 
-	
+	/* Acquire ring specific lock */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 
-	
+	/* Check for room in outstanding command list. */
 	handle = req->current_outstanding_cmd;
 	for (index = 1; index < MAX_OUTSTANDING_COMMANDS; index++) {
 		handle++;
@@ -2103,7 +2279,7 @@ qla82xx_start_scsi(srb_t *sp)
 	if (index == MAX_OUTSTANDING_COMMANDS)
 		goto queuing_error;
 
-	
+	/* Map the sg table so we have an accurate count of sg entries needed */
 	if (scsi_sg_count(cmd)) {
 		nseg = dma_map_sg(&ha->pdev->dev, scsi_sglist(cmd),
 		    scsi_sg_count(cmd), cmd->sc_data_direction);
@@ -2189,13 +2365,16 @@ sufficient_dsds:
 			goto queuing_error_fcp_cmnd;
 		}
 
-		
+		/* Initialize the DSD list and dma handle */
 		INIT_LIST_HEAD(&ctx->dsd_list);
 		ctx->dsd_use_cnt = 0;
 
 		if (cmd->cmd_len > 16) {
 			additional_cdb_len = cmd->cmd_len - 16;
 			if ((cmd->cmd_len % 4) != 0) {
+				/* SCSI command bigger than 16 bytes must be
+				 * multiple of 4
+				 */
 				ql_log(ql_log_warn, vha, 0x3012,
 				    "scsi cmd len %d not multiple of 4 "
 				    "for cmd=%p.\n", cmd->cmd_len, cmd);
@@ -2210,27 +2389,27 @@ sufficient_dsds:
 		cmd_pkt = (struct cmd_type_6 *)req->ring_ptr;
 		cmd_pkt->handle = MAKE_HANDLE(req->id, handle);
 
-		
-		
+		/* Zero out remaining portion of packet. */
+		/*    tagged queuing modifier -- default is TSK_SIMPLE (0). */
 		clr_ptr = (uint32_t *)cmd_pkt + 2;
 		memset(clr_ptr, 0, REQUEST_ENTRY_SIZE - 8);
 		cmd_pkt->dseg_count = cpu_to_le16(tot_dsds);
 
-		
+		/* Set NPORT-ID and LUN number*/
 		cmd_pkt->nport_handle = cpu_to_le16(sp->fcport->loop_id);
 		cmd_pkt->port_id[0] = sp->fcport->d_id.b.al_pa;
 		cmd_pkt->port_id[1] = sp->fcport->d_id.b.area;
 		cmd_pkt->port_id[2] = sp->fcport->d_id.b.domain;
 		cmd_pkt->vp_index = sp->fcport->vp_idx;
 
-		
+		/* Build IOCB segments */
 		if (qla24xx_build_scsi_type_6_iocbs(sp, cmd_pkt, tot_dsds))
 			goto queuing_error_fcp_cmnd;
 
 		int_to_scsilun(cmd->device->lun, &cmd_pkt->lun);
 		host_to_fcp_swap((uint8_t *)&cmd_pkt->lun, sizeof(cmd_pkt->lun));
 
-		
+		/* build FCP_CMND IU */
 		memset(ctx->fcp_cmnd, 0, sizeof(struct fcp_cmnd));
 		int_to_scsilun(cmd->device->lun, &ctx->fcp_cmnd->lun);
 		ctx->fcp_cmnd->additional_cdb_len = additional_cdb_len;
@@ -2240,6 +2419,9 @@ sufficient_dsds:
 		else if (cmd->sc_data_direction == DMA_FROM_DEVICE)
 			ctx->fcp_cmnd->additional_cdb_len |= 2;
 
+		/*
+		 * Update tagged queuing modifier -- default is TSK_SIMPLE (0).
+		 */
 		if (scsi_populate_tag_msg(cmd, tag)) {
 			switch (tag[0]) {
 			case HEAD_OF_QUEUE_TAG:
@@ -2253,7 +2435,7 @@ sufficient_dsds:
 			}
 		}
 
-		
+		/* Populate the FCP_PRIO. */
 		if (ha->flags.fcp_prio_enabled)
 			ctx->fcp_cmnd->task_attribute |=
 			    sp->fcport->fcp_prio << 3;
@@ -2272,8 +2454,11 @@ sufficient_dsds:
 
 		sp->flags |= SRB_FCP_CMND_DMA_VALID;
 		cmd_pkt->byte_count = cpu_to_le32((uint32_t)scsi_bufflen(cmd));
-		
+		/* Set total data segment count. */
 		cmd_pkt->entry_count = (uint8_t)req_cnt;
+		/* Specify response queue number where
+		 * completion should happen
+		 */
 		cmd_pkt->entry_status = (uint8_t) rsp->id;
 	} else {
 		struct cmd_type_7 *cmd_pkt;
@@ -2293,13 +2478,13 @@ sufficient_dsds:
 		cmd_pkt = (struct cmd_type_7 *)req->ring_ptr;
 		cmd_pkt->handle = MAKE_HANDLE(req->id, handle);
 
-		
-		
+		/* Zero out remaining portion of packet. */
+		/* tagged queuing modifier -- default is TSK_SIMPLE (0).*/
 		clr_ptr = (uint32_t *)cmd_pkt + 2;
 		memset(clr_ptr, 0, REQUEST_ENTRY_SIZE - 8);
 		cmd_pkt->dseg_count = cpu_to_le16(tot_dsds);
 
-		
+		/* Set NPORT-ID and LUN number*/
 		cmd_pkt->nport_handle = cpu_to_le16(sp->fcport->loop_id);
 		cmd_pkt->port_id[0] = sp->fcport->d_id.b.al_pa;
 		cmd_pkt->port_id[1] = sp->fcport->d_id.b.area;
@@ -2310,6 +2495,9 @@ sufficient_dsds:
 		host_to_fcp_swap((uint8_t *)&cmd_pkt->lun,
 		    sizeof(cmd_pkt->lun));
 
+		/*
+		 * Update tagged queuing modifier -- default is TSK_SIMPLE (0).
+		 */
 		if (scsi_populate_tag_msg(cmd, tag)) {
 			switch (tag[0]) {
 			case HEAD_OF_QUEUE_TAG:
@@ -2321,25 +2509,28 @@ sufficient_dsds:
 			}
 		}
 
-		
+		/* Populate the FCP_PRIO. */
 		if (ha->flags.fcp_prio_enabled)
 			cmd_pkt->task |= sp->fcport->fcp_prio << 3;
 
-		
+		/* Load SCSI command packet. */
 		memcpy(cmd_pkt->fcp_cdb, cmd->cmnd, cmd->cmd_len);
 		host_to_fcp_swap(cmd_pkt->fcp_cdb, sizeof(cmd_pkt->fcp_cdb));
 
 		cmd_pkt->byte_count = cpu_to_le32((uint32_t)scsi_bufflen(cmd));
 
-		
+		/* Build IOCB segments */
 		qla24xx_build_scsi_iocbs(sp, cmd_pkt, tot_dsds);
 
-		
+		/* Set total data segment count. */
 		cmd_pkt->entry_count = (uint8_t)req_cnt;
+		/* Specify response queue number where
+		 * completion should happen.
+		 */
 		cmd_pkt->entry_status = (uint8_t) rsp->id;
 
 	}
-	
+	/* Build command packet. */
 	req->current_outstanding_cmd = handle;
 	req->outstanding_cmds[handle] = sp;
 	sp->handle = handle;
@@ -2347,7 +2538,7 @@ sufficient_dsds:
 	req->cnt -= req_cnt;
 	wmb();
 
-	
+	/* Adjust ring index. */
 	req->ring_index++;
 	if (req->ring_index == req->length) {
 		req->ring_index = 0;
@@ -2357,8 +2548,8 @@ sufficient_dsds:
 
 	sp->flags |= SRB_DMA_VALID;
 
-	
-	
+	/* Set chip new ring index. */
+	/* write, read and verify logic */
 	dbval = dbval | (req->id << 8) | (req->ring_index << 16);
 	if (ql2xdbwr)
 		qla82xx_wr_32(ha, ha->nxdb_wr_ptr, dbval);
@@ -2375,7 +2566,7 @@ sufficient_dsds:
 		}
 	}
 
-	
+	/* Manage unprocessed RIO/ZIO commands in response queue. */
 	if (vha->flags.process_response_queue &&
 	    rsp->ring_ptr->signature != RESPONSE_PROCESSED)
 		qla24xx_process_response_queue(vha, rsp);

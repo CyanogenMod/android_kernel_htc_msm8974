@@ -19,8 +19,11 @@
  *
  */
 
+/*
+ * 2002-07 Benny Sjostrand benny@hostmobility.com
+ */
 
-#ifdef  CONFIG_SND_CS46XX_NEW_DSP 
+#ifdef  CONFIG_SND_CS46XX_NEW_DSP /* hack ... */
 #ifndef __DSP_SPOS_H__
 #define __DSP_SPOS_H__
 
@@ -37,6 +40,9 @@
 #define WIDE_INSTR_MASK       0x0040
 #define WIDE_LADD_INSTR_MASK  0x0380
 
+/* this instruction types
+   needs to be reallocated when load
+   code into DSP */
 enum wide_opcode {
 	WIDE_FOR_BEGIN_LOOP = 0x20,
 	WIDE_FOR_BEGIN_LOOP2,
@@ -54,6 +60,7 @@ enum wide_opcode {
 	WIDE_TBEQ_NCOND_CALL1_ADDR,
 };
 
+/* SAMPLE segment */
 #define VARI_DECIMATE_BUF1       0x0000
 #define WRITE_BACK_BUF1          0x0400
 #define CODEC_INPUT_BUF1         0x0500
@@ -71,10 +78,12 @@ enum wide_opcode {
 #define MIX_SAMPLE_BUF4          0x2F80
 #define MIX_SAMPLE_BUF5          0x3000
 
+/* Task stack address */
 #define HFG_STACK                0x066A
 #define FG_STACK                 0x066E
 #define BG_STACK                 0x068E
 
+/* SCB's addresses */
 #define SPOSCB_ADDR              0x070
 #define BG_TREE_SCB_ADDR         0x635
 #define NULL_SCB_ADDR            0x000
@@ -102,11 +111,13 @@ enum wide_opcode {
 #define CLFE_MIXER_SCB_ADDR      0x190
 #define CLFE_CODEC_SCB_ADDR      0x1A0
 
+/* hyperforground SCB's*/
 #define HFG_TREE_SCB             0xBA0
 #define SPDIFI_SCB_INST          0xBB0
 #define SPDIFO_SCB_INST          0xBC0
 #define WRITE_BACK_SPB           0x0D0
 
+/* offsets */
 #define AsyncCIOFIFOPointer  0xd
 #define SPDIFOFIFOPointer    0xd
 #define SPDIFIFIFOPointer    0xd
@@ -120,10 +131,15 @@ enum wide_opcode {
 #define SRCPhiIncr6Int26Frac 0xd
 #define SCBVolumeCtrl        0xe
 
+/* conf */
 #define UseASER1Input 1
 
 
 
+/*
+ * The following defines are for the flags in the rsConfig01/23 registers of
+ * the SP.
+ */
 
 #define RSCONFIG_MODULO_SIZE_MASK               0x0000000FL
 #define RSCONFIG_MODULO_16                      0x00000001L
@@ -153,10 +169,12 @@ enum wide_opcode {
 #define RSCONFIG_STREAM_NUM_SHIFT               16L
 #define RSCONFIG_MAX_DMA_SIZE_SHIFT             24L
 
+/* SP constants */
 #define FG_INTERVAL_TIMER_PERIOD                0x0051
 #define BG_INTERVAL_TIMER_PERIOD                0x0100
 
 
+/* Only SP accessible registers */
 #define SP_ASER_COUNTDOWN 0x8040
 #define SP_SPDOUT_FIFO    0x0108
 #define SP_SPDIN_MI_FIFO  0x01E0
@@ -172,7 +190,7 @@ static inline u8 _wrap_all_bits (u8 val)
 {
 	u8 wrapped;
 	
-	
+	/* wrap all 8 bits */
 	wrapped = 
 		((val & 0x1 ) << 7) |
 		((val & 0x2 ) << 5) |
@@ -189,7 +207,7 @@ static inline u8 _wrap_all_bits (u8 val)
 static inline void cs46xx_dsp_spos_update_scb (struct snd_cs46xx * chip,
 					       struct dsp_scb_descriptor * scb) 
 {
-	
+	/* update nextSCB and subListPtr in SCB */
 	snd_cs46xx_poke(chip,
 			(scb->address + SCBsubListPtr) << 2,
 			(scb->sub_list_ptr->address << 0x10) |
@@ -209,5 +227,5 @@ static inline void cs46xx_dsp_scb_set_volume (struct snd_cs46xx * chip,
 	scb->volume[0] = left;
 	scb->volume[1] = right;
 }
-#endif 
-#endif 
+#endif /* __DSP_SPOS_H__ */
+#endif /* CONFIG_SND_CS46XX_NEW_DSP  */

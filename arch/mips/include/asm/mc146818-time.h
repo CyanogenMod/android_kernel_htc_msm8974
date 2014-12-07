@@ -12,6 +12,9 @@
 #include <linux/mc146818rtc.h>
 #include <linux/time.h>
 
+/*
+ * For check timing call set_rtc_mmss() 500ms; used in timer interrupt.
+ */
 #define USEC_AFTER	500000
 #define USEC_BEFORE	500000
 
@@ -33,20 +36,26 @@ static inline int mc146818_set_rtc_mmss(unsigned long nowtime)
 	unsigned long flags;
 
 	spin_lock_irqsave(&rtc_lock, flags);
-	save_control = CMOS_READ(RTC_CONTROL); 
+	save_control = CMOS_READ(RTC_CONTROL); /* tell the clock it's being set */
 	CMOS_WRITE((save_control|RTC_SET), RTC_CONTROL);
 
-	save_freq_select = CMOS_READ(RTC_FREQ_SELECT); 
+	save_freq_select = CMOS_READ(RTC_FREQ_SELECT); /* stop and reset prescaler */
 	CMOS_WRITE((save_freq_select|RTC_DIV_RESET2), RTC_FREQ_SELECT);
 
 	cmos_minutes = CMOS_READ(RTC_MINUTES);
 	if (!(save_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
 		cmos_minutes = bcd2bin(cmos_minutes);
 
+	/*
+	 * since we're only adjusting minutes and seconds,
+	 * don't interfere with hour overflow. This avoids
+	 * messing with unknown time zones but requires your
+	 * RTC not to be off by more than 15 minutes
+	 */
 	real_seconds = nowtime % 60;
 	real_minutes = nowtime / 60;
 	if (((abs(real_minutes - cmos_minutes) + 15)/30) & 1)
-		real_minutes += 30;		
+		real_minutes += 30;		/* correct for half hour time zone */
 	real_minutes %= 60;
 
 	if (abs(real_minutes - cmos_minutes) < 30) {
@@ -63,6 +72,13 @@ static inline int mc146818_set_rtc_mmss(unsigned long nowtime)
 		retval = -1;
 	}
 
+	/* The following flags have to be released exactly in this order,
+	 * otherwise the DS12887 (popular MC146818A clone with integrated
+	 * battery and quartz) will not reset the oscillator and will not
+	 * update precisely 500 ms later. You won't find this mentioned in
+	 * the Dallas Semiconductor data sheets, but who believes data
+	 * sheets anyway ...                           -- Markus Kuhn
+	 */
 	CMOS_WRITE(save_control, RTC_CONTROL);
 	CMOS_WRITE(save_freq_select, RTC_FREQ_SELECT);
 	spin_unlock_irqrestore(&rtc_lock, flags);
@@ -100,4 +116,4 @@ static inline unsigned long mc146818_get_cmos_time(void)
 	return mktime(year, mon, day, hour, min, sec);
 }
 
-#endif 
+#endif /* __ASM_MC146818_TIME_H */

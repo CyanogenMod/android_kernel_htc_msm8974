@@ -264,6 +264,7 @@ TRACE_EVENT(adreno_gpu_fault,
 		__entry->ib2base, __entry->ib2size)
 );
 
-#endif 
+#endif /* _ADRENO_TRACE_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

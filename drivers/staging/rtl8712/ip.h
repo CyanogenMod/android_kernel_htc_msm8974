@@ -19,6 +19,7 @@
 
 #include "rtl871x_byteorder.h"
 
+/* SOL_IP socket options */
 
 #define IPTOS_TOS_MASK		0x1E
 #define IPTOS_TOS(tos)		((tos)&IPTOS_TOS_MASK)
@@ -38,6 +39,7 @@
 #define IPTOS_PREC_PRIORITY             0x20
 #define IPTOS_PREC_ROUTINE              0x00
 
+/* IP options */
 #define IPOPT_COPY		0x80
 #define IPOPT_CLASS_MASK	0x60
 #define IPOPT_NUMBER_MASK	0x1f
@@ -65,6 +67,14 @@
 #define MAXTTL		255
 #define IPDEFTTL	64
 
+/* struct timestamp, struct route and MAX_ROUTES are removed.
+ *
+ * REASONS: it is clear that nobody used them because:
+ * - MAX_ROUTES value was wrong.
+ * - "struct route" was wrong.
+ * - "struct timestamp" had fatally misaligned bitfields and was completely
+ *   unusable.
+ */
 
 #define IPOPT_OPTVAL 0
 #define IPOPT_OLEN   1
@@ -75,24 +85,24 @@
 #define IPOPT_EOL IPOPT_END
 #define IPOPT_TS  IPOPT_TIMESTAMP
 
-#define	IPOPT_TS_TSONLY		0		
-#define	IPOPT_TS_TSANDADDR	1		
-#define	IPOPT_TS_PRESPEC	3		
+#define	IPOPT_TS_TSONLY		0		/* timestamps only */
+#define	IPOPT_TS_TSANDADDR	1		/* timestamps and addresses */
+#define	IPOPT_TS_PRESPEC	3		/* specified modules only */
 
 struct ip_options {
-	__u32		faddr;			
+	__u32		faddr;			/* Saved first hop address */
 	unsigned char	optlen;
 	unsigned char srr;
 	unsigned char rr;
 	unsigned char ts;
-	unsigned char is_setbyuser:1,	
-		      is_data:1,	
-		      is_strictroute:1, 
-		      srr_is_hit:1,	
-		      is_changed:1,	
-		      rr_needaddr:1,	
-		      ts_needtime:1,	
-		      ts_needaddr:1;	
+	unsigned char is_setbyuser:1,	/* Set by setsockopt?		      */
+		      is_data:1,	/* Options in __data, rather than skb */
+		      is_strictroute:1, /* Strict source route		      */
+		      srr_is_hit:1,	/* Packet destination addr was our one*/
+		      is_changed:1,	/* IP checksum more not valid	      */
+		      rr_needaddr:1,	/* Need to record addr of outgoing dev*/
+		      ts_needtime:1,	/* Need to record timestamp	      */
+		      ts_needaddr:1;	/* Need to record addr of outgoing dev*/
 	unsigned char router_alert;
 	unsigned char __pad1;
 	unsigned char __pad2;
@@ -120,8 +130,8 @@ struct iphdr {
 	__u16	check;
 	__u32	saddr;
 	__u32	daddr;
-	
+	/*The options start here. */
 };
 
-#endif	
+#endif	/* _LINUX_IP_H */
 

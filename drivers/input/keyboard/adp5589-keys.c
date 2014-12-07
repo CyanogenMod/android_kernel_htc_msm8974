@@ -22,6 +22,7 @@
 
 #include <linux/input/adp5589.h>
 
+/* ADP5589/ADP5585 Common Registers */
 #define ADP5589_5_ID			0x00
 #define ADP5589_5_INT_STATUS		0x01
 #define ADP5589_5_STATUS		0x02
@@ -44,6 +45,7 @@
 #define ADP5589_5_GPI_INT_STAT_A	0x13
 #define ADP5589_5_GPI_INT_STAT_B	0x14
 
+/* ADP5589 Registers */
 #define ADP5589_GPI_INT_STAT_C		0x15
 #define ADP5589_GPI_STATUS_A		0x16
 #define ADP5589_GPI_STATUS_B		0x17
@@ -103,6 +105,7 @@
 #define ADP5589_GENERAL_CFG		0x4D
 #define ADP5589_INT_EN			0x4E
 
+/* ADP5585 Registers */
 #define ADP5585_GPI_STATUS_A		0x15
 #define ADP5585_GPI_STATUS_B		0x16
 #define ADP5585_RPULL_CONFIG_A		0x17
@@ -144,51 +147,59 @@
 #define ADP5585_GENERAL_CFG		0x3B
 #define ADP5585_INT_EN			0x3C
 
+/* ID Register */
 #define ADP5589_5_DEVICE_ID_MASK	0xF
 #define ADP5589_5_MAN_ID_MASK		0xF
 #define ADP5589_5_MAN_ID_SHIFT		4
 #define ADP5589_5_MAN_ID		0x02
 
+/* GENERAL_CFG Register */
 #define OSC_EN		(1 << 7)
 #define CORE_CLK(x)	(((x) & 0x3) << 5)
-#define LCK_TRK_LOGIC	(1 << 4)	
-#define LCK_TRK_GPI	(1 << 3)	
+#define LCK_TRK_LOGIC	(1 << 4)	/* ADP5589 only */
+#define LCK_TRK_GPI	(1 << 3)	/* ADP5589 only */
 #define INT_CFG		(1 << 1)
 #define RST_CFG		(1 << 0)
 
-#define LOGIC2_IEN	(1 << 5)	
+/* INT_EN Register */
+#define LOGIC2_IEN	(1 << 5)	/* ADP5589 only */
 #define LOGIC1_IEN	(1 << 4)
-#define LOCK_IEN	(1 << 3)	
+#define LOCK_IEN	(1 << 3)	/* ADP5589 only */
 #define OVRFLOW_IEN	(1 << 2)
 #define GPI_IEN		(1 << 1)
 #define EVENT_IEN	(1 << 0)
 
-#define LOGIC2_INT	(1 << 5)	
+/* Interrupt Status Register */
+#define LOGIC2_INT	(1 << 5)	/* ADP5589 only */
 #define LOGIC1_INT	(1 << 4)
-#define LOCK_INT	(1 << 3)	
+#define LOCK_INT	(1 << 3)	/* ADP5589 only */
 #define OVRFLOW_INT	(1 << 2)
 #define GPI_INT		(1 << 1)
 #define EVENT_INT	(1 << 0)
 
-#define LOGIC2_STAT	(1 << 7)	
+/* STATUS Register */
+#define LOGIC2_STAT	(1 << 7)	/* ADP5589 only */
 #define LOGIC1_STAT	(1 << 6)
-#define LOCK_STAT	(1 << 5)	
+#define LOCK_STAT	(1 << 5)	/* ADP5589 only */
 #define KEC		0xF
 
-#define C4_EXTEND_CFG	(1 << 6)	
-#define R4_EXTEND_CFG	(1 << 5)	
+/* PIN_CONFIG_D Register */
+#define C4_EXTEND_CFG	(1 << 6)	/* RESET2 */
+#define R4_EXTEND_CFG	(1 << 5)	/* RESET1 */
 
+/* LOCK_CFG */
 #define LOCK_EN		(1 << 0)
 
 #define PTIME_MASK	0x3
-#define LTIME_MASK	0x3		
+#define LTIME_MASK	0x3		/* ADP5589 only */
 
+/* Key Event Register xy */
 #define KEY_EV_PRESSED		(1 << 7)
 #define KEY_EV_MASK		(0x7F)
 
 #define KEYP_MAX_EVENT		16
 #define ADP5589_MAXGPIO		19
-#define ADP5585_MAXGPIO		11 
+#define ADP5585_MAXGPIO		11 /* 10 on the ADP5585-01, 11 on ADP5585-02 */
 
 enum {
 	ADP5589,
@@ -230,14 +241,18 @@ struct adp5589_kpad {
 	unsigned char gpiomap[ADP5589_MAXGPIO];
 	bool export_gpio;
 	struct gpio_chip gc;
-	struct mutex gpio_lock;	
+	struct mutex gpio_lock;	/* Protect cached dir, dat_out */
 	u8 dat_out[3];
 	u8 dir[3];
 #endif
 };
 
+/*
+ *  ADP5589 / ADP5585 derivative / variant handling
+ */
 
 
+/* ADP5589 */
 
 static unsigned char adp5589_bank(unsigned char offset)
 {
@@ -274,6 +289,7 @@ static const struct adp_constants const_adp5589 = {
 	.reg			= adp5589_reg,
 };
 
+/* ADP5585 */
 
 static unsigned char adp5585_bank(unsigned char offset)
 {
@@ -609,7 +625,7 @@ static irqreturn_t adp5589_irq(int irq, void *handle)
 
 	status = adp5589_read(client, ADP5589_5_INT_STATUS);
 
-	if (status & OVRFLOW_INT)	
+	if (status & OVRFLOW_INT)	/* Unlikely and should never happen */
 		dev_err(&client->dev, "Event Overflow Error\n");
 
 	if (status & EVENT_INT) {
@@ -620,7 +636,7 @@ static irqreturn_t adp5589_irq(int irq, void *handle)
 		}
 	}
 
-	adp5589_write(client, ADP5589_5_INT_STATUS, status); 
+	adp5589_write(client, ADP5589_5_INT_STATUS, status); /* Status is W1C */
 
 	return IRQ_HANDLED;
 }
@@ -789,7 +805,7 @@ static int __devinit adp5589_setup(struct adp5589_kpad *kpad)
 			     (kpad->is_adp5585 ? 0 : LOGIC2_INT) |
 			     LOGIC1_INT | OVRFLOW_INT |
 			     (kpad->is_adp5585 ? 0 : LOCK_INT) |
-			     GPI_INT | EVENT_INT);	
+			     GPI_INT | EVENT_INT);	/* Status is W1C */
 
 	ret |= adp5589_write(client, reg(ADP5589_GENERAL_CFG),
 			     INT_CFG | OSC_EN | CORE_CLK(3));
@@ -970,7 +986,7 @@ static int __devinit adp5589_probe(struct i2c_client *client,
 	kpad->gpimap = pdata->gpimap;
 	kpad->gpimapsize = pdata->gpimapsize;
 
-	
+	/* setup input device */
 	__set_bit(EV_KEY, input->evbit);
 
 	if (pdata->repeat)
@@ -1075,7 +1091,7 @@ static SIMPLE_DEV_PM_OPS(adp5589_dev_pm_ops, adp5589_suspend, adp5589_resume);
 static const struct i2c_device_id adp5589_id[] = {
 	{"adp5589-keys", ADP5589},
 	{"adp5585-keys", ADP5585_01},
-	{"adp5585-02-keys", ADP5585_02}, 
+	{"adp5585-02-keys", ADP5585_02}, /* Adds ROW5 to ADP5585 */
 	{}
 };
 

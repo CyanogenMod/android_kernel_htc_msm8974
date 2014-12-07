@@ -133,6 +133,18 @@
 
 #define DRIVER_TP	"bu21013_tp"
 
+/**
+ * struct bu21013_ts_data - touch panel data structure
+ * @client: pointer to the i2c client
+ * @wait: variable to wait_queue_head_t structure
+ * @touch_stopped: touch stop flag
+ * @chip: pointer to the touch panel controller
+ * @in_dev: pointer to the input device structure
+ * @intr_pin: interrupt pin value
+ * @regulator: pointer to the Regulator used for touch screen
+ *
+ * Touch panel device data structure
+ */
 struct bu21013_ts_data {
 	struct i2c_client *client;
 	wait_queue_head_t wait;
@@ -143,6 +155,14 @@ struct bu21013_ts_data {
 	struct regulator *regulator;
 };
 
+/**
+ * bu21013_read_block_data(): read the touch co-ordinates
+ * @data: bu21013_ts_data structure pointer
+ * @buf: byte pointer
+ *
+ * Read the touch co-ordinates using i2c read block into buffer
+ * and returns integer.
+ */
 static int bu21013_read_block_data(struct bu21013_ts_data *data, u8 *buf)
 {
 	int ret, i;
@@ -157,6 +177,13 @@ static int bu21013_read_block_data(struct bu21013_ts_data *data, u8 *buf)
 	return -EINVAL;
 }
 
+/**
+ * bu21013_do_touch_report(): Get the touch co-ordinates
+ * @data: bu21013_ts_data structure pointer
+ *
+ * Get the touch co-ordinates from touch sensor registers and writes
+ * into device structure and returns integer.
+ */
 static int bu21013_do_touch_report(struct bu21013_ts_data *data)
 {
 	u8	buf[LENGTH_OF_BUFFER];
@@ -214,6 +241,14 @@ static int bu21013_do_touch_report(struct bu21013_ts_data *data)
 
 	return 0;
 }
+/**
+ * bu21013_gpio_irq() - gpio thread function for touch interrupt
+ * @irq: irq value
+ * @device_data: void pointer
+ *
+ * This gpio thread function for touch interrupt
+ * and returns irqreturn_t.
+ */
 static irqreturn_t bu21013_gpio_irq(int irq, void *device_data)
 {
 	struct bu21013_ts_data *data = device_data;
@@ -236,6 +271,13 @@ static irqreturn_t bu21013_gpio_irq(int irq, void *device_data)
 	return IRQ_HANDLED;
 }
 
+/**
+ * bu21013_init_chip() - power on sequence for the bu21013 controller
+ * @data: device structure pointer
+ *
+ * This function is used to power on
+ * the bu21013 controller and returns integer.
+ */
 static int bu21013_init_chip(struct bu21013_ts_data *data)
 {
 	int retval;
@@ -365,6 +407,13 @@ static int bu21013_init_chip(struct bu21013_ts_data *data)
 	return 0;
 }
 
+/**
+ * bu21013_free_irq() - frees IRQ registered for touchscreen
+ * @bu21013_data: device structure pointer
+ *
+ * This function signals interrupt thread to stop processing and
+ * frees interrupt.
+ */
 static void bu21013_free_irq(struct bu21013_ts_data *bu21013_data)
 {
 	bu21013_data->touch_stopped = true;
@@ -372,6 +421,14 @@ static void bu21013_free_irq(struct bu21013_ts_data *bu21013_data)
 	free_irq(bu21013_data->chip->irq, bu21013_data);
 }
 
+/**
+ * bu21013_probe() - initializes the i2c-client touchscreen driver
+ * @client: i2c client structure pointer
+ * @id: i2c device id pointer
+ *
+ * This function used to initializes the i2c-client touchscreen
+ * driver and returns integer.
+ */
 static int __devinit bu21013_probe(struct i2c_client *client,
 					const struct i2c_device_id *id)
 {
@@ -420,7 +477,7 @@ static int __devinit bu21013_probe(struct i2c_client *client,
 	bu21013_data->touch_stopped = false;
 	init_waitqueue_head(&bu21013_data->wait);
 
-	
+	/* configure the gpio pins */
 	if (pdata->cs_en) {
 		error = pdata->cs_en(pdata->cs_pin);
 		if (error < 0) {
@@ -429,14 +486,14 @@ static int __devinit bu21013_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* configure the touch panel controller */
 	error = bu21013_init_chip(bu21013_data);
 	if (error) {
 		dev_err(&client->dev, "error in bu21013 config\n");
 		goto err_cs_disable;
 	}
 
-	
+	/* register the device to input subsystem */
 	in_dev->name = DRIVER_TP;
 	in_dev->id.bustype = BUS_I2C;
 	in_dev->dev.parent = &client->dev;
@@ -484,6 +541,13 @@ err_free_mem:
 
 	return error;
 }
+/**
+ * bu21013_remove() - removes the i2c-client touchscreen driver
+ * @client: i2c client structure pointer
+ *
+ * This function uses to remove the i2c-client
+ * touchscreen driver and returns integer.
+ */
 static int __devexit bu21013_remove(struct i2c_client *client)
 {
 	struct bu21013_ts_data *bu21013_data = i2c_get_clientdata(client);
@@ -505,6 +569,13 @@ static int __devexit bu21013_remove(struct i2c_client *client)
 }
 
 #ifdef CONFIG_PM
+/**
+ * bu21013_suspend() - suspend the touch screen controller
+ * @dev: pointer to device structure
+ *
+ * This function is used to suspend the
+ * touch panel controller and returns integer
+ */
 static int bu21013_suspend(struct device *dev)
 {
 	struct bu21013_ts_data *bu21013_data = dev_get_drvdata(dev);
@@ -521,6 +592,13 @@ static int bu21013_suspend(struct device *dev)
 	return 0;
 }
 
+/**
+ * bu21013_resume() - resume the touch screen controller
+ * @dev: pointer to device structure
+ *
+ * This function is used to resume the touch panel
+ * controller and returns integer.
+ */
 static int bu21013_resume(struct device *dev)
 {
 	struct bu21013_ts_data *bu21013_data = dev_get_drvdata(dev);

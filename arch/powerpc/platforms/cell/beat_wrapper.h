@@ -23,6 +23,7 @@
 #include <linux/string.h>
 #include "beat_syscall.h"
 
+/* defined in hvCall.S */
 extern s64 beat_hcall_norets(u64 opcode, ...);
 extern s64 beat_hcall_norets8(u64 opcode, u64 arg1, u64 arg2, u64 arg3,
 	u64 arg4, u64 arg5, u64 arg6, u64 arg7, u64 arg8);

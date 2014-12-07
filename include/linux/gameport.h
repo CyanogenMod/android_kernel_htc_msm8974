@@ -20,7 +20,7 @@
 
 struct gameport {
 
-	void *port_data;	
+	void *port_data;	/* Private pointer for gameport drivers */
 	char name[32];
 	char phys[32];
 
@@ -36,7 +36,7 @@ struct gameport {
 	void (*close)(struct gameport *);
 
 	struct timer_list poll_timer;
-	unsigned int poll_interval;	
+	unsigned int poll_interval;	/* in msecs */
 	spinlock_t timer_lock;
 	unsigned int poll_cnt;
 	void (*poll_handler)(struct gameport *);
@@ -44,7 +44,7 @@ struct gameport {
 	struct gameport *parent, *child;
 
 	struct gameport_driver *drv;
-	struct mutex drv_mutex;		
+	struct mutex drv_mutex;		/* protects serio->drv so attributes can pin driver */
 
 	struct device dev;
 
@@ -71,6 +71,7 @@ void gameport_close(struct gameport *gameport);
 #if defined(CONFIG_GAMEPORT) || (defined(MODULE) && defined(CONFIG_GAMEPORT_MODULE))
 
 void __gameport_register_port(struct gameport *gameport, struct module *owner);
+/* use a define to avoid include chaining to get THIS_MODULE */
 #define gameport_register_port(gameport) \
 	__gameport_register_port(gameport, THIS_MODULE)
 
@@ -116,6 +117,10 @@ static inline void gameport_set_name(struct gameport *gameport, const char *name
 	strlcpy(gameport->name, name, sizeof(gameport->name));
 }
 
+/*
+ * Use the following functions to manipulate gameport's per-port
+ * driver-specific data.
+ */
 static inline void *gameport_get_drvdata(struct gameport *gameport)
 {
 	return dev_get_drvdata(&gameport->dev);
@@ -126,6 +131,9 @@ static inline void gameport_set_drvdata(struct gameport *gameport, void *data)
 	dev_set_drvdata(&gameport->dev, data);
 }
 
+/*
+ * Use the following functions to pin gameport's driver in process context
+ */
 static inline int gameport_pin_driver(struct gameport *gameport)
 {
 	return mutex_lock_interruptible(&gameport->drv_mutex);
@@ -139,12 +147,13 @@ static inline void gameport_unpin_driver(struct gameport *gameport)
 int __must_check __gameport_register_driver(struct gameport_driver *drv,
 				struct module *owner, const char *mod_name);
 
+/* use a define to avoid include chaining to get THIS_MODULE & friends */
 #define gameport_register_driver(drv) \
 	__gameport_register_driver(drv, THIS_MODULE, KBUILD_MODNAME)
 
 void gameport_unregister_driver(struct gameport_driver *drv);
 
-#endif 
+#endif /* __KERNEL__ */
 
 #define GAMEPORT_MODE_DISABLED		0
 #define GAMEPORT_MODE_RAW		1
@@ -213,5 +222,5 @@ static inline void gameport_set_poll_interval(struct gameport *gameport, unsigne
 void gameport_start_polling(struct gameport *gameport);
 void gameport_stop_polling(struct gameport *gameport);
 
-#endif 
+#endif /* __KERNEL__ */
 #endif

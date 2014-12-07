@@ -18,4 +18,4 @@ struct sgiseeq_platform_data {
 	unsigned char mac[ETH_ALEN];
 };
 
-#endif 
+#endif /* __ASM_SGI_SEEQ_H */

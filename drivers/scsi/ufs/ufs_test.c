@@ -27,11 +27,16 @@
 #define LARGE_PRIME_2	35757
 #define DEFAULT_NUM_OF_BIOS		2
 
+/* the amount of requests that will be inserted */
 #define LONG_SEQ_TEST_NUM_REQS  256
+/* request queue limitation is 128 requests, and we leave 10 spare requests */
 #define QUEUE_MAX_REQUESTS 118
 #define MB_MSEC_RATIO_APPROXIMATION ((1024 * 1024) / 1000)
+/* actual number of MiB in test multiplied by 10, for single digit precision*/
 #define BYTE_TO_MB_x_10(x) ((x * 10) / (1024 * 1024))
+/* extract integer value */
 #define LONG_TEST_SIZE_INTEGER(x) (BYTE_TO_MB_x_10(x) / 10)
+/* and calculate the MiB value fraction */
 #define LONG_TEST_SIZE_FRACTION(x) (BYTE_TO_MB_x_10(x) - \
 		(LONG_TEST_SIZE_INTEGER(x) * 10))
 
@@ -47,30 +52,34 @@ enum ufs_test_testcases {
 };
 
 struct ufs_test_debug {
-	struct dentry *write_read_test; 
-	struct dentry *random_test_seed; 
+	struct dentry *write_read_test; /* basic test */
+	struct dentry *random_test_seed; /* parameters in utils */
 	struct dentry *long_sequential_read_test;
 	struct dentry *long_sequential_write_test;
 };
 
 struct ufs_test_data {
-	
+	/* Data structure for debugfs dentrys */
 	struct ufs_test_debug debug;
+	/*
+	 * Data structure containing individual test information, including
+	 * self-defined specific data
+	 */
 	struct test_info test_info;
-	
+	/* device test */
 	struct blk_dev_test_type bdt;
-	
+	/* A wait queue for OPs to complete */
 	wait_queue_head_t wait_q;
-	
+	/* a flag for read compleation */
 	bool read_completed;
-	
+	/* a flag for write compleation */
 	bool write_completed;
 	/*
 	 * To determine the number of r/w bios. When seed = 0, random is
 	 * disabled and 2 BIOs are written.
 	 */
 	unsigned int random_test_seed;
-	
+	/* A counter for the number of test requests completed */
 	unsigned int completed_req_count;
 };
 
@@ -183,7 +192,7 @@ static int ufs_test_run_write_read_test(struct test_data *td)
 	else
 		num_bios = DEFAULT_NUM_OF_BIOS;
 
-	
+	/* Adding a write request */
 	test_pr_info(
 		"%s: Adding a write request with %d bios to Q, req_id=%d"
 			, __func__, num_bios, td->wr_rd_next_req_id);
@@ -198,11 +207,11 @@ static int ufs_test_run_write_read_test(struct test_data *td)
 		return ret;
 	}
 
-	
+	/* waiting for the write request to finish */
 	blk_run_queue(q);
 	wait_event(utd->wait_q, utd->write_completed);
 
-	
+	/* Adding a read request*/
 	test_pr_info("%s: Adding a read request to Q", __func__);
 
 	ret = test_iosched_add_wr_rd_test_req(0, READ, start_sec,
@@ -243,14 +252,14 @@ static ssize_t ufs_test_write_read_test_write_cb(struct file *file,
 			__func__, number);
 	memset(&utd->test_info, 0, sizeof(struct test_info));
 
-	
+	/* Initializing test */
 	utd->test_info.data = utd;
 	utd->test_info.get_test_case_str_fn = ufs_test_get_test_case_str;
 	utd->test_info.testcase = UFS_TEST_WRITE_READ_TEST;
 	utd->test_info.get_rq_disk_fn = ufs_test_get_rq_disk;
 	utd->test_info.run_test_fn = ufs_test_run_write_read_test;
 
-	
+	/* Running the test multiple times */
 	for (i = 0; i < number; ++i) {
 		ret = test_iosched_start_test(&utd->test_info);
 		if (ret) {
@@ -336,6 +345,13 @@ static int run_long_seq_test(struct test_data *td)
 		     td->wr_rd_next_req_id);
 
 	do {
+		/*
+		* since our requests come from a pool containing 128
+		* requests, we don't want to exhaust this quantity,
+		* therefore we add up to QUEUE_MAX_REQUESTS (which
+		* includes a safety margin) and then call the mmc layer
+		* to fetch them
+		*/
 		if (td->test_count >= QUEUE_MAX_REQUESTS) {
 			blk_run_queue(td->req_q);
 			continue;
@@ -356,7 +372,7 @@ static int run_long_seq_test(struct test_data *td)
 
 	} while (inserted_requests < LONG_SEQ_TEST_NUM_REQS);
 
-	
+	/* in this case the queue will not run in the above loop */
 	if (LONG_SEQ_TEST_NUM_REQS < QUEUE_MAX_REQUESTS)
 		blk_run_queue(td->req_q);
 
@@ -373,11 +389,14 @@ void long_seq_test_calc_throughput(unsigned long mtime,
 			__func__, mtime, LONG_TEST_SIZE_INTEGER(byte_count),
 				LONG_TEST_SIZE_FRACTION(byte_count));
 
-	
+	/* we first multiply in order not to lose precision */
 	mtime *= MB_MSEC_RATIO_APPROXIMATION;
+	/* divide values to get a MiB/sec integer value with one
+	   digit of precision
+	   */
 	fraction = integer = (byte_count * 10) / mtime;
 	integer /= 10;
-	
+	/* and calculate the MiB value fraction */
 	fraction -= integer * 10;
 
 	test_pr_info("%s: Throughput: %lu.%lu MiB/sec\n",
@@ -422,7 +441,7 @@ static ssize_t long_sequential_read_test_write(struct file *file,
 
 		long_seq_test_calc_throughput(mtime, byte_count);
 
-		
+		/* Allow FS requests to be dispatched */
 		msleep(1000);
 	}
 
@@ -505,7 +524,7 @@ static ssize_t long_sequential_write_test_write(struct file *file,
 
 		long_seq_test_calc_throughput(mtime, byte_count);
 
-		
+		/* Allow FS requests to be dispatched */
 		msleep(1000);
 	}
 

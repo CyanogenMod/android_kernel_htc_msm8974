@@ -10,6 +10,7 @@
 #ifndef __ASM_AVR32_ARCH_PM_H
 #define __ASM_AVR32_ARCH_PM_H
 
+/* Possible arguments to the "sleep" instruction */
 #define CPU_SLEEP_IDLE		0
 #define CPU_SLEEP_FROZEN	1
 #define CPU_SLEEP_STANDBY	2
@@ -34,6 +35,10 @@ static inline void cpu_enable_idle_sleep(void)
 
 static inline void cpu_idle_sleep(void)
 {
+	/*
+	 * If we're using the COUNT and COMPARE registers for
+	 * timekeeping, we can't use the IDLE state.
+	 */
 	if (disable_idle_sleep)
 		cpu_relax();
 	else
@@ -43,4 +48,4 @@ static inline void cpu_idle_sleep(void)
 void intc_set_suspend_handler(unsigned long offset);
 #endif
 
-#endif 
+#endif /* __ASM_AVR32_ARCH_PM_H */

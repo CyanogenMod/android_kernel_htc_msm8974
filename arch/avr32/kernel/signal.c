@@ -62,6 +62,10 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc)
 	COPY(r0);
 #undef	COPY
 
+	/*
+	 * Don't allow anyone to pretend they're running in supervisor
+	 * mode or something...
+	 */
 	err |= !valid_user_regs(regs);
 
 	return err;
@@ -155,6 +159,15 @@ setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (!access_ok(VERIFY_WRITE, frame, sizeof (*frame)))
 		goto out;
 
+	/*
+	 * Set up the return code:
+	 *
+	 *	mov	r8, __NR_rt_sigreturn
+	 *	scall
+	 *
+	 * Note: This will blow up since we're using a non-executable
+	 * stack. Better use SA_RESTORER.
+	 */
 #if __NR_rt_sigreturn > 127
 # error __NR_rt_sigreturn must be < 127 to fit in a short mov
 #endif
@@ -163,7 +176,7 @@ setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 
 	err |= copy_siginfo_to_user(&frame->info, info);
 
-	
+	/* Set up the ucontext */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(NULL, &frame->uc.uc_link);
 	err |= __put_user((void __user *)current->sas_ss_sp,
@@ -215,10 +228,19 @@ handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 {
 	int ret;
 
+	/*
+	 * Set up the stack frame
+	 */
 	ret = setup_rt_frame(sig, ka, info, oldset, regs);
 
+	/*
+	 * Check that the resulting registers are sane
+	 */
 	ret |= !valid_user_regs(regs);
 
+	/*
+	 * Block the signal if we were unsuccessful.
+	 */
 	if (ret != 0 || !(ka->sa.sa_flags & SA_NODEFER)) {
 		spin_lock_irq(&current->sighand->siglock);
 		sigorsets(&current->blocked, &current->blocked,
@@ -234,12 +256,22 @@ handle_signal(unsigned long sig, struct k_sigaction *ka, siginfo_t *info,
 	force_sigsegv(sig, current);
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it
+ * doesn't want to handle. Thus you cannot kill init even with a
+ * SIGKILL even by mistake.
+ */
 int do_signal(struct pt_regs *regs, sigset_t *oldset, int syscall)
 {
 	siginfo_t info;
 	int signr;
 	struct k_sigaction ka;
 
+	/*
+	 * We want the common case to go fast, which is why we may in
+	 * certain cases get here from kernel mode. Just return
+	 * without doing anything if so.
+	 */
 	if (!user_mode(regs))
 		return 0;
 
@@ -257,20 +289,20 @@ int do_signal(struct pt_regs *regs, sigset_t *oldset, int syscall)
 				regs->r12 = -EINTR;
 				break;
 			}
-			
+			/* fall through */
 		case -ERESTARTSYS:
 			if (signr > 0 && !(ka.sa.sa_flags & SA_RESTART)) {
 				regs->r12 = -EINTR;
 				break;
 			}
-			
+			/* fall through */
 		case -ERESTARTNOINTR:
 			setup_syscall_restart(regs);
 		}
 	}
 
 	if (signr == 0) {
-		
+		/* No signal to deliver -- put the saved sigmask back */
 		if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
 			clear_thread_flag(TIF_RESTORE_SIGMASK);
 			sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);

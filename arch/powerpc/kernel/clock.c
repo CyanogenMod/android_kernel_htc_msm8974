@@ -1,3 +1,7 @@
+/*
+ * Dummy clk implementations for powerpc.
+ * These need to be overridden in platform code.
+ */
 
 #include <linux/clk.h>
 #include <linux/err.h>

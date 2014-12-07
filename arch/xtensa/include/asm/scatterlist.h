@@ -13,4 +13,4 @@
 
 #include <asm-generic/scatterlist.h>
 
-#endif	
+#endif	/* _XTENSA_SCATTERLIST_H */

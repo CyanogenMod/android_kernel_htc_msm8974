@@ -1,3 +1,8 @@
+/*
+ * linux/arch/arm/mach-footbridge/ebsa285.c
+ *
+ * EBSA285 machine fixup
+ */
 #include <linux/init.h>
 #include <linux/spinlock.h>
 
@@ -9,7 +14,7 @@
 #include "common.h"
 
 MACHINE_START(EBSA285, "EBSA285")
-	
+	/* Maintainer: Russell King */
 	.atag_offset	= 0x100,
 	.video_start	= 0x000a0000,
 	.video_end	= 0x000bffff,

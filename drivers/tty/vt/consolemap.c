@@ -1,3 +1,15 @@
+/*
+ * consolemap.c
+ *
+ * Mapping from internal code (such as Latin-1 or Unicode or IBM PC code)
+ * to font positions.
+ *
+ * aeb, 950210
+ *
+ * Support for multiple unimaps by Jakub Jelinek <jj@ultra.linux.cz>, July 1998
+ *
+ * Fix bug in inverse translation. Stanislav Voronyi <stas@cnti.uanet.kharkov.ua>, Dec 1998
+ */
 
 #include <linux/module.h>
 #include <linux/kd.h>
@@ -11,7 +23,7 @@
 #include <linux/vt_kern.h>
 
 static unsigned short translations[][256] = {
-  
+  /* 8-bit Latin-1 mapped to Unicode -- trivial mapping */
   {
     0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007,
     0x0008, 0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x000e, 0x000f,
@@ -46,7 +58,7 @@ static unsigned short translations[][256] = {
     0x00f0, 0x00f1, 0x00f2, 0x00f3, 0x00f4, 0x00f5, 0x00f6, 0x00f7,
     0x00f8, 0x00f9, 0x00fa, 0x00fb, 0x00fc, 0x00fd, 0x00fe, 0x00ff
   }, 
-  
+  /* VT100 graphics mapped to Unicode */
   {
     0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005, 0x0006, 0x0007,
     0x0008, 0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x000e, 0x000f,
@@ -81,7 +93,7 @@ static unsigned short translations[][256] = {
     0x00f0, 0x00f1, 0x00f2, 0x00f3, 0x00f4, 0x00f5, 0x00f6, 0x00f7,
     0x00f8, 0x00f9, 0x00fa, 0x00fb, 0x00fc, 0x00fd, 0x00fe, 0x00ff
   },
-  
+  /* IBM Codepage 437 mapped to Unicode */
   {
     0x0000, 0x263a, 0x263b, 0x2665, 0x2666, 0x2663, 0x2660, 0x2022, 
     0x25d8, 0x25cb, 0x25d9, 0x2642, 0x2640, 0x266a, 0x266b, 0x263c,
@@ -116,7 +128,7 @@ static unsigned short translations[][256] = {
     0x2261, 0x00b1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00f7, 0x2248,
     0x00b0, 0x2219, 0x00b7, 0x221a, 0x207f, 0x00b2, 0x25a0, 0x00a0
   }, 
-  
+  /* User mapping -- default to codes for direct font mapping */
   {
     0xf000, 0xf001, 0xf002, 0xf003, 0xf004, 0xf005, 0xf006, 0xf007,
     0xf008, 0xf009, 0xf00a, 0xf00b, 0xf00c, 0xf00d, 0xf00e, 0xf00f,
@@ -153,8 +165,10 @@ static unsigned short translations[][256] = {
   }
 };
 
+/* The standard kernel character-to-font mappings are not invertible
+   -- this is just a best effort. */
 
-#define MAX_GLYPH 512		
+#define MAX_GLYPH 512		/* Max possible glyph value */
 
 static int inv_translate[MAX_NR_CONSOLES];
 
@@ -188,7 +202,7 @@ static void set_inverse_transl(struct vc_data *conp, struct uni_pagedir *p, int 
 	for (j = 0; j < E_TABSZ; j++) {
 		glyph = conv_uni_to_pc(conp, t[j]);
 		if (glyph >= 0 && glyph < MAX_GLYPH && q[glyph] < 32) {
-			
+			/* prefer '-' above SHY etc. */
 		  	q[glyph] = j;
 		}
 	}
@@ -282,6 +296,14 @@ static void update_user_maps(void)
 	}
 }
 
+/*
+ * Load customizable translation table
+ * arg points to a 256 byte translation table.
+ *
+ * The "old" variants are for translation directly to font (using the
+ * 0xf000-0xf0ff "transparent" Unicodes) whereas the "new" variants set
+ * Unicodes explicitly.
+ */
 int con_set_trans_old(unsigned char __user * arg)
 {
 	int i;
@@ -348,8 +370,17 @@ int con_get_trans_new(ushort __user * arg)
 	return 0;
 }
 
+/*
+ * Unicode -> current font conversion 
+ *
+ * A font has at most 512 chars, usually 256.
+ * But one font position may represent several Unicode chars.
+ * A hashtable is somewhat of a pain to deal with, so use a
+ * "paged table" instead.  Simulation has shown the memory cost of
+ * this 3-level paged table scheme to be comparable to a hash table.
+ */
 
-extern u8 dfont_unicount[];	
+extern u8 dfont_unicount[];	/* Defined in console_defmap.c */
 extern u16 dfont_unitable[];
 
 static void con_release_unimap(struct uni_pagedir *p)
@@ -446,7 +477,7 @@ con_insert_unipair(struct uni_pagedir *p, u_short unicode, u_short fontpos)
 	if (!(p2 = p1[n = (unicode >> 6) & 0x1f])) {
 		p2 = p1[n] = kmalloc(64*sizeof(u16), GFP_KERNEL);
 		if (!p2) return -ENOMEM;
-		memset(p2, 0xff, 64*sizeof(u16)); 
+		memset(p2, 0xff, 64*sizeof(u16)); /* No glyphs for the characters (yet) */
 	}
 
 	p2[unicode & 0x3f] = fontpos;
@@ -456,6 +487,7 @@ con_insert_unipair(struct uni_pagedir *p, u_short unicode, u_short fontpos)
 	return 0;
 }
 
+/* ui is a leftover from using a hashtable, but might be used again */
 int con_clear_unimap(struct vc_data *vc, struct unimapinit *ui)
 {
 	struct uni_pagedir *p, *q;
@@ -484,7 +516,7 @@ int con_set_unimap(struct vc_data *vc, ushort ct, struct unipair __user *list)
 	int err = 0, err1, i;
 	struct uni_pagedir *p, *q;
 
-	
+	/* Save original vc_unipagdir_loc in case we allocate a new one */
 	p = (struct uni_pagedir *)*vc->vc_uni_pagedir_loc;
 	if (p->readonly) return -EIO;
 	
@@ -497,15 +529,29 @@ int con_set_unimap(struct vc_data *vc, ushort ct, struct unipair __user *list)
 		err1 = con_clear_unimap(vc, NULL);
 		if (err1) return err1;
 		
+		/*
+		 * Since refcount was > 1, con_clear_unimap() allocated a
+		 * a new uni_pagedir for this vc.  Re: p != q
+		 */
 		q = (struct uni_pagedir *)*vc->vc_uni_pagedir_loc;
 
-		l = 0;		
+		/*
+		 * uni_pgdir is a 32*32*64 table with rows allocated
+		 * when its first entry is added.  The unicode value must
+		 * still be incremented for empty rows.  We are copying
+		 * entries from "p" (old) to "q" (new).
+		 */
+		l = 0;		/* unicode value */
 		for (i = 0; i < 32; i++)
 		if ((p1 = p->uni_pgdir[i]))
 			for (j = 0; j < 32; j++)
 			if ((p2 = p1[j])) {
 				for (k = 0; k < 64; k++, l++)
 				if (p2[k] != 0xffff) {
+					/*
+					 * Found one, copy entry for unicode
+					 * l with fontpos value p2[k].
+					 */
 					err1 = con_insert_unipair(q, l, p2[k]);
 					if (err1) {
 						p->refcount++;
@@ -516,18 +562,24 @@ int con_set_unimap(struct vc_data *vc, ushort ct, struct unipair __user *list)
 					}
 				}
 			} else {
-				
+				/* Account for row of 64 empty entries */
 				l += 64;
 			}
 		else
-			
+			/* Account for empty table */
 			l += 32 * 64;
 
+		/*
+		 * Finished copying font table, set vc_uni_pagedir to new table
+		 */
 		p = q;
 	} else if (p == dflt) {
 		dflt = NULL;
 	}
 
+	/*
+	 * Insert user specified unicode pairs into new table.
+	 */
 	while (ct--) {
 		unsigned short unicode, fontpos;
 		__get_user(unicode, &list->unicode);
@@ -537,16 +589,23 @@ int con_set_unimap(struct vc_data *vc, ushort ct, struct unipair __user *list)
 		list++;
 	}
 	
+	/*
+	 * Merge with fontmaps of any other virtual consoles.
+	 */
 	if (con_unify_unimap(vc, p))
 		return err;
 
 	for (i = 0; i <= 3; i++)
-		set_inverse_transl(vc, p, i); 
+		set_inverse_transl(vc, p, i); /* Update inverse translations */
 	set_inverse_trans_unicode(vc, p);
   
 	return err;
 }
 
+/* Loads the unimap for the hardware font, as defined in uni_hash.tbl.
+   The representation used was the most compact I could come up
+   with.  This routine is executed at sys_setup time, and when the
+   PIO_FONTRESET ioctl is called. */
 
 int con_set_default_unimap(struct vc_data *vc)
 {
@@ -567,7 +626,7 @@ int con_set_default_unimap(struct vc_data *vc)
 		return 0;
 	}
 	
-	
+	/* The default font is always 256 characters */
 
 	err = con_clear_unimap(vc, NULL);
 	if (err) return err;
@@ -588,7 +647,7 @@ int con_set_default_unimap(struct vc_data *vc)
 	}
 
 	for (i = 0; i <= 3; i++)
-		set_inverse_transl(vc, p, i);	
+		set_inverse_transl(vc, p, i);	/* Update all inverse translations */
 	set_inverse_trans_unicode(vc, p);
 	dflt = p;
 	return err;
@@ -646,6 +705,13 @@ void con_protect_unimap(struct vc_data *vc, int rdonly)
 		p->readonly = rdonly;
 }
 
+/*
+ * Always use USER_MAP. These functions are used by the keyboard,
+ * which shouldn't be affected by G0/G1 switching, etc.
+ * If the user map still contains default values, i.e. the
+ * direct-to-font mapping, then assume user is using Latin1.
+ */
+/* may be called during an interrupt */
 u32 conv_8bit_to_uni(unsigned char c)
 {
 	unsigned short uni = translations[USER_MAP][c];
@@ -669,13 +735,18 @@ conv_uni_to_pc(struct vc_data *conp, long ucs)
 	u16 **p1, *p2;
 	struct uni_pagedir *p;
   
-	
+	/* Only 16-bit codes supported at this time */
 	if (ucs > 0xffff)
-		return -4;		
+		return -4;		/* Not found */
 	else if (ucs < 0x20)
-		return -1;		
+		return -1;		/* Not a printable character */
 	else if (ucs == 0xfeff || (ucs >= 0x200b && ucs <= 0x200f))
-		return -2;			
+		return -2;			/* Zero-width space */
+	/*
+	 * UNI_DIRECT_BASE indicates the start of the region in the User Zone
+	 * which always has a 1:1 mapping to the currently loaded font.  The
+	 * UNI_DIRECT_MASK indicates the bit span of the region.
+	 */
 	else if ((ucs & ~UNI_DIRECT_MASK) == UNI_DIRECT_BASE)
 		return ucs & UNI_DIRECT_MASK;
   
@@ -688,9 +759,14 @@ conv_uni_to_pc(struct vc_data *conp, long ucs)
 	    (h = p2[ucs & 0x3f]) < MAX_GLYPH)
 		return h;
 
-	return -4;		
+	return -4;		/* not found */
 }
 
+/*
+ * This is called at sys_setup time, after memory and the console are
+ * initialized.  It must be possible to call kmalloc(..., GFP_KERNEL)
+ * from this function, hence the call from sys_setup.
+ */
 void __init 
 console_map_init(void)
 {

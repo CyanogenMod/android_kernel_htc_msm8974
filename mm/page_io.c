@@ -23,6 +23,10 @@
 #include <linux/ratelimit.h>
 #include <asm/pgtable.h>
 
+/*
+ * We don't need to see swap errors more than once every 1 second to know
+ * that a problem is occurring.
+ */
 #define SWAP_ERROR_LOG_RATE_MS 1000
 
 static struct bio *get_swap_bio(gfp_t gfp_flags,
@@ -53,6 +57,14 @@ static void end_swap_bio_write(struct bio *bio, int err)
 
 	if (!uptodate) {
 		SetPageError(page);
+		/*
+		 * We failed to write the page out to swap-space.
+		 * Re-dirty the page in order to avoid it being reclaimed.
+		 * Also print a dire warning that things will go BAD (tm)
+		 * very quickly.
+		 *
+		 * Also clear PG_reclaim to avoid rotate_reclaimable_page()
+		 */
 		set_page_dirty(page);
 		if (printk_timed_ratelimit(&swap_error_rs_time,
 					   SWAP_ERROR_LOG_RATE_MS))
@@ -83,11 +95,33 @@ void end_swap_bio_read(struct bio *bio, int err)
 
 	SetPageUptodate(page);
 
+	/*
+	 * There is no guarantee that the page is in swap cache - the software
+	 * suspend code (at least) uses end_swap_bio_read() against a non-
+	 * swapcache page.  So we must check PG_swapcache before proceeding with
+	 * this optimization.
+	 */
 	if (likely(PageSwapCache(page))) {
 		struct swap_info_struct *sis;
 
 		sis = page_swap_info(page);
 		if (sis->flags & SWP_BLKDEV) {
+			/*
+			 * The swap subsystem performs lazy swap slot freeing,
+			 * expecting that the page will be swapped out again.
+			 * So we can avoid an unnecessary write if the page
+			 * isn't redirtied.
+			 * This is good for real swap storage because we can
+			 * reduce unnecessary I/O and enhance wear-leveling
+			 * if an SSD is used as the as swap device.
+			 * But if in-memory swap device (eg zram) is used,
+			 * this causes a duplicated copy between uncompressed
+			 * data in VM-owned memory and compressed data in
+			 * zram-owned memory.  So let's free zram-owned memory
+			 * and make the VM-owned decompressed page *dirty*,
+			 * so the page should be swapped out somewhere again if
+			 * we again wish to reclaim it.
+			 */
 			struct gendisk *disk = sis->bdev->bd_disk;
 			if (disk->fops->swap_slot_free_notify) {
 				swp_entry_t entry;
@@ -108,6 +142,10 @@ out:
 	bio_put(bio);
 }
 
+/*
+ * We may have stale swap cache pages in memory: notice
+ * them here and get rid of the unnecessary final write.
+ */
 int swap_writepage(struct page *page, struct writeback_control *wbc)
 {
 	struct bio *bio;

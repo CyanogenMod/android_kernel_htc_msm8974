@@ -28,8 +28,8 @@
 
 
 #define MAC_IOSIZE 0x10000
-#define NUM_RX_DMA 4       
-#define NUM_TX_DMA 4       
+#define NUM_RX_DMA 4       /* Au1x00 has 4 rx hardware descriptors */
+#define NUM_TX_DMA 4       /* Au1x00 has 4 tx hardware descriptors */
 
 #define NUM_RX_BUFFS 4
 #define NUM_TX_BUFFS 4
@@ -40,12 +40,20 @@
 
 #define MULTICAST_FILTER_LIMIT 64
 
+/*
+ * Data Buffer Descriptor. Data buffers must be aligned on 32 byte
+ * boundary for both, receive and transmit.
+ */
 struct db_dest {
 	struct db_dest *pnext;
 	u32 *vaddr;
 	dma_addr_t dma_addr;
 };
 
+/*
+ * The transmit and receive descriptors are memory
+ * mapped registers.
+ */
 struct tx_dma {
 	u32 status;
 	u32 buff_stat;
@@ -60,6 +68,9 @@ struct rx_dma {
 };
 
 
+/*
+ * MAC control registers, memory mapped.
+ */
 struct mac_reg {
 	u32 control;
 	u32 mac_addr_high;
@@ -88,16 +99,18 @@ struct au1000_private {
 
 	int mac_id;
 
-	int mac_enabled;       
+	int mac_enabled;       /* whether MAC is currently enabled and running
+				* (req. for mdio)
+				*/
 
-	int old_link;          
+	int old_link;          /* used by au1000_adjust_link */
 	int old_speed;
 	int old_duplex;
 
 	struct phy_device *phy_dev;
 	struct mii_bus *mii_bus;
 
-	
+	/* PHY configuration */
 	int phy_static_config;
 	int phy_search_highest_addr;
 	int phy1_search_mac0;
@@ -106,13 +119,16 @@ struct au1000_private {
 	int phy_busid;
 	int phy_irq;
 
-	struct mac_reg *mac;  
-	u32 *enable;     
-	void __iomem *macdma;	
-	u32 vaddr;                
-	dma_addr_t dma_addr;      
+	/* These variables are just for quick access
+	 * to certain regs addresses.
+	 */
+	struct mac_reg *mac;  /* mac registers                      */
+	u32 *enable;     /* address of MAC Enable Register     */
+	void __iomem *macdma;	/* base of MAC DMA port */
+	u32 vaddr;                /* virtual address of rx/tx buffers   */
+	dma_addr_t dma_addr;      /* dma address of rx/tx buffers       */
 
-	spinlock_t lock;       
+	spinlock_t lock;       /* Serialise access to device */
 
 	u32 msg_enable;
 };

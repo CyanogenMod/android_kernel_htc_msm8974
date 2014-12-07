@@ -61,17 +61,21 @@ struct cpu_context_save {
 	__u32	pc;
 };
 
+/*
+ * low level task data that entry.S needs immediate access to.
+ * __switch_to() assumes cpu_context follows immediately after cpu_domain.
+ */
 struct thread_info {
-	unsigned long		flags;		
-	int			preempt_count;	
-						
-	mm_segment_t		addr_limit;	
-	struct task_struct	*task;		
-	struct exec_domain	*exec_domain;	
-	__u32			cpu;		
-	struct cpu_context_save	cpu_context;	
-	__u32			syscall;	
-	__u8			used_cp[16];	
+	unsigned long		flags;		/* low level flags */
+	int			preempt_count;	/* 0 => preemptable */
+						/* <0 => bug */
+	mm_segment_t		addr_limit;	/* address limit */
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain	*exec_domain;	/* execution domain */
+	__u32			cpu;		/* cpu */
+	struct cpu_context_save	cpu_context;	/* cpu context */
+	__u32			syscall;	/* syscall number */
+	__u8			used_cp[16];	/* thread used copro */
 #ifdef CONFIG_UNICORE_FPU_F64
 	struct fp_state		fpstate __attribute__((aligned(8)));
 #endif
@@ -93,6 +97,9 @@ struct thread_info {
 #define init_thread_info	(init_thread_union.thread_info)
 #define init_stack		(init_thread_union.stack)
 
+/*
+ * how to get the thread information struct from C
+ */
 static inline struct thread_info *current_thread_info(void) __attribute_const__;
 
 static inline struct thread_info *current_thread_info(void)
@@ -110,11 +117,22 @@ static inline struct thread_info *current_thread_info(void)
 
 #endif
 
+/*
+ * We use bit 30 of the preempt_count to indicate that kernel
+ * preemption is occurring.  See <asm/hardirq.h>.
+ */
 #define PREEMPT_ACTIVE	0x40000000
 
+/*
+ * thread information flags:
+ *  TIF_SYSCALL_TRACE	- syscall trace active
+ *  TIF_SIGPENDING	- signal pending
+ *  TIF_NEED_RESCHED	- rescheduling necessary
+ *  TIF_NOTIFY_RESUME	- callback before returning to user
+ */
 #define TIF_SIGPENDING		0
 #define TIF_NEED_RESCHED	1
-#define TIF_NOTIFY_RESUME	2	
+#define TIF_NOTIFY_RESUME	2	/* callback before returning to user */
 #define TIF_SYSCALL_TRACE	8
 #define TIF_MEMDIE		18
 #define TIF_RESTORE_SIGMASK	20
@@ -125,7 +143,10 @@ static inline struct thread_info *current_thread_info(void)
 #define _TIF_SYSCALL_TRACE	(1 << TIF_SYSCALL_TRACE)
 #define _TIF_RESTORE_SIGMASK	(1 << TIF_RESTORE_SIGMASK)
 
+/*
+ * Change these and you break ASM code in entry-common.S
+ */
 #define _TIF_WORK_MASK		0x000000ff
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __UNICORE_THREAD_INFO_H__ */

@@ -11,5 +11,5 @@ void *oz_hcd_pd_arrived(void *ctx);
 void oz_hcd_pd_departed(void *ctx);
 void oz_hcd_pd_reset(void *hpd, void *hport);
 
-#endif 
+#endif /* _OZHCD_H */
 

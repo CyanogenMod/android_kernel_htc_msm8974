@@ -15,4 +15,4 @@ void oz_cdev_stop(struct oz_pd *pd, int pause);
 void oz_cdev_rx(struct oz_pd *pd, struct oz_elt *elt);
 void oz_cdev_heartbeat(struct oz_pd *pd);
 
-#endif 
+#endif /* _OZCDEV_H */

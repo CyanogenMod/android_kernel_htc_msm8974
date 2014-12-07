@@ -22,13 +22,20 @@
 #include "nodelist.h"
 #include "compr.h"
 
+	/* Plan: call deflate() with avail_in == *sourcelen,
+		avail_out = *dstlen - 12 and flush == Z_FINISH.
+		If it doesn't manage to finish,	call it again with
+		avail_in == 0 and avail_out set to the remaining 12
+		bytes for it to clean up.
+	   Q: Is 12 bytes sufficient?
+	*/
 #define STREAM_END_SPACE 12
 
 static DEFINE_MUTEX(deflate_mutex);
 static DEFINE_MUTEX(inflate_mutex);
 static z_stream inf_strm, def_strm;
 
-#ifdef __KERNEL__ 
+#ifdef __KERNEL__ /* Linux-only */
 #include <linux/vmalloc.h>
 #include <linux/init.h>
 #include <linux/mutex.h>
@@ -60,7 +67,7 @@ static void free_workspaces(void)
 #else
 #define alloc_workspaces() (0)
 #define free_workspaces() do { } while(0)
-#endif 
+#endif /* __KERNEL__ */
 
 static int jffs2_zlib_compress(unsigned char *data_in,
 			       unsigned char *cpage_out,
@@ -147,6 +154,8 @@ static int jffs2_zlib_decompress(unsigned char *data_in,
 	inf_strm.avail_out = destlen;
 	inf_strm.total_out = 0;
 
+	/* If it's deflate, and it's got no preset dictionary, then
+	   we can tell zlib to skip the adler32 check. */
 	if (srclen > 2 && !(data_in[1] & PRESET_DICT) &&
 	    ((data_in[0] & 0x0f) == Z_DEFLATED) &&
 	    !(((data_in[0]<<8) + data_in[1]) % 31)) {
@@ -156,7 +165,7 @@ static int jffs2_zlib_decompress(unsigned char *data_in,
 		inf_strm.next_in += 2;
 		inf_strm.avail_in -= 2;
 	} else {
-		
+		/* Let this remain D1 for now -- it should never happen */
 		jffs2_dbg(1, "inflate not skipping adler32\n");
 	}
 

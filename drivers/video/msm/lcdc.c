@@ -42,8 +42,8 @@ static void cont_splash_clk_ctrl(int enable);
 static struct platform_device *pdev_list[MSM_FB_MAX_DEV_LIST];
 static int pdev_list_cnt;
 
-static struct clk *pixel_mdp_clk; 
-static struct clk *pixel_lcdc_clk; 
+static struct clk *pixel_mdp_clk; /* drives the lcdc block in mdp */
+static struct clk *pixel_lcdc_clk; /* drives the lcdc interface */
 
 static struct platform_driver lcdc_driver = {
 	.probe = lcdc_probe,
@@ -108,7 +108,7 @@ static int lcdc_on(struct platform_device *pdev)
 		panel_pixclock_freq = mfd->fbi->var.pixclock;
 #ifndef CONFIG_MSM_BUS_SCALING
 	if (panel_pixclock_freq > 65000000)
-		
+		/* pm_qos_rate should be in Khz */
 		pm_qos_rate = panel_pixclock_freq / 1000 ;
 	else
 		pm_qos_rate = 65000;
@@ -214,9 +214,15 @@ static int lcdc_probe(struct platform_device *pdev)
 
 	cont_splash_clk_ctrl(1);
 
+	/*
+	 * link to the latest pdev
+	 */
 	mfd->pdev = mdp_dev;
 	mfd->dest = DISPLAY_LCDC;
 
+	/*
+	 * alloc panel device data
+	 */
 	if (platform_device_add_data
 	    (mdp_dev, pdev->dev.platform_data,
 	     sizeof(struct msm_fb_panel_data))) {
@@ -224,11 +230,17 @@ static int lcdc_probe(struct platform_device *pdev)
 		platform_device_put(mdp_dev);
 		return -ENOMEM;
 	}
+	/*
+	 * data chain
+	 */
 	pdata = (struct msm_fb_panel_data *)mdp_dev->dev.platform_data;
 	pdata->on = lcdc_on;
 	pdata->off = lcdc_off;
 	pdata->next = pdev;
 
+	/*
+	 * get/set panel specific fb info
+	 */
 	mfd->panel_info = pdata->panel_info;
 
 	if (mfd->index == 0)
@@ -246,7 +258,13 @@ static int lcdc_probe(struct platform_device *pdev)
 	fbi->var.hsync_len = mfd->panel_info.lcdc.h_pulse_width;
 	fbi->var.vsync_len = mfd->panel_info.lcdc.v_pulse_width;
 
+	/*
+	 * set driver data
+	 */
 	platform_set_drvdata(mdp_dev, mfd);
+	/*
+	 * register in mdp driver
+	 */
 	rc = platform_device_add(mdp_dev);
 	if (rc)
 		goto lcdc_probe_err;

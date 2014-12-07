@@ -204,6 +204,11 @@ static struct platform_device da850_pm_device = {
 	.id             = -1,
 };
 
+/* DA850/OMAP-L138 EVM includes a 512 MByte large-page NAND flash
+ * (128K blocks). It may be used instead of the (default) SPI flash
+ * to boot, using TI's tools to install the secondary boot loader
+ * (UBL) and U-Boot.
+ */
 static struct mtd_partition da850_evm_nandflash_partition[] = {
 	{
 		.name		= "u-boot env",
@@ -293,7 +298,7 @@ static void __init da850_evm_init_nor(void)
 
 	aemif_addr = ioremap(DA8XX_AEMIF_CTL_BASE, SZ_32K);
 
-	
+	/* Configure data bus width of CS2 to 16 bit */
 	writel(readl(aemif_addr + DA8XX_AEMIF_CE2CFG_OFFSET) |
 		DA8XX_AEMIF_ASIZE_16BIT,
 		aemif_addr + DA8XX_AEMIF_CE2CFG_OFFSET);
@@ -368,6 +373,13 @@ static inline void da850_evm_setup_emac_rmii(int rmii_sel) { }
 
 
 #define DA850_KEYS_DEBOUNCE_MS	10
+/*
+ * At 200ms polling interval it is possible to miss an
+ * event by tapping very lightly on the push button but most
+ * pushes do result in an event; longer intervals require the
+ * user to hold the button whereas shorter intervals require
+ * more CPU time for polling.
+ */
 #define DA850_GPIO_KEYS_POLL_MS	200
 
 enum da850_evm_ui_exp_pins {
@@ -406,9 +418,9 @@ static struct gpio_keys_button da850_evm_ui_keys[] = {
 		.active_low		= 1,
 		.wakeup			= 0,
 		.debounce_interval	= DA850_KEYS_DEBOUNCE_MS,
-		.code			= -1, 
-		.gpio			= -1, 
-		.desc			= NULL, 
+		.code			= -1, /* assigned at runtime */
+		.gpio			= -1, /* assigned at runtime */
+		.desc			= NULL, /* assigned at runtime */
 	},
 };
 
@@ -467,7 +479,7 @@ static int da850_evm_ui_expander_setup(struct i2c_client *client, unsigned gpio,
 		goto exp_setup_selc_fail;
 	}
 
-	
+	/* deselect all functionalities */
 	gpio_direction_output(sel_a, 1);
 	gpio_direction_output(sel_b, 1);
 	gpio_direction_output(sel_c, 1);
@@ -502,7 +514,7 @@ static int da850_evm_ui_expander_teardown(struct i2c_client *client,
 {
 	platform_device_unregister(&da850_evm_ui_keys_device);
 
-	
+	/* deselect all functionalities */
 	gpio_set_value_cansleep(gpio + DA850_EVM_UI_EXP_SEL_C, 1);
 	gpio_set_value_cansleep(gpio + DA850_EVM_UI_EXP_SEL_B, 1);
 	gpio_set_value_cansleep(gpio + DA850_EVM_UI_EXP_SEL_A, 1);
@@ -514,6 +526,7 @@ static int da850_evm_ui_expander_teardown(struct i2c_client *client,
 	return 0;
 }
 
+/* assign the baseboard expander's GPIOs after the UI board's */
 #define DA850_UI_EXPANDER_N_GPIOS ARRAY_SIZE(da850_evm_ui_exp)
 #define DA850_BB_EXPANDER_GPIO_BASE (DAVINCI_N_GPIO + DA850_UI_EXPANDER_N_GPIOS)
 
@@ -564,17 +577,17 @@ static struct gpio_keys_button da850_evm_bb_keys[] = {
 		.wakeup			= 0,
 		.debounce_interval	= DA850_KEYS_DEBOUNCE_MS,
 		.code			= KEY_PROG1,
-		.desc			= NULL, 
-		.gpio			= -1, 
+		.desc			= NULL, /* assigned at runtime */
+		.gpio			= -1, /* assigned at runtime */
 	},
 	[1 ... DA850_N_BB_USER_SW] = {
 		.type			= EV_SW,
 		.active_low		= 1,
 		.wakeup			= 0,
 		.debounce_interval	= DA850_KEYS_DEBOUNCE_MS,
-		.code			= -1, 
-		.desc			= NULL, 
-		.gpio			= -1, 
+		.code			= -1, /* assigned at runtime */
+		.desc			= NULL, /* assigned at runtime */
+		.gpio			= -1, /* assigned at runtime */
 	},
 };
 
@@ -616,8 +629,8 @@ static void da850_evm_bb_keys_init(unsigned gpio)
 static struct gpio_led da850_evm_bb_leds[] = {
 	[0 ... DA850_N_BB_USER_LED - 1] = {
 		.active_low = 1,
-		.gpio = -1, 
-		.name = NULL, 
+		.gpio = -1, /* assigned at runtime */
+		.name = NULL, /* assigned at runtime */
 	},
 };
 
@@ -654,6 +667,10 @@ static int da850_evm_bb_expander_setup(struct i2c_client *client,
 {
 	int ret;
 
+	/*
+	 * Register the switches and pushbutton on the baseboard as a gpio-keys
+	 * device.
+	 */
 	da850_evm_bb_keys_init(gpio);
 	ret = platform_device_register(&da850_evm_bb_keys_device);
 	if (ret) {
@@ -714,14 +731,15 @@ static struct i2c_board_info __initdata da850_evm_i2c_devices[] = {
 };
 
 static struct davinci_i2c_platform_data da850_evm_i2c_0_pdata = {
-	.bus_freq	= 100,	
-	.bus_delay	= 0,	
+	.bus_freq	= 100,	/* kHz */
+	.bus_delay	= 0,	/* usec */
 };
 
 static struct davinci_uart_config da850_evm_uart_config __initdata = {
 	.enabled_uarts = 0x7,
 };
 
+/* davinci da850 evm audio machine driver */
 static u8 da850_iis_serializer_direction[] = {
 	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
 	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,	INACTIVE_MODE,
@@ -777,10 +795,10 @@ static const short da850_evm_mmcsd0_pins[] __initconst = {
 
 static void da850_panel_power_ctrl(int val)
 {
-	
+	/* lcd backlight */
 	gpio_set_value(DA850_LCD_BL_PIN, val);
 
-	
+	/* lcd power */
 	gpio_set_value(DA850_LCD_PWR_PIN, val);
 }
 
@@ -801,16 +819,18 @@ static int da850_lcd_hw_init(void)
 	gpio_direction_output(DA850_LCD_BL_PIN, 0);
 	gpio_direction_output(DA850_LCD_PWR_PIN, 0);
 
-	
+	/* Switch off panel power and backlight */
 	da850_panel_power_ctrl(0);
 
-	
+	/* Switch on panel power and backlight */
 	da850_panel_power_ctrl(1);
 
 	return 0;
 }
 
+/* TPS65070 voltage regulator support */
 
+/* 3.3V */
 static struct regulator_consumer_supply tps65070_dcdc1_consumers[] = {
 	{
 		.supply = "usb0_vdda33",
@@ -820,6 +840,7 @@ static struct regulator_consumer_supply tps65070_dcdc1_consumers[] = {
 	},
 };
 
+/* 3.3V or 1.8V */
 static struct regulator_consumer_supply tps65070_dcdc2_consumers[] = {
 	{
 		.supply = "dvdd3318_a",
@@ -832,12 +853,14 @@ static struct regulator_consumer_supply tps65070_dcdc2_consumers[] = {
 	},
 };
 
+/* 1.2V */
 static struct regulator_consumer_supply tps65070_dcdc3_consumers[] = {
 	{
 		.supply = "cvdd",
 	},
 };
 
+/* 1.8V LDO */
 static struct regulator_consumer_supply tps65070_ldo1_consumers[] = {
 	{
 		.supply = "sata_vddr",
@@ -853,6 +876,7 @@ static struct regulator_consumer_supply tps65070_ldo1_consumers[] = {
 	},
 };
 
+/* 1.2V LDO */
 static struct regulator_consumer_supply tps65070_ldo2_consumers[] = {
 	{
 		.supply = "sata_vdd",
@@ -871,12 +895,13 @@ static struct regulator_consumer_supply tps65070_ldo2_consumers[] = {
 	},
 };
 
+/* We take advantage of the fact that both defdcdc{2,3} are tied high */
 static struct tps6507x_reg_platform_data tps6507x_platform_data = {
 	.defdcdc_default = true,
 };
 
 static struct regulator_init_data tps65070_regulator_data[] = {
-	
+	/* dcdc1 */
 	{
 		.constraints = {
 			.min_uV = 3150000,
@@ -889,7 +914,7 @@ static struct regulator_init_data tps65070_regulator_data[] = {
 		.consumer_supplies = tps65070_dcdc1_consumers,
 	},
 
-	
+	/* dcdc2 */
 	{
 		.constraints = {
 			.min_uV = 1710000,
@@ -903,7 +928,7 @@ static struct regulator_init_data tps65070_regulator_data[] = {
 		.driver_data = &tps6507x_platform_data,
 	},
 
-	
+	/* dcdc3 */
 	{
 		.constraints = {
 			.min_uV = 950000,
@@ -917,7 +942,7 @@ static struct regulator_init_data tps65070_regulator_data[] = {
 		.driver_data = &tps6507x_platform_data,
 	},
 
-	
+	/* ldo1 */
 	{
 		.constraints = {
 			.min_uV = 1710000,
@@ -930,7 +955,7 @@ static struct regulator_init_data tps65070_regulator_data[] = {
 		.consumer_supplies = tps65070_ldo1_consumers,
 	},
 
-	
+	/* ldo2 */
 	{
 		.constraints = {
 			.min_uV = 1140000,
@@ -945,12 +970,12 @@ static struct regulator_init_data tps65070_regulator_data[] = {
 };
 
 static struct touchscreen_init_data tps6507x_touchscreen_data = {
-	.poll_period =  30,	
-	.min_pressure = 0x30,	
-	.vref = 0,		
-	.vendor = 0,		
-	.product = 65070,	
-	.version = 0x100,	
+	.poll_period =  30,	/* ms between touch samples */
+	.min_pressure = 0x30,	/* minimum pressure to trigger touch */
+	.vref = 0,		/* turn off vref when not using A/D */
+	.vendor = 0,		/* /sys/class/input/input?/id/vendor */
+	.product = 65070,	/* /sys/class/input/input?/id/product */
+	.version = 0x100,	/* /sys/class/input/input?/id/version */
 };
 
 static struct tps6507x_board tps_board = {
@@ -1024,7 +1049,7 @@ static int __init da850_evm_config_emac(void)
 		pr_warning("da850_evm_init: cpgmac/rmii mux setup failed: %d\n",
 				ret);
 
-	
+	/* configure the CFGCHIP3 register for RMII or MII */
 	__raw_writel(val, cfg_chip3_base);
 
 	ret = davinci_cfg_reg(DA850_GPIO2_6);
@@ -1039,7 +1064,7 @@ static int __init da850_evm_config_emac(void)
 		return ret;
 	}
 
-	
+	/* Enable/Disable MII MDIO clock */
 	gpio_direction_output(DA850_MII_MDIO_CLKEN_PIN, rmii_en);
 
 	soc_info->emac_pdata->phy_id = DA850_EVM_PHY_ID;
@@ -1053,8 +1078,13 @@ static int __init da850_evm_config_emac(void)
 }
 device_initcall(da850_evm_config_emac);
 
+/*
+ * The following EDMA channels/slots are not being used by drivers (for
+ * example: Timer, GPIO, UART events etc) on da850/omap-l138 EVM, hence
+ * they are being reserved for codecs on the DSP side.
+ */
 static const s16 da850_dma0_rsv_chans[][2] = {
-	
+	/* (offset, number) */
 	{ 8,  6},
 	{24,  4},
 	{30,  2},
@@ -1062,7 +1092,7 @@ static const s16 da850_dma0_rsv_chans[][2] = {
 };
 
 static const s16 da850_dma0_rsv_slots[][2] = {
-	
+	/* (offset, number) */
 	{ 8,  6},
 	{24,  4},
 	{30, 50},
@@ -1070,14 +1100,14 @@ static const s16 da850_dma0_rsv_slots[][2] = {
 };
 
 static const s16 da850_dma1_rsv_chans[][2] = {
-	
+	/* (offset, number) */
 	{ 0, 28},
 	{30,  2},
 	{-1, -1}
 };
 
 static const s16 da850_dma1_rsv_slots[][2] = {
-	
+	/* (offset, number) */
 	{ 0, 28},
 	{30, 90},
 	{-1, -1}
@@ -1132,7 +1162,7 @@ static void wl12xx_set_power(int index, bool power_on)
 	power_state = power_on;
 
 	if (power_on) {
-		
+		/* Power up sequence required for wl127x devices */
 		gpio_set_value(DA850_WLAN_EN, 1);
 		usleep_range(15000, 15000);
 		gpio_set_value(DA850_WLAN_EN, 0);
@@ -1214,14 +1244,14 @@ exit:
 	return ret;
 }
 
-#else 
+#else /* CONFIG_DA850_WL12XX */
 
 static __init int da850_wl12xx_init(void)
 {
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_DA850_WL12XX */
 
 #define DA850EVM_SATA_REFCLKPN_RATE	(100 * 1000 * 1000)
 
@@ -1289,6 +1319,11 @@ static __init void da850_evm_init(void)
 	i2c_register_board_info(1, da850_evm_i2c_devices,
 			ARRAY_SIZE(da850_evm_i2c_devices));
 
+	/*
+	 * shut down uart 0 and 1; they are not used on the board and
+	 * accessing them causes endless "too much work in irq53" messages
+	 * with arago fs
+	 */
 	__raw_writel(0, IO_ADDRESS(DA8XX_UART1_BASE) + 0x30);
 	__raw_writel(0, IO_ADDRESS(DA8XX_UART0_BASE) + 0x30);
 
@@ -1304,7 +1339,7 @@ static __init void da850_evm_init(void)
 		pr_warning("da850_evm_init: lcdcntl mux setup failed: %d\n",
 				ret);
 
-	
+	/* Handle board specific muxing for LCD here */
 	ret = davinci_cfg_reg_list(da850_evm_lcdc_pins);
 	if (ret)
 		pr_warning("da850_evm_init: evm specific lcd mux setup "

@@ -29,6 +29,12 @@ struct page_cgroup *lookup_page_cgroup(struct page *page)
 
 	base = NODE_DATA(page_to_nid(page))->node_page_cgroup;
 #ifdef CONFIG_DEBUG_VM
+	/*
+	 * The sanity checks the page allocator does upon freeing a
+	 * page can reach here before the page_cgroup arrays are
+	 * allocated when feeding a range of pages to the allocator
+	 * for the first time during bootup or memory hotplug.
+	 */
 	if (unlikely(!base))
 		return NULL;
 #endif
@@ -80,13 +86,19 @@ fail:
 	panic("Out of memory");
 }
 
-#else 
+#else /* CONFIG_FLAT_NODE_MEM_MAP */
 
 struct page_cgroup *lookup_page_cgroup(struct page *page)
 {
 	unsigned long pfn = page_to_pfn(page);
 	struct mem_section *section = __pfn_to_section(pfn);
 #ifdef CONFIG_DEBUG_VM
+	/*
+	 * The sanity checks the page allocator does upon freeing a
+	 * page can reach here before the page_cgroup arrays are
+	 * allocated when feeding a range of pages to the allocator
+	 * for the first time during bootup or memory hotplug.
+	 */
 	if (!section->page_cgroup)
 		return NULL;
 #endif
@@ -126,6 +138,11 @@ static int __meminit init_section_page_cgroup(unsigned long pfn, int nid)
 	table_size = sizeof(struct page_cgroup) * PAGES_PER_SECTION;
 	base = alloc_page_cgroup(table_size, nid);
 
+	/*
+	 * The value stored in section->page_cgroup is (base - pfn)
+	 * and it does not point to the memory block allocated above,
+	 * causing kmemleak false positives.
+	 */
 	kmemleak_not_leak(base);
 
 	if (!base) {
@@ -133,6 +150,10 @@ static int __meminit init_section_page_cgroup(unsigned long pfn, int nid)
 		return -ENOMEM;
 	}
 
+	/*
+	 * The passed "pfn" may not be aligned to SECTION.  For the calculation
+	 * we need to apply a mask.
+	 */
 	pfn &= PAGE_SECTION_MASK;
 	section->page_cgroup = base - pfn;
 	total_usage += table_size;
@@ -177,6 +198,11 @@ int __meminit online_page_cgroup(unsigned long start_pfn,
 	end = SECTION_ALIGN_UP(start_pfn + nr_pages);
 
 	if (nid == -1) {
+		/*
+		 * In this case, "nid" already exists and contains valid memory.
+		 * "start_pfn" passed to us is a pfn which is an arg for
+		 * online__pages(), and start_pfn should exist.
+		 */
 		nid = pfn_to_nid(start_pfn);
 		VM_BUG_ON(!node_state(nid, N_ONLINE));
 	}
@@ -189,7 +215,7 @@ int __meminit online_page_cgroup(unsigned long start_pfn,
 	if (!fail)
 		return 0;
 
-	
+	/* rollback */
 	for (pfn = start; pfn < end; pfn += PAGES_PER_SECTION)
 		__free_page_cgroup(pfn);
 
@@ -250,12 +276,23 @@ void __init page_cgroup_init(void)
 
 		start_pfn = node_start_pfn(nid);
 		end_pfn = node_end_pfn(nid);
+		/*
+		 * start_pfn and end_pfn may not be aligned to SECTION and the
+		 * page->flags of out of node pages are not initialized.  So we
+		 * scan [start_pfn, the biggest section's pfn < end_pfn) here.
+		 */
 		for (pfn = start_pfn;
 		     pfn < end_pfn;
                      pfn = ALIGN(pfn + 1, PAGES_PER_SECTION)) {
 
 			if (!pfn_valid(pfn))
 				continue;
+			/*
+			 * Nodes's pfns can be overlapping.
+			 * We know some arch can have a nodes layout such as
+			 * -------------pfn-------------->
+			 * N0 | N1 | N2 | N0 | N1 | N2|....
+			 */
 			if (pfn_to_nid(pfn) != nid)
 				continue;
 			if (init_section_page_cgroup(pfn, nid))
@@ -296,7 +333,23 @@ struct swap_cgroup {
 };
 #define SC_PER_PAGE	(PAGE_SIZE/sizeof(struct swap_cgroup))
 
+/*
+ * SwapCgroup implements "lookup" and "exchange" operations.
+ * In typical usage, this swap_cgroup is accessed via memcg's charge/uncharge
+ * against SwapCache. At swap_free(), this is accessed directly from swap.
+ *
+ * This means,
+ *  - we have no race in "exchange" when we're accessed via SwapCache because
+ *    SwapCache(and its swp_entry) is under lock.
+ *  - When called via swap_free(), there is no user of this entry and no race.
+ * Then, we don't need lock around "exchange".
+ *
+ * TODO: we can push these buffers out to HIGHMEM.
+ */
 
+/*
+ * allocate buffer for swap_cgroup.
+ */
 static int swap_cgroup_prepare(int type)
 {
 	struct page *page;
@@ -337,6 +390,15 @@ static struct swap_cgroup *lookup_swap_cgroup(swp_entry_t ent,
 	return sc + offset % SC_PER_PAGE;
 }
 
+/**
+ * swap_cgroup_cmpxchg - cmpxchg mem_cgroup's id for this swp_entry.
+ * @end: swap entry to be cmpxchged
+ * @old: old id
+ * @new: new id
+ *
+ * Returns old id at success, 0 at failure.
+ * (There is no mem_cgroup using 0 as its id)
+ */
 unsigned short swap_cgroup_cmpxchg(swp_entry_t ent,
 					unsigned short old, unsigned short new)
 {
@@ -357,6 +419,14 @@ unsigned short swap_cgroup_cmpxchg(swp_entry_t ent,
 	return retval;
 }
 
+/**
+ * swap_cgroup_record - record mem_cgroup for this swp_entry.
+ * @ent: swap entry to be recorded into
+ * @mem: mem_cgroup to be recorded
+ *
+ * Returns old value at success, 0 at failure.
+ * (Of course, old value can be 0.)
+ */
 unsigned short swap_cgroup_record(swp_entry_t ent, unsigned short id)
 {
 	struct swap_cgroup_ctrl *ctrl;
@@ -374,6 +444,12 @@ unsigned short swap_cgroup_record(swp_entry_t ent, unsigned short id)
 	return old;
 }
 
+/**
+ * lookup_swap_cgroup_id - lookup mem_cgroup id tied to swap entry
+ * @ent: swap entry to be looked up.
+ *
+ * Returns CSS ID of mem_cgroup at success. 0 at failure. (0 is invalid ID)
+ */
 unsigned short lookup_swap_cgroup_id(swp_entry_t ent)
 {
 	return lookup_swap_cgroup(ent, NULL)->id;
@@ -402,7 +478,7 @@ int swap_cgroup_swapon(int type, unsigned long max_pages)
 	ctrl->map = array;
 	spin_lock_init(&ctrl->lock);
 	if (swap_cgroup_prepare(type)) {
-		
+		/* memory shortage */
 		ctrl->map = NULL;
 		ctrl->length = 0;
 		mutex_unlock(&swap_cgroup_mutex);

@@ -496,7 +496,7 @@ int mlx4_mr_enable(struct mlx4_dev *dev, struct mlx4_mr *mr)
 	}
 
 	if (mr->mtt.order >= 0 && mr->mtt.page_shift == 0) {
-		
+		/* fast register MR in free state */
 		mpt_entry->flags    |= cpu_to_be32(MLX4_MPT_FLAG_FREE);
 		mpt_entry->pd_flags |= cpu_to_be32(MLX4_MPT_PD_FLAG_FAST_REG |
 						   MLX4_MPT_PD_FLAG_RAE);
@@ -560,7 +560,7 @@ int __mlx4_write_mtt(struct mlx4_dev *dev, struct mlx4_mtt *mtt,
 	int mtts_per_page;
 	int max_mtts_first_page;
 
-	
+	/* compute how may mtts fit in the first page */
 	mtts_per_page = PAGE_SIZE / sizeof(u64);
 	max_mtts_first_page = mtts_per_page - (mtt->offset + start_index)
 			      % mtts_per_page;
@@ -657,6 +657,8 @@ int mlx4_init_mr_table(struct mlx4_dev *dev)
 	if (!is_power_of_2(dev->caps.num_mpts))
 		return -EINVAL;
 
+	/* Nothing to do for slaves - all MR handling is forwarded
+	* to the master */
 	if (mlx4_is_slave(dev))
 		return 0;
 
@@ -718,11 +720,11 @@ static inline int mlx4_check_fmr(struct mlx4_fmr *fmr, u64 *page_list,
 
 	page_mask = (1 << fmr->page_shift) - 1;
 
-	
+	/* We are getting page lists, so va must be page aligned. */
 	if (iova & page_mask)
 		return -EINVAL;
 
-	
+	/* Trust the user not to pass misaligned data in page_list */
 	if (0)
 		for (i = 0; i < npages; ++i) {
 			if (page_list[i] & ~page_mask)
@@ -753,7 +755,7 @@ int mlx4_map_phys_fmr(struct mlx4_dev *dev, struct mlx4_fmr *fmr, u64 *page_list
 
 	*(u8 *) fmr->mpt = MLX4_MPT_STATUS_SW;
 
-	
+	/* Make sure MPT status is visible before writing MTT entries */
 	wmb();
 
 	dma_sync_single_for_cpu(&dev->pdev->dev, fmr->dma_handle,
@@ -770,12 +772,12 @@ int mlx4_map_phys_fmr(struct mlx4_dev *dev, struct mlx4_fmr *fmr, u64 *page_list
 	fmr->mpt->length = cpu_to_be64(npages * (1ull << fmr->page_shift));
 	fmr->mpt->start  = cpu_to_be64(iova);
 
-	
+	/* Make MTT entries are visible before setting MPT status */
 	wmb();
 
 	*(u8 *) fmr->mpt = MLX4_MPT_STATUS_HW;
 
-	
+	/* Make sure MPT status is visible before consumer can use FMR */
 	wmb();
 
 	return 0;
@@ -795,7 +797,7 @@ int mlx4_fmr_alloc(struct mlx4_dev *dev, u32 pd, u32 access, int max_pages,
 	if (page_shift < (ffs(dev->caps.page_size_cap) - 1) || page_shift >= 32)
 		return -EINVAL;
 
-	
+	/* All MTTs must fit in the same page */
 	if (max_pages * sizeof *fmr->mtts > PAGE_SIZE)
 		return -EINVAL;
 

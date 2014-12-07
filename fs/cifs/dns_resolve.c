@@ -32,6 +32,16 @@
 #include "cifsproto.h"
 #include "cifs_debug.h"
 
+/**
+ * dns_resolve_server_name_to_ip - Resolve UNC server name to ip address.
+ * @unc: UNC path specifying the server
+ * @ip_addr: Where to return the IP address.
+ *
+ * The IP address will be returned in string form, and the caller is
+ * responsible for freeing it.
+ *
+ * Returns length of result on success, -ve on error.
+ */
 int
 dns_resolve_server_name_to_ip(const char *unc, char **ip_addr)
 {
@@ -49,11 +59,11 @@ dns_resolve_server_name_to_ip(const char *unc, char **ip_addr)
 		return -EINVAL;
 	}
 
-	
+	/* Discount leading slashes for cifs */
 	len -= 2;
 	hostname = unc + 2;
 
-	
+	/* Search for server name delimiter */
 	sep = memchr(hostname, '\\', len);
 	if (sep)
 		len = sep - hostname;
@@ -61,12 +71,12 @@ dns_resolve_server_name_to_ip(const char *unc, char **ip_addr)
 		cFYI(1, "%s: probably server name is whole unc: %s",
 		     __func__, unc);
 
-	
+	/* Try to interpret hostname as an IPv4 or IPv6 address */
 	rc = cifs_convert_address((struct sockaddr *)&ss, hostname, len);
 	if (rc > 0)
 		goto name_is_IP_address;
 
-	
+	/* Perform the upcall */
 	rc = dns_query(NULL, hostname, len, NULL, ip_addr, NULL);
 	if (rc < 0)
 		cFYI(1, "%s: unable to resolve: %*.*s",

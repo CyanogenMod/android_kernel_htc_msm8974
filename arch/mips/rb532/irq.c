@@ -47,7 +47,7 @@
 #include <asm/mach-rc32434/gpio.h>
 
 struct intr_group {
-	u32 mask;	
+	u32 mask;	/* mask of valid bits in pending/mask registers */
 	volatile u32 *base_addr;
 };
 
@@ -149,10 +149,14 @@ static void rb532_disable_irq(struct irq_data *d)
 		mask |= intr_bit;
 		WRITE_MASK(addr, mask);
 
-		
+		/* There is a maximum of 14 GPIO interrupts */
 		if (group == GPIO_MAPPED_IRQ_GROUP && irq_nr <= (GROUP4_IRQ_BASE + 13))
 			rb532_gpio_set_istat(0, irq_nr - GPIO_MAPPED_IRQ_BASE);
 
+		/*
+		 * if there are no more interrupts enabled in this
+		 * group, disable corresponding IP
+		 */
 		if (mask == intr_group[group].mask)
 			disable_local_irq(group_to_ip(group));
 	}
@@ -206,6 +210,7 @@ void __init arch_init_irq(void)
 					 handle_level_irq);
 }
 
+/* Main Interrupt dispatcher */
 asmlinkage void plat_irq_dispatch(void)
 {
 	unsigned int ip, pend, group;
@@ -222,7 +227,7 @@ asmlinkage void plat_irq_dispatch(void)
 			addr = intr_group[group].base_addr;
 
 			pend = READ_PEND(addr);
-			pend &= ~READ_MASK(addr);	
+			pend &= ~READ_MASK(addr);	/* only unmasked interrupts */
 			pend = 39 + (fls(pend) - 32);
 			do_IRQ((group << 5) + pend);
 		}

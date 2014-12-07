@@ -24,7 +24,30 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
+/*
+ * Authors: Thomas Hellstrom <thellstrom-at-vmware-dot-com>
+ */
+/** @file ttm_ref_object.c
+ *
+ * Base- and reference object implementation for the various
+ * ttm objects. Implements reference counting, minimal security checks
+ * and release on file close.
+ */
 
+/**
+ * struct ttm_object_file
+ *
+ * @tdev: Pointer to the ttm_object_device.
+ *
+ * @lock: Lock that protects the ref_list list and the
+ * ref_hash hash tables.
+ *
+ * @ref_list: List of ttm_ref_objects to be destroyed at
+ * file release.
+ *
+ * @ref_hash: Hash tables of ref objects, one per ttm_ref_type,
+ * for fast lookup of ref objects given a base object.
+ */
 
 #define pr_fmt(fmt) "[TTM] " fmt
 
@@ -44,6 +67,17 @@ struct ttm_object_file {
 	struct kref refcount;
 };
 
+/**
+ * struct ttm_object_device
+ *
+ * @object_lock: lock that protects the object_hash hash table.
+ *
+ * @object_hash: hash table for fast lookup of object global names.
+ *
+ * @object_count: Per device object count.
+ *
+ * This is the per-device data structure needed for ttm object management.
+ */
 
 struct ttm_object_device {
 	rwlock_t object_lock;
@@ -52,6 +86,26 @@ struct ttm_object_device {
 	struct ttm_mem_global *mem_glob;
 };
 
+/**
+ * struct ttm_ref_object
+ *
+ * @hash: Hash entry for the per-file object reference hash.
+ *
+ * @head: List entry for the per-file list of ref-objects.
+ *
+ * @kref: Ref count.
+ *
+ * @obj: Base object this ref object is referencing.
+ *
+ * @ref_type: Type of ref object.
+ *
+ * This is similar to an idr object, but it also has a hash table entry
+ * that allows lookup with a pointer to the referenced object as a key. In
+ * that way, one can easily detect whether a base object is referenced by
+ * a particular ttm_object_file. It also carries a ref count to avoid creating
+ * multiple ref objects if a ttm_object_file references the same base
+ * object more than once.
+ */
 
 struct ttm_ref_object {
 	struct drm_hash_item hash;
@@ -148,6 +202,10 @@ void ttm_base_object_unref(struct ttm_base_object **p_base)
 
 	*p_base = NULL;
 
+	/*
+	 * Need to take the lock here to avoid racing with
+	 * users trying to look up the object.
+	 */
 
 	write_lock(&tdev->object_lock);
 	kref_put(&base->refcount, ttm_release_base);
@@ -303,6 +361,10 @@ void ttm_object_file_release(struct ttm_object_file **p_tfile)
 	*p_tfile = NULL;
 	write_lock(&tfile->lock);
 
+	/*
+	 * Since we release the lock within the loop, we have to
+	 * restart it from the beginning each time.
+	 */
 
 	while (!list_empty(&tfile->ref_list)) {
 		list = tfile->ref_list.next;

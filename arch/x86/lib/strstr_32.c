@@ -9,14 +9,14 @@ __asm__ __volatile__(
 	"repne\n\t"
 	"scasb\n\t"
 	"notl %%ecx\n\t"
-	"decl %%ecx\n\t"	
+	"decl %%ecx\n\t"	/* NOTE! This also sets Z if searchstring='' */
 	"movl %%ecx,%%edx\n"
 	"1:\tmovl %6,%%edi\n\t"
 	"movl %%esi,%%eax\n\t"
 	"movl %%edx,%%ecx\n\t"
 	"repe\n\t"
 	"cmpsb\n\t"
-	"je 2f\n\t"		
+	"je 2f\n\t"		/* also works for empty string, see above */
 	"xchgl %%eax,%%esi\n\t"
 	"incl %%esi\n\t"
 	"cmpb $0,-1(%%eax)\n\t"

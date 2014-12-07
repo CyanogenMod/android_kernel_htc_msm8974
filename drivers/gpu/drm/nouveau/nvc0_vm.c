@@ -47,7 +47,7 @@ nvc0_vm_addr(struct nouveau_vma *vma, u64 phys, u32 memtype, u32 target)
 {
 	phys >>= 8;
 
-	phys |= 0x00000001; 
+	phys |= 0x00000001; /* present */
 	if (vma->access & NV_MEM_ACCESS_SYS)
 		phys |= 0x00000002;
 
@@ -117,13 +117,16 @@ nvc0_vm_flush(struct nouveau_vm *vm)
 
 	spin_lock_irqsave(&dev_priv->vm_lock, flags);
 	list_for_each_entry(vpgd, &vm->pgd_list, head) {
+		/* looks like maybe a "free flush slots" counter, the
+		 * faster you write to 0x100cbc to more it decreases
+		 */
 		if (!nv_wait_ne(dev, 0x100c80, 0x00ff0000, 0x00000000)) {
 			NV_ERROR(dev, "vm timeout 0: 0x%08x %d\n",
 				 nv_rd32(dev, 0x100c80), engine);
 		}
 		nv_wr32(dev, 0x100cb8, vpgd->obj->vinst >> 8);
 		nv_wr32(dev, 0x100cbc, 0x80000000 | engine);
-		
+		/* wait for flush to be queued? */
 		if (!nv_wait(dev, 0x100c80, 0x00008000, 0x00008000)) {
 			NV_ERROR(dev, "vm timeout 1: 0x%08x %d\n",
 				 nv_rd32(dev, 0x100c80), engine);

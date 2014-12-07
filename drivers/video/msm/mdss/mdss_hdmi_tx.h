@@ -36,6 +36,7 @@ struct hdmi_tx_platform_data {
 	struct dss_io_data io[HDMI_TX_MAX_IO];
 	struct dss_module_power power_data[HDMI_TX_MAX_PM];
 	u16 ddc_ref_clk;
+	bool drm_workaround;
 };
 
 struct hdmi_audio {
@@ -54,6 +55,9 @@ struct hdmi_tx_ctrl {
 	struct hdmi_audio audio_data;
 
 	struct mutex mutex;
+	struct mutex lut_lock;
+	struct mutex cable_notify_mutex;
+	struct list_head cable_notify_handlers;
 	struct kobject *kobj;
 	struct switch_dev sdev;
 	struct switch_dev audio_sdev;
@@ -77,8 +81,10 @@ struct hdmi_tx_ctrl {
 	struct work_struct hpd_int_work;
 
 	struct work_struct power_off_work;
+	struct work_struct cable_notify_work;
 
 	bool hdcp_feature_on;
+	bool ds_registered;
 	u32 present_hdcp;
 
 	u8 spd_vendor_name[9];
@@ -92,4 +98,5 @@ struct hdmi_tx_ctrl {
 	void *feature_data[HDMI_TX_FEAT_MAX];
 };
 
+int hdmi_hpd_status(void);
 #endif 

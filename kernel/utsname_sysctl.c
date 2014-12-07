@@ -39,6 +39,10 @@ static void put_uts(ctl_table *table, int write, void *which)
 }
 
 #ifdef CONFIG_PROC_SYSCTL
+/*
+ *	Special case of dostring for the UTS structure. This has locks
+ *	to observe. Should this be in kernel/sys.c ????
+ */
 static int proc_do_uts_string(ctl_table *table, int write,
 		  void __user *buffer, size_t *lenp, loff_t *ppos)
 {
@@ -112,6 +116,10 @@ static struct ctl_table uts_root_table[] = {
 };
 
 #ifdef CONFIG_PROC_SYSCTL
+/*
+ * Notify userspace about a change in a certain entry of uts_kern_table,
+ * identified by the parameter proc.
+ */
 void uts_proc_notify(enum uts_proc proc)
 {
 	struct ctl_table *table = &uts_kern_table[proc];

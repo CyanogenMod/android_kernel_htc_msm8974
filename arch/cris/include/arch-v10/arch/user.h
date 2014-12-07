@@ -1,8 +1,11 @@
 #ifndef __ASM_CRIS_ARCH_USER_H
 #define __ASM_CRIS_ARCH_USER_H
 
+/* User mode registers, used for core dumps. In order to keep ELF_NGREG
+   sensible we let all registers be 32 bits. The csr registers are included
+   for future use. */
 struct user_regs_struct {
-        unsigned long r0;       
+        unsigned long r0;       /* General registers. */
         unsigned long r1;
         unsigned long r2;
         unsigned long r3;
@@ -16,25 +19,26 @@ struct user_regs_struct {
         unsigned long r11;
         unsigned long r12;
         unsigned long r13;
-        unsigned long sp;       
-        unsigned long pc;       
-        unsigned long p0;       
-        unsigned long vr;       
-        unsigned long p2;       
-        unsigned long p3;       
-        unsigned long p4;       
-        unsigned long ccr;      
-        unsigned long p6;       
-        unsigned long mof;      
-        unsigned long p8;       
-        unsigned long ibr;      
-        unsigned long irp;      
-        unsigned long srp;      
-        unsigned long bar;      
-        unsigned long dccr;     
-        unsigned long brp;      
-        unsigned long usp;      
-        unsigned long csrinstr; 
+        unsigned long sp;       /* Stack pointer. */
+        unsigned long pc;       /* Program counter. */
+        unsigned long p0;       /* Constant zero (only 8 bits). */
+        unsigned long vr;       /* Version register (only 8 bits). */
+        unsigned long p2;       /* Reserved. */
+        unsigned long p3;       /* Reserved. */
+        unsigned long p4;       /* Constant zero (only 16 bits). */
+        unsigned long ccr;      /* Condition code register (only 16 bits). */
+        unsigned long p6;       /* Reserved. */
+        unsigned long mof;      /* Multiply overflow register. */
+        unsigned long p8;       /* Constant zero. */
+        unsigned long ibr;      /* Not accessible. */
+        unsigned long irp;      /* Not accessible. */
+        unsigned long srp;      /* Subroutine return pointer. */
+        unsigned long bar;      /* Not accessible. */
+        unsigned long dccr;     /* Dword condition code register. */
+        unsigned long brp;      /* Not accessible. */
+        unsigned long usp;      /* User-mode stack pointer. Same as sp when 
+                                   in user mode. */
+        unsigned long csrinstr; /* Internal status registers. */
         unsigned long csraddr;
         unsigned long csrdata;
 };

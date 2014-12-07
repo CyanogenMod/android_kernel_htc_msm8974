@@ -12,4 +12,4 @@
 
 #define MWAIT_ECX_INTERRUPT_BREAK	0x1
 
-#endif 
+#endif /* _ASM_X86_MWAIT_H */

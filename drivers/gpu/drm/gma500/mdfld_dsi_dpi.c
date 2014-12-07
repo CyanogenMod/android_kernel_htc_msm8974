@@ -41,7 +41,7 @@ static void mdfld_wait_for_HS_DATA_FIFO(struct drm_device *dev, u32 pipe)
 
 	udelay(500);
 
-	
+	/* This will time out after approximately 2+ seconds */
 	while ((timeout < 20000) &&
 		(REG_READ(gen_fifo_stat_reg) & DSI_FIFO_GEN_HS_DATA_FULL)) {
 		udelay(100);
@@ -59,7 +59,7 @@ static void mdfld_wait_for_HS_CTRL_FIFO(struct drm_device *dev, u32 pipe)
 
 	udelay(500);
 
-	
+	/* This will time out after approximately 2+ seconds */
 	while ((timeout < 20000) && (REG_READ(gen_fifo_stat_reg)
 					& DSI_FIFO_GEN_HS_CTRL_FULL)) {
 		udelay(100);
@@ -76,7 +76,7 @@ static void mdfld_wait_for_DPI_CTRL_FIFO(struct drm_device *dev, u32 pipe)
 
 	udelay(500);
 
-	
+	/* This will time out after approximately 2+ seconds */
 	while ((timeout < 20000) && ((REG_READ(gen_fifo_stat_reg) &
 					DPI_FIFO_EMPTY) != DPI_FIFO_EMPTY)) {
 		udelay(100);
@@ -94,7 +94,7 @@ static void mdfld_wait_for_SPL_PKG_SENT(struct drm_device *dev, u32 pipe)
 
 	udelay(500);
 
-	
+	/* This will time out after approximately 2+ seconds */
 	while ((timeout < 20000) && (!(REG_READ(intr_stat_reg)
 					& DSI_INTR_STATE_SPL_PKG_SENT))) {
 		udelay(100);
@@ -105,6 +105,7 @@ static void mdfld_wait_for_SPL_PKG_SENT(struct drm_device *dev, u32 pipe)
                 DRM_ERROR("MIPI: SPL_PKT_SENT_INTERRUPT was not sent successfully!\n");
 }
 
+/* For TC35876X */
 
 static void dsi_set_device_ready_state(struct drm_device *dev, int state,
 				int pipe)
@@ -129,34 +130,34 @@ static void dsi_set_pipe_plane_enable_state(struct drm_device *dev,
 		mipi &= (~0x03);
 
 	if (state) {
-		
+		/*Set up pipe */
 		REG_WRITE(pipeconf_reg, BIT(31));
 
 		if (REG_BIT_WAIT(pipeconf_reg, 1, 30))
 			dev_err(&dev->pdev->dev, "%s: Pipe enable timeout\n",
 				__func__);
 
-		
+		/*Set up display plane */
 		REG_WRITE(dspcntr_reg, dspcntr);
 	} else {
 		u32 dspbase_reg = pipe ? MDFLD_DSPCBASE : MRST_DSPABASE;
 
-		
+		/* Put DSI lanes to ULPS to disable pipe */
 		REG_FLD_MOD(MIPI_DEVICE_READY_REG(pipe), 2, 2, 1);
-		REG_READ(MIPI_DEVICE_READY_REG(pipe)); 
+		REG_READ(MIPI_DEVICE_READY_REG(pipe)); /* posted write? */
 
-		
+		/* LP Hold */
 		REG_FLD_MOD(MIPI_PORT_CONTROL(pipe), 0, 16, 16);
-		REG_READ(MIPI_PORT_CONTROL(pipe)); 
+		REG_READ(MIPI_PORT_CONTROL(pipe)); /* posted write? */
 
-		
+		/* Disable display plane */
 		REG_FLD_MOD(dspcntr_reg, 0, 31, 31);
 
-		
+		/* Flush the plane changes ??? posted write? */
 		REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 		REG_READ(dspbase_reg);
 
-		
+		/* Disable PIPE */
 		REG_FLD_MOD(pipeconf_reg, 0, 31, 31);
 
 		if (REG_BIT_WAIT(pipeconf_reg, 0, 30))
@@ -205,17 +206,26 @@ static void mdfld_dsi_configure_up(struct mdfld_dsi_encoder *dsi_encoder,
 		return;
 	}
 
-	
+	/* For resume path sequence */
 	mdfld_dsi_dpi_shut_down(dpi_output, pipe);
 	dsi_set_device_ready_state(dev, 0, pipe);
 
 	dsi_set_device_ready_state(dev, 1, pipe);
 	tc35876x_set_bridge_reset_state(dev, 0);
 	tc35876x_configure_lvds_bridge(dev);
-	mdfld_dsi_dpi_turn_on(dpi_output, pipe);  
+	mdfld_dsi_dpi_turn_on(dpi_output, pipe);  /* Send turn on command */
 	dsi_set_pipe_plane_enable_state(dev, 1, pipe);
 }
+/* End for TC35876X */
 
+/* ************************************************************************* *\
+ * FUNCTION: mdfld_dsi_tpo_ic_init
+ *
+ * DESCRIPTION:  This function is called only by mrst_dsi_mode_set and
+ *               restore_display_registers.  since this function does not
+ *               acquire the mutex, it is important that the calling function
+ *               does!
+\* ************************************************************************* */
 static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 {
 	struct drm_device *dev = dsi_config->dev;
@@ -228,31 +238,31 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 
 	gen_ctrl_val |= dcsChannelNumber << DCS_CHANNEL_NUMBER_POS;
 
-	
+	/* Flip page order */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x00008036);
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x02 << WORD_COUNTS_POS));
 
-	
+	/* 0xF0 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x005a5af0);
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x03 << WORD_COUNTS_POS));
 
-	
+	/* Write protection key */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x005a5af1);
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x03 << WORD_COUNTS_POS));
 
-	
+	/* 0xFC */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x005a5afc);
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x03 << WORD_COUNTS_POS));
 
-	
+	/* 0xB7 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x770000b7);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -260,13 +270,13 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x05 << WORD_COUNTS_POS));
 
-	
+	/* 0xB6 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x000a0ab6);
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x03 << WORD_COUNTS_POS));
 
-	
+	/* 0xF2 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x081010f2);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -276,7 +286,7 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x09 << WORD_COUNTS_POS));
 
-	
+	/* 0xF8 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x024003f8);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -288,7 +298,7 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x0d << WORD_COUNTS_POS));
 
-	
+	/* 0xE2 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x398fc3e2);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -296,13 +306,13 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x06 << WORD_COUNTS_POS));
 
-	
+	/* 0xB0 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x000000b0);
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x02 << WORD_COUNTS_POS));
 
-	
+	/* 0xF4 */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x240242f4);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -316,7 +326,7 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x14 << WORD_COUNTS_POS));
 
-	
+	/* 0xBA */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x19fe07ba);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -326,7 +336,7 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x09 << WORD_COUNTS_POS));
 
-	
+	/* 0xBB */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x28ff07bb);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -336,7 +346,7 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x09 << WORD_COUNTS_POS));
 
-	
+	/* 0xFB */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x535d05fb);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -366,7 +376,7 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x31 << WORD_COUNTS_POS));
 
-	
+	/* 0xFA */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x525c0bfa);
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
@@ -396,7 +406,7 @@ static void mdfld_dsi_tpo_ic_init(struct mdfld_dsi_config *dsi_config, u32 pipe)
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
 	REG_WRITE(gen_ctrl_reg, gen_ctrl_val | (0x31 << WORD_COUNTS_POS));
 
-	
+	/* Set DM */
 	mdfld_wait_for_HS_DATA_FIFO(dev, pipe);
 	REG_WRITE(gen_data_reg, 0x000100f7);
 	mdfld_wait_for_HS_CTRL_FIFO(dev, pipe);
@@ -409,6 +419,12 @@ static u16 mdfld_dsi_dpi_to_byte_clock_count(int pixel_clock_count,
 	return (u16)((pixel_clock_count * bpp) / (num_lane * 8));
 }
 
+/*
+ * Calculate the dpi time basing on a given drm mode @mode
+ * return 0 on success.
+ * FIXME: I was using proposed mode value for calculation, may need to
+ * use crtc mode values later
+ */
 int mdfld_dsi_dpi_timing_calculation(struct drm_display_mode *mode,
 				struct mdfld_dsi_dpi_timing *dpi_timing,
 				int num_lane, int bpp)
@@ -425,6 +441,10 @@ int mdfld_dsi_dpi_timing_calculation(struct drm_display_mode *mode,
 	pclk_vsync = mode->vsync_end - mode->vsync_start;
 	pclk_vbp = mode->vtotal - mode->vsync_end;
 
+	/*
+	 * byte clock counts were calculated by following formula
+	 * bclock_count = pclk_count * bpp / num_lane / 8
+	 */
 	dpi_timing->hsync_count = mdfld_dsi_dpi_to_byte_clock_count(
 						pclk_hsync, num_lane, bpp);
 	dpi_timing->hbp_count = mdfld_dsi_dpi_to_byte_clock_count(
@@ -452,16 +472,16 @@ void mdfld_dsi_dpi_controller_init(struct mdfld_dsi_config *dsi_config,
 	struct drm_display_mode *mode = dsi_config->mode;
 	u32 val;
 
-	
+	/*un-ready device*/
 	REG_FLD_MOD(MIPI_DEVICE_READY_REG(pipe), 0, 0, 0);
 
-	
+	/*init dsi adapter before kicking off*/
 	REG_WRITE(MIPI_CTRL_REG(pipe), 0x00000018);
 
-	
+	/*enable all interrupts*/
 	REG_WRITE(MIPI_INTR_EN_REG(pipe), 0xffffffff);
 
-	
+	/*set up func_prg*/
 	val = lane_count;
 	val |= dsi_config->channel_num << DSI_DPI_VIRT_CHANNEL_OFFSET;
 
@@ -487,18 +507,18 @@ void mdfld_dsi_dpi_controller_init(struct mdfld_dsi_config *dsi_config,
 	REG_WRITE(MIPI_LP_RX_TIMEOUT_REG(pipe),
 				0xffff & DSI_LP_RX_TIMEOUT_MASK);
 
-	
+	/*max value: 20 clock cycles of txclkesc*/
 	REG_WRITE(MIPI_TURN_AROUND_TIMEOUT_REG(pipe),
 				0x14 & DSI_TURN_AROUND_TIMEOUT_MASK);
 
-	
+	/*min 21 txclkesc, max: ffffh*/
 	REG_WRITE(MIPI_DEVICE_RESET_TIMER_REG(pipe),
 				0xffff & DSI_RESET_TIMER_MASK);
 
 	REG_WRITE(MIPI_DPI_RESOLUTION_REG(pipe),
 				mode->vdisplay << 16 | mode->hdisplay);
 
-	
+	/*set DPI timing registers*/
 	mdfld_dsi_dpi_timing_calculation(mode, &dpi_timing,
 				dsi_config->lane_count, dsi_config->bpp);
 
@@ -519,10 +539,10 @@ void mdfld_dsi_dpi_controller_init(struct mdfld_dsi_config *dsi_config,
 
 	REG_WRITE(MIPI_HIGH_LOW_SWITCH_COUNT_REG(pipe), 0x46);
 
-	
+	/*min: 7d0 max: 4e20*/
 	REG_WRITE(MIPI_INIT_COUNT_REG(pipe), 0x000007d0);
 
-	
+	/*set up video mode*/
 	val = dsi_config->video_mode | DSI_DPI_COMPLETE_LAST_LINE;
 	REG_WRITE(MIPI_VIDEO_MODE_FORMAT_REG(pipe), val);
 
@@ -530,7 +550,7 @@ void mdfld_dsi_dpi_controller_init(struct mdfld_dsi_config *dsi_config,
 
 	REG_WRITE(MIPI_LP_BYTECLK_REG(pipe), 0x00000004);
 
-	
+	/*TODO: figure out how to setup these registers*/
 	if (mdfld_get_panel_type(dev, pipe) == TC35876X)
 		REG_WRITE(MIPI_DPHY_PARAM_REG(pipe), 0x2A0c6008);
 	else
@@ -539,9 +559,9 @@ void mdfld_dsi_dpi_controller_init(struct mdfld_dsi_config *dsi_config,
 	REG_WRITE(MIPI_CLK_LANE_SWITCH_TIME_CNT_REG(pipe), (0xa << 16) | 0x14);
 
 	if (mdfld_get_panel_type(dev, pipe) == TC35876X)
-		tc35876x_set_bridge_reset_state(dev, 0);  
+		tc35876x_set_bridge_reset_state(dev, 0);  /*Pull High Reset */
 
-	
+	/*set device ready*/
 	REG_FLD_MOD(MIPI_DEVICE_READY_REG(pipe), 1, 0, 0);
 }
 
@@ -549,15 +569,15 @@ void mdfld_dsi_dpi_turn_on(struct mdfld_dsi_dpi_output *output, int pipe)
 {
 	struct drm_device *dev = output->dev;
 
-	
+	/* clear special packet sent bit */
 	if (REG_READ(MIPI_INTR_STAT_REG(pipe)) & DSI_INTR_STATE_SPL_PKG_SENT)
 		REG_WRITE(MIPI_INTR_STAT_REG(pipe),
 					DSI_INTR_STATE_SPL_PKG_SENT);
 
-	
+	/*send turn on package*/
 	REG_WRITE(MIPI_DPI_CONTROL_REG(pipe), DSI_DPI_CTRL_HS_TURN_ON);
 
-	
+	/*wait for SPL_PKG_SENT interrupt*/
 	mdfld_wait_for_SPL_PKG_SENT(dev, pipe);
 
 	if (REG_READ(MIPI_INTR_STAT_REG(pipe)) & DSI_INTR_STATE_SPL_PKG_SENT)
@@ -566,6 +586,12 @@ void mdfld_dsi_dpi_turn_on(struct mdfld_dsi_dpi_output *output, int pipe)
 
 	output->panel_on = 1;
 
+	/* FIXME the following is disabled to WA the X slow start issue
+	   for TMD panel
+	if (pipe == 2)
+		dev_priv->dpi_panel_on2 = true;
+	else if (pipe == 0)
+		dev_priv->dpi_panel_on = true; */
 }
 
 static void mdfld_dsi_dpi_shut_down(struct mdfld_dsi_dpi_output *output,
@@ -573,16 +599,16 @@ static void mdfld_dsi_dpi_shut_down(struct mdfld_dsi_dpi_output *output,
 {
 	struct drm_device *dev = output->dev;
 
-	
+	/*if output is on, or mode setting didn't happen, ignore this*/
 	if ((!output->panel_on) || output->first_boot) {
 		output->first_boot = 0;
 		return;
 	}
 
-	
+	/* Wait for dpi fifo to empty */
 	mdfld_wait_for_DPI_CTRL_FIFO(dev, pipe);
 
-	
+	/* Clear the special packet interrupt bit if set */
 	if (REG_READ(MIPI_INTR_STAT_REG(pipe)) & DSI_INTR_STATE_SPL_PKG_SENT)
 		REG_WRITE(MIPI_INTR_STAT_REG(pipe),
 					DSI_INTR_STATE_SPL_PKG_SENT);
@@ -596,6 +622,12 @@ shutdown_out:
 	output->panel_on = 0;
 	output->first_boot = 0;
 
+	/* FIXME the following is disabled to WA the X slow start issue
+	   for TMD panel
+	if (pipe == 2)
+		dev_priv->dpi_panel_on2 = false;
+	else if (pipe == 0)
+		dev_priv->dpi_panel_on = false;	 */
 }
 
 static void mdfld_dsi_dpi_set_power(struct drm_encoder *encoder, bool on)
@@ -609,7 +641,7 @@ static void mdfld_dsi_dpi_set_power(struct drm_encoder *encoder, bool on)
 	struct drm_device *dev = dsi_config->dev;
 	struct drm_psb_private *dev_priv = dev->dev_private;
 
-	
+	/*start up display island if it was shutdown*/
 	if (!gma_power_begin(dev, true))
 		return;
 
@@ -619,7 +651,7 @@ static void mdfld_dsi_dpi_set_power(struct drm_encoder *encoder, bool on)
 		else if (mdfld_get_panel_type(dev, pipe) == TC35876X)
 			mdfld_dsi_configure_up(dsi_encoder, pipe);
 		else {
-			
+			/*enable mipi port*/
 			REG_WRITE(MIPI_PORT_CONTROL(pipe),
 				REG_READ(MIPI_PORT_CONTROL(pipe)) | BIT(31));
 			REG_READ(MIPI_PORT_CONTROL(pipe));
@@ -636,7 +668,7 @@ static void mdfld_dsi_dpi_set_power(struct drm_encoder *encoder, bool on)
 		else {
 			mdfld_dsi_dpi_shut_down(dpi_output, pipe);
 
-			
+			/*disable mipi port*/
 			REG_WRITE(MIPI_PORT_CONTROL(pipe),
 				REG_READ(MIPI_PORT_CONTROL(pipe)) & ~BIT(31));
 			REG_READ(MIPI_PORT_CONTROL(pipe));
@@ -685,6 +717,9 @@ void mdfld_dsi_dpi_commit(struct drm_encoder *encoder)
 	mdfld_dsi_dpi_set_power(encoder, true);
 }
 
+/* For TC35876X */
+/* This functionality was implemented in FW in iCDK */
+/* But removed in DV0 and later. So need to add here. */
 static void mipi_set_properties(struct mdfld_dsi_config *dsi_config, int pipe)
 {
 	struct drm_device *dev = dsi_config->dev;
@@ -748,7 +783,7 @@ static void mdfld_mipi_config(struct mdfld_dsi_config *dsi_config, int pipe)
 	REG_WRITE(MIPI_DPHY_PARAM_REG(pipe), 0x150A600F);
 	REG_WRITE(MIPI_VIDEO_MODE_FORMAT_REG(pipe), 0x0000000F);
 
-	
+	/* lane_count = 3 */
 	REG_WRITE(MIPI_DSI_FUNC_PRG_REG(pipe), 0x00000200 | lane_count);
 
 	mdfld_mipi_set_video_timing(dsi_config, pipe);
@@ -772,6 +807,7 @@ static void mdfld_set_pipe_timing(struct mdfld_dsi_config *dsi_config, int pipe)
 	REG_WRITE(PIPEASRC,
 		((mode->hdisplay - 1) << 16) | (mode->vdisplay - 1));
 }
+/* End for TC35876X */
 
 void mdfld_dsi_dpi_mode_set(struct drm_encoder *encoder,
 				   struct drm_display_mode *mode,
@@ -798,20 +834,24 @@ void mdfld_dsi_dpi_mode_set(struct drm_encoder *encoder,
 		dspcntr_reg = DSPCCNTR;
 	} else {
 		if (mdfld_get_panel_type(dev, pipe) == TC35876X)
-			mipi &= (~0x03); 
+			mipi &= (~0x03); /* Use all four lanes */
 		else
 			mipi |= 2;
 	}
 
-	
+	/*start up display island if it was shutdown*/
 	if (!gma_power_begin(dev, true))
 		return;
 
 	if (mdfld_get_panel_type(dev, pipe) == TC35876X) {
-		tc35876x_set_bridge_reset_state(dev, 0);  
+		/*
+		 * The following logic is required to reset the bridge and
+		 * configure. This also starts the DSI clock at 200MHz.
+		 */
+		tc35876x_set_bridge_reset_state(dev, 0);  /*Pull High Reset */
 		tc35876x_toshiba_bridge_panel_on(dev);
 		udelay(100);
-		
+		/* Now start the DSI clock */
 		REG_WRITE(MRST_DPLL_A, 0x00);
 		REG_WRITE(MRST_FPA0, 0xC1);
 		REG_WRITE(MRST_DPLL_A, 0x00800000);
@@ -841,49 +881,54 @@ void mdfld_dsi_dpi_mode_set(struct drm_encoder *encoder,
 
 		REG_WRITE(MIPI_PORT_CONTROL(pipe), 0x80810000);
 	} else {
-		
+		/*set up mipi port FIXME: do at init time */
 		REG_WRITE(MIPI_PORT_CONTROL(pipe), mipi);
 	}
 	REG_READ(MIPI_PORT_CONTROL(pipe));
 
 	if (mdfld_get_panel_type(dev, pipe) == TMD_VID) {
-		
+		/* NOP */
 	} else if (mdfld_get_panel_type(dev, pipe) == TC35876X) {
-		
+		/* set up DSI controller DPI interface */
 		mdfld_dsi_dpi_controller_init(dsi_config, pipe);
 
-		
+		/* Configure MIPI Bridge and Panel */
 		tc35876x_configure_lvds_bridge(dev);
 		dev_priv->dpi_panel_on[pipe] = true;
 	} else {
-		
+		/*turn on DPI interface*/
 		mdfld_dsi_dpi_turn_on(dpi_output, pipe);
 	}
 
-	
+	/*set up pipe*/
 	REG_WRITE(pipeconf_reg, pipeconf);
 	REG_READ(pipeconf_reg);
 
-	
+	/*set up display plane*/
 	REG_WRITE(dspcntr_reg, dspcntr);
 	REG_READ(dspcntr_reg);
 
-	msleep(20); 
+	msleep(20); /* FIXME: this should wait for vblank */
 
 	if (mdfld_get_panel_type(dev, pipe) == TMD_VID) {
-		
+		/* NOP */
 	} else if (mdfld_get_panel_type(dev, pipe) == TC35876X) {
 		mdfld_dsi_dpi_turn_on(dpi_output, pipe);
 	} else {
-		
+		/* init driver ic */
 		mdfld_dsi_tpo_ic_init(dsi_config, pipe);
-		
+		/*init backlight*/
 		mdfld_dsi_brightness_init(dsi_config, pipe);
 	}
 
 	gma_power_end(dev);
 }
 
+/*
+ * Init DSI DPI encoder.
+ * Allocate an mdfld_dsi_encoder and attach it to given @dsi_connector
+ * return pointer of newly allocated DPI encoder, NULL on error
+ */
 struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 				struct mdfld_dsi_connector *dsi_connector,
 				const struct panel_funcs *p_funcs)
@@ -901,7 +946,7 @@ struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 	if (mdfld_get_panel_type(dev, pipe) != TC35876X) {
 		dsi_config = mdfld_dsi_get_config(dsi_connector);
 
-		
+		/* panel hard-reset */
 		if (p_funcs->reset) {
 			ret = p_funcs->reset(pipe);
 			if (ret) {
@@ -910,11 +955,11 @@ struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 			}
 		}
 
-		
+		/* panel drvIC init */
 		if (p_funcs->drv_ic_init)
 			p_funcs->drv_ic_init(dsi_config, pipe);
 
-		
+		/* panel power mode detect */
 		ret = mdfld_dsi_get_power_mode(dsi_config, &data, false);
 		if (ret) {
 			DRM_ERROR("Panel %d get power mode failed\n", pipe);
@@ -941,10 +986,10 @@ struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 		dpi_output->p_funcs = p_funcs;
 	dpi_output->first_boot = 1;
 
-	
+	/*get fixed mode*/
 	dsi_config = mdfld_dsi_get_config(dsi_connector);
 
-	
+	/*create drm encoder object*/
 	connector = &dsi_connector->base.base;
 	encoder = &dpi_output->base.base.base;
 	drm_encoder_init(dev,
@@ -954,10 +999,10 @@ struct mdfld_dsi_encoder *mdfld_dsi_dpi_init(struct drm_device *dev,
 	drm_encoder_helper_add(encoder,
 				p_funcs->encoder_helper_funcs);
 
-	
+	/*attach to given connector*/
 	drm_mode_connector_attach_encoder(connector, encoder);
 
-	
+	/*set possible crtcs and clones*/
 	if (dsi_connector->pipe) {
 		encoder->possible_crtcs = (1 << 2);
 		encoder->possible_clones = (1 << 1);

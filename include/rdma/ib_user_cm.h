@@ -62,6 +62,9 @@ enum {
 	IB_USER_CM_CMD_EVENT,
 	IB_USER_CM_CMD_INIT_QP_ATTR,
 };
+/*
+ * command ABI structures.
+ */
 struct ib_ucm_cmd_hdr {
 	__u32 cmd;
 	__u16 in;
@@ -214,6 +217,9 @@ struct ib_ucm_sidr_rep {
 	__u8  data_len;
 	__u8  reserved[6];
 };
+/*
+ * event notification ABI structures.
+ */
 struct ib_ucm_event_get {
 	__u64 response;
 	__u64 data;
@@ -260,7 +266,7 @@ struct ib_ucm_rep_event_resp {
 
 struct ib_ucm_rej_event_resp {
 	__u32 reason;
-	
+	/* ari in ib_ucm_event_get info field. */
 };
 
 struct ib_ucm_mra_event_resp {
@@ -274,7 +280,7 @@ struct ib_ucm_lap_event_resp {
 
 struct ib_ucm_apr_event_resp {
 	__u32 status;
-	
+	/* apr info in ib_ucm_event_get info field. */
 };
 
 struct ib_ucm_sidr_req_event_resp {
@@ -287,7 +293,7 @@ struct ib_ucm_sidr_rep_event_resp {
 	__u32 status;
 	__u32 qkey;
 	__u32 qpn;
-	
+	/* info in ib_ucm_event_get info field. */
 };
 
 #define IB_UCM_PRES_DATA      0x01
@@ -316,4 +322,4 @@ struct ib_ucm_event_resp {
 	} u;
 };
 
-#endif 
+#endif /* IB_USER_CM_H */

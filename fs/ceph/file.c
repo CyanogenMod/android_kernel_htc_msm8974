@@ -10,8 +10,32 @@
 #include "super.h"
 #include "mds_client.h"
 
+/*
+ * Ceph file operations
+ *
+ * Implement basic open/close functionality, and implement
+ * read/write.
+ *
+ * We implement three modes of file I/O:
+ *  - buffered uses the generic_file_aio_{read,write} helpers
+ *
+ *  - synchronous is used when there is multi-client read/write
+ *    sharing, avoids the page cache, and synchronously waits for an
+ *    ack from the OSD.
+ *
+ *  - direct io takes the variant of the sync path that references
+ *    user pages directly.
+ *
+ * fsync() flushes and waits on dirty pages, but just queues metadata
+ * for writeback: since the MDS can recover size and mtime there is no
+ * need to wait for MDS acknowledgement.
+ */
 
 
+/*
+ * Prepare an open request.  Preallocate ceph_cap to avoid an
+ * inopportune ENOMEM later.
+ */
 static struct ceph_mds_request *
 prepare_open_request(struct super_block *sb, int flags, int create_mode)
 {
@@ -35,6 +59,10 @@ out:
 	return req;
 }
 
+/*
+ * initialize private struct file data.
+ * if we fail, clean up by dropping fmode reference on the ceph_inode
+ */
 static int ceph_init_file(struct inode *inode, struct file *file, int fmode)
 {
 	struct ceph_file_info *cf;
@@ -47,7 +75,7 @@ static int ceph_init_file(struct inode *inode, struct file *file, int fmode)
 		     inode->i_mode);
 		cf = kmem_cache_alloc(ceph_file_cachep, GFP_NOFS | __GFP_ZERO);
 		if (cf == NULL) {
-			ceph_put_fmode(ceph_inode(inode), fmode); 
+			ceph_put_fmode(ceph_inode(inode), fmode); /* clean up */
 			return -ENOMEM;
 		}
 		cf->fmode = fmode;
@@ -59,21 +87,34 @@ static int ceph_init_file(struct inode *inode, struct file *file, int fmode)
 	case S_IFLNK:
 		dout("init_file %p %p 0%o (symlink)\n", inode, file,
 		     inode->i_mode);
-		ceph_put_fmode(ceph_inode(inode), fmode); 
+		ceph_put_fmode(ceph_inode(inode), fmode); /* clean up */
 		break;
 
 	default:
 		dout("init_file %p %p 0%o (special)\n", inode, file,
 		     inode->i_mode);
-		ceph_put_fmode(ceph_inode(inode), fmode); 
+		/*
+		 * we need to drop the open ref now, since we don't
+		 * have .release set to ceph_release.
+		 */
+		ceph_put_fmode(ceph_inode(inode), fmode); /* clean up */
 		BUG_ON(inode->i_fop->release == ceph_release);
 
-		
+		/* call the proper open fop */
 		ret = inode->i_fop->open(inode, file);
 	}
 	return ret;
 }
 
+/*
+ * If the filp already has private_data, that means the file was
+ * already opened by intent during lookup, and we do nothing.
+ *
+ * If we already have the requisite capabilities, we can satisfy
+ * the open request locally (no need to request new caps from the
+ * MDS).  We do, however, need to inform the MDS (asynchronously)
+ * if our wanted caps set expands.
+ */
 int ceph_open(struct inode *inode, struct file *file)
 {
 	struct ceph_inode_info *ci = ceph_inode(inode);
@@ -90,21 +131,21 @@ int ceph_open(struct inode *inode, struct file *file)
 		return 0;
 	}
 
-	
+	/* filter out O_CREAT|O_EXCL; vfs did that already.  yuck. */
 	flags = file->f_flags & ~(O_CREAT|O_EXCL);
 	if (S_ISDIR(inode->i_mode))
-		flags = O_DIRECTORY;  
+		flags = O_DIRECTORY;  /* mds likes to know */
 
 	dout("open inode %p ino %llx.%llx file %p flags %d (%d)\n", inode,
 	     ceph_vinop(inode), file, flags, file->f_flags);
 	fmode = ceph_flags_to_mode(flags);
 	wanted = ceph_caps_for_mode(fmode);
 
-	
+	/* snapped files are read-only */
 	if (ceph_snap(inode) != CEPH_NOSNAP && (file->f_mode & FMODE_WRITE))
 		return -EROFS;
 
-	
+	/* trivially open snapdir */
 	if (ceph_snap(inode) == CEPH_SNAPDIR) {
 		spin_lock(&ci->i_ceph_lock);
 		__ceph_get_fmode(ci, fmode);
@@ -112,6 +153,11 @@ int ceph_open(struct inode *inode, struct file *file)
 		return ceph_init_file(inode, file, fmode);
 	}
 
+	/*
+	 * No need to block if we have caps on the auth MDS (for
+	 * write) or any MDS (for read).  Update wanted set
+	 * asynchronously.
+	 */
 	spin_lock(&ci->i_ceph_lock);
 	if (__ceph_is_any_real_caps(ci) &&
 	    (((fmode & CEPH_FILE_MODE_WR) == 0) || ci->i_auth_cap)) {
@@ -124,7 +170,7 @@ int ceph_open(struct inode *inode, struct file *file)
 		__ceph_get_fmode(ci, fmode);
 		spin_unlock(&ci->i_ceph_lock);
 
-		
+		/* adjust wanted? */
 		if ((issued & wanted) != wanted &&
 		    (mds_wanted & wanted) != wanted &&
 		    ceph_snap(inode) != CEPH_SNAPDIR)
@@ -161,6 +207,18 @@ out:
 }
 
 
+/*
+ * Do a lookup + open with a single request.
+ *
+ * If this succeeds, but some subsequent check in the vfs
+ * may_open() fails, the struct *file gets cleaned up (i.e.
+ * ceph_release gets called).  So fear not!
+ */
+/*
+ * flags
+ *  path_lookup_open   -> LOOKUP_OPEN
+ *  path_lookup_create -> LOOKUP_OPEN|LOOKUP_CREATE
+ */
 struct dentry *ceph_lookup_open(struct inode *dir, struct dentry *dentry,
 				struct nameidata *nd, int mode,
 				int locked_dir)
@@ -176,7 +234,7 @@ struct dentry *ceph_lookup_open(struct inode *dir, struct dentry *dentry,
 	dout("ceph_lookup_open dentry %p '%.*s' flags %d mode 0%o\n",
 	     dentry, dentry->d_name.len, dentry->d_name.name, flags, mode);
 
-	
+	/* do the open */
 	req = prepare_open_request(dir->i_sb, flags, mode);
 	if (IS_ERR(req))
 		return ERR_CAST(req);
@@ -186,7 +244,7 @@ struct dentry *ceph_lookup_open(struct inode *dir, struct dentry *dentry,
 		req->r_dentry_drop = CEPH_CAP_FILE_SHARED;
 		req->r_dentry_unless = CEPH_CAP_FILE_EXCL;
 	}
-	req->r_locked_dir = dir;           
+	req->r_locked_dir = dir;           /* caller holds dir->i_mutex */
 	err = ceph_mdsc_do_request(mdsc,
 				   (flags & (O_CREAT|O_TRUNC)) ? dir : NULL,
 				   req);
@@ -221,11 +279,18 @@ int ceph_release(struct inode *inode, struct file *file)
 	dput(cf->dentry);
 	kmem_cache_free(ceph_file_cachep, cf);
 
-	
+	/* wake up anyone waiting for caps on this inode */
 	wake_up_all(&ci->i_cap_wq);
 	return 0;
 }
 
+/*
+ * Read a range of bytes striped over one or more objects.  Iterate over
+ * objects we stripe over.  (That's not atomic, but good enough for now.)
+ *
+ * If we get a short result from the OSD, check against i_size; we need to
+ * only return a short read to the caller if we hit EOF.
+ */
 static int striped_read(struct inode *inode,
 			u64 off, u64 len,
 			struct page **pages, int num_pages,
@@ -242,6 +307,9 @@ static int striped_read(struct inode *inode,
 	int ret;
 	bool hit_stripe, was_short;
 
+	/*
+	 * we may need to do multiple reads.  not atomic, unfortunately.
+	 */
 	pos = off;
 	left = len;
 	page_pos = pages;
@@ -281,17 +349,17 @@ more:
 		page_pos += didpages;
 		pages_left -= didpages;
 
-		
+		/* hit stripe? */
 		if (left && hit_stripe)
 			goto more;
 	}
 
 	if (was_short) {
-		
+		/* did we bounce off eof? */
 		if (pos + left > inode->i_size)
 			*checkeof = 1;
 
-		
+		/* zero trailing bytes (inside i_size) */
 		if (left > 0 && pos < inode->i_size) {
 			if (pos + left > inode->i_size)
 				left = inode->i_size - pos;
@@ -309,6 +377,12 @@ more:
 	return ret;
 }
 
+/*
+ * Completely synchronous read and write methods.  Direct from __user
+ * buffer to osd, or directly to user pages (if O_DIRECT).
+ *
+ * If the read spans object boundary, just do multiple reads.
+ */
 static ssize_t ceph_sync_read(struct file *file, char __user *data,
 			      unsigned len, loff_t *poff, int *checkeof)
 {
@@ -330,6 +404,12 @@ static ssize_t ceph_sync_read(struct file *file, char __user *data,
 	if (IS_ERR(pages))
 		return PTR_ERR(pages);
 
+	/*
+	 * flush any page cache pages in this range.  this
+	 * will make concurrent normal and sync io slow,
+	 * but it will at least behave sensibly when they are
+	 * in sequence.
+	 */
 	ret = filemap_write_and_wait(inode->i_mapping);
 	if (ret < 0)
 		goto done;
@@ -352,6 +432,10 @@ done:
 	return ret;
 }
 
+/*
+ * Write commit callback, called if we requested both an ACK and
+ * ONDISK commit reply from the OSD.
+ */
 static void sync_write_commit(struct ceph_osd_request *req,
 			      struct ceph_msg *msg)
 {
@@ -364,6 +448,14 @@ static void sync_write_commit(struct ceph_osd_request *req,
 	ceph_put_cap_refs(ci, CEPH_CAP_FILE_WR);
 }
 
+/*
+ * Synchronous write, straight from __user pointer or user pages (if
+ * O_DIRECT).
+ *
+ * If write spans object boundary, just do multiple writes.  (For a
+ * correct atomic write, we should e.g. take write locks on all
+ * objects, rollback on failure, etc.)
+ */
 static ssize_t ceph_sync_write(struct file *file, const char __user *data,
 			       size_t left, loff_t *offset)
 {
@@ -413,11 +505,17 @@ static ssize_t ceph_sync_write(struct file *file, const char __user *data,
 	else
 		do_sync = 1;
 
+	/*
+	 * we may need to do multiple writes here if we span an object
+	 * boundary.  this isn't atomic, unfortunately.  :(
+	 */
 more:
 	io_align = pos & ~PAGE_MASK;
 	buf_align = (unsigned long)data & ~PAGE_MASK;
 	len = left;
 	if (file->f_flags & O_DIRECT) {
+		/* write from beginning of first page, regardless of
+		   io alignment */
 		page_align = (pos - io_align + buf_align) & ~PAGE_MASK;
 		num_pages = calc_pages_for((unsigned long)data, len);
 	} else {
@@ -441,6 +539,10 @@ more:
 			goto out;
 		}
 
+		/*
+		 * throw out any page cache pages in this range. this
+		 * may block.
+		 */
 		truncate_inode_pages_range(inode->i_mapping, pos,
 					   (pos+len) | (PAGE_CACHE_SIZE-1));
 	} else {
@@ -456,7 +558,7 @@ more:
 		}
 
 		if ((file->f_flags & O_SYNC) == 0) {
-			
+			/* get a second commit callback */
 			req->r_safe_callback = sync_write_commit;
 			req->r_own_pages = 1;
 		}
@@ -468,6 +570,10 @@ more:
 	ret = ceph_osdc_start_request(&fsc->client->osdc, req, false);
 	if (!ret) {
 		if (req->r_safe_callback) {
+			/*
+			 * Add to inode unsafe list only after we
+			 * start_request so that a tid has been assigned.
+			 */
 			spin_lock(&ci->i_unsafe_lock);
 			list_add_tail(&req->r_unsafe_item,
 				      &ci->i_unsafe_writes);
@@ -510,6 +616,13 @@ out:
 	return ret;
 }
 
+/*
+ * Wrap generic_file_aio_read with checks for cap bits on the inode.
+ * Atomically grab references, so that those bits are not released
+ * back to the MDS mid-read.
+ *
+ * Hmm, the sync read case isn't actually async... should it be?
+ */
 static ssize_t ceph_aio_read(struct kiocb *iocb, const struct iovec *iov,
 			     unsigned long nr_segs, loff_t pos)
 {
@@ -543,7 +656,7 @@ again:
 	    (iocb->ki_filp->f_flags & O_DIRECT) ||
 	    (inode->i_sb->s_flags & MS_SYNCHRONOUS) ||
 	    (fi->flags & CEPH_F_SYNC))
-		
+		/* hmm, this isn't really async... */
 		ret = ceph_sync_read(filp, base, len, ppos, &checkeof);
 	else
 		ret = generic_file_aio_read(iocb, iov, nr_segs, pos);
@@ -556,7 +669,7 @@ out:
 	if (checkeof && ret >= 0) {
 		int statret = ceph_do_getattr(inode, CEPH_STAT_CAP_SIZE);
 
-		
+		/* hit EOF or hole? */
 		if (statret == 0 && *ppos < inode->i_size) {
 			dout("aio_read sync_read hit hole, ppos %lld < size %lld, reading more\n", *ppos, inode->i_size);
 			read += ret;
@@ -572,6 +685,16 @@ out:
 	return ret;
 }
 
+/*
+ * Take cap references to avoid releasing caps to MDS mid-write.
+ *
+ * If we are synchronous, and write with an old snap context, the OSD
+ * may return EOLDSNAPC.  In that case, retry the write.. _after_
+ * dropping our cap refs and allowing the pending snap to logically
+ * complete _before_ this write occurs.
+ *
+ * If we are near ENOSPC, write synchronously.
+ */
 static ssize_t ceph_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		       unsigned long nr_segs, loff_t pos)
 {
@@ -614,6 +737,10 @@ retry_snap:
 		ret = ceph_sync_write(file, iov->iov_base, iov->iov_len,
 			&iocb->ki_pos);
 	} else {
+		/*
+		 * buffered write; drop Fw early to avoid slow
+		 * revocation if we get stuck on balance_dirty_pages
+		 */
 		int dirty;
 
 		spin_lock(&ci->i_ceph_lock);
@@ -660,6 +787,9 @@ out:
 	return ret;
 }
 
+/*
+ * llseek.  be sure to verify file size on SEEK_END.
+ */
 static loff_t ceph_llseek(struct file *file, loff_t offset, int origin)
 {
 	struct inode *inode = file->f_mapping->host;
@@ -681,6 +811,12 @@ static loff_t ceph_llseek(struct file *file, loff_t offset, int origin)
 		offset += inode->i_size;
 		break;
 	case SEEK_CUR:
+		/*
+		 * Here we special-case the lseek(fd, 0, SEEK_CUR)
+		 * position-querying operation.  Avoid rewriting the "same"
+		 * f_pos value back to the file because a concurrent read(),
+		 * write() or lseek() might have altered it
+		 */
 		if (offset == 0) {
 			offset = file->f_pos;
 			goto out;
@@ -707,7 +843,7 @@ static loff_t ceph_llseek(struct file *file, loff_t offset, int origin)
 		goto out;
 	}
 
-	
+	/* Special lock needed here? */
 	if (offset != file->f_pos) {
 		file->f_pos = offset;
 		file->f_version = 0;

@@ -47,7 +47,7 @@ struct stmmac_stats {
 	offsetof(struct stmmac_priv, xstats.m)}
 
 static const struct stmmac_stats stmmac_gstrings_stats[] = {
-	
+	/* Transmit errors */
 	STMMAC_STAT(tx_underflow),
 	STMMAC_STAT(tx_carrier),
 	STMMAC_STAT(tx_losscarrier),
@@ -58,7 +58,7 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(tx_frame_flushed),
 	STMMAC_STAT(tx_payload_error),
 	STMMAC_STAT(tx_ip_header_error),
-	
+	/* Receive errors */
 	STMMAC_STAT(rx_desc),
 	STMMAC_STAT(sa_filter_fail),
 	STMMAC_STAT(overflow_error),
@@ -76,7 +76,7 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(rx_missed_cntr),
 	STMMAC_STAT(rx_overflow_cntr),
 	STMMAC_STAT(rx_vlan),
-	
+	/* Tx/Rx IRQ errors */
 	STMMAC_STAT(tx_undeflow_irq),
 	STMMAC_STAT(tx_process_stopped_irq),
 	STMMAC_STAT(tx_jabber_irq),
@@ -86,7 +86,7 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(rx_watchdog_irq),
 	STMMAC_STAT(tx_early_irq),
 	STMMAC_STAT(fatal_bus_error_irq),
-	
+	/* Extra info */
 	STMMAC_STAT(threshold),
 	STMMAC_STAT(tx_pkt_n),
 	STMMAC_STAT(rx_pkt_n),
@@ -96,6 +96,7 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 };
 #define STMMAC_STATS_LEN ARRAY_SIZE(stmmac_gstrings_stats)
 
+/* HW MAC Management counters (if supported) */
 #define STMMAC_MMC_STAT(m)	\
 	{ #m, FIELD_SIZEOF(struct stmmac_counters, m),	\
 	offsetof(struct stmmac_priv, mmc.m)}
@@ -271,20 +272,20 @@ static void stmmac_ethtool_gregs(struct net_device *dev,
 	memset(reg_space, 0x0, REG_SPACE_SIZE);
 
 	if (!priv->plat->has_gmac) {
-		
+		/* MAC registers */
 		for (i = 0; i < 12; i++)
 			reg_space[i] = readl(priv->ioaddr + (i * 4));
-		
+		/* DMA registers */
 		for (i = 0; i < 9; i++)
 			reg_space[i + 12] =
 			    readl(priv->ioaddr + (DMA_BUS_MODE + (i * 4)));
 		reg_space[22] = readl(priv->ioaddr + DMA_CUR_TX_BUF_ADDR);
 		reg_space[23] = readl(priv->ioaddr + DMA_CUR_RX_BUF_ADDR);
 	} else {
-		
+		/* MAC registers */
 		for (i = 0; i < 55; i++)
 			reg_space[i] = readl(priv->ioaddr + (i * 4));
-		
+		/* DMA registers */
 		for (i = 0; i < 22; i++)
 			reg_space[i + 55] =
 			    readl(priv->ioaddr + (DMA_BUS_MODE + (i * 4)));
@@ -346,13 +347,13 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 	struct stmmac_priv *priv = netdev_priv(dev);
 	int i, j = 0;
 
-	
+	/* Update the DMA HW counters for dwmac10/100 */
 	if (!priv->plat->has_gmac)
 		priv->hw->dma->dma_diagnostic_fr(&dev->stats,
 						 (void *) &priv->xstats,
 						 priv->ioaddr);
 	else {
-		
+		/* If supported, for new GMAC chips expose the MMC counters */
 		if (priv->dma_cap.rmon) {
 			dwmac_mmc_read(priv->ioaddr, &priv->mmc);
 
@@ -417,6 +418,7 @@ static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 	}
 }
 
+/* Currently only support WOL through Magic packet. */
 static void stmmac_get_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
@@ -434,6 +436,9 @@ static int stmmac_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 support = WAKE_MAGIC | WAKE_UCAST;
 
+	/* By default almost all GMAC devices support the WoL via
+	 * magic frame but we can disable it if the HW capability
+	 * register shows no support for pmt_magic_frame. */
 	if ((priv->hw_cap_support) && (!priv->dma_cap.pmt_magic_frame))
 		wol->wolopts &= ~WAKE_MAGIC;
 

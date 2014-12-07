@@ -106,7 +106,7 @@ static int michael_final(struct shash_desc *desc, u8 *out)
 	u8 *data = mctx->pending;
 	__le32 *dst = (__le32 *)out;
 
-	
+	/* Last block and padding (0x5a, 4..7 x 0) */
 	switch (mctx->pending_len) {
 	case 0:
 		mctx->l ^= 0x5a;
@@ -123,7 +123,7 @@ static int michael_final(struct shash_desc *desc, u8 *out)
 		break;
 	}
 	michael_block(mctx->l, mctx->r);
-	
+	/* l ^= 0; */
 	michael_block(mctx->l, mctx->r);
 
 	dst[0] = cpu_to_le32(mctx->l);

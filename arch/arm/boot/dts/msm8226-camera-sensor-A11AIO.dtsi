@@ -1,0 +1,165 @@
+/*
+ * Copyright (c) 2013, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+
+	led_flash0: qcom,camera-led-flash {
+		cell-index = <0>;
+		compatible = "qcom,camera-led-flash";
+		qcom,flash-type = <1>;
+		qcom,flash-source = <&pm8226_flash0 &pm8226_flash1>;
+		qcom,torch-source = <&pm8226_torch>;
+                htc,flash-mode-trigger-name = "htc_flash_mode";
+	};
+};
+
+&cci {
+	actuator0: qcom,actuator@1c {
+		cell-index = <0>;
+		reg = <0x1c>;
+		compatible = "qcom,actuator";
+		qcom,cci-master = <0>;
+	};
+
+           qcom,camera@6c {
+               compatible = "htc,s5k5e2_twolane";
+               reg = <0x6c>;
+               qcom,slave-id = <0x20 0x0000 0x5E20>;
+
+               qcom,csiphy-sd-index = <0>;
+               qcom,csid-sd-index = <0>;
+               qcom,mount-angle = <90>;
+               qcom,sensor-name = "s5k5e2_twolane";
+               qcom,htc-image = <0>;
+
+               cam_vdig-supply = <&pm8226_l26>;
+               cam_vana-supply = <&pm8226_l28>;
+               /*cam_vio-supply = <&msmgpio 11 0>;*/
+               /*cam_vaf-supply = <&msmgpio 32 0>;*/
+               qcom,cam-vreg-name = "cam_vdig","cam_vio", "cam_vana", "cam_af";
+               qcom,cam-vreg-type = <0 0 0 0>;
+               qcom,cam-vreg-min-voltage = <1225000 0 2800000 0>;
+               qcom,cam-vreg-max-voltage = <1225000 0 2800000 0>;
+               qcom,cam-vreg-op-mode = <0 0 0 0>;
+
+               qcom,gpio-no-mux = <0>;
+               gpios = <&msmgpio 26 0>,
+               <&msmgpio 36 0>,
+               <&msmgpio 32 0>,
+               <&msmgpio 33 0>;
+
+               qcom,gpio-reset = <1>;
+               qcom,gpio-vaf = <2>;
+               qcom,gpio-vio = <3>;
+               qcom,gpio-req-tbl-num = <0 1 2 3>;
+               qcom,gpio-req-tbl-flags = <0 0 0 0>;
+               qcom,gpio-req-tbl-label = "MCLK_CPU",
+               "CAM2_RST", "VAF", "VIO";
+
+               qcom,csi-lane-assign = <0x4320>;
+               qcom,csi-lane-mask = <0x7>;
+               qcom,sensor-position = <0>;
+               qcom,sensor-mode = <1>;
+               qcom,cci-master = <0>;
+
+               status = "ok";
+           };
+
+           qcom,camera@20 {
+               compatible = "htc,gc_0339";
+               reg = <0x20>;
+               qcom,slave-id = <0x42 0xfb 0x42>;
+
+               qcom,csiphy-sd-index = <1>;
+               qcom,csid-sd-index = <1>;
+               qcom,mount-angle = <270>;
+               qcom,sensor-name = "gc_0339";
+               qcom,htc-image = <0>;
+
+               cam_vdig-supply = <&pm8226_l26>;
+               cam_vana-supply = <&pm8226_l28>;
+               /*cam_vio-supply = <&msmgpio 11 0>;*/
+               /*cam_vaf-supply = <&msmgpio 32 0>;*/
+               qcom,cam-vreg-name = "cam_vdig","cam_vio", "cam_vana", "cam_af";
+               qcom,cam-vreg-type = <0 0 0 0>;
+               qcom,cam-vreg-min-voltage = <1225000 0 2800000 0>;
+               qcom,cam-vreg-max-voltage = <1225000 0 2800000 0>;
+               qcom,cam-vreg-op-mode = <0 0 0 0>;
+
+               qcom,gpio-no-mux = <0>;
+               gpios = <&msmgpio 27 0>,
+               <&msmgpio 28 0>,
+               <&msmgpio 32 0>,
+               <&msmgpio 33 0>;
+
+               qcom,gpio-reset = <1>;
+               qcom,gpio-vaf = <2>;
+               qcom,gpio-vio = <3>;
+               qcom,gpio-req-tbl-num = <0 1 2 3>;
+               qcom,gpio-req-tbl-flags = <0 0 0 0>;
+               qcom,gpio-req-tbl-label = "MCLK_CPU",
+               "CAM2_RST", "VAF", "VIO";
+
+               qcom,csi-lane-assign = <0x4320>;
+               qcom,csi-lane-mask = <0x3>;
+               qcom,sensor-position = <1>;
+               qcom,sensor-mode = <1>;
+               qcom,cci-master = <0>;
+
+               status = "ok";
+           };
+
+           qcom,camera@22 {
+               compatible = "htc,mi380";
+               reg = <0x22>;
+               qcom,slave-id = <0x78 0x0000 0x2280>;
+
+               qcom,csiphy-sd-index = <1>;
+               qcom,csid-sd-index = <1>;
+               qcom,mount-angle = <270>;
+               qcom,sensor-name = "mi380";
+               qcom,htc-image = <0>;
+
+               cam_vdig-supply = <&pm8226_l26>;
+               cam_vana-supply = <&pm8226_l28>;
+               //cam_vio-supply = <&msmgpio 11 0>;
+               //cam_vaf-supply = <&msmgpio 32 0>;
+               qcom,cam-vreg-name = "cam_vdig","cam_vio", "cam_vana", "cam_af";
+               qcom,cam-vreg-type = <0 0 0 0>;
+               qcom,cam-vreg-min-voltage = <1225000 0 2800000 0>;
+               qcom,cam-vreg-max-voltage = <1225000 0 2800000 0>;
+               qcom,cam-vreg-op-mode = <0 0 0 0>;
+
+               qcom,gpio-no-mux = <0>;
+               gpios = <&msmgpio 27 0>,
+               <&msmgpio 28 0>,
+               <&msmgpio 32 0>,
+               <&msmgpio 33 0>;
+
+               qcom,gpio-reset = <1>;
+               qcom,gpio-vaf = <2>;
+               qcom,gpio-vio = <3>;
+               qcom,gpio-req-tbl-num = <0 1 2 3>;
+               qcom,gpio-req-tbl-flags = <0 0 0 0>;
+               qcom,gpio-req-tbl-label = "MCLK_CPU",
+               "CAM2_RST", "VAF", "VIO";
+
+               qcom,csi-lane-assign = <0x4320>;
+               qcom,csi-lane-mask = <0x3>;
+               qcom,sensor-position = <1>;
+               qcom,sensor-mode = <1>;
+               qcom,cci-master = <0>;
+
+               status = "ok";
+           };
+};

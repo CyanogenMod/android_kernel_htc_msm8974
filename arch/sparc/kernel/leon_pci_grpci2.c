@@ -19,34 +19,72 @@
 #include "irq.h"
 
 struct grpci2_barcfg {
-	unsigned long pciadr;	
-	unsigned long ahbadr;	
+	unsigned long pciadr;	/* PCI Space Address */
+	unsigned long ahbadr;	/* PCI Base address mapped to this AHB addr */
 };
 
+/* Device Node Configuration options:
+ *  - barcfgs    : Custom Configuration of Host's 6 target BARs
+ *  - irq_mask   : Limit which PCI interrupts are enabled
+ *  - do_reset   : Force PCI Reset on startup
+ *
+ * barcfgs
+ * =======
+ *
+ * Optional custom Target BAR configuration (see struct grpci2_barcfg). All
+ * addresses are physical. Array always contains 6 elements (len=2*4*6 bytes)
+ *
+ * -1 means not configured (let host driver do default setup).
+ *
+ * [i*2+0] = PCI Address of BAR[i] on target interface
+ * [i*2+1] = Accessing PCI address of BAR[i] result in this AMBA address
+ *
+ *
+ * irq_mask
+ * ========
+ *
+ * Limit which PCI interrupts are enabled. 0=Disable, 1=Enable. By default
+ * all are enabled. Use this when PCI interrupt pins are floating on PCB.
+ * int, len=4.
+ *  bit0 = PCI INTA#
+ *  bit1 = PCI INTB#
+ *  bit2 = PCI INTC#
+ *  bit3 = PCI INTD#
+ *
+ *
+ * reset
+ * =====
+ *
+ * Force PCI reset on startup. int, len=4
+ */
 
+/* Enable Debugging Configuration Space Access */
 #undef GRPCI2_DEBUG_CFGACCESS
 
+/*
+ * GRPCI2 APB Register MAP
+ */
 struct grpci2_regs {
-	unsigned int ctrl;		
-	unsigned int sts_cap;		
-	int res1;			
-	unsigned int io_map;		
-	unsigned int dma_ctrl;		
-	unsigned int dma_bdbase;	
-	int res2[2];			
-	unsigned int bars[6];		
-	int res3[2];			
-	unsigned int ahbmst_map[16];	
+	unsigned int ctrl;		/* 0x00 Control */
+	unsigned int sts_cap;		/* 0x04 Status / Capabilities */
+	int res1;			/* 0x08 */
+	unsigned int io_map;		/* 0x0C I/O Map address */
+	unsigned int dma_ctrl;		/* 0x10 DMA */
+	unsigned int dma_bdbase;	/* 0x14 DMA */
+	int res2[2];			/* 0x18 */
+	unsigned int bars[6];		/* 0x20 read-only PCI BARs */
+	int res3[2];			/* 0x38 */
+	unsigned int ahbmst_map[16];	/* 0x40 AHB->PCI Map per AHB Master */
 
-	
-	unsigned int t_ctrl;		
-	unsigned int t_cnt;		
-	unsigned int t_adpat;		
-	unsigned int t_admask;		
-	unsigned int t_sigpat;		
-	unsigned int t_sigmask;		
-	unsigned int t_adstate;		
-	unsigned int t_sigstate;	
+	/* PCI Trace Buffer Registers (OPTIONAL) */
+	unsigned int t_ctrl;		/* 0x80 */
+	unsigned int t_cnt;		/* 0x84 */
+	unsigned int t_adpat;		/* 0x88 */
+	unsigned int t_admask;		/* 0x8C */
+	unsigned int t_sigpat;		/* 0x90 */
+	unsigned int t_sigmask;		/* 0x94 */
+	unsigned int t_adstate;		/* 0x98 */
+	unsigned int t_sigstate;	/* 0x9C */
 };
 
 #define REGLOAD(a)	(be32_to_cpu(__raw_readl(&(a))))
@@ -102,10 +140,10 @@ struct grpci2_regs {
 #define STS_ERR_IRQ (STS_ISYSERR | STS_IMSTABRT | STS_ITGTABRT | STS_IPARERR)
 
 struct grpci2_bd_chan {
-	unsigned int ctrl;	
-	unsigned int nchan;	
-	unsigned int nbd;	
-	unsigned int res;	
+	unsigned int ctrl;	/* 0x00 DMA Control */
+	unsigned int nchan;	/* 0x04 Next DMA Channel Address */
+	unsigned int nbd;	/* 0x08 Next Data Descriptor in chan */
+	unsigned int res;	/* 0x0C Reserved */
 };
 
 #define BD_CHAN_EN		0x80000000
@@ -116,10 +154,10 @@ struct grpci2_bd_chan {
 #define BD_CHAN_BDCNT_BIT	0
 
 struct grpci2_bd_data {
-	unsigned int ctrl;	
-	unsigned int pci_adr;	
-	unsigned int ahb_adr;	
-	unsigned int next;	
+	unsigned int ctrl;	/* 0x00 DMA Data Control */
+	unsigned int pci_adr;	/* 0x04 PCI Start Address */
+	unsigned int ahb_adr;	/* 0x08 AHB Start address */
+	unsigned int next;	/* 0x0C Next Data Descriptor in chan */
 };
 
 #define BD_DATA_EN		0x80000000
@@ -135,6 +173,7 @@ struct grpci2_bd_data {
 #define BD_DATA_ER_BIT		19
 #define BD_DATA_LEN_BIT		0
 
+/* GRPCI2 Capability */
 struct grpci2_cap_first {
 	unsigned int ctrl;
 	unsigned int pci2ahb_map[6];
@@ -148,25 +187,25 @@ struct grpci2_cap_first {
 #define CAP9_BARSIZE_OFS 0x24
 
 struct grpci2_priv {
-	struct leon_pci_info	info; 
+	struct leon_pci_info	info; /* must be on top of this structure */
 	struct grpci2_regs	*regs;
 	char			irq;
-	char			irq_mode; 
+	char			irq_mode; /* IRQ Mode from CAPSTS REG */
 	char			bt_enabled;
 	char			do_reset;
 	char			irq_mask;
-	u32			pciid; 
+	u32			pciid; /* PCI ID of Host */
 	unsigned char		irq_map[4];
 
-	
+	/* Virtual IRQ numbers */
 	unsigned int		virq_err;
 	unsigned int		virq_dma;
 
-	
-	unsigned long		pci_area;	
+	/* AHB PCI Windows */
+	unsigned long		pci_area;	/* MEMORY */
 	unsigned long		pci_area_end;
-	unsigned long		pci_io;		
-	unsigned long		pci_conf;	
+	unsigned long		pci_io;		/* I/O */
+	unsigned long		pci_conf;	/* CONFIGURATION */
 	unsigned long		pci_conf_end;
 	unsigned long		pci_io_va;
 
@@ -181,7 +220,7 @@ int grpci2_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	struct grpci2_priv *priv = dev->bus->sysdata;
 	int irq_group;
 
-	
+	/* Use default IRQ decoding on PCI BUS0 according slot numbering */
 	irq_group = slot & 0x3;
 	pin = ((pin - 1) + irq_group) & 0x3;
 
@@ -201,26 +240,29 @@ static int grpci2_cfg_r32(struct grpci2_priv *priv, unsigned int bus,
 	if (bus == 0 && PCI_SLOT(devfn) != 0)
 		devfn += (0x8 * 6);
 
-	
+	/* Select bus */
 	spin_lock_irqsave(&grpci2_dev_lock, flags);
 	REGSTORE(priv->regs->ctrl, (REGLOAD(priv->regs->ctrl) & ~(0xff << 16)) |
 				   (bus << 16));
 	spin_unlock_irqrestore(&grpci2_dev_lock, flags);
 
-	
+	/* clear old status */
 	REGSTORE(priv->regs->sts_cap, (STS_CFGERR | STS_CFGERRVALID));
 
 	pci_conf = (unsigned int *) (priv->pci_conf |
 						(devfn << 8) | (where & 0xfc));
 	tmp = LEON3_BYPASS_LOAD_PA(pci_conf);
 
+	/* Wait until GRPCI2 signals that CFG access is done, it should be
+	 * done instantaneously unless a DMA operation is ongoing...
+	 */
 	while ((REGLOAD(priv->regs->sts_cap) & STS_CFGERRVALID) == 0)
 		;
 
 	if (REGLOAD(priv->regs->sts_cap) & STS_CFGERR) {
 		*val = 0xffffffff;
 	} else {
-		
+		/* Bus always little endian (unaffected by byte-swapping) */
 		*val = flip_dword(tmp);
 	}
 
@@ -264,19 +306,22 @@ static int grpci2_cfg_w32(struct grpci2_priv *priv, unsigned int bus,
 	if (bus == 0 && PCI_SLOT(devfn) != 0)
 		devfn += (0x8 * 6);
 
-	
+	/* Select bus */
 	spin_lock_irqsave(&grpci2_dev_lock, flags);
 	REGSTORE(priv->regs->ctrl, (REGLOAD(priv->regs->ctrl) & ~(0xff << 16)) |
 				   (bus << 16));
 	spin_unlock_irqrestore(&grpci2_dev_lock, flags);
 
-	
+	/* clear old status */
 	REGSTORE(priv->regs->sts_cap, (STS_CFGERR | STS_CFGERRVALID));
 
 	pci_conf = (unsigned int *) (priv->pci_conf |
 						(devfn << 8) | (where & 0xfc));
 	LEON3_BYPASS_STORE_PA(pci_conf, flip_dword(val));
 
+	/* Wait until GRPCI2 signals that CFG access is done, it should be
+	 * done instantaneously unless a DMA operation is ongoing...
+	 */
 	while ((REGLOAD(priv->regs->sts_cap) & STS_CFGERRVALID) == 0)
 		;
 
@@ -313,6 +358,9 @@ static int grpci2_cfg_w8(struct grpci2_priv *priv, unsigned int bus,
 	return grpci2_cfg_w32(priv, bus, devfn, where & ~0x3, v);
 }
 
+/* Read from Configuration Space. When entering here the PCI layer has taken
+ * the pci_lock spinlock and IRQ is off.
+ */
 static int grpci2_read_config(struct pci_bus *bus, unsigned int devfn,
 			      int where, int size, u32 *val)
 {
@@ -349,6 +397,9 @@ static int grpci2_read_config(struct pci_bus *bus, unsigned int devfn,
 	return ret;
 }
 
+/* Write to Configuration Space. When entering here the PCI layer has taken
+ * the pci_lock spinlock and IRQ is off.
+ */
 static int grpci2_write_config(struct pci_bus *bus, unsigned int devfn,
 			       int where, int size, u32 val)
 {
@@ -381,6 +432,10 @@ static struct pci_ops grpci2_ops = {
 	.write =	grpci2_write_config,
 };
 
+/* GENIRQ IRQ chip implementation for GRPCI2 irqmode=0..2. In configuration
+ * 3 where all PCI Interrupts has a separate IRQ on the system IRQ controller
+ * this is not needed and the standard IRQ controller can be used.
+ */
 
 static void grpci2_mask_irq(struct irq_data *data)
 {
@@ -389,7 +444,7 @@ static void grpci2_mask_irq(struct irq_data *data)
 	struct grpci2_priv *priv = grpci2priv;
 
 	irqidx = (unsigned int)data->chip_data - 1;
-	if (irqidx > 3) 
+	if (irqidx > 3) /* only mask PCI interrupts here */
 		return;
 
 	spin_lock_irqsave(&grpci2_dev_lock, flags);
@@ -404,7 +459,7 @@ static void grpci2_unmask_irq(struct irq_data *data)
 	struct grpci2_priv *priv = grpci2priv;
 
 	irqidx = (unsigned int)data->chip_data - 1;
-	if (irqidx > 3) 
+	if (irqidx > 3) /* only unmask PCI interrupts here */
 		return;
 
 	spin_lock_irqsave(&grpci2_dev_lock, flags);
@@ -431,6 +486,7 @@ static struct irq_chip grpci2_irq = {
 	.irq_unmask	= grpci2_unmask_irq,
 };
 
+/* Handle one or multiple IRQs from the PCI core */
 static void grpci2_pci_flow_irq(unsigned int irq, struct irq_desc *desc)
 {
 	struct grpci2_priv *priv = grpci2priv;
@@ -440,16 +496,16 @@ static void grpci2_pci_flow_irq(unsigned int irq, struct irq_desc *desc)
 	ctrl = REGLOAD(priv->regs->ctrl);
 	sts_cap = REGLOAD(priv->regs->sts_cap);
 
-	
+	/* Error Interrupt? */
 	if (sts_cap & STS_ERR_IRQ) {
 		generic_handle_irq(priv->virq_err);
 		ack = 1;
 	}
 
-	
+	/* PCI Interrupt? */
 	pci_ints = ((~sts_cap) >> STS_INTSTS_BIT) & ctrl & CTRL_HOSTINT;
 	if (pci_ints) {
-		
+		/* Call respective PCI Interrupt handler */
 		for (i = 0; i < 4; i++) {
 			if (pci_ints & (1 << i))
 				generic_handle_irq(priv->irq_map[i]);
@@ -457,15 +513,26 @@ static void grpci2_pci_flow_irq(unsigned int irq, struct irq_desc *desc)
 		ack = 1;
 	}
 
+	/*
+	 * Decode DMA Interrupt only when shared with Err and PCI INTX#, when
+	 * the DMA is a unique IRQ the DMA interrupts doesn't end up here, they
+	 * goes directly to DMA ISR.
+	 */
 	if ((priv->irq_mode == 0) && (sts_cap & (STS_IDMA | STS_IDMAERR))) {
 		generic_handle_irq(priv->virq_dma);
 		ack = 1;
 	}
 
+	/*
+	 * Call "first level" IRQ chip end-of-irq handler. It will ACK LEON IRQ
+	 * Controller, this must be done after IRQ sources have been handled to
+	 * avoid double IRQ generation
+	 */
 	if (ack)
 		desc->irq_data.chip->irq_eoi(&desc->irq_data);
 }
 
+/* Create a virtual IRQ */
 static unsigned int grpci2_build_device_irq(unsigned int irq)
 {
 	unsigned int virq = 0, pil;
@@ -490,44 +557,57 @@ void grpci2_hw_init(struct grpci2_priv *priv)
 	int i;
 	struct grpci2_barcfg *barcfg = priv->tgtbars;
 
-	
+	/* Reset any earlier setup */
 	if (priv->do_reset) {
 		printk(KERN_INFO "GRPCI2: Resetting PCI bus\n");
 		REGSTORE(regs->ctrl, CTRL_RESET);
-		ssleep(1); 
+		ssleep(1); /* Wait for boards to settle */
 	}
 	REGSTORE(regs->ctrl, 0);
-	REGSTORE(regs->sts_cap, ~0); 
+	REGSTORE(regs->sts_cap, ~0); /* Clear Status */
 	REGSTORE(regs->dma_ctrl, 0);
 	REGSTORE(regs->dma_bdbase, 0);
 
-	
+	/* Translate I/O accesses to 0, I/O Space always @ PCI low 64Kbytes */
 	REGSTORE(regs->io_map, REGLOAD(regs->io_map) & 0x0000ffff);
 
+	/* set 1:1 mapping between AHB -> PCI memory space, for all Masters
+	 * Each AHB master has it's own mapping registers. Max 16 AHB masters.
+	 */
 	for (i = 0; i < 16; i++)
 		REGSTORE(regs->ahbmst_map[i], priv->pci_area);
 
-	
+	/* Get the GRPCI2 Host PCI ID */
 	grpci2_cfg_r32(priv, 0, 0, PCI_VENDOR_ID, &priv->pciid);
 
-	
+	/* Get address to first (always defined) capability structure */
 	grpci2_cfg_r8(priv, 0, 0, PCI_CAPABILITY_LIST, &capptr);
 
-	
+	/* Enable/Disable Byte twisting */
 	grpci2_cfg_r32(priv, 0, 0, capptr+CAP9_IOMAP_OFS, &io_map);
 	io_map = (io_map & ~0x1) | (priv->bt_enabled ? 1 : 0);
 	grpci2_cfg_w32(priv, 0, 0, capptr+CAP9_IOMAP_OFS, io_map);
 
+	/* Setup the Host's PCI Target BARs for other peripherals to access,
+	 * and do DMA to the host's memory. The target BARs can be sized and
+	 * enabled individually.
+	 *
+	 * User may set custom target BARs, but default is:
+	 * The first BARs is used to map kernel low (DMA is part of normal
+	 * region on sparc which is SRMMU_MAXMEM big) main memory 1:1 to the
+	 * PCI bus, the other BARs are disabled. We assume that the first BAR
+	 * is always available.
+	 */
 	for (i = 0; i < 6; i++) {
 		if (barcfg[i].pciadr != ~0 && barcfg[i].ahbadr != ~0) {
-			
+			/* Target BARs must have the proper alignment */
 			ahbadr = barcfg[i].ahbadr;
 			pciadr = barcfg[i].pciadr;
 			bar_sz = ((pciadr - 1) & ~pciadr) + 1;
 		} else {
 			if (i == 0) {
-				
-				bar_sz = 0xf0000008; 
+				/* Map main memory */
+				bar_sz = 0xf0000008; /* 256MB prefetchable */
 				ahbadr = 0xf0000000 & (u32)__pa(PAGE_ALIGN(
 					(unsigned long) &_end));
 				pciadr = ahbadr;
@@ -544,12 +624,12 @@ void grpci2_hw_init(struct grpci2_priv *priv)
 			i, pciadr, ahbadr);
 	}
 
-	
+	/* set as bus master and enable pci memory responses */
 	grpci2_cfg_r32(priv, 0, 0, PCI_COMMAND, &data);
 	data |= (PCI_COMMAND_MEMORY | PCI_COMMAND_MASTER);
 	grpci2_cfg_w32(priv, 0, 0, PCI_COMMAND, data);
 
-	
+	/* Enable Error respone (CPU-TRAP) on illegal memory access. */
 	REGSTORE(regs->ctrl, CTRL_ER | CTRL_PE);
 }
 
@@ -559,6 +639,7 @@ static irqreturn_t grpci2_jump_interrupt(int irq, void *arg)
 	return IRQ_NONE;
 }
 
+/* Handle GRPCI2 Error Interrupt */
 static irqreturn_t grpci2_err_interrupt(int irq, void *arg)
 {
 	struct grpci2_priv *priv = arg;
@@ -581,7 +662,7 @@ static irqreturn_t grpci2_err_interrupt(int irq, void *arg)
 	if (status & STS_ISYSERR)
 		printk(KERN_ERR "GRPCI2: System Error\n");
 
-	
+	/* Clear handled INT TYPE IRQs */
 	REGSTORE(regs->sts_cap, status & STS_ERR_IRQ);
 
 	return IRQ_HANDLED;
@@ -605,7 +686,7 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 		return -EIO;
 	}
 
-	
+	/* Find Device Address */
 	regs = of_ioremap(&ofdev->resource[0], 0,
 			  resource_size(&ofdev->resource[0]),
 			  "grlib-grpci2 regs");
@@ -614,6 +695,10 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 		return -EIO;
 	}
 
+	/*
+	 * Check that we're in Host Slot and that we can act as a Host Bridge
+	 * and not only as target.
+	 */
 	capability = REGLOAD(regs->sts_cap);
 	if ((capability & STS_HOST) || !(capability & STS_MST)) {
 		printk(KERN_INFO "GRPCI2: not in host system slot\n");
@@ -628,36 +713,36 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 	}
 	memset(grpci2priv, 0, sizeof(*grpci2priv));
 	priv->regs = regs;
-	priv->irq = ofdev->archdata.irqs[0]; 
+	priv->irq = ofdev->archdata.irqs[0]; /* BASE IRQ */
 	priv->irq_mode = (capability & STS_IRQMODE) >> STS_IRQMODE_BIT;
 
 	printk(KERN_INFO "GRPCI2: host found at %p, irq%d\n", regs, priv->irq);
 
-	
+	/* Byte twisting should be made configurable from kernel command line */
 	priv->bt_enabled = 1;
 
-	
+	/* Let user do custom Target BAR assignment */
 	tmp = of_get_property(ofdev->dev.of_node, "barcfg", &len);
 	if (tmp && (len == 2*4*6))
 		memcpy(priv->tgtbars, tmp, 2*4*6);
 	else
 		memset(priv->tgtbars, -1, 2*4*6);
 
-	
+	/* Limit IRQ unmasking in irq_mode 2 and 3 */
 	tmp = of_get_property(ofdev->dev.of_node, "irq_mask", &len);
 	if (tmp && (len == 4))
 		priv->do_reset = *tmp;
 	else
 		priv->irq_mask = 0xf;
 
-	
+	/* Optional PCI reset. Force PCI reset on startup */
 	tmp = of_get_property(ofdev->dev.of_node, "reset", &len);
 	if (tmp && (len == 4))
 		priv->do_reset = *tmp;
 	else
 		priv->do_reset = 0;
 
-	
+	/* Find PCI Memory, I/O and Configuration Space Windows */
 	priv->pci_area = ofdev->resource[1].start;
 	priv->pci_area_end = ofdev->resource[1].end+1;
 	priv->pci_io = ofdev->resource[2].start;
@@ -677,12 +762,21 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 		priv->pci_io, priv->pci_conf-1,
 		priv->pci_conf, priv->pci_conf_end-1);
 
+	/*
+	 * I/O Space resources in I/O Window mapped into Virtual Adr Space
+	 * We never use low 4KB because some devices seem have problems using
+	 * address 0.
+	 */
 	memset(&priv->info.io_space, 0, sizeof(struct resource));
 	priv->info.io_space.name = "GRPCI2 PCI I/O Space";
 	priv->info.io_space.start = priv->pci_io_va + 0x1000;
 	priv->info.io_space.end = priv->pci_io_va + 0x10000 - 1;
 	priv->info.io_space.flags = IORESOURCE_IO;
 
+	/*
+	 * GRPCI2 has no prefetchable memory, map everything as
+	 * non-prefetchable memory
+	 */
 	memset(&priv->info.mem_space, 0, sizeof(struct resource));
 	priv->info.mem_space.name = "GRPCI2 PCI MEM Space";
 	priv->info.mem_space.start = priv->pci_area;
@@ -696,8 +790,12 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 
 	grpci2_hw_init(priv);
 
+	/*
+	 * Get PCI Interrupt to System IRQ mapping and setup IRQ handling
+	 * Error IRQ always on PCI INTA.
+	 */
 	if (priv->irq_mode < 2) {
-		
+		/* All PCI interrupts are shared using the same system IRQ */
 		leon_update_virq_handling(priv->irq, grpci2_pci_flow_irq,
 					 "pcilvl", 0);
 
@@ -712,15 +810,15 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 		else
 			priv->virq_dma = grpci2_build_device_irq(6);
 
-		
+		/* Enable IRQs on LEON IRQ controller */
 		err = request_irq(priv->irq, grpci2_jump_interrupt, 0,
 					"GRPCI2_JUMP", priv);
 		if (err)
 			printk(KERN_ERR "GRPCI2: ERR IRQ request failed\n");
 	} else {
-		
+		/* All PCI interrupts have an unique IRQ interrupt */
 		for (i = 0; i < 4; i++) {
-			
+			/* Make LEON IRQ layer handle level IRQ by acking */
 			leon_update_virq_handling(ofdev->archdata.irqs[i],
 						 handle_fasteoi_irq, "pcilvl",
 						 1);
@@ -732,11 +830,11 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 		else
 			priv->virq_dma = priv->irq_map[0];
 
-		
+		/* Unmask all PCI interrupts, request_irq will not do that */
 		REGSTORE(regs->ctrl, REGLOAD(regs->ctrl)|(priv->irq_mask&0xf));
 	}
 
-	
+	/* Setup IRQ handler for non-configuration space access errors */
 	err = request_irq(priv->virq_err, grpci2_err_interrupt, IRQF_SHARED,
 				"GRPCI2_ERR", priv);
 	if (err) {
@@ -744,9 +842,13 @@ static int __devinit grpci2_of_probe(struct platform_device *ofdev)
 		goto err5;
 	}
 
+	/*
+	 * Enable Error Interrupts. PCI interrupts are unmasked once request_irq
+	 * is called by the PCI Device drivers
+	 */
 	REGSTORE(regs->ctrl, REGLOAD(regs->ctrl) | CTRL_EI | CTRL_SI);
 
-	
+	/* Init common layer and scan buses */
 	priv->info.ops = &grpci2_ops;
 	priv->info.map_irq = grpci2_map_irq;
 	leon_pci_init(ofdev, &priv->info);

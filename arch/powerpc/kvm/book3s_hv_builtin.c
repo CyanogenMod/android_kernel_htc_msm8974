@@ -25,28 +25,39 @@ static void __init kvm_linear_init_one(ulong size, int count, int type);
 static struct kvmppc_linear_info *kvm_alloc_linear(int type);
 static void kvm_release_linear(struct kvmppc_linear_info *ri);
 
+/*************** RMA *************/
 
-static unsigned long kvm_rma_size = 64 << 20;	
+/*
+ * This maintains a list of RMAs (real mode areas) for KVM guests to use.
+ * Each RMA has to be physically contiguous and of a size that the
+ * hardware supports.  PPC970 and POWER7 support 64MB, 128MB and 256MB,
+ * and other larger sizes.  Since we are unlikely to be allocate that
+ * much physically contiguous memory after the system is up and running,
+ * we preallocate a set of RMAs in early boot for KVM to use.
+ */
+static unsigned long kvm_rma_size = 64 << 20;	/* 64MB */
 static unsigned long kvm_rma_count;
 
+/* Work out RMLS (real mode limit selector) field value for a given RMA size.
+   Assumes POWER7 or PPC970. */
 static inline int lpcr_rmls(unsigned long rma_size)
 {
 	switch (rma_size) {
-	case 32ul << 20:	
+	case 32ul << 20:	/* 32 MB */
 		if (cpu_has_feature(CPU_FTR_ARCH_206))
-			return 8;	
+			return 8;	/* only supported on POWER7 */
 		return -1;
-	case 64ul << 20:	
+	case 64ul << 20:	/* 64 MB */
 		return 3;
-	case 128ul << 20:	
+	case 128ul << 20:	/* 128 MB */
 		return 7;
-	case 256ul << 20:	
+	case 256ul << 20:	/* 256 MB */
 		return 4;
-	case 1ul << 30:		
+	case 1ul << 30:		/* 1 GB */
 		return 2;
-	case 16ul << 30:	
+	case 16ul << 30:	/* 16 GB */
 		return 1;
-	case 256ul << 30:	
+	case 256ul << 30:	/* 256 GB */
 		return 0;
 	default:
 		return -1;
@@ -87,7 +98,13 @@ void kvm_release_rma(struct kvmppc_linear_info *ri)
 }
 EXPORT_SYMBOL_GPL(kvm_release_rma);
 
+/*************** HPT *************/
 
+/*
+ * This maintains a list of big linear HPT tables that contain the GVA->HPA
+ * memory mappings. If we don't reserve those early on, we might not be able
+ * to get a big (usually 16MB) linear memory region from the kernel anymore.
+ */
 
 static unsigned long kvm_hpt_count;
 
@@ -114,6 +131,7 @@ void kvm_release_hpt(struct kvmppc_linear_info *li)
 }
 EXPORT_SYMBOL_GPL(kvm_release_hpt);
 
+/*************** generic *************/
 
 static LIST_HEAD(free_linears);
 static DEFINE_SPINLOCK(linear_lock);
@@ -183,13 +201,18 @@ static void kvm_release_linear(struct kvmppc_linear_info *ri)
 	}
 }
 
+/*
+ * Called at boot time while the bootmem allocator is active,
+ * to allocate contiguous physical memory for the hash page
+ * tables for guests.
+ */
 void __init kvm_linear_init(void)
 {
-	
+	/* HPT */
 	kvm_linear_init_one(1 << HPT_ORDER, kvm_hpt_count, KVM_LINEAR_HPT);
 
-	
-	
+	/* RMA */
+	/* Only do this on PPC970 in HV mode */
 	if (!cpu_has_feature(CPU_FTR_HVMODE) ||
 	    !cpu_has_feature(CPU_FTR_ARCH_201))
 		return;
@@ -197,7 +220,7 @@ void __init kvm_linear_init(void)
 	if (!kvm_rma_size || !kvm_rma_count)
 		return;
 
-	
+	/* Check that the requested size is one supported in hardware */
 	if (lpcr_rmls(kvm_rma_size) < 0) {
 		pr_err("RMA size of 0x%lx not supported\n", kvm_rma_size);
 		return;

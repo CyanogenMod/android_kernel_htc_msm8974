@@ -66,13 +66,13 @@ static struct resource onkey_resources[] __devinitdata = {
 };
 
 static struct resource codec_resources[] __devinitdata = {
-	
+	/* Headset microphone insertion or removal */
 	{PM8607_IRQ_MICIN,   PM8607_IRQ_MICIN,   "micin",   IORESOURCE_IRQ,},
-	
+	/* Hook-switch press or release */
 	{PM8607_IRQ_HOOK,    PM8607_IRQ_HOOK,    "hook",    IORESOURCE_IRQ,},
-	
+	/* Headset insertion or removal */
 	{PM8607_IRQ_HEADSET, PM8607_IRQ_HEADSET, "headset", IORESOURCE_IRQ,},
-	
+	/* Audio short */
 	{PM8607_IRQ_AUDIO_SHORT, PM8607_IRQ_AUDIO_SHORT, "audio-short", IORESOURCE_IRQ,},
 };
 
@@ -155,8 +155,8 @@ static struct mfd_cell rtc_devs[] = {
 struct pm860x_irq_data {
 	int	reg;
 	int	mask_reg;
-	int	enable;		
-	int	offs;		
+	int	enable;		/* enable or not */
+	int	offs;		/* bit offset in mask register */
 };
 
 static struct pm860x_irq_data pm860x_irqs[] = {
@@ -310,7 +310,7 @@ static void pm860x_irq_sync_unlock(struct irq_data *data)
 	int i;
 
 	i2c = (chip->id == CHIP_PM8607) ? chip->client : chip->companion;
-	
+	/* Load cached value. In initial, all IRQs are masked */
 	for (i = 0; i < 3; i++)
 		mask[i] = cached[i];
 	for (i = 0; i < ARRAY_SIZE(pm860x_irqs); i++) {
@@ -333,7 +333,7 @@ static void pm860x_irq_sync_unlock(struct irq_data *data)
 			break;
 		}
 	}
-	
+	/* update mask into registers */
 	for (i = 0; i < 3; i++) {
 		if (mask[i] != cached[i]) {
 			cached[i] = mask[i];
@@ -373,12 +373,12 @@ static int __devinit device_gpadc_init(struct pm860x_chip *chip,
 	int data;
 	int ret;
 
-	
+	/* initialize GPADC without activating it */
 
 	if (!pdata || !pdata->touch)
 		return -EINVAL;
 
-	
+	/* set GPADC MISC1 register */
 	data = 0;
 	data |= (pdata->touch->gpadc_prebias << 1) & PM8607_GPADC_PREBIAS_MASK;
 	data |= (pdata->touch->slot_cycle << 3) & PM8607_GPADC_SLOT_CYCLE_MASK;
@@ -389,14 +389,14 @@ static int __devinit device_gpadc_init(struct pm860x_chip *chip,
 		if (ret < 0)
 			goto out;
 	}
-	
+	/* set tsi prebias time */
 	if (pdata->touch->tsi_prebias) {
 		data = pdata->touch->tsi_prebias;
 		ret = pm860x_reg_write(i2c, PM8607_TSI_PREBIAS, data);
 		if (ret < 0)
 			goto out;
 	}
-	
+	/* set prebias & prechg time of pen detect */
 	data = 0;
 	data |= pdata->touch->pen_prebias & PM8607_PD_PREBIAS_MASK;
 	data |= (pdata->touch->pen_prechg << 5) & PM8607_PD_PRECHG_MASK;
@@ -432,6 +432,11 @@ static int __devinit device_irq_init(struct pm860x_chip *chip,
 	data = 0;
 	chip->irq_mode = 0;
 	if (pdata && pdata->irq_mode) {
+		/*
+		 * irq_mode defines the way of clearing interrupt. If it's 1,
+		 * clear IRQ by write. Otherwise, clear it by read.
+		 * This control bit is valid from 88PM8607 B0 steping.
+		 */
 		data |= PM8607_B0_MISC1_INT_CLEAR;
 		chip->irq_mode = 1;
 	}
@@ -439,7 +444,7 @@ static int __devinit device_irq_init(struct pm860x_chip *chip,
 	if (ret < 0)
 		goto out;
 
-	
+	/* mask all IRQs */
 	memset(status_buf, 0, INT_STATUS_NUM);
 	ret = pm860x_bulk_write(i2c, PM8607_INT_MASK_1,
 				INT_STATUS_NUM, status_buf);
@@ -447,12 +452,12 @@ static int __devinit device_irq_init(struct pm860x_chip *chip,
 		goto out;
 
 	if (chip->irq_mode) {
-		
+		/* clear interrupt status by write */
 		memset(status_buf, 0xFF, INT_STATUS_NUM);
 		ret = pm860x_bulk_write(i2c, PM8607_INT_STATUS1,
 					INT_STATUS_NUM, status_buf);
 	} else {
-		
+		/* clear interrupt status by read */
 		ret = pm860x_bulk_read(i2c, PM8607_INT_STATUS1,
 					INT_STATUS_NUM, status_buf);
 	}
@@ -465,7 +470,7 @@ static int __devinit device_irq_init(struct pm860x_chip *chip,
 	if (!chip->core_irq)
 		goto out;
 
-	
+	/* register IRQ by genirq */
 	for (i = 0; i < ARRAY_SIZE(pm860x_irqs); i++) {
 		__irq = i + chip->irq_base;
 		irq_set_chip_data(__irq, chip);
@@ -510,21 +515,21 @@ int pm8606_osc_enable(struct pm860x_chip *chip, unsigned short client)
 			chip->osc_status);
 
 	mutex_lock(&chip->osc_lock);
-	
+	/* Update voting status */
 	chip->osc_vote |= client;
-	
+	/* If reference group is off - turn on*/
 	if (chip->osc_status != PM8606_REF_GP_OSC_ON) {
 		chip->osc_status = PM8606_REF_GP_OSC_UNKNOWN;
-		
+		/* Enable Reference group Vsys */
 		if (pm860x_set_bits(i2c, PM8606_VSYS,
 				PM8606_VSYS_EN, PM8606_VSYS_EN))
 			goto out;
 
-		
+		/*Enable Internal Oscillator */
 		if (pm860x_set_bits(i2c, PM8606_MISC,
 				PM8606_MISC_OSC_EN, PM8606_MISC_OSC_EN))
 			goto out;
-		
+		/* Update status (only if writes succeed) */
 		chip->osc_status = PM8606_REF_GP_OSC_ON;
 	}
 	mutex_unlock(&chip->osc_lock);
@@ -551,15 +556,17 @@ int pm8606_osc_disable(struct pm860x_chip *chip, unsigned short client)
 			chip->osc_status);
 
 	mutex_lock(&chip->osc_lock);
-	
+	/*Update voting status */
 	chip->osc_vote &= ~(client);
+	/* If reference group is off and this is the last client to release
+	 * - turn off */
 	if ((chip->osc_status != PM8606_REF_GP_OSC_OFF) &&
 			(chip->osc_vote == REF_GP_NO_CLIENTS)) {
 		chip->osc_status = PM8606_REF_GP_OSC_UNKNOWN;
-		
+		/* Disable Reference group Vsys */
 		if (pm860x_set_bits(i2c, PM8606_VSYS, PM8606_VSYS_EN, 0))
 			goto out;
-		
+		/* Disable Internal Oscillator */
 		if (pm860x_set_bits(i2c, PM8606_MISC, PM8606_MISC_OSC_EN, 0))
 			goto out;
 		chip->osc_status = PM8606_REF_GP_OSC_OFF;
@@ -581,10 +588,10 @@ static void __devinit device_osc_init(struct i2c_client *i2c)
 	struct pm860x_chip *chip = i2c_get_clientdata(i2c);
 
 	mutex_init(&chip->osc_lock);
-	
-	
+	/* init portofino reference group voting and status */
+	/* Disable Reference group Vsys */
 	pm860x_set_bits(i2c, PM8606_VSYS, PM8606_VSYS_EN, 0);
-	
+	/* Disable Internal Oscillator */
 	pm860x_set_bits(i2c, PM8606_MISC, PM8606_MISC_OSC_EN, 0);
 
 	chip->osc_vote = REF_GP_NO_CLIENTS;

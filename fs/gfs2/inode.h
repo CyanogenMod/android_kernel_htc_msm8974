@@ -129,7 +129,7 @@ static inline int gfs2_localflocks(const struct gfs2_sbd *sdp)
 {
 	return sdp->sd_args.ar_localflocks;
 }
-#else 
+#else /* Single node only */
 #define gfs2_file_fops gfs2_file_fops_nolock
 #define gfs2_dir_fops gfs2_dir_fops_nolock
 
@@ -137,7 +137,7 @@ static inline int gfs2_localflocks(const struct gfs2_sbd *sdp)
 {
 	return 1;
 }
-#endif 
+#endif /* CONFIG_GFS2_FS_LOCKING_DLM */
 
-#endif 
+#endif /* __INODE_DOT_H__ */
 

@@ -23,4 +23,4 @@
 
 #define CLOCK_TICK_RATE		(3000000)
 
-#endif 
+#endif /* MACH_TIMEX_H */

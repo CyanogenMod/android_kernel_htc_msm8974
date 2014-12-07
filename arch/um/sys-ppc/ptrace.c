@@ -37,13 +37,13 @@ unsigned long getreg(struct task_struct *child, unsigned long regno)
 
 int peek_user(struct task_struct *child, long addr, long data)
 {
-	
+	/* read the word at location addr in the USER area. */
 	unsigned long tmp;
 
 	if ((addr & 3) || addr < 0)
 		return -EIO;
 
-	tmp = 0;  
+	tmp = 0;  /* Default return condition */
 	if(addr < MAX_REG_OFFSET){
 		tmp = getreg(child, addr);
 	}

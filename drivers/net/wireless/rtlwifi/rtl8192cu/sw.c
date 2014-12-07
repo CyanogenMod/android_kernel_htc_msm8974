@@ -61,7 +61,7 @@ static int rtl92cu_init_sw_vars(struct ieee80211_hw *hw)
 	rtlpriv->dm.thermalvalue = 0;
 	rtlpriv->dbg.global_debuglevel = rtlpriv->cfg->mod_params->debug;
 
-	
+	/* for firmware buf */
 	rtlpriv->rtlhal.pfirmware = vzalloc(0x4000);
 	if (!rtlpriv->rtlhal.pfirmware) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
@@ -150,17 +150,17 @@ MODULE_PARM_DESC(swenc, "Set to 1 for software crypto (default 0)\n");
 MODULE_PARM_DESC(debug, "Set debug level (0-5) (default 0)");
 
 static struct rtl_hal_usbint_cfg rtl92cu_interface_cfg = {
-	
+	/* rx */
 	.in_ep_num = RTL92C_USB_BULK_IN_NUM,
 	.rx_urb_num = RTL92C_NUM_RX_URBS,
 	.rx_max_size = RTL92C_SIZE_MAX_RX_BUFFER,
 	.usb_rx_hdl = rtl8192cu_rx_hdl,
-	.usb_rx_segregate_hdl = NULL, 
-	
+	.usb_rx_segregate_hdl = NULL, /* rtl8192c_rx_segregate_hdl; */
+	/* tx */
 	.usb_tx_cleanup = rtl8192c_tx_cleanup,
 	.usb_tx_post_hdl = rtl8192c_tx_post_hdl,
 	.usb_tx_aggregate_hdl = rtl8192c_tx_aggregate_hdl,
-	
+	/* endpoint mapping */
 	.usb_endpoint_mapping = rtl8192cu_endpoint_mapping,
 	.usb_mq_to_hwq = rtl8192cu_mq_to_hwq,
 };
@@ -257,101 +257,102 @@ static struct rtl_hal_cfg rtl92cu_hal_cfg = {
 
 #define USB_VENDER_ID_REALTEK		0x0bda
 
+/* 2010-10-19 DID_USB_V3.4 */
 static struct usb_device_id rtl8192c_usb_ids[] = {
 
-	
-	
+	/*=== Realtek demoboard ===*/
+	/* Default ID */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x8191, rtl92cu_hal_cfg)},
 
-	
-	
+	/****** 8188CU ********/
+	/* RTL8188CTV */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x018a, rtl92cu_hal_cfg)},
-	
+	/* 8188CE-VAU USB minCard */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x8170, rtl92cu_hal_cfg)},
-	
+	/* 8188cu 1*1 dongle */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x8176, rtl92cu_hal_cfg)},
-	
+	/* 8188cu 1*1 dongle, (b/g mode only) */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x8177, rtl92cu_hal_cfg)},
-	
+	/* 8188cu Slim Solo */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x817a, rtl92cu_hal_cfg)},
-	
+	/* 8188cu Slim Combo */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x817b, rtl92cu_hal_cfg)},
-	
+	/* 8188RU High-power USB Dongle */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x817d, rtl92cu_hal_cfg)},
-	
+	/* 8188CE-VAU USB minCard (b/g mode only) */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x817e, rtl92cu_hal_cfg)},
-	
+	/* 8188RU in Alfa AWUS036NHR */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x817f, rtl92cu_hal_cfg)},
-	
+	/* RTL8188CUS-VL */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x818a, rtl92cu_hal_cfg)},
-	
+	/* 8188 Combo for BC4 */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x8754, rtl92cu_hal_cfg)},
 
-	
-	
+	/****** 8192CU ********/
+	/* 8192cu 2*2 */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x8178, rtl92cu_hal_cfg)},
-	
+	/* 8192CE-VAU USB minCard */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x817c, rtl92cu_hal_cfg)},
 
-	
-	
-	{RTL_USB_DEVICE(0x050d, 0x1102, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x06f8, 0xe033, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x07b8, 0x8188, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x07b8, 0x8189, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0846, 0x9041, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0df6, 0x0052, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0df6, 0x005c, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0eb0, 0x9071, rtl92cu_hal_cfg)}, 
-	
+	/*=== Customer ID ===*/
+	/****** 8188CU ********/
+	{RTL_USB_DEVICE(0x050d, 0x1102, rtl92cu_hal_cfg)}, /*Belkin - Edimax*/
+	{RTL_USB_DEVICE(0x06f8, 0xe033, rtl92cu_hal_cfg)}, /*Hercules - Edimax*/
+	{RTL_USB_DEVICE(0x07b8, 0x8188, rtl92cu_hal_cfg)}, /*Abocom - Abocom*/
+	{RTL_USB_DEVICE(0x07b8, 0x8189, rtl92cu_hal_cfg)}, /*Funai - Abocom*/
+	{RTL_USB_DEVICE(0x0846, 0x9041, rtl92cu_hal_cfg)}, /*NetGear WNA1000M*/
+	{RTL_USB_DEVICE(0x0df6, 0x0052, rtl92cu_hal_cfg)}, /*Sitecom - Edimax*/
+	{RTL_USB_DEVICE(0x0df6, 0x005c, rtl92cu_hal_cfg)}, /*Sitecom - Edimax*/
+	{RTL_USB_DEVICE(0x0eb0, 0x9071, rtl92cu_hal_cfg)}, /*NO Brand - Etop*/
+	/* HP - Lite-On ,8188CUS Slim Combo */
 	{RTL_USB_DEVICE(0x103c, 0x1629, rtl92cu_hal_cfg)},
-	{RTL_USB_DEVICE(0x13d3, 0x3357, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2001, 0x3308, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2019, 0x4902, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2019, 0xab2a, rtl92cu_hal_cfg)}, 
-	
+	{RTL_USB_DEVICE(0x13d3, 0x3357, rtl92cu_hal_cfg)}, /* AzureWave */
+	{RTL_USB_DEVICE(0x2001, 0x3308, rtl92cu_hal_cfg)}, /*D-Link - Alpha*/
+	{RTL_USB_DEVICE(0x2019, 0x4902, rtl92cu_hal_cfg)}, /*Planex - Etop*/
+	{RTL_USB_DEVICE(0x2019, 0xab2a, rtl92cu_hal_cfg)}, /*Planex - Abocom*/
+	/*SW-WF02-AD15 -Abocom*/
 	{RTL_USB_DEVICE(0x2019, 0xab2e, rtl92cu_hal_cfg)},
-	{RTL_USB_DEVICE(0x2019, 0xed17, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x20f4, 0x648b, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x7392, 0x7811, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x13d3, 0x3358, rtl92cu_hal_cfg)}, 
-	
+	{RTL_USB_DEVICE(0x2019, 0xed17, rtl92cu_hal_cfg)}, /*PCI - Edimax*/
+	{RTL_USB_DEVICE(0x20f4, 0x648b, rtl92cu_hal_cfg)}, /*TRENDnet - Cameo*/
+	{RTL_USB_DEVICE(0x7392, 0x7811, rtl92cu_hal_cfg)}, /*Edimax - Edimax*/
+	{RTL_USB_DEVICE(0x13d3, 0x3358, rtl92cu_hal_cfg)}, /*Azwave 8188CE-VAU*/
+	/* Russian customer -Azwave (8188CE-VAU  b/g mode only) */
 	{RTL_USB_DEVICE(0x13d3, 0x3359, rtl92cu_hal_cfg)},
-	{RTL_USB_DEVICE(0x4855, 0x0090, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x4855, 0x0091, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x9846, 0x9041, rtl92cu_hal_cfg)}, 
+	{RTL_USB_DEVICE(0x4855, 0x0090, rtl92cu_hal_cfg)}, /* Feixun */
+	{RTL_USB_DEVICE(0x4855, 0x0091, rtl92cu_hal_cfg)}, /* NetweeN-Feixun */
+	{RTL_USB_DEVICE(0x9846, 0x9041, rtl92cu_hal_cfg)}, /* Netgear Cameo */
 
-	
-	
+	/****** 8188 RU ********/
+	/* Netcore */
 	{RTL_USB_DEVICE(USB_VENDER_ID_REALTEK, 0x317f, rtl92cu_hal_cfg)},
 
-	
-	{RTL_USB_DEVICE(0x04f2, 0xaff7, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x04f2, 0xaff9, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x04f2, 0xaffa, rtl92cu_hal_cfg)}, 
+	/****** 8188CUS Slim Solo********/
+	{RTL_USB_DEVICE(0x04f2, 0xaff7, rtl92cu_hal_cfg)}, /*Xavi*/
+	{RTL_USB_DEVICE(0x04f2, 0xaff9, rtl92cu_hal_cfg)}, /*Xavi*/
+	{RTL_USB_DEVICE(0x04f2, 0xaffa, rtl92cu_hal_cfg)}, /*Xavi*/
 
-	
-	{RTL_USB_DEVICE(0x04f2, 0xaff8, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x04f2, 0xaffb, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x04f2, 0xaffc, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2019, 0x1201, rtl92cu_hal_cfg)}, 
+	/****** 8188CUS Slim Combo ********/
+	{RTL_USB_DEVICE(0x04f2, 0xaff8, rtl92cu_hal_cfg)}, /*Xavi*/
+	{RTL_USB_DEVICE(0x04f2, 0xaffb, rtl92cu_hal_cfg)}, /*Xavi*/
+	{RTL_USB_DEVICE(0x04f2, 0xaffc, rtl92cu_hal_cfg)}, /*Xavi*/
+	{RTL_USB_DEVICE(0x2019, 0x1201, rtl92cu_hal_cfg)}, /*Planex-Vencer*/
 
-	
-	{RTL_USB_DEVICE(0x050d, 0x2102, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x050d, 0x2103, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0586, 0x341f, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x07aa, 0x0056, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x07b8, 0x8178, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0846, 0x9021, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0b05, 0x17ab, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0df6, 0x0061, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x0e66, 0x0019, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2001, 0x3307, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2001, 0x3309, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2001, 0x330a, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x2019, 0xab2b, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x20f4, 0x624d, rtl92cu_hal_cfg)}, 
-	{RTL_USB_DEVICE(0x7392, 0x7822, rtl92cu_hal_cfg)}, 
+	/****** 8192CU ********/
+	{RTL_USB_DEVICE(0x050d, 0x2102, rtl92cu_hal_cfg)}, /*Belcom-Sercomm*/
+	{RTL_USB_DEVICE(0x050d, 0x2103, rtl92cu_hal_cfg)}, /*Belcom-Edimax*/
+	{RTL_USB_DEVICE(0x0586, 0x341f, rtl92cu_hal_cfg)}, /*Zyxel -Abocom*/
+	{RTL_USB_DEVICE(0x07aa, 0x0056, rtl92cu_hal_cfg)}, /*ATKK-Gemtek*/
+	{RTL_USB_DEVICE(0x07b8, 0x8178, rtl92cu_hal_cfg)}, /*Funai -Abocom*/
+	{RTL_USB_DEVICE(0x0846, 0x9021, rtl92cu_hal_cfg)}, /*Netgear-Sercomm*/
+	{RTL_USB_DEVICE(0x0b05, 0x17ab, rtl92cu_hal_cfg)}, /*ASUS-Edimax*/
+	{RTL_USB_DEVICE(0x0df6, 0x0061, rtl92cu_hal_cfg)}, /*Sitecom-Edimax*/
+	{RTL_USB_DEVICE(0x0e66, 0x0019, rtl92cu_hal_cfg)}, /*Hawking-Edimax*/
+	{RTL_USB_DEVICE(0x2001, 0x3307, rtl92cu_hal_cfg)}, /*D-Link-Cameo*/
+	{RTL_USB_DEVICE(0x2001, 0x3309, rtl92cu_hal_cfg)}, /*D-Link-Alpha*/
+	{RTL_USB_DEVICE(0x2001, 0x330a, rtl92cu_hal_cfg)}, /*D-Link-Alpha*/
+	{RTL_USB_DEVICE(0x2019, 0xab2b, rtl92cu_hal_cfg)}, /*Planex -Abocom*/
+	{RTL_USB_DEVICE(0x20f4, 0x624d, rtl92cu_hal_cfg)}, /*TRENDNet*/
+	{RTL_USB_DEVICE(0x7392, 0x7822, rtl92cu_hal_cfg)}, /*Edimax -Edimax*/
 	{}
 };
 
@@ -364,10 +365,10 @@ static struct usb_driver rtl8192cu_driver = {
 	.id_table = rtl8192c_usb_ids,
 
 #ifdef CONFIG_PM
-	
-	
-	
-#endif 
+	/* .suspend = rtl_usb_suspend, */
+	/* .resume = rtl_usb_resume, */
+	/* .reset_resume = rtl8192c_resume, */
+#endif /* CONFIG_PM */
 #ifdef CONFIG_AUTOSUSPEND
 	.supports_autosuspend = 1,
 #endif

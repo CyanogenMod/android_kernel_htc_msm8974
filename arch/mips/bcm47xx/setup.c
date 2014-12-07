@@ -47,7 +47,7 @@ static void bcm47xx_machine_restart(char *command)
 {
 	printk(KERN_ALERT "Please stand by while rebooting the system...\n");
 	local_irq_disable();
-	
+	/* Set the watchdog timer to reset immediately */
 	switch (bcm47xx_bus_type) {
 #ifdef CONFIG_BCM47XX_SSB
 	case BCM47XX_BUS_TYPE_SSB:
@@ -66,7 +66,7 @@ static void bcm47xx_machine_restart(char *command)
 
 static void bcm47xx_machine_halt(void)
 {
-	
+	/* Disable interrupts and watchdog and spin forever */
 	local_irq_disable();
 	switch (bcm47xx_bus_type) {
 #ifdef CONFIG_BCM47XX_SSB
@@ -106,7 +106,7 @@ static int bcm47xx_get_invariants(struct ssb_bus *bus,
 {
 	char buf[20];
 
-	
+	/* Fill boardinfo structure */
 	memset(&(iv->boardinfo), 0 , sizeof(struct ssb_boardinfo));
 
 	if (nvram_getenv("boardvendor", buf, sizeof(buf)) >= 0)
@@ -148,7 +148,7 @@ static void __init bcm47xx_register_ssb(void)
 			struct ssb_serial_port port;
 
 			printk(KERN_DEBUG "Swapping serial ports!\n");
-			
+			/* swap serial ports */
 			memcpy(&port, &mcore->serial_ports[0], sizeof(port));
 			memcpy(&mcore->serial_ports[0], &mcore->serial_ports[1],
 			       sizeof(port));
@@ -228,7 +228,7 @@ static int __init bcm47xx_register_bus_complete(void)
 	switch (bcm47xx_bus_type) {
 #ifdef CONFIG_BCM47XX_SSB
 	case BCM47XX_BUS_TYPE_SSB:
-		
+		/* Nothing to do */
 		break;
 #endif
 #ifdef CONFIG_BCM47XX_BCMA

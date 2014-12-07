@@ -14,6 +14,7 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/* Tables generated for c6000 */
 
 #define HASH_FUNC(zz) (((((zz) + 1) * 1845UL) >> 11) & 63)
 #define HASH_L(zz) ((zz) >> 8)

@@ -44,11 +44,16 @@
 
 #define SENSE_TIMEOUT		(10*HZ)
 
+/*
+ * These should *probably* be handled by the host itself.
+ * Since it is allowed to sleep, it probably should.
+ */
 #define BUS_RESET_SETTLE_TIME   (10)
 #define HOST_RESET_SETTLE_TIME  (10)
 
 static int scsi_eh_try_stu(struct scsi_cmnd *scmd);
 
+/* called with shost->host_lock held */
 void scsi_eh_wakeup(struct Scsi_Host *shost)
 {
 	if (shost->host_busy == shost->host_failed) {
@@ -59,6 +64,12 @@ void scsi_eh_wakeup(struct Scsi_Host *shost)
 	}
 }
 
+/**
+ * scsi_schedule_eh - schedule EH for SCSI host
+ * @shost:	SCSI host to invoke error handling on.
+ *
+ * Schedule SCSI EH without scmd.
+ */
 void scsi_schedule_eh(struct Scsi_Host *shost)
 {
 	unsigned long flags;
@@ -75,6 +86,14 @@ void scsi_schedule_eh(struct Scsi_Host *shost)
 }
 EXPORT_SYMBOL_GPL(scsi_schedule_eh);
 
+/**
+ * scsi_eh_scmd_add - add scsi cmd to error handling.
+ * @scmd:	scmd to run eh on.
+ * @eh_flag:	optional SCSI_EH flag.
+ *
+ * Return value:
+ *	0 on failure.
+ */
 int scsi_eh_scmd_add(struct scsi_cmnd *scmd, int eh_flag)
 {
 	struct Scsi_Host *shost = scmd->device->host;
@@ -99,6 +118,16 @@ int scsi_eh_scmd_add(struct scsi_cmnd *scmd, int eh_flag)
 	return ret;
 }
 
+/**
+ * scsi_times_out - Timeout function for normal scsi commands.
+ * @req:	request that is timing out.
+ *
+ * Notes:
+ *     We do not need to lock this.  There is the potential for a race
+ *     only in that the normal completion handling might run, but if the
+ *     normal completion function determines that the timer has already
+ *     fired, then it mustn't do anything.
+ */
 enum blk_eh_timer_return scsi_times_out(struct request *req)
 {
 	struct scsi_cmnd *scmd = req->special;
@@ -122,6 +151,17 @@ enum blk_eh_timer_return scsi_times_out(struct request *req)
 	return rtn;
 }
 
+/**
+ * scsi_block_when_processing_errors - Prevent cmds from being queued.
+ * @sdev:	Device on which we are performing recovery.
+ *
+ * Description:
+ *     We block until the host is out of error recovery, and then check to
+ *     see whether the host or the device is offline.
+ *
+ * Return value:
+ *     0 when dev was taken offline by error recovery. 1 OK to proceed.
+ */
 int scsi_block_when_processing_errors(struct scsi_device *sdev)
 {
 	int online;
@@ -138,6 +178,11 @@ int scsi_block_when_processing_errors(struct scsi_device *sdev)
 EXPORT_SYMBOL(scsi_block_when_processing_errors);
 
 #ifdef CONFIG_SCSI_LOGGING
+/**
+ * scsi_eh_prt_fail_stats - Log info on failures.
+ * @shost:	scsi host being recovered.
+ * @work_q:	Queue of scsi cmds to process.
+ */
 static inline void scsi_eh_prt_fail_stats(struct Scsi_Host *shost,
 					  struct list_head *work_q)
 {
@@ -177,13 +222,24 @@ static inline void scsi_eh_prt_fail_stats(struct Scsi_Host *shost,
 }
 #endif
 
+/**
+ * scsi_check_sense - Examine scsi cmd sense
+ * @scmd:	Cmd to have sense checked.
+ *
+ * Return value:
+ *	SUCCESS or FAILED or NEEDS_RETRY or TARGET_ERROR
+ *
+ * Notes:
+ *	When a deferred error is detected the current command has
+ *	not been executed and needs retrying.
+ */
 static int scsi_check_sense(struct scsi_cmnd *scmd)
 {
 	struct scsi_device *sdev = scmd->device;
 	struct scsi_sense_hdr sshdr;
 
 	if (! scsi_command_normalize_sense(scmd, &sshdr))
-		return FAILED;	
+		return FAILED;	/* no valid sense data */
 
 	if (scsi_sense_is_deferred(&sshdr))
 		return NEEDS_RETRY;
@@ -195,14 +251,23 @@ static int scsi_check_sense(struct scsi_cmnd *scmd)
 		rc = sdev->scsi_dh_data->scsi_dh->check_sense(sdev, &sshdr);
 		if (rc != SCSI_RETURN_NOT_HANDLED)
 			return rc;
-		
+		/* handler does not care. Drop down to default handling */
 	}
 
+	/*
+	 * Previous logic looked for FILEMARK, EOM or ILI which are
+	 * mainly associated with tapes and returned SUCCESS.
+	 */
 	if (sshdr.response_code == 0x70) {
-		
+		/* fixed format */
 		if (scmd->sense_buffer[2] & 0xe0)
 			return SUCCESS;
 	} else {
+		/*
+		 * descriptor format: look for "stream commands sense data
+		 * descriptor" (see SSC-3). Assume single sense data
+		 * descriptor. Ignore ILI from SBC-2 READ LONG and WRITE LONG.
+		 */
 		if ((sshdr.additional_length > 3) &&
 		    (scmd->sense_buffer[8] == 0x4) &&
 		    (scmd->sense_buffer[11] & 0xe0))
@@ -213,23 +278,43 @@ static int scsi_check_sense(struct scsi_cmnd *scmd)
 	case NO_SENSE:
 		return SUCCESS;
 	case RECOVERED_ERROR:
-		return  SUCCESS;
+		return /* soft_error */ SUCCESS;
 
 	case ABORTED_COMMAND:
-		if (sshdr.asc == 0x10) 
+		if (sshdr.asc == 0x10) /* DIF */
 			return SUCCESS;
 
 		return NEEDS_RETRY;
 	case NOT_READY:
 	case UNIT_ATTENTION:
+		/*
+		 * if we are expecting a cc/ua because of a bus reset that we
+		 * performed, treat this just as a retry.  otherwise this is
+		 * information that we should pass up to the upper-level driver
+		 * so that we can deal with it there.
+		 */
 		if (scmd->device->expecting_cc_ua) {
+			/*
+			 * Because some device does not queue unit
+			 * attentions correctly, we carefully check
+			 * additional sense code and qualifier so as
+			 * not to squash media change unit attention.
+			 */
 			if (sshdr.asc != 0x28 || sshdr.ascq != 0x00) {
 				scmd->device->expecting_cc_ua = 0;
 				return NEEDS_RETRY;
 			}
 		}
+		/*
+		 * if the device is in the process of becoming ready, we
+		 * should retry.
+		 */
 		if ((sshdr.asc == 0x04) && (sshdr.ascq == 0x01))
 			return NEEDS_RETRY;
+		/*
+		 * if the device is not started, we need to wake
+		 * the error handler to start the motor
+		 */
 		if (scmd->device->allow_restart &&
 		    (sshdr.asc == 0x04) && (sshdr.ascq == 0x02))
 			return FAILED;
@@ -253,9 +338,13 @@ static int scsi_check_sense(struct scsi_cmnd *scmd)
 				    "LUN reached a thin provisioning soft "
 				    "threshold.\n");
 
+		/*
+		 * Pass the UA upwards for a determination in the completion
+		 * functions.
+		 */
 		return SUCCESS;
 
-		
+		/* these are not supported */
 	case COPY_ABORTED:
 	case VOLUME_OVERFLOW:
 	case MISCOMPARE:
@@ -264,9 +353,9 @@ static int scsi_check_sense(struct scsi_cmnd *scmd)
 		return TARGET_ERROR;
 
 	case MEDIUM_ERROR:
-		if (sshdr.asc == 0x11 || 
-		    sshdr.asc == 0x13 || 
-		    sshdr.asc == 0x14) { 
+		if (sshdr.asc == 0x11 || /* UNRECOVERED READ ERR */
+		    sshdr.asc == 0x13 || /* AMNF DATA FIELD */
+		    sshdr.asc == 0x14) { /* RECORD NOT FOUND */
 			return TARGET_ERROR;
 		}
 		return NEEDS_RETRY;
@@ -278,10 +367,10 @@ static int scsi_check_sense(struct scsi_cmnd *scmd)
 			return TARGET_ERROR;
 
 	case ILLEGAL_REQUEST:
-		if (sshdr.asc == 0x20 || 
-		    sshdr.asc == 0x21 || 
-		    sshdr.asc == 0x24 || 
-		    sshdr.asc == 0x26) { 
+		if (sshdr.asc == 0x20 || /* Invalid command operation code */
+		    sshdr.asc == 0x21 || /* Logical block address out of range */
+		    sshdr.asc == 0x24 || /* Invalid field in cdb */
+		    sshdr.asc == 0x26) { /* Parameter value invalid */
 			return TARGET_ERROR;
 		}
 		return SUCCESS;
@@ -308,11 +397,19 @@ static void scsi_handle_queue_ramp_up(struct scsi_device *sdev)
 	    sdev->last_queue_full_time + sdev->queue_ramp_up_period))
 		return;
 
+	/*
+	 * Walk all devices of a target and do
+	 * ramp up on them.
+	 */
 	shost_for_each_device(tmp_sdev, sdev->host) {
 		if (tmp_sdev->channel != sdev->channel ||
 		    tmp_sdev->id != sdev->id ||
 		    tmp_sdev->queue_depth == sdev->max_queue_depth)
 			continue;
+		/*
+		 * call back into LLD to increase queue_depth by one
+		 * with ramp up reason code.
+		 */
 		sht->change_queue_depth(tmp_sdev, tmp_sdev->queue_depth + 1,
 					SCSI_QDEPTH_RAMP_UP);
 		sdev->last_queue_ramp_up = jiffies;
@@ -331,22 +428,54 @@ static void scsi_handle_queue_full(struct scsi_device *sdev)
 		if (tmp_sdev->channel != sdev->channel ||
 		    tmp_sdev->id != sdev->id)
 			continue;
+		/*
+		 * We do not know the number of commands that were at
+		 * the device when we got the queue full so we start
+		 * from the highest possible value and work our way down.
+		 */
 		sht->change_queue_depth(tmp_sdev, tmp_sdev->queue_depth - 1,
 					SCSI_QDEPTH_QFULL);
 	}
 }
 
+/**
+ * scsi_eh_completed_normally - Disposition a eh cmd on return from LLD.
+ * @scmd:	SCSI cmd to examine.
+ *
+ * Notes:
+ *    This is *only* called when we are examining the status of commands
+ *    queued during error recovery.  the main difference here is that we
+ *    don't allow for the possibility of retries here, and we are a lot
+ *    more restrictive about what we consider acceptable.
+ */
 static int scsi_eh_completed_normally(struct scsi_cmnd *scmd)
 {
+	/*
+	 * first check the host byte, to see if there is anything in there
+	 * that would indicate what we need to do.
+	 */
 	if (host_byte(scmd->result) == DID_RESET) {
+		/*
+		 * rats.  we are already in the error handler, so we now
+		 * get to try and figure out what to do next.  if the sense
+		 * is valid, we have a pretty good idea of what to do.
+		 * if not, we mark it as FAILED.
+		 */
 		return scsi_check_sense(scmd);
 	}
 	if (host_byte(scmd->result) != DID_OK)
 		return FAILED;
 
+	/*
+	 * next, check the message byte.
+	 */
 	if (msg_byte(scmd->result) != COMMAND_COMPLETE)
 		return FAILED;
 
+	/*
+	 * now, check the status byte to see if this indicates
+	 * anything special.
+	 */
 	switch (status_byte(scmd->result)) {
 	case GOOD:
 		scsi_handle_queue_ramp_up(scmd->device);
@@ -357,15 +486,20 @@ static int scsi_eh_completed_normally(struct scsi_cmnd *scmd)
 	case CONDITION_GOOD:
 	case INTERMEDIATE_GOOD:
 	case INTERMEDIATE_C_GOOD:
+		/*
+		 * who knows?  FIXME(eric)
+		 */
 		return SUCCESS;
 	case RESERVATION_CONFLICT:
 		if (scmd->cmnd[0] == TEST_UNIT_READY)
+			/* it is a success, we probed the device and
+			 * found it */
 			return SUCCESS;
-		
+		/* otherwise, we failed to send the command */
 		return FAILED;
 	case QUEUE_FULL:
 		scsi_handle_queue_full(scmd->device);
-		
+		/* fall through */
 	case BUSY:
 		return NEEDS_RETRY;
 	default:
@@ -374,6 +508,10 @@ static int scsi_eh_completed_normally(struct scsi_cmnd *scmd)
 	return FAILED;
 }
 
+/**
+ * scsi_eh_done - Completion function for error handling.
+ * @scmd:	Cmd that is done.
+ */
 static void scsi_eh_done(struct scsi_cmnd *scmd)
 {
 	struct completion *eh_action;
@@ -387,6 +525,10 @@ static void scsi_eh_done(struct scsi_cmnd *scmd)
 		complete(eh_action);
 }
 
+/**
+ * scsi_try_host_reset - ask host adapter to reset itself
+ * @scmd:	SCSI cmd to send hsot reset.
+ */
 static int scsi_try_host_reset(struct scsi_cmnd *scmd)
 {
 	unsigned long flags;
@@ -413,6 +555,10 @@ static int scsi_try_host_reset(struct scsi_cmnd *scmd)
 	return rtn;
 }
 
+/**
+ * scsi_try_bus_reset - ask host to perform a bus reset
+ * @scmd:	SCSI cmd to send bus reset.
+ */
 static int scsi_try_bus_reset(struct scsi_cmnd *scmd)
 {
 	unsigned long flags;
@@ -445,6 +591,16 @@ static void __scsi_report_device_reset(struct scsi_device *sdev, void *data)
 	sdev->expecting_cc_ua = 1;
 }
 
+/**
+ * scsi_try_target_reset - Ask host to perform a target reset
+ * @scmd:	SCSI cmd used to send a target reset
+ *
+ * Notes:
+ *    There is no timeout for this operation.  if this operation is
+ *    unreliable for a given host, then the host itself needs to put a
+ *    timer on it, and set the host back to a consistent state prior to
+ *    returning.
+ */
 static int scsi_try_target_reset(struct scsi_cmnd *scmd)
 {
 	unsigned long flags;
@@ -466,6 +622,16 @@ static int scsi_try_target_reset(struct scsi_cmnd *scmd)
 	return rtn;
 }
 
+/**
+ * scsi_try_bus_device_reset - Ask host to perform a BDR on a dev
+ * @scmd:	SCSI cmd used to send BDR
+ *
+ * Notes:
+ *    There is no timeout for this operation.  if this operation is
+ *    unreliable for a given host, then the host itself needs to put a
+ *    timer on it, and set the host back to a consistent state prior to
+ *    returning.
+ */
 static int scsi_try_bus_device_reset(struct scsi_cmnd *scmd)
 {
 	int rtn;
@@ -497,11 +663,32 @@ static void scsi_abort_eh_cmnd(struct scsi_cmnd *scmd)
 					scsi_try_host_reset(scmd);
 }
 
+/**
+ * scsi_eh_prep_cmnd  - Save a scsi command info as part of error recory
+ * @scmd:       SCSI command structure to hijack
+ * @ses:        structure to save restore information
+ * @cmnd:       CDB to send. Can be NULL if no new cmnd is needed
+ * @cmnd_size:  size in bytes of @cmnd (must be <= BLK_MAX_CDB)
+ * @sense_bytes: size of sense data to copy. or 0 (if != 0 @cmnd is ignored)
+ *
+ * This function is used to save a scsi command information before re-execution
+ * as part of the error recovery process.  If @sense_bytes is 0 the command
+ * sent must be one that does not transfer any data.  If @sense_bytes != 0
+ * @cmnd is ignored and this functions sets up a REQUEST_SENSE command
+ * and cmnd buffers to read @sense_bytes into @scmd->sense_buffer.
+ */
 void scsi_eh_prep_cmnd(struct scsi_cmnd *scmd, struct scsi_eh_save *ses,
 			unsigned char *cmnd, int cmnd_size, unsigned sense_bytes)
 {
 	struct scsi_device *sdev = scmd->device;
 
+	/*
+	 * We need saved copies of a number of fields - this is because
+	 * error handling may need to overwrite these with different values
+	 * to run different commands, and once error handling is complete,
+	 * we will need to restore these values prior to running the actual
+	 * command.
+	 */
 	ses->cmd_len = scmd->cmd_len;
 	ses->cmnd = scmd->cmnd;
 	ses->data_direction = scmd->sc_data_direction;
@@ -543,12 +730,26 @@ void scsi_eh_prep_cmnd(struct scsi_cmnd *scmd, struct scsi_eh_save *ses,
 		scmd->cmnd[1] = (scmd->cmnd[1] & 0x1f) |
 			(sdev->lun << 5 & 0xe0);
 
+	/*
+	 * Zero the sense buffer.  The scsi spec mandates that any
+	 * untransferred sense data should be interpreted as being zero.
+	 */
 	memset(scmd->sense_buffer, 0, SCSI_SENSE_BUFFERSIZE);
 }
 EXPORT_SYMBOL(scsi_eh_prep_cmnd);
 
+/**
+ * scsi_eh_restore_cmnd  - Restore a scsi command info as part of error recory
+ * @scmd:       SCSI command structure to restore
+ * @ses:        saved information from a coresponding call to scsi_eh_prep_cmnd
+ *
+ * Undo any damage done by above scsi_eh_prep_cmnd().
+ */
 void scsi_eh_restore_cmnd(struct scsi_cmnd* scmd, struct scsi_eh_save *ses)
 {
+	/*
+	 * Restore original data
+	 */
 	scmd->cmd_len = ses->cmd_len;
 	scmd->cmnd = ses->cmnd;
 	scmd->sc_data_direction = ses->data_direction;
@@ -560,6 +761,20 @@ void scsi_eh_restore_cmnd(struct scsi_cmnd* scmd, struct scsi_eh_save *ses)
 }
 EXPORT_SYMBOL(scsi_eh_restore_cmnd);
 
+/**
+ * scsi_send_eh_cmnd  - submit a scsi command as part of error recory
+ * @scmd:       SCSI command structure to hijack
+ * @cmnd:       CDB to send
+ * @cmnd_size:  size in bytes of @cmnd
+ * @timeout:    timeout for this request
+ * @sense_bytes: size of sense data to copy or 0
+ *
+ * This function is used to send a scsi command down to a target device
+ * as part of the error recovery process. See also scsi_eh_prep_cmnd() above.
+ *
+ * Return value:
+ *    SUCCESS or FAILED or NEEDS_RETRY
+ */
 static int scsi_send_eh_cmnd(struct scsi_cmnd *scmd, unsigned char *cmnd,
 			     int cmnd_size, int timeout, unsigned sense_bytes)
 {
@@ -588,6 +803,12 @@ static int scsi_send_eh_cmnd(struct scsi_cmnd *scmd, unsigned char *cmnd,
 		printk("%s: scmd: %p, timeleft: %ld\n",
 			__func__, scmd, timeleft));
 
+	/*
+	 * If there is time left scsi_eh_done got called, and we will
+	 * examine the actual status codes to see whether the command
+	 * actually did complete normally, else tell the host to forget
+	 * about this command.
+	 */
 	if (timeleft) {
 		rtn = scsi_eh_completed_normally(scmd);
 		SCSI_LOG_ERROR_RECOVERY(3,
@@ -620,11 +841,32 @@ static int scsi_send_eh_cmnd(struct scsi_cmnd *scmd, unsigned char *cmnd,
 	return rtn;
 }
 
+/**
+ * scsi_request_sense - Request sense data from a particular target.
+ * @scmd:	SCSI cmd for request sense.
+ *
+ * Notes:
+ *    Some hosts automatically obtain this information, others require
+ *    that we obtain it on our own. This function will *not* return until
+ *    the command either times out, or it completes.
+ */
 static int scsi_request_sense(struct scsi_cmnd *scmd)
 {
 	return scsi_send_eh_cmnd(scmd, NULL, 0, SENSE_TIMEOUT, ~0);
 }
 
+/**
+ * scsi_eh_finish_cmd - Handle a cmd that eh is finished with.
+ * @scmd:	Original SCSI cmd that eh has finished.
+ * @done_q:	Queue for processed commands.
+ *
+ * Notes:
+ *    We don't want to use the normal command completion while we are are
+ *    still handling errors - it may cause other commands to be queued,
+ *    and that would disturb what we are doing.  Thus we really want to
+ *    keep a list of pending commands for final completion, and once we
+ *    are ready to leave error handling we handle completion for real.
+ */
 void scsi_eh_finish_cmd(struct scsi_cmnd *scmd, struct list_head *done_q)
 {
 	scmd->device->host->host_failed--;
@@ -633,6 +875,26 @@ void scsi_eh_finish_cmd(struct scsi_cmnd *scmd, struct list_head *done_q)
 }
 EXPORT_SYMBOL(scsi_eh_finish_cmd);
 
+/**
+ * scsi_eh_get_sense - Get device sense data.
+ * @work_q:	Queue of commands to process.
+ * @done_q:	Queue of processed commands.
+ *
+ * Description:
+ *    See if we need to request sense information.  if so, then get it
+ *    now, so we have a better idea of what to do.
+ *
+ * Notes:
+ *    This has the unfortunate side effect that if a shost adapter does
+ *    not automatically request sense information, we end up shutting
+ *    it down before we request it.
+ *
+ *    All drivers should request sense information internally these days,
+ *    so for now all I have to say is tough noogies if you end up in here.
+ *
+ *    XXX: Long term this code should go away, but that needs an audit of
+ *         all LLDDs first.
+ */
 int scsi_eh_get_sense(struct list_head *work_q,
 		      struct list_head *done_q)
 {
@@ -658,7 +920,15 @@ int scsi_eh_get_sense(struct list_head *work_q,
 
 		rtn = scsi_decide_disposition(scmd);
 
+		/*
+		 * if the result was normal, then just pass it along to the
+		 * upper level.
+		 */
 		if (rtn == SUCCESS)
+			/* we don't want this command reissued, just
+			 * finished with the sense data, so set
+			 * retries to the max allowed to ensure it
+			 * won't get reissued */
 			scmd->retries = scmd->allowed;
 		else if (rtn != NEEDS_RETRY)
 			continue;
@@ -670,6 +940,13 @@ int scsi_eh_get_sense(struct list_head *work_q,
 }
 EXPORT_SYMBOL_GPL(scsi_eh_get_sense);
 
+/**
+ * scsi_eh_tur - Send TUR to device.
+ * @scmd:	&scsi_cmnd to send TUR
+ *
+ * Return value:
+ *    0 - Device is ready. 1 - Device NOT ready.
+ */
 static int scsi_eh_tur(struct scsi_cmnd *scmd)
 {
 	static unsigned char tur_command[6] = {TEST_UNIT_READY, 0, 0, 0, 0, 0};
@@ -685,7 +962,7 @@ retry_tur:
 	case NEEDS_RETRY:
 		if (retry_cnt--)
 			goto retry_tur;
-		
+		/*FALLTHRU*/
 	case SUCCESS:
 		return 0;
 	default:
@@ -693,6 +970,19 @@ retry_tur:
 	}
 }
 
+/**
+ * scsi_eh_test_devices - check if devices are responding from error recovery.
+ * @cmd_list:	scsi commands in error recovery.
+ * @work_q:     queue for commands which still need more error recovery
+ * @done_q:     queue for commands which are finished
+ * @try_stu:    boolean on if a STU command should be tried in addition to TUR.
+ *
+ * Decription:
+ *    Tests if devices are in a working state.  Commands to devices now in
+ *    a working state are sent to the done_q while commands to devices which
+ *    are still failing to respond are returned to the work_q for more
+ *    processing.
+ **/
 static int scsi_eh_test_devices(struct list_head *cmd_list,
 				struct list_head *work_q,
 				struct list_head *done_q, int try_stu)
@@ -722,6 +1012,18 @@ static int scsi_eh_test_devices(struct list_head *cmd_list,
 }
 
 
+/**
+ * scsi_eh_abort_cmds - abort pending commands.
+ * @work_q:	&list_head for pending commands.
+ * @done_q:	&list_head for processed commands.
+ *
+ * Decription:
+ *    Try and see whether or not it makes sense to try and abort the
+ *    running command.  This only works out to be the case if we have one
+ *    command that has timed out.  If the command simply failed, it makes
+ *    no sense to try and abort the command, since as far as the shost
+ *    adapter is concerned, it isn't running.
+ */
 static int scsi_eh_abort_cmds(struct list_head *work_q,
 			      struct list_head *done_q)
 {
@@ -753,6 +1055,13 @@ static int scsi_eh_abort_cmds(struct list_head *work_q,
 	return scsi_eh_test_devices(&check_list, work_q, done_q, 0);
 }
 
+/**
+ * scsi_eh_try_stu - Send START_UNIT to device.
+ * @scmd:	&scsi_cmnd to send START_UNIT
+ *
+ * Return value:
+ *    0 - Device is ready. 1 - Device NOT ready.
+ */
 static int scsi_eh_try_stu(struct scsi_cmnd *scmd)
 {
 	static unsigned char stu_command[6] = {START_STOP, 0, 0, 0, 1, 0};
@@ -770,6 +1079,16 @@ static int scsi_eh_try_stu(struct scsi_cmnd *scmd)
 	return 1;
 }
 
+ /**
+ * scsi_eh_stu - send START_UNIT if needed
+ * @shost:	&scsi host being recovered.
+ * @work_q:     &list_head for pending commands.
+ * @done_q:	&list_head for processed commands.
+ *
+ * Notes:
+ *    If commands are failing due to not ready, initializing command required,
+ *	try revalidating the device, which will end up sending a start unit.
+ */
 static int scsi_eh_stu(struct Scsi_Host *shost,
 			      struct list_head *work_q,
 			      struct list_head *done_q)
@@ -812,6 +1131,18 @@ static int scsi_eh_stu(struct Scsi_Host *shost,
 }
 
 
+/**
+ * scsi_eh_bus_device_reset - send bdr if needed
+ * @shost:	scsi host being recovered.
+ * @work_q:     &list_head for pending commands.
+ * @done_q:	&list_head for processed commands.
+ *
+ * Notes:
+ *    Try a bus device reset.  Still, look to see whether we have multiple
+ *    devices that are jammed or not - if we have multiple devices, it
+ *    makes no sense to try bus_device_reset - we really would need to try
+ *    a bus_reset instead.
+ */
 static int scsi_eh_bus_device_reset(struct Scsi_Host *shost,
 				    struct list_head *work_q,
 				    struct list_head *done_q)
@@ -858,6 +1189,15 @@ static int scsi_eh_bus_device_reset(struct Scsi_Host *shost,
 	return list_empty(work_q);
 }
 
+/**
+ * scsi_eh_target_reset - send target reset if needed
+ * @shost:	scsi host being recovered.
+ * @work_q:     &list_head for pending commands.
+ * @done_q:	&list_head for processed commands.
+ *
+ * Notes:
+ *    Try a target reset.
+ */
 static int scsi_eh_target_reset(struct Scsi_Host *shost,
 				struct list_head *work_q,
 				struct list_head *done_q)
@@ -893,7 +1233,7 @@ static int scsi_eh_target_reset(struct Scsi_Host *shost,
 			else if (rtn == FAST_IO_FAIL)
 				scsi_eh_finish_cmd(scmd, done_q);
 			else
-				
+				/* push back on work queue for further processing */
 				list_move(&scmd->eh_entry, work_q);
 		}
 	}
@@ -901,6 +1241,12 @@ static int scsi_eh_target_reset(struct Scsi_Host *shost,
 	return scsi_eh_test_devices(&check_list, work_q, done_q, 0);
 }
 
+/**
+ * scsi_eh_bus_reset - send a bus reset
+ * @shost:	&scsi host being recovered.
+ * @work_q:     &list_head for pending commands.
+ * @done_q:	&list_head for processed commands.
+ */
 static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 			     struct list_head *work_q,
 			     struct list_head *done_q)
@@ -910,6 +1256,12 @@ static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 	unsigned int channel;
 	int rtn;
 
+	/*
+	 * we really want to loop over the various channels, and do this on
+	 * a channel by channel basis.  we should also check to see if any
+	 * of the failed commands are on soft_reset devices, and if so, skip
+	 * the reset.
+	 */
 
 	for (channel = 0; channel <= shost->max_channel; channel++) {
 		chan_scmd = NULL;
@@ -917,6 +1269,10 @@ static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 			if (channel == scmd_channel(scmd)) {
 				chan_scmd = scmd;
 				break;
+				/*
+				 * FIXME add back in some support for
+				 * soft_reset devices.
+				 */
 			}
 		}
 
@@ -947,6 +1303,11 @@ static int scsi_eh_bus_reset(struct Scsi_Host *shost,
 	return scsi_eh_test_devices(&check_list, work_q, done_q, 0);
 }
 
+/**
+ * scsi_eh_host_reset - send a host reset
+ * @work_q:	list_head for processed commands.
+ * @done_q:	list_head for processed commands.
+ */
 static int scsi_eh_host_reset(struct list_head *work_q,
 			      struct list_head *done_q)
 {
@@ -977,6 +1338,11 @@ static int scsi_eh_host_reset(struct list_head *work_q,
 	return scsi_eh_test_devices(&check_list, work_q, done_q, 1);
 }
 
+/**
+ * scsi_eh_offline_sdevs - offline scsi devices that fail to recover
+ * @work_q:	list_head for processed commands.
+ * @done_q:	list_head for processed commands.
+ */
 static void scsi_eh_offline_sdevs(struct list_head *work_q,
 				  struct list_head *done_q)
 {
@@ -987,12 +1353,19 @@ static void scsi_eh_offline_sdevs(struct list_head *work_q,
 			    "not ready after error recovery\n");
 		scsi_device_set_state(scmd->device, SDEV_OFFLINE);
 		if (scmd->eh_eflags & SCSI_EH_CANCEL_CMD) {
+			/*
+			 * FIXME: Handle lost cmds.
+			 */
 		}
 		scsi_eh_finish_cmd(scmd, done_q);
 	}
 	return;
 }
 
+/**
+ * scsi_noretry_cmd - determinte if command should be failed fast
+ * @scmd:	SCSI cmd to examine.
+ */
 int scsi_noretry_cmd(struct scsi_cmnd *scmd)
 {
 	switch (host_byte(scmd->result)) {
@@ -1006,13 +1379,17 @@ int scsi_noretry_cmd(struct scsi_cmnd *scmd)
 		if (msg_byte(scmd->result) == COMMAND_COMPLETE &&
 		    status_byte(scmd->result) == RESERVATION_CONFLICT)
 			return 0;
-		
+		/* fall through */
 	case DID_SOFT_ERROR:
 		return (scmd->request->cmd_flags & REQ_FAILFAST_DRIVER);
 	}
 
 	switch (status_byte(scmd->result)) {
 	case CHECK_CONDITION:
+		/*
+		 * assume caller has checked sense and determinted
+		 * the check condition was retryable.
+		 */
 		if (scmd->request->cmd_flags & REQ_FAILFAST_DEV ||
 		    scmd->request->cmd_type == REQ_TYPE_BLOCK_PC)
 			return 1;
@@ -1021,10 +1398,28 @@ int scsi_noretry_cmd(struct scsi_cmnd *scmd)
 	return 0;
 }
 
+/**
+ * scsi_decide_disposition - Disposition a cmd on return from LLD.
+ * @scmd:	SCSI cmd to examine.
+ *
+ * Notes:
+ *    This is *only* called when we are examining the status after sending
+ *    out the actual data command.  any commands that are queued for error
+ *    recovery (e.g. test_unit_ready) do *not* come through here.
+ *
+ *    When this routine returns failed, it means the error handler thread
+ *    is woken.  In cases where the error code indicates an error that
+ *    doesn't require the error handler read (i.e. we don't need to
+ *    abort/reset), this function should return SUCCESS.
+ */
 int scsi_decide_disposition(struct scsi_cmnd *scmd)
 {
 	int rtn;
 
+	/*
+	 * if the device is offline, then we clearly just pass the result back
+	 * up to the top level.
+	 */
 	if (!scsi_device_online(scmd->device)) {
 		SCSI_LOG_ERROR_RECOVERY(5, printk("%s: device offline - report"
 						  " as SUCCESS\n",
@@ -1032,16 +1427,42 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		return SUCCESS;
 	}
 
+	/*
+	 * first check the host byte, to see if there is anything in there
+	 * that would indicate what we need to do.
+	 */
 	switch (host_byte(scmd->result)) {
 	case DID_PASSTHROUGH:
+		/*
+		 * no matter what, pass this through to the upper layer.
+		 * nuke this special code so that it looks like we are saying
+		 * did_ok.
+		 */
 		scmd->result &= 0xff00ffff;
 		return SUCCESS;
 	case DID_OK:
+		/*
+		 * looks good.  drop through, and check the next byte.
+		 */
 		break;
 	case DID_NO_CONNECT:
 	case DID_BAD_TARGET:
 	case DID_ABORT:
+		/*
+		 * note - this means that we just report the status back
+		 * to the top level driver, not that we actually think
+		 * that it indicates SUCCESS.
+		 */
 		return SUCCESS;
+		/*
+		 * when the low level driver returns did_soft_error,
+		 * it is responsible for keeping an internal retry counter
+		 * in order to avoid endless loops (db)
+		 *
+		 * actually this is a bug in this function here.  we should
+		 * be mindful of the maximum number of retries specified
+		 * and not get stuck in a loop.
+		 */
 	case DID_SOFT_ERROR:
 		goto maybe_retry;
 	case DID_IMM_RETRY:
@@ -1050,18 +1471,38 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 	case DID_REQUEUE:
 		return ADD_TO_MLQUEUE;
 	case DID_TRANSPORT_DISRUPTED:
+		/*
+		 * LLD/transport was disrupted during processing of the IO.
+		 * The transport class is now blocked/blocking,
+		 * and the transport will decide what to do with the IO
+		 * based on its timers and recovery capablilities if
+		 * there are enough retries.
+		 */
 		goto maybe_retry;
 	case DID_TRANSPORT_FAILFAST:
+		/*
+		 * The transport decided to failfast the IO (most likely
+		 * the fast io fail tmo fired), so send IO directly upwards.
+		 */
 		return SUCCESS;
 	case DID_ERROR:
 		if (msg_byte(scmd->result) == COMMAND_COMPLETE &&
 		    status_byte(scmd->result) == RESERVATION_CONFLICT)
+			/*
+			 * execute reservation conflict processing code
+			 * lower down
+			 */
 			break;
-		
+		/* fallthrough */
 	case DID_BUS_BUSY:
 	case DID_PARITY:
 		goto maybe_retry;
 	case DID_TIME_OUT:
+		/*
+		 * when we scan the bus, we get timeout messages for
+		 * these commands if there is no device available.
+		 * other hosts report did_no_connect for the same thing.
+		 */
 		if ((scmd->cmnd[0] == TEST_UNIT_READY ||
 		     scmd->cmnd[0] == INQUIRY)) {
 			return SUCCESS;
@@ -1074,13 +1515,29 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		return FAILED;
 	}
 
+	/*
+	 * next, check the message byte.
+	 */
 	if (msg_byte(scmd->result) != COMMAND_COMPLETE)
 		return FAILED;
 
+	/*
+	 * check the status byte to see if this indicates anything special.
+	 */
 	switch (status_byte(scmd->result)) {
 	case QUEUE_FULL:
 		scsi_handle_queue_full(scmd->device);
+		/*
+		 * the case of trying to send too many commands to a
+		 * tagged queueing device.
+		 */
 	case BUSY:
+		/*
+		 * device can't talk to us at the moment.  Should only
+		 * occur (SAM-3) when the task queue is empty, so will cause
+		 * the empty queue handling to trigger a stall in the
+		 * device.
+		 */
 		return ADD_TO_MLQUEUE;
 	case GOOD:
 		scsi_handle_queue_ramp_up(scmd->device);
@@ -1093,21 +1550,32 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 		if (rtn == NEEDS_RETRY)
 			goto maybe_retry;
 		else if (rtn == TARGET_ERROR) {
+			/*
+			 * Need to modify host byte to signal a
+			 * permanent target failure
+			 */
 			set_host_byte(scmd, DID_TARGET_FAILURE);
 			rtn = SUCCESS;
 		}
+		/* if rtn == FAILED, we have no sense information;
+		 * returning FAILED will wake the error handler thread
+		 * to collect the sense and redo the decide
+		 * disposition */
 		return rtn;
 	case CONDITION_GOOD:
 	case INTERMEDIATE_GOOD:
 	case INTERMEDIATE_C_GOOD:
 	case ACA_ACTIVE:
+		/*
+		 * who knows?  FIXME(eric)
+		 */
 		return SUCCESS;
 
 	case RESERVATION_CONFLICT:
 		sdev_printk(KERN_INFO, scmd->device,
 			    "reservation conflict\n");
 		set_host_byte(scmd, DID_NEXUS_FAILURE);
-		return SUCCESS; 
+		return SUCCESS; /* causes immediate i/o error */
 	default:
 		return FAILED;
 	}
@@ -1115,10 +1583,17 @@ int scsi_decide_disposition(struct scsi_cmnd *scmd)
 
       maybe_retry:
 
+	/* we requeue for retry because the error was retryable, and
+	 * the request was not marked fast fail.  Note that above,
+	 * even if the request is marked fast fail, we still requeue
+	 * for queue congestion conditions (QUEUE_FULL or BUSY) */
 	if ((++scmd->retries) <= scmd->allowed
 	    && !scsi_noretry_cmd(scmd)) {
 		return NEEDS_RETRY;
 	} else {
+		/*
+		 * no more retries - report this one back to upper level.
+		 */
 		return SUCCESS;
 	}
 }
@@ -1128,10 +1603,25 @@ static void eh_lock_door_done(struct request *req, int uptodate)
 	__blk_put_request(req->q, req);
 }
 
+/**
+ * scsi_eh_lock_door - Prevent medium removal for the specified device
+ * @sdev:	SCSI device to prevent medium removal
+ *
+ * Locking:
+ * 	We must be called from process context.
+ *
+ * Notes:
+ * 	We queue up an asynchronous "ALLOW MEDIUM REMOVAL" request on the
+ * 	head of the devices request queue, and continue.
+ */
 static void scsi_eh_lock_door(struct scsi_device *sdev)
 {
 	struct request *req;
 
+	/*
+	 * blk_get_request with GFP_KERNEL (__GFP_WAIT) sleeps until a
+	 * request becomes available
+	 */
 	req = blk_get_request(sdev->request_queue, READ, GFP_KERNEL);
 
 	req->cmd[0] = ALLOW_MEDIUM_REMOVAL;
@@ -1151,16 +1641,34 @@ static void scsi_eh_lock_door(struct scsi_device *sdev)
 	blk_execute_rq_nowait(req->q, NULL, req, 1, eh_lock_door_done);
 }
 
+/**
+ * scsi_restart_operations - restart io operations to the specified host.
+ * @shost:	Host we are restarting.
+ *
+ * Notes:
+ *    When we entered the error handler, we blocked all further i/o to
+ *    this device.  we need to 'reverse' this process.
+ */
 static void scsi_restart_operations(struct Scsi_Host *shost)
 {
 	struct scsi_device *sdev;
 	unsigned long flags;
 
+	/*
+	 * If the door was locked, we need to insert a door lock request
+	 * onto the head of the SCSI request queue for the device.  There
+	 * is no point trying to lock the door of an off-line device.
+	 */
 	shost_for_each_device(sdev, shost) {
 		if (scsi_device_online(sdev) && sdev->locked)
 			scsi_eh_lock_door(sdev);
 	}
 
+	/*
+	 * next free up anything directly waiting upon the host.  this
+	 * will be requests for character device operations, and also for
+	 * ioctls to queued block devices.
+	 */
 	SCSI_LOG_ERROR_RECOVERY(3, printk("%s: waking up host to restart\n",
 					  __func__));
 
@@ -1172,9 +1680,21 @@ static void scsi_restart_operations(struct Scsi_Host *shost)
 
 	wake_up(&shost->host_wait);
 
+	/*
+	 * finally we need to re-initiate requests that may be pending.  we will
+	 * have had everything blocked while error handling is taking place, and
+	 * now that error recovery is done, we will need to ensure that these
+	 * requests are started.
+	 */
 	scsi_run_host_queues(shost);
 }
 
+/**
+ * scsi_eh_ready_devs - check device ready state and recover if not.
+ * @shost: 	host to be recovered.
+ * @work_q:     &list_head for pending commands.
+ * @done_q:	&list_head for processed commands.
+ */
 void scsi_eh_ready_devs(struct Scsi_Host *shost,
 			struct list_head *work_q,
 			struct list_head *done_q)
@@ -1189,6 +1709,10 @@ void scsi_eh_ready_devs(struct Scsi_Host *shost,
 }
 EXPORT_SYMBOL_GPL(scsi_eh_ready_devs);
 
+/**
+ * scsi_eh_flush_done_q - finish processed commands or retry them.
+ * @done_q:	list_head of processed commands.
+ */
 void scsi_eh_flush_done_q(struct list_head *done_q)
 {
 	struct scsi_cmnd *scmd, *next;
@@ -1204,6 +1728,11 @@ void scsi_eh_flush_done_q(struct list_head *done_q)
 							  scmd));
 				scsi_queue_insert(scmd, SCSI_MLQUEUE_EH_RETRY);
 		} else {
+			/*
+			 * If just we got sense for the device (called
+			 * scsi_eh_get_sense), scmd->result is already
+			 * set, do not set DRIVER_TIMEOUT.
+			 */
 			if (!scmd->result)
 				scmd->result |= (DRIVER_TIMEOUT << 24);
 			SCSI_LOG_ERROR_RECOVERY(3, printk("%s: flush finish"
@@ -1215,6 +1744,29 @@ void scsi_eh_flush_done_q(struct list_head *done_q)
 }
 EXPORT_SYMBOL(scsi_eh_flush_done_q);
 
+/**
+ * scsi_unjam_host - Attempt to fix a host which has a cmd that failed.
+ * @shost:	Host to unjam.
+ *
+ * Notes:
+ *    When we come in here, we *know* that all commands on the bus have
+ *    either completed, failed or timed out.  we also know that no further
+ *    commands are being sent to the host, so things are relatively quiet
+ *    and we have freedom to fiddle with things as we wish.
+ *
+ *    This is only the *default* implementation.  it is possible for
+ *    individual drivers to supply their own version of this function, and
+ *    if the maintainer wishes to do this, it is strongly suggested that
+ *    this function be taken as a template and modified.  this function
+ *    was designed to correctly handle problems for about 95% of the
+ *    different cases out there, and it should always provide at least a
+ *    reasonable amount of error recovery.
+ *
+ *    Any command marked 'failed' or 'timeout' must eventually have
+ *    scsi_finish_cmd() called for it.  we do all of the retry stuff
+ *    here, so when we restart the host after we return it should have an
+ *    empty queue.
+ */
 static void scsi_unjam_host(struct Scsi_Host *shost)
 {
 	unsigned long flags;
@@ -1234,10 +1786,24 @@ static void scsi_unjam_host(struct Scsi_Host *shost)
 	scsi_eh_flush_done_q(&eh_done_q);
 }
 
+/**
+ * scsi_error_handler - SCSI error handler thread
+ * @data:	Host for which we are running.
+ *
+ * Notes:
+ *    This is the main error handling loop.  This is run as a kernel thread
+ *    for every SCSI host and handles all error handling activity.
+ */
 int scsi_error_handler(void *data)
 {
 	struct Scsi_Host *shost = data;
 
+	/*
+	 * We use TASK_INTERRUPTIBLE so that the thread is not
+	 * counted against the load average as a running process.
+	 * We never actually get interrupted because kthread_run
+	 * disables signal delivery for the created thread.
+	 */
 	set_current_state(TASK_INTERRUPTIBLE);
 	while (!kthread_should_stop()) {
 		if ((shost->host_failed == 0 && shost->host_eh_scheduled == 0) ||
@@ -1255,6 +1821,11 @@ int scsi_error_handler(void *data)
 			printk("Error handler scsi_eh_%d waking up\n",
 				shost->host_no));
 
+		/*
+		 * We have a host that is failing for some reason.  Figure out
+		 * what we need to do to get it up and online again (if we can).
+		 * If we fail, we end up taking the thing offline.
+		 */
 		if (!shost->eh_noresume && scsi_autopm_get_host(shost) != 0) {
 			SCSI_LOG_ERROR_RECOVERY(1,
 				printk(KERN_ERR "Error handler scsi_eh_%d "
@@ -1268,6 +1839,13 @@ int scsi_error_handler(void *data)
 		else
 			scsi_unjam_host(shost);
 
+		/*
+		 * Note - if the above fails completely, the action is to take
+		 * individual devices offline and flush the queue of any
+		 * outstanding requests that may have been pending.  When we
+		 * restart, we restart any I/O to any other devices on the bus
+		 * which are still online.
+		 */
 		scsi_restart_operations(shost);
 		if (!shost->eh_noresume)
 			scsi_autopm_put_host(shost);
@@ -1281,6 +1859,27 @@ int scsi_error_handler(void *data)
 	return 0;
 }
 
+/*
+ * Function:    scsi_report_bus_reset()
+ *
+ * Purpose:     Utility function used by low-level drivers to report that
+ *		they have observed a bus reset on the bus being handled.
+ *
+ * Arguments:   shost       - Host in question
+ *		channel     - channel on which reset was observed.
+ *
+ * Returns:     Nothing
+ *
+ * Lock status: Host lock must be held.
+ *
+ * Notes:       This only needs to be called if the reset is one which
+ *		originates from an unknown location.  Resets originated
+ *		by the mid-level itself don't need to call this, but there
+ *		should be no harm.
+ *
+ *		The main purpose of this is to make sure that a CHECK_CONDITION
+ *		is properly treated.
+ */
 void scsi_report_bus_reset(struct Scsi_Host *shost, int channel)
 {
 	struct scsi_device *sdev;
@@ -1292,6 +1891,28 @@ void scsi_report_bus_reset(struct Scsi_Host *shost, int channel)
 }
 EXPORT_SYMBOL(scsi_report_bus_reset);
 
+/*
+ * Function:    scsi_report_device_reset()
+ *
+ * Purpose:     Utility function used by low-level drivers to report that
+ *		they have observed a device reset on the device being handled.
+ *
+ * Arguments:   shost       - Host in question
+ *		channel     - channel on which reset was observed
+ *		target	    - target on which reset was observed
+ *
+ * Returns:     Nothing
+ *
+ * Lock status: Host lock must be held
+ *
+ * Notes:       This only needs to be called if the reset is one which
+ *		originates from an unknown location.  Resets originated
+ *		by the mid-level itself don't need to call this, but there
+ *		should be no harm.
+ *
+ *		The main purpose of this is to make sure that a CHECK_CONDITION
+ *		is properly treated.
+ */
 void scsi_report_device_reset(struct Scsi_Host *shost, int channel, int target)
 {
 	struct scsi_device *sdev;
@@ -1309,6 +1930,19 @@ scsi_reset_provider_done_command(struct scsi_cmnd *scmd)
 {
 }
 
+/*
+ * Function:	scsi_reset_provider
+ *
+ * Purpose:	Send requested reset to a bus or device at any phase.
+ *
+ * Arguments:	device	- device to send reset to
+ *		flag - reset type (see scsi.h)
+ *
+ * Returns:	SUCCESS/FAILURE.
+ *
+ * Notes:	This is used by the SCSI Generic driver to provide
+ *		Bus/Device reset capability.
+ */
 int
 scsi_reset_provider(struct scsi_device *dev, int flag)
 {
@@ -1343,17 +1977,17 @@ scsi_reset_provider(struct scsi_device *dev, int flag)
 		rtn = scsi_try_bus_device_reset(scmd);
 		if (rtn == SUCCESS)
 			break;
-		
+		/* FALLTHROUGH */
 	case SCSI_TRY_RESET_TARGET:
 		rtn = scsi_try_target_reset(scmd);
 		if (rtn == SUCCESS)
 			break;
-		
+		/* FALLTHROUGH */
 	case SCSI_TRY_RESET_BUS:
 		rtn = scsi_try_bus_reset(scmd);
 		if (rtn == SUCCESS)
 			break;
-		
+		/* FALLTHROUGH */
 	case SCSI_TRY_RESET_HOST:
 		rtn = scsi_try_host_reset(scmd);
 		break;
@@ -1365,6 +1999,10 @@ scsi_reset_provider(struct scsi_device *dev, int flag)
 	shost->tmf_in_progress = 0;
 	spin_unlock_irqrestore(shost->host_lock, flags);
 
+	/*
+	 * be sure to wake up anyone who was sleeping or had their queue
+	 * suspended while we performed the TMF.
+	 */
 	SCSI_LOG_ERROR_RECOVERY(3,
 		printk("%s: waking up host to restart after TMF\n",
 		__func__));
@@ -1412,6 +2050,9 @@ int scsi_normalize_sense(const u8 *sense_buffer, int sb_len,
 		return 0;
 
 	if (sshdr->response_code >= 0x72) {
+		/*
+		 * descriptor format
+		 */
 		if (sb_len > 1)
 			sshdr->sense_key = (sense_buffer[1] & 0xf);
 		if (sb_len > 2)
@@ -1421,6 +2062,9 @@ int scsi_normalize_sense(const u8 *sense_buffer, int sb_len,
 		if (sb_len > 7)
 			sshdr->additional_length = sense_buffer[7];
 	} else {
+		/*
+		 * fixed format
+		 */
 		if (sb_len > 2)
 			sshdr->sense_key = (sense_buffer[2] & 0xf);
 		if (sb_len > 7) {
@@ -1445,6 +2089,19 @@ int scsi_command_normalize_sense(struct scsi_cmnd *cmd,
 }
 EXPORT_SYMBOL(scsi_command_normalize_sense);
 
+/**
+ * scsi_sense_desc_find - search for a given descriptor type in	descriptor sense data format.
+ * @sense_buffer:	byte array of descriptor format sense data
+ * @sb_len:		number of valid bytes in sense_buffer
+ * @desc_type:		value of descriptor type to find
+ *			(e.g. 0 -> information)
+ *
+ * Notes:
+ *	only valid when sense data is in descriptor format
+ *
+ * Return value:
+ *	pointer to start of (first) descriptor if found else NULL
+ */
 const u8 * scsi_sense_desc_find(const u8 * sense_buffer, int sb_len,
 				int desc_type)
 {
@@ -1464,13 +2121,23 @@ const u8 * scsi_sense_desc_find(const u8 * sense_buffer, int sb_len,
 		desc_len = add_len + 2;
 		if (descp[0] == desc_type)
 			return descp;
-		if (add_len < 0) 
+		if (add_len < 0) // short descriptor ??
 			break;
 	}
 	return NULL;
 }
 EXPORT_SYMBOL(scsi_sense_desc_find);
 
+/**
+ * scsi_get_sense_info_fld - get information field from sense data (either fixed or descriptor format)
+ * @sense_buffer:	byte array of sense data
+ * @sb_len:		number of valid bytes in sense_buffer
+ * @info_out:		pointer to 64 integer where 8 or 4 byte information
+ *			field will be placed if found.
+ *
+ * Return value:
+ *	1 if information field found, 0 if not found.
+ */
 int scsi_get_sense_info_fld(const u8 * sense_buffer, int sb_len,
 			    u64 * info_out)
 {
@@ -1493,7 +2160,7 @@ int scsi_get_sense_info_fld(const u8 * sense_buffer, int sb_len,
 	case 0x72:
 	case 0x73:
 		ucp = scsi_sense_desc_find(sense_buffer, sb_len,
-					   0 );
+					   0 /* info desc */);
 		if (ucp && (0xa == ucp[1])) {
 			ull = 0;
 			for (j = 0; j < 8; ++j) {
@@ -1511,16 +2178,26 @@ int scsi_get_sense_info_fld(const u8 * sense_buffer, int sb_len,
 }
 EXPORT_SYMBOL(scsi_get_sense_info_fld);
 
+/**
+ * scsi_build_sense_buffer - build sense data in a buffer
+ * @desc:	Sense format (non zero == descriptor format,
+ * 		0 == fixed format)
+ * @buf:	Where to build sense data
+ * @key:	Sense key
+ * @asc:	Additional sense code
+ * @ascq:	Additional sense code qualifier
+ *
+ **/
 void scsi_build_sense_buffer(int desc, u8 *buf, u8 key, u8 asc, u8 ascq)
 {
 	if (desc) {
-		buf[0] = 0x72;	
+		buf[0] = 0x72;	/* descriptor, current */
 		buf[1] = key;
 		buf[2] = asc;
 		buf[3] = ascq;
 		buf[7] = 0;
 	} else {
-		buf[0] = 0x70;	
+		buf[0] = 0x70;	/* fixed, current */
 		buf[2] = key;
 		buf[7] = 0xa;
 		buf[12] = asc;

@@ -18,4 +18,4 @@ void __init mpc512x_declare_of_platform_devices(void);
 extern void mpc512x_restart(char *cmd);
 extern void mpc512x_init_diu(void);
 extern void mpc512x_setup_diu(void);
-#endif				
+#endif				/* __MPC512X_H__ */

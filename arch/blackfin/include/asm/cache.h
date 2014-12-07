@@ -7,8 +7,12 @@
 #ifndef __ARCH_BLACKFIN_CACHE_H
 #define __ARCH_BLACKFIN_CACHE_H
 
-#include <linux/linkage.h>	
+#include <linux/linkage.h>	/* for asmlinkage */
 
+/*
+ * Bytes per L1 cache line
+ * Blackfin loads 32 bytes for cache
+ */
 #define L1_CACHE_SHIFT	5
 #define L1_CACHE_BYTES	(1 << L1_CACHE_SHIFT)
 #define SMP_CACHE_BYTES	L1_CACHE_BYTES
@@ -20,6 +24,9 @@
 #else
 #define ____cacheline_aligned
 
+/*
+ * Put cacheline_aliged data to L1 data memory
+ */
 #ifdef CONFIG_CACHELINE_ALIGNED_L1
 #define __cacheline_aligned				\
 	  __attribute__((__aligned__(L1_CACHE_BYTES),	\
@@ -28,6 +35,9 @@
 
 #endif
 
+/*
+ * largest L1 which this arch supports
+ */
 #define L1_CACHE_SHIFT_MAX	5
 
 #if defined(CONFIG_SMP) && \

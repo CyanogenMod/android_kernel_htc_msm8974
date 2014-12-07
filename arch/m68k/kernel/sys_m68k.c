@@ -1,3 +1,10 @@
+/*
+ * linux/arch/m68k/kernel/sys_m68k.c
+ *
+ * This file contains various random system calls that
+ * have a non-standard calling sequence on the Linux/m68k
+ * platform.
+ */
 
 #include <linux/capability.h>
 #include <linux/errno.h>
@@ -33,9 +40,15 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 	unsigned long prot, unsigned long flags,
 	unsigned long fd, unsigned long pgoff)
 {
+	/*
+	 * This is wrong for sun3 - there PAGE_SIZE is 8Kb,
+	 * so we need to shift the argument down by 1; m68k mmap64(3)
+	 * (in libc) expects the last argument of mmap2 in 4Kb units.
+	 */
 	return sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
 }
 
+/* Convert virtual (user) address VADDR to physical address PADDR */
 #define virt_to_phys_040(vaddr)						\
 ({									\
   unsigned long _mmusr, _paddr;						\
@@ -61,7 +74,7 @@ cache_flush_040 (unsigned long addr, int scope, int cache, unsigned long len)
       switch (cache)
 	{
 	case FLUSH_CACHE_DATA:
-	  
+	  /* This nop is needed for some broken versions of the 68040.  */
 	  __asm__ __volatile__ ("nop\n\t"
 				".chip 68040\n\t"
 				"cpusha %dc\n\t"
@@ -84,6 +97,8 @@ cache_flush_040 (unsigned long addr, int scope, int cache, unsigned long len)
       break;
 
     case FLUSH_SCOPE_LINE:
+      /* Find the physical address of the first mapped page in the
+	 address range.  */
       if ((paddr = virt_to_phys_040(addr))) {
         paddr += addr & ~(PAGE_MASK | 15);
         len = (len + (addr & 15) + 15) >> 4;
@@ -136,8 +151,14 @@ cache_flush_040 (unsigned long addr, int scope, int cache, unsigned long len)
 	    }
 	  if (!--i && len)
 	    {
+	      /*
+	       * No need to page align here since it is done by
+	       * virt_to_phys_040().
+	       */
 	      addr += PAGE_SIZE;
 	      i = PAGE_SIZE / 16;
+	      /* Recompute physical address when crossing a page
+	         boundary. */
 	      for (;;)
 		{
 		  if ((paddr = virt_to_phys_040(addr)))
@@ -199,7 +220,7 @@ cache_flush_040 (unsigned long addr, int scope, int cache, unsigned long len)
 			".chip 68k"			\
 			: "=a" (paddr)			\
 			: "0" (vaddr));			\
-  (paddr); 					\
+  (paddr); /* XXX */					\
 })
 
 static inline int
@@ -207,6 +228,12 @@ cache_flush_060 (unsigned long addr, int scope, int cache, unsigned long len)
 {
   unsigned long paddr, i;
 
+  /*
+   * 68060 manual says:
+   *  cpush %dc : flush DC, remains valid (with our %cacr setup)
+   *  cpush %ic : invalidate IC
+   *  cpush %bc : flush DC + invalidate IC
+   */
   switch (scope)
     {
     case FLUSH_SCOPE_ALL:
@@ -232,6 +259,8 @@ cache_flush_060 (unsigned long addr, int scope, int cache, unsigned long len)
       break;
 
     case FLUSH_SCOPE_LINE:
+      /* Find the physical address of the first mapped page in the
+	 address range.  */
       len += addr & 15;
       addr &= -16;
       if (!(paddr = virt_to_phys_060(addr))) {
@@ -281,10 +310,16 @@ cache_flush_060 (unsigned long addr, int scope, int cache, unsigned long len)
 	  if (!--i && len)
 	    {
 
+	      /*
+	       * We just want to jump to the first cache line
+	       * in the next page.
+	       */
 	      addr += PAGE_SIZE;
 	      addr &= PAGE_MASK;
 
 	      i = PAGE_SIZE / 16;
+	      /* Recompute physical address when crossing a page
+	         boundary. */
 	      for (;;)
 	        {
 	          if ((paddr = virt_to_phys_060(addr)))
@@ -303,7 +338,8 @@ cache_flush_060 (unsigned long addr, int scope, int cache, unsigned long len)
     default:
     case FLUSH_SCOPE_PAGE:
       len += (addr & ~PAGE_MASK) + (PAGE_SIZE - 1);
-      addr &= PAGE_MASK;	
+      addr &= PAGE_MASK;	/* Workaround for bug in some
+				   revisions of the 68060 */
       for (len >>= PAGE_SHIFT; len--; addr += PAGE_SIZE)
 	{
 	  if (!(paddr = virt_to_phys_060(addr)))
@@ -336,6 +372,7 @@ cache_flush_060 (unsigned long addr, int scope, int cache, unsigned long len)
   return 0;
 }
 
+/* sys_cacheflush -- flush (part of) the processor cache.  */
 asmlinkage int
 sys_cacheflush (unsigned long addr, int scope, int cache, unsigned long len)
 {
@@ -347,14 +384,18 @@ sys_cacheflush (unsigned long addr, int scope, int cache, unsigned long len)
 		goto out;
 
 	if (scope == FLUSH_SCOPE_ALL) {
-		
+		/* Only the superuser may explicitly flush the whole cache. */
 		ret = -EPERM;
 		if (!capable(CAP_SYS_ADMIN))
 			goto out;
 	} else {
+		/*
+		 * Verify that the specified address region actually belongs
+		 * to this process.
+		 */
 		vma = find_vma (current->mm, addr);
 		ret = -EINVAL;
-		
+		/* Check for overflow.  */
 		if (addr + len < addr)
 			goto out;
 		if (vma == NULL || addr < vma->vm_start || addr + len > vma->vm_end)
@@ -373,12 +414,12 @@ sys_cacheflush (unsigned long addr, int scope, int cache, unsigned long len)
 			while (len--) {
 				__asm__ __volatile__ ("movec %1, %%caar\n\t"
 						      "movec %0, %%cacr"
-						      : 
+						      : /* no outputs */
 						      : "r" (cacr), "r" (addr));
 				addr += 4;
 			}
 		} else {
-			
+			/* Flush the whole cache, even if page granularity requested. */
 			unsigned long cacr;
 			__asm__ ("movec %%cacr, %0" : "=r" (cacr));
 			if (cache & FLUSH_CACHE_INSN)
@@ -390,6 +431,10 @@ sys_cacheflush (unsigned long addr, int scope, int cache, unsigned long len)
 		ret = 0;
 		goto out;
 	} else {
+	    /*
+	     * 040 or 060: don't blindly trust 'scope', someone could
+	     * try to flush a few megs of memory.
+	     */
 
 	    if (len>=3*PAGE_SIZE && scope<FLUSH_SCOPE_PAGE)
 	        scope=FLUSH_SCOPE_PAGE;
@@ -405,11 +450,13 @@ out:
 	return ret;
 }
 
+/* This syscall gets its arguments in A0 (mem), D2 (oldval) and
+   D1 (newval).  */
 asmlinkage int
 sys_atomic_cmpxchg_32(unsigned long newval, int oldval, int d3, int d4, int d5,
 		      unsigned long __user * mem)
 {
-	
+	/* This was borrowed from ARM's implementation.  */
 	for (;;) {
 		struct mm_struct *mm = current->mm;
 		pgd_t *pgd;
@@ -442,11 +489,21 @@ sys_atomic_cmpxchg_32(unsigned long newval, int oldval, int d3, int d4, int d5,
 
 	      bad_access:
 		up_read(&mm->mmap_sem);
+		/* This is not necessarily a bad access, we can get here if
+		   a memory we're trying to write to should be copied-on-write.
+		   Make the kernel do the necessary page stuff, then re-iterate.
+		   Simulate a write access fault to do that.  */
 		{
+			/* The first argument of the function corresponds to
+			   D1, which is the first field of struct pt_regs.  */
 			struct pt_regs *fp = (struct pt_regs *)&newval;
 
-			
+			/* '3' is an RMW flag.  */
 			if (do_page_fault(fp, (unsigned long)mem, 3))
+				/* If the do_page_fault() failed, we don't
+				   have anything meaningful to return.
+				   There should be a SIGSEGV pending for
+				   the process.  */
 				return 0xdeadbeef;
 		}
 	}
@@ -454,6 +511,7 @@ sys_atomic_cmpxchg_32(unsigned long newval, int oldval, int d3, int d4, int d5,
 
 #else
 
+/* sys_cacheflush -- flush (part of) the processor cache.  */
 asmlinkage int
 sys_cacheflush (unsigned long addr, int scope, int cache, unsigned long len)
 {
@@ -461,6 +519,8 @@ sys_cacheflush (unsigned long addr, int scope, int cache, unsigned long len)
 	return 0;
 }
 
+/* This syscall gets its arguments in A0 (mem), D2 (oldval) and
+   D1 (newval).  */
 asmlinkage int
 sys_atomic_cmpxchg_32(unsigned long newval, int oldval, int d3, int d4, int d5,
 		      unsigned long __user * mem)
@@ -478,13 +538,17 @@ sys_atomic_cmpxchg_32(unsigned long newval, int oldval, int d3, int d4, int d5,
 	return mem_value;
 }
 
-#endif 
+#endif /* CONFIG_MMU */
 
 asmlinkage int sys_getpagesize(void)
 {
 	return PAGE_SIZE;
 }
 
+/*
+ * Do a system call from kernel instead of calling sys_execve so we
+ * end up with proper pt_regs.
+ */
 int kernel_execve(const char *filename,
 		  const char *const argv[],
 		  const char *const envp[])
@@ -511,6 +575,6 @@ asmlinkage int sys_set_thread_area(unsigned long tp)
 
 asmlinkage int sys_atomic_barrier(void)
 {
-	
+	/* no code needed for uniprocs */
 	return 0;
 }

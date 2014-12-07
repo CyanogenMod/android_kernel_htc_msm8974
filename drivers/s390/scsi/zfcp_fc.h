@@ -20,7 +20,7 @@
 #define ZFCP_FC_CT_SIZE_PAGE	  (PAGE_SIZE - sizeof(struct fc_ct_hdr))
 #define ZFCP_FC_GPN_FT_ENT_PAGE	  (ZFCP_FC_CT_SIZE_PAGE \
 					/ sizeof(struct fc_gpn_ft_resp))
-#define ZFCP_FC_GPN_FT_NUM_BUFS	  4 
+#define ZFCP_FC_GPN_FT_NUM_BUFS	  4 /* memory pages */
 
 #define ZFCP_FC_GPN_FT_MAX_SIZE	  (ZFCP_FC_GPN_FT_NUM_BUFS * PAGE_SIZE \
 					- sizeof(struct fc_ct_hdr))
@@ -29,50 +29,101 @@
 
 #define ZFCP_FC_CTELS_TMO	(2 * FC_DEF_R_A_TOV / 1000)
 
+/**
+ * struct zfcp_fc_event - FC HBAAPI event for internal queueing from irq context
+ * @code: Event code
+ * @data: Event data
+ * @list: list_head for zfcp_fc_events list
+ */
 struct zfcp_fc_event {
 	enum fc_host_event_code code;
 	u32 data;
 	struct list_head list;
 };
 
+/**
+ * struct zfcp_fc_events - Infrastructure for posting FC events from irq context
+ * @list: List for queueing of events from irq context to workqueue
+ * @list_lock: Lock for event list
+ * @work: work_struct for forwarding events in workqueue
+*/
 struct zfcp_fc_events {
 	struct list_head list;
 	spinlock_t list_lock;
 	struct work_struct work;
 };
 
+/**
+ * struct zfcp_fc_gid_pn_req - container for ct header plus gid_pn request
+ * @ct_hdr: FC GS common transport header
+ * @gid_pn: GID_PN request
+ */
 struct zfcp_fc_gid_pn_req {
 	struct fc_ct_hdr	ct_hdr;
 	struct fc_ns_gid_pn	gid_pn;
 } __packed;
 
+/**
+ * struct zfcp_fc_gid_pn_rsp - container for ct header plus gid_pn response
+ * @ct_hdr: FC GS common transport header
+ * @gid_pn: GID_PN response
+ */
 struct zfcp_fc_gid_pn_rsp {
 	struct fc_ct_hdr	ct_hdr;
 	struct fc_gid_pn_resp	gid_pn;
 } __packed;
 
+/**
+ * struct zfcp_fc_gpn_ft - container for ct header plus gpn_ft request
+ * @ct_hdr: FC GS common transport header
+ * @gpn_ft: GPN_FT request
+ */
 struct zfcp_fc_gpn_ft_req {
 	struct fc_ct_hdr	ct_hdr;
 	struct fc_ns_gid_ft	gpn_ft;
 } __packed;
 
+/**
+ * struct zfcp_fc_gspn_req - container for ct header plus GSPN_ID request
+ * @ct_hdr: FC GS common transport header
+ * @gspn: GSPN_ID request
+ */
 struct zfcp_fc_gspn_req {
 	struct fc_ct_hdr	ct_hdr;
 	struct fc_gid_pn_resp	gspn;
 } __packed;
 
+/**
+ * struct zfcp_fc_gspn_rsp - container for ct header plus GSPN_ID response
+ * @ct_hdr: FC GS common transport header
+ * @gspn: GSPN_ID response
+ * @name: The name string of the GSPN_ID response
+ */
 struct zfcp_fc_gspn_rsp {
 	struct fc_ct_hdr	ct_hdr;
 	struct fc_gspn_resp	gspn;
 	char			name[FC_SYMBOLIC_NAME_SIZE];
 } __packed;
 
+/**
+ * struct zfcp_fc_rspn_req - container for ct header plus RSPN_ID request
+ * @ct_hdr: FC GS common transport header
+ * @rspn: RSPN_ID request
+ * @name: The name string of the RSPN_ID request
+ */
 struct zfcp_fc_rspn_req {
 	struct fc_ct_hdr	ct_hdr;
 	struct fc_ns_rspn	rspn;
 	char			name[FC_SYMBOLIC_NAME_SIZE];
 } __packed;
 
+/**
+ * struct zfcp_fc_req - Container for FC ELS and CT requests sent from zfcp
+ * @ct_els: data required for issuing fsf command
+ * @sg_req: scatterlist entry for request data
+ * @sg_rsp: scatterlist entry for response data
+ * @u: request specific data
+ */
 struct zfcp_fc_req {
 	struct zfcp_fsf_ct_els				ct_els;
 	struct scatterlist				sg_req;
@@ -101,6 +152,13 @@ struct zfcp_fc_req {
 	} u;
 };
 
+/**
+ * enum zfcp_fc_wka_status - FC WKA port status in zfcp
+ * @ZFCP_FC_WKA_PORT_OFFLINE: Port is closed and not in use
+ * @ZFCP_FC_WKA_PORT_CLOSING: The FSF "close port" request is pending
+ * @ZFCP_FC_WKA_PORT_OPENING: The FSF "open port" request is pending
+ * @ZFCP_FC_WKA_PORT_ONLINE: The port is open and the port handle is valid
+ */
 enum zfcp_fc_wka_status {
 	ZFCP_FC_WKA_PORT_OFFLINE,
 	ZFCP_FC_WKA_PORT_CLOSING,
@@ -108,6 +166,17 @@ enum zfcp_fc_wka_status {
 	ZFCP_FC_WKA_PORT_ONLINE,
 };
 
+/**
+ * struct zfcp_fc_wka_port - representation of well-known-address (WKA) FC port
+ * @adapter: Pointer to adapter structure this WKA port belongs to
+ * @completion_wq: Wait for completion of open/close command
+ * @status: Current status of WKA port
+ * @refcount: Reference count to keep port open as long as it is in use
+ * @d_id: FC destination id or well-known-address
+ * @handle: FSF handle for the open WKA port
+ * @mutex: Mutex used during opening/closing state changes
+ * @work: For delaying the closing of the WKA port
+ */
 struct zfcp_fc_wka_port {
 	struct zfcp_adapter	*adapter;
 	wait_queue_head_t	completion_wq;
@@ -119,6 +188,13 @@ struct zfcp_fc_wka_port {
 	struct delayed_work	work;
 };
 
+/**
+ * struct zfcp_fc_wka_ports - Data structures for FC generic services
+ * @ms: FC Management service
+ * @ts: FC time service
+ * @ds: FC directory service
+ * @as: FC alias service
+ */
 struct zfcp_fc_wka_ports {
 	struct zfcp_fc_wka_port ms;
 	struct zfcp_fc_wka_port ts;
@@ -126,6 +202,12 @@ struct zfcp_fc_wka_ports {
 	struct zfcp_fc_wka_port as;
 };
 
+/**
+ * zfcp_fc_scsi_to_fcp - setup FCP command with data from scsi_cmnd
+ * @fcp: fcp_cmnd to setup
+ * @scsi: scsi_cmnd where to get LUN, task attributes/flags and CDB
+ * @tm: task management flags to setup task management command
+ */
 static inline
 void zfcp_fc_scsi_to_fcp(struct fcp_cmnd *fcp, struct scsi_cmnd *scsi,
 			 u8 tm_flags)
@@ -164,6 +246,11 @@ void zfcp_fc_scsi_to_fcp(struct fcp_cmnd *fcp, struct scsi_cmnd *scsi,
 		fcp->fc_dl += fcp->fc_dl / scsi->device->sector_size * 8;
 }
 
+/**
+ * zfcp_fc_evap_fcp_rsp - evaluate FCP RSP IU and update scsi_cmnd accordingly
+ * @fcp_rsp: FCP RSP IU to evaluate
+ * @scsi: SCSI command where to update status and sense buffer
+ */
 static inline
 void zfcp_fc_eval_fcp_rsp(struct fcp_resp_with_ext *fcp_rsp,
 			  struct scsi_cmnd *scsi)

@@ -36,7 +36,7 @@
 static inline int kvm_irq_line_state(unsigned long *irq_state,
 				     int irq_source_id, int level)
 {
-	
+	/* Logical OR for level trig interrupt */
 	if (level)
 		set_bit(irq_source_id, irq_state);
 	else
@@ -134,10 +134,16 @@ int kvm_set_msi(struct kvm_kernel_irq_routing_entry *e,
 	irq.level = 1;
 	irq.shorthand = 0;
 
-	
+	/* TODO Deal with RH bit of MSI message address */
 	return kvm_irq_delivery_to_apic(kvm, NULL, &irq);
 }
 
+/*
+ * Return value:
+ *  < 0   Interrupt was ignored (masked or not delivered for other reasons)
+ *  = 0   Interrupt was coalesced (previous irq is still pending)
+ *  > 0   Number of CPUs interrupt was delivered to
+ */
 int kvm_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level)
 {
 	struct kvm_kernel_irq_routing_entry *e, irq_set[KVM_NR_IRQCHIPS];
@@ -147,6 +153,10 @@ int kvm_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level)
 
 	trace_kvm_set_irq(irq, level, irq_source_id);
 
+	/* Not possible to detect if the guest uses the PIC or the
+	 * IOAPIC.  So set the bit in both. The guest will ignore
+	 * writes to the unused one.
+	 */
 	rcu_read_lock();
 	irq_rt = rcu_dereference(kvm->irq_routing);
 	if (irq < irq_rt->nr_rt_entries)
@@ -287,6 +297,8 @@ void kvm_fire_mask_notifiers(struct kvm *kvm, unsigned irqchip, unsigned pin,
 
 void kvm_free_irq_routing(struct kvm *kvm)
 {
+	/* Called only during vm destruction. Nobody can use the pointer
+	   at this stage */
 	kfree(kvm->irq_routing);
 }
 
@@ -300,6 +312,10 @@ static int setup_routing_entry(struct kvm_irq_routing_table *rt,
 	struct kvm_kernel_irq_routing_entry *ei;
 	struct hlist_node *n;
 
+	/*
+	 * Do not allow GSI to be mapped to the same irqchip more than once.
+	 * Allow only one to one mapping between GSI and MSI.
+	 */
 	hlist_for_each_entry(ei, n, &rt->map[ue->gsi], link)
 		if (ei->type == KVM_IRQ_ROUTING_MSI ||
 		    ue->u.irqchip.irqchip == ei->irqchip.irqchip)

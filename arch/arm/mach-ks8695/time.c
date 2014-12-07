@@ -34,10 +34,20 @@
 
 #include "generic.h"
 
+/*
+ * Returns number of ms since last clock interrupt.  Note that interrupts
+ * will have been disabled by do_gettimeoffset()
+ */
 static unsigned long ks8695_gettimeoffset (void)
 {
 	unsigned long elapsed, tick2, intpending;
 
+	/*
+	 * Get the current number of ticks.  Note that there is a race
+	 * condition between us reading the timer and checking for an
+	 * interrupt.  We solve this by ensuring that the counter has not
+	 * reloaded between our two reads.
+	 */
 	elapsed = __raw_readl(KS8695_TMR_VA + KS8695_T1TC) + __raw_readl(KS8695_TMR_VA + KS8695_T1PD);
 	do {
 		tick2 = elapsed;
@@ -45,17 +55,20 @@ static unsigned long ks8695_gettimeoffset (void)
 		elapsed = __raw_readl(KS8695_TMR_VA + KS8695_T1TC) + __raw_readl(KS8695_TMR_VA + KS8695_T1PD);
 	} while (elapsed > tick2);
 
-	
+	/* Convert to number of ticks expired (not remaining) */
 	elapsed = (CLOCK_TICK_RATE / HZ) - elapsed;
 
-	
+	/* Is interrupt pending?  If so, then timer has been reloaded already. */
 	if (intpending)
 		elapsed += (CLOCK_TICK_RATE / HZ);
 
-	
+	/* Convert ticks to usecs */
 	return (unsigned long)(elapsed * (tick_nsec / 1000)) / LATCH;
 }
 
+/*
+ * IRQ handler for the timer.
+ */
 static irqreturn_t ks8695_timer_interrupt(int irq, void *dev_id)
 {
 	timer_tick();
@@ -73,14 +86,14 @@ static void ks8695_timer_setup(void)
 	unsigned long tmout = CLOCK_TICK_RATE / HZ;
 	unsigned long tmcon;
 
-	
+	/* disable timer1 */
 	tmcon = __raw_readl(KS8695_TMR_VA + KS8695_TMCON);
 	__raw_writel(tmcon & ~TMCON_T1EN, KS8695_TMR_VA + KS8695_TMCON);
 
 	__raw_writel(tmout / 2, KS8695_TMR_VA + KS8695_T1TC);
 	__raw_writel(tmout / 2, KS8695_TMR_VA + KS8695_T1PD);
 
-	
+	/* re-enable timer1 */
 	__raw_writel(tmcon | TMCON_T1EN, KS8695_TMR_VA + KS8695_TMCON);
 }
 
@@ -88,7 +101,7 @@ static void __init ks8695_timer_init (void)
 {
 	ks8695_timer_setup();
 
-	
+	/* Enable timer interrupts */
 	setup_irq(KS8695_IRQ_TIMER1, &ks8695_timer_irq);
 }
 
@@ -105,13 +118,13 @@ void ks8695_restart(char mode, const char *cmd)
 	if (mode == 's')
 		soft_restart(0);
 
-	
+	/* disable timer0 */
 	reg = __raw_readl(KS8695_TMR_VA + KS8695_TMCON);
 	__raw_writel(reg & ~TMCON_T0EN, KS8695_TMR_VA + KS8695_TMCON);
 
-	
+	/* enable watchdog mode */
 	__raw_writel((10 << 8) | T0TC_WATCHDOG, KS8695_TMR_VA + KS8695_T0TC);
 
-	
+	/* re-enable timer0 */
 	__raw_writel(reg | TMCON_T0EN, KS8695_TMR_VA + KS8695_TMCON);
 }

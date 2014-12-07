@@ -12,6 +12,11 @@
 #include <linux/of_platform.h>
 #include <linux/io.h>
 
+/*
+ * The FPGA supports 9 interrupt sources, which can be routed to 3
+ * interrupt request lines of the MPIC. The line to be used can be
+ * specified through the third cell of FDT property  "interrupts".
+ */
 
 #define SOCRATES_FPGA_NUM_IRQS	9
 
@@ -25,6 +30,12 @@ struct socrates_fpga_irq_info {
 	int type;
 };
 
+/*
+ * Interrupt routing and type table
+ *
+ * IRQ_TYPE_NONE means the interrupt type is configurable,
+ * otherwise it's fixed to the specified value.
+ */
 static struct socrates_fpga_irq_info fpga_irqs[SOCRATES_FPGA_NUM_IRQS] = {
 	[0] = {0, IRQ_TYPE_NONE},
 	[1] = {0, IRQ_TYPE_LEVEL_HIGH},
@@ -59,7 +70,7 @@ static inline unsigned int socrates_fpga_pic_get_irq(unsigned int irq)
 	unsigned long flags;
 	int i;
 
-	
+	/* Check irq line routed to the MPIC */
 	for (i = 0; i < 3; i++) {
 		if (irq == socrates_fpga_irqs[i])
 			break;
@@ -83,6 +94,10 @@ void socrates_fpga_pic_cascade(unsigned int irq, struct irq_desc *desc)
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	unsigned int cascade_irq;
 
+	/*
+	 * See if we actually have an interrupt, call generic handling code if
+	 * we do.
+	 */
 	cascade_irq = socrates_fpga_pic_get_irq(irq);
 
 	if (cascade_irq != NO_IRQ)
@@ -215,7 +230,7 @@ static struct irq_chip socrates_fpga_pic_chip = {
 static int socrates_fpga_pic_host_map(struct irq_domain *h, unsigned int virq,
 		irq_hw_number_t hwirq)
 {
-	
+	/* All interrupts are LEVEL sensitive */
 	irq_set_status_flags(virq, IRQ_LEVEL);
 	irq_set_chip_and_handler(virq, &socrates_fpga_pic_chip,
 				 handle_fasteoi_irq);
@@ -231,7 +246,7 @@ static int socrates_fpga_pic_host_xlate(struct irq_domain *h,
 
 	*out_hwirq = intspec[0];
 	if  (fpga_irq->type == IRQ_TYPE_NONE) {
-		
+		/* type is configurable */
 		if (intspec[1] != IRQ_TYPE_LEVEL_LOW &&
 		    intspec[1] != IRQ_TYPE_LEVEL_HIGH) {
 			pr_warning("FPGA PIC: invalid irq type, "
@@ -241,11 +256,11 @@ static int socrates_fpga_pic_host_xlate(struct irq_domain *h,
 			*out_flags = intspec[1];
 		}
 	} else {
-		
+		/* type is fixed */
 		*out_flags = fpga_irq->type;
 	}
 
-	
+	/* Use specified interrupt routing */
 	if (intspec[2] <= 2)
 		fpga_irq->irq_line = intspec[2];
 	else
@@ -264,7 +279,7 @@ void socrates_fpga_pic_init(struct device_node *pic)
 	unsigned long flags;
 	int i;
 
-	
+	/* Setup an irq_domain structure */
 	socrates_fpga_pic_irq_host = irq_domain_add_linear(pic,
 		    SOCRATES_FPGA_NUM_IRQS, &socrates_fpga_pic_host_ops, NULL);
 	if (socrates_fpga_pic_irq_host == NULL) {

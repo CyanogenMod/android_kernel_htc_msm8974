@@ -9,6 +9,15 @@
 
 #include <asm/cache.h>
 
+/* Allocate the top level pgd (page directory)
+ *
+ * Here (for 64 bit kernels) we implement a Hybrid L2/L3 scheme: we
+ * allocate the first pmd adjacent to the pgd.  This means that we can
+ * subtract a constant offset to get to it.  The pmd and pgd sizes are
+ * arranged so that a single pmd covers 4GB (giving a full 64-bit
+ * process access to 8TB) so our lookups are effectively L2 for the
+ * first 4GB of the kernel (i.e. for all ILP32 processes and all the
+ * kernel for machines with under 4GB of memory) */
 static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *pgd = (pgd_t *)__get_free_pages(GFP_KERNEL,
@@ -19,10 +28,15 @@ static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 		memset(pgd, 0, PAGE_SIZE<<PGD_ALLOC_ORDER);
 #ifdef CONFIG_64BIT
 		actual_pgd += PTRS_PER_PGD;
+		/* Populate first pmd with allocated memory.  We mark it
+		 * with PxD_FLAG_ATTACHED as a signal to the system that this
+		 * pmd entry may not be cleared. */
 		__pgd_val_set(*actual_pgd, (PxD_FLAG_PRESENT | 
 				        PxD_FLAG_VALID | 
 					PxD_FLAG_ATTACHED) 
 			+ (__u32)(__pa((unsigned long)pgd) >> PxD_VALUE_SHIFT));
+		/* The first pmd entry also is marked with _PAGE_GATEWAY as
+		 * a signal that this pmd may not be freed */
 		__pgd_val_set(*pgd, PxD_FLAG_ATTACHED);
 #endif
 	}
@@ -39,6 +53,7 @@ static inline void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 
 #if PT_NLEVELS == 3
 
+/* Three Level Page Table Support for pmd's */
 
 static inline void pgd_populate(struct mm_struct *mm, pgd_t *pgd, pmd_t *pmd)
 {
@@ -59,6 +74,8 @@ static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
 {
 #ifdef CONFIG_64BIT
 	if(pmd_flag(*pmd) & PxD_FLAG_ATTACHED)
+		/* This is the permanent pmd attached to the pgd;
+		 * cannot free it */
 		return;
 #endif
 	free_pages((unsigned long)pmd, PMD_ORDER);
@@ -66,7 +83,12 @@ static inline void pmd_free(struct mm_struct *mm, pmd_t *pmd)
 
 #else
 
+/* Two Level Page Table Support for pmd's */
 
+/*
+ * allocating and freeing a pmd is trivial: the 1-entry pmd is
+ * inside the pgd, so has no extra memory associated with it.
+ */
 
 #define pmd_alloc_one(mm, addr)		({ BUG(); ((pmd_t *)2); })
 #define pmd_free(mm, x)			do { } while (0)
@@ -78,6 +100,8 @@ static inline void
 pmd_populate_kernel(struct mm_struct *mm, pmd_t *pmd, pte_t *pte)
 {
 #ifdef CONFIG_64BIT
+	/* preserve the gateway marker if this is the beginning of
+	 * the permanent pmd */
 	if(pmd_flag(*pmd) & PxD_FLAG_ATTACHED)
 		__pmd_val_set(*pmd, (PxD_FLAG_PRESENT |
 				 PxD_FLAG_VALID |

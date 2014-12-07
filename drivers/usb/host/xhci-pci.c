@@ -26,6 +26,7 @@
 
 #include "xhci.h"
 
+/* Device for a quirk */
 #define PCI_VENDOR_ID_FRESCO_LOGIC	0x1b73
 #define PCI_DEVICE_ID_FRESCO_LOGIC_PDK	0x1000
 
@@ -34,10 +35,16 @@
 
 static const char hcd_name[] = "xhci_hcd";
 
+/* called after powerup, by probe or system-pm "wakeup" */
 static int xhci_pci_reinit(struct xhci_hcd *xhci, struct pci_dev *pdev)
 {
+	/*
+	 * TODO: Implement finding debug ports later.
+	 * TODO: see if there are any quirks that need to be added to handle
+	 * new extended capabilities.
+	 */
 
-	
+	/* PCI Memory-Write-Invalidate cycle support is optional (uncommon) */
 	if (!pci_set_mwi(pdev))
 		xhci_dbg(xhci, "MWI active\n");
 
@@ -49,7 +56,7 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 {
 	struct pci_dev		*pdev = to_pci_dev(dev);
 
-	
+	/* Look for vendor-specific quirks */
 	if (pdev->vendor == PCI_VENDOR_ID_FRESCO_LOGIC &&
 			pdev->device == PCI_DEVICE_ID_FRESCO_LOGIC_PDK) {
 		if (pdev->revision == 0x0) {
@@ -57,6 +64,10 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 			xhci_dbg(xhci, "QUIRK: Fresco Logic xHC needs configure"
 					" endpoint cmd after reset endpoint\n");
 		}
+		/* Fresco Logic confirms: all revisions of this chip do not
+		 * support MSI, even though some of them claim to in their PCI
+		 * capabilities.
+		 */
 		xhci->quirks |= XHCI_BROKEN_MSI;
 		xhci_dbg(xhci, "QUIRK: Fresco Logic revision %u "
 				"has broken MSI implementation\n",
@@ -69,7 +80,7 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 	if (pdev->vendor == PCI_VENDOR_ID_AMD && xhci->hci_version == 0x96)
 		xhci->quirks |= XHCI_AMD_0x96_HOST;
 
-	
+	/* AMD PLL quirk */
 	if (pdev->vendor == PCI_VENDOR_ID_AMD && usb_amd_find_chipset_info())
 		xhci->quirks |= XHCI_AMD_PLL_FIX;
 	if (pdev->vendor == PCI_VENDOR_ID_INTEL &&
@@ -88,6 +99,7 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 		xhci->quirks |= XHCI_RESET_ON_RESUME;
 }
 
+/* called during probe() after chip reset completes */
 static int xhci_pci_setup(struct usb_hcd *hcd)
 {
 	struct xhci_hcd		*xhci;
@@ -105,7 +117,7 @@ static int xhci_pci_setup(struct usb_hcd *hcd)
 	pci_read_config_byte(pdev, XHCI_SBRN_OFFSET, &xhci->sbrn);
 	xhci_dbg(xhci, "Got SBRN %u\n", (unsigned int) xhci->sbrn);
 
-	
+	/* Find any debug ports */
 	retval = xhci_pci_reinit(xhci, pdev);
 	if (!retval)
 		return retval;
@@ -114,6 +126,10 @@ static int xhci_pci_setup(struct usb_hcd *hcd)
 	return retval;
 }
 
+/*
+ * We need to register our own PCI probe function (instead of the USB core's
+ * function) in order to create a second roothub under xHCI.
+ */
 static int xhci_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	int retval;
@@ -122,12 +138,18 @@ static int xhci_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	struct usb_hcd *hcd;
 
 	driver = (struct hc_driver *)id->driver_data;
+	/* Register the USB 2.0 roothub.
+	 * FIXME: USB core must know to register the USB 2.0 roothub first.
+	 * This is sort of silly, because we could just set the HCD driver flags
+	 * to say USB 2.0, but I'm not sure what the implications would be in
+	 * the other parts of the HCD code.
+	 */
 	retval = usb_hcd_pci_probe(dev, id);
 
 	if (retval)
 		return retval;
 
-	
+	/* USB 2.0 roothub is stored in the PCI device now. */
 	hcd = dev_get_drvdata(&dev->dev);
 	xhci = hcd_to_xhci(hcd);
 	xhci->shared_hcd = usb_create_shared_hcd(driver, &dev->dev,
@@ -137,13 +159,16 @@ static int xhci_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		goto dealloc_usb2_hcd;
 	}
 
+	/* Set the xHCI pointer before xhci_pci_setup() (aka hcd_driver.reset)
+	 * is called by usb_add_hcd().
+	 */
 	*((struct xhci_hcd **) xhci->shared_hcd->hcd_priv) = xhci;
 
 	retval = usb_add_hcd(xhci->shared_hcd, dev->irq,
 			IRQF_SHARED);
 	if (retval)
 		goto put_usb3_hcd;
-	
+	/* Roothub already marked as USB 3.0 speed */
 	return 0;
 
 put_usb3_hcd:
@@ -209,16 +234,22 @@ static int xhci_pci_resume(struct usb_hcd *hcd, bool hibernated)
 	retval = xhci_resume(xhci, hibernated);
 	return retval;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct hc_driver xhci_pci_hc_driver = {
 	.description =		hcd_name,
 	.product_desc =		"xHCI Host Controller",
 	.hcd_priv_size =	sizeof(struct xhci_hcd *),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			xhci_irq,
 	.flags =		HCD_MEMORY | HCD_USB3 | HCD_SHARED,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset =		xhci_pci_setup,
 	.start =		xhci_run,
 #ifdef CONFIG_PM
@@ -228,6 +259,9 @@ static const struct hc_driver xhci_pci_hc_driver = {
 	.stop =			xhci_stop,
 	.shutdown =		xhci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		xhci_urb_enqueue,
 	.urb_dequeue =		xhci_urb_dequeue,
 	.alloc_dev =		xhci_alloc_dev,
@@ -243,34 +277,43 @@ static const struct hc_driver xhci_pci_hc_driver = {
 	.update_hub_device =	xhci_update_hub_device,
 	.reset_device =		xhci_discover_or_reset_device,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	xhci_get_frame,
 
-	
+	/* Root hub support */
 	.hub_control =		xhci_hub_control,
 	.hub_status_data =	xhci_hub_status_data,
 	.bus_suspend =		xhci_bus_suspend,
 	.bus_resume =		xhci_bus_resume,
+	/*
+	 * call back when device connected and addressed
+	 */
 	.update_device =        xhci_update_device,
 	.set_usb2_hw_lpm =	xhci_set_usb2_hardware_lpm,
 };
 
+/*-------------------------------------------------------------------------*/
 
+/* PCI driver selection metadata; PCI hotplugging uses this */
 static const struct pci_device_id pci_ids[] = { {
-	
+	/* handle any USB 3.0 xHCI controller */
 	PCI_DEVICE_CLASS(PCI_CLASS_SERIAL_USB_XHCI, ~0),
 	.driver_data =	(unsigned long) &xhci_pci_hc_driver,
 	},
-	{  }
+	{ /* end: all zeroes */ }
 };
 MODULE_DEVICE_TABLE(pci, pci_ids);
 
+/* pci driver glue; this is a "new style" PCI driver module */
 static struct pci_driver xhci_pci_driver = {
 	.name =		(char *) hcd_name,
 	.id_table =	pci_ids,
 
 	.probe =	xhci_pci_probe,
 	.remove =	xhci_pci_remove,
-	
+	/* suspend and resume implemented later */
 
 	.shutdown = 	usb_hcd_pci_shutdown,
 #ifdef CONFIG_PM_SLEEP

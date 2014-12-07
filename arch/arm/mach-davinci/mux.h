@@ -48,4 +48,4 @@
 			.mode = mux_mode,				\
 		},
 
-#endif 
+#endif /* _MACH_DAVINCI_MUX_H */

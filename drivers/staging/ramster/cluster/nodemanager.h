@@ -29,25 +29,26 @@
 
 #include "ramster_nodemanager.h"
 
+/* This totally doesn't belong here. */
 #include <linux/configfs.h>
 #include <linux/rbtree.h>
 
 enum r2nm_fence_method {
 	R2NM_FENCE_RESET	= 0,
 	R2NM_FENCE_PANIC,
-	R2NM_FENCE_METHODS,	
+	R2NM_FENCE_METHODS,	/* Number of fence methods */
 };
 
 struct r2nm_node {
 	spinlock_t		nd_lock;
 	struct config_item	nd_item;
-	char			nd_name[R2NM_MAX_NAME_LEN+1]; 
+	char			nd_name[R2NM_MAX_NAME_LEN+1]; /* replace? */
 	__u8			nd_num;
-	
+	/* only one address per node, as attributes, for now. */
 	__be32			nd_ipv4_address;
 	__be16			nd_ipv4_port;
 	struct rb_node		nd_ip_node;
-	
+	/* there can be only one local node for now */
 	int			nd_local;
 
 	unsigned long		nd_set_attributes;
@@ -65,7 +66,7 @@ struct r2nm_cluster {
 	unsigned int		cl_reconnect_delay_ms;
 	enum r2nm_fence_method	cl_fence_method;
 
-	
+	/* part of a hack for disk bitmap.. will go eventually. - zab */
 	unsigned long	cl_nodes_bitmap[BITS_TO_LONGS(R2NM_MAX_NODES)];
 };
 
@@ -84,4 +85,4 @@ void r2nm_undepend_item(struct config_item *item);
 int r2nm_depend_this_node(void);
 void r2nm_undepend_this_node(void);
 
-#endif 
+#endif /* R2CLUSTER_NODEMANAGER_H */

@@ -32,6 +32,9 @@ void __init sort_iommu_table(struct iommu_table_entry *start,
 	for (p = start; p < finish; p++) {
 again:
 		q = find_dependents_of(start, finish, p);
+		/* We are bit sneaky here. We use the memory address to figure
+		 * out if the node we depend on is past our point, if so, swap.
+		 */
 		if (q > p) {
 			tmp = *p;
 			memmove(p, q, sizeof(*p));
@@ -48,14 +51,14 @@ void __init check_iommu_entries(struct iommu_table_entry *start,
 {
 	struct iommu_table_entry *p, *q, *x;
 
-	
+	/* Simple cyclic dependency checker. */
 	for (p = start; p < finish; p++) {
 		q = find_dependents_of(start, finish, p);
 		x = find_dependents_of(start, finish, q);
 		if (p == x) {
 			printk(KERN_ERR "CYCLIC DEPENDENCY FOUND! %pS depends on %pS and vice-versa. BREAKING IT.\n",
 			       p->detect, q->detect);
-			
+			/* Heavy handed way..*/
 			x->depend = 0;
 		}
 	}

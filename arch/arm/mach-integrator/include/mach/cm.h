@@ -1,3 +1,6 @@
+/*
+ * update the core module control register.
+ */
 void cm_control(u32, u32);
 
 #define CM_CTRL_LED			(1 << 0)
@@ -5,11 +8,17 @@ void cm_control(u32, u32);
 #define CM_CTRL_REMAP			(1 << 2)
 #define CM_CTRL_RESET			(1 << 3)
 
+/*
+ * Integrator/AP,PP2 specific
+ */
 #define CM_CTRL_HIGHVECTORS		(1 << 4)
 #define CM_CTRL_BIGENDIAN		(1 << 5)
 #define CM_CTRL_FASTBUS			(1 << 6)
 #define CM_CTRL_SYNC			(1 << 7)
 
+/*
+ * ARM926/946/966 Integrator/CP specific
+ */
 #define CM_CTRL_LCDBIASEN		(1 << 8)
 #define CM_CTRL_LCDBIASUP		(1 << 9)
 #define CM_CTRL_LCDBIASDN		(1 << 10)

@@ -72,6 +72,7 @@ static int amixer_set_input(struct amixer *amixer, struct rsc *rsc)
 	return 0;
 }
 
+/* y is a 14-bit immediate constant */
 static int amixer_set_y(struct amixer *amixer, unsigned int y)
 {
 	struct hw *hw;
@@ -121,7 +122,7 @@ static int amixer_commit_write(struct amixer *amixer)
 	input = amixer->input;
 	sum = amixer->sum;
 
-	
+	/* Program master and conjugate resources */
 	amixer->rsc.ops->master(&amixer->rsc);
 	if (input)
 		input->ops->master(input);
@@ -207,7 +208,7 @@ static int amixer_rsc_init(struct amixer *amixer,
 	if (err)
 		return err;
 
-	
+	/* Set amixer specific operations */
 	amixer->rsc.ops = &amixer_basic_rsc_ops;
 	amixer->ops = &amixer_ops;
 	amixer->input = NULL;
@@ -239,11 +240,13 @@ static int get_amixer_rsc(struct amixer_mgr *mgr,
 
 	*ramixer = NULL;
 
-	
+	/* Allocate mem for amixer resource */
 	amixer = kzalloc(sizeof(*amixer), GFP_KERNEL);
 	if (!amixer)
 		return -ENOMEM;
 
+	/* Check whether there are sufficient
+	 * amixer resources to meet request. */
 	err = 0;
 	spin_lock_irqsave(&mgr->mgr_lock, flags);
 	for (i = 0; i < desc->msr; i++) {
@@ -328,6 +331,7 @@ int amixer_mgr_destroy(struct amixer_mgr *amixer_mgr)
 	return 0;
 }
 
+/* SUM resource management */
 
 static int sum_master(struct rsc *rsc)
 {
@@ -390,12 +394,12 @@ static int get_sum_rsc(struct sum_mgr *mgr,
 
 	*rsum = NULL;
 
-	
+	/* Allocate mem for sum resource */
 	sum = kzalloc(sizeof(*sum), GFP_KERNEL);
 	if (!sum)
 		return -ENOMEM;
 
-	
+	/* Check whether there are sufficient sum resources to meet request. */
 	err = 0;
 	spin_lock_irqsave(&mgr->mgr_lock, flags);
 	for (i = 0; i < desc->msr; i++) {

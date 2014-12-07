@@ -60,4 +60,4 @@ const struct fb_videomode *viafb_get_best_mode(int hres, int vres,
 const struct fb_videomode *viafb_get_best_rb_mode(int hres, int vres,
 	int refresh);
 
-#endif 
+#endif /* __VIAMODE_H__ */

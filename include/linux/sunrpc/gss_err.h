@@ -38,6 +38,9 @@
 
 typedef unsigned int OM_uint32;
 
+/*
+ * Flag bits for context-level services.
+ */
 #define GSS_C_DELEG_FLAG 1
 #define GSS_C_MUTUAL_FLAG 2
 #define GSS_C_REPLAY_FLAG 4
@@ -48,20 +51,34 @@ typedef unsigned int OM_uint32;
 #define GSS_C_PROT_READY_FLAG 128
 #define GSS_C_TRANS_FLAG 256
 
+/*
+ * Credential usage options
+ */
 #define GSS_C_BOTH 0
 #define GSS_C_INITIATE 1
 #define GSS_C_ACCEPT 2
 
+/*
+ * Status code types for gss_display_status
+ */
 #define GSS_C_GSS_CODE 1
 #define GSS_C_MECH_CODE 2
 
 
+/*
+ * Expiration time of 2^32-1 seconds means infinite lifetime for a
+ * credential or security context
+ */
 #define GSS_C_INDEFINITE ((OM_uint32) 0xfffffffful)
 
 
+/* Major status codes */
 
 #define GSS_S_COMPLETE 0
 
+/*
+ * Some "helper" definitions to make the status code macros obvious.
+ */
 #define GSS_C_CALLING_ERROR_OFFSET 24
 #define GSS_C_ROUTINE_ERROR_OFFSET 16
 #define GSS_C_SUPPLEMENTARY_OFFSET 0
@@ -69,6 +86,11 @@ typedef unsigned int OM_uint32;
 #define GSS_C_ROUTINE_ERROR_MASK ((OM_uint32) 0377ul)
 #define GSS_C_SUPPLEMENTARY_MASK ((OM_uint32) 0177777ul)
 
+/*
+ * The macros that test status codes for error conditions.  Note that the
+ * GSS_ERROR() macro has changed slightly from the V1 GSSAPI so that it now
+ * evaluates its argument only once.
+ */
 #define GSS_CALLING_ERROR(x) \
   ((x) & (GSS_C_CALLING_ERROR_MASK << GSS_C_CALLING_ERROR_OFFSET))
 #define GSS_ROUTINE_ERROR(x) \
@@ -79,7 +101,13 @@ typedef unsigned int OM_uint32;
   ((x) & ((GSS_C_CALLING_ERROR_MASK << GSS_C_CALLING_ERROR_OFFSET) | \
 	  (GSS_C_ROUTINE_ERROR_MASK << GSS_C_ROUTINE_ERROR_OFFSET)))
 
+/*
+ * Now the actual status code definitions
+ */
 
+/*
+ * Calling errors:
+ */
 #define GSS_S_CALL_INACCESSIBLE_READ \
                              (((OM_uint32) 1ul) << GSS_C_CALLING_ERROR_OFFSET)
 #define GSS_S_CALL_INACCESSIBLE_WRITE \
@@ -87,6 +115,9 @@ typedef unsigned int OM_uint32;
 #define GSS_S_CALL_BAD_STRUCTURE \
                              (((OM_uint32) 3ul) << GSS_C_CALLING_ERROR_OFFSET)
 
+/*
+ * Routine errors:
+ */
 #define GSS_S_BAD_MECH (((OM_uint32) 1ul) << GSS_C_ROUTINE_ERROR_OFFSET)
 #define GSS_S_BAD_NAME (((OM_uint32) 2ul) << GSS_C_ROUTINE_ERROR_OFFSET)
 #define GSS_S_BAD_NAMETYPE (((OM_uint32) 3ul) << GSS_C_ROUTINE_ERROR_OFFSET)
@@ -111,12 +142,16 @@ typedef unsigned int OM_uint32;
 #define GSS_S_NAME_NOT_MN \
      (((OM_uint32) 18ul) << GSS_C_ROUTINE_ERROR_OFFSET)
 
+/*
+ * Supplementary info bits:
+ */
 #define GSS_S_CONTINUE_NEEDED (1 << (GSS_C_SUPPLEMENTARY_OFFSET + 0))
 #define GSS_S_DUPLICATE_TOKEN (1 << (GSS_C_SUPPLEMENTARY_OFFSET + 1))
 #define GSS_S_OLD_TOKEN (1 << (GSS_C_SUPPLEMENTARY_OFFSET + 2))
 #define GSS_S_UNSEQ_TOKEN (1 << (GSS_C_SUPPLEMENTARY_OFFSET + 3))
 #define GSS_S_GAP_TOKEN (1 << (GSS_C_SUPPLEMENTARY_OFFSET + 4))
 
+/* XXXX these are not part of the GSSAPI C bindings!  (but should be) */
 
 #define GSS_CALLING_ERROR_FIELD(x) \
    (((x) >> GSS_C_CALLING_ERROR_OFFSET) & GSS_C_CALLING_ERROR_MASK)
@@ -125,7 +160,8 @@ typedef unsigned int OM_uint32;
 #define GSS_SUPPLEMENTARY_INFO_FIELD(x) \
    (((x) >> GSS_C_SUPPLEMENTARY_OFFSET) & GSS_C_SUPPLEMENTARY_MASK)
 
+/* XXXX This is a necessary evil until the spec is fixed */
 #define GSS_S_CRED_UNAVAIL GSS_S_FAILURE
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __LINUX_SUNRPC_GSS_ERR_H */

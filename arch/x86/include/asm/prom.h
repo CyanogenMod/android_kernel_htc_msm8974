@@ -44,5 +44,5 @@ unsigned long pci_address_to_pio(phys_addr_t addr);
 
 #define HAVE_ARCH_DEVTREE_FIXUPS
 
-#endif 
+#endif /* __ASSEMBLY__ */
 #endif

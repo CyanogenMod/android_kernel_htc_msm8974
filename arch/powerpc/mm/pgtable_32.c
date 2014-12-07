@@ -39,7 +39,7 @@
 
 unsigned long ioremap_base;
 unsigned long ioremap_bot;
-EXPORT_SYMBOL(ioremap_bot);	
+EXPORT_SYMBOL(ioremap_bot);	/* aka VMALLOC_END */
 
 #if defined(CONFIG_6xx) || defined(CONFIG_POWER3)
 #define HAVE_BATS	1
@@ -57,19 +57,19 @@ extern unsigned long p_mapped_by_bats(phys_addr_t pa);
 void setbat(int index, unsigned long virt, phys_addr_t phys,
 	    unsigned int size, int flags);
 
-#else 
+#else /* !HAVE_BATS */
 #define v_mapped_by_bats(x)	(0UL)
 #define p_mapped_by_bats(x)	(0UL)
-#endif 
+#endif /* HAVE_BATS */
 
 #ifdef HAVE_TLBCAM
 extern unsigned int tlbcam_index;
 extern phys_addr_t v_mapped_by_tlbcam(unsigned long va);
 extern unsigned long p_mapped_by_tlbcam(phys_addr_t pa);
-#else 
+#else /* !HAVE_TLBCAM */
 #define v_mapped_by_tlbcam(x)	(0UL)
 #define p_mapped_by_tlbcam(x)	(0UL)
-#endif 
+#endif /* HAVE_TLBCAM */
 
 #define PGDIR_ORDER	(32 + PGD_T_LOG2 - PGDIR_SHIFT)
 
@@ -77,7 +77,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	pgd_t *ret;
 
-	
+	/* pgdir take page or two with 4K pages and a page fraction otherwise */
 #ifndef CONFIG_PPC_4K_PAGES
 	ret = kzalloc(1 << PGDIR_ORDER, GFP_KERNEL);
 #else
@@ -144,14 +144,18 @@ EXPORT_SYMBOL(ioremap_wc);
 void __iomem *
 ioremap_prot(phys_addr_t addr, unsigned long size, unsigned long flags)
 {
-	
+	/* writeable implies dirty for kernel addresses */
 	if (flags & _PAGE_RW)
 		flags |= _PAGE_DIRTY | _PAGE_HWWRITE;
 
-	
+	/* we don't want to let _PAGE_USER and _PAGE_EXEC leak out */
 	flags &= ~(_PAGE_USER | _PAGE_EXEC);
 
 #ifdef _PAGE_BAP_SR
+	/* _PAGE_USER contains _PAGE_BAP_SR on BookE using the new PTE format
+	 * which means that we just cleared supervisor access... oops ;-) This
+	 * restores it
+	 */
 	flags |= _PAGE_BAP_SR;
 #endif
 
@@ -173,21 +177,35 @@ __ioremap_caller(phys_addr_t addr, unsigned long size, unsigned long flags,
 	phys_addr_t p;
 	int err;
 
-	
+	/* Make sure we have the base flags */
 	if ((flags & _PAGE_PRESENT) == 0)
 		flags |= PAGE_KERNEL;
 
-	
+	/* Non-cacheable page cannot be coherent */
 	if (flags & _PAGE_NO_CACHE)
 		flags &= ~_PAGE_COHERENT;
 
+	/*
+	 * Choose an address to map it to.
+	 * Once the vmalloc system is running, we use it.
+	 * Before then, we use space going down from ioremap_base
+	 * (ioremap_bot records where we're up to).
+	 */
 	p = addr & PAGE_MASK;
 	size = PAGE_ALIGN(addr + size) - p;
 
+	/*
+	 * If the address lies within the first 16 MB, assume it's in ISA
+	 * memory space
+	 */
 	if (p < 16*1024*1024)
 		p += _ISA_MEM_BASE;
 
 #ifndef CONFIG_CRASH_DUMP
+	/*
+	 * Don't allow anybody to remap normal RAM that we're using.
+	 * mem_init() sets high_memory so only do the check after that.
+	 */
 	if (mem_init_done && (p < virt_to_phys(high_memory)) &&
 	    !(__allow_ioremap_reserved && memblock_is_region_reserved(p, size))) {
 		printk("__ioremap(): phys addr 0x%llx is RAM lr %pf\n",
@@ -199,7 +217,18 @@ __ioremap_caller(phys_addr_t addr, unsigned long size, unsigned long flags,
 	if (size == 0)
 		return NULL;
 
-	if ((v = p_mapped_by_bats(p))  )
+	/*
+	 * Is it already mapped?  Perhaps overlapped by a previous
+	 * BAT mapping.  If the whole area is mapped then we're done,
+	 * otherwise remap it since we want to keep the virt addrs for
+	 * each request contiguous.
+	 *
+	 * We make the assumption here that if the bottom and top
+	 * of the range we want are mapped then it's mapped to the
+	 * same virt address (and this is contiguous).
+	 *  -- Cort
+	 */
+	if ((v = p_mapped_by_bats(p)) /*&& p_mapped_by_bats(p+size-1)*/ )
 		goto out;
 
 	if ((v = p_mapped_by_tlbcam(p)))
@@ -216,6 +245,9 @@ __ioremap_caller(phys_addr_t addr, unsigned long size, unsigned long flags,
 		v = (ioremap_bot -= size);
 	}
 
+	/*
+	 * Should check if it is a candidate for a BAT mapping
+	 */
 
 	err = 0;
 	for (i = 0; i < size && err == 0; i += PAGE_SIZE)
@@ -233,6 +265,10 @@ EXPORT_SYMBOL(__ioremap);
 
 void iounmap(volatile void __iomem *addr)
 {
+	/*
+	 * If mapped by BATs then there is nothing to do.
+	 * Calling vfree() generates a benign warning.
+	 */
 	if (v_mapped_by_bats((unsigned long)addr)) return;
 
 	if (addr > high_memory && (unsigned long) addr < ioremap_bot)
@@ -246,12 +282,15 @@ int map_page(unsigned long va, phys_addr_t pa, int flags)
 	pte_t *pg;
 	int err = -ENOMEM;
 
-	
+	/* Use upper 10 bits of VA to index the first level map */
 	pd = pmd_offset(pud_offset(pgd_offset_k(va), va), va);
-	
+	/* Use middle 10 bits of VA to index the second-level map */
 	pg = pte_alloc_kernel(pd, va);
 	if (pg != 0) {
 		err = 0;
+		/* The PTE should never be already set nor present in the
+		 * hash table
+		 */
 		BUG_ON((pte_val(*pg) & (_PAGE_PRESENT | _PAGE_HASHPTE)) &&
 		       flags);
 		set_pte_at(&init_mm, va, pg, pfn_pte(pa >> PAGE_SHIFT,
@@ -260,6 +299,9 @@ int map_page(unsigned long va, phys_addr_t pa, int flags)
 	return err;
 }
 
+/*
+ * Map in a chunk of physical memory starting at start.
+ */
 void __init __mapin_ram_chunk(unsigned long offset, unsigned long top)
 {
 	unsigned long v, s, f;
@@ -306,6 +348,11 @@ void __init mapin_ram(void)
 #endif
 }
 
+/* Scan the real Linux page tables and return a PTE pointer for
+ * a virtual address in a context.
+ * Returns true (1) if PTE was found, zero otherwise.  The pointer to
+ * the PTE pointer is unmodified if PTE is not found.
+ */
 int
 get_pteptr(struct mm_struct *mm, unsigned long addr, pte_t **ptep, pmd_t **pmdp)
 {
@@ -327,7 +374,7 @@ get_pteptr(struct mm_struct *mm, unsigned long addr, pte_t **ptep, pmd_t **pmdp)
 					*ptep = pte;
 					if (pmdp)
 						*pmdp = pmd;
-					
+					/* XXX caller needs to do pte_unmap, yuck */
 				}
 			}
 		}
@@ -358,6 +405,11 @@ static int __change_page_attr(struct page *page, pgprot_t prot)
 	return 0;
 }
 
+/*
+ * Change the page attributes of an page in the linear mapping.
+ *
+ * THIS CONFLICTS WITH BAT MAPPINGS, DEBUG USE ONLY
+ */
 static int change_page_attr(struct page *page, int numpages, pgprot_t prot)
 {
 	int i, err = 0;
@@ -381,7 +433,7 @@ void kernel_map_pages(struct page *page, int numpages, int enable)
 
 	change_page_attr(page, numpages, enable ? PAGE_KERNEL : __pgprot(0));
 }
-#endif 
+#endif /* CONFIG_DEBUG_PAGEALLOC */
 
 static int fixmaps;
 

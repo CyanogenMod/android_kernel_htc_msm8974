@@ -103,7 +103,7 @@ void __init omap_nand_flash_init(int options, struct mtd_partition *parts,
 	u8 cs = 0;
 	u8 nandcs = GPMC_CS_NUM + 1;
 
-	
+	/* find out the chip-select on which NAND exists */
 	while (cs < GPMC_CS_NUM) {
 		u32 ret = 0;
 		ret = gpmc_cs_read_reg(cs, GPMC_CS_CONFIG1);

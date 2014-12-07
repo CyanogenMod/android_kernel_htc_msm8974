@@ -28,8 +28,15 @@
 #ifndef __ASM_ARCH_OMAP15XX_IRQS_H
 #define __ASM_ARCH_OMAP15XX_IRQS_H
 
+/* All OMAP4 specific defines are moved to irqs-44xx.h */
 #include "irqs-44xx.h"
 
+/*
+ * IRQ numbers for interrupt handler 1
+ *
+ * NOTE: See also the OMAP-1510 and 1610 specific IRQ numbers below
+ *
+ */
 #define INT_CAMERA		1
 #define INT_FIQ			3
 #define INT_RTDX		6
@@ -53,6 +60,9 @@
 #define INT_TIMER2		30
 #define INT_LCD_CTRL		31
 
+/*
+ * OMAP-1510 specific IRQ numbers for interrupt handler 1
+ */
 #define INT_1510_IH2_IRQ	0
 #define INT_1510_RES2		2
 #define INT_1510_SPI_TX		4
@@ -64,6 +74,9 @@
 #define INT_1510_RES18		18
 #define INT_1510_LOCAL_BUS	29
 
+/*
+ * OMAP-1610 specific IRQ numbers for interrupt handler 1
+ */
 #define INT_1610_IH2_IRQ	INT_1510_IH2_IRQ
 #define INT_1610_IH2_FIQ	2
 #define INT_1610_McBSP2_TX	4
@@ -75,6 +88,9 @@
 #define INT_1610_GPTIMER2	18
 #define INT_1610_SSR_FIFO_0	29
 
+/*
+ * OMAP-7xx specific IRQ numbers for interrupt handler 1
+ */
 #define INT_7XX_IH2_FIQ		0
 #define INT_7XX_IH2_IRQ		1
 #define INT_7XX_USB_NON_ISO	2
@@ -94,6 +110,11 @@
 #define INT_7XX_GPIO_BANK6	18
 #define INT_7XX_SPGIO_WR	29
 
+/*
+ * IRQ numbers for interrupt handler 2
+ *
+ * NOTE: See also the OMAP-1510 and 1610 specific IRQ numbers below
+ */
 #define IH2_BASE		32
 
 #define INT_KEYBOARD		(1 + IH2_BASE)
@@ -120,9 +141,15 @@
 #define INT_RTC_ALARM		(26 + IH2_BASE)
 #define INT_MEM_STICK		(27 + IH2_BASE)
 
+/*
+ * OMAP-1510 specific IRQ numbers for interrupt handler 2
+ */
 #define INT_1510_DSP_MMU	(28 + IH2_BASE)
 #define INT_1510_COM_SPI_RO	(31 + IH2_BASE)
 
+/*
+ * OMAP-1610 specific IRQ numbers for interrupt handler 2
+ */
 #define INT_1610_FAC		(0 + IH2_BASE)
 #define INT_1610_USB_HHC_2	(7 + IH2_BASE)
 #define INT_1610_USB_OTG	(8 + IH2_BASE)
@@ -158,6 +185,9 @@
 #define INT_1610_NAND		(63 + IH2_BASE)
 #define INT_1610_SHA1MD5	(91 + IH2_BASE)
 
+/*
+ * OMAP-7xx specific IRQ numbers for interrupt handler 2
+ */
 #define INT_7XX_HW_ERRORS	(0 + IH2_BASE)
 #define INT_7XX_NFIQ_PWR_FAIL	(1 + IH2_BASE)
 #define INT_7XX_CFCD		(2 + IH2_BASE)
@@ -332,11 +362,14 @@
 #define INT_35XX_CCDC_VD1_IRQ		92
 #define INT_35XX_CCDC_VD2_IRQ		93
 
+/* Max. 128 level 2 IRQs (OMAP1610), 192 GPIOs (OMAP730/850) and
+ * 16 MPUIO lines */
 #define OMAP_MAX_GPIO_LINES	192
 #define IH_GPIO_BASE		(128 + IH2_BASE)
 #define IH_MPUIO_BASE		(OMAP_MAX_GPIO_LINES + IH_GPIO_BASE)
 #define OMAP_IRQ_END		(IH_MPUIO_BASE + 16)
 
+/* External FPGA handles interrupts on Innovator boards */
 #define	OMAP_FPGA_IRQ_BASE	(OMAP_IRQ_END)
 #ifdef	CONFIG_MACH_OMAP_INNOVATOR
 #define OMAP_FPGA_NR_IRQS	24
@@ -345,6 +378,7 @@
 #endif
 #define OMAP_FPGA_IRQ_END	(OMAP_FPGA_IRQ_BASE + OMAP_FPGA_NR_IRQS)
 
+/* External TWL4030 can handle interrupts on 2430 and 34xx boards */
 #define	TWL4030_IRQ_BASE	(OMAP_FPGA_IRQ_END)
 #ifdef	CONFIG_TWL4030_CORE
 #define	TWL4030_BASE_NR_IRQS	8
@@ -357,6 +391,7 @@
 #define TWL4030_PWR_IRQ_BASE	TWL4030_IRQ_END
 #define	TWL4030_PWR_IRQ_END	(TWL4030_PWR_IRQ_BASE + TWL4030_PWR_NR_IRQS)
 
+/* External TWL4030 gpio interrupts are optional */
 #define TWL4030_GPIO_IRQ_BASE	TWL4030_PWR_IRQ_END
 #ifdef	CONFIG_GPIO_TWL4030
 #define TWL4030_GPIO_NR_IRQS	18
@@ -381,16 +416,19 @@
 #endif
 #define TWL6040_CODEC_IRQ_END	(TWL6040_CODEC_IRQ_BASE + TWL6040_CODEC_NR_IRQS)
 
+/* Total number of interrupts depends on the enabled blocks above */
 #if (TWL4030_GPIO_IRQ_END > TWL6040_CODEC_IRQ_END)
 #define TWL_IRQ_END 		TWL4030_GPIO_IRQ_END
 #else
 #define TWL_IRQ_END		TWL6040_CODEC_IRQ_END
 #endif
 
+/* GPMC related */
 #define OMAP_GPMC_IRQ_BASE	(TWL_IRQ_END)
 #define OMAP_GPMC_NR_IRQS	8
 #define OMAP_GPMC_IRQ_END	(OMAP_GPMC_IRQ_BASE + OMAP_GPMC_NR_IRQS)
 
+/* PRCM IRQ handler */
 #ifdef CONFIG_ARCH_OMAP2PLUS
 #define OMAP_PRCM_IRQ_BASE	(OMAP_GPMC_IRQ_END)
 #define OMAP_PRCM_NR_IRQS	64

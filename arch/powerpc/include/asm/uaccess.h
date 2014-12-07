@@ -13,11 +13,22 @@
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
 
+/*
+ * The fs value determines whether argument validity checking should be
+ * performed or not.  If get_fs() == USER_DS, checking is performed, with
+ * get_fs() == KERNEL_DS, checking is bypassed.
+ *
+ * For historical reasons, these macros are grossly misnamed.
+ *
+ * The fs/ds values are now the highest legal address in the "segment".
+ * This simplifies the checking in the routines below.
+ */
 
 #define MAKE_MM_SEG(s)  ((mm_segment_t) { (s) })
 
 #define KERNEL_DS	MAKE_MM_SEG(~0UL)
 #ifdef __powerpc64__
+/* We use TASK_SIZE_USER64 as TASK_SIZE is not constant */
 #define USER_DS		MAKE_MM_SEG(TASK_SIZE_USER64 - 1)
 #else
 #define USER_DS		MAKE_MM_SEG(TASK_SIZE - 1)
@@ -30,6 +41,10 @@
 #define segment_eq(a, b)	((a).seg == (b).seg)
 
 #ifdef __powerpc64__
+/*
+ * This check is sufficient because there is a large enough
+ * gap between user addresses and the kernel addresses
+ */
 #define __access_ok(addr, size, segment)	\
 	(((addr) <= (segment).seg) && ((size) <= (segment).seg))
 
@@ -45,12 +60,48 @@
 	(__chk_user_ptr(addr),			\
 	 __access_ok((__force unsigned long)(addr), (size), get_fs()))
 
+/*
+ * The exception table consists of pairs of addresses: the first is the
+ * address of an instruction that is allowed to fault, and the second is
+ * the address at which the program should continue.  No registers are
+ * modified, so it is entirely up to the continuation code to figure out
+ * what to do.
+ *
+ * All the routines below use bits of fixup code that are out of line
+ * with the main instruction path.  This means when everything is well,
+ * we don't even have to jump over them.  Further, they do not intrude
+ * on our cache or tlb entries.
+ */
 
 struct exception_table_entry {
 	unsigned long insn;
 	unsigned long fixup;
 };
 
+/*
+ * These are the main single-value transfer routines.  They automatically
+ * use the right size if we just have the right pointer type.
+ *
+ * This gets kind of ugly. We want to return _two_ values in "get_user()"
+ * and yet we don't want to do any pointers, because that is too much
+ * of a performance impact. Thus we have a few rather ugly macros here,
+ * and hide all the ugliness from the user.
+ *
+ * The "__xxx" versions of the user access functions are versions that
+ * do not verify the address space, that must have been done previously
+ * with a separate "access_ok()" call (this is used when we do multiple
+ * accesses to the same area of user memory).
+ *
+ * As we use the same address space for kernel and user data on the
+ * PowerPC, we can just do these as direct assignments.  (Of course, the
+ * exception handling means that it's no longer "just"...)
+ *
+ * The "user64" versions of the user access functions are versions that
+ * allow access of 64-bit data. The "get_user" functions do not
+ * properly handle 64-bit data because the value gets down cast to a long.
+ * The "put_user" functions already handle 64-bit data properly but we add
+ * "user64" versions for completeness
+ */
 #define get_user(x, ptr) \
 	__get_user_check((x), (ptr), sizeof(*(ptr)))
 #define put_user(x, ptr) \
@@ -77,6 +128,11 @@ struct exception_table_entry {
 
 extern long __put_user_bad(void);
 
+/*
+ * We don't tell gcc that we are accessing memory, but this is OK
+ * because we do not write to any memory gcc knows about, so there
+ * are no aliasing issues.
+ */
 #define __put_user_asm(x, addr, err, op)			\
 	__asm__ __volatile__(					\
 		"1:	" op " %1,0(%2)	# put_user\n"		\
@@ -95,7 +151,7 @@ extern long __put_user_bad(void);
 #ifdef __powerpc64__
 #define __put_user_asm2(x, ptr, retval)				\
 	  __put_user_asm(x, ptr, retval, "std")
-#else 
+#else /* __powerpc64__ */
 #define __put_user_asm2(x, addr, err)				\
 	__asm__ __volatile__(					\
 		"1:	stw %1,0(%2)\n"				\
@@ -112,7 +168,7 @@ extern long __put_user_bad(void);
 		".previous"					\
 		: "=r" (err)					\
 		: "r" (x), "b" (addr), "i" (-EFAULT), "0" (err))
-#endif 
+#endif /* __powerpc64__ */
 
 #define __put_user_size(x, ptr, size, retval)			\
 do {								\
@@ -178,7 +234,7 @@ extern long __get_user_bad(void);
 #ifdef __powerpc64__
 #define __get_user_asm2(x, addr, err)			\
 	__get_user_asm(x, addr, err, "ld")
-#else 
+#else /* __powerpc64__ */
 #define __get_user_asm2(x, addr, err)			\
 	__asm__ __volatile__(				\
 		"1:	lwz %1,0(%2)\n"			\
@@ -197,7 +253,7 @@ extern long __get_user_bad(void);
 		".previous"				\
 		: "=r" (err), "=&r" (x)			\
 		: "b" (addr), "i" (-EFAULT), "0" (err))
-#endif 
+#endif /* __powerpc64__ */
 
 #define __get_user_size(x, ptr, size, retval)			\
 do {								\
@@ -240,7 +296,7 @@ do {								\
 	(x) = (__typeof__(*(ptr)))__gu_val;			\
 	__gu_err;						\
 })
-#endif 
+#endif /* __powerpc64__ */
 
 #define __get_user_check(x, ptr, size)					\
 ({									\
@@ -266,6 +322,7 @@ do {								\
 })
 
 
+/* more complex routines */
 
 extern unsigned long __copy_tofrom_user(void __user *to,
 		const void __user *from, unsigned long size);
@@ -302,7 +359,7 @@ static inline unsigned long copy_to_user(void __user *to,
 	return n;
 }
 
-#else 
+#else /* __powerpc64__ */
 
 #define __copy_in_user(to, from, size) \
 	__copy_tofrom_user((to), (from), (size))
@@ -314,7 +371,7 @@ extern unsigned long copy_to_user(void __user *to, const void *from,
 extern unsigned long copy_in_user(void __user *to, const void __user *from,
 				  unsigned long n);
 
-#endif 
+#endif /* __powerpc64__ */
 
 static inline unsigned long __copy_from_user_inatomic(void *to,
 		const void __user *from, unsigned long n)
@@ -407,8 +464,21 @@ static inline long strncpy_from_user(char *dst, const char __user *src,
 	return -EFAULT;
 }
 
+/*
+ * Return the size of a string (including the ending 0)
+ *
+ * Return 0 for error
+ */
 extern int __strnlen_user(const char __user *str, long len, unsigned long top);
 
+/*
+ * Returns the length of the string at str (including the null byte),
+ * or 0 if we hit a page we can't access,
+ * or something > len if we didn't find a null byte.
+ *
+ * The `top' parameter to __strnlen_user is to make sure that
+ * we can never overflow from the user area into kernel space.
+ */
 static inline int strnlen_user(const char __user *str, long len)
 {
 	unsigned long top = current->thread.fs.seg;
@@ -420,7 +490,7 @@ static inline int strnlen_user(const char __user *str, long len)
 
 #define strlen_user(str)	strnlen_user((str), 0x7ffffffe)
 
-#endif  
-#endif 
+#endif  /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
 
-#endif	
+#endif	/* _ARCH_POWERPC_UACCESS_H */

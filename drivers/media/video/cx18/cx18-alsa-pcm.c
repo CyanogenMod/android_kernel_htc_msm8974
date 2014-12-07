@@ -62,11 +62,11 @@ static struct snd_pcm_hardware snd_cx18_hw_capture = {
 	.rate_max = 48000,
 	.channels_min = 2,
 	.channels_max = 2,
-	.buffer_bytes_max = 62720 * 8,	
-	.period_bytes_min = 64,		
+	.buffer_bytes_max = 62720 * 8,	/* just about the value in usbaudio.c */
+	.period_bytes_min = 64,		/* 12544/2, */
 	.period_bytes_max = 12544,
 	.periods_min = 2,
-	.periods_max = 98,		
+	.periods_max = 98,		/* 12544, */
 };
 
 void cx18_alsa_announce_pcm_data(struct snd_cx18_card *cxsc, u8 *pcm_data,
@@ -155,7 +155,7 @@ static int snd_cx18_pcm_capture_open(struct snd_pcm_substream *substream)
 	struct cx18_open_id item;
 	int ret;
 
-	
+	/* Instruct the cx18 to start sending packets */
 	snd_cx18_lock(cxsc);
 	s = &cx->streams[CX18_ENC_STREAM_TYPE_PCM];
 
@@ -163,16 +163,16 @@ static int snd_cx18_pcm_capture_open(struct snd_pcm_substream *substream)
 	item.type = s->type;
 	item.open_id = cx->open_id++;
 
-	
+	/* See if the stream is available */
 	if (cx18_claim_stream(&item, item.type)) {
-		
+		/* No, it's already in use */
 		snd_cx18_unlock(cxsc);
 		return -EBUSY;
 	}
 
 	if (test_bit(CX18_F_S_STREAMOFF, &s->s_flags) ||
 	    test_and_set_bit(CX18_F_S_STREAMING, &s->s_flags)) {
-		
+		/* We're already streaming.  No additional action required */
 		snd_cx18_unlock(cxsc);
 		return 0;
 	}
@@ -185,7 +185,7 @@ static int snd_cx18_pcm_capture_open(struct snd_pcm_substream *substream)
 
 	cx->pcm_announce_callback = cx18_alsa_announce_pcm_data;
 
-	
+	/* Not currently streaming, so start it up */
 	set_bit(CX18_F_S_STREAMING, &s->s_flags);
 	ret = cx18_start_v4l2_encode_stream(s);
 	snd_cx18_unlock(cxsc);
@@ -201,7 +201,7 @@ static int snd_cx18_pcm_capture_close(struct snd_pcm_substream *substream)
 	struct cx18_stream *s;
 	int ret;
 
-	
+	/* Instruct the cx18 to stop sending packets */
 	snd_cx18_lock(cxsc);
 	s = &cx->streams[CX18_ENC_STREAM_TYPE_PCM];
 	ret = cx18_stop_v4l2_encode_stream(s, 0);
@@ -335,9 +335,9 @@ int snd_cx18_pcm_create(struct snd_cx18_card *cxsc)
 	int ret;
 
 	ret = snd_pcm_new(sc, "CX23418 PCM",
-			  0, 
-			  0, 
-			  1, 
+			  0, /* PCM device 0, the only one for this card */
+			  0, /* 0 playback substreams */
+			  1, /* 1 capture substream */
 			  &sp);
 	if (ret) {
 		CX18_ALSA_ERR("%s: snd_cx18_pcm_create() failed with err %d\n",

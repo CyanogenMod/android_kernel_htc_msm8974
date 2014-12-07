@@ -12,7 +12,10 @@
 #include <asm/pmac_low_i2c.h>
 #include <asm/prom.h>
 
+/* PCM3052 register definitions */
 
+/* the attenuation registers take values from
+ * -1 (0dB) to -127 (-63.0 dB) or others (muted) */
 #define ONYX_REG_DAC_ATTEN_LEFT		65
 #define FIRSTREGISTER			ONYX_REG_DAC_ATTEN_LEFT
 #define ONYX_REG_DAC_ATTEN_RIGHT	66
@@ -23,6 +26,7 @@
 #	define ONYX_ADPSV		(1<<5)
 #	define ONYX_DAPSV		(1<<4)
 #	define ONYX_SILICONVERSION	(1<<0)
+/* all others reserved */
 
 #define ONYX_REG_DAC_CONTROL		68
 #	define ONYX_OVR1		(1<<6)
@@ -43,6 +47,7 @@
 
 #define ONYX_REG_ADC_CONTROL		72
 #	define ONYX_ADC_INPUT_MIC	(1<<5)
+/* 8 + input gain in dB, valid range for input gain is -4 .. 20 dB */
 #	define ONYX_ADC_PGA_GAIN_MASK	0x1f
 
 #define ONYX_REG_ADC_HPF_BYPASS		75
@@ -51,16 +56,20 @@
 
 #define ONYX_REG_DIG_INFO1		77
 #	define ONYX_MASK_DIN_TO_BPZ	(1<<7)
+/* bits 1-5 control channel bits 1-5 */
 #	define ONYX_DIGOUT_DISABLE	(1<<0)
 
 #define ONYX_REG_DIG_INFO2		78
+/* controls channel bits 8-15 */
 
 #define ONYX_REG_DIG_INFO3		79
+/* control channel bits 24-29, high 2 bits reserved */
 
 #define ONYX_REG_DIG_INFO4		80
 #	define ONYX_VALIDL		(1<<7)
 #	define ONYX_VALIDR		(1<<6)
 #	define ONYX_SPDIF_ENABLE	(1<<5)
+/* lower 4 bits control bits 32-35 of channel control and word length */
 #	define ONYX_WORDLEN_MASK	(0xF)
 
-#endif 
+#endif /* __SND_AOA_CODEC_ONYX_H */

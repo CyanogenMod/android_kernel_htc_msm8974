@@ -1,5 +1,7 @@
+/* General */
 extern unsigned int sysfs_cpu_exists(unsigned int cpu);
 
+/* CPUfreq */
 extern unsigned long sysfs_get_freq_kernel(unsigned int cpu);
 extern unsigned long sysfs_get_freq_hardware(unsigned int cpu);
 extern unsigned long sysfs_get_freq_transition_latency(unsigned int cpu);

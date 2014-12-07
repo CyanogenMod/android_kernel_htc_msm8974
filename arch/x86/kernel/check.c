@@ -6,12 +6,18 @@
 
 #include <asm/proto.h>
 
+/*
+ * Some BIOSes seem to corrupt the low 64k of memory during events
+ * like suspend/resume and unplugging an HDMI cable.  Reserve all
+ * remaining free memory in that area and fill it with a distinct
+ * pattern.
+ */
 #define MAX_SCAN_AREAS	8
 
 static int __read_mostly memory_corruption_check = -1;
 
 static unsigned __read_mostly corruption_check_size = 64*1024;
-static unsigned __read_mostly corruption_check_period = 60; 
+static unsigned __read_mostly corruption_check_period = 60; /* seconds */
 
 static struct scan_area {
 	u64 addr;
@@ -89,7 +95,7 @@ void __init setup_bios_corruption_check(void)
 		scan_areas[num_scan_areas].addr = start;
 		scan_areas[num_scan_areas].size = end - start;
 
-		
+		/* Assume we've already mapped this early memory */
 		memset(__va(start), 0, end - start);
 
 		if (++num_scan_areas >= MAX_SCAN_AREAS)
@@ -144,7 +150,7 @@ static int start_periodic_check_for_corruption(void)
 	printk(KERN_INFO "Scanning for low memory corruption every %d seconds\n",
 	       corruption_check_period);
 
-	
+	/* First time we run the checks right away */
 	schedule_delayed_work(&bios_check_work, 0);
 	return 0;
 }

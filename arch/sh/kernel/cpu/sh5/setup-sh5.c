@@ -40,17 +40,17 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Period IRQ */
 		.start	= IRQ_PRI,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* Carry IRQ */
 		.start	= IRQ_CUI,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
-		
+		/* Alarm IRQ */
 		.start	= IRQ_ATI,
 		.flags	= IORESOURCE_IRQ,
 	},

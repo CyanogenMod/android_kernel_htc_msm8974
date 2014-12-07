@@ -22,7 +22,7 @@
 #define SS   16
 #define FRAME_SIZE 17
 
-#else 
+#else /* __i386__ */
 
 #if defined(__ASSEMBLY__) || defined(__FRAME_OFFSETS)
 #define R15 0
@@ -31,6 +31,7 @@
 #define R12 24
 #define RBP 32
 #define RBX 40
+/* arguments: interrupts/non tracing syscalls only save up to here*/
 #define R11 48
 #define R10 56
 #define R9 64
@@ -40,19 +41,23 @@
 #define RDX 96
 #define RSI 104
 #define RDI 112
-#define ORIG_RAX 120       
+#define ORIG_RAX 120       /* = ERROR */
+/* end of arguments */
+/* cpu exception frame or undefined in case of fast syscall. */
 #define RIP 128
 #define CS 136
 #define EFLAGS 144
 #define RSP 152
 #define SS 160
 #define ARGOFFSET R11
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/* top of stack page */
 #define FRAME_SIZE 168
 
-#endif 
+#endif /* !__i386__ */
 
+/* Arbitrarily choose the same ptrace numbers as used by the Sparc code. */
 #define PTRACE_GETREGS            12
 #define PTRACE_SETREGS            13
 #define PTRACE_GETFPREGS          14
@@ -62,6 +67,7 @@
 
 #define PTRACE_OLDSETOPTIONS      21
 
+/* only useful for access 32bit programs / kernels */
 #define PTRACE_GET_THREAD_AREA    25
 #define PTRACE_SET_THREAD_AREA    26
 
@@ -72,10 +78,10 @@
 #define PTRACE_SYSEMU		  31
 #define PTRACE_SYSEMU_SINGLESTEP  32
 
-#define PTRACE_SINGLEBLOCK	33	
+#define PTRACE_SINGLEBLOCK	33	/* resume execution until next branch */
 
 #ifndef __ASSEMBLY__
 #include <linux/types.h>
 #endif
 
-#endif 
+#endif /* _ASM_X86_PTRACE_ABI_H */

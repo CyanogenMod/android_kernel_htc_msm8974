@@ -37,7 +37,7 @@ static int snd_emu10k1_timer_start(struct snd_timer *timer)
 
 	emu = snd_timer_chip(timer);
 	delay = timer->sticks - 1;
-	if (delay < 5 ) 
+	if (delay < 5 ) /* minimum time is 5 ticks */
 		delay = 5;
 	spin_lock_irqsave(&emu->reg_lock, flags);
 	snd_emu10k1_intr_enable(emu, INTE_INTERVALTIMERENB);
@@ -68,7 +68,7 @@ static int snd_emu10k1_timer_precise_resolution(struct snd_timer *timer,
 
 static struct snd_timer_hardware snd_emu10k1_timer_hw = {
 	.flags = SNDRV_TIMER_HW_AUTO,
-	.resolution = 20833, 
+	.resolution = 20833, /* 1 sample @ 48KHZ = 20.833...us */
 	.ticks = 1024,
 	.start = snd_emu10k1_timer_start,
 	.stop = snd_emu10k1_timer_stop,

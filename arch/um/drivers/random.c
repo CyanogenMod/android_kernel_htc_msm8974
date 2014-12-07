@@ -16,17 +16,24 @@
 #include "irq_kern.h"
 #include "os.h"
 
+/*
+ * core module and version information
+ */
 #define RNG_VERSION "1.0.0"
 #define RNG_MODULE_NAME "hw_random"
 
-#define RNG_MISCDEV_MINOR		183 
+#define RNG_MISCDEV_MINOR		183 /* official */
 
+/* Changed at init time, in the non-modular case, and at module load
+ * time, in the module case.  Presumably, the module subsystem
+ * protects against a module being loaded twice at the same time.
+ */
 static int random_fd = -1;
 static DECLARE_WAIT_QUEUE_HEAD(host_read_wait);
 
 static int rng_dev_open (struct inode *inode, struct file *filp)
 {
-	
+	/* enforce read-only access to this chrdev */
 	if ((filp->f_mode & FMODE_READ) == 0)
 		return -EINVAL;
 	if ((filp->f_mode & FMODE_WRITE) != 0)
@@ -96,6 +103,7 @@ static const struct file_operations rng_chrdev_ops = {
 	.llseek		= noop_llseek,
 };
 
+/* rng_init shouldn't be called more than once at boot time */
 static struct miscdevice rng_miscdev = {
 	RNG_MISCDEV_MINOR,
 	RNG_MODULE_NAME,
@@ -109,6 +117,9 @@ static irqreturn_t random_interrupt(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * rng_init - initialize RNG module
+ */
 static int __init rng_init (void)
 {
 	int err;
@@ -142,6 +153,9 @@ err_out_cleanup_hw:
 	goto out;
 }
 
+/*
+ * rng_cleanup - shutdown RNG module
+ */
 static void __exit rng_cleanup (void)
 {
 	os_close_file(random_fd);

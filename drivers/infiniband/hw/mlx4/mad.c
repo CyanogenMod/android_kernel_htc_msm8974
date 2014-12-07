@@ -67,6 +67,10 @@ int mlx4_MAD_IFC(struct mlx4_ib_dev *dev, int ignore_mkey, int ignore_bkey,
 
 	memcpy(inbox, in_mad, 256);
 
+	/*
+	 * Key check traps can't be generated unless we have in_wc to
+	 * tell us where to send the trap.
+	 */
 	if (ignore_mkey || !in_wc)
 		op_modifier |= 0x1;
 	if (ignore_bkey || !in_wc)
@@ -142,6 +146,10 @@ static void update_sm_ah(struct mlx4_ib_dev *dev, u8 port_num, u16 lid, u8 sl)
 	spin_unlock(&dev->sm_lock);
 }
 
+/*
+ * Snoop SM MADs for port info and P_Key table sets, so we can
+ * synthesize LID change and P_Key change events.
+ */
 static void smp_snoop(struct ib_device *ibdev, u8 port_num, struct ib_mad *mad,
 				u16 prev_lid)
 {
@@ -207,6 +215,12 @@ static void forward_trap(struct mlx4_ib_dev *dev, u8 port_num, struct ib_mad *ma
 					      IB_MGMT_MAD_DATA, GFP_ATOMIC);
 		if (IS_ERR(send_buf))
 			return;
+		/*
+		 * We rely here on the fact that MLX QPs don't use the
+		 * address handle after the send is posted (this is
+		 * wrong following the IB spec strictly, but we know
+		 * it's OK for our devices).
+		 */
 		spin_lock(&dev->sm_lock);
 		memcpy(send_buf->mad, mad, sizeof *mad);
 		if ((send_buf->ah = dev->sm_ah[port_num - 1]))
@@ -242,6 +256,9 @@ static int ib_process_mad(struct ib_device *ibdev, int mad_flags, u8 port_num,
 		    in_mad->mad_hdr.method   != IB_MGMT_METHOD_TRAP_REPRESS)
 			return IB_MAD_RESULT_SUCCESS;
 
+		/*
+		 * Don't process SMInfo queries -- the SMA can't handle them.
+		 */
 		if (in_mad->mad_hdr.attr_id == IB_SMP_ATTR_SM_INFO)
 			return IB_MAD_RESULT_SUCCESS;
 	} else if (in_mad->mad_hdr.mgmt_class == IB_MGMT_CLASS_PERF_MGMT ||
@@ -273,12 +290,12 @@ static int ib_process_mad(struct ib_device *ibdev, int mad_flags, u8 port_num,
 		node_desc_override(ibdev, out_mad);
 	}
 
-	
+	/* set return bit in status of directed route responses */
 	if (in_mad->mad_hdr.mgmt_class == IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE)
 		out_mad->mad_hdr.status |= cpu_to_be16(1 << 15);
 
 	if (in_mad->mad_hdr.method == IB_MGMT_METHOD_TRAP_REPRESS)
-		
+		/* no response for trap repress */
 		return IB_MAD_RESULT_SUCCESS | IB_MAD_RESULT_CONSUMED;
 
 	return IB_MAD_RESULT_SUCCESS | IB_MAD_RESULT_REPLY;

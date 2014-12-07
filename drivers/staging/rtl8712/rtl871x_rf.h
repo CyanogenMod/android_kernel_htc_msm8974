@@ -38,12 +38,12 @@
 #define NUM_CHANNELS	15
 
 struct	regulatory_class {
-	u32	starting_freq;		
+	u32	starting_freq;		/*MHz, */
 	u8	channel_set[NUM_CHANNELS];
-	u8	channel_cck_power[NUM_CHANNELS]; 
-	u8	channel_ofdm_power[NUM_CHANNELS];
-	u8	txpower_limit;		
-	u8	channel_spacing;	
+	u8	channel_cck_power[NUM_CHANNELS]; /*dbm*/
+	u8	channel_ofdm_power[NUM_CHANNELS];/*dbm*/
+	u8	txpower_limit;		/*dbm*/
+	u8	channel_spacing;	/*MHz*/
 	u8	modem;
 };
 
@@ -64,5 +64,5 @@ enum {
 	RTL8712_RFC_2T2R = 0x22
 };
 
-#endif 
+#endif /*_RTL8711_RF_H_*/
 

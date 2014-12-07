@@ -1,3 +1,9 @@
+/*
+ * SELinux interface to the NetLabel subsystem
+ *
+ * Author: Paul Moore <paul@paul-moore.com>
+ *
+ */
 
 /*
  * (c) Copyright Hewlett-Packard Development Company, L.P., 2006
@@ -138,6 +144,6 @@ static inline int selinux_netlbl_socket_connect(struct sock *sk,
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_NETLABEL */
 
 #endif

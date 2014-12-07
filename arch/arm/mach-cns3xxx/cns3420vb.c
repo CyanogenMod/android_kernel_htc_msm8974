@@ -35,6 +35,9 @@
 #include "core.h"
 #include "devices.h"
 
+/*
+ * NOR Flash
+ */
 static struct mtd_partition cns3420_nor_partitions[] = {
 	{
 		.name		= "uboot",
@@ -82,6 +85,9 @@ static struct platform_device cns3420_nor_pdev = {
 	},
 };
 
+/*
+ * UART
+ */
 static void __init cns3420_early_serial_setup(void)
 {
 #ifdef CONFIG_SERIAL_8250_CONSOLE
@@ -102,6 +108,9 @@ static void __init cns3420_early_serial_setup(void)
 #endif
 }
 
+/*
+ * USB
+ */
 static struct resource cns3xxx_usb_ehci_resources[] = {
 	[0] = {
 		.start = CNS3XXX_USB_BASE,
@@ -150,6 +159,9 @@ static struct platform_device cns3xxx_usb_ohci_device = {
 	},
 };
 
+/*
+ * Initialization
+ */
 static struct platform_device *cns3420_pdevs[] __initdata = {
 	&cns3420_nor_pdev,
 	&cns3xxx_usb_ehci_device,

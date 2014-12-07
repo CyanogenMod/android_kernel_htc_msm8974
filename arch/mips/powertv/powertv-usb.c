@@ -35,12 +35,14 @@
 #include <asm/mach-powertv/asic.h>
 #include <asm/mach-powertv/interrupts.h>
 
+/* misc_clk_ctl1 values */
 #define MCC1_30MHZ_POWERUP_SELECT	(1 << 14)
 #define MCC1_DIV9			(1 << 13)
 #define MCC1_ETHMIPS_POWERUP_SELECT	(1 << 11)
 #define MCC1_USB_POWERUP_SELECT		(1 << 1)
 #define MCC1_CLOCK108_POWERUP_SELECT	(1 << 0)
 
+/* Possible values for clock select */
 #define MCC1_USB_CLOCK_HIGH_Z		(0 << 4)
 #define MCC1_USB_CLOCK_48MHZ		(1 << 4)
 #define MCC1_USB_CLOCK_24MHZ		(2 << 4)
@@ -52,6 +54,7 @@
 			 MCC1_USB_POWERUP_SELECT |		\
 			 MCC1_CLOCK108_POWERUP_SELECT)
 
+/* misc_clk_ctl2 values */
 #define MCC2_GMII_GCLK_TO_PAD		(1 << 31)
 #define MCC2_ETHER125_0_CLOCK_SELECT	(1 << 29)
 #define MCC2_RMII_0_CLOCK_SELECT	(1 << 28)
@@ -80,15 +83,17 @@
 				 MCC2_GMII_TX2_CLOCK_SELECT |	\
 				 MCC2_GMII_RX2_CLOCK_SELECT)
 
+/* misc_clk_ctl2 definitions for Gaia */
 #define FSX4A_REF_SELECT		(1 << 16)
 #define FSX4B_REF_SELECT		(1 << 17)
 #define FSX4C_REF_SELECT		(1 << 18)
 #define DDR_PLL_REF_SELECT		(1 << 19)
 #define MIPS_PLL_REF_SELECT		(1 << 20)
 
+/* Definitions for the QAM frequency select register FS432X4A4_QAM_CTL */
 #define QAM_FS_SDIV_SHIFT		29
 #define QAM_FS_MD_SHIFT			24
-#define QAM_FS_MD_MASK			0x1f	
+#define QAM_FS_MD_MASK			0x1f	/* Cut down to 5 bits */
 #define QAM_FS_PE_SHIFT			8
 
 #define QAM_FS_DISABLE_DIVIDE_BY_3		(1 << 5)
@@ -98,8 +103,10 @@
 #define	QAM_FS_DISABLE_DIGITAL_STANDBY		(1 << 1)
 #define QAM_FS_CHOOSE_FS			(1 << 0)
 
+/* Definitions for fs432x4a_ctl register */
 #define QAM_FS_NSDIV_54MHZ			(1 << 2)
 
+/* Definitions for bcm1_usb2_ctl register */
 #define BCM1_USB2_CTL_BISTOK				(1 << 11)
 #define BCM1_USB2_CTL_PORT2_SHIFT_JK			(1 << 7)
 #define BCM1_USB2_CTL_PORT1_SHIFT_JK			(1 << 6)
@@ -108,6 +115,7 @@
 #define BCM1_USB2_CTL_EHCI_PRT_PWR_ACTIVE_HIGH		(1 << 1)
 #define BCM1_USB2_CTL_APP_PRT_OVRCUR_IN_ACTIVE_HIGH	(1 << 0)
 
+/* Definitions for crt_spare register */
 #define CRT_SPARE_PORT2_SHIFT_JK			(1 << 21)
 #define CRT_SPARE_PORT1_SHIFT_JK			(1 << 20)
 #define CRT_SPARE_PORT2_FAST_EDGE			(1 << 19)
@@ -115,14 +123,21 @@
 #define CRT_SPARE_DIVIDE_BY_9_FROM_432			(1 << 17)
 #define CRT_SPARE_USB_DIVIDE_BY_9			(1 << 16)
 
+/* Definitions for usb2_stbus_obc register */
 #define USB_STBUS_OBC_STORE32_LOAD32			0x3
 
-#define USB2_STBUS_MESS_SIZE_2				0x1	
+/* Definitions for usb2_stbus_mess_size register */
+#define USB2_STBUS_MESS_SIZE_2				0x1	/* 2 packets */
 
-#define USB2_STBUS_CHUNK_SIZE_2				0x1	
+/* Definitions for usb2_stbus_chunk_size register */
+#define USB2_STBUS_CHUNK_SIZE_2				0x1	/* 2 packets */
 
+/* Definitions for usb2_strap register */
 #define USB2_STRAP_HFREQ_SELECT				0x1
 
+/*
+ * USB Host Resource Definition
+ */
 
 static struct resource ehci_resources[] = {
 	{
@@ -181,6 +196,28 @@ static struct platform_device ohci_device = {
 static unsigned usb_users;
 static DEFINE_SPINLOCK(usb_regs_lock);
 
+/*
+ *
+ * fs_update - set frequency synthesizer for USB
+ * @pe_bits		Phase tap setting
+ * @md_bits		Coarse selector bus for algorithm of phase tap
+ * @sdiv_bits		Output divider setting
+ * @disable_div_by_3	Either QAM_FS_DISABLE_DIVIDE_BY_3 or zero
+ * @standby		Either QAM_FS_DISABLE_DIGITAL_STANDBY or zero
+ *
+ * QAM frequency selection code, which affects the frequency at which USB
+ * runs. The frequency is calculated as:
+ *                             2^15 * ndiv * Fin
+ * Fout = ------------------------------------------------------------
+ *        (sdiv * (ipe * (1 + md/32) - (ipe - 2^15)*(1 + (md + 1)/32)))
+ * where:
+ * Fin		54 MHz
+ * ndiv		QAM_FS_NSDIV_54MHZ ? 8 : 16
+ * sdiv		1 << (sdiv_bits + 1)
+ * ipe		Same as pe_bits
+ * md		A five-bit, two's-complement integer (range [-16, 15]), which
+ *		is the lower 5 bits of md_bits.
+ */
 static void fs_update(u32 pe_bits, int md_bits, u32 sdiv_bits,
 	u32 disable_div_by_3, u32 standby)
 {
@@ -198,6 +235,12 @@ static void fs_update(u32 pe_bits, int md_bits, u32 sdiv_bits,
 		fs432x4b4_usb_ctl);
 }
 
+/*
+ * usb_eye_configure - for optimizing the shape USB eye waveform
+ * @set:	Bits to set in the register
+ * @clear:	Bits to clear in the register; each bit with a one will
+ *		be set in the register, zero bits will not be modified
+ */
 static void usb_eye_configure(u32 set, u32 clear)
 {
 	u32 old;
@@ -208,6 +251,9 @@ static void usb_eye_configure(u32 set, u32 clear)
 	asic_write(old, crt_spare);
 }
 
+/*
+ * platform_configure_usb - usb configuration based on platform type.
+ */
 static void platform_configure_usb(void)
 {
 	u32 bcm1_usb2_ctl_value;
@@ -280,15 +326,15 @@ static void platform_configure_usb(void)
 		break;
 	}
 
-	
+	/* turn on USB power */
 	asic_write(0, usb2_strap);
-	
+	/* Enable all OHCI interrupts */
 	asic_write(bcm1_usb2_ctl_value, usb2_control);
-	
+	/* usb2_stbus_obc store32/load32 */
 	asic_write(USB_STBUS_OBC_STORE32_LOAD32, usb2_stbus_obc);
-	
+	/* usb2_stbus_mess_size 2 packets */
 	asic_write(USB2_STBUS_MESS_SIZE_2, usb2_stbus_mess_size);
-	
+	/* usb2_stbus_chunk_size 2 packets */
 	asic_write(USB2_STBUS_CHUNK_SIZE_2, usb2_stbus_chunk_size);
 	spin_unlock_irqrestore(&usb_regs_lock, flags);
 }
@@ -304,30 +350,45 @@ static void platform_unconfigure_usb(void)
 	spin_unlock_irqrestore(&usb_regs_lock, flags);
 }
 
+/*
+ * Set up the USB EHCI interface
+ */
 void platform_configure_usb_ehci()
 {
 	platform_configure_usb();
 }
 EXPORT_SYMBOL(platform_configure_usb_ehci);
 
+/*
+ * Set up the USB OHCI interface
+ */
 void platform_configure_usb_ohci()
 {
 	platform_configure_usb();
 }
 EXPORT_SYMBOL(platform_configure_usb_ohci);
 
+/*
+ * Shut the USB EHCI interface down
+ */
 void platform_unconfigure_usb_ehci()
 {
 	platform_unconfigure_usb();
 }
 EXPORT_SYMBOL(platform_unconfigure_usb_ehci);
 
+/*
+ * Shut the USB OHCI interface down
+ */
 void platform_unconfigure_usb_ohci()
 {
 	platform_unconfigure_usb();
 }
 EXPORT_SYMBOL(platform_unconfigure_usb_ohci);
 
+/**
+ * platform_devices_init - sets up USB device resourse.
+ */
 int __init platform_usb_devices_init(struct platform_device **ehci_dev,
 	struct platform_device **ohci_dev)
 {

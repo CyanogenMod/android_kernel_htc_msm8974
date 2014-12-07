@@ -33,6 +33,13 @@ struct fanotify_response_event {
 	struct fsnotify_event *event;
 };
 
+/*
+ * Get an fsnotify notification event if one exists and is small
+ * enough to fit in "count". Return an error pointer if the count
+ * is not large enough.
+ *
+ * Called with the group->notification_mutex held.
+ */
 static struct fsnotify_event *get_one_event(struct fsnotify_group *group,
 					    size_t count)
 {
@@ -46,6 +53,8 @@ static struct fsnotify_event *get_one_event(struct fsnotify_group *group,
 	if (FAN_EVENT_METADATA_LEN > count)
 		return ERR_PTR(-EINVAL);
 
+	/* held the notification_mutex the whole time, so this is the
+	 * same event we peeked above */
 	return fsnotify_remove_notify_event(group);
 }
 
@@ -68,8 +77,14 @@ static int create_fd(struct fsnotify_group *group, struct fsnotify_event *event)
 		return -EINVAL;
 	}
 
+	/*
+	 * we need a new file handle for the userspace program so it can read even if it was
+	 * originally opened O_WRONLY.
+	 */
 	dentry = dget(event->path.dentry);
 	mnt = mntget(event->path.mnt);
+	/* it's possible this event was an overflow event.  in that case dentry and mnt
+	 * are NULL;  That's fine, just don't call dentry open */
 	if (dentry && mnt)
 		new_file = dentry_open(dentry, mnt,
 				       group->fanotify_data.f_flags | FMODE_NONOTIFY,
@@ -77,6 +92,13 @@ static int create_fd(struct fsnotify_group *group, struct fsnotify_event *event)
 	else
 		new_file = ERR_PTR(-EOVERFLOW);
 	if (IS_ERR(new_file)) {
+		/*
+		 * we still send an event even if we can't open the file.  this
+		 * can happen when say tasks are gone and we try to open their
+		 * /proc files or we try to open a WRONLY file like in sysfs
+		 * we just send the errno to userspace since there isn't much
+		 * else we can do.
+		 */
 		put_unused_fd(client_fd);
 		client_fd = PTR_ERR(new_file);
 	} else {
@@ -142,6 +164,11 @@ static int process_access_response(struct fsnotify_group *group,
 
 	pr_debug("%s: group=%p fd=%d response=%d\n", __func__, group,
 		 fd, response);
+	/*
+	 * make sure the response is valid, if invalid we do nothing and either
+	 * userspace can send a valid response or we will clean it up after the
+	 * timeout
+	 */
 	switch (response) {
 	case FAN_ALLOW:
 	case FAN_DENY:
@@ -272,6 +299,7 @@ out:
 	return ret;
 }
 
+/* intofiy userspace file descriptor functions */
 static unsigned int fanotify_poll(struct file *file, poll_table *wait)
 {
 	struct fsnotify_group *group = file->private_data;
@@ -390,7 +418,7 @@ static int fanotify_release(struct inode *ignored, struct file *file)
 
 	wake_up(&group->fanotify_data.access_waitq);
 #endif
-	
+	/* matches the fanotify_init->fsnotify_alloc_group */
 	fsnotify_put_group(group);
 
 	return 0;
@@ -477,7 +505,7 @@ static int fanotify_find_path(int dfd, const char __user *filename,
 			goto out;
 	}
 
-	
+	/* you can only watch an inode if you have read permissions on it */
 	ret = inode_permission(path->dentry->d_inode, MAY_READ);
 	if (ret)
 		path_put(path);
@@ -538,7 +566,7 @@ static int fanotify_remove_inode_mark(struct fsnotify_group *group,
 		return -ENOENT;
 
 	removed = fanotify_mark_remove_from_mask(fsn_mark, mask, flags);
-	
+	/* matches the fsnotify_find_inode_mark() */
 	fsnotify_put_mark(fsn_mark);
 	if (removed & inode->i_fsnotify_mask)
 		fsnotify_recalc_inode_mask(inode);
@@ -614,6 +642,11 @@ static int fanotify_add_inode_mark(struct fsnotify_group *group,
 
 	pr_debug("%s: group=%p inode=%p\n", __func__, group, inode);
 
+	/*
+	 * If some other task has this inode open for write we should not add
+	 * an ignored mark, unless that ignored mark is supposed to survive
+	 * modification changes anyway.
+	 */
 	if ((flags & FAN_MARK_IGNORED_MASK) &&
 	    !(flags & FAN_MARK_IGNORED_SURV_MODIFY) &&
 	    (atomic_read(&inode->i_writecount) > 0))
@@ -642,6 +675,7 @@ err:
 	return ret;
 }
 
+/* fanotify syscalls */
 SYSCALL_DEFINE2(fanotify_init, unsigned int, flags, unsigned int, event_f_flags)
 {
 	struct fsnotify_group *group;
@@ -669,7 +703,7 @@ SYSCALL_DEFINE2(fanotify_init, unsigned int, flags, unsigned int, event_f_flags)
 	if (flags & FAN_NONBLOCK)
 		f_flags |= O_NONBLOCK;
 
-	
+	/* fsnotify_alloc_group takes a ref.  Dropped in fanotify_release */
 	group = fsnotify_alloc_group(&fanotify_fsnotify_ops);
 	if (IS_ERR(group)) {
 		free_uid(user);
@@ -744,14 +778,14 @@ SYSCALL_DEFINE(fanotify_mark)(int fanotify_fd, unsigned int flags,
 	pr_debug("%s: fanotify_fd=%d flags=%x dfd=%d pathname=%p mask=%llx\n",
 		 __func__, fanotify_fd, flags, dfd, pathname, mask);
 
-	
+	/* we only use the lower 32 bits as of right now. */
 	if (mask & ((__u64)0xffffffff << 32))
 		return -EINVAL;
 
 	if (flags & ~FAN_ALL_MARK_FLAGS)
 		return -EINVAL;
 	switch (flags & (FAN_MARK_ADD | FAN_MARK_REMOVE | FAN_MARK_FLUSH)) {
-	case FAN_MARK_ADD:		
+	case FAN_MARK_ADD:		/* fallthrough */
 	case FAN_MARK_REMOVE:
 		if (!mask)
 			return -EINVAL;
@@ -777,12 +811,16 @@ SYSCALL_DEFINE(fanotify_mark)(int fanotify_fd, unsigned int flags,
 	if (unlikely(!filp))
 		return -EBADF;
 
-	
+	/* verify that this is indeed an fanotify instance */
 	ret = -EINVAL;
 	if (unlikely(filp->f_op != &fanotify_fops))
 		goto fput_and_out;
 	group = filp->private_data;
 
+	/*
+	 * group->priority == FS_PRIO_0 == FAN_CLASS_NOTIF.  These are not
+	 * allowed to set permissions events.
+	 */
 	ret = -EINVAL;
 	if (mask & FAN_ALL_PERM_EVENTS &&
 	    group->priority == FS_PRIO_0)
@@ -792,13 +830,13 @@ SYSCALL_DEFINE(fanotify_mark)(int fanotify_fd, unsigned int flags,
 	if (ret)
 		goto fput_and_out;
 
-	
+	/* inode held in place by reference to path; group by fget on fd */
 	if (!(flags & FAN_MARK_MOUNT))
 		inode = path.dentry->d_inode;
 	else
 		mnt = path.mnt;
 
-	
+	/* create/update an inode mark */
 	switch (flags & (FAN_MARK_ADD | FAN_MARK_REMOVE | FAN_MARK_FLUSH)) {
 	case FAN_MARK_ADD:
 		if (flags & FAN_MARK_MOUNT)
@@ -839,6 +877,11 @@ asmlinkage long SyS_fanotify_mark(long fanotify_fd, long flags, __u64 mask,
 SYSCALL_ALIAS(sys_fanotify_mark, SyS_fanotify_mark);
 #endif
 
+/*
+ * fanotify_user_setup - Our initialization function.  Note that we cannot return
+ * error because we have compiled-in VFS hooks.  So an (unlikely) failure here
+ * must result in panic().
+ */
 static int __init fanotify_user_setup(void)
 {
 	fanotify_mark_cache = KMEM_CACHE(fsnotify_mark, SLAB_PANIC);

@@ -1,8 +1,10 @@
+/* timex.h: FR-V architecture timex specifications
+ */
 #ifndef _ASM_TIMEX_H
 #define _ASM_TIMEX_H
 
-#define CLOCK_TICK_RATE		1193180 
-#define CLOCK_TICK_FACTOR	20	
+#define CLOCK_TICK_RATE		1193180 /* Underlying HZ */
+#define CLOCK_TICK_FACTOR	20	/* Factor of both 1000000 and CLOCK_TICK_RATE */
 
 typedef unsigned long cycles_t;
 

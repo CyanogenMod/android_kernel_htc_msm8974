@@ -100,6 +100,15 @@ static struct adb_handler {
 	int busy;
 } adb_handler[16];
 
+/*
+ * The adb_handler_mutex mutex protects all accesses to the original_address
+ * and handler_id fields of adb_handler[i] for all i, and changes to the
+ * handler field.
+ * Accesses to the handler field are protected by the adb_handler_lock
+ * rwlock.  It is held across all calls to any handler, so that by the
+ * time adb_unregister returns, we know that the old handler isn't being
+ * called.
+ */
 static DEFINE_MUTEX(adb_handler_mutex);
 static DEFINE_RWLOCK(adb_handler_lock);
 
@@ -122,33 +131,59 @@ static int adb_scan_bus(void)
 	int devmask = 0;
 	struct adb_request req;
 	
-	
+	/* assumes adb_handler[] is all zeroes at this point */
 	for (i = 1; i < 16; i++) {
-		
+		/* see if there is anything at address i */
 		adb_request(&req, NULL, ADBREQ_SYNC | ADBREQ_REPLY, 1,
                             (i << 4) | 0xf);
 		if (req.reply_len > 1)
-			
+			/* one or more devices at this address */
 			adb_handler[i].original_address = i;
 		else if (i > highFree)
 			highFree = i;
 	}
 
-	
+	/* Note we reset noMovement to 0 each time we move a device */
 	for (noMovement = 1; noMovement < 2 && highFree > 0; noMovement++) {
 		for (i = 1; i < 16; i++) {
 			if (adb_handler[i].original_address == 0)
 				continue;
+			/*
+			 * Send a "talk register 3" command to address i
+			 * to provoke a collision if there is more than
+			 * one device at this address.
+			 */
 			adb_request(&req, NULL, ADBREQ_SYNC | ADBREQ_REPLY, 1,
 				    (i << 4) | 0xf);
+			/*
+			 * Move the device(s) which didn't detect a
+			 * collision to address `highFree'.  Hopefully
+			 * this only moves one device.
+			 */
 			adb_request(&req, NULL, ADBREQ_SYNC, 3,
 				    (i<< 4) | 0xb, (highFree | 0x60), 0xfe);
+			/*
+			 * See if anybody actually moved. This is suggested
+			 * by HW TechNote 01:
+			 *
+			 * http://developer.apple.com/technotes/hw/hw_01.html
+			 */
 			adb_request(&req, NULL, ADBREQ_SYNC | ADBREQ_REPLY, 1,
 				    (highFree << 4) | 0xf);
 			if (req.reply_len <= 1) continue;
+			/*
+			 * Test whether there are any device(s) left
+			 * at address i.
+			 */
 			adb_request(&req, NULL, ADBREQ_SYNC | ADBREQ_REPLY, 1,
 				    (i << 4) | 0xf);
 			if (req.reply_len > 1) {
+				/*
+				 * There are still one or more devices
+				 * left at address i.  Register the one(s)
+				 * we moved to `highFree', and find a new
+				 * value for highFree.
+				 */
 				adb_handler[highFree].original_address =
 					adb_handler[i].original_address;
 				while (highFree > 0 &&
@@ -160,6 +195,10 @@ static int adb_scan_bus(void)
 				noMovement = 0;
 			}
 			else {
+				/*
+				 * No devices left at address i; move the
+				 * one(s) we moved to `highFree' back to i.
+				 */
 				adb_request(&req, NULL, ADBREQ_SYNC, 3,
 					    (highFree << 4) | 0xb,
 					    (i | 0x60), 0xfe);
@@ -167,7 +206,7 @@ static int adb_scan_bus(void)
 		}	
 	}
 
-	
+	/* Now fill in the handler_id field of the adb_handler entries. */
 	printk(KERN_DEBUG "adb devices:");
 	for (i = 1; i < 16; i++) {
 		if (adb_handler[i].original_address == 0)
@@ -183,6 +222,10 @@ static int adb_scan_bus(void)
 	return devmask;
 }
 
+/*
+ * This kernel task handles ADB probing. It dies once probing is
+ * completed.
+ */
 static int
 adb_probe_task(void *x)
 {
@@ -217,12 +260,15 @@ adb_reset_bus(void)
 }
 
 #ifdef CONFIG_PM
+/*
+ * notify clients before sleep
+ */
 static int adb_suspend(struct platform_device *dev, pm_message_t state)
 {
 	adb_got_sleep = 1;
-	
+	/* We need to get a lock on the probe thread */
 	down(&adb_probe_mutex);
-	
+	/* Stop autopoll */
 	if (adb_controller->autopoll)
 		adb_controller->autopoll(0);
 	blocking_notifier_call_chain(&adb_client_list, ADB_MSG_POWERDOWN, NULL);
@@ -230,6 +276,9 @@ static int adb_suspend(struct platform_device *dev, pm_message_t state)
 	return 0;
 }
 
+/*
+ * reset bus after sleep
+ */
 static int adb_resume(struct platform_device *dev)
 {
 	adb_got_sleep = 0;
@@ -238,7 +287,7 @@ static int adb_resume(struct platform_device *dev)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static int __init adb_init(void)
 {
@@ -254,7 +303,7 @@ static int __init adb_init(void)
 		return 0;
 #endif
 
-	
+	/* xmon may do early-init */
 	if (adb_inited)
 		return 0;
 	adb_inited = 1;
@@ -278,7 +327,7 @@ static int __init adb_init(void)
 		if (of_machine_is_compatible("AAPL,PowerBook1998") ||
 			of_machine_is_compatible("PowerBook1,1"))
 			sleepy_trackpad = 1;
-#endif 
+#endif /* CONFIG_PPC */
 
 		adbdev_init();
 		adb_reset_bus();
@@ -303,7 +352,7 @@ do_adb_reset_bus(void)
 		ADB_MSG_PRE_RESET, NULL);
 
 	if (sleepy_trackpad) {
-		
+		/* Let the trackpad settle down */
 		msleep(500);
 	}
 
@@ -312,14 +361,14 @@ do_adb_reset_bus(void)
 	memset(adb_handler, 0, sizeof(adb_handler));
 	write_unlock_irq(&adb_handler_lock);
 
-	
+	/* That one is still a bit synchronous, oh well... */
 	if (adb_controller->reset_bus)
 		ret = adb_controller->reset_bus();
 	else
 		ret = 0;
 
 	if (sleepy_trackpad) {
-		
+		/* Let the trackpad settle down */
 		msleep(1500);
 	}
 
@@ -377,7 +426,7 @@ adb_request(struct adb_request *req, void (*done)(struct adb_request *),
 	if (flags & ADBREQ_NOSEND)
 		return 0;
 
-	
+	/* Synchronous requests block using an on-stack completion */
 	if (flags & ADBREQ_SYNC) {
 		WARN_ON(done);
 		req->done = adb_sync_req_done;
@@ -393,6 +442,13 @@ adb_request(struct adb_request *req, void (*done)(struct adb_request *),
 	return rc;
 }
 
+ /* Ultimately this should return the number of devices with
+    the given default id.
+    And it does it now ! Note: changed behaviour: This function
+    will now register if default_id _and_ handler_id both match
+    but handler_id can be left to 0 to match with default_id only.
+    When handler_id is set, this function will try to adjust
+    the handler_id id it doesn't match. */
 int
 adb_register(int default_id, int handler_id, struct adb_ids *ids,
 	     void (*handler)(unsigned char *, int, int))
@@ -451,6 +507,9 @@ adb_input(unsigned char *buf, int nb, int autopoll)
 	
 	void (*handler)(unsigned char *, int, int);
 
+	/* We skip keystrokes and mouse moves when the sleep process
+	 * has been started. We stop autopoll, but this is another security
+	 */
 	if (adb_got_sleep)
 		return;
 		
@@ -474,6 +533,7 @@ adb_input(unsigned char *buf, int nb, int autopoll)
 		
 }
 
+/* Try to change handler to new_id. Will return 1 if successful. */
 static int try_handler_change(int address, int new_id)
 {
 	struct adb_request req;
@@ -516,8 +576,11 @@ adb_get_infos(int address, int *original_address, int *handler_id)
 }
 
 
+/*
+ * /dev/adb device driver.
+ */
 
-#define ADB_MAJOR	56	
+#define ADB_MAJOR	56	/* major number for /dev/adb */
 
 struct adbdev_state {
 	spinlock_t	lock;
@@ -691,7 +754,7 @@ static ssize_t adb_read(struct file *file, char __user *buf,
 static ssize_t adb_write(struct file *file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
-	int ret;
+	int ret/*, i*/;
 	struct adbdev_state *state = file->private_data;
 	struct adb_request *req;
 
@@ -718,10 +781,10 @@ static ssize_t adb_write(struct file *file, const char __user *buf,
 
 	atomic_inc(&state->n_pending);
 
-	
+	/* If a probe is in progress or we are sleeping, wait for it to complete */
 	down(&adb_probe_mutex);
 
-	
+	/* Queries are special requests sent to the ADB driver itself */
 	if (req->data[0] == ADB_QUERY) {
 		if (count > 1)
 			ret = do_adb_query(req);
@@ -729,6 +792,8 @@ static ssize_t adb_write(struct file *file, const char __user *buf,
 			ret = -EINVAL;
 		up(&adb_probe_mutex);
 	}
+	/* Special case for ADB_BUSRESET request, all others are sent to
+	   the controller */
 	else if ((req->data[0] == ADB_PACKET)&&(count > 1)
 		&&(req->data[1] == ADB_BUSRESET)) {
 		ret = do_adb_reset_bus();

@@ -16,6 +16,7 @@
 
 #include <linux/types.h>
 
+/* Orient */
 #define MXT_NORMAL		0x0
 #define MXT_DIAGONAL		0x1
 #define MXT_HORIZONTAL_FLIP	0x2
@@ -25,8 +26,10 @@
 #define MXT_ROTATED_180		0x6
 #define MXT_DIAGONAL_COUNTER	0x7
 
+/* MXT_TOUCH_KEYARRAY_T15 */
 #define MXT_KEYARRAY_MAX_KEYS	32
 
+/* Bootoader IDs */
 #define MXT_BOOTLOADER_ID_224		0x0A
 #define MXT_BOOTLOADER_ID_224E		0x06
 #define MXT_BOOTLOADER_ID_336S		0x1A
@@ -34,6 +37,7 @@
 #define MXT_BOOTLOADER_ID_1386E		0x10
 #define MXT_BOOTLOADER_ID_1664S		0x14
 
+/* Config data for a given maXTouch controller with a specific firmware */
 struct mxt_config_info {
 	const u8 *config;
 	size_t config_length;
@@ -42,21 +46,22 @@ struct mxt_config_info {
 	u8 version;
 	u8 build;
 	u8 bootldr_id;
-	
+	/* Points to the firmware name to be upgraded to */
 	const char *fw_name;
 };
 
+/* The platform data for the Atmel maXTouch touchscreen driver */
 struct mxt_platform_data {
 	const struct mxt_config_info *config_array;
 	size_t config_array_size;
 
-	
+	/* touch panel's minimum and maximum coordinates */
 	u32 panel_minx;
 	u32 panel_maxx;
 	u32 panel_miny;
 	u32 panel_maxy;
 
-	
+	/* display's minimum and maximum coordinates */
 	u32 disp_minx;
 	u32 disp_maxx;
 	u32 disp_miny;
@@ -80,4 +85,4 @@ struct mxt_platform_data {
 	int (*power_on) (bool);
 };
 
-#endif 
+#endif /* __LINUX_ATMEL_MXT_TS_H */

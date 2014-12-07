@@ -28,7 +28,7 @@ int s5p_mfc_init_shm(struct s5p_mfc_ctx *ctx)
 		mfc_err("failed to allocate shared memory\n");
 		return PTR_ERR(ctx->shm_alloc);
 	}
-	
+	/* shm_ofs only keeps the offset from base (port a) */
 	ctx->shm_ofs = s5p_mfc_mem_cookie(shm_alloc_ctx, ctx->shm_alloc)
 								- dev->bank1;
 	BUG_ON(ctx->shm_ofs & ((1 << MFC_BANK1_ALIGN_ORDER) - 1));

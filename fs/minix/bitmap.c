@@ -4,7 +4,12 @@
  *  Copyright (C) 1991, 1992  Linus Torvalds
  */
 
+/*
+ * Modified for 680x0 by Hamish Macdonald
+ * Fixed for 680x0 by Andreas Schwab
+ */
 
+/* bitmap.c contains the code that handles the inode and block bitmaps */
 
 #include "minix.h"
 #include <linux/buffer_head.h>
@@ -13,6 +18,11 @@
 
 static DEFINE_SPINLOCK(bitmap_lock);
 
+/*
+ * bitmap consists of blocks filled with 16bit words
+ * bit set == busy, bit clear == free
+ * endianness is a mess, but for counting zero bits it really doesn't matter...
+ */
 static __u32 count_free(struct buffer_head *map[], unsigned blocksize, __u32 numbits)
 {
 	__u32 sum = 0;
@@ -142,6 +152,7 @@ minix_V2_raw_inode(struct super_block *sb, ino_t ino, struct buffer_head **bh)
 	return p + ino % minix2_inodes_per_block;
 }
 
+/* Clear the link count and mode of a deleted inode on disk. */
 
 static void minix_clear_inode(struct inode *inode)
 {
@@ -188,7 +199,7 @@ void minix_free_inode(struct inode * inode)
 		return;
 	}
 
-	minix_clear_inode(inode);	
+	minix_clear_inode(inode);	/* clear on-disk copy */
 
 	bh = sbi->s_imap[ino];
 	spin_lock(&bitmap_lock);
@@ -227,7 +238,7 @@ struct inode *minix_new_inode(const struct inode *dir, umode_t mode, int *error)
 		iput(inode);
 		return NULL;
 	}
-	if (minix_test_and_set_bit(j, bh->b_data)) {	
+	if (minix_test_and_set_bit(j, bh->b_data)) {	/* shouldn't happen */
 		spin_unlock(&bitmap_lock);
 		printk("minix_new_inode: bit already set\n");
 		iput(inode);

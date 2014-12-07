@@ -18,6 +18,7 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 
+/* struct f_qdss - USB qdss function driver private structure */
 struct f_qdss {
 	struct usb_function function;
 	struct usb_composite_dev *cdev;

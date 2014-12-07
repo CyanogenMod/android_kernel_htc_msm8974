@@ -33,6 +33,32 @@
 #include "board.h"
 #include "clock.h"
 
+/*
+ * Locking:
+ *
+ * Each struct clk has a spinlock.
+ *
+ * To avoid AB-BA locking problems, locks must always be traversed from child
+ * clock to parent clock.  For example, when enabling a clock, the clock's lock
+ * is taken, and then clk_enable is called on the parent, which take's the
+ * parent clock's lock.  There is one exceptions to this ordering: When dumping
+ * the clock tree through debugfs.  In this case, clk_lock_all is called,
+ * which attemps to iterate through the entire list of clocks and take every
+ * clock lock.  If any call to spin_trylock fails, all locked clocks are
+ * unlocked, and the process is retried.  When all the locks are held,
+ * the only clock operation that can be called is clk_get_rate_all_locked.
+ *
+ * Within a single clock, no clock operation can call another clock operation
+ * on itself, except for clk_get_rate_locked and clk_set_rate_locked.  Any
+ * clock operation can call any other clock operation on any of it's possible
+ * parents.
+ *
+ * An additional mutex, clock_list_lock, is used to protect the list of all
+ * clocks.
+ *
+ * The clock operations must lock internally to protect against
+ * read-modify-write on registers that are shared by multiple clocks
+ */
 static DEFINE_MUTEX(clock_list_lock);
 static LIST_HEAD(clocks);
 
@@ -51,6 +77,7 @@ struct clk *tegra_get_clock_by_name(const char *name)
 	return ret;
 }
 
+/* Must be called with c->spinlock held */
 static unsigned long clk_predict_rate_from_parent(struct clk *c, struct clk *p)
 {
 	u64 rate;
@@ -59,13 +86,14 @@ static unsigned long clk_predict_rate_from_parent(struct clk *c, struct clk *p)
 
 	if (c->mul != 0 && c->div != 0) {
 		rate *= c->mul;
-		rate += c->div - 1; 
+		rate += c->div - 1; /* round up */
 		do_div(rate, c->div);
 	}
 
 	return rate;
 }
 
+/* Must be called with c->spinlock held */
 unsigned long clk_get_rate_locked(struct clk *c)
 {
 	unsigned long rate;
@@ -249,6 +277,7 @@ int clk_set_rate(struct clk *c, unsigned long rate)
 EXPORT_SYMBOL(clk_set_rate);
 
 
+/* Must be called with clocks lock and all indvidual clock locks held */
 unsigned long clk_get_rate_all_locked(struct clk *c)
 {
 	u64 rate;
@@ -370,6 +399,9 @@ void tegra_periph_reset_assert(struct clk *c)
 }
 EXPORT_SYMBOL(tegra_periph_reset_assert);
 
+/* Several extended clock configuration bits (e.g., clock routing, clock
+ * phase control) are included in PLL and peripheral clock source
+ * registers. */
 int tegra_clk_cfg_ex(struct clk *c, enum tegra_clk_ex_param p, u32 setting)
 {
 	int ret = 0;
@@ -416,6 +448,12 @@ static void __clk_unlock_all_spinlocks(void)
 		spin_unlock(&c->spinlock);
 }
 
+/*
+ * This function retries until it can take all locks, and may take
+ * an arbitrarily long time to complete.
+ * Must be called with irqs enabled, returns with irqs disabled
+ * Must be called with clock_list_lock held
+ */
 static void clk_lock_all(void)
 {
 	int ret;
@@ -426,7 +464,7 @@ retry:
 	if (ret)
 		goto failed_spinlocks;
 
-	
+	/* All locks taken successfully, return */
 	return;
 
 failed_spinlocks:
@@ -435,6 +473,11 @@ failed_spinlocks:
 	goto retry;
 }
 
+/*
+ * Unlocks all clocks after a clk_lock_all
+ * Must be called with irqs disabled, returns with irqs enabled
+ * Must be called with clock_list_lock held
+ */
 static void clk_unlock_all(void)
 {
 	__clk_unlock_all_spinlocks();

@@ -112,7 +112,7 @@ int snd_register_oss_device(int type, struct snd_card *card, int dev,
 	struct device *carddev = snd_card_get_device_link(card);
 
 	if (card && card->number >= 8)
-		return 0; 
+		return 0; /* ignore silently */
 	if (minor < 0)
 		return minor;
 	preg = kmalloc(sizeof(struct snd_minor), GFP_KERNEL);
@@ -204,6 +204,9 @@ int snd_unregister_oss_device(int type, struct snd_card *card, int dev)
 
 EXPORT_SYMBOL(snd_unregister_oss_device);
 
+/*
+ *  INFO PART
+ */
 
 #ifdef CONFIG_PROC_FS
 
@@ -271,6 +274,6 @@ int __exit snd_minor_info_oss_done(void)
 	snd_info_free_entry(snd_minor_info_oss_entry);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PROC_FS */
 
-#endif 
+#endif /* CONFIG_SND_OSSEMUL */

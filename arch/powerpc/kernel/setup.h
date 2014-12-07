@@ -6,4 +6,4 @@ void do_init_bootmem(void);
 void setup_panic(void);
 extern int do_early_xmon;
 
-#endif 
+#endif /* _POWERPC_KERNEL_SETUP_H */

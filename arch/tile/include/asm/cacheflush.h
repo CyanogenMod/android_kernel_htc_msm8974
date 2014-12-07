@@ -17,10 +17,12 @@
 
 #include <arch/chip.h>
 
+/* Keep includes the same across arches.  */
 #include <linux/mm.h>
 #include <linux/cache.h>
 #include <arch/icache.h>
 
+/* Caches are physically-indexed and so don't need special treatment */
 #define flush_cache_all()			do { } while (0)
 #define flush_cache_mm(mm)			do { } while (0)
 #define flush_cache_dup_mm(mm)			do { } while (0)
@@ -35,16 +37,30 @@
 #define flush_icache_page(vma, pg)		do { } while (0)
 #define flush_icache_user_range(vma, pg, adr, len)	do { } while (0)
 
+/* Flush the icache just on this cpu */
 extern void __flush_icache_range(unsigned long start, unsigned long end);
 
+/* Flush the entire icache on this cpu. */
 #define __flush_icache() __flush_icache_range(0, CHIP_L1I_CACHE_SIZE())
 
 #ifdef CONFIG_SMP
+/*
+ * When the kernel writes to its own text we need to do an SMP
+ * broadcast to make the L1I coherent everywhere.  This includes
+ * module load and single step.
+ */
 extern void flush_icache_range(unsigned long start, unsigned long end);
 #else
 #define flush_icache_range __flush_icache_range
 #endif
 
+/*
+ * An update to an executable user page requires icache flushing.
+ * We could carefully update only tiles that are running this process,
+ * and rely on the fact that we flush the icache on every context
+ * switch to avoid doing extra work here.  But for now, I'll be
+ * conservative and just do a global icache flush.
+ */
 static inline void copy_to_user_page(struct vm_area_struct *vma,
 				     struct page *page, unsigned long vaddr,
 				     void *dst, void *src, int len)
@@ -59,6 +75,13 @@ static inline void copy_to_user_page(struct vm_area_struct *vma,
 #define copy_from_user_page(vma, page, vaddr, dst, src, len) \
 	memcpy((dst), (src), (len))
 
+/*
+ * Invalidate a VA range; pads to L2 cacheline boundaries.
+ *
+ * Note that on TILE64, __inv_buffer() actually flushes modified
+ * cache lines in addition to invalidating them, i.e., it's the
+ * same as __finv_buffer().
+ */
 static inline void __inv_buffer(void *buffer, size_t size)
 {
 	char *next = (char *)((long)buffer & -L2_CACHE_BYTES);
@@ -69,6 +92,7 @@ static inline void __inv_buffer(void *buffer, size_t size)
 	}
 }
 
+/* Flush a VA range; pads to L2 cacheline boundaries. */
 static inline void __flush_buffer(void *buffer, size_t size)
 {
 	char *next = (char *)((long)buffer & -L2_CACHE_BYTES);
@@ -79,6 +103,7 @@ static inline void __flush_buffer(void *buffer, size_t size)
 	}
 }
 
+/* Flush & invalidate a VA range; pads to L2 cacheline boundaries. */
 static inline void __finv_buffer(void *buffer, size_t size)
 {
 	char *next = (char *)((long)buffer & -L2_CACHE_BYTES);
@@ -90,28 +115,50 @@ static inline void __finv_buffer(void *buffer, size_t size)
 }
 
 
+/* Invalidate a VA range and wait for it to be complete. */
 static inline void inv_buffer(void *buffer, size_t size)
 {
 	__inv_buffer(buffer, size);
 	mb();
 }
 
+/*
+ * Flush a locally-homecached VA range and wait for the evicted
+ * cachelines to hit memory.
+ */
 static inline void flush_buffer_local(void *buffer, size_t size)
 {
 	__flush_buffer(buffer, size);
 	mb_incoherent();
 }
 
+/*
+ * Flush and invalidate a locally-homecached VA range and wait for the
+ * evicted cachelines to hit memory.
+ */
 static inline void finv_buffer_local(void *buffer, size_t size)
 {
 	__finv_buffer(buffer, size);
 	mb_incoherent();
 }
 
+/*
+ * Flush and invalidate a VA range that is homed remotely, waiting
+ * until the memory controller holds the flushed values.  If "hfh" is
+ * true, we will do a more expensive flush involving additional loads
+ * to make sure we have touched all the possible home cpus of a buffer
+ * that is homed with "hash for home".
+ */
 void finv_buffer_remote(void *buffer, size_t size, int hfh);
 
+/*
+ * On SMP systems, when the scheduler does migration-cost autodetection,
+ * it needs a way to flush as much of the CPU's caches as possible:
+ *
+ * TODO: fill this in!
+ */
 static inline void sched_cacheflush(void)
 {
 }
 
-#endif 
+#endif /* _ASM_TILE_CACHEFLUSH_H */

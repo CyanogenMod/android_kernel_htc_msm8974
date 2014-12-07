@@ -20,7 +20,7 @@
 #include <linux/dvb/frontend.h>
 
 struct s921_config {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 };
 
@@ -44,4 +44,4 @@ static struct i2c_adapter *
 }
 #endif
 
-#endif 
+#endif /* S921_H */

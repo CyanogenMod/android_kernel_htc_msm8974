@@ -170,7 +170,7 @@ static void cmtp_send_interopmsg(struct cmtp_session *session,
 	capimsg_setu8 (s, 5, subcmd);
 	capimsg_setu16(s, 6, msgnum);
 
-	
+	/* Interoperability selector (Bluetooth Device Management) */
 	capimsg_setu16(s, 8, 0x0001);
 
 	capimsg_setu8 (s, 10, 3 + len);

@@ -34,48 +34,133 @@
 #include <linux/bitmap.h>
 
 #define i1480_FW 0x00000303
+/* #define i1480_FW 0x00000302 */
 
+/**
+ * Number of Medium Access Slots in a superframe.
+ *
+ * UWB divides time in SuperFrames, each one divided in 256 pieces, or
+ * Medium Access Slots. See MBOA MAC[5.4.5] for details. The MAS is the
+ * basic bandwidth allocation unit in UWB.
+ */
 enum { UWB_NUM_MAS = 256 };
 
+/**
+ * Number of Zones in superframe.
+ *
+ * UWB divides the superframe into zones with numbering starting from BPST.
+ * See MBOA MAC[16.8.6]
+ */
 enum { UWB_NUM_ZONES = 16 };
 
+/*
+ * Number of MAS in a zone.
+ */
 #define UWB_MAS_PER_ZONE (UWB_NUM_MAS / UWB_NUM_ZONES)
 
+/*
+ * Number of MAS required before a row can be considered available.
+ */
 #define UWB_USABLE_MAS_PER_ROW (UWB_NUM_ZONES - 1)
 
+/*
+ * Number of streams per DRP reservation between a pair of devices.
+ *
+ * [ECMA-368] section 16.8.6.
+ */
 enum { UWB_NUM_STREAMS = 8 };
 
+/*
+ * mMasLength
+ *
+ * The length of a MAS in microseconds.
+ *
+ * [ECMA-368] section 17.16.
+ */
 enum { UWB_MAS_LENGTH_US = 256 };
 
+/*
+ * mBeaconSlotLength
+ *
+ * The length of the beacon slot in microseconds.
+ *
+ * [ECMA-368] section 17.16
+ */
 enum { UWB_BEACON_SLOT_LENGTH_US = 85 };
 
+/*
+ * mMaxLostBeacons
+ *
+ * The number beacons missing in consecutive superframes before a
+ * device can be considered as unreachable.
+ *
+ * [ECMA-368] section 17.16
+ */
 enum { UWB_MAX_LOST_BEACONS = 3 };
 
+/*
+ * mDRPBackOffWinMin
+ *
+ * The minimum number of superframes to wait before trying to reserve
+ * extra MAS.
+ *
+ * [ECMA-368] section 17.16
+ */
 enum { UWB_DRP_BACKOFF_WIN_MIN = 2 };
 
+/*
+ * mDRPBackOffWinMax
+ *
+ * The maximum number of superframes to wait before trying to reserve
+ * extra MAS.
+ *
+ * [ECMA-368] section 17.16
+ */
 enum { UWB_DRP_BACKOFF_WIN_MAX = 16 };
 
+/*
+ * Length of a superframe in microseconds.
+ */
 #define UWB_SUPERFRAME_LENGTH_US (UWB_MAS_LENGTH_US * UWB_NUM_MAS)
 
+/**
+ * UWB MAC address
+ *
+ * It is *imperative* that this struct is exactly 6 packed bytes (as
+ * it is also used to define headers sent down and up the wire/radio).
+ */
 struct uwb_mac_addr {
 	u8 data[6];
 } __attribute__((packed));
 
 
+/**
+ * UWB device address
+ *
+ * It is *imperative* that this struct is exactly 6 packed bytes (as
+ * it is also used to define headers sent down and up the wire/radio).
+ */
 struct uwb_dev_addr {
 	u8 data[2];
 } __attribute__((packed));
 
 
+/**
+ * Types of UWB addresses
+ *
+ * Order matters (by size).
+ */
 enum uwb_addr_type {
 	UWB_ADDR_DEV = 0,
 	UWB_ADDR_MAC = 1,
 };
 
 
+/** Size of a char buffer for printing a MAC/device address */
 enum { UWB_ADDR_STRSIZE = 32 };
 
 
+/** UWB WiMedia protocol IDs. */
 enum uwb_prid {
 	UWB_PRID_WLP_RESERVED   = 0x0000,
 	UWB_PRID_WLP		= 0x0001,
@@ -85,6 +170,7 @@ enum uwb_prid {
 };
 
 
+/** PHY Rate (MBOA MAC[7.8.12, Table 61]) */
 enum uwb_phy_rate {
 	UWB_PHY_RATE_53 = 0,
 	UWB_PHY_RATE_80,
@@ -98,6 +184,9 @@ enum uwb_phy_rate {
 };
 
 
+/**
+ * Different ways to scan (MBOA MAC[6.2.2, Table 8], WUSB[Table 8-78])
+ */
 enum uwb_scan_type {
 	UWB_SCAN_ONLY = 0,
 	UWB_SCAN_OUTSIDE_BP,
@@ -108,6 +197,7 @@ enum uwb_scan_type {
 };
 
 
+/** ACK Policy types (MBOA MAC[7.2.1.3]) */
 enum uwb_ack_pol {
 	UWB_ACK_NO = 0,
 	UWB_ACK_INM = 1,
@@ -116,6 +206,7 @@ enum uwb_ack_pol {
 };
 
 
+/** DRP reservation types ([ECMA-368 table 106) */
 enum uwb_drp_type {
 	UWB_DRP_TYPE_ALIEN_BP = 0,
 	UWB_DRP_TYPE_HARD,
@@ -125,6 +216,7 @@ enum uwb_drp_type {
 };
 
 
+/** DRP Reason Codes ([ECMA-368] table 107) */
 enum uwb_drp_reason {
 	UWB_DRP_REASON_ACCEPTED = 0,
 	UWB_DRP_REASON_CONFLICT,
@@ -133,11 +225,15 @@ enum uwb_drp_reason {
 	UWB_DRP_REASON_MODIFIED,
 };
 
+/** Relinquish Request Reason Codes ([ECMA-368] table 113) */
 enum uwb_relinquish_req_reason {
 	UWB_RELINQUISH_REQ_REASON_NON_SPECIFIC = 0,
 	UWB_RELINQUISH_REQ_REASON_OVER_ALLOCATION,
 };
 
+/**
+ *  DRP Notification Reason Codes (WHCI 0.95 [3.1.4.9])
+ */
 enum uwb_drp_notif_reason {
 	UWB_DRP_NOTIF_DRP_IE_RCVD = 0,
 	UWB_DRP_NOTIF_CONFLICT,
@@ -145,12 +241,14 @@ enum uwb_drp_notif_reason {
 };
 
 
+/** Allocation of MAS slots in a DRP request MBOA MAC[7.8.7] */
 struct uwb_drp_alloc {
 	__le16 zone_bm;
 	__le16 mas_bm;
 } __attribute__((packed));
 
 
+/** General MAC Header format (ECMA-368[16.2]) */
 struct uwb_mac_frame_hdr {
 	__le16 Frame_Control;
 	struct uwb_dev_addr DestAddr;
@@ -160,15 +258,21 @@ struct uwb_mac_frame_hdr {
 } __attribute__((packed));
 
 
+/**
+ * uwb_beacon_frame - a beacon frame including MAC headers
+ *
+ * [ECMA] section 16.3.
+ */
 struct uwb_beacon_frame {
 	struct uwb_mac_frame_hdr hdr;
-	struct uwb_mac_addr Device_Identifier;	
+	struct uwb_mac_addr Device_Identifier;	/* may be a NULL EUI-48 */
 	u8 Beacon_Slot_Number;
 	u8 Device_Control;
 	u8 IEData[];
 } __attribute__((packed));
 
 
+/** Information Element codes (MBOA MAC[T54]) */
 enum uwb_ie {
 	UWB_PCA_AVAILABILITY = 2,
 	UWB_IE_DRP_AVAILABILITY = 8,
@@ -180,17 +284,21 @@ enum uwb_ie {
 	UWB_IDENTIFICATION_IE = 19,
 	UWB_MASTER_KEY_ID_IE = 20,
 	UWB_RELINQUISH_REQUEST_IE = 21,
-	UWB_IE_WLP = 250, 
+	UWB_IE_WLP = 250, /* WiMedia Logical Link Control Protocol WLP 0.99 */
 	UWB_APP_SPEC_IE = 255,
 };
 
 
+/**
+ * Header common to all Information Elements (IEs)
+ */
 struct uwb_ie_hdr {
-	u8 element_id;	
+	u8 element_id;	/* enum uwb_ie */
 	u8 length;
 } __attribute__((packed));
 
 
+/** Dynamic Reservation Protocol IE (MBOA MAC[7.8.6]) */
 struct uwb_ie_drp {
 	struct uwb_ie_hdr	hdr;
 	__le16                  drp_control;
@@ -283,11 +391,13 @@ static inline void uwb_ie_drp_set_unsafe(struct uwb_ie_drp *ie, int unsafe)
 	ie->drp_control = cpu_to_le16(drp_control);
 }
 
+/** Dynamic Reservation Protocol IE (MBOA MAC[7.8.7]) */
 struct uwb_ie_drp_avail {
 	struct uwb_ie_hdr	hdr;
 	DECLARE_BITMAP(bmp, UWB_NUM_MAS);
 } __attribute__((packed));
 
+/* Relinqish Request IE ([ECMA-368] section 16.8.19). */
 struct uwb_relinquish_request_ie {
         struct uwb_ie_hdr       hdr;
         __le16                  relinquish_req_control;
@@ -308,61 +418,91 @@ static inline void uwb_ie_relinquish_req_set_reason_code(struct uwb_relinquish_r
 	ie->relinquish_req_control = cpu_to_le16(ctrl);
 }
 
+/**
+ * The Vendor ID is set to an OUI that indicates the vendor of the device.
+ * ECMA-368 [16.8.10]
+ */
 struct uwb_vendor_id {
 	u8 data[3];
 } __attribute__((packed));
 
+/**
+ * The device type ID
+ * FIXME: clarify what this means
+ * ECMA-368 [16.8.10]
+ */
 struct uwb_device_type_id {
 	u8 data[3];
 } __attribute__((packed));
 
 
+/**
+ * UWB device information types
+ * ECMA-368 [16.8.10]
+ */
 enum uwb_dev_info_type {
 	UWB_DEV_INFO_VENDOR_ID = 0,
 	UWB_DEV_INFO_VENDOR_TYPE,
 	UWB_DEV_INFO_NAME,
 };
 
+/**
+ * UWB device information found in Identification IE
+ * ECMA-368 [16.8.10]
+ */
 struct uwb_dev_info {
-	u8 type;	
+	u8 type;	/* enum uwb_dev_info_type */
 	u8 length;
 	u8 data[];
 } __attribute__((packed));
 
+/**
+ * UWB Identification IE
+ * ECMA-368 [16.8.10]
+ */
 struct uwb_identification_ie {
 	struct uwb_ie_hdr hdr;
 	struct uwb_dev_info info[];
 } __attribute__((packed));
 
+/*
+ * UWB Radio Controller
+ *
+ * These definitions are common to the Radio Control layers as
+ * exported by the WUSB1.0 HWA and WHCI interfaces.
+ */
 
+/** Radio Control Command Block (WUSB1.0[Table 8-65] and WHCI 0.95) */
 struct uwb_rccb {
-	u8 bCommandType;		
-	__le16 wCommand;		
-	u8 bCommandContext;		
+	u8 bCommandType;		/* enum hwa_cet */
+	__le16 wCommand;		/* Command code */
+	u8 bCommandContext;		/* Context ID */
 } __attribute__((packed));
 
 
+/** Radio Control Event Block (WUSB[table 8-66], WHCI 0.95) */
 struct uwb_rceb {
-	u8 bEventType;			
-	__le16 wEvent;			
-	u8 bEventContext;		
+	u8 bEventType;			/* enum hwa_cet */
+	__le16 wEvent;			/* Event code */
+	u8 bEventContext;		/* Context ID */
 } __attribute__((packed));
 
 
 enum {
-	UWB_RC_CET_GENERAL = 0,		
-	UWB_RC_CET_EX_TYPE_1 = 1,	
+	UWB_RC_CET_GENERAL = 0,		/* General Command/Event type */
+	UWB_RC_CET_EX_TYPE_1 = 1,	/* Extended Type 1 Command/Event type */
 };
 
+/* Commands to the radio controller */
 enum uwb_rc_cmd {
 	UWB_RC_CMD_CHANNEL_CHANGE = 16,
-	UWB_RC_CMD_DEV_ADDR_MGMT = 17,	
-	UWB_RC_CMD_GET_IE = 18,		
+	UWB_RC_CMD_DEV_ADDR_MGMT = 17,	/* Device Address Management */
+	UWB_RC_CMD_GET_IE = 18,		/* GET Information Elements */
 	UWB_RC_CMD_RESET = 19,
-	UWB_RC_CMD_SCAN = 20,		
+	UWB_RC_CMD_SCAN = 20,		/* Scan management  */
 	UWB_RC_CMD_SET_BEACON_FILTER = 21,
-	UWB_RC_CMD_SET_DRP_IE = 22,	
-	UWB_RC_CMD_SET_IE = 23,		
+	UWB_RC_CMD_SET_DRP_IE = 22,	/* Dynamic Reservation Protocol IEs */
+	UWB_RC_CMD_SET_IE = 23,		/* Information Element management */
 	UWB_RC_CMD_SET_NOTIFICATION_FILTER = 24,
 	UWB_RC_CMD_SET_TX_POWER = 25,
 	UWB_RC_CMD_SLEEP = 26,
@@ -373,6 +513,7 @@ enum uwb_rc_cmd {
 	UWB_RC_CMD_SET_ASIE_NOTIF = 31,
 };
 
+/* Notifications from the radio controller */
 enum uwb_rc_evt {
 	UWB_RC_EVT_IE_RCV = 0,
 	UWB_RC_EVT_BEACON = 1,
@@ -386,7 +527,7 @@ enum uwb_rc_evt {
 	UWB_RC_EVT_BP_SWITCH_STATUS = 9,
 	UWB_RC_EVT_CMD_FRAME_RCV = 10,
 	UWB_RC_EVT_CHANNEL_CHANGE_IE_RCV = 11,
-	
+	/* Events (command responses) use the same code as the command */
 	UWB_RC_EVT_UNKNOWN_CMD_RCV = 65535,
 };
 
@@ -399,6 +540,7 @@ enum uwb_rc_extended_type_1_evt {
 	UWB_RC_DAA_ENERGY_DETECTED = 0,
 };
 
+/* Radio Control Result Code. [WHCI] table 3-3. */
 enum {
 	UWB_RC_RES_SUCCESS = 0,
 	UWB_RC_RES_FAIL,
@@ -417,11 +559,13 @@ enum {
 	UWB_RC_RES_FAIL_TIME_OUT = 255,
 };
 
+/* Confirm event. [WHCI] section 3.1.3.1 etc. */
 struct uwb_rc_evt_confirm {
 	struct uwb_rceb rceb;
 	u8 bResultCode;
 } __attribute__((packed));
 
+/* Device Address Management event. [WHCI] section 3.1.3.2. */
 struct uwb_rc_evt_dev_addr_mgmt {
 	struct uwb_rceb rceb;
 	u8 baAddr[6];
@@ -429,24 +573,28 @@ struct uwb_rc_evt_dev_addr_mgmt {
 } __attribute__((packed));
 
 
+/* Get IE Event. [WHCI] section 3.1.3.3. */
 struct uwb_rc_evt_get_ie {
 	struct uwb_rceb rceb;
 	__le16 wIELength;
 	u8 IEData[];
 } __attribute__((packed));
 
+/* Set DRP IE Event. [WHCI] section 3.1.3.7. */
 struct uwb_rc_evt_set_drp_ie {
 	struct uwb_rceb rceb;
 	__le16 wRemainingSpace;
 	u8 bResultCode;
 } __attribute__((packed));
 
+/* Set IE Event. [WHCI] section 3.1.3.8. */
 struct uwb_rc_evt_set_ie {
 	struct uwb_rceb rceb;
 	__le16 RemainingSpace;
 	u8 bResultCode;
 } __attribute__((packed));
 
+/* Scan command. [WHCI] 3.1.3.5. */
 struct uwb_rc_cmd_scan {
 	struct uwb_rccb rccb;
 	u8 bChannelNumber;
@@ -454,30 +602,35 @@ struct uwb_rc_cmd_scan {
 	__le16 wStartTime;
 } __attribute__((packed));
 
+/* Set DRP IE command. [WHCI] section 3.1.3.7. */
 struct uwb_rc_cmd_set_drp_ie {
 	struct uwb_rccb rccb;
 	__le16 wIELength;
 	struct uwb_ie_drp IEData[];
 } __attribute__((packed));
 
+/* Set IE command. [WHCI] section 3.1.3.8. */
 struct uwb_rc_cmd_set_ie {
 	struct uwb_rccb rccb;
 	__le16 wIELength;
 	u8 IEData[];
 } __attribute__((packed));
 
+/* Set DAA Energy Mask event. [WHCI 0.96] section 3.1.3.17. */
 struct uwb_rc_evt_set_daa_energy_mask {
 	struct uwb_rceb rceb;
 	__le16 wLength;
 	u8 result;
 } __attribute__((packed));
 
+/* Set Notification Filter Extended event. [WHCI 0.96] section 3.1.3.18. */
 struct uwb_rc_evt_set_notification_filter_ex {
 	struct uwb_rceb rceb;
 	__le16 wLength;
 	u8 result;
 } __attribute__((packed));
 
+/* IE Received notification. [WHCI] section 3.1.4.1. */
 struct uwb_rc_evt_ie_rcv {
 	struct uwb_rceb rceb;
 	struct uwb_dev_addr SrcAddr;
@@ -485,6 +638,7 @@ struct uwb_rc_evt_ie_rcv {
 	u8 IEData[];
 } __attribute__((packed));
 
+/* Type of the received beacon. [WHCI] section 3.1.4.2. */
 enum uwb_rc_beacon_type {
 	UWB_RC_BEACON_TYPE_SCAN = 0,
 	UWB_RC_BEACON_TYPE_NEIGHBOR,
@@ -492,6 +646,7 @@ enum uwb_rc_beacon_type {
 	UWB_RC_BEACON_TYPE_NOL_ALIEN,
 };
 
+/* Beacon received notification. [WHCI] 3.1.4.2. */
 struct uwb_rc_evt_beacon {
 	struct uwb_rceb rceb;
 	u8	bChannelNumber;
@@ -504,12 +659,14 @@ struct uwb_rc_evt_beacon {
 } __attribute__((packed));
 
 
+/* Beacon Size Change notification. [WHCI] section 3.1.4.3 */
 struct uwb_rc_evt_beacon_size {
 	struct uwb_rceb rceb;
 	__le16 wNewBeaconSize;
 } __attribute__((packed));
 
 
+/* BPOIE Change notification. [WHCI] section 3.1.4.4. */
 struct uwb_rc_evt_bpoie_change {
 	struct uwb_rceb rceb;
 	__le16 wBPOIELength;
@@ -517,6 +674,7 @@ struct uwb_rc_evt_bpoie_change {
 } __attribute__((packed));
 
 
+/* Beacon Slot Change notification. [WHCI] section 3.1.4.5. */
 struct uwb_rc_evt_bp_slot_change {
 	struct uwb_rceb rceb;
 	u8 slot_info;
@@ -534,6 +692,7 @@ static inline int uwb_rc_evt_bp_slot_change_no_slot(
 	return (evt->slot_info & 0x80) >> 7;
 }
 
+/* BP Switch IE Received notification. [WHCI] section 3.1.4.6. */
 struct uwb_rc_evt_bp_switch_ie_rcv {
 	struct uwb_rceb rceb;
 	struct uwb_dev_addr wSrcAddr;
@@ -541,10 +700,12 @@ struct uwb_rc_evt_bp_switch_ie_rcv {
 	u8 IEData[];
 } __attribute__((packed));
 
+/* DevAddr Conflict notification. [WHCI] section 3.1.4.7. */
 struct uwb_rc_evt_dev_addr_conflict {
 	struct uwb_rceb rceb;
 } __attribute__((packed));
 
+/* DRP notification. [WHCI] section 3.1.4.9. */
 struct uwb_rc_evt_drp {
 	struct uwb_rceb           rceb;
 	struct uwb_dev_addr       src_addr;
@@ -560,11 +721,13 @@ static inline enum uwb_drp_notif_reason uwb_rc_evt_drp_reason(struct uwb_rc_evt_
 }
 
 
+/* DRP Availability Change notification. [WHCI] section 3.1.4.8. */
 struct uwb_rc_evt_drp_avail {
 	struct uwb_rceb rceb;
 	DECLARE_BITMAP(bmp, UWB_NUM_MAS);
 } __attribute__((packed));
 
+/* BP switch status notification. [WHCI] section 3.1.4.10. */
 struct uwb_rc_evt_bp_switch_status {
 	struct uwb_rceb rceb;
 	u8 status;
@@ -573,6 +736,7 @@ struct uwb_rc_evt_bp_switch_status {
 	u8 move_countdown;
 } __attribute__((packed));
 
+/* Command Frame Received notification. [WHCI] section 3.1.4.11. */
 struct uwb_rc_evt_cmd_frame_rcv {
 	struct uwb_rceb rceb;
 	__le16 receive_time;
@@ -584,6 +748,7 @@ struct uwb_rc_evt_cmd_frame_rcv {
 	u8 data[];
 } __attribute__((packed));
 
+/* Channel Change IE Received notification. [WHCI] section 3.1.4.12. */
 struct uwb_rc_evt_channel_change_ie_rcv {
 	struct uwb_rceb rceb;
 	struct uwb_dev_addr wSrcAddr;
@@ -591,6 +756,7 @@ struct uwb_rc_evt_channel_change_ie_rcv {
 	u8 IEData[];
 } __attribute__((packed));
 
+/* DAA Energy Detected notification. [WHCI 0.96] section 3.1.4.14. */
 struct uwb_rc_evt_daa_energy_detected {
 	struct uwb_rceb rceb;
 	__le16 wLength;
@@ -600,10 +766,15 @@ struct uwb_rc_evt_daa_energy_detected {
 } __attribute__((packed));
 
 
+/**
+ * Radio Control Interface Class Descriptor
+ *
+ *  WUSB 1.0 [8.6.1.2]
+ */
 struct uwb_rc_control_intf_class_desc {
 	u8 bLength;
 	u8 bDescriptorType;
 	__le16 bcdRCIVersion;
 } __attribute__((packed));
 
-#endif 
+#endif /* #ifndef __LINUX__UWB_SPEC_H__ */

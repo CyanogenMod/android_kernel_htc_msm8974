@@ -16,7 +16,7 @@ int pci_vpd_find_tag(const u8 *buf, unsigned int off, unsigned int len, u8 rdt)
 		u8 val = buf[i];
 
 		if (val & PCI_VPD_LRDT) {
-			
+			/* Don't return success of the tag isn't complete */
 			if (i + PCI_VPD_LRDT_TAG_SIZE > len)
 				break;
 

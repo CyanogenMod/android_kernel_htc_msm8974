@@ -33,11 +33,11 @@
 #include <asm/prom.h>
 #include <asm/pgtable.h>
 
-DEFINE_PER_CPU(unsigned int, KSP);	
-DEFINE_PER_CPU(unsigned int, KM);	
-DEFINE_PER_CPU(unsigned int, ENTRY_SP);	
-DEFINE_PER_CPU(unsigned int, R11_SAVE);	
-DEFINE_PER_CPU(unsigned int, CURRENT_SAVE);	
+DEFINE_PER_CPU(unsigned int, KSP);	/* Saved kernel stack pointer */
+DEFINE_PER_CPU(unsigned int, KM);	/* Kernel/user mode */
+DEFINE_PER_CPU(unsigned int, ENTRY_SP);	/* Saved SP on kernel entry */
+DEFINE_PER_CPU(unsigned int, R11_SAVE);	/* Temp variable for entry */
+DEFINE_PER_CPU(unsigned int, CURRENT_SAVE);	/* Saved current pointer */
 
 unsigned int boot_cpuid;
 char cmd_line[COMMAND_LINE_SIZE];
@@ -57,7 +57,7 @@ void __init setup_arch(char **cmdline_p)
 	setup_memory();
 
 #ifdef CONFIG_EARLY_PRINTK
-	
+	/* remap early console to virtual address */
 	remap_early_printk();
 #endif
 
@@ -77,20 +77,22 @@ void __init setup_arch(char **cmdline_p)
 }
 
 #ifdef CONFIG_MTD_UCLINUX
+/* Handle both romfs and cramfs types, without generating unnecessary
+ code (ie no point checking for CRAMFS if it's not even enabled) */
 inline unsigned get_romfs_len(unsigned *addr)
 {
 #ifdef CONFIG_ROMFS_FS
-	if (memcmp(&addr[0], "-rom1fs-", 8) == 0) 
+	if (memcmp(&addr[0], "-rom1fs-", 8) == 0) /* romfs */
 		return be32_to_cpu(addr[2]);
 #endif
 
 #ifdef CONFIG_CRAMFS
-	if (addr[0] == le32_to_cpu(0x28cd3d45)) 
+	if (addr[0] == le32_to_cpu(0x28cd3d45)) /* cramfs */
 		return le32_to_cpu(addr[1]);
 #endif
 	return 0;
 }
-#endif	
+#endif	/* CONFIG_MTD_UCLINUX_EBSS */
 
 unsigned long kernel_tlb;
 
@@ -101,6 +103,10 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 	unsigned long *src, *dst;
 	unsigned int offset = 0;
 
+	/* If CONFIG_MTD_UCLINUX is defined, assume ROMFS is at the
+	 * end of kernel. There are two position which we want to check.
+	 * The first is __init_end and the second __bss_start.
+	 */
 #ifdef CONFIG_MTD_UCLINUX
 	int romfs_size;
 	unsigned int romfs_base;
@@ -113,17 +119,18 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 		romfs_size = PAGE_ALIGN(get_romfs_len((unsigned *)romfs_base));
 	}
 
-	
+	/* Move ROMFS out of BSS before clearing it */
 	if (romfs_size > 0) {
 		memmove(&_ebss, (int *)romfs_base, romfs_size);
 		klimit += romfs_size;
 	}
 #endif
 
+/* clearing bss section */
 	memset(__bss_start, 0, __bss_stop-__bss_start);
 	memset(_ssbss, 0, _esbss-_ssbss);
 
-	
+	/* Copy command line passed from bootloader */
 #ifndef CONFIG_CMDLINE_BOOL
 	if (cmdline && cmdline[0] != '\0')
 		strlcpy(cmd_line, cmdline, COMMAND_LINE_SIZE);
@@ -131,13 +138,18 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 
 	lockdep_init();
 
+/* initialize device tree for usage in early_printk */
 	early_init_devtree((void *)_fdt_start);
 
 #ifdef CONFIG_EARLY_PRINTK
 	setup_early_printk(NULL);
 #endif
 
+	/* setup kernel_tlb after BSS cleaning
+	 * Maybe worth to move to asm code */
 	kernel_tlb = tlb0 + tlb1;
+	/* printk("TLB1 0x%08x, TLB0 0x%08x, tlb 0x%x\n", tlb0,
+							tlb1, kernel_tlb); */
 
 	printk("Ramdisk addr 0x%08x, ", ram);
 	if (fdt)
@@ -150,7 +162,7 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 	printk("Found romfs @ 0x%08x (0x%08x)\n",
 			romfs_base, romfs_size);
 	printk("#### klimit %p ####\n", old_klimit);
-	BUG_ON(romfs_size < 0); 
+	BUG_ON(romfs_size < 0); /* What else can we do? */
 
 	printk("Moved 0x%08x bytes from 0x%08x to 0x%08x\n",
 			romfs_size, romfs_base, (unsigned)&_ebss);
@@ -168,6 +180,9 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 				"CPU have it %x\n", msr);
 #endif
 
+	/* Do not copy reset vectors. offset = 0x2 means skip the first
+	 * two instructions. dst is pointer to MB vectors which are placed
+	 * in block ram. If you want to copy reset vector setup offset to 0x0 */
 #if !CONFIG_MANUAL_RESET_VECTOR
 	offset = 0x2;
 #endif
@@ -175,8 +190,8 @@ void __init machine_early_init(const char *cmdline, unsigned int ram,
 	for (src = __ivt_start + offset; src < __ivt_end; src++, dst++)
 		*dst = *src;
 
-	
-	per_cpu(KM, 0) = 0x1;	
+	/* Initialize global data */
+	per_cpu(KM, 0) = 0x1;	/* We start in kernel mode */
 	per_cpu(CURRENT_SAVE, 0) = (unsigned long)current;
 }
 
@@ -212,7 +227,7 @@ static int dflt_bus_notify(struct notifier_block *nb,
 {
 	struct device *dev = data;
 
-	
+	/* We are only intereted in device addition */
 	if (action != BUS_NOTIFY_ADD_DEVICE)
 		return 0;
 

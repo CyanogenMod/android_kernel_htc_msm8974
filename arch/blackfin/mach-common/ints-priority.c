@@ -27,31 +27,47 @@
 
 #define SIC_SYSIRQ(irq)	(irq - (IRQ_CORETMR + 1))
 
+/*
+ * NOTES:
+ * - we have separated the physical Hardware interrupt from the
+ * levels that the LINUX kernel sees (see the description in irq.h)
+ * -
+ */
 
 #ifndef CONFIG_SMP
+/* Initialize this to an actual value to force it into the .data
+ * section so that we know it is properly initialized at entry into
+ * the kernel but before bss is initialized to zero (which is where
+ * it would live otherwise).  The 0x1f magic represents the IRQs we
+ * cannot actually mask out in hardware.
+ */
 unsigned long bfin_irq_flags = 0x1f;
 EXPORT_SYMBOL(bfin_irq_flags);
 #endif
 
 #ifdef CONFIG_PM
-unsigned long bfin_sic_iwr[3];	
+unsigned long bfin_sic_iwr[3];	/* Up to 3 SIC_IWRx registers */
 unsigned vr_wakeup;
 #endif
 
 static struct ivgx {
-	
+	/* irq number for request_irq, available in mach-bf5xx/irq.h */
 	unsigned int irqno;
-	
+	/* corresponding bit in the SIC_ISR register */
 	unsigned int isrflag;
 } ivg_table[NR_PERI_INTS];
 
 static struct ivg_slice {
-	
+	/* position of first irq in ivg_table for given ivg */
 	struct ivgx *ifirst;
 	struct ivgx *istop;
 } ivg7_13[IVG13 - IVG7 + 1];
 
 
+/*
+ * Search SIC_IAR and fill tables with the irqvalues
+ * and their positions in the SIC_ISR register.
+ */
 static void __init search_IAR(void)
 {
 	unsigned ivg, irq_pos = 0;
@@ -84,10 +100,13 @@ static void __init search_IAR(void)
 	}
 }
 
+/*
+ * This is for core internal IRQs
+ */
 
 void bfin_ack_noop(struct irq_data *d)
 {
-	
+	/* Dummy function.  */
 }
 
 static void bfin_core_mask_irq(struct irq_data *d)
@@ -100,6 +119,15 @@ static void bfin_core_mask_irq(struct irq_data *d)
 static void bfin_core_unmask_irq(struct irq_data *d)
 {
 	bfin_irq_flags |= 1 << d->irq;
+	/*
+	 * If interrupts are enabled, IMASK must contain the same value
+	 * as bfin_irq_flags.  Make sure that invariant holds.  If interrupts
+	 * are currently disabled we need not do anything; one of the
+	 * callers will take care of setting IMASK to the proper value
+	 * when reenabling interrupts.
+	 * local_irq_enable just does "STI bfin_irq_flags", so it's exactly
+	 * what we need.
+	 */
 	if (!hard_irqs_disabled())
 		hard_local_irq_enable();
 	return;
@@ -270,13 +298,13 @@ static struct irq_chip bfin_internal_irqchip = {
 void bfin_handle_irq(unsigned irq)
 {
 #ifdef CONFIG_IPIPE
-	struct pt_regs regs;    
+	struct pt_regs regs;    /* Contents not used. */
 	ipipe_trace_irq_entry(irq);
 	__ipipe_handle_irq(irq, &regs);
 	ipipe_trace_irq_exit(irq);
-#else 
+#else /* !CONFIG_IPIPE */
 	generic_handle_irq(irq);
-#endif  
+#endif  /* !CONFIG_IPIPE */
 }
 
 #if defined(CONFIG_BFIN_MAC) || defined(CONFIG_BFIN_MAC_MODULE)
@@ -308,7 +336,7 @@ static void bfin_mac_status_ack_irq(unsigned int irq)
 			bfin_read_EMAC_WKUP_CTL() | MPKS | RWKS);
 		break;
 	default:
-		
+		/* These bits are W1C */
 		bfin_write_EMAC_SYSTAT(1L << (irq - IRQ_MAC_PHYINT));
 		break;
 	}
@@ -420,6 +448,9 @@ extern void bfin_gpio_irq_prepare(unsigned gpio);
 
 static void bfin_gpio_ack_irq(struct irq_data *d)
 {
+	/* AFAIK ack_irq in case mask_ack is provided
+	 * get's only called for edge sense irqs
+	 */
 	set_gpio_data(irq_to_gpio(d->irq), 0);
 }
 
@@ -473,7 +504,7 @@ static int bfin_gpio_irq_type(struct irq_data *d, unsigned int type)
 	u32 gpionr = irq_to_gpio(irq);
 
 	if (type == IRQ_TYPE_PROBE) {
-		
+		/* only probe unenabled GPIO interrupt lines */
 		if (test_bit(gpionr, gpio_enabled))
 			return 0;
 		type = IRQ_TYPE_EDGE_RISING | IRQ_TYPE_EDGE_FALLING;
@@ -505,9 +536,9 @@ static int bfin_gpio_irq_type(struct irq_data *d, unsigned int type)
 		set_gpio_both(gpionr, 0);
 
 	if ((type & (IRQ_TYPE_EDGE_FALLING | IRQ_TYPE_LEVEL_LOW)))
-		set_gpio_polar(gpionr, 1);	
+		set_gpio_polar(gpionr, 1);	/* low or falling edge denoted by one */
 	else
-		set_gpio_polar(gpionr, 0);	
+		set_gpio_polar(gpionr, 0);	/* high or rising edge denoted by zero */
 
 	if (type & (IRQ_TYPE_EDGE_RISING | IRQ_TYPE_EDGE_FALLING)) {
 		set_gpio_edge(gpionr, 1);
@@ -627,16 +658,16 @@ inline unsigned int get_irq_base(u32 bank, u8 bmap)
 {
 	unsigned int irq_base;
 
-	if (bank < 2) {		
+	if (bank < 2) {		/*PA-PB */
 		irq_base = IRQ_PA0 + bmap * 16;
-	} else {		
+	} else {		/*PC-PJ */
 		irq_base = IRQ_PC0 + bmap * 16;
 	}
 
 	return irq_base;
 }
 
-	
+	/* Whenever PINTx_ASSIGN is altered init_pint_lut() must be executed! */
 void init_pint_lut(void)
 {
 	u16 bank, bit, irq_base, bit_pos;
@@ -757,7 +788,7 @@ static int bfin_gpio_irq_type(struct irq_data *d, unsigned int type)
 		return -ENODEV;
 
 	if (type == IRQ_TYPE_PROBE) {
-		
+		/* only probe unenabled GPIO interrupt lines */
 		if (test_bit(gpionr, gpio_enabled))
 			return 0;
 		type = IRQ_TYPE_EDGE_RISING | IRQ_TYPE_EDGE_FALLING;
@@ -780,9 +811,9 @@ static int bfin_gpio_irq_type(struct irq_data *d, unsigned int type)
 	}
 
 	if ((type & (IRQ_TYPE_EDGE_FALLING | IRQ_TYPE_LEVEL_LOW)))
-		pint[bank]->invert_set = pintbit;	
+		pint[bank]->invert_set = pintbit;	/* low or falling edge denoted by one */
 	else
-		pint[bank]->invert_clear = pintbit;	
+		pint[bank]->invert_clear = pintbit;	/* high or rising edge denoted by zero */
 
 	if ((type & (IRQ_TYPE_EDGE_RISING | IRQ_TYPE_EDGE_FALLING))
 	    == (IRQ_TYPE_EDGE_RISING | IRQ_TYPE_EDGE_FALLING)) {
@@ -890,6 +921,10 @@ static struct irq_chip bfin_gpio_irqchip = {
 
 void __cpuinit init_exception_vectors(void)
 {
+	/* cannot program in software:
+	 * evt0 - emulation (jtag)
+	 * evt1 - reset
+	 */
 	bfin_write_EVT2(evt_nmi);
 	bfin_write_EVT3(trap);
 	bfin_write_EVT5(evt_ivhw);
@@ -906,13 +941,17 @@ void __cpuinit init_exception_vectors(void)
 	CSYNC();
 }
 
+/*
+ * This function should be called during kernel startup to initialize
+ * the BFin IRQ handling routines.
+ */
 
 int __init init_arch_irq(void)
 {
 	int irq;
 	unsigned long ilat = 0;
 
-	
+	/*  Disable all the peripheral intrs  - page 4-29 HW Ref manual */
 #ifdef SIC_IMASK0
 	bfin_write_SIC_IMASK0(SIC_UNMASK_ALL);
 	bfin_write_SIC_IMASK1(SIC_UNMASK_ALL);
@@ -936,7 +975,7 @@ int __init init_arch_irq(void)
 	pint[2]->assign = CONFIG_PINT2_ASSIGN;
 	pint[3]->assign = CONFIG_PINT3_ASSIGN;
 # endif
-	
+	/* Whenever PINTx_ASSIGN is altered init_pint_lut() must be executed! */
 	init_pint_lut();
 #endif
 
@@ -1016,7 +1055,7 @@ int __init init_arch_irq(void)
 		irq_set_chip_and_handler(irq, &bfin_mac_status_irqchip,
 					 handle_level_irq);
 #endif
-	
+	/* if configured as edge, then will be changed to do_edge_IRQ */
 	for (irq = GPIO_IRQ_BASE;
 		irq < (GPIO_IRQ_BASE + MAX_BLACKFIN_GPIOS); irq++)
 		irq_set_chip_and_handler(irq, &bfin_gpio_irqchip,
@@ -1030,18 +1069,29 @@ int __init init_arch_irq(void)
 	CSYNC();
 
 	printk(KERN_INFO "Configuring Blackfin Priority Driven Interrupts\n");
+	/* IMASK=xxx is equivalent to STI xx or bfin_irq_flags=xx,
+	 * local_irq_enable()
+	 */
 	program_IAR();
-	
+	/* Therefore it's better to setup IARs before interrupts enabled */
 	search_IAR();
 
-	
+	/* Enable interrupts IVG7-15 */
 	bfin_irq_flags |= IMASK_IVG15 |
 	    IMASK_IVG14 | IMASK_IVG13 | IMASK_IVG12 | IMASK_IVG11 |
 	    IMASK_IVG10 | IMASK_IVG9 | IMASK_IVG8 | IMASK_IVG7 | IMASK_IVGHW;
 
+	/* This implicitly covers ANOMALY_05000171
+	 * Boot-ROM code modifies SICA_IWRx wakeup registers
+	 */
 #ifdef SIC_IWR0
 	bfin_write_SIC_IWR0(IWR_DISABLE_ALL);
 # ifdef SIC_IWR1
+	/* BF52x/BF51x system reset does not properly reset SIC_IWR1 which
+	 * will screw up the bootrom as it relies on MDMA0/1 waking it
+	 * up from IDLE instructions.  See this report for more info:
+	 * http://blackfin.uclinux.org/gf/tracker/4323
+	 */
 	if (ANOMALY_05000435)
 		bfin_write_SIC_IWR1(IWR_ENABLE(10) | IWR_ENABLE(11));
 	else
@@ -1074,7 +1124,7 @@ static int vec_to_irq(int vec)
 #else
 	if (smp_processor_id()) {
 # ifdef SICB_ISR0
-		
+		/* This will be optimized out in UP mode. */
 		sic_status[0] = bfin_read_SICB_ISR0() & bfin_read_SICB_IMASK0();
 		sic_status[1] = bfin_read_SICB_ISR1() & bfin_read_SICB_IMASK1();
 # endif
@@ -1133,6 +1183,7 @@ int __ipipe_get_irq_priority(unsigned irq)
 	return IVG15;
 }
 
+/* Hw interrupts are disabled on entry (check SAVE_CONTEXT). */
 #ifdef CONFIG_DO_IRQ_L1
 __attribute__((l1_text))
 #endif
@@ -1150,9 +1201,9 @@ asmlinkage int __ipipe_grab_irq(int vec, struct pt_regs *regs)
 
 	if (irq == IRQ_SYSTMR) {
 #if !defined(CONFIG_GENERIC_CLOCKEVENTS) || defined(CONFIG_TICKSOURCE_GPTMR0)
-		bfin_write_TIMER_STATUS(1); 
+		bfin_write_TIMER_STATUS(1); /* Latch TIMIL0 */
 #endif
-		
+		/* This is basically what we need from the register frame. */
 		__raw_get_cpu_var(__ipipe_tick_regs).ipend = regs->ipend;
 		__raw_get_cpu_var(__ipipe_tick_regs).pc = regs->pc;
 		if (this_domain != ipipe_root_domain)
@@ -1161,6 +1212,21 @@ asmlinkage int __ipipe_grab_irq(int vec, struct pt_regs *regs)
 			__raw_get_cpu_var(__ipipe_tick_regs).ipend |= 0x10;
 	}
 
+	/*
+	 * We don't want Linux interrupt handlers to run at the
+	 * current core priority level (i.e. < EVT15), since this
+	 * might delay other interrupts handled by a high priority
+	 * domain. Here is what we do instead:
+	 *
+	 * - we raise the SYNCDEFER bit to prevent
+	 * __ipipe_handle_irq() to sync the pipeline for the root
+	 * stage for the incoming interrupt. Upon return, that IRQ is
+	 * pending in the interrupt log.
+	 *
+	 * - we raise the TIF_IRQ_SYNC bit for the current thread, so
+	 * that _schedule_and_signal_from_int will eventually sync the
+	 * pipeline from EVT15.
+	 */
 	if (this_domain == ipipe_root_domain) {
 		s = __test_and_set_bit(IPIPE_SYNCDEFER_FLAG, &p->status);
 		barrier();
@@ -1173,6 +1239,17 @@ asmlinkage int __ipipe_grab_irq(int vec, struct pt_regs *regs)
 	if (user_mode(regs) &&
 	    !ipipe_test_foreign_stack() &&
 	    (current->ipipe_flags & PF_EVTRET) != 0) {
+		/*
+		 * Testing for user_regs() does NOT fully eliminate
+		 * foreign stack contexts, because of the forged
+		 * interrupt returns we do through
+		 * __ipipe_call_irqtail. In that case, we might have
+		 * preempted a foreign stack context in a high
+		 * priority domain, with a single interrupt level now
+		 * pending after the irqtail unwinding is done. In
+		 * which case user_mode() is now true, and the event
+		 * gets dispatched spuriously.
+		 */
 		current->ipipe_flags &= ~PF_EVTRET;
 		__ipipe_dispatch_event(IPIPE_EVENT_RETURN, regs);
 	}
@@ -1188,4 +1265,4 @@ asmlinkage int __ipipe_grab_irq(int vec, struct pt_regs *regs)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_IPIPE */

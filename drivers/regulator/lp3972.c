@@ -26,6 +26,7 @@ struct lp3972 {
 	struct regulator_dev **rdev;
 };
 
+/* LP3972 Control Registers */
 #define LP3972_SCR_REG		0x07
 #define LP3972_OVER1_REG	0x10
 #define LP3972_OVSR1_REG	0x11
@@ -57,6 +58,8 @@ struct lp3972 {
 #define LP3972_II2RR_REG	0x8F
 
 #define LP3972_SYS_CONTROL1_REG		LP3972_SCR1_REG
+/* System control register 1 initial value,
+ * bits 5, 6 and 7 are EPROM programmable */
 #define SYS_CONTROL1_INIT_VAL		0x02
 #define SYS_CONTROL1_INIT_MASK		0x1F
 
@@ -64,6 +67,7 @@ struct lp3972 {
 #define LP3972_VOL_CHANGE_FLAG_GO	0x01
 #define LP3972_VOL_CHANGE_FLAG_MASK	0x03
 
+/* LDO output enable mask */
 #define LP3972_OEN3_L1EN	BIT(0)
 #define LP3972_OVER2_LDO2_EN	BIT(2)
 #define LP3972_OVER2_LDO3_EN	BIT(3)
@@ -160,6 +164,11 @@ static const int buck_base_addr[] = {
 #define LP3972_LDO_OUTPUT_ENABLE_MASK(x) (ldo_output_enable_mask[x])
 #define LP3972_LDO_OUTPUT_ENABLE_REG(x) (ldo_output_enable_addr[x])
 
+/*	LDO voltage control registers shift:
+	LP3972_LDO1 -> 0, LP3972_LDO2 -> 4
+	LP3972_LDO3 -> 0, LP3972_LDO4 -> 4
+	LP3972_LDO5 -> 0
+*/
 #define LP3972_LDO_VOL_CONTR_SHIFT(x) (((x) & 1) << 2)
 #define LP3972_LDO_VOL_CONTR_REG(x) (ldo_vol_ctl_addr[x])
 #define LP3972_LDO_VOL_CHANGE_SHIFT(x) ((x) ? 4 : 6)
@@ -315,6 +324,13 @@ static int lp3972_ldo_set_voltage(struct regulator_dev *dev,
 	if (ret)
 		return ret;
 
+	/*
+	 * LDO1 and LDO5 support voltage control by either target voltage1
+	 * or target voltage2 register.
+	 * We use target voltage1 register for LDO1 and LDO5 in this driver.
+	 * We need to update voltage change control register(0x20) to enable
+	 * LDO1 and LDO5 to change to their programmed target values.
+	 */
 	switch (ldo) {
 	case LP3972_LDO1:
 	case LP3972_LDO5:
@@ -535,7 +551,7 @@ static int __devinit setup_regulators(struct lp3972 *lp3972,
 		goto err_nomem;
 	}
 
-	
+	/* Instantiate the regulators */
 	for (i = 0; i < pdata->num_regulators; i++) {
 		struct lp3972_regulator_subdev *reg = &pdata->regulators[i];
 		lp3972->rdev[i] = regulator_register(&regulators[reg->id],
@@ -581,7 +597,7 @@ static int __devinit lp3972_i2c_probe(struct i2c_client *i2c,
 
 	mutex_init(&lp3972->io_lock);
 
-	
+	/* Detect LP3972 */
 	ret = lp3972_i2c_read(i2c, LP3972_SYS_CONTROL1_REG, 1, &val);
 	if (ret == 0 &&
 		(val & SYS_CONTROL1_INIT_MASK) != SYS_CONTROL1_INIT_VAL) {

@@ -62,7 +62,7 @@ static int cy8c_init_panel(struct cy8c_ts_data *ts)
 	int ret;
 	sample_count = X_mean = Y_mean = first_touch = 0;
 
-	
+	/* clean intr busy */
 	ret = i2c_smbus_write_byte_data(ts->client, CY8C_REG_INTR_STATUS,
 					0x00);
 	if (ret < 0) {
@@ -71,7 +71,7 @@ static int cy8c_init_panel(struct cy8c_ts_data *ts)
 		goto exit;
 	}
 
-	
+	/* start new scan */
 	ret = i2c_smbus_write_byte_data(ts->client, CY8C_REG_START_NEW_SCAN,
 					0x01);
 	if (ret < 0) {
@@ -109,7 +109,7 @@ static void cy8c_ts_work_func(struct work_struct *work)
 
 	x2 = y2 = 0;
 
-	
+	/*printk("%s: enter\n",__func__);*/
 	is_touch = i2c_smbus_read_byte_data(ts->client, 0x20);
 	dev_dbg(&ts->client->dev, "fIsTouch %d,\n", is_touch);
 	if (is_touch < 0 || is_touch > 3) {
@@ -134,7 +134,7 @@ static void cy8c_ts_work_func(struct work_struct *work)
 	if (ret < 0)
 		goto done;
 
-	
+	/* parse data */
 	force = buf[0];
 	area = buf[1];
 	x1 = (buf[2] << 8) | buf[3];
@@ -153,7 +153,7 @@ static void cy8c_ts_work_func(struct work_struct *work)
 	if (finger2_pressed)
 		dev_dbg(&ts->client->dev, "x2: %d, y2: %d \n", x2, y2);
 
-	
+	/* drop the first one? */
 	if ((is_touch == 1) && (first_touch == 0)) {
 		first_touch = 1;
 		goto done;
@@ -182,7 +182,7 @@ done:
 	if (is_touch == 0)
 		first_touch = sample_count = 0;
 
-	
+	/* prepare for next intr */
 	i2c_smbus_write_byte_data(ts->client, CY8C_REG_INTR_STATUS, 0x00);
 	if (!ts->use_irq)
 		hrtimer_start(&ts->timer, ktime_set(0, 12500000), HRTIMER_MODE_REL);

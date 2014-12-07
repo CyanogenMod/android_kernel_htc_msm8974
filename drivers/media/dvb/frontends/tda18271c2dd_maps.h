@@ -6,25 +6,25 @@ enum HF_S {
 };
 
 struct SStandardParam m_StandardTable[] = {
-	{       0,        0, 0x00, 0x00 },    
-	{ 6000000,  7000000, 0x1D, 0x2C },    
-	{ 6900000,  8000000, 0x1E, 0x2C },    
-	{ 7100000,  8000000, 0x1E, 0x2C },    
-	{ 7250000,  8000000, 0x1E, 0x2C },    
-	{ 6900000,  8000000, 0x1E, 0x2C },    
-	{ 1250000,  8000000, 0x1E, 0x2C },    
-	{ 5400000,  6000000, 0x1C, 0x2C },    
-	{ 1250000,   500000, 0x18, 0x2C },    
-	{       0,        0, 0x00, 0x00 },    
-	{ 3300000,  6000000, 0x1C, 0x58 },    
-	{ 3500000,  7000000, 0x1C, 0x37 },    
-	{ 4000000,  8000000, 0x1D, 0x37 },    
-	{       0,        0, 0x00, 0x00 },    
-	{ 5000000,  6000000, 0x1C, 0x37 },    
-	{ 4000000,  6000000, 0x1D, 0x58 },    
-	{ 4500000,  7000000, 0x1E, 0x37 },    
-	{ 5000000,  8000000, 0x1F, 0x37 },    
-	{       0,        0, 0x00, 0x00 },    
+	{       0,        0, 0x00, 0x00 },    /* HF_None */
+	{ 6000000,  7000000, 0x1D, 0x2C },    /* HF_B, */
+	{ 6900000,  8000000, 0x1E, 0x2C },    /* HF_DK, */
+	{ 7100000,  8000000, 0x1E, 0x2C },    /* HF_G, */
+	{ 7250000,  8000000, 0x1E, 0x2C },    /* HF_I, */
+	{ 6900000,  8000000, 0x1E, 0x2C },    /* HF_L, */
+	{ 1250000,  8000000, 0x1E, 0x2C },    /* HF_L1, */
+	{ 5400000,  6000000, 0x1C, 0x2C },    /* HF_MN, */
+	{ 1250000,   500000, 0x18, 0x2C },    /* HF_FM_Radio, */
+	{       0,        0, 0x00, 0x00 },    /* HF_AnalogMax (Unused) */
+	{ 3300000,  6000000, 0x1C, 0x58 },    /* HF_DVBT_6MHZ */
+	{ 3500000,  7000000, 0x1C, 0x37 },    /* HF_DVBT_7MHZ */
+	{ 4000000,  8000000, 0x1D, 0x37 },    /* HF_DVBT_8MHZ */
+	{       0,        0, 0x00, 0x00 },    /* HF_DVBT (Unused) */
+	{ 5000000,  6000000, 0x1C, 0x37 },    /* HF_ATSC  (center = 3.25 MHz) */
+	{ 4000000,  6000000, 0x1D, 0x58 },    /* HF_DVBC_6MHZ (Chicago) */
+	{ 4500000,  7000000, 0x1E, 0x37 },    /* HF_DVBC_7MHZ (not documented by NXP) */
+	{ 5000000,  8000000, 0x1F, 0x37 },    /* HF_DVBC_8MHZ */
+	{       0,        0, 0x00, 0x00 },    /* HF_DVBC (Unused) */
 };
 
 struct SMap  m_BP_Filter_Map[] = {
@@ -35,7 +35,7 @@ struct SMap  m_BP_Filter_Map[] = {
 	{  170000000,  0x04 },
 	{  180000000,  0x05 },
 	{  865000000,  0x06 },
-	{          0,  0x00 },    
+	{          0,  0x00 },    /* Table End */
 };
 
 static struct SMapI m_RF_Cal_Map[] = {
@@ -476,7 +476,7 @@ static struct SMapI m_RF_Cal_Map[] = {
 	{  863000000,  0xB6 },
 	{  864000000,  0xB8 },
 	{  865000000,  0xB9 },
-	{          0,  0x00 },    
+	{          0,  0x00 },    /* Table End */
 };
 
 
@@ -486,7 +486,7 @@ static struct SMap2  m_KM_Map[] = {
 	{  350000000,  3, 0 },
 	{  720000000,  2, 1 },
 	{  865000000,  3, 3 },
-	{          0,  0x00 },    
+	{          0,  0x00 },    /* Table End */
 };
 
 static struct SMap2 m_Main_PLL_Map[] = {
@@ -530,7 +530,7 @@ static struct SMap2 m_Main_PLL_Map[] = {
 	{ 795000000, 0x12, 0x0A },
 	{ 883000000, 0x11, 0x09 },
 	{ 994000000, 0x10, 0x08 },
-	{         0, 0x00, 0x00 },    
+	{         0, 0x00, 0x00 },    /* Table End */
 };
 
 static struct SMap2 m_Cal_PLL_Map[] = {
@@ -568,7 +568,7 @@ static struct SMap2 m_Cal_PLL_Map[] = {
 	{ 703000000, 0x9A, 0x0A },
 	{ 781000000, 0x99, 0x09 },
 	{ 879000000, 0x98, 0x08 },
-	{         0, 0x00, 0x00 },    
+	{         0, 0x00, 0x00 },    /* Table End */
 };
 
 static struct SMap  m_GainTaper_Map[] = {
@@ -657,7 +657,7 @@ static struct SMap  m_GainTaper_Map[] = {
 	{ 828000000, 0x06 },
 	{ 846500000, 0x05 },
 	{ 865000000, 0x04 },
-	{         0, 0x00 },    
+	{         0, 0x00 },    /* Table End */
 };
 
 static struct SMap m_RF_Cal_DC_Over_DT_Map[] = {
@@ -762,7 +762,7 @@ static struct SMap m_RF_Cal_DC_Over_DT_Map[] = {
 	{ 854000000, 0x84 },
 	{ 859000000, 0x8F },
 	{ 865000000, 0x9A },
-	{         0, 0x00 },    
+	{         0, 0x00 },    /* Table End */
 };
 
 
@@ -770,7 +770,7 @@ static struct SMap  m_IR_Meas_Map[] = {
 	{ 200000000, 0x05 },
 	{ 400000000, 0x06 },
 	{ 865000000, 0x07 },
-	{         0, 0x00 },    
+	{         0, 0x00 },    /* Table End */
 };
 
 static struct SMap2 m_CID_Target_Map[] = {
@@ -786,7 +786,7 @@ static struct SMap2 m_CID_Target_Map[] = {
 	{ 489500000, 0x1E, 40 },
 	{ 697500000, 0x32, 40 },
 	{ 842000000, 0x3A, 40 },
-	{         0, 0x00,  0 },    
+	{         0, 0x00,  0 },    /* Table End */
 };
 
 static struct SRFBandMap  m_RF_Band_Map[7] = {

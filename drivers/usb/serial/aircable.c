@@ -54,9 +54,11 @@
 
 static bool debug;
 
+/* Vendor and Product ID */
 #define AIRCABLE_VID		0x16CA
 #define AIRCABLE_USB_PID	0x1502
 
+/* Protocol Stuff */
 #define HCI_HEADER_LENGTH	0x4
 #define TX_HEADER_0		0x20
 #define TX_HEADER_1		0x29
@@ -64,13 +66,18 @@ static bool debug;
 #define RX_HEADER_1		0x20
 #define HCI_COMPLETE_FRAME	64
 
+/* rx_flags */
 #define THROTTLED		0x01
 #define ACTUALLY_THROTTLED	0x02
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v2.0"
 #define DRIVER_AUTHOR "Naranjo, Manuel Francisco <naranjo.manuel@gmail.com>, Johan Hovold <jhovold@gmail.com>"
 #define DRIVER_DESC "AIRcable USB Driver"
 
+/* ID table that will be registered with USB core */
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(AIRCABLE_VID, AIRCABLE_USB_PID) },
 	{ },

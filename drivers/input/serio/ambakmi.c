@@ -55,7 +55,7 @@ static irqreturn_t amba_kmi_int(int irq, void *dev_id)
 static int amba_kmi_write(struct serio *io, unsigned char val)
 {
 	struct amba_kmi_port *kmi = io->port_data;
-	unsigned int timeleft = 10000; 
+	unsigned int timeleft = 10000; /* timeout in 100ms */
 
 	while ((readb(KMISTAT) & KMISTAT_TXEMPTY) == 0 && --timeleft)
 		udelay(10);
@@ -181,7 +181,7 @@ static int amba_kmi_resume(struct amba_device *dev)
 {
 	struct amba_kmi_port *kmi = amba_get_drvdata(dev);
 
-	
+	/* kick the serio layer to rescan this port */
 	serio_reconnect(kmi->io);
 
 	return 0;

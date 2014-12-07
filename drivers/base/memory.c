@@ -70,6 +70,9 @@ void unregister_memory_isolate_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL(unregister_memory_isolate_notifier);
 
+/*
+ * register_memory - Setup a sysfs device for a memory block
+ */
 static
 int register_memory(struct memory_block *memory)
 {
@@ -87,7 +90,7 @@ unregister_memory(struct memory_block *memory)
 {
 	BUG_ON(memory->dev.bus != &memory_subsys);
 
-	
+	/* drop the ref. we got in remove_memory_block() */
 	kobject_put(&memory->dev.kobj);
 	device_unregister(&memory->dev);
 }
@@ -103,7 +106,7 @@ static unsigned long get_memory_block_size(void)
 
 	block_sz = memory_block_size_bytes();
 
-	
+	/* Validate blk_sz is a power of 2 and not less than section size */
 	if ((block_sz & (block_sz - 1)) || (block_sz < MIN_MEMORY_BLOCK_SIZE)) {
 		WARN_ON(1);
 		block_sz = MIN_MEMORY_BLOCK_SIZE;
@@ -112,6 +115,10 @@ static unsigned long get_memory_block_size(void)
 	return block_sz;
 }
 
+/*
+ * use this as the physical section index that this memsection
+ * uses.
+ */
 
 static ssize_t show_mem_start_phys_index(struct device *dev,
 			struct device_attribute *attr, char *buf)
@@ -135,6 +142,9 @@ static ssize_t show_mem_end_phys_index(struct device *dev,
 	return sprintf(buf, "%08lx\n", phys_index);
 }
 
+/*
+ * Show whether the section of memory is likely to be hot-removable
+ */
 static ssize_t show_mem_removable(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -151,6 +161,9 @@ static ssize_t show_mem_removable(struct device *dev,
 	return sprintf(buf, "%d\n", ret);
 }
 
+/*
+ * online, offline, going offline, etc.
+ */
 static ssize_t show_mem_state(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -158,6 +171,10 @@ static ssize_t show_mem_state(struct device *dev,
 		container_of(dev, struct memory_block, dev);
 	ssize_t len = 0;
 
+	/*
+	 * We can probably put these states in a nice little array
+	 * so that they're not open-coded
+	 */
 	switch (mem->state) {
 		case MEM_ONLINE:
 			len = sprintf(buf, "online\n");
@@ -188,6 +205,10 @@ int memory_isolate_notify(unsigned long val, void *v)
 	return atomic_notifier_call_chain(&memory_isolate_chain, val, v);
 }
 
+/*
+ * The probe routines leave the pages reserved, just as the bootmem code does.
+ * Make sure they're still that way.
+ */
 static bool pages_correctly_reserved(unsigned long start_pfn,
 					unsigned long nr_pages)
 {
@@ -195,6 +216,11 @@ static bool pages_correctly_reserved(unsigned long start_pfn,
 	struct page *page;
 	unsigned long pfn = start_pfn;
 
+	/*
+	 * memmap between sections is not contiguous except with
+	 * SPARSEMEM_VMEMMAP. We lookup the page once per section
+	 * and assume memmap is contiguous within each section
+	 */
 	for (i = 0; i < sections_per_block; i++, pfn += PAGES_PER_SECTION) {
 		if (WARN_ON_ONCE(!pfn_valid(pfn)))
 			return false;
@@ -215,6 +241,10 @@ static bool pages_correctly_reserved(unsigned long start_pfn,
 	return true;
 }
 
+/*
+ * MEMORY_HOTPLUG depends on SPARSEMEM in mm/Kconfig, so it is
+ * OK to have direct references to sparsemem variables in here.
+ */
 static int
 memory_block_action(unsigned long phys_index, unsigned long action)
 {
@@ -305,6 +335,15 @@ store_mem_state(struct device *dev,
 	return count;
 }
 
+/*
+ * phys_device is a bad name for this.  What I really want
+ * is a way to differentiate between memory ranges that
+ * are part of physical devices that constitute
+ * a complete removable unit or fru.
+ * i.e. do these ranges belong to the same physical device,
+ * s.t. if I offline all of these sections I can then
+ * remove the physical device?
+ */
 static ssize_t show_phys_device(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -324,6 +363,9 @@ static DEVICE_ATTR(removable, 0444, show_mem_removable, NULL);
 #define mem_remove_simple_file(mem, attr_name)	\
 	device_remove_file(&mem->dev, &dev_attr_##attr_name)
 
+/*
+ * Block size attribute stuff
+ */
 static ssize_t
 print_block_size(struct device *dev, struct device_attribute *attr,
 		 char *buf)
@@ -339,6 +381,12 @@ static int block_size_init(void)
 				  &dev_attr_block_size_bytes);
 }
 
+/*
+ * Some architectures will have custom drivers to do this, and
+ * will not need to do it from userspace.  The fake hot-add code
+ * as well as ppc64 will do all of their discovery in userspace
+ * and will require this interface.
+ */
 #ifdef CONFIG_ARCH_MEMORY_PROBE
 static ssize_t
 memory_probe_store(struct device *dev, struct device_attribute *attr,
@@ -382,7 +430,11 @@ static inline int memory_probe_init(void)
 #endif
 
 #ifdef CONFIG_MEMORY_FAILURE
+/*
+ * Support for offlining pages of memory
+ */
 
+/* Soft offline a page */
 static ssize_t
 store_soft_offline_page(struct device *dev,
 			struct device_attribute *attr,
@@ -401,6 +453,7 @@ store_soft_offline_page(struct device *dev,
 	return ret == 0 ? count : ret;
 }
 
+/* Forcibly offline a page, including killing processes. */
 static ssize_t
 store_hard_offline_page(struct device *dev,
 			struct device_attribute *attr,
@@ -438,11 +491,20 @@ static inline int memory_fail_init(void)
 }
 #endif
 
+/*
+ * Note that phys_device is optional.  It is here to allow for
+ * differentiation between which *physical* devices each
+ * section belongs to...
+ */
 int __weak arch_get_memory_phys_device(unsigned long start_pfn)
 {
 	return 0;
 }
 
+/*
+ * A reference for the returned object is held and the reference for the
+ * hinted object is released.
+ */
 struct memory_block *find_memory_block_hinted(struct mem_section *section,
 					      struct memory_block *hint)
 {
@@ -458,6 +520,14 @@ struct memory_block *find_memory_block_hinted(struct mem_section *section,
 	return container_of(dev, struct memory_block, dev);
 }
 
+/*
+ * For now, we have a linear search to go find the appropriate
+ * memory_block corresponding to a particular phys_index. If
+ * this gets to be a real problem, we can always use a radix
+ * tree or something here.
+ *
+ * This could be made generic for all device subsystems.
+ */
 struct memory_block *find_memory_block(struct mem_section *section)
 {
 	return find_memory_block_hinted(section, NULL);
@@ -512,7 +582,7 @@ static int add_memory_section(int nid, struct mem_section *section,
 	mutex_lock(&mem_sysfs_mutex);
 
 	if (context == BOOT) {
-		
+		/* same memory block ? */
 		if (mem_p && *mem_p)
 			if (scn_nr >= (*mem_p)->start_section_nr &&
 			    scn_nr <= (*mem_p)->end_section_nr) {
@@ -527,7 +597,7 @@ static int add_memory_section(int nid, struct mem_section *section,
 		kobject_put(&mem->dev.kobj);
 	} else {
 		ret = init_memory_block(&mem, section, state);
-		
+		/* store memory_block pointer for next loop */
 		if (!ret && context == BOOT)
 			if (mem_p)
 				*mem_p = mem;
@@ -568,6 +638,10 @@ int remove_memory_block(unsigned long node_id, struct mem_section *section,
 	return 0;
 }
 
+/*
+ * need an interface for the VM to add new memory regions,
+ * but without onlining it.
+ */
 int register_new_memory(int nid, struct mem_section *section)
 {
 	return add_memory_section(nid, section, NULL, MEM_OFFLINE, HOTPLUG);
@@ -581,6 +655,9 @@ int unregister_memory_section(struct mem_section *section)
 	return remove_memory_block(0, section, 0);
 }
 
+/*
+ * Initialize the sysfs support for memory devices...
+ */
 int __init memory_dev_init(void)
 {
 	unsigned int i;
@@ -596,10 +673,14 @@ int __init memory_dev_init(void)
 	block_sz = get_memory_block_size();
 	sections_per_block = block_sz / MIN_MEMORY_BLOCK_SIZE;
 
+	/*
+	 * Create entries for memory sections that were found
+	 * during boot and have been initialized
+	 */
 	for (i = 0; i < NR_MEM_SECTIONS; i++) {
 		if (!present_section_nr(i))
 			continue;
-		
+		/* don't need to reuse memory_block if only one per block */
 		err = add_memory_section(0, __nr_to_section(i),
 				 (sections_per_block == 1) ? NULL : &mem,
 					 MEM_ONLINE,

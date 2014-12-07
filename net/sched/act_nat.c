@@ -152,7 +152,7 @@ static int tcf_nat(struct sk_buff *skb, const struct tc_action *a,
 		new_addr &= mask;
 		new_addr |= addr & ~mask;
 
-		
+		/* Rewrite IP header */
 		iph = ip_hdr(skb);
 		if (egress)
 			iph->saddr = new_addr;
@@ -167,7 +167,7 @@ static int tcf_nat(struct sk_buff *skb, const struct tc_action *a,
 
 	ihl = iph->ihl * 4;
 
-	
+	/* It would be nice to share code with stateful NAT. */
 	switch (iph->frag_off & htons(IP_OFFSET) ? 0 : iph->protocol) {
 	case IPPROTO_TCP:
 	{
@@ -242,7 +242,7 @@ static int tcf_nat(struct sk_buff *skb, const struct tc_action *a,
 		new_addr &= mask;
 		new_addr |= addr & ~mask;
 
-		
+		/* XXX Fix up the inner checksums. */
 		if (egress)
 			iph->daddr = new_addr;
 		else

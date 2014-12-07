@@ -37,7 +37,8 @@
 #define PCI_NBP1_CAP_OFFSET	0x90
 #define PCI_NBP1_CAPABLE_BIT    31
 
-#define OVERFLOW_MS		343597 
+#define OVERFLOW_MS		343597 /* 32 bit register filled at 12500 HZ
+					  (1 tick per 80ns) */
 
 enum amd_fam14h_states {NON_PC0 = 0, PC1, PC6, NBP1,
 			AMD_FAM14H_STATE_NUM};
@@ -130,7 +131,7 @@ static int amd_fam14h_init(cstate_t *state, unsigned int cpu)
 	if (ret)
 		return ret;
 
-	
+	/* NBP1 needs extra treating -> write 1 to D18F6x98 bit 1 for init */
 	if (state->id == NBP1) {
 		val = pci_read_long(amd_fam14h_pci_dev, pci_offset);
 		val |= 1 << enable_bit;
@@ -138,7 +139,7 @@ static int amd_fam14h_init(cstate_t *state, unsigned int cpu)
 		return ret;
 	}
 
-	
+	/* Enable monitor */
 	val = pci_read_long(amd_fam14h_pci_dev, PCI_MONITOR_ENABLE_REG);
 	dprint("Init %s: read at offset: 0x%x val: %u\n", state->name,
 	       PCI_MONITOR_ENABLE_REG, (unsigned int) val);
@@ -149,7 +150,7 @@ static int amd_fam14h_init(cstate_t *state, unsigned int cpu)
 	       state->name, PCI_MONITOR_ENABLE_REG, enable_bit,
 	       (unsigned int) val, cpu);
 
-	
+	/* Set counter to zero */
 	pci_write_long(amd_fam14h_pci_dev, pci_offset, 0);
 	previous_count[state->id][cpu] = 0;
 
@@ -168,7 +169,7 @@ static int amd_fam14h_disable(cstate_t *state, unsigned int cpu)
 	val = pci_read_long(amd_fam14h_pci_dev, pci_offset);
 	dprint("%s: offset: 0x%x %u\n", state->name, pci_offset, val);
 	if (state->id == NBP1) {
-		
+		/* was the bit whether NBP1 got entered set? */
 		nbp1_entered = (val & (1 << PCI_NBP1_ACTIVE_BIT)) |
 			(val & (1 << PCI_NBP1_ENTERED_BIT));
 
@@ -211,7 +212,7 @@ static int fam14h_get_count_percent(unsigned int id, double *percent,
 
 	if (id >= AMD_FAM14H_STATE_NUM)
 		return -1;
-	
+	/* residency count in 80ns -> divide through 12.5 to get us residency */
 	diff = current_count[id][cpu] - previous_count[id][cpu];
 
 	if (timediff == 0)
@@ -289,7 +290,7 @@ struct cpuidle_monitor *amd_fam14h_register(void)
 	else
 		return NULL;
 
-	
+	/* We do not alloc for nbp1 machine wide counter */
 	for (num = 0; num < AMD_FAM14H_STATE_NUM - 1; num++) {
 		previous_count[num] = calloc(cpu_count,
 					      sizeof(unsigned long long));
@@ -297,6 +298,8 @@ struct cpuidle_monitor *amd_fam14h_register(void)
 					      sizeof(unsigned long long));
 	}
 
+	/* We need PCI device: Slot 18, Func 6, compare with BKDG
+	   for fam 12h/14h */
 	amd_fam14h_pci_dev = pci_slot_func_init(&pci_acc, 0x18, 6);
 	if (amd_fam14h_pci_dev == NULL || pci_acc == NULL)
 		return NULL;
@@ -329,4 +332,4 @@ struct cpuidle_monitor amd_fam14h_monitor = {
 	.needs_root		= 1,
 	.overflow_s		= OVERFLOW_MS / 1000,
 };
-#endif 
+#endif /* #if defined(__i386__) || defined(__x86_64__) */

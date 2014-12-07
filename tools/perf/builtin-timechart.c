@@ -42,8 +42,8 @@ static const char	*input_name;
 static const char	*output_name = "output.svg";
 
 static unsigned int	numcpus;
-static u64		min_freq;	
-static u64		max_freq;	
+static u64		min_freq;	/* Lowest CPU frequency seen */
+static u64		max_freq;	/* Highest CPU frequency seen */
 static u64		turbo_frequency;
 
 static u64		first_time, last_time;
@@ -60,6 +60,15 @@ struct wake_event;
 
 struct sample_wrapper;
 
+/*
+ * Datastructure layout:
+ * We keep an list of "pid"s, matching the kernels notion of a task struct.
+ * Each "pid" entry, has a list of "comm"s.
+ *	this is because we want to track different programs different, while
+ *	exec will reuse the original pid (by design).
+ * Each comm has a list of samples that will be used to draw
+ * final graph.
+ */
 
 struct per_pid {
 	struct per_pid *next;
@@ -326,6 +335,15 @@ struct wakeup_entry {
 	int   success;
 };
 
+/*
+ * trace_flag_type is an enumeration that holds different
+ * states when a trace occurs. These are:
+ *  IRQS_OFF            - interrupts were disabled
+ *  IRQS_NOSUPPORT      - arch does not support irqs_disabled_flags
+ *  NEED_RESCED         - reschedule is requested
+ *  HARDIRQ             - inside an interrupt handler
+ *  SOFTIRQ             - inside a softirq handler
+ */
 enum trace_flag_type {
 	TRACE_FLAG_IRQS_OFF		= 0x01,
 	TRACE_FLAG_IRQS_NOSUPPORT	= 0x02,
@@ -341,7 +359,7 @@ struct sched_switch {
 	char prev_comm[TASK_COMM_LEN];
 	int  prev_pid;
 	int  prev_prio;
-	long prev_state; 
+	long prev_state; /* Arjan weeps. */
 	char next_comm[TASK_COMM_LEN];
 	int  next_pid;
 	int  next_prio;
@@ -376,7 +394,7 @@ static void p_state_change(int cpu, u64 timestamp, u64 new_freq)
 	struct power_event *pwr;
 	pwr = malloc(sizeof(struct power_event));
 
-	if (new_freq > 8000000) 
+	if (new_freq > 8000000) /* detect invalid data */
 		return;
 
 	if (!pwr)
@@ -495,6 +513,16 @@ static int process_sample_event(struct perf_tool *tool __used,
 		struct power_entry_old *peo;
 		peo = (void *)te;
 #endif
+		/*
+		 * FIXME: use evsel, its already mapped from id to perf_evsel,
+		 * remove perf_header__find_event infrastructure bits.
+		 * Mapping all these "power:cpu_idle" strings to the tracepoint
+		 * ID and then just comparing against evsel->attr.config.
+		 *
+		 * e.g.:
+		 *
+		 * if (evsel->attr.config == power_cpu_idle_id)
+		 */
 		event_str = perf_header__find_event(te->type);
 
 		if (!event_str)
@@ -541,6 +569,10 @@ static int process_sample_event(struct perf_tool *tool __used,
 	return 0;
 }
 
+/*
+ * After the last sample we need to wrap up the current C/P state
+ * and close out each CPU for these.
+ */
 static void end_sample_processing(void)
 {
 	u64 cpu;
@@ -552,7 +584,7 @@ static void end_sample_processing(void)
 			return;
 		memset(pwr, 0, sizeof(struct power_event));
 
-		
+		/* C state */
 #if 0
 		pwr->state = cpus_cstate_state[cpu];
 		pwr->start_time = cpus_cstate_start_times[cpu];
@@ -563,7 +595,7 @@ static void end_sample_processing(void)
 
 		power_events = pwr;
 #endif
-		
+		/* P state */
 
 		pwr = malloc(sizeof(struct power_event));
 		if (!pwr)
@@ -585,10 +617,13 @@ static void end_sample_processing(void)
 	}
 }
 
+/*
+ * Sort the pid datastructure
+ */
 static void sort_pids(void)
 {
 	struct per_pid *new_list, *p, *cursor, *prev;
-	
+	/* sort by ppid first, then by pid, lowest to highest */
 
 	new_list = NULL;
 
@@ -607,7 +642,7 @@ static void sort_pids(void)
 		while (cursor) {
 			if (cursor->ppid > p->ppid ||
 				(cursor->ppid == p->ppid && cursor->pid > p->pid)) {
-				
+				/* must insert before */
 				if (prev) {
 					p->next = prev->next;
 					prev->next = p;
@@ -636,6 +671,9 @@ static void draw_c_p_states(void)
 	struct power_event *pwr;
 	pwr = power_events;
 
+	/*
+	 * two pass drawing so that the P state bars are on top of the C state blocks
+	 */
 	while (pwr) {
 		if (pwr->type == CSTATE)
 			svg_cstate(pwr->cpu, pwr->start_time, pwr->end_time, pwr->state);
@@ -664,7 +702,7 @@ static void draw_wakeups(void)
 		int from = 0, to = 0;
 		char *task_from = NULL, *task_to = NULL;
 
-		
+		/* locate the column of the waker and wakee */
 		p = all_data;
 		while (p) {
 			if (p->pid == we->waker || p->pid == we->wakee) {
@@ -775,7 +813,7 @@ static void draw_process_bars(void)
 
 			if (c->comm) {
 				char comm[256];
-				if (c->total_time > 5000000000) 
+				if (c->total_time > 5000000000) /* 5 seconds */
 					sprintf(comm, "%s:%i (%2.2fs)", c->comm, p->pid, c->total_time / 1000000000.0);
 				else
 					sprintf(comm, "%s:%i (%3.1fms)", c->comm, p->pid, c->total_time / 1000000.0);
@@ -836,7 +874,7 @@ static int determine_display_tasks_filtered(void)
 		if (p->start_time == 1)
 			p->start_time = first_time;
 
-		
+		/* no exit marker, task kept running to the end */
 		if (p->end_time == 0)
 			p->end_time = last_time;
 
@@ -879,7 +917,7 @@ static int determine_display_tasks(u64 threshold)
 		if (p->start_time == 1)
 			p->start_time = first_time;
 
-		
+		/* no exit marker, task kept running to the end */
 		if (p->end_time == 0)
 			p->end_time = last_time;
 		if (p->total_time >= threshold && !power_only)
@@ -922,7 +960,7 @@ static void write_svg_file(const char *filename)
 
 	count = determine_display_tasks(TIME_THRESH);
 
-	
+	/* We'd like to show at least 15 tasks; be less picky if we have fewer */
 	if (count < 15)
 		count = determine_display_tasks(TIME_THRESH / 10);
 

@@ -160,6 +160,9 @@ static ssize_t hwevent_store_setreg(struct device *dev,
 			}
 			writel_relaxed(val, hwereg + addr -
 				       drvdata->hmux[i].start);
+			/* Ensure writes to hwevent control registers
+			   are completed before unmapping the address
+			*/
 			mb();
 			devm_iounmap(dev, hwereg);
 			break;
@@ -250,7 +253,7 @@ static int __devinit hwevent_probe(struct platform_device *pdev)
 	} else if (drvdata->nr_hmux < 0) {
 		return drvdata->nr_hmux;
 	} else {
-		
+		/* return error if reg-names in dt node is empty string */
 		return -ENODEV;
 	}
 

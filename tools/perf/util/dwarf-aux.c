@@ -22,6 +22,13 @@
 #include "debug.h"
 #include "dwarf-aux.h"
 
+/**
+ * cu_find_realpath - Find the realpath of the target file
+ * @cu_die: A DIE(dwarf information entry) of CU(compilation Unit)
+ * @fname:  The tail filename of the target file
+ *
+ * Find the real(long) path of @fname in @cu_die.
+ */
 const char *cu_find_realpath(Dwarf_Die *cu_die, const char *fname)
 {
 	Dwarf_Files *files;
@@ -46,6 +53,14 @@ const char *cu_find_realpath(Dwarf_Die *cu_die, const char *fname)
 	return src;
 }
 
+/**
+ * cu_get_comp_dir - Get the path of compilation directory
+ * @cu_die: a CU DIE
+ *
+ * Get the path of compilation directory of given @cu_die.
+ * Since this depends on DW_AT_comp_dir, older gcc will not
+ * embedded it. In that case, this returns NULL.
+ */
 const char *cu_get_comp_dir(Dwarf_Die *cu_die)
 {
 	Dwarf_Attribute attr;
@@ -54,6 +69,15 @@ const char *cu_get_comp_dir(Dwarf_Die *cu_die)
 	return dwarf_formstring(&attr);
 }
 
+/**
+ * cu_find_lineinfo - Get a line number and file name for given address
+ * @cu_die: a CU DIE
+ * @addr: An address
+ * @fname: a pointer which returns the file name string
+ * @lineno: a pointer which returns the line number
+ *
+ * Find a line number and file name for @addr in @cu_die.
+ */
 int cu_find_lineinfo(Dwarf_Die *cu_die, unsigned long addr,
 		    const char **fname, int *lineno)
 {
@@ -65,7 +89,7 @@ int cu_find_lineinfo(Dwarf_Die *cu_die, unsigned long addr,
 	    addr == (unsigned long)laddr && dwarf_lineno(line, lineno) == 0) {
 		*fname = dwarf_linesrc(line, NULL, NULL);
 		if (!*fname)
-			
+			/* line number is useless without filename */
 			*lineno = 0;
 	}
 
@@ -74,6 +98,16 @@ int cu_find_lineinfo(Dwarf_Die *cu_die, unsigned long addr,
 
 static int __die_find_inline_cb(Dwarf_Die *die_mem, void *data);
 
+/**
+ * cu_walk_functions_at - Walk on function DIEs at given address
+ * @cu_die: A CU DIE
+ * @addr: An address
+ * @callback: A callback which called with found DIEs
+ * @data: A user data
+ *
+ * Walk on function DIEs at given @addr in @cu_die. Passed DIEs
+ * should be subprogram or inlined-subroutines.
+ */
 int cu_walk_functions_at(Dwarf_Die *cu_die, Dwarf_Addr addr,
 		    int (*callback)(Dwarf_Die *, void *), void *data)
 {
@@ -81,7 +115,7 @@ int cu_walk_functions_at(Dwarf_Die *cu_die, Dwarf_Addr addr,
 	Dwarf_Die *sc_die;
 	int ret = -ENOENT;
 
-	
+	/* Inlined function could be recursive. Trace it until fail */
 	for (sc_die = die_find_realfunc(cu_die, addr, &die_mem);
 	     sc_die != NULL;
 	     sc_die = die_find_child(sc_die, __die_find_inline_cb, &addr,
@@ -95,6 +129,13 @@ int cu_walk_functions_at(Dwarf_Die *cu_die, Dwarf_Addr addr,
 
 }
 
+/**
+ * die_compare_name - Compare diename and tname
+ * @dw_die: a DIE
+ * @tname: a string of target name
+ *
+ * Compare the name of @dw_die and @tname. Return false if @dw_die has no name.
+ */
 bool die_compare_name(Dwarf_Die *dw_die, const char *tname)
 {
 	const char *name;
@@ -102,6 +143,13 @@ bool die_compare_name(Dwarf_Die *dw_die, const char *tname)
 	return name ? (strcmp(tname, name) == 0) : false;
 }
 
+/**
+ * die_get_call_lineno - Get callsite line number of inline-function instance
+ * @in_die: a DIE of an inlined function instance
+ *
+ * Get call-site line number of @in_die. This means from where the inline
+ * function is called.
+ */
 int die_get_call_lineno(Dwarf_Die *in_die)
 {
 	Dwarf_Attribute attr;
@@ -114,6 +162,14 @@ int die_get_call_lineno(Dwarf_Die *in_die)
 	return (int)ret;
 }
 
+/**
+ * die_get_type - Get type DIE
+ * @vr_die: a DIE of a variable
+ * @die_mem: where to store a type DIE
+ *
+ * Get a DIE of the type of given variable (@vr_die), and store
+ * it to die_mem. Return NULL if fails to get a type DIE.
+ */
 Dwarf_Die *die_get_type(Dwarf_Die *vr_die, Dwarf_Die *die_mem)
 {
 	Dwarf_Attribute attr;
@@ -125,6 +181,7 @@ Dwarf_Die *die_get_type(Dwarf_Die *vr_die, Dwarf_Die *die_mem)
 		return NULL;
 }
 
+/* Get a type die, but skip qualifiers */
 static Dwarf_Die *__die_get_real_type(Dwarf_Die *vr_die, Dwarf_Die *die_mem)
 {
 	int tag;
@@ -142,6 +199,16 @@ static Dwarf_Die *__die_get_real_type(Dwarf_Die *vr_die, Dwarf_Die *die_mem)
 	return vr_die;
 }
 
+/**
+ * die_get_real_type - Get a type die, but skip qualifiers and typedef
+ * @vr_die: a DIE of a variable
+ * @die_mem: where to store a type DIE
+ *
+ * Get a DIE of the type of given variable (@vr_die), and store
+ * it to die_mem. Return NULL if fails to get a type DIE.
+ * If the type is qualifiers (e.g. const) or typedef, this skips it
+ * and tries to find real type (structure or basic types, e.g. int).
+ */
 Dwarf_Die *die_get_real_type(Dwarf_Die *vr_die, Dwarf_Die *die_mem)
 {
 	do {
@@ -151,6 +218,7 @@ Dwarf_Die *die_get_real_type(Dwarf_Die *vr_die, Dwarf_Die *die_mem)
 	return vr_die;
 }
 
+/* Get attribute and translate it as a udata */
 static int die_get_attr_udata(Dwarf_Die *tp_die, unsigned int attr_name,
 			      Dwarf_Word *result)
 {
@@ -163,6 +231,7 @@ static int die_get_attr_udata(Dwarf_Die *tp_die, unsigned int attr_name,
 	return 0;
 }
 
+/* Get attribute and translate it as a sdata */
 static int die_get_attr_sdata(Dwarf_Die *tp_die, unsigned int attr_name,
 			      Dwarf_Sword *result)
 {
@@ -175,6 +244,13 @@ static int die_get_attr_sdata(Dwarf_Die *tp_die, unsigned int attr_name,
 	return 0;
 }
 
+/**
+ * die_is_signed_type - Check whether a type DIE is signed or not
+ * @tp_die: a DIE of a type
+ *
+ * Get the encoding of @tp_die and return true if the encoding
+ * is signed.
+ */
 bool die_is_signed_type(Dwarf_Die *tp_die)
 {
 	Dwarf_Word ret;
@@ -186,6 +262,14 @@ bool die_is_signed_type(Dwarf_Die *tp_die)
 		ret == DW_ATE_signed_fixed);
 }
 
+/**
+ * die_get_data_member_location - Get the data-member offset
+ * @mb_die: a DIE of a member of a data structure
+ * @offs: The offset of the member in the data structure
+ *
+ * Get the offset of @mb_die in the data structure including @mb_die, and
+ * stores result offset to @offs. If any error occurs this returns errno.
+ */
 int die_get_data_member_location(Dwarf_Die *mb_die, Dwarf_Word *offs)
 {
 	Dwarf_Attribute attr;
@@ -197,7 +281,7 @@ int die_get_data_member_location(Dwarf_Die *mb_die, Dwarf_Word *offs)
 		return -ENOENT;
 
 	if (dwarf_formudata(&attr, offs) != 0) {
-		
+		/* DW_AT_data_member_location should be DW_OP_plus_uconst */
 		ret = dwarf_getlocation(&attr, &expr, &nexpr);
 		if (ret < 0 || nexpr == 0)
 			return -ENOENT;
@@ -212,6 +296,7 @@ int die_get_data_member_location(Dwarf_Die *mb_die, Dwarf_Word *offs)
 	return 0;
 }
 
+/* Get the call file index number in CU DIE */
 static int die_get_call_fileno(Dwarf_Die *in_die)
 {
 	Dwarf_Sword idx;
@@ -222,6 +307,7 @@ static int die_get_call_fileno(Dwarf_Die *in_die)
 		return -ENOENT;
 }
 
+/* Get the declared file index number in CU DIE */
 static int die_get_decl_fileno(Dwarf_Die *pdie)
 {
 	Dwarf_Sword idx;
@@ -232,6 +318,13 @@ static int die_get_decl_fileno(Dwarf_Die *pdie)
 		return -ENOENT;
 }
 
+/**
+ * die_get_call_file - Get callsite file name of inlined function instance
+ * @in_die: a DIE of an inlined function instance
+ *
+ * Get call-site file name of @in_die. This means from which file the inline
+ * function is called.
+ */
 const char *die_get_call_file(Dwarf_Die *in_die)
 {
 	Dwarf_Die cu_die;
@@ -247,6 +340,21 @@ const char *die_get_call_file(Dwarf_Die *in_die)
 }
 
 
+/**
+ * die_find_child - Generic DIE search function in DIE tree
+ * @rt_die: a root DIE
+ * @callback: a callback function
+ * @data: a user data passed to the callback function
+ * @die_mem: a buffer for result DIE
+ *
+ * Trace DIE tree from @rt_die and call @callback for each child DIE.
+ * If @callback returns DIE_FIND_CB_END, this stores the DIE into
+ * @die_mem and returns it. If @callback returns DIE_FIND_CB_CONTINUE,
+ * this continues to trace the tree. Optionally, @callback can return
+ * DIE_FIND_CB_CHILD and DIE_FIND_CB_SIBLING, those means trace only
+ * the children and trace only the siblings respectively.
+ * Returns NULL if @callback can't find any appropriate DIE.
+ */
 Dwarf_Die *die_find_child(Dwarf_Die *rt_die,
 			  int (*callback)(Dwarf_Die *, void *),
 			  void *data, Dwarf_Die *die_mem)
@@ -279,6 +387,7 @@ struct __addr_die_search_param {
 	Dwarf_Die	*die_mem;
 };
 
+/* die_find callback for non-inlined function search */
 static int __die_search_func_cb(Dwarf_Die *fn_die, void *data)
 {
 	struct __addr_die_search_param *ad = data;
@@ -291,19 +400,29 @@ static int __die_search_func_cb(Dwarf_Die *fn_die, void *data)
 	return DWARF_CB_OK;
 }
 
+/**
+ * die_find_realfunc - Search a non-inlined function at given address
+ * @cu_die: a CU DIE which including @addr
+ * @addr: target address
+ * @die_mem: a buffer for result DIE
+ *
+ * Search a non-inlined function DIE which includes @addr. Stores the
+ * DIE to @die_mem and returns it if found. Returns NULl if failed.
+ */
 Dwarf_Die *die_find_realfunc(Dwarf_Die *cu_die, Dwarf_Addr addr,
 				    Dwarf_Die *die_mem)
 {
 	struct __addr_die_search_param ad;
 	ad.addr = addr;
 	ad.die_mem = die_mem;
-	
+	/* dwarf_getscopes can't find subprogram. */
 	if (!dwarf_getfuncs(cu_die, __die_search_func_cb, &ad, 0))
 		return NULL;
 	else
 		return die_mem;
 }
 
+/* die_find callback for inline function search */
 static int __die_find_inline_cb(Dwarf_Die *die_mem, void *data)
 {
 	Dwarf_Addr *addr = data;
@@ -315,6 +434,17 @@ static int __die_find_inline_cb(Dwarf_Die *die_mem, void *data)
 	return DIE_FIND_CB_CONTINUE;
 }
 
+/**
+ * die_find_inlinefunc - Search an inlined function at given address
+ * @cu_die: a CU DIE which including @addr
+ * @addr: target address
+ * @die_mem: a buffer for result DIE
+ *
+ * Search an inlined function DIE which includes @addr. Stores the
+ * DIE to @die_mem and returns it if found. Returns NULl if failed.
+ * If several inlined functions are expanded recursively, this trace
+ * it and returns deepest one.
+ */
 Dwarf_Die *die_find_inlinefunc(Dwarf_Die *sp_die, Dwarf_Addr addr,
 			       Dwarf_Die *die_mem)
 {
@@ -324,7 +454,7 @@ Dwarf_Die *die_find_inlinefunc(Dwarf_Die *sp_die, Dwarf_Addr addr,
 	if (!sp_die)
 		return NULL;
 
-	
+	/* Inlined function could be recursive. Trace it until fail */
 	while (sp_die) {
 		memcpy(die_mem, sp_die, sizeof(Dwarf_Die));
 		sp_die = die_find_child(sp_die, __die_find_inline_cb, &addr,
@@ -358,7 +488,7 @@ static int __die_walk_instances_cb(Dwarf_Die *inst, void *data)
 	if (origin == NULL || origin->addr != iwp->addr)
 		return DIE_FIND_CB_CONTINUE;
 
-	
+	/* Ignore redundant instances */
 	if (dwarf_tag(inst) == DW_TAG_inlined_subroutine) {
 		dwarf_decl_line(origin, &tmp);
 		if (die_get_call_lineno(inst) == tmp) {
@@ -373,6 +503,16 @@ static int __die_walk_instances_cb(Dwarf_Die *inst, void *data)
 	return (iwp->retval) ? DIE_FIND_CB_END : DIE_FIND_CB_CONTINUE;
 }
 
+/**
+ * die_walk_instances - Walk on instances of given DIE
+ * @or_die: an abstract original DIE
+ * @callback: a callback function which is called with instance DIE
+ * @data: user data
+ *
+ * Walk on the instances of give @in_die. @in_die must be an inlined function
+ * declartion. This returns the return value of @callback if it returns
+ * non-zero value, or -ENOENT if there is no instance.
+ */
 int die_walk_instances(Dwarf_Die *or_die, int (*callback)(Dwarf_Die *, void *),
 		       void *data)
 {
@@ -393,6 +533,7 @@ int die_walk_instances(Dwarf_Die *or_die, int (*callback)(Dwarf_Die *, void *),
 	return iwp.retval;
 }
 
+/* Line walker internal parameters */
 struct __line_walk_param {
 	bool recursive;
 	line_walk_callback_t callback;
@@ -417,7 +558,7 @@ static int __die_walk_funclines_cb(Dwarf_Die *in_die, void *data)
 		}
 	}
 	if (!lw->recursive)
-		
+		/* Don't need to search recursively */
 		return DIE_FIND_CB_SIBLING;
 
 	if (addr) {
@@ -429,10 +570,11 @@ static int __die_walk_funclines_cb(Dwarf_Die *in_die, void *data)
 		}
 	}
 
-	
+	/* Continue to search nested inlined function call-sites */
 	return DIE_FIND_CB_CONTINUE;
 }
 
+/* Walk on lines of blocks included in given DIE */
 static int __die_walk_funclines(Dwarf_Die *sp_die, bool recursive,
 				line_walk_callback_t callback, void *data)
 {
@@ -447,7 +589,7 @@ static int __die_walk_funclines(Dwarf_Die *sp_die, bool recursive,
 	const char *fname;
 	int lineno;
 
-	
+	/* Handle function declaration line */
 	fname = dwarf_decl_file(sp_die);
 	if (fname && dwarf_decl_line(sp_die, &lineno) == 0 &&
 	    dwarf_entrypc(sp_die, &addr) == 0) {
@@ -471,6 +613,18 @@ static int __die_walk_culines_cb(Dwarf_Die *sp_die, void *data)
 	return DWARF_CB_OK;
 }
 
+/**
+ * die_walk_lines - Walk on lines inside given DIE
+ * @rt_die: a root DIE (CU, subprogram or inlined_subroutine)
+ * @callback: callback routine
+ * @data: user data
+ *
+ * Walk on all lines inside given @rt_die and call @callback on each line.
+ * If the @rt_die is a function, walk only on the lines inside the function,
+ * otherwise @rt_die must be a CU DIE.
+ * Note that this walks not only dwarf line list, but also function entries
+ * and inline call-site.
+ */
 int die_walk_lines(Dwarf_Die *rt_die, line_walk_callback_t callback, void *data)
 {
 	Dwarf_Lines *lines;
@@ -481,7 +635,7 @@ int die_walk_lines(Dwarf_Die *rt_die, line_walk_callback_t callback, void *data)
 	Dwarf_Die die_mem, *cu_die;
 	size_t nlines, i;
 
-	
+	/* Get the CU die */
 	if (dwarf_tag(rt_die) != DW_TAG_compile_unit)
 		cu_die = dwarf_diecu(rt_die, &die_mem, NULL, NULL);
 	else
@@ -491,14 +645,14 @@ int die_walk_lines(Dwarf_Die *rt_die, line_walk_callback_t callback, void *data)
 		return -EINVAL;
 	}
 
-	
+	/* Get lines list in the CU */
 	if (dwarf_getsrclines(cu_die, &lines, &nlines) != 0) {
 		pr_debug2("Failed to get source lines on this CU.\n");
 		return -ENOENT;
 	}
 	pr_debug2("Get %zd lines from this CU\n", nlines);
 
-	
+	/* Walk on the lines on lines list */
 	for (i = 0; i < nlines; i++) {
 		line = dwarf_onesrcline(lines, i);
 		if (line == NULL ||
@@ -508,12 +662,17 @@ int die_walk_lines(Dwarf_Die *rt_die, line_walk_callback_t callback, void *data)
 				  "Possible error in debuginfo.\n");
 			continue;
 		}
-		
+		/* Filter lines based on address */
 		if (rt_die != cu_die)
+			/*
+			 * Address filtering
+			 * The line is included in given function, and
+			 * no inline block includes it.
+			 */
 			if (!dwarf_haspc(rt_die, addr) ||
 			    die_find_inlinefunc(rt_die, addr, &die_mem))
 				continue;
-		
+		/* Get source line */
 		fname = dwarf_linesrc(line, NULL, NULL);
 
 		ret = callback(fname, lineno, addr, data);
@@ -521,7 +680,15 @@ int die_walk_lines(Dwarf_Die *rt_die, line_walk_callback_t callback, void *data)
 			return ret;
 	}
 
+	/*
+	 * Dwarf lines doesn't include function declarations and inlined
+	 * subroutines. We have to check functions list or given function.
+	 */
 	if (rt_die != cu_die)
+		/*
+		 * Don't need walk functions recursively, because nested
+		 * inlined functions don't have lines of the specified DIE.
+		 */
 		ret = __die_walk_funclines(rt_die, false, callback, data);
 	else {
 		struct __line_walk_param param = {
@@ -558,6 +725,15 @@ static int __die_find_variable_cb(Dwarf_Die *die_mem, void *data)
 		return DIE_FIND_CB_SIBLING;
 }
 
+/**
+ * die_find_variable_at - Find a given name variable at given address
+ * @sp_die: a function DIE
+ * @name: variable name
+ * @addr: address
+ * @die_mem: a buffer for result DIE
+ *
+ * Find a variable DIE called @name at @addr in @sp_die.
+ */
 Dwarf_Die *die_find_variable_at(Dwarf_Die *sp_die, const char *name,
 				Dwarf_Addr addr, Dwarf_Die *die_mem)
 {
@@ -578,6 +754,14 @@ static int __die_find_member_cb(Dwarf_Die *die_mem, void *data)
 	return DIE_FIND_CB_SIBLING;
 }
 
+/**
+ * die_find_member - Find a given name member in a data structure
+ * @st_die: a data structure type DIE
+ * @name: member name
+ * @die_mem: a buffer for result DIE
+ *
+ * Find a member DIE called @name in @st_die.
+ */
 Dwarf_Die *die_find_member(Dwarf_Die *st_die, const char *name,
 			   Dwarf_Die *die_mem)
 {
@@ -585,6 +769,18 @@ Dwarf_Die *die_find_member(Dwarf_Die *st_die, const char *name,
 			      die_mem);
 }
 
+/**
+ * die_get_typename - Get the name of given variable DIE
+ * @vr_die: a variable DIE
+ * @buf: a buffer for result type name
+ * @len: a max-length of @buf
+ *
+ * Get the name of @vr_die and stores it to @buf. Return the actual length
+ * of type name if succeeded. Return -E2BIG if @len is not enough long, and
+ * Return -ENOENT if failed to find type name.
+ * Note that the result will stores typedef name if possible, and stores
+ * "*(function_type)" if the type is a function pointer.
+ */
 int die_get_typename(Dwarf_Die *vr_die, char *buf, int len)
 {
 	Dwarf_Die type;
@@ -598,7 +794,7 @@ int die_get_typename(Dwarf_Die *vr_die, char *buf, int len)
 	if (tag == DW_TAG_array_type || tag == DW_TAG_pointer_type)
 		tmp = "*";
 	else if (tag == DW_TAG_subroutine_type) {
-		
+		/* Function pointer */
 		ret = snprintf(buf, len, "(function_type)");
 		return (ret >= len) ? -E2BIG : ret;
 	} else {
@@ -608,7 +804,7 @@ int die_get_typename(Dwarf_Die *vr_die, char *buf, int len)
 			tmp = "union ";
 		else if (tag == DW_TAG_structure_type)
 			tmp = "struct ";
-		
+		/* Write a base name */
 		ret = snprintf(buf, len, "%s%s", tmp, dwarf_diename(&type));
 		return (ret >= len) ? -E2BIG : ret;
 	}
@@ -620,6 +816,14 @@ int die_get_typename(Dwarf_Die *vr_die, char *buf, int len)
 	return ret;
 }
 
+/**
+ * die_get_varname - Get the name and type of given variable DIE
+ * @vr_die: a variable DIE
+ * @buf: a buffer for type and variable name
+ * @len: the max-length of @buf
+ *
+ * Get the name and type of @vr_die and stores it in @buf as "type\tname".
+ */
 int die_get_varname(Dwarf_Die *vr_die, char *buf, int len)
 {
 	int ret, ret2;

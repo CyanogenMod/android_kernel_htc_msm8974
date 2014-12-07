@@ -12,6 +12,9 @@
  * 2 of the License, or (at your option) any later version.
  */
 
+/*
+ * bootup setup stuff..
+ */
 
 #include <linux/cpu.h>
 #include <linux/errno.h>
@@ -70,7 +73,7 @@ int CMO_SecPSP = -1;
 unsigned long CMO_PageSize = (ASM_CONST(1) << IOMMU_PAGE_SHIFT);
 EXPORT_SYMBOL(CMO_PageSize);
 
-int fwnmi_active;  
+int fwnmi_active;  /* TRUE if an FWNMI handler is present */
 
 static struct device_node *pSeries_mpic_node;
 
@@ -86,6 +89,9 @@ static void pSeries_show_cpuinfo(struct seq_file *m)
 	of_node_put(root);
 }
 
+/* Initialize firmware assisted non-maskable interrupts if
+ * the firmware supports this feature.
+ */
 static void __init fwnmi_init(void)
 {
 	unsigned long system_reset_addr, machine_check_addr;
@@ -94,6 +100,8 @@ static void __init fwnmi_init(void)
 	if (ibm_nmi_register == RTAS_UNKNOWN_SERVICE)
 		return;
 
+	/* If the kernel's not linked at zero we point the firmware at low
+	 * addresses anyway, and use a trampoline to get to the real code. */
 	system_reset_addr  = __pa(system_reset_fwnmi) - PHYSICAL_START;
 	machine_check_addr = __pa(machine_check_fwnmi) - PHYSICAL_START;
 
@@ -181,25 +189,25 @@ static void __init pseries_mpic_init_IRQ(void)
 
 	BUG_ON(openpic_addr == 0);
 
-	
+	/* Setup the openpic driver */
 	mpic = mpic_alloc(pSeries_mpic_node, openpic_addr,
 			MPIC_NO_RESET, 16, 0, " MPIC     ");
 	BUG_ON(mpic == NULL);
 
-	
+	/* Add ISUs */
 	opplen /= sizeof(u32);
 	for (n = 0, i = naddr; i < opplen; i += naddr, n++) {
 		unsigned long isuaddr = of_read_number(opprop + i, naddr);
 		mpic_assign_isu(mpic, n, isuaddr);
 	}
 
-	
+	/* Setup top-level get_irq */
 	ppc_md.get_irq = mpic_get_irq;
 
-	
+	/* All ISUs are setup, complete initialization */
 	mpic_init(mpic);
 
-	
+	/* Look for cascade */
 	pseries_setup_i8259_cascade();
 }
 
@@ -255,7 +263,7 @@ static int pci_dn_reconfig_notifier(struct notifier_block *nb, unsigned long act
 		if (pci) {
 			update_dn_pci_info(np, pci->phb);
 
-			
+			/* Create EEH device for the OF node */
 			eeh_dev_init(np, pci->phb);
 		}
 		break;
@@ -273,6 +281,11 @@ static struct notifier_block pci_dn_reconfig_nb = {
 struct kmem_cache *dtl_cache;
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING
+/*
+ * Allocate space for the dispatch trace log for all possible cpus
+ * and register the buffers with the hypervisor.  This is used for
+ * computing time stolen by the hypervisor.
+ */
 static int alloc_dispatch_logs(void)
 {
 	int cpu, ret;
@@ -301,13 +314,13 @@ static int alloc_dispatch_logs(void)
 		pp->dtl_curr = dtl;
 	}
 
-	
+	/* Register the DTL for the current (boot) cpu */
 	dtl = get_paca()->dispatch_log;
 	get_paca()->dtl_ridx = 0;
 	get_paca()->dtl_curr = dtl;
 	get_paca()->lppaca_ptr->dtl_idx = 0;
 
-	
+	/* hypervisor reads buffer length from this field */
 	dtl->enqueue_to_dispatch_time = DISPATCH_LOG_BYTES;
 	ret = register_dtl(hard_smp_processor_id(), __pa(dtl));
 	if (ret)
@@ -318,12 +331,12 @@ static int alloc_dispatch_logs(void)
 
 	return 0;
 }
-#else 
+#else /* !CONFIG_VIRT_CPU_ACCOUNTING */
 static inline int alloc_dispatch_logs(void)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 
 static int alloc_dispatch_log_kmem_cache(void)
 {
@@ -341,7 +354,14 @@ early_initcall(alloc_dispatch_log_kmem_cache);
 
 static void pSeries_idle(void)
 {
+	/* This would call on the cpuidle framework, and the back-end pseries
+	 * driver to  go to idle states
+	 */
 	if (cpuidle_idle_call()) {
+		/* On error, execute default handler
+		 * to go into low thread priority and possibly
+		 * low power mode.
+		 */
 		HMT_low();
 		HMT_very_low();
 	}
@@ -351,22 +371,22 @@ static void __init pSeries_setup_arch(void)
 {
 	panic_timeout = 10;
 
-	
+	/* Discover PIC type and setup ppc_md accordingly */
 	pseries_discover_pic();
 
-	
-	
-	
+	/* openpic global configuration register (64-bit format). */
+	/* openpic Interrupt Source Unit pointer (64-bit format). */
+	/* python0 facility area (mmio) (64-bit format) REAL address. */
 
-	
+	/* init to some ~sane value until calibrate_delay() runs */
 	loops_per_jiffy = 50000000;
 
 	fwnmi_init();
 
-	
+	/* By default, only probe PCI (can be overriden by rtas_pci) */
 	pci_add_flags(PCI_PROBE_ONLY);
 
-	
+	/* Find and initialize PCI host bridges */
 	init_pci_config_tokens();
 	eeh_pseries_init();
 	find_and_init_phbs();
@@ -388,7 +408,7 @@ static void __init pSeries_setup_arch(void)
 
 static int __init pSeries_init_panel(void)
 {
-	
+	/* Manually leave the kernel version on the panel. */
 	ppc_md.progress("Linux ppc64\n", 0);
 	ppc_md.progress(init_utsname()->version, 0);
 
@@ -403,7 +423,7 @@ static int pseries_set_dabr(unsigned long dabr)
 
 static int pseries_set_xdabr(unsigned long dabr)
 {
-	
+	/* We want to catch accesses from kernel and userspace */
 	return plpar_hcall_norets(H_SET_XDABR, dabr,
 			H_DABRX_KERNEL | H_DABRX_USER);
 }
@@ -421,6 +441,10 @@ void pSeries_coalesce_init(void)
 		powerpc_firmware_features &= ~FW_FEATURE_XCMO;
 }
 
+/**
+ * fw_cmo_feature_init - FW_FEATURE_CMO is not stored in ibm,hypertas-functions,
+ * handle that here. (Stolen from parse_system_parameter_string)
+ */
 void pSeries_cmo_feature_init(void)
 {
 	char *ptr, *key, *value, *end;
@@ -444,20 +468,23 @@ void pSeries_cmo_feature_init(void)
 	}
 
 	end = rtas_data_buf + CMO_MAXLENGTH - 2;
-	ptr = rtas_data_buf + 2;	
+	ptr = rtas_data_buf + 2;	/* step over strlen value */
 	key = value = ptr;
 
 	while (*ptr && (ptr <= end)) {
+		/* Separate the key and value by replacing '=' with '\0' and
+		 * point the value at the string after the '='
+		 */
 		if (ptr[0] == '=') {
 			ptr[0] = '\0';
 			value = ptr + 1;
 		} else if (ptr[0] == '\0' || ptr[0] == ',') {
-			
+			/* Terminate the string containing the key/value pair */
 			ptr[0] = '\0';
 
 			if (key == value) {
 				pr_debug("Malformed key/value pair\n");
-				
+				/* Never found a '=', end processing */
 				break;
 			}
 
@@ -472,6 +499,9 @@ void pSeries_cmo_feature_init(void)
 		ptr++;
 	}
 
+	/* Page size is returned as the power of 2 of the page size,
+	 * convert to the page size in bytes before returning
+	 */
 	CMO_PageSize = 1 << page_order;
 	pr_debug("CMO_PageSize = %lu\n", CMO_PageSize);
 
@@ -488,6 +518,9 @@ void pSeries_cmo_feature_init(void)
 	pr_debug(" <- fw_cmo_feature_init()\n");
 }
 
+/*
+ * Early initialization.  Relocation is on but do not reference unbolted pages
+ */
 static void __init pSeries_init_early(void)
 {
 	pr_debug(" -> pSeries_init_early()\n");
@@ -507,6 +540,9 @@ static void __init pSeries_init_early(void)
 	pr_debug(" <- pSeries_init_early()\n");
 }
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 
 static int __init pSeries_probe_hypertas(unsigned long node,
 					 const char *uname, int depth,
@@ -539,13 +575,16 @@ static int __init pSeries_probe(void)
  	if (strcmp(dtype, "chrp"))
 		return 0;
 
+	/* Cell blades firmware claims to be chrp while it's not. Until this
+	 * is fixed, we need to avoid those here.
+	 */
 	if (of_flat_dt_is_compatible(root, "IBM,CPBW-1.0") ||
 	    of_flat_dt_is_compatible(root, "IBM,CBEA"))
 		return 0;
 
 	pr_debug("pSeries detected, looking for LPAR capability...\n");
 
-	
+	/* Now try to figure out if we are running on LPAR */
 	of_scan_flat_dt(pSeries_probe_hypertas, NULL);
 
 	if (firmware_has_feature(FW_FEATURE_LPAR))
@@ -566,6 +605,15 @@ static int pSeries_pci_probe_mode(struct pci_bus *bus)
 	return PCI_PROBE_NORMAL;
 }
 
+/**
+ * pSeries_power_off - tell firmware about how to power off the system.
+ *
+ * This function calls either the power-off rtas token in normal cases
+ * or the ibm,power-off-ups token (if present & requested) in case of
+ * a power failure. If power-off token is used, power on will only be
+ * possible with power button press. If ibm,power-off-ups token is used
+ * it will allow auto poweron after power is restored.
+ */
 static void pSeries_power_off(void)
 {
 	int rc;

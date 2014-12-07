@@ -42,54 +42,63 @@
 
 #define MAX_TOUCH_SUPPORTED		2
 #define TOUCH_SUPPORTED			1
-#define SAMPLING_FREQ			80	
+#define SAMPLING_FREQ			80	/* Frequency in HZ */
 #define DELAY_BTWIN_SAMPLE		(1000 / SAMPLING_FREQ)
-#define WAIT_FOR_RESPONSE		5	
-#define MAX_RETRIES			5	
-#define INCREMENTAL_DELAY		5	
+#define WAIT_FOR_RESPONSE		5	/* 5msec just works */
+#define MAX_RETRIES			5	/* As above */
+#define INCREMENTAL_DELAY		5	/* As above */
 
-#define TMA1217_DEV_STATUS		0x13	
-#define TMA1217_INT_STATUS		0x14	
+/* Regster Definitions */
+#define TMA1217_DEV_STATUS		0x13	/* Device Status */
+#define TMA1217_INT_STATUS		0x14	/* Interrupt Status */
 
-#define TMA1217_FINGER_STATE		0x18 
-#define TMA1217_FINGER1_X_HIGHER8	0x19 
-#define TMA1217_FINGER1_Y_HIGHER8	0x1A 
-#define TMA1217_FINGER1_XY_LOWER4	0x1B 
-#define TMA1217_FINGER1_Z_VALUE		0x1D 
-#define TMA1217_FINGER2_X_HIGHER8	0x1E 
-#define TMA1217_FINGER2_Y_HIGHER8	0x1F 
-#define TMA1217_FINGER2_XY_LOWER4	0x20 
-#define TMA1217_FINGER2_Z_VALUE		0x22 
-#define TMA1217_DEVICE_CTRL		0x23 
-#define TMA1217_INTERRUPT_ENABLE	0x24 
-#define TMA1217_REPORT_MODE		0x2B 
-#define TMA1217_MAX_X_LOWER8		0x31 
-#define TMA1217_MAX_X_HIGHER4		0x32 
-#define TMA1217_MAX_Y_LOWER8		0x33 
-#define TMA1217_MAX_Y_HIGHER4		0x34 
-#define TMA1217_DEVICE_CMD_RESET	0x67 
-#define TMA1217_DEVICE_CMD_REZERO	0x69 
+/* Controller can detect up to 2 possible finger touches.
+ * Each finger touch provides  12 bit X Y co-ordinates, the values are split
+ * across 2 registers, and an 8 bit  Z value */
+#define TMA1217_FINGER_STATE		0x18 /* Finger State */
+#define TMA1217_FINGER1_X_HIGHER8	0x19 /* Higher 8 bit of X coordinate */
+#define TMA1217_FINGER1_Y_HIGHER8	0x1A /* Higher 8 bit of Y coordinate */
+#define TMA1217_FINGER1_XY_LOWER4	0x1B /* Lower 4 bits of X and Y */
+#define TMA1217_FINGER1_Z_VALUE		0x1D /* 8 bit Z value for finger 1 */
+#define TMA1217_FINGER2_X_HIGHER8	0x1E /* Higher 8 bit of X coordinate */
+#define TMA1217_FINGER2_Y_HIGHER8	0x1F /* Higher 8 bit of Y coordinate */
+#define TMA1217_FINGER2_XY_LOWER4	0x20 /* Lower 4 bits of X and Y */
+#define TMA1217_FINGER2_Z_VALUE		0x22 /* 8 bit Z value for finger 2 */
+#define TMA1217_DEVICE_CTRL		0x23 /* Device Control */
+#define TMA1217_INTERRUPT_ENABLE	0x24 /* Interrupt Enable */
+#define TMA1217_REPORT_MODE		0x2B /* Reporting Mode */
+#define TMA1217_MAX_X_LOWER8		0x31 /* Bit 0-7 for Max X */
+#define TMA1217_MAX_X_HIGHER4		0x32 /* Bit 8-11 for Max X */
+#define TMA1217_MAX_Y_LOWER8		0x33 /* Bit 0-7 for Max Y */
+#define TMA1217_MAX_Y_HIGHER4		0x34 /* Bit 8-11 for Max Y */
+#define TMA1217_DEVICE_CMD_RESET	0x67 /* Device CMD reg for reset */
+#define TMA1217_DEVICE_CMD_REZERO	0x69 /* Device CMD reg for rezero */
 
-#define TMA1217_MANUFACTURER_ID		0x73 
-#define TMA1217_PRODUCT_FAMILY		0x75 
-#define TMA1217_FIRMWARE_REVISION	0x76 
-#define TMA1217_SERIAL_NO_HIGH		0x7C 
-#define TMA1217_SERIAL_NO_LOW		0x7D 
-#define TMA1217_PRODUCT_ID_START	0x7E 
-#define TMA1217_DEVICE_CAPABILITY	0x8B 
+#define TMA1217_MANUFACTURER_ID		0x73 /* Manufacturer Id */
+#define TMA1217_PRODUCT_FAMILY		0x75 /* Product Family */
+#define TMA1217_FIRMWARE_REVISION	0x76 /* Firmware Revision */
+#define TMA1217_SERIAL_NO_HIGH		0x7C /* Bit 8-15 of device serial no. */
+#define TMA1217_SERIAL_NO_LOW		0x7D /* Bit 0-7 of device serial no. */
+#define TMA1217_PRODUCT_ID_START	0x7E /* Start address for 10 byte ID */
+#define TMA1217_DEVICE_CAPABILITY	0x8B /* Reporting capability */
 
 
+/*
+ * The touch position structure.
+ */
 struct touch_state {
 	int	x;
 	int	y;
 	bool button;
 };
 
+/* Device Specific info given by the controller */
 struct cp_dev_info {
 	u16	maxX;
 	u16	maxY;
 };
 
+/* Vendor related info given by the controller */
 struct cp_vendor_info {
 	u8	vendor_id;
 	u8	product_family;
@@ -97,6 +106,9 @@ struct cp_vendor_info {
 	u16	serial_no;
 };
 
+/*
+ * Private structure to store the device details
+ */
 struct cp_tm1217_device {
 	struct i2c_client	*client;
 	struct device		*dev;
@@ -126,7 +138,7 @@ static int cp_tm1217_read(struct cp_tm1217_device *ts,
 {
 	int i, retval;
 
-	
+	/* Send the address */
 	retval = i2c_master_send(ts->client, &req[0], 1);
 	if (retval != 1) {
 		dev_err(ts->dev, "cp_tm1217: I2C send failed\n");
@@ -159,7 +171,7 @@ static int cp_tm1217_write(struct cp_tm1217_device *ts,
 		dev_err(ts->dev, "cp_tm1217: I2C write  failed: %d\n", retval);
 		return retval;
 	}
-	
+	/* Wait for the write to complete. TBD why this is required */
 	msleep(WAIT_FOR_RESPONSE);
 
 	return size;
@@ -211,6 +223,8 @@ static void process_touch(struct cp_tm1217_device *ts, int index)
 		return;
 	}
 
+	/* Note: Currently not using the Z values but may be requried in
+	   the future. */
 	input_info->touch.x = (xy_data[1] << 4)
 					| (xy_data[3] & 0x0F);
 	input_info->touch.y = (xy_data[2] << 4)
@@ -234,11 +248,13 @@ static void cp_tm1217_get_data(struct cp_tm1217_device *ts)
 			continue;
 		}
 		finger_touched = 0;
+		/* Start sampling until the pressure is below
+		  threshold */
 		for (i = 0; i < TOUCH_SUPPORTED; i++) {
 			if (req[1] & 0x3) {
 				finger_touched++;
 				if (ts->cp_input_info[i].touch.button == 0) {
-					
+					/* send the button touch event */
 					input_report_key(
 						ts->cp_input_info[i].input,
 						BTN_TOUCH, 1);
@@ -247,7 +263,7 @@ static void cp_tm1217_get_data(struct cp_tm1217_device *ts)
 				process_touch(ts, i);
 			} else {
 				if (ts->cp_input_info[i].touch.button == 1) {
-					
+					/* send the button release event */
 					input_report_key(
 						ts->cp_input_info[i].input,
 						BTN_TOUCH, 0);
@@ -267,7 +283,7 @@ static irqreturn_t cp_tm1217_sample_thread(int irq, void *handle)
 	u8 req[2];
 	int retval;
 
-	
+	/* Chedk if another thread is already running */
 	mutex_lock(&ts->thread_mutex);
 	if (ts->thread_running == 1) {
 		mutex_unlock(&ts->thread_mutex);
@@ -277,9 +293,11 @@ static irqreturn_t cp_tm1217_sample_thread(int irq, void *handle)
 		mutex_unlock(&ts->thread_mutex);
 	}
 
-	
+	/* Mask the interrupts */
 	retval = cp_tm1217_mask_interrupt(ts);
 
+	/* Read the Interrupt Status register to find the cause of the
+	   Interrupt */
 	req[0] = TMA1217_INT_STATUS;
 	retval = cp_tm1217_read(ts, req, 1);
 	if (retval != 1)
@@ -291,7 +309,7 @@ static irqreturn_t cp_tm1217_sample_thread(int irq, void *handle)
 	cp_tm1217_get_data(ts);
 
 exit_thread:
-	
+	/* Unmask the interrupts before going to sleep */
 	retval = cp_tm1217_unmask_interrupt(ts);
 
 	mutex_lock(&ts->thread_mutex);
@@ -306,6 +324,8 @@ static int cp_tm1217_init_data(struct cp_tm1217_device *ts)
 	int retval;
 	u8	req[2];
 
+	/* Read the vendor id/ fw revision etc. Ignoring return check as this
+	   is non critical info  */
 	req[0] = TMA1217_MANUFACTURER_ID;
 	retval = cp_tm1217_read(ts, req, 1);
 	ts->vinfo.vendor_id = req[1];
@@ -346,12 +366,18 @@ static int cp_tm1217_init_data(struct cp_tm1217_device *ts)
 
 }
 
+/*
+ *	Set up a GPIO for use as the interrupt. We can't simply do this at
+ *	boot time because the GPIO drivers themselves may not be around at
+ *	boot/firmware set up time to do the work. Instead defer it to driver
+ *	detection.
+ */
 
 static int cp_tm1217_setup_gpio_irq(struct cp_tm1217_device *ts)
 {
 	int retval;
 
-	
+	/* Hook up the irq handler */
 	retval = gpio_request(ts->gpio, "cp_tm1217_touch");
 	if (retval < 0) {
 		dev_err(ts->dev, "cp_tm1217: GPIO request failed error %d\n",
@@ -390,7 +416,7 @@ static int cp_tm1217_probe(struct i2c_client *client,
 	u8 req[2];
 	int i, retval;
 
-	
+	/* No pdata is fine - we then use "normal" IRQ mode */
 
 	pdata = client->dev.platform_data;
 
@@ -408,7 +434,7 @@ static int cp_tm1217_probe(struct i2c_client *client,
 	ts->thread_running = 0;
 	mutex_init(&ts->thread_mutex);
 
-	
+	/* Reset the Controller */
 	req[0] = TMA1217_DEVICE_CMD_RESET;
 	req[1] = 0x1;
 	retval = cp_tm1217_write(ts, req, 1);
@@ -418,16 +444,19 @@ static int cp_tm1217_probe(struct i2c_client *client,
 		return -EIO;
 	}
 
-	
+	/* Clear up the interrupt status from reset. */
 	req[0] = TMA1217_INT_STATUS;
 	retval = cp_tm1217_read(ts, req, 1);
 
-	
+	/* Mask all the interrupts */
 	retval = cp_tm1217_mask_interrupt(ts);
 
-	
+	/* Read the controller information */
 	cp_tm1217_init_data(ts);
 
+	/* The following code will register multiple event devices when
+	   multi-pointer is enabled, the code has not been tested
+	   with MPX */
 	for (i = 0; i < TOUCH_SUPPORTED; i++) {
 		input_dev = input_allocate_device();
 		if (input_dev == NULL) {
@@ -463,16 +492,18 @@ static int cp_tm1217_probe(struct i2c_client *client,
 		input_info->input = input_dev;
 	}
 
+	/* Setup the reporting mode to send an interrupt only when
+	   finger arrives or departs. */
 	req[0] = TMA1217_REPORT_MODE;
 	req[1] = 0x02;
 	retval = cp_tm1217_write(ts, req, 1);
 
-	
+	/* Setup the device to no sleep mode for now and make it configured */
 	req[0] = TMA1217_DEVICE_CTRL;
 	req[1] = 0x84;
 	retval = cp_tm1217_write(ts, req, 1);
 
-	
+	/* Check for the status of the device */
 	req[0] = TMA1217_DEV_STATUS;
 	retval = cp_tm1217_read(ts, req, 1);
 	if (req[1] != 0) {
@@ -507,7 +538,7 @@ static int cp_tm1217_probe(struct i2c_client *client,
 		goto fail_gpio;
 	}
 
-	
+	/* Unmask the interrupts */
 	retval = cp_tm1217_unmask_interrupt(ts);
 	if (retval == 0)
 		return 0;
@@ -517,7 +548,7 @@ fail_gpio:
 	if (ts->gpio)
 		gpio_free(ts->gpio);
 fail:
-	
+	/* Clean up before returning failure */
 	for (i = 0; i < TOUCH_SUPPORTED; i++) {
 		if (ts->cp_input_info[i].input) {
 			input_unregister_device(ts->cp_input_info[i].input);
@@ -529,13 +560,17 @@ fail:
 
 }
 
+/*
+ * cp_tm1217 suspend
+ *
+ */
 static int cp_tm1217_suspend(struct i2c_client *client, pm_message_t mesg)
 {
 	struct cp_tm1217_device *ts = i2c_get_clientdata(client);
 	u8 req[2];
 	int retval;
 
-	
+	/* Put the controller to sleep */
 	req[0] = TMA1217_DEVICE_CTRL;
 	retval = cp_tm1217_read(ts, req, 1);
 	req[1] = (req[1] & 0xF8) | 0x1;
@@ -547,29 +582,37 @@ static int cp_tm1217_suspend(struct i2c_client *client, pm_message_t mesg)
 	return 0;
 }
 
+/*
+ * cp_tm1217_resume
+ *
+ */
 static int cp_tm1217_resume(struct i2c_client *client)
 {
 	struct cp_tm1217_device *ts = i2c_get_clientdata(client);
 	u8 req[2];
 	int retval;
 
-	
+	/* Take the controller out of sleep */
 	req[0] = TMA1217_DEVICE_CTRL;
 	retval = cp_tm1217_read(ts, req, 1);
 	req[1] = (req[1] & 0xF8) | 0x4;
 	retval = cp_tm1217_write(ts, req, 1);
 
+	/* Restore the register settings sinc the power to the
+	   could have been cut off */
 
+	/* Setup the reporting mode to send an interrupt only when
+	   finger arrives or departs. */
 	req[0] = TMA1217_REPORT_MODE;
 	req[1] = 0x02;
 	retval = cp_tm1217_write(ts, req, 1);
 
-	
+	/* Setup the device to no sleep mode for now and make it configured */
 	req[0] = TMA1217_DEVICE_CTRL;
 	req[1] = 0x84;
 	retval = cp_tm1217_write(ts, req, 1);
 
-	
+	/* Setup the interrupt mask */
 	retval = cp_tm1217_unmask_interrupt(ts);
 
 	if (device_may_wakeup(&client->dev))
@@ -578,6 +621,10 @@ static int cp_tm1217_resume(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * cp_tm1217_remove
+ *
+ */
 static int cp_tm1217_remove(struct i2c_client *client)
 {
 	struct cp_tm1217_device *ts = i2c_get_clientdata(client);

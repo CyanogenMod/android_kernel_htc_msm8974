@@ -23,6 +23,11 @@ struct device_node *of_pci_find_child_device(struct device_node *parent,
 	for_each_child_of_node(parent, node) {
 		if (__of_pci_pci_compare(node, devfn))
 			return node;
+		/*
+		 * Some OFs create a parent node "multifunc-device" as
+		 * a fake root for all functions of a multi-function
+		 * device we go down them as well.
+		 */
 		if (!strcmp(node->name, "multifunc-device")) {
 			for_each_child_of_node(node, node2) {
 				if (__of_pci_pci_compare(node2, devfn)) {

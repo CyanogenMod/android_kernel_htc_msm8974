@@ -26,15 +26,17 @@
 #include <asm/io.h>
 #include <asm/prom.h>
 
+/* sio irq0=0xb00010022 irq0=0xb00010023 irq2=0xb00010024
+    mmio=0xfff000-0x1000,0xff2000-0x1000 */
 static int txx9_serial_bitmap __initdata;
 
 static struct {
 	uint32_t offset;
 	uint32_t index;
 } txx9_scc_tab[3] __initdata = {
-	{ 0x300, 0 },	
-	{ 0x400, 0 },	
-	{ 0x800, 1 }	
+	{ 0x300, 0 },	/* 0xFFF300 */
+	{ 0x400, 0 },	/* 0xFFF400 */
+	{ 0x800, 1 }	/* 0xFF2800 */
 };
 
 static int __init txx9_serial_init(void)
@@ -68,7 +70,7 @@ static int __init txx9_serial_init(void)
 			req.irq = irq_create_of_mapping(irq.controller,
 				irq.specifier, irq.size);
 			req.flags |= UPF_IOREMAP | UPF_BUGGY_UART
-				;
+				/*HAVE_CTS_LINE*/;
 			req.uartclk = 83300000;
 			early_serial_txx9_setup(&req);
 		}

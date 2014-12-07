@@ -21,24 +21,48 @@
 #include <linux/kernel.h>
 #include <linux/notifier.h>
 
+/*
+ * When a CPU goes to a low power state that turns off power to the CPU's
+ * power domain, the contents of some blocks (floating point coprocessors,
+ * interrupt controllers, caches, timers) in the same power domain can
+ * be lost.  The cpm_pm notifiers provide a method for platform idle, suspend,
+ * and hotplug implementations to notify the drivers for these blocks that
+ * they may be reset.
+ *
+ * All cpu_pm notifications must be called with interrupts disabled.
+ *
+ * The notifications are split into two classes: CPU notifications and CPU
+ * cluster notifications.
+ *
+ * CPU notifications apply to a single CPU and must be called on the affected
+ * CPU.  They are used to save per-cpu context for affected blocks.
+ *
+ * CPU cluster notifications apply to all CPUs in a single power domain. They
+ * are used to save any global context for affected blocks, and must be called
+ * after all the CPUs in the power domain have been notified of the low power
+ * state.
+ */
 
+/*
+ * Event codes passed as unsigned long val to notifier calls
+ */
 enum cpu_pm_event {
-	
+	/* A single cpu is entering a low power state */
 	CPU_PM_ENTER,
 
-	
+	/* A single cpu failed to enter a low power state */
 	CPU_PM_ENTER_FAILED,
 
-	
+	/* A single cpu is exiting a low power state */
 	CPU_PM_EXIT,
 
-	
+	/* A cpu power domain is entering a low power state */
 	CPU_CLUSTER_PM_ENTER,
 
-	
+	/* A cpu power domain failed to enter a low power state */
 	CPU_CLUSTER_PM_ENTER_FAILED,
 
-	
+	/* A cpu power domain is exiting a low power state */
 	CPU_CLUSTER_PM_EXIT,
 };
 

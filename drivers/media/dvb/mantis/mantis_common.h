@@ -104,7 +104,7 @@ struct mantis_hwconfig {
 struct mantis_pci {
 	unsigned int		verbose;
 
-	
+	/*	PCI stuff		*/
 	u16			vendor_id;
 	u16			device_id;
 	u16			subsystem_vendor;
@@ -122,7 +122,7 @@ struct mantis_pci {
 
 	unsigned int		num;
 
-	
+	/*	RISC Core		*/
 	u32			busy_block;
 	u32			last_block;
 	u8			*buf_cpu;
@@ -137,7 +137,7 @@ struct mantis_pci {
 	wait_queue_head_t	i2c_wq;
 	struct mutex		i2c_lock;
 
-	
+	/*	DVB stuff		*/
 	struct dvb_adapter	dvb_adapter;
 	struct dvb_frontend	*fe;
 	struct dvb_demux	demux;
@@ -153,12 +153,12 @@ struct mantis_pci {
 	u32			mantis_int_stat;
 	u32			mantis_int_mask;
 
-	
+	/*	board specific		*/
 	u8			mac_address[8];
 	u32			sub_vendor_id;
 	u32			sub_device_id;
 
-	 
+	 /*	A12 A13 A14		*/
 	u32			gpio_status;
 
 	u32			gpif_status;
@@ -176,4 +176,4 @@ struct mantis_pci {
 
 #define MANTIS_HIF_STATUS	(mantis->gpio_status)
 
-#endif 
+#endif /* __MANTIS_COMMON_H */

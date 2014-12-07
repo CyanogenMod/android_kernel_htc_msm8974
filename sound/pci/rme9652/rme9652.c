@@ -36,10 +36,10 @@
 #include <asm/current.h>
 #include <asm/io.h>
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
-static bool precise_ptr[SNDRV_CARDS];			
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
+static bool precise_ptr[SNDRV_CARDS];			/* Enable precise pointer */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for RME Digi9652 (Hammerfall) soundcard.");
@@ -55,94 +55,117 @@ MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{RME,Hammerfall},"
 		"{RME,Hammerfall-Light}}");
 
+/* The Hammerfall has two sets of 24 ADAT + 2 S/PDIF channels, one for
+   capture, one for playback. Both the ADAT and S/PDIF channels appear
+   to the host CPU in the same block of memory. There is no functional
+   difference between them in terms of access.
+   
+   The Hammerfall Light is identical to the Hammerfall, except that it
+   has 2 sets 18 channels (16 ADAT + 2 S/PDIF) for capture and playback.
+*/
 
 #define RME9652_NCHANNELS       26
 #define RME9636_NCHANNELS       18
 
+/* Preferred sync source choices - used by "sync_pref" control switch */
 
 #define RME9652_SYNC_FROM_SPDIF 0
 #define RME9652_SYNC_FROM_ADAT1 1
 #define RME9652_SYNC_FROM_ADAT2 2
 #define RME9652_SYNC_FROM_ADAT3 3
 
+/* Possible sources of S/PDIF input */
 
-#define RME9652_SPDIFIN_OPTICAL 0	
-#define RME9652_SPDIFIN_COAXIAL 1	
-#define RME9652_SPDIFIN_INTERN  2	
+#define RME9652_SPDIFIN_OPTICAL 0	/* optical (ADAT1) */
+#define RME9652_SPDIFIN_COAXIAL 1	/* coaxial (RCA) */
+#define RME9652_SPDIFIN_INTERN  2	/* internal (CDROM) */
 
+/* ------------- Status-Register bits --------------------- */
 
-#define RME9652_IRQ	   (1<<0)	
-#define RME9652_lock_2	   (1<<1)	
-#define RME9652_lock_1	   (1<<2)	
-#define RME9652_lock_0	   (1<<3)	
-#define RME9652_fs48	   (1<<4)	
-#define RME9652_wsel_rd	   (1<<5)	
-                                        
-#define RME9652_sync_2	   (1<<16)	
-#define RME9652_sync_1	   (1<<17)	
-#define RME9652_sync_0	   (1<<18)	
-#define RME9652_DS_rd	   (1<<19)	
-#define RME9652_tc_busy	   (1<<20)	
-#define RME9652_tc_out	   (1<<21)	
-#define RME9652_F_0	   (1<<22)	
-#define RME9652_F_1	   (1<<23)	
-#define RME9652_F_2	   (1<<24)	
-#define RME9652_ERF	   (1<<25)	
-#define RME9652_buffer_id  (1<<26)	
-#define RME9652_tc_valid   (1<<27)	
-#define RME9652_SPDIF_READ (1<<28)      
+#define RME9652_IRQ	   (1<<0)	/* IRQ is High if not reset by irq_clear */
+#define RME9652_lock_2	   (1<<1)	/* ADAT 3-PLL: 1=locked, 0=unlocked */
+#define RME9652_lock_1	   (1<<2)	/* ADAT 2-PLL: 1=locked, 0=unlocked */
+#define RME9652_lock_0	   (1<<3)	/* ADAT 1-PLL: 1=locked, 0=unlocked */
+#define RME9652_fs48	   (1<<4)	/* sample rate is 0=44.1/88.2,1=48/96 Khz */
+#define RME9652_wsel_rd	   (1<<5)	/* if Word-Clock is used and valid then 1 */
+                                        /* bits 6-15 encode h/w buffer pointer position */
+#define RME9652_sync_2	   (1<<16)	/* if ADAT-IN 3 in sync to system clock */
+#define RME9652_sync_1	   (1<<17)	/* if ADAT-IN 2 in sync to system clock */
+#define RME9652_sync_0	   (1<<18)	/* if ADAT-IN 1 in sync to system clock */
+#define RME9652_DS_rd	   (1<<19)	/* 1=Double Speed Mode, 0=Normal Speed */
+#define RME9652_tc_busy	   (1<<20)	/* 1=time-code copy in progress (960ms) */
+#define RME9652_tc_out	   (1<<21)	/* time-code out bit */
+#define RME9652_F_0	   (1<<22)	/* 000=64kHz, 100=88.2kHz, 011=96kHz  */
+#define RME9652_F_1	   (1<<23)	/* 111=32kHz, 110=44.1kHz, 101=48kHz, */
+#define RME9652_F_2	   (1<<24)	/* external Crystal Chip if ERF=1 */
+#define RME9652_ERF	   (1<<25)	/* Error-Flag of SDPIF Receiver (1=No Lock) */
+#define RME9652_buffer_id  (1<<26)	/* toggles by each interrupt on rec/play */
+#define RME9652_tc_valid   (1<<27)	/* 1 = a signal is detected on time-code input */
+#define RME9652_SPDIF_READ (1<<28)      /* byte available from Rev 1.5+ S/PDIF interface */
 
 #define RME9652_sync	  (RME9652_sync_0|RME9652_sync_1|RME9652_sync_2)
 #define RME9652_lock	  (RME9652_lock_0|RME9652_lock_1|RME9652_lock_2)
 #define RME9652_F	  (RME9652_F_0|RME9652_F_1|RME9652_F_2)
 #define rme9652_decode_spdif_rate(x) ((x)>>22)
 
+/* Bit 6..15 : h/w buffer pointer */
 
 #define RME9652_buf_pos	  0x000FFC0
 
- 
+/* Bits 31,30,29 are bits 5,4,3 of h/w pointer position on later
+   Rev G EEPROMS and Rev 1.5 cards or later.
+*/ 
 
 #define RME9652_REV15_buf_pos(x) ((((x)&0xE0000000)>>26)|((x)&RME9652_buf_pos))
 
+/* amount of io space we remap for register access. i'm not sure we
+   even need this much, but 1K is nice round number :)
+*/
 
 #define RME9652_IO_EXTENT     1024
 
 #define RME9652_init_buffer       0
-#define RME9652_play_buffer       32	
-#define RME9652_rec_buffer        36	
+#define RME9652_play_buffer       32	/* holds ptr to 26x64kBit host RAM */
+#define RME9652_rec_buffer        36	/* holds ptr to 26x64kBit host RAM */
 #define RME9652_control_register  64
 #define RME9652_irq_clear         96
-#define RME9652_time_code         100	
-#define RME9652_thru_base         128	
+#define RME9652_time_code         100	/* useful if used with alesis adat */
+#define RME9652_thru_base         128	/* 132...228 Thru for 26 channels */
 
+/* Read-only registers */
 
+/* Writing to any of the register locations writes to the status
+   register. We'll use the first location as our point of access.
+*/
 
 #define RME9652_status_register    0
 
+/* --------- Control-Register Bits ---------------- */
 
 
-#define RME9652_start_bit	   (1<<0)	
-                                                
-#define RME9652_Master		   (1<<4)	
-#define RME9652_IE		   (1<<5)	
-#define RME9652_freq		   (1<<6)       
-#define RME9652_freq1		   (1<<7)       
-#define RME9652_DS                 (1<<8)	
-#define RME9652_PRO		   (1<<9)	
-#define RME9652_EMP		   (1<<10)	
-#define RME9652_Dolby		   (1<<11)	
-#define RME9652_opt_out	           (1<<12)	
-#define RME9652_wsel		   (1<<13)	
-#define RME9652_inp_0		   (1<<14)	
-#define RME9652_inp_1		   (1<<15)	
+#define RME9652_start_bit	   (1<<0)	/* start record/play */
+                                                /* bits 1-3 encode buffersize/latency */
+#define RME9652_Master		   (1<<4)	/* Clock Mode Master=1,Slave/Auto=0 */
+#define RME9652_IE		   (1<<5)	/* Interrupt Enable */
+#define RME9652_freq		   (1<<6)       /* samplerate 0=44.1/88.2, 1=48/96 kHz */
+#define RME9652_freq1		   (1<<7)       /* if 0, 32kHz, else always 1 */
+#define RME9652_DS                 (1<<8)	/* Doule Speed 0=44.1/48, 1=88.2/96 Khz */
+#define RME9652_PRO		   (1<<9)	/* S/PDIF out: 0=consumer, 1=professional */
+#define RME9652_EMP		   (1<<10)	/*  Emphasis 0=None, 1=ON */
+#define RME9652_Dolby		   (1<<11)	/*  Non-audio bit 1=set, 0=unset */
+#define RME9652_opt_out	           (1<<12)	/* Use 1st optical OUT as SPDIF: 1=yes,0=no */
+#define RME9652_wsel		   (1<<13)	/* use Wordclock as sync (overwrites master) */
+#define RME9652_inp_0		   (1<<14)	/* SPDIF-IN: 00=optical (ADAT1),     */
+#define RME9652_inp_1		   (1<<15)	/* 01=koaxial (Cinch), 10=Internal CDROM */
 #define RME9652_SyncPref_ADAT2	   (1<<16)
 #define RME9652_SyncPref_ADAT3	   (1<<17)
-#define RME9652_SPDIF_RESET        (1<<18)      
+#define RME9652_SPDIF_RESET        (1<<18)      /* Rev 1.5+: h/w S/PDIF receiver */
 #define RME9652_SPDIF_SELECT       (1<<19)
 #define RME9652_SPDIF_CLOCK        (1<<20)
 #define RME9652_SPDIF_WRITE        (1<<21)
-#define RME9652_ADAT1_INTERNAL     (1<<22)      
+#define RME9652_ADAT1_INTERNAL     (1<<22)      /* Rev 1.5+: if set, internal CD connector carries ADAT */
 
+/* buffersize = 512Bytes * 2^n, where n is made from Bit2 ... Bit0 */
 
 #define RME9652_latency            0x0e
 #define rme9652_encode_latency(x)  (((x)&0x7)<<1)
@@ -156,10 +179,19 @@ MODULE_SUPPORTED_DEVICE("{{RME,Hammerfall},"
 #define RME9652_SyncPref_ADAT1	   0
 #define RME9652_SyncPref_SPDIF	   (RME9652_SyncPref_ADAT2|RME9652_SyncPref_ADAT3)
 
+/* the size of a substream (1 mono data stream) */
 
 #define RME9652_CHANNEL_BUFFER_SAMPLES  (16*1024)
 #define RME9652_CHANNEL_BUFFER_BYTES    (4*RME9652_CHANNEL_BUFFER_SAMPLES)
 
+/* the size of the area we need to allocate for DMA transfers. the
+   size is the same regardless of the number of channels - the 
+   9636 still uses the same memory area.
+
+   Note that we allocate 1 more channel than is apparently needed
+   because the h/w seems to write 1 byte beyond the end of the last
+   page. Sigh.
+*/
 
 #define RME9652_DMA_AREA_BYTES ((RME9652_NCHANNELS+1) * RME9652_CHANNEL_BUFFER_BYTES)
 #define RME9652_DMA_AREA_KILOBYTES (RME9652_DMA_AREA_BYTES/1024)
@@ -174,27 +206,28 @@ struct snd_rme9652 {
 	
 	int precise_ptr;
 
-	u32 control_register;	
-	u32 thru_bits;		
+	u32 control_register;	/* cached value */
+	u32 thru_bits;		/* thru 1=on, 0=off channel 1=Bit1... channel 26= Bit26 */
 
 	u32 creg_spdif;
 	u32 creg_spdif_stream;
 
-	char *card_name;		
+	char *card_name;		/* hammerfall or hammerfall light names */
 
-        size_t hw_offsetmask;     	
-	size_t prev_hw_offset;		
-	size_t max_jitter;		
-	size_t period_bytes;		
+        size_t hw_offsetmask;     	/* &-with status register to get real hw_offset */
+	size_t prev_hw_offset;		/* previous hw offset */
+	size_t max_jitter;		/* maximum jitter in frames for 
+					   hw pointer */
+	size_t period_bytes;		/* guess what this is */
 
 	unsigned char ds_channels;
-	unsigned char ss_channels;	
+	unsigned char ss_channels;	/* different for hammerfall/hammerfall-light */
 
 	struct snd_dma_buffer playback_dma_buf;
 	struct snd_dma_buffer capture_dma_buf;
 
-	unsigned char *capture_buffer;	
-	unsigned char *playback_buffer;	
+	unsigned char *capture_buffer;	/* suitably aligned address */
+	unsigned char *playback_buffer;	/* suitably aligned address */
 
 	pid_t capture_pid;
 	pid_t playback_pid;
@@ -203,11 +236,11 @@ struct snd_rme9652 {
 	struct snd_pcm_substream *playback_substream;
 	int running;
 
-        int passthru;                   
-        int hw_rev;                     
+        int passthru;                   /* non-zero if doing pass-thru */
+        int hw_rev;                     /* h/w rev * 10 (i.e. 1.5 has hw_rev = 15) */
 
-	int last_spdif_sample_rate;	
-	int last_adat_sample_rate;	
+	int last_spdif_sample_rate;	/* so that we can catch externally ... */
+	int last_adat_sample_rate;	/* ... induced rate changes            */
 
         char *channel_map;
 
@@ -233,27 +266,27 @@ static char channel_map_9652_ss[26] = {
 
 static char channel_map_9636_ss[26] = {
 	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 
-	
+	/* channels 16 and 17 are S/PDIF */
 	24, 25,
-	
+	/* channels 18-25 don't exist */
 	-1, -1, -1, -1, -1, -1, -1, -1
 };
 
 static char channel_map_9652_ds[26] = {
-	
+	/* ADAT channels are remapped */
 	1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23,
-	
+	/* channels 12 and 13 are S/PDIF */
 	24, 25,
-	
+	/* others don't exist */
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 };
 
 static char channel_map_9636_ds[26] = {
-	
+	/* ADAT channels are remapped */
 	1, 3, 5, 7, 9, 11, 13, 15,
-	
+	/* channels 8 and 9 are S/PDIF */
 	24, 25
-	
+	/* others don't exist */
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
 };
 
@@ -274,7 +307,7 @@ static int snd_hammerfall_get_buffer(struct pci_dev *pci, struct snd_dma_buffer 
 static void snd_hammerfall_free_buffer(struct snd_dma_buffer *dmab, struct pci_dev *pci)
 {
 	if (dmab->area) {
-		dmab->dev.dev = NULL; 
+		dmab->dev.dev = NULL; /* make it anonymous */
 		snd_dma_reserve_buf(dmab, snd_dma_pci_buf_id(pci));
 	}
 }
@@ -286,7 +319,7 @@ static DEFINE_PCI_DEVICE_TABLE(snd_rme9652_ids) = {
 		.device	   = 0x3fc4,
 		.subvendor = PCI_ANY_ID,
 		.subdevice = PCI_ANY_ID,
-	},	
+	},	/* RME Digi9652 */
 	{ 0, },
 };
 
@@ -350,6 +383,9 @@ static snd_pcm_uframes_t rme9652_hw_pointer(struct snd_rme9652 *rme9652)
 		return (status & RME9652_buffer_id) ? period_size : 0;
 	offset = status & RME9652_buf_pos;
 
+	/* The hardware may give a backward movement for up to 80 frames
+           Martin Kirst <martin.kirst@freenet.de> knows the details.
+	*/
 
 	delta = rme9652->prev_hw_offset - offset;
 	delta &= 0xffff;
@@ -386,6 +422,11 @@ static inline void rme9652_reset_hw_pointer(struct snd_rme9652 *rme9652)
 {
 	int i;
 
+	/* reset the FIFO pointer to zero. We do this by writing to 8
+	   registers, each of which is a 32bit wide register, and set
+	   them all to zero. Note that s->iobase is a pointer to
+	   int32, not pointer to char.  
+	*/
 
 	for (i = 0; i < 8; i++) {
 		rme9652_write(rme9652, i * 4, 0);
@@ -450,6 +491,16 @@ static int rme9652_set_rate(struct snd_rme9652 *rme9652, int rate)
 		return -EBUSY;
 	}
 
+	/* Changing from a "single speed" to a "double speed" rate is
+	   not allowed if any substreams are open. This is because
+	   such a change causes a shift in the location of 
+	   the DMA buffers and a reduction in the number of available
+	   buffers. 
+
+	   Note that a similar but essentially insoluble problem
+	   exists for externally-driven rate changes. All we can do
+	   is to flag rate changes in the read/write routines.
+	 */
 
 	spin_lock_irq(&rme9652->lock);
 	xrate = rme9652_adat_sample_rate(rme9652);
@@ -526,7 +577,7 @@ static void rme9652_set_thru(struct snd_rme9652 *rme9652, int channel, int enabl
 
 	if (channel < 0) {
 
-		
+		/* set thru for all channels */
 
 		if (enable) {
 			for (i = 0; i < RME9652_NCHANNELS; i++) {
@@ -562,6 +613,9 @@ static int rme9652_set_passthru(struct snd_rme9652 *rme9652, int onoff)
 	if (onoff) {
 		rme9652_set_thru(rme9652, -1, 1);
 
+		/* we don't want interrupts, so do a
+		   custom version of rme9652_start().
+		*/
 
 		rme9652->control_register =
 			RME9652_inp_0 | 
@@ -655,7 +709,7 @@ static int rme9652_spdif_read_codec (struct snd_rme9652 *rme9652, const int addr
 
 static void rme9652_initialize_spdif_receiver (struct snd_rme9652 *rme9652)
 {
-	
+	/* XXX what unsets this ? */
 
 	rme9652->control_register |= RME9652_SPDIF_RESET;
 
@@ -669,7 +723,7 @@ static inline int rme9652_spdif_sample_rate(struct snd_rme9652 *s)
 	unsigned int rate_bits;
 
 	if (rme9652_read(s, RME9652_status_register) & RME9652_ERF) {
-		return -1;	
+		return -1;	/* error condition */
 	}
 	
 	if (s->hw_rev == 15) {
@@ -728,6 +782,9 @@ static inline int rme9652_spdif_sample_rate(struct snd_rme9652 *s)
 	}
 }
 
+/*-----------------------------------------------------------------------------
+  Control Interface
+  ----------------------------------------------------------------------------*/
 
 static u32 snd_rme9652_convert_from_aes(struct snd_aes_iec958 *aes)
 {
@@ -847,7 +904,7 @@ static int rme9652_set_adat1_input(struct snd_rme9652 *rme9652, int internal)
 		rme9652->control_register &= ~RME9652_ADAT1_INTERNAL;
 	}
 
-	
+	/* XXX do we actually need to stop the card when we do this ? */
 
 	if ((restart = rme9652->running)) {
 		rme9652_stop(rme9652);
@@ -1136,7 +1193,7 @@ static int rme9652_sync_pref(struct snd_rme9652 *rme9652)
 	case RME9652_SyncPref_SPDIF:
 		return RME9652_SYNC_FROM_SPDIF;
 	}
-	
+	/* Not reachable */
 	return 0;
 }
 
@@ -1301,6 +1358,7 @@ static int snd_rme9652_put_passthru(struct snd_kcontrol *kcontrol, struct snd_ct
 	return err ? err : change;
 }
 
+/* Read-only switches */
 
 #define RME9652_SPDIF_RATE(xname, xindex) \
 { .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, .index = xindex, \
@@ -1382,6 +1440,7 @@ static int snd_rme9652_get_tc_valid(struct snd_kcontrol *kcontrol, struct snd_ct
 
 #ifdef ALSA_HAS_STANDARD_WAY_OF_RETURNING_TIMECODE
 
+/* FIXME: this routine needs a port to the new control API --jk */
 
 static int snd_rme9652_get_tc_value(void *private_data,
 				    snd_kswitch_t *kswitch,
@@ -1399,11 +1458,11 @@ static int snd_rme9652_get_tc_value(void *private_data,
 		return 0;
 	}
 
-	
+	/* timecode request */
 
 	rme9652_write(s, RME9652_time_code, 0);
 
-	
+	/* XXX bug alert: loop-based timing !!!! */
 
 	for (i = 0; i < 50; i++) {
 		if (!(rme9652_read(s, i * 4) & RME9652_tc_busy))
@@ -1434,7 +1493,7 @@ static int snd_rme9652_get_tc_value(void *private_data,
 	return 0;
 }
 
-#endif				
+#endif				/* ALSA_HAS_STANDARD_WAY_OF_RETURNING_TIMECODE */
 
 static struct snd_kcontrol_new snd_rme9652_controls[] = {
 {
@@ -1506,7 +1565,7 @@ static int snd_rme9652_create_controls(struct snd_card *card, struct snd_rme9652
 	for (idx = 0; idx < ARRAY_SIZE(snd_rme9652_controls); idx++) {
 		if ((err = snd_ctl_add(card, kctl = snd_ctl_new1(&snd_rme9652_controls[idx], rme9652))) < 0)
 			return err;
-		if (idx == 1)	
+		if (idx == 1)	/* IEC958 (S/PDIF) Stream */
 			rme9652->spdif_ctl = kctl;
 	}
 
@@ -1521,6 +1580,9 @@ static int snd_rme9652_create_controls(struct snd_card *card, struct snd_rme9652
 	return 0;
 }
 
+/*------------------------------------------------------------
+   /proc interface 
+ ------------------------------------------------------------*/
 
 static void
 snd_rme9652_proc_read(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
@@ -1648,7 +1710,7 @@ snd_rme9652_proc_read(struct snd_info_entry *entry, struct snd_info_buffer *buff
 	snd_iprintf(buffer, "ADAT Sample rate: %dHz\n",
 		    rme9652_adat_sample_rate(rme9652));
 
-	
+	/* Sync Check */
 
 	x = status & RME9652_sync_0;
 	if (status & RME9652_lock_0) {
@@ -1676,7 +1738,7 @@ snd_rme9652_proc_read(struct snd_info_entry *entry, struct snd_info_buffer *buff
 	snd_iprintf(buffer, "Timecode signal: %s\n",
 		    (status & RME9652_tc_valid) ? "yes" : "no");
 
-	
+	/* thru modes */
 
 	snd_iprintf(buffer, "Punch Status:\n\n");
 
@@ -1738,12 +1800,12 @@ static int __devinit snd_rme9652_initialize_memory(struct snd_rme9652 *rme9652)
 		return -ENOMEM;
 	}
 
-	
+	/* Align to bus-space 64K boundary */
 
 	cb_bus = ALIGN(rme9652->capture_dma_buf.addr, 0x10000ul);
 	pb_bus = ALIGN(rme9652->playback_dma_buf.addr, 0x10000ul);
 
-	
+	/* Tell the card where it is */
 
 	rme9652_write(rme9652, RME9652_rec_buffer, cb_bus);
 	rme9652_write(rme9652, RME9652_play_buffer, pb_bus);
@@ -1758,7 +1820,21 @@ static void snd_rme9652_set_defaults(struct snd_rme9652 *rme9652)
 {
 	unsigned int k;
 
+	/* ASSUMPTION: rme9652->lock is either held, or
+	   there is no need to hold it (e.g. during module
+	   initialization).
+	 */
 
+	/* set defaults:
+
+	   SPDIF Input via Coax 
+	   autosync clock mode
+	   maximum latency (7 = 8192 samples, 64Kbyte buffer,
+	   which implies 2 4096 sample, 32Kbyte periods).
+	   
+	   if rev 1.5, initialize the S/PDIF receiver.
+
+	 */
 
 	rme9652->control_register =
 	    RME9652_inp_0 | rme9652_encode_latency(7);
@@ -1768,7 +1844,7 @@ static void snd_rme9652_set_defaults(struct snd_rme9652 *rme9652)
 	rme9652_reset_hw_pointer(rme9652);
 	rme9652_compute_period_size(rme9652);
 
-	
+	/* default: thru off for all channels */
 
 	for (k = 0; k < RME9652_NCHANNELS; ++k)
 		rme9652_write(rme9652, RME9652_thru_base + k * 4, 0);
@@ -1776,7 +1852,7 @@ static void snd_rme9652_set_defaults(struct snd_rme9652 *rme9652)
 	rme9652->thru_bits = 0;
 	rme9652->passthru = 0;
 
-	
+	/* set a default rate so that the channel map is set up */
 
 	rme9652_set_rate(rme9652, 48000);
 }
@@ -1931,6 +2007,10 @@ static int snd_rme9652_hw_params(struct snd_pcm_substream *substream,
 
 	if ((other_pid > 0) && (this_pid != other_pid)) {
 
+		/* The other stream is open, and not by the same
+		   task as this one. Make sure that the parameters
+		   that matter are the same.
+		 */
 
 		if ((int)params_rate(params) !=
 		    rme9652_adat_sample_rate(rme9652)) {
@@ -1945,7 +2025,7 @@ static int snd_rme9652_hw_params(struct snd_pcm_substream *substream,
 			return -EBUSY;
 		}
 
-		
+		/* We're fine. */
 
 		spin_unlock_irq(&rme9652->lock);
  		return 0;
@@ -1954,6 +2034,8 @@ static int snd_rme9652_hw_params(struct snd_pcm_substream *substream,
 		spin_unlock_irq(&rme9652->lock);
 	}
 
+	/* how to make sure that the rate matches an externally-set one ?
+	 */
 
 	if ((err = rme9652_set_rate(rme9652, params_rate(params))) < 0) {
 		_snd_pcm_hw_param_setempty(params, SNDRV_PCM_HW_PARAM_RATE);
@@ -2378,7 +2460,7 @@ static int __devinit snd_rme9652_create(struct snd_card *card,
 		break;
 
 	default:
-		
+		/* who knows? */
 		return -ENODEV;
 	}
 
@@ -2404,6 +2486,10 @@ static int __devinit snd_rme9652_create(struct snd_card *card,
 	rme9652->irq = pci->irq;
 	rme9652->precise_ptr = precise_ptr;
 
+	/* Determine the h/w rev level of the card. This seems like
+	   a particularly kludgy way to encode it, but its what RME
+	   chose to do, so we follow them ...
+	*/
 
 	status = rme9652_read(rme9652, RME9652_status_register);
 	if (rme9652_decode_spdif_rate(status&RME9652_F) == 1) {
@@ -2412,9 +2498,15 @@ static int __devinit snd_rme9652_create(struct snd_card *card,
 		rme9652->hw_rev = 11;
 	}
 
+	/* Differentiate between the standard Hammerfall, and the
+	   "Light", which does not have the expansion board. This
+	   method comes from information received from Mathhias
+	   Clausen at RME. Display the EEPROM and h/w revID where
+	   relevant.  
+	*/
 
 	switch (rev) {
-	case 8: 
+	case 8: /* original eprom */
 		strcpy(card->driver, "RME9636");
 		if (rme9652->hw_rev == 15) {
 			rme9652->card_name = "RME Digi9636 (Rev 1.5)";
@@ -2423,17 +2515,17 @@ static int __devinit snd_rme9652_create(struct snd_card *card,
 		}
 		rme9652->ss_channels = RME9636_NCHANNELS;
 		break;
-	case 9: 
+	case 9: /* W36_G EPROM */
 		strcpy(card->driver, "RME9636");
 		rme9652->card_name = "RME Digi9636 (Rev G)";
 		rme9652->ss_channels = RME9636_NCHANNELS;
 		break;
-	case 4: 
+	case 4: /* W52_G EPROM */
 		strcpy(card->driver, "RME9652");
 		rme9652->card_name = "RME Digi9652 (Rev G)";
 		rme9652->ss_channels = RME9652_NCHANNELS;
 		break;
-	case 3: 
+	case 3: /* original eprom */
 		strcpy(card->driver, "RME9652");
 		if (rme9652->hw_rev == 15) {
 			rme9652->card_name = "RME Digi9652 (Rev 1.5)";

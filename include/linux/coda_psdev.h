@@ -4,7 +4,7 @@
 #include <linux/magic.h>
 
 #define CODA_PSDEV_MAJOR 67
-#define MAX_CODADEVS  5	   
+#define MAX_CODADEVS  5	   /* how many do we allow */
 
 #ifdef __KERNEL__
 #include <linux/backing-dev.h>
@@ -12,9 +12,10 @@
 
 struct kstatfs;
 
+/* communication pending/processing queues */
 struct venus_comm {
 	u_long		    vc_seq;
-	wait_queue_head_t   vc_waitq; 
+	wait_queue_head_t   vc_waitq; /* Venus wait queue */
 	struct list_head    vc_pending;
 	struct list_head    vc_processing;
 	int                 vc_inuse;
@@ -29,6 +30,7 @@ static inline struct venus_comm *coda_vcp(struct super_block *sb)
 	return (struct venus_comm *)((sb)->s_fs_info);
 }
 
+/* upcalls */
 int venus_rootfid(struct super_block *sb, struct CodaFid *fidp);
 int venus_getattr(struct super_block *sb, struct CodaFid *fid,
 		  struct coda_vattr *attr);
@@ -67,19 +69,23 @@ int coda_downcall(struct venus_comm *vcp, int opcode, union outputArgs *out);
 int venus_fsync(struct super_block *sb, struct CodaFid *fid);
 int venus_statfs(struct dentry *dentry, struct kstatfs *sfs);
 
+/*
+ * Statistics
+ */
 
 extern struct venus_comm coda_comms[];
-#endif 
+#endif /* __KERNEL__ */
 
+/* messages between coda filesystem in kernel and Venus */
 struct upc_req {
 	struct list_head    uc_chain;
 	caddr_t	            uc_data;
 	u_short	            uc_flags;
-	u_short             uc_inSize;  
+	u_short             uc_inSize;  /* Size is at most 5000 bytes */
 	u_short	            uc_outSize;
-	u_short	            uc_opcode;  
+	u_short	            uc_opcode;  /* copied from data to save lookup */
 	int		    uc_unique;
-	wait_queue_head_t   uc_sleep;   
+	wait_queue_head_t   uc_sleep;   /* process' wait queue */
 };
 
 #define CODA_REQ_ASYNC  0x1

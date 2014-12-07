@@ -21,9 +21,14 @@
 
 #include "sir-dev.h"
 
+/**************************************************************************
+ *
+ * dongle registration and attachment
+ *
+ */
 
-static LIST_HEAD(dongle_list);			
-static DEFINE_MUTEX(dongle_list_lock);		
+static LIST_HEAD(dongle_list);			/* list of registered dongle drivers */
+static DEFINE_MUTEX(dongle_list_lock);		/* protects the list */
 
 int irda_register_dongle(struct dongle_driver *new)
 {
@@ -67,7 +72,7 @@ int sirdev_get_dongle(struct sir_dev *dev, IRDA_DONGLE type)
 	if (dev->dongle_drv != NULL)
 		return -EBUSY;
 	
-	
+	/* serialize access to the list of registered dongles */
 	mutex_lock(&dongle_list_lock);
 
 	list_for_each(entry, &dongle_list) {
@@ -80,18 +85,27 @@ int sirdev_get_dongle(struct sir_dev *dev, IRDA_DONGLE type)
 
 	if (!drv) {
 		err = -ENODEV;
-		goto out_unlock;	
+		goto out_unlock;	/* no such dongle */
 	}
 
+	/* handling of SMP races with dongle module removal - three cases:
+	 * 1) dongle driver was already unregistered - then we haven't found the
+	 *	requested dongle above and are already out here
+	 * 2) the module is already marked deleted but the driver is still
+	 *	registered - then the try_module_get() below will fail
+	 * 3) the try_module_get() below succeeds before the module is marked
+	 *	deleted - then sys_delete_module() fails and prevents the removal
+	 *	because the module is in use.
+	 */
 
 	if (!try_module_get(drv->owner)) {
 		err = -ESTALE;
-		goto out_unlock;	
+		goto out_unlock;	/* rmmod already pending */
 	}
 	dev->dongle_drv = drv;
 
 	if (!drv->open  ||  (err=drv->open(dev))!=0)
-		goto out_reject;		
+		goto out_reject;		/* failed to open driver */
 
 	mutex_unlock(&dongle_list_lock);
 	return 0;
@@ -110,10 +124,10 @@ int sirdev_put_dongle(struct sir_dev *dev)
 
 	if (drv) {
 		if (drv->close)
-			drv->close(dev);		
+			drv->close(dev);		/* close this dongle instance */
 
-		dev->dongle_drv = NULL;			
-		module_put(drv->owner);
+		dev->dongle_drv = NULL;			/* unlink the dongle driver */
+		module_put(drv->owner);/* decrement driver's module refcount */
 	}
 
 	return 0;

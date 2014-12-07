@@ -16,6 +16,7 @@ struct xonar_hdmi {
 	u8 params[5];
 };
 
+/* generic helper functions */
 
 void xonar_enable_output(struct oxygen *chip);
 void xonar_disable_output(struct oxygen *chip);
@@ -30,6 +31,7 @@ int xonar_gpio_bit_switch_get(struct snd_kcontrol *ctl,
 int xonar_gpio_bit_switch_put(struct snd_kcontrol *ctl,
 			      struct snd_ctl_elem_value *value);
 
+/* model-specific card drivers */
 
 int get_xonar_pcm179x_model(struct oxygen *chip,
 			    const struct pci_device_id *id);
@@ -38,6 +40,7 @@ int get_xonar_cs43xx_model(struct oxygen *chip,
 int get_xonar_wm87x6_model(struct oxygen *chip,
 			   const struct pci_device_id *id);
 
+/* HDMI helper functions */
 
 void xonar_hdmi_init(struct oxygen *chip, struct xonar_hdmi *data);
 void xonar_hdmi_cleanup(struct oxygen *chip);

@@ -1,3 +1,9 @@
+/*
+ * arch/x86_64/lib/csum-partial.c
+ *
+ * This file contains network checksum routines that are better done
+ * in an architecture-specific manner due to speed.
+ */
  
 #include <linux/compiler.h>
 #include <linux/module.h>
@@ -13,6 +19,18 @@ static inline unsigned short from32to16(unsigned a)
 	return b;
 }
 
+/*
+ * Do a 64-bit checksum on an arbitrary memory area.
+ * Returns a 32bit checksum.
+ *
+ * This isn't as time critical as it used to be because many NICs
+ * do hardware checksumming these days.
+ * 
+ * Things tried and found to not make it faster:
+ * Manual Prefetching
+ * Unrolling to an 128 bytes inner loop.
+ * Using interleaving with more registers to break the carry chains.
+ */
 static unsigned do_csum(const unsigned char *buff, unsigned len)
 {
 	unsigned odd, count;
@@ -26,7 +44,7 @@ static unsigned do_csum(const unsigned char *buff, unsigned len)
 		len--;
 		buff++;
 	}
-	count = len >> 1;		
+	count = len >> 1;		/* nr of 16-bit words.. */
 	if (count) {
 		if (2 & (unsigned long) buff) {
 			result += *(unsigned short *)buff;
@@ -34,7 +52,7 @@ static unsigned do_csum(const unsigned char *buff, unsigned len)
 			len -= 2;
 			buff += 2;
 		}
-		count >>= 1;		
+		count >>= 1;		/* nr of 32-bit words.. */
 		if (count) {
 			unsigned long zero;
 			unsigned count64;
@@ -44,9 +62,9 @@ static unsigned do_csum(const unsigned char *buff, unsigned len)
 				len -= 4;
 				buff += 4;
 			}
-			count >>= 1;	
+			count >>= 1;	/* nr of 64-bit words.. */
 
-			
+			/* main loop using 64byte blocks */
 			zero = 0;
 			count64 = count >> 3;
 			while (count64) { 
@@ -66,7 +84,7 @@ static unsigned do_csum(const unsigned char *buff, unsigned len)
 				count64--;
 			}
 
-			
+			/* last up to 7 8byte blocks */
 			count %= 8; 
 			while (count) { 
 				asm("addq %1,%0\n\t"
@@ -100,12 +118,28 @@ static unsigned do_csum(const unsigned char *buff, unsigned len)
 	return result;
 }
 
+/*
+ * computes the checksum of a memory block at buff, length len,
+ * and adds in "sum" (32-bit)
+ *
+ * returns a 32-bit number suitable for feeding into itself
+ * or csum_tcpudp_magic
+ *
+ * this function must be called with even lengths, except
+ * for the last fragment, which may be odd
+ *
+ * it's best to have buff aligned on a 64-bit boundary
+ */
 __wsum csum_partial(const void *buff, int len, __wsum sum)
 {
 	return (__force __wsum)add32_with_carry(do_csum(buff, len),
 						(__force u32)sum);
 }
 
+/*
+ * this routine is used for miscellaneous IP-like checksums, mainly
+ * in icmp.c
+ */
 __sum16 ip_compute_csum(const void *buff, int len)
 {
 	return csum_fold(csum_partial(buff,len,0));

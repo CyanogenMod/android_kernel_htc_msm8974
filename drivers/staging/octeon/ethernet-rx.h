@@ -34,7 +34,7 @@ static inline void cvm_oct_rx_refill_pool(int fill_threshold)
 {
 	int number_to_free;
 	int num_freed;
-	
+	/* Refill the packet buffer pool */
 	number_to_free =
 		cvmx_fau_fetch_and_add32(FAU_NUM_PACKET_BUFFERS_TO_FREE, 0);
 

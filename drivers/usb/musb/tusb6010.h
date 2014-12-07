@@ -26,12 +26,16 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define tusb_dma_omap()			0
 #endif
 
+/* VLYNQ control register. 32-bit at offset 0x000 */
 #define TUSB_VLYNQ_CTRL			0x004
 
+/* Mentor Graphics OTG core registers. 8,- 16- and 32-bit at offset 0x400 */
 #define TUSB_BASE_OFFSET		0x400
 
+/* FIFO registers 32-bit at offset 0x600 */
 #define TUSB_FIFO_BASE			0x600
 
+/* Device System & Control registers. 32-bit at offset 0x800 */
 #define TUSB_SYS_REG_BASE		0x800
 
 #define TUSB_DEV_CONF			(TUSB_SYS_REG_BASE + 0x000)
@@ -64,6 +68,7 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define		TUSB_PHY_OTG_CTRL_SUSPENDM		(1 << 1)
 #define		TUSB_PHY_OTG_CTRL_CLK_MODE		(1 << 0)
 
+/*OTG status register */
 #define TUSB_DEV_OTG_STAT		(TUSB_SYS_REG_BASE + 0x00c)
 #define		TUSB_DEV_OTG_STAT_PWR_CLK_GOOD		(1 << 8)
 #define		TUSB_DEV_OTG_STAT_SESS_END		(1 << 7)
@@ -81,10 +86,12 @@ extern u8 tusb_get_revision(struct musb *musb);
 #	define TUSB_DEV_OTG_TIMER_VAL(v)		((v) & 0x07ffffff)
 #define TUSB_PRCM_REV			(TUSB_SYS_REG_BASE + 0x014)
 
+/* PRCM configuration register */
 #define TUSB_PRCM_CONF			(TUSB_SYS_REG_BASE + 0x018)
 #define		TUSB_PRCM_CONF_SFW_CPEN		(1 << 24)
 #define		TUSB_PRCM_CONF_SYS_CLKSEL(v)	(((v) & 3) << 16)
 
+/* PRCM management register */
 #define TUSB_PRCM_MNGMT			(TUSB_SYS_REG_BASE + 0x01c)
 #define		TUSB_PRCM_MNGMT_SRP_FIX_TIMER(v)	(((v) & 0xf) << 25)
 #define		TUSB_PRCM_MNGMT_SRP_FIX_EN		(1 << 24)
@@ -101,6 +108,7 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define		TUSB_PRCM_MNGMT_PM_IDLE			(1 << 1)
 #define		TUSB_PRCM_MNGMT_DEV_IDLE		(1 << 0)
 
+/* Wake-up source clear and mask registers */
 #define TUSB_PRCM_WAKEUP_SOURCE		(TUSB_SYS_REG_BASE + 0x020)
 #define TUSB_PRCM_WAKEUP_CLEAR		(TUSB_SYS_REG_BASE + 0x028)
 #define TUSB_PRCM_WAKEUP_MASK		(TUSB_SYS_REG_BASE + 0x02c)
@@ -113,11 +121,11 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define		TUSB_PRCM_WGPIO_2	(1 << 7)
 #define		TUSB_PRCM_WGPIO_1	(1 << 6)
 #define		TUSB_PRCM_WGPIO_0	(1 << 5)
-#define		TUSB_PRCM_WHOSTDISCON	(1 << 4)	
-#define		TUSB_PRCM_WBUS		(1 << 3)	
-#define		TUSB_PRCM_WNORCS	(1 << 2)	
-#define		TUSB_PRCM_WVBUS		(1 << 1)	
-#define		TUSB_PRCM_WID		(1 << 0)	
+#define		TUSB_PRCM_WHOSTDISCON	(1 << 4)	/* Host disconnect */
+#define		TUSB_PRCM_WBUS		(1 << 3)	/* USB bus resume */
+#define		TUSB_PRCM_WNORCS	(1 << 2)	/* NOR chip select */
+#define		TUSB_PRCM_WVBUS		(1 << 1)	/* OTG PHY VBUS */
+#define		TUSB_PRCM_WID		(1 << 0)	/* OTG PHY ID detect */
 
 #define TUSB_PULLUP_1_CTRL		(TUSB_SYS_REG_BASE + 0x030)
 #define TUSB_PULLUP_2_CTRL		(TUSB_SYS_REG_BASE + 0x034)
@@ -136,6 +144,7 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define TUSB_GPIO_INT_CLEAR		(TUSB_SYS_REG_BASE + 0x068)
 #define TUSB_GPIO_INT_MASK		(TUSB_SYS_REG_BASE + 0x06c)
 
+/* NOR flash interrupt source registers */
 #define TUSB_INT_SRC			(TUSB_SYS_REG_BASE + 0x070)
 #define TUSB_INT_SRC_SET		(TUSB_SYS_REG_BASE + 0x074)
 #define TUSB_INT_SRC_CLEAR		(TUSB_SYS_REG_BASE + 0x078)
@@ -166,10 +175,12 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define		TUSB_INT_SRC_RESERVED_18		(0x3f << 18)
 #define		TUSB_INT_SRC_RESERVED_10		(0x03 << 10)
 
+/* Reserved bits for NOR flash interrupt mask and clear register */
 #define		TUSB_INT_MASK_RESERVED_BITS	(TUSB_INT_MASK_RESERVED_17 | \
 						TUSB_INT_MASK_RESERVED_13 | \
 						TUSB_INT_MASK_RESERVED_8)
 
+/* Reserved bits for NOR flash interrupt status register */
 #define		TUSB_INT_SRC_RESERVED_BITS	(TUSB_INT_SRC_RESERVED_26 | \
 						TUSB_INT_SRC_RESERVED_18 | \
 						TUSB_INT_SRC_RESERVED_10)
@@ -181,14 +192,16 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define TUSB_EP0_CONF			(TUSB_SYS_REG_BASE + 0x108)
 #define TUSB_DMA_EP_MAP			(TUSB_SYS_REG_BASE + 0x148)
 
-#define TUSB_EP_TX_OFFSET		0x10c	
-#define TUSB_EP_RX_OFFSET		0x14c	
+/* Offsets from each ep base register */
+#define TUSB_EP_TX_OFFSET		0x10c	/* EP_IN in docs */
+#define TUSB_EP_RX_OFFSET		0x14c	/* EP_OUT in docs */
 #define TUSB_EP_MAX_PACKET_SIZE_OFFSET	0x188
 
 #define TUSB_WAIT_COUNT			(TUSB_SYS_REG_BASE + 0x1c8)
 #define TUSB_SCRATCH_PAD		(TUSB_SYS_REG_BASE + 0x1c4)
 #define TUSB_PROD_TEST_RESET		(TUSB_SYS_REG_BASE + 0x1d8)
 
+/* Device System & Control register bitfields */
 #define TUSB_INT_CTRL_CONF_INT_RELCYC(v)	(((v) & 0x7) << 18)
 #define TUSB_INT_CTRL_CONF_INT_POLARITY		(1 << 17)
 #define TUSB_INT_CTRL_CONF_INT_MODE		(1 << 16)
@@ -216,4 +229,4 @@ extern u8 tusb_get_revision(struct musb *musb);
 #define TUSB_REV_30	0x30
 #define TUSB_REV_31	0x31
 
-#endif 
+#endif /* __TUSB6010_H__ */

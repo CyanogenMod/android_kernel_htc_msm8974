@@ -17,6 +17,13 @@
 
 void __delay(unsigned long loops)
 {
+        /*
+         * To end the bloody studid and useless discussion about the
+         * BogoMips number I took the liberty to define the __delay
+         * function in a way that that resulting BogoMips number will
+         * yield the megahertz number of the cpu. The important function
+         * is udelay and that is done using the tod clock. -- martin.
+         */
 	asm volatile("0: brct %0,0b" : : "d" ((loops/2) + 1));
 }
 
@@ -63,6 +70,9 @@ static void __udelay_enabled(unsigned long long usecs)
 	} while (get_clock() < end);
 }
 
+/*
+ * Waits for 'usecs' microseconds using the TOD clock comparator.
+ */
 void __udelay(unsigned long long usecs)
 {
 	unsigned long flags;
@@ -93,6 +103,10 @@ out:
 }
 EXPORT_SYMBOL(__udelay);
 
+/*
+ * Simple udelay variant. To be used on startup and reboot
+ * when the interrupt handler isn't working.
+ */
 void udelay_simple(unsigned long long usecs)
 {
 	u64 end;

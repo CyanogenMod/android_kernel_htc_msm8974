@@ -35,7 +35,7 @@ struct htc_headset_1wire_platform_data {
 	unsigned int uart_tx;
 	unsigned int uart_rx;
 	unsigned int remote_press;
-	char one_wire_remote[6]; 
+	char one_wire_remote[6]; /* Key code for press and release */
 	char onewire_tty_dev[15];
 
 };

@@ -7,6 +7,35 @@
 
 #include "vmregion.h"
 
+/*
+ * VM region handling support.
+ *
+ * This should become something generic, handling VM region allocations for
+ * vmalloc and similar (ioremap, module space, etc).
+ *
+ * I envisage vmalloc()'s supporting vm_struct becoming:
+ *
+ *  struct vm_struct {
+ *    struct vmregion	region;
+ *    unsigned long	flags;
+ *    struct page	**pages;
+ *    unsigned int	nr_pages;
+ *    unsigned long	phys_addr;
+ *  };
+ *
+ * get_vm_area() would then call vmregion_alloc with an appropriate
+ * struct vmregion head (eg):
+ *
+ *  struct vmregion vmalloc_head = {
+ *	.vm_list	= LIST_HEAD_INIT(vmalloc_head.vm_list),
+ *	.vm_start	= VMALLOC_START,
+ *	.vm_end		= VMALLOC_END,
+ *  };
+ *
+ * However, vmalloc_head.vm_start is variable (typically, it is dependent on
+ * the amount of RAM found at boot time.)  I would imagine that get_vm_area()
+ * would have to initialise this each time prior to calling vmregion_alloc().
+ */
 
 struct arm_vmregion *
 arm_vmregion_alloc(struct arm_vmregion_head *head, size_t align,
@@ -40,6 +69,9 @@ arm_vmregion_alloc(struct arm_vmregion_head *head, size_t align,
 	}
 
  found:
+	/*
+	 * Insert this entry after the one we found.
+	 */
 	list_add(&new->vm_list, &c->vm_list);
 	new->vm_start = addr;
 	new->vm_end = addr + size;

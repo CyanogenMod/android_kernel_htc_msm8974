@@ -25,6 +25,15 @@
 #define DRV_NAME	"pata_hpt3x3"
 #define DRV_VERSION	"0.6.1"
 
+/**
+ *	hpt3x3_set_piomode		-	PIO setup
+ *	@ap: ATA interface
+ *	@adev: device on the interface
+ *
+ *	Set our PIO requirements. This is fairly simple on the HPT3x3 as
+ *	all we have to do is clear the MWDMA and UDMA bits then load the
+ *	mode number.
+ */
 
 static void hpt3x3_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -34,16 +43,27 @@ static void hpt3x3_set_piomode(struct ata_port *ap, struct ata_device *adev)
 
 	pci_read_config_dword(pdev, 0x44, &r1);
 	pci_read_config_dword(pdev, 0x48, &r2);
-	
+	/* Load the PIO timing number */
 	r1 &= ~(7 << (3 * dn));
 	r1 |= (adev->pio_mode - XFER_PIO_0) << (3 * dn);
-	r2 &= ~(0x11 << dn);	
+	r2 &= ~(0x11 << dn);	/* Clear MWDMA and UDMA bits */
 
 	pci_write_config_dword(pdev, 0x44, r1);
 	pci_write_config_dword(pdev, 0x48, r2);
 }
 
 #if defined(CONFIG_PATA_HPT3X3_DMA)
+/**
+ *	hpt3x3_set_dmamode		-	DMA timing setup
+ *	@ap: ATA interface
+ *	@adev: Device being configured
+ *
+ *	Set up the channel for MWDMA or UDMA modes. Much the same as with
+ *	PIO, load the mode number and then set MWDMA or UDMA flag.
+ *
+ *	0x44 : bit 0-2 master mode, 3-5 slave mode, etc
+ *	0x48 : bit 4/0 DMA/UDMA bit 5/1 for slave etc
+ */
 
 static void hpt3x3_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -54,20 +74,27 @@ static void hpt3x3_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 
 	pci_read_config_dword(pdev, 0x44, &r1);
 	pci_read_config_dword(pdev, 0x48, &r2);
-	
+	/* Load the timing number */
 	r1 &= ~(7 << (3 * dn));
 	r1 |= (mode_num << (3 * dn));
-	r2 &= ~(0x11 << dn);	
+	r2 &= ~(0x11 << dn);	/* Clear MWDMA and UDMA bits */
 
 	if (adev->dma_mode >= XFER_UDMA_0)
-		r2 |= (0x01 << dn);	
+		r2 |= (0x01 << dn);	/* Ultra mode */
 	else
-		r2 |= (0x10 << dn);	
+		r2 |= (0x10 << dn);	/* MWDMA */
 
 	pci_write_config_dword(pdev, 0x44, r1);
 	pci_write_config_dword(pdev, 0x48, r2);
 }
 
+/**
+ *	hpt3x3_freeze		-	DMA workaround
+ *	@ap: port to freeze
+ *
+ *	When freezing an HPT3x3 we must stop any pending DMA before
+ *	writing to the control register or the chip will hang
+ */
 
 static void hpt3x3_freeze(struct ata_port *ap)
 {
@@ -79,6 +106,13 @@ static void hpt3x3_freeze(struct ata_port *ap)
 	ata_sff_freeze(ap);
 }
 
+/**
+ *	hpt3x3_bmdma_setup	-	DMA workaround
+ *	@qc: Queued command
+ *
+ *	When issuing BMDMA we must clean up the error/active bits in
+ *	software on this device
+ */
 
 static void hpt3x3_bmdma_setup(struct ata_queued_cmd *qc)
 {
@@ -89,13 +123,19 @@ static void hpt3x3_bmdma_setup(struct ata_queued_cmd *qc)
 	return ata_bmdma_setup(qc);
 }
 
+/**
+ *	hpt3x3_atapi_dma	-	ATAPI DMA check
+ *	@qc: Queued command
+ *
+ *	Just say no - we don't do ATAPI DMA
+ */
 
 static int hpt3x3_atapi_dma(struct ata_queued_cmd *qc)
 {
 	return 1;
 }
 
-#endif 
+#endif /* CONFIG_PATA_HPT3X3_DMA */
 
 static struct scsi_host_template hpt3x3_sht = {
 	ATA_BMDMA_SHT(DRV_NAME),
@@ -114,13 +154,19 @@ static struct ata_port_operations hpt3x3_port_ops = {
 
 };
 
+/**
+ *	hpt3x3_init_chipset	-	chip setup
+ *	@dev: PCI device
+ *
+ *	Perform the setup required at boot and on resume.
+ */
 
 static void hpt3x3_init_chipset(struct pci_dev *dev)
 {
 	u16 cmd;
-	
+	/* Initialize the board */
 	pci_write_config_word(dev, 0x80, 0x00);
-	
+	/* Check if it is a 343 or a 363. 363 has COMMAND_MEMORY set */
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	if (cmd & PCI_COMMAND_MEMORY)
 		pci_write_config_byte(dev, PCI_LATENCY_TIMER, 0xF0);
@@ -128,6 +174,14 @@ static void hpt3x3_init_chipset(struct pci_dev *dev)
 		pci_write_config_byte(dev, PCI_LATENCY_TIMER, 0x20);
 }
 
+/**
+ *	hpt3x3_init_one		-	Initialise an HPT343/363
+ *	@pdev: PCI device
+ *	@id: Entry in match table
+ *
+ *	Perform basic initialisation. We set the device up so we access all
+ *	ports via BAR4. This is necessary to work around errata.
+ */
 
 static int hpt3x3_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -135,13 +189,13 @@ static int hpt3x3_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.flags = ATA_FLAG_SLAVE_POSS,
 		.pio_mask = ATA_PIO4,
 #if defined(CONFIG_PATA_HPT3X3_DMA)
-		
+		/* Further debug needed */
 		.mwdma_mask = ATA_MWDMA2,
 		.udma_mask = ATA_UDMA2,
 #endif
 		.port_ops = &hpt3x3_port_ops
 	};
-	
+	/* Register offsets of taskfiles in BAR4 area */
 	static const u8 offset_cmd[2] = { 0x20, 0x28 };
 	static const u8 offset_ctl[2] = { 0x36, 0x3E };
 	const struct ata_port_info *ppi[] = { &info, NULL };
@@ -156,12 +210,12 @@ static int hpt3x3_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	host = ata_host_alloc_pinfo(&pdev->dev, ppi, 2);
 	if (!host)
 		return -ENOMEM;
-	
+	/* acquire resources and fill host */
 	rc = pcim_enable_device(pdev);
 	if (rc)
 		return rc;
 
-	
+	/* Everything is relative to BAR4 if we set up this way */
 	rc = pcim_iomap_regions(pdev, 1 << 4, DRV_NAME);
 	if (rc == -EBUSY)
 		pcim_pin_device(pdev);
@@ -175,7 +229,7 @@ static int hpt3x3_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (rc)
 		return rc;
 
-	base = host->iomap[4];	
+	base = host->iomap[4];	/* Bus mastering base */
 
 	for (i = 0; i < host->n_ports; i++) {
 		struct ata_port *ap = host->ports[i];

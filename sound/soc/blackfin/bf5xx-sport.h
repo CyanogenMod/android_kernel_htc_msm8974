@@ -55,18 +55,18 @@ struct sport_device {
 	unsigned int tx_frags;
 	unsigned int wdsize;
 
-	
+	/* for dummy dma transfer */
 	void *dummy_buf;
 	unsigned int dummy_count;
 
-	
+	/* DMA descriptor ring head of current audio stream*/
 	struct dmasg *dma_rx_desc;
 	struct dmasg *dma_tx_desc;
 	unsigned int rx_desc_bytes;
 	unsigned int tx_desc_bytes;
 
-	unsigned int rx_run:1; 
-	unsigned int tx_run:1; 
+	unsigned int rx_run:1; /* rx is running */
+	unsigned int tx_run:1; /* tx is running */
 
 	struct dmasg *dummy_rx_desc;
 	struct dmasg *dummy_tx_desc;
@@ -96,7 +96,7 @@ struct sport_device {
 #ifdef CONFIG_SND_BF5XX_MMAP_SUPPORT
 	dma_addr_t tx_dma_phy;
 	dma_addr_t rx_dma_phy;
-	int tx_pos;
+	int tx_pos;/*pcm sample count*/
 	int rx_pos;
 	unsigned int tx_buffer_size;
 	unsigned int rx_buffer_size;
@@ -123,7 +123,10 @@ struct sport_device *sport_init(struct platform_device *pdev,
 
 void sport_done(struct sport_device *sport);
 
+/* first use these ...*/
 
+/* note: multichannel is in units of 8 channels, tdm_count is number of channels
+ *  NOT / 8 ! all channels are enabled by default */
 int sport_set_multichannel(struct sport_device *sport, int tdm_count,
 		u32 mask, int packed);
 
@@ -135,8 +138,11 @@ int sport_config_tx(struct sport_device *sport,
 		unsigned int tcr1, unsigned int tcr2,
 		unsigned int clkdiv, unsigned int fsdiv);
 
+/* ... then these: */
 
+/* buffer size (in bytes) == fragcount * fragsize_bytes */
 
+/* this is not a very general api, it sets the dma to 2d autobuffer mode */
 
 int sport_config_rx_dma(struct sport_device *sport, void *buf,
 		int fragcount, size_t fragsize_bytes);
@@ -149,6 +155,7 @@ int sport_tx_stop(struct sport_device *sport);
 int sport_rx_start(struct sport_device *sport);
 int sport_rx_stop(struct sport_device *sport);
 
+/* for use in interrupt handler */
 unsigned long sport_curr_offset_rx(struct sport_device *sport);
 unsigned long sport_curr_offset_tx(struct sport_device *sport);
 
@@ -164,4 +171,4 @@ int sport_set_err_callback(struct sport_device *sport,
 
 int sport_send_and_recv(struct sport_device *sport, u8 *out_data, \
 		u8 *in_data, int len);
-#endif 
+#endif /* BF53X_SPORT_H */

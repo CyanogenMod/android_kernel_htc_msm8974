@@ -15,7 +15,7 @@
  */
 
 static const u32 ar9280Modes_9280_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00001030, 0x00000230, 0x00000460, 0x000002c0, 0x00000160},
 	{0x00001070, 0x00000168, 0x000002d0, 0x00000318, 0x0000018c},
 	{0x000010b0, 0x00000e60, 0x00001cc0, 0x00007c70, 0x00003e38},
@@ -65,7 +65,7 @@ static const u32 ar9280Modes_9280_2[][5] = {
 };
 
 static const u32 ar9280Common_9280_2[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000000c, 0x00000000},
 	{0x00000030, 0x00020015},
 	{0x00000034, 0x00000005},
@@ -409,7 +409,7 @@ static const u32 ar9280Common_9280_2[][2] = {
 };
 
 static const u32 ar9280Modes_fast_clock_9280_2[][3] = {
-	
+	/* Addr      5G_HT20     5G_HT40   */
 	{0x00001030, 0x00000268, 0x000004d0},
 	{0x00001070, 0x0000018c, 0x00000318},
 	{0x000010b0, 0x00000fd0, 0x00001fa0},
@@ -426,7 +426,7 @@ static const u32 ar9280Modes_fast_clock_9280_2[][3] = {
 };
 
 static const u32 ar9280Modes_backoff_23db_rxgain_9280_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00009a00, 0x00008184, 0x00008184, 0x00000290, 0x00000290},
 	{0x00009a04, 0x00008188, 0x00008188, 0x00000300, 0x00000300},
 	{0x00009a08, 0x0000818c, 0x0000818c, 0x00000304, 0x00000304},
@@ -560,7 +560,7 @@ static const u32 ar9280Modes_backoff_23db_rxgain_9280_2[][5] = {
 };
 
 static const u32 ar9280Modes_original_rxgain_9280_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00009a00, 0x00008184, 0x00008184, 0x00008000, 0x00008000},
 	{0x00009a04, 0x00008188, 0x00008188, 0x00008000, 0x00008000},
 	{0x00009a08, 0x0000818c, 0x0000818c, 0x00008000, 0x00008000},
@@ -694,7 +694,7 @@ static const u32 ar9280Modes_original_rxgain_9280_2[][5] = {
 };
 
 static const u32 ar9280Modes_backoff_13db_rxgain_9280_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00009a00, 0x00008184, 0x00008184, 0x00000290, 0x00000290},
 	{0x00009a04, 0x00008188, 0x00008188, 0x00000300, 0x00000300},
 	{0x00009a08, 0x0000818c, 0x0000818c, 0x00000304, 0x00000304},
@@ -828,7 +828,7 @@ static const u32 ar9280Modes_backoff_13db_rxgain_9280_2[][5] = {
 };
 
 static const u32 ar9280Modes_high_power_tx_gain_9280_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a274, 0x0a19e652, 0x0a19e652, 0x0a1aa652, 0x0a1aa652},
 	{0x0000a27c, 0x050739ce, 0x050739ce, 0x050739ce, 0x050739ce},
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
@@ -863,7 +863,7 @@ static const u32 ar9280Modes_high_power_tx_gain_9280_2[][5] = {
 };
 
 static const u32 ar9280Modes_original_tx_gain_9280_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a274, 0x0a19c652, 0x0a19c652, 0x0a1aa652, 0x0a1aa652},
 	{0x0000a27c, 0x050701ce, 0x050701ce, 0x050701ce, 0x050701ce},
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
@@ -898,7 +898,7 @@ static const u32 ar9280Modes_original_tx_gain_9280_2[][5] = {
 };
 
 static const u32 ar9280PciePhy_clkreq_off_L1_9280[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00004040, 0x9248fd00},
 	{0x00004040, 0x24924924},
 	{0x00004040, 0xa8000019},
@@ -912,7 +912,7 @@ static const u32 ar9280PciePhy_clkreq_off_L1_9280[][2] = {
 };
 
 static const u32 ar9280PciePhy_clkreq_always_on_L1_9280[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x00004040, 0x9248fd00},
 	{0x00004040, 0x24924924},
 	{0x00004040, 0xa8000019},
@@ -926,7 +926,7 @@ static const u32 ar9280PciePhy_clkreq_always_on_L1_9280[][2] = {
 };
 
 static const u32 ar9285Modes_9285_1_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00001030, 0x00000230, 0x00000460, 0x000002c0, 0x00000160},
 	{0x00001070, 0x00000168, 0x000002d0, 0x00000318, 0x0000018c},
 	{0x000010b0, 0x00000e60, 0x00001cc0, 0x00007c70, 0x00003e38},
@@ -1232,7 +1232,7 @@ static const u32 ar9285Modes_9285_1_2[][5] = {
 };
 
 static const u32 ar9285Common_9285_1_2[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000000c, 0x00000000},
 	{0x00000030, 0x00020045},
 	{0x00000034, 0x00000005},
@@ -1552,7 +1552,7 @@ static const u32 ar9285Common_9285_1_2[][2] = {
 };
 
 static const u32 ar9285Modes_high_power_tx_gain_9285_1_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
 	{0x0000a304, 0x00000000, 0x00000000, 0x00006200, 0x00006200},
 	{0x0000a308, 0x00000000, 0x00000000, 0x00008201, 0x00008201},
@@ -1593,7 +1593,7 @@ static const u32 ar9285Modes_high_power_tx_gain_9285_1_2[][5] = {
 };
 
 static const u32 ar9285Modes_original_tx_gain_9285_1_2[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
 	{0x0000a304, 0x00000000, 0x00000000, 0x00009200, 0x00009200},
 	{0x0000a308, 0x00000000, 0x00000000, 0x00010208, 0x00010208},
@@ -1634,7 +1634,7 @@ static const u32 ar9285Modes_original_tx_gain_9285_1_2[][5] = {
 };
 
 static const u32 ar9285Modes_XE2_0_normal_power[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
 	{0x0000a304, 0x00000000, 0x00000000, 0x00009200, 0x00009200},
 	{0x0000a308, 0x00000000, 0x00000000, 0x00010208, 0x00010208},
@@ -1675,7 +1675,7 @@ static const u32 ar9285Modes_XE2_0_normal_power[][5] = {
 };
 
 static const u32 ar9285Modes_XE2_0_high_power[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
 	{0x0000a304, 0x00000000, 0x00000000, 0x00006200, 0x00006200},
 	{0x0000a308, 0x00000000, 0x00000000, 0x00008201, 0x00008201},
@@ -1716,7 +1716,7 @@ static const u32 ar9285Modes_XE2_0_high_power[][5] = {
 };
 
 static const u32 ar9287Modes_9287_1_1[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00001030, 0x00000000, 0x00000000, 0x000002c0, 0x00000160},
 	{0x00001070, 0x00000000, 0x00000000, 0x00000318, 0x0000018c},
 	{0x000010b0, 0x00000000, 0x00000000, 0x00007c70, 0x00003e38},
@@ -1763,7 +1763,7 @@ static const u32 ar9287Modes_9287_1_1[][5] = {
 };
 
 static const u32 ar9287Common_9287_1_1[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000000c, 0x00000000},
 	{0x00000030, 0x00020015},
 	{0x00000034, 0x00000005},
@@ -2132,21 +2132,21 @@ static const u32 ar9287Common_9287_1_1[][2] = {
 };
 
 static const u32 ar9287Common_normal_cck_fir_coeff_9287_1_1[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000a1f4, 0x00fffeff},
 	{0x0000a1f8, 0x00f5f9ff},
 	{0x0000a1fc, 0xb79f6427},
 };
 
 static const u32 ar9287Common_japan_2484_cck_fir_coeff_9287_1_1[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000a1f4, 0x00000000},
 	{0x0000a1f8, 0xefff0301},
 	{0x0000a1fc, 0xca9228ee},
 };
 
 static const u32 ar9287Modes_tx_gain_9287_1_1[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
 	{0x0000a304, 0x00000000, 0x00000000, 0x00004002, 0x00004002},
 	{0x0000a308, 0x00000000, 0x00000000, 0x00008004, 0x00008004},
@@ -2195,7 +2195,7 @@ static const u32 ar9287Modes_tx_gain_9287_1_1[][5] = {
 };
 
 static const u32 ar9287Modes_rx_gain_9287_1_1[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00009a00, 0x00000000, 0x00000000, 0x0000a120, 0x0000a120},
 	{0x00009a04, 0x00000000, 0x00000000, 0x0000a124, 0x0000a124},
 	{0x00009a08, 0x00000000, 0x00000000, 0x0000a128, 0x0000a128},
@@ -2457,7 +2457,7 @@ static const u32 ar9287Modes_rx_gain_9287_1_1[][5] = {
 };
 
 static const u32 ar9271Modes_9271[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00001030, 0x00000230, 0x00000460, 0x000002c0, 0x00000160},
 	{0x00001070, 0x00000168, 0x000002d0, 0x00000318, 0x0000018c},
 	{0x000010b0, 0x00000e60, 0x00001cc0, 0x00007c70, 0x00003e38},
@@ -2764,7 +2764,7 @@ static const u32 ar9271Modes_9271[][5] = {
 };
 
 static const u32 ar9271Common_9271[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000000c, 0x00000000},
 	{0x00000030, 0x00020045},
 	{0x00000034, 0x00000005},
@@ -3093,7 +3093,7 @@ static const u32 ar9271Common_9271[][2] = {
 };
 
 static const u32 ar9271Modes_9271_ANI_reg[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00009850, 0x6d4000e2, 0x6d4000e2, 0x6d4000e2, 0x6d4000e2},
 	{0x0000985c, 0x3139605e, 0x3139605e, 0x3137605e, 0x3137605e},
 	{0x00009858, 0x7ec84d2e, 0x7ec84d2e, 0x7ec84d2e, 0x7ec84d2e},
@@ -3105,7 +3105,7 @@ static const u32 ar9271Modes_9271_ANI_reg[][5] = {
 };
 
 static const u32 ar9271Modes_normal_power_tx_gain_9271[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a300, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
 	{0x0000a304, 0x00000000, 0x00000000, 0x00009200, 0x00009200},
 	{0x0000a308, 0x00000000, 0x00000000, 0x00010208, 0x00010208},
@@ -3142,7 +3142,7 @@ static const u32 ar9271Modes_normal_power_tx_gain_9271[][5] = {
 };
 
 static const u32 ar9271Modes_high_power_tx_gain_9271[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x0000a300, 0x00000000, 0x00000000, 0x00010000, 0x00010000},
 	{0x0000a304, 0x00000000, 0x00000000, 0x00016200, 0x00016200},
 	{0x0000a308, 0x00000000, 0x00000000, 0x00018201, 0x00018201},

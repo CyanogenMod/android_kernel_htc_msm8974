@@ -3,4 +3,4 @@
 
 #include <asm-generic/device.h>
 
-#endif 
+#endif /* _ASM_SCORE_DEVICE_H */

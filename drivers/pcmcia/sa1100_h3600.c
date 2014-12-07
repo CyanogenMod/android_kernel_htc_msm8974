@@ -1,3 +1,9 @@
+/*
+ * drivers/pcmcia/sa1100_h3600.c
+ *
+ * PCMCIA implementation routines for H3600
+ *
+ */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/device.h>
@@ -70,7 +76,7 @@ static void h3600_pcmcia_hw_shutdown(struct soc_pcmcia_socket *skt)
 {
 	switch (skt->nr) {
 	case 0:
-		
+		/* Disable CF bus: */
 		gpio_set_value(H3XXX_EGPIO_OPT_NVRAM_ON, 0);
 		gpio_set_value(H3XXX_EGPIO_OPT_ON, 0);
 		gpio_set_value(H3XXX_EGPIO_OPT_RESET, 1);
@@ -105,14 +111,14 @@ h3600_pcmcia_configure_socket(struct soc_pcmcia_socket *skt, const socket_state_
 
 	gpio_set_value(H3XXX_EGPIO_CARD_RESET, !!(state->flags & SS_RESET));
 
-	
+	/* Silently ignore Vpp, output enable, speaker enable. */
 
 	return 0;
 }
 
 static void h3600_pcmcia_socket_init(struct soc_pcmcia_socket *skt)
 {
-	
+	/* Enable CF bus: */
 	gpio_set_value(H3XXX_EGPIO_OPT_NVRAM_ON, 1);
 	gpio_set_value(H3XXX_EGPIO_OPT_ON, 1);
 	gpio_set_value(H3XXX_EGPIO_OPT_RESET, 0);
@@ -122,10 +128,16 @@ static void h3600_pcmcia_socket_init(struct soc_pcmcia_socket *skt)
 
 static void h3600_pcmcia_socket_suspend(struct soc_pcmcia_socket *skt)
 {
+	/*
+	 * FIXME:  This doesn't fit well.  We don't have the mechanism in
+	 * the generic PCMCIA layer to deal with the idea of two sockets
+	 * on one bus.  We rely on the cs.c behaviour shutting down
+	 * socket 0 then socket 1.
+	 */
 	if (skt->nr == 1) {
 		gpio_set_value(H3XXX_EGPIO_OPT_ON, 0);
 		gpio_set_value(H3XXX_EGPIO_OPT_NVRAM_ON, 0);
-		
+		/* hmm, does this suck power? */
 		gpio_set_value(H3XXX_EGPIO_OPT_RESET, 1);
 	}
 }

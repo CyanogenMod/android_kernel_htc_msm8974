@@ -60,7 +60,7 @@ static void modify_scu_cpu_psr(unsigned long set, unsigned long clr)
 	tmp |= set;
 	spin_unlock(&scu_lock);
 
-	
+	/* disable cache coherency after releasing the lock */
 	__raw_writel(tmp, scu_base + 8);
 }
 
@@ -80,13 +80,13 @@ int __cpuinit sh73a0_boot_secondary(unsigned int cpu)
 {
 	cpu = cpu_logical_map(cpu);
 
-	
+	/* enable cache coherency */
 	modify_scu_cpu_psr(0, 3 << (cpu * 8));
 
 	if (((__raw_readl(PSTR) >> (4 * cpu)) & 3) == 3)
-		__raw_writel(1 << cpu, WUPCR);	
+		__raw_writel(1 << cpu, WUPCR);	/* wake up */
 	else
-		__raw_writel(1 << cpu, SRESCR);	
+		__raw_writel(1 << cpu, SRESCR);	/* reset */
 
 	return 0;
 }
@@ -97,10 +97,10 @@ void __init sh73a0_smp_prepare_cpus(void)
 
 	scu_enable(scu_base_addr());
 
-	
-	__raw_writel(0, APARMBAREA);      
+	/* Map the reset vector (in headsmp.S) */
+	__raw_writel(0, APARMBAREA);      /* 4k */
 	__raw_writel(__pa(shmobile_secondary_vector), SBAR);
 
-	
+	/* enable cache coherency on CPU0 */
 	modify_scu_cpu_psr(0, 3 << (cpu * 8));
 }

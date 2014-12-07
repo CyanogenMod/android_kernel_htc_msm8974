@@ -26,6 +26,7 @@
 
 #include <asm/mips-boards/prom.h>
 
+/*#define DEBUG*/
 
 enum simmem_memtypes {
 	simmem_reserved = 0,

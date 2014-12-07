@@ -65,7 +65,7 @@ int msm_dcvs_scm_init(size_t size)
 	struct scm_init init;
 	uint32_t p = 0;
 
-	
+	/* Allocate word aligned non-cacheable memory */
 	p = allocate_contiguous_ebi_nomap(size, 4);
 	if (!p)
 		return -ENOMEM;
@@ -76,7 +76,7 @@ int msm_dcvs_scm_init(size_t size)
 	ret = scm_call(SCM_SVC_DCVS, DCVS_CMD_INIT,
 			&init, sizeof(init), NULL, 0);
 
-	
+	/* Not freed if the initialization succeeds */
 	if (ret)
 		free_contiguous_memory_by_paddr(p);
 

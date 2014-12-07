@@ -64,11 +64,17 @@
 #include "sym_defs.h"
 #include "sym_misc.h"
 
+/*
+ * Configuration addendum for Linux.
+ */
 #define	SYM_CONF_TIMER_INTERVAL		((HZ+1)/2)
 
 #undef SYM_OPT_HANDLE_DEVICE_QUEUEING
 #define SYM_OPT_LIMIT_COMMAND_REORDERING
 
+/*
+ *  Print a message with severity.
+ */
 #define printf_emerg(args...)	printk(KERN_EMERG args)
 #define	printf_alert(args...)	printk(KERN_ALERT args)
 #define	printf_crit(args...)	printk(KERN_CRIT args)
@@ -79,10 +85,30 @@
 #define	printf_debug(args...)	printk(KERN_DEBUG args)
 #define	printf(args...)		printk(args)
 
+/*
+ *  A 'read barrier' flushes any data that have been prefetched 
+ *  by the processor due to out of order execution. Such a barrier 
+ *  must notably be inserted prior to looking at data that have 
+ *  been DMAed, assuming that program does memory READs in proper 
+ *  order and that the device ensured proper ordering of WRITEs.
+ *
+ *  A 'write barrier' prevents any previous WRITEs to pass further 
+ *  WRITEs. Such barriers must be inserted each time another agent 
+ *  relies on ordering of WRITEs.
+ *
+ *  Note that, due to posting of PCI memory writes, we also must 
+ *  insert dummy PCI read transactions when some ordering involving 
+ *  both directions over the PCI does matter. PCI transactions are 
+ *  fully ordered in each direction.
+ */
 
 #define MEMORY_READ_BARRIER()	rmb()
 #define MEMORY_WRITE_BARRIER()	wmb()
 
+/*
+ *  IO functions definition for big/little endian CPU support.
+ *  For now, PCI chips are only supported in little endian addressing mode, 
+ */
 
 #ifdef	__BIG_ENDIAN
 
@@ -91,54 +117,90 @@
 #define	writew_b2l	writew
 #define	writel_b2l	writel
 
-#else	
+#else	/* little endian */
 
 #define	readw_raw	readw
 #define	readl_raw	readl
 #define	writew_raw	writew
 #define	writel_raw	writel
 
-#endif 
+#endif /* endian */
 
 #ifdef	SYM_CONF_CHIP_BIG_ENDIAN
 #error	"Chips in BIG ENDIAN addressing mode are not (yet) supported"
 #endif
 
+/*
+ *  If the CPU and the chip use same endian-ness addressing,
+ *  no byte reordering is needed for script patching.
+ *  Macro cpu_to_scr() is to be used for script patching.
+ *  Macro scr_to_cpu() is to be used for getting a DWORD 
+ *  from the script.
+ */
 
 #define cpu_to_scr(dw)	cpu_to_le32(dw)
 #define scr_to_cpu(dw)	le32_to_cpu(dw)
 
+/*
+ *  These ones are used as return code from 
+ *  error recovery handlers under Linux.
+ */
 #define SCSI_SUCCESS	SUCCESS
 #define SCSI_FAILED	FAILED
 
+/*
+ *  System specific target data structure.
+ *  None for now, under Linux.
+ */
+/* #define SYM_HAVE_STCB */
 
+/*
+ *  System specific lun data structure.
+ */
 #define SYM_HAVE_SLCB
 struct sym_slcb {
-	u_short	reqtags;	
-	u_short scdev_depth;	
+	u_short	reqtags;	/* Number of tags requested by user */
+	u_short scdev_depth;	/* Queue depth set in select_queue_depth() */
 };
 
+/*
+ *  System specific command data structure.
+ *  Not needed under Linux.
+ */
+/* struct sym_sccb */
 
+/*
+ *  System specific host data structure.
+ */
 struct sym_shcb {
+	/*
+	 *  Chip and controller indentification.
+	 */
 	int		unit;
 	char		inst_name[16];
 	char		chip_name[8];
 
 	struct Scsi_Host *host;
 
-	void __iomem *	ioaddr;		
-	void __iomem *	ramaddr;	
+	void __iomem *	ioaddr;		/* MMIO kernel io address	*/
+	void __iomem *	ramaddr;	/* RAM  kernel io address	*/
 
-	struct timer_list timer;	
+	struct timer_list timer;	/* Timer handler link header	*/
 	u_long		lasttime;
-	u_long		settle_time;	
+	u_long		settle_time;	/* Resetting the SCSI BUS	*/
 	u_char		settle_time_valid;
 };
 
+/*
+ *  Return the name of the controller.
+ */
 #define sym_name(np) (np)->s.inst_name
 
 struct sym_nvram;
 
+/*
+ * The IO macros require a struct called 's' and are abused in sym_nvram.c
+ */
 struct sym_device {
 	struct pci_dev *pdev;
 	unsigned long mmio_base;
@@ -152,9 +214,12 @@ struct sym_device {
 	u_char host_id;
 };
 
+/*
+ *  Driver host data structure.
+ */
 struct sym_data {
 	struct sym_hcb *ncb;
-	struct completion *io_reset;		
+	struct completion *io_reset;		/* PCI error handling */
 	struct pci_dev *pdev;
 };
 
@@ -166,6 +231,9 @@ static inline struct sym_hcb * sym_get_hcb(struct Scsi_Host *host)
 #include "sym_fw.h"
 #include "sym_hipd.h"
 
+/*
+ *  Set the status field of a CAM CCB.
+ */
 static inline void
 sym_set_cam_status(struct scsi_cmnd *cmd, int status)
 {
@@ -173,12 +241,18 @@ sym_set_cam_status(struct scsi_cmnd *cmd, int status)
 	cmd->result |= (status << 16);
 }
 
+/*
+ *  Get the status field of a CAM CCB.
+ */
 static inline int
 sym_get_cam_status(struct scsi_cmnd *cmd)
 {
 	return host_byte(cmd->result);
 }
 
+/*
+ *  Build CAM result for a successful IO and for a failed IO.
+ */
 static inline void sym_set_cam_result_ok(struct sym_ccb *cp, struct scsi_cmnd *cmd, int resid)
 {
 	scsi_set_resid(cmd, resid);
@@ -193,4 +267,4 @@ int  sym_setup_data_and_start (struct sym_hcb *np, struct scsi_cmnd *csio, struc
 void sym_log_bus_error(struct Scsi_Host *);
 void sym_dump_registers(struct Scsi_Host *);
 
-#endif 
+#endif /* SYM_GLUE_H */

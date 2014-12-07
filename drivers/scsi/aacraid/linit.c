@@ -82,6 +82,12 @@ static LIST_HEAD(aac_devices);
 static int aac_cfg_major = -1;
 char aac_driver_version[] = AAC_DRIVER_FULL_VERSION;
 
+/*
+ * Because of the way Linux names scsi devices, the order in this table has
+ * become important.  Check for on-board Raid first, add-in cards second.
+ *
+ * Note: The last field is used to index into aac_drivers below.
+ */
 #ifdef DECLARE_PCI_DEVICE_TABLE
 static DECLARE_PCI_DEVICE_TABLE(aac_pci_tbl) = {
 #elif defined(__devinitconst)
@@ -89,153 +95,167 @@ static const struct pci_device_id aac_pci_tbl[] __devinitconst = {
 #else
 static const struct pci_device_id aac_pci_tbl[] __devinitdata = {
 #endif
-	{ 0x1028, 0x0001, 0x1028, 0x0001, 0, 0, 0 }, 
-	{ 0x1028, 0x0002, 0x1028, 0x0002, 0, 0, 1 }, 
-	{ 0x1028, 0x0003, 0x1028, 0x0003, 0, 0, 2 }, 
-	{ 0x1028, 0x0004, 0x1028, 0x00d0, 0, 0, 3 }, 
-	{ 0x1028, 0x0002, 0x1028, 0x00d1, 0, 0, 4 }, 
-	{ 0x1028, 0x0002, 0x1028, 0x00d9, 0, 0, 5 }, 
-	{ 0x1028, 0x000a, 0x1028, 0x0106, 0, 0, 6 }, 
-	{ 0x1028, 0x000a, 0x1028, 0x011b, 0, 0, 7 }, 
-	{ 0x1028, 0x000a, 0x1028, 0x0121, 0, 0, 8 }, 
-	{ 0x9005, 0x0283, 0x9005, 0x0283, 0, 0, 9 }, 
-	{ 0x9005, 0x0284, 0x9005, 0x0284, 0, 0, 10 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0286, 0, 0, 11 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0285, 0, 0, 12 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0287, 0, 0, 13 }, 
-	{ 0x9005, 0x0285, 0x17aa, 0x0286, 0, 0, 14 }, 
-	{ 0x9005, 0x0285, 0x17aa, 0x0287, 0, 0, 15 }, 
+	{ 0x1028, 0x0001, 0x1028, 0x0001, 0, 0, 0 }, /* PERC 2/Si (Iguana/PERC2Si) */
+	{ 0x1028, 0x0002, 0x1028, 0x0002, 0, 0, 1 }, /* PERC 3/Di (Opal/PERC3Di) */
+	{ 0x1028, 0x0003, 0x1028, 0x0003, 0, 0, 2 }, /* PERC 3/Si (SlimFast/PERC3Si */
+	{ 0x1028, 0x0004, 0x1028, 0x00d0, 0, 0, 3 }, /* PERC 3/Di (Iguana FlipChip/PERC3DiF */
+	{ 0x1028, 0x0002, 0x1028, 0x00d1, 0, 0, 4 }, /* PERC 3/Di (Viper/PERC3DiV) */
+	{ 0x1028, 0x0002, 0x1028, 0x00d9, 0, 0, 5 }, /* PERC 3/Di (Lexus/PERC3DiL) */
+	{ 0x1028, 0x000a, 0x1028, 0x0106, 0, 0, 6 }, /* PERC 3/Di (Jaguar/PERC3DiJ) */
+	{ 0x1028, 0x000a, 0x1028, 0x011b, 0, 0, 7 }, /* PERC 3/Di (Dagger/PERC3DiD) */
+	{ 0x1028, 0x000a, 0x1028, 0x0121, 0, 0, 8 }, /* PERC 3/Di (Boxster/PERC3DiB) */
+	{ 0x9005, 0x0283, 0x9005, 0x0283, 0, 0, 9 }, /* catapult */
+	{ 0x9005, 0x0284, 0x9005, 0x0284, 0, 0, 10 }, /* tomcat */
+	{ 0x9005, 0x0285, 0x9005, 0x0286, 0, 0, 11 }, /* Adaptec 2120S (Crusader) */
+	{ 0x9005, 0x0285, 0x9005, 0x0285, 0, 0, 12 }, /* Adaptec 2200S (Vulcan) */
+	{ 0x9005, 0x0285, 0x9005, 0x0287, 0, 0, 13 }, /* Adaptec 2200S (Vulcan-2m) */
+	{ 0x9005, 0x0285, 0x17aa, 0x0286, 0, 0, 14 }, /* Legend S220 (Legend Crusader) */
+	{ 0x9005, 0x0285, 0x17aa, 0x0287, 0, 0, 15 }, /* Legend S230 (Legend Vulcan) */
 
-	{ 0x9005, 0x0285, 0x9005, 0x0288, 0, 0, 16 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0289, 0, 0, 17 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x028a, 0, 0, 18 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x028b, 0, 0, 19 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x028c, 0, 0, 20 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x028d, 0, 0, 21 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x029b, 0, 0, 22 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x029c, 0, 0, 23 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x029d, 0, 0, 24 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x029e, 0, 0, 25 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x029f, 0, 0, 26 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x02a0, 0, 0, 27 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x02a1, 0, 0, 28 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x02a3, 0, 0, 29 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x02a4, 0, 0, 30 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x02a5, 0, 0, 31 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x02a6, 0, 0, 32 }, 
-	{ 0x9005, 0x0287, 0x9005, 0x0800, 0, 0, 33 }, 
-	{ 0x9005, 0x0200, 0x9005, 0x0200, 0, 0, 33 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x0800, 0, 0, 34 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x028e, 0, 0, 35 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x028f, 0, 0, 36 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0290, 0, 0, 37 }, 
-	{ 0x9005, 0x0285, 0x1028, 0x0291, 0, 0, 38 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0292, 0, 0, 39 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0293, 0, 0, 40 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0294, 0, 0, 41 }, 
-	{ 0x9005, 0x0285, 0x103C, 0x3227, 0, 0, 42 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0296, 0, 0, 43 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0297, 0, 0, 44 }, 
-	{ 0x9005, 0x0285, 0x1014, 0x02F2, 0, 0, 45 }, 
-	{ 0x9005, 0x0285, 0x1014, 0x0312, 0, 0, 45 }, 
-	{ 0x9005, 0x0286, 0x1014, 0x9580, 0, 0, 46 }, 
-	{ 0x9005, 0x0286, 0x1014, 0x9540, 0, 0, 47 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0298, 0, 0, 48 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x0299, 0, 0, 49 }, 
-	{ 0x9005, 0x0285, 0x9005, 0x029a, 0, 0, 50 }, 
-	{ 0x9005, 0x0286, 0x9005, 0x02a2, 0, 0, 51 }, 
+	{ 0x9005, 0x0285, 0x9005, 0x0288, 0, 0, 16 }, /* Adaptec 3230S (Harrier) */
+	{ 0x9005, 0x0285, 0x9005, 0x0289, 0, 0, 17 }, /* Adaptec 3240S (Tornado) */
+	{ 0x9005, 0x0285, 0x9005, 0x028a, 0, 0, 18 }, /* ASR-2020ZCR SCSI PCI-X ZCR (Skyhawk) */
+	{ 0x9005, 0x0285, 0x9005, 0x028b, 0, 0, 19 }, /* ASR-2025ZCR SCSI SO-DIMM PCI-X ZCR (Terminator) */
+	{ 0x9005, 0x0286, 0x9005, 0x028c, 0, 0, 20 }, /* ASR-2230S + ASR-2230SLP PCI-X (Lancer) */
+	{ 0x9005, 0x0286, 0x9005, 0x028d, 0, 0, 21 }, /* ASR-2130S (Lancer) */
+	{ 0x9005, 0x0286, 0x9005, 0x029b, 0, 0, 22 }, /* AAR-2820SA (Intruder) */
+	{ 0x9005, 0x0286, 0x9005, 0x029c, 0, 0, 23 }, /* AAR-2620SA (Intruder) */
+	{ 0x9005, 0x0286, 0x9005, 0x029d, 0, 0, 24 }, /* AAR-2420SA (Intruder) */
+	{ 0x9005, 0x0286, 0x9005, 0x029e, 0, 0, 25 }, /* ICP9024RO (Lancer) */
+	{ 0x9005, 0x0286, 0x9005, 0x029f, 0, 0, 26 }, /* ICP9014RO (Lancer) */
+	{ 0x9005, 0x0286, 0x9005, 0x02a0, 0, 0, 27 }, /* ICP9047MA (Lancer) */
+	{ 0x9005, 0x0286, 0x9005, 0x02a1, 0, 0, 28 }, /* ICP9087MA (Lancer) */
+	{ 0x9005, 0x0286, 0x9005, 0x02a3, 0, 0, 29 }, /* ICP5445AU (Hurricane44) */
+	{ 0x9005, 0x0285, 0x9005, 0x02a4, 0, 0, 30 }, /* ICP9085LI (Marauder-X) */
+	{ 0x9005, 0x0285, 0x9005, 0x02a5, 0, 0, 31 }, /* ICP5085BR (Marauder-E) */
+	{ 0x9005, 0x0286, 0x9005, 0x02a6, 0, 0, 32 }, /* ICP9067MA (Intruder-6) */
+	{ 0x9005, 0x0287, 0x9005, 0x0800, 0, 0, 33 }, /* Themisto Jupiter Platform */
+	{ 0x9005, 0x0200, 0x9005, 0x0200, 0, 0, 33 }, /* Themisto Jupiter Platform */
+	{ 0x9005, 0x0286, 0x9005, 0x0800, 0, 0, 34 }, /* Callisto Jupiter Platform */
+	{ 0x9005, 0x0285, 0x9005, 0x028e, 0, 0, 35 }, /* ASR-2020SA SATA PCI-X ZCR (Skyhawk) */
+	{ 0x9005, 0x0285, 0x9005, 0x028f, 0, 0, 36 }, /* ASR-2025SA SATA SO-DIMM PCI-X ZCR (Terminator) */
+	{ 0x9005, 0x0285, 0x9005, 0x0290, 0, 0, 37 }, /* AAR-2410SA PCI SATA 4ch (Jaguar II) */
+	{ 0x9005, 0x0285, 0x1028, 0x0291, 0, 0, 38 }, /* CERC SATA RAID 2 PCI SATA 6ch (DellCorsair) */
+	{ 0x9005, 0x0285, 0x9005, 0x0292, 0, 0, 39 }, /* AAR-2810SA PCI SATA 8ch (Corsair-8) */
+	{ 0x9005, 0x0285, 0x9005, 0x0293, 0, 0, 40 }, /* AAR-21610SA PCI SATA 16ch (Corsair-16) */
+	{ 0x9005, 0x0285, 0x9005, 0x0294, 0, 0, 41 }, /* ESD SO-DIMM PCI-X SATA ZCR (Prowler) */
+	{ 0x9005, 0x0285, 0x103C, 0x3227, 0, 0, 42 }, /* AAR-2610SA PCI SATA 6ch */
+	{ 0x9005, 0x0285, 0x9005, 0x0296, 0, 0, 43 }, /* ASR-2240S (SabreExpress) */
+	{ 0x9005, 0x0285, 0x9005, 0x0297, 0, 0, 44 }, /* ASR-4005 */
+	{ 0x9005, 0x0285, 0x1014, 0x02F2, 0, 0, 45 }, /* IBM 8i (AvonPark) */
+	{ 0x9005, 0x0285, 0x1014, 0x0312, 0, 0, 45 }, /* IBM 8i (AvonPark Lite) */
+	{ 0x9005, 0x0286, 0x1014, 0x9580, 0, 0, 46 }, /* IBM 8k/8k-l8 (Aurora) */
+	{ 0x9005, 0x0286, 0x1014, 0x9540, 0, 0, 47 }, /* IBM 8k/8k-l4 (Aurora Lite) */
+	{ 0x9005, 0x0285, 0x9005, 0x0298, 0, 0, 48 }, /* ASR-4000 (BlackBird) */
+	{ 0x9005, 0x0285, 0x9005, 0x0299, 0, 0, 49 }, /* ASR-4800SAS (Marauder-X) */
+	{ 0x9005, 0x0285, 0x9005, 0x029a, 0, 0, 50 }, /* ASR-4805SAS (Marauder-E) */
+	{ 0x9005, 0x0286, 0x9005, 0x02a2, 0, 0, 51 }, /* ASR-3800 (Hurricane44) */
 
-	{ 0x9005, 0x0285, 0x1028, 0x0287, 0, 0, 52 }, 
-	{ 0x1011, 0x0046, 0x9005, 0x0365, 0, 0, 53 }, 
-	{ 0x1011, 0x0046, 0x9005, 0x0364, 0, 0, 54 }, 
-	{ 0x1011, 0x0046, 0x9005, 0x1364, 0, 0, 55 }, 
-	{ 0x1011, 0x0046, 0x103c, 0x10c2, 0, 0, 56 }, 
+	{ 0x9005, 0x0285, 0x1028, 0x0287, 0, 0, 52 }, /* Perc 320/DC*/
+	{ 0x1011, 0x0046, 0x9005, 0x0365, 0, 0, 53 }, /* Adaptec 5400S (Mustang)*/
+	{ 0x1011, 0x0046, 0x9005, 0x0364, 0, 0, 54 }, /* Adaptec 5400S (Mustang)*/
+	{ 0x1011, 0x0046, 0x9005, 0x1364, 0, 0, 55 }, /* Dell PERC2/QC */
+	{ 0x1011, 0x0046, 0x103c, 0x10c2, 0, 0, 56 }, /* HP NetRAID-4M */
 
-	{ 0x9005, 0x0285, 0x1028, PCI_ANY_ID, 0, 0, 57 }, 
-	{ 0x9005, 0x0285, 0x17aa, PCI_ANY_ID, 0, 0, 58 }, 
-	{ 0x9005, 0x0285, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 59 }, 
-	{ 0x9005, 0x0286, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 60 }, 
-	{ 0x9005, 0x0288, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 61 }, 
-	{ 0x9005, 0x028b, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 62 }, 
-	{ 0x9005, 0x028c, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 63 }, 
-	{ 0x9005, 0x028d, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 64 }, 
-	{ 0x9005, 0x028f, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 65 }, 
+	{ 0x9005, 0x0285, 0x1028, PCI_ANY_ID, 0, 0, 57 }, /* Dell Catchall */
+	{ 0x9005, 0x0285, 0x17aa, PCI_ANY_ID, 0, 0, 58 }, /* Legend Catchall */
+	{ 0x9005, 0x0285, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 59 }, /* Adaptec Catch All */
+	{ 0x9005, 0x0286, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 60 }, /* Adaptec Rocket Catch All */
+	{ 0x9005, 0x0288, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 61 }, /* Adaptec NEMER/ARK Catch All */
+	{ 0x9005, 0x028b, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 62 }, /* Adaptec PMC Series 6 (Tupelo) */
+	{ 0x9005, 0x028c, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 63 }, /* Adaptec PMC Series 7 (Denali) */
+	{ 0x9005, 0x028d, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 64 }, /* Adaptec PMC Series 8 */
+	{ 0x9005, 0x028f, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 65 }, /* Adaptec PMC Series 9 */
 	{ 0,}
 };
 MODULE_DEVICE_TABLE(pci, aac_pci_tbl);
 
+/*
+ * dmb - For now we add the number of channels to this structure.
+ * In the future we should add a fib that reports the number of channels
+ * for the card.  At that time we can remove the channels from here
+ */
 static struct aac_driver_ident aac_drivers[] = {
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 1, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "catapult        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "tomcat          ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 2120S   ", 1, AAC_QUIRK_31BIT | AAC_QUIRK_34SG },		      
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 2200S   ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG },		      
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 2200S   ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "aacraid",  "Legend  ", "Legend S220     ", 1, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "aacraid",  "Legend  ", "Legend S230     ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 2/Si (Iguana/PERC2Si) */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Di (Opal/PERC3Di) */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Si (SlimFast/PERC3Si */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Di (Iguana FlipChip/PERC3DiF */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Di (Viper/PERC3DiV) */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Di (Lexus/PERC3DiL) */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 1, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Di (Jaguar/PERC3DiJ) */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Di (Dagger/PERC3DiD) */
+	{ aac_rx_init, "percraid", "DELL    ", "PERCRAID        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* PERC 3/Di (Boxster/PERC3DiB) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "catapult        ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* catapult */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "tomcat          ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* tomcat */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 2120S   ", 1, AAC_QUIRK_31BIT | AAC_QUIRK_34SG },		      /* Adaptec 2120S (Crusader) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 2200S   ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG },		      /* Adaptec 2200S (Vulcan) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 2200S   ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* Adaptec 2200S (Vulcan-2m) */
+	{ aac_rx_init, "aacraid",  "Legend  ", "Legend S220     ", 1, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* Legend S220 (Legend Crusader) */
+	{ aac_rx_init, "aacraid",  "Legend  ", "Legend S230     ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* Legend S230 (Legend Vulcan) */
 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 3230S   ", 2 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 3240S   ", 2 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2020ZCR     ", 2 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2025ZCR     ", 2 }, 
-	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "ASR-2230S PCI-X ", 2 }, 
-	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "ASR-2130S PCI-X ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "AAR-2820SA      ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "AAR-2620SA      ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "AAR-2420SA      ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9024RO       ", 2 }, 
-	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9014RO       ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9047MA       ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9087MA       ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP5445AU       ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ICP     ", "ICP9085LI       ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ICP     ", "ICP5085BR       ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9067MA       ", 1 }, 
-	{ NULL        , "aacraid",  "ADAPTEC ", "Themisto        ", 0, AAC_QUIRK_SLAVE }, 
-	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "Callisto        ", 2, AAC_QUIRK_MASTER }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2020SA       ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2025SA       ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-2410SA SATA ", 1, AAC_QUIRK_17SG }, 
-	{ aac_rx_init, "aacraid",  "DELL    ", "CERC SR2        ", 1, AAC_QUIRK_17SG }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-2810SA SATA ", 1, AAC_QUIRK_17SG }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-21610SA SATA", 1, AAC_QUIRK_17SG }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2026ZCR     ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-2610SA      ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2240S       ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4005        ", 1 }, 
-	{ aac_rx_init, "ServeRAID","IBM     ", "ServeRAID 8i    ", 1 }, 
-	{ aac_rkt_init, "ServeRAID","IBM     ", "ServeRAID 8k-l8 ", 1 }, 
-	{ aac_rkt_init, "ServeRAID","IBM     ", "ServeRAID 8k-l4 ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4000        ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4800SAS     ", 1 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4805SAS     ", 1 }, 
-	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "ASR-3800        ", 1 }, 
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 3230S   ", 2 }, /* Adaptec 3230S (Harrier) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "Adaptec 3240S   ", 2 }, /* Adaptec 3240S (Tornado) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2020ZCR     ", 2 }, /* ASR-2020ZCR SCSI PCI-X ZCR (Skyhawk) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2025ZCR     ", 2 }, /* ASR-2025ZCR SCSI SO-DIMM PCI-X ZCR (Terminator) */
+	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "ASR-2230S PCI-X ", 2 }, /* ASR-2230S + ASR-2230SLP PCI-X (Lancer) */
+	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "ASR-2130S PCI-X ", 1 }, /* ASR-2130S (Lancer) */
+	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "AAR-2820SA      ", 1 }, /* AAR-2820SA (Intruder) */
+	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "AAR-2620SA      ", 1 }, /* AAR-2620SA (Intruder) */
+	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "AAR-2420SA      ", 1 }, /* AAR-2420SA (Intruder) */
+	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9024RO       ", 2 }, /* ICP9024RO (Lancer) */
+	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9014RO       ", 1 }, /* ICP9014RO (Lancer) */
+	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9047MA       ", 1 }, /* ICP9047MA (Lancer) */
+	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9087MA       ", 1 }, /* ICP9087MA (Lancer) */
+	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP5445AU       ", 1 }, /* ICP5445AU (Hurricane44) */
+	{ aac_rx_init, "aacraid",  "ICP     ", "ICP9085LI       ", 1 }, /* ICP9085LI (Marauder-X) */
+	{ aac_rx_init, "aacraid",  "ICP     ", "ICP5085BR       ", 1 }, /* ICP5085BR (Marauder-E) */
+	{ aac_rkt_init, "aacraid",  "ICP     ", "ICP9067MA       ", 1 }, /* ICP9067MA (Intruder-6) */
+	{ NULL        , "aacraid",  "ADAPTEC ", "Themisto        ", 0, AAC_QUIRK_SLAVE }, /* Jupiter Platform */
+	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "Callisto        ", 2, AAC_QUIRK_MASTER }, /* Jupiter Platform */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2020SA       ", 1 }, /* ASR-2020SA SATA PCI-X ZCR (Skyhawk) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2025SA       ", 1 }, /* ASR-2025SA SATA SO-DIMM PCI-X ZCR (Terminator) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-2410SA SATA ", 1, AAC_QUIRK_17SG }, /* AAR-2410SA PCI SATA 4ch (Jaguar II) */
+	{ aac_rx_init, "aacraid",  "DELL    ", "CERC SR2        ", 1, AAC_QUIRK_17SG }, /* CERC SATA RAID 2 PCI SATA 6ch (DellCorsair) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-2810SA SATA ", 1, AAC_QUIRK_17SG }, /* AAR-2810SA PCI SATA 8ch (Corsair-8) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-21610SA SATA", 1, AAC_QUIRK_17SG }, /* AAR-21610SA PCI SATA 16ch (Corsair-16) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2026ZCR     ", 1 }, /* ESD SO-DIMM PCI-X SATA ZCR (Prowler) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "AAR-2610SA      ", 1 }, /* SATA 6Ch (Bearcat) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-2240S       ", 1 }, /* ASR-2240S (SabreExpress) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4005        ", 1 }, /* ASR-4005 */
+	{ aac_rx_init, "ServeRAID","IBM     ", "ServeRAID 8i    ", 1 }, /* IBM 8i (AvonPark) */
+	{ aac_rkt_init, "ServeRAID","IBM     ", "ServeRAID 8k-l8 ", 1 }, /* IBM 8k/8k-l8 (Aurora) */
+	{ aac_rkt_init, "ServeRAID","IBM     ", "ServeRAID 8k-l4 ", 1 }, /* IBM 8k/8k-l4 (Aurora Lite) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4000        ", 1 }, /* ASR-4000 (BlackBird & AvonPark) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4800SAS     ", 1 }, /* ASR-4800SAS (Marauder-X) */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "ASR-4805SAS     ", 1 }, /* ASR-4805SAS (Marauder-E) */
+	{ aac_rkt_init, "aacraid",  "ADAPTEC ", "ASR-3800        ", 1 }, /* ASR-3800 (Hurricane44) */
 
-	{ aac_rx_init, "percraid", "DELL    ", "PERC 320/DC     ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG }, 
-	{ aac_sa_init, "aacraid",  "ADAPTEC ", "Adaptec 5400S   ", 4, AAC_QUIRK_34SG }, 
-	{ aac_sa_init, "aacraid",  "ADAPTEC ", "AAC-364         ", 4, AAC_QUIRK_34SG }, 
-	{ aac_sa_init, "percraid", "DELL    ", "PERCRAID        ", 4, AAC_QUIRK_34SG }, 
-	{ aac_sa_init, "hpnraid",  "HP      ", "NetRAID         ", 4, AAC_QUIRK_34SG }, 
+	{ aac_rx_init, "percraid", "DELL    ", "PERC 320/DC     ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG }, /* Perc 320/DC*/
+	{ aac_sa_init, "aacraid",  "ADAPTEC ", "Adaptec 5400S   ", 4, AAC_QUIRK_34SG }, /* Adaptec 5400S (Mustang)*/
+	{ aac_sa_init, "aacraid",  "ADAPTEC ", "AAC-364         ", 4, AAC_QUIRK_34SG }, /* Adaptec 5400S (Mustang)*/
+	{ aac_sa_init, "percraid", "DELL    ", "PERCRAID        ", 4, AAC_QUIRK_34SG }, /* Dell PERC2/QC */
+	{ aac_sa_init, "hpnraid",  "HP      ", "NetRAID         ", 4, AAC_QUIRK_34SG }, /* HP NetRAID-4M */
 
-	{ aac_rx_init, "aacraid",  "DELL    ", "RAID            ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "aacraid",  "Legend  ", "RAID            ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, 
-	{ aac_rx_init, "aacraid",  "ADAPTEC ", "RAID            ", 2 }, 
-	{ aac_rkt_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, 
-	{ aac_nark_init, "aacraid", "ADAPTEC ", "RAID           ", 2 }, 
-	{ aac_src_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, 
-	{ aac_srcv_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, 
-	{ aac_srcv_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, 
-	{ aac_srcv_init, "aacraid", "ADAPTEC ", "RAID            ", 2 } 
+	{ aac_rx_init, "aacraid",  "DELL    ", "RAID            ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* Dell Catchall */
+	{ aac_rx_init, "aacraid",  "Legend  ", "RAID            ", 2, AAC_QUIRK_31BIT | AAC_QUIRK_34SG | AAC_QUIRK_SCSI_32 }, /* Legend Catchall */
+	{ aac_rx_init, "aacraid",  "ADAPTEC ", "RAID            ", 2 }, /* Adaptec Catch All */
+	{ aac_rkt_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, /* Adaptec Rocket Catch All */
+	{ aac_nark_init, "aacraid", "ADAPTEC ", "RAID           ", 2 }, /* Adaptec NEMER/ARK Catch All */
+	{ aac_src_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, /* Adaptec PMC Series 6 (Tupelo) */
+	{ aac_srcv_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, /* Adaptec PMC Series 7 (Denali) */
+	{ aac_srcv_init, "aacraid", "ADAPTEC ", "RAID            ", 2 }, /* Adaptec PMC Series 8 */
+	{ aac_srcv_init, "aacraid", "ADAPTEC ", "RAID            ", 2 } /* Adaptec PMC Series 9 */
 };
 
+/**
+ *	aac_queuecommand	-	queue a SCSI command
+ *	@cmd:		SCSI command to queue
+ *	@done:		Function to call on command completion
+ *
+ *	Queues a command for execution by the associated Host Adapter.
+ *
+ *	TODO: unify with aac_scsi_cmd().
+ */
 
 static int aac_queuecommand_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmnd *))
 {
@@ -250,7 +270,7 @@ static int aac_queuecommand_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_
 		    ((command = fib->callback_data)) &&
 		    (command == cmd) &&
 		    (cmd->SCp.phase == AAC_OWNER_FIRMWARE))
-			return 0; 
+			return 0; /* Already owned by Adapter */
 	}
 	cmd->SCp.phase = AAC_OWNER_LOWLEVEL;
 	return (aac_scsi_cmd(cmd) ? FAILED : 0);
@@ -258,6 +278,12 @@ static int aac_queuecommand_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_
 
 static DEF_SCSI_QCMD(aac_queuecommand)
 
+/**
+ *	aac_info		-	Returns the host adapter name
+ *	@shost:		Scsi host to report on
+ *
+ *	Returns a static string describing the device in question
+ */
 
 static const char *aac_info(struct Scsi_Host *shost)
 {
@@ -265,12 +291,39 @@ static const char *aac_info(struct Scsi_Host *shost)
 	return aac_drivers[dev->cardtype].name;
 }
 
+/**
+ *	aac_get_driver_ident
+ *	@devtype: index into lookup table
+ *
+ *	Returns a pointer to the entry in the driver lookup table.
+ */
 
 struct aac_driver_ident* aac_get_driver_ident(int devtype)
 {
 	return &aac_drivers[devtype];
 }
 
+/**
+ *	aac_biosparm	-	return BIOS parameters for disk
+ *	@sdev: The scsi device corresponding to the disk
+ *	@bdev: the block device corresponding to the disk
+ *	@capacity: the sector capacity of the disk
+ *	@geom: geometry block to fill in
+ *
+ *	Return the Heads/Sectors/Cylinders BIOS Disk Parameters for Disk.
+ *	The default disk geometry is 64 heads, 32 sectors, and the appropriate
+ *	number of cylinders so as not to exceed drive capacity.  In order for
+ *	disks equal to or larger than 1 GB to be addressable by the BIOS
+ *	without exceeding the BIOS limitation of 1024 cylinders, Extended
+ *	Translation should be enabled.   With Extended Translation enabled,
+ *	drives between 1 GB inclusive and 2 GB exclusive are given a disk
+ *	geometry of 128 heads and 32 sectors, and drives above 2 GB inclusive
+ *	are given a disk geometry of 255 heads and 63 sectors.  However, if
+ *	the BIOS detects that the Extended Translation setting does not match
+ *	the geometry in the partition table, then the translation inferred
+ *	from the partition table will be used by the BIOS, and a warning may
+ *	be displayed.
+ */
 
 static int aac_biosparm(struct scsi_device *sdev, struct block_device *bdev,
 			sector_t capacity, int *geom)
@@ -280,8 +333,11 @@ static int aac_biosparm(struct scsi_device *sdev, struct block_device *bdev,
 
 	dprintk((KERN_DEBUG "aac_biosparm.\n"));
 
-	if (capacity >= 2 * 1024 * 1024) { 
-		if(capacity >= 4 * 1024 * 1024) { 
+	/*
+	 *	Assuming extended translation is enabled - #REVISIT#
+	 */
+	if (capacity >= 2 * 1024 * 1024) { /* 1 GB in 512 byte sectors */
+		if(capacity >= 4 * 1024 * 1024) { /* 2 GB in 512 byte sectors */
 			param->heads = 255;
 			param->sectors = 63;
 		} else {
@@ -295,6 +351,12 @@ static int aac_biosparm(struct scsi_device *sdev, struct block_device *bdev,
 
 	param->cylinders = cap_to_cyls(capacity, param->heads * param->sectors);
 
+	/*
+	 *	Read the first 1024 bytes from the disk device, if the boot
+	 *	sector partition table is valid, search for a partition table
+	 *	entry whose end_head matches one of the standard geometry
+	 *	translations ( 64/32, 128/32, 255/63 ).
+	 */
 	buf = scsi_bios_ptable(bdev);
 	if (!buf)
 		return 0;
@@ -346,6 +408,14 @@ static int aac_biosparm(struct scsi_device *sdev, struct block_device *bdev,
 	return 0;
 }
 
+/**
+ *	aac_slave_configure		-	compute queue depths
+ *	@sdev:	SCSI device we are considering
+ *
+ *	Selects queue depths for each target device based on the host adapter's
+ *	total capacity and the queue depth supported by the target device.
+ *	A queue depth of one automatically disables tagged queueing.
+ */
 
 static int aac_slave_configure(struct scsi_device *sdev)
 {
@@ -371,6 +441,10 @@ static int aac_slave_configure(struct scsi_device *sdev)
 		unsigned depth;
 		unsigned cid;
 
+		/*
+		 * Firmware has an individual device recovery time typically
+		 * of 35 seconds, give us a margin.
+		 */
 		if (sdev->request_queue->rq_timeout < (45 * HZ))
 			blk_queue_rq_timeout(sdev->request_queue, 45*HZ);
 		for (cid = 0; cid < aac->maximum_num_containers; ++cid)
@@ -401,6 +475,14 @@ static int aac_slave_configure(struct scsi_device *sdev)
 	return 0;
 }
 
+/**
+ *	aac_change_queue_depth		-	alter queue depths
+ *	@sdev:	SCSI device we are considering
+ *	@depth:	desired queue depth
+ *
+ *	Alters queue depths for target device based on the host adapter's
+ *	total capacity and the queue depth supported by the target device.
+ */
 
 static int aac_change_queue_depth(struct scsi_device *sdev, int depth,
 				  int reason)
@@ -486,7 +568,7 @@ static int aac_eh_abort(struct scsi_cmnd* cmd)
 			break;
 	case INQUIRY:
 	case READ_CAPACITY:
-		
+		/* Mark associated FIB to not complete, eh handler does this */
 		for (count = 0; count < (host->can_queue + AAC_NUM_MGT_FIB); ++count) {
 			struct fib * fib = &aac->fibs[count];
 			if (fib->hw_fib_va->header.XferState &&
@@ -499,7 +581,7 @@ static int aac_eh_abort(struct scsi_cmnd* cmd)
 		}
 		break;
 	case TEST_UNIT_READY:
-		
+		/* Mark associated FIB to not complete, eh handler does this */
 		for (count = 0; count < (host->can_queue + AAC_NUM_MGT_FIB); ++count) {
 			struct scsi_cmnd * command;
 			struct fib * fib = &aac->fibs[count];
@@ -517,6 +599,11 @@ static int aac_eh_abort(struct scsi_cmnd* cmd)
 	return ret;
 }
 
+/*
+ *	aac_eh_reset	- Reset command handling
+ *	@scsi_cmd:	SCSI command block causing the reset
+ *
+ */
 static int aac_eh_reset(struct scsi_cmnd* cmd)
 {
 	struct scsi_device * dev = cmd->device;
@@ -526,7 +613,7 @@ static int aac_eh_reset(struct scsi_cmnd* cmd)
 	struct aac_dev * aac = (struct aac_dev *)host->hostdata;
 	unsigned long flags;
 
-	
+	/* Mark the associated FIB to not complete, eh handler does this */
 	for (count = 0; count < (host->can_queue + AAC_NUM_MGT_FIB); ++count) {
 		struct fib * fib = &aac->fibs[count];
 		if (fib->hw_fib_va->header.XferState &&
@@ -541,6 +628,10 @@ static int aac_eh_reset(struct scsi_cmnd* cmd)
 
 	if ((count = aac_check_health(aac)))
 		return count;
+	/*
+	 * Wait for all commands to complete to this specific
+	 * target (block maximum 60 seconds).
+	 */
 	for (count = 60; count; --count) {
 		int active = aac->in_reset;
 
@@ -559,11 +650,18 @@ static int aac_eh_reset(struct scsi_cmnd* cmd)
 				break;
 
 		}
+		/*
+		 * We can exit If all the commands are complete
+		 */
 		if (active == 0)
 			return SUCCESS;
 		ssleep(1);
 	}
 	printk(KERN_ERR "%s: SCSI bus appears hung\n", AAC_DRIVERNAME);
+	/*
+	 * This adapter needs a blind reset, only do so for Adapters that
+	 * support a register, instead of a commanded, reset.
+	 */
 	if (((aac->supplement_adapter_info.SupportedOptions2 &
 	  AAC_OPTION_MU_RESET) ||
 	  (aac->supplement_adapter_info.SupportedOptions2 &
@@ -572,10 +670,21 @@ static int aac_eh_reset(struct scsi_cmnd* cmd)
 	  ((aac_check_reset != 1) ||
 	   !(aac->supplement_adapter_info.SupportedOptions2 &
 	    AAC_OPTION_IGNORE_RESET)))
-		aac_reset_adapter(aac, 2); 
-	return SUCCESS; 
+		aac_reset_adapter(aac, 2); /* Bypass wait for command quiesce */
+	return SUCCESS; /* Cause an immediate retry of the command with a ten second delay after successful tur */
 }
 
+/**
+ *	aac_cfg_open		-	open a configuration file
+ *	@inode: inode being opened
+ *	@file: file handle attached
+ *
+ *	Called when the configuration device is opened. Does the needed
+ *	set up on the handle and then returns
+ *
+ *	Bugs: This needs extending to check a given adapter is present
+ *	so we can support hot plugging, and to ref count adapters.
+ */
 
 static int aac_cfg_open(struct inode *inode, struct file *file)
 {
@@ -583,7 +692,7 @@ static int aac_cfg_open(struct inode *inode, struct file *file)
 	unsigned minor_number = iminor(inode);
 	int err = -ENODEV;
 
-	mutex_lock(&aac_mutex);  
+	mutex_lock(&aac_mutex);  /* BKL pushdown: nothing else protects this list */
 	list_for_each_entry(aac, &aac_devices, entry) {
 		if (aac->id == minor_number) {
 			file->private_data = aac;
@@ -596,6 +705,19 @@ static int aac_cfg_open(struct inode *inode, struct file *file)
 	return err;
 }
 
+/**
+ *	aac_cfg_ioctl		-	AAC configuration request
+ *	@inode: inode of device
+ *	@file: file handle
+ *	@cmd: ioctl command code
+ *	@arg: argument
+ *
+ *	Handles a configuration ioctl. Currently this involves wrapping it
+ *	up and feeding it into the nasty windowsalike glue layer.
+ *
+ *	Bugs: Needs locking against parallel ioctls lower down
+ *	Bugs: Needs to handle hot plugging
+ */
 
 static long aac_cfg_ioctl(struct file *file,
 		unsigned int cmd, unsigned long arg)
@@ -1003,6 +1125,10 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 		goto out;
 	error = -ENODEV;
 
+	/*
+	 * If the quirk31 bit is set, the adapter needs adapter
+	 * to driver communication memory to be allocated below 2gig
+	 */
 	if (aac_drivers[index].quirks & AAC_QUIRK_31BIT)
 		dmamask = DMA_BIT_MASK(31);
 	else
@@ -1036,6 +1162,9 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 		goto out_free_host;
 	spin_lock_init(&aac->fib_lock);
 
+	/*
+	 *	Map in the registers from the adapter.
+	 */
 	aac->base_size = AAC_MIN_FOOTPRINT_SIZE;
 	if ((*aac_drivers[index].init)(aac))
 		goto out_unmap;
@@ -1055,6 +1184,9 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 				aac->id);
 	}
 
+	/*
+	 *	Start any kernel threads needed
+	 */
 	aac->thread = kthread_run(aac_command_thread, aac, AAC_DRIVERNAME);
 	if (IS_ERR(aac->thread)) {
 		printk(KERN_ERR "aacraid: Unable to create command thread.\n");
@@ -1062,6 +1194,11 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 		goto out_deinit;
 	}
 
+	/*
+	 * If we had set a smaller DMA mask earlier, set it to 4gig
+	 * now since the adapter can dma data to at least a 4gig
+	 * address space.
+	 */
 	if (aac_drivers[index].quirks & AAC_QUIRK_31BIT)
 		if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32)))
 			goto out_deinit;
@@ -1071,6 +1208,9 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 	if (error < 0)
 		goto out_deinit;
 
+	/*
+	 * Lets override negotiations and drop the maximum SG limit to 34
+	 */
 	if ((aac_drivers[index].quirks & AAC_QUIRK_34SG) &&
 			(shost->sg_tablesize > 34)) {
 		shost->sg_tablesize = 34;
@@ -1089,11 +1229,19 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 	if (error)
 		goto out_deinit;
 
+	/*
+	 * Firmware printf works only with older firmware.
+	 */
 	if (aac_drivers[index].quirks & AAC_QUIRK_34SG)
 		aac->printf_enabled = 1;
 	else
 		aac->printf_enabled = 0;
 
+	/*
+	 * max channel will be the physical channels plus 1 virtual channel
+	 * all containers are on the virtual channel 0 (CONTAINER_CHANNEL)
+	 * physical channels are address by their actual physical number+1
+	 */
 	if (aac->nondasd_support || expose_physicals || aac->jbod)
 		shost->max_channel = aac->maximum_num_channels;
 	else
@@ -1111,6 +1259,10 @@ static int __devinit aac_probe_one(struct pci_dev *pdev,
 	else
 		shost->this_id = shost->max_id;
 
+	/*
+	 * dmb - we may need to move the setting of these parms somewhere else once
+	 * we get a fib that can report the actual numbers
+	 */
 	shost->max_lun = AAC_MAX_LUN;
 
 	pci_set_drvdata(pdev, shost);

@@ -44,6 +44,13 @@
 #include "suballoc.h"
 #include "resize.h"
 
+/*
+ * Check whether there are new backup superblocks exist
+ * in the last group. If there are some, mark them or clear
+ * them in the bitmap.
+ *
+ * Return how many backups we find in the last group.
+ */
 static u16 ocfs2_calc_new_backup_super(struct inode *inode,
 				       struct ocfs2_group_desc *gd,
 				       int new_clusters,
@@ -107,11 +114,15 @@ static int ocfs2_update_last_group_and_inode(handle_t *handle,
 
 	group = (struct ocfs2_group_desc *)group_bh->b_data;
 
-	
+	/* update the group first. */
 	num_bits = new_clusters * cl_bpc;
 	le16_add_cpu(&group->bg_bits, num_bits);
 	le16_add_cpu(&group->bg_free_bits_count, num_bits);
 
+	/*
+	 * check whether there are some new backup superblocks exist in
+	 * this group and update the group bitmap accordingly.
+	 */
 	if (OCFS2_HAS_COMPAT_FEATURE(osb->sb,
 				     OCFS2_FEATURE_COMPAT_BACKUP_SB)) {
 		backups = ocfs2_calc_new_backup_super(bm_inode,
@@ -124,7 +135,7 @@ static int ocfs2_update_last_group_and_inode(handle_t *handle,
 
 	ocfs2_journal_dirty(handle, group_bh);
 
-	
+	/* update the inode accordingly. */
 	ret = ocfs2_journal_access_di(handle, INODE_CACHE(bm_inode), bm_bh,
 				      OCFS2_JOURNAL_ACCESS_WRITE);
 	if (ret < 0) {
@@ -178,7 +189,7 @@ static int update_backups(struct inode * inode, u32 clusters, char *data)
 	struct ocfs2_dinode *backup_di = NULL;
 	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
 
-	
+	/* calculate the real backups we need to update. */
 	for (i = 0; i < OCFS2_MAX_BACKUP_SUPERBLOCKS; i++) {
 		blkno = ocfs2_backup_super_blkno(inode->i_sb, i);
 		cluster = ocfs2_blocks_to_clusters(inode->i_sb, blkno);
@@ -217,6 +228,10 @@ static void ocfs2_update_super_and_backups(struct inode *inode,
 	struct ocfs2_dinode *super_di = NULL;
 	struct ocfs2_super *osb = OCFS2_SB(inode->i_sb);
 
+	/*
+	 * update the superblock last.
+	 * It doesn't matter if the write failed.
+	 */
 	ret = ocfs2_read_blocks_sync(osb, OCFS2_SUPER_BLOCK_BLKNO, 1,
 				     &super_bh);
 	if (ret < 0) {
@@ -247,6 +262,11 @@ out:
 	return;
 }
 
+/*
+ * Extend the filesystem to the new number of clusters specified.  This entry
+ * point is only used to extend the current filesystem to the end of the last
+ * existing group.
+ */
 int ocfs2_group_extend(struct inode * inode, int new_clusters)
 {
 	int ret;
@@ -288,6 +308,8 @@ int ocfs2_group_extend(struct inode * inode, int new_clusters)
 
 	fe = (struct ocfs2_dinode *)main_bm_bh->b_data;
 
+	/* main_bm_bh is validated by inode read inside ocfs2_inode_lock(),
+	 * so any corruption is a code bug. */
 	BUG_ON(!OCFS2_IS_VALID_DINODE(fe));
 
 	if (le16_to_cpu(fe->id2.i_chain.cl_cpg) !=
@@ -329,7 +351,7 @@ int ocfs2_group_extend(struct inode * inode, int new_clusters)
 		goto out_unlock;
 	}
 
-	
+	/* update the last group descriptor and inode. */
 	ret = ocfs2_update_last_group_and_inode(handle, main_bm_inode,
 						main_bm_bh, group_bh,
 						first_new_cluster,
@@ -433,6 +455,7 @@ static int ocfs2_verify_group_and_input(struct inode *inode,
 	return ret;
 }
 
+/* Add a new group descriptor to global_bitmap. */
 int ocfs2_group_add(struct inode *inode, struct ocfs2_new_group_input *input)
 {
 	int ret;

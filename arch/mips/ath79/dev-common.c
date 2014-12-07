@@ -41,7 +41,7 @@ static struct plat_serial8250_port ath79_uart_data[] = {
 		.iotype		= UPIO_MEM32,
 		.regshift	= 2,
 	}, {
-		
+		/* terminating entry */
 	}
 };
 

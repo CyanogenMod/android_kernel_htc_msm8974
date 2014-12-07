@@ -46,4 +46,4 @@ static inline int v9fs_acl_mode(struct inode *dir, umode_t *modep,
 }
 
 #endif
-#endif 
+#endif /* FS_9P_XATTR_H */

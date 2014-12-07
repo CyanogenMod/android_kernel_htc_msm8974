@@ -240,6 +240,9 @@ out:
 	return err;
 }
 
+/*
+ * directories can handle most operations...
+ */
 const struct inode_operations minix_dir_inode_operations = {
 	.create		= minix_create,
 	.lookup		= minix_lookup,

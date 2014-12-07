@@ -35,6 +35,9 @@ struct fdpic_func_descriptor {
 	unsigned long	GOT;
 };
 
+/*
+ * Atomically swap in the new signal mask, and wait for a signal.
+ */
 asmlinkage int sys_sigsuspend(int history0, int history1, old_sigset_t mask)
 {
 	mask &= _BLOCKABLE;
@@ -89,6 +92,9 @@ int sys_sigaltstack(const stack_t __user *uss, stack_t __user *uoss)
 }
 
 
+/*
+ * Do a signal return; undo the signal stack.
+ */
 
 struct sigframe
 {
@@ -115,7 +121,7 @@ static int restore_sigcontext(struct sigcontext __user *sc, int *_gr8)
 	struct user_context *user = current->thread.user;
 	unsigned long tbr, psr;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 	tbr = user->i.tbr;
@@ -127,7 +133,7 @@ static int restore_sigcontext(struct sigcontext __user *sc, int *_gr8)
 
 	restore_user_regs(user);
 
-	user->i.syscallno = -1;		
+	user->i.syscallno = -1;		/* disable syscall checks */
 
 	*_gr8 = user->i.gr[8];
 	return 0;
@@ -196,6 +202,9 @@ badframe:
 	return 0;
 }
 
+/*
+ * Set up a signal frame
+ */
 static int setup_sigcontext(struct sigcontext __user *sc, unsigned long mask)
 {
 	save_user_regs(current->thread.user);
@@ -203,7 +212,7 @@ static int setup_sigcontext(struct sigcontext __user *sc, unsigned long mask)
 	if (copy_to_user(&sc->sc_context, current->thread.user, sizeof(sc->sc_context)) != 0)
 		goto badframe;
 
-	
+	/* non-iBCS2 extensions.. */
 	if (__put_user(mask, &sc->sc_oldmask) < 0)
 		goto badframe;
 
@@ -213,15 +222,19 @@ static int setup_sigcontext(struct sigcontext __user *sc, unsigned long mask)
 	return 1;
 }
 
+/*****************************************************************************/
+/*
+ * Determine which stack to use..
+ */
 static inline void __user *get_sigframe(struct k_sigaction *ka,
 					size_t frame_size)
 {
 	unsigned long sp;
 
-	
+	/* Default to using normal stack */
 	sp = __frame->sp;
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (! sas_ss_flags(sp))
 			sp = current->sas_ss_sp + current->sas_ss_size;
@@ -229,8 +242,12 @@ static inline void __user *get_sigframe(struct k_sigaction *ka,
 
 	return (void __user *) ((sp - frame_size) & ~7UL);
 
-} 
+} /* end get_sigframe() */
 
+/*****************************************************************************/
+/*
+ *
+ */
 static int setup_frame(int sig, struct k_sigaction *ka, sigset_t *set)
 {
 	struct sigframe __user *frame;
@@ -261,11 +278,17 @@ static int setup_frame(int sig, struct k_sigaction *ka, sigset_t *set)
 			goto give_sigsegv;
 	}
 
+	/* Set up to return from userspace.  If provided, use a stub
+	 * already in userspace.  */
 	if (ka->sa.sa_flags & SA_RESTORER) {
 		if (__put_user(ka->sa.sa_restorer, &frame->pretcode) < 0)
 			goto give_sigsegv;
 	}
 	else {
+		/* Set up the following code on the stack:
+		 *	setlos	#__NR_sigreturn,gr7
+		 *	tira	gr0,0
+		 */
 		if (__put_user((__sigrestore_t)frame->retcode, &frame->pretcode) ||
 		    __put_user(0x8efc0000|__NR_sigreturn, &frame->retcode[0]) ||
 		    __put_user(0xc0700000, &frame->retcode[1]))
@@ -275,7 +298,7 @@ static int setup_frame(int sig, struct k_sigaction *ka, sigset_t *set)
 				   (unsigned long) (frame->retcode + 2));
 	}
 
-	
+	/* Set up registers for the signal handler */
 	if (current->personality & FDPIC_FUNCPTRS) {
 		struct fdpic_func_descriptor __user *funcptr =
 			(struct fdpic_func_descriptor __user *) ka->sa.sa_handler;
@@ -293,7 +316,7 @@ static int setup_frame(int sig, struct k_sigaction *ka, sigset_t *set)
 	__frame->lr   = (unsigned long) &frame->retcode;
 	__frame->gr8  = sig;
 
-	
+	/* the tracer may want to single-step inside the handler */
 	if (test_thread_flag(TIF_SINGLESTEP))
 		ptrace_notify(SIGTRAP);
 
@@ -309,8 +332,12 @@ give_sigsegv:
 	force_sigsegv(sig, current);
 	return -EFAULT;
 
-} 
+} /* end setup_frame() */
 
+/*****************************************************************************/
+/*
+ *
+ */
 static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 			  sigset_t *set)
 {
@@ -338,7 +365,7 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (copy_siginfo_to_user(&frame->info, info))
 		goto give_sigsegv;
 
-	
+	/* Create the ucontext.  */
 	if (__put_user(0, &frame->uc.uc_flags) ||
 	    __put_user(NULL, &frame->uc.uc_link) ||
 	    __put_user((void __user *)current->sas_ss_sp, &frame->uc.uc_stack.ss_sp) ||
@@ -352,11 +379,17 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (__copy_to_user(&frame->uc.uc_sigmask, set, sizeof(*set)))
 		goto give_sigsegv;
 
+	/* Set up to return from userspace.  If provided, use a stub
+	 * already in userspace.  */
 	if (ka->sa.sa_flags & SA_RESTORER) {
 		if (__put_user(ka->sa.sa_restorer, &frame->pretcode))
 			goto give_sigsegv;
 	}
 	else {
+		/* Set up the following code on the stack:
+		 *	setlos	#__NR_sigreturn,gr7
+		 *	tira	gr0,0
+		 */
 		if (__put_user((__sigrestore_t)frame->retcode, &frame->pretcode) ||
 		    __put_user(0x8efc0000|__NR_rt_sigreturn, &frame->retcode[0]) ||
 		    __put_user(0xc0700000, &frame->retcode[1]))
@@ -366,7 +399,7 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 				   (unsigned long) (frame->retcode + 2));
 	}
 
-	
+	/* Set up registers for signal handler */
 	if (current->personality & FDPIC_FUNCPTRS) {
 		struct fdpic_func_descriptor __user *funcptr =
 			(struct fdpic_func_descriptor __user *) ka->sa.sa_handler;
@@ -385,7 +418,7 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	__frame->gr8 = sig;
 	__frame->gr9 = (unsigned long) &frame->info;
 
-	
+	/* the tracer may want to single-step inside the handler */
 	if (test_thread_flag(TIF_SINGLESTEP))
 		ptrace_notify(SIGTRAP);
 
@@ -401,16 +434,20 @@ give_sigsegv:
 	force_sigsegv(sig, current);
 	return -EFAULT;
 
-} 
+} /* end setup_rt_frame() */
 
+/*****************************************************************************/
+/*
+ * OK, we're invoking a handler
+ */
 static int handle_signal(unsigned long sig, siginfo_t *info,
 			 struct k_sigaction *ka, sigset_t *oldset)
 {
 	int ret;
 
-	
+	/* Are we from a system call? */
 	if (__frame->syscallno != -1) {
-		
+		/* If so, check system call restarting.. */
 		switch (__frame->gr8) {
 		case -ERESTART_RESTARTBLOCK:
 		case -ERESTARTNOHAND:
@@ -423,7 +460,7 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 				break;
 			}
 
-			
+			/* fallthrough */
 		case -ERESTARTNOINTR:
 			__frame->gr8 = __frame->orig_gr8;
 			__frame->pc -= 4;
@@ -431,7 +468,7 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 		__frame->syscallno = -1;
 	}
 
-	
+	/* Set up the stack frame */
 	if (ka->sa.sa_flags & SA_SIGINFO)
 		ret = setup_rt_frame(sig, ka, info, oldset);
 	else
@@ -449,8 +486,14 @@ static int handle_signal(unsigned long sig, siginfo_t *info,
 
 	return ret;
 
-} 
+} /* end handle_signal() */
 
+/*****************************************************************************/
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ */
 static void do_signal(void)
 {
 	struct k_sigaction ka;
@@ -458,6 +501,12 @@ static void do_signal(void)
 	sigset_t *oldset;
 	int signr;
 
+	/*
+	 * We want the common case to go fast, which
+	 * is why we may in certain cases get here from
+	 * kernel mode. Just return without doing anything
+	 * if so.
+	 */
 	if (!user_mode(__frame))
 		return;
 
@@ -472,6 +521,10 @@ static void do_signal(void)
 	signr = get_signal_to_deliver(&info, &ka, __frame, NULL);
 	if (signr > 0) {
 		if (handle_signal(signr, &info, &ka, oldset) == 0) {
+			/* a signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TIF_RESTORE_SIGMASK flag */
 			if (test_thread_flag(TIF_RESTORE_SIGMASK))
 				clear_thread_flag(TIF_RESTORE_SIGMASK);
 
@@ -483,9 +536,9 @@ static void do_signal(void)
 	}
 
 no_signal:
-	
+	/* Did we come from a system call? */
 	if (__frame->syscallno != -1) {
-		
+		/* Restart the system call - no handlers present */
 		switch (__frame->gr8) {
 		case -ERESTARTNOHAND:
 		case -ERESTARTSYS:
@@ -502,24 +555,31 @@ no_signal:
 		__frame->syscallno = -1;
 	}
 
+	/* if there's no signal to deliver, we just put the saved sigmask
+	 * back */
 	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
 		clear_thread_flag(TIF_RESTORE_SIGMASK);
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);
 	}
 
-} 
+} /* end do_signal() */
 
+/*****************************************************************************/
+/*
+ * notification of userspace execution resumption
+ * - triggered by the TIF_WORK_MASK flags
+ */
 asmlinkage void do_notify_resume(__u32 thread_info_flags)
 {
-	
+	/* pending single-step? */
 	if (thread_info_flags & _TIF_SINGLESTEP)
 		clear_thread_flag(TIF_SINGLESTEP);
 
-	
+	/* deal with pending signal delivery */
 	if (thread_info_flags & (_TIF_SIGPENDING | _TIF_RESTORE_SIGMASK))
 		do_signal();
 
-	
+	/* deal with notification on about to resume userspace execution */
 	if (thread_info_flags & _TIF_NOTIFY_RESUME) {
 		clear_thread_flag(TIF_NOTIFY_RESUME);
 		tracehook_notify_resume(__frame);
@@ -527,4 +587,4 @@ asmlinkage void do_notify_resume(__u32 thread_info_flags)
 			key_replace_session_keyring();
 	}
 
-} 
+} /* end do_notify_resume() */

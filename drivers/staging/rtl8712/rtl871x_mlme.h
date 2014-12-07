@@ -35,10 +35,10 @@
 
 #define		SCANNING_TIMEOUT	4500
 
-#define	SCANQUEUE_LIFETIME 20 
+#define	SCANQUEUE_LIFETIME 20 /* unit:sec */
 
 #define		WIFI_NULL_STATE	0x00000000
-#define	WIFI_ASOC_STATE		0x00000001	
+#define	WIFI_ASOC_STATE		0x00000001	/* Under Linked state...*/
 #define		WIFI_REASOC_STATE 0x00000002
 #define	WIFI_SLEEP_STATE	0x00000004
 #define	WIFI_STATION_STATE	0x00000008
@@ -46,19 +46,32 @@
 #define	WIFI_ADHOC_STATE	0x00000020
 #define   WIFI_ADHOC_MASTER_STATE 0x00000040
 #define   WIFI_UNDER_LINKING	0x00000080
-#define WIFI_SITE_MONITOR	0x00000800	
+#define WIFI_SITE_MONITOR	0x00000800	/* to indicate the station
+						 * is under site surveying*/
 #define	WIFI_MP_STATE		0x00010000
-#define	WIFI_MP_CTX_BACKGROUND	0x00020000	
-#define	WIFI_MP_CTX_ST		0x00040000	
-#define	WIFI_MP_CTX_BACKGROUND_PENDING	0x00080000 
-#define	WIFI_MP_CTX_CCK_HW	0x00100000	
-#define	WIFI_MP_CTX_CCK_CS	0x00200000	
+#define	WIFI_MP_CTX_BACKGROUND	0x00020000	/* in cont. tx background*/
+#define	WIFI_MP_CTX_ST		0x00040000	/* in cont. tx with
+						 *  single-tone*/
+#define	WIFI_MP_CTX_BACKGROUND_PENDING	0x00080000 /* pending in cont, tx
+					* background due to out of skb*/
+#define	WIFI_MP_CTX_CCK_HW	0x00100000	/* in continuous tx*/
+#define	WIFI_MP_CTX_CCK_CS	0x00200000	/* in cont, tx with carrier
+						 * suppression*/
 #define   WIFI_MP_LPBK_STATE	0x00400000
 
 #define _FW_UNDER_LINKING	WIFI_UNDER_LINKING
 #define _FW_LINKED		WIFI_ASOC_STATE
 #define _FW_UNDER_SURVEY	WIFI_SITE_MONITOR
 
+/*
+there are several "locks" in mlme_priv,
+since mlme_priv is a shared resource between many threads,
+like ISR/Call-Back functions, the OID handlers, and even timer functions.
+Each _queue has its own locks, already.
+Other items are protected by mlme_priv.lock.
+To avoid possible dead lock, any thread trying to modifiying mlme_priv
+SHALL not lock up more than one locks at a time!
+*/
 
 #define traffic_threshold	10
 #define	traffic_scan_period	500
@@ -74,15 +87,15 @@ struct mlme_priv {
 
 	spinlock_t lock;
 	spinlock_t lock2;
-	sint	fw_state;	
-	u8 to_join; 
+	sint	fw_state;	/*shall we protect this variable? */
+	u8 to_join; /*flag*/
 	u8 *nic_hdl;
 	struct list_head *pscanned;
 	struct  __queue free_bss_pool;
 	struct  __queue scanned_queue;
 	u8 *free_bss_buf;
 	unsigned long num_of_scanned;
-	u8 passive_mode; 
+	u8 passive_mode; /*add for Android's SCAN-ACTIVE/SCAN-PASSIVE */
 	struct ndis_802_11_ssid	assoc_ssid;
 	u8 assoc_bssid[6];
 	struct wlan_network cur_network;
@@ -90,11 +103,11 @@ struct mlme_priv {
 	struct timer_list assoc_timer;
 	uint assoc_by_bssid;
 	uint assoc_by_rssi;
-	struct timer_list scan_to_timer; 
-	struct timer_list dhcp_timer; 
+	struct timer_list scan_to_timer; /* driver handles scan_timeout.*/
+	struct timer_list dhcp_timer; /* set dhcp to if driver in ps mode.*/
 	struct qos_priv qospriv;
 	struct ht_priv	htpriv;
-	struct timer_list wdg_timer; 
+	struct timer_list wdg_timer; /*watchdog periodic timer*/
 };
 
 static inline u8 *get_bssid(struct mlme_priv *pmlmepriv)
@@ -114,6 +127,13 @@ static inline sint get_fwstate(struct mlme_priv *pmlmepriv)
 	return pmlmepriv->fw_state;
 }
 
+/*
+ * No Limit on the calling context,
+ * therefore set it to be the critical section...
+ *
+ * ### NOTE:#### (!!!!)
+ * TAKE CARE THAT BEFORE CALLING THIS FUNC, LOCK pmlmepriv->lock
+ */
 static inline void set_fwstate(struct mlme_priv *pmlmepriv, sint state)
 {
 	pmlmepriv->fw_state |= state;
@@ -124,6 +144,10 @@ static inline void _clr_fwstate_(struct mlme_priv *pmlmepriv, sint state)
 	pmlmepriv->fw_state &= ~state;
 }
 
+/*
+ * No Limit on the calling context,
+ * therefore set it to be the critical section...
+ */
 static inline void clr_fwstate(struct mlme_priv *pmlmepriv, sint state)
 {
 	unsigned long irqL;
@@ -205,4 +229,4 @@ unsigned int r8712_restructure_ht_ie(struct _adapter *padapter, u8 *in_ie,
 void r8712_issue_addbareq_cmd(struct _adapter *padapter, int priority);
 int r8712_is_same_ibss(struct _adapter *adapter, struct wlan_network *pnetwork);
 
-#endif 
+#endif /*__RTL871X_MLME_H_*/

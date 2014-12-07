@@ -53,6 +53,7 @@ enum htc_endpoint_id {
 	ENDPOINT_MAX = 22
 };
 
+/* Htc frame hdr flags */
 #define HTC_FLAGS_RECV_TRAILER (1 << 1)
 
 struct htc_frame_hdr {
@@ -132,6 +133,7 @@ struct htc_service_connreq {
 	struct htc_ep_callbacks ep_callbacks;
 };
 
+/* Current service IDs */
 
 enum htc_service_group_ids{
 	RSVD_SERVICE_GROUP = 0,
@@ -143,6 +145,7 @@ enum htc_service_group_ids{
 #define MAKE_SERVICE_ID(group, index)		\
 	(int)(((int)group << 8) | (int)(index))
 
+/* NOTE: service ID of 0x0000 is reserved and should never be used */
 #define HTC_CTRL_RSVD_SVC MAKE_SERVICE_ID(RSVD_SERVICE_GROUP, 1)
 #define HTC_LOOPBACK_RSVD_SVC MAKE_SERVICE_ID(RSVD_SERVICE_GROUP, 2)
 
@@ -166,6 +169,7 @@ struct htc_conn_svc_msg {
 	u8 pad;
 } __packed;
 
+/* connect response status codes */
 #define HTC_SERVICE_SUCCESS      0
 #define HTC_SERVICE_NOT_FOUND    1
 #define HTC_SERVICE_FAILED       2
@@ -211,4 +215,4 @@ int ath9k_htc_hw_init(struct htc_target *target,
 		      u32 drv_info);
 void ath9k_htc_hw_deinit(struct htc_target *target, bool hot_unplug);
 
-#endif 
+#endif /* HTC_HST_H */

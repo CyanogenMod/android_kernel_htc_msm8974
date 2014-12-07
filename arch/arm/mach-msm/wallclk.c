@@ -65,8 +65,8 @@ struct wallclk_sm {
 struct wallclk_cfg {
 	u32	ppns;
 	u32	clk_rate;
-	u32	clk_rate_v;	
-	u32	clk_rate_p;	
+	u32	clk_rate_v;	/* clk_rate = clk_rate_v x clk_rate_p */
+	u32	clk_rate_p;	/* power of 10 */
 	u32	ns_per_clk_rate_v;
 };
 

@@ -17,7 +17,15 @@
 #include <csp/tmrHw.h>
 
 #include <mach/timer.h>
+/* The core.c file initializes timers 1 and 3 as a linux clocksource. */
+/* The real time clock should probably be the real linux clocksource. */
+/* In the meantime, this file should agree with core.c as to the */
+/* profiling timer. If the clocksource is moved to rtc later, then */
+/* we can init the profiling timer here instead. */
 
+/* Timer 1 provides 25MHz resolution syncrhonized to scheduling and APM timing */
+/* Timer 3 provides bus freqeuncy sychronized to ACLK, but spread spectrum will */
+/* affect synchronization with scheduling and APM timing. */
 
 #define PROF_TIMER 1
 
@@ -28,7 +36,7 @@ timer_tick_rate_t timer_get_tick_rate(void)
 
 timer_tick_count_t timer_get_tick_count(void)
 {
-	return tmrHw_GetCurrentCount(PROF_TIMER);	
+	return tmrHw_GetCurrentCount(PROF_TIMER);	/* change downcounter to upcounter */
 }
 
 timer_msec_t timer_ticks_to_msec(timer_tick_count_t ticks)

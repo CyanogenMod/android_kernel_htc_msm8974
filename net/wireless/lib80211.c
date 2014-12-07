@@ -138,6 +138,7 @@ static void lib80211_crypt_deinit_entries(struct lib80211_crypt_info *info,
 	spin_unlock_irqrestore(info->lock, flags);
 }
 
+/* After this, crypt_deinit_list won't accept new members */
 static void lib80211_crypt_quiescing(struct lib80211_crypt_info *info)
 {
 	unsigned long flags;
@@ -176,6 +177,9 @@ void lib80211_crypt_delayed_deinit(struct lib80211_crypt_info *info,
 	tmp = *crypt;
 	*crypt = NULL;
 
+	/* must not run ops->deinit() while there may be pending encrypt or
+	 * decrypt operations. Use a list of delayed deinits to avoid needing
+	 * locking. */
 
 	spin_lock_irqsave(info->lock, flags);
 	if (!info->crypt_quiesced) {

@@ -24,6 +24,9 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
+/*
+ * Authors: Thomas Hellström <thomas-at-tungstengraphics-dot-com>
+ */
 
 #include <linux/export.h>
 #include "drmP.h"

@@ -34,10 +34,10 @@ static inline void get_pcm_info(struct i2sbus_dev *i2sdev, int in,
 
 static int clock_and_divisors(int mclk, int sclk, int rate, int *out)
 {
-	
+	/* sclk must be derived from mclk! */
 	if (mclk % sclk)
 		return -1;
-	
+	/* derive sclk register value */
 	if (i2s_sf_sclkdiv(mclk / sclk, out))
 		return -1;
 
@@ -92,12 +92,12 @@ static int i2sbus_pcm_open(struct i2sbus_dev *i2sdev, int in)
 	sdev = &i2sdev->sound;
 
 	if (pi->active) {
-		
+		/* alsa messed up */
 		result = -EBUSY;
 		goto out_unlock;
 	}
 
-	
+	/* we now need to assign the hw */
 	list_for_each_entry(cii, &sdev->codec_list, list) {
 		struct transfer_info *ti = cii->codec->transfers;
 		bus_factor = cii->codec->bus_factor;
@@ -122,7 +122,7 @@ static int i2sbus_pcm_open(struct i2sbus_dev *i2sdev, int in)
 		result = -ENODEV;
 		goto out_unlock;
 	}
-	
+	/* bus dependent stuff */
 	hw->info = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID |
 		   SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_RESUME |
 		   SNDRV_PCM_INFO_JOINT_DUPLEX;
@@ -142,28 +142,52 @@ static int i2sbus_pcm_open(struct i2sbus_dev *i2sdev, int in)
 	CHECK_RATE(192000);
 	hw->rates = rates;
 
+	/* well. the codec might want 24 bits only, and we'll
+	 * ever only transfer 24 bits, but they are top-aligned!
+	 * So for alsa, we claim that we're doing full 32 bit
+	 * while in reality we'll ignore the lower 8 bits of
+	 * that when doing playback (they're transferred as 0
+	 * as far as I know, no codecs we have are 32-bit capable
+	 * so I can't really test) and when doing recording we'll
+	 * always have those lower 8 bits recorded as 0 */
 	if (formats & SNDRV_PCM_FMTBIT_S24_BE)
 		formats |= SNDRV_PCM_FMTBIT_S32_BE;
 	if (formats & SNDRV_PCM_FMTBIT_U24_BE)
 		formats |= SNDRV_PCM_FMTBIT_U32_BE;
+	/* now mask off what we can support. I suppose we could
+	 * also support S24_3LE and some similar formats, but I
+	 * doubt there's a codec that would be able to use that,
+	 * so we don't support it here. */
 	hw->formats = formats & (SNDRV_PCM_FMTBIT_S16_BE |
 				 SNDRV_PCM_FMTBIT_U16_BE |
 				 SNDRV_PCM_FMTBIT_S32_BE |
 				 SNDRV_PCM_FMTBIT_U32_BE);
 
+	/* we need to set the highest and lowest rate possible.
+	 * These are the highest and lowest rates alsa can
+	 * support properly in its bitfield.
+	 * Below, we'll use that to restrict to the rate
+	 * currently in use (if any). */
 	hw->rate_min = 5512;
 	hw->rate_max = 192000;
+	/* if the other stream is active, then we can only
+	 * support what it is currently using.
+	 * FIXME: I lied. This comment is wrong. We can support
+	 * anything that works with the same serial format, ie.
+	 * when recording 24 bit sound we can well play 16 bit
+	 * sound at the same time iff using the same transfer mode.
+	 */
 	if (other->active) {
-		
+		/* FIXME: is this guaranteed by the alsa api? */
 		hw->formats &= (1ULL << i2sdev->format);
-		
+		/* see above, restrict rates to the one we already have */
 		hw->rate_min = i2sdev->rate;
 		hw->rate_max = i2sdev->rate;
 	}
 
 	hw->channels_min = 2;
 	hw->channels_max = 2;
-	
+	/* these are somewhat arbitrary */
 	hw->buffer_bytes_max = 131072;
 	hw->period_bytes_min = 256;
 	hw->period_bytes_max = 16384;
@@ -180,7 +204,7 @@ static int i2sbus_pcm_open(struct i2sbus_dev *i2sdev, int in)
 			err = cii->codec->open(cii, pi->substream);
 			if (err) {
 				result = err;
-				
+				/* unwind */
 				found_this = 0;
 				list_for_each_entry_reverse(rev,
 				    &sdev->codec_list, list) {
@@ -243,9 +267,9 @@ static void i2sbus_wait_for_stop(struct i2sbus_dev *i2sdev,
 		spin_lock_irqsave(&i2sdev->low_lock, flags);
 		pi->stop_completion = NULL;
 		if (timeout == 0) {
-			
+			/* timeout expired, stop dbdma forcefully */
 			printk(KERN_ERR "i2sbus_wait_for_stop: timed out\n");
-			
+			/* make sure RUN, PAUSE and S0 bits are cleared */
 			out_le32(&pi->dbdma->control, (RUN | PAUSE | 1) << 16);
 			pi->dbdma_ring.stopping = 0;
 			timeout = 10;
@@ -301,14 +325,17 @@ static int i2sbus_record_hw_free(struct snd_pcm_substream *substream)
 
 static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 {
+	/* whee. Hard work now. The user has selected a bitrate
+	 * and bit format, so now we have to program our
+	 * I2S controller appropriately. */
 	struct snd_pcm_runtime *runtime;
 	struct dbdma_cmd *command;
 	int i, periodsize, nperiods;
 	dma_addr_t offset;
 	struct bus_info bi;
 	struct codec_info_item *cii;
-	int sfr = 0;		
-	int dws = 0;		
+	int sfr = 0;		/* serial format register */
+	int dws = 0;		/* data word sizes reg */
 	int input_16bit;
 	struct pcm_info *pi, *other;
 	int cnt;
@@ -347,11 +374,22 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 	nperiods = pi->substream->runtime->periods;
 	pi->current_period = 0;
 
-	
+	/* generate dbdma command ring first */
 	command = pi->dbdma_ring.cmds;
 	memset(command, 0, (nperiods + 2) * sizeof(struct dbdma_cmd));
 
-	
+	/* commands to DMA to/from the ring */
+	/*
+	 * For input, we need to do a graceful stop; if we abort
+	 * the DMA, we end up with leftover bytes that corrupt
+	 * the next recording.  To do this we set the S0 status
+	 * bit and wait for the DMA controller to stop.  Each
+	 * command has a branch condition to
+	 * make it branch to a stop command if S0 is set.
+	 * On input we also need to wait for the S7 bit to be
+	 * set before turning off the DMA controller.
+	 * In fact we do the graceful stop for output as well.
+	 */
 	offset = runtime->dma_addr;
 	cmd = (in? INPUT_MORE: OUTPUT_MORE) | BR_IFSET | INTR_ALWAYS;
 	stopaddr = pi->dbdma_ring.bus_cmd_start +
@@ -363,19 +401,21 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 		command->req_count = cpu_to_le16(periodsize);
 	}
 
-	
+	/* branch back to beginning of ring */
 	command->command = cpu_to_le16(DBDMA_NOP | BR_ALWAYS);
 	command->cmd_dep = cpu_to_le32(pi->dbdma_ring.bus_cmd_start);
 	command++;
 
-	
+	/* set stop command */
 	command->command = cpu_to_le16(DBDMA_STOP);
 
-	
+	/* ok, let's set the serial format and stuff */
 	switch (runtime->format) {
-	
+	/* 16 bit formats */
 	case SNDRV_PCM_FORMAT_S16_BE:
 	case SNDRV_PCM_FORMAT_U16_BE:
+		/* FIXME: if we add different bus factors we need to
+		 * do more here!! */
 		bi.bus_factor = 0;
 		list_for_each_entry(cii, &i2sdev->sound.codec_list, list) {
 			bi.bus_factor = cii->codec->bus_factor;
@@ -389,6 +429,8 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 		break;
 	case SNDRV_PCM_FORMAT_S32_BE:
 	case SNDRV_PCM_FORMAT_U32_BE:
+		/* force 64x bus speed, otherwise the data cannot be
+		 * transferred quickly enough! */
 		bi.bus_factor = 64;
 		input_16bit = 0;
 		break;
@@ -396,7 +438,7 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 		result = -EINVAL;
 		goto out_unlock;
 	}
-	
+	/* we assume all sysclocks are the same! */
 	list_for_each_entry(cii, &i2sdev->sound.codec_list, list) {
 		bi.sysclock_factor = cii->codec->sysclock_factor;
 		break;
@@ -417,7 +459,7 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 		sfr |= I2S_SF_SERIAL_FORMAT_I2S_64X;
 		break;
 	}
-	
+	/* FIXME: THIS ASSUMES MASTER ALL THE TIME */
 	sfr |= I2S_SF_SCLK_MASTER;
 
 	list_for_each_entry(cii, &i2sdev->sound.codec_list, list) {
@@ -429,7 +471,7 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 			goto out_unlock;
 		}
 	}
-	
+	/* codecs are fine with it, so set our clocks */
 	if (input_16bit)
 		dws =	(2 << I2S_DWS_NUM_CHANNELS_IN_SHIFT) |
 			(2 << I2S_DWS_NUM_CHANNELS_OUT_SHIFT) |
@@ -439,12 +481,14 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 			(2 << I2S_DWS_NUM_CHANNELS_OUT_SHIFT) |
 			I2S_DWS_DATA_IN_24BIT | I2S_DWS_DATA_OUT_24BIT;
 
-	
-	
+	/* early exit if already programmed correctly */
+	/* not locking these is fine since we touch them only in this function */
 	if (in_le32(&i2sdev->intfregs->serial_format) == sfr
 	 && in_le32(&i2sdev->intfregs->data_word_sizes) == dws)
 		goto out_unlock;
 
+	/* let's notify the codecs about clocks going away.
+	 * For now we only do mastering on the i2s cell... */
 	list_for_each_entry(cii, &i2sdev->sound.codec_list, list)
 		if (cii->codec->switch_clock)
 			cii->codec->switch_clock(cii, CLOCK_SWITCH_PREPARE_SLAVE);
@@ -458,7 +502,7 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 
 	msleep(1);
 
-	
+	/* wait for clock stopped. This can apparently take a while... */
 	cnt = 100;
 	while (cnt-- &&
 	    !(in_le32(&i2sdev->intfregs->intr_ctl) & I2S_PENDING_CLOCKS_STOPPED)) {
@@ -466,7 +510,7 @@ static int i2sbus_pcm_prepare(struct i2sbus_dev *i2sdev, int in)
 	}
 	out_le32(&i2sdev->intfregs->intr_ctl, I2S_PENDING_CLOCKS_STOPPED);
 
-	
+	/* not locking these is fine since we touch them only in this function */
 	out_le32(&i2sdev->intfregs->serial_format, sfr);
 	out_le32(&i2sdev->intfregs->data_word_sizes, dws);
 
@@ -516,35 +560,35 @@ static int i2sbus_pcm_trigger(struct i2sbus_dev *i2sdev, int in, int cmd)
 		pi->dbdma_ring.running = 1;
 
 		if (pi->dbdma_ring.stopping) {
-			
+			/* Clear the S0 bit, then see if we stopped yet */
 			out_le32(&pi->dbdma->control, 1 << 16);
 			if (in_le32(&pi->dbdma->status) & ACTIVE) {
-				
+				/* possible race here? */
 				udelay(10);
 				if (in_le32(&pi->dbdma->status) & ACTIVE) {
 					pi->dbdma_ring.stopping = 0;
-					goto out_unlock; 
+					goto out_unlock; /* keep running */
 				}
 			}
 		}
 
-		
+		/* make sure RUN, PAUSE and S0 bits are cleared */
 		out_le32(&pi->dbdma->control, (RUN | PAUSE | 1) << 16);
 
-		
+		/* set branch condition select register */
 		out_le32(&pi->dbdma->br_sel, (1 << 16) | 1);
 
-		
+		/* write dma command buffer address to the dbdma chip */
 		out_le32(&pi->dbdma->cmdptr, pi->dbdma_ring.bus_cmd_start);
 
-		
+		/* initialize the frame count and current period */
 		pi->current_period = 0;
 		pi->frame_count = in_le32(&i2sdev->intfregs->frame_count);
 
-		
+		/* set the DMA controller running */
 		out_le32(&pi->dbdma->control, (RUN << 16) | RUN);
 
-		
+		/* off you go! */
 		break;
 
 	case SNDRV_PCM_TRIGGER_STOP:
@@ -555,7 +599,7 @@ static int i2sbus_pcm_trigger(struct i2sbus_dev *i2sdev, int in, int cmd)
 		}
 		pi->dbdma_ring.running = 0;
 
-		
+		/* Set the S0 bit to make the DMA branch to the stop cmd */
 		out_le32(&pi->dbdma->control, (1 << 16) | 1);
 		pi->dbdma_ring.stopping = 1;
 
@@ -606,6 +650,11 @@ static inline void handle_interrupt(struct i2sbus_dev *i2sdev, int in)
 	runtime = pi->substream->runtime;
 	while (pi->dbdma_ring.cmds[i].xfer_status) {
 		if (le16_to_cpu(pi->dbdma_ring.cmds[i].xfer_status) & BT)
+			/*
+			 * BT is the branch taken bit.  If it took a branch
+			 * it is because we set the S0 bit to make it
+			 * branch to the stop command.
+			 */
 			dma_stopped = 1;
 		pi->dbdma_ring.cmds[i].xfer_status = 0;
 
@@ -615,6 +664,10 @@ static inline void handle_interrupt(struct i2sbus_dev *i2sdev, int in)
 		}
 		pi->current_period = i;
 
+		/*
+		 * Check the frame count.  The DMA tends to get a bit
+		 * ahead of the frame counter, which confuses the core.
+		 */
 		fc = in_le32(&i2sdev->intfregs->frame_count);
 		nframes = i * runtime->period_size;
 		if (fc < pi->frame_count + nframes)
@@ -635,7 +688,7 @@ static inline void handle_interrupt(struct i2sbus_dev *i2sdev, int in)
 			udelay(1);
 		}
 
-		
+		/* Turn off DMA controller, clear S0 bit */
 		out_le32(&pi->dbdma->control, (RUN | PAUSE | 1) << 16);
 
 		pi->dbdma_ring.stopping = 0;
@@ -646,7 +699,7 @@ static inline void handle_interrupt(struct i2sbus_dev *i2sdev, int in)
 	if (!pi->dbdma_ring.running)
 		goto out_unlock;
 	spin_unlock(&i2sdev->low_lock);
-	
+	/* may call _trigger again, hence needs to be unlocked */
 	snd_pcm_period_elapsed(pi->substream);
 	return;
 
@@ -847,9 +900,14 @@ i2sbus_attach_codec(struct soundbus_dev *dev, struct snd_card *card,
 	    || !ci->transfers->rates || !ci->usable)
 		return -EINVAL;
 
+	/* we currently code the i2s transfer on the clock, and support only
+	 * 32 and 64 */
 	if (ci->bus_factor != 32 && ci->bus_factor != 64)
 		return -EINVAL;
 
+	/* If you want to fix this, you need to keep track of what transport infos
+	 * are to be used, which codecs they belong to, and then fix all the
+	 * sysclock/busclock stuff above to depend on which is usable */
 	list_for_each_entry(cii, &dev->codec_list, list) {
 		if (cii->codec->sysclock_factor != ci->sysclock_factor) {
 			printk(KERN_DEBUG
@@ -878,7 +936,7 @@ i2sbus_attach_codec(struct soundbus_dev *dev, struct snd_card *card,
 		return -ENOMEM;
 	}
 
-	
+	/* use the private data to point to the codec info */
 	cii->sdev = soundbus_dev_get(dev);
 	cii->codec = ci;
 	cii->codec_data = data;
@@ -913,11 +971,13 @@ i2sbus_attach_codec(struct soundbus_dev *dev, struct snd_card *card,
 		dev->pcm->dev = &dev->ofdev.dev;
 	}
 
+	/* ALSA yet again sucks.
+	 * If it is ever fixed, remove this line. See below. */
 	out = in = 1;
 
 	if (!i2sdev->out.created && out) {
 		if (dev->pcm->card != card) {
-			
+			/* eh? */
 			printk(KERN_ERR
 			       "Can't attach same bus to different cards!\n");
 			err = -EINVAL;
@@ -946,18 +1006,24 @@ i2sbus_attach_codec(struct soundbus_dev *dev, struct snd_card *card,
 		i2sdev->in.created = 1;
 	}
 
+	/* so we have to register the pcm after adding any substream
+	 * to it because alsa doesn't create the devices for the
+	 * substreams when we add them later.
+	 * Therefore, force in and out on both busses (above) and
+	 * register the pcm now instead of just after creating it.
+	 */
 	err = snd_device_register(card, dev->pcm);
 	if (err) {
 		printk(KERN_ERR "i2sbus: error registering new pcm\n");
 		goto out_put_ci_module;
 	}
-	
+	/* no errors any more, so let's add this to our list */
 	list_add(&cii->list, &dev->codec_list);
 
 	dev->pcm->private_data = i2sdev;
 	dev->pcm->private_free = i2sbus_private_free;
 
-	
+	/* well, we really should support scatter/gather DMA */
 	snd_pcm_lib_preallocate_pages_for_all(
 		dev->pcm, SNDRV_DMA_TYPE_DEV,
 		snd_dma_pci_data(macio_get_pci_dev(i2sdev->macio)),
@@ -990,9 +1056,9 @@ void i2sbus_detach_codec(struct soundbus_dev *dev, void *data)
 		module_put(cii->codec->owner);
 		kfree(cii);
 	}
-	
+	/* no more codecs, but still a pcm? */
 	if (list_empty(&dev->codec_list) && dev->pcm) {
-		
+		/* the actual cleanup is done by the callback above! */
 		snd_device_free(dev->pcm->card, dev->pcm);
 	}
 }

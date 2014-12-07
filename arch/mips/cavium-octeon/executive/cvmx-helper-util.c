@@ -25,6 +25,9 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/*
+ * Small helper utilities.
+ */
 #include <linux/kernel.h>
 
 #include <asm/octeon/octeon.h>
@@ -42,6 +45,13 @@
 
 #include <asm/octeon/cvmx-ipd-defs.h>
 
+/**
+ * Convert a interface mode into a human readable string
+ *
+ * @mode:   Mode to convert
+ *
+ * Returns String
+ */
 const char *cvmx_helper_interface_mode_to_string(cvmx_helper_interface_mode_t
 						 mode)
 {
@@ -70,6 +80,12 @@ const char *cvmx_helper_interface_mode_to_string(cvmx_helper_interface_mode_t
 	return "UNKNOWN";
 }
 
+/**
+ * Debug routine to dump the packet structure to the console
+ *
+ * @work:   Work queue entry containing the packet to dump
+ * Returns
+ */
 int cvmx_helper_dump_packet(cvmx_wqe_t *work)
 {
 	uint64_t count;
@@ -99,6 +115,12 @@ int cvmx_helper_dump_packet(cvmx_wqe_t *work)
 			    work->word2.s.ip_offset;
 			buffer_ptr.s.addr += (work->word2.s.is_v6 ^ 1) << 2;
 		} else {
+			/*
+			 * WARNING: This code assumes that the packet
+			 * is not RAW. If it was, we would use
+			 * PIP_GBL_CFG[RAW_SHF] instead of
+			 * PIP_GBL_CFG[NIP_SHF].
+			 */
 			union cvmx_pip_gbl_cfg pip_gbl_cfg;
 			pip_gbl_cfg.u64 = cvmx_read_csr(CVMX_PIP_GBL_CFG);
 			buffer_ptr.s.addr += pip_gbl_cfg.s.nip_shf;
@@ -145,17 +167,32 @@ int cvmx_helper_dump_packet(cvmx_wqe_t *work)
 	return 0;
 }
 
+/**
+ * Setup Random Early Drop on a specific input queue
+ *
+ * @queue:  Input queue to setup RED on (0-7)
+ * @pass_thresh:
+ *               Packets will begin slowly dropping when there are less than
+ *               this many packet buffers free in FPA 0.
+ * @drop_thresh:
+ *               All incomming packets will be dropped when there are less
+ *               than this many free packet buffers in FPA 0.
+ * Returns Zero on success. Negative on failure
+ */
 int cvmx_helper_setup_red_queue(int queue, int pass_thresh, int drop_thresh)
 {
 	union cvmx_ipd_qosx_red_marks red_marks;
 	union cvmx_ipd_red_quex_param red_param;
 
+	/* Set RED to begin dropping packets when there are pass_thresh buffers
+	   left. It will linearly drop more packets until reaching drop_thresh
+	   buffers */
 	red_marks.u64 = 0;
 	red_marks.s.drop = drop_thresh;
 	red_marks.s.pass = pass_thresh;
 	cvmx_write_csr(CVMX_IPD_QOSX_RED_MARKS(queue), red_marks.u64);
 
-	
+	/* Use the actual queue 0 counter, not the average */
 	red_param.u64 = 0;
 	red_param.s.prb_con =
 	    (255ul << 24) / (red_marks.s.pass - red_marks.s.drop);
@@ -166,6 +203,17 @@ int cvmx_helper_setup_red_queue(int queue, int pass_thresh, int drop_thresh)
 	return 0;
 }
 
+/**
+ * Setup Random Early Drop to automatically begin dropping packets.
+ *
+ * @pass_thresh:
+ *               Packets will begin slowly dropping when there are less than
+ *               this many packet buffers free in FPA 0.
+ * @drop_thresh:
+ *               All incomming packets will be dropped when there are less
+ *               than this many free packet buffers in FPA 0.
+ * Returns Zero on success. Negative on failure
+ */
 int cvmx_helper_setup_red(int pass_thresh, int drop_thresh)
 {
 	union cvmx_ipd_portx_bp_page_cnt page_cnt;
@@ -175,7 +223,7 @@ int cvmx_helper_setup_red(int pass_thresh, int drop_thresh)
 	int interface;
 	int port;
 
-	
+	/* Disable backpressure based on queued buffers. It needs SW support */
 	page_cnt.u64 = 0;
 	page_cnt.s.bp_enb = 0;
 	page_cnt.s.page_cnt = 100;
@@ -189,6 +237,8 @@ int cvmx_helper_setup_red(int pass_thresh, int drop_thresh)
 	for (queue = 0; queue < 8; queue++)
 		cvmx_helper_setup_red_queue(queue, pass_thresh, drop_thresh);
 
+	/* Shutoff the dropping based on the per port page count. SW isn't
+	   decrementing it right now */
 	ipd_bp_prt_red_end.u64 = 0;
 	ipd_bp_prt_red_end.s.prt_enb = 0;
 	cvmx_write_csr(CVMX_IPD_BP_PRT_RED_END, ipd_bp_prt_red_end.u64);
@@ -202,6 +252,16 @@ int cvmx_helper_setup_red(int pass_thresh, int drop_thresh)
 	return 0;
 }
 
+/**
+ * Setup the common GMX settings that determine the number of
+ * ports. These setting apply to almost all configurations of all
+ * chips.
+ *
+ * @interface: Interface to configure
+ * @num_ports: Number of ports on the interface
+ *
+ * Returns Zero on success, negative on failure
+ */
 int __cvmx_helper_setup_gmx(int interface, int num_ports)
 {
 	union cvmx_gmxx_tx_prts gmx_tx_prts;
@@ -210,11 +270,13 @@ int __cvmx_helper_setup_gmx(int interface, int num_ports)
 	union cvmx_gmxx_txx_thresh gmx_tx_thresh;
 	int index;
 
-	
+	/* Tell GMX the number of TX ports on this interface */
 	gmx_tx_prts.u64 = cvmx_read_csr(CVMX_GMXX_TX_PRTS(interface));
 	gmx_tx_prts.s.prts = num_ports;
 	cvmx_write_csr(CVMX_GMXX_TX_PRTS(interface), gmx_tx_prts.u64);
 
+	/* Tell GMX the number of RX ports on this interface.  This only
+	 ** applies to *GMII and XAUI ports */
 	if (cvmx_helper_interface_get_mode(interface) ==
 	    CVMX_HELPER_INTERFACE_MODE_RGMII
 	    || cvmx_helper_interface_get_mode(interface) ==
@@ -234,10 +296,10 @@ int __cvmx_helper_setup_gmx(int interface, int num_ports)
 		cvmx_write_csr(CVMX_GMXX_RX_PRTS(interface), gmx_rx_prts.u64);
 	}
 
-	
+	/* Skip setting CVMX_PKO_REG_GMX_PORT_MODE on 30XX, 31XX, and 50XX */
 	if (!OCTEON_IS_MODEL(OCTEON_CN30XX) && !OCTEON_IS_MODEL(OCTEON_CN31XX)
 	    && !OCTEON_IS_MODEL(OCTEON_CN50XX)) {
-		
+		/* Tell PKO the number of ports on this interface */
 		pko_mode.u64 = cvmx_read_csr(CVMX_PKO_REG_GMX_PORT_MODE);
 		if (interface == 0) {
 			if (num_ports == 1)
@@ -265,13 +327,20 @@ int __cvmx_helper_setup_gmx(int interface, int num_ports)
 		cvmx_write_csr(CVMX_PKO_REG_GMX_PORT_MODE, pko_mode.u64);
 	}
 
+	/*
+	 * Set GMX to buffer as much data as possible before starting
+	 * transmit.  This reduces the chances that we have a TX under
+	 * run due to memory contention. Any packet that fits entirely
+	 * in the GMX FIFO can never have an under run regardless of
+	 * memory load.
+	 */
 	gmx_tx_thresh.u64 = cvmx_read_csr(CVMX_GMXX_TXX_THRESH(0, interface));
 	if (OCTEON_IS_MODEL(OCTEON_CN30XX) || OCTEON_IS_MODEL(OCTEON_CN31XX)
 	    || OCTEON_IS_MODEL(OCTEON_CN50XX)) {
-		
+		/* These chips have a fixed max threshold of 0x40 */
 		gmx_tx_thresh.s.cnt = 0x40;
 	} else {
-		
+		/* Choose the max value for the number of ports */
 		if (num_ports <= 1)
 			gmx_tx_thresh.s.cnt = 0x100 / 1;
 		else if (num_ports == 2)
@@ -279,6 +348,10 @@ int __cvmx_helper_setup_gmx(int interface, int num_ports)
 		else
 			gmx_tx_thresh.s.cnt = 0x100 / 4;
 	}
+	/*
+	 * SPI and XAUI can have lots of ports but the GMX hardware
+	 * only ever has a max of 4.
+	 */
 	if (num_ports > 4)
 		num_ports = 4;
 	for (index = 0; index < num_ports; index++)
@@ -288,6 +361,15 @@ int __cvmx_helper_setup_gmx(int interface, int num_ports)
 	return 0;
 }
 
+/**
+ * Returns the IPD/PKO port number for a port on the given
+ * interface.
+ *
+ * @interface: Interface to use
+ * @port:      Port on the interface
+ *
+ * Returns IPD/PKO port number
+ */
 int cvmx_helper_get_ipd_port(int interface, int port)
 {
 	switch (interface) {
@@ -303,6 +385,13 @@ int cvmx_helper_get_ipd_port(int interface, int port)
 	return -1;
 }
 
+/**
+ * Returns the interface number for an IPD/PKO port number.
+ *
+ * @ipd_port: IPD/PKO port number
+ *
+ * Returns Interface number
+ */
 int cvmx_helper_get_interface_num(int ipd_port)
 {
 	if (ipd_port < 16)
@@ -320,6 +409,14 @@ int cvmx_helper_get_interface_num(int ipd_port)
 	return -1;
 }
 
+/**
+ * Returns the interface index number for an IPD/PKO port
+ * number.
+ *
+ * @ipd_port: IPD/PKO port number
+ *
+ * Returns Interface index number
+ */
 int cvmx_helper_get_interface_index_num(int ipd_port)
 {
 	if (ipd_port < 32)

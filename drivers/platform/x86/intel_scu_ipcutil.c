@@ -26,17 +26,26 @@
 
 static int major;
 
+/* ioctl commnds */
 #define	INTE_SCU_IPC_REGISTER_READ	0
 #define INTE_SCU_IPC_REGISTER_WRITE	1
 #define INTE_SCU_IPC_REGISTER_UPDATE	2
 
 struct scu_ipc_data {
-	u32     count;  
-	u16     addr[5]; 
-	u8      data[5]; 
-	u8      mask; 
+	u32     count;  /* No. of registers */
+	u16     addr[5]; /* Register addresses */
+	u8      data[5]; /* Register data */
+	u8      mask; /* Valid for read-modify-write */
 };
 
+/**
+ *	scu_reg_access		-	implement register access ioctls
+ *	@cmd: command we are doing (read/write/update)
+ *	@data: kernel copy of ioctl data
+ *
+ *	Allow the user to perform register accesses on the SCU via the
+ *	kernel interface
+ */
 
 static int scu_reg_access(u32 cmd, struct scu_ipc_data  *data)
 {
@@ -58,6 +67,14 @@ static int scu_reg_access(u32 cmd, struct scu_ipc_data  *data)
 	}
 }
 
+/**
+ *	scu_ipc_ioctl		-	control ioctls for the SCU
+ *	@fp: file handle of the SCU device
+ *	@cmd: ioctl coce
+ *	@arg: pointer to user passed structure
+ *
+ *	Support the I/O and firmware flashing interfaces of the SCU
+ */
 static long scu_ipc_ioctl(struct file *fp, unsigned int cmd,
 							unsigned long arg)
 {

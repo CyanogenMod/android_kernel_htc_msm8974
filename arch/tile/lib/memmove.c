@@ -20,6 +20,9 @@ void *memmove(void *dest, const void *src, size_t n)
 {
 	if ((const char *)src >= (char *)dest + n
 	    || (char *)dest >= (const char *)src + n) {
+		/* We found no overlap, so let memcpy do all the heavy
+		 * lifting (prefetching, etc.)
+		 */
 		return memcpy(dest, src, n);
 	}
 
@@ -30,18 +33,18 @@ void *memmove(void *dest, const void *src, size_t n)
 		int stride;
 
 		if (src < dest) {
-			
+			/* copy backwards */
 			in = (const uint8_t *)src + n - 1;
 			out = (uint8_t *)dest + n - 1;
 			stride = -1;
 		} else {
-			
+			/* copy forwards */
 			in = (const uint8_t *)src;
 			out = (uint8_t *)dest;
 			stride = 1;
 		}
 
-		
+		/* Manually software-pipeline this loop. */
 		x = *in;
 		in += stride;
 

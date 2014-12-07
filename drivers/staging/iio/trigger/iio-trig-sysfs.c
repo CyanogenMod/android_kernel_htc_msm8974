@@ -78,6 +78,7 @@ static const struct attribute_group *iio_sysfs_trig_groups[] = {
 };
 
 
+/* Nothing to actually do upon release */
 static void iio_trigger_sysfs_release(struct device *dev)
 {
 }

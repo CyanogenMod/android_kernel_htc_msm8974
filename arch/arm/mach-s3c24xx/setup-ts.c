@@ -13,11 +13,18 @@
 #include <linux/kernel.h>
 #include <linux/gpio.h>
 
-struct platform_device; 
+struct platform_device; /* don't need the contents */
 
 #include <mach/hardware.h>
 #include <mach/regs-gpio.h>
 
+/**
+ * s3c24xx_ts_cfg_gpio - configure gpio for s3c2410 systems
+ *
+ * Configure the GPIO for the S3C2410 system, where we have external FETs
+ * connected to the device (later systems such as the S3C2440 integrate
+ * these into the device).
+ */
 void s3c24xx_ts_cfg_gpio(struct platform_device *dev)
 {
 	s3c2410_gpio_cfgpin(S3C2410_GPG(12), S3C2410_GPG12_XMON);

@@ -167,6 +167,9 @@ struct net_device *alloc_libipw(int sizeof_priv, int monitor)
 		ieee->dev->ieee80211_ptr = &ieee->wdev;
 		ieee->wdev.iftype = NL80211_IFTYPE_STATION;
 
+		/* Fill-out wiphy structure bits we know...  Not enough info
+		   here to call set_wiphy_dev or set MAC address or channel info
+		   -- have to do that in ->ndo_init... */
 		ieee->wdev.wiphy->privid = libipw_wiphy_privid;
 
 		ieee->wdev.wiphy->max_scan_ssids = 1;
@@ -182,19 +185,24 @@ struct net_device *alloc_libipw(int sizeof_priv, int monitor)
 	}
 	libipw_networks_initialize(ieee);
 
-	
+	/* Default fragmentation threshold is maximum payload size */
 	ieee->fts = DEFAULT_FTS;
 	ieee->rts = DEFAULT_FTS;
 	ieee->scan_age = DEFAULT_MAX_SCAN_AGE;
 	ieee->open_wep = 1;
 
-	
+	/* Default to enabling full open WEP with host based encrypt/decrypt */
 	ieee->host_encrypt = 1;
 	ieee->host_decrypt = 1;
 	ieee->host_mc_decrypt = 1;
 
+	/* Host fragmentation in Open mode. Default is enabled.
+	 * Note: host fragmentation is always enabled if host encryption
+	 * is enabled. For cards can do hardware encryption, they must do
+	 * hardware fragmentation as well. So we don't need a variable
+	 * like host_enc_frag. */
 	ieee->host_open_frag = 1;
-	ieee->ieee802_1x = 1;	
+	ieee->ieee802_1x = 1;	/* Default to supporting 802.1x */
 
 	spin_lock_init(&ieee->lock);
 
@@ -224,7 +232,7 @@ void free_libipw(struct net_device *dev, int monitor)
 
 	libipw_networks_free(ieee);
 
-	
+	/* free cfg80211 resources */
 	if (!monitor)
 		wiphy_free(ieee->wdev.wiphy);
 
@@ -277,7 +285,7 @@ static const struct file_operations debug_level_proc_fops = {
 	.release	= single_release,
 	.write		= debug_level_proc_write,
 };
-#endif				
+#endif				/* CONFIG_LIBIPW_DEBUG */
 
 static int __init libipw_init(void)
 {
@@ -298,7 +306,7 @@ static int __init libipw_init(void)
 		libipw_proc = NULL;
 		return -EIO;
 	}
-#endif				
+#endif				/* CONFIG_LIBIPW_DEBUG */
 
 	printk(KERN_INFO DRV_NAME ": " DRV_DESCRIPTION ", " DRV_VERSION "\n");
 	printk(KERN_INFO DRV_NAME ": " DRV_COPYRIGHT "\n");
@@ -314,14 +322,14 @@ static void __exit libipw_exit(void)
 		remove_proc_entry(DRV_PROCNAME, init_net.proc_net);
 		libipw_proc = NULL;
 	}
-#endif				
+#endif				/* CONFIG_LIBIPW_DEBUG */
 }
 
 #ifdef CONFIG_LIBIPW_DEBUG
 #include <linux/moduleparam.h>
 module_param(debug, int, 0444);
 MODULE_PARM_DESC(debug, "debug output mask");
-#endif				
+#endif				/* CONFIG_LIBIPW_DEBUG */
 
 module_exit(libipw_exit);
 module_init(libipw_init);

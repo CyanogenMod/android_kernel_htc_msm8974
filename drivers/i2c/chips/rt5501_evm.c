@@ -88,6 +88,7 @@ struct rt5501_config RT5501_AMP_MUTE = {1,{{0x1,0xC7},}};;
 struct rt5501_config RT5501_AMP_OFF = {1,{{0x0,0x1},}};
 
 static int rt5501_write_reg(u8 reg, u8 val);
+//static int rt5501_i2c_read(char *rxData, int length);
 static void hs_imp_detec_func(struct work_struct *work);
 static int rt5501_i2c_read_addr(char *rxData, unsigned char addr);
 static int rt5501_i2c_write(struct rt5501_reg_data *txData, int length);
@@ -146,16 +147,16 @@ static int rt5501_headset_detect(int on)
 				rt5501_write_reg(1,0xc7);
 
 			}
-			
+			//if (rt5501_i2c_write(RT5501_AMP_OFF.reg, RT5501_AMP_OFF.reg_len) == 0) {
 				last_spkamp_state = 0;
 				pr_info("%s: OFF\n", __func__);
-			
+			//}
 			rt5501_query.rt5501_status = RT5501_SUSPEND;
 		}
 		pr_info("%s: headset in --\n",__func__);
 		mutex_unlock(&rt5501_query.mlock);
 		mutex_unlock(&rt5501_query.gpiolock);
-		
+		//inited = 0;
 		queue_delayed_work(hs_wq,&rt5501_query.hs_imp_detec_work,msecs_to_jiffies(5));
 		pr_info("%s: headset in --2\n",__func__);
 
@@ -185,10 +186,10 @@ static int rt5501_headset_detect(int on)
 
 			}
 
-			
+			//if (rt5501_i2c_write(RT5501_AMP_OFF.reg, RT5501_AMP_OFF.reg_len) == 0) {
 				last_spkamp_state = 0;
 				pr_info("%s: OFF\n", __func__);
-			
+			//}
 			rt5501_query.rt5501_status = RT5501_SUSPEND;
 		}
 
@@ -255,8 +256,8 @@ static int rt5501_i2c_write(struct rt5501_reg_data *txData, int length)
 		},
 	};
 	for (i = 0; i < length; i++) {
-		
-		
+		//if (i == 2)  /* According to rt5501 Spec */
+		//	mdelay(1);
 		buf[0] = txData[i].addr;
 		buf[1] = txData[i].val;
 
@@ -342,7 +343,18 @@ static int rt5501_i2c_read_addr(char *rxData, unsigned char addr)
 		return rc;
 	}
 
+	/*rc = i2c_transfer(this_client->adapter, &msgs[1], 1);
+	if (rc < 0) {
+		pr_err("%s:[2] transfer error %d\n", __func__, rc);
+		return rc;
+	}*/
 
+	/*{
+		int i = 0;
+		for (i = 0; i < length; i++)
+			pr_info("i2c_read %s: rx[%d] = %2x\n", __func__, i, \
+				rxData[i]);
+	}*/
 	pr_info("%s:i2c_read addr 0x%x value = 0x%x\n", __func__, addr, *rxData);
 	return 0;
 }
@@ -477,7 +489,7 @@ static void hs_imp_detec_func(struct work_struct *work)
 	rt5501_write_reg(0,0x04);
 	rt5501_write_reg(0xa4,0x52);
 
-	
+	//rt5501_write_reg(0xb1,0x80);
 
 	rt5501_write_reg(1,0x7);
 	msleep(10);
@@ -517,12 +529,12 @@ static void hs_imp_detec_func(struct work_struct *work)
 #endif
 	rt5501_write_reg(0x0,0xc0);
 	rt5501_write_reg(0x81,0x30);
-	
+	//rt5501_write_reg(0x87,0xf6);
 	rt5501_write_reg(0x90,0xd0);
 	rt5501_write_reg(0x93,0x9d);
 	rt5501_write_reg(0x95,0x7b);
 	rt5501_write_reg(0xa4,0x52);
-	
+	//rt5501_write_reg(0x96,0xae);
 	rt5501_write_reg(0x97,0x00);
 	rt5501_write_reg(0x98,0x22);
 	rt5501_write_reg(0x99,0x33);
@@ -544,7 +556,7 @@ static void hs_imp_detec_func(struct work_struct *work)
 		om = (temp[0] & 0xe) >> 1;
 
 		if(temp[0] == 0xc0 || temp[0] == 0xc1) {
-			
+			//mono headset
 			hsom = HEADSET_MONO;
 		} else {
 
@@ -633,7 +645,7 @@ static void volume_ramp_func(struct work_struct *work)
 		u8 val;
 		pr_info("%s: ramping-------------------------\n",__func__);
 		mdelay(1);
-		
+		//start state machine and disable noise gate
 		if(high_imp)
 			rt5501_write_reg(0xb1,0x80);
 
@@ -723,7 +735,7 @@ static int set_rt5501_evm_amp(int on,int dsp)
 		rt5501_query.action_on = 0;
 	cancel_delayed_work_sync(&rt5501_query.gpio_off_work);
 	cancel_delayed_work_sync(&rt5501_query.volume_ramp_work);
-	
+	//flush_work_sync(&rt5501_query.volume_ramp_work.work);
 	mutex_lock(&rt5501_query.gpiolock);
 
 	if(on) {
@@ -853,11 +865,11 @@ static long rt5501_ioctl(struct file *file, unsigned int cmd,
 
 		pr_info("%s: update rt5501 i2c commands #%d success.\n",
 				__func__, rt5501_config_data.mode_num);
-		
+		/* update default paramater from csv*/
 		update_amp_parameter(RT5501_MODE_OFF);
 		update_amp_parameter(RT5501_MUTE);
 		update_amp_parameter(RT5501_INIT);
-		
+		//update_amp_parameter(RT5501_MODE_MFG);
 		mutex_unlock(&hp_amp_lock);
 		rc = 0;
 		break;
@@ -944,7 +956,7 @@ int rt5501_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	int ret = 0;
 	int err = 0;
-	
+	//MFG_MODE = board_mfg_mode();
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		pr_err("%s: i2c check functionality error\n", __func__);
@@ -967,7 +979,7 @@ int rt5501_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	this_client = client;
 
-	if(1) {
+	if(1/*pdata->gpio_rt5501_enable*/) {
 		char temp[2];
 
 		err = gpio_request(pdata->gpio_rt5501_enable, "hp_en_rt5501");
@@ -995,12 +1007,12 @@ int rt5501_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		mdelay(5);
 		rt5501_write_reg(0x0,0xc0);
 		rt5501_write_reg(0x81,0x30);
-		
+		//rt5501_write_reg(0x87,0xf6);
 		rt5501_write_reg(0x90,0xd0);
 		rt5501_write_reg(0x93,0x9d);
 		rt5501_write_reg(0x95,0x7b);
 		rt5501_write_reg(0xa4,0x52);
-		
+		//rt5501_write_reg(0x96,0xae);
 		rt5501_write_reg(0x97,0x00);
 		rt5501_write_reg(0x98,0x22);
 		rt5501_write_reg(0x99,0x33);
@@ -1024,6 +1036,12 @@ int rt5501_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 		gpio_set_value(pdata->gpio_rt5501_enable, 0);
 
+		/*if(!err)
+			gpio_free(pdata->gpio_rt5501_enable);
+
+		if(ret < 0) {
+			pr_err("%s: gpio %d off error %d\n", __func__,pdata->gpio_rt5501_enable,ret);
+		}*/
 	}
 
 	if(rt5501Connect) {
@@ -1043,7 +1061,7 @@ int rt5501_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		gpio_wq = create_workqueue("rt5501_gpio_off");
 		INIT_DELAYED_WORK(&rt5501_query.gpio_off_work, hs_imp_gpio_off);
 		rt5501_register_hs_notification();
-		
+		//queue_delayed_work(ramp_wq, &rt5501_query.volume_ramp_work, msecs_to_jiffies(30000));
 
 	}
 	return 0;

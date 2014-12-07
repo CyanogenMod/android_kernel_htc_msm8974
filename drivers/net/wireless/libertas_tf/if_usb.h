@@ -12,6 +12,9 @@
 
 struct lbtf_private;
 
+/**
+  * This file contains definition for USB interface.
+  */
 #define CMD_TYPE_REQUEST		0xF00DFACE
 #define CMD_TYPE_DATA			0xBEADC0DE
 #define CMD_TYPE_INDICATION		0xBEEFFACE
@@ -20,7 +23,7 @@ struct lbtf_private;
 #define BOOT_CMD_FW_IN_EEPROM		0x02
 #define BOOT_CMD_UPDATE_BOOT2		0x03
 #define BOOT_CMD_UPDATE_FW		0x04
-#define BOOT_CMD_MAGIC_NUMBER		0x4C56524D   
+#define BOOT_CMD_MAGIC_NUMBER		0x4C56524D   /* LVRM */
 
 struct bootcmd {
 	__le32	magic;
@@ -38,6 +41,7 @@ struct bootcmdresp {
 	uint8_t	pad[2];
 };
 
+/** USB card description structure*/
 struct if_usb_card {
 	struct usb_device *udev;
 	struct urb *rx_urb, *tx_urb, *cmd_urb;
@@ -68,6 +72,7 @@ struct if_usb_card {
 	__le16 boot2_version;
 };
 
+/** fwheader */
 struct fwheader {
 	__le32 dnldcmd;
 	__le32 baseaddr;
@@ -76,12 +81,14 @@ struct fwheader {
 };
 
 #define FW_MAX_DATA_BLK_SIZE	600
+/** FWData */
 struct fwdata {
 	struct fwheader hdr;
 	__le32 seqnum;
 	uint8_t data[0];
 };
 
+/** fwsyncheader */
 struct fwsyncheader {
 	__le32 cmd;
 	__le32 seqnum;

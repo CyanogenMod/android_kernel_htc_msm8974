@@ -13,6 +13,7 @@
 #ifndef __ARCH_ARM_MACH_MSM_RPM_8064_H
 #define __ARCH_ARM_MACH_MSM_RPM_8064_H
 
+/* RPM control message RAM enums */
 enum {
 	MSM_RPM_8064_CTRL_VERSION_MAJOR,
 	MSM_RPM_8064_CTRL_VERSION_MINOR,
@@ -28,6 +29,8 @@ enum {
 	MSM_RPM_8064_CTRL_ACK_SEL_7 = MSM_RPM_8064_CTRL_ACK_SEL_0 + 7,
 };
 
+/* RPM resource select enums defined for RPM core
+   NOT IN SEQUENTIAL ORDER */
 enum {
 	MSM_RPM_8064_SEL_NOTIFICATION					= 0,
 	MSM_RPM_8064_SEL_INVALIDATE					= 1,
@@ -122,6 +125,7 @@ enum {
 	MSM_RPM_8064_SEL_LAST = MSM_RPM_8064_SEL_VDDMIN_GPIO,
 };
 
+/* RPM resource (4 byte) word ID enum */
 enum {
 	MSM_RPM_8064_ID_NOTIFICATION_CONFIGURED_0			= 0,
 	MSM_RPM_8064_ID_NOTIFICATION_CONFIGURED_3 =
@@ -140,7 +144,7 @@ enum {
 
 	MSM_RPM_8064_ID_RPM_CTL						= 18,
 
-	
+	/* TRIGGER_CLEAR/SET deprecated in these 24 RESERVED bytes */
 	MSM_RPM_8064_ID_RESERVED_0					= 19,
 	MSM_RPM_8064_ID_RESERVED_5 =
 		MSM_RPM_8064_ID_RESERVED_0 + 5,
@@ -291,6 +295,7 @@ enum {
 };
 
 
+/* RPM status ID enum */
 enum {
 	MSM_RPM_8064_STATUS_ID_VERSION_MAJOR				= 0,
 	MSM_RPM_8064_STATUS_ID_VERSION_MINOR				= 1,
@@ -428,4 +433,4 @@ enum {
 	MSM_RPM_8064_STATUS_ID_LAST = MSM_RPM_8064_STATUS_ID_VDDMIN_GPIO,
 };
 
-#endif 
+#endif /* __ARCH_ARM_MACH_MSM_RPM_8064_H */

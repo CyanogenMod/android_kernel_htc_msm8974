@@ -43,10 +43,25 @@ static const struct cpumask *flat_target_cpus(void)
 
 static void flat_vector_allocation_domain(int cpu, struct cpumask *retmask)
 {
+	/* Careful. Some cpus do not strictly honor the set of cpus
+	 * specified in the interrupt destination when using lowest
+	 * priority interrupt delivery mode.
+	 *
+	 * In particular there was a hyperthreading cpu observed to
+	 * deliver interrupts to the wrong hyperthread when only one
+	 * hyperthread was specified in the interrupt desitination.
+	 */
 	cpumask_clear(retmask);
 	cpumask_bits(retmask)[0] = APIC_ALL_CPUS;
 }
 
+/*
+ * Set up the logical destination ID.
+ *
+ * Intel recommends to set DFR, LDR and TPR before enabling
+ * an APIC.  See e.g. "AP-388 82489DX User's Manual" (Intel
+ * document number 292116).  So here it goes...
+ */
 void flat_init_apic_ldr(void)
 {
 	unsigned long val;
@@ -169,7 +184,7 @@ static struct apic apic_flat =  {
 	.apic_id_registered		= flat_apic_id_registered,
 
 	.irq_delivery_mode		= dest_LowestPrio,
-	.irq_dest_mode			= 1, 
+	.irq_dest_mode			= 1, /* logical */
 
 	.target_cpus			= flat_target_cpus,
 	.disable_esr			= 0,
@@ -218,9 +233,19 @@ static struct apic apic_flat =  {
 	.safe_wait_icr_idle		= native_safe_apic_wait_icr_idle,
 };
 
+/*
+ * Physflat mode is used when there are more than 8 CPUs on a system.
+ * We cannot use logical delivery in this case because the mask
+ * overflows, so use physical mode.
+ */
 static int physflat_acpi_madt_oem_check(char *oem_id, char *oem_table_id)
 {
 #ifdef CONFIG_ACPI
+	/*
+	 * Quirk: some x86_64 machines can only use physical APIC mode
+	 * regardless of how many processors are present (x86_64 ES7000
+	 * is an example).
+	 */
 	if (acpi_gbl_FADT.header.revision >= FADT2_REVISION_ID &&
 		(acpi_gbl_FADT.flags & ACPI_FADT_APIC_PHYSICAL)) {
 		printk(KERN_DEBUG "system APIC only can use physical flat");
@@ -272,6 +297,10 @@ static unsigned int physflat_cpu_mask_to_apicid(const struct cpumask *cpumask)
 {
 	int cpu;
 
+	/*
+	 * We're using fixed IRQ delivery, can only return one phys APIC ID.
+	 * May as well be the first.
+	 */
 	cpu = cpumask_first(cpumask);
 	if ((unsigned)cpu < nr_cpu_ids)
 		return per_cpu(x86_cpu_to_apicid, cpu);
@@ -285,6 +314,10 @@ physflat_cpu_mask_to_apicid_and(const struct cpumask *cpumask,
 {
 	int cpu;
 
+	/*
+	 * We're using fixed IRQ delivery, can only return one phys APIC ID.
+	 * May as well be the first.
+	 */
 	for_each_cpu_and(cpu, cpumask, andmask) {
 		if (cpumask_test_cpu(cpu, cpu_online_mask))
 			break;
@@ -309,7 +342,7 @@ static struct apic apic_physflat =  {
 	.apic_id_registered		= flat_apic_id_registered,
 
 	.irq_delivery_mode		= dest_Fixed,
-	.irq_dest_mode			= 0, 
+	.irq_dest_mode			= 0, /* physical */
 
 	.target_cpus			= physflat_target_cpus,
 	.disable_esr			= 0,
@@ -318,7 +351,7 @@ static struct apic apic_physflat =  {
 	.check_apicid_present		= NULL,
 
 	.vector_allocation_domain	= physflat_vector_allocation_domain,
-	
+	/* not needed, but shouldn't hurt: */
 	.init_apic_ldr			= flat_init_apic_ldr,
 
 	.ioapic_phys_id_map		= NULL,
@@ -359,4 +392,7 @@ static struct apic apic_physflat =  {
 	.safe_wait_icr_idle		= native_safe_apic_wait_icr_idle,
 };
 
+/*
+ * We need to check for physflat first, so this order is important.
+ */
 apic_drivers(apic_physflat, apic_flat);

@@ -50,7 +50,7 @@ static inline u8 button_status(void)
 }
 #endif
 
-#define BUTTONS_POLL_INTERVAL	30	
+#define BUTTONS_POLL_INTERVAL	30	/* msec */
 #define BUTTONS_COUNT_THRESHOLD	3
 
 static const unsigned short sgi_map[] = {

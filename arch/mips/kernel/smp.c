@@ -44,22 +44,25 @@
 
 #ifdef CONFIG_MIPS_MT_SMTC
 #include <asm/mipsmtregs.h>
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 
-volatile cpumask_t cpu_callin_map;	
+volatile cpumask_t cpu_callin_map;	/* Bitmask of started secondaries */
 
-int __cpu_number_map[NR_CPUS];		
+int __cpu_number_map[NR_CPUS];		/* Map physical to logical */
 EXPORT_SYMBOL(__cpu_number_map);
 
-int __cpu_logical_map[NR_CPUS];		
+int __cpu_logical_map[NR_CPUS];		/* Map logical to physical */
 EXPORT_SYMBOL(__cpu_logical_map);
 
+/* Number of TCs (or siblings in Intel speak) per CPU core */
 int smp_num_siblings = 1;
 EXPORT_SYMBOL(smp_num_siblings);
 
+/* representing the TCs (or siblings in Intel speak) of each logical CPU */
 cpumask_t cpu_sibling_map[NR_CPUS] __read_mostly;
 EXPORT_SYMBOL(cpu_sibling_map);
 
+/* representing cpus for which sibling maps can be computed */
 static cpumask_t cpu_sibling_setup_map;
 
 static inline void set_cpu_sibling_map(int cpu)
@@ -89,20 +92,28 @@ __cpuinit void register_smp_ops(struct plat_smp_ops *ops)
 	mp_ops = ops;
 }
 
+/*
+ * First C code run on the secondary CPUs after being started up by
+ * the master.
+ */
 asmlinkage __cpuinit void start_secondary(void)
 {
 	unsigned int cpu;
 
 #ifdef CONFIG_MIPS_MT_SMTC
-	
+	/* Only do cpu_probe for first TC of CPU */
 	if ((read_c0_tcbind() & TCBIND_CURTC) == 0)
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 	cpu_probe();
 	cpu_report();
 	per_cpu_trap_init();
 	mips_clockevent_init();
 	mp_ops->init_secondary();
 
+	/*
+	 * XXX parity protection should be folded in here when it's converted
+	 * to an option instead of something based on .cputype
+	 */
 
 	calibrate_delay();
 	preempt_disable();
@@ -121,6 +132,9 @@ asmlinkage __cpuinit void start_secondary(void)
 	cpu_idle();
 }
 
+/*
+ * Call into both interrupt handlers, as we share the IPI for them
+ */
 void __irq_entry smp_call_function_interrupt(void)
 {
 	irq_enter();
@@ -131,10 +145,13 @@ void __irq_entry smp_call_function_interrupt(void)
 
 static void stop_this_cpu(void *dummy)
 {
+	/*
+	 * Remove this CPU:
+	 */
 	set_cpu_online(smp_processor_id(), false);
 	for (;;) {
 		if (cpu_wait)
-			(*cpu_wait)();		
+			(*cpu_wait)();		/* Wait if available. */
 	}
 }
 
@@ -149,6 +166,7 @@ void __init smp_cpus_done(unsigned int max_cpus)
 	synchronise_count_master();
 }
 
+/* called from main before smp_init() */
 void __init smp_prepare_cpus(unsigned int max_cpus)
 {
 	init_new_context(current, &init_mm);
@@ -160,6 +178,7 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 #endif
 }
 
+/* preload SMP state for boot cpu */
 void __devinit smp_prepare_boot_cpu(void)
 {
 	set_cpu_possible(0, true);
@@ -167,6 +186,11 @@ void __devinit smp_prepare_boot_cpu(void)
 	cpu_set(0, cpu_callin_map);
 }
 
+/*
+ * Called once for each "cpu_possible(cpu)".  Needs to spin up the cpu
+ * and keep control until "cpu_online(cpu)" is set.  Note: cpu is
+ * physical, not logical.
+ */
 static struct task_struct *cpu_idle_thread[NR_CPUS];
 
 struct create_idle {
@@ -189,7 +213,16 @@ int __cpuinit __cpu_up(unsigned int cpu)
 {
 	struct task_struct *idle;
 
+	/*
+	 * Processor goes to start_secondary(), sets online flag
+	 * The following code is purely to make sure
+	 * Linux can schedule processes on this slave.
+	 */
 	if (!cpu_idle_thread[cpu]) {
+		/*
+		 * Schedule work item to avoid forking user task
+		 * Ported from arch/x86/kernel/smpboot.c
+		 */
 		struct create_idle c_idle = {
 			.cpu    = cpu,
 			.done   = COMPLETION_INITIALIZER_ONSTACK(c_idle.done),
@@ -209,6 +242,9 @@ int __cpuinit __cpu_up(unsigned int cpu)
 
 	mp_ops->boot_secondary(cpu, idle);
 
+	/*
+	 * Trust is futile.  We should really have timeouts ...
+	 */
 	while (!cpu_isset(cpu, cpu_callin_map))
 		udelay(100);
 
@@ -217,6 +253,7 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	return 0;
 }
 
+/* Not really SMP stuff ... */
 int setup_profiling_timer(unsigned int multiplier)
 {
 	return 0;
@@ -237,6 +274,15 @@ static void flush_tlb_mm_ipi(void *mm)
 	local_flush_tlb_mm((struct mm_struct *)mm);
 }
 
+/*
+ * Special Variant of smp_call_function for use by TLB functions:
+ *
+ *  o No return value
+ *  o collapses to normal function call on UP kernels
+ *  o collapses to normal function call on systems with a single shared
+ *    primary cache.
+ *  o CONFIG_MIPS_MT_SMTC currently implies there is only one physical core.
+ */
 static inline void smp_on_other_tlbs(void (*func) (void *info), void *info)
 {
 #ifndef CONFIG_MIPS_MT_SMTC
@@ -254,6 +300,18 @@ static inline void smp_on_each_tlb(void (*func) (void *info), void *info)
 	preempt_enable();
 }
 
+/*
+ * The following tlb flush calls are invoked when old translations are
+ * being torn down, or pte attributes are changing. For single threaded
+ * address spaces, a new context is obtained on the current cpu, and tlb
+ * context on other cpus are invalidated to force a new context allocation
+ * at switch_mm time, should the mm ever be used on other cpus. For
+ * multithreaded address spaces, intercpu interrupts have to be sent.
+ * Another case where intercpu interrupts are required is when the target
+ * mm might be active on another cpu (eg debuggers doing the flushes on
+ * behalf of debugees, kswapd stealing pages from another process etc).
+ * Kanoj 07/00.
+ */
 
 void flush_tlb_mm(struct mm_struct *mm)
 {

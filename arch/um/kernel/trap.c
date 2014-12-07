@@ -16,6 +16,10 @@
 #include "os.h"
 #include "skas.h"
 
+/*
+ * Note this is constrained to return 0, -EFAULT, -EACCESS, -ENOMEM by
+ * segv().
+ */
 int handle_page_fault(unsigned long address, unsigned long ip,
 		      int is_write, int is_user, int *code_out)
 {
@@ -29,6 +33,10 @@ int handle_page_fault(unsigned long address, unsigned long ip,
 
 	*code_out = SEGV_MAPERR;
 
+	/*
+	 * If the fault was during atomic operation, don't take the fault, just
+	 * fail.
+	 */
 	if (in_atomic())
 		goto out_nosemaphore;
 
@@ -50,7 +58,7 @@ good_area:
 	if (is_write && !(vma->vm_flags & VM_WRITE))
 		goto out;
 
-	
+	/* Don't require VM_READ|VM_EXEC for write faults! */
 	if (!is_write && !(vma->vm_flags & (VM_READ | VM_EXEC)))
 		goto out;
 
@@ -78,6 +86,14 @@ good_area:
 		pte = pte_offset_kernel(pmd, address);
 	} while (!pte_present(*pte));
 	err = 0;
+	/*
+	 * The below warning was added in place of
+	 *	pte_mkyoung(); if (is_write) pte_mkdirty();
+	 * If it's triggered, we'd see normally a hang here (a clean pte is
+	 * marked read-only to emulate the dirty bit).
+	 * However, the generic code can mark a PTE writable but clean on a
+	 * concurrent read fault, triggering this harmlessly. So comment it out.
+	 */
 #if 0
 	WARN_ON(!pte_young(*pte) || (is_write && !pte_dirty(*pte)));
 #endif
@@ -88,6 +104,10 @@ out_nosemaphore:
 	return err;
 
 out_of_memory:
+	/*
+	 * We ran out of memory, call the OOM killer, and return the userspace
+	 * (which will retry the fault, or kill us if we got oom-killed).
+	 */
 	up_read(&mm->mmap_sem);
 	pagefault_out_of_memory();
 	return 0;
@@ -130,6 +150,11 @@ void fatal_sigsegv(void)
 {
 	force_sigsegv(SIGSEGV, current);
 	do_signal();
+	/*
+	 * This is to tell gcc that we're not returning - do_signal
+	 * can, in general, return, but in this case, it's not, since
+	 * we just got a fatal SIGSEGV queued.
+	 */
 	os_dump_core();
 }
 
@@ -145,6 +170,12 @@ void segv_handler(int sig, struct uml_pt_regs *regs)
 	segv(*fi, UPT_IP(regs), UPT_IS_USER(regs), regs);
 }
 
+/*
+ * We give a *copy* of the faultinfo in the regs to segv.
+ * This must be done, since nesting SEGVs could overwrite
+ * the info in the regs. A pointer to the info then would
+ * give us bad data!
+ */
 unsigned long segv(struct faultinfo fi, unsigned long ip, int is_user,
 		   struct uml_pt_regs *regs)
 {
@@ -168,6 +199,11 @@ unsigned long segv(struct faultinfo fi, unsigned long ip, int is_user,
 					&si.si_code);
 	else {
 		err = -EFAULT;
+		/*
+		 * A thread accessed NULL, we get a fault, but CR2 is invalid.
+		 * This code is used in __do_copy_from_user() of TT mode.
+		 * XXX tt mode is gone, so maybe this isn't needed any more
+		 */
 		address = 0;
 	}
 

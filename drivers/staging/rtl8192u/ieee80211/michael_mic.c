@@ -13,6 +13,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/string.h>
+//#include <linux/crypto.h>
 #include "rtl_crypto.h"
 
 
@@ -117,7 +118,7 @@ static void michael_final(void *ctx, u8 *out)
 	struct michael_mic_ctx *mctx = ctx;
 	u8 *data = mctx->pending;
 
-	
+	/* Last block and padding (0x5a, 4..7 x 0) */
 	switch (mctx->pending_len) {
 	case 0:
 		mctx->l ^= 0x5a;
@@ -134,7 +135,7 @@ static void michael_final(void *ctx, u8 *out)
 		break;
 	}
 	michael_block(mctx->l, mctx->r);
-	
+	/* l ^= 0; */
 	michael_block(mctx->l, mctx->r);
 
 	put_le32(out, mctx->l);

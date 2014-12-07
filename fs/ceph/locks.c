@@ -7,6 +7,9 @@
 #include "mds_client.h"
 #include <linux/ceph/pagelist.h>
 
+/**
+ * Implement fcntl and flock locking functions.
+ */
 static int ceph_lock_message(u8 lock_type, u16 operation, struct file *file,
 			     int cmd, u8 wait, struct file_lock *fl)
 {
@@ -23,7 +26,7 @@ static int ceph_lock_message(u8 lock_type, u16 operation, struct file *file,
 	req->r_inode = inode;
 	ihold(inode);
 
-	
+	/* mds requires start and length rather than start and end */
 	if (LLONG_MAX == fl->fl_end)
 		length = 0;
 	else
@@ -37,6 +40,8 @@ static int ceph_lock_message(u8 lock_type, u16 operation, struct file *file,
 	req->r_args.filelock_change.rule = lock_type;
 	req->r_args.filelock_change.type = cmd;
 	req->r_args.filelock_change.pid = cpu_to_le64((u64)fl->fl_pid);
+	/* This should be adjusted, but I'm not sure if
+	   namespaces actually get id numbers*/
 	req->r_args.filelock_change.pid_namespace =
 		cpu_to_le64((u64)(unsigned long)fl->fl_nspid);
 	req->r_args.filelock_change.start = cpu_to_le64(fl->fl_start);
@@ -71,6 +76,10 @@ static int ceph_lock_message(u8 lock_type, u16 operation, struct file *file,
 	return err;
 }
 
+/**
+ * Attempt to set an fcntl lock.
+ * For now, this just goes away to the server. Later it may be more awesome.
+ */
 int ceph_lock(struct file *file, int cmd, struct file_lock *fl)
 {
 	u8 lock_cmd;
@@ -81,7 +90,7 @@ int ceph_lock(struct file *file, int cmd, struct file_lock *fl)
 	fl->fl_nspid = get_pid(task_tgid(current));
 	dout("ceph_lock, fl_pid:%d", fl->fl_pid);
 
-	
+	/* set wait bit as appropriate, then make command as Ceph expects it*/
 	if (F_SETLKW == cmd)
 		wait = 1;
 	if (F_GETLK == cmd)
@@ -100,6 +109,9 @@ int ceph_lock(struct file *file, int cmd, struct file_lock *fl)
 			dout("mds locked, locking locally");
 			err = posix_lock_file(file, fl, NULL);
 			if (err && (CEPH_MDS_OP_SETFILELOCK == op)) {
+				/* undo! This should only happen if
+				 * the kernel detects local
+				 * deadlock. */
 				ceph_lock_message(CEPH_LOCK_FCNTL, op, file,
 						  CEPH_LOCK_UNLOCK, 0, fl);
 				dout("got %d on posix_lock_file, undid lock",
@@ -124,10 +136,12 @@ int ceph_flock(struct file *file, int cmd, struct file_lock *fl)
 	fl->fl_nspid = get_pid(task_tgid(current));
 	dout("ceph_flock, fl_pid:%d", fl->fl_pid);
 
-	
+	/* set wait bit, then clear it out of cmd*/
 	if (cmd & LOCK_NB)
 		wait = 0;
 	cmd = cmd & (LOCK_SH | LOCK_EX | LOCK_UN);
+	/* set command sequence that Ceph wants to see:
+	   shared lock, exclusive lock, or unlock */
 	if (LOCK_SH == cmd)
 		lock_cmd = CEPH_LOCK_SHARED;
 	else if (LOCK_EX == cmd)
@@ -154,6 +168,11 @@ int ceph_flock(struct file *file, int cmd, struct file_lock *fl)
 	return err;
 }
 
+/**
+ * Must be called with BKL already held. Fills in the passed
+ * counter variables, so you can prepare pagelist metadata before calling
+ * ceph_encode_locks.
+ */
 void ceph_count_locks(struct inode *inode, int *fcntl_count, int *flock_count)
 {
 	struct file_lock *lock;
@@ -171,6 +190,14 @@ void ceph_count_locks(struct inode *inode, int *fcntl_count, int *flock_count)
 	     *flock_count, *fcntl_count);
 }
 
+/**
+ * Encode the flock and fcntl locks for the given inode into the pagelist.
+ * Format is: #fcntl locks, sequential fcntl locks, #flock locks,
+ * sequential flock locks.
+ * Must be called with lock_flocks() already held.
+ * If we encounter more of a specific lock type than expected,
+ * we return the value 1.
+ */
 int ceph_encode_locks(struct inode *inode, struct ceph_pagelist *pagelist,
 		      int num_fcntl_locks, int num_flock_locks)
 {
@@ -225,6 +252,9 @@ fail:
 	return err;
 }
 
+/*
+ * Given a pointer to a lock, convert it to a ceph filelock
+ */
 int lock_to_ceph_filelock(struct file_lock *lock,
 			  struct ceph_filelock *cephlock)
 {

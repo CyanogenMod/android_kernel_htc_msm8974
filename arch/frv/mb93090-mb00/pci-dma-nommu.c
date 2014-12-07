@@ -19,7 +19,7 @@
 #if 1
 #define DMA_SRAM_START	dma_coherent_mem_start
 #define DMA_SRAM_END	dma_coherent_mem_end
-#else 
+#else // Use video RAM on Matrox
 #define DMA_SRAM_START	0xe8900000
 #define DMA_SRAM_END	0xe8a00000
 #endif
@@ -50,7 +50,7 @@ void *dma_alloc_coherent(struct device *hwdev, size_t size, dma_addr_t *dma_hand
 	if (!new)
 		return NULL;
 
-	
+	/* Round up to a reasonable alignment */
 	new->len = (size + 31) & ~31;
 
 	spin_lock_irqsave(&dma_alloc_lock, flags);
@@ -64,7 +64,7 @@ void *dma_alloc_coherent(struct device *hwdev, size_t size, dma_addr_t *dma_hand
 
 		start = this_r->ofs + this_r->len;
 	}
-	
+	/* Reached end of list. */
 	end = DMA_SRAM_END;
 	this = &dma_alloc_list;
 

@@ -26,7 +26,8 @@
 #include <linux/list.h>
 #include <linux/io.h>
 
-#define MAX_ENTRY_TYPE 255 
+#define MAX_ENTRY_TYPE 255 /* Most of these aren't used, but we consider
+			      the top entry type is only 8 bits */
 
 struct dmi_sysfs_entry {
 	struct dmi_header dh;
@@ -37,9 +38,15 @@ struct dmi_sysfs_entry {
 	struct kobject *child;
 };
 
+/*
+ * Global list of dmi_sysfs_entry.  Even though this should only be
+ * manipulated at setup and teardown, the lazy nature of the kobject
+ * system means we get lazy removes.
+ */
 static LIST_HEAD(entry_list);
 static DEFINE_SPINLOCK(entry_list_lock);
 
+/* dmi_sysfs_attribute - Top level attribute. used by all entries. */
 struct dmi_sysfs_attribute {
 	struct attribute attr;
 	ssize_t (*show)(struct dmi_sysfs_entry *entry, char *buf);
@@ -51,6 +58,10 @@ struct dmi_sysfs_attribute dmi_sysfs_attr_##_entry##_##_name = { \
 	.show = dmi_sysfs_##_entry##_##_name, \
 }
 
+/*
+ * dmi_sysfs_mapped_attribute - Attribute where we require the entry be
+ * mapped in.  Use in conjunction with dmi_sysfs_specialize_attr_ops.
+ */
 struct dmi_sysfs_mapped_attribute {
 	struct attribute attr;
 	ssize_t (*show)(struct dmi_sysfs_entry *entry,
@@ -64,6 +75,9 @@ struct dmi_sysfs_mapped_attribute dmi_sysfs_attr_##_entry##_##_name = { \
 	.show = dmi_sysfs_##_entry##_##_name, \
 }
 
+/*************************************************
+ * Generic DMI entry support.
+ *************************************************/
 static void dmi_entry_free(struct kobject *kobj)
 {
 	kfree(kobj);
@@ -85,7 +99,7 @@ static ssize_t dmi_sysfs_attr_show(struct kobject *kobj,
 	struct dmi_sysfs_entry *entry = to_entry(kobj);
 	struct dmi_sysfs_attribute *attr = to_attr(_attr);
 
-	
+	/* DMI stuff is only ever admin visible */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 
@@ -113,22 +127,27 @@ static void find_dmi_entry_helper(const struct dmi_header *dh,
 	struct find_dmi_data *data = _data;
 	struct dmi_sysfs_entry *entry = data->entry;
 
-	
+	/* Is this the entry we want? */
 	if (dh->type != entry->dh.type)
 		return;
 
 	if (data->instance_countdown != 0) {
-		
+		/* try the next instance? */
 		data->instance_countdown--;
 		return;
 	}
 
+	/*
+	 * Don't ever revisit the instance.  Short circuit later
+	 * instances by letting the instance_countdown run negative
+	 */
 	data->instance_countdown--;
 
-	
+	/* Found the entry */
 	data->ret = data->callback(entry, dh, data->private);
 }
 
+/* State for passing the read parameters through dmi_find_entry() */
 struct dmi_read_state {
 	char *buf;
 	loff_t pos;
@@ -143,17 +162,22 @@ static ssize_t find_dmi_entry(struct dmi_sysfs_entry *entry,
 		.callback = callback,
 		.private = private,
 		.instance_countdown = entry->instance,
-		.ret = -EIO,  
+		.ret = -EIO,  /* To signal the entry disappeared */
 	};
 	int ret;
 
 	ret = dmi_walk(find_dmi_entry_helper, &data);
-	
+	/* This shouldn't happen, but just in case. */
 	if (ret)
 		return -EINVAL;
 	return data.ret;
 }
 
+/*
+ * Calculate and return the byte length of the dmi entry identified by
+ * dh.  This includes both the formatted portion as well as the
+ * unformatted string space, including the two trailing nul characters.
+ */
 static size_t dmi_entry_length(const struct dmi_header *dh)
 {
 	const char *p = (const char *)dh;
@@ -166,6 +190,9 @@ static size_t dmi_entry_length(const struct dmi_header *dh)
 	return 2 + p - (const char *)dh;
 }
 
+/*************************************************
+ * Support bits for specialized DMI entry support
+ *************************************************/
 struct dmi_entry_attr_show_data {
 	struct attribute *attr;
 	char *buf;
@@ -191,6 +218,8 @@ static ssize_t dmi_entry_attr_show(struct kobject *kobj,
 		.attr = attr,
 		.buf  = buf,
 	};
+	/* Find the entry according to our parent and call the
+	 * normalized show method hanging off of the attribute */
 	return find_dmi_entry(to_entry(kobj->parent),
 			      dmi_entry_attr_show_helper, &data);
 }
@@ -199,7 +228,11 @@ static const struct sysfs_ops dmi_sysfs_specialize_attr_ops = {
 	.show = dmi_entry_attr_show,
 };
 
+/*************************************************
+ * Specialized DMI entry support.
+ *************************************************/
 
+/*** Type 15 - System Event Table ***/
 
 #define DMI_SEL_ACCESS_METHOD_IO8	0x00
 #define DMI_SEL_ACCESS_METHOD_IO2x8	0x01
@@ -438,6 +471,9 @@ out_free:
 	return ret;
 }
 
+/*************************************************
+ * Generic DMI entry support.
+ *************************************************/
 
 static ssize_t dmi_sysfs_entry_length(struct dmi_sysfs_entry *entry, char *buf)
 {
@@ -533,8 +569,10 @@ static struct kobj_type dmi_sysfs_entry_ktype = {
 static struct kobject *dmi_kobj;
 static struct kset *dmi_kset;
 
+/* Global count of all instances seen.  Only for setup */
 static int __initdata instance_counts[MAX_ENTRY_TYPE + 1];
 
+/* Global positional count of all entries seen.  Only for setup */
 static int __initdata position_count;
 
 static void __init dmi_sysfs_register_handle(const struct dmi_header *dh,
@@ -543,18 +581,18 @@ static void __init dmi_sysfs_register_handle(const struct dmi_header *dh,
 	struct dmi_sysfs_entry *entry;
 	int *ret = _ret;
 
-	
+	/* If a previous entry saw an error, short circuit */
 	if (*ret)
 		return;
 
-	
+	/* Allocate and register a new entry into the entries set */
 	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 	if (!entry) {
 		*ret = -ENOMEM;
 		return;
 	}
 
-	
+	/* Set the key */
 	memcpy(&entry->dh, dh, sizeof(*dh));
 	entry->instance = instance_counts[dh->type]++;
 	entry->position = position_count++;
@@ -568,24 +606,24 @@ static void __init dmi_sysfs_register_handle(const struct dmi_header *dh,
 		return;
 	}
 
-	
+	/* Thread on the global list for cleanup */
 	spin_lock(&entry_list_lock);
 	list_add_tail(&entry->list, &entry_list);
 	spin_unlock(&entry_list_lock);
 
-	
+	/* Handle specializations by type */
 	switch (dh->type) {
 	case DMI_ENTRY_SYSTEM_EVENT_LOG:
 		*ret = dmi_system_event_log(entry);
 		break;
 	default:
-		
+		/* No specialization */
 		break;
 	}
 	if (*ret)
 		goto out_err;
 
-	
+	/* Create the raw binary file to access the entry */
 	*ret = sysfs_create_bin_file(&entry->kobj, &dmi_entry_raw_attr);
 	if (*ret)
 		goto out_err;
@@ -601,7 +639,7 @@ static void cleanup_entry_list(void)
 {
 	struct dmi_sysfs_entry *entry, *next;
 
-	
+	/* No locks, we are on our way out */
 	list_for_each_entry_safe(entry, next, &entry_list, list) {
 		kobject_put(entry->child);
 		kobject_put(&entry->kobj);
@@ -613,7 +651,7 @@ static int __init dmi_sysfs_init(void)
 	int error = -ENOMEM;
 	int val;
 
-	
+	/* Set up our directory */
 	dmi_kobj = kobject_create_and_add("dmi", firmware_kobj);
 	if (!dmi_kobj)
 		goto err;
@@ -641,6 +679,7 @@ err:
 	return error;
 }
 
+/* clean up everything. */
 static void __exit dmi_sysfs_exit(void)
 {
 	pr_debug("dmi-sysfs: unloading.\n");

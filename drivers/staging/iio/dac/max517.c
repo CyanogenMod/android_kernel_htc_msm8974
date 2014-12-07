@@ -33,9 +33,10 @@
 
 #define MAX517_DRV_NAME	"max517"
 
+/* Commands */
 #define COMMAND_CHANNEL0	0x00
-#define COMMAND_CHANNEL1	0x01 
-#define COMMAND_PD		0x08 
+#define COMMAND_CHANNEL1	0x01 /* for MAX518 and MAX519 */
+#define COMMAND_PD		0x08 /* Power Down */
 
 enum max517_device_ids {
 	ID_MAX517,
@@ -49,6 +50,11 @@ struct max517_data {
 	unsigned short		vref_mv[2];
 };
 
+/*
+ * channel: bit 0: channel 1
+ *          bit 1: channel 2
+ * (this way, it's possible to set both channels at once)
+ */
 static ssize_t max517_set_value(struct device *dev,
 				 struct device_attribute *attr,
 				 const char *buf, size_t count, int channel)
@@ -56,7 +62,7 @@ static ssize_t max517_set_value(struct device *dev,
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct max517_data *data = iio_priv(indio_dev);
 	struct i2c_client *client = data->client;
-	u8 outbuf[4]; 
+	u8 outbuf[4]; /* 1x or 2x command + value */
 	int outbuf_size = 0;
 	int res;
 	long val;
@@ -78,6 +84,12 @@ static ssize_t max517_set_value(struct device *dev,
 		outbuf[outbuf_size++] = val;
 	}
 
+	/*
+	 * At this point, there are always 1 or 2 two-byte commands in
+	 * outbuf. With 2 commands, the device can set two outputs
+	 * simultaneously, latching the values upon the end of the I2C
+	 * transfer.
+	 */
 
 	res = i2c_master_send(client, outbuf, outbuf_size);
 	if (res < 0)
@@ -118,7 +130,7 @@ static ssize_t max517_show_scale(struct device *dev,
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 	struct max517_data *data = iio_priv(indio_dev);
-	
+	/* Corresponds to Vref / 2^(bits) */
 	unsigned int scale_uv = (data->vref_mv[channel - 1] * 1000) >> 8;
 
 	return sprintf(buf, "%d.%03d\n", scale_uv / 1000, scale_uv % 1000);
@@ -142,6 +154,7 @@ static ssize_t max517_show_scale2(struct device *dev,
 static IIO_DEVICE_ATTR(out_voltage2_scale, S_IRUGO,
 		       max517_show_scale2, NULL, 0);
 
+/* On MAX517 variant, we have one output */
 static struct attribute *max517_attributes[] = {
 	&iio_dev_attr_out_voltage1_raw.dev_attr.attr,
 	&iio_dev_attr_out_voltage1_scale.dev_attr.attr,
@@ -152,6 +165,7 @@ static struct attribute_group max517_attribute_group = {
 	.attrs = max517_attributes,
 };
 
+/* On MAX518 and MAX519 variant, we have two outputs */
 static struct attribute *max518_attributes[] = {
 	&iio_dev_attr_out_voltage1_raw.dev_attr.attr,
 	&iio_dev_attr_out_voltage1_scale.dev_attr.attr,
@@ -213,18 +227,22 @@ static int max517_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, indio_dev);
 	data->client = client;
 
-	
+	/* establish that the iio_dev is a child of the i2c device */
 	indio_dev->dev.parent = &client->dev;
 
-	
+	/* reduced attribute set for MAX517 */
 	if (id->driver_data == ID_MAX517)
 		indio_dev->info = &max517_info;
 	else
 		indio_dev->info = &max518_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
+	/*
+	 * Reference voltage on MAX518 and default is 5V, else take vref_mv
+	 * from platform_data
+	 */
 	if (id->driver_data == ID_MAX518 || !platform_data) {
-		data->vref_mv[0] = data->vref_mv[1] = 5000; 
+		data->vref_mv[0] = data->vref_mv[1] = 5000; /* mV */
 	} else {
 		data->vref_mv[0] = platform_data->vref_mv[0];
 		data->vref_mv[1] = platform_data->vref_mv[1];

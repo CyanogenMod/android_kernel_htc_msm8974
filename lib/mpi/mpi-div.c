@@ -37,6 +37,9 @@ int mpi_fdiv_r(MPI rem, MPI dividend, MPI divisor)
 	int divisor_sign = divisor->sign;
 	MPI temp_divisor = NULL;
 
+	/* We need the original value of the divisor after the remainder has been
+	 * preliminary calculated.      We have to copy it to temporary space if it's
+	 * the same variable as REM.  */
 	if (rem == divisor) {
 		if (mpi_copy(&temp_divisor, divisor) < 0)
 			goto nomem;
@@ -57,6 +60,11 @@ nomem:
 	return rc;
 }
 
+/****************
+ * Division rounding the quotient towards -infinity.
+ * The remainder gets the same sign as the denominator.
+ * rem is optional
+ */
 
 ulong mpi_fdiv_r_ui(MPI rem, MPI dividend, ulong divisor)
 {
@@ -114,6 +122,12 @@ nomem:
 	return -ENOMEM;
 }
 
+/* If den == quot, den needs temporary storage.
+ * If den == rem, den needs temporary storage.
+ * If num == quot, num needs temporary storage.
+ * If den has temporary storage, it can be normalized while being copied,
+ *   i.e no extra storage should be allocated.
+ */
 
 int mpi_tdiv_r(MPI rem, MPI num, MPI den)
 {
@@ -140,11 +154,14 @@ int mpi_tdiv_qr(MPI quot, MPI rem, MPI num, MPI den)
 
 	memset(marker, 0, sizeof(marker));
 
+	/* Ensure space is enough for quotient and remainder.
+	 * We need space for an extra limb in the remainder, because it's
+	 * up-shifted (normalized) below.  */
 	rsize = nsize + 1;
 	if (mpi_resize(rem, rsize) < 0)
 		goto nomem;
 
-	qsize = rsize - dsize;	
+	qsize = rsize - dsize;	/* qsize cannot be bigger than this.  */
 	if (qsize <= 0) {
 		if (num != rem) {
 			rem->nlimbs = num->nlimbs;
@@ -152,6 +169,8 @@ int mpi_tdiv_qr(MPI quot, MPI rem, MPI num, MPI den)
 			MPN_COPY(rem->d, num->d, nsize);
 		}
 		if (quot) {
+			/* This needs to follow the assignment to rem, in case the
+			 * numerator and quotient are the same.  */
 			quot->nlimbs = 0;
 			quot->sign = 0;
 		}
@@ -162,12 +181,12 @@ int mpi_tdiv_qr(MPI quot, MPI rem, MPI num, MPI den)
 		if (mpi_resize(quot, qsize) < 0)
 			goto nomem;
 
-	
+	/* Read pointers here, when reallocation is finished.  */
 	np = num->d;
 	dp = den->d;
 	rp = rem->d;
 
-	
+	/* Optimize division by a single-limb divisor.  */
 	if (dsize == 1) {
 		mpi_limb_t rlimb;
 		if (quot) {
@@ -189,27 +208,37 @@ int mpi_tdiv_qr(MPI quot, MPI rem, MPI num, MPI den)
 		qp = quot->d;
 		/* Make sure QP and NP point to different objects.  Otherwise the
 		 * numerator would be gradually overwritten by the quotient limbs.  */
-		if (qp == np) {	
+		if (qp == np) {	/* Copy NP object to temporary space.  */
 			np = marker[markidx++] = mpi_alloc_limb_space(nsize);
 			if (!np)
 				goto nomem;
 			MPN_COPY(np, qp, nsize);
 		}
-	} else			
+	} else			/* Put quotient at top of remainder. */
 		qp = rp + dsize;
 
 	count_leading_zeros(normalization_steps, dp[dsize - 1]);
 
+	/* Normalize the denominator, i.e. make its most significant bit set by
+	 * shifting it NORMALIZATION_STEPS bits to the left.  Also shift the
+	 * numerator the same number of steps (to keep the quotient the same!).
+	 */
 	if (normalization_steps) {
 		mpi_ptr_t tp;
 		mpi_limb_t nlimb;
 
+		/* Shift up the denominator setting the most significant bit of
+		 * the most significant word.  Use temporary storage not to clobber
+		 * the original contents of the denominator.  */
 		tp = marker[markidx++] = mpi_alloc_limb_space(dsize);
 		if (!tp)
 			goto nomem;
 		mpihelp_lshift(tp, dp, dsize, normalization_steps);
 		dp = tp;
 
+		/* Shift up the numerator, possibly introducing a new most
+		 * significant word.  Move the shifted numerator in the remainder
+		 * meanwhile.  */
 		nlimb = mpihelp_lshift(rp, np, nsize, normalization_steps);
 		if (nlimb) {
 			rp[nsize] = nlimb;
@@ -217,6 +246,8 @@ int mpi_tdiv_qr(MPI quot, MPI rem, MPI num, MPI den)
 		} else
 			rsize = nsize;
 	} else {
+		/* The denominator is already normalized, as required.  Copy it to
+		 * temporary space if it overlaps with the quotient or remainder.  */
 		if (dp == rp || (quot && (dp == qp))) {
 			mpi_ptr_t tp;
 
@@ -227,7 +258,7 @@ int mpi_tdiv_qr(MPI quot, MPI rem, MPI num, MPI den)
 			dp = tp;
 		}
 
-		
+		/* Move the numerator to the remainder.  */
 		if (rp != np)
 			MPN_COPY(rp, np, nsize);
 
@@ -297,6 +328,10 @@ int mpi_tdiv_q_2exp(MPI w, MPI u, unsigned count)
 	return 0;
 }
 
+/****************
+ * Check whether dividend is divisible by divisor
+ * (note: divisor must fit into a limb)
+ */
 int mpi_divisible_ui(MPI dividend, ulong divisor)
 {
 	return !mpihelp_mod_1(dividend->d, dividend->nlimbs, divisor);

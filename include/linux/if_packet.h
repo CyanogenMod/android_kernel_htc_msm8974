@@ -19,19 +19,23 @@ struct sockaddr_ll {
 	unsigned char	sll_addr[8];
 };
 
+/* Packet types */
 
-#define PACKET_HOST		0		
-#define PACKET_BROADCAST	1		
-#define PACKET_MULTICAST	2		
-#define PACKET_OTHERHOST	3		
-#define PACKET_OUTGOING		4		
-#define PACKET_LOOPBACK		5		
-#define PACKET_FASTROUTE	6		
+#define PACKET_HOST		0		/* To us		*/
+#define PACKET_BROADCAST	1		/* To all		*/
+#define PACKET_MULTICAST	2		/* To group		*/
+#define PACKET_OTHERHOST	3		/* To someone else 	*/
+#define PACKET_OUTGOING		4		/* Outgoing of any type */
+/* These ones are invisible by user level */
+#define PACKET_LOOPBACK		5		/* MC/BRD frame looped back */
+#define PACKET_FASTROUTE	6		/* Fastrouted frame	*/
 
+/* Packet socket options */
 
 #define PACKET_ADD_MEMBERSHIP		1
 #define PACKET_DROP_MEMBERSHIP		2
 #define PACKET_RECV_OUTPUT		3
+/* Value 4 is still used by obsolete turbo-packet. */
 #define PACKET_RX_RING			5
 #define PACKET_STATISTICS		6
 #define PACKET_COPY_THRESH		7
@@ -78,19 +82,22 @@ struct tpacket_auxdata {
 	__u16		tp_padding;
 };
 
+/* Rx ring - header status */
 #define TP_STATUS_KERNEL	0x0
 #define TP_STATUS_USER		0x1
 #define TP_STATUS_COPY		0x2
 #define TP_STATUS_LOSING	0x4
 #define TP_STATUS_CSUMNOTREADY	0x8
-#define TP_STATUS_VLAN_VALID   0x10 
+#define TP_STATUS_VLAN_VALID   0x10 /* auxdata has valid tp_vlan_tci */
 #define TP_STATUS_BLK_TMO	0x20
 
+/* Tx ring - header status */
 #define TP_STATUS_AVAILABLE	0x0
 #define TP_STATUS_SEND_REQUEST	0x1
 #define TP_STATUS_SENDING	0x2
 #define TP_STATUS_WRONG_FORMAT	0x4
 
+/* Rx ring - feature request bits */
 #define TP_FT_REQ_FILL_RXHASH	0x1
 
 struct tpacket_hdr {
@@ -133,7 +140,7 @@ struct tpacket3_hdr {
 	__u32		tp_status;
 	__u16		tp_mac;
 	__u16		tp_net;
-	
+	/* pkt_hdr variants */
 	union {
 		struct tpacket_hdr_variant1 hv1;
 	};
@@ -152,10 +159,47 @@ struct tpacket_hdr_v1 {
 	__u32	num_pkts;
 	__u32	offset_to_first_pkt;
 
+	/* Number of valid bytes (including padding)
+	 * blk_len <= tp_block_size
+	 */
 	__u32	blk_len;
 
+	/*
+	 * Quite a few uses of sequence number:
+	 * 1. Make sure cache flush etc worked.
+	 *    Well, one can argue - why not use the increasing ts below?
+	 *    But look at 2. below first.
+	 * 2. When you pass around blocks to other user space decoders,
+	 *    you can see which blk[s] is[are] outstanding etc.
+	 * 3. Validate kernel code.
+	 */
 	__aligned_u64	seq_num;
 
+	/*
+	 * ts_last_pkt:
+	 *
+	 * Case 1.	Block has 'N'(N >=1) packets and TMO'd(timed out)
+	 *		ts_last_pkt == 'time-stamp of last packet' and NOT the
+	 *		time when the timer fired and the block was closed.
+	 *		By providing the ts of the last packet we can absolutely
+	 *		guarantee that time-stamp wise, the first packet in the
+	 *		next block will never precede the last packet of the
+	 *		previous block.
+	 * Case 2.	Block has zero packets and TMO'd
+	 *		ts_last_pkt = time when the timer fired and the block
+	 *		was closed.
+	 * Case 3.	Block has 'N' packets and NO TMO.
+	 *		ts_last_pkt = time-stamp of the last pkt in the block.
+	 *
+	 * ts_first_pkt:
+	 *		Is always the time-stamp when the block was opened.
+	 *		Case a)	ZERO packets
+	 *			No packets to deal with but atleast you know the
+	 *			time-interval of this block.
+	 *		Case b) Non-zero packets
+	 *			Use the ts of the first packet in the block.
+	 *
+	 */
 	struct tpacket_bd_ts	ts_first_pkt, ts_last_pkt;
 };
 
@@ -178,21 +222,33 @@ enum tpacket_versions {
 	TPACKET_V3
 };
 
+/*
+   Frame structure:
+
+   - Start. Frame must be aligned to TPACKET_ALIGNMENT=16
+   - struct tpacket_hdr
+   - pad to TPACKET_ALIGNMENT=16
+   - struct sockaddr_ll
+   - Gap, chosen so that packet data (Start+tp_net) alignes to TPACKET_ALIGNMENT=16
+   - Start+tp_mac: [ Optional MAC header ]
+   - Start+tp_net: Packet data, aligned to TPACKET_ALIGNMENT=16.
+   - Pad to align to TPACKET_ALIGNMENT=16
+ */
 
 struct tpacket_req {
-	unsigned int	tp_block_size;	
-	unsigned int	tp_block_nr;	
-	unsigned int	tp_frame_size;	
-	unsigned int	tp_frame_nr;	
+	unsigned int	tp_block_size;	/* Minimal size of contiguous block */
+	unsigned int	tp_block_nr;	/* Number of blocks */
+	unsigned int	tp_frame_size;	/* Size of frame */
+	unsigned int	tp_frame_nr;	/* Total number of frames */
 };
 
 struct tpacket_req3 {
-	unsigned int	tp_block_size;	
-	unsigned int	tp_block_nr;	
-	unsigned int	tp_frame_size;	
-	unsigned int	tp_frame_nr;	
-	unsigned int	tp_retire_blk_tov; 
-	unsigned int	tp_sizeof_priv; 
+	unsigned int	tp_block_size;	/* Minimal size of contiguous block */
+	unsigned int	tp_block_nr;	/* Number of blocks */
+	unsigned int	tp_frame_size;	/* Size of frame */
+	unsigned int	tp_frame_nr;	/* Total number of frames */
+	unsigned int	tp_retire_blk_tov; /* timeout in msecs */
+	unsigned int	tp_sizeof_priv; /* offset to private data area */
 	unsigned int	tp_feature_req_word;
 };
 

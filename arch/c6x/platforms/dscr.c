@@ -51,31 +51,45 @@ struct rmii_reset_reg {
  * registers, the key value must first be written to the lockreg.
  */
 struct locked_reg {
-	u32 reg;	
-	u32 lockreg;	
-	u32 key;	
+	u32 reg;	/* offset from base */
+	u32 lockreg;	/* offset from base */
+	u32 key;	/* unlock key */
 };
 
+/*
+ * This describes a contiguous area of like control bits used to enable/disable
+ * SoC devices. Each controllable device is given an ID which is used by the
+ * individual device drivers to control the device state. These IDs start at
+ * zero and are assigned sequentially to the control bitfield ranges described
+ * by this structure.
+ */
 struct devstate_ctl_reg {
-	u32 reg;		
-	u8  start_id;		
-	u8  num_ids;		
-	u8  enable_only;	
-	u8  enable;		
-	u8  disable;		
-	u8  shift;		
-	u8  nbits;		
+	u32 reg;		/* register holding the control bits */
+	u8  start_id;		/* start id of this range */
+	u8  num_ids;		/* number of devices in this range */
+	u8  enable_only;	/* bits are write-once to enable only */
+	u8  enable;		/* value used to enable device */
+	u8  disable;		/* value used to disable device */
+	u8  shift;		/* starting (rightmost) bit in range */
+	u8  nbits;		/* number of bits per device */
 };
 
 
+/*
+ * This describes a region of status bits indicating the state of
+ * various devices. This is used internally to wait for status
+ * change completion when enabling/disabling a device. Status is
+ * optional and not all device controls will have a corresponding
+ * status.
+ */
 struct devstate_stat_reg {
-	u32 reg;		
-	u8  start_id;		
-	u8  num_ids;		
-	u8  enable;		
-	u8  disable;		
-	u8  shift;		
-	u8  nbits;		
+	u32 reg;		/* register holding the status bits */
+	u8  start_id;		/* start id of this range */
+	u8  num_ids;		/* number of devices in this range */
+	u8  enable;		/* value indicating enabled state */
+	u8  disable;		/* value indicating disabled state */
+	u8  shift;		/* starting (rightmost) bit in range */
+	u8  nbits;		/* number of bits per device */
 };
 
 struct devstate_info {
@@ -83,6 +97,7 @@ struct devstate_info {
 	struct devstate_stat_reg *stat;
 };
 
+/* These are callbacks to SOC-specific code. */
 struct dscr_ops {
 	void (*init)(struct device_node *node);
 };
@@ -111,12 +126,21 @@ static struct locked_reg *find_locked_reg(u32 reg)
 	return NULL;
 }
 
+/*
+ * Write to a register with one lock
+ */
 static void dscr_write_locked1(u32 reg, u32 val,
 			       u32 lock, u32 key)
 {
 	void __iomem *reg_addr = dscr.base + reg;
 	void __iomem *lock_addr = dscr.base + lock;
 
+	/*
+	 * For some registers, the lock is relocked after a short number
+	 * of cycles. We have to put the lock write and register write in
+	 * the same fetch packet to meet this timing. The .align ensures
+	 * the two stw instructions are in the same fetch packet.
+	 */
 	asm volatile ("b	.s2	0f\n"
 		      "nop	5\n"
 		      "    .align 5\n"
@@ -127,10 +151,13 @@ static void dscr_write_locked1(u32 reg, u32 val,
 		      : "a"(reg_addr), "b"(val), "a"(lock_addr), "b"(key)
 		);
 
-	
+	/* in case the hw doesn't reset the lock */
 	soc_writel(0, lock_addr);
 }
 
+/*
+ * Write to a register protected by two lock registers
+ */
 static void dscr_write_locked2(u32 reg, u32 val,
 			       u32 lock0, u32 key0,
 			       u32 lock1, u32 key1)
@@ -157,6 +184,9 @@ static void dscr_write(u32 reg, u32 val)
 }
 
 
+/*
+ * Drivers can use this interface to enable/disable SoC IP blocks.
+ */
 void dscr_set_devstate(int id, enum dscr_devstate_t state)
 {
 	struct devstate_ctl_reg *ctl;
@@ -223,6 +253,9 @@ void dscr_set_devstate(int id, enum dscr_devstate_t state)
 }
 EXPORT_SYMBOL(dscr_set_devstate);
 
+/*
+ * Drivers can use this to reset RMII module.
+ */
 void dscr_rmii_reset(int id, int assert)
 {
 	struct rmii_reset_reg *r;
@@ -274,6 +307,23 @@ static void __init dscr_parse_silicon_rev(struct device_node *node,
 	}
 }
 
+/*
+ * Some SoCs will have a pair of fuse registers which hold
+ * an ethernet MAC address. The "ti,dscr-mac-fuse-regs"
+ * property is a mapping from fuse register bytes to MAC
+ * address bytes. The expected format is:
+ *
+ *	ti,dscr-mac-fuse-regs = <reg0 b3 b2 b1 b0
+ *				 reg1 b3 b2 b1 b0>
+ *
+ * reg0 and reg1 are the offsets of the two fuse registers.
+ * b3-b0 positionally represent bytes within the fuse register.
+ * b3 is the most significant byte and b0 is the least.
+ * Allowable values for b3-b0 are:
+ *
+ *	  0 = fuse register byte not used in MAC address
+ *      1-6 = index+1 into c6x_fuse_mac[]
+ */
 static void __init dscr_parse_mac_fuse(struct device_node *node,
 				       void __iomem *base)
 {
@@ -299,10 +349,10 @@ static void __init dscr_parse_rmii_resets(struct device_node *node,
 	const __be32 *p;
 	int i, size;
 
-	
+	/* look for RMII reset registers */
 	p = of_get_property(node, "ti,dscr-rmii-resets", &size);
 	if (p) {
-		
+		/* parse all the reg/mask pairs we can handle */
 		size /= (sizeof(*p) * 2);
 		if (size > MAX_SOC_EMACS)
 			size = MAX_SOC_EMACS;
@@ -352,7 +402,7 @@ static void __init dscr_parse_locked_regs(struct device_node *node,
 
 	p = of_get_property(node, "ti,dscr-locked-regs", &size);
 	if (p) {
-		
+		/* parse all the register descriptions we can handle */
 		size /= (sizeof(*p) * 3);
 		if (size > MAX_LOCKED_REGS)
 			size = MAX_LOCKED_REGS;
@@ -367,6 +417,17 @@ static void __init dscr_parse_locked_regs(struct device_node *node,
 	}
 }
 
+/*
+ * SoCs may have DSCR registers which are only write enabled after
+ * writing specific key values to two registers. The two key registers
+ * and the key values can be parsed from a "ti,dscr-kick-regs"
+ * propety with the following layout:
+ *
+ *	ti,dscr-kick-regs = <kickreg0 key0 kickreg1 key1>
+ *
+ * kickreg is the offset of the "kick" register
+ * key is the value which unlocks writing for protected regs
+ */
 static void __init dscr_parse_kick_regs(struct device_node *node,
 					void __iomem *base)
 {
@@ -383,6 +444,28 @@ static void __init dscr_parse_kick_regs(struct device_node *node,
 }
 
 
+/*
+ * SoCs may provide controls to enable/disable individual IP blocks. These
+ * controls in the DSCR usually control pin drivers but also may control
+ * clocking and or resets. The device tree is used to describe the bitfields
+ * in registers used to control device state. The number of bits and their
+ * values may vary even within the same register.
+ *
+ * The layout of these bitfields is described by the ti,dscr-devstate-ctl-regs
+ * property. This property is a list where each element describes a contiguous
+ * range of control fields with like properties. Each element of the list
+ * consists of 7 cells with the following values:
+ *
+ *   start_id num_ids reg enable disable start_bit nbits
+ *
+ * start_id is device id for the first device control in the range
+ * num_ids is the number of device controls in the range
+ * reg is the offset of the register holding the control bits
+ * enable is the value to enable a device
+ * disable is the value to disable a device (0xffffffff if cannot disable)
+ * start_bit is the bit number of the first bit in the range
+ * nbits is the number of bits per device control
+ */
 static void __init dscr_parse_devstate_ctl_regs(struct device_node *node,
 						void __iomem *base)
 {
@@ -392,7 +475,7 @@ static void __init dscr_parse_devstate_ctl_regs(struct device_node *node,
 
 	p = of_get_property(node, "ti,dscr-devstate-ctl-regs", &size);
 	if (p) {
-		
+		/* parse all the ranges we can handle */
 		size /= (sizeof(*p) * 7);
 		if (size > MAX_DEVCTL_REGS)
 			size = MAX_DEVCTL_REGS;
@@ -418,6 +501,27 @@ static void __init dscr_parse_devstate_ctl_regs(struct device_node *node,
 	}
 }
 
+/*
+ * SoCs may provide status registers indicating the state (enabled/disabled) of
+ * devices on the SoC. The device tree is used to describe the bitfields in
+ * registers used to provide device status. The number of bits and their
+ * values used to provide status may vary even within the same register.
+ *
+ * The layout of these bitfields is described by the ti,dscr-devstate-stat-regs
+ * property. This property is a list where each element describes a contiguous
+ * range of status fields with like properties. Each element of the list
+ * consists of 7 cells with the following values:
+ *
+ *   start_id num_ids reg enable disable start_bit nbits
+ *
+ * start_id is device id for the first device status in the range
+ * num_ids is the number of devices covered by the range
+ * reg is the offset of the register holding the status bits
+ * enable is the value indicating device is enabled
+ * disable is the value indicating device is disabled
+ * start_bit is the bit number of the first bit in the range
+ * nbits is the number of bits per device status
+ */
 static void __init dscr_parse_devstate_stat_regs(struct device_node *node,
 						 void __iomem *base)
 {
@@ -427,7 +531,7 @@ static void __init dscr_parse_devstate_stat_regs(struct device_node *node,
 
 	p = of_get_property(node, "ti,dscr-devstate-stat-regs", &size);
 	if (p) {
-		
+		/* parse all the ranges we can handle */
 		size /= (sizeof(*p) * 7);
 		if (size > MAX_DEVSTAT_REGS)
 			size = MAX_DEVSTAT_REGS;
@@ -456,6 +560,13 @@ static struct of_device_id dscr_ids[] __initdata = {
 	{}
 };
 
+/*
+ * Probe for DSCR area.
+ *
+ * This has to be done early on in case timer or interrupt controller
+ * needs something. e.g. On C6455 SoC, timer must be enabled through
+ * DSCR before it is functional.
+ */
 void __init dscr_probe(void)
 {
 	struct device_node *node;

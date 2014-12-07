@@ -38,10 +38,20 @@ static int no_hypercall;
 MODULE_PARM_DESC(off, "Inhibit the hypercall.");
 module_param_named(off, no_hypercall, int, 0400);
 
+/*
+ * Note: Do not convert the acpi_id* below to cpumask_var_t or use cpumask_bit
+ * - as those shrink to nr_cpu_bits (which is dependent on possible_cpu), which
+ * can be less than what we want to put in. Instead use the 'nr_acpi_bits'
+ * which is dynamically computed based on the MADT or x2APIC table.
+ */
 static unsigned int nr_acpi_bits;
+/* Mutex to protect the acpi_ids_done - for CPU hotplug use. */
 static DEFINE_MUTEX(acpi_ids_mutex);
+/* Which ACPI ID we have processed from 'struct acpi_processor'. */
 static unsigned long *acpi_ids_done;
+/* Which ACPI ID exist in the SSDT/DSDT processor definitions. */
 static unsigned long __initdata *acpi_id_present;
+/* And if there is an _CST definition (or a PBLK) for the ACPI IDs */
 static unsigned long __initdata *acpi_id_cst_present;
 
 static int push_cxx_to_hypervisor(struct acpi_processor *_pr)
@@ -77,9 +87,9 @@ static int push_cxx_to_hypervisor(struct acpi_processor *_pr)
 		} else {
 			dst_cx->reg.space_id = ACPI_ADR_SPACE_FIXED_HARDWARE;
 			if (cx->entry_method == ACPI_CSTATE_FFH) {
-				
+				/* NATIVE_CSTATE_BEYOND_HALT */
 				dst_cx->reg.bit_offset = 2;
-				dst_cx->reg.bit_width = 1; 
+				dst_cx->reg.bit_width = 1; /* VENDOR_INTEL */
 			}
 			dst_cx->reg.access_size = 0;
 		}
@@ -119,6 +129,9 @@ static int push_cxx_to_hypervisor(struct acpi_processor *_pr)
 				 cx->type, cx->desc, (u32)cx->latency);
 		}
 	} else if (ret != -EINVAL)
+		/* EINVAL means the ACPI ID is incorrect - meaning the ACPI
+		 * table is referencing a non-existing CPU - which can happen
+		 * with broken ACPI tables. */
 		pr_err(DRV_NAME "(CX): Hypervisor error (%d) for ACPI CPU%u\n",
 		       ret, _pr->acpi_id);
 
@@ -143,7 +156,7 @@ xen_copy_pss_data(struct acpi_processor *_pr,
 
 	dst_perf->state_count = _pr->performance->state_count;
 	for (i = 0; i < _pr->performance->state_count; i++) {
-		
+		/* Fortunatly for us, they are both the same size */
 		memcpy(&(dst_states[i]), &(_pr->performance->states[i]),
 		       sizeof(struct acpi_processor_px));
 	}
@@ -157,10 +170,16 @@ static int xen_copy_psd_data(struct acpi_processor *_pr,
 	BUILD_BUG_ON(sizeof(struct xen_psd_package) !=
 		     sizeof(struct acpi_psd_package));
 
+	/* This information is enumerated only if acpi_processor_preregister_performance
+	 * has been called.
+	 */
 	dst->shared_type = _pr->performance->shared_type;
 
 	pdomain = &(_pr->performance->domain_info);
 
+	/* 'acpi_processor_preregister_performance' does not parse if the
+	 * num_processors <= 1, but Xen still requires it. Do it manually here.
+	 */
 	if (pdomain->num_processors <= 1) {
 		if (pdomain->coord_type == DOMAIN_COORD_TYPE_SW_ALL)
 			dst->shared_type = CPUFREQ_SHARED_TYPE_ALL;
@@ -176,6 +195,10 @@ static int xen_copy_psd_data(struct acpi_processor *_pr,
 static int xen_copy_pct_data(struct acpi_pct_register *pct,
 			     struct xen_pct_register *dst_pct)
 {
+	/* It would be nice if you could just do 'memcpy(pct, dst_pct') but
+	 * sadly the Xen structure did not have the proper padding so the
+	 * descriptor field takes two (dst_pct) bytes instead of one (pct).
+	 */
 	dst_pct->descriptor = pct->descriptor;
 	dst_pct->length = pct->length;
 	dst_pct->space_id = pct->space_id;
@@ -238,6 +261,9 @@ static int push_pxx_to_hypervisor(struct acpi_processor *_pr)
 			(u32) perf->states[i].transition_latency);
 		}
 	} else if (ret != -EINVAL)
+		/* EINVAL means the ACPI ID is incorrect - meaning the ACPI
+		 * table is referencing a non-existing CPU - which can happen
+		 * with broken ACPI tables. */
 		pr_warn(DRV_NAME "(_PXX): Hypervisor error (%d) for ACPI CPU%u\n",
 		       ret, _pr->acpi_id);
 err_free:
@@ -281,7 +307,7 @@ static unsigned int __init get_max_acpi_id(void)
 	if (ret)
 		return NR_CPUS;
 
-	
+	/* The max_present is the same irregardless of the xen_cpuid */
 	last_cpu = op.u.pcpu_info.max_present;
 	for (i = 0; i <= last_cpu; i++) {
 		info->xen_cpuid = i;
@@ -290,10 +316,19 @@ static unsigned int __init get_max_acpi_id(void)
 			continue;
 		max_acpi_id = max(info->acpi_id, max_acpi_id);
 	}
-	max_acpi_id *= 2; 
+	max_acpi_id *= 2; /* Slack for CPU hotplug support. */
 	pr_debug(DRV_NAME "Max ACPI ID: %u\n", max_acpi_id);
 	return max_acpi_id;
 }
+/*
+ * The read_acpi_id and check_acpi_ids are there to support the Xen
+ * oddity of virtual CPUs != physical CPUs in the initial domain.
+ * The user can supply 'xen_max_vcpus=X' on the Xen hypervisor line
+ * which will band the amount of CPUs the initial domain can see.
+ * In general that is OK, except it plays havoc with any of the
+ * for_each_[present|online]_cpu macros which are banded to the virtual
+ * CPU amount.
+ */
 static acpi_status __init
 read_acpi_id(acpi_handle handle, u32 lvl, void *context, void **rv)
 {
@@ -326,12 +361,14 @@ read_acpi_id(acpi_handle handle, u32 lvl, void *context, void **rv)
 	default:
 		return AE_OK;
 	}
+	/* There are more ACPI Processor objects than in x2APIC or MADT.
+	 * This can happen with incorrect ACPI SSDT declerations. */
 	if (acpi_id > nr_acpi_bits) {
 		pr_debug(DRV_NAME "We only have %u, trying to set %u\n",
 			 nr_acpi_bits, acpi_id);
 		return AE_OK;
 	}
-	
+	/* OK, There is a ACPI Processor object */
 	__set_bit(acpi_id, acpi_id_present);
 
 	pr_debug(DRV_NAME "ACPI CPU%u w/ PBLK:0x%lx\n", acpi_id,
@@ -342,7 +379,7 @@ read_acpi_id(acpi_handle handle, u32 lvl, void *context, void **rv)
 		if (!pblk)
 			return AE_OK;
 	}
-	
+	/* .. and it has a C-state */
 	__set_bit(acpi_id, acpi_id_cst_present);
 
 	return AE_OK;
@@ -353,6 +390,9 @@ static int __init check_acpi_ids(struct acpi_processor *pr_backup)
 	if (!pr_backup)
 		return -ENODEV;
 
+	/* All online CPUs have been processed at this stage. Now verify
+	 * whether in fact "online CPUs" == physical CPUs.
+	 */
 	acpi_id_present = kcalloc(BITS_TO_LONGS(nr_acpi_bits), sizeof(unsigned long), GFP_KERNEL);
 	if (!acpi_id_present)
 		return -ENOMEM;
@@ -372,7 +412,7 @@ static int __init check_acpi_ids(struct acpi_processor *pr_backup)
 		unsigned int i;
 		for_each_set_bit(i, acpi_id_present, nr_acpi_bits) {
 			pr_backup->acpi_id = i;
-			
+			/* Mask out C-states if there are no _CST or PBLK */
 			pr_backup->flags.power = test_bit(i, acpi_id_cst_present);
 			(void)upload_pm_data(pr_backup);
 		}
@@ -400,6 +440,9 @@ static int __init check_prereq(void)
 		return 0;
 	}
 	if (c->x86_vendor == X86_VENDOR_AMD) {
+		/* Copied from powernow-k8.h, can't include ../cpufreq/powernow
+		 * as we get compile warnings for the static functions.
+		 */
 #define CPUID_FREQ_VOLT_CAPABILITIES    0x80000007
 #define USE_HW_PSTATE                   0x00000080
 		u32 eax, ebx, ecx, edx;
@@ -410,13 +453,14 @@ static int __init check_prereq(void)
 	}
 	return -ENODEV;
 }
+/* acpi_perf_data is a pointer to percpu data. */
 static struct acpi_processor_performance __percpu *acpi_perf_data;
 
 static void free_acpi_perf_data(void)
 {
 	unsigned int i;
 
-	
+	/* Freeing a NULL pointer is OK, and alloc_percpu zeroes. */
 	for_each_possible_cpu(i)
 		free_cpumask_var(per_cpu_ptr(acpi_perf_data, i)
 				 ->shared_cpu_map);
@@ -452,7 +496,7 @@ static int __init xen_acpi_processor_init(void)
 		}
 	}
 
-	
+	/* Do initialization in ACPI core. It is OK to fail here. */
 	(void)acpi_processor_preregister_performance(acpi_perf_data);
 
 	for_each_possible_cpu(i) {
@@ -469,7 +513,7 @@ static int __init xen_acpi_processor_init(void)
 
 	for_each_possible_cpu(i) {
 		struct acpi_processor *_pr;
-		_pr = per_cpu(processors, i );
+		_pr = per_cpu(processors, i /* APIC ID */);
 		if (!_pr)
 			continue;
 
@@ -493,7 +537,7 @@ err_unregister:
 		acpi_processor_unregister_performance(perf, i);
 	}
 err_out:
-	
+	/* Freeing a NULL pointer is OK: alloc_percpu zeroes. */
 	free_acpi_perf_data();
 	kfree(acpi_ids_done);
 	return rc;
@@ -515,5 +559,7 @@ MODULE_AUTHOR("Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>");
 MODULE_DESCRIPTION("Xen ACPI Processor P-states (and Cx) driver which uploads PM data to Xen hypervisor");
 MODULE_LICENSE("GPL");
 
+/* We want to be loaded before the CPU freq scaling drivers are loaded.
+ * They are loaded in late_initcall. */
 device_initcall(xen_acpi_processor_init);
 module_exit(xen_acpi_processor_exit);

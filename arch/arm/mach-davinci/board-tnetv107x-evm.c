@@ -108,28 +108,28 @@ static const short ssp_pins[] __initdata = {
 };
 
 static struct mtd_partition nand_partitions[] = {
-	
+	/* bootloader (U-Boot, etc) in first 12 sectors */
 	{
 		.name		= "bootloader",
 		.offset		= 0,
 		.size		= (12*SZ_128K),
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
-	
+	/* bootloader params in the next sector */
 	{
 		.name		= "params",
 		.offset		= MTDPART_OFS_NXTBLK,
 		.size		= SZ_128K,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
-	
+	/* kernel */
 	{
 		.name		= "kernel",
 		.offset		= MTDPART_OFS_NXTBLK,
 		.size		= SZ_4M,
 		.mask_flags	= 0,
 	},
-	
+	/* file system */
 	{
 		.name		= "filesystem",
 		.offset		= MTDPART_OFS_NXTBLK,
@@ -199,8 +199,8 @@ static struct matrix_keypad_platform_data keypad_config = {
 	.keymap_data	= &keymap_data,
 	.num_row_gpios	= 6,
 	.num_col_gpios	= 5,
-	.debounce_ms	= 0, 
-	.active_low	= 0, 
+	.debounce_ms	= 0, /* minimum */
+	.active_low	= 0, /* pull up realization */
 	.no_autorepeat	= 0,
 };
 
@@ -248,8 +248,8 @@ static struct ti_ssp_data ssp_config = {
 
 static struct tnetv107x_device_info evm_device_info __initconst = {
 	.serial_config		= &serial_config,
-	.mmc_config[1]		= &mmc_config,	
-	.nand_config[0]		= &nand_config,	
+	.mmc_config[1]		= &mmc_config,	/* controller 1 */
+	.nand_config[0]		= &nand_config,	/* chip select 0 */
 	.keypad_config		= &keypad_config,
 	.ssp_config		= &ssp_config,
 };

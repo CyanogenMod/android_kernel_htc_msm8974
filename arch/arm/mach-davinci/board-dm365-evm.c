@@ -45,30 +45,33 @@
 
 static inline int have_imager(void)
 {
-	
+	/* REVISIT when it's supported, trigger via Kconfig */
 	return 0;
 }
 
 static inline int have_tvp7002(void)
 {
-	
+	/* REVISIT when it's supported, trigger via Kconfig */
 	return 0;
 }
 
 #define DM365_EVM_PHY_ID		"davinci_mdio-0:01"
+/*
+ * A MAX-II CPLD is used for various board control functions.
+ */
 #define CPLD_OFFSET(a13a8,a2a1)		(((a13a8) << 10) + ((a2a1) << 3))
 
-#define CPLD_VERSION	CPLD_OFFSET(0,0)	
+#define CPLD_VERSION	CPLD_OFFSET(0,0)	/* r/o */
 #define CPLD_TEST	CPLD_OFFSET(0,1)
 #define CPLD_LEDS	CPLD_OFFSET(0,2)
 #define CPLD_MUX	CPLD_OFFSET(0,3)
-#define CPLD_SWITCH	CPLD_OFFSET(1,0)	
+#define CPLD_SWITCH	CPLD_OFFSET(1,0)	/* r/o */
 #define CPLD_POWER	CPLD_OFFSET(1,1)
 #define CPLD_VIDEO	CPLD_OFFSET(1,2)
-#define CPLD_CARDSTAT	CPLD_OFFSET(1,3)	
+#define CPLD_CARDSTAT	CPLD_OFFSET(1,3)	/* r/o */
 
 #define CPLD_DILC_OUT	CPLD_OFFSET(2,0)
-#define CPLD_DILC_IN	CPLD_OFFSET(2,1)	
+#define CPLD_DILC_IN	CPLD_OFFSET(2,1)	/* r/o */
 
 #define CPLD_IMG_DIR0	CPLD_OFFSET(2,2)
 #define CPLD_IMG_MUX0	CPLD_OFFSET(2,3)
@@ -92,17 +95,23 @@ static inline int have_tvp7002(void)
 static void __iomem *cpld;
 
 
+/* NOTE:  this is geared for the standard config, with a socketed
+ * 2 GByte Micron NAND (MT29F16G08FAA) using 128KB sectors.  If you
+ * swap chips with a different block size, partitioning will
+ * need to be changed. This NAND chip MT29F16G08FAA is the default
+ * NAND shipped with the Spectrum Digital DM365 EVM
+ */
 #define NAND_BLOCK_SIZE		SZ_128K
 
 static struct mtd_partition davinci_nand_partitions[] = {
 	{
-		
+		/* UBL (a few copies) plus U-Boot */
 		.name		= "bootloader",
 		.offset		= 0,
 		.size		= 30 * NAND_BLOCK_SIZE,
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	}, {
-		
+		/* U-Boot environment */
 		.name		= "params",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= 2 * NAND_BLOCK_SIZE,
@@ -123,7 +132,7 @@ static struct mtd_partition davinci_nand_partitions[] = {
 		.size		= MTDPART_SIZ_FULL,
 		.mask_flags	= 0,
 	}
-	
+	/* two blocks with bad block table (and mirror) at the end */
 };
 
 static struct davinci_nand_pdata davinci_nand_data = {
@@ -180,8 +189,8 @@ static struct i2c_board_info i2c_info[] = {
 };
 
 static struct davinci_i2c_platform_data i2c_pdata = {
-	.bus_freq	= 400	,
-	.bus_delay	= 0	,
+	.bus_freq	= 400	/* kHz */,
+	.bus_delay	= 0	/* usec */,
 };
 
 static int dm365evm_keyscan_enable(struct device *dev)
@@ -214,7 +223,7 @@ static struct davinci_ks_platform_data dm365evm_ks_data = {
 	.keymap		= dm365evm_keymap,
 	.keymapsize	= ARRAY_SIZE(dm365evm_keymap),
 	.rep		= 1,
-	
+	/* Scan period = strobe + interval */
 	.strobe		= 0x5,
 	.interval	= 0x2,
 	.matrix_type	= DAVINCI_KEYSCAN_MATRIX_4X4,
@@ -225,7 +234,7 @@ static int cpld_mmc_get_cd(int module)
 	if (!cpld)
 		return -ENXIO;
 
-	
+	/* low == card present */
 	return !(__raw_readb(cpld + CPLD_CARDSTAT) & BIT(module ? 4 : 0));
 }
 
@@ -234,7 +243,7 @@ static int cpld_mmc_get_ro(int module)
 	if (!cpld)
 		return -ENXIO;
 
-	
+	/* high == card's write protect switch active */
 	return !!(__raw_readb(cpld + CPLD_CARDSTAT) & BIT(module ? 5 : 1));
 }
 
@@ -249,6 +258,11 @@ static struct davinci_mmc_config dm365evm_mmc_config = {
 
 static void dm365evm_emac_configure(void)
 {
+	/*
+	 * EMAC pins are multiplexed with GPIO and UART
+	 * Further details are available at the DM365 ARM
+	 * Subsystem Users Guide(sprufg5.pdf) pages 125 - 127
+	 */
 	davinci_cfg_reg(DM365_EMAC_TX_EN);
 	davinci_cfg_reg(DM365_EMAC_TX_CLK);
 	davinci_cfg_reg(DM365_EMAC_COL);
@@ -267,6 +281,11 @@ static void dm365evm_emac_configure(void)
 	davinci_cfg_reg(DM365_EMAC_MDIO);
 	davinci_cfg_reg(DM365_EMAC_MDCLK);
 
+	/*
+	 * EMAC interrupts are multiplexed with GPIO interrupts
+	 * Details are available at the DM365 ARM
+	 * Subsystem Users Guide(sprufg5.pdf) pages 133 - 134
+	 */
 	davinci_cfg_reg(DM365_INT_EMAC_RXTHRESH);
 	davinci_cfg_reg(DM365_INT_EMAC_RXPULSE);
 	davinci_cfg_reg(DM365_INT_EMAC_TXPULSE);
@@ -275,6 +294,11 @@ static void dm365evm_emac_configure(void)
 
 static void dm365evm_mmc_configure(void)
 {
+	/*
+	 * MMC/SD pins are multiplexed with GPIO and EMIF
+	 * Further details are available at the DM365 ARM
+	 * Subsystem Users Guide(sprufg5.pdf) pages 118, 128 - 131
+	 */
 	davinci_cfg_reg(DM365_SD1_CLK);
 	davinci_cfg_reg(DM365_SD1_CMD);
 	davinci_cfg_reg(DM365_SD1_DATA3);
@@ -290,6 +314,7 @@ static struct tvp514x_platform_data tvp5146_pdata = {
 };
 
 #define TVP514X_STD_ALL        (V4L2_STD_NTSC | V4L2_STD_PAL)
+/* Inputs available at the TVP5146 */
 static struct v4l2_input tvp5146_inputs[] = {
 	{
 		.index = 0,
@@ -305,6 +330,11 @@ static struct v4l2_input tvp5146_inputs[] = {
 	},
 };
 
+/*
+ * this is the route info for connecting each input to decoder
+ * ouput that goes to vpfe. There is a one to one correspondence
+ * with tvp5146_inputs
+ */
 static struct vpfe_route tvp5146_routes[] = {
 	{
 		.input = INPUT_CVBS_VI2B,
@@ -409,7 +439,7 @@ static int __init cpld_leds_init(void)
 	if (!have_leds() ||  !cpld)
 		return 0;
 
-	
+	/* setup LEDs */
 	__raw_writeb(0xff, cpld + CPLD_LEDS);
 	for (i = 0; i < ARRAY_SIZE(cpld_leds); i++) {
 		struct cpld_led *led;
@@ -432,6 +462,7 @@ static int __init cpld_leds_init(void)
 
 	return 0;
 }
+/* run after subsys_initcall() for LEDs */
 fs_initcall(cpld_leds_init);
 
 
@@ -441,6 +472,9 @@ static void __init evm_init_cpld(void)
 	const char *label;
 	struct clk *aemif_clk;
 
+	/* Make sure we can configure the CPLD through CS1.  Then
+	 * leave it on for later access to MMC and LED registers.
+	 */
 	aemif_clk = clk_get(NULL, "aemif");
 	if (IS_ERR(aemif_clk))
 		return;
@@ -459,41 +493,51 @@ fail:
 		return;
 	}
 
-	
+	/* External muxing for some signals */
 	mux = 0;
 
+	/* Read SW5 to set up NAND + keypad _or_ OneNAND (sync read).
+	 * NOTE:  SW4 bus width setting must match!
+	 */
 	if ((__raw_readb(cpld + CPLD_SWITCH) & BIT(5)) == 0) {
-		
+		/* external keypad mux */
 		mux |= BIT(7);
 
 		platform_add_devices(dm365_evm_nand_devices,
 				ARRAY_SIZE(dm365_evm_nand_devices));
 	} else {
-		
+		/* no OneNAND support yet */
 	}
 
-	
+	/* Leave external chips in reset when unused. */
 	resets = BIT(3) | BIT(2) | BIT(1) | BIT(0);
 
+	/* Static video input config with SN74CBT16214 1-of-3 mux:
+	 *  - port b1 == tvp7002 (mux lowbits == 1 or 6)
+	 *  - port b2 == imager (mux lowbits == 2 or 7)
+	 *  - port b3 == tvp5146 (mux lowbits == 5)
+	 *
+	 * Runtime switching could work too, with limitations.
+	 */
 	if (have_imager()) {
 		label = "HD imager";
 		mux |= 2;
 
-		
+		/* externally mux MMC1/ENET/AIC33 to imager */
 		mux |= BIT(6) | BIT(5) | BIT(3);
 	} else {
 		struct davinci_soc_info *soc_info = &davinci_soc_info;
 
-		
+		/* we can use MMC1 ... */
 		dm365evm_mmc_configure();
 		davinci_setup_mmc(1, &dm365evm_mmc_config);
 
-		
+		/* ... and ENET ... */
 		dm365evm_emac_configure();
 		soc_info->emac_pdata->phy_id = DM365_EVM_PHY_ID;
 		resets &= ~BIT(3);
 
-		
+		/* ... and AIC33 */
 		resets &= ~BIT(1);
 
 		if (have_tvp7002()) {
@@ -501,7 +545,7 @@ fail:
 			resets &= ~BIT(2);
 			label = "tvp7002 HD";
 		} else {
-			
+			/* default to tvp5146 */
 			mux |= 5;
 			resets &= ~BIT(0);
 			label = "tvp5146 SD";
@@ -511,7 +555,7 @@ fail:
 	__raw_writeb(resets, cpld + CPLD_RESETS);
 	pr_info("EVM: %s video input\n", label);
 
-	
+	/* REVISIT export switches: NTSC/PAL (SW5.6), EXTRA1 (SW5.2), etc */
 }
 
 static struct davinci_uart_config uart_config __initdata = {
@@ -520,7 +564,7 @@ static struct davinci_uart_config uart_config __initdata = {
 
 static void __init dm365_evm_map_io(void)
 {
-	
+	/* setup input configuration for VPFE input devices */
 	dm365_set_vpfe_config(&vpfe_cfg);
 	dm365_init();
 }
@@ -553,7 +597,7 @@ static __init void dm365_evm_init(void)
 
 	davinci_setup_mmc(0, &dm365evm_mmc_config);
 
-	
+	/* maybe setup mmc1/etc ... _after_ mmc0 */
 	evm_init_cpld();
 
 #ifdef CONFIG_SND_DM365_AIC3X_CODEC

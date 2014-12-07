@@ -32,20 +32,26 @@ static int pci_fire_pbm_iommu_init(struct pci_pbm_info *pbm)
 	u64 control;
 	int tsbsize, err;
 
-	
-	vdma[0] = 0xc0000000; 
-	vdma[1] = 0x40000000; 
+	/* No virtual-dma property on these guys, use largest size.  */
+	vdma[0] = 0xc0000000; /* base */
+	vdma[1] = 0x40000000; /* size */
 	dma_mask = 0xffffffff;
 	tsbsize = 128;
 
-	
+	/* Register addresses. */
 	iommu->iommu_control  = pbm->pbm_regs + FIRE_IOMMU_CONTROL;
 	iommu->iommu_tsbbase  = pbm->pbm_regs + FIRE_IOMMU_TSBBASE;
 	iommu->iommu_flush    = pbm->pbm_regs + FIRE_IOMMU_FLUSH;
 	iommu->iommu_flushinv = pbm->pbm_regs + FIRE_IOMMU_FLUSHINV;
 
+	/* We use the main control/status register of FIRE as the write
+	 * completion register.
+	 */
 	iommu->write_complete_reg = pbm->controller_regs + 0x410000UL;
 
+	/*
+	 * Invalidate TLB Entries.
+	 */
 	upa_writeq(~(u64)0, iommu->iommu_flushinv);
 
 	err = iommu_table_init(iommu, tsbsize * 8 * 1024, vdma[0], dma_mask,
@@ -56,10 +62,10 @@ static int pci_fire_pbm_iommu_init(struct pci_pbm_info *pbm)
 	upa_writeq(__pa(iommu->page_table) | 0x7UL, iommu->iommu_tsbbase);
 
 	control = upa_readq(iommu->iommu_control);
-	control |= (0x00000400 	|
-		    0x00000300 			|
-		    0x00000002 		|
-		    0x00000001 );
+	control |= (0x00000400 /* TSB cache snoop enable */	|
+		    0x00000300 /* Cache mode */			|
+		    0x00000002 /* Bypass enable */		|
+		    0x00000001 /* Translation enable */);
 	upa_writeq(control, iommu->iommu_control);
 
 	return 0;
@@ -93,6 +99,7 @@ struct pci_msiq_entry {
 	u64		resv[6];
 };
 
+/* All MSI registers are offset from pbm->pbm_regs */
 #define EVENT_QUEUE_BASE_ADDR_REG	0x010000UL
 #define  EVENT_QUEUE_BASE_ADDR_ALL_ONES	0xfffc000000000000UL
 
@@ -169,10 +176,10 @@ static int pci_fire_dequeue_msi(struct pci_pbm_info *pbm, unsigned long msiqid,
 
 	upa_writeq(MSI_CLEAR_EQWR_N, pbm->pbm_regs + MSI_CLEAR(msi_num));
 
-	
+	/* Clear the entry.  */
 	ep->word0 &= ~MSIQ_WORD0_FMT_TYPE;
 
-	
+	/* Go to next entry in ring.  */
 	(*head)++;
 	if (*head >= pbm->msiq_ent_count)
 		*head = 0;
@@ -276,7 +283,7 @@ static int pci_fire_msiq_build_irq(struct pci_pbm_info *pbm,
 	imap_reg = cregs + (0x001000UL + (devino * 0x08UL));
 	iclr_reg = cregs + (0x001400UL + (devino * 0x08UL));
 
-	
+	/* XXX iterate amongst the 4 IRQ controllers XXX */
 	int_ctrlr = (1UL << 6);
 
 	val = upa_readq(imap_reg);
@@ -310,12 +317,13 @@ static void pci_fire_msi_init(struct pci_pbm_info *pbm)
 {
 	sparc64_pbm_msi_init(pbm, &pci_fire_msiq_ops);
 }
-#else 
+#else /* CONFIG_PCI_MSI */
 static void pci_fire_msi_init(struct pci_pbm_info *pbm)
 {
 }
-#endif 
+#endif /* !(CONFIG_PCI_MSI) */
 
+/* Based at pbm->controller_regs */
 #define FIRE_PARITY_CONTROL	0x470010UL
 #define  FIRE_PARITY_ENAB	0x8000000000000000UL
 #define FIRE_FATAL_RESET_CTL	0x471028UL
@@ -329,6 +337,7 @@ static void pci_fire_msi_init(struct pci_pbm_info *pbm)
 #define  FIRE_FATAL_RESET_JR	0x0000000000000001UL
 #define FIRE_CORE_INTR_ENABLE	0x471800UL
 
+/* Based at pbm->pbm_regs */
 #define FIRE_TLU_CTRL		0x80000UL
 #define  FIRE_TLU_CTRL_TIM	0x00000000da000000UL
 #define  FIRE_TLU_CTRL_QDET	0x0000000000000100UL
@@ -437,7 +446,7 @@ static int __devinit pci_fire_pbm_init(struct pci_pbm_info *pbm,
 
 	pbm->pci_bus = pci_scan_one_pbm(pbm, &op->dev);
 
-	
+	/* XXX register error interrupt handlers XXX */
 
 	pbm->next = pci_pbm_root;
 	pci_pbm_root = pbm;

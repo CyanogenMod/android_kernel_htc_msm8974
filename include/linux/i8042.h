@@ -9,6 +9,9 @@
 
 #include <linux/types.h>
 
+/*
+ * Standard commands.
+ */
 
 #define I8042_CMD_CTL_RCTR	0x0120
 #define I8042_CMD_CTL_WCTR	0x1060

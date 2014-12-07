@@ -89,6 +89,8 @@ static int rfkill_gpio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+	/* make sure at-least one of the GPIO is defined and that
+	 * a name is specified for this instance */
 	if (!pdata->name || (!gpio_is_valid(pdata->reset_gpio) &&
 		!gpio_is_valid(pdata->shutdown_gpio))) {
 		pr_warn("%s: invalid platform data\n", __func__);

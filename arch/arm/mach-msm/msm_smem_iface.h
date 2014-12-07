@@ -22,36 +22,37 @@
 #define MAX_SEC_KEY_PAYLOAD 32
 
 struct boot_shared_ssd_status_info {
-	uint32_t update_status;  
-	uint32_t bl_error_code;  
+	uint32_t update_status;  /* To check if process is successful or not */
+	uint32_t bl_error_code;  /* To indicate error code in bootloader */
 };
 
 struct boot_symmetric_key_info {
-	uint32_t key_len; 
-	uint32_t iv_len;  
-	uint8_t  key[MAX_SEC_KEY_PAYLOAD]; 
-	uint8_t  iv[MAX_SEC_KEY_PAYLOAD]; 
+	uint32_t key_len; /* Encrypted Symmetric Key Length */
+	uint32_t iv_len;  /* Initialization Vector Length */
+	uint8_t  key[MAX_SEC_KEY_PAYLOAD]; /* Encrypted Symmetric Key */
+	uint8_t  iv[MAX_SEC_KEY_PAYLOAD]; /* Initialization Vector */
 };
 
+/* floor_fuse to re-use the fuse bit earlier used by ring_osc */
 struct cpr_info_type {
-	uint8_t ring_osc;   
-	uint8_t turbo_quot; 
-	uint8_t pvs_fuse;   
-	uint8_t floor_fuse; 
+	uint8_t ring_osc;   /* CPR FUSE [0]: TURBO RO SEL BIT */
+	uint8_t turbo_quot; /* CPRFUSE[1:7] : TURBO QUOT*/
+	uint8_t pvs_fuse;   /* TURBO PVS FUSE */
+	uint8_t floor_fuse; /* Vmin Selection. b1: FAB_ID(2), b0: CPR_fuse[0] */
 	bool    disable_cpr;
 };
 
 struct boot_info_for_apps {
-	uint32_t apps_image_start_addr; 
-	uint32_t boot_flags; 
-	struct boot_shared_ssd_status_info ssd_status_info; 
+	uint32_t apps_image_start_addr; /* apps image start address */
+	uint32_t boot_flags; /* bit mask of upto 32 flags */
+	struct boot_shared_ssd_status_info ssd_status_info; /* SSD status */
 	struct boot_symmetric_key_info key_info;
-	uint16_t boot_keys_pressed[MAX_KEY_EVENTS]; 
-	uint32_t timetick; 
+	uint16_t boot_keys_pressed[MAX_KEY_EVENTS]; /* Log of key presses */
+	uint32_t timetick; /* Modem tick timer value before apps out of reset */
 	struct cpr_info_type cpr_info;
 	uint8_t PAD[23];
 };
 
 void msm_smem_get_cpr_info(struct cpr_info_type *cpr_info);
 
-#endif 
+#endif /* __ARCH_ARM_MACH_MSM_SMEM_IFACE_H */

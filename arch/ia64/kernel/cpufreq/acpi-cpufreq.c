@@ -79,6 +79,7 @@ processor_get_pstate (
 }
 
 
+/* To be used only after data->acpi_data is initialized */
 static unsigned
 extract_clock (
 	struct cpufreq_acpi_io *data,
@@ -114,7 +115,7 @@ processor_get_freq (
 	if (smp_processor_id() != cpu)
 		goto migrate_end;
 
-	
+	/* processor_get_pstate gets the instantaneous frequency */
 	ret = processor_get_pstate(&value);
 
 	if (ret) {
@@ -168,14 +169,18 @@ processor_set_freq (
 	pr_debug("Transitioning from P%d to P%d\n",
 		data->acpi_data.state, state);
 
-	
+	/* cpufreq frequency struct */
 	cpufreq_freqs.cpu = cpu;
 	cpufreq_freqs.old = data->freq_table[data->acpi_data.state].frequency;
 	cpufreq_freqs.new = data->freq_table[state].frequency;
 
-	
+	/* notify cpufreq */
 	cpufreq_notify_transition(&cpufreq_freqs, CPUFREQ_PRECHANGE);
 
+	/*
+	 * First we write the target state's 'control' value to the
+	 * control_register.
+	 */
 
 	value = (u32) data->acpi_data.states[state].control;
 
@@ -279,7 +284,7 @@ acpi_cpufreq_cpu_init (
 	if (result)
 		goto err_free;
 
-	
+	/* capability check */
 	if (data->acpi_data.state_count <= 1) {
 		pr_debug("No P-States\n");
 		result = -ENODEV;
@@ -297,7 +302,7 @@ acpi_cpufreq_cpu_init (
 		goto err_unreg;
 	}
 
-	
+	/* alloc freq_table */
 	data->freq_table = kmalloc(sizeof(struct cpufreq_frequency_table) *
 	                           (data->acpi_data.state_count + 1),
 	                           GFP_KERNEL);
@@ -306,7 +311,7 @@ acpi_cpufreq_cpu_init (
 		goto err_unreg;
 	}
 
-	
+	/* detect transition latency */
 	policy->cpuinfo.transition_latency = 0;
 	for (i=0; i<data->acpi_data.state_count; i++) {
 		if ((data->acpi_data.states[i].transition_latency * 1000) >
@@ -317,7 +322,7 @@ acpi_cpufreq_cpu_init (
 	}
 	policy->cur = processor_get_freq(data, policy->cpu);
 
-	
+	/* table init */
 	for (i = 0; i <= data->acpi_data.state_count; i++)
 	{
 		data->freq_table[i].index = i;
@@ -334,7 +339,7 @@ acpi_cpufreq_cpu_init (
 		goto err_freqfree;
 	}
 
-	
+	/* notify BIOS that we exist */
 	acpi_processor_notify_smm(THIS_MODULE);
 
 	printk(KERN_INFO "acpi-cpufreq: CPU%u - ACPI performance management "
@@ -352,6 +357,8 @@ acpi_cpufreq_cpu_init (
 
 	cpufreq_frequency_table_get_attr(data->freq_table, policy->cpu);
 
+	/* the first call to ->target() should result in us actually
+	 * writing something to the appropriate registers. */
 	data->resume = 1;
 
 	return (result);

@@ -40,8 +40,10 @@ static u8 twl4030_start_script_address = 0x2b;
 #define PHY_TO_OFF_PM_MASTER(p)		(p - 0x36)
 #define PHY_TO_OFF_PM_RECEIVER(p)	(p - 0x5b)
 
+/* resource - hfclk */
 #define R_HFCLKOUT_DEV_GRP 	PHY_TO_OFF_PM_RECEIVER(0xe6)
 
+/* PM events */
 #define R_P1_SW_EVENTS		PHY_TO_OFF_PM_MASTER(0x46)
 #define R_P2_SW_EVENTS		PHY_TO_OFF_PM_MASTER(0x47)
 #define R_P3_SW_EVENTS		PHY_TO_OFF_PM_MASTER(0x48)
@@ -62,20 +64,30 @@ static u8 twl4030_start_script_address = 0x2b;
 #define R_MEMORY_ADDRESS	PHY_TO_OFF_PM_MASTER(0x59)
 #define R_MEMORY_DATA		PHY_TO_OFF_PM_MASTER(0x5a)
 
+/* resource configuration registers
+   <RESOURCE>_DEV_GRP   at address 'n+0'
+   <RESOURCE>_TYPE      at address 'n+1'
+   <RESOURCE>_REMAP     at address 'n+2'
+   <RESOURCE>_DEDICATED at address 'n+3'
+*/
 #define DEV_GRP_OFFSET		0
 #define TYPE_OFFSET		1
 #define REMAP_OFFSET		2
 #define DEDICATED_OFFSET	3
 
+/* Bit positions in the registers */
 
+/* <RESOURCE>_DEV_GRP */
 #define DEV_GRP_SHIFT		5
 #define DEV_GRP_MASK		(7 << DEV_GRP_SHIFT)
 
+/* <RESOURCE>_TYPE */
 #define TYPE_SHIFT		0
 #define TYPE_MASK		(7 << TYPE_SHIFT)
 #define TYPE2_SHIFT		3
 #define TYPE2_MASK		(3 << TYPE2_SHIFT)
 
+/* <RESOURCE>_REMAP */
 #define SLEEP_STATE_SHIFT	0
 #define SLEEP_STATE_MASK	(0xf << SLEEP_STATE_SHIFT)
 #define OFF_STATE_SHIFT		4
@@ -176,13 +188,13 @@ static int __devinit twl4030_config_wakeup3_sequence(u8 address)
 	int err;
 	u8 data;
 
-	
+	/* Set SLEEP to ACTIVE SEQ address for P3 */
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, address,
 				R_SEQ_ADD_S2A3);
 	if (err)
 		goto out;
 
-	
+	/* P3 LVL_WAKEUP should be on LEVEL */
 	err = twl_i2c_read_u8(TWL4030_MODULE_PM_MASTER, &data,
 				R_P3_SW_EVENTS);
 	if (err)
@@ -201,13 +213,13 @@ static int __devinit twl4030_config_wakeup12_sequence(u8 address)
 	int err = 0;
 	u8 data;
 
-	
+	/* Set SLEEP to ACTIVE SEQ address for P1 and P2 */
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, address,
 				R_SEQ_ADD_S2A12);
 	if (err)
 		goto out;
 
-	
+	/* P1/P2 LVL_WAKEUP should be on LEVEL */
 	err = twl_i2c_read_u8(TWL4030_MODULE_PM_MASTER, &data,
 				R_P1_SW_EVENTS);
 	if (err)
@@ -231,7 +243,7 @@ static int __devinit twl4030_config_wakeup12_sequence(u8 address)
 		goto out;
 
 	if (machine_is_omap_3430sdp() || machine_is_omap_ldp()) {
-		
+		/* Disabling AC charger effect on sleep-active transitions */
 		err = twl_i2c_read_u8(TWL4030_MODULE_PM_MASTER, &data,
 					R_CFG_P1_TRANSITION);
 		if (err)
@@ -254,7 +266,7 @@ static int __devinit twl4030_config_sleep_sequence(u8 address)
 {
 	int err;
 
-	
+	/* Set ACTIVE to SLEEP SEQ address in T2 memory*/
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, address,
 				R_SEQ_ADD_A2S);
 
@@ -269,13 +281,13 @@ static int __devinit twl4030_config_warmreset_sequence(u8 address)
 	int err;
 	u8 rd_data;
 
-	
+	/* Set WARM RESET SEQ address for P1 */
 	err = twl_i2c_write_u8(TWL4030_MODULE_PM_MASTER, address,
 				R_SEQ_ADD_WARM);
 	if (err)
 		goto out;
 
-	
+	/* P1/P2/P3 enable WARMRESET */
 	err = twl_i2c_read_u8(TWL4030_MODULE_PM_MASTER, &rd_data,
 				R_P1_SW_EVENTS);
 	if (err)
@@ -328,7 +340,7 @@ static int __devinit twl4030_configure_resource(struct twl4030_resconfig *rconfi
 
 	rconfig_addr = res_config_addrs[rconfig->resource];
 
-	
+	/* Set resource group */
 	err = twl_i2c_read_u8(TWL4030_MODULE_PM_RECEIVER, &grp,
 			      rconfig_addr + DEV_GRP_OFFSET);
 	if (err) {
@@ -348,7 +360,7 @@ static int __devinit twl4030_configure_resource(struct twl4030_resconfig *rconfi
 		}
 	}
 
-	
+	/* Set resource types */
 	err = twl_i2c_read_u8(TWL4030_MODULE_PM_RECEIVER, &type,
 				rconfig_addr + TYPE_OFFSET);
 	if (err < 0) {
@@ -374,7 +386,7 @@ static int __devinit twl4030_configure_resource(struct twl4030_resconfig *rconfi
 		return err;
 	}
 
-	
+	/* Set remap states */
 	err = twl_i2c_read_u8(TWL4030_MODULE_PM_RECEIVER, &remap,
 			      rconfig_addr + REMAP_OFFSET);
 	if (err < 0) {
@@ -410,7 +422,7 @@ static int __devinit load_twl4030_script(struct twl4030_script *tscript,
 	int err;
 	static int order;
 
-	
+	/* Make sure the script isn't going beyond last valid address (0x3f) */
 	if ((address + tscript->size) > END_OF_SCRIPT) {
 		pr_err("TWL4030 scripts too big error\n");
 		return -EINVAL;
@@ -500,6 +512,11 @@ int twl4030_remove_script(u8 flags)
 	return err;
 }
 
+/*
+ * In master mode, start the power off sequence.
+ * After a successful execution, TWL shuts down the power to the SoC
+ * and all peripherals connected to it.
+ */
 void twl4030_power_off(void)
 {
 	int err;
@@ -547,9 +564,9 @@ void __devinit twl4030_power_init(struct twl4030_power_data *twl4030_scripts)
 		}
 	}
 
-	
+	/* Board has to be wired properly to use this feature */
 	if (twl4030_scripts->use_poweroff && !pm_power_off) {
-		
+		/* Default for SEQ_OFFSYNC is set, lets ensure this */
 		err = twl_i2c_read_u8(TWL4030_MODULE_PM_MASTER, &val,
 				      TWL4030_PM_MASTER_CFG_P123_TRANSITION);
 		if (err) {

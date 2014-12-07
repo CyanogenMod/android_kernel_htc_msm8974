@@ -91,7 +91,7 @@ struct kvmppc_vcpu_book3s {
 #endif
 	int context_id[SID_CONTEXTS];
 
-	bool hior_explicit;		
+	bool hior_explicit;		/* HIOR is set by ioctl, not PVR */
 
 	struct hlist_head hpte_hash_pte[HPTEG_HASH_NUM_PTE];
 	struct hlist_head hpte_hash_pte_long[HPTEG_HASH_NUM_PTE_LONG];
@@ -178,6 +178,7 @@ static inline struct kvmppc_vcpu_book3s *to_book3s(struct kvm_vcpu *vcpu)
 
 extern void kvm_return_point(void);
 
+/* Also add subarch specific defines */
 
 #ifdef CONFIG_KVM_BOOK3S_32_HANDLER
 #include <asm/kvm_book3s_32.h>
@@ -312,6 +313,8 @@ static inline u32 kvmppc_get_last_inst(struct kvm_vcpu *vcpu)
 	struct kvmppc_book3s_shadow_vcpu *svcpu = svcpu_get(vcpu);
 	u32 r;
 
+	/* Load the instruction manually if it failed to do so in the
+	 * exit path */
 	if (svcpu->last_inst == KVM_INST_FETCH_FAILED)
 		kvmppc_ld(vcpu, &pc, sizeof(u32), &svcpu->last_inst, false);
 
@@ -335,20 +338,20 @@ static inline bool kvmppc_critical_section(struct kvm_vcpu *vcpu)
 	ulong crit_r1 = kvmppc_get_gpr(vcpu, 1);
 	bool crit;
 
-	
+	/* Truncate crit indicators in 32 bit mode */
 	if (!(vcpu->arch.shared->msr & MSR_SF)) {
 		crit_raw &= 0xffffffff;
 		crit_r1 &= 0xffffffff;
 	}
 
-	
+	/* Critical section when crit == r1 */
 	crit = (crit_raw == crit_r1);
-	
+	/* ... and we're in supervisor mode */
 	crit = crit && !(vcpu->arch.shared->msr & MSR_PR);
 
 	return crit;
 }
-#else 
+#else /* CONFIG_KVM_BOOK3S_PR */
 
 static inline unsigned long kvmppc_interrupt_offset(struct kvm_vcpu *vcpu)
 {
@@ -424,6 +427,8 @@ static inline u32 kvmppc_get_last_inst(struct kvm_vcpu *vcpu)
 {
 	ulong pc = kvmppc_get_pc(vcpu);
 
+	/* Load the instruction manually if it failed to do so in the
+	 * exit path */
 	if (vcpu->arch.last_inst == KVM_INST_FETCH_FAILED)
 		kvmppc_ld(vcpu, &pc, sizeof(u32), &vcpu->arch.last_inst, false);
 
@@ -441,9 +446,11 @@ static inline bool kvmppc_critical_section(struct kvm_vcpu *vcpu)
 }
 #endif
 
+/* Magic register values loaded into r3 and r4 before the 'sc' assembly
+ * instruction for the OSI hypercalls */
 #define OSI_SC_MAGIC_R3			0x113724FA
 #define OSI_SC_MAGIC_R4			0x77810F9B
 
 #define INS_DCBZ			0x7c0007ec
 
-#endif 
+#endif /* __ASM_KVM_BOOK3S_H__ */

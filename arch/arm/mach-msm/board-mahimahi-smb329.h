@@ -26,7 +26,7 @@ enum {
 
 extern int smb329_set_charger_ctrl(uint32_t ctl);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _LINUX_SMB329_H */
 

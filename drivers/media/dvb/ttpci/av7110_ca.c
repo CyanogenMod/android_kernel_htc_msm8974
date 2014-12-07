@@ -64,7 +64,7 @@ void CI_handle(struct av7110 *av7110, u8 *data, u16 len)
 		}
 		break;
 	case CI_SWITCH_PRG_REPLY:
-		
+		//av7110->ci_stat=data[1];
 		break;
 	default:
 		break;
@@ -84,6 +84,9 @@ void ci_get_data(struct dvb_ringbuffer *cibuf, u8 *data, int len)
 }
 
 
+/******************************************************************************
+ * CI link layer file ops
+ ******************************************************************************/
 
 static int ci_ll_init(struct dvb_ringbuffer *cirbuf, struct dvb_ringbuffer *ciwbuf, int size)
 {

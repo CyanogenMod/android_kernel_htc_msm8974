@@ -41,6 +41,10 @@
 int prom_argc;
 int *_prom_argv, *_prom_envp;
 
+/*
+ * YAMON (32-bit PROM) pass arguments and environment as 32-bit pointer.
+ * This macro take care of sign extension, if running in 64-bit mode.
+ */
 #define prom_envp(index) ((char *)(long)_prom_envp[(index)])
 
 int init_debug;
@@ -48,15 +52,24 @@ int init_debug;
 static int mips_revision_corid;
 int mips_revision_sconid;
 
+/* Bonito64 system controller register base. */
 unsigned long _pcictrl_bonito;
 unsigned long _pcictrl_bonito_pcicfg;
 
+/* GT64120 system controller register base */
 unsigned long _pcictrl_gt64120;
 
+/* MIPS System controller register base */
 unsigned long _pcictrl_msc;
 
 char *prom_getenv(char *envname)
 {
+	/*
+	 * Return a pointer to the given environment variable.
+	 * In 64-bit mode: we're using 64-bit pointers, but all pointers
+	 * in the PROM structures are only 32-bit, so we need some
+	 * workarounds, if we are running in 64-bit mode.
+	 */
 	int i, index=0;
 
 	i = strlen(envname);
@@ -77,7 +90,7 @@ static inline unsigned char str2hexnum(unsigned char c)
 		return c - '0';
 	if (c >= 'a' && c <= 'f')
 		return c - 'a' + 10;
-	return 0; 
+	return 0; /* foo */
 }
 
 static inline void str2eaddr(unsigned char *ea, unsigned char *str)
@@ -186,6 +199,10 @@ void __init prom_init(void)
 
 	mips_display_message("LINUX");
 
+	/*
+	 * early setup of _pcictrl_bonito so that we can determine
+	 * the system controller on a CORE_EMUL board
+	 */
 	_pcictrl_bonito = (unsigned long)ioremap(BONITO_REG_BASE, BONITO_REG_SIZE);
 
 	mips_revision_corid = MIPS_REVISION_CORID;
@@ -215,6 +232,10 @@ void __init prom_init(void)
 		case MIPS_REVISION_CORID_CORE_MSC:
 		case MIPS_REVISION_CORID_CORE_FPGA2:
 		case MIPS_REVISION_CORID_CORE_24K:
+			/*
+			 * SOCit/ROCit support is essentially identical
+			 * but make an attempt to distinguish them
+			 */
 			mips_revision_sconid = MIPS_REVISION_SCON_SOCIT;
 			break;
 		case MIPS_REVISION_CORID_CORE_FPGA3:
@@ -222,7 +243,7 @@ void __init prom_init(void)
 		case MIPS_REVISION_CORID_CORE_FPGA5:
 		case MIPS_REVISION_CORID_CORE_EMUL_MSC:
 		default:
-			
+			/* See above */
 			mips_revision_sconid = MIPS_REVISION_SCON_ROCIT;
 			break;
 		}
@@ -232,6 +253,10 @@ void __init prom_init(void)
 		u32 start, map, mask, data;
 
 	case MIPS_REVISION_SCON_GT64120:
+		/*
+		 * Setup the North bridge to do Master byte-lane swapping
+		 * when running in bigendian.
+		 */
 		_pcictrl_gt64120 = (unsigned long)ioremap(MIPS_GT_BASE, 0x2000);
 
 #ifdef CONFIG_CPU_LITTLE_ENDIAN
@@ -240,7 +265,7 @@ void __init prom_init(void)
 #else
 		GT_WRITE(GT_PCI0_CMD_OFS, 0);
 #endif
-		
+		/* Fix up PCI I/O mapping if necessary (for Atlas).  */
 		start = GT_READ(GT_PCI0IOLD_OFS);
 		map = GT_READ(GT_PCI0IOREMAP_OFS);
 		if ((start & map) != 0) {
@@ -254,10 +279,17 @@ void __init prom_init(void)
 	case MIPS_REVISION_SCON_BONITO:
 		_pcictrl_bonito_pcicfg = (unsigned long)ioremap(BONITO_PCICFG_BASE, BONITO_PCICFG_SIZE);
 
+		/*
+		 * Disable Bonito IOBC.
+		 */
 		BONITO_PCIMEMBASECFG = BONITO_PCIMEMBASECFG &
 			~(BONITO_PCIMEMBASECFG_MEMBASE0_CACHED |
 			  BONITO_PCIMEMBASECFG_MEMBASE1_CACHED);
 
+		/*
+		 * Setup the North bridge to do Master byte-lane swapping
+		 * when running in bigendian.
+		 */
 #ifdef CONFIG_CPU_LITTLE_ENDIAN
 		BONITO_BONGENCFG = BONITO_BONGENCFG &
 			~(BONITO_BONGENCFG_MSTRBYTESWAP |
@@ -280,7 +312,7 @@ void __init prom_init(void)
 		MSC_WRITE(MSC01_PCI_CFG, data & ~MSC01_PCI_CFG_EN_BIT);
 		wmb();
 
-		
+		/* Fix up lane swapping.  */
 #ifdef CONFIG_CPU_LITTLE_ENDIAN
 		MSC_WRITE(MSC01_PCI_SWAP, MSC01_PCI_SWAP_NOSWAP);
 #else
@@ -289,11 +321,11 @@ void __init prom_init(void)
 			  MSC01_PCI_SWAP_BYTESWAP << MSC01_PCI_SWAP_MEM_SHF |
 			  MSC01_PCI_SWAP_BYTESWAP << MSC01_PCI_SWAP_BAR0_SHF);
 #endif
-		
+		/* Fix up target memory mapping.  */
 		MSC_READ(MSC01_PCI_BAR0, mask);
 		MSC_WRITE(MSC01_PCI_P2SCMSKL, mask & MSC01_PCI_BAR0_SIZE_MSK);
 
-		
+		/* Don't handle target retries indefinitely.  */
 		if ((data & MSC01_PCI_CFG_MAXRTRY_MSK) ==
 		    MSC01_PCI_CFG_MAXRTRY_MSK)
 			data = (data & ~(MSC01_PCI_CFG_MAXRTRY_MSK <<
@@ -314,9 +346,9 @@ void __init prom_init(void)
 		goto mips_pci_controller;
 
 	default:
-		
+		/* Unknown system controller */
 		mips_display_message("SC Error");
-		while (1);   
+		while (1);   /* We die here... */
 	}
 	board_nmi_handler_setup = mips_nmi_setup;
 	board_ejtag_handler_setup = mips_ejtag_setup;
@@ -326,7 +358,7 @@ void __init prom_init(void)
 #ifdef CONFIG_SERIAL_8250_CONSOLE
 	console_config();
 #endif
-	
+	/* Early detection of CMP support */
 	if (gcmp_probe(GCMP_BASE_ADDR, GCMP_ADDRSPACE_SZ))
 		if (!register_cmp_smp_ops())
 			return;

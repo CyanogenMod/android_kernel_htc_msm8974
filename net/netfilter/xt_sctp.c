@@ -110,7 +110,7 @@ match_packet(const struct sk_buff *skb,
 		return true;
 	}
 
-	
+	/* This will never be reached, but required to stop compiler whine */
 	return false;
 }
 

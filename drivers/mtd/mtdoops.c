@@ -33,6 +33,7 @@
 #include <linux/mtd/mtd.h>
 #include <linux/kmsg_dump.h>
 
+/* Maximum MTD partition size */
 #define MTDOOPS_MAX_MTD_SIZE (8 * 1024 * 1024)
 
 #define MTDOOPS_KERNMSG_MAGIC 0x5d005d00
@@ -121,10 +122,10 @@ static int mtdoops_erase_block(struct mtdoops_context *cxt, int offset)
 		return ret;
 	}
 
-	schedule();  
+	schedule();  /* Wait for erase to finish. */
 	remove_wait_queue(&wait_q, &wait);
 
-	
+	/* Mark pages as unused */
 	for (page = start_page; page < start_page + erase_pages; page++)
 		mark_page_unused(cxt, page);
 
@@ -149,6 +150,7 @@ static void mtdoops_inc_counter(struct mtdoops_context *cxt)
 	       cxt->nextpage, cxt->nextcount);
 }
 
+/* Scheduled work - when we can't proceed without erasing a block */
 static void mtdoops_workfunc_erase(struct work_struct *work)
 {
 	struct mtdoops_context *cxt =
@@ -156,7 +158,7 @@ static void mtdoops_workfunc_erase(struct work_struct *work)
 	struct mtd_info *mtd = cxt->mtd;
 	int i = 0, j, ret, mod;
 
-	
+	/* We were unregistered */
 	if (!mtd)
 		return;
 
@@ -214,7 +216,7 @@ static void mtdoops_write(struct mtdoops_context *cxt, int panic)
 	u32 *hdr;
 	int ret;
 
-	
+	/* Add mtdoops header to the buffer */
 	hdr = cxt->oops_buf;
 	hdr[0] = cxt->nextcount;
 	hdr[1] = MTDOOPS_KERNMSG_MAGIC;
@@ -257,7 +259,7 @@ static void find_next_position(struct mtdoops_context *cxt)
 	for (page = 0; page < cxt->oops_pages; page++) {
 		if (mtd_block_isbad(mtd, page * record_size))
 			continue;
-		
+		/* Assume the page is used */
 		mark_page_used(cxt, page);
 		ret = mtd_read(mtd, page * record_size, MTDOOPS_HEADER_SIZE,
 			       &retlen, (u_char *)&count[0]);
@@ -315,11 +317,11 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 	    reason != KMSG_DUMP_PANIC)
 		return;
 
-	
+	/* Only dump oopses if dump_oops is set */
 	if (reason == KMSG_DUMP_OOPS && !dump_oops)
 		return;
 
-	dst = cxt->oops_buf + MTDOOPS_HEADER_SIZE; 
+	dst = cxt->oops_buf + MTDOOPS_HEADER_SIZE; /* Skip the header */
 	l2_cpy = min(l2, record_size - MTDOOPS_HEADER_SIZE);
 	l1_cpy = min(l1, record_size - MTDOOPS_HEADER_SIZE - l2_cpy);
 
@@ -333,7 +335,7 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 	if (reason != KMSG_DUMP_OOPS)
 		mtdoops_write(cxt, 1);
 
-	
+	/* For other cases, schedule work to write it "nicely" */
 	schedule_work(&cxt->work_write);
 }
 
@@ -365,7 +367,7 @@ static void mtdoops_notify_add(struct mtd_info *mtd)
 		return;
 	}
 
-	
+	/* oops_page_used is a bit field */
 	cxt->oops_page_used = vmalloc(DIV_ROUND_UP(mtdoops_pages,
 			BITS_PER_LONG) * sizeof(unsigned long));
 	if (!cxt->oops_page_used) {
@@ -428,7 +430,7 @@ static int __init mtdoops_init(void)
 		return -EINVAL;
 	}
 
-	
+	/* Setup the MTD device to use */
 	cxt->mtd_index = -1;
 	mtd_index = simple_strtoul(mtddev, &endp, 0);
 	if (*endp == '\0')

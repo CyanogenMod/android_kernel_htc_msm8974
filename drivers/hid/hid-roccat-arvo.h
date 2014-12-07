@@ -14,8 +14,8 @@
 
 #include <linux/types.h>
 
-struct arvo_mode_key { 
-	uint8_t command; 
+struct arvo_mode_key { /* 2 bytes */
+	uint8_t command; /* ARVO_COMMAND_MODE_KEY */
 	uint8_t state;
 } __packed;
 
@@ -27,13 +27,14 @@ struct arvo_info {
 	uint8_t unknown[8];
 } __packed;
 
-struct arvo_key_mask { 
-	uint8_t command; 
+struct arvo_key_mask { /* 2 bytes */
+	uint8_t command; /* ARVO_COMMAND_KEY_MASK */
 	uint8_t key_mask;
 } __packed;
 
-struct arvo_actual_profile { 
-	uint8_t command; 
+/* selected profile is persistent */
+struct arvo_actual_profile { /* 2 bytes */
+	uint8_t command; /* ARVO_COMMAND_ACTUAL_PROFILE */
 	uint8_t actual_profile;
 } __packed;
 
@@ -46,9 +47,9 @@ enum arvo_commands {
 };
 
 struct arvo_special_report {
-	uint8_t unknown1; 
+	uint8_t unknown1; /* always 0x01 */
 	uint8_t event;
-	uint8_t unknown2; 
+	uint8_t unknown2; /* always 0x70 */
 } __packed;
 
 enum arvo_special_report_events {

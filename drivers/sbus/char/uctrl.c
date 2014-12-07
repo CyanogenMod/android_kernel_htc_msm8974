@@ -55,19 +55,21 @@ struct ts102_regs {
 	u32 ts102_xxx[4];
 };
 
-#define UCTRL_INTR_TXE_REQ         0x01    
-#define UCTRL_INTR_TXNF_REQ        0x02    
-#define UCTRL_INTR_RXNE_REQ        0x04    
-#define UCTRL_INTR_RXO_REQ         0x08    
-#define UCTRL_INTR_TXE_MSK         0x10    
-#define UCTRL_INTR_TXNF_MSK        0x20    
-#define UCTRL_INTR_RXNE_MSK        0x40    
-#define UCTRL_INTR_RXO_MSK         0x80    
+/* Bits for uctrl_intr register */
+#define UCTRL_INTR_TXE_REQ         0x01    /* transmit FIFO empty int req */
+#define UCTRL_INTR_TXNF_REQ        0x02    /* transmit FIFO not full int req */
+#define UCTRL_INTR_RXNE_REQ        0x04    /* receive FIFO not empty int req */
+#define UCTRL_INTR_RXO_REQ         0x08    /* receive FIFO overflow int req */
+#define UCTRL_INTR_TXE_MSK         0x10    /* transmit FIFO empty mask */
+#define UCTRL_INTR_TXNF_MSK        0x20    /* transmit FIFO not full mask */
+#define UCTRL_INTR_RXNE_MSK        0x40    /* receive FIFO not empty mask */
+#define UCTRL_INTR_RXO_MSK         0x80    /* receive FIFO overflow mask */
 
-#define UCTRL_STAT_TXE_STA         0x01    
-#define UCTRL_STAT_TXNF_STA        0x02    
-#define UCTRL_STAT_RXNE_STA        0x04    
-#define UCTRL_STAT_RXO_STA         0x08    
+/* Bits for uctrl_stat register */
+#define UCTRL_STAT_TXE_STA         0x01    /* transmit FIFO empty status */
+#define UCTRL_STAT_TXNF_STA        0x02    /* transmit FIFO not full status */
+#define UCTRL_STAT_RXNE_STA        0x04    /* receive FIFO not empty status */
+#define UCTRL_STAT_RXO_STA         0x08    /* receive FIFO overflow status */
 
 static DEFINE_MUTEX(uctrl_mutex);
 static const char *uctrl_extstatus[16] = {
@@ -84,6 +86,7 @@ static const char *uctrl_extstatus[16] = {
         "external battery currently discharging",
 };
 
+/* Everything required for one transaction with the uctrl */
 struct uctrl_txn {
 	u8 opcode;
 	u8 inbits;
@@ -93,20 +96,20 @@ struct uctrl_txn {
 };
 
 struct uctrl_status {
-	u8 current_temp; 
-	u8 reset_status; 
-	u16 event_status; 
-	u16 error_status; 
-	u16 external_status; 
-	u8 internal_charge; 
-	u8 external_charge; 
-	u16 control_lcd; 
-	u8 control_bitport; 
-	u8 speaker_volume; 
-	u8 control_tft_brightness; 
-	u8 control_kbd_repeat_delay; 
-	u8 control_kbd_repeat_period; 
-	u8 control_screen_contrast; 
+	u8 current_temp; /* 0x07 */
+	u8 reset_status; /* 0x0b */
+	u16 event_status; /* 0x0c */
+	u16 error_status; /* 0x10 */
+	u16 external_status; /* 0x11, 0x1b */
+	u8 internal_charge; /* 0x18 */
+	u8 external_charge; /* 0x19 */
+	u16 control_lcd; /* 0x20 */
+	u8 control_bitport; /* 0x21 */
+	u8 speaker_volume; /* 0x23 */
+	u8 control_tft_brightness; /* 0x24 */
+	u8 control_kbd_repeat_delay; /* 0x28 */
+	u8 control_kbd_repeat_period; /* 0x29 */
+	u8 control_screen_contrast; /* 0x2F */
 };
 
 enum uctrl_opcode {
@@ -232,6 +235,7 @@ static struct miscdevice uctrl_dev = {
 	&uctrl_fops
 };
 
+/* Wait for space to write, then write to it */
 #define WRITEUCTLDATA(value) \
 { \
   unsigned int i; \
@@ -243,6 +247,7 @@ static struct miscdevice uctrl_dev = {
   sbus_writel(value, &driver->regs->uctrl_data); \
 }
 
+/* Wait for something to read, read it, then clear the bit */
 #define READUCTLDATA(value) \
 { \
   unsigned int i; \
@@ -281,7 +286,7 @@ static void uctrl_do_txn(struct uctrl_driver *driver, struct uctrl_txn *txn)
 		bytecnt++;
 	}
 
-	
+	/* Get the ack */
 	READUCTLDATA(byte);
 	dprintk(("ack was %x\n", (byte >> 8)));
 

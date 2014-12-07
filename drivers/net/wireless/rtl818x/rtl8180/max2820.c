@@ -27,7 +27,7 @@
 #include "max2820.h"
 
 static const u32 max2820_chan[] = {
-	12, 
+	12, /* CH 1 */
 	17,
 	22,
 	27,
@@ -40,7 +40,7 @@ static const u32 max2820_chan[] = {
 	62,
 	67,
 	72,
-	84, 
+	84, /* CH 14 */
 };
 
 static void write_max2820(struct ieee80211_hw *dev, u8 addr, u32 data)
@@ -86,7 +86,7 @@ static u8 max2820_rf_calc_rssi(u8 agc, u8 sq)
 	else
 		agc += 66;
 
-	
+	/* TODO: change addends above to avoid mult / div below */
 	return 65 * agc / 100;
 }
 
@@ -100,6 +100,8 @@ static void max2820_rf_set_channel(struct ieee80211_hw *dev,
 	u32 txpw = priv->channels[chan_idx].hw_value & 0xFF;
 	u32 chan = max2820_chan[chan_idx];
 
+	/* While philips SA2400 drive the PA bias from
+	 * sa2400, for MAXIM we do this directly from BB */
 	rtl8180_write_phy(dev, 3, txpw);
 
 	max2820_write_phy_antenna(dev, channel);
@@ -117,28 +119,32 @@ static void max2820_rf_init(struct ieee80211_hw *dev)
 {
 	struct rtl8180_priv *priv = dev->priv;
 
-	
-	write_max2820(dev, 0, 0x007); 
-	write_max2820(dev, 1, 0x01e); 
-	write_max2820(dev, 2, 0x001); 
+	/* MAXIM from netbsd driver */
+	write_max2820(dev, 0, 0x007); /* test mode as indicated in datasheet */
+	write_max2820(dev, 1, 0x01e); /* enable register */
+	write_max2820(dev, 2, 0x001); /* synt register */
 
 	max2820_rf_set_channel(dev, NULL);
 
-	write_max2820(dev, 4, 0x313); 
+	write_max2820(dev, 4, 0x313); /* rx register */
 
+	/* PA is driven directly by the BB, we keep the MAXIM bias
+	 * at the highest value in case that setting it to lower
+	 * values may introduce some further attenuation somewhere..
+	 */
 	write_max2820(dev, 5, 0x00f);
 
-	
-	rtl8180_write_phy(dev, 0, 0x88); 
-	rtl8180_write_phy(dev, 3, 0x08); 
-	rtl8180_write_phy(dev, 4, 0xf8); 
-	rtl8180_write_phy(dev, 5, 0x90); 
-	rtl8180_write_phy(dev, 6, 0x1a); 
-	rtl8180_write_phy(dev, 7, 0x64); 
+	/* baseband configuration */
+	rtl8180_write_phy(dev, 0, 0x88); /* sys1       */
+	rtl8180_write_phy(dev, 3, 0x08); /* txagc      */
+	rtl8180_write_phy(dev, 4, 0xf8); /* lnadet     */
+	rtl8180_write_phy(dev, 5, 0x90); /* ifagcinit  */
+	rtl8180_write_phy(dev, 6, 0x1a); /* ifagclimit */
+	rtl8180_write_phy(dev, 7, 0x64); /* ifagcdet   */
 
 	max2820_write_phy_antenna(dev, 1);
 
-	rtl8180_write_phy(dev, 0x11, 0x88); 
+	rtl8180_write_phy(dev, 0x11, 0x88); /* trl */
 
 	if (rtl818x_ioread8(priv, &priv->map->CONFIG2) &
 	    RTL818X_CONFIG2_ANTENNA_DIV)
@@ -148,8 +154,8 @@ static void max2820_rf_init(struct ieee80211_hw *dev)
 
 	rtl8180_write_phy(dev, 0x13, 0x9b);
 
-	rtl8180_write_phy(dev, 0x19, 0x0);  
-	rtl8180_write_phy(dev, 0x1a, 0x9f); 
+	rtl8180_write_phy(dev, 0x19, 0x0);  /* CHESTLIM */
+	rtl8180_write_phy(dev, 0x1a, 0x9f); /* CHSQLIM  */
 
 	max2820_rf_set_channel(dev, NULL);
 }

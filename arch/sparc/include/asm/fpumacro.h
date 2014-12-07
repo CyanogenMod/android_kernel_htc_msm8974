@@ -30,4 +30,4 @@ static inline void fprs_write(unsigned long val)
 	__asm__ __volatile__("wr %0, 0x0, %%fprs" : : "r" (val));
 }
 
-#endif 
+#endif /* !(_SPARC64_FPUMACRO_H) */

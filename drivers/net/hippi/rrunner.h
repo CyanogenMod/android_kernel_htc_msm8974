@@ -17,6 +17,7 @@ struct rr_regs {
 	u32	Pc;
 	u32	BrkPt;
 
+/* Timer increments every 0.97 micro-seconds (unsigned int) */
 	u32	Timer_Hi;
 	u32	Timer;
 	u32	TimerRef;
@@ -113,6 +114,11 @@ struct rr_regs {
 
 	u32	CmdRing[16];
 
+/* The ULA is in two registers the high order two bytes of the first
+ * word contain the RunCode features.
+ * ula0		res	res	byte0	byte1
+ * ula1		byte2	byte3	byte4	byte5
+ */
 	u32	Ula0;
 	u32	Ula1;
 
@@ -158,6 +164,9 @@ struct rr_regs {
 	u32	Window[512];
 };
 
+/*
+ * Host control register bits.
+ */
 
 #define RR_INT		0x01
 #define RR_CLEAR_INT	0x02
@@ -174,6 +183,9 @@ struct rr_regs {
 #define RR_REV_2	0x20000000
 #define RR_REV_MASK	0xf0000000
 
+/*
+ * Local control register bits.
+ */
 
 #define INTA_STATE		0x01
 #define CLEAR_INTA		0x02
@@ -187,6 +199,9 @@ struct rr_regs {
 #define SRAM_LO_PARITY_ERR	0x4000
 #define SRAM_HI_PARITY_ERR	0x8000
 
+/*
+ * PCI state bits.
+ */
 
 #define FORCE_PCI_RESET		0x01
 #define PROVIDE_LENGTH		0x02
@@ -211,12 +226,22 @@ struct rr_regs {
 #define MASK_MIN_DMA		0xFF00
 #define FIFO_RETRY_ENABLE	0x10000
 
+/*
+ * Event register
+ */
 
 #define DMA_WRITE_DONE		0x10000
 #define DMA_READ_DONE		0x20000
 #define DMA_WRITE_ERR		0x40000
 #define DMA_READ_ERR		0x80000
 
+/*
+ * Receive state
+ *
+ * RoadRunner HIPPI Receive State Register controls and monitors the
+ * HIPPI receive interface in the NIC. Look at err bits when a HIPPI
+ * receive Error Event occurs.
+ */
 
 #define ENABLE_NEW_CON		0x01
 #define RESET_RECV		0x02
@@ -229,10 +254,16 @@ struct rr_regs {
 #define RECV_32K		0xc0
 #define RECV_64K		0xe0
 
+/*
+ * Transmit status.
+ */
 
 #define ENA_XMIT		0x01
 #define PERM_CON		0x02
 
+/*
+ * DMA write state
+ */
 
 #define RESET_DMA		0x01
 #define NO_SWAP_DMA		0x02
@@ -240,15 +271,21 @@ struct rr_regs {
 #define THRESH_MASK		0x1F
 #define DMA_ERROR_MASK		0xff000000
 
+/*
+ * Gooddies stored in the ULA registers.
+ */
 
-#define TRACE_ON_WHAT_BIT	0x00020000    
-#define ONEM_BUF_WHAT_BIT	0x00040000    
-#define CHAR_API_WHAT_BIT	0x00080000    
-#define CMD_EVT_WHAT_BIT	0x00200000    
+#define TRACE_ON_WHAT_BIT	0x00020000    /* Traces on */
+#define ONEM_BUF_WHAT_BIT	0x00040000    /* 1Meg vs 256K */
+#define CHAR_API_WHAT_BIT	0x00080000    /* Char API vs network only */
+#define CMD_EVT_WHAT_BIT	0x00200000    /* Command event */
 #define LONG_TX_WHAT_BIT	0x00400000
 #define LONG_RX_WHAT_BIT	0x00800000
-#define WHAT_BIT_MASK		0xFFFD0000    
+#define WHAT_BIT_MASK		0xFFFD0000    /* Feature bit mask */
 
+/*
+ * Mode status
+ */
 
 #define EVENT_OVFL		0x80000000
 #define FATAL_ERR		0x40000000
@@ -271,12 +308,17 @@ struct rr_regs {
 #define HALF_DUP_RX		0x2000
 
 
+/*
+ * Error codes
+ */
 
+/* Host Error Codes - values of fail1 */
 #define ERR_UNKNOWN_MBOX	0x1001
 #define ERR_UNKNOWN_CMD		0x1002
 #define ERR_MAX_RING		0x1003
 #define ERR_RING_CLOSED		0x1004
 #define ERR_RING_OPEN		0x1005
+/* Firmware internal errors */
 #define ERR_EVENT_RING_FULL	0x01
 #define ERR_DW_PEND_CMND_FULL	0x02
 #define ERR_DR_PEND_CMND_FULL	0x03
@@ -297,12 +339,16 @@ struct rr_regs {
 #define ERR_BAD_STARTUP		0x12
 #define ERR_NO_PKT_END		0x13
 #define ERR_HALTED_ON_ERR	0x14
+/* Hardware NIC Errors */
 #define ERR_WRITE_DMA		0x0101
 #define ERR_READ_DMA		0x0102
 #define ERR_EXT_SERIAL		0x0103
 #define ERR_TX_INT_PARITY	0x0104
 
 
+/*
+ * Event definitions
+ */
 
 #define EVT_RING_ENTRIES	64
 #define EVT_RING_SIZE		(EVT_RING_ENTRIES * sizeof(struct event))
@@ -320,6 +366,9 @@ struct event {
 	u32     timestamp;
 };
 
+/*
+ * General Events
+ */
 
 #define E_NIC_UP	0x01
 #define E_WATCHDOG	0x02
@@ -334,9 +383,12 @@ struct event {
 #define E_STATS_UPDATE	0x0B
 #define E_REJECTING	0x0C
 
+/*
+ * Send  Events
+ */
 #define E_CON_REJ	0x13
 #define E_CON_TMOUT	0x14
-#define E_CON_NC_TMOUT	0x15	
+#define E_CON_NC_TMOUT	0x15	/* I  , Connection No Campon Timeout */
 #define E_DISC_ERR	0x16
 #define E_INT_PRTY	0x17
 #define E_TX_IDLE	0x18
@@ -345,6 +397,12 @@ struct event {
 #define E_TX_INV_BUF	0x1B
 #define E_TX_INV_DSC	0x1C
 
+/*
+ * Destination Events
+ */
+/*
+ * General Receive events
+ */
 #define E_VAL_RNG	0x20
 #define E_RX_RNG_ENER	0x21
 #define E_INV_RNG	0x22
@@ -353,12 +411,18 @@ struct event {
 #define E_PKT_DISCARD	0x25
 #define E_INFO_EVT	0x27
 
+/*
+ * Data corrupted events
+ */
 #define E_RX_PAR_ERR	0x2B
 #define E_RX_LLRC_ERR	0x2C
 #define E_IP_CKSM_ERR	0x2D
 #define E_DTA_CKSM_ERR	0x2E
 #define E_SHT_BST	0x2F
 
+/*
+ * Data lost events
+ */
 #define E_LST_LNK_ERR	0x30
 #define E_FLG_SYN_ERR	0x31
 #define E_FRM_ERR	0x32
@@ -367,10 +431,16 @@ struct event {
 #define E_STATE_ERR	0x35
 #define E_UNEXP_DATA	0x3C
 
+/*
+ * Fatal events
+ */
 #define E_RX_INV_BUF	0x36
 #define E_RX_INV_DSC	0x37
 #define E_RNG_BLK	0x38
 
+/*
+ * Warning events
+ */
 #define E_RX_TO		0x39
 #define E_BFR_SPC	0x3A
 #define E_INV_ULP	0x3B
@@ -378,6 +448,9 @@ struct event {
 #define E_NOT_IMPLEMENTED 0x40
 
 
+/*
+ * Commands
+ */
 
 #define CMD_RING_ENTRIES	16
 
@@ -401,8 +474,11 @@ struct cmd {
 #define C_CONN		0x0D
 
 
+/*
+ * Mode bits
+ */
 
-#define  PACKET_BAD		0x01 
+#define  PACKET_BAD		0x01 /* Packet had link-layer error */
 #define  INTERRUPT		0x02
 #define  TX_IP_CKSUM		0x04
 #define  PACKET_END		0x08
@@ -426,7 +502,7 @@ static inline void set_rraddr(rraddr *ra, dma_addr_t addr)
 #if (BITS_PER_LONG == 64)
 	ra->addrlo = baddr;
 #else
-    
+    /* Don't bother setting zero every time */
 	ra->addrlo = baddr;
 #endif
 	mb();
@@ -467,6 +543,9 @@ static inline void set_infoaddr(struct rr_regs __iomem *regs, volatile dma_addr_
 }
 
 
+/*
+ * TX ring
+ */
 
 #ifdef CONFIG_ROADRUNNER_LARGE_RINGS
 #define TX_RING_ENTRIES	32
@@ -512,10 +591,13 @@ struct rx_desc{
 };
 
 
+/*
+ * ioctl's
+ */
 
-#define SIOCRRPFW	SIOCDEVPRIVATE		
-#define SIOCRRGFW	SIOCDEVPRIVATE+1	
-#define SIOCRRID	SIOCDEVPRIVATE+2	
+#define SIOCRRPFW	SIOCDEVPRIVATE		/* put firmware */
+#define SIOCRRGFW	SIOCDEVPRIVATE+1	/* get firmware */
+#define SIOCRRID	SIOCDEVPRIVATE+2	/* identify */
 
 
 struct seg_hdr {
@@ -587,6 +669,7 @@ struct eeprom_rncd_info {
 };
 
 
+/* Phase 1 region (starts are word offset 0x80) */
 struct phase1_hdr{
 	u32	jump;
 	u32	noop;
@@ -619,7 +702,7 @@ struct rr_stats {
 	u32	WatchDog;
 	u32	Trace;
 
-	
+	/* Serial HIPPI */
 	u32	LnkRdyEst;
 	u32	GLinkErr;
 	u32	AltFlgErr;
@@ -629,7 +712,7 @@ struct rr_stats {
 	u32	RmtLoopBk;
 	u32	pad1;
 
-	
+	/* HIPPI tx */
 	u32	ConEst;
 	u32	ConRejS;
 	u32	ConRetry;
@@ -643,7 +726,7 @@ struct rr_stats {
 	u32	TxTimeout;
 	u32	pad3[3];
 
-	
+	/* HIPPI rx */
 	u32	ConAcc;
 	u32	ConRejdiPrty;
 	u32	ConRejd64b;
@@ -674,6 +757,9 @@ struct rr_stats {
 };
 
 
+/*
+ * This struct is shared with the NIC firmware.
+ */
 struct ring_ctrl {
 	rraddr	rngptr;
 #ifdef __LITTLE_ENDIAN
@@ -703,6 +789,12 @@ struct rr_info {
 	u8			trace[3072];
 };
 
+/*
+ * The linux structure for the RoadRunner.
+ *
+ * RX/TX descriptors are put first to make sure they are properly
+ * aligned and do not cross cache-line boundaries.
+ */
 
 struct rr_private
 {
@@ -712,12 +804,12 @@ struct rr_private
 	dma_addr_t 		tx_ring_dma;
 	dma_addr_t 		rx_ring_dma;
 	dma_addr_t 		evt_ring_dma;
-	
+	/* Alignment ok ? */
 	struct sk_buff		*rx_skbuff[RX_RING_ENTRIES];
 	struct sk_buff		*tx_skbuff[TX_RING_ENTRIES];
-	struct rr_regs		__iomem *regs;		
-	struct ring_ctrl	*rx_ctrl;	
-	struct rr_info		*info;		
+	struct rr_regs		__iomem *regs;		/* Register base */
+	struct ring_ctrl	*rx_ctrl;	/* Receive ring control */
+	struct rr_info		*info;		/* Shared info page */
 	dma_addr_t 		rx_ctrl_dma;
 	dma_addr_t 		info_dma;
 	spinlock_t		lock;
@@ -731,6 +823,9 @@ struct rr_private
 };
 
 
+/*
+ * Prototypes
+ */
 static int rr_init(struct net_device *dev);
 static int rr_init1(struct net_device *dev);
 static irqreturn_t rr_interrupt(int irq, void *dev_id);
@@ -748,4 +843,4 @@ static u32 rr_read_eeprom_word(struct rr_private *rrpriv, size_t offset);
 static int rr_load_firmware(struct net_device *dev);
 static inline void rr_raz_tx(struct rr_private *, struct net_device *);
 static inline void rr_raz_rx(struct rr_private *, struct net_device *);
-#endif 
+#endif /* _RRUNNER_H_ */

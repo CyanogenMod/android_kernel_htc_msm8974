@@ -44,6 +44,10 @@
 #define VERSION "arcnet: COM20020 ISA support (by David Woodhouse et al.)\n"
 
 
+/*
+ * We cannot (yet) probe for an IO mapped card, although we can check that
+ * it's where we were told it was, and even do autoirq.
+ */
 static int __init com20020isa_probe(struct net_device *dev)
 {
 	int ioaddr;
@@ -75,6 +79,10 @@ static int __init com20020isa_probe(struct net_device *dev)
 	}
 
 	if (!dev->irq) {
+		/* if we do this, we're sure to get an IRQ since the
+		 * card has just reset and the NORXflag is on until
+		 * we tell it to start receiving.
+		 */
 		BUGMSG(D_INIT_REASONS, "intmask was %02Xh\n", inb(_INTMASK));
 		outb(0, _INTMASK);
 		airqmask = probe_irq_on();
@@ -110,9 +118,9 @@ out:
 }
 
 static int node = 0;
-static int io = 0x0;		
-static int irq = 0;		
-static char device[9];		
+static int io = 0x0;		/* <--- EDIT THESE LINES FOR YOUR CONFIGURATION */
+static int irq = 0;		/* or use the insmod io= irq= shmem= options */
+static char device[9];		/* use eg. device="arc1" to change name */
 static int timeout = 3;
 static int backplane = 0;
 static int clockp = 0;
@@ -185,19 +193,19 @@ static int __init com20020isa_setup(char *s)
 		return 1;
 
 	switch (ints[0]) {
-	default:		
+	default:		/* ERROR */
 		printk("com90xx: Too many arguments.\n");
-	case 6:		
+	case 6:		/* Timeout */
 		timeout = ints[6];
-	case 5:		
+	case 5:		/* CKP value */
 		clockp = ints[5];
-	case 4:		
+	case 4:		/* Backplane flag */
 		backplane = ints[4];
-	case 3:		
+	case 3:		/* Node ID */
 		node = ints[3];
-	case 2:		
+	case 2:		/* IRQ */
 		irq = ints[2];
-	case 1:		
+	case 1:		/* IO address */
 		io = ints[1];
 	}
 	if (*s)
@@ -207,7 +215,7 @@ static int __init com20020isa_setup(char *s)
 
 __setup("com20020=", com20020isa_setup);
 
-#endif				
+#endif				/* MODULE */
 
 module_init(com20020_init)
 module_exit(com20020_exit)

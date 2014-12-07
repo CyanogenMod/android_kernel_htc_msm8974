@@ -1,3 +1,8 @@
+/*
+ * drivers/input/tablet/wacom_sys.c
+ *
+ *  USB Wacom tablet support - system specific code
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -9,6 +14,7 @@
 #include "wacom_wac.h"
 #include "wacom.h"
 
+/* defines to get HID report descriptor */
 #define HID_DEVICET_HID		(USB_TYPE_CLASS | 0x01)
 #define HID_DEVICET_REPORT	(USB_TYPE_CLASS | 0x02)
 #define HID_USAGE_UNDEFINED		0x00
@@ -41,6 +47,7 @@ struct hid_descriptor {
 	__le16   wDescriptorLength;
 } __attribute__ ((packed));
 
+/* defines to get/set USB message */
 #define USB_REQ_GET_REPORT	0x01
 #define USB_REQ_SET_REPORT	0x09
 
@@ -96,12 +103,12 @@ static void wacom_sys_irq(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d", __func__, urb->status);
 		return;
 	default:
@@ -160,6 +167,13 @@ static void wacom_close(struct input_dev *dev)
 		usb_autopm_put_interface(wacom->intf);
 }
 
+/*
+ * Static values for max X/Y and resolution of Pen interface is stored in
+ * features. This mean physical size of active area can be computed.
+ * This is useful to do when Pen and Touch have same active area of tablet.
+ * This means for Touch device, we only need to find max X/Y value and we
+ * have enough information to compute resolution of touch.
+ */
 static void wacom_set_phy_from_res(struct wacom_features *features)
 {
 	features->x_phy = (features->x_max * 100) / features->x_resolution;
@@ -173,7 +187,7 @@ static int wacom_parse_logical_collection(unsigned char *report,
 
 	if (features->type == BAMBOO_PT) {
 
-		
+		/* Logical collection is only used by 3rd gen Bamboo Touch */
 		features->pktlen = WACOM_PKGLEN_BBTOUCH3;
 		features->device_type = BTN_TOOL_FINGER;
 
@@ -187,13 +201,46 @@ static int wacom_parse_logical_collection(unsigned char *report,
 	return length;
 }
 
+/*
+ * Interface Descriptor of wacom devices can be incomplete and
+ * inconsistent so wacom_features table is used to store stylus
+ * device's packet lengths, various maximum values, and tablet
+ * resolution based on product ID's.
+ *
+ * For devices that contain 2 interfaces, wacom_features table is
+ * inaccurate for the touch interface.  Since the Interface Descriptor
+ * for touch interfaces has pretty complete data, this function exists
+ * to query tablet for this missing information instead of hard coding in
+ * an additional table.
+ *
+ * A typical Interface Descriptor for a stylus will contain a
+ * boot mouse application collection that is not of interest and this
+ * function will ignore it.
+ *
+ * It also contains a digitizer application collection that also is not
+ * of interest since any information it contains would be duplicate
+ * of what is in wacom_features. Usually it defines a report of an array
+ * of bytes that could be used as max length of the stylus packet returned.
+ * If it happens to define a Digitizer-Stylus Physical Collection then
+ * the X and Y logical values contain valid data but it is ignored.
+ *
+ * A typical Interface Descriptor for a touch interface will contain a
+ * Digitizer-Finger Physical Collection which will define both logical
+ * X/Y maximum as well as the physical size of tablet. Since touch
+ * interfaces haven't supported pressure or distance, this is enough
+ * information to override invalid values in the wacom_features table.
+ *
+ * 3rd gen Bamboo Touch no longer define a Digitizer-Finger Pysical
+ * Collection. Instead they define a Logical Collection with a single
+ * Logical Maximum for both X and Y.
+ */
 static int wacom_parse_hid(struct usb_interface *intf,
 			   struct hid_descriptor *hid_desc,
 			   struct wacom_features *features)
 {
 	struct usb_device *dev = interface_to_usbdev(intf);
 	char limit = 0;
-	
+	/* result has to be defined as int for some devices */
 	int result = 0;
 	int i = 0, usage = WCM_UNDEFINED, finger = 0, pen = 0;
 	unsigned char *report;
@@ -202,19 +249,19 @@ static int wacom_parse_hid(struct usb_interface *intf,
 	if (!report)
 		return -ENOMEM;
 
-	
+	/* retrive report descriptors */
 	do {
 		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 			USB_REQ_GET_DESCRIPTOR,
 			USB_RECIP_INTERFACE | USB_DIR_IN,
 			HID_DEVICET_REPORT << 8,
-			intf->altsetting[0].desc.bInterfaceNumber, 
+			intf->altsetting[0].desc.bInterfaceNumber, /* interface */
 			report,
 			hid_desc->wDescriptorLength,
-			5000); 
+			5000); /* 5 secs */
 	} while (result < 0 && limit++ < WAC_MSG_RETRIES);
 
-	
+	/* No need to parse the Descriptor. It isn't an error though */
 	if (result < 0)
 		goto out;
 
@@ -242,11 +289,11 @@ static int wacom_parse_hid(struct usb_interface *intf,
 					if (finger) {
 						features->device_type = BTN_TOOL_FINGER;
 						if (features->type == TABLETPC2FG) {
-							
+							/* need to reset back */
 							features->pktlen = WACOM_PKGLEN_TPC2FG;
 						}
 						if (features->type == BAMBOO_PT) {
-							
+							/* need to reset back */
 							features->pktlen = WACOM_PKGLEN_BBTOUCH;
 							features->x_phy =
 								get_unaligned_le16(&report[i + 5]);
@@ -263,7 +310,7 @@ static int wacom_parse_hid(struct usb_interface *intf,
 							i += 12;
 						}
 					} else if (pen) {
-						
+						/* penabled only accepts exact bytes of data */
 						if (features->type == TABLETPC2FG)
 							features->pktlen = WACOM_PKGLEN_GRAPHIRE;
 						features->device_type = BTN_TOOL_PEN;
@@ -279,7 +326,7 @@ static int wacom_parse_hid(struct usb_interface *intf,
 					if (finger) {
 						features->device_type = BTN_TOOL_FINGER;
 						if (features->type == TABLETPC2FG) {
-							
+							/* need to reset back */
 							features->pktlen = WACOM_PKGLEN_TPC2FG;
 							features->y_max =
 								get_unaligned_le16(&report[i + 3]);
@@ -287,7 +334,7 @@ static int wacom_parse_hid(struct usb_interface *intf,
 								get_unaligned_le16(&report[i + 6]);
 							i += 7;
 						} else if (features->type == BAMBOO_PT) {
-							
+							/* need to reset back */
 							features->pktlen = WACOM_PKGLEN_BBTOUCH;
 							features->y_phy =
 								get_unaligned_le16(&report[i + 3]);
@@ -302,7 +349,7 @@ static int wacom_parse_hid(struct usb_interface *intf,
 							i += 4;
 						}
 					} else if (pen) {
-						
+						/* penabled only accepts exact bytes of data */
 						if (features->type == TABLETPC2FG)
 							features->pktlen = WACOM_PKGLEN_GRAPHIRE;
 						features->device_type = BTN_TOOL_PEN;
@@ -318,6 +365,11 @@ static int wacom_parse_hid(struct usb_interface *intf,
 				i++;
 				break;
 
+			/*
+			 * Requiring Stylus Usage will ignore boot mouse
+			 * X/Y values and some cases of invalid Digitizer X/Y
+			 * values commonly reported.
+			 */
 			case HID_USAGE_STYLUS:
 				pen = 1;
 				i++;
@@ -326,7 +378,7 @@ static int wacom_parse_hid(struct usb_interface *intf,
 			break;
 
 		case HID_COLLECTION_END:
-			
+			/* reset UsagePage and Finger */
 			finger = usage = 0;
 			break;
 
@@ -358,6 +410,8 @@ static int wacom_query_tablet_data(struct usb_interface *intf, struct wacom_feat
 	if (!rep_data)
 		return error;
 
+	/* ask to report tablet data if it is MT Tablet PC or
+	 * not a Tablet PC */
 	if (features->type == TABLETPC2FG) {
 		do {
 			rep_data[0] = 3;
@@ -399,13 +453,19 @@ static int wacom_retrieve_hid_descriptor(struct usb_interface *intf,
 	struct usb_host_interface *interface = intf->cur_altsetting;
 	struct hid_descriptor *hid_desc;
 
-	
+	/* default features */
 	features->device_type = BTN_TOOL_PEN;
 	features->x_fuzz = 4;
 	features->y_fuzz = 4;
 	features->pressure_fuzz = 0;
 	features->distance_fuzz = 0;
 
+	/*
+	 * The wireless device HID is basic and layout conflicts with
+	 * other tablets (monitor and touch interface can look like pen).
+	 * Skip the query for this type and modify defaults based on
+	 * interface number.
+	 */
 	if (features->type == WIRELESS) {
 		if (intf->cur_altsetting->desc.bInterfaceNumber == 0) {
 			features->device_type = 0;
@@ -415,7 +475,7 @@ static int wacom_retrieve_hid_descriptor(struct usb_interface *intf,
 		}
 	}
 
-	
+	/* only Tablet PCs and Bamboo P&T need to retrieve the info */
 	if ((features->type != TABLETPC) && (features->type != TABLETPC2FG) &&
 	    (features->type != BAMBOO_PT))
 		goto out;
@@ -548,7 +608,7 @@ static int wacom_led_putimage(struct wacom *wacom, int button_id, const void *im
 	if (!buf)
 		return -ENOMEM;
 
-	
+	/* Send 'start' command */
 	buf[0] = WAC_CMD_ICON_START;
 	buf[1] = 1;
 	retval = wacom_set_report(wacom->intf, 0x03, WAC_CMD_ICON_START,
@@ -568,7 +628,7 @@ static int wacom_led_putimage(struct wacom *wacom, int button_id, const void *im
 			break;
 	}
 
-	
+	/* Send 'stop' */
 	buf[0] = WAC_CMD_ICON_START;
 	buf[1] = 0;
 	wacom_set_report(wacom->intf, 0x03, WAC_CMD_ICON_START,
@@ -727,7 +787,7 @@ static int wacom_initialize_leds(struct wacom *wacom)
 {
 	int error;
 
-	
+	/* Initialize default values */
 	switch (wacom->wacom_wac.features.type) {
 	case INTUOS4:
 	case INTUOS4L:
@@ -869,14 +929,18 @@ static void wacom_wireless_work(struct work_struct *work)
 	struct usb_device *usbdev = wacom->usbdev;
 	struct wacom_wac *wacom_wac = &wacom->wacom_wac;
 
+	/*
+	 * Regardless if this is a disconnect or a new tablet,
+	 * remove any existing input devices.
+	 */
 
-	
+	/* Stylus interface */
 	wacom = usb_get_intfdata(usbdev->config->interface[1]);
 	if (wacom->wacom_wac.input)
 		input_unregister_device(wacom->wacom_wac.input);
 	wacom->wacom_wac.input = 0;
 
-	
+	/* Touch interface */
 	wacom = usb_get_intfdata(usbdev->config->interface[2]);
 	if (wacom->wacom_wac.input)
 		input_unregister_device(wacom->wacom_wac.input);
@@ -904,7 +968,7 @@ static void wacom_wireless_work(struct work_struct *work)
 			return;
 		}
 
-		
+		/* Stylus interface */
 		wacom = usb_get_intfdata(usbdev->config->interface[1]);
 		wacom_wac = &wacom->wacom_wac;
 		wacom_wac->features =
@@ -912,7 +976,7 @@ static void wacom_wireless_work(struct work_struct *work)
 		wacom_wac->features.device_type = BTN_TOOL_PEN;
 		wacom_register_input(wacom);
 
-		
+		/* Touch interface */
 		wacom = usb_get_intfdata(usbdev->config->interface[2]);
 		wacom_wac = &wacom->wacom_wac;
 		wacom_wac->features =
@@ -971,7 +1035,7 @@ static int wacom_probe(struct usb_interface *intf, const struct usb_device_id *i
 
 	endpoint = &intf->cur_altsetting->endpoint[0].desc;
 
-	
+	/* Retrieve the physical and logical size for OEM devices */
 	error = wacom_retrieve_hid_descriptor(intf, features);
 	if (error)
 		goto fail3;
@@ -981,7 +1045,7 @@ static int wacom_probe(struct usb_interface *intf, const struct usb_device_id *i
 	strlcpy(wacom_wac->name, features->name, sizeof(wacom_wac->name));
 
 	if (features->quirks & WACOM_QUIRK_MULTI_INPUT) {
-		
+		/* Append the device type to the name */
 		strlcat(wacom_wac->name,
 			features->device_type == BTN_TOOL_PEN ?
 				" Pen" : " Finger",
@@ -1013,7 +1077,7 @@ static int wacom_probe(struct usb_interface *intf, const struct usb_device_id *i
 			goto fail6;
 	}
 
-	
+	/* Note that if query fails it is not a hard failure */
 	wacom_query_tablet_data(intf, features);
 
 	usb_set_intfdata(intf, wacom);
@@ -1072,7 +1136,7 @@ static int wacom_resume(struct usb_interface *intf)
 
 	mutex_lock(&wacom->lock);
 
-	
+	/* switch to wacom mode first */
 	wacom_query_tablet_data(intf, features);
 	wacom_led_control(wacom);
 

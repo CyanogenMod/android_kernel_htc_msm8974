@@ -54,4 +54,4 @@ extern unsigned int rmnet_data_log_level;
 			pr_debug(fmt, ##__VA_ARGS__); \
 			} while (0)
 
-#endif 
+#endif /* _RMNET_DATA_PRIVATE_H_ */

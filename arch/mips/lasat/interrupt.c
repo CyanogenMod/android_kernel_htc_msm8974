@@ -87,14 +87,14 @@ asmlinkage void plat_irq_dispatch(void)
 	unsigned int cause = read_c0_cause();
 	int irq;
 
-	if (cause & CAUSEF_IP7) {	
+	if (cause & CAUSEF_IP7) {	/* R4000 count / compare IRQ */
 		do_IRQ(7);
 		return;
 	}
 
 	int_status = get_int_status();
 
-	
+	/* if int_status == 0, then the interrupt has already been cleared */
 	if (int_status) {
 		irq = LASAT_IRQ_BASE + ls1bit32(int_status);
 

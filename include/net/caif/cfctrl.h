@@ -9,6 +9,7 @@
 #include <net/caif/caif_layer.h>
 #include <net/caif/cfsrvl.h>
 
+/* CAIF Control packet commands */
 enum cfctrl_cmd {
 	CFCTRL_CMD_LINK_SETUP = 0,
 	CFCTRL_CMD_LINK_DESTROY = 1,
@@ -23,6 +24,7 @@ enum cfctrl_cmd {
 	CFCTRL_CMD_MASK = 0xf
 };
 
+/* Channel types */
 enum cfctrl_srv {
 	CFCTRL_SRV_DECM = 0,
 	CFCTRL_SRV_VEI = 1,
@@ -52,36 +54,41 @@ struct cfctrl_rsp {
 				struct cflayer *client_layer);
 };
 
+/* Link Setup Parameters for CAIF-Links. */
 struct cfctrl_link_param {
-	enum cfctrl_srv linktype;
-	u8 priority;		  
-	u8 phyid;		  
-	u8 endpoint;		  
-	u8 chtype;		  
+	enum cfctrl_srv linktype;/* (T3,T0) Type of Channel */
+	u8 priority;		  /* (P4,P0) Priority of the channel */
+	u8 phyid;		  /* (U2-U0) Physical interface to connect */
+	u8 endpoint;		  /* (E1,E0) Endpoint for data channels */
+	u8 chtype;		  /* (H1,H0) Channel-Type, applies to
+				   *            VEI, DEBUG */
 	union {
 		struct {
-			u8 connid;	
+			u8 connid;	/*  (D7,D0) Video LinkId */
 		} video;
 
 		struct {
-			u32 connid;	
+			u32 connid;	/* (N31,Ngit0) Connection ID used
+					 *  for Datagram */
 		} datagram;
 
 		struct {
-			u32 connid;	
-			char volume[20];	
-		} rfm;		
+			u32 connid;	/* Connection ID used for RFM */
+			char volume[20];	/* Volume to mount for RFM */
+		} rfm;		/* Configuration for RFM */
 
 		struct {
-			u16 fifosize_kb;	
-			u16 fifosize_bufs;	
-			char name[16];	
-			u8 params[255];	
-			u16 paramlen;	
-		} utility;	
+			u16 fifosize_kb;	/* Psock FIFO size in KB */
+			u16 fifosize_bufs;	/* Psock # signal buffers */
+			char name[16];	/* Name of the PSOCK service */
+			u8 params[255];	/* Link setup Parameters> */
+			u16 paramlen;	/* Length of Link Setup
+						 *   Parameters */
+		} utility;	/* Configuration for Utility Links (Psock) */
 	} u;
 };
 
+/* This structure is used internally in CFCTRL */
 struct cfctrl_request_info {
 	int sequence_no;
 	enum cfctrl_cmd cmd;
@@ -97,12 +104,12 @@ struct cfctrl {
 	atomic_t req_seq_no;
 	atomic_t rsp_seq_no;
 	struct list_head list;
-	
+	/* Protects from simultaneous access to first_req list */
 	spinlock_t info_list_lock;
 #ifndef CAIF_NO_LOOP
 	u8 loop_linkid;
 	int loop_linkused[256];
-	
+	/* Protects simultaneous access to loop_linkid and loop_linkused */
 	spinlock_t loop_linkid_lock;
 #endif
 
@@ -120,4 +127,4 @@ struct cfctrl_rsp *cfctrl_get_respfuncs(struct cflayer *layer);
 int cfctrl_cancel_req(struct cflayer *layr, struct cflayer *adap_layer);
 void cfctrl_remove(struct cflayer *layr);
 
-#endif				
+#endif				/* CFCTRL_H_ */

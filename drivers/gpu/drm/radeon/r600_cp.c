@@ -38,6 +38,7 @@
 #define R700_PFP_UCODE_SIZE 848
 #define R700_PM4_UCODE_SIZE 1360
 
+/* Firmware Names */
 MODULE_FIRMWARE("radeon/R600_pfp.bin");
 MODULE_FIRMWARE("radeon/R600_me.bin");
 MODULE_FIRMWARE("radeon/RV610_pfp.bin");
@@ -65,7 +66,7 @@ int r600_cs_legacy(struct drm_device *dev, void *data, struct drm_file *filp,
 void r600_cs_legacy_init(void);
 
 
-# define ATI_PCIGART_PAGE_SIZE		4096	
+# define ATI_PCIGART_PAGE_SIZE		4096	/**< PCI GART page size */
 # define ATI_PCIGART_PAGE_MASK		(~(ATI_PCIGART_PAGE_SIZE-1))
 
 #define R600_PTE_VALID     (1 << 0)
@@ -74,6 +75,7 @@ void r600_cs_legacy_init(void);
 #define R600_PTE_READABLE  (1 << 5)
 #define R600_PTE_WRITEABLE (1 << 6)
 
+/* MAX values used for gfx init */
 #define R6XX_MAX_SH_GPRS           256
 #define R6XX_MAX_TEMP_GPRS         16
 #define R6XX_MAX_SH_THREADS        256
@@ -171,6 +173,7 @@ void r600_page_table_cleanup(struct drm_device *dev, struct drm_ati_pcigart_info
 	}
 }
 
+/* R600 has page table setup */
 int r600_page_table_init(struct drm_device *dev)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -184,7 +187,7 @@ int r600_page_table_init(struct drm_device *dev)
 	dma_addr_t entry_addr;
 	int max_ati_pages, max_real_pages, gart_idx;
 
-	
+	/* okay page table is available - lets rock */
 	max_ati_pages = (gart_info->table_size / sizeof(u64));
 	max_real_pages = max_ati_pages / (PAGE_SIZE / ATI_PCIGART_PAGE_SIZE);
 
@@ -243,16 +246,16 @@ static void r600_vm_flush_gart_range(struct drm_device *dev)
 static void r600_vm_init(struct drm_device *dev)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
-	
+	/* initialise the VM to use the page table we constructed up there */
 	u32 vm_c0, i;
 	u32 mc_rd_a;
 	u32 vm_l2_cntl, vm_l2_cntl3;
-	
+	/* okay set up the PCIE aperture type thingo */
 	RADEON_WRITE(R600_MC_VM_SYSTEM_APERTURE_LOW_ADDR, dev_priv->gart_vm_start >> 12);
 	RADEON_WRITE(R600_MC_VM_SYSTEM_APERTURE_HIGH_ADDR, (dev_priv->gart_vm_start + dev_priv->gart_size - 1) >> 12);
 	RADEON_WRITE(R600_MC_VM_SYSTEM_APERTURE_DEFAULT_ADDR, 0);
 
-	
+	/* setup MC RD a */
 	mc_rd_a = R600_MCD_L1_TLB | R600_MCD_L1_FRAG_PROC | R600_MCD_SYSTEM_ACCESS_MODE_IN_SYS |
 		R600_MCD_SYSTEM_APERTURE_UNMAPPED_ACCESS_PASS_THRU | R600_MCD_EFFECTIVE_L1_TLB_SIZE(5) |
 		R600_MCD_EFFECTIVE_L1_QUEUE_SIZE(5) | R600_MCD_WAIT_L2_QUERY;
@@ -270,7 +273,7 @@ static void r600_vm_init(struct drm_device *dev)
 	RADEON_WRITE(R600_MCD_WR_SYS_CNTL, mc_rd_a);
 
 	RADEON_WRITE(R600_MCD_RD_HDP_CNTL, mc_rd_a | R600_MCD_L1_STRICT_ORDERING);
-	RADEON_WRITE(R600_MCD_WR_HDP_CNTL, mc_rd_a );
+	RADEON_WRITE(R600_MCD_WR_HDP_CNTL, mc_rd_a /*| R600_MCD_L1_STRICT_ORDERING*/);
 
 	RADEON_WRITE(R600_MCD_RD_PDMA_CNTL, mc_rd_a);
 	RADEON_WRITE(R600_MCD_WR_PDMA_CNTL, mc_rd_a);
@@ -294,7 +297,7 @@ static void r600_vm_init(struct drm_device *dev)
 
 	vm_c0 &= ~R600_VM_ENABLE_CONTEXT;
 
-	
+	/* disable all other contexts */
 	for (i = 1; i < 8; i++)
 		RADEON_WRITE(R600_VM_CONTEXT0_CNTL + (i * 4), vm_c0);
 
@@ -428,11 +431,11 @@ static void r600_cp_load_microcode(drm_radeon_private_t *dev_priv)
 static void r700_vm_init(struct drm_device *dev)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
-	
+	/* initialise the VM to use the page table we constructed up there */
 	u32 vm_c0, i;
 	u32 mc_vm_md_l1;
 	u32 vm_l2_cntl, vm_l2_cntl3;
-	
+	/* okay set up the PCIE aperture type thingo */
 	RADEON_WRITE(R700_MC_VM_SYSTEM_APERTURE_LOW_ADDR, dev_priv->gart_vm_start >> 12);
 	RADEON_WRITE(R700_MC_VM_SYSTEM_APERTURE_HIGH_ADDR, (dev_priv->gart_vm_start + dev_priv->gart_size - 1) >> 12);
 	RADEON_WRITE(R700_MC_VM_SYSTEM_APERTURE_DEFAULT_ADDR, 0);
@@ -466,7 +469,7 @@ static void r700_vm_init(struct drm_device *dev)
 
 	vm_c0 &= ~R600_VM_ENABLE_CONTEXT;
 
-	
+	/* disable all other contexts */
 	for (i = 1; i < 8; i++)
 		RADEON_WRITE(R600_VM_CONTEXT0_CNTL + (i * 4), vm_c0);
 
@@ -522,9 +525,12 @@ static void r600_test_writeback(drm_radeon_private_t *dev_priv)
 {
 	u32 tmp;
 
-	
+	/* Start with assuming that writeback doesn't work */
 	dev_priv->writeback_works = 0;
 
+	/* Writeback doesn't seem to work everywhere, test it here and possibly
+	 * enable it if it appears to work
+	 */
 	radeon_write_ring_rptr(dev_priv, R600_SCRATCHOFF(1), 0);
 
 	RADEON_WRITE(R600_SCRATCH_REG1, 0xdeadbeef);
@@ -551,7 +557,7 @@ static void r600_test_writeback(drm_radeon_private_t *dev_priv)
 	}
 
 	if (!dev_priv->writeback_works) {
-		
+		/* Disable writeback to avoid unnecessary bus master transfer */
 		RADEON_WRITE(R600_CP_RB_CNTL,
 #ifdef __BIG_ENDIAN
 			     R600_BUF_SWAP_32BIT |
@@ -592,13 +598,13 @@ int r600_do_engine_reset(struct drm_device *dev)
 	RADEON_WRITE(R600_CP_RB_CNTL, cp_rb_cntl);
 	RADEON_WRITE(R600_CP_ME_CNTL, cp_me_cntl);
 
-	
+	/* Reset the CP ring */
 	r600_do_cp_reset(dev_priv);
 
-	
+	/* The CP is no longer running after an engine reset */
 	dev_priv->cp_running = 0;
 
-	
+	/* Reset any pending vertex, indirect buffers */
 	radeon_freelist_reset(dev);
 
 	return 0;
@@ -748,7 +754,7 @@ static void r600_gfx_init(struct drm_device *dev,
 	u32 cc_gc_shader_pipe_config;
 	u32 ramcfg;
 
-	
+	/* setup chip specs */
 	switch (dev_priv->flags & RADEON_FAMILY_MASK) {
 	case CHIP_R600:
 		dev_priv->r600_max_pipes = 4;
@@ -818,7 +824,7 @@ static void r600_gfx_init(struct drm_device *dev,
 		break;
 	}
 
-	
+	/* Initialize HDP */
 	j = 0;
 	for (i = 0; i < 32; i++) {
 		RADEON_WRITE((0x2c14 + j), 0x00000000);
@@ -831,7 +837,7 @@ static void r600_gfx_init(struct drm_device *dev,
 
 	RADEON_WRITE(R600_GRBM_CNTL, R600_GRBM_READ_TIMEOUT(0xff));
 
-	
+	/* setup tiling, simd, pipe config */
 	ramcfg = RADEON_READ(R600_RAMCFG);
 
 	switch (dev_priv->r600_max_tile_pipes) {
@@ -908,7 +914,7 @@ static void r600_gfx_init(struct drm_device *dev,
 	RADEON_WRITE(R600_VGT_OUT_DEALLOC_CNTL, (num_qd_pipes * 4) & R600_DEALLOC_DIST_MASK);
 	RADEON_WRITE(R600_VGT_VERTEX_REUSE_BLOCK_CNTL, ((num_qd_pipes * 4) - 2) & R600_VTX_REUSE_DEPTH_MASK);
 
-	
+	/* set HW defaults for 3D engine */
 	RADEON_WRITE(R600_CP_QUEUE_THRESHOLDS, (R600_ROQ_IB1_START(0x16) |
 						R600_ROQ_IB2_START(0x2b)));
 
@@ -965,6 +971,9 @@ static void r600_gfx_init(struct drm_device *dev,
 	}
 	RADEON_WRITE(R600_SQ_MS_FIFO_SIZES, sq_ms_fifo_sizes);
 
+	/* SQ_CONFIG, SQ_GPR_RESOURCE_MGMT, SQ_THREAD_RESOURCE_MGMT, SQ_STACK_RESOURCE_MGMT
+	 * should be adjusted as needed by the 2D/3D drivers.  This just sets default values
+	 */
 	sq_config = RADEON_READ(R600_SQ_CONFIG);
 	sq_config &= ~(R600_PS_PRIO(3) |
 		       R600_VS_PRIO(3) |
@@ -995,7 +1004,7 @@ static void r600_gfx_init(struct drm_device *dev,
 		   ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RV620) ||
 		   ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RS780) ||
 		   ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RS880)) {
-		
+		/* no vertex cache */
 		sq_config &= ~R600_VC_ENABLE;
 
 		sq_gpr_resource_mgmt_1 = (R600_NUM_PS_GPRS(44) |
@@ -1108,7 +1117,7 @@ static void r600_gfx_init(struct drm_device *dev,
 
 	num_gs_verts_per_thread = dev_priv->r600_max_pipes * 16;
 	vgt_gs_per_es = gs_prim_buffer_depth + num_gs_verts_per_thread;
-	
+	/* Max value for this is 256 */
 	if (vgt_gs_per_es > 256)
 		vgt_gs_per_es = 256;
 
@@ -1117,7 +1126,7 @@ static void r600_gfx_init(struct drm_device *dev,
 	RADEON_WRITE(R600_VGT_GS_PER_VS, 2);
 	RADEON_WRITE(R600_VGT_GS_VERTEX_REUSE, 16);
 
-	
+	/* more default values. 2D/3D driver should adjust as needed */
 	RADEON_WRITE(R600_PA_SC_LINE_STIPPLE_STATE, 0);
 	RADEON_WRITE(R600_VGT_STRMOUT_EN, 0);
 	RADEON_WRITE(R600_SX_MISC, 0);
@@ -1128,7 +1137,7 @@ static void r600_gfx_init(struct drm_device *dev,
 	RADEON_WRITE(R600_SPI_PS_IN_CONTROL_0, R600_NUM_INTERP(2));
 	RADEON_WRITE(R600_CB_COLOR7_FRAG, 0);
 
-	
+	/* clear render buffer base addresses */
 	RADEON_WRITE(R600_CB_COLOR0_BASE, 0);
 	RADEON_WRITE(R600_CB_COLOR1_BASE, 0);
 	RADEON_WRITE(R600_CB_COLOR2_BASE, 0);
@@ -1370,7 +1379,7 @@ static void r700_gfx_init(struct drm_device *dev,
 	u32 mc_arb_ramcfg;
 	u32 db_debug4;
 
-	
+	/* setup chip specs */
 	switch (dev_priv->flags & RADEON_FAMILY_MASK) {
 	case CHIP_RV770:
 		dev_priv->r600_max_pipes = 4;
@@ -1465,7 +1474,7 @@ static void r700_gfx_init(struct drm_device *dev,
 		break;
 	}
 
-	
+	/* Initialize HDP */
 	j = 0;
 	for (i = 0; i < 32; i++) {
 		RADEON_WRITE((0x2c14 + j), 0x00000000);
@@ -1478,7 +1487,7 @@ static void r700_gfx_init(struct drm_device *dev,
 
 	RADEON_WRITE(R600_GRBM_CNTL, R600_GRBM_READ_TIMEOUT(0xff));
 
-	
+	/* setup tiling, simd, pipe config */
 	mc_arb_ramcfg = RADEON_READ(R700_MC_ARB_RAMCFG);
 
 	switch (dev_priv->r600_max_tile_pipes) {
@@ -1568,7 +1577,7 @@ static void r700_gfx_init(struct drm_device *dev,
 	RADEON_WRITE(R600_VGT_OUT_DEALLOC_CNTL, (num_qd_pipes * 4) & R600_DEALLOC_DIST_MASK);
 	RADEON_WRITE(R600_VGT_VERTEX_REUSE_BLOCK_CNTL, ((num_qd_pipes * 4) - 2) & R600_VTX_REUSE_DEPTH_MASK);
 
-	
+	/* set HW defaults for 3D engine */
 	RADEON_WRITE(R600_CP_QUEUE_THRESHOLDS, (R600_ROQ_IB1_START(0x16) |
 						R600_ROQ_IB2_START(0x2b)));
 
@@ -1647,6 +1656,9 @@ static void r700_gfx_init(struct drm_device *dev,
 	}
 	RADEON_WRITE(R600_SQ_MS_FIFO_SIZES, sq_ms_fifo_sizes);
 
+	/* SQ_CONFIG, SQ_GPR_RESOURCE_MGMT, SQ_THREAD_RESOURCE_MGMT, SQ_STACK_RESOURCE_MGMT
+	 * should be adjusted as needed by the 2D/3D drivers.  This just sets default values
+	 */
 	sq_config = RADEON_READ(R600_SQ_CONFIG);
 	sq_config &= ~(R600_PS_PRIO(3) |
 		       R600_VS_PRIO(3) |
@@ -1660,7 +1672,7 @@ static void r700_gfx_init(struct drm_device *dev,
 		      R600_GS_PRIO(2) |
 		      R600_ES_PRIO(3));
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RV710)
-		
+		/* no vertex cache */
 		sq_config &= ~R600_VC_ENABLE;
 
 	RADEON_WRITE(R600_SQ_CONFIG, sq_config);
@@ -1726,7 +1738,7 @@ static void r700_gfx_init(struct drm_device *dev,
 
 	num_gs_verts_per_thread = dev_priv->r600_max_pipes * 16;
 	vgt_gs_per_es = gs_prim_buffer_depth + num_gs_verts_per_thread;
-	
+	/* Max value for this is 256 */
 	if (vgt_gs_per_es > 256)
 		vgt_gs_per_es = 256;
 
@@ -1734,7 +1746,7 @@ static void r700_gfx_init(struct drm_device *dev,
 	RADEON_WRITE(R600_VGT_GS_PER_ES, vgt_gs_per_es);
 	RADEON_WRITE(R600_VGT_GS_PER_VS, 2);
 
-	
+	/* more default values. 2D/3D driver should adjust as needed */
 	RADEON_WRITE(R600_VGT_GS_VERTEX_REUSE, 16);
 	RADEON_WRITE(R600_PA_SC_LINE_STIPPLE_STATE, 0);
 	RADEON_WRITE(R600_VGT_STRMOUT_EN, 0);
@@ -1748,7 +1760,7 @@ static void r700_gfx_init(struct drm_device *dev,
 	RADEON_WRITE(R600_SPI_PS_IN_CONTROL_0, R600_NUM_INTERP(2));
 	RADEON_WRITE(R600_CB_COLOR7_FRAG, 0);
 
-	
+	/* clear render buffer base addresses */
 	RADEON_WRITE(R600_CB_COLOR0_BASE, 0);
 	RADEON_WRITE(R600_CB_COLOR1_BASE, 0);
 	RADEON_WRITE(R600_CB_COLOR2_BASE, 0);
@@ -1789,7 +1801,7 @@ static void r600_cp_init_ring_buffer(struct drm_device *dev,
 	RADEON_WRITE(R600_GRBM_SOFT_RESET, 0);
 
 
-	
+	/* Set ring buffer size */
 #ifdef __BIG_ENDIAN
 	RADEON_WRITE(R600_CP_RB_CNTL,
 		     R600_BUF_SWAP_32BIT |
@@ -1805,7 +1817,7 @@ static void r600_cp_init_ring_buffer(struct drm_device *dev,
 
 	RADEON_WRITE(R600_CP_SEM_WAIT_TIMER, 0x0);
 
-	
+	/* Set the write pointer delay */
 	RADEON_WRITE(R600_CP_RB_WPTR_DELAY, 0);
 
 #ifdef __BIG_ENDIAN
@@ -1823,7 +1835,7 @@ static void r600_cp_init_ring_buffer(struct drm_device *dev,
 		     dev_priv->ring.size_l2qw);
 #endif
 
-	
+	/* Initialize the ring buffer's read and write pointers */
 	RADEON_WRITE(R600_CP_RB_RPTR_WR, 0);
 	RADEON_WRITE(R600_CP_RB_WPTR, 0);
 	SET_RING_HEAD(dev_priv, 0);
@@ -1857,10 +1869,10 @@ static void r600_cp_init_ring_buffer(struct drm_device *dev,
 
 #if __OS_HAS_AGP
 	if (dev_priv->flags & RADEON_IS_AGP) {
-		
+		/* XXX */
 		radeon_write_agp_base(dev_priv, dev->agp->base);
 
-		
+		/* XXX */
 		radeon_write_agp_location(dev_priv,
 			     (((dev_priv->gart_vm_start - 1 +
 				dev_priv->gart_size) & 0xffff0000) |
@@ -1902,7 +1914,7 @@ static void r600_cp_init_ring_buffer(struct drm_device *dev,
 
 	RADEON_WRITE(R600_SCRATCH_UMSK, 0x7);
 
-	
+	/* Turn on bus mastering */
 	radeon_enable_bm(dev_priv);
 
 	radeon_write_ring_rptr(dev_priv, R600_SCRATCHOFF(0), 0);
@@ -1914,7 +1926,7 @@ static void r600_cp_init_ring_buffer(struct drm_device *dev,
 	radeon_write_ring_rptr(dev_priv, R600_SCRATCHOFF(2), 0);
 	RADEON_WRITE(R600_LAST_CLEAR_REG, 0);
 
-	
+	/* reset sarea copies of these */
 	master_priv = file_priv->master->driver_priv;
 	if (master_priv->sarea_priv) {
 		master_priv->sarea_priv->last_frame = 0;
@@ -1931,6 +1943,10 @@ int r600_do_cleanup_cp(struct drm_device *dev)
 	drm_radeon_private_t *dev_priv = dev->dev_private;
 	DRM_DEBUG("\n");
 
+	/* Make sure interrupts are disabled here because the uninstall ioctl
+	 * may not have been called from userspace and after dev_private
+	 * is freed, it's too late.
+	 */
 	if (dev->irq_enabled)
 		drm_irq_uninstall(dev);
 
@@ -1960,7 +1976,7 @@ int r600_do_cleanup_cp(struct drm_device *dev)
 			dev_priv->gart_info.addr = NULL;
 		}
 	}
-	
+	/* only clear to the start of flags */
 	memset(dev_priv, 0, offsetof(drm_radeon_private_t, flags));
 
 	return 0;
@@ -1976,7 +1992,7 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 
 	mutex_init(&dev_priv->cs_mutex);
 	r600_cs_legacy_init();
-	
+	/* if we require new memory map but we don't have it fail */
 	if ((dev_priv->flags & RADEON_NEW_MEMMAP) && !dev_priv->new_memmap) {
 		DRM_ERROR("Cannot initialise DRM on this card\nThis card requires a new X.org DDX for 3D\n");
 		r600_do_cleanup_cp(dev);
@@ -1986,6 +2002,9 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 	if (init->is_pci && (dev_priv->flags & RADEON_IS_AGP)) {
 		DRM_DEBUG("Forcing AGP card to PCI mode\n");
 		dev_priv->flags &= ~RADEON_IS_AGP;
+		/* The writeback test succeeds, but when writeback is enabled,
+		 * the ring buffer read ptr update fails after first 128 bytes.
+		 */
 		radeon_no_wb = 1;
 	} else if (!(dev_priv->flags & (RADEON_IS_AGP | RADEON_IS_PCI | RADEON_IS_PCIE))
 		 && !init->is_pci) {
@@ -2001,10 +2020,16 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 		return -EINVAL;
 	}
 
+	/* Enable vblank on CRTC1 for older X servers
+	 */
 	dev_priv->vblank_crtc = DRM_RADEON_VBLANK_CRTC1;
 	dev_priv->do_boxes = 0;
 	dev_priv->cp_mode = init->cp_mode;
 
+	/* We don't support anything other than bus-mastering ring mode,
+	 * but the ring can be in either AGP or PCI space for the ring
+	 * read pointer.
+	 */
 	if ((init->cp_mode != RADEON_CSQ_PRIBM_INDDIS) &&
 	    (init->cp_mode != RADEON_CSQ_PRIBM_INDBM)) {
 		DRM_DEBUG("BAD cp_mode (%x)!\n", init->cp_mode);
@@ -2069,7 +2094,7 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 	}
 
 #if __OS_HAS_AGP
-	
+	/* XXX */
 	if (dev_priv->flags & RADEON_IS_AGP) {
 		drm_core_ioremap_wc(dev_priv->cp_ring, dev);
 		drm_core_ioremap_wc(dev_priv->ring_rptr, dev);
@@ -2117,17 +2142,21 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 
 	dev_priv->gart_size = init->gart_size;
 
-	
+	/* New let's set the memory map ... */
 	if (dev_priv->new_memmap) {
 		u32 base = 0;
 
 		DRM_INFO("Setting GART location based on new memory map\n");
 
+		/* If using AGP, try to locate the AGP aperture at the same
+		 * location in the card and on the bus, though we have to
+		 * align it down.
+		 */
 #if __OS_HAS_AGP
-		
+		/* XXX */
 		if (dev_priv->flags & RADEON_IS_AGP) {
 			base = dev->agp->base;
-			
+			/* Check if valid */
 			if ((base + dev_priv->gart_size - 1) >= dev_priv->fb_location &&
 			    base < (dev_priv->fb_location + dev_priv->fb_size - 1)) {
 				DRM_INFO("Can't use AGP base @0x%08lx, won't fit\n",
@@ -2136,7 +2165,7 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 			}
 		}
 #endif
-		
+		/* If not or if AGP is at 0 (Macs), try to put it elsewhere */
 		if (base == 0) {
 			base = dev_priv->fb_location + dev_priv->fb_size;
 			if (base < dev_priv->fb_location ||
@@ -2151,7 +2180,7 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 	}
 
 #if __OS_HAS_AGP
-	
+	/* XXX */
 	if (dev_priv->flags & RADEON_IS_AGP)
 		dev_priv->gart_buffers_offset = (dev->agp_buffer_map->offset
 						 - dev->agp->base
@@ -2177,11 +2206,11 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 	dev_priv->ring.size = init->ring_size;
 	dev_priv->ring.size_l2qw = drm_order(init->ring_size / 8);
 
-	dev_priv->ring.rptr_update =  4096;
-	dev_priv->ring.rptr_update_l2qw = drm_order( 4096 / 8);
+	dev_priv->ring.rptr_update = /* init->rptr_update */ 4096;
+	dev_priv->ring.rptr_update_l2qw = drm_order(/* init->rptr_update */ 4096 / 8);
 
-	dev_priv->ring.fetch_size =  32;
-	dev_priv->ring.fetch_size_l2ow = drm_order( 32 / 16);
+	dev_priv->ring.fetch_size = /* init->fetch_size */ 32;
+	dev_priv->ring.fetch_size_l2ow = drm_order(/* init->fetch_size */ 32 / 16);
 
 	dev_priv->ring.tail_mask = (dev_priv->ring.size / sizeof(u32)) - 1;
 
@@ -2189,12 +2218,12 @@ int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 
 #if __OS_HAS_AGP
 	if (dev_priv->flags & RADEON_IS_AGP) {
-		
+		/* XXX turn off pcie gart */
 	} else
 #endif
 	{
 		dev_priv->gart_info.table_mask = DMA_BIT_MASK(32);
-		
+		/* if we have an offset set from userspace */
 		if (!dev_priv->pcigart_offset_set) {
 			DRM_ERROR("Need gart offset from userspace\n");
 			r600_do_cleanup_cp(dev);
@@ -2277,6 +2306,8 @@ int r600_do_resume_cp(struct drm_device *dev, struct drm_file *file_priv)
 	return 0;
 }
 
+/* Wait for the CP to go idle.
+ */
 int r600_do_cp_idle(drm_radeon_private_t *dev_priv)
 {
 	RING_LOCALS;
@@ -2285,7 +2316,7 @@ int r600_do_cp_idle(drm_radeon_private_t *dev_priv)
 	BEGIN_RING(5);
 	OUT_RING(CP_PACKET3(R600_IT_EVENT_WRITE, 0));
 	OUT_RING(R600_CACHE_FLUSH_AND_INV_EVENT);
-	
+	/* wait for 3D idle clean */
 	OUT_RING(CP_PACKET3(R600_IT_SET_CONFIG_REG, 1));
 	OUT_RING((R600_WAIT_UNTIL - R600_SET_CONFIG_REG_OFFSET) >> 2);
 	OUT_RING(RADEON_WAIT_3D_IDLE | RADEON_WAIT_3D_IDLECLEAN);
@@ -2296,6 +2327,8 @@ int r600_do_cp_idle(drm_radeon_private_t *dev_priv)
 	return r600_do_wait_for_idle(dev_priv);
 }
 
+/* Start the Command Processor.
+ */
 void r600_do_cp_start(drm_radeon_private_t *dev_priv)
 {
 	u32 cp_me;
@@ -2316,7 +2349,7 @@ void r600_do_cp_start(drm_radeon_private_t *dev_priv)
 	ADVANCE_RING();
 	COMMIT_RING();
 
-	
+	/* set the mux and reset the halt bit */
 	cp_me = 0xff;
 	RADEON_WRITE(R600_CP_ME_CNTL, cp_me);
 
@@ -2363,6 +2396,9 @@ int r600_cp_dispatch_indirect(struct drm_device *dev,
 		DRM_DEBUG("offset 0x%lx\n", offset);
 
 
+		/* Indirect buffer data must be a multiple of 16 dwords.
+		 * pad the data with a Type-2 CP packet.
+		 */
 		while (dwords & 0xf) {
 			u32 *data = (u32 *)
 			    ((char *)dev->agp_buffer_map->handle
@@ -2370,7 +2406,7 @@ int r600_cp_dispatch_indirect(struct drm_device *dev,
 			data[dwords++] = RADEON_CP_PACKET2;
 		}
 
-		
+		/* Fire off the indirect buffer */
 		BEGIN_RING(4);
 		OUT_RING(CP_PACKET3(R600_IT_INDIRECT_BUFFER, 2));
 		OUT_RING((offset & 0xfffffffc));
@@ -2431,6 +2467,10 @@ void r600_cp_dispatch_swap(struct drm_device *dev, struct drm_file *file_priv)
 	}
 	r600_done_blit_copy(dev);
 
+	/* Increment the frame counter.  The client-side 3D driver must
+	 * throttle the framerate by waiting for this value before
+	 * performing the swapbuffer ioctl.
+	 */
 	sarea_priv->last_frame++;
 
 	BEGIN_RING(3);
@@ -2455,7 +2495,7 @@ int r600_cp_dispatch_texture(struct drm_device *dev,
 		return -EINVAL;
 	}
 
-	
+	/* this might fail for zero-sized uploads - are those illegal? */
 	if (!radeon_check_offset(dev_priv, tex->offset + tex->height * tex->pitch - 1)) {
 		DRM_ERROR("Invalid final destination offset\n");
 		return -EINVAL;
@@ -2487,6 +2527,8 @@ int r600_cp_dispatch_texture(struct drm_device *dev,
 		if (pass_size > buf->total)
 			pass_size = buf->total;
 
+		/* Dispatch the indirect buffer.
+		 */
 		buffer =
 		    (u32 *) ((char *)dev->agp_buffer_map->handle + buf->offset);
 
@@ -2503,7 +2545,7 @@ int r600_cp_dispatch_texture(struct drm_device *dev,
 
 		radeon_cp_discard_buffer(dev, file_priv->master, buf);
 
-		
+		/* Update the input parameters for next time */
 		image->data = (const u8 __user *)image->data + pass_size;
 		dst_offset += pass_size;
 		size -= pass_size;
@@ -2513,14 +2555,17 @@ int r600_cp_dispatch_texture(struct drm_device *dev,
 	return 0;
 }
 
+/*
+ * Legacy cs ioctl
+ */
 static u32 radeon_cs_id_get(struct drm_radeon_private *radeon)
 {
-	
+	/* FIXME: check if wrap affect last reported wrap & sequence */
 	radeon->cs_id_scnt = (radeon->cs_id_scnt + 1) & 0x00FFFFFF;
 	if (!radeon->cs_id_scnt) {
-		
+		/* increment wrap counter */
 		radeon->cs_id_wcnt += 0x01000000;
-		
+		/* valid sequence counter start at 1 */
 		radeon->cs_id_scnt = 1;
 	}
 	return (radeon->cs_id_scnt | radeon->cs_id_wcnt);
@@ -2532,7 +2577,7 @@ static void r600_cs_id_emit(drm_radeon_private_t *dev_priv, u32 *id)
 
 	*id = radeon_cs_id_get(dev_priv);
 
-	
+	/* SCRATCH 2 */
 	BEGIN_RING(3);
 	R600_CLEAR_AGE(*id);
 	ADVANCE_RING();
@@ -2587,14 +2632,14 @@ int r600_cs_legacy_ioctl(struct drm_device *dev, void *data, struct drm_file *fp
 		return -EINVAL;
 	}
 	mutex_lock(&dev_priv->cs_mutex);
-	
+	/* get ib */
 	r = r600_ib_get(dev, fpriv, &buf);
 	if (r) {
 		DRM_ERROR("ib_get failed\n");
 		goto out;
 	}
 	ib = dev->agp_buffer_map->handle + buf->offset;
-	
+	/* now parse command stream */
 	r = r600_cs_legacy(dev, data,  fpriv, family, ib, &l);
 	if (r) {
 		goto out;
@@ -2602,7 +2647,7 @@ int r600_cs_legacy_ioctl(struct drm_device *dev, void *data, struct drm_file *fp
 
 out:
 	r600_ib_free(dev, buf, fpriv, l, r);
-	
+	/* emit cs id sequence */
 	r600_cs_id_emit(dev_priv, &cs_id);
 	cs->cs_id = cs_id;
 	mutex_unlock(&dev_priv->cs_mutex);

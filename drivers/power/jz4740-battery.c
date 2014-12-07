@@ -231,7 +231,7 @@ static enum power_supply_property jz_battery_properties[] = {
 
 static void jz_battery_work(struct work_struct *work)
 {
-	
+	/* Too small interval will increase system workload */
 	const int interval = HZ * 30;
 	struct jz_battery *jz_battery = container_of(work, struct jz_battery,
 					    work.work);

@@ -467,7 +467,7 @@ static struct msm_bus_node_info mmss_fabric_info[]  = {
 		.tier = tier2,
 		.num_tiers = ARRAY_SIZE(tier2),
 	},
-	
+	/* This port has been added for V2. It is absent in V1 */
 	{
 		.id = MSM_BUS_MASTER_GRAPHICS_2D_CORE1,
 		.masterp = mport_graphics_2d_core1,

@@ -227,12 +227,12 @@ static int stv0299_set_symbolrate (struct dvb_frontend* fe, u32 srate)
 	u64 big = srate;
 	u32 ratio;
 
-	
+	// check rate is within limits
 	if ((srate < 1000000) || (srate > 45000000)) return -EINVAL;
 
-	
+	// calculate value to program
 	big = big << 20;
-	big += (state->config->mclk-1); 
+	big += (state->config->mclk-1); // round correctly
 	do_div(big, state->config->mclk);
 	ratio = big << 4;
 
@@ -285,7 +285,7 @@ static int stv0299_send_diseqc_msg (struct dvb_frontend* fe,
 
 	val = stv0299_readreg (state, 0x08);
 
-	if (stv0299_writeregI (state, 0x08, (val & ~0x7) | 0x6))  
+	if (stv0299_writeregI (state, 0x08, (val & ~0x7) | 0x6))  /* DiSEqC mode */
 		return -EREMOTEIO;
 
 	for (i=0; i<m->msg_len; i++) {
@@ -314,7 +314,7 @@ static int stv0299_send_diseqc_burst (struct dvb_frontend* fe, fe_sec_mini_cmd_t
 
 	val = stv0299_readreg (state, 0x08);
 
-	if (stv0299_writeregI (state, 0x08, (val & ~0x7) | 0x2))	
+	if (stv0299_writeregI (state, 0x08, (val & ~0x7) | 0x2))	/* burst mode */
 		return -EREMOTEIO;
 
 	if (stv0299_writeregI (state, 0x09, burst == SEC_MINI_A ? 0x00 : 0xff))
@@ -364,21 +364,24 @@ static int stv0299_set_voltage (struct dvb_frontend* fe, fe_sec_voltage_t voltag
 	reg0x08 = stv0299_readreg (state, 0x08);
 	reg0x0c = stv0299_readreg (state, 0x0c);
 
+	/**
+	 *  H/V switching over OP0, OP1 and OP2 are LNB power enable bits
+	 */
 	reg0x0c &= 0x0f;
 	reg0x08 = (reg0x08 & 0x3f) | (state->config->lock_output << 6);
 
 	switch (voltage) {
 	case SEC_VOLTAGE_13:
 		if (state->config->volt13_op0_op1 == STV0299_VOLT13_OP0)
-			reg0x0c |= 0x10; 
+			reg0x0c |= 0x10; /* OP1 off, OP0 on */
 		else
-			reg0x0c |= 0x40; 
+			reg0x0c |= 0x40; /* OP1 on, OP0 off */
 		break;
 	case SEC_VOLTAGE_18:
-		reg0x0c |= 0x50; 
+		reg0x0c |= 0x50; /* OP1 on, OP0 on */
 		break;
 	case SEC_VOLTAGE_OFF:
-		
+		/* LNB power off! */
 		reg0x08 = 0x00;
 		reg0x0c = 0x00;
 		break;
@@ -418,7 +421,7 @@ static int stv0299_send_legacy_dish_cmd (struct dvb_frontend* fe, unsigned long 
 	do_gettimeofday (&nexttime);
 	if (debug_legacy_dish_switch)
 		memcpy (&tv[0], &nexttime, sizeof (struct timeval));
-	stv0299_writeregI (state, 0x0c, reg0x0c | 0x50); 
+	stv0299_writeregI (state, 0x0c, reg0x0c | 0x50); /* set LNB to 18V */
 
 	dvb_frontend_sleep_until(&nexttime, 32000);
 
@@ -426,7 +429,7 @@ static int stv0299_send_legacy_dish_cmd (struct dvb_frontend* fe, unsigned long 
 		if (debug_legacy_dish_switch)
 			do_gettimeofday (&tv[i+1]);
 		if((cmd & 0x01) != last) {
-			
+			/* set voltage to (last ? 13V : 18V) */
 			stv0299_writeregI (state, 0x0c, reg0x0c | (last ? lv_mask : 0x50));
 			last = (last) ? 0 : 1;
 		}
@@ -566,7 +569,7 @@ static int stv0299_set_frontend(struct dvb_frontend *fe)
 	if (state->config->set_ts_params)
 		state->config->set_ts_params(fe, 0);
 
-	
+	// set the inversion
 	if (p->inversion == INVERSION_OFF) invval = 0;
 	else if (p->inversion == INVERSION_ON) invval = 1;
 	else {
@@ -672,11 +675,11 @@ struct dvb_frontend* stv0299_attach(const struct stv0299_config* config,
 	struct stv0299_state* state = NULL;
 	int id;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct stv0299_state), GFP_KERNEL);
 	if (state == NULL) goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->initialised = 0;
@@ -685,16 +688,16 @@ struct dvb_frontend* stv0299_attach(const struct stv0299_config* config,
 	state->fec_inner = 0;
 	state->errmode = STATUS_BER;
 
-	
-	stv0299_writeregI(state, 0x02, 0x30); 
+	/* check if the demod is there */
+	stv0299_writeregI(state, 0x02, 0x30); /* standby off */
 	msleep(200);
 	id = stv0299_readreg(state, 0x00);
 
-	
-	
+	/* register 0x00 contains 0xa1 for STV0299 and STV0299B */
+	/* register 0x00 might contain 0x80 when returning from standby */
 	if (id != 0xa1 && id != 0x80) goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &stv0299_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 	return &state->frontend;
@@ -710,11 +713,11 @@ static struct dvb_frontend_ops stv0299_ops = {
 		.name			= "ST STV0299 DVB-S",
 		.frequency_min		= 950000,
 		.frequency_max		= 2150000,
-		.frequency_stepsize	= 125,	 
+		.frequency_stepsize	= 125,	 /* kHz for QPSK frontends */
 		.frequency_tolerance	= 0,
 		.symbol_rate_min	= 1000000,
 		.symbol_rate_max	= 45000000,
-		.symbol_rate_tolerance	= 500,	
+		.symbol_rate_tolerance	= 500,	/* ppm */
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		      FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 |
 		      FE_CAN_QPSK |

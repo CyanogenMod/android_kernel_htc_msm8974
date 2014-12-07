@@ -37,6 +37,7 @@
 static const unsigned short normal_i2c[] = {
 	0x19, 0x2a, 0x2b, I2C_CLIENT_END };
 
+/* LM95241 registers */
 #define LM95241_REG_R_MAN_ID		0xFE
 #define LM95241_REG_R_CHIP_ID		0xFF
 #define LM95241_REG_R_STATUS		0x02
@@ -52,6 +53,7 @@ static const unsigned short normal_i2c[] = {
 #define LM95241_REG_R_REMOTE2_TEMPL	0x22
 #define LM95241_REG_RW_REMOTE_MODEL	0x30
 
+/* LM95241 specific bitfields */
 #define CFG_STOP 0x40
 #define CFG_CR0076 0x00
 #define CFG_CR0182 0x10
@@ -85,16 +87,18 @@ static const u8 lm95241_reg_address[] = {
 	LM95241_REG_R_REMOTE2_TEMPL
 };
 
+/* Client data (each client gets its own) */
 struct lm95241_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	unsigned long last_updated, interval;	
-	char valid;		
-	
+	unsigned long last_updated, interval;	/* in jiffies */
+	char valid;		/* zero until following fields are valid */
+	/* registers values */
 	u8 temp[ARRAY_SIZE(lm95241_reg_address)];
 	u8 config, model, trutherm;
 };
 
+/* Conversions */
 static int temp_from_reg_signed(u8 val_h, u8 val_l)
 {
 	s16 val_hl = (val_h << 8) | val_l;
@@ -132,6 +136,7 @@ static struct lm95241_data *lm95241_update_device(struct device *dev)
 	return data;
 }
 
+/* Sysfs stuff */
 static ssize_t show_input(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
@@ -329,6 +334,7 @@ static const struct attribute_group lm95241_group = {
 	.attrs = lm95241_attributes,
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int lm95241_detect(struct i2c_client *new_client,
 			  struct i2c_board_info *info)
 {
@@ -355,7 +361,7 @@ static int lm95241_detect(struct i2c_client *new_client,
 		return -ENODEV;
 	}
 
-	
+	/* Fill the i2c board info */
 	strlcpy(info->type, name, I2C_NAME_SIZE);
 	return 0;
 }
@@ -364,7 +370,7 @@ static void lm95241_init_client(struct i2c_client *client)
 {
 	struct lm95241_data *data = i2c_get_clientdata(client);
 
-	data->interval = HZ;	
+	data->interval = HZ;	/* 1 sec default */
 	data->valid = 0;
 	data->config = CFG_CR0076;
 	data->model = 0;
@@ -394,10 +400,10 @@ static int lm95241_probe(struct i2c_client *new_client,
 	i2c_set_clientdata(new_client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the LM95241 chip */
 	lm95241_init_client(new_client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&new_client->dev.kobj, &lm95241_group);
 	if (err)
 		goto exit_free;
@@ -429,6 +435,7 @@ static int lm95241_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* Driver data (common to all clients) */
 static const struct i2c_device_id lm95241_id[] = {
 	{ "lm95231", 0 },
 	{ "lm95241", 0 },

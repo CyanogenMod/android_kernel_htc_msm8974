@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011,2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,9 +21,10 @@ struct msm_buspm_map_dev {
 	size_t          buflen;
 };
 
+/* Read/write data into kernel buffer */
 struct buspm_xfer_req {
-	int size;		
-	void *data;		
+	unsigned int  size;		/* Size of this request, in bytes */
+	void *data;		/* Data buffer to transfer data to/from */
 };
 
 struct buspm_alloc_params {

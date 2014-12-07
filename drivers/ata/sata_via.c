@@ -48,6 +48,10 @@
 #define DRV_NAME	"sata_via"
 #define DRV_VERSION	"2.6"
 
+/*
+ * vt8251 is different from other sata controllers of VIA.  It has two
+ * channels, each channel has both Master and Slave slot.
+ */
 enum board_ids_enum {
 	vt6420,
 	vt6421,
@@ -55,11 +59,11 @@ enum board_ids_enum {
 };
 
 enum {
-	SATA_CHAN_ENAB		= 0x40, 
-	SATA_INT_GATE		= 0x41, 
-	SATA_NATIVE_MODE	= 0x42, 
-	PATA_UDMA_TIMING	= 0xB3, 
-	PATA_PIO_TIMING		= 0xAB, 
+	SATA_CHAN_ENAB		= 0x40, /* SATA channel enable */
+	SATA_INT_GATE		= 0x41, /* SATA interrupt gating */
+	SATA_NATIVE_MODE	= 0x42, /* Native mode enable */
+	PATA_UDMA_TIMING	= 0xB3, /* PATA timing for DMA/ cable detect */
+	PATA_PIO_TIMING		= 0xAB, /* PATA timing register */
 
 	PORT0			= (1 << 1),
 	PORT1			= (1 << 0),
@@ -67,7 +71,7 @@ enum {
 
 	NATIVE_MODE_ALL		= (1 << 7) | (1 << 6) | (1 << 5) | (1 << 4),
 
-	SATA_EXT_PHY		= (1 << 6), 
+	SATA_EXT_PHY		= (1 << 6), /* 0==use PATA, 1==ext phy */
 };
 
 static int svia_init_one(struct pci_dev *pdev, const struct pci_device_id *ent);
@@ -85,15 +89,15 @@ static void vt6421_set_dma_mode(struct ata_port *ap, struct ata_device *adev);
 
 static const struct pci_device_id svia_pci_tbl[] = {
 	{ PCI_VDEVICE(VIA, 0x5337), vt6420 },
-	{ PCI_VDEVICE(VIA, 0x0591), vt6420 }, 
-	{ PCI_VDEVICE(VIA, 0x3149), vt6420 }, 
-	{ PCI_VDEVICE(VIA, 0x3249), vt6421 }, 
+	{ PCI_VDEVICE(VIA, 0x0591), vt6420 }, /* 2 sata chnls (Master) */
+	{ PCI_VDEVICE(VIA, 0x3149), vt6420 }, /* 2 sata chnls (Master) */
+	{ PCI_VDEVICE(VIA, 0x3249), vt6421 }, /* 2 sata chnls, 1 pata chnl */
 	{ PCI_VDEVICE(VIA, 0x5372), vt6420 },
 	{ PCI_VDEVICE(VIA, 0x7372), vt6420 },
-	{ PCI_VDEVICE(VIA, 0x5287), vt8251 }, 
+	{ PCI_VDEVICE(VIA, 0x5287), vt8251 }, /* 2 sata chnls (Master/Slave) */
 	{ PCI_VDEVICE(VIA, 0x9000), vt8251 },
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver svia_pci_driver = {
@@ -162,7 +166,7 @@ static struct ata_port_info vt6421_sport_info = {
 static struct ata_port_info vt6421_pport_info = {
 	.flags		= ATA_FLAG_SLAVE_POSS,
 	.pio_mask	= ATA_PIO4,
-	
+	/* No MWDMA */
 	.udma_mask	= ATA_UDMA6,
 	.port_ops	= &vt6421_pata_ops,
 };
@@ -209,21 +213,21 @@ static int vt8251_scr_read(struct ata_link *link, unsigned int scr, u32 *val)
 	case SCR_STATUS:
 		pci_read_config_byte(pdev, 0xA0 + slot, &raw);
 
-		
+		/* read the DET field, bit0 and 1 of the config byte */
 		v |= raw & 0x03;
 
-		
+		/* read the SPD field, bit4 of the configure byte */
 		if (raw & (1 << 4))
 			v |= 0x02 << 4;
 		else
 			v |= 0x01 << 4;
 
-		
+		/* read the IPM field, bit2 and 3 of the config byte */
 		v |= ipm_tbl[(raw >> 2) & 0x3];
 		break;
 
 	case SCR_ERROR:
-		
+		/* devices other than 5287 uses 0xA8 as base */
 		WARN_ON(pdev->device != 0x5287);
 		pci_read_config_dword(pdev, 0xB0 + slot * 4, &v);
 		break;
@@ -231,10 +235,10 @@ static int vt8251_scr_read(struct ata_link *link, unsigned int scr, u32 *val)
 	case SCR_CONTROL:
 		pci_read_config_byte(pdev, 0xA4 + slot, &raw);
 
-		
+		/* read the DET field, bit0 and bit1 */
 		v |= ((raw & 0x02) << 1) | (raw & 0x01);
 
-		
+		/* read the IPM field, bit2 and bit3 */
 		v |= ((raw >> 2) & 0x03) << 8;
 		break;
 
@@ -254,16 +258,16 @@ static int vt8251_scr_write(struct ata_link *link, unsigned int scr, u32 val)
 
 	switch (scr) {
 	case SCR_ERROR:
-		
+		/* devices other than 5287 uses 0xA8 as base */
 		WARN_ON(pdev->device != 0x5287);
 		pci_write_config_dword(pdev, 0xB0 + slot * 4, val);
 		return 0;
 
 	case SCR_CONTROL:
-		
+		/* set the DET field */
 		v |= ((val & 0x4) >> 1) | (val & 0x1);
 
-		
+		/* set the IPM field */
 		v |= ((val >> 8) & 0x3) << 2;
 
 		pci_write_config_byte(pdev, 0xA4 + slot, v);
@@ -274,6 +278,17 @@ static int vt8251_scr_write(struct ata_link *link, unsigned int scr, u32 val)
 	}
 }
 
+/**
+ *	svia_tf_load - send taskfile registers to host controller
+ *	@ap: Port to which output is sent
+ *	@tf: ATA taskfile register set
+ *
+ *	Outputs ATA taskfile to standard ATA host controller.
+ *
+ *	This is to fix the internal bug of via chipsets, which will
+ *	reset the device register after changing the IEN bit on ctl
+ *	register.
+ */
 static void svia_tf_load(struct ata_port *ap, const struct ata_taskfile *tf)
 {
 	struct ata_taskfile ttf;
@@ -288,10 +303,33 @@ static void svia_tf_load(struct ata_port *ap, const struct ata_taskfile *tf)
 
 static void svia_noop_freeze(struct ata_port *ap)
 {
+	/* Some VIA controllers choke if ATA_NIEN is manipulated in
+	 * certain way.  Leave it alone and just clear pending IRQ.
+	 */
 	ap->ops->sff_check_status(ap);
 	ata_bmdma_irq_clear(ap);
 }
 
+/**
+ *	vt6420_prereset - prereset for vt6420
+ *	@link: target ATA link
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	SCR registers on vt6420 are pieces of shit and may hang the
+ *	whole machine completely if accessed with the wrong timing.
+ *	To avoid such catastrophe, vt6420 doesn't provide generic SCR
+ *	access operations, but uses SStatus and SControl only during
+ *	boot probing in controlled way.
+ *
+ *	As the old (pre EH update) probing code is proven to work, we
+ *	strictly follow the access pattern.
+ *
+ *	LOCKING:
+ *	Kernel thread context (may sleep)
+ *
+ *	RETURNS:
+ *	0 on success, -errno otherwise.
+ */
 static int vt6420_prereset(struct ata_link *link, unsigned long deadline)
 {
 	struct ata_port *ap = link->ap;
@@ -300,15 +338,15 @@ static int vt6420_prereset(struct ata_link *link, unsigned long deadline)
 	u32 sstatus, scontrol;
 	int online;
 
-	
+	/* don't do any SCR stuff if we're not loading */
 	if (!(ap->pflags & ATA_PFLAG_LOADING))
 		goto skip_scr;
 
-	
+	/* Resume phy.  This is the old SATA resume sequence */
 	svia_scr_write(link, SCR_CONTROL, 0x300);
-	svia_scr_read(link, SCR_CONTROL, &scontrol); 
+	svia_scr_read(link, SCR_CONTROL, &scontrol); /* flush */
 
-	
+	/* wait for phy to become ready, if necessary */
 	do {
 		ata_msleep(link->ap, 200);
 		svia_scr_read(link, SCR_STATUS, &sstatus);
@@ -316,7 +354,7 @@ static int vt6420_prereset(struct ata_link *link, unsigned long deadline)
 			break;
 	} while (time_before(jiffies, timeout));
 
-	
+	/* open code sata_print_link_status() */
 	svia_scr_read(link, SCR_STATUS, &sstatus);
 	svia_scr_read(link, SCR_CONTROL, &scontrol);
 
@@ -326,17 +364,17 @@ static int vt6420_prereset(struct ata_link *link, unsigned long deadline)
 		      "SATA link %s 1.5 Gbps (SStatus %X SControl %X)\n",
 		      online ? "up" : "down", sstatus, scontrol);
 
-	
+	/* SStatus is read one more time */
 	svia_scr_read(link, SCR_STATUS, &sstatus);
 
 	if (!online) {
-		
+		/* tell EH to bail */
 		ehc->i.action &= ~ATA_EH_RESET;
 		return 0;
 	}
 
  skip_scr:
-	
+	/* wait for !BSY */
 	ata_sff_wait_ready(link, deadline);
 
 	return 0;
@@ -347,7 +385,7 @@ static void vt6420_bmdma_start(struct ata_queued_cmd *qc)
 	struct ata_port *ap = qc->ap;
 	if ((qc->tf.command == ATA_CMD_PACKET) &&
 	    (qc->scsicmd->sc_data_direction == DMA_TO_DEVICE)) {
-		
+		/* Prevents corruption on some ATAPI burners */
 		ata_sff_pause(ap);
 	}
 	ata_bmdma_start(qc);
@@ -492,7 +530,7 @@ static int vt8251_prepare_host(struct pci_dev *pdev, struct ata_host **r_host)
 		return rc;
 	}
 
-	
+	/* 8251 hosts four sata ports as M/S of the two channels */
 	for (i = 0; i < host->n_ports; i++)
 		ata_slave_link_init(host->ports[i]);
 
@@ -507,7 +545,7 @@ static void svia_configure(struct pci_dev *pdev, int board_id)
 	dev_info(&pdev->dev, "routed to hard irq line %d\n",
 		 (int) (tmp8 & 0xf0) == 0xf0 ? 0 : tmp8 & 0x0f);
 
-	
+	/* make sure SATA channels are enabled */
 	pci_read_config_byte(pdev, SATA_CHAN_ENAB, &tmp8);
 	if ((tmp8 & ALL_PORTS) != ALL_PORTS) {
 		dev_dbg(&pdev->dev, "enabling SATA channels (0x%x)\n",
@@ -516,7 +554,7 @@ static void svia_configure(struct pci_dev *pdev, int board_id)
 		pci_write_config_byte(pdev, SATA_CHAN_ENAB, tmp8);
 	}
 
-	
+	/* make sure interrupts for each channel sent to us */
 	pci_read_config_byte(pdev, SATA_INT_GATE, &tmp8);
 	if ((tmp8 & ALL_PORTS) != ALL_PORTS) {
 		dev_dbg(&pdev->dev, "enabling SATA channel interrupts (0x%x)\n",
@@ -525,7 +563,7 @@ static void svia_configure(struct pci_dev *pdev, int board_id)
 		pci_write_config_byte(pdev, SATA_INT_GATE, tmp8);
 	}
 
-	
+	/* make sure native mode is enabled */
 	pci_read_config_byte(pdev, SATA_NATIVE_MODE, &tmp8);
 	if ((tmp8 & NATIVE_MODE_ALL) != NATIVE_MODE_ALL) {
 		dev_dbg(&pdev->dev,
@@ -535,6 +573,28 @@ static void svia_configure(struct pci_dev *pdev, int board_id)
 		pci_write_config_byte(pdev, SATA_NATIVE_MODE, tmp8);
 	}
 
+	/*
+	 * vt6420/1 has problems talking to some drives.  The following
+	 * is the fix from Joseph Chan <JosephChan@via.com.tw>.
+	 *
+	 * When host issues HOLD, device may send up to 20DW of data
+	 * before acknowledging it with HOLDA and the host should be
+	 * able to buffer them in FIFO.  Unfortunately, some WD drives
+	 * send up to 40DW before acknowledging HOLD and, in the
+	 * default configuration, this ends up overflowing vt6421's
+	 * FIFO, making the controller abort the transaction with
+	 * R_ERR.
+	 *
+	 * Rx52[2] is the internal 128DW FIFO Flow control watermark
+	 * adjusting mechanism enable bit and the default value 0
+	 * means host will issue HOLD to device when the left FIFO
+	 * size goes below 32DW.  Setting it to 1 makes the watermark
+	 * 64DW.
+	 *
+	 * https://bugzilla.kernel.org/show_bug.cgi?id=15173
+	 * http://article.gmane.org/gmane.linux.ide/46352
+	 * http://thread.gmane.org/gmane.linux.kernel/1062139
+	 */
 	if (board_id == vt6420 || board_id == vt6421) {
 		pci_read_config_byte(pdev, 0x52, &tmp8);
 		tmp8 |= 1 << 2;

@@ -23,6 +23,7 @@
 #include <linux/jiffies.h>
 #include <asm/xor.h>
 
+/* The xor routines to use.  */
 static struct xor_block_template *active_template;
 
 void
@@ -53,6 +54,7 @@ xor_blocks(unsigned int src_count, unsigned int bytes, void *dest, void **srcs)
 }
 EXPORT_SYMBOL(xor_blocks);
 
+/* Set of all registered templates.  */
 static struct xor_block_template *template_list;
 
 #define BENCH_SIZE (PAGE_SIZE)
@@ -67,12 +69,17 @@ do_xor_speed(struct xor_block_template *tmpl, void *b1, void *b2)
 	tmpl->next = template_list;
 	template_list = tmpl;
 
+	/*
+	 * Count the number of XORs done during a whole jiffy, and use
+	 * this to calculate the speed of checksumming.  We use a 2-page
+	 * allocation to have guaranteed color L1-cache layout.
+	 */
 	max = 0;
 	for (i = 0; i < 5; i++) {
 		now = jiffies;
 		count = 0;
 		while (jiffies == now) {
-			mb(); 
+			mb(); /* prevent loop optimzation */
 			tmpl->do_2(BENCH_SIZE, b1, b2);
 			mb();
 			count++;
@@ -95,6 +102,11 @@ calibrate_xor_blocks(void)
 	void *b1, *b2;
 	struct xor_block_template *f, *fastest;
 
+	/*
+	 * Note: Since the memory is not actually used for _anything_ but to
+	 * test the XOR speed, we don't really want kmemcheck to warn about
+	 * reading uninitialized bytes here.
+	 */
 	b1 = (void *) __get_free_pages(GFP_KERNEL | __GFP_NOTRACK, 2);
 	if (!b1) {
 		printk(KERN_WARNING "xor: Yikes!  No memory available.\n");
@@ -102,6 +114,10 @@ calibrate_xor_blocks(void)
 	}
 	b2 = b1 + 2*PAGE_SIZE + BENCH_SIZE;
 
+	/*
+	 * If this arch/cpu has a short-circuited selection, don't loop through
+	 * all the possible functions, just test the best one
+	 */
 
 	fastest = NULL;
 
@@ -140,5 +156,6 @@ static __exit void xor_exit(void) { }
 
 MODULE_LICENSE("GPL");
 
+/* when built-in xor.o must initialize before drivers/md/md.o */
 core_initcall(calibrate_xor_blocks);
 module_exit(xor_exit);

@@ -35,9 +35,9 @@
 
 #ifdef CONFIG_JFS_STATISTICS
 static struct {
-	uint	pagealloc;	
-	uint	pagefree;	
-	uint	lockwait;	
+	uint	pagealloc;	/* # of page allocations */
+	uint	pagefree;	/* # of page frees */
+	uint	lockwait;	/* # of sleeping lock_metapage() calls */
 } mpStat;
 #endif
 
@@ -67,6 +67,9 @@ static inline void __lock_metapage(struct metapage *mp)
 	remove_wait_queue(&mp->wait, &wait);
 }
 
+/*
+ * Must have mp->page locked
+ */
 static inline void lock_metapage(struct metapage *mp)
 {
 	if (trylock_metapage(mp))
@@ -99,7 +102,7 @@ static inline int insert_metapage(struct page *page, struct metapage *mp)
 {
 	struct meta_anchor *a;
 	int index;
-	int l2mp_blocks;	
+	int l2mp_blocks;	/* log2 blocks per metapage */
 
 	if (PagePrivate(page))
 		a = mp_anchor(page);
@@ -209,6 +212,9 @@ static inline void free_metapage(struct metapage *mp)
 
 int __init metapage_init(void)
 {
+	/*
+	 * Allocate the metapage structures
+	 */
 	metapage_cache = kmem_cache_create("jfs_mp", sizeof(struct metapage),
 					   0, 0, init_once);
 	if (metapage_cache == NULL)
@@ -241,6 +247,9 @@ static inline void drop_metapage(struct page *page, struct metapage *mp)
 	free_metapage(mp);
 }
 
+/*
+ * Metapage address space operations
+ */
 
 static sector_t metapage_get_blocks(struct inode *inode, sector_t lblock,
 				    int *len)
@@ -262,7 +271,7 @@ static sector_t metapage_get_blocks(struct inode *inode, sector_t lblock,
 			lblock = (sector_t)xaddr;
 		else
 			lblock = 0;
-	} 
+	} /* else no mapping */
 
 	return lblock;
 }
@@ -291,6 +300,10 @@ static void remove_from_logsync(struct metapage *mp)
 {
 	struct jfs_log *log = mp->log;
 	unsigned long flags;
+/*
+ * This can race.  Recheck that log hasn't been set to null, and after
+ * acquiring logsync lock, recheck lsn
+ */
 	if (!log)
 		return;
 
@@ -317,6 +330,10 @@ static void last_write_complete(struct page *page)
 				remove_from_logsync(mp);
 			clear_bit(META_io, &mp->flag);
 		}
+		/*
+		 * I'd like to call drop_metapage here, but I don't think it's
+		 * safe unless I have the page locked
+		 */
 	}
 	end_page_writeback(page);
 }
@@ -338,7 +355,7 @@ static void metapage_write_end_io(struct bio *bio, int err)
 static int metapage_writepage(struct page *page, struct writeback_control *wbc)
 {
 	struct bio *bio = NULL;
-	int block_offset;	
+	int block_offset;	/* block offset of mp within page */
 	struct inode *inode = page->mapping->host;
 	int blocks_per_mp = JFS_SBI(inode->i_sb)->nbperpage;
 	int len;
@@ -369,6 +386,10 @@ static int metapage_writepage(struct page *page, struct writeback_control *wbc)
 
 		if (mp->nohomeok && !test_bit(META_forcewrite, &mp->flag)) {
 			redirty = 1;
+			/*
+			 * Make sure this page isn't blocked indefinitely.
+			 * If the journal isn't undergoing I/O, push it
+			 */
 			if (mp->log && !(mp->log->cflag & logGC_PAGEOUT))
 				jfs_flush_journal(mp->log, 0);
 			continue;
@@ -380,16 +401,20 @@ static int metapage_writepage(struct page *page, struct writeback_control *wbc)
 		lblock = page_start + block_offset;
 		if (bio) {
 			if (xlen && lblock == next_block) {
-				
+				/* Contiguous, in memory & on disk */
 				len = min(xlen, blocks_per_mp);
 				xlen -= len;
 				bio_bytes += len << inode->i_blkbits;
 				continue;
 			}
-			
+			/* Not contiguous */
 			if (bio_add_page(bio, page, bio_bytes, bio_offset) <
 			    bio_bytes)
 				goto add_failed;
+			/*
+			 * Increment counter before submitting i/o to keep
+			 * count from hitting zero before we're through
+			 */
 			inc_io(page);
 			if (!bio->bi_size)
 				goto dump_bio;
@@ -402,6 +427,10 @@ static int metapage_writepage(struct page *page, struct writeback_control *wbc)
 		pblock = metapage_get_blocks(inode, lblock, &xlen);
 		if (!pblock) {
 			printk(KERN_ERR "JFS: metapage_get_blocks failed\n");
+			/*
+			 * We already called inc_io(), but can't cancel it
+			 * with dec_io() until we're done with the page
+			 */
 			bad_blocks++;
 			continue;
 		}
@@ -413,7 +442,7 @@ static int metapage_writepage(struct page *page, struct writeback_control *wbc)
 		bio->bi_end_io = metapage_write_end_io;
 		bio->bi_private = page;
 
-		
+		/* Don't call bio_add_page yet, we may add to this vec */
 		bio_offset = offset;
 		bio_bytes = len << inode->i_blkbits;
 
@@ -442,7 +471,7 @@ static int metapage_writepage(struct page *page, struct writeback_control *wbc)
 
 	return 0;
 add_failed:
-	
+	/* We should never reach here, since we're only adding one vec */
 	printk(KERN_ERR "JFS: bio_add_page failed unexpectedly\n");
 	goto skip;
 dump_bio:
@@ -464,7 +493,7 @@ static int metapage_readpage(struct file *fp, struct page *page)
 	struct bio *bio = NULL;
 	int block_offset;
 	int blocks_per_page = PAGE_CACHE_SIZE >> inode->i_blkbits;
-	sector_t page_start;	
+	sector_t page_start;	/* address of page in fs blocks */
 	sector_t pblock;
 	int xlen;
 	unsigned int len;
@@ -587,6 +616,11 @@ struct metapage *__get_metapage(struct inode *inode, unsigned long lblock,
 	if (absolute)
 		mapping = JFS_SBI(inode->i_sb)->direct_inode->i_mapping;
 	else {
+		/*
+		 * If an nfs client tries to read an inode that is larger
+		 * than any existing inodes, we may try to read past the
+		 * end of the inode map
+		 */
 		if ((lblock << inode->i_blkbits) >= inode->i_size)
 			return NULL;
 		mapping = inode->i_mapping;
@@ -694,7 +728,7 @@ void hold_metapage(struct metapage *mp)
 void put_metapage(struct metapage *mp)
 {
 	if (mp->count || mp->nohomeok) {
-		
+		/* Someone else will release this */
 		unlock_page(mp->page);
 		return;
 	}
@@ -727,12 +761,12 @@ void release_metapage(struct metapage * mp)
 		if (test_bit(META_sync, &mp->flag)) {
 			clear_bit(META_sync, &mp->flag);
 			write_one_page(page, 1);
-			lock_page(page); 
+			lock_page(page); /* write_one_page unlocks the page */
 		}
-	} else if (mp->lsn)	
+	} else if (mp->lsn)	/* discard_metapage doesn't remove it */
 		remove_from_logsync(mp);
 
-	
+	/* Try to keep metapages from using up too much memory */
 	drop_metapage(page, mp);
 
 	unlock_page(page);
@@ -744,7 +778,7 @@ void __invalidate_metapages(struct inode *ip, s64 addr, int len)
 	sector_t lblock;
 	int l2BlocksPerPage = PAGE_CACHE_SHIFT - ip->i_blkbits;
 	int BlocksPerPage = 1 << l2BlocksPerPage;
-	
+	/* All callers are interested in block device's mapping */
 	struct address_space *mapping =
 		JFS_SBI(ip->i_sb)->direct_inode->i_mapping;
 	struct metapage *mp;

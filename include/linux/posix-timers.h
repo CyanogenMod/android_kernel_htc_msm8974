@@ -19,6 +19,17 @@ struct cpu_timer_list {
 	int firing;
 };
 
+/*
+ * Bit fields within a clockid:
+ *
+ * The most significant 29 bits hold either a pid or a file descriptor.
+ *
+ * Bit 2 indicates whether a cpu clock refers to a thread or a process.
+ *
+ * Bits 1 and 0 give the type: PROF=0, VIRT=1, SCHED=2, or FD=3.
+ *
+ * A clockid is invalid if bits 2, 1, and 0 are all set.
+ */
 #define CPUCLOCK_PID(clock)		((pid_t) ~((clock) >> 3))
 #define CPUCLOCK_PERTHREAD(clock) \
 	(((clock) & (clockid_t) CPUCLOCK_PERTHREAD_MASK) != 0)
@@ -41,22 +52,23 @@ struct cpu_timer_list {
 #define FD_TO_CLOCKID(fd)	((~(clockid_t) (fd) << 3) | CLOCKFD)
 #define CLOCKID_TO_FD(clk)	((unsigned int) ~((clk) >> 3))
 
+/* POSIX.1b interval timer structure. */
 struct k_itimer {
-	struct list_head list;		
+	struct list_head list;		/* free/ allocate list */
 	spinlock_t it_lock;
-	clockid_t it_clock;		
-	timer_t it_id;			
-	int it_overrun;			
-	int it_overrun_last;		
-	int it_requeue_pending;		
+	clockid_t it_clock;		/* which timer type */
+	timer_t it_id;			/* timer id */
+	int it_overrun;			/* overrun on pending signal  */
+	int it_overrun_last;		/* overrun on last delivered signal */
+	int it_requeue_pending;		/* waiting to requeue this timer */
 #define REQUEUE_PENDING 1
-	int it_sigev_notify;		
+	int it_sigev_notify;		/* notify word of sigevent struct */
 	struct signal_struct *it_signal;
 	union {
-		struct pid *it_pid;	
-		struct task_struct *it_process;	
+		struct pid *it_pid;	/* pid of process to send signal to */
+		struct task_struct *it_process;	/* for clock_nanosleep */
 	};
-	struct sigqueue *sigq;		
+	struct sigqueue *sigq;		/* signal queue entry. */
 	union {
 		struct {
 			struct hrtimer timer;
@@ -101,6 +113,7 @@ extern struct k_clock clock_posix_dynamic;
 
 void posix_timers_register_clock(const clockid_t clock_id, struct k_clock *new_clock);
 
+/* function to call to trigger timer event */
 int posix_timer_event(struct k_itimer *timr, int si_private);
 
 void posix_cpu_timer_schedule(struct k_itimer *timer);

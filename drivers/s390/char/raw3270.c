@@ -30,6 +30,7 @@
 
 static struct class *class3270;
 
+/* The main 3270 data structure. */
 struct raw3270 {
 	struct list_head list;
 	struct ccw_device *cdev;
@@ -38,38 +39,53 @@ struct raw3270 {
 	short model, rows, cols;
 	unsigned long flags;
 
-	struct list_head req_queue;	
-	struct list_head view_list;	
-	struct raw3270_view *view;	
+	struct list_head req_queue;	/* Request queue. */
+	struct list_head view_list;	/* List of available views. */
+	struct raw3270_view *view;	/* Active view. */
 
-	struct timer_list timer;	
+	struct timer_list timer;	/* Device timer. */
 
-	unsigned char *ascebc;		
-	struct device *clttydev;	
-	struct device *cltubdev;	
+	unsigned char *ascebc;		/* ascii -> ebcdic table */
+	struct device *clttydev;	/* 3270-class tty device ptr */
+	struct device *cltubdev;	/* 3270-class tub device ptr */
 
 	struct raw3270_request init_request;
 	unsigned char init_data[256];
 };
 
-#define RAW3270_FLAGS_14BITADDR	0	
-#define RAW3270_FLAGS_BUSY	1	
-#define RAW3270_FLAGS_ATTN	2	
-#define RAW3270_FLAGS_READY	4	
-#define RAW3270_FLAGS_CONSOLE	8	
-#define RAW3270_FLAGS_FROZEN	16	
+/* raw3270->flags */
+#define RAW3270_FLAGS_14BITADDR	0	/* 14-bit buffer addresses */
+#define RAW3270_FLAGS_BUSY	1	/* Device busy, leave it alone */
+#define RAW3270_FLAGS_ATTN	2	/* Device sent an ATTN interrupt */
+#define RAW3270_FLAGS_READY	4	/* Device is useable by views */
+#define RAW3270_FLAGS_CONSOLE	8	/* Device is the console. */
+#define RAW3270_FLAGS_FROZEN	16	/* set if 3270 is frozen for suspend */
 
+/* Semaphore to protect global data of raw3270 (devices, views, etc). */
 static DEFINE_MUTEX(raw3270_mutex);
 
+/* List of 3270 devices. */
 static LIST_HEAD(raw3270_devices);
 
+/*
+ * Flag to indicate if the driver has been registered. Some operations
+ * like waiting for the end of i/o need to be done differently as long
+ * as the kernel is still starting up (console support).
+ */
 static int raw3270_registered;
 
+/* Module parameters */
 static bool tubxcorrect = 0;
 module_param(tubxcorrect, bool, 0);
 
+/*
+ * Wait queue for device init/delete, view delete.
+ */
 DECLARE_WAIT_QUEUE_HEAD(raw3270_wait_queue);
 
+/*
+ * Encode array for 12 bit 3270 addresses.
+ */
 static unsigned char raw3270_ebcgraf[64] =	{
 	0x40, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
 	0xc8, 0xc9, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
@@ -93,17 +109,20 @@ raw3270_buffer_address(struct raw3270 *rp, char *cp, unsigned short addr)
 	}
 }
 
+/*
+ * Allocate a new 3270 ccw request
+ */
 struct raw3270_request *
 raw3270_request_alloc(size_t size)
 {
 	struct raw3270_request *rq;
 
-	
+	/* Allocate request structure */
 	rq = kzalloc(sizeof(struct raw3270_request), GFP_KERNEL | GFP_DMA);
 	if (!rq)
 		return ERR_PTR(-ENOMEM);
 
-	
+	/* alloc output buffer. */
 	if (size > 0) {
 		rq->buffer = kmalloc(size, GFP_KERNEL | GFP_DMA);
 		if (!rq->buffer) {
@@ -114,12 +133,18 @@ raw3270_request_alloc(size_t size)
 	rq->size = size;
 	INIT_LIST_HEAD(&rq->list);
 
+	/*
+	 * Setup ccw.
+	 */
 	rq->ccw.cda = __pa(rq->buffer);
 	rq->ccw.flags = CCW_FLAG_SLI;
 
 	return rq;
 }
 
+/*
+ * Free 3270 ccw request
+ */
 void
 raw3270_request_free (struct raw3270_request *rq)
 {
@@ -127,6 +152,9 @@ raw3270_request_free (struct raw3270_request *rq)
 	kfree(rq);
 }
 
+/*
+ * Reset request to initial state.
+ */
 void
 raw3270_request_reset(struct raw3270_request *rq)
 {
@@ -139,12 +167,18 @@ raw3270_request_reset(struct raw3270_request *rq)
 	rq->rc = 0;
 }
 
+/*
+ * Set command code to ccw of a request.
+ */
 void
 raw3270_request_set_cmd(struct raw3270_request *rq, u8 cmd)
 {
 	rq->ccw.cmd_code = cmd;
 }
 
+/*
+ * Add data fragment to output buffer.
+ */
 int
 raw3270_request_add_data(struct raw3270_request *rq, void *data, size_t size)
 {
@@ -155,6 +189,9 @@ raw3270_request_add_data(struct raw3270_request *rq, void *data, size_t size)
 	return 0;
 }
 
+/*
+ * Set address/length pair to ccw of a request.
+ */
 void
 raw3270_request_set_data(struct raw3270_request *rq, void *data, size_t size)
 {
@@ -162,6 +199,9 @@ raw3270_request_set_data(struct raw3270_request *rq, void *data, size_t size)
 	rq->ccw.count = size;
 }
 
+/*
+ * Set idal buffer to ccw of a request.
+ */
 void
 raw3270_request_set_idal(struct raw3270_request *rq, struct idal_buffer *ib)
 {
@@ -170,6 +210,9 @@ raw3270_request_set_idal(struct raw3270_request *rq, struct idal_buffer *ib)
 	rq->ccw.flags |= CCW_FLAG_IDA;
 }
 
+/*
+ * Stop running ccw.
+ */
 static int
 raw3270_halt_io_nolock(struct raw3270 *rp, struct raw3270_request *rq)
 {
@@ -178,14 +221,14 @@ raw3270_halt_io_nolock(struct raw3270 *rp, struct raw3270_request *rq)
 
 	if (raw3270_request_final(rq))
 		return 0;
-	
+	/* Check if interrupt has already been processed */
 	for (retries = 0; retries < 5; retries++) {
 		if (retries < 2)
 			rc = ccw_device_halt(rp->cdev, (long) rq);
 		else
 			rc = ccw_device_clear(rp->cdev, (long) rq);
 		if (rc == 0)
-			break;		
+			break;		/* termination successful */
 	}
 	return rc;
 }
@@ -202,6 +245,10 @@ raw3270_halt_io(struct raw3270 *rp, struct raw3270_request *rq)
 	return rc;
 }
 
+/*
+ * Add the request to the request queue, try to start it if the
+ * 3270 device is idle. Return without waiting for end of i/o.
+ */
 static int
 __raw3270_start(struct raw3270 *rp, struct raw3270_view *view,
 		struct raw3270_request *rq)
@@ -210,7 +257,7 @@ __raw3270_start(struct raw3270 *rp, struct raw3270_view *view,
 	raw3270_get_view(view);
 	if (list_empty(&rp->req_queue) &&
 	    !test_bit(RAW3270_FLAGS_BUSY, &rp->flags)) {
-		
+		/* No other requests are on the queue. Start this one. */
 		rq->rc = ccw_device_start(rp->cdev, &rq->ccw,
 					       (unsigned long) rq, 0, 0);
 		if (rq->rc) {
@@ -271,6 +318,9 @@ raw3270_start_irq(struct raw3270_view *view, struct raw3270_request *rq)
 	return 0;
 }
 
+/*
+ * 3270 interrupt routine, called from the ccw_device layer
+ */
 static void
 raw3270_irq (struct ccw_device *cdev, unsigned long intparm, struct irb *irb)
 {
@@ -292,14 +342,14 @@ raw3270_irq (struct ccw_device *cdev, unsigned long intparm, struct irb *irb)
 		rc = RAW3270_IO_DONE;
 	} else if (irb->scsw.cmd.dstat == (DEV_STAT_CHN_END | DEV_STAT_DEV_END |
 					   DEV_STAT_UNIT_EXCEP)) {
-		
+		/* Handle CE-DE-UE and subsequent UDE */
 		set_bit(RAW3270_FLAGS_BUSY, &rp->flags);
 		rc = RAW3270_IO_BUSY;
 	} else if (test_bit(RAW3270_FLAGS_BUSY, &rp->flags)) {
-		
+		/* Wait for UDE if busy flag is set. */
 		if (irb->scsw.cmd.dstat & DEV_STAT_DEV_END) {
 			clear_bit(RAW3270_FLAGS_BUSY, &rp->flags);
-			
+			/* Got it, now retry. */
 			rc = RAW3270_IO_RETRY;
 		} else
 			rc = RAW3270_IO_BUSY;
@@ -312,6 +362,10 @@ raw3270_irq (struct ccw_device *cdev, unsigned long intparm, struct irb *irb)
 	case RAW3270_IO_DONE:
 		break;
 	case RAW3270_IO_BUSY:
+		/* 
+		 * Intervention required by the operator. We have to wait
+		 * for unsolicited device end.
+		 */
 		return;
 	case RAW3270_IO_RETRY:
 		if (!rq)
@@ -319,7 +373,7 @@ raw3270_irq (struct ccw_device *cdev, unsigned long intparm, struct irb *irb)
 		rq->rc = ccw_device_start(rp->cdev, &rq->ccw,
 					  (unsigned long) rq, 0, 0);
 		if (rq->rc == 0)
-			return;	
+			return;	/* Successfully restarted. */
 		break;
 	case RAW3270_IO_STOP:
 		if (!rq)
@@ -332,57 +386,64 @@ raw3270_irq (struct ccw_device *cdev, unsigned long intparm, struct irb *irb)
 	}
 	if (rq) {
 		BUG_ON(list_empty(&rq->list));
-		
+		/* The request completed, remove from queue and do callback. */
 		list_del_init(&rq->list);
 		if (rq->callback)
 			rq->callback(rq, rq->callback_data);
-		
+		/* Do put_device for get_device in raw3270_start. */
 		raw3270_put_view(view);
 	}
+	/*
+	 * Try to start each request on request queue until one is
+	 * started successful.
+	 */
 	while (!list_empty(&rp->req_queue)) {
 		rq = list_entry(rp->req_queue.next,struct raw3270_request,list);
 		rq->rc = ccw_device_start(rp->cdev, &rq->ccw,
 					  (unsigned long) rq, 0, 0);
 		if (rq->rc == 0)
 			break;
-		
+		/* Start failed. Remove request and do callback. */
 		list_del_init(&rq->list);
 		if (rq->callback)
 			rq->callback(rq, rq->callback_data);
-		
+		/* Do put_device for get_device in raw3270_start. */
 		raw3270_put_view(view);
 	}
 }
 
+/*
+ * Size sensing.
+ */
 
-struct raw3270_ua {	
-	struct {	
-		short l;	
-		char  sfid;	
-		char  qcode;	
+struct raw3270_ua {	/* Query Reply structure for Usable Area */
+	struct {	/* Usable Area Query Reply Base */
+		short l;	/* Length of this structured field */
+		char  sfid;	/* 0x81 if Query Reply */
+		char  qcode;	/* 0x81 if Usable Area */
 		char  flags0;
 		char  flags1;
-		short w;	
-		short h;	
-		char  units;	
+		short w;	/* Width of usable area */
+		short h;	/* Heigth of usavle area */
+		char  units;	/* 0x00:in; 0x01:mm */
 		int   xr;
 		int   yr;
 		char  aw;
 		char  ah;
-		short buffsz;	
+		short buffsz;	/* Character buffer size, bytes */
 		char  xmin;
 		char  ymin;
 		char  xmax;
 		char  ymax;
 	} __attribute__ ((packed)) uab;
-	struct {	
-		char  l;	
-		char  sdpid;	
+	struct {	/* Alternate Usable Area Self-Defining Parameter */
+		char  l;	/* Length of this Self-Defining Parm */
+		char  sdpid;	/* 0x02 if Alternate Usable Area */
 		char  res;
-		char  auaid;	
-		short wauai;	
-		short hauai;	
-		char  auaunits;	
+		char  auaid;	/* 0x01 is Id for the A U A */
+		short wauai;	/* Width of AUAi */
+		short hauai;	/* Height of AUAi */
+		char  auaunits;	/* 0x00:in, 0x01:mm */
 		int   auaxr;
 		int   auayr;
 		char  awauai;
@@ -397,8 +458,12 @@ static int
 raw3270_init_irq(struct raw3270_view *view, struct raw3270_request *rq,
 		 struct irb *irb)
 {
+	/*
+	 * Unit-Check Processing:
+	 * Expect Command Reject or Intervention Required.
+	 */
 	if (irb->scsw.cmd.dstat & DEV_STAT_UNIT_CHECK) {
-		
+		/* Request finished abnormally. */
 		if (irb->ecw[0] & SNS0_INTERVENTION_REQ) {
 			set_bit(RAW3270_FLAGS_BUSY, &view->dev->flags);
 			return RAW3270_IO_BUSY;
@@ -411,7 +476,7 @@ raw3270_init_irq(struct raw3270_view *view, struct raw3270_request *rq,
 			else
 				rq->rc = -EIO;
 		} else
-			
+			/* Request finished normally. Copy residual count. */
 			rq->rescnt = irb->scsw.cmd.count;
 	}
 	if (irb->scsw.cmd.dstat & DEV_STAT_ATTENTION) {
@@ -429,12 +494,21 @@ static struct raw3270_view raw3270_init_view = {
 	.fn = &raw3270_init_fn
 };
 
+/*
+ * raw3270_wait/raw3270_wait_interruptible/__raw3270_wakeup
+ * Wait for end of request. The request must have been started
+ * with raw3270_start, rc = 0. The device lock may NOT have been
+ * released between calling raw3270_start and raw3270_wait.
+ */
 static void
 raw3270_wake_init(struct raw3270_request *rq, void *data)
 {
 	wake_up((wait_queue_head_t *) data);
 }
 
+/*
+ * Special wait function that can cope with console initialization.
+ */
 static int
 raw3270_start_init(struct raw3270 *rp, struct raw3270_view *view,
 		   struct raw3270_request *rq)
@@ -463,12 +537,12 @@ raw3270_start_init(struct raw3270 *rp, struct raw3270_view *view,
 	spin_unlock_irqrestore(get_ccwdev_lock(view->dev->cdev), flags);
 	if (rc)
 		return rc;
-	
+	/* Now wait for the completion. */
 	rc = wait_event_interruptible(raw3270_wait_queue,
 				      raw3270_request_final(rq));
-	if (rc == -ERESTARTSYS) {	
+	if (rc == -ERESTARTSYS) {	/* Interrupted by a signal. */
 		raw3270_halt_io(view->dev, rq);
-		
+		/* No wait for the halt to complete. */
 		wait_event(raw3270_wait_queue, raw3270_request_final(rq));
 		return -ERESTARTSYS;
 	}
@@ -524,9 +598,18 @@ __raw3270_size_device(struct raw3270 *rp)
 	struct raw3270_ua *uap;
 	int rc;
 
+	/*
+	 * To determine the size of the 3270 device we need to do:
+	 * 1) send a 'read partition' data stream to the device
+	 * 2) wait for the attn interrupt that precedes the query reply
+	 * 3) do a read modified to get the query reply
+	 * To make things worse we have to cope with intervention
+	 * required (3270 device switched to 'stand-by') and command
+	 * rejects (old devices that can't do 'read partition').
+	 */
 	memset(&rp->init_request, 0, sizeof(rp->init_request));
 	memset(&rp->init_data, 0, 256);
-	
+	/* Store 'read partition' data stream to init_data */
 	memcpy(&rp->init_data, wbuf, sizeof(wbuf));
 	INIT_LIST_HEAD(&rp->init_request.list);
 	rp->init_request.ccw.cmd_code = TC_WRITESF;
@@ -536,10 +619,10 @@ __raw3270_size_device(struct raw3270 *rp)
 
 	rc = raw3270_start_init(rp, &raw3270_init_view, &rp->init_request);
 	if (rc)
-		
+		/* Check error cases: -ERESTARTSYS, -EIO and -EOPNOTSUPP */
 		return rc;
 
-	
+	/* Wait for attention interrupt. */
 #ifdef CONFIG_TN3270_CONSOLE
 	if (raw3270_registered == 0) {
 		unsigned long flags;
@@ -555,6 +638,10 @@ __raw3270_size_device(struct raw3270 *rp)
 	if (rc)
 		return rc;
 
+	/*
+	 * The device accepted the 'read partition' command. Now
+	 * set up a read ccw and issue it.
+	 */
 	rp->init_request.ccw.cmd_code = TC_READMOD;
 	rp->init_request.ccw.flags = CCW_FLAG_SLI;
 	rp->init_request.ccw.count = sizeof(rp->init_data);
@@ -562,18 +649,18 @@ __raw3270_size_device(struct raw3270 *rp)
 	rc = raw3270_start_init(rp, &raw3270_init_view, &rp->init_request);
 	if (rc)
 		return rc;
-	
+	/* Got a Query Reply */
 	uap = (struct raw3270_ua *) (rp->init_data + 1);
-	
+	/* Paranoia check. */
 	if (rp->init_data[0] != 0x88 || uap->uab.qcode != 0x81)
 		return -EOPNOTSUPP;
-	
+	/* Copy rows/columns of default Usable Area */
 	rp->rows = uap->uab.h;
 	rp->cols = uap->uab.w;
-	
+	/* Check for 14 bit addressing */
 	if ((uap->uab.flags0 & 0x0d) == 0x01)
 		set_bit(RAW3270_FLAGS_14BITADDR, &rp->flags);
-	
+	/* Check for Alternate Usable Area */
 	if (uap->uab.l == sizeof(struct raw3270_ua) &&
 	    uap->aua.sdpid == 0x02) {
 		rp->rows = uap->aua.hauai;
@@ -597,8 +684,8 @@ raw3270_size_device(struct raw3270 *rp)
 	raw3270_init_view.dev = NULL;
 	rp->view = NULL;
 	mutex_unlock(&raw3270_init_mutex);
-	if (rc == 0) {	
-		
+	if (rc == 0) {	/* Found something. */
+		/* Try to find a model. */
 		rp->model = 0;
 		if (rp->rows == 24 && rp->cols == 80)
 			rp->model = 2;
@@ -609,7 +696,7 @@ raw3270_size_device(struct raw3270 *rp)
 		if (rp->rows == 27 && rp->cols == 132)
 			rp->model = 5;
 	} else {
-		
+		/* Couldn't detect size. Use default model 2. */
 		rp->model = 2;
 		rp->rows = 24;
 		rp->cols = 80;
@@ -626,7 +713,7 @@ raw3270_reset_device(struct raw3270 *rp)
 	mutex_lock(&raw3270_init_mutex);
 	memset(&rp->init_request, 0, sizeof(rp->init_request));
 	memset(&rp->init_data, 0, sizeof(rp->init_data));
-	
+	/* Store reset data stream to init_data/init_request */
 	rp->init_data[0] = TW_KR;
 	INIT_LIST_HEAD(&rp->init_request.list);
 	rp->init_request.ccw.cmd_code = TC_EWRITEA;
@@ -659,6 +746,9 @@ raw3270_reset(struct raw3270_view *view)
 	return rc;
 }
 
+/*
+ * Setup new 3270 device.
+ */
 static int
 raw3270_setup_device(struct ccw_device *cdev, struct raw3270 *rp, char *ascebc)
 {
@@ -667,25 +757,30 @@ raw3270_setup_device(struct ccw_device *cdev, struct raw3270 *rp, char *ascebc)
 	int minor;
 
 	memset(rp, 0, sizeof(struct raw3270));
-	
+	/* Copy ebcdic -> ascii translation table. */
 	memcpy(ascebc, _ascebc, 256);
 	if (tubxcorrect) {
-		
+		/* correct brackets and circumflex */
 		ascebc['['] = 0xad;
 		ascebc[']'] = 0xbd;
 		ascebc['^'] = 0xb0;
 	}
 	rp->ascebc = ascebc;
 
-	
+	/* Set defaults. */
 	rp->rows = 24;
 	rp->cols = 80;
 
 	INIT_LIST_HEAD(&rp->req_queue);
 	INIT_LIST_HEAD(&rp->view_list);
 
+	/*
+	 * Add device to list and find the smallest unused minor
+	 * number for it. Note: there is no device with minor 0,
+	 * see special case for fs3270.c:fs3270_open().
+	 */
 	mutex_lock(&raw3270_mutex);
-	
+	/* Keep the list sorted. */
 	minor = RAW3270_FIRSTMINOR;
 	rp->minor = -1;
 	list_for_each(l, &raw3270_devices) {
@@ -702,7 +797,7 @@ raw3270_setup_device(struct ccw_device *cdev, struct raw3270 *rp, char *ascebc)
 		list_add_tail(&rp->list, &raw3270_devices);
 	}
 	mutex_unlock(&raw3270_mutex);
-	
+	/* No free minor number? Then give up. */
 	if (rp->minor == -1)
 		return -EUSERS;
 	rp->cdev = cdev;
@@ -712,6 +807,9 @@ raw3270_setup_device(struct ccw_device *cdev, struct raw3270 *rp, char *ascebc)
 }
 
 #ifdef CONFIG_TN3270_CONSOLE
+/*
+ * Setup 3270 device configured as console.
+ */
 struct raw3270 __init *raw3270_setup_console(struct ccw_device *cdev)
 {
 	struct raw3270 *rp;
@@ -749,6 +847,9 @@ raw3270_wait_cons_dev(struct raw3270 *rp)
 
 #endif
 
+/*
+ * Create a 3270 device structure.
+ */
 static struct raw3270 *
 raw3270_create_device(struct ccw_device *cdev)
 {
@@ -770,11 +871,14 @@ raw3270_create_device(struct ccw_device *cdev)
 		kfree(rp);
 		rp = ERR_PTR(rc);
 	}
-	
+	/* Get reference to ccw_device structure. */
 	get_device(&cdev->dev);
 	return rp;
 }
 
+/*
+ * Activate a view.
+ */
 int
 raw3270_activate_view(struct raw3270_view *view)
 {
@@ -802,10 +906,10 @@ raw3270_activate_view(struct raw3270_view *view)
 		rp->view = view;
 		rc = view->fn->activate(view);
 		if (rc) {
-			
+			/* Didn't work. Try to reactivate the old view. */
 			rp->view = oldview;
 			if (!oldview || oldview->fn->activate(oldview) != 0) {
-				
+				/* Didn't work as well. Try any other view. */
 				list_for_each_entry(nv, &rp->view_list, list)
 					if (nv != view && nv != oldview) {
 						rp->view = nv;
@@ -820,6 +924,9 @@ raw3270_activate_view(struct raw3270_view *view)
 	return rc;
 }
 
+/*
+ * Deactivate current view.
+ */
 void
 raw3270_deactivate_view(struct raw3270_view *view)
 {
@@ -833,10 +940,10 @@ raw3270_deactivate_view(struct raw3270_view *view)
 	if (rp->view == view) {
 		view->fn->deactivate(view);
 		rp->view = NULL;
-		
+		/* Move deactivated view to end of list. */
 		list_del_init(&view->list);
 		list_add_tail(&view->list, &rp->view_list);
-		
+		/* Try to activate another view. */
 		if (test_bit(RAW3270_FLAGS_READY, &rp->flags) &&
 		    !test_bit(RAW3270_FLAGS_FROZEN, &rp->flags)) {
 			list_for_each_entry(view, &rp->view_list, list) {
@@ -850,6 +957,9 @@ raw3270_deactivate_view(struct raw3270_view *view)
 	spin_unlock_irqrestore(get_ccwdev_lock(rp->cdev), flags);
 }
 
+/*
+ * Add view to device with minor "minor".
+ */
 int
 raw3270_add_view(struct raw3270_view *view, struct raw3270_fn *fn, int minor)
 {
@@ -884,6 +994,9 @@ raw3270_add_view(struct raw3270_view *view, struct raw3270_fn *fn, int minor)
 	return rc;
 }
 
+/*
+ * Find specific view of device with minor "minor".
+ */
 struct raw3270_view *
 raw3270_find_view(struct raw3270_fn *fn, int minor)
 {
@@ -914,6 +1027,9 @@ raw3270_find_view(struct raw3270_fn *fn, int minor)
 	return view;
 }
 
+/*
+ * Remove view from device and free view structure via call to view->fn->free.
+ */
 void
 raw3270_del_view(struct raw3270_view *view)
 {
@@ -930,7 +1046,7 @@ raw3270_del_view(struct raw3270_view *view)
 	list_del_init(&view->list);
 	if (!rp->view && test_bit(RAW3270_FLAGS_READY, &rp->flags) &&
 	    !test_bit(RAW3270_FLAGS_FROZEN, &rp->flags)) {
-		
+		/* Try to activate another view. */
 		list_for_each_entry(nv, &rp->view_list, list) {
 			if (nv->fn->activate(nv) == 0) {
 				rp->view = nv;
@@ -939,19 +1055,22 @@ raw3270_del_view(struct raw3270_view *view)
 		}
 	}
 	spin_unlock_irqrestore(get_ccwdev_lock(rp->cdev), flags);
-	
+	/* Wait for reference counter to drop to zero. */
 	atomic_dec(&view->ref_count);
 	wait_event(raw3270_wait_queue, atomic_read(&view->ref_count) == 0);
 	if (view->fn->free)
 		view->fn->free(view);
 }
 
+/*
+ * Remove a 3270 device structure.
+ */
 static void
 raw3270_delete_device(struct raw3270 *rp)
 {
 	struct ccw_device *cdev;
 
-	
+	/* Remove from device chain. */
 	mutex_lock(&raw3270_mutex);
 	if (rp->clttydev && !IS_ERR(rp->clttydev))
 		device_destroy(class3270, MKDEV(IBM_TTY3270_MAJOR, rp->minor));
@@ -960,16 +1079,16 @@ raw3270_delete_device(struct raw3270 *rp)
 	list_del_init(&rp->list);
 	mutex_unlock(&raw3270_mutex);
 
-	
+	/* Disconnect from ccw_device. */
 	cdev = rp->cdev;
 	rp->cdev = NULL;
 	dev_set_drvdata(&cdev->dev, NULL);
 	cdev->handler = NULL;
 
-	
+	/* Put ccw_device structure. */
 	put_device(&cdev->dev);
 
-	
+	/* Now free raw3270 structure. */
 	kfree(rp->ascebc);
 	kfree(rp);
 }
@@ -980,6 +1099,9 @@ raw3270_probe (struct ccw_device *cdev)
 	return 0;
 }
 
+/*
+ * Additional attributes for a 3270 device
+ */
 static ssize_t
 raw3270_model_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1046,6 +1168,9 @@ out:
 	return rc;
 }
 
+/*
+ * Notifier for device addition/removal
+ */
 struct raw3270_notifier {
 	struct list_head list;
 	void (*notifier)(int, int);
@@ -1086,6 +1211,9 @@ void raw3270_unregister_notifier(void (*notifier)(int, int))
 	mutex_unlock(&raw3270_mutex);
 }
 
+/*
+ * Set 3270 device online.
+ */
 static int
 raw3270_set_online (struct ccw_device *cdev)
 {
@@ -1120,6 +1248,9 @@ failure:
 	return rc;
 }
 
+/*
+ * Remove 3270 device structure.
+ */
 static void
 raw3270_remove (struct ccw_device *cdev)
 {
@@ -1129,13 +1260,19 @@ raw3270_remove (struct ccw_device *cdev)
 	struct raw3270_notifier *np;
 
 	rp = dev_get_drvdata(&cdev->dev);
+	/*
+	 * _remove is the opposite of _probe; it's probe that
+	 * should set up rp.  raw3270_remove gets entered for
+	 * devices even if they haven't been varied online.
+	 * Thus, rp may validly be NULL here.
+	 */
 	if (rp == NULL)
 		return;
 	clear_bit(RAW3270_FLAGS_READY, &rp->flags);
 
 	sysfs_remove_group(&cdev->dev.kobj, &raw3270_attr_group);
 
-	
+	/* Deactivate current view and remove all views. */
 	spin_lock_irqsave(get_ccwdev_lock(cdev), flags);
 	if (rp->view) {
 		rp->view->fn->deactivate(rp->view);
@@ -1156,12 +1293,15 @@ raw3270_remove (struct ccw_device *cdev)
 		np->notifier(rp->minor, 0);
 	mutex_unlock(&raw3270_mutex);
 
-	
+	/* Reset 3270 device. */
 	raw3270_reset_device(rp);
-	
+	/* And finally remove it. */
 	raw3270_delete_device(rp);
 }
 
+/*
+ * Set 3270 device offline.
+ */
 static int
 raw3270_set_offline (struct ccw_device *cdev)
 {
@@ -1187,6 +1327,10 @@ static int raw3270_pm_stop(struct ccw_device *cdev)
 	if (rp->view)
 		rp->view->fn->deactivate(rp->view);
 	if (!test_bit(RAW3270_FLAGS_CONSOLE, &rp->flags)) {
+		/*
+		 * Release tty and fullscreen for all non-console
+		 * devices.
+		 */
 		list_for_each_entry(view, &rp->view_list, list) {
 			if (view->fn->release)
 				view->fn->release(view);
@@ -1236,7 +1380,7 @@ static struct ccw_device_id raw3270_id[] = {
 	{ CCW_DEVICE(0x3278, 0) },
 	{ CCW_DEVICE(0x3279, 0) },
 	{ CCW_DEVICE(0x3174, 0) },
-	{  },
+	{ /* end of list */ },
 };
 
 static struct ccw_driver raw3270_ccw_driver = {
@@ -1266,7 +1410,7 @@ raw3270_init(void)
 	raw3270_registered = 1;
 	rc = ccw_driver_register(&raw3270_ccw_driver);
 	if (rc == 0) {
-		
+		/* Create attributes for early (= console) device. */
 		mutex_lock(&raw3270_mutex);
 		class3270 = class_create(THIS_MODULE, "3270");
 		list_for_each_entry(rp, &raw3270_devices, list) {

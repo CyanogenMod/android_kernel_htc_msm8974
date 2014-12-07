@@ -1,9 +1,13 @@
 #ifndef __ASM_SH_MMU_CONTEXT_32_H
 #define __ASM_SH_MMU_CONTEXT_32_H
 
+/*
+ * Destroy context related info for an mm_struct that is about
+ * to be put to rest.
+ */
 static inline void destroy_context(struct mm_struct *mm)
 {
-	
+	/* Do nothing */
 }
 
 #ifdef CONFIG_CPU_HAS_PTEAEX
@@ -40,8 +44,9 @@ static inline unsigned long get_asid(void)
 	asid &= MMU_CONTEXT_ASID_MASK;
 	return asid;
 }
-#endif 
+#endif /* CONFIG_CPU_HAS_PTEAEX */
 
+/* MMU_TTB is used for optimizing the fault handling. */
 static inline void set_TTB(pgd_t *pgd)
 {
 	__raw_writel((unsigned long)pgd, MMU_TTB);
@@ -51,4 +56,4 @@ static inline pgd_t *get_TTB(void)
 {
 	return (pgd_t *)__raw_readl(MMU_TTB);
 }
-#endif 
+#endif /* __ASM_SH_MMU_CONTEXT_32_H */

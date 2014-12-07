@@ -23,6 +23,9 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 
+/*
+ * Touchscreen controller register offsets
+ */
 #define LPC32XX_TSC_STAT			0x00
 #define LPC32XX_TSC_SEL				0x04
 #define LPC32XX_TSC_CON				0x08
@@ -91,11 +94,16 @@ static irqreturn_t lpc32xx_ts_interrupt(int irq, void *dev_id)
 	tmp = tsc_readl(tsc, LPC32XX_TSC_STAT);
 
 	if (tmp & LPC32XX_TSC_STAT_FIFO_OVRRN) {
-		
+		/* FIFO overflow - throw away samples */
 		lpc32xx_fifo_clear(tsc);
 		return IRQ_HANDLED;
 	}
 
+	/*
+	 * Gather and normalize 4 samples. Pen-up events may have less
+	 * than 4 samples, but its ok to pop 4 and let the last sample
+	 * pen status check drop the samples.
+	 */
 	idx = 0;
 	while (idx < 4 &&
 	       !(tsc_readl(tsc, LPC32XX_TSC_STAT) &
@@ -109,9 +117,9 @@ static irqreturn_t lpc32xx_ts_interrupt(int irq, void *dev_id)
 		idx++;
 	}
 
-	
+	/* Data is only valid if pen is still down in last sample */
 	if (!(rv[3] & LPC32XX_TSC_FIFO_TS_P_LEVEL) && idx == 4) {
-		
+		/* Use average of 2nd and 3rd sample for position */
 		input_report_abs(input, ABS_X, (xs[1] + xs[2]) / 2);
 		input_report_abs(input, ABS_Y, (ys[1] + ys[2]) / 2);
 		input_report_key(input, BTN_TOUCH, 1);
@@ -126,7 +134,7 @@ static irqreturn_t lpc32xx_ts_interrupt(int irq, void *dev_id)
 
 static void lpc32xx_stop_tsc(struct lpc32xx_tsc *tsc)
 {
-	
+	/* Disable auto mode */
 	tsc_writel(tsc, LPC32XX_TSC_CON,
 		   tsc_readl(tsc, LPC32XX_TSC_CON) &
 			     ~LPC32XX_TSC_ADCCON_AUTO_EN);
@@ -142,24 +150,30 @@ static void lpc32xx_setup_tsc(struct lpc32xx_tsc *tsc)
 
 	tmp = tsc_readl(tsc, LPC32XX_TSC_CON) & ~LPC32XX_TSC_ADCCON_POWER_UP;
 
-	
+	/* Set the TSC FIFO depth to 4 samples @ 10-bits per sample (max) */
 	tmp = LPC32XX_TSC_ADCCON_IRQ_TO_FIFO_4 |
 	      LPC32XX_TSC_ADCCON_X_SAMPLE_SIZE(10) |
 	      LPC32XX_TSC_ADCCON_Y_SAMPLE_SIZE(10);
 	tsc_writel(tsc, LPC32XX_TSC_CON, tmp);
 
-	
+	/* These values are all preset */
 	tsc_writel(tsc, LPC32XX_TSC_SEL, LPC32XX_TSC_SEL_DEFVAL);
 	tsc_writel(tsc, LPC32XX_TSC_MIN_X, LPC32XX_TSC_MIN_XY_VAL);
 	tsc_writel(tsc, LPC32XX_TSC_MAX_X, LPC32XX_TSC_MAX_XY_VAL);
 	tsc_writel(tsc, LPC32XX_TSC_MIN_Y, LPC32XX_TSC_MIN_XY_VAL);
 	tsc_writel(tsc, LPC32XX_TSC_MAX_Y, LPC32XX_TSC_MAX_XY_VAL);
 
-	
+	/* Aux support is not used */
 	tsc_writel(tsc, LPC32XX_TSC_AUX_UTR, 0);
 	tsc_writel(tsc, LPC32XX_TSC_AUX_MIN, 0);
 	tsc_writel(tsc, LPC32XX_TSC_AUX_MAX, 0);
 
+	/*
+	 * Set sample rate to about 240Hz per X/Y pair. A single measurement
+	 * consists of 4 pairs which gives about a 60Hz sample rate based on
+	 * a stable 32768Hz clock source. Values are in clocks.
+	 * Rate is (32768 / (RTR + XCONV + RTR + YCONV + DXP + TTR + UTR) / 4
+	 */
 	tsc_writel(tsc, LPC32XX_TSC_RTR, 0x2);
 	tsc_writel(tsc, LPC32XX_TSC_DTR, 0x2);
 	tsc_writel(tsc, LPC32XX_TSC_TTR, 0x10);
@@ -168,7 +182,7 @@ static void lpc32xx_setup_tsc(struct lpc32xx_tsc *tsc)
 
 	lpc32xx_fifo_clear(tsc);
 
-	
+	/* Enable automatic ts event capture */
 	tsc_writel(tsc, LPC32XX_TSC_CON, tmp | LPC32XX_TSC_ADCCON_AUTO_EN);
 }
 
@@ -321,6 +335,12 @@ static int lpc32xx_ts_suspend(struct device *dev)
 	struct lpc32xx_tsc *tsc = dev_get_drvdata(dev);
 	struct input_dev *input = tsc->dev;
 
+	/*
+	 * Suspend and resume can be called when the device hasn't been
+	 * enabled. If there are no users that have the device open, then
+	 * avoid calling the TSC stop and start functions as the TSC
+	 * isn't yet clocked.
+	 */
 	mutex_lock(&input->mutex);
 
 	if (input->users) {

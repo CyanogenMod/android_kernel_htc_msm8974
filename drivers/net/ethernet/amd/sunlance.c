@@ -83,7 +83,7 @@ static char lancestr[] = "LANCE";
 #include <linux/init.h>
 #include <linux/crc32.h>
 #include <linux/errno.h>
-#include <linux/socket.h> 
+#include <linux/socket.h> /* Used for the temporal inet entries and routing */
 #include <linux/route.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
@@ -98,10 +98,10 @@ static char lancestr[] = "LANCE";
 #include <asm/io.h>
 #include <asm/dma.h>
 #include <asm/pgtable.h>
-#include <asm/byteorder.h>	
+#include <asm/byteorder.h>	/* Used by the checksum routines */
 #include <asm/idprom.h>
 #include <asm/prom.h>
-#include <asm/auxio.h>		
+#include <asm/auxio.h>		/* For tpe-link-test? setting */
 #include <asm/irq.h>
 
 #define DRV_NAME	"sunlance"
@@ -117,6 +117,7 @@ MODULE_AUTHOR(DRV_AUTHOR);
 MODULE_DESCRIPTION("Sun Lance ethernet driver");
 MODULE_LICENSE("GPL");
 
+/* Define: 2^4 Tx buffers and 2^4 Rx buffers */
 #ifndef LANCE_LOG_TX_BUFFERS
 #define LANCE_LOG_TX_BUFFERS 4
 #define LANCE_LOG_RX_BUFFERS 4
@@ -127,54 +128,55 @@ MODULE_LICENSE("GPL");
 #define LE_CSR2 2
 #define LE_CSR3 3
 
-#define LE_MO_PROM      0x8000  
+#define LE_MO_PROM      0x8000  /* Enable promiscuous mode */
 
-#define	LE_C0_ERR	0x8000	
-#define	LE_C0_BABL	0x4000	
-#define	LE_C0_CERR	0x2000	
-#define	LE_C0_MISS	0x1000	
-#define	LE_C0_MERR	0x0800	
-#define	LE_C0_RINT	0x0400	
-#define	LE_C0_TINT	0x0200	
-#define	LE_C0_IDON	0x0100	
-#define	LE_C0_INTR	0x0080	
-#define	LE_C0_INEA	0x0040	
-#define	LE_C0_RXON	0x0020	
-#define	LE_C0_TXON	0x0010	
-#define	LE_C0_TDMD	0x0008	
-#define	LE_C0_STOP	0x0004	
-#define	LE_C0_STRT	0x0002	
-#define	LE_C0_INIT	0x0001	
+#define	LE_C0_ERR	0x8000	/* Error: set if BAB, SQE, MISS or ME is set */
+#define	LE_C0_BABL	0x4000	/* BAB:  Babble: tx timeout. */
+#define	LE_C0_CERR	0x2000	/* SQE:  Signal quality error */
+#define	LE_C0_MISS	0x1000	/* MISS: Missed a packet */
+#define	LE_C0_MERR	0x0800	/* ME:   Memory error */
+#define	LE_C0_RINT	0x0400	/* Received interrupt */
+#define	LE_C0_TINT	0x0200	/* Transmitter Interrupt */
+#define	LE_C0_IDON	0x0100	/* IFIN: Init finished. */
+#define	LE_C0_INTR	0x0080	/* Interrupt or error */
+#define	LE_C0_INEA	0x0040	/* Interrupt enable */
+#define	LE_C0_RXON	0x0020	/* Receiver on */
+#define	LE_C0_TXON	0x0010	/* Transmitter on */
+#define	LE_C0_TDMD	0x0008	/* Transmitter demand */
+#define	LE_C0_STOP	0x0004	/* Stop the card */
+#define	LE_C0_STRT	0x0002	/* Start the card */
+#define	LE_C0_INIT	0x0001	/* Init the card */
 
-#define	LE_C3_BSWP	0x4     
-#define	LE_C3_ACON	0x2	
-#define	LE_C3_BCON	0x1	
+#define	LE_C3_BSWP	0x4     /* SWAP */
+#define	LE_C3_ACON	0x2	/* ALE Control */
+#define	LE_C3_BCON	0x1	/* Byte control */
 
-#define LE_R1_OWN       0x80    
-#define LE_R1_ERR       0x40    
-#define LE_R1_FRA       0x20    
-#define LE_R1_OFL       0x10    
-#define LE_R1_CRC       0x08    
-#define LE_R1_BUF       0x04    
-#define LE_R1_SOP       0x02    
-#define LE_R1_EOP       0x01    
-#define LE_R1_POK       0x03    
+/* Receive message descriptor 1 */
+#define LE_R1_OWN       0x80    /* Who owns the entry */
+#define LE_R1_ERR       0x40    /* Error: if FRA, OFL, CRC or BUF is set */
+#define LE_R1_FRA       0x20    /* FRA: Frame error */
+#define LE_R1_OFL       0x10    /* OFL: Frame overflow */
+#define LE_R1_CRC       0x08    /* CRC error */
+#define LE_R1_BUF       0x04    /* BUF: Buffer error */
+#define LE_R1_SOP       0x02    /* Start of packet */
+#define LE_R1_EOP       0x01    /* End of packet */
+#define LE_R1_POK       0x03    /* Packet is complete: SOP + EOP */
 
-#define LE_T1_OWN       0x80    
-#define LE_T1_ERR       0x40    
-#define LE_T1_EMORE     0x10    
-#define LE_T1_EONE      0x08    
-#define LE_T1_EDEF      0x04    
-#define LE_T1_SOP       0x02    
-#define LE_T1_EOP       0x01    
-#define LE_T1_POK	0x03	
+#define LE_T1_OWN       0x80    /* Lance owns the packet */
+#define LE_T1_ERR       0x40    /* Error summary */
+#define LE_T1_EMORE     0x10    /* Error: more than one retry needed */
+#define LE_T1_EONE      0x08    /* Error: one retry needed */
+#define LE_T1_EDEF      0x04    /* Error: deferred */
+#define LE_T1_SOP       0x02    /* Start of packet */
+#define LE_T1_EOP       0x01    /* End of packet */
+#define LE_T1_POK	0x03	/* Packet is complete: SOP + EOP */
 
-#define LE_T3_BUF       0x8000  
-#define LE_T3_UFL       0x4000  
-#define LE_T3_LCOL      0x1000  
-#define LE_T3_CLOS      0x0800  
-#define LE_T3_RTY       0x0400  
-#define LE_T3_TDR       0x03ff  
+#define LE_T3_BUF       0x8000  /* Buffer error */
+#define LE_T3_UFL       0x4000  /* Error underflow */
+#define LE_T3_LCOL      0x1000  /* Error late collision */
+#define LE_T3_CLOS      0x0800  /* Error carrier loss */
+#define LE_T3_RTY       0x0400  /* Error retry */
+#define LE_T3_TDR       0x03ff  /* Time Domain Reflectometry counter */
 
 #define TX_RING_SIZE			(1 << (LANCE_LOG_TX_BUFFERS))
 #define TX_RING_MOD_MASK		(TX_RING_SIZE - 1)
@@ -191,38 +193,42 @@ MODULE_LICENSE("GPL");
 #define TX_BUFF_SIZE            PKT_BUF_SZ
 
 struct lance_rx_desc {
-	u16	rmd0;		
-	u8	rmd1_bits;	
-	u8	rmd1_hadr;	
-	s16	length;		
-	u16	mblength;	
+	u16	rmd0;		/* low address of packet */
+	u8	rmd1_bits;	/* descriptor bits */
+	u8	rmd1_hadr;	/* high address of packet */
+	s16	length;		/* This length is 2s complement (negative)!
+				 * Buffer length
+				 */
+	u16	mblength;	/* This is the actual number of bytes received */
 };
 
 struct lance_tx_desc {
-	u16	tmd0;		
-	u8 	tmd1_bits;	
-	u8 	tmd1_hadr;	
-	s16 	length;		
+	u16	tmd0;		/* low address of packet */
+	u8 	tmd1_bits;	/* descriptor bits */
+	u8 	tmd1_hadr;	/* high address of packet */
+	s16 	length;		/* Length is 2s complement (negative)! */
 	u16 	misc;
 };
 
+/* The LANCE initialization block, described in databook. */
+/* On the Sparc, this block should be on a DMA region     */
 struct lance_init_block {
-	u16	mode;		
-	u8	phys_addr[6];	
-	u32	filter[2];	
+	u16	mode;		/* Pre-set mode (reg. 15) */
+	u8	phys_addr[6];	/* Physical ethernet address */
+	u32	filter[2];	/* Multicast filter. */
 
-	
-	u16	rx_ptr;		
-	u16	rx_len;		
-	u16	tx_ptr;		
-	u16	tx_len;		
+	/* Receive and transmit ring base, along with extra bits. */
+	u16	rx_ptr;		/* receive descriptor addr */
+	u16	rx_len;		/* receive len and high addr */
+	u16	tx_ptr;		/* transmit descriptor addr */
+	u16	tx_len;		/* transmit len and high addr */
 
-	
+	/* The Tx and Rx ring entries must aligned on 8-byte boundaries. */
 	struct lance_rx_desc brx_ring[RX_RING_SIZE];
 	struct lance_tx_desc btx_ring[TX_RING_SIZE];
 
 	u8	tx_buf [TX_RING_SIZE][TX_BUFF_SIZE];
-	u8	pad[2];		
+	u8	pad[2];		/* align rx_buf for copy_and_sum(). */
 	u8	rx_buf [RX_RING_SIZE][RX_BUFF_SIZE];
 };
 
@@ -233,8 +239,8 @@ struct lance_init_block {
 ((__u32)(((unsigned long)(&(((struct lance_init_block *)0)->rt[elem][0])))))
 
 struct lance_private {
-	void __iomem	*lregs;		
-	void __iomem	*dregs;		
+	void __iomem	*lregs;		/* Lance RAP/RDP regs.		*/
+	void __iomem	*dregs;		/* DMA controller regs.		*/
 	struct lance_init_block __iomem *init_block_iomem;
 	struct lance_init_block *init_block_mem;
 
@@ -243,11 +249,11 @@ struct lance_private {
 	int		rx_new, tx_new;
 	int		rx_old, tx_old;
 
-	struct platform_device *ledma;	
-	char		tpe;		
-	char		auto_select;	
-	char		burst_sizes;	
-	char		pio_buffer;	
+	struct platform_device *ledma;	/* If set this points to ledma	*/
+	char		tpe;		/* cable-selection is TPE	*/
+	char		auto_select;	/* cable-selection by carrier	*/
+	char		burst_sizes;	/* ledma SBus burst sizes	*/
+	char		pio_buffer;	/* init block in PIO space?	*/
 
 	unsigned short	busmaster_regval;
 
@@ -257,7 +263,7 @@ struct lance_private {
 
 	char	       	       *name;
 	dma_addr_t		init_block_dvma;
-	struct net_device      *dev;		  
+	struct net_device      *dev;		  /* Backpointer	*/
 	struct platform_device       *op;
 	struct platform_device       *lebuffer;
 	struct timer_list       multicast_timer;
@@ -267,8 +273,9 @@ struct lance_private {
 			lp->tx_old+TX_RING_MOD_MASK-lp->tx_new:\
 			lp->tx_old - lp->tx_new-1)
 
-#define RDP		0x00UL		
-#define RAP		0x02UL		
+/* Lance registers. */
+#define RDP		0x00UL		/* register data port		*/
+#define RAP		0x02UL		/* register address port	*/
 #define LANCE_REG_SIZE	0x04UL
 
 #define STOP_LANCE(__lp) \
@@ -279,9 +286,17 @@ do {	void __iomem *__base = (__lp)->lregs; \
 
 int sparc_lance_debug = 2;
 
+/* The Lance uses 24 bit addresses */
+/* On the Sun4c the DVMA will provide the remaining bytes for us */
+/* On the Sun4m we have to instruct the ledma to provide them    */
+/* Even worse, on scsi/ether SBUS cards, the init block and the
+ * transmit/receive buffers are addresses as offsets from absolute
+ * zero on the lebuffer PIO area. -DaveM
+ */
 
 #define LANCE_ADDR(x) ((long)(x) & ~0xff000000)
 
+/* Load the CSR registers */
 static void load_csrs(struct lance_private *lp)
 {
 	u32 leptr;
@@ -298,10 +313,11 @@ static void load_csrs(struct lance_private *lp)
 	sbus_writew(LE_CSR3,		  lp->lregs + RAP);
 	sbus_writew(lp->busmaster_regval, lp->lregs + RDP);
 
-	
+	/* Point back to csr0 */
 	sbus_writew(LE_CSR0, lp->lregs + RAP);
 }
 
+/* Setup the Lance Rx and Tx rings */
 static void lance_init_ring_dvma(struct net_device *dev)
 {
 	struct lance_private *lp = netdev_priv(dev);
@@ -310,11 +326,14 @@ static void lance_init_ring_dvma(struct net_device *dev)
 	__u32 leptr;
 	int i;
 
-	
+	/* Lock out other processes while setting up hardware */
 	netif_stop_queue(dev);
 	lp->rx_new = lp->tx_new = 0;
 	lp->rx_old = lp->tx_old = 0;
 
+	/* Copy the ethernet address to the lance init block
+	 * Note that on the sparc you need to swap the ethernet address.
+	 */
 	ib->phys_addr [0] = dev->dev_addr [1];
 	ib->phys_addr [1] = dev->dev_addr [0];
 	ib->phys_addr [2] = dev->dev_addr [3];
@@ -322,17 +341,17 @@ static void lance_init_ring_dvma(struct net_device *dev)
 	ib->phys_addr [4] = dev->dev_addr [5];
 	ib->phys_addr [5] = dev->dev_addr [4];
 
-	
+	/* Setup the Tx ring entries */
 	for (i = 0; i < TX_RING_SIZE; i++) {
 		leptr = LANCE_ADDR(aib + libbuff_offset(tx_buf, i));
 		ib->btx_ring [i].tmd0      = leptr;
 		ib->btx_ring [i].tmd1_hadr = leptr >> 16;
 		ib->btx_ring [i].tmd1_bits = 0;
-		ib->btx_ring [i].length    = 0xf000; 
+		ib->btx_ring [i].length    = 0xf000; /* The ones required by tmd2 */
 		ib->btx_ring [i].misc      = 0;
 	}
 
-	
+	/* Setup the Rx ring entries */
 	for (i = 0; i < RX_RING_SIZE; i++) {
 		leptr = LANCE_ADDR(aib + libbuff_offset(rx_buf, i));
 
@@ -343,14 +362,14 @@ static void lance_init_ring_dvma(struct net_device *dev)
 		ib->brx_ring [i].mblength  = 0;
 	}
 
-	
+	/* Setup the initialization block */
 
-	
+	/* Setup rx descriptor pointer */
 	leptr = LANCE_ADDR(aib + libdesc_offset(brx_ring, 0));
 	ib->rx_len = (LANCE_LOG_RX_BUFFERS << 13) | (leptr >> 16);
 	ib->rx_ptr = leptr;
 
-	
+	/* Setup tx descriptor pointer */
 	leptr = LANCE_ADDR(aib + libdesc_offset(btx_ring, 0));
 	ib->tx_len = (LANCE_LOG_TX_BUFFERS << 13) | (leptr >> 16);
 	ib->tx_ptr = leptr;
@@ -363,11 +382,14 @@ static void lance_init_ring_pio(struct net_device *dev)
 	u32 leptr;
 	int i;
 
-	
+	/* Lock out other processes while setting up hardware */
 	netif_stop_queue(dev);
 	lp->rx_new = lp->tx_new = 0;
 	lp->rx_old = lp->tx_old = 0;
 
+	/* Copy the ethernet address to the lance init block
+	 * Note that on the sparc you need to swap the ethernet address.
+	 */
 	sbus_writeb(dev->dev_addr[1], &ib->phys_addr[0]);
 	sbus_writeb(dev->dev_addr[0], &ib->phys_addr[1]);
 	sbus_writeb(dev->dev_addr[3], &ib->phys_addr[2]);
@@ -375,19 +397,19 @@ static void lance_init_ring_pio(struct net_device *dev)
 	sbus_writeb(dev->dev_addr[5], &ib->phys_addr[4]);
 	sbus_writeb(dev->dev_addr[4], &ib->phys_addr[5]);
 
-	
+	/* Setup the Tx ring entries */
 	for (i = 0; i < TX_RING_SIZE; i++) {
 		leptr = libbuff_offset(tx_buf, i);
 		sbus_writew(leptr,	&ib->btx_ring [i].tmd0);
 		sbus_writeb(leptr >> 16,&ib->btx_ring [i].tmd1_hadr);
 		sbus_writeb(0,		&ib->btx_ring [i].tmd1_bits);
 
-		
+		/* The ones required by tmd2 */
 		sbus_writew(0xf000,	&ib->btx_ring [i].length);
 		sbus_writew(0,		&ib->btx_ring [i].misc);
 	}
 
-	
+	/* Setup the Rx ring entries */
 	for (i = 0; i < RX_RING_SIZE; i++) {
 		leptr = libbuff_offset(rx_buf, i);
 
@@ -399,15 +421,15 @@ static void lance_init_ring_pio(struct net_device *dev)
 		sbus_writew(0,		&ib->brx_ring [i].mblength);
 	}
 
-	
+	/* Setup the initialization block */
 
-	
+	/* Setup rx descriptor pointer */
 	leptr = libdesc_offset(brx_ring, 0);
 	sbus_writew((LANCE_LOG_RX_BUFFERS << 13) | (leptr >> 16),
 		    &ib->rx_len);
 	sbus_writew(leptr, &ib->rx_ptr);
 
-	
+	/* Setup tx descriptor pointer */
 	leptr = libdesc_offset(btx_ring, 0);
 	sbus_writew((LANCE_LOG_TX_BUFFERS << 13) | (leptr >> 16),
 		    &ib->tx_len);
@@ -419,7 +441,7 @@ static void init_restart_ledma(struct lance_private *lp)
 	u32 csr = sbus_readl(lp->dregs + DMA_CSR);
 
 	if (!(csr & DMA_HNDL_ERROR)) {
-		
+		/* E-Cache draining */
 		while (sbus_readl(lp->dregs + DMA_CSR) & DMA_FIFO_ISDRAIN)
 			barrier();
 	}
@@ -453,7 +475,7 @@ static int init_restart_lance(struct lance_private *lp)
 	sbus_writew(LE_CSR0,	lp->lregs + RAP);
 	sbus_writew(LE_C0_INIT,	lp->lregs + RDP);
 
-	
+	/* Wait for the lance to complete initialization */
 	for (i = 0; i < 100; i++) {
 		regval = sbus_readw(lp->lregs + RDP);
 
@@ -469,7 +491,7 @@ static int init_restart_lance(struct lance_private *lp)
 		return -1;
 	}
 
-	
+	/* Clear IDON by writing a "1", enable interrupts and start lance */
 	sbus_writew(LE_C0_IDON,			lp->lregs + RDP);
 	sbus_writew(LE_C0_INEA | LE_C0_STRT,	lp->lregs + RDP);
 
@@ -496,11 +518,14 @@ static void lance_rx_dvma(struct net_device *dev)
 	     !((bits = rd->rmd1_bits) & LE_R1_OWN);
 	     rd = &ib->brx_ring [entry]) {
 
-		
+		/* We got an incomplete frame? */
 		if ((bits & LE_R1_POK) != LE_R1_POK) {
 			dev->stats.rx_over_errors++;
 			dev->stats.rx_errors++;
 		} else if (bits & LE_R1_ERR) {
+			/* Count only the end frame as a rx error,
+			 * not the beginning
+			 */
 			if (bits & LE_R1_BUF) dev->stats.rx_fifo_errors++;
 			if (bits & LE_R1_CRC) dev->stats.rx_crc_errors++;
 			if (bits & LE_R1_OFL) dev->stats.rx_over_errors++;
@@ -522,8 +547,8 @@ static void lance_rx_dvma(struct net_device *dev)
 
 			dev->stats.rx_bytes += len;
 
-			skb_reserve(skb, 2);		
-			skb_put(skb, len);		
+			skb_reserve(skb, 2);		/* 16 byte align */
+			skb_put(skb, len);		/* make room */
 			skb_copy_to_linear_data(skb,
 					 (unsigned char *)&(ib->rx_buf [entry][0]),
 					 len);
@@ -532,7 +557,7 @@ static void lance_rx_dvma(struct net_device *dev)
 			dev->stats.rx_packets++;
 		}
 
-		
+		/* Return the packet to the pool */
 		rd->mblength = 0;
 		rd->rmd1_bits = LE_R1_OWN;
 		entry = RX_NEXT(entry);
@@ -554,7 +579,7 @@ static void lance_tx_dvma(struct net_device *dev)
 		struct lance_tx_desc *td = &ib->btx_ring [i];
 		u8 bits = td->tmd1_bits;
 
-		
+		/* If we hit a packet not owned by us, stop */
 		if (bits & LE_T1_OWN)
 			break;
 
@@ -579,6 +604,9 @@ static void lance_tx_dvma(struct net_device *dev)
 				}
 			}
 
+			/* Buffer errors and underflows turn off the
+			 * transmitter, restart the adapter.
+			 */
 			if (status & (LE_T3_BUF|LE_T3_UFL)) {
 				dev->stats.tx_fifo_errors++;
 
@@ -591,13 +619,16 @@ static void lance_tx_dvma(struct net_device *dev)
 				goto out;
 			}
 		} else if ((bits & LE_T1_POK) == LE_T1_POK) {
+			/*
+			 * So we don't count the packet more than once.
+			 */
 			td->tmd1_bits = bits & ~(LE_T1_POK);
 
-			
+			/* One collision before packet was sent. */
 			if (bits & LE_T1_EONE)
 				dev->stats.collisions++;
 
-			
+			/* More than one collision, be optimistic. */
 			if (bits & LE_T1_EMORE)
 				dev->stats.collisions += 2;
 
@@ -622,7 +653,7 @@ static void lance_piocopy_to_skb(struct sk_buff *skb, void __iomem *piobuf, int 
 	u8 *p8;
 	void __iomem *pbuf = piobuf;
 
-	
+	/* We know here that both src and dest are on a 16bit boundary. */
 	*p16++ = sbus_readw(pbuf);
 	p32 = (u32 *) p16;
 	pbuf += 2;
@@ -659,11 +690,14 @@ static void lance_rx_pio(struct net_device *dev)
 	     !((bits = sbus_readb(&rd->rmd1_bits)) & LE_R1_OWN);
 	     rd = &ib->brx_ring [entry]) {
 
-		
+		/* We got an incomplete frame? */
 		if ((bits & LE_R1_POK) != LE_R1_POK) {
 			dev->stats.rx_over_errors++;
 			dev->stats.rx_errors++;
 		} else if (bits & LE_R1_ERR) {
+			/* Count only the end frame as a rx error,
+			 * not the beginning
+			 */
 			if (bits & LE_R1_BUF) dev->stats.rx_fifo_errors++;
 			if (bits & LE_R1_CRC) dev->stats.rx_crc_errors++;
 			if (bits & LE_R1_OFL) dev->stats.rx_over_errors++;
@@ -685,15 +719,15 @@ static void lance_rx_pio(struct net_device *dev)
 
 			dev->stats.rx_bytes += len;
 
-			skb_reserve (skb, 2);		
-			skb_put(skb, len);		
+			skb_reserve (skb, 2);		/* 16 byte align */
+			skb_put(skb, len);		/* make room */
 			lance_piocopy_to_skb(skb, &(ib->rx_buf[entry][0]), len);
 			skb->protocol = eth_type_trans(skb, dev);
 			netif_rx(skb);
 			dev->stats.rx_packets++;
 		}
 
-		
+		/* Return the packet to the pool */
 		sbus_writew(0, &rd->mblength);
 		sbus_writeb(LE_R1_OWN, &rd->rmd1_bits);
 		entry = RX_NEXT(entry);
@@ -715,7 +749,7 @@ static void lance_tx_pio(struct net_device *dev)
 		struct lance_tx_desc __iomem *td = &ib->btx_ring [i];
 		u8 bits = sbus_readb(&td->tmd1_bits);
 
-		
+		/* If we hit a packet not owned by us, stop */
 		if (bits & LE_T1_OWN)
 			break;
 
@@ -740,6 +774,9 @@ static void lance_tx_pio(struct net_device *dev)
 				}
 			}
 
+			/* Buffer errors and underflows turn off the
+			 * transmitter, restart the adapter.
+			 */
 			if (status & (LE_T3_BUF|LE_T3_UFL)) {
 				dev->stats.tx_fifo_errors++;
 
@@ -752,13 +789,16 @@ static void lance_tx_pio(struct net_device *dev)
 				goto out;
 			}
 		} else if ((bits & LE_T1_POK) == LE_T1_POK) {
+			/*
+			 * So we don't count the packet more than once.
+			 */
 			sbus_writeb(bits & ~(LE_T1_POK), &td->tmd1_bits);
 
-			
+			/* One collision before packet was sent. */
 			if (bits & LE_T1_EONE)
 				dev->stats.collisions++;
 
-			
+			/* More than one collision, be optimistic. */
 			if (bits & LE_T1_EMORE)
 				dev->stats.collisions += 2;
 
@@ -785,12 +825,12 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 	sbus_writew(LE_CSR0, lp->lregs + RAP);
 	csr0 = sbus_readw(lp->lregs + RDP);
 
-	
+	/* Acknowledge all the interrupt sources ASAP */
 	sbus_writew(csr0 & (LE_C0_INTR | LE_C0_TINT | LE_C0_RINT),
 		    lp->lregs + RDP);
 
 	if ((csr0 & LE_C0_ERR) != 0) {
-		
+		/* Clear the error condition */
 		sbus_writew((LE_C0_BABL | LE_C0_ERR | LE_C0_MISS |
 			     LE_C0_CERR | LE_C0_MERR),
 			    lp->lregs + RDP);
@@ -839,6 +879,7 @@ static irqreturn_t lance_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* Build a fake network packet and send it to ourselves. */
 static void build_fake_packet(struct lance_private *lp)
 {
 	struct net_device *dev = lp->dev;
@@ -887,13 +928,19 @@ static int lance_open(struct net_device *dev)
 		return -EAGAIN;
 	}
 
-	
+	/* On the 4m, setup the ledma to provide the upper bits for buffers */
 	if (lp->dregs) {
 		u32 regval = lp->init_block_dvma & 0xff000000;
 
 		sbus_writel(regval, lp->dregs + DMA_TEST);
 	}
 
+	/* Set mode and clear multicast filter only at device open,
+	 * so that lance_init_ring() called at any error will not
+	 * forget multicast filters.
+	 *
+	 * BTW it is common bug in all lance drivers! --ANK
+	 */
 	if (lp->pio_buffer) {
 		struct lance_init_block __iomem *ib = lp->init_block_iomem;
 		sbus_writew(0, &ib->mode);
@@ -940,7 +987,7 @@ static int lance_reset(struct net_device *dev)
 
 	STOP_LANCE(lp);
 
-	
+	/* On the 4m, reset the dma too */
 	if (lp->dregs) {
 		u32 csr, addr;
 
@@ -955,7 +1002,7 @@ static int lance_reset(struct net_device *dev)
 	}
 	lp->init_ring(dev);
 	load_csrs(lp);
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	status = init_restart_lance(lp);
 	return status;
 }
@@ -1101,9 +1148,12 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (TX_BUFFS_AVAIL <= 0)
 		netif_stop_queue(dev);
 
-	
+	/* Kick the lance: transmit now */
 	sbus_writew(LE_C0_INEA | LE_C0_TDMD, lp->lregs + RDP);
 
+	/* Read back CSR to invalidate the E-Cache.
+	 * This is needed, because DMA_DSBL_WR_INV is set.
+	 */
 	if (lp->dregs)
 		sbus_readw(lp->lregs + RDP);
 
@@ -1114,6 +1164,7 @@ static int lance_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 }
 
+/* taken from the depca driver */
 static void lance_load_multicast(struct net_device *dev)
 {
 	struct lance_private *lp = netdev_priv(dev);
@@ -1121,7 +1172,7 @@ static void lance_load_multicast(struct net_device *dev)
 	u32 crc;
 	u32 val;
 
-	
+	/* set all multicast bits */
 	if (dev->flags & IFF_ALLMULTI)
 		val = ~0;
 	else
@@ -1140,7 +1191,7 @@ static void lance_load_multicast(struct net_device *dev)
 	if (dev->flags & IFF_ALLMULTI)
 		return;
 
-	
+	/* Add addresses */
 	netdev_for_each_mc_addr(ha, dev) {
 		crc = ether_crc_le(6, ha->addr);
 		crc = crc >> 26;
@@ -1230,6 +1281,7 @@ static void lance_free_hwresources(struct lance_private *lp)
 	}
 }
 
+/* Ethtool support... */
 static void sparc_lance_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
 	strcpy(info->driver, "sunlance");
@@ -1273,10 +1325,14 @@ static int __devinit sparc_lance_probe_one(struct platform_device *op,
 
 	spin_lock_init(&lp->lock);
 
+	/* Copy the IDPROM ethernet address to the device structure, later we
+	 * will copy the address in the device structure to the lance
+	 * initialization block.
+	 */
 	for (i = 0; i < 6; i++)
 		dev->dev_addr[i] = idprom->id_ethaddr[i];
 
-	
+	/* Get the IO region */
 	lp->lregs = of_ioremap(&op->resource[0], 0,
 			       LANCE_REG_SIZE, lancestr);
 	if (!lp->lregs) {
@@ -1299,7 +1355,7 @@ static int __devinit sparc_lance_probe_one(struct platform_device *op,
 	lp->op = op;
 	lp->lebuffer = lebuffer;
 	if (lebuffer) {
-		
+		/* sanity check */
 		if (lebuffer->resource[0].start & 7) {
 			printk(KERN_ERR "SunLance: ERROR: Rx and Tx rings not on even boundary.\n");
 			goto fail;
@@ -1345,17 +1401,17 @@ static int __devinit sparc_lance_probe_one(struct platform_device *op,
 		const char *prop;
 		u32 csr;
 
-		
+		/* Find burst-size property for ledma */
 		lp->burst_sizes = of_getintprop_default(ledma_dp,
 							"burst-sizes", 0);
 
-		
+		/* ledma may be capable of fast bursts, but sbus may not. */
 		sbus_dp = ledma_dp->parent;
 		sbmask = of_getintprop_default(sbus_dp, "burst-sizes",
 					       DMA_BURSTBITS);
 		lp->burst_sizes &= sbmask;
 
-		
+		/* Get the cable-selection property */
 		prop = of_get_property(ledma_dp, "cable-selection", NULL);
 		if (!prop || prop[0] == '\0') {
 			struct device_node *nd;
@@ -1389,7 +1445,7 @@ no_link_test:
 			lp->tpe = 1;
 		}
 
-		
+		/* Reset ledma */
 		csr = sbus_readl(lp->dregs + DMA_CSR);
 		sbus_writel(csr | DMA_RST_ENET, lp->dregs + DMA_CSR);
 		udelay(200);
@@ -1405,6 +1461,11 @@ no_link_test:
 
 	dev->irq = op->archdata.irqs[0];
 
+	/* We cannot sleep if the chip is busy during a
+	 * multicast list update event, because such events
+	 * can occur from interrupts (ex. IPv6).  So we
+	 * use a timer to try again later when necessary. -DaveM
+	 */
 	init_timer(&lp->multicast_timer);
 	lp->multicast_timer.data = (unsigned long) dev;
 	lp->multicast_timer.function = lance_set_multicast_retry;

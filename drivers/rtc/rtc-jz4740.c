@@ -86,7 +86,7 @@ static int jz4740_rtc_ctrl_set_bits(struct jz4740_rtc *rtc, uint32_t mask,
 
 	ctrl = jz4740_rtc_reg_read(rtc, JZ_REG_RTC_CTRL);
 
-	
+	/* Don't clear interrupt flags by accident */
 	ctrl |= JZ_RTC_CTRL_1HZ | JZ_RTC_CTRL_AF;
 
 	if (set)
@@ -107,6 +107,10 @@ static int jz4740_rtc_read_time(struct device *dev, struct rtc_time *time)
 	uint32_t secs, secs2;
 	int timeout = 5;
 
+	/* If the seconds register is read while it is updated, it can contain a
+	 * bogus value. This can be avoided by making sure that two consecutive
+	 * reads have the same value.
+	 */
 	secs = jz4740_rtc_reg_read(rtc, JZ_REG_RTC_SEC);
 	secs2 = jz4740_rtc_reg_read(rtc, JZ_REG_RTC_SEC);
 
@@ -339,7 +343,7 @@ static const struct dev_pm_ops jz4740_pm_ops = {
 
 #else
 #define JZ4740_RTC_PM_OPS NULL
-#endif  
+#endif  /* CONFIG_PM */
 
 static struct platform_driver jz4740_rtc_driver = {
 	.probe	 = jz4740_rtc_probe,

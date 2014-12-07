@@ -12,10 +12,13 @@
 struct timespec;
 struct compat_timespec;
 
+/*
+ * System call restart block.
+ */
 struct restart_block {
 	long (*fn)(struct restart_block *);
 	union {
-		
+		/* For futex_wait and futex_wait_requeue_pi */
 		struct {
 			u32 __user *uaddr;
 			u32 val;
@@ -24,7 +27,7 @@ struct restart_block {
 			u64 time;
 			u32 __user *uaddr2;
 		} futex;
-		
+		/* For nanosleep */
 		struct {
 			clockid_t clockid;
 			struct timespec __user *rmtp;
@@ -33,7 +36,7 @@ struct restart_block {
 #endif
 			u64 expires;
 		} nanosleep;
-		
+		/* For poll */
 		struct {
 			struct pollfd __user *ufds;
 			int nfds;
@@ -51,6 +54,10 @@ extern long do_no_restart_syscall(struct restart_block *parm);
 
 #ifdef __KERNEL__
 
+/*
+ * flag set/clear/test wrappers
+ * - pass TIF_xxxx constants to these functions
+ */
 
 static inline void set_ti_thread_flag(struct thread_info *ti, int flag)
 {
@@ -92,15 +99,30 @@ static inline int test_ti_thread_flag(struct thread_info *ti, int flag)
 #define clear_need_resched()	clear_thread_flag(TIF_NEED_RESCHED)
 
 #if defined TIF_RESTORE_SIGMASK && !defined HAVE_SET_RESTORE_SIGMASK
+/*
+ * An arch can define its own version of set_restore_sigmask() to get the
+ * job done however works, with or without TIF_RESTORE_SIGMASK.
+ */
 #define HAVE_SET_RESTORE_SIGMASK	1
 
+/**
+ * set_restore_sigmask() - make sure saved_sigmask processing gets done
+ *
+ * This sets TIF_RESTORE_SIGMASK and ensures that the arch signal code
+ * will run before returning to user mode, to process the flag.  For
+ * all callers, TIF_SIGPENDING is already set or it's no harm to set
+ * it.  TIF_RESTORE_SIGMASK need not be in the set of bits that the
+ * arch code will notice on return to user mode, in case those bits
+ * are scarce.  We set TIF_SIGPENDING here to ensure that the arch
+ * signal code always gets run when TIF_RESTORE_SIGMASK is set.
+ */
 static inline void set_restore_sigmask(void)
 {
 	set_thread_flag(TIF_RESTORE_SIGMASK);
 	set_thread_flag(TIF_SIGPENDING);
 }
-#endif	
+#endif	/* TIF_RESTORE_SIGMASK && !HAVE_SET_RESTORE_SIGMASK */
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif 
+#endif /* _LINUX_THREAD_INFO_H */

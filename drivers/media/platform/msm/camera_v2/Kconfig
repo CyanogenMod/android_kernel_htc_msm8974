@@ -125,6 +125,27 @@ config s5k6a1gx
 	---help---
 		Support for s5k5e sensor driver.
 		
+config A116A1
+	bool "Sensor s5k6a1gx (BAYER 1.3)"
+	depends on MSMB_CAMERA
+	default n
+	---help---
+		Support for 6a1 sensor driver for A11.
+
+config GC_0339
+	bool "Sensor gc0339 on A11"
+	depends on MSMB_CAMERA
+	default n
+	---help---
+		Support for gc0339 sensor driver for A11.
+
+config MI380
+	bool "Sensor MI380"
+	depends on MSMB_CAMERA
+	default n
+	---help---
+		Support for MI380 sensor driver.
+
 config IMX135
 	bool "Sensor IMX135 (BAYER 12M)"
 	depends on MSMB_CAMERA
@@ -269,6 +290,18 @@ config OV13850
 	---help---
 	  Support for ov13850 sensor driver.
 
+config OV13850_800M
+	bool "Sensor OV13850_800M (BAYER 13M)"
+	depends on MSMB_CAMERA
+	---help---
+	  Support for ov13850_800M sensor driver.
+
+config OV13850_1140M
+	bool "Sensor OV13850_1140M (BAYER 13M)"
+	depends on MSMB_CAMERA
+	---help---
+	  Support for ov13850_800M sensor driver.
+
 config OV2722
 	bool "Sensor ov2722"
 	depends on MSMB_CAMERA
@@ -282,6 +315,13 @@ config S5K5E_ONELANE
 	default n
 	---help---
 	  Support for S5K5E_ONELANE sensor driver.
+
+config S5K5E_TWOLANE
+	bool "Sensor S5K5E_TWOLANE"
+	depends on MSMB_CAMERA
+	default n
+	---help---
+	  Support for S5K5E_TWOLANE sensor driver.
 
 config s5k5e
 	bool "Sensor s5k5e"
@@ -349,6 +389,20 @@ config AR1820
 
 config IMX214
 	bool "Sensor imx214"
+	depends on MSMB_CAMERA
+	default n
+	---help---
+	  Support for IMX214 sensor driver.
+
+config IMX214_800M_FOV77
+	bool "Sensor imx214 800M fov 77"
+	depends on MSMB_CAMERA
+	default n
+	---help---
+	  Support for IMX214 sensor driver.
+
+config IMX214_800M_FOV87
+	bool "Sensor imx214 800M fov 87"
 	depends on MSMB_CAMERA
 	default n
 	---help---

@@ -17,6 +17,7 @@ struct pm8xxx_nfc_device;
 
 #define PM8XXX_NFC_DEV_NAME		"pm8xxx-nfc"
 
+/* masks, flags and status */
 #define	PM_NFC_VDDLDO_MON_LEVEL		0x0003
 #define	PM_NFC_VPH_PWR_EN		0x0008
 #define	PM_NFC_EXT_VDDLDO_EN		0x0010
@@ -46,13 +47,33 @@ struct pm8xxx_nfc_device;
 					PM_NFC_MBG_EN_HIGH |\
 					PM_NFC_VDDLDO_OK_HIGH)
 
+/*
+ * pm8xxx_nfc_request - request a handle to access NFC device
+ */
 struct pm8xxx_nfc_device *pm8xxx_nfc_request(void);
 
+/*
+ * pm8xxx_nfc_config - configure NFC signals
+ *
+ * @nfcdev: the NFC device
+ * @mask: signal mask to configure
+ * @flags: control flags
+ */
 int pm8xxx_nfc_config(struct pm8xxx_nfc_device *nfcdev, u32 mask, u32 flags);
 
+/*
+ * pm8xxx_nfc_get_status - get NFC status
+ *
+ * @nfcdev: the NFC device
+ * @mask: of status mask to read
+ * @status: pointer to the status variable
+ */
 int pm8xxx_nfc_get_status(struct pm8xxx_nfc_device *nfcdev,
 			  u32 mask, u32 *status);
 
+/*
+ * pm8xxx_nfc_free - free the NFC device
+ */
 void pm8xxx_nfc_free(struct pm8xxx_nfc_device *nfcdev);
 
-#endif 
+#endif /* __PM8XXX_NFC_H__ */

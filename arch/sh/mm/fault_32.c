@@ -64,6 +64,11 @@ static inline pmd_t *vmalloc_sync_one(pgd_t *pgd, unsigned long address)
 	if (!pmd_present(*pmd))
 		set_pmd(pmd, *pmd_k);
 	else {
+		/*
+		 * The page tables are fully synchronised so there must
+		 * be another reason for the fault. Return NULL here to
+		 * signal that we have not taken care of the fault.
+		 */
 		BUG_ON(pmd_page(*pmd) != pmd_page(*pmd_k));
 		return NULL;
 	}
@@ -71,16 +76,26 @@ static inline pmd_t *vmalloc_sync_one(pgd_t *pgd, unsigned long address)
 	return pmd_k;
 }
 
+/*
+ * Handle a fault on the vmalloc or module mapping area
+ */
 static noinline int vmalloc_fault(unsigned long address)
 {
 	pgd_t *pgd_k;
 	pmd_t *pmd_k;
 	pte_t *pte_k;
 
-	
+	/* Make sure we are in vmalloc/module/P3 area: */
 	if (!(address >= P3SEG && address < P3_ADDR_MAX))
 		return -1;
 
+	/*
+	 * Synchronize this task's top level page-table
+	 * with the 'reference' page table.
+	 *
+	 * Do _not_ use "current" here. We might be inside
+	 * an interrupt in the middle of a task switch..
+	 */
 	pgd_k = get_TTB();
 	pmd_k = vmalloc_sync_one(pgd_k, address);
 	if (!pmd_k)
@@ -98,6 +113,11 @@ static int fault_in_kernel_space(unsigned long address)
 	return address >= TASK_SIZE;
 }
 
+/*
+ * This routine handles page faults.  It determines the address,
+ * and the problem, and then passes it off to one of the appropriate
+ * routines.
+ */
 asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 					unsigned long writeaccess,
 					unsigned long address)
@@ -115,6 +135,15 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 	si_code = SEGV_MAPERR;
 	vec = lookup_exception_vector();
 
+	/*
+	 * We fault-in kernel-space virtual memory on-demand. The
+	 * 'reference' page table is init_mm.pgd.
+	 *
+	 * NOTE! We MUST NOT take any locks for this case. We may
+	 * be in an interrupt or a critical region, and should
+	 * only copy the information from the master page table,
+	 * nothing more.
+	 */
 	if (unlikely(fault_in_kernel_space(address))) {
 		if (vmalloc_fault(address) >= 0)
 			return;
@@ -127,12 +156,16 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 	if (unlikely(notify_page_fault(regs, vec)))
 		return;
 
-	
+	/* Only enable interrupts if they were on before the fault */
 	if ((regs->sr & SR_IMASK) != SR_IMASK)
 		local_irq_enable();
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 
+	/*
+	 * If we're in an interrupt, have no user context or are running
+	 * in an atomic region then we must not take the fault:
+	 */
 	if (in_atomic() || !mm)
 		goto no_context;
 
@@ -148,6 +181,10 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 	if (expand_stack(vma, address))
 		goto bad_area;
 
+	/*
+	 * Ok, we have a good vm_area for this memory access, so
+	 * we can handle it..
+	 */
 good_area:
 	si_code = SEGV_ACCERR;
 	if (writeaccess) {
@@ -158,6 +195,11 @@ good_area:
 			goto bad_area;
 	}
 
+	/*
+	 * If for any reason at all we couldn't handle the fault,
+	 * make sure we exit gracefully rather than endlessly redo
+	 * the fault.
+	 */
 	fault = handle_mm_fault(mm, vma, address, writeaccess ? FAULT_FLAG_WRITE : 0);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM)
@@ -179,6 +221,10 @@ good_area:
 	up_read(&mm->mmap_sem);
 	return;
 
+	/*
+	 * Something tried to access memory that isn't in our memory map..
+	 * Fix it, but check if it's kernel or user first..
+	 */
 bad_area:
 	up_read(&mm->mmap_sem);
 
@@ -193,12 +239,17 @@ bad_area_nosemaphore:
 	}
 
 no_context:
-	
+	/* Are we prepared to handle this kernel fault?  */
 	if (fixup_exception(regs))
 		return;
 
 	if (handle_trapped_io(regs, address))
 		return;
+/*
+ * Oops. The kernel tried to access some bad page. We'll have to
+ * terminate things with extreme prejudice.
+ *
+ */
 
 	bust_spinlocks(1);
 
@@ -232,6 +283,10 @@ no_context:
 	bust_spinlocks(0);
 	do_exit(SIGKILL);
 
+/*
+ * We ran out of memory, or some other thing happened to us that made
+ * us unable to handle the page fault gracefully.
+ */
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (!user_mode(regs))
@@ -242,17 +297,24 @@ out_of_memory:
 do_sigbus:
 	up_read(&mm->mmap_sem);
 
+	/*
+	 * Send a sigbus, regardless of whether we were in kernel
+	 * or user mode.
+	 */
 	info.si_signo = SIGBUS;
 	info.si_errno = 0;
 	info.si_code = BUS_ADRERR;
 	info.si_addr = (void *)address;
 	force_sig_info(SIGBUS, &info, tsk);
 
-	
+	/* Kernel mode? Handle exceptions or die */
 	if (!user_mode(regs))
 		goto no_context;
 }
 
+/*
+ * Called with interrupts disabled.
+ */
 asmlinkage int __kprobes
 handle_tlbmiss(struct pt_regs *regs, unsigned long writeaccess,
 	       unsigned long address)
@@ -263,6 +325,11 @@ handle_tlbmiss(struct pt_regs *regs, unsigned long writeaccess,
 	pte_t *pte;
 	pte_t entry;
 
+	/*
+	 * We don't take page faults for P1, P2, and parts of P4, these
+	 * are always mapped, whether it be due to legacy behaviour in
+	 * 29-bit mode, or due to PMB configuration in 32-bit mode.
+	 */
 	if (address >= P3SEG && address < P3_ADDR_MAX) {
 		pgd = pgd_offset_k(address);
 	} else {
@@ -292,6 +359,11 @@ handle_tlbmiss(struct pt_regs *regs, unsigned long writeaccess,
 	set_pte(pte, entry);
 
 #if defined(CONFIG_CPU_SH4) && !defined(CONFIG_SMP)
+	/*
+	 * SH-4 does not set MMUCR.RC to the corresponding TLB entry in
+	 * the case of an initial page write exception, so we need to
+	 * flush it in order to avoid potential TLB entry duplication.
+	 */
 	if (writeaccess == 2)
 		local_flush_tlb_one(get_asid(), address & PAGE_MASK);
 #endif

@@ -24,6 +24,9 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  **************************************************************************/
+/*
+ * Authors: Thomas Hellstrom <thellstrom-at-vmware-dot-com>
+ */
 
 #include "ttm/ttm_bo_driver.h"
 #include "ttm/ttm_placement.h"
@@ -397,6 +400,20 @@ static void ttm_transfered_destroy(struct ttm_buffer_object *bo)
 	kfree(bo);
 }
 
+/**
+ * ttm_buffer_object_transfer
+ *
+ * @bo: A pointer to a struct ttm_buffer_object.
+ * @new_obj: A pointer to a pointer to a newly created ttm_buffer_object,
+ * holding the data of @bo with the old placement.
+ *
+ * This is a utility function that may be called after an accelerated move
+ * has been scheduled. A new buffer object is created as a placeholder for
+ * the old data while it's being copied. When that buffer object is idle,
+ * it can be destroyed, releasing the space of the old placement.
+ * Returns:
+ * !0: Failure.
+ */
 
 static int ttm_buffer_object_transfer(struct ttm_buffer_object *bo,
 				      struct ttm_buffer_object **new_obj)
@@ -411,6 +428,10 @@ static int ttm_buffer_object_transfer(struct ttm_buffer_object *bo,
 
 	*fbo = *bo;
 
+	/**
+	 * Fix up members that we shouldn't copy directly:
+	 * TODO: Explicit member copy would probably be better here.
+	 */
 
 	init_waitqueue_head(&fbo->event_queue);
 	INIT_LIST_HEAD(&fbo->ddestroy);
@@ -499,11 +520,19 @@ static int ttm_bo_kmap_ttm(struct ttm_buffer_object *bo,
 	}
 
 	if (num_pages == 1 && (mem->placement & TTM_PL_FLAG_CACHED)) {
+		/*
+		 * We're mapping a single page, and the desired
+		 * page protection is consistent with the bo.
+		 */
 
 		map->bo_kmap_type = ttm_bo_map_kmap;
 		map->page = ttm->pages[start_page];
 		map->virtual = kmap(map->page);
 	} else {
+		/*
+		 * We need to use vmap to get the desired page protection
+		 * or to make the buffer object look contiguous.
+		 */
 		prot = (mem->placement & TTM_PL_FLAG_CACHED) ?
 			PAGE_KERNEL :
 			ttm_io_prot(mem->placement, PAGE_KERNEL);
@@ -618,6 +647,13 @@ int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
 		}
 		ttm_bo_free_old_node(bo);
 	} else {
+		/**
+		 * This should help pipeline ordinary buffer moves.
+		 *
+		 * Hang old buffer memory on a new buffer object,
+		 * and leave it to be released when the GPU
+		 * operation has completed.
+		 */
 
 		set_bit(TTM_BO_PRIV_FLAG_MOVING, &bo->priv_flags);
 		spin_unlock(&bdev->fence_lock);
@@ -628,6 +664,11 @@ int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
 		if (ret)
 			return ret;
 
+		/**
+		 * If we're not moving to fixed memory, the TTM object
+		 * needs to stay alive. Otherwhise hang it on the ghost
+		 * bo to be unbound and destroyed.
+		 */
 
 		if (!(man->flags & TTM_MEMTYPE_FLAG_FIXED))
 			ghost_obj->ttm = NULL;

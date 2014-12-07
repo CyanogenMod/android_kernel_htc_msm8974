@@ -63,6 +63,7 @@ static void dc_mouse_close(struct input_dev *dev)
 		MAPLE_FUNC_MOUSE);
 }
 
+/* allow the mouse to be used */
 static int __devinit probe_maple_mouse(struct device *dev)
 {
 	struct maple_device *mdev = to_maple_dev(dev);

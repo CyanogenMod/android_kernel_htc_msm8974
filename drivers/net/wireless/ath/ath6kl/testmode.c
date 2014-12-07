@@ -25,14 +25,14 @@ enum ath6kl_tm_attr {
 	ATH6KL_TM_ATTR_CMD		= 1,
 	ATH6KL_TM_ATTR_DATA		= 2,
 
-	
+	/* keep last */
 	__ATH6KL_TM_ATTR_AFTER_LAST,
 	ATH6KL_TM_ATTR_MAX		= __ATH6KL_TM_ATTR_AFTER_LAST - 1,
 };
 
 enum ath6kl_tm_cmd {
 	ATH6KL_TM_CMD_TCMD		= 0,
-	ATH6KL_TM_CMD_RX_REPORT		= 1,	
+	ATH6KL_TM_CMD_RX_REPORT		= 1,	/* not used anymore */
 };
 
 #define ATH6KL_TM_DATA_MAX_LEN		5000

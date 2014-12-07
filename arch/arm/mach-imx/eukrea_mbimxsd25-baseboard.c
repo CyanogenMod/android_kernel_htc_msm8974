@@ -35,7 +35,7 @@
 #include "devices-imx25.h"
 
 static iomux_v3_cfg_t eukrea_mbimxsd_pads[] = {
-	
+	/* LCD */
 	MX25_PAD_LD0__LD0,
 	MX25_PAD_LD1__LD1,
 	MX25_PAD_LD2__LD2,
@@ -59,32 +59,32 @@ static iomux_v3_cfg_t eukrea_mbimxsd_pads[] = {
 	MX25_PAD_LSCLK__LSCLK,
 	MX25_PAD_OE_ACD__OE_ACD,
 	MX25_PAD_CONTRAST__CONTRAST,
-	
+	/* LCD_PWR */
 	MX25_PAD_PWM__GPIO_1_26,
-	
+	/* LED */
 	MX25_PAD_POWER_FAIL__GPIO_3_19,
-	
+	/* SWITCH */
 	MX25_PAD_VSTBY_ACK__GPIO_3_18,
-	
+	/* UART2 */
 	MX25_PAD_UART2_RTS__UART2_RTS,
 	MX25_PAD_UART2_CTS__UART2_CTS,
 	MX25_PAD_UART2_TXD__UART2_TXD,
 	MX25_PAD_UART2_RXD__UART2_RXD,
-	
+	/* SD1 */
 	MX25_PAD_SD1_CMD__SD1_CMD,
 	MX25_PAD_SD1_CLK__SD1_CLK,
 	MX25_PAD_SD1_DATA0__SD1_DATA0,
 	MX25_PAD_SD1_DATA1__SD1_DATA1,
 	MX25_PAD_SD1_DATA2__SD1_DATA2,
 	MX25_PAD_SD1_DATA3__SD1_DATA3,
-	
+	/* SD1 CD */
 	MX25_PAD_DE_B__GPIO_2_20,
-	
+	/* I2S */
 	MX25_PAD_KPP_COL3__AUD5_TXFS,
 	MX25_PAD_KPP_COL2__AUD5_TXC,
 	MX25_PAD_KPP_COL1__AUD5_RXD,
 	MX25_PAD_KPP_COL0__AUD5_TXD,
-	
+	/* CAN */
 	MX25_PAD_GPIO_D__CAN2_RX,
 	MX25_PAD_GPIO_C__CAN2_TX,
 };
@@ -228,6 +228,12 @@ static struct esdhc_platform_data sd1_pdata = {
 	.wp_type = ESDHC_WP_NONE,
 };
 
+/*
+ * system init for baseboard usage. Will be called by cpuimx25 init.
+ *
+ * Add platform devices present on this baseboard and init
+ * them from CPU side as far as required to use them later on
+ */
 void __init eukrea_mbimxsd25_baseboard_init(void)
 {
 	if (mxc_iomux_v3_setup_multiple_pads(eukrea_mbimxsd_pads,

@@ -42,31 +42,32 @@ void imx6q_restart(char mode, const char *cmd)
 
 	imx_src_prepare_restart();
 
-	
+	/* enable wdog */
 	writew_relaxed(1 << 2, wdog_base);
-	
+	/* write twice to ensure the request will not get ignored */
 	writew_relaxed(1 << 2, wdog_base);
 
-	
+	/* wait for reset to assert ... */
 	mdelay(500);
 
 	pr_err("Watchdog reset failed to assert reset\n");
 
-	
+	/* delay to allow the serial port to show the message */
 	mdelay(50);
 
 soft:
-	
+	/* we'll take a jump through zero as a poor second */
 	soft_restart(0);
 }
 
+/* For imx6q sabrelite board: set KSZ9021RN RGMII pad skew */
 static int ksz9021rn_phy_fixup(struct phy_device *phydev)
 {
-	
+	/* min rx data delay */
 	phy_write(phydev, 0x0b, 0x8105);
 	phy_write(phydev, 0x0c, 0x0000);
 
-	
+	/* max rx/tx clock delay, min rx/tx control delay */
 	phy_write(phydev, 0x0b, 0x8104);
 	phy_write(phydev, 0x0c, 0xf0f0);
 	phy_write(phydev, 0x0b, 0x104);
@@ -107,7 +108,7 @@ static int __init imx6q_gpio_add_irq_domain(struct device_node *np,
 static const struct of_device_id imx6q_irq_match[] __initconst = {
 	{ .compatible = "arm,cortex-a9-gic", .data = gic_of_init, },
 	{ .compatible = "fsl,imx6q-gpio", .data = imx6q_gpio_add_irq_domain, },
-	{  }
+	{ /* sentinel */ }
 };
 
 static void __init imx6q_init_irq(void)

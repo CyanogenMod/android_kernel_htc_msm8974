@@ -18,6 +18,9 @@
 #ifndef _CQ_DESC_H_
 #define _CQ_DESC_H_
 
+/*
+ * Completion queue descriptor types
+ */
 enum cq_desc_types {
 	CQ_DESC_TYPE_WQ_ENET = 0,
 	CQ_DESC_TYPE_DESC_COPY = 1,
@@ -26,6 +29,12 @@ enum cq_desc_types {
 	CQ_DESC_TYPE_RQ_FCP = 4,
 };
 
+/* Completion queue descriptor: 16B
+ *
+ * All completion queues have this basic layout.  The
+ * type_specfic area is unique for each completion
+ * queue type.
+ */
 struct cq_desc {
 	__le16 completed_index;
 	__le16 q_number;
@@ -66,4 +75,4 @@ static inline void cq_desc_dec(const struct cq_desc *desc_arg,
 		CQ_DESC_COMP_NDX_MASK;
 }
 
-#endif 
+#endif /* _CQ_DESC_H_ */

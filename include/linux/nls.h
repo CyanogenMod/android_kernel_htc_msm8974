@@ -3,10 +3,22 @@
 
 #include <linux/init.h>
 
+/* Unicode has changed over the years.  Unicode code points no longer
+ * fit into 16 bits; as of Unicode 5 valid code points range from 0
+ * to 0x10ffff (17 planes, where each plane holds 65536 code points).
+ *
+ * The original decision to represent Unicode characters as 16-bit
+ * wchar_t values is now outdated.  But plane 0 still includes the
+ * most commonly used characters, so we will retain it.  The newer
+ * 32-bit unicode_t type can be used when it is necessary to
+ * represent the full Unicode character set.
+ */
 
+/* Plane-0 Unicode character */
 typedef u16 wchar_t;
 #define MAX_WCHAR_T	0xffff
 
+/* Arbitrary Unicode character */
 typedef u32 unicode_t;
 
 struct nls_table {
@@ -21,14 +33,17 @@ struct nls_table {
 	struct nls_table *next;
 };
 
-#define NLS_MAX_CHARSET_SIZE 6 
+/* this value hold the maximum octet of charset */
+#define NLS_MAX_CHARSET_SIZE 6 /* for UTF-8 */
 
+/* Byte order for UTF-16 strings */
 enum utf16_endian {
 	UTF16_HOST_ENDIAN,
 	UTF16_LITTLE_ENDIAN,
 	UTF16_BIG_ENDIAN
 };
 
+/* nls_base.c */
 extern int register_nls(struct nls_table *);
 extern int unregister_nls(struct nls_table *);
 extern struct nls_table *load_nls(char *);
@@ -67,6 +82,14 @@ static inline int nls_strnicmp(struct nls_table *t, const unsigned char *s1,
 	return 0;
 }
 
+/*
+ * nls_nullsize - return length of null character for codepage
+ * @codepage - codepage for which to return length of NULL terminator
+ *
+ * Since we can't guarantee that the null terminator will be a particular
+ * length, we have to check against the codepage. If there's a problem
+ * determining it, assume a single-byte NULL terminator.
+ */
 static inline int
 nls_nullsize(const struct nls_table *codepage)
 {
@@ -80,5 +103,5 @@ nls_nullsize(const struct nls_table *codepage)
 
 #define MODULE_ALIAS_NLS(name)	MODULE_ALIAS("nls_" __stringify(name))
 
-#endif 
+#endif /* _LINUX_NLS_H */
 

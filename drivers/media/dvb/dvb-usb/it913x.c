@@ -30,6 +30,7 @@
 #include "dvb-usb.h"
 #include "it913x-fe.h"
 
+/* debug */
 static int dvb_usb_it913x_debug;
 #define l_dprintk(var, level, args...) do { \
 	if ((var >= level)) \
@@ -374,13 +375,14 @@ static struct i2c_algorithm it913x_i2c_algo = {
 	.functionality = it913x_i2c_func,
 };
 
+/* Callbacks for DVB USB */
 #define IT913X_POLL 250
 static int it913x_rc_query(struct dvb_usb_device *d)
 {
 	u8 ibuf[4];
 	int ret;
 	u32 key;
-	
+	/* Avoid conflict with frontends*/
 	mutex_lock(&d->i2c_mutex);
 
 	ret = it913x_io(d->udev, READ_LONG, PRO_LINK, CMD_IR_GET,
@@ -400,6 +402,7 @@ static int it913x_rc_query(struct dvb_usb_device *d)
 	return ret;
 }
 
+/* Firmware sets raw */
 const char fw_it9135_v1[] = "dvb-usb-it9135-01.fw";
 const char fw_it9135_v2[] = "dvb-usb-it9135-02.fw";
 const char fw_it9137[] = "dvb-usb-it9137-01.fw";
@@ -408,7 +411,7 @@ static int ite_firmware_select(struct usb_device *udev,
 	struct dvb_usb_device_properties *props)
 {
 	int sw;
-	
+	/* auto switch */
 	if (le16_to_cpu(udev->descriptor.idVendor) == USB_VID_KWORLD_2)
 		sw = IT9137_FW;
 	else if (it913x_config.chip_ver == 1)
@@ -416,7 +419,7 @@ static int ite_firmware_select(struct usb_device *udev,
 	else
 		sw = IT9135_V2_FW;
 
-	
+	/* force switch */
 	if (dvb_usb_it913x_firmware != IT9135_AUTO)
 		sw = dvb_usb_it913x_firmware;
 
@@ -492,13 +495,13 @@ static int it913x_select_config(struct usb_device *udev,
 		it913x_config.tuner_id_0 = IT9135_38;
 		proprietary_ir = true;
 	} else {
-		
+		/* TS mode */
 		reg =  it913x_read_reg(udev, 0x49c5);
 		if (reg < 0)
 			return reg;
 		it913x_config.dual_mode = reg;
 
-		
+		/* IR mode type */
 		reg = it913x_read_reg(udev, 0x49ac);
 		if (reg < 0)
 			return reg;
@@ -512,7 +515,7 @@ static int it913x_select_config(struct usb_device *udev,
 		} else
 			props->rc.core.rc_codes = NULL;
 
-		
+		/* Tuner_id */
 		reg = it913x_read_reg(udev, 0x49d0);
 		if (reg < 0)
 			return reg;
@@ -531,11 +534,11 @@ static int it913x_select_config(struct usb_device *udev,
 			it913x_config.dual_mode = 0;
 			info("Dual mode not supported in USB 1");
 		}
-	} else 
+	} else /* For replugging */
 		if(props->adapter[0].fe[0].pid_filter_count == 5)
 			props->adapter[0].fe[0].pid_filter_count = 31;
 
-	
+	/* Select Stream Buffer Size and pid filter option*/
 	if (pid_filter) {
 		props->adapter[0].fe[0].stream.u.bulk.buffersize =
 			TS_BUFFER_SIZE_MAX;
@@ -573,7 +576,7 @@ static int it913x_identify_state(struct usb_device *udev,
 
 	firm_no = it913x_return_status(udev);
 
-	
+	/* Read and select config */
 	ret = it913x_select_config(udev, props);
 	if (ret < 0)
 		return ret;
@@ -655,10 +658,10 @@ static int it913x_download_firmware(struct usb_device *udev,
 
 	info("FRM Starting Firmware Download");
 
-	
-	
-	
-	
+	/* Multi firmware loader */
+	/* This uses scatter write firmware headers */
+	/* The firmware must start with 03 XX 00 */
+	/* and be the extact firmware length */
 
 	if (it913x_config.chip_ver == 2)
 		min_pkt = 0x11;
@@ -708,7 +711,7 @@ static int it913x_download_firmware(struct usb_device *udev,
 
 	msleep(30);
 
-	
+	/* Tuner function */
 	if (it913x_config.dual_mode)
 		ret |= it913x_wr_reg(udev, DEV_0_DMOD , 0xec4c, 0xa0);
 	else
@@ -794,6 +797,7 @@ static int it913x_frontend_attach(struct dvb_usb_adapter *adap)
 	return ret;
 }
 
+/* DVB USB Driver */
 static struct dvb_usb_device_properties it913x_properties;
 
 static int it913x_probe(struct usb_interface *intf,
@@ -817,7 +821,7 @@ static struct usb_device_id it913x_table[] = {
 	{ USB_DEVICE(USB_VID_KWORLD_2, USB_PID_SVEON_STV22_IT9137) },
 	{ USB_DEVICE(USB_VID_ITETECH, USB_PID_ITETECH_IT9135_9005) },
 	{ USB_DEVICE(USB_VID_ITETECH, USB_PID_ITETECH_IT9135_9006) },
-	{}		
+	{}		/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, it913x_table);
@@ -842,12 +846,12 @@ static struct dvb_usb_device_properties it913x_properties = {
 			.pid_filter = it913x_pid_filter,
 			.pid_filter_ctrl  = it913x_pid_filter_ctrl,
 			.frontend_attach  = it913x_frontend_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 10,
 				.endpoint = 0x04,
-				.u = {
+				.u = {/* Keep Low if PID filter on */
 					.bulk = {
 					.buffersize =
 						TS_BUFFER_SIZE_PID,
@@ -867,7 +871,7 @@ static struct dvb_usb_device_properties it913x_properties = {
 			.pid_filter = it913x_pid_filter,
 			.pid_filter_ctrl  = it913x_pid_filter_ctrl,
 			.frontend_attach  = it913x_frontend_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,

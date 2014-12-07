@@ -3,4 +3,4 @@
 
 #include <asm-generic/stat.h>
 
-#endif 
+#endif /* _ASM_SCORE_STAT_H */

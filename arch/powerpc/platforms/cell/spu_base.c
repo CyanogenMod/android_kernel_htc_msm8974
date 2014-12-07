@@ -49,10 +49,29 @@ EXPORT_SYMBOL_GPL(spu_priv1_ops);
 struct cbe_spu_info cbe_spu_info[MAX_NUMNODES];
 EXPORT_SYMBOL_GPL(cbe_spu_info);
 
+/*
+ * The spufs fault-handling code needs to call force_sig_info to raise signals
+ * on DMA errors. Export it here to avoid general kernel-wide access to this
+ * function
+ */
 EXPORT_SYMBOL_GPL(force_sig_info);
 
+/*
+ * Protects cbe_spu_info and spu->number.
+ */
 static DEFINE_SPINLOCK(spu_lock);
 
+/*
+ * List of all spus in the system.
+ *
+ * This list is iterated by callers from irq context and callers that
+ * want to sleep.  Thus modifications need to be done with both
+ * spu_full_list_lock and spu_full_list_mutex held, while iterating
+ * through it requires either of these locks.
+ *
+ * In addition spu_full_list_lock protects all assignmens to
+ * spu->mm.
+ */
 static LIST_HEAD(spu_full_list);
 static DEFINE_SPINLOCK(spu_full_list_lock);
 static DEFINE_MUTEX(spu_full_list_mutex);
@@ -73,6 +92,9 @@ void spu_invalidate_slbs(struct spu *spu)
 }
 EXPORT_SYMBOL_GPL(spu_invalidate_slbs);
 
+/* This is called by the MM core when a segment size is changed, to
+ * request a flush of all the SPEs using a given mm
+ */
 void spu_flush_all_slbs(struct mm_struct *mm)
 {
 	struct spu *spu;
@@ -86,11 +108,14 @@ void spu_flush_all_slbs(struct mm_struct *mm)
 	spin_unlock_irqrestore(&spu_full_list_lock, flags);
 }
 
+/* The hack below stinks... try to do something better one of
+ * these days... Does it even work properly with NR_CPUS == 1 ?
+ */
 static inline void mm_needs_global_tlbie(struct mm_struct *mm)
 {
 	int nr = (NR_CPUS > 1) ? NR_CPUS : NR_CPUS + 1;
 
-	
+	/* Global TLBIE broadcast required with SPEs. */
 	bitmap_fill(cpumask_bits(mm_cpumask(mm)), nr);
 }
 
@@ -132,11 +157,11 @@ static inline void spu_load_slb(struct spu *spu, int slbe, struct spu_slb *slb)
 			__func__, slbe, slb->vsid, slb->esid);
 
 	out_be64(&priv2->slb_index_W, slbe);
-	
+	/* set invalid before writing vsid */
 	out_be64(&priv2->slb_esid_RW, 0);
-	
+	/* now it's safe to write the vsid */
 	out_be64(&priv2->slb_vsid_RW, slb->vsid);
-	
+	/* setting the new esid makes the entry valid again */
 	out_be64(&priv2->slb_esid_RW, slb->esid);
 }
 
@@ -174,6 +199,9 @@ static int __spu_trap_data_seg(struct spu *spu, unsigned long ea)
 				<< SLB_VSID_SHIFT) | SLB_VSID_KERNEL;
 		break;
 	default:
+		/* Future: support kernel segments so that drivers
+		 * can use SPUs.
+		 */
 		pr_debug("invalid region access at %016lx\n", ea);
 		return 1;
 	}
@@ -190,13 +218,17 @@ static int __spu_trap_data_seg(struct spu *spu, unsigned long ea)
 	return 0;
 }
 
-extern int hash_page(unsigned long ea, unsigned long access, unsigned long trap); 
+extern int hash_page(unsigned long ea, unsigned long access, unsigned long trap); //XXX
 static int __spu_trap_data_map(struct spu *spu, unsigned long ea, u64 dsisr)
 {
 	int ret;
 
 	pr_debug("%s, %llx, %lx\n", __func__, dsisr, ea);
 
+	/*
+	 * Handle kernel space hash faults immediately. User hash
+	 * faults need to be deferred to process context.
+	 */
 	if ((dsisr & MFC_DSISR_PTE_NOT_FOUND) &&
 	    (REGION_ID(ea) != USER_REGION_ID)) {
 
@@ -236,6 +268,10 @@ static void __spu_kernel_slb(void *addr, struct spu_slb *slb)
 	slb->esid = (ea & ESID_MASK) | SLB_ESID_V;
 }
 
+/**
+ * Given an array of @nr_slbs SLB entries, @slbs, return non-zero if the
+ * address @new_addr is present.
+ */
 static inline int __slb_present(struct spu_slb *slbs, int nr_slbs,
 		void *new_addr)
 {
@@ -249,17 +285,28 @@ static inline int __slb_present(struct spu_slb *slbs, int nr_slbs,
 	return 0;
 }
 
+/**
+ * Setup the SPU kernel SLBs, in preparation for a context save/restore. We
+ * need to map both the context save area, and the save/restore code.
+ *
+ * Because the lscsa and code may cross segment boundaires, we check to see
+ * if mappings are required for the start and end of each range. We currently
+ * assume that the mappings are smaller that one segment - if not, something
+ * is seriously wrong.
+ */
 void spu_setup_kernel_slbs(struct spu *spu, struct spu_lscsa *lscsa,
 		void *code, int code_size)
 {
 	struct spu_slb slbs[4];
 	int i, nr_slbs = 0;
-	
+	/* start and end addresses of both mappings */
 	void *addrs[] = {
 		lscsa, (void *)lscsa + sizeof(*lscsa) - 1,
 		code, code + code_size - 1
 	};
 
+	/* check the set of addresses, and create a new entry in the slbs array
+	 * if there isn't already a SLB for that address */
 	for (i = 0; i < ARRAY_SIZE(addrs); i++) {
 		if (__slb_present(slbs, nr_slbs, addrs[i]))
 			continue;
@@ -269,7 +316,7 @@ void spu_setup_kernel_slbs(struct spu *spu, struct spu_lscsa *lscsa,
 	}
 
 	spin_lock_irq(&spu->register_lock);
-	
+	/* Add the set of SLBs */
 	for (i = 0; i < nr_slbs; i++)
 		spu_load_slb(spu, i, &slbs[i]);
 	spin_unlock_irq(&spu->register_lock);
@@ -308,7 +355,7 @@ spu_irq_class_1(int irq, void *data)
 
 	spu = data;
 
-	
+	/* atomically read & clear class1 status. */
 	spin_lock(&spu->register_lock);
 	mask  = spu_int_mask_get(spu, 1);
 	stat  = spu_int_stat_get(spu, 1) & mask;
@@ -354,11 +401,13 @@ spu_irq_class_2(int irq, void *data)
 	spin_lock(&spu->register_lock);
 	stat = spu_int_stat_get(spu, 2);
 	mask = spu_int_mask_get(spu, 2);
-	
+	/* ignore interrupts we're not waiting for */
 	stat &= mask;
+	/* mailbox interrupts are level triggered. mask them now before
+	 * acknowledging */
 	if (stat & mailbox_intrs)
 		spu_int_mask_and(spu, 2, ~(stat & mailbox_intrs));
-	
+	/* acknowledge all interrupts before the callbacks */
 	spu_int_stat_clear(spu, 2, stat);
 
 	pr_debug("class 2 interrupt %d, %lx, %lx\n", irq, stat, mask);
@@ -453,7 +502,7 @@ void spu_init_channels(struct spu *spu)
 
 	priv2 = spu->priv2;
 
-	
+	/* initialize all channel data to zero */
 	for (i = 0; i < ARRAY_SIZE(zero_list); i++) {
 		int count;
 
@@ -462,7 +511,7 @@ void spu_init_channels(struct spu *spu)
 			out_be64(&priv2->spu_chnldata_RW, 0);
 	}
 
-	
+	/* initialize channel counts to meaningful values */
 	for (i = 0; i < ARRAY_SIZE(count_list); i++) {
 		out_be64(&priv2->spu_chnlcntptr_RW, count_list[i].channel);
 		out_be64(&priv2->spu_chnlcnt_RW, count_list[i].count);
@@ -497,7 +546,7 @@ int spu_add_dev_attr_group(struct attribute_group *attrs)
 	list_for_each_entry(spu, &spu_full_list, full_list) {
 		rc = sysfs_create_group(&spu->dev.kobj, attrs);
 
-		
+		/* we're in trouble here, but try unwinding anyway */
 		if (rc) {
 			printk(KERN_ERR "%s: can't create sysfs group '%s'\n",
 					__func__, attrs->name);
@@ -630,6 +679,11 @@ static unsigned long long spu_acct_time(struct spu *spu,
 	struct timespec ts;
 	unsigned long long time = spu->stats.times[state];
 
+	/*
+	 * If the spu is idle or the context is stopped, utilization
+	 * statistics are not updated.  Apply the time delta from the
+	 * last recorded state of the spu.
+	 */
 	if (spu->stats.util_state == state) {
 		ktime_get_ts(&ts);
 		time += timespec_to_ns(&ts) - spu->stats.tstamp;
@@ -675,7 +729,7 @@ struct crash_spu_info {
 	u64 saved_mfc_dsisr;
 };
 
-#define CRASH_NUM_SPUS	16	
+#define CRASH_NUM_SPUS	16	/* Enough for current hardware */
 static struct crash_spu_info crash_spu_info[CRASH_NUM_SPUS];
 
 static void crash_kexec_stop_spus(void)
@@ -760,7 +814,7 @@ static int __init init_spu_base(void)
 	if (!spu_management_ops)
 		goto out;
 
-	
+	/* create system subsystem for spus */
 	ret = subsys_system_register(&spu_subsys, NULL);
 	if (ret)
 		goto out;

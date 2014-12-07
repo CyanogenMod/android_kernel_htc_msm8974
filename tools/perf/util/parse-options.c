@@ -47,7 +47,7 @@ static int get_value(struct parse_opt_ctx_t *p,
 		case OPTION_CALLBACK:
 			if (!(opt->flags & PARSE_OPT_NOARG))
 				break;
-			
+			/* FALLTHROUGH */
 		case OPTION_BOOLEAN:
 		case OPTION_INCR:
 		case OPTION_BIT:
@@ -223,10 +223,16 @@ static int parse_long_opt(struct parse_opt_ctx_t *p, const char *arg,
 			return 0;
 		}
 		if (!rest) {
-			
+			/* abbreviated? */
 			if (!strncmp(options->long_name, arg, arg_end - arg)) {
 is_abbreviated:
 				if (abbrev_option) {
+					/*
+					 * If this is abbreviated, it is
+					 * ambiguous. So when there is no
+					 * exact match later, we need to
+					 * error out.
+					 */
 					ambiguous_option = abbrev_option;
 					ambiguous_flags = abbrev_flags;
 				}
@@ -236,17 +242,17 @@ is_abbreviated:
 				abbrev_flags = flags;
 				continue;
 			}
-			
+			/* negated and abbreviated very much? */
 			if (!prefixcmp("no-", arg)) {
 				flags |= OPT_UNSET;
 				goto is_abbreviated;
 			}
-			
+			/* negated? */
 			if (strncmp(arg, "no-", 3))
 				continue;
 			flags |= OPT_UNSET;
 			rest = skip_prefix(arg + 3, options->long_name);
-			
+			/* abbreviated and negated? */
 			if (!rest && !prefixcmp(options->long_name, arg + 3))
 				goto is_abbreviated;
 			if (!rest)
@@ -316,7 +322,7 @@ int parse_options_step(struct parse_opt_ctx_t *ctx,
 {
 	int internal_help = !(ctx->flags & PARSE_OPT_NO_INTERNAL_HELP);
 
-	
+	/* we must reset ->opt, unknown short option leave it dangling */
 	ctx->opt = NULL;
 
 	for (; ctx->argc; ctx->argc--, ctx->argv++) {
@@ -350,6 +356,11 @@ int parse_options_step(struct parse_opt_ctx_t *ctx,
 				case -1:
 					return parse_options_usage(usagestr, options);
 				case -2:
+					/* fake a short option thing to hide the fact that we may have
+					 * started to parse aggregated stuff
+					 *
+					 * This is leaky, too bad.
+					 */
 					ctx->argv[0] = strdup(ctx->opt - 1);
 					*(char *)ctx->argv[0] = '-';
 					goto unknown;
@@ -360,7 +371,7 @@ int parse_options_step(struct parse_opt_ctx_t *ctx,
 			continue;
 		}
 
-		if (!arg[2]) { 
+		if (!arg[2]) { /* "--" */
 			if (!(ctx->flags & PARSE_OPT_KEEP_DASHDASH)) {
 				ctx->argc--;
 				ctx->argv++;
@@ -408,7 +419,7 @@ int parse_options(int argc, const char **argv, const struct option *options,
 		exit(129);
 	case PARSE_OPT_DONE:
 		break;
-	default: 
+	default: /* PARSE_OPT_UNKNOWN */
 		if (ctx.argv[0][1] == '-') {
 			error("unknown option `%s'", ctx.argv[0] + 2);
 		} else {
@@ -484,7 +495,7 @@ int usage_with_options_internal(const char * const *usagestr,
 		case OPTION_CALLBACK:
 			if (opts->flags & PARSE_OPT_NOARG)
 				break;
-			
+			/* FALLTHROUGH */
 		case OPTION_STRING:
 			if (opts->argh) {
 				if (opts->flags & PARSE_OPT_OPTARG)
@@ -504,7 +515,7 @@ int usage_with_options_internal(const char * const *usagestr,
 					pos += fprintf(stderr, " ...");
 			}
 			break;
-		default: 
+		default: /* OPTION_{BIT,BOOLEAN,SET_UINT,SET_PTR} */
 		case OPTION_END:
 		case OPTION_GROUP:
 		case OPTION_BIT:
@@ -549,7 +560,7 @@ int parse_opt_verbosity_cb(const struct option *opt, const char *arg __used,
 	int *target = opt->value;
 
 	if (unset)
-		
+		/* --no-quiet, --no-verbose */
 		*target = 0;
 	else if (opt->short_name == 'v') {
 		if (*target >= 0)

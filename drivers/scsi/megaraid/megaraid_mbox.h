@@ -25,6 +25,9 @@
 #define MEGARAID_EXT_VERSION	"(Release Date: Thu Nov 16 15:32:35 EST 2006)"
 
 
+/*
+ * Define some PCI values here until they are put in the kernel
+ */
 #define PCI_DEVICE_ID_PERC4_DI_DISCOVERY		0x000E
 #define PCI_SUBSYS_ID_PERC4_DI_DISCOVERY		0x0123
 
@@ -88,23 +91,44 @@
 #define PCI_SUBSYS_ID_CERC_ATA100_4CH			0x0511
 
 
-#define MBOX_MAX_SCSI_CMDS	128	
-#define MBOX_MAX_USER_CMDS	32	
-#define MBOX_DEF_CMD_PER_LUN	64	
-#define MBOX_DEFAULT_SG_SIZE	26	
-#define MBOX_MAX_SG_SIZE	32	
-#define MBOX_MAX_SECTORS	128	
-#define MBOX_TIMEOUT		30	
-#define MBOX_BUSY_WAIT		10	
-#define MBOX_RESET_WAIT		180	
-#define MBOX_RESET_EXT_WAIT	120	
-#define MBOX_SYNC_WAIT_CNT	0xFFFF	
+#define MBOX_MAX_SCSI_CMDS	128	// number of cmds reserved for kernel
+#define MBOX_MAX_USER_CMDS	32	// number of cmds for applications
+#define MBOX_DEF_CMD_PER_LUN	64	// default commands per lun
+#define MBOX_DEFAULT_SG_SIZE	26	// default sg size supported by all fw
+#define MBOX_MAX_SG_SIZE	32	// maximum scatter-gather list size
+#define MBOX_MAX_SECTORS	128	// maximum sectors per IO
+#define MBOX_TIMEOUT		30	// timeout value for internal cmds
+#define MBOX_BUSY_WAIT		10	// max usec to wait for busy mailbox
+#define MBOX_RESET_WAIT		180	// wait these many seconds in reset
+#define MBOX_RESET_EXT_WAIT	120	// extended wait reset
+#define MBOX_SYNC_WAIT_CNT	0xFFFF	// wait loop index for synchronous mode
 
-#define MBOX_SYNC_DELAY_200	200	
+#define MBOX_SYNC_DELAY_200	200	// 200 micro-seconds
 
+/*
+ * maximum transfer that can happen through the firmware commands issued
+ * internnaly from the driver.
+ */
 #define MBOX_IBUF_SIZE		4096
 
 
+/**
+ * mbox_ccb_t - command control block specific to mailbox based controllers
+ * @raw_mbox		: raw mailbox pointer
+ * @mbox		: mailbox
+ * @mbox64		: extended mailbox
+ * @mbox_dma_h		: maibox dma address
+ * @sgl64		: 64-bit scatter-gather list
+ * @sgl32		: 32-bit scatter-gather list
+ * @sgl_dma_h		: dma handle for the scatter-gather list
+ * @pthru		: passthru structure
+ * @pthru_dma_h		: dma handle for the passthru structure
+ * @epthru		: extended passthru structure
+ * @epthru_dma_h	: dma handle for extended passthru structure
+ * @buf_dma_h		: dma handle for buffers w/o sg list
+ *
+ * command control block specific to the mailbox based controllers
+ */
 typedef struct {
 	uint8_t			*raw_mbox;
 	mbox_t			*mbox;
@@ -121,6 +145,45 @@ typedef struct {
 } mbox_ccb_t;
 
 
+/**
+ * mraid_device_t - adapter soft state structure for mailbox controllers
+ * @una_mbox64			: 64-bit mbox - unaligned
+ * @una_mbox64_dma		: mbox dma addr - unaligned
+ * @mbox			: 32-bit mbox - aligned
+ * @mbox64			: 64-bit mbox - aligned
+ * @mbox_dma			: mbox dma addr - aligned
+ * @mailbox_lock		: exclusion lock for the mailbox
+ * @baseport			: base port of hba memory
+ * @baseaddr			: mapped addr of hba memory
+ * @mbox_pool			: pool of mailboxes
+ * @mbox_pool_handle		: handle for the mailbox pool memory
+ * @epthru_pool			: a pool for extended passthru commands
+ * @epthru_pool_handle		: handle to the pool above
+ * @sg_pool			: pool of scatter-gather lists for this driver
+ * @sg_pool_handle		: handle to the pool above
+ * @ccb_list			: list of our command control blocks
+ * @uccb_list			: list of cmd control blocks for mgmt module
+ * @umbox64			: array of mailbox for user commands (cmm)
+ * @pdrv_state			: array for state of each physical drive.
+ * @last_disp			: flag used to show device scanning
+ * @hw_error			: set if FW not responding
+ * @fast_load			: If set, skip physical device scanning
+ * @channel_class		: channel class, RAID or SCSI
+ * @sysfs_mtx			: mutex to serialize access to sysfs res.
+ * @sysfs_uioc			: management packet to issue FW calls from sysfs
+ * @sysfs_mbox64		: mailbox packet to issue FW calls from sysfs
+ * @sysfs_buffer		: data buffer for FW commands issued from sysfs
+ * @sysfs_buffer_dma		: DMA buffer for FW commands issued from sysfs
+ * @sysfs_wait_q		: wait queue for sysfs operations
+ * @random_del_supported	: set if the random deletion is supported
+ * @curr_ldmap			: current LDID map
+ *
+ * Initialization structure for mailbox controllers: memory based and IO based
+ * All the fields in this structure are LLD specific and may be discovered at
+ * init() or start() time.
+ *
+ * NOTE: The fields of this structures are placed to minimize cache misses
+ */
 #define MAX_LD_EXTENDED64	64
 typedef struct {
 	mbox64_t			*una_mbox64;
@@ -156,10 +219,12 @@ typedef struct {
 	uint16_t			curr_ldmap[MAX_LD_EXTENDED64];
 } mraid_device_t;
 
+// route to raid device from adapter
 #define ADAP2RAIDDEV(adp)	((mraid_device_t *)((adp)->raid_device))
 
 #define MAILBOX_LOCK(rdev)	(&(rdev)->mailbox_lock)
 
+// Find out if this channel is a RAID or SCSI
 #define IS_RAID_CH(rdev, ch)	(((rdev)->channel_class >> (ch)) & 0x01)
 
 
@@ -168,5 +233,6 @@ typedef struct {
 #define WRINDOOR(rdev, value)	writel(value, (rdev)->baseaddr + 0x20)
 #define WROUTDOOR(rdev, value)	writel(value, (rdev)->baseaddr + 0x2C)
 
-#endif 
+#endif // _MEGARAID_H_
 
+// vim: set ts=8 sw=8 tw=78:

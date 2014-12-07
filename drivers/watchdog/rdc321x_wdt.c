@@ -38,20 +38,21 @@
 #include <linux/uaccess.h>
 #include <linux/mfd/rdc321x.h>
 
-#define RDC_WDT_MASK	0x80000000 
-#define RDC_WDT_EN	0x00800000 
-#define RDC_WDT_WTI	0x00200000 
-#define RDC_WDT_RST	0x00100000 
-#define RDC_WDT_WIF	0x00040000 
-#define RDC_WDT_IRT	0x00000100 
-#define RDC_WDT_CNT	0x00000001 
+#define RDC_WDT_MASK	0x80000000 /* Mask */
+#define RDC_WDT_EN	0x00800000 /* Enable bit */
+#define RDC_WDT_WTI	0x00200000 /* Generate CPU reset/NMI/WDT on timeout */
+#define RDC_WDT_RST	0x00100000 /* Reset bit */
+#define RDC_WDT_WIF	0x00040000 /* WDT IRQ Flag */
+#define RDC_WDT_IRT	0x00000100 /* IRQ Routing table */
+#define RDC_WDT_CNT	0x00000001 /* WDT count */
 
-#define RDC_CLS_TMR	0x80003844 
+#define RDC_CLS_TMR	0x80003844 /* Clear timer */
 
 #define RDC_WDT_INTERVAL	(HZ/10+1)
 
 static int ticks = 1000;
 
+/* some device data */
 
 static struct {
 	struct completion stop;
@@ -65,6 +66,7 @@ static struct {
 	int base_reg;
 } rdc321x_wdt_device;
 
+/* generic helper functions */
 
 static void rdc321x_wdt_trigger(unsigned long unused)
 {
@@ -74,7 +76,7 @@ static void rdc321x_wdt_trigger(unsigned long unused)
 	if (rdc321x_wdt_device.running)
 		ticks--;
 
-	
+	/* keep watchdog alive */
 	spin_lock_irqsave(&rdc321x_wdt_device.lock, flags);
 	pci_read_config_dword(rdc321x_wdt_device.sb_pdev,
 					rdc321x_wdt_device.base_reg, &val);
@@ -83,12 +85,12 @@ static void rdc321x_wdt_trigger(unsigned long unused)
 					rdc321x_wdt_device.base_reg, val);
 	spin_unlock_irqrestore(&rdc321x_wdt_device.lock, flags);
 
-	
+	/* requeue?? */
 	if (rdc321x_wdt_device.queue && ticks)
 		mod_timer(&rdc321x_wdt_device.timer,
 				jiffies + RDC_WDT_INTERVAL);
 	else {
-		
+		/* ticks doesn't matter anyway */
 		complete(&rdc321x_wdt_device.stop);
 	}
 
@@ -106,12 +108,12 @@ static void rdc321x_wdt_start(void)
 	if (!rdc321x_wdt_device.queue) {
 		rdc321x_wdt_device.queue = 1;
 
-		
+		/* Clear the timer */
 		spin_lock_irqsave(&rdc321x_wdt_device.lock, flags);
 		pci_write_config_dword(rdc321x_wdt_device.sb_pdev,
 				rdc321x_wdt_device.base_reg, RDC_CLS_TMR);
 
-		
+		/* Enable watchdog and set the timeout to 81.92 us */
 		pci_write_config_dword(rdc321x_wdt_device.sb_pdev,
 					rdc321x_wdt_device.base_reg,
 					RDC_WDT_EN | RDC_WDT_CNT);
@@ -121,7 +123,7 @@ static void rdc321x_wdt_start(void)
 				jiffies + RDC_WDT_INTERVAL);
 	}
 
-	
+	/* if process dies, counter is not decremented */
 	rdc321x_wdt_device.running++;
 }
 
@@ -135,6 +137,7 @@ static int rdc321x_wdt_stop(void)
 	return -EIO;
 }
 
+/* filesystem operations */
 static int rdc321x_wdt_open(struct inode *inode, struct file *file)
 {
 	if (test_and_set_bit(0, &rdc321x_wdt_device.inuse))
@@ -165,7 +168,7 @@ static long rdc321x_wdt_ioctl(struct file *file, unsigned int cmd,
 		rdc321x_wdt_reset();
 		break;
 	case WDIOC_GETSTATUS:
-		
+		/* Read the value from the DATA register */
 		spin_lock_irqsave(&rdc321x_wdt_device.lock, flags);
 		pci_read_config_dword(rdc321x_wdt_device.sb_pdev,
 					rdc321x_wdt_device.base_reg, &value);
@@ -251,7 +254,7 @@ static int __devinit rdc321x_wdt_probe(struct platform_device *pdev)
 
 	spin_lock_init(&rdc321x_wdt_device.lock);
 
-	
+	/* Reset the watchdog */
 	pci_write_config_dword(rdc321x_wdt_device.sb_pdev,
 				rdc321x_wdt_device.base_reg, RDC_WDT_RST);
 

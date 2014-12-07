@@ -54,14 +54,17 @@ struct cam_hdr {
 	uint16_t tag;
 };
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev; 
-	uint16_t cam_tag;           
-	uint8_t stream_flag;        
-	uint8_t obuf[0x400];        
-	uint8_t ibuf[0x200];        
+	struct gspca_dev gspca_dev; /* !! must be the first item */
+	uint16_t cam_tag;           /* a sequence number for packets */
+	uint8_t stream_flag;        /* to identify different stream types */
+	uint8_t obuf[0x400];        /* output buffer for control commands */
+	uint8_t ibuf[0x200];        /* input buffer for control commands */
 };
 
+/* V4L2 controls supported by the driver */
+/* controls prototypes here */
 
 static const struct ctrl sd_ctrls[] = {
 };
@@ -220,6 +223,7 @@ static int write_register(struct gspca_dev *gspca_dev, uint16_t reg,
 	return 0;
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 		     const struct usb_device_id *id)
 {
@@ -228,6 +232,8 @@ static int sd_config(struct gspca_dev *gspca_dev,
 
 	sd->cam_tag = 0;
 
+	/* Only video stream is supported for now,
+	 * which has stream flag = 0x80 */
 	sd->stream_flag = 0x80;
 
 	cam = &gspca_dev->cam;
@@ -236,7 +242,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	cam->nmodes = ARRAY_SIZE(video_camera_mode);
 
 #if 0
-	
+	/* Setting those values is not needed for video stream */
 	cam->npkt = 15;
 	gspca_dev->pkt_size = 960 * 2;
 #endif
@@ -244,6 +250,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	PDEBUG(D_PROBE, "Kinect Camera device.");
@@ -273,7 +280,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		mode_val = 0x01;
 	}
 
-	
+	/* format */
 	if (mode & FORMAT_UYVY)
 		fmt_val = 0x05;
 	else
@@ -290,12 +297,19 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		fps_val = 0x0f;
 
 
-	
+	/* turn off IR-reset function */
 	write_register(gspca_dev, 0x105, 0x00);
 
-	
+	/* Reset video stream */
 	write_register(gspca_dev, 0x05, 0x00);
 
+	/* Due to some ridiculous condition in the firmware, we have to start
+	 * and stop the depth stream before the camera will hand us 1280x1024
+	 * IR.  This is a stupid workaround, but we've yet to find a better
+	 * solution.
+	 *
+	 * Thanks to Drew Fisher for figuring this out.
+	 */
 	if (mode & (FORMAT_Y10B | MODE_1280x1024)) {
 		write_register(gspca_dev, 0x13, 0x01);
 		write_register(gspca_dev, 0x14, 0x1e);
@@ -307,10 +321,10 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	write_register(gspca_dev, res_reg, res_val);
 	write_register(gspca_dev, fps_reg, fps_val);
 
-	
+	/* Start video stream */
 	write_register(gspca_dev, 0x05, mode_val);
 
-	
+	/* disable Hflip */
 	write_register(gspca_dev, 0x47, 0x00);
 
 	return 0;
@@ -318,7 +332,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 
 static void sd_stopN(struct gspca_dev *gspca_dev)
 {
-	
+	/* reset video stream */
 	write_register(gspca_dev, 0x05, 0x00);
 }
 
@@ -356,6 +370,7 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev, u8 *__data, int len)
 		pr_warn("Packet type not recognized...\n");
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name      = MODULE_NAME,
 	.ctrls     = sd_ctrls,
@@ -365,8 +380,14 @@ static const struct sd_desc sd_desc = {
 	.start     = sd_start,
 	.stopN     = sd_stopN,
 	.pkt_scan  = sd_pkt_scan,
+	/*
+	.querymenu = sd_querymenu,
+	.get_streamparm = sd_get_streamparm,
+	.set_streamparm = sd_set_streamparm,
+	*/
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x045e, 0x02ae)},
 	{}
@@ -374,6 +395,7 @@ static const struct usb_device_id device_table[] = {
 
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {
 	return gspca_dev_probe(intf, id, &sd_desc, sizeof(struct sd),

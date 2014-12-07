@@ -24,6 +24,10 @@ static struct gcov_info *gcov_info_head;
 static int gcov_events_enabled;
 static DEFINE_MUTEX(gcov_lock);
 
+/*
+ * __gcov_init is called by gcc-generated constructor code for each object
+ * file compiled with -fprofile-arcs.
+ */
 void __gcov_init(struct gcov_info *info)
 {
 	static unsigned int gcov_version;
@@ -31,8 +35,16 @@ void __gcov_init(struct gcov_info *info)
 	mutex_lock(&gcov_lock);
 	if (gcov_version == 0) {
 		gcov_version = info->version;
+		/*
+		 * Printing gcc's version magic may prove useful for debugging
+		 * incompatibility reports.
+		 */
 		pr_info("version magic: 0x%x\n", gcov_version);
 	}
+	/*
+	 * Add new profiling data structure to list and inform event
+	 * listener.
+	 */
 	info->next = gcov_info_head;
 	gcov_info_head = info;
 	if (gcov_events_enabled)
@@ -41,37 +53,49 @@ void __gcov_init(struct gcov_info *info)
 }
 EXPORT_SYMBOL(__gcov_init);
 
+/*
+ * These functions may be referenced by gcc-generated profiling code but serve
+ * no function for kernel profiling.
+ */
 void __gcov_flush(void)
 {
-	
+	/* Unused. */
 }
 EXPORT_SYMBOL(__gcov_flush);
 
 void __gcov_merge_add(gcov_type *counters, unsigned int n_counters)
 {
-	
+	/* Unused. */
 }
 EXPORT_SYMBOL(__gcov_merge_add);
 
 void __gcov_merge_single(gcov_type *counters, unsigned int n_counters)
 {
-	
+	/* Unused. */
 }
 EXPORT_SYMBOL(__gcov_merge_single);
 
 void __gcov_merge_delta(gcov_type *counters, unsigned int n_counters)
 {
-	
+	/* Unused. */
 }
 EXPORT_SYMBOL(__gcov_merge_delta);
 
+/**
+ * gcov_enable_events - enable event reporting through gcov_event()
+ *
+ * Turn on reporting of profiling data load/unload-events through the
+ * gcov_event() callback. Also replay all previous events once. This function
+ * is needed because some events are potentially generated too early for the
+ * callback implementation to handle them initially.
+ */
 void gcov_enable_events(void)
 {
 	struct gcov_info *info;
 
 	mutex_lock(&gcov_lock);
 	gcov_events_enabled = 1;
-	
+	/* Perform event callback for previously registered entries. */
 	for (info = gcov_info_head; info; info = info->next)
 		gcov_event(GCOV_ADD, info);
 	mutex_unlock(&gcov_lock);
@@ -83,6 +107,7 @@ static inline int within(void *addr, void *start, unsigned long size)
 	return ((addr >= start) && (addr < start + size));
 }
 
+/* Update list and generate events when modules are unloaded. */
 static int gcov_module_notifier(struct notifier_block *nb, unsigned long event,
 				void *data)
 {
@@ -94,7 +119,7 @@ static int gcov_module_notifier(struct notifier_block *nb, unsigned long event,
 		return NOTIFY_OK;
 	mutex_lock(&gcov_lock);
 	prev = NULL;
-	
+	/* Remove entries located in module from linked list. */
 	for (info = gcov_info_head; info; info = info->next) {
 		if (within(info, mod->module_core, mod->core_size)) {
 			if (prev)
@@ -120,4 +145,4 @@ static int __init gcov_init(void)
 	return register_module_notifier(&gcov_nb);
 }
 device_initcall(gcov_init);
-#endif 
+#endif /* CONFIG_MODULES */

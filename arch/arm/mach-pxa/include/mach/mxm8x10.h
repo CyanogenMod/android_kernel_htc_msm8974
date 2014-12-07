@@ -18,4 +18,4 @@ extern void mxm_8x10_ac97_init(void);
 
 extern void mxm_8x10_barebones_init(void);
 
-#endif 
+#endif /* __MACH_MXM_8X10_H */

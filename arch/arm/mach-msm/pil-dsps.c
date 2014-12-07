@@ -63,7 +63,7 @@ static int init_image_dsps(struct pil_desc *pil, const u8 *metadata,
 {
 	struct dsps_data *drv = pil_to_drv(pil);
 
-	
+	/* Bring memory and bus interface out of reset */
 	writel_relaxed(PPSS_RESET_PROC_RESET, drv->base + PPSS_RESET);
 	writel_relaxed(CLK_BRANCH_ENA, drv->base + PPSS_HCLK_CTL);
 	mb();
@@ -77,7 +77,7 @@ static int reset_dsps(struct pil_desc *pil)
 	writel_relaxed(CLK_BRANCH_ENA, drv->base + PPSS_PROC_CLK_CTL);
 	while (readl_relaxed(drv->base + CLK_HALT_DFAB_STATE) & BIT(18))
 		cpu_relax();
-	
+	/* Bring DSPS out of reset */
 	writel_relaxed(0x0, drv->base + PPSS_RESET);
 	return 0;
 }
@@ -185,7 +185,7 @@ static int dsps_shutdown(const struct subsys_desc *desc)
 	disable_irq_nosync(drv->wdog_irq);
 	if (drv->ppss_base) {
 		writel_relaxed(0, drv->ppss_base + PPSS_WDOG_UNMASKED_INT_EN);
-		mb(); 
+		mb(); /* Make sure wdog is disabled before shutting down */
 	}
 	pil_shutdown(&drv->desc);
 	return 0;

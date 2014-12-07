@@ -16,6 +16,10 @@
 
 #include "wlioctl.h"
 
+/* Strings corresponding to the IDs defined in wlioctl.h
+ * This file is only included by the apps and not included by the external driver
+ * Formats of pre-existing ids should NOT be changed
+ */
 log_idstr_t extlog_fmt_str[ ] = {
 	{FMTSTR_DRIVER_UP_ID, 0, LOG_ARGTYPE_NULL,
 	"Driver is Up\n"},
@@ -110,4 +114,4 @@ log_idstr_t extlog_fmt_str[ ] = {
 	{FMTSTR_MAX_ID, 0, 0, "\0"}
 };
 
-#endif 
+#endif /* _WLC_EXTLOG_IDSTR_H_ */

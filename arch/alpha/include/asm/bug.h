@@ -6,6 +6,8 @@
 #ifdef CONFIG_BUG
 #include <asm/pal.h>
 
+/* ??? Would be nice to use .gprel32 here, but we can't be sure that the
+   function loaded the GP, so this could fail in modules.  */
 #define BUG()	do {							\
 	__asm__ __volatile__(						\
 		"call_pal %0  # bugchk\n\t"				\

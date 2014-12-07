@@ -30,8 +30,14 @@
 #include <asm/mach/time.h>
 #include <mach/time.h>
 
+/*
+ * Minimum clocksource/clockevent timer range in seconds
+ */
 #define IOP_MIN_RANGE 4
 
+/*
+ * IOP clocksource (free-running timer 1).
+ */
 static cycle_t notrace iop_clocksource_read(struct clocksource *unused)
 {
 	return 0xffffffffu - read_tcr1();
@@ -45,11 +51,17 @@ static struct clocksource iop_clocksource = {
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
+/*
+ * IOP sched_clock() implementation via its clocksource.
+ */
 static u32 notrace iop_read_sched_clock(void)
 {
 	return 0xffffffffu - read_tcr1();
 }
 
+/*
+ * IOP clockevents (interrupting timer 0).
+ */
 static int iop_set_next_event(unsigned long delta,
 			      struct clock_event_device *unused)
 {
@@ -78,7 +90,7 @@ static void iop_set_mode(enum clock_event_mode mode,
 		tmr |= (IOP_TMR_RELOAD | IOP_TMR_EN);
 		break;
 	case CLOCK_EVT_MODE_ONESHOT:
-		
+		/* ->set_next_event sets period and enables timer */
 		tmr &= ~(IOP_TMR_RELOAD | IOP_TMR_EN);
 		break;
 	case CLOCK_EVT_MODE_RESUME:
@@ -138,6 +150,9 @@ void __init iop_init_time(unsigned long tick_rate)
 	timer_ctl = IOP_TMR_EN | IOP_TMR_PRIVILEGED |
 			IOP_TMR_RELOAD | IOP_TMR_RATIO_1_1;
 
+	/*
+	 * Set up interrupting clockevent timer 0.
+	 */
 	write_tmr0(timer_ctl & ~IOP_TMR_EN);
 	write_tisr(1);
 	setup_irq(IRQ_IOP_TIMER0, &iop_timer_irq);
@@ -150,6 +165,9 @@ void __init iop_init_time(unsigned long tick_rate)
 	iop_clockevent.cpumask = cpumask_of(0);
 	clockevents_register_device(&iop_clockevent);
 
+	/*
+	 * Set up free-running clocksource timer 1.
+	 */
 	write_trr1(0xffffffff);
 	write_tcr1(0xffffffff);
 	write_tmr1(timer_ctl);

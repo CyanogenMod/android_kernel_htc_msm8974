@@ -35,11 +35,13 @@
 
 #include "shpchp.h"
 
+/* Slot Available Register I field definition */
 #define SLOT_33MHZ		0x0000001f
 #define SLOT_66MHZ_PCIX		0x00001f00
 #define SLOT_100MHZ_PCIX	0x001f0000
 #define SLOT_133MHZ_PCIX	0x1f000000
 
+/* Slot Available Register II field definition */
 #define SLOT_66MHZ		0x0000001f
 #define SLOT_66MHZ_PCIX_266	0x00000f00
 #define SLOT_100MHZ_PCIX_266	0x0000f000
@@ -48,6 +50,7 @@
 #define SLOT_100MHZ_PCIX_533	0x0f000000
 #define SLOT_133MHZ_PCIX_533	0xf0000000
 
+/* Slot Configuration */
 #define SLOT_NUM		0x0000001F
 #define	FIRST_DEV_NUM		0x00001F00
 #define PSN			0x07FF0000
@@ -55,9 +58,15 @@
 #define	MRLSENSOR		0x40000000
 #define ATTN_BUTTON		0x80000000
 
+/*
+ * Interrupt Locator Register definitions
+ */
 #define CMD_INTR_PENDING	(1 << 0)
 #define SLOT_INTR_PENDING(i)	(1 << (i + 1))
 
+/*
+ * Controller SERR-INT Register
+ */
 #define GLOBAL_INTR_MASK	(1 << 0)
 #define GLOBAL_SERR_MASK	(1 << 1)
 #define COMMAND_INTR_MASK	(1 << 2)
@@ -66,6 +75,9 @@
 #define ARBITER_DETECTED	(1 << 17)
 #define SERR_INTR_RSVDZ_MASK	0xfffc0000
 
+/*
+ * Logical Slot Register definitions
+ */
 #define SLOT_REG(i)		(SLOT1 + (4 * i))
 
 #define SLOT_STATE_SHIFT	(0)
@@ -103,7 +115,18 @@
 #define CON_PFAULT_SERR_MASK	(1 << 30)
 #define SLOT_REG_RSVDZ_MASK	((1 << 15) | (7 << 21))
 
-#define SET_SLOT_PWR		0x01	
+/*
+ * SHPC Command Code definitnions
+ *
+ *     Slot Operation				00h - 3Fh
+ *     Set Bus Segment Speed/Mode A		40h - 47h
+ *     Power-Only All Slots			48h
+ *     Enable All Slots				49h
+ *     Set Bus Segment Speed/Mode B (PI=2)	50h - 5Fh
+ *     Reserved Command Codes			60h - BFh
+ *     Vendor Specific Commands			C0h - FFh
+ */
+#define SET_SLOT_PWR		0x01	/* Slot Operation */
 #define SET_SLOT_ENABLE		0x02
 #define SET_SLOT_DISABLE	0x03
 #define SET_PWR_ON		0x04
@@ -112,7 +135,7 @@
 #define SET_ATTN_ON		0x10
 #define SET_ATTN_BLINK		0x20
 #define SET_ATTN_OFF		0x30
-#define SETA_PCI_33MHZ		0x40	
+#define SETA_PCI_33MHZ		0x40	/* Set Bus Segment Speed/Mode A */
 #define SETA_PCI_66MHZ		0x41
 #define SETA_PCIX_66MHZ		0x42
 #define SETA_PCIX_100MHZ	0x43
@@ -120,9 +143,9 @@
 #define SETA_RESERVED1		0x45
 #define SETA_RESERVED2		0x46
 #define SETA_RESERVED3		0x47
-#define SET_PWR_ONLY_ALL	0x48	
-#define SET_ENABLE_ALL		0x49	
-#define	SETB_PCI_33MHZ		0x50	
+#define SET_PWR_ONLY_ALL	0x48	/* Power-Only All Slots */
+#define SET_ENABLE_ALL		0x49	/* Enable All Slots */
+#define	SETB_PCI_33MHZ		0x50	/* Set Bus Segment Speed/Mode B */
 #define SETB_PCI_66MHZ		0x51
 #define SETB_PCIX_66MHZ_PM	0x52
 #define SETB_PCIX_100MHZ_PM	0x53
@@ -139,13 +162,20 @@
 #define SETB_RESERVED1		0x5e
 #define SETB_RESERVED2		0x5f
 
+/*
+ * SHPC controller command error code
+ */
 #define SWITCH_OPEN		0x1
 #define INVALID_CMD		0x2
 #define INVALID_SPEED_MODE	0x4
 
+/*
+ * For accessing SHPC Working Register Set via PCI Configuration Space
+ */
 #define DWORD_SELECT		0x2
 #define DWORD_DATA		0x4
 
+/* Field Offset in Logical Slot Register - byte boundary */
 #define SLOT_EVENT_LATCH	0x2
 #define SLOT_SERR_INT_MASK	0x3
 
@@ -196,23 +226,29 @@ static inline int shpc_indirect_read(struct controller *ctrl, int index,
 	return pci_read_config_dword(pdev, cap_offset + DWORD_DATA, value);
 }
 
+/*
+ * This is the interrupt polling timeout function.
+ */
 static void int_poll_timeout(unsigned long data)
 {
 	struct controller *ctrl = (struct controller *)data;
 
-	
+	/* Poll for interrupt events.  regs == NULL => polling */
 	shpc_isr(0, ctrl);
 
 	init_timer(&ctrl->poll_timer);
 	if (!shpchp_poll_time)
-		shpchp_poll_time = 2; 
+		shpchp_poll_time = 2; /* default polling interval is 2 sec */
 
 	start_int_poll_timer(ctrl, shpchp_poll_time);
 }
 
+/*
+ * This function starts the interrupt polling timer.
+ */
 static void start_int_poll_timer(struct controller *ctrl, int sec)
 {
-	
+	/* Clamp to sane value */
 	if ((sec <= 0) || (sec > 60))
 		sec = 2;
 
@@ -228,6 +264,10 @@ static inline int is_ctrl_busy(struct controller *ctrl)
 	return cmd_status & 0x1;
 }
 
+/*
+ * Returns 1 if SHPC finishes executing a command within 1 sec,
+ * otherwise returns 0.
+ */
 static inline int shpc_poll_ctrl_busy(struct controller *ctrl)
 {
 	int i;
@@ -235,7 +275,7 @@ static inline int shpc_poll_ctrl_busy(struct controller *ctrl)
 	if (!is_ctrl_busy(ctrl))
 		return 1;
 
-	
+	/* Check every 0.1 sec for a total of 1 sec */
 	for (i = 0; i < 10; i++) {
 		msleep(100);
 		if (!is_ctrl_busy(ctrl))
@@ -277,7 +317,7 @@ static int shpc_write_cmd(struct slot *slot, u8 t_slot, u8 cmd)
 	mutex_lock(&slot->ctrl->cmd_lock);
 
 	if (!shpc_poll_ctrl_busy(ctrl)) {
-		
+		/* After 1 sec and and the controller is still busy */
 		ctrl_err(ctrl, "Controller is still busy after 1 sec\n");
 		retval = -EBUSY;
 		goto out;
@@ -287,8 +327,14 @@ static int shpc_write_cmd(struct slot *slot, u8 t_slot, u8 cmd)
 	temp_word =  (t_slot << 8) | (cmd & 0xFF);
 	ctrl_dbg(ctrl, "%s: t_slot %x cmd %x\n", __func__, t_slot, cmd);
 
+	/* To make sure the Controller Busy bit is 0 before we send out the
+	 * command.
+	 */
 	shpc_writew(ctrl, CMD, temp_word);
 
+	/*
+	 * Wait for command completion.
+	 */
 	retval = shpc_wait_cmd(slot->ctrl);
 	if (retval)
 		goto out;
@@ -342,16 +388,16 @@ static int hpc_get_attention_status(struct slot *slot, u8 *status)
 
 	switch (state) {
 	case ATN_LED_STATE_ON:
-		*status = 1;	
+		*status = 1;	/* On */
 		break;
 	case ATN_LED_STATE_BLINK:
-		*status = 2;	
+		*status = 2;	/* Blink */
 		break;
 	case ATN_LED_STATE_OFF:
-		*status = 0;	
+		*status = 0;	/* Off */
 		break;
 	default:
-		*status = 0xFF;	
+		*status = 0xFF;	/* Reserved */
 		break;
 	}
 
@@ -366,16 +412,16 @@ static int hpc_get_power_status(struct slot * slot, u8 *status)
 
 	switch (state) {
 	case SLOT_STATE_PWRONLY:
-		*status = 2;	
+		*status = 2;	/* Powered only */
 		break;
 	case SLOT_STATE_ENABLED:
-		*status = 1;	
+		*status = 1;	/* Enabled */
 		break;
 	case SLOT_STATE_DISABLED:
-		*status = 0;	
+		*status = 0;	/* Disabled */
 		break;
 	default:
-		*status = 0xFF;	
+		*status = 0xFF;	/* Reserved */
 		break;
 	}
 
@@ -388,7 +434,7 @@ static int hpc_get_latch_status(struct slot *slot, u8 *status)
 	struct controller *ctrl = slot->ctrl;
 	u32 slot_reg = shpc_readl(ctrl, SLOT_REG(slot->hp_slot));
 
-	*status = !!(slot_reg & MRL_SENSOR);	
+	*status = !!(slot_reg & MRL_SENSOR);	/* 0 -> close; 1 -> open */
 
 	return 0;
 }
@@ -487,7 +533,7 @@ static int hpc_query_power_fault(struct slot * slot)
 	struct controller *ctrl = slot->ctrl;
 	u32 slot_reg = shpc_readl(ctrl, SLOT_REG(slot->hp_slot));
 
-	
+	/* Note: Logic 0 => fault */
 	return !(slot_reg & POWER_FAULT);
 }
 
@@ -497,13 +543,13 @@ static int hpc_set_attention_status(struct slot *slot, u8 value)
 
 	switch (value) {
 		case 0 :
-			slot_cmd = SET_ATTN_OFF;	
+			slot_cmd = SET_ATTN_OFF;	/* OFF */
 			break;
 		case 1:
-			slot_cmd = SET_ATTN_ON;		
+			slot_cmd = SET_ATTN_ON;		/* ON */
 			break;
 		case 2:
-			slot_cmd = SET_ATTN_BLINK;	
+			slot_cmd = SET_ATTN_BLINK;	/* BLINK */
 			break;
 		default:
 			return -1;
@@ -533,6 +579,9 @@ static void hpc_release_ctlr(struct controller *ctrl)
 	int i;
 	u32 slot_reg, serr_int;
 
+	/*
+	 * Mask event interrupts and SERRs of all slots
+	 */
 	for (i = 0; i < ctrl->num_slots; i++) {
 		slot_reg = shpc_readl(ctrl, SLOT_REG(i));
 		slot_reg |= (PRSNT_CHANGE_INTR_MASK | ISO_PFAULT_INTR_MASK |
@@ -545,6 +594,9 @@ static void hpc_release_ctlr(struct controller *ctrl)
 
 	cleanup_slots(ctrl);
 
+	/*
+	 * Mask SERR and System Interrupt generation
+	 */
 	serr_int = shpc_readl(ctrl, SERR_INTR_ENABLE);
 	serr_int |= (GLOBAL_INTR_MASK  | GLOBAL_SERR_MASK |
 		     COMMAND_INTR_MASK | ARBITER_SERR_MASK);
@@ -577,7 +629,7 @@ static int hpc_slot_enable(struct slot * slot)
 {
 	int retval;
 
-	
+	/* Slot - Enable, Power Indicator - Blink, Attention Indicator - Off */
 	retval = shpc_write_cmd(slot, slot->hp_slot,
 			SET_SLOT_ENABLE | SET_PWR_BLINK | SET_ATTN_OFF);
 	if (retval)
@@ -590,7 +642,7 @@ static int hpc_slot_disable(struct slot * slot)
 {
 	int retval;
 
-	
+	/* Slot - Disable, Power Indicator - Off, Attention Indicator - On */
 	retval = shpc_write_cmd(slot, slot->hp_slot,
 			SET_SLOT_DISABLE | SET_PWR_OFF | SET_ATTN_ON);
 	if (retval)
@@ -740,7 +792,7 @@ static irqreturn_t shpc_isr(int irq, void *dev_id)
 	u32 serr_int, slot_reg, intr_loc, intr_loc2;
 	int hp_slot;
 
-	
+	/* Check to see if it was our interrupt */
 	intr_loc = shpc_readl(ctrl, INTR_LOC);
 	if (!intr_loc)
 		return IRQ_NONE;
@@ -748,6 +800,10 @@ static irqreturn_t shpc_isr(int irq, void *dev_id)
 	ctrl_dbg(ctrl, "%s: intr_loc = %x\n", __func__, intr_loc);
 
 	if(!shpchp_poll_mode) {
+		/*
+		 * Mask Global Interrupt Mask - see implementation
+		 * note on p. 139 of SHPC spec rev 1.0
+		 */
 		serr_int = shpc_readl(ctrl, SERR_INTR_ENABLE);
 		serr_int |= GLOBAL_INTR_MASK;
 		serr_int &= ~SERR_INTR_RSVDZ_MASK;
@@ -758,6 +814,11 @@ static irqreturn_t shpc_isr(int irq, void *dev_id)
 	}
 
 	if (intr_loc & CMD_INTR_PENDING) {
+		/*
+		 * Command Complete Interrupt Pending
+		 * RO only - clear by writing 1 to the Command Completion
+		 * Detect bit in Controller SERR-INT register
+		 */
 		serr_int = shpc_readl(ctrl, SERR_INTR_ENABLE);
 		serr_int &= ~SERR_INTR_RSVDZ_MASK;
 		shpc_writel(ctrl, SERR_INTR_ENABLE, serr_int);
@@ -769,7 +830,7 @@ static irqreturn_t shpc_isr(int irq, void *dev_id)
 		goto out;
 
 	for (hp_slot = 0; hp_slot < ctrl->num_slots; hp_slot++) {
-		
+		/* To find out which slot has interrupt pending */
 		if (!(intr_loc & SLOT_INTR_PENDING(hp_slot)))
 			continue;
 
@@ -789,13 +850,13 @@ static irqreturn_t shpc_isr(int irq, void *dev_id)
 		if (slot_reg & (ISO_PFAULT_DETECTED | CON_PFAULT_DETECTED))
 			shpchp_handle_power_fault(hp_slot, ctrl);
 
-		
+		/* Clear all slot events */
 		slot_reg &= ~SLOT_REG_RSVDZ_MASK;
 		shpc_writel(ctrl, SLOT_REG(hp_slot), slot_reg);
 	}
  out:
 	if (!shpchp_poll_mode) {
-		
+		/* Unmask Global Interrupt Mask */
 		serr_int = shpc_readl(ctrl, SERR_INTR_ENABLE);
 		serr_int &= ~(GLOBAL_INTR_MASK | SERR_INTR_RSVDZ_MASK);
 		shpc_writel(ctrl, SERR_INTR_ENABLE, serr_int);
@@ -880,12 +941,12 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 	u32 tempdword, slot_reg, slot_config;
 	u8 i;
 
-	ctrl->pci_dev = pdev;  
+	ctrl->pci_dev = pdev;  /* pci_dev of the P2P bridge */
 	ctrl_dbg(ctrl, "Hotplug Controller:\n");
 
 	if (pdev->vendor == PCI_VENDOR_ID_AMD &&
 	    pdev->device == PCI_DEVICE_ID_AMD_GOLAM_7450) {
-		
+		/* amd shpc driver doesn't use Base Offset; assume 0 */
 		ctrl->mmio_base = pci_resource_start(pdev, 0);
 		ctrl->mmio_size = pci_resource_len(pdev, 0);
 	} else {
@@ -954,19 +1015,19 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 	mutex_init(&ctrl->crit_sect);
 	mutex_init(&ctrl->cmd_lock);
 
-	
+	/* Setup wait queue */
 	init_waitqueue_head(&ctrl->queue);
 
 	ctrl->hpc_ops = &shpchp_hpc_ops;
 
-	
+	/* Return PCI Controller Info */
 	slot_config = shpc_readl(ctrl, SLOT_CONFIG);
 	ctrl->slot_device_offset = (slot_config & FIRST_DEV_NUM) >> 8;
 	ctrl->num_slots = slot_config & SLOT_NUM;
 	ctrl->first_slot = (slot_config & PSN) >> 16;
 	ctrl->slot_num_inc = ((slot_config & UPDOWN) >> 29) ? 1 : -1;
 
-	
+	/* Mask Global Interrupt Mask & Command Complete Interrupt Mask */
 	tempdword = shpc_readl(ctrl, SERR_INTR_ENABLE);
 	ctrl_dbg(ctrl, "SERR_INTR_ENABLE = %x\n", tempdword);
 	tempdword |= (GLOBAL_INTR_MASK  | GLOBAL_SERR_MASK |
@@ -976,6 +1037,9 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 	tempdword = shpc_readl(ctrl, SERR_INTR_ENABLE);
 	ctrl_dbg(ctrl, "SERR_INTR_ENABLE = %x\n", tempdword);
 
+	/* Mask the MRL sensor SERR Mask of individual slot in
+	 * Slot SERR-INT Mask & clear all the existing event if any
+	 */
 	for (hp_slot = 0; hp_slot < ctrl->num_slots; hp_slot++) {
 		slot_reg = shpc_readl(ctrl, SLOT_REG(hp_slot));
 		ctrl_dbg(ctrl, "Default Logical Slot Register %d value %x\n",
@@ -989,11 +1053,11 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 	}
 
 	if (shpchp_poll_mode) {
-		
+		/* Install interrupt polling timer. Start with 10 sec delay */
 		init_timer(&ctrl->poll_timer);
 		start_int_poll_timer(ctrl, 10);
 	} else {
-		
+		/* Installs the interrupt handler */
 		rc = pci_enable_msi(pdev);
 		if (rc) {
 			ctrl_info(ctrl,
@@ -1017,6 +1081,9 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 	shpc_get_max_bus_speed(ctrl);
 	shpc_get_cur_bus_speed(ctrl);
 
+	/*
+	 * Unmask all event interrupts of all slots
+	 */
 	for (hp_slot = 0; hp_slot < ctrl->num_slots; hp_slot++) {
 		slot_reg = shpc_readl(ctrl, SLOT_REG(hp_slot));
 		ctrl_dbg(ctrl, "Default Logical Slot Register %d value %x\n",
@@ -1027,7 +1094,7 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 		shpc_writel(ctrl, SLOT_REG(hp_slot), slot_reg);
 	}
 	if (!shpchp_poll_mode) {
-		
+		/* Unmask all general input interrupts and SERR */
 		tempdword = shpc_readl(ctrl, SERR_INTR_ENABLE);
 		tempdword &= ~(GLOBAL_INTR_MASK | COMMAND_INTR_MASK |
 			       SERR_INTR_RSVDZ_MASK);
@@ -1038,7 +1105,7 @@ int shpc_init(struct controller *ctrl, struct pci_dev *pdev)
 
 	return 0;
 
-	
+	/* We end up here for the many possible ways to fail this API.  */
 abort_iounmap:
 	iounmap(ctrl->creg);
 abort:

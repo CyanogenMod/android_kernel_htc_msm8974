@@ -74,7 +74,7 @@ static int it913x_read_reg(struct it913x_fe_state *state,
 		u32 reg, u8 *data, u8 count)
 {
 	int ret;
-	u8 pro = PRO_DMOD; 
+	u8 pro = PRO_DMOD; /* All reads from demodulator */
 	u8 b[4];
 	struct i2c_msg msg[2] = {
 		{ .addr = state->i2c_addr + (pro << 1), .flags = 0,
@@ -135,7 +135,7 @@ static int it913x_write_reg(struct it913x_fe_state *state,
 	b[1] = (data >> 16) & 0xff;
 	b[2] = (data >> 8) & 0xff;
 	b[3] = data & 0xff;
-	
+	/* expand write as needed */
 	if (data < 0x100)
 		s = 3;
 	else if (data < 0x1000)
@@ -361,7 +361,7 @@ static int it9137_set_tuner(struct it913x_fe_state *state,
 		freq++;
 
 	freq += (u32) n << 13;
-	
+	/* Frequency OMEGA_IQIK_M_CAL_MID*/
 	temp_f = freq + (u32)iqik_m_cal;
 
 	set_tuner[3].reg[0] =  temp_f & 0xff;
@@ -369,7 +369,7 @@ static int it9137_set_tuner(struct it913x_fe_state *state,
 
 	deb_info("High Frequency = %04x", temp_f);
 
-	
+	/* Lower frequency */
 	set_tuner[5].reg[0] =  freq & 0xff;
 	set_tuner[6].reg[0] =  (freq >> 8) & 0xff;
 
@@ -414,7 +414,7 @@ static int it913x_fe_select_bw(struct it913x_fe_state *state,
 	if (state->table == NULL)
 		return -EINVAL;
 
-	
+	/* In write order */
 	coeff[0] = state->table[bw].coeff_1_2048;
 	coeff[1] = state->table[bw].coeff_2_2k;
 	coeff[2] = state->table[bw].coeff_1_8191;
@@ -426,7 +426,7 @@ static int it913x_fe_select_bw(struct it913x_fe_state *state,
 	bfsfcw_fftinx_ratio = state->table[bw].bfsfcw_fftinx_ratio;
 	fftinx_bfsfcw_ratio = state->table[bw].fftinx_bfsfcw_ratio;
 
-	
+	/* ADC multiplier */
 	ret = it913x_read_reg_u8(state, ADC_X_2);
 	if (ret < 0)
 		return -EINVAL;
@@ -435,7 +435,7 @@ static int it913x_fe_select_bw(struct it913x_fe_state *state,
 
 	count = 0;
 
-	
+	/*  Build Buffer for COEFF Registers */
 	for (i = 0; i < 8; i++) {
 		if (adcmultiplier == 1)
 			coeff[i] /= 2;
@@ -445,13 +445,13 @@ static int it913x_fe_select_bw(struct it913x_fe_state *state,
 		buffer[count++] = coeff[i] & 0xff;
 	}
 
-	
+	/* bfsfcw_fftinx_ratio register 0x21-0x22 */
 	buffer[count++] = bfsfcw_fftinx_ratio & 0xff;
 	buffer[count++] = (bfsfcw_fftinx_ratio >> 8) & 0xff;
-	
+	/* fftinx_bfsfcw_ratio register 0x23-0x24 */
 	buffer[count++] = fftinx_bfsfcw_ratio & 0xff;
 	buffer[count++] = (fftinx_bfsfcw_ratio >> 8) & 0xff;
-	
+	/* start at COEFF_1_2048 and write through to fftinx_bfsfcw_ratio*/
 	ret = it913x_write(state, PRO_DMOD, COEFF_1_2048, buffer, count);
 
 	for (i = 0; i < 42; i += 8)
@@ -501,6 +501,7 @@ static int it913x_fe_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	return 0;
 }
 
+/* FEC values based on fe_code_rate_t non supported values 0*/
 int it913x_qpsk_pval[] = {0, -93, -91, -90, 0, -89, -88};
 int it913x_16qam_pval[] = {0, -87, -85, -84, 0, -83, -82};
 int it913x_64qam_pval[] = {0, -82, -80, -78, 0, -77, -76};
@@ -517,7 +518,7 @@ static int it913x_get_signal_strength(struct dvb_frontend *fe)
 	if (ret < 0)
 		return ret;
 
-	
+	/* VHF/UHF gain offset */
 	if (state->frequency < 300000000)
 		lna_gain_os = 7;
 	else
@@ -535,7 +536,7 @@ static int it913x_get_signal_strength(struct dvb_frontend *fe)
 
 	deb_info("Reg VAR_P_INBAND:%d Calc Offset Value:%d", ret, temp);
 
-	
+	/* Apply FEC offset values*/
 	switch (p->modulation) {
 	case QPSK:
 		temp -= it913x_qpsk_pval[code_rate];
@@ -634,7 +635,7 @@ static int it913x_fe_read_ber(struct dvb_frontend *fe, u32 *ber)
 	struct it913x_fe_state *state = fe->demodulator_priv;
 	int ret;
 	u8 reg[5];
-	
+	/* Read Aborted Packets and Pre-Viterbi error rate 5 bytes */
 	ret = it913x_read_reg(state, RSD_ABORT_PKT_LSB, reg, sizeof(reg));
 	state->ucblocks += (u32)(reg[1] << 8) | reg[0];
 	*ber = (u32)(reg[4] << 16) | (reg[3] << 8) | reg[2];
@@ -646,7 +647,7 @@ static int it913x_fe_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 	struct it913x_fe_state *state = fe->demodulator_priv;
 	int ret;
 	u8 reg[2];
-	
+	/* Aborted Packets */
 	ret = it913x_read_reg(state, RSD_ABORT_PKT_LSB, reg, sizeof(reg));
 	state->ucblocks += (u32)(reg[1] << 8) | reg[0];
 	*ucblocks = state->ucblocks;
@@ -679,7 +680,7 @@ static int it913x_fe_get_frontend(struct dvb_frontend *fe)
 	p->code_rate_HP = (reg[6] < 6) ? fe_code[reg[6]] : FEC_NONE;
 	p->code_rate_LP = (reg[7] < 6) ? fe_code[reg[7]] : FEC_NONE;
 
-	
+	/* Update internal state to reflect the autodetected props */
 	state->constellation = p->modulation;
 	state->transmission_mode = p->transmission_mode;
 
@@ -695,21 +696,21 @@ static int it913x_fe_set_frontend(struct dvb_frontend *fe)
 
 	state->it913x_status = 0;
 
-	
+	/* Set bw*/
 	ret = it913x_fe_select_bw(state, p->bandwidth_hz,
 		state->adcFrequency);
 
-	
+	/* Training Mode Off */
 	ret = it913x_write_reg(state, PRO_LINK, TRAINING_MODE, 0x0);
 
-	
+	/* Clear Empty Channel */
 	ret = it913x_write_reg(state, PRO_DMOD, EMPTY_CHANNEL_STATUS, 0x0);
 
-	
+	/* Clear bits */
 	ret = it913x_write_reg(state, PRO_DMOD, MP2IF_SYNC_LK, 0x0);
-	
+	/* LED on */
 	ret = it913x_write_reg(state, PRO_LINK, GPIOH3_O, 0x1);
-	
+	/* Select Band*/
 	if ((p->frequency >= 51000000) && (p->frequency <= 230000000))
 		i = 0;
 	else if ((p->frequency >= 350000000) && (p->frequency <= 900000000))
@@ -740,9 +741,9 @@ static int it913x_fe_set_frontend(struct dvb_frontend *fe)
 		}
 		break;
 	}
-	
+	/* LED off */
 	ret = it913x_write_reg(state, PRO_LINK, GPIOH3_O, 0x0);
-	
+	/* Trigger ofsm */
 	ret = it913x_write_reg(state, PRO_DMOD, TRIGGER_OFSM, 0x0);
 	last_ch = 2;
 	for (i = 0; i < 40; ++i) {
@@ -783,7 +784,7 @@ static int it913x_fe_suspend(struct it913x_fe_state *state)
 	}
 
 	ret |= it913x_write_reg(state, PRO_DMOD, AFE_MEM0, 0x8);
-	
+	/* Turn LED off */
 	ret |= it913x_write_reg(state, PRO_LINK, GPIOH3_O, 0x0);
 
 	ret |= it913x_fe_script_loader(state, it9137_tuner_off);
@@ -791,6 +792,9 @@ static int it913x_fe_suspend(struct it913x_fe_state *state)
 	return (ret < 0) ? -ENODEV : 0;
 }
 
+/* Power sequence */
+/* Power Up	Tuner on -> Frontend suspend off -> Tuner clk on */
+/* Power Down	Frontend suspend on -> Tuner clk off -> Tuner off */
 
 static int it913x_fe_sleep(struct dvb_frontend *fe)
 {
@@ -848,7 +852,7 @@ static int it913x_fe_start(struct it913x_fe_state *state)
 	} else
 		return -EINVAL;
 
-	
+	/* Set LED indicator on GPIOH3 */
 	ret = it913x_write_reg(state, PRO_LINK, GPIOH3_EN, 0x1);
 	ret |= it913x_write_reg(state, PRO_LINK, GPIOH3_ON, 0x1);
 	ret |= it913x_write_reg(state, PRO_LINK, GPIOH3_O, 0x1);
@@ -883,7 +887,7 @@ static int it913x_fe_start(struct it913x_fe_state *state)
 	if (ret < 0)
 		return -ENODEV;
 
-	
+	/* v1 or v2 tuner script */
 	if (state->config->chip_ver > 1)
 		ret = it913x_fe_script_loader(state, it9135_v2);
 	else
@@ -891,7 +895,7 @@ static int it913x_fe_start(struct it913x_fe_state *state)
 	if (ret < 0)
 		return ret;
 
-	
+	/* LNA Scripts */
 	switch (state->tuner_type) {
 	case IT9135_51:
 		set_lna = it9135_51;
@@ -927,7 +931,7 @@ static int it913x_fe_start(struct it913x_fe_state *state)
 	if (ret < 0)
 		return -ENODEV;
 
-	
+	/* Always solo frontend */
 	set_mode = set_solo_fe;
 	ret |= it913x_fe_script_loader(state, set_mode);
 
@@ -939,7 +943,7 @@ static int it913x_fe_init(struct dvb_frontend *fe)
 {
 	struct it913x_fe_state *state = fe->demodulator_priv;
 	int ret = 0;
-	
+	/* Power Up Tuner - common all versions */
 	ret = it913x_write_reg(state, PRO_DMOD, 0xec40, 0x1);
 
 	ret |= it913x_fe_script_loader(state, init_1);
@@ -965,7 +969,7 @@ struct dvb_frontend *it913x_fe_attach(struct i2c_adapter *i2c_adap,
 	struct it913x_fe_state *state = NULL;
 	int ret;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct it913x_fe_state), GFP_KERNEL);
 	if (state == NULL)
 		return NULL;
@@ -994,7 +998,7 @@ struct dvb_frontend *it913x_fe_attach(struct i2c_adapter *i2c_adap,
 		goto error;
 
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &it913x_fe_ofdm_ops,
 			sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;

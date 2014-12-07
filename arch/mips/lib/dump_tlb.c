@@ -66,7 +66,7 @@ static void dump_tlb(int first, int last)
 		entrylo0 = read_c0_entrylo0();
 		entrylo1 = read_c0_entrylo1();
 
-		
+		/* Unused entries have a virtual address of CKSEG0.  */
 		if ((entryhi & ~0x1ffffUL) != CKSEG0
 		    && (entryhi & 0xff) == asid) {
 #ifdef CONFIG_32BIT
@@ -74,6 +74,9 @@ static void dump_tlb(int first, int last)
 #else
 			int width = 11;
 #endif
+			/*
+			 * Only print entries in use
+			 */
 			printk("Index: %2d pgmask=%s ", i, msk2str(pagemask));
 
 			c0 = (entrylo0 >> 3) & 7;

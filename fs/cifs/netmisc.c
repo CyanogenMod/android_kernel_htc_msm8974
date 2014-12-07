@@ -87,7 +87,7 @@ static const struct smb_to_posix_error mapping_table_ERRDOS[] = {
 
 static const struct smb_to_posix_error mapping_table_ERRSRV[] = {
 	{ERRerror, -EIO},
-	{ERRbadpw, -EACCES},  
+	{ERRbadpw, -EACCES},  /* was EPERM */
 	{ERRbadtype, -EREMOTE},
 	{ERRaccess, -EACCES},
 	{ERRinvtid, -ENXIO},
@@ -117,6 +117,10 @@ static const struct smb_to_posix_error mapping_table_ERRSRV[] = {
 	{ERRusestd, -EIO},
 	{ERR_NOTIFY_ENUM_DIR, -ENOBUFS},
 	{ERRnoSuchUser, -EACCES},
+/*	{ERRaccountexpired, -EACCES},
+	{ERRbadclient, -EACCES},
+	{ERRbadLogonTime, -EACCES},
+	{ERRpasswordExpired, -EACCES},*/
 	{ERRaccountexpired, -EKEYEXPIRED},
 	{ERRbadclient, -EACCES},
 	{ERRbadLogonTime, -EACCES},
@@ -130,12 +134,17 @@ static const struct smb_to_posix_error mapping_table_ERRHRD[] = {
 	{0, 0}
 };
 
+/*
+ * Convert a string containing text IPv4 or IPv6 address to binary form.
+ *
+ * Returns 0 on failure.
+ */
 static int
 cifs_inet_pton(const int address_family, const char *cp, int len, void *dst)
 {
 	int ret = 0;
 
-	
+	/* calculate length by finding first slash or NULL */
 	if (address_family == AF_INET)
 		ret = in4_pton(cp, len, dst, '\\', NULL);
 	else if (address_family == AF_INET6)
@@ -148,6 +157,14 @@ cifs_inet_pton(const int address_family, const char *cp, int len, void *dst)
 	return ret;
 }
 
+/*
+ * Try to convert a string to an IPv4 address and then attempt to convert
+ * it to an IPv6 address if that fails. Set the family field if either
+ * succeeds. If it's an IPv6 address and it has a '%' sign in it, try to
+ * treat the part following it as a numeric sin6_scope_id.
+ *
+ * Returns 0 on failure.
+ */
 int
 cifs_convert_address(struct sockaddr *dst, const char *src, int len)
 {
@@ -157,13 +174,13 @@ cifs_convert_address(struct sockaddr *dst, const char *src, int len)
 	struct sockaddr_in *s4 = (struct sockaddr_in *) dst;
 	struct sockaddr_in6 *s6 = (struct sockaddr_in6 *) dst;
 
-	
+	/* IPv4 address */
 	if (cifs_inet_pton(AF_INET, src, len, &s4->sin_addr.s_addr)) {
 		s4->sin_family = AF_INET;
 		return 1;
 	}
 
-	
+	/* attempt to exclude the scope ID from the address part */
 	pct = memchr(src, '%', len);
 	alen = pct ? pct - src : len;
 
@@ -173,7 +190,7 @@ cifs_convert_address(struct sockaddr *dst, const char *src, int len)
 
 	s6->sin6_family = AF_INET6;
 	if (pct) {
-		
+		/* grab the scope ID */
 		slen = len - (alen + 1);
 		if (slen <= 0 || slen > 12)
 			return 0;
@@ -212,6 +229,10 @@ cifs_fill_sockaddr(struct sockaddr *dst, const char *src, int len,
 	return cifs_set_port(dst, port);
 }
 
+/*****************************************************************************
+convert a NT status code to a dos class/code
+ *****************************************************************************/
+/* NT status -> dos error map */
 static const struct {
 	__u8 dos_class;
 	__u16 dos_code;
@@ -239,6 +260,9 @@ static const struct {
 	ERRDOS, 21, NT_STATUS_NO_MEDIA_IN_DEVICE}, {
 	ERRHRD, ERRgeneral, NT_STATUS_UNRECOGNIZED_MEDIA}, {
 	ERRDOS, 27, NT_STATUS_NONEXISTENT_SECTOR},
+/*	{ This NT error code was 'sqashed'
+	 from NT_STATUS_MORE_PROCESSING_REQUIRED to NT_STATUS_OK
+	 during the session setup } */
 	{
 	ERRDOS, ERRnomem, NT_STATUS_NO_MEMORY}, {
 	ERRDOS, 487, NT_STATUS_CONFLICTING_ADDRESSES}, {
@@ -251,6 +275,9 @@ static const struct {
 	ERRDOS, ERRnoaccess, NT_STATUS_INVALID_VIEW_SIZE}, {
 	ERRDOS, 193, NT_STATUS_INVALID_FILE_FOR_SECTION}, {
 	ERRDOS, ERRnoaccess, NT_STATUS_ALREADY_COMMITTED},
+/*	{ This NT error code was 'sqashed'
+	 from NT_STATUS_ACCESS_DENIED to NT_STATUS_TRUSTED_RELATIONSHIP_FAILURE
+	 during the session setup }   */
 	{
 	ERRDOS, ERRnoaccess, NT_STATUS_ACCESS_DENIED}, {
 	ERRDOS, 111, NT_STATUS_BUFFER_TOO_SMALL}, {
@@ -269,7 +296,7 @@ static const struct {
 	ERRDOS, 87, NT_STATUS_INVALID_PARAMETER_MIX}, {
 	ERRHRD, ERRgeneral, NT_STATUS_INVALID_QUOTA_LOWER}, {
 	ERRHRD, ERRgeneral, NT_STATUS_DISK_CORRUPT_ERROR}, {
-	 
+	 /* mapping changed since shell does lookup on * expects FileNotFound */
 	ERRDOS, ERRbadfile, NT_STATUS_OBJECT_NAME_INVALID}, {
 	ERRDOS, ERRbadfile, NT_STATUS_OBJECT_NAME_NOT_FOUND}, {
 	ERRDOS, ERRalreadyexists, NT_STATUS_OBJECT_NAME_COLLISION}, {
@@ -319,13 +346,19 @@ static const struct {
 	ERRDOS, ERRnoaccess, NT_STATUS_PRIVILEGE_NOT_HELD}, {
 	ERRHRD, ERRgeneral, NT_STATUS_INVALID_ACCOUNT_NAME}, {
 	ERRHRD, ERRgeneral, NT_STATUS_USER_EXISTS},
+/*	{ This NT error code was 'sqashed'
+	 from NT_STATUS_NO_SUCH_USER to NT_STATUS_LOGON_FAILURE
+	 during the session setup } */
 	{
-	ERRDOS, ERRnoaccess, NT_STATUS_NO_SUCH_USER}, { 
+	ERRDOS, ERRnoaccess, NT_STATUS_NO_SUCH_USER}, { /* could map to 2238 */
 	ERRHRD, ERRgeneral, NT_STATUS_GROUP_EXISTS}, {
 	ERRHRD, ERRgeneral, NT_STATUS_NO_SUCH_GROUP}, {
 	ERRHRD, ERRgeneral, NT_STATUS_MEMBER_IN_GROUP}, {
 	ERRHRD, ERRgeneral, NT_STATUS_MEMBER_NOT_IN_GROUP}, {
 	ERRHRD, ERRgeneral, NT_STATUS_LAST_ADMIN},
+/*	{ This NT error code was 'sqashed'
+	 from NT_STATUS_WRONG_PASSWORD to NT_STATUS_LOGON_FAILURE
+	 during the session setup } */
 	{
 	ERRSRV, ERRbadpw, NT_STATUS_WRONG_PASSWORD}, {
 	ERRHRD, ERRgeneral, NT_STATUS_ILL_FORMED_PASSWORD}, {
@@ -375,6 +408,9 @@ static const struct {
 	ERRDOS, ERRnomem, NT_STATUS_TOO_MANY_PAGING_FILES}, {
 	ERRHRD, ERRgeneral, NT_STATUS_FILE_INVALID}, {
 	ERRHRD, ERRgeneral, NT_STATUS_ALLOTTED_SPACE_EXCEEDED},
+/*	{ This NT error code was 'sqashed'
+	 from NT_STATUS_INSUFFICIENT_RESOURCES to
+	 NT_STATUS_INSUFF_SERVER_RESOURCES during the session setup } */
 	{
 	ERRDOS, ERRnomem, NT_STATUS_INSUFFICIENT_RESOURCES}, {
 	ERRDOS, ERRbadpath, NT_STATUS_DFS_EXIT_PATH_FOUND}, {
@@ -617,6 +653,9 @@ static const struct {
 	ERRHRD, ERRgeneral, NT_STATUS_LOG_FILE_FULL}, {
 	ERRDOS, 19, NT_STATUS_TOO_LATE}, {
 	ERRDOS, ERRnoaccess, NT_STATUS_NO_TRUST_LSA_SECRET},
+/*	{ This NT error code was 'sqashed'
+	 from NT_STATUS_NO_TRUST_SAM_ACCOUNT to
+	 NT_STATUS_TRUSTED_RELATIONSHIP_FAILURE during the session setup } */
 	{
 	ERRDOS, ERRnoaccess, NT_STATUS_NO_TRUST_SAM_ACCOUNT}, {
 	ERRDOS, ERRnoaccess, NT_STATUS_TRUSTED_DOMAIN_FAILURE}, {
@@ -634,6 +673,9 @@ static const struct {
 	ERRDOS, ERRnoaccess, NT_STATUS_NOLOGON_INTERDOMAIN_TRUST_ACCOUNT}, {
 	ERRDOS, ERRnoaccess, NT_STATUS_NOLOGON_WORKSTATION_TRUST_ACCOUNT}, {
 	ERRDOS, ERRnoaccess, NT_STATUS_NOLOGON_SERVER_TRUST_ACCOUNT},
+/*	{ This NT error code was 'sqashed'
+	 from NT_STATUS_DOMAIN_TRUST_INCONSISTENT to NT_STATUS_LOGON_FAILURE
+	 during the session setup }  */
 	{
 	ERRDOS, ERRnoaccess, NT_STATUS_DOMAIN_TRUST_INCONSISTENT}, {
 	ERRHRD, ERRgeneral, NT_STATUS_FS_DRIVER_REQUIRED}, {
@@ -752,6 +794,9 @@ static const struct {
 	ERRDOS, ERRsymlink, NT_STATUS_STOPPED_ON_SYMLINK}, {
 	ERRDOS, ERRinvlevel, 0x007c0001}, };
 
+/*****************************************************************************
+ Print an error message from the status code
+ *****************************************************************************/
 static void
 cifs_print_status(__u32 status_code)
 {
@@ -794,17 +839,19 @@ map_smb_to_linux_error(char *buf, bool logErr)
 {
 	struct smb_hdr *smb = (struct smb_hdr *)buf;
 	unsigned int i;
-	int rc = -EIO;	
+	int rc = -EIO;	/* if transport error smb error may not be set */
 	__u8 smberrclass;
 	__u16 smberrcode;
 
-	
+	/* BB if NT Status codes - map NT BB */
 
-	
+	/* old style smb error codes */
 	if (smb->Status.CifsError == 0)
 		return 0;
 
 	if (smb->Flags2 & SMBFLG2_ERR_STATUS) {
+		/* translate the newer STATUS codes to old style SMB errors
+		 * and then to POSIX errors */
 		__u32 err = le32_to_cpu(smb->Status.CifsError);
 		if (logErr && (err != (NT_STATUS_MORE_PROCESSING_REQUIRED)))
 			cifs_print_status(err);
@@ -816,11 +863,11 @@ map_smb_to_linux_error(char *buf, bool logErr)
 		smberrcode = le16_to_cpu(smb->Status.DosError.Error);
 	}
 
-	
+	/* old style errors */
 
-	
+	/* DOS class smb error codes - map DOS */
 	if (smberrclass == ERRDOS) {
-		
+		/* 1 byte field no need to byte reverse */
 		for (i = 0;
 		     i <
 		     sizeof(mapping_table_ERRDOS) /
@@ -832,10 +879,10 @@ map_smb_to_linux_error(char *buf, bool logErr)
 				rc = mapping_table_ERRDOS[i].posix_code;
 				break;
 			}
-			
+			/* else try next error mapping one to see if match */
 		}
 	} else if (smberrclass == ERRSRV) {
-		
+		/* server class of error codes */
 		for (i = 0;
 		     i <
 		     sizeof(mapping_table_ERRSRV) /
@@ -847,35 +894,46 @@ map_smb_to_linux_error(char *buf, bool logErr)
 				rc = mapping_table_ERRSRV[i].posix_code;
 				break;
 			}
-			
+			/* else try next error mapping to see if match */
 		}
 	}
-	
+	/* else ERRHRD class errors or junk  - return EIO */
 
 	cFYI(1, "Mapping smb error code 0x%x to POSIX err %d",
 		 le32_to_cpu(smb->Status.CifsError), rc);
 
+	/* generic corrective action e.g. reconnect SMB session on
+	 * ERRbaduid could be added */
 
 	return rc;
 }
 
+/*
+ * calculate the size of the SMB message based on the fixed header
+ * portion, the number of word parameters and the data portion of the message
+ */
 unsigned int
 smbCalcSize(struct smb_hdr *ptr)
 {
 	return (sizeof(struct smb_hdr) + (2 * ptr->WordCount) +
-		2  + get_bcc(ptr));
+		2 /* size of the bcc field */ + get_bcc(ptr));
 }
 
+/* The following are taken from fs/ntfs/util.c */
 
 #define NTFS_TIME_OFFSET ((u64)(369*365 + 89) * 24 * 3600 * 10000000)
 
+/*
+ * Convert the NT UTC (based 1601-01-01, in hundred nanosecond units)
+ * into Unix UTC (based 1970-01-01, in seconds).
+ */
 struct timespec
 cifs_NTtimeToUnix(__le64 ntutc)
 {
 	struct timespec ts;
-	
+	/* BB what about the timezone? BB */
 
-	
+	/* Subtract the NTFS time offset, then convert to 1s intervals. */
 	u64 t;
 
 	t = le64_to_cpu(ntutc) - NTFS_TIME_OFFSET;
@@ -884,10 +942,11 @@ cifs_NTtimeToUnix(__le64 ntutc)
 	return ts;
 }
 
+/* Convert the Unix UTC into NT UTC. */
 u64
 cifs_UnixTimeToNT(struct timespec t)
 {
-	
+	/* Convert to 100ns intervals and then add the NTFS time offset. */
 	return (u64) t.tv_sec * 10000000 + t.tv_nsec/100 + NTFS_TIME_OFFSET;
 }
 
@@ -922,21 +981,27 @@ struct timespec cnvrtDosUnixTm(__le16 le_date, __le16 le_time, int offset)
 	}
 	month -= 1;
 	days += total_days_of_prev_months[month];
-	days += 3652; 
+	days += 3652; /* account for difference in days between 1980 and 1970 */
 	year = sd->Year;
 	days += year * 365;
-	days += (year/4); 
-	if (year >= 120)  
-		days = days - 1;  
+	days += (year/4); /* leap year */
+	/* generalized leap year calculation is more complex, ie no leap year
+	for years/100 except for years/400, but since the maximum number for DOS
+	 year is 2**7, the last year is 1980+127, which means we need only
+	 consider 2 special case years, ie the years 2000 and 2100, and only
+	 adjust for the lack of leap year for the year 2100, as 2000 was a
+	 leap year (divisable by 400) */
+	if (year >= 120)  /* the year 2100 */
+		days = days - 1;  /* do not count leap year for the year 2100 */
 
-	
+	/* adjust for leap year where we are still before leap day */
 	if (year != 120)
 		days -= ((year & 0x03) == 0) && (month < 2 ? 1 : 0);
 	sec += 24 * 60 * 60 * days;
 
 	ts.tv_sec = sec + offset;
 
-	
+	/* cFYI(1, "sec after cnvrt dos to unix time %d",sec); */
 
 	ts.tv_nsec = 0;
 	return ts;

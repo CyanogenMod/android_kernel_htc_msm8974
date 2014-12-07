@@ -23,6 +23,9 @@
 #include <linux/jiffies.h>
 #include <linux/mm.h>
 
+/*
+ * fill in basic accounting fields
+ */
 void bacct_add_tsk(struct taskstats *stats, struct task_struct *tsk)
 {
 	const struct cred *tcred;
@@ -31,10 +34,10 @@ void bacct_add_tsk(struct taskstats *stats, struct task_struct *tsk)
 
 	BUILD_BUG_ON(TS_COMM_LEN < TASK_COMM_LEN);
 
-	
+	/* calculate task elapsed time in timespec */
 	do_posix_clock_monotonic_gettime(&uptime);
 	ts = timespec_sub(uptime, tsk->start_time);
-	
+	/* rebase elapsed time to usec (should never be negative) */
 	ac_etime = timespec_to_ns(&ts);
 	do_div(ac_etime, NSEC_PER_USEC);
 	stats->ac_etime = ac_etime;
@@ -76,16 +79,19 @@ void bacct_add_tsk(struct taskstats *stats, struct task_struct *tsk)
 #define KB 1024
 #define MB (1024*KB)
 #define KB_MASK (~(KB-1))
+/*
+ * fill in extended accounting fields
+ */
 void xacct_add_tsk(struct taskstats *stats, struct task_struct *p)
 {
 	struct mm_struct *mm;
 
-	
+	/* convert pages-usec to Mbyte-usec */
 	stats->coremem = p->acct_rss_mem1 * PAGE_SIZE / MB;
 	stats->virtmem = p->acct_vm_mem1 * PAGE_SIZE / MB;
 	mm = get_task_mm(p);
 	if (mm) {
-		
+		/* adjust to KB unit */
 		stats->hiwater_rss   = get_mm_hiwater_rss(mm) * PAGE_SIZE / KB;
 		stats->hiwater_vm    = get_mm_hiwater_vm(mm)  * PAGE_SIZE / KB;
 		mmput(mm);
@@ -107,6 +113,10 @@ void xacct_add_tsk(struct taskstats *stats, struct task_struct *p)
 #undef KB
 #undef MB
 
+/**
+ * acct_update_integrals - update mm integral fields in task_struct
+ * @tsk: task_struct for accounting
+ */
 void acct_update_integrals(struct task_struct *tsk)
 {
 	if (likely(tsk->mm)) {
@@ -132,6 +142,10 @@ void acct_update_integrals(struct task_struct *tsk)
 	}
 }
 
+/**
+ * acct_clear_integrals - clear the mm integral fields in task_struct
+ * @tsk: task_struct whose accounting fields are cleared
+ */
 void acct_clear_integrals(struct task_struct *tsk)
 {
 	tsk->acct_timexpd = 0;

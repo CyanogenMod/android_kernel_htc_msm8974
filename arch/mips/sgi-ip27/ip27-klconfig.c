@@ -30,7 +30,7 @@ klinfo_t *find_component(lboard_t *brd, klinfo_t *kli, unsigned char struct_type
 			printk("find_component: Bad pointer: 0x%p\n", kli);
 			return (klinfo_t *)NULL;
 		}
-		index++;		
+		index++;		/* next component */
 	}
 
 	for (; index < KLCF_NUM_COMPS(brd); index++) {
@@ -39,7 +39,7 @@ klinfo_t *find_component(lboard_t *brd, klinfo_t *kli, unsigned char struct_type
 			return kli;
 	}
 
-	
+	/* Didn't find it. */
 	return (klinfo_t *)NULL;
 }
 
@@ -50,26 +50,26 @@ klinfo_t *find_first_component(lboard_t *brd, unsigned char struct_type)
 
 lboard_t *find_lboard(lboard_t *start, unsigned char brd_type)
 {
-	
+	/* Search all boards stored on this node. */
 	while (start) {
 		if (start->brd_type == brd_type)
 			return start;
 		start = KLCF_NEXT(start);
 	}
-	
+	/* Didn't find it. */
 	return (lboard_t *)NULL;
 }
 
 lboard_t *find_lboard_class(lboard_t *start, unsigned char brd_type)
 {
-	
+	/* Search all boards stored on this node. */
 	while (start) {
 		if (KLCLASS(start->brd_type) == KLCLASS(brd_type))
 			return start;
 		start = KLCF_NEXT(start);
 	}
 
-	
+	/* Didn't find it. */
 	return (lboard_t *)NULL;
 }
 

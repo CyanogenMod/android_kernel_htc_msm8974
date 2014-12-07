@@ -59,19 +59,19 @@ static int xfs_stat_proc_show(struct seq_file *m, void *v)
 		{ "abtc2",		XFSSTAT_END_ABTC_V2		},
 		{ "bmbt2",		XFSSTAT_END_BMBT_V2		},
 		{ "ibt2",		XFSSTAT_END_IBT_V2		},
-		
+		/* we print both series of quota information together */
 		{ "qm",			XFSSTAT_END_QM			},
 	};
 
-	
+	/* Loop over all stats groups */
 	for (i = j = 0; i < ARRAY_SIZE(xstats); i++) {
 		seq_printf(m, "%s", xstats[i].desc);
-		
+		/* inner loop does each group */
 		for (; j < xstats[i].endpoint; j++)
 			seq_printf(m, " %u", counter_val(j));
 		seq_putc(m, '\n');
 	}
-	
+	/* extra precision counters */
 	for_each_possible_cpu(i) {
 		xs_xstrat_bytes += per_cpu(xfsstats, i).xs_xstrat_bytes;
 		xs_write_bytes += per_cpu(xfsstats, i).xs_write_bytes;
@@ -102,10 +102,11 @@ static const struct file_operations xfs_stat_proc_fops = {
 	.release	= single_release,
 };
 
+/* legacy quota interfaces */
 #ifdef CONFIG_XFS_QUOTA
 static int xqm_proc_show(struct seq_file *m, void *v)
 {
-	
+	/* maximum; incore; ratio free to inuse; freelist */
 	seq_printf(m, "%d\t%d\t%d\t%u\n",
 			0,
 			counter_val(XFSSTAT_END_XQMSTAT),
@@ -127,6 +128,7 @@ static const struct file_operations xqm_proc_fops = {
 	.release	= single_release,
 };
 
+/* legacy quota stats interface no 2 */
 static int xqmstat_proc_show(struct seq_file *m, void *v)
 {
 	int j;
@@ -150,7 +152,7 @@ static const struct file_operations xqmstat_proc_fops = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
-#endif 
+#endif /* CONFIG_XFS_QUOTA */
 
 int
 xfs_init_procfs(void)

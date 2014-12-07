@@ -24,10 +24,12 @@
 #define __ASM_KVM_HOST_H
 
 #define KVM_MEMORY_SLOTS 32
+/* memory slots that does not exposed to userspace */
 #define KVM_PRIVATE_MEM_SLOTS 4
 
 #define KVM_COALESCED_MMIO_PAGE_OFFSET 1
 
+/* define exit reasons from vmm to kvm*/
 #define EXIT_REASON_VM_PANIC		0
 #define EXIT_REASON_MMIO_INSTRUCTION	1
 #define EXIT_REASON_PAL_CALL		2
@@ -39,14 +41,55 @@
 #define EXIT_REASON_PTC_G		8
 #define EXIT_REASON_DEBUG		20
 
+/*Define vmm address space and vm data space.*/
 #define KVM_VMM_SIZE (__IA64_UL_CONST(16)<<20)
 #define KVM_VMM_SHIFT 24
 #define KVM_VMM_BASE 0xD000000000000000
 #define VMM_SIZE (__IA64_UL_CONST(8)<<20)
 
+/*
+ * Define vm_buffer, used by PAL Services, base address.
+ * Note: vm_buffer is in the VMM-BLOCK, the size must be < 8M
+ */
 #define KVM_VM_BUFFER_BASE (KVM_VMM_BASE + VMM_SIZE)
 #define KVM_VM_BUFFER_SIZE (__IA64_UL_CONST(8)<<20)
 
+/*
+ * kvm guest's data area looks as follow:
+ *
+ *            +----------------------+	-------	KVM_VM_DATA_SIZE
+ *	      |	    vcpu[n]'s data   |	 |     ___________________KVM_STK_OFFSET
+ *     	      |			     |	 |    /			  |
+ *     	      |	       ..........    |	 |   /vcpu's struct&stack |
+ *     	      |	       ..........    |	 |  /---------------------|---- 0
+ *	      |	    vcpu[5]'s data   |	 | /	   vpd		  |
+ *	      |	    vcpu[4]'s data   |	 |/-----------------------|
+ *	      |	    vcpu[3]'s data   |	 /	   vtlb		  |
+ *	      |	    vcpu[2]'s data   |	/|------------------------|
+ *	      |	    vcpu[1]'s data   |/  |	   vhpt		  |
+ *	      |	    vcpu[0]'s data   |____________________________|
+ *            +----------------------+	 |
+ *	      |	   memory dirty log  |	 |
+ *            +----------------------+	 |
+ *	      |	   vm's data struct  |	 |
+ *            +----------------------+	 |
+ *	      |			     |	 |
+ *	      |			     |	 |
+ *	      |			     |	 |
+ *	      |			     |	 |
+ *	      |			     |	 |
+ *	      |			     |	 |
+ *	      |			     |	 |
+ *	      |	  vm's p2m table  |	 |
+ *	      |			     |	 |
+ *            |			     |	 |
+ *	      |			     |	 |  |
+ * vm's data->|			     |   |  |
+ *	      +----------------------+ ------- 0
+ * To support large memory, needs to increase the size of p2m.
+ * To support more vcpus, needs to ensure it has enough space to
+ * hold vcpus' data.
+ */
 
 #define KVM_VM_DATA_SHIFT	26
 #define KVM_VM_DATA_SIZE	(__IA64_UL_CONST(1) << KVM_VM_DATA_SHIFT)
@@ -69,6 +112,9 @@
 #define VCPU_STRUCT_SHIFT	16
 #define VCPU_STRUCT_SIZE	(__IA64_UL_CONST(1) << VCPU_STRUCT_SHIFT)
 
+/*
+ * This must match KVM_IA64_VCPU_STACK_{SHIFT,SIZE} arch/ia64/include/asm/kvm.h
+ */
 #define KVM_STK_SHIFT		16
 #define KVM_STK_OFFSET		(__IA64_UL_CONST(1)<< KVM_STK_SHIFT)
 
@@ -80,6 +126,7 @@
 
 #ifndef __ASSEMBLY__
 
+/*Define the max vcpus and memory for Guests.*/
 #define KVM_MAX_VCPUS	(KVM_VM_DATA_SIZE - KVM_P2M_SIZE - KVM_VM_STRUCT_SIZE -\
 			KVM_MEM_DIRTY_LOG_SIZE) / sizeof(struct kvm_vcpu_data)
 #define KVM_MAX_MEM_SIZE (KVM_P2M_SIZE >> 3 << PAGE_SHIFT)
@@ -123,6 +170,7 @@ struct kvm_vm_data {
 #define VCPU_STRUCT_BASE(n)	(VCPU_BASE(n) + \
 				offsetof(struct kvm_vcpu_data, vcpu_struct))
 
+/*IO section definitions*/
 #define IOREQ_READ      1
 #define IOREQ_WRITE     0
 
@@ -131,17 +179,18 @@ struct kvm_vm_data {
 #define STATE_IOREQ_INPROCESS   2
 #define STATE_IORESP_READY      3
 
-#define GPFN_MEM        (0UL << 60) 
-#define GPFN_FRAME_BUFFER   (1UL << 60) 
-#define GPFN_LOW_MMIO       (2UL << 60) 
-#define GPFN_PIB        (3UL << 60) 
-#define GPFN_IOSAPIC        (4UL << 60) 
-#define GPFN_LEGACY_IO      (5UL << 60) 
-#define GPFN_GFW        (6UL << 60) 
-#define GPFN_PHYS_MMIO      (7UL << 60) 
+/*Guest Physical address layout.*/
+#define GPFN_MEM        (0UL << 60) /* Guest pfn is normal mem */
+#define GPFN_FRAME_BUFFER   (1UL << 60) /* VGA framebuffer */
+#define GPFN_LOW_MMIO       (2UL << 60) /* Low MMIO range */
+#define GPFN_PIB        (3UL << 60) /* PIB base */
+#define GPFN_IOSAPIC        (4UL << 60) /* IOSAPIC base */
+#define GPFN_LEGACY_IO      (5UL << 60) /* Legacy I/O base */
+#define GPFN_GFW        (6UL << 60) /* Guest Firmware */
+#define GPFN_PHYS_MMIO      (7UL << 60) /* Directed MMIO Range */
 
-#define GPFN_IO_MASK        (7UL << 60) 
-#define GPFN_INV_MASK       (1UL << 63) 
+#define GPFN_IO_MASK        (7UL << 60) /* Guest pfn is I/O type */
+#define GPFN_INV_MASK       (1UL << 63) /* Guest pfn is invalid */
 #define INVALID_MFN       (~0UL)
 #define MEM_G   (1UL << 30)
 #define MEM_M   (1UL << 20)
@@ -158,6 +207,7 @@ struct kvm_vm_data {
 #define GFW_START        (4 * MEM_G - 16 * MEM_M)
 #define GFW_SIZE         (16 * MEM_M)
 
+/*Deliver mode, defined for ioapic.c*/
 #define dest_Fixed IOSAPIC_FIXED
 #define dest_LowestPrio IOSAPIC_LOWEST_PRIORITY
 
@@ -168,6 +218,9 @@ struct kvm_vm_data {
 
 #define VCPU_LID(v) (((u64)(v)->vcpu_id) << 24)
 
+/*
+ *Delivery mode
+ */
 #define SAPIC_DELIV_SHIFT      8
 #define SAPIC_FIXED            0x0
 #define SAPIC_LOWEST_PRIORITY  0x1
@@ -176,6 +229,9 @@ struct kvm_vm_data {
 #define SAPIC_INIT             0x5
 #define SAPIC_EXTINT           0x7
 
+/*
+ * vcpu->requests bit members for arch
+ */
 #define KVM_REQ_PTC_G		32
 #define KVM_REQ_RESUME		33
 
@@ -187,25 +243,27 @@ struct kvm;
 struct kvm_vcpu;
 
 struct kvm_mmio_req {
-	uint64_t addr;          
-	uint64_t size;          
-	uint64_t data;          
+	uint64_t addr;          /*  physical address		*/
+	uint64_t size;          /*  size in bytes		*/
+	uint64_t data;          /*  data (or paddr of data)     */
 	uint8_t state:4;
-	uint8_t dir:1;          
+	uint8_t dir:1;          /*  1=read, 0=write             */
 };
 
+/*Pal data struct */
 struct kvm_pal_call{
-	
+	/*In area*/
 	uint64_t gr28;
 	uint64_t gr29;
 	uint64_t gr30;
 	uint64_t gr31;
-	
+	/*Out area*/
 	struct ia64_pal_retval ret;
 };
 
+/* Sal data structure */
 struct kvm_sal_call{
-	
+	/*In area*/
 	uint64_t in0;
 	uint64_t in1;
 	uint64_t in2;
@@ -217,6 +275,7 @@ struct kvm_sal_call{
 	struct sal_ret_values ret;
 };
 
+/*Guest change rr6*/
 struct kvm_switch_rr6 {
 	uint64_t old_rr;
 	uint64_t new_rr;
@@ -242,11 +301,13 @@ union ia64_ipi_d {
 	};
 };
 
+/*ipi check exit data*/
 struct kvm_ipi_data{
 	union ia64_ipi_a addr;
 	union ia64_ipi_d data;
 };
 
+/*global purge data*/
 struct kvm_ptc_g {
 	unsigned long vaddr;
 	unsigned long rr;
@@ -254,6 +315,7 @@ struct kvm_ptc_g {
 	struct kvm_vcpu *vcpu;
 };
 
+/*Exit control data */
 struct exit_ctl_data{
 	uint32_t exit_reason;
 	uint32_t vm_status;
@@ -270,16 +332,16 @@ struct exit_ctl_data{
 union pte_flags {
 	unsigned long val;
 	struct {
-		unsigned long p    :  1; 
-		unsigned long      :  1; 
-		unsigned long ma   :  3; 
-		unsigned long a    :  1; 
-		unsigned long d    :  1; 
-		unsigned long pl   :  2; 
-		unsigned long ar   :  3; 
-		unsigned long ppn  : 38; 
-		unsigned long      :  2; 
-		unsigned long ed   :  1; 
+		unsigned long p    :  1; /*0      */
+		unsigned long      :  1; /* 1     */
+		unsigned long ma   :  3; /* 2-4   */
+		unsigned long a    :  1; /* 5     */
+		unsigned long d    :  1; /* 6     */
+		unsigned long pl   :  2; /* 7-8   */
+		unsigned long ar   :  3; /* 9-11  */
+		unsigned long ppn  : 38; /* 12-49 */
+		unsigned long      :  2; /* 50-51 */
+		unsigned long ed   :  1; /* 52    */
 	};
 };
 
@@ -296,8 +358,8 @@ union ia64_pta {
 };
 
 struct thash_cb {
-	
-	struct thash_data	*hash; 
+	/* THASH base information */
+	struct thash_data	*hash; /* hash table pointer */
 	union ia64_pta		pta;
 	int           num;
 };
@@ -323,14 +385,14 @@ struct kvm_vcpu_arch {
 	int ptc_g_count;
 	struct kvm_ptc_g ptc_g_data[MAX_PTC_G_NUM];
 
-	
+	/*halt timer to wake up sleepy vcpus*/
 	struct hrtimer hlt_timer;
 	long ht_active;
 
-	struct kvm_lapic *apic;    
+	struct kvm_lapic *apic;    /* kernel irqchip context */
 	struct vpd *vpd;
 
-	
+	/* Exit data for vmm_transition*/
 	struct exit_ctl_data exit_data;
 
 	cpumask_t cache_coherent_map;
@@ -343,18 +405,18 @@ struct kvm_vcpu_arch {
 	unsigned long vsa_base;
 	unsigned long dirty_log_lock_pa;
 	unsigned long __gp;
-	
+	/* TR and TC.  */
 	struct thash_data itrs[NITRS];
 	struct thash_data dtrs[NDTRS];
-	
+	/* Bit is set if there is a tr/tc for the region.  */
 	unsigned char itr_regions;
 	unsigned char dtr_regions;
 	unsigned char tc_regions;
-	
+	/* purge all */
 	unsigned long ptce_base;
 	unsigned long ptce_count[2];
 	unsigned long ptce_stride[2];
-	
+	/* itc/itm */
 	unsigned long last_itc;
 	long itc_offset;
 	unsigned long itc_check;
@@ -365,16 +427,16 @@ struct kvm_vcpu_arch {
 	unsigned long vrr[8];
 	unsigned long ibr[8];
 	unsigned long dbr[8];
-	unsigned long insvc[4];		
+	unsigned long insvc[4];		/* Interrupt in service.  */
 	unsigned long xtp;
 
-	unsigned long metaphysical_rr0; 
-	unsigned long metaphysical_rr4;	
-	unsigned long metaphysical_saved_rr0; 
-	unsigned long metaphysical_saved_rr4; 
-	unsigned long fp_psr;       
+	unsigned long metaphysical_rr0; /* from kvm_arch (so is pinned) */
+	unsigned long metaphysical_rr4;	/* from kvm_arch (so is pinned) */
+	unsigned long metaphysical_saved_rr0; /* from kvm_arch          */
+	unsigned long metaphysical_saved_rr4; /* from kvm_arch          */
+	unsigned long fp_psr;       /*used for lazy float register */
 	unsigned long saved_gp;
-	
+	/*for phycial  emulation */
 	int mode_flags;
 	struct thash_cb vtlb;
 	struct thash_cb vhpt;
@@ -435,75 +497,78 @@ union cpuid3_t {
 };
 
 struct kvm_pt_regs {
-	
-	unsigned long b6;  
-	unsigned long b7;  
+	/* The following registers are saved by SAVE_MIN: */
+	unsigned long b6;  /* scratch */
+	unsigned long b7;  /* scratch */
 
-	unsigned long ar_csd; 
-	unsigned long ar_ssd; 
+	unsigned long ar_csd; /* used by cmp8xchg16 (scratch) */
+	unsigned long ar_ssd; /* reserved for future use (scratch) */
 
-	unsigned long r8;  
-	unsigned long r9;  
-	unsigned long r10; 
-	unsigned long r11; 
+	unsigned long r8;  /* scratch (return value register 0) */
+	unsigned long r9;  /* scratch (return value register 1) */
+	unsigned long r10; /* scratch (return value register 2) */
+	unsigned long r11; /* scratch (return value register 3) */
 
-	unsigned long cr_ipsr; 
-	unsigned long cr_iip;  
-	unsigned long cr_ifs;  
+	unsigned long cr_ipsr; /* interrupted task's psr */
+	unsigned long cr_iip;  /* interrupted task's instruction pointer */
+	unsigned long cr_ifs;  /* interrupted task's function state */
 
-	unsigned long ar_unat; 
-	unsigned long ar_pfs;  
-	unsigned long ar_rsc;  
-	
-	unsigned long ar_rnat;  
-	unsigned long ar_bspstore; 
+	unsigned long ar_unat; /* interrupted task's NaT register (preserved) */
+	unsigned long ar_pfs;  /* prev function state  */
+	unsigned long ar_rsc;  /* RSE configuration */
+	/* The following two are valid only if cr_ipsr.cpl > 0: */
+	unsigned long ar_rnat;  /* RSE NaT */
+	unsigned long ar_bspstore; /* RSE bspstore */
 
-	unsigned long pr;  
-	unsigned long b0;  
-	unsigned long loadrs;  
+	unsigned long pr;  /* 64 predicate registers (1 bit each) */
+	unsigned long b0;  /* return pointer (bp) */
+	unsigned long loadrs;  /* size of dirty partition << 16 */
 
-	unsigned long r1;  
-	unsigned long r12; 
-	unsigned long r13; 
+	unsigned long r1;  /* the gp pointer */
+	unsigned long r12; /* interrupted task's memory stack pointer */
+	unsigned long r13; /* thread pointer */
 
-	unsigned long ar_fpsr;  
-	unsigned long r15;  
+	unsigned long ar_fpsr;  /* floating point status (preserved) */
+	unsigned long r15;  /* scratch */
 
-	
-	unsigned long r14;  
-	unsigned long r2;  
-	unsigned long r3;  
-	unsigned long r16;  
-	unsigned long r17;  
-	unsigned long r18;  
-	unsigned long r19;  
-	unsigned long r20;  
-	unsigned long r21;  
-	unsigned long r22;  
-	unsigned long r23;  
-	unsigned long r24;  
-	unsigned long r25;  
-	unsigned long r26;  
-	unsigned long r27;  
-	unsigned long r28;  
-	unsigned long r29;  
-	unsigned long r30;  
-	unsigned long r31;  
-	unsigned long ar_ccv;  
+	/* The remaining registers are NOT saved for system calls.  */
+	unsigned long r14;  /* scratch */
+	unsigned long r2;  /* scratch */
+	unsigned long r3;  /* scratch */
+	unsigned long r16;  /* scratch */
+	unsigned long r17;  /* scratch */
+	unsigned long r18;  /* scratch */
+	unsigned long r19;  /* scratch */
+	unsigned long r20;  /* scratch */
+	unsigned long r21;  /* scratch */
+	unsigned long r22;  /* scratch */
+	unsigned long r23;  /* scratch */
+	unsigned long r24;  /* scratch */
+	unsigned long r25;  /* scratch */
+	unsigned long r26;  /* scratch */
+	unsigned long r27;  /* scratch */
+	unsigned long r28;  /* scratch */
+	unsigned long r29;  /* scratch */
+	unsigned long r30;  /* scratch */
+	unsigned long r31;  /* scratch */
+	unsigned long ar_ccv;  /* compare/exchange value (scratch) */
 
-	struct ia64_fpreg f6;  
-	struct ia64_fpreg f7;  
-	struct ia64_fpreg f8;  
-	struct ia64_fpreg f9;  
-	struct ia64_fpreg f10;  
-	struct ia64_fpreg f11;  
+	/*
+	 * Floating point registers that the kernel considers scratch:
+	 */
+	struct ia64_fpreg f6;  /* scratch */
+	struct ia64_fpreg f7;  /* scratch */
+	struct ia64_fpreg f8;  /* scratch */
+	struct ia64_fpreg f9;  /* scratch */
+	struct ia64_fpreg f10;  /* scratch */
+	struct ia64_fpreg f11;  /* scratch */
 
-	unsigned long r4;  
-	unsigned long r5;  
-	unsigned long r6;  
-	unsigned long r7;  
-	unsigned long eml_unat;    
-	unsigned long pad0;     
+	unsigned long r4;  /* preserved */
+	unsigned long r5;  /* preserved */
+	unsigned long r6;  /* preserved */
+	unsigned long r7;  /* preserved */
+	unsigned long eml_unat;    /* used for emulating instruction */
+	unsigned long pad0;     /* alignment pad */
 };
 
 static inline struct kvm_pt_regs *vcpu_regs(struct kvm_vcpu *v)
@@ -532,6 +597,6 @@ void kvm_sal_emul(struct kvm_vcpu *vcpu);
 struct kvm *kvm_arch_alloc_vm(void);
 void kvm_arch_free_vm(struct kvm *kvm);
 
-#endif 
+#endif /* __ASSEMBLY__*/
 
 #endif

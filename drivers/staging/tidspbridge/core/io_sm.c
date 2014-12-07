@@ -16,20 +16,32 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/*
+ * Channel Invariant:
+ * There is an important invariant condition which must be maintained per
+ * channel outside of bridge_chnl_get_ioc() and IO_Dispatch(), violation of
+ * which may cause timeouts and/or failure of the sync_wait_on_event
+ * function.
+ */
 #include <linux/types.h>
 #include <linux/list.h>
 
+/* Host OS */
 #include <dspbridge/host_os.h>
 #include <linux/workqueue.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/* Services Layer */
 #include <dspbridge/ntfy.h>
 #include <dspbridge/sync.h>
 
+/* Hardware Abstraction Layer */
 #include <hw_defs.h>
 #include <hw_mmu.h>
 
+/* Bridge Driver */
 #include <dspbridge/dspdeh.h>
 #include <dspbridge/dspio.h>
 #include <dspbridge/dspioctl.h>
@@ -38,26 +50,30 @@
 #include <tiomap_io.h>
 #include <_tiomap_pwr.h>
 
+/* Platform Manager */
 #include <dspbridge/cod.h>
 #include <dspbridge/node.h>
 #include <dspbridge/dev.h>
 
+/* Others */
 #include <dspbridge/rms_sh.h>
 #include <dspbridge/mgr.h>
 #include <dspbridge/drv.h>
 #include "_cmm.h"
 #include "module_list.h"
 
+/* This */
 #include <dspbridge/io_sm.h>
 #include "_msg_sm.h"
 
+/* Defines, Data Structures, Typedefs */
 #define OUTPUTNOTREADY  0xffff
-#define NOTENABLED      0xffff	
+#define NOTENABLED      0xffff	/* Channel(s) not enabled */
 
 #define EXTEND      "_EXT_END"
 
 #define SWAP_WORD(x)     (x)
-#define UL_PAGE_ALIGN_SIZE 0x10000	
+#define UL_PAGE_ALIGN_SIZE 0x10000	/* Page Align Size */
 
 #define MAX_PM_REQS 32
 
@@ -66,51 +82,53 @@
 #define POLL_MAX 1000
 #define MAX_MMU_DBGBUFF 10240
 
+/* IO Manager: only one created per board */
 struct io_mgr {
-	
-	
+	/* These four fields must be the first fields in a io_mgr_ struct */
+	/* Bridge device context */
 	struct bridge_dev_context *bridge_context;
-	
+	/* Function interface to Bridge driver */
 	struct bridge_drv_interface *intf_fxns;
-	struct dev_object *dev_obj;	
+	struct dev_object *dev_obj;	/* Device this board represents */
 
-	
+	/* These fields initialized in bridge_io_create() */
 	struct chnl_mgr *chnl_mgr;
-	struct shm *shared_mem;	
-	u8 *input;		
-	u8 *output;		
-	struct msg_mgr *msg_mgr;	
-	
+	struct shm *shared_mem;	/* Shared Memory control */
+	u8 *input;		/* Address of input channel */
+	u8 *output;		/* Address of output channel */
+	struct msg_mgr *msg_mgr;	/* Message manager */
+	/* Msg control for from DSP messages */
 	struct msg_ctrl *msg_input_ctrl;
-	
+	/* Msg control for to DSP messages */
 	struct msg_ctrl *msg_output_ctrl;
-	u8 *msg_input;		
-	u8 *msg_output;		
-	u32 sm_buf_size;	
-	bool shared_irq;	
-	u32 word_size;		
-	u16 intr_val;		
-	
+	u8 *msg_input;		/* Address of input messages */
+	u8 *msg_output;		/* Address of output messages */
+	u32 sm_buf_size;	/* Size of a shared memory I/O channel */
+	bool shared_irq;	/* Is this IRQ shared? */
+	u32 word_size;		/* Size in bytes of DSP word */
+	u16 intr_val;		/* Interrupt value */
+	/* Private extnd proc info; mmu setup */
 	struct mgr_processorextinfo ext_proc_info;
-	struct cmm_object *cmm_mgr;	
-	struct work_struct io_workq;	
+	struct cmm_object *cmm_mgr;	/* Shared Mem Mngr */
+	struct work_struct io_workq;	/* workqueue */
 #if defined(CONFIG_TIDSPBRIDGE_BACKTRACE)
-	u32 trace_buffer_begin;	
-	u32 trace_buffer_end;	
-	u32 trace_buffer_current;	
-	u32 gpp_read_pointer;		
+	u32 trace_buffer_begin;	/* Trace message start address */
+	u32 trace_buffer_end;	/* Trace message end address */
+	u32 trace_buffer_current;	/* Trace message current address */
+	u32 gpp_read_pointer;		/* GPP Read pointer to Trace buffer */
 	u8 *msg;
 	u32 gpp_va;
 	u32 dsp_va;
 #endif
-	
-	u32 dpc_req;		
-	u32 dpc_sched;		
+	/* IO Dpc */
+	u32 dpc_req;		/* Number of requested DPC's. */
+	u32 dpc_sched;		/* Number of executed DPC's. */
 	struct tasklet_struct dpc_tasklet;
 	spinlock_t dpc_lock;
 
 };
 
+/* Function Prototypes */
 static void io_dispatch_pm(struct io_mgr *pio_mgr);
 static void notify_chnl_complete(struct chnl_object *pchnl,
 				 struct chnl_irp *chnl_packet_obj);
@@ -123,6 +141,7 @@ static void output_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr);
 static u32 find_ready_output(struct chnl_mgr *chnl_mgr_obj,
 			     struct chnl_object *pchnl, u32 mask);
 
+/* Bus Addr (cached kernel) */
 static int register_shm_segs(struct io_mgr *hio_mgr,
 				    struct cod_manager *cod_man,
 				    u32 dw_gpp_base_pa);
@@ -138,6 +157,10 @@ static inline void set_chnl_busy(struct shm *sm, u32 chnl)
 }
 
 
+/*
+ *  ======== bridge_io_create ========
+ *      Create an IO manager object.
+ */
 int bridge_io_create(struct io_mgr **io_man,
 			    struct dev_object *hdev_obj,
 			    const struct io_attrs *mgr_attrts)
@@ -148,7 +171,7 @@ int bridge_io_create(struct io_mgr **io_man,
 	struct chnl_mgr *hchnl_mgr;
 	u8 dev_type;
 
-	
+	/* Check requirements */
 	if (!io_man || !mgr_attrts || mgr_attrts->word_size == 0)
 		return -EFAULT;
 
@@ -158,26 +181,31 @@ int bridge_io_create(struct io_mgr **io_man,
 	if (!hchnl_mgr || hchnl_mgr->iomgr)
 		return -EFAULT;
 
+	/*
+	 * Message manager will be created when a file is loaded, since
+	 * size of message buffer in shared memory is configurable in
+	 * the base image.
+	 */
 	dev_get_bridge_context(hdev_obj, &hbridge_context);
 	if (!hbridge_context)
 		return -EFAULT;
 
 	dev_get_dev_type(hdev_obj, &dev_type);
 
-	
+	/* Allocate IO manager object */
 	pio_mgr = kzalloc(sizeof(struct io_mgr), GFP_KERNEL);
 	if (!pio_mgr)
 		return -ENOMEM;
 
-	
+	/* Initialize chnl_mgr object */
 	pio_mgr->chnl_mgr = hchnl_mgr;
 	pio_mgr->word_size = mgr_attrts->word_size;
 
 	if (dev_type == DSP_UNIT) {
-		
+		/* Create an IO DPC */
 		tasklet_init(&pio_mgr->dpc_tasklet, io_dpc, (u32) pio_mgr);
 
-		
+		/* Initialize DPC counters */
 		pio_mgr->dpc_req = 0;
 		pio_mgr->dpc_sched = 0;
 
@@ -196,25 +224,30 @@ int bridge_io_create(struct io_mgr **io_man,
 		return -EPERM;
 	}
 
-	
+	/* Return IO manager object to caller... */
 	hchnl_mgr->iomgr = pio_mgr;
 	*io_man = pio_mgr;
 
 	return 0;
 }
 
+/*
+ *  ======== bridge_io_destroy ========
+ *  Purpose:
+ *      Disable interrupts, destroy the IO manager.
+ */
 int bridge_io_destroy(struct io_mgr *hio_mgr)
 {
 	int status = 0;
 	if (hio_mgr) {
-		
+		/* Free IO DPC object */
 		tasklet_kill(&hio_mgr->dpc_tasklet);
 
 #if defined(CONFIG_TIDSPBRIDGE_BACKTRACE)
 		kfree(hio_mgr->msg);
 #endif
 		dsp_wdt_exit();
-		
+		/* Free this IO manager object */
 		kfree(hio_mgr);
 	} else {
 		status = -EFAULT;
@@ -223,6 +256,13 @@ int bridge_io_destroy(struct io_mgr *hio_mgr)
 	return status;
 }
 
+/*
+ *  ======== bridge_io_on_loaded ========
+ *  Purpose:
+ *      Called when a new program is loaded to get shared memory buffer
+ *      parameters from COFF file. ulSharedBufferBase and ulSharedBufferLimit
+ *      are in DSP address units.
+ */
 int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 {
 	struct cod_manager *cod_man;
@@ -246,7 +286,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	int status = 0;
 	u8 num_procs = 0;
 	s32 ndx = 0;
-	
+	/* DSP MMU setup table */
 	struct bridge_ioctl_extproc ae_proc[BRDIOCTL_NUMOFMMUTLB];
 	struct cfg_hostres *host_res;
 	struct bridge_dev_context *pbridge_context;
@@ -280,7 +320,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 		goto func_end;
 	}
 	hchnl_mgr = hio_mgr->chnl_mgr;
-	
+	/* The message manager is destroyed when the board is stopped. */
 	dev_get_msg_mgr(hio_mgr->dev_obj, &hio_mgr->msg_mgr);
 	hmsg_mgr = hio_mgr->msg_mgr;
 	if (!hchnl_mgr || !hmsg_mgr) {
@@ -290,7 +330,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	if (hio_mgr->shared_mem)
 		hio_mgr->shared_mem = NULL;
 
-	
+	/* Get start and length of channel part of shared memory */
 	status = cod_get_sym_value(cod_man, CHNL_SHARED_BUFFER_BASE_SYM,
 				   &ul_shm_base);
 	if (status) {
@@ -307,13 +347,13 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 		status = -EINVAL;
 		goto func_end;
 	}
-	
+	/* Get total length in bytes */
 	ul_shm_length = (ul_shm_limit - ul_shm_base + 1) * hio_mgr->word_size;
-	
+	/* Calculate size of a PROCCOPY shared memory region */
 	dev_dbg(bridge, "%s: (proc)proccopy shmmem size: 0x%x bytes\n",
 		__func__, (ul_shm_length - sizeof(struct shm)));
 
-	
+	/* Get start and length of message part of shared memory */
 	status = cod_get_sym_value(cod_man, MSG_SHARED_BUFFER_BASE_SYM,
 					   &ul_msg_base);
 	if (!status) {
@@ -323,9 +363,17 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 			if (ul_msg_limit <= ul_msg_base) {
 				status = -EINVAL;
 			} else {
+				/*
+				 * Length (bytes) of messaging part of shared
+				 * memory.
+				 */
 				ul_msg_length =
 				    (ul_msg_limit - ul_msg_base +
 				     1) * hio_mgr->word_size;
+				/*
+				 * Total length (bytes) of shared memory:
+				 * chnl + msg.
+				 */
 				ul_mem_length = ul_shm_length + ul_msg_length;
 			}
 		} else {
@@ -357,26 +405,26 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 			status = -EFAULT;
 	}
 	if (!status) {
-		
+		/* Get memory reserved in host resources */
 		(void)mgr_enum_processor_info(0, (struct dsp_processorinfo *)
 					      &hio_mgr->ext_proc_info,
 					      sizeof(struct
 						     mgr_processorextinfo),
 					      &num_procs);
 
-		
+		/* The first MMU TLB entry(TLB_0) in DCD is ShmBase. */
 		ndx = 0;
 		ul_gpp_pa = host_res->mem_phys[1];
 		ul_gpp_va = host_res->mem_base[1];
-		
-		
+		/* This is the virtual uncached ioremapped address!!! */
+		/* Why can't we directly take the DSPVA from the symbols? */
 		ul_dsp_va = hio_mgr->ext_proc_info.ty_tlb[0].dsp_virt;
 		ul_seg_size = (shm0_end - ul_dsp_va) * hio_mgr->word_size;
 		ul_seg1_size =
 		    (ul_ext_end - ul_dyn_ext_base) * hio_mgr->word_size;
-		
+		/* 4K align */
 		ul_seg1_size = (ul_seg1_size + 0xFFF) & (~0xFFFUL);
-		
+		/* 64K align */
 		ul_seg_size = (ul_seg_size + 0xFFFF) & (~0xFFFFUL);
 		ul_pad_size = UL_PAGE_ALIGN_SIZE - ((ul_gpp_pa + ul_seg1_size) %
 						    UL_PAGE_ALIGN_SIZE);
@@ -405,6 +453,12 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	gpp_va_curr = ul_gpp_va;
 	num_bytes = ul_seg1_size;
 
+	/*
+	 * Try to fit into TLB entries. If not possible, push them to page
+	 * tables. It is quite possible that if sections are not on
+	 * bigger page boundary, we may end up making several small pages.
+	 * So, push them onto page tables, if that is the case.
+	 */
 	map_attrs = 0x00000000;
 	map_attrs = DSP_MAPLITTLEENDIAN;
 	map_attrs |= DSP_MAPPHYSICALADDR;
@@ -412,6 +466,10 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	map_attrs |= DSP_MAPDONOTLOCK;
 
 	while (num_bytes) {
+		/*
+		 * To find the max. page size with which both PA & VA are
+		 * aligned.
+		 */
 		all_bits = pa_curr | va_curr;
 		dev_dbg(bridge, "all_bits %x, pa_curr %x, va_curr %x, "
 			"num_bytes %x\n", all_bits, pa_curr, va_curr,
@@ -432,6 +490,11 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 				va_curr += page_size[i];
 				gpp_va_curr += page_size[i];
 				num_bytes -= page_size[i];
+				/*
+				 * Don't try smaller sizes. Hopefully we have
+				 * reached an address aligned to a bigger page
+				 * size.
+				 */
 				break;
 			}
 		}
@@ -440,10 +503,14 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	va_curr += ul_pad_size;
 	gpp_va_curr += ul_pad_size;
 
-	
+	/* Configure the TLB entries for the next cacheable segment */
 	num_bytes = ul_seg_size;
 	va_curr = ul_dsp_va * hio_mgr->word_size;
 	while (num_bytes) {
+		/*
+		 * To find the max. page size with which both PA & VA are
+		 * aligned.
+		 */
 		all_bits = pa_curr | va_curr;
 		dev_dbg(bridge, "all_bits for Seg1 %x, pa_curr %x, "
 			"va_curr %x, num_bytes %x\n", all_bits, pa_curr,
@@ -458,6 +525,10 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 				 * DSP MMU.
 				 */
 				ae_proc[ndx].gpp_pa = pa_curr;
+				/*
+				 * This is the virtual uncached ioremapped
+				 * address!!!
+				 */
 				ae_proc[ndx].gpp_va = gpp_va_curr;
 				ae_proc[ndx].dsp_va =
 				    va_curr / hio_mgr->word_size;
@@ -493,10 +564,18 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 			va_curr += page_size[i];
 			gpp_va_curr += page_size[i];
 			num_bytes -= page_size[i];
+			/*
+			 * Don't try smaller sizes. Hopefully we have reached
+			 * an address aligned to a bigger page size.
+			 */
 			break;
 		}
 	}
 
+	/*
+	 * Copy remaining entries from CDB. All entries are 1 MB and
+	 * should not conflict with shm entries on MPU or DSP side.
+	 */
 	for (i = 3; i < 7 && ndx < BRDIOCTL_NUMOFMMUTLB; i++) {
 		if (hio_mgr->ext_proc_info.ty_tlb[i].gpp_phys == 0)
 			continue;
@@ -526,7 +605,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 				    hio_mgr->ext_proc_info.ty_tlb[i].
 				    gpp_phys;
 				ae_proc[ndx].gpp_va = 0;
-				
+				/* 1 MB */
 				ae_proc[ndx].size = 0x100000;
 				dev_dbg(bridge, "shm MMU entry PA %x "
 					"DSP_VA 0x%x\n", ae_proc[ndx].gpp_pa,
@@ -552,7 +631,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	map_attrs |= DSP_MAPELEMSIZE32;
 	map_attrs |= DSP_MAPDONOTLOCK;
 
-	
+	/* Map the L4 peripherals */
 	i = 0;
 	while (l4_peripheral_table[i].phys_addr) {
 		status = hio_mgr->intf_fxns->brd_mem_map
@@ -570,9 +649,18 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 		ae_proc[i].gpp_va = 0;
 		ae_proc[i].size = 0;
 	}
+	/*
+	 * Set the shm physical address entry (grayed out in CDB file)
+	 * to the virtual uncached ioremapped address of shm reserved
+	 * on MPU.
+	 */
 	hio_mgr->ext_proc_info.ty_tlb[0].gpp_phys =
 	    (ul_gpp_va + ul_seg1_size + ul_pad_size);
 
+	/*
+	 * Need shm Phys addr. IO supports only one DSP for now:
+	 * num_procs = 1.
+	 */
 	if (!hio_mgr->ext_proc_info.ty_tlb[0].gpp_phys || num_procs != 1) {
 		status = -EFAULT;
 		goto func_end;
@@ -581,9 +669,15 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 			status = -EPERM;
 			goto func_end;
 		}
-		
+		/* ul_shm_base may not be at ul_dsp_va address */
 		ul_shm_base_offset = (ul_shm_base - ae_proc[0].dsp_va) *
 		    hio_mgr->word_size;
+		/*
+		 * bridge_dev_ctrl() will set dev context dsp-mmu info. In
+		 * bridge_brd_start() the MMU will be re-programed with MMU
+		 * DSPVa-GPPPa pair info while DSP is in a known
+		 * (reset) state.
+		 */
 
 		status =
 		    hio_mgr->intf_fxns->dev_cntrl(hio_mgr->bridge_context,
@@ -599,7 +693,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 			status = -EFAULT;
 			goto func_end;
 		}
-		
+		/* Register SM */
 		status =
 		    register_shm_segs(hio_mgr, cod_man, ae_proc[0].gpp_pa);
 	}
@@ -610,7 +704,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 					    sizeof(struct shm)) / 2;
 	hio_mgr->sm_buf_size = hio_mgr->output - hio_mgr->input;
 
-	
+	/*  Set up Shared memory addresses for messaging. */
 	hio_mgr->msg_input_ctrl = (struct msg_ctrl *)((u8 *) hio_mgr->shared_mem
 						      + ul_shm_length);
 	hio_mgr->msg_input =
@@ -635,7 +729,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	memset((void *)hio_mgr->shared_mem, 0, sizeof(struct shm));
 
 #if defined(CONFIG_TIDSPBRIDGE_BACKTRACE)
-	
+	/* Get the start address of trace buffer */
 	status = cod_get_sym_value(cod_man, SYS_PUTCBEG,
 				   &hio_mgr->trace_buffer_begin);
 	if (status) {
@@ -646,7 +740,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	hio_mgr->gpp_read_pointer = hio_mgr->trace_buffer_begin =
 	    (ul_gpp_va + ul_seg1_size + ul_pad_size) +
 	    (hio_mgr->trace_buffer_begin - ul_dsp_va);
-	
+	/* Get the end address of trace buffer */
 	status = cod_get_sym_value(cod_man, SYS_PUTCEND,
 				   &hio_mgr->trace_buffer_end);
 	if (status) {
@@ -656,7 +750,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	hio_mgr->trace_buffer_end =
 	    (ul_gpp_va + ul_seg1_size + ul_pad_size) +
 	    (hio_mgr->trace_buffer_end - ul_dsp_va);
-	
+	/* Get the current address of DSP write pointer */
 	status = cod_get_sym_value(cod_man, BRIDGE_SYS_PUTC_CURRENT,
 				   &hio_mgr->trace_buffer_current);
 	if (status) {
@@ -666,7 +760,7 @@ int bridge_io_on_loaded(struct io_mgr *hio_mgr)
 	hio_mgr->trace_buffer_current =
 	    (ul_gpp_va + ul_seg1_size + ul_pad_size) +
 	    (hio_mgr->trace_buffer_current - ul_dsp_va);
-	
+	/* Calculate the size of trace buffer */
 	kfree(hio_mgr->msg);
 	hio_mgr->msg = kmalloc(((hio_mgr->trace_buffer_end -
 				hio_mgr->trace_buffer_begin) *
@@ -682,6 +776,10 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== io_buf_size ========
+ *      Size of shared memory I/O channel.
+ */
 u32 io_buf_size(struct io_mgr *hio_mgr)
 {
 	if (hio_mgr)
@@ -690,6 +788,10 @@ u32 io_buf_size(struct io_mgr *hio_mgr)
 		return 0;
 }
 
+/*
+ *  ======== io_cancel_chnl ========
+ *      Cancel IO on a given PCPY channel.
+ */
 void io_cancel_chnl(struct io_mgr *hio_mgr, u32 chnl)
 {
 	struct io_mgr *pio_mgr = (struct io_mgr *)hio_mgr;
@@ -699,7 +801,7 @@ void io_cancel_chnl(struct io_mgr *hio_mgr, u32 chnl)
 		goto func_end;
 	sm = hio_mgr->shared_mem;
 
-	
+	/* Inform DSP that we have no more buffers on this channel */
 	set_chnl_free(sm, chnl);
 
 	sm_interrupt_dsp(pio_mgr->bridge_context, MBX_PCPY_CLASS);
@@ -708,15 +810,19 @@ func_end:
 }
 
 
+/*
+ *  ======== io_dispatch_pm ========
+ *      Performs I/O dispatch on PM related messages from DSP
+ */
 static void io_dispatch_pm(struct io_mgr *pio_mgr)
 {
 	int status;
 	u32 parg[2];
 
-	
+	/* Perform Power message processing here */
 	parg[0] = pio_mgr->intr_val;
 
-	
+	/* Send the command to the Bridge clk/pwr manager to handle */
 	if (parg[0] == MBX_PM_HIBERNATE_EN) {
 		dev_dbg(bridge, "PM: Hibernate command\n");
 		status = pio_mgr->intf_fxns->
@@ -746,6 +852,12 @@ static void io_dispatch_pm(struct io_mgr *pio_mgr)
 	}
 }
 
+/*
+ *  ======== io_dpc ========
+ *      Deferred procedure call for shared memory channel driver ISR.  Carries
+ *      out the dispatch of I/O as a non-preemptible event.It can only be
+ *      pre-empted      by an ISR.
+ */
 void io_dpc(unsigned long ref_data)
 {
 	struct io_mgr *pio_mgr = (struct io_mgr *)ref_data;
@@ -769,12 +881,12 @@ void io_dpc(unsigned long ref_data)
 	if (serviced == requested)
 		goto func_end;
 
-	
+	/* Process pending DPC's */
 	do {
-		
+		/* Check value of interrupt reg to ensure it's a valid error */
 		if ((pio_mgr->intr_val > DEH_BASE) &&
 		    (pio_mgr->intr_val < DEH_LIMIT)) {
-			
+			/* Notify DSP/BIOS exception */
 			if (hdeh_mgr) {
 #ifdef CONFIG_TIDSPBRIDGE_BACKTRACE
 				print_dsp_debug_trace(pio_mgr);
@@ -783,13 +895,13 @@ void io_dpc(unsigned long ref_data)
 						  pio_mgr->intr_val);
 			}
 		}
-		
+		/* Proc-copy chanel dispatch */
 		input_chnl(pio_mgr, NULL, IO_SERVICE);
 		output_chnl(pio_mgr, NULL, IO_SERVICE);
 
 #ifdef CHNL_MESSAGES
 		if (msg_mgr_obj) {
-			
+			/* Perform I/O dispatch on message queues */
 			input_msg(pio_mgr, msg_mgr_obj);
 			output_msg(pio_mgr, msg_mgr_obj);
 		}
@@ -797,7 +909,7 @@ void io_dpc(unsigned long ref_data)
 #endif
 #ifdef CONFIG_TIDSPBRIDGE_BACKTRACE
 		if (pio_mgr->intr_val & MBX_DBG_SYSPRINTF) {
-			
+			/* Notify DSP Trace message */
 			print_dsp_debug_trace(pio_mgr);
 		}
 #endif
@@ -808,6 +920,12 @@ func_end:
 	return;
 }
 
+/*
+ *  ======== io_mbox_msg ========
+ *      Main interrupt handler for the shared memory IO manager.
+ *      Calls the Bridge's CHNL_ISR to determine if this interrupt is ours, then
+ *      schedules a DPC to dispatch I/O.
+ */
 int io_mbox_msg(struct notifier_block *self, unsigned long len, void *msg)
 {
 	struct io_mgr *pio_mgr;
@@ -835,6 +953,12 @@ int io_mbox_msg(struct notifier_block *self, unsigned long len, void *msg)
 	return NOTIFY_OK;
 }
 
+/*
+ *  ======== io_request_chnl ========
+ *  Purpose:
+ *      Request chanenel I/O from the DSP. Sets flags in shared memory, then
+ *      interrupts the DSP.
+ */
 void io_request_chnl(struct io_mgr *io_manager, struct chnl_object *pchnl,
 			u8 io_mode, u16 *mbx_val)
 {
@@ -846,10 +970,14 @@ void io_request_chnl(struct io_mgr *io_manager, struct chnl_object *pchnl,
 	chnl_mgr_obj = io_manager->chnl_mgr;
 	sm = io_manager->shared_mem;
 	if (io_mode == IO_INPUT) {
-		
+		/* Indicate to the DSP we have a buffer available for input */
 		set_chnl_busy(sm, pchnl->chnl_id);
 		*mbx_val = MBX_PCPY_CLASS;
 	} else if (io_mode == IO_OUTPUT) {
+		/*
+		 * Record the fact that we have a buffer available for
+		 * output.
+		 */
 		chnl_mgr_obj->output_mask |= (1 << pchnl->chnl_id);
 	} else {
 	}
@@ -857,6 +985,10 @@ func_end:
 	return;
 }
 
+/*
+ *  ======== iosm_schedule ========
+ *      Schedule DPC for IO.
+ */
 void iosm_schedule(struct io_mgr *io_manager)
 {
 	unsigned long flags;
@@ -864,15 +996,22 @@ void iosm_schedule(struct io_mgr *io_manager)
 	if (!io_manager)
 		return;
 
-	
+	/* Increment count of DPC's pending. */
 	spin_lock_irqsave(&io_manager->dpc_lock, flags);
 	io_manager->dpc_req++;
 	spin_unlock_irqrestore(&io_manager->dpc_lock, flags);
 
-	
+	/* Schedule DPC */
 	tasklet_schedule(&io_manager->dpc_tasklet);
 }
 
+/*
+ *  ======== find_ready_output ========
+ *      Search for a host output channel which is ready to send.  If this is
+ *      called as a result of servicing the DPC, then implement a round
+ *      robin search; otherwise, this was called by a client thread (via
+ *      IO_Dispatch()), so just start searching from the current channel id.
+ */
 static u32 find_ready_output(struct chnl_mgr *chnl_mgr_obj,
 			     struct chnl_object *pchnl, u32 mask)
 {
@@ -904,6 +1043,10 @@ func_end:
 	return ret;
 }
 
+/*
+ *  ======== input_chnl ========
+ *      Dispatch a buffer on an input channel.
+ */
 static void input_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 			u8 io_mode)
 {
@@ -919,7 +1062,7 @@ static void input_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 	sm = pio_mgr->shared_mem;
 	chnl_mgr_obj = pio_mgr->chnl_mgr;
 
-	
+	/* Attempt to perform input */
 	if (!sm->input_full)
 		goto func_end;
 
@@ -927,13 +1070,13 @@ static void input_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 	chnl_id = sm->input_id;
 	dw_arg = sm->arg;
 	if (chnl_id >= CHNL_MAXCHANNELS) {
-		
+		/* Shouldn't be here: would indicate corrupted shm. */
 		goto func_end;
 	}
 	pchnl = chnl_mgr_obj->channels[chnl_id];
 	if ((pchnl != NULL) && CHNL_IS_INPUT(pchnl->chnl_mode)) {
 		if ((pchnl->state & ~CHNL_STATEEOS) == CHNL_STATEREADY) {
-			
+			/* Get the I/O request, and attempt a transfer */
 			if (!list_empty(&pchnl->io_requests)) {
 				if (!pchnl->cio_reqs)
 					goto func_end;
@@ -944,6 +1087,10 @@ static void input_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 				list_del(&chnl_packet_obj->link);
 				pchnl->cio_reqs--;
 
+				/*
+				 * Ensure we don't overflow the client's
+				 * buffer.
+				 */
 				bytes = min(bytes, chnl_packet_obj->byte_size);
 				memcpy(chnl_packet_obj->host_sys_buf,
 						pio_mgr->input, bytes);
@@ -953,43 +1100,67 @@ static void input_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 				chnl_packet_obj->status = CHNL_IOCSTATCOMPLETE;
 
 				if (bytes == 0) {
+					/*
+					 * This assertion fails if the DSP
+					 * sends EOS more than once on this
+					 * channel.
+					 */
 					if (pchnl->state & CHNL_STATEEOS)
 						goto func_end;
+					/*
+					 * Zero bytes indicates EOS. Update
+					 * IOC status for this chirp, and also
+					 * the channel state.
+					 */
 					chnl_packet_obj->status |=
 						CHNL_IOCSTATEOS;
 					pchnl->state |= CHNL_STATEEOS;
+					/*
+					 * Notify that end of stream has
+					 * occurred.
+					 */
 					ntfy_notify(pchnl->ntfy_obj,
 							DSP_STREAMDONE);
 				}
-				
+				/* Tell DSP if no more I/O buffers available */
 				if (list_empty(&pchnl->io_requests))
 					set_chnl_free(sm, pchnl->chnl_id);
 				clear_chnl = true;
 				notify_client = true;
 			} else {
+				/*
+				 * Input full for this channel, but we have no
+				 * buffers available.  The channel must be
+				 * "idling". Clear out the physical input
+				 * channel.
+				 */
 				clear_chnl = true;
 			}
 		} else {
-			
+			/* Input channel cancelled: clear input channel */
 			clear_chnl = true;
 		}
 	} else {
-		
+		/* DPC fired after host closed channel: clear input channel */
 		clear_chnl = true;
 	}
 	if (clear_chnl) {
-		
+		/* Indicate to the DSP we have read the input */
 		sm->input_full = 0;
 		sm_interrupt_dsp(pio_mgr->bridge_context, MBX_PCPY_CLASS);
 	}
 	if (notify_client) {
-		
+		/* Notify client with IO completion record */
 		notify_chnl_complete(pchnl, chnl_packet_obj);
 	}
 func_end:
 	return;
 }
 
+/*
+ *  ======== input_msg ========
+ *      Copies messages from shared memory to the message queues.
+ */
 static void input_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 {
 	u32 num_msgs;
@@ -1003,7 +1174,7 @@ static void input_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 	u32 addr;
 
 	msg_ctr_obj = pio_mgr->msg_input_ctrl;
-	
+	/* Get the number of input messages to be read */
 	input_empty = msg_ctr_obj->buf_empty;
 	num_msgs = msg_ctr_obj->size;
 	if (input_empty)
@@ -1011,7 +1182,7 @@ static void input_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 
 	msg_input = pio_mgr->msg_input;
 	for (i = 0; i < num_msgs; i++) {
-		
+		/* Read the next message */
 		addr = (u32) &(((struct msg_dspmsg *)msg_input)->msg.cmd);
 		msg.msg.cmd =
 			read_ext32_bit_dsp_data(pio_mgr->bridge_context, addr);
@@ -1026,21 +1197,39 @@ static void input_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 			read_ext32_bit_dsp_data(pio_mgr->bridge_context, addr);
 		msg_input += sizeof(struct msg_dspmsg);
 
-		
+		/* Determine which queue to put the message in */
 		dev_dbg(bridge,	"input msg: cmd=0x%x arg1=0x%x "
 				"arg2=0x%x msgq_id=0x%x\n", msg.msg.cmd,
 				msg.msg.arg1, msg.msg.arg2, msg.msgq_id);
+		/*
+		 * Interrupt may occur before shared memory and message
+		 * input locations have been set up. If all nodes were
+		 * cleaned up, hmsg_mgr->max_msgs should be 0.
+		 */
 		list_for_each_entry(msg_queue_obj, &hmsg_mgr->queue_list,
 				list_elem) {
 			if (msg.msgq_id != msg_queue_obj->msgq_id)
 				continue;
-			
+			/* Found it */
 			if (msg.msg.cmd == RMS_EXITACK) {
+				/*
+				 * Call the node exit notification.
+				 * The exit message does not get
+				 * queued.
+				 */
 				(*hmsg_mgr->on_exit)(msg_queue_obj->arg,
 						msg.msg.arg1);
 				break;
 			}
+			/*
+			 * Not an exit acknowledgement, queue
+			 * the message.
+			 */
 			if (list_empty(&msg_queue_obj->msg_free_list)) {
+				/*
+				 * No free frame to copy the
+				 * message into.
+				 */
 				pr_err("%s: no free msg frames,"
 						" discarding msg\n",
 						__func__);
@@ -1058,15 +1247,20 @@ static void input_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 			sync_set_event(msg_queue_obj->sync_event);
 		}
 	}
-	
+	/* Set the post SWI flag */
 	if (num_msgs > 0) {
-		
+		/* Tell the DSP we've read the messages */
 		msg_ctr_obj->buf_empty = true;
 		msg_ctr_obj->post_swi = true;
 		sm_interrupt_dsp(pio_mgr->bridge_context, MBX_PCPY_CLASS);
 	}
 }
 
+/*
+ *  ======== notify_chnl_complete ========
+ *  Purpose:
+ *      Signal the channel event, notifying the client that I/O has completed.
+ */
 static void notify_chnl_complete(struct chnl_object *pchnl,
 				 struct chnl_irp *chnl_packet_obj)
 {
@@ -1075,23 +1269,34 @@ static void notify_chnl_complete(struct chnl_object *pchnl,
 	if (!pchnl || !pchnl->sync_event || !chnl_packet_obj)
 		goto func_end;
 
+	/*
+	 * Note: we signal the channel event only if the queue of IO
+	 * completions is empty.  If it is not empty, the event is sure to be
+	 * signalled by the only IO completion list consumer:
+	 * bridge_chnl_get_ioc().
+	 */
 	signal_event = list_empty(&pchnl->io_completions);
-	
+	/* Enqueue the IO completion info for the client */
 	list_add_tail(&chnl_packet_obj->link, &pchnl->io_completions);
 	pchnl->cio_cs++;
 
 	if (pchnl->cio_cs > pchnl->chnl_packets)
 		goto func_end;
-	
+	/* Signal the channel event (if not already set) that IO is complete */
 	if (signal_event)
 		sync_set_event(pchnl->sync_event);
 
-	
+	/* Notify that IO is complete */
 	ntfy_notify(pchnl->ntfy_obj, DSP_STREAMIOCOMPLETION);
 func_end:
 	return;
 }
 
+/*
+ *  ======== output_chnl ========
+ *  Purpose:
+ *      Dispatch a buffer on an output channel.
+ */
 static void output_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 			u8 io_mode)
 {
@@ -1103,14 +1308,14 @@ static void output_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 
 	chnl_mgr_obj = pio_mgr->chnl_mgr;
 	sm = pio_mgr->shared_mem;
-	
+	/* Attempt to perform output */
 	if (sm->output_full)
 		goto func_end;
 
 	if (pchnl && !((pchnl->state & ~CHNL_STATEEOS) == CHNL_STATEREADY))
 		goto func_end;
 
-	
+	/* Look to see if both a PC and DSP output channel are ready */
 	dw_dsp_f_mask = sm->dsp_free_mask;
 	chnl_id =
 	    find_ready_output(chnl_mgr_obj, pchnl,
@@ -1120,34 +1325,34 @@ static void output_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 
 	pchnl = chnl_mgr_obj->channels[chnl_id];
 	if (!pchnl || list_empty(&pchnl->io_requests)) {
-		
+		/* Shouldn't get here */
 		goto func_end;
 	}
 
 	if (!pchnl->cio_reqs)
 		goto func_end;
 
-	
+	/* Get the I/O request, and attempt a transfer */
 	chnl_packet_obj = list_first_entry(&pchnl->io_requests,
 			struct chnl_irp, link);
 	list_del(&chnl_packet_obj->link);
 
 	pchnl->cio_reqs--;
 
-	
+	/* Record fact that no more I/O buffers available */
 	if (list_empty(&pchnl->io_requests))
 		chnl_mgr_obj->output_mask &= ~(1 << chnl_id);
 
-	
+	/* Transfer buffer to DSP side */
 	chnl_packet_obj->byte_size = min(pio_mgr->sm_buf_size,
 					chnl_packet_obj->byte_size);
 	memcpy(pio_mgr->output,	chnl_packet_obj->host_sys_buf,
 					chnl_packet_obj->byte_size);
 	pchnl->bytes_moved += chnl_packet_obj->byte_size;
-	
+	/* Write all 32 bits of arg */
 	sm->arg = chnl_packet_obj->arg;
 #if _CHNL_WORDSIZE == 2
-	
+	/* Access can be different SM access word size (e.g. 16/32 bit words) */
 	sm->output_id = (u16) chnl_id;
 	sm->output_size = (u16) (chnl_packet_obj->byte_size +
 				chnl_mgr_obj->word_size - 1) /
@@ -1160,10 +1365,10 @@ static void output_chnl(struct io_mgr *pio_mgr, struct chnl_object *pchnl,
 	sm->output_full =  1;
 	/* Indicate to the DSP we have written the output */
 	sm_interrupt_dsp(pio_mgr->bridge_context, MBX_PCPY_CLASS);
-	
+	/* Notify client with IO completion record (keep EOS) */
 	chnl_packet_obj->status &= CHNL_IOCSTATEOS;
 	notify_chnl_complete(pchnl, chnl_packet_obj);
-	
+	/* Notify if stream is done. */
 	if (chnl_packet_obj->status & CHNL_IOCSTATEOS)
 		ntfy_notify(pchnl->ntfy_obj, DSP_STREAMDONE);
 
@@ -1171,6 +1376,10 @@ func_end:
 	return;
 }
 
+/*
+ *  ======== output_msg ========
+ *      Copies messages from the message queues to the shared memory.
+ */
 static void output_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 {
 	u32 num_msgs = 0;
@@ -1183,7 +1392,7 @@ static void output_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 
 	msg_ctr_obj = pio_mgr->msg_output_ctrl;
 
-	
+	/* Check if output has been cleared */
 	if (!msg_ctr_obj->buf_empty)
 		return;
 
@@ -1191,7 +1400,7 @@ static void output_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 		hmsg_mgr->max_msgs : hmsg_mgr->msgs_pending;
 	msg_output = (struct msg_dspmsg *) pio_mgr->msg_output;
 
-	
+	/* Copy num_msgs messages into shared memory */
 	for (i = 0; i < num_msgs; i++) {
 		if (list_empty(&hmsg_mgr->msg_used_list))
 			continue;
@@ -1224,18 +1433,27 @@ static void output_msg(struct io_mgr *pio_mgr, struct msg_mgr *hmsg_mgr)
 	if (num_msgs > 0) {
 		hmsg_mgr->msgs_pending -= num_msgs;
 #if _CHNL_WORDSIZE == 2
+		/*
+		 * Access can be different SM access word size
+		 * (e.g. 16/32 bit words)
+		 */
 		msg_ctr_obj->size = (u16) num_msgs;
 #else
 		msg_ctr_obj->size = num_msgs;
 #endif
 		msg_ctr_obj->buf_empty = false;
-		
+		/* Set the post SWI flag */
 		msg_ctr_obj->post_swi = true;
 		/* Tell the DSP we have written the output. */
 		sm_interrupt_dsp(pio_mgr->bridge_context, MBX_PCPY_CLASS);
 	}
 }
 
+/*
+ *  ======== register_shm_segs ========
+ *  purpose:
+ *      Registers GPP SM segment with CMM.
+ */
 static int register_shm_segs(struct io_mgr *hio_mgr,
 				    struct cod_manager *cod_man,
 				    u32 dw_gpp_base_pa)
@@ -1250,15 +1468,19 @@ static int register_shm_segs(struct io_mgr *hio_mgr,
 	u32 ul_shm_seg_id0 = 0;
 	u32 dw_offset, dw_gpp_base_va, ul_dsp_size;
 
+	/*
+	 * Read address and size info for first SM region.
+	 * Get start of 1st SM Heap region.
+	 */
 	status =
 	    cod_get_sym_value(cod_man, SHM0_SHARED_BASE_SYM, &ul_shm0_base);
 	if (ul_shm0_base == 0) {
 		status = -EPERM;
 		goto func_end;
 	}
-	
+	/* Get end of 1st SM Heap region */
 	if (!status) {
-		
+		/* Get start and length of message part of shared memory */
 		status = cod_get_sym_value(cod_man, SHM0_SHARED_END_SYM,
 					   &shm0_end);
 		if (shm0_end == 0) {
@@ -1266,9 +1488,9 @@ static int register_shm_segs(struct io_mgr *hio_mgr,
 			goto func_end;
 		}
 	}
-	
+	/* Start of Gpp reserved region */
 	if (!status) {
-		
+		/* Get start and length of message part of shared memory */
 		status =
 		    cod_get_sym_value(cod_man, SHM0_SHARED_RESERVED_BASE_SYM,
 				      &ul_shm0_rsrvd_start);
@@ -1277,7 +1499,7 @@ static int register_shm_segs(struct io_mgr *hio_mgr,
 			goto func_end;
 		}
 	}
-	
+	/* Register with CMM */
 	if (!status) {
 		status = dev_get_cmm_mgr(hio_mgr->dev_obj, &hio_mgr->cmm_mgr);
 		if (!status) {
@@ -1285,28 +1507,32 @@ static int register_shm_segs(struct io_mgr *hio_mgr,
 							   CMM_ALLSEGMENTS);
 		}
 	}
-	
+	/* Register new SM region(s) */
 	if (!status && (shm0_end - ul_shm0_base) > 0) {
-		
+		/* Calc size (bytes) of SM the GPP can alloc from */
 		ul_rsrvd_size =
 		    (shm0_end - ul_shm0_rsrvd_start + 1) * hio_mgr->word_size;
 		if (ul_rsrvd_size <= 0) {
 			status = -EPERM;
 			goto func_end;
 		}
-		
+		/* Calc size of SM DSP can alloc from */
 		ul_dsp_size =
 		    (ul_shm0_rsrvd_start - ul_shm0_base) * hio_mgr->word_size;
 		if (ul_dsp_size <= 0) {
 			status = -EPERM;
 			goto func_end;
 		}
-		
+		/* First TLB entry reserved for Bridge SM use. */
 		ul_gpp_phys = hio_mgr->ext_proc_info.ty_tlb[0].gpp_phys;
-		
+		/* Get size in bytes */
 		ul_dsp_virt =
 		    hio_mgr->ext_proc_info.ty_tlb[0].dsp_virt *
 		    hio_mgr->word_size;
+		/*
+		 * Calc byte offset used to convert GPP phys <-> DSP byte
+		 * address.
+		 */
 		if (dw_gpp_base_pa > ul_dsp_virt)
 			dw_offset = dw_gpp_base_pa - ul_dsp_virt;
 		else
@@ -1316,13 +1542,21 @@ static int register_shm_segs(struct io_mgr *hio_mgr,
 			status = -EPERM;
 			goto func_end;
 		}
+		/*
+		 * Calc Gpp phys base of SM region.
+		 * This is actually uncached kernel virtual address.
+		 */
 		dw_gpp_base_va =
 		    ul_gpp_phys + ul_shm0_rsrvd_start * hio_mgr->word_size -
 		    ul_dsp_virt;
+		/*
+		 * Calc Gpp phys base of SM region.
+		 * This is the physical address.
+		 */
 		dw_gpp_base_pa =
 		    dw_gpp_base_pa + ul_shm0_rsrvd_start * hio_mgr->word_size -
 		    ul_dsp_virt;
-		
+		/* Register SM Segment 0. */
 		status =
 		    cmm_register_gppsm_seg(hio_mgr->cmm_mgr, dw_gpp_base_pa,
 					   ul_rsrvd_size, dw_offset,
@@ -1333,7 +1567,7 @@ static int register_shm_segs(struct io_mgr *hio_mgr,
 						  hio_mgr->word_size),
 					   ul_dsp_size, &ul_shm_seg_id0,
 					   dw_gpp_base_va);
-		
+		/* First SM region is seg_id = 1 */
 		if (ul_shm_seg_id0 != 1)
 			status = -EPERM;
 	}
@@ -1341,6 +1575,11 @@ func_end:
 	return status;
 }
 
+/* ZCPY IO routines. */
+/*
+ *  ======== IO_SHMcontrol ========
+ *      Sets the requested shm setting.
+ */
 int io_sh_msetting(struct io_mgr *hio_mgr, u8 desc, void *pargs)
 {
 #ifdef CONFIG_TIDSPBRIDGE_DVFS
@@ -1350,7 +1589,7 @@ int io_sh_msetting(struct io_mgr *hio_mgr, u8 desc, void *pargs)
 
 	switch (desc) {
 	case SHM_CURROPP:
-		
+		/* Update the shared memory with requested OPP information */
 		if (pargs != NULL)
 			hio_mgr->shared_mem->opp_table_struct.curr_opp_pt =
 			    *(u32 *) pargs;
@@ -1358,6 +1597,10 @@ int io_sh_msetting(struct io_mgr *hio_mgr, u8 desc, void *pargs)
 			return -EPERM;
 		break;
 	case SHM_OPPINFO:
+		/*
+		 * Update the shared memory with the voltage, frequency,
+		 * min and max frequency values for an OPP.
+		 */
 		for (i = 0; i <= dsp_max_opps; i++) {
 			hio_mgr->shared_mem->opp_table_struct.opp_point[i].
 			    voltage = vdd1_dsp_freq[i][0];
@@ -1379,14 +1622,14 @@ int io_sh_msetting(struct io_mgr *hio_mgr, u8 desc, void *pargs)
 		hio_mgr->shared_mem->opp_table_struct.num_opp_pts =
 		    dsp_max_opps;
 		dev_dbg(bridge, "OPP-shm: max OPP number: %d\n", dsp_max_opps);
-		
+		/* Update the current OPP number */
 		if (pdata->dsp_get_opp)
 			i = (*pdata->dsp_get_opp) ();
 		hio_mgr->shared_mem->opp_table_struct.curr_opp_pt = i;
 		dev_dbg(bridge, "OPP-shm: value programmed = %d\n", i);
 		break;
 	case SHM_GETOPP:
-		
+		/* Get the OPP that DSP has requested */
 		*(u32 *) pargs = hio_mgr->shared_mem->opp_request.rqst_opp_pt;
 		break;
 	default:
@@ -1396,6 +1639,10 @@ int io_sh_msetting(struct io_mgr *hio_mgr, u8 desc, void *pargs)
 	return 0;
 }
 
+/*
+ *  ======== bridge_io_get_proc_load ========
+ *      Gets the Processor's Load information
+ */
 int bridge_io_get_proc_load(struct io_mgr *hio_mgr,
 				struct dsp_procloadstat *proc_lstat)
 {
@@ -1425,18 +1672,18 @@ void print_dsp_debug_trace(struct io_mgr *hio_mgr)
 	u32 ul_new_message_length = 0, ul_gpp_cur_pointer;
 
 	while (true) {
-		
+		/* Get the DSP current pointer */
 		ul_gpp_cur_pointer =
 		    *(u32 *) (hio_mgr->trace_buffer_current);
 		ul_gpp_cur_pointer =
 		    hio_mgr->gpp_va + (ul_gpp_cur_pointer -
 					  hio_mgr->dsp_va);
 
-		
+		/* No new debug messages available yet */
 		if (ul_gpp_cur_pointer == hio_mgr->gpp_read_pointer) {
 			break;
 		} else if (ul_gpp_cur_pointer > hio_mgr->gpp_read_pointer) {
-			
+			/* Continuous data */
 			ul_new_message_length =
 			    ul_gpp_cur_pointer - hio_mgr->gpp_read_pointer;
 
@@ -1444,11 +1691,15 @@ void print_dsp_debug_trace(struct io_mgr *hio_mgr)
 			       (char *)hio_mgr->gpp_read_pointer,
 			       ul_new_message_length);
 			hio_mgr->msg[ul_new_message_length] = '\0';
+			/*
+			 * Advance the GPP trace pointer to DSP current
+			 * pointer.
+			 */
 			hio_mgr->gpp_read_pointer += ul_new_message_length;
-			
+			/* Print the trace messages */
 			pr_info("DSPTrace: %s\n", hio_mgr->msg);
 		} else if (ul_gpp_cur_pointer < hio_mgr->gpp_read_pointer) {
-			
+			/* Handle trace buffer wraparound */
 			memcpy(hio_mgr->msg,
 			       (char *)hio_mgr->gpp_read_pointer,
 			       hio_mgr->trace_buffer_end -
@@ -1462,10 +1713,14 @@ void print_dsp_debug_trace(struct io_mgr *hio_mgr)
 			hio_mgr->msg[hio_mgr->trace_buffer_end -
 				      hio_mgr->gpp_read_pointer +
 				      ul_new_message_length] = '\0';
+			/*
+			 * Advance the GPP trace pointer to DSP current
+			 * pointer.
+			 */
 			hio_mgr->gpp_read_pointer =
 			    hio_mgr->trace_buffer_begin +
 			    ul_new_message_length;
-			
+			/* Print the trace messages */
 			pr_info("DSPTrace: %s\n", hio_mgr->msg);
 		}
 	}
@@ -1473,6 +1728,18 @@ void print_dsp_debug_trace(struct io_mgr *hio_mgr)
 #endif
 
 #ifdef CONFIG_TIDSPBRIDGE_BACKTRACE
+/*
+ *  ======== print_dsp_trace_buffer ========
+ *      Prints the trace buffer returned from the DSP (if DBG_Trace is enabled).
+ *  Parameters:
+ *    hdeh_mgr:          Handle to DEH manager object
+ *                      number of extra carriage returns to generate.
+ *  Returns:
+ *      0:        Success.
+ *      -ENOMEM:    Unable to allocate memory.
+ *  Requires:
+ *      hdeh_mgr muse be valid. Checked in bridge_deh_notify.
+ */
 int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 {
 	int status = 0;
@@ -1497,7 +1764,7 @@ int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 	status = dev_get_cod_mgr(dev_obj, &cod_mgr);
 
 	if (cod_mgr) {
-		
+		/* Look for SYS_PUTCBEG/SYS_PUTCEND */
 		status =
 		    cod_get_sym_value(cod_mgr, COD_TRACEBEG, &ul_trace_begin);
 	} else {
@@ -1508,7 +1775,7 @@ int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 		    cod_get_sym_value(cod_mgr, COD_TRACEEND, &ul_trace_end);
 
 	if (!status)
-		
+		/* trace_cur_pos will hold the address of a DSP pointer */
 		status = cod_get_sym_value(cod_mgr, COD_TRACECURPOS,
 							&trace_cur_pos);
 
@@ -1525,7 +1792,7 @@ int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 
 	psz_buf = kzalloc(ul_num_bytes + 2, GFP_ATOMIC);
 	if (psz_buf != NULL) {
-		
+		/* Read trace buffer data */
 		status = (*intf_fxns->brd_read)(pbridge_context,
 			(u8 *)psz_buf, (u32)ul_trace_begin,
 			ul_num_bytes, 0);
@@ -1533,33 +1800,43 @@ int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 		if (status)
 			goto func_end;
 
-		
+		/* Pack and do newline conversion */
 		pr_debug("PrintDspTraceBuffer: "
 			"before pack and unpack.\n");
 		pr_debug("%s: DSP Trace Buffer Begin:\n"
 			"=======================\n%s\n",
 			__func__, psz_buf);
 
-		
+		/* Read the value at the DSP address in trace_cur_pos. */
 		status = (*intf_fxns->brd_read)(pbridge_context,
 				(u8 *)&trace_cur_pos, (u32)trace_cur_pos,
 				4, 0);
 		if (status)
 			goto func_end;
-		
+		/* Pack and do newline conversion */
 		pr_info("DSP Trace Buffer Begin:\n"
 			"=======================\n%s\n",
 			psz_buf);
 
 
-		
+		/* convert to offset */
 		trace_cur_pos = trace_cur_pos - ul_trace_begin;
 
 		if (ul_num_bytes) {
+			/*
+			 * The buffer is not full, find the end of the
+			 * data -- buf_end will be >= pszBuf after
+			 * while.
+			 */
 			buf_end = &psz_buf[ul_num_bytes+1];
-			
+			/* DSP print position */
 			trace_end = &psz_buf[trace_cur_pos];
 
+			/*
+			 * Search buffer for a new_line and replace it
+			 * with '\0', then print as string.
+			 * Continue until end of buffer is reached.
+			 */
 			str_beg = trace_end;
 			ul_num_bytes = buf_end - str_beg;
 
@@ -1572,6 +1849,10 @@ int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 					str_beg = ++new_line;
 					ul_num_bytes = buf_end - str_beg;
 				} else {
+					/*
+					 * Assume buffer empty if it contains
+					 * a zero
+					 */
 					if (*str_beg != '\0') {
 						str_beg[ul_num_bytes] = 0;
 						pr_debug("%s\n", str_beg);
@@ -1580,6 +1861,11 @@ int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 					ul_num_bytes = 0;
 				}
 			}
+			/*
+			 * Search buffer for a nNewLine and replace it
+			 * with '\0', then print as string.
+			 * Continue until buffer is exhausted.
+			 */
 			str_beg = psz_buf;
 			ul_num_bytes = trace_end - str_beg;
 
@@ -1591,6 +1877,10 @@ int print_dsp_trace_buffer(struct bridge_dev_context *hbridge_context)
 					str_beg = ++new_line;
 					ul_num_bytes = trace_end - str_beg;
 				} else {
+					/*
+					 * Assume buffer empty if it contains
+					 * a zero
+					 */
 					if (*str_beg != '\0') {
 						str_beg[ul_num_bytes] = 0;
 						pr_debug("%s\n", str_beg);
@@ -1612,6 +1902,11 @@ func_end:
 	return status;
 }
 
+/**
+ * dump_dsp_stack() - This function dumps the data on the DSP stack.
+ * @bridge_context:	Bridge driver's device context pointer.
+ *
+ */
 int dump_dsp_stack(struct bridge_dev_context *bridge_context)
 {
 	int status = 0;
@@ -1655,7 +1950,7 @@ int dump_dsp_stack(struct bridge_dev_context *bridge_context)
 	}
 
 	if (!status) {
-		
+		/* Look for SYS_PUTCBEG/SYS_PUTCEND: */
 		status =
 			cod_get_sym_value(code_mgr, COD_TRACEBEG, &trace_begin);
 		pr_debug("%s: trace_begin Value 0x%x\n",
@@ -1666,6 +1961,11 @@ int dump_dsp_stack(struct bridge_dev_context *bridge_context)
 	}
 	if (!status)
 		status = dev_get_intf_fxns(dev_object, &intf_fxns);
+	/*
+	 * Check for the "magic number" in the trace buffer.  If it has
+	 * yet to appear then poll the trace buffer to wait for it.  Its
+	 * appearance signals that the DSP has finished dumping its state.
+	 */
 	mmu_fault_dbg_info.head[0] = 0;
 	mmu_fault_dbg_info.head[1] = 0;
 	if (!status) {
@@ -1674,7 +1974,7 @@ int dump_dsp_stack(struct bridge_dev_context *bridge_context)
 			mmu_fault_dbg_info.head[1] != MMU_FAULT_HEAD2) &&
 			poll_cnt < POLL_MAX) {
 
-			
+			/* Read DSP dump size from the DSP trace buffer... */
 			status = (*intf_fxns->brd_read)(bridge_context,
 				(u8 *)&mmu_fault_dbg_info, (u32)trace_begin,
 				sizeof(mmu_fault_dbg_info), 0);
@@ -1695,7 +1995,7 @@ int dump_dsp_stack(struct bridge_dev_context *bridge_context)
 
 	if (!status) {
 		total_size = mmu_fault_dbg_info.size;
-		
+		/* Limit the size in case DSP went crazy */
 		if (total_size > MAX_MMU_DBGBUFF)
 			total_size = MAX_MMU_DBGBUFF;
 
@@ -1710,7 +2010,7 @@ int dump_dsp_stack(struct bridge_dev_context *bridge_context)
 		buffer_beg = buffer;
 		buffer_end =  buffer + total_size / 4;
 
-		
+		/* Read bytes from the DSP trace buffer... */
 		status = (*intf_fxns->brd_read)(bridge_context,
 				(u8 *)buffer, (u32)trace_begin,
 				total_size, 0);
@@ -1725,9 +2025,9 @@ int dump_dsp_stack(struct bridge_dev_context *bridge_context)
 
 		exc_type = buffer[3];
 		if (!exc_type)
-			i = buffer[79];         
+			i = buffer[79];         /* IRP */
 		else
-			i = buffer[80];         
+			i = buffer[80];         /* NRP */
 
 		status =
 		    cod_get_sym_value(code_mgr, DYNEXTBASE, &dyn_ext_base);
@@ -1828,6 +2128,11 @@ func_end:
 	return status;
 }
 
+/**
+ * dump_dl_modules() - This functions dumps the _DLModules loaded in DSP side
+ * @bridge_context:		Bridge driver's device context pointer.
+ *
+ */
 void dump_dl_modules(struct bridge_dev_context *bridge_context)
 {
 	struct cod_manager *code_mgr;
@@ -1856,7 +2161,7 @@ void dump_dl_modules(struct bridge_dev_context *bridge_context)
 		goto func_end;
 	}
 
-	
+	/* Lookup  the address of the modules_header structure */
 	status = cod_get_sym_value(code_mgr, "_DLModules", &module_dsp_addr);
 	if (status) {
 		pr_debug("%s: Failed on cod_get_sym_value for _DLModules.\n",
@@ -1866,7 +2171,7 @@ void dump_dl_modules(struct bridge_dev_context *bridge_context)
 
 	pr_debug("%s: _DLModules at 0x%x\n", __func__, module_dsp_addr);
 
-	
+	/* Copy the modules_header structure from DSP memory. */
 	status = (*intf_fxns->brd_read)(bridge_context, (u8 *) &modules_hdr,
 				(u32) module_dsp_addr, sizeof(modules_hdr), 0);
 
@@ -1885,8 +2190,13 @@ void dump_dl_modules(struct bridge_dev_context *bridge_context)
 	pr_err("\nDynamically Loaded Modules:\n"
 		"---------------------------\n");
 
-	
+	/* For each dll_module structure in the list... */
 	while (module_size) {
+		/*
+		 * Allocate/re-allocate memory to hold the dll_module
+		 * structure. The memory is re-allocated only if the existing
+		 * allocation is too small.
+		 */
 		if (module_size > module_struct_size) {
 			kfree(module_struct);
 			module_struct = kzalloc(module_size+128, GFP_ATOMIC);
@@ -1896,7 +2206,7 @@ void dump_dl_modules(struct bridge_dev_context *bridge_context)
 			if (!module_struct)
 				goto func_end;
 		}
-		
+		/* Copy the dll_module structure from DSP memory */
 		status = (*intf_fxns->brd_read)(bridge_context,
 			(u8 *)module_struct, module_dsp_addr, module_size, 0);
 
@@ -1907,7 +2217,7 @@ void dump_dl_modules(struct bridge_dev_context *bridge_context)
 			break;
 		}
 
-		
+		/* Update info regarding the _next_ module in the list. */
 		module_dsp_addr = module_struct->next_module;
 		module_size = module_struct->next_module_size;
 
@@ -1915,13 +2225,21 @@ void dump_dl_modules(struct bridge_dev_context *bridge_context)
 			__func__, module_dsp_addr, module_size,
 			module_struct->num_sects);
 
+		/*
+		 * The section name strings start immedialty following
+		 * the array of dll_sect structures.
+		 */
 		sect_str = (char *) &module_struct->
 					sects[module_struct->num_sects];
 		pr_err("%s\n", sect_str);
 
+		/*
+		 * Advance to the first section name string.
+		 * Each string follows the one before.
+		 */
 		sect_str += strlen(sect_str) + 1;
 
-		
+		/* Access each dll_sect structure and its name string. */
 		for (sect_ndx = 0;
 			sect_ndx < module_struct->num_sects; sect_ndx++) {
 			pr_err("    Section: 0x%x ",
@@ -1930,7 +2248,7 @@ void dump_dl_modules(struct bridge_dev_context *bridge_context)
 			if (((u32) sect_str - (u32) module_struct) <
 				module_struct_size) {
 				pr_err("%s\n", sect_str);
-				
+				/* Each string follows the one before. */
 				sect_str += strlen(sect_str)+1;
 			} else {
 				pr_err("<string error>\n");

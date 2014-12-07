@@ -1,3 +1,10 @@
+/*
+ * cbe_regs.c
+ *
+ * Accessor routines for the various MMIO register blocks of the CBE
+ *
+ * (c) 2006 Benjamin Herrenschmidt <benh@kernel.crashing.org>, IBM Corp.
+ */
 
 #include <linux/percpu.h>
 #include <linux/types.h>
@@ -11,6 +18,13 @@
 #include <asm/ptrace.h>
 #include <asm/cell-regs.h>
 
+/*
+ * Current implementation uses "cpu" nodes. We build our own mapping
+ * array of cpu numbers to cpu nodes locally for now to allow interrupt
+ * time code to have a fast path rather than call of_get_cpu_node(). If
+ * we implement cpu hotplug, we'll have to install an appropriate norifier
+ * in order to release references to the cpu going away
+ */
 static struct cbe_regs_map
 {
 	struct device_node *cpu_node;
@@ -50,11 +64,11 @@ static struct cbe_regs_map *cbe_find_map(struct device_node *np)
 	if (np->data)
 		return np->data;
 
-	
+	/* walk up path until cpu or be node was found */
 	tmp_np = np;
 	do {
 		tmp_np = tmp_np->parent;
-		
+		/* on a correct devicetree we wont get up to root */
 		BUG_ON(!tmp_np);
 	} while (strcasecmp(tmp_np->type, "cpu") &&
 		 strcasecmp(tmp_np->type, "be"));
@@ -160,6 +174,10 @@ static struct device_node *cbe_get_be_node(int cpu_id)
 
 		cpu_handle = of_get_property(np, "cpus", &len);
 
+		/*
+		 * the CAB SLOF tree is non compliant, so we just assume
+		 * there is only one node
+		 */
 		if (WARN_ON_ONCE(!cpu_handle))
 			return np;
 
@@ -191,7 +209,7 @@ void __init cbe_fill_regs_map(struct cbe_regs_map *map)
 				map->mic_tm_regs = of_iomap(np, 0);
 	} else {
 		struct device_node *cpu;
-		
+		/* That hack must die die die ! */
 		const struct address_prop {
 			unsigned long address;
 			unsigned int len;
@@ -220,14 +238,14 @@ void __init cbe_regs_init(void)
 	unsigned int thread_id;
 	struct device_node *cpu;
 
-	
+	/* Build local fast map of CPUs */
 	for_each_possible_cpu(i) {
 		cbe_thread_map[i].cpu_node = of_get_cpu_node(i, &thread_id);
 		cbe_thread_map[i].be_node = cbe_get_be_node(i);
 		cbe_thread_map[i].thread_id = thread_id;
 	}
 
-	
+	/* Find maps for each device tree CPU */
 	for_each_node_by_type(cpu, "cpu") {
 		struct cbe_regs_map *map;
 		unsigned int cbe_id;

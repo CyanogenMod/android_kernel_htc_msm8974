@@ -128,7 +128,7 @@ static int ct_seq_show(struct seq_file *s, void *v)
 		return 0;
 
 
-	
+	/* we only want to print DIR_ORIGINAL */
 	if (NF_CT_DIRECTION(hash))
 		goto release;
 	if (nf_ct_l3num(ct) != AF_INET)
@@ -208,6 +208,7 @@ static const struct file_operations ct_file_ops = {
 	.release = seq_release_net,
 };
 
+/* expects */
 struct ct_expect_iter_state {
 	struct seq_net_private p;
 	unsigned int bucket;

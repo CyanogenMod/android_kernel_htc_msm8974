@@ -7,6 +7,14 @@
 
 static int disable_nx __cpuinitdata;
 
+/*
+ * noexec = on|off
+ *
+ * Control non-executable mappings for processes.
+ *
+ * on      Enable
+ * off     Disable
+ */
 static int __init noexec_setup(char *str)
 {
 	if (!str)
@@ -44,7 +52,7 @@ void __init x86_report_nx(void)
 			       "active\n");
 		}
 #else
-		
+		/* 32bit non-PAE kernel, NX cannot be used */
 		printk(KERN_NOTICE "Notice: NX (Execute Disable) protection "
 		       "cannot be enabled: non-PAE kernel!\n");
 #endif

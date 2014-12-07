@@ -7,8 +7,11 @@
 #ifndef _CDEF_BF537_H
 #define _CDEF_BF537_H
 
+/* Include MMRs Common to BF534 								*/
 #include "cdefBF534.h"
 
+/* Include Macro "Defines" For EMAC (Unique to BF536/BF537		*/
+/* 10/100 Ethernet Controller	(0xFFC03000 - 0xFFC031FF) 						*/
 #define bfin_read_EMAC_OPMODE()              bfin_read32(EMAC_OPMODE)
 #define bfin_write_EMAC_OPMODE(val)          bfin_write32(EMAC_OPMODE,val)
 #define bfin_read_EMAC_ADDRLO()              bfin_read32(EMAC_ADDRLO)
@@ -172,4 +175,4 @@
 #define bfin_read_EMAC_TXC_ABORT()           bfin_read32(EMAC_TXC_ABORT)
 #define bfin_write_EMAC_TXC_ABORT(val)       bfin_write32(EMAC_TXC_ABORT,val)
 
-#endif				
+#endif				/* _CDEF_BF537_H */

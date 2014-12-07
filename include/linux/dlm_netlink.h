@@ -37,8 +37,8 @@ struct dlm_lock_data {
 
 enum {
 	DLM_CMD_UNSPEC = 0,
-	DLM_CMD_HELLO,		
-	DLM_CMD_TIMEOUT,	
+	DLM_CMD_HELLO,		/* user->kernel */
+	DLM_CMD_TIMEOUT,	/* kernel->user */
 	__DLM_CMD_MAX,
 };
 
@@ -55,4 +55,4 @@ enum {
 #define DLM_GENL_VERSION 0x1
 #define DLM_GENL_NAME "DLM"
 
-#endif 
+#endif /* _DLM_NETLINK_H */

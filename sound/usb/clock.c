@@ -110,7 +110,7 @@ static bool uac_clock_source_is_valid(struct snd_usb_audio *chip, int source_id)
 	if (!cs_desc)
 		return 0;
 
-	
+	/* If a clock source can't tell us whether it's valid, we assume it is */
 	if (!uac2_control_is_readable(cs_desc->bmControls, UAC2_CS_CONTROL_CLOCK_VALID))
 		return 1;
 
@@ -145,7 +145,7 @@ static int __uac_clock_find_source(struct snd_usb_audio *chip,
 		return -EINVAL;
 	}
 
-	
+	/* first, see if the ID we're looking for is a clock source already */
 	source = snd_usb_find_clock_source(chip->ctrl_intf, entity_id);
 	if (source)
 		return source->bClockID;
@@ -154,11 +154,13 @@ static int __uac_clock_find_source(struct snd_usb_audio *chip,
 	if (selector) {
 		int ret;
 
+		/* the entity ID we are looking for is a selector.
+		 * find out what it currently selects */
 		ret = uac_clock_selector_get_val(chip, selector->bClockID);
 		if (ret < 0)
 			return ret;
 
-		
+		/* Selector values are one-based */
 
 		if (ret > selector->bNrInPins || ret < 1) {
 			printk(KERN_ERR
@@ -172,7 +174,7 @@ static int __uac_clock_find_source(struct snd_usb_audio *chip,
 					       visited);
 	}
 
-	
+	/* FIXME: multipliers only act as pass-thru element for now */
 	multiplier = snd_usb_find_clock_multiplier(chip->ctrl_intf, entity_id);
 	if (multiplier)
 		return __uac_clock_find_source(chip, multiplier->bCSourceID,
@@ -181,6 +183,17 @@ static int __uac_clock_find_source(struct snd_usb_audio *chip,
 	return -EINVAL;
 }
 
+/*
+ * For all kinds of sample rate settings and other device queries,
+ * the clock source (end-leaf) must be used. However, clock selectors,
+ * clock multipliers and sample rate converters may be specified as
+ * clock source input to terminal. This functions walks the clock path
+ * to its end and tries to find the source.
+ *
+ * The 'visited' bitfield is used internally to detect recursive loops.
+ *
+ * Returns the clock source UnitID (>=0) on success, or an error.
+ */
 int snd_usb_clock_find_source(struct snd_usb_audio *chip, int entity_id)
 {
 	DECLARE_BITMAP(visited, 256);
@@ -199,7 +212,7 @@ static int set_sample_rate_v1(struct snd_usb_audio *chip, int iface,
 
 	ep = get_endpoint(alts, 0)->bEndpointAddress;
 
-	
+	/* if endpoint doesn't have sampling rate control, bail out */
 	if (!(fmt->attributes & UAC_EP_CS_ATTR_SAMPLE_RATE))
 		return 0;
 
@@ -221,13 +234,13 @@ static int set_sample_rate_v1(struct snd_usb_audio *chip, int iface,
 				   data, sizeof(data))) < 0) {
 		snd_printk(KERN_WARNING "%d:%d:%d: cannot get freq at ep %#x\n",
 			   dev->devnum, iface, fmt->altsetting, ep);
-		return 0; 
+		return 0; /* some devices don't support reading */
 	}
 
 	crate = data[0] | (data[1] << 8) | (data[2] << 16);
 	if (crate != rate) {
 		snd_printd(KERN_WARNING "current rate %d is different from the runtime rate %d\n", crate, rate);
-		
+		// runtime->rate = crate;
 	}
 
 	return 0;
@@ -246,7 +259,7 @@ static int set_sample_rate_v2(struct snd_usb_audio *chip, int iface,
 		return clock;
 
 	if (!uac_clock_source_is_valid(chip, clock)) {
-		
+		/* TODO: should we try to find valid clock setups by ourself? */
 		snd_printk(KERN_ERR "%d:%d:%d: clock source %d is not valid, cannot use\n",
 			   dev->devnum, iface, fmt->altsetting, clock);
 		return -ENXIO;

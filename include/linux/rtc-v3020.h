@@ -10,8 +10,10 @@
 #ifndef __LINUX_V3020_H
 #define __LINUX_V3020_H
 
+/* The v3020 has only one data pin but which one
+ * is used depends on the board. */
 struct v3020_platform_data {
-	int leftshift; 
+	int leftshift; /* (1<<(leftshift)) & readl() */
 
 	unsigned int use_gpio:1;
 	unsigned int gpio_cs;
@@ -36,4 +38,4 @@ struct v3020_platform_data {
 #define V3020_CMD_RAM2CLOCK	0x0E
 #define V3020_CMD_CLOCK2RAM	0x0F
 
-#endif 
+#endif /* __LINUX_V3020_H */

@@ -16,6 +16,10 @@
 #include <linux/gpio_mouse.h>
 
 
+/*
+ * Timer function which is run every scan_ms ms when the device is opened.
+ * The dev input variable is set to the the input_dev pointer.
+ */
 static void gpio_mouse_scan(struct input_polled_dev *dev)
 {
 	struct gpio_mouse_platform_data *gpio = dev->private;
@@ -68,7 +72,7 @@ static int __devinit gpio_mouse_probe(struct platform_device *pdev)
 		if (pin < 0) {
 
 			if (i <= GPIO_MOUSE_PIN_RIGHT) {
-				
+				/* Mouse direction is required. */
 				dev_err(&pdev->dev,
 					"missing GPIO for directions\n");
 				error = -EINVAL;
@@ -99,7 +103,7 @@ static int __devinit gpio_mouse_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, input_poll);
 
-	
+	/* set input-polldev handlers */
 	input_poll->private = pdata;
 	input_poll->poll = gpio_mouse_scan;
 	input_poll->poll_interval = pdata->scan_ms;
@@ -179,5 +183,5 @@ module_platform_driver(gpio_mouse_device_driver);
 MODULE_AUTHOR("Hans-Christian Egtvedt <egtvedt@samfundet.no>");
 MODULE_DESCRIPTION("GPIO mouse driver");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:gpio_mouse"); 
+MODULE_ALIAS("platform:gpio_mouse"); /* work with hotplug and coldplug */
 

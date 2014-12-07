@@ -1,6 +1,7 @@
 #ifndef __UM_MODULE_H
 #define __UM_MODULE_H
 
+/* UML is simple */
 struct mod_arch_specific
 {
 };

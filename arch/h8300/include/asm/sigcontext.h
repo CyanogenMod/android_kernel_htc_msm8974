@@ -2,8 +2,8 @@
 #define _ASM_H8300_SIGCONTEXT_H
 
 struct sigcontext {
-	unsigned long  sc_mask; 	
-	unsigned long  sc_usp;		
+	unsigned long  sc_mask; 	/* old sigmask */
+	unsigned long  sc_usp;		/* old user stack pointer */
 	unsigned long  sc_er0;
 	unsigned long  sc_er1;
 	unsigned long  sc_er2;

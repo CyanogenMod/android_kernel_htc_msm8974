@@ -35,24 +35,24 @@
 #include <linux/mtd/partitions.h>
 
 struct footer_struct {
-	u32 image_info_base;	
-	u32 image_start;	
-	u32 signature;		
-	u32 type;		
-	u32 checksum;		
+	u32 image_info_base;	/* Address of first word of ImageFooter  */
+	u32 image_start;	/* Start of area reserved by this footer */
+	u32 signature;		/* 'Magic' number proves it's a footer   */
+	u32 type;		/* Area type: ARM Image, SIB, customer   */
+	u32 checksum;		/* Just this structure                   */
 };
 
 struct image_info_struct {
-	u32 bootFlags;		
-	u32 imageNumber;	
-	u32 loadAddress;	
-	u32 length;		
-	u32 address;		
-	char name[16];		
-	u32 headerBase;		
-	u32 header_length;	
-	u32 headerType;		
-	u32 checksum;		
+	u32 bootFlags;		/* Boot flags, compression etc.          */
+	u32 imageNumber;	/* Unique number, selects for boot etc.  */
+	u32 loadAddress;	/* Address program should be loaded to   */
+	u32 length;		/* Actual size of image                  */
+	u32 address;		/* Image is executed from here           */
+	char name[16];		/* Null terminated                       */
+	u32 headerBase;		/* Flash Address of any stripped header  */
+	u32 header_length;	/* Length of header in memory            */
+	u32 headerType;		/* AIF, RLF, s-record etc.               */
+	u32 checksum;		/* Image checksum (inc. this struct)     */
 };
 
 static u32 word_sum(void *words, int num)
@@ -87,21 +87,38 @@ afs_read_footer(struct mtd_info *mtd, u_int *img_start, u_int *iis_start,
 
 	ret = 1;
 
+	/*
+	 * Does it contain the magic number?
+	 */
 	if (fs.signature != 0xa0ffff9f)
 		ret = 0;
 
+	/*
+	 * Check the checksum.
+	 */
 	if (word_sum(&fs, sizeof(fs) / sizeof(u32)) != 0xffffffff)
 		ret = 0;
 
+	/*
+	 * Don't touch the SIB.
+	 */
 	if (fs.type == 2)
 		ret = 0;
 
 	*iis_start = fs.image_info_base & mask;
 	*img_start = fs.image_start & mask;
 
+	/*
+	 * Check the image info base.  This can not
+	 * be located after the footer structure.
+	 */
 	if (*iis_start >= ptr)
 		ret = 0;
 
+	/*
+	 * Check the start of this image.  The image
+	 * data can not be located after this block.
+	 */
 	if (*img_start > off)
 		ret = 0;
 
@@ -126,6 +143,9 @@ afs_read_iis(struct mtd_info *mtd, struct image_info_struct *iis, u_int ptr)
 
 	ret = 0;
 
+	/*
+	 * Validate the name - it must be NUL terminated.
+	 */
 	for (i = 0; i < sizeof(iis->name); i++)
 		if (iis->name[i] == '\0')
 			break;
@@ -150,8 +170,17 @@ static int parse_afs_partitions(struct mtd_info *mtd,
 	int ret = 0;
 	char *str;
 
+	/*
+	 * This is the address mask; we use this to mask off out of
+	 * range address bits.
+	 */
 	mask = mtd->size - 1;
 
+	/*
+	 * First, calculate the size of the array we need for the
+	 * partition information.  We include in this the size of
+	 * the strings.
+	 */
 	for (idx = off = sz = 0; off < mtd->size; off += mtd->erasesize) {
 		struct image_info_struct iis;
 		u_int iis_ptr, img_ptr;
@@ -182,18 +211,21 @@ static int parse_afs_partitions(struct mtd_info *mtd,
 
 	str = (char *)(parts + idx);
 
+	/*
+	 * Identify the partitions
+	 */
 	for (idx = off = 0; off < mtd->size; off += mtd->erasesize) {
 		struct image_info_struct iis;
 		u_int iis_ptr, img_ptr;
 
-		
+		/* Read the footer. */
 		ret = afs_read_footer(mtd, &img_ptr, &iis_ptr, off, mask);
 		if (ret < 0)
 			break;
 		if (ret == 0)
 			continue;
 
-		
+		/* Read the image info block */
 		ret = afs_read_iis(mtd, &iis, iis_ptr);
 		if (ret < 0)
 			break;

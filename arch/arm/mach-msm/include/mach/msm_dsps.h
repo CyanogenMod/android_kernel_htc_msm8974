@@ -20,12 +20,28 @@
 
 #define DSPS_SIGNATURE	0x12345678
 
+/**
+ * DSPS Clocks Platform data.
+ *
+ * @name - clock name.
+ * @rate - rate to set. zero if not relevant.
+ * @clock - clock handle, reserved for the driver.
+ */
 struct dsps_clk_info {
 	const char *name;
 	u32 rate;
 	struct clk *clock;
 };
 
+/**
+ * DSPS GPIOs Platform data.
+ *
+ * @name - clock name.
+ * @num - GPIO number.
+ * @on_val - value to ouptput for ON (depends on polarity).
+ * @off_val - value to ouptput for OFF (depends on polarity).
+ * @is_owner - reserved for the driver.
+ */
 struct dsps_gpio_info {
 	const char *name;
 	int num;
@@ -34,12 +50,35 @@ struct dsps_gpio_info {
 	int is_owner;
 };
 
+/**
+ * DSPS Power regulators Platform data.
+ *
+ * @name - regulator name.
+ * @volt - required voltage (in uV).
+ * @reg - reserved for the driver.
+ */
 struct dsps_regulator_info {
 	const char *name;
 	int volt;
 	struct regulator *reg;
 };
 
+/**
+ * DSPS Platform data.
+ *
+ * @pil_name - peripheral image name
+ * @clks - array of clocks.
+ * @clks_num - number of clocks in array.
+ * @gpios - array of gpios.
+ * @gpios_num - number of gpios.
+ * @regs - array of regulators.
+ * @regs_num - number of regulators.
+ * @dsps_pwr_ctl_en - to enable DSPS to do power control if set 1
+ *  otherwise the apps will do power control
+ * @ppss_pause_reg - Offset to the PPSS_PAUSE register
+ * @ppss_wdog_unmasked_int_en_reg - Offset to PPSS_WDOG_UNMASKED_INT_EN register
+ * @signature - signature for validity check.
+ */
 struct msm_dsps_platform_data {
 	const char *pil_name;
 	struct dsps_clk_info *clks;
@@ -55,4 +94,4 @@ struct msm_dsps_platform_data {
 	u32 signature;
 };
 
-#endif 
+#endif /* _MSM_DSPS_H_ */

@@ -52,7 +52,7 @@
 #define MOD_NAME	"lirc_sasem"
 #define MOD_VERSION	"0.5"
 
-#define VFD_MINOR_BASE	144	
+#define VFD_MINOR_BASE	144	/* Same as LCD */
 #define DEVICE_NAME	"lcd%d"
 
 #define BUF_CHUNK_SIZE	8
@@ -60,36 +60,42 @@
 
 #define IOCTL_LCD_CONTRAST 1
 
+/*** P R O T O T Y P E S ***/
 
+/* USB Callback prototypes */
 static int sasem_probe(struct usb_interface *interface,
 			const struct usb_device_id *id);
 static void sasem_disconnect(struct usb_interface *interface);
 static void usb_rx_callback(struct urb *urb);
 static void usb_tx_callback(struct urb *urb);
 
+/* VFD file_operations function prototypes */
 static int vfd_open(struct inode *inode, struct file *file);
 static long vfd_ioctl(struct file *file, unsigned cmd, unsigned long arg);
 static int vfd_close(struct inode *inode, struct file *file);
 static ssize_t vfd_write(struct file *file, const char *buf,
 				size_t n_bytes, loff_t *pos);
 
+/* LIRC driver function prototypes */
 static int ir_open(void *data);
 static void ir_close(void *data);
 
+/* Driver init/exit prototypes */
 static int __init sasem_init(void);
 static void __exit sasem_exit(void);
 
+/*** G L O B A L S ***/
 #define SASEM_DATA_BUF_SZ	32
 
 struct sasem_context {
 
 	struct usb_device *dev;
-	int vfd_isopen;			
-	unsigned int vfd_contrast;	
-	int ir_isopen;			
-	int dev_present;		
-	struct mutex ctx_lock;		
-	wait_queue_head_t remove_ok;	
+	int vfd_isopen;			/* VFD port has been opened */
+	unsigned int vfd_contrast;	/* VFD contrast */
+	int ir_isopen;			/* IR port has been opened */
+	int dev_present;		/* USB device presence */
+	struct mutex ctx_lock;		/* to lock this object */
+	wait_queue_head_t remove_ok;	/* For unexpected USB disconnects */
 
 	struct lirc_driver *driver;
 	struct usb_endpoint_descriptor *rx_endpoint;
@@ -100,18 +106,20 @@ struct sasem_context {
 	unsigned char usb_tx_buf[8];
 
 	struct tx_t {
-		unsigned char data_buf[SASEM_DATA_BUF_SZ]; 
-		struct completion finished;  
-		atomic_t busy;		     
-		int status;		     
+		unsigned char data_buf[SASEM_DATA_BUF_SZ]; /* user data
+							    * buffer */
+		struct completion finished;  /* wait for write to finish  */
+		atomic_t busy;		     /* write in progress */
+		int status;		     /* status of tx completion */
 	} tx;
 
-	
+	/* for dealing with repeat codes (wish there was a toggle bit!) */
 	struct timeval presstime;
 	char lastcode[8];
 	int codesaved;
 };
 
+/* VFD file operations */
 static const struct file_operations vfd_fops = {
 	.owner		= THIS_MODULE,
 	.open		= &vfd_open,
@@ -121,13 +129,15 @@ static const struct file_operations vfd_fops = {
 	.llseek		= noop_llseek,
 };
 
+/* USB Device ID for Sasem USB Control Board */
 static struct usb_device_id sasem_usb_id_table[] = {
-	
+	/* Sasem USB Control Board */
 	{ USB_DEVICE(0x11ba, 0x0101) },
-	
+	/* Terminating entry */
 	{}
 };
 
+/* USB Device data */
 static struct usb_driver sasem_driver = {
 	.name		= MOD_NAME,
 	.probe		= sasem_probe,
@@ -141,11 +151,13 @@ static struct usb_class_driver sasem_class = {
 	.minor_base	= VFD_MINOR_BASE,
 };
 
+/* to prevent races between open() and disconnect() */
 static DEFINE_MUTEX(disconnect_lock);
 
 static int debug;
 
 
+/*** M O D U L E   C O D E ***/
 
 MODULE_AUTHOR(MOD_AUTHOR);
 MODULE_DESCRIPTION(MOD_DESC);
@@ -155,8 +167,8 @@ MODULE_PARM_DESC(debug, "Debug messages: 0=no, 1=yes (default: no)");
 
 static void delete_context(struct sasem_context *context)
 {
-	usb_free_urb(context->tx_urb);  
-	usb_free_urb(context->rx_urb);  
+	usb_free_urb(context->tx_urb);  /* VFD */
+	usb_free_urb(context->rx_urb);  /* IR */
 	lirc_buffer_free(context->driver->rbuf);
 	kfree(context->driver->rbuf);
 	kfree(context->driver);
@@ -181,6 +193,10 @@ static void deregister_from_lirc(struct sasem_context *context)
 
 }
 
+/**
+ * Called when the VFD device (e.g. /dev/usb/lcd)
+ * is opened by the application.
+ */
 static int vfd_open(struct inode *inode, struct file *file)
 {
 	struct usb_interface *interface;
@@ -188,7 +204,7 @@ static int vfd_open(struct inode *inode, struct file *file)
 	int subminor;
 	int retval = 0;
 
-	
+	/* prevent races with disconnect */
 	mutex_lock(&disconnect_lock);
 
 	subminor = iminor(inode);
@@ -226,6 +242,10 @@ exit:
 	return retval;
 }
 
+/**
+ * Called when the VFD device (e.g. /dev/usb/lcd)
+ * is closed by the application.
+ */
 static long vfd_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 {
 	struct sasem_context *context = NULL;
@@ -248,13 +268,17 @@ static long vfd_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	default:
 		printk(KERN_INFO "Unknown IOCTL command\n");
 		mutex_unlock(&context->ctx_lock);
-		return -ENOIOCTLCMD;  
+		return -ENOIOCTLCMD;  /* not supported */
 	}
 
 	mutex_unlock(&context->ctx_lock);
 	return 0;
 }
 
+/**
+ * Called when the VFD device (e.g. /dev/usb/lcd)
+ * is closed by the application.
+ */
 static int vfd_close(struct inode *inode, struct file *file)
 {
 	struct sasem_context *context = NULL;
@@ -277,6 +301,9 @@ static int vfd_close(struct inode *inode, struct file *file)
 		printk(KERN_INFO "VFD port closed\n");
 		if (!context->dev_present && !context->ir_isopen) {
 
+			/* Device disconnected before close and IR port is
+			 * not open. If IR port is open, context will be
+			 * deleted by ir_close. */
 			mutex_unlock(&context->ctx_lock);
 			delete_context(context);
 			return retval;
@@ -287,6 +314,9 @@ static int vfd_close(struct inode *inode, struct file *file)
 	return retval;
 }
 
+/**
+ * Sends a packet to the VFD.
+ */
 static int send_packet(struct sasem_context *context)
 {
 	unsigned int pipe;
@@ -311,7 +341,7 @@ static int send_packet(struct sasem_context *context)
 		atomic_set(&(context->tx.busy), 0);
 		err("%s: error submitting urb (%d)", __func__, retval);
 	} else {
-		
+		/* Wait for transmission to complete (or abort) */
 		mutex_unlock(&context->ctx_lock);
 		wait_for_completion(&context->tx.finished);
 		mutex_lock(&context->ctx_lock);
@@ -324,6 +354,11 @@ static int send_packet(struct sasem_context *context)
 	return retval;
 }
 
+/**
+ * Writes data to the VFD.  The Sasem VFD is 2x16 characters
+ * and requires data in 9 consecutive USB interrupt packets,
+ * each packet carrying 8 bytes.
+ */
 static ssize_t vfd_write(struct file *file, const char *buf,
 				size_t n_bytes, loff_t *pos)
 {
@@ -360,11 +395,13 @@ static ssize_t vfd_write(struct file *file, const char *buf,
 
 	memcpy(context->tx.data_buf, data_buf, n_bytes);
 
-	
+	/* Pad with spaces */
 	for (i = n_bytes; i < SASEM_DATA_BUF_SZ; ++i)
 		context->tx.data_buf[i] = ' ';
 
-	
+	/* Nine 8 byte packets to be sent */
+	/* NOTE: "\x07\x01\0\0\0\0\0\0" or "\x0c\0\0\0\0\0\0\0"
+	 *       will clear the VFD */
 	for (i = 0; i < 9; i++) {
 		switch (i) {
 		case 0:
@@ -417,6 +454,9 @@ exit:
 	return (!retval) ? n_bytes : retval;
 }
 
+/**
+ * Callback function for USB core API: transmit data
+ */
 static void usb_tx_callback(struct urb *urb)
 {
 	struct sasem_context *context;
@@ -429,19 +469,22 @@ static void usb_tx_callback(struct urb *urb)
 
 	context->tx.status = urb->status;
 
-	
+	/* notify waiters that write has finished */
 	atomic_set(&context->tx.busy, 0);
 	complete(&context->tx.finished);
 
 	return;
 }
 
+/**
+ * Called by lirc_dev when the application opens /dev/lirc
+ */
 static int ir_open(void *data)
 {
 	int retval = 0;
 	struct sasem_context *context;
 
-	
+	/* prevent races with disconnect */
 	mutex_lock(&disconnect_lock);
 
 	context = (struct sasem_context *) data;
@@ -477,6 +520,9 @@ exit:
 	return retval;
 }
 
+/**
+ * Called by lirc_dev when the application closes /dev/lirc
+ */
 static void ir_close(void *data)
 {
 	struct sasem_context *context;
@@ -495,6 +541,11 @@ static void ir_close(void *data)
 
 	if (!context->dev_present) {
 
+		/*
+		 * Device disconnected while IR port was
+		 * still open. Driver was not deregistered
+		 * at disconnect time, so do it now.
+		 */
 		deregister_from_lirc(context);
 
 		if (!context->vfd_isopen) {
@@ -503,13 +554,16 @@ static void ir_close(void *data)
 			delete_context(context);
 			return;
 		}
-		
+		/* If VFD port is open, context will be deleted by vfd_close */
 	}
 
 	mutex_unlock(&context->ctx_lock);
 	return;
 }
 
+/**
+ * Process the incoming packet
+ */
 static void incoming_packet(struct sasem_context *context,
 				   struct urb *urb)
 {
@@ -532,22 +586,40 @@ static void incoming_packet(struct sasem_context *context,
 		printk(KERN_CONT "\n");
 	}
 
+	/*
+	 * Lirc could deal with the repeat code, but we really need to block it
+	 * if it arrives too late.  Otherwise we could repeat the wrong code.
+	 */
 
-	
+	/* get the time since the last button press */
 	do_gettimeofday(&tv);
 	ms = (tv.tv_sec - context->presstime.tv_sec) * 1000 +
 	     (tv.tv_usec - context->presstime.tv_usec) / 1000;
 
 	if (memcmp(buf, "\x08\0\0\0\0\0\0\0", 8) == 0) {
+		/*
+		 * the repeat code is being sent, so we copy
+		 * the old code to LIRC
+		 */
 
+		/*
+		 * NOTE: Only if the last code was less than 250ms ago
+		 * - no one should be able to push another (undetected) button
+		 *   in that time and then get a false repeat of the previous
+		 *   press but it is long enough for a genuine repeat
+		 */
 		if ((ms < 250) && (context->codesaved != 0)) {
 			memcpy(buf, &context->lastcode, 8);
 			context->presstime.tv_sec = tv.tv_sec;
 			context->presstime.tv_usec = tv.tv_usec;
 		}
 	} else {
-		
+		/* save the current valid code for repeats */
 		memcpy(&context->lastcode, buf, 8);
+		/*
+		 * set flag to signal a valid code was save;
+		 * just for safety reasons
+		 */
 		context->codesaved = 1;
 		context->presstime.tv_sec = tv.tv_sec;
 		context->presstime.tv_usec = tv.tv_usec;
@@ -557,6 +629,9 @@ static void incoming_packet(struct sasem_context *context,
 	wake_up(&context->driver->rbuf->wait_poll);
 }
 
+/**
+ * Callback function for USB core API: receive data
+ */
 static void usb_rx_callback(struct urb *urb)
 {
 	struct sasem_context *context;
@@ -569,7 +644,7 @@ static void usb_rx_callback(struct urb *urb)
 
 	switch (urb->status) {
 
-	case -ENOENT:		
+	case -ENOENT:		/* usbcore unlink successful! */
 		return;
 
 	case 0:
@@ -589,6 +664,9 @@ static void usb_rx_callback(struct urb *urb)
 
 
 
+/**
+ * Callback function for USB core API: Probe
+ */
 static int sasem_probe(struct usb_interface *interface,
 			const struct usb_device_id *id)
 {
@@ -616,6 +694,11 @@ static int sasem_probe(struct usb_interface *interface,
 	iface_desc = interface->cur_altsetting;
 	num_endpoints = iface_desc->desc.bNumEndpoints;
 
+	/*
+	 * Scan the endpoint list and set:
+	 *	first input endpoint = IR endpoint
+	 *	first output endpoint = VFD endpoint
+	 */
 
 	ir_ep_found = 0;
 	vfd_ep_found = 0;
@@ -651,7 +734,7 @@ static int sasem_probe(struct usb_interface *interface,
 		}
 	}
 
-	
+	/* Input endpoint is mandatory */
 	if (!ir_ep_found) {
 
 		err("%s: no valid input (IR) endpoint found.", __func__);
@@ -664,7 +747,7 @@ static int sasem_probe(struct usb_interface *interface,
 		       __func__);
 
 
-	
+	/* Allocate memory */
 	alloc_status = 0;
 
 	context = kzalloc(sizeof(struct sasem_context), GFP_KERNEL);
@@ -732,7 +815,7 @@ static int sasem_probe(struct usb_interface *interface,
 		printk(KERN_INFO "%s: Registered Sasem driver (minor:%d)\n",
 			__func__, lirc_minor);
 
-	
+	/* Needed while unregistering! */
 	driver->minor = lirc_minor;
 
 	context->dev = dev;
@@ -742,7 +825,7 @@ static int sasem_probe(struct usb_interface *interface,
 	if (vfd_ep_found) {
 		context->tx_endpoint = tx_endpoint;
 		context->tx_urb = tx_urb;
-		context->vfd_contrast = 1000;   
+		context->vfd_contrast = 1000;   /* range 0 - 1000 */
 	}
 	context->driver = driver;
 
@@ -753,7 +836,7 @@ static int sasem_probe(struct usb_interface *interface,
 		if (debug)
 			printk(KERN_INFO "Registering VFD with sysfs\n");
 		if (usb_register_dev(interface, &sasem_class))
-			
+			/* Not a fatal error, so ignore */
 			printk(KERN_INFO "%s: could not get a minor number "
 			       "for VFD\n", __func__);
 	}
@@ -789,11 +872,14 @@ exit:
 	return retval;
 }
 
+/**
+ * Callback function for USB core API: disonnect
+ */
 static void sasem_disconnect(struct usb_interface *interface)
 {
 	struct sasem_context *context;
 
-	
+	/* prevent races with ir_open()/vfd_open() */
 	mutex_lock(&disconnect_lock);
 
 	context = usb_get_intfdata(interface);
@@ -804,17 +890,17 @@ static void sasem_disconnect(struct usb_interface *interface)
 	usb_set_intfdata(interface, NULL);
 	context->dev_present = 0;
 
-	
+	/* Stop reception */
 	usb_kill_urb(context->rx_urb);
 
-	
+	/* Abort ongoing write */
 	if (atomic_read(&context->tx.busy)) {
 
 		usb_kill_urb(context->tx_urb);
 		wait_for_completion(&context->tx.finished);
 	}
 
-	
+	/* De-register from lirc_dev if IR port is not open */
 	if (!context->ir_isopen)
 		deregister_from_lirc(context);
 

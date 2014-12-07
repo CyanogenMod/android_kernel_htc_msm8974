@@ -22,7 +22,15 @@
 #include "proto.h"
 #include "pci_impl.h"
 
+/*
+ * NOTE: Herein lie back-to-back mb instructions.  They are magic. 
+ * One plausible explanation is that the i/o controller does not properly
+ * handle the system transaction.  Another involves timing.  Ho hum.
+ */
 
+/*
+ * BIOS32-style PCI interface:
+ */
 
 #define DEBUG_CFG 0
 
@@ -32,6 +40,47 @@
 # define DBG_CFG(args)
 #endif
 
+/*
+ * Given a bus, device, and function number, compute resulting
+ * configuration space address and setup the MCPCIA_HAXR2 register
+ * accordingly.  It is therefore not safe to have concurrent
+ * invocations to configuration space access routines, but there
+ * really shouldn't be any need for this.
+ *
+ * Type 0:
+ *
+ *  3 3|3 3 2 2|2 2 2 2|2 2 2 2|1 1 1 1|1 1 1 1|1 1 
+ *  3 2|1 0 9 8|7 6 5 4|3 2 1 0|9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | | |D|D|D|D|D|D|D|D|D|D|D|D|D|D|D|D|D|D|D|D|D|F|F|F|R|R|R|R|R|R|0|0|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *	31:11	Device select bit.
+ * 	10:8	Function number
+ * 	 7:2	Register number
+ *
+ * Type 1:
+ *
+ *  3 3|3 3 2 2|2 2 2 2|2 2 2 2|1 1 1 1|1 1 1 1|1 1 
+ *  3 2|1 0 9 8|7 6 5 4|3 2 1 0|9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | | | | | | | | | | |B|B|B|B|B|B|B|B|D|D|D|D|D|F|F|F|R|R|R|R|R|R|0|1|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *	31:24	reserved
+ *	23:16	bus number (8 bits = 128 possible buses)
+ *	15:11	Device number (5 bits)
+ *	10:8	function number
+ *	 7:2	register number
+ *  
+ * Notes:
+ *	The function number selects which function of a multi-function device 
+ *	(e.g., SCSI and Ethernet).
+ * 
+ *	The register selects a DWORD (32 bit) register offset.  Hence it
+ *	doesn't get shifted by 2 bits as we want to "drop" the bottom two
+ *	bits.
+ */
 
 static unsigned int
 conf_read(unsigned long addr, unsigned char type1,
@@ -48,7 +97,7 @@ conf_read(unsigned long addr, unsigned char type1,
 	DBG_CFG(("conf_read(addr=0x%lx, type1=%d, hose=%d)\n",
 		 addr, type1, mid));
 
-	
+	/* Reset status register to avoid losing errors.  */
 	stat0 = *(vuip)MCPCIA_CAP_ERR(mid);
 	*(vuip)MCPCIA_CAP_ERR(mid) = stat0;
 	mb();
@@ -62,10 +111,10 @@ conf_read(unsigned long addr, unsigned char type1,
 	mcheck_extra(cpu) = mid;
 	mb();
 
-	
+	/* Access configuration space.  */
 	value = *((vuip)addr);
 	mb();
-	mb();  
+	mb();  /* magic */
 
 	if (mcheck_taken(cpu)) {
 		mcheck_taken(cpu) = 0;
@@ -91,9 +140,9 @@ conf_write(unsigned long addr, unsigned int value, unsigned char type1,
 
 	cpu = smp_processor_id();
 
-	local_irq_save(flags);	
+	local_irq_save(flags);	/* avoid getting hit by machine check */
 
-	
+	/* Reset status register to avoid losing errors.  */
 	stat0 = *(vuip)MCPCIA_CAP_ERR(mid);
 	*(vuip)MCPCIA_CAP_ERR(mid) = stat0; mb();
 	*(vuip)MCPCIA_CAP_ERR(mid);
@@ -104,11 +153,11 @@ conf_write(unsigned long addr, unsigned int value, unsigned char type1,
 	mcheck_extra(cpu) = mid;
 	mb();
 
-	
+	/* Access configuration space.  */
 	*((vuip)addr) = value;
 	mb();
-	mb();  
-	*(vuip)MCPCIA_CAP_ERR(mid); 
+	mb();  /* magic */
+	*(vuip)MCPCIA_CAP_ERR(mid); /* read to force the write */
 	mcheck_expected(cpu) = 0;
 	mb();
 
@@ -128,13 +177,13 @@ mk_conf_addr(struct pci_bus *pbus, unsigned int devfn, int where,
 		 " pci_addr=0x%p, type1=0x%p)\n",
 		 bus, devfn, hose->index, where, pci_addr, type1));
 
-	
+	/* Type 1 configuration cycle for *ALL* busses.  */
 	*type1 = 1;
 
-	if (!pbus->parent) 
+	if (!pbus->parent) /* No parent means peer PCI bus. */
 		bus = 0;
 	addr = (bus << 16) | (devfn << 8) | (where);
-	addr <<= 5; 
+	addr <<= 5; /* swizzle for SPARSE */
 	addr |= hose->config_space_base;
 
 	*pci_addr = addr;
@@ -207,23 +256,23 @@ mcpcia_probe_hose(int h)
 	int mid = MCPCIA_HOSE2MID(h);
 	unsigned int pci_rev;
 
-	
+	/* Gotta be REAL careful.  If hose is absent, we get an mcheck.  */
 
 	mb();
 	mb();
 	draina();
 	wrmces(7);
 
-	mcheck_expected(cpu) = 2;	
+	mcheck_expected(cpu) = 2;	/* indicates probing */
 	mcheck_taken(cpu) = 0;
 	mcheck_extra(cpu) = mid;
 	mb();
 
-	
+	/* Access the bus revision word. */
 	pci_rev = *(vuip)MCPCIA_REV(mid);
 
 	mb();
-	mb();  
+	mb();  /* magic */
 	if (mcheck_taken(cpu)) {
 		mcheck_taken(cpu) = 0;
 		pci_rev = 0xffffffff;
@@ -285,9 +334,9 @@ static void
 mcpcia_pci_clr_err(int mid)
 {
 	*(vuip)MCPCIA_CAP_ERR(mid);
-	*(vuip)MCPCIA_CAP_ERR(mid) = 0xffffffff;   
+	*(vuip)MCPCIA_CAP_ERR(mid) = 0xffffffff;   /* Clear them all.  */
 	mb();
-	*(vuip)MCPCIA_CAP_ERR(mid);  
+	*(vuip)MCPCIA_CAP_ERR(mid);  /* Re-read for force write.  */
 }
 
 static void __init
@@ -298,12 +347,22 @@ mcpcia_startup_hose(struct pci_controller *hose)
 
 	mcpcia_pci_clr_err(mid);
 
+	/* 
+	 * Set up error reporting.
+	 */
 	tmp = *(vuip)MCPCIA_CAP_ERR(mid);
-	tmp |= 0x0006;		
+	tmp |= 0x0006;		/* master/target abort */
 	*(vuip)MCPCIA_CAP_ERR(mid) = tmp;
 	mb();
 	tmp = *(vuip)MCPCIA_CAP_ERR(mid);
 
+	/*
+	 * Set up the PCI->physical memory translation windows.
+	 *
+	 * Window 0 is scatter-gather 8MB at 8MB (for isa)
+	 * Window 1 is scatter-gather (up to) 1GB at 1GB (for pci)
+	 * Window 2 is direct access 2GB at 2GB
+	 */
 	hose->sg_isa = iommu_arena_new(hose, 0x00800000, 0x00800000, 0);
 	hose->sg_pci = iommu_arena_new(hose, 0x40000000,
 				       size_for_memory(0x40000000), 0);
@@ -332,22 +391,28 @@ mcpcia_startup_hose(struct pci_controller *hose)
 
 	*(vuip)MCPCIA_HAE_MEM(mid) = 0U;
 	mb();
-	*(vuip)MCPCIA_HAE_MEM(mid); 
+	*(vuip)MCPCIA_HAE_MEM(mid); /* read it back. */
 	*(vuip)MCPCIA_HAE_IO(mid) = 0;
 	mb();
-	*(vuip)MCPCIA_HAE_IO(mid);  
+	*(vuip)MCPCIA_HAE_IO(mid);  /* read it back. */
 }
 
 void __init
 mcpcia_init_arch(void)
 {
-	
+	/* With multiple PCI busses, we play with I/O as physical addrs.  */
 	ioport_resource.end = ~0UL;
 
+	/* Allocate hose 0.  That's the one that all the ISA junk hangs
+	   off of, from which we'll be registering stuff here in a bit.
+	   Other hose detection is done in mcpcia_init_hoses, which is
+	   called from init_IRQ.  */
 
 	mcpcia_new_hose(0);
 }
 
+/* This is called from init_IRQ, since we cannot take interrupts
+   before then.  Which means we cannot do this in init_arch.  */
 
 void __init
 mcpcia_init_hoses(void)
@@ -356,7 +421,7 @@ mcpcia_init_hoses(void)
 	int hose_count;
 	int h;
 
-	
+	/* First, find how many hoses we have.  */
 	hose_count = 0;
 	for (h = 0; h < MCPCIA_MAX_HOSES; ++h) {
 		if (mcpcia_probe_hose(h)) {
@@ -368,7 +433,7 @@ mcpcia_init_hoses(void)
 
 	printk("mcpcia_init_hoses: found %d hoses\n", hose_count);
 
-	
+	/* Now do init for each hose.  */
 	for (hose = hose_head; hose; hose = hose->next)
 		mcpcia_startup_hose(hose);
 }
@@ -381,7 +446,7 @@ mcpcia_print_uncorrectable(struct el_MCPCIA_uncorrected_frame_mcheck *logout)
 
 	frame = &logout->procdata;
 
-	
+	/* Print PAL fields */
 	for (i = 0; i < 24; i += 2) {
 		printk("  paltmp[%d-%d] = %16lx %16lx\n",
 		       i, i+1, frame->paltemp[i], frame->paltemp[i+1]);
@@ -515,13 +580,14 @@ mcpcia_machine_check(unsigned long vector, unsigned long la_ptr)
 	expected = mcheck_expected(cpu);
 
 	mb();
-	mb();  
+	mb();  /* magic */
 	draina();
 
 	switch (expected) {
 	case 0:
 	    {
-	
+		/* FIXME: how do we figure out which hose the
+		   error was on?  */	
 		struct pci_controller *hose;
 		for (hose = hose_head; hose; hose = hose->next)
 			mcpcia_pci_clr_err(MCPCIA_HOSE2MID(hose->index));
@@ -531,6 +597,8 @@ mcpcia_machine_check(unsigned long vector, unsigned long la_ptr)
 		mcpcia_pci_clr_err(mcheck_extra(cpu));
 		break;
 	default:
+		/* Otherwise, we're being called from mcpcia_probe_hose
+		   and there's no hose clear an error from.  */
 		break;
 	}
 

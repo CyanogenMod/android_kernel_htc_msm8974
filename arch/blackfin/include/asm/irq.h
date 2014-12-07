@@ -12,10 +12,12 @@
 
 #include <linux/irqflags.h>
 
+/* IRQs that may be used by external irq_chip controllers */
 #define NR_SPARE_IRQS	32
 
 #include <mach/anomaly.h>
 
+/* SYS_IRQS and NR_IRQS are defined in <mach-bf5xx/irq.h> */
 #include <mach/irq.h>
 
 #if ANOMALY_05000244 && defined(CONFIG_BFIN_ICACHE)
@@ -36,4 +38,4 @@
 
 #include <asm-generic/irq.h>
 
-#endif				
+#endif				/* _BFIN_IRQ_H_ */

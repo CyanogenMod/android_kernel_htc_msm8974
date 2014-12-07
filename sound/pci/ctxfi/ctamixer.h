@@ -22,37 +22,41 @@
 #include "ctresource.h"
 #include <linux/spinlock.h>
 
+/* Define the descriptor of a summation node resource */
 struct sum {
-	struct rsc rsc;		
+	struct rsc rsc;		/* Basic resource info */
 	unsigned char idx[8];
 };
 
+/* Define sum resource request description info */
 struct sum_desc {
 	unsigned int msr;
 };
 
 struct sum_mgr {
-	struct rsc_mgr mgr;	
+	struct rsc_mgr mgr;	/* Basic resource manager info */
 	spinlock_t mgr_lock;
 
-	 
+	 /* request one sum resource */
 	int (*get_sum)(struct sum_mgr *mgr,
 			const struct sum_desc *desc, struct sum **rsum);
-	
+	/* return one sum resource */
 	int (*put_sum)(struct sum_mgr *mgr, struct sum *sum);
 };
 
+/* Constructor and destructor of daio resource manager */
 int sum_mgr_create(void *hw, struct sum_mgr **rsum_mgr);
 int sum_mgr_destroy(struct sum_mgr *sum_mgr);
 
+/* Define the descriptor of a amixer resource */
 struct amixer_rsc_ops;
 
 struct amixer {
-	struct rsc rsc;		
+	struct rsc rsc;		/* Basic resource info */
 	unsigned char idx[8];
-	struct rsc *input;	
-	struct sum *sum;	
-	struct amixer_rsc_ops *ops;	
+	struct rsc *input;	/* pointer to a resource acting as source */
+	struct sum *sum;	/* Put amixer output to this summation node */
+	struct amixer_rsc_ops *ops;	/* AMixer specific operations */
 };
 
 struct amixer_rsc_ops {
@@ -61,30 +65,32 @@ struct amixer_rsc_ops {
 	int (*set_invalid_squash)(struct amixer *amixer, unsigned int iv);
 	int (*set_sum)(struct amixer *amixer, struct sum *sum);
 	int (*commit_write)(struct amixer *amixer);
-	
+	/* Only for interleaved recording */
 	int (*commit_raw_write)(struct amixer *amixer);
 	int (*setup)(struct amixer *amixer, struct rsc *input,
 			unsigned int scale, struct sum *sum);
 	int (*get_scale)(struct amixer *amixer);
 };
 
+/* Define amixer resource request description info */
 struct amixer_desc {
 	unsigned int msr;
 };
 
 struct amixer_mgr {
-	struct rsc_mgr mgr;	
+	struct rsc_mgr mgr;	/* Basic resource manager info */
 	spinlock_t mgr_lock;
 
-	 
+	 /* request one amixer resource */
 	int (*get_amixer)(struct amixer_mgr *mgr,
 			  const struct amixer_desc *desc,
 			  struct amixer **ramixer);
-	
+	/* return one amixer resource */
 	int (*put_amixer)(struct amixer_mgr *mgr, struct amixer *amixer);
 };
 
+/* Constructor and destructor of amixer resource manager */
 int amixer_mgr_create(void *hw, struct amixer_mgr **ramixer_mgr);
 int amixer_mgr_destroy(struct amixer_mgr *amixer_mgr);
 
-#endif 
+#endif /* CTAMIXER_H */

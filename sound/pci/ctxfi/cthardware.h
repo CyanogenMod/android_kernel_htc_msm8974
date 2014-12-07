@@ -28,34 +28,37 @@ enum CHIPTYP {
 };
 
 enum CTCARDS {
-	
+	/* 20k1 models */
 	CTSB055X,
 	CT20K1_MODEL_FIRST = CTSB055X,
 	CTSB073X,
 	CTUAA,
 	CT20K1_UNKNOWN,
-	
+	/* 20k2 models */
 	CTSB0760,
 	CT20K2_MODEL_FIRST = CTSB0760,
 	CTHENDRIX,
 	CTSB0880,
 	CTSB1270,
 	CT20K2_UNKNOWN,
-	NUM_CTCARDS		
+	NUM_CTCARDS		/* This should always be the last */
 };
 
+/* Type of input source for ADC */
 enum ADCSRC{
 	ADC_MICIN,
 	ADC_LINEIN,
 	ADC_VIDEO,
 	ADC_AUX,
-	ADC_NONE	
+	ADC_NONE	/* Switch to digital input */
 };
 
 struct card_conf {
+	/* device virtual mem page table page physical addr
+	 * (supporting one page table page now) */
 	unsigned long vm_pgt_phys;
-	unsigned int rsr;	
-	unsigned int msr;	
+	unsigned int rsr;	/* reference sample rate in Hzs*/
+	unsigned int msr;	/* master sample rate in rsrs */
 };
 
 struct capabilities {
@@ -81,7 +84,7 @@ struct hw {
 	int (*mic_source_switch_get)(struct hw *hw);
 	int (*mic_source_switch_put)(struct hw *hw, int position);
 
-	
+	/* SRC operations */
 	int (*src_rsc_get_ctrl_blk)(void **rblk);
 	int (*src_rsc_put_ctrl_blk)(void *blk);
 	int (*src_set_state)(void *blk, unsigned int state);
@@ -110,15 +113,15 @@ struct hw {
 	unsigned int (*src_dirty_conj_mask)(void);
 	int (*src_mgr_get_ctrl_blk)(void **rblk);
 	int (*src_mgr_put_ctrl_blk)(void *blk);
-	
+	/* syncly enable src @idx */
 	int (*src_mgr_enbs_src)(void *blk, unsigned int idx);
-	
+	/* enable src @idx */
 	int (*src_mgr_enb_src)(void *blk, unsigned int idx);
-	
+	/* disable src @idx */
 	int (*src_mgr_dsb_src)(void *blk, unsigned int idx);
 	int (*src_mgr_commit_write)(struct hw *hw, void *blk);
 
-	
+	/* SRC Input Mapper operations */
 	int (*srcimp_mgr_get_ctrl_blk)(void **rblk);
 	int (*srcimp_mgr_put_ctrl_blk)(void *blk);
 	int (*srcimp_mgr_set_imaparc)(void *blk, unsigned int slot);
@@ -127,7 +130,7 @@ struct hw {
 	int (*srcimp_mgr_set_imapaddr)(void *blk, unsigned int addr);
 	int (*srcimp_mgr_commit_write)(struct hw *hw, void *blk);
 
-	
+	/* AMIXER operations */
 	int (*amixer_rsc_get_ctrl_blk)(void **rblk);
 	int (*amixer_rsc_put_ctrl_blk)(void *blk);
 	int (*amixer_mgr_get_ctrl_blk)(void **rblk);
@@ -144,7 +147,7 @@ struct hw {
 	int (*amixer_get_y)(void *blk);
 	unsigned int (*amixer_get_dirty)(void *blk);
 
-	
+	/* DAIO operations */
 	int (*dai_get_ctrl_blk)(void **rblk);
 	int (*dai_put_ctrl_blk)(void *blk);
 	int (*dai_srt_set_srco)(void *blk, unsigned int src);
@@ -180,7 +183,7 @@ struct hw {
 	void (*irq_callback)(void *data, unsigned int bit);
 	void *irq_callback_data;
 
-	struct pci_dev *pci;	
+	struct pci_dev *pci;	/* the pci kernel structure of this card */
 	int irq;
 	unsigned long io_base;
 	unsigned long mem_base;
@@ -196,16 +199,17 @@ int destroy_hw_obj(struct hw *hw);
 unsigned int get_field(unsigned int data, unsigned int field);
 void set_field(unsigned int *data, unsigned int field, unsigned int value);
 
-#define	PLL_INT		(1 << 10) 
-#define FI_INT		(1 << 9)  
-#define IT_INT		(1 << 8)  
-#define PCI_INT		(1 << 7)  
-#define URT_INT		(1 << 6)  
-#define GPI_INT		(1 << 5)  
-#define MIX_INT		(1 << 4)  
-#define DAI_INT		(1 << 3)  
-#define TP_INT		(1 << 2)  
-#define DSP_INT		(1 << 1)  
-#define SRC_INT		(1 << 0)  
+/* IRQ bits */
+#define	PLL_INT		(1 << 10) /* PLL input-clock out-of-range */
+#define FI_INT		(1 << 9)  /* forced interrupt */
+#define IT_INT		(1 << 8)  /* timer interrupt */
+#define PCI_INT		(1 << 7)  /* PCI bus error pending */
+#define URT_INT		(1 << 6)  /* UART Tx/Rx */
+#define GPI_INT		(1 << 5)  /* GPI pin */
+#define MIX_INT		(1 << 4)  /* mixer parameter segment FIFO channels */
+#define DAI_INT		(1 << 3)  /* DAI (SR-tracker or SPDIF-receiver) */
+#define TP_INT		(1 << 2)  /* transport priority queue */
+#define DSP_INT		(1 << 1)  /* DSP */
+#define SRC_INT		(1 << 0)  /* SRC channels */
 
-#endif 
+#endif /* CTHARDWARE_H */

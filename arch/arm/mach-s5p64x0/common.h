@@ -54,4 +54,4 @@ extern void s5p6450_init_uarts(struct s3c2410_uartcfg *cfg, int no);
 #define s5p64x0_init NULL
 #endif
 
-#endif 
+#endif /* __ARCH_ARM_MACH_S5P64X0_COMMON_H */

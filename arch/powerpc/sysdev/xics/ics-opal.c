@@ -33,13 +33,13 @@
 
 static int ics_opal_mangle_server(int server)
 {
-	
+	/* No link for now */
 	return server << 2;
 }
 
 static int ics_opal_unmangle_server(int server)
 {
-	
+	/* No link for now */
 	return server >> 2;
 }
 
@@ -67,11 +67,16 @@ static void ics_opal_unmask_irq(struct irq_data *d)
 static unsigned int ics_opal_startup(struct irq_data *d)
 {
 #ifdef CONFIG_PCI_MSI
+	/*
+	 * The generic MSI code returns with the interrupt disabled on the
+	 * card, using the MSI mask bits. Firmware doesn't appear to unmask
+	 * at that level, so we do it here by hand.
+	 */
 	if (d->msi_desc)
 		unmask_msi_irq(d);
 #endif
 
-	
+	/* unmask it */
 	ics_opal_unmask_irq(d);
 	return 0;
 }
@@ -84,7 +89,7 @@ static void ics_opal_mask_real_irq(unsigned int hw_irq)
 	if (hw_irq == XICS_IPI)
 		return;
 
-	
+	/* Have to set XIVE to 0xff to be able to remove a slot */
 	rc = opal_set_xive(hw_irq, server, 0xff);
 	if (rc != OPAL_SUCCESS)
 		pr_err("%s: opal_set_xive(0xff) irq=%u returned %lld\n",
@@ -151,7 +156,7 @@ static struct irq_chip ics_opal_irq_chip = {
 	.irq_startup = ics_opal_startup,
 	.irq_mask = ics_opal_mask_irq,
 	.irq_unmask = ics_opal_unmask_irq,
-	.irq_eoi = NULL, 
+	.irq_eoi = NULL, /* Patched at init time */
 	.irq_set_affinity = ics_opal_set_affinity
 };
 
@@ -164,6 +169,7 @@ static int ics_opal_host_match(struct ics *ics, struct device_node *node)
 	return 1;
 }
 
+/* Only one global & state struct ics */
 static struct ics ics_hal = {
 	.map		= ics_opal_map,
 	.mask_unknown	= ics_opal_mask_unknown,
@@ -181,7 +187,7 @@ static int ics_opal_map(struct ics *ics, unsigned int virq)
 	if (WARN_ON(hw_irq == XICS_IPI || hw_irq == XICS_IRQ_SPURIOUS))
 		return -EINVAL;
 
-	
+	/* Check if HAL knows about this interrupt */
 	rc = opal_get_xive(hw_irq, &server, &priority);
 	if (rc != OPAL_SUCCESS)
 		return -ENXIO;
@@ -198,7 +204,7 @@ static void ics_opal_mask_unknown(struct ics *ics, unsigned long vec)
 	int16_t server;
 	int8_t priority;
 
-	
+	/* Check if HAL knows about this interrupt */
 	rc = opal_get_xive(vec, &server, &priority);
 	if (rc != OPAL_SUCCESS)
 		return;
@@ -212,7 +218,7 @@ static long ics_opal_get_server(struct ics *ics, unsigned long vec)
 	int16_t server;
 	int8_t priority;
 
-	
+	/* Check if HAL knows about this interrupt */
 	rc = opal_get_xive(vec, &server, &priority);
 	if (rc != OPAL_SUCCESS)
 		return -1;
@@ -224,9 +230,12 @@ int __init ics_opal_init(void)
 	if (!firmware_has_feature(FW_FEATURE_OPAL))
 		return -ENODEV;
 
+	/* We need to patch our irq chip's EOI to point to the
+	 * right ICP
+	 */
 	ics_opal_irq_chip.irq_eoi = icp_ops->eoi;
 
-	
+	/* Register ourselves */
 	xics_register_ics(&ics_hal);
 
 	pr_info("ICS OPAL backend registered\n");

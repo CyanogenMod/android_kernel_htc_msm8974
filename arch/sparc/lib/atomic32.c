@@ -19,13 +19,13 @@ spinlock_t __atomic_hash[ATOMIC_HASH_SIZE] = {
 	[0 ... (ATOMIC_HASH_SIZE-1)] = __SPIN_LOCK_UNLOCKED(__atomic_hash)
 };
 
-#else 
+#else /* SMP */
 
 static DEFINE_SPINLOCK(dummy);
 #define ATOMIC_HASH_SIZE	1
 #define ATOMIC_HASH(a)		(&dummy)
 
-#endif 
+#endif /* SMP */
 
 int __atomic_add_return(int i, atomic_t *v)
 {
@@ -69,6 +69,7 @@ int __atomic_add_unless(atomic_t *v, int a, int u)
 }
 EXPORT_SYMBOL(__atomic_add_unless);
 
+/* Atomic operations are already serializing */
 void atomic_set(atomic_t *v, int i)
 {
 	unsigned long flags;

@@ -38,25 +38,34 @@
 
 #define FPUDEBUG 0
 
+/* Format of the floating-point exception registers. */
 struct exc_reg {
 	unsigned int exception : 6;
 	unsigned int ei : 26;
 };
 
+/* Macros for grabbing bits of the instruction format from the 'ei'
+   field above. */
+/* Major opcode 0c and 0e */
 #define FP0CE_UID(i) (((i) >> 6) & 3)
 #define FP0CE_CLASS(i) (((i) >> 9) & 3)
 #define FP0CE_SUBOP(i) (((i) >> 13) & 7)
-#define FP0CE_SUBOP1(i) (((i) >> 15) & 7) 
+#define FP0CE_SUBOP1(i) (((i) >> 15) & 7) /* Class 1 subopcode */
 #define FP0C_FORMAT(i) (((i) >> 11) & 3)
 #define FP0E_FORMAT(i) (((i) >> 11) & 1)
 
+/* Major opcode 0c, uid 2 (performance monitoring) */
 #define FPPM_SUBOP(i) (((i) >> 9) & 0x1f)
 
+/* Major opcode 2e (fused operations).   */
 #define FP2E_SUBOP(i)  (((i) >> 5) & 1)
 #define FP2E_FORMAT(i) (((i) >> 11) & 1)
 
+/* Major opcode 26 (FMPYSUB) */
+/* Major opcode 06 (FMPYADD) */
 #define FPx6_FORMAT(i) ((i) & 0x1f)
 
+/* Flags and enable bits of the status word. */
 #define FPSW_FLAGS(w) ((w) >> 27)
 #define FPSW_ENABLE(w) ((w) & 0x1f)
 #define FPSW_V (1<<4)
@@ -65,6 +74,8 @@ struct exc_reg {
 #define FPSW_U (1<<1)
 #define FPSW_I (1<<0)
 
+/* Handle a floating point exception.  Return zero if the faulting
+   instruction can be completed successfully. */
 int
 handle_fpe(struct pt_regs *regs)
 {
@@ -72,6 +83,13 @@ handle_fpe(struct pt_regs *regs)
 	struct siginfo si;
 	unsigned int orig_sw, sw;
 	int signalcode;
+	/* need an intermediate copy of float regs because FPU emulation
+	 * code expects an artificial last entry which contains zero
+	 *
+	 * also, the passed in fr registers contain one word that defines
+	 * the fpu type. the fpu type information is constructed 
+	 * inside the emulation code
+	 */
 	__u64 frcopy[36];
 
 	memcpy(frcopy, regs->fr, sizeof regs->fr);
@@ -87,7 +105,7 @@ handle_fpe(struct pt_regs *regs)
 
 	signalcode = decode_fpu(frcopy, 0x666);
 
-	
+	/* Status word = FR0L. */
 	memcpy(&sw, frcopy, sizeof(sw));
 	if (FPUDEBUG) {
 		printk(KERN_DEBUG "VZOUICxxxxCQCQCQCQCQCRMxxTDVZOUI decode_fpu returns %d|0x%x\n",

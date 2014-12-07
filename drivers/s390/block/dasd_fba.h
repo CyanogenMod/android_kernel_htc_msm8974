@@ -1,20 +1,27 @@
+/*
+ * File...........: linux/drivers/s390/block/dasd_fba.h
+ * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
+ * Bugreports.to..: <Linux390@de.ibm.com>
+ * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 1999,2000
+ *
+ */
 
 #ifndef DASD_FBA_H
 #define DASD_FBA_H
 
 struct DE_fba_data {
 	struct {
-		unsigned char perm:2;	
-		unsigned char zero:2;	
-		unsigned char da:1;	
-		unsigned char diag:1;	
-		unsigned char zero2:2;	
+		unsigned char perm:2;	/* Permissions on this extent */
+		unsigned char zero:2;	/* Must be zero */
+		unsigned char da:1;	/* usually zero */
+		unsigned char diag:1;	/* allow diagnose */
+		unsigned char zero2:2;	/* zero */
 	} __attribute__ ((packed)) mask;
-	__u8 zero;		
-	__u16 blk_size;		
-	__u32 ext_loc;		
-	__u32 ext_beg;		
-	__u32 ext_end;		
+	__u8 zero;		/* Must be zero */
+	__u16 blk_size;		/* Blocksize */
+	__u32 ext_loc;		/* Extent locator */
+	__u32 ext_beg;		/* logical number of block 0 in extent */
+	__u32 ext_end;		/* logocal number of last block in extent */
 } __attribute__ ((packed));
 
 struct LO_fba_data {
@@ -62,4 +69,4 @@ struct dasd_fba_characteristics {
 	__u16 reserved3;
 } __attribute__ ((packed));
 
-#endif				
+#endif				/* DASD_FBA_H */

@@ -1,17 +1,74 @@
 #ifndef __ALPHA_CIA__H__
 #define __ALPHA_CIA__H__
 
+/* Define to experiment with fitting everything into one 512MB HAE window.  */
 #define CIA_ONE_HAE_WINDOW 1
 
 #include <linux/types.h>
 #include <asm/compiler.h>
 
+/*
+ * CIA is the internal name for the 21171 chipset which provides
+ * memory controller and PCI access for the 21164 chip based systems.
+ * Also supported here is the 21172 (CIA-2) and 21174 (PYXIS).
+ *
+ * The lineage is a bit confused, since the 21174 was reportedly started
+ * from the 21171 Pass 1 mask, and so is missing bug fixes that appear
+ * in 21171 Pass 2 and 21172, but it also contains additional features.
+ *
+ * This file is based on:
+ *
+ * DECchip 21171 Core Logic Chipset
+ * Technical Reference Manual
+ *
+ * EC-QE18B-TE
+ *
+ * david.rusling@reo.mts.dec.com Initial Version.
+ *
+ */
 
+/*
+ * CIA ADDRESS BIT DEFINITIONS
+ *
+ *  3333 3333 3322 2222 2222 1111 1111 11
+ *  9876 5432 1098 7654 3210 9876 5432 1098 7654 3210
+ *  ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+ *  1                                             000
+ *  ---- ---- ---- ---- ---- ---- ---- ---- ---- ----
+ *  |                                             |\|
+ *  |                               Byte Enable --+ |
+ *  |                             Transfer Length --+
+ *  +-- IO space, not cached
+ *
+ *   Byte      Transfer
+ *   Enable    Length    Transfer  Byte    Address
+ *   adr<6:5>  adr<4:3>  Length    Enable  Adder
+ *   ---------------------------------------------
+ *      00        00      Byte      1110   0x000
+ *      01        00      Byte      1101   0x020
+ *      10        00      Byte      1011   0x040
+ *      11        00      Byte      0111   0x060
+ *
+ *      00        01      Word      1100   0x008
+ *      01        01      Word      1001   0x028 <= Not supported in this code.
+ *      10        01      Word      0011   0x048
+ *
+ *      00        10      Tribyte   1000   0x010
+ *      01        10      Tribyte   0001   0x030
+ *
+ *      10        11      Longword  0000   0x058
+ *
+ *      Note that byte enables are asserted low.
+ *
+ */
 
-#define CIA_MEM_R1_MASK 0x1fffffff  
-#define CIA_MEM_R2_MASK 0x07ffffff  
-#define CIA_MEM_R3_MASK 0x03ffffff  
+#define CIA_MEM_R1_MASK 0x1fffffff  /* SPARSE Mem region 1 mask is 29 bits */
+#define CIA_MEM_R2_MASK 0x07ffffff  /* SPARSE Mem region 2 mask is 27 bits */
+#define CIA_MEM_R3_MASK 0x03ffffff  /* SPARSE Mem region 3 mask is 26 bits */
 
+/*
+ * 21171-CA Control and Status Registers
+ */
 #define CIA_IOC_CIA_REV			(IDENT_ADDR + 0x8740000080UL)
 #  define CIA_REV_MASK			0xff
 #define CIA_IOC_PCI_LAT			(IDENT_ADDR + 0x87400000C0UL)
@@ -56,12 +113,21 @@
 #  define CIA_CACK_EN_BC_VICTIM_EN	(1 << 3)
 
 
+/*
+ * 21171-CA Diagnostic Registers
+ */
 #define CIA_IOC_CIA_DIAG		(IDENT_ADDR + 0x8740002000UL)
 #define CIA_IOC_DIAG_CHECK		(IDENT_ADDR + 0x8740003000UL)
 
+/*
+ * 21171-CA Performance Monitor registers
+ */
 #define CIA_IOC_PERF_MONITOR		(IDENT_ADDR + 0x8740004000UL)
 #define CIA_IOC_PERF_CONTROL		(IDENT_ADDR + 0x8740004040UL)
 
+/*
+ * 21171-CA Error registers
+ */
 #define CIA_IOC_CPU_ERR0		(IDENT_ADDR + 0x8740008000UL)
 #define CIA_IOC_CPU_ERR1		(IDENT_ADDR + 0x8740008040UL)
 #define CIA_IOC_CIA_ERR			(IDENT_ADDR + 0x8740008200UL)
@@ -98,6 +164,9 @@
 #define CIA_IOC_PCI_ERR1		(IDENT_ADDR + 0x8740008840UL)
 #define CIA_IOC_PCI_ERR3		(IDENT_ADDR + 0x8740008880UL)
 
+/*
+ * 21171-CA System configuration registers
+ */
 #define CIA_IOC_MCR			(IDENT_ADDR + 0x8750000000UL)
 #define CIA_IOC_MBA0			(IDENT_ADDR + 0x8750000600UL)
 #define CIA_IOC_MBA2			(IDENT_ADDR + 0x8750000680UL)
@@ -111,6 +180,9 @@
 #define CIA_IOC_TMG1			(IDENT_ADDR + 0x8750000B40UL)
 #define CIA_IOC_TMG2			(IDENT_ADDR + 0x8750000B80UL)
 
+/*
+ * 2117A-CA PCI Address and Scatter-Gather Registers.
+ */
 #define CIA_IOC_PCI_TBIA		(IDENT_ADDR + 0x8760000100UL)
 
 #define CIA_IOC_PCI_W0_BASE		(IDENT_ADDR + 0x8760000400UL)
@@ -135,13 +207,21 @@
 
 #define CIA_IOC_PCI_W_DAC		(IDENT_ADDR + 0x87600007C0UL)
 
+/*
+ * 2117A-CA Address Translation Registers.
+ */
 
+/* 8 tag registers, the first 4 of which are lockable.  */
 #define CIA_IOC_TB_TAGn(n) \
 	(IDENT_ADDR + 0x8760000800UL + (n)*0x40)
 
+/* 4 page registers per tag register.  */
 #define CIA_IOC_TBn_PAGEm(n,m) \
 	(IDENT_ADDR + 0x8760001000UL + (n)*0x100 + (m)*0x40)
 
+/*
+ * Memory spaces:
+ */
 #define CIA_IACK_SC			(IDENT_ADDR + 0x8720000000UL)
 #define CIA_CONF			(IDENT_ADDR + 0x8700000000UL)
 #define CIA_IO				(IDENT_ADDR + 0x8580000000UL)
@@ -154,6 +234,9 @@
 #define CIA_BW_CFG_0			(IDENT_ADDR + 0x8a00000000UL)
 #define CIA_BW_CFG_1			(IDENT_ADDR + 0x8b00000000UL)
 
+/*
+ * ALCOR's GRU ASIC registers
+ */
 #define GRU_INT_REQ			(IDENT_ADDR + 0x8780000000UL)
 #define GRU_INT_MASK			(IDENT_ADDR + 0x8780000040UL)
 #define GRU_INT_EDGE			(IDENT_ADDR + 0x8780000080UL)
@@ -169,6 +252,9 @@
 #define XLT_GRU_INT_REQ_BITS		0x80003fffUL
 #define GRU_INT_REQ_BITS		(alpha_mv.sys.cia.gru_int_req_bits+0)
 
+/*
+ * PYXIS interrupt control registers
+ */
 #define PYXIS_INT_REQ			(IDENT_ADDR + 0x87A0000000UL)
 #define PYXIS_INT_MASK			(IDENT_ADDR + 0x87A0000040UL)
 #define PYXIS_INT_HILO			(IDENT_ADDR + 0x87A00000C0UL)
@@ -180,9 +266,14 @@
 #define PYXIS_IIC_CTRL			(IDENT_ADDR + 0x87A00002C0UL)
 #define PYXIS_RESET			(IDENT_ADDR + 0x8780000900UL)
 
+/* Offset between ram physical addresses and pci64 DAC bus addresses.  */
 #define PYXIS_DAC_OFFSET		(1UL << 40)
 
+/*
+ * Data structure for handling CIA machine checks.
+ */
 
+/* System-specific info.  */
 struct el_CIA_sysdata_mcheck {
 	unsigned long	cpu_err0;
 	unsigned long	cpu_err1;
@@ -201,11 +292,50 @@ struct el_CIA_sysdata_mcheck {
 #ifdef __KERNEL__
 
 #ifndef __EXTERN_INLINE
+/* Do not touch, this should *NOT* be static inline */
 #define __EXTERN_INLINE extern inline
 #define __IO_EXTERN_INLINE
 #endif
 
+/*
+ * I/O functions:
+ *
+ * CIA (the 2117x PCI/memory support chipset for the EV5 (21164)
+ * series of processors uses a sparse address mapping scheme to
+ * get at PCI memory and I/O.
+ */
 
+/*
+ * Memory functions.  64-bit and 32-bit accesses are done through
+ * dense memory space, everything else through sparse space.
+ *
+ * For reading and writing 8 and 16 bit quantities we need to
+ * go through one of the three sparse address mapping regions
+ * and use the HAE_MEM CSR to provide some bits of the address.
+ * The following few routines use only sparse address region 1
+ * which gives 1Gbyte of accessible space which relates exactly
+ * to the amount of PCI memory mapping *into* system address space.
+ * See p 6-17 of the specification but it looks something like this:
+ *
+ * 21164 Address:
+ *
+ *          3         2         1
+ * 9876543210987654321098765432109876543210
+ * 1ZZZZ0.PCI.QW.Address............BBLL
+ *
+ * ZZ = SBZ
+ * BB = Byte offset
+ * LL = Transfer length
+ *
+ * PCI Address:
+ *
+ * 3         2         1
+ * 10987654321098765432109876543210
+ * HHH....PCI.QW.Address........ 00
+ *
+ * HHH = 31:29 HAE_MEM CSR
+ *
+ */
 
 #define vip	volatile int __force *
 #define vuip	volatile unsigned int __force *
@@ -221,6 +351,8 @@ __EXTERN_INLINE unsigned int cia_ioread8(void __iomem *xaddr)
 	else
 		base_and_type = CIA_IO + 0x00;
 
+	/* We can use CIA_MEM_R1_MASK for io ports too, since it is large
+	   enough to cover all io ports, and smaller than CIA_IO.  */
 	addr &= CIA_MEM_R1_MASK;
 	result = *(vip) ((addr << 5) + base_and_type);
 	return __kernel_extbl(result, addr & 3);
@@ -363,6 +495,6 @@ __EXTERN_INLINE int cia_bwx_is_mmio(const volatile void __iomem *addr)
 #undef __IO_EXTERN_INLINE
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_CIA__H__ */

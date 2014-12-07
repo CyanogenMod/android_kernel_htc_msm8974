@@ -143,11 +143,11 @@ void vnic_rq_init(struct vnic_rq *rq, unsigned int cq_index,
 {
 	u32 fetch_index;
 
-	
+	/* Use current fetch_index as the ring starting point */
 	fetch_index = ioread32(&rq->ctrl->fetch_index);
 
-	if (fetch_index == 0xFFFFFFFF) { 
-		
+	if (fetch_index == 0xFFFFFFFF) { /* check for hardware gone  */
+		/* Hardware surprise removal: reset fetch_index */
 		fetch_index = 0;
 	}
 
@@ -173,7 +173,7 @@ int vnic_rq_disable(struct vnic_rq *rq)
 
 	iowrite32(0, &rq->ctrl->enable);
 
-	
+	/* Wait for HW to ACK disable request */
 	for (wait = 0; wait < 1000; wait++) {
 		if (!(ioread32(&rq->ctrl->running)))
 			return 0;
@@ -202,11 +202,11 @@ void vnic_rq_clean(struct vnic_rq *rq,
 		rq->ring.desc_avail++;
 	}
 
-	
+	/* Use current fetch_index as the ring starting point */
 	fetch_index = ioread32(&rq->ctrl->fetch_index);
 
-	if (fetch_index == 0xFFFFFFFF) { 
-		
+	if (fetch_index == 0xFFFFFFFF) { /* check for hardware gone  */
+		/* Hardware surprise removal: reset fetch_index */
 		fetch_index = 0;
 	}
 	rq->to_use = rq->to_clean =

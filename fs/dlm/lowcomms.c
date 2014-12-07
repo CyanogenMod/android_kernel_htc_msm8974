@@ -11,6 +11,38 @@
 *******************************************************************************
 ******************************************************************************/
 
+/*
+ * lowcomms.c
+ *
+ * This is the "low-level" comms layer.
+ *
+ * It is responsible for sending/receiving messages
+ * from other nodes in the cluster.
+ *
+ * Cluster nodes are referred to by their nodeids. nodeids are
+ * simply 32 bit numbers to the locking module - if they need to
+ * be expanded for the cluster infrastructure then that is its
+ * responsibility. It is this layer's
+ * responsibility to resolve these into IP address or
+ * whatever it needs for inter-node communication.
+ *
+ * The comms level is two kernel threads that deal mainly with
+ * the receiving of messages from other nodes and passing them
+ * up to the mid-level comms layer (which understands the
+ * message format) for execution by the locking core, and
+ * a send thread which does all the setting up of connections
+ * to remote nodes and the sending of data. Threads are not allowed
+ * to send their own data because it may cause them to wait in times
+ * of high load. Also, this way, the sending thread can collect together
+ * messages bound for one node and send them in one block.
+ *
+ * lowcomms will choose to use either TCP or SCTP as its transport layer
+ * depending on the configuration variable 'protocol'. This should be set
+ * to 0 (default) for TCP or 1 for SCTP. It should be configured using a
+ * cluster-wide mechanism as it must be the same on all nodes of the cluster
+ * for the DLM to function.
+ *
+ */
 
 #include <asm/ioctls.h>
 #include <net/sock.h>
@@ -32,6 +64,7 @@
 #define NEEDED_RMEM (4*1024*1024)
 #define CONN_HASH_SIZE 32
 
+/* Number of messages to send before rescheduling */
 #define MAX_SEND_MSG_COUNT 25
 
 struct cbuf {
@@ -69,8 +102,8 @@ static bool cbuf_empty(struct cbuf *cb)
 }
 
 struct connection {
-	struct socket *sock;	
-	uint32_t nodeid;	
+	struct socket *sock;	/* NULL if not connected */
+	uint32_t nodeid;	/* So we know who we are in the list */
 	struct mutex sock_mutex;
 	unsigned long flags;
 #define CF_READ_PENDING 1
@@ -80,10 +113,10 @@ struct connection {
 #define CF_IS_OTHERCON 5
 #define CF_CLOSE 6
 #define CF_APP_LIMITED 7
-	struct list_head writequeue;  
+	struct list_head writequeue;  /* List of outgoing writequeue_entries */
 	spinlock_t writequeue_lock;
-	int (*rx_action) (struct connection *);	
-	void (*connect_action) (struct connection *);	
+	int (*rx_action) (struct connection *);	/* What to do when active */
+	void (*connect_action) (struct connection *);	/* What to do to connect */
 	struct page *rx_page;
 	struct cbuf cb;
 	int retries;
@@ -91,11 +124,12 @@ struct connection {
 	int sctp_assoc;
 	struct hlist_node list;
 	struct connection *othercon;
-	struct work_struct rwork; 
-	struct work_struct swork; 
+	struct work_struct rwork; /* Receive workqueue */
+	struct work_struct swork; /* Send workqueue */
 };
 #define sock2con(x) ((struct connection *)(x)->sk_user_data)
 
+/* An entry waiting to be sent */
 struct writequeue_entry {
 	struct list_head list;
 	struct page *page;
@@ -109,6 +143,7 @@ struct writequeue_entry {
 static struct sockaddr_storage *dlm_local_addr[DLM_MAX_ADDR_COUNT];
 static int dlm_local_count;
 
+/* Work queues */
 static struct workqueue_struct *recv_workqueue;
 static struct workqueue_struct *send_workqueue;
 
@@ -120,6 +155,9 @@ static void process_recv_sockets(struct work_struct *work);
 static void process_send_sockets(struct work_struct *work);
 
 
+/* This is deliberately very simple because most clusters have simple
+   sequential nodeids, so we should be able to go straight to a connection
+   struct in the array */
 static inline int nodeid_hash(int nodeid)
 {
 	return nodeid & (CONN_HASH_SIZE-1);
@@ -140,6 +178,10 @@ static struct connection *__find_con(int nodeid)
 	return NULL;
 }
 
+/*
+ * If 'allocation' is zero then we don't attempt to create a new
+ * connection structure for this node.
+ */
 static struct connection *__nodeid2con(int nodeid, gfp_t alloc)
 {
 	struct connection *con = NULL;
@@ -163,7 +205,7 @@ static struct connection *__nodeid2con(int nodeid, gfp_t alloc)
 	INIT_WORK(&con->swork, process_send_sockets);
 	INIT_WORK(&con->rwork, process_recv_sockets);
 
-	
+	/* Setup action pointers for child sockets */
 	if (con->nodeid) {
 		struct connection *zerocon = __find_con(0);
 
@@ -175,6 +217,7 @@ static struct connection *__nodeid2con(int nodeid, gfp_t alloc)
 	return con;
 }
 
+/* Loop round all connections */
 static void foreach_conn(void (*conn_func)(struct connection *c))
 {
 	int i;
@@ -199,6 +242,7 @@ static struct connection *nodeid2con(int nodeid, gfp_t allocation)
 	return con;
 }
 
+/* This is a bit drastic, but only called when things go wrong */
 static struct connection *assoc2con(int assoc_id)
 {
 	int i;
@@ -244,6 +288,7 @@ static int nodeid_to_addr(int nodeid, struct sockaddr *retaddr)
 	return 0;
 }
 
+/* Data available on socket or listen socket received a connect */
 static void lowcomms_data_ready(struct sock *sk, int count_unused)
 {
 	struct connection *con = sock2con(sk);
@@ -287,7 +332,7 @@ int dlm_lowcomms_connect_node(int nodeid)
 {
 	struct connection *con;
 
-	
+	/* with sctp there's no connecting without sending */
 	if (dlm_config.ci_protocol != 0)
 		return 0;
 
@@ -301,11 +346,12 @@ int dlm_lowcomms_connect_node(int nodeid)
 	return 0;
 }
 
+/* Make a socket active */
 static int add_sock(struct socket *sock, struct connection *con)
 {
 	con->sock = sock;
 
-	
+	/* Install a data_ready callback */
 	con->sock->sk->sk_data_ready = lowcomms_data_ready;
 	con->sock->sk->sk_write_space = lowcomms_write_space;
 	con->sock->sk->sk_state_change = lowcomms_state_change;
@@ -314,6 +360,8 @@ static int add_sock(struct socket *sock, struct connection *con)
 	return 0;
 }
 
+/* Add the port number to an IPv6 or 4 sockaddr and return the address
+   length */
 static void make_sockaddr(struct sockaddr_storage *saddr, uint16_t port,
 			  int *addr_len)
 {
@@ -331,6 +379,7 @@ static void make_sockaddr(struct sockaddr_storage *saddr, uint16_t port,
 	memset((char *)saddr + *addr_len, 0, sizeof(struct sockaddr_storage) - *addr_len);
 }
 
+/* Close a remote connection and tidy up */
 static void close_connection(struct connection *con, bool and_other)
 {
 	mutex_lock(&con->sock_mutex);
@@ -340,7 +389,7 @@ static void close_connection(struct connection *con, bool and_other)
 		con->sock = NULL;
 	}
 	if (con->othercon && and_other) {
-		
+		/* Will only re-enter once. */
 		close_connection(con->othercon, false);
 	}
 	if (con->rx_page) {
@@ -352,6 +401,7 @@ static void close_connection(struct connection *con, bool and_other)
 	mutex_unlock(&con->sock_mutex);
 }
 
+/* We only send shutdown messages to nodes that are not part of the cluster */
 static void sctp_send_shutdown(sctp_assoc_t associd)
 {
 	static char outcmsg[CMSG_SPACE(sizeof(struct sctp_sndrcvinfo))];
@@ -396,6 +446,8 @@ static void sctp_init_failed_foreach(struct connection *con)
 	}
 }
 
+/* INIT failed but we don't know which node...
+   restart INIT on all pending nodes */
 static void sctp_init_failed(void)
 {
 	mutex_lock(&connections_lock);
@@ -405,6 +457,7 @@ static void sctp_init_failed(void)
 	mutex_unlock(&connections_lock);
 }
 
+/* Something happened to an association */
 static void process_sctp_notification(struct connection *con,
 				      struct msghdr *msg, char *buf)
 {
@@ -416,13 +469,18 @@ static void process_sctp_notification(struct connection *con,
 		case SCTP_COMM_UP:
 		case SCTP_RESTART:
 		{
-			
+			/* Check that the new node is in the lockspace */
 			struct sctp_prim prim;
 			int nodeid;
 			int prim_len, ret;
 			int addr_len;
 			struct connection *new_con;
 
+			/*
+			 * We get this before any data for an association.
+			 * We verify that the node is in the cluster and
+			 * then peel off a socket for it.
+			 */
 			if ((int)sn->sn_assoc_change.sac_assoc_id <= 0) {
 				log_print("COMM_UP for invalid assoc ID %d",
 					 (int)sn->sn_assoc_change.sac_assoc_id);
@@ -444,7 +502,7 @@ static void process_sctp_notification(struct connection *con,
 					  (int)sn->sn_assoc_change.sac_assoc_id,
 					  ret);
 
-				
+				/* Retry INIT later */
 				new_con = assoc2con(sn->sn_assoc_change.sac_assoc_id);
 				if (new_con)
 					clear_bit(CF_CONNECT_PENDING, &con->flags);
@@ -464,7 +522,7 @@ static void process_sctp_notification(struct connection *con,
 			if (!new_con)
 				return;
 
-			
+			/* Peel off a new sock */
 			sctp_lock_sock(con->sock->sk);
 			ret = sctp_do_peeloff(con->sock->sk,
 				sn->sn_assoc_change.sac_assoc_id,
@@ -482,7 +540,7 @@ static void process_sctp_notification(struct connection *con,
 			log_print("connecting to %d sctp association %d",
 				 nodeid, (int)sn->sn_assoc_change.sac_assoc_id);
 
-			
+			/* Send any pending writes */
 			clear_bit(CF_CONNECT_PENDING, &new_con->flags);
 			clear_bit(CF_INIT_PENDING, &con->flags);
 			if (!test_and_set_bit(CF_WRITE_PENDING, &new_con->flags)) {
@@ -503,6 +561,9 @@ static void process_sctp_notification(struct connection *con,
 		}
 		break;
 
+		/* We don't know which INIT failed, so clear the PENDING flags
+		 * on them all.  if assoc_id is zero then it will then try
+		 * again */
 
 		case SCTP_CANT_STR_ASSOC:
 		{
@@ -519,6 +580,7 @@ static void process_sctp_notification(struct connection *con,
 	}
 }
 
+/* Data received from remote end */
 static int receive_from_sock(struct connection *con)
 {
 	int ret = 0;
@@ -538,22 +600,34 @@ static int receive_from_sock(struct connection *con)
 	}
 
 	if (con->rx_page == NULL) {
+		/*
+		 * This doesn't need to be atomic, but I think it should
+		 * improve performance if it is.
+		 */
 		con->rx_page = alloc_page(GFP_ATOMIC);
 		if (con->rx_page == NULL)
 			goto out_resched;
 		cbuf_init(&con->cb, PAGE_CACHE_SIZE);
 	}
 
-	
+	/* Only SCTP needs these really */
 	memset(&incmsg, 0, sizeof(incmsg));
 	msg.msg_control = incmsg;
 	msg.msg_controllen = sizeof(incmsg);
 
+	/*
+	 * iov[0] is the bit of the circular buffer between the current end
+	 * point (cb.base + cb.len) and the end of the buffer.
+	 */
 	iov[0].iov_len = con->cb.base - cbuf_data(&con->cb);
 	iov[0].iov_base = page_address(con->rx_page) + cbuf_data(&con->cb);
 	iov[1].iov_len = 0;
 	nvec = 1;
 
+	/*
+	 * iov[1] is the bit of the circular buffer between the start of the
+	 * buffer and the start of the currently used section (cb.base)
+	 */
 	if (cbuf_data(&con->cb) >= con->cb.base) {
 		iov[0].iov_len = PAGE_CACHE_SIZE - cbuf_data(&con->cb);
 		iov[1].iov_len = con->cb.base;
@@ -567,7 +641,7 @@ static int receive_from_sock(struct connection *con)
 	if (ret <= 0)
 		goto out_close;
 
-	
+	/* Process SCTP notifications */
 	if (msg.msg_flags & MSG_NOTIFICATION) {
 		msg.msg_control = incmsg;
 		msg.msg_controllen = sizeof(incmsg);
@@ -616,15 +690,16 @@ out_close:
 	mutex_unlock(&con->sock_mutex);
 	if (ret != -EAGAIN) {
 		close_connection(con, false);
-		
+		/* Reconnect when there is something to send */
 	}
-	
+	/* Don't return success if we really got EOF */
 	if (ret == 0)
 		ret = -EAGAIN;
 
 	return ret;
 }
 
+/* Listening socket is busy, accept a connection */
 static int tcp_accept_from_sock(struct connection *con)
 {
 	int result;
@@ -654,7 +729,7 @@ static int tcp_accept_from_sock(struct connection *con)
 	if (result < 0)
 		goto accept_err;
 
-	
+	/* Get the connected socket's peer */
 	memset(&peeraddr, 0, sizeof(peeraddr));
 	if (newsock->ops->getname(newsock, (struct sockaddr *)&peeraddr,
 				  &len, 2)) {
@@ -662,7 +737,7 @@ static int tcp_accept_from_sock(struct connection *con)
 		goto accept_err;
 	}
 
-	
+	/* Get the new node's NODEID */
 	make_sockaddr(&peeraddr, 0, &len);
 	if (dlm_addr_to_nodeid(&peeraddr, &nodeid)) {
 		unsigned char *b=(unsigned char *)&peeraddr;
@@ -676,6 +751,11 @@ static int tcp_accept_from_sock(struct connection *con)
 
 	log_print("got connection from %d", nodeid);
 
+	/*  Check to see if we already have a connection to this node. This
+	 *  could happen if the two nodes initiate a connection at roughly
+	 *  the same time and the connections cross on the wire.
+	 *  In this case we store the incoming one in "othercon"
+	 */
 	newcon = nodeid2con(nodeid, GFP_NOFS);
 	if (!newcon) {
 		result = -ENOMEM;
@@ -723,6 +803,11 @@ static int tcp_accept_from_sock(struct connection *con)
 
 	mutex_unlock(&newcon->sock_mutex);
 
+	/*
+	 * Add it to the active queue in case we got data
+	 * between processing the accept adding the socket
+	 * to the read_sockets list
+	 */
 	if (!test_and_set_bit(CF_READ_PENDING, &addcon->flags))
 		queue_work(recv_workqueue, &addcon->rwork);
 	mutex_unlock(&con->sock_mutex);
@@ -744,6 +829,11 @@ static void free_entry(struct writequeue_entry *e)
 	kfree(e);
 }
 
+/* Initiate an SCTP association.
+   This is a special case of send_to_sock() in that we don't yet have a
+   peeled-off socket for this association, so we use the listening socket
+   and add the primary IP address of the remote node.
+ */
 static void sctp_init_assoc(struct connection *con)
 {
 	struct sockaddr_storage rem_addr;
@@ -792,7 +882,7 @@ static void sctp_init_assoc(struct connection *con)
 	offset = e->offset;
 	spin_unlock(&con->writequeue_lock);
 
-	
+	/* Send the first block off the write queue */
 	iov[0].iov_base = page_address(e->page)+offset;
 	iov[0].iov_len = len;
 
@@ -810,7 +900,7 @@ static void sctp_init_assoc(struct connection *con)
 		log_print("Send first packet to node %d failed: %d",
 			  con->nodeid, ret);
 
-		
+		/* Try again later */
 		clear_bit(CF_CONNECT_PENDING, &con->flags);
 		clear_bit(CF_INIT_PENDING, &con->flags);
 	}
@@ -827,6 +917,7 @@ static void sctp_init_assoc(struct connection *con)
 	}
 }
 
+/* Connect a new socket to its peer */
 static void tcp_connect_to_sock(struct connection *con)
 {
 	int result = -EHOSTUNREACH;
@@ -844,13 +935,13 @@ static void tcp_connect_to_sock(struct connection *con)
 	if (con->retries++ > MAX_CONNECT_RETRIES)
 		goto out;
 
-	
+	/* Some odd races can cause double-connects, ignore them */
 	if (con->sock) {
 		result = 0;
 		goto out;
 	}
 
-	
+	/* Create a socket to communicate with */
 	result = sock_create_kern(dlm_local_addr[0]->ss_family, SOCK_STREAM,
 				  IPPROTO_TCP, &sock);
 	if (result < 0)
@@ -865,20 +956,22 @@ static void tcp_connect_to_sock(struct connection *con)
 	con->connect_action = tcp_connect_to_sock;
 	add_sock(sock, con);
 
+	/* Bind to our cluster-known address connecting to avoid
+	   routing problems */
 	memcpy(&src_addr, dlm_local_addr[0], sizeof(src_addr));
 	make_sockaddr(&src_addr, 0, &addr_len);
 	result = sock->ops->bind(sock, (struct sockaddr *) &src_addr,
 				 addr_len);
 	if (result < 0) {
 		log_print("could not bind for connect: %d", result);
-		
+		/* This *may* not indicate a critical error */
 	}
 
 	make_sockaddr(&saddr, dlm_config.ci_tcp_port, &addr_len);
 
 	log_print("connecting to %d", con->nodeid);
 
-	
+	/* Turn off Nagle's algorithm */
 	kernel_setsockopt(sock, SOL_TCP, TCP_NODELAY, (char *)&one,
 			  sizeof(one));
 
@@ -897,6 +990,10 @@ out_err:
 	} else if (sock) {
 		sock_release(sock);
 	}
+	/*
+	 * Some errors are fatal and this list might need adjusting. For other
+	 * errors we try again until the max number of retries is reached.
+	 */
 	if (result != -EHOSTUNREACH && result != -ENETUNREACH &&
 	    result != -ENETDOWN && result != -EINVAL
 	    && result != -EPROTONOSUPPORT) {
@@ -921,7 +1018,7 @@ static struct socket *tcp_create_listen_sock(struct connection *con,
 	else
 		addr_len = sizeof(struct sockaddr_in6);
 
-	
+	/* Create a socket to communicate with */
 	result = sock_create_kern(dlm_local_addr[0]->ss_family, SOCK_STREAM,
 				  IPPROTO_TCP, &sock);
 	if (result < 0) {
@@ -929,7 +1026,7 @@ static struct socket *tcp_create_listen_sock(struct connection *con,
 		goto create_out;
 	}
 
-	
+	/* Turn off Nagle's algorithm */
 	kernel_setsockopt(sock, SOL_TCP, TCP_NODELAY, (char *)&one,
 			  sizeof(one));
 
@@ -944,7 +1041,7 @@ static struct socket *tcp_create_listen_sock(struct connection *con,
 	con->connect_action = tcp_connect_to_sock;
 	con->sock = sock;
 
-	
+	/* Bind to our port */
 	make_sockaddr(saddr, dlm_config.ci_tcp_port, &addr_len);
 	result = sock->ops->bind(sock, (struct sockaddr *) saddr, addr_len);
 	if (result < 0) {
@@ -972,6 +1069,7 @@ create_out:
 	return sock;
 }
 
+/* Get local addresses */
 static void init_local(void)
 {
 	struct sockaddr_storage sas, *addr;
@@ -990,6 +1088,8 @@ static void init_local(void)
 	}
 }
 
+/* Bind to an IP address. SCTP allows multiple address so it can do
+   multi-homing */
 static int add_sctp_bind_addr(struct connection *sctp_con,
 			      struct sockaddr_storage *addr,
 			      int addr_len, int num)
@@ -1012,6 +1112,7 @@ static int add_sctp_bind_addr(struct connection *sctp_con,
 	return result;
 }
 
+/* Initialise SCTP socket and bind to all interfaces */
 static int sctp_listen_for_all(void)
 {
 	struct socket *sock = NULL;
@@ -1033,7 +1134,7 @@ static int sctp_listen_for_all(void)
 		goto out;
 	}
 
-	
+	/* Listen for events */
 	memset(&subscribe, 0, sizeof(subscribe));
 	subscribe.sctp_data_io_event = 1;
 	subscribe.sctp_association_event = 1;
@@ -1054,14 +1155,14 @@ static int sctp_listen_for_all(void)
 		goto create_delsock;
 	}
 
-	
+	/* Init con struct */
 	sock->sk->sk_user_data = con;
 	con->sock = sock;
 	con->sock->sk->sk_data_ready = lowcomms_data_ready;
 	con->rx_action = receive_from_sock;
 	con->connect_action = sctp_init_assoc;
 
-	
+	/* Bind to all interfaces. */
 	for (i = 0; i < dlm_local_count; i++) {
 		memcpy(&localaddr, dlm_local_addr[i], sizeof(localaddr));
 		make_sockaddr(&localaddr, dlm_config.ci_tcp_port, &addr_len);
@@ -1096,7 +1197,7 @@ static int tcp_listen_for_all(void)
 	if (!con)
 		return -ENOMEM;
 
-	
+	/* We don't support multi-homed hosts */
 	if (dlm_local_addr[1] != NULL) {
 		log_print("TCP protocol can't handle multi-homed hosts, "
 			  "try SCTP");
@@ -1208,6 +1309,7 @@ out:
 	return;
 }
 
+/* Send a message */
 static void send_to_sock(struct connection *con)
 {
 	int ret = 0;
@@ -1240,6 +1342,9 @@ static void send_to_sock(struct connection *con)
 				if (ret == -EAGAIN &&
 				    test_bit(SOCK_ASYNC_NOSPACE, &con->sock->flags) &&
 				    !test_and_set_bit(CF_APP_LIMITED, &con->flags)) {
+					/* Notify TCP that we're limited by the
+					 * application window size.
+					 */
 					set_bit(SOCK_NOSPACE, &con->sock->flags);
 					con->sock->sk->sk_write_pending++;
 				}
@@ -1250,7 +1355,7 @@ static void send_to_sock(struct connection *con)
 				goto send_error;
 		}
 
-		
+		/* Don't starve people filling buffers */
 		if (++count >= MAX_SEND_MSG_COUNT) {
 			cond_resched();
 			count = 0;
@@ -1296,6 +1401,8 @@ static void clean_one_writequeue(struct connection *con)
 	spin_unlock(&con->writequeue_lock);
 }
 
+/* Called from recovery when it knows that a node has
+   left the cluster */
 int dlm_lowcomms_close(int nodeid)
 {
 	struct connection *con;
@@ -1316,6 +1423,7 @@ int dlm_lowcomms_close(int nodeid)
 	return 0;
 }
 
+/* Receive workqueue function */
 static void process_recv_sockets(struct work_struct *work)
 {
 	struct connection *con = container_of(work, struct connection, rwork);
@@ -1327,6 +1435,7 @@ static void process_recv_sockets(struct work_struct *work)
 	} while (!err);
 }
 
+/* Send workqueue function */
 static void process_send_sockets(struct work_struct *work)
 {
 	struct connection *con = container_of(work, struct connection, swork);
@@ -1340,6 +1449,7 @@ static void process_send_sockets(struct work_struct *work)
 }
 
 
+/* Discard all entries on the write queues */
 static void clean_writequeues(void)
 {
 	foreach_conn(clean_one_writequeue);
@@ -1389,6 +1499,9 @@ static void free_conn(struct connection *con)
 
 void dlm_lowcomms_stop(void)
 {
+	/* Set all the flags to prevent any
+	   socket activity.
+	*/
 	mutex_lock(&connections_lock);
 	foreach_conn(stop_conn);
 	mutex_unlock(&connections_lock);
@@ -1427,7 +1540,7 @@ int dlm_lowcomms_start(void)
 	if (!con_cache)
 		goto out;
 
-	
+	/* Start listening */
 	if (dlm_config.ci_protocol == 0)
 		error = tcp_listen_for_all();
 	else

@@ -4,6 +4,10 @@
 
 #include <linux/pci.h>
 
+/*
+ * I/O AT controls (PCI bus 0 device 8 function 0)
+ * DIMM controls (PCI bus 0 device 16 function 1)
+ */
 #define IOAT_BUS 0
 #define IOAT_DEVFN PCI_DEVFN(8, 0)
 #define MEMCTL_BUS 0
@@ -15,6 +19,12 @@ struct fbd_ioat {
 	unsigned int enabled;
 };
 
+/*
+ * The i5000 chip-set has the same hooks as the i7300
+ * but it is not enabled by default and must be manually
+ * manually enabled with "forceload=1" because it is
+ * only lightly validated.
+ */
 
 static const struct fbd_ioat fbd_ioat_list[] = {
 	{PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_IOAT_CNB, 1},
@@ -22,12 +32,14 @@ static const struct fbd_ioat fbd_ioat_list[] = {
 	{0, 0}
 };
 
+/* table of devices that work with this driver */
 static const struct pci_device_id pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_FBD_CNB) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_5000_ERR) },
-	{ } 
+	{ } /* Terminating entry */
 };
 
+/* Check for known platforms with I/O-AT */
 static inline int i7300_idle_platform_probe(struct pci_dev **fbd_dev,
 						struct pci_dev **ioat_dev,
 						int enable_all)

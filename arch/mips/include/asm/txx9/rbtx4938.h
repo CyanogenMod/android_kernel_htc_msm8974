@@ -15,6 +15,7 @@
 #include <asm/txx9irq.h>
 #include <asm/txx9/tx4938.h>
 
+/* Address map */
 #define RBTX4938_FPGA_REG_ADDR	(IO_BASE + TXX9_CE(2) + 0x00000000)
 #define RBTX4938_FPGA_REV_ADDR	(IO_BASE + TXX9_CE(2) + 0x00000002)
 #define RBTX4938_CONFIG1_ADDR	(IO_BASE + TXX9_CE(2) + 0x00000004)
@@ -40,8 +41,10 @@
 #define RBTX4938_PCIRESET_ADDR	(IO_BASE + TXX9_CE(2) + 0x00007004)
 #define RBTX4938_ETHER_BASE	(IO_BASE + TXX9_CE(2) + 0x00020000)
 
+/* Ethernet port address (Jumperless Mode (W12:Open)) */
 #define RBTX4938_ETHER_ADDR	(RBTX4938_ETHER_BASE + 0x280)
 
+/* bits for ISTAT/IMASK/IMSTAT */
 #define RBTX4938_INTB_PCID	0
 #define RBTX4938_INTB_PCIC	1
 #define RBTX4938_INTB_PCIB	2
@@ -80,12 +83,20 @@
 				((__u8 __iomem *)RBTX4938_SOFTRESETLOCK_ADDR)
 #define rbtx4938_pcireset_addr	((__u8 __iomem *)RBTX4938_PCIRESET_ADDR)
 
+/*
+ * IRQ mappings
+ */
 
-#define RBTX4938_SOFT_INT0	0	
-#define RBTX4938_SOFT_INT1	1	
+#define RBTX4938_SOFT_INT0	0	/* not used */
+#define RBTX4938_SOFT_INT1	1	/* not used */
 #define RBTX4938_IRC_INT	2
 #define RBTX4938_TIMER_INT	7
 
+/* These are the virtual IRQ numbers, we divide all IRQ's into
+ * 'spaces', the 'space' determines where and how to enable/disable
+ * that particular IRQ on an RBTX4938 machine.  Add new 'spaces' as new
+ * IRQ hardware is supported.
+ */
 #define RBTX4938_NR_IRQ_IOC	8
 
 #define RBTX4938_IRQ_IRC	TXX9_IRQ_BASE
@@ -118,7 +129,9 @@
 #define RBTX4938_IRQ_IOC_SWINT	(RBTX4938_IRQ_IOC + RBTX4938_INTB_SWINT)
 
 
+/* IOC (PCI, etc) */
 #define RBTX4938_IRQ_IOCINT	(TXX9_IRQ_BASE + TX4938_IR_INT(0))
+/* Onboard 10M Ether */
 #define RBTX4938_IRQ_ETHER	(TXX9_IRQ_BASE + TX4938_IR_INT(1))
 
 #define RBTX4938_RTL_8019_BASE (RBTX4938_ETHER_ADDR - mips_io_port_base)
@@ -129,4 +142,4 @@ void rbtx4938_irq_setup(void);
 struct pci_dev;
 int rbtx4938_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 
-#endif 
+#endif /* __ASM_TXX9_RBTX4938_H */

@@ -33,39 +33,44 @@
 
 #include <mach/hardware.h>
 #include <plat/pxa27x_keypad.h>
-#define KPC             0x0000 
-#define KPDK            0x0008 
-#define KPREC           0x0010 
-#define KPMK            0x0018 
-#define KPAS            0x0020 
+/*
+ * Keypad Controller registers
+ */
+#define KPC             0x0000 /* Keypad Control register */
+#define KPDK            0x0008 /* Keypad Direct Key register */
+#define KPREC           0x0010 /* Keypad Rotary Encoder register */
+#define KPMK            0x0018 /* Keypad Matrix Key register */
+#define KPAS            0x0020 /* Keypad Automatic Scan register */
 
+/* Keypad Automatic Scan Multiple Key Presser register 0-3 */
 #define KPASMKP0        0x0028
 #define KPASMKP1        0x0030
 #define KPASMKP2        0x0038
 #define KPASMKP3        0x0040
 #define KPKDI           0x0048
 
-#define KPC_MKRN(n)	((((n) - 1) & 0x7) << 26) 
-#define KPC_MKCN(n)	((((n) - 1) & 0x7) << 23) 
-#define KPC_DKN(n)	((((n) - 1) & 0x7) << 6)  
+/* bit definitions */
+#define KPC_MKRN(n)	((((n) - 1) & 0x7) << 26) /* matrix key row number */
+#define KPC_MKCN(n)	((((n) - 1) & 0x7) << 23) /* matrix key column number */
+#define KPC_DKN(n)	((((n) - 1) & 0x7) << 6)  /* direct key number */
 
-#define KPC_AS          (0x1 << 30)  
-#define KPC_ASACT       (0x1 << 29)  
-#define KPC_MI          (0x1 << 22)  
-#define KPC_IMKP        (0x1 << 21)  
+#define KPC_AS          (0x1 << 30)  /* Automatic Scan bit */
+#define KPC_ASACT       (0x1 << 29)  /* Automatic Scan on Activity */
+#define KPC_MI          (0x1 << 22)  /* Matrix interrupt bit */
+#define KPC_IMKP        (0x1 << 21)  /* Ignore Multiple Key Press */
 
-#define KPC_MS(n)	(0x1 << (13 + (n)))	
+#define KPC_MS(n)	(0x1 << (13 + (n)))	/* Matrix scan line 'n' */
 #define KPC_MS_ALL      (0xff << 13)
 
-#define KPC_ME          (0x1 << 12)  
-#define KPC_MIE         (0x1 << 11)  
-#define KPC_DK_DEB_SEL	(0x1 <<  9)  
-#define KPC_DI          (0x1 <<  5)  
-#define KPC_RE_ZERO_DEB (0x1 <<  4)  
-#define KPC_REE1        (0x1 <<  3)  
-#define KPC_REE0        (0x1 <<  2)  
-#define KPC_DE          (0x1 <<  1)  
-#define KPC_DIE         (0x1 <<  0)  
+#define KPC_ME          (0x1 << 12)  /* Matrix Keypad Enable */
+#define KPC_MIE         (0x1 << 11)  /* Matrix Interrupt Enable */
+#define KPC_DK_DEB_SEL	(0x1 <<  9)  /* Direct Keypad Debounce Select */
+#define KPC_DI          (0x1 <<  5)  /* Direct key interrupt bit */
+#define KPC_RE_ZERO_DEB (0x1 <<  4)  /* Rotary Encoder Zero Debounce */
+#define KPC_REE1        (0x1 <<  3)  /* Rotary Encoder1 Enable */
+#define KPC_REE0        (0x1 <<  2)  /* Rotary Encoder0 Enable */
+#define KPC_DE          (0x1 <<  1)  /* Direct Keypad Enable */
+#define KPC_DIE         (0x1 <<  0)  /* Direct Keypad interrupt Enable */
 
 #define KPDK_DKP        (0x1 << 31)
 #define KPDK_DK(n)	((n) & 0xff)
@@ -106,7 +111,7 @@ struct pxa27x_keypad {
 	unsigned short keycodes[MAX_KEYPAD_KEYS];
 	int rotary_rel_code[2];
 
-	
+	/* state row bits of each column scan */
 	uint32_t matrix_key_state[MAX_MATRIX_KEY_COLS];
 	uint32_t direct_key_state;
 
@@ -194,7 +199,7 @@ static void pxa27x_keypad_scan_matrix(struct pxa27x_keypad *keypad)
 		col = KPAS_CP(kpas);
 		row = KPAS_RP(kpas);
 
-		
+		/* if invalid row/col, treat as no key pressed */
 		if (col >= pdata->matrix_key_cols ||
 		    row >= pdata->matrix_key_rows)
 			goto scan;
@@ -264,7 +269,7 @@ static void report_rotary_event(struct pxa27x_keypad *keypad, int r, int delta)
 		int code = MAX_MATRIX_KEY_NUM + 2 * r + (delta > 0 ? 0 : 1);
 		unsigned char keycode = keypad->keycodes[code];
 
-		
+		/* simulate a press-n-release */
 		input_event(dev, EV_MSC, MSC_SCAN, code);
 		input_report_key(dev, keycode, 1);
 		input_sync(dev);
@@ -282,7 +287,7 @@ static void pxa27x_keypad_scan_rotary(struct pxa27x_keypad *keypad)
 	struct pxa27x_keypad_platform_data *pdata = keypad->pdata;
 	uint32_t kprec;
 
-	
+	/* read and reset to default count value */
 	kprec = keypad_readl(KPREC);
 	keypad_writel(KPREC, DEFAULT_KPREC);
 
@@ -355,14 +360,14 @@ static void pxa27x_keypad_config(struct pxa27x_keypad *keypad)
 	unsigned int mask = 0, direct_key_num = 0;
 	unsigned long kpc = 0;
 
-	
+	/* enable matrix keys with automatic scan */
 	if (pdata->matrix_key_rows && pdata->matrix_key_cols) {
 		kpc |= KPC_ASACT | KPC_MIE | KPC_ME | KPC_MS_ALL;
 		kpc |= KPC_MKRN(pdata->matrix_key_rows) |
 		       KPC_MKCN(pdata->matrix_key_cols);
 	}
 
-	
+	/* enable rotary key, debounce interval same as direct keys */
 	if (pdata->enable_rotary0) {
 		mask |= 0x03;
 		direct_key_num = 2;
@@ -380,7 +385,7 @@ static void pxa27x_keypad_config(struct pxa27x_keypad *keypad)
 
 	keypad->direct_key_mask = ((2 << direct_key_num) - 1) & ~mask;
 
-	
+	/* enable direct key */
 	if (direct_key_num)
 		kpc |= KPC_DE | KPC_DIE | KPC_DKN(direct_key_num);
 
@@ -393,7 +398,7 @@ static int pxa27x_keypad_open(struct input_dev *dev)
 {
 	struct pxa27x_keypad *keypad = input_get_drvdata(dev);
 
-	
+	/* Enable unit clock */
 	clk_enable(keypad->clk);
 	pxa27x_keypad_config(keypad);
 
@@ -404,7 +409,7 @@ static void pxa27x_keypad_close(struct input_dev *dev)
 {
 	struct pxa27x_keypad *keypad = input_get_drvdata(dev);
 
-	
+	/* Disable clock unit */
 	clk_disable(keypad->clk);
 }
 
@@ -434,7 +439,7 @@ static int pxa27x_keypad_resume(struct device *dev)
 	mutex_lock(&input_dev->mutex);
 
 	if (input_dev->users) {
-		
+		/* Enable unit clock */
 		clk_enable(keypad->clk);
 		pxa27x_keypad_config(keypad);
 	}
@@ -537,7 +542,7 @@ static int __devinit pxa27x_keypad_probe(struct platform_device *pdev)
 		goto failed_put_clk;
 	}
 
-	
+	/* Register the input device */
 	error = input_register_device(input_dev);
 	if (error) {
 		dev_err(&pdev->dev, "failed to register input device\n");
@@ -583,6 +588,7 @@ static int __devexit pxa27x_keypad_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:pxa27x-keypad");
 
 static struct platform_driver pxa27x_keypad_driver = {

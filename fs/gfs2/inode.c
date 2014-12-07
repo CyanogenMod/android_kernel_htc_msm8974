@@ -94,6 +94,13 @@ static struct inode *gfs2_iget(struct super_block *sb, u64 no_addr,
 	return iget5_locked(sb, hash, iget_test, iget_set, &data);
 }
 
+/**
+ * gfs2_set_iop - Sets inode operations
+ * @inode: The inode with correct i_mode filled in
+ *
+ * GFS2 lookup code fills in vfs inode contents based on info obtained
+ * from directory entry inside gfs2_inode_lookup().
+ */
 
 static void gfs2_set_iop(struct inode *inode)
 {
@@ -120,6 +127,15 @@ static void gfs2_set_iop(struct inode *inode)
 	}
 }
 
+/**
+ * gfs2_inode_lookup - Lookup an inode
+ * @sb: The super block
+ * @no_addr: The inode number
+ * @type: The type of the inode
+ * non_block: Can we block on inodes that are being freed?
+ *
+ * Returns: A VFS inode, or an error
+ */
 
 struct inode *gfs2_inode_lookup(struct super_block *sb, unsigned int type,
 				u64 no_addr, u64 no_formal_ino, int non_block)
@@ -158,7 +174,7 @@ struct inode *gfs2_inode_lookup(struct super_block *sb, unsigned int type,
 		io_gl = NULL;
 
 		if (type == DT_UNKNOWN) {
-			
+			/* Inode glock must be locked already */
 			error = gfs2_inode_refresh(GFS2_I(inode));
 			if (error)
 				goto fail_refresh;
@@ -194,7 +210,7 @@ struct inode *gfs2_lookup_by_inum(struct gfs2_sbd *sdp, u64 no_addr,
 	struct inode *inode = NULL;
 	int error;
 
-	
+	/* Must not read in block until block type is verified */
 	error = gfs2_glock_nq_num(sdp, no_addr, &gfs2_inode_glops,
 				  LM_ST_EXCLUSIVE, GL_SKIP, &i_gh);
 	if (error)
@@ -208,7 +224,7 @@ struct inode *gfs2_lookup_by_inum(struct gfs2_sbd *sdp, u64 no_addr,
 	if (IS_ERR(inode))
 		goto fail;
 
-	
+	/* Two extra checks for NFS only */
 	if (no_formal_ino) {
 		error = -ESTALE;
 		if (GFS2_I(inode)->i_no_formal_ino != *no_formal_ino)
@@ -236,6 +252,11 @@ struct inode *gfs2_lookup_simple(struct inode *dip, const char *name)
 	struct inode *inode;
 	gfs2_str2qstr(&qstr, name);
 	inode = gfs2_lookupi(dip, &qstr, 1);
+	/* gfs2_lookupi has inconsistent callers: vfs
+	 * related routines expect NULL for no entry found,
+	 * gfs2_lookup_simple callers expect ENOENT
+	 * and do not check for NULL.
+	 */
 	if (inode == NULL)
 		return ERR_PTR(-ENOENT);
 	else
@@ -243,6 +264,20 @@ struct inode *gfs2_lookup_simple(struct inode *dip, const char *name)
 }
 
 
+/**
+ * gfs2_lookupi - Look up a filename in a directory and return its inode
+ * @d_gh: An initialized holder for the directory glock
+ * @name: The name of the inode to look for
+ * @is_root: If 1, ignore the caller's permissions
+ * @i_gh: An uninitialized holder for the new inode glock
+ *
+ * This can be called via the VFS filldir function when NFS is doing
+ * a readdirplus and the inode which its intending to stat isn't
+ * already in cache. In this case we must not take the directory glock
+ * again, since the readdir call will have already taken that lock.
+ *
+ * Returns: errno
+ */
 
 struct inode *gfs2_lookupi(struct inode *dir, const struct qstr *name,
 			   int is_root)
@@ -288,6 +323,14 @@ out:
 	return inode ? inode : ERR_PTR(error);
 }
 
+/**
+ * create_ok - OK to create a new on-disk inode here?
+ * @dip:  Directory in which dinode is to be created
+ * @name:  Name of new dinode
+ * @mode:
+ *
+ * Returns: errno
+ */
 
 static int create_ok(struct gfs2_inode *dip, const struct qstr *name,
 		     umode_t mode)
@@ -298,7 +341,7 @@ static int create_ok(struct gfs2_inode *dip, const struct qstr *name,
 	if (error)
 		return error;
 
-	
+	/*  Don't create entries in an unlinked directory  */
 	if (!dip->i_inode.i_nlink)
 		return -ENOENT;
 
@@ -373,7 +416,7 @@ static void gfs2_init_dir(struct buffer_head *dibh,
 	struct gfs2_dirent *dent = (struct gfs2_dirent *)(di+1);
 
 	gfs2_qstr2dirent(&gfs2_qdot, GFS2_DIRENT_SIZE(gfs2_qdot.len), dent);
-	dent->de_inum = di->di_num; 
+	dent->de_inum = di->di_num; /* already GFS2 endian */
 	dent->de_type = cpu_to_be16(DT_DIR);
 
 	dent = (struct gfs2_dirent *)((char*)dent + GFS2_DIRENT_SIZE(1));
@@ -383,6 +426,21 @@ static void gfs2_init_dir(struct buffer_head *dibh,
 	
 }
 
+/**
+ * init_dinode - Fill in a new dinode structure
+ * @dip: The directory this inode is being created in
+ * @gl: The glock covering the new inode
+ * @inum: The inode number
+ * @mode: The file permissions
+ * @uid: The uid of the new inode
+ * @gid: The gid of the new inode
+ * @generation: The generation number of the new inode
+ * @dev: The device number (if a device node)
+ * @symname: The symlink destination (if a symlink)
+ * @size: The inode size (ignored for directories)
+ * @bhp: The buffer head (returned to caller)
+ *
+ */
 
 static void init_dinode(struct gfs2_inode *dip, struct gfs2_glock *gl,
 			const struct gfs2_inum_host *inum, umode_t mode,
@@ -580,6 +638,17 @@ static int gfs2_security_init(struct gfs2_inode *dip, struct gfs2_inode *ip,
 					    &gfs2_initxattrs, NULL);
 }
 
+/**
+ * gfs2_create_inode - Create a new inode
+ * @dir: The parent directory
+ * @dentry: The new dentry
+ * @mode: The permissions on the new inode
+ * @dev: For device nodes, this is the device number
+ * @symname: For symlinks, this is the link destination
+ * @size: The initial size of the inode (ignored for directories)
+ *
+ * Returns: 0 on success, or error code
+ */
 
 static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 			     umode_t mode, dev_t dev, const char *symname,
@@ -651,6 +720,8 @@ static int gfs2_create_inode(struct inode *dir, struct dentry *dentry,
 		brelse(bh);
 
 	gfs2_trans_end(sdp);
+	/* Check if we reserved space in the rgrp. Function link_dinode may
+	   not, depending on whether alloc is required. */
 	if (dip->i_res)
 		gfs2_inplace_release(dip);
 	gfs2_quota_unlock(dip);
@@ -674,6 +745,14 @@ fail:
 	return error;
 }
 
+/**
+ * gfs2_create - Create a file
+ * @dir: The directory in which to create the file
+ * @dentry: The dentry of the new file
+ * @mode: The mode of the new file
+ *
+ * Returns: errno
+ */
 
 static int gfs2_create(struct inode *dir, struct dentry *dentry,
 		       umode_t mode, struct nameidata *nd)
@@ -684,6 +763,16 @@ static int gfs2_create(struct inode *dir, struct dentry *dentry,
 	return gfs2_create_inode(dir, dentry, S_IFREG | mode, 0, NULL, 0, excl);
 }
 
+/**
+ * gfs2_lookup - Look up a filename in a directory and return its inode
+ * @dir: The directory inode
+ * @dentry: The dentry of the new inode
+ * @nd: passed from Linux VFS, ignored by us
+ *
+ * Called by the VFS layer. Lock dir and call gfs2_lookupi()
+ *
+ * Returns: errno
+ */
 
 static struct dentry *gfs2_lookup(struct inode *dir, struct dentry *dentry,
 				  struct nameidata *nd)
@@ -703,6 +792,17 @@ static struct dentry *gfs2_lookup(struct inode *dir, struct dentry *dentry,
 	return d_splice_alias(inode, dentry);
 }
 
+/**
+ * gfs2_link - Link to a file
+ * @old_dentry: The inode to link
+ * @dir: Add link to this directory
+ * @dentry: The name of the link
+ *
+ * Link the inode in "old_dentry" into the directory "dir" with the
+ * name in "dentry".
+ *
+ * Returns: errno
+ */
 
 static int gfs2_link(struct dentry *old_dentry, struct inode *dir,
 		     struct dentry *dentry)
@@ -722,11 +822,11 @@ static int gfs2_link(struct dentry *old_dentry, struct inode *dir,
 	gfs2_holder_init(dip->i_gl, LM_ST_EXCLUSIVE, 0, ghs);
 	gfs2_holder_init(ip->i_gl, LM_ST_EXCLUSIVE, 0, ghs + 1);
 
-	error = gfs2_glock_nq(ghs); 
+	error = gfs2_glock_nq(ghs); /* parent */
 	if (error)
 		goto out_parent;
 
-	error = gfs2_glock_nq(ghs + 1); 
+	error = gfs2_glock_nq(ghs + 1); /* child */
 	if (error)
 		goto out_child;
 
@@ -835,6 +935,16 @@ out_parent:
 	return error;
 }
 
+/*
+ * gfs2_unlink_ok - check to see that a inode is still in a directory
+ * @dip: the directory
+ * @name: the name of the file
+ * @ip: the inode
+ *
+ * Assumes that the lock on (at least) @dip is held.
+ *
+ * Returns: 0 if the parent/child relationship is correct, errno if it isn't
+ */
 
 static int gfs2_unlink_ok(struct gfs2_inode *dip, const struct qstr *name,
 			  const struct gfs2_inode *ip)
@@ -863,6 +973,18 @@ static int gfs2_unlink_ok(struct gfs2_inode *dip, const struct qstr *name,
 	return 0;
 }
 
+/**
+ * gfs2_unlink_inode - Removes an inode from its parent dir and unlinks it
+ * @dip: The parent directory
+ * @name: The name of the entry in the parent directory
+ * @bh: The inode buffer for the inode to be removed
+ * @inode: The inode to be removed
+ *
+ * Called with all the locks and in a transaction. This will only be
+ * called for a directory after it has been checked to ensure it is empty.
+ *
+ * Returns: 0 on success, or an error
+ */
 
 static int gfs2_unlink_inode(struct gfs2_inode *dip,
 			     const struct dentry *dentry,
@@ -889,6 +1011,16 @@ static int gfs2_unlink_inode(struct gfs2_inode *dip,
 }
 
 
+/**
+ * gfs2_unlink - Unlink an inode (this does rmdir as well)
+ * @dir: The inode of the directory containing the inode to unlink
+ * @dentry: The file itself
+ *
+ * This routine uses the type of the inode as a flag to figure out
+ * whether this is an unlink or an rmdir.
+ *
+ * Returns: errno
+ */
 
 static int gfs2_unlink(struct inode *dir, struct dentry *dentry)
 {
@@ -917,11 +1049,11 @@ static int gfs2_unlink(struct inode *dir, struct dentry *dentry)
 	gfs2_holder_init(rgd->rd_gl, LM_ST_EXCLUSIVE, 0, ghs + 2);
 
 
-	error = gfs2_glock_nq(ghs); 
+	error = gfs2_glock_nq(ghs); /* parent */
 	if (error)
 		goto out_parent;
 
-	error = gfs2_glock_nq(ghs + 1); 
+	error = gfs2_glock_nq(ghs + 1); /* child */
 	if (error)
 		goto out_child;
 
@@ -935,7 +1067,7 @@ static int gfs2_unlink(struct inode *dir, struct dentry *dentry)
 			goto out_rgrp;
 	}
 
-	error = gfs2_glock_nq(ghs + 2); 
+	error = gfs2_glock_nq(ghs + 2); /* rgrp */
 	if (error)
 		goto out_rgrp;
 
@@ -970,6 +1102,14 @@ out_inodes:
 	return error;
 }
 
+/**
+ * gfs2_symlink - Create a symlink
+ * @dir: The directory to create the symlink in
+ * @dentry: The dentry to put the symlink in
+ * @symname: The thing which the link points to
+ *
+ * Returns: errno
+ */
 
 static int gfs2_symlink(struct inode *dir, struct dentry *dentry,
 			const char *symname)
@@ -984,12 +1124,28 @@ static int gfs2_symlink(struct inode *dir, struct dentry *dentry,
 	return gfs2_create_inode(dir, dentry, S_IFLNK | S_IRWXUGO, 0, symname, size, 0);
 }
 
+/**
+ * gfs2_mkdir - Make a directory
+ * @dir: The parent directory of the new one
+ * @dentry: The dentry of the new directory
+ * @mode: The mode of the new directory
+ *
+ * Returns: errno
+ */
 
 static int gfs2_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	return gfs2_create_inode(dir, dentry, S_IFDIR | mode, 0, NULL, 0, 0);
 }
 
+/**
+ * gfs2_mknod - Make a special file
+ * @dir: The directory in which the special file will reside
+ * @dentry: The dentry of the special file
+ * @mode: The mode of the special file
+ * @dev: The device specification of the special file
+ *
+ */
 
 static int gfs2_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 		      dev_t dev)
@@ -997,6 +1153,16 @@ static int gfs2_mknod(struct inode *dir, struct dentry *dentry, umode_t mode,
 	return gfs2_create_inode(dir, dentry, mode, dev, NULL, 0, 0);
 }
 
+/*
+ * gfs2_ok_to_move - check if it's ok to move a directory to another directory
+ * @this: move this
+ * @to: to here
+ *
+ * Follow @to back to the root and make sure we don't encounter @this
+ * Assumes we already hold the rename lock.
+ *
+ * Returns: errno
+ */
 
 static int gfs2_ok_to_move(struct gfs2_inode *this, struct gfs2_inode *to)
 {
@@ -1032,6 +1198,15 @@ static int gfs2_ok_to_move(struct gfs2_inode *this, struct gfs2_inode *to)
 	return error;
 }
 
+/**
+ * gfs2_rename - Rename a file
+ * @odir: Parent directory of old file name
+ * @odentry: The old dentry of the file
+ * @ndir: Parent directory of new file name
+ * @ndentry: The new dentry of the file
+ *
+ * Returns: errno
+ */
 
 static int gfs2_rename(struct inode *odir, struct dentry *odentry,
 		       struct inode *ndir, struct dentry *ndentry)
@@ -1067,7 +1242,7 @@ static int gfs2_rename(struct inode *odir, struct dentry *odentry,
 
 		if (S_ISDIR(ip->i_inode.i_mode)) {
 			dir_rename = 1;
-			
+			/* don't move a dirctory into it's subdir */
 			error = gfs2_ok_to_move(ip, ndip);
 			if (error)
 				goto out_gunlock_r;
@@ -1086,6 +1261,10 @@ static int gfs2_rename(struct inode *odir, struct dentry *odentry,
 	if (nip) {
 		gfs2_holder_init(nip->i_gl, LM_ST_EXCLUSIVE, 0, ghs + num_gh);
 		num_gh++;
+		/* grab the resource lock for unlink flag twiddling 
+		 * this is the case of the target file already existing
+		 * so we unlink before doing the rename
+		 */
 		nrgd = gfs2_blk2rgrpd(sdp, nip->i_no_addr, 1);
 		if (nrgd)
 			gfs2_holder_init(nrgd->rd_gl, LM_ST_EXCLUSIVE, 0, ghs + num_gh++);
@@ -1101,13 +1280,13 @@ static int gfs2_rename(struct inode *odir, struct dentry *odentry,
 	if (ip->i_inode.i_nlink == 0)
 		goto out_gunlock;
 
-	
+	/* Check out the old directory */
 
 	error = gfs2_unlink_ok(odip, &odentry->d_name, ip);
 	if (error)
 		goto out_gunlock;
 
-	
+	/* Check out the new directory */
 
 	if (nip) {
 		error = gfs2_unlink_ok(ndip, &ndentry->d_name, nip);
@@ -1163,7 +1342,7 @@ static int gfs2_rename(struct inode *odir, struct dentry *odentry,
 		}
 	}
 
-	
+	/* Check out the dir to be renamed */
 
 	if (dir_rename) {
 		error = gfs2_permission(odentry->d_inode, MAY_WRITE);
@@ -1206,7 +1385,7 @@ static int gfs2_rename(struct inode *odir, struct dentry *odentry,
 			goto out_gunlock;
 	}
 
-	
+	/* Remove the target file, if it exists */
 
 	if (nip) {
 		struct buffer_head *bh;
@@ -1263,6 +1442,15 @@ out:
 	return error;
 }
 
+/**
+ * gfs2_follow_link - Follow a symbolic link
+ * @dentry: The dentry of the link
+ * @nd: Data that we pass to vfs_follow_link()
+ *
+ * This can handle symlinks of any size.
+ *
+ * Returns: 0 on success or error code
+ */
 
 static void *gfs2_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
@@ -1313,6 +1501,18 @@ static void gfs2_put_link(struct dentry *dentry, struct nameidata *nd, void *p)
 		kfree(s);
 }
 
+/**
+ * gfs2_permission -
+ * @inode: The inode
+ * @mask: The mask to be tested
+ * @flags: Indicates whether this is an RCU path walk or not
+ *
+ * This may be called from the VFS directly, or from within GFS2 with the
+ * inode locked, so we look to see if the glock is already locked and only
+ * lock the glock if its not already been done.
+ *
+ * Returns: errno
+ */
 
 int gfs2_permission(struct inode *inode, int mask)
 {
@@ -1349,6 +1549,13 @@ static int __gfs2_setattr_simple(struct inode *inode, struct iattr *attr)
 	return 0;
 }
 
+/**
+ * gfs2_setattr_simple -
+ * @ip:
+ * @attr:
+ *
+ * Returns: errno
+ */
 
 int gfs2_setattr_simple(struct inode *inode, struct iattr *attr)
 {
@@ -1419,6 +1626,16 @@ out_alloc:
 	return error;
 }
 
+/**
+ * gfs2_setattr - Change attributes on an inode
+ * @dentry: The dentry which is changing
+ * @attr: The structure describing the change
+ *
+ * The VFS layer wants to change one or more of an inodes attributes.  Write
+ * that change out to disk.
+ *
+ * Returns: errno
+ */
 
 static int gfs2_setattr(struct dentry *dentry, struct iattr *attr)
 {
@@ -1455,6 +1672,20 @@ out:
 	return error;
 }
 
+/**
+ * gfs2_getattr - Read out an inode's attributes
+ * @mnt: The vfsmount the inode is being accessed from
+ * @dentry: The dentry to stat
+ * @stat: The inode's stats
+ *
+ * This may be called from the VFS directly, or from within GFS2 with the
+ * inode locked, so we look to see if the glock is already locked and only
+ * lock the glock if its not already been done. Note that its the NFS
+ * readdirplus operation which causes this to be called (from filldir)
+ * with the glock already held.
+ *
+ * Returns: errno
+ */
 
 static int gfs2_getattr(struct vfsmount *mnt, struct dentry *dentry,
 			struct kstat *stat)

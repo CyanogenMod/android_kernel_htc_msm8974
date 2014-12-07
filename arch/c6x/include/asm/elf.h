@@ -11,6 +11,9 @@
 #ifndef _ASM_C6X_ELF_H
 #define _ASM_C6X_ELF_H
 
+/*
+ * ELF register definitions..
+ */
 #include <asm/ptrace.h>
 
 typedef unsigned long elf_greg_t;
@@ -22,10 +25,16 @@ typedef unsigned long elf_fpreg_t;
 typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(x) ((x)->e_machine == EM_TI_C6000)
 
 #define elf_check_const_displacement(x) (1)
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #ifdef __LITTLE_ENDIAN__
 #define ELF_DATA	ELFDATA2LSB
 #else
@@ -35,6 +44,7 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 #define ELF_CLASS	ELFCLASS32
 #define ELF_ARCH	EM_TI_C6000
 
+/* Nothing for now. Need to setup DP... */
 #define ELF_PLAT_INIT(_r)
 
 #define USE_ELF_CORE_DUMP
@@ -44,23 +54,31 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 	memcpy((char *) &_dest, (char *) _regs,		\
 	sizeof(struct pt_regs));
 
+/* This yields a mask that user programs can use to figure out what
+   instruction set this cpu supports.  */
 
 #define ELF_HWCAP	(0)
 
+/* This yields a string that ld.so will use to load implementation
+   specific libraries for optimization.  This is more specific in
+   intent than poking at uname or /proc/cpuinfo.  */
 
 #define ELF_PLATFORM  (NULL)
 
 #define SET_PERSONALITY(ex) set_personality(PER_LINUX)
 
+/* C6X specific section types */
 #define SHT_C6000_UNWIND	0x70000001
 #define SHT_C6000_PREEMPTMAP	0x70000002
 #define SHT_C6000_ATTRIBUTES	0x70000003
 
+/* C6X specific DT_ tags */
 #define DT_C6000_DSBT_BASE	0x70000000
 #define DT_C6000_DSBT_SIZE	0x70000001
 #define DT_C6000_PREEMPTMAP	0x70000002
 #define DT_C6000_DSBT_INDEX	0x70000003
 
+/* C6X specific relocs */
 #define R_C6000_NONE		0
 #define R_C6000_ABS32		1
 #define R_C6000_ABS16		2
@@ -92,4 +110,4 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 #define R_C6000_FPHEAD		254
 #define R_C6000_NOCMP		255
 
-#endif 
+#endif /*_ASM_C6X_ELF_H */

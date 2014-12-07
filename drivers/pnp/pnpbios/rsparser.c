@@ -1,3 +1,6 @@
+/*
+ * rsparser.c - parses and encodes pnpbios resource data streams
+ */
 
 #include <linux/ctype.h>
 #include <linux/pnp.h>
@@ -9,11 +12,12 @@
 inline void pcibios_penalize_isa_irq(int irq, int active)
 {
 }
-#endif				
+#endif				/* CONFIG_PCI */
 
 #include "../base.h"
 #include "pnpbios.h"
 
+/* standard resource tags */
 #define SMALL_TAG_PNPVERNO		0x01
 #define SMALL_TAG_LOGDEVID		0x02
 #define SMALL_TAG_COMPATDEVID		0x03
@@ -33,7 +37,20 @@ inline void pcibios_penalize_isa_irq(int irq, int active)
 #define LARGE_TAG_MEM32			0x85
 #define LARGE_TAG_FIXEDMEM32		0x86
 
+/*
+ * Resource Data Stream Format:
+ *
+ * Allocated Resources (required)
+ * end tag ->
+ * Resource Configuration Options (optional)
+ * end tag ->
+ * Compitable Device IDs (optional)
+ * final end tag ->
+ */
 
+/*
+ * Allocated Resources
+ */
 
 static void pnpbios_parse_allocated_ioresource(struct pnp_dev *dev,
 					       int start, int len)
@@ -75,11 +92,11 @@ static unsigned char *pnpbios_parse_allocated_resource_data(struct pnp_dev *dev,
 
 	while ((char *)p < (char *)end) {
 
-		
-		if (p[0] & LARGE_TAG) {	
+		/* determine the type of tag */
+		if (p[0] & LARGE_TAG) {	/* large tag */
 			len = (p[2] << 8) | p[1];
 			tag = p[0];
-		} else {	
+		} else {	/* small tag */
 			len = p[0] & 0x07;
 			tag = ((p[0] >> 3) & 0x0f);
 		}
@@ -95,11 +112,11 @@ static unsigned char *pnpbios_parse_allocated_resource_data(struct pnp_dev *dev,
 			break;
 
 		case LARGE_TAG_ANSISTR:
-			
+			/* ignore this for now */
 			break;
 
 		case LARGE_TAG_VENDOR:
-			
+			/* do nothing */
 			break;
 
 		case LARGE_TAG_MEM32:
@@ -157,7 +174,7 @@ static unsigned char *pnpbios_parse_allocated_resource_data(struct pnp_dev *dev,
 			break;
 
 		case SMALL_TAG_VENDOR:
-			
+			/* do nothing */
 			break;
 
 		case SMALL_TAG_FIXEDPORT:
@@ -173,14 +190,14 @@ static unsigned char *pnpbios_parse_allocated_resource_data(struct pnp_dev *dev,
 			return (unsigned char *)p;
 			break;
 
-		default:	
+		default:	/* an unknown tag */
 len_err:
 			dev_err(&dev->dev, "unknown tag %#x length %d\n",
 				tag, len);
 			break;
 		}
 
-		
+		/* continue to the next tag */
 		if (p[0] & LARGE_TAG)
 			p += len + 3;
 		else
@@ -192,6 +209,9 @@ len_err:
 	return NULL;
 }
 
+/*
+ * Resource Configuration Options
+ */
 
 static __init void pnpbios_parse_mem_option(struct pnp_dev *dev,
 					    unsigned char *p, int size,
@@ -307,11 +327,11 @@ pnpbios_parse_resource_option_data(unsigned char *p, unsigned char *end,
 	option_flags = 0;
 	while ((char *)p < (char *)end) {
 
-		
-		if (p[0] & LARGE_TAG) {	
+		/* determine the type of tag */
+		if (p[0] & LARGE_TAG) {	/* large tag */
 			len = (p[2] << 8) | p[1];
 			tag = p[0];
-		} else {	
+		} else {	/* small tag */
 			len = p[0] & 0x07;
 			tag = ((p[0] >> 3) & 0x0f);
 		}
@@ -356,7 +376,7 @@ pnpbios_parse_resource_option_data(unsigned char *p, unsigned char *end,
 			break;
 
 		case SMALL_TAG_VENDOR:
-			
+			/* do nothing */
 			break;
 
 		case SMALL_TAG_FIXEDPORT:
@@ -384,14 +404,14 @@ pnpbios_parse_resource_option_data(unsigned char *p, unsigned char *end,
 		case SMALL_TAG_END:
 			return p + 2;
 
-		default:	
+		default:	/* an unknown tag */
 len_err:
 			dev_err(&dev->dev, "unknown tag %#x length %d\n",
 				tag, len);
 			break;
 		}
 
-		
+		/* continue to the next tag */
 		if (p[0] & LARGE_TAG)
 			p += len + 3;
 		else
@@ -403,6 +423,9 @@ len_err:
 	return NULL;
 }
 
+/*
+ * Compatible Device IDs
+ */
 
 static unsigned char *pnpbios_parse_compatible_ids(unsigned char *p,
 						   unsigned char *end,
@@ -418,11 +441,11 @@ static unsigned char *pnpbios_parse_compatible_ids(unsigned char *p,
 
 	while ((char *)p < (char *)end) {
 
-		
-		if (p[0] & LARGE_TAG) {	
+		/* determine the type of tag */
+		if (p[0] & LARGE_TAG) {	/* large tag */
 			len = (p[2] << 8) | p[1];
 			tag = p[0];
-		} else {	
+		} else {	/* small tag */
 			len = p[0] & 0x07;
 			tag = ((p[0] >> 3) & 0x0f);
 		}
@@ -436,7 +459,7 @@ static unsigned char *pnpbios_parse_compatible_ids(unsigned char *p,
 				  PNP_NAME_LEN ? PNP_NAME_LEN - 1 : len] = '\0';
 			break;
 
-		case SMALL_TAG_COMPATDEVID:	
+		case SMALL_TAG_COMPATDEVID:	/* compatible ID */
 			if (len != 4)
 				goto len_err;
 			eisa_id = p[1] | p[2] << 8 | p[3] << 16 | p[4] << 24;
@@ -451,14 +474,14 @@ static unsigned char *pnpbios_parse_compatible_ids(unsigned char *p,
 			return (unsigned char *)p;
 			break;
 
-		default:	
+		default:	/* an unknown tag */
 len_err:
 			dev_err(&dev->dev, "unknown tag %#x length %d\n",
 				tag, len);
 			break;
 		}
 
-		
+		/* continue to the next tag */
 		if (p[0] & LARGE_TAG)
 			p += len + 3;
 		else
@@ -470,6 +493,9 @@ len_err:
 	return NULL;
 }
 
+/*
+ * Allocated Resource Encoding
+ */
 
 static void pnpbios_encode_mem(struct pnp_dev *dev, unsigned char *p,
 			       struct resource *res)
@@ -641,11 +667,11 @@ static unsigned char *pnpbios_encode_allocated_resource_data(struct pnp_dev
 
 	while ((char *)p < (char *)end) {
 
-		
-		if (p[0] & LARGE_TAG) {	
+		/* determine the type of tag */
+		if (p[0] & LARGE_TAG) {	/* large tag */
 			len = (p[2] << 8) | p[1];
 			tag = p[0];
-		} else {	
+		} else {	/* small tag */
 			len = p[0] & 0x07;
 			tag = ((p[0] >> 3) & 0x0f);
 		}
@@ -701,7 +727,7 @@ static unsigned char *pnpbios_encode_allocated_resource_data(struct pnp_dev
 			break;
 
 		case SMALL_TAG_VENDOR:
-			
+			/* do nothing */
 			break;
 
 		case SMALL_TAG_FIXEDPORT:
@@ -717,14 +743,14 @@ static unsigned char *pnpbios_encode_allocated_resource_data(struct pnp_dev
 			return (unsigned char *)p;
 			break;
 
-		default:	
+		default:	/* an unknown tag */
 len_err:
 			dev_err(&dev->dev, "unknown tag %#x length %d\n",
 				tag, len);
 			break;
 		}
 
-		
+		/* continue to the next tag */
 		if (p[0] & LARGE_TAG)
 			p += len + 3;
 		else
@@ -736,6 +762,9 @@ len_err:
 	return NULL;
 }
 
+/*
+ * Core Parsing Functions
+ */
 
 int __init pnpbios_parse_data_stream(struct pnp_dev *dev,
 					struct pnp_bios_node *node)

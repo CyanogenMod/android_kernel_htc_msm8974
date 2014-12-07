@@ -24,15 +24,15 @@ struct devres_node {
 
 struct devres {
 	struct devres_node		node;
-	
-	unsigned long long		data[];	
+	/* -- 3 pointers */
+	unsigned long long		data[];	/* guarantee ull alignment */
 };
 
 struct devres_group {
 	struct devres_node		node[2];
 	void				*id;
 	int				color;
-	
+	/* -- 8 pointers */
 };
 
 #ifdef CONFIG_DEBUG_DEVRES
@@ -53,19 +53,23 @@ static void devres_log(struct device *dev, struct devres_node *node,
 		dev_printk(KERN_ERR, dev, "DEVRES %3s %p %s (%lu bytes)\n",
 			   op, node, node->name, (unsigned long)node->size);
 }
-#else 
+#else /* CONFIG_DEBUG_DEVRES */
 #define set_node_dbginfo(node, n, s)	do {} while (0)
 #define devres_log(dev, node, op)	do {} while (0)
-#endif 
+#endif /* CONFIG_DEBUG_DEVRES */
 
+/*
+ * Release functions for devres group.  These callbacks are used only
+ * for identification.
+ */
 static void group_open_release(struct device *dev, void *res)
 {
-	
+	/* noop */
 }
 
 static void group_close_release(struct device *dev, void *res)
 {
-	
+	/* noop */
 }
 
 static struct devres_group * node_to_group(struct devres_node *node)
@@ -114,6 +118,19 @@ void * __devres_alloc(dr_release_t release, size_t size, gfp_t gfp,
 }
 EXPORT_SYMBOL_GPL(__devres_alloc);
 #else
+/**
+ * devres_alloc - Allocate device resource data
+ * @release: Release function devres will be associated with
+ * @size: Allocation size
+ * @gfp: Allocation flags
+ *
+ * Allocate devres of @size bytes.  The allocated area is zeroed, then
+ * associated with @release.  The returned pointer can be passed to
+ * other devres_*() functions.
+ *
+ * RETURNS:
+ * Pointer to allocated devres on success, NULL on failure.
+ */
 void * devres_alloc(dr_release_t release, size_t size, gfp_t gfp)
 {
 	struct devres *dr;
@@ -126,6 +143,12 @@ void * devres_alloc(dr_release_t release, size_t size, gfp_t gfp)
 EXPORT_SYMBOL_GPL(devres_alloc);
 #endif
 
+/**
+ * devres_free - Free device resource data
+ * @res: Pointer to devres data to free
+ *
+ * Free devres created with devres_alloc().
+ */
 void devres_free(void *res)
 {
 	if (res) {
@@ -137,6 +160,15 @@ void devres_free(void *res)
 }
 EXPORT_SYMBOL_GPL(devres_free);
 
+/**
+ * devres_add - Register device resource
+ * @dev: Device to add resource to
+ * @res: Resource to register
+ *
+ * Register devres @res to @dev.  @res should have been allocated
+ * using devres_alloc().  On driver detach, the associated release
+ * function will be invoked and devres will be freed automatically.
+ */
 void devres_add(struct device *dev, void *res)
 {
 	struct devres *dr = container_of(res, struct devres, data);
@@ -166,6 +198,20 @@ static struct devres *find_dr(struct device *dev, dr_release_t release,
 	return NULL;
 }
 
+/**
+ * devres_find - Find device resource
+ * @dev: Device to lookup resource from
+ * @release: Look for resources associated with this release function
+ * @match: Match function (optional)
+ * @match_data: Data for the match function
+ *
+ * Find the latest devres of @dev which is associated with @release
+ * and for which @match returns 1.  If @match is NULL, it's considered
+ * to match all.
+ *
+ * RETURNS:
+ * Pointer to found devres, NULL if not found.
+ */
 void * devres_find(struct device *dev, dr_release_t release,
 		   dr_match_t match, void *match_data)
 {
@@ -182,6 +228,20 @@ void * devres_find(struct device *dev, dr_release_t release,
 }
 EXPORT_SYMBOL_GPL(devres_find);
 
+/**
+ * devres_get - Find devres, if non-existent, add one atomically
+ * @dev: Device to lookup or add devres for
+ * @new_res: Pointer to new initialized devres to add if not found
+ * @match: Match function (optional)
+ * @match_data: Data for the match function
+ *
+ * Find the latest devres of @dev which has the same release function
+ * as @new_res and for which @match return 1.  If found, @new_res is
+ * freed; otherwise, @new_res is added atomically.
+ *
+ * RETURNS:
+ * Pointer to found or added devres.
+ */
 void * devres_get(struct device *dev, void *new_res,
 		  dr_match_t match, void *match_data)
 {
@@ -203,6 +263,21 @@ void * devres_get(struct device *dev, void *new_res,
 }
 EXPORT_SYMBOL_GPL(devres_get);
 
+/**
+ * devres_remove - Find a device resource and remove it
+ * @dev: Device to find resource from
+ * @release: Look for resources associated with this release function
+ * @match: Match function (optional)
+ * @match_data: Data for the match function
+ *
+ * Find the latest devres of @dev associated with @release and for
+ * which @match returns 1.  If @match is NULL, it's considered to
+ * match all.  If found, the resource is removed atomically and
+ * returned.
+ *
+ * RETURNS:
+ * Pointer to removed devres on success, NULL if not found.
+ */
 void * devres_remove(struct device *dev, dr_release_t release,
 		     dr_match_t match, void *match_data)
 {
@@ -223,6 +298,20 @@ void * devres_remove(struct device *dev, dr_release_t release,
 }
 EXPORT_SYMBOL_GPL(devres_remove);
 
+/**
+ * devres_destroy - Find a device resource and destroy it
+ * @dev: Device to find resource from
+ * @release: Look for resources associated with this release function
+ * @match: Match function (optional)
+ * @match_data: Data for the match function
+ *
+ * Find the latest devres of @dev associated with @release and for
+ * which @match returns 1.  If @match is NULL, it's considered to
+ * match all.  If found, the resource is removed atomically and freed.
+ *
+ * RETURNS:
+ * 0 if devres is found and freed, -ENOENT if not found.
+ */
 int devres_destroy(struct device *dev, dr_release_t release,
 		   dr_match_t match, void *match_data)
 {
@@ -244,6 +333,9 @@ static int remove_nodes(struct device *dev,
 	int cnt = 0, nr_groups = 0;
 	struct list_head *cur;
 
+	/* First pass - move normal devres entries to @todo and clear
+	 * devres_group colors.
+	 */
 	cur = first;
 	while (cur != end) {
 		struct devres_node *node;
@@ -254,11 +346,11 @@ static int remove_nodes(struct device *dev,
 
 		grp = node_to_group(node);
 		if (grp) {
-			
+			/* clear color of group markers in the first pass */
 			grp->color = 0;
 			nr_groups++;
 		} else {
-			
+			/* regular devres entry */
 			if (&node->entry == first)
 				first = first->next;
 			list_move_tail(&node->entry, todo);
@@ -269,6 +361,12 @@ static int remove_nodes(struct device *dev,
 	if (!nr_groups)
 		return cnt;
 
+	/* Second pass - Scan groups and color them.  A group gets
+	 * color value of two iff the group is wholly contained in
+	 * [cur, end).  That is, for a closed group, both opening and
+	 * closing markers should be in the range, while just the
+	 * opening marker is enough for an open group.
+	 */
 	cur = first;
 	while (cur != end) {
 		struct devres_node *node;
@@ -286,6 +384,9 @@ static int remove_nodes(struct device *dev,
 
 		BUG_ON(grp->color <= 0 || grp->color > 2);
 		if (grp->color == 2) {
+			/* No need to update cur or end.  The removed
+			 * nodes are always before both.
+			 */
 			list_move_tail(&grp->node[0].entry, todo);
 			list_del_init(&grp->node[1].entry);
 		}
@@ -306,6 +407,9 @@ static int release_nodes(struct device *dev, struct list_head *first,
 
 	spin_unlock_irqrestore(&dev->devres_lock, flags);
 
+	/* Release.  Note that both devres and devres_group are
+	 * handled as devres in the following loop.  This is safe.
+	 */
 	list_for_each_entry_safe_reverse(dr, tmp, &todo, node.entry) {
 		devres_log(dev, &dr->node, "REL");
 		dr->node.release(dev, dr->data);
@@ -315,11 +419,18 @@ static int release_nodes(struct device *dev, struct list_head *first,
 	return cnt;
 }
 
+/**
+ * devres_release_all - Release all managed resources
+ * @dev: Device to release resources for
+ *
+ * Release all resources associated with @dev.  This function is
+ * called on driver detach.
+ */
 int devres_release_all(struct device *dev)
 {
 	unsigned long flags;
 
-	
+	/* Looks like an uninitialized device structure */
 	if (WARN_ON(dev->devres_head.next == NULL))
 		return -ENODEV;
 	spin_lock_irqsave(&dev->devres_lock, flags);
@@ -327,6 +438,19 @@ int devres_release_all(struct device *dev)
 			     flags);
 }
 
+/**
+ * devres_open_group - Open a new devres group
+ * @dev: Device to open devres group for
+ * @id: Separator ID
+ * @gfp: Allocation flags
+ *
+ * Open a new devres group for @dev with @id.  For @id, using a
+ * pointer to an object which won't be used for another group is
+ * recommended.  If @id is NULL, address-wise unique ID is created.
+ *
+ * RETURNS:
+ * ID of the new group, NULL on failure.
+ */
 void * devres_open_group(struct device *dev, void *id, gfp_t gfp)
 {
 	struct devres_group *grp;
@@ -353,6 +477,7 @@ void * devres_open_group(struct device *dev, void *id, gfp_t gfp)
 }
 EXPORT_SYMBOL_GPL(devres_open_group);
 
+/* Find devres group with ID @id.  If @id is NULL, look for the latest. */
 static struct devres_group * find_group(struct device *dev, void *id)
 {
 	struct devres_node *node;
@@ -375,6 +500,14 @@ static struct devres_group * find_group(struct device *dev, void *id)
 	return NULL;
 }
 
+/**
+ * devres_close_group - Close a devres group
+ * @dev: Device to close devres group for
+ * @id: ID of target group, can be NULL
+ *
+ * Close the group identified by @id.  If @id is NULL, the latest open
+ * group is selected.
+ */
 void devres_close_group(struct device *dev, void *id)
 {
 	struct devres_group *grp;
@@ -392,6 +525,15 @@ void devres_close_group(struct device *dev, void *id)
 }
 EXPORT_SYMBOL_GPL(devres_close_group);
 
+/**
+ * devres_remove_group - Remove a devres group
+ * @dev: Device to remove group for
+ * @id: ID of target group, can be NULL
+ *
+ * Remove the group identified by @id.  If @id is NULL, the latest
+ * open group is selected.  Note that removing a group doesn't affect
+ * any other resources.
+ */
 void devres_remove_group(struct device *dev, void *id)
 {
 	struct devres_group *grp;
@@ -413,6 +555,18 @@ void devres_remove_group(struct device *dev, void *id)
 }
 EXPORT_SYMBOL_GPL(devres_remove_group);
 
+/**
+ * devres_release_group - Release resources in a devres group
+ * @dev: Device to release group for
+ * @id: ID of target group, can be NULL
+ *
+ * Release all resources in the group identified by @id.  If @id is
+ * NULL, the latest open group is selected.  The selected group and
+ * groups properly nested inside the selected group are removed.
+ *
+ * RETURNS:
+ * The number of released non-group resources.
+ */
 int devres_release_group(struct device *dev, void *id)
 {
 	struct devres_group *grp;
@@ -439,9 +593,12 @@ int devres_release_group(struct device *dev, void *id)
 }
 EXPORT_SYMBOL_GPL(devres_release_group);
 
+/*
+ * Managed kzalloc/kfree
+ */
 static void devm_kzalloc_release(struct device *dev, void *res)
 {
-	
+	/* noop */
 }
 
 static int devm_kzalloc_match(struct device *dev, void *res, void *data)
@@ -449,11 +606,24 @@ static int devm_kzalloc_match(struct device *dev, void *res, void *data)
 	return res == data;
 }
 
+/**
+ * devm_kzalloc - Resource-managed kzalloc
+ * @dev: Device to allocate memory for
+ * @size: Allocation size
+ * @gfp: Allocation gfp flags
+ *
+ * Managed kzalloc.  Memory allocated with this function is
+ * automatically freed on driver detach.  Like all other devres
+ * resources, guaranteed alignment is unsigned long long.
+ *
+ * RETURNS:
+ * Pointer to allocated memory on success, NULL on failure.
+ */
 void * devm_kzalloc(struct device *dev, size_t size, gfp_t gfp)
 {
 	struct devres *dr;
 
-	
+	/* use raw alloc_dr for kmalloc caller tracing */
 	dr = alloc_dr(devm_kzalloc_release, size, gfp);
 	if (unlikely(!dr))
 		return NULL;
@@ -464,6 +634,13 @@ void * devm_kzalloc(struct device *dev, size_t size, gfp_t gfp)
 }
 EXPORT_SYMBOL_GPL(devm_kzalloc);
 
+/**
+ * devm_kfree - Resource-managed kfree
+ * @dev: Device this memory belongs to
+ * @p: Memory to free
+ *
+ * Free memory allocated with devm_kzalloc().
+ */
 void devm_kfree(struct device *dev, void *p)
 {
 	int rc;

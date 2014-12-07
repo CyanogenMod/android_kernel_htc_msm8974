@@ -45,7 +45,7 @@ static struct resource r8a66597_usb_host_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= IRQ_EXT1,		
+		.start	= IRQ_EXT1,		/* irq number */
 		.end	= IRQ_EXT1,
 		.flags	= IORESOURCE_IRQ | IRQF_TRIGGER_LOW,
 	},
@@ -55,7 +55,7 @@ static struct platform_device r8a66597_usb_host_device = {
 	.name		= "r8a66597_hcd",
 	.id		= -1,
 	.dev = {
-		.dma_mask		= NULL,		
+		.dma_mask		= NULL,		/* don't use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &r8a66597_data,
 	},
@@ -77,7 +77,7 @@ static struct resource m66592_usb_peripheral_resources[] = {
 	},
 	[1] = {
 		.name	= "m66592_udc",
-		.start	= IRQ_EXT4,		
+		.start	= IRQ_EXT4,		/* irq number */
 		.end	= IRQ_EXT4,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -87,7 +87,7 @@ static struct platform_device m66592_usb_peripheral_device = {
 	.name		= "m66592_udc",
 	.id		= -1,
 	.dev = {
-		.dma_mask		= NULL,		
+		.dma_mask		= NULL,		/* don't use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &usbf_platdata,
 	},
@@ -147,7 +147,7 @@ static struct platform_device heartbeat_device = {
 	.name		= "heartbeat",
 	.id		= -1,
 
-	
+	/* R7785RP has a slightly more sensible FPGA.. */
 #ifndef CONFIG_SH_R7785RP
 	.dev	= {
 		.platform_data	= &heartbeat_data,
@@ -223,6 +223,7 @@ static struct physmap_flash_data nor_flash_data = {
 	.nr_parts	= ARRAY_SIZE(nor_flash_partitions),
 };
 
+/* This config is flash board for mass production. */
 static struct resource nor_flash_resources[] = {
 	[0]	= {
 		.start	= PA_NORFLASH_ADDR,
@@ -277,6 +278,11 @@ static struct platform_device *r7780rp_devices[] __initdata = {
 #endif
 };
 
+/*
+ * The CF is connected using a 16-bit bus where 8-bit operations are
+ * unsupported. The linux ata driver is however using 8-bit operations, so
+ * insert a trapped io filter to convert 8-bit operations into 16-bit.
+ */
 static struct trapped_io cf_trapped_io = {
 	.resource		= cf_ide_resources,
 	.num_resources		= 2,
@@ -302,6 +308,9 @@ static int __init r7780rp_devices_setup(void)
 }
 device_initcall(r7780rp_devices_setup);
 
+/*
+ * Platform specific clocks
+ */
 static int ivdr_clk_enable(struct clk *clk)
 {
 	__raw_writew(__raw_readw(PA_IVDRCTL) | (1 << IVDR_CK_ON), PA_IVDRCTL);
@@ -327,7 +336,7 @@ static struct clk *r7780rp_clocks[] = {
 };
 
 static struct clk_lookup lookups[] = {
-	
+	/* main clocks */
 	CLKDEV_CON_ID("ivdr_clk", &ivdr_clk),
 };
 
@@ -337,6 +346,9 @@ static void r7780rp_power_off(void)
 		__raw_writew(0x0001, PA_POFF);
 }
 
+/*
+ * Initialize the board
+ */
 static void __init highlander_setup(char **cmdline_p)
 {
 	u16 ver = __raw_readw(PA_VERREG);
@@ -354,6 +366,9 @@ static void __init highlander_setup(char **cmdline_p)
 
 	highlander_plat_pinmux_setup();
 
+	/*
+	 * Enable the important clocks right away..
+	 */
 	for (i = 0; i < ARRAY_SIZE(r7780rp_clocks); i++) {
 		struct clk *clk = r7780rp_clocks[i];
 
@@ -363,12 +378,12 @@ static void __init highlander_setup(char **cmdline_p)
 
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
 
-	__raw_writew(0x0000, PA_OBLED);	
+	__raw_writew(0x0000, PA_OBLED);	/* Clear LED. */
 
 	if (mach_is_r7780rp())
-		__raw_writew(0x0001, PA_SDPOW);	
+		__raw_writew(0x0001, PA_SDPOW);	/* SD Power ON */
 
-	__raw_writew(__raw_readw(PA_IVDRCTL) | 0x01, PA_IVDRCTL);	
+	__raw_writew(__raw_readw(PA_IVDRCTL) | 0x01, PA_IVDRCTL);	/* Si13112 */
 
 	pm_power_off = r7780rp_power_off;
 }
@@ -393,6 +408,9 @@ static void __init highlander_init_irq(void)
 	}
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_highlander __initmv = {
 	.mv_name		= "Highlander",
 	.mv_setup		= highlander_setup,

@@ -33,9 +33,11 @@
 
 #include "mtdcore.h"
 
+/* Our partition linked list */
 static LIST_HEAD(mtd_partitions);
 static DEFINE_MUTEX(mtd_partitions_mutex);
 
+/* Our partition node structure */
 struct mtd_part {
 	struct mtd_info mtd;
 	struct mtd_info *master;
@@ -43,9 +45,17 @@ struct mtd_part {
 	struct list_head list;
 };
 
+/*
+ * Given a pointer to the MTD object in the mtd_part structure, we can retrieve
+ * the pointer to that structure with this macro.
+ */
 #define PART(x)  ((struct mtd_part *)(x))
 
 
+/*
+ * MTD methods which simply translate the effective address and pass through
+ * to the _real_ device.
+ */
 
 static int part_read(struct mtd_info *mtd, loff_t from, size_t len,
 		size_t *retlen, u_char *buf)
@@ -105,6 +115,10 @@ static int part_read_oob(struct mtd_info *mtd, loff_t from,
 	if (ops->datbuf && from + ops->len > mtd->size)
 		return -EINVAL;
 
+	/*
+	 * If OOB is also requested, make sure that we do not read past the end
+	 * of this partition.
+	 */
 	if (ops->oobbuf) {
 		size_t len, pages;
 
@@ -314,6 +328,10 @@ void part_fill_badblockstats(struct mtd_info *mtd)
 	}
 }
 
+/*
+ * This function unregisters and destroy all slave MTD objects which are
+ * attached to the given master MTD object.
+ */
 
 int del_mtd_partitions(struct mtd_info *master)
 {
@@ -343,7 +361,7 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 	struct mtd_part *slave;
 	char *name;
 
-	
+	/* allocate the partition structure */
 	slave = kzalloc(sizeof(*slave), GFP_KERNEL);
 	name = kstrdup(part->name, GFP_KERNEL);
 	if (!name || !slave) {
@@ -354,7 +372,7 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	
+	/* set up the MTD object for this partition */
 	slave->mtd.type = master->type;
 	slave->mtd.flags = master->flags & ~part->mask_flags;
 	slave->mtd.size = part->size;
@@ -368,6 +386,9 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 	slave->mtd.owner = master->owner;
 	slave->mtd.backing_dev_info = master->backing_dev_info;
 
+	/* NOTE:  we don't arrange MTDs as a tree; it'd be error-prone
+	 * to have the same data be in two different partitions.
+	 */
 	slave->mtd.dev.parent = master->dev.parent;
 
 	slave->mtd._read = part_read;
@@ -427,7 +448,7 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 	if (slave->offset == MTDPART_OFS_NXTBLK) {
 		slave->offset = cur_offset;
 		if (mtd_mod_by_eb(cur_offset, master) != 0) {
-			
+			/* Round up to next erasesize */
 			slave->offset = (mtd_div_by_eb(cur_offset, master) + 1) * master->erasesize;
 			printk(KERN_NOTICE "Moving partition %d: "
 			       "0x%012llx -> 0x%012llx\n", partno,
@@ -443,7 +464,7 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 			printk(KERN_ERR "mtd partition \"%s\" doesn't have enough space: %#llx < %#llx, disabled\n",
 				part->name, master->size - slave->offset,
 				slave->mtd.size);
-			
+			/* register to preserve ordering */
 			goto out_register;
 		}
 	}
@@ -453,9 +474,9 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 	printk(KERN_NOTICE "0x%012llx-0x%012llx : \"%s\"\n", (unsigned long long)slave->offset,
 		(unsigned long long)(slave->offset + slave->mtd.size), slave->mtd.name);
 
-	
+	/* let's do some sanity checks */
 	if (slave->offset >= master->size) {
-		
+		/* let's register it anyway to preserve ordering */
 		slave->offset = 0;
 		slave->mtd.size = 0;
 		printk(KERN_ERR"mtd: partition \"%s\" is out of reach -- disabled\n",
@@ -468,18 +489,20 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 			part->name, master->name, (unsigned long long)slave->mtd.size);
 	}
 	if (master->numeraseregions > 1) {
-		
+		/* Deal with variable erase size stuff */
 		int i, max = master->numeraseregions;
 		u64 end = slave->offset + slave->mtd.size;
 		struct mtd_erase_region_info *regions = master->eraseregions;
 
+		/* Find the first erase regions which is part of this
+		 * partition. */
 		for (i = 0; i < max && regions[i].offset <= slave->offset; i++)
 			;
-		
+		/* The loop searched for the region _behind_ the first one */
 		if (i > 0)
 			i--;
 
-		
+		/* Pick biggest erasesize */
 		for (; i < max && regions[i].offset < end; i++) {
 			if (slave->mtd.erasesize < regions[i].erasesize) {
 				slave->mtd.erasesize = regions[i].erasesize;
@@ -487,13 +510,15 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 		}
 		BUG_ON(slave->mtd.erasesize == 0);
 	} else {
-		
+		/* Single erase size */
 		slave->mtd.erasesize = master->erasesize;
 	}
 
 	if ((slave->mtd.flags & MTD_WRITEABLE) &&
 	    mtd_mod_by_eb(slave->offset, &slave->mtd)) {
-		
+		/* Doesn't start on a boundary of major erase size */
+		/* FIXME: Let it be writable if it is on a boundary of
+		 * _minor_ erase size though */
 		slave->mtd.flags &= ~MTD_WRITEABLE;
 		printk(KERN_WARNING"mtd: partition \"%s\" doesn't start on an erase block boundary -- force read-only\n",
 			part->name);
@@ -524,7 +549,7 @@ int mtd_add_partition(struct mtd_info *master, char *name,
 	uint64_t start, end;
 	int ret = 0;
 
-	
+	/* the direct offset is expected */
 	if (offset == MTDPART_OFS_APPEND ||
 	    offset == MTDPART_OFS_NXTBLK)
 		return -EINVAL;
@@ -596,6 +621,14 @@ int mtd_del_partition(struct mtd_info *master, int partno)
 }
 EXPORT_SYMBOL_GPL(mtd_del_partition);
 
+/*
+ * This function, given a master MTD object and a partition table, creates
+ * and registers slave MTD objects which are bound to the master according to
+ * the partition definitions.
+ *
+ * We don't register the master, or expect the caller to have done so,
+ * for reasons of data integrity.
+ */
 
 int add_mtd_partitions(struct mtd_info *master,
 		       const struct mtd_partition *parts,
@@ -665,12 +698,34 @@ int deregister_mtd_parser(struct mtd_part_parser *p)
 }
 EXPORT_SYMBOL_GPL(deregister_mtd_parser);
 
+/*
+ * Do not forget to update 'parse_mtd_partitions()' kerneldoc comment if you
+ * are changing this array!
+ */
 static const char *default_mtd_part_types[] = {
 	"cmdlinepart",
 	"ofpart",
 	NULL
 };
 
+/**
+ * parse_mtd_partitions - parse MTD partitions
+ * @master: the master partition (describes whole MTD device)
+ * @types: names of partition parsers to try or %NULL
+ * @pparts: array of partitions found is returned here
+ * @data: MTD partition parser-specific data
+ *
+ * This function tries to find partition on MTD device @master. It uses MTD
+ * partition parsers, specified in @types. However, if @types is %NULL, then
+ * the default list of parsers is used. The default list contains only the
+ * "cmdlinepart" and "ofpart" parsers ATM.
+ *
+ * This function may return:
+ * o a negative error code in case of failure
+ * o zero if no partitions were found
+ * o a positive number of found partitions, in which case on exit @pparts will
+ *   point to an array containing this number of &struct mtd_info objects.
+ */
 int parse_mtd_partitions(struct mtd_info *master, const char **types,
 			 struct mtd_partition **pparts,
 			 struct mtd_part_parser_data *data)

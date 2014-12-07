@@ -23,14 +23,24 @@
  *
  */
 
+/*
+ * Data port addresses relative to the EMU base.
+ */
 #define EMU8000_DATA0(e)    ((e)->port1)
 #define EMU8000_DATA1(e)    ((e)->port2)
 #define EMU8000_DATA2(e)    ((e)->port2+2)
 #define EMU8000_DATA3(e)    ((e)->port3)
 #define EMU8000_PTR(e)      ((e)->port3+2)
 
+/*
+ * Make a command from a register and channel.
+ */
 #define EMU8000_CMD(reg, chan) ((reg)<<5 | (chan))
 
+/*
+ * Commands to read and write the EMU8000 registers.
+ * These macros should be used for all register accesses.
+ */
 #define EMU8000_CPF_READ(emu, chan) \
 	snd_emu8000_peek_dw((emu), EMU8000_DATA0(emu), EMU8000_CMD(0, (chan)))
 #define EMU8000_PTRX_READ(emu, chan) \
@@ -129,6 +139,7 @@
 	snd_emu8000_poke_dw((emu), EMU8000_DATA1(emu), EMU8000_CMD(1, 10), (val))
 #define EMU8000_HWCF6_WRITE(emu, val) \
 	snd_emu8000_poke_dw((emu), EMU8000_DATA1(emu), EMU8000_CMD(1, 13), (val))
+/* this register is not documented */
 #define EMU8000_HWCF7_WRITE(emu, val) \
 	snd_emu8000_poke_dw((emu), EMU8000_DATA1(emu), EMU8000_CMD(1, 14), (val))
 #define EMU8000_SMALR_WRITE(emu, val) \
@@ -193,4 +204,4 @@
 #define EMU8000_00A0_WRITE(emu, chan, val) \
 	snd_emu8000_poke_dw((emu), EMU8000_DATA0(emu), EMU8000_CMD(5, (chan)), (val))
 
-#endif 
+#endif /* __SOUND_EMU8000_REG_H */

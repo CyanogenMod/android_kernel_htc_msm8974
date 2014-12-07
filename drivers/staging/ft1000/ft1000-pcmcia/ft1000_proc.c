@@ -73,7 +73,7 @@ static int ft1000ReadProc(char *page, char **start, off_t off,
 		return 0;
 	}
 
-	
+	/* Wrap-around */
 
 	if (info->AsicID == ELECTRABUZZ_ID) {
 		if (info->ProgConStat != 0xFF) {

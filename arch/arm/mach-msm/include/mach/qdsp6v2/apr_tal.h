@@ -17,6 +17,7 @@
 #include <linux/kthread.h>
 #include <linux/uaccess.h>
 
+/* APR Client IDs */
 #define APR_CLIENT_AUDIO	0x0
 #define APR_CLIENT_VOICE	0x1
 #define APR_CLIENT_MAX	0x2

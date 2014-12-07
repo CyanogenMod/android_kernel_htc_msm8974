@@ -46,11 +46,16 @@ int libipw_is_valid_channel(struct libipw_device *ieee, u8 channel)
 {
 	int i;
 
+	/* Driver needs to initialize the geography map before using
+	 * these helper functions */
 	if (ieee->geo.bg_channels == 0 && ieee->geo.a_channels == 0)
 		return 0;
 
 	if (ieee->freq_band & LIBIPW_24GHZ_BAND)
 		for (i = 0; i < ieee->geo.bg_channels; i++)
+			/* NOTE: If G mode is currently supported but
+			 * this is a B only channel, we don't see it
+			 * as valid. */
 			if ((ieee->geo.bg[i].channel == channel) &&
 			    !(ieee->geo.bg[i].flags & LIBIPW_CH_INVALID) &&
 			    (!(ieee->mode & IEEE_G) ||
@@ -70,6 +75,8 @@ int libipw_channel_to_index(struct libipw_device *ieee, u8 channel)
 {
 	int i;
 
+	/* Driver needs to initialize the geography map before using
+	 * these helper functions */
 	if (ieee->geo.bg_channels == 0 && ieee->geo.a_channels == 0)
 		return -1;
 
@@ -90,6 +97,8 @@ u32 libipw_channel_to_freq(struct libipw_device * ieee, u8 channel)
 {
 	const struct libipw_channel * ch;
 
+	/* Driver needs to initialize the geography map before using
+	 * these helper functions */
 	if (ieee->geo.bg_channels == 0 && ieee->geo.a_channels == 0)
 		return 0;
 
@@ -103,6 +112,8 @@ u8 libipw_freq_to_channel(struct libipw_device * ieee, u32 freq)
 {
 	int i;
 
+	/* Driver needs to initialize the geography map before using
+	 * these helper functions */
 	if (ieee->geo.bg_channels == 0 && ieee->geo.a_channels == 0)
 		return 0;
 

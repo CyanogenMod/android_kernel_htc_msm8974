@@ -53,6 +53,7 @@ struct ds_msg_tag {
 	__u32			len;
 };
 
+/* Result codes */
 #define DS_OK			0x00
 #define DS_REG_VER_NACK		0x01
 #define DS_REG_DUP		0x02
@@ -392,6 +393,7 @@ struct dr_cpu_tag {
 #define DR_CPU_FORCE_UNCONFIGURE	0x46
 #define DR_CPU_STATUS			0x53
 
+/* Responses */
 #define DR_CPU_OK			0x6f
 #define DR_CPU_ERROR			0x65
 
@@ -559,11 +561,11 @@ static int __cpuinit dr_cpu_configure(struct ds_info *dp,
 			__u32 stat = DR_CPU_STAT_UNCONFIGURED;
 
 			if (!cpu_present(cpu)) {
-				
+				/* CPU not present in MD */
 				res = DR_CPU_RES_NOT_IN_MD;
 				stat = DR_CPU_STAT_NOT_PRESENT;
 			} else if (err == -ENODEV) {
-				
+				/* CPU did not call in successfully */
 				res = DR_CPU_RES_CPU_NOT_RESPONDING;
 			}
 
@@ -579,7 +581,7 @@ static int __cpuinit dr_cpu_configure(struct ds_info *dp,
 
 	kfree(resp);
 
-	
+	/* Redistribute IRQs, taking into account the new cpus.  */
 	fixup_irqs();
 
 	return 0;
@@ -667,7 +669,7 @@ static void __cpuinit dr_cpu_data(struct ds_info *dp,
 	if (err)
 		dr_cpu_send_error(dp, cp, data);
 }
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */
 
 struct ds_pri_msg {
 	__u64				req_num;
@@ -834,6 +836,9 @@ static int reboot_data_supported;
 
 void ldom_reboot(const char *boot_command)
 {
+	/* Don't bother with any of this if the boot_command
+	 * is empty.
+	 */
 	if (boot_command && strlen(boot_command)) {
 		unsigned long len;
 

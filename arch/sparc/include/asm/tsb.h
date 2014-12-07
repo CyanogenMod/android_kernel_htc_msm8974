@@ -1,6 +1,48 @@
 #ifndef _SPARC64_TSB_H
 #define _SPARC64_TSB_H
 
+/* The sparc64 TSB is similar to the powerpc hashtables.  It's a
+ * power-of-2 sized table of TAG/PTE pairs.  The cpu precomputes
+ * pointers into this table for 8K and 64K page sizes, and also a
+ * comparison TAG based upon the virtual address and context which
+ * faults.
+ *
+ * TLB miss trap handler software does the actual lookup via something
+ * of the form:
+ *
+ * 	ldxa		[%g0] ASI_{D,I}MMU_TSB_8KB_PTR, %g1
+ * 	ldxa		[%g0] ASI_{D,I}MMU, %g6
+ *	sllx		%g6, 22, %g6
+ *	srlx		%g6, 22, %g6
+ * 	ldda		[%g1] ASI_NUCLEUS_QUAD_LDD, %g4
+ * 	cmp		%g4, %g6
+ * 	bne,pn	%xcc, tsb_miss_{d,i}tlb
+ * 	 mov		FAULT_CODE_{D,I}TLB, %g3
+ * 	stxa		%g5, [%g0] ASI_{D,I}TLB_DATA_IN
+ * 	retry
+ *
+ *
+ * Each 16-byte slot of the TSB is the 8-byte tag and then the 8-byte
+ * PTE.  The TAG is of the same layout as the TLB TAG TARGET mmu
+ * register which is:
+ *
+ * -------------------------------------------------
+ * |  -  |  CONTEXT |  -  |    VADDR bits 63:22    |
+ * -------------------------------------------------
+ *  63 61 60      48 47 42 41                     0
+ *
+ * But actually, since we use per-mm TSB's, we zero out the CONTEXT
+ * field.
+ *
+ * Like the powerpc hashtables we need to use locking in order to
+ * synchronize while we update the entries.  PTE updates need locking
+ * as well.
+ *
+ * We need to carefully choose a lock bits for the TSB entry.  We
+ * choose to use bit 47 in the tag.  Also, since we never map anything
+ * at page zero in context zero, we use zero as an invalid tag entry.
+ * When the lock bit is set, this forces a tag comparison failure.
+ */
 
 #define TSB_TAG_LOCK_BIT	47
 #define TSB_TAG_LOCK_HIGH	(1 << (TSB_TAG_LOCK_BIT - 32))
@@ -8,6 +50,14 @@
 #define TSB_TAG_INVALID_BIT	46
 #define TSB_TAG_INVALID_HIGH	(1 << (TSB_TAG_INVALID_BIT - 32))
 
+/* Some cpus support physical address quad loads.  We want to use
+ * those if possible so we don't need to hard-lock the TSB mapping
+ * into the TLB.  We encode some instruction patching in order to
+ * support this.
+ *
+ * The kernel TSB is locked into the TLB by virtue of being in the
+ * kernel image, so we don't play these games for swapper_tsb access.
+ */
 #ifndef __ASSEMBLY__
 struct tsb_ldquad_phys_patch_entry {
 	unsigned int	addr;
@@ -83,6 +133,10 @@ extern struct tsb_phys_patch_entry __tsb_phys_patch, __tsb_phys_patch_end;
 	sub	TSB, 0x8, TSB;   \
 	TSB_STORE(TSB, TAG);
 
+	/* Do a kernel page table walk.  Leaves physical PTE pointer in
+	 * REG1.  Jumps to FAIL_LABEL on early page table walk termination.
+	 * VADDR will not be clobbered, but REG2 will.
+	 */
 #define KERN_PGTABLE_WALK(VADDR, REG1, REG2, FAIL_LABEL)	\
 	sethi		%hi(swapper_pg_dir), REG1; \
 	or		REG1, %lo(swapper_pg_dir), REG1; \
@@ -103,6 +157,13 @@ extern struct tsb_phys_patch_entry __tsb_phys_patch, __tsb_phys_patch_end;
 	andn		REG2, 0x7, REG2; \
 	add		REG1, REG2, REG1;
 
+	/* Do a user page table walk in MMU globals.  Leaves physical PTE
+	 * pointer in REG1.  Jumps to FAIL_LABEL on early page table walk
+	 * termination.  Physical base of page tables is in PHYS_PGD which
+	 * will not be modified.
+	 *
+	 * VADDR will not be clobbered, but REG1 and REG2 will.
+	 */
 #define USER_PGTABLE_WALK_TL1(VADDR, PHYS_PGD, REG1, REG2, FAIL_LABEL)	\
 	sllx		VADDR, 64 - (PGDIR_SHIFT + PGDIR_BITS), REG2; \
 	srlx		REG2, 64 - PAGE_SHIFT, REG2; \
@@ -121,6 +182,11 @@ extern struct tsb_phys_patch_entry __tsb_phys_patch, __tsb_phys_patch_end;
 	andn		REG2, 0x7, REG2; \
 	add		REG1, REG2, REG1;
 
+/* Lookup a OBP mapping on VADDR in the prom_trans[] table at TL>0.
+ * If no entry is found, FAIL_LABEL will be branched to.  On success
+ * the resulting PTE value will be left in REG1.  VADDR is preserved
+ * by this routine.
+ */
 #define OBP_TRANS_LOOKUP(VADDR, REG1, REG2, REG3, FAIL_LABEL) \
 	sethi		%hi(prom_trans), REG1; \
 	or		REG1, %lo(prom_trans), REG1; \
@@ -141,6 +207,10 @@ extern struct tsb_phys_patch_entry __tsb_phys_patch, __tsb_phys_patch_end;
 	 add		REG1, (3 * 8), REG1; \
 99:
 
+	/* We use a 32K TSB for the whole kernel, this allows to
+	 * handle about 16MB of modules and vmalloc mappings without
+	 * incurring many hash conflicts.
+	 */
 #define KERNEL_TSB_SIZE_BYTES	(32 * 1024)
 #define KERNEL_TSB_NENTRIES	\
 	(KERNEL_TSB_SIZE_BYTES / 16)
@@ -148,6 +218,13 @@ extern struct tsb_phys_patch_entry __tsb_phys_patch, __tsb_phys_patch_end;
 
 #define KTSB_PHYS_SHIFT		15
 
+	/* Do a kernel TSB lookup at tl>0 on VADDR+TAG, branch to OK_LABEL
+	 * on TSB hit.  REG1, REG2, REG3, and REG4 are used as temporaries
+	 * and the found TTE will be left in REG1.  REG3 and REG4 must
+	 * be an even/odd pair of registers.
+	 *
+	 * VADDR and TAG will be preserved and not clobbered by this macro.
+	 */
 #define KERN_TSB_LOOKUP_TL1(VADDR, TAG, REG1, REG2, REG3, REG4, OK_LABEL) \
 661:	sethi		%hi(swapper_tsb), REG1;			\
 	or		REG1, %lo(swapper_tsb), REG1; \
@@ -170,6 +247,9 @@ extern struct tsb_phys_patch_entry __tsb_phys_patch, __tsb_phys_patch_end;
 	 mov		REG4, REG1;
 
 #ifndef CONFIG_DEBUG_PAGEALLOC
+	/* This version uses a trick, the TAG is already (VADDR >> 22) so
+	 * we can make use of that for the index computation.
+	 */
 #define KERN_TSB4M_LOOKUP_TL1(TAG, REG1, REG2, REG3, REG4, OK_LABEL) \
 661:	sethi		%hi(swapper_4m_tsb), REG1;	     \
 	or		REG1, %lo(swapper_4m_tsb), REG1; \
@@ -191,4 +271,4 @@ extern struct tsb_phys_patch_entry __tsb_phys_patch, __tsb_phys_patch_end;
 	 mov		REG4, REG1;
 #endif
 
-#endif 
+#endif /* !(_SPARC64_TSB_H) */

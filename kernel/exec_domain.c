@@ -1,3 +1,11 @@
+/*
+ * Handling of different ABIs (personalities).
+ *
+ * We group personalities into execution domains which have their
+ * own handlers for kernel entry points, signal mapping, etc...
+ *
+ * 2001-05-06	Complete rewrite,  Christoph Hellwig (hch@infradead.org)
+ */
 
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -27,12 +35,12 @@ static unsigned long ident_map[32] = {
 };
 
 struct exec_domain default_exec_domain = {
-	.name		= "Linux",		
-	.handler	= default_handler,	
-	.pers_low	= 0, 			
-	.pers_high	= 0,			
-	.signal_map	= ident_map,		
-	.signal_invmap	= ident_map,		
+	.name		= "Linux",		/* name */
+	.handler	= default_handler,	/* lcall7 causes a seg fault. */
+	.pers_low	= 0, 			/* PER_LINUX personality. */
+	.pers_high	= 0,			/* PER_LINUX personality. */
+	.signal_map	= ident_map,		/* Identity map signals. */
+	.signal_invmap	= ident_map,		/*  - both ways. */
 };
 
 

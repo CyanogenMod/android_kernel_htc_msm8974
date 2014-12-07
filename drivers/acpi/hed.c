@@ -51,6 +51,11 @@ void unregister_acpi_hed_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL_GPL(unregister_acpi_hed_notifier);
 
+/*
+ * SCI to report hardware error is forwarded to the listeners of HED,
+ * it is used by HEST Generic Hardware Error Source with notify type
+ * SCI.
+ */
 static void acpi_hed_notify(struct acpi_device *device, u32 event)
 {
 	blocking_notifier_call_chain(&acpi_hed_notify_list, 0, NULL);
@@ -58,7 +63,7 @@ static void acpi_hed_notify(struct acpi_device *device, u32 event)
 
 static int __devinit acpi_hed_add(struct acpi_device *device)
 {
-	
+	/* Only one hardware error device */
 	if (hed_handle)
 		return -EINVAL;
 	hed_handle = device->handle;

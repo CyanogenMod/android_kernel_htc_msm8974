@@ -264,7 +264,7 @@ iop_desc_init_memcpy(struct iop_adma_desc_slot *desc, unsigned long flags)
 	} u_desc_ctrl;
 
 	u_desc_ctrl.value = 0;
-	u_desc_ctrl.field.xfer_dir = 3; 
+	u_desc_ctrl.field.xfer_dir = 3; /* local to internal bus */
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 	hw_desc->crc_addr = 0;
@@ -280,13 +280,14 @@ iop_desc_init_memset(struct iop_adma_desc_slot *desc, unsigned long flags)
 	} u_desc_ctrl;
 
 	u_desc_ctrl.value = 0;
-	u_desc_ctrl.field.xfer_dir = 3; 
+	u_desc_ctrl.field.xfer_dir = 3; /* local to internal bus */
 	u_desc_ctrl.field.block_fill_en = 1;
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 	hw_desc->crc_addr = 0;
 }
 
+/* to do: support buffers larger than ADMA_MAX_BYTE_COUNT */
 static inline void
 iop_desc_init_xor(struct iop_adma_desc_slot *desc, int src_cnt,
 		  unsigned long flags)
@@ -299,7 +300,7 @@ iop_desc_init_xor(struct iop_adma_desc_slot *desc, int src_cnt,
 
 	u_desc_ctrl.value = 0;
 	u_desc_ctrl.field.src_select = src_cnt - 1;
-	u_desc_ctrl.field.xfer_dir = 3; 
+	u_desc_ctrl.field.xfer_dir = 3; /* local to internal bus */
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 	hw_desc->crc_addr = 0;
@@ -307,6 +308,7 @@ iop_desc_init_xor(struct iop_adma_desc_slot *desc, int src_cnt,
 }
 #define iop_desc_init_null_xor(d, s, i) iop_desc_init_xor(d, s, i)
 
+/* to do: support buffers larger than ADMA_MAX_BYTE_COUNT */
 static inline int
 iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt,
 		       unsigned long flags)
@@ -319,7 +321,7 @@ iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt,
 
 	u_desc_ctrl.value = 0;
 	u_desc_ctrl.field.src_select = src_cnt - 1;
-	u_desc_ctrl.field.xfer_dir = 3; 
+	u_desc_ctrl.field.xfer_dir = 3; /* local to internal bus */
 	u_desc_ctrl.field.zero_result = 1;
 	u_desc_ctrl.field.status_write_back_en = 1;
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
@@ -341,7 +343,7 @@ iop_desc_init_pq(struct iop_adma_desc_slot *desc, int src_cnt,
 
 	u_desc_ctrl.value = 0;
 	u_desc_ctrl.field.src_select = src_cnt - 1;
-	u_desc_ctrl.field.xfer_dir = 3; 
+	u_desc_ctrl.field.xfer_dir = 3; /* local to internal bus */
 	u_desc_ctrl.field.pq_xfer_en = 1;
 	u_desc_ctrl.field.p_xfer_dis = !!(flags & DMA_PREP_PQ_DISABLE_P);
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
@@ -372,7 +374,7 @@ iop_desc_init_pq_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt,
 
 	u_desc_ctrl.value = 0;
 	u_desc_ctrl.field.src_select = src_cnt - 1;
-	u_desc_ctrl.field.xfer_dir = 3; 
+	u_desc_ctrl.field.xfer_dir = 3; /* local to internal bus */
 	u_desc_ctrl.field.zero_result = 1;
 	u_desc_ctrl.field.status_write_back_en = 1;
 	u_desc_ctrl.field.pq_xfer_en = 1;
@@ -642,4 +644,4 @@ iop_is_err_split_tx(unsigned long status, struct iop_adma_chan *chan)
 	return 0;
 }
 
-#endif 
+#endif /* _ADMA_H */

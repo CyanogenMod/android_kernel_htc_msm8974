@@ -15,12 +15,12 @@ asmlinkage long sys32_ipc(u32 call, int first, int second, int third,
 {
 	int version;
 
-	version = call >> 16; 
+	version = call >> 16; /* hack for backward compatibility */
 	call &= 0xffff;
 
 	switch (call) {
 	case SEMOP:
-		
+		/* struct sembuf is the same on 32 and 64bit :)) */
 		return sys_semtimedop(first, compat_ptr(ptr), second, NULL);
 	case SEMTIMEDOP:
 		return compat_sys_semtimedop(first, compat_ptr(ptr), second,

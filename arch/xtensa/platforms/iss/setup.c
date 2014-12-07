@@ -51,6 +51,8 @@ void platform_power_off(void)
 }
 void platform_restart(void)
 {
+	/* Flush and reset the mmu, simulate a processor reset, and
+	 * jump to the reset vector. */
 
 	__asm__ __volatile__("movi	a2, 15\n\t"
 			     "wsr	a2, " __stringify(ICOUNTLEVEL) "\n\t"
@@ -66,7 +68,7 @@ void platform_restart(void)
 			     : "a" (XCHAL_RESET_VECTOR_VADDR)
 			     : "a2");
 
-	
+	/* control never gets here */
 }
 
 extern void iss_net_poll(void);

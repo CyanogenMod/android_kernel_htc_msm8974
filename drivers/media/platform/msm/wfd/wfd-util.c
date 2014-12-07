@@ -204,7 +204,7 @@ int wfd_stats_deinit(struct wfd_stats *stats)
 {
 	WFD_MSG_DBG("Latencies: avg enc. latency %d",
 			stats->enc_avg_latency);
-	
+	/* Delete all debugfs files in one shot :) */
 	if (stats->d_parent)
 		debugfs_remove_recursive(stats->d_parent);
 

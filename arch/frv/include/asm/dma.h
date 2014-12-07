@@ -12,13 +12,18 @@
 #ifndef _ASM_DMA_H
 #define _ASM_DMA_H
 
+//#define DMA_DEBUG 1
 
 #include <linux/interrupt.h>
 
-#undef MAX_DMA_CHANNELS		
+#undef MAX_DMA_CHANNELS		/* don't use kernel/dma.c */
 
+/* under 2.4 this is actually needed by the new bootmem allocator */
 #define MAX_DMA_ADDRESS		PAGE_OFFSET
 
+/*
+ * FRV DMA controller management
+ */
 typedef irqreturn_t (*dma_irq_handler_t)(int dmachan, unsigned long cstr, void *data);
 
 extern void frv_dma_init(void);
@@ -30,11 +35,13 @@ extern int frv_dma_open(const char *devname,
 			unsigned long irq_flags,
 			void *data);
 
-#define FRV_DMA_MASK_ANY	ULONG_MAX	
+/* channels required */
+#define FRV_DMA_MASK_ANY	ULONG_MAX	/* any channel */
 
-#define FRV_DMA_CAP_DREQ	0x01		
-#define FRV_DMA_CAP_DACK	0x02		
-#define FRV_DMA_CAP_DONE	0x04		
+/* capabilities required */
+#define FRV_DMA_CAP_DREQ	0x01		/* DMA request pin */
+#define FRV_DMA_CAP_DACK	0x02		/* DMA ACK pin */
+#define FRV_DMA_CAP_DONE	0x04		/* DMA done pin */
 
 extern void frv_dma_close(int dma);
 
@@ -58,7 +65,7 @@ extern void frv_dma_status_clear(int dma);
 #define FRV_DMA_4CHANS	4
 #define FRV_DMA_8CHANS	8
 
-#define DMAC_CCFRx		0x00	
+#define DMAC_CCFRx		0x00	/* channel configuration reg */
 #define DMAC_CCFRx_CM_SHIFT	16
 #define DMAC_CCFRx_CM_DA	0x00000000
 #define DMAC_CCFRx_CM_SCA	0x00010000
@@ -69,7 +76,7 @@ extern void frv_dma_status_clear(int dma);
 #define DMAC_CCFRx_RS_EXTERN	0x00000001
 #define DMAC_CCFRx_RS_SHIFT	0
 
-#define DMAC_CSTRx		0x08	
+#define DMAC_CSTRx		0x08	/* channel status reg */
 #define DMAC_CSTRx_FS		0x0000003f
 #define DMAC_CSTRx_NE		0x00000100
 #define DMAC_CSTRx_FED		0x00000200
@@ -79,7 +86,7 @@ extern void frv_dma_status_clear(int dma);
 #define DMAC_CSTRx_INT		0x00800000
 #define DMAC_CSTRx_BUSY		0x80000000
 
-#define DMAC_CCTRx		0x10	
+#define DMAC_CCTRx		0x10	/* channel control reg */
 #define DMAC_CCTRx_DSIZ_1	0x00000000
 #define DMAC_CCTRx_DSIZ_2	0x00000001
 #define DMAC_CCTRx_DSIZ_4	0x00000002
@@ -99,17 +106,20 @@ extern void frv_dma_status_clear(int dma);
 #define DMAC_CCTRx_IE		0x40000000
 #define DMAC_CCTRx_ACT		0x80000000
 
-#define DMAC_SBAx		0x18	
-#define DMAC_DBAx		0x20	
-#define DMAC_PIXx		0x28	
-#define DMAC_SIXx		0x30	
-#define DMAC_BCLx		0x38	
-#define DMAC_APRx		0x40	
+#define DMAC_SBAx		0x18	/* source base address reg */
+#define DMAC_DBAx		0x20	/* data base address reg */
+#define DMAC_PIXx		0x28	/* primary index reg */
+#define DMAC_SIXx		0x30	/* secondary index reg */
+#define DMAC_BCLx		0x38	/* byte count limit reg */
+#define DMAC_APRx		0x40	/* alternate pointer reg */
 
+/*
+ * required for PCI + MODULES
+ */
 #ifdef CONFIG_PCI
 extern int isa_dma_bridge_buggy;
 #else
 #define isa_dma_bridge_buggy 	(0)
 #endif
 
-#endif 
+#endif /* _ASM_DMA_H */

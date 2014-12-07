@@ -46,7 +46,7 @@ static int cfdbgl_transmit(struct cflayer *layr, struct cfpkt *pkt)
 		return ret;
 	}
 
-	
+	/* Add info for MUX-layer to route the packet out */
 	info = cfpkt_info(pkt);
 	info->channel_id = service->layer.id;
 	info->dev_info = &service->dev_info;

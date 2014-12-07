@@ -23,4 +23,4 @@ void __delay(unsigned long loops);
 #define udelay(n) __udelay((unsigned long long) (n))
 #define mdelay(n) __udelay((unsigned long long) (n) * 1000)
 
-#endif 
+#endif /* defined(_S390_DELAY_H) */

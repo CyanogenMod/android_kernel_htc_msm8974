@@ -30,6 +30,9 @@
 #define _SMC911X_H_
 
 #include <linux/smc911x.h>
+/*
+ * Use the DMA feature on PXA chips
+ */
 #ifdef CONFIG_ARCH_PXA
   #define SMC_USE_PXA_DMA	1
   #define SMC_USE_16BIT		0
@@ -50,6 +53,9 @@
   #define SMC_IRQ_SENSE		IRQF_TRIGGER_LOW
   #define SMC_MEM_RESERVED	1
 #else
+/*
+ * Default configuration
+ */
 
 #define SMC_DYNAMIC_BUS_CONFIG
 #endif
@@ -58,20 +64,26 @@
 #define SMC_USE_DMA
 #endif
 
+/* store this information for the driver.. */
 struct smc911x_local {
+	/*
+	 * If I have to wait until the DMA is finished and ready to reload a
+	 * packet, I will store the skbuff here. Then, the DMA will send it
+	 * out and free it.
+	 */
 	struct sk_buff *pending_tx_skb;
 
-	
+	/* version/revision of the SMC911x chip */
 	u16 version;
 	u16 revision;
 
-	
+	/* FIFO sizes */
 	int tx_fifo_kb;
 	int tx_fifo_size;
 	int rx_fifo_size;
 	int afc_cfg;
 
-	
+	/* Contains the current active receive/phy mode */
 	int ctl_rfduplx;
 	int ctl_rspeed;
 
@@ -79,7 +91,7 @@ struct smc911x_local {
 	u32 phy_type;
 	struct mii_if_info mii;
 
-	
+	/* work queue */
 	struct work_struct phy_configure;
 
 	int tx_throttle;
@@ -88,7 +100,7 @@ struct smc911x_local {
 	struct net_device *netdev;
 
 #ifdef SMC_USE_DMA
-	
+	/* DMA needs the physical address of the chip */
 	u_long physaddr;
 	int rxdma;
 	int txdma;
@@ -104,6 +116,9 @@ struct smc911x_local {
 #endif
 };
 
+/*
+ * Define the bus width specific IO macros
+ */
 
 #ifdef SMC_DYNAMIC_BUS_CONFIG
 static inline unsigned int SMC_inl(struct smc911x_local *lp, int reg)
@@ -190,14 +205,19 @@ static inline void SMC_outsl(struct smc911x_local *lp, int reg,
 #define SMC_insl(lp, r, p, l)	 readsl((int*)((lp)->base + (r)), p, l)
 #define SMC_outsl(lp, r, p, l)	 writesl((int*)((lp)->base + (r)), p, l)
 
-#endif 
-#endif 
+#endif /* SMC_USE_16BIT */
+#endif /* SMC_DYNAMIC_BUS_CONFIG */
 
 
 #ifdef SMC_USE_PXA_DMA
 
 #include <mach/dma.h>
 
+/*
+ * Define the request and free functions
+ * These are unfortunately architecture specific as no generic allocation
+ * mechanism exits
+ */
 #define SMC_DMA_REQUEST(dev, handler) \
 	 pxa_request_dma(dev->name, DMA_PRIO_LOW, handler, dev)
 
@@ -212,6 +232,9 @@ static inline void SMC_outsl(struct smc911x_local *lp, int reg,
 	DCSR(dma) = DCSR_STARTINTR|DCSR_ENDINTR|DCSR_BUSERR;		\
 }
 
+/*
+ * Use a DMA for RX and TX packets.
+ */
 #include <linux/dma-mapping.h>
 
 static dma_addr_t rx_dmabuf, tx_dmabuf;
@@ -226,7 +249,7 @@ static inline void
 smc_pxa_dma_insl(struct smc911x_local *lp, u_long physaddr,
 		int reg, int dma, u_char *buf, int len)
 {
-	
+	/* 64 bit alignment is required for memory to memory DMA */
 	if ((long)buf & 4) {
 		*((u32 *)buf) = SMC_inl(lp, reg);
 		buf += 4;
@@ -254,7 +277,7 @@ static inline void
 smc_pxa_dma_outsl(struct smc911x_local *lp, u_long physaddr,
 		int reg, int dma, u_char *buf, int len)
 {
-	
+	/* 64 bit alignment is required for memory to memory DMA */
 	if ((long)buf & 4) {
 		SMC_outl(*((u32 *)buf), lp, reg);
 		buf += 4;
@@ -272,9 +295,10 @@ smc_pxa_dma_outsl(struct smc911x_local *lp, u_long physaddr,
 	DCSR(dma) = DCSR_NODESC | DCSR_RUN;
 }
 #endif
-#endif	 
+#endif	 /* SMC_USE_PXA_DMA */
 
 
+/* Chip Parameters and Register Definitions */
 
 #define SMC911X_TX_FIFO_LOW_THRESHOLD	(1536*2)
 
@@ -282,6 +306,9 @@ smc_pxa_dma_outsl(struct smc911x_local *lp, u_long physaddr,
 
 #define SMC911X_EEPROM_LEN	 7
 
+/* Below are the register offsets and bit definitions
+ * of the Lan911x memory space
+ */
 #define RX_DATA_FIFO		 (0x00)
 
 #define TX_DATA_FIFO		 (0x20)
@@ -327,206 +354,226 @@ smc_pxa_dma_outsl(struct smc911x_local *lp, u_long physaddr,
 #define	TX_STS_DEFERRED_		(0x00000001)
 #define TX_STATUS_FIFO_PEEK	(0x4C)
 #define ID_REV			(0x50)
-#define	ID_REV_CHIP_ID_			(0xFFFF0000)  
-#define	ID_REV_REV_ID_			(0x0000FFFF)  
+#define	ID_REV_CHIP_ID_			(0xFFFF0000)  /* RO */
+#define	ID_REV_REV_ID_			(0x0000FFFF)  /* RO */
 
 #define INT_CFG			(0x54)
-#define	INT_CFG_INT_DEAS_		(0xFF000000)  
+#define	INT_CFG_INT_DEAS_		(0xFF000000)  /* R/W */
 #define	INT_CFG_INT_DEAS_CLR_		(0x00004000)
 #define	INT_CFG_INT_DEAS_STS_		(0x00002000)
-#define	INT_CFG_IRQ_INT_		(0x00001000)  
-#define	INT_CFG_IRQ_EN_			(0x00000100)  
-#define	INT_CFG_IRQ_POL_		(0x00000010)  
-#define	INT_CFG_IRQ_TYPE_		(0x00000001)  
+#define	INT_CFG_IRQ_INT_		(0x00001000)  /* RO */
+#define	INT_CFG_IRQ_EN_			(0x00000100)  /* R/W */
+#define	INT_CFG_IRQ_POL_		(0x00000010)  /* R/W Not Affected by SW Reset */
+#define	INT_CFG_IRQ_TYPE_		(0x00000001)  /* R/W Not Affected by SW Reset */
 
 #define INT_STS			(0x58)
-#define	INT_STS_SW_INT_			(0x80000000)  
-#define	INT_STS_TXSTOP_INT_		(0x02000000)  
-#define	INT_STS_RXSTOP_INT_		(0x01000000)  
-#define	INT_STS_RXDFH_INT_		(0x00800000)  
-#define	INT_STS_RXDF_INT_		(0x00400000)  
-#define	INT_STS_TX_IOC_			(0x00200000)  
-#define	INT_STS_RXD_INT_		(0x00100000)  
-#define	INT_STS_GPT_INT_		(0x00080000)  
-#define	INT_STS_PHY_INT_		(0x00040000)  
-#define	INT_STS_PME_INT_		(0x00020000)  
-#define	INT_STS_TXSO_			(0x00010000)  
-#define	INT_STS_RWT_			(0x00008000)  
-#define	INT_STS_RXE_			(0x00004000)  
-#define	INT_STS_TXE_			(0x00002000)  
-#define	INT_STS_TDFU_			(0x00000800)  
-#define	INT_STS_TDFO_			(0x00000400)  
-#define	INT_STS_TDFA_			(0x00000200)  
-#define	INT_STS_TSFF_			(0x00000100)  
-#define	INT_STS_TSFL_			(0x00000080)  
-#define	INT_STS_RDFO_			(0x00000040)  
-#define	INT_STS_RDFL_			(0x00000020)  
-#define	INT_STS_RSFF_			(0x00000010)  
-#define	INT_STS_RSFL_			(0x00000008)  
-#define	INT_STS_GPIO2_INT_		(0x00000004)  
-#define	INT_STS_GPIO1_INT_		(0x00000002)  
-#define	INT_STS_GPIO0_INT_		(0x00000001)  
+#define	INT_STS_SW_INT_			(0x80000000)  /* R/WC */
+#define	INT_STS_TXSTOP_INT_		(0x02000000)  /* R/WC */
+#define	INT_STS_RXSTOP_INT_		(0x01000000)  /* R/WC */
+#define	INT_STS_RXDFH_INT_		(0x00800000)  /* R/WC */
+#define	INT_STS_RXDF_INT_		(0x00400000)  /* R/WC */
+#define	INT_STS_TX_IOC_			(0x00200000)  /* R/WC */
+#define	INT_STS_RXD_INT_		(0x00100000)  /* R/WC */
+#define	INT_STS_GPT_INT_		(0x00080000)  /* R/WC */
+#define	INT_STS_PHY_INT_		(0x00040000)  /* RO */
+#define	INT_STS_PME_INT_		(0x00020000)  /* R/WC */
+#define	INT_STS_TXSO_			(0x00010000)  /* R/WC */
+#define	INT_STS_RWT_			(0x00008000)  /* R/WC */
+#define	INT_STS_RXE_			(0x00004000)  /* R/WC */
+#define	INT_STS_TXE_			(0x00002000)  /* R/WC */
+//#define	INT_STS_ERX_		(0x00001000)  /* R/WC */
+#define	INT_STS_TDFU_			(0x00000800)  /* R/WC */
+#define	INT_STS_TDFO_			(0x00000400)  /* R/WC */
+#define	INT_STS_TDFA_			(0x00000200)  /* R/WC */
+#define	INT_STS_TSFF_			(0x00000100)  /* R/WC */
+#define	INT_STS_TSFL_			(0x00000080)  /* R/WC */
+//#define	INT_STS_RXDF_		(0x00000040)  /* R/WC */
+#define	INT_STS_RDFO_			(0x00000040)  /* R/WC */
+#define	INT_STS_RDFL_			(0x00000020)  /* R/WC */
+#define	INT_STS_RSFF_			(0x00000010)  /* R/WC */
+#define	INT_STS_RSFL_			(0x00000008)  /* R/WC */
+#define	INT_STS_GPIO2_INT_		(0x00000004)  /* R/WC */
+#define	INT_STS_GPIO1_INT_		(0x00000002)  /* R/WC */
+#define	INT_STS_GPIO0_INT_		(0x00000001)  /* R/WC */
 
 #define INT_EN			(0x5C)
-#define	INT_EN_SW_INT_EN_		(0x80000000)  
-#define	INT_EN_TXSTOP_INT_EN_		(0x02000000)  
-#define	INT_EN_RXSTOP_INT_EN_		(0x01000000)  
-#define	INT_EN_RXDFH_INT_EN_		(0x00800000)  
-#define	INT_EN_TIOC_INT_EN_		(0x00200000)  
-#define	INT_EN_RXD_INT_EN_		(0x00100000)  
-#define	INT_EN_GPT_INT_EN_		(0x00080000)  
-#define	INT_EN_PHY_INT_EN_		(0x00040000)  
-#define	INT_EN_PME_INT_EN_		(0x00020000)  
-#define	INT_EN_TXSO_EN_			(0x00010000)  
-#define	INT_EN_RWT_EN_			(0x00008000)  
-#define	INT_EN_RXE_EN_			(0x00004000)  
-#define	INT_EN_TXE_EN_			(0x00002000)  
-#define	INT_EN_TDFU_EN_			(0x00000800)  
-#define	INT_EN_TDFO_EN_			(0x00000400)  
-#define	INT_EN_TDFA_EN_			(0x00000200)  
-#define	INT_EN_TSFF_EN_			(0x00000100)  
-#define	INT_EN_TSFL_EN_			(0x00000080)  
-#define	INT_EN_RDFO_EN_			(0x00000040)  
-#define	INT_EN_RDFL_EN_			(0x00000020)  
-#define	INT_EN_RSFF_EN_			(0x00000010)  
-#define	INT_EN_RSFL_EN_			(0x00000008)  
-#define	INT_EN_GPIO2_INT_		(0x00000004)  
-#define	INT_EN_GPIO1_INT_		(0x00000002)  
-#define	INT_EN_GPIO0_INT_		(0x00000001)  
+#define	INT_EN_SW_INT_EN_		(0x80000000)  /* R/W */
+#define	INT_EN_TXSTOP_INT_EN_		(0x02000000)  /* R/W */
+#define	INT_EN_RXSTOP_INT_EN_		(0x01000000)  /* R/W */
+#define	INT_EN_RXDFH_INT_EN_		(0x00800000)  /* R/W */
+//#define	INT_EN_RXDF_INT_EN_		(0x00400000)  /* R/W */
+#define	INT_EN_TIOC_INT_EN_		(0x00200000)  /* R/W */
+#define	INT_EN_RXD_INT_EN_		(0x00100000)  /* R/W */
+#define	INT_EN_GPT_INT_EN_		(0x00080000)  /* R/W */
+#define	INT_EN_PHY_INT_EN_		(0x00040000)  /* R/W */
+#define	INT_EN_PME_INT_EN_		(0x00020000)  /* R/W */
+#define	INT_EN_TXSO_EN_			(0x00010000)  /* R/W */
+#define	INT_EN_RWT_EN_			(0x00008000)  /* R/W */
+#define	INT_EN_RXE_EN_			(0x00004000)  /* R/W */
+#define	INT_EN_TXE_EN_			(0x00002000)  /* R/W */
+//#define	INT_EN_ERX_EN_			(0x00001000)  /* R/W */
+#define	INT_EN_TDFU_EN_			(0x00000800)  /* R/W */
+#define	INT_EN_TDFO_EN_			(0x00000400)  /* R/W */
+#define	INT_EN_TDFA_EN_			(0x00000200)  /* R/W */
+#define	INT_EN_TSFF_EN_			(0x00000100)  /* R/W */
+#define	INT_EN_TSFL_EN_			(0x00000080)  /* R/W */
+//#define	INT_EN_RXDF_EN_			(0x00000040)  /* R/W */
+#define	INT_EN_RDFO_EN_			(0x00000040)  /* R/W */
+#define	INT_EN_RDFL_EN_			(0x00000020)  /* R/W */
+#define	INT_EN_RSFF_EN_			(0x00000010)  /* R/W */
+#define	INT_EN_RSFL_EN_			(0x00000008)  /* R/W */
+#define	INT_EN_GPIO2_INT_		(0x00000004)  /* R/W */
+#define	INT_EN_GPIO1_INT_		(0x00000002)  /* R/W */
+#define	INT_EN_GPIO0_INT_		(0x00000001)  /* R/W */
 
 #define BYTE_TEST		(0x64)
 #define FIFO_INT		(0x68)
-#define	FIFO_INT_TX_AVAIL_LEVEL_	(0xFF000000)  
-#define	FIFO_INT_TX_STS_LEVEL_		(0x00FF0000)  
-#define	FIFO_INT_RX_AVAIL_LEVEL_	(0x0000FF00)  
-#define	FIFO_INT_RX_STS_LEVEL_		(0x000000FF)  
+#define	FIFO_INT_TX_AVAIL_LEVEL_	(0xFF000000)  /* R/W */
+#define	FIFO_INT_TX_STS_LEVEL_		(0x00FF0000)  /* R/W */
+#define	FIFO_INT_RX_AVAIL_LEVEL_	(0x0000FF00)  /* R/W */
+#define	FIFO_INT_RX_STS_LEVEL_		(0x000000FF)  /* R/W */
 
 #define RX_CFG			(0x6C)
-#define	RX_CFG_RX_END_ALGN_		(0xC0000000)  
-#define		RX_CFG_RX_END_ALGN4_		(0x00000000)  
-#define		RX_CFG_RX_END_ALGN16_		(0x40000000)  
-#define		RX_CFG_RX_END_ALGN32_		(0x80000000)  
-#define	RX_CFG_RX_DMA_CNT_		(0x0FFF0000)  
-#define	RX_CFG_RX_DUMP_			(0x00008000)  
-#define	RX_CFG_RXDOFF_			(0x00001F00)  
+#define	RX_CFG_RX_END_ALGN_		(0xC0000000)  /* R/W */
+#define		RX_CFG_RX_END_ALGN4_		(0x00000000)  /* R/W */
+#define		RX_CFG_RX_END_ALGN16_		(0x40000000)  /* R/W */
+#define		RX_CFG_RX_END_ALGN32_		(0x80000000)  /* R/W */
+#define	RX_CFG_RX_DMA_CNT_		(0x0FFF0000)  /* R/W */
+#define	RX_CFG_RX_DUMP_			(0x00008000)  /* R/W */
+#define	RX_CFG_RXDOFF_			(0x00001F00)  /* R/W */
+//#define	RX_CFG_RXBAD_			(0x00000001)  /* R/W */
 
 #define TX_CFG			(0x70)
-#define	TX_CFG_TXS_DUMP_		(0x00008000)  
-#define	TX_CFG_TXD_DUMP_		(0x00004000)  
-#define	TX_CFG_TXSAO_			(0x00000004)  
-#define	TX_CFG_TX_ON_			(0x00000002)  
-#define	TX_CFG_STOP_TX_			(0x00000001)  
+//#define	TX_CFG_TX_DMA_LVL_		(0xE0000000)	 /* R/W */
+//#define	TX_CFG_TX_DMA_CNT_		(0x0FFF0000)	 /* R/W Self Clearing */
+#define	TX_CFG_TXS_DUMP_		(0x00008000)  /* Self Clearing */
+#define	TX_CFG_TXD_DUMP_		(0x00004000)  /* Self Clearing */
+#define	TX_CFG_TXSAO_			(0x00000004)  /* R/W */
+#define	TX_CFG_TX_ON_			(0x00000002)  /* R/W */
+#define	TX_CFG_STOP_TX_			(0x00000001)  /* Self Clearing */
 
 #define HW_CFG			(0x74)
-#define	HW_CFG_TTM_			(0x00200000)  
-#define	HW_CFG_SF_			(0x00100000)  
-#define	HW_CFG_TX_FIF_SZ_		(0x000F0000)  
-#define	HW_CFG_TR_			(0x00003000)  
-#define	HW_CFG_PHY_CLK_SEL_		(0x00000060)  
-#define		 HW_CFG_PHY_CLK_SEL_INT_PHY_ 	(0x00000000) 
-#define		 HW_CFG_PHY_CLK_SEL_EXT_PHY_ 	(0x00000020) 
-#define		 HW_CFG_PHY_CLK_SEL_CLK_DIS_ 	(0x00000040) 
-#define	HW_CFG_SMI_SEL_			(0x00000010)  
-#define	HW_CFG_EXT_PHY_DET_		(0x00000008)  
-#define	HW_CFG_EXT_PHY_EN_		(0x00000004)  
-#define	HW_CFG_32_16_BIT_MODE_		(0x00000004)  
-#define	HW_CFG_SRST_TO_			(0x00000002)  
-#define	HW_CFG_SRST_			(0x00000001)  
+#define	HW_CFG_TTM_			(0x00200000)  /* R/W */
+#define	HW_CFG_SF_			(0x00100000)  /* R/W */
+#define	HW_CFG_TX_FIF_SZ_		(0x000F0000)  /* R/W */
+#define	HW_CFG_TR_			(0x00003000)  /* R/W */
+#define	HW_CFG_PHY_CLK_SEL_		(0x00000060)  /* R/W */
+#define		 HW_CFG_PHY_CLK_SEL_INT_PHY_ 	(0x00000000) /* R/W */
+#define		 HW_CFG_PHY_CLK_SEL_EXT_PHY_ 	(0x00000020) /* R/W */
+#define		 HW_CFG_PHY_CLK_SEL_CLK_DIS_ 	(0x00000040) /* R/W */
+#define	HW_CFG_SMI_SEL_			(0x00000010)  /* R/W */
+#define	HW_CFG_EXT_PHY_DET_		(0x00000008)  /* RO */
+#define	HW_CFG_EXT_PHY_EN_		(0x00000004)  /* R/W */
+#define	HW_CFG_32_16_BIT_MODE_		(0x00000004)  /* RO */
+#define	HW_CFG_SRST_TO_			(0x00000002)  /* RO */
+#define	HW_CFG_SRST_			(0x00000001)  /* Self Clearing */
 
 #define RX_DP_CTRL		(0x78)
-#define	RX_DP_CTRL_RX_FFWD_		(0x80000000)  
-#define	RX_DP_CTRL_FFWD_BUSY_		(0x80000000)  
+#define	RX_DP_CTRL_RX_FFWD_		(0x80000000)  /* R/W */
+#define	RX_DP_CTRL_FFWD_BUSY_		(0x80000000)  /* RO */
 
 #define RX_FIFO_INF		(0x7C)
-#define	 RX_FIFO_INF_RXSUSED_		(0x00FF0000)  
-#define	 RX_FIFO_INF_RXDUSED_		(0x0000FFFF)  
+#define	 RX_FIFO_INF_RXSUSED_		(0x00FF0000)  /* RO */
+#define	 RX_FIFO_INF_RXDUSED_		(0x0000FFFF)  /* RO */
 
 #define TX_FIFO_INF		(0x80)
-#define	TX_FIFO_INF_TSUSED_		(0x00FF0000)  
-#define	TX_FIFO_INF_TDFREE_		(0x0000FFFF)  
+#define	TX_FIFO_INF_TSUSED_		(0x00FF0000)  /* RO */
+#define	TX_FIFO_INF_TDFREE_		(0x0000FFFF)  /* RO */
 
 #define PMT_CTRL		(0x84)
-#define	PMT_CTRL_PM_MODE_		(0x00003000)  
-#define	PMT_CTRL_PHY_RST_		(0x00000400)  
-#define	PMT_CTRL_WOL_EN_		(0x00000200)  
-#define	PMT_CTRL_ED_EN_			(0x00000100)  
-#define	PMT_CTRL_PME_TYPE_		(0x00000040)  
-#define	PMT_CTRL_WUPS_			(0x00000030)  
-#define		PMT_CTRL_WUPS_NOWAKE_		(0x00000000)  
-#define		PMT_CTRL_WUPS_ED_		(0x00000010)  
-#define		PMT_CTRL_WUPS_WOL_		(0x00000020)  
-#define		PMT_CTRL_WUPS_MULTI_		(0x00000030)  
-#define	PMT_CTRL_PME_IND_		(0x00000008)  
-#define	PMT_CTRL_PME_POL_		(0x00000004)  
-#define	PMT_CTRL_PME_EN_		(0x00000002)  
-#define	PMT_CTRL_READY_			(0x00000001)  
+#define	PMT_CTRL_PM_MODE_		(0x00003000)  /* Self Clearing */
+#define	PMT_CTRL_PHY_RST_		(0x00000400)  /* Self Clearing */
+#define	PMT_CTRL_WOL_EN_		(0x00000200)  /* R/W */
+#define	PMT_CTRL_ED_EN_			(0x00000100)  /* R/W */
+#define	PMT_CTRL_PME_TYPE_		(0x00000040)  /* R/W Not Affected by SW Reset */
+#define	PMT_CTRL_WUPS_			(0x00000030)  /* R/WC */
+#define		PMT_CTRL_WUPS_NOWAKE_		(0x00000000)  /* R/WC */
+#define		PMT_CTRL_WUPS_ED_		(0x00000010)  /* R/WC */
+#define		PMT_CTRL_WUPS_WOL_		(0x00000020)  /* R/WC */
+#define		PMT_CTRL_WUPS_MULTI_		(0x00000030)  /* R/WC */
+#define	PMT_CTRL_PME_IND_		(0x00000008)  /* R/W */
+#define	PMT_CTRL_PME_POL_		(0x00000004)  /* R/W */
+#define	PMT_CTRL_PME_EN_		(0x00000002)  /* R/W Not Affected by SW Reset */
+#define	PMT_CTRL_READY_			(0x00000001)  /* RO */
 
 #define GPIO_CFG		(0x88)
-#define	GPIO_CFG_LED3_EN_		(0x40000000)  
-#define	GPIO_CFG_LED2_EN_		(0x20000000)  
-#define	GPIO_CFG_LED1_EN_		(0x10000000)  
-#define	GPIO_CFG_GPIO2_INT_POL_		(0x04000000)  
-#define	GPIO_CFG_GPIO1_INT_POL_		(0x02000000)  
-#define	GPIO_CFG_GPIO0_INT_POL_		(0x01000000)  
-#define	GPIO_CFG_EEPR_EN_		(0x00700000)  
-#define	GPIO_CFG_GPIOBUF2_		(0x00040000)  
-#define	GPIO_CFG_GPIOBUF1_		(0x00020000)  
-#define	GPIO_CFG_GPIOBUF0_		(0x00010000)  
-#define	GPIO_CFG_GPIODIR2_		(0x00000400)  
-#define	GPIO_CFG_GPIODIR1_		(0x00000200)  
-#define	GPIO_CFG_GPIODIR0_		(0x00000100)  
-#define	GPIO_CFG_GPIOD4_		(0x00000010)  
-#define	GPIO_CFG_GPIOD3_		(0x00000008)  
-#define	GPIO_CFG_GPIOD2_		(0x00000004)  
-#define	GPIO_CFG_GPIOD1_		(0x00000002)  
-#define	GPIO_CFG_GPIOD0_		(0x00000001)  
+#define	GPIO_CFG_LED3_EN_		(0x40000000)  /* R/W */
+#define	GPIO_CFG_LED2_EN_		(0x20000000)  /* R/W */
+#define	GPIO_CFG_LED1_EN_		(0x10000000)  /* R/W */
+#define	GPIO_CFG_GPIO2_INT_POL_		(0x04000000)  /* R/W */
+#define	GPIO_CFG_GPIO1_INT_POL_		(0x02000000)  /* R/W */
+#define	GPIO_CFG_GPIO0_INT_POL_		(0x01000000)  /* R/W */
+#define	GPIO_CFG_EEPR_EN_		(0x00700000)  /* R/W */
+#define	GPIO_CFG_GPIOBUF2_		(0x00040000)  /* R/W */
+#define	GPIO_CFG_GPIOBUF1_		(0x00020000)  /* R/W */
+#define	GPIO_CFG_GPIOBUF0_		(0x00010000)  /* R/W */
+#define	GPIO_CFG_GPIODIR2_		(0x00000400)  /* R/W */
+#define	GPIO_CFG_GPIODIR1_		(0x00000200)  /* R/W */
+#define	GPIO_CFG_GPIODIR0_		(0x00000100)  /* R/W */
+#define	GPIO_CFG_GPIOD4_		(0x00000010)  /* R/W */
+#define	GPIO_CFG_GPIOD3_		(0x00000008)  /* R/W */
+#define	GPIO_CFG_GPIOD2_		(0x00000004)  /* R/W */
+#define	GPIO_CFG_GPIOD1_		(0x00000002)  /* R/W */
+#define	GPIO_CFG_GPIOD0_		(0x00000001)  /* R/W */
 
 #define GPT_CFG			(0x8C)
-#define	GPT_CFG_TIMER_EN_		(0x20000000)  
-#define	GPT_CFG_GPT_LOAD_		(0x0000FFFF)  
+#define	GPT_CFG_TIMER_EN_		(0x20000000)  /* R/W */
+#define	GPT_CFG_GPT_LOAD_		(0x0000FFFF)  /* R/W */
 
 #define GPT_CNT			(0x90)
-#define	GPT_CNT_GPT_CNT_		(0x0000FFFF)  
+#define	GPT_CNT_GPT_CNT_		(0x0000FFFF)  /* RO */
 
 #define ENDIAN			(0x98)
 #define FREE_RUN		(0x9C)
 #define RX_DROP			(0xA0)
 #define MAC_CSR_CMD		(0xA4)
-#define	 MAC_CSR_CMD_CSR_BUSY_		(0x80000000)  
-#define	 MAC_CSR_CMD_R_NOT_W_		(0x40000000)  
-#define	 MAC_CSR_CMD_CSR_ADDR_		(0x000000FF)  
+#define	 MAC_CSR_CMD_CSR_BUSY_		(0x80000000)  /* Self Clearing */
+#define	 MAC_CSR_CMD_R_NOT_W_		(0x40000000)  /* R/W */
+#define	 MAC_CSR_CMD_CSR_ADDR_		(0x000000FF)  /* R/W */
 
 #define MAC_CSR_DATA		(0xA8)
 #define AFC_CFG			(0xAC)
-#define		AFC_CFG_AFC_HI_			(0x00FF0000)  
-#define		AFC_CFG_AFC_LO_			(0x0000FF00)  
-#define		AFC_CFG_BACK_DUR_		(0x000000F0)  
-#define		AFC_CFG_FCMULT_			(0x00000008)  
-#define		AFC_CFG_FCBRD_			(0x00000004)  
-#define		AFC_CFG_FCADD_			(0x00000002)  
-#define		AFC_CFG_FCANY_			(0x00000001)  
+#define		AFC_CFG_AFC_HI_			(0x00FF0000)  /* R/W */
+#define		AFC_CFG_AFC_LO_			(0x0000FF00)  /* R/W */
+#define		AFC_CFG_BACK_DUR_		(0x000000F0)  /* R/W */
+#define		AFC_CFG_FCMULT_			(0x00000008)  /* R/W */
+#define		AFC_CFG_FCBRD_			(0x00000004)  /* R/W */
+#define		AFC_CFG_FCADD_			(0x00000002)  /* R/W */
+#define		AFC_CFG_FCANY_			(0x00000001)  /* R/W */
 
 #define E2P_CMD			(0xB0)
-#define	E2P_CMD_EPC_BUSY_		(0x80000000)  
-#define	E2P_CMD_EPC_CMD_			(0x70000000)  
-#define		E2P_CMD_EPC_CMD_READ_		(0x00000000)  
-#define		E2P_CMD_EPC_CMD_EWDS_		(0x10000000)  
-#define		E2P_CMD_EPC_CMD_EWEN_		(0x20000000)  
-#define		E2P_CMD_EPC_CMD_WRITE_		(0x30000000)  
-#define		E2P_CMD_EPC_CMD_WRAL_		(0x40000000)  
-#define		E2P_CMD_EPC_CMD_ERASE_		(0x50000000)  
-#define		E2P_CMD_EPC_CMD_ERAL_		(0x60000000)  
-#define		E2P_CMD_EPC_CMD_RELOAD_		(0x70000000)  
-#define	E2P_CMD_EPC_TIMEOUT_		(0x00000200)  
-#define	E2P_CMD_MAC_ADDR_LOADED_	(0x00000100)  
-#define	E2P_CMD_EPC_ADDR_		(0x000000FF)  
+#define	E2P_CMD_EPC_BUSY_		(0x80000000)  /* Self Clearing */
+#define	E2P_CMD_EPC_CMD_			(0x70000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_READ_		(0x00000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_EWDS_		(0x10000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_EWEN_		(0x20000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_WRITE_		(0x30000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_WRAL_		(0x40000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_ERASE_		(0x50000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_ERAL_		(0x60000000)  /* R/W */
+#define		E2P_CMD_EPC_CMD_RELOAD_		(0x70000000)  /* R/W */
+#define	E2P_CMD_EPC_TIMEOUT_		(0x00000200)  /* RO */
+#define	E2P_CMD_MAC_ADDR_LOADED_	(0x00000100)  /* RO */
+#define	E2P_CMD_EPC_ADDR_		(0x000000FF)  /* R/W */
 
 #define E2P_DATA		(0xB4)
-#define	E2P_DATA_EEPROM_DATA_		(0x000000FF)  
+#define	E2P_DATA_EEPROM_DATA_		(0x000000FF)  /* R/W */
+/* end of LAN register offsets and bit definitions */
 
-#define MAC_CR			(0x01)  
+/*
+ ****************************************************************************
+ ****************************************************************************
+ * MAC Control and Status Register (Indirect Address)
+ * Offset (through the MAC_CSR CMD and DATA port)
+ ****************************************************************************
+ ****************************************************************************
+ *
+ */
+#define MAC_CR			(0x01)  /* R/W */
 
+/* MAC_CR - MAC Control Register */
 #define MAC_CR_RXALL_			(0x80000000)
+// TODO: delete this bit? It is not described in the data sheet.
 #define MAC_CR_HBDIS_			(0x10000000)
 #define MAC_CR_RCVOWN_			(0x00800000)
 #define MAC_CR_LOOPBK_			(0x00200000)
@@ -546,43 +593,59 @@ smc_pxa_dma_outsl(struct smc911x_local *lp, u_long physaddr,
 #define MAC_CR_TXEN_			(0x00000008)
 #define MAC_CR_RXEN_			(0x00000004)
 
-#define ADDRH			(0x02)	  
-#define ADDRL			(0x03)	  
-#define HASHH			(0x04)	  
-#define HASHL			(0x05)	  
+#define ADDRH			(0x02)	  /* R/W mask 0x0000FFFFUL */
+#define ADDRL			(0x03)	  /* R/W mask 0xFFFFFFFFUL */
+#define HASHH			(0x04)	  /* R/W */
+#define HASHL			(0x05)	  /* R/W */
 
-#define MII_ACC			(0x06)	  
+#define MII_ACC			(0x06)	  /* R/W */
 #define MII_ACC_PHY_ADDR_		(0x0000F800)
 #define MII_ACC_MIIRINDA_		(0x000007C0)
 #define MII_ACC_MII_WRITE_		(0x00000002)
 #define MII_ACC_MII_BUSY_		(0x00000001)
 
-#define MII_DATA		(0x07)	  
+#define MII_DATA		(0x07)	  /* R/W mask 0x0000FFFFUL */
 
-#define FLOW			(0x08)	  
+#define FLOW			(0x08)	  /* R/W */
 #define FLOW_FCPT_			(0xFFFF0000)
 #define FLOW_FCPASS_			(0x00000004)
 #define FLOW_FCEN_			(0x00000002)
 #define FLOW_FCBSY_			(0x00000001)
 
-#define VLAN1			(0x09)	  
+#define VLAN1			(0x09)	  /* R/W mask 0x0000FFFFUL */
 #define VLAN1_VTI1_			(0x0000ffff)
 
-#define VLAN2			(0x0A)	  
+#define VLAN2			(0x0A)	  /* R/W mask 0x0000FFFFUL */
 #define VLAN2_VTI2_			(0x0000ffff)
 
-#define WUFF			(0x0B)	  
+#define WUFF			(0x0B)	  /* WO */
 
-#define WUCSR			(0x0C)	  
+#define WUCSR			(0x0C)	  /* R/W */
 #define WUCSR_GUE_			(0x00000200)
 #define WUCSR_WUFR_			(0x00000040)
 #define WUCSR_MPR_			(0x00000020)
 #define WUCSR_WAKE_EN_			(0x00000004)
 #define WUCSR_MPEN_			(0x00000002)
 
+/*
+ ****************************************************************************
+ * Chip Specific MII Defines
+ ****************************************************************************
+ *
+ * Phy register offsets and bit definitions
+ *
+ */
 
-#define PHY_MODE_CTRL_STS	((u32)17)	
+#define PHY_MODE_CTRL_STS	((u32)17)	/* Mode Control/Status Register */
+//#define MODE_CTRL_STS_FASTRIP_	  ((u16)0x4000)
 #define MODE_CTRL_STS_EDPWRDOWN_	 ((u16)0x2000)
+//#define MODE_CTRL_STS_LOWSQEN_	   ((u16)0x0800)
+//#define MODE_CTRL_STS_MDPREBP_	   ((u16)0x0400)
+//#define MODE_CTRL_STS_FARLOOPBACK_  ((u16)0x0200)
+//#define MODE_CTRL_STS_FASTEST_	   ((u16)0x0100)
+//#define MODE_CTRL_STS_REFCLKEN_	   ((u16)0x0010)
+//#define MODE_CTRL_STS_PHYADBP_	   ((u16)0x0008)
+//#define MODE_CTRL_STS_FORCE_G_LINK_ ((u16)0x0004)
 #define MODE_CTRL_STS_ENERGYON_	 	((u16)0x0002)
 
 #define PHY_INT_SRC			((u32)29)
@@ -615,6 +678,7 @@ smc_pxa_dma_outsl(struct smc911x_local *lp, u_long physaddr,
 
 #define LAN911X_INTERNAL_PHY_ID		(0x0007C000)
 
+/* Chip ID values */
 #define CHIP_9115	0x0115
 #define CHIP_9116	0x0116
 #define CHIP_9117	0x0117
@@ -643,12 +707,18 @@ static const struct chip_id chip_ids[] =  {
 
 #define IS_REV_A(x)	((x & 0xFFFF)==0)
 
+/*
+ * Macros to abstract register access according to the data bus
+ * capabilities.  Please use those and not the in/out primitives.
+ */
+/* FIFO read/write macros */
 #define SMC_PUSH_DATA(lp, p, l)	SMC_outsl( lp, TX_DATA_FIFO, p, (l) >> 2 )
 #define SMC_PULL_DATA(lp, p, l)	SMC_insl ( lp, RX_DATA_FIFO, p, (l) >> 2 )
 #define SMC_SET_TX_FIFO(lp, x) 	SMC_outl( x, lp, TX_DATA_FIFO )
 #define SMC_GET_RX_FIFO(lp)	SMC_inl( lp, RX_DATA_FIFO )
 
 
+/* I/O mapped register read/write macros */
 #define SMC_GET_TX_STS_FIFO(lp)		SMC_inl( lp, TX_STATUS_FIFO )
 #define SMC_GET_RX_STS_FIFO(lp)		SMC_inl( lp, RX_STATUS_FIFO )
 #define SMC_GET_RX_STS_FIFO_PEEK(lp)	SMC_inl( lp, RX_STATUS_FIFO_PEEK )
@@ -731,6 +801,7 @@ static const struct chip_id chip_ids[] =  {
 #define SMC_GET_E2P_DATA(lp)		SMC_inl( lp, E2P_DATA )
 #define SMC_SET_E2P_DATA(lp, x)		SMC_outl( x, lp, E2P_DATA )
 
+/* MAC register read/write macros */
 #define SMC_GET_MAC_CSR(lp,a,v)						\
 	do {								\
 		while (SMC_GET_MAC_CMD((lp)) & MAC_CSR_CMD_CSR_BUSY_);	\
@@ -770,6 +841,7 @@ static const struct chip_id chip_ids[] =  {
 #define SMC_GET_WUCSR(lp, x)	SMC_GET_MAC_CSR( (lp), WUCSR, x )
 #define SMC_SET_WUCSR(lp, x)	SMC_SET_MAC_CSR( (lp), WUCSR, x )
 
+/* PHY register read/write macros */
 #define SMC_GET_MII(lp,a,phy,v)					\
 	do {							\
 		u32 __v;					\
@@ -816,6 +888,7 @@ static const struct chip_id chip_ids[] =  {
 
 
 
+/* Misc read/write macros */
 
 #ifndef SMC_GET_MAC_ADDR
 #define SMC_GET_MAC_ADDR(lp, addr)				\
@@ -848,4 +921,4 @@ static const struct chip_id chip_ids[] =  {
 		while (SMC_GET_MAC_CMD((lp)) & MAC_CSR_CMD_CSR_BUSY_);	\
 	} while (0)
 
-#endif	 
+#endif	 /* _SMC911X_H_ */

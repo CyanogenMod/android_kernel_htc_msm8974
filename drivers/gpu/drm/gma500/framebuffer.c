@@ -97,7 +97,14 @@ static int psbfb_pan(struct fb_var_screeninfo *var, struct fb_info *info)
 	struct psb_framebuffer *psbfb = &fbdev->pfb;
 	struct drm_device *dev = psbfb->base.dev;
 
+	/*
+	 *	We have to poke our nose in here. The core fb code assumes
+	 *	panning is part of the hardware that can be invoked before
+	 *	the actual fb is mapped. In our case that isn't quite true.
+	 */
 	if (psbfb->gtt->npage) {
+		/* GTT roll shifts in 4K pages, we need to shift the right
+		   number of pages */
 		int pages = info->fix.line_length >> 12;
 		psb_gtt_roll(dev, psbfb->gtt, var->yoffset * pages);
 	}
@@ -114,7 +121,7 @@ static int psbfb_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	unsigned long address;
 	int ret;
 	unsigned long pfn;
-	
+	/* FIXME: assumes fb at stolen base which may not be true */
 	unsigned long phys_addr = (unsigned long)dev_priv->stolen_base;
 
 	page_num = (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
@@ -164,6 +171,11 @@ static int psbfb_mmap(struct fb_info *info, struct vm_area_struct *vma)
 
 	if (!psbfb->addr_space)
 		psbfb->addr_space = vma->vm_file->f_mapping;
+	/*
+	 * If this is a GEM object then info->screen_base is the virtual
+	 * kernel remapping of the object. FIXME: Review if this is
+	 * suitable for our mmap work
+	 */
 	vma->vm_ops = &psbfb_vm_ops;
 	vma->vm_private_data = (void *)psbfb;
 	vma->vm_flags |= VM_RESERVED | VM_IO |
@@ -218,6 +230,16 @@ static struct fb_ops psbfb_unaccel_ops = {
 	.fb_ioctl = psbfb_ioctl,
 };
 
+/**
+ *	psb_framebuffer_init	-	initialize a framebuffer
+ *	@dev: our DRM device
+ *	@fb: framebuffer to set up
+ *	@mode_cmd: mode description
+ *	@gt: backing object
+ *
+ *	Configure and fill in the boilerplate for our frame buffer. Return
+ *	0 on success or an error code if we fail.
+ */
 static int psb_framebuffer_init(struct drm_device *dev,
 					struct psb_framebuffer *fb,
 					struct drm_mode_fb_cmd2 *mode_cmd,
@@ -249,6 +271,17 @@ static int psb_framebuffer_init(struct drm_device *dev,
 	return 0;
 }
 
+/**
+ *	psb_framebuffer_create	-	create a framebuffer backed by gt
+ *	@dev: our DRM device
+ *	@mode_cmd: the description of the requested mode
+ *	@gt: the backing object
+ *
+ *	Create a framebuffer object backed by the gt, and fill in the
+ *	boilerplate required
+ *
+ *	TODO: review object references
+ */
 
 static struct drm_framebuffer *psb_framebuffer_create
 			(struct drm_device *dev,
@@ -270,10 +303,23 @@ static struct drm_framebuffer *psb_framebuffer_create
 	return &fb->base;
 }
 
+/**
+ *	psbfb_alloc		-	allocate frame buffer memory
+ *	@dev: the DRM device
+ *	@aligned_size: space needed
+ *	@force: fall back to GEM buffers if need be
+ *
+ *	Allocate the frame buffer. In the usual case we get a GTT range that
+ *	is stolen memory backed and life is simple. If there isn't sufficient
+ *	we fail as we don't have the virtual mapping space to really vmap it
+ *	and the kernel console code can't handle non linear framebuffers.
+ *
+ *	Re-address this as and if the framebuffer layer grows this ability.
+ */
 static struct gtt_range *psbfb_alloc(struct drm_device *dev, int aligned_size)
 {
 	struct gtt_range *backing;
-	
+	/* Begin by trying to use stolen memory backing */
 	backing = psb_gtt_alloc_range(dev, aligned_size, "fb", 1);
 	if (backing) {
 		if (drm_gem_private_object_init(dev,
@@ -284,6 +330,13 @@ static struct gtt_range *psbfb_alloc(struct drm_device *dev, int aligned_size)
 	return NULL;
 }
 
+/**
+ *	psbfb_create		-	create a framebuffer
+ *	@fbdev: the framebuffer device
+ *	@sizes: specification of the layout
+ *
+ *	Create a framebuffer to the specifications provided
+ */
 static int psbfb_create(struct psb_fbdev *fbdev,
 				struct drm_fb_helper_surface_size *sizes)
 {
@@ -306,17 +359,22 @@ static int psbfb_create(struct psb_fbdev *fbdev,
 	bpp = sizes->surface_bpp;
 	depth = sizes->surface_depth;
 
-	
+	/* No 24bit packed */
 	if (bpp == 24)
 		bpp = 32;
 
 	do {
+		/*
+		 * Acceleration via the GTT requires pitch to be
+		 * power of two aligned. Preferably page but less
+		 * is ok with some fonts
+		 */
         	mode_cmd.pitches[0] =  ALIGN(mode_cmd.width * ((bpp + 7) / 8), 4096 >> pitch_lines);
 
         	size = mode_cmd.pitches[0] * mode_cmd.height;
         	size = ALIGN(size, PAGE_SIZE);
 
-		
+		/* Allocate the fb in the GTT with stolen page backing */
 		backing = psbfb_alloc(dev, size);
 
 		if (pitch_lines)
@@ -326,12 +384,17 @@ static int psbfb_create(struct psb_fbdev *fbdev,
 		gtt_roll++;
 	} while (backing == NULL && pitch_lines <= 16);
 
-	
+	/* The final pitch we accepted if we succeeded */
 	pitch_lines /= 2;
 
 	if (backing == NULL) {
+		/*
+		 *	We couldn't get the space we wanted, fall back to the
+		 *	display engine requirement instead.  The HW requires
+		 *	the pitch to be 64 byte aligned
+		 */
 
-		gtt_roll = 0;	
+		gtt_roll = 0;	/* Don't use GTT accelerated scrolling */
 		pitch_lines = 64;
 
 		mode_cmd.pitches[0] =  ALIGN(mode_cmd.width * ((bpp + 7) / 8), 64);
@@ -339,7 +402,7 @@ static int psbfb_create(struct psb_fbdev *fbdev,
 		size = mode_cmd.pitches[0] * mode_cmd.height;
 		size = ALIGN(size, PAGE_SIZE);
 
-		
+		/* Allocate the framebuffer in the GTT with stolen page backing */
 		backing = psbfb_alloc(dev, size);
 		if (backing == NULL)
 			return -ENOMEM;
@@ -370,12 +433,12 @@ static int psbfb_create(struct psb_fbdev *fbdev,
 	strcpy(info->fix.id, "psbfb");
 
 	info->flags = FBINFO_DEFAULT;
-	if (dev_priv->ops->accel_2d && pitch_lines > 8)	
+	if (dev_priv->ops->accel_2d && pitch_lines > 8)	/* 2D engine */
 		info->fbops = &psbfb_ops;
-	else if (gtt_roll) {	
+	else if (gtt_roll) {	/* GTT rolling seems best */
 		info->fbops = &psbfb_roll_ops;
 		info->flags |= FBINFO_HWACCEL_YPAN;
-	} else	
+	} else	/* Software */
 		info->fbops = &psbfb_unaccel_ops;
 
 	ret = fb_alloc_cmap(&info->cmap, 256, 0);
@@ -389,7 +452,7 @@ static int psbfb_create(struct psb_fbdev *fbdev,
 	info->fix.ywrapstep = gtt_roll;
 	info->fix.ypanstep = 0;
 
-	
+	/* Accessed stolen memory directly */
 	info->screen_base = (char *)dev_priv->vram_addr +
 							backing->offset;
 	info->screen_size = size;
@@ -410,7 +473,7 @@ static int psbfb_create(struct psb_fbdev *fbdev,
 	info->fix.mmio_start = pci_resource_start(dev->pdev, 0);
 	info->fix.mmio_len = pci_resource_len(dev->pdev, 0);
 
-	
+	/* Use default scratch pixmap (info->pixmap.flags = FB_PIXMAP_SYSTEM) */
 
 	dev_info(dev->dev, "allocated %dx%d fb\n",
 					psbfb->base.width, psbfb->base.height);
@@ -428,6 +491,14 @@ out_err1:
 	return ret;
 }
 
+/**
+ *	psb_user_framebuffer_create	-	create framebuffer
+ *	@dev: our DRM device
+ *	@filp: client file
+ *	@cmd: mode request
+ *
+ *	Create a new framebuffer backed by a userspace GEM object
+ */
 static struct drm_framebuffer *psb_user_framebuffer_create
 			(struct drm_device *dev, struct drm_file *filp,
 			 struct drm_mode_fb_cmd2 *cmd)
@@ -435,11 +506,15 @@ static struct drm_framebuffer *psb_user_framebuffer_create
 	struct gtt_range *r;
 	struct drm_gem_object *obj;
 
+	/*
+	 *	Find the GEM object and thus the gtt range object that is
+	 *	to back this space
+	 */
 	obj = drm_gem_object_lookup(dev, filp, cmd->handles[0]);
 	if (obj == NULL)
 		return ERR_PTR(-ENOENT);
 
-	
+	/* Let the core code do all the work */
 	r = container_of(obj, struct gtt_range, gem);
 	return psb_framebuffer_create(dev, cmd, r);
 }
@@ -547,6 +622,16 @@ static void psbfb_output_poll_changed(struct drm_device *dev)
 	drm_fb_helper_hotplug_event(&fbdev->psb_fb_helper);
 }
 
+/**
+ *	psb_user_framebuffer_create_handle - add hamdle to a framebuffer
+ *	@fb: framebuffer
+ *	@file_priv: our DRM file
+ *	@handle: returned handle
+ *
+ *	Our framebuffer object is a GTT range which also contains a GEM
+ *	object. We need to turn it into a handle for userspace. GEM will do
+ *	the work for us
+ */
 static int psb_user_framebuffer_create_handle(struct drm_framebuffer *fb,
 					      struct drm_file *file_priv,
 					      unsigned int *handle)
@@ -556,6 +641,13 @@ static int psb_user_framebuffer_create_handle(struct drm_framebuffer *fb,
 	return drm_gem_handle_create(file_priv, &r->gem, handle);
 }
 
+/**
+ *	psb_user_framebuffer_destroy	-	destruct user created fb
+ *	@fb: framebuffer
+ *
+ *	User framebuffers are backed by GEM objects so all we have to do is
+ *	clean up a bit and drop the reference, GEM will handle the fallout
+ */
 static void psb_user_framebuffer_destroy(struct drm_framebuffer *fb)
 {
 	struct psb_framebuffer *psbfb = to_psb_fb(fb);
@@ -566,20 +658,28 @@ static void psb_user_framebuffer_destroy(struct drm_framebuffer *fb)
 	struct drm_crtc *crtc;
 	int reset = 0;
 
-	
+	/* Should never get stolen memory for a user fb */
 	WARN_ON(r->stolen);
 
-	
+	/* Check if we are erroneously live */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head)
 		if (crtc->fb == fb)
 			reset = 1;
 
 	if (reset)
+		/*
+		 * Now force a sane response before we permit the DRM CRTC
+		 * layer to do stupid things like blank the display. Instead
+		 * we reset this framebuffer as if the user had forced a reset.
+		 * We must do this before the cleanup so that the DRM layer
+		 * doesn't get a chance to stick its oar in where it isn't
+		 * wanted.
+		 */
 		drm_fb_helper_restore_fbdev_mode(&fbdev->psb_fb_helper);
 
-	
+	/* Let DRM do its clean up */
 	drm_framebuffer_cleanup(fb);
-	
+	/*  We are no longer using the resource in GEM */
 	drm_gem_object_unreference_unlocked(&r->gem);
 	kfree(fb);
 }
@@ -621,7 +721,7 @@ static void psb_setup_outputs(struct drm_device *dev)
 		struct drm_encoder *encoder = &psb_intel_encoder->base;
 		int crtc_mask = 0, clone_mask = 0;
 
-		
+		/* valid crtcs */
 		switch (psb_intel_encoder->type) {
 		case INTEL_OUTPUT_ANALOG:
 			crtc_mask = (1 << 0);
@@ -673,12 +773,12 @@ void psb_modeset_init(struct drm_device *dev)
 
 	dev->mode_config.funcs = (void *) &psb_mode_funcs;
 
-	
-	
+	/* set memory base */
+	/* Oaktrail and Poulsbo should use BAR 2*/
 	pci_read_config_dword(dev->pdev, PSB_BSM, (u32 *)
 					&(dev->mode_config.fb_base));
 
-	
+	/* num pipes is 2 for PSB but 1 for Mrst */
 	for (i = 0; i < dev_priv->num_pipe; i++)
 		psb_intel_crtc_init(dev, i, mode_dev);
 

@@ -36,8 +36,13 @@
 
 #define B43legacy_RADIO_DEFAULT_CHANNEL_BG	6
 
+/* Force antenna 0. */
 #define B43legacy_RADIO_TXANTENNA_0		0
+/* Force antenna 1. */
 #define B43legacy_RADIO_TXANTENNA_1		1
+/* Use the RX antenna, that was selected for the most recently
+ * received good PLCP header.
+ */
 #define B43legacy_RADIO_TXANTENNA_LASTPLCP	3
 #define B43legacy_RADIO_TXANTENNA_DEFAULT	B43legacy_RADIO_TXANTENNA_LASTPLCP
 
@@ -90,4 +95,4 @@ void b43legacy_nrssi_mem_update(struct b43legacy_wldev *dev);
 void b43legacy_radio_set_tx_iq(struct b43legacy_wldev *dev);
 u16 b43legacy_radio_calibrationvalue(struct b43legacy_wldev *dev);
 
-#endif 
+#endif /* B43legacy_RADIO_H_ */

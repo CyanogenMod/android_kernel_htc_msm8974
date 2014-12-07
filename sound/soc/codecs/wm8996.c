@@ -80,7 +80,7 @@ struct wm8996_priv {
 	int rx_rate[WM8996_AIFS];
 	int bclk_rate[WM8996_AIFS];
 
-	
+	/* Platform dependant ReTune mobile configuration */
 	int num_retune_mobile_texts;
 	const char **retune_mobile_texts;
 	int retune_mobile_cfg[2];
@@ -97,6 +97,10 @@ struct wm8996_priv {
 #endif
 };
 
+/* We can't use the same notifier block for more than one supply and
+ * there's no way I can see to get from a callback to the caller
+ * except container_of().
+ */
 #define WM8996_REGULATOR_EVENT(n) \
 static int wm8996_regulator_event_##n(struct notifier_block *nb, \
 				    unsigned long event, void *data)	\
@@ -538,6 +542,8 @@ static void wm8996_set_retune_mobile(struct snd_soc_codec *codec, int block)
 		return;
 	}
 
+	/* Find the version of the currently selected configuration
+	 * with the nearest sample rate. */
 	cfg = wm8996->retune_mobile_cfg[block];
 	best = 0;
 	best_val = INT_MAX;
@@ -558,6 +564,9 @@ static void wm8996_set_retune_mobile(struct snd_soc_codec *codec, int block)
 		pdata->retune_mobile_cfgs[best].rate,
 		wm8996->rx_rate[iface]);
 
+	/* The EQ will be disabled while reconfiguring it, remember the
+	 * current configuration. 
+	 */
 	save = snd_soc_read(codec, base);
 	save &= WM8996_DSP1RX_EQ_ENA;
 
@@ -568,6 +577,7 @@ static void wm8996_set_retune_mobile(struct snd_soc_codec *codec, int block)
 	snd_soc_update_bits(codec, base, WM8996_DSP1RX_EQ_ENA, save);
 }
 
+/* Icky as hell but saves code duplication */
 static int wm8996_get_retune_mobile_block(const char *name)
 {
 	if (strcmp(name, "DSP1 EQ Mode") == 0)
@@ -805,7 +815,7 @@ static int rmv_short_event(struct snd_soc_dapm_widget *w,
 {
 	struct wm8996_priv *wm8996 = snd_soc_codec_get_drvdata(w->codec);
 
-	
+	/* Record which outputs we enabled */
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMD:
 		wm8996->hpout_pending &= ~w->shift;
@@ -830,7 +840,7 @@ static void wait_for_dc_servo(struct snd_soc_codec *codec, u16 mask)
 
 	snd_soc_write(codec, WM8996_DC_SERVO_2, mask);
 
-	
+	/* Use the interrupt if possible */
 	do {
 		if (i2c->irq) {
 			timeout = wait_for_completion_timeout(&wm8996->dcs_done,
@@ -861,12 +871,12 @@ static void wm8996_seq_notifier(struct snd_soc_dapm_context *dapm,
 	struct wm8996_priv *wm8996 = snd_soc_codec_get_drvdata(codec);
 	u16 val, mask;
 
-	
+	/* Complete any pending DC servo starts */
 	if (wm8996->dcs_pending) {
 		dev_dbg(codec->dev, "Starting DC servo for %x\n",
 			wm8996->dcs_pending);
 
-		
+		/* Trigger a startup sequence */
 		wait_for_dc_servo(codec, wm8996->dcs_pending
 				         << WM8996_DCS_TRIG_STARTUP_0_SHIFT);
 
@@ -1183,6 +1193,8 @@ SND_SOC_DAPM_AIF_OUT("AIF1TX2", NULL, 2, WM8996_POWER_MANAGEMENT_6, 2, 0),
 SND_SOC_DAPM_AIF_OUT("AIF1TX1", NULL, 1, WM8996_POWER_MANAGEMENT_6, 1, 0),
 SND_SOC_DAPM_AIF_OUT("AIF1TX0", NULL, 0, WM8996_POWER_MANAGEMENT_6, 0, 0),
 
+/* We route as stereo pairs so define some dummy widgets to squash
+ * things down for now.  RXA = 0,1, RXB = 2,3 and so on */
 SND_SOC_DAPM_PGA("AIF1RXA", SND_SOC_NOPM, 0, 0, NULL, 0),
 SND_SOC_DAPM_PGA("AIF1RXB", SND_SOC_NOPM, 0, 0, NULL, 0),
 SND_SOC_DAPM_PGA("AIF1RXC", SND_SOC_NOPM, 0, 0, NULL, 0),
@@ -1465,6 +1477,10 @@ static const struct snd_soc_dapm_route wm8996_dapm_routes[] = {
 
 static bool wm8996_readable_register(struct device *dev, unsigned int reg)
 {
+	/* Due to the sparseness of the register map the compiler
+	 * output from an explicit switch statement ends up being much
+	 * more efficient than a table.
+	 */
 	switch (reg) {
 	case WM8996_SOFTWARE_RESET:
 	case WM8996_POWER_MANAGEMENT_1:
@@ -1711,6 +1727,9 @@ static void wm8996_update_bclk(struct snd_soc_codec *codec)
 	struct wm8996_priv *wm8996 = snd_soc_codec_get_drvdata(codec);
 	int aif, best, cur_val, bclk_rate, bclk_reg, i;
 
+	/* Don't bother if we're in a low frequency idle mode that
+	 * can't support audio.
+	 */
 	if (wm8996->sysclk < 64000)
 		return;
 
@@ -1726,11 +1745,11 @@ static void wm8996_update_bclk(struct snd_soc_codec *codec)
 
 		bclk_rate = wm8996->bclk_rate[aif];
 
-		
+		/* Pick a divisor for BCLK as close as we can get to ideal */
 		best = 0;
 		for (i = 0; i < ARRAY_SIZE(bclk_divs); i++) {
 			cur_val = (wm8996->sysclk / bclk_divs[i]) - bclk_rate;
-			if (cur_val < 0) 
+			if (cur_val < 0) /* BCLK table is sorted */
 				break;
 			best = i;
 		}
@@ -1938,7 +1957,7 @@ static int wm8996_hw_params(struct snd_pcm_substream *substream,
 	wm8996->bclk_rate[dai->id] = bclk_rate;
 	wm8996->rx_rate[dai->id] = params_rate(params);
 
-	
+	/* Needs looking at for TDM */
 	bits = snd_pcm_format_width(params_format(params));
 	if (bits < 0)
 		return bits;
@@ -1984,7 +2003,7 @@ static int wm8996_set_sysclk(struct snd_soc_dai *dai,
 	if (freq == wm8996->sysclk && clk_id == wm8996->sysclk_src)
 		return 0;
 
-	
+	/* Disable SYSCLK while we reconfigure */
 	old = snd_soc_read(codec, WM8996_AIF_CLOCKING_1) & WM8996_SYSCLK_ENA;
 	snd_soc_update_bits(codec, WM8996_AIF_CLOCKING_1,
 			    WM8996_SYSCLK_ENA, 0);
@@ -2081,7 +2100,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 	unsigned int fratio, gcd_fll;
 	int i;
 
-	
+	/* Fref must be <=13.5MHz */
 	div = 1;
 	fll_div->fll_refclk_div = 0;
 	while ((Fref / div) > 13500000) {
@@ -2097,7 +2116,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 
 	pr_debug("FLL Fref=%u Fout=%u\n", Fref, Fout);
 
-	
+	/* Apply the division for our remaining calculations */
 	Fref /= div;
 
 	if (Fref >= 3000000)
@@ -2110,7 +2129,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 	else
 		fll_div->fll_ref_freq = 1;
 
-	
+	/* Fvco should be 90-100MHz; don't check the upper bound */
 	div = 2;
 	while (Fout * div < 90000000) {
 		div++;
@@ -2125,7 +2144,7 @@ static int fll_factors(struct _fll_div *fll_div, unsigned int Fref,
 
 	pr_debug("FLL Fvco=%dHz\n", target);
 
-	
+	/* Find an appropraite FLL_FRATIO and factor it out of the target */
 	for (i = 0; i < ARRAY_SIZE(fll_fratios); i++) {
 		if (fll_fratios[i].min <= Fref && Fref <= fll_fratios[i].max) {
 			fll_div->fll_fratio = fll_fratios[i].fll_fratio;
@@ -2169,7 +2188,7 @@ static int wm8996_set_fll(struct snd_soc_codec *codec, int fll_id, int source,
 	unsigned long timeout;
 	int ret, reg, retry;
 
-	
+	/* Any change? */
 	if (source == wm8996->fll_src && Fref == wm8996->fll_fref &&
 	    Fout == wm8996->fll_fout)
 		return 0;
@@ -2239,25 +2258,31 @@ static int wm8996_set_fll(struct snd_soc_codec *codec, int fll_id, int source,
 
 	snd_soc_write(codec, WM8996_FLL_EFS_1, fll_div.lambda);
 
-	
+	/* Enable the bandgap if it's not already enabled */
 	ret = snd_soc_read(codec, WM8996_FLL_CONTROL_1);
 	if (!(ret & WM8996_FLL_ENA))
 		wm8996_bg_enable(codec);
 
-	
+	/* Clear any pending completions (eg, from failed startups) */
 	try_wait_for_completion(&wm8996->fll_lock);
 
 	snd_soc_update_bits(codec, WM8996_FLL_CONTROL_1,
 			    WM8996_FLL_ENA, WM8996_FLL_ENA);
 
+	/* The FLL supports live reconfiguration - kick that in case we were
+	 * already enabled.
+	 */
 	snd_soc_write(codec, WM8996_FLL_CONTROL_6, WM8996_FLL_SWITCH_CLK);
 
-	
+	/* Wait for the FLL to lock, using the interrupt if possible */
 	if (Fref > 1000000)
 		timeout = usecs_to_jiffies(300);
 	else
 		timeout = msecs_to_jiffies(2);
 
+	/* Allow substantially longer if we've actually got the IRQ, poll
+	 * at a slightly higher rate if we don't.
+	 */
 	if (i2c->irq)
 		timeout *= 10;
 	else
@@ -2385,6 +2410,17 @@ static void wm8996_free_gpio(struct wm8996_priv *wm8996)
 }
 #endif
 
+/**
+ * wm8996_detect - Enable default WM8996 jack detection
+ *
+ * The WM8996 has advanced accessory detection support for headsets.
+ * This function provides a default implementation which integrates
+ * the majority of this functionality with minimal user configuration.
+ *
+ * This will detect headset, headphone and short circuit button and
+ * will also detect inverted microphone ground connections and update
+ * the polarity of the connections.
+ */
 int wm8996_detect(struct snd_soc_codec *codec, struct snd_soc_jack *jack,
 		  wm8996_polarity_fn polarity_cb)
 {
@@ -2398,25 +2434,28 @@ int wm8996_detect(struct snd_soc_codec *codec, struct snd_soc_jack *jack,
 	if (wm8996->polarity_cb)
 		wm8996->polarity_cb(codec, 0);
 
-	
+	/* Clear discarge to avoid noise during detection */
 	snd_soc_update_bits(codec, WM8996_MICBIAS_1,
 			    WM8996_MICB1_DISCH, 0);
 	snd_soc_update_bits(codec, WM8996_MICBIAS_2,
 			    WM8996_MICB2_DISCH, 0);
 
-	
+	/* LDO2 powers the microphones, SYSCLK clocks detection */
 	snd_soc_dapm_force_enable_pin(&codec->dapm, "LDO2");
 	snd_soc_dapm_force_enable_pin(&codec->dapm, "SYSCLK");
 
+	/* We start off just enabling microphone detection - even a
+	 * plain headphone will trigger detection.
+	 */
 	snd_soc_update_bits(codec, WM8996_MIC_DETECT_1,
 			    WM8996_MICD_ENA, WM8996_MICD_ENA);
 
-	
+	/* Slowest detection rate, gives debounce for initial detection */
 	snd_soc_update_bits(codec, WM8996_MIC_DETECT_1,
 			    WM8996_MICD_RATE_MASK,
 			    WM8996_MICD_RATE_MASK);
 
-	
+	/* Enable interrupts and we're off */
 	snd_soc_update_bits(codec, WM8996_INTERRUPT_STATUS_2_MASK,
 			    WM8996_IM_MICD_EINT | WM8996_HP_DONE_EINT, 0);
 
@@ -2429,6 +2468,9 @@ static void wm8996_hpdet_irq(struct snd_soc_codec *codec)
 	struct wm8996_priv *wm8996 = snd_soc_codec_get_drvdata(codec);
 	int val, reg, report;
 
+	/* Assume headphone in error conditions; we need to report
+	 * something or we stall our state machine.
+	 */
 	report = SND_JACK_HEADPHONE;
 
 	reg = snd_soc_read(codec, WM8996_HEADPHONE_DETECT_2);
@@ -2446,6 +2488,9 @@ static void wm8996_hpdet_irq(struct snd_soc_codec *codec)
 
 	dev_dbg(codec->dev, "HPDET measured %d ohms\n", val);
 
+	/* If we've got high enough impedence then report as line,
+	 * otherwise assume headphone.
+	 */
 	if (val >= 126)
 		report = SND_JACK_LINEOUT;
 	else
@@ -2460,14 +2505,14 @@ out:
 
 	wm8996->detecting = false;
 
-	
+	/* If the output isn't running re-clamp it */
 	if (!(snd_soc_read(codec, WM8996_POWER_MANAGEMENT_1) &
 	      (WM8996_HPOUT1L_ENA | WM8996_HPOUT1R_RMV_SHORT)))
 		snd_soc_update_bits(codec, WM8996_ANALOGUE_HP_1,
 				    WM8996_HPOUT1L_RMV_SHORT |
 				    WM8996_HPOUT1R_RMV_SHORT, 0);
 
-	
+	/* Go back to looking at the microphone */
 	snd_soc_update_bits(codec, WM8996_ACCESSORY_DETECT_MODE_1,
 			    WM8996_JD_MODE_MASK, 0);
 	snd_soc_update_bits(codec, WM8996_MIC_DETECT_1, WM8996_MICD_ENA,
@@ -2479,23 +2524,23 @@ out:
 
 static void wm8996_hpdet_start(struct snd_soc_codec *codec)
 {
-	
+	/* Unclamp the output, we can't measure while we're shorting it */
 	snd_soc_update_bits(codec, WM8996_ANALOGUE_HP_1,
 			    WM8996_HPOUT1L_RMV_SHORT |
 			    WM8996_HPOUT1R_RMV_SHORT,
 			    WM8996_HPOUT1L_RMV_SHORT |
 			    WM8996_HPOUT1R_RMV_SHORT);
 
-	
+	/* We need bandgap for HPDET */
 	snd_soc_dapm_force_enable_pin(&codec->dapm, "Bandgap");
 	snd_soc_dapm_sync(&codec->dapm);
 
-	
+	/* Go into headphone detect left mode */
 	snd_soc_update_bits(codec, WM8996_MIC_DETECT_1, WM8996_MICD_ENA, 0);
 	snd_soc_update_bits(codec, WM8996_ACCESSORY_DETECT_MODE_1,
 			    WM8996_JD_MODE_MASK, 1);
 
-	
+	/* Trigger a measurement */
 	snd_soc_update_bits(codec, WM8996_HEADPHONE_DETECT_1,
 			    WM8996_HP_POLL, WM8996_HP_POLL);
 }
@@ -2505,7 +2550,7 @@ static void wm8996_report_headphone(struct snd_soc_codec *codec)
 	dev_dbg(codec->dev, "Headphone detected\n");
 	wm8996_hpdet_start(codec);
 
-	
+	/* Increase the detection rate a bit for responsiveness. */
 	snd_soc_update_bits(codec, WM8996_MIC_DETECT_1,
 			    WM8996_MICD_RATE_MASK |
 			    WM8996_MICD_BIAS_STARTTIME_MASK,
@@ -2527,7 +2572,7 @@ static void wm8996_micd(struct snd_soc_codec *codec)
 		return;
 	}
 
-	
+	/* No accessory, reset everything and report removal */
 	if (!(val & WM8996_MICD_STS)) {
 		dev_dbg(codec->dev, "Jack removal detected\n");
 		wm8996->jack_mic = false;
@@ -2545,12 +2590,18 @@ static void wm8996_micd(struct snd_soc_codec *codec)
 		return;
 	}
 
+	/* If the measurement is very high we've got a microphone,
+	 * either we just detected one or if we already reported then
+	 * we've got a button release event.
+	 */
 	if (val & 0x400) {
 		if (wm8996->detecting) {
 			dev_dbg(codec->dev, "Microphone detected\n");
 			wm8996->jack_mic = true;
 			wm8996_hpdet_start(codec);
 
+			/* Increase poll rate to give better responsiveness
+			 * for buttons */
 			snd_soc_update_bits(codec, WM8996_MIC_DETECT_1,
 					    WM8996_MICD_RATE_MASK |
 					    WM8996_MICD_BIAS_STARTTIME_MASK,
@@ -2564,6 +2615,12 @@ static void wm8996_micd(struct snd_soc_codec *codec)
 		return;
 	}
 
+	/* If we detected a lower impedence during initial startup
+	 * then we probably have the wrong polarity, flip it.  Don't
+	 * do this for the lowest impedences to speed up detection of
+	 * plain headphones.  If both polarities report a low
+	 * impedence then give up and report headphones.
+	 */
 	if (wm8996->detecting && (val & 0x3f0)) {
 		wm8996->jack_flips++;
 
@@ -2589,6 +2646,9 @@ static void wm8996_micd(struct snd_soc_codec *codec)
 		return;
 	}
 
+	/* Don't distinguish between buttons, just report any low
+	 * impedence as BTN_0.
+	 */
 	if (val & 0x3fc) {
 		if (wm8996->jack_mic) {
 			dev_dbg(codec->dev, "Mic button detected\n");
@@ -2673,6 +2733,10 @@ static void wm8996_retune_mobile_pdata(struct snd_soc_codec *codec)
 	int ret, i, j;
 	const char **t;
 
+	/* We need an array of texts for the enum API but the number
+	 * of texts is likely to be less than the number of
+	 * configurations due to the sample rate dependency of the
+	 * configurations. */
 	wm8996->num_retune_mobile_texts = 0;
 	wm8996->retune_mobile_texts = NULL;
 	for (i = 0; i < pdata->num_retune_mobile_cfgs; i++) {
@@ -2685,7 +2749,7 @@ static void wm8996_retune_mobile_pdata(struct snd_soc_codec *codec)
 		if (j != wm8996->num_retune_mobile_texts)
 			continue;
 
-		
+		/* Expand the array... */
 		t = krealloc(wm8996->retune_mobile_texts,
 			     sizeof(char *) * 
 			     (wm8996->num_retune_mobile_texts + 1),
@@ -2693,11 +2757,11 @@ static void wm8996_retune_mobile_pdata(struct snd_soc_codec *codec)
 		if (t == NULL)
 			continue;
 
-		
+		/* ...store the new entry... */
 		t[wm8996->num_retune_mobile_texts] = 
 			pdata->retune_mobile_cfgs[i].name;
 
-		
+		/* ...and remember the new version. */
 		wm8996->num_retune_mobile_texts++;
 		wm8996->retune_mobile_texts = t;
 	}
@@ -2750,7 +2814,7 @@ static int wm8996_probe(struct snd_soc_codec *codec)
 	wm8996->disable_nb[1].notifier_call = wm8996_regulator_event_1;
 	wm8996->disable_nb[2].notifier_call = wm8996_regulator_event_2;
 
-	
+	/* This should really be moved into the regulator core */
 	for (i = 0; i < ARRAY_SIZE(wm8996->supplies); i++) {
 		ret = regulator_register_notifier(wm8996->supplies[i].consumer,
 						  &wm8996->disable_nb[i]);
@@ -2763,7 +2827,7 @@ static int wm8996_probe(struct snd_soc_codec *codec)
 
 	regcache_cache_only(codec->control_data, true);
 
-	
+	/* Apply platform data settings */
 	snd_soc_update_bits(codec, WM8996_LINE_INPUT_CONTROL,
 			    WM8996_INL_MODE_MASK | WM8996_INR_MODE_MASK,
 			    wm8996->pdata.inl_mode << WM8996_INL_MODE_SHIFT |
@@ -2787,7 +2851,7 @@ static int wm8996_probe(struct snd_soc_codec *codec)
 			    WM8996_MICD_BIAS_SRC | WM8996_HPOUT1FB_SRC |
 			    WM8996_MICD_SRC, wm8996->pdata.micdet_def);
 
-	
+	/* Latch volume update bits */
 	snd_soc_update_bits(codec, WM8996_LEFT_LINE_INPUT_VOLUME,
 			    WM8996_IN1_VU, WM8996_IN1_VU);
 	snd_soc_update_bits(codec, WM8996_RIGHT_LINE_INPUT_VOLUME,
@@ -2829,6 +2893,9 @@ static int wm8996_probe(struct snd_soc_codec *codec)
 	snd_soc_update_bits(codec, WM8996_DSP2_RX_RIGHT_VOLUME,
 			    WM8996_DSP2RX_VU, WM8996_DSP2RX_VU);
 
+	/* No support currently for the underclocked TDM modes and
+	 * pick a default TDM layout with each channel pair working with
+	 * slots 0 and 1. */
 	snd_soc_update_bits(codec, WM8996_AIF1RX_CHANNEL_0_CONFIGURATION,
 			    WM8996_AIF1RX_CHAN0_SLOTS_MASK |
 			    WM8996_AIF1RX_CHAN0_START_SLOT_MASK,
@@ -2903,6 +2970,9 @@ static int wm8996_probe(struct snd_soc_codec *codec)
 		snd_soc_add_codec_controls(codec, wm8996_eq_controls,
 				     ARRAY_SIZE(wm8996_eq_controls));
 
+	/* If the TX LRCLK pins are not in LRCLK mode configure the
+	 * AIFs to source their clocks from the RX LRCLKs.
+	 */
 	if ((snd_soc_read(codec, WM8996_GPIO_1)))
 		snd_soc_update_bits(codec, WM8996_AIF1_TX_LRCLK_2,
 				    WM8996_AIF1TX_LRCLK_MODE,
@@ -2930,11 +3000,11 @@ static int wm8996_probe(struct snd_soc_codec *codec)
 						   irq_flags, "wm8996", codec);
 
 		if (ret == 0) {
-			
+			/* Unmask the interrupt */
 			snd_soc_update_bits(codec, WM8996_INTERRUPT_CONTROL,
 					    WM8996_IM_IRQ, 0);
 
-			
+			/* Enable error reporting and DC servo status */
 			snd_soc_update_bits(codec,
 					    WM8996_INTERRUPT_STATUS_2_MASK,
 					    WM8996_IM_DCS_DONE_23_EINT |

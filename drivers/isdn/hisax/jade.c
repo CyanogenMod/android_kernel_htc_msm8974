@@ -37,32 +37,33 @@ JadeVersion(struct IsdnCardState *cs, char *s)
 			return (0);
 		}
 	}
-	
+	/* Wait for the JADE */
 	udelay(10);
-	
+	/* Read version */
 	ver = cs->BC_Read_Reg(cs, -1, 0x60);
 	printk(KERN_INFO "%s JADE version: %d\n", s, ver);
 	return (1);
 }
 
+/* Write to indirect accessible jade register set */
 static void
 jade_write_indirect(struct IsdnCardState *cs, u_char reg, u_char value)
 {
 	int to = 50;
 	u_char ret;
 
-	
+	/* Write the data */
 	cs->BC_Write_Reg(cs, -1, COMM_JADE + 1, value);
-	
+	/* Say JADE we wanna write indirect reg 'reg' */
 	cs->BC_Write_Reg(cs, -1, COMM_JADE, reg);
 	to = 50;
-	
+	/* Wait for RDY goes high */
 	while (to) {
 		udelay(1);
 		ret = cs->BC_Read_Reg(cs, -1, COMM_JADE);
 		to--;
 		if (ret & 1)
-			
+			/* Got acknowledge */
 			break;
 		if (!to) {
 			printk(KERN_INFO "Can not see ready bit from JADE DSP (reg=0x%X, value=0x%X)\n", reg, value);
@@ -121,11 +122,11 @@ modejade(struct BCState *bcs, int mode, int bc)
 	if (mode) {
 		cs->BC_Write_Reg(cs, jade, jade_HDLC_RCMD, (jadeRCMD_RRES | jadeRCMD_RMC));
 		cs->BC_Write_Reg(cs, jade, jade_HDLC_XCMD, jadeXCMD_XRES);
-		
+		/* Unmask ints */
 		cs->BC_Write_Reg(cs, jade, jade_HDLC_IMR, 0xF8);
 	}
 	else
-		
+		/* Mask ints */
 		cs->BC_Write_Reg(cs, jade, jade_HDLC_IMR, 0x00);
 }
 
@@ -273,7 +274,7 @@ clear_pending_jade_ints(struct IsdnCardState *cs)
 	val = cs->BC_Read_Reg(cs, 0, jade_HDLC_STAR);
 	sprintf(tmp, "jade A STAR %x", val);
 	debugl1(cs, tmp);
-	
+	/* Unmask ints */
 	cs->BC_Write_Reg(cs, 0, jade_HDLC_IMR, 0xF8);
 	cs->BC_Write_Reg(cs, 1, jade_HDLC_IMR, 0xF8);
 }
@@ -288,25 +289,25 @@ initjade(struct IsdnCardState *cs)
 	cs->bcs[0].hw.hscx.hscx = 0;
 	cs->bcs[1].hw.hscx.hscx = 1;
 
-	
+	/* Stop DSP audio tx/rx */
 	jade_write_indirect(cs, 0x11, 0x0f);
 	jade_write_indirect(cs, 0x17, 0x2f);
 
-	
+	/* Transparent Mode, RxTx inactive, No Test, No RFS/TFS */
 	cs->BC_Write_Reg(cs, 0, jade_HDLC_MODE, jadeMODE_TMO);
 	cs->BC_Write_Reg(cs, 1, jade_HDLC_MODE, jadeMODE_TMO);
-	
+	/* Power down, 1-Idle, RxTx least significant bit first */
 	cs->BC_Write_Reg(cs, 0, jade_HDLC_CCR0, 0x00);
 	cs->BC_Write_Reg(cs, 1, jade_HDLC_CCR0, 0x00);
-	
+	/* Mask all interrupts */
 	cs->BC_Write_Reg(cs, 0, jade_HDLC_IMR,  0x00);
 	cs->BC_Write_Reg(cs, 1, jade_HDLC_IMR,  0x00);
-	
+	/* Setup host access to hdlc controller */
 	jade_write_indirect(cs, jade_HDLCCNTRACCESS, (jadeINDIRECT_HAH1 | jadeINDIRECT_HAH2));
-	
+	/* Unmask HDLC int (don't forget DSP int later on)*/
 	cs->BC_Write_Reg(cs, -1, jade_INT, (jadeINT_HDLC1 | jadeINT_HDLC2));
 
-	
+	/* once again TRANSPARENT */
 	modejade(cs->bcs, 0, 0);
 	modejade(cs->bcs + 1, 0, 0);
 }

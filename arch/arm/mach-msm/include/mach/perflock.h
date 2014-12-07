@@ -22,18 +22,21 @@
 #include <linux/list.h>
 #include <linux/cpufreq.h>
 
+/*
+ * Performance level determine differnt EBI1 rate
+ */
 
 enum {
-	TYPE_PERF_LOCK = 0,	
-	TYPE_CPUFREQ_CEILING,	
+	TYPE_PERF_LOCK = 0,	/* default performance lock*/
+	TYPE_CPUFREQ_CEILING,	/* cpufreq ceiling lock */
 };
 
 enum {
-	PERF_LOCK_LOWEST,	
-	PERF_LOCK_LOW,	
-	PERF_LOCK_MEDIUM,	
-	PERF_LOCK_HIGH,	
-	PERF_LOCK_HIGHEST,	
+	PERF_LOCK_LOWEST,	/* Lowest performance */
+	PERF_LOCK_LOW,	/* Low performance */
+	PERF_LOCK_MEDIUM,	/* Medium performance */
+	PERF_LOCK_HIGH,	/* High performance */
+	PERF_LOCK_HIGHEST,	/* Highest performance */
 	PERF_LOCK_INVALID,
 };
 

@@ -38,4 +38,4 @@ struct pvr2_dvb_props {
 
 struct pvr2_dvb_adapter *pvr2_dvb_create(struct pvr2_context *pvr);
 
-#endif 
+#endif /* __PVRUSB2_DVB_H__ */

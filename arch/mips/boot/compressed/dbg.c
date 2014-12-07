@@ -1,3 +1,10 @@
+/*
+ * MIPS-specific debug support for pre-boot environment
+ *
+ * NOTE: putc() is board specific, if your board have a 16550 compatible uart,
+ * please select SYS_SUPPORTS_ZBOOT_UART16550 for your machine. othewise, you
+ * need to implement your own putc().
+ */
 #include <linux/compiler.h>
 #include <linux/init.h>
 #include <linux/types.h>

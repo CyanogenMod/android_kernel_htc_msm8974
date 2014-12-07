@@ -25,7 +25,7 @@
 #define   EXI_CSR_CLKMASK       (0x7<<4)
 #define     EXI_CSR_CLK_32MHZ   (EXI_CLK_32MHZ<<4)
 #define   EXI_CSR_CSMASK        (0x7<<7)
-#define     EXI_CSR_CS_0        (0x1<<7)  
+#define     EXI_CSR_CS_0        (0x1<<7)  /* Chip Select 001 */
 
 #define EXI_CR                  0x0c
 #define   EXI_CR_TSTART         (1<<0)
@@ -36,6 +36,7 @@
 #define EXI_DATA                0x10
 
 
+/* virtual address base for input/output, retrieved from device tree */
 static void *ug_io_base;
 
 
@@ -46,11 +47,11 @@ static u32 ug_io_transaction(u32 in)
 	u32 *cr_reg = ug_io_base + EXI_CR;
 	u32 csr, data, cr;
 
-	
+	/* select */
 	csr = EXI_CSR_CLK_32MHZ | EXI_CSR_CS_0;
 	out_be32(csr_reg, csr);
 
-	
+	/* read/write */
 	data = in;
 	out_be32(data_reg, data);
 	cr = EXI_CR_TLEN(2) | EXI_CR_READ_WRITE | EXI_CR_TSTART;
@@ -59,7 +60,7 @@ static u32 ug_io_transaction(u32 in)
 	while (in_be32(cr_reg) & EXI_CR_TSTART)
 		barrier();
 
-	
+	/* deselect */
 	out_be32(csr_reg, 0);
 
 	data = in_be32(data_reg);
@@ -133,7 +134,7 @@ void *ug_probe(void)
 	if (!exi_io_base)
 		return NULL;
 
-	
+	/* look for a usbgecko on memcard slots A and B */
 	for (i = 0; i < 2; i++) {
 		ug_io_base = exi_io_base + 0x14 * i;
 		if (ug_is_adapter_present())

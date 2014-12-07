@@ -13,9 +13,10 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* MSI TV@nywhere MASTER remote */
 
 static struct rc_map_table msi_tvanywhere[] = {
-	
+	/* Keys 0 to 9 */
 	{ 0x00, KEY_0 },
 	{ 0x01, KEY_1 },
 	{ 0x02, KEY_2 },
@@ -28,15 +29,15 @@ static struct rc_map_table msi_tvanywhere[] = {
 	{ 0x09, KEY_9 },
 
 	{ 0x0c, KEY_MUTE },
-	{ 0x0f, KEY_SCREEN },		
-	{ 0x10, KEY_FN },		
-	{ 0x11, KEY_TIME },		
+	{ 0x0f, KEY_SCREEN },		/* Full Screen */
+	{ 0x10, KEY_FN },		/* Function */
+	{ 0x11, KEY_TIME },		/* Time shift */
 	{ 0x12, KEY_POWER },
-	{ 0x13, KEY_MEDIA },		
+	{ 0x13, KEY_MEDIA },		/* MTS */
 	{ 0x14, KEY_SLOW },
-	{ 0x16, KEY_REWIND },		
-	{ 0x17, KEY_ENTER },		
-	{ 0x18, KEY_FASTFORWARD },	
+	{ 0x16, KEY_REWIND },		/* backward << */
+	{ 0x17, KEY_ENTER },		/* Return */
+	{ 0x18, KEY_FASTFORWARD },	/* forward >> */
 	{ 0x1a, KEY_CHANNELUP },
 	{ 0x1b, KEY_VOLUMEUP },
 	{ 0x1e, KEY_CHANNELDOWN },
@@ -47,7 +48,7 @@ static struct rc_map_list msi_tvanywhere_map = {
 	.map = {
 		.scan    = msi_tvanywhere,
 		.size    = ARRAY_SIZE(msi_tvanywhere),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_MSI_TVANYWHERE,
 	}
 };

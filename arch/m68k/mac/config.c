@@ -6,6 +6,9 @@
  * for more details.
  */
 
+/*
+ * Miscellaneous linux stuff
+ */
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -13,8 +16,10 @@
 #include <linux/tty.h>
 #include <linux/console.h>
 #include <linux/interrupt.h>
+/* keyb */
 #include <linux/random.h>
 #include <linux/delay.h>
+/* keyb */
 #include <linux/init.h>
 #include <linux/vt_kern.h>
 #include <linux/platform_device.h>
@@ -40,10 +45,13 @@
 #include <asm/mac_oss.h>
 #include <asm/mac_psc.h>
 
+/* Mac bootinfo struct */
 struct mac_booter_data mac_bi_data;
 
+/* The phys. video addr. - might be bogus on some machines */
 static unsigned long mac_orig_videoaddr;
 
+/* Mac specific timer functions */
 extern unsigned long mac_gettimeoffset(void);
 extern int mac_hwclk(int, struct rtc_time *);
 extern int mac_set_clock_mmss(unsigned long);
@@ -80,7 +88,7 @@ static struct console __initdata mac_early_cons = {
 
 int __init mac_unregister_early_cons(void)
 {
-	
+	/* mac_early_print can't be used after init sections are discarded */
 	return unregister_console(&mac_early_cons);
 }
 
@@ -92,6 +100,9 @@ static void __init mac_sched_init(irq_handler_t vector)
 	via_init_clock(vector);
 }
 
+/*
+ * Parse a Macintosh-specific record in the bootinfo
+ */
 
 int __init mac_parse_bootinfo(const struct bi_record *record)
 {
@@ -143,6 +154,11 @@ int __init mac_parse_bootinfo(const struct bi_record *record)
 	return unknown;
 }
 
+/*
+ * Flip into 24bit mode for an instant - flushes the L2 cache card. We
+ * have to disable interrupts for this. Our IRQ handlers will crap
+ * themselves if they take an IRQ in 24bit mode!
+ */
 
 static void mac_cache_card_flush(int writeback)
 {
@@ -176,10 +192,18 @@ void __init config_mac(void)
 	register_console(&mac_early_cons);
 #endif
 
+	/*
+	 * Determine hardware present
+	 */
 
 	mac_identify();
 	mac_report_hardware();
 
+	/*
+	 * AFAIK only the IIci takes a cache card.  The IIfx has onboard
+	 * cache ... someone needs to figure out how to tell if it's on or
+	 * not.
+	 */
 
 	if (macintosh_config->ident == MAC_MODEL_IICI
 	    || macintosh_config->ident == MAC_MODEL_IIFX)
@@ -187,11 +211,25 @@ void __init config_mac(void)
 }
 
 
+/*
+ * Macintosh Table: hardcoded model configuration data.
+ *
+ * Much of this was defined by Alan, based on who knows what docs.
+ * I've added a lot more, and some of that was pure guesswork based
+ * on hardware pages present on the Mac web site. Possibly wildly
+ * inaccurate, so look here if a new Mac model won't run. Example: if
+ * a Mac crashes immediately after the VIA1 registers have been dumped
+ * to the screen, it probably died attempting to read DirB on a RBV.
+ * Meaning it should have MAC_VIA_IICI here :-)
+ */
 
 struct mac_model *macintosh_config;
 EXPORT_SYMBOL(macintosh_config);
 
 static struct mac_model mac_data_table[] = {
+	/*
+	 * We'll pretend to be a Macintosh II, that's pretty safe.
+	 */
 
 	{
 		.ident		= MAC_MODEL_II,
@@ -204,6 +242,9 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_IWM,
 	},
 
+	/*
+	 * Original Mac II hardware
+	 */
 
 	{
 		.ident		= MAC_MODEL_II,
@@ -243,6 +284,12 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
 
+	/*
+	 * Weirdified Mac II hardware - all subtly different. Gee thanks
+	 * Apple. All these boxes seem to have VIA2 in a different place to
+	 * the Mac II (+1A000 rather than +4000)
+	 * CSA: see http://developer.apple.com/technotes/hw/hw_09.html
+	 */
 
 	{
 		.ident		= MAC_MODEL_IICI,
@@ -291,6 +338,9 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
 
+	/*
+	 * Classic models (guessing: similar to SE/30? Nope, similar to LC...)
+	 */
 
 	{
 		.ident		= MAC_MODEL_CLII,
@@ -321,6 +371,9 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
 
+	/*
+	 * Some Mac LC machines. Basically the same as the IIci, ADB like IIsi
+	 */
 
 	{
 		.ident		= MAC_MODEL_LC,
@@ -351,6 +404,15 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
 
+	/*
+	 * Quadra. Video is at 0xF9000000, via is like a MacII. We label it
+	 * differently as some of the stuff connected to VIA2 seems different.
+	 * Better SCSI chip and onboard ethernet using a NatSemi SONIC except
+	 * the 660AV and 840AV which use an AMD 79C940 (MACE).
+	 * The 700, 900 and 950 have some I/O chips in the wrong place to
+	 * confuse us. The 840AV has a SCSI location of its own (same as
+	 * the 660AV).
+	 */
 
 	{
 		.ident		= MAC_MODEL_Q605,
@@ -402,7 +464,7 @@ static struct mac_model mac_data_table[] = {
 		.nubus_type	= MAC_NUBUS,
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR1,
 	},
-	
+	/* The Q700 does have a NS Sonic */
 	{
 		.ident		= MAC_MODEL_Q700,
 		.name		= "Quadra 700",
@@ -455,6 +517,9 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_IOP,
 	},
 
+	/*
+	 * Performa - more LC type machines
+	 */
 
 	{
 		.ident		= MAC_MODEL_P460,
@@ -502,7 +567,7 @@ static struct mac_model mac_data_table[] = {
 		.nubus_type	= MAC_NUBUS,
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
-	
+	/* These have the comm slot, and therefore possibly SONIC ethernet */
 	{
 		.ident		= MAC_MODEL_P575,
 		.name		= "Performa 575",
@@ -544,6 +609,10 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
 
+	/*
+	 * Centris - just guessing again; maybe like Quadra.
+	 * The C610 may or may not have SONIC. We probe to make sure.
+	 */
 
 	{
 		.ident		= MAC_MODEL_C610,
@@ -577,6 +646,11 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_AV,
 	},
 
+	/*
+	 * The PowerBooks all the same "Combo" custom IC for SCSI and SCC
+	 * and a PMU (in two variations?) for ADB. Most of them use the
+	 * Quadra-style VIAs. A few models also have IDE from hell.
+	 */
 
 	{
 		.ident		= MAC_MODEL_PB140,
@@ -682,6 +756,11 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
 
+	/*
+	 * PowerBook Duos are pretty much like normal PowerBooks
+	 * All of these probably have onboard SONIC in the Dock which
+	 * means we'll have to probe for it eventually.
+	 */
 
 	{
 		.ident		= MAC_MODEL_PB210,
@@ -739,6 +818,9 @@ static struct mac_model mac_data_table[] = {
 		.floppy_type	= MAC_FLOPPY_SWIM_ADDR2,
 	},
 
+	/*
+	 * Other stuff?
+	 */
 
 	{
 		.ident		= -1
@@ -775,11 +857,11 @@ static void __init mac_identify(void)
 {
 	struct mac_model *m;
 
-	
+	/* Penguin data useful? */
 	int model = mac_bi_data.id;
 	if (!model) {
-		
-		
+		/* no bootinfo model id -> NetBSD booter was used! */
+		/* XXX FIXME: breaks for model > 31 */
 		model = (mac_bi_data.cpuid >> 2) & 63;
 		printk(KERN_WARNING "No bootinfo model ID, using cpuid instead "
 		       "(obsolete bootloader?)\n");
@@ -793,7 +875,7 @@ static void __init mac_identify(void)
 		}
 	}
 
-	
+	/* Set up serial port resources for the console initcall. */
 
 	scc_a_rsrcs[0].start = (resource_size_t) mac_bi_data.sccbase + 2;
 	scc_a_rsrcs[0].end   = scc_a_rsrcs[0].start;
@@ -806,7 +888,7 @@ static void __init mac_identify(void)
 		scc_b_rsrcs[1].start = scc_b_rsrcs[1].end = IRQ_MAC_SCC_B;
 		break;
 	default:
-		
+		/* On non-PSC machines, the serial ports share an IRQ. */
 		if (macintosh_config->ident == MAC_MODEL_IIFX) {
 			scc_a_rsrcs[1].start = scc_a_rsrcs[1].end = IRQ_MAC_SCC;
 			scc_b_rsrcs[1].start = scc_b_rsrcs[1].end = IRQ_MAC_SCC;
@@ -817,10 +899,18 @@ static void __init mac_identify(void)
 		break;
 	}
 
+	/*
+	 * We need to pre-init the IOPs, if any. Otherwise
+	 * the serial console won't work if the user had
+	 * the serial ports set to "Faster" mode in MacOS.
+	 */
 	iop_preinit();
 
 	printk(KERN_INFO "Detected Macintosh model: %d\n", model);
 
+	/*
+	 * Report booter data:
+	 */
 	printk(KERN_DEBUG " Penguin bootinfo data:\n");
 	printk(KERN_DEBUG " Video: addr 0x%lx "
 		"row 0x%lx depth %lx dimensions %ld x %ld\n",
@@ -893,10 +983,16 @@ int __init mac_platform_init(void)
 	if (!MACH_IS_MAC)
 		return -ENODEV;
 
+	/*
+	 * Serial devices
+	 */
 
 	platform_device_register(&scc_a_pdev);
 	platform_device_register(&scc_b_pdev);
 
+	/*
+	 * Floppy device
+	 */
 
 	switch (macintosh_config->floppy_type) {
 	case MAC_FLOPPY_SWIM_ADDR1:
@@ -916,6 +1012,9 @@ int __init mac_platform_init(void)
 		platform_device_register(&swim_pdev);
 	}
 
+	/*
+	 * SCSI device(s)
+	 */
 
 	switch (macintosh_config->scsi_type) {
 	case MAC_SCSI_QUADRA:
@@ -930,6 +1029,9 @@ int __init mac_platform_init(void)
 		break;
 	}
 
+	/*
+	 * Ethernet device
+	 */
 
 	switch (macintosh_config->ether_type) {
 	case MAC_ETHER_SONIC:

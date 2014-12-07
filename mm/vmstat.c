@@ -42,6 +42,11 @@ static void sum_vm_events(unsigned long *ret)
 	}
 }
 
+/*
+ * Accumulate the vm event counters across all CPUs.
+ * The result is unavoidably approximate - it can change
+ * during and after execution of this function.
+*/
 void all_vm_events(unsigned long *ret)
 {
 	get_online_cpus();
@@ -51,6 +56,12 @@ void all_vm_events(unsigned long *ret)
 EXPORT_SYMBOL_GPL(all_vm_events);
 
 #ifdef CONFIG_HOTPLUG
+/*
+ * Fold the foreign cpu events into our own.
+ *
+ * This is adding to the events on one processor
+ * but keeps the global counts constant.
+ */
 void vm_events_fold_cpu(int cpu)
 {
 	struct vm_event_state *fold_state = &per_cpu(vm_event_states, cpu);
@@ -61,10 +72,15 @@ void vm_events_fold_cpu(int cpu)
 		fold_state->event[i] = 0;
 	}
 }
-#endif 
+#endif /* CONFIG_HOTPLUG */
 
-#endif 
+#endif /* CONFIG_VM_EVENT_COUNTERS */
 
+/*
+ * Manage combined zone based / global counters
+ *
+ * vm_stat contains the global counters
+ */
 atomic_long_t vm_stat[NR_VM_ZONE_STAT_ITEMS] __cacheline_aligned_in_smp;
 EXPORT_SYMBOL(vm_stat);
 
@@ -75,9 +91,20 @@ int calculate_pressure_threshold(struct zone *zone)
 	int threshold;
 	int watermark_distance;
 
+	/*
+	 * As vmstats are not up to date, there is drift between the estimated
+	 * and real values. For high thresholds and a high number of CPUs, it
+	 * is possible for the min watermark to be breached while the estimated
+	 * value looks fine. The pressure threshold is a reduced value such
+	 * that even the maximum amount of drift will not accidentally breach
+	 * the min watermark
+	 */
 	watermark_distance = low_wmark_pages(zone) - min_wmark_pages(zone);
 	threshold = max(1, (int)(watermark_distance / num_online_cpus()));
 
+	/*
+	 * Maximum threshold is 125
+	 */
 	threshold = min(125, threshold);
 
 	return threshold;
@@ -86,18 +113,53 @@ int calculate_pressure_threshold(struct zone *zone)
 int calculate_normal_threshold(struct zone *zone)
 {
 	int threshold;
-	int mem;	
+	int mem;	/* memory in 128 MB units */
 
+	/*
+	 * The threshold scales with the number of processors and the amount
+	 * of memory per zone. More memory means that we can defer updates for
+	 * longer, more processors could lead to more contention.
+ 	 * fls() is used to have a cheap way of logarithmic scaling.
+	 *
+	 * Some sample thresholds:
+	 *
+	 * Threshold	Processors	(fls)	Zonesize	fls(mem+1)
+	 * ------------------------------------------------------------------
+	 * 8		1		1	0.9-1 GB	4
+	 * 16		2		2	0.9-1 GB	4
+	 * 20 		2		2	1-2 GB		5
+	 * 24		2		2	2-4 GB		6
+	 * 28		2		2	4-8 GB		7
+	 * 32		2		2	8-16 GB		8
+	 * 4		2		2	<128M		1
+	 * 30		4		3	2-4 GB		5
+	 * 48		4		3	8-16 GB		8
+	 * 32		8		4	1-2 GB		4
+	 * 32		8		4	0.9-1GB		4
+	 * 10		16		5	<128M		1
+	 * 40		16		5	900M		4
+	 * 70		64		7	2-4 GB		5
+	 * 84		64		7	4-8 GB		6
+	 * 108		512		9	4-8 GB		6
+	 * 125		1024		10	8-16 GB		8
+	 * 125		1024		10	16-32 GB	9
+	 */
 
 	mem = zone->present_pages >> (27 - PAGE_SHIFT);
 
 	threshold = 2 * fls(num_online_cpus()) * (1 + fls(mem));
 
+	/*
+	 * Maximum threshold is 125
+	 */
 	threshold = min(125, threshold);
 
 	return threshold;
 }
 
+/*
+ * Refresh the thresholds for each zone.
+ */
 void refresh_zone_stat_thresholds(void)
 {
 	struct zone *zone;
@@ -113,6 +175,11 @@ void refresh_zone_stat_thresholds(void)
 			per_cpu_ptr(zone->pageset, cpu)->stat_threshold
 							= threshold;
 
+		/*
+		 * Only set percpu_drift_mark if there is a danger that
+		 * NR_FREE_PAGES reports the low watermark is ok when in fact
+		 * the min watermark could be breached by an allocation
+		 */
 		tolerate_drift = low_wmark_pages(zone) - min_wmark_pages(zone);
 		max_drift = num_online_cpus() * threshold;
 		if (max_drift > tolerate_drift)
@@ -141,6 +208,9 @@ void set_pgdat_percpu_threshold(pg_data_t *pgdat,
 	}
 }
 
+/*
+ * For use when we know that interrupts are disabled.
+ */
 void __mod_zone_page_state(struct zone *zone, enum zone_stat_item item,
 				int delta)
 {
@@ -161,6 +231,29 @@ void __mod_zone_page_state(struct zone *zone, enum zone_stat_item item,
 }
 EXPORT_SYMBOL(__mod_zone_page_state);
 
+/*
+ * Optimized increment and decrement functions.
+ *
+ * These are only for a single page and therefore can take a struct page *
+ * argument instead of struct zone *. This allows the inclusion of the code
+ * generated for page_zone(page) into the optimized functions.
+ *
+ * No overflow check is necessary and therefore the differential can be
+ * incremented or decremented in place which may allow the compilers to
+ * generate better code.
+ * The increment or decrement is known and therefore one boundary check can
+ * be omitted.
+ *
+ * NOTE: These functions are very performance sensitive. Change only
+ * with care.
+ *
+ * Some processors have inc/dec instructions that are atomic vs an interrupt.
+ * However, the code must first determine the differential location in a zone
+ * based on the processor number and then inc/dec the counter. There is no
+ * guarantee without disabling preemption that the processor will not change
+ * in between and therefore the atomicity vs. interrupt cannot be exploited
+ * in a useful way here.
+ */
 void __inc_zone_state(struct zone *zone, enum zone_stat_item item)
 {
 	struct per_cpu_pageset __percpu *pcp = zone->pageset;
@@ -206,6 +299,18 @@ void __dec_zone_page_state(struct page *page, enum zone_stat_item item)
 EXPORT_SYMBOL(__dec_zone_page_state);
 
 #ifdef CONFIG_HAVE_CMPXCHG_LOCAL
+/*
+ * If we have cmpxchg_local support then we do not need to incur the overhead
+ * that comes with local_irq_save/restore if we use this_cpu_cmpxchg.
+ *
+ * mod_state() modifies the zone counter state through atomic per cpu
+ * operations.
+ *
+ * Overstep mode specifies how overstep should handled:
+ *     0       No overstepping
+ *     1       Overstepping half of threshold
+ *     -1      Overstepping minus half of threshold
+*/
 static inline void mod_state(struct zone *zone,
        enum zone_stat_item item, int delta, int overstep_mode)
 {
@@ -214,8 +319,18 @@ static inline void mod_state(struct zone *zone,
 	long o, n, t, z;
 
 	do {
-		z = 0;  
+		z = 0;  /* overflow to zone counters */
 
+		/*
+		 * The fetching of the stat_threshold is racy. We may apply
+		 * a counter threshold to the wrong the cpu if we get
+		 * rescheduled while executing here. However, the next
+		 * counter update will apply the threshold again and
+		 * therefore bring the counter under the threshold again.
+		 *
+		 * Most of the time the thresholds are the same anyways
+		 * for all cpus in a zone.
+		 */
 		t = this_cpu_read(pcp->stat_threshold);
 
 		o = this_cpu_read(*p);
@@ -224,7 +339,7 @@ static inline void mod_state(struct zone *zone,
 		if (n > t || n < -t) {
 			int os = overstep_mode * (t >> 1) ;
 
-			
+			/* Overflow must be added to zone counters */
 			z = n + os;
 			n = -os;
 		}
@@ -258,6 +373,9 @@ void dec_zone_page_state(struct page *page, enum zone_stat_item item)
 }
 EXPORT_SYMBOL(dec_zone_page_state);
 #else
+/*
+ * Use interrupt disable to serialize counter updates
+ */
 void mod_zone_page_state(struct zone *zone, enum zone_stat_item item,
 					int delta)
 {
@@ -301,6 +419,24 @@ void dec_zone_page_state(struct page *page, enum zone_stat_item item)
 EXPORT_SYMBOL(dec_zone_page_state);
 #endif
 
+/*
+ * Update the zone counters for one cpu.
+ *
+ * The cpu specified must be either the current cpu or a processor that
+ * is not online. If it is the current cpu then the execution thread must
+ * be pinned to the current cpu.
+ *
+ * Note that refresh_cpu_vm_stats strives to only access
+ * node local memory. The per cpu pagesets on remote zones are placed
+ * in the memory local to the processor using that pageset. So the
+ * loop over all zones will access a series of cachelines local to
+ * the processor.
+ *
+ * The call to zone_page_state_add updates the cachelines with the
+ * statistics in the remote zone struct as well as the global cachelines
+ * with the global counters. These could cause remote node cache line
+ * bouncing and will have to be only done when necessary.
+ */
 void refresh_cpu_vm_stats(int cpu)
 {
 	struct zone *zone;
@@ -324,15 +460,25 @@ void refresh_cpu_vm_stats(int cpu)
 				atomic_long_add(v, &zone->vm_stat[i]);
 				global_diff[i] += v;
 #ifdef CONFIG_NUMA
-				
+				/* 3 seconds idle till flush */
 				p->expire = 3;
 #endif
 			}
 		cond_resched();
 #ifdef CONFIG_NUMA
+		/*
+		 * Deal with draining the remote pageset of this
+		 * processor
+		 *
+		 * Check if there are pages remaining in this pageset
+		 * if not then there is nothing to expire.
+		 */
 		if (!p->expire || !p->pcp.count)
 			continue;
 
+		/*
+		 * We never drain zones local to this processor.
+		 */
 		if (zone_to_nid(zone) == numa_node_id()) {
 			p->expire = 0;
 			continue;
@@ -355,6 +501,16 @@ void refresh_cpu_vm_stats(int cpu)
 #endif
 
 #ifdef CONFIG_NUMA
+/*
+ * zonelist = the list of zones passed to the allocator
+ * z 	    = the zone from which the allocation occurred.
+ *
+ * Must be called with interrupts disabled.
+ *
+ * When __GFP_OTHER_NODE is set assume the node of the preferred
+ * zone is the local node. This is useful for daemons who allocate
+ * memory on behalf of other processes.
+ */
 void zone_statistics(struct zone *preferred_zone, struct zone *z, gfp_t flags)
 {
 	if (z->zone_pgdat == preferred_zone->zone_pgdat) {
@@ -379,6 +535,14 @@ struct contig_page_info {
 	unsigned long free_blocks_suitable;
 };
 
+/*
+ * Calculate the number of free pages in a zone, how many contiguous
+ * pages are free and how many are large enough to satisfy an allocation of
+ * the target size. Note that this function makes no attempt to estimate
+ * how many suitable free blocks there *might* be if MOVABLE pages were
+ * migrated. Calculating that is possible, but expensive and can be
+ * figured out from userspace
+ */
 static void fill_contig_page_info(struct zone *zone,
 				unsigned int suitable_order,
 				struct contig_page_info *info)
@@ -392,20 +556,27 @@ static void fill_contig_page_info(struct zone *zone,
 	for (order = 0; order < MAX_ORDER; order++) {
 		unsigned long blocks;
 
-		
+		/* Count number of free blocks */
 		blocks = zone->free_area[order].nr_free;
 		info->free_blocks_total += blocks;
 
-		
+		/* Count free base pages */
 		info->free_pages += blocks << order;
 
-		
+		/* Count the suitable free blocks */
 		if (order >= suitable_order)
 			info->free_blocks_suitable += blocks <<
 						(order - suitable_order);
 	}
 }
 
+/*
+ * A fragmentation index only makes sense if an allocation of a requested
+ * size would fail. If that is true, the fragmentation index indicates
+ * whether external fragmentation or a lack of memory was the problem.
+ * The value can be used to determine if page reclaim or compaction
+ * should be used
+ */
 static int __fragmentation_index(unsigned int order, struct contig_page_info *info)
 {
 	unsigned long requested = 1UL << order;
@@ -413,13 +584,20 @@ static int __fragmentation_index(unsigned int order, struct contig_page_info *in
 	if (!info->free_blocks_total)
 		return 0;
 
-	
+	/* Fragmentation index only makes sense when a request would fail */
 	if (info->free_blocks_suitable)
 		return -1000;
 
+	/*
+	 * Index is between 0 and 1 so return within 3 decimal places
+	 *
+	 * 0 => allocation would fail due to lack of memory
+	 * 1 => allocation would fail due to fragmentation
+	 */
 	return 1000 - div_u64( (1000+(div_u64(info->free_pages * 1000ULL, requested))), info->free_blocks_total);
 }
 
+/* Same as __fragmentation index but allocs contig_page_info on stack */
 int fragmentation_index(struct zone *zone, unsigned int order)
 {
 	struct contig_page_info info;
@@ -468,6 +646,7 @@ static void frag_stop(struct seq_file *m, void *arg)
 {
 }
 
+/* Walk all the zones in a node and print using a callback */
 static void walk_zones_in_node(struct seq_file *m, pg_data_t *pgdat,
 		void (*print)(struct seq_file *m, pg_data_t *, struct zone *))
 {
@@ -509,7 +688,7 @@ static void walk_zones_in_node(struct seq_file *m, pg_data_t *pgdat,
 					TEXT_FOR_HIGHMEM(xx) xx "_movable",
 
 const char * const vmstat_text[] = {
-	
+	/* Zoned VM counters */
 	"nr_free_pages",
 	"nr_inactive_anon",
 	"nr_active_anon",
@@ -619,9 +798,9 @@ const char * const vmstat_text[] = {
 	"thp_split",
 #endif
 
-#endif 
+#endif /* CONFIG_VM_EVENTS_COUNTERS */
 };
-#endif 
+#endif /* CONFIG_PROC_FS || CONFIG_SYSFS || CONFIG_NUMA */
 
 
 #ifdef CONFIG_PROC_FS
@@ -636,6 +815,9 @@ static void frag_show_print(struct seq_file *m, pg_data_t *pgdat,
 	seq_putc(m, '\n');
 }
 
+/*
+ * This walks the free areas for each zone.
+ */
 static int frag_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
@@ -668,12 +850,13 @@ static void pagetypeinfo_showfree_print(struct seq_file *m,
 	}
 }
 
+/* Print out the free pages at each order for each migatetype */
 static int pagetypeinfo_showfree(struct seq_file *m, void *arg)
 {
 	int order;
 	pg_data_t *pgdat = (pg_data_t *)arg;
 
-	
+	/* Print header */
 	seq_printf(m, "%-43s ", "Free pages count per migrate type at order");
 	for (order = 0; order < MAX_ORDER; ++order)
 		seq_printf(m, "%6d ", order);
@@ -701,7 +884,7 @@ static void pagetypeinfo_showblockcount_print(struct seq_file *m,
 
 		page = pfn_to_page(pfn);
 
-		
+		/* Watch for unexpected holes punched in the memmap */
 		if (!memmap_valid_within(pfn, page, zone))
 			continue;
 
@@ -711,13 +894,14 @@ static void pagetypeinfo_showblockcount_print(struct seq_file *m,
 			count[mtype]++;
 	}
 
-	
+	/* Print counts */
 	seq_printf(m, "Node %d, zone %8s ", pgdat->node_id, zone->name);
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
 		seq_printf(m, "%12lu ", count[mtype]);
 	seq_putc(m, '\n');
 }
 
+/* Print out the free pages at each order for each migratetype */
 static int pagetypeinfo_showblockcount(struct seq_file *m, void *arg)
 {
 	int mtype;
@@ -732,11 +916,15 @@ static int pagetypeinfo_showblockcount(struct seq_file *m, void *arg)
 	return 0;
 }
 
+/*
+ * This prints out statistics in relation to grouping pages by mobility.
+ * It is expensive to collect so do not constantly read the file.
+ */
 static int pagetypeinfo_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
 
-	
+	/* check memoryless node */
 	if (!node_state(pgdat->node_id, N_HIGH_MEMORY))
 		return 0;
 
@@ -848,6 +1036,9 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 	seq_putc(m, '\n');
 }
 
+/*
+ * Output information about zones in @pgdat.
+ */
 static int zoneinfo_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
@@ -856,7 +1047,8 @@ static int zoneinfo_show(struct seq_file *m, void *arg)
 }
 
 static const struct seq_operations zoneinfo_op = {
-	.start	= frag_start, 
+	.start	= frag_start, /* iterate over all zones. The same as in
+			       * fragmentation. */
 	.next	= frag_next,
 	.stop	= frag_stop,
 	.show	= zoneinfo_show,
@@ -908,7 +1100,7 @@ static void *vmstat_start(struct seq_file *m, loff_t *pos)
 
 #ifdef CONFIG_VM_EVENT_COUNTERS
 	all_vm_events(v);
-	v[PGPGIN] /= 2;		
+	v[PGPGIN] /= 2;		/* sectors -> kbytes */
 	v[PGPGOUT] /= 2;
 #endif
 	return (unsigned long *)m->private + *pos;
@@ -955,7 +1147,7 @@ static const struct file_operations proc_vmstat_file_operations = {
 	.llseek		= seq_lseek,
 	.release	= seq_release,
 };
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 #ifdef CONFIG_SMP
 static DEFINE_PER_CPU(struct delayed_work, vmstat_work);
@@ -976,6 +1168,10 @@ static void __cpuinit start_cpu_timer(int cpu)
 	schedule_delayed_work_on(cpu, work, __round_jiffies_relative(HZ, cpu));
 }
 
+/*
+ * Use the cpu notifier to insure that the thresholds are recalculated
+ * when necessary.
+ */
 static int __cpuinit vmstat_cpuup_callback(struct notifier_block *nfb,
 		unsigned long action,
 		void *hcpu)
@@ -1037,13 +1233,24 @@ module_init(setup_vmstat)
 
 static struct dentry *extfrag_debug_root;
 
+/*
+ * Return an index indicating how much of the available free memory is
+ * unusable for an allocation of the requested size.
+ */
 static int unusable_free_index(unsigned int order,
 				struct contig_page_info *info)
 {
-	
+	/* No free memory is interpreted as all free memory is unusable */
 	if (info->free_pages == 0)
 		return 1000;
 
+	/*
+	 * Index should be a value between 0 and 1. Return a value to 3
+	 * decimal places.
+	 *
+	 * 0 => no fragmentation
+	 * 1 => high fragmentation
+	 */
 	return div_u64((info->free_pages - (info->free_blocks_suitable << order)) * 1000ULL, info->free_pages);
 
 }
@@ -1067,11 +1274,20 @@ static void unusable_show_print(struct seq_file *m,
 	seq_putc(m, '\n');
 }
 
+/*
+ * Display unusable free space index
+ *
+ * The unusable free space index measures how much of the available free
+ * memory cannot be used to satisfy an allocation of a given size and is a
+ * value between 0 and 1. The higher the value, the more of free memory is
+ * unusable and by implication, the worse the external fragmentation is. This
+ * can be expressed as a percentage by multiplying by 100.
+ */
 static int unusable_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
 
-	
+	/* check memoryless node */
 	if (!node_state(pgdat->node_id, N_HIGH_MEMORY))
 		return 0;
 
@@ -1105,7 +1321,7 @@ static void extfrag_show_print(struct seq_file *m,
 	unsigned int order;
 	int index;
 
-	
+	/* Alloc on stack as interrupts are disabled for zone walk */
 	struct contig_page_info info;
 
 	seq_printf(m, "Node %d, zone %8s ",
@@ -1120,6 +1336,9 @@ static void extfrag_show_print(struct seq_file *m,
 	seq_putc(m, '\n');
 }
 
+/*
+ * Display fragmentation index for orders that allocations would fail for
+ */
 static int extfrag_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;

@@ -31,6 +31,7 @@ struct davinci_ops {
 	u32 flags;
 };
 
+/* Actual code that puts the SoC in different idle states */
 static int davinci_enter_idle(struct cpuidle_device *dev,
 				struct cpuidle_driver *drv,
 						int index)
@@ -50,6 +51,7 @@ static int davinci_enter_idle(struct cpuidle_device *dev,
 	return index;
 }
 
+/* fields in davinci_ops.flags */
 #define DAVINCI_CPUIDLE_FLAGS_DDR2_PWDN	BIT(0)
 
 static struct cpuidle_driver davinci_idle_driver = {

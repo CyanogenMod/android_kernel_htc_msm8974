@@ -30,12 +30,13 @@
 #include "devices.h"
 #include "generic.h"
 
+/* Tavor EVB MFP configurations */
 static mfp_cfg_t tavorevb_mfp_cfg[] __initdata = {
-	
+	/* Ethernet */
 	DF_nCS1_nCS3,
 	GPIO47_GPIO,
 
-	
+	/* LCD */
 	GPIO23_LCD_DD0,
 	GPIO24_LCD_DD1,
 	GPIO25_LCD_DD2,
@@ -51,11 +52,11 @@ static mfp_cfg_t tavorevb_mfp_cfg[] __initdata = {
 	GPIO18_LCD_LCLK_A0,
 	GPIO19_LCD_PCLK_WR,
 
-	
-	GPIO43_PWM3,	
-	GPIO32_PWM0,	
+	/* LCD Backlight */
+	GPIO43_PWM3,	/* primary backlight */
+	GPIO32_PWM0,	/* secondary backlight */
 
-	
+	/* Keypad */
 	GPIO0_KP_MKIN_0,
 	GPIO2_KP_MKIN_1,
 	GPIO4_KP_MKIN_2,
@@ -106,7 +107,7 @@ static struct platform_device smc91x_device = {
 
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int tavorevb_matrix_key_map[] = {
-	
+	/* KEY(row, col, key_code) */
 	KEY(0, 4, KEY_A), KEY(0, 5, KEY_B), KEY(0, 6, KEY_C),
 	KEY(1, 4, KEY_E), KEY(1, 5, KEY_F), KEY(1, 6, KEY_G),
 	KEY(2, 4, KEY_I), KEY(2, 5, KEY_J), KEY(2, 6, KEY_K),
@@ -121,8 +122,8 @@ static unsigned int tavorevb_matrix_key_map[] = {
 	KEY(1, 3, KEY_8), KEY(0, 2, KEY_9),
 
 	KEY(6, 6, KEY_SPACE),
-	KEY(0, 0, KEY_KPASTERISK), 	
-	KEY(0, 1, KEY_KPDOT), 		
+	KEY(0, 0, KEY_KPASTERISK), 	/* * */
+	KEY(0, 1, KEY_KPDOT), 		/* # */
 
 	KEY(4, 1, KEY_UP),
 	KEY(4, 3, KEY_DOWN),
@@ -132,18 +133,18 @@ static unsigned int tavorevb_matrix_key_map[] = {
 	KEY(3, 2, KEY_END),
 	KEY(6, 1, KEY_DELETE),
 	KEY(5, 2, KEY_BACK),
-	KEY(6, 3, KEY_CAPSLOCK),	
+	KEY(6, 3, KEY_CAPSLOCK),	/* KEY_LEFTSHIFT), */
 
-	KEY(4, 4, KEY_ENTER),		
-	KEY(6, 2, KEY_ENTER),		
+	KEY(4, 4, KEY_ENTER),		/* scroll push */
+	KEY(6, 2, KEY_ENTER),		/* keypad action */
 
 	KEY(3, 1, KEY_SEND),
 	KEY(5, 3, KEY_RECORD),
 	KEY(5, 0, KEY_VOLUMEUP),
 	KEY(5, 1, KEY_VOLUMEDOWN),
 
-	KEY(3, 0, KEY_F22),	
-	KEY(3, 3, KEY_F23),	
+	KEY(3, 0, KEY_F22),	/* soft1 */
+	KEY(3, 3, KEY_F23),	/* soft2 */
 };
 
 static struct pxa27x_keypad_platform_data tavorevb_keypad_info = {
@@ -160,19 +161,19 @@ static void __init tavorevb_init_keypad(void)
 }
 #else
 static inline void tavorevb_init_keypad(void) {}
-#endif 
+#endif /* CONFIG_KEYBOARD_PXA27x || CONFIG_KEYBOARD_PXA27x_MODULE */
 
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct platform_pwm_backlight_data tavorevb_backlight_data[] = {
 	[0] = {
-		
+		/* primary backlight */
 		.pwm_id		= 2,
 		.max_brightness	= 100,
 		.dft_brightness	= 100,
 		.pwm_period_ns	= 100000,
 	},
 	[1] = {
-		
+		/* secondary backlight */
 		.pwm_id		= 0,
 		.max_brightness	= 100,
 		.dft_brightness	= 100,
@@ -198,7 +199,7 @@ static struct platform_device tavorevb_backlight_devices[] = {
 };
 
 static uint16_t panel_init[] = {
-	
+	/* DSTB OUT */
 	SMART_CMD(0x00),
 	SMART_CMD_NOOP,
 	SMART_DELAY(1),
@@ -211,66 +212,66 @@ static uint16_t panel_init[] = {
 	SMART_CMD_NOOP,
 	SMART_DELAY(1),
 
-	
+	/* STB OUT */
 	SMART_CMD(0x00),
 	SMART_CMD(0x1D),
 	SMART_DAT(0x00),
 	SMART_DAT(0x05),
 	SMART_DELAY(1),
 
-	
-	SMART_CMD(0x00), 
+	/* P-ON Init sequence */
+	SMART_CMD(0x00), /* OSC ON */
 	SMART_CMD(0x00),
 	SMART_DAT(0x00),
 	SMART_DAT(0x01),
 	SMART_CMD(0x00),
-	SMART_CMD(0x01), 
+	SMART_CMD(0x01), /* SOURCE DRIVER SHIFT DIRECTION and display RAM setting */
 	SMART_DAT(0x01),
 	SMART_DAT(0x27),
 	SMART_CMD(0x00),
-	SMART_CMD(0x02), 
+	SMART_CMD(0x02), /* LINE INV */
 	SMART_DAT(0x02),
 	SMART_DAT(0x00),
 	SMART_CMD(0x00),
-	SMART_CMD(0x03), 
-	SMART_DAT(0x01), 
+	SMART_CMD(0x03), /* IF mode(1) */
+	SMART_DAT(0x01), /* 8bit smart mode(8-8),high speed write mode */
 	SMART_DAT(0x30),
 	SMART_CMD(0x07),
-	SMART_CMD(0x00), 
+	SMART_CMD(0x00), /* RAM Write Mode */
 	SMART_DAT(0x00),
 	SMART_DAT(0x03),
 	SMART_CMD(0x00),
 
-	
+	/* DISPLAY Setting,  262K, fixed(NO scroll), no split screen */
 	SMART_CMD(0x07),
-	SMART_DAT(0x40), 
+	SMART_DAT(0x40), /* 16/18/19 BPP */
 	SMART_DAT(0x00),
 	SMART_CMD(0x00),
-	SMART_CMD(0x08), 
+	SMART_CMD(0x08), /* BP, FP Seting, BP=2H, FP=3H */
 	SMART_DAT(0x03),
 	SMART_DAT(0x02),
 	SMART_CMD(0x00),
-	SMART_CMD(0x0C), 
+	SMART_CMD(0x0C), /* IF mode(2), using internal clock & MPU */
 	SMART_DAT(0x00),
 	SMART_DAT(0x00),
 	SMART_CMD(0x00),
-	SMART_CMD(0x0D), 
+	SMART_CMD(0x0D), /* Frame setting, 1Min. Frequence, 16CLK */
 	SMART_DAT(0x00),
 	SMART_DAT(0x10),
 	SMART_CMD(0x00),
-	SMART_CMD(0x12), 
+	SMART_CMD(0x12), /* Timing(1),ASW W=4CLK, ASW ST=1CLK */
 	SMART_DAT(0x03),
 	SMART_DAT(0x02),
 	SMART_CMD(0x00),
-	SMART_CMD(0x13), 
+	SMART_CMD(0x13), /* Timing(2),OEV ST=0.5CLK, OEV ED=1CLK */
 	SMART_DAT(0x01),
 	SMART_DAT(0x02),
 	SMART_CMD(0x00),
-	SMART_CMD(0x14), 
+	SMART_CMD(0x14), /* Timing(3), ASW HOLD=0.5CLK */
 	SMART_DAT(0x00),
 	SMART_DAT(0x00),
 	SMART_CMD(0x00),
-	SMART_CMD(0x15), 
+	SMART_CMD(0x15), /* Timing(4), CKV ST=0CLK, CKV ED=1CLK */
 	SMART_DAT(0x20),
 	SMART_DAT(0x00),
 	SMART_CMD(0x00),
@@ -311,35 +312,35 @@ static uint16_t panel_init[] = {
 	SMART_DAT(0x3F),
 	SMART_DELAY(0),
 
-	
-	SMART_CMD(0x04), 
+	/* DISP RAM setting: 240*320 */
+	SMART_CMD(0x04), /* HADDR, START 0 */
 	SMART_CMD(0x06),
 	SMART_DAT(0x00),
-	SMART_DAT(0x00), 
-	SMART_CMD(0x04), 
+	SMART_DAT(0x00), /* x1,3 */
+	SMART_CMD(0x04), /* HADDR,  END   4 */
 	SMART_CMD(0x07),
 	SMART_DAT(0x00),
-	SMART_DAT(0xEF), 
-	SMART_CMD(0x04), 
+	SMART_DAT(0xEF), /* x2, 7 */
+	SMART_CMD(0x04), /* VADDR, START 8 */
 	SMART_CMD(0x08),
-	SMART_DAT(0x00), 
-	SMART_DAT(0x00), 
-	SMART_CMD(0x04), 
+	SMART_DAT(0x00), /* y1, 10 */
+	SMART_DAT(0x00), /* y1, 11 */
+	SMART_CMD(0x04), /* VADDR, END 12 */
 	SMART_CMD(0x09),
-	SMART_DAT(0x01), 
-	SMART_DAT(0x3F), 
-	SMART_CMD(0x02), 
+	SMART_DAT(0x01), /* y2, 14 */
+	SMART_DAT(0x3F), /* y2, 15 */
+	SMART_CMD(0x02), /* RAM ADDR SETTING 16 */
 	SMART_CMD(0x00),
 	SMART_DAT(0x00),
-	SMART_DAT(0x00), 
-	SMART_CMD(0x02), 
+	SMART_DAT(0x00), /* x1, 19 */
+	SMART_CMD(0x02), /* RAM ADDR SETTING 20 */
 	SMART_CMD(0x01),
-	SMART_DAT(0x00), 
-	SMART_DAT(0x00), 
+	SMART_DAT(0x00), /* y1, 22 */
+	SMART_DAT(0x00), /* y1, 23 */
 };
 
 static uint16_t panel_on[] = {
-	
+	/* Power-IC ON */
 	SMART_CMD(0x01),
 	SMART_CMD(0x02),
 	SMART_DAT(0x07),
@@ -362,7 +363,7 @@ static uint16_t panel_on[] = {
 	SMART_DAT(0x10),
 	SMART_DELAY(30),
 
-	
+	/* DISP ON */
 	SMART_CMD(0x01),
 	SMART_CMD(0x01),
 	SMART_DAT(0x00),
@@ -406,11 +407,11 @@ static uint16_t panel_off[] = {
 };
 
 static uint16_t update_framedata[] = {
-	
+	/* write ram */
 	SMART_CMD(0x02),
 	SMART_CMD(0x02),
 
-	
+	/* write frame data */
 	SMART_CMD_WRITE_FRAME,
 };
 
@@ -447,7 +448,7 @@ static struct pxafb_mode_info toshiba_ltm020d550_modes[] = {
 		.op_hold_time 		= 30,
 		.cmd_inh_time		= 60,
 
-		
+		/* L_LCLK_A0 and L_LCLK_RD active low */
 		.sync			= FB_SYNC_HOR_HIGH_ACT |
 					  FB_SYNC_VERT_HIGH_ACT,
 	},
@@ -469,11 +470,11 @@ static void __init tavorevb_init_lcd(void)
 }
 #else
 static inline void tavorevb_init_lcd(void) {}
-#endif 
+#endif /* CONFIG_FB_PXA || CONFIG_FB_PXA_MODULE */
 
 static void __init tavorevb_init(void)
 {
-	
+	/* initialize MFP configurations */
 	pxa3xx_mfp_config(ARRAY_AND_SIZE(tavorevb_mfp_cfg));
 
 	pxa_set_ffuart_info(NULL);
@@ -487,7 +488,7 @@ static void __init tavorevb_init(void)
 }
 
 MACHINE_START(TAVOREVB, "PXA930 Evaluation Board (aka TavorEVB)")
-	
+	/* Maintainer: Eric Miao <eric.miao@marvell.com> */
 	.atag_offset    = 0x100,
 	.map_io         = pxa3xx_map_io,
 	.nr_irqs	= PXA_NR_IRQS,

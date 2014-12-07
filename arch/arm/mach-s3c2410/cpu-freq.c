@@ -30,6 +30,7 @@
 #include <plat/clock.h>
 #include <plat/cpu-freq-core.h>
 
+/* Note, 2410A has an extra mode for 1:4:4 ratio, bit 2 of CLKDIV */
 
 static void s3c2410_cpufreq_setdivs(struct s3c_cpufreq_config *cfg)
 {
@@ -76,7 +77,7 @@ static int s3c2410_cpufreq_calcdivs(struct s3c_cpufreq_config *cfg)
 
 	pdiv *= hdiv;
 
-	
+	/* record the result */
 	cfg->divs.p_divisor = pdiv;
 	cfg->divs.h_divisor = hdiv;
 
@@ -90,6 +91,8 @@ static struct s3c_cpufreq_info s3c2410_cpufreq_info = {
 		.pclk	=  50000000,
 	},
 
+	/* transition latency is about 5ms worst-case, so
+	 * set 10ms to be sure */
 	.latency	= 10000000,
 
 	.locktime_m	= 150,
@@ -134,6 +137,9 @@ arch_initcall(s3c2410_cpufreq_init);
 static int s3c2410a_cpufreq_add(struct device *dev,
 				struct subsys_interface *sif)
 {
+	/* alter the maximum freq settings for S3C2410A. If a board knows
+	 * it only has a maximum of 200, then it should register its own
+	 * limits. */
 
 	s3c2410_cpufreq_info.max.fclk = 266000000;
 	s3c2410_cpufreq_info.max.hclk = 133000000;

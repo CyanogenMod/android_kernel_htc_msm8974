@@ -23,18 +23,19 @@
 #define PPP_BLUR_SCALE_MAX 128
 #define PPP_LUT_MAX 256
 
+/* MDP PPP Operations */
 #define MDPOP_NOP               0
-#define MDPOP_LR                BIT(0)	
-#define MDPOP_UD                BIT(1)	
-#define MDPOP_ROT90             BIT(2)	
+#define MDPOP_LR                BIT(0)	/* left to right flip */
+#define MDPOP_UD                BIT(1)	/* up and down flip */
+#define MDPOP_ROT90             BIT(2)	/* rotate image to 90 degree */
 #define MDPOP_ROT180            (MDPOP_UD|MDPOP_LR)
 #define MDPOP_ROT270            (MDPOP_ROT90|MDPOP_UD|MDPOP_LR)
 #define MDPOP_ASCALE            BIT(7)
-#define MDPOP_ALPHAB            BIT(8)	
-#define MDPOP_TRANSP            BIT(9)	
-#define MDPOP_DITHER            BIT(10)	
-#define MDPOP_SHARPENING		BIT(11) 
-#define MDPOP_BLUR				BIT(12) 
+#define MDPOP_ALPHAB            BIT(8)	/* enable alpha blending */
+#define MDPOP_TRANSP            BIT(9)	/* enable transparency */
+#define MDPOP_DITHER            BIT(10)	/* enable dither */
+#define MDPOP_SHARPENING		BIT(11) /* enable sharpening */
+#define MDPOP_BLUR				BIT(12) /* enable blur */
 #define MDPOP_FG_PM_ALPHA       BIT(13)
 #define MDPOP_LAYER_IS_FG       BIT(14)
 
@@ -74,9 +75,11 @@
 #define CLR_CB CLR_B
 #define CLR_CR CLR_R
 
+/* from lsb to msb */
 #define PPP_GET_PACK_PATTERN(a, x, y, z, bit) \
 	(((a)<<(bit*3))|((x)<<(bit*2))|((y)<<bit)|(z))
 
+/* Frame unpacking */
 #define PPP_C0G_8BITS (BIT(1)|BIT(0))
 #define PPP_C1B_8BITS (BIT(3)|BIT(2))
 #define PPP_C2R_8BITS (BIT(5)|BIT(4))
@@ -233,17 +236,21 @@
 	PPP_DST_PACK_ALIGN_LSB | PPP_DST_OUT_SEL_AXI | \
 	PPP_DST_BPP_2BYTES)
 
+/* LUT */
 #define MDP_LUT_C0_EN BIT(5)
 #define MDP_LUT_C1_EN BIT(6)
 #define MDP_LUT_C2_EN BIT(7)
 
+/* Dither */
 #define MDP_OP_DITHER_EN BIT(16)
 
+/* Rotator */
 #define MDP_OP_ROT_ON BIT(8)
 #define MDP_OP_ROT_90 BIT(9)
 #define MDP_OP_FLIP_LR BIT(10)
 #define MDP_OP_FLIP_UD BIT(11)
 
+/* Blend */
 #define MDP_OP_BLEND_EN BIT(12)
 #define MDP_OP_BLEND_EQ_SEL BIT(15)
 #define MDP_OP_BLEND_TRANSP_EN BIT(24)
@@ -255,6 +262,7 @@
 #define MDP_BLEND_CONST_ALPHA 24
 #define MDP_BLEND_TRASP_COL_MASK 0xFFFFFF
 
+/* CSC Matrix */
 #define MDP_CSC_RGB2YUV		0
 #define MDP_CSC_YUV2RGB		1
 
@@ -272,6 +280,7 @@ enum ppp_csc_matrix {
 	CSC_SECONDARY_MATRIX,
 };
 
+/* scale tables */
 enum {
 	PPP_DOWNSCALE_PT2TOPT4,
 	PPP_DOWNSCALE_PT4TOPT6,
@@ -286,16 +295,16 @@ struct ppp_table {
 };
 
 struct ppp_csc_table {
-	int direction;			
-	uint16_t fwd_matrix[MDP_CCS_SIZE];	
-	uint16_t rev_matrix[MDP_CCS_SIZE];	
-	uint16_t bv[MDP_BV_SIZE];	
-	uint16_t lv[MDP_LV_SIZE];	
+	int direction;			/* MDP_CCS_RGB2YUV or YUV2RGB */
+	uint16_t fwd_matrix[MDP_CCS_SIZE];	/* 3x3 color coefficients */
+	uint16_t rev_matrix[MDP_CCS_SIZE];	/* 3x3 color coefficients */
+	uint16_t bv[MDP_BV_SIZE];	/* 1x3 bias vector */
+	uint16_t lv[MDP_LV_SIZE];	/* 1x3 limit vector */
 };
 
 struct ppp_blend {
 	int const_alpha;
-	int trans_color; 
+	int trans_color; /*color keying*/
 };
 
 struct ppp_img_prop {
@@ -309,7 +318,7 @@ struct ppp_img_desc {
 	struct ppp_img_prop prop;
 	struct ppp_img_prop roi;
 	int color_fmt;
-	void *p0;  
+	void *p0;  /* plane 0 */
 	void *p1;
 	void *p3;
 	int stride0;
@@ -322,7 +331,9 @@ struct ppp_blit_op {
 	struct ppp_img_desc dst;
 	struct ppp_img_desc bg;
 	struct ppp_blend blend;
-	uint32_t mdp_op; 
+	uint32_t mdp_op; /* Operations */
+	uint32_t solid_fill_color;
+	bool solid_fill;
 };
 
 struct ppp_edge_rep {
@@ -330,32 +341,53 @@ struct ppp_edge_rep {
 	uint32_t dst_roi_height;
 	uint32_t is_scale_enabled;
 
+	/*
+	 * positions of the luma pixel(relative to the image ) required for
+	 * scaling the ROI
+	 */
 	int32_t luma_interp_point_left;
 	int32_t luma_interp_point_right;
 	int32_t luma_interp_point_top;
 	int32_t luma_interp_point_bottom;
 
+	/*
+	 * positions of the chroma pixel(relative to the image ) required for
+	 * interpolating a chroma value at all required luma positions
+	 */
 	int32_t chroma_interp_point_left;
 	int32_t chroma_interp_point_right;
 	int32_t chroma_interp_point_top;
 	int32_t chroma_interp_point_bottom;
 
+	/*
+	 * a rectangular region within the chroma plane of the "image".
+	 * Chroma pixels falling inside of this rectangle belongs to the ROI
+	 */
 	int32_t chroma_bound_left;
 	int32_t chroma_bound_right;
 	int32_t chroma_bound_top;
 	int32_t chroma_bound_bottom;
 
+	/*
+	 * number of chroma pixels to replicate on the left, right,
+	 * top and bottom edge of the ROI.
+	 */
 	int32_t chroma_repeat_left;
 	int32_t chroma_repeat_right;
 	int32_t chroma_repeat_top;
 	int32_t chroma_repeat_bottom;
 
+	/*
+	 * number of luma pixels to replicate on the left, right,
+	 * top and bottom edge of the ROI.
+	 */
 	int32_t luma_repeat_left;
 	int32_t luma_repeat_right;
 	int32_t luma_repeat_top;
 	int32_t luma_repeat_bottom;
 };
 
+/* func for ppp register values */
 uint32_t ppp_bpp(uint32_t type);
 uint32_t ppp_src_config(uint32_t type);
 uint32_t ppp_out_config(uint32_t type);

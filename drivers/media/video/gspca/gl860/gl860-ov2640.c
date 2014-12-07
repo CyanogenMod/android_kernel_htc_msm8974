@@ -15,16 +15,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/* Sensor : OV2640 */
 
 #include "gl860.h"
 
 static u8 dat_init1[] = "\x00\x41\x07\x6a\x06\x61\x0d\x6a" "\x10\x10\xc1\x01";
 
-static u8 c61[] = {0x61}; 
-static u8 c51[] = {0x51}; 
-static u8 c50[] = {0x50}; 
-static u8 c28[] = {0x28}; 
-static u8 ca8[] = {0xa8}; 
+static u8 c61[] = {0x61}; /* expected */
+static u8 c51[] = {0x51}; /* expected */
+static u8 c50[] = {0x50}; /* expected */
+static u8 c28[] = {0x28}; /* expected */
+static u8 ca8[] = {0xa8}; /* expected */
 
 static u8 dat_post[] =
 	"\x00\x41\x07\x6a\x06\xef\x0d\x6a" "\x10\x10\xc1\x01";
@@ -177,6 +178,7 @@ static int  ov2640_init_pre_alt(struct gspca_dev *gspca_dev);
 static int  ov2640_init_post_alt(struct gspca_dev *gspca_dev);
 static void ov2640_post_unset_alt(struct gspca_dev *gspca_dev);
 static int  ov2640_camera_settings(struct gspca_dev *gspca_dev);
+/*==========================================================================*/
 
 void ov2640_init_settings(struct gspca_dev *gspca_dev)
 {
@@ -212,6 +214,7 @@ void ov2640_init_settings(struct gspca_dev *gspca_dev)
 	sd->dev_post_unset_alt  = ov2640_post_unset_alt;
 }
 
+/*==========================================================================*/
 
 static void common(struct gspca_dev *gspca_dev)
 {
@@ -234,6 +237,7 @@ static int ov2640_init_at_startup(struct gspca_dev *gspca_dev)
 	ctrl_in(gspca_dev, 0xc0, 2, 0x0000, 0x0000, 1, c51);
 
 	ctrl_out(gspca_dev, 0x40, 1, 0x0051, 0x0000, 0, NULL);
+/*	ctrl_out(gspca_dev, 0x40, 11, 0x0000, 0x0000, 0, NULL); */
 
 	return 0;
 }
@@ -263,7 +267,7 @@ static int ov2640_init_pre_alt(struct gspca_dev *gspca_dev)
 static int ov2640_init_post_alt(struct gspca_dev *gspca_dev)
 {
 	s32 reso = gspca_dev->cam.cam_mode[(s32) gspca_dev->curr_mode].priv;
-	s32 n; 
+	s32 n; /* reserved for FETCH functions */
 
 	ctrl_out(gspca_dev, 0x40, 5, 0x0001, 0x0000, 0, NULL);
 
@@ -356,7 +360,7 @@ static int ov2640_camera_settings(struct gspca_dev *gspca_dev)
 	s32 flip   = (((sd->vcur.flip   > 0) ^ sd->mirrorMask) == 0);
 
 	if (backlight != sd->vold.backlight) {
-		
+		/* No sd->vold.backlight=backlight; (to be done again later) */
 		if (backlight < 0 || backlight > sd->vmax.backlight)
 			backlight = 0;
 

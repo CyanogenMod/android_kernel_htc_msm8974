@@ -64,35 +64,39 @@
 #define DRIVER_NAME	"sh_mmcif"
 #define DRIVER_VERSION	"2010-04-28"
 
+/* CE_CMD_SET */
 #define CMD_MASK		0x3f000000
 #define CMD_SET_RTYP_NO		((0 << 23) | (0 << 22))
-#define CMD_SET_RTYP_6B		((0 << 23) | (1 << 22)) 
-#define CMD_SET_RTYP_17B	((1 << 23) | (0 << 22)) 
-#define CMD_SET_RBSY		(1 << 21) 
+#define CMD_SET_RTYP_6B		((0 << 23) | (1 << 22)) /* R1/R1b/R3/R4/R5 */
+#define CMD_SET_RTYP_17B	((1 << 23) | (0 << 22)) /* R2 */
+#define CMD_SET_RBSY		(1 << 21) /* R1b */
 #define CMD_SET_CCSEN		(1 << 20)
-#define CMD_SET_WDAT		(1 << 19) 
-#define CMD_SET_DWEN		(1 << 18) 
-#define CMD_SET_CMLTE		(1 << 17) 
-#define CMD_SET_CMD12EN		(1 << 16) 
-#define CMD_SET_RIDXC_INDEX	((0 << 15) | (0 << 14)) 
-#define CMD_SET_RIDXC_BITS	((0 << 15) | (1 << 14)) 
-#define CMD_SET_RIDXC_NO	((1 << 15) | (0 << 14)) 
-#define CMD_SET_CRC7C		((0 << 13) | (0 << 12)) 
-#define CMD_SET_CRC7C_BITS	((0 << 13) | (1 << 12)) 
-#define CMD_SET_CRC7C_INTERNAL	((1 << 13) | (0 << 12)) 
-#define CMD_SET_CRC16C		(1 << 10) 
-#define CMD_SET_CRCSTE		(1 << 8) 
-#define CMD_SET_TBIT		(1 << 7) 
-#define CMD_SET_OPDM		(1 << 6) 
+#define CMD_SET_WDAT		(1 << 19) /* 1: on data, 0: no data */
+#define CMD_SET_DWEN		(1 << 18) /* 1: write, 0: read */
+#define CMD_SET_CMLTE		(1 << 17) /* 1: multi block trans, 0: single */
+#define CMD_SET_CMD12EN		(1 << 16) /* 1: CMD12 auto issue */
+#define CMD_SET_RIDXC_INDEX	((0 << 15) | (0 << 14)) /* index check */
+#define CMD_SET_RIDXC_BITS	((0 << 15) | (1 << 14)) /* check bits check */
+#define CMD_SET_RIDXC_NO	((1 << 15) | (0 << 14)) /* no check */
+#define CMD_SET_CRC7C		((0 << 13) | (0 << 12)) /* CRC7 check*/
+#define CMD_SET_CRC7C_BITS	((0 << 13) | (1 << 12)) /* check bits check*/
+#define CMD_SET_CRC7C_INTERNAL	((1 << 13) | (0 << 12)) /* internal CRC7 check*/
+#define CMD_SET_CRC16C		(1 << 10) /* 0: CRC16 check*/
+#define CMD_SET_CRCSTE		(1 << 8) /* 1: not receive CRC status */
+#define CMD_SET_TBIT		(1 << 7) /* 1: tran mission bit "Low" */
+#define CMD_SET_OPDM		(1 << 6) /* 1: open/drain */
 #define CMD_SET_CCSH		(1 << 5)
-#define CMD_SET_DATW_1		((0 << 1) | (0 << 0)) 
-#define CMD_SET_DATW_4		((0 << 1) | (1 << 0)) 
-#define CMD_SET_DATW_8		((1 << 1) | (0 << 0)) 
+#define CMD_SET_DATW_1		((0 << 1) | (0 << 0)) /* 1bit */
+#define CMD_SET_DATW_4		((0 << 1) | (1 << 0)) /* 4bit */
+#define CMD_SET_DATW_8		((1 << 1) | (0 << 0)) /* 8bit */
 
+/* CE_CMD_CTRL */
 #define CMD_CTRL_BREAK		(1 << 0)
 
+/* CE_BLOCK_SET */
 #define BLOCK_SIZE_MASK		0x0000ffff
 
+/* CE_INT */
 #define INT_CCSDE		(1 << 29)
 #define INT_CMD12DRE		(1 << 26)
 #define INT_CMD12RBE		(1 << 25)
@@ -121,6 +125,7 @@
 				 INT_CCSTO | INT_CRCSTO | INT_WDATTO |	  \
 				 INT_RDATTO | INT_RBSYTO | INT_RSPTO)
 
+/* CE_INT_MASK */
 #define MASK_ALL		0x00000000
 #define MASK_MCCSDE		(1 << 29)
 #define MASK_MCMD12DRE		(1 << 26)
@@ -151,8 +156,10 @@
 				 MASK_MCCSTO | MASK_MCRCSTO | MASK_MWDATTO | \
 				 MASK_MRDATTO | MASK_MRBSYTO | MASK_MRSPTO)
 
+/* CE_HOST_STS1 */
 #define STS1_CMDSEQ		(1 << 31)
 
+/* CE_HOST_STS2 */
 #define STS2_CRCSTE		(1 << 31)
 #define STS2_CRC16E		(1 << 30)
 #define STS2_AC12CRCE		(1 << 29)
@@ -178,9 +185,9 @@
 				 STS2_AC12BSYTO | STS2_RSPBSYTO |	\
 				 STS2_AC12RSPTO | STS2_RSPTO)
 
-#define CLKDEV_EMMC_DATA	52000000 
-#define CLKDEV_MMC_DATA		20000000 
-#define CLKDEV_INIT		400000   
+#define CLKDEV_EMMC_DATA	52000000 /* 52MHz */
+#define CLKDEV_MMC_DATA		20000000 /* 20MHz */
+#define CLKDEV_INIT		400000   /* 400 KHz */
 
 enum mmcif_state {
 	STATE_IDLE,
@@ -214,7 +221,7 @@ struct sh_mmcif_host {
 	long timeout;
 	void __iomem *addr;
 	u32 *pio_ptr;
-	spinlock_t lock;		
+	spinlock_t lock;		/* protect sh_mmcif_host::state */
 	enum mmcif_state state;
 	enum mmcif_wait_for wait_for;
 	struct delayed_work timeout_work;
@@ -224,7 +231,7 @@ struct sh_mmcif_host {
 	bool power;
 	bool card_present;
 
-	
+	/* DMA support */
 	struct dma_chan		*chan_rx;
 	struct dma_chan		*chan_tx;
 	struct completion	dma_complete;
@@ -294,13 +301,13 @@ static void sh_mmcif_start_dma_rx(struct sh_mmcif_host *host)
 		__func__, data->sg_len, ret, cookie);
 
 	if (!desc) {
-		
+		/* DMA failed, fall back to PIO */
 		if (ret >= 0)
 			ret = -EIO;
 		host->chan_rx = NULL;
 		host->dma_active = false;
 		dma_release_channel(chan);
-		
+		/* Free the Tx channel too */
 		chan = host->chan_tx;
 		if (chan) {
 			host->chan_tx = NULL;
@@ -343,13 +350,13 @@ static void sh_mmcif_start_dma_tx(struct sh_mmcif_host *host)
 		__func__, data->sg_len, ret, cookie);
 
 	if (!desc) {
-		
+		/* DMA failed, fall back to PIO */
 		if (ret >= 0)
 			ret = -EIO;
 		host->chan_tx = NULL;
 		host->dma_active = false;
 		dma_release_channel(chan);
-		
+		/* Free the Rx channel too */
 		chan = host->chan_rx;
 		if (chan) {
 			host->chan_rx = NULL;
@@ -377,7 +384,7 @@ static void sh_mmcif_request_dma(struct sh_mmcif_host *host,
 	struct sh_dmae_slave *tx, *rx;
 	host->dma_active = false;
 
-	
+	/* We can only either use DMA for both Tx and Rx or not use it at all */
 	if (pdata->dma) {
 		dev_warn(&host->pd->dev,
 			 "Update your platform to use embedded DMA slave IDs\n");
@@ -419,7 +426,7 @@ static void sh_mmcif_request_dma(struct sh_mmcif_host *host,
 static void sh_mmcif_release_dma(struct sh_mmcif_host *host)
 {
 	sh_mmcif_bitclr(host, MMCIF_CE_BUF_ACC, BUF_ACC_DMAREN | BUF_ACC_DMAWEN);
-	
+	/* Descriptors are freed automatically */
 	if (host->chan_tx) {
 		struct dma_chan *chan = host->chan_tx;
 		host->chan_tx = NULL;
@@ -463,7 +470,7 @@ static void sh_mmcif_sync_reset(struct sh_mmcif_host *host)
 	sh_mmcif_writel(host->addr, MMCIF_CE_VERSION, SOFT_RST_OFF);
 	sh_mmcif_bitset(host, MMCIF_CE_CLK_CTRL, tmp |
 		SRSPTO_256 | SRBSYTO_29 | SRWDTO_29 | SCCSTO_29);
-	
+	/* byte swap on */
 	sh_mmcif_bitset(host, MMCIF_CE_BUF_ACC, BUF_ACC_ATYP);
 }
 
@@ -517,7 +524,7 @@ static bool sh_mmcif_next_block(struct sh_mmcif_host *host, u32 *p)
 
 	host->sg_blkidx += host->blocksize;
 
-	
+	/* data->sg->length must be a multiple of host->blocksize? */
 	BUG_ON(host->sg_blkidx > data->sg->length);
 
 	if (host->sg_blkidx == data->sg->length) {
@@ -543,7 +550,7 @@ static void sh_mmcif_single_read(struct sh_mmcif_host *host,
 	host->wait_for = MMCIF_WAIT_FOR_READ;
 	schedule_delayed_work(&host->timeout_work, host->timeout);
 
-	
+	/* buf read enable */
 	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFREN);
 }
 
@@ -561,7 +568,7 @@ static bool sh_mmcif_read_block(struct sh_mmcif_host *host)
 	for (i = 0; i < host->blocksize / 4; i++)
 		*p++ = sh_mmcif_readl(host->addr, MMCIF_CE_DATA);
 
-	
+	/* buffer read end */
 	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFRE);
 	host->wait_for = MMCIF_WAIT_FOR_READ_END;
 
@@ -621,7 +628,7 @@ static void sh_mmcif_single_write(struct sh_mmcif_host *host,
 	host->wait_for = MMCIF_WAIT_FOR_WRITE;
 	schedule_delayed_work(&host->timeout_work, host->timeout);
 
-	
+	/* buf write enable */
 	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MBUFWEN);
 }
 
@@ -639,7 +646,7 @@ static bool sh_mmcif_write_block(struct sh_mmcif_host *host)
 	for (i = 0; i < host->blocksize / 4; i++)
 		sh_mmcif_writel(host->addr, MMCIF_CE_DATA, *p++);
 
-	
+	/* buffer write end */
 	sh_mmcif_bitset(host, MMCIF_CE_INT_MASK, MASK_MDTRANE);
 	host->wait_for = MMCIF_WAIT_FOR_WRITE_END;
 
@@ -716,7 +723,7 @@ static u32 sh_mmcif_set_cmd(struct sh_mmcif_host *host,
 	u32 opc = cmd->opcode;
 	u32 tmp = 0;
 
-	
+	/* Response Type check */
 	switch (mmc_resp_type(cmd)) {
 	case MMC_RSP_NONE:
 		tmp |= CMD_SET_RTYP_NO;
@@ -734,7 +741,7 @@ static u32 sh_mmcif_set_cmd(struct sh_mmcif_host *host,
 		break;
 	}
 	switch (opc) {
-	
+	/* RBSY */
 	case MMC_SWITCH:
 	case MMC_STOP_TRANSMISSION:
 	case MMC_SET_WRITE_PROT:
@@ -743,7 +750,7 @@ static u32 sh_mmcif_set_cmd(struct sh_mmcif_host *host,
 		tmp |= CMD_SET_RBSY;
 		break;
 	}
-	
+	/* WDAT / DATW */
 	if (data) {
 		tmp |= CMD_SET_WDAT;
 		switch (host->bus_width) {
@@ -761,23 +768,23 @@ static u32 sh_mmcif_set_cmd(struct sh_mmcif_host *host,
 			break;
 		}
 	}
-	
+	/* DWEN */
 	if (opc == MMC_WRITE_BLOCK || opc == MMC_WRITE_MULTIPLE_BLOCK)
 		tmp |= CMD_SET_DWEN;
-	
+	/* CMLTE/CMD12EN */
 	if (opc == MMC_READ_MULTIPLE_BLOCK || opc == MMC_WRITE_MULTIPLE_BLOCK) {
 		tmp |= CMD_SET_CMLTE | CMD_SET_CMD12EN;
 		sh_mmcif_bitset(host, MMCIF_CE_BLOCK_SET,
 				data->blocks << 16);
 	}
-	
+	/* RIDXC[1:0] check bits */
 	if (opc == MMC_SEND_OP_COND || opc == MMC_ALL_SEND_CID ||
 	    opc == MMC_SEND_CSD || opc == MMC_SEND_CID)
 		tmp |= CMD_SET_RIDXC_BITS;
-	
+	/* RCRC7C[1:0] check bits */
 	if (opc == MMC_SEND_OP_COND)
 		tmp |= CMD_SET_CRC7C_BITS;
-	
+	/* RCRC7C[1:0] internal CRC7 */
 	if (opc == MMC_ALL_SEND_CID ||
 		opc == MMC_SEND_CSD || opc == MMC_SEND_CID)
 		tmp |= CMD_SET_CRC7C_INTERNAL;
@@ -816,7 +823,7 @@ static void sh_mmcif_start_cmd(struct sh_mmcif_host *host,
 	u32 mask;
 
 	switch (opc) {
-	
+	/* response busy check */
 	case MMC_SWITCH:
 	case MMC_STOP_TRANSMISSION:
 	case MMC_SET_WRITE_PROT:
@@ -838,9 +845,9 @@ static void sh_mmcif_start_cmd(struct sh_mmcif_host *host,
 
 	sh_mmcif_writel(host->addr, MMCIF_CE_INT, 0xD80430C0);
 	sh_mmcif_writel(host->addr, MMCIF_CE_INT_MASK, mask);
-	
+	/* set arg */
 	sh_mmcif_writel(host->addr, MMCIF_CE_ARG, cmd->arg);
-	
+	/* set cmd */
 	sh_mmcif_writel(host->addr, MMCIF_CE_CMD_SET, opc);
 
 	host->wait_for = MMCIF_WAIT_FOR_CMD;
@@ -884,16 +891,16 @@ static void sh_mmcif_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	spin_unlock_irqrestore(&host->lock, flags);
 
 	switch (mrq->cmd->opcode) {
-	
+	/* MMCIF does not support SD/SDIO command */
 	case SD_IO_SEND_OP_COND:
 	case MMC_APP_CMD:
 		host->state = STATE_IDLE;
 		mrq->cmd->error = -ETIMEDOUT;
 		mmc_request_done(mmc, mrq);
 		return;
-	case MMC_SEND_EXT_CSD: 
+	case MMC_SEND_EXT_CSD: /* = SD_SEND_IF_COND (8) */
 		if (!mrq->data) {
-			
+			/* send_if_cond cmd (not support) */
 			host->state = STATE_IDLE;
 			mrq->cmd->error = -ETIMEDOUT;
 			mmc_request_done(mmc, mrq);
@@ -926,12 +933,12 @@ static void sh_mmcif_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	if (ios->power_mode == MMC_POWER_UP) {
 		if (!host->card_present) {
-			
+			/* See if we also get DMA */
 			sh_mmcif_request_dma(host, host->pd->dev.platform_data);
 			host->card_present = true;
 		}
 	} else if (ios->power_mode == MMC_POWER_OFF || !ios->clock) {
-		
+		/* clock stop */
 		sh_mmcif_clock_control(host, 0);
 		if (ios->power_mode == MMC_POWER_OFF) {
 			if (host->card_present) {
@@ -1028,13 +1035,13 @@ static bool sh_mmcif_end_cmd(struct sh_mmcif_host *host)
 		return false;
 	}
 
-	
+	/* Running in the IRQ thread, can sleep */
 	time = wait_for_completion_interruptible_timeout(&host->dma_complete,
 							 host->timeout);
 	if (host->sd_error) {
 		dev_err(host->mmc->parent,
 			"Error IRQ while waiting for DMA completion!\n");
-		
+		/* Woken up by an error IRQ: abort DMA */
 		if (data->flags & MMC_DATA_READ)
 			dmaengine_terminate_all(host->chan_rx);
 		else
@@ -1063,33 +1070,37 @@ static irqreturn_t sh_mmcif_irqt(int irq, void *dev_id)
 
 	cancel_delayed_work_sync(&host->timeout_work);
 
+	/*
+	 * All handlers return true, if processing continues, and false, if the
+	 * request has to be completed - successfully or not
+	 */
 	switch (host->wait_for) {
 	case MMCIF_WAIT_FOR_REQUEST:
-		
+		/* We're too late, the timeout has already kicked in */
 		return IRQ_HANDLED;
 	case MMCIF_WAIT_FOR_CMD:
 		if (sh_mmcif_end_cmd(host))
-			
+			/* Wait for data */
 			return IRQ_HANDLED;
 		break;
 	case MMCIF_WAIT_FOR_MREAD:
 		if (sh_mmcif_mread_block(host))
-			
+			/* Wait for more data */
 			return IRQ_HANDLED;
 		break;
 	case MMCIF_WAIT_FOR_READ:
 		if (sh_mmcif_read_block(host))
-			
+			/* Wait for data end */
 			return IRQ_HANDLED;
 		break;
 	case MMCIF_WAIT_FOR_MWRITE:
 		if (sh_mmcif_mwrite_block(host))
-			
+			/* Wait data to write */
 			return IRQ_HANDLED;
 		break;
 	case MMCIF_WAIT_FOR_WRITE:
 		if (sh_mmcif_write_block(host))
-			
+			/* Wait for data end */
 			return IRQ_HANDLED;
 		break;
 	case MMCIF_WAIT_FOR_STOP:
@@ -1138,7 +1149,7 @@ static irqreturn_t sh_mmcif_intr(int irq, void *dev_id)
 	state = sh_mmcif_readl(host->addr, MMCIF_CE_INT);
 
 	if (state & INT_ERR_STS) {
-		
+		/* error interrupts - process first */
 		sh_mmcif_writel(host->addr, MMCIF_CE_INT, ~state);
 		sh_mmcif_bitclr(host, MMCIF_CE_INT_MASK, state);
 		err = 1;
@@ -1199,9 +1210,13 @@ static void mmcif_timeout_work(struct work_struct *work)
 	struct mmc_request *mrq = host->mrq;
 
 	if (host->dying)
-		
+		/* Don't run after mmc_remove_host() */
 		return;
 
+	/*
+	 * Handle races with cancel_delayed_work(), unless
+	 * cancel_delayed_work_sync() is used
+	 */
 	switch (host->wait_for) {
 	case MMCIF_WAIT_FOR_CMD:
 		mrq->cmd->error = sh_mmcif_error_manage(host);
@@ -1362,6 +1377,11 @@ static int __devexit sh_mmcif_remove(struct platform_device *pdev)
 	mmc_remove_host(host->mmc);
 	sh_mmcif_writel(host->addr, MMCIF_CE_INT_MASK, MASK_ALL);
 
+	/*
+	 * FIXME: cancel_delayed_work(_sync)() and free_irq() race with the
+	 * mmc_remove_host() call above. But swapping order doesn't help either
+	 * (a query on the linux-mmc mailing list didn't bring any replies).
+	 */
 	cancel_delayed_work_sync(&host->timeout_work);
 
 	if (host->addr)
@@ -1410,7 +1430,7 @@ static int sh_mmcif_resume(struct device *dev)
 #else
 #define sh_mmcif_suspend	NULL
 #define sh_mmcif_resume		NULL
-#endif	
+#endif	/* CONFIG_PM */
 
 static const struct dev_pm_ops sh_mmcif_dev_pm_ops = {
 	.suspend = sh_mmcif_suspend,

@@ -1,3 +1,6 @@
+/*
+ * H8/300 generic IDE interface
+ */
 
 #include <linux/init.h>
 #include <linux/ide.h>

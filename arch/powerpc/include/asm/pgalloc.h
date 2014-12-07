@@ -6,12 +6,12 @@
 
 #ifdef CONFIG_PPC_BOOK3E
 extern void tlb_flush_pgtable(struct mmu_gather *tlb, unsigned long address);
-#else 
+#else /* CONFIG_PPC_BOOK3E */
 static inline void tlb_flush_pgtable(struct mmu_gather *tlb,
 				     unsigned long address)
 {
 }
-#endif 
+#endif /* !CONFIG_PPC_BOOK3E */
 
 static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
 {
@@ -49,12 +49,12 @@ static inline void __tlb_remove_table(void *_table)
 
 	pgtable_free(table, shift);
 }
-#else 
+#else /* CONFIG_SMP */
 static inline void pgtable_free_tlb(struct mmu_gather *tlb, void *table, unsigned shift)
 {
 	pgtable_free(table, shift);
 }
-#endif 
+#endif /* !CONFIG_SMP */
 
 static inline void __pte_free_tlb(struct mmu_gather *tlb, struct page *ptepage,
 				  unsigned long address)
@@ -64,5 +64,5 @@ static inline void __pte_free_tlb(struct mmu_gather *tlb, struct page *ptepage,
 	pgtable_free_tlb(tlb, page_address(ptepage), 0);
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_PGALLOC_H */

@@ -48,33 +48,39 @@ Devices: [Fastwel] UNIOxx-5 (unioxx5),
 
 #define DRIVER_NAME "unioxx5"
 #define UNIOXX5_SIZE 0x10
-#define UNIOXX5_SUBDEV_BASE 0xA000	
+#define UNIOXX5_SUBDEV_BASE 0xA000	/* base addr of first subdev */
 #define UNIOXX5_SUBDEV_ODDS 0x400
 
+/* modules types */
 #define MODULE_DIGITAL 0
-#define MODULE_OUTPUT_MASK 0x80	
+#define MODULE_OUTPUT_MASK 0x80	/* analog input/output */
 
+/* constants for digital i/o */
 #define UNIOXX5_NUM_OF_CHANS 24
 
-#define TxBE  0x10		
-#define RxCA  0x20		
-#define Rx2CA 0x40		
-#define Rx4CA 0x80		
+/* constants for analog i/o */
+#define TxBE  0x10		/* transmit buffer enable */
+#define RxCA  0x20		/* 1 receive character available */
+#define Rx2CA 0x40		/* 2 receive character available */
+#define Rx4CA 0x80		/* 4 receive character available */
 
-#define Rx2CA_ERR_MASK 0x04	
-#define Rx4CA_ERR_MASK 0x08	
+/* bytes mask errors */
+#define Rx2CA_ERR_MASK 0x04	/* 2 bytes receiving error */
+#define Rx4CA_ERR_MASK 0x08	/* 4 bytes receiving error */
 
-#define ALL_2_INPUT  0		
-#define ALL_2_OUTPUT 1		
+/* channel modes */
+#define ALL_2_INPUT  0		/* config all digital channels to input */
+#define ALL_2_OUTPUT 1		/* config all digital channels to output */
 
+/* 'private' structure for each subdevice */
 struct unioxx5_subd_priv {
 	int usp_iobase;
-	
+	/* 12 modules. each can be 70L or 73L */
 	unsigned char usp_module_type[12];
 	/* for saving previous written value for analog modules */
 	unsigned char usp_extra_data[12][4];
 	unsigned char usp_prev_wr_val[3];	/* previous written value */
-	unsigned char usp_prev_cn_val[3];	
+	unsigned char usp_prev_cn_val[3];	/* previous channel value */
 };
 
 static int unioxx5_attach(struct comedi_device *dev,
@@ -95,6 +101,7 @@ static int __unioxx5_digital_write(struct unioxx5_subd_priv *usp,
 				   unsigned int *data, int channel, int minor);
 static int __unioxx5_digital_read(struct unioxx5_subd_priv *usp,
 				  unsigned int *data, int channel, int minor);
+/* static void __unioxx5_digital_config(struct unioxx5_subd_priv* usp, int mode); */
 static int __unioxx5_analog_write(struct unioxx5_subd_priv *usp,
 				  unsigned int *data, int channel, int minor);
 static int __unioxx5_analog_read(struct unioxx5_subd_priv *usp,
@@ -134,7 +141,7 @@ static int unioxx5_attach(struct comedi_device *dev,
 	dev->iobase = iobase;
 	iobase += UNIOXX5_SUBDEV_BASE;
 
-	
+	/* defining number of subdevices and getting they types (it must be 'g01')  */
 	for (i = n_subd = 0, ba = iobase; i < 4; i++, ba += UNIOXX5_SUBDEV_ODDS) {
 		id = inb(ba + 0xE);
 		num = inb(ba + 0xF);
@@ -145,7 +152,7 @@ static int unioxx5_attach(struct comedi_device *dev,
 		n_subd++;
 	}
 
-	
+	/* unioxx5 can has from two to four subdevices */
 	if (n_subd < 2) {
 		printk(KERN_ERR
 		       "your card must has at least 2 'g01' subdevices\n");
@@ -157,7 +164,7 @@ static int unioxx5_attach(struct comedi_device *dev,
 		return -ENOMEM;
 	}
 
-	
+	/* initializing each of for same subdevices */
 	for (i = 0; i < n_subd; i++, iobase += UNIOXX5_SUBDEV_ODDS) {
 		if (__unioxx5_subdev_init(&dev->subdevices[i], iobase,
 					  dev->minor) < 0)
@@ -176,7 +183,7 @@ static int unioxx5_subdev_read(struct comedi_device *dev,
 	int channel, type;
 
 	channel = CR_CHAN(insn->chanspec);
-	
+	/* defining module type(analog or digital) */
 	type = usp->usp_module_type[channel / 2];
 
 	if (type == MODULE_DIGITAL) {
@@ -198,7 +205,7 @@ static int unioxx5_subdev_write(struct comedi_device *dev,
 	int channel, type;
 
 	channel = CR_CHAN(insn->chanspec);
-	
+	/* defining module type(analog or digital) */
 	type = usp->usp_module_type[channel / 2];
 
 	if (type == MODULE_DIGITAL) {
@@ -212,6 +219,7 @@ static int unioxx5_subdev_write(struct comedi_device *dev,
 	return 1;
 }
 
+/* for digital modules only */
 static int unioxx5_insn_config(struct comedi_device *dev,
 			       struct comedi_subdevice *subdev,
 			       struct comedi_insn *insn, unsigned int *data)
@@ -252,10 +260,14 @@ static int unioxx5_insn_config(struct comedi_device *dev,
 		return -1;
 	}
 
+	/*                                                        *\
+	 * sets channels buffer to 1(after this we are allowed to *
+	 * change channel type on input or output)                *
+	 \*                                                        */
 	outb(1, usp->usp_iobase + 0);
-	
+	/* changes type of _one_ channel */
 	outb(flags, usp->usp_iobase + channel_offset);
-	
+	/* sets channels bank to 0(allows directly input/output) */
 	outb(0, usp->usp_iobase + 0);
 	/* saves written value */
 	usp->usp_prev_cn_val[channel_offset - 1] = flags;
@@ -279,6 +291,7 @@ static int unioxx5_detach(struct comedi_device *dev)
 	return 0;
 }
 
+/* initializing subdevice with given address */
 static int __unioxx5_subdev_init(struct comedi_subdevice *subdev,
 				 int subdev_iobase, int minor)
 {
@@ -300,19 +313,19 @@ static int __unioxx5_subdev_init(struct comedi_subdevice *subdev,
 	usp->usp_iobase = subdev_iobase;
 	printk(KERN_INFO "comedi%d: |", minor);
 
-	
+	/* defining modules types */
 	for (i = 0; i < 12; i++) {
 		to = 10000;
 
 		__unioxx5_analog_config(usp, i * 2);
-		
+		/* sends channel number to card */
 		outb(i + 1, subdev_iobase + 5);
-		outb('H', subdev_iobase + 6);	
+		outb('H', subdev_iobase + 6);	/* requests EEPROM world */
 		while (!(inb(subdev_iobase + 0) & TxBE))
-			;	
+			;	/* waits while writting will be allowed */
 		outb(0, subdev_iobase + 6);
 
-		
+		/* waits while reading of two bytes will be allowed */
 		while (!(inb(subdev_iobase + 0) & Rx2CA)) {
 			if (--to <= 0) {
 				ndef_flag = 1;
@@ -332,7 +345,7 @@ static int __unioxx5_subdev_init(struct comedi_subdevice *subdev,
 
 	printk("\n");
 
-	
+	/* initial subdevice for digital or analog i/o */
 	subdev->type = COMEDI_SUBD_DIO;
 	subdev->private = usp;
 	subdev->subdev_flags = SDF_READABLE | SDF_WRITABLE;
@@ -341,7 +354,7 @@ static int __unioxx5_subdev_init(struct comedi_subdevice *subdev,
 	subdev->range_table = &range_digital;
 	subdev->insn_read = unioxx5_subdev_read;
 	subdev->insn_write = unioxx5_subdev_write;
-	
+	/* for digital modules only!!! */
 	subdev->insn_config = unioxx5_insn_config;
 
 	printk(KERN_INFO "subdevice configured\n");
@@ -378,6 +391,7 @@ static int __unioxx5_digital_write(struct unioxx5_subd_priv *usp,
 	return 1;
 }
 
+/* function for digital reading */
 static int __unioxx5_digital_read(struct unioxx5_subd_priv *usp,
 				  unsigned int *data, int channel, int minor)
 {
@@ -395,12 +409,12 @@ static int __unioxx5_digital_read(struct unioxx5_subd_priv *usp,
 	*data &= mask;
 
 	if (channel_offset > 1)
-		channel -= 2 << channel_offset;	
+		channel -= 2 << channel_offset;	/* this operation is created for correct readed value to 0 or 1 */
 	*data >>= channel;
 	return 1;
 }
 
-#if 0				
+#if 0				/* not used? */
 static void __unioxx5_digital_config(struct unioxx5_subd_priv *usp, int mode)
 {
 	int i, mask;
@@ -422,10 +436,10 @@ static int __unioxx5_analog_write(struct unioxx5_subd_priv *usp,
 {
 	int module, i;
 
-	module = channel / 2;	
-	i = (channel % 2) << 1;	
+	module = channel / 2;	/* definig module number(0 .. 11) */
+	i = (channel % 2) << 1;	/* depends on type of channel (A or B) */
 
-	
+	/* defining if given module can work on output */
 	if (!(usp->usp_module_type[module] & MODULE_OUTPUT_MASK)) {
 		printk(KERN_ERR
 		       "comedi%d: module in position %d with id 0x%0x is for input only!\n",
@@ -434,20 +448,20 @@ static int __unioxx5_analog_write(struct unioxx5_subd_priv *usp,
 	}
 
 	__unioxx5_analog_config(usp, channel);
-	
+	/* saving minor byte */
 	usp->usp_extra_data[module][i++] = (unsigned char)(*data & 0x00FF);
-	
+	/* saving major byte */
 	usp->usp_extra_data[module][i] = (unsigned char)((*data & 0xFF00) >> 8);
 
-	
-	
+	/* while(!((inb(usp->usp_iobase + 0)) & TxBE)); */
+	/* sending module number to card(1 .. 12) */
 	outb(module + 1, usp->usp_iobase + 5);
-	outb('W', usp->usp_iobase + 6);	
+	outb('W', usp->usp_iobase + 6);	/* sends (W)rite command to module */
 
-	
+	/* sending for bytes to module(one byte per cycle iteration) */
 	for (i = 0; i < 4; i++) {
 		while (!((inb(usp->usp_iobase + 0)) & TxBE))
-			;	
+			;	/* waits while writting will be allowed */
 		outb(usp->usp_extra_data[module][i], usp->usp_iobase + 6);
 	}
 
@@ -461,9 +475,9 @@ static int __unioxx5_analog_read(struct unioxx5_subd_priv *usp,
 	char control;
 
 	module_no = channel / 2;
-	read_ch = channel % 2;	
+	read_ch = channel % 2;	/* depend on type of channel (A or B) */
 
-	
+	/* defining if given module can work on input */
 	if (usp->usp_module_type[module_no] & MODULE_OUTPUT_MASK) {
 		printk(KERN_ERR
 		       "comedi%d: module in position %d with id 0x%02x is for output only",
@@ -472,29 +486,30 @@ static int __unioxx5_analog_read(struct unioxx5_subd_priv *usp,
 	}
 
 	__unioxx5_analog_config(usp, channel);
-	
+	/* sends module number to card(1 .. 12) */
 	outb(module_no + 1, usp->usp_iobase + 5);
-	outb('V', usp->usp_iobase + 6);	
-	control = inb(usp->usp_iobase);	
+	outb('V', usp->usp_iobase + 6);	/* sends to module (V)erify command */
+	control = inb(usp->usp_iobase);	/* get control register byte */
 
-	
+	/* waits while reading four bytes will be allowed */
 	while (!((control = inb(usp->usp_iobase + 0)) & Rx4CA))
 		;
 
-	
+	/* if four bytes readding error occurs - return 0(false) */
 	if ((control & Rx4CA_ERR_MASK)) {
 		printk("COMEDI: 4 bytes error\n");
 		return 0;
 	}
 
 	if (read_ch)
-		*data = inw(usp->usp_iobase + 6);	
+		*data = inw(usp->usp_iobase + 6);	/* channel B */
 	else
-		*data = inw(usp->usp_iobase + 4);	
+		*data = inw(usp->usp_iobase + 4);	/* channel A */
 
 	return 1;
 }
 
+/* configure channels for analog i/o (even to output, odd to input) */
 static void __unioxx5_analog_config(struct unioxx5_subd_priv *usp, int channel)
 {
 	int chan_a, chan_b, conf, channel_offset;
@@ -503,7 +518,7 @@ static void __unioxx5_analog_config(struct unioxx5_subd_priv *usp, int channel)
 	conf = usp->usp_prev_cn_val[channel_offset - 1];
 	chan_a = chan_b = 1;
 
-	
+	/* setting channel A and channel B mask */
 	if (channel % 2 == 0) {
 		chan_a <<= channel & 0x07;
 		chan_b <<= (channel + 1) & 0x07;
@@ -512,8 +527,8 @@ static void __unioxx5_analog_config(struct unioxx5_subd_priv *usp, int channel)
 		chan_b <<= channel & 0x07;
 	}
 
-	conf |= chan_a;		
-	conf &= ~chan_b;	
+	conf |= chan_a;		/* even channel ot output */
+	conf &= ~chan_b;	/* odd channel to input */
 
 	outb(1, usp->usp_iobase + 0);
 	outb(conf, usp->usp_iobase + channel_offset);
@@ -522,6 +537,12 @@ static void __unioxx5_analog_config(struct unioxx5_subd_priv *usp, int channel)
 	usp->usp_prev_cn_val[channel_offset - 1] = conf;
 }
 
+/*                                                    *\
+ * this function defines if the given channel number  *
+ * enters in default numeric interspace(from 0 to 23) *
+ * and it returns address offset for usage needed     *
+ * channel.                                           *
+\*                                                    */
 
 static int __unioxx5_define_chan_offset(int chan_num)
 {

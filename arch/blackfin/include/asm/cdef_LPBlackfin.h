@@ -7,8 +7,13 @@
 #ifndef _CDEF_LPBLACKFIN_H
 #define _CDEF_LPBLACKFIN_H
 
+/*#if !defined(__ADSPLPBLACKFIN__)
+#warning cdef_LPBlackfin.h should only be included for 532 compatible chips.
+#endif
+*/
 #include <asm/def_LPBlackfin.h>
 
+/*Cache & SRAM Memory*/
 #define bfin_read_SRAM_BASE_ADDRESS()        bfin_read32(SRAM_BASE_ADDRESS)
 #define bfin_write_SRAM_BASE_ADDRESS(val)    bfin_write32(SRAM_BASE_ADDRESS,val)
 #define bfin_read_DMEM_CONTROL()             bfin_read32(DMEM_CONTROL)
@@ -17,6 +22,9 @@
 #define bfin_write_DCPLB_STATUS(val)         bfin_write32(DCPLB_STATUS,val)
 #define bfin_read_DCPLB_FAULT_ADDR()         bfin_read32(DCPLB_FAULT_ADDR)
 #define bfin_write_DCPLB_FAULT_ADDR(val)     bfin_write32(DCPLB_FAULT_ADDR,val)
+/*
+#define MMR_TIMEOUT            0xFFE00010
+*/
 #define bfin_read_DCPLB_ADDR0()              bfin_read32(DCPLB_ADDR0)
 #define bfin_write_DCPLB_ADDR0(val)          bfin_write32(DCPLB_ADDR0,val)
 #define bfin_read_DCPLB_ADDR1()              bfin_read32(DCPLB_ADDR1)
@@ -83,10 +91,17 @@
 #define bfin_write_DCPLB_DATA15(val)         bfin_write32(DCPLB_DATA15,val)
 #define bfin_read_DTEST_COMMAND()            bfin_read32(DTEST_COMMAND)
 #define bfin_write_DTEST_COMMAND(val)        bfin_write32(DTEST_COMMAND,val)
+/*
+#define DTEST_INDEX            0xFFE00304
+*/
 #define bfin_read_DTEST_DATA0()              bfin_read32(DTEST_DATA0)
 #define bfin_write_DTEST_DATA0(val)          bfin_write32(DTEST_DATA0,val)
 #define bfin_read_DTEST_DATA1()              bfin_read32(DTEST_DATA1)
 #define bfin_write_DTEST_DATA1(val)          bfin_write32(DTEST_DATA1,val)
+/*
+#define DTEST_DATA2            0xFFE00408
+#define DTEST_DATA3            0xFFE0040C
+*/
 #define bfin_read_IMEM_CONTROL()             bfin_read32(IMEM_CONTROL)
 #define bfin_write_IMEM_CONTROL(val)         bfin_write32(IMEM_CONTROL,val)
 #define bfin_read_ICPLB_STATUS()             bfin_read32(ICPLB_STATUS)
@@ -159,7 +174,7 @@
 #define bfin_write_ICPLB_DATA15(val)         bfin_write32(ICPLB_DATA15,val)
 #define bfin_write_ITEST_COMMAND(val)        bfin_write32(ITEST_COMMAND,val)
 #if 0
-#define ITEST_INDEX            0xFFE01304   
+#define ITEST_INDEX            0xFFE01304   /* Instruction Test Index Register */
 #endif
 #define bfin_write_ITEST_DATA0(val)          bfin_write32(ITEST_DATA0,val)
 #define bfin_write_ITEST_DATA1(val)          bfin_write32(ITEST_DATA1,val)
@@ -170,6 +185,7 @@
 #define bfin_read_ITEST_DATA1()              bfin_read32(ITEST_DATA1)
 #endif
 
+/* Event/Interrupt Registers*/
 
 #define bfin_read_EVT0()                     bfin_read32(EVT0)
 #define bfin_write_EVT0(val)                 bfin_write32(EVT0,val)
@@ -214,6 +230,7 @@
 #define bfin_read_IPRIO()                    bfin_read32(IPRIO)
 #define bfin_write_IPRIO(val)                bfin_write32(IPRIO,val)
 
+/*Core Timer Registers*/
 #define bfin_read_TCNTL()                    bfin_read32(TCNTL)
 #define bfin_write_TCNTL(val)                bfin_write32(TCNTL,val)
 #define bfin_read_TPERIOD()                  bfin_read32(TPERIOD)
@@ -223,6 +240,7 @@
 #define bfin_read_TCOUNT()                   bfin_read32(TCOUNT)
 #define bfin_write_TCOUNT(val)               bfin_write32(TCOUNT,val)
 
+/*Debug/MP/Emulation Registers*/
 #define bfin_read_DSPID()                    bfin_read32(DSPID)
 #define bfin_write_DSPID(val)                bfin_write32(DSPID,val)
 #define bfin_read_DBGCTL()                   bfin_read32(DBGCTL)
@@ -232,6 +250,7 @@
 #define bfin_read_EMUDAT()                   bfin_read32(EMUDAT)
 #define bfin_write_EMUDAT(val)               bfin_write32(EMUDAT,val)
 
+/*Trace Buffer Registers*/
 #define bfin_read_TBUFCTL()                  bfin_read32(TBUFCTL)
 #define bfin_write_TBUFCTL(val)              bfin_write32(TBUFCTL,val)
 #define bfin_read_TBUFSTAT()                 bfin_read32(TBUFSTAT)
@@ -239,6 +258,7 @@
 #define bfin_read_TBUF()                     bfin_read32(TBUF)
 #define bfin_write_TBUF(val)                 bfin_write32(TBUF,val)
 
+/*Watch Point Control Registers*/
 #define bfin_read_WPIACTL()                  bfin_read32(WPIACTL)
 #define bfin_write_WPIACTL(val)              bfin_write32(WPIACTL,val)
 #define bfin_read_WPIA0()                    bfin_read32(WPIA0)
@@ -278,6 +298,7 @@
 #define bfin_read_WPSTAT()                   bfin_read32(WPSTAT)
 #define bfin_write_WPSTAT(val)               bfin_write32(WPSTAT,val)
 
+/*Performance Monitor Registers*/
 #define bfin_read_PFCTL()                    bfin_read32(PFCTL)
 #define bfin_write_PFCTL(val)                bfin_write32(PFCTL,val)
 #define bfin_read_PFCNTR0()                  bfin_read32(PFCNTR0)
@@ -285,4 +306,4 @@
 #define bfin_read_PFCNTR1()                  bfin_read32(PFCNTR1)
 #define bfin_write_PFCNTR1(val)              bfin_write32(PFCNTR1,val)
 
-#endif				
+#endif				/* _CDEF_LPBLACKFIN_H */

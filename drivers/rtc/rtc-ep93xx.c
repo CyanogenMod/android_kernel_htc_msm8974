@@ -30,6 +30,10 @@
 
 #define DRV_VERSION "0.3"
 
+/*
+ * struct device dev.platform_data is used to store our private data
+ * because struct rtc_device does not have a variable to hold it.
+ */
 struct ep93xx_rtc {
 	void __iomem	*mmio_base;
 	struct rtc_device *rtc;
@@ -182,6 +186,7 @@ static int __exit ep93xx_rtc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:ep93xx-rtc");
 
 static struct platform_driver ep93xx_rtc_driver = {

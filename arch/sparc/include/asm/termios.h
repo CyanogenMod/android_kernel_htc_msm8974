@@ -30,7 +30,7 @@ struct ltchars {
 	char	t_werasc;
 	char	t_lnextc;
 };
-#endif 
+#endif /* __KERNEL__ */
 
 struct winsize {
 	unsigned short ws_row;
@@ -41,11 +41,28 @@ struct winsize {
 
 #ifdef __KERNEL__
 
+/*
+ * c_cc characters in the termio structure.  Oh, how I love being
+ * backwardly compatible.  Notice that character 4 and 5 are
+ * interpreted differently depending on whether ICANON is set in
+ * c_lflag.  If it's set, they are used as _VEOF and _VEOL, otherwise
+ * as _VMIN and V_TIME.  This is for compatibility with OSF/1 (which
+ * is compatible with sysV)...
+ */
 #define _VMIN	4
 #define _VTIME	5
 
+/*	intr=^C		quit=^\		erase=del	kill=^U
+	eof=^D		eol=\0		eol2=\0		sxtc=\0
+	start=^Q	stop=^S		susp=^Z		dsusp=^Y
+	reprint=^R	discard=^U	werase=^W	lnext=^V
+	vmin=\1         vtime=\0
+*/
 #define INIT_C_CC "\003\034\177\025\004\000\000\000\021\023\032\031\022\025\027\026\001"
 
+/*
+ * Translate a "termio" structure into a "termios". Ugh.
+ */
 #define user_termio_to_kernel_termios(termios, termio) \
 ({ \
 	unsigned short tmp; \
@@ -62,6 +79,11 @@ struct winsize {
 	err; \
 })
 
+/*
+ * Translate a "termios" structure into a "termio". Ugh.
+ *
+ * Note the "fun" _VMIN overloading.
+ */
 #define kernel_termios_to_user_termio(termio, termios) \
 ({ \
 	int err; \
@@ -158,6 +180,6 @@ struct winsize {
 	err; \
 })
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif 
+#endif /* _SPARC_TERMIOS_H */

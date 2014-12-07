@@ -62,6 +62,9 @@
 #ifndef __WL_UTIL_H__
 #define __WL_UTIL_H__
 
+/*******************************************************************************
+ *  function prototypes
+ ******************************************************************************/
 int dbm( int value );
 
 int is_valid_key_string( char *s );
@@ -90,4 +93,4 @@ void wl_process_updated_record( struct wl_private *lp );
 void wl_process_assoc_status( struct wl_private *lp );
 void wl_process_security_status( struct wl_private *lp );
 
-#endif  
+#endif  // __WL_UTIL_H__

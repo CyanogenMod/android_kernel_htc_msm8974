@@ -42,7 +42,9 @@
 #define ERR(x...) pr_err(x)
 
 #define VID_DEC_NAME "msm_vidc_dec"
-
+#ifdef KW_TAINT_ANALYSIS	51
+	extern void * get_tainted_stuff();
+#endif
 static char *node_name[2] = {"", "_sec"};
 static struct vid_dec_dev *vid_dec_device_p;
 static dev_t vid_dec_dev_num;
@@ -301,25 +303,25 @@ static void vid_dec_output_frame_done(struct video_client_ctx *client_ctx,
 			}
 		}
 
-		
+		/* Buffer address in user space */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.bufferaddr =
 		    (u8 *) user_vaddr;
-		
+		/* Data length */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.len =
 		    vcd_frame_data->data_len;
 		vdec_msg->vdec_msg_info.msgdata.output_frame.flags =
 		    vcd_frame_data->flags;
-		
+		/* Timestamp pass-through from input frame */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.time_stamp =
 		    vcd_frame_data->time_stamp;
-		
+		/* Output frame client data */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.client_data =
 		    (void *)vcd_frame_data->frm_clnt_data;
-		
+		/* Associated input frame client data */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.
 		    input_frame_clientdata =
 		    (void *)vcd_frame_data->ip_frm_tag;
-		
+		/* Decoded picture width and height */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.framesize.
 		bottom =
 		    vcd_frame_data->dec_op_prop.disp_frm.bottom;
@@ -338,7 +340,7 @@ static void vid_dec_output_frame_done(struct video_client_ctx *client_ctx,
 				output_frame.interlaced_format =
 				VDEC_InterlaceFrameProgressive;
 		}
-		
+		/* Decoded picture type */
 		switch (vcd_frame_data->frame) {
 		case VCD_FRAME_I:
 			pic_type = PICTURE_TYPE_I;
@@ -897,6 +899,12 @@ static u32 vid_dec_set_meta_buffers(struct video_client_ctx *client_ctx,
 	vcd_meta_buffer->offset = meta_buffers->offset;
 	vcd_meta_buffer->pmem_fd_iommu = meta_buffers->pmem_fd_iommu;
 
+	if (meta_buffers->count > MAX_META_BUFFERS) {
+		ERR("meta buffers maximum count reached, count = %d",
+			meta_buffers->count);
+		return false;
+	}
+
 	if (!vcd_get_ion_status()) {
 		pr_err("PMEM Not available\n");
 		return false;
@@ -1015,7 +1023,7 @@ static u32 vid_dec_set_meta_buffers(struct video_client_ctx *client_ctx,
 		}
 	}
 
-	
+	/*fill the meta addr table*/
 	num_buffers = vcd_meta_buffer->count;
 	buf_size = vcd_meta_buffer->size/num_buffers;
 	ker_vir_addr = vcd_meta_buffer->kernel_virtual_addr;
@@ -1101,6 +1109,12 @@ static u32 vid_dec_set_h264_mv_buffers(struct video_client_ctx *client_ctx,
 	vcd_h264_mv_buffer->count = mv_data->count;
 	vcd_h264_mv_buffer->pmem_fd = mv_data->pmem_fd;
 	vcd_h264_mv_buffer->offset = mv_data->offset;
+
+	if (mv_data->count > MAX_MV_BUFFERS) {
+		ERR("MV buffers maximum count reached, count = %d",
+			mv_data->count);
+		return false;
+	}
 
 	if (!vcd_get_ion_status()) {
 		pr_err("PMEM not available\n");
@@ -1372,7 +1386,7 @@ static u32 vid_dec_set_buffer(struct video_client_ctx *client_ctx,
 		buf_adr_offset = (unsigned long)buffer_info->buffer.offset;
 	}
 	length = buffer_info->buffer.buffer_len;
-	
+	/*If buffer cannot be set, ignore */
 	if (!vidc_insert_addr_table(client_ctx, dir_buffer,
 		(unsigned long)buffer_info->buffer.bufferaddr,
 		&kernel_vaddr, buffer_info->buffer.pmem_fd,
@@ -1408,7 +1422,7 @@ static u32 vid_dec_free_buffer(struct video_client_ctx *client_ctx,
 		buffer = VCD_BUFFER_OUTPUT;
 	}
 
-	
+	/*If buffer NOT set, ignore */
 	if (!vidc_delete_addr_table(client_ctx, dir_buffer,
 				(unsigned long)buffer_info->buffer.bufferaddr,
 				&kernel_vaddr)) {
@@ -1539,7 +1553,7 @@ static u32 vid_dec_decode_frame(struct video_client_ctx *client_ctx,
 				      &phy_addr, &pmem_fd, &file,
 				      &buffer_index)) {
 
-		
+		/* kernel_vaddr  is found. send the frame to VCD */
 		memset((void *)&vcd_input_buffer, 0,
 		       sizeof(struct vcd_frame_data));
 		vcd_input_buffer.virtual =
@@ -1551,7 +1565,7 @@ static u32 vid_dec_decode_frame(struct video_client_ctx *client_ctx,
 		    (u32) input_frame_info->client_data;
 		vcd_input_buffer.data_len = input_frame_info->datalen;
 		vcd_input_buffer.time_stamp = input_frame_info->timestamp;
-		
+		/* Rely on VCD using the same flags as OMX */
 		vcd_input_buffer.flags = input_frame_info->flags;
 		vcd_input_buffer.desc_buf = desc_buf;
 		vcd_input_buffer.desc_size = desc_size;
@@ -1736,7 +1750,11 @@ static long vid_dec_ioctl(struct file *file,
 	unsigned long kernel_vaddr, phy_addr, len;
 	unsigned long ker_vaddr;
 	u32 result = true;
+	#ifdef KW_TAINT_ANALYSIS
+    void __user *arg = (void __user *) get_tainted_stuff();
+	#else
 	void __user *arg = (void __user *)u_arg;
+	#endif
 	int rc = 0;
 	size_t ion_len;
 
@@ -2559,7 +2577,7 @@ static int vid_dec_vcd_init(void)
 	struct vcd_init_config vcd_init_config;
 	u32 i;
 
-	
+	/* init_timer(&hw_timer); */
 	DBG("msm_vidc_dec: Inside %s()", __func__);
 	vid_dec_device_p->num_clients = 0;
 

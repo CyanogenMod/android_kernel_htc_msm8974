@@ -10,32 +10,53 @@
 
 #include <linux/netfilter.h>
 
+/* only for userspace compatibility */
 #ifndef __KERNEL__
 
-#include <limits.h> 
+#include <limits.h> /* for INT_MIN, INT_MAX */
 
+/* IP Cache bits. */
+/* Src IP address. */
 #define NFC_IP6_SRC              0x0001
+/* Dest IP address. */
 #define NFC_IP6_DST              0x0002
+/* Input device. */
 #define NFC_IP6_IF_IN            0x0004
+/* Output device. */
 #define NFC_IP6_IF_OUT           0x0008
+/* TOS. */
 #define NFC_IP6_TOS              0x0010
+/* Protocol. */
 #define NFC_IP6_PROTO            0x0020
+/* IP options. */
 #define NFC_IP6_OPTIONS          0x0040
+/* Frag & flags. */
 #define NFC_IP6_FRAG             0x0080
 
 
+/* Per-protocol information: only matters if proto match. */
+/* TCP flags. */
 #define NFC_IP6_TCPFLAGS         0x0100
+/* Source port. */
 #define NFC_IP6_SRC_PT           0x0200
+/* Dest port. */
 #define NFC_IP6_DST_PT           0x0400
+/* Something else about the proto */
 #define NFC_IP6_PROTO_UNKNOWN    0x2000
 
+/* IP6 Hooks */
+/* After promisc drops, checksum checks. */
 #define NF_IP6_PRE_ROUTING	0
+/* If the packet is destined for this box. */
 #define NF_IP6_LOCAL_IN		1
+/* If the packet is destined for another interface. */
 #define NF_IP6_FORWARD		2
+/* Packets coming from a local process. */
 #define NF_IP6_LOCAL_OUT		3
+/* Packets about to hit the wire. */
 #define NF_IP6_POST_ROUTING	4
 #define NF_IP6_NUMHOOKS		5
-#endif 
+#endif /* ! __KERNEL__ */
 
 
 enum nf_ip6_hook_priorities {
@@ -62,11 +83,11 @@ extern __sum16 nf_ip6_checksum(struct sk_buff *skb, unsigned int hook,
 
 extern int ipv6_netfilter_init(void);
 extern void ipv6_netfilter_fini(void);
-#else 
+#else /* CONFIG_NETFILTER */
 static inline int ipv6_netfilter_init(void) { return 0; }
 static inline void ipv6_netfilter_fini(void) { return; }
-#endif 
+#endif /* CONFIG_NETFILTER */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /*__LINUX_IP6_NETFILTER_H*/

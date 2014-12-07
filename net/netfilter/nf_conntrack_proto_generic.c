@@ -33,6 +33,7 @@ static bool generic_invert_tuple(struct nf_conntrack_tuple *tuple,
 	return true;
 }
 
+/* Print out the per-protocol part of the tuple. */
 static int generic_print_tuple(struct seq_file *s,
 			       const struct nf_conntrack_tuple *tuple)
 {
@@ -44,6 +45,7 @@ static unsigned int *generic_get_timeouts(struct net *net)
 	return &nf_ct_generic_timeout;
 }
 
+/* Returns verdict for packet, or -1 for invalid. */
 static int generic_packet(struct nf_conn *ct,
 			  const struct sk_buff *skb,
 			  unsigned int dataoff,
@@ -56,6 +58,7 @@ static int generic_packet(struct nf_conn *ct,
 	return NF_ACCEPT;
 }
 
+/* Called when a new connection for this protocol found. */
 static bool generic_new(struct nf_conn *ct, const struct sk_buff *skb,
 			unsigned int dataoff, unsigned int *timeouts)
 {
@@ -75,7 +78,7 @@ static int generic_timeout_nlattr_to_obj(struct nlattr *tb[], void *data)
 		*timeout =
 		    ntohl(nla_get_be32(tb[CTA_TIMEOUT_GENERIC_TIMEOUT])) * HZ;
 	else {
-		
+		/* Set default generic timeout. */
 		*timeout = nf_ct_generic_timeout;
 	}
 
@@ -99,7 +102,7 @@ static const struct nla_policy
 generic_timeout_nla_policy[CTA_TIMEOUT_GENERIC_MAX+1] = {
 	[CTA_TIMEOUT_GENERIC_TIMEOUT]	= { .type = NLA_U32 },
 };
-#endif 
+#endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 
 #ifdef CONFIG_SYSCTL
 static struct ctl_table_header *generic_sysctl_header;
@@ -124,8 +127,8 @@ static struct ctl_table generic_compat_sysctl_table[] = {
 	},
 	{ }
 };
-#endif 
-#endif 
+#endif /* CONFIG_NF_CONNTRACK_PROC_COMPAT */
+#endif /* CONFIG_SYSCTL */
 
 struct nf_conntrack_l4proto nf_conntrack_l4proto_generic __read_mostly =
 {
@@ -146,7 +149,7 @@ struct nf_conntrack_l4proto nf_conntrack_l4proto_generic __read_mostly =
 		.obj_size	= sizeof(unsigned int),
 		.nla_policy	= generic_timeout_nla_policy,
 	},
-#endif 
+#endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 #ifdef CONFIG_SYSCTL
 	.ctl_table_header	= &generic_sysctl_header,
 	.ctl_table		= generic_sysctl_table,

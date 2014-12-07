@@ -4,6 +4,9 @@
  *
  * See LICENSE.qla2xxx for copyright and licensing details.
  */
+/*
+ * Driver version
+ */
 #define QLA2XXX_VERSION      "8.04.00.03-k"
 
 #define QLA_DRIVER_MAJOR_VER	8

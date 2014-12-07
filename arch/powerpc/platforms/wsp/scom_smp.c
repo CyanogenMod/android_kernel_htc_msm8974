@@ -23,7 +23,7 @@
 
 #include "wsp.h"
 
-#define SCOM_RAMC		0x2a		
+#define SCOM_RAMC		0x2a		/* Ram Command */
 #define SCOM_RAMC_TGT1_EXT	0x80000000
 #define SCOM_RAMC_SRC1_EXT	0x40000000
 #define SCOM_RAMC_SRC2_EXT	0x20000000
@@ -39,16 +39,16 @@
 #define SCOM_RAMC_INTERRUPT	0x00000004
 #define SCOM_RAMC_ERROR		0x00000002
 #define SCOM_RAMC_DONE		0x00000001
-#define SCOM_RAMI		0x29		
-#define SCOM_RAMIC		0x28		
+#define SCOM_RAMI		0x29		/* Ram Instruction */
+#define SCOM_RAMIC		0x28		/* Ram Instruction and Command */
 #define SCOM_RAMIC_INSN		0xffffffff00000000
-#define SCOM_RAMD		0x2d		
-#define SCOM_RAMDH		0x2e		
-#define SCOM_RAMDL		0x2f		
-#define SCOM_PCCR0		0x33		
+#define SCOM_RAMD		0x2d		/* Ram Data */
+#define SCOM_RAMDH		0x2e		/* Ram Data High */
+#define SCOM_RAMDL		0x2f		/* Ram Data Low */
+#define SCOM_PCCR0		0x33		/* PC Configuration Register 0 */
 #define SCOM_PCCR0_ENABLE_DEBUG	0x80000000
 #define SCOM_PCCR0_ENABLE_RAM	0x40000000
-#define SCOM_THRCTL		0x30		
+#define SCOM_THRCTL		0x30		/* Thread Control and Status */
 #define SCOM_THRCTL_T0_STOP	0x80000000
 #define SCOM_THRCTL_T1_STOP	0x40000000
 #define SCOM_THRCTL_T2_STOP	0x20000000
@@ -72,8 +72,8 @@
 #define SCOM_THRCTL_ASYNC_DIS	0x00000800
 #define SCOM_THRCTL_TB_DIS	0x00000400
 #define SCOM_THRCTL_DEC_DIS	0x00000200
-#define SCOM_THRCTL_AND		0x31		
-#define SCOM_THRCTL_OR		0x32		
+#define SCOM_THRCTL_AND		0x31		/* Thread Control and Status */
+#define SCOM_THRCTL_OR		0x32		/* Thread Control and Status */
 
 
 static DEFINE_PER_CPU(scom_map_t, scom_ptrs);
@@ -96,6 +96,9 @@ static scom_map_t get_scom(int cpu, struct device_node *np, int *first_thread)
 	     tcpu <= cpu_last_thread_sibling(cpu); tcpu++)
 		per_cpu(scom_ptrs, tcpu) = scom;
 
+	/* Hack: for the boot core, this will actually get called on
+	 * the second thread up, not the first so our test above will
+	 * set first_thread incorrectly. */
 	if (cpu_first_thread_sibling(cpu) == 0)
 		*first_thread = 0;
 
@@ -142,7 +145,7 @@ static int a2_scom_getgpr(scom_map_t scom, int thread, int gpr, int alt,
 {
 	int rc;
 
-	
+	/* or rN, rN, rN */
 	u32 insn = 0x7c000378 | (gpr << 21) | (gpr << 16) | (gpr << 11);
 	rc = a2_scom_ram(scom, thread, insn, alt ? 0xf : 0x0);
 	if (rc)
@@ -160,10 +163,10 @@ static int a2_scom_getspr(scom_map_t scom, int thread, int spr, u64 *out_spr)
 
 	sprhi = spr >> 5;
 	sprlo = spr & 0x1f;
-	insn = 0x7c2002a6 | (sprlo << 16) | (sprhi << 11); 
+	insn = 0x7c2002a6 | (sprlo << 16) | (sprhi << 11); /* mfspr r1,spr */
 
 	if (spr == 0x0ff0)
-		insn = 0x7c2000a6; 
+		insn = 0x7c2000a6; /* mfmsr r1 */
 
 	rc = a2_scom_ram(scom, thread, insn, 0xf);
 	if (rc)
@@ -219,11 +222,11 @@ static int a2_scom_setspr(scom_map_t scom, int thread, int spr, u64 val)
 {
 	int sprhi = spr >> 5;
 	int sprlo = spr & 0x1f;
-	
+	/* mtspr spr, r1 */
 	u32 insn = 0x7c2003a6 | (sprlo << 16) | (sprhi << 11);
 
 	if (spr == 0x0ff0)
-		insn = 0x7c200124; 
+		insn = 0x7c200124; /* mtmsr r1 */
 
 	if (a2_scom_setgpr(scom, thread, 1, 1, val))
 		return -1;
@@ -241,7 +244,7 @@ static int a2_scom_initial_tlb(scom_map_t scom, int thread)
 	u32 *p;
 	int rc;
 
-	
+	/* Invalidate all entries (including iprot) */
 
 	rc = a2_scom_getspr(scom, thread, SPRN_TLB0CFG, &tlbcfg);
 	if (rc)
@@ -250,44 +253,51 @@ static int a2_scom_initial_tlb(scom_map_t scom, int thread)
 	assoc = (tlbcfg & TLBnCFG_ASSOC) >> 24;
 	epn = 0;
 
-	
+	/* Set MMUCR2 to enable 4K, 64K, 1M, 16M and 1G pages */
 	a2_scom_setspr(scom, thread, SPRN_MMUCR2, 0x000a7531);
-	
+	/* Set MMUCR3 to write all thids bit to the TLB */
 	a2_scom_setspr(scom, thread, SPRN_MMUCR3, 0x0000000f);
 
-	
+	/* Set MAS1 for 1G page size, and MAS2 to our initial EPN */
 	a2_scom_setspr(scom, thread, SPRN_MAS1, MAS1_TSIZE(BOOK3E_PAGESZ_1GB));
 	a2_scom_setspr(scom, thread, SPRN_MAS2, epn);
 	for (i = 0; i < entries; i++) {
 
 		a2_scom_setspr(scom, thread, SPRN_MAS0, MAS0_ESEL(i % assoc));
 
-		
+		/* tlbwe */
 		rc = a2_scom_ram(scom, thread, 0x7c0007a4, 0);
 		if (rc)
 			goto scom_fail;
 
-		
+		/* Next entry is new address? */
 		if((i + 1) % assoc == 0) {
 			epn += (1 << 30);
 			a2_scom_setspr(scom, thread, SPRN_MAS2, epn);
 		}
 	}
 
-	
+	/* Setup args for linear mapping */
 	rc = a2_scom_setgpr(scom, thread, 3, 0, MAS0_TLBSEL(0));
 	if (rc)
 		goto scom_fail;
 
-	
+	/* Linear mapping */
 	for (p = a2_tlbinit_code_start; p < a2_tlbinit_after_linear_map; p++) {
 		rc = a2_scom_ram(scom, thread, *p, 0);
 		if (rc)
 			goto scom_fail;
 	}
 
+	/*
+	 * For the boot thread, between the linear mapping and the debug
+	 * mappings there is a loop to flush iprot mappings. Ramming doesn't do
+	 * branches, but the secondary threads don't need to be nearly as smart
+	 * (i.e. we don't need to worry about invalidating the mapping we're
+	 * standing on).
+	 */
 
-	
+	/* Debug mappings. Expects r11 = MAS0 from linear map (set above) */
 	for (p = a2_tlbinit_after_iprot_flush; p < a2_tlbinit_code_end; p++) {
 		rc = a2_scom_ram(scom, thread, *p, 0);
 		if (rc)
@@ -299,7 +309,7 @@ scom_fail:
 		pr_err("Setting up initial TLB failed, err %d\n", rc);
 
 	if (rc == -SCOM_RAMC_INTERRUPT) {
-		
+		/* Interrupt, dump some status */
 		int rc[10];
 		u64 iar, srr0, srr1, esr, mas0, mas1, mas2, mas7_3, mas8, ccr2;
 		rc[0] = a2_scom_getspr(scom, thread, SPRN_IAR, &iar);
@@ -348,6 +358,9 @@ int __devinit a2_scom_startup_cpu(unsigned int lcpu, int thr_idx,
 	scom_write(scom, SCOM_PCCR0, pccr0 | SCOM_PCCR0_ENABLE_DEBUG |
 				     SCOM_PCCR0_ENABLE_RAM);
 
+	/* Stop the thead with THRCTL. If we are setting up the TLB we stop all
+	 * threads. We also disable asynchronous interrupts while RAMing.
+	 */
 	if (core_setup)
 		scom_write(scom, SCOM_THRCTL_OR,
 			      SCOM_THRCTL_T0_STOP |
@@ -358,7 +371,7 @@ int __devinit a2_scom_startup_cpu(unsigned int lcpu, int thr_idx,
 	else
 		scom_write(scom, SCOM_THRCTL_OR, SCOM_THRCTL_T0_STOP >> thr_idx);
 
-	
+	/* Flush its pipeline just in case */
 	scom_write(scom, SCOM_RAMC, ((u64)thr_idx << 17) |
 		      SCOM_RAMC_FLUSH | SCOM_RAMC_ENABLE);
 
@@ -366,14 +379,14 @@ int __devinit a2_scom_startup_cpu(unsigned int lcpu, int thr_idx,
 	a2_scom_getspr(scom, thr_idx, 0x0ff0, &init_msr);
 	a2_scom_getspr(scom, thr_idx, SPRN_A2_CCR2, &init_ccr2);
 
-	
+	/* Set MSR to MSR_CM (0x0ff0 is magic value for MSR_CM) */
 	rc = a2_scom_setspr(scom, thr_idx, 0x0ff0, MSR_CM);
 	if (rc) {
 		pr_err("Failed to set MSR ! err %d\n", rc);
 		return rc;
 	}
 
-	
+	/* RAM in an sync/isync for the sake of it */
 	a2_scom_ram(scom, thr_idx, 0x7c0004ac, 0);
 	a2_scom_ram(scom, thr_idx, 0x4c00012c, 0);
 
@@ -392,6 +405,10 @@ int __devinit a2_scom_startup_cpu(unsigned int lcpu, int thr_idx,
 	rc |= a2_scom_setspr(scom, thr_idx, SPRN_IAR, start_here);
 	rc |= a2_scom_setgpr(scom, thr_idx, 3, 0,
 			     get_hard_smp_processor_id(lcpu));
+	/*
+	 * Tell book3e_secondary_core_init not to set up the TLB, we've
+	 * already done that.
+	 */
 	rc |= a2_scom_setgpr(scom, thr_idx, 4, 0, 1);
 
 	rc |= a2_scom_setspr(scom, thr_idx, SPRN_TENS, 0x1 << thr_idx);

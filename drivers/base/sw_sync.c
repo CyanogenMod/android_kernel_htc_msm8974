@@ -130,7 +130,12 @@ void sw_sync_timeline_inc(struct sw_sync_timeline *obj, u32 inc)
 EXPORT_SYMBOL(sw_sync_timeline_inc);
 
 #ifdef CONFIG_SW_SYNC_USER
+/* *WARNING*
+ *
+ * improper use of this can result in deadlocking kernel drivers from userspace.
+ */
 
+/* opening sw_sync create a new sync obj */
 int sw_sync_open(struct inode *inode, struct file *file)
 {
 	struct sw_sync_timeline *obj;
@@ -249,4 +254,4 @@ void __exit sw_sync_device_remove(void)
 module_init(sw_sync_device_init);
 module_exit(sw_sync_device_remove);
 
-#endif 
+#endif /* CONFIG_SW_SYNC_USER */

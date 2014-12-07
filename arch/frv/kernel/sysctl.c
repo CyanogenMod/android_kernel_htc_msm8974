@@ -39,9 +39,13 @@ static void frv_change_dcache_mode(unsigned long newmode)
 
 	local_irq_restore(flags);
 
-	
+	//printk("HSR0 now %08lx\n", hsr0);
 }
 
+/*****************************************************************************/
+/*
+ * handle requests to dynamically switch the write caching mode delivered by /proc
+ */
 static int procctl_frv_cachemode(ctl_table *table, int write,
 				 void __user *buffer, size_t *lenp,
 				 loff_t *ppos)
@@ -53,7 +57,7 @@ static int procctl_frv_cachemode(ctl_table *table, int write,
 	len = *lenp;
 
 	if (write) {
-		
+		/* potential state change */
 		if (len <= 1 || len > sizeof(buff) - 1)
 			return -EINVAL;
 
@@ -66,13 +70,13 @@ static int procctl_frv_cachemode(ctl_table *table, int write,
 			buff[len] = '\0';
 
 		if (strcmp(buff, frv_cache_wback) == 0) {
-			
+			/* switch dcache into write-back mode */
 			frv_change_dcache_mode(HSR0_CBM_COPY_BACK);
 			return 0;
 		}
 
 		if (strcmp(buff, frv_cache_wthru) == 0) {
-			
+			/* switch dcache into write-through mode */
 			frv_change_dcache_mode(HSR0_CBM_WRITE_THRU);
 			return 0;
 		}
@@ -80,7 +84,7 @@ static int procctl_frv_cachemode(ctl_table *table, int write,
 		return -EINVAL;
 	}
 
-	
+	/* read the state */
 	if (*ppos > 0) {
 		*lenp = 0;
 		return 0;
@@ -110,8 +114,12 @@ static int procctl_frv_cachemode(ctl_table *table, int write,
 	*ppos = len;
 	return 0;
 
-} 
+} /* end procctl_frv_cachemode() */
 
+/*****************************************************************************/
+/*
+ * permit the mm_struct the nominated process is using have its MMU context ID pinned
+ */
 #ifdef CONFIG_MMU
 static int procctl_frv_pin_cxnr(ctl_table *table, int write,
 				void __user *buffer, size_t *lenp,
@@ -124,7 +132,7 @@ static int procctl_frv_pin_cxnr(ctl_table *table, int write,
 	len = *lenp;
 
 	if (write) {
-		
+		/* potential state change */
 		if (len <= 1 || len > sizeof(buff) - 1)
 			return -EINVAL;
 
@@ -143,7 +151,7 @@ static int procctl_frv_pin_cxnr(ctl_table *table, int write,
 		return cxn_pin_by_pid(pid);
 	}
 
-	
+	/* read the currently pinned CXN */
 	if (*ppos > 0) {
 		*lenp = 0;
 		return 0;
@@ -160,9 +168,12 @@ static int procctl_frv_pin_cxnr(ctl_table *table, int write,
 	*ppos = len;
 	return 0;
 
-} 
+} /* end procctl_frv_pin_cxnr() */
 #endif
 
+/*
+ * FR-V specific sysctls
+ */
 static struct ctl_table frv_table[] =
 {
 	{
@@ -184,6 +195,10 @@ static struct ctl_table frv_table[] =
 	{}
 };
 
+/*
+ * Use a temporary sysctl number. Horrid, but will be cleaned up in 2.6
+ * when all the PM interfaces exist nicely.
+ */
 static struct ctl_table frv_dir_table[] =
 {
 	{
@@ -194,6 +209,9 @@ static struct ctl_table frv_dir_table[] =
 	{}
 };
 
+/*
+ * Initialize power interface
+ */
 static int __init frv_sysctl_init(void)
 {
 	register_sysctl_table(frv_dir_table);

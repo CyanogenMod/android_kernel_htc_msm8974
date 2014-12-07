@@ -36,4 +36,4 @@ extern int s5p64x0_mem_ctrl(struct clk *clk, int enable);
 
 extern int s5p64x0_clk48m_ctrl(struct clk *clk, int enable);
 
-#endif 
+#endif /* __ASM_ARCH_CLOCK_H */

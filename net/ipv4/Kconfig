@@ -658,3 +658,10 @@ config HTC_MONITOR
 	---help---
 	  Come up with a way to add information of data usage in attribute file
 	  for identifying the process that requested for data transmission.
+
+config HTC_NETWORK_CNE
+    tristate "HTC_NETWORK_CNE"
+    default n
+    ---help---
+    HTC_NETWORK_CNE
+

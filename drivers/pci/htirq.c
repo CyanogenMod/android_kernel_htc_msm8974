@@ -13,11 +13,19 @@
 #include <linux/slab.h>
 #include <linux/htirq.h>
 
+/* Global ht irq lock.
+ *
+ * This is needed to serialize access to the data port in hypertransport
+ * irq capability.
+ *
+ * With multiple simultaneous hypertransport irq devices it might pay
+ * to make this more fine grained.  But start with simple, stupid, and correct.
+ */
 static DEFINE_SPINLOCK(ht_irq_lock);
 
 struct ht_irq_cfg {
 	struct pci_dev *dev;
-	 
+	 /* Update callback used to cope with buggy hardware */
 	ht_irq_update_t *update;
 	unsigned pos;
 	unsigned idx;
@@ -68,6 +76,14 @@ void unmask_ht_irq(struct irq_data *data)
 	write_ht_irq_msg(data->irq, &msg);
 }
 
+/**
+ * __ht_create_irq - create an irq and attach it to a device.
+ * @dev: The hypertransport device to find the irq capability on.
+ * @idx: Which of the possible irqs to attach to.
+ * @update: Function to be called when changing the htirq message
+ *
+ * The irq number of the new irq or a negative error value is returned.
+ */
 int __ht_create_irq(struct pci_dev *dev, int idx, ht_irq_update_t *update)
 {
 	struct ht_irq_cfg *cfg;
@@ -82,7 +98,7 @@ int __ht_create_irq(struct pci_dev *dev, int idx, ht_irq_update_t *update)
 	if (!pos)
 		return -EINVAL;
 
-	
+	/* Verify the idx I want to use is in range */
 	spin_lock_irqsave(&ht_irq_lock, flags);
 	pci_write_config_byte(dev, pos + 2, 1);
 	pci_read_config_dword(dev, pos + 4, &data);
@@ -100,7 +116,7 @@ int __ht_create_irq(struct pci_dev *dev, int idx, ht_irq_update_t *update)
 	cfg->update = update;
 	cfg->pos = pos;
 	cfg->idx = 0x10 + (idx * 2);
-	
+	/* Initialize msg to a value that will never match the first write. */
 	cfg->msg.address_lo = 0xffffffff;
 	cfg->msg.address_hi = 0xffffffff;
 
@@ -121,11 +137,28 @@ int __ht_create_irq(struct pci_dev *dev, int idx, ht_irq_update_t *update)
 	return irq;
 }
 
+/**
+ * ht_create_irq - create an irq and attach it to a device.
+ * @dev: The hypertransport device to find the irq capability on.
+ * @idx: Which of the possible irqs to attach to.
+ *
+ * ht_create_irq needs to be called for all hypertransport devices
+ * that generate irqs.
+ *
+ * The irq number of the new irq or a negative error value is returned.
+ */
 int ht_create_irq(struct pci_dev *dev, int idx)
 {
 	return __ht_create_irq(dev, idx, NULL);
 }
 
+/**
+ * ht_destroy_irq - destroy an irq created with ht_create_irq
+ * @irq: irq to be destroyed
+ *
+ * This reverses ht_create_irq removing the specified irq from
+ * existence.  The irq should be free before this happens.
+ */
 void ht_destroy_irq(unsigned int irq)
 {
 	struct ht_irq_cfg *cfg;

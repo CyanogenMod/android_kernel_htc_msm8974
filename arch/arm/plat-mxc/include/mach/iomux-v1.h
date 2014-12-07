@@ -19,6 +19,10 @@
 #ifndef __MACH_IOMUX_V1_H__
 #define __MACH_IOMUX_V1_H__
 
+/*
+*  GPIO Module and I/O Multiplexer
+*  x = 0..3 for reg_A, reg_B, reg_C, reg_D
+*/
 #define MXC_DDIR(x)	(0x00 + ((x) << 8))
 #define MXC_OCR1(x)	(0x04 + ((x) << 8))
 #define MXC_OCR2(x)	(0x08 + ((x) << 8))
@@ -94,4 +98,4 @@ extern int mxc_gpio_setup_multiple_pins(const int *pin_list, unsigned count,
 
 extern int imx_iomuxv1_init(void __iomem *base, int numports);
 
-#endif 
+#endif /* __MACH_IOMUX_V1_H__ */

@@ -35,10 +35,17 @@
 #include <linux/mtd/nftl.h>
 #include <linux/mtd/inftl.h>
 
+/*
+ * find_boot_record: Find the INFTL Media Header and its Spare copy which
+ *	contains the various device information of the INFTL partition and
+ *	Bad Unit Table. Update the PUtable[] table according to the Bad
+ *	Unit Table. PUtable[] is used for management of Erase Unit in
+ *	other routines in inftlcore.c and inftlmount.c.
+ */
 static int find_boot_record(struct INFTLrecord *inftl)
 {
 	struct inftl_unittail h1;
-	
+	//struct inftl_oob oob;
 	unsigned int i, block;
 	u8 buf[SECTORSIZE];
 	struct INFTLMediaHeader *mh = &inftl->MediaHdr;
@@ -48,17 +55,28 @@ static int find_boot_record(struct INFTLrecord *inftl)
 
 	pr_debug("INFTL: find_boot_record(inftl=%p)\n", inftl);
 
+        /*
+	 * Assume logical EraseSize == physical erasesize for starting the
+	 * scan. We'll sort it out later if we find a MediaHeader which says
+	 * otherwise.
+	 */
 	inftl->EraseSize = inftl->mbd.mtd->erasesize;
         inftl->nb_blocks = (u32)inftl->mbd.mtd->size / inftl->EraseSize;
 
 	inftl->MediaUnit = BLOCK_NIL;
 
-	
+	/* Search for a valid boot record */
 	for (block = 0; block < inftl->nb_blocks; block++) {
 		int ret;
 
+		/*
+		 * Check for BNAND header first. Then whinge if it's found
+		 * but later checks fail.
+		 */
 		ret = mtd_read(mtd, block * inftl->EraseSize, SECTORSIZE,
 			       &retlen, buf);
+		/* We ignore ret in case the ECC of the MediaHeader is invalid
+		   (which is apparently acceptable) */
 		if (retlen != SECTORSIZE) {
 			static int warncount = 5;
 
@@ -76,11 +94,11 @@ static int find_boot_record(struct INFTLrecord *inftl)
 		}
 
 		if (retlen < 6 || memcmp(buf, "BNAND", 6)) {
-			
+			/* BNAND\0 not found. Continue */
 			continue;
 		}
 
-		
+		/* To be safer with BIOS, also use erase mark as discriminant */
 		ret = inftl_read_oob(mtd,
 				     block * inftl->EraseSize + SECTORSIZE + 8,
 				     8, &retlen,(char *)&h1);
@@ -93,9 +111,13 @@ static int find_boot_record(struct INFTLrecord *inftl)
 		}
 
 
+		/*
+		 * This is the first we've seen.
+		 * Copy the media header structure into place.
+		 */
 		memcpy(mh, buf, sizeof(struct INFTLMediaHeader));
 
-		
+		/* Read the spare media header at offset 4096 */
 		mtd_read(mtd, block * inftl->EraseSize + 4096, SECTORSIZE,
 			 &retlen, buf);
 		if (retlen != SECTORSIZE) {
@@ -103,7 +125,7 @@ static int find_boot_record(struct INFTLrecord *inftl)
 			       "Media Header\n");
 			return -1;
 		}
-		
+		/* Check if this one is the same as the first one we found. */
 		if (memcmp(mh, buf, sizeof(struct INFTLMediaHeader))) {
 			printk(KERN_WARNING "INFTL: Primary and spare Media "
 			       "Headers disagree.\n");
@@ -164,7 +186,7 @@ static int find_boot_record(struct INFTLrecord *inftl)
 			block >>= mh->BlockMultiplierBits;
 		}
 
-		
+		/* Scan the partitions */
 		for (i = 0; (i < 4); i++) {
 			ip = &mh->Partitions[i];
 			ip->virtualUnits = le32_to_cpu(ip->virtualUnits);
@@ -189,6 +211,13 @@ static int find_boot_record(struct INFTLrecord *inftl)
 
 				instr->mtd = inftl->mbd.mtd;
 
+				/*
+				 * 	Most likely this is using the
+				 * 	undocumented qiuck mount feature.
+				 * 	We don't support that, we will need
+				 * 	to erase the hidden block for full
+				 * 	compatibility.
+				 */
 				instr->addr = ip->Reserved0 * inftl->EraseSize;
 				instr->len = inftl->EraseSize;
 				mtd_erase(mtd, instr);
@@ -235,11 +264,15 @@ static int find_boot_record(struct INFTLrecord *inftl)
 		inftl->mbd.size  = inftl->numvunits *
 			(inftl->EraseSize / SECTORSIZE);
 
+		/*
+		 * Block count is set to last used EUN (we won't need to keep
+		 * any meta-data past that point).
+		 */
 		inftl->firstEUN = ip->firstUnit;
 		inftl->lastEUN = ip->lastUnit;
 		inftl->nb_blocks = ip->lastUnit + 1;
 
-		
+		/* Memory alloc */
 		inftl->PUtable = kmalloc(inftl->nb_blocks * sizeof(u16), GFP_KERNEL);
 		if (!inftl->PUtable) {
 			printk(KERN_WARNING "INFTL: allocation of PUtable "
@@ -257,19 +290,21 @@ static int find_boot_record(struct INFTLrecord *inftl)
 			return -ENOMEM;
 		}
 
-		
+		/* Mark the blocks before INFTL MediaHeader as reserved */
 		for (i = 0; i < inftl->nb_boot_blocks; i++)
 			inftl->PUtable[i] = BLOCK_RESERVED;
-		
+		/* Mark all remaining blocks as potentially containing data */
 		for (; i < inftl->nb_blocks; i++)
 			inftl->PUtable[i] = BLOCK_NOTEXPLORED;
 
-		
+		/* Mark this boot record (NFTL MediaHeader) block as reserved */
 		inftl->PUtable[block] = BLOCK_RESERVED;
 
-		
+		/* Read Bad Erase Unit Table and modify PUtable[] accordingly */
 		for (i = 0; i < inftl->nb_blocks; i++) {
 			int physblock;
+			/* If any of the physical eraseblocks are bad, don't
+			   use the unit. */
 			for (physblock = 0; physblock < inftl->EraseSize; physblock += inftl->mbd.mtd->erasesize) {
 				if (mtd_block_isbad(inftl->mbd.mtd,
 						    i * inftl->EraseSize + physblock))
@@ -281,7 +316,7 @@ static int find_boot_record(struct INFTLrecord *inftl)
 		return 0;
 	}
 
-	
+	/* Not found. */
 	return -1;
 }
 
@@ -295,6 +330,10 @@ static int memcmpb(void *a, int c, int n)
 	return 0;
 }
 
+/*
+ * check_free_sector: check if a free sector is actually FREE,
+ *	i.e. All 0xff in data and oob area.
+ */
 static int check_free_sectors(struct INFTLrecord *inftl, unsigned int address,
 	int len, int check_oob)
 {
@@ -322,6 +361,15 @@ static int check_free_sectors(struct INFTLrecord *inftl, unsigned int address,
 	return 0;
 }
 
+/*
+ * INFTL_format: format a Erase Unit by erasing ALL Erase Zones in the Erase
+ *		 Unit and Update INFTL metadata. Each erase operation is
+ *		 checked with check_free_sectors.
+ *
+ * Return: 0 when succeed, -1 on error.
+ *
+ * ToDo: 1. Is it necessary to check_free_sector after erasing ??
+ */
 int INFTL_formatblock(struct INFTLrecord *inftl, int block)
 {
 	size_t retlen;
@@ -334,11 +382,16 @@ int INFTL_formatblock(struct INFTLrecord *inftl, int block)
 
 	memset(instr, 0, sizeof(struct erase_info));
 
+	/* FIXME: Shouldn't we be setting the 'discarded' flag to zero
+	   _first_? */
 
-	
+	/* Use async erase interface, test return code */
 	instr->mtd = inftl->mbd.mtd;
 	instr->addr = block * inftl->EraseSize;
 	instr->len = inftl->mbd.mtd->erasesize;
+	/* Erase one physical eraseblock at a time, even though the NAND api
+	   allows us to group them.  This way we if we have a failure, we can
+	   mark only the failed block in the bbt. */
 	for (physblock = 0; physblock < inftl->EraseSize;
 	     physblock += instr->len, instr->addr += instr->len) {
 		mtd_erase(inftl->mbd.mtd, instr);
@@ -349,6 +402,11 @@ int INFTL_formatblock(struct INFTLrecord *inftl, int block)
 			goto fail;
 		}
 
+		/*
+		 * Check the "freeness" of Erase Unit before updating metadata.
+		 * FixMe: is this check really necessary? Since we have check
+		 * the return code after the erase operation.
+		 */
 		if (check_free_sectors(inftl, instr->addr, instr->len, 1) != 0)
 			goto fail;
 	}
@@ -364,10 +422,20 @@ int INFTL_formatblock(struct INFTLrecord *inftl, int block)
 		goto fail;
 	return 0;
 fail:
+	/* could not format, update the bad block table (caller is responsible
+	   for setting the PUtable to BLOCK_RESERVED on failure) */
 	mtd_block_markbad(inftl->mbd.mtd, instr->addr);
 	return -1;
 }
 
+/*
+ * format_chain: Format an invalid Virtual Unit chain. It frees all the Erase
+ *	Units in a Virtual Unit Chain, i.e. all the units are disconnected.
+ *
+ *	Since the chain is invalid then we will have to erase it from its
+ *	head (normally for INFTL we go from the oldest). But if it has a
+ *	loop then there is no oldest...
+ */
 static void format_chain(struct INFTLrecord *inftl, unsigned int first_block)
 {
 	unsigned int block = first_block, block1;
@@ -380,12 +448,15 @@ static void format_chain(struct INFTLrecord *inftl, unsigned int first_block)
 
 		printk(KERN_WARNING "INFTL: formatting block %d\n", block);
 		if (INFTL_formatblock(inftl, block) < 0) {
+			/*
+			 * Cannot format !!!! Mark it as Bad Unit,
+			 */
 			inftl->PUtable[block] = BLOCK_RESERVED;
 		} else {
 			inftl->PUtable[block] = BLOCK_FREE;
 		}
 
-		
+		/* Goto next block on the chain */
 		block = block1;
 
 		if (block == BLOCK_NIL || block >= inftl->lastEUN)
@@ -478,19 +549,19 @@ int INFTL_mount(struct INFTLrecord *s)
 
 	pr_debug("INFTL: INFTL_mount(inftl=%p)\n", s);
 
-	
+	/* Search for INFTL MediaHeader and Spare INFTL Media Header */
 	if (find_boot_record(s) < 0) {
 		printk(KERN_WARNING "INFTL: could not find valid boot record?\n");
 		return -ENXIO;
 	}
 
-	
+	/* Init the logical to physical table */
 	for (i = 0; i < s->nb_blocks; i++)
 		s->VUtable[i] = BLOCK_NIL;
 
 	logical_block = block = BLOCK_NIL;
 
-	
+	/* Temporary buffer to store ANAC numbers. */
 	ANACtable = kcalloc(s->nb_blocks, sizeof(u8), GFP_KERNEL);
 	if (!ANACtable) {
 		printk(KERN_WARNING "INFTL: allocation of ANACtable "
@@ -499,6 +570,13 @@ int INFTL_mount(struct INFTLrecord *s)
 		return -ENOMEM;
 	}
 
+	/*
+	 * First pass is to explore each physical unit, and construct the
+	 * virtual chains that exist (newest physical unit goes into VUtable).
+	 * Any block that is in any way invalid will be left in the
+	 * NOTEXPLORED state. Then at the end we will try to format it and
+	 * mark it as free.
+	 */
 	pr_debug("INFTL: pass 1, explore each unit\n");
 	for (first_block = s->firstEUN; first_block <= s->lastEUN; first_block++) {
 		if (s->PUtable[first_block] != BLOCK_NOTEXPLORED)
@@ -513,7 +591,7 @@ int INFTL_mount(struct INFTLrecord *s)
 
 			if ((chain_length == 0) &&
 			    (s->PUtable[block] != BLOCK_NOTEXPLORED)) {
-				
+				/* Nothing to do here, onto next block */
 				break;
 			}
 
@@ -522,7 +600,7 @@ int INFTL_mount(struct INFTLrecord *s)
 			    inftl_read_oob(mtd, block * s->EraseSize +
 					   2 * SECTORSIZE + 8, 8, &retlen,
 					   (char *)&h1) < 0) {
-				
+				/* Should never happen? */
 				do_format_chain++;
 				break;
 			}
@@ -532,13 +610,13 @@ int INFTL_mount(struct INFTLrecord *s)
 			erase_mark = le16_to_cpu((h1.EraseMark | h1.EraseMark1));
 			ANACtable[block] = h0.ANAC;
 
-			
+			/* Previous block is relative to start of Partition */
 			if (prev_block < s->nb_blocks)
 				prev_block += s->firstEUN;
 
-			
+			/* Already explored partial chain? */
 			if (s->PUtable[block] != BLOCK_NOTEXPLORED) {
-				
+				/* Check if chain for this logical */
 				if (logical_block == first_logical_block) {
 					if (last_block != BLOCK_NIL)
 						s->PUtable[last_block] = block;
@@ -546,25 +624,29 @@ int INFTL_mount(struct INFTLrecord *s)
 				break;
 			}
 
-			
+			/* Check for invalid block */
 			if (erase_mark != ERASE_MARK) {
 				printk(KERN_WARNING "INFTL: corrupt block %d "
 					"in chain %d, chain length %d, erase "
 					"mark 0x%x?\n", block, first_block,
 					chain_length, erase_mark);
+				/*
+				 * Assume end of chain, probably incomplete
+				 * fold/erase...
+				 */
 				if (chain_length == 0)
 					do_format_chain++;
 				break;
 			}
 
-			
+			/* Check for it being free already then... */
 			if ((logical_block == BLOCK_FREE) ||
 			    (logical_block == BLOCK_NIL)) {
 				s->PUtable[block] = BLOCK_FREE;
 				break;
 			}
 
-			
+			/* Sanity checks on block numbers */
 			if ((logical_block >= s->nb_blocks) ||
 			    ((prev_block >= s->nb_blocks) &&
 			     (prev_block != BLOCK_NIL))) {
@@ -581,22 +663,28 @@ int INFTL_mount(struct INFTLrecord *s)
 				first_logical_block = logical_block;
 			} else {
 				if (first_logical_block != logical_block) {
-					
+					/* Normal for folded chain... */
 					break;
 				}
 			}
 
+			/*
+			 * Current block is valid, so if we followed a virtual
+			 * chain to get here then we can set the previous
+			 * block pointer in our PUtable now. Then move onto
+			 * the previous block in the chain.
+			 */
 			s->PUtable[block] = BLOCK_NIL;
 			if (last_block != BLOCK_NIL)
 				s->PUtable[last_block] = block;
 			last_block = block;
 			block = prev_block;
 
-			
+			/* Check for end of chain */
 			if (block == BLOCK_NIL)
 				break;
 
-			
+			/* Validate next block before following it... */
 			if (block > s->lastEUN) {
 				printk(KERN_WARNING "INFTL: invalid previous "
 					"block %d in chain %d?\n", block,
@@ -611,18 +699,29 @@ int INFTL_mount(struct INFTLrecord *s)
 			continue;
 		}
 
+		/*
+		 * Looks like a valid chain then. It may not really be the
+		 * newest block in the chain, but it is the newest we have
+		 * found so far. We might update it in later iterations of
+		 * this loop if we find something newer.
+		 */
 		s->VUtable[first_logical_block] = first_block;
 		logical_block = BLOCK_NIL;
 	}
 
 	INFTL_dumptables(s);
 
+	/*
+	 * Second pass, check for infinite loops in chains. These are
+	 * possible because we don't update the previous pointers when
+	 * we fold chains. No big deal, just fix them up in PUtable.
+	 */
 	pr_debug("INFTL: pass 2, validate virtual chains\n");
 	for (logical_block = 0; logical_block < s->numvunits; logical_block++) {
 		block = s->VUtable[logical_block];
 		last_block = BLOCK_NIL;
 
-		
+		/* Check for free/reserved/nil */
 		if (block >= BLOCK_RESERVED)
 			continue;
 
@@ -638,6 +737,11 @@ int INFTL_mount(struct INFTLrecord *s)
 
 			}
 			if (ANACtable[block] != ANAC) {
+				/*
+				 * Chain must point back to itself. This is ok,
+				 * but we will need adjust the tables with this
+				 * newest block and oldest block.
+				 */
 				s->VUtable[logical_block] = block;
 				s->PUtable[last_block] = BLOCK_NIL;
 				break;
@@ -649,6 +753,10 @@ int INFTL_mount(struct INFTLrecord *s)
 		}
 
 		if (i >= s->nb_blocks) {
+			/*
+			 * Uhoo, infinite chain with valid ANACS!
+			 * Format whole chain...
+			 */
 			format_chain(s, first_block);
 		}
 	}
@@ -656,6 +764,9 @@ int INFTL_mount(struct INFTLrecord *s)
 	INFTL_dumptables(s);
 	INFTL_dumpVUchains(s);
 
+	/*
+	 * Third pass, format unreferenced blocks and init free block count.
+	 */
 	s->numfreeEUNs = 0;
 	s->LastFreeEUN = BLOCK_NIL;
 

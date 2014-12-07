@@ -23,6 +23,10 @@
  * of the Software.
  *
  */
+/*
+ * Authors:
+ *    Christian König <deathsimple@vodafone.de>
+ */
 #include "drmP.h"
 #include "drm.h"
 #include "radeon.h"
@@ -84,7 +88,7 @@ void radeon_semaphore_shrink_locked(struct radeon_device *rdev)
 	if (list_empty(&rdev->semaphore_drv.bo)) {
 		return;
 	}
-	
+	/* only shrink if first bo has free semaphore */
 	bo = list_first_entry(&rdev->semaphore_drv.bo, struct radeon_semaphore_bo, list);
 	if (list_empty(&bo->free)) {
 		return;
@@ -163,7 +167,7 @@ void radeon_semaphore_driver_fini(struct radeon_device *rdev)
 	unsigned long irq_flags;
 
 	write_lock_irqsave(&rdev->semaphore_drv.lock, irq_flags);
-	
+	/* we force to free everything */
 	list_for_each_entry_safe(bo, n, &rdev->semaphore_drv.bo, list) {
 		if (!list_empty(&bo->free)) {
 			dev_err(rdev->dev, "still in use semaphore\n");

@@ -20,11 +20,13 @@
 int s5p_mfc_init_decode(struct s5p_mfc_ctx *ctx);
 int s5p_mfc_init_encode(struct s5p_mfc_ctx *mfc_ctx);
 
+/* Decoding functions */
 int s5p_mfc_set_dec_frame_buffer(struct s5p_mfc_ctx *ctx);
 int s5p_mfc_set_dec_stream_buffer(struct s5p_mfc_ctx *ctx, int buf_addr,
 						  unsigned int start_num_byte,
 						  unsigned int buf_size);
 
+/* Encoding functions */
 void s5p_mfc_set_enc_frame_buffer(struct s5p_mfc_ctx *ctx,
 		unsigned long y_addr, unsigned long c_addr);
 int s5p_mfc_set_enc_stream_buffer(struct s5p_mfc_ctx *ctx,
@@ -37,6 +39,7 @@ int s5p_mfc_decode_one_frame(struct s5p_mfc_ctx *ctx,
 					enum s5p_mfc_decode_arg last_frame);
 int s5p_mfc_encode_one_frame(struct s5p_mfc_ctx *mfc_ctx);
 
+/* Memory allocation */
 int s5p_mfc_alloc_dec_temp_buffers(struct s5p_mfc_ctx *ctx);
 void s5p_mfc_set_dec_desc_buffer(struct s5p_mfc_ctx *ctx);
 void s5p_mfc_release_dec_desc_buffer(struct s5p_mfc_ctx *ctx);
@@ -85,4 +88,4 @@ void s5p_mfc_cleanup_queue(struct list_head *lh, struct vb2_queue *vq);
 #define s5p_mfc_get_enc_slice_type()	readl(dev->regs_base + \
 						S5P_FIMV_ENC_SI_SLICE_TYPE)
 
-#endif 
+#endif /* S5P_MFC_OPR_H_ */

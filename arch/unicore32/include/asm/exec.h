@@ -12,4 +12,4 @@
 
 #define arch_align_stack(x)		(x)
 
-#endif 
+#endif /* __UNICORE_EXEC_H__ */

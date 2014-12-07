@@ -21,11 +21,13 @@
 #ifndef HPSA_CMD_H
 #define HPSA_CMD_H
 
-#define SENSEINFOBYTES          32 
-#define SG_ENTRIES_IN_CMD	32 
+/* general boundary defintions */
+#define SENSEINFOBYTES          32 /* may vary between hbas */
+#define SG_ENTRIES_IN_CMD	32 /* Max SG entries excluding chain blocks */
 #define HPSA_SG_CHAIN		0x80000000
 #define MAXREPLYQS              256
 
+/* Command Status value */
 #define CMD_SUCCESS             0x0000
 #define CMD_TARGET_STATUS       0x0001
 #define CMD_DATA_UNDERRUN       0x0002
@@ -40,14 +42,16 @@
 #define CMD_TIMEOUT             0x000B
 #define CMD_UNABORTABLE		0x000C
 
+/* Unit Attentions ASC's as defined for the MSA2012sa */
 #define POWER_OR_RESET			0x29
 #define STATE_CHANGED			0x2a
 #define UNIT_ATTENTION_CLEARED		0x2f
 #define LUN_FAILED			0x3e
 #define REPORT_LUNS_CHANGED		0x3f
 
+/* Unit Attentions ASCQ's as defined for the MSA2012sa */
 
-	
+	/* These ASCQ's defined for ASC = POWER_OR_RESET */
 #define POWER_ON_RESET			0x00
 #define POWER_ON_REBOOT			0x01
 #define SCSI_BUS_RESET			0x02
@@ -56,30 +60,35 @@
 #define TRANSCEIVER_SE			0x05
 #define TRANSCEIVER_LVD			0x06
 
-	
+	/* These ASCQ's defined for ASC = STATE_CHANGED */
 #define RESERVATION_PREEMPTED		0x03
 #define ASYM_ACCESS_CHANGED		0x06
 #define LUN_CAPACITY_CHANGED		0x09
 
+/* transfer direction */
 #define XFER_NONE               0x00
 #define XFER_WRITE              0x01
 #define XFER_READ               0x02
 #define XFER_RSVD               0x03
 
+/* task attribute */
 #define ATTR_UNTAGGED           0x00
 #define ATTR_SIMPLE             0x04
 #define ATTR_HEADOFQUEUE        0x05
 #define ATTR_ORDERED            0x06
 #define ATTR_ACA                0x07
 
+/* cdb type */
 #define TYPE_CMD				0x00
 #define TYPE_MSG				0x01
 
+/* config space register offsets */
 #define CFG_VENDORID            0x00
 #define CFG_DEVICEID            0x02
 #define CFG_I2OBAR              0x10
 #define CFG_MEM1BAR             0x14
 
+/* i2o space register offsets */
 #define I2O_IBDB_SET            0x20
 #define I2O_IBDB_CLEAR          0x70
 #define I2O_INT_STATUS          0x30
@@ -88,6 +97,7 @@
 #define I2O_OBPOST_Q            0x44
 #define I2O_DMA1_CFG		0x214
 
+/* Configuration Table */
 #define CFGTBL_ChangeReq        0x00000001l
 #define CFGTBL_AccCmds          0x00000001l
 #define DOORBELL_CTLR_RESET	0x00000004l
@@ -111,12 +121,14 @@ union u64bit {
 	u64 val;
 };
 
+/* FIXME this is a per controller value (barf!) */
 #define HPSA_MAX_LUN 1024
 #define HPSA_MAX_PHYS_LUN 1024
 #define MAX_EXT_TARGETS 32
 #define HPSA_MAX_DEVICES (HPSA_MAX_PHYS_LUN + HPSA_MAX_LUN + \
-	MAX_EXT_TARGETS + 1) 
+	MAX_EXT_TARGETS + 1) /* + 1 is for the controller itself */
 
+/* SCSI-3 Commands */
 #pragma pack(1)
 
 #define HPSA_INQUIRY 0x12
@@ -124,8 +136,8 @@ struct InquiryData {
 	u8 data_byte[36];
 };
 
-#define HPSA_REPORT_LOG 0xc2    
-#define HPSA_REPORT_PHYS 0xc3   
+#define HPSA_REPORT_LOG 0xc2    /* Report Logical LUNs */
+#define HPSA_REPORT_PHYS 0xc3   /* Report Physical LUNs */
 struct ReportLUNdata {
 	u8 LUNListLength[4];
 	u32 reserved;
@@ -145,27 +157,29 @@ struct SenseSubsystem_info {
 	u8 reserved1[1108];
 };
 
+/* BMIC commands */
 #define BMIC_READ 0x26
 #define BMIC_WRITE 0x27
 #define BMIC_CACHE_FLUSH 0xc2
-#define HPSA_CACHE_FLUSH 0x01	
+#define HPSA_CACHE_FLUSH 0x01	/* C2 was already being used by HPSA */
 
+/* Command List Structure */
 union SCSI3Addr {
 	struct {
 		u8 Dev;
 		u8 Bus:6;
-		u8 Mode:2;        
+		u8 Mode:2;        /* b00 */
 	} PeripDev;
 	struct {
 		u8 DevLSB;
 		u8 DevMSB:6;
-		u8 Mode:2;        
+		u8 Mode:2;        /* b01 */
 	} LogDev;
 	struct {
 		u8 Dev:5;
 		u8 Bus:3;
 		u8 Targ:6;
-		u8 Mode:2;        
+		u8 Mode:2;        /* b10 */
 	} LogUnit;
 };
 
@@ -173,7 +187,7 @@ struct PhysDevAddr {
 	u32             TargetId:24;
 	u32             Bus:6;
 	u32             Mode:2;
-	
+	/* 2 level target device addr */
 	union SCSI3Addr  Target[2];
 };
 
@@ -228,8 +242,8 @@ union MoreErrInfo {
 	} Common_Info;
 	struct {
 		u8  Reserved[2];
-		u8  offense_size; 
-		u8  offense_num;  
+		u8  offense_size; /* size of offending entry */
+		u8  offense_num;  /* byte # of offense 0-base */
 		u32 offense_value;
 	} Invalid_Cmd;
 };
@@ -241,6 +255,7 @@ struct ErrorInfo {
 	union MoreErrInfo  MoreErrInfo;
 	u8               SenseInfo[SENSEINFOBYTES];
 };
+/* Command types */
 #define CMD_IOCTL_PEND  0x01
 #define CMD_SCSI	0x03
 
@@ -249,16 +264,27 @@ struct ErrorInfo {
 #define DIRECT_LOOKUP_MASK (~((1 << DIRECT_LOOKUP_SHIFT) - 1))
 
 #define HPSA_ERROR_BIT          0x02
-struct ctlr_info; 
+struct ctlr_info; /* defined in hpsa.h */
+/* The size of this structure needs to be divisible by 32
+ * on all architectures because low 5 bits of the addresses
+ * are used as follows:
+ *
+ * bit 0: to device, used to indicate "performant mode" command
+ *        from device, indidcates error status.
+ * bit 1-3: to device, indicates block fetch table entry for
+ *          reducing DMA in fetching commands from host memory.
+ * bit 4: used to indicate whether tag is "direct lookup" (index),
+ *        or a bus address.
+ */
 
 struct CommandList {
 	struct CommandListHeader Header;
 	struct RequestBlock      Request;
 	struct ErrDescriptor     ErrDesc;
 	struct SGDescriptor      SG[SG_ENTRIES_IN_CMD];
-	
-	u32			   busaddr; 
-	struct ErrorInfo *err_info; 
+	/* information associated with the command */
+	u32			   busaddr; /* physical addr of this record */
+	struct ErrorInfo *err_info; /* pointer to the allocated mem */
 	struct ctlr_info	   *h;
 	int			   cmd_type;
 	long			   cmdindex;
@@ -267,6 +293,13 @@ struct CommandList {
 	struct completion *waiting;
 	void   *scsi_cmd;
 
+/* on 64 bit architectures, to get this to be 32-byte-aligned
+ * it so happens we need PAD_64 bytes of padding, on 32 bit systems,
+ * we need PAD_32 bytes of padding (see below).   This does that.
+ * If it happens that 64 bit and 32 bit systems need different
+ * padding, PAD_32 and PAD_64 can be set independently, and.
+ * the code below will do the right thing.
+ */
 #define IS_32_BIT ((8 - sizeof(long))/4)
 #define IS_64_BIT (!IS_32_BIT)
 #define PAD_32 (4)
@@ -275,6 +308,7 @@ struct CommandList {
 	u8 pad[COMMANDLIST_PAD];
 };
 
+/* Configuration Table Structure */
 struct HostWrite {
 	u32 TransportRequest;
 	u32 Reserved;
@@ -304,7 +338,7 @@ struct CfgTable {
 	u32		MaxPhysicalDrivesPerLogicalUnit;
 	u32		MaxPerformantModeCommands;
 	u8		reserved[0x78 - 0x58];
-	u32		misc_fw_support; 
+	u32		misc_fw_support; /* offset 0x78 */
 #define			MISC_FW_DOORBELL_RESET (0x02)
 #define			MISC_FW_DOORBELL_RESET2 (0x010)
 	u8		driver_version[32];
@@ -329,4 +363,4 @@ struct hpsa_pci_info {
 };
 
 #pragma pack()
-#endif 
+#endif /* HPSA_CMD_H */

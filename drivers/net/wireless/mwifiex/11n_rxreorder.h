@@ -62,4 +62,4 @@ struct mwifiex_rx_reorder_tbl *mwifiex_11n_get_rxreorder_tbl(struct
 							   *priv, int tid,
 							   u8 *ta);
 
-#endif 
+#endif /* _MWIFIEX_11N_RXREORDER_H_ */

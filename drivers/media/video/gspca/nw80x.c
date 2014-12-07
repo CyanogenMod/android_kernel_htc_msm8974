@@ -32,17 +32,19 @@ MODULE_LICENSE("GPL");
 
 static int webcam;
 
+/* controls */
 enum e_ctrl {
 	GAIN,
 	EXPOSURE,
 	AUTOGAIN,
-	NCTRLS		
+	NCTRLS		/* number of controls */
 };
 
 #define AUTOGAIN_DEF 1
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	struct gspca_ctrl ctrls[NCTRLS];
 
@@ -57,15 +59,15 @@ struct sd {
 };
 
 enum bridges {
-	BRIDGE_NW800,	
+	BRIDGE_NW800,	/* and et31x110 */
 	BRIDGE_NW801,
 	BRIDGE_NW802,
 };
 enum webcams {
 	Generic800,
-	SpaceCam,	
-	SpaceCam2,	
-	Cvideopro,	
+	SpaceCam,	/* Trust 120 SpaceCam */
+	SpaceCam2,	/* other Trust 120 SpaceCam */
+	Cvideopro,	/* Conceptronic Video Pro */
 	Dlink350c,
 	DS3303u,
 	Kr651us,
@@ -76,40 +78,83 @@ enum webcams {
 	DvcV6,
 	P35u,
 	Generic802,
-	NWEBCAMS	
+	NWEBCAMS	/* number of webcams */
 };
 
 static const u8 webcam_chip[NWEBCAMS] = {
-	[Generic800]	= BRIDGE_NW800,	
+	[Generic800]	= BRIDGE_NW800,	/* 06a5:0000
+					 * Typhoon Webcam 100 USB */
 
-	[SpaceCam]	= BRIDGE_NW800,	
+	[SpaceCam]	= BRIDGE_NW800,	/* 06a5:d800
+				* Trust SpaceCam120 or SpaceCam100 PORTABLE */
 
-	[SpaceCam2]	= BRIDGE_NW800,	
+	[SpaceCam2]	= BRIDGE_NW800,	/* 06a5:d800 - pas106
+			* other Trust SpaceCam120 or SpaceCam100 PORTABLE */
 
-	[Cvideopro]	= BRIDGE_NW802,	
+	[Cvideopro]	= BRIDGE_NW802,	/* 06a5:d001
+			* Conceptronic Video Pro 'CVIDEOPRO USB Webcam CCD' */
 
-	[Dlink350c]	= BRIDGE_NW802,	
+	[Dlink350c]	= BRIDGE_NW802,	/* 06a5:d001
+					 * D-Link NetQam Pro 250plus */
 
-	[DS3303u]	= BRIDGE_NW801,	
+	[DS3303u]	= BRIDGE_NW801,	/* 06a5:d001
+				* Plustek Opticam 500U or ProLink DS3303u */
 
-	[Kr651us]	= BRIDGE_NW802,	
+	[Kr651us]	= BRIDGE_NW802,	/* 06a5:d001
+					 * Panasonic GP-KR651US */
 
-	[Kritter]	= BRIDGE_NW802,	
+	[Kritter]	= BRIDGE_NW802,	/* 06a5:d001
+					 * iRez Kritter cam */
 
-	[Mustek300]	= BRIDGE_NW802,	
+	[Mustek300]	= BRIDGE_NW802,	/* 055f:d001
+					 * Mustek Wcam 300 mini */
 
-	[Proscope]	= BRIDGE_NW802,	
+	[Proscope]	= BRIDGE_NW802,	/* 06a5:d001
+					 * Scalar USB Microscope (ProScope) */
 
-	[Twinkle]	= BRIDGE_NW800,	
+	[Twinkle]	= BRIDGE_NW800,	/* 06a5:d800 - hv7121b? (seems pas106)
+					 * Divio Chicony TwinkleCam
+					 * DSB-C110 */
 
-	[DvcV6]		= BRIDGE_NW802,	
+	[DvcV6]		= BRIDGE_NW802,	/* 0502:d001
+					 * DVC V6 */
 
-	[P35u]		= BRIDGE_NW801,	
+	[P35u]		= BRIDGE_NW801,	/* 052b:d001, 06a5:d001 and 06be:d001
+					 * EZCam Pro p35u */
 
 	[Generic802]	= BRIDGE_NW802,
 };
+/*
+ * other webcams:
+ *	- nw801 046d:d001
+ *		Logitech QuickCam Pro (dark focus ring)
+ *	- nw801 0728:d001
+ *		AVerMedia Camguard
+ *	- nw??? 06a5:d001
+ *		D-Link NetQam Pro 250plus
+ *	- nw800 065a:d800
+ *		Showcam NGS webcam
+ *	- nw??? ????:????
+ *		Sceptre svc300
+ */
 
+/*
+ * registers
+ *    nw800/et31x110	  nw801		  nw802
+ *	0000..009e	0000..00a1	0000..009e
+ *	0200..0211	   id		   id
+ *	0300..0302	   id		   id
+ *	0400..0406	  (inex)	0400..0406
+ *	0500..0505	0500..0506	  (inex)
+ *	0600..061a	0600..0601	0600..0601
+ *	0800..0814	   id		   id
+ *	1000..109c	1000..10a1	1000..109a
+ */
 
+/* resolutions
+ *	nw800: 320x240, 352x288
+ *	nw801/802: 320x240, 640x480
+ */
 static const struct v4l2_pix_format cif_mode[] = {
 	{320, 240, V4L2_PIX_FMT_JPGL, V4L2_FIELD_NONE,
 		.bytesperline = 320,
@@ -131,6 +176,14 @@ static const struct v4l2_pix_format vga_mode[] = {
 		.colorspace = V4L2_COLORSPACE_JPEG},
 };
 
+/*
+ * The sequences below contain:
+ *	- 1st and 2nd bytes: either
+ *		- register number (BE)
+ *		- I2C0 + i2c address
+ *	- 3rd byte: data length (=0 for end of sequence)
+ *	- n bytes: data
+ */
 #define I2C0 0xff
 
 static const u8 nw800_init[] = {
@@ -295,6 +348,8 @@ static const u8 nw800_start[] = {
 	0, 0, 0
 };
 
+/* 06a5:d001 - nw801 - Panasonic
+ *		P35u */
 static const u8 nw801_start_1[] = {
 	0x05, 0x06, 0x01, 0x04,
 	0x00, 0x00, 0x40, 0x0e, 0x00, 0x00, 0xf9, 0x02, 0x11, 0x00, 0x0e,
@@ -359,7 +414,7 @@ static const u8 nw801_start_qvga[] = {
 	0x10, 0x00, 0x01, 0x2f,
 	0x10, 0x8c, 0x08, 0x00, 0x00, 0x3f, 0x01, 0x00, 0x00, 0xef, 0x00,
 	0x10, 0x11, 0x08, 0x29, 0x00, 0x18, 0x01, 0x1f, 0x00, 0xd2, 0x00,
-							
+							/* AE window */
 	0, 0, 0,
 };
 static const u8 nw801_start_vga[] = {
@@ -375,9 +430,9 @@ static const u8 nw801_start_vga[] = {
 };
 static const u8 nw801_start_2[] = {
 	0x10, 0x04, 0x01, 0x1a,
-	0x10, 0x19, 0x01, 0x09,				
+	0x10, 0x19, 0x01, 0x09,				/* clock */
 	0x10, 0x24, 0x06, 0xc0, 0x00, 0x3f, 0x02, 0x00, 0x01,
-							 
+							 /* .. gain .. */
 	0x00, 0x03, 0x02, 0x92, 0x03,
 	0x00, 0x1d, 0x04, 0xf2, 0x00, 0x24, 0x07,
 	0x00, 0x7b, 0x01, 0xcf,
@@ -401,6 +456,7 @@ static const u8 nw801_start_2[] = {
 	0, 0, 0
 };
 
+/* nw802 (sharp IR3Y38M?) */
 static const u8 nw802_start[] = {
 	0x04, 0x06, 0x01, 0x04,
 	0x00, 0x00, 0x40, 0x10, 0x00, 0x00, 0xf9, 0x02, 0x10, 0x00, 0x4d,
@@ -472,6 +528,9 @@ static const u8 nw802_start[] = {
 	0x10, 0x41, 0x11, 0x00, 0x11, 0x22, 0x32, 0x43, 0x54, 0x64, 0x74,
 			  0x84, 0x94, 0xa4, 0xb3, 0xc3, 0xd2, 0xe2, 0xf1,
 			  0xff,
+/*			  0x00, 0x0e, 0x35, 0x4f, 0x62, 0x71, 0x7f, 0x8b,
+ *			  0x96, 0xa0, 0xa9, 0xb2, 0xbb, 0xc3, 0xca, 0xd2,
+ *			  0xd8,	*/
 	0x10, 0x0b, 0x01, 0x10,
 	0x10, 0x0d, 0x01, 0x11,
 	0x10, 0x0c, 0x01, 0x1c,
@@ -479,6 +538,7 @@ static const u8 nw802_start[] = {
 	0x04, 0x04, 0x01, 0x00,
 	0, 0, 0
 };
+/* et31x110 - Trust 120 SpaceCam */
 static const u8 spacecam_init[] = {
 	0x04, 0x05, 0x01, 0x01,
 	0x04, 0x04, 0x01, 0x01,
@@ -573,6 +633,7 @@ static const u8 spacecam_start[] = {
 	0x04, 0x04, 0x01, 0x40,
 	0, 0, 0
 };
+/* et31x110 - pas106 - other Trust SpaceCam120 */
 static const u8 spacecam2_start[] = {
 	0x04, 0x06, 0x01, 0x44,
 	0x04, 0x06, 0x01, 0x00,
@@ -636,20 +697,20 @@ static const u8 spacecam2_start[] = {
 			  0x00, 0x00, 0x05, 0x05,
 	I2C0, 0x40, 0x02, 0x11, 0x06,
 	I2C0, 0x40, 0x02, 0x14, 0x00,
-	I2C0, 0x40, 0x02, 0x13, 0x01,		
+	I2C0, 0x40, 0x02, 0x13, 0x01,		/* i2c end */
 	0x02, 0x00, 0x11, 0x48, 0x58, 0x9e, 0x48, 0x58, 0x00, 0x00, 0x00,
 			  0x00, 0x84, 0x36, 0x05, 0x01, 0xf2, 0x86, 0x65,
 			  0x40,
-	I2C0, 0x40, 0x02, 0x02, 0x0c,		
+	I2C0, 0x40, 0x02, 0x02, 0x0c,		/* pixel clock */
 	I2C0, 0x40, 0x02, 0x0f, 0x00,
-	I2C0, 0x40, 0x02, 0x13, 0x01,		
+	I2C0, 0x40, 0x02, 0x13, 0x01,		/* i2c end */
 	0x10, 0x00, 0x01, 0x01,
 	0x10, 0x8f, 0x0c, 0x62, 0x01, 0x24, 0x01, 0x62, 0x01, 0x24, 0x01,
 			  0x20, 0x01, 0x60, 0x01,
-	I2C0, 0x40, 0x02, 0x05, 0x0f,		
-	I2C0, 0x40, 0x02, 0x13, 0x01,		
+	I2C0, 0x40, 0x02, 0x05, 0x0f,		/* exposure */
+	I2C0, 0x40, 0x02, 0x13, 0x01,		/* i2c end */
 	I2C0, 0x40, 0x07, 0x09, 0x0b, 0x0f, 0x05, 0x05, 0x0f, 0x00,
-						
+						/* gains */
 	I2C0, 0x40, 0x03, 0x12, 0x04, 0x01,
 	0x10, 0x11, 0x08, 0x00, 0x00, 0x5f, 0x01, 0x00, 0x00, 0x1f, 0x01,
 	0x10, 0x0e, 0x01, 0x08,
@@ -671,6 +732,7 @@ static const u8 spacecam2_start[] = {
 	0, 0, 0
 };
 
+/* nw802 - Conceptronic Video Pro */
 static const u8 cvideopro_start[] = {
 	0x04, 0x06, 0x01, 0x04,
 	0x00, 0x00, 0x40, 0x54, 0x96, 0x98, 0xf9, 0x02, 0x18, 0x00, 0x4c,
@@ -750,6 +812,7 @@ static const u8 cvideopro_start[] = {
 	0, 0, 0
 };
 
+/* nw802 - D-link dru-350c cam */
 static const u8 dlink_start[] = {
 	0x04, 0x06, 0x01, 0x04,
 	0x00, 0x00, 0x40, 0x10, 0x00, 0x00, 0x92, 0x03, 0x10, 0x00, 0x4d,
@@ -829,6 +892,9 @@ static const u8 dlink_start[] = {
 	0, 0, 0
 };
 
+/* 06a5:d001 - nw801 - Sony
+ *		Plustek Opticam 500U or ProLink DS3303u (Hitachi HD49322BF) */
+/*fixme: 320x240 only*/
 static const u8 ds3303_start[] = {
 	0x05, 0x06, 0x01, 0x04,
 	0x00, 0x00, 0x40, 0x16, 0x00, 0x00, 0xf9, 0x02, 0x11, 0x00, 0x0e,
@@ -911,6 +977,8 @@ static const u8 ds3303_start[] = {
 	0, 0, 0
 };
 
+/* 06a5:d001 - nw802 - Panasonic
+ *		GP-KR651US (Philips TDA8786) */
 static const u8 kr651_start_1[] = {
 	0x04, 0x06, 0x01, 0x04,
 	0x00, 0x00, 0x40, 0x44, 0x96, 0x98, 0xf9, 0x02, 0x18, 0x00, 0x48,
@@ -1008,6 +1076,7 @@ static const u8 kr651_start_2[] = {
 	0, 0, 0
 };
 
+/* nw802 - iRez Kritter cam */
 static const u8 kritter_start[] = {
 	0x04, 0x06, 0x01, 0x06,
 	0x00, 0x00, 0x40, 0x44, 0x96, 0x98, 0x94, 0x03, 0x18, 0x00, 0x48,
@@ -1087,6 +1156,7 @@ static const u8 kritter_start[] = {
 	0, 0, 0
 };
 
+/* nw802 - Mustek Wcam 300 mini */
 static const u8 mustek_start[] = {
 	0x04, 0x06, 0x01, 0x04,
 	0x00, 0x00, 0x40, 0x10, 0x00, 0x00, 0x92, 0x03, 0x10, 0x00, 0x4d,
@@ -1166,6 +1236,7 @@ static const u8 mustek_start[] = {
 	0, 0, 0
 };
 
+/* nw802 - Scope USB Microscope M2 (ProScope) (Hitachi HD49322BF) */
 static const u8 proscope_init[] = {
 	0x04, 0x05, 0x01, 0x21,
 	0x04, 0x04, 0x01, 0x01,
@@ -1270,6 +1341,7 @@ static const u8 proscope_start_2[] = {
 	0, 0, 0
 };
 
+/* nw800 - hv7121b? (seems pas106) - Divio Chicony TwinkleCam */
 static const u8 twinkle_start[] = {
 	0x04, 0x06, 0x01, 0x44,
 	0x04, 0x06, 0x01, 0x00,
@@ -1336,7 +1408,7 @@ static const u8 twinkle_start[] = {
 			  0x00, 0x00, 0x00, 0x0a,
 	I2C0, 0x40, 0x02, 0x11, 0x06,
 	I2C0, 0x40, 0x02, 0x14, 0x00,
-	I2C0, 0x40, 0x02, 0x13, 0x01,		
+	I2C0, 0x40, 0x02, 0x13, 0x01,		/* i2c end */
 	I2C0, 0x40, 0x02, 0x07, 0x01,
 	0x02, 0x00, 0x11, 0x48, 0x58, 0x9e, 0x48, 0x58, 0x00, 0x00, 0x00,
 			  0x00, 0x84, 0x36, 0x05, 0x01, 0xf2, 0x86, 0x65,
@@ -1372,6 +1444,7 @@ static const u8 twinkle_start[] = {
 	0, 0, 0
 };
 
+/* nw802 dvc-v6 */
 static const u8 dvcv6_start[] = {
 	0x04, 0x06, 0x01, 0x06,
 	0x00, 0x00, 0x40, 0x54, 0x96, 0x98, 0xf9, 0x02, 0x18, 0x00, 0x4c,
@@ -1474,6 +1547,7 @@ static const u8 *webcam_start[] = {
 	[Generic802] = nw802_start,
 };
 
+/* -- write a register -- */
 static void reg_w(struct gspca_dev *gspca_dev,
 			u16 index,
 			const u8 *data,
@@ -1493,7 +1567,7 @@ static void reg_w(struct gspca_dev *gspca_dev,
 	ret = usb_control_msg(dev, usb_sndctrlpipe(dev, 0),
 			0x00,
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			0x00,		
+			0x00,		/* value */
 			index,
 			gspca_dev->usb_buf,
 			len,
@@ -1504,6 +1578,7 @@ static void reg_w(struct gspca_dev *gspca_dev,
 	}
 }
 
+/* -- read registers in usb_buf -- */
 static void reg_r(struct gspca_dev *gspca_dev,
 			u16 index,
 			int len)
@@ -1600,15 +1675,17 @@ static void setgain(struct gspca_dev *gspca_dev)
 	val = sd->ctrls[GAIN].val;
 	switch (sd->webcam) {
 	case P35u:
-		val >>= 1;			
+		/* Note the control goes from 0-255 not 0-127, but anything
+		   above 127 just means amplifying noise */
+		val >>= 1;			/* 0 - 255 -> 0 - 127 */
 		reg_w(gspca_dev, 0x1026, &val, 1);
 		break;
 	case Kr651us:
-		
+		/* 0 - 253 */
 		val = swap_bits(val);
 		v[0] = val << 3;
 		v[1] = val >> 5;
-		reg_w(gspca_dev, 0x101d, v, 2);	
+		reg_w(gspca_dev, 0x101d, v, 2);	/* SIF reg0/1 (AGC) */
 		break;
 	}
 }
@@ -1650,9 +1727,9 @@ static void setautogain(struct gspca_dev *gspca_dev)
 	sd->ag_cnt = AG_CNT_START;
 
 	reg_r(gspca_dev, 0x1004, 1);
-	if (gspca_dev->usb_buf[0] & 0x04) {	
+	if (gspca_dev->usb_buf[0] & 0x04) {	/* if AE_FULL_FRM */
 		sd->ae_res = gspca_dev->width * gspca_dev->height;
-	} else {				
+	} else {				/* get the AE window size */
 		reg_r(gspca_dev, 0x1011, 8);
 		w = (gspca_dev->usb_buf[1] << 8) + gspca_dev->usb_buf[0]
 		  - (gspca_dev->usb_buf[3] << 8) - gspca_dev->usb_buf[2];
@@ -1668,15 +1745,16 @@ static int nw802_test_reg(struct gspca_dev *gspca_dev,
 			u16 index,
 			u8 value)
 {
-	
+	/* write the value */
 	reg_w(gspca_dev, index, &value, 1);
 
-	
+	/* read it */
 	reg_r(gspca_dev, index, 1);
 
 	return gspca_dev->usb_buf[0] == value;
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -1689,6 +1767,15 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	gspca_dev->cam.needs_full_bandwidth = 1;
 	sd->ag_cnt = -1;
 
+	/*
+	 * Autodetect sequence inspired from some log.
+	 * We try to detect what registers exist or not.
+	 * If 0x0500 does not exist => NW802
+	 * If it does, test 0x109b. If it doesn't exist,
+	 * then it's a NW801. Else, a NW800
+	 * If a et31x110 (nw800 and 06a5:d800)
+	 *	get the sensor ID
+	 */
 	if (!nw802_test_reg(gspca_dev, 0x0500, 0x55)) {
 		sd->bridge = BRIDGE_NW802;
 		if (sd->webcam == Generic800)
@@ -1698,19 +1785,19 @@ static int sd_config(struct gspca_dev *gspca_dev,
 		if (sd->webcam == Generic800)
 			sd->webcam = P35u;
 	} else if (id->idVendor == 0x06a5 && id->idProduct == 0xd800) {
-		reg_r(gspca_dev, 0x0403, 1);		
+		reg_r(gspca_dev, 0x0403, 1);		/* GPIO */
 		PDEBUG(D_PROBE, "et31x110 sensor type %02x",
 				gspca_dev->usb_buf[0]);
 		switch (gspca_dev->usb_buf[0] >> 1) {
-		case 0x00:				
+		case 0x00:				/* ?? */
 			if (sd->webcam == Generic800)
 				sd->webcam = SpaceCam;
 			break;
-		case 0x01:				
+		case 0x01:				/* Hynix? */
 			if (sd->webcam == Generic800)
 				sd->webcam = Twinkle;
 			break;
-		case 0x0a:				
+		case 0x0a:				/* Pixart */
 			if (sd->webcam == Generic800)
 				sd->webcam = SpaceCam2;
 			break;
@@ -1727,10 +1814,10 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	if (sd->bridge == BRIDGE_NW800) {
 		switch (sd->webcam) {
 		case DS3303u:
-			gspca_dev->cam.cam_mode = cif_mode;	
+			gspca_dev->cam.cam_mode = cif_mode;	/* qvga */
 			break;
 		default:
-			gspca_dev->cam.cam_mode = &cif_mode[1];	
+			gspca_dev->cam.cam_mode = &cif_mode[1];	/* cif */
 			break;
 		}
 		gspca_dev->cam.nmodes = 1;
@@ -1743,19 +1830,23 @@ static int sd_config(struct gspca_dev *gspca_dev,
 			gspca_dev->cam.nmodes = ARRAY_SIZE(vga_mode);
 			break;
 		default:
-			gspca_dev->cam.nmodes = 1;	
+			gspca_dev->cam.nmodes = 1;	/* qvga only */
 			break;
 		}
 	}
 	switch (sd->webcam) {
 	case P35u:
+/*		sd->ctrls[EXPOSURE].max = 9;
+ *		sd->ctrls[EXPOSURE].def = 9; */
+		/* coarse expo auto gain function gain minimum, to avoid
+		 * a large settings jump the first auto adjustment */
 		sd->ctrls[GAIN].def = 255 / 5 * 2;
 		break;
 	case Cvideopro:
 	case DvcV6:
 	case Kritter:
 		gspca_dev->ctrl_dis = (1 << GAIN) | (1 << AUTOGAIN);
-		
+		/* fall thru */
 	case Kr651us:
 		sd->ctrls[EXPOSURE].max = 315;
 		sd->ctrls[EXPOSURE].def = 150;
@@ -1773,6 +1864,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return gspca_dev->usb_err;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -1801,6 +1893,7 @@ static int sd_init(struct gspca_dev *gspca_dev)
 	return gspca_dev->usb_err;
 }
 
+/* -- start the camera -- */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -1845,13 +1938,13 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 	struct sd *sd = (struct sd *) gspca_dev;
 	u8 value;
 
-	
+	/* 'go' off */
 	if (sd->bridge != BRIDGE_NW801) {
 		value = 0x02;
 		reg_w(gspca_dev, 0x0406, &value, 1);
 	}
 
-	
+	/* LED off */
 	switch (sd->webcam) {
 	case Cvideopro:
 	case Kr651us:
@@ -1875,9 +1968,16 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
+	/*
+	 * frame header = '00 00 hh ww ss xx ff ff'
+	 * with:
+	 *	- 'hh': height / 4
+	 *	- 'ww': width / 4
+	 *	- 'ss': frame sequence number c0..dd
+	 */
 	if (data[0] == 0x00 && data[1] == 0x00
 	 && data[6] == 0xff && data[7] == 0xff) {
 		gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
@@ -1914,7 +2014,7 @@ static void do_autogain(struct gspca_dev *gspca_dev)
 		return;
 	sd->ag_cnt = AG_CNT_START;
 
-	
+	/* get the average luma */
 	reg_r(gspca_dev, sd->bridge == BRIDGE_NW801 ? 0x080d : 0x080c, 4);
 	luma = (gspca_dev->usb_buf[3] << 24) + (gspca_dev->usb_buf[2] << 16)
 		+ (gspca_dev->usb_buf[1] << 8) + gspca_dev->usb_buf[0];
@@ -1930,6 +2030,7 @@ static void do_autogain(struct gspca_dev *gspca_dev)
 	}
 }
 
+/* V4L2 controls supported by the driver */
 static const struct ctrl sd_ctrls[NCTRLS] = {
 [GAIN] = {
 	    {
@@ -1970,6 +2071,7 @@ static const struct ctrl sd_ctrls[NCTRLS] = {
 	},
 };
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -1982,6 +2084,7 @@ static const struct sd_desc sd_desc = {
 	.dq_callback = do_autogain,
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x046d, 0xd001)},
 	{USB_DEVICE(0x0502, 0xd001)},
@@ -1996,6 +2099,7 @@ static const struct usb_device_id device_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {

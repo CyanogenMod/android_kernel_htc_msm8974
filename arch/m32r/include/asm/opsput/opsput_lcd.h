@@ -14,11 +14,17 @@
  */
 
 #ifndef __ASSEMBLY__
-#define OPSPUT_LCD_BASE	(0x10000000 )
+/*
+ * C functions use non-cache address.
+ */
+#define OPSPUT_LCD_BASE	(0x10000000 /* + NONCACHE_OFFSET */)
 #else
 #define OPSPUT_LCD_BASE	(0x10000000 + NONCACHE_OFFSET)
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/*
+ * ICU
+ */
 #define OPSPUT_LCD_IRQ_BAT_INT	(OPSPUT_LCD_PLD_IRQ_BASE + 1)
 #define OPSPUT_LCD_IRQ_USB_INT1	(OPSPUT_LCD_PLD_IRQ_BASE + 2)
 #define OPSPUT_LCD_IRQ_AUDT0		(OPSPUT_LCD_PLD_IRQ_BASE + 3)
@@ -46,4 +52,4 @@
 #define OPSPUT_LCD_ICUCR19	__reg16(OPSPUT_LCD_BASE + 0x300036)
 #define OPSPUT_LCD_ICUCR21	__reg16(OPSPUT_LCD_BASE + 0x30003a)
 
-#endif 
+#endif /* _OPSPUT_OPSPUT_LCD_H */

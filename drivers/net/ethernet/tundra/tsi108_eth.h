@@ -21,6 +21,9 @@
  * MA 02111-1307 USA
  */
 
+/*
+ * net/tsi108_eth.h - definitions for Tsi108 GIGE network controller.
+ */
 
 #ifndef __TSI108_ETH_H
 #define __TSI108_ETH_H
@@ -39,6 +42,9 @@
 #define TSI_READ_PHY(offset) \
 	in_be32((data->phyregs + (offset)))
 
+/*
+ * TSI108 GIGE port registers
+ */
 
 #define TSI108_ETH_PORT_NUM		2
 #define TSI108_PBM_PORT			2
@@ -257,9 +263,13 @@
 #define TSI108_EC_RXQ_PTRHIGH		(0x38c)
 #define TSI108_EC_RXQ_PTRHIGH_VALID	(1 << 31)
 
+/* Station Enable -- accept packets destined for us */
 #define TSI108_EC_RXCFG_SE		(1 << 13)
+/* Unicast Frame Enable -- for packets not destined for us */
 #define TSI108_EC_RXCFG_UFE		(1 << 12)
+/* Multicast Frame Enable */
 #define TSI108_EC_RXCFG_MFE		(1 << 11)
+/* Broadcast Frame Enable */
 #define TSI108_EC_RXCFG_BFE		(1 << 10)
 #define TSI108_EC_RXCFG_UC_HASH		(1 <<  9)
 #define TSI108_EC_RXCFG_MC_HASH		(1 <<  8)
@@ -287,59 +297,60 @@
 
 #define TSI108_EC_RXERR			(0x378)
 
-#define TSI108_TX_EOF	(1 << 0)	
-#define TSI108_TX_SOF	(1 << 1)	
-#define TSI108_TX_VLAN	(1 << 2)	
-#define TSI108_TX_HUGE	(1 << 3)	
-#define TSI108_TX_PAD	(1 << 4)	
-#define TSI108_TX_CRC	(1 << 5)	
-#define TSI108_TX_INT	(1 << 14)	
-#define TSI108_TX_RETRY	(0xf << 16)	
-#define TSI108_TX_COL	(1 << 20)	
-#define TSI108_TX_LCOL	(1 << 24)	
-#define TSI108_TX_UNDER	(1 << 25)	
-#define TSI108_TX_RLIM	(1 << 26)	
-#define TSI108_TX_OK	(1 << 30)	
-#define TSI108_TX_OWN	(1 << 31)	
+#define TSI108_TX_EOF	(1 << 0)	/* End of frame; last fragment of packet */
+#define TSI108_TX_SOF	(1 << 1)	/* Start of frame; first frag. of packet */
+#define TSI108_TX_VLAN	(1 << 2)	/* Per-frame VLAN: enables VLAN override */
+#define TSI108_TX_HUGE	(1 << 3)	/* Huge frame enable */
+#define TSI108_TX_PAD	(1 << 4)	/* Pad the packet if too short */
+#define TSI108_TX_CRC	(1 << 5)	/* Generate CRC for this packet */
+#define TSI108_TX_INT	(1 << 14)	/* Generate an IRQ after frag. processed */
+#define TSI108_TX_RETRY	(0xf << 16)	/* 4 bit field indicating num. of retries */
+#define TSI108_TX_COL	(1 << 20)	/* Set if a collision occurred */
+#define TSI108_TX_LCOL	(1 << 24)	/* Set if a late collision occurred */
+#define TSI108_TX_UNDER	(1 << 25)	/* Set if a FIFO underrun occurred */
+#define TSI108_TX_RLIM	(1 << 26)	/* Set if the retry limit was reached */
+#define TSI108_TX_OK	(1 << 30)	/* Set if the frame TX was successful */
+#define TSI108_TX_OWN	(1 << 31)	/* Set if the device owns the descriptor */
 
+/* Note: the descriptor layouts assume big-endian byte order. */
 typedef struct {
 	u32 buf0;
-	u32 buf1;		
-	u32 next0;		
+	u32 buf1;		/* Base address of buffer */
+	u32 next0;		/* Address of next descriptor, if any */
 	u32 next1;
-	u16 vlan;		
-	u16 len;		
-	u32 misc;		
-	u32 reserved0;		
-	u32 reserved1;		
+	u16 vlan;		/* VLAN, if override enabled for this packet */
+	u16 len;		/* Length of buffer in bytes */
+	u32 misc;		/* See TSI108_TX_* above */
+	u32 reserved0;		/*reserved0 and reserved1 are added to make the desc */
+	u32 reserved1;		/* 32-byte aligned */
 } __attribute__ ((aligned(32))) tx_desc;
 
-#define TSI108_RX_EOF	(1 << 0)	
-#define TSI108_RX_SOF	(1 << 1)	
-#define TSI108_RX_VLAN	(1 << 2)	
-#define TSI108_RX_FTYPE	(1 << 3)	
-#define TSI108_RX_RUNT	(1 << 4)
-#define TSI108_RX_HASH	(1 << 7)
-#define TSI108_RX_BAD	(1 << 8)	
-#define TSI108_RX_OVER	(1 << 9)	
-#define TSI108_RX_TRUNC	(1 << 11)	
-#define TSI108_RX_CRC	(1 << 12)	
-#define TSI108_RX_INT	(1 << 13)	
-#define TSI108_RX_OWN	(1 << 15)	
+#define TSI108_RX_EOF	(1 << 0)	/* End of frame; last fragment of packet */
+#define TSI108_RX_SOF	(1 << 1)	/* Start of frame; first frag. of packet */
+#define TSI108_RX_VLAN	(1 << 2)	/* Set on SOF if packet has a VLAN */
+#define TSI108_RX_FTYPE	(1 << 3)	/* Length/Type field is type, not length */
+#define TSI108_RX_RUNT	(1 << 4)/* Packet is less than minimum size */
+#define TSI108_RX_HASH	(1 << 7)/* Hash table match */
+#define TSI108_RX_BAD	(1 << 8)	/* Bad frame */
+#define TSI108_RX_OVER	(1 << 9)	/* FIFO overrun occurred */
+#define TSI108_RX_TRUNC	(1 << 11)	/* Packet truncated due to excess length */
+#define TSI108_RX_CRC	(1 << 12)	/* Packet had a CRC error */
+#define TSI108_RX_INT	(1 << 13)	/* Generate an IRQ after frag. processed */
+#define TSI108_RX_OWN	(1 << 15)	/* Set if the device owns the descriptor */
 
-#define TSI108_RX_SKB_SIZE 1536		
+#define TSI108_RX_SKB_SIZE 1536		/* The RX skb length */
 
 typedef struct {
-	u32 buf0;		
-	u32 buf1;		
-	u32 next0;		
-	u32 next1;		
-	u16 vlan;		
-	u16 len;		
-	u16 blen;		
-	u16 misc;		
-	u32 reserved0;		
-	u32 reserved1;		
+	u32 buf0;		/* Base address of buffer */
+	u32 buf1;		/* Base address of buffer */
+	u32 next0;		/* Address of next descriptor, if any */
+	u32 next1;		/* Address of next descriptor, if any */
+	u16 vlan;		/* VLAN of received packet, first frag only */
+	u16 len;		/* Length of received fragment in bytes */
+	u16 blen;		/* Length of buffer in bytes */
+	u16 misc;		/* See TSI108_RX_* above */
+	u32 reserved0;		/* reserved0 and reserved1 are added to make the desc */
+	u32 reserved1;		/* 32-byte aligned */
 } __attribute__ ((aligned(32))) rx_desc;
 
-#endif				
+#endif				/* __TSI108_ETH_H */

@@ -50,6 +50,7 @@
 #if defined(CONFIG_HAS_EARLYSUSPEND)
 #include <linux/earlysuspend.h>
 
+/* Early-suspend level */
 #define CY8C_TS_SUSPEND_LEVEL 1
 #endif
 
@@ -187,7 +188,7 @@ static void report_data(struct cy8c_ts *ts, u16 x, u16 y, u8 pressure, u8 id)
 	if (ts->pdata->swap_xy)
 		swap(x, y);
 
-	
+	/* handle inverting coordinates */
 	if (ts->pdata->invert_x)
 		x = ts->pdata->res_x - x;
 	if (ts->pdata->invert_y)
@@ -284,7 +285,7 @@ static void cy8c_ts_xy_worker(struct work_struct *work)
 	}
 	mutex_unlock(&ts->sus_lock);
 
-	
+	/* read data from DATA_REG */
 	rc = cy8c_ts_read(ts->client, ts->dd->data_reg, ts->touch_data,
 							ts->dd->data_size);
 	if (rc < 0) {
@@ -303,7 +304,7 @@ static void cy8c_ts_xy_worker(struct work_struct *work)
 schedule:
 	enable_irq(ts->pen_irq);
 
-	
+	/* write to STATUS_REG to update coordinates*/
 	rc = cy8c_ts_write_reg_u8(ts->client, ts->dd->status_reg,
 						ts->dd->update_data);
 	if (rc < 0) {
@@ -389,9 +390,9 @@ static int cy8c_ts_init_ts(struct i2c_client *client, struct cy8c_ts *ts)
 	__set_bit(INPUT_PROP_DIRECT, input_device->propbit);
 
 	if (ts->device_id == CY8CTMA340) {
-		
+		/* set up virtual key */
 		__set_bit(EV_KEY, input_device->evbit);
-		
+		/* set dummy key to make driver work with virtual keys */
 		input_set_capability(input_device, EV_KEY, KEY_PROG1);
 	}
 
@@ -434,7 +435,7 @@ static int cy8c_ts_suspend(struct device *dev)
 	int rc = 0;
 
 	if (device_may_wakeup(dev)) {
-		
+		/* mark suspend flag */
 		mutex_lock(&ts->sus_lock);
 		ts->is_suspended = true;
 		mutex_unlock(&ts->sus_lock);
@@ -446,6 +447,8 @@ static int cy8c_ts_suspend(struct device *dev)
 		rc = cancel_delayed_work_sync(&ts->work);
 
 		if (rc) {
+			/* missed the worker, write to STATUS_REG to
+			   acknowledge interrupt */
 			rc = cy8c_ts_write_reg_u8(ts->client,
 				ts->dd->status_reg, ts->dd->update_data);
 			if (rc < 0) {
@@ -490,7 +493,7 @@ static int cy8c_ts_resume(struct device *dev)
 		if (ts->int_pending == true) {
 			ts->int_pending = false;
 
-			
+			/* start a delayed work */
 			queue_delayed_work(ts->wq, &ts->work, 0);
 		}
 		mutex_unlock(&ts->sus_lock);
@@ -504,7 +507,7 @@ static int cy8c_ts_resume(struct device *dev)
 			}
 		}
 
-		
+		/* configure touchscreen interrupt gpio */
 		rc = gpio_request(ts->pdata->irq_gpio, "cy8c_irq_gpio");
 		if (rc) {
 			pr_err("%s: unable to request gpio %d\n",
@@ -521,7 +524,7 @@ static int cy8c_ts_resume(struct device *dev)
 
 		enable_irq(ts->pen_irq);
 
-		
+		/* Clear the status register of the TS controller */
 		rc = cy8c_ts_write_reg_u8(ts->client,
 			ts->dd->status_reg, ts->dd->update_data);
 		if (rc < 0) {
@@ -591,7 +594,7 @@ static int __devinit cy8c_ts_probe(struct i2c_client *client,
 	if (!ts)
 		return -ENOMEM;
 
-	
+	/* Enable runtime PM ops, start in ACTIVE mode */
 	rc = pm_runtime_set_active(&client->dev);
 	if (rc < 0)
 		dev_dbg(&client->dev, "unable to set runtime pm state\n");
@@ -610,7 +613,7 @@ static int __devinit cy8c_ts_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* power on the device */
 	if (ts->pdata->power_on) {
 		rc = ts->pdata->power_on(1);
 		if (rc) {
@@ -619,7 +622,7 @@ static int __devinit cy8c_ts_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* read one byte to make sure i2c device exists */
 	if (id->driver_data == CY8CTMA300)
 		temp_reg = 0x01;
 	else if (id->driver_data == CY8CTMA340)
@@ -646,7 +649,7 @@ static int __devinit cy8c_ts_probe(struct i2c_client *client,
 	if (ts->pdata->resout_gpio < 0)
 		goto config_irq_gpio;
 
-	
+	/* configure touchscreen reset out gpio */
 	rc = gpio_request(ts->pdata->resout_gpio, "cy8c_resout_gpio");
 	if (rc) {
 		pr_err("%s: unable to request gpio %d\n",
@@ -660,11 +663,11 @@ static int __devinit cy8c_ts_probe(struct i2c_client *client,
 			__func__, ts->pdata->resout_gpio);
 		goto error_resout_gpio_dir;
 	}
-	
+	/* reset gpio stabilization time */
 	msleep(20);
 
 config_irq_gpio:
-	
+	/* configure touchscreen interrupt gpio */
 	rc = gpio_request(ts->pdata->irq_gpio, "cy8c_irq_gpio");
 	if (rc) {
 		pr_err("%s: unable to request gpio %d\n",
@@ -688,11 +691,11 @@ config_irq_gpio:
 		goto error_req_irq_fail;
 	}
 
-	
+	/* Clear the status register of the TS controller */
 	rc = cy8c_ts_write_reg_u8(ts->client, ts->dd->status_reg,
 						ts->dd->update_data);
 	if (rc < 0) {
-		
+		/* Do multiple writes in case of failure */
 		dev_err(&ts->client->dev, "%s: write failed %d"
 				"trying again\n", __func__, rc);
 		rc = cy8c_ts_write_reg_u8(ts->client,
@@ -805,6 +808,9 @@ static int __init cy8c_ts_init(void)
 {
 	return i2c_add_driver(&cy8c_ts_driver);
 }
+/* Making this as late init to avoid power fluctuations
+ * during LCD initialization.
+ */
 late_initcall(cy8c_ts_init);
 
 static void __exit cy8c_ts_exit(void)

@@ -20,6 +20,11 @@
 #                             Imaging Division
 ################################################################################
 ********************************************************************************/
+/*!
+ * \file	ilp0100_customer_iqsetting.h
+ * \brief	declaration of structures defined for IQ parameters
+ * \author 	sheena jain
+ */
 
 #ifndef ILP0100_CUSTOMER_IQ_SETTINGS_H_
 #define ILP0100_CUSTOMER_IQ_SETTINGS_H_
@@ -31,4 +36,4 @@ extern const Ilp0100_structHdrMergeParams HdrMergePresetLinearAndLuma;
 extern const Ilp0100_structHdrMergeParams HdrMergePresetLinearPlusMergeAndMacro;
 extern const Ilp0100_structHdrMergeParams HdrMergePresetLinearPlusMergeAndLuma;
 
-#endif 
+#endif /* ILP0100_CUSTOMER_IQ_SETTINGS_H_ */

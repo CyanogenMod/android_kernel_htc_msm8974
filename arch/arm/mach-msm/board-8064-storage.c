@@ -27,6 +27,7 @@
 #include "board-storage-common-a.h"
 
 
+/* APQ8064 has 4 SDCC controllers */
 enum sdcc_controllers {
 	SDCC1,
 	SDCC2,
@@ -35,8 +36,9 @@ enum sdcc_controllers {
 	MAX_SDCC_CONTROLLER
 };
 
+/* All SDCC controllers require VDD/VCC voltage */
 static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : eMMC card connected */
 	[SDCC1] = {
 		.name = "sdc_vdd",
 		.high_vol_level = 2950000,
@@ -44,52 +46,59 @@ static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
 		.always_on = 1,
 		.lpm_sup = 1,
 		.lpm_uA = 9000,
-		.hpm_uA = 200000, 
+		.hpm_uA = 200000, /* 200mA */
 	},
-	
+	/* SDCC3 : External card slot connected */
 	[SDCC3] = {
 		.name = "sdc_vdd",
 		.high_vol_level = 2950000,
 		.low_vol_level = 2950000,
-		.hpm_uA = 800000, 
+		.hpm_uA = 800000, /* 800mA */
 	}
 };
 
+/* SDCC controllers may require voting for VDD IO voltage */
 static struct msm_mmc_reg_data mmc_vdd_io_reg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : eMMC card connected */
 	[SDCC1] = {
 		.name = "sdc_vdd_io",
 		.always_on = 1,
 		.high_vol_level = 1800000,
 		.low_vol_level = 1800000,
-		.hpm_uA = 200000, 
+		.hpm_uA = 200000, /* 200mA */
 	},
-	
+	/* SDCC3 : External card slot connected */
 	[SDCC3] = {
 		.name = "sdc_vdd_io",
 		.high_vol_level = 2950000,
 		.low_vol_level = 1850000,
 		.always_on = 1,
 		.lpm_sup = 1,
-		
+		/* Max. Active current required is 16 mA */
 		.hpm_uA = 16000,
+		/*
+		 * Sleep current required is ~300 uA. But min. vote can be
+		 * in terms of mA (min. 1 mA). So let's vote for 2 mA
+		 * during sleep.
+		 */
 		.lpm_uA = 2000,
 	}
 };
 
 static struct msm_mmc_slot_reg_data mmc_slot_vreg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : eMMC card connected */
 	[SDCC1] = {
 		.vdd_data = &mmc_vdd_reg_data[SDCC1],
 		.vdd_io_data = &mmc_vdd_io_reg_data[SDCC1],
 	},
-	
+	/* SDCC3 : External card slot connected */
 	[SDCC3] = {
 		.vdd_data = &mmc_vdd_reg_data[SDCC3],
 		.vdd_io_data = &mmc_vdd_io_reg_data[SDCC3],
 	}
 };
 
+/* SDC1 pad data */
 static struct msm_mmc_pad_drv sdc1_pad_drv_on_cfg[] = {
 	{TLMM_HDRV_SDC1_CLK, GPIO_CFG_16MA},
 	{TLMM_HDRV_SDC1_CMD, GPIO_CFG_10MA},
@@ -114,6 +123,7 @@ static struct msm_mmc_pad_pull sdc1_pad_pull_off_cfg[] = {
 	{TLMM_PULL_SDC1_DATA, GPIO_CFG_PULL_UP}
 };
 
+/* SDC3 pad data */
 static struct msm_mmc_pad_drv sdc3_pad_drv_on_cfg[] = {
 	{TLMM_HDRV_SDC3_CLK, GPIO_CFG_8MA},
 	{TLMM_HDRV_SDC3_CMD, GPIO_CFG_8MA},
@@ -327,7 +337,7 @@ static struct mmc_platform_data *apq8064_sdc4_pdata;
 void __init apq8064_init_mmc(void)
 {
 	if (apq8064_sdc1_pdata) {
-		
+		/* 8064 v2 supports upto 200MHz clock on SDC1 slot */
 		if (SOCINFO_VERSION_MAJOR(socinfo_get_version()) >= 2) {
 			apq8064_sdc1_pdata->sup_clk_table =
 					sdc1_sup_clk_rates_all;

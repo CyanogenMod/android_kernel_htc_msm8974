@@ -6,6 +6,7 @@
  * published by the Free Software Foundation.
  */
 
+/* just for IFNAMSIZ */
 #include <linux/if.h>
 #include <linux/slab.h>
 #include <linux/export.h>
@@ -21,11 +22,12 @@ void ieee80211_led_rx(struct ieee80211_local *local)
 		led_trigger_event(local->rx_led, LED_FULL);
 }
 
+/* q is 1 if a packet was enqueued, 0 if it has been transmitted */
 void ieee80211_led_tx(struct ieee80211_local *local, int q)
 {
 	if (unlikely(!local->tx_led))
 		return;
-	
+	/* not sure how this is supposed to work ... */
 	local->tx_led_counter += 2*q-1;
 	if (local->tx_led_counter % 2 == 0)
 		led_trigger_event(local->tx_led, LED_OFF);
@@ -195,7 +197,7 @@ static void tpt_trig_timer(unsigned long data)
 
 	tpt = tpt_trig_traffic(local, tpt_trig);
 
-	
+	/* default to just solid on */
 	on = 1;
 	off = 0;
 
@@ -253,7 +255,7 @@ static void ieee80211_start_tpt_led_trig(struct ieee80211_local *local)
 	if (tpt_trig->running)
 		return;
 
-	
+	/* reset traffic */
 	tpt_trig_traffic(local, tpt_trig);
 	tpt_trig->running = true;
 
@@ -292,6 +294,12 @@ void ieee80211_mod_tpt_led_trig(struct ieee80211_local *local,
 	tpt_trig->active &= ~types_off;
 	tpt_trig->active |= types_on;
 
+	/*
+	 * Regardless of wanted state, we shouldn't blink when
+	 * the radio is disabled -- this can happen due to some
+	 * code ordering issues with __ieee80211_recalc_idle()
+	 * being called before the radio is started.
+	 */
 	allowed = tpt_trig->active & IEEE80211_TPT_LEDTRIG_FL_RADIO;
 
 	if (!allowed || !(tpt_trig->active & tpt_trig->want))

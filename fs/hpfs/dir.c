@@ -1,3 +1,10 @@
+/*
+ *  linux/fs/hpfs/dir.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  directory VFS functions
+ */
 
 #include <linux/slab.h>
 #include "hpfs_fn.h"
@@ -6,11 +13,12 @@ static int hpfs_dir_release(struct inode *inode, struct file *filp)
 {
 	hpfs_lock(inode->i_sb);
 	hpfs_del_pos(inode, &filp->f_pos);
-	
+	/*hpfs_write_if_changed(inode);*/
 	hpfs_unlock(inode->i_sb);
 	return 0;
 }
 
+/* This is slow, but it's not used often */
 
 static loff_t hpfs_dir_lseek(struct file *filp, loff_t off, int whence)
 {
@@ -21,13 +29,13 @@ static loff_t hpfs_dir_lseek(struct file *filp, loff_t off, int whence)
 	struct hpfs_inode_info *hpfs_inode = hpfs_i(i);
 	struct super_block *s = i->i_sb;
 
-	
+	/* Somebody else will have to figure out what to do here */
 	if (whence == SEEK_DATA || whence == SEEK_HOLE)
 		return -EINVAL;
 
 	hpfs_lock(s);
 
-	
+	/*printk("dir lseek\n");*/
 	if (new_off == 0 || new_off == 1 || new_off == 11 || new_off == 12 || new_off == 13) goto ok;
 	mutex_lock(&i->i_mutex);
 	pos = ((loff_t) hpfs_de_as_down_as_possible(s, hpfs_inode->i_dno) << 4) + 1;
@@ -42,7 +50,7 @@ ok:
 	return filp->f_pos = new_off;
 fail:
 	mutex_unlock(&i->i_mutex);
-	
+	/*printk("illegal lseek: %016llx\n", new_off);*/
 	hpfs_unlock(s);
 	return -ESPIPE;
 }
@@ -95,8 +103,8 @@ static int hpfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 		}
 	}
 	lc = hpfs_sb(inode->i_sb)->sb_lowercase;
-	if (filp->f_pos == 12) { 
-		filp->f_pos = 13; 
+	if (filp->f_pos == 12) { /* diff -r requires this (note, that diff -r */
+		filp->f_pos = 13; /* also fails on msdos filesystem in 2.0) */
 		goto out;
 	}
 	if (filp->f_pos == 13) {
@@ -106,6 +114,9 @@ static int hpfs_readdir(struct file *filp, void *dirent, filldir_t filldir)
 	
 	while (1) {
 		again:
+		/* This won't work when cycle is longer than number of dirents
+		   accepted by filldir, but what can I do?
+		   maybe killall -9 ls helps */
 		if (hpfs_sb(inode->i_sb)->sb_chk)
 			if (hpfs_stop_cycles(inode->i_sb, filp->f_pos, &c1, &c2, "hpfs_readdir")) {
 				ret = -EFSERROR;
@@ -163,6 +174,20 @@ out:
 	return ret;
 }
 
+/*
+ * lookup.  Search the specified directory for the specified name, set
+ * *result to the corresponding inode.
+ *
+ * lookup uses the inode number to tell read_inode whether it is reading
+ * the inode of a directory or a file -- file ino's are odd, directory
+ * ino's are even.  read_inode avoids i/o for file inodes; everything
+ * needed is up here in the directory.  (And file fnodes are out in
+ * the boondocks.)
+ *
+ *    - M.P.: this is over, sometimes we've got to read file's fnode for eas
+ *	      inode numbers are just fnode sector numbers; iget lock is used
+ *	      to tell read_inode to read fnode or not.
+ */
 
 struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *nd)
 {
@@ -184,15 +209,27 @@ struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, struct name
 		goto end_add;
 	}
 
+	/*
+	 * '.' and '..' will never be passed here.
+	 */
 
 	de = map_dirent(dir, hpfs_i(dir)->i_dno, name, len, NULL, &qbh);
 
+	/*
+	 * This is not really a bailout, just means file not found.
+	 */
 
 	if (!de) goto end;
 
+	/*
+	 * Get inode number, what we're after.
+	 */
 
 	ino = le32_to_cpu(de->fnode);
 
+	/*
+	 * Go find or make an inode.
+	 */
 
 	result = iget_locked(dir->i_sb, ino);
 	if (!result) {
@@ -222,6 +259,10 @@ struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, struct name
 		goto bail1;
 	}
 
+	/*
+	 * Fill in the info from the directory if this is a newly created
+	 * inode.
+	 */
 
 	if (!result->i_ctime.tv_sec) {
 		if (!(result->i_ctime.tv_sec = local_to_gmt(dir->i_sb, le32_to_cpu(de->creation_date))))
@@ -239,6 +280,12 @@ struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, struct name
 				result->i_size = le32_to_cpu(de->file_size);
 				result->i_data.a_ops = &hpfs_aops;
 				hpfs_i(result)->mmu_private = result->i_size;
+			/*
+			 * i_blocks should count the fnode and any anodes.
+			 * We count 1 for the fnode and don't bother about
+			 * anodes -- the disk heads are on the directory band
+			 * and we want them to stay there.
+			 */
 				result->i_blocks = 1 + ((result->i_size + 511) >> 9);
 			}
 		}
@@ -246,6 +293,9 @@ struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, struct name
 
 	hpfs_brelse4(&qbh);
 
+	/*
+	 * Made it.
+	 */
 
 	end:
 	end_add:
@@ -253,11 +303,14 @@ struct dentry *hpfs_lookup(struct inode *dir, struct dentry *dentry, struct name
 	d_add(dentry, result);
 	return NULL;
 
+	/*
+	 * Didn't.
+	 */
 	bail1:
 	
 	hpfs_brelse4(&qbh);
 	
-	
+	/*bail:*/
 
 	hpfs_unlock(dir->i_sb);
 	return ERR_PTR(-ENOENT);

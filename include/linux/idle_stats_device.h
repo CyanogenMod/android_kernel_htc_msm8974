@@ -11,6 +11,10 @@
 #define MSM_IDLE_STATS_EVENT_COLLECTION_FULL          8
 #define MSM_IDLE_STATS_EVENT_IDLE_TIMER_EXPIRED      16
 
+/*
+ * All time, timer, and time interval values are in units of
+ * microseconds unless stated otherwise.
+ */
 #define MSM_IDLE_STATS_NR_MAX_INTERVALS 200
 
 struct msm_idle_pulse {
@@ -74,5 +78,5 @@ void msm_idle_stats_update_event(struct msm_idle_stats_device *device,
 				__u32 event);
 #endif
 
-#endif  
+#endif  /* __ARCH_ARM_MACH_MSM_IDLE_STATS_DEVICE_H */
 

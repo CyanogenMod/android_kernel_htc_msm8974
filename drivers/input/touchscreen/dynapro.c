@@ -13,6 +13,10 @@
  * the Free Software Foundation.
  */
 
+/*
+ * 2009/09/19 Tias Guns <tias@ulyssis.org>
+ *   Copied inexio.c and edited for Dynapro protocol (from retired Xorg module)
+ */
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -28,6 +32,9 @@ MODULE_AUTHOR("Tias Guns <tias@ulyssis.org>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Definitions & global arrays.
+ */
 
 #define DYNAPRO_FORMAT_TOUCH_BIT 0x40
 #define DYNAPRO_FORMAT_LENGTH 3
@@ -42,6 +49,9 @@ MODULE_LICENSE("GPL");
 #define DYNAPRO_GET_YC(data) (data[2] | ((data[0] & 0x07) << 7))
 #define DYNAPRO_GET_TOUCHED(data) (DYNAPRO_FORMAT_TOUCH_BIT & data[0])
 
+/*
+ * Per-touchscreen data.
+ */
 
 struct dynapro {
 	struct input_dev *dev;
@@ -94,6 +104,11 @@ static void dynapro_disconnect(struct serio *serio)
 	kfree(pdynapro);
 }
 
+/*
+ * dynapro_connect() is the routine that is called when someone adds a
+ * new serio device that supports dynapro protocol and registers it as
+ * an input device. This is usually accomplished using inputattach.
+ */
 
 static int dynapro_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -146,6 +161,9 @@ static int dynapro_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id dynapro_serio_ids[] = {
 	{
@@ -170,6 +188,9 @@ static struct serio_driver dynapro_drv = {
 	.disconnect	= dynapro_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init dynapro_init(void)
 {

@@ -29,14 +29,26 @@
 
 #include "kc.h"
 
+/*
+ * Global variables
+ */
 
+/* state variables to bind kernel consumer */
 DEFINE_SPINLOCK(pps_kc_hardpps_lock);
-struct pps_device *pps_kc_hardpps_dev;	
-int pps_kc_hardpps_mode;		
+/* PPS API (RFC 2783): current source and mode for kernel consumer */
+struct pps_device *pps_kc_hardpps_dev;	/* unique pointer to device */
+int pps_kc_hardpps_mode;		/* mode bits for kernel consumer */
 
+/* pps_kc_bind - control PPS kernel consumer binding
+ * @pps: the PPS source
+ * @bind_args: kernel consumer bind parameters
+ *
+ * This function is used to bind or unbind PPS kernel consumer according to
+ * supplied parameters. Should not be called in interrupt context.
+ */
 int pps_kc_bind(struct pps_device *pps, struct pps_bind_args *bind_args)
 {
-	
+	/* Check if another consumer is already bound */
 	spin_lock_irq(&pps_kc_hardpps_lock);
 
 	if (bind_args->edge == 0)
@@ -70,6 +82,13 @@ int pps_kc_bind(struct pps_device *pps, struct pps_bind_args *bind_args)
 	return 0;
 }
 
+/* pps_kc_remove - unbind kernel consumer on PPS source removal
+ * @pps: the PPS source
+ *
+ * This function is used to disable kernel consumer on PPS source removal
+ * if this source was bound to PPS kernel consumer. Can be called on any
+ * source safely. Should not be called in interrupt context.
+ */
 void pps_kc_remove(struct pps_device *pps)
 {
 	spin_lock_irq(&pps_kc_hardpps_lock);
@@ -83,12 +102,19 @@ void pps_kc_remove(struct pps_device *pps)
 		spin_unlock_irq(&pps_kc_hardpps_lock);
 }
 
+/* pps_kc_event - call hardpps() on PPS event
+ * @pps: the PPS source
+ * @ts: PPS event timestamp
+ * @event: PPS event edge
+ *
+ * This function calls hardpps() when an event from bound PPS source occurs.
+ */
 void pps_kc_event(struct pps_device *pps, struct pps_event_time *ts,
 		int event)
 {
 	unsigned long flags;
 
-	
+	/* Pass some events to kernel consumer if activated */
 	spin_lock_irqsave(&pps_kc_hardpps_lock, flags);
 	if (pps == pps_kc_hardpps_dev && event & pps_kc_hardpps_mode)
 		hardpps(&ts->ts_real, &ts->ts_raw);

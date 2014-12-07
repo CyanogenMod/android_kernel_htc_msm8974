@@ -37,20 +37,26 @@
 int stvdebug = 1;
 module_param_named(debug, stvdebug, int, 0644);
 
+/* internal params node */
 struct stv0900_inode {
-	
+	/* pointer for internal params, one for each pair of demods */
 	struct stv0900_internal		*internal;
 	struct stv0900_inode		*next_inode;
 };
 
+/* first internal params */
 static struct stv0900_inode *stv0900_first_inode;
 
+/* find chip by i2c adapter and i2c address */
 static struct stv0900_inode *find_inode(struct i2c_adapter *i2c_adap,
 							u8 i2c_addr)
 {
 	struct stv0900_inode *temp_chip = stv0900_first_inode;
 
 	if (temp_chip != NULL) {
+		/*
+		 Search of the last stv0900 chip or
+		 find it by i2c adapter and i2c address */
 		while ((temp_chip != NULL) &&
 			((temp_chip->internal->i2c_adap != i2c_adap) ||
 			(temp_chip->internal->i2c_addr != i2c_addr)))
@@ -62,6 +68,7 @@ static struct stv0900_inode *find_inode(struct i2c_adapter *i2c_adap,
 	return temp_chip;
 }
 
+/* deallocating chip */
 static void remove_inode(struct stv0900_internal *internal)
 {
 	struct stv0900_inode *prev_node = stv0900_first_inode;
@@ -86,6 +93,7 @@ static void remove_inode(struct stv0900_internal *internal)
 	}
 }
 
+/* allocating new chip */
 static struct stv0900_inode *append_internal(struct stv0900_internal *internal)
 {
 	struct stv0900_inode *new_node = stv0900_first_inode;
@@ -222,7 +230,7 @@ static enum fe_stv0900_error stv0900_initialize(struct stv0900_internal *intp)
 	if (intp->errs != STV0900_NO_ERROR)
 		return intp->errs;
 
-	
+	/*Startup sequence*/
 	stv0900_write_reg(intp, R0900_P1_DMDISTATE, 0x5c);
 	stv0900_write_reg(intp, R0900_P2_DMDISTATE, 0x5c);
 	msleep(3);
@@ -241,7 +249,7 @@ static enum fe_stv0900_error stv0900_initialize(struct stv0900_internal *intp)
 				| intp->clkmode);
 		break;
 	default:
-		
+		/* preserve SELOSCI bit */
 		i = 0x02 & stv0900_read_reg(intp, R0900_SYNTCTRL);
 		stv0900_write_reg(intp, R0900_SYNTCTRL, 0x20 | i);
 		break;
@@ -307,7 +315,12 @@ static enum fe_stv0900_error stv0900_set_mclk(struct stv0900_internal *intp, u32
 	intp->mclk = stv0900_get_mclk_freq(intp,
 					intp->quartz);
 
-	
+	/*Set the DiseqC frequency to 22KHz */
+	/*
+		Formula:
+		DiseqC_TX_Freq= MasterClock/(32*F22TX_Reg)
+		DiseqC_RX_Freq= MasterClock/(32*F22RX_Reg)
+	*/
 	m_div = intp->mclk / 704000;
 	stv0900_write_reg(intp, R0900_P1_F22TX, m_div);
 	stv0900_write_reg(intp, R0900_P1_F22RX, m_div);
@@ -557,6 +570,11 @@ void stv0900_set_bandwidth(struct dvb_frontend *fe, u32 bandwidth)
 u32 stv0900_get_freq_auto(struct stv0900_internal *intp, int demod)
 {
 	u32 freq, round;
+	/*	Formulat :
+	Tuner_Frequency(MHz)	= Regs / 64
+	Tuner_granularity(MHz)	= Regs / 2048
+	real_Tuner_Frequency	= Tuner_Frequency(MHz) - Tuner_granularity(MHz)
+	*/
 	freq = (stv0900_get_bits(intp, TUN_RFFREQ2) << 10) +
 		(stv0900_get_bits(intp, TUN_RFFREQ1) << 2) +
 		stv0900_get_bits(intp, TUN_RFFREQ0);
@@ -575,14 +593,17 @@ void stv0900_set_tuner_auto(struct stv0900_internal *intp, u32 Frequency,
 						u32 Bandwidth, int demod)
 {
 	u32 tunerFrequency;
+	/* Formulat:
+	Tuner_frequency_reg= Frequency(MHz)*64
+	*/
 	tunerFrequency = (Frequency * 64) / 1000;
 
 	stv0900_write_bits(intp, TUN_RFFREQ2, (tunerFrequency >> 10));
 	stv0900_write_bits(intp, TUN_RFFREQ1, (tunerFrequency >> 2) & 0xff);
 	stv0900_write_bits(intp, TUN_RFFREQ0, (tunerFrequency & 0x03));
-	
+	/* Low Pass Filter = BW /2 (MHz)*/
 	stv0900_write_bits(intp, TUN_BW, Bandwidth / 2000000);
-	
+	/* Tuner Write trig */
 	stv0900_write_reg(intp, TNRLD, 1);
 }
 
@@ -731,14 +752,14 @@ static int stv0900_read_ucblocks(struct dvb_frontend *fe, u32 * ucblocks)
 
 	*ucblocks = 0x0;
 	if (stv0900_get_standard(fe, demod) == STV0900_DVBS2_STANDARD) {
-		
+		/* DVB-S2 delineator errors count */
 
-		
+		/* retreiving number for errnous headers */
 		err_val1 = stv0900_read_reg(intp, BBFCRCKO1);
 		err_val0 = stv0900_read_reg(intp, BBFCRCKO0);
 		header_err_val = (err_val1 << 8) | err_val0;
 
-		
+		/* retreiving number for errnous packets */
 		err_val1 = stv0900_read_reg(intp, UPCRCKO1);
 		err_val0 = stv0900_read_reg(intp, UPCRCKO0);
 		*ucblocks = (err_val1 << 8) | err_val0;
@@ -978,7 +999,7 @@ void stv0900_start_search(struct stv0900_internal *intp,
 			stv0900_write_reg(intp, RTCS2, 0x44);
 		}
 
-	} else { 
+	} else { /*cut 3.0 above*/
 		if (intp->symbol_rate[demod] <= 5000000)
 			stv0900_write_reg(intp, RTCS2, 0x68);
 		else
@@ -1035,7 +1056,7 @@ void stv0900_start_search(struct stv0900_internal *intp,
 		if (intp->symbol_rate[demod] < 2000000) {
 			if (intp->chip_id <= 0x20)
 				stv0900_write_reg(intp, CARFREQ, 0x39);
-			else  
+			else  /*cut 3.0*/
 				stv0900_write_reg(intp, CARFREQ, 0x89);
 
 			stv0900_write_reg(intp, CARHDR, 0x40);
@@ -1410,20 +1431,20 @@ static enum fe_stv0900_error stv0900_init_internal(struct dvb_frontend *fe,
 
 	intp->tuner_type[0] = p_init->tuner1_type;
 	intp->tuner_type[1] = p_init->tuner2_type;
-	
+	/* tuner init */
 	switch (p_init->tuner1_type) {
-	case 3: 
+	case 3: /*FE_AUTO_STB6100:*/
 		stv0900_write_reg(intp, R0900_P1_TNRCFG, 0x3c);
 		stv0900_write_reg(intp, R0900_P1_TNRCFG2, 0x86);
 		stv0900_write_reg(intp, R0900_P1_TNRCFG3, 0x18);
-		stv0900_write_reg(intp, R0900_P1_TNRXTAL, 27); 
+		stv0900_write_reg(intp, R0900_P1_TNRXTAL, 27); /* 27MHz */
 		stv0900_write_reg(intp, R0900_P1_TNRSTEPS, 0x05);
 		stv0900_write_reg(intp, R0900_P1_TNRGAIN, 0x17);
 		stv0900_write_reg(intp, R0900_P1_TNRADJ, 0x1f);
 		stv0900_write_reg(intp, R0900_P1_TNRCTL2, 0x0);
 		stv0900_write_bits(intp, F0900_P1_TUN_TYPE, 3);
 		break;
-	
+	/* case FE_SW_TUNER: */
 	default:
 		stv0900_write_bits(intp, F0900_P1_TUN_TYPE, 6);
 		break;
@@ -1438,22 +1459,22 @@ static enum fe_stv0900_error stv0900_init_internal(struct dvb_frontend *fe,
 		break;
 	}
 
-	stv0900_write_reg(intp, R0900_P1_TNRLD, 1); 
+	stv0900_write_reg(intp, R0900_P1_TNRLD, 1); /* hw tuner */
 
-	
+	/* tuner init */
 	switch (p_init->tuner2_type) {
-	case 3: 
+	case 3: /*FE_AUTO_STB6100:*/
 		stv0900_write_reg(intp, R0900_P2_TNRCFG, 0x3c);
 		stv0900_write_reg(intp, R0900_P2_TNRCFG2, 0x86);
 		stv0900_write_reg(intp, R0900_P2_TNRCFG3, 0x18);
-		stv0900_write_reg(intp, R0900_P2_TNRXTAL, 27); 
+		stv0900_write_reg(intp, R0900_P2_TNRXTAL, 27); /* 27MHz */
 		stv0900_write_reg(intp, R0900_P2_TNRSTEPS, 0x05);
 		stv0900_write_reg(intp, R0900_P2_TNRGAIN, 0x17);
 		stv0900_write_reg(intp, R0900_P2_TNRADJ, 0x1f);
 		stv0900_write_reg(intp, R0900_P2_TNRCTL2, 0x0);
 		stv0900_write_bits(intp, F0900_P2_TUN_TYPE, 3);
 		break;
-	
+	/* case FE_SW_TUNER: */
 	default:
 		stv0900_write_bits(intp, F0900_P2_TUN_TYPE, 6);
 		break;
@@ -1468,7 +1489,7 @@ static enum fe_stv0900_error stv0900_init_internal(struct dvb_frontend *fe,
 		break;
 	}
 
-	stv0900_write_reg(intp, R0900_P2_TNRLD, 1); 
+	stv0900_write_reg(intp, R0900_P2_TNRLD, 1); /* hw tuner */
 
 	stv0900_write_bits(intp, F0900_P1_TUN_IQSWAP, p_init->tun1_iq_inv);
 	stv0900_write_bits(intp, F0900_P2_TUN_IQSWAP, p_init->tun2_iq_inv);
@@ -1524,10 +1545,10 @@ static int stv0900_status(struct stv0900_internal *intp,
 	dprintk("%s: locked = %d\n", __func__, locked);
 
 	if (stvdebug) {
-		
+		/* Print TS bitrate */
 		tsbitrate0_val = stv0900_read_reg(intp, TSBITRATE0);
 		tsbitrate1_val = stv0900_read_reg(intp, TSBITRATE1);
-		
+		/* Formula Bit rate = Mclk * px_tsfifo_bitrate / 16384 */
 		bitrate = (stv0900_get_mclk_freq(intp, intp->quartz)/1000000)
 			* (tsbitrate1_val << 8 | tsbitrate0_val);
 		bitrate /= 16384;
@@ -1566,7 +1587,7 @@ static enum dvbfe_search stv0900_search(struct dvb_frontend *fe)
 	p_search.standard = STV0900_AUTO_SEARCH;
 	p_search.iq_inversion = STV0900_IQ_AUTO;
 	p_search.search_algo = STV0900_BLIND_SEARCH;
-	
+	/* Speeds up DVB-S searching */
 	if (c->delivery_system == SYS_DVBS)
 		p_search.standard = STV0900_SEARCH_DVBS1;
 
@@ -1683,7 +1704,7 @@ static int stv0900_diseqc_send(struct stv0900_internal *intp , u8 *data,
 	stv0900_write_bits(intp, DIS_PRECHARGE, 1);
 	while (i < NbData) {
 		while (stv0900_get_bits(intp, FIFO_FULL))
-			;
+			;/* checkpatch complains */
 		stv0900_write_reg(intp, DISTXDATA, data[i]);
 		i++;
 	}
@@ -1719,12 +1740,12 @@ static int stv0900_send_burst(struct dvb_frontend *fe, fe_sec_mini_cmd_t burst)
 
 	switch (burst) {
 	case SEC_MINI_A:
-		stv0900_write_bits(intp, DISTX_MODE, 3);
+		stv0900_write_bits(intp, DISTX_MODE, 3);/* Unmodulated */
 		data = 0x00;
 		stv0900_diseqc_send(intp, &data, 1, state->demod);
 		break;
 	case SEC_MINI_B:
-		stv0900_write_bits(intp, DISTX_MODE, 2);
+		stv0900_write_bits(intp, DISTX_MODE, 2);/* Modulated */
 		data = 0xff;
 		stv0900_diseqc_send(intp, &data, 1, state->demod);
 		break;
@@ -1768,16 +1789,18 @@ static int stv0900_set_tone(struct dvb_frontend *fe, fe_sec_tone_mode_t toneoff)
 
 	switch (toneoff) {
 	case SEC_TONE_ON:
-		
+		/*Set the DiseqC mode to 22Khz _continues_ tone*/
 		stv0900_write_bits(intp, DISTX_MODE, 0);
 		stv0900_write_bits(intp, DISEQC_RESET, 1);
-		
+		/*release DiseqC reset to enable the 22KHz tone*/
 		stv0900_write_bits(intp, DISEQC_RESET, 0);
 		break;
 	case SEC_TONE_OFF:
+		/*return diseqc mode to config->diseqc_mode.
+		Usually it's without _continues_ tone */
 		stv0900_write_bits(intp, DISTX_MODE,
 				state->config->diseqc_mode);
-		
+		/*maintain the DiseqC reset to disable the 22KHz tone*/
 		stv0900_write_bits(intp, DISEQC_RESET, 1);
 		stv0900_write_bits(intp, DISEQC_RESET, 0);
 		break;

@@ -2938,7 +2938,6 @@ static unsigned int snd_pcm_playback_poll(struct file *file, poll_table * wait)
 
 	poll_wait(file, &runtime->sleep, wait);
 
-	pr_info("%s ++", __func__);
 	snd_pcm_stream_lock_irq(substream);
 	avail = snd_pcm_playback_avail(runtime);
 	switch (runtime->status->state) {
@@ -2957,7 +2956,6 @@ static unsigned int snd_pcm_playback_poll(struct file *file, poll_table * wait)
 		mask = POLLOUT | POLLWRNORM | POLLERR;
 		break;
 	}
-	pr_info("%s --", __func__);
 	snd_pcm_stream_unlock_irq(substream);
 	return mask;
 }

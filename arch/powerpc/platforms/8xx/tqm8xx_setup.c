@@ -49,22 +49,22 @@ struct cpm_pin {
 };
 
 static struct __initdata cpm_pin tqm8xx_pins[] = {
-	
-	{CPM_PORTB, 24, CPM_PIN_INPUT}, 
-	{CPM_PORTB, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, 
+	/* SMC1 */
+	{CPM_PORTB, 24, CPM_PIN_INPUT}, /* RX */
+	{CPM_PORTB, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, /* TX */
 
-	
-	{CPM_PORTA, 5, CPM_PIN_INPUT}, 
-	{CPM_PORTA, 7, CPM_PIN_INPUT}, 
-	{CPM_PORTA, 14, CPM_PIN_INPUT}, 
-	{CPM_PORTA, 15, CPM_PIN_INPUT}, 
-	{CPM_PORTC, 15, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, 
+	/* SCC1 */
+	{CPM_PORTA, 5, CPM_PIN_INPUT}, /* CLK1 */
+	{CPM_PORTA, 7, CPM_PIN_INPUT}, /* CLK2 */
+	{CPM_PORTA, 14, CPM_PIN_INPUT}, /* TX */
+	{CPM_PORTA, 15, CPM_PIN_INPUT}, /* RX */
+	{CPM_PORTC, 15, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, /* TENA */
 	{CPM_PORTC, 10, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO},
 	{CPM_PORTC, 11, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO},
 };
 
 static struct __initdata cpm_pin tqm8xx_fec_pins[] = {
-	
+	/* MII */
 	{CPM_PORTD, 3, CPM_PIN_OUTPUT},
 	{CPM_PORTD, 4, CPM_PIN_OUTPUT},
 	{CPM_PORTD, 5, CPM_PIN_OUTPUT},
@@ -107,7 +107,7 @@ static void __init init_ioports(void)
 	if (prop == NULL)
 		return;
 
-	
+	/* init FEC pins */
 	init_pins(ARRAY_SIZE(tqm8xx_fec_pins), &tqm8xx_fec_pins[0]);
 }
 

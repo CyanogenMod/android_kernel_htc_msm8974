@@ -88,7 +88,7 @@ static void adsp_loader_do(struct platform_device *pdev)
 			goto fail;
 		}
 
-		
+		/* Set the state of the ADSP in APR driver */
 		apr_set_q6_state(APR_SUBSYS_LOADED);
 	} else if (adsp_state == APR_SUBSYS_LOADED) {
 		dev_dbg(&pdev->dev,

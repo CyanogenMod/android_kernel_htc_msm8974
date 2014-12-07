@@ -43,7 +43,7 @@ static struct platform_device swarm_pata_device = {
 	.num_resources	= ARRAY_SIZE(swarm_pata_resource),
 	.dev  = {
 		.platform_data		= &pata_platform_data,
-		.coherent_dma_mask	= ~0,	
+		.coherent_dma_mask	= ~0,	/* grumble */
 	},
 };
 
@@ -82,7 +82,7 @@ static int __init swarm_pata_init(void)
 
 device_initcall(swarm_pata_init);
 
-#endif 
+#endif /* defined(CONFIG_SIBYTE_SWARM) || defined(CONFIG_SIBYTE_LITTLESUR) */
 
 #define sb1250_dev_struct(num) \
 	static struct resource sb1250_res##num = {		\
@@ -114,7 +114,7 @@ static int __init sb1250_device_init(void)
 {
 	int ret;
 
-	
+	/* Set the number of available units based on the SOC type.  */
 	switch (soc_type) {
 	case K_SYS_SOC_TYPE_BCM1250:
 	case K_SYS_SOC_TYPE_BCM1250_ALT:
@@ -123,7 +123,7 @@ static int __init sb1250_device_init(void)
 	case K_SYS_SOC_TYPE_BCM1120:
 	case K_SYS_SOC_TYPE_BCM1125:
 	case K_SYS_SOC_TYPE_BCM1125H:
-	case K_SYS_SOC_TYPE_BCM1250_ALT2:       
+	case K_SYS_SOC_TYPE_BCM1250_ALT2:       /* Hybrid */
 		ret = platform_add_devices(sb1250_devs, 2);
 		break;
 	case K_SYS_SOC_TYPE_BCM1x55:

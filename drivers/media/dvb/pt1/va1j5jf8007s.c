@@ -496,7 +496,7 @@ va1j5jf8007s_tune(struct dvb_frontend *fe,
 		}
 
 		state->tune_state = VA1J5JF8007S_TRACK;
-		
+		/* fall through */
 
 	case VA1J5JF8007S_TRACK:
 		*delay = 3 * HZ;
@@ -679,6 +679,7 @@ static int va1j5jf8007s_prepare_2(struct va1j5jf8007s_state *state)
 	return 0;
 }
 
+/* must be called after va1j5jf8007t_attach */
 int va1j5jf8007s_prepare(struct dvb_frontend *fe)
 {
 	struct va1j5jf8007s_state *state;

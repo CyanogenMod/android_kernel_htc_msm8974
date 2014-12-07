@@ -29,14 +29,15 @@
 
 #include "videocodec.h"
 
+/* data stored for each zoran jpeg codec chip */
 struct zr36050 {
 	char name[32];
 	int num;
-	
+	/* io datastructure */
 	struct videocodec *codec;
-	
+	// last coder status
 	__u8 status1;
-	
+	// actual coder setup
 	int mode;
 
 	__u16 width;
@@ -53,11 +54,12 @@ struct zr36050 {
 	__u16 scalefact;
 	__u16 dri;
 
-	
+	/* com/app marker */
 	struct jpeg_com_marker com;
 	struct jpeg_app_marker app;
 };
 
+/* zr36050 register addresses */
 #define ZR050_GO                  0x000
 #define ZR050_HARDWARE            0x002
 #define ZR050_MODE                0x003
@@ -106,6 +108,7 @@ struct zr36050 {
 #define ZR050_APP_IDX             0x380
 #define ZR050_COM_IDX             0x3c0
 
+/* zr36050 hardware register bits */
 
 #define ZR050_HW_BSWD                0x80
 #define ZR050_HW_MSTR                0x40
@@ -120,6 +123,7 @@ struct zr36050 {
 #define ZR050_HW_CFIS_8_CLK          0x1C
 #define ZR050_HW_BELE                0x01
 
+/* zr36050 mode register bits */
 
 #define ZR050_MO_COMP                0x80
 #define ZR050_MO_COMP                0x80
@@ -134,6 +138,7 @@ struct zr36050 {
 #define ZR050_MO_TLM                 0x10
 #define ZR050_MO_DCONLY              0x08
 
+/* zr36050 option register bits */
 
 #define ZR050_OP_NSCN_1              0x00
 #define ZR050_OP_NSCN_2              0x20
@@ -146,6 +151,7 @@ struct zr36050 {
 #define ZR050_OP_OVF                 0x10
 
 
+/* zr36050 markers-enable register bits */
 
 #define ZR050_ME_APP                 0x80
 #define ZR050_ME_COM                 0x40
@@ -156,6 +162,7 @@ struct zr36050 {
 #define ZR050_ME_DQTI                0x02
 #define ZR050_ME_DHTI                0x01
 
+/* zr36050 status0/1 register bit masks */
 
 #define ZR050_ST_RST_MASK            0x20
 #define ZR050_ST_SOF_MASK            0x02
@@ -168,9 +175,10 @@ struct zr36050 {
 #define ZR050_ST_TCVOVF_MASK         0x02
 #define ZR050_ST_DATOVF_MASK         0x01
 
+/* pixel component idx */
 
 #define ZR050_Y_COMPONENT         0
 #define ZR050_U_COMPONENT         1
 #define ZR050_V_COMPONENT         2
 
-#endif				
+#endif				/*fndef ZR36050_H */

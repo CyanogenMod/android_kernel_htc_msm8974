@@ -104,6 +104,7 @@ static struct snd_pcm_hardware sst_platform_pcm_hw = {
 	.fifo_size = SST_FIFO_SIZE,
 };
 
+/* MFLD - MSIC */
 static struct snd_soc_dai_driver sst_platform_dai[] = {
 {
 	.name = "Headset-cpu-dai",
@@ -153,6 +154,7 @@ static struct snd_soc_dai_driver sst_platform_dai[] = {
 },
 };
 
+/* helper functions */
 static inline void sst_set_stream_status(struct sst_runtime_stream *stream,
 					int state)
 {
@@ -197,7 +199,7 @@ static int sst_platform_alloc_stream(struct snd_pcm_substream *substream)
 	struct sst_stream_params str_params = {0};
 	int ret_val;
 
-	
+	/* set codec params and inform SST driver the same */
 	sst_fill_pcm_params(substream, &param);
 	substream->runtime->dma_area = substream->dma_buffer.area;
 	str_params.sparams = param;
@@ -259,6 +261,7 @@ static int sst_platform_init_stream(struct snd_pcm_substream *substream)
 	return ret_val;
 
 }
+/* end -- helper functions */
 
 static int sst_platform_open(struct snd_pcm_substream *substream)
 {
@@ -279,7 +282,7 @@ static int sst_platform_open(struct snd_pcm_substream *substream)
 		return -ENOMEM;
 	spin_lock_init(&stream->status_lock);
 
-	
+	/* get the sst ops */
 	mutex_lock(&sst_lock);
 	if (!sst) {
 		pr_err("no device available to run\n");
@@ -298,7 +301,7 @@ static int sst_platform_open(struct snd_pcm_substream *substream)
 	stream->stream_info.str_id = 0;
 	sst_set_stream_status(stream, SST_PLATFORM_INIT);
 	stream->stream_info.mad_substream = substream;
-	
+	/* allocate memory for SST API set */
 	runtime->private_data = stream;
 
 	return 0;

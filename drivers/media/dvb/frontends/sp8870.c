@@ -19,6 +19,12 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+ * This driver needs external firmware. Please use the command
+ * "<kerneldir>/Documentation/dvb/get_dvb_firmware alps_tdlb7" to
+ * download/extract it, and then copy it to /usr/lib/hotplug/firmware
+ * or /lib/firmware (depending on configuration of firmware hotplug).
+ */
 #define SP8870_DEFAULT_FIRMWARE "dvb-fe-sp8870.fw"
 
 #include <linux/init.h>
@@ -41,7 +47,7 @@ struct sp8870_state {
 
 	struct dvb_frontend frontend;
 
-	
+	/* demodulator private data */
 	u8 initialised:1;
 };
 
@@ -51,8 +57,10 @@ static int debug;
 		if (debug) printk(KERN_DEBUG "sp8870: " args); \
 	} while (0)
 
+/* firmware size for sp8870 */
 #define SP8870_FIRMWARE_SIZE 16382
 
+/* starting point for firmware in file 'Sc_main.mc' */
 #define SP8870_FIRMWARE_OFFSET 0x0A
 
 static int sp8870_writereg (struct sp8870_state* state, u16 reg, u16 data)
@@ -101,20 +109,20 @@ static int sp8870_firmware_upload (struct sp8870_state* state, const struct firm
 	if (fw->size < SP8870_FIRMWARE_SIZE + SP8870_FIRMWARE_OFFSET)
 		return -EINVAL;
 
-	
+	// system controller stop
 	sp8870_writereg(state, 0x0F00, 0x0000);
 
-	
+	// instruction RAM register hiword
 	sp8870_writereg(state, 0x8F08, ((SP8870_FIRMWARE_SIZE / 2) & 0xFFFF));
 
-	
+	// instruction RAM MWR
 	sp8870_writereg(state, 0x8F0A, ((SP8870_FIRMWARE_SIZE / 2) >> 16));
 
-	
+	// do firmware upload
 	fw_pos = SP8870_FIRMWARE_OFFSET;
 	while (fw_pos < SP8870_FIRMWARE_SIZE + SP8870_FIRMWARE_OFFSET){
 		tx_len = (fw_pos <= SP8870_FIRMWARE_SIZE + SP8870_FIRMWARE_OFFSET - 252) ? 252 : SP8870_FIRMWARE_SIZE + SP8870_FIRMWARE_OFFSET - fw_pos;
-		
+		// write register 0xCF0A
 		tx_buf[0] = 0xCF;
 		tx_buf[1] = 0x0A;
 		memcpy(&tx_buf[2], fw_buf + fw_pos, tx_len);
@@ -139,7 +147,7 @@ static void sp8870_microcontroller_stop (struct sp8870_state* state)
 	sp8870_writereg(state, 0x0F08, 0x000);
 	sp8870_writereg(state, 0x0F09, 0x000);
 
-	
+	// microcontroller STOP
 	sp8870_writereg(state, 0x0F00, 0x000);
 }
 
@@ -148,10 +156,10 @@ static void sp8870_microcontroller_start (struct sp8870_state* state)
 	sp8870_writereg(state, 0x0F08, 0x000);
 	sp8870_writereg(state, 0x0F09, 0x000);
 
-	
+	// microcontroller START
 	sp8870_writereg(state, 0x0F00, 0x001);
-	
-	
+	// not documented but if we don't read 0x0D01 out here
+	// we don't get a correct data valid signal
 	sp8870_readreg(state, 0x0D01);
 }
 
@@ -224,16 +232,16 @@ static int configure_reg0xc05 (struct dtv_frontend_properties *p, u16 *reg0xc05)
 	};
 
 	if (known_parameters)
-		*reg0xc05 |= (2 << 1);	
+		*reg0xc05 |= (2 << 1);	/* use specified parameters */
 	else
-		*reg0xc05 |= (1 << 1);	
+		*reg0xc05 |= (1 << 1);	/* enable autoprobing */
 
 	return 0;
 }
 
 static int sp8870_wake_up(struct sp8870_state* state)
 {
-	
+	// enable TS output and interface pins
 	return sp8870_writereg(state, 0xC18, 0x00D);
 }
 
@@ -247,28 +255,28 @@ static int sp8870_set_frontend_parameters(struct dvb_frontend *fe)
 	if ((err = configure_reg0xc05(p, &reg0xc05)))
 		return err;
 
-	
+	// system controller stop
 	sp8870_microcontroller_stop(state);
 
-	
+	// set tuner parameters
 	if (fe->ops.tuner_ops.set_params) {
 		fe->ops.tuner_ops.set_params(fe);
 		if (fe->ops.i2c_gate_ctrl) fe->ops.i2c_gate_ctrl(fe, 0);
 	}
 
-	
+	// sample rate correction bit [23..17]
 	sp8870_writereg(state, 0x0319, 0x000A);
 
-	
+	// sample rate correction bit [16..0]
 	sp8870_writereg(state, 0x031A, 0x0AAB);
 
-	
+	// integer carrier offset
 	sp8870_writereg(state, 0x0309, 0x0400);
 
-	
+	// fractional carrier offset
 	sp8870_writereg(state, 0x030A, 0x0000);
 
-	
+	// filter for 6/7/8 Mhz channel
 	if (p->bandwidth_hz == 6000000)
 		sp8870_writereg(state, 0x0311, 0x0002);
 	else if (p->bandwidth_hz == 7000000)
@@ -276,7 +284,7 @@ static int sp8870_set_frontend_parameters(struct dvb_frontend *fe)
 	else
 		sp8870_writereg(state, 0x0311, 0x0000);
 
-	
+	// scan order: 2k first = 0x0000, 8k first = 0x0001
 	if (p->transmission_mode == TRANSMISSION_MODE_2K)
 		sp8870_writereg(state, 0x0338, 0x0000);
 	else
@@ -284,10 +292,10 @@ static int sp8870_set_frontend_parameters(struct dvb_frontend *fe)
 
 	sp8870_writereg(state, 0xc05, reg0xc05);
 
-	
+	// read status reg in order to clear pending irqs
 	sp8870_readreg(state, 0x200);
 
-	
+	// system controller start
 	sp8870_microcontroller_start(state);
 
 	return 0;
@@ -305,7 +313,7 @@ static int sp8870_init (struct dvb_frontend* fe)
 	dprintk ("%s\n", __func__);
 
 
-	
+	/* request the firmware, this will block until someone uploads it */
 	printk("sp8870: waiting for firmware upload (%s)...\n", SP8870_DEFAULT_FIRMWARE);
 	if (state->config->request_firmware(fe, &fw, SP8870_DEFAULT_FIRMWARE)) {
 		printk("sp8870: no firmware upload (timeout or file not found?)\n");
@@ -320,22 +328,22 @@ static int sp8870_init (struct dvb_frontend* fe)
 	release_firmware(fw);
 	printk("sp8870: firmware upload complete\n");
 
-	
+	/* enable TS output and interface pins */
 	sp8870_writereg(state, 0xc18, 0x00d);
 
-	
+	// system controller stop
 	sp8870_microcontroller_stop(state);
 
-	
+	// ADC mode
 	sp8870_writereg(state, 0x0301, 0x0003);
 
-	
+	// Reed Solomon parity bytes passed to output
 	sp8870_writereg(state, 0x0C13, 0x0001);
 
-	
+	// MPEG clock is suppressed if no valid data
 	sp8870_writereg(state, 0x0C14, 0x0001);
 
-	
+	/* bit 0x010: enable data valid signal */
 	sp8870_writereg(state, 0x0D00, 0x010);
 	sp8870_writereg(state, 0x0D01, 0x000);
 
@@ -441,10 +449,14 @@ static int sp8870_read_uncorrected_blocks (struct dvb_frontend* fe, u32* ublocks
 	return 0;
 }
 
+/* number of trials to recover from lockup */
 #define MAXTRIALS 5
+/* maximum checks for data valid signal */
 #define MAXCHECKS 100
 
+/* only for debugging: counter for detected lockups */
 static int lockups;
+/* only for debugging: counter for channel switches */
 static int switches;
 
 static int sp8870_set_frontend(struct dvb_frontend *fe)
@@ -452,6 +464,12 @@ static int sp8870_set_frontend(struct dvb_frontend *fe)
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
 	struct sp8870_state* state = fe->demodulator_priv;
 
+	/*
+	    The firmware of the sp8870 sometimes locks up after setting frontend parameters.
+	    We try to detect this by checking the data valid signal.
+	    If it is not set after MAXCHECKS we try to recover the lockup by setting
+	    the frontend parameters again.
+	*/
 
 	int err = 0;
 	int valid = 0;
@@ -467,6 +485,7 @@ static int sp8870_set_frontend(struct dvb_frontend *fe)
 			return err;
 
 		for (check_count = 0; check_count < MAXCHECKS; check_count++) {
+//			valid = ((sp8870_readreg(i2c, 0x0200) & 4) == 0);
 			valid = sp8870_read_data_valid_signal(state);
 			if (valid) {
 				dprintk("%s: delay = %i usec\n",
@@ -503,7 +522,7 @@ static int sp8870_sleep(struct dvb_frontend* fe)
 {
 	struct sp8870_state* state = fe->demodulator_priv;
 
-	
+	// tristate TS output and disable interface pins
 	return sp8870_writereg(state, 0xC18, 0x000);
 }
 
@@ -539,19 +558,19 @@ struct dvb_frontend* sp8870_attach(const struct sp8870_config* config,
 {
 	struct sp8870_state* state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct sp8870_state), GFP_KERNEL);
 	if (state == NULL) goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->initialised = 0;
 
-	
+	/* check if the demod is there */
 	if (sp8870_readreg(state, 0x0200) < 0) goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &sp8870_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 	return &state->frontend;

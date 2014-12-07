@@ -30,8 +30,9 @@ MODULE_AUTHOR("Michel Xhaard <mxhaard@users.sourceforge.net>");
 MODULE_DESCRIPTION("GSPCA/SPCA5xx USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	s8 brightness;
 	u8 contrast;
@@ -58,6 +59,7 @@ struct sd {
 	u8 jpeg_hdr[JPEG_HDR_SZ];
 };
 
+/* V4L2 controls supported by the driver */
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val);
 static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val);
 static int sd_setcontrast(struct gspca_dev *gspca_dev, __s32 val);
@@ -180,9 +182,10 @@ static const struct v4l2_pix_format vga_mode2[] = {
 #define SPCA504_PCCAM600_OFFSET_COMPRESS 4
 #define SPCA504_PCCAM600_OFFSET_MODE	 5
 #define SPCA504_PCCAM600_OFFSET_DATA	 14
- 
+ /* Frame packet header offsets for the spca533 */
 #define SPCA533_OFFSET_DATA	16
 #define SPCA533_OFFSET_FRAMSEQ	15
+/* Frame packet header offsets for the spca536 */
 #define SPCA536_OFFSET_DATA	4
 #define SPCA536_OFFSET_FRAMSEQ	1
 
@@ -192,18 +195,20 @@ struct cmd {
 	u16 idx;
 };
 
+/* Initialisation data for the Creative PC-CAM 600 */
 static const struct cmd spca504_pccam600_init_data[] = {
+/*	{0xa0, 0x0000, 0x0503},  * capture mode */
 	{0x00, 0x0000, 0x2000},
 	{0x00, 0x0013, 0x2301},
 	{0x00, 0x0003, 0x2000},
 	{0x00, 0x0001, 0x21ac},
 	{0x00, 0x0001, 0x21a6},
-	{0x00, 0x0000, 0x21a7},	
-	{0x00, 0x0020, 0x21a8},	
-	{0x00, 0x0001, 0x21ac},	
-	{0x00, 0x0000, 0x21ad},	
-	{0x00, 0x001a, 0x21ae},	
-	{0x00, 0x0002, 0x21a3},	
+	{0x00, 0x0000, 0x21a7},	/* brightness */
+	{0x00, 0x0020, 0x21a8},	/* contrast */
+	{0x00, 0x0001, 0x21ac},	/* sat/hue */
+	{0x00, 0x0000, 0x21ad},	/* hue */
+	{0x00, 0x001a, 0x21ae},	/* saturation */
+	{0x00, 0x0002, 0x21a3},	/* gamma */
 	{0x30, 0x0154, 0x0008},
 	{0x30, 0x0004, 0x0006},
 	{0x30, 0x0258, 0x0009},
@@ -217,25 +222,30 @@ static const struct cmd spca504_pccam600_init_data[] = {
 	{0x00, 0x0003, 0x2000},
 };
 
+/* Creative PC-CAM 600 specific open data, sent before using the
+ * generic initialisation data from spca504_open_data.
+ */
 static const struct cmd spca504_pccam600_open_data[] = {
 	{0x00, 0x0001, 0x2501},
-	{0x20, 0x0500, 0x0001},	
+	{0x20, 0x0500, 0x0001},	/* snapshot mode */
 	{0x00, 0x0003, 0x2880},
 	{0x00, 0x0001, 0x2881},
 };
 
+/* Initialisation data for the logitech clicksmart 420 */
 static const struct cmd spca504A_clicksmart420_init_data[] = {
+/*	{0xa0, 0x0000, 0x0503},  * capture mode */
 	{0x00, 0x0000, 0x2000},
 	{0x00, 0x0013, 0x2301},
 	{0x00, 0x0003, 0x2000},
 	{0x00, 0x0001, 0x21ac},
 	{0x00, 0x0001, 0x21a6},
-	{0x00, 0x0000, 0x21a7},	
-	{0x00, 0x0020, 0x21a8},	
-	{0x00, 0x0001, 0x21ac},	
-	{0x00, 0x0000, 0x21ad},	
-	{0x00, 0x001a, 0x21ae},	
-	{0x00, 0x0002, 0x21a3},	
+	{0x00, 0x0000, 0x21a7},	/* brightness */
+	{0x00, 0x0020, 0x21a8},	/* contrast */
+	{0x00, 0x0001, 0x21ac},	/* sat/hue */
+	{0x00, 0x0000, 0x21ad},	/* hue */
+	{0x00, 0x001a, 0x21ae},	/* saturation */
+	{0x00, 0x0002, 0x21a3},	/* gamma */
 	{0x30, 0x0004, 0x000a},
 	{0xb0, 0x0001, 0x0000},
 
@@ -249,6 +259,7 @@ static const struct cmd spca504A_clicksmart420_init_data[] = {
 	{0x00, 0x0003, 0x2000},
 };
 
+/* clicksmart 420 open data ? */
 static const struct cmd spca504A_clicksmart420_open_data[] = {
 	{0x00, 0x0001, 0x2501},
 	{0x20, 0x0502, 0x0000},
@@ -260,7 +271,7 @@ static const struct cmd spca504A_clicksmart420_open_data[] = {
 };
 
 static const u8 qtable_creative_pccam[2][64] = {
-	{				
+	{				/* Q-table Y-components */
 	 0x05, 0x03, 0x03, 0x05, 0x07, 0x0c, 0x0f, 0x12,
 	 0x04, 0x04, 0x04, 0x06, 0x08, 0x11, 0x12, 0x11,
 	 0x04, 0x04, 0x05, 0x07, 0x0c, 0x11, 0x15, 0x11,
@@ -269,7 +280,7 @@ static const u8 qtable_creative_pccam[2][64] = {
 	 0x07, 0x0b, 0x11, 0x13, 0x18, 0x1f, 0x22, 0x1c,
 	 0x0f, 0x13, 0x17, 0x1a, 0x1f, 0x24, 0x24, 0x1e,
 	 0x16, 0x1c, 0x1d, 0x1d, 0x22, 0x1e, 0x1f, 0x1e},
-	{				
+	{				/* Q-table C-components */
 	 0x05, 0x05, 0x07, 0x0e, 0x1e, 0x1e, 0x1e, 0x1e,
 	 0x05, 0x06, 0x08, 0x14, 0x1e, 0x1e, 0x1e, 0x1e,
 	 0x07, 0x08, 0x11, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e,
@@ -280,8 +291,12 @@ static const u8 qtable_creative_pccam[2][64] = {
 	 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e}
 };
 
+/* FIXME: This Q-table is identical to the Creative PC-CAM one,
+ *		except for one byte. Possibly a typo?
+ *		NWG: 18/05/2003.
+ */
 static const u8 qtable_spca504_default[2][64] = {
-	{				
+	{				/* Q-table Y-components */
 	 0x05, 0x03, 0x03, 0x05, 0x07, 0x0c, 0x0f, 0x12,
 	 0x04, 0x04, 0x04, 0x06, 0x08, 0x11, 0x12, 0x11,
 	 0x04, 0x04, 0x05, 0x07, 0x0c, 0x11, 0x15, 0x11,
@@ -289,9 +304,9 @@ static const u8 qtable_spca504_default[2][64] = {
 	 0x05, 0x07, 0x0b, 0x11, 0x14, 0x21, 0x1f, 0x17,
 	 0x07, 0x0b, 0x11, 0x13, 0x18, 0x1f, 0x22, 0x1c,
 	 0x0f, 0x13, 0x17, 0x1a, 0x1f, 0x24, 0x24, 0x1e,
-	 0x16, 0x1c, 0x1d, 0x1d, 0x1d  , 0x1e, 0x1f, 0x1e,
+	 0x16, 0x1c, 0x1d, 0x1d, 0x1d /* 0x22 */ , 0x1e, 0x1f, 0x1e,
 	 },
-	{				
+	{				/* Q-table C-components */
 	 0x05, 0x05, 0x07, 0x0e, 0x1e, 0x1e, 0x1e, 0x1e,
 	 0x05, 0x06, 0x08, 0x14, 0x1e, 0x1e, 0x1e, 0x1e,
 	 0x07, 0x08, 0x11, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e,
@@ -302,6 +317,7 @@ static const u8 qtable_spca504_default[2][64] = {
 	 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e, 0x1e}
 };
 
+/* read <len> bytes to gspca_dev->usb_buf */
 static void reg_r(struct gspca_dev *gspca_dev,
 		  u8 req,
 		  u16 index,
@@ -321,7 +337,7 @@ static void reg_r(struct gspca_dev *gspca_dev,
 			usb_rcvctrlpipe(gspca_dev->dev, 0),
 			req,
 			USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			0,		
+			0,		/* value */
 			index,
 			len ? gspca_dev->usb_buf : NULL, len,
 			500);
@@ -331,6 +347,7 @@ static void reg_r(struct gspca_dev *gspca_dev,
 	}
 }
 
+/* write one byte */
 static void reg_w_1(struct gspca_dev *gspca_dev,
 		   u8 req,
 		   u16 value,
@@ -355,6 +372,7 @@ static void reg_w_1(struct gspca_dev *gspca_dev,
 	}
 }
 
+/* write req / index / value */
 static void reg_w_riv(struct gspca_dev *gspca_dev,
 		     u8 req, u16 index, u16 value)
 {
@@ -391,11 +409,11 @@ static void setup_qtable(struct gspca_dev *gspca_dev,
 {
 	int i;
 
-	
+	/* loop over y components */
 	for (i = 0; i < 64; i++)
 		reg_w_riv(gspca_dev, 0x00, 0x2800 + i, qtable[0][i]);
 
-	
+	/* loop over c components */
 	for (i = 0; i < 64; i++)
 		reg_w_riv(gspca_dev, 0x00, 0x2840 + i, qtable[1][i]);
 }
@@ -448,7 +466,8 @@ static void spca504A_acknowledged_command(struct gspca_dev *gspca_dev,
 	count = 200;
 	while (--count > 0) {
 		msleep(10);
-		
+		/* gsmart mini2 write a each wait setting 1 ms is enough */
+/*		reg_w_riv(gspca_dev, req, idx, val); */
 		reg_r(gspca_dev, 0x01, 0x0001, 1);
 		status = gspca_dev->usb_buf[0];
 		if (status == endcode) {
@@ -515,29 +534,31 @@ static void spca504B_SetSizeType(struct gspca_dev *gspca_dev)
 #ifdef GSPCA_DEBUG
 		spca50x_GetFirmware(gspca_dev);
 #endif
-		reg_w_1(gspca_dev, 0x24, 0, 8, 2);		
+		reg_w_1(gspca_dev, 0x24, 0, 8, 2);		/* type */
 		reg_r(gspca_dev, 0x24, 8, 1);
 
 		reg_w_1(gspca_dev, 0x25, 0, 4, Size);
-		reg_r(gspca_dev, 0x25, 4, 1);			
+		reg_r(gspca_dev, 0x25, 4, 1);			/* size */
 		spca504B_PollingDataReady(gspca_dev);
 
-		
+		/* Init the cam width height with some values get on init ? */
 		reg_w_riv(gspca_dev, 0x31, 0x0004, 0x00);
 		spca504B_WaitCmdStatus(gspca_dev);
 		spca504B_PollingDataReady(gspca_dev);
 		break;
 	default:
+/* case BRIDGE_SPCA504B: */
+/* case BRIDGE_SPCA536: */
 		reg_w_1(gspca_dev, 0x25, 0, 4, Size);
-		reg_r(gspca_dev, 0x25, 4, 1);			
+		reg_r(gspca_dev, 0x25, 4, 1);			/* size */
 		reg_w_1(gspca_dev, 0x27, 0, 0, 6);
-		reg_r(gspca_dev, 0x27, 0, 1);			
+		reg_r(gspca_dev, 0x27, 0, 1);			/* type */
 		spca504B_PollingDataReady(gspca_dev);
 		break;
 	case BRIDGE_SPCA504:
 		Size += 3;
 		if (sd->subtype == AiptekMiniPenCam13) {
-			
+			/* spca504a aiptek */
 			spca504A_acknowledged_command(gspca_dev,
 						0x08, Size, 0,
 						0x80 | (Size & 0x0f), 1);
@@ -548,7 +569,7 @@ static void spca504B_SetSizeType(struct gspca_dev *gspca_dev)
 		}
 		break;
 	case BRIDGE_SPCA504C:
-		
+		/* capture mode */
 		reg_w_riv(gspca_dev, 0xa0, (0x0500 | (Size & 0x0f)), 0x00);
 		reg_w_riv(gspca_dev, 0x20, 0x01, 0x0500 | (Size & 0x0f));
 		break;
@@ -561,7 +582,7 @@ static void spca504_wait_status(struct gspca_dev *gspca_dev)
 
 	cnt = 256;
 	while (--cnt > 0) {
-		
+		/* With this we get the status, when return 0 it's all ok */
 		reg_r(gspca_dev, 0x06, 0x00, 1);
 		if (gspca_dev->usb_buf[0] == 0)
 			return;
@@ -616,11 +637,13 @@ static void init_ctl_reg(struct gspca_dev *gspca_dev)
 	case BRIDGE_SPCA504:
 	case BRIDGE_SPCA504C:
 		pollreg = 0;
-		
+		/* fall thru */
 	default:
-		reg_w_riv(gspca_dev, 0, 0x21ad, 0x00);	
-		reg_w_riv(gspca_dev, 0, 0x21ac, 0x01);	
-		reg_w_riv(gspca_dev, 0, 0x21a3, 0x00);	
+/*	case BRIDGE_SPCA533: */
+/*	case BRIDGE_SPCA504B: */
+		reg_w_riv(gspca_dev, 0, 0x21ad, 0x00);	/* hue */
+		reg_w_riv(gspca_dev, 0, 0x21ac, 0x01);	/* sat/hue */
+		reg_w_riv(gspca_dev, 0, 0x21a3, 0x00);	/* gamma */
 		break;
 	case BRIDGE_SPCA536:
 		reg_w_riv(gspca_dev, 0, 0x20f5, 0x40);
@@ -632,6 +655,7 @@ static void init_ctl_reg(struct gspca_dev *gspca_dev)
 		spca504B_PollingDataReady(gspca_dev);
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -645,10 +669,12 @@ static int sd_config(struct gspca_dev *gspca_dev,
 
 	if (sd->subtype == AiptekMiniPenCam13) {
 
+		/* try to get the firmware as some cam answer 2.0.1.2.2
+		 * and should be a spca504b then overwrite that setting */
 		reg_r(gspca_dev, 0x20, 0, 1);
 		switch (gspca_dev->usb_buf[0]) {
 		case 1:
-			break;		
+			break;		/* (right bridge/subtype) */
 		case 2:
 			sd->bridge = BRIDGE_SPCA504B;
 			sd->subtype = 0;
@@ -660,12 +686,15 @@ static int sd_config(struct gspca_dev *gspca_dev,
 
 	switch (sd->bridge) {
 	default:
+/*	case BRIDGE_SPCA504B: */
+/*	case BRIDGE_SPCA504: */
+/*	case BRIDGE_SPCA536: */
 		cam->cam_mode = vga_mode;
 		cam->nmodes = ARRAY_SIZE(vga_mode);
 		break;
 	case BRIDGE_SPCA533:
 		cam->cam_mode = custom_mode;
-		if (sd->subtype == MegaImageVI)		
+		if (sd->subtype == MegaImageVI)		/* 320x240 only */
 			cam->nmodes = ARRAY_SIZE(custom_mode) - 1;
 		else
 			cam->nmodes = ARRAY_SIZE(custom_mode);
@@ -683,6 +712,7 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -695,7 +725,7 @@ static int sd_init(struct gspca_dev *gspca_dev)
 		reg_w_riv(gspca_dev, 0x00, 0x2000, 0x00);
 		reg_w_riv(gspca_dev, 0x00, 0x2301, 0x13);
 		reg_w_riv(gspca_dev, 0x00, 0x2306, 0x00);
-		
+		/* fall thru */
 	case BRIDGE_SPCA533:
 		spca504B_PollingDataReady(gspca_dev);
 #ifdef GSPCA_DEBUG
@@ -713,10 +743,10 @@ static int sd_init(struct gspca_dev *gspca_dev)
 		reg_w_riv(gspca_dev, 0x34, 0, 0);
 		spca504B_WaitCmdStatus(gspca_dev);
 		break;
-	case BRIDGE_SPCA504C:	
+	case BRIDGE_SPCA504C:	/* pccam600 */
 		PDEBUG(D_STREAM, "Opening SPCA504 (PC-CAM 600)");
 		reg_w_riv(gspca_dev, 0xe0, 0x0000, 0x0000);
-		reg_w_riv(gspca_dev, 0xe0, 0x0000, 0x0001);	
+		reg_w_riv(gspca_dev, 0xe0, 0x0000, 0x0001);	/* reset */
 		spca504_wait_status(gspca_dev);
 		if (sd->subtype == LogitechClickSmart420)
 			write_vector(gspca_dev,
@@ -728,32 +758,39 @@ static int sd_init(struct gspca_dev *gspca_dev)
 		setup_qtable(gspca_dev, qtable_creative_pccam);
 		break;
 	default:
+/*	case BRIDGE_SPCA504: */
 		PDEBUG(D_STREAM, "Opening SPCA504");
 		if (sd->subtype == AiptekMiniPenCam13) {
 #ifdef GSPCA_DEBUG
 			spca504_read_info(gspca_dev);
 #endif
 
-			
+			/* Set AE AWB Banding Type 3-> 50Hz 2-> 60Hz */
 			spca504A_acknowledged_command(gspca_dev, 0x24,
 							8, 3, 0x9e, 1);
-			
+			/* Twice sequential need status 0xff->0x9e->0x9d */
 			spca504A_acknowledged_command(gspca_dev, 0x24,
 							8, 3, 0x9e, 0);
 
 			spca504A_acknowledged_command(gspca_dev, 0x24,
 							0, 0, 0x9d, 1);
-			
-			
+			/******************************/
+			/* spca504a aiptek */
 			spca504A_acknowledged_command(gspca_dev, 0x08,
 							6, 0, 0x86, 1);
+/*			reg_write (dev, 0, 0x2000, 0); */
+/*			reg_write (dev, 0, 0x2883, 1); */
+/*			spca504A_acknowledged_command (gspca_dev, 0x08,
+							6, 0, 0x86, 1); */
+/*			spca504A_acknowledged_command (gspca_dev, 0x24,
+							0, 0, 0x9D, 1); */
 			reg_w_riv(gspca_dev, 0x00, 0x270c, 0x05);
-							
+							/* L92 sno1t.txt */
 			reg_w_riv(gspca_dev, 0x00, 0x2310, 0x05);
 			spca504A_acknowledged_command(gspca_dev, 0x01,
 							0x0f, 0, 0xff, 0);
 		}
-		
+		/* setup qtable */
 		reg_w_riv(gspca_dev, 0, 0x2000, 0);
 		reg_w_riv(gspca_dev, 0, 0x2883, 1);
 		setup_qtable(gspca_dev, qtable_spca504_default);
@@ -767,9 +804,9 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	struct sd *sd = (struct sd *) gspca_dev;
 	int enable;
 
-	
+	/* create the JPEG header */
 	jpeg_define(sd->jpeg_hdr, gspca_dev->height, gspca_dev->width,
-			0x22);		
+			0x22);		/* JPEG 411 */
 	jpeg_set_qual(sd->jpeg_hdr, sd->quality);
 
 	if (sd->bridge == BRIDGE_SPCA504B)
@@ -777,6 +814,9 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	spca504B_SetSizeType(gspca_dev);
 	switch (sd->bridge) {
 	default:
+/*	case BRIDGE_SPCA504B: */
+/*	case BRIDGE_SPCA533: */
+/*	case BRIDGE_SPCA536: */
 		switch (sd->subtype) {
 		case MegapixV4:
 		case LogitechClickSmart820:
@@ -799,10 +839,10 @@ static int sd_start(struct gspca_dev *gspca_dev)
 			spca504_read_info(gspca_dev);
 #endif
 
-			
+			/* Set AE AWB Banding Type 3-> 50Hz 2-> 60Hz */
 			spca504A_acknowledged_command(gspca_dev, 0x24,
 							8, 3, 0x9e, 1);
-			
+			/* Twice sequential need status 0xff->0x9e->0x9d */
 			spca504A_acknowledged_command(gspca_dev, 0x24,
 							8, 3, 0x9e, 0);
 			spca504A_acknowledged_command(gspca_dev, 0x24,
@@ -817,7 +857,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		}
 		spca504B_SetSizeType(gspca_dev);
 		reg_w_riv(gspca_dev, 0x00, 0x270c, 0x05);
-							
+							/* L92 sno1t.txt */
 		reg_w_riv(gspca_dev, 0x00, 0x2310, 0x05);
 		break;
 	case BRIDGE_SPCA504C:
@@ -831,12 +871,12 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		}
 		enable = (sd->autogain ? 0x04 : 0x01);
 		reg_w_riv(gspca_dev, 0x0c, 0x0000, enable);
-							
+							/* auto exposure */
 		reg_w_riv(gspca_dev, 0xb0, 0x0000, enable);
-							
+							/* auto whiteness */
 
-		
-		reg_w_riv(gspca_dev, 0x30, 0x0001, 800);	
+		/* set default exposure compensation and whiteness balance */
+		reg_w_riv(gspca_dev, 0x30, 0x0001, 800);	/* ~ 20 fps */
 		reg_w_riv(gspca_dev, 0x30, 0x0002, 1600);
 		spca504B_SetSizeType(gspca_dev);
 		break;
@@ -851,6 +891,9 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 
 	switch (sd->bridge) {
 	default:
+/*	case BRIDGE_SPCA533: */
+/*	case BRIDGE_SPCA536: */
+/*	case BRIDGE_SPCA504B: */
 		reg_w_riv(gspca_dev, 0x31, 0, 0);
 		spca504B_WaitCmdStatus(gspca_dev);
 		spca504B_PollingDataReady(gspca_dev);
@@ -860,7 +903,9 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 		reg_w_riv(gspca_dev, 0x00, 0x2000, 0x0000);
 
 		if (sd->subtype == AiptekMiniPenCam13) {
-			
+			/* spca504a aiptek */
+/*			spca504A_acknowledged_command(gspca_dev, 0x08,
+							 6, 0, 0x86, 1); */
 			spca504A_acknowledged_command(gspca_dev, 0x24,
 							0x00, 0x00, 0x9d, 1);
 			spca504A_acknowledged_command(gspca_dev, 0x01,
@@ -874,17 +919,19 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	int i, sof = 0;
 	static u8 ffd9[] = {0xff, 0xd9};
 
+/* frames are jpeg 4.1.1 without 0xff escape */
 	switch (sd->bridge) {
 	case BRIDGE_SPCA533:
 		if (data[0] == 0xff) {
-			if (data[1] != 0x01) {	
+			if (data[1] != 0x01) {	/* drop packet */
+/*				gspca_dev->last_packet_type = DISCARD_PACKET; */
 				return;
 			}
 			sof = 1;
@@ -906,13 +953,16 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 		}
 		break;
 	default:
+/*	case BRIDGE_SPCA504: */
+/*	case BRIDGE_SPCA504B: */
 		switch (data[0]) {
-		case 0xfe:			
+		case 0xfe:			/* start of frame */
 			sof = 1;
 			data += SPCA50X_OFFSET_DATA;
 			len -= SPCA50X_OFFSET_DATA;
 			break;
-		case 0xff:			
+		case 0xff:			/* drop packet */
+/*			gspca_dev->last_packet_type = DISCARD_PACKET; */
 			return;
 		default:
 			data += 1;
@@ -922,12 +972,13 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 		break;
 	case BRIDGE_SPCA504C:
 		switch (data[0]) {
-		case 0xfe:			
+		case 0xfe:			/* start of frame */
 			sof = 1;
 			data += SPCA504_PCCAM600_OFFSET_DATA;
 			len -= SPCA504_PCCAM600_OFFSET_DATA;
 			break;
-		case 0xff:			
+		case 0xff:			/* drop packet */
+/*			gspca_dev->last_packet_type = DISCARD_PACKET; */
 			return;
 		default:
 			data += 1;
@@ -936,16 +987,16 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 		}
 		break;
 	}
-	if (sof) {		
+	if (sof) {		/* start of frame */
 		gspca_frame_add(gspca_dev, LAST_PACKET,
 				ffd9, 2);
 
-		
+		/* put the JPEG header in the new frame */
 		gspca_frame_add(gspca_dev, FIRST_PACKET,
 			sd->jpeg_hdr, JPEG_HDR_SZ);
 	}
 
-	
+	/* add 0x00 after 0xff */
 	i = 0;
 	do {
 		if (data[i] == 0xff) {
@@ -1059,6 +1110,7 @@ static int sd_get_jcomp(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -1072,6 +1124,7 @@ static const struct sd_desc sd_desc = {
 	.set_jcomp = sd_set_jcomp,
 };
 
+/* -- module initialisation -- */
 #define BS(bridge, subtype) \
 	.driver_info = (BRIDGE_ ## bridge << 8) \
 			| (subtype)
@@ -1139,6 +1192,7 @@ static const struct usb_device_id device_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {

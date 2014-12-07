@@ -23,18 +23,40 @@
 
 #include <scsi/scsi_netlink.h>
 
+/*
+ * This file intended to be included by both kernel and user space
+ */
 
-	
+/*
+ * FC Transport Message Types
+ */
+	/* kernel -> user */
 #define FC_NL_ASYNC_EVENT			0x0100
-	
+	/* user -> kernel */
+/* none */
 
 
+/*
+ * Message Structures :
+ */
 
+/* macro to round up message lengths to 8byte boundary */
 #define FC_NL_MSGALIGN(len)		(((len) + 7) & ~7)
 
 
+/*
+ * FC Transport Broadcast Event Message :
+ *   FC_NL_ASYNC_EVENT
+ *
+ * Note: if Vendor Unique message, &event_data will be  start of
+ * 	 vendor unique payload, and the length of the payload is
+ *       per event_datalen
+ *
+ * Note: When specifying vendor_id, be sure to read the Vendor Type and ID
+ *   formatting requirements specified in scsi_netlink.h
+ */
 struct fc_nl_event {
-	struct scsi_nl_hdr snlh;		
+	struct scsi_nl_hdr snlh;		/* must be 1st element ! */
 	uint64_t seconds;
 	uint64_t vendor_id;
 	uint16_t host_no;
@@ -45,5 +67,5 @@ struct fc_nl_event {
 } __attribute__((aligned(sizeof(uint64_t))));
 
 
-#endif 
+#endif /* SCSI_NETLINK_FC_H */
 

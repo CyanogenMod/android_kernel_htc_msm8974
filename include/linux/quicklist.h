@@ -1,5 +1,12 @@
 #ifndef LINUX_QUICKLIST_H
 #define LINUX_QUICKLIST_H
+/*
+ * Fast allocations and disposal of pages. Pages must be in the condition
+ * as needed after allocation when they are freed. Per cpu lists of pages
+ * are kept that only contain node local pages.
+ *
+ * (C) 2007, SGI. Christoph Lameter <clameter@sgi.com>
+ */
 #include <linux/kernel.h>
 #include <linux/gfp.h>
 #include <linux/percpu.h>
@@ -13,6 +20,16 @@ struct quicklist {
 
 DECLARE_PER_CPU(struct quicklist, quicklist)[CONFIG_NR_QUICK];
 
+/*
+ * The two key functions quicklist_alloc and quicklist_free are inline so
+ * that they may be custom compiled for the platform.
+ * Specifying a NULL ctor can remove constructor support. Specifying
+ * a constant quicklist allows the determination of the exact address
+ * in the per cpu area.
+ *
+ * The fast patch in quicklist_alloc touched only a per cpu cacheline and
+ * the first cacheline of the page itself. There is minmal overhead involved.
+ */
 static inline void *quicklist_alloc(int nr, gfp_t flags, void (*ctor)(void *))
 {
 	struct quicklist *q;
@@ -72,5 +89,5 @@ static inline unsigned long quicklist_total_size(void)
 
 #endif
 
-#endif 
+#endif /* LINUX_QUICKLIST_H */
 

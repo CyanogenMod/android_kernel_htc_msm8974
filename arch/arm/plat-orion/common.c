@@ -23,6 +23,9 @@
 #include <plat/ehci-orion.h>
 #include <mach/bridge-regs.h>
 
+/* Fill in the resources structure and link it into the platform
+   device structure. There is always a memory region, and nearly
+   always an interrupt.*/
 static void fill_resources(struct platform_device *device,
 			   struct resource *resources,
 			   resource_size_t mapbase,
@@ -43,6 +46,9 @@ static void fill_resources(struct platform_device *device,
 	}
 }
 
+/*****************************************************************************
+ * UART
+ ****************************************************************************/
 static void __init uart_complete(
 	struct platform_device *orion_uart,
 	struct plat_serial8250_port *data,
@@ -62,6 +68,9 @@ static void __init uart_complete(
 	platform_device_register(orion_uart);
 }
 
+/*****************************************************************************
+ * UART0
+ ****************************************************************************/
 static struct plat_serial8250_port orion_uart0_data[] = {
 	{
 		.flags		= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF,
@@ -87,6 +96,9 @@ void __init orion_uart0_init(unsigned int membase,
 		      membase, mapbase, irq, uartclk);
 }
 
+/*****************************************************************************
+ * UART1
+ ****************************************************************************/
 static struct plat_serial8250_port orion_uart1_data[] = {
 	{
 		.flags		= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF,
@@ -112,6 +124,9 @@ void __init orion_uart1_init(unsigned int membase,
 		      membase, mapbase, irq, uartclk);
 }
 
+/*****************************************************************************
+ * UART2
+ ****************************************************************************/
 static struct plat_serial8250_port orion_uart2_data[] = {
 	{
 		.flags		= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF,
@@ -137,6 +152,9 @@ void __init orion_uart2_init(unsigned int membase,
 		      membase, mapbase, irq, uartclk);
 }
 
+/*****************************************************************************
+ * UART3
+ ****************************************************************************/
 static struct plat_serial8250_port orion_uart3_data[] = {
 	{
 		.flags		= UPF_SKIP_TEST | UPF_BOOT_AUTOCONF,
@@ -162,6 +180,9 @@ void __init orion_uart3_init(unsigned int membase,
 		      membase, mapbase, irq, uartclk);
 }
 
+/*****************************************************************************
+ * SoC RTC
+ ****************************************************************************/
 static struct resource orion_rtc_resource[2];
 
 void __init orion_rtc_init(unsigned long mapbase,
@@ -177,6 +198,9 @@ void __init orion_rtc_init(unsigned long mapbase,
 	platform_device_register_simple("rtc-mv", -1, orion_rtc_resource, 2);
 }
 
+/*****************************************************************************
+ * GE
+ ****************************************************************************/
 static __init void ge_complete(
 	struct mv643xx_eth_shared_platform_data *orion_ge_shared_data,
 	int tclk,
@@ -195,6 +219,9 @@ static __init void ge_complete(
 	platform_device_register(orion_ge);
 }
 
+/*****************************************************************************
+ * GE00
+ ****************************************************************************/
 struct mv643xx_eth_shared_platform_data orion_ge00_shared_data;
 
 static struct resource orion_ge00_shared_resources[] = {
@@ -243,6 +270,9 @@ void __init orion_ge00_init(struct mv643xx_eth_platform_data *eth_data,
 		    eth_data, &orion_ge00);
 }
 
+/*****************************************************************************
+ * GE01
+ ****************************************************************************/
 struct mv643xx_eth_shared_platform_data orion_ge01_shared_data = {
 	.shared_smi	= &orion_ge00_shared,
 };
@@ -293,6 +323,9 @@ void __init orion_ge01_init(struct mv643xx_eth_platform_data *eth_data,
 		    eth_data, &orion_ge01);
 }
 
+/*****************************************************************************
+ * GE10
+ ****************************************************************************/
 struct mv643xx_eth_shared_platform_data orion_ge10_shared_data = {
 	.shared_smi	= &orion_ge00_shared,
 };
@@ -343,6 +376,9 @@ void __init orion_ge10_init(struct mv643xx_eth_platform_data *eth_data,
 		    eth_data, &orion_ge10);
 }
 
+/*****************************************************************************
+ * GE11
+ ****************************************************************************/
 struct mv643xx_eth_shared_platform_data orion_ge11_shared_data = {
 	.shared_smi	= &orion_ge00_shared,
 };
@@ -393,6 +429,9 @@ void __init orion_ge11_init(struct mv643xx_eth_platform_data *eth_data,
 		    eth_data, &orion_ge11);
 }
 
+/*****************************************************************************
+ * Ethernet switch
+ ****************************************************************************/
 static struct resource orion_switch_resources[] = {
 	{
 		.start	= 0,
@@ -426,9 +465,12 @@ void __init orion_ge00_switch_init(struct dsa_platform_data *d, int irq)
 	platform_device_register(&orion_switch_device);
 }
 
+/*****************************************************************************
+ * I2C
+ ****************************************************************************/
 static struct mv64xxx_i2c_pdata orion_i2c_pdata = {
 	.freq_n		= 3,
-	.timeout	= 1000, 
+	.timeout	= 1000, /* Default timeout of 1 second */
 };
 
 static struct resource orion_i2c_resources[2];
@@ -443,7 +485,7 @@ static struct platform_device orion_i2c = {
 
 static struct mv64xxx_i2c_pdata orion_i2c_1_pdata = {
 	.freq_n		= 3,
-	.timeout	= 1000, 
+	.timeout	= 1000, /* Default timeout of 1 second */
 };
 
 static struct resource orion_i2c_1_resources[2];
@@ -476,6 +518,9 @@ void __init orion_i2c_1_init(unsigned long mapbase,
 	platform_device_register(&orion_i2c_1);
 }
 
+/*****************************************************************************
+ * SPI
+ ****************************************************************************/
 static struct orion_spi_info orion_spi_plat_data;
 static struct resource orion_spi_resources;
 
@@ -498,6 +543,8 @@ static struct platform_device orion_spi_1 = {
 	},
 };
 
+/* Note: The SPI silicon core does have interrupts. However the
+ * current Linux software driver does not use interrupts. */
 
 void __init orion_spi_init(unsigned long mapbase,
 			   unsigned long tclk)
@@ -517,6 +564,9 @@ void __init orion_spi_1_init(unsigned long mapbase,
 	platform_device_register(&orion_spi_1);
 }
 
+/*****************************************************************************
+ * Watchdog
+ ****************************************************************************/
 static struct orion_wdt_platform_data orion_wdt_data;
 
 static struct resource orion_wdt_resource =
@@ -538,6 +588,9 @@ void __init orion_wdt_init(unsigned long tclk)
 	platform_device_register(&orion_wdt_device);
 }
 
+/*****************************************************************************
+ * XOR
+ ****************************************************************************/
 static u64 orion_xor_dmamask = DMA_BIT_MASK(32);
 
 void __init orion_xor_init_channels(
@@ -546,6 +599,10 @@ void __init orion_xor_init_channels(
 	struct mv_xor_platform_data *orion_xor1_data,
 	struct platform_device *orion_xor1_channel)
 {
+	/*
+	 * two engines can't do memset simultaneously, this limitation
+	 * satisfied by removing memset support from one of the engines.
+	 */
 	dma_cap_set(DMA_MEMCPY, orion_xor0_data->cap_mask);
 	dma_cap_set(DMA_XOR, orion_xor0_data->cap_mask);
 	platform_device_register(orion_xor0_channel);
@@ -556,6 +613,9 @@ void __init orion_xor_init_channels(
 	platform_device_register(orion_xor1_channel);
 }
 
+/*****************************************************************************
+ * XOR0
+ ****************************************************************************/
 static struct resource orion_xor0_shared_resources[] = {
 	{
 		.name	= "xor 0 low",
@@ -642,6 +702,9 @@ void __init orion_xor0_init(unsigned long mapbase_low,
 				&orion_xor01_data, &orion_xor01_channel);
 }
 
+/*****************************************************************************
+ * XOR1
+ ****************************************************************************/
 static struct resource orion_xor1_shared_resources[] = {
 	{
 		.name	= "xor 1 low",
@@ -728,10 +791,16 @@ void __init orion_xor1_init(unsigned long mapbase_low,
 				&orion_xor11_data, &orion_xor11_channel);
 }
 
+/*****************************************************************************
+ * EHCI
+ ****************************************************************************/
 static struct orion_ehci_data orion_ehci_data;
 static u64 ehci_dmamask = DMA_BIT_MASK(32);
 
 
+/*****************************************************************************
+ * EHCI0
+ ****************************************************************************/
 static struct resource orion_ehci_resources[2];
 
 static struct platform_device orion_ehci = {
@@ -755,6 +824,9 @@ void __init orion_ehci_init(unsigned long mapbase,
 	platform_device_register(&orion_ehci);
 }
 
+/*****************************************************************************
+ * EHCI1
+ ****************************************************************************/
 static struct resource orion_ehci_1_resources[2];
 
 static struct platform_device orion_ehci_1 = {
@@ -776,6 +848,9 @@ void __init orion_ehci_1_init(unsigned long mapbase,
 	platform_device_register(&orion_ehci_1);
 }
 
+/*****************************************************************************
+ * EHCI2
+ ****************************************************************************/
 static struct resource orion_ehci_2_resources[2];
 
 static struct platform_device orion_ehci_2 = {
@@ -797,6 +872,9 @@ void __init orion_ehci_2_init(unsigned long mapbase,
 	platform_device_register(&orion_ehci_2);
 }
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 static struct resource orion_sata_resources[2] = {
 	{
 		.name	= "sata base",
@@ -824,6 +902,9 @@ void __init orion_sata_init(struct mv_sata_platform_data *sata_data,
 	platform_device_register(&orion_sata);
 }
 
+/*****************************************************************************
+ * Cryptographic Engines and Security Accelerator (CESA)
+ ****************************************************************************/
 static struct resource orion_crypto_resources[] = {
 	{
 		.name   = "regs",

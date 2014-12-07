@@ -49,6 +49,26 @@
 
 #define RPCDBG_FACILITY	RPCDBG_SVCXPRT
 
+/* Encode an XDR as an array of IB SGE
+ *
+ * Assumptions:
+ * - head[0] is physically contiguous.
+ * - tail[0] is physically contiguous.
+ * - pages[] is not physically or virtually contiguous and consists of
+ *   PAGE_SIZE elements.
+ *
+ * Output:
+ * SGE[0]              reserved for RCPRDMA header
+ * SGE[1]              data from xdr->head[]
+ * SGE[2..sge_count-2] data from xdr->pages[]
+ * SGE[sge_count-1]    data from xdr->tail.
+ *
+ * The max SGE we need is the length of the XDR / pagesize + one for
+ * head + one for tail + one for RPCRDMA header. Since RPCSVC_MAXPAGES
+ * reserves a page for both the request and the reply header, and this
+ * array is only concerned with the reply we are assured that we have
+ * on extra page for the RPCRMDA header.
+ */
 static int fast_reg_xdr(struct svcxprt_rdma *xprt,
 			struct xdr_buf *xdr,
 			struct svc_rdma_req_map *vec)
@@ -66,17 +86,17 @@ static int fast_reg_xdr(struct svcxprt_rdma *xprt,
 		return -ENOMEM;
 	vec->frmr = frmr;
 
-	
+	/* Skip the RPCRDMA header */
 	sge_no = 1;
 
-	
+	/* Map the head. */
 	frva = (void *)((unsigned long)(xdr->head[0].iov_base) & PAGE_MASK);
 	vec->sge[sge_no].iov_base = xdr->head[0].iov_base;
 	vec->sge[sge_no].iov_len = xdr->head[0].iov_len;
 	vec->count = 2;
 	sge_no++;
 
-	
+	/* Map the XDR head */
 	frmr->kva = frva;
 	frmr->direction = DMA_TO_DEVICE;
 	frmr->access_flags = 0;
@@ -94,13 +114,13 @@ static int fast_reg_xdr(struct svcxprt_rdma *xprt,
 		goto fatal_err;
 	atomic_inc(&xprt->sc_dma_used);
 
-	
+	/* Map the XDR page list */
 	page_off = xdr->page_base;
 	page_bytes = xdr->page_len + page_off;
 	if (!page_bytes)
 		goto encode_tail;
 
-	
+	/* Map the pages */
 	vec->sge[sge_no].iov_base = frva + frmr->map_len + page_off;
 	vec->sge[sge_no].iov_len = page_bytes;
 	sge_no++;
@@ -120,14 +140,14 @@ static int fast_reg_xdr(struct svcxprt_rdma *xprt,
 			goto fatal_err;
 
 		atomic_inc(&xprt->sc_dma_used);
-		page_off = 0; 
+		page_off = 0; /* reset for next time through loop */
 		frmr->map_len += PAGE_SIZE;
 		frmr->page_list_len++;
 	}
 	vec->count++;
 
  encode_tail:
-	
+	/* Map tail */
 	if (0 == xdr->tail[0].iov_len)
 		goto done;
 
@@ -136,11 +156,15 @@ static int fast_reg_xdr(struct svcxprt_rdma *xprt,
 
 	if (((unsigned long)xdr->tail[0].iov_base & PAGE_MASK) ==
 	    ((unsigned long)xdr->head[0].iov_base & PAGE_MASK)) {
+		/*
+		 * If head and tail use the same page, we don't need
+		 * to map it again.
+		 */
 		vec->sge[sge_no].iov_base = xdr->tail[0].iov_base;
 	} else {
 		void *va;
 
-		
+		/* Map another page for the tail */
 		page_off = (unsigned long)xdr->tail[0].iov_base & ~PAGE_MASK;
 		va = (void *)((unsigned long)xdr->tail[0].iov_base & PAGE_MASK);
 		vec->sge[sge_no].iov_base = frva + frmr->map_len + page_off;
@@ -187,15 +211,15 @@ static int map_xdr(struct svcxprt_rdma *xprt,
 	if (xprt->sc_frmr_pg_list_len)
 		return fast_reg_xdr(xprt, xdr, vec);
 
-	
+	/* Skip the first sge, this is for the RPCRDMA header */
 	sge_no = 1;
 
-	
+	/* Head SGE */
 	vec->sge[sge_no].iov_base = xdr->head[0].iov_base;
 	vec->sge[sge_no].iov_len = xdr->head[0].iov_len;
 	sge_no++;
 
-	
+	/* pages SGE */
 	page_no = 0;
 	page_bytes = xdr->page_len;
 	page_off = xdr->page_base;
@@ -208,10 +232,10 @@ static int map_xdr(struct svcxprt_rdma *xprt,
 
 		sge_no++;
 		page_no++;
-		page_off = 0; 
+		page_off = 0; /* reset for next time through loop */
 	}
 
-	
+	/* Tail SGE */
 	if (xdr->tail[0].iov_len) {
 		vec->sge[sge_no].iov_base = xdr->tail[0].iov_base;
 		vec->sge[sge_no].iov_len = xdr->tail[0].iov_len;
@@ -234,17 +258,17 @@ static dma_addr_t dma_map_xdr(struct svcxprt_rdma *xprt,
 	struct page *page;
 	dma_addr_t dma_addr;
 	if (xdr_off < xdr->head[0].iov_len) {
-		
+		/* This offset is in the head */
 		xdr_off += (unsigned long)xdr->head[0].iov_base & ~PAGE_MASK;
 		page = virt_to_page(xdr->head[0].iov_base);
 	} else {
 		xdr_off -= xdr->head[0].iov_len;
 		if (xdr_off < xdr->page_len) {
-			
+			/* This offset is in the page list */
 			page = xdr->pages[xdr_off >> PAGE_SHIFT];
 			xdr_off &= ~PAGE_MASK;
 		} else {
-			
+			/* This offset is in the tail */
 			xdr_off -= xdr->page_len;
 			xdr_off += (unsigned long)
 				xdr->tail[0].iov_base & ~PAGE_MASK;
@@ -256,6 +280,11 @@ static dma_addr_t dma_map_xdr(struct svcxprt_rdma *xprt,
 	return dma_addr;
 }
 
+/* Assumptions:
+ * - We are using FRMR
+ *     - or -
+ * - The specified write_len can be represented in sc_max_sge * PAGE_SIZE
+ */
 static int send_write(struct svcxprt_rdma *xprt, struct svc_rqst *rqstp,
 		      u32 rmr, u64 to,
 		      u32 xdr_off, int write_len,
@@ -280,7 +309,7 @@ static int send_write(struct svcxprt_rdma *xprt, struct svc_rqst *rqstp,
 	ctxt->direction = DMA_TO_DEVICE;
 	sge = ctxt->sge;
 
-	
+	/* Find the SGE associated with xdr_off */
 	for (bc = xdr_off, xdr_sge_no = 1; bc && xdr_sge_no < vec->count;
 	     xdr_sge_no++) {
 		if (vec->sge[xdr_sge_no].iov_len > bc)
@@ -292,7 +321,7 @@ static int send_write(struct svcxprt_rdma *xprt, struct svc_rqst *rqstp,
 	bc = write_len;
 	sge_no = 0;
 
-	
+	/* Copy the remaining SGE */
 	while (bc != 0) {
 		sge_bytes = min_t(size_t,
 			  bc, vec->sge[xdr_sge_no].iov_len-sge_off);
@@ -321,7 +350,7 @@ static int send_write(struct svcxprt_rdma *xprt, struct svc_rqst *rqstp,
 		bc -= sge_bytes;
 	}
 
-	
+	/* Prepare WRITE WR */
 	memset(&write_wr, 0, sizeof write_wr);
 	ctxt->wr_op = IB_WR_RDMA_WRITE;
 	write_wr.wr_id = (unsigned long)ctxt;
@@ -332,7 +361,7 @@ static int send_write(struct svcxprt_rdma *xprt, struct svc_rqst *rqstp,
 	write_wr.wr.rdma.rkey = rmr;
 	write_wr.wr.rdma.remote_addr = to;
 
-	
+	/* Post It */
 	atomic_inc(&rdma_stat_write);
 	if (svc_rdma_send(xprt, &write_wr))
 		goto err;
@@ -341,7 +370,7 @@ static int send_write(struct svcxprt_rdma *xprt, struct svc_rqst *rqstp,
 	svc_rdma_unmap_dma(ctxt);
 	svc_rdma_put_frmr(xprt, vec->frmr);
 	svc_rdma_put_context(ctxt, 0);
-	
+	/* Fatal error, close transport */
 	return -EIO;
 }
 
@@ -372,7 +401,7 @@ static int send_write_chunks(struct svcxprt_rdma *xprt,
 	else
 		max_write = xprt->sc_max_sge * PAGE_SIZE;
 
-	
+	/* Write chunks start at the pagelist */
 	for (xdr_off = rqstp->rq_res.head[0].iov_len, chunk_no = 0;
 	     xfer_len && chunk_no < arg_ary->wc_nchunks;
 	     chunk_no++) {
@@ -410,7 +439,7 @@ static int send_write_chunks(struct svcxprt_rdma *xprt,
 			write_len -= this_write;
 		}
 	}
-	
+	/* Update the req with the number of chunks actually used */
 	svc_rdma_xdr_encode_write_list(rdma_resp, chunk_no);
 
 	return rqstp->rq_res.page_len + rqstp->rq_res.tail[0].iov_len;
@@ -437,6 +466,8 @@ static int send_reply_chunks(struct svcxprt_rdma *xprt,
 	arg_ary = svc_rdma_get_reply_array(rdma_argp);
 	if (!arg_ary)
 		return 0;
+	/* XXX: need to fix when reply lists occur with read-list and or
+	 * write-list */
 	res_ary = (struct rpcrdma_write_array *)
 		&rdma_resp->rm_body.rm_chunks[2];
 
@@ -445,7 +476,7 @@ static int send_reply_chunks(struct svcxprt_rdma *xprt,
 	else
 		max_write = xprt->sc_max_sge * PAGE_SIZE;
 
-	
+	/* xdr offset starts at RPC message */
 	nchunks = ntohl(arg_ary->wc_nchunks);
 	for (xdr_off = 0, chunk_no = 0;
 	     xfer_len && chunk_no < nchunks;
@@ -482,12 +513,28 @@ static int send_reply_chunks(struct svcxprt_rdma *xprt,
 			write_len -= this_write;
 		}
 	}
-	
+	/* Update the req with the number of chunks actually used */
 	svc_rdma_xdr_encode_reply_array(res_ary, chunk_no);
 
 	return rqstp->rq_res.len;
 }
 
+/* This function prepares the portion of the RPCRDMA message to be
+ * sent in the RDMA_SEND. This function is called after data sent via
+ * RDMA has already been transmitted. There are three cases:
+ * - The RPCRDMA header, RPC header, and payload are all sent in a
+ *   single RDMA_SEND. This is the "inline" case.
+ * - The RPCRDMA header and some portion of the RPC header and data
+ *   are sent via this RDMA_SEND and another portion of the data is
+ *   sent via RDMA.
+ * - The RPCRDMA header [NOMSG] is sent in this RDMA_SEND and the RPC
+ *   header and data are all transmitted via RDMA.
+ * In all three cases, this function prepares the RPCRDMA header in
+ * sge[0], the 'type' parameter indicates the type to place in the
+ * RPCRDMA header, and the 'byte_count' field indicates how much of
+ * the XDR to include in this RDMA_SEND. NB: The offset of the payload
+ * to send is zero in the XDR.
+ */
 static int send_reply(struct svcxprt_rdma *rdma,
 		      struct svc_rqst *rqstp,
 		      struct page *page,
@@ -503,7 +550,7 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	int page_no;
 	int ret;
 
-	
+	/* Post a recv buffer to handle another request. */
 	ret = svc_rdma_post_recv(rdma);
 	if (ret) {
 		printk(KERN_INFO
@@ -515,7 +562,7 @@ static int send_reply(struct svcxprt_rdma *rdma,
 		return -ENOTCONN;
 	}
 
-	
+	/* Prepare the context */
 	ctxt->pages[0] = page;
 	ctxt->count = 1;
 	ctxt->frmr = vec->frmr;
@@ -524,7 +571,7 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	else
 		clear_bit(RDMACTXT_F_FAST_UNREG, &ctxt->flags);
 
-	
+	/* Prepare the SGE for the RPCRDMA Header */
 	ctxt->sge[0].lkey = rdma->sc_dma_lkey;
 	ctxt->sge[0].length = svc_rdma_xdr_get_reply_hdr_len(rdma_resp);
 	ctxt->sge[0].addr =
@@ -536,7 +583,7 @@ static int send_reply(struct svcxprt_rdma *rdma,
 
 	ctxt->direction = DMA_TO_DEVICE;
 
-	
+	/* Map the payload indicated by 'byte_count' */
 	for (sge_no = 1; byte_count && sge_no < vec->count; sge_no++) {
 		int xdr_off = 0;
 		sge_bytes = min_t(size_t, vec->sge[sge_no].iov_len, byte_count);
@@ -560,10 +607,19 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	}
 	BUG_ON(byte_count != 0);
 
+	/* Save all respages in the ctxt and remove them from the
+	 * respages array. They are our pages until the I/O
+	 * completes.
+	 */
 	for (page_no = 0; page_no < rqstp->rq_resused; page_no++) {
 		ctxt->pages[page_no+1] = rqstp->rq_respages[page_no];
 		ctxt->count++;
 		rqstp->rq_respages[page_no] = NULL;
+		/*
+		 * If there are more pages than SGE, terminate SGE
+		 * list so that svc_rdma_unmap_dma doesn't attempt to
+		 * unmap garbage.
+		 */
 		if (page_no+1 >= sge_no)
 			ctxt->sge[page_no+1].length = 0;
 	}
@@ -576,7 +632,7 @@ static int send_reply(struct svcxprt_rdma *rdma,
 	send_wr.opcode = IB_WR_SEND;
 	send_wr.send_flags =  IB_SEND_SIGNALED;
 	if (vec->frmr) {
-		
+		/* Prepare INVALIDATE WR */
 		memset(&inv_wr, 0, sizeof inv_wr);
 		inv_wr.opcode = IB_WR_LOCAL_INV;
 		inv_wr.send_flags = IB_SEND_SIGNALED;
@@ -602,6 +658,9 @@ void svc_rdma_prep_reply_hdr(struct svc_rqst *rqstp)
 {
 }
 
+/*
+ * Return the start of an xdr buffer.
+ */
 static void *xdr_start(struct xdr_buf *xdr)
 {
 	return xdr->head[0].iov_base -
@@ -628,10 +687,10 @@ int svc_rdma_sendto(struct svc_rqst *rqstp)
 
 	dprintk("svcrdma: sending response for rqstp=%p\n", rqstp);
 
-	
+	/* Get the RDMA request header. */
 	rdma_argp = xdr_start(&rqstp->rq_arg);
 
-	
+	/* Build an req vec for the XDR */
 	ctxt = svc_rdma_get_context(rdma);
 	ctxt->direction = DMA_TO_DEVICE;
 	vec = svc_rdma_get_req_map();
@@ -640,7 +699,7 @@ int svc_rdma_sendto(struct svc_rqst *rqstp)
 		goto err0;
 	inline_bytes = rqstp->rq_res.len;
 
-	
+	/* Create the RDMA response header */
 	res_page = svc_rdma_get_page();
 	rdma_resp = page_address(res_page);
 	reply_ary = svc_rdma_get_reply_array(rdma_argp);
@@ -651,7 +710,7 @@ int svc_rdma_sendto(struct svc_rqst *rqstp)
 	svc_rdma_xdr_encode_reply_header(rdma, rdma_argp,
 					 rdma_resp, reply_type);
 
-	
+	/* Send any write-chunk data and build resp write-list */
 	ret = send_write_chunks(rdma, rdma_argp, rdma_resp,
 				rqstp, vec);
 	if (ret < 0) {
@@ -661,7 +720,7 @@ int svc_rdma_sendto(struct svc_rqst *rqstp)
 	}
 	inline_bytes -= ret;
 
-	
+	/* Send any reply-list data and update resp reply-list */
 	ret = send_reply_chunks(rdma, rdma_argp, rdma_resp,
 				rqstp, vec);
 	if (ret < 0) {

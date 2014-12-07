@@ -4,6 +4,30 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 
+/**
+ * x86_match_cpu - match current CPU again an array of x86_cpu_ids
+ * @match: Pointer to array of x86_cpu_ids. Last entry terminated with
+ *         {}.
+ *
+ * Return the entry if the current CPU matches the entries in the
+ * passed x86_cpu_id match table. Otherwise NULL.  The match table
+ * contains vendor (X86_VENDOR_*), family, model and feature bits or
+ * respective wildcard entries.
+ *
+ * A typical table entry would be to match a specific CPU
+ * { X86_VENDOR_INTEL, 6, 0x12 }
+ * or to match a specific CPU feature
+ * { X86_FEATURE_MATCH(X86_FEATURE_FOOBAR) }
+ *
+ * Fields can be wildcarded with %X86_VENDOR_ANY, %X86_FAMILY_ANY,
+ * %X86_MODEL_ANY, %X86_FEATURE_ANY or 0 (except for vendor)
+ *
+ * Arrays used to match for this should also be declared using
+ * MODULE_DEVICE_TABLE(x86_cpu, ...)
+ *
+ * This always matches against the boot cpu, assuming models and features are
+ * consistent over all CPUs.
+ */
 const struct x86_cpu_id *x86_match_cpu(const struct x86_cpu_id *match)
 {
 	const struct x86_cpu_id *m;

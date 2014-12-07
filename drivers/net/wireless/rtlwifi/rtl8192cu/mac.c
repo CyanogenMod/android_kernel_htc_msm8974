@@ -42,6 +42,7 @@
 
 #include <linux/module.h>
 
+/* macro to shorten lines */
 
 #define LINK_Q	ui_link_quality
 #define RX_EVM	rx_evm_percentage
@@ -62,11 +63,11 @@ void rtl92c_read_chip_version(struct ieee80211_hw *hw)
 		chip_version = (value32 & TYPE_ID) ? VERSION_TEST_CHIP_92C :
 			       VERSION_TEST_CHIP_88C;
 	} else {
-		
+		/* Normal mass production chip. */
 		chip_version = NORMAL_CHIP;
 		chip_version |= ((value32 & TYPE_ID) ? CHIP_92C : 0);
 		chip_version |= ((value32 & VENDOR_ID) ? CHIP_VENDOR_UMC : 0);
-		
+		/* RTL8723 with BT function. */
 		chip_version |= ((value32 & BT_FUNC) ? CHIP_8723 : 0);
 		if (IS_VENDOR_UMC(chip_version))
 			chip_version |= ((value32 & CHIP_VER_RTL_MASK) ?
@@ -147,6 +148,15 @@ void rtl92c_read_chip_version(struct ieee80211_hw *hw)
 		 rtlhal->version);
 }
 
+/**
+ * writeLLT - LLT table write access
+ * @io: io callback
+ * @address: LLT logical address.
+ * @data: LLT data content
+ *
+ * Realtek hardware access function.
+ *
+ */
 bool rtl92c_llt_write(struct ieee80211_hw *hw, u32 address, u32 data)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
@@ -170,6 +180,14 @@ bool rtl92c_llt_write(struct ieee80211_hw *hw, u32 address, u32 data)
 	} while (++count);
 	return status;
 }
+/**
+ * rtl92c_init_LLT_table - Init LLT table
+ * @io: io callback
+ * @boundary:
+ *
+ * Realtek hardware access function.
+ *
+ */
 bool rtl92c_init_llt_table(struct ieee80211_hw *hw, u32 boundary)
 {
 	bool rst = true;
@@ -182,12 +200,17 @@ bool rtl92c_init_llt_table(struct ieee80211_hw *hw, u32 boundary)
 			return rst;
 		}
 	}
-	
+	/* end of list */
 	rst = rtl92c_llt_write(hw, (boundary - 1), 0xFF);
 	if (true != rst) {
 		pr_err("===> %s #2 fail\n", __func__);
 		return rst;
 	}
+	/* Make the other pages as ring buffer
+	 * This ring buffer is used as beacon buffer if we config this MAC
+	 *  as two MAC transfer.
+	 * Otherwise used as local loopback buffer.
+	 */
 	for (i = boundary; i < LLT_LAST_ENTRY_OF_TX_PKT_BUFFER; i++) {
 		rst = rtl92c_llt_write(hw, i, (i + 1));
 		if (true != rst) {
@@ -195,7 +218,7 @@ bool rtl92c_init_llt_table(struct ieee80211_hw *hw, u32 boundary)
 			return rst;
 		}
 	}
-	
+	/* Let last entry point to the start entry of ring buffer */
 	rst = rtl92c_llt_write(hw, LLT_LAST_ENTRY_OF_TX_PKT_BUFFER, boundary);
 	if (true != rst) {
 		pr_err("===> %s #4 fail\n", __func__);
@@ -398,6 +421,9 @@ void rtl92c_set_qos(struct ieee80211_hw *hw, int aci)
 	}
 }
 
+/*-------------------------------------------------------------------------
+ * HW MAC Address
+ *-------------------------------------------------------------------------*/
 void rtl92c_set_mac_addr(struct ieee80211_hw *hw, const u8 *addr)
 {
 	u32 i;
@@ -468,15 +494,15 @@ void rtl92c_init_adaptive_ctrl(struct ieee80211_hw *hw)
 	u32	value32;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 
-	
+	/* Response Rate Set */
 	value32 = rtl_read_dword(rtlpriv, REG_RRSR);
 	value32 &= ~RATE_BITMAP_ALL;
 	value32 |= RATE_RRSR_CCK_ONLY_1M;
 	rtl_write_dword(rtlpriv, REG_RRSR, value32);
-	
+	/* SIFS (used in NAV) */
 	value16 = _SPEC_SIFS_CCK(0x10) | _SPEC_SIFS_OFDM(0x10);
 	rtl_write_word(rtlpriv,  REG_SPEC_SIFS, value16);
-	
+	/* Retry Limit */
 	value16 = _LRL(0x30) | _SRL(0x30);
 	rtl_write_dword(rtlpriv,  REG_RL, value16);
 }
@@ -485,7 +511,7 @@ void rtl92c_init_rate_fallback(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 
-	
+	/* Set Data Auto Rate Fallback Retry Count register. */
 	rtl_write_dword(rtlpriv,  REG_DARFRC, 0x00000000);
 	rtl_write_dword(rtlpriv,  REG_DARFRC+4, 0x10080404);
 	rtl_write_dword(rtlpriv,  REG_RARFRC, 0x04030201);
@@ -513,6 +539,9 @@ static void rtl92c_set_ofdm_sifs(struct ieee80211_hw *hw, u8 trx_sifs,
 void rtl92c_init_edca_param(struct ieee80211_hw *hw,
 			    u16 queue, u16 txop, u8 cw_min, u8 cw_max, u8 aifs)
 {
+	/* sequence: VO, VI, BE, BK ==> the same as 92C hardware design.
+	 * referenc : enum nl80211_txq_q or ieee80211_set_wmm_default function.
+	 */
 	u32 value;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 
@@ -520,7 +549,7 @@ void rtl92c_init_edca_param(struct ieee80211_hw *hw,
 	value |= ((u32)cw_min & 0xF) << 8;
 	value |= ((u32)cw_max & 0xF) << 12;
 	value |= (u32)txop << 16;
-	
+	/* 92C hardware register sequence is the same as queue number. */
 	rtl_write_dword(rtlpriv, (REG_EDCA_VO_PARAM + (queue * 4)), value);
 }
 
@@ -529,25 +558,27 @@ void rtl92c_init_edca(struct ieee80211_hw *hw)
 	u16 value16;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 
-	
+	/* disable EDCCA count down, to reduce collison and retry */
 	value16 = rtl_read_word(rtlpriv, REG_RD_CTRL);
 	value16 |= DIS_EDCA_CNT_DWN;
 	rtl_write_word(rtlpriv, REG_RD_CTRL, value16);
+	/* Update SIFS timing.  ??????????
+	 * pHalData->SifsTime = 0x0e0e0a0a; */
 	rtl92c_set_cck_sifs(hw, 0xa, 0xa);
 	rtl92c_set_ofdm_sifs(hw, 0xe, 0xe);
-	
+	/* Set CCK/OFDM SIFS to be 10us. */
 	rtl_write_word(rtlpriv, REG_SIFS_CCK, 0x0a0a);
 	rtl_write_word(rtlpriv, REG_SIFS_OFDM, 0x1010);
 	rtl_write_word(rtlpriv, REG_PROT_MODE_CTRL, 0x0204);
 	rtl_write_dword(rtlpriv, REG_BAR_MODE_CTRL, 0x014004);
-	
+	/* TXOP */
 	rtl_write_dword(rtlpriv, REG_EDCA_BE_PARAM, 0x005EA42B);
 	rtl_write_dword(rtlpriv, REG_EDCA_BK_PARAM, 0x0000A44F);
 	rtl_write_dword(rtlpriv, REG_EDCA_VI_PARAM, 0x005EA324);
 	rtl_write_dword(rtlpriv, REG_EDCA_VO_PARAM, 0x002FA226);
-	
+	/* PIFS */
 	rtl_write_byte(rtlpriv, REG_PIFS, 0x1C);
-	
+	/* AGGR BREAK TIME Register */
 	rtl_write_byte(rtlpriv, REG_AGGR_BREAK_TIME, 0x16);
 	rtl_write_word(rtlpriv, REG_NAV_PROT_LEN, 0x0040);
 	rtl_write_byte(rtlpriv, REG_BCNDMATIM, 0x02);
@@ -560,7 +591,7 @@ void rtl92c_init_ampdu_aggregation(struct ieee80211_hw *hw)
 
 	rtl_write_dword(rtlpriv, REG_AGGLEN_LMT, 0x99997631);
 	rtl_write_byte(rtlpriv, REG_AGGR_BREAK_TIME, 0x16);
-	
+	/* init AMPDU aggregation number, tuning for Tx's TP, */
 	rtl_write_word(rtlpriv, 0x4CA, 0x0708);
 }
 
@@ -588,7 +619,7 @@ void rtl92c_init_retry_function(struct ieee80211_hw *hw)
 	value8 = rtl_read_byte(rtlpriv, REG_FWHW_TXQ_CTRL);
 	value8 |= EN_AMPDU_RTY_NEW;
 	rtl_write_byte(rtlpriv, REG_FWHW_TXQ_CTRL, value8);
-	
+	/* Set ACK timeout */
 	rtl_write_byte(rtlpriv, REG_ACKTO, 0x40);
 }
 
@@ -598,8 +629,8 @@ void rtl92c_init_beacon_parameters(struct ieee80211_hw *hw,
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_hal *rtlhal = rtl_hal(rtlpriv);
 
-	rtl_write_word(rtlpriv, REG_TBTT_PROHIBIT, 0x6404);
-	rtl_write_byte(rtlpriv, REG_DRVERLYINT, DRIVER_EARLY_INT_TIME);
+	rtl_write_word(rtlpriv, REG_TBTT_PROHIBIT, 0x6404);/* ms */
+	rtl_write_byte(rtlpriv, REG_DRVERLYINT, DRIVER_EARLY_INT_TIME);/*ms*/
 	rtl_write_byte(rtlpriv, REG_BCNDMATIM, BCN_DMA_ATIME_INT_TIME);
 	if (IS_NORMAL_CHIP(rtlhal->version))
 		rtl_write_word(rtlpriv, REG_BCNTCFG, 0x660F);
@@ -663,6 +694,7 @@ void rtl92c_set_data_filter(struct ieee80211_hw *hw, u16 filter)
 
 	rtl_write_word(rtlpriv, REG_RXFLTMAP2, filter);
 }
+/*==============================================================*/
 
 static u8 _rtl92c_query_rxpwrpercentage(char antpower)
 {

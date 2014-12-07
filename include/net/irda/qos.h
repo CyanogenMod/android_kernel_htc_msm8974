@@ -45,6 +45,7 @@
 
 #define IR_115200_MAX 0x3f
 
+/* Baud rates (first byte) */
 #define IR_2400     0x01
 #define IR_9600     0x02
 #define IR_19200    0x04
@@ -54,18 +55,20 @@
 #define IR_576000   0x40
 #define IR_1152000  0x80
 
+/* Baud rates (second byte) */
 #define IR_4000000  0x01
 #define IR_16000000 0x02
 
+/* Quality of Service information */
 typedef struct {
 	__u32 value;
-	__u16 bits; 
+	__u16 bits; /* LSB is first byte, MSB is second byte */
 } qos_value_t;
 
 struct qos_info {
 	magic_t magic;
 
-	qos_value_t baud_rate;       
+	qos_value_t baud_rate;       /* IR_11520O | ... */
 	qos_value_t max_turn_time;
 	qos_value_t data_size;
 	qos_value_t window_size;
@@ -86,6 +89,9 @@ __u32 irlap_max_line_capacity(__u32 speed, __u32 max_turn_time);
 
 void irda_qos_bits_to_value(struct qos_info *qos);
 
+/* So simple, how could we not inline those two ?
+ * Note : one byte is 10 bits if you include start and stop bits
+ * Jean II */
 #define irlap_min_turn_time_in_bytes(speed, min_turn_time) (	\
 	speed * min_turn_time / 10000000			\
 )

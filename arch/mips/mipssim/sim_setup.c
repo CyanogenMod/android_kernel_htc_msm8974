@@ -82,6 +82,8 @@ static void __init serial_init(void)
 
 	s.iobase = 0x3f8;
 
+	/* hardware int 4 - the serial int, is CPU int 6
+	 but poll for now */
 	s.irq =  0;
 	s.uartclk = 1843200;
 	s.flags = UPF_BOOT_AUTOCONF | UPF_SKIP_TEST;

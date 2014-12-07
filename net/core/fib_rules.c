@@ -384,7 +384,7 @@ static int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr* nlh, void *arg)
 	} else if (rule->action == FR_ACT_GOTO)
 		goto errout_free;
 
-	/* UID start and end must either both be valid or both unspecified. */
+	
 	rule->uid_start = rule->uid_end = INVALID_UID;
 	if (tb[FRA_UID_START] || tb[FRA_UID_END]) {
 		if (tb[FRA_UID_START] && tb[FRA_UID_END]) {
@@ -549,14 +549,14 @@ static inline size_t fib_rule_nlmsg_size(struct fib_rules_ops *ops,
 					 struct fib_rule *rule)
 {
 	size_t payload = NLMSG_ALIGN(sizeof(struct fib_rule_hdr))
-			 + nla_total_size(IFNAMSIZ) /* FRA_IIFNAME */
-			 + nla_total_size(IFNAMSIZ) /* FRA_OIFNAME */
-			 + nla_total_size(4) /* FRA_PRIORITY */
-			 + nla_total_size(4) /* FRA_TABLE */
-			 + nla_total_size(4) /* FRA_FWMARK */
-			 + nla_total_size(4) /* FRA_FWMASK */
-			 + nla_total_size(4) /* FRA_UID_START */
-			 + nla_total_size(4); /* FRA_UID_END */
+			 + nla_total_size(IFNAMSIZ) 
+			 + nla_total_size(IFNAMSIZ) 
+			 + nla_total_size(4) 
+			 + nla_total_size(4) 
+			 + nla_total_size(4) 
+			 + nla_total_size(4) 
+			 + nla_total_size(4) 
+			 + nla_total_size(4); 
 
 	if (ops->nlmsg_payload)
 		payload += ops->nlmsg_payload(rule);

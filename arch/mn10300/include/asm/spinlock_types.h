@@ -17,4 +17,4 @@ typedef struct {
 
 #define __ARCH_RW_LOCK_UNLOCKED		{ RW_LOCK_BIAS }
 
-#endif 
+#endif /* _ASM_SPINLOCK_TYPES_H */

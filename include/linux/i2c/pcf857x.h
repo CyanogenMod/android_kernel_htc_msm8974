@@ -41,4 +41,4 @@ struct pcf857x_platform_data {
 	void		*context;
 };
 
-#endif 
+#endif /* __LINUX_PCF857X_H */

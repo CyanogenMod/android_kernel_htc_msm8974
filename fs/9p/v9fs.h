@@ -25,6 +25,19 @@
 
 #include <linux/backing-dev.h>
 
+/**
+ * enum p9_session_flags - option flags for each 9P session
+ * @V9FS_PROTO_2000U: whether or not to use 9P2000.u extensions
+ * @V9FS_PROTO_2000L: whether or not to use 9P2000.l extensions
+ * @V9FS_ACCESS_SINGLE: only the mounting user can access the hierarchy
+ * @V9FS_ACCESS_USER: a new attach will be issued for every user (default)
+ * @V9FS_ACCESS_CLIENT: Just like user, but access check is performed on client.
+ * @V9FS_ACCESS_ANY: use a single attach for all users
+ * @V9FS_ACCESS_MASK: bit mask of different ACCESS options
+ * @V9FS_POSIX_ACL: POSIX ACLs are enforced
+ *
+ * Session flags reflect options selected by users at mount time
+ */
 #define	V9FS_ACCESS_ANY (V9FS_ACCESS_SINGLE | \
 			 V9FS_ACCESS_USER |   \
 			 V9FS_ACCESS_CLIENT)
@@ -40,6 +53,14 @@ enum p9_session_flags {
 	V9FS_POSIX_ACL		= 0x20
 };
 
+/* possible values of ->cache */
+/**
+ * enum p9_cache_modes - user specified cache preferences
+ * @CACHE_NONE: do not cache data, dentries, or directory contents (default)
+ * @CACHE_LOOSE: cache data, dentries, and directory contents w/no consistency
+ *
+ * eventually support loose, tight, time, session, default always none
+ */
 
 enum p9_cache_modes {
 	CACHE_NONE,
@@ -47,9 +68,34 @@ enum p9_cache_modes {
 	CACHE_FSCACHE,
 };
 
+/**
+ * struct v9fs_session_info - per-instance session information
+ * @flags: session options of type &p9_session_flags
+ * @nodev: set to 1 to disable device mapping
+ * @debug: debug level
+ * @afid: authentication handle
+ * @cache: cache mode of type &p9_cache_modes
+ * @cachetag: the tag of the cache associated with this session
+ * @fscache: session cookie associated with FS-Cache
+ * @options: copy of options string given by user
+ * @uname: string user name to mount hierarchy as
+ * @aname: mount specifier for remote hierarchy
+ * @maxdata: maximum data to be sent/recvd per protocol message
+ * @dfltuid: default numeric userid to mount hierarchy as
+ * @dfltgid: default numeric groupid to mount hierarchy as
+ * @uid: if %V9FS_ACCESS_SINGLE, the numeric uid which mounted the hierarchy
+ * @clnt: reference to 9P network client instantiated for this session
+ * @slist: reference to list of registered 9p sessions
+ *
+ * This structure holds state for each session instance established during
+ * a sys_mount() .
+ *
+ * Bugs: there seems to be a lot of state which could be condensed and/or
+ * removed.
+ */
 
 struct v9fs_session_info {
-	
+	/* options */
 	unsigned char flags;
 	unsigned char nodev;
 	unsigned short debug;
@@ -60,18 +106,19 @@ struct v9fs_session_info {
 	struct fscache_cookie *fscache;
 #endif
 
-	char *uname;		
-	char *aname;		
-	unsigned int maxdata;	
-	unsigned int dfltuid;	
-	unsigned int dfltgid;	
-	u32 uid;		
-	struct p9_client *clnt;	
-	struct list_head slist; 
+	char *uname;		/* user name to mount as */
+	char *aname;		/* name of remote hierarchy being mounted */
+	unsigned int maxdata;	/* max data for client interface */
+	unsigned int dfltuid;	/* default uid/muid for legacy support */
+	unsigned int dfltgid;	/* default gid for legacy support */
+	u32 uid;		/* if ACCESS_SINGLE, the uid that has access */
+	struct p9_client *clnt;	/* 9p client */
+	struct list_head slist; /* list of sessions registered with v9fs */
 	struct backing_dev_info bdi;
 	struct rw_semaphore rename_sem;
 };
 
+/* cache_validity flags */
 #define V9FS_INO_INVALID_ATTR 0x01
 
 struct v9fs_inode {
@@ -114,6 +161,7 @@ extern struct inode *v9fs_inode_from_fid_dotl(struct v9fs_session_info *v9ses,
 					      struct p9_fid *fid,
 					      struct super_block *sb, int new);
 
+/* other default globals */
 #define V9FS_PORT	564
 #define V9FS_DEFUSER	"nobody"
 #define V9FS_DEFANAME	""
@@ -140,6 +188,14 @@ static inline int v9fs_proto_dotl(struct v9fs_session_info *v9ses)
 	return v9ses->flags & V9FS_PROTO_2000L;
 }
 
+/**
+ * v9fs_get_inode_from_fid - Helper routine to populate an inode by
+ * issuing a attribute request
+ * @v9ses: session information
+ * @fid: fid to issue attribute request for
+ * @sb: superblock on which to create inode
+ *
+ */
 static inline struct inode *
 v9fs_get_inode_from_fid(struct v9fs_session_info *v9ses, struct p9_fid *fid,
 			struct super_block *sb)
@@ -150,6 +206,14 @@ v9fs_get_inode_from_fid(struct v9fs_session_info *v9ses, struct p9_fid *fid,
 		return v9fs_inode_from_fid(v9ses, fid, sb, 0);
 }
 
+/**
+ * v9fs_get_new_inode_from_fid - Helper routine to populate an inode by
+ * issuing a attribute request
+ * @v9ses: session information
+ * @fid: fid to issue attribute request for
+ * @sb: superblock on which to create inode
+ *
+ */
 static inline struct inode *
 v9fs_get_new_inode_from_fid(struct v9fs_session_info *v9ses, struct p9_fid *fid,
 			    struct super_block *sb)

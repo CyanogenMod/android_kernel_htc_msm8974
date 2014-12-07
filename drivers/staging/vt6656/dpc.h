@@ -33,9 +33,13 @@
 #include "device.h"
 #include "wcmd.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 void RXvWorkItem(void *Context);
 
@@ -54,4 +58,4 @@ RXbBulkInProcessData(
      unsigned long            BytesToIndicate
     );
 
-#endif 
+#endif /* __RXTX_H__ */

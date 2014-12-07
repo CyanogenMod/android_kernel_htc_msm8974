@@ -39,6 +39,10 @@
 
 #define reader_to_dev(x)	(&x->p_dev->dev)
 
+/* n (debug level) is ignored */
+/* additional debug output may be enabled by re-compiling with
+ * CM4040_DEBUG set */
+/* #define CM4040_DEBUG */
 #define DEBUGP(n, rdr, x, args...) do { 		\
 		dev_dbg(reader_to_dev(rdr), "%s:" x, 	\
 			   __func__ , ## args);		\
@@ -52,6 +56,7 @@ static DEFINE_MUTEX(cm4040_mutex);
 #define READ_WRITE_BUFFER_SIZE 512
 #define POLL_LOOP_COUNT				1000
 
+/* how often to poll for fifo status change */
 #define POLL_PERIOD 				msecs_to_jiffies(10)
 
 static void reader_release(struct pcmcia_device *link);
@@ -97,6 +102,8 @@ static inline unsigned char xinb(unsigned short port)
 }
 #endif
 
+/* poll the device fifo status register.  not to be confused with
+ * the poll syscall. */
 static void cm4040_do_poll(unsigned long dummy)
 {
 	struct reader_dev *dev = (struct reader_dev *) dummy;
@@ -158,6 +165,7 @@ static int wait_for_bulk_out_ready(struct reader_dev *dev)
 	return rc;
 }
 
+/* Write to Sync Control Register */
 static int write_sync_reg(unsigned char val, struct reader_dev *dev)
 {
 	int iobase = dev->p_dev->resource[0]->start;
@@ -597,7 +605,7 @@ static void reader_detach(struct pcmcia_device *link)
 	struct reader_dev *dev = link->priv;
 	int devno;
 
-	
+	/* find device */
 	for (devno = 0; devno < CM_MAX_DEV; devno++) {
 		if (dev_table[devno] == link)
 			break;

@@ -69,6 +69,8 @@ int saa7164_dl_wait_clr(struct saa7164_dev *dev, u32 reg)
 	return 0;
 }
 
+/* TODO: move dlflags into dev-> and change to write/readl/b */
+/* TODO: Excessive levels of debug */
 int saa7164_downloadimage(struct saa7164_dev *dev, u8 *src, u32 srcsize,
 	u32 dlflags, u8 *dst, u32 dstsize)
 {
@@ -117,32 +119,32 @@ int saa7164_downloadimage(struct saa7164_dev *dev, u8 *src, u32 srcsize,
 			"%s() Download flag already set, please reboot\n",
 			__func__);
 
-	
+	/* Indicate download start */
 	saa7164_writel(dlflag, 1);
 	ret = saa7164_dl_wait_ack(dev, dlflag_ack);
 	if (ret < 0)
 		goto out;
 
-	
+	/* Ack download start, then wait for wait */
 	saa7164_writel(dlflag, 0);
 	ret = saa7164_dl_wait_clr(dev, dlflag_ack);
 	if (ret < 0)
 		goto out;
 
-	
+	/* Deal with the raw firmware, in the appropriate chunk size */
 	for (offset = 0; srcsize > dstsize;
 		srcsize -= dstsize, offset += dstsize) {
 
 		dprintk(DBGLVL_FW, "%s() memcpy %d\n", __func__, dstsize);
 		memcpy(dst, srcbuf + offset, dstsize);
 
-		
+		/* Flag the data as ready */
 		saa7164_writel(drflag, 1);
 		ret = saa7164_dl_wait_ack(dev, drflag_ack);
 		if (ret < 0)
 			goto out;
 
-		
+		/* Wait for indication data was received */
 		saa7164_writel(drflag, 0);
 		ret = saa7164_dl_wait_clr(dev, drflag_ack);
 		if (ret < 0)
@@ -151,10 +153,10 @@ int saa7164_downloadimage(struct saa7164_dev *dev, u8 *src, u32 srcsize,
 	}
 
 	dprintk(DBGLVL_FW, "%s() memcpy(l) %d\n", __func__, dstsize);
-	
+	/* Write last block to the device */
 	memcpy(dst, srcbuf+offset, srcsize);
 
-	
+	/* Flag the data as ready */
 	saa7164_writel(drflag, 1);
 	ret = saa7164_dl_wait_ack(dev, drflag_ack);
 	if (ret < 0)
@@ -176,7 +178,7 @@ int saa7164_downloadimage(struct saa7164_dev *dev, u8 *src, u32 srcsize,
 			goto out;
 		}
 
-		msleep(10); 
+		msleep(10); /* Checkpatch throws a < 20ms warning */
 		if (timeout++ > 60)
 			break;
 	}
@@ -195,9 +197,12 @@ out:
 	return ret;
 }
 
+/* TODO: Excessive debug */
+/* Load the firmware. Optionally it can be in ROM or newer versions
+ * can be on disk, saving the expense of the ROM hardware. */
 int saa7164_downloadfirmware(struct saa7164_dev *dev)
 {
-	
+	/* u32 second_timeout = 60 * SAA_DEVICE_TIMEOUT; */
 	u32 tmp, filesize, version, err_flags, first_timeout, fwlength;
 	u32 second_timeout, updatebootloader = 1, bootloadersize = 0;
 	const struct firmware *fw = NULL;
@@ -230,7 +235,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 		while (err_flags != SAA_DEVICE_IMAGE_BOOTING) {
 			dprintk(DBGLVL_FW, "%s() err_flags = %x\n",
 				__func__, err_flags);
-			msleep(10); 
+			msleep(10); /* Checkpatch throws a < 20ms warning */
 
 			if (err_flags & SAA_DEVICE_IMAGE_CORRUPT) {
 				printk(KERN_ERR "%s() firmware corrupt\n",
@@ -274,7 +279,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 			}
 
 			err_flags = saa7164_readl(SAA_BOOTLOADERERROR_FLAGS);
-		} 
+		} /* While != Booting */
 
 		if (err_flags == SAA_DEVICE_IMAGE_BOOTING) {
 			dprintk(DBGLVL_FW, "%s() Loader 1 has loaded.\n",
@@ -289,7 +294,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 			while (err_flags != SAA_DEVICE_IMAGE_BOOTING) {
 				dprintk(DBGLVL_FW, "%s() err_flags2 = %x\n",
 					__func__, err_flags);
-				msleep(10); 
+				msleep(10); /* Checkpatch throws a < 20ms warning */
 
 				if (err_flags & SAA_DEVICE_IMAGE_CORRUPT) {
 					printk(KERN_ERR
@@ -337,15 +342,18 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 
 				err_flags =
 				saa7164_readl(SAA_SECONDSTAGEERROR_FLAGS);
-			} 
+			} /* err_flags != SAA_DEVICE_IMAGE_BOOTING */
 
 			dprintk(DBGLVL_FW, "%s() Loader flags 1:0x%x 2:0x%x.\n",
 				__func__,
 				saa7164_readl(SAA_BOOTLOADERERROR_FLAGS),
 				saa7164_readl(SAA_SECONDSTAGEERROR_FLAGS));
 
-		} 
+		} /* err_flags == SAA_DEVICE_IMAGE_BOOTING */
 
+		/* It's possible for both firmwares to have booted,
+		 * but that doesn't mean they've finished booting yet.
+		 */
 		if ((saa7164_readl(SAA_BOOTLOADERERROR_FLAGS) ==
 			SAA_DEVICE_IMAGE_BOOTING) &&
 			(saa7164_readl(SAA_SECONDSTAGEERROR_FLAGS) ==
@@ -357,7 +365,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 
 			first_timeout = SAA_DEVICE_TIMEOUT;
 			while (first_timeout) {
-				msleep(10); 
+				msleep(10); /* Checkpatch throws a < 20ms warning */
 
 				version =
 					saa7164_getcurrentfirmwareversion(dev);
@@ -378,9 +386,9 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 			}
 		}
 		version = saa7164_getcurrentfirmwareversion(dev);
-	} 
+	} /* version == 0 */
 
-	
+	/* Has the firmware really booted? */
 	if ((saa7164_readl(SAA_BOOTLOADERERROR_FLAGS) ==
 		SAA_DEVICE_IMAGE_BOOTING) &&
 		(saa7164_readl(SAA_SECONDSTAGEERROR_FLAGS) ==
@@ -390,7 +398,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 			"%s() The firmware hung, probably bad firmware\n",
 			__func__);
 
-		
+		/* Tell the second stage loader we have a deadlock */
 		saa7164_writel(SAA_DEVICE_DEADLOCK_DETECTED_OFFSET,
 			SAA_DEVICE_DEADLOCK_DETECTED);
 
@@ -405,7 +413,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 		(version & 0x0000001f),
 		(version & 0xffff0000) >> 16);
 
-	
+	/* Load the firmwware from the disk if required */
 	if (version == 0) {
 
 		printk(KERN_INFO "%s() Waiting for firmware upload (%s)\n",
@@ -436,9 +444,9 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 		printk(KERN_INFO " .Reserved = 0x%x\n", hdr->reserved);
 		printk(KERN_INFO " .Version = 0x%x\n", hdr->version);
 
-		
+		/* Retrieve bootloader if reqd */
 		if ((hdr->firmwaresize == 0) && (hdr->bslsize == 0))
-			
+			/* Second bootloader in the firmware file */
 			filesize = hdr->reserved * 16;
 		else
 			filesize = (hdr->firmwaresize + hdr->bslsize) *
@@ -447,11 +455,11 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 		printk(KERN_INFO "%s() SecBootLoader.FileSize = %d\n",
 			__func__, filesize);
 
-		
+		/* Get bootloader (if reqd) and firmware header */
 		if ((hdr->firmwaresize == 0) && (hdr->bslsize == 0)) {
-			
+			/* Second boot loader is required */
 
-			
+			/* Get the loader header */
 			boothdr = (struct fw_header *)(fw->data +
 				sizeof(struct fw_header));
 
@@ -489,14 +497,14 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 					updatebootloader = 0;
 			}
 
-			
+			/* Calculate offset to firmware header */
 			tmp = (boothdr->firmwaresize + boothdr->bslsize) * 16 +
 				(sizeof(struct fw_header) +
 				sizeof(struct fw_header));
 
 			fwhdr = (struct fw_header *)(fw->data+tmp);
 		} else {
-			
+			/* No second boot loader */
 			fwhdr = hdr;
 		}
 
@@ -508,14 +516,14 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 			);
 
 		if (version == fwhdr->version) {
-			
+			/* No download, firmware already on board */
 			ret = 0;
 			goto out;
 		}
 
 		if ((hdr->firmwaresize == 0) && (hdr->bslsize == 0)) {
 			if (updatebootloader) {
-				
+				/* Get ready to upload the bootloader */
 				bootloadersize = (boothdr->firmwaresize +
 					boothdr->bslsize) * 16 +
 					sizeof(struct fw_header);
@@ -559,7 +567,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 
 			fwloaderoffset = bootloaderoffset + bootloadersize;
 
-			
+			/* TODO: fix this bounds overrun here with old f/ws */
 			fwloadersize = (fwhdr->firmwaresize + fwhdr->bslsize) *
 				16 + sizeof(struct fw_header);
 
@@ -578,7 +586,7 @@ int saa7164_downloadfirmware(struct saa7164_dev *dev)
 
 		} else {
 
-			
+			/* No bootloader update reqd, download firmware only */
 			printk(KERN_ERR "starting firmware download(3)\n");
 
 			ret = saa7164_downloadimage(

@@ -31,4 +31,4 @@ struct ipc64_perm
 	unsigned long long __unused2;
 };
 
-#endif 
+#endif /* _ASM_POWERPC_IPCBUF_H */

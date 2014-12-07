@@ -21,6 +21,7 @@
 #include <linux/stat.h>
 #include <hv/hypervisor.h>
 
+/* Return a string queried from the hypervisor, truncated to page size. */
 static ssize_t get_hv_confstr(char *page, int query)
 {
 	ssize_t n = hv_confstr(query, (unsigned long)page, PAGE_SIZE - 1);
@@ -122,18 +123,18 @@ hvconfig_bin_read(struct file *filp, struct kobject *kobj,
 {
 	static size_t size;
 
-	
+	/* Lazily learn the true size (minus the trailing NUL). */
 	if (size == 0)
 		size = hv_confstr(HV_CONFSTR_HV_CONFIG, 0, 0) - 1;
 
-	
+	/* Check and adjust input parameters. */
 	if (off > size)
 		return -EINVAL;
 	if (count > size - off)
 		count = size - off;
 
 	if (count) {
-		
+		/* Get a copy of the hvc and copy out the relevant portion. */
 		char *hvc;
 
 		size = off + count;

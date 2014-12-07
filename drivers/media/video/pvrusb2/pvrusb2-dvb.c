@@ -46,7 +46,7 @@ static int pvr2_dvb_feed_func(struct pvr2_dvb_adapter *adap)
 	for (;;) {
 		if (kthread_should_stop()) break;
 
-		
+		/* Not sure about this... */
 		try_to_freeze();
 
 		bp = pvr2_stream_get_ready_buffer(stream);
@@ -65,10 +65,16 @@ static int pvr2_dvb_feed_func(struct pvr2_dvb_adapter *adap)
 			ret = pvr2_buffer_queue(bp);
 			if (ret < 0) break;
 
+			/* Since we know we did something to a buffer,
+			   just go back and try again.  No point in
+			   blocking unless we really ran out of
+			   buffers to process. */
 			continue;
 		}
 
 
+		/* Wait until more buffers become available or we're
+		   told not to wait any longer. */
 		ret = wait_event_interruptible(
 		    adap->buffer_wait_data,
 		    (pvr2_stream_get_ready_count(stream) > 0) ||
@@ -76,6 +82,8 @@ static int pvr2_dvb_feed_func(struct pvr2_dvb_adapter *adap)
 		if (ret < 0) break;
 	}
 
+	/* If we get here and ret is < 0, then an error has occurred.
+	   Probably would be a good idea to communicate that to DVB core... */
 
 	pvr2_trace(PVR2_TRACE_DVB_FEED, "dvb feed thread stopped");
 
@@ -85,7 +93,7 @@ static int pvr2_dvb_feed_func(struct pvr2_dvb_adapter *adap)
 static int pvr2_dvb_feed_thread(void *data)
 {
 	int stat = pvr2_dvb_feed_func(data);
-	
+	/* from videobuf-dvb.c: */
 	while (!kthread_should_stop()) {
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
@@ -142,7 +150,7 @@ static int pvr2_dvb_stream_do_start(struct pvr2_dvb_adapter *adap)
 	if (adap->stream_run) return -EIO;
 
 	ret = pvr2_channel_claim_stream(&adap->channel, &pvr->video_stream);
-	
+	/* somebody else already has the stream */
 	if (ret < 0) return ret;
 
 	stream = adap->channel.stream->stream;
@@ -250,7 +258,7 @@ static int pvr2_dvb_adapter_init(struct pvr2_dvb_adapter *adap)
 	int ret;
 
 	ret = dvb_register_adapter(&adap->dvb_adap, "pvrusb2-dvb",
-				   THIS_MODULE,
+				   THIS_MODULE/*&hdw->usb_dev->owner*/,
 				   &adap->channel.hdw->usb_dev->dev,
 				   adapter_nr);
 	if (ret < 0) {
@@ -356,7 +364,7 @@ static int pvr2_dvb_frontend_init(struct pvr2_dvb_adapter *adap)
 		if (adap->fe->ops.analog_ops.standby)
 			adap->fe->ops.analog_ops.standby(adap->fe);
 
-		
+		/* Ensure all frontends negotiate bus access */
 		adap->fe->ops.ts_bus_ctrl = pvr2_dvb_bus_ctrl;
 
 	} else {
@@ -402,6 +410,8 @@ struct pvr2_dvb_adapter *pvr2_dvb_create(struct pvr2_context *pvr)
 	int ret = 0;
 	struct pvr2_dvb_adapter *adap;
 	if (!pvr->hdw->hdw_desc->dvb_props) {
+		/* Device lacks a digital interface so don't set up
+		   the DVB side of the driver either.  For now. */
 		return NULL;
 	}
 	adap = kzalloc(sizeof(*adap), GFP_KERNEL);

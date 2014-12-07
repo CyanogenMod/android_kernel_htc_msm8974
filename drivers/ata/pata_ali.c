@@ -43,6 +43,9 @@ MODULE_PARM_DESC(atapi_dma, "Enable ATAPI DMA (0=disable, 1=enable)");
 
 static struct pci_dev *ali_isa_bridge;
 
+/*
+ *	Cable special cases
+ */
 
 static const struct dmi_system_id cable_dmi_table[] = {
 	{
@@ -64,28 +67,38 @@ static const struct dmi_system_id cable_dmi_table[] = {
 
 static int ali_cable_override(struct pci_dev *pdev)
 {
-	
+	/* Fujitsu P2000 */
 	if (pdev->subsystem_vendor == 0x10CF && pdev->subsystem_device == 0x10AF)
 	   	return 1;
-	
+	/* Mitac 8317 (Winbook-A) and relatives */
 	if (pdev->subsystem_vendor == 0x1071 && pdev->subsystem_device == 0x8317)
 		return 1;
-	
+	/* Systems by DMI */
 	if (dmi_check_system(cable_dmi_table))
 		return 1;
 	return 0;
 }
 
+/**
+ *	ali_c2_cable_detect	-	cable detection
+ *	@ap: ATA port
+ *
+ *	Perform cable detection for C2 and later revisions
+ */
 
 static int ali_c2_cable_detect(struct ata_port *ap)
 {
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 	u8 ata66;
 
+	/* Certain laptops use short but suitable cables and don't
+	   implement the detect logic */
 
 	if (ali_cable_override(pdev))
 		return ATA_CBL_PATA40_SHORT;
 
+	/* Host view cable detect 0x4A bit 0 primary bit 1 secondary
+	   Bit set for 40 pin */
 	pci_read_config_byte(pdev, 0x4A, &ata66);
 	if (ata66 & (1 << ap->port_no))
 		return ATA_CBL_PATA40;
@@ -93,11 +106,19 @@ static int ali_c2_cable_detect(struct ata_port *ap)
 		return ATA_CBL_PATA80;
 }
 
+/**
+ *	ali_20_filter		-	filter for earlier ALI DMA
+ *	@ap: ALi ATA port
+ *	@adev: attached device
+ *
+ *	Ensure that we do not do DMA on CD devices. We may be able to
+ *	fix that later on. Also ensure we do not do UDMA on WDC drives
+ */
 
 static unsigned long ali_20_filter(struct ata_device *adev, unsigned long mask)
 {
 	char model_num[ATA_ID_PROD_LEN + 1];
-	
+	/* No DMA on anything but a disk for now */
 	if (adev->class != ATA_DEV_ATA)
 		mask &= ~(ATA_MASK_MWDMA | ATA_MASK_UDMA);
 	ata_id_c_string(adev->id, model_num, ATA_ID_PROD, sizeof(model_num));
@@ -106,6 +127,16 @@ static unsigned long ali_20_filter(struct ata_device *adev, unsigned long mask)
 	return mask;
 }
 
+/**
+ *	ali_fifo_control	-	FIFO manager
+ *	@ap: ALi channel to control
+ *	@adev: device for FIFO control
+ *	@on: 0 for off 1 for on
+ *
+ *	Enable or disable the FIFO on a given device. Because of the way the
+ *	ALi FIFO works it provides a boost on ATA disk but can be confused by
+ *	ATAPI and we must therefore manage it.
+ */
 
 static void ali_fifo_control(struct ata_port *ap, struct ata_device *adev, int on)
 {
@@ -114,6 +145,9 @@ static void ali_fifo_control(struct ata_port *ap, struct ata_device *adev, int o
 	u8 fifo;
 	int shift = 4 * adev->devno;
 
+	/* ATA - FIFO on set nibble to 0x05, ATAPI - FIFO off, set nibble to
+	   0x00. Not all the docs agree but the behaviour we now use is the
+	   one stated in the BIOS Programming Guide */
 
 	pci_read_config_byte(pdev, pio_fifo, &fifo);
 	fifo &= ~(0x0F << shift);
@@ -121,14 +155,25 @@ static void ali_fifo_control(struct ata_port *ap, struct ata_device *adev, int o
 	pci_write_config_byte(pdev, pio_fifo, fifo);
 }
 
+/**
+ *	ali_program_modes	-	load mode registers
+ *	@ap: ALi channel to load
+ *	@adev: Device the timing is for
+ *	@t: timing data
+ *	@ultra: UDMA timing or zero for off
+ *
+ *	Loads the timing registers for cmd/data and disable UDMA if
+ *	ultra is zero. If ultra is set then load and enable the UDMA
+ *	timing but do not touch the command/data timing.
+ */
 
 static void ali_program_modes(struct ata_port *ap, struct ata_device *adev, struct ata_timing *t, u8 ultra)
 {
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
-	int cas = 0x58 + 4 * ap->port_no;	
-	int cbt = 0x59 + 4 * ap->port_no;	
-	int drwt = 0x5A + 4 * ap->port_no + adev->devno; 
-	int udmat = 0x56 + ap->port_no;	
+	int cas = 0x58 + 4 * ap->port_no;	/* Command timing */
+	int cbt = 0x59 + 4 * ap->port_no;	/* Command timing */
+	int drwt = 0x5A + 4 * ap->port_no + adev->devno; /* R/W timing */
+	int udmat = 0x56 + ap->port_no;	/* UDMA timing */
 	int shift = 4 * adev->devno;
 	u8 udma;
 
@@ -144,19 +189,26 @@ static void ali_program_modes(struct ata_port *ap, struct ata_device *adev, stru
 		pci_write_config_byte(pdev, drwt, (t->active << 4) | t->recover);
 	}
 
-	
+	/* Set up the UDMA enable */
 	pci_read_config_byte(pdev, udmat, &udma);
 	udma &= ~(0x0F << shift);
 	udma |= ultra << shift;
 	pci_write_config_byte(pdev, udmat, udma);
 }
 
+/**
+ *	ali_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Program the ALi registers for PIO mode.
+ */
 
 static void ali_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
 	struct ata_device *pair = ata_dev_pair(adev);
 	struct ata_timing t;
-	unsigned long T =  1000000000 / 33333;	
+	unsigned long T =  1000000000 / 33333;	/* PCI clock based */
 
 	ata_timing_compute(adev, adev->pio_mode, &t, T, 1);
 	if (pair) {
@@ -169,7 +221,7 @@ static void ali_set_piomode(struct ata_port *ap, struct ata_device *adev)
 		}
 	}
 
-	
+	/* PIO FIFO is only permitted on ATA disk */
 	if (adev->class != ATA_DEV_ATA)
 		ali_fifo_control(ap, adev, 0x00);
 	ali_program_modes(ap, adev, &t, 0);
@@ -178,13 +230,20 @@ static void ali_set_piomode(struct ata_port *ap, struct ata_device *adev)
 
 }
 
+/**
+ *	ali_set_dmamode	-	set initial DMA mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Program the ALi registers for DMA mode.
+ */
 
 static void ali_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
 	static u8 udma_timing[7] = { 0xC, 0xB, 0xA, 0x9, 0x8, 0xF, 0xD };
 	struct ata_device *pair = ata_dev_pair(adev);
 	struct ata_timing t;
-	unsigned long T =  1000000000 / 33333;	
+	unsigned long T =  1000000000 / 33333;	/* PCI clock based */
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
 
 
@@ -214,6 +273,13 @@ static void ali_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	}
 }
 
+/**
+ *	ali_warn_atapi_dma	-	Warn about ATAPI DMA disablement
+ *	@adev: Device
+ *
+ *	Whine about ATAPI DMA disablement if @adev is an ATAPI device.
+ *	Can be used as ->dev_config.
+ */
 
 static void ali_warn_atapi_dma(struct ata_device *adev)
 {
@@ -228,6 +294,16 @@ static void ali_warn_atapi_dma(struct ata_device *adev)
 	}
 }
 
+/**
+ *	ali_lock_sectors	-	Keep older devices to 255 sector mode
+ *	@adev: Device
+ *
+ *	Called during the bus probe for each device that is found. We use
+ *	this call to lock the sector count of the device to 255 or less on
+ *	older ALi controllers. If we didn't do this then large I/O's would
+ *	require LBA48 commands which the older ALi requires are issued by
+ *	slower PIO methods
+ */
 
 static void ali_lock_sectors(struct ata_device *adev)
 {
@@ -235,14 +311,28 @@ static void ali_lock_sectors(struct ata_device *adev)
 	ali_warn_atapi_dma(adev);
 }
 
+/**
+ *	ali_check_atapi_dma	-	DMA check for most ALi controllers
+ *	@adev: Device
+ *
+ *	Called to decide whether commands should be sent by DMA or PIO
+ */
 
 static int ali_check_atapi_dma(struct ata_queued_cmd *qc)
 {
 	if (!ali_atapi_dma) {
+		/* FIXME: pata_ali can't do ATAPI DMA reliably but the
+		 * IDE alim15x3 driver can.  I tried lots of things
+		 * but couldn't find what the actual difference was.
+		 * If you got an idea, please write it to
+		 * linux-ide@vger.kernel.org and cc htejun@gmail.com.
+		 *
+		 * Disable ATAPI DMA for now.
+		 */
 		return -EOPNOTSUPP;
 	}
 
-	
+	/* If its not a media command, its not worth it */
 	if (atapi_cmd_type(qc->cdb[0]) == ATAPI_MISC)
 		return -EOPNOTSUPP;
 	return 0;
@@ -253,9 +343,9 @@ static void ali_c2_c3_postreset(struct ata_link *link, unsigned int *classes)
 	u8 r;
 	int port_bit = 4 << link->ap->port_no;
 
-	
+	/* If our bridge is an ALI 1533 then do the extra work */
 	if (ali_isa_bridge) {
-		
+		/* Tristate and re-enable the bus signals */
 		pci_read_config_byte(ali_isa_bridge, 0x58, &r);
 		r &= ~port_bit;
 		pci_write_config_byte(ali_isa_bridge, 0x58, r);
@@ -269,6 +359,9 @@ static struct scsi_host_template ali_sht = {
 	ATA_BMDMA_SHT(DRV_NAME),
 };
 
+/*
+ *	Port operations for PIO only ALi
+ */
 
 static struct ata_port_operations ali_early_port_ops = {
 	.inherits	= &ata_sff_port_ops,
@@ -283,6 +376,10 @@ static const struct ata_port_operations ali_dma_base_ops = {
 	.set_dmamode	= ali_set_dmamode,
 };
 
+/*
+ *	Port operations for DMA capable ALi without cable
+ *	detect
+ */
 static struct ata_port_operations ali_20_port_ops = {
 	.inherits	= &ali_dma_base_ops,
 	.cable_detect	= ata_cable_40wire,
@@ -291,6 +388,9 @@ static struct ata_port_operations ali_20_port_ops = {
 	.dev_config	= ali_lock_sectors,
 };
 
+/*
+ *	Port operations for DMA capable ALi with cable detect
+ */
 static struct ata_port_operations ali_c2_port_ops = {
 	.inherits	= &ali_dma_base_ops,
 	.check_atapi_dma = ali_check_atapi_dma,
@@ -299,6 +399,9 @@ static struct ata_port_operations ali_c2_port_ops = {
 	.postreset	= ali_c2_c3_postreset,
 };
 
+/*
+ *	Port operations for DMA capable ALi with cable detect
+ */
 static struct ata_port_operations ali_c4_port_ops = {
 	.inherits	= &ali_dma_base_ops,
 	.check_atapi_dma = ali_check_atapi_dma,
@@ -306,6 +409,9 @@ static struct ata_port_operations ali_c4_port_ops = {
 	.dev_config	= ali_lock_sectors,
 };
 
+/*
+ *	Port operations for DMA capable ALi with cable detect and LBA48
+ */
 static struct ata_port_operations ali_c5_port_ops = {
 	.inherits	= &ali_dma_base_ops,
 	.check_atapi_dma = ali_check_atapi_dma,
@@ -314,12 +420,23 @@ static struct ata_port_operations ali_c5_port_ops = {
 };
 
 
+/**
+ *	ali_init_chipset	-	chip setup function
+ *	@pdev: PCI device of ATA controller
+ *
+ *	Perform the setup on the device that must be done both at boot
+ *	and at resume time.
+ */
 
 static void ali_init_chipset(struct pci_dev *pdev)
 {
 	u8 tmp;
 	struct pci_dev *north;
 
+	/*
+	 * The chipset revision selects the driver operations and
+	 * mode data.
+	 */
 
 	if (pdev->revision <= 0x20) {
 		pci_read_config_byte(pdev, 0x53, &tmp);
@@ -330,22 +447,29 @@ static void ali_init_chipset(struct pci_dev *pdev)
 		pci_write_config_byte(pdev, 0x4a, tmp | 0x20);
 		pci_read_config_byte(pdev, 0x4B, &tmp);
 		if (pdev->revision < 0xC2)
-			
-			
+			/* 1543-E/F, 1543C-C, 1543C-D, 1543C-E */
+			/* Clear CD-ROM DMA write bit */
 			tmp &= 0x7F;
-		
+		/* Cable and UDMA */
 		if (pdev->revision >= 0xc2)
 			tmp |= 0x01;
 		pci_write_config_byte(pdev, 0x4B, tmp | 0x08);
+		/*
+		 * CD_ROM DMA on (0x53 bit 0). Enable this even if we want
+		 * to use PIO. 0x53 bit 1 (rev 20 only) - enable FIFO control
+		 * via 0x54/55.
+		 */
 		pci_read_config_byte(pdev, 0x53, &tmp);
 		if (pdev->revision >= 0xc7)
 			tmp |= 0x03;
 		else
-			tmp |= 0x01;	
+			tmp |= 0x01;	/* CD_ROM enable for DMA */
 		pci_write_config_byte(pdev, 0x53, tmp);
 	}
 	north = pci_get_bus_and_slot(0, PCI_DEVFN(0,0));
 	if (north && north->vendor == PCI_VENDOR_ID_AL && ali_isa_bridge) {
+		/* Configure the ALi bridge logic. For non ALi rely on BIOS.
+		   Set the south bridge enable bit */
 		pci_read_config_byte(ali_isa_bridge, 0x79, &tmp);
 		if (pdev->revision == 0xC2)
 			pci_write_config_byte(ali_isa_bridge, 0x79, tmp | 0x04);
@@ -355,6 +479,14 @@ static void ali_init_chipset(struct pci_dev *pdev)
 	pci_dev_put(north);
 	ata_pci_bmdma_clear_simplex(pdev);
 }
+/**
+ *	ali_init_one		-	discovery callback
+ *	@pdev: PCI device ID
+ *	@id: PCI table info
+ *
+ *	An ALi IDE interface has been discovered. Figure out what revision
+ *	and perform configuration work before handing it to the ATA layer
+ */
 
 static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -363,7 +495,7 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.pio_mask = ATA_PIO4,
 		.port_ops = &ali_early_port_ops
 	};
-	
+	/* Revision 0x20 added DMA */
 	static const struct ata_port_info info_20 = {
 		.flags = ATA_FLAG_SLAVE_POSS | ATA_FLAG_PIO_LBA48 |
 							ATA_FLAG_IGN_SIMPLEX,
@@ -371,7 +503,7 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.mwdma_mask = ATA_MWDMA2,
 		.port_ops = &ali_20_port_ops
 	};
-	
+	/* Revision 0x20 with support logic added UDMA */
 	static const struct ata_port_info info_20_udma = {
 		.flags = ATA_FLAG_SLAVE_POSS | ATA_FLAG_PIO_LBA48 |
 							ATA_FLAG_IGN_SIMPLEX,
@@ -380,7 +512,7 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.udma_mask = ATA_UDMA2,
 		.port_ops = &ali_20_port_ops
 	};
-	
+	/* Revision 0xC2 adds UDMA66 */
 	static const struct ata_port_info info_c2 = {
 		.flags = ATA_FLAG_SLAVE_POSS | ATA_FLAG_PIO_LBA48 |
 							ATA_FLAG_IGN_SIMPLEX,
@@ -389,7 +521,7 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.udma_mask = ATA_UDMA4,
 		.port_ops = &ali_c2_port_ops
 	};
-	
+	/* Revision 0xC3 is UDMA66 for now */
 	static const struct ata_port_info info_c3 = {
 		.flags = ATA_FLAG_SLAVE_POSS | ATA_FLAG_PIO_LBA48 |
 							ATA_FLAG_IGN_SIMPLEX,
@@ -398,7 +530,7 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.udma_mask = ATA_UDMA4,
 		.port_ops = &ali_c2_port_ops
 	};
-	
+	/* Revision 0xC4 is UDMA100 */
 	static const struct ata_port_info info_c4 = {
 		.flags = ATA_FLAG_SLAVE_POSS | ATA_FLAG_PIO_LBA48 |
 							ATA_FLAG_IGN_SIMPLEX,
@@ -407,7 +539,7 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 		.udma_mask = ATA_UDMA5,
 		.port_ops = &ali_c4_port_ops
 	};
-	
+	/* Revision 0xC5 is UDMA133 with LBA48 DMA */
 	static const struct ata_port_info info_c5 = {
 		.flags = ATA_FLAG_SLAVE_POSS | 	ATA_FLAG_IGN_SIMPLEX,
 		.pio_mask = ATA_PIO4,
@@ -424,6 +556,10 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (rc)
 		return rc;
 
+	/*
+	 * The chipset revision selects the driver operations and
+	 * mode data.
+	 */
 
 	if (pdev->revision < 0x20) {
 		ppi[0] = &info_early;
@@ -441,7 +577,7 @@ static int ali_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 	ali_init_chipset(pdev);
 
 	if (ali_isa_bridge && pdev->revision >= 0x20 && pdev->revision < 0xC2) {
-		
+		/* Are we paired with a UDMA capable chip */
 		pci_read_config_byte(ali_isa_bridge, 0x5E, &tmp);
 		if ((tmp & 0x1E) == 0x12)
 	        	ppi[0] = &info_20_udma;

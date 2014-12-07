@@ -15,6 +15,7 @@
 #ifndef _WM8711_H
 #define _WM8711_H
 
+/* WM8711 register space */
 
 #define WM8711_LOUT1V   0x02
 #define WM8711_ROUT1V   0x03

@@ -1,3 +1,11 @@
+/*
+ * linux/arch/m32r/kernel/sys_m32r.c
+ *
+ * This file contains various random system calls that
+ * have a non-standard calling sequence on the Linux/M32R platform.
+ *
+ * Taken from i386 version.
+ */
 
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -20,6 +28,9 @@
 #include <asm/syscall.h>
 #include <asm/unistd.h>
 
+/*
+ * sys_tas() - test-and-set
+ */
 asmlinkage int sys_tas(int __user *addr)
 {
 	int oldval;
@@ -27,12 +38,22 @@ asmlinkage int sys_tas(int __user *addr)
 	if (!access_ok(VERIFY_WRITE, addr, sizeof (int)))
 		return -EFAULT;
 
+	/* atomic operation:
+	 *   oldval = *addr; *addr = 1;
+	 */
 	__asm__ __volatile__ (
 		DCACHE_CLEAR("%0", "r4", "%1")
 		"	.fillinsn\n"
 		"1:\n"
 		"	lock	%0, @%1	    ->	unlock	%2, @%1\n"
 		"2:\n"
+		/* NOTE:
+		 *   The m32r processor can accept interrupts only
+		 *   at the 32-bit instruction boundary.
+		 *   So, in the above code, the "unlock" instruction
+		 *   can be executed continuously after the "lock"
+		 *   instruction execution without any interruptions.
+		 */
 		".section .fixup,\"ax\"\n"
 		"	.balign 4\n"
 		"3:	ldi	%0, #%3\n"
@@ -49,7 +70,7 @@ asmlinkage int sys_tas(int __user *addr)
 		: "r14", "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 		  , "r4"
-#endif 
+#endif /* CONFIG_CHIP_M32700_TS1 */
 	);
 
 	return oldval;
@@ -57,17 +78,21 @@ asmlinkage int sys_tas(int __user *addr)
 
 asmlinkage int sys_cacheflush(void *addr, int bytes, int cache)
 {
-	
+	/* This should flush more selectively ...  */
 	_flush_cache_all();
 	return 0;
 }
 
 asmlinkage int sys_cachectl(char *addr, int nbytes, int op)
 {
-	
+	/* Not implemented yet. */
 	return -ENOSYS;
 }
 
+/*
+ * Do a system call from kernel instead of calling sys_execve so we
+ * end up with proper pt_regs.
+ */
 int kernel_execve(const char *filename,
 		  const char *const argv[],
 		  const char *const envp[])

@@ -36,6 +36,11 @@
 
 #include "common.h"
 
+/*
+ * Map the P720T system PLD.  It occupies two address spaces:
+ *  SYSPLD_PHYS_BASE and SYSPLD_PHYS_BASE + 0x00400000
+ * We map both here.
+ */
 static struct map_desc p720t_io_desc[] __initdata = {
 	{
 		.virtual	= SYSPLD_VIRT_BASE,
@@ -53,6 +58,9 @@ static struct map_desc p720t_io_desc[] __initdata = {
 static void __init
 fixup_p720t(struct tag *tag, char **cmdline, struct meminfo *mi)
 {
+	/*
+	 * Our bootloader doesn't setup any tags (yet).
+	 */
 	if (tag->hdr.tag != ATAG_CORE) {
 		tag->hdr.tag = ATAG_CORE;
 		tag->hdr.size = tag_size(tag_core);
@@ -79,7 +87,7 @@ static void __init p720t_map_io(void)
 }
 
 MACHINE_START(P720T, "ARM-Prospector720T")
-	
+	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
 	.fixup		= fixup_p720t,
 	.map_io		= p720t_map_io,
@@ -90,6 +98,10 @@ MACHINE_END
 
 static int p720t_hw_init(void)
 {
+	/*
+	 * Power down as much as possible in case we don't
+	 * have the drivers loaded.
+	 */
 	PLD_LCDEN = 0;
 	PLD_PWR  &= ~(PLD_S4_ON|PLD_S3_ON|PLD_S2_ON|PLD_S1_ON);
 

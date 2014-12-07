@@ -38,10 +38,46 @@
 #include <mach/irqs.h>
 #include <video/sh_mobile_lcdc.h>
 
+/*
+ * CS	Address		device			note
+ *----------------------------------------------------------------
+ * 0	0x0000_0000	NOR Flash (64MB)	SW12 : bit3 = OFF
+ * 2	0x0800_0000	ExtNOR (64MB)		SW12 : bit3 = OFF
+ * 4			-
+ * 5A			-
+ * 5B	0x1600_0000	SRAM (8MB)
+ * 6	0x1800_0000	FPGA (64K)
+ *	0x1801_0000	Ether (4KB)
+ *	0x1801_1000	USB (4KB)
+ */
 
+/*
+ * SW12
+ *
+ *	bit1			bit2			bit3
+ *----------------------------------------------------------------------------
+ * ON	NOR WriteProtect	NAND WriteProtect	CS0 ExtNOR / CS2 NOR
+ * OFF	NOR Not WriteProtect	NAND Not WriteProtect	CS0 NOR    / CS2 ExtNOR
+ */
 
+/*
+ * SCIFA5 (CN42)
+ *
+ * S38.3 = ON
+ * S39.6 = ON
+ * S43.1 = ON
+ */
 
+/*
+ * LCDC0 (CN3/CN4/CN7)
+ *
+ * S38.1 = OFF
+ * S38.2 = OFF
+ */
 
+/*
+ * FPGA
+ */
 #define IRQSR0		0x0020
 #define IRQSR1		0x0022
 #define IRQMR0		0x0030
@@ -57,6 +93,7 @@
 #define A1MDSR		0x10E0
 #define BVERR		0x1100
 
+/* FPGA IRQ */
 #define FPGA_IRQ_BASE		(512)
 #define FPGA_IRQ0		(FPGA_IRQ_BASE)
 #define FPGA_IRQ1		(FPGA_IRQ_BASE + 16)
@@ -118,24 +155,32 @@ static void bonito_fpga_init(void)
 {
 	int i;
 
-	bonito_fpga_write(IRQMR0, 0xffff); 
-	bonito_fpga_write(IRQMR1, 0xffff); 
+	bonito_fpga_write(IRQMR0, 0xffff); /* mask all */
+	bonito_fpga_write(IRQMR1, 0xffff); /* mask all */
 
-	
+	/* Device reset */
 	bonito_fpga_write(DEVRSTCR1,
-		   (1 << 2));	
+		   (1 << 2));	/* Eth */
 
-	
+	/* FPGA irq require special handling */
 	for (i = FPGA_IRQ_BASE; i < FPGA_IRQ_BASE + 32; i++) {
 		irq_set_chip_and_handler_name(i, &bonito_fpga_irq_chip,
 					      handle_level_irq, "level");
-		set_irq_flags(i, IRQF_VALID); 
+		set_irq_flags(i, IRQF_VALID); /* yuck */
 	}
 
 	irq_set_chained_handler(evt2irq(0x0340), bonito_fpga_irq_demux);
 	irq_set_irq_type(evt2irq(0x0340), IRQ_TYPE_LEVEL_LOW);
 }
 
+/*
+* PMIC settings
+*
+* FIXME
+*
+* bonito board needs some settings by pmic which use i2c access.
+* pmic settings use device_initcall() here for use it.
+*/
 static __u8 *pmic_settings = NULL;
 static __u8 pmic_do_2A[] = {
 	0x1C, 0x09,
@@ -178,6 +223,9 @@ static int __init pmic_init(void)
 }
 device_initcall(pmic_init);
 
+/*
+ * LCDC0
+ */
 static const struct fb_videomode lcdc0_mode = {
 	.name		= "WVGA Panel",
 	.xres		= 800,
@@ -232,6 +280,9 @@ static struct platform_device lcdc0_device = {
 	},
 };
 
+/*
+ * SMSC 9221
+ */
 static struct resource smsc_resources[] = {
 	[0] = {
 		.start		= 0x18010000,
@@ -260,15 +311,28 @@ static struct platform_device smsc_device = {
 	.num_resources	= ARRAY_SIZE(smsc_resources),
 };
 
+/*
+ * core board devices
+ */
 static struct platform_device *bonito_core_devices[] __initdata = {
 };
 
+/*
+ * base board devices
+ */
 static struct platform_device *bonito_base_devices[] __initdata = {
 	&lcdc0_device,
 	&smsc_device,
 };
 
+/*
+ * map I/O
+ */
 static struct map_desc bonito_io_desc[] __initdata = {
+	/*
+	 * for FPGA (0x1800000-0x19ffffff)
+	 * 0x18000000-0x18002000 -> 0xf0003000-0xf0005000
+	 */
 	{
 		.virtual	= 0xf0003000,
 		.pfn		= __phys_to_pfn(0x18000000),
@@ -283,6 +347,9 @@ static void __init bonito_map_io(void)
 	iotable_init(bonito_io_desc, ARRAY_SIZE(bonito_io_desc));
 }
 
+/*
+ * board init
+ */
 #define BIT_ON(sw, bit)		(sw & (1 << bit))
 #define BIT_OFF(sw, bit)	(!(sw & (1 << bit)))
 
@@ -298,9 +365,12 @@ static void __init bonito_init(void)
 
 	pmic_settings = pmic_do_2A;
 
+	/*
+	 * core board settings
+	 */
 
 #ifdef CONFIG_CACHE_L2X0
-	
+	/* Early BRESP enable, Shared attribute override enable, 32K*8way */
 	l2x0_init(IOMEM(0xf0002000), 0x40440000, 0x82000fff);
 #endif
 
@@ -309,6 +379,9 @@ static void __init bonito_init(void)
 	platform_add_devices(bonito_core_devices,
 			     ARRAY_SIZE(bonito_core_devices));
 
+	/*
+	 * base board settings
+	 */
 	gpio_request(GPIO_PORT176, NULL);
 	gpio_direction_input(GPIO_PORT176);
 	if (!gpio_get_value(GPIO_PORT176)) {
@@ -316,6 +389,9 @@ static void __init bonito_init(void)
 		u16 bsw3;
 		u16 bsw4;
 
+		/*
+		 * FPGA
+		 */
 		gpio_request(GPIO_FN_CS5B,		NULL);
 		gpio_request(GPIO_FN_CS6A,		NULL);
 		gpio_request(GPIO_FN_CS5A_PORT105,	NULL);
@@ -330,15 +406,21 @@ static void __init bonito_init(void)
 		bsw3 = bonito_fpga_read(BUSSWMR3);
 		bsw4 = bonito_fpga_read(BUSSWMR4);
 
-		if (BIT_OFF(bsw2, 1) &&	
-		    BIT_OFF(bsw3, 9) &&	
-		    BIT_OFF(bsw4, 4)) {	
+		/*
+		 * SCIFA5 (CN42)
+		 */
+		if (BIT_OFF(bsw2, 1) &&	/* S38.3 = ON */
+		    BIT_OFF(bsw3, 9) &&	/* S39.6 = ON */
+		    BIT_OFF(bsw4, 4)) {	/* S43.1 = ON */
 			gpio_request(GPIO_FN_SCIFA5_TXD_PORT91,	NULL);
 			gpio_request(GPIO_FN_SCIFA5_RXD_PORT92,	NULL);
 		}
 
-		if (BIT_ON(bsw2, 3) &&	
-		    BIT_ON(bsw2, 2)) {	
+		/*
+		 * LCDC0 (CN3)
+		 */
+		if (BIT_ON(bsw2, 3) &&	/* S38.1 = OFF */
+		    BIT_ON(bsw2, 2)) {	/* S38.2 = OFF */
 			gpio_request(GPIO_FN_LCDC0_SELECT,	NULL);
 			gpio_request(GPIO_FN_LCD0_D0,		NULL);
 			gpio_request(GPIO_FN_LCD0_D1,		NULL);
@@ -370,13 +452,13 @@ static void __init bonito_init(void)
 			gpio_request(GPIO_FN_LCD0_DISP,		NULL);
 			gpio_request(GPIO_FN_LCD0_LCLK_PORT165,	NULL);
 
-			gpio_request(GPIO_PORT61, NULL); 
+			gpio_request(GPIO_PORT61, NULL); /* LCDDON */
 			gpio_direction_output(GPIO_PORT61, 1);
 
-			
+			/* backlight on */
 			bonito_fpga_write(LCDCR, 1);
 
-			
+			/*  drivability Max */
 			__raw_writew(0x00FF , VCCQ1LCDCR);
 			__raw_writew(0xFFFF , VCCQ1CR);
 		}
@@ -391,7 +473,7 @@ static void __init bonito_earlytimer_init(void)
 	u16 val;
 	u8 md_ck = 0;
 
-	
+	/* read MD_CK value */
 	val = bonito_fpga_read(A1MDSR);
 	if (val & (1 << 10))
 		md_ck |= MD_CK2;
@@ -408,7 +490,7 @@ void __init bonito_add_early_devices(void)
 {
 	r8a7740_add_early_devices();
 
-	
+	/* override timer setup with board-specific code */
 	shmobile_timer.init = bonito_earlytimer_init;
 }
 

@@ -35,13 +35,16 @@ static int build_index(const MPI *exparray, int k, int i, int t)
 	return index;
 }
 
+/****************
+ * RES = (BASE[0] ^ EXP[0]) *  (BASE[1] ^ EXP[1]) * ... * mod M
+ */
 int mpi_mulpowm(MPI res, MPI *basearray, MPI *exparray, MPI m)
 {
 	int rc = -ENOMEM;
-	int k;			
-	int t;			
+	int k;			/* number of elements */
+	int t;			/* bit size of largest exponent */
 	int i, j, idx;
-	MPI *G = NULL;		
+	MPI *G = NULL;		/* table with precomputed values of size 2^k */
 	MPI tmp = NULL;
 
 	for (k = 0; basearray[k]; k++)
@@ -72,7 +75,7 @@ int mpi_mulpowm(MPI res, MPI *basearray, MPI *exparray, MPI m)
 	if (!G)
 		goto err_out;
 
-	
+	/* and calculate */
 	tmp = mpi_alloc(mpi_get_nlimbs(m) + 1);
 	if (!tmp)
 		goto nomem;
@@ -121,7 +124,7 @@ int mpi_mulpowm(MPI res, MPI *basearray, MPI *exparray, MPI m)
 
 	rc = 0;
 nomem:
-	
+	/* cleanup */
 	mpi_free(tmp);
 	for (i = 0; i < (1 << k); i++)
 		mpi_free(G[i]);

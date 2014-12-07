@@ -53,8 +53,11 @@
 #include <pcmcia/ds.h>
 
 
+/*====================================================================*/
 
+/* Parameters that can be set with 'insmod' */
 
+/* SCSI bus setup options */
 static int host_id = 7;
 static int reconnect = 1;
 static int parity = 1;
@@ -71,6 +74,7 @@ module_param(ext_trans, int, 0);
 
 MODULE_LICENSE("Dual MPL/GPL");
 
+/*====================================================================*/
 
 typedef struct scsi_info_t {
 	struct pcmcia_device	*p_dev;
@@ -87,7 +91,7 @@ static int aha152x_probe(struct pcmcia_device *link)
 
     dev_dbg(&link->dev, "aha152x_attach()\n");
 
-    
+    /* Create new SCSI device */
     info = kzalloc(sizeof(*info), GFP_KERNEL);
     if (!info) return -ENOMEM;
     info->p_dev = link;
@@ -97,8 +101,9 @@ static int aha152x_probe(struct pcmcia_device *link)
     link->config_regs = PRESENT_OPTION;
 
     return aha152x_config_cs(link);
-} 
+} /* aha152x_attach */
 
+/*====================================================================*/
 
 static void aha152x_detach(struct pcmcia_device *link)
 {
@@ -106,16 +111,17 @@ static void aha152x_detach(struct pcmcia_device *link)
 
     aha152x_release_cs(link);
 
-    
+    /* Unlink device structure, free bits */
     kfree(link->priv);
-} 
+} /* aha152x_detach */
 
+/*====================================================================*/
 
 static int aha152x_config_check(struct pcmcia_device *p_dev, void *priv_data)
 {
 	p_dev->io_lines = 10;
 
-	
+	/* For New Media T&J, look for a SCSI window */
 	if ((p_dev->resource[0]->end < 0x20) &&
 		(p_dev->resource[1]->end >= 0x20))
 		p_dev->resource[0]->start = p_dev->resource[1]->start;
@@ -151,7 +157,7 @@ static int aha152x_config_cs(struct pcmcia_device *link)
     if (ret)
 	    goto failed;
     
-    
+    /* Set configuration options for the aha152x driver */
     memset(&s, 0, sizeof(s));
     s.conf        = "PCMCIA setup";
     s.io_port     = link->resource[0]->start;

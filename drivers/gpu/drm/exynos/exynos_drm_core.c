@@ -46,6 +46,14 @@ static int exynos_drm_subdrv_probe(struct drm_device *dev,
 	if (subdrv->probe) {
 		int ret;
 
+		/*
+		 * this probe callback would be called by sub driver
+		 * after setting of all resources to this sub driver,
+		 * such as clock, irq and register map are done or by load()
+		 * of exynos drm driver.
+		 *
+		 * P.S. note that this driver is considered for modularization.
+		 */
 		ret = subdrv->probe(dev, subdrv->dev);
 		if (ret)
 			return ret;
@@ -56,7 +64,7 @@ static int exynos_drm_subdrv_probe(struct drm_device *dev,
 
 	subdrv->manager->dev = subdrv->dev;
 
-	
+	/* create and initialize a encoder for this sub driver. */
 	encoder = exynos_drm_encoder_create(dev, subdrv->manager,
 			(1 << MAX_CRTC) - 1);
 	if (!encoder) {
@@ -64,6 +72,10 @@ static int exynos_drm_subdrv_probe(struct drm_device *dev,
 		return -EFAULT;
 	}
 
+	/*
+	 * create and initialize a connector for this sub driver and
+	 * attach the encoder created above to the connector.
+	 */
 	connector = exynos_drm_connector_create(dev, encoder);
 	if (!connector) {
 		DRM_ERROR("failed to create connector\n");

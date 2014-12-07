@@ -18,6 +18,7 @@
 
 #define QPNP_REGULATOR_DRIVER_NAME "qcom,qpnp-regulator"
 
+/* Pin control enable input pins. */
 #define QPNP_REGULATOR_PIN_CTRL_ENABLE_NONE		0x00
 #define QPNP_REGULATOR_PIN_CTRL_ENABLE_EN0		0x01
 #define QPNP_REGULATOR_PIN_CTRL_ENABLE_EN1		0x02
@@ -25,6 +26,7 @@
 #define QPNP_REGULATOR_PIN_CTRL_ENABLE_EN3		0x08
 #define QPNP_REGULATOR_PIN_CTRL_ENABLE_HW_DEFAULT	0x10
 
+/* Pin control high power mode input pins. */
 #define QPNP_REGULATOR_PIN_CTRL_HPM_NONE		0x00
 #define QPNP_REGULATOR_PIN_CTRL_HPM_EN0			0x01
 #define QPNP_REGULATOR_PIN_CTRL_HPM_EN1			0x02
@@ -33,10 +35,15 @@
 #define QPNP_REGULATOR_PIN_CTRL_HPM_SLEEP_B		0x10
 #define QPNP_REGULATOR_PIN_CTRL_HPM_HW_DEFAULT		0x20
 
+/*
+ * Used with enable parameters to specify that hardware default register values
+ * should be left unaltered.
+ */
 #define QPNP_REGULATOR_DISABLE				0
 #define QPNP_REGULATOR_ENABLE				1
 #define QPNP_REGULATOR_USE_HW_DEFAULT			2
 
+/* Soft start strength of a voltage switch type regulator */
 enum qpnp_vs_soft_start_str {
 	QPNP_VS_SOFT_START_STR_0P05_UA,
 	QPNP_VS_SOFT_START_STR_0P25_UA,
@@ -45,6 +52,7 @@ enum qpnp_vs_soft_start_str {
 	QPNP_VS_SOFT_START_STR_HW_DEFAULT,
 };
 
+/* Current limit of a boost type regulator */
 enum qpnp_boost_current_limit {
 	QPNP_BOOST_CURRENT_LIMIT_300_MA,
 	QPNP_BOOST_CURRENT_LIMIT_600_MA,
@@ -169,6 +177,12 @@ struct qpnp_regulator_platform_data {
 
 #ifdef CONFIG_REGULATOR_QPNP
 
+/**
+ * qpnp_regulator_init() - register spmi driver for qpnp-regulator
+ *
+ * This initialization function should be called in systems in which driver
+ * registration ordering must be controlled precisely.
+ */
 int __init qpnp_regulator_init(void);
 
 #else
@@ -178,6 +192,6 @@ static inline int __init qpnp_regulator_init(void)
 	return -ENODEV;
 }
 
-#endif 
+#endif /* CONFIG_REGULATOR_QPNP */
 
 #endif

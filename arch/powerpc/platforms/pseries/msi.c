@@ -45,6 +45,7 @@ static struct pci_dn *get_pdn(struct pci_dev *pdev)
 	return pdn;
 }
 
+/* RTAS Helpers */
 
 static int rtas_change_msi(struct pci_dn *pdn, u32 func, u32 num_irqs)
 {
@@ -69,6 +70,10 @@ static int rtas_change_msi(struct pci_dn *pdn, u32 func, u32 num_irqs)
 		seq_num = rtas_ret[1];
 	} while (rtas_busy_delay(rc));
 
+	/*
+	 * If the RTAS call succeeded, return the number of irqs allocated.
+	 * If not, make sure we return a negative error code.
+	 */
 	if (rc == 0)
 		rc = rtas_ret[0];
 	else if (rc > 0)
@@ -88,7 +93,14 @@ static void rtas_disable_msi(struct pci_dev *pdev)
 	if (!pdn)
 		return;
 
+	/*
+	 * disabling MSI with the explicit interface also disables MSI-X
+	 */
 	if (rtas_change_msi(pdn, RTAS_CHANGE_MSI_FN, 0) != 0) {
+		/* 
+		 * may have failed because explicit interface is not
+		 * present
+		 */
 		if (rtas_change_msi(pdn, RTAS_CHANGE_FN, 0) != 0) {
 			pr_debug("rtas_msi: Setting MSIs to 0 failed!\n");
 		}
@@ -153,7 +165,7 @@ static int check_req(struct pci_dev *pdev, int nvec, char *prop_name)
 	if (*req_msi < nvec) {
 		pr_debug("rtas_msi: %s requests < %d MSIs\n", prop_name, nvec);
 
-		if (*req_msi == 0) 
+		if (*req_msi == 0) /* Be paranoid */
 			return -ENOSPC;
 
 		return *req_msi;
@@ -172,6 +184,7 @@ static int check_req_msix(struct pci_dev *pdev, int nvec)
 	return check_req(pdev, nvec, "ibm,req#msi-x");
 }
 
+/* Quota calculation */
 
 static struct device_node *find_pe_total_msi(struct pci_dev *dev, int *total)
 {
@@ -198,7 +211,7 @@ static struct device_node *find_pe_dn(struct pci_dev *dev, int *total)
 {
 	struct device_node *dn;
 
-	
+	/* Found our PE and assume 8 at that point. */
 
 	dn = pci_device_to_OF_node(dev);
 	if (!dn)
@@ -208,12 +221,12 @@ static struct device_node *find_pe_dn(struct pci_dev *dev, int *total)
 	if (!dn)
 		return NULL;
 
-	
+	/* We actually want the parent */
 	dn = of_get_parent(dn);
 	if (!dn)
 		return NULL;
 
-	
+	/* Hardcode of 8 for old firmwares */
 	*total = 8;
 	pr_debug("rtas_msi: using PE dn %s\n", dn->full_name);
 
@@ -255,6 +268,8 @@ static void *count_spare_msis(struct device_node *dn, void *data)
 	if (dn == counts->requestor)
 		req = counts->request;
 	else {
+		/* We don't know if a driver will try to use MSI or MSI-X,
+		 * so we just have to punt and use the larger of the two. */
 		req = 0;
 		p = of_get_property(dn, "ibm,req#msi", NULL);
 		if (p)
@@ -295,7 +310,7 @@ static int msi_quota_for_device(struct pci_dev *dev, int request)
 
 	memset(&counts, 0, sizeof(struct msi_counts));
 
-	
+	/* Work out how many devices we have below this PE */
 	traverse_pci_devices(pe_dn, count_non_bridge_devices, &counts);
 
 	if (counts.num_devices == 0) {
@@ -308,18 +323,20 @@ static int msi_quota_for_device(struct pci_dev *dev, int request)
 	if (request <= counts.quota)
 		goto out;
 
-	
+	/* else, we have some more calculating to do */
 	counts.requestor = pci_device_to_OF_node(dev);
 	counts.request = request;
 	traverse_pci_devices(pe_dn, count_spare_msis, &counts);
 
+	/* If the quota isn't an integer multiple of the total, we can
+	 * use the remainder as spare MSIs for anyone that wants them. */
 	counts.spare += total % counts.num_devices;
 
-	
+	/* Divide any spare by the number of over-quota requestors */
 	if (counts.over_quota)
 		counts.quota += counts.spare / counts.over_quota;
 
-	
+	/* And finally clamp the request to the possibly adjusted quota */
 	request = min(counts.quota, request);
 
 	pr_debug("rtas_msi: request clamped to quota %d\n", request);
@@ -354,6 +371,9 @@ static int check_msix_entries(struct pci_dev *pdev)
 	struct msi_desc *entry;
 	int expected;
 
+	/* There's no way for us to express to firmware that we want
+	 * a discontiguous, or non-zero based, range of MSI-X entries.
+	 * So we must reject such requests. */
 
 	expected = 0;
 	list_for_each_entry(entry, &pdev->msi_list, list) {
@@ -381,6 +401,11 @@ static int rtas_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 	if (type == PCI_CAP_ID_MSIX && check_msix_entries(pdev))
 		return -EINVAL;
 
+	/*
+	 * Try the new more explicit firmware interface, if that fails fall
+	 * back to the old interface. The old interface is known to never
+	 * return MSI-Xs.
+	 */
 	if (type == PCI_CAP_ID_MSI) {
 		rc = rtas_change_msi(pdn, RTAS_CHANGE_MSI_FN, nvec);
 
@@ -414,7 +439,7 @@ static int rtas_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 		dev_dbg(&pdev->dev, "rtas_msi: allocated virq %d\n", virq);
 		irq_set_msi_desc(virq, entry);
 
-		
+		/* Read config space back so we can restore after reset */
 		read_msi_msg(virq, &msg);
 		entry->msg = msg;
 	}
@@ -424,13 +449,13 @@ static int rtas_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 
 static void rtas_msi_pci_irq_fixup(struct pci_dev *pdev)
 {
-	
+	/* No LSI -> leave MSIs (if any) configured */
 	if (pdev->irq == NO_IRQ) {
 		dev_dbg(&pdev->dev, "rtas_msi: no LSI, nothing to do.\n");
 		return;
 	}
 
-	
+	/* No MSI -> MSIs can't have been assigned by fw, leave LSI */
 	if (check_req_msi(pdev, 1) && check_req_msix(pdev, 1)) {
 		dev_dbg(&pdev->dev, "rtas_msi: no req#msi/x, nothing to do.\n");
 		return;

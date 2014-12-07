@@ -72,12 +72,15 @@ static int __rpipe_get_descr(struct wahc *wa,
 	ssize_t result;
 	struct device *dev = &wa->usb_iface->dev;
 
+	/* Get the RPIPE descriptor -- we cannot use the usb_get_descriptor()
+	 * function because the arguments are different.
+	 */
 	result = usb_control_msg(
 		wa->usb_dev, usb_rcvctrlpipe(wa->usb_dev, 0),
 		USB_REQ_GET_DESCRIPTOR,
 		USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_RPIPE,
 		USB_DT_RPIPE<<8, index, descr, sizeof(*descr),
-		1000 );
+		1000 /* FIXME: arbitrary */);
 	if (result < 0) {
 		dev_err(dev, "rpipe %u: get descriptor failed: %d\n",
 			index, (int)result);
@@ -96,12 +99,20 @@ error:
 	return result;
 }
 
+/*
+ *
+ * The descriptor is assumed to be properly initialized (ie: you got
+ * it through __rpipe_get_descr()).
+ */
 static int __rpipe_set_descr(struct wahc *wa,
 			     struct usb_rpipe_descriptor *descr, u16 index)
 {
 	ssize_t result;
 	struct device *dev = &wa->usb_iface->dev;
 
+	/* we cannot use the usb_get_descriptor() function because the
+	 * arguments are different.
+	 */
 	result = usb_control_msg(
 		wa->usb_dev, usb_sndctrlpipe(wa->usb_dev, 0),
 		USB_REQ_SET_DESCRIPTOR,
@@ -169,6 +180,16 @@ void rpipe_destroy(struct kref *_rpipe)
 }
 EXPORT_SYMBOL_GPL(rpipe_destroy);
 
+/*
+ * Locate an idle rpipe, create an structure for it and return it
+ *
+ * @wa 	  is referenced and unlocked
+ * @crs   enum rpipe_attr, required endpoint characteristics
+ *
+ * The rpipe can be used only sequentially (not in parallel).
+ *
+ * The rpipe is moved into the "ready" state.
+ */
 static int rpipe_get_idle(struct wa_rpipe **prpipe, struct wahc *wa, u8 crs,
 			  gfp_t gfp)
 {
@@ -182,10 +203,10 @@ static int rpipe_get_idle(struct wa_rpipe **prpipe, struct wahc *wa, u8 crs,
 		return -ENOMEM;
 	rpipe_init(rpipe);
 
-	
+	/* Look for an idle pipe */
 	for (rpipe_idx = 0; rpipe_idx < wa->rpipes; rpipe_idx++) {
 		rpipe_idx = rpipe_get_idx(wa, rpipe_idx);
-		if (rpipe_idx >= wa->rpipes)	
+		if (rpipe_idx >= wa->rpipes)	/* no more pipes :( */
 			break;
 		result =  __rpipe_get_descr(wa, &rpipe->descr, rpipe_idx);
 		if (result < 0)
@@ -215,19 +236,30 @@ static int __rpipe_reset(struct wahc *wa, unsigned index)
 		wa->usb_dev, usb_sndctrlpipe(wa->usb_dev, 0),
 		USB_REQ_RPIPE_RESET,
 		USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_RPIPE,
-		0, index, NULL, 0, 1000 );
+		0, index, NULL, 0, 1000 /* FIXME: arbitrary */);
 	if (result < 0)
 		dev_err(dev, "rpipe %u: reset failed: %d\n",
 			index, result);
 	return result;
 }
 
+/*
+ * Fake companion descriptor for ep0
+ *
+ * See WUSB1.0[7.4.4], most of this is zero for bulk/int/ctl
+ */
 static struct usb_wireless_ep_comp_descriptor epc0 = {
 	.bLength = sizeof(epc0),
 	.bDescriptorType = USB_DT_WIRELESS_ENDPOINT_COMP,
+/*	.bMaxBurst = 1, */
 	.bMaxSequence = 31,
 };
 
+/*
+ * Look for EP companion descriptor
+ *
+ * Get there, look for Inara in the endpoint's extra descriptors
+ */
 static struct usb_wireless_ep_comp_descriptor *rpipe_epc_find(
 		struct device *dev, struct usb_host_endpoint *ep)
 {
@@ -272,10 +304,16 @@ out:
 	return epcd;
 }
 
+/*
+ * Aim an rpipe to its device & endpoint destination
+ *
+ * Make sure we change the address to unauthenticathed if the device
+ * is WUSB and it is not authenticated.
+ */
 static int rpipe_aim(struct wa_rpipe *rpipe, struct wahc *wa,
 		     struct usb_host_endpoint *ep, struct urb *urb, gfp_t gfp)
 {
-	int result = -ENOMSG;	
+	int result = -ENOMSG;	/* better code for lack of companion? */
 	struct device *dev = &wa->usb_iface->dev;
 	struct usb_device *usb_dev = urb->dev;
 	struct usb_wireless_ep_comp_descriptor *epcd;
@@ -290,14 +328,14 @@ static int rpipe_aim(struct wa_rpipe *rpipe, struct wahc *wa,
 	unauth = usb_dev->wusb && !usb_dev->authenticated ? 0x80 : 0;
 	__rpipe_reset(wa, le16_to_cpu(rpipe->descr.wRPipeIndex));
 	atomic_set(&rpipe->segs_available, le16_to_cpu(rpipe->descr.wRequests));
-	
-	
-	rpipe->descr.wBlocks = cpu_to_le16(16);		
-	
+	/* FIXME: block allocation system; request with queuing and timeout */
+	/* FIXME: compute so seg_size > ep->maxpktsize */
+	rpipe->descr.wBlocks = cpu_to_le16(16);		/* given */
+	/* ep0 maxpktsize is 0x200 (WUSB1.0[4.8.1]) */
 	rpipe->descr.wMaxPacketSize = cpu_to_le16(ep->desc.wMaxPacketSize);
-	rpipe->descr.bHSHubAddress = 0;			
+	rpipe->descr.bHSHubAddress = 0;			/* reserved: zero */
 	rpipe->descr.bHSHubPort = wusb_port_no_to_idx(urb->dev->portnum);
-	
+	/* FIXME: use maximum speed as supported or recommended by device */
 	rpipe->descr.bSpeed = usb_pipeendpoint(urb->pipe) == 0 ?
 		UWB_PHY_RATE_53 : UWB_PHY_RATE_200;
 
@@ -306,27 +344,27 @@ static int rpipe_aim(struct wa_rpipe *rpipe, struct wahc *wa,
 		le16_to_cpu(rpipe->descr.wRPipeIndex),
 		usb_pipeendpoint(urb->pipe), rpipe->descr.bSpeed);
 
-	
+	/* see security.c:wusb_update_address() */
 	if (unlikely(urb->dev->devnum == 0x80))
 		rpipe->descr.bDeviceAddress = 0;
 	else
 		rpipe->descr.bDeviceAddress = urb->dev->devnum | unauth;
 	rpipe->descr.bEndpointAddress = ep->desc.bEndpointAddress;
-	
+	/* FIXME: bDataSequence */
 	rpipe->descr.bDataSequence = 0;
-	
+	/* FIXME: dwCurrentWindow */
 	rpipe->descr.dwCurrentWindow = cpu_to_le32(1);
-	
+	/* FIXME: bMaxDataSequence */
 	rpipe->descr.bMaxDataSequence = epcd->bMaxSequence - 1;
 	rpipe->descr.bInterval = ep->desc.bInterval;
-	
-	rpipe->descr.bOverTheAirInterval = 0;	
-	
+	/* FIXME: bOverTheAirInterval */
+	rpipe->descr.bOverTheAirInterval = 0;	/* 0 if not isoc */
+	/* FIXME: xmit power & preamble blah blah */
 	rpipe->descr.bmAttribute = ep->desc.bmAttributes & 0x03;
-	
-	
+	/* rpipe->descr.bmCharacteristics RO */
+	/* FIXME: bmRetryOptions */
 	rpipe->descr.bmRetryOptions = 15;
-	
+	/* FIXME: use for assessing link quality? */
 	rpipe->descr.wNumTransactionErrors = 0;
 	result = __rpipe_set_descr(wa, &rpipe->descr,
 				   le16_to_cpu(rpipe->descr.wRPipeIndex));
@@ -339,11 +377,17 @@ error:
 	return result;
 }
 
+/*
+ * Check an aimed rpipe to make sure it points to where we want
+ *
+ * We use bit 19 of the Linux USB pipe bitmap for unauth vs auth
+ * space; when it is like that, we or 0x80 to make an unauth address.
+ */
 static int rpipe_check_aim(const struct wa_rpipe *rpipe, const struct wahc *wa,
 			   const struct usb_host_endpoint *ep,
 			   const struct urb *urb, gfp_t gfp)
 {
-	int result = 0;		
+	int result = 0;		/* better code for lack of companion? */
 	struct device *dev = &wa->usb_iface->dev;
 	struct usb_device *usb_dev = urb->dev;
 	u8 unauth = (usb_dev->wusb && !usb_dev->authenticated) ? 0x80 : 0;
@@ -377,6 +421,14 @@ static int rpipe_check_aim(const struct wa_rpipe *rpipe, const struct wahc *wa,
 #define CONFIG_BUG 0
 #endif
 
+/*
+ * Make sure there is an rpipe allocated for an endpoint
+ *
+ * If already allocated, we just refcount it; if not, we get an
+ * idle one, aim it to the right location and take it.
+ *
+ * Attaches to ep->hcpriv and rpipe->ep to ep.
+ */
 int rpipe_get_by_ep(struct wahc *wa, struct usb_host_endpoint *ep,
 		    struct urb *urb, gfp_t gfp)
 {
@@ -398,7 +450,7 @@ int rpipe_get_by_ep(struct wahc *wa, struct usb_host_endpoint *ep,
 			ep->desc.bEndpointAddress,
 			le16_to_cpu(rpipe->descr.wRPipeIndex));
 	} else {
-		
+		/* hmm, assign idle rpipe, aim it */
 		result = -ENOBUFS;
 		eptype = ep->desc.bmAttributes & 0x03;
 		result = rpipe_get_idle(&rpipe, wa, 1 << eptype, gfp);
@@ -411,7 +463,7 @@ int rpipe_get_by_ep(struct wahc *wa, struct usb_host_endpoint *ep,
 		}
 		ep->hcpriv = rpipe;
 		rpipe->ep = ep;
-		__rpipe_get(rpipe);	
+		__rpipe_get(rpipe);	/* for caching into ep->hcpriv */
 		dev_dbg(dev, "ep 0x%02x: using rpipe %u\n",
 			ep->desc.bEndpointAddress,
 			le16_to_cpu(rpipe->descr.wRPipeIndex));
@@ -421,6 +473,9 @@ error:
 	return result;
 }
 
+/*
+ * Allocate the bitmap for each rpipe.
+ */
 int wa_rpipes_create(struct wahc *wa)
 {
 	wa->rpipes = wa->wa_descr->wNumRPipes;
@@ -444,6 +499,16 @@ void wa_rpipes_destroy(struct wahc *wa)
 	kfree(wa->rpipe_bm);
 }
 
+/*
+ * Release resources allocated for an endpoint
+ *
+ * If there is an associated rpipe to this endpoint, Abort any pending
+ * transfers and put it. If the rpipe ends up being destroyed,
+ * __rpipe_destroy() will cleanup ep->hcpriv.
+ *
+ * This is called before calling hcd->stop(), so you don't need to do
+ * anything else in there.
+ */
 void rpipe_ep_disable(struct wahc *wa, struct usb_host_endpoint *ep)
 {
 	struct wa_rpipe *rpipe;
@@ -457,7 +522,7 @@ void rpipe_ep_disable(struct wahc *wa, struct usb_host_endpoint *ep)
 			wa->usb_dev, usb_rcvctrlpipe(wa->usb_dev, 0),
 			USB_REQ_RPIPE_ABORT,
 			USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_RPIPE,
-			0, index, NULL, 0, 1000 );
+			0, index, NULL, 0, 1000 /* FIXME: arbitrary */);
 		rpipe_put(rpipe);
 	}
 	mutex_unlock(&wa->rpipe_mutex);

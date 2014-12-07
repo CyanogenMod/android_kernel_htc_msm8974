@@ -1,3 +1,22 @@
+/*
+ * Virtual Memory Map support
+ *
+ * (C) 2007 sgi. Christoph Lameter.
+ *
+ * Virtual memory maps allow VM primitives pfn_to_page, page_to_pfn,
+ * virt_to_page, page_address() to be implemented as a base offset
+ * calculation without memory access.
+ *
+ * However, virtual mappings need a page table and TLBs. Many Linux
+ * architectures already map their physical space using 1-1 mappings
+ * via TLBs. For those arches the virtual memory map is essentially
+ * for free if we use the same page size as the 1-1 mappings. In that
+ * case the overhead consists of a few additional pages that are
+ * allocated to create a view of memory for vmemmap.
+ *
+ * The architecture is expected to provide a vmemmap_populate() function
+ * to instantiate the mapping.
+ */
 #include <linux/mm.h>
 #include <linux/mmzone.h>
 #include <linux/bootmem.h>
@@ -10,6 +29,11 @@
 #include <asm/pgalloc.h>
 #include <asm/pgtable.h>
 
+/*
+ * Allocate a block of memory to be used to back the virtual memory map
+ * or to back the page tables that are used to create the mapping.
+ * Uses the main allocators if they are available, else bootmem.
+ */
 
 static void * __init_refok __earlyonly_bootmem_alloc(int node,
 				unsigned long size,
@@ -24,7 +48,7 @@ static void *vmemmap_buf_end;
 
 void * __meminit vmemmap_alloc_block(unsigned long size, int node)
 {
-	
+	/* If the main allocator is up use that, fallback to bootmem. */
 	if (slab_is_available()) {
 		struct page *page;
 
@@ -42,6 +66,7 @@ void * __meminit vmemmap_alloc_block(unsigned long size, int node)
 				__pa(MAX_DMA_ADDRESS));
 }
 
+/* need to make sure size is all the same during early stage */
 void * __meminit vmemmap_alloc_block_buf(unsigned long size, int node)
 {
 	void *ptr;
@@ -49,7 +74,7 @@ void * __meminit vmemmap_alloc_block_buf(unsigned long size, int node)
 	if (!vmemmap_buf)
 		return vmemmap_alloc_block(size, node);
 
-	
+	/* take the from buf */
 	ptr = (void *)ALIGN((unsigned long)vmemmap_buf, size);
 	if (ptr + size > vmemmap_buf_end)
 		return vmemmap_alloc_block(size, node);
@@ -193,7 +218,7 @@ void __init sparse_mem_maps_populate_node(struct page **map_map,
 	}
 
 	if (vmemmap_buf_start) {
-		
+		/* need to free left buf */
 		free_bootmem(__pa(vmemmap_buf), vmemmap_buf_end - vmemmap_buf);
 		vmemmap_buf = NULL;
 		vmemmap_buf_end = NULL;

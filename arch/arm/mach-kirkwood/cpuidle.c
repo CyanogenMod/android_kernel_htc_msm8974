@@ -25,6 +25,7 @@
 
 #define KIRKWOOD_MAX_STATES	2
 
+/* Actual code that puts the SoC in different idle states */
 static int kirkwood_enter_idle(struct cpuidle_device *dev,
 				struct cpuidle_driver *drv,
 			       int index)
@@ -53,6 +54,7 @@ static struct cpuidle_driver kirkwood_idle_driver = {
 
 static DEFINE_PER_CPU(struct cpuidle_device, kirkwood_cpuidle_device);
 
+/* Initialize CPU idle by registering the idle states */
 static int kirkwood_init_cpuidle(void)
 {
 	struct cpuidle_device *device;

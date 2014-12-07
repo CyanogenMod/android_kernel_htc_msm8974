@@ -1,3 +1,15 @@
+/* -*- linux-c -*-
+ * sysctl_net.c: sysctl interface to net subsystem.
+ *
+ * Begun April 1, 1996, Mike Shaver.
+ * Added /proc/sys/net directories for each protocol family. [MS]
+ *
+ * Revision 1.2  1996/05/08  20:24:40  shaver
+ * Added bits for NET_BRIDGE and the NET_IPV4_ARP stuff and
+ * NET_IPV4_IP_FORWARD.
+ *
+ *
+ */
 
 #include <linux/mm.h>
 #include <linux/export.h>
@@ -29,11 +41,12 @@ static int is_seen(struct ctl_table_set *set)
 	return &current->nsproxy->net_ns->sysctls == set;
 }
 
+/* Return standard mode bits for table entry. */
 static int net_ctl_permissions(struct ctl_table_root *root,
 			       struct nsproxy *nsproxy,
 			       struct ctl_table *table)
 {
-	
+	/* Allow network administrator to have same access as root. */
 	if (capable(CAP_NET_ADMIN)) {
 		int mode = (table->mode >> 6) & 7;
 		return (mode << 6) | (mode << 3) | mode;

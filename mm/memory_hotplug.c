@@ -34,6 +34,12 @@
 
 #include "internal.h"
 
+/*
+ * online_page_callback contains pointer to current page onlining function.
+ * Initially it is generic_online_page(). If it is required it could be
+ * changed by calling set_online_page_callback() for callback registration
+ * and restore_online_page_callback() for generic callback restore.
+ */
 
 static void generic_online_page(struct page *page);
 
@@ -45,7 +51,7 @@ void lock_memory_hotplug(void)
 {
 	mutex_lock(&mem_hotplug_mutex);
 
-	
+	/* for exclusive hibernation if CONFIG_HIBERNATION=y */
 	lock_system_sleep();
 }
 
@@ -56,6 +62,7 @@ void unlock_memory_hotplug(void)
 }
 
 
+/* add this memory to iomem resource */
 static struct resource *register_memory_resource(u64 start, u64 size)
 {
 	struct resource *res;
@@ -95,6 +102,8 @@ static void get_page_bootmem(unsigned long info,  struct page *page,
 	atomic_inc(&page->_count);
 }
 
+/* reference to __meminit __free_pages_bootmem is valid
+ * so use __ref to tell modpost not to generate a warning */
 void __ref put_page_bootmem(struct page *page)
 {
 	unsigned long type;
@@ -125,16 +134,20 @@ static void register_page_bootmem_info_section(unsigned long start_pfn)
 	section_nr = pfn_to_section_nr(start_pfn);
 	ms = __nr_to_section(section_nr);
 
-	
+	/* Get section's memmap address */
 	memmap = sparse_decode_mem_map(ms->section_mem_map, section_nr);
 
+	/*
+	 * Get page for the memmap's phys address
+	 * XXX: need more consideration for sparse_vmemmap...
+	 */
 	page = virt_to_page(memmap);
 	mapsize = sizeof(struct page) * PAGES_PER_SECTION;
 	mapsize = PAGE_ALIGN(mapsize) >> PAGE_SHIFT;
 
 	page_mapsize = PAGE_SIZE/sizeof(struct page);
 
-	
+	/* remember memmap's page, except those that reference only holes */
 	for (i = 0; i < mapsize; i++, page++) {
 		memmap_page_valid = 0;
 		page_page = __va(page_to_pfn(page) << PAGE_SHIFT);
@@ -187,12 +200,12 @@ void register_page_bootmem_info_node(struct pglist_data *pgdat)
 	pfn = pgdat->node_start_pfn;
 	end_pfn = pfn + pgdat->node_spanned_pages;
 
-	
+	/* register_section info */
 	for (; pfn < end_pfn; pfn += PAGES_PER_SECTION)
 		register_page_bootmem_info_section(pfn);
 
 }
-#endif 
+#endif /* !CONFIG_SPARSEMEM_VMEMMAP */
 
 static void grow_zone_span(struct zone *zone, unsigned long start_pfn,
 			   unsigned long end_pfn)
@@ -276,6 +289,10 @@ static int __meminit __add_section(int nid, struct zone *zone,
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
 static int __remove_section(struct zone *zone, struct mem_section *ms)
 {
+	/*
+	 * XXX: Freeing memmap with vmemmap is not implement yet.
+	 *      This should be removed later.
+	 */
 	return -EBUSY;
 }
 #else
@@ -299,19 +316,30 @@ static int __remove_section(struct zone *zone, struct mem_section *ms)
 }
 #endif
 
+/*
+ * Reasonably generic function for adding memory.  It is
+ * expected that archs that support memory hotplug will
+ * call this function after deciding the zone to which to
+ * add the new pages.
+ */
 int __ref __add_pages(int nid, struct zone *zone, unsigned long phys_start_pfn,
 			unsigned long nr_pages)
 {
 	unsigned long i;
 	int err = 0;
 	int start_sec, end_sec;
-	
+	/* during initialize mem_map, align hot-added range to section */
 	start_sec = pfn_to_section_nr(phys_start_pfn);
 	end_sec = pfn_to_section_nr(phys_start_pfn + nr_pages - 1);
 
 	for (i = start_sec; i <= end_sec; i++) {
 		err = __add_section(nid, zone, i << PFN_SECTION_SHIFT);
 
+		/*
+		 * EEXIST is finally dealt with by ioresource collision
+		 * check. see add_memory() => register_memory_resource()
+		 * Warning will be printed if there is collision.
+		 */
 		if (err && (err != -EEXIST))
 			break;
 		err = 0;
@@ -321,12 +349,26 @@ int __ref __add_pages(int nid, struct zone *zone, unsigned long phys_start_pfn,
 }
 EXPORT_SYMBOL_GPL(__add_pages);
 
+/**
+ * __remove_pages() - remove sections of pages from a zone
+ * @zone: zone from which pages need to be removed
+ * @phys_start_pfn: starting pageframe (must be aligned to start of a section)
+ * @nr_pages: number of pages to remove (must be multiple of section size)
+ *
+ * Generic helper function to remove section mappings and sysfs entries
+ * for the section of the memory we are removing. Caller needs to make
+ * sure that pages are marked reserved and zones are adjust properly by
+ * calling offline_pages().
+ */
 int __remove_pages(struct zone *zone, unsigned long phys_start_pfn,
 		 unsigned long nr_pages)
 {
 	unsigned long i, ret = 0;
 	int sections_to_remove;
 
+	/*
+	 * We can only remove entire sections
+	 */
 	BUG_ON(phys_start_pfn & ~PAGE_SECTION_MASK);
 	BUG_ON(nr_pages % PAGES_PER_SECTION);
 
@@ -459,7 +501,17 @@ int __ref online_pages(unsigned long pfn, unsigned long nr_pages)
 		unlock_memory_hotplug();
 		return ret;
 	}
+	/*
+	 * This doesn't need a lock to do pfn_to_page().
+	 * The section can't be removed here because of the
+	 * memory_block->state_mutex.
+	 */
 	zone = page_zone(pfn_to_page(pfn));
+	/*
+	 * If this zone is not populated, then it is not in zonelist.
+	 * This means the page allocator ignores this zone.
+	 * So, zonelist must be updated after online.
+	 */
 	mutex_lock(&zonelists_mutex);
 	if (!populated_zone(zone))
 		need_zonelists_rebuild = 1;
@@ -502,8 +554,9 @@ int __ref online_pages(unsigned long pfn, unsigned long nr_pages)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_MEMORY_HOTPLUG_SPARSE */
 
+/* we are OK calling __meminit stuff here - we have CONFIG_MEMORY_HOTPLUG */
 static pg_data_t __ref *hotadd_new_pgdat(int nid, u64 start)
 {
 	struct pglist_data *pgdat;
@@ -517,11 +570,15 @@ static pg_data_t __ref *hotadd_new_pgdat(int nid, u64 start)
 
 	arch_refresh_nodedata(nid, pgdat);
 
-	
+	/* we can use NODE_DATA(nid) from here */
 
-	
+	/* init node's zones as empty zones, we don't have any present pages.*/
 	free_area_init_node(nid, zones_size, start_pfn, zholes_size);
 
+	/*
+	 * The node we allocated has no zone fallback lists. For avoiding
+	 * to access not-initialized zonelist, build here.
+	 */
 	mutex_lock(&zonelists_mutex);
 	build_all_zonelists(NULL);
 	mutex_unlock(&zonelists_mutex);
@@ -537,6 +594,9 @@ static void rollback_node_hotadd(int nid, pg_data_t *pgdat)
 }
 
 
+/*
+ * called by cpu_up() to online a node without onlined memory.
+ */
 int mem_online_node(int nid)
 {
 	pg_data_t	*pgdat;
@@ -557,6 +617,7 @@ out:
 	return ret;
 }
 
+/* we are OK calling __meminit stuff here - we have CONFIG_MEMORY_HOTPLUG */
 int __ref add_memory(int nid, u64 start, u64 size)
 {
 	pg_data_t *pgdat = NULL;
@@ -579,27 +640,32 @@ int __ref add_memory(int nid, u64 start, u64 size)
 		new_pgdat = 1;
 	}
 
-	
+	/* call arch's memory hotadd */
 	ret = arch_add_memory(nid, start, size);
 
 	if (ret < 0)
 		goto error;
 
-	
+	/* we online node here. we can't roll back from here. */
 	node_set_online(nid);
 
 	if (new_pgdat) {
 		ret = register_one_node(nid);
+		/*
+		 * If sysfs file of new node can't create, cpu on the node
+		 * can't be hot-added. There is no rollback way now.
+		 * So, check by BUG_ON() to catch it reluctantly..
+		 */
 		BUG_ON(ret);
 	}
 
-	
+	/* create new memmap entry */
 	firmware_map_add_hotplug(start, start + size, "System RAM");
 
 	goto out;
 
 error:
-	
+	/* rollback pgdat allocation and others */
 	if (new_pgdat)
 		rollback_node_hotadd(nid, pgdat);
 	if (res)
@@ -660,20 +726,28 @@ int __ref physical_low_power_memory(u64 start, u64 size)
 EXPORT_SYMBOL_GPL(physical_low_power_memory);
 
 #ifdef CONFIG_MEMORY_HOTREMOVE
+/*
+ * A free page on the buddy free lists (not the per-cpu lists) has PageBuddy
+ * set and the size of the free page is given by page_order(). Using this,
+ * the function determines if the pageblock contains only free pages.
+ * Due to buddy contraints, a free page at least the size of a pageblock will
+ * be located at the start of the pageblock
+ */
 static inline int pageblock_free(struct page *page)
 {
 	return PageBuddy(page) && page_order(page) >= pageblock_order;
 }
 
+/* Return the start of the next active pageblock after a given page */
 static struct page *next_active_pageblock(struct page *page)
 {
-	
+	/* Ensure the starting page is pageblock-aligned */
 	BUG_ON(page_to_pfn(page) & (pageblock_nr_pages - 1));
 
-	
+	/* If the entire pageblock is free, move to the end of free page */
 	if (pageblock_free(page)) {
 		int order;
-		
+		/* be careful. we don't have locks, page_order can be changed.*/
 		order = page_order(page);
 		if ((order < MAX_ORDER) && (order >= pageblock_order))
 			return page + (1 << order);
@@ -682,22 +756,26 @@ static struct page *next_active_pageblock(struct page *page)
 	return page + pageblock_nr_pages;
 }
 
+/* Checks if this range of memory is likely to be hot-removable. */
 int is_mem_section_removable(unsigned long start_pfn, unsigned long nr_pages)
 {
 	struct page *page = pfn_to_page(start_pfn);
 	struct page *end_page = page + nr_pages;
 
-	
+	/* Check the starting page of each pageblock within the range */
 	for (; page < end_page; page = next_active_pageblock(page)) {
 		if (!is_pageblock_removable_nolock(page))
 			return 0;
 		cond_resched();
 	}
 
-	
+	/* All pageblocks in the memory block are likely to be hot-removable */
 	return 1;
 }
 
+/*
+ * Confirm all pages in a range [start, end) is belongs to the same zone.
+ */
 static int test_pages_in_a_zone(unsigned long start_pfn, unsigned long end_pfn)
 {
 	unsigned long pfn;
@@ -708,7 +786,7 @@ static int test_pages_in_a_zone(unsigned long start_pfn, unsigned long end_pfn)
 	     pfn < end_pfn;
 	     pfn += MAX_ORDER_NR_PAGES) {
 		i = 0;
-		
+		/* This is just a CONFIG_HOLES_IN_ZONE check.*/
 		while ((i < MAX_ORDER_NR_PAGES) && !pfn_valid_within(pfn + i))
 			i++;
 		if (i == MAX_ORDER_NR_PAGES)
@@ -721,6 +799,10 @@ static int test_pages_in_a_zone(unsigned long start_pfn, unsigned long end_pfn)
 	return 1;
 }
 
+/*
+ * Scanning pfn is much easier than scanning lru list.
+ * Scan pfn from start to end and Find LRU page.
+ */
 static unsigned long scan_lru_pages(unsigned long start, unsigned long end)
 {
 	unsigned long pfn;
@@ -738,7 +820,7 @@ static unsigned long scan_lru_pages(unsigned long start, unsigned long end)
 static struct page *
 hotremove_migrate_alloc(struct page *page, unsigned long private, int **x)
 {
-	
+	/* This should be improooooved!! */
 	return alloc_page(GFP_HIGHUSER_MOVABLE | __GFP_NORETRY | __GFP_NOWARN |
 				__GFP_NOMEMALLOC);
 }
@@ -760,8 +842,12 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 		page = pfn_to_page(pfn);
 		if (!get_page_unless_zero(page))
 			continue;
+		/*
+		 * We can skip free pages. And we can only deal with pages on
+		 * LRU.
+		 */
 		ret = isolate_lru_page(page);
-		if (!ret) { 
+		if (!ret) { /* Success */
 			put_page(page);
 			list_add_tail(&page->lru, &source);
 			move_pages--;
@@ -775,6 +861,8 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 			dump_page(page);
 #endif
 			put_page(page);
+			/* Because we don't have big zone->lock. we should
+			   check this again here. */
 			if (page_count(page)) {
 				not_managed++;
 				ret = -EBUSY;
@@ -787,7 +875,7 @@ do_migrate_range(unsigned long start_pfn, unsigned long end_pfn)
 			putback_lru_pages(&source);
 			goto out;
 		}
-		
+		/* this function returns # of failed pages */
 		ret = migrate_pages(&source, hotremove_migrate_alloc, 0,
 							true, MIGRATE_SYNC);
 		if (ret)
@@ -797,6 +885,9 @@ out:
 	return ret;
 }
 
+/*
+ * remove from free_area[] and mark all as Reserved.
+ */
 static int
 offline_isolated_pages_cb(unsigned long start, unsigned long nr_pages,
 			void *data)
@@ -812,6 +903,9 @@ offline_isolated_pages(unsigned long start_pfn, unsigned long end_pfn)
 				offline_isolated_pages_cb);
 }
 
+/*
+ * Check all pages in range, recoreded as memory resource, are isolated.
+ */
 static int
 check_pages_isolated_cb(unsigned long start_pfn, unsigned long nr_pages,
 			void *data)
@@ -848,11 +942,13 @@ static int __ref offline_pages(unsigned long start_pfn,
 	struct memory_notify arg;
 
 	BUG_ON(start_pfn >= end_pfn);
-	
+	/* at least, alignment against pageblock is necessary */
 	if (!IS_ALIGNED(start_pfn, pageblock_nr_pages))
 		return -EINVAL;
 	if (!IS_ALIGNED(end_pfn, pageblock_nr_pages))
 		return -EINVAL;
+	/* This makes hotplug much easier...and readable.
+	   we assume this for now. .*/
 	if (!test_pages_in_a_zone(start_pfn, end_pfn))
 		return -EINVAL;
 
@@ -862,7 +958,7 @@ static int __ref offline_pages(unsigned long start_pfn,
 	node = zone_to_nid(zone);
 	nr_pages = end_pfn - start_pfn;
 
-	
+	/* set above range as isolated */
 	ret = start_isolate_page_range(start_pfn, end_pfn, MIGRATE_MOVABLE);
 	if (ret)
 		goto out;
@@ -883,7 +979,7 @@ static int __ref offline_pages(unsigned long start_pfn,
 	drain = 0;
 	retry_max = 5;
 repeat:
-	
+	/* start memory hot removal */
 	ret = -EAGAIN;
 	if (time_after(jiffies, expire))
 		goto failed_removal;
@@ -898,7 +994,7 @@ repeat:
 	}
 
 	pfn = scan_lru_pages(start_pfn, end_pfn);
-	if (pfn) { 
+	if (pfn) { /* We have page on LRU */
 		ret = do_migrate_range(pfn, end_pfn);
 		if (!ret) {
 			drain = 1;
@@ -912,22 +1008,24 @@ repeat:
 			goto repeat;
 		}
 	}
-	
+	/* drain all zone's lru pagevec, this is asyncronous... */
 	lru_add_drain_all();
 	yield();
-	
+	/* drain pcp pages , this is synchrouns. */
 	drain_all_pages();
-	
+	/* check again */
 	offlined_pages = check_pages_isolated(start_pfn, end_pfn);
 	if (offlined_pages < 0) {
 		ret = -EBUSY;
 		goto failed_removal;
 	}
 	printk(KERN_INFO "Offlined Pages %ld\n", offlined_pages);
+	/* Ok, all of our target is islaoted.
+	   We cannot do rollback at this point. */
 	offline_isolated_pages(start_pfn, end_pfn);
-	
+	/* reset pagetype flags and makes migrate type to be MOVABLE */
 	undo_isolate_page_range(start_pfn, end_pfn, MIGRATE_MOVABLE);
-	
+	/* removal success */
 	if (offlined_pages > zone->present_pages)
 		zone->present_pages = 0;
 	else
@@ -957,7 +1055,7 @@ failed_removal:
 	printk(KERN_INFO "memory offlining %lx to %lx failed\n",
 		start_pfn, end_pfn);
 	memory_notify(MEM_CANCEL_OFFLINE, &arg);
-	
+	/* pushback to free area */
 	undo_isolate_page_range(start_pfn, end_pfn, MIGRATE_MOVABLE);
 
 out:
@@ -979,5 +1077,5 @@ int remove_memory(u64 start, u64 size)
 {
 	return -EINVAL;
 }
-#endif 
+#endif /* CONFIG_MEMORY_HOTREMOVE */
 EXPORT_SYMBOL_GPL(remove_memory);

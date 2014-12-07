@@ -19,6 +19,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
+/* Enables debugging of low-level hash table routines - careful! */
 #undef DEBUG
 
 #include <linux/kernel.h>
@@ -46,6 +47,7 @@
 #include "pseries.h"
 
 
+/* in hvCall.S */
 EXPORT_SYMBOL(plpar_hcall);
 EXPORT_SYMBOL(plpar_hcall9);
 EXPORT_SYMBOL(plpar_hcall_norets);
@@ -71,6 +73,10 @@ void vpa_init(int cpu)
 		       "%lx failed with %ld\n", cpu, hwcpu, addr, ret);
 		return;
 	}
+	/*
+	 * PAPR says this feature is SLB-Buffer but firmware never
+	 * reports that.  All SPLPAR support SLB shadow buffer.
+	 */
 	addr = __pa(&slb_shadow[cpu]);
 	if (firmware_has_feature(FW_FEATURE_SPLPAR)) {
 		ret = register_slb_shadow(hwcpu, addr);
@@ -80,6 +86,9 @@ void vpa_init(int cpu)
 			       cpu, hwcpu, addr, ret);
 	}
 
+	/*
+	 * Register dispatch trace log, if one has been allocated.
+	 */
 	pp = &paca[cpu];
 	dtl = pp->dispatch_log;
 	if (dtl) {
@@ -87,7 +96,7 @@ void vpa_init(int cpu)
 		pp->dtl_curr = dtl;
 		lppaca_of(cpu).dtl_idx = 0;
 
-		
+		/* hypervisor reads buffer length from this field */
 		dtl->enqueue_to_dispatch_time = DISPATCH_LOG_BYTES;
 		ret = register_dtl(hwcpu, __pa(dtl));
 		if (ret)
@@ -119,15 +128,15 @@ static long pSeries_lpar_hpte_insert(unsigned long hpte_group,
 	if (!(vflags & HPTE_V_BOLTED))
 		pr_devel(" hpte_v=%016lx, hpte_r=%016lx\n", hpte_v, hpte_r);
 
-	
-	
-	
-	
-	
-	
+	/* Now fill in the actual HPTE */
+	/* Set CEC cookie to 0         */
+	/* Zero page = 0               */
+	/* I-cache Invalidate = 0      */
+	/* I-cache synchronize = 0     */
+	/* Exact = 0                   */
 	flags = 0;
 
-	
+	/* Make pHyp happy */
 	if ((rflags & _PAGE_NO_CACHE) & !(rflags & _PAGE_WRITETHRU))
 		hpte_r &= ~_PAGE_COHERENT;
 	if (firmware_has_feature(FW_FEATURE_XCMO) && !(hpte_r & HPTE_R_N))
@@ -140,6 +149,11 @@ static long pSeries_lpar_hpte_insert(unsigned long hpte_group,
 		return -1;
 	}
 
+	/*
+	 * Since we try and ioremap PHBs we don't own, the pte insert
+	 * will fail. However we must catch the failure in hash_page
+	 * or we will loop forever, so return -2 in this case.
+	 */
 	if (unlikely(lpar_rc != H_SUCCESS)) {
 		if (!(vflags & HPTE_V_BOLTED))
 			pr_devel(" lpar err %lu\n", lpar_rc);
@@ -148,6 +162,9 @@ static long pSeries_lpar_hpte_insert(unsigned long hpte_group,
 	if (!(vflags & HPTE_V_BOLTED))
 		pr_devel(" -> slot: %lu\n", slot & 7);
 
+	/* Because of iSeries, we have to pass down the secondary
+	 * bucket bit here as well
+	 */
 	return (slot & 7) | (!!(vflags & HPTE_V_SECONDARY) << 3);
 }
 
@@ -160,12 +177,12 @@ static long pSeries_lpar_hpte_remove(unsigned long hpte_group)
 	int i;
 	unsigned long dummy1, dummy2;
 
-	
+	/* pick a random slot to start at */
 	slot_offset = mftb() & 0x7;
 
 	for (i = 0; i < HPTES_PER_GROUP; i++) {
 
-		
+		/* don't remove a bolted entry */
 		lpar_rc = plpar_pte_remove(H_ANDCOND, hpte_group + slot_offset,
 					   (0x1UL << 4), &dummy1, &dummy2);
 		if (lpar_rc == H_SUCCESS)
@@ -190,6 +207,10 @@ static void pSeries_lpar_hptab_clear(void)
 	long lpar_rc;
 	unsigned long i, j;
 
+	/* Read in batches of 4,
+	 * invalidate only valid entries not in the VRMA
+	 * hpte_count will be a multiple of 4
+         */
 	for (i = 0; i < hpte_count; i += 4) {
 		lpar_rc = plpar_pte_read_4_raw(0, i, (void *)ptes);
 		if (lpar_rc != H_SUCCESS)
@@ -205,6 +226,11 @@ static void pSeries_lpar_hptab_clear(void)
 	}
 }
 
+/*
+ * This computes the AVPN and B fields of the first dword of a HPTE,
+ * for use when we want to match an existing PTE.  The bottom 7 bits
+ * of the returned value are zero.
+ */
 static inline unsigned long hpte_encode_avpn(unsigned long va, int psize,
 					     int ssize)
 {
@@ -216,6 +242,12 @@ static inline unsigned long hpte_encode_avpn(unsigned long va, int psize,
 	return v;
 }
 
+/*
+ * NOTE: for updatepp ops we are fortunate that the linux "newpp" bits and
+ * the low 3 bits of flags happen to line up.  So no transform is needed.
+ * We can probably optimize here and assume the high bits of newpp are
+ * already zero.  For now I am paranoid.
+ */
 static long pSeries_lpar_hpte_updatepp(unsigned long slot,
 				       unsigned long newpp,
 				       unsigned long va,
@@ -251,9 +283,9 @@ static unsigned long pSeries_lpar_hpte_getword0(unsigned long slot)
 	unsigned long dummy_word1;
 	unsigned long flags;
 
-	
-	
-	
+	/* Read 1 pte at a time                        */
+	/* Do not need RPN to logical page translation */
+	/* No cross CEC PFT access                     */
 	flags = 0;
 
 	lpar_rc = plpar_pte_read(flags, slot, &dword0, &dummy_word1);
@@ -273,13 +305,13 @@ static long pSeries_lpar_hpte_find(unsigned long va, int psize, int ssize)
 	hash = hpt_hash(va, mmu_psize_defs[psize].shift, ssize);
 	want_v = hpte_encode_avpn(va, psize, ssize);
 
-	
+	/* Bolted entries are always in the primary group */
 	slot = (hash & htab_hash_mask) * HPTES_PER_GROUP;
 	for (i = 0; i < HPTES_PER_GROUP; i++) {
 		hpte_v = pSeries_lpar_hpte_getword0(slot);
 
 		if (HPTE_V_COMPARE(hpte_v, want_v) && (hpte_v & HPTE_V_VALID))
-			
+			/* HPTE matches */
 			return slot;
 		++slot;
 	}
@@ -337,12 +369,17 @@ static void pSeries_lpar_hpte_removebolted(unsigned long ea,
 	pSeries_lpar_hpte_invalidate(slot, va, psize, ssize, 0);
 }
 
+/* Flag bits for H_BULK_REMOVE */
 #define HBR_REQUEST	0x4000000000000000UL
 #define HBR_RESPONSE	0x8000000000000000UL
 #define HBR_END		0xc000000000000000UL
 #define HBR_AVPN	0x0200000000000000UL
 #define HBR_ANDCOND	0x0100000000000000UL
 
+/*
+ * Take a spinlock around flushes to avoid bouncing the hypervisor tlbie
+ * lock.
+ */
 static void pSeries_lpar_flush_hash_range(unsigned long number, int local)
 {
 	unsigned long i, pix, rc;
@@ -479,9 +516,20 @@ EXPORT_SYMBOL(arch_free_page);
 #endif
 
 #ifdef CONFIG_TRACEPOINTS
+/*
+ * We optimise our hcall path by placing hcall_tracepoint_refcount
+ * directly in the TOC so we can check if the hcall tracepoints are
+ * enabled via a single load.
+ */
 
+/* NB: reg/unreg are called while guarded with the tracepoints_mutex */
 extern long hcall_tracepoint_refcount;
 
+/* 
+ * Since the tracing code might execute hcalls we need to guard against
+ * recursion. One example of this are spinlocks calling H_YIELD on
+ * shared processor partitions.
+ */
 static DEFINE_PER_CPU(unsigned int, hcall_trace_depth);
 
 void hcall_tracepoint_regfunc(void)
@@ -499,6 +547,10 @@ void __trace_hcall_entry(unsigned long opcode, unsigned long *args)
 	unsigned long flags;
 	unsigned int *depth;
 
+	/*
+	 * We cannot call tracepoints inside RCU idle regions which
+	 * means we must not trace H_CEDE.
+	 */
 	if (opcode == H_CEDE)
 		return;
 
@@ -544,6 +596,10 @@ out:
 }
 #endif
 
+/**
+ * h_get_mpp
+ * H_GET_MPP hcall returns info in 7 parms
+ */
 int h_get_mpp(struct hvcall_mpp_data *mpp_data)
 {
 	int rc;

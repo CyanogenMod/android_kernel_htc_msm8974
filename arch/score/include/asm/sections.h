@@ -3,4 +3,4 @@
 
 #include <asm-generic/sections.h>
 
-#endif 
+#endif /* _ASM_SCORE_SECTIONS_H */

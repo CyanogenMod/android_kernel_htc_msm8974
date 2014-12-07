@@ -101,6 +101,6 @@ static inline void kmemleak_no_scan(const void *ptr)
 {
 }
 
-#endif	
+#endif	/* CONFIG_DEBUG_KMEMLEAK */
 
-#endif	
+#endif	/* __KMEMLEAK_H */

@@ -41,7 +41,17 @@
 
 #define NFSDBG_FACILITY         NFSDBG_PNFS_LD
 
+/*
+ * The following implementation is based on RFC5664
+ */
 
+/*
+ * struct pnfs_osd_objid {
+ *	struct nfs4_deviceid	oid_device_id;
+ *	u64			oid_partition_id;
+ *	u64			oid_object_id;
+ * }; // xdr size 32 bytes
+ */
 static __be32 *
 _osd_xdr_decode_objid(__be32 *p, struct pnfs_osd_objid *objid)
 {
@@ -52,6 +62,13 @@ _osd_xdr_decode_objid(__be32 *p, struct pnfs_osd_objid *objid)
 	p = xdr_decode_hyper(p, &objid->oid_object_id);
 	return p;
 }
+/*
+ * struct pnfs_osd_opaque_cred {
+ *	u32 cred_len;
+ *	void *cred;
+ * }; // xdr size [variable]
+ * The return pointers are from the xdr buffer
+ */
 static int
 _osd_xdr_decode_opaque_cred(struct pnfs_osd_opaque_cred *opaque_cred,
 			    struct xdr_stream *xdr)
@@ -71,6 +88,15 @@ _osd_xdr_decode_opaque_cred(struct pnfs_osd_opaque_cred *opaque_cred,
 	return 0;
 }
 
+/*
+ * struct pnfs_osd_object_cred {
+ *	struct pnfs_osd_objid		oc_object_id;
+ *	u32				oc_osd_version;
+ *	u32				oc_cap_key_sec;
+ *	struct pnfs_osd_opaque_cred	oc_cap_key
+ *	struct pnfs_osd_opaque_cred	oc_cap;
+ * }; // xdr size 32 + 4 + 4 + [variable] + [variable]
+ */
 static int
 _osd_xdr_decode_object_cred(struct pnfs_osd_object_cred *comp,
 			    struct xdr_stream *xdr)
@@ -93,6 +119,16 @@ _osd_xdr_decode_object_cred(struct pnfs_osd_object_cred *comp,
 	return ret;
 }
 
+/*
+ * struct pnfs_osd_data_map {
+ *	u32	odm_num_comps;
+ *	u64	odm_stripe_unit;
+ *	u32	odm_group_width;
+ *	u32	odm_group_depth;
+ *	u32	odm_mirror_cnt;
+ *	u32	odm_raid_algorithm;
+ * }; // xdr size 4 + 8 + 4 + 4 + 4 + 4
+ */
 static inline int
 _osd_data_map_xdr_sz(void)
 {
@@ -154,7 +190,7 @@ bool pnfs_osd_xdr_decode_layout_comp(struct pnfs_osd_object_cred *comp,
 		dprintk("%s: _osd_xdr_decode_object_cred=>%d decoded_comps=%d "
 			"total_comps=%d\n", __func__, *err,
 			iter->decoded_comps, iter->total_comps);
-		return false; 
+		return false; /* stop the loop */
 	}
 	dprintk("%s: dev(%llx:%llx) par=0x%llx obj=0x%llx "
 		"key_len=%u cap_len=%u\n",
@@ -169,6 +205,21 @@ bool pnfs_osd_xdr_decode_layout_comp(struct pnfs_osd_object_cred *comp,
 	return true;
 }
 
+/*
+ * Get Device Information Decoding
+ *
+ * Note: since Device Information is currently done synchronously, all
+ *       variable strings fields are left inside the rpc buffer and are only
+ *       pointed to by the pnfs_osd_deviceaddr members. So the read buffer
+ *       should not be freed while the returned information is in use.
+ */
+/*
+ *struct nfs4_string {
+ *	unsigned int len;
+ *	char *data;
+ *}; // size [variable]
+ * NOTE: Returned string points to inside the XDR buffer
+ */
 static __be32 *
 __read_u8_opaque(__be32 *p, struct nfs4_string *str)
 {
@@ -179,6 +230,12 @@ __read_u8_opaque(__be32 *p, struct nfs4_string *str)
 	return p;
 }
 
+/*
+ * struct pnfs_osd_targetid {
+ *	u32			oti_type;
+ *	struct nfs4_string	oti_scsi_device_id;
+ * };// size 4 + [variable]
+ */
 static __be32 *
 __read_targetid(__be32 *p, struct pnfs_osd_targetid* targetid)
 {
@@ -196,6 +253,12 @@ __read_targetid(__be32 *p, struct pnfs_osd_targetid* targetid)
 	return p;
 }
 
+/*
+ * struct pnfs_osd_net_addr {
+ *	struct nfs4_string	r_netid;
+ *	struct nfs4_string	r_addr;
+ * };
+ */
 static __be32 *
 __read_net_addr(__be32 *p, struct pnfs_osd_net_addr* netaddr)
 {
@@ -205,6 +268,12 @@ __read_net_addr(__be32 *p, struct pnfs_osd_net_addr* netaddr)
 	return p;
 }
 
+/*
+ * struct pnfs_osd_targetaddr {
+ *	u32				ota_available;
+ *	struct pnfs_osd_net_addr	ota_netaddr;
+ * };
+ */
 static __be32 *
 __read_targetaddr(__be32 *p, struct pnfs_osd_targetaddr *targetaddr)
 {
@@ -220,7 +289,20 @@ __read_targetaddr(__be32 *p, struct pnfs_osd_targetaddr *targetaddr)
 	return p;
 }
 
+/*
+ * struct pnfs_osd_deviceaddr {
+ *	struct pnfs_osd_targetid	oda_targetid;
+ *	struct pnfs_osd_targetaddr	oda_targetaddr;
+ *	u8				oda_lun[8];
+ *	struct nfs4_string		oda_systemid;
+ *	struct pnfs_osd_object_cred	oda_root_obj_cred;
+ *	struct nfs4_string		oda_osdname;
+ * };
+ */
 
+/* We need this version for the pnfs_osd_xdr_decode_deviceaddr which does
+ * not have an xdr_stream
+ */
 static __be32 *
 __read_opaque_cred(__be32 *p,
 			      struct pnfs_osd_opaque_cred *opaque_cred)
@@ -258,10 +340,17 @@ void pnfs_osd_xdr_decode_deviceaddr(
 
 	p = __read_u8_opaque(p, &deviceaddr->oda_osdname);
 
-	
+	/* libosd likes this terminated in dbg. It's last, so no problems */
 	deviceaddr->oda_osdname.data[deviceaddr->oda_osdname.len] = 0;
 }
 
+/*
+ * struct pnfs_osd_layoutupdate {
+ *	u32	dsu_valid;
+ *	s64	dsu_delta;
+ *	u32	olu_ioerr_flag;
+ * }; xdr size 4 + 8 + 4
+ */
 int
 pnfs_osd_xdr_encode_layoutupdate(struct xdr_stream *xdr,
 				 struct pnfs_osd_layoutupdate *lou)
@@ -278,6 +367,13 @@ pnfs_osd_xdr_encode_layoutupdate(struct xdr_stream *xdr,
 	return 0;
 }
 
+/*
+ * struct pnfs_osd_objid {
+ *	struct nfs4_deviceid	oid_device_id;
+ *	u64			oid_partition_id;
+ *	u64			oid_object_id;
+ * }; // xdr size 32 bytes
+ */
 static inline __be32 *
 pnfs_osd_xdr_encode_objid(__be32 *p, struct pnfs_osd_objid *object_id)
 {
@@ -289,6 +385,15 @@ pnfs_osd_xdr_encode_objid(__be32 *p, struct pnfs_osd_objid *object_id)
 	return p;
 }
 
+/*
+ * struct pnfs_osd_ioerr {
+ *	struct pnfs_osd_objid	oer_component;
+ *	u64			oer_comp_offset;
+ *	u64			oer_comp_length;
+ *	u32			oer_iswrite;
+ *	u32			oer_errno;
+ * }; // xdr size 32 + 24 bytes
+ */
 void pnfs_osd_xdr_encode_ioerr(__be32 *p, struct pnfs_osd_ioerr *ioerr)
 {
 	p = pnfs_osd_xdr_encode_objid(p, &ioerr->oer_component);

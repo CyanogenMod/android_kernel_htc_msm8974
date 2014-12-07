@@ -29,6 +29,7 @@
 
 #include "remoteproc_internal.h"
 
+/* kick the remote processor, and let it know which virtqueue to poke at */
 static void rproc_virtio_notify(struct virtqueue *vq)
 {
 	struct rproc_vring *rvring = vq->priv;
@@ -40,6 +41,18 @@ static void rproc_virtio_notify(struct virtqueue *vq)
 	rproc->ops->kick(rproc, notifyid);
 }
 
+/**
+ * rproc_vq_interrupt() - tell remoteproc that a virtqueue is interrupted
+ * @rproc: handle to the remote processor
+ * @notifyid: index of the signalled virtqueue (unique per this @rproc)
+ *
+ * This function should be called by the platform-specific rproc driver,
+ * when the remote processor signals that a specific virtqueue has pending
+ * messages available.
+ *
+ * Returns IRQ_NONE if no message was found in the @notifyid virtqueue,
+ * and otherwise returns IRQ_HANDLED.
+ */
 irqreturn_t rproc_vq_interrupt(struct rproc *rproc, int notifyid)
 {
 	struct rproc_vring *rvring;
@@ -66,7 +79,7 @@ static struct virtqueue *rp_find_vq(struct virtio_device *vdev,
 	void *addr;
 	int len, size;
 
-	
+	/* we're temporarily limited to two virtqueues per rvdev */
 	if (id >= ARRAY_SIZE(rvdev->vring))
 		return ERR_PTR(-EINVAL);
 
@@ -75,13 +88,17 @@ static struct virtqueue *rp_find_vq(struct virtio_device *vdev,
 	addr = rvring->va;
 	len = rvring->len;
 
-	
+	/* zero vring */
 	size = vring_size(len, rvring->align);
 	memset(addr, 0, size);
 
 	dev_dbg(rproc->dev, "vring%d: va %p qsz %d notifyid %d\n",
 					id, addr, len, rvring->notifyid);
 
+	/*
+	 * Create the new vq, and tell virtio we're not interested in
+	 * the 'weak' smp barriers, since we're talking with a real device.
+	 */
 	vq = vring_new_virtqueue(len, rvring->align, vdev, false, addr,
 					rproc_virtio_notify, callback, name);
 	if (!vq) {
@@ -101,7 +118,7 @@ static void rproc_virtio_del_vqs(struct virtio_device *vdev)
 	struct rproc *rproc = vdev_to_rproc(vdev);
 	struct rproc_vring *rvring;
 
-	
+	/* power down the remote processor before deleting vqs */
 	rproc_shutdown(rproc);
 
 	list_for_each_entry_safe(vq, n, &vdev->vqs, list) {
@@ -127,7 +144,7 @@ static int rproc_virtio_find_vqs(struct virtio_device *vdev, unsigned nvqs,
 		}
 	}
 
-	
+	/* now that the vqs are all set, boot the remote processor */
 	ret = rproc_boot(rproc);
 	if (ret) {
 		dev_err(rproc->dev, "rproc_boot() failed %d\n", ret);
@@ -141,6 +158,13 @@ error:
 	return ret;
 }
 
+/*
+ * We don't support yet real virtio status semantics.
+ *
+ * The plan is to provide this via the VDEV resource entry
+ * which is part of the firmware: this way the remote processor
+ * will be able to access the status values as set by us.
+ */
 static u8 rproc_virtio_get_status(struct virtio_device *vdev)
 {
 	return 0;
@@ -156,6 +180,7 @@ static void rproc_virtio_reset(struct virtio_device *vdev)
 	dev_dbg(&vdev->dev, "reset !\n");
 }
 
+/* provide the vdev features as retrieved from the firmware */
 static u32 rproc_virtio_get_features(struct virtio_device *vdev)
 {
 	struct rproc_vdev *rvdev = vdev_to_rvdev(vdev);
@@ -167,9 +192,18 @@ static void rproc_virtio_finalize_features(struct virtio_device *vdev)
 {
 	struct rproc_vdev *rvdev = vdev_to_rvdev(vdev);
 
-	
+	/* Give virtio_ring a chance to accept features */
 	vring_transport_features(vdev);
 
+	/*
+	 * Remember the finalized features of our vdev, and provide it
+	 * to the remote processor once it is powered on.
+	 *
+	 * Similarly to the status field, we don't expose yet the negotiated
+	 * features to the remote processors at this point. This will be
+	 * fixed as part of a small resource table overhaul and then an
+	 * extension of the virtio resource entries.
+	 */
 	rvdev->gfeatures = vdev->features[0];
 }
 
@@ -183,6 +217,14 @@ static struct virtio_config_ops rproc_virtio_config_ops = {
 	.get_status	= rproc_virtio_get_status,
 };
 
+/*
+ * This function is called whenever vdev is released, and is responsible
+ * to decrement the remote processor's refcount taken when vdev was
+ * added.
+ *
+ * Never call this function directly; it will be called by the driver
+ * core when needed.
+ */
 static void rproc_vdev_release(struct device *dev)
 {
 	struct virtio_device *vdev = dev_to_virtio(dev);
@@ -191,6 +233,15 @@ static void rproc_vdev_release(struct device *dev)
 	kref_put(&rproc->refcount, rproc_release);
 }
 
+/**
+ * rproc_add_virtio_dev() - register an rproc-induced virtio device
+ * @rvdev: the remote vdev
+ *
+ * This function registers a virtio device. This vdev's partent is
+ * the rproc device.
+ *
+ * Returns 0 on success or an appropriate error value otherwise.
+ */
 int rproc_add_virtio_dev(struct rproc_vdev *rvdev, int id)
 {
 	struct rproc *rproc = rvdev->rproc;
@@ -203,6 +254,14 @@ int rproc_add_virtio_dev(struct rproc_vdev *rvdev, int id)
 	vdev->dev.parent = dev;
 	vdev->dev.release = rproc_vdev_release;
 
+	/*
+	 * We're indirectly making a non-temporary copy of the rproc pointer
+	 * here, because drivers probed with this vdev will indirectly
+	 * access the wrapping rproc.
+	 *
+	 * Therefore we must increment the rproc refcount here, and decrement
+	 * it _only_ when the vdev is released.
+	 */
 	kref_get(&rproc->refcount);
 
 	ret = register_virtio_device(vdev);
@@ -218,6 +277,12 @@ out:
 	return ret;
 }
 
+/**
+ * rproc_remove_virtio_dev() - remove an rproc-induced virtio device
+ * @rvdev: the remote vdev
+ *
+ * This function unregisters an existing virtio device.
+ */
 void rproc_remove_virtio_dev(struct rproc_vdev *rvdev)
 {
 	unregister_virtio_device(&rvdev->vdev);

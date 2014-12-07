@@ -63,6 +63,10 @@ static inline void save_uart_address(void)
 		buf[0] = 0;
 }
 
+/*
+ * Setup before decompression.  This is where we do UART selection for
+ * earlyprintk and init the uart_base register.
+ */
 static inline void arch_decomp_setup(void)
 {
 	static const struct {
@@ -106,6 +110,20 @@ static inline void arch_decomp_setup(void)
 	volatile u32 *apb_misc = (volatile u32 *)TEGRA_APB_MISC_BASE;
 	u32 chip, div;
 
+	/*
+	 * Look for the first UART that:
+	 * a) Is not in reset.
+	 * b) Is clocked.
+	 * c) Has a 'D' in the scratchpad register.
+	 *
+	 * Note that on Tegra30, the first two conditions are required, since
+	 * if not true, accesses to the UART scratch register will hang.
+	 * Tegra20 doesn't have this issue.
+	 *
+	 * The intent is that the bootloader will tell the kernel which UART
+	 * to use by setting up those conditions. If nothing found, we'll fall
+	 * back to what's specified in TEGRA_DEBUG_UART_BASE.
+	 */
 	for (i = 0; i < ARRAY_SIZE(uarts); i++) {
 		if (*(u8 *)uarts[i].reset_reg & BIT(uarts[i].bit))
 			continue;

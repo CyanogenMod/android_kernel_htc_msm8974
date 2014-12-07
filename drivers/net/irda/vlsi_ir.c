@@ -32,6 +32,7 @@ MODULE_DESCRIPTION(DRIVER_DESCRIPTION);
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_LICENSE("GPL");
 
+/********************************************************/
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -55,8 +56,9 @@ MODULE_LICENSE("GPL");
 
 #include "vlsi_ir.h"
 
+/********************************************************/
 
-static  char drivername[] = DRIVER_NAME;
+static /* const */ char drivername[] = DRIVER_NAME;
 
 static DEFINE_PCI_DEVICE_TABLE(vlsi_irda_table) = {
 	{
@@ -67,32 +69,61 @@ static DEFINE_PCI_DEVICE_TABLE(vlsi_irda_table) = {
 		.subvendor = 	PCI_ANY_ID,
 		.subdevice =	PCI_ANY_ID,
 	},
-	{  }
+	{ /* all zeroes */ }
 };
 
 MODULE_DEVICE_TABLE(pci, vlsi_irda_table);
 
+/********************************************************/
 
+/*	clksrc: which clock source to be used
+ *		0: auto - try PLL, fallback to 40MHz XCLK
+ *		1: on-chip 48MHz PLL
+ *		2: external 48MHz XCLK
+ *		3: external 40MHz XCLK (HP OB-800)
+ */
 
-static int clksrc = 0;			
+static int clksrc = 0;			/* default is 0(auto) */
 module_param(clksrc, int, 0);
 MODULE_PARM_DESC(clksrc, "clock input source selection");
 
+/*	ringsize: size of the tx and rx descriptor rings
+ *		independent for tx and rx
+ *		specify as ringsize=tx[,rx]
+ *		allowed values: 4, 8, 16, 32, 64
+ *		Due to the IrDA 1.x max. allowed window size=7,
+ *		there should be no gain when using rings larger than 8
+ */
 
-static int ringsize[] = {8,8};		
+static int ringsize[] = {8,8};		/* default is tx=8 / rx=8 */
 module_param_array(ringsize, int, NULL, 0);
 MODULE_PARM_DESC(ringsize, "TX, RX ring descriptor size");
 
+/*	sirpulse: tuning of the SIR pulse width within IrPHY 1.3 limits
+ *		0: very short, 1.5us (exception: 6us at 2.4 kbaud)
+ *		1: nominal 3/16 bittime width
+ *	note: IrDA compliant peer devices should be happy regardless
+ *		which one is used. Primary goal is to save some power
+ *		on the sender's side - at 9.6kbaud for example the short
+ *		pulse width saves more than 90% of the transmitted IR power.
+ */
 
-static int sirpulse = 1;		
+static int sirpulse = 1;		/* default is 3/16 bittime */
 module_param(sirpulse, int, 0);
 MODULE_PARM_DESC(sirpulse, "SIR pulse width tuning");
 
+/*	qos_mtt_bits: encoded min-turn-time value we require the peer device
+ *		 to use before transmitting to us. "Type 1" (per-station)
+ *		 bitfield according to IrLAP definition (section 6.6.8)
+ *		 Don't know which transceiver is used by my OB800 - the
+ *		 pretty common HP HDLS-1100 requires 1 msec - so lets use this.
+ */
 
-static int qos_mtt_bits = 0x07;		
+static int qos_mtt_bits = 0x07;		/* default is 1 ms or more */
 module_param(qos_mtt_bits, int, 0);
 MODULE_PARM_DESC(qos_mtt_bits, "IrLAP bitfield representing min-turn-time");
 
+/********************************************************/
 
 static void vlsi_reg_debug(unsigned iobase, const char *s)
 {
@@ -123,7 +154,9 @@ static void vlsi_ring_debug(struct vlsi_ring *r)
 	}
 }
 
+/********************************************************/
 
+/* needed regardless of CONFIG_PROC_FS */
 static struct proc_dir_entry *vlsi_proc_root = NULL;
 
 #ifdef CONFIG_PROC_FS
@@ -363,10 +396,11 @@ static const struct file_operations vlsi_proc_fops = {
 
 #define VLSI_PROC_FOPS		(&vlsi_proc_fops)
 
-#else	
+#else	/* CONFIG_PROC_FS */
 #define VLSI_PROC_FOPS		NULL
 #endif
 
+/********************************************************/
 
 static struct vlsi_ring *vlsi_alloc_ring(struct pci_dev *pdev, struct ring_descr_hw *hwmap,
 						unsigned size, unsigned len, int dir)
@@ -376,7 +410,7 @@ static struct vlsi_ring *vlsi_alloc_ring(struct pci_dev *pdev, struct ring_descr
 	unsigned	i, j;
 	dma_addr_t	busaddr;
 
-	if (!size  ||  ((size-1)&size)!=0)	
+	if (!size  ||  ((size-1)&size)!=0)	/* must be >0 and power of 2 */
 		return NULL;
 
 	r = kmalloc(sizeof(*r) + size * sizeof(struct ring_descr), GFP_KERNEL);
@@ -419,7 +453,7 @@ static struct vlsi_ring *vlsi_alloc_ring(struct pci_dev *pdev, struct ring_descr
 			return NULL;
 		}
 		rd_set_addr_status(rd, busaddr, 0);
-		
+		/* initially, the dma buffer is owned by the CPU */
 		rd->skb = NULL;
 	}
 	return r;
@@ -501,6 +535,7 @@ static int vlsi_destroy_hwif(vlsi_irda_dev_t *idev)
 	return 0;
 }
 
+/********************************************************/
 
 static int vlsi_process_rx(struct vlsi_ring *r, struct ring_descr *rd)
 {
@@ -512,7 +547,7 @@ static int vlsi_process_rx(struct vlsi_ring *r, struct ring_descr *rd)
 	vlsi_irda_dev_t *idev = netdev_priv(ndev);
 
 	pci_dma_sync_single_for_cpu(r->pdev, rd_get_addr(rd), r->len, r->dir);
-	
+	/* dma buffer now owned by the CPU */
 	status = rd_get_status(rd);
 	if (status & RD_RX_ERROR) {
 		if (status & RD_RX_OVER)  
@@ -528,15 +563,21 @@ static int vlsi_process_rx(struct vlsi_ring *r, struct ring_descr *rd)
 
 	len = rd_get_count(rd);
 	crclen = (idev->mode==IFF_FIR) ? sizeof(u32) : sizeof(u16);
-	len -= crclen;		
+	len -= crclen;		/* remove trailing CRC */
 	if (len <= 0) {
 		IRDA_DEBUG(0, "%s: strange frame (len=%d)\n", __func__, len);
 		ret |= VLSI_RX_DROP;
 		goto done;
 	}
 
-	if (idev->mode == IFF_SIR) {	
+	if (idev->mode == IFF_SIR) {	/* hw checks CRC in MIR, FIR mode */
 
+		/* rd->buf is a streaming PCI_DMA_FROMDEVICE map. Doing the
+		 * endian-adjustment there just in place will dirty a cache line
+		 * which belongs to the map and thus we must be sure it will
+		 * get flushed before giving the buffer back to hardware.
+		 * vlsi_fill_rx() will do this anyway - but here we rely on.
+		 */
 		le16_to_cpus(rd->buf+len);
 		if (irda_calc_crc16(INIT_FCS,rd->buf,len+crclen) != GOOD_FCS) {
 			IRDA_DEBUG(0, "%s: crc error\n", __func__);
@@ -564,7 +605,7 @@ static int vlsi_process_rx(struct vlsi_ring *r, struct ring_descr *rd)
 done:
 	rd_set_status(rd, 0);
 	rd_set_count(rd, 0);
-	
+	/* buffer still owned by CPU */
 
 	return (ret) ? -ret : len;
 }
@@ -587,9 +628,9 @@ static void vlsi_fill_rx(struct vlsi_ring *r)
 				rd->skb->protocol = htons(ETH_P_IRDA);
 			}
 			else
-				break;	
+				break;	/* probably not worth logging? */
 		}
-		
+		/* give dma buffer back to busmaster */
 		pci_dma_sync_single_for_device(r->pdev, rd_get_addr(rd), r->len, r->dir);
 		rd_activate(rd);
 	}
@@ -629,12 +670,12 @@ static void vlsi_rx_interrupt(struct net_device *ndev)
 		}
 	}
 
-	do_gettimeofday(&idev->last_rx); 
+	do_gettimeofday(&idev->last_rx); /* remember "now" for later mtt delay */
 
 	vlsi_fill_rx(r);
 
 	if (ring_first(r) == NULL) {
-		
+		/* we are in big trouble, if this should ever happen */
 		IRDA_ERROR("%s: rx ring exhausted!\n", __func__);
 		vlsi_ring_debug(r);
 	}
@@ -642,6 +683,7 @@ static void vlsi_rx_interrupt(struct net_device *ndev)
 		outw(0, ndev->base_addr+VLSI_PIO_PROMPT);
 }
 
+/* caller must have stopped the controller from busmastering */
 
 static void vlsi_unarm_rx(vlsi_irda_dev_t *idev)
 {
@@ -690,6 +732,7 @@ static void vlsi_unarm_rx(vlsi_irda_dev_t *idev)
 	}
 }
 
+/********************************************************/
 
 static int vlsi_process_tx(struct vlsi_ring *r, struct ring_descr *rd)
 {
@@ -698,7 +741,7 @@ static int vlsi_process_tx(struct vlsi_ring *r, struct ring_descr *rd)
 	int		ret;
 
 	pci_dma_sync_single_for_cpu(r->pdev, rd_get_addr(rd), r->len, r->dir);
-	
+	/* dma buffer now owned by the CPU */
 	status = rd_get_status(rd);
 	if (status & RD_TX_UNDRN)
 		ret = VLSI_TX_FIFO;
@@ -711,11 +754,11 @@ static int vlsi_process_tx(struct vlsi_ring *r, struct ring_descr *rd)
 		dev_kfree_skb_any(rd->skb);
 		rd->skb = NULL;
 	}
-	else	
-		len = rd_get_count(rd);		
+	else	/* tx-skb already freed? - should never happen */
+		len = rd_get_count(rd);		/* incorrect for SIR! (due to wrapping) */
 
 	rd_set_count(rd, 0);
-	
+	/* dma buffer still owned by the CPU */
 
 	return (ret) ? -ret : len;
 }
@@ -749,7 +792,7 @@ static int vlsi_set_baud(vlsi_irda_dev_t *idev, unsigned iobase)
 				IRDA_WARNING("%s: undefined baudrate %d - fallback to 9600!\n",
 					     __func__, baudrate);
 				baudrate = 9600;
-				
+				/* fallthru */
 			case 2400:
 			case 9600:
 			case 19200:
@@ -774,9 +817,9 @@ static int vlsi_set_baud(vlsi_irda_dev_t *idev, unsigned iobase)
 	outw(IRENABLE_PHYANDCLOCK, iobase+VLSI_PIO_IRENABLE);
 	mb();
 
-	udelay(1);	
+	udelay(1);	/* chip applies IRCFG on next rising edge of its 8MHz clock */
 
-	
+	/* read back settings for validation */
 
 	config = inw(iobase+VLSI_PIO_IRENABLE) & IRENABLE_MASK;
 
@@ -832,32 +875,52 @@ static netdev_tx_t vlsi_hard_start_xmit(struct sk_buff *skb,
 	if (speed != -1  &&  speed != idev->baud) {
 		netif_stop_queue(ndev);
 		idev->new_baud = speed;
-		status = RD_TX_CLRENTX;  
+		status = RD_TX_CLRENTX;  /* stop tx-ring after this frame */
 	}
 	else
 		status = 0;
 
 	if (skb->len == 0) {
-		
+		/* handle zero packets - should be speed change */
 		if (status == 0) {
 			msg = "bogus zero-length packet";
 			goto drop_unlock;
 		}
 
+		/* due to the completely asynch tx operation we might have
+		 * IrLAP racing with the hardware here, f.e. if the controller
+		 * is just sending the last packet with current speed while
+		 * the LAP is already switching the speed using synchronous
+		 * len=0 packet. Immediate execution would lead to hw lockup
+		 * requiring a powercycle to reset. Good candidate to trigger
+		 * this is the final UA:RSP packet after receiving a DISC:CMD
+		 * when getting the LAP down.
+		 * Note that we are not protected by the queue_stop approach
+		 * because the final UA:RSP arrives _without_ request to apply
+		 * new-speed-after-this-packet - hence the driver doesn't know
+		 * this was the last packet and doesn't stop the queue. So the
+		 * forced switch to default speed from LAP gets through as fast
+		 * as only some 10 usec later while the UA:RSP is still processed
+		 * by the hardware and we would get screwed.
+		 */
 
 		if (ring_first(idev->tx_ring) == NULL) {
-			
+			/* no race - tx-ring already empty */
 			vlsi_set_baud(idev, iobase);
 			netif_wake_queue(ndev);
 		}
 		else
 			;
+			/* keep the speed change pending like it would
+			 * for any len>0 packet. tx completion interrupt
+			 * will apply it when the tx ring becomes empty.
+			 */
 		spin_unlock_irqrestore(&idev->lock, flags);
 		dev_kfree_skb_any(skb);
 		return NETDEV_TX_OK;
 	}
 
-	
+	/* sanity checks - simply drop the packet */
 
 	rd = ring_last(r);
 	if (!rd) {
@@ -880,7 +943,7 @@ static netdev_tx_t vlsi_hard_start_xmit(struct sk_buff *skb,
 		goto drop_unlock;
 	}
 
-	
+	/* no need for serialization or interrupt disable during mtt */
 	spin_unlock_irqrestore(&idev->lock, flags);
 
 	if ((mtt = irda_get_mtt(skb)) > 0) {
@@ -889,7 +952,7 @@ static netdev_tx_t vlsi_hard_start_xmit(struct sk_buff *skb,
 		ready.tv_sec = idev->last_rx.tv_sec;
 		if (ready.tv_usec >= 1000000) {
 			ready.tv_usec -= 1000000;
-			ready.tv_sec++;		
+			ready.tv_sec++;		/* IrLAP 1.1: mtt always < 1 sec */
 		}
 		for(;;) {
 			do_gettimeofday(&now);
@@ -897,23 +960,35 @@ static netdev_tx_t vlsi_hard_start_xmit(struct sk_buff *skb,
 			    (now.tv_sec==ready.tv_sec && now.tv_usec>=ready.tv_usec))
 			    	break;
 			udelay(100);
-			
+			/* must not sleep here - called under netif_tx_lock! */
 		}
 	}
 
+	/* tx buffer already owned by CPU due to pci_dma_sync_single_for_cpu()
+	 * after subsequent tx-completion
+	 */
 
 	if (idev->mode == IFF_SIR) {
-		status |= RD_TX_DISCRC;		
+		status |= RD_TX_DISCRC;		/* no hw-crc creation */
 		len = async_wrap_skb(skb, rd->buf, r->len);
 
+		/* Some rare worst case situation in SIR mode might lead to
+		 * potential buffer overflow. The wrapper detects this, returns
+		 * with a shortened frame (without FCS/EOF) but doesn't provide
+		 * any error indication about the invalid packet which we are
+		 * going to transmit.
+		 * Therefore we log if the buffer got filled to the point, where the
+		 * wrapper would abort, i.e. when there are less than 5 bytes left to
+		 * allow appending the FCS/EOF.
+		 */
 
 		if (len >= r->len-5)
 			 IRDA_WARNING("%s: possible buffer overflow with SIR wrapping!\n",
 				      __func__);
 	}
 	else {
-		
-		status |= RD_TX_PULSE;		
+		/* hw deals with MIR/FIR mode wrapping */
+		status |= RD_TX_PULSE;		/* send 2 us highspeed indication pulse */
 		len = skb->len;
 		if (len > r->len) {
 			msg = "frame exceeds tx buffer length";
@@ -923,14 +998,27 @@ static netdev_tx_t vlsi_hard_start_xmit(struct sk_buff *skb,
 			skb_copy_from_linear_data(skb, rd->buf, len);
 	}
 
-	rd->skb = skb;			
+	rd->skb = skb;			/* remember skb for tx-complete stats */
 
 	rd_set_count(rd, len);
-	rd_set_status(rd, status);	
+	rd_set_status(rd, status);	/* not yet active! */
 
+	/* give dma buffer back to busmaster-hw (flush caches to make
+	 * CPU-driven changes visible from the pci bus).
+	 */
 
 	pci_dma_sync_single_for_device(r->pdev, rd_get_addr(rd), r->len, r->dir);
 
+/*	Switching to TX mode here races with the controller
+ *	which may stop TX at any time when fetching an inactive descriptor
+ *	or one with CLR_ENTX set. So we switch on TX only, if TX was not running
+ *	_after_ the new descriptor was activated on the ring. This ensures
+ *	we will either find TX already stopped or we can be sure, there
+ *	will be a TX-complete interrupt even if the chip stopped doing
+ *	TX just after we found it still running. The ISR will then find
+ *	the non-empty ring and restart TX processing. The enclosing
+ *	spinlock provides the correct serialization to prevent race with isr.
+ */
 
 	spin_lock_irqsave(&idev->lock,flags);
 
@@ -966,6 +1054,11 @@ drop:
 	dev_kfree_skb_any(skb);
 	ndev->stats.tx_errors++;
 	ndev->stats.tx_dropped++;
+	/* Don't even think about returning NET_XMIT_DROP (=1) here!
+	 * In fact any retval!=0 causes the packet scheduler to requeue the
+	 * packet for later retry of transmission - which isn't exactly
+	 * what we want after we've just called dev_kfree_skb_any ;-)
+	 */
 	return NETDEV_TX_OK;
 }
 
@@ -1001,11 +1094,11 @@ static void vlsi_tx_interrupt(struct net_device *ndev)
 
 	iobase = ndev->base_addr;
 
-	if (idev->new_baud  &&  rd == NULL)	
+	if (idev->new_baud  &&  rd == NULL)	/* tx ring empty and speed change pending */
 		vlsi_set_baud(idev, iobase);
 
 	config = inw(iobase+VLSI_PIO_IRCFG);
-	if (rd == NULL)			
+	if (rd == NULL)			/* tx ring empty: re-enable rx */
 		outw((config & ~IRCFG_ENTX) | IRCFG_ENRX, iobase+VLSI_PIO_IRCFG);
 
 	else if (!(inw(iobase+VLSI_PIO_IRENABLE) & IRENABLE_ENTXST)) {
@@ -1027,6 +1120,7 @@ static void vlsi_tx_interrupt(struct net_device *ndev)
 	}
 }
 
+/* caller must have stopped the controller from busmastering */
 
 static void vlsi_unarm_tx(vlsi_irda_dev_t *idev)
 {
@@ -1068,19 +1162,24 @@ static void vlsi_unarm_tx(vlsi_irda_dev_t *idev)
 
 }
 
+/********************************************************/
 
 static int vlsi_start_clock(struct pci_dev *pdev)
 {
 	u8	clkctl, lock;
 	int	i, count;
 
-	if (clksrc < 2) { 
+	if (clksrc < 2) { /* auto or PLL: try PLL */
 		clkctl = CLKCTL_PD_INV | CLKCTL_CLKSTP;
 		pci_write_config_byte(pdev, VLSI_PCI_CLKCTL, clkctl);
 
+		/* procedure to detect PLL lock synchronisation:
+		 * after 0.5 msec initial delay we expect to find 3 PLL lock
+		 * indications within 10 msec for successful PLL detection.
+		 */
 		udelay(500);
 		count = 0;
-		for (i = 500; i <= 10000; i += 50) { 
+		for (i = 500; i <= 10000; i += 50) { /* max 10 msec */
 			pci_read_config_byte(pdev, VLSI_PCI_CLKCTL, &lock);
 			if (lock&CLKCTL_LOCK) {
 				if (++count >= 3)
@@ -1089,36 +1188,38 @@ static int vlsi_start_clock(struct pci_dev *pdev)
 			udelay(50);
 		}
 		if (count < 3) {
-			if (clksrc == 1) { 
+			if (clksrc == 1) { /* explicitly asked for PLL hence bail out */
 				IRDA_ERROR("%s: no PLL or failed to lock!\n",
 					   __func__);
 				clkctl = CLKCTL_CLKSTP;
 				pci_write_config_byte(pdev, VLSI_PCI_CLKCTL, clkctl);
 				return -1;
 			}
-			else			
-				clksrc = 3;	
+			else			/* was: clksrc=0(auto) */
+				clksrc = 3;	/* fallback to 40MHz XCLK (OB800) */
 
 			IRDA_DEBUG(0, "%s: PLL not locked, fallback to clksrc=%d\n",
 				__func__, clksrc);
 		}
 		else
-			clksrc = 1;	
+			clksrc = 1;	/* got successful PLL lock */
 	}
 
 	if (clksrc != 1) {
+		/* we get here if either no PLL detected in auto-mode or
+		   an external clock source was explicitly specified */
 
 		clkctl = CLKCTL_EXTCLK | CLKCTL_CLKSTP;
 		if (clksrc == 3)
 			clkctl |= CLKCTL_XCKSEL;	
 		pci_write_config_byte(pdev, VLSI_PCI_CLKCTL, clkctl);
 
-		
+		/* no way to test for working XCLK */
 	}
 	else
 		pci_read_config_byte(pdev, VLSI_PCI_CLKCTL, &clkctl);
 
-	
+	/* ok, now going to connect the chip with the clock source */
 
 	clkctl &= ~CLKCTL_CLKSTP;
 	pci_write_config_byte(pdev, VLSI_PCI_CLKCTL, clkctl);
@@ -1130,17 +1231,26 @@ static void vlsi_stop_clock(struct pci_dev *pdev)
 {
 	u8	clkctl;
 
-	
+	/* disconnect chip from clock source */
 	pci_read_config_byte(pdev, VLSI_PCI_CLKCTL, &clkctl);
 	clkctl |= CLKCTL_CLKSTP;
 	pci_write_config_byte(pdev, VLSI_PCI_CLKCTL, clkctl);
 
-	
+	/* disable all clock sources */
 	clkctl &= ~(CLKCTL_EXTCLK | CLKCTL_PD_INV);
 	pci_write_config_byte(pdev, VLSI_PCI_CLKCTL, clkctl);
 }
 
+/********************************************************/
 
+/* writing all-zero to the VLSI PCI IO register area seems to prevent
+ * some occasional situations where the hardware fails (symptoms are 
+ * what appears as stalled tx/rx state machines, i.e. everything ok for
+ * receive or transmit but hw makes no progress or is unable to access
+ * the bus memory locations).
+ * Best place to call this is immediately after/before the internal clock
+ * gets started/stopped.
+ */
 
 static inline void vlsi_clear_regs(unsigned iobase)
 {
@@ -1158,7 +1268,7 @@ static int vlsi_init_chip(struct pci_dev *pdev)
 	unsigned	iobase;
 	u16 ptr;
 
-	
+	/* start the clock and clean the registers */
 
 	if (vlsi_start_clock(pdev)) {
 		IRDA_ERROR("%s: no valid clock source\n", __func__);
@@ -1167,16 +1277,16 @@ static int vlsi_init_chip(struct pci_dev *pdev)
 	iobase = ndev->base_addr;
 	vlsi_clear_regs(iobase);
 
-	outb(IRINTR_INT_MASK, iobase+VLSI_PIO_IRINTR); 
+	outb(IRINTR_INT_MASK, iobase+VLSI_PIO_IRINTR); /* w/c pending IRQ, disable all INT */
 
-	outw(0, iobase+VLSI_PIO_IRENABLE);	
+	outw(0, iobase+VLSI_PIO_IRENABLE);	/* disable IrPHY-interface */
 
-	
+	/* disable everything, particularly IRCFG_MSTR - (also resetting the RING_PTR) */
 
 	outw(0, iobase+VLSI_PIO_IRCFG);
 	wmb();
 
-	outw(MAX_PACKET_LENGTH, iobase+VLSI_PIO_MAXPKT);  
+	outw(MAX_PACKET_LENGTH, iobase+VLSI_PIO_MAXPKT);  /* max possible value=0x0fff */
 
 	outw(BUS_TO_RINGBASE(idev->busaddr), iobase+VLSI_PIO_RINGBASE);
 
@@ -1189,11 +1299,15 @@ static int vlsi_init_chip(struct pci_dev *pdev)
 	atomic_set(&idev->tx_ring->head, RINGPTR_GET_TX(ptr));
 	atomic_set(&idev->tx_ring->tail, RINGPTR_GET_TX(ptr));
 
-	vlsi_set_baud(idev, iobase);	
+	vlsi_set_baud(idev, iobase);	/* idev->new_baud used as provided by caller */
 
-	outb(IRINTR_INT_MASK, iobase+VLSI_PIO_IRINTR);	
+	outb(IRINTR_INT_MASK, iobase+VLSI_PIO_IRINTR);	/* just in case - w/c pending IRQ's */
 	wmb();
 
+	/* DO NOT BLINDLY ENABLE IRINTR_ACTEN!
+	 * basically every received pulse fires an ACTIVITY-INT
+	 * leading to >>1000 INT's per second instead of few 10
+	 */
 
 	outb(IRINTR_RPKTEN|IRINTR_TPKTEN, iobase+VLSI_PIO_IRINTR);
 
@@ -1207,13 +1321,13 @@ static int vlsi_start_hw(vlsi_irda_dev_t *idev)
 	unsigned iobase = ndev->base_addr;
 	u8 byte;
 
-	
+	/* we don't use the legacy UART, disable its address decoding */
 
 	pci_read_config_byte(pdev, VLSI_PCI_IRMISC, &byte);
 	byte &= ~(IRMISC_UARTEN | IRMISC_UARTTST);
 	pci_write_config_byte(pdev, VLSI_PCI_IRMISC, byte);
 
-	
+	/* enable PCI busmaster access to our 16MB page */
 
 	pci_write_config_byte(pdev, VLSI_PCI_MSTRPAGE, MSTRPAGE_VALUE);
 	pci_set_master(pdev);
@@ -1225,9 +1339,9 @@ static int vlsi_start_hw(vlsi_irda_dev_t *idev)
 
 	vlsi_fill_rx(idev->rx_ring);
 
-	do_gettimeofday(&idev->last_rx);	
+	do_gettimeofday(&idev->last_rx);	/* first mtt may start from now on */
 
-	outw(0, iobase+VLSI_PIO_PROMPT);	
+	outw(0, iobase+VLSI_PIO_PROMPT);	/* kick hw state machine */
 
 	return 0;
 }
@@ -1241,9 +1355,9 @@ static int vlsi_stop_hw(vlsi_irda_dev_t *idev)
 
 	spin_lock_irqsave(&idev->lock,flags);
 	outw(0, iobase+VLSI_PIO_IRENABLE);
-	outw(0, iobase+VLSI_PIO_IRCFG);			
+	outw(0, iobase+VLSI_PIO_IRCFG);			/* disable everything */
 
-	
+	/* disable and w/c irqs */
 	outb(0, iobase+VLSI_PIO_IRINTR);
 	wmb();
 	outb(IRINTR_INT_MASK, iobase+VLSI_PIO_IRINTR);
@@ -1260,6 +1374,7 @@ static int vlsi_stop_hw(vlsi_irda_dev_t *idev)
 	return 0;
 }
 
+/**************************************************************/
 
 static void vlsi_tx_timeout(struct net_device *ndev)
 {
@@ -1274,10 +1389,10 @@ static void vlsi_tx_timeout(struct net_device *ndev)
 
 	vlsi_stop_hw(idev);
 
-	
+	/* now simply restart the whole thing */
 
 	if (!idev->new_baud)
-		idev->new_baud = idev->baud;		
+		idev->new_baud = idev->baud;		/* keep current baudrate */
 
 	if (vlsi_start_hw(idev))
 		IRDA_ERROR("%s: failed to restart hw - %s(%s) unusable!\n",
@@ -1302,6 +1417,10 @@ static int vlsi_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
 			}
 			spin_lock_irqsave(&idev->lock, flags);
 			idev->new_baud = irq->ifr_baudrate;
+			/* when called from userland there might be a minor race window here
+			 * if the stack tries to change speed concurrently - which would be
+			 * pretty strange anyway with the userland having full control...
+			 */
 			vlsi_set_baud(idev, ndev->base_addr);
 			spin_unlock_irqrestore(&idev->lock, flags);
 			break;
@@ -1313,6 +1432,10 @@ static int vlsi_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
 			irda_device_set_media_busy(ndev, TRUE);
 			break;
 		case SIOCGRECEIVING:
+			/* the best we can do: check whether there are any bytes in rx fifo.
+			 * The trustable window (in case some data arrives just afterwards)
+			 * may be as short as 1usec or so at 4Mbps.
+			 */
 			fifocnt = inw(ndev->base_addr+VLSI_PIO_RCVBCNT) & RCVBCNT_MASK;
 			irq->ifr_receiving = (fifocnt!=0) ? 1 : 0;
 			break;
@@ -1325,6 +1448,7 @@ static int vlsi_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
 	return ret;
 }
 
+/********************************************************/
 
 static irqreturn_t vlsi_interrupt(int irq, void *dev_instance)
 {
@@ -1341,15 +1465,15 @@ static irqreturn_t vlsi_interrupt(int irq, void *dev_instance)
 	do {
 		irintr = inb(iobase+VLSI_PIO_IRINTR);
 		mb();
-		outb(irintr, iobase+VLSI_PIO_IRINTR);	
+		outb(irintr, iobase+VLSI_PIO_IRINTR);	/* acknowledge asap */
 
-		if (!(irintr&=IRINTR_INT_MASK))		
+		if (!(irintr&=IRINTR_INT_MASK))		/* not our INT - probably shared */
 			break;
 
 		handled = 1;
 
 		if (unlikely(!(irintr & ~IRINTR_ACTIVITY)))
-			break;				
+			break;				/* nothing todo if only activity */
 
 		if (irintr&IRINTR_RPKTINT)
 			vlsi_rx_interrupt(ndev);
@@ -1366,6 +1490,7 @@ static irqreturn_t vlsi_interrupt(int irq, void *dev_instance)
 	return IRQ_RETVAL(handled);
 }
 
+/********************************************************/
 
 static int vlsi_open(struct net_device *ndev)
 {
@@ -1380,6 +1505,9 @@ static int vlsi_open(struct net_device *ndev)
 	ndev->base_addr = pci_resource_start(idev->pdev,0);
 	ndev->irq = idev->pdev->irq;
 
+	/* under some rare occasions the chip apparently comes up with
+	 * IRQ's pending. We better w/c pending IRQ and disable them all
+	 */
 
 	outb(IRINTR_INT_MASK, ndev->base_addr+VLSI_PIO_IRINTR);
 
@@ -1398,9 +1526,9 @@ static int vlsi_open(struct net_device *ndev)
 	if (!idev->irlap)
 		goto errout_free_ring;
 
-	do_gettimeofday(&idev->last_rx);  
+	do_gettimeofday(&idev->last_rx);  /* first mtt may start from now on */
 
-	idev->new_baud = 9600;		
+	idev->new_baud = 9600;		/* start with IrPHY using 9600(SIR) mode */
 
 	if ((err = vlsi_start_hw(idev)) != 0)
 		goto errout_close_irlap;
@@ -1462,6 +1590,9 @@ static int vlsi_irda_init(struct net_device *ndev)
 	ndev->irq = pdev->irq;
 	ndev->base_addr = pci_resource_start(pdev,0);
 
+	/* PCI busmastering
+	 * see include file for details why we need these 2 masks, in this order!
+	 */
 
 	if (pci_set_dma_mask(pdev,DMA_MASK_USED_BY_HW) ||
 	    pci_set_dma_mask(pdev,DMA_MASK_MSTRPAGE)) {
@@ -1471,7 +1602,7 @@ static int vlsi_irda_init(struct net_device *ndev)
 
 	irda_init_max_qos_capabilies(&idev->qos);
 
-	
+	/* the VLSI82C147 does not support 576000! */
 
 	idev->qos.baud_rate.bits = IR_2400 | IR_9600
 		| IR_19200 | IR_38400 | IR_57600 | IR_115200
@@ -1481,19 +1612,20 @@ static int vlsi_irda_init(struct net_device *ndev)
 
 	irda_qos_bits_to_value(&idev->qos);
 
-	
+	/* currently no public media definitions for IrDA */
 
 	ndev->flags |= IFF_PORTSEL | IFF_AUTOMEDIA;
 	ndev->if_port = IF_PORT_UNKNOWN;
  
 	ndev->netdev_ops = &vlsi_netdev_ops;
-	ndev->watchdog_timeo  = 500*HZ/1000;	
+	ndev->watchdog_timeo  = 500*HZ/1000;	/* max. allowed turn time for IrLAP */
 
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 
 	return 0;
 }	
 
+/**************************************************************/
 
 static int __devinit
 vlsi_irda_probe(struct pci_dev *pdev, const struct pci_device_id *id)
@@ -1504,7 +1636,7 @@ vlsi_irda_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (pci_enable_device(pdev))
 		goto out;
 	else
-		pdev->current_state = 0; 
+		pdev->current_state = 0; /* hw must be running now */
 
 	IRDA_MESSAGE("%s: IrDA PCI controller %s detected\n",
 		     drivername, pci_name(pdev));
@@ -1596,6 +1728,12 @@ static void __devexit vlsi_irda_remove(struct pci_dev *pdev)
 
 #ifdef CONFIG_PM
 
+/* The Controller doesn't provide PCI PM capabilities as defined by PCI specs.
+ * Some of the Linux PCI-PM code however depends on this, for example in
+ * pci_set_power_state(). So we have to take care to perform the required
+ * operations on our own (particularly reflecting the pdev->current_state)
+ * otherwise we might get cheated by pci-pm.
+ */
 
 
 static int vlsi_irda_suspend(struct pci_dev *pdev, pm_message_t state)
@@ -1610,8 +1748,8 @@ static int vlsi_irda_suspend(struct pci_dev *pdev, pm_message_t state)
 	}
 	idev = netdev_priv(ndev);
 	mutex_lock(&idev->mtx);
-	if (pdev->current_state != 0) {			
-		if (state.event > pdev->current_state) {	
+	if (pdev->current_state != 0) {			/* already suspended */
+		if (state.event > pdev->current_state) {	/* simply go deeper */
 			pci_set_power_state(pdev, pci_choose_state(pdev, state));
 			pdev->current_state = state.event;
 		}
@@ -1626,7 +1764,7 @@ static int vlsi_irda_suspend(struct pci_dev *pdev, pm_message_t state)
 		vlsi_stop_hw(idev);
 		pci_save_state(pdev);
 		if (!idev->new_baud)
-			
+			/* remember speed settings to restore on resume */
 			idev->new_baud = idev->baud;
 	}
 
@@ -1660,6 +1798,17 @@ static int vlsi_irda_resume(struct pci_dev *pdev)
 	pdev->current_state = PM_EVENT_ON;
 
 	if (!idev->resume_ok) {
+		/* should be obsolete now - but used to happen due to:
+		 * - pci layer initially setting pdev->current_state = 4 (unknown)
+		 * - pci layer did not walk the save_state-tree (might be APM problem)
+		 *   so we could not refuse to suspend from undefined state
+		 * - vlsi_irda_suspend detected invalid state and refused to save
+		 *   configuration for resume - but was too late to stop suspending
+		 * - vlsi_irda_resume got screwed when trying to resume from garbage
+		 *
+		 * now we explicitly set pdev->current_state = 0 after enabling the
+		 * device and independently resume_ok should catch any garbage config.
+		 */
 		IRDA_WARNING("%s - hm, nothing to resume?\n", __func__);
 		mutex_unlock(&idev->mtx);
 		return 0;
@@ -1675,8 +1824,9 @@ static int vlsi_irda_resume(struct pci_dev *pdev)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
+/*********************************************************/
 
 static struct pci_driver vlsi_irda_driver = {
 	.name		= drivername,
@@ -1717,6 +1867,10 @@ static int __init vlsi_mod_init(void)
 
 	sirpulse = !!sirpulse;
 
+	/* proc_mkdir returns NULL if !CONFIG_PROC_FS.
+	 * Failure to create the procfs entry is handled like running
+	 * without procfs - it's not required for the driver to work.
+	 */
 	vlsi_proc_root = proc_mkdir(PROC_DIR, NULL);
 
 	ret = pci_register_driver(&vlsi_irda_driver);

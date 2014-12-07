@@ -19,6 +19,7 @@
 
 #include <asm/sizes.h>
 
+/* The first 1K of IRAM is permanently reserved for the CPU reset handler */
 #define TEGRA_IRAM_RESET_HANDLER_OFFSET	0
 #define TEGRA_IRAM_RESET_HANDLER_SIZE	SZ_1K
 

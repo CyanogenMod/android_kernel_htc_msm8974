@@ -28,6 +28,7 @@
 #include <pnx833x.h>
 #include <gpio.h>
 
+/* endianess twiddlers */
 #define PNX8335_DEBUG0 0x4400
 #define PNX8335_DEBUG1 0x4404
 #define PNX8335_DEBUG2 0x4408
@@ -91,36 +92,42 @@ void __init pnx833x_board_setup(void)
 	pnx833x_gpio_select_function_alt(33);
 
 #if defined(CONFIG_MTD_NAND_PLATFORM) || defined(CONFIG_MTD_NAND_PLATFORM_MODULE)
+	/* Setup MIU for NAND access on CS0...
+	 *
+	 * (it seems that we must also configure CS1 for reliable operation,
+	 * otherwise the first read ID command will fail if it's read as 4 bytes
+	 * but pass if it's read as 1 word.)
+	 */
 
-	
+	/* Setup MIU CS0 & CS1 timing */
 	PNX833X_MIU_SEL0 = 0;
 	PNX833X_MIU_SEL1 = 0;
 	PNX833X_MIU_SEL0_TIMING = 0x50003081;
 	PNX833X_MIU_SEL1_TIMING = 0x50003081;
 
-	
+	/* Setup GPIO 00 for use as MIU CS1 (CS0 is not multiplexed, so does not need this) */
 	pnx833x_gpio_select_function_alt(0);
 
-	
+	/* Setup GPIO 04 to input NAND read/busy signal */
 	pnx833x_gpio_select_function_io(4);
 	pnx833x_gpio_select_input(4);
 
-	
+	/* Setup GPIO 05 to disable NAND write protect */
 	pnx833x_gpio_select_function_io(5);
 	pnx833x_gpio_select_output(5);
 	pnx833x_gpio_write(1, 5);
 
 #elif defined(CONFIG_MTD_CFI) || defined(CONFIG_MTD_CFI_MODULE)
 
-	
+	/* Set up MIU for 16-bit NOR access on CS0 and CS1... */
 
-	
+	/* Setup MIU CS0 & CS1 timing */
 	PNX833X_MIU_SEL0 = 1;
 	PNX833X_MIU_SEL1 = 1;
 	PNX833X_MIU_SEL0_TIMING = 0x6A08D082;
 	PNX833X_MIU_SEL1_TIMING = 0x6A08D082;
 
-	
+	/* Setup GPIO 00 for use as MIU CS1 (CS0 is not multiplexed, so does not need this) */
 	pnx833x_gpio_select_function_alt(0);
 #endif
 }

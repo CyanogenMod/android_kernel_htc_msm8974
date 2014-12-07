@@ -13,6 +13,12 @@
  *
  */
 
+/*
+ *
+ *  The Driver with I/O communications via the I2C Interface for ST15 platform.
+ *  And it is only working on the nuvoTon WPCE775x Embedded Controller.
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/leds.h>

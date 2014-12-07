@@ -13,7 +13,7 @@
 #ifndef _MSM_TSPP_H_
 #define _MSM_TSPP_H_
 
-#include <linux/tspp.h> 
+#include <linux/tspp.h> /* tspp_source */
 
 struct msm_tspp_platform_data {
 	int num_gpios;
@@ -24,11 +24,11 @@ struct msm_tspp_platform_data {
 };
 
 struct tspp_data_descriptor {
-	void *virt_base;   
-	phys_addr_t phys_base; 
-	u32 size;          
-	int id;            
-	void *user;        
+	void *virt_base;   /* logical address of the actual data */
+	phys_addr_t phys_base; /* physical address of the actual data */
+	u32 size;          /* size of buffer in bytes */
+	int id;            /* unique identifier */
+	void *user;        /* user-defined data */
 };
 
 typedef void (tspp_notifier)(int channel_id, void *user);
@@ -37,6 +37,7 @@ typedef void* (tspp_allocator)(int channel_id, u32 size,
 typedef void (tspp_memfree)(int channel_id, u32 size,
 	void *virt_base, phys_addr_t phys_base, void *user);
 
+/* Kernel API functions */
 int tspp_open_stream(u32 dev, u32 channel_id,
 			struct tspp_select_source *source);
 int tspp_close_stream(u32 dev, u32 channel_id);
@@ -56,5 +57,5 @@ int tspp_allocate_buffers(u32 dev, u32 channel_id, u32 count,
 	u32 size, u32 int_freq, tspp_allocator *alloc,
 	tspp_memfree *memfree, void *user);
 
-#endif 
+#endif /* _MSM_TSPP_H_ */
 

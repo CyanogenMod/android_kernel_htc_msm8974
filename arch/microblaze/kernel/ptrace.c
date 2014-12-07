@@ -42,13 +42,33 @@
 #include <asm/syscall.h>
 #include <asm/io.h>
 
+/* Returns the address where the register at REG_OFFS in P is stashed away. */
 static microblaze_reg_t *reg_save_addr(unsigned reg_offs,
 					struct task_struct *t)
 {
 	struct pt_regs *regs;
 
+	/*
+	 * Three basic cases:
+	 *
+	 * (1)	A register normally saved before calling the scheduler, is
+	 *	available in the kernel entry pt_regs structure at the top
+	 *	of the kernel stack. The kernel trap/irq exit path takes
+	 *	care to save/restore almost all registers for ptrace'd
+	 *	processes.
+	 *
+	 * (2)	A call-clobbered register, where the process P entered the
+	 *	kernel via [syscall] trap, is not stored anywhere; that's
+	 *	OK, because such registers are not expected to be preserved
+	 *	when the trap returns anyway (so we don't actually bother to
+	 *	test for this case).
+	 *
+	 * (3)	A few registers not used at all by the kernel, and so
+	 *	normally never saved except by context-switches, are in the
+	 *	context switch state.
+	 */
 
-	
+	/* Register saved during kernel entry (or not available). */
 	regs = task_pt_regs(t);
 
 	return (microblaze_reg_t *)((char *)regs + reg_offs);
@@ -61,12 +81,16 @@ long arch_ptrace(struct task_struct *child, long request,
 	unsigned long val = 0;
 
 	switch (request) {
-	
+	/* Read/write the word at location ADDR in the registers. */
 	case PTRACE_PEEKUSR:
 	case PTRACE_POKEUSR:
 		pr_debug("PEEKUSR/POKEUSR : 0x%08lx\n", addr);
 		rval = 0;
 		if (addr >= PT_SIZE && request == PTRACE_PEEKUSR) {
+			/*
+			 * Special requests that don't actually correspond
+			 * to offsets in struct pt_regs.
+			 */
 			if (addr == PT_TEXT_ADDR) {
 				val = child->mm->start_code;
 			} else if (addr == PT_DATA_ADDR) {
@@ -85,6 +109,11 @@ long arch_ptrace(struct task_struct *child, long request,
 #if 1
 				*reg_addr = data;
 #else
+				/* MS potential problem on WB system
+				 * Be aware that reg_addr is virtual address
+				 * virt_to_phys conversion is necessary.
+				 * This could be sensible solution.
+				 */
 				u32 paddr = virt_to_phys((u32)reg_addr);
 				invalidate_icache_range(paddr, paddr + 4);
 				*reg_addr = data;
@@ -111,6 +140,11 @@ asmlinkage long do_syscall_trace_enter(struct pt_regs *regs)
 
 	if (test_thread_flag(TIF_SYSCALL_TRACE) &&
 	    tracehook_report_syscall_entry(regs))
+		/*
+		 * Tracing decided this syscall should not happen.
+		 * We'll return a bogus call number to get an ENOSYS
+		 * error, but leave the original number in regs->regs[0].
+		 */
 		ret = -1L;
 
 	audit_syscall_entry(EM_MICROBLAZE, regs->r12, regs->r5, regs->r6,
@@ -137,8 +171,15 @@ static asmlinkage void syscall_trace(void)
 		return;
 	if (!(current->ptrace & PT_PTRACED))
 		return;
+	/* The 0x80 provides a way for the tracing parent to distinguish
+	 between a syscall stop and SIGTRAP delivery */
 	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
 				? 0x80 : 0));
+	/*
+	 * this isn't the same as continuing with a signal, but it will do
+	 * for normal use. strace only continues with a signal if the
+	 * stopping signal is not SIGTRAP. -brl
+	 */
 	if (current->exit_code) {
 		send_sig(current->exit_code, current, 1);
 		current->exit_code = 0;
@@ -148,5 +189,5 @@ static asmlinkage void syscall_trace(void)
 
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* nothing to do */
 }

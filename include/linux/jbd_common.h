@@ -2,17 +2,17 @@
 #define _LINUX_JBD_STATE_H
 
 enum jbd_state_bits {
-	BH_JBD			
+	BH_JBD			/* Has an attached ext3 journal_head */
 	  = BH_PrivateStart,
 	BH_JWrite,		/* Being written to log (@@@ DEBUGGING) */
-	BH_Freed,		
-	BH_Revoked,		
-	BH_RevokeValid,		
-	BH_JBDDirty,		
-	BH_State,		
-	BH_JournalHead,		
-	BH_Unshadow,		
-	BH_JBDPrivateStart,	
+	BH_Freed,		/* Has been freed (truncated) */
+	BH_Revoked,		/* Has been revoked from the log */
+	BH_RevokeValid,		/* Revoked flag is valid */
+	BH_JBDDirty,		/* Is dirty but journaled */
+	BH_State,		/* Pins most journal_head state */
+	BH_JournalHead,		/* Pins bh->b_private and jh->b_bh */
+	BH_Unshadow,		/* Dummy bit, for BJ_Shadow wakeup filtering */
+	BH_JBDPrivateStart,	/* First bit available for private use by FS */
 };
 
 BUFFER_FNS(JBD, jbd)

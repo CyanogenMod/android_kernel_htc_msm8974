@@ -2,6 +2,7 @@
  * Compressed RAM block device
  *
  * Copyright (C) 2008, 2009, 2010  Nitin Gupta
+ *               2012, 2013 Minchan Kim
  *
  * This code is released using a dual license strategy: BSD/GPL
  * You can choose the licence that better fits your requirements.
@@ -9,7 +10,6 @@
  * Released under the terms of 3-clause BSD License
  * Released under the terms of GNU General Public License Version 2.0
  *
- * Project home: http://compcache.googlecode.com
  */
 
 #ifndef _ZRAM_DRV_H_
@@ -59,38 +59,29 @@ struct zram_stats {
 	atomic64_t failed_writes;	
 	atomic64_t invalid_io;	
 	atomic64_t notify_free;	
-	u32 pages_zero;		
-	u32 pages_stored;	
-	u32 good_compress;	
-	u32 bad_compress;	
+	atomic_t pages_zero;		
+	atomic_t pages_stored;	
+	atomic_t good_compress;	
+	atomic_t bad_compress;	
 };
 
 struct zram_meta {
+	rwlock_t tb_lock;	
 	void *compress_workmem;
 	void *compress_buffer;
 	struct table *table;
 	struct zs_pool *mem_pool;
-};
-
-struct zram_slot_free {
-	unsigned long index;
-	struct zram_slot_free *next;
+	struct mutex buffer_lock; 
 };
 
 struct zram {
 	struct zram_meta *meta;
-	struct rw_semaphore lock; 
-
-	struct work_struct free_work;  
-	struct zram_slot_free *slot_free_rq; 
-
 	struct request_queue *queue;
 	struct gendisk *disk;
 	int init_done;
 	
 	struct rw_semaphore init_lock;
 	u64 disksize;	
-	spinlock_t slot_free_lock;
 
 	struct zram_stats stats;
 };

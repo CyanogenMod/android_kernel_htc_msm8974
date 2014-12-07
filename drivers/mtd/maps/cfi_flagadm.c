@@ -32,6 +32,12 @@
 #include <linux/mtd/partitions.h>
 
 
+/* We split the flash chip up into four parts.
+ * 1: bootloader first 128k			(0x00000000 - 0x0001FFFF) size 0x020000
+ * 2: kernel 640k					(0x00020000 - 0x000BFFFF) size 0x0A0000
+ * 3: compressed 1536k root ramdisk	(0x000C0000 - 0x0023FFFF) size 0x180000
+ * 4: writeable diskpartition (jffs)(0x00240000 - 0x003FFFFF) size 0x1C0000
+ */
 
 #define FLASH_PHYS_ADDR 0x40000000
 #define FLASH_SIZE 0x400000

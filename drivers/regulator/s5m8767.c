@@ -635,13 +635,13 @@ static __devinit int s5m8767_pmic_probe(struct platform_device *pdev)
 					   "S5M8767 SET3");
 			if (ret == -EBUSY)
 				dev_warn(&pdev->dev, "Duplicated gpio request for SET3\n");
-			
+			/* SET1 GPIO */
 			gpio_direction_output(pdata->buck_gpios[0],
 					(s5m8767->buck_gpioindex >> 2) & 0x1);
-			
+			/* SET2 GPIO */
 			gpio_direction_output(pdata->buck_gpios[1],
 					(s5m8767->buck_gpioindex >> 1) & 0x1);
-			
+			/* SET3 GPIO */
 			gpio_direction_output(pdata->buck_gpios[2],
 					(s5m8767->buck_gpioindex >> 0) & 0x1);
 			ret = 0;
@@ -659,7 +659,7 @@ static __devinit int s5m8767_pmic_probe(struct platform_device *pdev)
 	s5m_reg_update(s5m8767->iodev, S5M8767_REG_BUCK4CTRL,
 			(pdata->buck4_gpiodvs) ? (1 << 1) : (0 << 1), 1 << 1);
 
-	
+	/* Initialize GPIO DVS registers */
 	for (i = 0; i < 8; i++) {
 		if (s5m8767->buck2_gpiodvs) {
 			s5m_reg_write(s5m8767->iodev, S5M8767_REG_BUCK2DVS1 + i,
@@ -784,6 +784,7 @@ static void __exit s5m8767_pmic_exit(void)
 }
 module_exit(s5m8767_pmic_exit);
 
+/* Module information */
 MODULE_AUTHOR("Sangbeom Kim <sbkim73@samsung.com>");
 MODULE_DESCRIPTION("SAMSUNG S5M8767 Regulator Driver");
 MODULE_LICENSE("GPL");

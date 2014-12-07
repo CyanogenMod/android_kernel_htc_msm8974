@@ -27,6 +27,7 @@
 *******************************************************************************/
 
 
+/* Linux PRO/1000 Ethernet Driver main header file */
 
 #ifndef _E1000_H_
 #define _E1000_H_
@@ -82,6 +83,7 @@ struct e1000_adapter;
 
 #define E1000_MAX_INTR 10
 
+/* TX/RX descriptor defines */
 #define E1000_DEFAULT_TXD                  256
 #define E1000_MAX_TXD                      256
 #define E1000_MIN_TXD                       48
@@ -92,13 +94,15 @@ struct e1000_adapter;
 #define E1000_MIN_RXD                       48
 #define E1000_MAX_82544_RXD               4096
 
-#define E1000_MIN_ITR_USECS		10 
-#define E1000_MAX_ITR_USECS		10000 
+#define E1000_MIN_ITR_USECS		10 /* 100000 irq/sec */
+#define E1000_MAX_ITR_USECS		10000 /* 100    irq/sec */
 
+/* this is the size past which hardware will drop packets when setting LPE=0 */
 #define MAXIMUM_ETHERNET_VLAN_SIZE 1522
 
-#define E1000_RXBUFFER_128   128    
-#define E1000_RXBUFFER_256   256    
+/* Supported Rx Buffer Sizes */
+#define E1000_RXBUFFER_128   128    /* Used for packet split */
+#define E1000_RXBUFFER_256   256    /* Used for packet split */
 #define E1000_RXBUFFER_512   512
 #define E1000_RXBUFFER_1024  1024
 #define E1000_RXBUFFER_2048  2048
@@ -106,31 +110,39 @@ struct e1000_adapter;
 #define E1000_RXBUFFER_8192  8192
 #define E1000_RXBUFFER_16384 16384
 
+/* SmartSpeed delimiters */
 #define E1000_SMARTSPEED_DOWNSHIFT 3
 #define E1000_SMARTSPEED_MAX       15
 
+/* Packet Buffer allocations */
 #define E1000_PBA_BYTES_SHIFT 0xA
 #define E1000_TX_HEAD_ADDR_SHIFT 7
 #define E1000_PBA_TX_MASK 0xFFFF0000
 
-#define E1000_FC_HIGH_DIFF 0x1638  
-#define E1000_FC_LOW_DIFF 0x1640   
+/* Flow Control Watermarks */
+#define E1000_FC_HIGH_DIFF 0x1638  /* High: 5688 bytes below Rx FIFO size */
+#define E1000_FC_LOW_DIFF 0x1640   /* Low:  5696 bytes below Rx FIFO size */
 
-#define E1000_FC_PAUSE_TIME 0xFFFF 
+#define E1000_FC_PAUSE_TIME 0xFFFF /* pause for the max or until send xon */
 
+/* How many Tx Descriptors do we need to call netif_wake_queue ? */
 #define E1000_TX_QUEUE_WAKE	16
-#define E1000_RX_BUFFER_WRITE	16	
+/* How many Rx Buffers do we bundle into one write to the hardware ? */
+#define E1000_RX_BUFFER_WRITE	16	/* Must be power of 2 */
 
 #define AUTO_ALL_MODES            0
 #define E1000_EEPROM_82544_APM    0x0004
 #define E1000_EEPROM_APME         0x0400
 
 #ifndef E1000_MASTER_SLAVE
+/* Switch to override PHY master/slave setting */
 #define E1000_MASTER_SLAVE	e1000_ms_hw_default
 #endif
 
 #define E1000_MNG_VLAN_NONE (-1)
 
+/* wrapper around a pointer to a socket buffer,
+ * so a DMA handle can be stored along with the buffer */
 struct e1000_buffer {
 	struct sk_buff *skb;
 	dma_addr_t dma;
@@ -144,19 +156,19 @@ struct e1000_buffer {
 };
 
 struct e1000_tx_ring {
-	
+	/* pointer to the descriptor ring memory */
 	void *desc;
-	
+	/* physical address of the descriptor ring */
 	dma_addr_t dma;
-	
+	/* length of descriptor ring in bytes */
 	unsigned int size;
-	
+	/* number of descriptors in the ring */
 	unsigned int count;
-	
+	/* next descriptor to associate a buffer with */
 	unsigned int next_to_use;
-	
+	/* next descriptor to check for DD status bit */
 	unsigned int next_to_clean;
-	
+	/* array of buffer information structs */
 	struct e1000_buffer *buffer_info;
 
 	u16 tdh;
@@ -165,23 +177,23 @@ struct e1000_tx_ring {
 };
 
 struct e1000_rx_ring {
-	
+	/* pointer to the descriptor ring memory */
 	void *desc;
-	
+	/* physical address of the descriptor ring */
 	dma_addr_t dma;
-	
+	/* length of descriptor ring in bytes */
 	unsigned int size;
-	
+	/* number of descriptors in the ring */
 	unsigned int count;
-	
+	/* next descriptor to associate a buffer with */
 	unsigned int next_to_use;
-	
+	/* next descriptor to check for DD status bit */
 	unsigned int next_to_clean;
-	
+	/* array of buffer information structs */
 	struct e1000_buffer *buffer_info;
 	struct sk_buff *rx_skb_top;
 
-	
+	/* cpu for rx queue */
 	int cpu;
 
 	u16 rdh;
@@ -199,6 +211,7 @@ struct e1000_rx_ring {
 #define E1000_TX_DESC(R, i)		E1000_GET_DESC(R, i, e1000_tx_desc)
 #define E1000_CONTEXT_DESC(R, i)	E1000_GET_DESC(R, i, e1000_context_desc)
 
+/* board specific private data structure */
 
 struct e1000_adapter {
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
@@ -215,7 +228,7 @@ struct e1000_adapter {
 	unsigned int total_tx_packets;
 	unsigned int total_rx_bytes;
 	unsigned int total_rx_packets;
-	
+	/* Interrupt Throttle Rate */
 	u32 itr;
 	u32 itr_setting;
 	u16 tx_itr;
@@ -223,8 +236,8 @@ struct e1000_adapter {
 
 	u8 fc_autoneg;
 
-	
-	struct e1000_tx_ring *tx_ring;      
+	/* TX */
+	struct e1000_tx_ring *tx_ring;      /* One per active queue */
 	unsigned int restart_queue;
 	u32 txd_cmd;
 	u32 tx_int_delay;
@@ -243,14 +256,14 @@ struct e1000_adapter {
 	bool detect_tx_hung;
 	bool dump_buffers;
 
-	
+	/* RX */
 	bool (*clean_rx)(struct e1000_adapter *adapter,
 			 struct e1000_rx_ring *rx_ring,
 			 int *work_done, int work_to_do);
 	void (*alloc_rx_buf)(struct e1000_adapter *adapter,
 			     struct e1000_rx_ring *rx_ring,
 			     int cleaned_count);
-	struct e1000_rx_ring *rx_ring;      
+	struct e1000_rx_ring *rx_ring;      /* One per active queue */
 	struct napi_struct napi;
 
 	int num_tx_queues;
@@ -265,11 +278,11 @@ struct e1000_adapter {
 	u32 gorcl;
 	u64 gorcl_old;
 
-	
+	/* OS defined structs */
 	struct net_device *netdev;
 	struct pci_dev *pdev;
 
-	
+	/* structs defined in e1000_hw.h */
 	struct e1000_hw hw;
 	struct e1000_hw_stats stats;
 	struct e1000_phy_info phy_info;
@@ -281,14 +294,14 @@ struct e1000_adapter {
 
 	int msg_enable;
 
-	
+	/* to not mess up cache alignment, always add to the bottom */
 	bool tso_force;
-	bool smart_power_down;	
+	bool smart_power_down;	/* phy smart power down */
 	bool quad_port_a;
 	unsigned long flags;
 	u32 eeprom_wol;
 
-	
+	/* for ioport free */
 	int bars;
 	int need_ioport;
 
@@ -348,4 +361,4 @@ extern void e1000_set_ethtool_ops(struct net_device *netdev);
 extern void e1000_check_options(struct e1000_adapter *adapter);
 extern char *e1000_get_hw_dev_name(struct e1000_hw *hw);
 
-#endif 
+#endif /* _E1000_H_ */

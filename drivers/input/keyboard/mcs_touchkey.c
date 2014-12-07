@@ -21,11 +21,13 @@
 #include <linux/slab.h>
 #include <linux/pm.h>
 
+/* MCS5000 Touchkey */
 #define MCS5000_TOUCHKEY_STATUS		0x04
 #define MCS5000_TOUCHKEY_STATUS_PRESS	7
 #define MCS5000_TOUCHKEY_FW		0x0a
 #define MCS5000_TOUCHKEY_BASE_VAL	0x61
 
+/* MCS5080 Touchkey */
 #define MCS5080_TOUCHKEY_STATUS		0x00
 #define MCS5080_TOUCHKEY_STATUS_PRESS	3
 #define MCS5080_TOUCHKEY_FW		0x01
@@ -74,7 +76,7 @@ static irqreturn_t mcs_touchkey_interrupt(int irq, void *dev_id)
 	if (chip->press_invert)
 		pressed ^= chip->press_invert;
 
-	
+	/* key_val is 0 when released, so we should use key_val of press. */
 	if (pressed) {
 		key_val = val & (0xff >> (8 - chip->pressbit));
 		if (!key_val)
@@ -224,10 +226,10 @@ static int mcs_touchkey_suspend(struct device *dev)
 	struct mcs_touchkey_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 
-	
+	/* Disable the work */
 	disable_irq(client->irq);
 
-	
+	/* Finally turn off the power */
 	if (data->poweron)
 		data->poweron(false);
 
@@ -239,11 +241,11 @@ static int mcs_touchkey_resume(struct device *dev)
 	struct mcs_touchkey_data *data = dev_get_drvdata(dev);
 	struct i2c_client *client = data->client;
 
-	
+	/* Enable the device first */
 	if (data->poweron)
 		data->poweron(true);
 
-	
+	/* Enable irq again */
 	enable_irq(client->irq);
 
 	return 0;
@@ -274,6 +276,7 @@ static struct i2c_driver mcs_touchkey_driver = {
 
 module_i2c_driver(mcs_touchkey_driver);
 
+/* Module information */
 MODULE_AUTHOR("Joonyoung Shim <jy0922.shim@samsung.com>");
 MODULE_AUTHOR("HeungJun Kim <riverful.kim@samsung.com>");
 MODULE_DESCRIPTION("Touchkey driver for MELFAS MCS5000/5080 controller");

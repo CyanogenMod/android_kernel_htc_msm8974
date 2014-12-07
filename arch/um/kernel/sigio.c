@@ -8,6 +8,7 @@
 #include "os.h"
 #include "sigio.h"
 
+/* Protected by sigio_lock() called from write_sigio_workaround */
 static int sigio_irq_fd = -1;
 
 static irqreturn_t sigio_interrupt(int irq, void *data)
@@ -35,6 +36,7 @@ int write_sigio_irq(int fd)
 	return 0;
 }
 
+/* These are called from os-Linux/sigio.c to protect its pollfds arrays. */
 static DEFINE_SPINLOCK(sigio_spinlock);
 
 void sigio_lock(void)

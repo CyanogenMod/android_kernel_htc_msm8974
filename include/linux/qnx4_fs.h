@@ -1,3 +1,9 @@
+/*
+ *  Name                         : qnx4_fs.h
+ *  Author                       : Richard Frowijn
+ *  Function                     : qnx4 global filesystem definitions
+ *  History                      : 23-03-1998 created
+ */
 #ifndef _LINUX_QNX4_FS_H
 #define _LINUX_QNX4_FS_H
 
@@ -8,6 +14,7 @@
 #define QNX4_ROOT_INO 1
 
 #define QNX4_MAX_XTNTS_PER_XBLK	60
+/* for di_status */
 #define QNX4_FILE_USED          0x01
 #define QNX4_FILE_MODIFIED      0x02
 #define QNX4_FILE_BUSY          0x04
@@ -17,18 +24,22 @@
 
 #define QNX4_I_MAP_SLOTS	8
 #define QNX4_Z_MAP_SLOTS	64
-#define QNX4_VALID_FS		0x0001	
-#define QNX4_ERROR_FS		0x0002	
-#define QNX4_BLOCK_SIZE         0x200	
-#define QNX4_BLOCK_SIZE_BITS    9	
-#define QNX4_DIR_ENTRY_SIZE     0x040	
-#define QNX4_DIR_ENTRY_SIZE_BITS 6	
-#define QNX4_XBLK_ENTRY_SIZE    0x200	
-#define QNX4_INODES_PER_BLOCK   0x08	
+#define QNX4_VALID_FS		0x0001	/* Clean fs. */
+#define QNX4_ERROR_FS		0x0002	/* fs has errors. */
+#define QNX4_BLOCK_SIZE         0x200	/* blocksize of 512 bytes */
+#define QNX4_BLOCK_SIZE_BITS    9	/* blocksize shift */
+#define QNX4_DIR_ENTRY_SIZE     0x040	/* dir entry size of 64 bytes */
+#define QNX4_DIR_ENTRY_SIZE_BITS 6	/* dir entry size shift */
+#define QNX4_XBLK_ENTRY_SIZE    0x200	/* xblk entry size */
+#define QNX4_INODES_PER_BLOCK   0x08	/* 512 / 64 */
 
+/* for filenames */
 #define QNX4_SHORT_NAME_MAX	16
 #define QNX4_NAME_MAX		48
 
+/*
+ * This is the original qnx4 inode layout on disk.
+ */
 struct qnx4_inode_entry {
 	char		di_fname[QNX4_SHORT_NAME_MAX];
 	qnx4_off_t	di_size;

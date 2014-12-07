@@ -24,6 +24,9 @@ static inline void B_L1L2(struct st5481_bcs *bcs, int pr, void *arg)
 	ifc->l1l2(ifc, pr, arg);
 }
 
+/*
+ * Encode and transmit next frame.
+ */
 static void usb_b_out(struct st5481_bcs *bcs, int buf_nr)
 {
 	struct st5481_b_out *b_out = &bcs->b_out;
@@ -40,7 +43,7 @@ static void usb_b_out(struct st5481_bcs *bcs, int buf_nr)
 	}
 	urb = b_out->urb[buf_nr];
 
-	
+	// Adjust isoc buffer size according to flow state
 	if (b_out->flow_event & (OUT_DOWN | OUT_UNDERRUN)) {
 		buf_size = NUM_ISO_PACKETS_B * SIZE_ISO_PACKETS_B_OUT + B_FLOW_ADJUST;
 		packet_size = SIZE_ISO_PACKETS_B_OUT + B_FLOW_ADJUST;
@@ -65,7 +68,7 @@ static void usb_b_out(struct st5481_bcs *bcs, int buf_nr)
 				bytes_sent = buf_size - len;
 				if (skb->len < bytes_sent)
 					bytes_sent = skb->len;
-				{	
+				{	/* swap tx bytes to get hearable audio data */
 					register unsigned char *src  = skb->data;
 					register unsigned char *dest = urb->transfer_buffer + len;
 					register unsigned int count;
@@ -82,18 +85,21 @@ static void usb_b_out(struct st5481_bcs *bcs, int buf_nr)
 			skb_pull(skb, bytes_sent);
 
 			if (!skb->len) {
-				
+				// Frame sent
 				b_out->tx_skb = NULL;
 				B_L1L2(bcs, PH_DATA | CONFIRM, (void *)(unsigned long) skb->truesize);
 				dev_kfree_skb_any(skb);
 
+/*				if (!(bcs->tx_skb = skb_dequeue(&bcs->sq))) { */
+/*					st5481B_sched_event(bcs, B_XMTBUFREADY); */
+/*				} */
 			}
 		} else {
 			if (bcs->mode == L1_MODE_TRANS) {
 				memset(urb->transfer_buffer + len, 0xff, buf_size-len);
 				len = buf_size;
 			} else {
-				
+				// Send flags
 				len += isdnhdlc_encode(&b_out->hdlc_state,
 						       NULL, 0, &bytes_sent,
 						       urb->transfer_buffer + len, buf_size-len);
@@ -101,7 +107,7 @@ static void usb_b_out(struct st5481_bcs *bcs, int buf_nr)
 		}
 	}
 
-	
+	// Prepare the URB
 	for (i = 0, offset = 0; offset < len; i++) {
 		urb->iso_frame_desc[i].offset = offset;
 		urb->iso_frame_desc[i].length = packet_size;
@@ -117,23 +123,32 @@ static void usb_b_out(struct st5481_bcs *bcs, int buf_nr)
 	SUBMIT_URB(urb, GFP_NOIO);
 }
 
+/*
+ * Start transferring (flags or data) on the B channel, since
+ * FIFO counters has been set to a non-zero value.
+ */
 static void st5481B_start_xfer(void *context)
 {
 	struct st5481_bcs *bcs = context;
 
 	DBG(4, "B%d", bcs->channel + 1);
 
-	
+	// Start transmitting (flags or data) on B channel
 
 	usb_b_out(bcs, 0);
 	usb_b_out(bcs, 1);
 }
 
+/*
+ * If the adapter has only 2 LEDs, the green
+ * LED will blink with a rate depending
+ * on the number of channels opened.
+ */
 static void led_blink(struct st5481_adapter *adapter)
 {
 	u_char leds = adapter->leds;
 
-	
+	// 50 frames/sec for each channel
 	if (++adapter->led_counter % 50) {
 		return;
 	}
@@ -163,7 +178,7 @@ static void usb_b_out_complete(struct urb *urb)
 		case -ESHUTDOWN:
 		case -ECONNRESET:
 			DBG(4, "urb killed status %d", urb->status);
-			return; 
+			return; // Give up
 		default:
 			WARNING("urb status %d", urb->status);
 			if (b_out->busy == 0) {
@@ -179,6 +194,9 @@ static void usb_b_out_complete(struct urb *urb)
 		led_blink(adapter);
 }
 
+/*
+ * Start or stop the transfer on the B channel.
+ */
 static void st5481B_mode(struct st5481_bcs *bcs, int mode)
 {
 	struct st5481_b_out *b_out = &bcs->b_out;
@@ -191,14 +209,14 @@ static void st5481B_mode(struct st5481_bcs *bcs, int mode)
 
 	bcs->mode = mode;
 
-	
+	// Cancel all USB transfers on this B channel
 	usb_unlink_urb(b_out->urb[0]);
 	usb_unlink_urb(b_out->urb[1]);
 	b_out->busy = 0;
 
 	st5481_in_mode(&bcs->b_in, mode);
 	if (bcs->mode != L1_MODE_NULL) {
-		
+		// Open the B channel
 		if (bcs->mode != L1_MODE_TRANS) {
 			u32 features = HDLC_BITREVERSE;
 			if (bcs->mode == L1_MODE_HDLC_56K)
@@ -207,11 +225,11 @@ static void st5481B_mode(struct st5481_bcs *bcs, int mode)
 		}
 		st5481_usb_pipe_reset(adapter, (bcs->channel + 1) * 2, NULL, NULL);
 
-		
+		// Enable B channel interrupts
 		st5481_usb_device_ctrl_msg(adapter, FFMSK_B1 + (bcs->channel * 2),
 					   OUT_UP + OUT_DOWN + OUT_UNDERRUN, NULL, NULL);
 
-		
+		// Enable B channel FIFOs
 		st5481_usb_device_ctrl_msg(adapter, OUT_B1_COUNTER+(bcs->channel * 2), 32, st5481B_start_xfer, bcs);
 		if (adapter->number_of_leds == 4) {
 			if (bcs->channel == 0) {
@@ -221,10 +239,10 @@ static void st5481B_mode(struct st5481_bcs *bcs, int mode)
 			}
 		}
 	} else {
-		
+		// Disble B channel interrupts
 		st5481_usb_device_ctrl_msg(adapter, FFMSK_B1+(bcs->channel * 2), 0, NULL, NULL);
 
-		
+		// Disable B channel FIFOs
 		st5481_usb_device_ctrl_msg(adapter, OUT_B1_COUNTER+(bcs->channel * 2), 0, NULL, NULL);
 
 		if (adapter->number_of_leds == 4) {
@@ -260,13 +278,13 @@ static int st5481_setup_b_out(struct st5481_bcs *bcs)
 	if (!altsetting)
 		return -ENXIO;
 
-	
+	// Allocate URBs and buffers for the B channel out
 	endpoint = &altsetting->endpoint[EP_B1_OUT - 1 + bcs->channel * 2];
 
 	DBG(4, "endpoint address=%02x,packet size=%d",
 	    endpoint->desc.bEndpointAddress, le16_to_cpu(endpoint->desc.wMaxPacketSize));
 
-	
+	// Allocate memory for 8000bytes/sec + extra bytes if underrun
 	return st5481_setup_isocpipes(b_out->urb, dev,
 				      usb_sndisocpipe(dev, endpoint->desc.bEndpointAddress),
 				      NUM_ISO_PACKETS_B, SIZE_ISO_PACKETS_B_OUT,
@@ -312,6 +330,9 @@ err:
 	return retval;
 }
 
+/*
+ * Release buffers and URBs for the B channels
+ */
 void st5481_release_b(struct st5481_bcs *bcs)
 {
 	DBG(4, "");
@@ -320,6 +341,15 @@ void st5481_release_b(struct st5481_bcs *bcs)
 	st5481_release_b_out(bcs);
 }
 
+/*
+ * st5481_b_l2l1 is the entry point for upper layer routines that want to
+ * transmit on the B channel.  PH_DATA | REQUEST is a normal packet that
+ * we either start transmitting (if idle) or queue (if busy).
+ * PH_PULL | REQUEST can be called to request a callback message
+ * (PH_PULL | CONFIRM)
+ * once the link is idle.  After a "pull" callback, the upper layer
+ * routines can use PH_PULL | INDICATION to send data.
+ */
 void st5481_b_l2l1(struct hisax_if *ifc, int pr, void *arg)
 {
 	struct st5481_bcs *bcs = ifc->priv;

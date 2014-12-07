@@ -32,19 +32,24 @@
 #include "ttype.h"
 #include <linux/types.h>
 
+/*---------------------  Export Definitions -------------------------*/
+//
+// Loopback mode
+//
+// LOBYTE is MAC LB mode, HIBYTE is MII LB mode
 #define CARD_LB_NONE            MAKEWORD(MAC_LB_NONE, 0)
-#define CARD_LB_MAC             MAKEWORD(MAC_LB_INTERNAL, 0)   
+#define CARD_LB_MAC             MAKEWORD(MAC_LB_INTERNAL, 0)   // PHY must ISO, avoid MAC loopback packet go out
 #define CARD_LB_PHY             MAKEWORD(MAC_LB_EXT, 0)
 
 
-#define DEFAULT_MSDU_LIFETIME           512  
-#define DEFAULT_MSDU_LIFETIME_RES_64us  8000 
+#define DEFAULT_MSDU_LIFETIME           512  // ms
+#define DEFAULT_MSDU_LIFETIME_RES_64us  8000 // 64us
 
-#define DEFAULT_MGN_LIFETIME            8    
-#define DEFAULT_MGN_LIFETIME_RES_64us   125  
+#define DEFAULT_MGN_LIFETIME            8    // ms
+#define DEFAULT_MGN_LIFETIME_RES_64us   125  // 64us
 
 #define CB_MAX_CHANNEL_24G      14
-#define CB_MAX_CHANNEL_5G       42 
+#define CB_MAX_CHANNEL_5G       42 //[20050104] add channel9(5045MHz), 41==>42
 #define CB_MAX_CHANNEL          (CB_MAX_CHANNEL_24G+CB_MAX_CHANNEL_5G)
 
 typedef enum _CARD_PHY_TYPE {
@@ -76,8 +81,11 @@ typedef enum _CARD_OP_MODE {
 
 
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 void CARDvSetRSPINF(void *pDeviceHandler, CARD_PHY_TYPE ePHYType);
 void vUpdateIFS(void *pDeviceHandler);
@@ -96,8 +104,10 @@ unsigned char CARDbyGetPktType(void *pDeviceHandler);
 void CARDvSafeResetTx(void *pDeviceHandler);
 void CARDvSafeResetRx(void *pDeviceHandler);
 
+//xxx
 bool CARDbRadioPowerOff(void *pDeviceHandler);
 bool CARDbRadioPowerOn(void *pDeviceHandler);
+//bool CARDbSendPacket(void *pDeviceHandler, void *pPacket, CARD_PKT_TYPE ePktType, unsigned int uLength);
 bool CARDbIsShortPreamble(void *pDeviceHandler);
 bool CARDbIsShorSlotTime(void *pDeviceHandler);
 bool CARDbSetPhyParameter(void *pDeviceHandler, CARD_PHY_TYPE ePHYType, unsigned short wCapInfo, unsigned char byERPField, void *pvSupportRateIEs, void *pvExtSupportRateIEs);
@@ -182,7 +192,7 @@ CARDbyGetTransmitPower (
     void *pDeviceHandler
     );
 
-#endif 
+#endif // __CARD_H__
 
 
 

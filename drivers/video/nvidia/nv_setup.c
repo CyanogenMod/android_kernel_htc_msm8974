@@ -54,6 +54,9 @@
 #include "nv_type.h"
 #include "nv_local.h"
 #include "nv_proto.h"
+/*
+ * Override VGA I/O routines.
+ */
 void NVWriteCrtc(struct nvidia_par *par, u8 index, u8 value)
 {
 	VGA_WR08(par->PCIO, par->IOBase + 0x04, index);
@@ -133,7 +136,7 @@ void NVDisablePalette(struct nvidia_par *par)
 	VGA_WR08(par->PCIO, VGA_ATT_IW, 0x20);
 	par->paletteEnabled = 0;
 }
-#endif  
+#endif  /*  0  */
 void NVWriteDacMask(struct nvidia_par *par, u8 value)
 {
 	VGA_WR08(par->PDIO, VGA_PEL_MSK, value);
@@ -143,7 +146,7 @@ u8 NVReadDacMask(struct nvidia_par *par)
 {
 	return (VGA_RD08(par->PDIO, VGA_PEL_MSK));
 }
-#endif  
+#endif  /*  0  */
 void NVWriteDacReadAddr(struct nvidia_par *par, u8 value)
 {
 	VGA_WR08(par->PDIO, VGA_PEL_IR, value);
@@ -254,7 +257,7 @@ static void nv10GetConfig(struct nvidia_par *par)
 	u32 implementation = par->Chipset & 0x0ff0;
 
 #ifdef __BIG_ENDIAN
-	
+	/* turn on big endian register access */
 	if (!(NV_RD32(par->PMC, 0x0004) & 0x01000001)) {
 		NV_WR32(par->PMC, 0x0004, 0x01000001);
 		mb();
@@ -286,7 +289,7 @@ static void nv10GetConfig(struct nvidia_par *par)
 			par->CrystalFreqKHz = 27000;
 	}
 
-	par->CURSOR = NULL;	
+	par->CURSOR = NULL;	/* can't set this here */
 	par->MinVClockFreqKHz = 12000;
 	par->MaxVClockFreqKHz = par->twoStagePLL ? 400000 : 350000;
 }
@@ -302,7 +305,7 @@ int NVCommonSetup(struct fb_info *info)
 	int mobile = 0;
 	int tvA = 0;
 	int tvB = 0;
-	int FlatPanel = -1;	
+	int FlatPanel = -1;	/* really means the CRTC is slaved */
 	int Television = 0;
 	int err = 0;
 
@@ -326,7 +329,7 @@ int NVCommonSetup(struct fb_info *info)
 	par->PMC = par->REGS + (0x00000000 / 4);
 	par->FIFO = par->REGS + (0x00800000 / 4);
 
-	
+	/* 8 bit registers */
 	par->PCIO0 = (u8 __iomem *) par->REGS + 0x00601000;
 	par->PDIO0 = (u8 __iomem *) par->REGS + 0x00681000;
 	par->PVIO = (u8 __iomem *) par->REGS + 0x000C0000;
@@ -347,7 +350,7 @@ int NVCommonSetup(struct fb_info *info)
 
 	par->BlendingPossible = ((par->Chipset & 0xffff) != 0x0020);
 
-	
+	/* look for known laptop chips */
 	switch (par->Chipset & 0xffff) {
 	case 0x0112:
 	case 0x0174:
@@ -427,7 +430,7 @@ int NVCommonSetup(struct fb_info *info)
 			fb_edid_to_monspecs(edidA, monA);
 			FlatPanel = (monA->input & FB_DISP_DDI) ? 1 : 0;
 
-			
+			/* NV4 doesn't support FlatPanels */
 			if ((par->Chipset & 0x0fff) <= 0x0020)
 				FlatPanel = 0;
 		} else {

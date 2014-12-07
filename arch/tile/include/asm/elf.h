@@ -15,6 +15,9 @@
 #ifndef _ASM_TILE_ELF_H
 #define _ASM_TILE_ELF_H
 
+/*
+ * ELF register definitions.
+ */
 
 #include <arch/chip.h>
 
@@ -31,6 +34,7 @@ typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 #define EM_TILEPRO 188
 #define EM_TILEGX  191
 
+/* Provide a nominal data structure. */
 #define ELF_NFPREG	0
 typedef double elf_fpreg_t;
 typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
@@ -42,13 +46,22 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 #endif
 #define ELF_DATA	ELFDATA2LSB
 
+/*
+ * There seems to be a bug in how compat_binfmt_elf.c works: it
+ * #undefs ELF_ARCH, but it is then used in binfmt_elf.c for fill_note_info().
+ * Hack around this by providing an enum value of ELF_ARCH.
+ */
 enum { ELF_ARCH = CHIP_ELF_TYPE() };
 #define ELF_ARCH ELF_ARCH
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(x)  \
 	((x)->e_ident[EI_CLASS] == ELF_CLASS && \
 	 (x)->e_machine == CHIP_ELF_TYPE())
 
+/* The module loader only handles a few relocation types. */
 #ifndef __tilegx__
 #define R_TILE_32                 1
 #define R_TILE_JOFFLONG_X1       15
@@ -67,18 +80,36 @@ enum { ELF_ARCH = CHIP_ELF_TYPE() };
 #define R_TILEGX_IMM16_X1_HW2_LAST       49
 #endif
 
+/* Use standard page size for core dumps. */
 #define ELF_EXEC_PAGESIZE	PAGE_SIZE
 
+/*
+ * This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+ * use of this is to invoke "./ld.so someprog" to test out a new version of
+ * the loader.  We need to make sure that it is out of the way of the program
+ * that it will "exec", and that there is sufficient room for the brk.
+ */
 #define ELF_ET_DYN_BASE         (TASK_SIZE / 3 * 2)
 
 #define ELF_CORE_COPY_REGS(_dest, _regs)			\
 	memcpy((char *) &_dest, (char *) _regs,			\
 	       sizeof(struct pt_regs));
 
+/* No additional FP registers to copy. */
 #define ELF_CORE_COPY_FPREGS(t, fpu) 0
 
+/*
+ * This yields a mask that user programs can use to figure out what
+ * instruction set this CPU supports.  This could be done in user space,
+ * but it's not easy, and we've already done it here.
+ */
 #define ELF_HWCAP	(0)
 
+/*
+ * This yields a string that ld.so will use to load implementation
+ * specific libraries for optimization.  This is more specific in
+ * intent than poking at uname or /proc/cpuinfo.
+ */
 #define ELF_PLATFORM  (NULL)
 
 extern void elf_plat_init(struct pt_regs *regs, unsigned long load_addr);
@@ -88,9 +119,11 @@ extern void elf_plat_init(struct pt_regs *regs, unsigned long load_addr);
 extern int dump_task_regs(struct task_struct *, elf_gregset_t *);
 #define ELF_CORE_COPY_TASK_REGS(tsk, elf_regs) dump_task_regs(tsk, elf_regs)
 
+/* Tilera Linux has no personalities currently, so no need to do anything. */
 #define SET_PERSONALITY(ex) do { } while (0)
 
 #define ARCH_HAS_SETUP_ADDITIONAL_PAGES
+/* Support auto-mapping of the user interrupt vectors. */
 struct linux_binprm;
 extern int arch_setup_additional_pages(struct linux_binprm *bprm,
 				       int executable_stack);
@@ -98,6 +131,11 @@ extern int arch_setup_additional_pages(struct linux_binprm *bprm,
 
 #define COMPAT_ELF_PLATFORM "tilegx-m32"
 
+/*
+ * "Compat" binaries have the same machine type, but 32-bit class,
+ * since they're not a separate machine type, but just a 32-bit
+ * variant of the standard 64-bit architecture.
+ */
 #define compat_elf_check_arch(x)  \
 	((x)->e_ident[EI_CLASS] == ELFCLASS32 && \
 	 (x)->e_machine == CHIP_ELF_TYPE())
@@ -107,6 +145,9 @@ extern int arch_setup_additional_pages(struct linux_binprm *bprm,
 		regs->sp = ptr_to_compat_reg((void *)(usp)); \
 	} while (0)
 
+/*
+ * Use SET_PERSONALITY to indicate compatibility via TS_COMPAT.
+ */
 #undef SET_PERSONALITY
 #define SET_PERSONALITY(ex) \
 do { \
@@ -121,6 +162,6 @@ do { \
 
 #define COMPAT_ELF_ET_DYN_BASE (0xffffffff / 3 * 2)
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
-#endif 
+#endif /* _ASM_TILE_ELF_H */

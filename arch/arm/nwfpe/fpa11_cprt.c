@@ -36,10 +36,14 @@ unsigned int EmulateCPRT(const unsigned int opcode)
 {
 
 	if (opcode & 0x800000) {
+		/* This is some variant of a comparison (PerformComparison
+		   will sort out which one).  Since most of the other CPRT
+		   instructions are oddball cases of some sort or other it
+		   makes sense to pull this out into a fast path.  */
 		return PerformComparison(opcode);
 	}
 
-	
+	/* Hint to GCC that we'd like a jump table rather than a load of CMPs */
 	switch ((opcode & 0x700000) >> 20) {
 	case FLT_CODE >> 20:
 		return PerformFLT(opcode);
@@ -146,34 +150,40 @@ unsigned int PerformFIX(const unsigned int opcode)
 	return 1;
 }
 
+/* This instruction sets the flags N, Z, C, V in the FPSR. */
 static unsigned int PerformComparison(const unsigned int opcode)
 {
 	FPA11 *fpa11 = GET_FPA11();
 	unsigned int Fn = getFn(opcode), Fm = getFm(opcode);
-	int e_flag = opcode & 0x400000;	
-	int n_flag = opcode & 0x200000;	
+	int e_flag = opcode & 0x400000;	/* 1 if CxFE */
+	int n_flag = opcode & 0x200000;	/* 1 if CNxx */
 	unsigned int flags = 0;
 
 #ifdef CONFIG_FPE_NWFPE_XP
 	floatx80 rFn, rFm;
 
+	/* Check for unordered condition and convert all operands to 80-bit
+	   format.
+	   ?? Might be some mileage in avoiding this conversion if possible.
+	   Eg, if both operands are 32-bit, detect this and do a 32-bit
+	   comparison (cheaper than an 80-bit one).  */
 	switch (fpa11->fType[Fn]) {
 	case typeSingle:
-		
+		//printk("single.\n");
 		if (float32_is_nan(fpa11->fpreg[Fn].fSingle))
 			goto unordered;
 		rFn = float32_to_floatx80(fpa11->fpreg[Fn].fSingle);
 		break;
 
 	case typeDouble:
-		
+		//printk("double.\n");
 		if (float64_is_nan(fpa11->fpreg[Fn].fDouble))
 			goto unordered;
 		rFn = float64_to_floatx80(fpa11->fpreg[Fn].fDouble);
 		break;
 
 	case typeExtended:
-		
+		//printk("extended.\n");
 		if (floatx80_is_nan(fpa11->fpreg[Fn].fExtended))
 			goto unordered;
 		rFn = fpa11->fpreg[Fn].fExtended;
@@ -184,29 +194,29 @@ static unsigned int PerformComparison(const unsigned int opcode)
 	}
 
 	if (CONSTANT_FM(opcode)) {
-		
+		//printk("Fm is a constant: #%d.\n",Fm);
 		rFm = getExtendedConstant(Fm);
 		if (floatx80_is_nan(rFm))
 			goto unordered;
 	} else {
-		
+		//printk("Fm = r%d which contains a ",Fm);
 		switch (fpa11->fType[Fm]) {
 		case typeSingle:
-			
+			//printk("single.\n");
 			if (float32_is_nan(fpa11->fpreg[Fm].fSingle))
 				goto unordered;
 			rFm = float32_to_floatx80(fpa11->fpreg[Fm].fSingle);
 			break;
 
 		case typeDouble:
-			
+			//printk("double.\n");
 			if (float64_is_nan(fpa11->fpreg[Fm].fDouble))
 				goto unordered;
 			rFm = float64_to_floatx80(fpa11->fpreg[Fm].fDouble);
 			break;
 
 		case typeExtended:
-			
+			//printk("extended.\n");
 			if (floatx80_is_nan(fpa11->fpreg[Fm].fExtended))
 				goto unordered;
 			rFm = fpa11->fpreg[Fm].fExtended;
@@ -220,20 +230,22 @@ static unsigned int PerformComparison(const unsigned int opcode)
 	if (n_flag)
 		rFm.high ^= 0x8000;
 
-	
+	/* test for less than condition */
 	if (floatx80_lt(rFn, rFm))
 		flags |= CC_NEGATIVE;
 
-	
+	/* test for equal condition */
 	if (floatx80_eq(rFn, rFm))
 		flags |= CC_ZERO;
 
-	
+	/* test for greater than or equal condition */
 	if (floatx80_lt(rFm, rFn))
 		flags |= CC_CARRY;
 
 #else
 	if (CONSTANT_FM(opcode)) {
+		/* Fm is a constant.  Do the comparison in whatever precision
+		   Fn happens to be stored in.  */
 		if (fpa11->fType[Fn] == typeSingle) {
 			float32 rFm = getSingleConstant(Fm);
 			float32 rFn = fpa11->fpreg[Fn].fSingle;
@@ -244,15 +256,15 @@ static unsigned int PerformComparison(const unsigned int opcode)
 			if (n_flag)
 				rFm ^= 0x80000000;
 
-			
+			/* test for less than condition */
 			if (float32_lt_nocheck(rFn, rFm))
 				flags |= CC_NEGATIVE;
 
-			
+			/* test for equal condition */
 			if (float32_eq_nocheck(rFn, rFm))
 				flags |= CC_ZERO;
 
-			
+			/* test for greater than or equal condition */
 			if (float32_lt_nocheck(rFm, rFn))
 				flags |= CC_CARRY;
 		} else {
@@ -265,20 +277,20 @@ static unsigned int PerformComparison(const unsigned int opcode)
 			if (n_flag)
 				rFm ^= 0x8000000000000000ULL;
 
-			
+			/* test for less than condition */
 			if (float64_lt_nocheck(rFn, rFm))
 				flags |= CC_NEGATIVE;
 
-			
+			/* test for equal condition */
 			if (float64_eq_nocheck(rFn, rFm))
 				flags |= CC_ZERO;
 
-			
+			/* test for greater than or equal condition */
 			if (float64_lt_nocheck(rFm, rFn))
 				flags |= CC_CARRY;
 		}
 	} else {
-		
+		/* Both operands are in registers.  */
 		if (fpa11->fType[Fn] == typeSingle
 		    && fpa11->fType[Fm] == typeSingle) {
 			float32 rFm = fpa11->fpreg[Fm].fSingle;
@@ -291,19 +303,19 @@ static unsigned int PerformComparison(const unsigned int opcode)
 			if (n_flag)
 				rFm ^= 0x80000000;
 
-			
+			/* test for less than condition */
 			if (float32_lt_nocheck(rFn, rFm))
 				flags |= CC_NEGATIVE;
 
-			
+			/* test for equal condition */
 			if (float32_eq_nocheck(rFn, rFm))
 				flags |= CC_ZERO;
 
-			
+			/* test for greater than or equal condition */
 			if (float32_lt_nocheck(rFm, rFn))
 				flags |= CC_CARRY;
 		} else {
-			
+			/* Promote 32-bit operand to 64 bits.  */
 			float64 rFm, rFn;
 
 			rFm = (fpa11->fType[Fm] == typeSingle) ?
@@ -321,15 +333,15 @@ static unsigned int PerformComparison(const unsigned int opcode)
 			if (n_flag)
 				rFm ^= 0x8000000000000000ULL;
 
-			
+			/* test for less than condition */
 			if (float64_lt_nocheck(rFn, rFm))
 				flags |= CC_NEGATIVE;
 
-			
+			/* test for equal condition */
 			if (float64_eq_nocheck(rFn, rFm))
 				flags |= CC_ZERO;
 
-			
+			/* test for greater than or equal condition */
 			if (float64_lt_nocheck(rFm, rFn))
 				flags |= CC_CARRY;
 		}
@@ -342,6 +354,11 @@ static unsigned int PerformComparison(const unsigned int opcode)
 	return 1;
 
       unordered:
+	/* ?? The FPA data sheet is pretty vague about this, in particular
+	   about whether the non-E comparisons can ever raise exceptions.
+	   This implementation is based on a combination of what it says in
+	   the data sheet, observation of how the Acorn emulator actually
+	   behaves (and how programs expect it to) and guesswork.  */
 	flags |= CC_OVERFLOW;
 	flags &= ~(CC_ZERO | CC_NEGATIVE);
 

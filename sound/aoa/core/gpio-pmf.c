@@ -105,6 +105,8 @@ static void pmf_gpio_exit(struct gpio_runtime *rt)
 	if (rt->line_out_notify.gpio_private)
 		pmf_unregister_irq_client(rt->line_out_notify.gpio_private);
 
+	/* make sure no work is pending before freeing
+	 * all things */
 	cancel_delayed_work_sync(&rt->headphone_notify.work);
 	cancel_delayed_work_sync(&rt->line_in_notify.work);
 	cancel_delayed_work_sync(&rt->line_out_notify.work);

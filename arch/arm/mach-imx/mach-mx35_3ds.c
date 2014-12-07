@@ -20,6 +20,11 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * This machine is known as:
+ *  - i.MX35 3-Stack Development System
+ *  - i.MX35 Platform Development Kit (i.MX35 PDK)
+ */
 
 #include <linux/types.h>
 #include <linux/init.h>
@@ -55,7 +60,7 @@
 
 static const struct fb_videomode fb_modedb[] = {
 	{
-		 
+		 /* 800x480 @ 55 Hz */
 		.name = "Ceramate-CLAA070VC01",
 		.refresh = 55,
 		.xres = 800,
@@ -167,12 +172,12 @@ static struct platform_device *devices[] __initdata = {
 };
 
 static iomux_v3_cfg_t mx35pdk_pads[] = {
-	
+	/* UART1 */
 	MX35_PAD_CTS1__UART1_CTS,
 	MX35_PAD_RTS1__UART1_RTS,
 	MX35_PAD_TXD1__UART1_TXD_MUX,
 	MX35_PAD_RXD1__UART1_RXD_MUX,
-	
+	/* FEC */
 	MX35_PAD_FEC_TX_CLK__FEC_TX_CLK,
 	MX35_PAD_FEC_RX_CLK__FEC_RX_CLK,
 	MX35_PAD_FEC_RX_DV__FEC_RX_DV,
@@ -191,23 +196,23 @@ static iomux_v3_cfg_t mx35pdk_pads[] = {
 	MX35_PAD_FEC_TDATA2__FEC_TDATA_2,
 	MX35_PAD_FEC_RDATA3__FEC_RDATA_3,
 	MX35_PAD_FEC_TDATA3__FEC_TDATA_3,
-	
+	/* USBOTG */
 	MX35_PAD_USBOTG_PWR__USB_TOP_USBOTG_PWR,
 	MX35_PAD_USBOTG_OC__USB_TOP_USBOTG_OC,
-	
+	/* USBH1 */
 	MX35_PAD_I2C2_CLK__USB_TOP_USBH2_PWR,
 	MX35_PAD_I2C2_DAT__USB_TOP_USBH2_OC,
-	
+	/* SDCARD */
 	MX35_PAD_SD1_CMD__ESDHC1_CMD,
 	MX35_PAD_SD1_CLK__ESDHC1_CLK,
 	MX35_PAD_SD1_DATA0__ESDHC1_DAT0,
 	MX35_PAD_SD1_DATA1__ESDHC1_DAT1,
 	MX35_PAD_SD1_DATA2__ESDHC1_DAT2,
 	MX35_PAD_SD1_DATA3__ESDHC1_DAT3,
-	
+	/* I2C1 */
 	MX35_PAD_I2C1_CLK__I2C1_SCL,
 	MX35_PAD_I2C1_DAT__I2C1_SDA,
-	
+	/* Display */
 	MX35_PAD_LD0__IPU_DISPB_DAT_0,
 	MX35_PAD_LD1__IPU_DISPB_DAT_1,
 	MX35_PAD_LD2__IPU_DISPB_DAT_2,
@@ -233,7 +238,7 @@ static iomux_v3_cfg_t mx35pdk_pads[] = {
 	MX35_PAD_D3_VSYNC__IPU_DISPB_D3_VSYNC,
 	MX35_PAD_D3_REV__IPU_DISPB_D3_REV,
 	MX35_PAD_D3_CLS__IPU_DISPB_D3_CLS,
-	
+	/* CSI */
 	MX35_PAD_TX1__IPU_CSI_D_6,
 	MX35_PAD_TX0__IPU_CSI_D_7,
 	MX35_PAD_CSI_D8__IPU_CSI_D_8,
@@ -250,6 +255,9 @@ static iomux_v3_cfg_t mx35pdk_pads[] = {
 	MX35_PAD_CSI_VSYNC__IPU_CSI_VSYNC,
 };
 
+/*
+ * Camera support
+*/
 static phys_addr_t mx3_camera_base __initdata;
 #define MX35_3DS_CAMERA_BUF_SIZE SZ_8M
 
@@ -314,10 +322,15 @@ static int mx35_3ds_otg_init(struct platform_device *pdev)
 	return mx35_initialize_usb_hw(pdev->id, MXC_EHCI_INTERNAL_PHY);
 }
 
+/* OTG config */
 static const struct fsl_usb2_platform_data usb_otg_pdata __initconst = {
 	.operating_mode	= FSL_USB2_DR_DEVICE,
 	.phy_mode	= FSL_USB2_PHY_UTMI_WIDE,
 	.workaround	= FLS_USB2_WORKAROUND_ENGCM09152,
+/*
+ * ENGCM09152 also requires a hardware change.
+ * Please check the MX35 Chip Errata document for details.
+ */
 };
 
 static struct mxc_usbh_platform_data otg_pdata __initdata = {
@@ -331,6 +344,7 @@ static int mx35_3ds_usbh_init(struct platform_device *pdev)
 			  MXC_EHCI_INTERNAL_PHY);
 }
 
+/* USB HOST config */
 static const struct mxc_usbh_platform_data usb_host_pdata __initconst = {
 	.init		= mx35_3ds_usbh_init,
 	.portsc		= MXC_EHCI_MODE_SERIAL,
@@ -355,6 +369,9 @@ static const struct imxi2c_platform_data mx35_3ds_i2c0_data __initconst = {
 	.bitrate = 100000,
 };
 
+/*
+ * Board specific initialization.
+ */
 static void __init mx35_3ds_init(void)
 {
 	struct platform_device *imx35_fb_pdev;
@@ -408,13 +425,13 @@ struct sys_timer mx35pdk_timer = {
 
 static void __init mx35_3ds_reserve(void)
 {
-	
+	/* reserve MX35_3DS_CAMERA_BUF_SIZE bytes for mx3-camera */
 	mx3_camera_base = arm_memblock_steal(MX35_3DS_CAMERA_BUF_SIZE,
 					 MX35_3DS_CAMERA_BUF_SIZE);
 }
 
 MACHINE_START(MX35_3DS, "Freescale MX35PDK")
-	
+	/* Maintainer: Freescale Semiconductor, Inc */
 	.atag_offset = 0x100,
 	.map_io = mx35_map_io,
 	.init_early = imx35_init_early,

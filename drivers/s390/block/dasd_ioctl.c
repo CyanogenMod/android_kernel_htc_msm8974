@@ -1,3 +1,14 @@
+/*
+ * File...........: linux/drivers/s390/block/dasd_ioctl.c
+ * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
+ *		    Horst Hummel <Horst.Hummel@de.ibm.com>
+ *		    Carsten Otte <Cotte@de.ibm.com>
+ *		    Martin Schwidefsky <schwidefsky@de.ibm.com>
+ * Bugreports.to..: <Linux390@de.ibm.com>
+ * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 1999-2001
+ *
+ * i/o controls for the dasd driver.
+ */
 
 #define KMSG_COMPONENT "dasd"
 
@@ -12,6 +23,7 @@
 #include <asm/cmb.h>
 #include <asm/uaccess.h>
 
+/* This is ugly... */
 #define PRINTK_HEADER "dasd_ioctl:"
 
 #include "dasd_int.h"
@@ -24,6 +36,10 @@ dasd_ioctl_api_version(void __user *argp)
 	return put_user(ver, (int __user *)argp);
 }
 
+/*
+ * Enable device.
+ * used by dasdfmt after BIODASDDISABLE to retrigger blocksize detection
+ */
 static int
 dasd_ioctl_enable(struct block_device *bdev)
 {
@@ -37,7 +53,7 @@ dasd_ioctl_enable(struct block_device *bdev)
 		return -ENODEV;
 
 	dasd_enable_device(base);
-	
+	/* Formatting the dasd device can change the capacity. */
 	mutex_lock(&bdev->bd_mutex);
 	i_size_write(bdev->bd_inode,
 		     (loff_t)get_capacity(base->block->gdp) << 9);
@@ -46,6 +62,10 @@ dasd_ioctl_enable(struct block_device *bdev)
 	return 0;
 }
 
+/*
+ * Disable device.
+ * Used by dasdfmt. Disable I/O operations but allow ioctls.
+ */
 static int
 dasd_ioctl_disable(struct block_device *bdev)
 {
@@ -57,7 +77,19 @@ dasd_ioctl_disable(struct block_device *bdev)
 	base = dasd_device_from_gendisk(bdev->bd_disk);
 	if (!base)
 		return -ENODEV;
+	/*
+	 * Man this is sick. We don't do a real disable but only downgrade
+	 * the device to DASD_STATE_BASIC. The reason is that dasdfmt uses
+	 * BIODASDDISABLE to disable accesses to the device via the block
+	 * device layer but it still wants to do i/o on the device by
+	 * using the BIODASDFMT ioctl. Therefore the correct state for the
+	 * device is DASD_STATE_BASIC that allows to do basic i/o.
+	 */
 	dasd_set_target_state(base, DASD_STATE_BASIC);
+	/*
+	 * Set i_size to zero, since read, write, etc. check against this
+	 * value.
+	 */
 	mutex_lock(&bdev->bd_mutex);
 	i_size_write(bdev->bd_inode, 0);
 	mutex_unlock(&bdev->bd_mutex);
@@ -65,6 +97,9 @@ dasd_ioctl_disable(struct block_device *bdev)
 	return 0;
 }
 
+/*
+ * Quiesce device.
+ */
 static int dasd_ioctl_quiesce(struct dasd_block *block)
 {
 	unsigned long flags;
@@ -83,6 +118,9 @@ static int dasd_ioctl_quiesce(struct dasd_block *block)
 }
 
 
+/*
+ * Resume device.
+ */
 static int dasd_ioctl_resume(struct dasd_block *block)
 {
 	unsigned long flags;
@@ -102,6 +140,12 @@ static int dasd_ioctl_resume(struct dasd_block *block)
 	return 0;
 }
 
+/*
+ * performs formatting of _device_ according to _fdata_
+ * Note: The discipline's format_function is assumed to deliver formatting
+ * commands to format a single unit of the device. In terms of the ECKD
+ * devices this means CCWs are generated to format a single track.
+ */
 static int dasd_format(struct dasd_block *block, struct format_data_t *fdata)
 {
 	struct dasd_ccw_req *cqr;
@@ -123,6 +167,11 @@ static int dasd_format(struct dasd_block *block, struct format_data_t *fdata)
 		      fdata->start_unit,
 		      fdata->stop_unit, fdata->blksize, fdata->intensity);
 
+	/* Since dasdfmt keeps the device open after it was disabled,
+	 * there still exists an inode for this device.
+	 * We must update i_blkbits, otherwise we might get errors when
+	 * enabling the device later.
+	 */
 	if (fdata->start_unit == 0) {
 		struct block_device *bdev = bdget_disk(block->gdp, 0);
 		bdev->bd_inode->i_blkbits = blksize_bits(fdata->blksize);
@@ -147,6 +196,9 @@ static int dasd_format(struct dasd_block *block, struct format_data_t *fdata)
 	return 0;
 }
 
+/*
+ * Format device.
+ */
 static int
 dasd_ioctl_format(struct block_device *bdev, void __user *argp)
 {
@@ -183,12 +235,18 @@ dasd_ioctl_format(struct block_device *bdev, void __user *argp)
 }
 
 #ifdef CONFIG_DASD_PROFILE
+/*
+ * Reset device profile information
+ */
 static int dasd_ioctl_reset_profile(struct dasd_block *block)
 {
 	dasd_profile_reset(&block->profile);
 	return 0;
 }
 
+/*
+ * Return device profile information
+ */
 static int dasd_ioctl_read_profile(struct dasd_block *block, void __user *argp)
 {
 	struct dasd_profile_info_t *data;
@@ -244,6 +302,9 @@ static int dasd_ioctl_read_profile(struct dasd_block *block, void __user *argp)
 }
 #endif
 
+/*
+ * Return dasd information. Used for BIODASDINFO and BIODASDINFO2.
+ */
 static int dasd_ioctl_information(struct dasd_block *block,
 				  unsigned int cmd, void __user *argp)
 {
@@ -278,10 +339,19 @@ static int dasd_ioctl_information(struct dasd_block *block,
 	dasd_info->dev_type = cdev->id.dev_type;
 	dasd_info->dev_model = cdev->id.dev_model;
 	dasd_info->status = base->state;
+	/*
+	 * The open_count is increased for every opener, that includes
+	 * the blkdev_get in dasd_scan_partitions.
+	 * This must be hidden from user-space.
+	 */
 	dasd_info->open_count = atomic_read(&block->open_count);
 	if (!block->bdev)
 		dasd_info->open_count++;
 
+	/*
+	 * check if device is really formatted
+	 * LDL / CDL was returned by 'fill_info'
+	 */
 	if ((base->state < DASD_STATE_READY) ||
 	    (dasd_check_blocksize(block->bp_block)))
 		dasd_info->format = DASD_FORMAT_NONE;
@@ -301,7 +371,7 @@ static int dasd_ioctl_information(struct dasd_block *block,
 				dasd_info->req_queue_len++;
 			spin_unlock_irqrestore(&block->lock, flags);
 		}
-#endif				
+#endif				/* DASD_EXTENDED_PROFILING */
 		spin_lock_irqsave(get_ccwdev_lock(base->cdev), flags);
 		list_for_each(l, &base->ccw_queue)
 			dasd_info->chanq_len++;
@@ -319,6 +389,9 @@ static int dasd_ioctl_information(struct dasd_block *block,
 	return rc;
 }
 
+/*
+ * Set read only
+ */
 static int
 dasd_ioctl_set_ro(struct block_device *bdev, void __user *argp)
 {
@@ -328,7 +401,7 @@ dasd_ioctl_set_ro(struct block_device *bdev, void __user *argp)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 	if (bdev != bdev->bd_contains)
-		
+		// ro setting is not allowed for partitions
 		return -EINVAL;
 	if (get_user(intval, (int __user *)argp))
 		return -EFAULT;
@@ -425,7 +498,7 @@ int dasd_ioctl(struct block_device *bdev, fmode_t mode,
 		rc = dasd_ioctl_readall_cmb(block, cmd, argp);
 		break;
 	default:
-		
+		/* if the discipline has an ioctl method try it. */
 		if (base->discipline->ioctl) {
 			rc = base->discipline->ioctl(block, cmd, argp);
 			if (rc == -ENOIOCTLCMD)

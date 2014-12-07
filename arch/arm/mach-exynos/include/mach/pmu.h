@@ -31,4 +31,4 @@ struct exynos4_pmu_conf {
 extern void exynos4_sys_powerdown_conf(enum sys_powerdown mode);
 extern void s3c_cpu_resume(void);
 
-#endif 
+#endif /* __ASM_ARCH_PMU_H */

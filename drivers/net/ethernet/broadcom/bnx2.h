@@ -13,7 +13,13 @@
 #ifndef BNX2_H
 #define BNX2_H
 
+/* Hardware data structures and register definitions automatically
+ * generated from RTL code. Do not modify.
+ */
 
+/*
+ *  tx_bd definition
+ */
 struct tx_bd {
 	u32 tx_bd_haddr_hi;
 	u32 tx_bd_haddr_lo;
@@ -39,6 +45,9 @@ struct tx_bd {
 };
 
 
+/*
+ *  rx_bd definition
+ */
 struct rx_bd {
 	u32 rx_bd_haddr_hi;
 	u32 rx_bd_haddr_lo;
@@ -53,6 +62,9 @@ struct rx_bd {
 
 #define BNX2_RX_ALIGN			16
 
+/*
+ *  status_block definition
+ */
 struct status_block {
 	u32 status_attn_bits;
 		#define STATUS_ATTN_BITS_LINK_STATE		(1L<<0)
@@ -142,6 +154,9 @@ struct status_block {
 #endif
 };
 
+/*
+ *  status_block definition
+ */
 struct status_block_msix {
 #if defined(__BIG_ENDIAN)
 	u16 status_tx_quick_consumer_index;
@@ -167,6 +182,9 @@ struct status_block_msix {
 #define BNX2_SBLK_MSIX_ALIGN_SIZE	128
 
 
+/*
+ *  statistics_block definition
+ */
 struct statistics_block {
 	u32 stat_IfHCInOctets_hi;
 	u32 stat_IfHCInOctets_lo;
@@ -252,6 +270,9 @@ struct statistics_block {
 };
 
 
+/*
+ *  l2_fhdr definition
+ */
 struct l2_fhdr {
 	u32 l2_fhdr_status;
 		#define L2_FHDR_STATUS_RULE_CLASS	(0x7<<0)
@@ -293,6 +314,9 @@ struct l2_fhdr {
 
 #define BNX2_RX_OFFSET		(sizeof(struct l2_fhdr) + 2)
 
+/*
+ *  l2_context definition
+ */
 #define BNX2_L2CTX_TYPE					0x00000000
 #define BNX2_L2CTX_TYPE_SIZE_L2				 ((0xc0/0x20)<<16)
 #define BNX2_L2CTX_TYPE_TYPE				 (0xf<<28)
@@ -322,6 +346,9 @@ struct l2_fhdr {
 #define BNX2_L2CTX_TBDR_BHADDR_HI_XI			0x00000258
 #define BNX2_L2CTX_TBDR_BHADDR_LO_XI			0x0000025c
 
+/*
+ *  l2_bd_chain_context definition
+ */
 #define BNX2_L2CTX_BD_PRE_READ				0x00000000
 #define BNX2_L2CTX_CTX_SIZE				0x00000000
 #define BNX2_L2CTX_CTX_TYPE				0x00000000
@@ -351,6 +378,10 @@ struct l2_fhdr {
 #define BNX2_L2CTX_NX_PG_BDHADDR_HI			0x00000050
 #define BNX2_L2CTX_NX_PG_BDHADDR_LO			0x00000054
 
+/*
+ *  pci_config_l definition
+ *  offset: 0000
+ */
 #define BNX2_PCICFG_MSI_CONTROL				0x00000058
 #define BNX2_PCICFG_MSI_CONTROL_ENABLE			 (1L<<16)
 
@@ -433,6 +464,10 @@ struct l2_fhdr {
 #define BNX2_PCICFG_DEVICE_CONTROL			0x000000b4
 #define BNX2_PCICFG_DEVICE_STATUS_NO_PEND		 ((1L<<5)<<16)
 
+/*
+ *  pci_reg definition
+ *  offset: 0x400
+ */
 #define BNX2_PCI_GRC_WINDOW_ADDR			0x00000400
 #define BNX2_PCI_GRC_WINDOW_ADDR_VALUE			 (0x1ffL<<13)
 #define BNX2_PCI_GRC_WINDOW_ADDR_SEP_WIN		 (1L<<31)
@@ -715,6 +750,10 @@ struct l2_fhdr {
 #define BNX2_MSIX_TABLE_ADDR				 0x318000
 #define BNX2_MSIX_PBA_ADDR				 0x31c000
 
+/*
+ *  misc_reg definition
+ *  offset: 0x800
+ */
 #define BNX2_MISC_COMMAND				0x00000800
 #define BNX2_MISC_COMMAND_ENABLE_ALL			 (1L<<0)
 #define BNX2_MISC_COMMAND_DISABLE_ALL			 (1L<<1)
@@ -1742,6 +1781,10 @@ struct l2_fhdr {
 #define BNX2_MISC_OSCFUNDS_CTRL_IAMP_ADJ_3		 (3L<<10)
 
 
+/*
+ *  nvm_reg definition
+ *  offset: 0x6400
+ */
 #define BNX2_NVM_COMMAND				0x00006400
 #define BNX2_NVM_COMMAND_RST				 (1L<<0)
 #define BNX2_NVM_COMMAND_DONE				 (1L<<3)
@@ -1916,6 +1959,10 @@ struct l2_fhdr {
 
 
 
+/*
+ *  dma_reg definition
+ *  offset: 0xc00
+ */
 #define BNX2_DMA_COMMAND				0x00000c00
 #define BNX2_DMA_COMMAND_ENABLE				 (1L<<0)
 
@@ -2353,6 +2400,10 @@ struct l2_fhdr {
 #define BNX2_DMA_FUSE_CTRL2_DATA			0x00000f14
 
 
+/*
+ *  context_reg definition
+ *  offset: 0x1000
+ */
 #define BNX2_CTX_COMMAND				0x00001000
 #define BNX2_CTX_COMMAND_ENABLED			 (1L<<0)
 #define BNX2_CTX_COMMAND_DISABLE_USAGE_CNT		 (1L<<1)
@@ -2534,6 +2585,10 @@ struct l2_fhdr {
 #define BNX2_CTX_CAM_CTRL_READ_REQ			 (1L<<31)
 
 
+/*
+ *  emac_reg definition
+ *  offset: 0x1400
+ */
 #define BNX2_EMAC_MODE					0x00001400
 #define BNX2_EMAC_MODE_RESET				 (1L<<0)
 #define BNX2_EMAC_MODE_HALF_DUPLEX			 (1L<<1)
@@ -3062,6 +3117,10 @@ struct l2_fhdr {
 #define BNX2_EMAC_TX_RATE_LIMIT_CTRL_RATE_LIMITER_EN	 (1L<<31)
 
 
+/*
+ *  rpm_reg definition
+ *  offset: 0x1800
+ */
 #define BNX2_RPM_COMMAND				0x00001800
 #define BNX2_RPM_COMMAND_ENABLED			 (1L<<0)
 #define BNX2_RPM_COMMAND_OVERRUN_ABORT			 (1L<<4)
@@ -4107,6 +4166,10 @@ struct l2_fhdr {
 #define BNX2_RPM_ACPI_PATTERN_CRC7_PATTERN_CRC7		 (0xffffffffL<<0)
 
 
+/*
+ *  rlup_reg definition
+ *  offset: 0x2000
+ */
 #define BNX2_RLUP_RSS_CONFIG				0x0000201c
 #define BNX2_RLUP_RSS_CONFIG_IPV4_RSS_TYPE_XI		 (0x3L<<0)
 #define BNX2_RLUP_RSS_CONFIG_IPV4_RSS_TYPE_OFF_XI	 (0L<<0)
@@ -4129,6 +4192,10 @@ struct l2_fhdr {
 #define BNX2_RLUP_RSS_DATA				0x0000204c
 
 
+/*
+ *  rbuf_reg definition
+ *  offset: 0x200000
+ */
 #define BNX2_RBUF_COMMAND				0x00200000
 #define BNX2_RBUF_COMMAND_ENABLED			 (1L<<0)
 #define BNX2_RBUF_COMMAND_FREE_INIT			 (1L<<1)
@@ -4204,6 +4271,10 @@ struct l2_fhdr {
 #define BNX2_RBUF_BUF_DATA				0x00220000
 
 
+/*
+ *  rv2p_reg definition
+ *  offset: 0x2800
+ */
 #define BNX2_RV2P_COMMAND				0x00002800
 #define BNX2_RV2P_COMMAND_ENABLED			 (1L<<0)
 #define BNX2_RV2P_COMMAND_PROC1_INTRPT			 (1L<<1)
@@ -4381,6 +4452,10 @@ struct l2_fhdr {
 
 
 
+/*
+ *  mq_reg definition
+ *  offset: 0x3c00
+ */
 #define BNX2_MQ_COMMAND					0x00003c00
 #define BNX2_MQ_COMMAND_ENABLED				 (1L<<0)
 #define BNX2_MQ_COMMAND_INIT				 (1L<<1)
@@ -4485,12 +4560,20 @@ struct l2_fhdr {
 #define BNX2_MQ_MAP_L2_5				0x00003d34
 #define BNX2_MQ_MAP_L2_5_ARM				 (0x3L<<26)
 
+/*
+ *  tsch_reg definition
+ *  offset: 0x4c00
+ */
 #define BNX2_TSCH_TSS_CFG				0x00004c1c
 #define BNX2_TSCH_TSS_CFG_TSS_START_CID			 (0x7ffL<<8)
 #define BNX2_TSCH_TSS_CFG_NUM_OF_TSS_CON		 (0xfL<<24)
 
 
 
+/*
+ *  tbdr_reg definition
+ *  offset: 0x5000
+ */
 #define BNX2_TBDR_COMMAND				0x00005000
 #define BNX2_TBDR_COMMAND_ENABLE			 (1L<<0)
 #define BNX2_TBDR_COMMAND_SOFT_RST			 (1L<<1)
@@ -4560,6 +4643,10 @@ struct l2_fhdr {
 
 
 
+/*
+ *  tdma_reg definition
+ *  offset: 0x5c00
+ */
 #define BNX2_TDMA_COMMAND				0x00005c00
 #define BNX2_TDMA_COMMAND_ENABLED			 (1L<<0)
 #define BNX2_TDMA_COMMAND_MASTER_ABORT			 (1L<<4)
@@ -4706,6 +4793,10 @@ struct l2_fhdr {
 
 
 
+/*
+ *  hc_reg definition
+ *  offset: 0x6800
+ */
 #define BNX2_HC_COMMAND					0x00006800
 #define BNX2_HC_COMMAND_ENABLE				 (1L<<0)
 #define BNX2_HC_COMMAND_SKIP_ABORT			 (1L<<4)
@@ -5498,6 +5589,10 @@ struct l2_fhdr {
 #define BNX2_HC_RX_TICKS_OFF	(BNX2_HC_RX_TICKS_1 - BNX2_HC_SB_CONFIG_1)
 
 
+/*
+ *  txp_reg definition
+ *  offset: 0x40000
+ */
 #define BNX2_TXP_CPU_MODE				0x00045000
 #define BNX2_TXP_CPU_MODE_LOCAL_RST			 (1L<<0)
 #define BNX2_TXP_CPU_MODE_STEP_ENA			 (1L<<1)
@@ -5589,6 +5684,10 @@ struct l2_fhdr {
 #define BNX2_TXP_SCRATCH				0x00060000
 
 
+/*
+ *  tpat_reg definition
+ *  offset: 0x80000
+ */
 #define BNX2_TPAT_CPU_MODE				0x00085000
 #define BNX2_TPAT_CPU_MODE_LOCAL_RST			 (1L<<0)
 #define BNX2_TPAT_CPU_MODE_STEP_ENA			 (1L<<1)
@@ -5680,6 +5779,10 @@ struct l2_fhdr {
 #define BNX2_TPAT_SCRATCH				0x000a0000
 
 
+/*
+ *  rxp_reg definition
+ *  offset: 0xc0000
+ */
 #define BNX2_RXP_CPU_MODE				0x000c5000
 #define BNX2_RXP_CPU_MODE_LOCAL_RST			 (1L<<0)
 #define BNX2_RXP_CPU_MODE_STEP_ENA			 (1L<<1)
@@ -5818,6 +5921,10 @@ struct l2_fhdr {
 #define BNX2_RXP_SCRATCH_RSS_TBL_MAX_ENTRIES		 128
 
 
+/*
+ *  com_reg definition
+ *  offset: 0x100000
+ */
 #define BNX2_COM_CKSUM_ERROR_STATUS			0x00100000
 #define BNX2_COM_CKSUM_ERROR_STATUS_CALCULATED		 (0xffffL<<0)
 #define BNX2_COM_CKSUM_ERROR_STATUS_EXPECTED		 (0xffffL<<16)
@@ -5980,6 +6087,10 @@ struct l2_fhdr {
 #define BNX2_FW_RX_DROP_COUNT				 0x00120084
 
 
+/*
+ *  cp_reg definition
+ *  offset: 0x180000
+ */
 #define BNX2_CP_CKSUM_ERROR_STATUS			0x00180000
 #define BNX2_CP_CKSUM_ERROR_STATUS_CALCULATED		 (0xffffL<<0)
 #define BNX2_CP_CKSUM_ERROR_STATUS_EXPECTED		 (0xffffL<<16)
@@ -6099,6 +6210,10 @@ struct l2_fhdr {
 #define BNX2_FW_MAX_ISCSI_CONN				 0x001a0080
 
 
+/*
+ *  mcp_reg definition
+ *  offset: 0x140000
+ */
 #define BNX2_MCP_MCP_CONTROL				0x00140080
 #define BNX2_MCP_MCP_CONTROL_SMBUS_SEL			 (1L<<30)
 #define BNX2_MCP_MCP_CONTROL_MCP_ISOLATE		 (1L<<31)
@@ -6260,11 +6375,13 @@ struct l2_fhdr {
 #define NUM_MC_HASH_REGISTERS   8
 
 
+/* PHY_ID1: bits 31-16; PHY_ID2: bits 15-0.  */
 #define PHY_BCM5706_PHY_ID                          0x00206160
 
 #define PHY_ID(id)                                  ((id) & 0xfffffff0)
 #define PHY_REV_ID(id)                              ((id) & 0xf)
 
+/* 5708 Serdes PHY registers */
 
 #define BCM5708S_BMCR_FORCE_2500		0x20
 
@@ -6278,6 +6395,7 @@ struct l2_fhdr {
 #define BCM5708S_BLK_ADDR_DIG3			0x0002
 #define BCM5708S_BLK_ADDR_TX_MISC		0x0005
 
+/* Digital Block */
 #define BCM5708S_1000X_CTL1			0x10
 
 #define BCM5708S_1000X_CTL1_FIBER_MODE		0x0001
@@ -6300,10 +6418,12 @@ struct l2_fhdr {
 #define BCM5708S_1000X_STAT1_TX_PAUSE		0x0020
 #define BCM5708S_1000X_STAT1_RX_PAUSE		0x0040
 
+/* Digital3 Block */
 #define BCM5708S_DIG_3_0			0x10
 
 #define BCM5708S_DIG_3_0_USE_IEEE		0x0001
 
+/* Tx/Misc Block */
 #define BCM5708S_TX_ACTL1			0x15
 
 #define BCM5708S_TX_ACTL1_DRIVER_VCM		0x30
@@ -6375,6 +6495,7 @@ struct l2_fhdr {
 #define DMA_READ_CHANS	5
 #define DMA_WRITE_CHANS	3
 
+/* Use CPU native page size up to 16K for the ring sizes.  */
 #if (PAGE_SHIFT > 14)
 #define BCM_PAGE_BITS	14
 #else
@@ -6408,6 +6529,7 @@ struct l2_fhdr {
 #define RX_RING(x) (((x) & ~MAX_RX_DESC_CNT) >> (BCM_PAGE_BITS - 4))
 #define RX_IDX(x) ((x) & MAX_RX_DESC_CNT)
 
+/* Context size. */
 #define CTX_SHIFT                   7
 #define CTX_SIZE                    (1 << CTX_SHIFT)
 #define CTX_MASK                    (CTX_SIZE - 1)
@@ -6441,11 +6563,19 @@ struct l2_fhdr {
 #define MB_TX_CID_ADDR	MB_GET_CID_ADDR(TX_CID)
 #define MB_RX_CID_ADDR	MB_GET_CID_ADDR(RX_CID)
 
+/*
+ * This driver uses new build_skb() API :
+ * RX ring buffer contains pointer to kmalloc() data only,
+ * skb are built only after Hardware filled the frame.
+ */
 struct sw_bd {
 	u8			*data;
 	DEFINE_DMA_UNMAP_ADDR(mapping);
 };
 
+/* Its faster to compute this from data than storing it in sw_bd
+ * (less cache misses)
+ */
 static inline struct l2_fhdr *get_l2_fhdr(u8 *data)
 {
 	return (struct l2_fhdr *)(PTR_ALIGN(data, BNX2_RX_ALIGN) + NET_SKB_PAD);
@@ -6470,6 +6600,7 @@ struct sw_tx_bd {
 #define SW_TXBD_RING_SIZE (sizeof(struct sw_tx_bd) * TX_DESC_CNT)
 #define TXBD_RING_SIZE (sizeof(struct tx_bd) * TX_DESC_CNT)
 
+/* Buffered flash (Atmel: AT45DB011B) specific information */
 #define SEEPROM_PAGE_BITS			2
 #define SEEPROM_PHY_PAGE_SIZE			(1 << SEEPROM_PAGE_BITS)
 #define SEEPROM_BYTE_ADDR_MASK			(SEEPROM_PHY_PAGE_SIZE-1)
@@ -6600,8 +6731,8 @@ struct bnx2_napi {
 };
 
 struct bnx2 {
-	
-	
+	/* Fields used in the tx and intr/napi performance paths are grouped */
+	/* together in the beginning of the structure. */
 	void __iomem		*regview;
 
 	struct net_device	*dev;
@@ -6629,14 +6760,14 @@ struct bnx2 {
 
 	struct bnx2_napi	bnx2_napi[BNX2_MAX_MSIX_VEC];
 
-	u32			rx_buf_use_size;	
-	u32			rx_buf_size;		
+	u32			rx_buf_use_size;	/* useable size */
+	u32			rx_buf_size;		/* with alignment */
 	u32			rx_copy_thresh;
 	u32			rx_jumbo_thresh;
 	u32			rx_max_ring_idx;
 	u32			rx_max_pg_ring_idx;
 
-	
+	/* TX constants */
 	int		tx_ring_size;
 	u32		tx_wake_thresh;
 
@@ -6645,7 +6776,7 @@ struct bnx2 {
 	void			*cnic_data;
 #endif
 
-	
+	/* End of fields used in the performance code paths. */
 
 	unsigned int		current_interval;
 #define BNX2_TIMER_INTERVAL		HZ
@@ -6655,7 +6786,7 @@ struct bnx2 {
 	struct			timer_list timer;
 	struct work_struct	reset_task;
 
-	
+	/* Used to synchronize phy accesses. */
 	spinlock_t		phy_lock;
 	spinlock_t		indirect_lock;
 
@@ -6680,7 +6811,7 @@ struct bnx2 {
 	u32			mii_up1;
 
 	u32			chip_id;
-	
+	/* chip num:16-31, rev:12-15, metal:4-11, bond_id:0-3 */
 #define CHIP_NUM(bp)			(((bp)->chip_id) & 0xffff0000)
 #define CHIP_NUM_5706			0x57060000
 #define CHIP_NUM_5708			0x57080000
@@ -6706,6 +6837,7 @@ struct bnx2 {
 
 #define CHIP_BOND_ID(bp)		(((bp)->chip_id) & 0xf)
 
+/* A serdes chip will have the first bit of the bond id set. */
 #define CHIP_BOND_ID_SERDES_BIT		0x01
 
 	u32			phy_addr;
@@ -6763,14 +6895,14 @@ struct bnx2 {
 
 	u16			line_speed;
 	u8			duplex;
-	u8			flow_ctrl;	
-						
-						
+	u8			flow_ctrl;	/* actual flow ctrl settings */
+						/* may be different from     */
+						/* req_flow_ctrl if autoneg  */
 	u32			advertising;
 
-	u8			req_flow_ctrl;	
-						
-						
+	u8			req_flow_ctrl;	/* flow ctrl advertisement */
+						/* settings or forced      */
+						/* settings                */
 	u8			autoneg;
 #define AUTONEG_SPEED		1
 #define AUTONEG_FLOW_CTRL	2
@@ -6883,13 +7015,22 @@ struct bnx2_rv2p_fw_file {
 #define RV2P_PROC2                              1
 
 
+/* This value (in milliseconds) determines the frequency of the driver
+ * issuing the PULSE message code.  The firmware monitors this periodic
+ * pulse to determine when to switch to an OS-absent mode. */
 #define BNX2_DRV_PULSE_PERIOD_MS                 250
 
+/* This value (in milliseconds) determines how long the driver should
+ * wait for an acknowledgement from the firmware before timing out.  Once
+ * the firmware has timed out, the driver will assume there is no firmware
+ * running and there won't be any firmware-driver synchronization during a
+ * driver reset. */
 #define BNX2_FW_ACK_TIME_OUT_MS                  1000
 
 
 #define BNX2_DRV_RESET_SIGNATURE		0x00000000
-#define BNX2_DRV_RESET_SIGNATURE_MAGIC		 0x4841564b 
+#define BNX2_DRV_RESET_SIGNATURE_MAGIC		 0x4841564b /* HAVK */
+//#define DRV_RESET_SIGNATURE_MAGIC		 0x47495352 /* RSIG */
 
 #define BNX2_DRV_MB				0x00000004
 #define BNX2_DRV_MSG_CODE			 0xff000000
@@ -6957,6 +7098,9 @@ struct bnx2_rv2p_fw_file {
 #define BNX2_DRV_PULSE_MB			0x00000010
 #define BNX2_DRV_PULSE_SEQ_MASK			 0x00007fff
 
+/* Indicate to the firmware not to go into the
+ * OS absent when it is not getting driver pulse.
+ * This is used for debugging. */
 #define BNX2_DRV_MSG_DATA_PULSE_CODE_ALWAYS_ALIVE	 0x00080000
 
 #define BNX2_DRV_MB_ARG0			0x00000014

@@ -31,11 +31,13 @@ static const uint8_t lm4857_default_regs[] = {
 	0x00, 0x00, 0x00, 0x00,
 };
 
+/* The register offsets in the cache array */
 #define LM4857_MVOL 0
 #define LM4857_LVOL 1
 #define LM4857_RVOL 2
 #define LM4857_CTRL 3
 
+/* the shifts required to set these bits */
 #define LM4857_3D 5
 #define LM4857_WAKEUP 5
 #define LM4857_EPGAIN 4
@@ -159,6 +161,10 @@ static const struct snd_kcontrol_new lm4857_controls[] = {
 		lm4857_get_mode, lm4857_set_mode),
 };
 
+/* There is a demux between the input signal and the output signals.
+ * Currently there is no easy way to model it in ASoC and since it does not make
+ * much of a difference in practice simply connect the input direclty to the
+ * outputs. */
 static const struct snd_soc_dapm_route lm4857_routes[] = {
 	{"LS", NULL, "IN"},
 	{"HP", NULL, "IN"},

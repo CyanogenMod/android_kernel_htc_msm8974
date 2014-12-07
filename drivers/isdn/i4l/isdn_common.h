@@ -24,6 +24,7 @@
 #undef  ISDN_DEBUG_NET_DIAL
 #undef  ISDN_DEBUG_NET_ICALL
 
+/* Prototypes */
 extern void isdn_lock_drivers(void);
 extern void isdn_unlock_drivers(void);
 extern void isdn_free_channel(int di, int ch, int usage);

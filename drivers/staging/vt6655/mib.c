@@ -44,85 +44,143 @@
 #include "wctl.h"
 #include "baseband.h"
 
+/*---------------------  Static Definitions -------------------------*/
 static int          msglevel                =MSG_LEVEL_INFO;
+/*---------------------  Static Classes  ----------------------------*/
+
+/*---------------------  Static Variables  --------------------------*/
+
+/*---------------------  Static Functions  --------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
+
+/*---------------------  Export Functions  --------------------------*/
 
 
 
-
-
-
-
+/*
+ * Description: Clear All Statistic Counter
+ *
+ * Parameters:
+ *  In:
+ *      pStatistic  - Pointer to Statistic Counter Data Structure
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void STAvClearAllCounter (PSStatCounter pStatistic)
 {
-    
+    // set memory to zero
 	memset(pStatistic, 0, sizeof(SStatCounter));
 }
 
 
+/*
+ * Description: Update Isr Statistic Counter
+ *
+ * Parameters:
+ *  In:
+ *      pStatistic  - Pointer to Statistic Counter Data Structure
+ *      wisr        - Interrupt status
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void STAvUpdateIsrStatCounter (PSStatCounter pStatistic, unsigned long dwIsr)
 {
-    
-    
-    
-    
+    /**********************/
+    /* ABNORMAL interrupt */
+    /**********************/
+    // not any IMR bit invoke irq
 
     if (dwIsr == 0) {
         pStatistic->ISRStat.dwIsrUnknown++;
         return;
     }
 
-    if (dwIsr & ISR_TXDMA0)               
-        pStatistic->ISRStat.dwIsrTx0OK++;             
+//Added by Kyle
+    if (dwIsr & ISR_TXDMA0)               // ISR, bit0
+        pStatistic->ISRStat.dwIsrTx0OK++;             // TXDMA0 successful
 
-    if (dwIsr & ISR_AC0DMA)               
-        pStatistic->ISRStat.dwIsrAC0TxOK++;           
+    if (dwIsr & ISR_AC0DMA)               // ISR, bit1
+        pStatistic->ISRStat.dwIsrAC0TxOK++;           // AC0DMA successful
 
-    if (dwIsr & ISR_BNTX)                 
-        pStatistic->ISRStat.dwIsrBeaconTxOK++;        
+    if (dwIsr & ISR_BNTX)                 // ISR, bit2
+        pStatistic->ISRStat.dwIsrBeaconTxOK++;        // BeaconTx successful
 
-    if (dwIsr & ISR_RXDMA0)               
-        pStatistic->ISRStat.dwIsrRx0OK++;             
+    if (dwIsr & ISR_RXDMA0)               // ISR, bit3
+        pStatistic->ISRStat.dwIsrRx0OK++;             // Rx0 successful
 
-    if (dwIsr & ISR_TBTT)                 
-        pStatistic->ISRStat.dwIsrTBTTInt++;           
+    if (dwIsr & ISR_TBTT)                 // ISR, bit4
+        pStatistic->ISRStat.dwIsrTBTTInt++;           // TBTT successful
 
-    if (dwIsr & ISR_SOFTTIMER)            
+    if (dwIsr & ISR_SOFTTIMER)            // ISR, bit6
         pStatistic->ISRStat.dwIsrSTIMERInt++;
 
-    if (dwIsr & ISR_WATCHDOG)             
+    if (dwIsr & ISR_WATCHDOG)             // ISR, bit7
         pStatistic->ISRStat.dwIsrWatchDog++;
 
-    if (dwIsr & ISR_FETALERR)             
+    if (dwIsr & ISR_FETALERR)             // ISR, bit8
         pStatistic->ISRStat.dwIsrUnrecoverableError++;
 
-    if (dwIsr & ISR_SOFTINT)              
-        pStatistic->ISRStat.dwIsrSoftInterrupt++;     
+    if (dwIsr & ISR_SOFTINT)              // ISR, bit9
+        pStatistic->ISRStat.dwIsrSoftInterrupt++;     // software interrupt
 
-    if (dwIsr & ISR_MIBNEARFULL)          
+    if (dwIsr & ISR_MIBNEARFULL)          // ISR, bit10
         pStatistic->ISRStat.dwIsrMIBNearfull++;
 
-    if (dwIsr & ISR_RXNOBUF)              
-        pStatistic->ISRStat.dwIsrRxNoBuf++;           
+    if (dwIsr & ISR_RXNOBUF)              // ISR, bit11
+        pStatistic->ISRStat.dwIsrRxNoBuf++;           // Rx No Buff
 
-    if (dwIsr & ISR_RXDMA1)               
-        pStatistic->ISRStat.dwIsrRx1OK++;             
+    if (dwIsr & ISR_RXDMA1)               // ISR, bit12
+        pStatistic->ISRStat.dwIsrRx1OK++;             // Rx1 successful
 
+//    if (dwIsr & ISR_ATIMTX)               // ISR, bit13
+//        pStatistic->ISRStat.dwIsrATIMTxOK++;          // ATIMTX successful
 
+//    if (dwIsr & ISR_SYNCTX)               // ISR, bit14
+//        pStatistic->ISRStat.dwIsrSYNCTxOK++;          // SYNCTX successful
 
+//    if (dwIsr & ISR_CFPEND)               // ISR, bit18
+//        pStatistic->ISRStat.dwIsrCFPEnd++;
 
+//    if (dwIsr & ISR_ATIMEND)              // ISR, bit19
+//        pStatistic->ISRStat.dwIsrATIMEnd++;
 
+//    if (dwIsr & ISR_SYNCFLUSHOK)          // ISR, bit20
+//        pStatistic->ISRStat.dwIsrSYNCFlushOK++;
 
-    if (dwIsr & ISR_SOFTTIMER1)           
+    if (dwIsr & ISR_SOFTTIMER1)           // ISR, bit21
         pStatistic->ISRStat.dwIsrSTIMER1Int++;
 
 }
 
 
+/*
+ * Description: Update Rx Statistic Counter
+ *
+ * Parameters:
+ *  In:
+ *      pStatistic      - Pointer to Statistic Counter Data Structure
+ *      byRSR           - Rx Status
+ *      byNewRSR        - Rx Status
+ *      pbyBuffer       - Rx Buffer
+ *      cbFrameLength   - Rx Length
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void STAvUpdateRDStatCounter (PSStatCounter pStatistic,
                               unsigned char byRSR, unsigned char byNewRSR, unsigned char byRxRate,
                               unsigned char *pbyBuffer, unsigned int cbFrameLength)
 {
-    
+    //need change
     PS802_11Header pHeader = (PS802_11Header)pbyBuffer;
 
     if (byRSR & RSR_ADDROK)
@@ -133,7 +191,7 @@ void STAvUpdateRDStatCounter (PSStatCounter pStatistic,
         pStatistic->ullRsrOK++;
 
         if (cbFrameLength >= ETH_ALEN) {
-            
+            // update counters in case that successful transmit
             if (byRSR & RSR_ADDRBROAD) {
                 pStatistic->ullRxBroadcastFrames++;
                 pStatistic->ullRxBroadcastBytes += (unsigned long long) cbFrameLength;
@@ -242,9 +300,9 @@ void STAvUpdateRDStatCounter (PSStatCounter pStatistic,
 
     if (byRSR & RSR_BCNSSIDOK)
         pStatistic->dwRsrBCNSSIDOk++;
-    if (byRSR & RSR_IVLDLEN)  
+    if (byRSR & RSR_IVLDLEN)  //invalid len (> 2312 byte)
         pStatistic->dwRsrLENErr++;
-    if (byRSR & RSR_IVLDTYP)  
+    if (byRSR & RSR_IVLDTYP)  //invalid packet type
         pStatistic->dwRsrTYPErr++;
     if (byRSR & (RSR_IVLDTYP | RSR_IVLDLEN))
         pStatistic->dwRsrErr++;
@@ -260,7 +318,7 @@ void STAvUpdateRDStatCounter (PSStatCounter pStatistic,
     if (byNewRSR & NEWRSR_BCNHITAID0)
         pStatistic->dwNewRsrHITAID0++;
 
-    
+    // increase rx packet count
     pStatistic->dwRsrRxPacket++;
     pStatistic->dwRsrRxOctet += cbFrameLength;
 
@@ -311,6 +369,22 @@ void STAvUpdateRDStatCounter (PSStatCounter pStatistic,
 
 
 
+/*
+ * Description: Update Rx Statistic Counter and copy Rx buffer
+ *
+ * Parameters:
+ *  In:
+ *      pStatistic      - Pointer to Statistic Counter Data Structure
+ *      byRSR           - Rx Status
+ *      byNewRSR        - Rx Status
+ *      pbyBuffer       - Rx Buffer
+ *      cbFrameLength   - Rx Length
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 
 void
 STAvUpdateRDStatCounterEx (
@@ -331,13 +405,30 @@ STAvUpdateRDStatCounterEx (
                     cbFrameLength
                     );
 
-    
+    // rx length
     pStatistic->dwCntRxFrmLength = cbFrameLength;
-    
+    // rx pattern, we just see 10 bytes for sample
     memcpy(pStatistic->abyCntRxPattern, (unsigned char *)pbyBuffer, 10);
 }
 
 
+/*
+ * Description: Update Tx Statistic Counter
+ *
+ * Parameters:
+ *  In:
+ *      pStatistic      - Pointer to Statistic Counter Data Structure
+ *      byTSR0          - Tx Status
+ *      byTSR1          - Tx Status
+ *      pbyBuffer       - Tx Buffer
+ *      cbFrameLength   - Tx Length
+ *      uIdx            - Index of Tx DMA
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void
 STAvUpdateTDStatCounter (
     PSStatCounter   pStatistic,
@@ -361,7 +452,7 @@ STAvUpdateTDStatCounter (
     else {
         pbyDestAddr = &(pHeader->abyAddr3[0]);
     }
-    
+    // increase tx packet count
     pStatistic->dwTsrTxPacket[uIdx]++;
     pStatistic->dwTsrTxOctet[uIdx] += cbFrameLength;
 
@@ -379,7 +470,7 @@ STAvUpdateTDStatCounter (
         pStatistic->ullTsrOK[uIdx]++;
         pStatistic->CustomStat.ullTsrAllOK =
             (pStatistic->ullTsrOK[TYPE_AC0DMA] + pStatistic->ullTsrOK[TYPE_TXDMA0]);
-        
+        // update counters in case that successful transmit
         if (is_broadcast_ether_addr(pbyDestAddr)) {
             pStatistic->ullTxBroadcastFrames[uIdx]++;
             pStatistic->ullTxBroadcastBytes[uIdx] += (unsigned long long) cbFrameLength;
@@ -414,6 +505,20 @@ STAvUpdateTDStatCounter (
 }
 
 
+/*
+ * Description: Update Tx Statistic Counter and copy Tx buffer
+ *
+ * Parameters:
+ *  In:
+ *      pStatistic      - Pointer to Statistic Counter Data Structure
+ *      pbyBuffer       - Tx Buffer
+ *      cbFrameLength   - Tx Length
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void
 STAvUpdateTDStatCounterEx (
     PSStatCounter   pStatistic,
@@ -425,13 +530,27 @@ STAvUpdateTDStatCounterEx (
 
     uPktLength = (unsigned int)cbFrameLength;
 
-    
+    // tx length
     pStatistic->dwCntTxBufLength = uPktLength;
-    
+    // tx pattern, we just see 16 bytes for sample
     memcpy(pStatistic->abyCntTxPattern, pbyBuffer, 16);
 }
 
 
+/*
+ * Description: Update 802.11 mib counter
+ *
+ * Parameters:
+ *  In:
+ *      p802_11Counter  - Pointer to 802.11 mib counter
+ *      pStatistic      - Pointer to Statistic Counter Data Structure
+ *      dwCounter       - hardware counter for 802.11 mib
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void
 STAvUpdate802_11Counter(
     PSDot11Counters         p802_11Counter,
@@ -439,7 +558,7 @@ STAvUpdate802_11Counter(
     unsigned long dwCounter
     )
 {
-    
+    //p802_11Counter->TransmittedFragmentCount
     p802_11Counter->MulticastTransmittedFrameCount = (unsigned long long) (pStatistic->dwTsrBroadcast[TYPE_AC0DMA] +
                                                                   pStatistic->dwTsrBroadcast[TYPE_TXDMA0] +
                                                                   pStatistic->dwTsrMulticast[TYPE_AC0DMA] +
@@ -448,19 +567,31 @@ STAvUpdate802_11Counter(
     p802_11Counter->RetryCount = (unsigned long long) (pStatistic->dwTsrRetry[TYPE_AC0DMA] + pStatistic->dwTsrRetry[TYPE_TXDMA0]);
     p802_11Counter->MultipleRetryCount = (unsigned long long) (pStatistic->dwTsrMoreThanOnceRetry[TYPE_AC0DMA] +
                                                           pStatistic->dwTsrMoreThanOnceRetry[TYPE_TXDMA0]);
-    
+    //p802_11Counter->FrameDuplicateCount
     p802_11Counter->RTSSuccessCount += (unsigned long long)  (dwCounter & 0x000000ff);
     p802_11Counter->RTSFailureCount += (unsigned long long) ((dwCounter & 0x0000ff00) >> 8);
     p802_11Counter->ACKFailureCount += (unsigned long long) ((dwCounter & 0x00ff0000) >> 16);
     p802_11Counter->FCSErrorCount +=   (unsigned long long) ((dwCounter & 0xff000000) >> 24);
-    
+    //p802_11Counter->ReceivedFragmentCount
     p802_11Counter->MulticastReceivedFrameCount = (unsigned long long) (pStatistic->dwRsrBroadcast +
                                                                pStatistic->dwRsrMulticast);
 }
 
+/*
+ * Description: Clear 802.11 mib counter
+ *
+ * Parameters:
+ *  In:
+ *      p802_11Counter  - Pointer to 802.11 mib counter
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void
 STAvClear802_11Counter(PSDot11Counters p802_11Counter)
 {
-    
+    // set memory to zero
 	memset(p802_11Counter, 0, sizeof(SDot11Counters));
 }

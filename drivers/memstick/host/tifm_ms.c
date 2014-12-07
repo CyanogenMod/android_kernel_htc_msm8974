@@ -25,6 +25,10 @@
 static bool no_dma;
 module_param(no_dma, bool, 0644);
 
+/*
+ * Some control bits of TIFM appear to conform to Sony's reference design,
+ * so I'm just assuming they all are.
+ */
 
 #define TIFM_MS_STAT_DRQ     0x04000
 #define TIFM_MS_STAT_MSINT   0x02000
@@ -57,6 +61,7 @@ module_param(no_dma, bool, 0644);
 #define TIFM_MS_SYS_FIFO     (TIFM_MS_SYS_INTEN | TIFM_MS_SYS_MSIEN \
 			      | TIFM_MS_SYS_FCLR | TIFM_MS_SYS_BSY_MASK)
 
+/* Hardware flags */
 enum {
 	CMD_READY  = 0x01,
 	FIFO_READY = 0x02,
@@ -377,6 +382,7 @@ static int tifm_ms_check_status(struct tifm_ms *host)
 	return 0;
 }
 
+/* Called from interrupt handler */
 static void tifm_ms_data_event(struct tifm_dev *sock)
 {
 	struct tifm_ms *host;
@@ -412,6 +418,7 @@ static void tifm_ms_data_event(struct tifm_dev *sock)
 }
 
 
+/* Called from interrupt handler */
 static void tifm_ms_card_event(struct tifm_dev *sock)
 {
 	struct tifm_ms *host;
@@ -498,7 +505,7 @@ static int tifm_ms_set_param(struct memstick_host *msh,
 
 	switch (param) {
 	case MEMSTICK_POWER:
-		
+		/* also affected by media detection mechanism */
 		if (value == MEMSTICK_POWER_ON) {
 			host->mode_mask = TIFM_MS_SYS_SRAC | TIFM_MS_SYS_REI;
 			writel(TIFM_MS_SYS_RESET, sock->addr + SOCK_MS_SYSTEM);
@@ -644,7 +651,7 @@ static int tifm_ms_resume(struct tifm_dev *sock)
 #define tifm_ms_suspend NULL
 #define tifm_ms_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static struct tifm_device_id tifm_ms_id_tbl[] = {
 	{ TIFM_TYPE_MS }, { 0 }

@@ -64,11 +64,11 @@ static DECLARE_WAIT_QUEUE_HEAD(mon_read_wait_queue);
 static DECLARE_WAIT_QUEUE_HEAD(mon_conn_wait_queue);
 
 static u8 user_data_connect[16] = {
-	
+	/* Version code, must be 0x01 for shared mode */
 	0x01,
-	
+	/* what to collect */
 	MON_COLLECT_SAMPLE | MON_COLLECT_EVENT,
-	
+	/* DCSS name in EBCDIC, 8 bytes padded with blanks */
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 	0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 };
@@ -80,6 +80,13 @@ static u8 user_data_sever[16] = {
 
 static struct device *monreader_device;
 
+/******************************************************************************
+ *                             helper functions                               *
+ *****************************************************************************/
+/*
+ * Create the 8 bytes EBCDIC DCSS segment name from
+ * an ASCII name, incl. padding
+ */
 static void dcss_mkname(char *ascii_name, char *ebcdic_name)
 {
 	int i;
@@ -220,6 +227,9 @@ static struct mon_msg *mon_next_message(struct mon_private *monpriv)
 }
 
 
+/******************************************************************************
+ *                               IUCV handler                                 *
+ *****************************************************************************/
 static void mon_iucv_path_complete(struct iucv_path *path, u8 ipuser[16])
 {
 	struct mon_private *monpriv = path->private;
@@ -262,11 +272,17 @@ static struct iucv_handler monreader_iucv_handler = {
 	.message_pending = mon_iucv_message_pending,
 };
 
+/******************************************************************************
+ *                               file operations                              *
+ *****************************************************************************/
 static int mon_open(struct inode *inode, struct file *filp)
 {
 	struct mon_private *monpriv;
 	int rc;
 
+	/*
+	 * only one user allowed
+	 */
 	rc = -EBUSY;
 	if (test_and_set_bit(MON_IN_USE, &mon_in_use))
 		goto out;
@@ -276,6 +292,9 @@ static int mon_open(struct inode *inode, struct file *filp)
 	if (!monpriv)
 		goto out_use;
 
+	/*
+	 * Connect to *MONITOR service
+	 */
 	monpriv->path = iucv_path_alloc(MON_MSGLIM, IUCV_IPRMDATA, GFP_KERNEL);
 	if (!monpriv->path)
 		goto out_priv;
@@ -287,6 +306,9 @@ static int mon_open(struct inode *inode, struct file *filp)
 		rc = -EIO;
 		goto out_path;
 	}
+	/*
+	 * Wait for connection confirmation
+	 */
 	wait_event(mon_conn_wait_queue,
 		   atomic_read(&monpriv->iucv_connected) ||
 		   atomic_read(&monpriv->iucv_severed));
@@ -315,6 +337,9 @@ static int mon_close(struct inode *inode, struct file *filp)
 	int rc, i;
 	struct mon_private *monpriv = filp->private_data;
 
+	/*
+	 * Close IUCV connection and unregister
+	 */
 	if (monpriv->path) {
 		rc = iucv_path_sever(monpriv->path, user_data_sever);
 		if (rc)
@@ -368,7 +393,7 @@ static ssize_t mon_read(struct file *filp, char __user *data,
 	if (mon_check_mca(monmsg))
 		goto reply;
 
-	
+	/* read monitor control element (12 bytes) first */
 	mce_start = mon_mca_start(monmsg) + monmsg->mca_offset;
 	if ((monmsg->pos >= mce_start) && (monmsg->pos < mce_start + 12)) {
 		count = min(count, (size_t) mce_start + 12 - monmsg->pos);
@@ -382,7 +407,7 @@ static ssize_t mon_read(struct file *filp, char __user *data,
 		goto out_copy;
 	}
 
-	
+	/* read records */
 	if (monmsg->pos <= mon_rec_end(monmsg)) {
 		count = min(count, (size_t) mon_rec_end(monmsg) - monmsg->pos
 					    + 1);
@@ -432,6 +457,9 @@ static struct miscdevice mon_dev = {
 };
 
 
+/******************************************************************************
+ *				suspend / resume			      *
+ *****************************************************************************/
 static int monreader_freeze(struct device *dev)
 {
 	struct mon_private *monpriv = dev_get_drvdata(dev);
@@ -516,6 +544,9 @@ static struct device_driver monreader_driver = {
 };
 
 
+/******************************************************************************
+ *                              module init/exit                              *
+ *****************************************************************************/
 static int __init mon_init(void)
 {
 	int rc;
@@ -526,6 +557,9 @@ static int __init mon_init(void)
 		return -ENODEV;
 	}
 
+	/*
+	 * Register with IUCV and connect to *MONITOR service
+	 */
 	rc = iucv_register(&monreader_iucv_handler, 1);
 	if (rc) {
 		pr_err("The z/VM *MONITOR record device driver failed to "
@@ -571,6 +605,10 @@ static int __init mon_init(void)
 	}
 	dcss_mkname(mon_dcss_name, &user_data_connect[8]);
 
+	/*
+	 * misc_register() has to be the last action in module_init(), because
+	 * file operations will be available right after this.
+	 */
 	rc = misc_register(&mon_dev);
 	if (rc < 0 )
 		goto out;

@@ -42,6 +42,10 @@
 #define VIDC_SOUND_CLOCK	(250000)
 #define VIDC_SOUND_CLOCK_EXT	(176400)
 
+/*
+ * When using SERIAL SOUND mode (external DAC), the number of physical
+ * channels is fixed at 2.
+ */
 static int		vidc_busy;
 static int		vidc_adev;
 static int		vidc_audio_rate;
@@ -49,33 +53,33 @@ static char		vidc_audio_format;
 static char		vidc_audio_channels;
 
 static unsigned char	vidc_level_l[SOUND_MIXER_NRDEVICES] = {
-	85,		
-	50,		
-	50,		
-	0,		
-	75,		
-	0,		
-	100,		
-	0,		
-	100,		
+	85,		/* master	*/
+	50,		/* bass		*/
+	50,		/* treble	*/
+	0,		/* synth	*/
+	75,		/* pcm		*/
+	0,		/* speaker	*/
+	100,		/* ext line	*/
+	0,		/* mic		*/
+	100,		/* CD		*/
 	0,
 };
 
 static unsigned char	vidc_level_r[SOUND_MIXER_NRDEVICES] = {
-	85,		
-	50,		
-	50,		
-	0,		
-	75,		
-	0,		
-	100,		
-	0,		
-	100,		
+	85,		/* master	*/
+	50,		/* bass		*/
+	50,		/* treble	*/
+	0,		/* synth	*/
+	75,		/* pcm		*/
+	0,		/* speaker	*/
+	100,		/* ext line	*/
+	0,		/* mic		*/
+	100,		/* CD		*/
 	0,
 };
 
-static unsigned int	vidc_audio_volume_l;	
-static unsigned int	vidc_audio_volume_r;	
+static unsigned int	vidc_audio_volume_l;	/* left PCM vol, 0 - 65536 */
+static unsigned int	vidc_audio_volume_r;	/* right PCM vol, 0 - 65536 */
 
 extern void	vidc_update_filler(int bits, int channels);
 extern int	softoss_dev;
@@ -105,6 +109,7 @@ vidc_mixer_set(int mdev, unsigned int level)
 
 		vidc_audio_volume_l = SCALE(lev_l, mlev_l);
 		vidc_audio_volume_r = SCALE(lev_r, mlev_r);
+/*printk("VIDC: PCM vol %05X %05X\n", vidc_audio_volume_l, vidc_audio_volume_r);*/
 		break;
 	}
 #undef SCALE
@@ -130,6 +135,9 @@ static int vidc_mixer_ioctl(int dev, unsigned int cmd, void __user *arg)
 			return -EINVAL;
 	}
 
+	/*
+	 * Return parameters
+	 */
 	switch (mdev) {
 	case SOUND_MIXER_RECSRC:
 		val = 0;
@@ -188,14 +196,14 @@ static int vidc_audio_set_speed(int dev, int rate)
 
 		hwctrl = 0x00000003;
 
-		
+		/* Using internal clock */
 		hwrate = (((VIDC_SOUND_CLOCK * 2) / rate) + 1) >> 1;
 		if (hwrate < 3)
 			hwrate = 3;
 		if (hwrate > 255)
 			hwrate = 255;
 
-		
+		/* Using exernal clock */
 		hwrate_ext = (((VIDC_SOUND_CLOCK_EXT * 2) / rate) + 1) >> 1;
 		if (hwrate_ext < 3)
 			hwrate_ext = 3;
@@ -205,20 +213,20 @@ static int vidc_audio_set_speed(int dev, int rate)
 		rate_int = VIDC_SOUND_CLOCK / hwrate;
 		rate_ext = VIDC_SOUND_CLOCK_EXT / hwrate_ext;
 
-		
+		/* Chose between external and internal clock */
 		diff_int = my_abs(rate_ext-rate);
 		diff_ext = my_abs(rate_int-rate);
 		if (diff_ext < diff_int) {
-			
+			/*printk("VIDC: external %d %d %d\n", rate, rate_ext, hwrate_ext);*/
 			hwrate=hwrate_ext;
 			hwctrl=0x00000002;
-			
+			/* Allow roughly 0.4% tolerance */
 			if (diff_ext > (rate/256))
 				rate=rate_ext;
 		} else {
-			
+			/*printk("VIDC: internal %d %d %d\n", rate, rate_int, hwrate);*/
 			hwctrl=0x00000003;
-			
+			/* Allow roughly 0.4% tolerance */
 			if (diff_int > (rate/256))
 				rate=rate_int;
 		}
@@ -239,7 +247,7 @@ static int vidc_audio_set_speed(int dev, int rate)
 				newsize, new2size);
 			new2size = 4096;
 		}
-		
+		/*printk("VIDC: dma size %d\n", new2size);*/
 		dma_bufsize = new2size;
 		vidc_audio_rate = rate;
 	}
@@ -261,9 +269,12 @@ static short vidc_audio_set_channels(int dev, short channels)
 	return vidc_audio_channels;
 }
 
+/*
+ * Open the device
+ */
 static int vidc_audio_open(int dev, int mode)
 {
-	
+	/* This audio device does not have recording capability */
 	if (mode == OPEN_READ)
 		return -EPERM;
 
@@ -274,11 +285,22 @@ static int vidc_audio_open(int dev, int mode)
 	return 0;
 }
 
+/*
+ * Close the device
+ */
 static void vidc_audio_close(int dev)
 {
 	vidc_busy = 0;
 }
 
+/*
+ * Output a block via DMA to sound device.
+ *
+ * We just set the DMA start and count; the DMA interrupt routine
+ * will take care of formatting the samples (via the appropriate
+ * vidc_filler routine), and flag via vidc_audio_dma_interrupt when
+ * more data is required.
+ */
 static void
 vidc_audio_output_block(int dev, unsigned long buf, int total_count, int one)
 {
@@ -307,6 +329,12 @@ static irqreturn_t vidc_audio_dma_interrupt(void)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Prepare for outputting samples.
+ *
+ * Each buffer that will be passed will be `bsize' bytes long,
+ * with a total of `bcount' buffers.
+ */
 static int vidc_audio_prepare_for_output(int dev, int bsize, int bcount)
 {
 	struct audio_operations *adev = audio_devs[dev];
@@ -317,6 +345,9 @@ static int vidc_audio_prepare_for_output(int dev, int bsize, int bcount)
 	return 0;
 }
 
+/*
+ * Stop our current operation.
+ */
 static void vidc_audio_reset(int dev)
 {
 	dma_interrupt = NULL;
@@ -324,7 +355,7 @@ static void vidc_audio_reset(int dev)
 
 static int vidc_audio_local_qlen(int dev)
 {
-	return  0;
+	return /*dma_count !=*/ 0;
 }
 
 static void vidc_audio_trigger(int dev, int enable_bits)
@@ -337,7 +368,7 @@ static void vidc_audio_trigger(int dev, int enable_bits)
 
 			local_irq_save(flags);
 
-			
+			/* prevent recusion */
 			adev->dmap_out->flags |= DMA_ACTIVE;
 
 			dma_interrupt = vidc_audio_dma_interrupt;
@@ -422,6 +453,9 @@ static void __init attach_vidc(struct address_info *hw_config)
 	if (adev < 0)
 		goto audio_failed;
 
+	/*
+	 * 1024 bytes => 64 buffers
+	 */
 	audio_devs[adev]->min_fragment = 10;
 	audio_devs[adev]->mixer_dev = num_mixers;
 

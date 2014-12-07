@@ -13,6 +13,9 @@
 
 #include "yaffs_bitmap.h"
 #include "yaffs_trace.h"
+/*
+ * Chunk bitmap manipulations
+ */
 
 static inline u8 *yaffs_block_bits(struct yaffs_dev *dev, int blk)
 {

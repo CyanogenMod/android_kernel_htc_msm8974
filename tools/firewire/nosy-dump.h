@@ -113,7 +113,7 @@ struct link_packet {
 			uint32_t data_length:16;
 			uint32_t crc;
 			uint32_t data[0];
-			
+			/* crc and ack follows. */
 		} read_block_response;
 
 		struct {
@@ -128,7 +128,7 @@ struct link_packet {
 			uint32_t data_length:16;
 			uint32_t crc;
 			uint32_t data[0];
-			
+			/* crc and ack follows. */
 		} write_block;
 
 		struct {
@@ -170,4 +170,4 @@ struct link_transaction {
 
 int decode_fcp(struct link_transaction *t);
 
-#endif 
+#endif /* __nosy_dump_h__ */

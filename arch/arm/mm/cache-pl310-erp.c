@@ -112,12 +112,16 @@ static irqreturn_t pl310_erp_irq(int irq, void *dev_id)
 
 	writel_relaxed(int_clear, p->base + L2X0_INTR_CLEAR);
 
-	
+	/* Make sure the interrupts are cleared */
 	mb();
 
+	/* WARNING will be thrown whenever we receive any L2 interrupt.
+	 * Other than parity on tag/data ram, irrespective of the bits
+	 * set we will throw a warning.
+	 */
 	WARN_ON(!error);
 
-	
+	/* Panic in case we encounter parity error in TAG/DATA Ram */
 	BUG_ON(error);
 
 	return IRQ_HANDLED;
@@ -125,6 +129,9 @@ static irqreturn_t pl310_erp_irq(int irq, void *dev_id)
 
 static void pl310_mask_int(struct pl310_drv_data *p, bool enable)
 {
+	/* L2CC register contents needs to be saved
+	 * as it's power rail will be removed during suspend
+	 */
 	if (enable)
 		p->intr_mask_reg = 0x1FF;
 	else
@@ -132,7 +139,7 @@ static void pl310_mask_int(struct pl310_drv_data *p, bool enable)
 
 	writel_relaxed(p->intr_mask_reg, p->base + L2X0_INTR_MASK);
 
-	
+	/* Make sure Mask is updated */
 	mb();
 
 	pr_debug("Mask interrupt 0%x\n",
@@ -163,6 +170,9 @@ static DEVICE_ATTR(cache_erp, 0664, pl310_erp_show, NULL);
 
 static int __init pl310_create_sysfs(struct device *dev)
 {
+	/* create a sysfs entry at
+	 * /sys/devices/platform/pl310_erp/cache_erp
+	 */
 	return device_create_file(dev, &dev_attr_cache_erp);
 }
 

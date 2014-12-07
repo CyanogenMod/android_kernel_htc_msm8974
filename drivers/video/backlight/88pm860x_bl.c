@@ -49,6 +49,7 @@ static inline int wled_b(int port)
 	return ret;
 }
 
+/* WLED2 & WLED3 share the same IDC */
 static inline int wled_idc(int port)
 {
 	int ret;
@@ -121,17 +122,17 @@ static int pm860x_backlight_set(struct backlight_device *bl, int brightness)
 				goto out;
 		}
 		if (brightness == MAX_BRIGHTNESS) {
-			
+			/* set WLED_ON bit as 100% */
 			ret = pm860x_set_bits(data->i2c, wled_b(data->port),
 					      PM8606_WLED_ON, PM8606_WLED_ON);
 		}
 	} else {
 		if (brightness == MAX_BRIGHTNESS) {
-			
+			/* set WLED_ON bit as 100% */
 			ret = pm860x_set_bits(data->i2c, wled_b(data->port),
 					      PM8606_WLED_ON, PM8606_WLED_ON);
 		} else {
-			
+			/* clear WLED_ON bit since it's not 100% */
 			ret = pm860x_set_bits(data->i2c, wled_b(data->port),
 					      PM8606_WLED_ON, 0);
 		}
@@ -243,7 +244,7 @@ static int pm860x_backlight_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, bl);
 
-	
+	/* read current backlight */
 	ret = pm860x_backlight_get_brightness(bl);
 	if (ret < 0)
 		goto out;

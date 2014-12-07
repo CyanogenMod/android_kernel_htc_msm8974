@@ -45,6 +45,10 @@
 	func("\n");\
 }
 
+/*
+ * USB commands
+ * (usb_control_msg() index parameter)
+ */
 
 #define DEMOD            0x0000
 #define USB              0x0100
@@ -70,7 +74,7 @@
 struct rtl28xxu_priv {
 	u8 chip_id;
 	u8 tuner;
-	u8 page; 
+	u8 page; /* integrated demod active register page */
 	bool rc_active;
 };
 
@@ -111,101 +115,125 @@ struct rtl28xxu_reg_val {
 	u8 val;
 };
 
+/*
+ * memory map
+ *
+ * 0x0000 DEMOD : demodulator
+ * 0x2000 USB   : SIE, USB endpoint, debug, DMA
+ * 0x3000 SYS   : system
+ * 0xfc00 RC    : remote controller (not RTL2831U)
+ */
 
-#define USB_SYSCTL         0x2000 
-#define USB_SYSCTL_0       0x2000 
-#define USB_SYSCTL_1       0x2001 
-#define USB_SYSCTL_2       0x2002 
-#define USB_SYSCTL_3       0x2003 
-#define USB_IRQSTAT        0x2008 
-#define USB_IRQEN          0x200C 
-#define USB_CTRL           0x2010 
-#define USB_STAT           0x2014 
-#define USB_DEVADDR        0x2018 
-#define USB_TEST           0x201C 
-#define USB_FRAME_NUMBER   0x2020 
-#define USB_FIFO_ADDR      0x2028 
-#define USB_FIFO_CMD       0x202A 
-#define USB_FIFO_DATA      0x2030 
-#define EP0_SETUPA         0x20F8 
-#define EP0_SETUPB         0x20FC 
-#define USB_EP0_CFG        0x2104 
-#define USB_EP0_CTL        0x2108 
-#define USB_EP0_STAT       0x210C 
-#define USB_EP0_IRQSTAT    0x2110 
-#define USB_EP0_IRQEN      0x2114 
-#define USB_EP0_MAXPKT     0x2118 
-#define USB_EP0_BC         0x2120 
-#define USB_EPA_CFG        0x2144 
-#define USB_EPA_CFG_0      0x2144 
-#define USB_EPA_CFG_1      0x2145 
-#define USB_EPA_CFG_2      0x2146 
-#define USB_EPA_CFG_3      0x2147 
-#define USB_EPA_CTL        0x2148 
-#define USB_EPA_CTL_0      0x2148 
-#define USB_EPA_CTL_1      0x2149 
-#define USB_EPA_CTL_2      0x214A 
-#define USB_EPA_CTL_3      0x214B 
-#define USB_EPA_STAT       0x214C 
-#define USB_EPA_IRQSTAT    0x2150 
-#define USB_EPA_IRQEN      0x2154 
-#define USB_EPA_MAXPKT     0x2158 
-#define USB_EPA_MAXPKT_0   0x2158 
-#define USB_EPA_MAXPKT_1   0x2159 
-#define USB_EPA_MAXPKT_2   0x215A 
-#define USB_EPA_MAXPKT_3   0x215B 
-#define USB_EPA_FIFO_CFG   0x2160 
-#define USB_EPA_FIFO_CFG_0 0x2160 
-#define USB_EPA_FIFO_CFG_1 0x2161 
-#define USB_EPA_FIFO_CFG_2 0x2162 
-#define USB_EPA_FIFO_CFG_3 0x2163 
-#define USB_PHYTSTDIS      0x2F04 
-#define USB_TOUT_VAL       0x2F08 
-#define USB_VDRCTRL        0x2F10 
-#define USB_VSTAIN         0x2F14 
-#define USB_VLOADM         0x2F18 
-#define USB_VSTAOUT        0x2F1C 
-#define USB_UTMI_TST       0x2F80 
-#define USB_UTMI_STATUS    0x2F84 
-#define USB_TSTCTL         0x2F88 
-#define USB_TSTCTL2        0x2F8C 
-#define USB_PID_FORCE      0x2F90 
-#define USB_PKTERR_CNT     0x2F94 
-#define USB_RXERR_CNT      0x2F98 
-#define USB_MEM_BIST       0x2F9C 
-#define USB_SLBBIST        0x2FA0 
-#define USB_CNTTEST        0x2FA4 
-#define USB_PHYTST         0x2FC0 
-#define USB_DBGIDX         0x2FF0 
-#define USB_DBGMUX         0x2FF4 
+/*
+ * USB registers
+ */
+/* SIE Control Registers */
+#define USB_SYSCTL         0x2000 /* USB system control */
+#define USB_SYSCTL_0       0x2000 /* USB system control */
+#define USB_SYSCTL_1       0x2001 /* USB system control */
+#define USB_SYSCTL_2       0x2002 /* USB system control */
+#define USB_SYSCTL_3       0x2003 /* USB system control */
+#define USB_IRQSTAT        0x2008 /* SIE interrupt status */
+#define USB_IRQEN          0x200C /* SIE interrupt enable */
+#define USB_CTRL           0x2010 /* USB control */
+#define USB_STAT           0x2014 /* USB status */
+#define USB_DEVADDR        0x2018 /* USB device address */
+#define USB_TEST           0x201C /* USB test mode */
+#define USB_FRAME_NUMBER   0x2020 /* frame number */
+#define USB_FIFO_ADDR      0x2028 /* address of SIE FIFO RAM */
+#define USB_FIFO_CMD       0x202A /* SIE FIFO RAM access command */
+#define USB_FIFO_DATA      0x2030 /* SIE FIFO RAM data */
+/* Endpoint Registers */
+#define EP0_SETUPA         0x20F8 /* EP 0 setup packet lower byte */
+#define EP0_SETUPB         0x20FC /* EP 0 setup packet higher byte */
+#define USB_EP0_CFG        0x2104 /* EP 0 configure */
+#define USB_EP0_CTL        0x2108 /* EP 0 control */
+#define USB_EP0_STAT       0x210C /* EP 0 status */
+#define USB_EP0_IRQSTAT    0x2110 /* EP 0 interrupt status */
+#define USB_EP0_IRQEN      0x2114 /* EP 0 interrupt enable */
+#define USB_EP0_MAXPKT     0x2118 /* EP 0 max packet size */
+#define USB_EP0_BC         0x2120 /* EP 0 FIFO byte counter */
+#define USB_EPA_CFG        0x2144 /* EP A configure */
+#define USB_EPA_CFG_0      0x2144 /* EP A configure */
+#define USB_EPA_CFG_1      0x2145 /* EP A configure */
+#define USB_EPA_CFG_2      0x2146 /* EP A configure */
+#define USB_EPA_CFG_3      0x2147 /* EP A configure */
+#define USB_EPA_CTL        0x2148 /* EP A control */
+#define USB_EPA_CTL_0      0x2148 /* EP A control */
+#define USB_EPA_CTL_1      0x2149 /* EP A control */
+#define USB_EPA_CTL_2      0x214A /* EP A control */
+#define USB_EPA_CTL_3      0x214B /* EP A control */
+#define USB_EPA_STAT       0x214C /* EP A status */
+#define USB_EPA_IRQSTAT    0x2150 /* EP A interrupt status */
+#define USB_EPA_IRQEN      0x2154 /* EP A interrupt enable */
+#define USB_EPA_MAXPKT     0x2158 /* EP A max packet size */
+#define USB_EPA_MAXPKT_0   0x2158 /* EP A max packet size */
+#define USB_EPA_MAXPKT_1   0x2159 /* EP A max packet size */
+#define USB_EPA_MAXPKT_2   0x215A /* EP A max packet size */
+#define USB_EPA_MAXPKT_3   0x215B /* EP A max packet size */
+#define USB_EPA_FIFO_CFG   0x2160 /* EP A FIFO configure */
+#define USB_EPA_FIFO_CFG_0 0x2160 /* EP A FIFO configure */
+#define USB_EPA_FIFO_CFG_1 0x2161 /* EP A FIFO configure */
+#define USB_EPA_FIFO_CFG_2 0x2162 /* EP A FIFO configure */
+#define USB_EPA_FIFO_CFG_3 0x2163 /* EP A FIFO configure */
+/* Debug Registers */
+#define USB_PHYTSTDIS      0x2F04 /* PHY test disable */
+#define USB_TOUT_VAL       0x2F08 /* USB time-out time */
+#define USB_VDRCTRL        0x2F10 /* UTMI vendor signal control */
+#define USB_VSTAIN         0x2F14 /* UTMI vendor signal status in */
+#define USB_VLOADM         0x2F18 /* UTMI load vendor signal status in */
+#define USB_VSTAOUT        0x2F1C /* UTMI vendor signal status out */
+#define USB_UTMI_TST       0x2F80 /* UTMI test */
+#define USB_UTMI_STATUS    0x2F84 /* UTMI status */
+#define USB_TSTCTL         0x2F88 /* test control */
+#define USB_TSTCTL2        0x2F8C /* test control 2 */
+#define USB_PID_FORCE      0x2F90 /* force PID */
+#define USB_PKTERR_CNT     0x2F94 /* packet error counter */
+#define USB_RXERR_CNT      0x2F98 /* RX error counter */
+#define USB_MEM_BIST       0x2F9C /* MEM BIST test */
+#define USB_SLBBIST        0x2FA0 /* self-loop-back BIST */
+#define USB_CNTTEST        0x2FA4 /* counter test */
+#define USB_PHYTST         0x2FC0 /* USB PHY test */
+#define USB_DBGIDX         0x2FF0 /* select individual block debug signal */
+#define USB_DBGMUX         0x2FF4 /* debug signal module mux */
 
-#define SYS_SYS0           0x3000 
-#define SYS_DEMOD_CTL      0x3000 
-#define SYS_GPIO_OUT_VAL   0x3001 
-#define SYS_GPIO_IN_VAL    0x3002 
-#define SYS_GPIO_OUT_EN    0x3003 
-#define SYS_SYS1           0x3004 
-#define SYS_GPIO_DIR       0x3004 
-#define SYS_SYSINTE        0x3005 
-#define SYS_SYSINTS        0x3006 
-#define SYS_GPIO_CFG0      0x3007 
-#define SYS_SYS2           0x3008 
-#define SYS_GPIO_CFG1      0x3008 
+/*
+ * SYS registers
+ */
+/* demod control registers */
+#define SYS_SYS0           0x3000 /* include DEMOD_CTL, GPO, GPI, GPOE */
+#define SYS_DEMOD_CTL      0x3000 /* control register for DVB-T demodulator */
+/* GPIO registers */
+#define SYS_GPIO_OUT_VAL   0x3001 /* output value of GPIO */
+#define SYS_GPIO_IN_VAL    0x3002 /* input value of GPIO */
+#define SYS_GPIO_OUT_EN    0x3003 /* output enable of GPIO */
+#define SYS_SYS1           0x3004 /* include GPD, SYSINTE, SYSINTS, GP_CFG0 */
+#define SYS_GPIO_DIR       0x3004 /* direction control for GPIO */
+#define SYS_SYSINTE        0x3005 /* system interrupt enable */
+#define SYS_SYSINTS        0x3006 /* system interrupt status */
+#define SYS_GPIO_CFG0      0x3007 /* PAD configuration for GPIO0-GPIO3 */
+#define SYS_SYS2           0x3008 /* include GP_CFG1 and 3 reserved bytes */
+#define SYS_GPIO_CFG1      0x3008 /* PAD configuration for GPIO4 */
 #define SYS_DEMOD_CTL1     0x300B
 
-#define SYS_IRRC_PSR       0x3020 
-#define SYS_IRRC_PER       0x3024 
-#define SYS_IRRC_SF        0x3028 
-#define SYS_IRRC_DPIR      0x302C 
-#define SYS_IRRC_CR        0x3030 
-#define SYS_IRRC_RP        0x3034 
-#define SYS_IRRC_SR        0x3038 
-#define SYS_I2CCR          0x3040 
-#define SYS_I2CMCR         0x3044 
-#define SYS_I2CMSTR        0x3048 
-#define SYS_I2CMSR         0x304C 
-#define SYS_I2CMFR         0x3050 
+/* IrDA registers */
+#define SYS_IRRC_PSR       0x3020 /* IR protocol selection */
+#define SYS_IRRC_PER       0x3024 /* IR protocol extension */
+#define SYS_IRRC_SF        0x3028 /* IR sampling frequency */
+#define SYS_IRRC_DPIR      0x302C /* IR data package interval */
+#define SYS_IRRC_CR        0x3030 /* IR control */
+#define SYS_IRRC_RP        0x3034 /* IR read port */
+#define SYS_IRRC_SR        0x3038 /* IR status */
+/* I2C master registers */
+#define SYS_I2CCR          0x3040 /* I2C clock */
+#define SYS_I2CMCR         0x3044 /* I2C master control */
+#define SYS_I2CMSTR        0x3048 /* I2C master SCL timing */
+#define SYS_I2CMSR         0x304C /* I2C master status */
+#define SYS_I2CMFR         0x3050 /* I2C master FIFO */
 
+/*
+ * IR registers
+ */
 #define IR_RX_BUF          0xFC00
 #define IR_RX_IE           0xFD00
 #define IR_RX_IF           0xFD01

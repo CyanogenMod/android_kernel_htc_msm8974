@@ -16,20 +16,36 @@
 #include <asm/stacktrace.h>
 
 #if defined(CONFIG_FRAME_POINTER)
+/*
+ * Unwind the current stack frame and store the new register values in the
+ * structure passed as argument. Unwinding is equivalent to a function return,
+ * hence the new PC value rather than LR should be used for backtrace.
+ *
+ * With framepointer enabled, a simple function prologue looks like this:
+ *	mov	ip, sp
+ *	stmdb	sp!, {fp, ip, lr, pc}
+ *	sub	fp, ip, #4
+ *
+ * A simple function epilogue looks like this:
+ *	ldm	sp, {fp, sp, pc}
+ *
+ * Note that with framepointer enabled, even the leaf functions have the same
+ * prologue and epilogue, therefore we can ignore the LR value in this case.
+ */
 int notrace unwind_frame(struct stackframe *frame)
 {
 	unsigned long high, low;
 	unsigned long fp = frame->fp;
 
-	
+	/* only go to a higher address on the stack */
 	low = frame->sp;
 	high = ALIGN(low, THREAD_SIZE);
 
-	
+	/* check current frame pointer is within bounds */
 	if (fp < (low + 12) || fp + 4 >= high)
 		return -EINVAL;
 
-	
+	/* restore the registers from the stack frame */
 	frame->fp = *(unsigned long *)(fp - 12);
 	frame->sp = *(unsigned long *)(fp - 8);
 	frame->pc = *(unsigned long *)(fp - 4);
@@ -90,7 +106,7 @@ void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
 		data.no_sched_functions = 1;
 		frame.fp = thread_saved_fp(tsk);
 		frame.sp = thread_saved_sp(tsk);
-		frame.lr = 0;		
+		frame.lr = 0;		/* recovered from the stack */
 		frame.pc = thread_saved_pc(tsk);
 	} else {
 		register unsigned long current_sp asm("sp");

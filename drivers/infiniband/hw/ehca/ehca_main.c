@@ -122,7 +122,7 @@ DEFINE_RWLOCK(ehca_cq_idr_lock);
 DEFINE_IDR(ehca_qp_idr);
 DEFINE_IDR(ehca_cq_idr);
 
-static LIST_HEAD(shca_list); 
+static LIST_HEAD(shca_list); /* list of all registered ehcas */
 DEFINE_SPINLOCK(shca_list_lock);
 
 static struct timer_list poll_eqs_timer;
@@ -151,11 +151,11 @@ int ehca2ib_return_code(u64 ehca_rc)
 	switch (ehca_rc) {
 	case H_SUCCESS:
 		return 0;
-	case H_RESOURCE:             
+	case H_RESOURCE:             /* Resource in use */
 	case H_BUSY:
 		return -EBUSY;
-	case H_NOT_ENOUGH_RESOURCES: 
-	case H_CONSTRAINED:          
+	case H_NOT_ENOUGH_RESOURCES: /* insufficient resources */
+	case H_CONSTRAINED:          /* resource constraint */
 	case H_NO_MEM:
 		return -ENOMEM;
 	default:
@@ -356,17 +356,20 @@ static int ehca_sense_attributes(struct ehca_shca *shca)
 		if (EHCA_BMASK_GET(hca_cap_descr[i].mask, shca->hca_cap))
 			ehca_gen_dbg("   %s", hca_cap_descr[i].descr);
 
+	/* Autodetect hCall locking -- the "H_ALLOC_RESOURCE synced" flag is
+	 * a firmware property, so it's valid across all adapters
+	 */
 	if (ehca_lock_hcalls == -1)
 		ehca_lock_hcalls = !EHCA_BMASK_GET(HCA_CAP_H_ALLOC_RES_SYNC,
 					shca->hca_cap);
 
-	
+	/* translate supported MR page sizes; always support 4K */
 	shca->hca_cap_mr_pgsize = EHCA_PAGESIZE;
 	for (i = 0; i < ARRAY_SIZE(pgsize_map); i += 2)
 		if (rblock->memory_page_size_supported & pgsize_map[i])
 			shca->hca_cap_mr_pgsize |= pgsize_map[i + 1];
 
-	
+	/* Set maximum number of CQs and QPs to calculate EQ size */
 	if (shca->max_num_qps == -1)
 		shca->max_num_qps = min_t(int, rblock->max_qp,
 					  EHCA_MAX_NUM_QUEUES);
@@ -386,7 +389,7 @@ static int ehca_sense_attributes(struct ehca_shca *shca)
 			      rblock->max_cq, rblock->max_cq);
 	}
 
-	
+	/* query max MTU from first port -- it's the same for all ports */
 	port = (struct hipz_query_port *)rblock;
 	h_ret = hipz_h_query_port(shca->ipz_hca_handle, 1, port);
 	if (h_ret != H_SUCCESS) {
@@ -465,14 +468,14 @@ static int ehca_init_device(struct ehca_shca *shca)
 	shca->ib_device.query_port          = ehca_query_port;
 	shca->ib_device.query_gid           = ehca_query_gid;
 	shca->ib_device.query_pkey          = ehca_query_pkey;
-	
+	/* shca->in_device.modify_device    = ehca_modify_device    */
 	shca->ib_device.modify_port         = ehca_modify_port;
 	shca->ib_device.alloc_ucontext      = ehca_alloc_ucontext;
 	shca->ib_device.dealloc_ucontext    = ehca_dealloc_ucontext;
 	shca->ib_device.alloc_pd            = ehca_alloc_pd;
 	shca->ib_device.dealloc_pd          = ehca_dealloc_pd;
 	shca->ib_device.create_ah	    = ehca_create_ah;
-	
+	/* shca->ib_device.modify_ah	    = ehca_modify_ah;	    */
 	shca->ib_device.query_ah	    = ehca_query_ah;
 	shca->ib_device.destroy_ah	    = ehca_destroy_ah;
 	shca->ib_device.create_qp	    = ehca_create_qp;
@@ -485,9 +488,9 @@ static int ehca_init_device(struct ehca_shca *shca)
 	shca->ib_device.destroy_cq	    = ehca_destroy_cq;
 	shca->ib_device.resize_cq	    = ehca_resize_cq;
 	shca->ib_device.poll_cq		    = ehca_poll_cq;
-	
+	/* shca->ib_device.peek_cq	    = ehca_peek_cq;	    */
 	shca->ib_device.req_notify_cq	    = ehca_req_notify_cq;
-	
+	/* shca->ib_device.req_ncomp_notif  = ehca_req_ncomp_notif; */
 	shca->ib_device.get_dma_mr	    = ehca_get_dma_mr;
 	shca->ib_device.reg_phys_mr	    = ehca_reg_phys_mr;
 	shca->ib_device.reg_user_mr	    = ehca_reg_user_mr;
@@ -764,7 +767,7 @@ static int __devinit ehca_probe(struct platform_device *dev,
 	}
 
 	eq_size = 2 * shca->max_num_cqs + 4 * shca->max_num_qps;
-	
+	/* create event queues */
 	ret = ehca_create_eq(shca, &shca->eq, EHCA_EQ, eq_size);
 	if (ret) {
 		ehca_err(&shca->ib_device, "Cannot create EQ.");
@@ -777,7 +780,7 @@ static int __devinit ehca_probe(struct platform_device *dev,
 		goto probe3;
 	}
 
-	
+	/* create internal protection domain */
 	ibpd = ehca_alloc_pd(&shca->ib_device, (void *)(-1), NULL);
 	if (IS_ERR(ibpd)) {
 		ehca_err(&shca->ib_device, "Cannot create internal PD.");
@@ -788,7 +791,7 @@ static int __devinit ehca_probe(struct platform_device *dev,
 	shca->pd = container_of(ibpd, struct ehca_pd, ib_pd);
 	shca->pd->ib_pd.device = &shca->ib_device;
 
-	
+	/* create internal max MR */
 	ret = ehca_reg_internal_maxmr(shca, shca->pd, &shca->maxmr);
 
 	if (ret) {
@@ -804,7 +807,7 @@ static int __devinit ehca_probe(struct platform_device *dev,
 		goto probe6;
 	}
 
-	
+	/* create AQP1 for port 1 */
 	if (ehca_open_aqp1 == 1) {
 		shca->sport[0].port_state = IB_PORT_DOWN;
 		ret = ehca_create_aqp1(shca, 1);
@@ -815,7 +818,7 @@ static int __devinit ehca_probe(struct platform_device *dev,
 		}
 	}
 
-	
+	/* create AQP1 for port 2 */
 	if ((ehca_open_aqp1 == 1) && (shca->num_ports == 2)) {
 		shca->sport[1].port_state = IB_PORT_DOWN;
 		ret = ehca_create_aqp1(shca, 2);
@@ -827,7 +830,7 @@ static int __devinit ehca_probe(struct platform_device *dev,
 	}
 
 	ret = sysfs_create_group(&dev->dev.kobj, &ehca_dev_attr_grp);
-	if (ret) 
+	if (ret) /* only complain; we can live without attributes */
 		ehca_err(&shca->ib_device,
 			 "Cannot create device attributes  ret=%d", ret);
 
@@ -952,7 +955,7 @@ void ehca_poll_eqs(unsigned long data)
 	spin_lock(&shca_list_lock);
 	list_for_each_entry(shca, &shca_list, shca_list) {
 		if (shca->eq.is_initialized) {
-			
+			/* call deadman proc only if eq ptr does not change */
 			struct ehca_eq *eq = &shca->eq;
 			int max = 3;
 			volatile u64 q_ofs, q_ofs2;
@@ -988,7 +991,7 @@ static int ehca_mem_notifier(struct notifier_block *nb,
 		return NOTIFY_OK;
 	case MEM_GOING_ONLINE:
 	case MEM_GOING_OFFLINE:
-		
+		/* only ok if no hca is attached to the lpar */
 		spin_lock_irqsave(&shca_list_lock, flags);
 		if (list_empty(&shca_list)) {
 			spin_unlock_irqrestore(&shca_list_lock, flags);

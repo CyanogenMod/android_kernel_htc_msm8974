@@ -9,6 +9,7 @@
 
 #define MICHAEL_MIC_LEN 8
 
+/* Forward declarations */
 struct orinoco_private;
 struct crypto_hash;
 
@@ -18,4 +19,4 @@ int orinoco_mic(struct crypto_hash *tfm_michael, u8 *key,
 		u8 *da, u8 *sa, u8 priority,
 		u8 *data, size_t data_len, u8 *mic);
 
-#endif 
+#endif /* ORINOCO_MIC_H */

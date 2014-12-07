@@ -36,18 +36,28 @@
 #include "include/policy.h"
 #include "include/procattr.h"
 
+/* Flag indicating whether initialization completed */
 int apparmor_initialized __initdata;
 
+/*
+ * LSM hook functions
+ */
 
+/*
+ * free the associated aa_task_cxt and put its profiles
+ */
 static void apparmor_cred_free(struct cred *cred)
 {
 	aa_free_task_context(cred->security);
 	cred->security = NULL;
 }
 
+/*
+ * allocate the apparmor part of blank credentials
+ */
 static int apparmor_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 {
-	
+	/* freed by apparmor_cred_free */
 	struct aa_task_cxt *cxt = aa_alloc_task_context(gfp);
 	if (!cxt)
 		return -ENOMEM;
@@ -56,10 +66,13 @@ static int apparmor_cred_alloc_blank(struct cred *cred, gfp_t gfp)
 	return 0;
 }
 
+/*
+ * prepare new aa_task_cxt for modification by prepare_cred block
+ */
 static int apparmor_cred_prepare(struct cred *new, const struct cred *old,
 				 gfp_t gfp)
 {
-	
+	/* freed by apparmor_cred_free */
 	struct aa_task_cxt *cxt = aa_alloc_task_context(gfp);
 	if (!cxt)
 		return -ENOMEM;
@@ -69,6 +82,9 @@ static int apparmor_cred_prepare(struct cred *new, const struct cred *old,
 	return 0;
 }
 
+/*
+ * transfer the apparmor data to a blank set of creds
+ */
 static void apparmor_cred_transfer(struct cred *new, const struct cred *old)
 {
 	const struct aa_task_cxt *old_cxt = old->security;
@@ -96,6 +112,7 @@ static int apparmor_ptrace_traceme(struct task_struct *parent)
 	return aa_ptrace(parent, current, PTRACE_MODE_ATTACH);
 }
 
+/* Derived from security/commoncap.c:cap_capget */
 static int apparmor_capget(struct task_struct *target, kernel_cap_t *effective,
 			   kernel_cap_t *inheritable, kernel_cap_t *permitted)
 {
@@ -123,7 +140,7 @@ static int apparmor_capable(const struct cred *cred, struct user_namespace *ns,
 			    int cap, int audit)
 {
 	struct aa_profile *profile;
-	
+	/* cap_capable returns 0 on success, else -EPERM */
 	int error = cap_capable(cred, ns, cap, audit);
 	if (!error) {
 		profile = aa_cred_profile(cred);
@@ -133,6 +150,15 @@ static int apparmor_capable(const struct cred *cred, struct user_namespace *ns,
 	return error;
 }
 
+/**
+ * common_perm - basic common permission check wrapper fn for paths
+ * @op: operation being checked
+ * @path: path to check permission of  (NOT NULL)
+ * @mask: requested permissions mask
+ * @cond: conditional info for the permission request  (NOT NULL)
+ *
+ * Returns: %0 else error code if error or permission denied
+ */
 static int common_perm(int op, struct path *path, u32 mask,
 		       struct path_cond *cond)
 {
@@ -146,6 +172,16 @@ static int common_perm(int op, struct path *path, u32 mask,
 	return error;
 }
 
+/**
+ * common_perm_dir_dentry - common permission wrapper when path is dir, dentry
+ * @op: operation being checked
+ * @dir: directory of the dentry  (NOT NULL)
+ * @dentry: dentry to check  (NOT NULL)
+ * @mask: requested permissions mask
+ * @cond: conditional info for the permission request  (NOT NULL)
+ *
+ * Returns: %0 else error code if error or permission denied
+ */
 static int common_perm_dir_dentry(int op, struct path *dir,
 				  struct dentry *dentry, u32 mask,
 				  struct path_cond *cond)
@@ -155,6 +191,15 @@ static int common_perm_dir_dentry(int op, struct path *dir,
 	return common_perm(op, &path, mask, cond);
 }
 
+/**
+ * common_perm_mnt_dentry - common permission wrapper when mnt, dentry
+ * @op: operation being checked
+ * @mnt: mount point of dentry (NOT NULL)
+ * @dentry: dentry to check  (NOT NULL)
+ * @mask: requested permissions mask
+ *
+ * Returns: %0 else error code if error or permission denied
+ */
 static int common_perm_mnt_dentry(int op, struct vfsmount *mnt,
 				  struct dentry *dentry, u32 mask)
 {
@@ -166,6 +211,15 @@ static int common_perm_mnt_dentry(int op, struct vfsmount *mnt,
 	return common_perm(op, &path, mask, &cond);
 }
 
+/**
+ * common_perm_rm - common permission wrapper for operations doing rm
+ * @op: operation being checked
+ * @dir: directory that the dentry is in  (NOT NULL)
+ * @dentry: dentry being rm'd  (NOT NULL)
+ * @mask: requested permission mask
+ *
+ * Returns: %0 else error code if error or permission denied
+ */
 static int common_perm_rm(int op, struct path *dir,
 			  struct dentry *dentry, u32 mask)
 {
@@ -181,6 +235,16 @@ static int common_perm_rm(int op, struct path *dir,
 	return common_perm_dir_dentry(op, dir, dentry, mask, &cond);
 }
 
+/**
+ * common_perm_create - common permission wrapper for operations doing create
+ * @op: operation being checked
+ * @dir: directory that dentry will be created in  (NOT NULL)
+ * @dentry: dentry to create   (NOT NULL)
+ * @mask: request permission mask
+ * @mode: created file mode
+ *
+ * Returns: %0 else error code if error or permission denied
+ */
 static int common_perm_create(int op, struct path *dir, struct dentry *dentry,
 			      u32 mask, umode_t mode)
 {
@@ -318,6 +382,11 @@ static int apparmor_dentry_open(struct file *file, const struct cred *cred)
 	if (!mediated_filesystem(file->f_path.dentry->d_inode))
 		return 0;
 
+	/* If in exec, permission is handled by bprm hooks.
+	 * Cache permissions granted by the previous exec check, with
+	 * implicit read and executable mmap which are required to
+	 * actually execute the image.
+	 */
 	if (current->in_execve) {
 		fcxt->allow = MAY_EXEC | MAY_READ | AA_EXEC_MMAP;
 		return 0;
@@ -330,7 +399,7 @@ static int apparmor_dentry_open(struct file *file, const struct cred *cred)
 
 		error = aa_path_perm(OP_OPEN, profile, &file->f_path, 0,
 				     aa_map_file_to_perms(file), &cond);
-		
+		/* todo cache full allowed permissions set and state */
 		fcxt->allow = aa_map_file_to_perms(file);
 	}
 
@@ -339,7 +408,7 @@ static int apparmor_dentry_open(struct file *file, const struct cred *cred)
 
 static int apparmor_file_alloc_security(struct file *file)
 {
-	
+	/* freed by apparmor_file_free_security */
 	file->f_security = aa_alloc_file_context(GFP_KERNEL);
 	if (!file->f_security)
 		return -ENOMEM;
@@ -368,6 +437,13 @@ static int common_file_perm(int op, struct file *file, u32 mask)
 
 	profile = __aa_current_profile();
 
+	/* revalidate access, if task is unconfined, or the cached cred
+	 * doesn't match or if the request is for more permissions than
+	 * was granted.
+	 *
+	 * Note: the test for !unconfined(fprofile) is to handle file
+	 *       delegation from unconfined tasks
+	 */
 	if (!unconfined(profile) && !unconfined(fprofile) &&
 	    ((fprofile != profile) || (mask & ~fcxt->allow)))
 		error = aa_file_perm(op, profile, file, mask);
@@ -401,6 +477,10 @@ static int common_mmap(int op, struct file *file, unsigned long prot,
 
 	if (prot & PROT_READ)
 		mask |= MAY_READ;
+	/*
+	 * Private mappings don't require write perms since they don't
+	 * write back to the files
+	 */
 	if ((prot & PROT_WRITE) && !(flags & MAP_PRIVATE))
 		mask |= MAY_WRITE;
 	if (prot & PROT_EXEC)
@@ -416,7 +496,7 @@ static int apparmor_file_mmap(struct file *file, unsigned long reqprot,
 {
 	int rc = 0;
 
-	
+	/* do DAC check */
 	rc = cap_file_mmap(file, reqprot, prot, flags, addr, addr_only);
 	if (rc || addr_only)
 		return rc;
@@ -436,7 +516,7 @@ static int apparmor_getprocattr(struct task_struct *task, char *name,
 {
 	int error = -ENOENT;
 	struct aa_profile *profile;
-	
+	/* released below */
 	const struct cred *cred = get_task_cred(task);
 	struct aa_task_cxt *cxt = cred->security;
 	profile = aa_cred_profile(cred);
@@ -467,13 +547,17 @@ static int apparmor_setprocattr(struct task_struct *task, char *name,
 
 	if (size == 0)
 		return -EINVAL;
+	/* args points to a PAGE_SIZE buffer, AppArmor requires that
+	 * the buffer must be null terminated or have size <= PAGE_SIZE -1
+	 * so that AppArmor can null terminate them
+	 */
 	if (args[size - 1] != '\0') {
 		if (size == PAGE_SIZE)
 			return -EINVAL;
 		args[size] = '\0';
 	}
 
-	
+	/* task can only write its own attributes */
 	if (current != task)
 		return -EACCES;
 
@@ -518,7 +602,7 @@ static int apparmor_setprocattr(struct task_struct *task, char *name,
 		error = aa_setprocattr_changeprofile(args, AA_ONEXEC,
 						     !AA_DO_TEST);
 	} else {
-		
+		/* only support the "current" and "exec" process attributes */
 		return -EINVAL;
 	}
 	if (!error)
@@ -582,6 +666,9 @@ static struct security_operations apparmor_ops = {
 	.task_setrlimit =		apparmor_task_setrlimit,
 };
 
+/*
+ * AppArmor sysfs module parameters
+ */
 
 static int param_set_aabool(const char *val, const struct kernel_param *kp);
 static int param_get_aabool(char *buffer, const struct kernel_param *kp);
@@ -613,36 +700,55 @@ static int param_get_audit(char *buffer, struct kernel_param *kp);
 static int param_set_mode(const char *val, struct kernel_param *kp);
 static int param_get_mode(char *buffer, struct kernel_param *kp);
 
+/* Flag values, also controllable via /sys/module/apparmor/parameters
+ * We define special types as we want to do additional mediation.
+ */
 
+/* AppArmor global enforcement switch - complain, enforce, kill */
 enum profile_mode aa_g_profile_mode = APPARMOR_ENFORCE;
 module_param_call(mode, param_set_mode, param_get_mode,
 		  &aa_g_profile_mode, S_IRUSR | S_IWUSR);
 
+/* Debug mode */
 bool aa_g_debug;
 module_param_named(debug, aa_g_debug, aabool, S_IRUSR | S_IWUSR);
 
+/* Audit mode */
 enum audit_mode aa_g_audit;
 module_param_call(audit, param_set_audit, param_get_audit,
 		  &aa_g_audit, S_IRUSR | S_IWUSR);
 
+/* Determines if audit header is included in audited messages.  This
+ * provides more context if the audit daemon is not running
+ */
 bool aa_g_audit_header = 1;
 module_param_named(audit_header, aa_g_audit_header, aabool,
 		   S_IRUSR | S_IWUSR);
 
+/* lock out loading/removal of policy
+ * TODO: add in at boot loading of policy, which is the only way to
+ *       load policy, if lock_policy is set
+ */
 bool aa_g_lock_policy;
 module_param_named(lock_policy, aa_g_lock_policy, aalockpolicy,
 		   S_IRUSR | S_IWUSR);
 
+/* Syscall logging mode */
 bool aa_g_logsyscall;
 module_param_named(logsyscall, aa_g_logsyscall, aabool, S_IRUSR | S_IWUSR);
 
+/* Maximum pathname length before accesses will start getting rejected */
 unsigned int aa_g_path_max = 2 * PATH_MAX;
 module_param_named(path_max, aa_g_path_max, aauint, S_IRUSR | S_IWUSR);
 
+/* Determines how paranoid loading of policy is and how much verification
+ * on the loaded policy is done.
+ */
 bool aa_g_paranoid_load = 1;
 module_param_named(paranoid_load, aa_g_paranoid_load, aabool,
 		   S_IRUSR | S_IWUSR);
 
+/* Boot time disable flag */
 static bool apparmor_enabled = CONFIG_SECURITY_APPARMOR_BOOTPARAM_VALUE;
 module_param_named(enabled, apparmor_enabled, aabool, S_IRUSR);
 
@@ -657,6 +763,7 @@ static int __init apparmor_enabled_setup(char *str)
 
 __setup("apparmor=", apparmor_enabled_setup);
 
+/* set global flag turning off the ability to load policy */
 static int param_set_aalockpolicy(const char *val, const struct kernel_param *kp)
 {
 	if (!capable(CAP_MAC_ADMIN))
@@ -767,7 +874,15 @@ static int param_set_mode(const char *val, struct kernel_param *kp)
 	return -EINVAL;
 }
 
+/*
+ * AppArmor init functions
+ */
 
+/**
+ * set_init_cxt - set a task context and profile on the first task.
+ *
+ * TODO: allow setting an alternate profile than unconfined
+ */
 static int __init set_init_cxt(void)
 {
 	struct cred *cred = (struct cred *)current->real_cred;
@@ -811,7 +926,7 @@ static int __init apparmor_init(void)
 		goto set_init_cxt_out;
 	}
 
-	
+	/* Report that AppArmor successfully initialized */
 	apparmor_initialized = 1;
 	if (aa_g_profile_mode == APPARMOR_COMPLAIN)
 		aa_info_message("AppArmor initialized: complain mode enabled");

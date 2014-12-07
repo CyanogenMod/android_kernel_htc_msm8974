@@ -242,6 +242,11 @@ static int mv_chan_xor_slot_count(size_t len, int src_cnt)
 	return 1;
 }
 
+/**
+ * mv_xor_free_slots - flags descriptor slots for reuse
+ * @slot: Slot to free
+ * Caller must hold &mv_chan->lock while calling this function
+ */
 static void mv_xor_free_slots(struct mv_xor_chan *mv_chan,
 			      struct mv_xor_desc_slot *slot)
 {
@@ -252,6 +257,11 @@ static void mv_xor_free_slots(struct mv_xor_chan *mv_chan,
 
 }
 
+/*
+ * mv_xor_start_new_chain - program the engine to operate on new chain headed by
+ * sw_desc
+ * Caller must hold &mv_chan->lock while calling this function
+ */
 static void mv_xor_start_new_chain(struct mv_xor_chan *mv_chan,
 				   struct mv_xor_desc_slot *sw_desc)
 {
@@ -261,12 +271,15 @@ static void mv_xor_start_new_chain(struct mv_xor_chan *mv_chan,
 		mv_set_mode(mv_chan, sw_desc->type);
 
 	if (sw_desc->type == DMA_MEMSET) {
+		/* for memset requests we need to program the engine, no
+		 * descriptors used.
+		 */
 		struct mv_xor_desc *hw_desc = sw_desc->hw_desc;
 		mv_chan_set_dest_pointer(mv_chan, hw_desc->phy_dest_addr);
 		mv_chan_set_block_size(mv_chan, sw_desc->unmap_len);
 		mv_chan_set_value(mv_chan, sw_desc->value);
 	} else {
-		
+		/* set the hardware chain */
 		mv_chan_set_next_descriptor(mv_chan, sw_desc->async_tx.phys);
 	}
 	mv_chan->pending += sw_desc->slot_cnt;
@@ -282,10 +295,16 @@ mv_xor_run_tx_complete_actions(struct mv_xor_desc_slot *desc,
 	if (desc->async_tx.cookie > 0) {
 		cookie = desc->async_tx.cookie;
 
+		/* call the callback (must not sleep or submit new
+		 * operations to this channel)
+		 */
 		if (desc->async_tx.callback)
 			desc->async_tx.callback(
 				desc->async_tx.callback_param);
 
+		/* unmap dma addresses
+		 * (unmap_single vs unmap_page?)
+		 */
 		if (desc->group_head && desc->unmap_len) {
 			struct mv_xor_desc_slot *unmap = desc->group_head;
 			struct device *dev =
@@ -301,7 +320,7 @@ mv_xor_run_tx_complete_actions(struct mv_xor_desc_slot *desc,
 			if (!(flags & DMA_COMPL_SKIP_DEST_UNMAP)) {
 				enum dma_data_direction dir;
 
-				if (src_cnt > 1) 
+				if (src_cnt > 1) /* is xor ? */
 					dir = DMA_BIDIRECTIONAL;
 				else
 					dir = DMA_FROM_DEVICE;
@@ -322,7 +341,7 @@ mv_xor_run_tx_complete_actions(struct mv_xor_desc_slot *desc,
 		}
 	}
 
-	
+	/* run dependent operations */
 	dma_run_dependencies(&desc->async_tx);
 
 	return cookie;
@@ -352,8 +371,11 @@ mv_xor_clean_slot(struct mv_xor_desc_slot *desc,
 	dev_dbg(mv_chan->device->common.dev, "%s %d: desc %p flags %d\n",
 		__func__, __LINE__, desc, desc->async_tx.flags);
 	list_del(&desc->chain_node);
+	/* the client is allowed to attach dependent operations
+	 * until 'ack' is set
+	 */
 	if (!async_tx_test_ack(&desc->async_tx)) {
-		
+		/* move this slot to the completed_slots */
 		list_add_tail(&desc->completed_node, &mv_chan->completed_slots);
 		return 0;
 	}
@@ -374,15 +396,25 @@ static void __mv_xor_slot_cleanup(struct mv_xor_chan *mv_chan)
 	dev_dbg(mv_chan->device->common.dev, "current_desc %x\n", current_desc);
 	mv_xor_clean_completed_slots(mv_chan);
 
+	/* free completed slots from the chain starting with
+	 * the oldest descriptor
+	 */
 
 	list_for_each_entry_safe(iter, _iter, &mv_chan->chain,
 					chain_node) {
 		prefetch(_iter);
 		prefetch(&_iter->async_tx);
 
+		/* do not advance past the current descriptor loaded into the
+		 * hardware channel, subsequent descriptors are either in
+		 * process or have not been submitted
+		 */
 		if (seen_current)
 			break;
 
+		/* stop the search if we reach the current descriptor and the
+		 * channel is busy
+		 */
 		if (iter->async_tx.phys == current_desc) {
 			seen_current = 1;
 			if (busy)
@@ -430,6 +462,10 @@ mv_xor_alloc_slots(struct mv_xor_chan *mv_chan, int num_slots,
 	LIST_HEAD(chain);
 	int slots_found, retry = 0;
 
+	/* start search from the last allocated descrtiptor
+	 * if a contiguous allocation can not be found start searching
+	 * from the beginning of the list
+	 */
 retry:
 	slots_found = 0;
 	if (retry == 0)
@@ -444,6 +480,9 @@ retry:
 		prefetch(_iter);
 		prefetch(&_iter->async_tx);
 		if (iter->slots_per_op) {
+			/* give up after finding the first busy slot
+			 * on the second pass through the list
+			 */
 			if (retry)
 				break;
 
@@ -451,7 +490,7 @@ retry:
 			continue;
 		}
 
-		
+		/* start the allocation if the slot is correctly aligned */
 		if (!slots_found++)
 			alloc_start = iter;
 
@@ -462,7 +501,7 @@ retry:
 			while (num_slots) {
 				int i;
 
-				
+				/* pre-ack all but the last descriptor */
 				async_tx_ack(&iter->async_tx);
 
 				list_add_tail(&iter->chain_node, &chain);
@@ -491,12 +530,13 @@ retry:
 	if (!retry++)
 		goto retry;
 
-	
+	/* try to free some slots if the allocation fails */
 	tasklet_schedule(&mv_chan->irq_tasklet);
 
 	return NULL;
 }
 
+/************************ DMA engine API functions ****************************/
 static dma_cookie_t
 mv_xor_tx_submit(struct dma_async_tx_descriptor *tx)
 {
@@ -532,12 +572,16 @@ mv_xor_tx_submit(struct dma_async_tx_descriptor *tx)
 		dev_dbg(mv_chan->device->common.dev, "Append to last desc %x\n",
 			old_chain_tail->async_tx.phys);
 
-		
+		/* fix up the hardware chain */
 		mv_desc_set_next_desc(old_chain_tail, grp_start->async_tx.phys);
 
-		
+		/* if the channel is not busy */
 		if (!mv_chan_is_busy(mv_chan)) {
 			u32 current_desc = mv_chan_get_current_desc(mv_chan);
+			/*
+			 * and the curren desc is the end of the chain before
+			 * the append, then we need to start the channel
+			 */
 			if (current_desc == old_chain_tail->async_tx.phys)
 				new_hw_chain = 1;
 		}
@@ -552,6 +596,7 @@ submit_done:
 	return cookie;
 }
 
+/* returns the number of allocated descriptors */
 static int mv_xor_alloc_chan_resources(struct dma_chan *chan)
 {
 	char *hw_desc;
@@ -562,7 +607,7 @@ static int mv_xor_alloc_chan_resources(struct dma_chan *chan)
 		mv_chan->device->pdev->dev.platform_data;
 	int num_descs_in_pool = plat_data->pool_size/MV_XOR_SLOT_SIZE;
 
-	
+	/* Allocate descriptor slots */
 	idx = mv_chan->slots_allocated;
 	while (idx < num_descs_in_pool) {
 		slot = kzalloc(sizeof(*slot), GFP_KERNEL);
@@ -703,7 +748,7 @@ mv_xor_prep_dma_xor(struct dma_chan *chan, dma_addr_t dest, dma_addr_t *src,
 		sw_desc->async_tx.flags = flags;
 		grp_start = sw_desc->group_head;
 		mv_desc_init(grp_start, flags);
-		
+		/* the byte count field is the same as in memcpy desc*/
 		mv_desc_set_byte_count(grp_start, len);
 		mv_desc_set_dest_addr(sw_desc->group_head, dest);
 		sw_desc->unmap_src_cnt = src_cnt;
@@ -754,6 +799,12 @@ static void mv_xor_free_chan_resources(struct dma_chan *chan)
 			"freeing %d in use descriptors!\n", in_use_descs);
 }
 
+/**
+ * mv_xor_status - poll the status of an XOR transaction
+ * @chan: XOR channel handle
+ * @cookie: XOR transaction identifier
+ * @txstate: XOR transactions state holder (or NULL)
+ */
 static enum dma_status mv_xor_status(struct dma_chan *chan,
 					  dma_cookie_t cookie,
 					  struct dma_tx_state *txstate)
@@ -844,6 +895,9 @@ static void mv_xor_issue_pending(struct dma_chan *chan)
 	}
 }
 
+/*
+ * Perform a transaction to verify the HW works.
+ */
 #define MV_XOR_TEST_SIZE 2000
 
 static int __devinit mv_xor_memcpy_self_test(struct mv_xor_device *device)
@@ -867,11 +921,11 @@ static int __devinit mv_xor_memcpy_self_test(struct mv_xor_device *device)
 		return -ENOMEM;
 	}
 
-	
+	/* Fill in src buffer */
 	for (i = 0; i < MV_XOR_TEST_SIZE; i++)
 		((u8 *) src)[i] = (u8)i;
 
-	
+	/* Start copy, using first DMA channel */
 	dma_chan = container_of(device->common.channels.next,
 				struct dma_chan,
 				device_node);
@@ -919,7 +973,7 @@ out:
 	return err;
 }
 
-#define MV_XOR_NUM_SRC_TEST 4 
+#define MV_XOR_NUM_SRC_TEST 4 /* must be <= 15 */
 static int __devinit
 mv_xor_xor_self_test(struct mv_xor_device *device)
 {
@@ -952,7 +1006,7 @@ mv_xor_xor_self_test(struct mv_xor_device *device)
 		return -ENOMEM;
 	}
 
-	
+	/* Fill in src buffers */
 	for (src_idx = 0; src_idx < MV_XOR_NUM_SRC_TEST; src_idx++) {
 		u8 *ptr = page_address(xor_srcs[src_idx]);
 		for (i = 0; i < PAGE_SIZE; i++)
@@ -975,7 +1029,7 @@ mv_xor_xor_self_test(struct mv_xor_device *device)
 		goto out;
 	}
 
-	
+	/* test xor */
 	dest_dma = dma_map_page(dma_chan->device->dev, dest, 0, PAGE_SIZE,
 				DMA_FROM_DEVICE);
 
@@ -1061,6 +1115,10 @@ static int __devinit mv_xor_probe(struct platform_device *pdev)
 
 	dma_dev = &adev->common;
 
+	/* allocate coherent memory for hardware descriptors
+	 * note: writecombine gives slightly better performance, but
+	 * requires that we explicitly flush the writes
+	 */
 	adev->dma_desc_pool_virt = dma_alloc_writecombine(&pdev->dev,
 							  plat_data->pool_size,
 							  &adev->dma_desc_pool,
@@ -1070,7 +1128,7 @@ static int __devinit mv_xor_probe(struct platform_device *pdev)
 
 	adev->id = plat_data->hw_id;
 
-	
+	/* discover transaction capabilites from the platform data */
 	dma_dev->cap_mask = plat_data->cap_mask;
 	adev->pdev = pdev;
 	platform_set_drvdata(pdev, adev);
@@ -1079,14 +1137,14 @@ static int __devinit mv_xor_probe(struct platform_device *pdev)
 
 	INIT_LIST_HEAD(&dma_dev->channels);
 
-	
+	/* set base routines */
 	dma_dev->device_alloc_chan_resources = mv_xor_alloc_chan_resources;
 	dma_dev->device_free_chan_resources = mv_xor_free_chan_resources;
 	dma_dev->device_tx_status = mv_xor_status;
 	dma_dev->device_issue_pending = mv_xor_issue_pending;
 	dma_dev->dev = &pdev->dev;
 
-	
+	/* set prep routines based on capability */
 	if (dma_has_cap(DMA_MEMCPY, dma_dev->cap_mask))
 		dma_dev->device_prep_dma_memcpy = mv_xor_prep_dma_memcpy;
 	if (dma_has_cap(DMA_MEMSET, dma_dev->cap_mask))
@@ -1112,7 +1170,7 @@ static int __devinit mv_xor_probe(struct platform_device *pdev)
 	tasklet_init(&mv_chan->irq_tasklet, mv_xor_tasklet, (unsigned long)
 		     mv_chan);
 
-	
+	/* clear errors before enabling interrupts */
 	mv_xor_device_clear_err_status(mv_chan);
 
 	irq = platform_get_irq(pdev, 0);
@@ -1242,6 +1300,9 @@ static int mv_xor_shared_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, msp);
 
+	/*
+	 * (Re-)program MBUS remapping windows if we are asked to.
+	 */
 	dram = mv_mbus_dram_info();
 	if (dram)
 		mv_xor_conf_mbus_windows(msp, dram);
@@ -1278,6 +1339,7 @@ static int __init mv_xor_init(void)
 }
 module_init(mv_xor_init);
 
+/* it's currently unsafe to unload this module */
 #if 0
 static void __exit mv_xor_exit(void)
 {

@@ -3,26 +3,30 @@
 
 #include <linux/types.h>
 
+/* Avoid too many header ordering problems.  */
 struct siginfo;
 
 #ifdef __KERNEL__
+/* Most things should be clean enough to redefine this at will, if care
+   is taken to make libc match.  */
 
 #define _NSIG		64
 #define _NSIG_BPW	32
 #define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
 
-typedef unsigned long old_sigset_t;		
+typedef unsigned long old_sigset_t;		/* at least 32 bits */
 
 typedef struct {
 	unsigned long sig[_NSIG_WORDS];
 } sigset_t;
 
 #else
+/* Here we must cater to libcs that poke about in kernel headers.  */
 
 #define NSIG		32
 typedef unsigned long sigset_t;
 
-#endif 
+#endif /* __KERNEL__ */
 
 #define SIGHUP		 1
 #define SIGINT		 2
@@ -55,15 +59,32 @@ typedef unsigned long sigset_t;
 #define SIGWINCH	28
 #define SIGIO		29
 #define SIGPOLL		SIGIO
+/*
+#define SIGLOST		29
+*/
 #define SIGPWR		30
 #define SIGSYS		31
 #define	SIGUNUSED	31
 
+/* These should not be considered constants from userland.  */
 #define SIGRTMIN	32
 #define SIGRTMAX	_NSIG
 
+/*
+ * SA_FLAGS values:
+ *
+ * SA_ONSTACK indicates that a registered stack_t will be used.
+ * SA_RESTART flag to get restarting signals (which were the default long ago)
+ * SA_NOCLDSTOP flag to turn off SIGCHLD when children stop.
+ * SA_RESETHAND clears the handler when the signal is delivered.
+ * SA_NOCLDWAIT flag on SIGCHLD to inhibit zombies.
+ * SA_NODEFER prevents the current signal from being masked in the handler.
+ *
+ * SA_ONESHOT and SA_NOMASK are the historical Linux names for the Single
+ * Unix names RESETHAND and NODEFER respectively.
+ */
 #define SA_NOCLDSTOP	0x00000001
-#define SA_NOCLDWAIT	0x00000002 
+#define SA_NOCLDWAIT	0x00000002 /* not supported yet */
 #define SA_SIGINFO	0x00000004
 #define SA_ONSTACK	0x08000000
 #define SA_RESTART	0x10000000
@@ -75,6 +96,9 @@ typedef unsigned long sigset_t;
 
 #define SA_RESTORER	0x04000000
 
+/* 
+ * sigaltstack controls
+ */
 #define SS_ONSTACK	1
 #define SS_DISABLE	2
 
@@ -95,13 +119,14 @@ struct sigaction {
 	__sighandler_t sa_handler;
 	unsigned long sa_flags;
 	void (*sa_restorer)(void);
-	sigset_t sa_mask;		
+	sigset_t sa_mask;		/* mask last for extensibility */
 };
 
 struct k_sigaction {
 	struct sigaction sa;
 };
 #else
+/* Here we must cater to libcs that poke about in kernel headers.  */
 
 struct sigaction {
 	union {
@@ -116,7 +141,7 @@ struct sigaction {
 #define sa_handler	_u._sa_handler
 #define sa_sigaction	_u._sa_sigaction
 
-#endif 
+#endif /* __KERNEL__ */
 
 typedef struct sigaltstack {
 	void *ss_sp;
@@ -131,6 +156,6 @@ typedef struct sigaltstack {
 
 #define ptrace_signal_deliver(regs, cookie) do { } while (0)
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _H8300_SIGNAL_H */

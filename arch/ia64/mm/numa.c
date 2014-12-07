@@ -21,13 +21,22 @@
 #include <asm/numa.h>
 
 
+/*
+ * The following structures are usually initialized by ACPI or
+ * similar mechanisms and describe the NUMA characteristics of the machine.
+ */
 int num_node_memblks;
 struct node_memblk_s node_memblk[NR_NODE_MEMBLKS];
 struct node_cpuid_s node_cpuid[NR_CPUS] =
 	{ [0 ... NR_CPUS-1] = { .phys_id = 0, .nid = NUMA_NO_NODE } };
 
+/*
+ * This is a matrix with "distances" between nodes, they should be
+ * proportional to the memory access latency ratios.
+ */
 u8 numa_slit[MAX_NUMNODES * MAX_NUMNODES];
 
+/* Identify which cnode a physical address resides on */
 int
 paddr_to_nid(unsigned long paddr)
 {
@@ -42,6 +51,13 @@ paddr_to_nid(unsigned long paddr)
 }
 
 #if defined(CONFIG_SPARSEMEM) && defined(CONFIG_NUMA)
+/*
+ * Because of holes evaluate on section limits.
+ * If the section of memory exists, then return the node where the section
+ * resides.  Otherwise return node 0 as the default.  This is used by
+ * SPARSEMEM to allocate the SPARSEMEM sectionmap on the NUMA node where
+ * the section resides.
+ */
 int __meminit __early_pfn_to_nid(unsigned long pfn)
 {
 	int i, section = pfn >> PFN_SECTION_SHIFT, ssec, esec;
@@ -58,6 +74,10 @@ int __meminit __early_pfn_to_nid(unsigned long pfn)
 }
 
 #ifdef CONFIG_MEMORY_HOTPLUG
+/*
+ *  SRAT information is stored in node_memblk[], then we can use SRAT
+ *  information at memory-hot-add if necessary.
+ */
 
 int memory_add_physaddr_to_nid(u64 addr)
 {

@@ -85,6 +85,7 @@ static struct cbe_pmd_regs __iomem *get_pmd_regs(struct device *dev)
 	return cbe_get_pmd_regs(spu_devnode(spu));
 }
 
+/* returns the value for a given spu in a given register */
 static u8 spu_read_register_value(struct device *dev, union spe_reg __iomem *reg)
 {
 	union spe_reg value;
@@ -114,7 +115,7 @@ static ssize_t show_throttle(struct cbe_pmd_regs __iomem *pmd_regs, char *buf, i
 	u64 value;
 
 	value = in_be64(&pmd_regs->tm_tpr.val);
-	
+	/* access the corresponding byte */
 	value >>= pos;
 	value &= 0x3F;
 
@@ -137,9 +138,9 @@ static ssize_t store_throttle(struct cbe_pmd_regs __iomem *pmd_regs, const char 
 
 	reg_value = in_be64(&pmd_regs->tm_tpr.val);
 
-	
+	/* zero out bits for new value */
 	reg_value &= ~(0xffull << pos);
-	
+	/* set bits to new value */
 	reg_value |= new_value << pos;
 
 	out_be64(&pmd_regs->tm_tpr.val, reg_value);
@@ -196,12 +197,15 @@ static ssize_t ppe_show_temp(struct device *dev, char *buf, int pos)
 }
 
 
+/* shows the temperature of the DTS on the PPE,
+ * located near the linear thermal sensor */
 static ssize_t ppe_show_temp0(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
 	return ppe_show_temp(dev, buf, 32);
 }
 
+/* shows the temperature of the second DTS on the PPE */
 static ssize_t ppe_show_temp1(struct device *dev,
 			struct device_attribute *attr, char *buf)
 {
@@ -296,6 +300,9 @@ static struct attribute_group ppe_attribute_group = {
 	.attrs	= ppe_attributes,
 };
 
+/*
+ * initialize throttling with default values
+ */
 static int __init init_default_values(void)
 {
 	int cpu;
@@ -307,16 +314,37 @@ static int __init init_default_values(void)
 	union spe_reg cr1;
 	u64 cr2;
 
-	
+	/* TPR defaults */
+	/* ppe
+	 *	1F - no full stop
+	 *	08 - dynamic throttling starts if over 80 degrees
+	 *	03 - dynamic throttling ceases if below 70 degrees */
 	tpr.ppe = 0x1F0803;
+	/* spe
+	 *	10 - full stopped when over 96 degrees
+	 *	08 - dynamic throttling starts if over 80 degrees
+	 *	03 - dynamic throttling ceases if below 70 degrees
+	 */
 	tpr.spe = 0x100803;
 
-	
+	/* STR defaults */
+	/* str1
+	 *	10 - stop 16 of 32 cycles
+	 */
 	str1.val = 0x1010101010101010ull;
+	/* str2
+	 *	10 - stop 16 of 32 cycles
+	 */
 	str2 = 0x10;
 
-	
+	/* CR defaults */
+	/* cr1
+	 *	4 - normal operation
+	 */
 	cr1.val = 0x0404040404040404ull;
+	/* cr2
+	 *	4 - normal operation
+	 */
 	cr2 = 0x04;
 
 	for_each_possible_cpu (cpu) {

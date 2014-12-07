@@ -49,7 +49,7 @@ static void mb86290fb_copyarea(struct fb_info *info,
 	__u32 cmd[6];
 
 	cmd[0] = (GDC_TYPE_SETREGISTER << 24) | (1 << 16) | GDC_REG_MODE_BITMAP;
-	
+	/* Set raster operation */
 	cmd[1] = (2 << 7) | (GDC_ROP_COPY << 9);
 	cmd[2] = GDC_TYPE_BLTCOPYP << 24;
 
@@ -68,6 +68,10 @@ static void mb86290fb_copyarea(struct fb_info *info,
 	mb862xxfb_write_fifo(6, cmd, info);
 }
 
+/*
+ * Fill in the cmd array /GDC FIFO commands/ to draw a 1bit image.
+ * Make sure cmd has enough room!
+ */
 static void mb86290fb_imageblit1(u32 *cmd, u16 step, u16 dx, u16 dy,
 				 u16 width, u16 height, u32 fgcolor,
 				 u32 bgcolor, const struct fb_image *image,
@@ -77,9 +81,9 @@ static void mb86290fb_imageblit1(u32 *cmd, u16 step, u16 dx, u16 dy,
 	unsigned const char *line;
 	u16 bytes;
 
-	
+	/* set colors and raster operation regs */
 	cmd[0] = (GDC_TYPE_SETREGISTER << 24) | (1 << 16) | GDC_REG_MODE_BITMAP;
-	
+	/* Set raster operation */
 	cmd[1] = (2 << 7) | (GDC_ROP_COPY << 9);
 	cmd[2] =
 	    (GDC_TYPE_SETCOLORREGISTER << 24) | (GDC_CMD_BODY_FORE_COLOR << 16);
@@ -92,7 +96,7 @@ static void mb86290fb_imageblit1(u32 *cmd, u16 step, u16 dx, u16 dy,
 	line = image->data;
 	bytes = (image->width + 7) >> 3;
 
-	
+	/* and the image */
 	cmd[6] = (GDC_TYPE_DRAWBITMAPP << 24) |
 	    (GDC_CMD_BITMAP << 16) | (2 + (step * height));
 	cmd[7] = (dy << 16) | dx;
@@ -113,6 +117,10 @@ static void mb86290fb_imageblit1(u32 *cmd, u16 step, u16 dx, u16 dy,
 	}
 }
 
+/*
+ * Fill in the cmd array /GDC FIFO commands/ to draw a 8bit image.
+ * Make sure cmd has enough room!
+ */
 static void mb86290fb_imageblit8(u32 *cmd, u16 step, u16 dx, u16 dy,
 				 u16 width, u16 height, u32 fgcolor,
 				 u32 bgcolor, const struct fb_image *image,
@@ -148,6 +156,10 @@ static void mb86290fb_imageblit8(u32 *cmd, u16 step, u16 dx, u16 dy,
 	}
 }
 
+/*
+ * Fill in the cmd array /GDC FIFO commands/ to draw a 16bit image.
+ * Make sure cmd has enough room!
+ */
 static void mb86290fb_imageblit16(u32 *cmd, u16 step, u16 dx, u16 dy,
 				  u16 width, u16 height, u32 fgcolor,
 				  u32 bgcolor, const struct fb_image *image,
@@ -255,6 +267,8 @@ static void mb86290fb_fillrect(struct fb_info *info,
 	    || rect->dy > vyres)
 		return;
 
+	/* We could use hardware clipping but on many cards you get around
+	 * hardware clipping by writing to framebuffer directly. */
 	x2 = rect->dx + rect->width;
 	y2 = rect->dy + rect->height;
 	x2 = min(x2, vxres);
@@ -270,19 +284,19 @@ static void mb86290fb_fillrect(struct fb_info *info,
 	switch (rect->rop) {
 
 	case ROP_XOR:
-		
+		/* Set raster operation */
 		cmd[1] = (2 << 7) | (GDC_ROP_XOR << 9);
 		break;
 
 	case ROP_COPY:
-		
+		/* Set raster operation */
 		cmd[1] = (2 << 7) | (GDC_ROP_COPY << 9);
 		break;
 
 	}
 
 	cmd[0] = (GDC_TYPE_SETREGISTER << 24) | (1 << 16) | GDC_REG_MODE_BITMAP;
-	
+	/* cmd[1] set earlier */
 	cmd[2] =
 	    (GDC_TYPE_SETCOLORREGISTER << 24) | (GDC_CMD_BODY_FORE_COLOR << 16);
 	cmd[3] = fg;
@@ -314,7 +328,7 @@ void mb862xxfb_init_accel(struct fb_info *info, int xres)
 	info->flags |=
 	    FBINFO_HWACCEL_COPYAREA | FBINFO_HWACCEL_FILLRECT |
 	    FBINFO_HWACCEL_IMAGEBLIT;
-	info->fix.accel = 0xff;	
+	info->fix.accel = 0xff;	/*FIXME: add right define */
 }
 EXPORT_SYMBOL(mb862xxfb_init_accel);
 

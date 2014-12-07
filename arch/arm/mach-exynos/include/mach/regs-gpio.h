@@ -24,6 +24,7 @@
 
 #define EINT_OFFSET_BIT(x)		(1 << (EINT_OFFSET(x) & 0x7))
 
+/* compatibility for plat-s5p/irq-pm.c */
 #define EXYNOS4_EINT40CON		(S5P_VA_GPIO2 + 0xE00)
 #define S5P_EINT_CON(x)			(EXYNOS4_EINT40CON + ((x) * 0x4))
 
@@ -36,4 +37,4 @@
 #define EXYNOS4_EINT40PEND		(S5P_VA_GPIO2 + 0xF40)
 #define S5P_EINT_PEND(x)		(EXYNOS4_EINT40PEND + ((x) * 0x4))
 
-#endif 
+#endif /* __ASM_ARCH_REGS_GPIO_H */

@@ -75,11 +75,11 @@ static int dibx000_is_i2c_done(struct dibx000_i2c_master *mst)
 	while (((status = dibx000_read_word(mst, mst->base_reg + 2)) & 0x0100) == 0 && --i > 0)
 		;
 
-	
+	/* i2c timed out */
 	if (i == 0)
 		return -EREMOTEIO;
 
-	
+	/* no acknowledge */
 	if ((status & 0x0080) == 0)
 		return -EREMOTEIO;
 
@@ -114,10 +114,10 @@ static int dibx000_master_i2c_write(struct dibx000_i2c_master *mst, struct i2c_m
 			(0           << 0);
 
 		if (txlen == msg->len)
-			da |= 1 << 5; 
+			da |= 1 << 5; /* start */
 
 		if (txlen-len == 0 && stop)
-			da |= 1 << 6; 
+			da |= 1 << 6; /* stop */
 
 		dibx000_write_word(mst, mst->base_reg+1, da);
 
@@ -147,10 +147,10 @@ static int dibx000_master_i2c_read(struct dibx000_i2c_master *mst, struct i2c_ms
 			(0           << 0);
 
 		if (rxlen == msg->len)
-			da |= 1 << 5; 
+			da |= 1 << 5; /* start */
 
 		if (rxlen-len == 0)
-			da |= 1 << 6; 
+			da |= 1 << 6; /* stop */
 		dibx000_write_word(mst, mst->base_reg+1, da);
 
 		if (dibx000_is_i2c_done(mst) != 0)
@@ -260,7 +260,7 @@ static int dibx000_i2c_gate_ctrl(struct dibx000_i2c_master *mst, u8 tx[4],
 
 
 	if (onoff)
-		val = addr << 8;	
+		val = addr << 8;	// bit 7 = use master or not, if 0, the gate is open
 	else
 		val = 1 << 7;
 
@@ -296,7 +296,7 @@ static int dibx000_i2c_gated_gpio67_xfer(struct i2c_adapter *i2c_adap,
 
 	memset(mst->msg, 0, sizeof(struct i2c_msg) * (2 + num));
 
-	
+	/* open the gate */
 	dibx000_i2c_gate_ctrl(mst, &mst->i2c_write_buffer[0], msg[0].addr, 1);
 	mst->msg[0].addr = mst->i2c_addr;
 	mst->msg[0].buf = &mst->i2c_write_buffer[0];
@@ -304,7 +304,7 @@ static int dibx000_i2c_gated_gpio67_xfer(struct i2c_adapter *i2c_adap,
 
 	memcpy(&mst->msg[1], msg, sizeof(struct i2c_msg) * num);
 
-	
+	/* close the gate */
 	dibx000_i2c_gate_ctrl(mst, &mst->i2c_write_buffer[4], 0, 0);
 	mst->msg[num + 1].addr = mst->i2c_addr;
 	mst->msg[num + 1].buf = &mst->i2c_write_buffer[4];
@@ -342,7 +342,7 @@ static int dibx000_i2c_gated_tuner_xfer(struct i2c_adapter *i2c_adap,
 	}
 	memset(mst->msg, 0, sizeof(struct i2c_msg) * (2 + num));
 
-	
+	/* open the gate */
 	dibx000_i2c_gate_ctrl(mst, &mst->i2c_write_buffer[0], msg[0].addr, 1);
 	mst->msg[0].addr = mst->i2c_addr;
 	mst->msg[0].buf = &mst->i2c_write_buffer[0];
@@ -350,7 +350,7 @@ static int dibx000_i2c_gated_tuner_xfer(struct i2c_adapter *i2c_adap,
 
 	memcpy(&mst->msg[1], msg, sizeof(struct i2c_msg) * num);
 
-	
+	/* close the gate */
 	dibx000_i2c_gate_ctrl(mst, &mst->i2c_write_buffer[4], 0, 0);
 	mst->msg[num + 1].addr = mst->i2c_addr;
 	mst->msg[num + 1].buf = &mst->i2c_write_buffer[4];
@@ -402,13 +402,13 @@ EXPORT_SYMBOL(dibx000_get_i2c_adapter);
 
 void dibx000_reset_i2c_master(struct dibx000_i2c_master *mst)
 {
-	
+	/* initialize the i2c-master by closing the gate */
 	u8 tx[4];
 	struct i2c_msg m = {.addr = mst->i2c_addr,.buf = tx,.len = 4 };
 
 	dibx000_i2c_gate_ctrl(mst, tx, 0, 0);
 	i2c_transfer(mst->i2c_adap, &m, 1);
-	mst->selected_interface = 0xff;	
+	mst->selected_interface = 0xff;	// the first time force a select of the I2C
 	dibx000_i2c_select_interface(mst, DIBX000_I2C_INTERFACE_TUNER);
 }
 
@@ -480,7 +480,7 @@ int dibx000_init_i2c_master(struct dibx000_i2c_master *mst, u16 device_rev,
 		printk(KERN_ERR
 				"DiBX000: could not initialize the master i2c_adapter\n");
 
-	
+	/* initialize the i2c-master by closing the gate */
 	dibx000_i2c_gate_ctrl(mst, mst->i2c_write_buffer, 0, 0);
 
 	ret = (i2c_transfer(i2c_adap, mst->msg, 1) == 1);

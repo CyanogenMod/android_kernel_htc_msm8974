@@ -33,7 +33,7 @@
 #define ISA_DMA_COUNT		6
 
 static unsigned int isa_dma_port[8][7] = {
-	
+	/* MASK   MODE   CLRFF  PAGE_HI PAGE_LO ADDR COUNT */
 	{  0x0a,  0x0b,  0x0c,  0x487,  0x087,  0x00, 0x01 },
 	{  0x0a,  0x0b,  0x0c,  0x483,  0x083,  0x02, 0x03 },
 	{  0x0a,  0x0b,  0x0c,  0x481,  0x081,  0x04, 0x05 },
@@ -82,6 +82,10 @@ static void isa_enable_dma(unsigned int chan, dma_t *dma)
 		}
 
 		if (!dma->sg) {
+			/*
+			 * Cope with ISA-style drivers which expect cache
+			 * coherence.
+			 */
 			dma->sg = &dma->buf;
 			dma->sgcount = 1;
 			dma->buf.length = dma->count;
@@ -147,11 +151,23 @@ static struct resource dma_resources[] = { {
 
 static dma_t isa_dma[8];
 
+/*
+ * ISA DMA always starts at channel 0
+ */
 void __init isa_init_dma(void)
 {
+	/*
+	 * Try to autodetect presence of an ISA DMA controller.
+	 * We do some minimal initialisation, and check that
+	 * channel 0's DMA address registers are writeable.
+	 */
 	outb(0xff, 0x0d);
 	outb(0xff, 0xda);
 
+	/*
+	 * Write high and low address, and then read them back
+	 * in the same order.
+	 */
 	outb(0x55, 0x00);
 	outb(0xaa, 0x00);
 
@@ -178,6 +194,11 @@ void __init isa_init_dma(void)
 		outb(0x10, 0x08);
 		outb(0x10, 0xd0);
 
+		/*
+		 * Is this correct?  According to my documentation, it
+		 * doesn't appear to be.  It should be:
+		 *  outb(0x3f, 0x40b); outb(0x3f, 0x4d6);
+		 */
 		outb(0x30, 0x40b);
 		outb(0x31, 0x40b);
 		outb(0x32, 0x40b);

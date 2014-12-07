@@ -39,9 +39,9 @@
 
 #define TIOCSWINSZ	_IOW('t', 103, struct winsize)
 #define TIOCGWINSZ	_IOR('t', 104, struct winsize)
-#define	TIOCSTART	_IO('t', 110)		
-#define	TIOCSTOP	_IO('t', 111)		
-#define TIOCOUTQ        _IOR('t', 115, int)     
+#define	TIOCSTART	_IO('t', 110)		/* start output, like ^Q */
+#define	TIOCSTOP	_IO('t', 111)		/* stop output, like ^S */
+#define TIOCOUTQ        _IOR('t', 115, int)     /* output queue size */
 
 #define TIOCSPGRP	_IOW('t', 118, int)
 #define TIOCGPGRP	_IOR('t', 119, int)
@@ -87,19 +87,19 @@
 #define TIOCNOTTY	_IO('T', 34)
 #define TIOCSETD	_IOW('T', 35, int)
 #define TIOCGETD	_IOR('T', 36, int)
-#define TCSBRKP		_IOW('T', 37, int)   
-#define TIOCTTYGSTRUCT	_IOR('T', 38, struct tty_struct) 
-#define TIOCSBRK	_IO('T', 39) 	     
-#define TIOCCBRK	_IO('T', 40)	     
-#define TIOCGSID	_IOR('T', 41, pid_t) 
+#define TCSBRKP		_IOW('T', 37, int)   /* Needed for POSIX tcsendbreak()*/
+#define TIOCTTYGSTRUCT	_IOR('T', 38, struct tty_struct) /* For debugging only*/
+#define TIOCSBRK	_IO('T', 39) 	     /* BSD compatibility */
+#define TIOCCBRK	_IO('T', 40)	     /* BSD compatibility */
+#define TIOCGSID	_IOR('T', 41, pid_t) /* Return the session ID of FD*/
 #define TCGETS2		_IOR('T', 42, struct termios2)
 #define TCSETS2		_IOW('T', 43, struct termios2)
 #define TCSETSW2	_IOW('T', 44, struct termios2)
 #define TCSETSF2	_IOW('T', 45, struct termios2)
-#define TIOCGPTN	_IOR('T',0x30, unsigned int) 
-#define TIOCSPTLCK	_IOW('T',0x31, int)  
-#define TIOCGDEV	_IOR('T',0x32, unsigned int) 
-#define TIOCSIG		_IOW('T',0x36, int)  
+#define TIOCGPTN	_IOR('T',0x30, unsigned int) /* Get Pty Number (of pty-mux device) */
+#define TIOCSPTLCK	_IOW('T',0x31, int)  /* Lock/unlock Pty */
+#define TIOCGDEV	_IOR('T',0x32, unsigned int) /* Get primary device node of /dev/console */
+#define TIOCSIG		_IOW('T',0x36, int)  /* Generate signal on Pty slave */
 #define TIOCVHANGUP	_IO('T', 0x37)
 
 #define TIOCSERCONFIG	_IO('T', 83)
@@ -107,14 +107,14 @@
 #define TIOCSERSWILD	_IOW('T', 85,  int)
 #define TIOCGLCKTRMIOS	0x5456
 #define TIOCSLCKTRMIOS	0x5457
-#define TIOCSERGSTRUCT	0x5458		     
-#define TIOCSERGETLSR   _IOR('T', 89, unsigned int) 
-  
-# define TIOCSER_TEMT    0x01		     
-#define TIOCSERGETMULTI _IOR('T', 90, struct serial_multiport_struct) 
-#define TIOCSERSETMULTI _IOW('T', 91, struct serial_multiport_struct) 
+#define TIOCSERGSTRUCT	0x5458		     /* For debugging only */
+#define TIOCSERGETLSR   _IOR('T', 89, unsigned int) /* Get line status reg. */
+  /* ioctl (fd, TIOCSERGETLSR, &result) where result may be as below */
+# define TIOCSER_TEMT    0x01		     /* Transmitter physically empty */
+#define TIOCSERGETMULTI _IOR('T', 90, struct serial_multiport_struct) /* Get multiport config  */
+#define TIOCSERSETMULTI _IOW('T', 91, struct serial_multiport_struct) /* Set multiport config */
 
-#define TIOCMIWAIT	_IO('T', 92) 
-#define TIOCGICOUNT	0x545D	
+#define TIOCMIWAIT	_IO('T', 92) /* wait for a change on serial input line(s) */
+#define TIOCGICOUNT	0x545D	/* read serial port inline interrupt counts */
 
-#endif 
+#endif /* _XTENSA_IOCTLS_H */

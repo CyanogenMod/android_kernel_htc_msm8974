@@ -54,6 +54,14 @@ static struct key_entry *sparse_keymap_entry_by_index(struct input_dev *dev,
 	return NULL;
 }
 
+/**
+ * sparse_keymap_entry_from_scancode - perform sparse keymap lookup
+ * @dev: Input device using sparse keymap
+ * @code: Scan code
+ *
+ * This function is used to perform &struct key_entry lookup in an
+ * input device using sparse keymap.
+ */
 struct key_entry *sparse_keymap_entry_from_scancode(struct input_dev *dev,
 						    unsigned int code)
 {
@@ -67,6 +75,14 @@ struct key_entry *sparse_keymap_entry_from_scancode(struct input_dev *dev,
 }
 EXPORT_SYMBOL(sparse_keymap_entry_from_scancode);
 
+/**
+ * sparse_keymap_entry_from_keycode - perform sparse keymap lookup
+ * @dev: Input device using sparse keymap
+ * @keycode: Key code
+ *
+ * This function is used to perform &struct key_entry lookup in an
+ * input device using sparse keymap.
+ */
 struct key_entry *sparse_keymap_entry_from_keycode(struct input_dev *dev,
 						   unsigned int keycode)
 {
@@ -138,11 +154,24 @@ static int sparse_keymap_setkeycode(struct input_dev *dev,
 	return -EINVAL;
 }
 
+/**
+ * sparse_keymap_setup - set up sparse keymap for an input device
+ * @dev: Input device
+ * @keymap: Keymap in form of array of &key_entry structures ending
+ *	with %KE_END type entry
+ * @setup: Function that can be used to adjust keymap entries
+ *	depending on device's deeds, may be %NULL
+ *
+ * The function calculates size and allocates copy of the original
+ * keymap after which sets up input device event bits appropriately.
+ * Before destroying input device allocated keymap should be freed
+ * with a call to sparse_keymap_free().
+ */
 int sparse_keymap_setup(struct input_dev *dev,
 			const struct key_entry *keymap,
 			int (*setup)(struct input_dev *, struct key_entry *))
 {
-	size_t map_size = 1; 
+	size_t map_size = 1; /* to account for the last KE_END entry */
 	const struct key_entry *e;
 	struct key_entry *map, *entry;
 	int i;
@@ -199,10 +228,26 @@ int sparse_keymap_setup(struct input_dev *dev,
 }
 EXPORT_SYMBOL(sparse_keymap_setup);
 
+/**
+ * sparse_keymap_free - free memory allocated for sparse keymap
+ * @dev: Input device using sparse keymap
+ *
+ * This function is used to free memory allocated by sparse keymap
+ * in an input device that was set up by sparse_keymap_setup().
+ * NOTE: It is safe to cal this function while input device is
+ * still registered (however the drivers should care not to try to
+ * use freed keymap and thus have to shut off interrups/polling
+ * before freeing the keymap).
+ */
 void sparse_keymap_free(struct input_dev *dev)
 {
 	unsigned long flags;
 
+	/*
+	 * Take event lock to prevent racing with input_get_keycode()
+	 * and input_set_keycode() if we are called while input device
+	 * is still registered.
+	 */
 	spin_lock_irqsave(&dev->event_lock, flags);
 
 	kfree(dev->keycode);
@@ -213,6 +258,18 @@ void sparse_keymap_free(struct input_dev *dev)
 }
 EXPORT_SYMBOL(sparse_keymap_free);
 
+/**
+ * sparse_keymap_report_entry - report event corresponding to given key entry
+ * @dev: Input device for which event should be reported
+ * @ke: key entry describing event
+ * @value: Value that should be reported (ignored by %KE_SW entries)
+ * @autorelease: Signals whether release event should be emitted for %KE_KEY
+ *	entries right after reporting press event, ignored by all other
+ *	entries
+ *
+ * This function is used to report input event described by given
+ * &struct key_entry.
+ */
 void sparse_keymap_report_entry(struct input_dev *dev, const struct key_entry *ke,
 				unsigned int value, bool autorelease)
 {
@@ -229,7 +286,7 @@ void sparse_keymap_report_entry(struct input_dev *dev, const struct key_entry *k
 
 	case KE_SW:
 		value = ke->sw.value;
-		
+		/* fall through */
 
 	case KE_VSW:
 		input_report_switch(dev, ke->sw.code, value);
@@ -238,6 +295,19 @@ void sparse_keymap_report_entry(struct input_dev *dev, const struct key_entry *k
 }
 EXPORT_SYMBOL(sparse_keymap_report_entry);
 
+/**
+ * sparse_keymap_report_event - report event corresponding to given scancode
+ * @dev: Input device using sparse keymap
+ * @code: Scan code
+ * @value: Value that should be reported (ignored by %KE_SW entries)
+ * @autorelease: Signals whether release event should be emitted for %KE_KEY
+ *	entries right after reporting press event, ignored by all other
+ *	entries
+ *
+ * This function is used to perform lookup in an input device using sparse
+ * keymap and report corresponding event. Returns %true if lookup was
+ * successful and %false otherwise.
+ */
 bool sparse_keymap_report_event(struct input_dev *dev, unsigned int code,
 				unsigned int value, bool autorelease)
 {
@@ -250,7 +320,7 @@ bool sparse_keymap_report_event(struct input_dev *dev, unsigned int code,
 		return true;
 	}
 
-	
+	/* Report an unknown key event as a debugging aid */
 	unknown_ke.type = KE_KEY;
 	unknown_ke.code = code;
 	unknown_ke.keycode = KEY_UNKNOWN;

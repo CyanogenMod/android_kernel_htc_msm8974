@@ -13,6 +13,9 @@
 extern void _rdmsr(u32 msr, u32 *hi, u32 *lo);
 extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 
+/*
+ * MSR module base
+ */
 #define	CS5536_SB_MSR_BASE	(0x00000000)
 #define	CS5536_GLIU_MSR_BASE	(0x10000000)
 #define	CS5536_ILLEGAL_MSR_BASE	(0x20000000)
@@ -33,8 +36,13 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	UNUSED_MSR_REG(offset)	(CS5536_UNUSED_MSR_BASE	| (offset))
 #define	GLCP_MSR_REG(offset)	(CS5536_GLCP_MSR_BASE	| (offset))
 
-#define	CS5536_IRQ_RANGE	0xffffffe0 
-#define	CS5536_IRQ_LENGTH	0x20	
+/*
+ * BAR SPACE OF VIRTUAL PCI :
+ * range for pci probe use, length is the actual size.
+ */
+/* IO space for all DIVIL modules */
+#define	CS5536_IRQ_RANGE	0xffffffe0 /* USERD FOR PCI PROBE */
+#define	CS5536_IRQ_LENGTH	0x20	/* THE REGS ACTUAL LENGTH */
 #define	CS5536_SMB_RANGE	0xfffffff8
 #define	CS5536_SMB_LENGTH	0x08
 #define	CS5536_GPIO_RANGE	0xffffff00
@@ -45,21 +53,31 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	CS5536_ACPI_LENGTH	0x20
 #define	CS5536_PMS_RANGE	0xffffff80
 #define	CS5536_PMS_LENGTH	0x80
+/* IO space for IDE */
 #define	CS5536_IDE_RANGE	0xfffffff0
 #define	CS5536_IDE_LENGTH	0x10
+/* IO space for ACC */
 #define	CS5536_ACC_RANGE	0xffffff80
 #define	CS5536_ACC_LENGTH	0x80
+/* MEM space for ALL USB modules */
 #define	CS5536_OHCI_RANGE	0xfffff000
 #define	CS5536_OHCI_LENGTH	0x1000
 #define	CS5536_EHCI_RANGE	0xfffff000
 #define	CS5536_EHCI_LENGTH	0x1000
 
+/*
+ * PCI MSR ACCESS
+ */
 #define	PCI_MSR_CTRL		0xF0
 #define	PCI_MSR_ADDR		0xF4
 #define	PCI_MSR_DATA_LO		0xF8
 #define	PCI_MSR_DATA_HI		0xFC
 
+/**************** MSR *****************************/
 
+/*
+ * GLIU STANDARD MSR
+ */
 #define	GLIU_CAP		0x00
 #define	GLIU_CONFIG		0x01
 #define	GLIU_SMI		0x02
@@ -67,6 +85,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	GLIU_PM			0x04
 #define	GLIU_DIAG		0x05
 
+/*
+ * GLIU SPEC. MSR
+ */
 #define	GLIU_P2D_BM0		0x20
 #define	GLIU_P2D_BM1		0x21
 #define	GLIU_P2D_BM2		0x22
@@ -104,6 +125,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	GLIU_IOD_SC6		0xF0
 #define	GLIU_IOD_SC7		0xF1
 
+/*
+ * SB STANDARD
+ */
 #define	SB_CAP		0x00
 #define	SB_CONFIG	0x01
 #define	SB_SMI		0x02
@@ -125,6 +149,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	SB_PM		0x04
 #define	SB_DIAG		0x05
 
+/*
+ * SB SPEC.
+ */
 #define	SB_CTRL		0x10
 #define	SB_R0		0x20
 #define	SB_R1		0x21
@@ -143,6 +170,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	SB_R14		0x2E
 #define	SB_R15		0x2F
 
+/*
+ * GLCP STANDARD
+ */
 #define	GLCP_CAP		0x00
 #define	GLCP_CONFIG		0x01
 #define	GLCP_SMI		0x02
@@ -150,6 +180,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	GLCP_PM			0x04
 #define	GLCP_DIAG		0x05
 
+/*
+ * GLCP SPEC.
+ */
 #define	GLCP_CLK_DIS_DELAY	0x08
 #define	GLCP_PM_CLK_DISABLE	0x09
 #define	GLCP_GLB_PM		0x0B
@@ -176,6 +209,7 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	GLCP_DBG_CLK_CTRL	0x16
 #define	GLCP_CHIP_REV_ID	0x17
 
+/* PIC */
 #define	PIC_YSEL_LOW		0x20
 #define	PIC_YSEL_LOW_USB_SHIFT		8
 #define	PIC_YSEL_LOW_ACC_SHIFT		16
@@ -189,6 +223,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	PIC_XIRR_STS_HIGH	0x27
 #define	PCI_SHDW		0x34
 
+/*
+ * DIVIL STANDARD
+ */
 #define	DIVIL_CAP		0x00
 #define	DIVIL_CONFIG		0x01
 #define	DIVIL_SMI		0x02
@@ -196,6 +233,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	DIVIL_PM		0x04
 #define	DIVIL_DIAG		0x05
 
+/*
+ * DIVIL SPEC.
+ */
 #define	DIVIL_LBAR_IRQ		0x08
 #define	DIVIL_LBAR_KEL		0x09
 #define	DIVIL_LBAR_SMB		0x0B
@@ -208,8 +248,12 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	DIVIL_SOFT_IRQ		0x16
 #define	DIVIL_SOFT_RESET	0x17
 
+/* MFGPT */
 #define MFGPT_IRQ	0x28
 
+/*
+ * IDE STANDARD
+ */
 #define	IDE_CAP		0x00
 #define	IDE_CONFIG	0x01
 #define	IDE_SMI		0x02
@@ -217,6 +261,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	IDE_PM		0x04
 #define	IDE_DIAG	0x05
 
+/*
+ * IDE SPEC.
+ */
 #define	IDE_IO_BAR	0x08
 #define	IDE_CFG		0x10
 #define	IDE_DTC		0x12
@@ -224,6 +271,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	IDE_ETC		0x14
 #define	IDE_INTERNAL_PM	0x15
 
+/*
+ * ACC STANDARD
+ */
 #define	ACC_CAP		0x00
 #define	ACC_CONFIG	0x01
 #define	ACC_SMI		0x02
@@ -231,6 +281,9 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	ACC_PM		0x04
 #define	ACC_DIAG	0x05
 
+/*
+ * USB STANDARD
+ */
 #define	USB_CAP		0x00
 #define	USB_CONFIG	0x01
 #define	USB_SMI		0x02
@@ -238,10 +291,15 @@ extern void _wrmsr(u32 msr, u32 hi, u32 lo);
 #define	USB_PM		0x04
 #define	USB_DIAG	0x05
 
+/*
+ * USB SPEC.
+ */
 #define	USB_OHCI	0x08
 #define	USB_EHCI	0x09
 
+/****************** NATIVE ***************************/
+/* GPIO : I/O SPACE; REG : 32BITS */
 #define	GPIOL_OUT_VAL		0x00
 #define	GPIOL_OUT_EN		0x04
 
-#endif				
+#endif				/* _CS5536_H */

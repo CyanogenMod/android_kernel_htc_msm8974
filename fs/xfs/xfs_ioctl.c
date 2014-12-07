@@ -53,6 +53,17 @@
 #include <linux/slab.h>
 #include <linux/exportfs.h>
 
+/*
+ * xfs_find_handle maps from userspace xfs_fsop_handlereq structure to
+ * a file or fs handle.
+ *
+ * XFS_IOC_PATH_TO_FSHANDLE
+ *    returns fs handle for a mount point or path within that mount point
+ * XFS_IOC_FD_TO_HANDLE
+ *    returns full handle for a FD opened in user space
+ * XFS_IOC_PATH_TO_HANDLE
+ *    returns full handle for a path
+ */
 int
 xfs_find_handle(
 	unsigned int		cmd,
@@ -79,6 +90,10 @@ xfs_find_handle(
 	}
 	ip = XFS_I(inode);
 
+	/*
+	 * We can only generate handles for inodes residing on a XFS filesystem,
+	 * and only for regular files, directories or symbolic links.
+	 */
 	error = -EINVAL;
 	if (inode->i_sb->s_magic != XFS_SB_MAGIC)
 		goto out_put;
@@ -93,6 +108,9 @@ xfs_find_handle(
 	memcpy(&handle.ha_fsid, ip->i_mount->m_fixedfsid, sizeof(xfs_fsid_t));
 
 	if (cmd == XFS_IOC_PATH_TO_FSHANDLE) {
+		/*
+		 * This handle only contains an fsid, zero the rest.
+		 */
 		memset(&handle.ha_fid, 0, sizeof(handle.ha_fid));
 		hsize = sizeof(xfs_fsid_t);
 	} else {
@@ -124,6 +142,10 @@ xfs_find_handle(
 	return error;
 }
 
+/*
+ * No need to do permission checks on the various pathname components
+ * as the handle operations are privileged.
+ */
 STATIC int
 xfs_handle_acceptable(
 	void			*context,
@@ -132,6 +154,9 @@ xfs_handle_acceptable(
 	return 1;
 }
 
+/*
+ * Convert userspace handle data into a dentry.
+ */
 struct dentry *
 xfs_handle_to_dentry(
 	struct file		*parfilp,
@@ -141,6 +166,9 @@ xfs_handle_to_dentry(
 	xfs_handle_t		handle;
 	struct xfs_fid64	fid;
 
+	/*
+	 * Only allow handle opens under a directory.
+	 */
 	if (!S_ISDIR(parfilp->f_path.dentry->d_inode->i_mode))
 		return ERR_PTR(-ENOTDIR);
 
@@ -191,7 +219,7 @@ xfs_open_by_handle(
 		return PTR_ERR(dentry);
 	inode = dentry->d_inode;
 
-	
+	/* Restrict xfs_open_by_handle to directories & regular files. */
 	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode))) {
 		error = -XFS_ERROR(EPERM);
 		goto out_dput;
@@ -214,7 +242,7 @@ xfs_open_by_handle(
 		goto out_dput;
 	}
 
-	
+	/* Can't write directories. */
 	if (S_ISDIR(inode->i_mode) && (fmode & FMODE_WRITE)) {
 		error = -XFS_ERROR(EISDIR);
 		goto out_dput;
@@ -246,6 +274,10 @@ xfs_open_by_handle(
 	return error;
 }
 
+/*
+ * This is a copy from fs/namei.c:vfs_readlink(), except for removing it's
+ * unused first argument.
+ */
 STATIC int
 do_readlink(
 	char __user		*buffer,
@@ -285,7 +317,7 @@ xfs_readlink_by_handle(
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
 
-	
+	/* Restrict this handle operation to symlinks only. */
 	if (!S_ISLNK(dentry->d_inode->i_mode)) {
 		error = -XFS_ERROR(EINVAL);
 		goto out_dput;
@@ -371,6 +403,9 @@ xfs_attrlist_by_handle(
 	if (al_hreq.buflen > XATTR_LIST_MAX)
 		return -XFS_ERROR(EINVAL);
 
+	/*
+	 * Reject flags, only allow namespaces.
+	 */
 	if (al_hreq.flags & ~(ATTR_ROOT | ATTR_SECURE))
 		return -XFS_ERROR(EINVAL);
 
@@ -486,7 +521,7 @@ xfs_attrmulti_by_handle(
 	if (copy_from_user(&am_hreq, arg, sizeof(xfs_fsop_attrmulti_handlereq_t)))
 		return -XFS_ERROR(EFAULT);
 
-	
+	/* overflow check */
 	if (am_hreq.opcount >= INT_MAX / sizeof(xfs_attr_multiop_t))
 		return -E2BIG;
 
@@ -609,13 +644,13 @@ xfs_ioc_bulkstat(
 	void			__user *arg)
 {
 	xfs_fsop_bulkreq_t	bulkreq;
-	int			count;	
-	xfs_ino_t		inlast;	
+	int			count;	/* # of records returned */
+	xfs_ino_t		inlast;	/* last inode number */
 	int			done;
 	int			error;
 
-	
-	
+	/* done = 1 if there are more stats to get and if bulkstat */
+	/* should be called again (unused here, but used in dmapi) */
 
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
@@ -641,7 +676,7 @@ xfs_ioc_bulkstat(
 	else if (cmd == XFS_IOC_FSBULKSTAT_SINGLE)
 		error = xfs_bulkstat_single(mp, &inlast,
 						bulkreq.ubuffer, &done);
-	else	
+	else	/* XFS_IOC_FSBULKSTAT */
 		error = xfs_bulkstat(mp, &inlast, &count, xfs_bulkstat_one,
 				     sizeof(xfs_bstat_t), bulkreq.ubuffer,
 				     &done);
@@ -673,6 +708,11 @@ xfs_ioc_fsgeometry_v1(
 	if (error)
 		return -error;
 
+	/*
+	 * Caller should have passed an argument of type
+	 * xfs_fsop_geom_v1_t.  This is a proper subset of the
+	 * xfs_fsop_geom_t that xfs_fs_geometry() fills in.
+	 */
 	if (copy_to_user(arg, &fsgeo, sizeof(xfs_fsop_geom_v1_t)))
 		return -XFS_ERROR(EFAULT);
 	return 0;
@@ -695,6 +735,9 @@ xfs_ioc_fsgeometry(
 	return 0;
 }
 
+/*
+ * Linux extended inode flags interface.
+ */
 
 STATIC unsigned int
 xfs_merge_ioc_xflags(
@@ -791,7 +834,7 @@ xfs_set_diflags(
 {
 	unsigned int		di_flags;
 
-	
+	/* can't set PREALLOC this way, just preserve it */
 	di_flags = (ip->i_d.di_flags & XFS_DIFLAG_PREALLOC);
 	if (xflags & XFS_XFLAG_IMMUTABLE)
 		di_flags |= XFS_DIFLAG_IMMUTABLE;
@@ -877,10 +920,21 @@ xfs_ioctl_setattr(
 	if (XFS_FORCED_SHUTDOWN(mp))
 		return XFS_ERROR(EIO);
 
+	/*
+	 * Disallow 32bit project ids when projid32bit feature is not enabled.
+	 */
 	if ((mask & FSX_PROJID) && (fa->fsx_projid > (__uint16_t)-1) &&
 			!xfs_sb_version_hasprojid32bit(&ip->i_mount->m_sb))
 		return XFS_ERROR(EINVAL);
 
+	/*
+	 * If disk quotas is on, we make sure that the dquots do exist on disk,
+	 * before we start any other transactions. Trying to do this later
+	 * is messy. We don't care to take a readlock to look at the ids
+	 * in inode here, because we can't hold it across the trans_reserve.
+	 * If the IDs do change before we take the ilock, we're covered
+	 * because the i_*dquot fields will get updated anyway.
+	 */
 	if (XFS_IS_QUOTA_ON(mp) && (mask & FSX_PROJID)) {
 		code = xfs_qm_vop_dqalloc(ip, ip->i_d.di_uid,
 					 ip->i_d.di_gid, fa->fsx_projid,
@@ -889,6 +943,10 @@ xfs_ioctl_setattr(
 			return code;
 	}
 
+	/*
+	 * For the other attributes, we acquire the inode lock and
+	 * first do an error checking pass.
+	 */
 	tp = xfs_trans_alloc(mp, XFS_TRANS_SETATTR_NOT_SIZE);
 	code = xfs_trans_reserve(tp, 0, XFS_ICHANGE_LOG_RES(mp), 0, 0, 0);
 	if (code)
@@ -897,11 +955,21 @@ xfs_ioctl_setattr(
 	lock_flags = XFS_ILOCK_EXCL;
 	xfs_ilock(ip, lock_flags);
 
+	/*
+	 * CAP_FOWNER overrides the following restrictions:
+	 *
+	 * The user ID of the calling process must be equal
+	 * to the file owner ID, except in cases where the
+	 * CAP_FSETID capability is applicable.
+	 */
 	if (current_fsuid() != ip->i_d.di_uid && !capable(CAP_FOWNER)) {
 		code = XFS_ERROR(EPERM);
 		goto error_return;
 	}
 
+	/*
+	 * Do a quota reservation only if projid is actually going to change.
+	 */
 	if (mask & FSX_PROJID) {
 		if (XFS_IS_QUOTA_RUNNING(mp) &&
 		    XFS_IS_PQUOTA_ON(mp) &&
@@ -910,19 +978,31 @@ xfs_ioctl_setattr(
 			code = xfs_qm_vop_chown_reserve(tp, ip, udqp, gdqp,
 						capable(CAP_FOWNER) ?
 						XFS_QMOPT_FORCE_RES : 0);
-			if (code)	
+			if (code)	/* out of quota */
 				goto error_return;
 		}
 	}
 
 	if (mask & FSX_EXTSIZE) {
+		/*
+		 * Can't change extent size if any extents are allocated.
+		 */
 		if (ip->i_d.di_nextents &&
 		    ((ip->i_d.di_extsize << mp->m_sb.sb_blocklog) !=
 		     fa->fsx_extsize)) {
-			code = XFS_ERROR(EINVAL);	
+			code = XFS_ERROR(EINVAL);	/* EFBIG? */
 			goto error_return;
 		}
 
+		/*
+		 * Extent size must be a multiple of the appropriate block
+		 * size, if set at all. It must also be smaller than the
+		 * maximum extent size supported by the filesystem.
+		 *
+		 * Also, for non-realtime files, limit the extent size hint to
+		 * half the size of the AGs in the filesystem so alignment
+		 * doesn't result in extents larger than an AG.
+		 */
 		if (fa->fsx_extsize != 0) {
 			xfs_extlen_t    size;
 			xfs_fsblock_t   extsize_fsb;
@@ -955,13 +1035,19 @@ xfs_ioctl_setattr(
 
 
 	if (mask & FSX_XFLAGS) {
+		/*
+		 * Can't change realtime flag if any extents are allocated.
+		 */
 		if ((ip->i_d.di_nextents || ip->i_delayed_blks) &&
 		    (XFS_IS_REALTIME_INODE(ip)) !=
 		    (fa->fsx_xflags & XFS_XFLAG_REALTIME)) {
-			code = XFS_ERROR(EINVAL);	
+			code = XFS_ERROR(EINVAL);	/* EFBIG? */
 			goto error_return;
 		}
 
+		/*
+		 * If realtime flag is set then must have realtime data.
+		 */
 		if ((fa->fsx_xflags & XFS_XFLAG_REALTIME)) {
 			if ((mp->m_sb.sb_rblocks == 0) ||
 			    (mp->m_sb.sb_rextsize == 0) ||
@@ -971,6 +1057,10 @@ xfs_ioctl_setattr(
 			}
 		}
 
+		/*
+		 * Can't modify an immutable/append-only file unless
+		 * we have appropriate permission.
+		 */
 		if ((ip->i_d.di_flags &
 				(XFS_DIFLAG_IMMUTABLE|XFS_DIFLAG_APPEND) ||
 		     (fa->fsx_xflags &
@@ -983,11 +1073,24 @@ xfs_ioctl_setattr(
 
 	xfs_trans_ijoin(tp, ip, 0);
 
+	/*
+	 * Change file ownership.  Must be the owner or privileged.
+	 */
 	if (mask & FSX_PROJID) {
+		/*
+		 * CAP_FSETID overrides the following restrictions:
+		 *
+		 * The set-user-ID and set-group-ID bits of a file will be
+		 * cleared upon successful return from chown()
+		 */
 		if ((ip->i_d.di_mode & (S_ISUID|S_ISGID)) &&
 		    !capable(CAP_FSETID))
 			ip->i_d.di_mode &= ~(S_ISUID|S_ISGID);
 
+		/*
+		 * Change the ownerships and register quota modifications
+		 * in the transaction.
+		 */
 		if (xfs_get_projid(ip) != fa->fsx_projid) {
 			if (XFS_IS_QUOTA_RUNNING(mp) && XFS_IS_PQUOTA_ON(mp)) {
 				olddquot = xfs_qm_vop_chown(tp, ip,
@@ -995,6 +1098,11 @@ xfs_ioctl_setattr(
 			}
 			xfs_set_projid(ip, fa->fsx_projid);
 
+			/*
+			 * We may have to rev the inode as well as
+			 * the superblock version number since projids didn't
+			 * exist before DINODE_VERSION_2 and SB_VERSION_NLINK.
+			 */
 			if (ip->i_d.di_version == 1)
 				xfs_bump_ino_vers2(tp, ip);
 		}
@@ -1013,11 +1121,24 @@ xfs_ioctl_setattr(
 
 	XFS_STATS_INC(xs_ig_attrchg);
 
+	/*
+	 * If this is a synchronous mount, make sure that the
+	 * transaction goes to disk before returning to the user.
+	 * This is slightly sub-optimal in that truncates require
+	 * two sync transactions instead of one for wsync filesystems.
+	 * One for the truncate and one for the timestamps since we
+	 * don't want to change the timestamps unless we're sure the
+	 * truncate worked.  Truncates are less than 1% of the laddis
+	 * mix so this probably isn't worth the trouble to optimize.
+	 */
 	if (mp->m_flags & XFS_MOUNT_WSYNC)
 		xfs_trans_set_sync(tp);
 	code = xfs_trans_commit(tp, 0);
 	xfs_iunlock(ip, lock_flags);
 
+	/*
+	 * Release any dquot(s) the inode had kept before chown.
+	 */
 	xfs_qm_dqrele(olddquot);
 	xfs_qm_dqrele(udqp);
 	xfs_qm_dqrele(gdqp);
@@ -1096,7 +1217,7 @@ xfs_getbmap_format(void **ap, struct getbmapx *bmv, int *full)
 {
 	struct getbmap __user	*base = *ap;
 
-	
+	/* copy only getbmap portion (not getbmapx) */
 	if (copy_to_user(base, bmv, sizeof(struct getbmap)))
 		return XFS_ERROR(EFAULT);
 
@@ -1129,7 +1250,7 @@ xfs_ioc_getbmap(
 	if (error)
 		return -error;
 
-	
+	/* copy back header - only size of getbmap */
 	if (copy_to_user(arg, &bmx, sizeof(struct getbmap)))
 		return -XFS_ERROR(EFAULT);
 	return 0;
@@ -1169,13 +1290,19 @@ xfs_ioc_getbmapx(
 	if (error)
 		return -error;
 
-	
+	/* copy back header */
 	if (copy_to_user(arg, &bmx, sizeof(struct getbmapx)))
 		return -XFS_ERROR(EFAULT);
 
 	return 0;
 }
 
+/*
+ * Note: some of the ioctl's return positive numbers as a
+ * byte count indicating success, such as readlink_by_handle.
+ * So we don't "sign flip" like most other routines.  This means
+ * true errors need to be returned as a negative value.
+ */
 long
 xfs_file_ioctl(
 	struct file		*filp,
@@ -1335,7 +1462,7 @@ xfs_file_ioctl(
 		if (copy_from_user(&inout, arg, sizeof(inout)))
 			return -XFS_ERROR(EFAULT);
 
-		
+		/* input parameter is passed in resblks field of structure */
 		in = inout.resblks;
 		error = xfs_reserve_blocks(mp, &in, &inout);
 		if (error)

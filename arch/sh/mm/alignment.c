@@ -23,7 +23,10 @@ static unsigned long se_half;
 static unsigned long se_word;
 static unsigned long se_dword;
 static unsigned long se_multi;
+/* bitfield: 1: warn 2: fixup 4: signal -> combinations 2|4 && 1|2|4 are not
+   valid! */
 static int se_usermode = UM_WARN | UM_FIXUP;
+/* 0: no warning 1: print a warning message, disabled by default */
 static int se_kernmode_warn;
 
 core_param(alignment, se_usermode, int, 0600);
@@ -58,6 +61,10 @@ void inc_unaligned_kernel_access(void)
 	se_sys++;
 }
 
+/*
+ * This defaults to the global policy which can be set from the command
+ * line, while processes can overload their preferences via prctl().
+ */
 unsigned int unaligned_user_action(void)
 {
 	unsigned int action = se_usermode;

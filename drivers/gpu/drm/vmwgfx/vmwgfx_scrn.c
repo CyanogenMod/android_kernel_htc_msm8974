@@ -41,11 +41,14 @@ struct vmw_screen_object_display {
 	struct vmw_framebuffer *implicit_fb;
 };
 
+/**
+ * Display unit using screen objects.
+ */
 struct vmw_screen_object_unit {
 	struct vmw_display_unit base;
 
-	unsigned long buffer_size; 
-	struct vmw_dma_buffer *buffer; 
+	unsigned long buffer_size; /**< Size of allocated buffer */
+	struct vmw_dma_buffer *buffer; /**< Backing store buffer */
 
 	bool defined;
 	bool active_implicit;
@@ -58,6 +61,9 @@ static void vmw_sou_destroy(struct vmw_screen_object_unit *sou)
 }
 
 
+/*
+ * Screen Object Display Unit CRTC functions
+ */
 
 static void vmw_sou_crtc_destroy(struct drm_crtc *crtc)
 {
@@ -91,6 +97,9 @@ static void vmw_sou_add_active(struct vmw_private *vmw_priv,
 	}
 }
 
+/**
+ * Send the fifo command to create a screen.
+ */
 static int vmw_sou_fifo_create(struct vmw_private *dev_priv,
 			       struct vmw_screen_object_unit *sou,
 			       uint32_t x, uint32_t y,
@@ -109,7 +118,7 @@ static int vmw_sou_fifo_create(struct vmw_private *dev_priv,
 
 	fifo_size = sizeof(*cmd);
 	cmd = vmw_fifo_reserve(dev_priv, fifo_size);
-	
+	/* The hardware has hung, nothing we can do about it here. */
 	if (unlikely(cmd == NULL)) {
 		DRM_ERROR("Fifo reserve failed.\n");
 		return -ENOMEM;
@@ -131,7 +140,7 @@ static int vmw_sou_fifo_create(struct vmw_private *dev_priv,
 		cmd->obj.root.y = sou->base.gui_y;
 	}
 
-	
+	/* Ok to assume that buffer is pinned in vram */
 	vmw_bo_get_guest_ptr(&sou->buffer->base, &cmd->obj.backingStore.ptr);
 	cmd->obj.backingStore.pitch = mode->hdisplay * 4;
 
@@ -142,6 +151,9 @@ static int vmw_sou_fifo_create(struct vmw_private *dev_priv,
 	return 0;
 }
 
+/**
+ * Send the fifo command to destroy a screen.
+ */
 static int vmw_sou_fifo_destroy(struct vmw_private *dev_priv,
 				struct vmw_screen_object_unit *sou)
 {
@@ -155,13 +167,13 @@ static int vmw_sou_fifo_destroy(struct vmw_private *dev_priv,
 		SVGAFifoCmdDestroyScreen body;
 	} *cmd;
 
-	
+	/* no need to do anything */
 	if (unlikely(!sou->defined))
 		return 0;
 
 	fifo_size = sizeof(*cmd);
 	cmd = vmw_fifo_reserve(dev_priv, fifo_size);
-	
+	/* the hardware has hung, nothing we can do about it here */
 	if (unlikely(cmd == NULL)) {
 		DRM_ERROR("Fifo reserve failed.\n");
 		return -ENOMEM;
@@ -173,7 +185,7 @@ static int vmw_sou_fifo_destroy(struct vmw_private *dev_priv,
 
 	vmw_fifo_commit(dev_priv, fifo_size);
 
-	
+	/* Force sync */
 	ret = vmw_fallback_wait(dev_priv, false, true, 0, false, 3*HZ);
 	if (unlikely(ret != 0))
 		DRM_ERROR("Failed to sync with HW");
@@ -183,6 +195,9 @@ static int vmw_sou_fifo_destroy(struct vmw_private *dev_priv,
 	return ret;
 }
 
+/**
+ * Free the backing store.
+ */
 static void vmw_sou_backing_free(struct vmw_private *dev_priv,
 				 struct vmw_screen_object_unit *sou)
 {
@@ -197,6 +212,9 @@ static void vmw_sou_backing_free(struct vmw_private *dev_priv,
 	sou->buffer_size = 0;
 }
 
+/**
+ * Allocate the backing store for the buffer.
+ */
 static int vmw_sou_backing_alloc(struct vmw_private *dev_priv,
 				 struct vmw_screen_object_unit *sou,
 				 unsigned long size)
@@ -213,6 +231,9 @@ static int vmw_sou_backing_alloc(struct vmw_private *dev_priv,
 	if (unlikely(sou->buffer == NULL))
 		return -ENOMEM;
 
+	/* After we have alloced the backing store might not be able to
+	 * resume the overlays, this is preferred to failing to alloc.
+	 */
 	vmw_overlay_pause_all(dev_priv);
 	ret = vmw_dmabuf_init(dev_priv, sou->buffer, size,
 			      &vmw_vram_ne_placement,
@@ -220,7 +241,7 @@ static int vmw_sou_backing_alloc(struct vmw_private *dev_priv,
 	vmw_overlay_resume_all(dev_priv);
 
 	if (unlikely(ret != 0))
-		sou->buffer = NULL; 
+		sou->buffer = NULL; /* vmw_dmabuf_init frees on error */
 	else
 		sou->buffer_size = size;
 
@@ -245,7 +266,7 @@ static int vmw_sou_crtc_set_config(struct drm_mode_set *set)
 	if (!set->crtc)
 		return -EINVAL;
 
-	
+	/* get the sou */
 	crtc = set->crtc;
 	sou = vmw_crtc_to_sou(crtc);
 	vfb = set->fb ? vmw_framebuffer_to_vfb(set->fb) : NULL;
@@ -263,7 +284,7 @@ static int vmw_sou_crtc_set_config(struct drm_mode_set *set)
 		return -EINVAL;
 	}
 
-	
+	/* sou only supports one fb active at the time */
 	if (sou->base.is_implicit &&
 	    dev_priv->sou_priv->implicit_fb && vfb &&
 	    !(dev_priv->sou_priv->num_implicit == 1 &&
@@ -273,14 +294,14 @@ static int vmw_sou_crtc_set_config(struct drm_mode_set *set)
 		return -EINVAL;
 	}
 
-	
+	/* since they always map one to one these are safe */
 	connector = &sou->base.connector;
 	encoder = &sou->base.encoder;
 
-	
+	/* should we turn the crtc off */
 	if (set->num_connectors == 0 || !set->mode || !set->fb) {
 		ret = vmw_sou_fifo_destroy(dev_priv, sou);
-		
+		/* the hardware has hung don't do anything more */
 		if (unlikely(ret != 0))
 			return ret;
 
@@ -298,7 +319,7 @@ static int vmw_sou_crtc_set_config(struct drm_mode_set *set)
 	}
 
 
-	
+	/* we now know we want to set a mode */
 	mode = set->mode;
 	fb = set->fb;
 
@@ -312,9 +333,12 @@ static int vmw_sou_crtc_set_config(struct drm_mode_set *set)
 
 	if (mode->hdisplay != crtc->mode.hdisplay ||
 	    mode->vdisplay != crtc->mode.vdisplay) {
+		/* no need to check if depth is different, because backing
+		 * store depth is forced to 4 by the device.
+		 */
 
 		ret = vmw_sou_fifo_destroy(dev_priv, sou);
-		
+		/* the hardware has hung don't do anything more */
 		if (unlikely(ret != 0))
 			return ret;
 
@@ -322,7 +346,7 @@ static int vmw_sou_crtc_set_config(struct drm_mode_set *set)
 	}
 
 	if (!sou->buffer) {
-		
+		/* forced to depth 4 by the device */
 		size_t size = mode->hdisplay * mode->vdisplay * 4;
 		ret = vmw_sou_backing_alloc(dev_priv, sou, size);
 		if (unlikely(ret != 0))
@@ -331,6 +355,13 @@ static int vmw_sou_crtc_set_config(struct drm_mode_set *set)
 
 	ret = vmw_sou_fifo_create(dev_priv, sou, set->x, set->y, mode);
 	if (unlikely(ret != 0)) {
+		/*
+		 * We are in a bit of a situation here, the hardware has
+		 * hung and we may or may not have a buffer hanging of
+		 * the screen object, best thing to do is not do anything
+		 * if we where defined, if not just turn the crtc of.
+		 * Not what userspace wants but it needs to htfu.
+		 */
 		if (sou->defined)
 			return ret;
 
@@ -366,6 +397,9 @@ static struct drm_crtc_funcs vmw_screen_object_crtc_funcs = {
 	.page_flip = vmw_du_page_flip,
 };
 
+/*
+ * Screen Object Display Unit encoder functions
+ */
 
 static void vmw_sou_encoder_destroy(struct drm_encoder *encoder)
 {
@@ -376,6 +410,9 @@ static struct drm_encoder_funcs vmw_screen_object_encoder_funcs = {
 	.destroy = vmw_sou_encoder_destroy,
 };
 
+/*
+ * Screen Object Display Unit connector functions
+ */
 
 static void vmw_sou_connector_destroy(struct drm_connector *connector)
 {
@@ -500,6 +537,10 @@ int vmw_kms_close_screen_object_display(struct vmw_private *dev_priv)
 	return 0;
 }
 
+/**
+ * Returns if this unit can be page flipped.
+ * Must be called with the mode_config mutex held.
+ */
 bool vmw_kms_screen_object_flippable(struct vmw_private *dev_priv,
 				     struct drm_crtc *crtc)
 {
@@ -514,6 +555,10 @@ bool vmw_kms_screen_object_flippable(struct vmw_private *dev_priv,
 	return true;
 }
 
+/**
+ * Update the implicit fb to the current fb of this crtc.
+ * Must be called with the mode_config mutex held.
+ */
 void vmw_kms_screen_object_update_implicit_fb(struct vmw_private *dev_priv,
 					      struct drm_crtc *crtc)
 {

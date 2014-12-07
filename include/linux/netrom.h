@@ -1,3 +1,8 @@
+/*
+ * These are the public elements of the Linux kernel NET/ROM implementation.
+ * For kernel AX.25 see the file ax25.h. This file requires ax25.h for the
+ * definition of the ax25_address structure.
+ */
 
 #ifndef	NETROM_KERNEL_H
 #define	NETROM_KERNEL_H

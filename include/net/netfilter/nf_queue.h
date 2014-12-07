@@ -1,6 +1,7 @@
 #ifndef _NF_QUEUE_H
 #define _NF_QUEUE_H
 
+/* Each queued (to userspace) skbuff has one of these. */
 struct nf_queue_entry {
 	struct list_head	list;
 	struct sk_buff		*skb;
@@ -16,6 +17,7 @@ struct nf_queue_entry {
 
 #define nf_queue_entry_reroute(x) ((void *)x + sizeof(struct nf_queue_entry))
 
+/* Packet queuing */
 struct nf_queue_handler {
 	int			(*outfn)(struct nf_queue_entry *entry,
 					 unsigned int queuenum);
@@ -29,4 +31,4 @@ extern int nf_unregister_queue_handler(u_int8_t pf,
 extern void nf_unregister_queue_handlers(const struct nf_queue_handler *qh);
 extern void nf_reinject(struct nf_queue_entry *entry, unsigned int verdict);
 
-#endif 
+#endif /* _NF_QUEUE_H */

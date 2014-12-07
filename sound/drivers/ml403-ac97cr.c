@@ -21,6 +21,17 @@
  *
  */
 
+/* Some notes / status of this driver:
+ *
+ * - Don't wonder about some strange implementations of things - especially the
+ * (heavy) shadowing of codec registers, with which I tried to reduce read
+ * accesses to a minimum, because after a variable amount of accesses, the AC97
+ * controller doesn't raise the register access finished bit anymore ...
+ *
+ * - Playback support seems to be pretty stable - no issues here.
+ * - Capture support "works" now, too. Overruns don't happen any longer so often.
+ *   But there might still be some ...
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -32,12 +43,18 @@
 #include <linux/io.h>
 #include <linux/interrupt.h>
 
+/* HZ */
 #include <linux/param.h>
+/* jiffies, time_*() */
 #include <linux/jiffies.h>
+/* schedule_timeout*() */
 #include <linux/sched.h>
+/* spin_lock*() */
 #include <linux/spinlock.h>
+/* struct mutex, mutex_init(), mutex_*lock() */
 #include <linux/mutex.h>
 
+/* snd_printk(), snd_printd() */
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
@@ -65,12 +82,28 @@ MODULE_PARM_DESC(id, "ID string for ML403 AC97 Controller Reference.");
 module_param_array(enable, bool, NULL, 0444);
 MODULE_PARM_DESC(enable, "Enable this ML403 AC97 Controller Reference.");
 
+/* Special feature options */
+/*#define CODEC_WRITE_CHECK_RAF*/ /* don't return after a write to a codec
+				   * register, while RAF bit is not set
+				   */
+/* Debug options for code which may be removed completely in a final version */
 #ifdef CONFIG_SND_DEBUG
-#define SND_PCM_INDIRECT2_STAT    
+/*#define CODEC_STAT*/            /* turn on some minimal "statistics"
+				   * about codec register usage
+				   */
+#define SND_PCM_INDIRECT2_STAT    /* turn on some "statistics" about the
+				   * process of copying bytes from the
+				   * intermediate buffer to the hardware
+				   * fifo and the other way round
+				   */
 #endif
 
+/* Definition of a "level/facility dependent" printk(); may be removed
+ * completely in a final version
+ */
 #undef PDEBUG
 #ifdef CONFIG_SND_DEBUG
+/* "facilities" for PDEBUG */
 #define UNKNOWN       (1<<0)
 #define CODEC_SUCCESS (1<<1)
 #define CODEC_FAKE    (1<<2)
@@ -87,28 +120,47 @@ MODULE_PARM_DESC(enable, "Enable this ML403 AC97 Controller Reference.");
 				   fmt, ##args); \
 	} while (0)
 #else
-#define PDEBUG(fac, fmt, args...) 
+#define PDEBUG(fac, fmt, args...) /* nothing */
 #endif
 
 
 
-#define CODEC_TIMEOUT_ON_INIT       5	
+/* Defines for "waits"/timeouts (portions of HZ=250 on arch/ppc by default) */
+#define CODEC_TIMEOUT_ON_INIT       5	/* timeout for checking for codec
+					 * readiness (after insmod)
+					 */
 #ifndef CODEC_WRITE_CHECK_RAF
-#define CODEC_WAIT_AFTER_WRITE    100	
+#define CODEC_WAIT_AFTER_WRITE    100	/* general, static wait after a write
+					 * access to a codec register, may be
+					 * 0 to completely remove wait
+					 */
 #else
-#define CODEC_TIMEOUT_AFTER_WRITE   5	
+#define CODEC_TIMEOUT_AFTER_WRITE   5	/* timeout after a write access to a
+					 * codec register, if RAF bit is used
+					 */
 #endif
-#define CODEC_TIMEOUT_AFTER_READ    5	
+#define CODEC_TIMEOUT_AFTER_READ    5	/* timeout after a read access to a
+					 * codec register (checking RAF bit)
+					 */
 
-#define LM4550_REG_OK        (1<<0)   
-#define LM4550_REG_DONEREAD  (1<<1)   
+/* Infrastructure for codec register shadowing */
+#define LM4550_REG_OK        (1<<0)   /* register exists */
+#define LM4550_REG_DONEREAD  (1<<1)   /* read register once, value should be
+				       * the same currently in the register
+				       */
 #define LM4550_REG_NOSAVE    (1<<2)   /* values written to this register will
 				       * not be saved in the register
 				       */
-#define LM4550_REG_NOSHADOW  (1<<3)   
-#define LM4550_REG_READONLY  (1<<4)   
-#define LM4550_REG_FAKEPROBE (1<<5)   
-#define LM4550_REG_FAKEREAD  (1<<6)   
+#define LM4550_REG_NOSHADOW  (1<<3)   /* don't do register shadowing, use plain
+				       * hardware access
+				       */
+#define LM4550_REG_READONLY  (1<<4)   /* register is read only */
+#define LM4550_REG_FAKEPROBE (1<<5)   /* fake write _and_ read actions during
+				       * probe() correctly
+				       */
+#define LM4550_REG_FAKEREAD  (1<<6)   /* fake read access, always return
+				       * default value
+				       */
 #define LM4550_REG_ALLFAKE   (LM4550_REG_FAKEREAD | LM4550_REG_FAKEPROBE)
 
 struct lm4550_reg {
@@ -187,10 +239,14 @@ struct lm4550_reg lm4550_regfile[64] = {
 						| LM4550_REG_NOSHADOW \
 						| LM4550_REG_NOSAVE,
 					 .wmask = 0xFF00},
+					/* may not write ones to
+					 * REF/ANL/DAC/ADC bits
+					 * FIXME: Is this ok?
+					 */
 	[AC97_EXTENDED_ID / 2]        = {.flag = LM4550_REG_OK \
 						| LM4550_REG_FAKEREAD \
 						| LM4550_REG_READONLY,
-					 .def = 0x0201}, 
+					 .def = 0x0201}, /* primary codec */
 	[AC97_EXTENDED_STATUS / 2]    = {.flag = LM4550_REG_OK \
 						| LM4550_REG_NOSHADOW \
 						| LM4550_REG_NOSAVE,
@@ -241,6 +297,7 @@ static void lm4550_regfile_write_values_after_init(struct snd_ac97 *ac97)
 }
 
 
+/* direct registers */
 #define CR_REG(ml403_ac97cr, x) ((ml403_ac97cr)->port + CR_REG_##x)
 
 #define CR_REG_PLAYFIFO         0x00
@@ -264,6 +321,12 @@ static void lm4550_regfile_write_values_after_init(struct snd_ac97 *ac97)
 #define   CR_PLAYRESET          (1<<0)
 
 #define CR_REG_CODEC_ADDR       0x10
+/* UG082 says:
+ * #define   CR_CODEC_ADDR(a)  ((a) << 1)
+ * #define   CR_CODEC_READ     (1<<0)
+ * #define   CR_CODEC_WRITE    (0<<0)
+ */
+/* RefDesign example says: */
 #define   CR_CODEC_ADDR(a)      ((a) << 0)
 #define   CR_CODEC_READ         (1<<7)
 #define   CR_CODEC_WRITE        (0<<7)
@@ -277,12 +340,15 @@ static void lm4550_regfile_write_values_after_init(struct snd_ac97 *ac97)
 #define CR_FIFO_SIZE            32
 
 struct snd_ml403_ac97cr {
-	
+	/* lock for access to (controller) registers */
 	spinlock_t reg_lock;
+	/* mutex for the whole sequence of accesses to (controller) registers
+	 * which affect codec registers
+	 */
 	struct mutex cdc_mutex;
 
-	int irq; 
-	int enable_irq;	
+	int irq; /* for playback */
+	int enable_irq;	/* for playback */
 
 	int capture_irq;
 	int enable_capture_irq;
@@ -303,7 +369,7 @@ struct snd_ml403_ac97cr {
 	struct snd_pcm_substream *playback_substream;
 	struct snd_pcm_substream *capture_substream;
 
-	struct snd_pcm_indirect2 ind_rec; 
+	struct snd_pcm_indirect2 ind_rec; /* for playback */
 	struct snd_pcm_indirect2 capture_ind2_rec;
 };
 
@@ -413,6 +479,9 @@ snd_ml403_ac97cr_capture_ind2_null(struct snd_pcm_substream *substream,
 		volatile u32 trash;
 
 		trash = CR_RECDATA(in_be32(CR_REG(ml403_ac97cr, RECFIFO)));
+		/* Hmmmm, really necessary? Don't want call to in_be32()
+		 * to be optimised away!
+		 */
 		trash++;
 		copied_words++;
 	}
@@ -483,10 +552,10 @@ snd_ml403_ac97cr_pcm_playback_trigger(struct snd_pcm_substream *substream,
 		PDEBUG(WORK_INFO, "trigger(playback): START\n");
 		ml403_ac97cr->ind_rec.hw_ready = 1;
 
-		
+		/* clear play FIFO */
 		out_be32(CR_REG(ml403_ac97cr, RESETFIFO), CR_PLAYRESET);
 
-		
+		/* enable play irq */
 		ml403_ac97cr->enable_irq = 1;
 		enable_irq(ml403_ac97cr->irq);
 		break;
@@ -496,7 +565,7 @@ snd_ml403_ac97cr_pcm_playback_trigger(struct snd_pcm_substream *substream,
 #ifdef SND_PCM_INDIRECT2_STAT
 		snd_pcm_indirect2_stat(substream, &ml403_ac97cr->ind_rec);
 #endif
-		
+		/* disable play irq */
 		disable_irq_nosync(ml403_ac97cr->irq);
 		ml403_ac97cr->enable_irq = 0;
 		break;
@@ -522,10 +591,10 @@ snd_ml403_ac97cr_pcm_capture_trigger(struct snd_pcm_substream *substream,
 		PDEBUG(WORK_INFO, "trigger(capture): START\n");
 		ml403_ac97cr->capture_ind2_rec.hw_ready = 0;
 
-		
+		/* clear record FIFO */
 		out_be32(CR_REG(ml403_ac97cr, RESETFIFO), CR_RECRESET);
 
-		
+		/* enable record irq */
 		ml403_ac97cr->enable_capture_irq = 1;
 		enable_irq(ml403_ac97cr->capture_irq);
 		break;
@@ -536,7 +605,7 @@ snd_ml403_ac97cr_pcm_capture_trigger(struct snd_pcm_substream *substream,
 		snd_pcm_indirect2_stat(substream,
 				       &ml403_ac97cr->capture_ind2_rec);
 #endif
-		
+		/* disable capture irq */
 		disable_irq_nosync(ml403_ac97cr->capture_irq);
 		ml403_ac97cr->enable_capture_irq = 0;
 		break;
@@ -561,12 +630,12 @@ snd_ml403_ac97cr_pcm_playback_prepare(struct snd_pcm_substream *substream)
 	       "prepare(): period_bytes=%d, minperiod_bytes=%d\n",
 	       snd_pcm_lib_period_bytes(substream), CR_FIFO_SIZE / 2);
 
-	
+	/* set sampling rate */
 	snd_ac97_set_rate(ml403_ac97cr->ac97, AC97_PCM_FRONT_DAC_RATE,
 			  runtime->rate);
 	PDEBUG(WORK_INFO, "prepare(): rate=%d\n", runtime->rate);
 
-	
+	/* init struct for intermediate buffer */
 	memset(&ml403_ac97cr->ind_rec, 0,
 	       sizeof(struct snd_pcm_indirect2));
 	ml403_ac97cr->ind_rec.hw_buffer_size = CR_FIFO_SIZE;
@@ -595,12 +664,12 @@ snd_ml403_ac97cr_pcm_capture_prepare(struct snd_pcm_substream *substream)
 	       "prepare(capture): period_bytes=%d, minperiod_bytes=%d\n",
 	       snd_pcm_lib_period_bytes(substream), CR_FIFO_SIZE / 2);
 
-	
+	/* set sampling rate */
 	snd_ac97_set_rate(ml403_ac97cr->ac97, AC97_PCM_LR_ADC_RATE,
 			  runtime->rate);
 	PDEBUG(WORK_INFO, "prepare(capture): rate=%d\n", runtime->rate);
 
-	
+	/* init struct for intermediate buffer */
 	memset(&ml403_ac97cr->capture_ind2_rec, 0,
 	       sizeof(struct snd_pcm_indirect2));
 	ml403_ac97cr->capture_ind2_rec.hw_buffer_size = CR_FIFO_SIZE;
@@ -724,7 +793,7 @@ static irqreturn_t snd_ml403_ac97cr_irq(int irq, void *dev_id)
 
 	pfdev = ml403_ac97cr->pfdev;
 
-	
+	/* playback interrupt */
 	cmp_irq = platform_get_irq(pfdev, 0);
 	if (irq == cmp_irq) {
 		if (ml403_ac97cr->enable_irq)
@@ -736,7 +805,7 @@ static irqreturn_t snd_ml403_ac97cr_irq(int irq, void *dev_id)
 		else
 			goto __disable_irq;
 	} else {
-		
+		/* record interrupt */
 		cmp_irq = platform_get_irq(pfdev, 1);
 		if (irq == cmp_irq) {
 			if (ml403_ac97cr->enable_capture_irq)
@@ -776,7 +845,7 @@ snd_ml403_ac97cr_codec_read(struct snd_ac97 *ac97, unsigned short reg)
 			   "ignored!\n", reg);
 		return 0;
 	}
-	
+	/* check if we can fake/answer this access from our shadow register */
 	if ((lm4550_regfile[reg / 2].flag &
 	     (LM4550_REG_DONEREAD | LM4550_REG_ALLFAKE)) &&
 	    !(lm4550_regfile[reg / 2].flag & LM4550_REG_NOSHADOW)) {
@@ -813,7 +882,7 @@ snd_ml403_ac97cr_codec_read(struct snd_ac97 *ac97, unsigned short reg)
 			return lm4550_regfile[reg / 2].value;
 		}
 	}
-	
+	/* if we are here, we _have_ to access the codec really, no faking */
 	if (mutex_lock_interruptible(&ml403_ac97cr->cdc_mutex) != 0)
 		return 0;
 #ifdef CODEC_STAT
@@ -853,7 +922,7 @@ snd_ml403_ac97cr_codec_read(struct snd_ac97 *ac97, unsigned short reg)
 		spin_unlock(&ml403_ac97cr->reg_lock);
 		schedule_timeout_uninterruptible(1);
 	} while (time_after(end_time, jiffies));
-	
+	/* read the DATAREAD register anyway, see comment below */
 	spin_lock(&ml403_ac97cr->reg_lock);
 	value =
 	    CR_CODEC_DATAREAD(in_be32(CR_REG(ml403_ac97cr, CODEC_DATAREAD)));
@@ -871,6 +940,9 @@ snd_ml403_ac97cr_codec_read(struct snd_ac97 *ac97, unsigned short reg)
 		   "(reg=0x%x, DATAREAD=0x%x / %d)\n",
 		   reg, value, value);
 #endif
+	/* BUG: This is PURE speculation! But after _most_ read timeouts the
+	 * value in the register is ok!
+	 */
 	lm4550_regfile[reg / 2].value = value;
 	lm4550_regfile[reg / 2].flag |= LM4550_REG_DONEREAD;
 	mutex_unlock(&ml403_ac97cr->cdc_mutex);
@@ -931,6 +1003,9 @@ snd_ml403_ac97cr_codec_write(struct snd_ac97 *ac97, unsigned short reg,
 		 CR_CODEC_ADDR(reg) | CR_CODEC_WRITE);
 	spin_unlock(&ml403_ac97cr->reg_lock);
 #ifdef CODEC_WRITE_CHECK_RAF
+	/* check CR_CODEC_RAF bit to see if write access to register is done;
+	 * loop until bit is set or timeout happens
+	 */
 	end_time = jiffies + HZ / CODEC_TIMEOUT_AFTER_WRITE;
 	do {
 		spin_lock(&ml403_ac97cr->reg_lock);
@@ -970,8 +1045,14 @@ snd_ml403_ac97cr_codec_write(struct snd_ac97 *ac97, unsigned short reg,
 		   "timeout while codec write (reg=0x%x, val=0x%x / %d)\n",
 		   reg, val, val);
 #endif
-#else 
+#else /* CODEC_WRITE_CHECK_RAF */
 #if CODEC_WAIT_AFTER_WRITE > 0
+	/* officially, in AC97 spec there is no possibility for a AC97
+	 * controller to determine, if write access is done or not - so: How
+	 * is Xilinx able to provide a RAF bit for write access?
+	 * => very strange, thus just don't check RAF bit (compare with
+	 * Xilinx's example app in EDK 8.1i) and wait
+	 */
 	schedule_timeout_uninterruptible(HZ / CODEC_WAIT_AFTER_WRITE);
 #endif
 	PDEBUG(CODEC_SUCCESS, "codec_write(): (done) "
@@ -990,7 +1071,7 @@ snd_ml403_ac97cr_chip_init(struct snd_ml403_ac97cr *ml403_ac97cr)
 	end_time = jiffies + HZ / CODEC_TIMEOUT_ON_INIT;
 	do {
 		if (in_be32(CR_REG(ml403_ac97cr, STATUS)) & CR_CODECREADY) {
-			
+			/* clear both hardware FIFOs */
 			out_be32(CR_REG(ml403_ac97cr, RESETFIFO),
 				 CR_RECRESET | CR_PLAYRESET);
 			PDEBUG(INIT_INFO, "chip_init(): (done)\n");
@@ -1007,12 +1088,12 @@ snd_ml403_ac97cr_chip_init(struct snd_ml403_ac97cr *ml403_ac97cr)
 static int snd_ml403_ac97cr_free(struct snd_ml403_ac97cr *ml403_ac97cr)
 {
 	PDEBUG(INIT_INFO, "free():\n");
-	
+	/* irq release */
 	if (ml403_ac97cr->irq >= 0)
 		free_irq(ml403_ac97cr->irq, ml403_ac97cr);
 	if (ml403_ac97cr->capture_irq >= 0)
 		free_irq(ml403_ac97cr->capture_irq, ml403_ac97cr);
-	
+	/* give back "port" */
 	if (ml403_ac97cr->port != NULL)
 		iounmap(ml403_ac97cr->port);
 	kfree(ml403_ac97cr);
@@ -1056,7 +1137,7 @@ snd_ml403_ac97cr_create(struct snd_card *card, struct platform_device *pfdev,
 
 	PDEBUG(INIT_INFO, "Trying to reserve resources now ...\n");
 	resource = platform_get_resource(pfdev, IORESOURCE_MEM, 0);
-	
+	/* get "port" */
 	ml403_ac97cr->port = ioremap_nocache(resource->start,
 					     (resource->end) -
 					     (resource->start) + 1);
@@ -1070,7 +1151,7 @@ snd_ml403_ac97cr_create(struct snd_card *card, struct platform_device *pfdev,
 	snd_printk(KERN_INFO SND_ML403_AC97CR_DRIVER ": "
 		   "remap controller memory region to "
 		   "0x%x done\n", (unsigned int)ml403_ac97cr->port);
-	
+	/* get irq */
 	irq = platform_get_irq(pfdev, 0);
 	if (request_irq(irq, snd_ml403_ac97cr_irq, 0,
 			dev_name(&pfdev->dev), (void *)ml403_ac97cr)) {
@@ -1248,6 +1329,7 @@ static int snd_ml403_ac97cr_remove(struct platform_device *pfdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:" SND_ML403_AC97CR_DRIVER);
 
 static struct platform_driver snd_ml403_ac97cr_driver = {

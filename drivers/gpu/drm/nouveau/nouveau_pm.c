@@ -79,7 +79,7 @@ nouveau_pwmfan_set(struct drm_device *dev, int percent)
 	if (ret == 0) {
 		divs = pm->fan.pwm_divisor;
 		if (pm->fan.pwm_freq) {
-			
+			/*XXX: PNVIO clock more than likely... */
 			divs = 135000 / pm->fan.pwm_freq;
 			if (dev_priv->chipset < 0xa3)
 				divs /= 4;
@@ -106,6 +106,10 @@ nouveau_pm_perflvl_aux(struct drm_device *dev, struct nouveau_pm_level *perflvl,
 	struct nouveau_pm_engine *pm = &dev_priv->engine.pm;
 	int ret;
 
+	/*XXX: not on all boards, we should control based on temperature
+	 *     on recent boards..  or maybe on some other factor we don't
+	 *     know about?
+	 */
 	if (a->fanspeed && b->fanspeed && b->fanspeed > a->fanspeed) {
 		ret = nouveau_pwmfan_set(dev, perflvl->fanspeed);
 		if (ret && ret != -ENODEV) {
@@ -159,7 +163,7 @@ nouveau_pm_perflvl_set(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 	return 0;
 
 error:
-	
+	/* restore the fan speed and voltage before leaving */
 	nouveau_pm_perflvl_aux(dev, perflvl, perflvl, pm->cur);
 	return ret;
 }
@@ -173,7 +177,7 @@ nouveau_pm_trigger(struct drm_device *dev)
 	struct nouveau_pm_level *perflvl = NULL;
 	int ret;
 
-	
+	/* select power profile based on current power source */
 	if (power_supply_is_system_supplied())
 		profile = pm->profile_ac;
 	else
@@ -185,10 +189,10 @@ nouveau_pm_trigger(struct drm_device *dev)
 		pm->profile->func->init(pm->profile);
 	}
 
-	
+	/* select performance level based on profile */
 	perflvl = profile->func->select(profile);
 
-	
+	/* change perflvl, if necessary */
 	if (perflvl != pm->cur) {
 		struct nouveau_timer_engine *ptimer = &dev_priv->engine.timer;
 		u64 time0 = ptimer->read(dev);
@@ -226,7 +230,7 @@ nouveau_pm_profile_set(struct drm_device *dev, const char *profile)
 	struct nouveau_pm_profile *ac = NULL, *dc = NULL;
 	char string[16], *cur = string, *ptr;
 
-	
+	/* safety precaution, for now */
 	if (nouveau_perflvl_wr != 7777)
 		return -EPERM;
 
@@ -560,6 +564,10 @@ nouveau_hwmon_show_fan0_input(struct device *d, struct device_attribute *attr,
 	if (ret)
 		return ret;
 
+	/* Monitor the GPIO input 0x3b for 250ms.
+	 * When the fan spins, it changes the value of GPIO FAN_SENSE.
+	 * We get 4 changes (0 -> 1 -> 0 -> 1 -> [...]) per complete rotation.
+	 */
 	start = ptimer->read(dev);
 	prev = nouveau_gpio_sense(dev, 0, gpio.line);
 	cycles = 0;
@@ -570,10 +578,10 @@ nouveau_hwmon_show_fan0_input(struct device *d, struct device_attribute *attr,
 			prev = cur;
 		}
 
-		usleep_range(500, 1000); 
+		usleep_range(500, 1000); /* supports 0 < rpm < 7500 */
 	} while (ptimer->read(dev) - start < 250000000);
 
-	
+	/* interpolate to get rpm */
 	return sprintf(buf, "%i\n", cycles / 4 * 4 * 60);
 }
 static SENSOR_DEVICE_ATTR(fan0_input, S_IRUGO, nouveau_hwmon_show_fan0_input,
@@ -757,14 +765,17 @@ nouveau_hwmon_init(struct drm_device *dev)
 	}
 	dev_set_drvdata(hwmon_dev, dev);
 
-	
+	/* default sysfs entries */
 	ret = sysfs_create_group(&dev->pdev->dev.kobj, &hwmon_attrgroup);
 	if (ret) {
 		if (ret)
 			goto error;
 	}
 
-	
+	/* if the card has a pwm fan */
+	/*XXX: incorrect, need better detection for this, some boards have
+	 *     the gpio entries for pwm fan control even when there's no
+	 *     actual fan connected to it... therm table? */
 	if (nouveau_pwmfan_get(dev) >= 0) {
 		ret = sysfs_create_group(&dev->pdev->dev.kobj,
 					 &hwmon_pwm_fan_attrgroup);
@@ -772,7 +783,7 @@ nouveau_hwmon_init(struct drm_device *dev)
 			goto error;
 	}
 
-	
+	/* if the card can read the fan rpm */
 	if (nouveau_gpio_func_valid(dev, DCB_GPIO_FAN_SENSE)) {
 		ret = sysfs_create_group(&dev->pdev->dev.kobj,
 					 &hwmon_fan_rpm_attrgroup);
@@ -842,11 +853,11 @@ nouveau_pm_init(struct drm_device *dev)
 	char info[256];
 	int ret, i;
 
-	
+	/* parse aux tables from vbios */
 	nouveau_volt_init(dev);
 	nouveau_temp_init(dev);
 
-	
+	/* determine current ("boot") performance level */
 	ret = nouveau_pm_perflvl_get(dev, &pm->boot);
 	if (ret) {
 		NV_ERROR(dev, "failed to determine boot perflvl\n");
@@ -865,10 +876,10 @@ nouveau_pm_init(struct drm_device *dev)
 	pm->profile = &pm->boot.profile;
 	pm->cur = &pm->boot;
 
-	
+	/* add performance levels from vbios */
 	nouveau_perf_init(dev);
 
-	
+	/* display available performance levels */
 	NV_INFO(dev, "%d available performance level(s)\n", pm->nr_perflvl);
 	for (i = 0; i < pm->nr_perflvl; i++) {
 		nouveau_pm_perflvl_info(&pm->perflvl[i], info, sizeof(info));
@@ -878,11 +889,11 @@ nouveau_pm_init(struct drm_device *dev)
 	nouveau_pm_perflvl_info(&pm->boot, info, sizeof(info));
 	NV_INFO(dev, "c:%s", info);
 
-	
+	/* switch performance levels now if requested */
 	if (nouveau_perflvl != NULL)
 		nouveau_pm_profile_set(dev, nouveau_perflvl);
 
-	
+	/* determine the current fan speed */
 	pm->fan.percent = nouveau_pwmfan_get(dev);
 
 	nouveau_sysfs_init(dev);

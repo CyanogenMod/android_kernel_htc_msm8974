@@ -39,4 +39,4 @@ struct mlx4_wqe_srq_next_seg {
 	u32			reserved2[3];
 };
 
-#endif 
+#endif /* MLX4_SRQ_H */

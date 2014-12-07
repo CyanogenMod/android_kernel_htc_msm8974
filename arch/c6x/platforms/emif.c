@@ -37,6 +37,10 @@ static struct of_device_id emifa_match[] __initdata = {
 	{}
 };
 
+/*
+ * Parse device tree for existence of an EMIF (External Memory Interface)
+ * and initialize it if found.
+ */
 static int __init c6x_emifa_init(void)
 {
 	struct emifa_regs __iomem *regs;
@@ -53,12 +57,12 @@ static int __init c6x_emifa_init(void)
 	if (!regs)
 		return 0;
 
-	
+	/* look for a dscr-based enable for emifa pin buffers */
 	err = of_property_read_u32_array(node, "ti,dscr-dev-enable", &val, 1);
 	if (!err)
 		dscr_set_devstate(val, DSCR_DEVSTATE_ENABLED);
 
-	
+	/* set up the chip enables */
 	p = of_get_property(node, "ti,emifa-ce-config", &len);
 	if (p) {
 		len /= sizeof(u32);

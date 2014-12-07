@@ -59,6 +59,7 @@
 #include <net/slhc_vj.h>
 
 #ifdef CONFIG_INET
+/* Entire module is for IP only */
 #include <linux/mm.h>
 #include <linux/socket.h>
 #include <linux/sockios.h>
@@ -83,6 +84,9 @@ static long decode(unsigned char **cpp);
 static unsigned char * put16(unsigned char *cp, unsigned short x);
 static unsigned short pull16(unsigned char **cpp);
 
+/* Initialize compression data structure
+ *	slots must be in range 0 to 255 (zero meaning no compression)
+ */
 struct slcompress *
 slhc_init(int rslots, int tslots)
 {
@@ -113,6 +117,12 @@ slhc_init(int rslots, int tslots)
 	comp->xmit_oldest = 0;
 	comp->xmit_current = 255;
 	comp->recv_current = 255;
+	/*
+	 * don't accept any packets with implicit index until we get
+	 * one with an explicit index.  Otherwise the uncompress code
+	 * will try to use connection 255, which is almost certainly
+	 * out of range
+	 */
 	comp->flags |= SLF_TOSS;
 
 	if ( tslots > 0 ) {
@@ -135,6 +145,7 @@ out_fail:
 }
 
 
+/* Free a compression data structure */
 void
 slhc_free(struct slcompress *comp)
 {
@@ -151,6 +162,7 @@ slhc_free(struct slcompress *comp)
 }
 
 
+/* Put a short in host order into a char array in network order */
 static inline unsigned char *
 put16(unsigned char *cp, unsigned short x)
 {
@@ -161,6 +173,7 @@ put16(unsigned char *cp, unsigned short x)
 }
 
 
+/* Encode a number */
 static unsigned char *
 encode(unsigned char *cp, unsigned short n)
 {
@@ -173,6 +186,7 @@ encode(unsigned char *cp, unsigned short n)
 	return cp;
 }
 
+/* Pull a 16-bit integer in host order from buffer in network byte order */
 static unsigned short
 pull16(unsigned char **cpp)
 {
@@ -184,6 +198,7 @@ pull16(unsigned char **cpp)
 	return rval;
 }
 
+/* Decode a number */
 static long
 decode(unsigned char **cpp)
 {
@@ -191,12 +206,18 @@ decode(unsigned char **cpp)
 
 	x = *(*cpp)++;
 	if(x == 0){
-		return pull16(cpp) & 0xffff;	
+		return pull16(cpp) & 0xffff;	/* pull16 returns -1 on error */
 	} else {
-		return x & 0xff;		
+		return x & 0xff;		/* -1 if PULLCHAR returned error */
 	}
 }
 
+/*
+ * icp and isize are the original packet.
+ * ocp is a place to put a copy if necessary.
+ * cpp is initially a pointer to icp.  If the copy is used,
+ *    change it to ocp.
+ */
 
 int
 slhc_compress(struct slcompress *comp, unsigned char *icp, int isize,
@@ -215,32 +236,53 @@ slhc_compress(struct slcompress *comp, unsigned char *icp, int isize,
 	__sum16 csum;
 
 
+	/*
+	 *	Don't play with runt packets.
+	 */
 
 	if(isize<sizeof(struct iphdr))
 		return isize;
 
 	ip = (struct iphdr *) icp;
 
-	
+	/* Bail if this packet isn't TCP, or is an IP fragment */
 	if (ip->protocol != IPPROTO_TCP || (ntohs(ip->frag_off) & 0x3fff)) {
-		
+		/* Send as regular IP */
 		if(ip->protocol != IPPROTO_TCP)
 			comp->sls_o_nontcp++;
 		else
 			comp->sls_o_tcp++;
 		return isize;
 	}
-	
+	/* Extract TCP header */
 
 	th = (struct tcphdr *)(((unsigned char *)ip) + ip->ihl*4);
 	hlen = ip->ihl*4 + th->doff*4;
 
+	/*  Bail if the TCP packet isn't `compressible' (i.e., ACK isn't set or
+	 *  some other control bit is set). Also uncompressible if
+	 *  it's a runt.
+	 */
 	if(hlen > isize || th->syn || th->fin || th->rst ||
 	    ! (th->ack)){
-		
+		/* TCP connection stuff; send as regular IP */
 		comp->sls_o_tcp++;
 		return isize;
 	}
+	/*
+	 * Packet is compressible -- we're going to send either a
+	 * COMPRESSED_TCP or UNCOMPRESSED_TCP packet.  Either way,
+	 * we need to locate (or create) the connection state.
+	 *
+	 * States are kept in a circularly linked list with
+	 * xmit_oldest pointing to the end of the list.  The
+	 * list is kept in lru order by moving a state to the
+	 * head of the list whenever it is referenced.  Since
+	 * the list is short and, empirically, the connection
+	 * we want is almost always near the front, we locate
+	 * states via linear search.  If we don't find a state
+	 * for the datagram, the oldest state is (re-)used.
+	 */
 	for ( ; ; ) {
 		if( ip->saddr == cs->cs_ip.saddr
 		 && ip->daddr == cs->cs_ip.daddr
@@ -248,30 +290,54 @@ slhc_compress(struct slcompress *comp, unsigned char *icp, int isize,
 		 && th->dest == cs->cs_tcp.dest)
 			goto found;
 
-		
+		/* if current equal oldest, at end of list */
 		if ( cs == ocs )
 			break;
 		lcs = cs;
 		cs = cs->next;
 		comp->sls_o_searches++;
 	}
+	/*
+	 * Didn't find it -- re-use oldest cstate.  Send an
+	 * uncompressed packet that tells the other side what
+	 * connection number we're using for this conversation.
+	 *
+	 * Note that since the state list is circular, the oldest
+	 * state points to the newest and we only need to set
+	 * xmit_oldest to update the lru linkage.
+	 */
 	comp->sls_o_misses++;
 	comp->xmit_oldest = lcs->cs_this;
 	goto uncompressed;
 
 found:
+	/*
+	 * Found it -- move to the front on the connection list.
+	 */
 	if(lcs == ocs) {
- 		
+ 		/* found at most recently used */
 	} else if (cs == ocs) {
-		
+		/* found at least recently used */
 		comp->xmit_oldest = lcs->cs_this;
 	} else {
-		
+		/* more than 2 elements */
 		lcs->next = cs->next;
 		cs->next = ocs->next;
 		ocs->next = cs;
 	}
 
+	/*
+	 * Make sure that only what we expect to change changed.
+	 * Check the following:
+	 * IP protocol version, header length & type of service.
+	 * The "Don't fragment" bit.
+	 * The time-to-live field.
+	 * The TCP header length.
+	 * IP options, if any.
+	 * TCP options, if any.
+	 * If any of these things are different between the previous &
+	 * current datagram, we send the current datagram `uncompressed'.
+	 */
 	oth = &cs->cs_tcp;
 
 	if(ip->version != cs->cs_ip.version || ip->ihl != cs->cs_ip.ihl
@@ -284,11 +350,21 @@ found:
 		goto uncompressed;
 	}
 
+	/*
+	 * Figure out which of the changing fields changed.  The
+	 * receiver expects changes in the order: urgent, window,
+	 * ack, seq (the order minimizes the number of temporaries
+	 * needed in this section of code).
+	 */
 	if(th->urg){
 		deltaS = ntohs(th->urg_ptr);
 		cp = encode(cp,deltaS);
 		changes |= NEW_U;
 	} else if(th->urg_ptr != oth->urg_ptr){
+		/* argh! URG not set but urp changed -- a sensible
+		 * implementation should never do this but RFC793
+		 * doesn't prohibit the change so we have to deal
+		 * with it. */
 		goto uncompressed;
 	}
 	if((deltaS = ntohs(th->window) - ntohs(oth->window)) != 0){
@@ -309,7 +385,13 @@ found:
 	}
 
 	switch(changes){
-	case 0:	
+	case 0:	/* Nothing changed. If this packet contains data and the
+		 * last one didn't, this is probably a data packet following
+		 * an ack (normal on an interactive connection) and we send
+		 * it compressed.  Otherwise it's probably a retransmit,
+		 * retransmitted ack or window probe.  Send it uncompressed
+		 * in case the other side missed the compressed version.
+		 */
 		if(ip->tot_len != cs->cs_ip.tot_len &&
 		   ntohs(cs->cs_ip.tot_len) == hlen)
 			break;
@@ -317,18 +399,21 @@ found:
 		break;
 	case SPECIAL_I:
 	case SPECIAL_D:
+		/* actual changes match one of our special case encodings --
+		 * send packet uncompressed.
+		 */
 		goto uncompressed;
 	case NEW_S|NEW_A:
 		if(deltaS == deltaA &&
 		    deltaS == ntohs(cs->cs_ip.tot_len) - hlen){
-			
+			/* special case for echoed terminal traffic */
 			changes = SPECIAL_I;
 			cp = new_seq;
 		}
 		break;
 	case NEW_S:
 		if(deltaS == ntohs(cs->cs_ip.tot_len) - hlen){
-			
+			/* special case for data xfer */
 			changes = SPECIAL_D;
 			cp = new_seq;
 		}
@@ -341,9 +426,18 @@ found:
 	}
 	if(th->psh)
 		changes |= TCP_PUSH_BIT;
+	/* Grab the cksum before we overwrite it below.  Then update our
+	 * state with this packet's header.
+	 */
 	csum = th->check;
 	memcpy(&cs->cs_ip,ip,20);
 	memcpy(&cs->cs_tcp,th,20);
+	/* We want to use the original packet as our compressed packet.
+	 * (cp - new_seq) is the number of bytes we need for compressed
+	 * sequence numbers.  In addition we need one byte for the change
+	 * mask, one for the connection id and two for the tcp checksum.
+	 * So, (cp - new_seq) + 4 bytes of header are needed.
+	 */
 	deltaS = cp - new_seq;
 	if(compress_cid == 0 || comp->xmit_current != cs->cs_this){
 		cp = ocp;
@@ -358,12 +452,17 @@ found:
 	}
 	*(__sum16 *)cp = csum;
 	cp += 2;
-	memcpy(cp,new_seq,deltaS);	
+/* deltaS is now the size of the change section of the compressed header */
+	memcpy(cp,new_seq,deltaS);	/* Write list of deltas */
 	memcpy(cp+deltaS,icp+hlen,isize-hlen);
 	comp->sls_o_compressed++;
 	ocp[0] |= SL_TYPE_COMPRESSED_TCP;
 	return isize - hlen + deltaS + (cp - ocp);
 
+	/* Update connection state cs & send uncompressed packet (i.e.,
+	 * a regular ip/tcp packet but with the 'conversation id' we hope
+	 * to use on future compressed packets in the protocol field).
+	 */
 uncompressed:
 	memcpy(&cs->cs_ip,ip,20);
 	memcpy(&cs->cs_tcp,th,20);
@@ -392,7 +491,7 @@ slhc_uncompress(struct slcompress *comp, unsigned char *icp, int isize)
 	int len, hdrlen;
 	unsigned char *cp = icp;
 
-	
+	/* We've got a compressed packet; read the change byte */
 	comp->sls_i_compressed++;
 	if(isize < 3){
 		comp->sls_i_error++;
@@ -400,13 +499,19 @@ slhc_uncompress(struct slcompress *comp, unsigned char *icp, int isize)
 	}
 	changes = *cp++;
 	if(changes & NEW_C){
-		x = *cp++;	
+		/* Make sure the state index is in range, then grab the state.
+		 * If we have a good state index, clear the 'discard' flag.
+		 */
+		x = *cp++;	/* Read conn index */
 		if(x < 0 || x > comp->rslot_limit)
 			goto bad;
 
 		comp->flags &=~ SLF_TOSS;
 		comp->recv_current = x;
 	} else {
+		/* this packet has an implicit state index.  If we've
+		 * had a line error since the last time we got an
+		 * explicit state index, we have to toss the packet. */
 		if(comp->flags & SLF_TOSS){
 			comp->sls_i_tossed++;
 			return 0;
@@ -420,11 +525,16 @@ slhc_uncompress(struct slcompress *comp, unsigned char *icp, int isize)
 	cp += 2;
 
 	thp->psh = (changes & TCP_PUSH_BIT) ? 1 : 0;
+/*
+ * we can use the same number for the length of the saved header and
+ * the current one, because the packet wouldn't have been sent
+ * as compressed unless the options were the same as the previous one
+ */
 
 	hdrlen = ip->ihl * 4 + thp->doff * 4;
 
 	switch(changes & SPECIALS_MASK){
-	case SPECIAL_I:		
+	case SPECIAL_I:		/* Echoed terminal traffic */
 		{
 		register short i;
 		i = ntohs(ip->tot_len) - hdrlen;
@@ -433,7 +543,7 @@ slhc_uncompress(struct slcompress *comp, unsigned char *icp, int isize)
 		}
 		break;
 
-	case SPECIAL_D:			
+	case SPECIAL_D:			/* Unidirectional data */
 		thp->seq = htonl( ntohl(thp->seq) +
 				  ntohs(ip->tot_len) - hdrlen);
 		break;
@@ -475,6 +585,11 @@ slhc_uncompress(struct slcompress *comp, unsigned char *icp, int isize)
 	} else
 		ip->id = htons (ntohs (ip->id) + 1);
 
+	/*
+	 * At this point, cp points to the first byte of data in the
+	 * packet.  Put the reconstructed TCP and IP headers back on the
+	 * packet.  Recalculate IP checksum (but not TCP checksum).
+	 */
 
 	len = isize - (cp - icp);
 	if (len < 0)
@@ -521,14 +636,14 @@ slhc_remember(struct slcompress *comp, unsigned char *icp, int isize)
 	unsigned char index;
 
 	if(isize < 20) {
-		
+		/* The packet is shorter than a legal IP header */
 		comp->sls_i_runt++;
 		return slhc_toss( comp );
 	}
-	
+	/* Peek at the IP header's IHL field to find its length */
 	ihl = icp[0] & 0xf;
 	if(ihl < 20 / 4){
-		
+		/* The IP header length field is too small */
 		comp->sls_i_runt++;
 		return slhc_toss( comp );
 	}
@@ -536,7 +651,7 @@ slhc_remember(struct slcompress *comp, unsigned char *icp, int isize)
 	icp[9] = IPPROTO_TCP;
 
 	if (ip_fast_csum(icp, ihl)) {
-		
+		/* Bad IP header checksum; discard */
 		comp->sls_i_badcheck++;
 		return slhc_toss( comp );
 	}
@@ -545,7 +660,7 @@ slhc_remember(struct slcompress *comp, unsigned char *icp, int isize)
 		return slhc_toss(comp);
 	}
 
-	
+	/* Update local state */
 	cs = &comp->rstate[comp->recv_current = index];
 	comp->flags &=~ SLF_TOSS;
 	memcpy(&cs->cs_ip,icp,20);
@@ -555,6 +670,9 @@ slhc_remember(struct slcompress *comp, unsigned char *icp, int isize)
 	if (cs->cs_tcp.doff > 5)
 	  memcpy(cs->cs_tcpopt, icp + ihl*4 + sizeof(struct tcphdr), (cs->cs_tcp.doff - 5) * 4);
 	cs->cs_hsize = ihl*2 + cs->cs_tcp.doff*2;
+	/* Put headers back on packet
+	 * Neither header checksum is recalculated
+	 */
 	comp->sls_i_uncompressed++;
 	return isize;
 }
@@ -569,7 +687,7 @@ slhc_toss(struct slcompress *comp)
 	return 0;
 }
 
-#else 
+#else /* CONFIG_INET */
 
 int
 slhc_toss(struct slcompress *comp)
@@ -610,8 +728,9 @@ slhc_init(int rslots, int tslots)
   return NULL;
 }
 
-#endif 
+#endif /* CONFIG_INET */
 
+/* VJ header compression */
 EXPORT_SYMBOL(slhc_init);
 EXPORT_SYMBOL(slhc_free);
 EXPORT_SYMBOL(slhc_remember);

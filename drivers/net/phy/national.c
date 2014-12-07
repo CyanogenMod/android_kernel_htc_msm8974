@@ -22,6 +22,7 @@
 #include <linux/phy.h>
 #include <linux/netdevice.h>
 
+/* DP83865 phy identifier values */
 #define DP83865_PHY_ID	0x20005c7a
 
 #define DP83865_INT_STATUS	0x14
@@ -35,6 +36,7 @@
 				DP83865_INT_ANE_COMPLETED | \
 				DP83865_INT_LINK_CHANGE)
 
+/* Advanced proprietary configuration */
 #define NS_EXP_MEM_CTL	0x16
 #define NS_EXP_MEM_DATA	0x1d
 #define NS_EXP_MEM_ADD	0x1e
@@ -81,6 +83,8 @@ static int ns_ack_interrupt(struct phy_device *phydev)
 	if (ret < 0)
 		return ret;
 
+	/* Clear the interrupt status bit by writing a “1”
+	 * to the corresponding bit in INT_CLEAR (2:0 are reserved) */
 	ret = phy_write(phydev, DP83865_INT_CLEAR, ret & ~0x7);
 
 	return ret;
@@ -92,7 +96,7 @@ static void ns_giga_speed_fallback(struct phy_device *phydev, int mode)
 
 	phy_write(phydev, MII_BMCR, (bmcr | BMCR_PDOWN));
 
-	
+	/* Enable 8 bit expended memory read/write (no auto increment) */
 	phy_write(phydev, NS_EXP_MEM_CTL, 0);
 	phy_write(phydev, NS_EXP_MEM_ADD, 0x1C0);
 	phy_write(phydev, NS_EXP_MEM_DATA, 0x0008);
@@ -115,6 +119,8 @@ static void ns_10_base_t_hdx_loopack(struct phy_device *phydev, int disable)
 static int ns_config_init(struct phy_device *phydev)
 {
 	ns_giga_speed_fallback(phydev, ALL_FALLBACK_ON);
+	/* In the latest MAC or switches design, the 10 Mbps loopback
+	   is desired to be turned off. */
 	ns_10_base_t_hdx_loopack(phydev, hdx_loopback_off);
 	return ns_ack_interrupt(phydev);
 }

@@ -50,4 +50,4 @@ static inline int dma_set_mask(struct device *dev, u64 mask)
 
 #define dma_cache_sync(dev, va, size, dir)		  ((void)0)
 
-#endif	
+#endif	/* _ALPHA_DMA_MAPPING_H */

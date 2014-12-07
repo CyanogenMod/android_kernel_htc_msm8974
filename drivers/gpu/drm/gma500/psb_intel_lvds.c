@@ -30,6 +30,9 @@
 #include "power.h"
 #include <linux/pm_runtime.h>
 
+/*
+ * LVDS I2C backlight control macros
+ */
 #define BRIGHTNESS_MAX_LEVEL 100
 #define BRIGHTNESS_MASK 0xFF
 #define BLC_I2C_TYPE	0x01
@@ -45,6 +48,9 @@
 #define PSB_BACKLIGHT_PWM_POLARITY_BIT_CLEAR (0xFFFE)
 
 struct psb_intel_lvds_priv {
+	/*
+	 * Saved LVDO output states
+	 */
 	uint32_t savePP_ON;
 	uint32_t savePP_OFF;
 	uint32_t saveLVDS;
@@ -59,6 +65,9 @@ struct psb_intel_lvds_priv {
 };
 
 
+/*
+ * Returns the maximum level of the backlight duty cycle field.
+ */
 static u32 psb_intel_lvds_get_max_backlight(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -67,20 +76,26 @@ static u32 psb_intel_lvds_get_max_backlight(struct drm_device *dev)
 	if (gma_power_begin(dev, false)) {
 		ret = REG_READ(BLC_PWM_CTL);
 		gma_power_end(dev);
-	} else 
+	} else /* Powered off, use the saved value */
 		ret = dev_priv->regs.saveBLC_PWM_CTL;
 
-	
+	/* Top 15bits hold the frequency mask */
 	ret = (ret &  BACKLIGHT_MODULATION_FREQ_MASK) >>
 					BACKLIGHT_MODULATION_FREQ_SHIFT;
 
-        ret *= 2;	
+        ret *= 2;	/* Return a 16bit range as needed for setting */
         if (ret == 0)
                 dev_err(dev->dev, "BL bug: Reg %08x save %08X\n",
                         REG_READ(BLC_PWM_CTL), dev_priv->regs.saveBLC_PWM_CTL);
 	return ret;
 }
 
+/*
+ * Set LVDS backlight level by I2C command
+ *
+ * FIXME: at some point we need to both track this for PM and also
+ * disable runtime pm on MRST if the brightness is nil (ie blanked)
+ */
 static int psb_lvds_i2c_set_brightness(struct drm_device *dev,
 					unsigned int level)
 {
@@ -132,7 +147,7 @@ static int psb_lvds_pwm_set_brightness(struct drm_device *dev, int level)
 
 	max_pwm_blc = psb_intel_lvds_get_max_backlight(dev);
 
-	
+	/*BLC_PWM_CTL Should be initiated while backlight device init*/
 	BUG_ON(max_pwm_blc == 0);
 
 	blc_pwm_duty_cycle = level * max_pwm_blc / BRIGHTNESS_MAX_LEVEL;
@@ -152,6 +167,9 @@ static int psb_lvds_pwm_set_brightness(struct drm_device *dev, int level)
 	return 0;
 }
 
+/*
+ * Set LVDS backlight level either by I2C or PWM
+ */
 void psb_intel_lvds_set_brightness(struct drm_device *dev, int level)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -169,6 +187,11 @@ void psb_intel_lvds_set_brightness(struct drm_device *dev, int level)
 		psb_lvds_pwm_set_brightness(dev, level);
 }
 
+/*
+ * Sets the backlight level.
+ *
+ * level: backlight level, from 0 to psb_intel_lvds_get_max_backlight().
+ */
 static void psb_intel_lvds_set_backlight(struct drm_device *dev, int level)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -191,6 +214,9 @@ static void psb_intel_lvds_set_backlight(struct drm_device *dev, int level)
 	}
 }
 
+/*
+ * Sets the power state for the panel.
+ */
 static void psb_intel_lvds_set_power(struct drm_device *dev, bool on)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -233,7 +259,7 @@ static void psb_intel_lvds_encoder_dpms(struct drm_encoder *encoder, int mode)
 	else
 		psb_intel_lvds_set_power(dev, false);
 
-	
+	/* XXX: We never power down the LVDS pairs. */
 }
 
 static void psb_intel_lvds_save(struct drm_connector *connector)
@@ -251,15 +277,19 @@ static void psb_intel_lvds_save(struct drm_connector *connector)
 	lvds_priv->saveLVDS = REG_READ(LVDS);
 	lvds_priv->savePP_CONTROL = REG_READ(PP_CONTROL);
 	lvds_priv->savePP_CYCLE = REG_READ(PP_CYCLE);
-	
+	/*lvds_priv->savePP_DIVISOR = REG_READ(PP_DIVISOR);*/
 	lvds_priv->saveBLC_PWM_CTL = REG_READ(BLC_PWM_CTL);
 	lvds_priv->savePFIT_CONTROL = REG_READ(PFIT_CONTROL);
 	lvds_priv->savePFIT_PGM_RATIOS = REG_READ(PFIT_PGM_RATIOS);
 
-	
+	/*TODO: move backlight_duty_cycle to psb_intel_lvds_priv*/
 	dev_priv->backlight_duty_cycle = (dev_priv->regs.saveBLC_PWM_CTL &
 						BACKLIGHT_DUTY_CYCLE_MASK);
 
+	/*
+	 * If the light is off at server startup,
+	 * just make it full brightness
+	 */
 	if (dev_priv->backlight_duty_cycle == 0)
 		dev_priv->backlight_duty_cycle =
 		psb_intel_lvds_get_max_backlight(dev);
@@ -295,7 +325,7 @@ static void psb_intel_lvds_restore(struct drm_connector *connector)
 	REG_WRITE(PFIT_PGM_RATIOS, lvds_priv->savePFIT_PGM_RATIOS);
 	REG_WRITE(LVDSPP_ON, lvds_priv->savePP_ON);
 	REG_WRITE(LVDSPP_OFF, lvds_priv->savePP_OFF);
-	
+	/*REG_WRITE(PP_DIVISOR, lvds_priv->savePP_DIVISOR);*/
 	REG_WRITE(PP_CYCLE, lvds_priv->savePP_CYCLE);
 	REG_WRITE(PP_CONTROL, lvds_priv->savePP_CONTROL);
 	REG_WRITE(LVDS, lvds_priv->saveLVDS);
@@ -327,11 +357,11 @@ int psb_intel_lvds_mode_valid(struct drm_connector *connector,
 	if (psb_intel_encoder->type == INTEL_OUTPUT_MIPI2)
 		fixed_mode = dev_priv->mode_dev.panel_fixed_mode2;
 
-	
+	/* just in case */
 	if (mode->flags & DRM_MODE_FLAG_DBLSCAN)
 		return MODE_NO_DBLESCAN;
 
-	
+	/* just in case */
 	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
 		return MODE_NO_INTERLACE;
 
@@ -361,7 +391,7 @@ bool psb_intel_lvds_mode_fixup(struct drm_encoder *encoder,
 	if (psb_intel_encoder->type == INTEL_OUTPUT_MIPI2)
 		panel_fixed_mode = mode_dev->panel_fixed_mode2;
 
-	
+	/* PSB requires the LVDS is on pipe B, MRST has only one pipe anyway */
 	if (!IS_MRST(dev) && psb_intel_crtc->pipe == 0) {
 		printk(KERN_ERR "Can't support LVDS on pipe A\n");
 		return false;
@@ -370,7 +400,7 @@ bool psb_intel_lvds_mode_fixup(struct drm_encoder *encoder,
 		printk(KERN_ERR "Must use PIPE A\n");
 		return false;
 	}
-	
+	/* Should never happen!! */
 	list_for_each_entry(tmp_encoder, &dev->mode_config.encoder_list,
 			    head) {
 		if (tmp_encoder != encoder
@@ -381,6 +411,12 @@ bool psb_intel_lvds_mode_fixup(struct drm_encoder *encoder,
 		}
 	}
 
+	/*
+	 * If we have timings from the BIOS for the panel, put them in
+	 * to the adjusted mode.  The CRTC will be set up for this mode,
+	 * with the panel scaling set up to source from the H/VDisplay
+	 * of the original mode.
+	 */
 	if (panel_fixed_mode != NULL) {
 		adjusted_mode->hdisplay = panel_fixed_mode->hdisplay;
 		adjusted_mode->hsync_start = panel_fixed_mode->hsync_start;
@@ -395,6 +431,11 @@ bool psb_intel_lvds_mode_fixup(struct drm_encoder *encoder,
 				      CRTC_INTERLACE_HALVE_V);
 	}
 
+	/*
+	 * XXX: It would be nice to support lower refresh rates on the
+	 * panels to reduce power consumption, and perhaps match the
+	 * user's requested refresh rate.
+	 */
 
 	return true;
 }
@@ -438,7 +479,17 @@ static void psb_intel_lvds_mode_set(struct drm_encoder *encoder,
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	u32 pfit_control;
 
+	/*
+	 * The LVDS pin pair will already have been turned on in the
+	 * psb_intel_crtc_mode_set since it has a large impact on the DPLL
+	 * settings.
+	 */
 
+	/*
+	 * Enable automatic panel scaling so that non-native modes fill the
+	 * screen.  Should be enabled before the pipe is enabled, according to
+	 * register description and PRM.
+	 */
 	if (mode->hdisplay != adjusted_mode->hdisplay ||
 	    mode->vdisplay != adjusted_mode->vdisplay)
 		pfit_control = (PFIT_ENABLE | VERT_AUTO_SCALE |
@@ -453,12 +504,22 @@ static void psb_intel_lvds_mode_set(struct drm_encoder *encoder,
 	REG_WRITE(PFIT_CONTROL, pfit_control);
 }
 
+/*
+ * Detect the LVDS connection.
+ *
+ * This always returns CONNECTOR_STATUS_CONNECTED.
+ * This connector should only have
+ * been set up if the LVDS was actually connected anyway.
+ */
 static enum drm_connector_status psb_intel_lvds_detect(struct drm_connector
 						   *connector, bool force)
 {
 	return connector_status_connected;
 }
 
+/*
+ * Return the list of DDC modes if available, or the BIOS fixed mode otherwise.
+ */
 static int psb_intel_lvds_get_modes(struct drm_connector *connector)
 {
 	struct drm_device *dev = connector->dev;
@@ -475,6 +536,10 @@ static int psb_intel_lvds_get_modes(struct drm_connector *connector)
 	if (ret)
 		return ret;
 
+	/* Didn't get an EDID, so
+	 * Set wide sync ranges so we get all modes
+	 * handed to valid_mode for checking
+	 */
 	connector->display_info.min_vfreq = 0;
 	connector->display_info.max_vfreq = 200;
 	connector->display_info.min_hfreq = 0;
@@ -490,6 +555,13 @@ static int psb_intel_lvds_get_modes(struct drm_connector *connector)
 	return 0;
 }
 
+/**
+ * psb_intel_lvds_destroy - unregister and free LVDS structures
+ * @connector: connector to free
+ *
+ * Unregister the DDC bus for this connector then free the driver private
+ * structure.
+ */
 void psb_intel_lvds_destroy(struct drm_connector *connector)
 {
 	struct psb_intel_encoder *psb_intel_encoder =
@@ -618,6 +690,13 @@ const struct drm_encoder_funcs psb_intel_lvds_enc_funcs = {
 
 
 
+/**
+ * psb_intel_lvds_init - setup LVDS connectors on this device
+ * @dev: drm device
+ *
+ * Create the connector, register the LVDS DDC bus, and try to figure out what
+ * modes we can display on the LVDS panel (if present).
+ */
 void psb_intel_lvds_init(struct drm_device *dev,
 			 struct psb_intel_mode_device *mode_dev)
 {
@@ -626,7 +705,7 @@ void psb_intel_lvds_init(struct drm_device *dev,
 	struct psb_intel_lvds_priv *lvds_priv;
 	struct drm_connector *connector;
 	struct drm_encoder *encoder;
-	struct drm_display_mode *scan;	
+	struct drm_display_mode *scan;	/* *modes, *bios_mode; */
 	struct drm_crtc *crtc;
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	u32 lvds;
@@ -675,7 +754,7 @@ void psb_intel_lvds_init(struct drm_device *dev,
 	connector->interlace_allowed = false;
 	connector->doublescan_allowed = false;
 
-	
+	/*Attach connector properties*/
 	drm_connector_attach_property(connector,
 				      dev->mode_config.scaling_mode_property,
 				      DRM_MODE_SCALE_FULLSCREEN);
@@ -683,6 +762,10 @@ void psb_intel_lvds_init(struct drm_device *dev,
 				      dev_priv->backlight_property,
 				      BRIGHTNESS_MAX_LEVEL);
 
+	/*
+	 * Set up I2C bus
+	 * FIXME: distroy i2c_bus when exit
+	 */
 	lvds_priv->i2c_bus = psb_intel_i2c_create(dev, GPIOB, "LVDSBLC_B");
 	if (!lvds_priv->i2c_bus) {
 		dev_printk(KERN_ERR,
@@ -692,8 +775,17 @@ void psb_intel_lvds_init(struct drm_device *dev,
 	lvds_priv->i2c_bus->slave_addr = 0x2C;
 	dev_priv->lvds_i2c_bus =  lvds_priv->i2c_bus;
 
+	/*
+	 * LVDS discovery:
+	 * 1) check for EDID on DDC
+	 * 2) check for VBT data
+	 * 3) check to see if LVDS is already on
+	 *    if none of the above, no panel
+	 * 4) make sure lid is open
+	 *    if closed, act like it's not there for now
+	 */
 
-	
+	/* Set up the DDC bus. */
 	lvds_priv->ddc_bus = psb_intel_i2c_create(dev, GPIOC, "LVDSDDC_C");
 	if (!lvds_priv->ddc_bus) {
 		dev_printk(KERN_ERR, &dev->pdev->dev,
@@ -701,16 +793,20 @@ void psb_intel_lvds_init(struct drm_device *dev,
 		goto failed_ddc;
 	}
 
+	/*
+	 * Attempt to get the fixed panel mode from DDC.  Assume that the
+	 * preferred mode is the right one.
+	 */
 	psb_intel_ddc_get_modes(connector, &lvds_priv->ddc_bus->adapter);
 	list_for_each_entry(scan, &connector->probed_modes, head) {
 		if (scan->type & DRM_MODE_TYPE_PREFERRED) {
 			mode_dev->panel_fixed_mode =
 			    drm_mode_duplicate(dev, scan);
-			goto out;	
+			goto out;	/* FIXME: check for quirks */
 		}
 	}
 
-	
+	/* Failed to get EDID, what about VBT? do we need this? */
 	if (mode_dev->vbt_mode)
 		mode_dev->panel_fixed_mode =
 		    drm_mode_duplicate(dev, mode_dev->vbt_mode);
@@ -721,6 +817,11 @@ void psb_intel_lvds_init(struct drm_device *dev,
 				drm_mode_duplicate(dev,
 					dev_priv->lfp_lvds_vbt_mode);
 
+	/*
+	 * If we didn't get EDID, try checking if the panel is already turned
+	 * on.	If so, assume that whatever is currently programmed is the
+	 * correct mode.
+	 */
 	lvds = REG_READ(LVDS);
 	pipe = (lvds & LVDS_PIPEB_SELECT) ? 1 : 0;
 	crtc = psb_intel_get_crtc_from_pipe(dev, pipe);
@@ -731,16 +832,20 @@ void psb_intel_lvds_init(struct drm_device *dev,
 		if (mode_dev->panel_fixed_mode) {
 			mode_dev->panel_fixed_mode->type |=
 			    DRM_MODE_TYPE_PREFERRED;
-			goto out;	
+			goto out;	/* FIXME: check for quirks */
 		}
 	}
 
-	
+	/* If we still don't have a mode after all that, give up. */
 	if (!mode_dev->panel_fixed_mode) {
 		dev_err(dev->dev, "Found no modes on the lvds, ignoring the LVDS\n");
 		goto failed_find;
 	}
 
+	/*
+	 * Blacklist machines with BIOSes that list an LVDS panel without
+	 * actually having one.
+	 */
 out:
 	drm_sysfs_connector_add(connector);
 	return;

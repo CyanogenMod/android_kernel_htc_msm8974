@@ -51,7 +51,7 @@ int register_trapped_io(struct trapped_io *tiop)
 	if (unlikely(trapped_io_disable))
 		return 0;
 
-	
+	/* structure must be page aligned */
 	if ((unsigned long)tiop & (PAGE_SIZE - 1))
 		goto bad;
 
@@ -61,7 +61,7 @@ int register_trapped_io(struct trapped_io *tiop)
 		flags |= res->flags;
 	}
 
-	
+	/* support IORESOURCE_IO _or_ MEM, not both */
 	if (hweight_long(flags) != 1)
 		goto bad;
 

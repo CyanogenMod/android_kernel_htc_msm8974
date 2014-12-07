@@ -168,6 +168,9 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 	unsigned long tcnt;
 	long tcmp;
 
+	/* We currently avoid using 64bit arithmetic by using the
+	 * fact that anything faster than 1Hz is easily representable
+	 * by 32bits. */
 
 	if (period_ns > NS_IN_HZ || duty_ns > NS_IN_HZ)
 		return -ERANGE;
@@ -179,6 +182,8 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 	    duty_ns == pwm->duty_ns)
 		return 0;
 
+	/* The TCMP and TCNT can be read without a lock, they're not
+	 * shared between the timers. */
 
 	tcmp = __raw_readl(S3C2410_TCMPB(pwm->pwm_id));
 	tcnt = __raw_readl(S3C2410_TCNTB(pwm->pwm_id));
@@ -188,7 +193,7 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 	pwm_dbg(pwm, "duty_ns=%d, period_ns=%d (%lu)\n",
 		duty_ns, period_ns, period);
 
-	
+	/* Check to see if we are changing the clock rate of the PWM */
 
 	if (pwm->period_ns != period_ns) {
 		if (pwm_is_tdiv(pwm)) {
@@ -206,10 +211,12 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 	} else
 		tin_ns = NS_IN_HZ / clk_get_rate(pwm->clk);
 
-	
+	/* Note, counters count down */
 
 	tcmp = duty_ns / tin_ns;
 	tcmp = tcnt - tcmp;
+	/* the pwm hw only checks the compare register after a decrement,
+	   so the pin never toggles if tcmp = tcnt */
 	if (tcmp == tcnt)
 		tcmp--;
 
@@ -218,7 +225,7 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 	if (tcmp < 0)
 		tcmp = 0;
 
-	
+	/* Update the PWM register block. */
 
 	local_irq_save(flags);
 
@@ -275,7 +282,7 @@ static int s3c_pwm_probe(struct platform_device *pdev)
 	pwm->pdev = pdev;
 	pwm->pwm_id = id;
 
-	
+	/* calculate base of control bits in TCON */
 	pwm->tcon_base = id == 0 ? 0 : (id * 4) + 4;
 
 	pwm->clk = clk_get(dev, "pwm-tin");
@@ -352,6 +359,10 @@ static int s3c_pwm_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct pwm_device *pwm = platform_get_drvdata(pdev);
 
+	/* No one preserve these values during suspend so reset them
+	 * Otherwise driver leaves PWM unconfigured if same values
+	 * passed to pwm_config
+	 */
 	pwm->period_ns = 0;
 	pwm->duty_ns = 0;
 
@@ -363,7 +374,7 @@ static int s3c_pwm_resume(struct platform_device *pdev)
 	struct pwm_device *pwm = platform_get_drvdata(pdev);
 	unsigned long tcon;
 
-	
+	/* Restore invertion */
 	tcon = __raw_readl(S3C2410_TCON);
 	tcon |= pwm_tcon_invert(pwm);
 	__raw_writel(tcon, S3C2410_TCON);

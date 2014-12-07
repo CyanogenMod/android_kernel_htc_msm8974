@@ -42,6 +42,7 @@
 
 #define read_bit	(1 << 7)
 
+/* Register format: 1 byte addr + value */
 struct ad9852_config {
 	u8 phajst0[3];
 	u8 phajst1[3];

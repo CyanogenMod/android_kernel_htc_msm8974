@@ -34,7 +34,7 @@ static int s3c64xx_enter_idle(struct cpuidle_device *dev,
 	local_irq_disable();
 	do_gettimeofday(&before);
 
-	
+	/* Setup PWRCFG to enter idle mode */
 	tmp = __raw_readl(S3C64XX_PWR_CFG);
 	tmp &= ~S3C64XX_PWRCFG_CFG_WFI_MASK;
 	tmp |= S3C64XX_PWRCFG_CFG_WFI_IDLE;

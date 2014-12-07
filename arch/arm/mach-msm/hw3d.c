@@ -128,7 +128,7 @@ static void locked_hw3d_client_done(struct hw3d_info *info, int had_timer)
 	}
 	info->revoking = 0;
 
-	
+	/* double check that the irqs are disabled */
 	locked_hw3d_irq_disable(info);
 
 	if (had_timer)
@@ -140,6 +140,8 @@ static void do_force_revoke(struct hw3d_info *info)
 {
 	unsigned long flags;
 
+	/* at this point, the task had a chance to relinquish the gpu, but
+	 * it hasn't. So, we kill it */
 	spin_lock_irqsave(&info->lock, flags);
 	pr_debug("hw3d: forcing revoke\n");
 	locked_hw3d_irq_disable(info);
@@ -158,6 +160,9 @@ static void do_force_revoke(struct hw3d_info *info)
 #define REVOKE_TIMEOUT		(2 * HZ)
 static void locked_hw3d_revoke(struct hw3d_info *info)
 {
+	/* force us to wait to suspend until the revoke is done. If the
+	 * user doesn't release the gpu, the timer will turn off the gpu,
+	 * and force kill the process. */
 	wake_lock(&info->wake_lock);
 	info->revoking = 1;
 	wake_up(&info->revoke_wq);
@@ -189,11 +194,11 @@ static long hw3d_revoke_gpu(struct file *file)
 	down(&hw3d_sem);
 	if (!hw3d_granted)
 		goto end;
-	
+	/* revoke the pmem region completely */
 	if ((ret = pmem_remap(&region, file, PMEM_UNMAP)))
 		goto end;
 	get_pmem_user_addr(file, &user_start, &user_len);
-	
+	/* reset the gpu */
 	clk_disable(grp_clk);
 	clk_disable(imem_clk);
 	hw3d_granted = 0;
@@ -212,7 +217,7 @@ static long hw3d_grant_gpu(struct file *file)
 		ret = -1;
 		goto end;
 	}
-	
+	/* map the registers */
 	if ((ret = pmem_remap(&region, file, PMEM_MAP)))
 		goto end;
 	clk_enable(grp_clk);
@@ -227,7 +232,7 @@ end:
 static int hw3d_release(struct inode *inode, struct file *file)
 {
 	down(&hw3d_sem);
-	
+	/* if the gpu is in use, and its inuse by the file that was released */
 	if (hw3d_granted && (file == hw3d_granted_file)) {
 		clk_disable(grp_clk);
 		clk_disable(imem_clk);
@@ -240,8 +245,12 @@ static int hw3d_release(struct inode *inode, struct file *file)
 
 static void hw3d_vma_open(struct vm_area_struct *vma)
 {
-	
+	/* XXX: should the master be allowed to fork and keep the mappings? */
 
+	/* TODO: remap garbage page into here.
+	 *
+	 * For now, just pull the mapping. The user shouldn't be forking
+	 * and using it anyway. */
 	zap_page_range(vma, vma->vm_start, vma->vm_end - vma->vm_start, NULL);
 }
 
@@ -311,7 +320,7 @@ static int hw3d_mmap(struct file *file, struct vm_area_struct *vma)
 		goto done;
 	}
 
-	
+	/* our mappings are always noncached */
 #ifdef pgprot_noncached
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #endif
@@ -326,13 +335,16 @@ static int hw3d_mmap(struct file *file, struct vm_area_struct *vma)
 		goto done;
 	}
 
+	/* Prevent a malicious client from stealing another client's data
+	 * by forcing a revoke on it and then mmapping the GPU buffers.
+	 */
 	if (region != HW3D_REGS)
 		memset(info->regions[region].vbase, 0,
 		       info->regions[region].size);
 
 	vma->vm_ops = &hw3d_vm_ops;
 
-	
+	/* mark this region as mapped */
 	data->vmas[region] = vma;
 
 done:

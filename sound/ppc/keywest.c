@@ -25,6 +25,10 @@
 #include <sound/core.h>
 #include "pmac.h"
 
+/*
+ * we have to keep a static variable here since i2c attach_adapter
+ * callback cannot pass a private data.
+ */
 static struct pmac_keywest *keywest_ctx;
 
 
@@ -35,6 +39,11 @@ static int keywest_probe(struct i2c_client *client,
 	return 0;
 }
 
+/*
+ * This is kind of a hack, best would be to turn powermac to fixed i2c
+ * bus numbers and declare the sound device as part of platform
+ * initialization
+ */
 static int keywest_attach_adapter(struct i2c_adapter *adapter)
 {
 	struct i2c_board_info info;
@@ -43,7 +52,7 @@ static int keywest_attach_adapter(struct i2c_adapter *adapter)
 		return -EINVAL;
 
 	if (strncmp(adapter->name, "mac-io", 6))
-		return 0; 
+		return 0; /* ignored */
 
 	memset(&info, 0, sizeof(struct i2c_board_info));
 	strlcpy(info.type, "keywest", I2C_NAME_SIZE);
@@ -51,12 +60,21 @@ static int keywest_attach_adapter(struct i2c_adapter *adapter)
 	keywest_ctx->client = i2c_new_device(adapter, &info);
 	if (!keywest_ctx->client)
 		return -ENODEV;
+	/*
+	 * We know the driver is already loaded, so the device should be
+	 * already bound. If not it means binding failed, and then there
+	 * is no point in keeping the device instantiated.
+	 */
 	if (!keywest_ctx->client->driver) {
 		i2c_unregister_device(keywest_ctx->client);
 		keywest_ctx->client = NULL;
 		return -ENODEV;
 	}
 	
+	/*
+	 * Let i2c-core delete that device on driver removal.
+	 * This is safe because i2c-core holds the core_lock mutex for us.
+	 */
 	list_add_tail(&keywest_ctx->client->detected,
 		      &keywest_ctx->client->driver->clients);
 	return 0;
@@ -88,6 +106,7 @@ static struct i2c_driver keywest_driver = {
 	.id_table = keywest_i2c_id,
 };
 
+/* exported */
 void snd_pmac_keywest_cleanup(struct pmac_keywest *i2c)
 {
 	if (keywest_ctx && keywest_ctx == i2c) {
@@ -110,6 +129,7 @@ int __devinit snd_pmac_tumbler_post_init(void)
 	return 0;
 }
 
+/* exported */
 int __devinit snd_pmac_keywest_init(struct pmac_keywest *i2c)
 {
 	int err;

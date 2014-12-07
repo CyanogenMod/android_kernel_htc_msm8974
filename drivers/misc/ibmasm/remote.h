@@ -28,6 +28,7 @@
 
 #include <asm/io.h>
 
+/* pci offsets */
 #define CONDOR_MOUSE_DATA		0x000AC000
 #define CONDOR_MOUSE_ISR_CONTROL	0x00
 #define CONDOR_MOUSE_ISR_STATUS		0x04
@@ -49,11 +50,13 @@
 #define INPUT_TYPE_KEYBOARD	0x2
 
 
+/* mouse button states received from SP */
 #define REMOTE_DOUBLE_CLICK	0xF0
 #define REMOTE_BUTTON_LEFT	0x01
 #define REMOTE_BUTTON_MIDDLE	0x02
 #define REMOTE_BUTTON_RIGHT	0x04
 
+/* size of keysym/keycode translation matricies */
 #define XLATE_SIZE 256
 
 struct mouse_input {
@@ -95,6 +98,7 @@ struct remote_input {
 #define enable_mouse_interrupts(sp)	writel(1, mouse_addr(sp) + CONDOR_MOUSE_ISR_CONTROL)
 #define disable_mouse_interrupts(sp)	writel(0, mouse_addr(sp) + CONDOR_MOUSE_ISR_CONTROL)
 
+/* remote input queue operations */
 #define REMOTE_QUEUE_SIZE	60
 
 #define get_queue_writer(sp)	readl(mouse_addr(sp) + CONDOR_MOUSE_Q_WRITER)
@@ -151,18 +155,18 @@ static inline int advance_queue_reader(struct service_processor *sp, unsigned lo
 #define KEY_SYM_KP7      0xFFB7
 #define KEY_SYM_KP8      0xFFB8
 #define KEY_SYM_KP9      0xFFB9
-#define KEY_SYM_F1       0xFFBE      
-#define KEY_SYM_F2       0xFFBF      
-#define KEY_SYM_F3       0xFFC0      
-#define KEY_SYM_F4       0xFFC1      
-#define KEY_SYM_F5       0xFFC2      
-#define KEY_SYM_F6       0xFFC3      
-#define KEY_SYM_F7       0xFFC4      
-#define KEY_SYM_F8       0xFFC5      
-#define KEY_SYM_F9       0xFFC6      
-#define KEY_SYM_F10      0xFFC7      
-#define KEY_SYM_F11      0xFFC8      
-#define KEY_SYM_F12      0xFFC9      
+#define KEY_SYM_F1       0xFFBE      // 1B 5B 5B 41
+#define KEY_SYM_F2       0xFFBF      // 1B 5B 5B 42
+#define KEY_SYM_F3       0xFFC0      // 1B 5B 5B 43
+#define KEY_SYM_F4       0xFFC1      // 1B 5B 5B 44
+#define KEY_SYM_F5       0xFFC2      // 1B 5B 5B 45
+#define KEY_SYM_F6       0xFFC3      // 1B 5B 31 37 7E
+#define KEY_SYM_F7       0xFFC4      // 1B 5B 31 38 7E
+#define KEY_SYM_F8       0xFFC5      // 1B 5B 31 39 7E
+#define KEY_SYM_F9       0xFFC6      // 1B 5B 32 30 7E
+#define KEY_SYM_F10      0xFFC7      // 1B 5B 32 31 7E
+#define KEY_SYM_F11      0xFFC8      // 1B 5B 32 33 7E
+#define KEY_SYM_F12      0xFFC9      // 1B 5B 32 34 7E
 #define KEY_SYM_SHIFT    0xFFE1
 #define KEY_SYM_CTRL     0xFFE3
 #define KEY_SYM_ALT      0xFFE9
@@ -263,4 +267,4 @@ static inline int advance_queue_reader(struct service_processor *sp, unsigned lo
 #define KEY_SYM_y        0x79
 #define KEY_SYM_z        0x7A
 #define KEY_SYM_SPACE    0x20
-#endif 
+#endif /* _IBMASM_REMOTE_H_ */

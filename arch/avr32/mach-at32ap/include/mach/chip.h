@@ -16,4 +16,4 @@
 # error Unknown chip type selected
 #endif
 
-#endif 
+#endif /* __ASM_AVR32_ARCH_CHIP_H__ */

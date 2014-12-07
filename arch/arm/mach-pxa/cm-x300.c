@@ -75,7 +75,7 @@
 #define GPIO_ULPI_PHY_RST	(127)
 
 static mfp_cfg_t cm_x3xx_mfp_cfg[] __initdata = {
-	
+	/* LCD */
 	GPIO54_LCD_LDD_0,
 	GPIO55_LCD_LDD_1,
 	GPIO56_LCD_LDD_2,
@@ -97,17 +97,17 @@ static mfp_cfg_t cm_x3xx_mfp_cfg[] __initdata = {
 	GPIO74_LCD_PCLK,
 	GPIO75_LCD_BIAS,
 
-	
+	/* BTUART */
 	GPIO111_UART2_RTS,
 	GPIO112_UART2_RXD | MFP_LPM_EDGE_FALL,
 	GPIO113_UART2_TXD,
 	GPIO114_UART2_CTS | MFP_LPM_EDGE_BOTH,
 
-	
+	/* STUART */
 	GPIO109_UART3_TXD,
 	GPIO110_UART3_RXD | MFP_LPM_EDGE_FALL,
 
-	
+	/* AC97 */
 	GPIO23_AC97_nACRESET,
 	GPIO24_AC97_SYSCLK,
 	GPIO29_AC97_BITCLK,
@@ -115,7 +115,7 @@ static mfp_cfg_t cm_x3xx_mfp_cfg[] __initdata = {
 	GPIO27_AC97_SDATA_OUT,
 	GPIO28_AC97_SYNC,
 
-	
+	/* Keypad */
 	GPIO115_KP_MKIN_0 | MFP_LPM_EDGE_BOTH,
 	GPIO116_KP_MKIN_1 | MFP_LPM_EDGE_BOTH,
 	GPIO117_KP_MKIN_2 | MFP_LPM_EDGE_BOTH,
@@ -131,15 +131,15 @@ static mfp_cfg_t cm_x3xx_mfp_cfg[] __initdata = {
 	GPIO125_KP_MKOUT_4,
 	GPIO4_2_KP_MKOUT_5,
 
-	
+	/* MMC1 */
 	GPIO3_MMC1_DAT0,
 	GPIO4_MMC1_DAT1 | MFP_LPM_EDGE_BOTH,
 	GPIO5_MMC1_DAT2,
 	GPIO6_MMC1_DAT3,
 	GPIO7_MMC1_CLK,
-	GPIO8_MMC1_CMD,	
+	GPIO8_MMC1_CMD,	/* CMD0 for slot 0 */
 
-	
+	/* MMC2 */
 	GPIO9_MMC2_DAT0,
 	GPIO10_MMC2_DAT1 | MFP_LPM_EDGE_BOTH,
 	GPIO11_MMC2_DAT2,
@@ -147,7 +147,7 @@ static mfp_cfg_t cm_x3xx_mfp_cfg[] __initdata = {
 	GPIO13_MMC2_CLK,
 	GPIO14_MMC2_CMD,
 
-	
+	/* FFUART */
 	GPIO30_UART1_RXD | MFP_LPM_EDGE_FALL,
 	GPIO31_UART1_TXD,
 	GPIO32_UART1_CTS,
@@ -157,41 +157,41 @@ static mfp_cfg_t cm_x3xx_mfp_cfg[] __initdata = {
 	GPIO35_UART1_RI,
 	GPIO36_UART1_DTR,
 
-	
-	GPIO82_GPIO | MFP_PULL_HIGH,	
-	GPIO85_GPIO,			
-	GPIO99_GPIO,			
+	/* GPIOs */
+	GPIO82_GPIO | MFP_PULL_HIGH,	/* MMC CD */
+	GPIO85_GPIO,			/* MMC WP */
+	GPIO99_GPIO,			/* Ethernet IRQ */
 
-	
-	GPIO95_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO96_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO97_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO98_GPIO,				
+	/* RTC GPIOs */
+	GPIO95_GPIO | MFP_LPM_DRIVE_HIGH,	/* RTC CS */
+	GPIO96_GPIO | MFP_LPM_DRIVE_HIGH,	/* RTC WR */
+	GPIO97_GPIO | MFP_LPM_DRIVE_HIGH,	/* RTC RD */
+	GPIO98_GPIO,				/* RTC IO */
 
-	
+	/* Standard I2C */
 	GPIO21_I2C_SCL,
 	GPIO22_I2C_SDA,
 
-	
+	/* PWM Backlight */
 	GPIO19_PWM2_OUT,
 };
 
 static mfp_cfg_t cm_x3xx_rev_lt130_mfp_cfg[] __initdata = {
-	
-	GPIO79_GPIO,			
-	GPIO77_GPIO,			
-	GPIO78_GPIO,			
+	/* GPIOs */
+	GPIO79_GPIO,			/* LED */
+	GPIO77_GPIO,			/* WiFi reset */
+	GPIO78_GPIO,			/* BT reset */
 };
 
 static mfp_cfg_t cm_x3xx_rev_ge130_mfp_cfg[] __initdata = {
-	
-	GPIO76_GPIO,			
-	GPIO71_GPIO,			
-	GPIO70_GPIO,			
+	/* GPIOs */
+	GPIO76_GPIO,			/* LED */
+	GPIO71_GPIO,			/* WiFi reset */
+	GPIO70_GPIO,			/* BT reset */
 };
 
 static mfp_cfg_t cm_x310_mfp_cfg[] __initdata = {
-	
+	/* USB PORT 2 */
 	ULPI_STP,
 	ULPI_NXT,
 	ULPI_DIR,
@@ -204,10 +204,10 @@ static mfp_cfg_t cm_x310_mfp_cfg[] __initdata = {
 	GPIO36_ULPI_DATA_OUT_6,
 	GPIO37_ULPI_DATA_OUT_7,
 	GPIO38_ULPI_CLK,
-	
+	/* external PHY reset pin */
 	GPIO127_GPIO,
 
-	
+	/* USB PORT 3 */
 	GPIO77_USB_P3_1,
 	GPIO78_USB_P3_2,
 	GPIO79_USB_P3_3,
@@ -259,6 +259,7 @@ static void __init cm_x300_init_dm9000(void)
 static inline void cm_x300_init_dm9000(void) {}
 #endif
 
+/* LCD */
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info cm_x300_lcd_modes[] = {
 	[0] = {
@@ -329,10 +330,10 @@ static inline void cm_x300_init_bl(void) {}
 
 #if defined(CONFIG_SPI_GPIO) || defined(CONFIG_SPI_GPIO_MODULE)
 #define GPIO_LCD_BASE	(144)
-#define GPIO_LCD_DIN	(GPIO_LCD_BASE + 8)	
-#define GPIO_LCD_DOUT	(GPIO_LCD_BASE + 9)	
-#define GPIO_LCD_SCL	(GPIO_LCD_BASE + 10)	
-#define GPIO_LCD_CS	(GPIO_LCD_BASE + 11)	
+#define GPIO_LCD_DIN	(GPIO_LCD_BASE + 8)	/* aux_gpio3_0 */
+#define GPIO_LCD_DOUT	(GPIO_LCD_BASE + 9)	/* aux_gpio3_1 */
+#define GPIO_LCD_SCL	(GPIO_LCD_BASE + 10)	/* aux_gpio3_2 */
+#define GPIO_LCD_CS	(GPIO_LCD_BASE + 11)	/* aux_gpio3_3 */
 #define LCD_SPI_BUS_NUM	(1)
 
 static struct spi_gpio_platform_data cm_x300_spi_gpio_pdata = {
@@ -390,13 +391,13 @@ static struct mtd_partition cm_x300_nand_partitions[] = {
 		.name        = "OBM",
 		.offset      = 0,
 		.size        = SZ_256K,
-		.mask_flags  = MTD_WRITEABLE, 
+		.mask_flags  = MTD_WRITEABLE, /* force read-only */
 	},
 	[1] = {
 		.name        = "U-Boot",
 		.offset      = MTDPART_OFS_APPEND,
 		.size        = SZ_256K,
-		.mask_flags  = MTD_WRITEABLE, 
+		.mask_flags  = MTD_WRITEABLE, /* force read-only */
 	},
 	[2] = {
 		.name        = "Environment",
@@ -407,7 +408,7 @@ static struct mtd_partition cm_x300_nand_partitions[] = {
 		.name        = "reserved",
 		.offset      = MTDPART_OFS_APPEND,
 		.size        = SZ_256K + SZ_1M,
-		.mask_flags  = MTD_WRITEABLE, 
+		.mask_flags  = MTD_WRITEABLE, /* force read-only */
 	},
 	[4] = {
 		.name        = "kernel",
@@ -446,6 +447,8 @@ static struct pxamci_platform_data cm_x300_mci_platform_data = {
 	.gpio_power		= -1,
 };
 
+/* The second MMC slot of CM-X300 is hardwired to Libertas card and has
+   no detection/ro pins */
 static int cm_x300_mci2_init(struct device *dev,
 			     irq_handler_t cm_x300_detect_int,
 	void *data)
@@ -483,7 +486,7 @@ static int cm_x300_ulpi_phy_reset(void)
 {
 	int err;
 
-	
+	/* reset the PHY */
 	err = gpio_request_one(GPIO_ULPI_PHY_RST, GPIOF_OUT_INIT_LOW,
 			       "ulpi reset");
 	if (err) {
@@ -505,7 +508,7 @@ static inline int cm_x300_u2d_init(struct device *dev)
 	int err = 0;
 
 	if (cpu_is_pxa310()) {
-		
+		/* CLK_POUT is connected to the ULPI PHY */
 		pout_clk = clk_get(NULL, "CLK_POUT");
 		if (IS_ERR(pout_clk)) {
 			err = PTR_ERR(pout_clk);
@@ -606,6 +609,7 @@ static inline void cm_x300_init_leds(void) {}
 #endif
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
+/* PCA9555 */
 static struct pca953x_platform_data cm_x300_gpio_ext_pdata_0 = {
 	.gpio_base = 128,
 };
@@ -660,6 +664,7 @@ static void __init cm_x300_init_rtc(void)
 static inline void cm_x300_init_rtc(void) {}
 #endif
 
+/* Battery */
 struct power_supply_info cm_x300_psy_info = {
 	.name = "battery",
 	.technology = POWER_SUPPLY_TECHNOLOGY_LIPO,
@@ -727,6 +732,7 @@ static struct regulator_init_data buck2_data = {
 	.consumer_supplies = buck2_consumers,
 };
 
+/* DA9030 */
 struct da903x_subdev_info cm_x300_da9030_subdevs[] = {
 	{
 		.name = "da903x-battery",
@@ -762,6 +768,7 @@ static void __init cm_x300_init_da9030(void)
 	irq_set_irq_wake(IRQ_WAKEUP0, 1);
 }
 
+/* wi2wi gpio setting for system_rev >= 130 */
 static struct gpio cm_x300_wi2wi_gpios[] __initdata = {
 	{ 71, GPIOF_OUT_INIT_HIGH, "wlan en" },
 	{ 70, GPIOF_OUT_INIT_HIGH, "bt reset" },
@@ -772,11 +779,11 @@ static void __init cm_x300_init_wi2wi(void)
 	int err;
 
 	if (system_rev < 130) {
-		cm_x300_wi2wi_gpios[0].gpio = 77;	
-		cm_x300_wi2wi_gpios[1].gpio = 78;	
+		cm_x300_wi2wi_gpios[0].gpio = 77;	/* wlan en */
+		cm_x300_wi2wi_gpios[1].gpio = 78;	/* bt reset */
 	}
 
-	
+	/* Libertas and CSR reset */
 	err = gpio_request_array(ARRAY_AND_SIZE(cm_x300_wi2wi_gpios));
 	if (err) {
 		pr_err("failed to request wifi/bt gpios: %d\n", err);
@@ -791,9 +798,10 @@ static void __init cm_x300_init_wi2wi(void)
 	gpio_free_array(ARRAY_AND_SIZE(cm_x300_wi2wi_gpios));
 }
 
+/* MFP */
 static void __init cm_x300_init_mfp(void)
 {
-	
+	/* board-processor specific GPIO initialization */
 	pxa3xx_mfp_config(ARRAY_AND_SIZE(cm_x3xx_mfp_cfg));
 
 	if (system_rev < 130)
@@ -833,7 +841,7 @@ static void __init cm_x300_init(void)
 static void __init cm_x300_fixup(struct tag *tags, char **cmdline,
 				 struct meminfo *mi)
 {
-	
+	/* Make sure that mi->bank[0].start = PHYS_ADDR */
 	for (; tags->hdr.size; tags = tag_next(tags))
 		if (tags->hdr.tag == ATAG_MEM &&
 			tags->u.mem.start == 0x80000000) {

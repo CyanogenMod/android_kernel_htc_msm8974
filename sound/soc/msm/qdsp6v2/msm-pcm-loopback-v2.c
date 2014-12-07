@@ -58,7 +58,7 @@ static const struct snd_pcm_hardware dummy_pcm_hardware = {
 	.channels_min           = 1,
 	.channels_max           = UINT_MAX,
 
-	
+	/* Random values to keep userspace happy when checking constraints */
 	.info                   = SNDRV_PCM_INFO_INTERLEAVED |
 				  SNDRV_PCM_INFO_BLOCK_TRANSFER,
 	.buffer_bytes_max       = 128*1024,
@@ -415,7 +415,7 @@ static int msm_pcm_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id msm_pcm_loopback_dt_match[] = {
-	{.compatible = "qti,msm-pcm-loopback"},
+	{.compatible = "qcom,msm-pcm-loopback"},
 	{}
 };
 

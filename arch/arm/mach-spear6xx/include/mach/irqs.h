@@ -14,6 +14,8 @@
 #ifndef __MACH_IRQS_H
 #define __MACH_IRQS_H
 
+/* IRQ definitions */
+/* VIC 1 */
 #define IRQ_INTRCOMM_SW_IRQ			0
 #define IRQ_INTRCOMM_CPU_1			1
 #define IRQ_INTRCOMM_CPU_2			2
@@ -47,6 +49,7 @@
 #define IRQ_GEN_RAS_10				30
 #define IRQ_GEN_RAS_11				31
 
+/* VIC 2 */
 #define IRQ_APPL_GPT1_1				32
 #define IRQ_APPL_GPT1_2				33
 #define IRQ_APPL_GPT2_1				34
@@ -82,6 +85,7 @@
 
 #define IRQ_VIC_END				64
 
+/* GPIO pins virtual irqs */
 #define SPEAR_GPIO_INT_BASE	IRQ_VIC_END
 #define SPEAR_GPIO0_INT_BASE	SPEAR_GPIO_INT_BASE
 #define SPEAR_GPIO1_INT_BASE	(SPEAR_GPIO0_INT_BASE + 8)
@@ -90,4 +94,4 @@
 #define VIRTUAL_IRQS		(SPEAR_GPIO_INT_END - IRQ_VIC_END)
 #define NR_IRQS			(IRQ_VIC_END + VIRTUAL_IRQS)
 
-#endif	
+#endif	/* __MACH_IRQS_H */

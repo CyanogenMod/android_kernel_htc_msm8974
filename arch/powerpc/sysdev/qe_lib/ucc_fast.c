@@ -101,7 +101,7 @@ void ucc_fast_enable(struct ucc_fast_private * uccf, enum comm_dir mode)
 
 	uf_regs = uccf->uf_regs;
 
-	
+	/* Enable reception and/or transmission on this UCC. */
 	gumr = in_be32(&uf_regs->gumr);
 	if (mode & COMM_DIR_TX) {
 		gumr |= UCC_FAST_GUMR_ENT;
@@ -122,7 +122,7 @@ void ucc_fast_disable(struct ucc_fast_private * uccf, enum comm_dir mode)
 
 	uf_regs = uccf->uf_regs;
 
-	
+	/* Disable reception and/or transmission on this UCC. */
 	gumr = in_be32(&uf_regs->gumr);
 	if (mode & COMM_DIR_TX) {
 		gumr &= ~UCC_FAST_GUMR_ENT;
@@ -146,20 +146,20 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 	if (!uf_info)
 		return -EINVAL;
 
-	
+	/* check if the UCC port number is in range. */
 	if ((uf_info->ucc_num < 0) || (uf_info->ucc_num > UCC_MAX_NUM - 1)) {
 		printk(KERN_ERR "%s: illegal UCC number\n", __func__);
 		return -EINVAL;
 	}
 
-	
+	/* Check that 'max_rx_buf_length' is properly aligned (4). */
 	if (uf_info->max_rx_buf_length & (UCC_FAST_MRBLR_ALIGNMENT - 1)) {
 		printk(KERN_ERR "%s: max_rx_buf_length not aligned\n",
 			__func__);
 		return -EINVAL;
 	}
 
-	
+	/* Validate Virtual Fifo register values */
 	if (uf_info->urfs < UCC_FAST_URFS_MIN_VAL) {
 		printk(KERN_ERR "%s: urfs is too small\n", __func__);
 		return -EINVAL;
@@ -202,9 +202,9 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 		return -ENOMEM;
 	}
 
-	
+	/* Fill fast UCC structure */
 	uccf->uf_info = uf_info;
-	
+	/* Set the PHY base address */
 	uccf->uf_regs = ioremap(uf_info->regs, sizeof(struct ucc_fast));
 	if (uccf->uf_regs == NULL) {
 		printk(KERN_ERR "%s: Cannot map UCC registers\n", __func__);
@@ -226,9 +226,9 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 	uccf->tx_frames = 0;
 	uccf->rx_frames = 0;
 	uccf->rx_discarded = 0;
-#endif				
+#endif				/* STATISTICS */
 
-	
+	/* Set UCC to fast type */
 	ret = ucc_set_type(uf_info->ucc_num, UCC_SPEED_TYPE_FAST);
 	if (ret) {
 		printk(KERN_ERR "%s: cannot set UCC type\n", __func__);
@@ -238,8 +238,8 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 
 	uccf->mrblr = uf_info->max_rx_buf_length;
 
-	
-	
+	/* Set GUMR */
+	/* For more details see the hardware spec. */
 	gumr = uf_info->ttx_trx;
 	if (uf_info->tci)
 		gumr |= UCC_FAST_GUMR_TCI;
@@ -266,7 +266,7 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 	gumr |= uf_info->mode;
 	out_be32(&uf_regs->gumr, gumr);
 
-	
+	/* Allocate memory for Tx Virtual Fifo */
 	uccf->ucc_fast_tx_virtual_fifo_base_offset =
 	    qe_muram_alloc(uf_info->utfs, UCC_FAST_VIRT_FIFO_REGS_ALIGNMENT);
 	if (IS_ERR_VALUE(uccf->ucc_fast_tx_virtual_fifo_base_offset)) {
@@ -277,7 +277,7 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 		return -ENOMEM;
 	}
 
-	
+	/* Allocate memory for Rx Virtual Fifo */
 	uccf->ucc_fast_rx_virtual_fifo_base_offset =
 		qe_muram_alloc(uf_info->urfs +
 			   UCC_FAST_RECEIVE_VIRTUAL_FIFO_SIZE_FUDGE_FACTOR,
@@ -290,27 +290,27 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 		return -ENOMEM;
 	}
 
-	
+	/* Set Virtual Fifo registers */
 	out_be16(&uf_regs->urfs, uf_info->urfs);
 	out_be16(&uf_regs->urfet, uf_info->urfet);
 	out_be16(&uf_regs->urfset, uf_info->urfset);
 	out_be16(&uf_regs->utfs, uf_info->utfs);
 	out_be16(&uf_regs->utfet, uf_info->utfet);
 	out_be16(&uf_regs->utftt, uf_info->utftt);
-	
+	/* utfb, urfb are offsets from MURAM base */
 	out_be32(&uf_regs->utfb, uccf->ucc_fast_tx_virtual_fifo_base_offset);
 	out_be32(&uf_regs->urfb, uccf->ucc_fast_rx_virtual_fifo_base_offset);
 
-	
-	
+	/* Mux clocking */
+	/* Grant Support */
 	ucc_set_qe_mux_grant(uf_info->ucc_num, uf_info->grant_support);
-	
+	/* Breakpoint Support */
 	ucc_set_qe_mux_bkpt(uf_info->ucc_num, uf_info->brkpt_support);
-	
+	/* Set Tsa or NMSI mode. */
 	ucc_set_qe_mux_tsa(uf_info->ucc_num, uf_info->tsa);
-	
+	/* If NMSI (not Tsa), set Tx and Rx clock. */
 	if (!uf_info->tsa) {
-		
+		/* Rx clock routing */
 		if ((uf_info->rx_clock != QE_CLK_NONE) &&
 		    ucc_set_qe_mux_rxtx(uf_info->ucc_num, uf_info->rx_clock,
 					COMM_DIR_RX)) {
@@ -319,7 +319,7 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 			ucc_fast_free(uccf);
 			return -EINVAL;
 		}
-		
+		/* Tx clock routing */
 		if ((uf_info->tx_clock != QE_CLK_NONE) &&
 		    ucc_set_qe_mux_rxtx(uf_info->ucc_num, uf_info->tx_clock,
 					COMM_DIR_TX)) {
@@ -330,11 +330,14 @@ int ucc_fast_init(struct ucc_fast_info * uf_info, struct ucc_fast_private ** ucc
 		}
 	}
 
-	
+	/* Set interrupt mask register at UCC level. */
 	out_be32(&uf_regs->uccm, uf_info->uccm_mask);
 
+	/* First, clear anything pending at UCC level,
+	 * otherwise, old garbage may come through
+	 * as soon as the dam is opened. */
 
-	
+	/* Writing '1' clears */
 	out_be32(&uf_regs->ucce, 0xffffffff);
 
 	*uccf_ret = uccf;

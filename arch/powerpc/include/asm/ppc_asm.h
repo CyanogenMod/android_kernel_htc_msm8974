@@ -17,6 +17,12 @@
 
 #define SZL			(BITS_PER_LONG/8)
 
+/*
+ * Stuff for accurate CPU time accounting.
+ * These macros handle transitions between user and system state
+ * in exception entry and exit and accumulate time to the
+ * user_time and system_time fields in the paca.
+ */
 
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING
 #define ACCOUNT_CPU_USER_ENTRY(ra, rb)
@@ -24,48 +30,52 @@
 #define ACCOUNT_STOLEN_TIME
 #else
 #define ACCOUNT_CPU_USER_ENTRY(ra, rb)					\
-	beq	2f;				\
-	MFTB(ra);					\
+	beq	2f;			/* if from kernel mode */	\
+	MFTB(ra);			/* get timebase */		\
 	ld	rb,PACA_STARTTIME_USER(r13);				\
 	std	ra,PACA_STARTTIME(r13);					\
-	subf	rb,rb,ra;			\
+	subf	rb,rb,ra;		/* subtract start value */	\
 	ld	ra,PACA_USER_TIME(r13);					\
-	add	ra,ra,rb;			\
+	add	ra,ra,rb;		/* add on to user time */	\
 	std	ra,PACA_USER_TIME(r13);					\
 2:
 
 #define ACCOUNT_CPU_USER_EXIT(ra, rb)					\
-	MFTB(ra);					\
+	MFTB(ra);			/* get timebase */		\
 	ld	rb,PACA_STARTTIME(r13);					\
 	std	ra,PACA_STARTTIME_USER(r13);				\
-	subf	rb,rb,ra;			\
+	subf	rb,rb,ra;		/* subtract start value */	\
 	ld	ra,PACA_SYSTEM_TIME(r13);				\
-	add	ra,ra,rb;			\
+	add	ra,ra,rb;		/* add on to system time */	\
 	std	ra,PACA_SYSTEM_TIME(r13)
 
 #ifdef CONFIG_PPC_SPLPAR
 #define ACCOUNT_STOLEN_TIME						\
 BEGIN_FW_FTR_SECTION;							\
 	beq	33f;							\
-		\
-	ld	r10,PACALPPACAPTR(r13);			\
-	ld	r11,PACA_DTL_RIDX(r13);		\
-	ld	r10,LPPACA_DTLIDX(r10);		\
+	/* from user - see if there are any DTL entries to process */	\
+	ld	r10,PACALPPACAPTR(r13);	/* get ptr to VPA */		\
+	ld	r11,PACA_DTL_RIDX(r13);	/* get log read index */	\
+	ld	r10,LPPACA_DTLIDX(r10);	/* get log write index */	\
 	cmpd	cr1,r11,r10;						\
 	beq+	cr1,33f;						\
 	bl	.accumulate_stolen_time;				\
 	ld	r12,_MSR(r1);						\
-	andi.	r10,r12,MSR_PR;		 \
+	andi.	r10,r12,MSR_PR;		/* Restore cr0 (coming from user) */ \
 33:									\
 END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 
-#else  
+#else  /* CONFIG_PPC_SPLPAR */
 #define ACCOUNT_STOLEN_TIME
 
-#endif 
+#endif /* CONFIG_PPC_SPLPAR */
 
-#endif 
+#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 
+/*
+ * Macros for storing registers into and loading registers from
+ * exception frames.
+ */
 #ifdef __powerpc64__
 #define SAVE_GPR(n, base)	std	n,GPR0+8*(n)(base)
 #define REST_GPR(n, base)	ld	n,GPR0+8*(n)(base)
@@ -115,6 +125,7 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 #define REST_16VRS(n,b,base)	REST_8VRS(n,b,base); REST_8VRS(n+8,b,base)
 #define REST_32VRS(n,b,base)	REST_16VRS(n,b,base); REST_16VRS(n+16,b,base)
 
+/* Save the lower 32 VSRs in the thread VSR region */
 #define SAVE_VSR(n,b,base)	li b,THREAD_VSR0+(16*(n));  STXVD2X(n,base,b)
 #define SAVE_2VSRS(n,b,base)	SAVE_VSR(n,b,base); SAVE_VSR(n+1,b,base)
 #define SAVE_4VSRS(n,b,base)	SAVE_2VSRS(n,b,base); SAVE_2VSRS(n+2,b,base)
@@ -127,6 +138,7 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 #define REST_8VSRS(n,b,base)	REST_4VSRS(n,b,base); REST_4VSRS(n+4,b,base)
 #define REST_16VSRS(n,b,base)	REST_8VSRS(n,b,base); REST_8VSRS(n+8,b,base)
 #define REST_32VSRS(n,b,base)	REST_16VSRS(n,b,base); REST_16VSRS(n+16,b,base)
+/* Save the upper 32 VSRs (32-63) in the thread VSX region (0-31) */
 #define SAVE_VSRU(n,b,base)	li b,THREAD_VR0+(16*(n));  STXVD2X(n+32,base,b)
 #define SAVE_2VSRSU(n,b,base)	SAVE_VSRU(n,b,base); SAVE_VSRU(n+1,b,base)
 #define SAVE_4VSRSU(n,b,base)	SAVE_2VSRSU(n,b,base); SAVE_2VSRSU(n+2,b,base)
@@ -140,6 +152,10 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 #define REST_16VSRSU(n,b,base)	REST_8VSRSU(n,b,base); REST_8VSRSU(n+8,b,base)
 #define REST_32VSRSU(n,b,base)	REST_16VSRSU(n,b,base); REST_16VSRSU(n+16,b,base)
 
+/*
+ * b = base register for addressing, o = base offset from register of 1st EVR
+ * n = first EVR, s = scratch
+ */
 #define SAVE_EVR(n,s,b,o)	evmergehi s,s,n; stw s,o+4*(n)(b)
 #define SAVE_2EVRS(n,s,b,o)	SAVE_EVR(n,s,b,o); SAVE_EVR(n+1,s,b,o)
 #define SAVE_4EVRS(n,s,b,o)	SAVE_2EVRS(n,s,b,o); SAVE_2EVRS(n+2,s,b,o)
@@ -153,6 +169,7 @@ END_FW_FTR_SECTION_IFSET(FW_FEATURE_SPLPAR)
 #define REST_16EVRS(n,s,b,o)	REST_8EVRS(n,s,b,o); REST_8EVRS(n+8,s,b,o)
 #define REST_32EVRS(n,s,b,o)	REST_16EVRS(n,s,b,o); REST_16EVRS(n+16,s,b,o)
 
+/* Macros to adjust thread priority for hardware multithreading */
 #define HMT_VERY_LOW	or	31,31,31	# very low priority
 #define HMT_LOW		or	1,1,1
 #define HMT_MEDIUM_LOW  or	6,6,6		# medium low priority
@@ -233,7 +250,7 @@ name: \
 	.type GLUE(.,name),@function; \
 GLUE(.,name):
 
-#else 
+#else /* 32-bit */
 
 #define _ENTRY(n)	\
 	.globl n;	\
@@ -252,6 +269,30 @@ n:
 
 #endif
 
+/* 
+ * LOAD_REG_IMMEDIATE(rn, expr)
+ *   Loads the value of the constant expression 'expr' into register 'rn'
+ *   using immediate instructions only.  Use this when it's important not
+ *   to reference other data (i.e. on ppc64 when the TOC pointer is not
+ *   valid) and when 'expr' is a constant or absolute address.
+ *
+ * LOAD_REG_ADDR(rn, name)
+ *   Loads the address of label 'name' into register 'rn'.  Use this when
+ *   you don't particularly need immediate instructions only, but you need
+ *   the whole address in one register (e.g. it's a structure address and
+ *   you want to access various offsets within it).  On ppc32 this is
+ *   identical to LOAD_REG_IMMEDIATE.
+ *
+ * LOAD_REG_ADDRBASE(rn, name)
+ * ADDROFF(name)
+ *   LOAD_REG_ADDRBASE loads part of the address of label 'name' into
+ *   register 'rn'.  ADDROFF(name) returns the remainder of the address as
+ *   a constant expression.  ADDROFF(name) is a signed expression < 16 bits
+ *   in size, so is suitable for use directly as an offset in load and store
+ *   instructions.  Use this when loading/storing a single word or less as:
+ *      LOAD_REG_ADDRBASE(rX, name)
+ *      ld	rY,ADDROFF(name)(rX)
+ */
 #ifdef __powerpc64__
 #define LOAD_REG_IMMEDIATE(reg,expr)		\
 	lis     (reg),(expr)@highest;		\
@@ -266,9 +307,10 @@ n:
 #define LOAD_REG_ADDRBASE(reg,name)	LOAD_REG_ADDR(reg,name)
 #define ADDROFF(name)			0
 
+/* offsets for stack frame layout */
 #define LRSAVE	16
 
-#else 
+#else /* 32-bit */
 
 #define LOAD_REG_IMMEDIATE(reg,expr)		\
 	lis	(reg),(expr)@ha;		\
@@ -279,10 +321,12 @@ n:
 #define LOAD_REG_ADDRBASE(reg, name)	lis	(reg),name@ha
 #define ADDROFF(name)			name@l
 
+/* offsets for stack frame layout */
 #define LRSAVE	4
 
 #endif
 
+/* various errata or part fixups */
 #ifdef CONFIG_PPC601_SYNC_FIX
 #define SYNC				\
 BEGIN_FTR_SECTION			\
@@ -316,7 +360,8 @@ END_FTR_SECTION_NESTED(CPU_FTR_CELL_TB_BUG, CPU_FTR_CELL_TB_BUG, 96)
 
 #ifndef CONFIG_SMP
 #define TLBSYNC
-#else 
+#else /* CONFIG_SMP */
+/* tlbsync is not implemented on 601 */
 #define TLBSYNC				\
 BEGIN_FTR_SECTION			\
 	tlbsync;			\
@@ -325,6 +370,12 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #endif
 
 	
+/*
+ * This instruction is not implemented on the PPC 603 or 601; however, on
+ * the 403GCX and 405GP tlbia IS defined and tlbie is not.
+ * All of these instructions exist in the 8xx, they have magical powers,
+ * and they must be used.
+ */
 
 #if !defined(CONFIG_4xx) && !defined(CONFIG_8xx)
 #define tlbia					\
@@ -343,10 +394,24 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #define PPC440EP_ERR42
 #endif
 
+/*
+ * toreal/fromreal/tophys/tovirt macros. 32-bit BookE makes them
+ * keep the address intact to be compatible with code shared with
+ * 32-bit classic.
+ *
+ * On the other hand, I find it useful to have them behave as expected
+ * by their name (ie always do the addition) on 64-bit BookE
+ */
 #if defined(CONFIG_BOOKE) && !defined(CONFIG_PPC64)
 #define toreal(rd)
 #define fromreal(rd)
 
+/*
+ * We use addis to ensure compatibility with the "classic" ppc versions of
+ * these macros, which use rs = 0 to get the tophys offset in rd, rather than
+ * converting the address in r0, and so this version has to do that too
+ * (i.e. set register rd to 0 when rs == 0).
+ */
 #define tophys(rd,rs)				\
 	addis	rd,rs,0
 
@@ -354,7 +419,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 	addis	rd,rs,0
 
 #elif defined(CONFIG_PPC64)
-#define toreal(rd)		
+#define toreal(rd)		/* we can access c000... in real mode */
 #define fromreal(rd)
 
 #define tophys(rd,rs)                           \
@@ -365,6 +430,10 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 	ori	rd,rd,((KERNELBASE>>48)&0xFFFF);\
 	rotldi	rd,rd,48
 #else
+/*
+ * On APUS (Amiga PowerPC cpu upgrade board), we don't know the
+ * physical base address of RAM at compile time.
+ */
 #define toreal(rd)	tophys(rd,rd)
 #define fromreal(rd)	tovirt(rd,rd)
 
@@ -391,15 +460,17 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #ifndef CONFIG_40x
 #define	RFI		rfi
 #else
-#define RFI		rfi; b .	
+#define RFI		rfi; b .	/* Prevent prefetch past rfi */
 #endif
 #define MTMSRD(r)	mtmsr	r
 #define CLR_TOP32(r)
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
+/* The boring bits... */
 
+/* Condition Register Bit Fields */
 
 #define	cr0	0
 #define	cr1	1
@@ -411,6 +482,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #define	cr7	7
 
 
+/* General Purpose Registers (GPRs) */
 
 #define	r0	0
 #define	r1	1
@@ -446,6 +518,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #define	r31	31
 
 
+/* Floating Point Registers (FPRs) */
 
 #define	fr0	0
 #define	fr1	1
@@ -480,6 +553,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #define	fr30	30
 #define	fr31	31
 
+/* AltiVec Registers (VPRs) */
 
 #define	vr0	0
 #define	vr1	1
@@ -514,6 +588,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #define	vr30	30
 #define	vr31	31
 
+/* VSX Registers (VSRs) */
 
 #define	vsr0	0
 #define	vsr1	1
@@ -580,6 +655,7 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #define	vsr62	62
 #define	vsr63	63
 
+/* SPE Registers (EVPRs) */
 
 #define	evr0	0
 #define	evr1	1
@@ -614,11 +690,12 @@ END_FTR_SECTION_IFCLR(CPU_FTR_601)
 #define	evr30	30
 #define	evr31	31
 
+/* some stab codes */
 #define N_FUN	36
 #define N_RSYM	64
 #define N_SLINE	68
 #define N_SO	100
 
-#endif 
+#endif /*  __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_POWERPC_PPC_ASM_H */

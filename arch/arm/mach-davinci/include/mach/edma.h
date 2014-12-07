@@ -25,10 +25,39 @@
  *
  */
 
+/*
+ * This EDMA3 programming framework exposes two basic kinds of resource:
+ *
+ *  Channel	Triggers transfers, usually from a hardware event but
+ *		also manually or by "chaining" from DMA completions.
+ *		Each channel is coupled to a Parameter RAM (PaRAM) slot.
+ *
+ *  Slot	Each PaRAM slot holds a DMA transfer descriptor (PaRAM
+ *		"set"), source and destination addresses, a link to a
+ *		next PaRAM slot (if any), options for the transfer, and
+ *		instructions for updating those addresses.  There are
+ *		more than twice as many slots as event channels.
+ *
+ * Each PaRAM set describes a sequence of transfers, either for one large
+ * buffer or for several discontiguous smaller buffers.  An EDMA transfer
+ * is driven only from a channel, which performs the transfers specified
+ * in its PaRAM slot until there are no more transfers.  When that last
+ * transfer completes, the "link" field may be used to reload the channel's
+ * PaRAM slot with a new transfer descriptor.
+ *
+ * The EDMA Channel Controller (CC) maps requests from channels into physical
+ * Transfer Controller (TC) requests when the channel triggers (by hardware
+ * or software events, or by chaining).  The two physical DMA channels provided
+ * by the TCs are thus shared by many logical channels.
+ *
+ * DaVinci hardware also has a "QDMA" mechanism which is not currently
+ * supported through this interface.  (DSP firmware uses it though.)
+ */
 
 #ifndef EDMA_H_
 #define EDMA_H_
 
+/* PaRAM slots are laid out like this */
 struct edmacc_param {
 	unsigned int opt;
 	unsigned int src;
@@ -45,6 +74,7 @@ struct edmacc_param {
 #define TCERRINT0_INTERRUPT   18
 #define TCERRINT1_INTERRUPT   19
 
+/* fields in edmacc_param.opt */
 #define SAM		BIT(0)
 #define DAM		BIT(1)
 #define SYNCDIM		BIT(2)
@@ -60,6 +90,11 @@ struct edmacc_param {
 #define TRWORD (0x7<<2)
 #define PAENTRY (0x1ff<<5)
 
+/* Drivers should avoid using these symbolic names for dm644x
+ * channels, and use platform_device IORESOURCE_DMA resources
+ * instead.  (Other DaVinci chips have different peripherals
+ * and thus have different DMA channel mappings.)
+ */
 #define DAVINCI_DMA_MCBSP_TX              2
 #define DAVINCI_DMA_MCBSP_RX              3
 #define DAVINCI_DMA_VPSS_HIST             4
@@ -104,6 +139,7 @@ struct edmacc_param {
 #define DAVINCI_DMA_PWM1                 53
 #define DAVINCI_DMA_PWM2                 54
 
+/* DA830 specific EDMA3 information */
 #define EDMA_DA830_NUM_DMACH		32
 #define EDMA_DA830_NUM_TCC		32
 #define EDMA_DA830_NUM_PARAMENTRY	128
@@ -115,6 +151,7 @@ struct edmacc_param {
 #define DA830_DMACH2EVENT_MAP1		0x00000000u
 #define DA830_EDMA_ARM_OWN		0x30FFCCFFu
 
+/*ch_status paramater of callback function possible values*/
 #define DMA_COMPLETE 1
 #define DMA_CC_ERROR 2
 #define DMA_TC1_ERROR 3
@@ -151,25 +188,29 @@ enum sync_dimension {
 #define EDMA_CTLR(i)			((i) >> 16)
 #define EDMA_CHAN_SLOT(i)		((i) & 0xffff)
 
-#define EDMA_CHANNEL_ANY		-1	
-#define EDMA_SLOT_ANY			-1	
+#define EDMA_CHANNEL_ANY		-1	/* for edma_alloc_channel() */
+#define EDMA_SLOT_ANY			-1	/* for edma_alloc_slot() */
 #define EDMA_CONT_PARAMS_ANY		 1001
 #define EDMA_CONT_PARAMS_FIXED_EXACT	 1002
 #define EDMA_CONT_PARAMS_FIXED_NOT_EXACT 1003
 
 #define EDMA_MAX_CC               2
 
+/* alloc/free DMA channels and their dedicated parameter RAM slots */
 int edma_alloc_channel(int channel,
 	void (*callback)(unsigned channel, u16 ch_status, void *data),
 	void *data, enum dma_event_q);
 void edma_free_channel(unsigned channel);
 
+/* alloc/free parameter RAM slots */
 int edma_alloc_slot(unsigned ctlr, int slot);
 void edma_free_slot(unsigned slot);
 
+/* alloc/free a set of contiguous parameter RAM slots */
 int edma_alloc_cont_slots(unsigned ctlr, unsigned int id, int slot, int count);
 int edma_free_cont_slots(unsigned slot, int count);
 
+/* calls that operate on part of a parameter RAM slot */
 void edma_set_src(unsigned slot, dma_addr_t src_port,
 				enum address_mode mode, enum fifo_width);
 void edma_set_dest(unsigned slot, dma_addr_t dest_port,
@@ -182,9 +223,11 @@ void edma_set_transfer_params(unsigned slot, u16 acnt, u16 bcnt, u16 ccnt,
 void edma_link(unsigned from, unsigned to);
 void edma_unlink(unsigned from);
 
+/* calls that operate on an entire parameter RAM slot */
 void edma_write_slot(unsigned slot, const struct edmacc_param *params);
 void edma_read_slot(unsigned slot, struct edmacc_param *params);
 
+/* channel control operations */
 int edma_start(unsigned channel);
 void edma_stop(unsigned channel);
 void edma_clean_channel(unsigned channel);
@@ -198,17 +241,23 @@ struct edma_rsv_info {
 	const s16	(*rsv_slots)[2];
 };
 
+/* platform_data for EDMA driver */
 struct edma_soc_info {
 
-	
+	/* how many dma resources of each type */
 	unsigned	n_channel;
 	unsigned	n_region;
 	unsigned	n_slot;
 	unsigned	n_tc;
 	unsigned	n_cc;
+	/*
+	 * Default queue is expected to be a low-priority queue.
+	 * This way, long transfers on the default queue started
+	 * by the codec engine will not cause audio defects.
+	 */
 	enum dma_event_q	default_queue;
 
-	
+	/* Resource reservation for other cores */
 	struct edma_rsv_info	*rsv;
 
 	const s8	(*queue_tc_mapping)[2];

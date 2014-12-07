@@ -157,4 +157,4 @@ extern void pnx4008_dma_split_head_entry(struct pnx4008_dma_config *,
 extern void pnx4008_dma_split_ll_entry(struct pnx4008_dma_ll *,
 				       struct pnx4008_dma_ch_ctrl *);
 
-#endif				
+#endif				/* _ASM_ARCH_DMA_H */

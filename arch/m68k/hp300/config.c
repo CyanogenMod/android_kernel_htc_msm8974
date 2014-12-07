@@ -16,7 +16,7 @@
 #include <asm/bootinfo.h>
 #include <asm/machdep.h>
 #include <asm/blinken.h>
-#include <asm/io.h>                               
+#include <asm/io.h>                               /* readb() and writeb() */
 #include <asm/hp300hw.h>
 #include <asm/rtc.h>
 
@@ -82,7 +82,7 @@ int __init hp300_parse_bootinfo(const struct bi_record *record)
 		break;
 
 	case BI_HP300_UART_ADDR:
-		
+		/* serial port address: ignored here */
 		break;
 
         default:
@@ -199,7 +199,7 @@ static inline unsigned char hp300_rtc_write(unsigned char reg,
 
 static int hp300_hwclk(int op, struct rtc_time *t)
 {
-	if (!op) { 
+	if (!op) { /* read */
 		t->tm_sec  = hp300_rtc_read(RTC_REG_SEC1) * 10 +
 			hp300_rtc_read(RTC_REG_SEC2);
 		t->tm_min  = hp300_rtc_read(RTC_REG_MIN1) * 10 +

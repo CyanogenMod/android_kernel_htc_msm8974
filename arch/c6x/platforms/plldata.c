@@ -21,7 +21,11 @@
 #include <asm/setup.h>
 #include <asm/irq.h>
 
+/*
+ * Common SoC clock support.
+ */
 
+/* Default input for PLL1 */
 struct clk clkin1 = {
 	.name = "clkin1",
 	.node = LIST_HEAD_INIT(clkin1.node),
@@ -121,10 +125,12 @@ struct pll_data c6x_soc_pll1 = {
 	},
 };
 
+/* CPU core clock */
 struct clk c6x_core_clk = {
 	.name = "core",
 };
 
+/* miscellaneous IO clocks */
 struct clk c6x_i2c_clk = {
 	.name = "i2c",
 };
@@ -182,7 +188,7 @@ static void __init c6455_setup_clocks(struct device_node *node)
 
 	c6x_clks_init(c6455_clks);
 }
-#endif 
+#endif /* CONFIG_SOC_TMS320C6455 */
 
 #ifdef CONFIG_SOC_TMS320C6457
 static struct clk_lookup c6457_clks[] = {
@@ -222,7 +228,7 @@ static void __init c6457_setup_clocks(struct device_node *node)
 
 	c6x_clks_init(c6457_clks);
 }
-#endif 
+#endif /* CONFIG_SOC_TMS320C6455 */
 
 #ifdef CONFIG_SOC_TMS320C6472
 static struct clk_lookup c6472_clks[] = {
@@ -244,6 +250,7 @@ static struct clk_lookup c6472_clks[] = {
 	CLK("", NULL, NULL)
 };
 
+/* assumptions used for delay loop calculations */
 #define MIN_CLKIN1_KHz 15625
 #define MAX_CORE_KHz   700000
 #define MIN_PLLOUT_KHz MIN_CLKIN1_KHz
@@ -276,7 +283,7 @@ static void __init c6472_setup_clocks(struct device_node *node)
 
 	c6x_clks_init(c6472_clks);
 }
-#endif 
+#endif /* CONFIG_SOC_TMS320C6472 */
 
 
 #ifdef CONFIG_SOC_TMS320C6474
@@ -326,7 +333,7 @@ static void __init c6474_setup_clocks(struct device_node *node)
 
 	c6x_clks_init(c6474_clks);
 }
-#endif 
+#endif /* CONFIG_SOC_TMS320C6474 */
 
 static struct of_device_id c6x_clkc_match[] __initdata = {
 #ifdef CONFIG_SOC_TMS320C6455
@@ -385,7 +392,7 @@ void __init c64x_setup_clocks(void)
 		val = 30000;
 	pll->lock_delay = val;
 
-	
+	/* id->data is a pointer to SoC-specific setup */
 	id = of_match_node(c6x_clkc_match, node);
 	if (id && id->data) {
 		__setup_clocks = id->data;

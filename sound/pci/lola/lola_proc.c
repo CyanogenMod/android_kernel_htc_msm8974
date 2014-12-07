@@ -143,6 +143,7 @@ static void lola_proc_codec_read(struct snd_info_entry *entry,
 	}
 }
 
+/* direct codec access for debugging */
 static void lola_proc_codec_rw_write(struct snd_info_entry *entry,
 				     struct snd_info_buffer *buffer)
 {
@@ -165,6 +166,9 @@ static void lola_proc_codec_rw_read(struct snd_info_entry *entry,
 	snd_iprintf(buffer, "0x%x 0x%x\n", chip->debug_res, chip->debug_res_ex);
 }
 
+/*
+ * dump some registers
+ */
 static void lola_proc_regs_read(struct snd_info_entry *entry,
 				struct snd_info_buffer *buffer)
 {

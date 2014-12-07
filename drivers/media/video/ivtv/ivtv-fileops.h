@@ -21,6 +21,7 @@
 #ifndef IVTV_FILEOPS_H
 #define IVTV_FILEOPS_H
 
+/* Testing/Debugging */
 int ivtv_v4l2_open(struct file *filp);
 ssize_t ivtv_v4l2_read(struct file *filp, char __user *buf, size_t count,
 		      loff_t * pos);
@@ -35,7 +36,9 @@ int ivtv_start_decoding(struct ivtv_open_id *id, int speed);
 void ivtv_mute(struct ivtv *itv);
 void ivtv_unmute(struct ivtv *itv);
 
+/* Utilities */
 
+/* Release a previously claimed stream. */
 void ivtv_release_stream(struct ivtv_stream *s);
 
 #endif

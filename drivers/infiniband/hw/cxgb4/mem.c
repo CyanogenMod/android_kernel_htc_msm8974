@@ -107,6 +107,12 @@ static int write_adapter_mem(struct c4iw_rdev *rdev, u32 addr, u32 len,
 	return ret;
 }
 
+/*
+ * Build and write a TPT entry.
+ * IN: stag key, pdid, perm, bind_enabled, zbva, to, len, page_size,
+ *     pbl_size and pbl_addr
+ * OUT: stag index
+ */
 static int write_tpt_entry(struct c4iw_rdev *rdev, u32 reset_tpt_entry,
 			   u32 *stag, u8 stag_state, u32 pdid,
 			   enum fw_ri_stag_type type, enum fw_ri_mem_perms perm,
@@ -134,7 +140,7 @@ static int write_tpt_entry(struct c4iw_rdev *rdev, u32 reset_tpt_entry,
 	PDBG("%s stag_state 0x%0x type 0x%0x pdid 0x%0x, stag_idx 0x%x\n",
 	     __func__, stag_state, type, pdid, stag_idx);
 
-	
+	/* write TPT entry */
 	if (reset_tpt_entry)
 		memset(&tpt, 0, sizeof(tpt));
 	else {
@@ -309,7 +315,7 @@ static int build_phys_page_list(struct ib_phys_buf *buffer_list,
 	if (*total_size > 0xFFFFFFFFULL)
 		return -ENOMEM;
 
-	
+	/* Find largest page shift we can use to cover buffers */
 	for (*shift = PAGE_SHIFT; *shift < 27; ++(*shift))
 		if ((1ULL << *shift) & mask)
 			break;
@@ -362,7 +368,7 @@ int c4iw_reregister_phys_mem(struct ib_mr *mr, int mr_rereg_mask,
 
 	PDBG("%s ib_mr %p ib_pd %p\n", __func__, mr, pd);
 
-	
+	/* There can be no memory windows */
 	if (atomic_read(&mr->usecnt))
 		return -EINVAL;
 
@@ -370,7 +376,7 @@ int c4iw_reregister_phys_mem(struct ib_mr *mr, int mr_rereg_mask,
 	rhp = mhp->rhp;
 	php = to_c4iw_pd(mr->pd);
 
-	
+	/* make sure we are on the same adapter */
 	if (rhp != php->rhp)
 		return -EINVAL;
 
@@ -434,7 +440,7 @@ struct ib_mr *c4iw_register_phys_mem(struct ib_pd *pd,
 
 	mhp->rhp = rhp;
 
-	
+	/* First check that we have enough alignment */
 	if ((*iova_start & ~PAGE_MASK) != (buffer_list[0].addr & ~PAGE_MASK)) {
 		ret = -EINVAL;
 		goto err;
@@ -776,7 +782,7 @@ int c4iw_dereg_mr(struct ib_mr *ib_mr)
 	u32 mmid;
 
 	PDBG("%s ib_mr %p\n", __func__, ib_mr);
-	
+	/* There can be no memory windows */
 	if (atomic_read(&ib_mr->usecnt))
 		return -EINVAL;
 

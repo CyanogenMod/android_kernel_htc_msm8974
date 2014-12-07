@@ -18,6 +18,10 @@
 void set_huge_pte_at(struct mm_struct *mm, unsigned long addr,
 		     pte_t *ptep, pte_t pte);
 
+/*
+ * If the arch doesn't supply something else, assume that hugepage
+ * size aligned regions are ok without further preparation.
+ */
 static inline int prepare_hugepage_range(struct file *file,
 			unsigned long addr, unsigned long len)
 {
@@ -142,4 +146,4 @@ static inline void huge_ptep_clear_flush(struct vm_area_struct *vma,
 	huge_ptep_invalidate(vma->vm_mm, address, ptep);
 }
 
-#endif 
+#endif /* _ASM_S390_HUGETLB_H */

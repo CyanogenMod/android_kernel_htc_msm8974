@@ -40,6 +40,8 @@ int orig_hash_add_if(struct hard_iface *hard_iface, int max_if_num);
 int orig_hash_del_if(struct hard_iface *hard_iface, int max_if_num);
 
 
+/* hashfunction to choose an entry in a hash table of given size */
+/* hash algorithm from http://en.wikipedia.org/wiki/Hash_table */
 static inline uint32_t choose_orig(const void *data, uint32_t size)
 {
 	const unsigned char *key = data;
@@ -90,4 +92,4 @@ static inline struct orig_node *orig_hash_find(struct bat_priv *bat_priv,
 	return orig_node_tmp;
 }
 
-#endif 
+#endif /* _NET_BATMAN_ADV_ORIGINATOR_H_ */

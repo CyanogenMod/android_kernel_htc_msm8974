@@ -10,22 +10,25 @@
 #ifndef OP_IMPL_H
 #define OP_IMPL_H 1
 
+/* Per-counter configuration as set via oprofilefs.  */
 struct op_counter_config {
 	unsigned long enabled;
 	unsigned long event;
 	unsigned long count;
-	
+	/* Dummies because I am too lazy to hack the userspace tools.  */
 	unsigned long kernel;
 	unsigned long user;
 	unsigned long unit_mask;
 };
 
+/* System-wide configuration as set via oprofilefs.  */
 struct op_system_config {
 	unsigned long enable_pal;
 	unsigned long enable_kernel;
 	unsigned long enable_user;
 };
 
+/* Cached values for the various performance monitoring registers.  */
 struct op_register_config {
 	unsigned long enable;
 	unsigned long mux_select;
@@ -35,6 +38,7 @@ struct op_register_config {
 	unsigned long need_reset;
 };
 
+/* Per-architecture configuration and hooks.  */
 struct op_axp_model {
 	void (*reg_setup) (struct op_register_config *,
 			   struct op_counter_config *,

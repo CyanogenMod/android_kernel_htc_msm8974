@@ -24,7 +24,7 @@
 
 #include <plat/iopgtable.h>
 
-#define MAXCOLUMN 100 
+#define MAXCOLUMN 100 /* for short messages */
 
 static DEFINE_MUTEX(iommu_debug_lock);
 

@@ -10,6 +10,18 @@
 #include <linux/init.h>
 #include <linux/highmem.h>
 
+/*
+ * ARMv4 optimised copy_user_highpage
+ *
+ * We flush the destination cache lines just before we write the data into the
+ * corresponding address.  Since the Dcache is read-allocate, this removes the
+ * Dcache aliasing issue.  The writes will be forwarded to the write buffer,
+ * and merged as appropriate.
+ *
+ * Note: We rely on all ARMv4 processors implementing the "invalidate D line"
+ * instruction.  If your processor does not supply this, you have to write your
+ * own copy_user_highpage that does the right thing.
+ */
 static void __naked
 v4wb_copy_user_page(void *kto, const void *kfrom)
 {
@@ -48,6 +60,11 @@ void v4wb_copy_user_highpage(struct page *to, struct page *from,
 	kunmap_atomic(kto);
 }
 
+/*
+ * ARMv4 optimised clear_user_page
+ *
+ * Same story as above.
+ */
 void v4wb_clear_user_highpage(struct page *page, unsigned long vaddr)
 {
 	void *ptr, *kaddr = kmap_atomic(page);

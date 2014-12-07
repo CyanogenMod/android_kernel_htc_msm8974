@@ -208,13 +208,13 @@ static struct pmbus_driver_info max34440_info[] = {
 		.format[PSC_CURRENT_OUT] = direct,
 		.m[PSC_VOLTAGE_IN] = 1,
 		.b[PSC_VOLTAGE_IN] = 0,
-		.R[PSC_VOLTAGE_IN] = 3,	    
+		.R[PSC_VOLTAGE_IN] = 3,	    /* R = 0 in datasheet reflects mV */
 		.m[PSC_VOLTAGE_OUT] = 1,
 		.b[PSC_VOLTAGE_OUT] = 0,
-		.R[PSC_VOLTAGE_OUT] = 3,    
+		.R[PSC_VOLTAGE_OUT] = 3,    /* R = 0 in datasheet reflects mV */
 		.m[PSC_CURRENT_OUT] = 1,
 		.b[PSC_CURRENT_OUT] = 0,
-		.R[PSC_CURRENT_OUT] = 3,    
+		.R[PSC_CURRENT_OUT] = 3,    /* R = 0 in datasheet reflects mA */
 		.m[PSC_TEMPERATURE] = 1,
 		.b[PSC_TEMPERATURE] = 0,
 		.R[PSC_TEMPERATURE] = 2,
@@ -347,6 +347,7 @@ static const struct i2c_device_id max34440_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, max34440_id);
 
+/* This is the driver that will be inserted */
 static struct i2c_driver max34440_driver = {
 	.driver = {
 		   .name = "max34440",

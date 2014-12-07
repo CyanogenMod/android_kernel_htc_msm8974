@@ -28,13 +28,14 @@ MODULE_ALIAS_LDISC(N_CAIF);
 
 #define SEND_QUEUE_LOW 10
 #define SEND_QUEUE_HIGH 100
-#define CAIF_SENDING	        1 
-#define CAIF_FLOW_OFF_SENT	4 
+#define CAIF_SENDING	        1 /* Bit 1 = 0x02*/
+#define CAIF_FLOW_OFF_SENT	4 /* Bit 4 = 0x10 */
 #define MAX_WRITE_CHUNK	     4096
 #define ON 1
 #define OFF 0
 #define CAIF_MAX_MTU 4096
 
+/*This list is protected by the rtnl lock. */
 static LIST_HEAD(ser_list);
 
 static bool ser_loop;
@@ -176,8 +177,16 @@ static void ldisc_receive(struct tty_struct *tty, const u8 *data,
 
 	ser = tty->disc_data;
 
+	/*
+	 * NOTE: flags may contain information about break or overrun.
+	 * This is not yet handled.
+	 */
 
 
+	/*
+	 * Workaround for garbage at start of transmission,
+	 * only enable if STX handling is not enabled.
+	 */
 	if (!ser->common.use_stx && !ser->tx_started) {
 		dev_info(&ser->dev->dev,
 			"Bytes received before initial transmission -"
@@ -187,7 +196,7 @@ static void ldisc_receive(struct tty_struct *tty, const u8 *data,
 
 	BUG_ON(ser->dev == NULL);
 
-	
+	/* Get a suitable caif packet and copy in data. */
 	skb = netdev_alloc_skb(ser->dev, count+1);
 	if (skb == NULL)
 		return;
@@ -198,7 +207,7 @@ static void ldisc_receive(struct tty_struct *tty, const u8 *data,
 	skb_reset_mac_header(skb);
 	skb->dev = ser->dev;
 	debugfs_rx(ser, data, count);
-	
+	/* Push received packet up the stack. */
 	ret = netif_rx_ni(skb);
 	if (!ret) {
 		ser->dev->stats.rx_packets++;
@@ -217,14 +226,14 @@ static int handle_tx(struct ser_device *ser)
 	tty = ser->tty;
 	ser->tx_started = true;
 
-	
+	/* Enter critical section */
 	if (test_and_set_bit(CAIF_SENDING, &ser->state))
 		return 0;
 
-	
+	/* skb_peek is safe because handle_tx is called after skb_queue_tail */
 	while ((skb = skb_peek(&ser->head)) != NULL) {
 
-		
+		/* Make sure you don't write too much */
 		len = skb->len;
 		room = tty_write_room(tty);
 		if (!room)
@@ -234,7 +243,7 @@ static int handle_tx(struct ser_device *ser)
 		if (len > room)
 			len = room;
 
-		
+		/* Write to tty or loopback */
 		if (!ser_loop) {
 			tty_wr = tty->ops->write(tty, skb->data, len);
 			update_tty_status(ser);
@@ -245,7 +254,7 @@ static int handle_tx(struct ser_device *ser)
 		ser->dev->stats.tx_packets++;
 		ser->dev->stats.tx_bytes += tty_wr;
 
-		
+		/* Error on TTY ?! */
 		if (tty_wr < 0)
 			goto error;
 		/* Reduce buffer written, and discard if empty */
@@ -259,7 +268,7 @@ static int handle_tx(struct ser_device *ser)
 				kfree_skb(skb);
 		}
 	}
-	
+	/* Send flow off if queue is empty */
 	if (ser->head.qlen <= SEND_QUEUE_LOW &&
 		test_and_clear_bit(CAIF_FLOW_OFF_SENT, &ser->state) &&
 		ser->common.flowctrl != NULL)
@@ -278,7 +287,7 @@ static int caif_xmit(struct sk_buff *skb, struct net_device *dev)
 	BUG_ON(dev == NULL);
 	ser = netdev_priv(dev);
 
-	
+	/* Send flow off once, on high water mark */
 	if (ser->head.qlen > SEND_QUEUE_HIGH &&
 		!test_and_set_bit(CAIF_FLOW_OFF_SENT, &ser->state) &&
 		ser->common.flowctrl != NULL)
@@ -308,7 +317,7 @@ static int ldisc_open(struct tty_struct *tty)
 	char name[64];
 	int result;
 
-	
+	/* No write no play */
 	if (tty->ops->write == NULL)
 		return -EOPNOTSUPP;
 	if (!capable(CAP_SYS_ADMIN) && !capable(CAP_SYS_TTY_CONFIG))
@@ -341,12 +350,12 @@ static int ldisc_open(struct tty_struct *tty)
 static void ldisc_close(struct tty_struct *tty)
 {
 	struct ser_device *ser = tty->disc_data;
-	
+	/* Remove may be called inside or outside of rtnl_lock */
 	int islocked = rtnl_is_locked();
 
 	if (!islocked)
 		rtnl_lock();
-	
+	/* device is freed automagically by net-sysfs */
 	dev_close(ser->dev);
 	unregister_netdevice(ser->dev);
 	list_del(&ser->node);
@@ -356,6 +365,7 @@ static void ldisc_close(struct tty_struct *tty)
 		rtnl_unlock();
 }
 
+/* The line discipline structure. */
 static struct tty_ldisc_ops caif_ldisc = {
 	.owner =	THIS_MODULE,
 	.magic =	TTY_LDISC_MAGIC,

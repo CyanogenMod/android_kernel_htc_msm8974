@@ -27,7 +27,7 @@ DEFINE_REG(PORTIO_INEN, 0x50)
 static void __iomem *gpio_chip_to_mmr(struct gpio_chip *chip)
 {
 	switch (chip->base) {
-	default: 
+	default: /* not really needed, but keeps gcc happy */
 	case GPIO_PC0: return (void __iomem *)PORTCIO;
 	case GPIO_PD0: return (void __iomem *)PORTDIO;
 	case GPIO_PE0: return (void __iomem *)PORTEIO;
@@ -76,6 +76,7 @@ static void bf538_gpio_free(struct gpio_chip *chip, unsigned gpio)
 	return bfin_special_gpio_free(chip->base + gpio);
 }
 
+/* We don't set the irq fields as these banks cannot generate interrupts */
 
 static struct gpio_chip bf538_portc_chip = {
 	.label = "GPIO-PC",

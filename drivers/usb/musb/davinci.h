@@ -10,14 +10,18 @@
 #ifndef __MUSB_HDRDF_H__
 #define __MUSB_HDRDF_H__
 
+/*
+ * DaVinci-specific definitions
+ */
 
+/* Integrated highspeed/otg PHY */
 #define USBPHY_CTL_PADDR	(DAVINCI_SYSTEM_MODULE_BASE + 0x34)
-#define USBPHY_DATAPOL		BIT(11)	
+#define USBPHY_DATAPOL		BIT(11)	/* (dm355) switch D+/D- */
 #define USBPHY_PHYCLKGD		BIT(8)
-#define USBPHY_SESNDEN		BIT(7)	
-#define USBPHY_VBDTCTEN		BIT(6)	
-#define USBPHY_VBUSSENS		BIT(5)	
-#define USBPHY_PHYPLLON		BIT(4)	
+#define USBPHY_SESNDEN		BIT(7)	/* v(sess_end) comparator */
+#define USBPHY_VBDTCTEN		BIT(6)	/* v(bus) comparator */
+#define USBPHY_VBUSSENS		BIT(5)	/* (dm355,ro) is vbus > 0.5V */
+#define USBPHY_PHYPLLON		BIT(4)	/* override pll suspend */
 #define USBPHY_CLKO1SEL		BIT(3)
 #define USBPHY_OSCPDWN		BIT(2)
 #define USBPHY_OTGPDWN		BIT(1)
@@ -27,6 +31,7 @@
 #define DRVVBUS_FORCE		BIT(2)
 #define DRVVBUS_OVERRIDE	BIT(1)
 
+/* For now include usb OTG module registers here */
 #define DAVINCI_USB_VERSION_REG		0x00
 #define DAVINCI_USB_CTRL_REG		0x04
 #define DAVINCI_USB_STAT_REG		0x08
@@ -42,7 +47,9 @@
 #define DAVINCI_USB_EOI_REG		0x3c
 #define DAVINCI_USB_EOI_INTVEC		0x40
 
+/* BEGIN CPPI-generic (?) */
 
+/* CPPI related registers */
 #define DAVINCI_TXCPPI_CTRL_REG		0x80
 #define DAVINCI_TXCPPI_TEAR_REG		0x84
 #define DAVINCI_CPPI_EOI_REG		0x88
@@ -63,6 +70,7 @@
 #define DAVINCI_RXCPPI_BUFCNT2_REG	0xE8
 #define DAVINCI_RXCPPI_BUFCNT3_REG	0xEC
 
+/* CPPI state RAM entries */
 #define DAVINCI_CPPI_STATERAM_BASE_OFFSET   0x100
 
 #define DAVINCI_TXCPPI_STATERAM_OFFSET(chnum) \
@@ -70,15 +78,17 @@
 #define DAVINCI_RXCPPI_STATERAM_OFFSET(chnum) \
 	(DAVINCI_CPPI_STATERAM_BASE_OFFSET + 0x20 + ((chnum) * 0x40))
 
+/* CPPI masks */
 #define DAVINCI_DMA_CTRL_ENABLE		1
 #define DAVINCI_DMA_CTRL_DISABLE	0
 
 #define DAVINCI_DMA_ALL_CHANNELS_ENABLE	0xF
 #define DAVINCI_DMA_ALL_CHANNELS_DISABLE 0xF
 
+/* END CPPI-generic (?) */
 
-#define DAVINCI_USB_TX_ENDPTS_MASK	0x1f		
-#define DAVINCI_USB_RX_ENDPTS_MASK	0x1e		
+#define DAVINCI_USB_TX_ENDPTS_MASK	0x1f		/* ep0 + 4 tx */
+#define DAVINCI_USB_RX_ENDPTS_MASK	0x1e		/* 4 rx */
 
 #define DAVINCI_USB_USBINT_SHIFT	16
 #define DAVINCI_USB_TXINT_SHIFT		0
@@ -86,7 +96,7 @@
 
 #define DAVINCI_INTR_DRVVBUS		0x0100
 
-#define DAVINCI_USB_USBINT_MASK		0x01ff0000	
+#define DAVINCI_USB_USBINT_MASK		0x01ff0000	/* 8 Mentor, DRVVBUS */
 #define DAVINCI_USB_TXINT_MASK \
 	(DAVINCI_USB_TX_ENDPTS_MASK << DAVINCI_USB_TXINT_SHIFT)
 #define DAVINCI_USB_RXINT_MASK \
@@ -94,4 +104,4 @@
 
 #define DAVINCI_BASE_OFFSET		0x400
 
-#endif	
+#endif	/* __MUSB_HDRDF_H__ */

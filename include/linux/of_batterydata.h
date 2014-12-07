@@ -51,4 +51,4 @@ static inline int of_batterydata_read_data_by_id_result(struct device_node *cont
 {
 	return -ENXIO;
 }
-#endif 
+#endif /* CONFIG_OF_QPNP */

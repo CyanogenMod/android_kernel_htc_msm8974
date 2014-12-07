@@ -1,3 +1,10 @@
+/*
+ * Baboon Custom IC Management
+ *
+ * The Baboon custom IC controls the IDE, PCMCIA and media bay on the
+ * PowerBook 190. It multiplexes multiple interrupt sources onto the
+ * Nubus slot $C interrupt.
+ */
 
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -7,6 +14,7 @@
 #include <asm/macints.h>
 #include <asm/mac_baboon.h>
 
+/* #define DEBUG_IRQS */
 
 int baboon_present;
 static volatile struct baboon *baboon;
@@ -15,6 +23,9 @@ static volatile struct baboon *baboon;
 extern int macide_ack_intr(struct ata_channel *);
 #endif
 
+/*
+ * Baboon initialization.
+ */
 
 void __init baboon_init(void)
 {
@@ -30,6 +41,9 @@ void __init baboon_init(void)
 	printk("Baboon detected at %p\n", baboon);
 }
 
+/*
+ * Baboon interrupt handler. This works a lot like a VIA.
+ */
 
 static void baboon_irq(unsigned int irq, struct irq_desc *desc)
 {
@@ -58,17 +72,28 @@ static void baboon_irq(unsigned int irq, struct irq_desc *desc)
 	} while(events >= irq_bit);
 #if 0
 	if (baboon->mb_ifr & 0x02) macide_ack_intr(NULL);
-	
+	/* for now we need to smash all interrupts */
 	baboon->mb_ifr &= ~events;
 #endif
 }
 
+/*
+ * Register the Baboon interrupt dispatcher on nubus slot $C.
+ */
 
 void __init baboon_register_interrupts(void)
 {
 	irq_set_chained_handler(IRQ_NUBUS_C, baboon_irq);
 }
 
+/*
+ * The means for masking individual Baboon interrupts remains a mystery.
+ * However, since we only use the IDE IRQ, we can just enable/disable all
+ * Baboon interrupts. If/when we handle more than one Baboon IRQ, we must
+ * either figure out how to mask them individually or else implement the
+ * same workaround that's used for NuBus slots (see nubus_disabled and
+ * via_nubus_irq_shutdown).
+ */
 
 void baboon_irq_enable(int irq)
 {

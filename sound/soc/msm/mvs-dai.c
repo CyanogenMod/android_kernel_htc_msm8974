@@ -136,5 +136,6 @@ module_exit(mvs_codec_dai_exit);
 module_init(mvs_cpu_dai_init);
 module_exit(mvs_cpu_dai_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("MSM Codec/Cpu Dai driver");
 MODULE_LICENSE("GPL v2");

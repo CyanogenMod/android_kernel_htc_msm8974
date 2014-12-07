@@ -9,4 +9,4 @@
 #define FRMNET_CTRL_GET_LINE_STATE	_IOR(FRMNET_CTRL_IOCTL_MAGIC, 2, int)
 
 
-#endif 
+#endif /* __LINUX_USB_U_RMNET_CTRL_QTI_H */

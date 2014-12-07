@@ -1,3 +1,9 @@
+/*
+ * PCI Backend - Provides restricted access to the real PCI bus topology
+ *               to the frontend
+ *
+ *   Author: Ryan Wilson <hap9@epoch.ncsc.mil>
+ */
 
 #include <linux/list.h>
 #include <linux/pci.h>
@@ -5,7 +11,7 @@
 #include "pciback.h"
 
 struct passthrough_dev_data {
-	
+	/* Access to dev_list must be protected by lock */
 	struct list_head dev_list;
 	struct mutex lock;
 };
@@ -53,7 +59,7 @@ static int __xen_pcibk_add_pci_dev(struct xen_pcibk_device *pdev,
 	list_add_tail(&dev_entry->list, &dev_data->dev_list);
 	mutex_unlock(&dev_data->lock);
 
-	
+	/* Publish this device. */
 	domain = (unsigned int)pci_domain_nr(dev->bus);
 	bus = (unsigned int)dev->bus->number;
 	devfn = dev->devfn;
@@ -115,6 +121,9 @@ static int __xen_pcibk_publish_pci_roots(struct xen_pcibk_device *pdev,
 	mutex_lock(&dev_data->lock);
 
 	list_for_each_entry(dev_entry, &dev_data->dev_list, list) {
+		/* Only publish this device as a root if none of its
+		 * parent bridges are exported
+		 */
 		found = 0;
 		dev = dev_entry->dev->bus->self;
 		for (; !found && dev != NULL; dev = dev->bus->self) {

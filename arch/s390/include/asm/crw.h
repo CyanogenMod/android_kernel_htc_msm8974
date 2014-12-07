@@ -12,16 +12,19 @@
 
 #include <linux/types.h>
 
+/*
+ * Channel Report Word
+ */
 struct crw {
-	__u32 res1 :  1;   
-	__u32 slct :  1;   
-	__u32 oflw :  1;   
-	__u32 chn  :  1;   
-	__u32 rsc  :  4;   
-	__u32 anc  :  1;   
-	__u32 res2 :  1;   
-	__u32 erc  :  6;   
-	__u32 rsid : 16;   
+	__u32 res1 :  1;   /* reserved zero */
+	__u32 slct :  1;   /* solicited */
+	__u32 oflw :  1;   /* overflow */
+	__u32 chn  :  1;   /* chained */
+	__u32 rsc  :  4;   /* reporting source code */
+	__u32 anc  :  1;   /* ancillary report */
+	__u32 res2 :  1;   /* reserved zero */
+	__u32 erc  :  6;   /* error-recovery code */
+	__u32 rsid : 16;   /* reporting-source ID */
 } __attribute__ ((packed));
 
 typedef void (*crw_handler_t)(struct crw *, struct crw *, int);
@@ -33,21 +36,21 @@ void crw_wait_for_channel_report(void);
 
 #define NR_RSCS 16
 
-#define CRW_RSC_MONITOR  0x2  
-#define CRW_RSC_SCH	 0x3  
-#define CRW_RSC_CPATH	 0x4  
-#define CRW_RSC_CONFIG	 0x9  
-#define CRW_RSC_CSS	 0xB  
+#define CRW_RSC_MONITOR  0x2  /* monitoring facility */
+#define CRW_RSC_SCH	 0x3  /* subchannel */
+#define CRW_RSC_CPATH	 0x4  /* channel path */
+#define CRW_RSC_CONFIG	 0x9  /* configuration-alert facility */
+#define CRW_RSC_CSS	 0xB  /* channel subsystem */
 
-#define CRW_ERC_EVENT	 0x00 
-#define CRW_ERC_AVAIL	 0x01 
-#define CRW_ERC_INIT	 0x02 
-#define CRW_ERC_TERROR	 0x03 
-#define CRW_ERC_IPARM	 0x04 
-#define CRW_ERC_TERM	 0x05 
-#define CRW_ERC_PERRN	 0x06 
-#define CRW_ERC_PERRI	 0x07 
-#define CRW_ERC_PMOD	 0x08 
+#define CRW_ERC_EVENT	 0x00 /* event information pending */
+#define CRW_ERC_AVAIL	 0x01 /* available */
+#define CRW_ERC_INIT	 0x02 /* initialized */
+#define CRW_ERC_TERROR	 0x03 /* temporary error */
+#define CRW_ERC_IPARM	 0x04 /* installed parm initialized */
+#define CRW_ERC_TERM	 0x05 /* terminal */
+#define CRW_ERC_PERRN	 0x06 /* perm. error, fac. not init */
+#define CRW_ERC_PERRI	 0x07 /* perm. error, facility init */
+#define CRW_ERC_PMOD	 0x08 /* installed parameters modified */
 
 static inline int stcrw(struct crw *pcrw)
 {
@@ -63,4 +66,4 @@ static inline int stcrw(struct crw *pcrw)
 	return ccode;
 }
 
-#endif 
+#endif /* _ASM_S390_CRW_H */

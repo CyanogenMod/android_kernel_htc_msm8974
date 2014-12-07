@@ -50,10 +50,10 @@ static void __init set_addr(unsigned int *addr, unsigned int q1, int fmangled, u
 	else {
 		unsigned int *q = (unsigned int *)q1;
 		if (*addr == 0x01000000) {
-			
+			/* Noped */
 			*q = value;
 		} else if (addr[-1] == *q) {
-			
+			/* Moved */
 			addr[-1] = value;
 			*q = value;
 		} else {
@@ -149,16 +149,16 @@ void __init btfixup(void)
 				}
 #endif
 				switch (type) {
-				case 'f':	
+				case 'f':	/* CALL */
 					if (addr >= __start___ksymtab && addr < __stop___ksymtab) {
 						*addr = p[1];
 						break;
 					} else if (!q[1]) {
-						if ((insn & 0xc1c00000) == 0x01000000) { 
+						if ((insn & 0xc1c00000) == 0x01000000) { /* SETHI */
 							*addr = (insn & 0xffc00000) | (p[1] >> 10); break;
-						} else if ((insn & 0xc1f82000) == 0x80102000) { 
+						} else if ((insn & 0xc1f82000) == 0x80102000) { /* OR X, %LO(i), Y */
 							*addr = (insn & 0xffffe000) | (p[1] & 0x3ff); break;
-						} else if ((insn & 0xc0000000) != 0x40000000) { 
+						} else if ((insn & 0xc0000000) != 0x40000000) { /* !CALL */
 				bad_f:
 							prom_printf(insn_f, p, addr, insn, addr[1]);
 							prom_halt();
@@ -175,18 +175,18 @@ void __init btfixup(void)
 					goto norm_f;
 #else
 					if (!(addr[1] & 0x80000000)) {
-						if ((addr[1] & 0xc1c00000) != 0x01000000)	
-							goto bad_f; 
+						if ((addr[1] & 0xc1c00000) != 0x01000000)	/* !SETHI */
+							goto bad_f; /* CALL, Bicc, FBfcc, CBccc are weird in delay slot, aren't they? */
 					} else {
 						if ((addr[1] & 0x01800000) == 0x01800000) {
 							if ((addr[1] & 0x01f80000) == 0x01e80000) {
-								
-								goto norm_f; 
+								/* RESTORE */
+								goto norm_f; /* It is dangerous to patch that */
 							}
 							goto bad_f;
 						}
 						if ((addr[1] & 0xffffe003) == 0x9e03e000) {
-							
+							/* ADD %O7, XX, %o7 */
 							int displac = (addr[1] << 19);
 							
 							displac = (displac >> 21) + 2;
@@ -196,9 +196,9 @@ void __init btfixup(void)
 							break;
 						}
 						if ((addr[1] & 0x201f) == 0x200f || (addr[1] & 0x7c000) == 0x3c000)
-							goto norm_f; 
+							goto norm_f; /* Someone is playing bad tricks with us: rs1 or rs2 is o7 */
 						if ((addr[1] & 0x3e000000) == 0x1e000000)
-							goto norm_f; 
+							goto norm_f; /* rd is %o7. We'd better take care. */
 					}
 					if (p[2] == BTFIXUPCALL_NOP) {
 						*addr = 0x01000000;
@@ -208,31 +208,33 @@ void __init btfixup(void)
 #ifndef BTFIXUP_OPTIMIZE_OTHER
 					goto norm_f;
 #else
-					if (addr[1] == 0x01000000) {	
+					if (addr[1] == 0x01000000) {	/* NOP in the delay slot */
 						q[1] = addr[1];
 						*addr = p[2];
 						break;
 					}
 					if ((addr[1] & 0xc0000000) != 0xc0000000) {
-						
+						/* Not a memory operation */
 						if ((addr[1] & 0x30000000) == 0x10000000) {
-							
+							/* Ok, non-memory op with rd %oX */
 							if ((addr[1] & 0x3e000000) == 0x1c000000)
-								goto bad_f; 
+								goto bad_f; /* Aiee. Someone is playing strange %sp tricks */
 							if ((addr[1] & 0x3e000000) > 0x12000000 ||
 							    ((addr[1] & 0x3e000000) == 0x12000000 &&
 							     p[2] != BTFIXUPCALL_STO1O0 && p[2] != BTFIXUPCALL_SWAPO0O1) ||
 							    ((p[2] & 0xffffe000) == BTFIXUPCALL_RETINT(0))) {
-								
+								/* Nobody uses the result. We can nop it out. */
 								*addr = p[2];
 								q[1] = addr[1];
 								addr[1] = 0x01000000;
 								break;
 							}
 							if ((addr[1] & 0xf1ffffe0) == 0x90100000) {
-								
+								/* MOV %reg, %Ox */
 								if ((addr[1] & 0x3e000000) == 0x10000000 &&
 								    (p[2] & 0x7c000) == 0x20000) {
+								    	/* Ok, it is call xx; mov reg, %o0 and call optimizes
+								    	   to doing something on %o0. Patch the patch. */
 									*addr = (p[2] & ~0x7c000) | ((addr[1] & 0x1f) << 14);
 									q[1] = addr[1];
 									addr[1] = 0x01000000;
@@ -252,10 +254,10 @@ void __init btfixup(void)
 					q[1] = addr[1];
 					addr[1] = p[2];
 					break;
-#endif 
-#endif 
-				case 'b':	
-					
+#endif /* BTFIXUP_OPTIMIZE_OTHER */
+#endif /* BTFIXUP_OPTIMIZE_NOP */
+				case 'b':	/* BLACKBOX */
+					/* Has to be sethi i, xx */
 					if ((insn & 0xc1c00000) != 0x01000000) {
 						prom_printf(insn_b, p, addr, insn);
 						prom_halt();
@@ -266,24 +268,24 @@ void __init btfixup(void)
 						do_fixup(addr);
 					}
 					break;
-				case 's':	
-					
+				case 's':	/* SIMM13 */
+					/* Has to be or %g0, i, xx */
 					if ((insn & 0xc1ffe000) != 0x80102000) {
 						prom_printf(insn_s, p, addr, insn);
 						prom_halt();
 					}
 					set_addr(addr, q[1], fmangled, (insn & 0xffffe000) | (p[1] & 0x1fff));
 					break;
-				case 'h':	
-					
+				case 'h':	/* SETHI */
+					/* Has to be sethi i, xx */
 					if ((insn & 0xc1c00000) != 0x01000000) {
 						prom_printf(insn_h, p, addr, insn);
 						prom_halt();
 					}
 					set_addr(addr, q[1], fmangled, (insn & 0xffc00000) | (p[1] >> 10));
 					break;
-				case 'a':	
-					
+				case 'a':	/* HALF */
+					/* Has to be sethi i, xx or or %g0, i, xx */
 					if ((insn & 0xc1c00000) != 0x01000000 &&
 					    (insn & 0xc1ffe000) != 0x80102000) {
 						prom_printf(insn_a, p, addr, insn);
@@ -296,10 +298,10 @@ void __init btfixup(void)
 						set_addr(addr, q[1], fmangled, 
 							(insn & 0x3e000000) | 0x01000000 | (p[1] >> 10));
 					break;
-				case 'i':	
-					if ((insn & 0xc1c00000) == 0x01000000) 
+				case 'i':	/* INT */
+					if ((insn & 0xc1c00000) == 0x01000000) /* %HI */
 						set_addr(addr, q[1], fmangled, (insn & 0xffc00000) | (p[1] >> 10));
-					else if ((insn & 0x80002000) == 0x80002000) 
+					else if ((insn & 0x80002000) == 0x80002000) /* %LO */
 						set_addr(addr, q[1], fmangled, (insn & 0xffffe000) | (p[1] & 0x3ff));
 					else {
 						prom_printf(insn_i, p, addr, insn);

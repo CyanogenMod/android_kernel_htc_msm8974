@@ -29,6 +29,10 @@ static unsigned samsung_dmadev_request(enum dma_ch dma_ch,
 	dma_cap_zero(mask);
 	dma_cap_set(info->cap, mask);
 
+	/*
+	 * If a dma channel property of a device node from device tree is
+	 * specified, use that as the fliter parameter.
+	 */
 	filter_param = (dma_ch == DMACH_DT_PROP) ? (void *)info->dt_dmach_prop :
 				(void *)dma_ch;
 	chan = dma_request_channel(mask, pl330_filter, filter_param);

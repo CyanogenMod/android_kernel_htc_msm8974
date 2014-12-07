@@ -11,8 +11,8 @@
 #define XT_DCCP_VALID_FLAGS		0x0f
 
 struct xt_dccp_info {
-	__u16 dpts[2];  
-	__u16 spts[2];  
+	__u16 dpts[2];  /* Min, Max */
+	__u16 spts[2];  /* Min, Max */
 
 	__u16 flags;
 	__u16 invflags;
@@ -21,5 +21,5 @@ struct xt_dccp_info {
 	__u8 option;
 };
 
-#endif 
+#endif /* _XT_DCCP_H_ */
 

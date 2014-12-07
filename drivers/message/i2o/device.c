@@ -20,6 +20,18 @@
 #include <linux/slab.h>
 #include "core.h"
 
+/**
+ *	i2o_device_issue_claim - claim or release a device
+ *	@dev: I2O device to claim or release
+ *	@cmd: claim or release command
+ *	@type: type of claim
+ *
+ *	Issue I2O UTIL_CLAIM or UTIL_RELEASE messages. The message to be sent
+ *	is set by cmd. dev is the I2O device which should be claim or
+ *	released and the type is the claim type (see the I2O spec).
+ *
+ *	Returs 0 on success or negative error code on failure.
+ */
 static inline int i2o_device_issue_claim(struct i2o_device *dev, u32 cmd,
 					 u32 type)
 {
@@ -37,6 +49,14 @@ static inline int i2o_device_issue_claim(struct i2o_device *dev, u32 cmd,
 	return i2o_msg_post_wait(dev->iop, msg, 60);
 }
 
+/**
+ *	i2o_device_claim - claim a device for use by an OSM
+ *	@dev: I2O device to claim
+ *
+ *	Do the leg work to assign a device to a given OSM. If the claim succeeds,
+ *	the owner is the primary. If the attempt fails a negative errno code
+ *	is returned. On success zero is returned.
+ */
 int i2o_device_claim(struct i2o_device *dev)
 {
 	int rc = 0;
@@ -56,6 +76,19 @@ int i2o_device_claim(struct i2o_device *dev)
 	return rc;
 }
 
+/**
+ *	i2o_device_claim_release - release a device that the OSM is using
+ *	@dev: device to release
+ *
+ *	Drop a claim by an OSM on a given I2O device.
+ *
+ *	AC - some devices seem to want to refuse an unclaim until they have
+ *	finished internal processing. It makes sense since you don't want a
+ *	new device to go reconfiguring the entire system until you are done.
+ *	Thus we are prepared to wait briefly.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 int i2o_device_claim_release(struct i2o_device *dev)
 {
 	int tries;
@@ -63,6 +96,10 @@ int i2o_device_claim_release(struct i2o_device *dev)
 
 	mutex_lock(&dev->lock);
 
+	/*
+	 *      If the controller takes a nonblocking approach to
+	 *      releases we have to sleep/poll for a few times.
+	 */
 	for (tries = 0; tries < 10; tries++) {
 		rc = i2o_device_issue_claim(dev, I2O_CMD_UTIL_RELEASE,
 					    I2O_CLAIM_PRIMARY);
@@ -84,6 +121,13 @@ int i2o_device_claim_release(struct i2o_device *dev)
 	return rc;
 }
 
+/**
+ *	i2o_device_release - release the memory for a I2O device
+ *	@dev: I2O device which should be released
+ *
+ *	Release the allocated memory. This function is called if refcount of
+ *	device reaches 0 automatically.
+ */
 static void i2o_device_release(struct device *dev)
 {
 	struct i2o_device *i2o_dev = to_i2o_device(dev);
@@ -93,6 +137,14 @@ static void i2o_device_release(struct device *dev)
 	kfree(i2o_dev);
 }
 
+/**
+ *	i2o_device_show_class_id - Displays class id of I2O device
+ *	@dev: device of which the class id should be displayed
+ *	@attr: pointer to device attribute
+ *	@buf: buffer into which the class id should be printed
+ *
+ *	Returns the number of bytes which are printed into the buffer.
+ */
 static ssize_t i2o_device_show_class_id(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -103,6 +155,14 @@ static ssize_t i2o_device_show_class_id(struct device *dev,
 	return strlen(buf) + 1;
 }
 
+/**
+ *	i2o_device_show_tid - Displays TID of I2O device
+ *	@dev: device of which the TID should be displayed
+ *	@attr: pointer to device attribute
+ *	@buf: buffer into which the TID should be printed
+ *
+ *	Returns the number of bytes which are printed into the buffer.
+ */
 static ssize_t i2o_device_show_tid(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
@@ -112,12 +172,21 @@ static ssize_t i2o_device_show_tid(struct device *dev,
 	return strlen(buf) + 1;
 }
 
+/* I2O device attributes */
 struct device_attribute i2o_device_attrs[] = {
 	__ATTR(class_id, S_IRUGO, i2o_device_show_class_id, NULL),
 	__ATTR(tid, S_IRUGO, i2o_device_show_tid, NULL),
 	__ATTR_NULL
 };
 
+/**
+ *	i2o_device_alloc - Allocate a I2O device and initialize it
+ *
+ *	Allocate the memory for a I2O device and initialize locks and lists
+ *
+ *	Returns the allocated I2O device or a negative error code if the device
+ *	could not be allocated.
+ */
 static struct i2o_device *i2o_device_alloc(void)
 {
 	struct i2o_device *dev;
@@ -135,6 +204,16 @@ static struct i2o_device *i2o_device_alloc(void)
 	return dev;
 }
 
+/**
+ *	i2o_device_add - allocate a new I2O device and add it to the IOP
+ *	@c: I2O controller that the device is on
+ *	@entry: LCT entry of the I2O device
+ *
+ *	Allocate a new I2O device and initialize it with the LCT entry. The
+ *	device is appended to the device list of the controller.
+ *
+ *	Returns zero on success, or a -ve errno.
+ */
 static int i2o_device_add(struct i2o_controller *c, i2o_lct_entry *entry)
 {
 	struct i2o_device *i2o_dev, *tmp;
@@ -160,7 +239,7 @@ static int i2o_device_add(struct i2o_controller *c, i2o_lct_entry *entry)
 
 	list_add_tail(&i2o_dev->list, &c->devices);
 
-	
+	/* create user entries for this device */
 	tmp = i2o_iop_find_device(i2o_dev->iop, i2o_dev->lct_data.user_tid);
 	if (tmp && (tmp != i2o_dev)) {
 		rc = sysfs_create_link(&i2o_dev->device.kobj,
@@ -169,7 +248,7 @@ static int i2o_device_add(struct i2o_controller *c, i2o_lct_entry *entry)
 			goto unreg_dev;
 	}
 
-	
+	/* create user entries referring to this device */
 	list_for_each_entry(tmp, &c->devices, list)
 	    if ((tmp->lct_data.user_tid == i2o_dev->lct_data.tid)
 		&& (tmp != i2o_dev)) {
@@ -179,7 +258,7 @@ static int i2o_device_add(struct i2o_controller *c, i2o_lct_entry *entry)
 			goto rmlink1;
 	}
 
-	
+	/* create parent entries for this device */
 	tmp = i2o_iop_find_device(i2o_dev->iop, i2o_dev->lct_data.parent_tid);
 	if (tmp && (tmp != i2o_dev)) {
 		rc = sysfs_create_link(&i2o_dev->device.kobj,
@@ -188,7 +267,7 @@ static int i2o_device_add(struct i2o_controller *c, i2o_lct_entry *entry)
 			goto rmlink1;
 	}
 
-	
+	/* create parent entries referring to this device */
 	list_for_each_entry(tmp, &c->devices, list)
 	    if ((tmp->lct_data.parent_tid == i2o_dev->lct_data.tid)
 		&& (tmp != i2o_dev)) {
@@ -205,6 +284,10 @@ static int i2o_device_add(struct i2o_controller *c, i2o_lct_entry *entry)
 	return 0;
 
 rmlink2:
+	/* If link creating failed halfway, we loop whole list to cleanup.
+	 * And we don't care wrong removing of link, because sysfs_remove_link
+	 * will take care of it.
+	 */
 	list_for_each_entry(tmp, &c->devices, list) {
 		if (tmp->lct_data.parent_tid == i2o_dev->lct_data.tid)
 			sysfs_remove_link(&tmp->device.kobj, "parent");
@@ -223,6 +306,14 @@ err:
 	return rc;
 }
 
+/**
+ *	i2o_device_remove - remove an I2O device from the I2O core
+ *	@i2o_dev: I2O device which should be released
+ *
+ *	Is used on I2O controller removal or LCT modification, when the device
+ *	is removed from the system. Note that the device could still hang
+ *	around until the refcount reaches 0.
+ */
 void i2o_device_remove(struct i2o_device *i2o_dev)
 {
 	struct i2o_device *tmp;
@@ -244,6 +335,16 @@ void i2o_device_remove(struct i2o_device *i2o_dev)
 	device_unregister(&i2o_dev->device);
 }
 
+/**
+ *	i2o_device_parse_lct - Parse a previously fetched LCT and create devices
+ *	@c: I2O controller from which the LCT should be parsed.
+ *
+ *	The Logical Configuration Table tells us what we can talk to on the
+ *	board. For every entry we create an I2O device, which is registered in
+ *	the I2O core.
+ *
+ *	Returns 0 on success or negative error code on failure.
+ */
 int i2o_device_parse_lct(struct i2o_controller *c)
 {
 	struct i2o_device *dev, *tmp;
@@ -305,7 +406,7 @@ int i2o_device_parse_lct(struct i2o_controller *c)
 
 		entry->event_capabilities = le32_to_cpu(*dlct++);
 
-		
+		/* add new devices, which are new in the LCT */
 		list_for_each_entry_safe(dev, tmp, &c->devices, list) {
 			if (entry->tid == dev->lct_data.tid) {
 				found = 1;
@@ -320,7 +421,7 @@ int i2o_device_parse_lct(struct i2o_controller *c)
 		max++;
 	}
 
-	
+	/* remove devices, which are not in the LCT anymore */
 	list_for_each_entry_safe(dev, tmp, &c->devices, list) {
 		int found = 0;
 
@@ -340,7 +441,18 @@ int i2o_device_parse_lct(struct i2o_controller *c)
 	return 0;
 }
 
+/*
+ *	Run time support routines
+ */
 
+/*	Issue UTIL_PARAMS_GET or UTIL_PARAMS_SET
+ *
+ *	This function can be used for all UtilParamsGet/Set operations.
+ *	The OperationList is given in oplist-buffer,
+ *	and results are returned in reslist-buffer.
+ *	Note that the minimum sized reslist is 8 bytes and contains
+ *	ResultCount, ErrorInfoSize, BlockStatus and BlockSize.
+ */
 int i2o_parm_issue(struct i2o_device *i2o_dev, int cmd, void *oplist,
 		   int oplen, void *reslist, int reslen)
 {
@@ -366,10 +478,10 @@ int i2o_parm_issue(struct i2o_device *i2o_dev, int cmd, void *oplist,
 	msg->u.head[1] =
 	    cpu_to_le32(cmd << 24 | HOST_TID << 12 | i2o_dev->lct_data.tid);
 	msg->body[i++] = cpu_to_le32(0x00000000);
-	msg->body[i++] = cpu_to_le32(0x4C000000 | oplen);	
+	msg->body[i++] = cpu_to_le32(0x4C000000 | oplen);	/* OperationList */
 	memcpy(&msg->body[i], oplist, oplen);
 	i += (oplen / 4 + (oplen % 4 ? 1 : 0));
-	msg->body[i++] = cpu_to_le32(0xD0000000 | res.len);	
+	msg->body[i++] = cpu_to_le32(0xD0000000 | res.len);	/* ResultList */
 	msg->body[i++] = cpu_to_le32(res.phys);
 
 	msg->u.head[0] =
@@ -378,7 +490,7 @@ int i2o_parm_issue(struct i2o_device *i2o_dev, int cmd, void *oplist,
 
 	rc = i2o_msg_post_wait_mem(c, msg, 10, &res);
 
-	
+	/* This only looks like a memory leak - don't "fix" it. */
 	if (rc == -ETIMEDOUT)
 		return rc;
 
@@ -388,6 +500,9 @@ int i2o_parm_issue(struct i2o_device *i2o_dev, int cmd, void *oplist,
 	return rc;
 }
 
+/*
+ *	 Query one field group value or a whole scalar group.
+ */
 int i2o_parm_field_get(struct i2o_device *i2o_dev, int group, int field,
 		       void *buf, int buflen)
 {
@@ -395,7 +510,7 @@ int i2o_parm_field_get(struct i2o_device *i2o_dev, int group, int field,
 		cpu_to_le32((u16) group << 16 | I2O_PARAMS_FIELD_GET),
 		cpu_to_le32((s16) field << 16 | 0x00000001)
 	};
-	u8 *resblk;		
+	u8 *resblk;		/* 8 bytes for header */
 	int rc;
 
 	resblk = kmalloc(buflen + 8, GFP_KERNEL);
@@ -405,13 +520,29 @@ int i2o_parm_field_get(struct i2o_device *i2o_dev, int group, int field,
 	rc = i2o_parm_issue(i2o_dev, I2O_CMD_UTIL_PARAMS_GET, opblk,
 			    sizeof(opblk), resblk, buflen + 8);
 
-	memcpy(buf, resblk + 8, buflen);	
+	memcpy(buf, resblk + 8, buflen);	/* cut off header */
 
 	kfree(resblk);
 
 	return rc;
 }
 
+/*
+ *	if oper == I2O_PARAMS_TABLE_GET, get from all rows
+ *		if fieldcount == -1 return all fields
+ *			ibuf and ibuflen are unused (use NULL, 0)
+ *		else return specific fields
+ *			ibuf contains fieldindexes
+ *
+ *	if oper == I2O_PARAMS_LIST_GET, get from specific rows
+ *		if fieldcount == -1 return all fields
+ *			ibuf contains rowcount, keyvalues
+ *		else return specific fields
+ *			fieldcount is # of fieldindexes
+ *			ibuf contains fieldindexes, rowcount, keyvalues
+ *
+ *	You could also use directly function i2o_issue_params().
+ */
 int i2o_parm_table_get(struct i2o_device *dev, int oper, int group,
 		       int fieldcount, void *ibuf, int ibuflen, void *resblk,
 		       int reslen)
@@ -429,12 +560,12 @@ int i2o_parm_table_get(struct i2o_device *dev, int oper, int group,
 		return -ENOMEM;
 	}
 
-	opblk[0] = 1;		
-	opblk[1] = 0;		
+	opblk[0] = 1;		/* operation count */
+	opblk[1] = 0;		/* pad */
 	opblk[2] = oper;
 	opblk[3] = group;
 	opblk[4] = fieldcount;
-	memcpy(opblk + 5, ibuf, ibuflen);	
+	memcpy(opblk + 5, ibuf, ibuflen);	/* other params */
 
 	size = i2o_parm_issue(dev, I2O_CMD_UTIL_PARAMS_GET, opblk,
 			      size, resblk, reslen);

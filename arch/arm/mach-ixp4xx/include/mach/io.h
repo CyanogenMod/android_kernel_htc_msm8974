@@ -21,8 +21,32 @@ extern int (*ixp4xx_pci_read)(u32 addr, u32 cmd, u32* data);
 extern int ixp4xx_pci_write(u32 addr, u32 cmd, u32 data);
 
 
+/*
+ * IXP4xx provides two methods of accessing PCI memory space:
+ *
+ * 1) A direct mapped window from 0x48000000 to 0x4BFFFFFF (64MB).
+ *    To access PCI via this space, we simply ioremap() the BAR
+ *    into the kernel and we can use the standard read[bwl]/write[bwl]
+ *    macros. This is the preffered method due to speed but it
+ *    limits the system to just 64MB of PCI memory. This can be
+ *    problematic if using video cards and other memory-heavy targets.
+ *
+ * 2) If > 64MB of memory space is required, the IXP4xx can use indirect
+ *    registers to access the whole 4 GB of PCI memory space (as we do below
+ *    for I/O transactions). This allows currently for up to 1 GB (0x10000000
+ *    to 0x4FFFFFFF) of memory on the bus. The disadvantage of this is that
+ *    every PCI access requires three local register accesses plus a spinlock,
+ *    but in some cases the performance hit is acceptable. In addition, you
+ *    cannot mmap() PCI devices in this case.
+ */
 #ifdef	CONFIG_IXP4XX_INDIRECT_PCI
 
+/*
+ * In the case of using indirect PCI, we simply return the actual PCI
+ * address and our read/write implementation use that to drive the 
+ * access registers. If something outside of PCI is ioremap'd, we
+ * fallback to the default.
+ */
 
 static inline int is_pci_memory(u32 addr)
 {
@@ -178,11 +202,14 @@ static inline void __indirect_readsl(const volatile void __iomem *bus_addr,
 }
 
 
+/*
+ * We can use the built-in functions b/c they end up calling writeb/readb
+ */
 #define memset_io(c,v,l)		_memset_io((c),(v),(l))
 #define memcpy_fromio(a,c,l)		_memcpy_fromio((a),(c),(l))
 #define memcpy_toio(c,a,l)		_memcpy_toio((c),(a),(l))
 
-#endif 
+#endif /* CONFIG_IXP4XX_INDIRECT_PCI */
 
 #ifndef CONFIG_PCI
 
@@ -190,6 +217,13 @@ static inline void __indirect_readsl(const volatile void __iomem *bus_addr,
 
 #else
 
+/*
+ * IXP4xx does not have a transparent cpu -> PCI I/O translation
+ * window.  Instead, it has a set of registers that must be tweaked
+ * with the proper byte lanes, command types, and address for the
+ * transaction.  This means that we need to override the default
+ * I/O functions.
+ */
 
 static inline void outb(u8 value, u32 addr)
 {
@@ -463,6 +497,6 @@ static inline void iowrite32_rep(void __iomem *addr, const void *vaddr,
 
 #define	ioport_map(port, nr)		((void __iomem*)(port + PIO_OFFSET))
 #define	ioport_unmap(addr)
-#endif 
+#endif /* CONFIG_PCI */
 
-#endif 
+#endif /* __ASM_ARM_ARCH_IO_H */

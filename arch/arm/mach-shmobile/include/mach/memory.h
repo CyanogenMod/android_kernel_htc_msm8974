@@ -4,4 +4,4 @@
 #define PLAT_PHYS_OFFSET	UL(CONFIG_MEMORY_START)
 #define MEM_SIZE	UL(CONFIG_MEMORY_SIZE)
 
-#endif 
+#endif /* __ASM_MACH_MEMORY_H */

@@ -41,6 +41,7 @@
 #define DRV_NAME	"ehea"
 #define DRV_VERSION	"EHEA_0107"
 
+/* eHEA capability flags */
 #define DLPAR_PORT_ADD_REM 1
 #define DLPAR_MEM_ADD      2
 #define DLPAR_MEM_REM      4
@@ -78,15 +79,17 @@
 #define EHEA_SG_RQ2 0
 #define EHEA_SG_RQ3 0
 
-#define EHEA_MAX_PACKET_SIZE    9022	
+#define EHEA_MAX_PACKET_SIZE    9022	/* for jumbo frames */
 #define EHEA_RQ2_PKT_SIZE       2048
-#define EHEA_L_PKT_SIZE         256	
+#define EHEA_L_PKT_SIZE         256	/* low latency */
 
+/* Send completion signaling */
 
+/* Protection Domain Identifier */
 #define EHEA_PD_ID        0xaabcdeff
 
 #define EHEA_RQ2_THRESHOLD 	   1
-#define EHEA_RQ3_THRESHOLD	   4	
+#define EHEA_RQ3_THRESHOLD	   4	/* use RQ3 threshold of 2048 bytes */
 
 #define EHEA_SPEED_10G         10000
 #define EHEA_SPEED_1G           1000
@@ -94,6 +97,7 @@
 #define EHEA_SPEED_10M            10
 #define EHEA_SPEED_AUTONEG         0
 
+/* Broadcast/Multicast registration types */
 #define EHEA_BCMC_SCOPE_ALL	0x08
 #define EHEA_BCMC_SCOPE_SINGLE	0x00
 #define EHEA_BCMC_MULTICAST	0x04
@@ -105,19 +109,21 @@
 
 #define EHEA_CACHE_LINE          128
 
+/* Memory Regions */
 #define EHEA_MR_ACC_CTRL       0x00800000
 
 #define EHEA_BUSMAP_START      0x8000000000000000ULL
 #define EHEA_INVAL_ADDR        0xFFFFFFFFFFFFFFFFULL
-#define EHEA_DIR_INDEX_SHIFT 13                   
+#define EHEA_DIR_INDEX_SHIFT 13                   /* 8k Entries in 64k block */
 #define EHEA_TOP_INDEX_SHIFT (EHEA_DIR_INDEX_SHIFT * 2)
 #define EHEA_MAP_ENTRIES (1 << EHEA_DIR_INDEX_SHIFT)
-#define EHEA_MAP_SIZE (0x10000)                   
+#define EHEA_MAP_SIZE (0x10000)                   /* currently fixed map size */
 #define EHEA_INDEX_MASK (EHEA_MAP_ENTRIES - 1)
 
 
 #define EHEA_WATCH_DOG_TIMEOUT 10*HZ
 
+/* utility functions */
 
 void ehea_dump(void *adr, int len, char *msg);
 
@@ -136,20 +142,30 @@ void ehea_dump(void *adr, int len, char *msg);
 #define EHEA_BMASK_GET(mask, value) \
 	(EHEA_BMASK_MASK(mask) & (((u64)(value)) >> EHEA_BMASK_SHIFTPOS(mask)))
 
+/*
+ * Generic ehea page
+ */
 struct ehea_page {
 	u8 entries[PAGE_SIZE];
 };
 
+/*
+ * Generic queue in linux kernel virtual memory
+ */
 struct hw_queue {
-	u64 current_q_offset;		
-	struct ehea_page **queue_pages;	
-	u32 qe_size;			
-	u32 queue_length;      		
+	u64 current_q_offset;		/* current queue entry */
+	struct ehea_page **queue_pages;	/* array of pages belonging to queue */
+	u32 qe_size;			/* queue entry size */
+	u32 queue_length;      		/* queue length allocated in bytes */
 	u32 pagesize;
-	u32 toggle_state;		
-	u32 reserved;			
+	u32 toggle_state;		/* toggle flag - per page */
+	u32 reserved;			/* 64 bit alignment */
 };
 
+/*
+ * For pSeries this is a 64bit memory address where
+ * I/O memory is mapped into CPU address space
+ */
 struct h_epa {
 	void __iomem *addr;
 };
@@ -159,10 +175,15 @@ struct h_epa_user {
 };
 
 struct h_epas {
-	struct h_epa kernel;	
-	struct h_epa_user user;	
+	struct h_epa kernel;	/* kernel space accessible resource,
+				   set to 0 if unused */
+	struct h_epa_user user;	/* user space accessible resource
+				   set to 0 if unused */
 };
 
+/*
+ * Memory map data structures
+ */
 struct ehea_dir_bmap
 {
 	u64 ent[EHEA_MAP_ENTRIES];
@@ -182,22 +203,25 @@ struct ehea_eq;
 struct ehea_port;
 struct ehea_av;
 
+/*
+ * Queue attributes passed to ehea_create_qp()
+ */
 struct ehea_qp_init_attr {
-	
-	u32 qp_token;           
+	/* input parameter */
+	u32 qp_token;           /* queue token */
 	u8 low_lat_rq1;
-	u8 signalingtype;       
-	u8 rq_count;            
-	u8 eqe_gen;             
-	u16 max_nr_send_wqes;   
-	u16 max_nr_rwqes_rq1;   
+	u8 signalingtype;       /* cqe generation flag */
+	u8 rq_count;            /* num of receive queues */
+	u8 eqe_gen;             /* eqe generation flag */
+	u16 max_nr_send_wqes;   /* max number of send wqes */
+	u16 max_nr_rwqes_rq1;   /* max number of receive wqes */
 	u16 max_nr_rwqes_rq2;
 	u16 max_nr_rwqes_rq3;
 	u8 wqe_size_enc_sq;
 	u8 wqe_size_enc_rq1;
 	u8 wqe_size_enc_rq2;
 	u8 wqe_size_enc_rq3;
-	u8 swqe_imm_data_len;   
+	u8 swqe_imm_data_len;   /* immediate data length for swqes */
 	u16 port_nr;
 	u16 rq2_threshold;
 	u16 rq3_threshold;
@@ -205,7 +229,7 @@ struct ehea_qp_init_attr {
 	u64 recv_cq_handle;
 	u64 aff_eq_handle;
 
-	
+	/* output parameter */
 	u32 qp_nr;
 	u16 act_nr_send_wqes;
 	u16 act_nr_rwqes_rq1;
@@ -225,20 +249,26 @@ struct ehea_qp_init_attr {
 	u32 liobn_rq3;
 };
 
+/*
+ * Event Queue attributes, passed as parameter
+ */
 struct ehea_eq_attr {
 	u32 type;
 	u32 max_nr_of_eqes;
-	u8 eqe_gen;        
+	u8 eqe_gen;        /* generate eqe flag */
 	u64 eq_handle;
 	u32 act_nr_of_eqes;
 	u32 nr_pages;
-	u32 ist1;          
+	u32 ist1;          /* Interrupt service token */
 	u32 ist2;
 	u32 ist3;
 	u32 ist4;
 };
 
 
+/*
+ * Event Queue
+ */
 struct ehea_eq {
 	struct ehea_adapter *adapter;
 	struct hw_queue hw_queue;
@@ -248,9 +278,12 @@ struct ehea_eq {
 	struct ehea_eq_attr attr;
 };
 
+/*
+ * HEA Queues
+ */
 struct ehea_qp {
 	struct ehea_adapter *adapter;
-	u64 fw_handle;			
+	u64 fw_handle;			/* QP handle for firmware calls */
 	struct hw_queue hw_squeue;
 	struct hw_queue hw_rqueue1;
 	struct hw_queue hw_rqueue2;
@@ -259,17 +292,23 @@ struct ehea_qp {
 	struct ehea_qp_init_attr init_attr;
 };
 
+/*
+ * Completion Queue attributes
+ */
 struct ehea_cq_attr {
-	
+	/* input parameter */
 	u32 max_nr_of_cqes;
 	u32 cq_token;
 	u64 eq_handle;
 
-	
+	/* output parameter */
 	u32 act_nr_of_cqes;
 	u32 nr_pages;
 };
 
+/*
+ * Completion Queue
+ */
 struct ehea_cq {
 	struct ehea_adapter *adapter;
 	u64 fw_handle;
@@ -278,6 +317,9 @@ struct ehea_cq {
 	struct ehea_cq_attr attr;
 };
 
+/*
+ * Memory Region
+ */
 struct ehea_mr {
 	struct ehea_adapter *adapter;
 	u64 handle;
@@ -285,6 +327,9 @@ struct ehea_mr {
 	u32 lkey;
 };
 
+/*
+ * Port state information
+ */
 struct port_stats {
 	int poll_receive_errors;
 	int queue_stopped;
@@ -295,18 +340,24 @@ struct port_stats {
 
 #define EHEA_IRQ_NAME_SIZE 20
 
+/*
+ * Queue SKB Array
+ */
 struct ehea_q_skb_arr {
-	struct sk_buff **arr;		
-	int len;                	
-	int index;			
-	int os_skbs;			
+	struct sk_buff **arr;		/* skb array for queue */
+	int len;                	/* array length */
+	int index;			/* array index */
+	int os_skbs;			/* rq2/rq3 only: outstanding skbs */
 };
 
+/*
+ * Port resources
+ */
 struct ehea_port_res {
 	struct napi_struct napi;
 	struct port_stats p_stats;
-	struct ehea_mr send_mr;       	
-	struct ehea_mr recv_mr;       	
+	struct ehea_mr send_mr;       	/* send memory region */
+	struct ehea_mr recv_mr;       	/* receive memory region */
 	struct ehea_port *port;
 	char int_recv_name[EHEA_IRQ_NAME_SIZE];
 	char int_send_name[EHEA_IRQ_NAME_SIZE];
@@ -333,19 +384,21 @@ struct ehea_port_res {
 
 #define EHEA_MAX_PORTS 16
 
-#define EHEA_NUM_PORTRES_FW_HANDLES    6  
-#define EHEA_NUM_PORT_FW_HANDLES       1  
-#define EHEA_NUM_ADAPTER_FW_HANDLES    2  
+#define EHEA_NUM_PORTRES_FW_HANDLES    6  /* QP handle, SendCQ handle,
+					     RecvCQ handle, EQ handle,
+					     SendMR handle, RecvMR handle */
+#define EHEA_NUM_PORT_FW_HANDLES       1  /* EQ handle */
+#define EHEA_NUM_ADAPTER_FW_HANDLES    2  /* MR handle, NEQ handle */
 
 struct ehea_adapter {
 	u64 handle;
 	struct platform_device *ofdev;
 	struct ehea_port *port[EHEA_MAX_PORTS];
-	struct ehea_eq *neq;       
+	struct ehea_eq *neq;       /* notification event queue */
 	struct tasklet_struct neq_tasklet;
 	struct ehea_mr mr;
-	u32 pd;                    
-	u64 max_mc_mac;            
+	u32 pd;                    /* protection domain */
+	u64 max_mc_mac;            /* max number of multicast mac addresses */
 	int active_ports;
 	struct list_head list;
 };
@@ -356,9 +409,10 @@ struct ehea_mc_list {
 	u64 macaddr;
 };
 
+/* kdump support */
 struct ehea_fw_handle_entry {
-	u64 adh;               
-	u64 fwh;               
+	u64 adh;               /* Adapter Handle */
+	u64 fwh;               /* Firmware Handle */
 };
 
 struct ehea_fw_handle_array {
@@ -368,9 +422,9 @@ struct ehea_fw_handle_array {
 };
 
 struct ehea_bcmc_reg_entry {
-	u64 adh;               
-	u32 port_id;           
-	u8 reg_type;           
+	u64 adh;               /* Adapter Handle */
+	u32 port_id;           /* Logical Port Id */
+	u8 reg_type;           /* Registration Type */
 	u64 macaddr;
 };
 
@@ -386,19 +440,19 @@ struct ehea_bcmc_reg_array {
 #define EHEA_PHY_LINK_DOWN 0
 #define EHEA_MAX_PORT_RES 16
 struct ehea_port {
-	struct ehea_adapter *adapter;	 
+	struct ehea_adapter *adapter;	 /* adapter that owns this port */
 	struct net_device *netdev;
 	struct rtnl_link_stats64 stats;
 	struct ehea_port_res port_res[EHEA_MAX_PORT_RES];
-	struct platform_device  ofdev; 
-	struct ehea_mc_list *mc_list;	 
+	struct platform_device  ofdev; /* Open Firmware Device */
+	struct ehea_mc_list *mc_list;	 /* Multicast MAC addresses */
 	struct ehea_eq *qp_eq;
 	struct work_struct reset_task;
 	struct delayed_work stats_work;
 	struct mutex port_lock;
 	char int_aff_name[EHEA_IRQ_NAME_SIZE];
-	int allmulti;			 
-	int promisc;		 	 
+	int allmulti;			 /* Indicates IFF_ALLMULTI state */
+	int promisc;		 	 /* Indicates IFF_PROMISC state */
 	int num_mcs;
 	int resets;
 	unsigned long flags;
@@ -434,4 +488,4 @@ void ehea_set_ethtool_ops(struct net_device *netdev);
 int ehea_sense_port_attr(struct ehea_port *port);
 int ehea_set_portspeed(struct ehea_port *port, u32 port_speed);
 
-#endif	
+#endif	/* __EHEA_H__ */

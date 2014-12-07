@@ -261,7 +261,7 @@ CIFSQueryMFSymLink(const int xid, struct cifs_tcon *tcon,
 
 	if (file_info.EndOfFile != cpu_to_le64(CIFS_MF_SYMLINK_FILE_SIZE)) {
 		CIFSSMBClose(xid, tcon, netfid);
-		
+		/* it's not a symlink */
 		return -EINVAL;
 	}
 
@@ -294,11 +294,11 @@ bool
 CIFSCouldBeMFSymlink(const struct cifs_fattr *fattr)
 {
 	if (!(fattr->cf_mode & S_IFREG))
-		
+		/* it's not a symlink */
 		return false;
 
 	if (fattr->cf_eof != CIFS_MF_SYMLINK_FILE_SIZE)
-		
+		/* it's not a symlink */
 		return false;
 
 	return true;
@@ -323,7 +323,7 @@ CIFSCheckMFSymlink(struct cifs_fattr *fattr,
 	FILE_ALL_INFO file_info;
 
 	if (!CIFSCouldBeMFSymlink(fattr))
-		
+		/* it's not a symlink */
 		return 0;
 
 	tlink = cifs_sb_tlink(cifs_sb);
@@ -341,7 +341,7 @@ CIFSCheckMFSymlink(struct cifs_fattr *fattr,
 
 	if (file_info.EndOfFile != cpu_to_le64(CIFS_MF_SYMLINK_FILE_SIZE)) {
 		CIFSSMBClose(xid, pTcon, netfid);
-		
+		/* it's not a symlink */
 		goto out;
 	}
 
@@ -367,7 +367,7 @@ CIFSCheckMFSymlink(struct cifs_fattr *fattr,
 	rc = CIFSParseMFSymlink(buf, bytes_read, &link_len, NULL);
 	kfree(buf);
 	if (rc == -EINVAL) {
-		
+		/* it's not a symlink */
 		rc = 0;
 		goto out;
 	}
@@ -375,7 +375,7 @@ CIFSCheckMFSymlink(struct cifs_fattr *fattr,
 	if (rc != 0)
 		goto out;
 
-	
+	/* it is a symlink */
 	fattr->cf_eof = link_len;
 	fattr->cf_mode &= ~S_IFMT;
 	fattr->cf_mode |= S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO;
@@ -426,15 +426,30 @@ cifs_hardlink(struct dentry *old_file, struct inode *inode,
 			rc = -EOPNOTSUPP;
 	}
 
-	d_drop(direntry);	
+	d_drop(direntry);	/* force new lookup from server of target */
 
+	/* if source file is cached (oplocked) revalidate will not go to server
+	   until the file is closed or oplock broken so update nlinks locally */
 	if (old_file->d_inode) {
 		cifsInode = CIFS_I(old_file->d_inode);
 		if (rc == 0) {
 			inc_nlink(old_file->d_inode);
+/* BB should we make this contingent on superblock flag NOATIME? */
+/*			old_file->d_inode->i_ctime = CURRENT_TIME;*/
+			/* parent dir timestamps will update from srv
+			within a second, would it really be worth it
+			to set the parent dir cifs inode time to zero
+			to force revalidate (faster) for it too? */
 		}
+		/* if not oplocked will force revalidate to get info
+		   on source file from srv */
 		cifsInode->time = 0;
 
+		/* Will update parent dir timestamps from srv within a second.
+		   Would it really be worth it to set the parent dir (cifs
+		   inode) time field to zero to force revalidate on parent
+		   directory faster ie
+			CIFS_I(inode)->time = 0;  */
 	}
 
 cifs_hl_exit:
@@ -467,6 +482,19 @@ cifs_follow_link(struct dentry *direntry, struct nameidata *nd)
 	}
 	tcon = tlink_tcon(tlink);
 
+	/*
+	 * For now, we just handle symlinks with unix extensions enabled.
+	 * Eventually we should handle NTFS reparse points, and MacOS
+	 * symlink support. For instance...
+	 *
+	 * rc = CIFSSMBQueryReparseLinkInfo(...)
+	 *
+	 * For now, just return -EACCES when the server doesn't support posix
+	 * extensions. Note that we still allow querying symlinks when posix
+	 * extensions are manually disabled. We could disable these as well
+	 * but there doesn't seem to be any harm in allowing the client to
+	 * read them.
+	 */
 	if (!(cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MF_SYMLINKS)
 	    && !(tcon->ses->capabilities & CAP_UNIX)) {
 		rc = -EACCES;
@@ -480,6 +508,10 @@ cifs_follow_link(struct dentry *direntry, struct nameidata *nd)
 	cFYI(1, "Full path: %s inode = 0x%p", full_path, inode);
 
 	rc = -EACCES;
+	/*
+	 * First try Minshall+French Symlinks, if configured
+	 * and fallback to UNIX Extensions Symlinks.
+	 */
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MF_SYMLINKS)
 		rc = CIFSQueryMFSymLink(xid, tcon, full_path, &target_path,
 					cifs_sb->local_nls,
@@ -533,13 +565,16 @@ cifs_symlink(struct inode *inode, struct dentry *direntry, const char *symname)
 	cFYI(1, "Full path: %s", full_path);
 	cFYI(1, "symname is %s", symname);
 
-	
+	/* BB what if DFS and this volume is on different share? BB */
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_MF_SYMLINKS)
 		rc = CIFSCreateMFSymLink(xid, pTcon, full_path, symname,
 					cifs_sb);
 	else if (pTcon->unix_ext)
 		rc = CIFSUnixCreateSymLink(xid, pTcon, full_path, symname,
 					   cifs_sb->local_nls);
+	/* else
+	   rc = CIFSCreateReparseSymLink(xid, pTcon, fromName, toName,
+					cifs_sb_target->local_nls); */
 
 	if (rc == 0) {
 		if (pTcon->unix_ext)

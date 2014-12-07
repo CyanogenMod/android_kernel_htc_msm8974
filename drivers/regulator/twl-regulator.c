@@ -22,58 +22,81 @@
 #include <linux/i2c/twl.h>
 
 
+/*
+ * The TWL4030/TW5030/TPS659x0/TWL6030 family chips include power management, a
+ * USB OTG transceiver, an RTC, ADC, PWM, and lots more.  Some versions
+ * include an audio codec, battery charger, and more voltage regulators.
+ * These chips are often used in OMAP-based systems.
+ *
+ * This driver implements software-based resource control for various
+ * voltage regulators.  This is usually augmented with state machine
+ * based control.
+ */
 
 struct twlreg_info {
-	
+	/* start of regulator's PM_RECEIVER control register bank */
 	u8			base;
 
-	
+	/* twl resource ID, for resource control state machine */
 	u8			id;
 
-	
+	/* voltage in mV = table[VSEL]; table_len must be a power-of-two */
 	u8			table_len;
 	const u16		*table;
 
-	
+	/* regulator specific turn-on delay */
 	u16			delay;
 
-	
+	/* State REMAP default configuration */
 	u8			remap;
 
-	
+	/* chip constraints on regulator behavior */
 	u16			min_mV;
 	u16			max_mV;
 
 	u8			flags;
 
-	
+	/* used by regulator core */
 	struct regulator_desc	desc;
 
-	
+	/* chip specific features */
 	unsigned long 		features;
 
+	/*
+	 * optional override functions for voltage set/get
+	 * these are currently only used for SMPS regulators
+	 */
 	int			(*get_voltage)(void *data);
 	int			(*set_voltage)(void *data, int target_uV);
 
-	
+	/* data passed from board for external get/set voltage */
 	void			*data;
 };
 
 
+/* LDO control registers ... offset is from the base of its register bank.
+ * The first three registers of all power resource banks help hardware to
+ * manage the various resource groups.
+ */
+/* Common offset in TWL4030/6030 */
 #define VREG_GRP		0
+/* TWL4030 register offsets */
 #define VREG_TYPE		1
 #define VREG_REMAP		2
-#define VREG_DEDICATED		3	
+#define VREG_DEDICATED		3	/* LDO control */
 #define VREG_VOLTAGE_SMPS_4030	9
+/* TWL6030 register offsets */
 #define VREG_TRANS		1
 #define VREG_STATE		2
 #define VREG_VOLTAGE		3
 #define VREG_VOLTAGE_SMPS	4
+/* TWL6030 Misc register offsets */
 #define VREG_BC_ALL		1
 #define VREG_BC_REF		2
 #define VREG_BC_PROC		3
 #define VREG_BC_CLK_RST		4
 
+/* TWL6030 LDO register values for CFG_STATE */
 #define TWL6030_CFG_STATE_OFF	0x00
 #define TWL6030_CFG_STATE_ON	0x01
 #define TWL6030_CFG_STATE_OFF2	0x02
@@ -84,9 +107,11 @@ struct twlreg_info {
 #define TWL6030_CFG_STATE_APP(v)	(((v) & TWL6030_CFG_STATE_APP_MASK) >>\
 						TWL6030_CFG_STATE_APP_SHIFT)
 
+/* Flags for SMPS Voltage reading */
 #define SMPS_OFFSET_EN		BIT(0)
 #define SMPS_EXTENDED_EN	BIT(1)
 
+/* twl6025 SMPS EPROM values */
 #define TWL6030_SMPS_OFFSET		0xB0
 #define TWL6030_SMPS_MULT		0xB3
 #define SMPS_MULTOFFSET_SMPS4	BIT(0)
@@ -112,7 +137,9 @@ twlreg_write(struct twlreg_info *info, unsigned slave_subgp, unsigned offset,
 			value, info->base + offset);
 }
 
+/*----------------------------------------------------------------------*/
 
+/* generic power resource operations, which work on all regulators */
 
 static int twlreg_grp(struct regulator_dev *rdev)
 {
@@ -120,12 +147,18 @@ static int twlreg_grp(struct regulator_dev *rdev)
 								 VREG_GRP);
 }
 
-#define P3_GRP_4030	BIT(7)		
-#define P2_GRP_4030	BIT(6)		
-#define P1_GRP_4030	BIT(5)		
-#define P3_GRP_6030	BIT(2)		
-#define P2_GRP_6030	BIT(1)		
-#define P1_GRP_6030	BIT(0)		
+/*
+ * Enable/disable regulators by joining/leaving the P1 (processor) group.
+ * We assume nobody else is updating the DEV_GRP registers.
+ */
+/* definition for 4030 family */
+#define P3_GRP_4030	BIT(7)		/* "peripherals" */
+#define P2_GRP_4030	BIT(6)		/* secondary processor, modem, etc */
+#define P1_GRP_4030	BIT(5)		/* CPU/Linux */
+/* definition for 6030 family */
+#define P3_GRP_6030	BIT(2)		/* secondary processor, modem, etc */
+#define P2_GRP_6030	BIT(1)		/* "peripherals" */
+#define P1_GRP_6030	BIT(0)		/* CPU/Linux */
 
 static int twl4030reg_is_enabled(struct regulator_dev *rdev)
 {
@@ -223,7 +256,7 @@ static int twl6030reg_disable(struct regulator_dev *rdev)
 	if (!(twl_class_is_6030() && (info->features & TWL6025_SUBCLASS)))
 		grp = P1_GRP_6030 | P2_GRP_6030 | P3_GRP_6030;
 
-	
+	/* For 6030, set the off state for all grps enabled */
 	ret = twlreg_write(info, TWL_MODULE_PM_RECEIVER, VREG_STATE,
 			(grp) << TWL6030_CFG_STATE_GRP_SHIFT |
 			TWL6030_CFG_STATE_OFF);
@@ -239,7 +272,7 @@ static int twl4030reg_get_status(struct regulator_dev *rdev)
 		return state;
 	state &= 0x0f;
 
-	
+	/* assume state != WARM_RESET; we'd not be running...  */
 	if (!state)
 		return REGULATOR_STATUS_OFF;
 	return (state & BIT(3))
@@ -280,7 +313,7 @@ static int twl4030reg_set_mode(struct regulator_dev *rdev, unsigned mode)
 	unsigned		message;
 	int			status;
 
-	
+	/* We can only set the mode through state machine commands... */
 	switch (mode) {
 	case REGULATOR_MODE_NORMAL:
 		message = MSG_SINGULAR(DEV_GRP_P1, info->id, RES_STATE_ACTIVE);
@@ -292,7 +325,7 @@ static int twl4030reg_set_mode(struct regulator_dev *rdev, unsigned mode)
 		return -EINVAL;
 	}
 
-	
+	/* Ensure the resource is associated with some group */
 	status = twlreg_grp(rdev);
 	if (status < 0)
 		return status;
@@ -320,9 +353,9 @@ static int twl6030reg_set_mode(struct regulator_dev *rdev, unsigned mode)
 	if (grp < 0)
 		return grp;
 
-	
+	/* Compose the state register settings */
 	val = grp << TWL6030_CFG_STATE_GRP_SHIFT;
-	
+	/* We can only set the mode through state machine commands... */
 	switch (mode) {
 	case REGULATOR_MODE_NORMAL:
 		val |= TWL6030_CFG_STATE_ON;
@@ -338,7 +371,23 @@ static int twl6030reg_set_mode(struct regulator_dev *rdev, unsigned mode)
 	return twlreg_write(info, TWL_MODULE_PM_RECEIVER, VREG_STATE, val);
 }
 
+/*----------------------------------------------------------------------*/
 
+/*
+ * Support for adjustable-voltage LDOs uses a four bit (or less) voltage
+ * select field in its control register.   We use tables indexed by VSEL
+ * to record voltages in milliVolts.  (Accuracy is about three percent.)
+ *
+ * Note that VSEL values for VAUX2 changed in twl5030 and newer silicon;
+ * currently handled by listing two slightly different VAUX2 regulators,
+ * only one of which will be configured.
+ *
+ * VSEL values documented as "TI cannot support these values" are flagged
+ * in these tables as UNSUP() values; we normally won't assign them.
+ *
+ * VAUX3 at 3V is incorrectly listed in some TI manuals as unsupported.
+ * TI are revising the twl5030/tps659x0 specs to support that 3.0V setting.
+ */
 #ifdef CONFIG_TWL4030_ALLOW_UNSUPPORTED
 #define UNSUP_MASK	0x0000
 #else
@@ -438,9 +487,9 @@ twl4030ldo_set_voltage(struct regulator_dev *rdev, int min_uV, int max_uV,
 			continue;
 		uV = LDO_MV(mV) * 1000;
 
-		
+		/* REVISIT for VAUX2, first match may not be best/lowest */
 
-		
+		/* use the first in-range value */
 		if (min_uV <= uV && uV <= max_uV) {
 			*selector = vsel;
 			return twlreg_write(info, TWL_MODULE_PM_RECEIVER,
@@ -558,6 +607,10 @@ twl6030ldo_set_voltage(struct regulator_dev *rdev, int min_uV, int max_uV,
 	if ((min_uV/1000 < info->min_mV) || (max_uV/1000 > info->max_mV))
 		return -EDOM;
 
+	/*
+	 * Use the below formula to calculate vsel
+	 * mV = 1000mv + 100mv * (vsel - 1)
+	 */
 	vsel = (min_uV/1000 - 1000)/100 + 1;
 	*selector = vsel;
 	return twlreg_write(info, TWL_MODULE_PM_RECEIVER, VREG_VOLTAGE, vsel);
@@ -573,6 +626,10 @@ static int twl6030ldo_get_voltage(struct regulator_dev *rdev)
 	if (vsel < 0)
 		return vsel;
 
+	/*
+	 * Use the below formula to calculate vsel
+	 * mV = 1000mv + 100mv * (vsel - 1)
+	 */
 	return (1000 + (100 * (vsel - 1))) * 1000;
 }
 
@@ -591,7 +648,11 @@ static struct regulator_ops twl6030ldo_ops = {
 	.get_status	= twl6030reg_get_status,
 };
 
+/*----------------------------------------------------------------------*/
 
+/*
+ * Fixed voltage LDOs don't have a VSEL field to update.
+ */
 static int twlfixed_list_voltage(struct regulator_dev *rdev, unsigned index)
 {
 	struct twlreg_info	*info = rdev_get_drvdata(rdev);
@@ -641,6 +702,9 @@ static struct regulator_ops twl6030_fixed_resource = {
 	.get_status	= twl6030reg_get_status,
 };
 
+/*
+ * SMPS status and control
+ */
 
 static int twl6030smps_list_voltage(struct regulator_dev *rdev, unsigned index)
 {
@@ -651,7 +715,7 @@ static int twl6030smps_list_voltage(struct regulator_dev *rdev, unsigned index)
 	switch (info->flags) {
 	case SMPS_OFFSET_EN:
 		voltage = 100000;
-		
+		/* fall through */
 	case 0:
 		switch (index) {
 		case 0:
@@ -751,6 +815,9 @@ twl6030smps_set_voltage(struct regulator_dev *rdev, int min_uV, int max_uV,
 			if (calc_uV > max_uV)
 				return -EINVAL;
 		}
+		/* Values 1..57 for vsel are linear and can be calculated
+		 * values 58..62 are non linear.
+		 */
 		else if ((min_uV > 1900000) && (max_uV >= 2100000))
 			vsel = 62;
 		else if ((min_uV > 1800000) && (max_uV >= 1900000))
@@ -778,6 +845,9 @@ twl6030smps_set_voltage(struct regulator_dev *rdev, int min_uV, int max_uV,
 			if (calc_uV > max_uV)
 				return -EINVAL;
 		}
+		/* Values 1..57 for vsel are linear and can be calculated
+		 * values 58..62 are non linear.
+		 */
 		else if ((min_uV > 1900000) && (max_uV >= 2100000))
 			vsel = 62;
 		else if ((min_uV > 1800000) && (max_uV >= 1900000))
@@ -843,6 +913,7 @@ static struct regulator_ops twlsmps_ops = {
 	.get_status		= twl6030reg_get_status,
 };
 
+/*----------------------------------------------------------------------*/
 
 #define TWL4030_FIXED_LDO(label, offset, mVolts, num, turnon_delay, \
 			remap_conf) \
@@ -972,6 +1043,10 @@ static struct twlreg_info TWLSMPS_INFO_##label = { \
 		}, \
 	}
 
+/*
+ * We list regulators here if systems need some level of
+ * software control over them after boot.
+ */
 TWL4030_ADJUSTABLE_LDO(VAUX1, 0x17, 1, 100, 0x08);
 TWL4030_ADJUSTABLE_LDO(VAUX2_4030, 0x1b, 2, 100, 0x08);
 TWL4030_ADJUSTABLE_LDO(VAUX2, 0x1b, 2, 100, 0x08);
@@ -987,6 +1062,10 @@ TWL4030_ADJUSTABLE_LDO(VINTANA2, 0x43, 12, 100, 0x08);
 TWL4030_ADJUSTABLE_LDO(VIO, 0x4b, 14, 1000, 0x08);
 TWL4030_ADJUSTABLE_SMPS(VDD1, 0x55, 15, 1000, 0x08);
 TWL4030_ADJUSTABLE_SMPS(VDD2, 0x63, 16, 1000, 0x08);
+/* VUSBCP is managed *only* by the USB subchip */
+/* 6030 REG with base as PMC Slave Misc : 0x0030 */
+/* Turnon-delay and remap configuration values for 6030 are not
+   verified since the specification is not public */
 TWL6030_ADJUSTABLE_SMPS(VDD1);
 TWL6030_ADJUSTABLE_SMPS(VDD2);
 TWL6030_ADJUSTABLE_SMPS(VDD3);
@@ -996,6 +1075,7 @@ TWL6030_ADJUSTABLE_LDO(VAUX3_6030, 0x5c, 1000, 3300);
 TWL6030_ADJUSTABLE_LDO(VMMC, 0x68, 1000, 3300);
 TWL6030_ADJUSTABLE_LDO(VPP, 0x6c, 1000, 3300);
 TWL6030_ADJUSTABLE_LDO(VUSIM, 0x74, 1000, 3300);
+/* 6025 are renamed compared to 6030 versions */
 TWL6025_ADJUSTABLE_LDO(LDO2, 0x54, 1000, 3300);
 TWL6025_ADJUSTABLE_LDO(LDO4, 0x58, 1000, 3300);
 TWL6025_ADJUSTABLE_LDO(LDO3, 0x5c, 1000, 3300);
@@ -1143,13 +1223,16 @@ static int __devinit twlreg_probe(struct platform_device *pdev)
 		return -EINVAL;
 
 	if (drvdata) {
-		
+		/* copy the driver data into regulator data */
 		info->features = drvdata->features;
 		info->data = drvdata->data;
 		info->set_voltage = drvdata->set_voltage;
 		info->get_voltage = drvdata->get_voltage;
 	}
 
+	/* Constrain board-specific capabilities according to what
+	 * this driver and the chip itself can actually do.
+	 */
 	c = &initdata->constraints;
 	c->valid_modes_mask &= REGULATOR_MODE_NORMAL | REGULATOR_MODE_STANDBY;
 	c->valid_ops_mask &= REGULATOR_CHANGE_VOLTAGE
@@ -1203,6 +1286,13 @@ static int __devinit twlreg_probe(struct platform_device *pdev)
 		twlreg_write(info, TWL_MODULE_PM_RECEIVER, VREG_REMAP,
 						info->remap);
 
+	/* NOTE:  many regulators support short-circuit IRQs (presentable
+	 * as REGULATOR_OVER_CURRENT notifications?) configured via:
+	 *  - SC_CONFIG
+	 *  - SC_DETECT1 (vintana2, vmmc1/2, vaux1/2/3/4)
+	 *  - SC_DETECT2 (vusb, vdac, vio, vdd1/2, vpll2)
+	 *  - IT_CONFIG
+	 */
 
 	return 0;
 }
@@ -1218,6 +1308,9 @@ MODULE_ALIAS("platform:twl_reg");
 static struct platform_driver twlreg_driver = {
 	.probe		= twlreg_probe,
 	.remove		= __devexit_p(twlreg_remove),
+	/* NOTE: short name, to work around driver model truncation of
+	 * "twl_regulator.12" (and friends) to "twl_regulator.1".
+	 */
 	.driver  = {
 		.name  = "twl_reg",
 		.owner = THIS_MODULE,

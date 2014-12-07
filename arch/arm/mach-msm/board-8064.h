@@ -23,6 +23,7 @@
 #include <mach/msm_rtb.h>
 #include <mach/msm_cache_dump.h>
 
+/* Macros assume PMIC GPIOs and MPPs start at 1 */
 #define PM8921_GPIO_BASE		NR_GPIO_IRQS
 #define PM8921_GPIO_PM_TO_SYS(pm_gpio)	(pm_gpio - 1 + PM8921_GPIO_BASE)
 #define PM8921_MPP_BASE			(PM8921_GPIO_BASE + PM8921_NR_GPIOS)
@@ -90,6 +91,7 @@ extern struct msm_camera_board_info apq8064_camera_board_info;
 void apq8064_init_cam(void);
 
 
+/* Tabla slave address for I2C */
 #define APQ_8064_TABLA_I2C_SLAVE_ADDR		0x0d
 #define APQ_8064_TABLA_ANALOG_I2C_SLAVE_ADDR	0x77
 #define APQ_8064_TABLA_DIGITAL1_I2C_SLAVE_ADDR	0x66

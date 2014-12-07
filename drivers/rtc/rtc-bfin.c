@@ -9,7 +9,37 @@
  * Licensed under the GPL-2 or later.
  */
 
+/* The biggest issue we deal with in this driver is that register writes are
+ * synced to the RTC frequency of 1Hz.  So if you write to a register and
+ * attempt to write again before the first write has completed, the new write
+ * is simply discarded.  This can easily be troublesome if userspace disables
+ * one event (say periodic) and then right after enables an event (say alarm).
+ * Since all events are maintained in the same interrupt mask register, if
+ * we wrote to it to disable the first event and then wrote to it again to
+ * enable the second event, that second event would not be enabled as the
+ * write would be discarded and things quickly fall apart.
+ *
+ * To keep this delay from significantly degrading performance (we, in theory,
+ * would have to sleep for up to 1 second every time we wanted to write a
+ * register), we only check the write pending status before we start to issue
+ * a new write.  We bank on the idea that it doesn't matter when the sync
+ * happens so long as we don't attempt another write before it does.  The only
+ * time userspace would take this penalty is when they try and do multiple
+ * operations right after another ... but in this case, they need to take the
+ * sync penalty, so we should be OK.
+ *
+ * Also note that the RTC_ISTAT register does not suffer this penalty; its
+ * writes to clear status registers complete immediately.
+ */
 
+/* It may seem odd that there is no SWCNT code in here (which would be exposed
+ * via the periodic interrupt event, or PIE).  Since the Blackfin RTC peripheral
+ * runs in units of seconds (N/HZ) but the Linux framework runs in units of HZ
+ * (2^N HZ), there is no point in keeping code that only provides 1 HZ PIEs.
+ * The same exact behavior can be accomplished by using the update interrupt
+ * event (UIE).  Maybe down the line the RTC peripheral will suck less in which
+ * case we can re-introduce PIE support.
+ */
 
 #include <linux/bcd.h>
 #include <linux/completion.h>
@@ -33,6 +63,7 @@ struct bfin_rtc {
 	u16 rtc_wrote_regs;
 };
 
+/* Bit values for the ISTAT / ICTL registers */
 #define RTC_ISTAT_WRITE_COMPLETE  0x8000
 #define RTC_ISTAT_WRITE_PENDING   0x4000
 #define RTC_ISTAT_ALARM_DAY       0x0040
@@ -43,11 +74,15 @@ struct bfin_rtc {
 #define RTC_ISTAT_ALARM           0x0002
 #define RTC_ISTAT_STOPWATCH       0x0001
 
+/* Shift values for RTC_STAT register */
 #define DAY_BITS_OFF    17
 #define HOUR_BITS_OFF   12
 #define MIN_BITS_OFF    6
 #define SEC_BITS_OFF    0
 
+/* Some helper functions to convert between the common RTC notion of time
+ * and the internal Blackfin notion that is encoded in 32bits.
+ */
 static inline u32 rtc_time_to_bfin(unsigned long now)
 {
 	u32 sec  = (now % 60);
@@ -71,6 +106,39 @@ static inline void rtc_bfin_to_tm(u32 rtc_bfin, struct rtc_time *tm)
 	rtc_time_to_tm(rtc_bfin_to_time(rtc_bfin), tm);
 }
 
+/**
+ *	bfin_rtc_sync_pending - make sure pending writes have complete
+ *
+ * Wait for the previous write to a RTC register to complete.
+ * Unfortunately, we can't sleep here as that introduces a race condition when
+ * turning on interrupt events.  Consider this:
+ *  - process sets alarm
+ *  - process enables alarm
+ *  - process sleeps while waiting for rtc write to sync
+ *  - interrupt fires while process is sleeping
+ *  - interrupt acks the event by writing to ISTAT
+ *  - interrupt sets the WRITE PENDING bit
+ *  - interrupt handler finishes
+ *  - process wakes up, sees WRITE PENDING bit set, goes to sleep
+ *  - interrupt fires while process is sleeping
+ * If anyone can point out the obvious solution here, i'm listening :).  This
+ * shouldn't be an issue on an SMP or preempt system as this function should
+ * only be called with the rtc lock held.
+ *
+ * Other options:
+ *  - disable PREN so the sync happens at 32.768kHZ ... but this changes the
+ *    inc rate for all RTC registers from 1HZ to 32.768kHZ ...
+ *  - use the write complete IRQ
+ */
+/*
+static void bfin_rtc_sync_pending_polled(void)
+{
+	while (!(bfin_read_RTC_ISTAT() & RTC_ISTAT_WRITE_COMPLETE))
+		if (!(bfin_read_RTC_ISTAT() & RTC_ISTAT_WRITE_PENDING))
+			break;
+	bfin_write_RTC_ISTAT(RTC_ISTAT_WRITE_COMPLETE);
+}
+*/
 static DECLARE_COMPLETION(bfin_write_complete);
 static void bfin_rtc_sync_pending(struct device *dev)
 {
@@ -80,6 +148,12 @@ static void bfin_rtc_sync_pending(struct device *dev)
 	dev_dbg_stamp(dev);
 }
 
+/**
+ *	bfin_rtc_reset - set RTC to sane/known state
+ *
+ * Initialize the RTC.  Enable pre-scaler to scale RTC clock
+ * to 1Hz and clear interrupt/status registers.
+ */
 static void bfin_rtc_reset(struct device *dev, u16 rtc_ictl)
 {
 	struct bfin_rtc *rtc = dev_get_drvdata(dev);
@@ -92,6 +166,17 @@ static void bfin_rtc_reset(struct device *dev, u16 rtc_ictl)
 	rtc->rtc_wrote_regs = 0;
 }
 
+/**
+ *	bfin_rtc_interrupt - handle interrupt from RTC
+ *
+ * Since we handle all RTC events here, we have to make sure the requested
+ * interrupt is enabled (in RTC_ICTL) as the event status register (RTC_ISTAT)
+ * always gets updated regardless of the interrupt being enabled.  So when one
+ * even we care about (e.g. stopwatch) goes off, we don't want to turn around
+ * and say that other events have happened as well (e.g. second).  We do not
+ * have to worry about pending writes to the RTC_ICTL register as interrupts
+ * only fire if they are enabled in the RTC_ICTL register.
+ */
 static irqreturn_t bfin_rtc_interrupt(int irq, void *dev_id)
 {
 	struct device *dev = dev_id;
@@ -150,6 +235,9 @@ static void bfin_rtc_int_clear(u16 rtc_int)
 }
 static void bfin_rtc_int_set_alarm(struct bfin_rtc *rtc)
 {
+	/* Blackfin has different bits for whether the alarm is
+	 * more than 24 hours away.
+	 */
 	bfin_rtc_int_set(rtc->rtc_alarm.tm_yday == -1 ? RTC_ISTAT_ALARM : RTC_ISTAT_ALARM_DAY);
 }
 
@@ -263,14 +351,14 @@ static int __devinit bfin_rtc_probe(struct platform_device *pdev)
 
 	dev_dbg_stamp(dev);
 
-	
+	/* Allocate memory for our RTC struct */
 	rtc = kzalloc(sizeof(*rtc), GFP_KERNEL);
 	if (unlikely(!rtc))
 		return -ENOMEM;
 	platform_set_drvdata(pdev, rtc);
 	device_init_wakeup(dev, 1);
 
-	
+	/* Register our RTC with the RTC framework */
 	rtc->rtc_dev = rtc_device_register(pdev->name, dev, &bfin_rtc_ops,
 						THIS_MODULE);
 	if (unlikely(IS_ERR(rtc->rtc_dev))) {
@@ -278,10 +366,13 @@ static int __devinit bfin_rtc_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	
+	/* Grab the IRQ and init the hardware */
 	ret = request_irq(IRQ_RTC, bfin_rtc_interrupt, 0, pdev->name, dev);
 	if (unlikely(ret))
 		goto err_reg;
+	/* sometimes the bootloader touched things, but the write complete was not
+	 * enabled, so let's just do a quick timeout here since the IRQ will not fire ...
+	 */
 	while (bfin_read_RTC_ISTAT() & RTC_ISTAT_WRITE_PENDING)
 		if (time_after(jiffies, timeout))
 			break;
@@ -336,6 +427,13 @@ static int bfin_rtc_resume(struct platform_device *pdev)
 	if (device_may_wakeup(dev))
 		disable_irq_wake(IRQ_RTC);
 
+	/*
+	 * Since only some of the RTC bits are maintained externally in the
+	 * Vbat domain, we need to wait for the RTC MMRs to be synced into
+	 * the core after waking up.  This happens every RTC 1HZ.  Once that
+	 * has happened, we can go ahead and re-enable the important write
+	 * complete interrupt event.
+	 */
 	while (!(bfin_read_RTC_ISTAT() & RTC_ISTAT_SEC))
 		continue;
 	bfin_rtc_int_set(RTC_ISTAT_WRITE_COMPLETE);

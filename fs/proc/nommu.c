@@ -31,12 +31,15 @@
 #include <asm/div64.h>
 #include "internal.h"
 
+/*
+ * display a single region to a sequenced file
+ */
 static int nommu_region_show(struct seq_file *m, struct vm_region *region)
 {
 	unsigned long ino = 0;
 	struct file *file;
 	dev_t dev = 0;
-	int flags, len;
+	int flags;
 
 	flags = region->vm_flags;
 	file = region->vm_file;
@@ -47,8 +50,9 @@ static int nommu_region_show(struct seq_file *m, struct vm_region *region)
 		ino = inode->i_ino;
 	}
 
+	seq_setwidth(m, 25 + sizeof(void *) * 6 - 1);
 	seq_printf(m,
-		   "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %n",
+		   "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu ",
 		   region->vm_start,
 		   region->vm_end,
 		   flags & VM_READ ? 'r' : '-',
@@ -56,13 +60,10 @@ static int nommu_region_show(struct seq_file *m, struct vm_region *region)
 		   flags & VM_EXEC ? 'x' : '-',
 		   flags & VM_MAYSHARE ? flags & VM_SHARED ? 'S' : 's' : 'p',
 		   ((loff_t)region->vm_pgoff) << PAGE_SHIFT,
-		   MAJOR(dev), MINOR(dev), ino, &len);
+		   MAJOR(dev), MINOR(dev), ino);
 
 	if (file) {
-		len = 25 + sizeof(void *) * 6 - len;
-		if (len < 1)
-			len = 1;
-		seq_printf(m, "%*c", len, ' ');
+		seq_pad(m, ' ');
 		seq_path(m, &file->f_path, "");
 	}
 
@@ -70,6 +71,10 @@ static int nommu_region_show(struct seq_file *m, struct vm_region *region)
 	return 0;
 }
 
+/*
+ * display a list of all the REGIONs the kernel knows about
+ * - nommu kernels have a single flat list
+ */
 static int nommu_region_list_show(struct seq_file *m, void *_p)
 {
 	struct rb_node *p = _p;

@@ -131,7 +131,7 @@ static int da903x_backlight_probe(struct platform_device *pdev)
 	data->da903x_dev = pdev->dev.parent;
 	data->current_brightness = 0;
 
-	
+	/* adjust the WLED output current */
 	if (pdata)
 		da903x_write(data->da903x_dev, DA9034_WLED_CONTROL2,
 				DA9034_WLED_ISET(pdata->output_current));

@@ -64,4 +64,4 @@ static inline void put_unaligned_be64(u64 val, void *p)
 	*((__be64 *)p) = cpu_to_be64(val);
 }
 
-#endif 
+#endif /* _LINUX_UNALIGNED_ACCESS_OK_H */

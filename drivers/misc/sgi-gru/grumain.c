@@ -47,6 +47,11 @@ static struct device gru_device = {
 
 struct device *grudev = &gru_device;
 
+/*
+ * Select a gru fault map to be used by the current cpu. Note that
+ * multiple cpus may be using the same map.
+ *	ZZZ should be inline but did not work on emulator
+ */
 int gru_cpu_fault_map_id(void)
 {
 #ifdef CONFIG_IA64
@@ -61,7 +66,34 @@ int gru_cpu_fault_map_id(void)
 #endif
 }
 
+/*--------- ASID Management -------------------------------------------
+ *
+ *  Initially, assign asids sequentially from MIN_ASID .. MAX_ASID.
+ *  Once MAX is reached, flush the TLB & start over. However,
+ *  some asids may still be in use. There won't be many (percentage wise) still
+ *  in use. Search active contexts & determine the value of the first
+ *  asid in use ("x"s below). Set "limit" to this value.
+ *  This defines a block of assignable asids.
+ *
+ *  When "limit" is reached, search forward from limit+1 and determine the
+ *  next block of assignable asids.
+ *
+ *  Repeat until MAX_ASID is reached, then start over again.
+ *
+ *  Each time MAX_ASID is reached, increment the asid generation. Since
+ *  the search for in-use asids only checks contexts with GRUs currently
+ *  assigned, asids in some contexts will be missed. Prior to loading
+ *  a context, the asid generation of the GTS asid is rechecked. If it
+ *  doesn't match the current generation, a new asid will be assigned.
+ *
+ *   	0---------------x------------x---------------------x----|
+ *	  ^-next	^-limit	   				^-MAX_ASID
+ *
+ * All asid manipulation & context loading/unloading is protected by the
+ * gs_lock.
+ */
 
+/* Hit the asid limit. Start over */
 static int gru_wrap_asid(struct gru_state *gru)
 {
 	gru_dbg(grudev, "gid %d\n", gru->gs_gid);
@@ -70,6 +102,7 @@ static int gru_wrap_asid(struct gru_state *gru)
 	return MIN_ASID;
 }
 
+/* Find the next chunk of unused asids */
 static int gru_reset_asid_limit(struct gru_state *gru, int asid)
 {
 	int i, gid, inuse_asid, limit;
@@ -92,6 +125,10 @@ again:
 		if (inuse_asid == asid) {
 			asid += ASID_INC;
 			if (asid >= limit) {
+				/*
+				 * empty range: reset the range limit and
+				 * start over
+				 */
 				limit = MAX_ASID;
 				if (asid >= MAX_ASID)
 					asid = gru_wrap_asid(gru);
@@ -109,6 +146,7 @@ again:
 	return asid;
 }
 
+/* Assign a new ASID to a thread context.  */
 static int gru_assign_asid(struct gru_state *gru)
 {
 	int asid;
@@ -122,6 +160,10 @@ static int gru_assign_asid(struct gru_state *gru)
 	return asid;
 }
 
+/*
+ * Clear n bits in a word. Return a word indicating the bits that were cleared.
+ * Optionally, build an array of chars that contain the bit numbers allocated.
+ */
 static unsigned long reserve_resources(unsigned long *p, int n, int mmax,
 				       char *idx)
 {
@@ -173,6 +215,13 @@ static void free_gru_resources(struct gru_state *gru,
 	gru->gs_dsr_map |= gts->ts_dsr_map;
 }
 
+/*
+ * Check if a GRU has sufficient free resources to satisfy an allocation
+ * request. Note: GRU locks may or may not be held when this is called. If
+ * not held, recheck after acquiring the appropriate locks.
+ *
+ * Returns 1 if sufficient resources, 0 if not
+ */
 static int check_gru_resources(struct gru_state *gru, int cbr_au_count,
 			       int dsr_au_count, int max_active_contexts)
 {
@@ -181,6 +230,10 @@ static int check_gru_resources(struct gru_state *gru, int cbr_au_count,
 		&& gru->gs_active_contexts < max_active_contexts;
 }
 
+/*
+ * TLB manangment requires tracking all GRU chiplets that have loaded a GSEG
+ * context.
+ */
 static int gru_load_mm_tracker(struct gru_state *gru,
 					struct gru_thread_state *gts)
 {
@@ -236,6 +289,10 @@ static void gru_unload_mm_tracker(struct gru_state *gru,
 	spin_unlock(&gms->ms_asid_lock);
 }
 
+/*
+ * Decrement the reference count on a GTS structure. Free the structure
+ * if the reference count goes to zero.
+ */
 void gts_drop(struct gru_thread_state *gts)
 {
 	if (gts && atomic_dec_return(&gts->ts_refcnt) == 0) {
@@ -246,6 +303,9 @@ void gts_drop(struct gru_thread_state *gts)
 	}
 }
 
+/*
+ * Locate the GTS structure for the current thread.
+ */
 static struct gru_thread_state *gru_find_current_gts_nolock(struct gru_vma_data
 			    *vdata, int tsid)
 {
@@ -257,6 +317,9 @@ static struct gru_thread_state *gru_find_current_gts_nolock(struct gru_vma_data
 	return NULL;
 }
 
+/*
+ * Allocate a thread state structure.
+ */
 struct gru_thread_state *gru_alloc_gts(struct vm_area_struct *vma,
 		int cbr_au_count, int dsr_au_count,
 		unsigned char tlb_preload_count, int options, int tsid)
@@ -272,7 +335,7 @@ struct gru_thread_state *gru_alloc_gts(struct vm_area_struct *vma,
 		return ERR_PTR(-ENOMEM);
 
 	STAT(gts_alloc);
-	memset(gts, 0, sizeof(struct gru_thread_state)); 
+	memset(gts, 0, sizeof(struct gru_thread_state)); /* zero out header */
 	atomic_set(&gts->ts_refcnt, 1);
 	mutex_init(&gts->ts_ctxlock);
 	gts->ts_cbr_au_count = cbr_au_count;
@@ -303,6 +366,9 @@ err:
 	return ERR_CAST(gms);
 }
 
+/*
+ * Allocate a vma private data structure.
+ */
 struct gru_vma_data *gru_alloc_vma_data(struct vm_area_struct *vma, int tsid)
 {
 	struct gru_vma_data *vdata = NULL;
@@ -318,6 +384,9 @@ struct gru_vma_data *gru_alloc_vma_data(struct vm_area_struct *vma, int tsid)
 	return vdata;
 }
 
+/*
+ * Find the thread state structure for the current thread.
+ */
 struct gru_thread_state *gru_find_thread_state(struct vm_area_struct *vma,
 					int tsid)
 {
@@ -331,6 +400,10 @@ struct gru_thread_state *gru_find_thread_state(struct vm_area_struct *vma,
 	return gts;
 }
 
+/*
+ * Allocate a new thread state for a GSEG. Note that races may allow
+ * another thread to race to create a gts.
+ */
 struct gru_thread_state *gru_alloc_thread_state(struct vm_area_struct *vma,
 					int tsid)
 {
@@ -358,6 +431,9 @@ struct gru_thread_state *gru_alloc_thread_state(struct vm_area_struct *vma,
 	return gts;
 }
 
+/*
+ * Free the GRU context assigned to the thread state.
+ */
 static void gru_free_gru_context(struct gru_thread_state *gts)
 {
 	struct gru_state *gru;
@@ -379,6 +455,10 @@ static void gru_free_gru_context(struct gru_thread_state *gts)
 	STAT(free_context);
 }
 
+/*
+ * Prefetching cachelines help hardware performance.
+ * (Strictly a performance enhancement. Not functionally required).
+ */
 static void prefetch_data(void *p, int num, int stride)
 {
 	while (num-- > 0) {
@@ -433,7 +513,7 @@ static void gru_load_context_data(void *save, void *grubase, int ctxnum,
 			memset(cbe + i * GRU_HANDLE_STRIDE, 0,
 						GRU_CACHE_LINE_BYTES);
 		}
-		
+		/* Flush CBE to hide race in context restart */
 		mb();
 		gru_flush_cache(cbe + i * GRU_HANDLE_STRIDE);
 		cb += GRU_HANDLE_STRIDE;
@@ -457,10 +537,10 @@ static void gru_unload_context_data(void *save, void *grubase, int ctxnum,
 	cbe = grubase + GRU_CBE_BASE;
 	length = hweight64(dsrmap) * GRU_DSR_AU_BYTES;
 
-	
+	/* CBEs may not be coherent. Flush them from cache */
 	for_each_cbr_in_allocation_map(i, &cbrmap, scr)
 		gru_flush_cache(cbe + i * GRU_HANDLE_STRIDE);
-	mb();		
+	mb();		/* Let the CL flush complete */
 
 	gru_prefetch_context(gseg, cb, cbe, cbrmap, length);
 
@@ -504,6 +584,10 @@ void gru_unload_context(struct gru_thread_state *gts, int savestate)
 	gru_free_gru_context(gts);
 }
 
+/*
+ * Load a GRU context by copying it from the thread data structure in memory
+ * to the GRU.
+ */
 void gru_load_context(struct gru_thread_state *gts)
 {
 	struct gru_state *gru = gts->ts_gru;
@@ -534,7 +618,7 @@ void gru_load_context(struct gru_thread_state *gts)
 		cch->unmap_enable = 1;
 		cch->tfm_done_bit_enable = 1;
 		cch->cb_int_enable = 1;
-		cch->tlb_int_select = 0;	
+		cch->tlb_int_select = 0;	/* For now, ints go to cpu 0 */
 	} else {
 		cch->unmap_enable = 0;
 		cch->tfm_done_bit_enable = 0;
@@ -566,6 +650,11 @@ void gru_load_context(struct gru_thread_state *gts)
 		(gts->ts_user_options == GRU_OPT_MISS_FMM_INTR), gts->ts_tlb_int_select);
 }
 
+/*
+ * Update fields in an active CCH:
+ * 	- retarget interrupts on local blade
+ * 	- update sizeavail mask
+ */
 int gru_update_cch(struct gru_thread_state *gts)
 {
 	struct gru_context_configuration_handle *cch;
@@ -596,6 +685,13 @@ exit:
 	return ret;
 }
 
+/*
+ * Update CCH tlb interrupt select. Required when all the following is true:
+ * 	- task's GRU context is loaded into a GRU
+ * 	- task is using interrupt notification for TLB faults
+ * 	- task has migrated to a different cpu on the same blade where
+ * 	  it was previously running.
+ */
 static int gru_retarget_intr(struct gru_thread_state *gts)
 {
 	if (gts->ts_tlb_int_select < 0
@@ -607,6 +703,12 @@ static int gru_retarget_intr(struct gru_thread_state *gts)
 	return gru_update_cch(gts);
 }
 
+/*
+ * Check if a GRU context is allowed to use a specific chiplet. By default
+ * a context is assigned to any blade-local chiplet. However, users can
+ * override this.
+ * 	Returns 1 if assignment allowed, 0 otherwise
+ */
 static int gru_check_chiplet_assignment(struct gru_state *gru,
 					struct gru_thread_state *gts)
 {
@@ -622,10 +724,20 @@ static int gru_check_chiplet_assignment(struct gru_state *gru,
 		(chiplet_id < 0 || chiplet_id == gru->gs_chiplet_id);
 }
 
+/*
+ * Unload the gru context if it is not assigned to the correct blade or
+ * chiplet. Misassignment can occur if the process migrates to a different
+ * blade or if the user changes the selected blade/chiplet.
+ */
 void gru_check_context_placement(struct gru_thread_state *gts)
 {
 	struct gru_state *gru;
 
+	/*
+	 * If the current task is the context owner, verify that the
+	 * context is correctly placed. This test is skipped for non-owner
+	 * references. Pthread apps use non-owner references to the CBRs.
+	 */
 	gru = gts->ts_gru;
 	if (!gru || gts->ts_tgid_owner != current->tgid)
 		return;
@@ -702,6 +814,12 @@ void gru_steal_context(struct gru_thread_state *gts)
 				if (flag && gru == gru0 && ctxnum == ctxnum0)
 					break;
 				ngts = gru->gs_gts[ctxnum];
+				/*
+			 	* We are grabbing locks out of order, so trylock is
+			 	* needed. GTSs are usually not locked, so the odds of
+			 	* success are high. If trylock fails, try to steal a
+			 	* different GSEG.
+			 	*/
 				if (ngts && is_gts_stealable(ngts, blade))
 					break;
 				ngts = NULL;
@@ -733,6 +851,9 @@ void gru_steal_context(struct gru_thread_state *gts)
 		hweight64(gru->gs_dsr_map));
 }
 
+/*
+ * Assign a gru context.
+ */
 static int gru_assign_context_number(struct gru_state *gru)
 {
 	int ctxnum;
@@ -742,6 +863,9 @@ static int gru_assign_context_number(struct gru_state *gru)
 	return ctxnum;
 }
 
+/*
+ * Scan the GRUs on the local blade & assign a GRU context.
+ */
 struct gru_state *gru_assign_gru_context(struct gru_thread_state *gts)
 {
 	struct gru_state *gru, *grux;
@@ -795,6 +919,13 @@ again:
 	return gru;
 }
 
+/*
+ * gru_nopage
+ *
+ * Map the user's GRU segment
+ *
+ * 	Note: gru segments alway mmaped on GRU_GSEG_PAGESIZE boundaries.
+ */
 int gru_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct gru_thread_state *gts;
@@ -805,7 +936,7 @@ int gru_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 		vma, vaddr, GSEG_BASE(vaddr));
 	STAT(nopfn);
 
-	
+	/* The following check ensures vaddr is a valid address in the VMA */
 	gts = gru_find_thread_state(vma, TSID(vaddr, vma));
 	if (!gts)
 		return VM_FAULT_SIGBUS;
@@ -822,7 +953,7 @@ again:
 			preempt_enable();
 			mutex_unlock(&gts->ts_ctxlock);
 			set_current_state(TASK_INTERRUPTIBLE);
-			schedule_timeout(GRU_ASSIGN_DELAY);  
+			schedule_timeout(GRU_ASSIGN_DELAY);  /* true hack ZZZ */
 			if (gts->ts_steal_jiffies + GRU_STEAL_DELAY < jiffies)
 				gru_steal_context(gts);
 			goto again;

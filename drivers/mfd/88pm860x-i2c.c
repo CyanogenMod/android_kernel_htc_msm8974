@@ -98,10 +98,10 @@ static int read_device(struct i2c_client *i2c, int reg,
 
 	if (dest == NULL)
 		return -EINVAL;
-	msgbuf0[0] = (unsigned char)reg;	
+	msgbuf0[0] = (unsigned char)reg;	/* command */
 	msg[1].len = bytes;
 
-	
+	/* if data needs to read back, num should be 2 */
 	if (bytes > 0)
 		num = 2;
 	ret = adap->algo->master_xfer(adap, msg, num);
@@ -294,6 +294,13 @@ static int __devinit pm860x_probe(struct i2c_client *client,
 	chip->dev = &client->dev;
 	dev_set_drvdata(chip->dev, chip);
 
+	/*
+	 * Both client and companion client shares same platform driver.
+	 * Driver distinguishes them by pdata->companion_addr.
+	 * pdata->companion_addr is only assigned if companion chip exists.
+	 * At the same time, the companion_addr shouldn't equal to client
+	 * address.
+	 */
 	if (pdata->companion_addr && (pdata->companion_addr != client->addr)) {
 		chip->companion_addr = pdata->companion_addr;
 		chip->companion = i2c_new_dummy(chip->client->adapter,

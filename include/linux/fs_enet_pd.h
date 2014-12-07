@@ -104,22 +104,22 @@ struct fs_mii_bb_platform_info {
 	struct fs_mii_bit 	mdio_dir;
 	struct fs_mii_bit 	mdio_dat;
 	struct fs_mii_bit	mdc_dat;
-	int delay;	
-	int irq[32]; 	
+	int delay;	/* delay in us         */
+	int irq[32]; 	/* irqs per phy's */
 };
 
 struct fs_platform_info {
 
 	void(*init_ioports)(struct fs_platform_info *);
-	
-	int fs_no;		
-	char fs_type[4];	
+	/* device specific information */
+	int fs_no;		/* controller index            */
+	char fs_type[4];	/* controller type             */
 
-	u32 cp_page;		
-	u32 cp_block;		
-	u32 cp_command;		
+	u32 cp_page;		/* CPM page */
+	u32 cp_block;		/* CPM sblock */
+	u32 cp_command;		/* CPM page/sblock/mcn */
 
-	u32 clk_trx;		
+	u32 clk_trx;		/* some stuff for pins & mux configuration*/
 	u32 clk_rx;
 	u32 clk_tx;
 	u32 clk_route;
@@ -134,14 +134,14 @@ struct fs_platform_info {
 	struct device_node *phy_node;
 	const struct fs_mii_bus_info *bus_info;
 
-	int rx_ring, tx_ring;	
-	__u8 macaddr[6];	
-	int rx_copybreak;	
-	int use_napi;		
-	int napi_weight;	
+	int rx_ring, tx_ring;	/* number of buffers on rx     */
+	__u8 macaddr[6];	/* mac address                 */
+	int rx_copybreak;	/* limit we copy small frames  */
+	int use_napi;		/* use NAPI                    */
+	int napi_weight;	/* NAPI weight                 */
 
-	int use_rmii;		
-	int has_phy;            
+	int use_rmii;		/* use RMII mode 	       */
+	int has_phy;            /* if the network is phy container as well...*/
 };
 struct fs_mii_fec_platform_info {
 	u32 irq[32];

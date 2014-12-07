@@ -32,9 +32,9 @@ static int tx4939_rtc_cmd(struct tx4939_rtc_reg __iomem *rtcreg, int cmd)
 	int i = 0;
 
 	__raw_writel(cmd, &rtcreg->ctl);
-	
+	/* This might take 30us (next 32.768KHz clock) */
 	while (__raw_readl(&rtcreg->ctl) & TX4939_RTCCTL_BUSY) {
-		
+		/* timeout on approx. 100us (@ GBUS200MHz) */
 		if (i++ > 200 * 100)
 			return -EBUSY;
 		cpu_relax();

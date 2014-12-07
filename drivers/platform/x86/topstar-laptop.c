@@ -34,18 +34,23 @@ static const struct key_entry topstar_keymap[] = {
 	{ KE_KEY, 0x84, { KEY_VOLUMEDOWN } },
 	{ KE_KEY, 0x85, { KEY_MUTE } },
 	{ KE_KEY, 0x86, { KEY_SWITCHVIDEOMODE } },
-	{ KE_KEY, 0x87, { KEY_F13 } }, 
+	{ KE_KEY, 0x87, { KEY_F13 } }, /* touchpad enable/disable key */
 	{ KE_KEY, 0x88, { KEY_WLAN } },
 	{ KE_KEY, 0x8a, { KEY_WWW } },
 	{ KE_KEY, 0x8b, { KEY_MAIL } },
 	{ KE_KEY, 0x8c, { KEY_MEDIA } },
 
-	
-	{ KE_IGNORE, 0x82, }, 
+	/* Known non hotkey events don't handled or that we don't care yet */
+	{ KE_IGNORE, 0x82, }, /* backlight event */
 	{ KE_IGNORE, 0x8e, },
 	{ KE_IGNORE, 0x8f, },
 	{ KE_IGNORE, 0x90, },
 
+	/*
+	 * 'G key' generate two event codes, convert to only
+	 * one event/key code for now, consider replacing by
+	 * a switch (3G switch - SW_3G?)
+	 */
 	{ KE_KEY, 0x96, { KEY_F14 } },
 	{ KE_KEY, 0x97, { KEY_F14 } },
 
@@ -58,7 +63,7 @@ static void acpi_topstar_notify(struct acpi_device *device, u32 event)
 	bool *dup;
 	struct topstar_hkey *hkey = acpi_driver_data(device);
 
-	
+	/* 0x83 and 0x84 key events comes duplicated... */
 	if (event == 0x83 || event == 0x84) {
 		dup = &dup_evnt[event - 0x83];
 		if (*dup) {

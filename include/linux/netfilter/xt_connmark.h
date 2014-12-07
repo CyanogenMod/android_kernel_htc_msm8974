@@ -28,4 +28,4 @@ struct xt_connmark_mtinfo1 {
 	__u8 invert;
 };
 
-#endif 
+#endif /*_XT_CONNMARK_H*/

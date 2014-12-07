@@ -33,4 +33,4 @@ extern int ocfs2_init_acl(handle_t *, struct inode *, struct inode *,
 			  struct ocfs2_alloc_context *,
 			  struct ocfs2_alloc_context *);
 
-#endif 
+#endif /* OCFS2_ACL_H */

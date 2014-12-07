@@ -43,14 +43,16 @@
 #define CMDBUF_ALIGNMENT_SIZE   (0x100)
 #define CMDBUF_ALIGNMENT_MASK   (0x0ff)
 
+/* defines for VIA 3D registers */
 #define VIA_REG_STATUS          0x400
 #define VIA_REG_TRANSET         0x43C
 #define VIA_REG_TRANSPACE       0x440
 
-#define VIA_CMD_RGTR_BUSY       0x00000080	
-#define VIA_2D_ENG_BUSY         0x00000001	
-#define VIA_3D_ENG_BUSY         0x00000002	
-#define VIA_VR_QUEUE_BUSY       0x00020000	
+/* VIA_REG_STATUS(0x400): Engine Status */
+#define VIA_CMD_RGTR_BUSY       0x00000080	/* Command Regulator is busy */
+#define VIA_2D_ENG_BUSY         0x00000001	/* 2D Engine is busy */
+#define VIA_3D_ENG_BUSY         0x00000002	/* 3D Engine is busy */
+#define VIA_VR_QUEUE_BUSY       0x00020000	/* Virtual Queue is busy */
 
 #define SetReg2DAGP(nReg, nData) {				\
 	*((uint32_t *)(vb)) = ((nReg) >> 2) | HALCYON_HEADER1;	\
@@ -74,6 +76,9 @@ static void via_cmdbuf_rewind(drm_via_private_t *dev_priv);
 static int via_wait_idle(drm_via_private_t *dev_priv);
 static void via_pad_cache(drm_via_private_t *dev_priv, int qwords);
 
+/*
+ * Free space in command buffer.
+ */
 
 static uint32_t via_cmdbuf_space(drm_via_private_t *dev_priv)
 {
@@ -85,6 +90,9 @@ static uint32_t via_cmdbuf_space(drm_via_private_t *dev_priv)
 		(hw_addr - dev_priv->dma_low));
 }
 
+/*
+ * How much does the command regulator lag behind?
+ */
 
 static uint32_t via_cmdbuf_lag(drm_via_private_t *dev_priv)
 {
@@ -96,6 +104,9 @@ static uint32_t via_cmdbuf_lag(drm_via_private_t *dev_priv)
 		(dev_priv->dma_wrap + dev_priv->dma_low - hw_addr));
 }
 
+/*
+ * Check that the given size fits in the buffer, otherwise wait.
+ */
 
 static inline int
 via_cmdbuf_wait(drm_via_private_t *dev_priv, unsigned int size)
@@ -122,6 +133,12 @@ via_cmdbuf_wait(drm_via_private_t *dev_priv, unsigned int size)
 	return 0;
 }
 
+/*
+ * Checks whether buffer head has reach the end. Rewind the ring buffer
+ * when necessary.
+ *
+ * Returns virtual pointer to ring buffer.
+ */
 
 static inline uint32_t *via_check_dma(drm_via_private_t * dev_priv,
 				      unsigned int size)
@@ -260,6 +277,11 @@ static int via_dispatch_cmdbuffer(struct drm_device *dev, drm_via_cmdbuffer_t *c
 	if (DRM_COPY_FROM_USER(dev_priv->pci_buf, cmd->buf, cmd->size))
 		return -EFAULT;
 
+	/*
+	 * Running this function on AGP memory is dead slow. Therefore
+	 * we run it on a temporary cacheable system memory buffer and
+	 * copy it to AGP memory when ready.
+	 */
 
 	if ((ret =
 	     via_verify_command_stream((uint32_t *) dev_priv->pci_buf,
@@ -275,6 +297,10 @@ static int via_dispatch_cmdbuffer(struct drm_device *dev, drm_via_cmdbuffer_t *c
 
 	dev_priv->dma_low += cmd->size;
 
+	/*
+	 * Small submissions somehow stalls the CPU. (AGP cache effects?)
+	 * pad to greater size.
+	 */
 
 	if (cmd->size < 0x100)
 		via_pad_cache(dev_priv, (0x100 - cmd->size) >> 3);
@@ -357,11 +383,21 @@ static inline uint32_t *via_align_buffer(drm_via_private_t *dev_priv,
 	return vb;
 }
 
+/*
+ * This function is used internally by ring buffer management code.
+ *
+ * Returns virtual pointer to ring buffer.
+ */
 static inline uint32_t *via_get_dma(drm_via_private_t *dev_priv)
 {
 	return (uint32_t *) (dev_priv->dma_ptr + dev_priv->dma_low);
 }
 
+/*
+ * Hooks a segment of data into the tail of the ring-buffer by
+ * modifying the pause address stored in the buffer itself. If
+ * the regulator has already paused, restart it.
+ */
 static int via_hook_segment(drm_via_private_t *dev_priv,
 			    uint32_t pause_addr_hi, uint32_t pause_addr_lo,
 			    int no_pci_fire)
@@ -385,6 +421,12 @@ static int via_hook_segment(drm_via_private_t *dev_priv,
 
 	dev_priv->last_pause_ptr = via_get_dma(dev_priv) - 1;
 
+	/*
+	 * If there is a possibility that the command reader will
+	 * miss the new pause address and pause on the old one,
+	 * In that case we need to program the new start address
+	 * using PCI.
+	 */
 
 	diff = (uint32_t) (ptr - reader) - dev_priv->dma_diff;
 	count = 10000000;
@@ -407,6 +449,11 @@ static int via_hook_segment(drm_via_private_t *dev_priv,
 				  "0x%08x, 0x%08x 0x%08x\n",
 				  ptr, reader, dev_priv->dma_diff);
 		} else if (diff == 0) {
+			/*
+			 * There is a concern that these writes may stall the PCI bus
+			 * if the GPU is not idle. However, idling the GPU first
+			 * doesn't make a difference.
+			 */
 
 			VIA_WRITE(VIA_REG_TRANSET, (HC_ParaType_PreCR << 16));
 			VIA_WRITE(VIA_REG_TRANSPACE, pause_addr_hi);
@@ -510,6 +557,12 @@ static void via_cmdbuf_start(drm_via_private_t *dev_priv)
 	ptr = ((volatile char *)dev_priv->last_pause_ptr - dev_priv->dma_ptr) +
 	    dev_priv->dma_offset + (uint32_t) dev_priv->agpAddr + 4;
 
+	/*
+	 * This is the difference between where we tell the
+	 * command reader to pause and where it actually pauses.
+	 * This differs between hw implementation so we need to
+	 * detect it.
+	 */
 
 	dev_priv->dma_diff = ptr - reader;
 }
@@ -546,6 +599,9 @@ static void via_cmdbuf_jump(drm_via_private_t *dev_priv)
 
 	dev_priv->dma_wrap = dev_priv->dma_low;
 
+	/*
+	 * Wrap command buffer to the beginning.
+	 */
 
 	dev_priv->dma_low = 0;
 	if (via_cmdbuf_wait(dev_priv, CMDBUF_ALIGNMENT_SIZE) != 0)
@@ -563,6 +619,14 @@ static void via_cmdbuf_jump(drm_via_private_t *dev_priv)
 	*last_pause_ptr = pause_addr_lo;
 	dma_low_save1 = dev_priv->dma_low;
 
+	/*
+	 * Now, set a trap that will pause the regulator if it tries to rerun the old
+	 * command buffer. (Which may happen if via_hook_segment detecs a command regulator pause
+	 * and reissues the jump command over PCI, while the regulator has already taken the jump
+	 * and actually paused at the current buffer end).
+	 * There appears to be no other way to detect this condition, since the hw_addr_pointer
+	 * does not seem to get updated immediately when a jump occurs.
+	 */
 
 	last_pause_ptr =
 		via_align_cmd(dev_priv, HC_HAGPBpID_PAUSE, 0, &pause_addr_hi,
@@ -603,6 +667,9 @@ static void via_cmdbuf_reset(drm_via_private_t *dev_priv)
 	via_wait_idle(dev_priv);
 }
 
+/*
+ * User interface to the space and lag functions.
+ */
 
 static int via_cmdbuf_size(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {

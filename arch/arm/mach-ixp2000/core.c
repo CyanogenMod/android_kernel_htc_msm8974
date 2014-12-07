@@ -44,6 +44,9 @@
 static DEFINE_SPINLOCK(ixp2000_slowport_lock);
 static unsigned long ixp2000_slowport_irq_flags;
 
+/*************************************************************************
+ * Slowport access routines
+ *************************************************************************/
 void ixp2000_acquire_slowport(struct slowport_cfg *new_cfg, struct slowport_cfg *old_cfg)
 {
 	spin_lock_irqsave(&ixp2000_slowport_lock, ixp2000_slowport_irq_flags);
@@ -73,6 +76,9 @@ void ixp2000_release_slowport(struct slowport_cfg *old_cfg)
 					ixp2000_slowport_irq_flags);
 }
 
+/*************************************************************************
+ * Chip specific mappings shared by all IXP2000 systems
+ *************************************************************************/
 static struct map_desc ixp2000_io_desc[] __initdata = {
 	{
 		.virtual	= IXP2000_CAP_VIRT_BASE,
@@ -131,11 +137,14 @@ void __init ixp2000_map_io(void)
 {
 	iotable_init(ixp2000_io_desc, ARRAY_SIZE(ixp2000_io_desc));
 
-	
+	/* Set slowport to 8-bit mode.  */
 	ixp2000_reg_wrb(IXP2000_SLOWPORT_FRM, 1);
 }
 
 
+/*************************************************************************
+ * Serial port support for IXP2000
+ *************************************************************************/
 static struct plat_serial8250_port ixp2000_serial_port[] = {
 	{
 		.mapbase	= IXP2000_UART_PHYS_BASE,
@@ -171,6 +180,9 @@ void __init ixp2000_uart_init(void)
 }
 
 
+/*************************************************************************
+ * Timer-tick functions for IXP2000
+ *************************************************************************/
 static unsigned ticks_per_jiffy;
 static unsigned ticks_per_usec;
 static unsigned next_jiffy_time;
@@ -187,7 +199,7 @@ unsigned long ixp2000_gettimeoffset (void)
 
 static irqreturn_t ixp2000_timer_interrupt(int irq, void *dev_id)
 {
-	
+	/* clear timer 1 */
 	ixp2000_reg_wrb(IXP2000_T1_CLR, 1);
 
 	while ((signed long)(next_jiffy_time - *missing_jiffy_timer_csr)
@@ -210,10 +222,21 @@ void __init ixp2000_init_time(unsigned long tick_rate)
 	ticks_per_jiffy = (tick_rate + HZ/2) / HZ;
 	ticks_per_usec = tick_rate / 1000000;
 
+	/*
+	 * We use timer 1 as our timer interrupt.
+	 */
 	ixp2000_reg_write(IXP2000_T1_CLR, 0);
 	ixp2000_reg_write(IXP2000_T1_CLD, ticks_per_jiffy - 1);
 	ixp2000_reg_write(IXP2000_T1_CTL, (1 << 7));
 
+	/*
+	 * We use a second timer as a monotonic counter for tracking
+	 * missed jiffies.  The IXP2000 has four timers, but if we're
+	 * on an A-step IXP2800, timer 2 and 3 don't work, so on those
+	 * chips we use timer 4.  Timer 4 is the only timer that can
+	 * be used for the watchdog, so we use timer 2 if we're on a
+	 * non-buggy chip.
+	 */
 	if ((*IXP2000_PRODUCT_ID & 0x001ffef0) == 0x00000000) {
 		printk(KERN_INFO "Enabling IXP2800 erratum #25 workaround\n");
 
@@ -229,10 +252,13 @@ void __init ixp2000_init_time(unsigned long tick_rate)
 	}
  	next_jiffy_time = 0xffffffff;
 
-	
+	/* register for interrupt */
 	setup_irq(IRQ_IXP2000_TIMER1, &ixp2000_timer_irq);
 }
 
+/*************************************************************************
+ * GPIO helpers
+ *************************************************************************/
 static unsigned long GPIO_IRQ_falling_edge;
 static unsigned long GPIO_IRQ_rising_edge;
 static unsigned long GPIO_IRQ_level_low;
@@ -252,7 +278,7 @@ void gpio_line_config(int line, int direction)
 
 	local_irq_save(flags);
 	if (direction == GPIO_OUT) {
-		
+		/* if it's an output, it ain't an interrupt anymore */
 		GPIO_IRQ_falling_edge &= ~(1 << line);
 		GPIO_IRQ_rising_edge &= ~(1 << line);
 		GPIO_IRQ_level_low &= ~(1 << line);
@@ -268,6 +294,9 @@ void gpio_line_config(int line, int direction)
 EXPORT_SYMBOL(gpio_line_config);
 
 
+/*************************************************************************
+ * IRQ handling IXP2000
+ *************************************************************************/
 static void ixp2000_GPIO_irq_handler(unsigned int irq, struct irq_desc *desc)
 {                               
 	int i;
@@ -284,8 +313,14 @@ static int ixp2000_GPIO_irq_type(struct irq_data *d, unsigned int type)
 {
 	int line = d->irq - IRQ_IXP2000_GPIO0;
 
+	/*
+	 * First, configure this GPIO line as an input.
+	 */
 	ixp2000_reg_write(IXP2000_GPIO_PDCR, 1 << line);
 
+	/*
+	 * Then, set the proper trigger type.
+	 */
 	if (type & IRQ_TYPE_EDGE_FALLING)
 		GPIO_IRQ_falling_edge |= 1 << line;
 	else
@@ -357,6 +392,9 @@ static void ixp2000_pci_irq_unmask(struct irq_data *d)
 		ixp2000_reg_write(IXP2000_PCI_XSCALE_INT_ENABLE, (temp | (1 << 27)));
 }
 
+/*
+ * Error interrupts. These are used extensively by the microengine drivers
+ */
 static void ixp2000_err_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
 	int i;
@@ -413,19 +451,29 @@ void __init ixp2000_init_irq(void)
 {
 	int irq;
 
+	/*
+	 * Mask all sources
+	 */
 	ixp2000_reg_write(IXP2000_IRQ_ENABLE_CLR, 0xffffffff);
 	ixp2000_reg_write(IXP2000_FIQ_ENABLE_CLR, 0xffffffff);
 
-	
+	/* clear all GPIO edge/level detects */
 	ixp2000_reg_write(IXP2000_GPIO_REDR, 0);
 	ixp2000_reg_write(IXP2000_GPIO_FEDR, 0);
 	ixp2000_reg_write(IXP2000_GPIO_LSHR, 0);
 	ixp2000_reg_write(IXP2000_GPIO_LSLR, 0);
 	ixp2000_reg_write(IXP2000_GPIO_INCR, -1);
 
-	
+	/* clear PCI interrupt sources */
 	ixp2000_reg_wrb(IXP2000_PCI_XSCALE_INT_ENABLE, 0);
 
+	/*
+	 * Certain bits in the IRQ status register of the 
+	 * IXP2000 are reserved. Instead of trying to map
+	 * things non 1:1 from bit position to IRQ number,
+	 * we mark the reserved IRQs as invalid. This makes
+	 * our mask/unmask code much simpler.
+	 */
 	for (irq = IRQ_IXP2000_SOFT_INT; irq <= IRQ_IXP2000_THDB3; irq++) {
 		if ((1 << irq) & IXP2000_VALID_IRQ_MASK) {
 			irq_set_chip_and_handler(irq, &ixp2000_irq_chip,
@@ -453,6 +501,11 @@ void __init ixp2000_init_irq(void)
 	}
 	irq_set_chained_handler(IRQ_IXP2000_GPIO, ixp2000_GPIO_irq_handler);
 
+	/*
+	 * Enable PCI irqs.  The actual PCI[AB] decoding is done in
+	 * entry-macro.S, so we don't need a chained handler for the
+	 * PCI interrupt source.
+	 */
 	ixp2000_reg_write(IXP2000_IRQ_ENABLE_SET, (1 << IRQ_IXP2000_PCI));
 	for (irq = IRQ_IXP2000_PCIA; irq <= IRQ_IXP2000_PCIB; irq++) {
 		irq_set_chip_and_handler(irq, &ixp2000_pci_irq_chip,

@@ -36,6 +36,7 @@
 #include <media/v4l2-chip-ident.h>
 
 
+/* insmod options */
 static unsigned int debug;
 static unsigned int xtal;
 static unsigned int mmbs;
@@ -58,6 +59,7 @@ MODULE_AUTHOR("Hans J. Koch <koch@hjk-az.de>");
 
 MODULE_LICENSE("GPL");
 
+/* ---------------------------------------------------------------------- */
 
 #define UNSET       (-1U)
 #define PREFIX      "saa6588: "
@@ -83,52 +85,71 @@ static inline struct saa6588 *to_saa6588(struct v4l2_subdev *sd)
 	return container_of(sd, struct saa6588, sd);
 }
 
+/* ---------------------------------------------------------------------- */
 
+/*
+ * SAA6588 defines
+ */
 
+/* Initialization and mode control byte (0w) */
 
+/* bit 0+1 (DAC0/DAC1) */
 #define cModeStandard           0x00
 #define cModeFastPI             0x01
 #define cModeReducedRequest     0x02
 #define cModeInvalid            0x03
 
+/* bit 2 (RBDS) */
 #define cProcessingModeRDS      0x00
 #define cProcessingModeRBDS     0x04
 
+/* bit 3+4 (SYM0/SYM1) */
 #define cErrCorrectionNone      0x00
 #define cErrCorrection2Bits     0x08
 #define cErrCorrection5Bits     0x10
 #define cErrCorrectionNoneRBDS  0x18
 
+/* bit 5 (NWSY) */
 #define cSyncNormal             0x00
 #define cSyncRestart            0x20
 
+/* bit 6 (TSQD) */
 #define cSigQualityDetectOFF    0x00
 #define cSigQualityDetectON     0x40
 
+/* bit 7 (SQCM) */
 #define cSigQualityTriggered    0x00
 #define cSigQualityContinous    0x80
 
+/* Pause level and flywheel control byte (1w) */
 
+/* bits 0..5 (FEB0..FEB5) */
 #define cFlywheelMaxBlocksMask  0x3F
 #define cFlywheelDefault        0x20
 
+/* bits 6+7 (PL0/PL1) */
 #define cPauseLevel_11mV	0x00
 #define cPauseLevel_17mV        0x40
 #define cPauseLevel_27mV        0x80
 #define cPauseLevel_43mV        0xC0
 
+/* Pause time/oscillator frequency/quality detector control byte (1w) */
 
+/* bits 0..4 (SQS0..SQS4) */
 #define cQualityDetectSensMask  0x1F
 #define cQualityDetectDefault   0x0F
 
+/* bit 5 (SOSC) */
 #define cSelectOscFreqOFF	0x00
 #define cSelectOscFreqON	0x20
 
+/* bit 6+7 (PTF0/PTF1) */
 #define cOscFreq_4332kHz	0x00
 #define cOscFreq_8664kHz	0x40
 #define cOscFreq_12996kHz	0x80
 #define cOscFreq_17328kHz	0xC0
 
+/* ---------------------------------------------------------------------- */
 
 static int block_to_user_buf(struct saa6588 *s, unsigned char __user *user_buf)
 {
@@ -239,6 +260,8 @@ static void saa6588_i2c_poll(struct saa6588 *s)
 	unsigned char blocknum;
 	unsigned char tmp;
 
+	/* Although we only need 3 bytes, we have to read at least 6.
+	   SAA6588 returns garbage otherwise. */
 	if (6 != i2c_master_recv(client, &tmpbuf[0], 6)) {
 		if (debug > 1)
 			dprintk(PREFIX "read error!\n");
@@ -257,23 +280,42 @@ static void saa6588_i2c_poll(struct saa6588 *s)
 
 	s->last_blocknum = blocknum;
 
+	/*
+	   Byte order according to v4l2 specification:
+
+	   Byte 0: Least Significant Byte of RDS Block
+	   Byte 1: Most Significant Byte of RDS Block
+	   Byte 2 Bit 7: Error bit. Indicates that an uncorrectable error
+	   occurred during reception of this block.
+	   Bit 6: Corrected bit. Indicates that an error was
+	   corrected for this data block.
+	   Bits 5-3: Same as bits 0-2.
+	   Bits 2-0: Block number.
+
+	   SAA6588 byte order is Status-MSB-LSB, so we have to swap the
+	   first and the last of the 3 bytes block.
+	 */
 
 	tmp = tmpbuf[2];
 	tmpbuf[2] = tmpbuf[0];
 	tmpbuf[0] = tmp;
 
-	
+	/* Map 'Invalid block E' to 'Invalid Block' */
 	if (blocknum == 6)
 		blocknum = V4L2_RDS_BLOCK_INVALID;
+	/* And if are not in mmbs mode, then 'Block E' is also mapped
+	   to 'Invalid Block'. As far as I can tell MMBS is discontinued,
+	   and if there is ever a need to support E blocks, then please
+	   contact the linux-media mailinglist. */
 	else if (!mmbs && blocknum == 5)
 		blocknum = V4L2_RDS_BLOCK_INVALID;
 	tmp = blocknum;
-	tmp |= blocknum << 3;	
+	tmp |= blocknum << 3;	/* Received offset == Offset Name (OK ?) */
 	if ((tmpbuf[2] & 0x03) == 0x03)
-		tmp |= V4L2_RDS_BLOCK_ERROR;	 
+		tmp |= V4L2_RDS_BLOCK_ERROR;	 /* uncorrectable error */
 	else if ((tmpbuf[2] & 0x03) != 0x00)
-		tmp |= V4L2_RDS_BLOCK_CORRECTED; 
-	tmpbuf[2] = tmp;	
+		tmp |= V4L2_RDS_BLOCK_CORRECTED; /* corrected error */
+	tmpbuf[2] = tmp;	/* Is this enough ? Should we also check other bits ? */
 
 	spin_lock_irqsave(&s->lock, flags);
 	block_to_buf(s, tmpbuf);
@@ -314,7 +356,7 @@ static void saa6588_configure(struct saa6588 *s)
 	case 3:
 		buf[1] |= cPauseLevel_43mV;
 		break;
-	default:		
+	default:		/* nothing */
 		break;
 	}
 
@@ -333,7 +375,7 @@ static void saa6588_configure(struct saa6588 *s)
 	case 3:
 		buf[2] |= cOscFreq_17328kHz;
 		break;
-	default:		
+	default:		/* nothing */
 		break;
 	}
 
@@ -345,6 +387,7 @@ static void saa6588_configure(struct saa6588 *s)
 		printk(PREFIX "i2c i/o error: rc == %d (should be 3)\n", rc);
 }
 
+/* ---------------------------------------------------------------------- */
 
 static long saa6588_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 {
@@ -352,21 +395,21 @@ static long saa6588_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 	struct saa6588_command *a = arg;
 
 	switch (cmd) {
-		
+		/* --- open() for /dev/radio --- */
 	case SAA6588_CMD_OPEN:
-		a->result = 0;	
+		a->result = 0;	/* return error if chip doesn't work ??? */
 		break;
-		
+		/* --- close() for /dev/radio --- */
 	case SAA6588_CMD_CLOSE:
 		s->data_available_for_read = 1;
 		wake_up_interruptible(&s->read_queue);
 		a->result = 0;
 		break;
-		
+		/* --- read() for /dev/radio --- */
 	case SAA6588_CMD_READ:
 		read_from_buf(s, a);
 		break;
-		
+		/* --- poll() for /dev/radio --- */
 	case SAA6588_CMD_POLL:
 		a->result = 0;
 		if (s->data_available_for_read) {
@@ -376,7 +419,7 @@ static long saa6588_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 		break;
 
 	default:
-		
+		/* nothing */
 		return -ENOIOCTLCMD;
 	}
 	return 0;
@@ -407,6 +450,7 @@ static int saa6588_g_chip_ident(struct v4l2_subdev *sd, struct v4l2_dbg_chip_ide
 	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_SAA6588, 0);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops saa6588_core_ops = {
 	.g_chip_ident = saa6588_g_chip_ident,
@@ -423,6 +467,7 @@ static const struct v4l2_subdev_ops saa6588_ops = {
 	.tuner = &saa6588_tuner_ops,
 };
 
+/* ---------------------------------------------------------------------- */
 
 static int saa6588_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
@@ -456,7 +501,7 @@ static int saa6588_probe(struct i2c_client *client,
 
 	saa6588_configure(s);
 
-	
+	/* start polling via eventd */
 	INIT_DELAYED_WORK(&s->work, saa6588_work);
 	schedule_delayed_work(&s->work, 0);
 	return 0;
@@ -476,6 +521,7 @@ static int saa6588_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id saa6588_id[] = {
 	{ "saa6588", 0 },

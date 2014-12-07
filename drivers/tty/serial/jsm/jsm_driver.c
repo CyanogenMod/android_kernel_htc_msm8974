@@ -90,7 +90,7 @@ static int __devinit jsm_probe_one(struct pci_dev *pdev, const struct pci_device
 		goto out_release_regions;
 	}
 
-	
+	/* store the info for the board we've found */
 	brd->boardnum = adapter_count++;
 	brd->pci_dev = pdev;
 	if (pdev->device == PCIE_DEVICE_ID_NEO_4_IBM)
@@ -102,7 +102,7 @@ static int __devinit jsm_probe_one(struct pci_dev *pdev, const struct pci_device
 
 	spin_lock_init(&brd->bd_intr_lock);
 
-	
+	/* store which revision we have */
 	brd->rev = pdev->revision;
 
 	brd->irq = pdev->irq;
@@ -110,7 +110,7 @@ static int __devinit jsm_probe_one(struct pci_dev *pdev, const struct pci_device
 	jsm_printk(INIT, INFO, &brd->pci_dev,
 		"jsm_found_board - NEO adapter\n");
 
-	
+	/* get the PCI Base Address Registers */
 	brd->membase	= pci_resource_start(pdev, 0);
 	brd->membase_end = pci_resource_end(pdev, 0);
 
@@ -119,7 +119,7 @@ static int __devinit jsm_probe_one(struct pci_dev *pdev, const struct pci_device
 	else
 		brd->membase &= ~15;
 
-	
+	/* Assign the board_ops struct */
 	brd->bd_ops = &jsm_neo_ops;
 
 	brd->bd_uart_offset = 0x200;
@@ -150,13 +150,13 @@ static int __devinit jsm_probe_one(struct pci_dev *pdev, const struct pci_device
 
 	rc = jsm_uart_port_init(brd);
 	if (rc < 0) {
-		
+		/* XXX: leaking all resources from jsm_tty_init here! */
 		dev_err(&pdev->dev, "Can't init uart port (%d)\n", rc);
 		rc = -ENXIO;
 		goto out_free_irq;
 	}
 
-	
+	/* Log the information about the board */
 	dev_info(&pdev->dev, "board %d: Digi Neo (rev %d), irq %d\n",
 			adapter_count, brd->rev, brd->irq);
 
@@ -189,7 +189,7 @@ static void __devexit jsm_remove_one(struct pci_dev *pdev)
 	free_irq(brd->irq, brd);
 	iounmap(brd->re_map_membase);
 
-	
+	/* Free all allocated channels structs */
 	for (i = 0; i < brd->maxports; i++) {
 		if (brd->channels[i]) {
 			kfree(brd->channels[i]->ch_rqueue);

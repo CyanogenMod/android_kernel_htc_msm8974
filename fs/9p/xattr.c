@@ -38,7 +38,7 @@ ssize_t v9fs_fid_xattr_get(struct p9_fid *fid, const char *name,
 		goto error;
 	}
 	if (!buffer_size) {
-		
+		/* request to get the attr_size */
 		retval = attr_size;
 		goto error;
 	}
@@ -55,14 +55,14 @@ ssize_t v9fs_fid_xattr_get(struct p9_fid *fid, const char *name,
 		read_count = p9_client_read(attr_fid, ((char *)buffer)+offset,
 					NULL, offset, read_count);
 		if (read_count < 0) {
-			
+			/* error in xattr read */
 			retval = read_count;
 			goto error;
 		}
 		offset += read_count;
 		attr_size -= read_count;
 	}
-	
+	/* Total read xattr bytes */
 	retval = offset;
 error:
 	if (attr_fid)
@@ -72,6 +72,16 @@ error:
 }
 
 
+/*
+ * v9fs_xattr_get()
+ *
+ * Copy an extended attribute into the buffer
+ * provided, or compute the buffer size required.
+ * Buffer is NULL to compute the size of the buffer required.
+ *
+ * Returns a negative error number on failure, or the number of bytes
+ * used / required on success.
+ */
 ssize_t v9fs_xattr_get(struct dentry *dentry, const char *name,
 		       void *buffer, size_t buffer_size)
 {
@@ -86,6 +96,18 @@ ssize_t v9fs_xattr_get(struct dentry *dentry, const char *name,
 	return v9fs_fid_xattr_get(fid, name, buffer, buffer_size);
 }
 
+/*
+ * v9fs_xattr_set()
+ *
+ * Create, replace or remove an extended attribute for this inode. Buffer
+ * is NULL to remove an existing extended attribute, and non-NULL to
+ * either replace an existing extended attribute, or create a new extended
+ * attribute. The flags XATTR_REPLACE and XATTR_CREATE
+ * specify that an extended attribute must exist and must not exist
+ * previous to the call, respectively.
+ *
+ * Returns 0, or a negative error number on failure.
+ */
 int v9fs_xattr_set(struct dentry *dentry, const char *name,
 		   const void *value, size_t value_len, int flags)
 {
@@ -102,6 +124,9 @@ int v9fs_xattr_set(struct dentry *dentry, const char *name,
 		fid = NULL;
 		goto error;
 	}
+	/*
+	 * On success fid points to xattr
+	 */
 	retval = p9_client_xattrcreate(fid, name, value_len, flags);
 	if (retval < 0) {
 		p9_debug(P9_DEBUG_VFS, "p9_client_xattrcreate failed %d\n",
@@ -117,14 +142,14 @@ int v9fs_xattr_set(struct dentry *dentry, const char *name,
 		write_count = p9_client_write(fid, ((char *)value)+offset,
 					NULL, offset, write_count);
 		if (write_count < 0) {
-			
+			/* error in xattr write */
 			retval = write_count;
 			goto error;
 		}
 		offset += write_count;
 		value_len -= write_count;
 	}
-	
+	/* Total read xattr bytes */
 	retval = offset;
 error:
 	if (fid)

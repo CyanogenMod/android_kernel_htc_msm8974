@@ -16,6 +16,7 @@
 #include <linux/platform_device.h>
 #include <linux/completion.h>
 
+/* Version Information */
 #define DRIVER_AUTHOR "Tilman Schmidt"
 #define DRIVER_DESC "Serial Driver for Gigaset 307x using Siemens M101"
 
@@ -24,6 +25,7 @@
 #define GIGASET_MODULENAME "ser_gigaset"
 #define GIGASET_DEVNAME    "ttyGS"
 
+/* length limit according to Siemens 3070usb-protokoll.doc ch. 2.1 */
 #define IF_WRITEBUF 264
 
 MODULE_AUTHOR(DRIVER_AUTHOR);
@@ -55,10 +57,13 @@ static struct platform_driver device_driver = {
 
 static void flush_send_queue(struct cardstate *);
 
+/* transmit data from current open skb
+ * result: number of bytes sent or error code < 0
+ */
 static int write_modem(struct cardstate *cs)
 {
 	struct tty_struct *tty = cs->hw.ser->tty;
-	struct bc_state *bcs = &cs->bcs[0];	
+	struct bc_state *bcs = &cs->bcs[0];	/* only one channel */
 	struct sk_buff *skb = bcs->tx_skb;
 	int sent = -EOPNOTSUPP;
 
@@ -76,13 +81,13 @@ static int write_modem(struct cardstate *cs)
 		sent = tty->ops->write(tty, skb->data, skb->len);
 	gig_dbg(DEBUG_OUTPUT, "write_modem: sent %d", sent);
 	if (sent < 0) {
-		
+		/* error */
 		flush_send_queue(cs);
 		return sent;
 	}
 	skb_pull(skb, sent);
 	if (!skb->len) {
-		
+		/* skb sent completely */
 		gigaset_skb_sent(bcs, skb);
 
 		gig_dbg(DEBUG_INTR, "kfree skb (Adr: %lx)!",
@@ -93,6 +98,10 @@ static int write_modem(struct cardstate *cs)
 	return sent;
 }
 
+/*
+ * transmit first queued command buffer
+ * result: number of bytes sent or error code < 0
+ */
 static int send_cb(struct cardstate *cs)
 {
 	struct tty_struct *tty = cs->hw.ser->tty;
@@ -105,13 +114,13 @@ static int send_cb(struct cardstate *cs)
 
 	cb = cs->cmdbuf;
 	if (!cb)
-		return 0;	
+		return 0;	/* nothing to do */
 
 	if (cb->len) {
 		set_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 		sent = tty->ops->write(tty, cb->buf + cb->offset, cb->len);
 		if (sent < 0) {
-			
+			/* error */
 			gig_dbg(DEBUG_OUTPUT, "send_cb: write error %d", sent);
 			flush_send_queue(cs);
 			return sent;
@@ -143,6 +152,12 @@ static int send_cb(struct cardstate *cs)
 	return sent;
 }
 
+/*
+ * send queue tasklet
+ * If there is already a skb opened, put data to the transfer buffer
+ * by calling "write_modem".
+ * Otherwise take a new skb out of the queue.
+ */
 static void gigaset_modem_fill(unsigned long data)
 {
 	struct cardstate *cs = (struct cardstate *) data;
@@ -160,17 +175,17 @@ static void gigaset_modem_fill(unsigned long data)
 		return;
 	}
 	if (!bcs->tx_skb) {
-		
+		/* no skb is being sent; send command if any */
 		sent = send_cb(cs);
 		gig_dbg(DEBUG_OUTPUT, "%s: send_cb -> %d", __func__, sent);
 		if (sent)
-			
+			/* something sent or error */
 			return;
 
-		
+		/* no command to send; get skb */
 		nextskb = skb_dequeue(&bcs->squeue);
 		if (!nextskb)
-			
+			/* no skb either, nothing to do */
 			return;
 		bcs->tx_skb = nextskb;
 
@@ -178,19 +193,22 @@ static void gigaset_modem_fill(unsigned long data)
 			(unsigned long) bcs->tx_skb);
 	}
 
-	
+	/* send skb */
 	gig_dbg(DEBUG_OUTPUT, "%s: tx_skb", __func__);
 	if (write_modem(cs) < 0)
 		gig_dbg(DEBUG_OUTPUT, "%s: write_modem failed", __func__);
 }
 
+/*
+ * throw away all data queued for sending
+ */
 static void flush_send_queue(struct cardstate *cs)
 {
 	struct sk_buff *skb;
 	struct cmdbuf_t *cb;
 	unsigned long flags;
 
-	
+	/* command queue */
 	spin_lock_irqsave(&cs->cmdlock, flags);
 	while ((cb = cs->cmdbuf) != NULL) {
 		cs->cmdbuf = cb->next;
@@ -202,7 +220,7 @@ static void flush_send_queue(struct cardstate *cs)
 	cs->cmdbytes = cs->curlen = 0;
 	spin_unlock_irqrestore(&cs->cmdlock, flags);
 
-	
+	/* data queue */
 	if (cs->bcs->tx_skb)
 		dev_kfree_skb_any(cs->bcs->tx_skb);
 	while ((skb = skb_dequeue(&cs->bcs->squeue)) != NULL)
@@ -210,7 +228,19 @@ static void flush_send_queue(struct cardstate *cs)
 }
 
 
+/* Gigaset Driver Interface */
+/* ======================== */
 
+/*
+ * queue an AT command string for transmission to the Gigaset device
+ * parameters:
+ *	cs		controller state structure
+ *	buf		buffer containing the string to send
+ *	len		number of characters to send
+ *	wake_tasklet	tasklet to run when transmission is complete, or NULL
+ * return value:
+ *	number of bytes queued, or error code < 0
+ */
 static int gigaset_write_cmd(struct cardstate *cs, struct cmdbuf_t *cb)
 {
 	unsigned long flags;
@@ -254,49 +284,88 @@ static int gigaset_write_room(struct cardstate *cs)
 	return bytes < IF_WRITEBUF ? IF_WRITEBUF - bytes : 0;
 }
 
+/*
+ * tty_driver.chars_in_buffer interface routine
+ * return number of characters waiting to be sent
+ * parameter:
+ *	controller state structure
+ * return value:
+ *	number of characters
+ */
 static int gigaset_chars_in_buffer(struct cardstate *cs)
 {
 	return cs->cmdbytes;
 }
 
+/*
+ * implementation of ioctl(GIGASET_BRKCHARS)
+ * parameter:
+ *	controller state structure
+ * return value:
+ *	-EINVAL (unimplemented function)
+ */
 static int gigaset_brkchars(struct cardstate *cs, const unsigned char buf[6])
 {
-	
+	/* not implemented */
 	return -EINVAL;
 }
 
+/*
+ * Open B channel
+ * Called by "do_action" in ev-layer.c
+ */
 static int gigaset_init_bchannel(struct bc_state *bcs)
 {
-	
+	/* nothing to do for M10x */
 	gigaset_bchannel_up(bcs);
 	return 0;
 }
 
+/*
+ * Close B channel
+ * Called by "do_action" in ev-layer.c
+ */
 static int gigaset_close_bchannel(struct bc_state *bcs)
 {
-	
+	/* nothing to do for M10x */
 	gigaset_bchannel_down(bcs);
 	return 0;
 }
 
+/*
+ * Set up B channel structure
+ * This is called by "gigaset_initcs" in common.c
+ */
 static int gigaset_initbcshw(struct bc_state *bcs)
 {
-	
+	/* unused */
 	bcs->hw.ser = NULL;
 	return 1;
 }
 
+/*
+ * Free B channel structure
+ * Called by "gigaset_freebcs" in common.c
+ */
 static int gigaset_freebcshw(struct bc_state *bcs)
 {
-	
+	/* unused */
 	return 1;
 }
 
+/*
+ * Reinitialize B channel structure
+ * This is called by "bcs_reinit" in common.c
+ */
 static void gigaset_reinitbcshw(struct bc_state *bcs)
 {
-	
+	/* nothing to do for M10x */
 }
 
+/*
+ * Free hardware specific device data
+ * This will be called by "gigaset_freecs" in common.c
+ */
 static void gigaset_freecshw(struct cardstate *cs)
 {
 	tasklet_kill(&cs->write_tasklet);
@@ -312,11 +381,15 @@ static void gigaset_device_release(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 
-	
+	/* adapted from platform_device_release() in drivers/base/platform.c */
 	kfree(dev->platform_data);
 	kfree(pdev->resource);
 }
 
+/*
+ * Set up hardware specific device data
+ * This is called by "gigaset_initcs" in common.c
+ */
 static int gigaset_initcshw(struct cardstate *cs)
 {
 	int rc;
@@ -346,6 +419,14 @@ static int gigaset_initcshw(struct cardstate *cs)
 	return 1;
 }
 
+/*
+ * set modem control lines
+ * Parameters:
+ *	card state structure
+ *	modem control line state ([TIOCM_DTR]|[TIOCM_RTS])
+ * Called by "gigaset_start" and "gigaset_enterconfigmode" in common.c
+ * and by "if_lock" and "if_termios" in interface.c
+ */
 static int gigaset_set_modem_ctrl(struct cardstate *cs, unsigned old_state,
 				  unsigned new_state)
 {
@@ -387,12 +468,15 @@ static const struct gigaset_ops ops = {
 	gigaset_set_modem_ctrl,
 	gigaset_baud_rate,
 	gigaset_set_line_ctrl,
-	gigaset_m10x_send_skb,	
-	gigaset_m10x_input,	
+	gigaset_m10x_send_skb,	/* asyncdata.c */
+	gigaset_m10x_input,	/* asyncdata.c */
 };
 
 
+/* Line Discipline Interface */
+/* ========================= */
 
+/* helper functions for cardstate refcounting */
 static struct cardstate *cs_get(struct tty_struct *tty)
 {
 	struct cardstate *cs = tty->disc_data;
@@ -411,6 +495,10 @@ static void cs_put(struct cardstate *cs)
 		complete(&cs->hw.ser->dead_cmp);
 }
 
+/*
+ * Called by the tty driver when the line discipline is pushed onto the tty.
+ * Called in process context.
+ */
 static int
 gigaset_tty_open(struct tty_struct *tty)
 {
@@ -425,7 +513,7 @@ gigaset_tty_open(struct tty_struct *tty)
 		return -ENODEV;
 	}
 
-	
+	/* allocate memory for our device state and initialize it */
 	cs = gigaset_initcs(driver, 1, 1, 0, cidmode, GIGASET_MODULENAME);
 	if (!cs)
 		goto error;
@@ -437,6 +525,9 @@ gigaset_tty_open(struct tty_struct *tty)
 
 	tty->disc_data = cs;
 
+	/* OK.. Initialization of the datastructures and the HW is done.. Now
+	 * startup system and notify the LL that we are ready to run
+	 */
 	if (startmode == SM_LOCKED)
 		cs->mstate = MS_LOCKED;
 	if (!gigaset_start(cs)) {
@@ -454,6 +545,10 @@ error:
 	return -ENODEV;
 }
 
+/*
+ * Called by the tty driver when the line discipline is removed.
+ * Called from process context.
+ */
 static void
 gigaset_tty_close(struct tty_struct *tty)
 {
@@ -466,18 +561,18 @@ gigaset_tty_close(struct tty_struct *tty)
 		return;
 	}
 
-	
+	/* prevent other callers from entering ldisc methods */
 	tty->disc_data = NULL;
 
 	if (!cs->hw.ser)
 		pr_err("%s: no hw cardstate\n", __func__);
 	else {
-		
+		/* wait for running methods to finish */
 		if (!atomic_dec_and_test(&cs->hw.ser->refcnt))
 			wait_for_completion(&cs->hw.ser->dead_cmp);
 	}
 
-	
+	/* stop operations */
 	gigaset_stop(cs);
 	tasklet_kill(&cs->write_tasklet);
 	flush_send_queue(cs);
@@ -487,12 +582,22 @@ gigaset_tty_close(struct tty_struct *tty)
 	gig_dbg(DEBUG_INIT, "Shutdown of HLL done");
 }
 
+/*
+ * Called by the tty driver when the tty line is hung up.
+ * Wait for I/O to driver to complete and unregister ISDN device.
+ * This is already done by the close routine, so just call that.
+ * Called from process context.
+ */
 static int gigaset_tty_hangup(struct tty_struct *tty)
 {
 	gigaset_tty_close(tty);
 	return 0;
 }
 
+/*
+ * Read on the tty.
+ * Unused, received data goes only to the Gigaset driver.
+ */
 static ssize_t
 gigaset_tty_read(struct tty_struct *tty, struct file *file,
 		 unsigned char __user *buf, size_t count)
@@ -500,6 +605,10 @@ gigaset_tty_read(struct tty_struct *tty, struct file *file,
 	return -EAGAIN;
 }
 
+/*
+ * Write on the tty.
+ * Unused, transmit data comes only from the Gigaset driver.
+ */
 static ssize_t
 gigaset_tty_write(struct tty_struct *tty, struct file *file,
 		  const unsigned char *buf, size_t count)
@@ -507,6 +616,11 @@ gigaset_tty_write(struct tty_struct *tty, struct file *file,
 	return -EAGAIN;
 }
 
+/*
+ * Ioctl on the tty.
+ * Called in process context only.
+ * May be re-entered by multiple ioctl calling threads.
+ */
 static int
 gigaset_tty_ioctl(struct tty_struct *tty, struct file *file,
 		  unsigned int cmd, unsigned long arg)
@@ -521,26 +635,26 @@ gigaset_tty_ioctl(struct tty_struct *tty, struct file *file,
 	switch (cmd) {
 
 	case FIONREAD:
-		
+		/* unused, always return zero */
 		val = 0;
 		rc = put_user(val, p);
 		break;
 
 	case TCFLSH:
-		
+		/* flush our buffers and the serial port's buffer */
 		switch (arg) {
 		case TCIFLUSH:
-			
+			/* no own input buffer to flush */
 			break;
 		case TCIOFLUSH:
 		case TCOFLUSH:
 			flush_send_queue(cs);
 			break;
 		}
-		
+		/* Pass through */
 
 	default:
-		
+		/* pass through to underlying serial device */
 		rc = n_tty_ioctl_helper(tty, file, cmd, arg);
 		break;
 	}
@@ -548,6 +662,18 @@ gigaset_tty_ioctl(struct tty_struct *tty, struct file *file,
 	return rc;
 }
 
+/*
+ * Called by the tty driver when a block of data has been received.
+ * Will not be re-entered while running but other ldisc functions
+ * may be called in parallel.
+ * Can be called from hard interrupt level as well as soft interrupt
+ * level or mainline.
+ * Parameters:
+ *	tty	tty structure
+ *	buf	buffer containing received characters
+ *	cflags	buffer containing error flags for received characters (ignored)
+ *	count	number of received characters
+ */
 static void
 gigaset_tty_receive(struct tty_struct *tty, const unsigned char *buf,
 		    char *cflags, int count)
@@ -571,7 +697,7 @@ gigaset_tty_receive(struct tty_struct *tty, const unsigned char *buf,
 		head, tail, count);
 
 	if (head <= tail) {
-		
+		/* possible buffer wraparound */
 		n = min_t(unsigned, count, RBUFSIZE - tail);
 		memcpy(inbuf->data + tail, buf, n);
 		tail = (tail + n) % RBUFSIZE;
@@ -580,7 +706,7 @@ gigaset_tty_receive(struct tty_struct *tty, const unsigned char *buf,
 	}
 
 	if (count > 0) {
-		
+		/* tail < head and some data left */
 		n = head - tail - 1;
 		if (count > n) {
 			dev_err(cs->dev,
@@ -595,12 +721,15 @@ gigaset_tty_receive(struct tty_struct *tty, const unsigned char *buf,
 	gig_dbg(DEBUG_INTR, "setting tail to %u", tail);
 	inbuf->tail = tail;
 
-	
+	/* Everything was received .. Push data into handler */
 	gig_dbg(DEBUG_INTR, "%s-->BH", __func__);
 	gigaset_schedule_event(cs);
 	cs_put(cs);
 }
 
+/*
+ * Called by the tty driver when there's room for more data to send.
+ */
 static void
 gigaset_tty_wakeup(struct tty_struct *tty)
 {
@@ -628,6 +757,8 @@ static struct tty_ldisc_ops gigaset_ldisc = {
 };
 
 
+/* Initialization / Shutdown */
+/* ========================= */
 
 static int __init ser_gigaset_init(void)
 {
@@ -640,7 +771,7 @@ static int __init ser_gigaset_init(void)
 		return rc;
 	}
 
-	
+	/* allocate memory for our driver state and initialize it */
 	driver = gigaset_initdriver(GIGASET_MINOR, GIGASET_MINORS,
 				    GIGASET_MODULENAME, GIGASET_DEVNAME,
 				    &ops, THIS_MODULE);

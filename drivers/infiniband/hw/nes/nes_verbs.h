@@ -48,8 +48,8 @@ struct nes_ucontext {
 	struct ib_ucontext ibucontext;
 	struct nes_device  *nesdev;
 	unsigned long      mmap_wq_offset;
-	unsigned long      mmap_cq_offset; 
-	int                index;		
+	unsigned long      mmap_cq_offset; /* to be removed */
+	int                index;		/* rnic index (minor) */
 	unsigned long      allocated_doorbells[BITS_TO_LONGS(NES_MAX_USER_DB_REGIONS)];
 	u16                mmap_db_index[NES_MAX_USER_DB_REGIONS];
 	u16                first_free_db;
@@ -138,7 +138,7 @@ struct nes_qp {
 	struct nes_cq         *nesscq;
 	struct nes_cq         *nesrcq;
 	struct nes_pd         *nespd;
-	void *cm_node; 
+	void *cm_node; /* handle of the node this QP is associated with */
 	void                  *ietf_frame;
 	u8                    ietf_frame_size;
 	dma_addr_t            ietf_frame_pbase;
@@ -185,4 +185,4 @@ struct nes_qp {
 	u8                    pau_pending;
 	u8                    pau_state;
 };
-#endif			
+#endif			/* NES_VERBS_H */

@@ -99,7 +99,7 @@ static inline void v9fs_fscache_wait_on_page_write(struct inode *inode,
 	return __v9fs_fscache_wait_on_page_write(inode, page);
 }
 
-#else 
+#else /* CONFIG_9P_FSCACHE */
 
 static inline int v9fs_fscache_release_page(struct page *page,
 					    gfp_t gfp) {
@@ -135,5 +135,5 @@ static inline void v9fs_fscache_wait_on_page_write(struct inode *inode,
 	return;
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_9P_FSCACHE */
+#endif /* _9P_CACHE_H */

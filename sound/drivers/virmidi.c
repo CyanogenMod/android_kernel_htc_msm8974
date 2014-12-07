@@ -19,6 +19,27 @@
  *
  */
 
+/*
+ * VIRTUAL RAW MIDI DEVICE CARDS
+ *
+ * This dummy card contains up to 4 virtual rawmidi devices.
+ * They are not real rawmidi devices but just associated with sequencer
+ * clients, so that any input/output sources can be connected as a raw
+ * MIDI device arbitrary.
+ * Also, multiple access is allowed to a single rawmidi device.
+ *
+ * Typical usage is like following:
+ * - Load snd-virmidi module.
+ *	# modprobe snd-virmidi index=2
+ *   Then, sequencer clients 72:0 to 75:0 will be created, which are
+ *   mapped from /dev/snd/midiC1D0 to /dev/snd/midiC1D3, respectively.
+ *
+ * - Connect input/output via aconnect.
+ *	% aconnect 64:0 72:0	# keyboard input redirection 64:0 -> 72:0
+ *	% aconnect 72:0 65:0	# output device redirection 72:0 -> 65:0
+ *
+ * - Run application using a midi device (eg. /dev/snd/midiC1D0)
+ */
 
 #include <linux/init.h>
 #include <linux/wait.h>
@@ -30,6 +51,7 @@
 #include <sound/seq_virmidi.h>
 #include <sound/initval.h>
 
+/* hack: OSS defines midi_devs, so undefine it (versioned symbols) */
 #undef midi_devs
 
 MODULE_AUTHOR("Takashi Iwai <tiwai@suse.de>");
@@ -39,8 +61,8 @@ MODULE_SUPPORTED_DEVICE("{{ALSA,Virtual rawmidi device}}");
 
 #define MAX_MIDI_DEVICES	4
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
 static bool enable[SNDRV_CARDS] = {1, [1 ... (SNDRV_CARDS - 1)] = 0};
 static int midi_devs[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 4};
 

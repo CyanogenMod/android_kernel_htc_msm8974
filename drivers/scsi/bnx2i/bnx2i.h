@@ -52,6 +52,7 @@
 #define ISCSI_MAX_SESS_PER_HBA		ISCSI_MAX_CONNS_PER_HBA
 #define ISCSI_MAX_CMDS_PER_SESS		128
 
+/* Total active commands across all connections supported by devices */
 #define ISCSI_MAX_CMDS_PER_HBA_5708	(28 * (ISCSI_MAX_CMDS_PER_SESS - 1))
 #define ISCSI_MAX_CMDS_PER_HBA_5709	(128 * (ISCSI_MAX_CMDS_PER_SESS - 1))
 #define ISCSI_MAX_CMDS_PER_HBA_57710	(256 * (ISCSI_MAX_CMDS_PER_SESS - 1))
@@ -67,6 +68,7 @@
 #define MAX_BD_LENGTH			65535
 #define BD_SPLIT_SIZE			32768
 
+/* min, max & default values for SQ/RQ/CQ size, configurable via' modparam */
 #define BNX2I_SQ_WQES_MIN		16
 #define BNX2I_570X_SQ_WQES_MAX		128
 #define BNX2I_5770X_SQ_WQES_MAX		512
@@ -80,6 +82,7 @@
 #define BNX2I_RQ_WQES_MAX 		32
 #define BNX2I_RQ_WQES_DEFAULT 		16
 
+/* CCELLs per conn */
 #define BNX2I_CCELLS_MIN		16
 #define BNX2I_CCELLS_MAX		96
 #define BNX2I_CCELLS_DEFAULT		64
@@ -105,10 +108,12 @@
 
 #define BNX2I_570X_PAGE_SIZE_DEFAULT	4096
 
+/* 5709 context registers */
 #define BNX2_MQ_CONFIG2			0x00003d00
 #define BNX2_MQ_CONFIG2_CONT_SZ		(0x7L<<4)
 #define BNX2_MQ_CONFIG2_FIRST_L4L5	(0x1fL<<8)
 
+/* 57710's BAR2 is mapped to doorbell registers */
 #define BNX2X_DOORBELL_PCI_BAR		2
 #define BNX2X_MAX_CQS			8
 
@@ -163,6 +168,16 @@ struct generic_pdu_resc {
 };
 
 
+/**
+ * struct bd_resc_page - tracks DMA'able memory allocated for BD tables
+ *
+ * @link:               list head to link elements
+ * @max_ptrs:           maximun pointers that can be stored in this page
+ * @num_valid:          number of pointer valid in this page
+ * @page:               base addess for page pointer array
+ *
+ * structure to track DMA'able memory allocated for command BD tables
+ */
 struct bd_resc_page {
 	struct list_head link;
 	u32 max_ptrs;
@@ -171,6 +186,15 @@ struct bd_resc_page {
 };
 
 
+/**
+ * struct io_bdt - I/O buffer destricptor table
+ *
+ * @bd_tbl:             BD table's virtual address
+ * @bd_tbl_dma:         BD table's dma address
+ * @bd_valid:           num valid BD entries
+ *
+ * IO BD table
+ */
 struct io_bdt {
 	struct iscsi_bd *bd_tbl;
 	dma_addr_t bd_tbl_dma;
@@ -178,6 +202,17 @@ struct io_bdt {
 };
 
 
+/**
+ * bnx2i_cmd - iscsi command structure
+ *
+ * @hdr:                iSCSI header
+ * @conn:               iscsi_conn pointer
+ * @scsi_cmd:           SCSI-ML task pointer corresponding to this iscsi cmd
+ * @sg:                 SG list
+ * @io_tbl:             buffer descriptor (BD) table
+ * @bd_tbl_dma:         buffer descriptor (BD) table's dma address
+ * @req:                bnx2i specific command request struct
+ */
 struct bnx2i_cmd {
 	struct iscsi_hdr hdr;
 	struct bnx2i_conn *conn;
@@ -189,6 +224,21 @@ struct bnx2i_cmd {
 };
 
 
+/**
+ * struct bnx2i_conn - iscsi connection structure
+ *
+ * @cls_conn:              pointer to iscsi cls conn
+ * @hba:                   adapter structure pointer
+ * @iscsi_conn_cid:        iscsi conn id
+ * @fw_cid:                firmware iscsi context id
+ * @ep:                    endpoint structure pointer
+ * @gen_pdu:               login/nopout/logout pdu resources
+ * @violation_notified:    bit mask used to track iscsi error/warning messages
+ *                         already printed out
+ * @work_cnt:              keeps track of the number of outstanding work
+ *
+ * iSCSI connection structure
+ */
 struct bnx2i_conn {
 	struct iscsi_cls_conn *cls_conn;
 	struct bnx2i_hba *hba;
@@ -199,8 +249,14 @@ struct bnx2i_conn {
 	u32 fw_cid;
 
 	struct timer_list poll_timer;
+	/*
+	 * Queue Pair (QP) related structure elements.
+	 */
 	struct bnx2i_endpoint *ep;
 
+	/*
+	 * Buffer for login negotiation process
+	 */
 	struct generic_pdu_resc gen_pdu;
 	u64 violation_notified;
 
@@ -209,6 +265,19 @@ struct bnx2i_conn {
 
 
 
+/**
+ * struct iscsi_cid_queue - Per adapter iscsi cid queue
+ *
+ * @cid_que_base:           queue base memory
+ * @cid_que:                queue memory pointer
+ * @cid_q_prod_idx:         produce index
+ * @cid_q_cons_idx:         consumer index
+ * @cid_q_max_idx:          max index. used to detect wrap around condition
+ * @cid_free_cnt:           queue size
+ * @conn_cid_tbl:           iscsi cid to conn structure mapping table
+ *
+ * Per adapter iSCSI CID Queue
+ */
 struct iscsi_cid_queue {
 	void *cid_que_base;
 	u32 *cid_que;
@@ -219,6 +288,62 @@ struct iscsi_cid_queue {
 	struct bnx2i_conn **conn_cid_tbl;
 };
 
+/**
+ * struct bnx2i_hba - bnx2i adapter structure
+ *
+ * @link:                  list head to link elements
+ * @cnic:                  pointer to cnic device
+ * @pcidev:                pointer to pci dev
+ * @netdev:                pointer to netdev structure
+ * @regview:               mapped PCI register space
+ * @age:                   age, incremented by every recovery
+ * @cnic_dev_type:         cnic device type, 5706/5708/5709/57710
+ * @mail_queue_access:     mailbox queue access mode, applicable to 5709 only
+ * @reg_with_cnic:         indicates whether the device is register with CNIC
+ * @adapter_state:         adapter state, UP, GOING_DOWN, LINK_DOWN
+ * @mtu_supported:         Ethernet MTU supported
+ * @shost:                 scsi host pointer
+ * @max_sqes:              SQ size
+ * @max_rqes:              RQ size
+ * @max_cqes:              CQ size
+ * @num_ccell:             number of command cells per connection
+ * @ofld_conns_active:     active connection list
+ * @eh_wait:               wait queue for the endpoint to shutdown
+ * @max_active_conns:      max offload connections supported by this device
+ * @cid_que:               iscsi cid queue
+ * @ep_rdwr_lock:          read / write lock to synchronize various ep lists
+ * @ep_ofld_list:          connection list for pending offload completion
+ * @ep_active_list:        connection list for active offload endpoints
+ * @ep_destroy_list:       connection list for pending offload completion
+ * @mp_bd_tbl:             BD table to be used with middle path requests
+ * @mp_bd_dma:             DMA address of 'mp_bd_tbl' memory buffer
+ * @dummy_buffer:          Dummy buffer to be used with zero length scsicmd reqs
+ * @dummy_buf_dma:         DMA address of 'dummy_buffer' memory buffer
+ * @lock:              	   lock to synchonize access to hba structure
+ * @hba_shutdown_tmo:      Timeout value to shutdown each connection
+ * @conn_teardown_tmo:     Timeout value to tear down each connection
+ * @conn_ctx_destroy_tmo:  Timeout value to destroy context of each connection
+ * @pci_did:               PCI device ID
+ * @pci_vid:               PCI vendor ID
+ * @pci_sdid:              PCI subsystem device ID
+ * @pci_svid:              PCI subsystem vendor ID
+ * @pci_func:              PCI function number in system pci tree
+ * @pci_devno:             PCI device number in system pci tree
+ * @num_wqe_sent:          statistic counter, total wqe's sent
+ * @num_cqe_rcvd:          statistic counter, total cqe's received
+ * @num_intr_claimed:      statistic counter, total interrupts claimed
+ * @link_changed_count:    statistic counter, num of link change notifications
+ *                         received
+ * @ipaddr_changed_count:  statistic counter, num times IP address changed while
+ *                         at least one connection is offloaded
+ * @num_sess_opened:       statistic counter, total num sessions opened
+ * @num_conn_opened:       statistic counter, total num conns opened on this hba
+ * @ctx_ccell_tasks:       captures number of ccells and tasks supported by
+ *                         currently offloaded connection, used to decode
+ *                         context memory
+ *
+ * Adapter Data Structure
+ */
 struct bnx2i_hba {
 	struct list_head link;
 	struct cnic_dev *cnic;
@@ -265,17 +390,23 @@ struct bnx2i_hba {
 	struct list_head ep_active_list;
 	struct list_head ep_destroy_list;
 
+	/*
+	 * BD table to be used with MP (Middle Path requests.
+	 */
 	char *mp_bd_tbl;
 	dma_addr_t mp_bd_dma;
 	char *dummy_buffer;
 	dma_addr_t dummy_buf_dma;
 
-	spinlock_t lock;	
-	struct mutex net_dev_lock;
+	spinlock_t lock;	/* protects hba structure access */
+	struct mutex net_dev_lock;/* sync net device access */
 
 	int hba_shutdown_tmo;
 	int conn_teardown_tmo;
 	int conn_ctx_destroy_tmo;
+	/*
+	 * PCI related info.
+	 */
 	u16 pci_did;
 	u16 pci_vid;
 	u16 pci_sdid;
@@ -283,6 +414,10 @@ struct bnx2i_hba {
 	u16 pci_func;
 	u16 pci_devno;
 
+	/*
+	 * Following are a bunch of statistics useful during development
+	 * and later stage for score boarding.
+	 */
 	u32 num_wqe_sent;
 	u32 num_cqe_rcvd;
 	u32 num_intr_claimed;
@@ -294,7 +429,13 @@ struct bnx2i_hba {
 };
 
 
+/*******************************************************************************
+ * 	QP [ SQ / RQ / CQ ] info.
+ ******************************************************************************/
 
+/*
+ * SQ/RQ/CQ generic structure definition
+ */
 struct 	sqe {
 	u8 sqe_byte[BNX2I_SQ_WQE_SIZE];
 };
@@ -323,42 +464,45 @@ enum {
 };
 
 
+/*
+ * CQ DB
+ */
 struct bnx2x_iscsi_cq_pend_cmpl {
-	
+	/* CQ producer, updated by Ustorm */
 	u16 ustrom_prod;
-	
+	/* CQ pending completion counter */
 	u16 pend_cntr;
 };
 
 
 struct bnx2i_5771x_cq_db {
 	struct bnx2x_iscsi_cq_pend_cmpl qp_pend_cmpl[BNX2X_MAX_CQS];
-	
+	/* CQ pending completion ITT array */
 	u16 itt[BNX2X_MAX_CQS];
-	;
+	/* Cstorm CQ sequence to notify array, updated by driver */;
 	u16 sqn[BNX2X_MAX_CQS];
-	u32 reserved[4] ;
+	u32 reserved[4] /* 16 byte allignment */;
 };
 
 
 struct bnx2i_5771x_sq_rq_db {
 	u16 prod_idx;
-	u8 reserved0[62]; 
+	u8 reserved0[62]; /* Pad structure size to 64 bytes */
 };
 
 
 struct bnx2i_5771x_dbell_hdr {
 	u8 header;
-	
+	/* 1 for rx doorbell, 0 for tx doorbell */
 #define B577XX_DOORBELL_HDR_RX				(0x1<<0)
 #define B577XX_DOORBELL_HDR_RX_SHIFT			0
-	
+	/* 0 for normal doorbell, 1 for advertise wnd doorbell */
 #define B577XX_DOORBELL_HDR_DB_TYPE			(0x1<<1)
 #define B577XX_DOORBELL_HDR_DB_TYPE_SHIFT		1
-	
+	/* rdma tx only: DPM transaction size specifier (64/128/256/512B) */
 #define B577XX_DOORBELL_HDR_DPM_SIZE			(0x3<<2)
 #define B577XX_DOORBELL_HDR_DPM_SIZE_SHIFT		2
-	
+	/* connection type */
 #define B577XX_DOORBELL_HDR_CONN_TYPE			(0xF<<4)
 #define B577XX_DOORBELL_HDR_CONN_TYPE_SHIFT		4
 };
@@ -369,6 +513,59 @@ struct bnx2i_5771x_dbell {
 
 };
 
+/**
+ * struct qp_info - QP (share queue region) atrributes structure
+ *
+ * @ctx_base:           ioremapped pci register base to access doorbell register
+ *                      pertaining to this offloaded connection
+ * @sq_virt:            virtual address of send queue (SQ) region
+ * @sq_phys:            DMA address of SQ memory region
+ * @sq_mem_size:        SQ size
+ * @sq_prod_qe:         SQ producer entry pointer
+ * @sq_cons_qe:         SQ consumer entry pointer
+ * @sq_first_qe:        virtaul address of first entry in SQ
+ * @sq_last_qe:         virtaul address of last entry in SQ
+ * @sq_prod_idx:        SQ producer index
+ * @sq_cons_idx:        SQ consumer index
+ * @sqe_left:           number sq entry left
+ * @sq_pgtbl_virt:      page table describing buffer consituting SQ region
+ * @sq_pgtbl_phys:      dma address of 'sq_pgtbl_virt'
+ * @sq_pgtbl_size:      SQ page table size
+ * @cq_virt:            virtual address of completion queue (CQ) region
+ * @cq_phys:            DMA address of RQ memory region
+ * @cq_mem_size:        CQ size
+ * @cq_prod_qe:         CQ producer entry pointer
+ * @cq_cons_qe:         CQ consumer entry pointer
+ * @cq_first_qe:        virtaul address of first entry in CQ
+ * @cq_last_qe:         virtaul address of last entry in CQ
+ * @cq_prod_idx:        CQ producer index
+ * @cq_cons_idx:        CQ consumer index
+ * @cqe_left:           number cq entry left
+ * @cqe_size:           size of each CQ entry
+ * @cqe_exp_seq_sn:     next expected CQE sequence number
+ * @cq_pgtbl_virt:      page table describing buffer consituting CQ region
+ * @cq_pgtbl_phys:      dma address of 'cq_pgtbl_virt'
+ * @cq_pgtbl_size:    	CQ page table size
+ * @rq_virt:            virtual address of receive queue (RQ) region
+ * @rq_phys:            DMA address of RQ memory region
+ * @rq_mem_size:        RQ size
+ * @rq_prod_qe:         RQ producer entry pointer
+ * @rq_cons_qe:         RQ consumer entry pointer
+ * @rq_first_qe:        virtaul address of first entry in RQ
+ * @rq_last_qe:         virtaul address of last entry in RQ
+ * @rq_prod_idx:        RQ producer index
+ * @rq_cons_idx:        RQ consumer index
+ * @rqe_left:           number rq entry left
+ * @rq_pgtbl_virt:      page table describing buffer consituting RQ region
+ * @rq_pgtbl_phys:      dma address of 'rq_pgtbl_virt'
+ * @rq_pgtbl_size:      RQ page table size
+ *
+ * queue pair (QP) is a per connection shared data structure which is used
+ *	to send work requests (SQ), receive completion notifications (CQ)
+ *	and receive asynchoronous / scsi sense info (RQ). 'qp_info' structure
+ *	below holds queue memory, consumer/producer indexes and page table
+ *	information
+ */
 struct qp_info {
 	void __iomem *ctx_base;
 #define DPM_TRIGER_TYPE			0x40
@@ -389,7 +586,7 @@ struct qp_info {
 
 	void *sq_pgtbl_virt;
 	dma_addr_t sq_pgtbl_phys;
-	u32 sq_pgtbl_size;	
+	u32 sq_pgtbl_size;	/* set to PAGE_SIZE for 5708 & 5709 */
 
 	struct cqe *cq_virt;
 	dma_addr_t cq_phys;
@@ -407,7 +604,7 @@ struct qp_info {
 
 	void *cq_pgtbl_virt;
 	dma_addr_t cq_pgtbl_phys;
-	u32 cq_pgtbl_size;	
+	u32 cq_pgtbl_size;	/* set to PAGE_SIZE for 5708 & 5709 */
 
 	struct rqe *rq_virt;
 	dma_addr_t rq_phys;
@@ -423,11 +620,14 @@ struct qp_info {
 
 	void *rq_pgtbl_virt;
 	dma_addr_t rq_pgtbl_phys;
-	u32 rq_pgtbl_size;	
+	u32 rq_pgtbl_size;	/* set to PAGE_SIZE for 5708 & 5709 */
 };
 
 
 
+/*
+ * CID handles
+ */
 struct ep_handles {
 	u32 fw_cid;
 	u32 drv_iscsi_cid;
@@ -463,6 +663,29 @@ enum {
 	EP_STATE_OFLD_FAILED_CID_BUSY   = 0x80000000,
 };
 
+/**
+ * struct bnx2i_endpoint - representation of tcp connection in NX2 world
+ *
+ * @link:               list head to link elements
+ * @hba:                adapter to which this connection belongs
+ * @conn:               iscsi connection this EP is linked to
+ * @cls_ep:             associated iSCSI endpoint pointer
+ * @cm_sk:              cnic sock struct
+ * @hba_age:            age to detect if 'iscsid' issues ep_disconnect()
+ *                      after HBA reset is completed by bnx2i/cnic/bnx2
+ *                      modules
+ * @state:              tracks offload connection state machine
+ * @timestamp:          tracks the start time when the ep begins to connect
+ * @num_active_cmds:    tracks the number of outstanding commands for this ep
+ * @ec_shift:           the amount of shift as part of the event coal calc
+ * @qp:                 QP information
+ * @ids:                contains chip allocated *context id* & driver assigned
+ *                      *iscsi cid*
+ * @ofld_timer:         offload timer to detect timeout
+ * @ofld_wait:          wait queue
+ *
+ * Endpoint Structure - equivalent of tcp socket structure
+ */
 struct bnx2i_endpoint {
 	struct list_head link;
 	struct bnx2i_hba *hba;
@@ -499,6 +722,7 @@ struct bnx2i_percpu_s {
 };
 
 
+/* Global variables */
 extern unsigned int error_mask1, error_mask2;
 extern u64 iscsi_error_mask;
 extern unsigned int en_tcp_dack;
@@ -516,6 +740,9 @@ extern struct device_attribute *bnx2i_dev_attributes[];
 
 
 
+/*
+ * Function Prototypes
+ */
 extern void bnx2i_identify_device(struct bnx2i_hba *hba);
 
 extern void bnx2i_ulp_init(struct cnic_dev *dev);
@@ -581,6 +808,7 @@ extern int bnx2i_arm_cq_event_coalescing(struct bnx2i_endpoint *ep, u8 action);
 
 extern int bnx2i_hw_ep_disconnect(struct bnx2i_endpoint *bnx2i_ep);
 
+/* Debug related function prototypes */
 extern void bnx2i_print_pend_cmd_queue(struct bnx2i_conn *conn);
 extern void bnx2i_print_active_cmd_queue(struct bnx2i_conn *conn);
 extern void bnx2i_print_xmit_pdu_queue(struct bnx2i_conn *conn);

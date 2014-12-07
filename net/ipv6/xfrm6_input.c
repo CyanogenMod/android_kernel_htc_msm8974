@@ -1,3 +1,13 @@
+/*
+ * xfrm6_input.c: based on net/ipv4/xfrm4_input.c
+ *
+ * Authors:
+ *	Mitsuru KANDA @USAGI
+ * 	Kazunori MIYAZAWA @USAGI
+ * 	Kunihiro Ishiguro <kunihiro@ipinfusion.com>
+ *	YOSHIFUJI Hideaki @USAGI
+ *		IPv6 support
+ */
 
 #include <linux/module.h>
 #include <linux/string.h>
@@ -52,7 +62,7 @@ int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 	struct xfrm_state *x = NULL;
 	int i = 0;
 
-	
+	/* Allocate new secpath or COW existing one. */
 	if (!skb->sp || atomic_read(&skb->sp->refcnt) != 1) {
 		struct sec_path *sp;
 
@@ -80,12 +90,12 @@ int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 			src = saddr;
 			break;
 		case 1:
-			
+			/* lookup state with wild-card source address */
 			dst = daddr;
 			src = (xfrm_address_t *)&in6addr_any;
 			break;
 		default:
-			
+			/* lookup state with wild-card addresses */
 			dst = (xfrm_address_t *)&in6addr_any;
 			src = (xfrm_address_t *)&in6addr_any;
 			break;
@@ -102,7 +112,7 @@ int xfrm6_input_addr(struct sk_buff *skb, xfrm_address_t *daddr,
 		    !xfrm_state_check_expire(x)) {
 			spin_unlock(&x->lock);
 			if (x->type->input(x, skb) > 0) {
-				
+				/* found a valid state */
 				break;
 			}
 		} else

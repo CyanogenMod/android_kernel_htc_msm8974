@@ -25,6 +25,7 @@
 #include <linux/nodemask.h>
 #include <linux/percpu.h>
 
+/*  Swiped from MIPS.  */
 
 static DEFINE_PER_CPU(struct cpu, cpu_devices);
 
@@ -34,6 +35,10 @@ static int __init topology_init(void)
 
 	for_each_present_cpu(i) {
 
+		/*
+		 * register_cpu takes a per_cpu pointer and
+		 * just points it at another per_cpu struct...
+		 */
 
 		ret = register_cpu(&per_cpu(cpu_devices, i), i);
 		if (ret)

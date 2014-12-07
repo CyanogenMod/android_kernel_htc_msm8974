@@ -69,7 +69,7 @@ struct pci_controller_unit_setup {
 	pci_exclusive_access_t exclusive_access;
 
 	uint32_t pci_clock_max;
-	uint8_t wait_time_limit_from_irdy_to_trdy;	
+	uint8_t wait_time_limit_from_irdy_to_trdy;	/* Only VR4122 is supported */
 
 	struct pci_mailbox_address *mailbox;
 	struct pci_target_address_window *target_window1;
@@ -87,4 +87,4 @@ struct pci_controller_unit_setup {
 
 extern void vr41xx_pciu_setup(struct pci_controller_unit_setup *setup);
 
-#endif 
+#endif /* __NEC_VR41XX_PCI_H */

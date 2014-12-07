@@ -12,12 +12,16 @@
 
 #include "wsp.h"
 
+/*
+ * Find chip-id by walking up device tree looking for ibm,wsp-chip-id property.
+ * Won't work for nodes that are not a descendant of a wsp node.
+ */
 int wsp_get_chip_id(struct device_node *dn)
 {
 	const u32 *p;
 	int rc;
 
-	
+	/* Start looking at the specified node, not its parent */
 	dn = of_node_get(dn);
 	while (dn && !(p = of_get_property(dn, "ibm,wsp-chip-id", NULL)))
 		dn = of_get_next_parent(dn);

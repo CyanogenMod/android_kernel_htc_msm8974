@@ -61,6 +61,9 @@ void scatterwalk_map(struct scatter_walk *walk)
 static void scatterwalk_pagedone(struct scatter_walk *walk, int out,
 				 unsigned int more)
 {
+	/* walk->data may be pointing the first byte of the next page;
+	   however, we know we transferred at least one byte.  So,
+	   walk->data - 1 will be a virtual address in the mapped page. */
 
 	if (out)
 		flush_dcache_page(walk->page);
@@ -86,6 +89,10 @@ void scatterwalk_done(struct scatter_walk *walk, int out, int more)
 		scatterwalk_pagedone(walk, out, more);
 }
 
+/*
+ * Do not call this unless the total length of all of the fragments
+ * has been verified as multiple of the block size.
+ */
 int scatterwalk_copychunks(void *buf, struct scatter_walk *walk,
 			   size_t nbytes)
 {

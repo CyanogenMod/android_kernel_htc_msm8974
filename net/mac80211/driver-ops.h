@@ -55,7 +55,7 @@ static inline void drv_stop(struct ieee80211_local *local)
 	local->ops->stop(&local->hw);
 	trace_drv_return_void(local);
 
-	
+	/* sync away all work on the tasklet before clearing started */
 	tasklet_disable(&local->tasklet);
 	tasklet_enable(&local->tasklet);
 
@@ -537,7 +537,7 @@ static inline void drv_reset_tsf(struct ieee80211_local *local,
 
 static inline int drv_tx_last_beacon(struct ieee80211_local *local)
 {
-	int ret = 0; 
+	int ret = 0; /* default unsuported op for less congestion */
 
 	might_sleep();
 
@@ -777,4 +777,4 @@ drv_allow_buffered_frames(struct ieee80211_local *local,
 						  more_data);
 	trace_drv_return_void(local);
 }
-#endif 
+#endif /* __MAC80211_DRIVER_OPS */

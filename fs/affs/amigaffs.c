@@ -14,8 +14,14 @@ extern struct timezone sys_tz;
 
 static char ErrorBuffer[256];
 
+/*
+ * Functions for accessing Amiga-FFS structures.
+ */
 
 
+/* Insert a header block bh into the directory dir
+ * caller must hold AFFS_DIR->i_hash_lock!
+ */
 
 int
 affs_insert_hash(struct inode *dir, struct buffer_head *bh)
@@ -62,6 +68,9 @@ affs_insert_hash(struct inode *dir, struct buffer_head *bh)
 	return 0;
 }
 
+/* Remove a header block from its directory.
+ * caller must hold AFFS_DIR->i_hash_lock!
+ */
 
 int
 affs_remove_hash(struct inode *dir, struct buffer_head *rem_bh)
@@ -134,6 +143,7 @@ affs_fix_dcache(struct dentry *dentry, u32 entry_ino)
 }
 
 
+/* Remove header from link chain */
 
 static int
 affs_remove_link(struct dentry *dentry)
@@ -152,7 +162,9 @@ affs_remove_link(struct dentry *dentry)
 
 	link_ino = (u32)(long)dentry->d_fsdata;
 	if (inode->i_ino == link_ino) {
- 
+		/* we can't remove the head of the link, as its blocknr is still used as ino,
+		 * so we remove the block of the first link instead.
+		 */ 
 		link_ino = be32_to_cpu(AFFS_TAIL(sb, bh)->link_chain);
 		link_bh = affs_bread(sb, link_ino);
 		if (!link_bh)
@@ -196,7 +208,7 @@ affs_remove_link(struct dentry *dentry)
 			affs_adjust_checksum(bh, be32_to_cpu(ino2) - link_ino);
 			mark_buffer_dirty_inode(bh, inode);
 			retval = 0;
-			
+			/* Fix the link count, if bh is a normal header block without links */
 			switch (be32_to_cpu(AFFS_TAIL(sb, bh)->stype)) {
 			case ST_LINKDIR:
 			case ST_LINKFILE:
@@ -245,6 +257,14 @@ done:
 }
 
 
+/* Remove a filesystem object. If the object to be removed has
+ * links to it, one of the links must be changed to inherit
+ * the file or directory. As above, any inode will do.
+ * The buffer will not be freed. If the header is a link, the
+ * block will be marked as free.
+ * This function returns a negative error number in case of
+ * an error, else 0 if the inode is to be deleted or 1 if not.
+ */
 
 int
 affs_remove_header(struct dentry *dentry)
@@ -272,6 +292,10 @@ affs_remove_header(struct dentry *dentry)
 	affs_lock_dir(dir);
 	switch (be32_to_cpu(AFFS_TAIL(sb, bh)->stype)) {
 	case ST_USERDIR:
+		/* if we ever want to support links to dirs
+		 * i_hash_lock of the inode must only be
+		 * taken after some checks
+		 */
 		affs_lock_dir(inode);
 		retval = affs_empty_dir(inode);
 		affs_unlock_dir(inode);
@@ -307,6 +331,12 @@ done_unlock:
 	goto done;
 }
 
+/* Checksum a block, do various consistency checks and optionally return
+   the blocks type number.  DATA points to the block.  If their pointers
+   are non-null, *PTYPE and *STYPE are set to the primary and secondary
+   block types respectively, *HASHSIZE is set to the size of the hashtable
+   (which lets us calculate the block size).
+   Returns non-zero if the block is not consistent. */
 
 u32
 affs_checksum_block(struct super_block *sb, struct buffer_head *bh)
@@ -321,6 +351,10 @@ affs_checksum_block(struct super_block *sb, struct buffer_head *bh)
 	return sum;
 }
 
+/*
+ * Calculate the checksum of a disk block and store it
+ * at the indicated position.
+ */
 
 void
 affs_fix_checksum(struct super_block *sb, struct buffer_head *bh)
@@ -440,6 +474,7 @@ affs_warning(struct super_block *sb, const char *function, const char *fmt, ...)
 		function,ErrorBuffer);
 }
 
+/* Check if the name is valid for a affs object. */
 
 int
 affs_check_name(const unsigned char *name, int len)
@@ -462,6 +497,12 @@ affs_check_name(const unsigned char *name, int len)
 	return 0;
 }
 
+/* This function copies name to bstr, with at most 30
+ * characters length. The bstr will be prepended by
+ * a length byte.
+ * NOTE: The name will must be already checked by
+ *       affs_check_name()!
+ */
 
 int
 affs_copy_name(unsigned char *bstr, struct dentry *dentry)

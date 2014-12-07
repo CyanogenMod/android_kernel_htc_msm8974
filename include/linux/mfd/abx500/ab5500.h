@@ -64,6 +64,10 @@ enum ab5500_banks_addr {
 	AB5500_ADDR_AUDIO_HEADSETUSB = 0x0D,
 };
 
+/*
+ * Interrupt register offsets
+ * Bank : 0x0E
+ */
 #define AB5500_IT_SOURCE0_REG		0x20
 #define AB5500_IT_SOURCE1_REG		0x21
 #define AB5500_IT_SOURCE2_REG		0x22
@@ -133,4 +137,4 @@ struct ab5500_platform_data {
 	bool pm_power_off;
 };
 
-#endif 
+#endif /* MFD_AB5500_H */

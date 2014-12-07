@@ -48,22 +48,22 @@
 #define CE6230_USB_TIMEOUT 1000
 
 struct req_t {
-	u8  cmd;       
-	u16 value;     
-	u16 index;     
-	u16 data_len;  
+	u8  cmd;       /* [1] */
+	u16 value;     /* [2|3] */
+	u16 index;     /* [4|5] */
+	u16 data_len;  /* [6|7] */
 	u8  *data;
 };
 
 enum ce6230_cmd {
-	CONFIG_READ          = 0xd0, 
-	UNKNOWN_WRITE        = 0xc7, 
-	I2C_READ             = 0xd9, 
-	I2C_WRITE            = 0xca, 
-	DEMOD_READ           = 0xdb, 
-	DEMOD_WRITE          = 0xcc, 
-	REG_READ             = 0xde, 
-	REG_WRITE            = 0xcf, 
+	CONFIG_READ          = 0xd0, /* rd 0 (unclear) */
+	UNKNOWN_WRITE        = 0xc7, /* wr 7 (unclear) */
+	I2C_READ             = 0xd9, /* rd 9 (unclear) */
+	I2C_WRITE            = 0xca, /* wr a */
+	DEMOD_READ           = 0xdb, /* rd b */
+	DEMOD_WRITE          = 0xcc, /* wr c */
+	REG_READ             = 0xde, /* rd e */
+	REG_WRITE            = 0xcf, /* wr f */
 };
 
 #endif

@@ -33,7 +33,7 @@ static void idmap_add_pmd(pud_t *pud, unsigned long addr, unsigned long end,
 		flush_pmd_entry(pmd);
 	} while (pmd++, addr = next, addr != end);
 }
-#else	
+#else	/* !CONFIG_ARM_LPAE */
 static void idmap_add_pmd(pud_t *pud, unsigned long addr, unsigned long end,
 	unsigned long prot)
 {
@@ -45,7 +45,7 @@ static void idmap_add_pmd(pud_t *pud, unsigned long addr, unsigned long end,
 	pmd[1] = __pmd(addr);
 	flush_pmd_entry(pmd);
 }
-#endif	
+#endif	/* CONFIG_ARM_LPAE */
 
 static void idmap_add_pud(pgd_t *pgd, unsigned long addr, unsigned long end,
 	unsigned long prot)
@@ -84,7 +84,7 @@ static int __init init_static_idmap(void)
 	if (!idmap_pgd)
 		return -ENOMEM;
 
-	
+	/* Add an identity mapping for the physical address of the section. */
 	idmap_start = virt_to_phys((void *)__idmap_text_start);
 	idmap_end = virt_to_phys((void *)__idmap_text_end);
 
@@ -96,14 +96,19 @@ static int __init init_static_idmap(void)
 }
 early_initcall(init_static_idmap);
 
+/*
+ * In order to soft-boot, we need to switch to a 1:1 mapping for the
+ * cpu_reset functions. This will then ensure that we have predictable
+ * results when turning off the mmu.
+ */
 void setup_mm_for_reboot(void)
 {
-	
+	/* Clean and invalidate L1. */
 	flush_cache_all();
 
-	
+	/* Switch to the identity mapping. */
 	cpu_switch_mm(idmap_pgd, &init_mm);
 
-	
+	/* Flush the TLB. */
 	local_flush_tlb_all();
 }

@@ -36,6 +36,9 @@
 
 #include "sb1250_defs.h"
 
+/*
+ * SMBus Clock Frequency Register (Table 14-2)
+ */
 
 #define S_SMB_FREQ_DIV              0
 #define M_SMB_FREQ_DIV              _SB_MAKEMASK(13, S_SMB_FREQ_DIV)
@@ -49,6 +52,9 @@
 #define M_SMB_CMD                   _SB_MAKEMASK(8, S_SMB_CMD)
 #define V_SMB_CMD(x)                _SB_MAKEVALUE(x, S_SMB_CMD)
 
+/*
+ * SMBus control register (Table 14-4)
+ */
 
 #define M_SMB_ERR_INTR              _SB_MAKEMASK1(0)
 #define M_SMB_FINISH_INTR           _SB_MAKEMASK1(1)
@@ -62,6 +68,9 @@
 #define M_SMB_CLK_OUT               _SB_MAKEMASK1(6)
 #define M_SMB_DIRECT_ENABLE         _SB_MAKEMASK1(7)
 
+/*
+ * SMBus status registers (Table 14-5)
+ */
 
 #define M_SMB_BUSY                  _SB_MAKEMASK1(0)
 #define M_SMB_ERROR                 _SB_MAKEMASK1(1)
@@ -72,7 +81,7 @@
 #define M_SMB_SCL_IN                _SB_MAKEMASK1(S_SMB_SCL_IN)
 #define V_SMB_SCL_IN(x)             _SB_MAKEVALUE(x, S_SMB_SCL_IN)
 #define G_SMB_SCL_IN(x)             _SB_GETVALUE(x, S_SMB_SCL_IN, M_SMB_SCL_IN)
-#endif 
+#endif /* 1250 PASS3 || 112x PASS1 || 1480 */
 
 #define S_SMB_REF                   6
 #define M_SMB_REF                   _SB_MAKEMASK1(S_SMB_REF)
@@ -84,6 +93,9 @@
 #define V_SMB_DATA_IN(x)            _SB_MAKEVALUE(x, S_SMB_DATA_IN)
 #define G_SMB_DATA_IN(x)            _SB_GETVALUE(x, S_SMB_DATA_IN, M_SMB_DATA_IN)
 
+/*
+ * SMBus Start/Command registers (Table 14-9)
+ */
 
 #define S_SMB_ADDR                  0
 #define M_SMB_ADDR                  _SB_MAKEMASK(7, S_SMB_ADDR)
@@ -117,6 +129,9 @@
 
 #define M_SMB_PEC                   _SB_MAKEMASK1(15)
 
+/*
+ * SMBus Data Register (Table 14-6) and SMBus Extra Register (Table 14-7)
+ */
 
 #define S_SMB_LB                    0
 #define M_SMB_LB                    _SB_MAKEMASK(8, S_SMB_LB)
@@ -127,6 +142,9 @@
 #define V_SMB_MB(x)                 _SB_MAKEVALUE(x, S_SMB_MB)
 
 
+/*
+ * SMBus Packet Error Check register (Table 14-8)
+ */
 
 #define S_SPEC_PEC                  0
 #define M_SPEC_PEC                  _SB_MAKEMASK(8, S_SPEC_PEC)
@@ -181,6 +199,6 @@
 
 #define M_SMB_DIR		    _SB_MAKEMASK1(13)
 
-#endif 
+#endif /* 1250 PASS2 || 112x PASS1 || 1480 */
 
 #endif

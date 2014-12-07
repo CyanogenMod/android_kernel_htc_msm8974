@@ -16,7 +16,7 @@
 #ifdef CONFIG_PCI
 #include <linux/ath9k_platform.h>
 #include <asm/mach-ath79/pci-ath724x.h>
-#endif 
+#endif /* CONFIG_PCI */
 
 #include "machtypes.h"
 #include "dev-gpio-buttons.h"
@@ -90,7 +90,7 @@ static struct ath724x_pci_data ubnt_xm_pci_data[] = {
 		.pdata	= &ubnt_xm_eeprom_data,
 	},
 };
-#endif 
+#endif /* CONFIG_PCI */
 
 static void __init ubnt_xm_init(void)
 {
@@ -109,7 +109,7 @@ static void __init ubnt_xm_init(void)
 	       sizeof(ubnt_xm_eeprom_data.eeprom_data));
 
 	ath724x_pci_add_data(ubnt_xm_pci_data, ARRAY_SIZE(ubnt_xm_pci_data));
-#endif 
+#endif /* CONFIG_PCI */
 
 }
 

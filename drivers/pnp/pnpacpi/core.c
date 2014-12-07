@@ -31,11 +31,18 @@
 
 static int num;
 
+/* We need only to blacklist devices that have already an acpi driver that
+ * can't use pnp layer. We don't need to blacklist device that are directly
+ * used by the kernel (PCI root, ...), as it is harmless and there were
+ * already present in pnpbios. But there is an exception for devices that
+ * have irqs (PIC, Timer) because we call acpi_register_gsi.
+ * Finally, only devices that have a CRS method need to be in this list.
+ */
 static struct acpi_device_id excluded_id_list[] __initdata = {
-	{"PNP0C09", 0},		
-	{"PNP0C0F", 0},		
-	{"PNP0000", 0},		
-	{"PNP0100", 0},		
+	{"PNP0C09", 0},		/* EC */
+	{"PNP0C0F", 0},		/* Link device */
+	{"PNP0000", 0},		/* PIC */
+	{"PNP0100", 0},		/* Timer */
 	{"", 0},
 };
 
@@ -44,6 +51,9 @@ static inline int __init is_exclusive_device(struct acpi_device *dev)
 	return (!acpi_match_device_ids(dev, excluded_id_list));
 }
 
+/*
+ * Compatible Device IDs
+ */
 #define TEST_HEX(c) \
 	if (!(('0' <= (c) && (c) <= '9') || ('A' <= (c) && (c) <= 'F'))) \
 		return 0
@@ -115,11 +125,11 @@ static int pnpacpi_disable_resources(struct pnp_dev *dev)
 		return 0;
 	}
 
-	
+	/* acpi_unregister_gsi(pnp_irq(dev, 0)); */
 	ret = 0;
 	if (acpi_bus_power_manageable(handle))
 		acpi_bus_set_power(handle, ACPI_STATE_D3);
-		
+		/* continue even if acpi_bus_set_power() fails */
 	if (ACPI_FAILURE(acpi_evaluate_object(handle, "_DIS", NULL, NULL)))
 		ret = -ENODEV;
 	return ret;
@@ -166,6 +176,12 @@ static int pnpacpi_suspend(struct pnp_dev *dev, pm_message_t state)
 			power_state = (state.event == PM_EVENT_ON) ?
 					ACPI_STATE_D0 : ACPI_STATE_D3;
 
+		/*
+		 * acpi_bus_set_power() often fails (keyboard port can't be
+		 * powered-down?), and in any case, our return value is ignored
+		 * by pnp_bus_suspend().  Hence we don't revert the wakeup
+		 * setting if the set_power fails.
+		 */
 		error = acpi_bus_set_power(handle, power_state);
 	}
 
@@ -226,6 +242,10 @@ static int __init pnpacpi_add_device(struct acpi_device *device)
 	char *pnpid;
 	struct acpi_hardware_id *id;
 
+	/*
+	 * If a PnPacpi device is not present , the device
+	 * driver should not be loaded.
+	 */
 	status = acpi_get_handle(device->handle, "_CRS", &temp);
 	if (ACPI_FAILURE(status))
 		return 0;
@@ -242,7 +262,7 @@ static int __init pnpacpi_add_device(struct acpi_device *device)
 		return -ENOMEM;
 
 	dev->data = device;
-	
+	/* .enabled means the device can decode the resources */
 	dev->active = device->status.enabled;
 	status = acpi_get_handle(device->handle, "_SRS", &temp);
 	if (ACPI_SUCCESS(status))
@@ -275,7 +295,7 @@ static int __init pnpacpi_add_device(struct acpi_device *device)
 		pnp_add_id(dev, id->id);
 	}
 
-	
+	/* clear out the damaged flags */
 	if (!dev->active)
 		pnp_init_resources(dev);
 	pnp_add_device(dev);
@@ -307,7 +327,7 @@ static int __init acpi_pnp_match(struct device *dev, void *_pnp)
 	if (physical_device)
 		put_device(physical_device);
 
-	
+	/* true means it matched */
 	return !physical_device
 	    && compare_pnp_id(pnp->id, acpi_device_hid(acpi));
 }
@@ -328,6 +348,9 @@ static int __init acpi_pnp_find_device(struct device *dev, acpi_handle * handle)
 	return 0;
 }
 
+/* complete initialization of a PNPACPI device includes having
+ * pnpdev->dev.archdata.acpi_handle point to its ACPI sibling.
+ */
 static struct acpi_bus_type __initdata acpi_pnp_bus = {
 	.bus	     = &pnp_bus_type,
 	.find_device = acpi_pnp_find_device,

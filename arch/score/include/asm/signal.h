@@ -3,4 +3,4 @@
 
 #include <asm-generic/signal.h>
 
-#endif 
+#endif /* _ASM_SCORE_SIGNAL_H */

@@ -142,4 +142,4 @@
 #define UARTDM_NCF_TX		0x40
 #define UARTDM_RX_TOTAL_SNAP	0x38
 
-#endif	
+#endif	/* __DRIVERS_SERIAL_MSM_SERIAL_H */

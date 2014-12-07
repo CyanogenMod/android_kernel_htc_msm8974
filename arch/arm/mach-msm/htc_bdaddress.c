@@ -85,11 +85,15 @@ void bt_export_bd_address(void)
 	unsigned char cTemp[6];
 
 	memcpy(cTemp, get_bt_bd_ram(), 6);
+        
 	sprintf(bdaddress, "%02x:%02x:%02x:%02x:%02x:%02x",
 			cTemp[0], cTemp[1], cTemp[2],
 			cTemp[3], cTemp[4], cTemp[5]);
 
-	printk(KERN_INFO "YoYo--BD_ADDRESS=%s\n", bdaddress);
+        printk(KERN_INFO "fd=%02x, apply=%02x\n", cTemp[2]+1, cTemp[5]+2);
+        printk(KERN_INFO "fd=%02x, state=%02x\n", cTemp[4]+2, cTemp[1]+1);
+        printk(KERN_INFO "fd=%02x, status=%02x\n", cTemp[0]+1, cTemp[3]+2);
+
 }
 module_param_string(bdaddress, bdaddress, sizeof(bdaddress), S_IWUSR | S_IRUGO);
 MODULE_PARM_DESC(bdaddress, "BT MAC ADDRESS");

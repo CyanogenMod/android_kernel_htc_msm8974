@@ -35,7 +35,18 @@
 #ifndef __NLM_HAL_BRIDGE_H__
 #define __NLM_HAL_BRIDGE_H__
 
+/**
+* @file_name mio.h
+* @author Netlogic Microsystems
+* @brief Basic definitions of XLP memory and io subsystem
+*/
 
+/*
+ * BRIDGE specific registers
+ *
+ * These registers start after the PCIe header, which has 0x40
+ * standard entries
+ */
 #define BRIDGE_MODE			0x00
 #define BRIDGE_PCI_CFG_BASE		0x01
 #define BRIDGE_PCI_CFG_LIMIT		0x02
@@ -172,5 +183,5 @@
 #define	nlm_get_bridge_regbase(node)	\
 			(nlm_get_bridge_pcibase(node) + XLP_IO_PCI_HDRSZ)
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __NLM_HAL_BRIDGE_H__ */

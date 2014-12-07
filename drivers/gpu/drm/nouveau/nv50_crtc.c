@@ -212,6 +212,8 @@ nouveau_crtc_connector_get(struct nouveau_crtc *nv_crtc)
 	struct drm_connector *connector;
 	struct drm_crtc *crtc = to_drm_crtc(nv_crtc);
 
+	/* The safest approach is to find an encoder with the right crtc, that
+	 * is also linked to a connector. */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		if (connector->encoder)
 			if (connector->encoder->crtc == crtc)
@@ -243,6 +245,9 @@ nv50_crtc_set_scale(struct nouveau_crtc *nv_crtc, bool update)
 		scaling_mode = nv_connector->scaling_mode;
 	}
 
+	/* start off at the resolution we programmed the crtc for, this
+	 * effectively handles NONE/FULL scaling
+	 */
 	if (scaling_mode != DRM_MODE_SCALE_NONE)
 		omode = nv_connector->native_mode;
 	else
@@ -253,6 +258,10 @@ nv50_crtc_set_scale(struct nouveau_crtc *nv_crtc, bool update)
 	if (omode->flags & DRM_MODE_FLAG_DBLSCAN)
 		oY *= 2;
 
+	/* add overscan compensation if necessary, will keep the aspect
+	 * ratio the same as the backend mode unless overridden by the
+	 * user setting both hborder and vborder properties.
+	 */
 	if (nv_connector && ( nv_connector->underscan == UNDERSCAN_ON ||
 			     (nv_connector->underscan == UNDERSCAN_AUTO &&
 			      nv_connector->edid &&
@@ -272,11 +281,14 @@ nv50_crtc_set_scale(struct nouveau_crtc *nv_crtc, bool update)
 		}
 	}
 
+	/* handle CENTER/ASPECT scaling, taking into account the areas
+	 * removed already for overscan compensation
+	 */
 	switch (scaling_mode) {
 	case DRM_MODE_SCALE_CENTER:
 		oX = min((u32)umode->hdisplay, oX);
 		oY = min((u32)umode->vdisplay, oY);
-		
+		/* fall-through */
 	case DRM_MODE_SCALE_ASPECT:
 		if (oY < oX) {
 			u32 aspect = (umode->hdisplay << 19) / umode->vdisplay;
@@ -418,7 +430,7 @@ nv50_crtc_cursor_set(struct drm_crtc *crtc, struct drm_file *file_priv,
 	if (ret)
 		goto out;
 
-	
+	/* The simple will do for now. */
 	for (i = 0; i < 64 * 64; i++)
 		nouveau_bo_wr32(nv_crtc->cursor.nvbo, i, nouveau_bo_rd32(cursor, i));
 
@@ -454,6 +466,11 @@ nv50_crtc_gamma_set(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b,
 		nv_crtc->lut.b[i] = b[i];
 	}
 
+	/* We need to know the depth before we upload, but it's possible to
+	 * get called before a framebuffer is bound.  If this is the case,
+	 * mark the lut values as dirty by setting depth==0, and it'll be
+	 * uploaded on the first mode_set_base()
+	 */
 	if (!nv_crtc->base.fb) {
 		nv_crtc->lut.depth = 0;
 		return;
@@ -539,18 +556,25 @@ nv50_crtc_do_mode_set_base(struct drm_crtc *crtc,
 
 	NV_DEBUG_KMS(dev, "index %d\n", nv_crtc->index);
 
-	
+	/* no fb bound */
 	if (!atomic && !crtc->fb) {
 		NV_DEBUG_KMS(dev, "No FB bound\n");
 		return 0;
 	}
 
+	/* If atomic, we want to switch to the fb we were passed, so
+	 * now we update pointers to do that.  (We don't pin; just
+	 * assume we're already pinned and update the base address.)
+	 */
 	if (atomic) {
 		drm_fb = passed_fb;
 		fb = nouveau_framebuffer(passed_fb);
 	} else {
 		drm_fb = crtc->fb;
 		fb = nouveau_framebuffer(crtc->fb);
+		/* If not atomic, we can go ahead and pin, and unpin the
+		 * old fb we were passed.
+		 */
 		ret = nouveau_bo_pin(fb->nvbo, TTM_PL_FLAG_VRAM);
 		if (ret)
 			return ret;
@@ -615,6 +639,17 @@ nv50_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *umode,
 	u32 vblan2e = 0, vblan2s = 1;
 	int ret;
 
+	/* hw timing description looks like this:
+	 *
+	 * <sync> <back porch> <---------display---------> <front porch>
+	 * ______
+	 *       |____________|---------------------------|____________|
+	 *
+	 *       ^ synce      ^ blanke                    ^ blanks     ^ active
+	 *
+	 * interlaced modes also have 2 additional values pointing at the end
+	 * and start of the next field's blanking period.
+	 */
 
 	hactive = mode->htotal;
 	hsynce  = mode->hsync_end - mode->hsync_start - 1;
@@ -641,7 +676,7 @@ nv50_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *umode,
 		OUT_RING  (evo, 0x00800000 | mode->clock);
 		OUT_RING  (evo, (ilace == 2) ? 2 : 0);
 		BEGIN_RING(evo, 0, 0x0810 + head, 6);
-		OUT_RING  (evo, 0x00000000); 
+		OUT_RING  (evo, 0x00000000); /* border colour */
 		OUT_RING  (evo, (vactive << 16) | hactive);
 		OUT_RING  (evo, ( vsynce << 16) | hsynce);
 		OUT_RING  (evo, (vblanke << 16) | hblanke);
@@ -650,11 +685,11 @@ nv50_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *umode,
 		BEGIN_RING(evo, 0, 0x082c + head, 1);
 		OUT_RING  (evo, 0x00000000);
 		BEGIN_RING(evo, 0, 0x0900 + head, 1);
-		OUT_RING  (evo, 0x00000311); 
+		OUT_RING  (evo, 0x00000311); /* makes sync channel work */
 		BEGIN_RING(evo, 0, 0x08c8 + head, 1);
 		OUT_RING  (evo, (umode->vdisplay << 16) | umode->hdisplay);
 		BEGIN_RING(evo, 0, 0x08d4 + head, 1);
-		OUT_RING  (evo, 0x00000000); 
+		OUT_RING  (evo, 0x00000000); /* screen position */
 	}
 
 	nv_crtc->set_dither(nv_crtc, false);
@@ -723,6 +758,9 @@ nv50_crtc_create(struct drm_device *dev, int index)
 	nv_crtc->color_vibrance = 50;
 	nv_crtc->vibrant_hue = 0;
 
+	/* Default CLUT parameters, will be activated on the hw upon
+	 * first mode set.
+	 */
 	for (i = 0; i < 256; i++) {
 		nv_crtc->lut.r[i] = i << 8;
 		nv_crtc->lut.g[i] = i << 8;
@@ -747,7 +785,7 @@ nv50_crtc_create(struct drm_device *dev, int index)
 
 	nv_crtc->index = index;
 
-	
+	/* set function pointers */
 	nv_crtc->set_dither = nv50_crtc_set_dither;
 	nv_crtc->set_scale = nv50_crtc_set_scale;
 	nv_crtc->set_color_vibrance = nv50_crtc_set_color_vibrance;

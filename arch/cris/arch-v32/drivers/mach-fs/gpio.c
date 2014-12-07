@@ -38,8 +38,16 @@
 #define VIRT_I2C_ADDR 0x40
 #endif
 
+/* The following gio ports on ETRAX FS is available:
+ * pa  8 bits, supports interrupts off, hi, low, set, posedge, negedge anyedge
+ * pb 18 bits
+ * pc 18 bits
+ * pd 18 bits
+ * pe 18 bits
+ * each port has a rw_px_dout, r_px_din and rw_px_oe register.
+ */
 
-#define GPIO_MAJOR 120  
+#define GPIO_MAJOR 120  /* experimental MAJOR number */
 
 #define D(x)
 
@@ -74,24 +82,26 @@ static int gpio_release(struct inode *inode, struct file *filp);
 static unsigned int gpio_poll(struct file *filp,
 	struct poll_table_struct *wait);
 
+/* private data per open() of this driver */
 
 struct gpio_private {
 	struct gpio_private *next;
-	
+	/* The IO_CFG_WRITE_MODE_VALUE only support 8 bits: */
 	unsigned char clk_mask;
 	unsigned char data_mask;
 	unsigned char write_msb;
 	unsigned char pad1;
-	
+	/* These fields are generic */
 	unsigned long highalarm, lowalarm;
 	wait_queue_head_t alarm_wq;
 	int minor;
 };
 
+/* linked list of alarms to check for */
 
 static struct gpio_private *alarmlist;
 
-static int gpio_some_alarms; 
+static int gpio_some_alarms; /* Set if someone uses alarm */
 static unsigned long gpio_pa_high_alarms;
 static unsigned long gpio_pa_low_alarms;
 
@@ -185,6 +195,9 @@ static unsigned int gpio_poll(struct file *file, struct poll_table_struct *wait)
 		local_irq_save(flags);
 		data = REG_TYPE_CONV(unsigned long, reg_gio_r_pa_din,
 			REG_RD(gio, regi_gio, r_pa_din));
+		/* PA has support for interrupt
+		 * lets activate high for those low and with highalarm set
+		 */
 		intr_cfg = REG_RD(gio, regi_gio, rw_intr_cfg);
 
 		tmp = ~data & priv->highalarm & 0xFF;
@@ -204,6 +217,9 @@ static unsigned int gpio_poll(struct file *file, struct poll_table_struct *wait)
 			intr_cfg.pa6 = regk_gio_hi;
 		if (tmp & (1 << 7))
 			intr_cfg.pa7 = regk_gio_hi;
+		/*
+		 * lets activate low for those high and with lowalarm set
+		 */
 		tmp = data & priv->lowalarm & 0xFF;
 		if (tmp & (1 << 0))
 			intr_cfg.pa0 = regk_gio_lo;
@@ -289,16 +305,19 @@ gpio_pa_interrupt(int irq, void *dev_id)
 	unsigned char enable_gpiov_ack = 0;
 #endif
 
-	
+	/* Find what PA interrupts are active */
 	masked_intr = REG_RD(gio, regi_gio, r_masked_intr);
 	tmp = REG_TYPE_CONV(unsigned long, reg_gio_r_masked_intr, masked_intr);
 
-	
+	/* Find those that we have enabled */
 	spin_lock(&alarm_lock);
 	tmp &= (gpio_pa_high_alarms | gpio_pa_low_alarms);
 	spin_unlock(&alarm_lock);
 
 #ifdef CONFIG_ETRAX_VIRTUAL_GPIO
+	/* Something changed on virtual GPIO. Interrupt is acked by
+	 * reading the device.
+	 */
 	if (tmp & (1 << CONFIG_ETRAX_VIRTUAL_GPIO_INTERRUPT_PA_PIN)) {
 		i2c_read(VIRT_I2C_ADDR, (void *)&cached_virtual_gpio_read,
 			sizeof(cached_virtual_gpio_read));
@@ -306,15 +325,18 @@ gpio_pa_interrupt(int irq, void *dev_id)
 	}
 #endif
 
-	
+	/* Ack them */
 	ack_intr = REG_TYPE_CONV(reg_gio_rw_ack_intr, unsigned long, tmp);
 	REG_WR(gio, regi_gio, rw_ack_intr, ack_intr);
 
-	
+	/* Disable those interrupts.. */
 	intr_mask = REG_RD(gio, regi_gio, rw_intr_mask);
 	tmp2 = REG_TYPE_CONV(unsigned long, reg_gio_rw_intr_mask, intr_mask);
 	tmp2 &= ~tmp;
 #ifdef CONFIG_ETRAX_VIRTUAL_GPIO
+	/* Do not disable interrupt on virtual GPIO. Changes on virtual
+	 * pins are only noticed by an interrupt.
+	 */
 	if (enable_gpiov_ack)
 		tmp2 |= (1 << CONFIG_ETRAX_VIRTUAL_GPIO_INTERRUPT_PA_PIN);
 #endif
@@ -336,6 +358,8 @@ static ssize_t gpio_write(struct file *file, const char *buf, size_t count,
 	unsigned long shadow;
 	volatile unsigned long *port;
 	ssize_t retval = count;
+	/* Only bits 0-7 may be used for write operations but allow all
+	   devices except leds... */
 #ifdef CONFIG_ETRAX_VIRTUAL_GPIO
 	if (priv->minor == GPIO_MINOR_V)
 		return -EFAULT;
@@ -347,8 +371,8 @@ static ssize_t gpio_write(struct file *file, const char *buf, size_t count,
 		return -EFAULT;
 	clk_mask = priv->clk_mask;
 	data_mask = priv->data_mask;
-	
-	
+	/* It must have been configured using the IO_CFG_WRITE_MODE */
+	/* Perhaps a better error code? */
 	if (clk_mask == 0 || data_mask == 0)
 		return -EPERM;
 	write_msb = priv->write_msb;
@@ -368,7 +392,7 @@ static ssize_t gpio_write(struct file *file, const char *buf, size_t count,
 					*port = shadow |= data_mask;
 				else
 					*port = shadow &= ~data_mask;
-			
+			/* For FPGA: min 5.0ns (DCC) before CCLK high */
 				*port = shadow |= clk_mask;
 				local_irq_restore(flags);
 			}
@@ -381,7 +405,7 @@ static ssize_t gpio_write(struct file *file, const char *buf, size_t count,
 					*port = shadow |= data_mask;
 				else
 					*port = shadow &= ~data_mask;
-			
+			/* For FPGA: min 5.0ns (DCC) before CCLK high */
 				*port = shadow |= clk_mask;
 				local_irq_restore(flags);
 			}
@@ -410,7 +434,7 @@ gpio_open(struct inode *inode, struct file *filp)
 
 	priv->minor = p;
 
-	
+	/* initialize the io/alarm struct */
 
 	priv->clk_mask = 0;
 	priv->data_mask = 0;
@@ -420,7 +444,7 @@ gpio_open(struct inode *inode, struct file *filp)
 
 	filp->private_data = (void *)priv;
 
-	
+	/* link it into our alarmlist */
 	spin_lock_irq(&alarm_lock);
 	priv->next = alarmlist;
 	alarmlist = priv;
@@ -435,11 +459,11 @@ gpio_release(struct inode *inode, struct file *filp)
 {
 	struct gpio_private *p;
 	struct gpio_private *todel;
-	
+	/* local copies while updating them: */
 	unsigned long a_high, a_low;
 	unsigned long some_alarms;
 
-	
+	/* unlink from alarmlist and free the private structure */
 
 	spin_lock_irq(&alarm_lock);
 	p = alarmlist;
@@ -454,7 +478,7 @@ gpio_release(struct inode *inode, struct file *filp)
 	}
 
 	kfree(todel);
-	
+	/* Check if there are still any alarms set */
 	p = alarmlist;
 	some_alarms = 0;
 	a_high = 0;
@@ -474,6 +498,9 @@ gpio_release(struct inode *inode, struct file *filp)
 	}
 
 #ifdef CONFIG_ETRAX_VIRTUAL_GPIO
+	/* Variables 'some_alarms' and 'a_low' needs to be set here again
+	 * to ensure that interrupt for virtual GPIO is handled.
+	 */
 	some_alarms = 1;
 	a_low |= (1 << CONFIG_ETRAX_VIRTUAL_GPIO_INTERRUPT_PA_PIN);
 #endif
@@ -486,9 +513,15 @@ gpio_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/* Main device API. ioctl's to read/set/clear bits, as well as to
+ * set alarms to wait for using a subsequent select().
+ */
 
 inline unsigned long setget_input(struct gpio_private *priv, unsigned long arg)
 {
+	/* Set direction 0=unchanged 1=input,
+	 * return mask with 1=input
+	 */
 	unsigned long flags;
 	unsigned long dir_shadow;
 
@@ -499,16 +532,16 @@ inline unsigned long setget_input(struct gpio_private *priv, unsigned long arg)
 	local_irq_restore(flags);
 
 	if (priv->minor == GPIO_MINOR_A)
-		dir_shadow ^= 0xFF;    
+		dir_shadow ^= 0xFF;    /* Only 8 bits */
 #ifdef CONFIG_ETRAX_VIRTUAL_GPIO
 	else if (priv->minor == GPIO_MINOR_V)
-		dir_shadow ^= 0xFFFF;  
+		dir_shadow ^= 0xFFFF;  /* Only 16 bits */
 #endif
 	else
-		dir_shadow ^= 0x3FFFF; 
+		dir_shadow ^= 0x3FFFF; /* Only 18 bits */
 	return dir_shadow;
 
-} 
+} /* setget_input */
 
 inline unsigned long setget_output(struct gpio_private *priv, unsigned long arg)
 {
@@ -521,7 +554,7 @@ inline unsigned long setget_output(struct gpio_private *priv, unsigned long arg)
 	*dir_oe[priv->minor] = dir_shadow;
 	local_irq_restore(flags);
 	return dir_shadow;
-} 
+} /* setget_output */
 
 static int gpio_leds_ioctl(unsigned int cmd, unsigned long arg);
 
@@ -541,13 +574,13 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 #endif
 
 	switch (_IOC_NR(cmd)) {
-	case IO_READBITS: 
-		
+	case IO_READBITS: /* Use IO_READ_INBITS and IO_READ_OUTBITS instead */
+		/* Read the port. */
 		return *data_in[priv->minor];
 		break;
 	case IO_SETBITS:
 		local_irq_save(flags);
-		
+		/* Set changeable bits with a 1 in arg. */
 		shadow = *data_out[priv->minor];
 		shadow |=  (arg & changeable_bits[priv->minor]);
 		*data_out[priv->minor] = shadow;
@@ -555,14 +588,14 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IO_CLRBITS:
 		local_irq_save(flags);
-		
+		/* Clear changeable bits with a 1 in arg. */
 		shadow = *data_out[priv->minor];
 		shadow &=  ~(arg & changeable_bits[priv->minor]);
 		*data_out[priv->minor] = shadow;
 		local_irq_restore(flags);
 		break;
 	case IO_HIGHALARM:
-		
+		/* Set alarm when bits with 1 in arg go high. */
 		priv->highalarm |= arg;
 		spin_lock_irqsave(&alarm_lock, flags);
 		gpio_some_alarms = 1;
@@ -571,7 +604,7 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 		spin_unlock_irqrestore(&alarm_lock, flags);
 		break;
 	case IO_LOWALARM:
-		
+		/* Set alarm when bits with 1 in arg go low. */
 		priv->lowalarm |= arg;
 		spin_lock_irqsave(&alarm_lock, flags);
 		gpio_some_alarms = 1;
@@ -580,25 +613,31 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 		spin_unlock_irqrestore(&alarm_lock, flags);
 		break;
 	case IO_CLRALARM:
-		
+		/* Clear alarm for bits with 1 in arg. */
 		priv->highalarm &= ~arg;
 		priv->lowalarm  &= ~arg;
 		spin_lock_irqsave(&alarm_lock, flags);
 		if (priv->minor == GPIO_MINOR_A) {
 			if (gpio_pa_high_alarms & arg ||
 			    gpio_pa_low_alarms & arg)
-				
+				/* Must update the gpio_pa_*alarms masks */
 				;
 		}
 		spin_unlock_irqrestore(&alarm_lock, flags);
 		break;
-	case IO_READDIR: 
-		
+	case IO_READDIR: /* Use IO_SETGET_INPUT/OUTPUT instead! */
+		/* Read direction 0=input 1=output */
 		return *dir_oe[priv->minor];
-	case IO_SETINPUT: 
+	case IO_SETINPUT: /* Use IO_SETGET_INPUT instead! */
+		/* Set direction 0=unchanged 1=input,
+		 * return mask with 1=input
+		 */
 		return setget_input(priv, arg);
 		break;
-	case IO_SETOUTPUT: 
+	case IO_SETOUTPUT: /* Use IO_SETGET_OUTPUT instead! */
+		/* Set direction 0=unchanged 1=output,
+		 * return mask with 1=output
+		 */
 		return setget_output(priv, arg);
 
 	case IO_CFG_WRITE_MODE:
@@ -609,6 +648,9 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 		priv->clk_mask = arg & 0xFF;
 		priv->data_mask = (arg >> 8) & 0xFF;
 		priv->write_msb = (arg >> 16) & 0x01;
+		/* Check if we're allowed to change the bits and
+		 * the direction is correct
+		 */
 		if (!((priv->clk_mask & changeable_bits[priv->minor]) &&
 		      (priv->data_mask & changeable_bits[priv->minor]) &&
 		      (priv->clk_mask & dir_shadow) &&
@@ -620,19 +662,22 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	}
 	case IO_READ_INBITS:
-		
+		/* *arg is result of reading the input pins */
 		val = *data_in[priv->minor];
 		if (copy_to_user((unsigned long *)arg, &val, sizeof(val)))
 			return -EFAULT;
 		return 0;
 		break;
 	case IO_READ_OUTBITS:
-		 
+		 /* *arg is result of reading the output shadow */
 		val = *data_out[priv->minor];
 		if (copy_to_user((unsigned long *)arg, &val, sizeof(val)))
 			return -EFAULT;
 		break;
 	case IO_SETGET_INPUT:
+		/* bits set in *arg is set to input,
+		 * *arg updated with current input pins.
+		 */
 		if (copy_from_user(&val, (unsigned long *)arg, sizeof(val)))
 			return -EFAULT;
 		val = setget_input(priv, val);
@@ -640,6 +685,9 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		break;
 	case IO_SETGET_OUTPUT:
+		/* bits set in *arg is set to output,
+		 * *arg updated with current output pins.
+		 */
 		if (copy_from_user(&val, (unsigned long *)arg, sizeof(val)))
 			return -EFAULT;
 		val = setget_output(priv, val);
@@ -651,7 +699,7 @@ gpio_ioctl_unlocked(struct file *file, unsigned int cmd, unsigned long arg)
 			return gpio_leds_ioctl(cmd, arg);
 		else
 			return -EINVAL;
-	} 
+	} /* switch */
 
 	return 0;
 }
@@ -679,7 +727,7 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	switch (_IOC_NR(cmd)) {
 	case IO_SETBITS:
 		local_irq_save(flags);
-		
+		/* Set changeable bits with a 1 in arg. */
 		i2c_read(VIRT_I2C_ADDR, (void *)&shadow, sizeof(shadow));
 		shadow |= ~*dir_oe[priv->minor];
 		shadow |= (arg & changeable_bits[priv->minor]);
@@ -688,7 +736,7 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IO_CLRBITS:
 		local_irq_save(flags);
-		
+		/* Clear changeable bits with a 1 in arg. */
 		i2c_read(VIRT_I2C_ADDR, (void *)&shadow, sizeof(shadow));
 		shadow |= ~*dir_oe[priv->minor];
 		shadow &= ~(arg & changeable_bits[priv->minor]);
@@ -696,21 +744,21 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		local_irq_restore(flags);
 		break;
 	case IO_HIGHALARM:
-		
+		/* Set alarm when bits with 1 in arg go high. */
 		priv->highalarm |= arg;
 		spin_lock(&alarm_lock);
 		gpio_some_alarms = 1;
 		spin_unlock(&alarm_lock);
 		break;
 	case IO_LOWALARM:
-		
+		/* Set alarm when bits with 1 in arg go low. */
 		priv->lowalarm |= arg;
 		spin_lock(&alarm_lock);
 		gpio_some_alarms = 1;
 		spin_unlock(&alarm_lock);
 		break;
 	case IO_CLRALARM:
-		
+		/* Clear alarm for bits with 1 in arg. */
 		priv->highalarm &= ~arg;
 		priv->lowalarm  &= ~arg;
 		spin_lock(&alarm_lock);
@@ -724,6 +772,9 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		priv->clk_mask = arg & 0xFF;
 		priv->data_mask = (arg >> 8) & 0xFF;
 		priv->write_msb = (arg >> 16) & 0x01;
+		/* Check if we're allowed to change the bits and
+		 * the direction is correct
+		 */
 		if (!((priv->clk_mask & changeable_bits[priv->minor]) &&
 		      (priv->data_mask & changeable_bits[priv->minor]) &&
 		      (priv->clk_mask & dir_shadow) &&
@@ -735,7 +786,7 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	}
 	case IO_READ_INBITS:
-		
+		/* *arg is result of reading the input pins */
 		val = cached_virtual_gpio_read;
 		val &= ~*dir_oe[priv->minor];
 		if (copy_to_user((unsigned long *)arg, &val, sizeof(val)))
@@ -743,7 +794,7 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return 0;
 		break;
 	case IO_READ_OUTBITS:
-		 
+		 /* *arg is result of reading the output shadow */
 		i2c_read(VIRT_I2C_ADDR, (void *)&val, sizeof(val));
 		val &= *dir_oe[priv->minor];
 		if (copy_to_user((unsigned long *)arg, &val, sizeof(val)))
@@ -751,6 +802,9 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	case IO_SETGET_INPUT:
 	{
+		/* bits set in *arg is set to input,
+		 * *arg updated with current input pins.
+		 */
 		unsigned short input_mask = ~*dir_oe[priv->minor];
 		if (copy_from_user(&val, (unsigned long *)arg, sizeof(val)))
 			return -EFAULT;
@@ -758,6 +812,9 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		if (copy_to_user((unsigned long *)arg, &val, sizeof(val)))
 			return -EFAULT;
 		if ((input_mask & val) != input_mask) {
+			/* Input pins changed. All ports desired as input
+			 * should be set to logic 1.
+			 */
 			unsigned short change = input_mask ^ val;
 			i2c_read(VIRT_I2C_ADDR, (void *)&shadow,
 				sizeof(shadow));
@@ -769,6 +826,9 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	}
 	case IO_SETGET_OUTPUT:
+		/* bits set in *arg is set to output,
+		 * *arg updated with current output pins.
+		 */
 		if (copy_from_user(&val, (unsigned long *)arg, sizeof(val)))
 			return -EFAULT;
 		val = setget_output(priv, val);
@@ -777,10 +837,10 @@ virtual_gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		break;
 	default:
 		return -EINVAL;
-	} 
+	} /* switch */
   return 0;
 }
-#endif 
+#endif /* CONFIG_ETRAX_VIRTUAL_GPIO */
 
 static int
 gpio_leds_ioctl(unsigned int cmd, unsigned long arg)
@@ -798,7 +858,7 @@ gpio_leds_ioctl(unsigned int cmd, unsigned long arg)
 
 	default:
 		return -EINVAL;
-	} 
+	} /* switch */
 
 	return 0;
 }
@@ -821,10 +881,13 @@ virtual_gpio_init(void)
 	reg_gio_rw_intr_mask intr_mask;
 	unsigned short shadow;
 
-	shadow = ~virtual_rw_pv_oe; 
+	shadow = ~virtual_rw_pv_oe; /* Input ports should be set to logic 1 */
 	shadow |= CONFIG_ETRAX_DEF_GIO_PV_OUT;
 	i2c_write(VIRT_I2C_ADDR, (void *)&shadow, sizeof(shadow));
 
+	/* Set interrupt mask and on what state the interrupt shall trigger.
+	 * For virtual gpio the interrupt shall trigger on logic '0'.
+	 */
 	intr_cfg = REG_RD(gio, regi_gio, rw_intr_cfg);
 	intr_mask = REG_RD(gio, regi_gio, rw_intr_mask);
 
@@ -871,13 +934,14 @@ virtual_gpio_init(void)
 }
 #endif
 
+/* main driver initialization routine, called from mem.c */
 
 static __init int
 gpio_init(void)
 {
 	int res;
 
-	
+	/* do the formalities */
 
 	res = register_chrdev(GPIO_MAJOR, gpio_name, &gpio_fops);
 	if (res < 0) {
@@ -885,7 +949,7 @@ gpio_init(void)
 		return res;
 	}
 
-	
+	/* Clear all leds */
 	CRIS_LED_NETWORK_GRP0_SET(0);
 	CRIS_LED_NETWORK_GRP1_SET(0);
 	CRIS_LED_ACTIVE_SET(0);
@@ -894,6 +958,11 @@ gpio_init(void)
 
 	printk(KERN_INFO "ETRAX FS GPIO driver v2.5, (c) 2003-2007 "
 		"Axis Communications AB\n");
+	/* We call etrax_gpio_wake_up_check() from timer interrupt and
+	 * from cpu_idle() in kernel/process.c
+	 * The check in cpu_idle() reduces latency from ~15 ms to ~6 ms
+	 * in some tests.
+	 */
 	if (request_irq(TIMER0_INTR_VECT, gpio_poll_timer_interrupt,
 			IRQF_SHARED | IRQF_DISABLED, "gpio poll", &alarmlist))
 		printk(KERN_ERR "timer0 irq for gpio\n");
@@ -909,5 +978,6 @@ gpio_init(void)
 	return res;
 }
 
+/* this makes sure that gpio_init is called during kernel boot */
 
 module_init(gpio_init);

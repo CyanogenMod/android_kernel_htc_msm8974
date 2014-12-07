@@ -4,6 +4,7 @@
 #ifdef __KERNEL__
 
 
+/* bytes per L1 cache line */
 #if defined(CONFIG_8xx) || defined(CONFIG_403GCX)
 #define L1_CACHE_SHIFT		4
 #define MAX_COPY_PREFETCH	1
@@ -17,7 +18,7 @@
 #else
 #define L1_CACHE_SHIFT		5
 #endif
-#else 
+#else /* CONFIG_PPC64 */
 #define L1_CACHE_SHIFT		7
 #endif
 
@@ -27,18 +28,18 @@
 
 #if defined(__powerpc64__) && !defined(__ASSEMBLY__)
 struct ppc64_caches {
-	u32	dsize;			
-	u32	dline_size;		
+	u32	dsize;			/* L1 d-cache size */
+	u32	dline_size;		/* L1 d-cache line size	*/
 	u32	log_dline_size;
 	u32	dlines_per_page;
-	u32	isize;			
-	u32	iline_size;		
+	u32	isize;			/* L1 i-cache size */
+	u32	iline_size;		/* L1 i-cache line size	*/
 	u32	log_iline_size;
 	u32	ilines_per_page;
 };
 
 extern struct ppc64_caches ppc64_caches;
-#endif 
+#endif /* __powerpc64__ && ! __ASSEMBLY__ */
 
 #if !defined(__ASSEMBLY__)
 
@@ -59,6 +60,6 @@ extern void _set_L3CR(unsigned long);
 extern void cacheable_memzero(void *p, unsigned int nb);
 extern void *cacheable_memcpy(void *, const void *, unsigned int);
 
-#endif 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_CACHE_H */

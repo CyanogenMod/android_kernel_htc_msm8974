@@ -21,7 +21,7 @@
 #include "board-trout.h"
 
 static uint8_t trout_int_mask[2] = {
-	[0] = 0xff, 
+	[0] = 0xff, /* mask all interrupts */
 	[1] = 0xff,
 };
 static uint8_t trout_sleep_int_mask[] = {
@@ -31,7 +31,7 @@ static uint8_t trout_sleep_int_mask[] = {
 
 struct msm_gpio_chip {
 	struct gpio_chip	chip;
-	void __iomem		*reg;	
+	void __iomem		*reg;	/* Base of register bank */
 	u8			shadow;
 };
 
@@ -95,16 +95,16 @@ static int trout_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
 
 static struct msm_gpio_chip msm_gpio_banks[] = {
 #if defined(CONFIG_MSM_DEBUG_UART1)
-	
+	/* H2W pins <-> UART1 */
 	TROUT_GPIO_BANK("MISC2", 0x00,   TROUT_GPIO_MISC2_BASE, 0x40),
 #else
-	
+	/* H2W pins <-> UART3, Bluetooth <-> UART1 */
 	TROUT_GPIO_BANK("MISC2", 0x00,   TROUT_GPIO_MISC2_BASE, 0x80),
 #endif
-	
+	/* I2C pull */
 	TROUT_GPIO_BANK("MISC3", 0x02,   TROUT_GPIO_MISC3_BASE, 0x04),
 	TROUT_GPIO_BANK("MISC4", 0x04,   TROUT_GPIO_MISC4_BASE, 0),
-	
+	/* mmdi 32k en */
 	TROUT_GPIO_BANK("MISC5", 0x06,   TROUT_GPIO_MISC5_BASE, 0x04),
 	TROUT_GPIO_BANK("INT2", 0x08,    TROUT_GPIO_INT2_BASE,  0),
 	TROUT_GPIO_BANK("MISC1", 0x0a,   TROUT_GPIO_MISC1_BASE, 0),
@@ -116,7 +116,7 @@ static void trout_gpio_irq_ack(struct irq_data *d)
 	int bank = TROUT_INT_TO_BANK(d->irq);
 	uint8_t mask = TROUT_INT_TO_MASK(d->irq);
 	int reg = TROUT_BANK_TO_STAT_REG(bank);
-	
+	/*printk(KERN_INFO "trout_gpio_irq_ack irq %d\n", d->irq);*/
 	writeb(mask, TROUT_CPLD_BASE + reg);
 }
 
@@ -130,6 +130,8 @@ static void trout_gpio_irq_mask(struct irq_data *d)
 
 	local_irq_save(flags);
 	reg_val = trout_int_mask[bank] |= mask;
+	/*printk(KERN_INFO "trout_gpio_irq_mask irq %d => %d:%02x\n",
+	       d->irq, bank, reg_val);*/
 	writeb(reg_val, TROUT_CPLD_BASE + reg);
 	local_irq_restore(flags);
 }
@@ -144,6 +146,8 @@ static void trout_gpio_irq_unmask(struct irq_data *d)
 
 	local_irq_save(flags);
 	reg_val = trout_int_mask[bank] &= ~mask;
+	/*printk(KERN_INFO "trout_gpio_irq_unmask irq %d => %d:%02x\n",
+	       d->irq, bank, reg_val);*/
 	writeb(reg_val, TROUT_CPLD_BASE + reg);
 	local_irq_restore(flags);
 }
@@ -185,6 +189,8 @@ static void trout_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 		while (v) {
 			m = v & -v;
 			j = fls(m) - 1;
+			/*printk(KERN_INFO "msm_gpio_irq_handler %d:%02x %02x b"
+			       "it %d irq %d\n", bank, v, m, j, int_base + j);*/
 			v &= ~m;
 			generic_handle_irq(int_base + j);
 		}
@@ -201,6 +207,9 @@ static struct irq_chip trout_gpio_irq_chip = {
 	.irq_set_wake  = trout_gpio_irq_set_wake,
 };
 
+/*
+ * Called from the processor-specific init to enable GPIO pin support.
+ */
 int __init trout_init_gpio(void)
 {
 	int i;

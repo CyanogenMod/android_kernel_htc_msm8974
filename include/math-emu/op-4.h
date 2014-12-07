@@ -54,6 +54,7 @@
       X##_f[_i] = 0;							\
   } while (0)
 
+/* This one was broken too */
 #define _FP_FRAC_SRL_4(X,N)						\
   do {									\
     _FP_I_TYPE _up, _down, _skip, _i;					\
@@ -75,6 +76,11 @@
   } while (0)
 
 
+/* Right shift with sticky-lsb. 
+ * What this actually means is that we do a standard right-shift,
+ * but that if any of the bits that fall off the right hand side
+ * were one then we always set the LSbit.
+ */
 #define _FP_FRAC_SRS_4(X,N,size)					\
   do {									\
     _FP_I_TYPE _up, _down, _skip, _i;					\
@@ -85,7 +91,7 @@
     for (_s = _i = 0; _i < _skip; ++_i)					\
       _s |= X##_f[_i];							\
     _s |= X##_f[_i] << _up;						\
-				\
+/* s is now != 0 if we want to set the LSbit */				\
     if (!_down)								\
       for (_i = 0; _i <= 3-_skip; ++_i)					\
 	X##_f[_i] = X##_f[_i+_skip];					\
@@ -98,7 +104,7 @@
       }									\
     for (; _i < 4; ++_i)						\
       X##_f[_i] = 0;							\
-    	\
+    /* don't fix the LSB until the very end when we're sure f[0] is stable */	\
     X##_f[0] |= (_s != 0);						\
   } while (0)
 
@@ -224,7 +230,11 @@
     _flo->bits.sign  = X##_s;					\
   } while (0)
 
+/*
+ * Multiplication algorithms:
+ */
 
+/* Given a 1W * 1W => 2W primitive, do the extended multiplication.  */
 
 #define _FP_MUL_MEAT_4_wide(wfracbits, R, X, Y, doit)			    \
   do {									    \
@@ -302,7 +312,9 @@
 		    _b_f1,_b_f0,					    \
 		    _FP_FRAC_WORD_8(_z,7),_FP_FRAC_WORD_8(_z,6));	    \
 									    \
-					    \
+    /* Normalize since we know where the msb of the multiplicands	    \
+       were (bit B), we know that the msb of the of the product is	    \
+       at either 2B or 2B-1.  */					    \
     _FP_FRAC_SRS_8(_z, wfracbits-1, 2*wfracbits);			    \
     __FP_FRAC_SET_4(R, _FP_FRAC_WORD_8(_z,3), _FP_FRAC_WORD_8(_z,2),	    \
 		    _FP_FRAC_WORD_8(_z,1), _FP_FRAC_WORD_8(_z,0));	    \
@@ -314,12 +326,18 @@
 									    \
     mpn_mul_n(_z_f, _x_f, _y_f, 4);					    \
 									    \
-					    \
+    /* Normalize since we know where the msb of the multiplicands	    \
+       were (bit B), we know that the msb of the of the product is	    \
+       at either 2B or 2B-1.  */					    \
     _FP_FRAC_SRS_8(_z, wfracbits-1, 2*wfracbits);	 		    \
     __FP_FRAC_SET_4(R, _FP_FRAC_WORD_8(_z,3), _FP_FRAC_WORD_8(_z,2),	    \
 		    _FP_FRAC_WORD_8(_z,1), _FP_FRAC_WORD_8(_z,0));	    \
   } while (0)
 
+/*
+ * Helper utility for _FP_DIV_MEAT_4_udiv:
+ * pppp = m * nnn
+ */
 #define umul_ppppmnnn(p3,p2,p1,p0,m,n2,n1,n0)				    \
   do {									    \
     UWtype _t;								    \
@@ -330,6 +348,9 @@
     __FP_FRAC_ADDI_2(p3,p2,_t);						    \
   } while (0)
 
+/*
+ * Division algorithms:
+ */
 
 #define _FP_DIV_MEAT_4_udiv(fs, R, X, Y)				    \
   do {									    \
@@ -344,14 +365,18 @@
     else								    \
       R##_e--;								    \
 									    \
-						    \
+    /* Normalize, i.e. make the most significant bit of the 		    \
+       denominator set. */						    \
     _FP_FRAC_SLL_4(Y, _FP_WFRACXBITS_##fs);				    \
 									    \
     for (_i = 3; ; _i--)						    \
       {									    \
         if (X##_f[3] == Y##_f[3])					    \
           {								    \
-				    \
+            /* This is a special case, not an optimization		    \
+               (X##_f[3]/Y##_f[3] would not fit into UWtype).		    \
+               As X## is guaranteed to be < Y,  R##_f[_i] can be either	    \
+               (UWtype)-1 or (UWtype)-2.  */				    \
             R##_f[_i] = -1;						    \
             if (!_i)							    \
 	      break;							    \
@@ -395,6 +420,11 @@
   } while (0)
 
 
+/*
+ * Square root algorithms:
+ * We have just one right now, maybe Newton approximation
+ * should be added for those machines where division is fast.
+ */
  
 #define _FP_SQRT_MEAT_4(R, S, T, X, q)				\
   do {								\
@@ -475,6 +505,9 @@
   } while (0)
 
 
+/*
+ * Internals 
+ */
 
 #define __FP_FRAC_SET_4(X,I3,I2,I1,I0)					\
   (X##_f[3] = I3, X##_f[2] = I2, X##_f[1] = I1, X##_f[0] = I0)
@@ -572,6 +605,13 @@
   } while (0)
 #endif
 
+/* Convert FP values between word sizes. This appears to be more
+ * complicated than I'd have expected it to be, so these might be
+ * wrong... These macros are in any case somewhat bogus because they
+ * use information about what various FRAC_n variables look like 
+ * internally [eg, that 2 word vars are X_f0 and x_f1]. But so do
+ * the ones in op-2.h and op-1.h. 
+ */
 #define _FP_FRAC_CONV_1_4(dfs, sfs, D, S)				\
    do {									\
      if (S##_c != FP_CLS_NAN)						\
@@ -593,6 +633,10 @@
      D##_f1 = S##_f[1];							\
   } while (0)
 
+/* Assembly/disassembly for converting to/from integral types.  
+ * No shifting or overflow handled here.
+ */
+/* Put the FP value X into r, which is an integer of size rsize. */
 #define _FP_FRAC_ASSEMBLE_4(r, X, rsize)				\
   do {									\
     if (rsize <= _FP_W_TYPE_SIZE)					\
@@ -605,8 +649,8 @@
     }									\
     else								\
     {									\
-      	\
-      	\
+      /* I'm feeling lazy so we deal with int == 3words (implausible)*/	\
+      /* and int == 4words as a single case.			 */	\
       r = X##_f[3];							\
       r <<= _FP_W_TYPE_SIZE;						\
       r += X##_f[2];							\
@@ -617,6 +661,11 @@
     }									\
   } while (0)
 
+/* "No disassemble Number Five!" */
+/* move an integer of size rsize into X's fractional part. We rely on
+ * the _f[] array consisting of words of size _FP_W_TYPE_SIZE to avoid
+ * having to mask the values we store into it.
+ */
 #define _FP_FRAC_DISASSEMBLE_4(X, r, rsize)				\
   do {									\
     X##_f[0] = r;							\

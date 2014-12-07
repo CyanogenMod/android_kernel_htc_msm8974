@@ -1,22 +1,34 @@
+/*
+ * comedi/drivers/acl7225b.c
+ * Driver for Adlink NuDAQ ACL-7225b and clones
+ * José Luis Sánchez
+ */
+/*
+Driver: acl7225b
+Description: Adlink NuDAQ ACL-7225b & compatibles
+Author: José Luis Sánchez (jsanchezv@teleline.es)
+Status: testing
+Devices: [Adlink] ACL-7225b (acl7225b), [ICP] P16R16DIO (p16r16dio)
+*/
 
 #include "../comedidev.h"
 
 #include <linux/ioport.h>
 
-#define ACL7225_SIZE   8	
+#define ACL7225_SIZE   8	/* Requires 8 ioports, but only 4 are used */
 #define P16R16DIO_SIZE 4
-#define ACL7225_RIO_LO 0	
-#define ACL7225_RIO_HI 1	
-#define ACL7225_DI_LO  2	
-#define ACL7225_DI_HI  3	
+#define ACL7225_RIO_LO 0	/* Relays input/output low byte (R0-R7) */
+#define ACL7225_RIO_HI 1	/* Relays input/output high byte (R8-R15) */
+#define ACL7225_DI_LO  2	/* Digital input low byte (DI0-DI7) */
+#define ACL7225_DI_HI  3	/* Digital input high byte (DI8-DI15) */
 
 static int acl7225b_attach(struct comedi_device *dev,
 			   struct comedi_devconfig *it);
 static int acl7225b_detach(struct comedi_device *dev);
 
 struct boardtype {
-	const char *name;	
-	int io_range;		
+	const char *name;	/*  driver name */
+	int io_range;		/*  len of I/O space */
 };
 
 static const struct boardtype boardtypes[] = {
@@ -108,7 +120,7 @@ static int acl7225b_attach(struct comedi_device *dev,
 		return -ENOMEM;
 
 	s = dev->subdevices + 0;
-	
+	/* Relays outputs */
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->maxdata = 1;
@@ -118,7 +130,7 @@ static int acl7225b_attach(struct comedi_device *dev,
 	s->private = (void *)ACL7225_RIO_LO;
 
 	s = dev->subdevices + 1;
-	
+	/* Relays status */
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
 	s->maxdata = 1;
@@ -128,7 +140,7 @@ static int acl7225b_attach(struct comedi_device *dev,
 	s->private = (void *)ACL7225_RIO_LO;
 
 	s = dev->subdevices + 2;
-	
+	/* Isolated digital inputs */
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
 	s->maxdata = 1;

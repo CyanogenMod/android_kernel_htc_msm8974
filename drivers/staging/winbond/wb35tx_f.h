@@ -3,6 +3,11 @@
 
 #include "core.h"
 
+/*
+ * ====================================
+ * Interface function declare
+ * ====================================
+ */
 unsigned char Wb35Tx_initial(struct hw_data *hw_data);
 void Wb35Tx_destroy(struct hw_data *hw_data);
 unsigned char Wb35Tx_get_tx_buffer(struct hw_data *hw_data, u8 **buffer);

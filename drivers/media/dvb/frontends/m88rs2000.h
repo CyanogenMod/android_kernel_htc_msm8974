@@ -24,14 +24,14 @@
 #include "dvb_frontend.h"
 
 struct m88rs2000_config {
-	
+	/* Demodulator i2c address */
 	u8 demod_addr;
-	
+	/* Tuner address */
 	u8 tuner_addr;
 
 	u8 *inittab;
 
-	
+	/* minimum delay before retuning */
 	int min_delay_ms;
 
 	int (*set_ts_params)(struct dvb_frontend *, int);
@@ -53,7 +53,7 @@ static inline struct dvb_frontend *m88rs2000_attach(
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_M88RS2000 */
 
 #define FE_CRYSTAL_KHZ 27000
 #define FREQ_OFFSET_LOW_SYM_RATE 3000
@@ -63,4 +63,4 @@ enum {
 	TUNER_WRITE,
 	WRITE_DELAY = 0x10,
 };
-#endif 
+#endif /* M88RS2000_H */

@@ -167,7 +167,7 @@ static inline void mxcmci_init_ocr(struct mxcmci_host *host)
 	}
 
 	if (host->vcc == NULL) {
-		
+		/* fall-back to platform data */
 		if (host->pdata && host->pdata->ocr_avail)
 			host->mmc->ocr_avail = host->pdata->ocr_avail;
 		else
@@ -201,7 +201,7 @@ static void mxcmci_softreset(struct mxcmci_host *host)
 
 	dev_dbg(mmc_dev(host->mmc), "mxcmci_softreset\n");
 
-	
+	/* reset sequence */
 	writew(STR_STP_CLK_RESET, host->base + MMC_REG_STR_STP_CLK);
 	writew(STR_STP_CLK_RESET | STR_STP_CLK_START_CLK,
 			host->base + MMC_REG_STR_STP_CLK);
@@ -263,7 +263,7 @@ static int mxcmci_setup_data(struct mxcmci_host *host, struct mmc_data *data)
 		dma_unmap_sg(host->dma->device->dev, data->sg, data->sg_len,
 				host->dma_dir);
 		host->do_dma = 0;
-		return 0; 
+		return 0; /* Fall back to PIO */
 	}
 	wmb();
 
@@ -283,14 +283,14 @@ static int mxcmci_start_cmd(struct mxcmci_host *host, struct mmc_command *cmd,
 	host->cmd = cmd;
 
 	switch (mmc_resp_type(cmd)) {
-	case MMC_RSP_R1: 
-	case MMC_RSP_R1B:
+	case MMC_RSP_R1: /* short CRC, OPCODE */
+	case MMC_RSP_R1B:/* short CRC, OPCODE, BUSY */
 		cmdat |= CMD_DAT_CONT_RESPONSE_48BIT_CRC;
 		break;
-	case MMC_RSP_R2: 
+	case MMC_RSP_R2: /* long 136 bit + CRC */
 		cmdat |= CMD_DAT_CONT_RESPONSE_136BIT;
 		break;
-	case MMC_RSP_R3: 
+	case MMC_RSP_R3: /* short */
 		cmdat |= CMD_DAT_CONT_RESPONSE_48BIT;
 		break;
 	case MMC_RSP_NONE:
@@ -358,7 +358,7 @@ static int mxcmci_finish_data(struct mxcmci_host *host, unsigned int stat)
 			data->error = -EILSEQ;
 		} else if (stat & STATUS_CRC_WRITE_ERR) {
 			u32 err_code = (stat >> 9) & 0x3;
-			if (err_code == 2) { 
+			if (err_code == 2) { /* No CRC response */
 				dev_err(mmc_dev(host->mmc),
 					"%s: No CRC -ETIMEDOUT\n", __func__);
 				data->error = -ETIMEDOUT;
@@ -583,6 +583,10 @@ static void mxcmci_cmd_done(struct mxcmci_host *host, unsigned int stat)
 		return;
 	}
 
+	/* For the DMA case the DMA engine handles the data transfer
+	 * automatically. For non DMA we have to do it ourselves.
+	 * Don't do it in interrupt context though.
+	 */
 	if (!mxcmci_use_dma(host) && host->data)
 		schedule_work(&host->datawork);
 
@@ -718,6 +722,10 @@ static void mxcmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	struct mxcmci_host *host = mmc_priv(mmc);
 	int burstlen, ret;
 
+	/*
+	 * use burstlen of 64 (16 words) in 4 bit mode (--> reg value  0)
+	 * use burstlen of 16 (4 words) in 1 bit mode (--> reg value 16)
+	 */
 	if (ios->bus_width == MMC_BUS_WIDTH_4)
 		burstlen = 16;
 	else
@@ -774,6 +782,10 @@ static int mxcmci_get_ro(struct mmc_host *mmc)
 
 	if (host->pdata && host->pdata->get_ro)
 		return !!host->pdata->get_ro(mmc_dev(mmc));
+	/*
+	 * Board doesn't support read only detection; let the mmc core
+	 * decide what to do.
+	 */
 	return -ENOSYS;
 }
 
@@ -798,6 +810,12 @@ static void mxcmci_enable_sdio_irq(struct mmc_host *mmc, int enable)
 
 static void mxcmci_init_card(struct mmc_host *host, struct mmc_card *card)
 {
+	/*
+	 * MX3 SoCs have a silicon bug which corrupts CRC calculation of
+	 * multi-block transfers when connected SDIO peripheral doesn't
+	 * drive the BUSY line as required by the specs.
+	 * One way to prevent this is to only allow 1-bit transfers.
+	 */
 
 	if (cpu_is_mx3() && card->type == MMC_TYPE_SDIO)
 		host->caps &= ~MMC_CAP_4_BIT_DATA;
@@ -853,7 +871,7 @@ static int mxcmci_probe(struct platform_device *pdev)
 	mmc->ops = &mxcmci_ops;
 	mmc->caps = MMC_CAP_4_BIT_DATA | MMC_CAP_SDIO_IRQ;
 
-	
+	/* MMC core transfer sizes tunable parameters */
 	mmc->max_segs = 64;
 	mmc->max_blk_size = 2048;
 	mmc->max_blk_count = 65535;
@@ -902,7 +920,7 @@ static int mxcmci_probe(struct platform_device *pdev)
 	mmc->f_min = clk_get_rate(host->clk) >> 16;
 	mmc->f_max = clk_get_rate(host->clk) >> 1;
 
-	
+	/* recommended in data sheet */
 	writew(0x2db4, host->base + MMC_REG_READ_TO);
 
 	writel(host->default_irq_mask, host->base + MMC_REG_INT_CNTR);

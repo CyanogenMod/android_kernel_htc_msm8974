@@ -16,6 +16,7 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/* this file is part of ehci-hcd.c */
 static int __maybe_unused ehci_lpm_set_da(struct ehci_hcd *ehci,
 	int dev_addr, int port_num)
 {
@@ -33,6 +34,10 @@ static int __maybe_unused ehci_lpm_set_da(struct ehci_hcd *ehci,
 	return 0;
 }
 
+/*
+ * this function is used to check if the device support LPM
+ * if yes, mark the PORTSC register with PORT_LPM bit
+ */
 static int __maybe_unused ehci_lpm_check(struct ehci_hcd *ehci, int port)
 {
 	u32 __iomem	*portsc ;
@@ -51,7 +56,7 @@ static int __maybe_unused ehci_lpm_check(struct ehci_hcd *ehci, int port)
 	val32 |= PORT_SUSPEND;
 	ehci_dbg(ehci, "Sending LPM 0x%08x to port %d\n", val32, port);
 	ehci_writel(ehci, val32, portsc);
-	
+	/* wait for ACK */
 	msleep(10);
 	retval = handshake(ehci, &ehci->regs->port_status[port-1], PORT_SSTS,
 			PORTSC_SUSPEND_STS_ACK, 125);
@@ -59,6 +64,10 @@ static int __maybe_unused ehci_lpm_check(struct ehci_hcd *ehci, int port)
 	if (retval != -ETIMEDOUT) {
 		ehci_dbg(ehci, "LPM: device ACK for LPM\n");
 		val32 |= PORT_LPM;
+		/*
+		 * now device should be in L1 sleep, let's wake up the device
+		 * so that we can complete enumeration.
+		 */
 		ehci_writel(ehci, val32, portsc);
 		msleep(10);
 		val32 |= PORT_RESUME;

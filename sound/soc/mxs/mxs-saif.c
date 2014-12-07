@@ -38,6 +38,23 @@
 
 static struct mxs_saif *mxs_saif[2];
 
+/*
+ * SAIF is a little different with other normal SOC DAIs on clock using.
+ *
+ * For MXS, two SAIF modules are instantiated on-chip.
+ * Each SAIF has a set of clock pins and can be operating in master
+ * mode simultaneously if they are connected to different off-chip codecs.
+ * Also, one of the two SAIFs can master or drive the clock pins while the
+ * other SAIF, in slave mode, receives clocking from the master SAIF.
+ * This also means that both SAIFs must operate at the same sample rate.
+ *
+ * We abstract this as each saif has a master, the master could be
+ * himself or other saifs. In the generic saif driver, saif does not need
+ * to know the different clkmux. Saif only needs to know who is his master
+ * and operating his master to generate the proper clock rate for him.
+ * The master id is provided in mach-specific layer according to different
+ * clkmux setting.
+ */
 
 static int mxs_saif_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 			int clk_id, unsigned int freq, int dir)
@@ -54,11 +71,20 @@ static int mxs_saif_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 	return 0;
 }
 
+/*
+ * Since SAIF may work on EXTMASTER mode, IOW, it's working BITCLK&LRCLK
+ * is provided by other SAIF, we provide a interface here to get its master
+ * from its master_id.
+ * Note that the master could be himself.
+ */
 static inline struct mxs_saif *mxs_saif_get_master(struct mxs_saif * saif)
 {
 	return mxs_saif[saif->master_id];
 }
 
+/*
+ * Set SAIF clock and MCLK
+ */
 static int mxs_saif_set_clk(struct mxs_saif *saif,
 				  unsigned int mclk,
 				  unsigned int rate)
@@ -69,14 +95,14 @@ static int mxs_saif_set_clk(struct mxs_saif *saif,
 
 	dev_dbg(saif->dev, "mclk %d rate %d\n", mclk, rate);
 
-	
+	/* Set master saif to generate proper clock */
 	master_saif = mxs_saif_get_master(saif);
 	if (!master_saif)
 		return -EINVAL;
 
 	dev_dbg(saif->dev, "master saif%d\n", master_saif->id);
 
-	
+	/* Checking if can playback and capture simutaneously */
 	if (master_saif->ongoing && rate != master_saif->cur_rate) {
 		dev_err(saif->dev,
 			"can not change clock, master saif%d(rate %d) is ongoing\n",
@@ -88,6 +114,16 @@ static int mxs_saif_set_clk(struct mxs_saif *saif,
 	scr &= ~BM_SAIF_CTRL_BITCLK_MULT_RATE;
 	scr &= ~BM_SAIF_CTRL_BITCLK_BASE_RATE;
 
+	/*
+	 * Set SAIF clock
+	 *
+	 * The SAIF clock should be either 384*fs or 512*fs.
+	 * If MCLK is used, the SAIF clk ratio need to match mclk ratio.
+	 *  For 32x mclk, set saif clk as 512*fs.
+	 *  For 48x mclk, set saif clk as 384*fs.
+	 *
+	 * If MCLK is not used, we just set saif clk to 512*fs.
+	 */
 	clk_prepare_enable(master_saif->clk);
 
 	if (master_saif->mclk_in_use) {
@@ -98,7 +134,7 @@ static int mxs_saif_set_clk(struct mxs_saif *saif,
 			scr |= BM_SAIF_CTRL_BITCLK_BASE_RATE;
 			ret = clk_set_rate(master_saif->clk, 384 * rate);
 		} else {
-			
+			/* SAIF MCLK should be either 32x or 48x */
 			clk_disable_unprepare(master_saif->clk);
 			return -EINVAL;
 		}
@@ -119,6 +155,12 @@ static int mxs_saif_set_clk(struct mxs_saif *saif,
 		return 0;
 	}
 
+	/*
+	 * Program the over-sample rate for MCLK output
+	 *
+	 * The available MCLK range is 32x, 48x... 512x. The rate
+	 * could be from 8kHz to 192kH.
+	 */
 	switch (mclk / rate) {
 	case 32:
 		scr |= BF_SAIF_CTRL_BITCLK_MULT_RATE(4);
@@ -156,6 +198,9 @@ static int mxs_saif_set_clk(struct mxs_saif *saif,
 	return 0;
 }
 
+/*
+ * Put and disable MCLK.
+ */
 int mxs_saif_put_mclk(unsigned int saif_id)
 {
 	struct mxs_saif *saif = mxs_saif[saif_id];
@@ -172,7 +217,7 @@ int mxs_saif_put_mclk(unsigned int saif_id)
 
 	clk_disable_unprepare(saif->clk);
 
-	
+	/* disable MCLK output */
 	__raw_writel(BM_SAIF_CTRL_CLKGATE,
 		saif->base + SAIF_CTRL + MXS_SET_ADDR);
 	__raw_writel(BM_SAIF_CTRL_RUN,
@@ -182,6 +227,12 @@ int mxs_saif_put_mclk(unsigned int saif_id)
 	return 0;
 }
 
+/*
+ * Get MCLK and set clock rate, then enable it
+ *
+ * This interface is used for codecs who are using MCLK provided
+ * by saif.
+ */
 int mxs_saif_get_mclk(unsigned int saif_id, unsigned int mclk,
 					unsigned int rate)
 {
@@ -193,11 +244,11 @@ int mxs_saif_get_mclk(unsigned int saif_id, unsigned int mclk,
 	if (!saif)
 		return -EINVAL;
 
-	
+	/* Clear Reset */
 	__raw_writel(BM_SAIF_CTRL_SFTRST,
 		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
 
-	
+	/* FIXME: need clear clk gate for register r/w */
 	__raw_writel(BM_SAIF_CTRL_CLKGATE,
 		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
 
@@ -222,13 +273,17 @@ int mxs_saif_get_mclk(unsigned int saif_id, unsigned int mclk,
 	if (ret)
 		return ret;
 
-	
+	/* enable MCLK output */
 	__raw_writel(BM_SAIF_CTRL_RUN,
 		saif->base + SAIF_CTRL + MXS_SET_ADDR);
 
 	return 0;
 }
 
+/*
+ * SAIF DAI format configuration.
+ * Should only be called when port is inactive.
+ */
 static int mxs_saif_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 {
 	u32 scr, stat;
@@ -246,15 +301,15 @@ static int mxs_saif_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		& ~BM_SAIF_CTRL_JUSTIFY & ~BM_SAIF_CTRL_DELAY;
 	scr = 0;
 
-	
+	/* DAI mode */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
-		
+		/* data frame low 1clk before data */
 		scr |= BM_SAIF_CTRL_DELAY;
 		scr &= ~BM_SAIF_CTRL_LRCLK_POLARITY;
 		break;
 	case SND_SOC_DAIFMT_LEFT_J:
-		
+		/* data frame high with data */
 		scr &= ~BM_SAIF_CTRL_DELAY;
 		scr &= ~BM_SAIF_CTRL_LRCLK_POLARITY;
 		scr &= ~BM_SAIF_CTRL_JUSTIFY;
@@ -263,7 +318,7 @@ static int mxs_saif_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	
+	/* DAI clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_IB_IF:
 		scr |= BM_SAIF_CTRL_BITCLK_EDGE;
@@ -283,6 +338,13 @@ static int mxs_saif_set_dai_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		break;
 	}
 
+	/*
+	 * Note: We simply just support master mode since SAIF TX can only
+	 * work as master.
+	 * Here the master is relative to codec side.
+	 * Saif internally could be slave when working on EXTMASTER mode.
+	 * We just hide this to machine driver.
+	 */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
 		if (saif->id == saif->master_id)
@@ -305,21 +367,25 @@ static int mxs_saif_startup(struct snd_pcm_substream *substream,
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
 	snd_soc_dai_set_dma_data(cpu_dai, substream, &saif->dma_param);
 
-	
+	/* clear error status to 0 for each re-open */
 	saif->fifo_underrun = 0;
 	saif->fifo_overrun = 0;
 
-	
+	/* Clear Reset for normal operations */
 	__raw_writel(BM_SAIF_CTRL_SFTRST,
 		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
 
-	
+	/* clear clock gate */
 	__raw_writel(BM_SAIF_CTRL_CLKGATE,
 		saif->base + SAIF_CTRL + MXS_CLR_ADDR);
 
 	return 0;
 }
 
+/*
+ * Should only be called when port is inactive.
+ * although can be called multiple times by upper layers.
+ */
 static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 			     struct snd_pcm_hw_params *params,
 			     struct snd_soc_dai *cpu_dai)
@@ -328,7 +394,7 @@ static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 	u32 scr, stat;
 	int ret;
 
-	
+	/* mclk should already be set */
 	if (!saif->mclk && saif->mclk_in_use) {
 		dev_err(cpu_dai->dev, "set mclk first\n");
 		return -EINVAL;
@@ -340,6 +406,11 @@ static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 		return -EBUSY;
 	}
 
+	/*
+	 * Set saif clk based on sample rate.
+	 * If mclk is used, we also set mclk, if not, saif->mclk is
+	 * default 0, means not used.
+	 */
 	ret = mxs_saif_set_clk(saif, saif->mclk, params_rate(params));
 	if (ret) {
 		dev_err(cpu_dai->dev, "unable to get proper clk\n");
@@ -366,12 +437,12 @@ static int mxs_saif_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* Tx/Rx config */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		
+		/* enable TX mode */
 		scr &= ~BM_SAIF_CTRL_READ_MODE;
 	} else {
-		
+		/* enable RX mode */
 		scr |= BM_SAIF_CTRL_READ_MODE;
 	}
 
@@ -384,7 +455,7 @@ static int mxs_saif_prepare(struct snd_pcm_substream *substream,
 {
 	struct mxs_saif *saif = snd_soc_dai_get_drvdata(cpu_dai);
 
-	
+	/* enable FIFO error irqs */
 	__raw_writel(BM_SAIF_CTRL_FIFO_ERROR_IRQ_EN,
 		saif->base + SAIF_CTRL + MXS_SET_ADDR);
 
@@ -413,6 +484,10 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 			__raw_writel(BM_SAIF_CTRL_RUN,
 				master_saif->base + SAIF_CTRL + MXS_SET_ADDR);
 
+		/*
+		 * If the saif's master is not himself, we also need to enable
+		 * itself clk for its internal basic logic to work.
+		 */
 		if (saif != master_saif) {
 			clk_enable(saif->clk);
 			__raw_writel(BM_SAIF_CTRL_RUN,
@@ -420,8 +495,16 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 		}
 
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			/*
+			 * write a data to saif data register to trigger
+			 * the transfer
+			 */
 			__raw_writel(0, saif->base + SAIF_DATA);
 		} else {
+			/*
+			 * read a data from saif data register to trigger
+			 * the receive
+			 */
 			__raw_readl(saif->base + SAIF_DATA);
 		}
 
@@ -440,7 +523,7 @@ static int mxs_saif_trigger(struct snd_pcm_substream *substream, int cmd,
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		dev_dbg(cpu_dai->dev, "stop\n");
 
-		
+		/* wait a while for the current sample to complete */
 		delay = USEC_PER_SEC / master_saif->cur_rate;
 
 		if (!master_saif->mclk_in_use) {

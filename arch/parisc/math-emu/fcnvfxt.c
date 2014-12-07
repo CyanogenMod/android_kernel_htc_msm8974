@@ -18,6 +18,31 @@
  *    along with this program; if not, write to the Free Software
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * BEGIN_DESC
+ *
+ *  File:
+ *	@(#)	pa/spmath/fcnvfxt.c		$Revision: 1.1 $
+ *
+ *  Purpose:
+ *	Single Floating-point to Single Fixed-point /w truncated result
+ *	Single Floating-point to Double Fixed-point /w truncated result
+ *	Double Floating-point to Single Fixed-point /w truncated result
+ *	Double Floating-point to Double Fixed-point /w truncated result
+ *
+ *  External Interfaces:
+ *	dbl_to_dbl_fcnvfxt(srcptr,nullptr,dstptr,status)
+ *	dbl_to_sgl_fcnvfxt(srcptr,nullptr,dstptr,status)
+ *	sgl_to_dbl_fcnvfxt(srcptr,nullptr,dstptr,status)
+ *	sgl_to_sgl_fcnvfxt(srcptr,nullptr,dstptr,status)
+ *
+ *  Internal Interfaces:
+ *
+ *  Theory:
+ *	<<please update with a overview of the operation of this file>>
+ *
+ * END_DESC
+*/
 
 
 #include "float.h"
@@ -25,6 +50,11 @@
 #include "dbl_float.h"
 #include "cnv_float.h"
 
+/*
+ *  Convert single floating-point to single fixed-point format
+ *  with truncated result
+ */
+/*ARGSUSED*/
 int
 sgl_to_sgl_fcnvfxt(
 		    sgl_floating_point *srcptr,
@@ -38,8 +68,11 @@ sgl_to_sgl_fcnvfxt(
 	src = *srcptr;
 	src_exponent = Sgl_exponent(src) - SGL_BIAS;
 
+	/* 
+	 * Test for overflow
+	 */
 	if (src_exponent > SGL_FX_MAX_EXP) {
-		
+		/* check for MININT */
 		if ((src_exponent > SGL_FX_MAX_EXP + 1) || 
 		Sgl_isnotzero_mantissa(src) || Sgl_iszero_sign(src)) {
                         if (Sgl_iszero_sign(src)) result = 0x7fffffff;
@@ -53,6 +86,9 @@ sgl_to_sgl_fcnvfxt(
 			return(NOEXCEPTION);
 		}
 	}
+	/*
+	 * Generate result
+	 */
 	if (src_exponent >= 0) {
 		temp = src;
 		Sgl_clear_signexponent_set_hidden(temp);
@@ -61,7 +97,7 @@ sgl_to_sgl_fcnvfxt(
 		else result = Sgl_all(temp);
 		*dstptr = result;
 
-		
+		/* check for inexact */
 		if (Sgl_isinexact_to_fix(src,src_exponent)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();
@@ -70,7 +106,7 @@ sgl_to_sgl_fcnvfxt(
 	else {
 		*dstptr = 0;
 
-		
+		/* check for inexact */
 		if (Sgl_isnotzero_exponentmantissa(src)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();
@@ -79,6 +115,10 @@ sgl_to_sgl_fcnvfxt(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Single Floating-point to Double Fixed-point 
+ */
+/*ARGSUSED*/
 int
 sgl_to_dbl_fcnvfxt(
 		    sgl_floating_point *srcptr,
@@ -92,8 +132,11 @@ sgl_to_dbl_fcnvfxt(
 	src = *srcptr;
 	src_exponent = Sgl_exponent(src) - SGL_BIAS;
 
+	/* 
+	 * Test for overflow
+	 */
 	if (src_exponent > DBL_FX_MAX_EXP) {
-		
+		/* check for MININT */
 		if ((src_exponent > DBL_FX_MAX_EXP + 1) || 
 		Sgl_isnotzero_mantissa(src) || Sgl_iszero_sign(src)) {
                         if (Sgl_iszero_sign(src)) {
@@ -115,6 +158,9 @@ sgl_to_dbl_fcnvfxt(
 		Dint_copytoptr(resultp1,resultp2,dstptr);
 		return(NOEXCEPTION);
 	}
+	/*
+	 * Generate result
+	 */
 	if (src_exponent >= 0) {
 		temp = src;
 		Sgl_clear_signexponent_set_hidden(temp);
@@ -124,7 +170,7 @@ sgl_to_dbl_fcnvfxt(
 		}
 		Dint_copytoptr(resultp1,resultp2,dstptr);
 
-		
+		/* check for inexact */
 		if (Sgl_isinexact_to_fix(src,src_exponent)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();
@@ -134,7 +180,7 @@ sgl_to_dbl_fcnvfxt(
 		Dint_setzero(resultp1,resultp2);
 		Dint_copytoptr(resultp1,resultp2,dstptr);
 
-		
+		/* check for inexact */
 		if (Sgl_isnotzero_exponentmantissa(src)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();
@@ -143,6 +189,10 @@ sgl_to_dbl_fcnvfxt(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Double Floating-point to Single Fixed-point 
+ */
+/*ARGSUSED*/
 int
 dbl_to_sgl_fcnvfxt(
 			dbl_floating_point *srcptr,
@@ -156,8 +206,11 @@ dbl_to_sgl_fcnvfxt(
 	Dbl_copyfromptr(srcptr,srcp1,srcp2);
 	src_exponent = Dbl_exponent(srcp1) - DBL_BIAS;
 
+	/* 
+	 * Test for overflow
+	 */
 	if (src_exponent > SGL_FX_MAX_EXP) {
-		
+		/* check for MININT */
 		if (Dbl_isoverflow_to_int(src_exponent,srcp1,srcp2)) {
                         if (Dbl_iszero_sign(srcp1)) result = 0x7fffffff;
                         else result = 0x80000000; 
@@ -170,6 +223,9 @@ dbl_to_sgl_fcnvfxt(
 			return(NOEXCEPTION);
 		}
 	}
+	/*
+	 * Generate result
+	 */
 	if (src_exponent >= 0) {
 		tempp1 = srcp1;
 		tempp2 = srcp2;
@@ -180,7 +236,7 @@ dbl_to_sgl_fcnvfxt(
 		else result = Dbl_allp1(tempp1);
 		*dstptr = result;
 
-		
+		/* check for inexact */
 		if (Dbl_isinexact_to_fix(srcp1,srcp2,src_exponent)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();
@@ -189,7 +245,7 @@ dbl_to_sgl_fcnvfxt(
 	else {
 		*dstptr = 0;
 
-		
+		/* check for inexact */
 		if (Dbl_isnotzero_exponentmantissa(srcp1,srcp2)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();
@@ -198,6 +254,10 @@ dbl_to_sgl_fcnvfxt(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Double Floating-point to Double Fixed-point 
+ */
+/*ARGSUSED*/
 int
 dbl_to_dbl_fcnvfxt(
 			dbl_floating_point *srcptr,
@@ -211,8 +271,11 @@ dbl_to_dbl_fcnvfxt(
 	Dbl_copyfromptr(srcptr,srcp1,srcp2);
 	src_exponent = Dbl_exponent(srcp1) - DBL_BIAS;
 
+	/* 
+	 * Test for overflow
+	 */
 	if (src_exponent > DBL_FX_MAX_EXP) {
-		
+		/* check for MININT */
 		if ((src_exponent > DBL_FX_MAX_EXP + 1) || 
 		Dbl_isnotzero_mantissa(srcp1,srcp2) || Dbl_iszero_sign(srcp1)) {
                         if (Dbl_iszero_sign(srcp1)) {
@@ -231,6 +294,9 @@ dbl_to_dbl_fcnvfxt(
 			return(NOEXCEPTION);
 		}
 	}
+	/*
+	 * Generate result
+	 */
 	if (src_exponent >= 0) {
 		tempp1 = srcp1;
 		tempp2 = srcp2;
@@ -242,7 +308,7 @@ dbl_to_dbl_fcnvfxt(
 		}
 		Dint_copytoptr(resultp1,resultp2,dstptr);
 
-		
+		/* check for inexact */
 		if (Dbl_isinexact_to_fix(srcp1,srcp2,src_exponent)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();
@@ -252,7 +318,7 @@ dbl_to_dbl_fcnvfxt(
 		Dint_setzero(resultp1,resultp2);
 		Dint_copytoptr(resultp1,resultp2,dstptr);
 
-		
+		/* check for inexact */
 		if (Dbl_isnotzero_exponentmantissa(srcp1,srcp2)) {
 			if (Is_inexacttrap_enabled()) return(INEXACTEXCEPTION);
 			else Set_inexactflag();

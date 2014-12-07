@@ -59,7 +59,7 @@ static void __init ebsa110_init_irq(void)
 	__raw_writeb(0x00, IRQ_MSET);
 	if (__raw_readb(IRQ_MASK) != 0x55)
 		while (1);
-	__raw_writeb(0xff, IRQ_MCLR);	
+	__raw_writeb(0xff, IRQ_MCLR);	/* clear all interrupt enables */
 	local_irq_restore(flags);
 
 	for (irq = 0; irq < NR_IRQS; irq++) {
@@ -70,28 +70,34 @@ static void __init ebsa110_init_irq(void)
 }
 
 static struct map_desc ebsa110_io_desc[] __initdata = {
-	{	
+	/*
+	 * sparse external-decode ISAIO space
+	 */
+	{	/* IRQ_STAT/IRQ_MCLR */
 		.virtual	= IRQ_STAT,
 		.pfn		= __phys_to_pfn(TRICK4_PHYS),
 		.length		= TRICK4_SIZE,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* IRQ_MASK/IRQ_MSET */
 		.virtual	= IRQ_MASK,
 		.pfn		= __phys_to_pfn(TRICK3_PHYS),
 		.length		= TRICK3_SIZE,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* SOFT_BASE */
 		.virtual	= SOFT_BASE,
 		.pfn		= __phys_to_pfn(TRICK1_PHYS),
 		.length		= TRICK1_SIZE,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* PIT_BASE */
 		.virtual	= PIT_BASE,
 		.pfn		= __phys_to_pfn(TRICK0_PHYS),
 		.length		= TRICK0_SIZE,
 		.type		= MT_DEVICE
 	},
 
+	/*
+	 * self-decode ISAIO space
+	 */
 	{
 		.virtual	= ISAIO_BASE,
 		.pfn		= __phys_to_pfn(ISAIO_PHYS),
@@ -130,12 +136,28 @@ static void __init ebsa110_init_early(void)
 #define PIT_T1			(PIT_BASE + 0x05)
 #define PIT_T0			(PIT_BASE + 0x01)
 
+/*
+ * This is the rate at which your MCLK signal toggles (in Hz)
+ * This was measured on a 10 digit frequency counter sampling
+ * over 1 second.
+ */
 #define MCLK	47894000
 
+/*
+ * This is the rate at which the PIT timers get clocked
+ */
 #define CLKBY7	(MCLK / 7)
 
+/*
+ * This is the counter value.  We tick at 200Hz on this platform.
+ */
 #define COUNT	((CLKBY7 + (HZ / 2)) / HZ)
 
+/*
+ * Get the time offset from the system PIT.  Note that if we have missed an
+ * interrupt, then the PIT counter will roll over (ie, be negative).
+ * This actually works out to be convenient.
+ */
 static unsigned long ebsa110_gettimeoffset(void)
 {
 	unsigned long offset, count;
@@ -144,12 +166,19 @@ static unsigned long ebsa110_gettimeoffset(void)
 	count = __raw_readb(PIT_T1);
 	count |= __raw_readb(PIT_T1) << 8;
 
+	/*
+	 * If count > COUNT, make the number negative.
+	 */
 	if (count > COUNT)
 		count |= 0xffff0000;
 
 	offset = COUNT;
 	offset -= count;
 
+	/*
+	 * `offset' is in units of timer counts.  Convert
+	 * offset to units of microseconds.
+	 */
 	offset = offset * (1000000 / HZ) / COUNT;
 
 	return offset;
@@ -160,7 +189,7 @@ ebsa110_timer_interrupt(int irq, void *dev_id)
 {
 	u32 count;
 
-	
+	/* latch and read timer 1 */
 	__raw_writeb(0x40, PIT_CTRL);
 	count = __raw_readb(PIT_T1);
 	count |= __raw_readb(PIT_T1) << 8;
@@ -181,8 +210,14 @@ static struct irqaction ebsa110_timer_irq = {
 	.handler	= ebsa110_timer_interrupt,
 };
 
+/*
+ * Set up timer interrupt.
+ */
 static void __init ebsa110_timer_init(void)
 {
+	/*
+	 * Timer 1, mode 2, LSB/MSB
+	 */
 	__raw_writeb(0x70, PIT_CTRL);
 	__raw_writeb(COUNT & 0xff, PIT_T1);
 	__raw_writeb(COUNT >> 8, PIT_T1);
@@ -247,17 +282,27 @@ static struct platform_device *ebsa110_devices[] = {
 	&am79c961_device,
 };
 
+/*
+ * EBSA110 idling methodology:
+ *
+ * We can not execute the "wait for interrupt" instruction since that
+ * will stop our MCLK signal (which provides the clock for the glue
+ * logic, and therefore the timer interrupt).
+ *
+ * Instead, we spin, polling the IRQ_STAT register for the occurrence
+ * of any interrupt with core clock down to the memory clock.
+ */
 static void ebsa110_idle(void)
 {
 	const char *irq_stat = (char *)0xff000000;
 
-	
+	/* disable clock switching */
 	asm volatile ("mcr p15, 0, ip, c15, c2, 2" : : : "cc");
 
-	
+	/* wait for an interrupt to occur */
 	while (!*irq_stat);
 
-	
+	/* enable clock switching */
 	asm volatile ("mcr p15, 0, ip, c15, c1, 2" : : : "cc");
 }
 
@@ -275,7 +320,7 @@ static void ebsa110_restart(char mode, const char *cmd)
 }
 
 MACHINE_START(EBSA110, "EBSA110")
-	
+	/* Maintainer: Russell King */
 	.atag_offset	= 0x400,
 	.reserve_lp0	= 1,
 	.reserve_lp2	= 1,

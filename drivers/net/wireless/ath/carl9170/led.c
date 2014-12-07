@@ -49,13 +49,13 @@ int carl9170_led_init(struct ar9170 *ar)
 {
 	int err;
 
-	
-	
+	/* disable LEDs */
+	/* GPIO [0/1 mode: output, 2/3: input] */
 	err = carl9170_write_reg(ar, AR9170_GPIO_REG_PORT_TYPE, 3);
 	if (err)
 		goto out;
 
-	
+	/* GPIO 0/1 value: off */
 	err = carl9170_led_set_state(ar, 0);
 
 out:
@@ -187,4 +187,4 @@ fail:
 	return err;
 }
 
-#endif 
+#endif /* CONFIG_CARL9170_LEDS */

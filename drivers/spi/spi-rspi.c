@@ -55,6 +55,7 @@
 #define RSPI_SPCMD6		0x1c
 #define RSPI_SPCMD7		0x1e
 
+/* SPCR */
 #define SPCR_SPRIE		0x80
 #define SPCR_SPE		0x40
 #define SPCR_SPTIE		0x20
@@ -64,15 +65,18 @@
 #define SPCR_TXMD		0x02
 #define SPCR_SPMS		0x01
 
+/* SSLP */
 #define SSLP_SSL1P		0x02
 #define SSLP_SSL0P		0x01
 
+/* SPPCR */
 #define SPPCR_MOIFE		0x20
 #define SPPCR_MOIFV		0x10
 #define SPPCR_SPOM		0x04
 #define SPPCR_SPLP2		0x02
 #define SPPCR_SPLP		0x01
 
+/* SPSR */
 #define SPSR_SPRF		0x80
 #define SPSR_SPTEF		0x20
 #define SPSR_PERF		0x08
@@ -80,11 +84,14 @@
 #define SPSR_IDLNF		0x02
 #define SPSR_OVRF		0x01
 
+/* SPSCR */
 #define SPSCR_SPSLN_MASK	0x07
 
+/* SPSSR */
 #define SPSSR_SPECM_MASK	0x70
 #define SPSSR_SPCP_MASK		0x07
 
+/* SPDCR */
 #define SPDCR_SPLW		0x20
 #define SPDCR_SPRDTD		0x10
 #define SPDCR_SLSEL1		0x08
@@ -93,17 +100,22 @@
 #define SPDCR_SPFC1		0x02
 #define SPDCR_SPFC0		0x01
 
+/* SPCKD */
 #define SPCKD_SCKDL_MASK	0x07
 
+/* SSLND */
 #define SSLND_SLNDL_MASK	0x07
 
+/* SPND */
 #define SPND_SPNDL_MASK		0x07
 
+/* SPCR2 */
 #define SPCR2_PTE		0x08
 #define SPCR2_SPIE		0x04
 #define SPCR2_SPOE		0x02
 #define SPCR2_SPPE		0x01
 
+/* SPCMDn */
 #define SPCMD_SCKDEN		0x8000
 #define SPCMD_SLNDEN		0x4000
 #define SPCMD_SPNDEN		0x2000
@@ -198,28 +210,28 @@ static void rspi_negate_ssl(struct rspi_data *rspi)
 
 static int rspi_set_config_register(struct rspi_data *rspi, int access_size)
 {
-	
+	/* Sets output mode(CMOS) and MOSI signal(from previous transfer) */
 	rspi_write8(rspi, 0x00, RSPI_SPPCR);
 
-	
+	/* Sets transfer bit rate */
 	rspi_write8(rspi, rspi_calc_spbr(rspi), RSPI_SPBR);
 
-	
+	/* Sets number of frames to be used: 1 frame */
 	rspi_write8(rspi, 0x00, RSPI_SPDCR);
 
-	
+	/* Sets RSPCK, SSL, next-access delay value */
 	rspi_write8(rspi, 0x00, RSPI_SPCKD);
 	rspi_write8(rspi, 0x00, RSPI_SSLND);
 	rspi_write8(rspi, 0x00, RSPI_SPND);
 
-	
+	/* Sets parity, interrupt mask */
 	rspi_write8(rspi, 0x00, RSPI_SPCR2);
 
-	
+	/* Sets SPCMD */
 	rspi_write16(rspi, SPCMD_SPB_8_TO_16(access_size) | SPCMD_SSLKP,
 		     RSPI_SPCMD0);
 
-	
+	/* Sets RSPI mode */
 	rspi_write8(rspi, SPCR_MSTR, RSPI_SPCR);
 
 	return 0;
@@ -247,7 +259,7 @@ static int rspi_send_pio(struct rspi_data *rspi, struct spi_message *mesg,
 		remain--;
 	}
 
-	
+	/* Waiting for the last transmition */
 	rspi_wait_for_interrupt(rspi, SPSR_SPTEF, SPCR_SPTIE);
 
 	return 0;
@@ -262,7 +274,7 @@ static int rspi_receive_pio(struct rspi_data *rspi, struct spi_message *mesg,
 
 	spsr = rspi_read8(rspi, RSPI_SPSR);
 	if (spsr & SPSR_SPRF)
-		rspi_read16(rspi, RSPI_SPDR);	
+		rspi_read16(rspi, RSPI_SPDR);	/* dummy read */
 	if (spsr & SPSR_OVRF)
 		rspi_write8(rspi, rspi_read8(rspi, RSPI_SPSR) & ~SPSR_OVRF,
 			    RSPI_SPCR);
@@ -277,7 +289,7 @@ static int rspi_receive_pio(struct rspi_data *rspi, struct spi_message *mesg,
 				"%s: tx empty timeout\n", __func__);
 			return -ETIMEDOUT;
 		}
-		
+		/* dummy write for generate clock */
 		rspi_write16(rspi, 0x00, RSPI_SPDR);
 
 		if (rspi_wait_for_interrupt(rspi, SPSR_SPRF, SPCR_SPRIE) < 0) {
@@ -285,7 +297,7 @@ static int rspi_receive_pio(struct rspi_data *rspi, struct spi_message *mesg,
 				"%s: receive timeout\n", __func__);
 			return -ETIMEDOUT;
 		}
-		
+		/* SPDR allows 16 or 32-bit access only */
 		*data = (u8)rspi_read16(rspi, RSPI_SPDR);
 
 		data++;
@@ -415,7 +427,7 @@ static int __devinit rspi_probe(struct platform_device *pdev)
 	int ret, irq;
 	char clk_name[16];
 
-	
+	/* get base addr */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (unlikely(res == NULL)) {
 		dev_err(&pdev->dev, "invalid resource\n");

@@ -153,11 +153,11 @@ irqreturn_t snd_emu10k1_interrupt(int irq, void *dev_id)
 		}
 		if (status & IPR_P16V) {
 			while ((status2 = inl(emu->port + IPR2)) != 0) {
-				u32 mask = INTE2_PLAYBACK_CH_0_LOOP;  
+				u32 mask = INTE2_PLAYBACK_CH_0_LOOP;  /* Full Loop */
 				struct snd_emu10k1_voice *pvoice = &(emu->p16v_voices[0]);
 				struct snd_emu10k1_voice *cvoice = &(emu->p16v_capture_voice);
 
-				
+				//printk(KERN_INFO "status2=0x%x\n", status2);
 				orig_status2 = status2;
 				if(status2 & mask) {
 					if(pvoice->use) {
@@ -167,13 +167,13 @@ irqreturn_t snd_emu10k1_interrupt(int irq, void *dev_id)
 					}
 				}
 				if(status2 & 0x110000) {
-					
+					//printk(KERN_INFO "capture int found\n");
 					if(cvoice->use) {
-						
+						//printk(KERN_INFO "capture period_elapsed\n");
 						snd_pcm_period_elapsed(cvoice->epcm->substream);
 					}
 				}
-				outl(orig_status2, emu->port + IPR2); 
+				outl(orig_status2, emu->port + IPR2); /* ack all */
 			}
 			status &= ~IPR_P16V;
 		}
@@ -181,7 +181,7 @@ irqreturn_t snd_emu10k1_interrupt(int irq, void *dev_id)
 		if (status) {
 			unsigned int bits;
 			snd_printk(KERN_ERR "emu10k1: unhandled interrupt: 0x%08x\n", status);
-			
+			//make sure any interrupts we don't handle are disabled:
 			bits = INTE_FXDSPENABLE |
 				INTE_PCIERRORENABLE |
 				INTE_VOLINCRENABLE |
@@ -199,7 +199,7 @@ irqreturn_t snd_emu10k1_interrupt(int irq, void *dev_id)
 				bits |= INTE_A_MIDITXENABLE2 | INTE_A_MIDIRXENABLE2;
 			snd_emu10k1_intr_disable(emu, bits);
 		}
-		outl(orig_status, emu->port + IPR); 
+		outl(orig_status, emu->port + IPR); /* ack all */
 	}
 	if (timeout == 1000)
 		snd_printk(KERN_INFO "emu10k1 irq routine failure\n");

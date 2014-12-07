@@ -1,3 +1,14 @@
+/*
+ * QNX6 file system, Linux implementation.
+ *
+ * Version : 1.0.0
+ *
+ * History :
+ *
+ * 01-02-2012 by Kai Bankett (chaosman@ontika.net) : first release.
+ * 16-02-2012 pagemap extension by Al Viro
+ *
+ */
 
 #include "qnx6.h"
 

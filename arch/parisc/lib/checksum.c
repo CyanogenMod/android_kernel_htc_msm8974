@@ -31,9 +31,9 @@
 
 static inline unsigned short from32to16(unsigned int x)
 {
-	
+	/* 32 bits --> 16 bits + carry */
 	x = (x & 0xffff) + (x >> 16);
-	
+	/* 16 bits + carry --> 16 bits including carry */
 	x = (x & 0xffff) + (x >> 16);
 	return (unsigned short)x;
 }
@@ -51,7 +51,7 @@ static inline unsigned int do_csum(const unsigned char * buff, int len)
 		len--;
 		buff++;
 	}
-	count = len >> 1;		
+	count = len >> 1;		/* nr of 16-bit words.. */
 	if (count) {
 		if (2 & (unsigned long) buff) {
 			result += *(unsigned short *) buff;
@@ -59,7 +59,7 @@ static inline unsigned int do_csum(const unsigned char * buff, int len)
 			len -= 2;
 			buff += 2;
 		}
-		count >>= 1;		
+		count >>= 1;		/* nr of 32-bit words.. */
 		if (count) {
 			while (count >= 4) {
 				unsigned int r1, r2, r3, r4;
@@ -96,6 +96,12 @@ out:
 	return result;
 }
 
+/*
+ * computes a partial checksum, e.g. for TCP/UDP fragments
+ */
+/*
+ * why bother folding?
+ */
 __wsum csum_partial(const void *buff, int len, __wsum sum)
 {
 	unsigned int result = do_csum(buff, len);
@@ -105,9 +111,16 @@ __wsum csum_partial(const void *buff, int len, __wsum sum)
 
 EXPORT_SYMBOL(csum_partial);
 
+/*
+ * copy while checksumming, otherwise like csum_partial
+ */
 __wsum csum_partial_copy_nocheck(const void *src, void *dst,
 				       int len, __wsum sum)
 {
+	/*
+	 * It's 2:30 am and I don't feel like doing it real ...
+	 * This is lots slower than the real thing (tm)
+	 */
 	sum = csum_partial(src, len, sum);
 	memcpy(dst, src, len);
 
@@ -115,6 +128,10 @@ __wsum csum_partial_copy_nocheck(const void *src, void *dst,
 }
 EXPORT_SYMBOL(csum_partial_copy_nocheck);
 
+/*
+ * Copy from userspace and compute checksum.  If we catch an exception
+ * then zero the rest of the buffer.
+ */
 __wsum csum_partial_copy_from_user(const void __user *src,
 					void *dst, int len,
 					__wsum sum, int *err_ptr)

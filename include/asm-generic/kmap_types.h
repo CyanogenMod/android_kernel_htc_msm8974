@@ -23,11 +23,15 @@ KMAP_D(11)	KM_SOFTIRQ0,
 KMAP_D(12)	KM_SOFTIRQ1,
 KMAP_D(13)	KM_SYNC_ICACHE,
 KMAP_D(14)	KM_SYNC_DCACHE,
+/* UML specific, for copy_*_user - used in do_op_one_page */
 KMAP_D(15)	KM_UML_USERCOPY,
 KMAP_D(16)	KM_IRQ_PTE,
 KMAP_D(17)	KM_NMI,
 KMAP_D(18)	KM_NMI_PTE,
 KMAP_D(19)	KM_KDB,
+/*
+ * Remember to update debug_kmap_atomic() when adding new kmap types!
+ */
 KMAP_D(20)	KM_TYPE_NR
 };
 

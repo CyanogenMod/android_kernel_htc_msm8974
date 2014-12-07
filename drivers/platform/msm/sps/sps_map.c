@@ -10,13 +10,17 @@
  * GNU General Public License for more details.
  */
 
+/**
+ * Connection mapping table managment for SPS device driver.
+ */
 
-#include <linux/types.h>	
-#include <linux/kernel.h>	
-#include <linux/memory.h>	
+#include <linux/types.h>	/* u32 */
+#include <linux/kernel.h>	/* pr_info() */
+#include <linux/memory.h>	/* memset */
 
 #include "spsi.h"
 
+/* Module state */
 struct sps_map_state {
 	const struct sps_map *maps;
 	u32 num_maps;
@@ -25,16 +29,20 @@ struct sps_map_state {
 
 static struct sps_map_state sps_maps;
 
+/**
+ * Initialize connection mapping module
+ *
+ */
 int sps_map_init(const struct sps_map *map_props, u32 options)
 {
 	const struct sps_map *maps;
 
-	
+	/* Are there any connection mappings? */
 	memset(&sps_maps, 0, sizeof(sps_maps));
 	if (map_props == NULL)
 		return 0;
 
-	
+	/* Init the module state */
 	sps_maps.maps = map_props;
 	sps_maps.options = options;
 	for (maps = sps_maps.maps;; maps++, sps_maps.num_maps++)
@@ -47,11 +55,19 @@ int sps_map_init(const struct sps_map *map_props, u32 options)
 	return 0;
 }
 
+/**
+ * De-initialize connection mapping module
+ *
+ */
 void sps_map_de_init(void)
 {
 	memset(&sps_maps, 0, sizeof(sps_maps));
 }
 
+/**
+ * Find matching connection mapping
+ *
+ */
 int sps_map_find(struct sps_connect *connect)
 {
 	const struct sps_map *map;
@@ -59,11 +75,11 @@ int sps_map_find(struct sps_connect *connect)
 	void *desc;
 	void *data;
 
-	
+	/* Are there any connection mappings? */
 	if (sps_maps.num_maps == 0)
 		return SPS_ERROR;
 
-	
+	/* Search the mapping table for a match to the specified connection */
 	for (i = sps_maps.num_maps, map = sps_maps.maps;
 	    i > 0; i--, map++)
 		if (map->src.periph_class == (u32) connect->source &&
@@ -74,6 +90,10 @@ int sps_map_find(struct sps_connect *connect)
 	if (i == 0)
 		return SPS_ERROR;
 
+	/*
+	 * Before modifying client parameter struct, perform all
+	 * operations that might fail
+	 */
 	desc = spsi_get_mem_ptr(map->desc_base);
 	if (desc == NULL) {
 		SPS_ERR("sps:Cannot get virt addr for I/O buffer: %pa\n",
@@ -92,7 +112,7 @@ int sps_map_find(struct sps_connect *connect)
 		data = NULL;
 	}
 
-	
+	/* Copy mapping values to client parameter struct */
 	if (connect->source != SPS_DEV_HANDLE_MEM)
 		connect->src_pipe_index = map->src.pipe_index;
 

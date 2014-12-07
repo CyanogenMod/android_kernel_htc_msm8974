@@ -3,7 +3,26 @@
  */
 
 /* Copyright(c) 1996 Kars de Jong */
+/* Based on the ide driver from 1.2.13pl8 */
 
+/*
+ * Credits (alphabetical):
+ *
+ *  - Bjoern Brauel
+ *  - Kars de Jong
+ *  - Torsten Ebeling
+ *  - Dwight Engen
+ *  - Thorsten Floeck
+ *  - Roman Hodek
+ *  - Guenther Kelleter
+ *  - Chris Lawrence
+ *  - Michael Rausch
+ *  - Christian Sauer
+ *  - Michael Schmitz
+ *  - Jes Soerensen
+ *  - Michael Thurm
+ *  - Geert Uytterhoeven
+ */
 
 #ifndef _M68K_IDE_H
 #define _M68K_IDE_H
@@ -15,6 +34,11 @@
 
 #ifdef CONFIG_MMU
 
+/*
+ * Get rid of defs from io.h - ide has its private and conflicting versions
+ * Since so far no single m68k platform uses ISA/PCI I/O space for IDE, we
+ * always use the `raw' MMIO versions
+ */
 #undef readb
 #undef readw
 #undef writeb
@@ -36,7 +60,7 @@
 #define __ide_mm_outsw(port, addr, n)	io_outsw((unsigned int)port, addr, n)
 #define __ide_mm_outsl(port, addr, n)	io_outsl((unsigned int)port, addr, n)
 
-#endif 
+#endif /* CONFIG_MMU */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _M68K_IDE_H */

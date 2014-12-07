@@ -44,6 +44,7 @@ static dimm_printer_t us3mc_dimm_printer;
 
 #define CHMC_DIMMS_PER_MC	(CHMCTRL_NDGRPS * CHMCTRL_NDIMMS)
 
+/* OBP memory-layout property format. */
 struct chmc_obp_map {
 	unsigned char	dimm_map[144];
 	unsigned char	pin_map[576];
@@ -52,8 +53,15 @@ struct chmc_obp_map {
 #define DIMM_LABEL_SZ	8
 
 struct chmc_obp_mem_layout {
+	/* One max 8-byte string label per DIMM.  Usually
+	 * this matches the label on the motherboard where
+	 * that DIMM resides.
+	 */
 	char			dimm_labels[CHMC_DIMMS_PER_MC][DIMM_LABEL_SZ];
 
+	/* If symmetric use map[0], else it is
+	 * asymmetric and map[1] should be used.
+	 */
 	char			symmetric;
 
 	struct chmc_obp_map	map[2];
@@ -135,8 +143,15 @@ struct jbusmc_obp_map {
 };
 
 struct jbusmc_obp_mem_layout {
+	/* One max 8-byte string label per DIMM.  Usually
+	 * this matches the label on the motherboard where
+	 * that DIMM resides.
+	 */
 	char		dimm_labels[JB_NUM_DIMMS][DIMM_LABEL_SZ];
 
+	/* If symmetric use map[0], else it is
+	 * asymmetric and map[1] should be used.
+	 */
 	char			symmetric;
 
 	struct jbusmc_obp_map	map;
@@ -182,6 +197,9 @@ static void mc_list_del(struct list_head *list)
 #define SYNDROME_MIN	-1
 #define SYNDROME_MAX	144
 
+/* Covert syndrome code into the way the bits are positioned
+ * on the bus.
+ */
 static int syndrome_to_qword_code(int syndrome_code)
 {
 	if (syndrome_code < 128)
@@ -195,6 +213,11 @@ static int syndrome_to_qword_code(int syndrome_code)
 	return syndrome_code;
 }
 
+/* All this magic has to do with how a cache line comes over the wire
+ * on Safari and JBUS.  A 64-bit line comes over in 1 or more quadword
+ * cycles, each of which transmit ECC/MTAG info as well as the actual
+ * data.
+ */
 #define L2_LINE_SIZE		64
 #define L2_LINE_ADDR_MSK	(L2_LINE_SIZE - 1)
 #define QW_PER_LINE		4
@@ -216,7 +239,7 @@ static void get_pin_and_dimm_str(int syndrome_code, unsigned long paddr,
 	if (mc_type == MC_TYPE_JBUS) {
 		struct jbusmc_obp_mem_layout *p = _prop;
 
-		
+		/* JBUS */
 		cache_line_offset = qword_code;
 		offset_inverse = (JBUS_LAST_BIT - cache_line_offset);
 		dimm_map_index = offset_inverse / 8;
@@ -229,7 +252,7 @@ static void get_pin_and_dimm_str(int syndrome_code, unsigned long paddr,
 		struct chmc_obp_map *mp;
 		int qword;
 
-		
+		/* Safari */
 		if (p->symmetric)
 			mp = &p->map[0];
 		else
@@ -300,6 +323,9 @@ static int jbusmc_print_dimm(int syndrome_code,
 	} else {
 		int dimm;
 
+		/* Multi-bit error, we just dump out all the
+		 * dimm labels associated with this dimm group.
+		 */
 		for (dimm = 0; dimm < JB_NUM_DIMMS_PER_GROUP; dimm++) {
 			sprintf(buf, "%s ",
 				prop->dimm_labels[first_dimm + dimm]);
@@ -456,37 +482,39 @@ out_free:
 	goto out;
 }
 
+/* Does BANK decode PHYS_ADDR? */
 static int chmc_bank_match(struct chmc_bank_info *bp, unsigned long phys_addr)
 {
 	unsigned long upper_bits = (phys_addr & PA_UPPER_BITS) >> PA_UPPER_BITS_SHIFT;
 	unsigned long lower_bits = (phys_addr & PA_LOWER_BITS) >> PA_LOWER_BITS_SHIFT;
 
-	
+	/* Bank must be enabled to match. */
 	if (bp->valid == 0)
 		return 0;
 
-	
-	upper_bits ^= bp->um;		
-	upper_bits  = ~upper_bits;	
-	upper_bits |= bp->uk;		
-	upper_bits  = ~upper_bits;	
+	/* Would BANK match upper bits? */
+	upper_bits ^= bp->um;		/* What bits are different? */
+	upper_bits  = ~upper_bits;	/* Invert. */
+	upper_bits |= bp->uk;		/* What bits don't matter for matching? */
+	upper_bits  = ~upper_bits;	/* Invert. */
 
 	if (upper_bits)
 		return 0;
 
-	
-	lower_bits ^= bp->lm;		
-	lower_bits  = ~lower_bits;	
-	lower_bits |= bp->lk;		
-	lower_bits  = ~lower_bits;	
+	/* Would BANK match lower bits? */
+	lower_bits ^= bp->lm;		/* What bits are different? */
+	lower_bits  = ~lower_bits;	/* Invert. */
+	lower_bits |= bp->lk;		/* What bits don't matter for matching? */
+	lower_bits  = ~lower_bits;	/* Invert. */
 
 	if (lower_bits)
 		return 0;
 
-	
+	/* I always knew you'd be the one. */
 	return 1;
 }
 
+/* Given PHYS_ADDR, search memory controller banks for a match. */
 static struct chmc_bank_info *chmc_find_bank(unsigned long phys_addr)
 {
 	struct chmc *p;
@@ -506,6 +534,7 @@ static struct chmc_bank_info *chmc_find_bank(unsigned long phys_addr)
 	return NULL;
 }
 
+/* This is the main purpose of this driver. */
 static int chmc_print_dimm(int syndrome_code,
 			   unsigned long phys_addr,
 			   char *buf, int buflen)
@@ -540,6 +569,9 @@ static int chmc_print_dimm(int syndrome_code,
 	} else {
 		int dimm;
 
+		/* Multi-bit error, we just dump out all the
+		 * dimm labels associated with this bank.
+		 */
 		for (dimm = 0; dimm < CHMCTRL_NDIMMS; dimm++) {
 			sprintf(buf, "%s ",
 				prop->dimm_labels[first_dimm + dimm]);
@@ -549,6 +581,11 @@ static int chmc_print_dimm(int syndrome_code,
 	return 0;
 }
 
+/* Accessing the registers is slightly complicated.  If you want
+ * to get at the memory controller which is on the same processor
+ * the code is executing, you must use special ASI load/store else
+ * you go through the global mapping.
+ */
 static u64 chmc_read_mcreg(struct chmc *p, unsigned long offset)
 {
 	unsigned long ret, this_cpu;
@@ -573,7 +610,7 @@ static u64 chmc_read_mcreg(struct chmc *p, unsigned long offset)
 	return ret;
 }
 
-#if 0 
+#if 0 /* currently unused */
 static void chmc_write_mcreg(struct chmc *p, unsigned long offset, u64 val)
 {
 	if (p->portid == smp_processor_id()) {
@@ -629,6 +666,9 @@ static void chmc_interpret_one_decode_reg(struct chmc *p, int which_bank, u64 va
 		break;
 	}
 
+	/* UK[10] is reserved, and UK[11] is not set for the SDRAM
+	 * bank size definition.
+	 */
 	bp->size = (((unsigned long)bp->uk &
 		     ((1UL << 10UL) - 1UL)) + 1UL) << PA_UPPER_BITS_SHIFT;
 	bp->size /= bp->interleave;

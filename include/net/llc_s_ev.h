@@ -14,10 +14,12 @@
 
 #include <linux/skbuff.h>
 
+/* Defines SAP component events */
+/* Types of events (possible values in 'ev->type') */
 #define LLC_SAP_EV_TYPE_SIMPLE		1
 #define LLC_SAP_EV_TYPE_CONDITION	2
 #define LLC_SAP_EV_TYPE_PRIM		3
-#define LLC_SAP_EV_TYPE_PDU		4   
+#define LLC_SAP_EV_TYPE_PDU		4   /* command/response PDU */
 #define LLC_SAP_EV_TYPE_ACK_TMR		5
 #define LLC_SAP_EV_TYPE_RPT_STATUS	6
 
@@ -62,4 +64,4 @@ extern int llc_sap_ev_rx_test_c(struct llc_sap *sap, struct sk_buff *skb);
 extern int llc_sap_ev_rx_test_r(struct llc_sap *sap, struct sk_buff *skb);
 extern int llc_sap_ev_deactivation_req(struct llc_sap *sap,
 				       struct sk_buff *skb);
-#endif 
+#endif /* LLC_S_EV_H */

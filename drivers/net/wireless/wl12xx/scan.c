@@ -55,6 +55,10 @@ void wl1271_scan_complete_work(struct work_struct *work)
 	vif = wl->scan_vif;
 	wlvif = wl12xx_vif_to_data(vif);
 
+	/*
+	 * Rearm the tx watchdog just before idling scan. This
+	 * prevents just-finished scans from triggering the watchdog
+	 */
 	wl12xx_rearm_tx_watchdog_locked(wl);
 
 	wl->scan.state = WL1271_SCAN_STATE_IDLE;
@@ -67,7 +71,7 @@ void wl1271_scan_complete_work(struct work_struct *work)
 		goto out;
 
 	if (test_bit(WLVIF_FLAG_STA_ASSOCIATED, &wlvif->flags)) {
-		
+		/* restore hardware connection monitoring template */
 		wl1271_cmd_build_ap_probe_req(wl, wlvif, wlvif->probereq);
 	}
 
@@ -103,6 +107,12 @@ static int wl1271_get_scan_channels(struct wl1271 *wl,
 		if (!test_bit(i, wl->scan.scanned_ch) &&
 		    !(flags & IEEE80211_CHAN_DISABLED) &&
 		    (req->channels[i]->band == band) &&
+		    /*
+		     * In passive scans, we scan all remaining
+		     * channels, even if not marked as such.
+		     * In active scans, we only scan channels not
+		     * marked as passive.
+		     */
 		    (passive || !(flags & IEEE80211_CHAN_PASSIVE_SCAN))) {
 			wl1271_debug(DEBUG_SCAN, "band %d, center_freq %d ",
 				     req->channels[i]->band,
@@ -135,7 +145,7 @@ static int wl1271_get_scan_channels(struct wl1271 *wl,
 			memset(&channels[j].bssid_lsb, 0xff, 4);
 			memset(&channels[j].bssid_msb, 0xff, 2);
 
-			
+			/* Mark the channels we already used */
 			set_bit(i, wl->scan.scanned_ch);
 
 			j++;
@@ -157,7 +167,7 @@ static int wl1271_scan_send(struct wl1271 *wl, struct ieee80211_vif *vif,
 	int ret;
 	u16 scan_options = 0;
 
-	
+	/* skip active scans if we don't have SSIDs */
 	if (!passive && wl->scan.req->n_ssids == 0)
 		return WL1271_NOTHING_TO_SCAN;
 
@@ -337,6 +347,10 @@ int wl1271_scan(struct wl1271 *wl, struct ieee80211_vif *vif,
 		const u8 *ssid, size_t ssid_len,
 		struct cfg80211_scan_request *req)
 {
+	/*
+	 * cfg80211 should guarantee that we don't get more channels
+	 * than what we have registered.
+	 */
 	BUG_ON(req->n_channels > WL1271_MAX_CHANNELS);
 
 	if (wl->scan.state != WL1271_SCAN_STATE_IDLE)
@@ -355,7 +369,7 @@ int wl1271_scan(struct wl1271 *wl, struct ieee80211_vif *vif,
 	wl->scan.req = req;
 	memset(wl->scan.scanned_ch, 0, sizeof(wl->scan.scanned_ch));
 
-	
+	/* we assume failure so that timeout scenarios are handled correctly */
 	wl->scan.failed = true;
 	ieee80211_queue_delayed_work(wl->hw, &wl->scan_complete_work,
 				     msecs_to_jiffies(WL1271_SCAN_TIMEOUT));
@@ -415,7 +429,7 @@ wl1271_scan_get_sched_scan_channels(struct wl1271 *wl,
 		if ((req->channels[i]->band == band) &&
 		    !(flags & IEEE80211_CHAN_DISABLED) &&
 		    (!!(flags & IEEE80211_CHAN_RADAR) == radar) &&
-		    
+		    /* if radar is set, we ignore the passive flag */
 		    (radar ||
 		     !!(flags & IEEE80211_CHAN_PASSIVE_SCAN) == passive)) {
 			wl1271_debug(DEBUG_SCAN, "band %d, center_freq %d ",
@@ -485,7 +499,7 @@ wl1271_scan_sched_scan_channels(struct wl1271 *wl,
 						    false, false,
 						    cfg->passive[1] + cfg->dfs,
 						    MAX_CHANNELS_5GHZ);
-	
+	/* 802.11j channels are not supported yet */
 	cfg->passive[2] = 0;
 	cfg->active[2] = 0;
 
@@ -500,6 +514,7 @@ wl1271_scan_sched_scan_channels(struct wl1271 *wl,
 		cfg->passive[2] || cfg->active[2];
 }
 
+/* Returns the scan type to be used or a negative value on error */
 static int
 wl12xx_scan_sched_scan_ssid_list(struct wl1271 *wl,
 				 struct cfg80211_sched_scan_request *req)
@@ -511,12 +526,12 @@ wl12xx_scan_sched_scan_ssid_list(struct wl1271 *wl,
 
 	wl1271_debug(DEBUG_CMD, "cmd sched scan ssid list");
 
-	
+	/* count the match sets that contain SSIDs */
 	for (i = 0; i < req->n_match_sets; i++)
 		if (sets[i].ssid.ssid_len > 0)
 			n_match_ssids++;
 
-	
+	/* No filter, no ssids or only bcast ssid */
 	if (!n_match_ssids &&
 	    (!req->n_ssids ||
 	     (req->n_ssids == 1 && req->ssids[0].ssid_len == 0))) {
@@ -531,7 +546,7 @@ wl12xx_scan_sched_scan_ssid_list(struct wl1271 *wl,
 	}
 
 	if (!n_match_ssids) {
-		
+		/* No filter, with ssids */
 		type = SCAN_SSID_FILTER_DISABLED;
 
 		for (i = 0; i < req->n_ssids; i++) {
@@ -545,9 +560,9 @@ wl12xx_scan_sched_scan_ssid_list(struct wl1271 *wl,
 	} else {
 		type = SCAN_SSID_FILTER_LIST;
 
-		
+		/* Add all SSIDs from the filters */
 		for (i = 0; i < req->n_match_sets; i++) {
-			
+			/* ignore sets without SSIDs */
 			if (!sets[i].ssid.ssid_len)
 				continue;
 
@@ -559,6 +574,10 @@ wl12xx_scan_sched_scan_ssid_list(struct wl1271 *wl,
 		}
 		if ((req->n_ssids > 1) ||
 		    (req->n_ssids == 1 && req->ssids[0].ssid_len > 0)) {
+			/*
+			 * Mark all the SSIDs passed in the SSID list as HIDDEN,
+			 * so they're used in probe requests.
+			 */
 			for (i = 0; i < req->n_ssids; i++) {
 				if (!req->ssids[i].ssid_len)
 					continue;
@@ -571,7 +590,7 @@ wl12xx_scan_sched_scan_ssid_list(struct wl1271 *wl,
 							SCAN_SSID_TYPE_HIDDEN;
 						break;
 					}
-				
+				/* Fail if SSID isn't present in the filters */
 				if (j == cmd->n_ssids) {
 					ret = -EINVAL;
 					goto out_free;
@@ -616,16 +635,16 @@ int wl1271_scan_sched_scan_config(struct wl1271 *wl,
 	cfg->rssi_threshold = c->rssi_threshold;
 	cfg->snr_threshold  = c->snr_threshold;
 	cfg->n_probe_reqs = c->num_probe_reqs;
-	
+	/* cycles set to 0 it means infinite (until manually stopped) */
 	cfg->cycles = 0;
-	
+	/* report APs when at least 1 is found */
 	cfg->report_after = 1;
-	
+	/* don't stop scanning automatically when something is found */
 	cfg->terminate = 0;
 	cfg->tag = WL1271_SCAN_DEFAULT_TAG;
-	
+	/* don't filter on BSS type */
 	cfg->bss_type = SCAN_BSS_TYPE_ANY;
-	
+	/* currently NL80211 supports only a single interval */
 	for (i = 0; i < SCAN_MAX_CYCLE_INTERVALS; i++)
 		cfg->intervals[i] = cpu_to_le32(req->interval);
 
@@ -730,7 +749,7 @@ void wl1271_scan_sched_scan_stop(struct wl1271 *wl)
 
 	wl1271_debug(DEBUG_CMD, "cmd periodic scan stop");
 
-	
+	/* FIXME: what to do if alloc'ing to stop fails? */
 	stop = kzalloc(sizeof(*stop), GFP_KERNEL);
 	if (!stop) {
 		wl1271_error("failed to alloc memory to send sched scan stop");

@@ -61,6 +61,10 @@ static struct timer_regs __iomem *timer;
 #define TGCR_PSCHI_MASK      (0x00f << 8)
 #define TGCR_TDDRHI_MASK     (0x00f << 12)
 
+/*
+ * Timer clocks are divided down from the CPU clock
+ * The divisor is in the EMUMGTCLKSPD register
+ */
 #define TIMER_DIVISOR \
 	((soc_readl(&timer->emumgt) & (0xf << 16)) >> 16)
 
@@ -91,15 +95,15 @@ static void timer64_enable(void)
 	if (timer64_devstate_id >= 0)
 		dscr_set_devstate(timer64_devstate_id, DSCR_DEVSTATE_ENABLED);
 
-	
+	/* disable timer, reset count */
 	soc_writel(soc_readl(&timer->tcr) & ~TCR_ENAMODELO_MASK, &timer->tcr);
 	soc_writel(0, &timer->prdlo);
 
-	
+	/* use internal clock and 1 cycle pulse width */
 	val = soc_readl(&timer->tcr);
 	soc_writel(val & ~(TCR_CLKSRCLO | TCR_PWIDLO_MASK), &timer->tcr);
 
-	
+	/* dual 32-bit unchained mode */
 	val = soc_readl(&timer->tgcr) & ~TGCR_TIMMODE_MASK;
 	soc_writel(val, &timer->tgcr);
 	soc_writel(val | (TGCR_TIMLORS | TGCR_TIMMODE_UD32), &timer->tgcr);
@@ -107,7 +111,7 @@ static void timer64_enable(void)
 
 static void timer64_disable(void)
 {
-	
+	/* disable timer, reset count */
 	soc_writel(soc_readl(&timer->tcr) & ~TCR_ENAMODELO_MASK, &timer->tcr);
 	soc_writel(0, &timer->prdlo);
 
@@ -187,7 +191,7 @@ void __init timer64_init(void)
 			first = np;
 	}
 	if (!found) {
-		
+		/* try first one with no core-mask */
 		if (first)
 			np = of_node_get(first);
 		else {
@@ -210,11 +214,16 @@ void __init timer64_init(void)
 		goto out;
 	}
 
-	
+	/* If there is a device state control, save the ID. */
 	err = of_property_read_u32(np, "ti,dscr-dev-enable", &val);
 	if (!err) {
 		timer64_devstate_id = val;
 
+		/*
+		 * It is necessary to enable the timer block here because
+		 * the TIMER_DIVISOR macro needs to read a timer register
+		 * to get the divisor.
+		 */
 		dscr_set_devstate(timer64_devstate_id, DSCR_DEVSTATE_ENABLED);
 	}
 

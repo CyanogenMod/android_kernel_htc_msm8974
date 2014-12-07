@@ -1,3 +1,10 @@
+/*
+ * sysctl_net_atalk.c: sysctl interface to net AppleTalk subsystem.
+ *
+ * Begun April 1, 1996, Mike Shaver.
+ * Added /proc/sys/net/atalk directory entry (empty =) ). [MS]
+ * Dynamic registration, added aarp entries. (5/30/97 Chris Horn)
+ */
 
 #include <linux/sysctl.h>
 #include <net/sock.h>

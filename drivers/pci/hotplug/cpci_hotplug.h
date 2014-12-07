@@ -32,6 +32,7 @@
 #include <linux/pci.h>
 #include <linux/pci_hotplug.h>
 
+/* PICMG 2.1 R2.0 HS CSR bits: */
 #define HS_CSR_INS	0x0080
 #define HS_CSR_EXT	0x0040
 #define HS_CSR_PI	0x0030
@@ -81,6 +82,10 @@ extern int cpci_hp_unregister_bus(struct pci_bus *bus);
 extern int cpci_hp_start(void);
 extern int cpci_hp_stop(void);
 
+/*
+ * Internal function prototypes, these functions should not be used by
+ * board/chassis drivers.
+ */
 extern u8 cpci_get_attention_status(struct slot *slot);
 extern u8 cpci_get_latch_status(struct slot *slot);
 extern u8 cpci_get_adapter_status(struct slot *slot);
@@ -94,4 +99,4 @@ extern int cpci_led_off(struct slot * slot);
 extern int cpci_configure_slot(struct slot *slot);
 extern int cpci_unconfigure_slot(struct slot *slot);
 
-#endif	
+#endif	/* _CPCI_HOTPLUG_H */

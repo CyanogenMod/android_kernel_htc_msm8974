@@ -15,6 +15,9 @@
 #include <linux/seq_file.h>
 #include "internal.h"
 
+/*
+ * operation counters
+ */
 atomic_t fscache_n_op_pend;
 atomic_t fscache_n_op_run;
 atomic_t fscache_n_op_enqueue;
@@ -122,6 +125,9 @@ atomic_t fscache_n_cop_write_page;
 atomic_t fscache_n_cop_uncache_page;
 atomic_t fscache_n_cop_dissociate_pages;
 
+/*
+ * display the general statistics
+ */
 static int fscache_stats_show(struct seq_file *m, void *v)
 {
 	seq_puts(m, "FS-Cache statistics\n");
@@ -257,6 +263,9 @@ static int fscache_stats_show(struct seq_file *m, void *v)
 	return 0;
 }
 
+/*
+ * open "/proc/fs/fscache/stats" allowing provision of a statistical summary
+ */
 static int fscache_stats_open(struct inode *inode, struct file *file)
 {
 	return single_open(file, fscache_stats_show, NULL);

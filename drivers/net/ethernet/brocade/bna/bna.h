@@ -25,9 +25,15 @@
 
 extern const u32 bna_napi_dim_vector[][BNA_BIAS_T_MAX];
 
+/**
+ *
+ *  Macros and constants
+ *
+ */
 
 #define BNA_IOC_TIMER_FREQ		200
 
+/* Log string size */
 #define BNA_MESSAGE_SIZE		256
 
 #define bna_is_small_rxq(_id) ((_id) & 0x1)
@@ -55,6 +61,10 @@ do {									\
 	(x) = n;							\
 } while (0)
 
+/*
+ * input : _addr-> os dma addr in host endian format,
+ * output : _bna_dma_addr-> pointer to hw dma addr
+ */
 #define BNA_SET_DMA_ADDR(_addr, _bna_dma_addr)				\
 do {									\
 	u64 tmp_addr =						\
@@ -63,6 +73,10 @@ do {									\
 	(_bna_dma_addr)->lsb = ((struct bna_dma_addr *)&tmp_addr)->lsb; \
 } while (0)
 
+/*
+ * input : _bna_dma_addr-> pointer to hw dma addr
+ * output : _addr-> os dma addr in host endian format
+ */
 #define BNA_GET_DMA_ADDR(_bna_dma_addr, _addr)			\
 do {								\
 	(_addr) = ((((u64)ntohl((_bna_dma_addr)->msb))) << 32)		\
@@ -75,12 +89,13 @@ do {								\
 
 #define BNA_TXQ_WI_NEEDED(_vectors)	(((_vectors) + 3) >> 2)
 
+/* TxQ element is 64 bytes */
 #define BNA_TXQ_PAGE_INDEX_MAX		(PAGE_SIZE >> 6)
 #define BNA_TXQ_PAGE_INDEX_MAX_SHIFT	(PAGE_SHIFT - 6)
 
 #define BNA_TXQ_QPGE_PTR_GET(_qe_idx, _qpt_ptr, _qe_ptr, _qe_ptr_range) \
 {									\
-	unsigned int page_index;		\
+	unsigned int page_index;	/* index within a page */	\
 	void *page_addr;						\
 	page_index = (_qe_idx) & (BNA_TXQ_PAGE_INDEX_MAX - 1);		\
 	(_qe_ptr_range) = (BNA_TXQ_PAGE_INDEX_MAX - page_index);	\
@@ -88,12 +103,13 @@ do {								\
 	(_qe_ptr) = &((struct bna_txq_entry *)(page_addr))[page_index]; \
 }
 
+/* RxQ element is 8 bytes */
 #define BNA_RXQ_PAGE_INDEX_MAX		(PAGE_SIZE >> 3)
 #define BNA_RXQ_PAGE_INDEX_MAX_SHIFT	(PAGE_SHIFT - 3)
 
 #define BNA_RXQ_QPGE_PTR_GET(_qe_idx, _qpt_ptr, _qe_ptr, _qe_ptr_range) \
 {									\
-	unsigned int page_index;		\
+	unsigned int page_index;	/* index within a page */	\
 	void *page_addr;						\
 	page_index = (_qe_idx) & (BNA_RXQ_PAGE_INDEX_MAX - 1);		\
 	(_qe_ptr_range) = (BNA_RXQ_PAGE_INDEX_MAX - page_index);	\
@@ -102,12 +118,13 @@ do {								\
 	(_qe_ptr) = &((struct bna_rxq_entry *)(page_addr))[page_index]; \
 }
 
+/* CQ element is 16 bytes */
 #define BNA_CQ_PAGE_INDEX_MAX		(PAGE_SIZE >> 4)
 #define BNA_CQ_PAGE_INDEX_MAX_SHIFT	(PAGE_SHIFT - 4)
 
 #define BNA_CQ_QPGE_PTR_GET(_qe_idx, _qpt_ptr, _qe_ptr, _qe_ptr_range)	\
 {									\
-	unsigned int page_index;	  	\
+	unsigned int page_index;	  /* index within a page */	\
 	void *page_addr;						\
 									\
 	page_index = (_qe_idx) & (BNA_CQ_PAGE_INDEX_MAX - 1);		\
@@ -339,6 +356,11 @@ do {									\
 	}								\
 } while (0)
 
+/**
+ *
+ *  Inline functions
+ *
+ */
 
 static inline struct bna_mac *bna_mac_find(struct list_head *q, u8 *addr)
 {
@@ -355,10 +377,20 @@ static inline struct bna_mac *bna_mac_find(struct list_head *q, u8 *addr)
 
 #define bna_attr(_bna) (&(_bna)->ioceth.attr)
 
+/**
+ *
+ * Function prototypes
+ *
+ */
 
+/**
+ * BNA
+ */
 
+/* FW response handlers */
 void bna_bfi_stats_clr_rsp(struct bna *bna, struct bfi_msgq_mhdr *msghdr);
 
+/* APIs for BNAD */
 void bna_res_req(struct bna_res_info *res_info);
 void bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info);
 void bna_init(struct bna *bna, struct bnad *bnad,
@@ -370,6 +402,7 @@ int bna_num_txq_set(struct bna *bna, int num_txq);
 int bna_num_rxp_set(struct bna *bna, int num_rxp);
 void bna_hw_stats_get(struct bna *bna);
 
+/* APIs for RxF */
 struct bna_mac *bna_ucam_mod_mac_get(struct bna_ucam_mod *ucam_mod);
 void bna_ucam_mod_mac_put(struct bna_ucam_mod *ucam_mod,
 			  struct bna_mac *mac);
@@ -380,27 +413,42 @@ struct bna_mcam_handle *bna_mcam_mod_handle_get(struct bna_mcam_mod *mod);
 void bna_mcam_mod_handle_put(struct bna_mcam_mod *mcam_mod,
 			  struct bna_mcam_handle *handle);
 
+/**
+ * MBOX
+ */
 
+/* API for BNAD */
 void bna_mbox_handler(struct bna *bna, u32 intr_status);
 
+/**
+ * ETHPORT
+ */
 
+/* Callbacks for RX */
 void bna_ethport_cb_rx_started(struct bna_ethport *ethport);
 void bna_ethport_cb_rx_stopped(struct bna_ethport *ethport);
 
+/**
+ * TX MODULE AND TX
+ */
+/* FW response handelrs */
 void bna_bfi_tx_enet_start_rsp(struct bna_tx *tx,
 			       struct bfi_msgq_mhdr *msghdr);
 void bna_bfi_tx_enet_stop_rsp(struct bna_tx *tx,
 			      struct bfi_msgq_mhdr *msghdr);
 void bna_bfi_bw_update_aen(struct bna_tx_mod *tx_mod);
 
+/* APIs for BNA */
 void bna_tx_mod_init(struct bna_tx_mod *tx_mod, struct bna *bna,
 		     struct bna_res_info *res_info);
 void bna_tx_mod_uninit(struct bna_tx_mod *tx_mod);
 
+/* APIs for ENET */
 void bna_tx_mod_start(struct bna_tx_mod *tx_mod, enum bna_tx_type type);
 void bna_tx_mod_stop(struct bna_tx_mod *tx_mod, enum bna_tx_type type);
 void bna_tx_mod_fail(struct bna_tx_mod *tx_mod);
 
+/* APIs for BNAD */
 void bna_tx_res_req(int num_txq, int txq_depth,
 		    struct bna_res_info *res_info);
 struct bna_tx *bna_tx_create(struct bna *bna, struct bnad *bnad,
@@ -414,7 +462,11 @@ void bna_tx_disable(struct bna_tx *tx, enum bna_cleanup_type type,
 void bna_tx_cleanup_complete(struct bna_tx *tx);
 void bna_tx_coalescing_timeo_set(struct bna_tx *tx, int coalescing_timeo);
 
+/**
+ * RX MODULE, RX, RXF
+ */
 
+/* FW response handlers */
 void bna_bfi_rx_enet_start_rsp(struct bna_rx *rx,
 			       struct bfi_msgq_mhdr *msghdr);
 void bna_bfi_rx_enet_stop_rsp(struct bna_rx *rx,
@@ -423,14 +475,17 @@ void bna_bfi_rxf_cfg_rsp(struct bna_rxf *rxf, struct bfi_msgq_mhdr *msghdr);
 void bna_bfi_rxf_mcast_add_rsp(struct bna_rxf *rxf,
 			       struct bfi_msgq_mhdr *msghdr);
 
+/* APIs for BNA */
 void bna_rx_mod_init(struct bna_rx_mod *rx_mod, struct bna *bna,
 		     struct bna_res_info *res_info);
 void bna_rx_mod_uninit(struct bna_rx_mod *rx_mod);
 
+/* APIs for ENET */
 void bna_rx_mod_start(struct bna_rx_mod *rx_mod, enum bna_rx_type type);
 void bna_rx_mod_stop(struct bna_rx_mod *rx_mod, enum bna_rx_type type);
 void bna_rx_mod_fail(struct bna_rx_mod *rx_mod);
 
+/* APIs for BNAD */
 void bna_rx_res_req(struct bna_rx_config *rx_config,
 		    struct bna_res_info *res_info);
 struct bna_rx *bna_rx_create(struct bna *bna, struct bnad *bnad,
@@ -467,12 +522,18 @@ bna_rx_mode_set(struct bna_rx *rx, enum bna_rxmode rxmode,
 void bna_rx_vlan_add(struct bna_rx *rx, int vlan_id);
 void bna_rx_vlan_del(struct bna_rx *rx, int vlan_id);
 void bna_rx_vlanfilter_enable(struct bna_rx *rx);
+/**
+ * ENET
+ */
 
+/* API for RX */
 int bna_enet_mtu_get(struct bna_enet *enet);
 
+/* Callbacks for TX, RX */
 void bna_enet_cb_tx_stopped(struct bna_enet *enet);
 void bna_enet_cb_rx_stopped(struct bna_enet *enet);
 
+/* API for BNAD */
 void bna_enet_enable(struct bna_enet *enet);
 void bna_enet_disable(struct bna_enet *enet, enum bna_cleanup_type type,
 		      void (*cbfn)(void *));
@@ -483,22 +544,32 @@ void bna_enet_mtu_set(struct bna_enet *enet, int mtu,
 		      void (*cbfn)(struct bnad *));
 void bna_enet_perm_mac_get(struct bna_enet *enet, mac_t *mac);
 
+/**
+ * IOCETH
+ */
 
+/* APIs for BNAD */
 void bna_ioceth_enable(struct bna_ioceth *ioceth);
 void bna_ioceth_disable(struct bna_ioceth *ioceth,
 			enum bna_cleanup_type type);
 
+/**
+ * BNAD
+ */
 
+/* Callbacks for ENET */
 void bnad_cb_ethport_link_status(struct bnad *bnad,
 			      enum bna_link_status status);
 
+/* Callbacks for IOCETH */
 void bnad_cb_ioceth_ready(struct bnad *bnad);
 void bnad_cb_ioceth_failed(struct bnad *bnad);
 void bnad_cb_ioceth_disabled(struct bnad *bnad);
 void bnad_cb_mbox_intr_enable(struct bnad *bnad);
 void bnad_cb_mbox_intr_disable(struct bnad *bnad);
 
+/* Callbacks for BNA */
 void bnad_cb_stats_get(struct bnad *bnad, enum bna_cb_status status,
 		       struct bna_stats *stats);
 
-#endif  
+#endif  /* __BNA_H__ */

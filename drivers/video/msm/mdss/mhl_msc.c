@@ -82,7 +82,7 @@ static bool mhl_qualify_path_enable(struct mhl_tx_ctrl *mhl_ctrl)
 		return rc;
 
 	if (mhl_ctrl->tmds_en_state ||
-	    
+	    /* Identify sink with non-standard INT STAT SIZE */
 	    (mhl_ctrl->devcap[DEVCAP_OFFSET_MHL_VERSION] == 0x10 &&
 	     mhl_ctrl->devcap[DEVCAP_OFFSET_INT_STAT_SIZE] == 0x44))
 		rc = true;
@@ -104,7 +104,7 @@ static int mhl_flag_scrpd_burst_req(struct mhl_tx_ctrl *mhl_ctrl,
 	if ((req->command == MHL_SET_INT) &&
 	    (req->offset == MHL_RCHANGE_INT)) {
 		if (mhl_ctrl->scrpd_busy) {
-			
+			/* reduce priority */
 			if (req->payload.data[0] == MHL_INT_REQ_WRT)
 				postpone_send = 1;
 		} else {
@@ -125,6 +125,10 @@ void mhl_msc_send_work(struct work_struct *work)
 		container_of(work, struct mhl_tx_ctrl, mhl_msc_send_work);
 	struct msc_cmd_envelope *cmd_env;
 	int ret, postpone_send;
+	/*
+	 * Remove item from the queue
+	 * and schedule it
+	 */
 	mutex_lock(&msc_send_workqueue_mutex);
 	while (!list_empty(&mhl_ctrl->list_cmd)) {
 		cmd_env = list_first_entry(&mhl_ctrl->list_cmd,
@@ -237,12 +241,12 @@ int mhl_msc_command_done(struct mhl_tx_ctrl *mhl_ctrl,
 		if (req->offset == MHL_STATUS_REG_LINK_MODE) {
 			if (req->payload.data[0]
 			    & MHL_STATUS_PATH_ENABLED) {
-				
+				/* Enable TMDS output */
 				mhl_tmds_ctrl(mhl_ctrl, TMDS_ENABLE);
 				if (mhl_ctrl->devcap_state == MHL_DEVCAP_ALL)
 					mhl_drive_hpd(mhl_ctrl, HPD_UP);
 			} else {
-				
+				/* Disable TMDS output */
 				mhl_tmds_ctrl(mhl_ctrl, TMDS_DISABLE);
 				mhl_drive_hpd(mhl_ctrl, HPD_DOWN);
 			}
@@ -332,6 +336,13 @@ int mhl_msc_send_msc_msg(struct mhl_tx_ctrl *mhl_ctrl,
 	return mhl_queue_msc_command(mhl_ctrl, &req, MSC_NORMAL_SEND);
 }
 
+/*
+ * Certain MSC msgs such as RCPK, RCPE and RAPK
+ * should be transmitted as a high priority
+ * because these msgs should be sent within
+ * 1000ms of a receipt of RCP/RAP. So such msgs can
+ * be added to the head of msc cmd queue.
+ */
 static int mhl_msc_send_prior_msc_msg(struct mhl_tx_ctrl *mhl_ctrl,
 				      u8 sub_cmd, u8 cmd_data)
 {
@@ -391,7 +402,7 @@ int mhl_rcp_recv(struct mhl_tx_ctrl *mhl_ctrl, u8 key_code)
 
 	if ((index < mhl_ctrl->rcp_key_code_tbl_len) &&
 	    (input_key_code > 0)) {
-		
+		/* prior send rcpk */
 		mhl_msc_send_prior_msc_msg(
 			mhl_ctrl,
 			MHL_MSC_MSG_RCPK,
@@ -400,13 +411,13 @@ int mhl_rcp_recv(struct mhl_tx_ctrl *mhl_ctrl, u8 key_code)
 		if (mhl_ctrl->input)
 			mhl_handle_input(mhl_ctrl, key_code, input_key_code);
 	} else {
-		
+		/* prior send rcpe */
 		mhl_msc_send_prior_msc_msg(
 			mhl_ctrl,
 			MHL_MSC_MSG_RCPE,
 			MHL_RCPE_INEFFECTIVE_KEY_CODE);
 
-		
+		/* send rcpk after rcpe send */
 		mhl_msc_send_prior_msc_msg(
 			mhl_ctrl,
 			MHL_MSC_MSG_RCPK,
@@ -422,6 +433,10 @@ static int mhl_rap_action(struct mhl_tx_ctrl *mhl_ctrl, u8 action_code)
 		mhl_tmds_ctrl(mhl_ctrl, TMDS_ENABLE);
 		break;
 	case MHL_RAP_CONTENT_OFF:
+		/*
+		 * instead of only disabling tmds
+		 * send power button press - CONTENT_OFF
+		 */
 		input_report_key(mhl_ctrl->input, KEY_VENDOR, 1);
 		input_sync(mhl_ctrl->input);
 		input_report_key(mhl_ctrl->input, KEY_VENDOR, 0);
@@ -459,7 +474,7 @@ static int mhl_rap_recv(struct mhl_tx_ctrl *mhl_ctrl, u8 action_code)
 		error_code = MHL_RAPK_UNRECOGNIZED_ACTION_CODE;
 		break;
 	}
-	
+	/* prior send rapk */
 	return mhl_msc_send_prior_msc_msg(
 		mhl_ctrl,
 		MHL_MSC_MSG_RAPK,
@@ -504,18 +519,18 @@ int mhl_msc_recv_set_int(struct mhl_tx_ctrl *mhl_ctrl,
 	switch (offset) {
 	case 0:
 		if (set_int & MHL_INT_DCAP_CHG) {
-			
+			/* peer dcap has changed */
 			mhl_ctrl->devcap_state = 0;
 			mhl_msc_read_devcap_all(mhl_ctrl);
 		}
 		if (set_int & MHL_INT_DSCR_CHG) {
-			
+			/* peer's scratchpad reg changed */
 			pr_debug("%s: dscr chg\n", __func__);
 			mhl_read_scratchpad(mhl_ctrl);
 			mhl_ctrl->scrpd_busy = false;
 		}
 		if (set_int & MHL_INT_REQ_WRT) {
-			
+			/* SET_INT: REQ_WRT */
 			if (mhl_ctrl->scrpd_busy) {
 				prior = MSC_NORMAL_SEND;
 			} else {
@@ -529,7 +544,7 @@ int mhl_msc_recv_set_int(struct mhl_tx_ctrl *mhl_ctrl,
 				prior);
 		}
 		if (set_int & MHL_INT_GRT_WRT) {
-			
+			/* SET_INT: GRT_WRT */
 			pr_debug("%s: recvd req to permit/grant write",
 				 __func__);
 			complete_all(&mhl_ctrl->req_write_done);
@@ -542,6 +557,9 @@ int mhl_msc_recv_set_int(struct mhl_tx_ctrl *mhl_ctrl,
 		break;
 	case 1:
 		if (set_int & MHL_INT_EDID_CHG) {
+			/* peer EDID has changed
+			 * toggle HPD to read EDID
+			 */
 			pr_debug("%s: EDID CHG\n", __func__);
 			mhl_drive_hpd(mhl_ctrl, HPD_DOWN);
 			msleep(110);
@@ -561,18 +579,31 @@ int mhl_msc_recv_write_stat(struct mhl_tx_ctrl *mhl_ctrl,
 
 	switch (offset) {
 	case 0:
+		/*
+		 * connected device bits
+		 * changed and DEVCAP READY
+		 */
 		if (((value ^ mhl_ctrl->status[offset]) &
 		     MHL_STATUS_DCAP_RDY)) {
 			if (value & MHL_STATUS_DCAP_RDY) {
 				mhl_ctrl->devcap_state = 0;
 				mhl_msc_read_devcap_all(mhl_ctrl);
 			} else {
+				/*
+				 * peer dcap turned not ready
+				 * use old devap state
+				 */
 				pr_debug("%s: DCAP RDY bit cleared\n",
 					 __func__);
 			}
 		}
 		break;
 	case 1:
+		/*
+		 * connected device bits
+		 * changed and PATH ENABLED
+		 * bit set
+		 */
 		tmds_en = mhl_check_tmds_enabled(mhl_ctrl);
 		if ((value ^ mhl_ctrl->status[offset])
 		    & MHL_STATUS_PATH_ENABLED) {
@@ -621,6 +652,11 @@ static int mhl_request_write_burst(struct mhl_tx_ctrl *mhl_ctrl,
 		return -EFAULT;
 	}
 
+	/*
+	 * scratchpad remains busy as long as a peer's permission or
+	 * write bursts are pending; experimentally it was found that
+	 * 50ms is optimal
+	 */
 	while (mhl_ctrl->scrpd_busy && retry--)
 		msleep(50);
 	if (!retry) {
@@ -656,6 +692,7 @@ static int mhl_request_write_burst(struct mhl_tx_ctrl *mhl_ctrl,
 	return 0;
 }
 
+/* write scratchpad entry */
 int mhl_write_scratchpad(struct mhl_tx_ctrl *mhl_ctrl,
 			  u8 offset, u8 length, u8 *data)
 {

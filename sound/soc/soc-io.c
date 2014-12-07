@@ -77,6 +77,11 @@ static int snd_soc_hw_bulk_write_raw(struct snd_soc_codec *codec,
 				     unsigned int reg,
 				     const void *data, size_t len)
 {
+	/* To ensure that we don't get out of sync with the cache, check
+	 * whether the base register is volatile or if we've directly asked
+	 * to bypass the cache.  Out of bounds registers are considered
+	 * volatile.
+	 */
 	if (!codec->cache_bypass
 	    && !snd_soc_codec_volatile_register(codec, reg)
 	    && reg < codec->driver->reg_cache_size)
@@ -85,6 +90,25 @@ static int snd_soc_hw_bulk_write_raw(struct snd_soc_codec *codec,
 	return regmap_raw_write(codec->control_data, reg, data, len);
 }
 
+/**
+ * snd_soc_codec_set_cache_io: Set up standard I/O functions.
+ *
+ * @codec: CODEC to configure.
+ * @addr_bits: Number of bits of register address data.
+ * @data_bits: Number of bits of data per register.
+ * @control: Control bus used.
+ *
+ * Register formats are frequently shared between many I2C and SPI
+ * devices.  In order to promote code reuse the ASoC core provides
+ * some standard implementations of CODEC read and write operations
+ * which can be set up using this function.
+ *
+ * The caller is responsible for allocating and initialising the
+ * actual cache.
+ *
+ * Note that at present this code cannot be used by CODECs with
+ * volatile registers.
+ */
 int snd_soc_codec_set_cache_io(struct snd_soc_codec *codec,
 			       int addr_bits, int data_bits,
 			       enum snd_soc_control_type control)
@@ -116,11 +140,11 @@ int snd_soc_codec_set_cache_io(struct snd_soc_codec *codec,
 #endif
 
 	case SND_SOC_REGMAP:
-		
+		/* Device has made its own regmap arrangements */
 		codec->using_regmap = true;
 
 		ret = regmap_get_val_bytes(codec->control_data);
-		
+		/* Errors are legitimate for non-integer byte multiples */
 		if (ret > 0)
 			codec->val_bytes = ret;
 		break;

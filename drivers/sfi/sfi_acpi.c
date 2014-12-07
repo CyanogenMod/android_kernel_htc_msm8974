@@ -1,3 +1,4 @@
+/* sfi_acpi.c Simple Firmware Interface - ACPI extensions */
 
 /*
 
@@ -64,6 +65,13 @@
 #include <linux/sfi.h>
 #include "sfi_core.h"
 
+/*
+ * SFI can access ACPI-defined tables via an optional ACPI XSDT.
+ *
+ * This allows re-use, and avoids re-definition, of standard tables.
+ * For example, the "MCFG" table is defined by PCI, reserved by ACPI,
+ * and is expected to be present many SFI-only systems.
+ */
 
 static struct acpi_table_xsdt *xsdt_va __read_mostly;
 
@@ -83,6 +91,11 @@ static inline struct acpi_table_header *sfi_to_acpi_th(
 	return (struct acpi_table_header *)th;
 }
 
+/*
+ * sfi_acpi_parse_xsdt()
+ *
+ * Parse the ACPI XSDT for later access by sfi_acpi_table_parse().
+ */
 static int __init sfi_acpi_parse_xsdt(struct sfi_table_header *th)
 {
 	struct sfi_table_key key = SFI_ANY_KEY;
@@ -108,7 +121,7 @@ int __init sfi_acpi_init(void)
 
 	sfi_table_parse(SFI_SIG_XSDT, NULL, NULL, sfi_acpi_parse_xsdt);
 
-	
+	/* Only call the get_table to keep the table mapped */
 	xsdt_va = (struct acpi_table_xsdt *)sfi_get_table(&xsdt_key);
 	return 0;
 }
@@ -133,6 +146,11 @@ static void sfi_acpi_put_table(struct acpi_table_header *table)
 	sfi_put_table(acpi_to_sfi_th(table));
 }
 
+/*
+ * sfi_acpi_table_parse()
+ *
+ * Find specified table in XSDT, run handler on it and return its return value
+ */
 int sfi_acpi_table_parse(char *signature, char *oem_id, char *oem_table_id,
 			int(*handler)(struct acpi_table_header *))
 {

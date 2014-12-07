@@ -31,7 +31,7 @@ static int tmio_mmc_suspend(struct platform_device *dev, pm_message_t state)
 
 	ret = tmio_mmc_host_suspend(&dev->dev);
 
-	
+	/* Tell MFD core it can disable us now.*/
 	if (!ret && cell->disable)
 		cell->disable(dev);
 
@@ -43,7 +43,7 @@ static int tmio_mmc_resume(struct platform_device *dev)
 	const struct mfd_cell *cell = mfd_get_cell(dev);
 	int ret = 0;
 
-	
+	/* Tell the MFD core we are ready to be enabled */
 	if (cell->resume)
 		ret = cell->resume(dev);
 
@@ -77,7 +77,7 @@ static int __devinit tmio_mmc_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	
+	/* Tell the MFD core we are ready to be enabled */
 	if (cell->enable) {
 		ret = cell->enable(pdev);
 		if (ret)
@@ -125,6 +125,7 @@ static int __devexit tmio_mmc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* ------------------- device registration ----------------------- */
 
 static struct platform_driver tmio_mmc_driver = {
 	.driver = {

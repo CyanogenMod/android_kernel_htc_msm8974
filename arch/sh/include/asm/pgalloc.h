@@ -4,7 +4,7 @@
 #include <linux/quicklist.h>
 #include <asm/page.h>
 
-#define QUICK_PT 0	
+#define QUICK_PT 0	/* Other page table pages that are zero on free */
 
 extern pgd_t *pgd_alloc(struct mm_struct *);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
@@ -28,6 +28,9 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd,
 }
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
+/*
+ * Allocate and free page tables.
+ */
 static inline pte_t *pte_alloc_one_kernel(struct mm_struct *mm,
 					  unsigned long address)
 {
@@ -70,4 +73,4 @@ static inline void check_pgt_cache(void)
 	quicklist_trim(QUICK_PT, NULL, 25, 16);
 }
 
-#endif 
+#endif /* __ASM_SH_PGALLOC_H */

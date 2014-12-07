@@ -30,8 +30,12 @@
 #include "machvec_impl.h"
 
 
+/*
+ * HACK ALERT! only the boot cpu is used for interrupts.
+ */
 
 
+/* Note mask bit is true for ENABLED irqs.  */
 
 static unsigned int hose_irq_masks[4] = {
 	0xff0000, 0xfe0000, 0xff0000, 0xff0000
@@ -58,7 +62,7 @@ rawhide_enable_irq(struct irq_data *d)
 
 	irq -= 16;
 	hose = irq / 24;
-	if (!hose_exists(hose)) 
+	if (!hose_exists(hose)) /* if hose non-existent, exit */
 		return;
 
 	irq -= hose * 24;
@@ -79,7 +83,7 @@ rawhide_disable_irq(struct irq_data *d)
 
 	irq -= 16;
 	hose = irq / 24;
-	if (!hose_exists(hose)) 
+	if (!hose_exists(hose)) /* if hose non-existent, exit */
 		return;
 
 	irq -= hose * 24;
@@ -100,7 +104,7 @@ rawhide_mask_and_ack_irq(struct irq_data *d)
 
 	irq -= 16;
 	hose = irq / 24;
-	if (!hose_exists(hose)) 
+	if (!hose_exists(hose)) /* if hose non-existent, exit */
 		return;
 
 	irq -= hose * 24;
@@ -113,7 +117,7 @@ rawhide_mask_and_ack_irq(struct irq_data *d)
 	cached_irq_masks[hose] = mask;
 	rawhide_update_irq_hw(hose, mask);
 
-	
+	/* Clear the interrupt.  */
 	*(vuip)MCPCIA_INT_REQ(MCPCIA_HOSE2MID(hose)) = mask1;
 
 	spin_unlock(&rawhide_irq_lock);
@@ -133,13 +137,22 @@ rawhide_srm_device_interrupt(unsigned long vector)
 
 	irq = (vector - 0x800) >> 4;
 
+        /*
+         * The RAWHIDE SRM console reports PCI interrupts with a vector
+	 * 0x80 *higher* than one might expect, as PCI IRQ 0 (ie bit 0)
+	 * shows up as IRQ 24, etc, etc. We adjust it down by 8 to have
+	 * it line up with the actual bit numbers from the REQ registers,
+	 * which is how we manage the interrupts/mask. Sigh...
+	 *
+	 * Also, PCI #1 interrupts are offset some more... :-(
+         */
 
 	if (irq == 52) {
-		
+		/* SCSI on PCI1 is special.  */
 		irq = 72;
 	}
 
-	
+	/* Adjust by which hose it is from.  */
 	irq -= ((irq + 16) >> 2) & 0x38;
 
 	handle_irq(irq);
@@ -153,7 +166,7 @@ rawhide_init_irq(void)
 
 	mcpcia_init_hoses();
 
-	
+	/* Clear them all; only hoses that exist will be non-zero. */
 	for (i = 0; i < MCPCIA_MAX_HOSES; i++) cached_irq_masks[i] = 0;
 
 	for (hose = hose_head; hose; hose = hose->next) {
@@ -175,17 +188,49 @@ rawhide_init_irq(void)
 	common_init_isa_dma();
 }
 
+/*
+ * PCI Fixup configuration.
+ *
+ * Summary @ MCPCIA_PCI0_INT_REQ:
+ * Bit      Meaning
+ * 0        Interrupt Line A from slot 2 PCI0
+ * 1        Interrupt Line B from slot 2 PCI0
+ * 2        Interrupt Line C from slot 2 PCI0
+ * 3        Interrupt Line D from slot 2 PCI0
+ * 4        Interrupt Line A from slot 3 PCI0
+ * 5        Interrupt Line B from slot 3 PCI0
+ * 6        Interrupt Line C from slot 3 PCI0
+ * 7        Interrupt Line D from slot 3 PCI0
+ * 8        Interrupt Line A from slot 4 PCI0
+ * 9        Interrupt Line B from slot 4 PCI0
+ * 10       Interrupt Line C from slot 4 PCI0
+ * 11       Interrupt Line D from slot 4 PCI0
+ * 12       Interrupt Line A from slot 5 PCI0
+ * 13       Interrupt Line B from slot 5 PCI0
+ * 14       Interrupt Line C from slot 5 PCI0
+ * 15       Interrupt Line D from slot 5 PCI0
+ * 16       EISA interrupt (PCI 0) or SCSI interrupt (PCI 1)
+ * 17-23    NA
+ *
+ * IdSel	
+ *   1	 EISA bridge (PCI bus 0 only)
+ *   2 	 PCI option slot 2
+ *   3	 PCI option slot 3
+ *   4   PCI option slot 4
+ *   5   PCI option slot 5
+ * 
+ */
 
 static int __init
 rawhide_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	static char irq_tab[5][5] __initdata = {
-		
-		{ 16+16, 16+16, 16+16, 16+16, 16+16}, 
-		{ 16+ 0, 16+ 0, 16+ 1, 16+ 2, 16+ 3}, 
-		{ 16+ 4, 16+ 4, 16+ 5, 16+ 6, 16+ 7}, 
-		{ 16+ 8, 16+ 8, 16+ 9, 16+10, 16+11}, 
-		{ 16+12, 16+12, 16+13, 16+14, 16+15}  
+		/*INT    INTA   INTB   INTC   INTD */
+		{ 16+16, 16+16, 16+16, 16+16, 16+16}, /* IdSel 1 SCSI PCI 1 */
+		{ 16+ 0, 16+ 0, 16+ 1, 16+ 2, 16+ 3}, /* IdSel 2 slot 2 */
+		{ 16+ 4, 16+ 4, 16+ 5, 16+ 6, 16+ 7}, /* IdSel 3 slot 3 */
+		{ 16+ 8, 16+ 8, 16+ 9, 16+10, 16+11}, /* IdSel 4 slot 4 */
+		{ 16+12, 16+12, 16+13, 16+14, 16+15}  /* IdSel 5 slot 5 */
 	};
 	const long min_idsel = 1, max_idsel = 5, irqs_per_slot = 5;
 
@@ -197,6 +242,9 @@ rawhide_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 }
 
 
+/*
+ * The System Vector
+ */
 
 struct alpha_machine_vector rawhide_mv __initmv = {
 	.vector_name		= "Rawhide",

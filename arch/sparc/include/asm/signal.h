@@ -11,6 +11,9 @@
 #endif
 #endif
 
+/* On the Sparc the signal handlers get passed a 'sub-signal' code
+ * for certain signal types, which we document here.
+ */
 #define SIGHUP		 1
 #define SIGINT		 2
 #define SIGQUIT		 3
@@ -57,6 +60,7 @@
 #define SIGTERM		15
 #define SIGURG          16
 
+/* SunOS values which deviate from the Linux/i386 ones */
 #define SIGSTOP		17
 #define SIGTSTP		18
 #define SIGCONT		19
@@ -64,7 +68,7 @@
 #define SIGTTIN		21
 #define SIGTTOU		22
 #define SIGIO		23
-#define SIGPOLL		SIGIO   
+#define SIGPOLL		SIGIO   /* SysV name for SIGIO */
 #define SIGXCPU		24
 #define SIGXFSZ		25
 #define SIGVTALRM	26
@@ -75,6 +79,8 @@
 #define SIGUSR1		30
 #define SIGUSR2		31
 
+/* Most things should be clean enough to redefine this at will, if care
+   is taken to make libc match.  */
 
 #define __OLD_NSIG	32
 #define __NEW_NSIG      64
@@ -106,23 +112,32 @@
 
 #ifndef __ASSEMBLY__
 
-typedef unsigned long __old_sigset_t;            
+typedef unsigned long __old_sigset_t;            /* at least 32 bits */
 
 typedef struct {
        unsigned long sig[_NSIG_WORDS];
 } __new_sigset_t;
 
+/* A SunOS sigstack */
 struct sigstack {
-	
+	/* XXX 32-bit pointers pinhead XXX */
 	char *the_stack;
 	int   cur_status;
 };
 
-#define _SV_SSTACK    1u    
-#define _SV_INTR      2u    
-#define _SV_RESET     4u    
-#define _SV_IGNCHILD  8u    
+/* Sigvec flags */
+#define _SV_SSTACK    1u    /* This signal handler should use sig-stack */
+#define _SV_INTR      2u    /* Sig return should not restart system call */
+#define _SV_RESET     4u    /* Set handler to SIG_DFL upon taken signal */
+#define _SV_IGNCHILD  8u    /* Do not send SIGCHLD */
 
+/*
+ * sa_flags values: SA_STACK is not currently supported, but will allow the
+ * usage of signal stacks by using the (now obsolete) sa_restorer field in
+ * the sigaction structure as a stack pointer. This is now possible due to
+ * the changes in signal handling. LBT 010493.
+ * SA_RESTART flag to get restarting signals (which were the default long ago)
+ */
 #define SA_NOCLDSTOP	_SV_IGNCHILD
 #define SA_STACK	_SV_SSTACK
 #define SA_ONSTACK	_SV_SSTACK
@@ -134,10 +149,13 @@ struct sigstack {
 
 #define SA_NOMASK	SA_NODEFER
 
-#define SIG_BLOCK          0x01	
-#define SIG_UNBLOCK        0x02	
-#define SIG_SETMASK        0x04	
+#define SIG_BLOCK          0x01	/* for blocking signals */
+#define SIG_UNBLOCK        0x02	/* for unblocking signals */
+#define SIG_SETMASK        0x04	/* for setting the signal mask */
 
+/*
+ * sigaltstack controls
+ */
 #define SS_ONSTACK	1
 #define SS_DISABLE	2
 
@@ -145,6 +163,17 @@ struct sigstack {
 #define SIGSTKSZ	16384
 
 #ifdef __KERNEL__
+/*
+ * DJHR
+ * SA_STATIC_ALLOC is used for the sparc32 system to indicate that this
+ * interrupt handler's irq structure should be statically allocated
+ * by the request_irq routine.
+ * The alternative is that arch/sparc/kernel/irq.c has carnal knowledge
+ * of interrupt usage and that sucks. Also without a flag like this
+ * it may be possible for the free_irq routine to attempt to free
+ * statically allocated data.. which is NOT GOOD.
+ *
+ */
 #define SA_STATIC_ALLOC         0x8000
 #endif
 
@@ -153,7 +182,7 @@ struct sigstack {
 struct __new_sigaction {
 	__sighandler_t		sa_handler;
 	unsigned long		sa_flags;
-	__sigrestore_t		sa_restorer;  
+	__sigrestore_t		sa_restorer;  /* not used by Linux/SPARC yet */
 	__new_sigset_t		sa_mask;
 };
 
@@ -161,7 +190,7 @@ struct __old_sigaction {
 	__sighandler_t		sa_handler;
 	__old_sigset_t		sa_mask;
 	unsigned long		sa_flags;
-	void			(*sa_restorer)(void);  
+	void			(*sa_restorer)(void);  /* not used by Linux/SPARC yet */
 };
 
 typedef struct sigaltstack {
@@ -179,8 +208,8 @@ struct k_sigaction {
 
 #define ptrace_signal_deliver(regs, cookie) do { } while (0)
 
-#endif 
+#endif /* !(__KERNEL__) */
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
-#endif 
+#endif /* !(__SPARC_SIGNAL_H) */

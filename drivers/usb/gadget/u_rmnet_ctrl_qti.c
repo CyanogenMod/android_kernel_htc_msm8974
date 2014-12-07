@@ -107,7 +107,7 @@ static int grmnet_ctrl_qti_send_cpkt_tomodem(u8 portno,
 	pr_debug("%s: Add to cpkt_req_q packet with len = %d\n", __func__, len);
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* drop cpkt if port is not open */
 	if (!port->is_open) {
 		pr_err("rmnet file handler %p is not open", port);
 		spin_unlock_irqrestore(&port->lock, flags);
@@ -118,7 +118,7 @@ static int grmnet_ctrl_qti_send_cpkt_tomodem(u8 portno,
 	list_add_tail(&cpkt->list, &port->cpkt_req_q);
 	spin_unlock_irqrestore(&port->lock, flags);
 
-	
+	/* wakeup read thread */
 	pr_debug("%s: Wake up read queue", __func__);
 	wake_up(&port->read_wq);
 
@@ -132,7 +132,7 @@ gqti_ctrl_notify_modem(void *gptr, u8 portno, int val)
 
 	atomic_set(&port->line_state, val);
 
-	
+	/* send 0 len pkt to qti to notify state change */
 	rmnet_ctrl_queue_notify(port);
 }
 
@@ -198,7 +198,7 @@ void gqti_ctrl_disconnect(struct grmnet *gr)
 
 	spin_unlock_irqrestore(&port->lock, flags);
 
-	
+	/* send 0 len pkt to qti to notify state change */
 	rmnet_ctrl_queue_notify(port);
 }
 
@@ -259,7 +259,7 @@ rmnet_ctrl_read(struct file *fp, char __user *buf, size_t count, loff_t *pos)
 		return -EBUSY;
 	}
 
-	
+	/* block until a new packet is available */
 	do {
 		spin_lock_irqsave(&port->lock, flags);
 		if (!list_empty(&port->cpkt_req_q))
@@ -438,6 +438,7 @@ static unsigned int rmnet_ctrl_poll(struct file *file, poll_table *wait)
 	return mask;
 }
 
+/* file operations for rmnet device /dev/rmnet_ctrl */
 static const struct file_operations rmnet_ctrl_fops = {
 	.owner = THIS_MODULE,
 	.open = rmnet_ctrl_open,

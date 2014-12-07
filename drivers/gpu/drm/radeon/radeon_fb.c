@@ -38,6 +38,10 @@
 
 #include <linux/vga_switcheroo.h>
 
+/* object hierarchy -
+   this contains a helper + a radeon fb
+   the helper contains a pointer to radeon framebuffer baseclass.
+*/
 struct radeon_fbdev {
 	struct drm_fb_helper helper;
 	struct radeon_framebuffer rfb;
@@ -105,7 +109,7 @@ static int radeonfb_create_pinned_object(struct radeon_fbdev *rfbdev,
 	struct radeon_device *rdev = rfbdev->rdev;
 	struct drm_gem_object *gobj = NULL;
 	struct radeon_bo *rbo = NULL;
-	bool fb_tiled = false; 
+	bool fb_tiled = false; /* useful for testing */
 	u32 tiling_flags = 0;
 	int ret;
 	int aligned_size, size;
@@ -114,7 +118,7 @@ static int radeonfb_create_pinned_object(struct radeon_fbdev *rfbdev,
 
 	drm_fb_get_bpp_depth(mode_cmd->pixel_format, &depth, &bpp);
 
-	
+	/* need to align pitch with crtc limits */
 	mode_cmd->pitches[0] = radeon_align_pitch(rdev, mode_cmd->width, bpp,
 						  fb_tiled) * ((bpp + 1) / 8);
 
@@ -160,7 +164,7 @@ static int radeonfb_create_pinned_object(struct radeon_fbdev *rfbdev,
 	ret = radeon_bo_reserve(rbo, false);
 	if (unlikely(ret != 0))
 		goto out_unref;
-	
+	/* Only 27 bit offset for legacy CRTC */
 	ret = radeon_bo_pin_restricted(rbo, RADEON_GEM_DOMAIN_VRAM,
 				       ASIC_IS_AVIVO(rdev) ? 0 : 1 << 27,
 				       NULL);
@@ -200,7 +204,7 @@ static int radeonfb_create(struct radeon_fbdev *rfbdev,
 	mode_cmd.width = sizes->surface_width;
 	mode_cmd.height = sizes->surface_height;
 
-	
+	/* avivo can't scanout real 24bpp */
 	if ((sizes->surface_bpp == 24) && ASIC_IS_AVIVO(rdev))
 		sizes->surface_bpp = 32;
 
@@ -215,7 +219,7 @@ static int radeonfb_create(struct radeon_fbdev *rfbdev,
 
 	rbo = gem_to_radeon_bo(gobj);
 
-	
+	/* okay we have an object now allocate the framebuffer */
 	info = framebuffer_alloc(0, device);
 	if (info == NULL) {
 		ret = -ENOMEM;
@@ -232,7 +236,7 @@ static int radeonfb_create(struct radeon_fbdev *rfbdev,
 
 	fb = &rfbdev->rfb.base;
 
-	
+	/* setup helper */
 	rfbdev->helper.fb = fb;
 	rfbdev->helper.fbdev = info;
 
@@ -253,7 +257,7 @@ static int radeonfb_create(struct radeon_fbdev *rfbdev,
 
 	drm_fb_helper_fill_var(info, &rfbdev->helper, sizes->fb_width, sizes->fb_height);
 
-	
+	/* setup aperture base/size for vesafb takeover */
 	info->apertures = alloc_apertures(1);
 	if (!info->apertures) {
 		ret = -ENOMEM;
@@ -262,7 +266,7 @@ static int radeonfb_create(struct radeon_fbdev *rfbdev,
 	info->apertures->ranges[0].base = rdev->ddev->mode_config.fb_base;
 	info->apertures->ranges[0].size = rdev->mc.aper_size;
 
-	
+	/* Use default scratch pixmap (info->pixmap.flags = FB_PIXMAP_SYSTEM) */
 
 	if (info->screen_base == NULL) {
 		ret = -ENOSPC;
@@ -369,7 +373,7 @@ int radeon_fbdev_init(struct radeon_device *rdev)
 	int bpp_sel = 32;
 	int ret;
 
-	
+	/* select 8 bpp console on RN50 or 16MB cards */
 	if (ASIC_IS_RN50(rdev) || rdev->mc.real_vram_size <= (32*1024*1024))
 		bpp_sel = 8;
 

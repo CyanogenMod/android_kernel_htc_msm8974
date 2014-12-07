@@ -51,7 +51,7 @@ struct bcap_format {
 	char *desc;
 	u32 pixelformat;
 	enum v4l2_mbus_pixelcode mbus_code;
-	int bpp; 
+	int bpp; /* bits per pixel */
 };
 
 struct bcap_buffer {
@@ -60,53 +60,53 @@ struct bcap_buffer {
 };
 
 struct bcap_device {
-	
+	/* capture device instance */
 	struct v4l2_device v4l2_dev;
-	
+	/* v4l2 control handler */
 	struct v4l2_ctrl_handler ctrl_handler;
-	
+	/* device node data */
 	struct video_device *video_dev;
-	
+	/* sub device instance */
 	struct v4l2_subdev *sd;
-	
+	/* capture config */
 	struct bfin_capture_config *cfg;
-	
+	/* ppi interface */
 	struct ppi_if *ppi;
-	
+	/* current input */
 	unsigned int cur_input;
-	
+	/* current selected standard */
 	v4l2_std_id std;
-	
+	/* used to store pixel format */
 	struct v4l2_pix_format fmt;
-	
+	/* bits per pixel*/
 	int bpp;
-	
+	/* used to store sensor supported format */
 	struct bcap_format *sensor_formats;
-	
+	/* number of sensor formats array */
 	int num_sensor_formats;
-	
+	/* pointing to current video buffer */
 	struct bcap_buffer *cur_frm;
-	
+	/* pointing to next video buffer */
 	struct bcap_buffer *next_frm;
-	
+	/* buffer queue used in videobuf2 */
 	struct vb2_queue buffer_queue;
-	
+	/* allocator-specific contexts for each plane */
 	struct vb2_alloc_ctx *alloc_ctx;
-	
+	/* queue of filled frames */
 	struct list_head dma_queue;
-	
+	/* used in videobuf2 callback */
 	spinlock_t lock;
-	
+	/* used to access capture device */
 	struct mutex mutex;
-	
+	/* used to wait ppi to complete one transfer */
 	struct completion comp;
-	
+	/* prepare to stop */
 	bool stop;
 };
 
 struct bcap_fh {
 	struct v4l2_fh fh;
-	
+	/* indicates whether this file handle is doing IO */
 	bool io_allowed;
 };
 
@@ -170,7 +170,7 @@ static int bcap_init_sensor_formats(struct bcap_device *bcap_dev)
 			if (code == bcap_formats[j].mbus_code)
 				break;
 		if (j == BCAP_MAX_FMTS) {
-			
+			/* we don't allow this sensor working with our bridge */
 			kfree(sf);
 			return -EINVAL;
 		}
@@ -208,7 +208,7 @@ static int bcap_open(struct file *file)
 
 	v4l2_fh_init(&bcap_fh->fh, vfd);
 
-	
+	/* store pointer to v4l2_fh in private_data member of file */
 	file->private_data = &bcap_fh->fh;
 	v4l2_fh_add(&bcap_fh->fh);
 	bcap_fh->io_allowed = false;
@@ -221,7 +221,7 @@ static int bcap_release(struct file *file)
 	struct v4l2_fh *fh = file->private_data;
 	struct bcap_fh *bcap_fh = container_of(fh, struct bcap_fh, fh);
 
-	
+	/* if this instance is doing IO */
 	if (bcap_fh->io_allowed)
 		vb2_queue_release(&bcap_dev->buffer_queue);
 
@@ -346,14 +346,14 @@ static int bcap_start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct ppi_params params;
 	int ret;
 
-	
+	/* enable streamon on the sub device */
 	ret = v4l2_subdev_call(bcap_dev->sd, video, s_stream, 1);
 	if (ret && (ret != -ENOIOCTLCMD)) {
 		v4l2_err(&bcap_dev->v4l2_dev, "stream on failed in subdev\n");
 		return ret;
 	}
 
-	
+	/* set ppi params */
 	params.width = bcap_dev->fmt.width;
 	params.height = bcap_dev->fmt.height;
 	params.bpp = bcap_dev->bpp;
@@ -367,7 +367,7 @@ static int bcap_start_streaming(struct vb2_queue *vq, unsigned int count)
 		return ret;
 	}
 
-	
+	/* attach ppi DMA irq handler */
 	ret = ppi->ops->attach_irq(ppi, bcap_isr);
 	if (ret < 0) {
 		v4l2_err(&bcap_dev->v4l2_dev,
@@ -398,7 +398,7 @@ static int bcap_stop_streaming(struct vb2_queue *vq)
 		v4l2_err(&bcap_dev->v4l2_dev,
 				"stream off failed in subdev\n");
 
-	
+	/* release all active buffers */
 	while (!list_empty(&bcap_dev->dma_queue)) {
 		bcap_dev->next_frm = list_entry(bcap_dev->dma_queue.next,
 						struct bcap_buffer, list);
@@ -520,28 +520,28 @@ static int bcap_streamon(struct file *file, void *priv,
 	if (!fh->io_allowed)
 		return -EBUSY;
 
-	
+	/* call streamon to start streaming in videobuf */
 	ret = vb2_streamon(&bcap_dev->buffer_queue, buf_type);
 	if (ret)
 		return ret;
 
-	
+	/* if dma queue is empty, return error */
 	if (list_empty(&bcap_dev->dma_queue)) {
 		v4l2_err(&bcap_dev->v4l2_dev, "dma queue is empty\n");
 		ret = -EINVAL;
 		goto err;
 	}
 
-	
+	/* get the next frame from the dma queue */
 	bcap_dev->next_frm = list_entry(bcap_dev->dma_queue.next,
 					struct bcap_buffer, list);
 	bcap_dev->cur_frm = bcap_dev->next_frm;
-	
+	/* remove buffer from the dma queue */
 	list_del(&bcap_dev->cur_frm->list);
 	addr = vb2_dma_contig_plane_dma_addr(&bcap_dev->cur_frm->vb, 0);
-	
+	/* update DMA address */
 	ppi->ops->update_addr(ppi, (unsigned long)addr);
-	
+	/* enable ppi */
 	ppi->ops->start(ppi);
 
 	return 0;
@@ -605,7 +605,7 @@ static int bcap_enum_input(struct file *file, void *priv,
 		return -EINVAL;
 
 	*input = config->inputs[input->index];
-	
+	/* get input status */
 	ret = v4l2_subdev_call(bcap_dev->sd, video, g_input_status, &status);
 	if (!ret)
 		input->status = status;
@@ -724,7 +724,7 @@ static int bcap_s_fmt_vid_cap(struct file *file, void *priv,
 	if (vb2_is_busy(&bcap_dev->buffer_queue))
 		return -EBUSY;
 
-	
+	/* see if format works */
 	ret = bcap_try_format(bcap_dev, pixfmt, &mbus_code, &bpp);
 	if (ret < 0)
 		return ret;
@@ -808,7 +808,7 @@ static int bcap_dbg_s_register(struct file *file, void *priv,
 static int bcap_log_status(struct file *file, void *priv)
 {
 	struct bcap_device *bcap_dev = video_drvdata(file);
-	
+	/* status for sub devices */
 	v4l2_device_call_all(&bcap_dev->v4l2_dev, 0, core, log_status);
 	return 0;
 }
@@ -897,7 +897,7 @@ static int __devinit bcap_probe(struct platform_device *pdev)
 		goto err_cleanup_ctx;
 	}
 
-	
+	/* initialize field of video device */
 	vfd->release            = video_device_release;
 	vfd->fops               = &bcap_fops;
 	vfd->ioctl_ops          = &bcap_ioctl_ops;
@@ -924,7 +924,7 @@ static int __devinit bcap_probe(struct platform_device *pdev)
 	}
 
 	spin_lock_init(&bcap_dev->lock);
-	
+	/* initialize queue */
 	q = &bcap_dev->buffer_queue;
 	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	q->io_modes = VB2_MMAP;
@@ -938,12 +938,12 @@ static int __devinit bcap_probe(struct platform_device *pdev)
 	mutex_init(&bcap_dev->mutex);
 	init_completion(&bcap_dev->comp);
 
-	
+	/* init video dma queues */
 	INIT_LIST_HEAD(&bcap_dev->dma_queue);
 
 	vfd->lock = &bcap_dev->mutex;
 
-	
+	/* register video device */
 	ret = video_register_device(bcap_dev->video_dev, VFL_TYPE_GRABBER, -1);
 	if (ret) {
 		v4l2_err(&bcap_dev->v4l2_dev,
@@ -954,7 +954,7 @@ static int __devinit bcap_probe(struct platform_device *pdev)
 	v4l2_info(&bcap_dev->v4l2_dev, "video device registered as: %s\n",
 			video_device_node_name(vfd));
 
-	
+	/* load up the subdevice */
 	i2c_adap = i2c_get_adapter(config->i2c_adapter_id);
 	if (!i2c_adap) {
 		v4l2_err(&bcap_dev->v4l2_dev,
@@ -968,7 +968,7 @@ static int __devinit bcap_probe(struct platform_device *pdev)
 						 NULL);
 	if (bcap_dev->sd) {
 		int i;
-		
+		/* update tvnorms from the sub devices */
 		for (i = 0; i < config->num_inputs; i++)
 			vfd->tvnorms |= config->inputs[i].std;
 	} else {
@@ -979,7 +979,7 @@ static int __devinit bcap_probe(struct platform_device *pdev)
 
 	v4l2_info(&bcap_dev->v4l2_dev, "v4l2 sub device registered\n");
 
-	
+	/* now we can probe the default state */
 	if (vfd->tvnorms) {
 		v4l2_std_id std;
 		ret = v4l2_subdev_call(bcap_dev->sd, core, g_std, &std);

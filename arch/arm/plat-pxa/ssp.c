@@ -139,6 +139,9 @@ static int __devinit pxa_ssp_probe(struct platform_device *pdev)
 		goto err_free_io;
 	}
 
+	/* PXA2xx/3xx SSP ports starts from 1 and the internal pdev->id
+	 * starts from 0, do a translation here
+	 */
 	ssp->port_id = pdev->id + 1;
 	ssp->use_count = 0;
 	ssp->type = (int)id->driver_data;

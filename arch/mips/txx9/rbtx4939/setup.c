@@ -53,7 +53,7 @@ static u16 rbtx4939_mem_ioswabw(volatile u16 *a, u16 x)
 {
 	return !IS_CE1_ADDR(a) ? x : le16_to_cpu(x);
 }
-#endif 
+#endif /* __BIG_ENDIAN && CONFIG_SMC91X */
 
 static void __init rbtx4939_pci_setup(void)
 {
@@ -70,20 +70,20 @@ static void __init rbtx4939_pci_setup(void)
 	     (TX4939_PCFG_ET0MODE | TX4939_PCFG_ET1MODE))) {
 		tx4939_report_pci1clk();
 
-		
+		/* mem:64K(max), io:64K(max) (enough for ETH0,ETH1) */
 		c = txx9_alloc_pci_controller(NULL, 0, 0x10000, 0, 0x10000);
 		register_pci_controller(c);
 		tx4927_pcic_setup(tx4939_pcic1ptr, c, 0);
 	}
 
 	tx4939_setup_pcierr_irq();
-#endif 
+#endif /* CONFIG_PCI */
 }
 
 static unsigned long long default_ebccr[] __initdata = {
-	0x01c0000000007608ULL, 
-	0x017f000000007049ULL, 
-	0x0180000000408608ULL, 
+	0x01c0000000007608ULL, /* 64M ROM */
+	0x017f000000007049ULL, /* 1M IOC */
+	0x0180000000408608ULL, /* ISA */
 	0,
 };
 
@@ -92,12 +92,12 @@ static void __init rbtx4939_ebusc_setup(void)
 	int i;
 	unsigned int sp;
 
-	
+	/* use user-configured speed */
 	sp = TX4939_EBUSC_CR(0) & 0x30;
 	default_ebccr[0] |= sp;
 	default_ebccr[1] |= sp;
 	default_ebccr[2] |= sp;
-	
+	/* initialise by myself */
 	for (i = 0; i < ARRAY_SIZE(default_ebccr); i++) {
 		if (default_ebccr[i])
 			____raw_writeq(default_ebccr[i],
@@ -195,6 +195,7 @@ struct rbtx4939_led_data {
 	unsigned int num;
 };
 
+/* Use "dot" in 7seg LEDs */
 static void rbtx4939_led_brightness_set(struct led_classdev *led_cdev,
 					enum led_brightness value)
 {
@@ -265,7 +266,7 @@ static void __rbtx4939_7segled_putc(unsigned int pos, unsigned char val)
 #if defined(CONFIG_LEDS_CLASS) || defined(CONFIG_LEDS_CLASS_MODULE)
 	unsigned long flags;
 	local_irq_save(flags);
-	
+	/* bit7: reserved for LED class */
 	led_val[pos] = (led_val[pos] & 0x80) | (val & 0x7f);
 	val = led_val[pos];
 	local_irq_restore(flags);
@@ -275,7 +276,7 @@ static void __rbtx4939_7segled_putc(unsigned int pos, unsigned char val)
 
 static void rbtx4939_7segled_putc(unsigned int pos, unsigned char val)
 {
-	
+	/* convert from map_to_seg7() notation */
 	val = (val & 0x88) |
 		((val & 0x40) >> 6) |
 		((val & 0x20) >> 4) |
@@ -287,21 +288,22 @@ static void rbtx4939_7segled_putc(unsigned int pos, unsigned char val)
 }
 
 #if defined(CONFIG_MTD_RBTX4939) || defined(CONFIG_MTD_RBTX4939_MODULE)
+/* special mapping for boot rom */
 static unsigned long rbtx4939_flash_fixup_ofs(unsigned long ofs)
 {
 	u8 bdipsw = readb(rbtx4939_bdipsw_addr) & 0x0f;
 	unsigned char shift;
 
 	if (bdipsw & 8) {
-		
+		/* BOOT Mode: USER ROM1 / USER ROM2 */
 		shift = bdipsw & 3;
-		
+		/* rotate A[23:22] */
 		return (ofs & ~0xc00000) | ((((ofs >> 22) + shift) & 3) << 22);
 	}
 #ifdef __BIG_ENDIAN
 	if (bdipsw == 0)
-		
-		ofs ^= 0x400000;	
+		/* BOOT Mode: Monitor ROM */
+		ofs ^= 0x400000;	/* swap A[22] */
 #endif
 	return ofs;
 }
@@ -320,7 +322,7 @@ static void rbtx4939_flash_write16(struct map_info *map, const map_word datum,
 {
 	ofs = rbtx4939_flash_fixup_ofs(ofs);
 	__raw_writew(datum.x[0], map->virt + ofs);
-	mb();	
+	mb();	/* see inline_map_write() in mtd/map.h */
 }
 
 static void rbtx4939_flash_copy_from(struct map_info *map, void *to,
@@ -332,7 +334,7 @@ static void rbtx4939_flash_copy_from(struct map_info *map, void *to,
 
 	from += (unsigned long)map->virt;
 	if (bdipsw & 8) {
-		
+		/* BOOT Mode: USER ROM1 / USER ROM2 */
 		shift = bdipsw & 3;
 		while (len) {
 			curlen = min_t(unsigned long, len,
@@ -349,7 +351,7 @@ static void rbtx4939_flash_copy_from(struct map_info *map, void *to,
 	}
 #ifdef __BIG_ENDIAN
 	if (bdipsw == 0) {
-		
+		/* BOOT Mode: Monitor ROM */
 		while (len) {
 			curlen = min_t(unsigned long, len,
 				     0x400000 - (from & (0x400000 - 1)));
@@ -385,7 +387,7 @@ static void __init rbtx4939_mtd_init(void)
 	u8 bdipsw = readb(rbtx4939_bdipsw_addr) & 0x0f;
 
 	if (bdipsw & 8) {
-		
+		/* BOOT Mode: USER ROM1 / USER ROM2 */
 		boot_pdata->nr_parts = 4;
 		for (i = 0; i < boot_pdata->nr_parts; i++) {
 			sprintf(names[i], "img%d", 4 - i);
@@ -394,7 +396,7 @@ static void __init rbtx4939_mtd_init(void)
 			parts[i].offset = MTDPART_OFS_NXTBLK;
 		}
 	} else if (bdipsw == 0) {
-		
+		/* BOOT Mode: Monitor ROM */
 		boot_pdata->nr_parts = 2;
 		strcpy(names[0], "big");
 		strcpy(names[1], "little");
@@ -404,7 +406,7 @@ static void __init rbtx4939_mtd_init(void)
 			parts[i].offset = MTDPART_OFS_NXTBLK;
 		}
 	} else {
-		
+		/* BOOT Mode: ROM Emulator */
 		boot_pdata->nr_parts = 2;
 		parts[0].name = "boot";
 		parts[0].offset = 0xc00000;
@@ -453,7 +455,7 @@ static void __init rbtx4939_device_init(void)
 			.flags	= IORESOURCE_MEM,
 		}, {
 			.start	= RBTX4939_IRQ_ETHER,
-			
+			/* override default irq flag defined in smc91x.h */
 			.flags	= IORESOURCE_IRQ | IRQF_TRIGGER_LOW,
 		},
 	};
@@ -490,10 +492,10 @@ static void __init rbtx4939_device_init(void)
 	    platform_device_add(pdev))
 		platform_device_put(pdev);
 	rbtx4939_mtd_init();
-	
+	/* TC58DVM82A1FT: tDH=10ns, tWP=tRP=tREADID=35ns */
 	tx4939_ndfmc_init(10, 35,
 			  (1 << 1) | (1 << 2),
-			  (1 << 2)); 
+			  (1 << 2)); /* ch1:8bit, ch2:16bit */
 	rbtx4939_led_setup();
 	tx4939_wdt_init();
 	tx4939_ata_init();
@@ -510,7 +512,7 @@ static void __init rbtx4939_setup(void)
 	int i;
 
 	rbtx4939_ebusc_setup();
-	
+	/* always enable ATA0 */
 	txx9_set64(&tx4939_ccfgptr->pcfg, TX4939_PCFG_ATA0MODE);
 	if (txx9_master_clock == 0)
 		txx9_master_clock = 20000000;

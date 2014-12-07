@@ -29,8 +29,14 @@
 #include <linux/gpio.h>
 #include <plat/board-ams-delta.h>
 
+/*
+ * MTD structure for E3 (Delta)
+ */
 static struct mtd_info *ams_delta_mtd = NULL;
 
+/*
+ * Define partitions for flash devices
+ */
 
 static struct mtd_partition partition_info[] = {
 	{ .name		= "Kernel",
@@ -109,6 +115,14 @@ static int ams_delta_verify_buf(struct mtd_info *mtd, const u_char *buf,
 	return 0;
 }
 
+/*
+ * Command control function
+ *
+ * ctrl:
+ * NAND_NCE: bit 0 -> bit 2
+ * NAND_CLE: bit 1 -> bit 7
+ * NAND_ALE: bit 2 -> bit 6
+ */
 static void ams_delta_hwcontrol(struct mtd_info *mtd, int cmd,
 				unsigned int ctrl)
 {
@@ -164,6 +178,9 @@ static const struct gpio _mandatory_gpio[] = {
 	},
 };
 
+/*
+ * Main initialization routine
+ */
 static int __devinit ams_delta_init(struct platform_device *pdev)
 {
 	struct nand_chip *this;
@@ -174,7 +191,7 @@ static int __devinit ams_delta_init(struct platform_device *pdev)
 	if (!res)
 		return -ENXIO;
 
-	
+	/* Allocate memory for MTD device structure and private data */
 	ams_delta_mtd = kmalloc(sizeof(struct mtd_info) +
 				sizeof(struct nand_chip), GFP_KERNEL);
 	if (!ams_delta_mtd) {
@@ -185,16 +202,21 @@ static int __devinit ams_delta_init(struct platform_device *pdev)
 
 	ams_delta_mtd->owner = THIS_MODULE;
 
-	
+	/* Get pointer to private data */
 	this = (struct nand_chip *) (&ams_delta_mtd[1]);
 
-	
+	/* Initialize structures */
 	memset(ams_delta_mtd, 0, sizeof(struct mtd_info));
 	memset(this, 0, sizeof(struct nand_chip));
 
-	
+	/* Link the private data with the MTD structure */
 	ams_delta_mtd->priv = this;
 
+	/*
+	 * Don't try to request the memory region from here,
+	 * it should have been already requested from the
+	 * gpio-omap driver and requesting it again would fail.
+	 */
 
 	io_base = ioremap(res->start, resource_size(res));
 	if (io_base == NULL) {
@@ -205,7 +227,7 @@ static int __devinit ams_delta_init(struct platform_device *pdev)
 
 	this->priv = io_base;
 
-	
+	/* Set address of NAND IO lines */
 	this->IO_ADDR_R = io_base + OMAP_MPUIO_INPUT_LATCH;
 	this->IO_ADDR_W = io_base + OMAP_MPUIO_OUTPUT;
 	this->read_byte = ams_delta_read_byte;
@@ -219,24 +241,24 @@ static int __devinit ams_delta_init(struct platform_device *pdev)
 		this->dev_ready = NULL;
 		printk(KERN_NOTICE "Couldn't request gpio for Delta NAND ready.\n");
 	}
-	
+	/* 25 us command delay time */
 	this->chip_delay = 30;
 	this->ecc.mode = NAND_ECC_SOFT;
 
 	platform_set_drvdata(pdev, io_base);
 
-	
+	/* Set chip enabled, but  */
 	err = gpio_request_array(_mandatory_gpio, ARRAY_SIZE(_mandatory_gpio));
 	if (err)
 		goto out_gpio;
 
-	
+	/* Scan to find existence of the device */
 	if (nand_scan(ams_delta_mtd, 1)) {
 		err = -ENXIO;
 		goto out_mtd;
 	}
 
-	
+	/* Register the partitions */
 	mtd_device_register(ams_delta_mtd, partition_info,
 			    ARRAY_SIZE(partition_info));
 
@@ -254,18 +276,21 @@ out_free:
 	return err;
 }
 
+/*
+ * Clean up routine
+ */
 static int __devexit ams_delta_cleanup(struct platform_device *pdev)
 {
 	void __iomem *io_base = platform_get_drvdata(pdev);
 
-	
+	/* Release resources, unregister device */
 	nand_release(ams_delta_mtd);
 
 	gpio_free_array(_mandatory_gpio, ARRAY_SIZE(_mandatory_gpio));
 	gpio_free(AMS_DELTA_GPIO_PIN_NAND_RB);
 	iounmap(io_base);
 
-	
+	/* Free the MTD device structure */
 	kfree(ams_delta_mtd);
 
 	return 0;

@@ -33,7 +33,7 @@
 		__func__, current->pid, current->comm, ## args)
 #else
 #define PDEBUG(fmt, args...) do {} while (0)
-#endif 
+#endif /* HTC_MSGSERVICE_DEBUG */
 
 #undef PERR
 #define PERR(fmt, args...) printk(KERN_ERR "%s(%i, %s): " fmt "\n", \
@@ -54,6 +54,12 @@ typedef struct _htc_msgservice_s {
 typedef struct _htc_remote_msg_s {
 	uint8_t 	clear_imei[16];
 	uint8_t		enc_remote_msg[32];
+	/* The format of encrypted message
+	uint32_t	magic;
+	uint32_t	op_cmd;
+	uint8_t		imei[16];
+	uint8_t		reserve[8];
+	*/
 } htc_remote_msg_t;
 
 static long htc_msgservice_ioctl(struct file *file, uint32_t command, unsigned long arg)
@@ -61,6 +67,11 @@ static long htc_msgservice_ioctl(struct file *file, uint32_t command, unsigned l
 	htc_msgservcie_t mmsg;
 	int32_t ret = 0;
 	int32_t ii;
+	/*
+	if (!capable(CAP_SYS_ADMIN)) {
+		return -EPERM;
+	}
+	*/
 	PDEBUG("command = %x\n", command);
 	switch (command) {
 	case HTC_IOCTL_MSGSERVICE:

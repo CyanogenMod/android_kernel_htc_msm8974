@@ -9,6 +9,11 @@
 #include <asm/hypervisor.h>
 #include <asm/oplib.h>
 
+/* If the hypervisor indicates that the API setting
+ * calls are unsupported, by returning HV_EBADTRAP or
+ * HV_ENOTSUPPORTED, we assume that API groups with the
+ * PRE_API flag set are major 1 minor 0.
+ */
 struct api_info {
 	unsigned long group;
 	unsigned long major;
@@ -71,6 +76,17 @@ static void __put_ref(struct api_info *p)
 	}
 }
 
+/* Register a hypervisor API specification.  It indicates the
+ * API group and desired major+minor.
+ *
+ * If an existing API registration exists '0' (success) will
+ * be returned if it is compatible with the one being registered.
+ * Otherwise a negative error code will be returned.
+ *
+ * Otherwise an attempt will be made to negotiate the requested
+ * API group/major/minor with the hypervisor, and errors returned
+ * if that does not succeed.
+ */
 int sun4v_hvapi_register(unsigned long group, unsigned long major,
 			 unsigned long *minor)
 {

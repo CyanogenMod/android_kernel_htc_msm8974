@@ -15,7 +15,7 @@
  */
 
 static const u32 ar5416Modes[][5] = {
-	
+	/* Addr      5G_HT20     5G_HT40     2G_HT40     2G_HT20   */
 	{0x00001030, 0x00000230, 0x00000460, 0x000002c0, 0x00000160},
 	{0x00001070, 0x00000168, 0x000002d0, 0x00000318, 0x0000018c},
 	{0x000010b0, 0x00000e60, 0x00001cc0, 0x00007c70, 0x00003e38},
@@ -82,7 +82,7 @@ static const u32 ar5416Modes[][5] = {
 };
 
 static const u32 ar5416Common[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000000c, 0x00000000},
 	{0x00000030, 0x00020015},
 	{0x00000034, 0x00000005},
@@ -460,13 +460,13 @@ static const u32 ar5416Common[][2] = {
 };
 
 static const u32 ar5416Bank0[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x000098b0, 0x1e5795e5},
 	{0x000098e0, 0x02008020},
 };
 
 static const u32 ar5416BB_RfGain[][3] = {
-	
+	/* Addr      5G_HT20     5G_HT40   */
 	{0x00009a00, 0x00000000, 0x00000000},
 	{0x00009a04, 0x00000040, 0x00000040},
 	{0x00009a08, 0x00000080, 0x00000080},
@@ -534,24 +534,24 @@ static const u32 ar5416BB_RfGain[][3] = {
 };
 
 static const u32 ar5416Bank1[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x000098b0, 0x02108421},
 	{0x000098ec, 0x00000008},
 };
 
 static const u32 ar5416Bank2[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x000098b0, 0x0e73ff17},
 	{0x000098e0, 0x00000420},
 };
 
 static const u32 ar5416Bank3[][3] = {
-	
+	/* Addr      5G_HT20     5G_HT40   */
 	{0x000098f0, 0x01400018, 0x01c00018},
 };
 
 static const u32 ar5416Bank6[][3] = {
-	
+	/* Addr      5G_HT20     5G_HT40   */
 	{0x0000989c, 0x00000000, 0x00000000},
 	{0x0000989c, 0x00000000, 0x00000000},
 	{0x0000989c, 0x00000000, 0x00000000},
@@ -588,7 +588,7 @@ static const u32 ar5416Bank6[][3] = {
 };
 
 static const u32 ar5416Bank6TPC[][3] = {
-	
+	/* Addr      5G_HT20     5G_HT40   */
 	{0x0000989c, 0x00000000, 0x00000000},
 	{0x0000989c, 0x00000000, 0x00000000},
 	{0x0000989c, 0x00000000, 0x00000000},
@@ -625,14 +625,14 @@ static const u32 ar5416Bank6TPC[][3] = {
 };
 
 static const u32 ar5416Bank7[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000989c, 0x00000500},
 	{0x0000989c, 0x00000800},
 	{0x000098cc, 0x0000000e},
 };
 
 static const u32 ar5416Addac[][2] = {
-	
+	/* Addr      allmodes  */
 	{0x0000989c, 0x00000000},
 	{0x0000989c, 0x00000003},
 	{0x0000989c, 0x00000000},

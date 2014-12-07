@@ -20,6 +20,7 @@ enum integrity_status {
 	INTEGRITY_UNKNOWN,
 };
 
+/* List of EVM protected security xattrs */
 #ifdef CONFIG_INTEGRITY
 extern int integrity_inode_alloc(struct inode *inode);
 extern void integrity_inode_free(struct inode *inode);
@@ -34,5 +35,5 @@ static inline void integrity_inode_free(struct inode *inode)
 {
 	return;
 }
-#endif 
-#endif 
+#endif /* CONFIG_INTEGRITY_H */
+#endif /* _LINUX_INTEGRITY_H */

@@ -51,14 +51,15 @@ struct winsize {
 
 #define NCC 10
 struct termio {
-	unsigned short c_iflag;		
-	unsigned short c_oflag;		
-	unsigned short c_cflag;		
-	unsigned short c_lflag;		
-	unsigned char c_line;		
-	unsigned char c_cc[NCC];	
+	unsigned short c_iflag;		/* input mode flags */
+	unsigned short c_oflag;		/* output mode flags */
+	unsigned short c_cflag;		/* control mode flags */
+	unsigned short c_lflag;		/* local mode flags */
+	unsigned char c_line;		/* line discipline */
+	unsigned char c_cc[NCC];	/* control characters */
 };
 
+/* c_cc characters */
 #define _VINTR	0
 #define _VQUIT	1
 #define _VERASE	2
@@ -71,6 +72,7 @@ struct termio {
 #define _VSWTC	9
 
 #ifdef __KERNEL__
+/*                   ^C  ^\ del  ^U  ^D   1   0   0   0   0  ^W  ^R  ^Z  ^Q  ^S  ^V  ^U  */
 #define INIT_C_CC "\003\034\177\025\004\001\000\000\000\000\027\022\032\021\023\026\025" 
 #endif
 
@@ -78,6 +80,6 @@ struct termio {
 
 #include <asm-generic/termios-base.h>
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* _ASM_POWERPC_TERMIOS_H */

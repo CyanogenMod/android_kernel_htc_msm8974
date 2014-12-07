@@ -94,4 +94,4 @@
 #define GPIO_DEFAULT_BOOT_SPI_CS GPIO_PF2
 #define P_DEFAULT_BOOT_SPI_CS P_SPI0_SSEL2
 
-#endif 
+#endif /* _MACH_PORTMUX_H_ */

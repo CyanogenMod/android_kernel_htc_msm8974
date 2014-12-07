@@ -30,19 +30,41 @@ pgd_t swapper_pg_dir[PTRS_PER_PGD] __page_aligned_data;
 struct page *empty_zero_page;
 EXPORT_SYMBOL(empty_zero_page);
 
+/*
+ * Cache of MMU context last used.
+ */
 unsigned long mmu_context_cache = NO_CONTEXT;
 
+/*
+ * paging_init() sets up the page tables
+ *
+ * This routine also unmaps the page at virtual kernel address 0, so
+ * that we can trap those pesky NULL-reference errors in the kernel.
+ */
 void __init paging_init(void)
 {
 	extern unsigned long _evba;
 	void *zero_page;
 	int nid;
 
+	/*
+	 * Make sure we can handle exceptions before enabling
+	 * paging. Not that we should ever _get_ any exceptions this
+	 * early, but you never know...
+	 */
 	printk("Exception vectors start at %p\n", &_evba);
 	sysreg_write(EVBA, (unsigned long)&_evba);
 
+	/*
+	 * Since we are ready to handle exceptions now, we should let
+	 * the CPU generate them...
+	 */
 	__asm__ __volatile__ ("csrf %0" : : "i"(SR_EM_BIT));
 
+	/*
+	 * Allocate the zero page. The allocator will panic if it
+	 * can't satisfy the request, so no need to check.
+	 */
 	zero_page = alloc_bootmem_low_pages_node(NODE_DATA(0),
 						 PAGE_SIZE);
 
@@ -84,7 +106,7 @@ void __init mem_init(void)
 	reservedpages = 0;
 	high_memory = NULL;
 
-	
+	/* this will put all low memory onto the freelists */
 	for_each_online_node(nid) {
 		pg_data_t *pgdat = NODE_DATA(nid);
 		unsigned long node_pages = 0;

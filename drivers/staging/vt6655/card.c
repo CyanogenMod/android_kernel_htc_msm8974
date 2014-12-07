@@ -58,41 +58,45 @@
 #include "country.h"
 #include "channel.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
+//static int          msglevel                =MSG_LEVEL_DEBUG;
 static int          msglevel                =MSG_LEVEL_INFO;
 
-#define C_SIFS_A        16      
+#define C_SIFS_A        16      // micro sec.
 #define C_SIFS_BG       10
 
-#define C_EIFS          80      
+#define C_EIFS          80      // micro sec.
 
 
-#define C_SLOT_SHORT    9       
+#define C_SLOT_SHORT    9       // micro sec.
 #define C_SLOT_LONG     20
 
-#define C_CWMIN_A       15      
+#define C_CWMIN_A       15      // slot time
 #define C_CWMIN_B       31
 
-#define C_CWMAX         1023    
+#define C_CWMAX         1023    // slot time
 
-#define WAIT_BEACON_TX_DOWN_TMO         3    
+#define WAIT_BEACON_TX_DOWN_TMO         3    // Times
 
-                                                              
+                                                              //1M,   2M,   5M,  11M,  18M,  24M,  36M,  54M
 static unsigned char abyDefaultSuppRatesG[] = {WLAN_EID_SUPP_RATES, 8, 0x02, 0x04, 0x0B, 0x16, 0x24, 0x30, 0x48, 0x6C};
-                                                                    
+                                                                    //6M,   9M,  12M,  48M
 static unsigned char abyDefaultExtSuppRatesG[] = {WLAN_EID_EXTSUPP_RATES, 4, 0x0C, 0x12, 0x18, 0x60};
-                                                              
+                                                              //6M,   9M,  12M,  18M,  24M,  36M,  48M,  54M
 static unsigned char abyDefaultSuppRatesA[] = {WLAN_EID_SUPP_RATES, 8, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C};
-                                                              
+                                                              //1M,   2M,   5M,  11M,
 static unsigned char abyDefaultSuppRatesB[] = {WLAN_EID_SUPP_RATES, 4, 0x02, 0x04, 0x0B, 0x16};
 
 
+/*---------------------  Static Variables  --------------------------*/
 
 
 const unsigned short cwRXBCNTSFOff[MAX_RATE] =
 {17, 17, 17, 17, 34, 23, 17, 11, 8, 5, 4, 3};
 
 
+/*---------------------  Static Functions  --------------------------*/
 
 static
 void
@@ -104,7 +108,22 @@ s_vCaculateOFDMRParameter(
     );
 
 
+/*---------------------  Export Functions  --------------------------*/
 
+/*
+ * Description: Caculate TxRate and RsvTime fields for RSPINF in OFDM mode.
+ *
+ * Parameters:
+ *  In:
+ *      wRate           - Tx Rate
+ *      byPktType       - Tx Packet type
+ *  Out:
+ *      pbyTxRate       - pointer to RSPINF TxRate field
+ *      pbyRsvTime      - pointer to RSPINF RsvTime field
+ *
+ * Return Value: none
+ *
+ */
 static
 void
 s_vCaculateOFDMRParameter (
@@ -116,7 +135,7 @@ s_vCaculateOFDMRParameter (
 {
     switch (byRate) {
     case RATE_6M :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x9B;
             *pbyRsvTime = 44;
         }
@@ -127,7 +146,7 @@ s_vCaculateOFDMRParameter (
         break;
 
     case RATE_9M :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x9F;
             *pbyRsvTime = 36;
         }
@@ -138,7 +157,7 @@ s_vCaculateOFDMRParameter (
         break;
 
    case RATE_12M :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x9A;
             *pbyRsvTime = 32;
         }
@@ -149,7 +168,7 @@ s_vCaculateOFDMRParameter (
         break;
 
    case RATE_18M :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x9E;
             *pbyRsvTime = 28;
         }
@@ -160,7 +179,7 @@ s_vCaculateOFDMRParameter (
         break;
 
     case RATE_36M :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x9D;
             *pbyRsvTime = 24;
         }
@@ -171,7 +190,7 @@ s_vCaculateOFDMRParameter (
         break;
 
     case RATE_48M :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x98;
             *pbyRsvTime = 24;
         }
@@ -182,7 +201,7 @@ s_vCaculateOFDMRParameter (
         break;
 
     case RATE_54M :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x9C;
             *pbyRsvTime = 24;
         }
@@ -194,7 +213,7 @@ s_vCaculateOFDMRParameter (
 
     case RATE_24M :
     default :
-        if (ePHYType == PHY_TYPE_11A) {
+        if (ePHYType == PHY_TYPE_11A) {//5GHZ
             *pbyTxRate = 0x99;
             *pbyRsvTime = 28;
         }
@@ -208,18 +227,30 @@ s_vCaculateOFDMRParameter (
 
 
 
+/*
+ * Description: Set RSPINF
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: None.
+ *
+ */
 static
 void
 s_vSetRSPINF (PSDevice pDevice, CARD_PHY_TYPE ePHYType, void *pvSupportRateIEs, void *pvExtSupportRateIEs)
 {
-    unsigned char byServ = 0, bySignal = 0; 
+    unsigned char byServ = 0, bySignal = 0; // For CCK
     unsigned short wLen = 0;
-    unsigned char byTxRate = 0, byRsvTime = 0;    
+    unsigned char byTxRate = 0, byRsvTime = 0;    // For OFDM
 
-    
+    //Set to Page1
     MACvSelectPage1(pDevice->PortOffset);
 
-    
+    //RSPINF_b_1
     BBvCaculateParameter(pDevice,
                          14,
                          VNTWIFIbyGetACKTxRate(RATE_1M, pvSupportRateIEs, pvExtSupportRateIEs),
@@ -230,7 +261,7 @@ s_vSetRSPINF (PSDevice pDevice, CARD_PHY_TYPE ePHYType, void *pvSupportRateIEs, 
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_1, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    ///RSPINF_b_2
     BBvCaculateParameter(pDevice,
                          14,
                          VNTWIFIbyGetACKTxRate(RATE_2M, pvSupportRateIEs, pvExtSupportRateIEs),
@@ -241,7 +272,7 @@ s_vSetRSPINF (PSDevice pDevice, CARD_PHY_TYPE ePHYType, void *pvSupportRateIEs, 
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_2, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    //RSPINF_b_5
     BBvCaculateParameter(pDevice,
                          14,
                          VNTWIFIbyGetACKTxRate(RATE_5M, pvSupportRateIEs, pvExtSupportRateIEs),
@@ -252,7 +283,7 @@ s_vSetRSPINF (PSDevice pDevice, CARD_PHY_TYPE ePHYType, void *pvSupportRateIEs, 
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_5, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    //RSPINF_b_11
     BBvCaculateParameter(pDevice,
                          14,
                          VNTWIFIbyGetACKTxRate(RATE_11M, pvSupportRateIEs, pvExtSupportRateIEs),
@@ -263,66 +294,109 @@ s_vSetRSPINF (PSDevice pDevice, CARD_PHY_TYPE ePHYType, void *pvSupportRateIEs, 
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_11, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    //RSPINF_a_6
     s_vCaculateOFDMRParameter(RATE_6M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_6, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_9
     s_vCaculateOFDMRParameter(RATE_9M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_9, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_12
     s_vCaculateOFDMRParameter(RATE_12M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_12, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_18
     s_vCaculateOFDMRParameter(RATE_18M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_18, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_24
     s_vCaculateOFDMRParameter(RATE_24M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_24, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_36
     s_vCaculateOFDMRParameter(
                               VNTWIFIbyGetACKTxRate(RATE_36M, pvSupportRateIEs, pvExtSupportRateIEs),
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_36, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_48
     s_vCaculateOFDMRParameter(
                               VNTWIFIbyGetACKTxRate(RATE_48M, pvSupportRateIEs, pvExtSupportRateIEs),
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_48, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_54
     s_vCaculateOFDMRParameter(
                               VNTWIFIbyGetACKTxRate(RATE_54M, pvSupportRateIEs, pvExtSupportRateIEs),
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_54, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_72
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_72, MAKEWORD(byTxRate,byRsvTime));
-    
+    //Set to Page0
     MACvSelectPage0(pDevice->PortOffset);
 }
 
+/*---------------------  Export Functions  --------------------------*/
+
+/*
+ * Description: Card Send packet function
+ *
+ * Parameters:
+ *  In:
+ *      pDeviceHandler      - The adapter to be set
+ *      pPacket             - Packet buffer pointer
+ *      ePktType            - Packet type
+ *      uLength             - Packet length
+ *  Out:
+ *      none
+ *
+ * Return Value: true if succeeded; false if failed.
+ *
+ */
+/*
+bool CARDbSendPacket (void *pDeviceHandler, void *pPacket, CARD_PKT_TYPE ePktType, unsigned int uLength)
+{
+    PSDevice    pDevice = (PSDevice) pDeviceHandler;
+    if (ePktType == PKT_TYPE_802_11_MNG) {
+        return TXbTD0Send(pDevice, pPacket, uLength);
+    } else if (ePktType == PKT_TYPE_802_11_BCN) {
+        return TXbBeaconSend(pDevice, pPacket, uLength);
+    } if (ePktType == PKT_TYPE_802_11_DATA) {
+        return TXbTD1Send(pDevice, pPacket, uLength);
+    }
+
+    return (true);
+}
+*/
 
 
-
+/*
+ * Description: Get Card short preamble option value
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: true if short preamble; otherwise false
+ *
+ */
 bool CARDbIsShortPreamble (void *pDeviceHandler)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -332,6 +406,18 @@ bool CARDbIsShortPreamble (void *pDeviceHandler)
     return(true);
 }
 
+/*
+ * Description: Get Card short slot time option value
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: true if short slot time; otherwise false
+ *
+ */
 bool CARDbIsShorSlotTime (void *pDeviceHandler)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -339,6 +425,18 @@ bool CARDbIsShorSlotTime (void *pDeviceHandler)
 }
 
 
+/*
+ * Description: Update IFS
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: None.
+ *
+ */
 bool CARDbSetPhyParameter (void *pDeviceHandler, CARD_PHY_TYPE ePHYType, unsigned short wCapInfo, unsigned char byERPField, void *pvSupportRateIEs, void *pvExtSupportRateIEs)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -347,17 +445,18 @@ bool CARDbSetPhyParameter (void *pDeviceHandler, CARD_PHY_TYPE ePHYType, unsigne
     unsigned char bySIFS = 0;
     unsigned char byDIFS = 0;
     unsigned char byData;
+//    PWLAN_IE_SUPP_RATES pRates = NULL;
     PWLAN_IE_SUPP_RATES pSupportRates = (PWLAN_IE_SUPP_RATES) pvSupportRateIEs;
     PWLAN_IE_SUPP_RATES pExtSupportRates = (PWLAN_IE_SUPP_RATES) pvExtSupportRateIEs;
 
 
-    
+    //Set SIFS, DIFS, EIFS, SlotTime, CwMin
     if (ePHYType == PHY_TYPE_11A) {
         if (pSupportRates == NULL) {
             pSupportRates = (PWLAN_IE_SUPP_RATES) abyDefaultSuppRatesA;
         }
         if (pDevice->byRFType == RF_AIROHA7230) {
-            
+            // AL7230 use single PAPE and connect to PAPE_2.4G
             MACvSetBBType(pDevice->PortOffset, BB_TYPE_11G);
             pDevice->abyBBVGA[0] = 0x20;
             pDevice->abyBBVGA[2] = 0x10;
@@ -408,7 +507,7 @@ bool CARDbSetPhyParameter (void *pDeviceHandler, CARD_PHY_TYPE ePHYType, unsigne
         bySIFS = C_SIFS_BG;
         byDIFS = C_SIFS_BG + 2*C_SLOT_LONG;
         byCWMaxMin = 0xA5;
-    } else {
+    } else {// PK_TYPE_11GA & PK_TYPE_11GB
         if (pSupportRates == NULL) {
             pSupportRates = (PWLAN_IE_SUPP_RATES) abyDefaultSuppRatesG;
             pExtSupportRates = (PWLAN_IE_SUPP_RATES) abyDefaultExtSuppRatesG;
@@ -463,13 +562,13 @@ bool CARDbSetPhyParameter (void *pDeviceHandler, CARD_PHY_TYPE ePHYType, unsigne
     }
 
     if (pDevice->byRFType == RF_RFMD2959) {
-        
-        
+        // bcs TX_PE will reserve 3 us
+        // hardware's processing time here is 2 us.
         bySIFS -= 3;
         byDIFS -= 3;
-    
-    
-    
+    //{{ RobertYu: 20041202
+    //// TX_PE will reserve 3 us for MAX2829 A mode only, it is for better TX throughput
+    //// MAC will need 2 us to process, so the SIFS, DIFS can be shorter by 2 us.
     }
 
     if (pDevice->bySIFS != bySIFS) {
@@ -505,10 +604,26 @@ bool CARDbSetPhyParameter (void *pDeviceHandler, CARD_PHY_TYPE ePHYType, unsigne
     }
     s_vSetRSPINF(pDevice, ePHYType, pSupportRates, pExtSupportRates);
     pDevice->eCurrentPHYType = ePHYType;
-    
+    // set for NDIS OID_802_11SUPPORTED_RATES
     return (true);
 }
 
+/*
+ * Description: Sync. TSF counter to BSS
+ *              Get TSF offset and write to HW
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be sync.
+ *      byRxRate        - data rate of receive beacon
+ *      qwBSSTimestamp  - Rx BCN's TSF
+ *      qwLocalTSF      - Local TSF
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 bool CARDbUpdateTSF (void *pDeviceHandler, unsigned char byRxRate, QWORD qwBSSTimestamp, QWORD qwLocalTSF)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -520,8 +635,8 @@ bool CARDbUpdateTSF (void *pDeviceHandler, unsigned char byRxRate, QWORD qwBSSTi
     if ((HIDWORD(qwBSSTimestamp) != HIDWORD(qwLocalTSF)) ||
         (LODWORD(qwBSSTimestamp) != LODWORD(qwLocalTSF))) {
         qwTSFOffset = CARDqGetTSFOffset(byRxRate, qwBSSTimestamp, qwLocalTSF);
-        
-        
+        // adjust TSF
+        // HW's TSF add TSF Offset reg
         VNSvOutPortD(pDevice->PortOffset + MAC_REG_TSFOFST, LODWORD(qwTSFOffset));
         VNSvOutPortD(pDevice->PortOffset + MAC_REG_TSFOFST + 4, HIDWORD(qwTSFOffset));
         MACvRegBitsOn(pDevice->PortOffset, MAC_REG_TFTCTL, TFTCTL_TSFSYNCEN);
@@ -530,6 +645,20 @@ bool CARDbUpdateTSF (void *pDeviceHandler, unsigned char byRxRate, QWORD qwBSSTi
 }
 
 
+/*
+ * Description: Set NIC TSF counter for first Beacon time
+ *              Get NEXTTBTT from adjusted TSF and Beacon Interval
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be set.
+ *      wBeaconInterval - Beacon Interval
+ *  Out:
+ *      none
+ *
+ * Return Value: true if succeed; otherwise false
+ *
+ */
 bool CARDbSetBeaconPeriod (void *pDeviceHandler, unsigned short wBeaconInterval)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -541,27 +670,27 @@ bool CARDbSetBeaconPeriod (void *pDeviceHandler, unsigned short wBeaconInterval)
 
     HIDWORD(qwNextTBTT) = 0;
     LODWORD(qwNextTBTT) = 0;
-    CARDbGetCurrentTSF(pDevice->PortOffset, &qwNextTBTT); 
+    CARDbGetCurrentTSF(pDevice->PortOffset, &qwNextTBTT); //Get Local TSF counter
     uBeaconInterval = wBeaconInterval * 1024;
-    
+    // Next TBTT = ((local_current_TSF / beacon_interval) + 1 ) * beacon_interval
     uLowNextTBTT = (LODWORD(qwNextTBTT) >> 10) << 10;
     uLowRemain = (uLowNextTBTT) % uBeaconInterval;
-    
+    // high dword (mod) bcn
     uHighRemain = (((0xffffffff % uBeaconInterval) + 1) * HIDWORD(qwNextTBTT))
                   % uBeaconInterval;
     uLowRemain = (uHighRemain + uLowRemain) % uBeaconInterval;
     uLowRemain = uBeaconInterval - uLowRemain;
 
-    
+    // check if carry when add one beacon interval
     if ((~uLowNextTBTT) < uLowRemain) {
         HIDWORD(qwNextTBTT) ++ ;
     }
     LODWORD(qwNextTBTT) = uLowNextTBTT + uLowRemain;
 
-    
+    // set HW beacon interval
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_BI, wBeaconInterval);
     pDevice->wBeaconInterval = wBeaconInterval;
-    
+    // Set NextTBTT
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_NEXTTBTT, LODWORD(qwNextTBTT));
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_NEXTTBTT + 4, HIDWORD(qwNextTBTT));
     MACvRegBitsOn(pDevice->PortOffset, MAC_REG_TFTCTL, TFTCTL_TBTTSYNCEN);
@@ -571,6 +700,19 @@ bool CARDbSetBeaconPeriod (void *pDeviceHandler, unsigned short wBeaconInterval)
 
 
 
+/*
+ * Description: Card Stop Hardware Tx
+ *
+ * Parameters:
+ *  In:
+ *      pDeviceHandler      - The adapter to be set
+ *      ePktType            - Packet type to stop
+ *  Out:
+ *      none
+ *
+ * Return Value: true if all data packet complete; otherwise false.
+ *
+ */
 bool CARDbStopTxPacket (void *pDeviceHandler, CARD_PKT_TYPE ePktType)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -599,13 +741,13 @@ bool CARDbStopTxPacket (void *pDeviceHandler, CARD_PKT_TYPE ePktType)
         pDevice->cbBeaconBufReadySetCnt = 0;
         MACvRegBitsOff(pDevice->PortOffset, MAC_REG_TCR, TCR_AUTOBCNTX);
     }
-    
+    // wait all TD0 complete
     if (pDevice->bStopTx0Pkt == true) {
          if (pDevice->iTDUsed[TYPE_TXDMA0] != 0){
             return(false);
         }
     }
-    
+    // wait all Data TD complete
     if (pDevice->bStopDataPkt == true) {
         if (pDevice->iTDUsed[TYPE_AC0DMA] != 0){
             return(false);
@@ -616,6 +758,19 @@ bool CARDbStopTxPacket (void *pDeviceHandler, CARD_PKT_TYPE ePktType)
 }
 
 
+/*
+ * Description: Card Start Hardware Tx
+ *
+ * Parameters:
+ *  In:
+ *      pDeviceHandler      - The adapter to be set
+ *      ePktType            - Packet type to start
+ *  Out:
+ *      none
+ *
+ * Return Value: true if success; false if failed.
+ *
+ */
 bool CARDbStartTxPacket (void *pDeviceHandler, CARD_PKT_TYPE ePktType)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -644,6 +799,20 @@ bool CARDbStartTxPacket (void *pDeviceHandler, CARD_PKT_TYPE ePktType)
 
 
 
+/*
+ * Description: Card Set BSSID value
+ *
+ * Parameters:
+ *  In:
+ *      pDeviceHandler      - The adapter to be set
+ *      pbyBSSID            - pointer to BSSID field
+ *      bAdhoc              - flag to indicate IBSS
+ *  Out:
+ *      none
+ *
+ * Return Value: true if success; false if failed.
+ *
+ */
 bool CARDbSetBSSID(void *pDeviceHandler, unsigned char *pbyBSSID, CARD_OP_MODE eOPMode)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -673,16 +842,46 @@ bool CARDbSetBSSID(void *pDeviceHandler, unsigned char *pbyBSSID, CARD_OP_MODE e
 	    }
 	    DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO "wmgr: rx_mode = %x\n", pDevice->byRxMode );
     }
-    
+    // Adopt BSS state in Adapter Device Object
     pDevice->eOPMode = eOPMode;
     return(true);
 }
 
 
+/*
+ * Description: Card indicate status
+ *
+ * Parameters:
+ *  In:
+ *      pDeviceHandler      - The adapter to be set
+ *      eStatus             - Status
+ *  Out:
+ *      none
+ *
+ * Return Value: true if success; false if failed.
+ *
+ */
 
 
 
 
+/*
+ * Description: Save Assoc info. contain in assoc. response frame
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *      wCapabilityInfo     - Capability information
+ *      wStatus             - Status code
+ *      wAID                - Assoc. ID
+ *      uLen                - Length of IEs
+ *      pbyIEs              - pointer to IEs
+ *  Out:
+ *      none
+ *
+ * Return Value: true if succeed; otherwise false
+ *
+ */
 bool CARDbSetTxDataRate(
     void *pDeviceHandler,
     unsigned short wDataRate
@@ -694,6 +893,20 @@ bool CARDbSetTxDataRate(
     return(true);
 }
 
+/*+
+ *
+ * Routine Description:
+ *      Consider to power down when no more packets to tx or rx.
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: true if power down success; otherwise false
+ *
+-*/
 bool
 CARDbPowerDown(
     void *pDeviceHandler
@@ -702,14 +915,14 @@ CARDbPowerDown(
     PSDevice        pDevice = (PSDevice)pDeviceHandler;
     unsigned int uIdx;
 
-    
+    // check if already in Doze mode
     if (MACbIsRegBitsOn(pDevice->PortOffset, MAC_REG_PSCTL, PSCTL_PS))
         return true;
 
-    
+    // Froce PSEN on
     MACvRegBitsOn(pDevice->PortOffset, MAC_REG_PSCTL, PSCTL_PSEN);
 
-    
+    // check if all TD are empty,
 
     for (uIdx = 0; uIdx < TYPE_MAXTD; uIdx ++) {
         if (pDevice->iTDUsed[uIdx] != 0)
@@ -721,6 +934,18 @@ CARDbPowerDown(
     return true;
 }
 
+/*
+ * Description: Turn off Radio power
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be turned off
+ *  Out:
+ *      none
+ *
+ * Return Value: true if success; otherwise false
+ *
+ */
 bool CARDbRadioPowerOff (void *pDeviceHandler)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -739,7 +964,7 @@ bool CARDbRadioPowerOff (void *pDeviceHandler)
 
         case RF_AIROHA:
         case RF_AL2230S:
-        case RF_AIROHA7230: 
+        case RF_AIROHA7230: //RobertYu:20050104
             MACvWordRegBitsOff(pDevice->PortOffset, MAC_REG_SOFTPWRCTL, SOFTPWRCTL_SWPE2);
             MACvWordRegBitsOff(pDevice->PortOffset, MAC_REG_SOFTPWRCTL, SOFTPWRCTL_SWPE3);
             break;
@@ -751,13 +976,25 @@ bool CARDbRadioPowerOff (void *pDeviceHandler)
     BBvSetDeepSleep(pDevice->PortOffset, pDevice->byLocalID);
 
     pDevice->bRadioOff = true;
-     
+     //2007-0409-03,<Add> by chester
 printk("chester power off\n");
-MACvRegBitsOn(pDevice->PortOffset, MAC_REG_GPIOCTL0, LED_ACTSET);  
+MACvRegBitsOn(pDevice->PortOffset, MAC_REG_GPIOCTL0, LED_ACTSET);  //LED issue
     return bResult;
 }
 
 
+/*
+ * Description: Turn on Radio power
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be turned on
+ *  Out:
+ *      none
+ *
+ * Return Value: true if success; otherwise false
+ *
+ */
 bool CARDbRadioPowerOn (void *pDeviceHandler)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -786,7 +1023,7 @@ return true;}
 
         case RF_AIROHA:
         case RF_AL2230S:
-        case RF_AIROHA7230: 
+        case RF_AIROHA7230: //RobertYu:20050104
             MACvWordRegBitsOn(pDevice->PortOffset, MAC_REG_SOFTPWRCTL, (SOFTPWRCTL_SWPE2 |
                                                                         SOFTPWRCTL_SWPE3));
             break;
@@ -794,8 +1031,9 @@ return true;}
     }
 
     pDevice->bRadioOff = false;
+//  2007-0409-03,<Add> by chester
 printk("chester power on\n");
-MACvRegBitsOff(pDevice->PortOffset, MAC_REG_GPIOCTL0, LED_ACTSET); 
+MACvRegBitsOff(pDevice->PortOffset, MAC_REG_GPIOCTL0, LED_ACTSET); //LED issue
     return bResult;
 }
 
@@ -810,6 +1048,22 @@ bool CARDbRemoveKey (void *pDeviceHandler, unsigned char *pbyBSSID)
 }
 
 
+/*
+ *
+ * Description:
+ *    Add BSSID in PMKID Candidate list.
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *      pbyBSSID - BSSID address for adding
+ *      wRSNCap - BSS's RSN capability
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+-*/
 bool
 CARDbAdd_PMKID_Candidate (
     void *pDeviceHandler,
@@ -835,7 +1089,7 @@ CARDbAdd_PMKID_Candidate (
     DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"\n");
 
 
-    
+    // Update Old Candidate
     for (ii = 0; ii < pDevice->gsPMKIDCandidate.NumCandidates; ii++) {
         pCandidateList = &pDevice->gsPMKIDCandidate.CandidateList[ii];
         if ( !memcmp(pCandidateList->BSSID, pbyBSSID, ETH_ALEN)) {
@@ -848,7 +1102,7 @@ CARDbAdd_PMKID_Candidate (
         }
     }
 
-    
+    // New Candidate
     pCandidateList = &pDevice->gsPMKIDCandidate.CandidateList[pDevice->gsPMKIDCandidate.NumCandidates];
     if ((bRSNCapExist == true) && (wRSNCap & BIT0)) {
         pCandidateList->Flags |= NDIS_802_11_PMKID_CANDIDATE_PREAUTH_ENABLED;
@@ -871,6 +1125,20 @@ CARDpGetCurrentAddress (
     return (pDevice->abyCurrentNetAddr);
 }
 
+/*
+ *
+ * Description:
+ *    Start Spectrum Measure defined in 802.11h
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+-*/
 bool
 CARDbStartMeasure (
     void *pDeviceHandler,
@@ -896,7 +1164,7 @@ CARDbStartMeasure (
         MACvSelectPage1(pDevice->PortOffset);
         VNSvOutPortD(pDevice->PortOffset + MAC_REG_MAR0, pDevice->dwOrgMAR0);
         VNSvOutPortD(pDevice->PortOffset + MAC_REG_MAR4, pDevice->dwOrgMAR4);
-        
+        // clear measure control
         MACvRegBitsOff(pDevice->PortOffset, MAC_REG_MSRCTL, MSRCTL_EN);
         MACvSelectPage0(pDevice->PortOffset);
         set_channel(pDevice, pDevice->byOrgChannel);
@@ -915,10 +1183,10 @@ CARDbStartMeasure (
             HIDWORD(qwStartTSF) = HIDWORD(*((PQWORD) (pDevice->pCurrMeasureEID->sReq.abyStartTime)));
             LODWORD(qwStartTSF) = LODWORD(*((PQWORD) (pDevice->pCurrMeasureEID->sReq.abyStartTime)));
             wDuration = *((unsigned short *) (pDevice->pCurrMeasureEID->sReq.abyDuration));
-            wDuration += 1; 
+            wDuration += 1; // 1 TU for channel switching
 
             if ((LODWORD(qwStartTSF) == 0) && (HIDWORD(qwStartTSF) == 0)) {
-                
+                // start immediately by setting start TSF == current TSF + 2 TU
                 LODWORD(qwStartTSF) = LODWORD(qwCurrTSF) + 2048;
                 HIDWORD(qwStartTSF) = HIDWORD(qwCurrTSF);
                 if (LODWORD(qwCurrTSF) > LODWORD(qwStartTSF)) {
@@ -927,7 +1195,7 @@ CARDbStartMeasure (
                 bExpired = false;
                 break;
             } else {
-                
+                // start at setting start TSF - 1TU(for channel switching)
                 if (LODWORD(qwStartTSF) < 1024) {
                     HIDWORD(qwStartTSF)--;
                 }
@@ -950,7 +1218,7 @@ CARDbStartMeasure (
                                     pDevice->abyRPIs
                                     );
         } else {
-            
+            // hardware do not support measure
             VNTWIFIbMeasureReport(  pDevice->pMgmt,
                                     false,
                                     pDevice->pCurrMeasureEID,
@@ -970,7 +1238,7 @@ CARDbStartMeasure (
         MACvRegBitsOn(pDevice->PortOffset, MAC_REG_MSRCTL, MSRCTL_EN);
         MACvSelectPage0(pDevice->PortOffset);
     } else {
-        
+        // all measure start time expired we should complete action
         VNTWIFIbMeasureReport(  pDevice->pMgmt,
                                 true,
                                 NULL,
@@ -984,6 +1252,20 @@ CARDbStartMeasure (
 }
 
 
+/*
+ *
+ * Description:
+ *    Do Channel Switch defined in 802.11h
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+-*/
 bool
 CARDbChannelSwitch (
     void *pDeviceHandler,
@@ -1013,6 +1295,20 @@ CARDbChannelSwitch (
 }
 
 
+/*
+ *
+ * Description:
+ *    Handle Quiet EID defined in 802.11h
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+-*/
 bool
 CARDbSetQuiet (
     void *pDeviceHandler,
@@ -1049,12 +1345,26 @@ CARDbSetQuiet (
             pDevice->byQuietStartCount = byQuietCount;
         }
     } else {
-        
+        // we can not handle Quiet EID more
     }
     return (true);
 }
 
 
+/*
+ *
+ * Description:
+ *    Do Quiet, It will called by either ISR (after start) or VNTWIFI (before start) so do not need SPINLOCK
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+-*/
 bool
 CARDbStartQuiet (
     void *pDeviceHandler
@@ -1076,12 +1386,12 @@ CARDbStartQuiet (
         }
     }
     if (dwStartTime == 0xFFFFFFFF) {
-        
+        // no more quiet
         pDevice->bQuietEnable = false;
         MACvRegBitsOff(pDevice->PortOffset, MAC_REG_MSRCTL, (MSRCTL_QUIETTXCHK | MSRCTL_QUIETEN));
     } else {
         if (pDevice->bQuietEnable == false) {
-            
+            // first quiet
             pDevice->byQuietStartCount--;
             dwNextTime = pDevice->sQuiet[uCurrentQuietIndex].dwStartTime;
             dwNextTime %= pDevice->wBeaconInterval;
@@ -1097,10 +1407,10 @@ CARDbStartQuiet (
             MACvSelectPage0(pDevice->PortOffset);
         } else {
             if (pDevice->dwCurrentQuietEndTime > pDevice->sQuiet[uCurrentQuietIndex].dwStartTime) {
-                
+                // overlap with previous Quiet
                 dwGap =  pDevice->dwCurrentQuietEndTime - pDevice->sQuiet[uCurrentQuietIndex].dwStartTime;
                 if (dwGap >= pDevice->sQuiet[uCurrentQuietIndex].wDuration) {
-                    
+                    // return false to indicate next quiet expired, should call this function again
                     return (false);
                 }
                 dwDuration = pDevice->sQuiet[uCurrentQuietIndex].wDuration - dwGap;
@@ -1109,7 +1419,7 @@ CARDbStartQuiet (
                 dwGap = pDevice->sQuiet[uCurrentQuietIndex].dwStartTime - pDevice->dwCurrentQuietEndTime;
                 dwDuration = pDevice->sQuiet[uCurrentQuietIndex].wDuration;
             }
-            
+            // set GAP and Next duration
             MACvSelectPage1(pDevice->PortOffset);
             VNSvOutPortW(pDevice->PortOffset + MAC_REG_QUIETGAP, (unsigned short) dwGap);
             VNSvOutPortW(pDevice->PortOffset + MAC_REG_QUIETDUR, (unsigned short) dwDuration);
@@ -1120,16 +1430,16 @@ CARDbStartQuiet (
         pDevice->dwCurrentQuietEndTime = pDevice->sQuiet[uCurrentQuietIndex].dwStartTime;
         pDevice->dwCurrentQuietEndTime += pDevice->sQuiet[uCurrentQuietIndex].wDuration;
         if (pDevice->sQuiet[uCurrentQuietIndex].byPeriod == 0) {
-            
+            // not period disable current quiet element
             pDevice->sQuiet[uCurrentQuietIndex].bEnable = false;
         } else {
-            
+            // set next period start time
             dwNextTime = (unsigned long) pDevice->sQuiet[uCurrentQuietIndex].byPeriod;
             dwNextTime *= pDevice->wBeaconInterval;
             pDevice->sQuiet[uCurrentQuietIndex].dwStartTime = dwNextTime;
         }
         if (pDevice->dwCurrentQuietEndTime > 0x80010000) {
-            
+            // decreament all time to avoid wrap around
             for(ii=0;ii<MAX_QUIET_COUNT;ii++) {
                 if (pDevice->sQuiet[ii].bEnable == true) {
                     pDevice->sQuiet[ii].dwStartTime -= 0x80000000;
@@ -1141,6 +1451,20 @@ CARDbStartQuiet (
     return (true);
 }
 
+/*
+ *
+ * Description:
+ *    Set Local Power Constraint
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+-*/
 void
 CARDvSetPowerConstraint (
     void *pDeviceHandler,
@@ -1162,6 +1486,20 @@ CARDvSetPowerConstraint (
 }
 
 
+/*
+ *
+ * Description:
+ *    Set Local Power Constraint
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+-*/
 void
 CARDvGetPowerCapability (
     void *pDeviceHandler,
@@ -1183,6 +1521,20 @@ CARDvGetPowerCapability (
     *pbyMinPower = pDevice->abyOFDMDefaultPwr[pDevice->byCurrentCh] - byDec;
 }
 
+/*
+ *
+ * Description:
+ *    Get Current Tx Power
+ *
+ * Parameters:
+ *  In:
+ *      hDeviceContext - device structure point
+ *  Out:
+ *      none
+ *
+ * Return Value: none.
+ *
+ */
 char
 CARDbyGetTransmitPower (
     void *pDeviceHandler
@@ -1193,6 +1545,7 @@ CARDbyGetTransmitPower (
     return (pDevice->byCurPwrdBm);
 }
 
+//xxx
 void
 CARDvSafeResetTx (
     void *pDeviceHandler
@@ -1202,7 +1555,7 @@ CARDvSafeResetTx (
     unsigned int uu;
     PSTxDesc    pCurrTD;
 
-    
+    // initialize TD index
     pDevice->apTailTD[0] = pDevice->apCurrTD[0] = &(pDevice->apTD0Rings[0]);
     pDevice->apTailTD[1] = pDevice->apCurrTD[1] = &(pDevice->apTD1Rings[0]);
 
@@ -1212,22 +1565,22 @@ CARDvSafeResetTx (
     for (uu = 0; uu < pDevice->sOpts.nTxDescs[0]; uu++) {
         pCurrTD = &(pDevice->apTD0Rings[uu]);
         pCurrTD->m_td0TD0.f1Owner = OWNED_BY_HOST;
-        
+        // init all Tx Packet pointer to NULL
     }
     for (uu = 0; uu < pDevice->sOpts.nTxDescs[1]; uu++) {
         pCurrTD = &(pDevice->apTD1Rings[uu]);
         pCurrTD->m_td0TD0.f1Owner = OWNED_BY_HOST;
-        
+        // init all Tx Packet pointer to NULL
     }
 
-    
+    // set MAC TD pointer
     MACvSetCurrTXDescAddr(TYPE_TXDMA0, pDevice->PortOffset,
                         (pDevice->td0_pool_dma));
 
     MACvSetCurrTXDescAddr(TYPE_AC0DMA, pDevice->PortOffset,
                         (pDevice->td1_pool_dma));
 
-    
+    // set MAC Beacon TX pointer
     MACvSetCurrBCNTxDescAddr(pDevice->PortOffset,
                         (pDevice->tx_beacon_dma));
 
@@ -1235,6 +1588,20 @@ CARDvSafeResetTx (
 
 
 
+/*+
+ *
+ * Description:
+ *      Reset Rx
+ *
+ * Parameters:
+ *  In:
+ *      pDevice     - Pointer to the adapter
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 void
 CARDvSafeResetRx (
     void *pDeviceHandler
@@ -1246,11 +1613,11 @@ CARDvSafeResetRx (
 
 
 
-    
+    // initialize RD index
     pDevice->pCurrRD[0]=&(pDevice->aRD0Ring[0]);
     pDevice->pCurrRD[1]=&(pDevice->aRD1Ring[0]);
 
-    
+    // init state, all RD is chip's
     for (uu = 0; uu < pDevice->sOpts.nRxDescs0; uu++) {
         pDesc =&(pDevice->aRD0Ring[uu]);
         pDesc->m_rd0RD0.wResCount = (unsigned short)(pDevice->rx_buf_sz);
@@ -1258,7 +1625,7 @@ CARDvSafeResetRx (
         pDesc->m_rd1RD1.wReqCount = (unsigned short)(pDevice->rx_buf_sz);
     }
 
-    
+    // init state, all RD is chip's
     for (uu = 0; uu < pDevice->sOpts.nRxDescs1; uu++) {
         pDesc =&(pDevice->aRD1Ring[uu]);
         pDesc->m_rd0RD0.wResCount = (unsigned short)(pDevice->rx_buf_sz);
@@ -1269,10 +1636,10 @@ CARDvSafeResetRx (
     pDevice->cbDFCB = CB_MAX_RX_FRAG;
     pDevice->cbFreeDFCB = pDevice->cbDFCB;
 
-    
+    // set perPkt mode
     MACvRx0PerPktMode(pDevice->PortOffset);
     MACvRx1PerPktMode(pDevice->PortOffset);
-    
+    // set MAC RD pointer
     MACvSetCurrRx0DescAddr(pDevice->PortOffset,
                             pDevice->rd0_pool_dma);
 
@@ -1283,6 +1650,19 @@ CARDvSafeResetRx (
 
 
 
+/*
+ * Description: Get response Control frame rate in CCK mode
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *      wRateIdx            - Receiving data rate
+ *  Out:
+ *      none
+ *
+ * Return Value: response Control frame rate
+ *
+ */
 unsigned short CARDwGetCCKControlRate(void *pDeviceHandler, unsigned short wRateIdx)
 {
     PSDevice    pDevice = (PSDevice) pDeviceHandler;
@@ -1297,6 +1677,19 @@ unsigned short CARDwGetCCKControlRate(void *pDeviceHandler, unsigned short wRate
     return (unsigned short)RATE_1M;
 }
 
+/*
+ * Description: Get response Control frame rate in OFDM mode
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *      wRateIdx            - Receiving data rate
+ *  Out:
+ *      none
+ *
+ * Return Value: response Control frame rate
+ *
+ */
 unsigned short CARDwGetOFDMControlRate (void *pDeviceHandler, unsigned short wRateIdx)
 {
     PSDevice pDevice = (PSDevice) pDeviceHandler;
@@ -1322,17 +1715,29 @@ unsigned short CARDwGetOFDMControlRate (void *pDeviceHandler, unsigned short wRa
 }
 
 
+/*
+ * Description: Set RSPINF
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: None.
+ *
+ */
 void CARDvSetRSPINF (void *pDeviceHandler, CARD_PHY_TYPE ePHYType)
 {
     PSDevice pDevice = (PSDevice) pDeviceHandler;
-    unsigned char byServ = 0x00, bySignal = 0x00; 
+    unsigned char byServ = 0x00, bySignal = 0x00; //For CCK
     unsigned short wLen = 0x0000;
-    unsigned char byTxRate, byRsvTime;             
+    unsigned char byTxRate, byRsvTime;             //For OFDM
 
-    
+    //Set to Page1
     MACvSelectPage1(pDevice->PortOffset);
 
-    
+    //RSPINF_b_1
     BBvCaculateParameter(pDevice,
                          14,
                          CARDwGetCCKControlRate((void *)pDevice, RATE_1M),
@@ -1343,7 +1748,7 @@ void CARDvSetRSPINF (void *pDeviceHandler, CARD_PHY_TYPE ePHYType)
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_1, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    ///RSPINF_b_2
     BBvCaculateParameter(pDevice,
                          14,
                          CARDwGetCCKControlRate((void *)pDevice, RATE_2M),
@@ -1354,7 +1759,7 @@ void CARDvSetRSPINF (void *pDeviceHandler, CARD_PHY_TYPE ePHYType)
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_2, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    //RSPINF_b_5
     BBvCaculateParameter(pDevice,
                          14,
                          CARDwGetCCKControlRate((void *)pDevice, RATE_5M),
@@ -1365,7 +1770,7 @@ void CARDvSetRSPINF (void *pDeviceHandler, CARD_PHY_TYPE ePHYType)
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_5, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    //RSPINF_b_11
     BBvCaculateParameter(pDevice,
                          14,
                          CARDwGetCCKControlRate((void *)pDevice, RATE_11M),
@@ -1376,86 +1781,98 @@ void CARDvSetRSPINF (void *pDeviceHandler, CARD_PHY_TYPE ePHYType)
     );
 
     VNSvOutPortD(pDevice->PortOffset + MAC_REG_RSPINF_B_11, MAKEDWORD(wLen,MAKEWORD(bySignal,byServ)));
-    
+    //RSPINF_a_6
     s_vCaculateOFDMRParameter(RATE_6M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_6, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_9
     s_vCaculateOFDMRParameter(RATE_9M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_9, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_12
     s_vCaculateOFDMRParameter(RATE_12M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_12, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_18
     s_vCaculateOFDMRParameter(RATE_18M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
    VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_18, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_24
     s_vCaculateOFDMRParameter(RATE_24M,
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_24, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_36
     s_vCaculateOFDMRParameter(CARDwGetOFDMControlRate((void *)pDevice, RATE_36M),
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_36, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_48
     s_vCaculateOFDMRParameter(CARDwGetOFDMControlRate((void *)pDevice, RATE_48M),
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_48, MAKEWORD(byTxRate,byRsvTime));
-    
+    //RSPINF_a_54
     s_vCaculateOFDMRParameter(CARDwGetOFDMControlRate((void *)pDevice, RATE_54M),
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_54, MAKEWORD(byTxRate,byRsvTime));
 
-    
+    //RSPINF_a_72
     s_vCaculateOFDMRParameter(CARDwGetOFDMControlRate((void *)pDevice, RATE_54M),
                               ePHYType,
                               &byTxRate,
                               &byRsvTime);
     VNSvOutPortW(pDevice->PortOffset + MAC_REG_RSPINF_A_72, MAKEWORD(byTxRate,byRsvTime));
-    
+    //Set to Page0
     MACvSelectPage0(pDevice->PortOffset);
 }
 
+/*
+ * Description: Update IFS
+ *
+ * Parameters:
+ *  In:
+ *      pDevice             - The adapter to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: None.
+ *
+ */
 void vUpdateIFS (void *pDeviceHandler)
 {
-    
+    //Set SIFS, DIFS, EIFS, SlotTime, CwMin
     PSDevice pDevice = (PSDevice) pDeviceHandler;
 
     unsigned char byMaxMin = 0;
-    if (pDevice->byPacketType==PK_TYPE_11A) {
+    if (pDevice->byPacketType==PK_TYPE_11A) {//0000 0000 0000 0000,11a
         pDevice->uSlot = C_SLOT_SHORT;
         pDevice->uSIFS = C_SIFS_A;
         pDevice->uDIFS = C_SIFS_A + 2*C_SLOT_SHORT;
         pDevice->uCwMin = C_CWMIN_A;
         byMaxMin = 4;
     }
-    else if (pDevice->byPacketType==PK_TYPE_11B) {
+    else if (pDevice->byPacketType==PK_TYPE_11B) {//0000 0001 0000 0000,11b
         pDevice->uSlot = C_SLOT_LONG;
         pDevice->uSIFS = C_SIFS_BG;
         pDevice->uDIFS = C_SIFS_BG + 2*C_SLOT_LONG;
 	    pDevice->uCwMin = C_CWMIN_B;
         byMaxMin = 5;
     }
-    else { 
+    else { // PK_TYPE_11GA & PK_TYPE_11GB
         pDevice->uSIFS = C_SIFS_BG;
         if (pDevice->bShortSlotTime) {
             pDevice->uSlot = C_SLOT_SHORT;
@@ -1463,7 +1880,7 @@ void vUpdateIFS (void *pDeviceHandler)
 	        pDevice->uSlot = C_SLOT_LONG;
 	    }
 	    pDevice->uDIFS = C_SIFS_BG + 2*pDevice->uSlot;
-        if (pDevice->wBasicRate & 0x0150) { 
+        if (pDevice->wBasicRate & 0x0150) { //0000 0001 0101 0000,24M,12M,6M
             pDevice->uCwMin = C_CWMIN_A;
             byMaxMin = 4;
         }
@@ -1476,7 +1893,7 @@ void vUpdateIFS (void *pDeviceHandler)
     pDevice->uCwMax = C_CWMAX;
     pDevice->uEIFS = C_EIFS;
     if (pDevice->byRFType == RF_RFMD2959) {
-        
+        // bcs TX_PE will reserve 3 us
         VNSvOutPortB(pDevice->PortOffset + MAC_REG_SIFS, (unsigned char)(pDevice->uSIFS - 3));
         VNSvOutPortB(pDevice->PortOffset + MAC_REG_DIFS, (unsigned char)(pDevice->uDIFS - 3));
     } else {
@@ -1485,7 +1902,7 @@ void vUpdateIFS (void *pDeviceHandler)
     }
     VNSvOutPortB(pDevice->PortOffset + MAC_REG_EIFS, (unsigned char)pDevice->uEIFS);
     VNSvOutPortB(pDevice->PortOffset + MAC_REG_SLOT, (unsigned char)pDevice->uSlot);
-    byMaxMin |= 0xA0;
+    byMaxMin |= 0xA0;//1010 1111,C_CWMAX = 1023
     VNSvOutPortB(pDevice->PortOffset + MAC_REG_CWMAXMIN0, (unsigned char)byMaxMin);
 }
 
@@ -1495,7 +1912,7 @@ void CARDvUpdateBasicTopRate (void *pDeviceHandler)
     unsigned char byTopOFDM = RATE_24M, byTopCCK = RATE_1M;
     unsigned char ii;
 
-     
+     //Determines the highest basic rate.
      for (ii = RATE_54M; ii >= RATE_6M; ii --) {
          if ( (pDevice->wBasicRate) & ((unsigned short)(1<<ii)) ) {
              byTopOFDM = ii;
@@ -1516,6 +1933,19 @@ void CARDvUpdateBasicTopRate (void *pDeviceHandler)
 }
 
 
+/*
+ * Description: Set NIC Tx Basic Rate
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be set
+ *      wBasicRate      - Basic Rate to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: true if succeeded; false if failed.
+ *
+ */
 bool CARDbAddBasicRate (void *pDeviceHandler, unsigned short wRateIdx)
 {
     PSDevice pDevice = (PSDevice) pDeviceHandler;
@@ -1523,7 +1953,7 @@ bool CARDbAddBasicRate (void *pDeviceHandler, unsigned short wRateIdx)
 
     pDevice->wBasicRate |= wRate;
 
-    
+    //Determines the highest basic rate.
     CARDvUpdateBasicTopRate((void *)pDevice);
 
     return(true);
@@ -1556,6 +1986,19 @@ unsigned char CARDbyGetPktType (void *pDeviceHandler)
     }
 }
 
+/*
+ * Description: Set NIC Loopback mode
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be set
+ *      wLoopbackMode   - Loopback mode to be set
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void CARDvSetLoopbackMode (unsigned long dwIoBase, unsigned short wLoopbackMode)
 {
     switch(wLoopbackMode) {
@@ -1567,17 +2010,29 @@ void CARDvSetLoopbackMode (unsigned long dwIoBase, unsigned short wLoopbackMode)
         ASSERT(false);
         break;
     }
-    
+    // set MAC loopback
     MACvSetLoopbackMode(dwIoBase, LOBYTE(wLoopbackMode));
-    
+    // set Baseband loopback
 }
 
 
+/*
+ * Description: Software Reset NIC
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be reset
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 bool CARDbSoftwareReset (void *pDeviceHandler)
 {
     PSDevice pDevice = (PSDevice) pDeviceHandler;
 
-    
+    // reset MAC
     if (!MACbSafeSoftwareReset(pDevice->PortOffset))
         return false;
 
@@ -1585,6 +2040,21 @@ bool CARDbSoftwareReset (void *pDeviceHandler)
 }
 
 
+/*
+ * Description: Caculate TSF offset of two TSF input
+ *              Get TSF Offset from RxBCN's TSF and local TSF
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be sync.
+ *      qwTSF1          - Rx BCN's TSF
+ *      qwTSF2          - Local TSF
+ *  Out:
+ *      none
+ *
+ * Return Value: TSF Offset value
+ *
+ */
 QWORD CARDqGetTSFOffset (unsigned char byRxRate, QWORD qwTSF1, QWORD qwTSF2)
 {
     QWORD   qwTSFOffset;
@@ -1599,7 +2069,7 @@ QWORD CARDqGetTSFOffset (unsigned char byRxRate, QWORD qwTSF1, QWORD qwTSF2)
     }
     LODWORD(qwTSFOffset) = LODWORD(qwTSF1) - LODWORD(qwTSF2);
     if (LODWORD(qwTSF1) < LODWORD(qwTSF2)) {
-        
+        // if borrow needed
         HIDWORD(qwTSFOffset) = HIDWORD(qwTSF1) - HIDWORD(qwTSF2) - 1 ;
     }
     else {
@@ -1609,6 +2079,19 @@ QWORD CARDqGetTSFOffset (unsigned char byRxRate, QWORD qwTSF1, QWORD qwTSF2)
 }
 
 
+/*
+ * Description: Read NIC TSF counter
+ *              Get local TSF counter
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be read
+ *  Out:
+ *      qwCurrTSF       - Current TSF counter
+ *
+ * Return Value: true if success; otherwise false
+ *
+ */
 bool CARDbGetCurrentTSF (unsigned long dwIoBase, PQWORD pqwCurrTSF)
 {
     unsigned short ww;
@@ -1629,6 +2112,20 @@ bool CARDbGetCurrentTSF (unsigned long dwIoBase, PQWORD pqwCurrTSF)
 }
 
 
+/*
+ * Description: Read NIC TSF counter
+ *              Get NEXTTBTT from adjusted TSF and Beacon Interval
+ *
+ * Parameters:
+ *  In:
+ *      qwTSF           - Current TSF counter
+ *      wbeaconInterval - Beacon Interval
+ *  Out:
+ *      qwCurrTSF       - Current TSF counter
+ *
+ * Return Value: TSF value of next Beacon
+ *
+ */
 QWORD CARDqGetNextTBTT (QWORD qwTSF, unsigned short wBeaconInterval)
 {
 
@@ -1637,17 +2134,19 @@ QWORD CARDqGetNextTBTT (QWORD qwTSF, unsigned short wBeaconInterval)
     unsigned int uBeaconInterval;
 
     uBeaconInterval = wBeaconInterval * 1024;
-    
+    // Next TBTT = ((local_current_TSF / beacon_interval) + 1 ) * beacon_interval
     uLowNextTBTT = (LODWORD(qwTSF) >> 10) << 10;
-    
+    // low dword (mod) bcn
     uLowRemain = (uLowNextTBTT) % uBeaconInterval;
-    
+//    uHighRemain = ((0x80000000 % uBeaconInterval)* 2 * HIDWORD(qwTSF))
+//                  % uBeaconInterval;
+    // high dword (mod) bcn
     uHighRemain = (((0xffffffff % uBeaconInterval) + 1) * HIDWORD(qwTSF))
                   % uBeaconInterval;
     uLowRemain = (uHighRemain + uLowRemain) % uBeaconInterval;
     uLowRemain = uBeaconInterval - uLowRemain;
 
-    
+    // check if carry when add one beacon interval
     if ((~uLowNextTBTT) < uLowRemain)
         HIDWORD(qwTSF) ++ ;
 
@@ -1657,6 +2156,20 @@ QWORD CARDqGetNextTBTT (QWORD qwTSF, unsigned short wBeaconInterval)
 }
 
 
+/*
+ * Description: Set NIC TSF counter for first Beacon time
+ *              Get NEXTTBTT from adjusted TSF and Beacon Interval
+ *
+ * Parameters:
+ *  In:
+ *      dwIoBase        - IO Base
+ *      wBeaconInterval - Beacon Interval
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void CARDvSetFirstNextTBTT (unsigned long dwIoBase, unsigned short wBeaconInterval)
 {
 
@@ -1664,22 +2177,37 @@ void CARDvSetFirstNextTBTT (unsigned long dwIoBase, unsigned short wBeaconInterv
 
     HIDWORD(qwNextTBTT) = 0;
     LODWORD(qwNextTBTT) = 0;
-    CARDbGetCurrentTSF(dwIoBase, &qwNextTBTT); 
+    CARDbGetCurrentTSF(dwIoBase, &qwNextTBTT); //Get Local TSF counter
     qwNextTBTT = CARDqGetNextTBTT(qwNextTBTT, wBeaconInterval);
-    
+    // Set NextTBTT
     VNSvOutPortD(dwIoBase + MAC_REG_NEXTTBTT, LODWORD(qwNextTBTT));
     VNSvOutPortD(dwIoBase + MAC_REG_NEXTTBTT + 4, HIDWORD(qwNextTBTT));
     MACvRegBitsOn(dwIoBase, MAC_REG_TFTCTL, TFTCTL_TBTTSYNCEN);
-    
+    //DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"Card:First Next TBTT[%8xh:%8xh] \n", HIDWORD(qwNextTBTT), LODWORD(qwNextTBTT));
     return;
 }
 
 
+/*
+ * Description: Sync NIC TSF counter for Beacon time
+ *              Get NEXTTBTT and write to HW
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - The adapter to be set
+ *      qwTSF           - Current TSF counter
+ *      wBeaconInterval - Beacon Interval
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+ */
 void CARDvUpdateNextTBTT (unsigned long dwIoBase, QWORD qwTSF, unsigned short wBeaconInterval)
 {
 
     qwTSF = CARDqGetNextTBTT(qwTSF, wBeaconInterval);
-    
+    // Set NextTBTT
     VNSvOutPortD(dwIoBase + MAC_REG_NEXTTBTT, LODWORD(qwTSF));
     VNSvOutPortD(dwIoBase + MAC_REG_NEXTTBTT + 4, HIDWORD(qwTSF));
     MACvRegBitsOn(dwIoBase, MAC_REG_TFTCTL, TFTCTL_TBTTSYNCEN);

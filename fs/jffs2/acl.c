@@ -269,7 +269,7 @@ int jffs2_init_acl_pre(struct inode *dir_i, struct inode *inode, umode_t *i_mode
 	cache_no_acl(inode);
 
 	if (S_ISLNK(*i_mode))
-		return 0;	
+		return 0;	/* Symlink always has no-ACL */
 
 	acl = jffs2_get_acl(dir_i, ACL_TYPE_DEFAULT);
 	if (IS_ERR(acl))

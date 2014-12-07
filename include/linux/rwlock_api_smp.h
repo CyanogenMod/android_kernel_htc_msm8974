@@ -136,6 +136,11 @@ static inline int __raw_write_trylock(rwlock_t *lock)
 	return 0;
 }
 
+/*
+ * If lockdep is enabled then we use the non-preemption spin-ops
+ * even on CONFIG_PREEMPT, because lockdep assumes that interrupts are
+ * not re-enabled during lock-acquire (which the preempt-spin-ops do):
+ */
 #if !defined(CONFIG_GENERIC_LOCKBREAK) || defined(CONFIG_DEBUG_LOCK_ALLOC)
 
 static inline void __raw_read_lock(rwlock_t *lock)
@@ -208,7 +213,7 @@ static inline void __raw_write_lock(rwlock_t *lock)
 	LOCK_CONTENDED(lock, do_raw_write_trylock, do_raw_write_lock);
 }
 
-#endif 
+#endif /* CONFIG_PREEMPT */
 
 static inline void __raw_write_unlock(rwlock_t *lock)
 {
@@ -274,4 +279,4 @@ static inline void __raw_write_unlock_bh(rwlock_t *lock)
 	local_bh_enable_ip((unsigned long)__builtin_return_address(0));
 }
 
-#endif 
+#endif /* __LINUX_RWLOCK_API_SMP_H */

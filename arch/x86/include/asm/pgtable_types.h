@@ -6,26 +6,29 @@
 
 #define FIRST_USER_ADDRESS	0
 
-#define _PAGE_BIT_PRESENT	0	
-#define _PAGE_BIT_RW		1	
-#define _PAGE_BIT_USER		2	
-#define _PAGE_BIT_PWT		3	
-#define _PAGE_BIT_PCD		4	
-#define _PAGE_BIT_ACCESSED	5	
+#define _PAGE_BIT_PRESENT	0	/* is present */
+#define _PAGE_BIT_RW		1	/* writeable */
+#define _PAGE_BIT_USER		2	/* userspace addressable */
+#define _PAGE_BIT_PWT		3	/* page write through */
+#define _PAGE_BIT_PCD		4	/* page cache disabled */
+#define _PAGE_BIT_ACCESSED	5	/* was accessed (raised by CPU) */
 #define _PAGE_BIT_DIRTY		6	/* was written to (raised by CPU) */
-#define _PAGE_BIT_PSE		7	
-#define _PAGE_BIT_PAT		7	
-#define _PAGE_BIT_GLOBAL	8	
-#define _PAGE_BIT_UNUSED1	9	
-#define _PAGE_BIT_IOMAP		10	
-#define _PAGE_BIT_HIDDEN	11	
-#define _PAGE_BIT_PAT_LARGE	12	
+#define _PAGE_BIT_PSE		7	/* 4 MB (or 2MB) page */
+#define _PAGE_BIT_PAT		7	/* on 4KB pages */
+#define _PAGE_BIT_GLOBAL	8	/* Global TLB entry PPro+ */
+#define _PAGE_BIT_UNUSED1	9	/* available for programmer */
+#define _PAGE_BIT_IOMAP		10	/* flag used to indicate IO mapping */
+#define _PAGE_BIT_HIDDEN	11	/* hidden by kmemcheck */
+#define _PAGE_BIT_PAT_LARGE	12	/* On 2MB or 1GB pages */
 #define _PAGE_BIT_SPECIAL	_PAGE_BIT_UNUSED1
 #define _PAGE_BIT_CPA_TEST	_PAGE_BIT_UNUSED1
-#define _PAGE_BIT_SPLITTING	_PAGE_BIT_UNUSED1 
-#define _PAGE_BIT_NX           63       
+#define _PAGE_BIT_SPLITTING	_PAGE_BIT_UNUSED1 /* only valid on a PSE pmd */
+#define _PAGE_BIT_NX           63       /* No execute: only valid after cpuid check */
 
+/* If _PAGE_BIT_PRESENT is clear, we use these: */
+/* - if the user mapped it with PROT_NONE; pte_present gives true */
 #define _PAGE_BIT_PROTNONE	_PAGE_BIT_GLOBAL
+/* - set: nonlinear file mapping, saved PTE; unset:swap */
 #define _PAGE_BIT_FILE		_PAGE_BIT_DIRTY
 
 #define _PAGE_PRESENT	(_AT(pteval_t, 1) << _PAGE_BIT_PRESENT)
@@ -66,6 +69,7 @@
 #define _KERNPG_TABLE	(_PAGE_PRESENT | _PAGE_RW | _PAGE_ACCESSED |	\
 			 _PAGE_DIRTY)
 
+/* Set of bits not changed in pte_modify */
 #define _PAGE_CHG_MASK	(PTE_PFN_MASK | _PAGE_PCD | _PAGE_PWT |		\
 			 _PAGE_SPECIAL | _PAGE_ACCESSED | _PAGE_DIRTY)
 #define _HPAGE_CHG_MASK (_PAGE_CHG_MASK | _PAGE_PSE)
@@ -134,6 +138,7 @@
 #define PAGE_KERNEL_IO_UC_MINUS		__pgprot(__PAGE_KERNEL_IO_UC_MINUS)
 #define PAGE_KERNEL_IO_WC		__pgprot(__PAGE_KERNEL_IO_WC)
 
+/*         xwr */
 #define __P000	PAGE_NONE
 #define __P001	PAGE_READONLY
 #define __P010	PAGE_COPY
@@ -152,12 +157,20 @@
 #define __S110	PAGE_SHARED_EXEC
 #define __S111	PAGE_SHARED_EXEC
 
+/*
+ * early identity mapping  pte attrib macros.
+ */
 #ifdef CONFIG_X86_64
 #define __PAGE_KERNEL_IDENT_LARGE_EXEC	__PAGE_KERNEL_LARGE_EXEC
 #else
-#define PTE_IDENT_ATTR	 0x003		
-#define PDE_IDENT_ATTR	 0x067		
-#define PGD_IDENT_ATTR	 0x001		
+/*
+ * For PDE_IDENT_ATTR include USER bit. As the PDE and PTE protection
+ * bits are combined, this will alow user to access the high address mapped
+ * VDSO in the presence of CONFIG_COMPAT_VDSO
+ */
+#define PTE_IDENT_ATTR	 0x003		/* PRESENT+RW */
+#define PDE_IDENT_ATTR	 0x067		/* PRESENT+RW+USER+DIRTY+ACCESSED */
+#define PGD_IDENT_ATTR	 0x001		/* PRESENT (no other attributes) */
 #endif
 
 #ifdef CONFIG_X86_32
@@ -170,8 +183,10 @@
 
 #include <linux/types.h>
 
+/* PTE_PFN_MASK extracts the PFN from a (pte|pmd|pud|pgd)val_t */
 #define PTE_PFN_MASK		((pteval_t)PHYSICAL_PAGE_MASK)
 
+/* PTE_FLAGS_MASK extracts the flags from a (pte|pmd|pud|pgd)val_t */
 #define PTE_FLAGS_MASK		(~PTE_PFN_MASK)
 
 typedef struct pgprot { pgprotval_t pgprot; } pgprot_t;
@@ -273,6 +288,7 @@ extern int nx_enabled;
 #define pgprot_writecombine	pgprot_writecombine
 extern pgprot_t pgprot_writecombine(pgprot_t prot);
 
+/* Indicate that x86 has its own track and untrack pfn vma functions */
 #define __HAVE_PFNMAP_TRACKING
 
 #define __HAVE_PHYS_MEM_ACCESS_PROT
@@ -282,6 +298,7 @@ pgprot_t phys_mem_access_prot(struct file *file, unsigned long pfn,
 int phys_mem_access_prot_allowed(struct file *file, unsigned long pfn,
                               unsigned long size, pgprot_t *vma_prot);
 
+/* Install a pte for a particular vaddr in kernel space. */
 void set_pte_vaddr(unsigned long vaddr, pte_t pte);
 
 extern void native_pagetable_reserve(u64 start, u64 end);
@@ -310,8 +327,14 @@ extern void update_page_count(int level, unsigned long pages);
 static inline void update_page_count(int level, unsigned long pages) { }
 #endif
 
+/*
+ * Helper function that returns the kernel pagetable entry controlling
+ * the virtual address 'address'. NULL means no pagetable entry present.
+ * NOTE: the return type is pte_t but if the pmd is PSE then we return it
+ * as a pte too.
+ */
 extern pte_t *lookup_address(unsigned long address, unsigned int *level);
 
-#endif	
+#endif	/* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_X86_PGTABLE_DEFS_H */

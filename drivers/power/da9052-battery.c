@@ -25,6 +25,7 @@
 #include <linux/mfd/da9052/pdata.h>
 #include <linux/mfd/da9052/reg.h>
 
+/* STATIC CONFIGURATION */
 #define DA9052_BAT_CUTOFF_VOLT		2800
 #define DA9052_BAT_TSH			62000
 #define DA9052_BAT_LOW_CAP		4
@@ -51,8 +52,9 @@ static const u16 da9052_chg_current_lim[2][DA9052_CHG_LIM_COLS] = {
 };
 
 static const u16 vc_tbl_ref[3] = {10, 25, 40};
+/* Lookup table for voltage vs capacity */
 static u32 const vc_tbl[3][68][2] = {
-	
+	/* For temperature 10 degree Celsius */
 	{
 	{4082, 100}, {4036, 98},
 	{4020, 96}, {4008, 95},
@@ -89,7 +91,7 @@ static u32 const vc_tbl[3][68][2] = {
 	{3420, 3}, {3268, 2},
 	{2992, 1}, {2746, 0}
 	},
-	
+	/* For temperature 25 degree Celsius */
 	{
 	{4102, 100}, {4065, 98},
 	{4048, 96}, {4034, 95},
@@ -126,7 +128,7 @@ static u32 const vc_tbl[3][68][2] = {
 	{3597, 4}, {3582, 2},
 	{3546, 1}, {2747, 0}
 	},
-	
+	/* For temperature 40 degree Celsius */
 	{
 	{4114, 100}, {4081, 98},
 	{4065, 96}, {4050, 95},
@@ -246,10 +248,13 @@ static int da9052_bat_check_status(struct da9052_battery *bat, int *status)
 	dc = dcinsel && dcindet;
 	vbus = vbussel && vbusdet;
 
-	
+	/* Preference to WALL(DCIN) charger unit */
 	if (dc || vbus) {
 		bat->charger_type = DA9052_CHARGER;
 
+		/* If charging end flag is set and Charging current is greater
+		 * than charging end limit then battery is charging
+		*/
 		if ((chg_end & DA9052_STATUSB_CHGEND) != 0) {
 			ret = da9052_read_chg_current(bat, &chg_current);
 			if (ret < 0)
@@ -263,6 +268,9 @@ static int da9052_bat_check_status(struct da9052_battery *bat, int *status)
 			else
 				bat->status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		} else {
+			/* If Charging end flag is cleared then battery is
+			 * charging
+			*/
 			bat->status = POWER_SUPPLY_STATUS_CHARGING;
 		}
 	} else if (dcindet || vbusdet) {

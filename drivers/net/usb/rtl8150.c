@@ -17,6 +17,7 @@
 #include <linux/usb.h>
 #include <asm/uaccess.h>
 
+/* Version Information */
 #define DRIVER_VERSION "v0.6.2 (2004/08/27)"
 #define DRIVER_AUTHOR "Petko Manolov <petkan@users.sourceforge.net>"
 #define DRIVER_DESC "rtl8150 based usb-ethernet driver"
@@ -40,7 +41,7 @@
 #define	ANAR			0x0144
 #define	ANLP			0x0146
 #define	AER			0x0148
-#define CSCR			0x014C  
+#define CSCR			0x014C  /* This one has the link status */
 #define CSCR_LINK_STATUS	(1 << 3)
 
 #define	IDR_EEPROM		0x1202
@@ -58,19 +59,23 @@
 #define	RTL8150_REQ_SET_REGS	0x05
 
 
+/* Transmit status register errors */
 #define TSR_ECOL		(1<<5)
 #define TSR_LCOL		(1<<4)
 #define TSR_LOSS_CRS		(1<<3)
 #define TSR_JBR			(1<<2)
 #define TSR_ERRORS		(TSR_ECOL | TSR_LCOL | TSR_LOSS_CRS | TSR_JBR)
+/* Receive status register errors */
 #define RSR_CRC			(1<<2)
 #define RSR_FAE			(1<<1)
 #define RSR_ERRORS		(RSR_CRC | RSR_FAE)
 
+/* Media status register definitions */
 #define MSR_DUPLEX		(1<<4)
 #define MSR_SPEED		(1<<3)
 #define MSR_LINK		(1<<2)
 
+/* Interrupt pipe data */
 #define INT_TSR			0x00
 #define INT_RSR			0x01
 #define INT_MSR			0x02
@@ -85,11 +90,13 @@
 #define	RTL8150_TX_TIMEOUT	(HZ)
 #define	RX_SKB_POOL_SIZE	4
 
+/* rtl8150 flags */
 #define	RTL8150_HW_CRC		0
 #define	RX_REG_SET		1
 #define	RTL8150_UNPLUG		2
 #define	RX_URB_FAIL		3
 
+/* Define these values to match your device */
 #define	VENDOR_ID_REALTEK		0x0bda
 #define	VENDOR_ID_MELCO			0x0411
 #define	VENDOR_ID_MICRONET		0x3980
@@ -105,6 +112,7 @@
 
 #undef	EEPROM_WRITE
 
+/* table of devices that work with this driver */
 static struct usb_device_id rtl8150_table[] = {
 	{USB_DEVICE(VENDOR_ID_REALTEK, PRODUCT_ID_RTL8150)},
 	{USB_DEVICE(VENDOR_ID_MELCO, PRODUCT_ID_LUAKTX)},
@@ -137,6 +145,11 @@ typedef struct rtl8150 rtl8150_t;
 
 static const char driver_name [] = "rtl8150";
 
+/*
+**
+**	device related part of the code
+**
+*/
 static int get_registers(rtl8150_t * dev, u16 indx, u16 size, void *data)
 {
 	return usb_control_msg(dev->udev, usb_rcvctrlpipe(dev->udev, 0),
@@ -262,22 +275,24 @@ static int rtl8150_set_mac_address(struct net_device *netdev, void *p)
 
 	memcpy(netdev->dev_addr, addr->sa_data, netdev->addr_len);
 	dbg("%s: Setting MAC address to %pM\n", netdev->name, netdev->dev_addr);
-	
+	/* Set the IDR registers. */
 	set_registers(dev, IDR, netdev->addr_len, netdev->dev_addr);
 #ifdef EEPROM_WRITE
 	{
 	int i;
 	u8 cr;
-	
+	/* Get the CR contents. */
 	get_registers(dev, CR, 1, &cr);
-	
+	/* Set the WEPROM bit (eeprom write enable). */
 	cr |= 0x20;
 	set_registers(dev, CR, 1, &cr);
+	/* Write the MAC address into eeprom. Eeprom writes must be word-sized,
+	   so we need to split them up. */
 	for (i = 0; i * 2 < netdev->addr_len; i++) {
 		set_registers(dev, IDR_EEPROM + (i * 2), 2,
 		netdev->dev_addr + (i * 2));
 	}
-	
+	/* Clear the WEPROM bit (preventing accidental eeprom writes). */
 	cr &= 0xdf;
 	set_registers(dev, CR, 1, &cr);
 	}
@@ -379,7 +394,7 @@ static void read_bulk_callback(struct urb *urb)
 	case 0:
 		break;
 	case -ENOENT:
-		return;	
+		return;	/* the urb is in unlink state */
 	case -ETIME:
 		if (printk_ratelimit())
 			dev_warn(&urb->dev->dev, "may be reset is needed?..\n");
@@ -392,7 +407,7 @@ static void read_bulk_callback(struct urb *urb)
 
 	if (!dev->rx_skb)
 		goto resched;
-	
+	/* protect against short packets (tell me why we got some?!?) */
 	if (urb->actual_length < 4)
 		goto goon;
 
@@ -460,13 +475,13 @@ static void intr_callback(struct urb *urb)
 	if (!dev)
 		return;
 	switch (status) {
-	case 0:			
+	case 0:			/* success */
 		break;
-	case -ECONNRESET:	
+	case -ECONNRESET:	/* unlink */
 	case -ENOENT:
 	case -ESHUTDOWN:
 		return;
-	
+	/* -EPIPE:  should clear the halt */
 	default:
 		dev_info(&urb->dev->dev, "%s: intr status %d\n",
 			 dev->netdev->name, status);
@@ -483,7 +498,7 @@ static void intr_callback(struct urb *urb)
 		if (d[INT_TSR] & TSR_LOSS_CRS)
 			dev->netdev->stats.tx_carrier_errors++;
 	}
-	
+	/* Report link status changes to the network stack */
 	if ((d[INT_MSR] & MSR_LINK) == 0) {
 		if (netif_carrier_ok(dev->netdev)) {
 			netif_carrier_off(dev->netdev);
@@ -536,6 +551,11 @@ static int rtl8150_resume(struct usb_interface *intf)
 	return 0;
 }
 
+/*
+**
+**	network related part of the code
+**
+*/
 
 static void fill_skb_pool(rtl8150_t *dev)
 {
@@ -606,7 +626,7 @@ static int enable_net_traffic(rtl8150_t * dev)
 	if (!rtl8150_reset(dev)) {
 		dev_warn(&dev->udev->dev, "device reset failed\n");
 	}
-	
+	/* RCR bit7=1 attach Rx info at the end;  =0 HW CRC (which is broken) */
 	rcr = 0x9e;
 	dev->rx_creg = cpu_to_le16(rcr);
 	tcr = 0xd8;
@@ -651,7 +671,7 @@ static void rtl8150_set_multicast(struct net_device *netdev)
 		dev->rx_creg |= cpu_to_le16(0x0002);
 		dev_info(&netdev->dev, "%s: allmulti set\n", netdev->name);
 	} else {
-		
+		/* ~RX_MULTICAST, ~RX_PROMISCUOUS */
 		dev->rx_creg &= cpu_to_le16(0x00fc);
 	}
 	async_set_registers(dev, RCR, 2);
@@ -671,7 +691,7 @@ static netdev_tx_t rtl8150_start_xmit(struct sk_buff *skb,
 	usb_fill_bulk_urb(dev->tx_urb, dev->udev, usb_sndbulkpipe(dev->udev, 2),
 		      skb->data, count, write_bulk_callback, dev);
 	if ((res = usb_submit_urb(dev->tx_urb, GFP_ATOMIC))) {
-		
+		/* Can we get/handle EPIPE here? */
 		if (res == -ENODEV)
 			netif_device_detach(dev->netdev);
 		else {
@@ -867,7 +887,7 @@ static int rtl8150_probe(struct usb_interface *intf,
 	netdev->netdev_ops = &rtl8150_netdev_ops;
 	netdev->watchdog_timeo = RTL8150_TX_TIMEOUT;
 	SET_ETHTOOL_OPS(netdev, &ops);
-	dev->intr_interval = 100;	
+	dev->intr_interval = 100;	/* 100ms */
 
 	if (!alloc_all_urbs(dev)) {
 		err("out of memory");

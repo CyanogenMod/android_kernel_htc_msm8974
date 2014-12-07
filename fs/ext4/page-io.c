@@ -141,6 +141,10 @@ requeue:
 		was_queued = !!(io->flag & EXT4_IO_END_QUEUED);
 		io->flag |= EXT4_IO_END_QUEUED;
 		spin_unlock_irqrestore(&ei->i_completed_io_lock, flags);
+		/*
+		 * Requeue the work instead of waiting so that the work
+		 * items queued after this can be processed.
+		 */
 		queue_work(EXT4_SB(inode->i_sb)->dio_unwritten_wq, &io->work);
 		/*
 		 * To prevent the ext4-dio-unwritten thread from keeping
@@ -172,6 +176,13 @@ ext4_io_end_t *ext4_init_io_end(struct inode *inode, gfp_t flags)
 	return io;
 }
 
+/*
+ * Print an buffer I/O error compatible with the fs/buffer.c.  This
+ * provides compatibility with dmesg scrapers that look for a specific
+ * buffer I/O error message.  We really need a unified error reporting
+ * structure to userspace ala Digital Unix's uerf system, but it's
+ * probably not going to happen in my lifetime, due to LKML politics...
+ */
 static void buffer_io_error(struct buffer_head *bh)
 {
 	char b[BDEVNAME_SIZE];
@@ -243,7 +254,7 @@ static void ext4_end_bio(struct bio *bio, int error)
 		return;
 	}
 
-	
+	/* Add the io_end to per-inode completed io list*/
 	spin_lock_irqsave(&EXT4_I(inode)->i_completed_io_lock, flags);
 	list_add_tail(&io_end->list, &EXT4_I(inode)->i_completed_io_list);
 	spin_unlock_irqrestore(&EXT4_I(inode)->i_completed_io_lock, flags);
@@ -398,11 +409,24 @@ int ext4_bio_write_page(struct ext4_io_submit *io,
 		clear_buffer_dirty(bh);
 		ret = io_submit_add_bh(io, io_page, inode, wbc, bh);
 		if (ret) {
+			/*
+			 * We only get here on ENOMEM.  Not much else
+			 * we can do but mark the page as dirty, and
+			 * better luck next time.
+			 */
 			set_page_dirty(page);
 			break;
 		}
 	}
 	unlock_page(page);
+	/*
+	 * If the page was truncated before we could do the writeback,
+	 * or we had a memory allocation error while trying to write
+	 * the first buffer head, we won't have submitted any pages for
+	 * I/O.  In that case we need to make sure we've cleared the
+	 * PageWriteback bit from the page to prevent the system from
+	 * wedging later on.
+	 */
 	put_io_page(io_page);
 	return ret;
 }

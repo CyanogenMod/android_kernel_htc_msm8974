@@ -196,11 +196,11 @@ static u8 _rtl92d_phy_get_chnlgroup_bypg(u8 chnlindex)
 		161, 163, 165
 	};
 
-	if (channel_info[chnlindex] <= 3)	
+	if (channel_info[chnlindex] <= 3)	/* Chanel 1-3 */
 		group = 0;
-	else if (channel_info[chnlindex] <= 9)	
+	else if (channel_info[chnlindex] <= 9)	/* Channel 4-9 */
 		group = 1;
-	else if (channel_info[chnlindex] <= 14)	
+	else if (channel_info[chnlindex] <= 14)	/* Channel 10-14 */
 		group = 2;
 	else if (channel_info[chnlindex] <= 64)
 		group = 6;
@@ -416,20 +416,22 @@ bool rtl92d_phy_enable_anotherphy(struct ieee80211_hw *hw, bool bmac0)
 	u8 direct = bmac0 ? BIT(3) | BIT(2) : BIT(3);
 	u8 mac_reg = bmac0 ? REG_MAC1 : REG_MAC0;
 	u8 mac_on_bit = bmac0 ? MAC1_ON : MAC0_ON;
-	bool bresult = true; 
+	bool bresult = true; /* true: need to enable BB/RF power */
 
 	rtlhal->during_mac0init_radiob = false;
 	rtlhal->during_mac1init_radioa = false;
 	RT_TRACE(rtlpriv, COMP_RF, DBG_LOUD, "===>\n");
-	
+	/* MAC0 Need PHY1 load radio_b.txt . Driver use DBI to write. */
 	u1btmp = rtl_read_byte(rtlpriv, mac_reg);
 	if (!(u1btmp & mac_on_bit)) {
 		RT_TRACE(rtlpriv, COMP_INIT, DBG_LOUD, "enable BB & RF\n");
-		
+		/* Enable BB and RF power */
 		rtl92de_write_dword_dbi(hw, REG_SYS_ISO_CTRL,
 			rtl92de_read_dword_dbi(hw, REG_SYS_ISO_CTRL, direct) |
 				BIT(29) | BIT(16) | BIT(17), direct);
 	} else {
+		/* We think if MAC1 is ON,then radio_a.txt
+		 * and radio_b.txt has been load. */
 		bresult = false;
 	}
 	RT_TRACE(rtlpriv, COMP_RF, DBG_LOUD, "<===\n");
@@ -449,10 +451,12 @@ void rtl92d_phy_powerdown_anotherphy(struct ieee80211_hw *hw, bool bmac0)
 	rtlhal->during_mac0init_radiob = false;
 	rtlhal->during_mac1init_radioa = false;
 	RT_TRACE(rtlpriv, COMP_RF, DBG_LOUD, "====>\n");
+	/* check MAC0 enable or not again now, if
+	 * enabled, not power down radio A. */
 	u1btmp = rtl_read_byte(rtlpriv, mac_reg);
 	if (!(u1btmp & mac_on_bit)) {
 		RT_TRACE(rtlpriv, COMP_INIT, DBG_LOUD, "power down\n");
-		
+		/* power down RF radio A according to YuNan's advice. */
 		rtl92de_write_dword_dbi(hw, RFPGA0_XA_LSSIPARAMETER,
 					0x00000000, direct);
 	}
@@ -477,36 +481,44 @@ bool rtl92d_phy_rf6052_config(struct ieee80211_hw *hw)
 	else
 		rtlphy->num_total_rfpath = 2;
 
-	
-	
-	
-	
-	
+	/* Single phy mode: use radio_a radio_b config path_A path_B */
+	/* seperately by MAC0, and MAC1 needn't configure RF; */
+	/* Dual PHY mode:MAC0 use radio_a config 1st phy path_A, */
+	/* MAC1 use radio_b config 2nd PHY path_A. */
+	/* DMDP,MAC0 on G band,MAC1 on A band. */
 	if (rtlhal->macphymode == DUALMAC_DUALPHY) {
 		if (rtlhal->current_bandtype == BAND_ON_2_4G &&
 		    rtlhal->interfaceindex == 0) {
+			/* MAC0 needs PHY1 load radio_b.txt.
+			 * Driver use DBI to write. */
 			if (rtl92d_phy_enable_anotherphy(hw, true)) {
 				rtlphy->num_total_rfpath = 2;
 				mac0_initradiob_first = true;
 			} else {
+				/* We think if MAC1 is ON,then radio_a.txt and
+				 * radio_b.txt has been load. */
 				return rtstatus;
 			}
 		} else if (rtlhal->current_bandtype == BAND_ON_5G &&
 			   rtlhal->interfaceindex == 1) {
+			/* MAC1 needs PHY0 load radio_a.txt.
+			 * Driver use DBI to write. */
 			if (rtl92d_phy_enable_anotherphy(hw, false)) {
 				rtlphy->num_total_rfpath = 2;
 				mac1_initradioa_first = true;
 			} else {
+				/* We think if MAC0 is ON,then radio_a.txt and
+				 * radio_b.txt has been load. */
 				return rtstatus;
 			}
 		} else if (rtlhal->interfaceindex == 1) {
-			
+			/* MAC0 enabled, only init radia B.   */
 			true_bpath = true;
 		}
 	}
 
 	for (rfpath = 0; rfpath < rtlphy->num_total_rfpath; rfpath++) {
-		
+		/* Mac1 use PHY0 write */
 		if (mac1_initradioa_first) {
 			if (rfpath == RF90_PATH_A) {
 				rtlhal->during_mac1init_radioa = true;
@@ -519,7 +531,7 @@ bool rtl92d_phy_rf6052_config(struct ieee80211_hw *hw)
 				rtlphy->num_total_rfpath = 1;
 			}
 		} else if (mac0_initradiob_first) {
-			
+			/* Mac0 use PHY1 write */
 			if (rfpath == RF90_PATH_A)
 				rtlhal->during_mac0init_radiob = false;
 			if (rfpath == RF90_PATH_B) {
@@ -548,12 +560,12 @@ bool rtl92d_phy_rf6052_config(struct ieee80211_hw *hw)
 		udelay(1);
 		rtl_set_bbreg(hw, pphyreg->rfintfo, BRFSI_RFENV, 0x1);
 		udelay(1);
-		
-		
+		/* Set bit number of Address and Data for RF register */
+		/* Set 1 to 4 bits for 8255 */
 		rtl_set_bbreg(hw, pphyreg->rfhssi_para2,
 			      B3WIREADDRESSLENGTH, 0x0);
 		udelay(1);
-		
+		/* Set 0 to 12  bits for 8255 */
 		rtl_set_bbreg(hw, pphyreg->rfhssi_para2, B3WIREDATALENGTH, 0x0);
 		udelay(1);
 		switch (rfpath) {
@@ -597,6 +609,10 @@ bool rtl92d_phy_rf6052_config(struct ieee80211_hw *hw)
 
 	}
 
+	/* check MAC0 enable or not again, if enabled,
+	 * not power down radio A. */
+	/* check MAC1 enable or not again, if enabled,
+	 * not power down radio B. */
 	if (need_pwrdown_radioa)
 		rtl92d_phy_powerdown_anotherphy(hw, false);
 	else if (need_pwrdown_radiob)

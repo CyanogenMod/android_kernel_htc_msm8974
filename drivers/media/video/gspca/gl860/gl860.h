@@ -56,8 +56,9 @@ struct sd_gl860 {
 	u8  AC50Hz;
 };
 
+/* Specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	struct sd_gl860 vcur;
 	struct sd_gl860 vold;

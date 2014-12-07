@@ -1,9 +1,19 @@
+/* sun3_pgalloc.h --
+ * reorganization around 2.3.39, routines moved from sun3_pgtable.h
+ *
+ *
+ * 02/27/2002 -- Modified to support "highpte" implementation in 2.5.5 (Sam)
+ *
+ * moved 1/26/2000 Sam Creasey
+ */
 
 #ifndef _SUN3_PGALLOC_H
 #define _SUN3_PGALLOC_H
 
 #include <asm/tlb.h>
 
+/* FIXME - when we get this compiling */
+/* erm, now that it's compiling, what do we do with it? */
 #define _KERNPG_TABLE 0
 
 extern const char bad_pmd_string[];
@@ -65,6 +75,10 @@ static inline void pmd_populate(struct mm_struct *mm, pmd_t *pmd, pgtable_t page
 }
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
+/*
+ * allocating and freeing a pmd is trivial: the 1-entry pmd is
+ * inside the pgd, so has no extra memory associated with it.
+ */
 #define pmd_free(mm, x)			do { } while (0)
 #define __pmd_free_tlb(tlb, x, addr)	do { } while (0)
 
@@ -85,4 +99,4 @@ static inline pgd_t * pgd_alloc(struct mm_struct *mm)
 
 #define pgd_populate(mm, pmd, pte) BUG()
 
-#endif 
+#endif /* SUN3_PGALLOC_H */

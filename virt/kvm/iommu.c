@@ -69,7 +69,7 @@ int kvm_iommu_map_pages(struct kvm *kvm, struct kvm_memory_slot *slot)
 	struct iommu_domain *domain = kvm->arch.iommu_domain;
 	int flags;
 
-	
+	/* check if iommu exists and in use */
 	if (!domain)
 		return 0;
 
@@ -84,30 +84,34 @@ int kvm_iommu_map_pages(struct kvm *kvm, struct kvm_memory_slot *slot)
 	while (gfn < end_gfn) {
 		unsigned long page_size;
 
-		
+		/* Check if already mapped */
 		if (iommu_iova_to_phys(domain, gfn_to_gpa(gfn))) {
 			gfn += 1;
 			continue;
 		}
 
-		
+		/* Get the page size we could use to map */
 		page_size = kvm_host_page_size(kvm, gfn);
 
-		
+		/* Make sure the page_size does not exceed the memslot */
 		while ((gfn + (page_size >> PAGE_SHIFT)) > end_gfn)
 			page_size >>= 1;
 
-		
+		/* Make sure gfn is aligned to the page size we want to map */
 		while ((gfn << PAGE_SHIFT) & (page_size - 1))
 			page_size >>= 1;
 
+		/*
+		 * Pin all pages we are about to map in memory. This is
+		 * important because we unmap and unpin in 4kb steps later.
+		 */
 		pfn = kvm_pin_pages(kvm, slot, gfn, page_size);
 		if (is_error_pfn(pfn)) {
 			gfn += 1;
 			continue;
 		}
 
-		
+		/* Map into IO address space */
 		r = iommu_map(domain, gfn_to_gpa(gfn), pfn_to_hpa(pfn),
 			      page_size, flags);
 		if (r) {
@@ -154,7 +158,7 @@ int kvm_assign_device(struct kvm *kvm,
 	struct iommu_domain *domain = kvm->arch.iommu_domain;
 	int r, last_flags;
 
-	
+	/* check if iommu exists and in use */
 	if (!domain)
 		return 0;
 
@@ -177,7 +181,7 @@ int kvm_assign_device(struct kvm *kvm,
 				 IOMMU_CAP_CACHE_COHERENCY))
 		kvm->arch.iommu_flags |= KVM_IOMMU_CACHE_COHERENCY;
 
-	
+	/* Check if need to update IOMMU page table for guest memory */
 	if ((last_flags ^ kvm->arch.iommu_flags) ==
 			KVM_IOMMU_CACHE_COHERENCY) {
 		kvm_iommu_unmap_memslots(kvm);
@@ -206,7 +210,7 @@ int kvm_deassign_device(struct kvm *kvm,
 	struct iommu_domain *domain = kvm->arch.iommu_domain;
 	struct pci_dev *pdev = NULL;
 
-	
+	/* check if iommu exists and in use */
 	if (!domain)
 		return 0;
 
@@ -286,7 +290,7 @@ static void kvm_iommu_put_pages(struct kvm *kvm,
 	end_gfn = base_gfn + npages;
 	gfn     = base_gfn;
 
-	
+	/* check if iommu exists and in use */
 	if (!domain)
 		return;
 
@@ -294,15 +298,15 @@ static void kvm_iommu_put_pages(struct kvm *kvm,
 		unsigned long unmap_pages;
 		size_t size;
 
-		
+		/* Get physical address */
 		phys = iommu_iova_to_phys(domain, gfn_to_gpa(gfn));
 		pfn  = phys >> PAGE_SHIFT;
 
-		
+		/* Unmap address from IO address space */
 		size       = iommu_unmap(domain, gfn_to_gpa(gfn), PAGE_SIZE);
 		unmap_pages = 1ULL << get_order(size);
 
-		
+		/* Unpin all pages we just unmapped to not leak any memory */
 		kvm_unpin_pages(kvm, pfn, unmap_pages);
 
 		gfn += unmap_pages;
@@ -335,7 +339,7 @@ int kvm_iommu_unmap_guest(struct kvm *kvm)
 {
 	struct iommu_domain *domain = kvm->arch.iommu_domain;
 
-	
+	/* check if iommu exists and in use */
 	if (!domain)
 		return 0;
 

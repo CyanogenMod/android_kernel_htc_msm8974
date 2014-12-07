@@ -48,12 +48,14 @@
 
 #include "common.h"
 
+/* uart registration process */
 
 static void __init s3c64xx_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {
 	s3c24xx_init_uartdevs("s3c6400-uart", s3c64xx_uart_resources, cfg, no);
 }
 
+/* table of supported CPUs */
 
 static const char name_s3c6400[] = "S3C6400";
 static const char name_s3c6410[] = "S3C6410";
@@ -78,7 +80,9 @@ static struct cpu_table cpu_ids[] __initdata = {
 	},
 };
 
+/* minimal IO mapping */
 
+/* see notes on uart map in arch/arm/mach-s3c64xx/include/mach/debug-macro.S */
 #define UART_OFFS (S3C_PA_UART & 0xfffff)
 
 static struct map_desc s3c_iodesc[] __initdata = {
@@ -144,15 +148,16 @@ static struct device s3c64xx_dev = {
 	.bus	= &s3c64xx_subsys,
 };
 
+/* read cpu identification code */
 
 void __init s3c64xx_init_io(struct map_desc *mach_desc, int size)
 {
-	
+	/* initialise the io descriptors we need for initialisation */
 	iotable_init(s3c_iodesc, ARRAY_SIZE(s3c_iodesc));
 	iotable_init(mach_desc, size);
 	init_consistent_dma_size(SZ_8M);
 
-	
+	/* detect cpu id */
 	s3c64xx_init_cpu();
 
 	s3c_init_cpu(samsung_cpu_id, cpu_ids, ARRAY_SIZE(cpu_ids));
@@ -165,6 +170,11 @@ static __init int s3c64xx_dev_init(void)
 }
 core_initcall(s3c64xx_dev_init);
 
+/*
+ * setup the sources the vic should advertise resume
+ * for, even though it is not doing the wake
+ * (set_irq_wake needs to be valid)
+ */
 #define IRQ_VIC0_RESUME (1 << (IRQ_RTC_TIC - IRQ_VIC0_BASE))
 #define IRQ_VIC1_RESUME (1 << (IRQ_RTC_ALARM - IRQ_VIC1_BASE) |	\
 			 1 << (IRQ_PENDN - IRQ_VIC1_BASE) |	\
@@ -176,11 +186,11 @@ void __init s3c64xx_init_irq(u32 vic0_valid, u32 vic1_valid)
 {
 	printk(KERN_DEBUG "%s: initialising interrupts\n", __func__);
 
-	
+	/* initialise the pair of VICs */
 	vic_init(VA_VIC0, IRQ_VIC0_BASE, vic0_valid, IRQ_VIC0_RESUME);
 	vic_init(VA_VIC1, IRQ_VIC1_BASE, vic1_valid, IRQ_VIC1_RESUME);
 
-	
+	/* add the timer sub-irqs */
 	s3c_init_vic_timer_irq(5, IRQ_TIMER0);
 }
 
@@ -212,7 +222,7 @@ static inline void s3c_irq_eint_ack(struct irq_data *data)
 
 static void s3c_irq_eint_maskack(struct irq_data *data)
 {
-	
+	/* compiler should in-line these */
 	s3c_irq_eint_mask(data);
 	s3c_irq_eint_ack(data);
 }
@@ -275,7 +285,7 @@ static int s3c_irq_eint_set_type(struct irq_data *data, unsigned int type)
 	ctrl |= newvalue << shift;
 	__raw_writel(ctrl, reg);
 
-	
+	/* set the GPIO pin appropriately */
 
 	if (offs < 16) {
 		pin = S3C64XX_GPN(offs);
@@ -303,6 +313,12 @@ static struct irq_chip s3c_irq_eint = {
 	.irq_set_wake	= s3c_irqext_wake,
 };
 
+/* s3c_irq_demux_eint
+ *
+ * This function demuxes the IRQ from the group0 external interrupts,
+ * from IRQ_EINT(0) to IRQ_EINT(27). It is designed to be inlined into
+ * the specific handlers s3c_irq_demux_eintX_Y.
+ */
 static inline void s3c_irq_demux_eint(unsigned int start, unsigned int end)
 {
 	u32 status = __raw_readl(S3C64XX_EINT0PEND);
@@ -365,6 +381,6 @@ void s3c64xx_restart(char mode, const char *cmd)
 	if (mode != 's')
 		arch_wdt_reset();
 
-	
+	/* if all else fails, or mode was for soft, jump to 0 */
 	soft_restart(0);
 }

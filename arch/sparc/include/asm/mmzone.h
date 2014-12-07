@@ -12,6 +12,6 @@ extern struct pglist_data *node_data[];
 extern int numa_cpu_lookup_table[];
 extern cpumask_t numa_cpumask_lookup_table[];
 
-#endif 
+#endif /* CONFIG_NEED_MULTIPLE_NODES */
 
-#endif 
+#endif /* _SPARC64_MMZONE_H */

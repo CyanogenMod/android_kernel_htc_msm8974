@@ -69,7 +69,7 @@ void __init via82c505_preinit(void)
 		return;
 	}
 
-	
+	/* Enable compatible Mode */
 	outb(0x96,0xA8);
 	outb(0x18,0xA9);
 	outb(0x93,0xA8);

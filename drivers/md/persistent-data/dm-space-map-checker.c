@@ -13,6 +13,7 @@
 
 #define DM_MSG_PREFIX "space map checker"
 
+/*----------------------------------------------------------------*/
 
 struct count_array {
 	dm_block_t nr;
@@ -155,6 +156,7 @@ static void ca_destroy(struct count_array *ca)
 	kfree(ca->counts);
 }
 
+/*----------------------------------------------------------------*/
 
 struct sm_checker {
 	struct dm_space_map sm;
@@ -189,6 +191,9 @@ static int sm_checker_get_nr_free(struct dm_space_map *sm, dm_block_t *count)
 	struct sm_checker *smc = container_of(sm, struct sm_checker, sm);
 	int r = dm_sm_get_nr_free(smc->real_sm, count);
 	if (!r) {
+		/*
+		 * Slow, but we know it's correct.
+		 */
 		dm_block_t b, n = 0;
 		for (b = 0; b < smc->old_counts.nr; b++)
 			if (smc->old_counts.counts[b] == 0 &&
@@ -315,6 +320,7 @@ static int sm_checker_copy_root(struct dm_space_map *sm, void *copy_to_here_le, 
 	return dm_sm_copy_root(smc->real_sm, copy_to_here_le, len);
 }
 
+/*----------------------------------------------------------------*/
 
 static struct dm_space_map ops_ = {
 	.destroy = sm_checker_destroy,
@@ -411,6 +417,7 @@ struct dm_space_map *dm_sm_checker_create_fresh(struct dm_space_map *sm)
 }
 EXPORT_SYMBOL_GPL(dm_sm_checker_create_fresh);
 
+/*----------------------------------------------------------------*/
 
 #else
 
@@ -426,5 +433,6 @@ struct dm_space_map *dm_sm_checker_create_fresh(struct dm_space_map *sm)
 }
 EXPORT_SYMBOL_GPL(dm_sm_checker_create_fresh);
 
+/*----------------------------------------------------------------*/
 
 #endif

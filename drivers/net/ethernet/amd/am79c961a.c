@@ -44,6 +44,7 @@ static unsigned int net_debug = NET_DEBUG;
 static const char version[] =
 	"am79c961 ethernet driver (C) 1995-2001 Russell King v0.04\n";
 
+/* --------------------------------------------------------------------------- */
 
 #ifdef __arm__
 static void write_rreg(u_long base, u_int reg, u_int val)
@@ -239,14 +240,17 @@ am79c961_init_for_open(struct net_device *dev)
 	u16 multi_hash[4], mode = am79c961_get_rx_mode(dev, multi_hash);
 	int i;
 
+	/*
+	 * Stop the chip.
+	 */
 	spin_lock_irqsave(&priv->chip_lock, flags);
 	write_rreg (dev->base_addr, CSR0, CSR0_BABL|CSR0_CERR|CSR0_MISS|CSR0_MERR|CSR0_TINT|CSR0_RINT|CSR0_STOP);
 	spin_unlock_irqrestore(&priv->chip_lock, flags);
 
-	write_ireg (dev->base_addr, 5, 0x00a0); 
-	write_ireg (dev->base_addr, 6, 0x0081); 
-	write_ireg (dev->base_addr, 7, 0x0090); 
-	write_ireg (dev->base_addr, 2, 0x0000); 
+	write_ireg (dev->base_addr, 5, 0x00a0); /* Receive address LED */
+	write_ireg (dev->base_addr, 6, 0x0081); /* Collision LED */
+	write_ireg (dev->base_addr, 7, 0x0090); /* XMIT LED */
+	write_ireg (dev->base_addr, 2, 0x0000); /* MODE register selects media */
 
 	for (i = LADRL; i <= LADRH; i++)
 		write_rreg (dev->base_addr, i, multi_hash[i - LADRL]);
@@ -321,6 +325,9 @@ static void am79c961_timer(unsigned long data)
 	mod_timer(&priv->timer, jiffies + msecs_to_jiffies(500));
 }
 
+/*
+ * Open/initialize the board.
+ */
 static int
 am79c961_open(struct net_device *dev)
 {
@@ -343,6 +350,9 @@ am79c961_open(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * The inverse routine to am79c961_open().
+ */
 static int
 am79c961_close(struct net_device *dev)
 {
@@ -364,6 +374,9 @@ am79c961_close(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * Set or clear promiscuous/multicast mode filter for this adapter.
+ */
 static void am79c961_setmulticastlist (struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -376,8 +389,14 @@ static void am79c961_setmulticastlist (struct net_device *dev)
 	stopped = read_rreg(dev->base_addr, CSR0) & CSR0_STOP;
 
 	if (!stopped) {
+		/*
+		 * Put the chip into suspend mode
+		 */
 		write_rreg(dev->base_addr, CTRL1, CTRL1_SPND);
 
+		/*
+		 * Spin waiting for chip to report suspend mode
+		 */
 		while ((read_rreg(dev->base_addr, CTRL1) & CTRL1_SPND) == 0) {
 			spin_unlock_irqrestore(&priv->chip_lock, flags);
 			nop();
@@ -385,12 +404,21 @@ static void am79c961_setmulticastlist (struct net_device *dev)
 		}
 	}
 
+	/*
+	 * Update the multicast hash table
+	 */
 	for (i = 0; i < ARRAY_SIZE(multi_hash); i++)
 		write_rreg(dev->base_addr, i + LADRL, multi_hash[i]);
 
+	/*
+	 * Write the mode register
+	 */
 	write_rreg(dev->base_addr, MODE, mode);
 
 	if (!stopped) {
+		/*
+		 * Put the chip back into running mode
+		 */
 		write_rreg(dev->base_addr, CTRL1, 0);
 	}
 
@@ -402,10 +430,16 @@ static void am79c961_timeout(struct net_device *dev)
 	printk(KERN_WARNING "%s: transmit timed out, network cable problem?\n",
 		dev->name);
 
+	/*
+	 * ought to do some setup of the tx side here
+	 */
 
 	netif_wake_queue(dev);
 }
 
+/*
+ * Transmit a packet
+ */
 static int
 am79c961_sendpacket(struct sk_buff *skb, struct net_device *dev)
 {
@@ -430,6 +464,11 @@ am79c961_sendpacket(struct sk_buff *skb, struct net_device *dev)
 	write_rreg (dev->base_addr, CSR0, CSR0_TDMD|CSR0_IENA);
 	spin_unlock_irqrestore(&priv->chip_lock, flags);
 
+	/*
+	 * If the next packet is owned by the ethernet device,
+	 * then the tx ring is full and we can't add another
+	 * packet.
+	 */
 	if (am_readword(dev, priv->txhdr + (priv->txhead << 3) + 2) & TMD_OWN)
 		netif_stop_queue(dev);
 
@@ -438,6 +477,9 @@ am79c961_sendpacket(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 }
 
+/*
+ * If we have a good packet(s), get it/them out of the buffers.
+ */
 static void
 am79c961_rx(struct net_device *dev, struct dev_priv *priv)
 {
@@ -452,7 +494,7 @@ am79c961_rx(struct net_device *dev, struct dev_priv *priv)
 		pktaddr = priv->rxbuffer[priv->rxtail];
 
 		status = am_readword (dev, hdraddr + 2);
-		if (status & RMD_OWN) 
+		if (status & RMD_OWN) /* do we own it? */
 			break;
 
 		priv->rxtail ++;
@@ -493,6 +535,9 @@ am79c961_rx(struct net_device *dev, struct dev_priv *priv)
 	} while (1);
 }
 
+/*
+ * Update stats for the transmitted packet
+ */
 static void
 am79c961_tx(struct net_device *dev, struct dev_priv *priv)
 {
@@ -517,6 +562,9 @@ am79c961_tx(struct net_device *dev, struct dev_priv *priv)
 
 			status2 = am_readword (dev, hdraddr + 6);
 
+			/*
+			 * Clear the error byte
+			 */
 			am_writeword (dev, hdraddr + 6, 0);
 
 			if (status2 & TST_RTRY)
@@ -582,6 +630,10 @@ static void am79c961_poll_controller(struct net_device *dev)
 }
 #endif
 
+/*
+ * Initialise the chip.  Note that we always expect
+ * to be entered with interrupts enabled.
+ */
 static int
 am79c961_hw_init(struct net_device *dev)
 {
@@ -639,6 +691,11 @@ static int __devinit am79c961_probe(struct platform_device *pdev)
 
 	priv = netdev_priv(dev);
 
+	/*
+	 * Fixed address and IRQ lines here.
+	 * The PNP initialisation should have been
+	 * done by the ether bootp loader.
+	 */
 	dev->base_addr = res->start;
 	ret = platform_get_irq(pdev, 0);
 
@@ -652,9 +709,16 @@ static int __devinit am79c961_probe(struct platform_device *pdev)
 	if (!request_region(dev->base_addr, 0x18, dev->name))
 		goto nodev;
 
+	/*
+	 * Reset the device.
+	 */
 	inb(dev->base_addr + NET_RESET);
 	udelay(5);
 
+	/*
+	 * Check the manufacturer part of the
+	 * ether address.
+	 */
 	if (inb(dev->base_addr) != 0x08 ||
 	    inb(dev->base_addr + 2) != 0x00 ||
 	    inb(dev->base_addr + 4) != 0x2b)

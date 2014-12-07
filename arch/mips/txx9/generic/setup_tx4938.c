@@ -29,13 +29,13 @@
 
 static void __init tx4938_wdr_init(void)
 {
-	
+	/* report watchdog reset status */
 	if (____raw_readq(&tx4938_ccfgptr->ccfg) & TX4938_CCFG_WDRST)
 		pr_warning("Watchdog reset detected at 0x%lx\n",
 			   read_c0_errorepc());
-	
+	/* clear WatchDogReset (W1C) */
 	tx4938_ccfg_set(TX4938_CCFG_WDRST);
-	
+	/* do reset on watchdog */
 	tx4938_ccfg_set(TX4938_CCFG_WR);
 }
 
@@ -50,18 +50,18 @@ static void tx4938_machine_restart(char *command)
 	pr_emerg("Rebooting (with %s watchdog reset)...\n",
 		 (____raw_readq(&tx4938_ccfgptr->ccfg) & TX4938_CCFG_WDREXEN) ?
 		 "external" : "internal");
-	
-	tx4938_ccfg_set(TX4938_CCFG_WDRST);	
+	/* clear watchdog status */
+	tx4938_ccfg_set(TX4938_CCFG_WDRST);	/* W1C */
 	txx9_wdt_now(TX4938_TMR_REG(2) & 0xfffffffffULL);
 	while (!(____raw_readq(&tx4938_ccfgptr->ccfg) & TX4938_CCFG_WDRST))
 		;
 	mdelay(10);
 	if (____raw_readq(&tx4938_ccfgptr->ccfg) & TX4938_CCFG_WDREXEN) {
 		pr_emerg("Rebooting (with internal watchdog reset)...\n");
-		
+		/* External WDRST failed.  Do internal watchdog reset */
 		tx4938_ccfg_clear(TX4938_CCFG_WDREXEN);
 	}
-	
+	/* fallback */
 	(*_machine_halt)();
 }
 
@@ -101,20 +101,20 @@ void __init tx4938_setup(void)
 			  TX4938_REG_SIZE);
 	set_c0_config(TX49_CONF_CWFON);
 
-	
+	/* SDRAMC,EBUSC are configured by PROM */
 	for (i = 0; i < 8; i++) {
 		if (!(TX4938_EBUSC_CR(i) & 0x8))
-			continue;	
+			continue;	/* disabled */
 		txx9_ce_res[i].start = (unsigned long)TX4938_EBUSC_BA(i);
 		txx9_ce_res[i].end =
 			txx9_ce_res[i].start + TX4938_EBUSC_SIZE(i) - 1;
 		request_resource(&iomem_resource, &txx9_ce_res[i]);
 	}
 
-	
+	/* clocks */
 	ccfg = ____raw_readq(&tx4938_ccfgptr->ccfg);
 	if (txx9_master_clock) {
-		
+		/* calculate gbus_clock and cpu_clock from master_clock */
 		divmode = (__u32)ccfg & TX4938_CCFG_DIVMODE_MASK;
 		switch (divmode) {
 		case TX4938_CCFG_DIVMODE_8:
@@ -146,8 +146,8 @@ void __init tx4938_setup(void)
 		txx9_cpu_clock = cpuclk;
 	} else {
 		if (txx9_cpu_clock == 0)
-			txx9_cpu_clock = 300000000;	
-		
+			txx9_cpu_clock = 300000000;	/* 300MHz */
+		/* calculate gbus_clock and master_clock from cpu_clock */
 		cpuclk = txx9_cpu_clock;
 		divmode = (__u32)ccfg & TX4938_CCFG_DIVMODE_MASK;
 		switch (divmode) {
@@ -178,21 +178,21 @@ void __init tx4938_setup(void)
 			txx9_master_clock = txx9_gbus_clock;
 		}
 	}
-	
+	/* change default value to udelay/mdelay take reasonable time */
 	loops_per_jiffy = txx9_cpu_clock / HZ / 2;
 
-	
+	/* CCFG */
 	tx4938_wdr_init();
-	
+	/* clear BusErrorOnWrite flag (W1C) */
 	tx4938_ccfg_set(TX4938_CCFG_BEOW);
-	
+	/* enable Timeout BusError */
 	if (txx9_ccfg_toeon)
 		tx4938_ccfg_set(TX4938_CCFG_TOE);
 
-	
+	/* DMA selection */
 	txx9_clear64(&tx4938_ccfgptr->pcfg, TX4938_PCFG_DMASEL_ALL);
 
-	
+	/* Use external clock for external arbiter */
 	if (!(____raw_readq(&tx4938_ccfgptr->ccfg) & TX4938_CCFG_PCIARB))
 		txx9_clear64(&tx4938_ccfgptr->pcfg, TX4938_PCFG_PCICLKEN_ALL);
 
@@ -209,7 +209,7 @@ void __init tx4938_setup(void)
 		__u64 cr = TX4938_SDRAMC_CR(i);
 		unsigned long base, size;
 		if (!((__u32)cr & 0x00000400))
-			continue;	
+			continue;	/* disabled */
 		base = (unsigned long)(cr >> 49) << 21;
 		size = (((unsigned long)(cr >> 33) & 0x7fff) + 1) << 21;
 		printk(" CR%d:%016llx", i, (unsigned long long)cr);
@@ -222,7 +222,7 @@ void __init tx4938_setup(void)
 	printk(" TR:%09llx\n",
 	       (unsigned long long)____raw_readq(&tx4938_sdramcptr->tr));
 
-	
+	/* SRAM */
 	if (txx9_pcode == 0x4938 && ____raw_readq(&tx4938_sramcptr->cr) & 1) {
 		unsigned int size = TX4938_SRAM_SIZE;
 		tx4938_sram_resource.name = "SRAM";
@@ -235,28 +235,28 @@ void __init tx4938_setup(void)
 		request_resource(&iomem_resource, &tx4938_sram_resource);
 	}
 
-	
-	
+	/* TMR */
+	/* disable all timers */
 	for (i = 0; i < TX4938_NR_TMR; i++)
 		txx9_tmr_init(TX4938_TMR_REG(i) & 0xfffffffffULL);
 
-	
+	/* PIO */
 	txx9_gpio_init(TX4938_PIO_REG & 0xfffffffffULL, 0, TX4938_NUM_PIO);
 	__raw_writel(0, &tx4938_pioptr->maskcpu);
 	__raw_writel(0, &tx4938_pioptr->maskext);
 
 	if (txx9_pcode == 0x4938) {
 		__u64 pcfg = ____raw_readq(&tx4938_ccfgptr->pcfg);
-		
+		/* set PCIC1 reset */
 		txx9_set64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIC1RST);
 		if (pcfg & (TX4938_PCFG_ETH0_SEL | TX4938_PCFG_ETH1_SEL)) {
-			mdelay(1);	
-			
+			mdelay(1);	/* at least 128 cpu clock */
+			/* clear PCIC1 reset */
 			txx9_clear64(&tx4938_ccfgptr->clkctr,
 				     TX4938_CLKCTR_PCIC1RST);
 		} else {
 			printk(KERN_INFO "%s: stop PCIC1\n", txx9_pcode_str);
-			
+			/* stop PCIC1 */
 			txx9_set64(&tx4938_ccfgptr->clkctr,
 				   TX4938_CLKCTR_PCIC1CKD);
 		}
@@ -294,7 +294,7 @@ void __init tx4938_sio_init(unsigned int sclk, unsigned int cts_mask)
 	unsigned int ch_mask = 0;
 
 	if (__raw_readq(&tx4938_ccfgptr->pcfg) & TX4938_PCFG_ETH0_SEL)
-		ch_mask |= 1 << 1; 
+		ch_mask |= 1 << 1; /* disable SIO1 by PCFG setting */
 	for (i = 0; i < 2; i++) {
 		if ((1 << i) & ch_mask)
 			continue;
@@ -329,7 +329,7 @@ void __init tx4938_mtd_init(int ch)
 	unsigned long size = txx9_ce_res[ch].end - start + 1;
 
 	if (!(TX4938_EBUSC_CR(ch) & 0x8))
-		return;	
+		return;	/* disabled */
 	txx9_physmap_flash_init(ch, start, size, &pdata);
 }
 
@@ -338,7 +338,7 @@ void __init tx4938_ata_init(unsigned int irq, unsigned int shift, int tune)
 	struct platform_device *pdev;
 	struct resource res[] = {
 		{
-			
+			/* .start and .end are filled in later */
 			.flags = IORESOURCE_MEM,
 		}, {
 			.start = irq,
@@ -347,6 +347,10 @@ void __init tx4938_ata_init(unsigned int irq, unsigned int shift, int tune)
 	};
 	struct tx4938ide_platform_info pdata = {
 		.ioport_shift = shift,
+		/*
+		 * The IDE driver should not change bus timings if other ISA
+		 * devices existed.
+		 */
 		.gbus_clock = tune ? txx9_gbus_clock : 0,
 	};
 	u64 ebccr;
@@ -357,7 +361,7 @@ void __init tx4938_ata_init(unsigned int irq, unsigned int shift, int tune)
 	    != TX4938_PCFG_ATA_SEL)
 		return;
 	for (i = 0; i < 8; i++) {
-		
+		/* check EBCCRn.ISA, EBCCRn.BSZ, EBCCRn.ME */
 		ebccr = __raw_readq(&tx4938_ebuscptr->cr[i]);
 		if ((ebccr & 0x00f00008) == 0x00e00008)
 			break;

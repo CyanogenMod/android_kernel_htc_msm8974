@@ -22,22 +22,23 @@
 #include <asm/virtconvert.h>
 
 enum {
-	GET_VERSION = 0,
-	XIF_INTLEVEL,	
-	XIF_IRQ,	
-	XIF_START,	
-	XIF_STOP,	
-	XIF_READLENGTH,	
-	XIF_READBLOCK,	
-	XIF_WRITEBLOCK,	
-	XIF_GET_MAC,	
-	XIF_GET_IPHOST,	
-	XIF_GET_IPATARI,
-	XIF_GET_NETMASK	
+	GET_VERSION = 0,/* no parameters, return NFAPI_VERSION in d0 */
+	XIF_INTLEVEL,	/* no parameters, return Interrupt Level in d0 */
+	XIF_IRQ,	/* acknowledge interrupt from host */
+	XIF_START,	/* (ethX), called on 'ifup', start receiver thread */
+	XIF_STOP,	/* (ethX), called on 'ifdown', stop the thread */
+	XIF_READLENGTH,	/* (ethX), return size of network data block to read */
+	XIF_READBLOCK,	/* (ethX, buffer, size), read block of network data */
+	XIF_WRITEBLOCK,	/* (ethX, buffer, size), write block of network data */
+	XIF_GET_MAC,	/* (ethX, buffer, size), return MAC HW addr in buffer */
+	XIF_GET_IPHOST,	/* (ethX, buffer, size), return IP address of host */
+	XIF_GET_IPATARI,/* (ethX, buffer, size), return IP address of atari */
+	XIF_GET_NETMASK	/* (ethX, buffer, size), return IP netmask */
 };
 
 #define MAX_UNIT	8
 
+/* These identify the driver base version and may not be removed. */
 static const char version[] __devinitconst =
 	KERN_INFO KBUILD_MODNAME ".c:v" DRV_VERSION " " DRV_RELDATE
 	" S.Opichal, M.Jurik, P.Stehlik\n"
@@ -46,6 +47,10 @@ static const char version[] __devinitconst =
 MODULE_AUTHOR("Milan Jurik");
 MODULE_DESCRIPTION("Atari NFeth driver");
 MODULE_LICENSE("GPL");
+/*
+MODULE_PARM(nfeth_debug, "i");
+MODULE_PARM_DESC(nfeth_debug, "nfeth_debug level (1-2)");
+*/
 
 
 static long nfEtherID;
@@ -65,7 +70,7 @@ static int nfeth_open(struct net_device *dev)
 	res = nf_call(nfEtherID + XIF_START, priv->ethX);
 	netdev_dbg(dev, "%s: %d\n", __func__, res);
 
-	
+	/* Ready for data */
 	netif_start_queue(dev);
 
 	return 0;
@@ -75,7 +80,7 @@ static int nfeth_stop(struct net_device *dev)
 {
 	struct nfeth_private *priv = netdev_priv(dev);
 
-	
+	/* No more data */
 	netif_stop_queue(dev);
 
 	nf_call(nfEtherID + XIF_STOP, priv->ethX);
@@ -83,13 +88,16 @@ static int nfeth_stop(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * Read a packet out of the adapter and pass it to the upper layers
+ */
 static inline void recv_packet(struct net_device *dev)
 {
 	struct nfeth_private *priv = netdev_priv(dev);
 	unsigned short pktlen;
 	struct sk_buff *skb;
 
-	
+	/* read packet length (excluding 32 bit crc) */
 	pktlen = nf_call(nfEtherID + XIF_READLENGTH, priv->ethX);
 
 	netdev_dbg(dev, "%s: %u\n", __func__, pktlen);
@@ -109,8 +117,8 @@ static inline void recv_packet(struct net_device *dev)
 	}
 
 	skb->dev = dev;
-	skb_reserve(skb, 2);		
-	skb_put(skb, pktlen);		
+	skb_reserve(skb, 2);		/* 16 Byte align  */
+	skb_put(skb, pktlen);		/* make room */
 	nf_call(nfEtherID + XIF_READBLOCK, priv->ethX, virt_to_phys(skb->data),
 		pktlen);
 
@@ -120,7 +128,7 @@ static inline void recv_packet(struct net_device *dev)
 	dev->stats.rx_packets++;
 	dev->stats.rx_bytes += pktlen;
 
-	
+	/* and enqueue packet */
 	return;
 }
 

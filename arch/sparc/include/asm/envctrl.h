@@ -13,8 +13,37 @@
 
 #include <linux/ioctl.h>
 
+/* Application note:
+ *
+ * The driver supports 4 operations: open(), close(), ioctl(), read()
+ * The device name is /dev/envctrl.
+ * Below is sample usage:
+ *
+ *	fd = open("/dev/envtrl", O_RDONLY);
+ *	if (ioctl(fd, ENVCTRL_READ_SHUTDOWN_TEMPERATURE, 0) < 0)
+ *		printf("error\n");
+ *	ret = read(fd, buf, 10);
+ *	close(fd);
+ *
+ * Notice in the case of cpu voltage and temperature, the default is
+ * cpu0.  If we need to know the info of cpu1, cpu2, cpu3, we need to
+ * pass in cpu number in ioctl() last parameter.  For example, to
+ * get the voltage of cpu2:
+ *
+ *	ioctlbuf[0] = 2;
+ *	if (ioctl(fd, ENVCTRL_READ_CPU_VOLTAGE, ioctlbuf) < 0)
+ *		printf("error\n");
+ *	ret = read(fd, buf, 10);
+ *
+ * All the return values are in ascii.  So check read return value
+ * and do appropriate conversions in your application.
+ */
 
+/* IOCTL commands */
 
+/* Note: these commands reflect possible monitor features.
+ * Some boards choose to support some of the features only.
+ */
 #define ENVCTRL_RD_CPU_TEMPERATURE	_IOR('p', 0x40, int)
 #define ENVCTRL_RD_CPU_VOLTAGE		_IOR('p', 0x41, int)
 #define ENVCTRL_RD_FAN_STATUS		_IOR('p', 0x42, int)
@@ -27,11 +56,38 @@
 
 #define ENVCTRL_RD_GLOBALADDRESS	_IOR('p', 0x49, int)
 
+/* Read return values for a voltage status request. */
 #define ENVCTRL_VOLTAGE_POWERSUPPLY_GOOD	0x01
 #define ENVCTRL_VOLTAGE_BAD			0x02
 #define ENVCTRL_POWERSUPPLY_BAD			0x03
 #define ENVCTRL_VOLTAGE_POWERSUPPLY_BAD		0x04
 
+/* Read return values for a fan status request.
+ * A failure match means either the fan fails or
+ * the fan is not connected.  Some boards have optional
+ * connectors to connect extra fans.
+ *
+ * There are maximum 8 monitor fans.  Some are cpu fans
+ * some are system fans.  The mask below only indicates
+ * fan by order number.
+ * Below is a sample application:
+ *
+ *	if (ioctl(fd, ENVCTRL_READ_FAN_STATUS, 0) < 0) {
+ *		printf("ioctl fan failed\n");
+ *	}
+ *	if (read(fd, rslt, 1) <= 0) {
+ *		printf("error or fan not monitored\n");
+ *	} else {
+ *		if (rslt[0] == ENVCTRL_ALL_FANS_GOOD) {
+ *			printf("all fans good\n");
+ *	} else if (rslt[0] == ENVCTRL_ALL_FANS_BAD) {
+ *		printf("all fans bad\n");
+ *	} else {
+ *		if (rslt[0] & ENVCTRL_FAN0_FAILURE_MASK) {
+ *			printf("fan 0 failed or not connected\n");
+ *	}
+ *	......
+ */
 
 #define ENVCTRL_ALL_FANS_GOOD			0x00
 #define ENVCTRL_FAN0_FAILURE_MASK		0x01
@@ -44,4 +100,4 @@
 #define ENVCTRL_FAN7_FAILURE_MASK		0x80
 #define ENVCTRL_ALL_FANS_BAD 			0xFF
 
-#endif 
+#endif /* !(_SPARC64_ENVCTRL_H) */

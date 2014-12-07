@@ -27,4 +27,4 @@ int32_t scale_pmic_therm(int32_t adc_code, const struct adc_properties *,
 		const struct chan_properties *, struct adc_chan_result *);
 int32_t scale_xtern_chgr_cur(int32_t adc_code, const struct adc_properties *,
 		const struct chan_properties *, struct adc_chan_result *);
-#endif 
+#endif /* _M_ADC_PROC_H */

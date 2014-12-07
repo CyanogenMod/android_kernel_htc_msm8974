@@ -4,6 +4,7 @@
 #include <asm/cacheflush.h>
 #include <asm/ptrace.h>
 
+/* Same as pt_regs but has vbr in place of syscall_nr */
 struct kgdb_regs {
         unsigned long regs[16];
         unsigned long pc;
@@ -35,4 +36,4 @@ static inline void arch_kgdb_breakpoint(void)
 #define BREAK_INSTR_SIZE	2
 #define GDB_ADJUSTS_BREAK_OFFSET
 
-#endif 
+#endif /* __ASM_SH_KGDB_H */

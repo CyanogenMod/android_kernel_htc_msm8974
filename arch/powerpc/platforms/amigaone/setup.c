@@ -60,8 +60,8 @@ static int __init amigaone_add_bridge(struct device_node *dev)
 
 	setup_indirect_pci(hose, cfg_addr[0], cfg_data[0], 0);
 
-	
-	
+	/* Interpret the "ranges" property */
+	/* This also maps the I/O region and sets isa_io/mem_base */
 	pci_process_bridge_OF_ranges(hose, dev, 1);
 
 	return 0;
@@ -72,7 +72,7 @@ void __init amigaone_setup_arch(void)
 	struct device_node *np;
 	int phb = -ENODEV;
 
-	
+	/* Lookup PCI host bridges. */
 	for_each_compatible_node(np, "pci", "mai-logic,articia-s")
 		phb = amigaone_add_bridge(np);
 
@@ -88,12 +88,12 @@ void __init amigaone_init_IRQ(void)
 	const unsigned long *prop = NULL;
 	unsigned long int_ack = 0;
 
-	
+	/* Search for ISA interrupt controller. */
 	pic = of_find_compatible_node(NULL, "interrupt-controller",
 	                              "pnpPNP,000");
 	BUG_ON(pic == NULL);
 
-	
+	/* Look for interrupt acknowledge address in the PCI root node. */
 	np = of_find_compatible_node(NULL, "pci", "mai-logic,articia-s");
 	if (np) {
 		prop = of_get_property(np, "8259-interrupt-acknowledge", NULL);
@@ -126,17 +126,17 @@ void amigaone_restart(char *cmd)
 {
 	local_irq_disable();
 
-	
+	/* Flush and disable caches. */
 	__flush_disable_L1();
 
-        
+        /* Set SRR0 to the reset vector and turn on MSR_IP. */
 	mtspr(SPRN_SRR0, 0xfff00100);
 	mtspr(SPRN_SRR1, MSR_IP);
 
-	
+	/* Do an rfi to jump back to firmware. */
 	__asm__ __volatile__("rfi" : : : "memory");
 
-	
+	/* Not reached. */
 	while (1);
 }
 
@@ -145,6 +145,10 @@ static int __init amigaone_probe(void)
 	unsigned long root = of_get_flat_dt_root();
 
 	if (of_flat_dt_is_compatible(root, "eyetech,amigaone")) {
+		/*
+		 * Coherent memory access cause complete system lockup! Thus
+		 * disable this CPU feature, even if the CPU needs it.
+		 */
 		cur_cpu_spec->cpu_features &= ~CPU_FTR_NEED_COHERENT;
 
 		ISA_DMA_THRESHOLD = 0x00ffffff;

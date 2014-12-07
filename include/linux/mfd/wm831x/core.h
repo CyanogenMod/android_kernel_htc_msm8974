@@ -20,6 +20,9 @@
 #include <linux/list.h>
 #include <linux/regmap.h>
 
+/*
+ * Register values.
+ */
 #define WM831X_RESET_ID                         0x00
 #define WM831X_REVISION                         0x01
 #define WM831X_PARENT_ID                        0x4000
@@ -192,114 +195,147 @@
 #define WM831X_GPIO6_OTP_CONTROL                0x781F
 #define WM831X_DBE_CHECK_DATA                   0x7827
 
-#define WM831X_CHIP_ID_MASK                     0xFFFF  
-#define WM831X_CHIP_ID_SHIFT                         0  
-#define WM831X_CHIP_ID_WIDTH                        16  
+/*
+ * R0 (0x00) - Reset ID
+ */
+#define WM831X_CHIP_ID_MASK                     0xFFFF  /* CHIP_ID - [15:0] */
+#define WM831X_CHIP_ID_SHIFT                         0  /* CHIP_ID - [15:0] */
+#define WM831X_CHIP_ID_WIDTH                        16  /* CHIP_ID - [15:0] */
 
-#define WM831X_PARENT_REV_MASK                  0xFF00  
-#define WM831X_PARENT_REV_SHIFT                      8  
-#define WM831X_PARENT_REV_WIDTH                      8  
-#define WM831X_CHILD_REV_MASK                   0x00FF  
-#define WM831X_CHILD_REV_SHIFT                       0  
-#define WM831X_CHILD_REV_WIDTH                       8  
+/*
+ * R1 (0x01) - Revision
+ */
+#define WM831X_PARENT_REV_MASK                  0xFF00  /* PARENT_REV - [15:8] */
+#define WM831X_PARENT_REV_SHIFT                      8  /* PARENT_REV - [15:8] */
+#define WM831X_PARENT_REV_WIDTH                      8  /* PARENT_REV - [15:8] */
+#define WM831X_CHILD_REV_MASK                   0x00FF  /* CHILD_REV - [7:0] */
+#define WM831X_CHILD_REV_SHIFT                       0  /* CHILD_REV - [7:0] */
+#define WM831X_CHILD_REV_WIDTH                       8  /* CHILD_REV - [7:0] */
 
-#define WM831X_PARENT_ID_MASK                   0xFFFF  
-#define WM831X_PARENT_ID_SHIFT                       0  
-#define WM831X_PARENT_ID_WIDTH                      16  
+/*
+ * R16384 (0x4000) - Parent ID
+ */
+#define WM831X_PARENT_ID_MASK                   0xFFFF  /* PARENT_ID - [15:0] */
+#define WM831X_PARENT_ID_SHIFT                       0  /* PARENT_ID - [15:0] */
+#define WM831X_PARENT_ID_WIDTH                      16  /* PARENT_ID - [15:0] */
 
-#define WM831X_ON_PIN_SECACT_MASK               0x0300  
-#define WM831X_ON_PIN_SECACT_SHIFT                   8  
-#define WM831X_ON_PIN_SECACT_WIDTH                   2  
-#define WM831X_ON_PIN_PRIMACT_MASK              0x0030  
-#define WM831X_ON_PIN_PRIMACT_SHIFT                  4  
-#define WM831X_ON_PIN_PRIMACT_WIDTH                  2  
-#define WM831X_ON_PIN_STS                       0x0008  
-#define WM831X_ON_PIN_STS_MASK                  0x0008  
-#define WM831X_ON_PIN_STS_SHIFT                      3  
-#define WM831X_ON_PIN_STS_WIDTH                      1  
-#define WM831X_ON_PIN_TO_MASK                   0x0003  
-#define WM831X_ON_PIN_TO_SHIFT                       0  
-#define WM831X_ON_PIN_TO_WIDTH                       2  
+/*
+ * R16389 (0x4005) - ON Pin Control
+ */
+#define WM831X_ON_PIN_SECACT_MASK               0x0300  /* ON_PIN_SECACT - [9:8] */
+#define WM831X_ON_PIN_SECACT_SHIFT                   8  /* ON_PIN_SECACT - [9:8] */
+#define WM831X_ON_PIN_SECACT_WIDTH                   2  /* ON_PIN_SECACT - [9:8] */
+#define WM831X_ON_PIN_PRIMACT_MASK              0x0030  /* ON_PIN_PRIMACT - [5:4] */
+#define WM831X_ON_PIN_PRIMACT_SHIFT                  4  /* ON_PIN_PRIMACT - [5:4] */
+#define WM831X_ON_PIN_PRIMACT_WIDTH                  2  /* ON_PIN_PRIMACT - [5:4] */
+#define WM831X_ON_PIN_STS                       0x0008  /* ON_PIN_STS */
+#define WM831X_ON_PIN_STS_MASK                  0x0008  /* ON_PIN_STS */
+#define WM831X_ON_PIN_STS_SHIFT                      3  /* ON_PIN_STS */
+#define WM831X_ON_PIN_STS_WIDTH                      1  /* ON_PIN_STS */
+#define WM831X_ON_PIN_TO_MASK                   0x0003  /* ON_PIN_TO - [1:0] */
+#define WM831X_ON_PIN_TO_SHIFT                       0  /* ON_PIN_TO - [1:0] */
+#define WM831X_ON_PIN_TO_WIDTH                       2  /* ON_PIN_TO - [1:0] */
 
-#define WM831X_CLKOUT_ENA                       0x8000  
-#define WM831X_CLKOUT_ENA_MASK                  0x8000  
-#define WM831X_CLKOUT_ENA_SHIFT                     15  
-#define WM831X_CLKOUT_ENA_WIDTH                      1  
-#define WM831X_CLKOUT_OD                        0x2000  
-#define WM831X_CLKOUT_OD_MASK                   0x2000  
-#define WM831X_CLKOUT_OD_SHIFT                      13  
-#define WM831X_CLKOUT_OD_WIDTH                       1  
-#define WM831X_CLKOUT_SLOT_MASK                 0x0700  
-#define WM831X_CLKOUT_SLOT_SHIFT                     8  
-#define WM831X_CLKOUT_SLOT_WIDTH                     3  
-#define WM831X_CLKOUT_SLPSLOT_MASK              0x0070  
-#define WM831X_CLKOUT_SLPSLOT_SHIFT                  4  
-#define WM831X_CLKOUT_SLPSLOT_WIDTH                  3  
-#define WM831X_CLKOUT_SRC                       0x0001  
-#define WM831X_CLKOUT_SRC_MASK                  0x0001  
-#define WM831X_CLKOUT_SRC_SHIFT                      0  
-#define WM831X_CLKOUT_SRC_WIDTH                      1  
+/*
+ * R16528 (0x4090) - Clock Control 1
+ */
+#define WM831X_CLKOUT_ENA                       0x8000  /* CLKOUT_ENA */
+#define WM831X_CLKOUT_ENA_MASK                  0x8000  /* CLKOUT_ENA */
+#define WM831X_CLKOUT_ENA_SHIFT                     15  /* CLKOUT_ENA */
+#define WM831X_CLKOUT_ENA_WIDTH                      1  /* CLKOUT_ENA */
+#define WM831X_CLKOUT_OD                        0x2000  /* CLKOUT_OD */
+#define WM831X_CLKOUT_OD_MASK                   0x2000  /* CLKOUT_OD */
+#define WM831X_CLKOUT_OD_SHIFT                      13  /* CLKOUT_OD */
+#define WM831X_CLKOUT_OD_WIDTH                       1  /* CLKOUT_OD */
+#define WM831X_CLKOUT_SLOT_MASK                 0x0700  /* CLKOUT_SLOT - [10:8] */
+#define WM831X_CLKOUT_SLOT_SHIFT                     8  /* CLKOUT_SLOT - [10:8] */
+#define WM831X_CLKOUT_SLOT_WIDTH                     3  /* CLKOUT_SLOT - [10:8] */
+#define WM831X_CLKOUT_SLPSLOT_MASK              0x0070  /* CLKOUT_SLPSLOT - [6:4] */
+#define WM831X_CLKOUT_SLPSLOT_SHIFT                  4  /* CLKOUT_SLPSLOT - [6:4] */
+#define WM831X_CLKOUT_SLPSLOT_WIDTH                  3  /* CLKOUT_SLPSLOT - [6:4] */
+#define WM831X_CLKOUT_SRC                       0x0001  /* CLKOUT_SRC */
+#define WM831X_CLKOUT_SRC_MASK                  0x0001  /* CLKOUT_SRC */
+#define WM831X_CLKOUT_SRC_SHIFT                      0  /* CLKOUT_SRC */
+#define WM831X_CLKOUT_SRC_WIDTH                      1  /* CLKOUT_SRC */
 
-#define WM831X_XTAL_INH                         0x8000  
-#define WM831X_XTAL_INH_MASK                    0x8000  
-#define WM831X_XTAL_INH_SHIFT                       15  
-#define WM831X_XTAL_INH_WIDTH                        1  
-#define WM831X_XTAL_ENA                         0x2000  
-#define WM831X_XTAL_ENA_MASK                    0x2000  
-#define WM831X_XTAL_ENA_SHIFT                       13  
-#define WM831X_XTAL_ENA_WIDTH                        1  
-#define WM831X_XTAL_BKUPENA                     0x1000  
-#define WM831X_XTAL_BKUPENA_MASK                0x1000  
-#define WM831X_XTAL_BKUPENA_SHIFT                   12  
-#define WM831X_XTAL_BKUPENA_WIDTH                    1  
-#define WM831X_FLL_AUTO                         0x0080  
-#define WM831X_FLL_AUTO_MASK                    0x0080  
-#define WM831X_FLL_AUTO_SHIFT                        7  
-#define WM831X_FLL_AUTO_WIDTH                        1  
-#define WM831X_FLL_AUTO_FREQ_MASK               0x0007  
-#define WM831X_FLL_AUTO_FREQ_SHIFT                   0  
-#define WM831X_FLL_AUTO_FREQ_WIDTH                   3  
+/*
+ * R16529 (0x4091) - Clock Control 2
+ */
+#define WM831X_XTAL_INH                         0x8000  /* XTAL_INH */
+#define WM831X_XTAL_INH_MASK                    0x8000  /* XTAL_INH */
+#define WM831X_XTAL_INH_SHIFT                       15  /* XTAL_INH */
+#define WM831X_XTAL_INH_WIDTH                        1  /* XTAL_INH */
+#define WM831X_XTAL_ENA                         0x2000  /* XTAL_ENA */
+#define WM831X_XTAL_ENA_MASK                    0x2000  /* XTAL_ENA */
+#define WM831X_XTAL_ENA_SHIFT                       13  /* XTAL_ENA */
+#define WM831X_XTAL_ENA_WIDTH                        1  /* XTAL_ENA */
+#define WM831X_XTAL_BKUPENA                     0x1000  /* XTAL_BKUPENA */
+#define WM831X_XTAL_BKUPENA_MASK                0x1000  /* XTAL_BKUPENA */
+#define WM831X_XTAL_BKUPENA_SHIFT                   12  /* XTAL_BKUPENA */
+#define WM831X_XTAL_BKUPENA_WIDTH                    1  /* XTAL_BKUPENA */
+#define WM831X_FLL_AUTO                         0x0080  /* FLL_AUTO */
+#define WM831X_FLL_AUTO_MASK                    0x0080  /* FLL_AUTO */
+#define WM831X_FLL_AUTO_SHIFT                        7  /* FLL_AUTO */
+#define WM831X_FLL_AUTO_WIDTH                        1  /* FLL_AUTO */
+#define WM831X_FLL_AUTO_FREQ_MASK               0x0007  /* FLL_AUTO_FREQ - [2:0] */
+#define WM831X_FLL_AUTO_FREQ_SHIFT                   0  /* FLL_AUTO_FREQ - [2:0] */
+#define WM831X_FLL_AUTO_FREQ_WIDTH                   3  /* FLL_AUTO_FREQ - [2:0] */
 
-#define WM831X_FLL_FRAC                         0x0004  
-#define WM831X_FLL_FRAC_MASK                    0x0004  
-#define WM831X_FLL_FRAC_SHIFT                        2  
-#define WM831X_FLL_FRAC_WIDTH                        1  
-#define WM831X_FLL_OSC_ENA                      0x0002  
-#define WM831X_FLL_OSC_ENA_MASK                 0x0002  
-#define WM831X_FLL_OSC_ENA_SHIFT                     1  
-#define WM831X_FLL_OSC_ENA_WIDTH                     1  
-#define WM831X_FLL_ENA                          0x0001  
-#define WM831X_FLL_ENA_MASK                     0x0001  
-#define WM831X_FLL_ENA_SHIFT                         0  
-#define WM831X_FLL_ENA_WIDTH                         1  
+/*
+ * R16530 (0x4092) - FLL Control 1
+ */
+#define WM831X_FLL_FRAC                         0x0004  /* FLL_FRAC */
+#define WM831X_FLL_FRAC_MASK                    0x0004  /* FLL_FRAC */
+#define WM831X_FLL_FRAC_SHIFT                        2  /* FLL_FRAC */
+#define WM831X_FLL_FRAC_WIDTH                        1  /* FLL_FRAC */
+#define WM831X_FLL_OSC_ENA                      0x0002  /* FLL_OSC_ENA */
+#define WM831X_FLL_OSC_ENA_MASK                 0x0002  /* FLL_OSC_ENA */
+#define WM831X_FLL_OSC_ENA_SHIFT                     1  /* FLL_OSC_ENA */
+#define WM831X_FLL_OSC_ENA_WIDTH                     1  /* FLL_OSC_ENA */
+#define WM831X_FLL_ENA                          0x0001  /* FLL_ENA */
+#define WM831X_FLL_ENA_MASK                     0x0001  /* FLL_ENA */
+#define WM831X_FLL_ENA_SHIFT                         0  /* FLL_ENA */
+#define WM831X_FLL_ENA_WIDTH                         1  /* FLL_ENA */
 
-#define WM831X_FLL_OUTDIV_MASK                  0x3F00  
-#define WM831X_FLL_OUTDIV_SHIFT                      8  
-#define WM831X_FLL_OUTDIV_WIDTH                      6  
-#define WM831X_FLL_CTRL_RATE_MASK               0x0070  
-#define WM831X_FLL_CTRL_RATE_SHIFT                   4  
-#define WM831X_FLL_CTRL_RATE_WIDTH                   3  
-#define WM831X_FLL_FRATIO_MASK                  0x0007  
-#define WM831X_FLL_FRATIO_SHIFT                      0  
-#define WM831X_FLL_FRATIO_WIDTH                      3  
+/*
+ * R16531 (0x4093) - FLL Control 2
+ */
+#define WM831X_FLL_OUTDIV_MASK                  0x3F00  /* FLL_OUTDIV - [13:8] */
+#define WM831X_FLL_OUTDIV_SHIFT                      8  /* FLL_OUTDIV - [13:8] */
+#define WM831X_FLL_OUTDIV_WIDTH                      6  /* FLL_OUTDIV - [13:8] */
+#define WM831X_FLL_CTRL_RATE_MASK               0x0070  /* FLL_CTRL_RATE - [6:4] */
+#define WM831X_FLL_CTRL_RATE_SHIFT                   4  /* FLL_CTRL_RATE - [6:4] */
+#define WM831X_FLL_CTRL_RATE_WIDTH                   3  /* FLL_CTRL_RATE - [6:4] */
+#define WM831X_FLL_FRATIO_MASK                  0x0007  /* FLL_FRATIO - [2:0] */
+#define WM831X_FLL_FRATIO_SHIFT                      0  /* FLL_FRATIO - [2:0] */
+#define WM831X_FLL_FRATIO_WIDTH                      3  /* FLL_FRATIO - [2:0] */
 
-#define WM831X_FLL_K_MASK                       0xFFFF  
-#define WM831X_FLL_K_SHIFT                           0  
-#define WM831X_FLL_K_WIDTH                          16  
+/*
+ * R16532 (0x4094) - FLL Control 3
+ */
+#define WM831X_FLL_K_MASK                       0xFFFF  /* FLL_K - [15:0] */
+#define WM831X_FLL_K_SHIFT                           0  /* FLL_K - [15:0] */
+#define WM831X_FLL_K_WIDTH                          16  /* FLL_K - [15:0] */
 
-#define WM831X_FLL_N_MASK                       0x7FE0  
-#define WM831X_FLL_N_SHIFT                           5  
-#define WM831X_FLL_N_WIDTH                          10  
-#define WM831X_FLL_GAIN_MASK                    0x000F  
-#define WM831X_FLL_GAIN_SHIFT                        0  
-#define WM831X_FLL_GAIN_WIDTH                        4  
+/*
+ * R16533 (0x4095) - FLL Control 4
+ */
+#define WM831X_FLL_N_MASK                       0x7FE0  /* FLL_N - [14:5] */
+#define WM831X_FLL_N_SHIFT                           5  /* FLL_N - [14:5] */
+#define WM831X_FLL_N_WIDTH                          10  /* FLL_N - [14:5] */
+#define WM831X_FLL_GAIN_MASK                    0x000F  /* FLL_GAIN - [3:0] */
+#define WM831X_FLL_GAIN_SHIFT                        0  /* FLL_GAIN - [3:0] */
+#define WM831X_FLL_GAIN_WIDTH                        4  /* FLL_GAIN - [3:0] */
 
-#define WM831X_FLL_CLK_REF_DIV_MASK             0x0018  
-#define WM831X_FLL_CLK_REF_DIV_SHIFT                 3  
-#define WM831X_FLL_CLK_REF_DIV_WIDTH                 2  
-#define WM831X_FLL_CLK_SRC_MASK                 0x0003  
-#define WM831X_FLL_CLK_SRC_SHIFT                     0  
-#define WM831X_FLL_CLK_SRC_WIDTH                     2  
+/*
+ * R16534 (0x4096) - FLL Control 5
+ */
+#define WM831X_FLL_CLK_REF_DIV_MASK             0x0018  /* FLL_CLK_REF_DIV - [4:3] */
+#define WM831X_FLL_CLK_REF_DIV_SHIFT                 3  /* FLL_CLK_REF_DIV - [4:3] */
+#define WM831X_FLL_CLK_REF_DIV_WIDTH                 2  /* FLL_CLK_REF_DIV - [4:3] */
+#define WM831X_FLL_CLK_SRC_MASK                 0x0003  /* FLL_CLK_SRC - [1:0] */
+#define WM831X_FLL_CLK_SRC_SHIFT                     0  /* FLL_CLK_SRC - [1:0] */
+#define WM831X_FLL_CLK_SRC_WIDTH                     2  /* FLL_CLK_SRC - [1:0] */
 
 struct regulator_dev;
 
@@ -329,22 +365,22 @@ struct wm831x {
 
 	struct regmap *regmap;
 
-	int irq;  
+	int irq;  /* Our chip IRQ */
 	struct mutex irq_lock;
 	int irq_base;
-	int irq_masks_cur[WM831X_NUM_IRQ_REGS];   
-	int irq_masks_cache[WM831X_NUM_IRQ_REGS]; 
+	int irq_masks_cur[WM831X_NUM_IRQ_REGS];   /* Currently active value */
+	int irq_masks_cache[WM831X_NUM_IRQ_REGS]; /* Cached hardware value */
 
 	bool soft_shutdown;
 
-	
-	unsigned has_gpio_ena:1;         
-	unsigned has_cs_sts:1;           
-	unsigned charger_irq_wake:1;     
+	/* Chip revision based flags */
+	unsigned has_gpio_ena:1;         /* Has GPIO enable bit */
+	unsigned has_cs_sts:1;           /* Has current sink status bit */
+	unsigned charger_irq_wake:1;     /* Are charger IRQs a wake source? */
 
 	int num_gpio;
 
-	
+	/* Used by the interrupt controller code to post writes */
 	int gpio_update[WM831X_NUM_GPIO_REGS];
 	bool gpio_level[WM831X_NUM_GPIO_REGS];
 
@@ -353,10 +389,16 @@ struct wm831x {
 	u16 auxadc_active;
 	wm831x_auxadc_read_fn auxadc_read;
 
+	/* The WM831x has a security key blocking access to certain
+	 * registers.  The mutex is taken by the accessors for locking
+	 * and unlocking the security key, locked is used to fail
+	 * writes if the lock is held.
+	 */
 	struct mutex key_lock;
 	unsigned int locked:1;
 };
 
+/* Device I/O API */
 int wm831x_reg_read(struct wm831x *wm831x, unsigned short reg);
 int wm831x_reg_write(struct wm831x *wm831x, unsigned short reg,
 		 unsigned short val);

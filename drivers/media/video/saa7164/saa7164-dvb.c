@@ -29,6 +29,7 @@
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+/* addr is in the card struct, get it from there */
 static struct tda10048_config hauppauge_hvr2200_1_config = {
 	.demod_address    = 0x10 >> 1,
 	.output_mode      = TDA10048_SERIAL_OUTPUT,
@@ -135,6 +136,10 @@ static int saa7164_dvb_pause_port(struct saa7164_port *port)
 	return ret;
 }
 
+/* Firmware is very windows centric, meaning you have to transition
+ * the part through AVStream / KS Windows stages, forwards or backwards.
+ * States are: stopped, acquired (h/w), paused, started.
+ */
 static int saa7164_dvb_stop_streaming(struct saa7164_port *port)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -148,7 +153,7 @@ static int saa7164_dvb_stop_streaming(struct saa7164_port *port)
 	ret = saa7164_dvb_acquire_port(port);
 	ret = saa7164_dvb_stop_port(port);
 
-	
+	/* Mark the hardware buffers as free */
 	mutex_lock(&port->dmaqueue_lock);
 	list_for_each_safe(p, q, &port->dmaqueue.list) {
 		buf = list_entry(p, struct saa7164_buffer, list);
@@ -168,13 +173,13 @@ static int saa7164_dvb_start_port(struct saa7164_port *port)
 
 	saa7164_buffer_cfg_port(port);
 
-	
+	/* Acquire the hardware */
 	result = saa7164_api_transition_port(port, SAA_DMASTATE_ACQUIRE);
 	if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 		printk(KERN_ERR "%s() acquire transition failed, res = 0x%x\n",
 			__func__, result);
 
-		
+		/* Stop the hardware, regardless */
 		result = saa7164_api_transition_port(port, SAA_DMASTATE_STOP);
 		if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 			printk(KERN_ERR "%s() acquire/forced stop transition "
@@ -185,13 +190,13 @@ static int saa7164_dvb_start_port(struct saa7164_port *port)
 	} else
 		dprintk(DBGLVL_DVB, "%s()   Acquired\n", __func__);
 
-	
+	/* Pause the hardware */
 	result = saa7164_api_transition_port(port, SAA_DMASTATE_PAUSE);
 	if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 		printk(KERN_ERR "%s() pause transition failed, res = 0x%x\n",
 				__func__, result);
 
-		
+		/* Stop the hardware, regardless */
 		result = saa7164_api_transition_port(port, SAA_DMASTATE_STOP);
 		if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 			printk(KERN_ERR "%s() pause/forced stop transition "
@@ -203,13 +208,13 @@ static int saa7164_dvb_start_port(struct saa7164_port *port)
 	} else
 		dprintk(DBGLVL_DVB, "%s()   Paused\n", __func__);
 
-	
+	/* Start the hardware */
 	result = saa7164_api_transition_port(port, SAA_DMASTATE_RUN);
 	if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 		printk(KERN_ERR "%s() run transition failed, result = 0x%x\n",
 				__func__, result);
 
-		
+		/* Stop the hardware, regardless */
 		result = saa7164_api_transition_port(port, SAA_DMASTATE_STOP);
 		if ((result != SAA_OK) && (result != SAA_ERR_ALREADY_STOPPED)) {
 			printk(KERN_ERR "%s() run/forced stop transition "
@@ -240,7 +245,7 @@ static int saa7164_dvb_start_feed(struct dvb_demux_feed *feed)
 	if (dvb) {
 		mutex_lock(&dvb->lock);
 		if (dvb->feeding++ == 0) {
-			
+			/* Start transport */
 			ret = saa7164_dvb_start_port(port);
 		}
 		mutex_unlock(&dvb->lock);
@@ -264,7 +269,7 @@ static int saa7164_dvb_stop_feed(struct dvb_demux_feed *feed)
 	if (dvb) {
 		mutex_lock(&dvb->lock);
 		if (--dvb->feeding == 0) {
-			
+			/* Stop transport */
 			ret = saa7164_dvb_stop_streaming(port);
 		}
 		mutex_unlock(&dvb->lock);
@@ -287,7 +292,7 @@ static int dvb_register(struct saa7164_port *port)
 	if (port->type != SAA7164_MPEG_DVB)
 		BUG();
 
-	
+	/* Sanity check that the PCI configuration space is active */
 	if (port->hwcfg.BARLocation == 0) {
 		result = -ENOMEM;
 		printk(KERN_ERR "%s: dvb_register_adapter failed "
@@ -296,7 +301,7 @@ static int dvb_register(struct saa7164_port *port)
 		goto fail_adapter;
 	}
 
-	
+	/* Init and establish defaults */
 	port->hw_streamingparams.bitspersample = 8;
 	port->hw_streamingparams.samplesperline = 188;
 	port->hw_streamingparams.numberoflines =
@@ -311,7 +316,7 @@ static int dvb_register(struct saa7164_port *port)
 
 	port->hw_streamingparams.numpagetableentries = port->hwcfg.buffercount;
 
-	
+	/* Allocate the PCI resources */
 	for (i = 0; i < port->hwcfg.buffercount; i++) {
 		buf = saa7164_buffer_alloc(port,
 			port->hw_streamingparams.numberoflines *
@@ -330,7 +335,7 @@ static int dvb_register(struct saa7164_port *port)
 		mutex_unlock(&port->dmaqueue_lock);
 	}
 
-	
+	/* register adapter */
 	result = dvb_register_adapter(&dvb->adapter, DRIVER_NAME, THIS_MODULE,
 			&dev->pci->dev, adapter_nr);
 	if (result < 0) {
@@ -340,7 +345,7 @@ static int dvb_register(struct saa7164_port *port)
 	}
 	dvb->adapter.priv = port;
 
-	
+	/* register frontend */
 	result = dvb_register_frontend(&dvb->adapter, dvb->frontend);
 	if (result < 0) {
 		printk(KERN_ERR "%s: dvb_register_frontend failed "
@@ -348,7 +353,7 @@ static int dvb_register(struct saa7164_port *port)
 		goto fail_frontend;
 	}
 
-	
+	/* register demux stuff */
 	dvb->demux.dmx.capabilities =
 		DMX_TS_FILTERING | DMX_SECTION_FILTERING |
 		DMX_MEMORY_BASED_FILTERING;
@@ -397,7 +402,7 @@ static int dvb_register(struct saa7164_port *port)
 		goto fail_fe_conn;
 	}
 
-	
+	/* register network adapter */
 	dvb_net_init(&dvb->adapter, &dvb->net, &dvb->demux.dmx);
 	return 0;
 
@@ -430,7 +435,7 @@ int saa7164_dvb_unregister(struct saa7164_port *port)
 	if (port->type != SAA7164_MPEG_DVB)
 		BUG();
 
-	
+	/* Remove any allocated buffers */
 	mutex_lock(&port->dmaqueue_lock);
 	list_for_each_safe(c, n, &port->dmaqueue.list) {
 		b = list_entry(c, struct saa7164_buffer, list);
@@ -453,6 +458,9 @@ int saa7164_dvb_unregister(struct saa7164_port *port)
 	return 0;
 }
 
+/* All the DVB attach calls go here, this function get's modified
+ * for each new card.
+ */
 int saa7164_dvb_register(struct saa7164_port *port)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -462,7 +470,7 @@ int saa7164_dvb_register(struct saa7164_port *port)
 
 	dprintk(DBGLVL_DVB, "%s()\n", __func__);
 
-	
+	/* init frontend */
 	switch (dev->board) {
 	case SAA7164_BOARD_HAUPPAUGE_HVR2200:
 	case SAA7164_BOARD_HAUPPAUGE_HVR2200_2:
@@ -477,7 +485,7 @@ int saa7164_dvb_register(struct saa7164_port *port)
 				&i2c_bus->i2c_adap);
 
 			if (port->dvb.frontend != NULL) {
-				
+				/* TODO: addr is in the card struct */
 				dvb_attach(tda18271_attach, port->dvb.frontend,
 					0xc0 >> 1, &i2c_bus->i2c_adap,
 					&hauppauge_hvr22x0_tuner_config);
@@ -490,7 +498,7 @@ int saa7164_dvb_register(struct saa7164_port *port)
 				&i2c_bus->i2c_adap);
 
 			if (port->dvb.frontend != NULL) {
-				
+				/* TODO: addr is in the card struct */
 				dvb_attach(tda18271_attach, port->dvb.frontend,
 					0xc0 >> 1, &i2c_bus->i2c_adap,
 					&hauppauge_hvr22x0s_tuner_config);
@@ -510,13 +518,13 @@ int saa7164_dvb_register(struct saa7164_port *port)
 
 		if (port->dvb.frontend != NULL) {
 			if (port->nr == 0) {
-				
-				
+				/* Master TDA18271 */
+				/* TODO: addr is in the card struct */
 				dvb_attach(tda18271_attach, port->dvb.frontend,
 					0xc0 >> 1, &i2c_bus->i2c_adap,
 					&hauppauge_hvr22x0_tuner_config);
 			} else {
-				
+				/* Slave TDA18271 */
 				dvb_attach(tda18271_attach, port->dvb.frontend,
 					0xc0 >> 1, &i2c_bus->i2c_adap,
 					&hauppauge_hvr22x0s_tuner_config);
@@ -535,7 +543,7 @@ int saa7164_dvb_register(struct saa7164_port *port)
 		return -1;
 	}
 
-	
+	/* register everything */
 	ret = dvb_register(port);
 	if (ret < 0) {
 		if (dvb->frontend->ops.release)

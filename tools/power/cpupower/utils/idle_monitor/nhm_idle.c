@@ -66,6 +66,7 @@ static unsigned long long tsc_at_measure_start;
 static unsigned long long tsc_at_measure_end;
 static unsigned long long *previous_count[NHM_CSTATE_COUNT];
 static unsigned long long *current_count[NHM_CSTATE_COUNT];
+/* valid flag for all CPUs. If a MSR read failed it will be zero */
 static int *is_valid;
 
 static int nhm_get_count(enum intel_nhm_id id, unsigned long long *val,
@@ -176,7 +177,7 @@ struct cpuidle_monitor *intel_nhm_register(void)
 	if (!(cpupower_cpu_info.caps & CPUPOWER_CAP_APERF))
 		return NULL;
 
-	
+	/* Free this at program termination */
 	is_valid = calloc(cpu_count, sizeof(int));
 	for (num = 0; num < NHM_CSTATE_COUNT; num++) {
 		previous_count[num] = calloc(cpu_count,
@@ -209,6 +210,7 @@ struct cpuidle_monitor intel_nhm_monitor = {
 	.do_register		= intel_nhm_register,
 	.unregister		= intel_nhm_unregister,
 	.needs_root		= 1,
-	.overflow_s		= 922000000 
+	.overflow_s		= 922000000 /* 922337203 seconds TSC overflow
+					       at 20GHz */
 };
 #endif

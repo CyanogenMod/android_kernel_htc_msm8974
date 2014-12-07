@@ -8,6 +8,7 @@
 #define AUDIO_SET_VOICEMEMO_CONFIG  _IOR(AUDIO_IOCTL_MAGIC, \
 	(AUDIO_MAX_COMMON_IOCTL_NUM+1), unsigned)
 
+/* rec_type */
 enum rpc_voc_rec_dir_type {
 	RPC_VOC_REC_NONE,
 	RPC_VOC_REC_FORWARD,
@@ -16,6 +17,7 @@ enum rpc_voc_rec_dir_type {
 	RPC_VOC_MAX_REC_TYPE
 };
 
+/* capability */
 enum rpc_voc_capability_type {
 	RPC_VOC_CAP_IS733 = 4,
 	RPC_VOC_CAP_IS127 = 8,
@@ -23,6 +25,7 @@ enum rpc_voc_capability_type {
 	RPC_VOC_CAP_32BIT_DUMMY = 2147483647
 };
 
+/* Rate */
 enum rpc_voc_rate_type {
 	RPC_VOC_0_RATE = 0,
 	RPC_VOC_8_RATE,
@@ -41,6 +44,7 @@ enum rpc_voc_rate_type {
 	RPC_VOC_AMR_RATE_1220 = 7,
 };
 
+/* frame_format */
 enum rpc_voc_pb_len_rate_var_type {
 	RPC_VOC_PB_NATIVE_QCP = 3,
 	RPC_VOC_PB_AMR,
@@ -59,4 +63,4 @@ struct msm_audio_voicememo_config {
 	uint32_t data_req_ms;
 };
 
-#endif 
+#endif /* __MSM_AUDIO_VOICEMEMO_H */

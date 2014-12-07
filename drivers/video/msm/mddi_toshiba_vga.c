@@ -42,7 +42,7 @@ static u32 mddi_toshiba_panel_detect(void)
 	uint32 lcd_gpio;
 	u32 mddi_toshiba_lcd = LCD_TOSHIBA_2P4_VGA;
 
-	
+	/* Toshiba display requires larger drive_lo value */
 	mddi_host_reg_out(DRIVE_LO, 0x0050);
 
 	lcd_gpio = toshiba_lcd_gpio_read();

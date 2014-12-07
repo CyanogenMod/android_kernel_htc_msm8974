@@ -55,6 +55,7 @@ static struct map_desc s3c244x_iodesc[] __initdata = {
 	IODESC_ENT(WATCHDOG),
 };
 
+/* uart initialisation */
 
 void __init s3c244x_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {
@@ -63,11 +64,11 @@ void __init s3c244x_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 
 void __init s3c244x_map_io(void)
 {
-	
+	/* register our io-tables */
 
 	iotable_init(s3c244x_iodesc, ARRAY_SIZE(s3c244x_iodesc));
 
-	
+	/* rename any peripherals used differing from the s3c2410 */
 
 	s3c_device_sdi.name  = "s3c2440-sdi";
 	s3c_device_i2c0.name  = "s3c2440-i2c";
@@ -94,7 +95,7 @@ void __init_or_cpufreq s3c244x_setup_clocks(void)
 	clkdiv = __raw_readl(S3C2410_CLKDIVN);
 	camdiv = __raw_readl(S3C2440_CAMDIVN);
 
-	
+	/* work out clock scalings */
 
 	switch (clkdiv & S3C2440_CLKDIVN_HDIVN_MASK) {
 	case S3C2440_CLKDIVN_HDIVN_1:
@@ -117,7 +118,7 @@ void __init_or_cpufreq s3c244x_setup_clocks(void)
 	hclk = fclk / hdiv;
 	pclk = hclk / ((clkdiv & S3C2440_CLKDIVN_PDIVN) ? 2 : 1);
 
-	
+	/* print brief summary of clocks, etc */
 
 	printk("S3C244X: core %ld.%03ld MHz, memory %ld.%03ld MHz, peripheral %ld.%03ld MHz\n",
 	       print_mhz(fclk), print_mhz(hclk), print_mhz(pclk));
@@ -127,12 +128,16 @@ void __init_or_cpufreq s3c244x_setup_clocks(void)
 
 void __init s3c244x_init_clocks(int xtal)
 {
+	/* initialise the clocks here, to allow other things like the
+	 * console to use them, and to add new ones after the initialisation
+	 */
 
 	s3c24xx_register_baseclocks(xtal);
 	s3c244x_setup_clocks();
 	s3c2410_baseclk_add();
 }
 
+/* Since the S3C2442 and S3C2440 share items, put both subsystems here */
 
 struct bus_type s3c2440_subsys = {
 	.name		= "s3c2440-core",
@@ -144,6 +149,11 @@ struct bus_type s3c2442_subsys = {
 	.dev_name	= "s3c2442-core",
 };
 
+/* need to register the subsystem before we actually register the device, and
+ * we also need to ensure that it has been initialised before any of the
+ * drivers even try to use it (even if not on an s3c2440 based system)
+ * as a driver which may support both 2410 and 2440 may try and use it.
+*/
 
 static int __init s3c2440_core_init(void)
 {
@@ -196,6 +206,6 @@ void s3c244x_restart(char mode, const char *cmd)
 
 	arch_wdt_reset();
 
-	
+	/* we'll take a jump through zero as a poor second */
 	soft_restart(0);
 }

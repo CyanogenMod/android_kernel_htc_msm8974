@@ -23,6 +23,9 @@
 #include <sound/initval.h>
 #include <asm/irq_regs.h>
 
+/*
+ *
+ */
 irqreturn_t pdacf_interrupt(int irq, void *dev)
 {
 	struct snd_pdacf *chip = dev;
@@ -31,16 +34,16 @@ irqreturn_t pdacf_interrupt(int irq, void *dev)
 	if ((chip->chip_status & (PDAUDIOCF_STAT_IS_STALE|
 				  PDAUDIOCF_STAT_IS_CONFIGURED|
 				  PDAUDIOCF_STAT_IS_SUSPENDED)) != PDAUDIOCF_STAT_IS_CONFIGURED)
-		return IRQ_HANDLED;	
+		return IRQ_HANDLED;	/* IRQ_NONE here? */
 
 	stat = inw(chip->port + PDAUDIOCF_REG_ISR);
 	if (stat & (PDAUDIOCF_IRQLVL|PDAUDIOCF_IRQOVR)) {
-		if (stat & PDAUDIOCF_IRQOVR)	
+		if (stat & PDAUDIOCF_IRQOVR)	/* should never happen */
 			snd_printk(KERN_ERR "PDAUDIOCF SRAM buffer overrun detected!\n");
 		if (chip->pcm_substream)
 			tasklet_schedule(&chip->tq);
 		if (!(stat & PDAUDIOCF_IRQAKM))
-			stat |= PDAUDIOCF_IRQAKM;	
+			stat |= PDAUDIOCF_IRQAKM;	/* check rate */
 	}
 	if (get_irq_regs() != NULL)
 		snd_ak4117_check_rate_and_errors(chip->ak4117, 0);
@@ -266,7 +269,7 @@ void pdacf_tasklet(unsigned long private_data)
 
 	rdp = inw(chip->port + PDAUDIOCF_REG_RDP);
 	wdp = inw(chip->port + PDAUDIOCF_REG_WDP);
-	
+	/* printk(KERN_DEBUG "TASKLET: rdp = %x, wdp = %x\n", rdp, wdp); */
 	size = wdp - rdp;
 	if (size < 0)
 		size += 0x10000;
@@ -318,5 +321,5 @@ void pdacf_tasklet(unsigned long private_data)
 		spin_lock(&chip->reg_lock);
 	}
 	spin_unlock(&chip->reg_lock);
-	
+	/* printk(KERN_DEBUG "TASKLET: end\n"); */
 }

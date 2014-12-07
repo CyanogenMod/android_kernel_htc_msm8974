@@ -42,7 +42,7 @@ struct fw_filter {
 	struct tcf_result	res;
 #ifdef CONFIG_NET_CLS_IND
 	char			indev[IFNAMSIZ];
-#endif 
+#endif /* CONFIG_NET_CLS_IND */
 	struct tcf_exts		exts;
 };
 
@@ -93,7 +93,7 @@ static int fw_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 #ifdef CONFIG_NET_CLS_IND
 				if (!tcf_match_indev(skb, f->indev))
 					continue;
-#endif 
+#endif /* CONFIG_NET_CLS_IND */
 				r = tcf_exts_exec(skb, &f->exts, res);
 				if (r < 0)
 					continue;
@@ -102,7 +102,7 @@ static int fw_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 			}
 		}
 	} else {
-		
+		/* old method */
 		if (id && (TC_H_MAJ(id) == 0 ||
 			   !(TC_H_MAJ(id ^ tp->q->handle)))) {
 			res->classid = id;
@@ -216,7 +216,7 @@ fw_change_attrs(struct tcf_proto *tp, struct fw_filter *f,
 		if (err < 0)
 			goto errout;
 	}
-#endif 
+#endif /* CONFIG_NET_CLS_IND */
 
 	if (tb[TCA_FW_MASK]) {
 		mask = nla_get_u32(tb[TCA_FW_MASK]);
@@ -351,7 +351,7 @@ static int fw_dump(struct tcf_proto *tp, unsigned long fh,
 #ifdef CONFIG_NET_CLS_IND
 	if (strlen(f->indev))
 		NLA_PUT_STRING(skb, TCA_FW_INDEV, f->indev);
-#endif 
+#endif /* CONFIG_NET_CLS_IND */
 	if (head->mask != 0xFFFFFFFF)
 		NLA_PUT_U32(skb, TCA_FW_MASK, head->mask);
 

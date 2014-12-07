@@ -49,6 +49,7 @@ static int irq;
 module_param(irq, int, 0);
 MODULE_PARM_DESC(irq, "IRQ (optional)");
 
+/* ----- Low-level parallel port access ----------------------------------- */
 
 static inline void port_write(unsigned char p, unsigned char d)
 {
@@ -60,12 +61,13 @@ static inline unsigned char port_read(unsigned char p)
 	return inb(base+p);
 }
 
+/* ----- Unified line operation functions --------------------------------- */
 
 static inline void line_set(int state, const struct lineop *op)
 {
 	u8 oldval = port_read(op->port);
 
-	
+	/* Touch only the bit(s) needed */
 	if ((op->inverted && !state) || (!op->inverted && state))
 		port_write(op->port, oldval | op->val);
 	else
@@ -80,6 +82,7 @@ static inline int line_get(const struct lineop *op)
 	    || (!op->inverted && (oldval & op->val) == op->val));
 }
 
+/* ----- I2C algorithm call-back functions and structures ----------------- */
 
 static void parport_setscl(void *data, int state)
 {
@@ -101,6 +104,9 @@ static int parport_getsda(void *data)
 	return line_get(&adapter_parm[type].getsda);
 }
 
+/* Encapsulate the functions above in the correct structure
+   Note that getscl will be set to NULL by the attaching code for adapters
+   that cannot read SCL back */
 static struct i2c_algo_bit_data parport_algo_data = {
 	.setsda		= parport_setsda,
 	.setscl		= parport_setscl,
@@ -110,6 +116,7 @@ static struct i2c_algo_bit_data parport_algo_data = {
 	.timeout	= HZ,
 };
 
+/* ----- Driver registration ---------------------------------------------- */
 
 static struct i2c_adapter parport_adapter = {
 	.owner		= THIS_MODULE,
@@ -118,6 +125,7 @@ static struct i2c_adapter parport_adapter = {
 	.name		= "Parallel port adapter (light)",
 };
 
+/* SMBus alert support */
 static struct i2c_smbus_alert_setup alert_data = {
 	.alert_edge_triggered	= 1,
 };
@@ -131,13 +139,13 @@ static int __devinit i2c_parport_probe(struct platform_device *pdev)
 {
 	int err;
 
-	
+	/* Reset hardware to a sane state (SCL and SDA high) */
 	parport_setsda(NULL, 1);
 	parport_setscl(NULL, 1);
-	
+	/* Other init if needed (power on...) */
 	if (adapter_parm[type].init.val) {
 		line_set(1, &adapter_parm[type].init);
-		
+		/* Give powered devices some time to settle */
 		msleep(100);
 	}
 
@@ -148,7 +156,7 @@ static int __devinit i2c_parport_probe(struct platform_device *pdev)
 		return err;
 	}
 
-	
+	/* Setup SMBus alert if supported */
 	if (adapter_parm[type].smbus_alert && irq) {
 		alert_data.irq = irq;
 		ara = i2c_setup_smbus_alert(&parport_adapter, &alert_data);
@@ -170,7 +178,7 @@ static int __devexit i2c_parport_remove(struct platform_device *pdev)
 	}
 	i2c_del_adapter(&parport_adapter);
 
-	
+	/* Un-init if needed (power off...) */
 	if (adapter_parm[type].init.val)
 		line_set(0, &adapter_parm[type].init);
 
@@ -240,7 +248,7 @@ static int __init i2c_parport_init(void)
 	if (!adapter_parm[type].getscl.val)
 		parport_algo_data.getscl = NULL;
 
-	
+	/* Sets global pdev as a side effect */
 	err = i2c_parport_device_add(base);
 	if (err)
 		goto exit_release;

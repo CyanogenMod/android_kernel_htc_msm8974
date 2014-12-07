@@ -157,7 +157,7 @@ static const struct apple_key_translation *apple_find_translation(
 {
 	const struct apple_key_translation *trans;
 
-	
+	/* Look for the translation */
 	for (trans = table; trans->from; trans++)
 		if (trans->from == from)
 			return trans;
@@ -272,6 +272,9 @@ static int apple_event(struct hid_device *hdev, struct hid_field *field,
 	return 0;
 }
 
+/*
+ * MacBook JIS keyboard has wrong logical maximum
+ */
 static __u8 *apple_report_fixup(struct hid_device *hdev, __u8 *rdesc,
 		unsigned int *rsize)
 {
@@ -292,7 +295,7 @@ static void apple_setup_input(struct input_dev *input)
 
 	set_bit(KEY_NUMLOCK, input->keybit);
 
-	
+	/* Enable all needed keys */
 	for (trans = apple_fn_keys; trans->from; trans++)
 		set_bit(trans->to, input->keybit);
 
@@ -311,14 +314,14 @@ static int apple_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		unsigned long **bit, int *max)
 {
 	if (usage->hid == (HID_UP_CUSTOM | 0x0003)) {
-		
+		/* The fn key on Apple USB keyboards */
 		set_bit(EV_REP, hi->input->evbit);
 		hid_map_usage_clear(hi, usage, bit, max, EV_KEY, KEY_FN);
 		apple_setup_input(hi->input);
 		return 1;
 	}
 
-	
+	/* we want the hid layer to go through standard path (set and ignore) */
 	return 0;
 }
 

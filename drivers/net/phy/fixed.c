@@ -125,7 +125,7 @@ static int fixed_mdio_read(struct mii_bus *bus, int phy_id, int reg_num)
 
 	list_for_each_entry(fp, &fmb->phys, node) {
 		if (fp->id == phy_id) {
-			
+			/* Issue callback if user registered it. */
 			if (fp->link_update) {
 				fp->link_update(fp->phydev->attached_dev,
 						&fp->status);
@@ -144,6 +144,11 @@ static int fixed_mdio_write(struct mii_bus *bus, int phy_id, int reg_num,
 	return 0;
 }
 
+/*
+ * If something weird is required to be done with link/speed,
+ * network driver is able to assign a function to implement this.
+ * May be useful for PHY's that need to be software-driven.
+ */
 int fixed_phy_set_link_update(struct phy_device *phydev,
 			      int (*link_update)(struct net_device *,
 						 struct fixed_phy_status *))

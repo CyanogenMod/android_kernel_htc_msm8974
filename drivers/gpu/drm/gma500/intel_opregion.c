@@ -37,15 +37,15 @@ struct opregion_header {
 } __packed;
 
 struct opregion_apci {
-	
+	/*FIXME: add it later*/
 } __packed;
 
 struct opregion_swsci {
-	
+	/*FIXME: add it later*/
 } __packed;
 
 struct opregion_acpi {
-	
+	/*FIXME: add it later*/
 } __packed;
 
 int gma_intel_opregion_init(struct drm_device *dev)

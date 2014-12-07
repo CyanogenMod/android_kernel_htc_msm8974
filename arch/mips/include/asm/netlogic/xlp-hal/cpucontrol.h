@@ -50,6 +50,7 @@
 #define LSU_CERRLOG_REGID	0x09
 #define SCHED_DEFEATURE		0x700
 
+/* Offsets of interest from the 'MAP' Block */
 #define MAP_THREADMODE			0x00
 #define MAP_EXT_EBASE_ENABLE		0x04
 #define MAP_CCDI_CONFIG			0x08
@@ -79,4 +80,4 @@
 #define MMU_PGWKR_PTESHFT	0x418
 #define MMU_PGWKR_PTEMASK	0x419
 
-#endif 
+#endif /* __NLM_CPUCONTROL_H__ */

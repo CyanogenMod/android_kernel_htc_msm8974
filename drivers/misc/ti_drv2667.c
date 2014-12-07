@@ -62,6 +62,7 @@
 #define DRV2667_I2C_VTG_MAX_UV	1800000
 #define DRV2667_I2C_CURR_UA	9630
 
+/* supports 3 modes in digital - fifo, ram and wave */
 enum drv2667_modes {
 	FIFO_MODE = 0,
 	RAM_SEQ_MODE,
@@ -127,21 +128,21 @@ static void drv2667_worker(struct work_struct *work)
 	data = container_of(work, struct drv2667_data, work);
 
 	if (data->mode == WAV_SEQ_MODE) {
-		
+		/* clear go bit */
 		val = data->cntl2_val & ~DRV2667_GO_MASK;
 		rc = drv2667_write_reg(data->client, DRV2667_CNTL2_REG, val);
 		if (rc < 0) {
 			dev_err(&data->client->dev, "i2c send msg failed\n");
 			return;
 		}
-		
+		/* restart wave if runtime is left */
 		if (data->runtime_left) {
 			val = data->cntl2_val | DRV2667_GO_MASK;
 			rc = drv2667_write_reg(data->client,
 						DRV2667_CNTL2_REG, val);
 		}
 	} else if (data->mode == FIFO_MODE) {
-		
+		/* data is played at 8khz */
 		if (data->runtime_left < data->time_chunk_ms)
 			val = data->runtime_left * DRV2667_BYTES_PER_MS;
 		else
@@ -323,13 +324,13 @@ static int drv2667_suspend(struct device *dev)
 	hrtimer_cancel(&data->timer);
 	cancel_work_sync(&data->work);
 
-	
+	/* set standby */
 	val = data->cntl2_val | ~DRV2667_STANDBY_MASK;
 	rc = drv2667_write_reg(data->client, DRV2667_CNTL2_REG, val);
 	if (rc < 0)
 		dev_err(dev, "unable to set standby\n");
 
-	
+	/* turn regulators off */
 	drv2667_vreg_on(data, false);
 	return 0;
 }
@@ -339,14 +340,14 @@ static int drv2667_resume(struct device *dev)
 	struct drv2667_data *data = dev_get_drvdata(dev);
 	int rc;
 
-	
+	/* turn regulators on */
 	rc = drv2667_vreg_on(data, true);
 	if (rc < 0) {
 		dev_err(dev, "unable to turn regulators on\n");
 		return rc;
 	}
 
-	
+	/* clear standby */
 	rc = drv2667_write_reg(data->client,
 			DRV2667_CNTL2_REG, data->cntl2_val);
 	if (rc < 0) {
@@ -392,25 +393,25 @@ static int drv2667_parse_dt(struct device *dev, struct drv2667_pdata *pdata)
 	u32 temp;
 
 	rc = of_property_read_string(dev->of_node, "ti,label", &pdata->name);
-	
+	/* set vibrator as default name */
 	if (rc < 0)
 		pdata->name = "vibrator";
 
 	rc = of_property_read_u32(dev->of_node, "ti,gain", &temp);
-	
+	/* set gain as 0 */
 	if (rc < 0)
 		pdata->gain = 0;
 	else
 		pdata->gain = (u8) temp;
 
 	rc = of_property_read_u32(dev->of_node, "ti,mode", &temp);
-	
+	/* set FIFO mode as default */
 	if (rc < 0)
 		pdata->mode = FIFO_MODE;
 	else
 		pdata->mode = (u8) temp;
 
-	
+	/* read wave sequence */
 	if (pdata->mode == WAV_SEQ_MODE) {
 		prop = of_find_property(dev->of_node, "ti,wav-seq", &temp);
 		if (!prop) {
@@ -424,7 +425,7 @@ static int drv2667_parse_dt(struct device *dev, struct drv2667_pdata *pdata)
 	}
 
 	rc = of_property_read_u32(dev->of_node, "ti,idle-timeout-ms", &temp);
-	
+	/* configure minimum idle timeout */
 	if (rc < 0)
 		pdata->idle_timeout_ms = DRV2667_MIN_IDLE_TIMEOUT_MS;
 	else
@@ -432,7 +433,7 @@ static int drv2667_parse_dt(struct device *dev, struct drv2667_pdata *pdata)
 
 	rc = of_property_read_u32(dev->of_node, "ti,max-runtime-ms",
 						&pdata->max_runtime_ms);
-	
+	/* configure one sec as default time */
 	if (rc < 0)
 		pdata->max_runtime_ms = MSEC_PER_SEC;
 
@@ -465,7 +466,7 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 			dev_err(&client->dev, "unable to allocate pdata\n");
 			return -ENOMEM;
 		}
-		
+		/* parse DT */
 		rc = drv2667_parse_dt(&client->dev, pdata);
 		if (rc) {
 			dev_err(&client->dev, "DT parsing failed\n");
@@ -496,14 +497,14 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 	data->timer.function = drv2667_timer;
 	data->mode = pdata->mode;
 
-	
+	/* configure voltage regulators */
 	rc = drv2667_vreg_config(data, true);
 	if (rc) {
 		dev_err(&client->dev, "unable to configure regulators\n");
 		goto destroy_mutex;
 	}
 
-	
+	/* turn on voltage regulators */
 	rc = drv2667_vreg_on(data, true);
 	if (rc) {
 		dev_err(&client->dev, "unable to turn on regulators\n");
@@ -514,7 +515,7 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 	if (rc < 0)
 		goto vreg_off;
 
-	
+	/* set timeout, clear standby */
 	val = (u8) rc;
 
 	if (pdata->idle_timeout_ms < DRV2667_MIN_IDLE_TIMEOUT_MS ||
@@ -534,23 +535,23 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 	if (rc < 0)
 		goto vreg_off;
 
-	
+	/* cache control2 val */
 	data->cntl2_val = val;
 
-	
+	/* program drv2667 registers */
 	rc = drv2667_read_reg(client, DRV2667_CNTL1_REG);
 	if (rc < 0)
 		goto vreg_off;
 
-	
+	/* gain and input mode */
 	val = (u8) rc;
 
-	
+	/* remove this check after adding support for these modes */
 	if (data->mode == ANALOG_MODE || data->mode == RAM_SEQ_MODE) {
 		dev_err(&data->client->dev, "Mode not supported\n");
 		goto vreg_off;
 	} else
-		val &= ~DRV2667_INPUT_MUX_MASK; 
+		val &= ~DRV2667_INPUT_MUX_MASK; /* set digital mode */
 
 	val = (val & DRV2667_GAIN_MASK) | (pdata->gain << DRV2667_GAIN_SHIFT);
 
@@ -559,7 +560,7 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 		goto vreg_off;
 
 	if (data->mode == FIFO_MODE) {
-		
+		/* Load a predefined pattern for FIFO mode */
 		data->buf[0] = DRV2667_FIFO_REG;
 		fifo_seq_val = DRV2667_VIB_START_VAL;
 
@@ -570,20 +571,20 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 	} else if (data->mode == WAV_SEQ_MODE) {
 		u8 freq, rep, dur;
 
-		
-		
+		/* program wave sequence from pdata */
+		/* id to wave sequence 3, set page */
 		rc = drv2667_write_reg(client, DRV2667_WAV_SEQ3_REG,
 				pdata->wav_seq[DRV2667_WAV_SEQ_ID_IDX]);
 		if (rc < 0)
 			goto vreg_off;
 
-		
+		/* set page to wave form sequence */
 		rc = drv2667_write_reg(client, DRV2667_PAGE_REG,
 				pdata->wav_seq[DRV2667_WAV_SEQ_ID_IDX]);
 		if (rc < 0)
 			goto vreg_off;
 
-		
+		/* program waveform sequence */
 		for (reg = 0, i = 0; i < DRV2667_WAV_SEQ_LEN - 1; i++, reg++) {
 			rc = drv2667_write_reg(client, reg,
 						pdata->wav_seq[i+1]);
@@ -591,7 +592,7 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 				goto vreg_off;
 		}
 
-		
+		/* set page back to normal register space */
 		rc = drv2667_write_reg(client, DRV2667_PAGE_REG,
 					DRV2667_REG_PAGE_ID);
 		if (rc < 0)
@@ -607,7 +608,7 @@ static int __devinit drv2667_probe(struct i2c_client *client,
 
 	drv2667_dump_regs(data, "new");
 
-	
+	/* register with timed output class */
 	data->dev.name = pdata->name;
 	data->dev.get_time = drv2667_get_time;
 	data->dev.enable = drv2667_enable;

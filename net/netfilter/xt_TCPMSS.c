@@ -35,7 +35,7 @@ MODULE_ALIAS("ip6t_TCPMSS");
 static inline unsigned int
 optlen(const u_int8_t *opt, unsigned int offset)
 {
-	
+	/* Beware zero-length options: make finite progress */
 	if (opt[offset] <= TCPOPT_NOP || opt[offset+1] == 0)
 		return 1;
 	else
@@ -61,7 +61,7 @@ tcpmss_mangle_packet(struct sk_buff *skb,
 	tcplen = skb->len - tcphoff;
 	tcph = (struct tcphdr *)(skb_network_header(skb) + tcphoff);
 
-	
+	/* Header cannot be larger than the packet */
 	if (tcplen < tcph->doff*4)
 		return -1;
 
@@ -90,6 +90,10 @@ tcpmss_mangle_packet(struct sk_buff *skb,
 
 			oldmss = (opt[i+2] << 8) | opt[i+3];
 
+			/* Never increase MSS, even when setting it, as
+			 * doing so results in problems for hosts that rely
+			 * on MSS being set correctly.
+			 */
 			if (oldmss <= newmss)
 				return 0;
 
@@ -103,9 +107,15 @@ tcpmss_mangle_packet(struct sk_buff *skb,
 		}
 	}
 
+	/* There is data after the header so the option can't be added
+	   without moving it, and doing so may make the SYN packet
+	   itself too large. Accept the packet unmodified instead. */
 	if (tcplen > tcph->doff*4)
 		return 0;
 
+	/*
+	 * MSS Option not found ?! add it..
+	 */
 	if (skb_tailroom(skb) < TCPOLEN_MSS) {
 		if (pskb_expand_head(skb, 0,
 				     TCPOLEN_MSS - skb_tailroom(skb),
@@ -216,6 +226,7 @@ tcpmss_tg6(struct sk_buff *skb, const struct xt_action_param *par)
 }
 #endif
 
+/* Must specify -p tcp --syn */
 static inline bool find_syn_match(const struct xt_entry_match *m)
 {
 	const struct xt_tcp *tcpinfo = (const struct xt_tcp *)m->data;

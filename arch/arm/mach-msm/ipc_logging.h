@@ -17,8 +17,8 @@
 
 struct ipc_log_page_header {
 	uint32_t magic;
-	uint32_t nmagic; 
-	uint32_t log_id; 
+	uint32_t nmagic; /* inverse of magic number */
+	uint32_t log_id; /* owner of log */
 	uint32_t page_num;
 	uint16_t read_offset;
 	uint16_t write_offset;

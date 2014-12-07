@@ -29,6 +29,15 @@ static inline int irq_to_tps65910_irq(struct tps65910 *tps65910,
 	return (irq - tps65910->irq_base);
 }
 
+/*
+ * This is a threaded IRQ handler so can access I2C/SPI.  Since all
+ * interrupts are clear on read the IRQ line will be reasserted and
+ * the physical IRQ will be handled again if another interrupt is
+ * asserted while we run - in the normal course of events this is a
+ * rare occurrence so we save I2C/SPI reads.  We're also assuming that
+ * it's rare to get lots of interrupts firing simultaneously so try to
+ * minimise I/O.
+ */
 static irqreturn_t tps65910_irq(int irq, void *irq_data)
 {
 	struct tps65910 *tps65910 = irq_data;
@@ -70,7 +79,7 @@ static irqreturn_t tps65910_irq(int irq, void *irq_data)
 		handle_nested_irq(tps65910->irq_base + i);
 	}
 
-	
+	/* Write the STS register back to clear IRQs we handled */
 	reg = irq_sts & 0xFF;
 	irq_sts >>= 8;
 	tps65910->write(tps65910, TPS65910_INT_STS, 1, &reg);
@@ -186,7 +195,7 @@ int tps65910_irq_init(struct tps65910 *tps65910, int irq,
 		break;
 	}
 
-	
+	/* Register with genirq */
 	for (cur_irq = tps65910->irq_base;
 	     cur_irq < tps65910->irq_num + tps65910->irq_base;
 	     cur_irq++) {
@@ -195,6 +204,8 @@ int tps65910_irq_init(struct tps65910 *tps65910, int irq,
 					 handle_edge_irq);
 		irq_set_nested_thread(cur_irq, 1);
 
+		/* ARM needs us to explicitly flag the IRQ as valid
+		 * and will set them noprobe when we do so. */
 #ifdef CONFIG_ARM
 		set_irq_flags(cur_irq, IRQF_VALID);
 #else

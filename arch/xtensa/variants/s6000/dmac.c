@@ -17,10 +17,12 @@
 #include <asm/cacheflush.h>
 #include <variant/dmac.h>
 
+/* DMA engine lookup */
 
 struct s6dmac_ctrl s6dmac_ctrl[S6_DMAC_NB];
 
 
+/* DMA control, per engine */
 
 void s6dmac_put_fifo_cache(u32 dmac, int chan, u32 src, u32 dst, u32 size)
 {
@@ -134,6 +136,7 @@ void s6dmac_release_chan(u32 dmac, int chan)
 }
 
 
+/* global init */
 
 static inline void __init dmac_init(u32 dmac, u8 chan_nb)
 {

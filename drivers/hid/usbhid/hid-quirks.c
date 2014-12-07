@@ -21,6 +21,9 @@
 
 #include "../hid-ids.h"
 
+/*
+ * Alphabetically sorted blacklist by quirk type.
+ */
 
 static const struct hid_blacklist {
 	__u16 idVendor;
@@ -99,6 +102,7 @@ static const struct hid_blacklist {
 	{ 0, 0 }
 };
 
+/* Dynamic HID quirks list - specified at runtime */
 struct quirks_list_struct {
 	struct hid_blacklist hid_bl_item;
 	struct list_head node;
@@ -107,7 +111,20 @@ struct quirks_list_struct {
 static LIST_HEAD(dquirks_list);
 static DECLARE_RWSEM(dquirks_rwsem);
 
+/* Runtime ("dynamic") quirks manipulation functions */
 
+/**
+ * usbhid_exists_dquirk: find any dynamic quirks for a USB HID device
+ * @idVendor: the 16-bit USB vendor ID, in native byteorder
+ * @idProduct: the 16-bit USB product ID, in native byteorder
+ *
+ * Description:
+ *         Scans dquirks_list for a matching dynamic quirk and returns
+ *         the pointer to the relevant struct hid_blacklist if found.
+ *         Must be called with a read lock held on dquirks_rwsem.
+ *
+ * Returns: NULL if no quirk found, struct hid_blacklist * if found.
+ */
 static struct hid_blacklist *usbhid_exists_dquirk(const u16 idVendor,
 		const u16 idProduct)
 {
@@ -131,6 +148,19 @@ static struct hid_blacklist *usbhid_exists_dquirk(const u16 idVendor,
 }
 
 
+/**
+ * usbhid_modify_dquirk: add/replace a HID quirk
+ * @idVendor: the 16-bit USB vendor ID, in native byteorder
+ * @idProduct: the 16-bit USB product ID, in native byteorder
+ * @quirks: the u32 quirks value to add/replace
+ *
+ * Description:
+ *         If an dynamic quirk exists in memory for this (idVendor,
+ *         idProduct) pair, replace its quirks value with what was
+ *         provided.  Otherwise, add the quirk to the dynamic quirks list.
+ *
+ * Returns: 0 OK, -error on failure.
+ */
 static int usbhid_modify_dquirk(const u16 idVendor, const u16 idProduct,
 				const u32 quirks)
 {
@@ -176,6 +206,14 @@ static int usbhid_modify_dquirk(const u16 idVendor, const u16 idProduct,
 	return 0;
 }
 
+/**
+ * usbhid_remove_all_dquirks: remove all runtime HID quirks from memory
+ *
+ * Description:
+ *         Free all memory associated with dynamic quirks - called before
+ *         module unload.
+ *
+ */
 static void usbhid_remove_all_dquirks(void)
 {
 	struct quirks_list_struct *q, *temp;
@@ -189,6 +227,9 @@ static void usbhid_remove_all_dquirks(void)
 
 }
 
+/** 
+ * usbhid_quirks_init: apply USB HID quirks specified at module load time
+ */
 int usbhid_quirks_init(char **quirks_param)
 {
 	u16 idVendor, idProduct;
@@ -211,11 +252,31 @@ int usbhid_quirks_init(char **quirks_param)
 	return 0;
 }
 
+/**
+ * usbhid_quirks_exit: release memory associated with dynamic_quirks
+ *
+ * Description:
+ *     Release all memory associated with dynamic quirks.  Called upon
+ *     module unload.
+ *
+ * Returns: nothing
+ */
 void usbhid_quirks_exit(void)
 {
 	usbhid_remove_all_dquirks();
 }
 
+/**
+ * usbhid_exists_squirk: return any static quirks for a USB HID device
+ * @idVendor: the 16-bit USB vendor ID, in native byteorder
+ * @idProduct: the 16-bit USB product ID, in native byteorder
+ *
+ * Description:
+ *     Given a USB vendor ID and product ID, return a pointer to
+ *     the hid_blacklist entry associated with that device.
+ *
+ * Returns: pointer if quirk found, or NULL if no quirks found.
+ */
 static const struct hid_blacklist *usbhid_exists_squirk(const u16 idVendor,
 		const u16 idProduct)
 {
@@ -234,12 +295,23 @@ static const struct hid_blacklist *usbhid_exists_squirk(const u16 idVendor,
 	return bl_entry;
 }
 
+/**
+ * usbhid_lookup_quirk: return any quirks associated with a USB HID device
+ * @idVendor: the 16-bit USB vendor ID, in native byteorder
+ * @idProduct: the 16-bit USB product ID, in native byteorder
+ *
+ * Description:
+ *     Given a USB vendor ID and product ID, return any quirks associated
+ *     with that device.
+ *
+ * Returns: a u32 quirks value.
+ */
 u32 usbhid_lookup_quirk(const u16 idVendor, const u16 idProduct)
 {
 	u32 quirks = 0;
 	const struct hid_blacklist *bl_entry = NULL;
 
-	
+	/* NCR devices must not be queried for reports */
 	if (idVendor == USB_VENDOR_ID_NCR &&
 			idProduct >= USB_DEVICE_ID_NCR_FIRST &&
 			idProduct <= USB_DEVICE_ID_NCR_LAST)

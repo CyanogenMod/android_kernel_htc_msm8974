@@ -52,6 +52,7 @@ static struct sleep_save s5p64x0_misc_save[] = {
 	SAVE_ITEM(S3C64XX_TINT_CSTAT),
 };
 
+/* DPLL is present only in S5P6450 */
 static struct sleep_save s5p6450_core_save[] = {
 	SAVE_ITEM(S5P6450_DPLL_CON),
 	SAVE_ITEM(S5P6450_DPLL_CON_K),
@@ -91,6 +92,10 @@ static int s5p64x0_cpu_suspend(unsigned long arg)
 {
 	unsigned long tmp = 0;
 
+	/*
+	 * Issue the standby signal into the pm unit. Note, we
+	 * issue a write-buffer drain just in case.
+	 */
 	asm("b 1f\n\t"
 	    ".align 5\n\t"
 	    "1:\n\t"
@@ -98,10 +103,11 @@ static int s5p64x0_cpu_suspend(unsigned long arg)
 	    "mcr p15, 0, %0, c7, c10, 4\n\t"
 	    "mcr p15, 0, %0, c7, c0, 4" : : "r" (tmp));
 
-	
+	/* we should never get past here */
 	panic("sleep resumed to originator?");
 }
 
+/* mapping of interrupts to parts of the wakeup mask */
 static struct samsung_wakeup_mask s5p64x0_wake_irqs[] = {
 	{ .irq = IRQ_RTC_ALARM,	.bit = S5P64X0_PWR_CFG_RTC_ALRM_DISABLE, },
 	{ .irq = IRQ_RTC_TIC,	.bit = S5P64X0_PWR_CFG_RTC_TICK_DISABLE, },
@@ -116,19 +122,19 @@ static void s5p64x0_pm_prepare(void)
 	samsung_sync_wakemask(S5P64X0_PWR_CFG,
 			s5p64x0_wake_irqs, ARRAY_SIZE(s5p64x0_wake_irqs));
 
-	
+	/* store the resume address in INFORM0 register */
 	__raw_writel(virt_to_phys(s3c_cpu_resume), S5P64X0_INFORM0);
 
-	
+	/* setup clock gating for FIMGVG block */
 	__raw_writel((__raw_readl(S5P64X0_CLK_GATE_HCLK1) | \
 		(S5P64X0_CLK_GATE_HCLK1_FIMGVG)), S5P64X0_CLK_GATE_HCLK1);
 	__raw_writel((__raw_readl(S5P64X0_CLK_GATE_SCLK1) | \
 		(S5P64X0_CLK_GATE_SCLK1_FIMGVG)), S5P64X0_CLK_GATE_SCLK1);
 
-	
+	/* Configure the stabilization counter with wait time required */
 	__raw_writel(S5P64X0_PWR_STABLE_PWR_CNT_VAL4, S5P64X0_PWR_STABLE);
 
-	
+	/* set WFI to SLEEP mode configuration */
 	tmp = __raw_readl(S5P64X0_SLEEP_CFG);
 	tmp &= ~(S5P64X0_SLEEP_CFG_OSC_EN);
 	__raw_writel(tmp, S5P64X0_SLEEP_CFG);
@@ -138,13 +144,18 @@ static void s5p64x0_pm_prepare(void)
 	tmp |= S5P64X0_PWR_CFG_WFI_SLEEP;
 	__raw_writel(tmp, S5P64X0_PWR_CFG);
 
+	/*
+	 * set OTHERS register to disable interrupt before going to
+	 * sleep. This bit is present only in S5P6450, it is reserved
+	 * in S5P6440.
+	 */
 	if (soc_is_s5p6450()) {
 		tmp = __raw_readl(S5P64X0_OTHERS);
 		tmp |= S5P6450_OTHERS_DISABLE_INT;
 		__raw_writel(tmp, S5P64X0_OTHERS);
 	}
 
-	
+	/* ensure previous wakeup state is cleared before sleeping */
 	__raw_writel(__raw_readl(S5P64X0_WAKEUP_STAT), S5P64X0_WAKEUP_STAT);
 
 }

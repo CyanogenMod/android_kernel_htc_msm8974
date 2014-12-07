@@ -31,18 +31,35 @@
 
 #define AD5764_NUM_CHANNELS 4
 
+/**
+ * struct ad5764_chip_info - chip specific information
+ * @int_vref:	Value of the internal reference voltage in uV - 0 if external
+ *		reference voltage is used
+ * @channel	channel specification
+*/
 
 struct ad5764_chip_info {
 	unsigned long int_vref;
 	const struct iio_chan_spec *channels;
 };
 
+/**
+ * struct ad5764_state - driver instance specific data
+ * @spi:		spi_device
+ * @chip_info:		chip info
+ * @vref_reg:		vref supply regulators
+ * @data:		spi transfer buffers
+ */
 
 struct ad5764_state {
 	struct spi_device		*spi;
 	const struct ad5764_chip_info	*chip_info;
 	struct regulator_bulk_data	vref_reg[2];
 
+	/*
+	 * DMA (thus cache coherency maintenance) requires the
+	 * transfer buffers to live in their own cache lines.
+	 */
 	union {
 		__be32 d32;
 		u8 d8[4];
@@ -233,7 +250,7 @@ static int ad5764_read_raw(struct iio_dev *indio_dev,
 		*val = sign_extend32(*val, 5);
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
-		
+		/* vout = 4 * vref + ((dac_code / 65535) - 0.5) */
 		vref = ad5764_get_channel_vref(st, chan->channel);
 		if (vref < 0)
 			return vref;

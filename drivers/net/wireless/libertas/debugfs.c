@@ -185,6 +185,22 @@ static ssize_t lbs_host_sleep_read(struct file *file, char __user *userbuf,
 	return ret;
 }
 
+/*
+ * When calling CMD_802_11_SUBSCRIBE_EVENT with CMD_ACT_GET, me might
+ * get a bunch of vendor-specific TLVs (a.k.a. IEs) back from the
+ * firmware. Here's an example:
+ *	04 01 02 00 00 00 05 01 02 00 00 00 06 01 02 00
+ *	00 00 07 01 02 00 3c 00 00 00 00 00 00 00 03 03
+ *	00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+ *
+ * The 04 01 is the TLV type (here TLV_TYPE_RSSI_LOW), 02 00 is the length,
+ * 00 00 are the data bytes of this TLV. For this TLV, their meaning is
+ * defined in mrvlietypes_thresholds
+ *
+ * This function searches in this TLV data chunk for a given TLV type
+ * and returns a pointer to the first data byte of the TLV, or to NULL
+ * if the TLV hasn't been found.
+ */
 static void *lbs_tlv_find(uint16_t tlv_type, const uint8_t *tlv, uint16_t size)
 {
 	struct mrvl_ie_header *tlv_h;
@@ -305,7 +321,7 @@ static ssize_t lbs_threshold_write(uint16_t tlv_type, uint16_t event_mask,
 	else
 		new_mask = curr_mask & ~event_mask;
 
-	
+	/* Now everything is set and we can send stuff down to the firmware */
 
 	tlv = (void *)events->tlv;
 
@@ -317,7 +333,7 @@ static ssize_t lbs_threshold_write(uint16_t tlv_type, uint16_t event_mask,
 	if (tlv_type != TLV_TYPE_BCNMISS)
 		tlv->freq = freq;
 
-	
+	/* The command header, the action, the event mask, and one TLV */
 	events->hdr.size = cpu_to_le16(sizeof(events->hdr) + 4 + sizeof(*tlv));
 
 	ret = lbs_cmd_with_response(priv, CMD_802_11_SUBSCRIBE_EVENT, events);
@@ -806,6 +822,7 @@ void lbs_debugfs_remove_one(struct lbs_private *priv)
 
 
 
+/* debug entry */
 
 #ifdef PROC_DEBUG
 
@@ -819,6 +836,8 @@ struct debug_data {
 	size_t addr;
 };
 
+/* To debug any member of struct lbs_private, simply add one line here.
+ */
 static struct debug_data items[] = {
 	{"psmode", item_size(psmode), item_addr(psmode)},
 	{"psstate", item_size(psstate), item_addr(psstate)},
@@ -826,6 +845,16 @@ static struct debug_data items[] = {
 
 static int num_of_items = ARRAY_SIZE(items);
 
+/**
+ * lbs_debugfs_read - proc read function
+ *
+ * @file:	file to read
+ * @userbuf:	pointer to buffer
+ * @count:	number of bytes to read
+ * @ppos:	read data starting position
+ *
+ * returns:	amount of data read or negative error code
+ */
 static ssize_t lbs_debugfs_read(struct file *file, char __user *userbuf,
 			size_t count, loff_t *ppos)
 {
@@ -933,6 +962,13 @@ static const struct file_operations lbs_debug_fops = {
 	.llseek = default_llseek,
 };
 
+/**
+ * lbs_debug_init - create debug proc file
+ *
+ * @priv:	pointer to &struct lbs_private
+ *
+ * returns:	N/A
+ */
 static void lbs_debug_init(struct lbs_private *priv)
 {
 	int i;

@@ -63,13 +63,23 @@ enum {
 	ALLOCATE_MEMORY_ADDR_ZERO = 0X08,
 };
 
+/* valid htab sizes are {18,19,20} = 256K, 512K, 1M */
 
 enum {
-	HTAB_SIZE_MAX = 20U, 
-	HTAB_SIZE_MIN = 18U, 
+	HTAB_SIZE_MAX = 20U, /* HV limit of 1MB */
+	HTAB_SIZE_MIN = 18U, /* CPU limit of 256KB */
 };
 
+/*============================================================================*/
+/* virtual address space routines                                             */
+/*============================================================================*/
 
+/**
+ * struct mem_region - memory region structure
+ * @base: base address
+ * @size: size in bytes
+ * @offset: difference between base and rm.size
+ */
 
 struct mem_region {
 	u64 base;
@@ -77,6 +87,23 @@ struct mem_region {
 	unsigned long offset;
 };
 
+/**
+ * struct map - address space state variables holder
+ * @total: total memory available as reported by HV
+ * @vas_id - HV virtual address space id
+ * @htab_size: htab size in bytes
+ *
+ * The HV virtual address space (vas) allows for hotplug memory regions.
+ * Memory regions can be created and destroyed in the vas at runtime.
+ * @rm: real mode (bootmem) region
+ * @r1: hotplug memory region(s)
+ *
+ * ps3 addresses
+ * virt_addr: a cpu 'translated' effective address
+ * phys_addr: an address in what Linux thinks is the physical address space
+ * lpar_addr: an address in the HV virtual address space
+ * bus_addr: an io controller 'translated' address on a device bus
+ */
 
 struct map {
 	u64 total;
@@ -101,6 +128,10 @@ static void __maybe_unused _debug_dump_map(const struct map *m,
 
 static struct map map;
 
+/**
+ * ps3_mm_phys_to_lpar - translate a linux physical address to lpar address
+ * @phys_addr: linux physical address
+ */
 
 unsigned long ps3_mm_phys_to_lpar(unsigned long phys_addr)
 {
@@ -111,6 +142,9 @@ unsigned long ps3_mm_phys_to_lpar(unsigned long phys_addr)
 
 EXPORT_SYMBOL(ps3_mm_phys_to_lpar);
 
+/**
+ * ps3_mm_vas_create - create the virtual address space
+ */
 
 void __init ps3_mm_vas_create(unsigned long* htab_size)
 {
@@ -169,6 +203,9 @@ fail:
 	panic("ps3_mm_vas_create failed");
 }
 
+/**
+ * ps3_mm_vas_destroy -
+ */
 
 void ps3_mm_vas_destroy(void)
 {
@@ -185,7 +222,18 @@ void ps3_mm_vas_destroy(void)
 	}
 }
 
+/*============================================================================*/
+/* memory hotplug routines                                                    */
+/*============================================================================*/
 
+/**
+ * ps3_mm_region_create - create a memory region in the vas
+ * @r: pointer to a struct mem_region to accept initialized values
+ * @size: requested region size
+ *
+ * This implementation creates the region with the vas large page size.
+ * @size is rounded down to a multiple of the vas large page size.
+ */
 
 static int ps3_mm_region_create(struct mem_region *r, unsigned long size)
 {
@@ -222,6 +270,10 @@ zero_region:
 	return result;
 }
 
+/**
+ * ps3_mm_region_destroy - destroy a memory region
+ * @r: pointer to struct mem_region
+ */
 
 static void ps3_mm_region_destroy(struct mem_region *r)
 {
@@ -236,6 +288,9 @@ static void ps3_mm_region_destroy(struct mem_region *r)
 	}
 }
 
+/**
+ * ps3_mm_add_memory - hot add memory
+ */
 
 static int __init ps3_mm_add_memory(void)
 {
@@ -277,7 +332,15 @@ static int __init ps3_mm_add_memory(void)
 
 device_initcall(ps3_mm_add_memory);
 
+/*============================================================================*/
+/* dma routines                                                               */
+/*============================================================================*/
 
+/**
+ * dma_sb_lpar_to_bus - Translate an lpar address to ioc mapped bus address.
+ * @r: pointer to dma region structure
+ * @lpar_addr: HV lpar address
+ */
 
 static unsigned long dma_sb_lpar_to_bus(struct ps3_dma_region *r,
 	unsigned long lpar_addr)
@@ -301,6 +364,19 @@ static void  __maybe_unused _dma_dump_region(const struct ps3_dma_region *r,
 	DBG("%s:%d: offset     %lxh\n", func, line, r->offset);
 }
 
+  /**
+ * dma_chunk - A chunk of dma pages mapped by the io controller.
+ * @region - The dma region that owns this chunk.
+ * @lpar_addr: Starting lpar address of the area to map.
+ * @bus_addr: Starting ioc bus address of the area to map.
+ * @len: Length in bytes of the area to map.
+ * @link: A struct list_head used with struct ps3_dma_region.chunk_list, the
+ * list of all chuncks owned by the region.
+ *
+ * This implementation uses a very simple dma page manager
+ * based on the dma_chunk structure.  This scheme assumes
+ * that all drivers use very well behaved dma ops.
+ */
 
 struct dma_chunk {
 	struct ps3_dma_region *region;
@@ -335,20 +411,20 @@ static struct dma_chunk * dma_find_chunk(struct ps3_dma_region *r,
 					      1 << r->page_size);
 
 	list_for_each_entry(c, &r->chunk_list.head, link) {
-		
+		/* intersection */
 		if (aligned_bus >= c->bus_addr &&
 		    aligned_bus + aligned_len <= c->bus_addr + c->len)
 			return c;
 
-		
+		/* below */
 		if (aligned_bus + aligned_len <= c->bus_addr)
 			continue;
 
-		
+		/* above */
 		if (aligned_bus >= c->bus_addr + c->len)
 			continue;
 
-		
+		/* we don't handle the multi-chunk case for now */
 		dma_dump_chunk(c);
 		BUG();
 	}
@@ -364,7 +440,7 @@ static struct dma_chunk *dma_find_chunk_lpar(struct ps3_dma_region *r,
 					      1 << r->page_size);
 
 	list_for_each_entry(c, &r->chunk_list.head, link) {
-		
+		/* intersection */
 		if (c->lpar_addr <= aligned_lpar &&
 		    aligned_lpar < c->lpar_addr + c->len) {
 			if (aligned_lpar + aligned_len <= c->lpar_addr + c->len)
@@ -374,11 +450,11 @@ static struct dma_chunk *dma_find_chunk_lpar(struct ps3_dma_region *r,
 				BUG();
 			}
 		}
-		
+		/* below */
 		if (aligned_lpar + aligned_len <= c->lpar_addr) {
 			continue;
 		}
-		
+		/* above */
 		if (c->lpar_addr + c->len <= aligned_lpar) {
 			continue;
 		}
@@ -410,7 +486,7 @@ static int dma_ioc0_free_chunk(struct dma_chunk *c)
 	DBG("%s:start\n", __func__);
 	for (iopage = 0; iopage < (c->len >> r->page_size); iopage++) {
 		offset = (1 << r->page_size) * iopage;
-		
+		/* put INVALID entry */
 		result = lv1_put_iopte(0,
 				       c->bus_addr + offset,
 				       c->lpar_addr + offset,
@@ -431,6 +507,16 @@ static int dma_ioc0_free_chunk(struct dma_chunk *c)
 	return result;
 }
 
+/**
+ * dma_sb_map_pages - Maps dma pages into the io controller bus address space.
+ * @r: Pointer to a struct ps3_dma_region.
+ * @phys_addr: Starting physical address of the area to map.
+ * @len: Length in bytes of the area to map.
+ * c_out: A pointer to receive an allocated struct dma_chunk for this area.
+ *
+ * This is the lowest level dma mapping routine, and is the one that will
+ * make the HV call to add the pages into the io controller address space.
+ */
 
 static int dma_sb_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 	    unsigned long len, struct dma_chunk **c_out, u64 iopte_flag)
@@ -494,12 +580,12 @@ static int dma_ioc0_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 	c->region = r;
 	c->len = len;
 	c->lpar_addr = ps3_mm_phys_to_lpar(phys_addr);
-	
+	/* allocate IO address */
 	if (list_empty(&r->chunk_list.head)) {
-		
+		/* first one */
 		c->bus_addr = r->bus_addr;
 	} else {
-		
+		/* derive from last bus addr*/
 		last  = list_entry(r->chunk_list.head.next,
 				   struct dma_chunk, link);
 		c->bus_addr = last->bus_addr + last->len;
@@ -507,9 +593,9 @@ static int dma_ioc0_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 		    last->bus_addr, last->len);
 	}
 
-	
+	/* FIXME: check whether length exceeds region size */
 
-	
+	/* build ioptes for the area */
 	pages = len >> r->page_size;
 	DBG("%s: pgsize=%#x len=%#lx pages=%#x iopteflag=%#llx\n", __func__,
 	    r->page_size, r->len, pages, iopte_flag);
@@ -530,7 +616,7 @@ static int dma_ioc0_map_pages(struct ps3_dma_region *r, unsigned long phys_addr,
 		    r->ioid);
 	}
 
-	
+	/* be sure that last allocated one is inserted at head */
 	list_add(&c->link, &r->chunk_list.head);
 
 	*c_out = c;
@@ -551,6 +637,13 @@ fail_alloc:
 	return result;
 }
 
+/**
+ * dma_sb_region_create - Create a device dma region.
+ * @r: Pointer to a struct ps3_dma_region.
+ *
+ * This is the lowest level dma region create routine, and is the one that
+ * will make the HV call to create the region.
+ */
 
 static int dma_sb_region_create(struct ps3_dma_region *r)
 {
@@ -614,6 +707,13 @@ static int dma_ioc0_region_create(struct ps3_dma_region *r)
 	return result;
 }
 
+/**
+ * dma_region_free - Free a device dma region.
+ * @r: Pointer to a struct ps3_dma_region.
+ *
+ * This is the lowest level dma region free routine, and is the one that
+ * will make the HV call to free the region.
+ */
 
 static int dma_sb_region_free(struct ps3_dma_region *r)
 {
@@ -669,6 +769,16 @@ static int dma_ioc0_region_free(struct ps3_dma_region *r)
 	return result;
 }
 
+/**
+ * dma_sb_map_area - Map an area of memory into a device dma region.
+ * @r: Pointer to a struct ps3_dma_region.
+ * @virt_addr: Starting virtual address of the area to map.
+ * @len: Length in bytes of the area to map.
+ * @bus_addr: A pointer to return the starting ioc bus address of the area to
+ * map.
+ *
+ * This is the common dma mapping routine.
+ */
 
 static int dma_sb_map_area(struct ps3_dma_region *r, unsigned long virt_addr,
 	   unsigned long len, dma_addr_t *bus_addr,
@@ -747,7 +857,7 @@ static int dma_ioc0_map_area(struct ps3_dma_region *r, unsigned long virt_addr,
 	c = dma_find_chunk_lpar(r, ps3_mm_phys_to_lpar(phys_addr), len);
 
 	if (c) {
-		
+		/* FIXME */
 		BUG();
 		*bus_addr = c->bus_addr + phys_addr - aligned_phys;
 		c->usage_count++;
@@ -774,6 +884,14 @@ static int dma_ioc0_map_area(struct ps3_dma_region *r, unsigned long virt_addr,
 	return result;
 }
 
+/**
+ * dma_sb_unmap_area - Unmap an area of memory from a device dma region.
+ * @r: Pointer to a struct ps3_dma_region.
+ * @bus_addr: The starting ioc bus address of the area to unmap.
+ * @len: Length in bytes of the area to unmap.
+ *
+ * This is the common dma unmap routine.
+ */
 
 static int dma_sb_unmap_area(struct ps3_dma_region *r, dma_addr_t bus_addr,
 	unsigned long len)
@@ -850,6 +968,13 @@ static int dma_ioc0_unmap_area(struct ps3_dma_region *r,
 	return 0;
 }
 
+/**
+ * dma_sb_region_create_linear - Setup a linear dma mapping for a device.
+ * @r: Pointer to a struct ps3_dma_region.
+ *
+ * This routine creates an HV dma region for the device and maps all available
+ * ram into the io controller bus address space.
+ */
 
 static int dma_sb_region_create_linear(struct ps3_dma_region *r)
 {
@@ -857,8 +982,8 @@ static int dma_sb_region_create_linear(struct ps3_dma_region *r)
 	unsigned long virt_addr, len;
 	dma_addr_t tmp;
 
-	if (r->len > 16*1024*1024) {	
-		
+	if (r->len > 16*1024*1024) {	/* FIXME: need proper fix */
+		/* force 16M dma pages for linear mapping */
 		if (r->page_size != PS3_DMA_16M) {
 			pr_info("%s:%d: forcing 16M pages for linear map\n",
 				__func__, __LINE__);
@@ -871,7 +996,7 @@ static int dma_sb_region_create_linear(struct ps3_dma_region *r)
 	BUG_ON(result);
 
 	if (r->offset < map.rm.size) {
-		
+		/* Map (part of) 1st RAM chunk */
 		virt_addr = map.rm.base + r->offset;
 		len = map.rm.size - r->offset;
 		if (len > r->len)
@@ -883,7 +1008,7 @@ static int dma_sb_region_create_linear(struct ps3_dma_region *r)
 	}
 
 	if (r->offset + r->len > map.rm.size) {
-		
+		/* Map (part of) 2nd RAM chunk */
 		virt_addr = map.rm.size;
 		len = r->len;
 		if (r->offset >= map.rm.size)
@@ -899,6 +1024,12 @@ static int dma_sb_region_create_linear(struct ps3_dma_region *r)
 	return result;
 }
 
+/**
+ * dma_sb_region_free_linear - Free a linear dma mapping for a device.
+ * @r: Pointer to a struct ps3_dma_region.
+ *
+ * This routine will unmap all mapped areas and free the HV dma region.
+ */
 
 static int dma_sb_region_free_linear(struct ps3_dma_region *r)
 {
@@ -907,7 +1038,7 @@ static int dma_sb_region_free_linear(struct ps3_dma_region *r)
 	unsigned long len, lpar_addr;
 
 	if (r->offset < map.rm.size) {
-		
+		/* Unmap (part of) 1st RAM chunk */
 		lpar_addr = map.rm.base + r->offset;
 		len = map.rm.size - r->offset;
 		if (len > r->len)
@@ -918,7 +1049,7 @@ static int dma_sb_region_free_linear(struct ps3_dma_region *r)
 	}
 
 	if (r->offset + r->len > map.rm.size) {
-		
+		/* Unmap (part of) 2nd RAM chunk */
 		lpar_addr = map.r1.base;
 		len = r->len;
 		if (r->offset >= map.rm.size)
@@ -936,6 +1067,17 @@ static int dma_sb_region_free_linear(struct ps3_dma_region *r)
 	return result;
 }
 
+/**
+ * dma_sb_map_area_linear - Map an area of memory into a device dma region.
+ * @r: Pointer to a struct ps3_dma_region.
+ * @virt_addr: Starting virtual address of the area to map.
+ * @len: Length in bytes of the area to map.
+ * @bus_addr: A pointer to return the starting ioc bus address of the area to
+ * map.
+ *
+ * This routine just returns the corresponding bus address.  Actual mapping
+ * occurs in dma_region_create_linear().
+ */
 
 static int dma_sb_map_area_linear(struct ps3_dma_region *r,
 	unsigned long virt_addr, unsigned long len, dma_addr_t *bus_addr,
@@ -947,6 +1089,14 @@ static int dma_sb_map_area_linear(struct ps3_dma_region *r,
 	return 0;
 }
 
+/**
+ * dma_unmap_area_linear - Unmap an area of memory from a device dma region.
+ * @r: Pointer to a struct ps3_dma_region.
+ * @bus_addr: The starting ioc bus address of the area to unmap.
+ * @len: Length in bytes of the area to unmap.
+ *
+ * This routine does nothing.  Unmapping occurs in dma_sb_region_free_linear().
+ */
 
 static int dma_sb_unmap_area_linear(struct ps3_dma_region *r,
 	dma_addr_t bus_addr, unsigned long len)
@@ -1039,7 +1189,13 @@ int ps3_dma_unmap(struct ps3_dma_region *r, dma_addr_t bus_addr,
 	return r->region_ops->unmap(r, bus_addr, len);
 }
 
+/*============================================================================*/
+/* system startup routines                                                    */
+/*============================================================================*/
 
+/**
+ * ps3_mm_init - initialize the address space state variables
+ */
 
 void __init ps3_mm_init(void)
 {
@@ -1056,21 +1212,24 @@ void __init ps3_mm_init(void)
 	map.rm.offset = map.rm.base;
 	map.vas_id = map.htab_size = 0;
 
-	
+	/* this implementation assumes map.rm.base is zero */
 
 	BUG_ON(map.rm.base);
 	BUG_ON(!map.rm.size);
 
 
-	
+	/* arrange to do this in ps3_mm_add_memory */
 	ps3_mm_region_create(&map.r1, map.total - map.rm.size);
 
-	
+	/* correct map.total for the real total amount of memory we use */
 	map.total = map.rm.size + map.r1.size;
 
 	DBG(" <- %s:%d\n", __func__, __LINE__);
 }
 
+/**
+ * ps3_mm_shutdown - final cleanup of address space
+ */
 
 void ps3_mm_shutdown(void)
 {

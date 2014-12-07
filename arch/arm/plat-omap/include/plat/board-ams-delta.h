@@ -66,6 +66,6 @@ void ams_delta_latch_write(int base, int ngpio, u16 mask, u16 value);
 			AMS_DELTA_LATCH2_NGPIO, (mask), (value))
 #endif
 
-#endif 
+#endif /* CONFIG_MACH_AMS_DELTA */
 
-#endif 
+#endif /* __ASM_ARCH_OMAP_AMS_DELTA_H */

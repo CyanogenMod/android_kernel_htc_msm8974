@@ -41,7 +41,7 @@
 #define CNF_SD_LED_EN_1 0xfa
 #define CNF_SD_LED_EN_2 0xfe
 
-#define   SDCREN 0x2   
+#define   SDCREN 0x2   /* Enable access to MMC CTL regs. (flag in COMMAND_REG)*/
 
 #define sd_config_write8(base, shift, reg, val) \
 	tmio_iowrite8((val), (base) + ((reg) << (shift)))
@@ -53,11 +53,33 @@
 		tmio_iowrite16((val) >> 16, (base) + ((reg + 2) << (shift))); \
 	} while (0)
 
+/* tmio MMC platform flags */
 #define TMIO_MMC_WRPROTECT_DISABLE	(1 << 0)
+/*
+ * Some controllers can support a 2-byte block size when the bus width
+ * is configured in 4-bit mode.
+ */
 #define TMIO_MMC_BLKSZ_2BYTES		(1 << 1)
+/*
+ * Some controllers can support SDIO IRQ signalling.
+ */
 #define TMIO_MMC_SDIO_IRQ		(1 << 2)
+/*
+ * Some platforms can detect card insertion events with controller powered
+ * down, using a GPIO IRQ, in which case they have to fill in cd_irq, cd_gpio,
+ * and cd_flags fields of struct tmio_mmc_data.
+ */
 #define TMIO_MMC_HAS_COLD_CD		(1 << 3)
+/*
+ * Some controllers require waiting for the SD bus to become
+ * idle before writing to some registers.
+ */
 #define TMIO_MMC_HAS_IDLE_WAIT		(1 << 4)
+/*
+ * A GPIO is used for card hotplug detection. We need an extra flag for this,
+ * because 0 is a valid GPIO number too, and requiring users to specify
+ * cd_gpio < 0 to disable GPIO hotplug would break backwards compatibility.
+ */
 #define TMIO_MMC_USE_GPIO_CD		(1 << 5)
 
 int tmio_core_mmc_enable(void __iomem *cnf, int shift, unsigned long base);
@@ -73,11 +95,14 @@ struct tmio_mmc_dma {
 
 struct tmio_mmc_host;
 
+/*
+ * data for the MMC controller
+ */
 struct tmio_mmc_data {
 	unsigned int			hclk;
 	unsigned long			capabilities;
 	unsigned long			flags;
-	u32				ocr_mask;	
+	u32				ocr_mask;	/* available voltages */
 	struct tmio_mmc_dma		*dma;
 	struct device			*dev;
 	unsigned int			cd_gpio;
@@ -87,6 +112,10 @@ struct tmio_mmc_data {
 	int (*write16_hook)(struct tmio_mmc_host *host, int addr);
 };
 
+/*
+ * This function is deprecated and will be removed soon. Please, convert your
+ * platform to use drivers/mmc/core/cd-gpio.c
+ */
 #include <linux/mmc/host.h>
 static inline void tmio_mmc_cd_wakeup(struct tmio_mmc_data *pdata)
 {
@@ -95,6 +124,9 @@ static inline void tmio_mmc_cd_wakeup(struct tmio_mmc_data *pdata)
 				  msecs_to_jiffies(100));
 }
 
+/*
+ * data for the NAND controller
+ */
 struct tmio_nand_data {
 	struct nand_bbt_descr	*badblock_pattern;
 	struct mtd_partition	*partition;
@@ -112,7 +144,7 @@ struct tmio_fb_data {
 	int			num_modes;
 	struct fb_videomode	*modes;
 
-	
+	/* in mm: size of screen */
 	int			height;
 	int			width;
 };

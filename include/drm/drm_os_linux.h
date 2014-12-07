@@ -1,5 +1,9 @@
+/**
+ * \file drm_os_linux.h
+ * OS abstraction macros.
+ */
 
-#include <linux/interrupt.h>	
+#include <linux/interrupt.h>	/* For task queue support */
 #include <linux/delay.h>
 
 #ifndef readq
@@ -15,29 +19,44 @@ static inline void writeq(u64 val, void __iomem *reg)
 }
 #endif
 
+/** Current process ID */
 #define DRM_CURRENTPID			task_pid_nr(current)
 #define DRM_SUSER(p)			capable(CAP_SYS_ADMIN)
 #define DRM_UDELAY(d)			udelay(d)
+/** Read a byte from a MMIO region */
 #define DRM_READ8(map, offset)		readb(((void __iomem *)(map)->handle) + (offset))
+/** Read a word from a MMIO region */
 #define DRM_READ16(map, offset)         readw(((void __iomem *)(map)->handle) + (offset))
+/** Read a dword from a MMIO region */
 #define DRM_READ32(map, offset)		readl(((void __iomem *)(map)->handle) + (offset))
+/** Write a byte into a MMIO region */
 #define DRM_WRITE8(map, offset, val)	writeb(val, ((void __iomem *)(map)->handle) + (offset))
+/** Write a word into a MMIO region */
 #define DRM_WRITE16(map, offset, val)   writew(val, ((void __iomem *)(map)->handle) + (offset))
+/** Write a dword into a MMIO region */
 #define DRM_WRITE32(map, offset, val)	writel(val, ((void __iomem *)(map)->handle) + (offset))
+/** Read memory barrier */
 
+/** Read a qword from a MMIO region - be careful using these unless you really understand them */
 #define DRM_READ64(map, offset)		readq(((void __iomem *)(map)->handle) + (offset))
+/** Write a qword into a MMIO region */
 #define DRM_WRITE64(map, offset, val)	writeq(val, ((void __iomem *)(map)->handle) + (offset))
 
 #define DRM_READMEMORYBARRIER()		rmb()
+/** Write memory barrier */
 #define DRM_WRITEMEMORYBARRIER()	wmb()
+/** Read/write memory barrier */
 #define DRM_MEMORYBARRIER()		mb()
 
+/** IRQ handler arguments and return type and values */
 #define DRM_IRQ_ARGS		int irq, void *arg
 
+/** AGP types */
 #if __OS_HAS_AGP
 #define DRM_AGP_MEM		struct agp_memory
 #define DRM_AGP_KERN		struct agp_kern_info
 #else
+/* define some dummy types for non AGP supporting kernels */
 struct no_agp_kern {
 	unsigned long aper_base;
 	unsigned long aper_size;
@@ -62,10 +81,13 @@ static __inline__ int mtrr_del(int reg, unsigned long base, unsigned long size)
 
 #endif
 
+/** Other copying of data to kernel space */
 #define DRM_COPY_FROM_USER(arg1, arg2, arg3)		\
 	copy_from_user(arg1, arg2, arg3)
+/** Other copying of data from kernel space */
 #define DRM_COPY_TO_USER(arg1, arg2, arg3)		\
 	copy_to_user(arg1, arg2, arg3)
+/* Macros for copyfrom user, but checking readability only once */
 #define DRM_VERIFYAREA_READ( uaddr, size )		\
 	(access_ok( VERIFY_READ, uaddr, size ) ? 0 : -EFAULT)
 #define DRM_COPY_FROM_USER_UNCHECKED(arg1, arg2, arg3)	\

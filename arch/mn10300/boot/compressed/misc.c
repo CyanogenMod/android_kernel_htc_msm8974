@@ -15,9 +15,10 @@
 #include "misc.h"
 
 #ifndef CONFIG_GDBSTUB_ON_TTYSx
-#if 1	
+/* display 'Uncompressing Linux... ' messages on ttyS0 or ttyS1 */
+#if 1	/* ttyS0 */
 #define CYG_DEV_BASE	0xA6FB0000
-#else   
+#else   /* ttyS1 */
 #define CYG_DEV_BASE	0xA6FC0000
 #endif
 
@@ -26,11 +27,11 @@
 #define SIO_MCR_DTR	0x01
 #define SIO_MCR_RTS	0x02
 #define CYG_DEV_LSR	(*((volatile __u8*)(CYG_DEV_BASE + 0x14)))
-#define SIO_LSR_THRE	0x20		
-#define SIO_LSR_TEMT	0x40		
+#define SIO_LSR_THRE	0x20		/* transmitter holding register empty */
+#define SIO_LSR_TEMT	0x40		/* transmitter register empty */
 #define CYG_DEV_MSR	(*((volatile __u8*)(CYG_DEV_BASE + 0x18)))
-#define SIO_MSR_CTS	0x10		
-#define SIO_MSR_DSR	0x20		
+#define SIO_MSR_CTS	0x10		/* clear to send */
+#define SIO_MSR_DSR	0x20		/* data set ready */
 
 #define LSR_WAIT_FOR(STATE) \
 	do { while (!(CYG_DEV_LSR & SIO_LSR_##STATE)) {} } while (0)
@@ -44,6 +45,9 @@
 	do { CYG_DEV_MCR |= SIO_MCR_##LINE; } while (0)
 #endif
 
+/*
+ * gzip declarations
+ */
 
 #define OF(args)  args
 #define STATIC static
@@ -78,23 +82,26 @@ typedef unsigned char  uch;
 typedef unsigned short ush;
 typedef unsigned long  ulg;
 
-#define WSIZE 0x8000	
+#define WSIZE 0x8000	/* Window size must be at least 32k, and a power of
+			 * two */
 
-static uch *inbuf;	
-static uch window[WSIZE]; 
+static uch *inbuf;	/* input buffer */
+static uch window[WSIZE]; /* sliding window buffer */
 
-static unsigned insize;	
-static unsigned inptr;	
-static unsigned outcnt;	
+static unsigned insize;	/* valid bytes in inbuf */
+static unsigned inptr;	/* index of next byte to be processed in inbuf */
+static unsigned outcnt;	/* bytes in output buffer */
 
-#define ASCII_FLAG   0x01 
-#define CONTINUATION 0x02 
-#define EXTRA_FIELD  0x04 
-#define ORIG_NAME    0x08 
-#define COMMENT      0x10 
-#define ENCRYPTED    0x20 
-#define RESERVED     0xC0 
+/* gzip flag byte */
+#define ASCII_FLAG   0x01 /* bit 0 set: file probably ASCII text */
+#define CONTINUATION 0x02 /* bit 1 set: continuation of multi-part gzip file */
+#define EXTRA_FIELD  0x04 /* bit 2 set: extra field present */
+#define ORIG_NAME    0x08 /* bit 3 set: original file name present */
+#define COMMENT      0x10 /* bit 4 set: file comment present */
+#define ENCRYPTED    0x20 /* bit 5 set: file is encrypted */
+#define RESERVED     0xC0 /* bit 6,7:   reserved */
 
+/* Diagnostic functions */
 #ifdef DEBUG
 #  define Assert(cond, msg) { if (!(cond)) error(msg); }
 #  define Trace(x)	fprintf x
@@ -132,6 +139,9 @@ static inline unsigned char get_byte(void)
 	return ch;
 }
 
+/*
+ * This is set up by the setup-routine at boot-time
+ */
 #define EXT_MEM_K (*(unsigned short *)0x90002)
 #ifndef STANDARD_MEMORY_BIOS_CALL
 #define ALT_MEM_K (*(unsigned long *) 0x901e0)
@@ -152,7 +162,7 @@ static unsigned long free_mem_end_ptr = (unsigned long) &end + 0x90000;
 #define LOW_BUFFER_SIZE		(LOW_BUFFER_END - LOW_BUFFER_START)
 #define HEAP_SIZE		0x3000
 static int high_loaded;
-static uch *high_buffer_start ;
+static uch *high_buffer_start /* = (uch *)(((ulg)&end) + HEAP_SIZE)*/;
 
 static char *vidmem = (char *)0xb8000;
 static int lines, cols;
@@ -224,9 +234,13 @@ static void kputs(const char *s)
 		kputchar(*s);
 
 #endif
-#endif 
+#endif /* CONFIG_DEBUG_DECOMPRESS_KERNEL */
 }
 
+/* ===========================================================================
+ * Fill the input buffer. This is called only when the buffer is empty
+ * and at least one byte is really needed.
+ */
 static int fill_inbuf()
 {
 	if (insize != 0)
@@ -238,9 +252,13 @@ static int fill_inbuf()
 	return inbuf[0];
 }
 
+/* ===========================================================================
+ * Write the output window window[0..outcnt-1] and update crc and bytes_out.
+ * (Used for the decompressed data only.)
+ */
 static void flush_window_low(void)
 {
-    ulg c = crc;         
+    ulg c = crc;         /* temporary variable */
     unsigned n;
     uch *in, *out, ch;
 
@@ -258,7 +276,7 @@ static void flush_window_low(void)
 
 static void flush_window_high(void)
 {
-    ulg c = crc;         
+    ulg c = crc;         /* temporary variable */
     unsigned n;
     uch *in,  ch;
     in = window;
@@ -288,7 +306,7 @@ static void error(const char *x)
 	kputs("\n\n -- System halted");
 
 	while (1)
-		;
+		/* Halt */;
 }
 
 #define STACK_SIZE (4096)
@@ -309,7 +327,7 @@ void setup_normal_output_buffer(void)
 	if ((ALT_MEM_K > EXT_MEM_K ? ALT_MEM_K : EXT_MEM_K) < 1024)
 		error("Less than 2MB of memory.\n");
 #endif
-	output_data = (char *) 0x100000; 
+	output_data = (char *) 0x100000; /* Points to 1M */
 }
 
 struct moveparams {
@@ -334,7 +352,7 @@ void setup_output_buffer_if_we_run_high(struct moveparams *mv)
 	free_mem_end_ptr = (long) high_buffer_start;
 	if (0x100000 + LOW_BUFFER_SIZE > (ulg) high_buffer_start) {
 		high_buffer_start = (uch *)(0x100000 + LOW_BUFFER_SIZE);
-		mv->hcount = 0; 
+		mv->hcount = 0; /* say: we need not to move high_buffer */
 	} else {
 		mv->hcount = -1;
 	}

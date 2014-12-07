@@ -50,7 +50,7 @@ static const unsigned short ppi_pins[] = {
 	P_PPI0_D12, P_PPI0_D13, P_PPI0_D14, P_PPI0_D15, 0
 };
 
-static unsigned char *fb_buffer;          
+static unsigned char *fb_buffer;          /* RGB Buffer */
 static unsigned long *dma_desc_table;
 static int t_conf_done, lq035_open_cnt;
 static DEFINE_SPINLOCK(bfin_lq035_lock);
@@ -69,8 +69,9 @@ static int nocursor = 1;
 module_param(nocursor, int, 0644);
 MODULE_PARM_DESC(nocursor, "cursor enable/disable");
 
-static unsigned long current_brightness;  
+static unsigned long current_brightness;  /* backlight */
 
+/* AD5280 vcomm */
 static unsigned char vcomm_value = 150;
 static struct i2c_client *ad5280_client;
 
@@ -164,15 +165,15 @@ static struct i2c_driver ad5280_driver = {
 #define TIMEN_REV			TIMEN3
 #define bfin_read_TIMER_REV_COUNTER	bfin_read_TIMER3_COUNTER
 
-#define	FREQ_PPI_CLK         (5*1024*1024)  
+#define	FREQ_PPI_CLK         (5*1024*1024)  /* PPI_CLK 5MHz */
 
 #define TIMERS {P_TMR0, P_TMR1, P_TMR2, P_TMR3, P_TMR5, 0}
 
 #else
 
-#define UD      GPIO_PF13	
+#define UD      GPIO_PF13	/* Up / Down */
 #define MOD     GPIO_PF10
-#define LBR     GPIO_PF14	
+#define LBR     GPIO_PF14	/* Left Right */
 
 #define bfin_write_TIMER_LP_CONFIG	bfin_write_TIMER6_CONFIG
 #define bfin_write_TIMER_LP_WIDTH	bfin_write_TIMER6_WIDTH
@@ -206,18 +207,23 @@ static struct i2c_driver ad5280_driver = {
 #define TIMEN_REV			TIMEN5
 #define bfin_read_TIMER_REV_COUNTER	bfin_read_TIMER5_COUNTER
 
-#define	FREQ_PPI_CLK         (6*1000*1000)  
+#define	FREQ_PPI_CLK         (6*1000*1000)  /* PPI_CLK 6MHz */
 #define TIMERS {P_TMR0, P_TMR1, P_TMR5, P_TMR6, P_TMR7, 0}
 
 #endif
 
-#define LCD_X_RES			240 
-#define LCD_Y_RES			320 
+#define LCD_X_RES			240 /* Horizontal Resolution */
+#define LCD_Y_RES			320 /* Vertical Resolution */
 
-#define LCD_BBP				16  
+#define LCD_BBP				16  /* Bit Per Pixel */
 
-#define START_LINES       8   
-#define U_LINES           9   
+/* the LCD and the DMA start counting differently;
+ * since one starts at 0 and the other starts at 1,
+ * we have a difference of 1 between START_LINES
+ * and U_LINES.
+ */
+#define START_LINES       8   /* lines for field flyback or field blanking signal */
+#define U_LINES           9   /* number of undisplayed blanking lines */
 
 #define FRAMES_PER_SEC    (60)
 
@@ -233,7 +239,7 @@ static struct i2c_driver ad5280_driver = {
 #define TOTAL_VIDEO_MEM_SIZE	((LCD_Y_RES+U_LINES)*LCD_X_RES*(LCD_BBP/8))
 #define TOTAL_DMA_DESC_SIZE	(2 * sizeof(u32) * (LCD_Y_RES + U_LINES))
 
-static void start_timers(void) 
+static void start_timers(void) /* CHECK with HW */
 {
 	unsigned long flags;
 
@@ -257,31 +263,31 @@ static void start_timers(void)
 
 static void config_timers(void)
 {
-	
+	/* Stop timers */
 	bfin_write_TIMER_DISABLE(TIMDIS_SP|TIMDIS_SPS|TIMDIS_REV|
 				 TIMDIS_LP|TIMDIS_PS_CLS);
 	SSYNC();
 
-	
+	/* LP, timer 6 */
 	bfin_write_TIMER_LP_CONFIG(TIMER_CONFIG|PULSE_HI);
 	bfin_write_TIMER_LP_WIDTH(1);
 
 	bfin_write_TIMER_LP_PERIOD(DCLKS_PER_LINE);
 	SSYNC();
 
-	
+	/* SPS, timer 1 */
 	bfin_write_TIMER_SPS_CONFIG(TIMER_CONFIG|PULSE_HI);
 	bfin_write_TIMER_SPS_WIDTH(DCLKS_PER_LINE*2);
 	bfin_write_TIMER_SPS_PERIOD((DCLKS_PER_LINE * (LCD_Y_RES+U_LINES)));
 	SSYNC();
 
-	
+	/* SP, timer 0 */
 	bfin_write_TIMER_SP_CONFIG(TIMER_CONFIG|PULSE_HI);
 	bfin_write_TIMER_SP_WIDTH(1);
 	bfin_write_TIMER_SP_PERIOD(DCLKS_PER_LINE);
 	SSYNC();
 
-	
+	/* PS & CLS, timer 7 */
 	bfin_write_TIMER_PS_CLS_CONFIG(TIMER_CONFIG);
 	bfin_write_TIMER_PS_CLS_WIDTH(LCD_X_RES + START_LINES);
 	bfin_write_TIMER_PS_CLS_PERIOD(DCLKS_PER_LINE);
@@ -289,7 +295,7 @@ static void config_timers(void)
 	SSYNC();
 
 #ifdef NO_BL
-	
+	/* REV, timer 5 */
 	bfin_write_TIMER_REV_CONFIG(TIMER_CONFIG|PULSE_HI);
 
 	bfin_write_TIMER_REV_WIDTH(DCLKS_PER_LINE);
@@ -303,7 +309,7 @@ static void config_ppi(void)
 {
 	bfin_write_PPI_DELAY(PPI_DELAY_VALUE);
 	bfin_write_PPI_COUNT(LCD_X_RES-1);
-	
+	/* 0x10 -> PORT_CFG -> 2 or 3 frame syncs */
 	bfin_write_PPI_CONTROL((PPI_CONFIG_VALUE|0x10) & (~POLS));
 }
 
@@ -314,19 +320,19 @@ static int config_dma(void)
 	if (landscape) {
 
 		for (i = 0; i < U_LINES; ++i) {
-			
+			/* blanking lines point to first line of fb_buffer */
 			dma_desc_table[2*i] = (unsigned long)&dma_desc_table[2*i+2];
 			dma_desc_table[2*i+1] = (unsigned long)fb_buffer;
 		}
 
 		for (i = U_LINES; i < U_LINES + LCD_Y_RES; ++i) {
-			
+			/* visible lines */
 			dma_desc_table[2*i] = (unsigned long)&dma_desc_table[2*i+2];
 			dma_desc_table[2*i+1] = (unsigned long)fb_buffer +
 						(LCD_Y_RES+U_LINES-1-i)*2;
 		}
 
-		
+		/* last descriptor points to first */
 		dma_desc_table[2*(LCD_Y_RES+U_LINES-1)] = (unsigned long)&dma_desc_table[0];
 
 		set_dma_x_count(CH_PPI, LCD_X_RES);
@@ -358,6 +364,12 @@ static int __devinit request_ports(void)
 {
 	u16 tmr_req[] = TIMERS;
 
+	/*
+		UD:      PF13
+		MOD:     PF10
+		LBR:     PF14
+		PPI_CLK: PF15
+	*/
 
 	if (peripheral_request_list(ppi_pins, KBUILD_MODNAME)) {
 		pr_err("requesting PPI peripheral failed\n");
@@ -415,7 +427,7 @@ static struct fb_info bfin_lq035_fb;
 static struct fb_var_screeninfo bfin_lq035_fb_defined = {
 	.bits_per_pixel		= LCD_BBP,
 	.activate		= FB_ACTIVATE_TEST,
-	.xres			= LCD_X_RES,	
+	.xres			= LCD_X_RES,	/*default portrait mode RGB*/
 	.yres			= LCD_Y_RES,
 	.xres_virtual		= LCD_X_RES,
 	.yres_virtual		= LCD_Y_RES,
@@ -459,7 +471,7 @@ static int bfin_lq035_fb_open(struct fb_info *info, int user)
 		config_dma();
 		config_ppi();
 
-		
+		/* start dma */
 		enable_dma(CH_PPI);
 		SSYNC();
 		bfin_write_PPI_CONTROL(bfin_read_PPI_CONTROL() | PORT_EN);
@@ -469,7 +481,7 @@ static int bfin_lq035_fb_open(struct fb_info *info, int user)
 			config_timers();
 			start_timers();
 		}
-		
+		/* gpio_set_value(MOD,1); */
 	}
 
 	return 0;
@@ -500,7 +512,7 @@ static int bfin_lq035_fb_check_var(struct fb_var_screeninfo *var,
 				   struct fb_info *info)
 {
 	switch (var->bits_per_pixel) {
-	case 16:
+	case 16:/* DIRECTCOLOUR, 64k */
 		var->red.offset = info->var.red.offset;
 		var->green.offset = info->var.green.offset;
 		var->blue.offset = info->var.blue.offset;
@@ -529,6 +541,9 @@ static int bfin_lq035_fb_check_var(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
+	/*
+	 *  Memory limit
+	 */
 
 	if ((info->fix.line_length * var->yres_virtual) > info->fix.smem_len) {
 		pr_debug("%s: Memory Limit requested yres_virtual = %u\n",
@@ -539,6 +554,10 @@ static int bfin_lq035_fb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/* fb_rotate
+ * Rotate the display of this angle. This doesn't seems to be used by the core,
+ * but as our hardware supports it, so why not implementing it...
+ */
 static void bfin_lq035_fb_rotate(struct fb_info *fbi, int angle)
 {
 	pr_debug("%s: %p %d", __func__, fbi, angle);
@@ -562,7 +581,7 @@ static int bfin_lq035_fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	if (nocursor)
 		return 0;
 	else
-		return -EINVAL;	
+		return -EINVAL;	/* just to force soft_cursor() call */
 }
 
 static int bfin_lq035_fb_setcolreg(u_int regno, u_int red, u_int green,
@@ -573,13 +592,13 @@ static int bfin_lq035_fb_setcolreg(u_int regno, u_int red, u_int green,
 		return -EINVAL;
 
 	if (info->var.grayscale)
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 
 		u32 value;
-		
+		/* Place color in the pseudopalette */
 		if (regno > 16)
 			return -EINVAL;
 

@@ -124,7 +124,7 @@ static void i9xx_write_infoframe(struct drm_encoder *encoder,
 	unsigned i, len = DIP_HEADER_SIZE + frame->len;
 
 
-	
+	/* XXX first guess at handling video port, is this corrent? */
 	if (intel_hdmi->sdvox_reg == SDVOB)
 		port = VIDEO_DIP_PORT_B;
 	else if (intel_hdmi->sdvox_reg == SDVOC)
@@ -164,7 +164,7 @@ static void ironlake_write_infoframe(struct drm_encoder *encoder,
 
 	flags = intel_infoframe_index(frame);
 
-	val &= ~(VIDEO_DIP_SELECT_MASK | 0xf); 
+	val &= ~(VIDEO_DIP_SELECT_MASK | 0xf); /* clear DIP data offset */
 
 	I915_WRITE(reg, VIDEO_DIP_ENABLE | val | flags);
 
@@ -239,7 +239,7 @@ static void intel_hdmi_mode_set(struct drm_encoder *encoder,
 	else
 		sdvox |= COLOR_FORMAT_8bpc;
 
-	
+	/* Required on CPT */
 	if (intel_hdmi->has_hdmi_sink && HAS_PCH_CPT(dev))
 		sdvox |= HDMI_MODE_SELECT;
 
@@ -276,6 +276,9 @@ static void intel_hdmi_dpms(struct drm_encoder *encoder, int mode)
 
 	temp = I915_READ(intel_hdmi->sdvox_reg);
 
+	/* HW workaround, need to toggle enable bit off and on for 12bpc, but
+	 * we do this anyway which shows more stable in testing.
+	 */
 	if (HAS_PCH_SPLIT(dev)) {
 		I915_WRITE(intel_hdmi->sdvox_reg, temp & ~SDVO_ENABLE);
 		POSTING_READ(intel_hdmi->sdvox_reg);
@@ -290,6 +293,9 @@ static void intel_hdmi_dpms(struct drm_encoder *encoder, int mode)
 	I915_WRITE(intel_hdmi->sdvox_reg, temp);
 	POSTING_READ(intel_hdmi->sdvox_reg);
 
+	/* HW workaround, need to write this twice for issue that may result
+	 * in first write getting masked.
+	 */
 	if (HAS_PCH_SPLIT(dev)) {
 		I915_WRITE(intel_hdmi->sdvox_reg, temp);
 		POSTING_READ(intel_hdmi->sdvox_reg);
@@ -356,6 +362,9 @@ static int intel_hdmi_get_modes(struct drm_connector *connector)
 	struct intel_hdmi *intel_hdmi = intel_attached_hdmi(connector);
 	struct drm_i915_private *dev_priv = connector->dev->dev_private;
 
+	/* We should parse the EDID data and find out if it's an HDMI sink so
+	 * we can send audio to it.
+	 */
 
 	return intel_ddc_get_modes(connector,
 				   &dev_priv->gmbus[intel_hdmi->ddc_bus].adapter);
@@ -512,7 +521,7 @@ void intel_hdmi_init(struct drm_device *dev, int sdvox_reg)
 	connector->doublescan_allowed = 0;
 	intel_encoder->crtc_mask = (1 << 0) | (1 << 1) | (1 << 2);
 
-	
+	/* Set up the DDC bus. */
 	if (sdvox_reg == SDVOB) {
 		intel_encoder->clone_mask = (1 << INTEL_HDMIB_CLONE_BIT);
 		intel_hdmi->ddc_bus = GMBUS_PORT_DPB;

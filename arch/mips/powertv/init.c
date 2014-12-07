@@ -36,6 +36,10 @@
 static int *_prom_envp;
 unsigned long _prom_memsize;
 
+/*
+ * YAMON (32-bit PROM) pass arguments and environment as 32-bit pointer.
+ * This macro take care of sign extension, if running in 64-bit mode.
+ */
 #define prom_envp(index) ((char *)(long)_prom_envp[(index)])
 
 char *prom_getenv(char *envname)
@@ -43,6 +47,12 @@ char *prom_getenv(char *envname)
 	char *result = NULL;
 
 	if (_prom_envp != NULL) {
+		/*
+		 * Return a pointer to the given environment variable.
+		 * In 64-bit mode: we're using 64-bit pointers, but all pointers
+		 * in the PROM structures are only 32-bit, so we need some
+		 * workarounds, if we are running in 64-bit mode.
+		 */
 		int i, index = 0;
 
 		i = strlen(envname);
@@ -59,6 +69,10 @@ char *prom_getenv(char *envname)
 	return result;
 }
 
+/* TODO: Verify on linux-mips mailing list that the following two  */
+/* functions are correct                                           */
+/* TODO: Copy NMI and EJTAG exception vectors to memory from the   */
+/* BootROM exception vectors. Flush their cache entries. test it.  */
 
 static void __init mips_nmi_setup(void)
 {

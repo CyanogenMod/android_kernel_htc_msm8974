@@ -43,7 +43,7 @@ int xterm_fd(int socket, int *pid_out)
 		return -ENOMEM;
 	}
 
-	
+	/* This is a locked semaphore... */
 	*data = ((struct xterm_wait) { .fd 		= socket,
 				       .pid 		= -1,
 				       .new_fd	 	= -1 });
@@ -59,6 +59,10 @@ int xterm_fd(int socket, int *pid_out)
 		goto out;
 	}
 
+	/* ... so here we wait for an xterm interrupt.
+	 *
+	 * XXX Note, if the xterm doesn't work for some reason (eg. DISPLAY
+	 * isn't set) this will hang... */
 	wait_for_completion(&data->ready);
 
 	free_irq(XTERM_IRQ, data);

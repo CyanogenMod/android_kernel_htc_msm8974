@@ -7,4 +7,4 @@
 #  define __SWAB_64_THRU_32__
 #endif
 
-#endif 
+#endif /* _H8300_SWAB_H */

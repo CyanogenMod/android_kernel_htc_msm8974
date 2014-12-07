@@ -20,6 +20,7 @@
 
 static int ptrace_scope = 1;
 
+/* describe a ptrace relationship for potential exception */
 struct ptrace_relation {
 	struct task_struct *tracer;
 	struct task_struct *tracee;
@@ -29,6 +30,16 @@ struct ptrace_relation {
 static LIST_HEAD(ptracer_relations);
 static DEFINE_SPINLOCK(ptracer_relations_lock);
 
+/**
+ * yama_ptracer_add - add/replace an exception for this tracer/tracee pair
+ * @tracer: the task_struct of the process doing the ptrace
+ * @tracee: the task_struct of the process to be ptraced
+ *
+ * Each tracee can have, at most, one tracer registered. Each time this
+ * is called, the prior registered tracer will be replaced for the tracee.
+ *
+ * Returns 0 if relationship was added, -ve on error.
+ */
 static int yama_ptracer_add(struct task_struct *tracer,
 			    struct task_struct *tracee)
 {
@@ -60,6 +71,11 @@ static int yama_ptracer_add(struct task_struct *tracer,
 	return rc;
 }
 
+/**
+ * yama_ptracer_del - remove exceptions related to the given tasks
+ * @tracer: remove any relation where tracer task matches
+ * @tracee: remove any relation where tracee task matches
+ */
 static void yama_ptracer_del(struct task_struct *tracer,
 			     struct task_struct *tracee)
 {
@@ -75,11 +91,26 @@ static void yama_ptracer_del(struct task_struct *tracer,
 	spin_unlock_bh(&ptracer_relations_lock);
 }
 
+/**
+ * yama_task_free - check for task_pid to remove from exception list
+ * @task: task being removed
+ */
 static void yama_task_free(struct task_struct *task)
 {
 	yama_ptracer_del(task, task);
 }
 
+/**
+ * yama_task_prctl - check for Yama-specific prctl operations
+ * @option: operation
+ * @arg2: argument
+ * @arg3: argument
+ * @arg4: argument
+ * @arg5: argument
+ *
+ * Return 0 on success, -ve on error.  -ENOSYS is returned when Yama
+ * does not handle the given option.
+ */
 static int yama_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 			   unsigned long arg4, unsigned long arg5)
 {
@@ -92,6 +123,12 @@ static int yama_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 
 	switch (option) {
 	case PR_SET_PTRACER:
+		/* Since a thread can call prctl(), find the group leader
+		 * before calling _add() or _del() on it, since we want
+		 * process-level granularity of control. The tracer group
+		 * leader checking is handled later when walking the ancestry
+		 * at the time of PTRACE_ATTACH check.
+		 */
 		rcu_read_lock();
 		if (!thread_group_leader(myself))
 			myself = rcu_dereference(myself->group_leader);
@@ -127,6 +164,13 @@ static int yama_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 	return rc;
 }
 
+/**
+ * task_is_descendant - walk up a process family tree looking for a match
+ * @parent: the process to compare against while walking up from child
+ * @child: the process to start from while looking upwards for parent
+ *
+ * Returns 1 if child is a descendant of parent, 0 if not.
+ */
 static int task_is_descendant(struct task_struct *parent,
 			      struct task_struct *child)
 {
@@ -153,6 +197,13 @@ static int task_is_descendant(struct task_struct *parent,
 	return rc;
 }
 
+/**
+ * ptracer_exception_found - tracer registered as exception for this tracee
+ * @tracer: the task_struct of the process attempting ptrace
+ * @tracee: the task_struct of the process to be ptraced
+ *
+ * Returns 1 if tracer has is ptracer exception ancestor for tracee.
+ */
 static int ptracer_exception_found(struct task_struct *tracer,
 				   struct task_struct *tracee)
 {
@@ -180,16 +231,26 @@ static int ptracer_exception_found(struct task_struct *tracer,
 	return rc;
 }
 
+/**
+ * yama_ptrace_access_check - validate PTRACE_ATTACH calls
+ * @child: task that current task is attempting to ptrace
+ * @mode: ptrace attach mode
+ *
+ * Returns 0 if following the ptrace is allowed, -ve on error.
+ */
 static int yama_ptrace_access_check(struct task_struct *child,
 				    unsigned int mode)
 {
 	int rc;
 
+	/* If standard caps disallows it, so does Yama.  We should
+	 * only tighten restrictions further.
+	 */
 	rc = cap_ptrace_access_check(child, mode);
 	if (rc)
 		return rc;
 
-	
+	/* require ptrace target be a child of ptracer on attach */
 	if (mode == PTRACE_MODE_ATTACH &&
 	    ptrace_scope &&
 	    !task_is_descendant(current, child) &&
@@ -239,7 +300,7 @@ static struct ctl_table yama_sysctl_table[] = {
 	},
 	{ }
 };
-#endif 
+#endif /* CONFIG_SYSCTL */
 
 static __init int yama_init(void)
 {

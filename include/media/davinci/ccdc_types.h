@@ -29,6 +29,8 @@ enum ccdc_frmfmt {
 	CCDC_FRMFMT_INTERLACED
 };
 
+/* PIXEL ORDER IN MEMORY from LSB to MSB */
+/* only applicable for 8-bit input mode  */
 enum ccdc_pixorder {
 	CCDC_PIXORDER_YCBYCR,
 	CCDC_PIXORDER_CBYCRY,

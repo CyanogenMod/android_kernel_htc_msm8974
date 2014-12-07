@@ -13,6 +13,12 @@
  *
  */
 
+ /*
+ *
+ *  The Driver with I/O communications via the I2C Interface for ON2 of AP BU.
+ *  And it is only working on the nuvoTon WPCE775x Embedded Controller.
+ *
+ */
 
 #ifndef __QCI_BATTERY_H__
 #define __QCI_BATTERY_H__
@@ -67,10 +73,12 @@
 #define EC_EVENT_AC                     0x10
 #define EC_EVENT_TIMER                  0x40
 
+/* smbus access */
 #define SMBUS_READ_BYTE_PRTCL		0x07
 #define SMBUS_READ_WORD_PRTCL		0x09
 #define SMBUS_READ_BLOCK_PRTCL		0x0B
 
+/* smbus status code */
 #define SMBUS_OK			0x00
 #define SMBUS_DONE			0x80
 #define SMBUS_ALARM			0x40
@@ -81,6 +89,7 @@
 #define SMBUS_TIME_OUT			0x18
 #define SMBUS_BUSY			0x1A
 
+/* ec ram mapping */
 #define ECRAM_SMB_PRTCL			0
 #define ECRAM_SMB_STS			1
 #define ECRAM_SMB_ADDR			2
@@ -93,6 +102,7 @@
 #define ECRAM_SMB_ALARM_DATA0		38
 #define ECRAM_SMB_ALARM_DATA1		39
 
+/* smart battery commands */
 #define BATTERY_SLAVE_ADDRESS		0x16
 #define BATTERY_FULL_CAPACITY		0x10
 #define BATTERY_AVERAGE_TIME_TO_EMPTY	0x12
@@ -104,6 +114,7 @@
 #define BATTERY_MANUFACTURE_NAME        0x20
 #define BATTERY_DEVICE_NAME		0x21
 
+/* alarm bit */
 #define ALARM_REMAIN_CAPACITY           0x02
 #define ALARM_OVER_TEMP                 0x10
 #define ALARM_OVER_CHARGE               0x80

@@ -27,8 +27,10 @@
 
 static int release_buf;
 
+/* size is based on 4k page size */
 static const int g_max_out_size = 0x7ff000;
 
+/*************** queue helper ****************/
 static inline void msm_gemini_q_init(char const *name, struct msm_gemini_q *q_p)
 {
 	GMN_DBG("%s:%d] %s\n", __func__, __LINE__, name);
@@ -178,6 +180,7 @@ static inline void msm_gemini_q_cleanup(struct msm_gemini_q *q_p)
 	q_p->unblck = 0;
 }
 
+/*************** event queue ****************/
 
 int msm_gemini_framedone_irq(struct msm_gemini_device *pgmn_dev,
 	struct msm_gemini_core_buf *buf_in)
@@ -268,6 +271,7 @@ void msm_gemini_err_irq(struct msm_gemini_device *pgmn_dev,
 	return;
 }
 
+/*************** output queue ****************/
 
 int msm_gemini_get_out_buffer(struct msm_gemini_device *pgmn_dev,
 	struct msm_gemini_hw_buf *p_outbuf)
@@ -306,7 +310,7 @@ int msm_gemini_outmode_single_we_pingpong_irq(
 		return -EFAULT;
 	}
 	if (frame_done) {
-		
+		/* send the buffer back */
 		pgmn_dev->out_buf.vbuf.framedone_len = buf_in->framedone_len;
 		pgmn_dev->out_buf.vbuf.type = MSM_GEMINI_EVT_FRAMEDONE;
 		rc = msm_gemini_q_in_buf(&pgmn_dev->output_rtn_q,
@@ -317,10 +321,14 @@ int msm_gemini_outmode_single_we_pingpong_irq(
 			return -EFAULT;
 		}
 		rc =  msm_gemini_q_wakeup(&pgmn_dev->output_rtn_q);
+		/*
+		 * reset the output buffer since the ownership is
+		 * transferred to the rtn queue
+		 */
 		if (!rc)
 			pgmn_dev->out_buf_set = 0;
 	} else {
-		
+		/* configure ping/pong */
 		rc = msm_gemini_get_out_buffer(pgmn_dev, &out_buf);
 		if (rc)
 			msm_gemini_core_we_buf_reset(&out_buf);
@@ -481,6 +489,7 @@ int msm_gemini_output_buf_enqueue(struct msm_gemini_device *pgmn_dev,
 	return 0;
 }
 
+/*************** input queue ****************/
 
 int msm_gemini_fe_pingpong_irq(struct msm_gemini_device *pgmn_dev,
 	struct msm_gemini_core_buf *buf_in)
@@ -613,7 +622,7 @@ int msm_gemini_input_buf_enqueue(struct msm_gemini_device *pgmn_dev,
 	buf_p->vbuf           = buf_cmd;
 	buf_p->vbuf.type      = MSM_GEMINI_EVT_RESET;
 
-	
+	/* Set bus vectors */
 	p_bus_scale_data = (struct msm_bus_scale_pdata *)
 		pgmn_dev->pdev->dev.platform_data;
 	if (pgmn_dev->bus_perf_client &&
@@ -682,7 +691,7 @@ int __msm_gemini_open(struct msm_gemini_device *pgmn_dev)
 
 	mutex_lock(&pgmn_dev->lock);
 	if (pgmn_dev->open_count) {
-		
+		/* only open once */
 		GMN_PR_ERR("%s:%d] busy\n", __func__, __LINE__);
 		mutex_unlock(&pgmn_dev->lock);
 		return -EBUSY;
@@ -876,11 +885,15 @@ static int msm_gemini_start(struct msm_gemini_device *pgmn_dev,
 			if (buf_out_free[i]) {
 				msm_gemini_core_we_buf_update(buf_out_free[i]);
 			} else if (i == 1) {
-				
+				/* set the pong to same address as ping */
 				buf_out_free[0]->y_len >>= 1;
 				buf_out_free[0]->y_buffer_addr +=
 					buf_out_free[0]->y_len;
 				msm_gemini_core_we_buf_update(buf_out_free[0]);
+				/*
+				 * since ping and pong are same buf
+				 * release only once
+				 */
 				release_buf = 0;
 			} else {
 				GMN_DBG("%s:%d] no output buffer\n",
@@ -892,13 +905,17 @@ static int msm_gemini_start(struct msm_gemini_device *pgmn_dev,
 			kfree(buf_out_free[i]);
 	} else {
 		struct msm_gemini_core_buf out_buf;
+		/*
+		 * Since the same buffer is fragmented, p2v need not be
+		 * called for all the buffers
+		 */
 		release_buf = 0;
 		if (!pgmn_dev->out_buf_set) {
 			GMN_PR_ERR("%s:%d] output buffer not set",
 				__func__, __LINE__);
 			return -EFAULT;
 		}
-		
+		/* configure ping */
 		rc = msm_gemini_get_out_buffer(pgmn_dev, &out_buf);
 		if (rc) {
 			GMN_PR_ERR("%s:%d] no output buffer for ping",
@@ -906,12 +923,12 @@ static int msm_gemini_start(struct msm_gemini_device *pgmn_dev,
 			return rc;
 		}
 		msm_gemini_core_we_buf_update(&out_buf);
-		
+		/* configure pong */
 		rc = msm_gemini_get_out_buffer(pgmn_dev, &out_buf);
 		if (rc) {
 			GMN_DBG("%s:%d] no output buffer for pong",
 				__func__, __LINE__);
-			
+			/* fall through to configure same buffer */
 		}
 		msm_gemini_core_we_buf_update(&out_buf);
 		msm_gemini_io_dump(0x150);

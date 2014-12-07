@@ -11,6 +11,11 @@
 #include "../trigger_consumer.h"
 #include "adis16400.h"
 
+/**
+ * adis16400_spi_read_burst() - read all data registers
+ * @dev: device associated with child of actual device (iio_dev or iio_trig)
+ * @rx: somewhere to pass back the value read (min size is 24 bytes)
+ **/
 static int adis16400_spi_read_burst(struct device *dev, u8 *rx)
 {
 	struct spi_message msg;
@@ -103,6 +108,9 @@ static int adis16350_spi_read_all(struct device *dev, u8 *rx)
 	return ret;
 }
 
+/* Whilst this makes a lot of calls to iio_sw_ring functions - it is to device
+ * specific to be rolled into the core.
+ */
 static irqreturn_t adis16400_trigger_handler(int irq, void *p)
 {
 	struct iio_poll_func *pf = p;
@@ -112,7 +120,7 @@ static irqreturn_t adis16400_trigger_handler(int irq, void *p)
 	int i = 0, j, ret = 0;
 	s16 *data;
 	size_t datasize = ring->access->get_bytes_per_datum(ring);
-	
+	/* Asumption that long is enough for maximum channels */
 	unsigned long mask = *indio_dev->active_scan_mask;
 	int scan_count = bitmap_weight(indio_dev->active_scan_mask,
 				       indio_dev->masklength);
@@ -141,7 +149,7 @@ static irqreturn_t adis16400_trigger_handler(int irq, void *p)
 			}
 		}
 	}
-	
+	/* Guaranteed to be aligned with 8 byte boundary */
 	if (ring->scan_timestamp)
 		*((s64 *)(data + ((i + 3)/4)*4)) = pf->timestamp;
 	ring->access->store_to(indio_dev->buffer, (u8 *) data, pf->timestamp);

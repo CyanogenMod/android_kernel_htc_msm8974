@@ -60,12 +60,14 @@ Version History.
 #include <linux/lsm330.h>
 #include <linux/wakelock.h>
 #include <linux/of_gpio.h>
+/*#include "lsm330.h"*/
 
 #define CALIBRATION_DATA_PATH "/calibration_data"
 #define G_SENSOR_FLASH_DATA "gs_flash"
 
 #define GYRO_FLASH_DATA "gyro_flash"
 
+//#define DEBUG
 #define DIF(x...) {\
                 if (DEBUG_FLAG)\
                         printk(KERN_DEBUG "[LSM330] [ACC]" x); }
@@ -75,36 +77,40 @@ Version History.
 #define LOAD_STATE_PROGRAM2	0
 #define LOAD_SP2_PARAMETERS	0
 
-#define G_MAX			23920640	
-#define I2C_RETRY_DELAY		5		
-#define I2C_RETRIES		5		
-#define I2C_AUTO_INCREMENT	0x80		
+#define G_MAX			23920640	/* ug */
+#define I2C_RETRY_DELAY		5		/* Waiting for signals [ms] */
+#define I2C_RETRIES		5		/* Number of retries */
+#define I2C_AUTO_INCREMENT	0x80		/* Autoincrement i2c address */
 #define MS_TO_NS(x)		(x*1000000L)
 
-#define SENSITIVITY_2G		60		
-#define SENSITIVITY_4G		120		
-#define SENSITIVITY_6G		180		
-#define SENSITIVITY_8G		240		
-#define SENSITIVITY_16G		730		
+#define SENSITIVITY_2G		60		/* ug/LSB	*/
+#define SENSITIVITY_4G		120		/* ug/LSB	*/
+#define SENSITIVITY_6G		180		/* ug/LSB	*/
+#define SENSITIVITY_8G		240		/* ug/LSB	*/
+#define SENSITIVITY_16G		730		/* ug/LSB	*/
 
 #define	LSM330_ACC_FS_MASK	(0x38)
 
+/* Output Data Rates ODR */
 #define LSM330_ODR_MASK		(0XF0)
-#define LSM330_PM_OFF		(0x00)		
-#define LSM330_ODR3_125		(0x10)		
-#define LSM330_ODR6_25		(0x20)		
-#define LSM330_ODR12_5		(0x30)		
-#define LSM330_ODR25		(0x40)		
-#define LSM330_ODR50		(0x50)		
-#define LSM330_ODR100		(0x60)		
-#define LSM330_ODR400		(0x70)		
-#define LSM330_ODR800		(0x80)		
-#define LSM330_ODR1600		(0x90)		
+#define LSM330_PM_OFF		(0x00)		/* OFF */
+#define LSM330_ODR3_125		(0x10)		/*    3.125 Hz */
+#define LSM330_ODR6_25		(0x20)		/*    6.25  Hz */
+#define LSM330_ODR12_5		(0x30)		/*   12.5   Hz */
+#define LSM330_ODR25		(0x40)		/*   25     Hz */
+#define LSM330_ODR50		(0x50)		/*   50     Hz */
+#define LSM330_ODR100		(0x60)		/*  100     Hz */
+#define LSM330_ODR400		(0x70)		/*  400     Hz */
+#define LSM330_ODR800		(0x80)		/*  800     Hz */
+#define LSM330_ODR1600		(0x90)		/* 1600     Hz */
 
+/* Registers configuration Mask and settings */
+/* CTRLREGx */
 #define LSM330_INTEN_MASK		(0x01)
 #define LSM330_INTEN_OFF		(0x00)
 #define LSM330_INTEN_ON			(0x01)
 
+/* CTRLREG1 */
 #define LSM330_HIST1_MASK		(0xE0)
 #define LSM330_SM1INT_PIN_MASK		(0x08)
 #define LSM330_SM1INT_PININT2		(0x08)
@@ -112,7 +118,9 @@ Version History.
 #define LSM330_SM1_EN_MASK		(0x01)
 #define LSM330_SM1_EN_ON		(0x01)
 #define LSM330_SM1_EN_OFF		(0x00)
+/* */
 
+/* CTRLREG2 */
 #define LSM330_HIST2_MASK		(0xE0)
 #define LSM330_SM2INT_PIN_MASK		(0x08)
 #define LSM330_SM2INT_PININT2		(0x08)
@@ -120,7 +128,9 @@ Version History.
 #define LSM330_SM2_EN_MASK		(0x01)
 #define LSM330_SM2_EN_ON		(0x01)
 #define LSM330_SM2_EN_OFF		(0x00)
+/* */
 
+/* CTRLREG3 */
 #define LSM330_INT_ACT_MASK		(0x01 << 6)
 #define LSM330_INT_ACT_H		(0x01 << 6)
 #define LSM330_INT_ACT_L		(0x00)
@@ -137,88 +147,95 @@ Version History.
 #endif
 #define LSM330_INT1_EN_OFF		(0x00)
 
+/* */
 
+/* CTRLREG4 */
 #define LSM330_BDU_EN			(0x08)
 #define LSM330_ALL_AXES			(0x07)
+/* */
 
+/* STATUS REG BITS */
 #define LSM330_STAT_INTSM1_BIT		(0x01 << 3)
 #define LSM330_STAT_INTSM2_BIT		(0x01 << 2)
 
 #define OUT_AXISDATA_REG		LSM330_OUTX_L
-#define WHOAMI_LSM330_ACC		(0x40)	
+#define WHOAMI_LSM330_ACC		(0x40)	/* Expected content for WAI */
 
-#define LSM330_WHO_AM_I			(0x0F)	
+/*	CONTROL REGISTERS	*/
+#define LSM330_WHO_AM_I			(0x0F)	/* WhoAmI register Address */
 
-#define LSM330_OUTX_L			(0x28)	
-#define LSM330_OUTX_H			(0x29)	
-#define LSM330_OUTY_L			(0x2A)	
-#define LSM330_OUTY_H			(0x2B)	
-#define LSM330_OUTZ_L			(0x2C)	
-#define LSM330_OUTZ_H			(0x2D)	
-#define LSM330_LC_L			(0x16)	
-#define LSM330_LC_H			(0x17)	
+#define LSM330_OUTX_L			(0x28)	/* Output X LSByte */
+#define LSM330_OUTX_H			(0x29)	/* Output X MSByte */
+#define LSM330_OUTY_L			(0x2A)	/* Output Y LSByte */
+#define LSM330_OUTY_H			(0x2B)	/* Output Y MSByte */
+#define LSM330_OUTZ_L			(0x2C)	/* Output Z LSByte */
+#define LSM330_OUTZ_H			(0x2D)	/* Output Z MSByte */
+#define LSM330_LC_L			(0x16)	/* LSByte Long Counter Status */
+#define LSM330_LC_H			(0x17)	/* MSByte Long Counter Status */
 
-#define LSM330_INTERR_STAT		(0x18)	
+#define LSM330_INTERR_STAT		(0x18)	/* Interrupt Status */
 
-#define LSM330_STATUS_REG		(0x27)	
+#define LSM330_STATUS_REG		(0x27)	/* Status */
 
-#define LSM330_CTRL_REG1		(0x21)	
-#define LSM330_CTRL_REG2		(0x22)	
-#define LSM330_CTRL_REG3		(0x23)	
-#define LSM330_CTRL_REG4		(0x20)	
-#define LSM330_CTRL_REG5		(0x24)	
-#define LSM330_CTRL_REG6		(0x25)	
+#define LSM330_CTRL_REG1		(0x21)	/* control reg 1 */
+#define LSM330_CTRL_REG2		(0x22)	/* control reg 2 */
+#define LSM330_CTRL_REG3		(0x23)	/* control reg 3 */
+#define LSM330_CTRL_REG4		(0x20)	/* control reg 4 */
+#define LSM330_CTRL_REG5		(0x24)	/* control reg 5 */
+#define LSM330_CTRL_REG6		(0x25)	/* control reg 6 */
 
-#define LSM330_OFF_X			(0x10)	
-#define LSM330_OFF_Y			(0x11)	
-#define LSM330_OFF_Z			(0x12)	
+#define LSM330_OFF_X			(0x10)	/* Offset X Corr */
+#define LSM330_OFF_Y			(0x11)	/* Offset Y Corr */
+#define LSM330_OFF_Z			(0x12)	/* Offset Z Corr */
 
-#define LSM330_CS_X			(0x13)	
-#define LSM330_CS_Y			(0x14)	
-#define LSM330_CS_Z			(0x15)	
+#define LSM330_CS_X			(0x13)	/* Const Shift X */
+#define LSM330_CS_Y			(0x14)	/* Const Shift Y */
+#define LSM330_CS_Z			(0x15)	/* Const Shift Z */
 
-#define LSM330_VFC_1			(0x1B)	
-#define LSM330_VFC_2			(0x1C)	
-#define LSM330_VFC_3			(0x1D)	
-#define LSM330_VFC_4			(0x1E)	
-
-
-	
-#define LSM330_STATEPR1		(0X40)	
-
-#define LSM330_TIM4_1		(0X50)	
-#define LSM330_TIM3_1		(0X51)	
-#define LSM330_TIM2_1		(0X52)	
-#define LSM330_TIM1_1		(0X54)	
-
-#define LSM330_THRS2_1		(0X56)	
-#define LSM330_THRS1_1		(0X57)	
-#define LSM330_SA_1		(0X59)	
-#define LSM330_MA_1		(0X5A)	
-#define LSM330_SETT_1		(0X5B)	
-#define LSM330_PPRP_1		(0X5C)	
-#define LSM330_TC_1		(0X5D)	
-#define LSM330_OUTS_1		(0X5F)	
-
-	
-#define LSM330_STATEPR2	(0X60)	
-
-#define LSM330_TIM4_2		(0X70)	
-#define LSM330_TIM3_2		(0X71)	
-#define LSM330_TIM2_2		(0X72)	
-#define LSM330_TIM1_2		(0X74)	
-
-#define LSM330_THRS2_2		(0X76)	
-#define LSM330_THRS1_2		(0X77)	
-#define LSM330_DES_2		(0X78)	
-#define LSM330_SA_2		(0X79)	
-#define LSM330_MA_2		(0X7A)	
-#define LSM330_SETT_2		(0X7B)	
-#define LSM330_PPRP_2		(0X7C)	
-#define LSM330_TC_2		(0X7D)	
-#define LSM330_OUTS_2		(0X7F)	
+#define LSM330_VFC_1			(0x1B)	/* Vect Filter Coeff 1 */
+#define LSM330_VFC_2			(0x1C)	/* Vect Filter Coeff 2 */
+#define LSM330_VFC_3			(0x1D)	/* Vect Filter Coeff 3 */
+#define LSM330_VFC_4			(0x1E)	/* Vect Filter Coeff 4 */
 
 
+	/* state program 1 */
+#define LSM330_STATEPR1		(0X40)	/*	State Program 1 16 bytes */
+
+#define LSM330_TIM4_1		(0X50)	/*	SPr1 Timer4		*/
+#define LSM330_TIM3_1		(0X51)	/*	SPr1 Timer3		*/
+#define LSM330_TIM2_1		(0X52)	/*	SPr1 Timer2	2bytes	*/
+#define LSM330_TIM1_1		(0X54)	/*	SPr1 Timer1	2bytes	*/
+
+#define LSM330_THRS2_1		(0X56)	/*	SPr1 Threshold1		*/
+#define LSM330_THRS1_1		(0X57)	/*	SPr1 Threshold2		*/
+#define LSM330_SA_1		(0X59)	/*	SPr1 Swap Axis Sign Msk	*/
+#define LSM330_MA_1		(0X5A)	/*	SPr1 Axis Sign Msk	*/
+#define LSM330_SETT_1		(0X5B)	/*	SPr1 			*/
+#define LSM330_PPRP_1		(0X5C)	/*	SPr1 ProgPointer ResetPointer */
+#define LSM330_TC_1		(0X5D)	/*	SPr1 		2bytes	*/
+#define LSM330_OUTS_1		(0X5F)	/*	SPr1 			*/
+
+	/* state program 2 */
+#define LSM330_STATEPR2	(0X60)	/*	State Program 2 16 bytes */
+
+#define LSM330_TIM4_2		(0X70)	/*	SPr2 Timer4		*/
+#define LSM330_TIM3_2		(0X71)	/*	SPr2 Timer3		*/
+#define LSM330_TIM2_2		(0X72)	/*	SPr2 Timer2	2bytes	*/
+#define LSM330_TIM1_2		(0X74)	/*	SPr2 Timer1	2bytes	*/
+
+#define LSM330_THRS2_2		(0X76)	/*	SPr2 Threshold1		*/
+#define LSM330_THRS1_2		(0X77)	/*	SPr2 Threshold2		*/
+#define LSM330_DES_2		(0X78)	/*	SPr2 Decimation		*/
+#define LSM330_SA_2		(0X79)	/*	SPr2 Swap Axis Sign Msk	*/
+#define LSM330_MA_2		(0X7A)	/*	SPr2 Axis Sign Msk	*/
+#define LSM330_SETT_2		(0X7B)	/*	SPr2 			*/
+#define LSM330_PPRP_2		(0X7C)	/*	SPr2 ProgPointer ResetPointer */
+#define LSM330_TC_2		(0X7D)	/*	SPr2 		2bytes	*/
+#define LSM330_OUTS_2		(0X7F)	/*	SPr2 			*/
+/*	end CONTROL REGISTRES	*/
+
+
+/* RESUME STATE INDICES */
 #define RES_LSM330_LC_L				0
 #define RES_LSM330_LC_H				1
 
@@ -276,16 +293,20 @@ Version History.
 
 
 #define LSM330_STATE_PR_SIZE			16
+/* end RESUME STATE INDICES */
 
+/* STATE PROGRAMS ENABLE CONTROLS */
 #define LSM330_SM1_DIS_SM2_DIS			(0x00)
 #define LSM330_SM1_EN_SM2_DIS			(0x01)
 #define LSM330_SM1_DIS_SM2_EN			(0x02)
 #define LSM330_SM1_EN_SM2_EN			(0x03)
 
+/* INTERRUPTS ENABLE CONTROLS */
 #define LSM330_INT1_DIS_INT2_DIS		(0x00)
 #define LSM330_INT1_EN_INT2_DIS			(0x01)
 #define LSM330_INT1_DIS_INT2_EN			(0x02)
 #define LSM330_INT1_EN_INT2_EN			(0x03)
+/*#define HTC_DTAP*/
 static struct rot_matrix {
        short matrix[3][3];
 	} rot_matrix[] = {
@@ -455,7 +476,7 @@ struct lsm330_acc_data {
 #endif
 	short rot_matrix[3][3];
 	int hw_initialized;
-	
+	/* hw_working=-1 means not tested yet */
 	int hw_working;
 	atomic_t enabled;
 	int on_before_suspend;
@@ -507,57 +528,57 @@ static int enable_any_motion_int(int en, struct lsm330_acc_data *acc){
     if(en == 1) {
 
 
-	buf[0] = 0x23;
+	buf[0] = 0x23;//LSM330_CTRL_REG3;
 	buf[1] = 0x68;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
-	buf[0] = 0x23;
+	buf[0] = 0x23;//LSM330_CTRL_REG3;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_CTRL_REG3 %x", buf[0]);
 
-	buf[0] = 0x20;
+	buf[0] = 0x20;//LSM330_CTRL_REG4;
 	buf[1] = 0x57;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
 
-	buf[0] = 0x20;
+	buf[0] = 0x20;//LSM330_CTRL_REG4;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_CTRL_REG4 = %x", buf[0]);
-	buf[0] = 0x24;
+	buf[0] = 0x24;//LSM330_CTRL_REG5;
 	buf[1] = 0x00;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
-	buf[0] = 0x24;
+	buf[0] = 0x24;//LSM330_CTRL_REG5;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_CTRL_REG5 = %x", buf[0]);
 
-	buf[0] = 0x57;
+	buf[0] = 0x57;//LSM330_THRS1_1;
 	buf[1] = 0x4B;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
-	buf[0] = 0x57;
+	buf[0] = 0x57;//LSM330_THRS1_1;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_THRS1_1 = %x", buf[0]);
 
-	buf[0] = 0x40;
+	buf[0] = 0x40;//LSM330_STATEPR1;
 	buf[1] = 0x05;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
-	buf[0] = 0x40;
+	buf[0] = 0x40;//LSM330_STATEPR1;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_STATEPR1 = %x", buf[0]);
@@ -573,49 +594,49 @@ static int enable_any_motion_int(int en, struct lsm330_acc_data *acc){
 
 	I("0x41 = %x", buf[0]);
 
-	buf[0] = 0x59;
+	buf[0] = 0x59;//LSM330_SA_1;
 	buf[1] = 0xFC;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
-	buf[0] = 0x59;
+	buf[0] = 0x59;//LSM330_SA_1;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_SA_1 = %x", buf[0]);
 
-	buf[0] = 0x5A;
+	buf[0] = 0x5A;//LSM330_MA_1;
 	buf[1] = 0xFC;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
-	buf[0] = 0x5A;
+	buf[0] = 0x5A;//LSM330_MA_1;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_MA_1 = %x", buf[0]);
 
 
-	buf[0] = 0x5B;
+	buf[0] = 0x5B;//LSM330_SETT_1;
 	buf[1] = 0x01;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
-	buf[0] = 0x5B;
+	buf[0] = 0x5B;//LSM330_SETT_1;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_SETT_1 = %x", buf[0]);
 
 
-	buf[0] = 0x21;
+	buf[0] = 0x21;//LSM330_CTRL_REG1;
 	buf[1] = 0x01;
 	err = lsm330_acc_i2c_write(acc, buf, 1);
 
 	if (err < 0)
 		goto err_interrupt_state;
 
-	buf[0] = 0x21;
+	buf[0] = 0x21;//LSM330_CTRL_REG1;
 	err = lsm330_acc_i2c_read(acc, buf, 1);
 
 	I("LSM330_CTRL_REG1 = %x", buf[0]);
@@ -647,7 +668,7 @@ static ssize_t lsm330_enable_cir_interrupt(struct device *dev,
 	if (error)
 	    return error;
 	I("%s, power_key_pressed = %d\n", __func__, power_key_pressed);
-	if(enable == 1 && !power_key_pressed){ 
+	if(enable == 1 && !power_key_pressed){ // Slope interrupt
 	    cir_flag = 1;
 	    enable_irq(acc->irq1);
 
@@ -740,6 +761,7 @@ static void lsm330_acc_set_init_register_values(struct lsm330_acc_data *acc)
 
 static void lsm330_acc_set_init_statepr1_inst(struct lsm330_acc_data *acc)
 {
+/* loads custom state program1 */
 #ifdef LOAD_STATE_PROGRAM1
 	acc->resume_stmach_program1[0] = 0x01;
 	acc->resume_stmach_program1[1] = 0x06;
@@ -757,7 +779,7 @@ static void lsm330_acc_set_init_statepr1_inst(struct lsm330_acc_data *acc)
 	acc->resume_stmach_program1[13] = 0x00;
 	acc->resume_stmach_program1[14] = 0x00;
 	acc->resume_stmach_program1[15] = 0x00;
-#else 
+#else /* loads default state program1 */
 	acc->resume_stmach_program1[0] = 0x00;
 	acc->resume_stmach_program1[1] = 0x00;
 	acc->resume_stmach_program1[2] = 0X00;
@@ -774,11 +796,12 @@ static void lsm330_acc_set_init_statepr1_inst(struct lsm330_acc_data *acc)
 	acc->resume_stmach_program1[13] = 0x00;
 	acc->resume_stmach_program1[14] = 0x00;
 	acc->resume_stmach_program1[15] = 0x00;
-#endif 
+#endif /* LOAD_STATE_PROGRAM1 */
 }
 
 static void lsm330_acc_set_init_statepr2_inst(struct lsm330_acc_data *acc)
 {
+/* loads custom state program2 */
 #ifdef LOAD_STATE_PROGRAM2
 	acc->resume_stmach_program2[0] = 0x00;
 	acc->resume_stmach_program2[1] = 0x00;
@@ -796,7 +819,7 @@ static void lsm330_acc_set_init_statepr2_inst(struct lsm330_acc_data *acc)
 	acc->resume_stmach_program2[13] = 0x00;
 	acc->resume_stmach_program2[14] = 0x00;
 	acc->resume_stmach_program2[15] = 0x00;
-#else 
+#else /* loads default state program2 */
 	acc->resume_stmach_program2[0] = 0x00;
 	acc->resume_stmach_program2[1] = 0x00;
 	acc->resume_stmach_program2[2] = 0X00;
@@ -813,11 +836,12 @@ static void lsm330_acc_set_init_statepr2_inst(struct lsm330_acc_data *acc)
 	acc->resume_stmach_program2[13] = 0x00;
 	acc->resume_stmach_program2[14] = 0x00;
 	acc->resume_stmach_program2[15] = 0x00;
-#endif 
+#endif /* LOAD_STATE_PROGRAM2 */
 }
 
 static void lsm330_acc_set_init_statepr1_param(struct lsm330_acc_data *acc)
 {
+/* loads custom state prog1 parameters */
 #ifdef	LOAD_SP1_PARAMETERS
 	acc->resume_state[RES_LSM330_TIM4_1] = 0xa0;
 	acc->resume_state[RES_LSM330_TIM3_1] = 0x04;
@@ -827,11 +851,11 @@ static void lsm330_acc_set_init_statepr1_param(struct lsm330_acc_data *acc)
 	acc->resume_state[RES_LSM330_TIM1_1_H] = 0x00;
 	acc->resume_state[RES_LSM330_THRS2_1] = 0x30;
 	acc->resume_state[RES_LSM330_THRS1_1] = 0x00;
-	
+	/* DES1 not available*/
 	acc->resume_state[RES_LSM330_SA_1] = 0x00;
 	acc->resume_state[RES_LSM330_MA_1] = 0xfc;
 	acc->resume_state[RES_LSM330_SETT_1] = 0xa1;
-#else 
+#else /* loads default state prog1 parameters */
 	acc->resume_state[RES_LSM330_TIM4_1] = 0x00;
 	acc->resume_state[RES_LSM330_TIM3_1] = 0x00;
 	acc->resume_state[RES_LSM330_TIM2_1_L] = 0x00;
@@ -840,7 +864,7 @@ static void lsm330_acc_set_init_statepr1_param(struct lsm330_acc_data *acc)
 	acc->resume_state[RES_LSM330_TIM1_1_H] = 0x00;
 	acc->resume_state[RES_LSM330_THRS2_1] = 0x00;
 	acc->resume_state[RES_LSM330_THRS1_1] = 0x00;
-	
+	/* DES1 not available*/
 	acc->resume_state[RES_LSM330_SA_1] = 0x00;
 	acc->resume_state[RES_LSM330_MA_1] = 0x00;
 	acc->resume_state[RES_LSM330_SETT_1] = 0x00;
@@ -849,6 +873,7 @@ static void lsm330_acc_set_init_statepr1_param(struct lsm330_acc_data *acc)
 
 static void lsm330_acc_set_init_statepr2_param(struct lsm330_acc_data *acc)
 {
+/* loads custom state prog2 parameters */
 #ifdef LOAD_SP2_PARAMETERS
 	acc->resume_state[RES_LSM330_TIM4_2] = 0x00;
 	acc->resume_state[RES_LSM330_TIM3_2] = 0x00;
@@ -862,7 +887,7 @@ static void lsm330_acc_set_init_statepr2_param(struct lsm330_acc_data *acc)
 	acc->resume_state[RES_LSM330_SA_2] = 0x00;
 	acc->resume_state[RES_LSM330_MA_2] = 0x00;
 	acc->resume_state[RES_LSM330_SETT_2] = 0x00;
-#else 
+#else /* loads default state prog2 parameters */
 	acc->resume_state[RES_LSM330_TIM4_2] = 0x00;
 	acc->resume_state[RES_LSM330_TIM3_2] = 0x00;
 	acc->resume_state[RES_LSM330_TIM2_2_L] = 0x00;
@@ -1108,7 +1133,7 @@ static int lsm330_acc_hw_init(struct lsm330_acc_data *acc)
 	dev_err(&acc->client->dev,
 		"device unknown. Expected: 0x%02x,"
 		" Replies: 0x%02x\n", WHOAMI_LSM330_ACC, buf[0]);
-		err = -1; 
+		err = -1; /* choose the right coded error */
 		goto err_unknown_device;
 	}
 
@@ -1158,7 +1183,7 @@ static int lsm330_acc_hw_init(struct lsm330_acc_data *acc)
 	if (err < 0)
 		goto err_resume_state;
 
-	
+	/*	state program 1 */
 	buf[0] = (I2C_AUTO_INCREMENT | LSM330_STATEPR1);
 	for (i = 1; i <= LSM330_STATE_PR_SIZE; i++) {
 		buf[i] = acc->resume_stmach_program1[i-1];
@@ -1168,7 +1193,7 @@ static int lsm330_acc_hw_init(struct lsm330_acc_data *acc)
 	if (err < 0)
 		goto err_resume_state;
 
-	
+	/*	state program 2 */
 	buf[0] = (I2C_AUTO_INCREMENT | LSM330_STATEPR2);
 	for(i = 1; i <= LSM330_STATE_PR_SIZE; i++){
 		buf[i] = acc->resume_stmach_program2[i-1];
@@ -1309,8 +1334,10 @@ static void lsm330_acc_irq1_work_func(struct work_struct *work)
 	struct lsm330_acc_data *acc;
 
 	acc = container_of(work, struct lsm330_acc_data, irq1_work);
+	/* TODO  add interrupt service procedure.
+		 ie:lsm330_acc_get_int_source(acc); */
 	DIF("%s: IRQ1 triggered\n", LSM330_ACC_DEV_NAME);
-	
+	/*  */
 	rbuf[0] = LSM330_INTERR_STAT;
 	err = lsm330_acc_i2c_read(acc, rbuf, 1);
 	DIF("%s: INTERR_STAT_REG: 0x%02x\n",
@@ -1364,7 +1391,9 @@ static void lsm330_acc_irq2_work_func(struct work_struct *work)
 
 	acc = container_of(work, struct lsm330_acc_data, irq2_work);
 	pr_debug("%s: IRQ2 triggered\n", LSM330_ACC_DEV_NAME);
-	
+	/* TODO  add interrupt service procedure.
+		 ie:lsm330_acc_get_stat_source(acc); */
+	/* ; */
 	pr_debug("%s: IRQ2 served\n", LSM330_ACC_DEV_NAME);
 
 	enable_irq(acc->irq2);
@@ -1432,6 +1461,8 @@ static int lsm330_acc_update_fs_range(struct lsm330_acc_data *acc,
 	}
 
 	if (atomic_read(&acc->enabled)) {
+		/* Updates configuration register 1,
+		* which contains g range setting */
 		err = lsm330_acc_register_masked_update(acc, LSM330_CTRL_REG5,
 			LSM330_ACC_FS_MASK, new_fs_range, RES_LSM330_CTRL_REG5);
 		if(err < 0) {
@@ -1460,12 +1491,18 @@ static int lsm330_acc_update_odr(struct lsm330_acc_data *acc,
 	CTRL_REG4[0] = 0x20;
 	CTRL_REG4[1] = 0x77;
 #endif
+	/* Following, looks for the longest possible odr interval scrolling the
+	 * odr_table vector from the end (shortest interval) backward (longest
+	 * interval), to support the poll_interval requested by the system.
+	 * It must be the longest interval lower then the poll interval.*/
 	for (i = ARRAY_SIZE(lsm330_acc_odr_table) - 1; i >= 0; i--) {
 		if (lsm330_acc_odr_table[i].cutoff_ms <= poll_interval_ms)
 			break;
 	}
 	new_odr = lsm330_acc_odr_table[i].mask;
 
+	/* If device is currently enabled, we need to write new
+	 *  configuration out to it */
 	if (atomic_read(&acc->enabled)) {
 		err = lsm330_acc_register_masked_update(acc,
 			LSM330_CTRL_REG4, LSM330_ODR_MASK, new_odr,
@@ -1487,6 +1524,8 @@ static int lsm330_acc_register_write(struct lsm330_acc_data *acc, u8 *buf,
 {
 	int err = -1;
 
+	/* Sets configuration register at reg_address
+	 *  NOTE: this is a straight overwrite  */
 		buf[0] = reg_address;
 		buf[1] = new_value;
 		err = lsm330_acc_i2c_write(acc, buf, 1);
@@ -1526,9 +1565,9 @@ static int lsm330_acc_register_update(struct lsm330_acc_data *acc, u8 *buf,
 static int lsm330_acc_get_data(struct lsm330_acc_data *acc, int *xyz)
 {
 	int i, err = -1;
-	
+	/* Data bytes from hardware xL, xH, yL, yH, zL, zH */
 	u8 acc_data[6];
-	
+	/* x,y,z hardware data */
 	s32 hw_d[3] = { 0 };
 
 	acc_data[0] = (I2C_AUTO_INCREMENT | OUT_AXISDATA_REG);
@@ -1755,7 +1794,7 @@ static ssize_t attr_set_enable(struct device *dev,
 
 	return size;
 }
-static ssize_t lsm330_chip_layout_show(struct device *dev,      
+static ssize_t lsm330_chip_layout_show(struct device *dev,      /* show chip layou attribute */
                 struct device_attribute *attr, char *buf)
 {
         if (acc_data == NULL) {
@@ -1777,10 +1816,11 @@ static ssize_t lsm330_chip_layout_show(struct device *dev,
 }
 
 
-static ssize_t lsm330_get_raw_data_show(struct device *dev,     
+static ssize_t lsm330_get_raw_data_show(struct device *dev,     /* show chip layou attribute */
                 struct device_attribute *attr, char *buf)
 {
         struct lsm330_acc_data *lsm330 = acc_data;
+//        static struct bma250acc acc;
         int xyz[3] = { 0 };
 
         if (lsm330 == NULL) {
@@ -1788,9 +1828,10 @@ static ssize_t lsm330_get_raw_data_show(struct device *dev,
                 return 0;
         }
         lsm330_acc_get_data(lsm330, xyz);
+//        bma250_read_accel_xyz(bma250->bma250_client, &acc);
 
         return sprintf(buf, "x = %d, y = %d, z = %d\n",
-  
+  //                          acc.x, acc.y, acc.z);
 				xyz[0], xyz[1], xyz[2]);
 }
 
@@ -1855,7 +1896,7 @@ static int lsm330_acc_state_progrs_enable_control(
 {
 	u8 val1, val2;
 	int err = -1;
-	
+	//settings = settings & 0x03;
 
 	switch ( settings ) {
 	case LSM330_SM1_DIS_SM2_DIS:
@@ -1908,7 +1949,7 @@ static ssize_t attr_set_DP(struct device *dev,
 	u8 CTRL_REG5_A[2];
 	u8 CTRL_REG6_A[2];
 
-	
+	//set value
 	CTRL_REG4_A[0] = 0x23;
 	CTRL_REG4_A[1] = 0x58;
 	CTRL_REG5_A[0] = 0x20;
@@ -1971,6 +2012,7 @@ static ssize_t attr_get_enable_state_prog(struct device *dev,
 
 
 #ifdef DEBUG
+/* PAY ATTENTION: These DEBUG funtions don't manage resume_state */
 static ssize_t attr_reg_set(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t size)
 {
@@ -1986,7 +2028,7 @@ static ssize_t attr_reg_set(struct device *dev, struct device_attribute *attr,
 	mutex_unlock(&acc->lock);
 	x[1] = val;
 	rc = lsm330_acc_i2c_write(acc, x, 1);
-	
+	/*TODO: error need to be managed */
 	return size;
 }
 
@@ -2002,7 +2044,7 @@ static ssize_t attr_reg_get(struct device *dev, struct device_attribute *attr,
 	data = acc->reg_addr;
 	mutex_unlock(&acc->lock);
 	rc = lsm330_acc_i2c_read(acc, &data, 1);
-	
+	/*TODO: error need to be managed */
 	ret = sprintf(buf, "0x%02x\n", data);
 	return ret;
 }
@@ -2151,16 +2193,16 @@ static int remove_sysfs_interfaces(struct device *dev)
 
 int lsm330_acc_input_open(struct input_dev *input)
 {
-	
+	//struct lsm330_acc_data *acc = input_get_drvdata(input);
 
-	return 0;
+	return 0;//lsm330_acc_enable(acc);
 }
 
 void lsm330_acc_input_close(struct input_dev *dev)
 {
-	
+	//struct lsm330_acc_data *acc = input_get_drvdata(dev);
 
-	
+	//lsm330_acc_disable(acc);
 }
 
 static int lsm330_acc_validate_pdata(struct lsm330_acc_data *acc)
@@ -2174,7 +2216,7 @@ static int lsm330_acc_validate_pdata(struct lsm330_acc_data *acc)
 		return -EINVAL;
 	}
 
-	
+	/* Enforce minimum polling interval */
 	if (acc->pdata->poll_interval < acc->pdata->min_interval) {
 		dev_err(&acc->client->dev, "minimum poll interval violated\n");
 		return -EINVAL;
@@ -2206,16 +2248,18 @@ static int lsm330_acc_input_init(struct lsm330_acc_data *acc)
 	input_set_drvdata(acc->input_dev, acc);
 
 	set_bit(EV_ABS, acc->input_dev->evbit);
-	
+	/*	next is used for interruptA sources data if the case */
 	set_bit(ABS_MISC, acc->input_dev->absbit);
-	
+	/*	next is used for interruptB sources data if the case */
 	set_bit(ABS_WHEEL, acc->input_dev->absbit);
 
 	input_set_abs_params(acc->input_dev, ABS_X, -G_MAX, G_MAX, 0, 0);
 	input_set_abs_params(acc->input_dev, ABS_Y, -G_MAX, G_MAX, 0, 0);
 	input_set_abs_params(acc->input_dev, ABS_Z, -G_MAX, G_MAX, 0, 0);
-	
-	
+	/*	next is used for interruptA sources data if the case */
+//input_set_abs_params(acc->input_dev, ABS_MISC, INT_MIN, INT_MAX, 0, 0);
+	/*	next is used for interruptB sources data if the case */
+//input_set_abs_params(acc->input_dev, ABS_WHEEL, INT_MIN, INT_MAX, 0, 0);
 
 
 	err = input_register_device(acc->input_dev);
@@ -2333,6 +2377,55 @@ static int lsm330_acc_parse_dt(struct device *dev, struct lsm330_acc_platform_da
                 I("%s: g_sensor_lsm330,rot_matrix_index not found", __func__);
 
 
+/*
+	prop = of_find_property(dt, "g_sensor_lsm330,axis_map_x", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "g_sensor_lsm330,axis_map_x", &buf);
+		pdata->axis_map_x = buf;
+		I("%s: axis_map_x = %d", __func__, pdata->axis_map_x);
+	} else
+		I("%s: g_sensor_lsm330,axis_map_x not found", __func__);
+
+	prop = of_find_property(dt, "g_sensor_lsm330,axis_map_y", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "g_sensor_lsm330,axis_map_y", &buf);
+		pdata->axis_map_y = buf;
+		I("%s: axis_map_y = %d", __func__, pdata->axis_map_y);
+	} else
+		I("%s: g_sensor_lsm330,axis_map_y not found", __func__);
+
+	prop = of_find_property(dt, "g_sensor_lsm330,axis_map_z", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "g_sensor_lsm330,axis_map_z", &buf);
+		pdata->axis_map_z = buf;
+		I("%s: axis_map_z = %d", __func__, pdata->axis_map_z);
+	} else
+		I("%s: g_sensor_lsm330,axis_map_z not found", __func__);
+
+	prop = of_find_property(dt, "g_sensor_lsm330,negate_x", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "g_sensor_lsm330,negate_x", &buf);
+		pdata->negate_x = buf;
+		I("%s: negate_x = %d", __func__, pdata->negate_x);
+	} else
+		I("%s: g_sensor_lsm330,negate_x not found", __func__);
+
+	prop = of_find_property(dt, "g_sensor_lsm330,negate_y", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "g_sensor_lsm330,negate_y", &buf);
+		pdata->negate_y = buf;
+		I("%s: negate_y = %d", __func__, pdata->negate_y);
+	} else
+		I("%s: g_sensor_lsm330,negate_y not found", __func__);
+
+	prop = of_find_property(dt, "g_sensor_lsm330,negate_z", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "g_sensor_lsm330,negate_z", &buf);
+		pdata->negate_z = buf;
+		I("%s: negate_z = %d", __func__, pdata->negate_z);
+	} else
+		I("%s: g_sensor_lsm330,negate_z not found", __func__);
+*/
 	prop = of_find_property(dt, "g_sensor_lsm330,poll_interval", NULL);
 	if (prop) {
 		of_property_read_u32(dt, "g_sensor_lsm330,poll_interval", &buf);
@@ -2380,7 +2473,7 @@ static int lsm330_acc_parse_dt(struct device *dev, struct lsm330_acc_platform_da
 		I("%s: cali_size = %d", __func__, cali_size);
 		I("%s: cali_data = %p", __func__, cali_data);
 		if (cali_data)
-			calibration_version	= cali_data[36];  
+			calibration_version	= cali_data[36];  /* check if new calibration tool */
 	} else
 		I("%s: Calibration data offset not found", __func__);
 
@@ -2388,6 +2481,8 @@ static int lsm330_acc_parse_dt(struct device *dev, struct lsm330_acc_platform_da
 	pdata->exit = NULL;
 	pdata->power_on = NULL;
 	pdata->power_off = NULL;
+/*	pdata->gpio_int1 = 0;
+	pdata->gpio_int2 = 0;*/
 
 	return 0;
 }
@@ -2417,7 +2512,7 @@ static int __devinit lsm330_acc_probe(struct i2c_client *client,
 		goto exit_check_functionality_failed;
 	}
 
-	
+	/* Support for both I2C and SMBUS adapter interfaces. */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		dev_warn(&client->dev, "client not i2c capable\n");
 		if (i2c_check_functionality(client->adapter, smbus_func)){
@@ -2478,8 +2573,8 @@ static int __devinit lsm330_acc_probe(struct i2c_client *client,
 
 		if (acc->pdata) {
 			acc->chip_layout = acc->pdata->chip_layout;
-			
-			
+			/*D("gs_kvalue:%x", gs_kvalue);*/
+			/*acc->pdata->gs_kvalue = gs_kvalue;*/
 		} else {
 			acc->chip_layout = 0;
 			acc->pdata->gs_kvalue = 0;
@@ -2524,13 +2619,13 @@ static int __devinit lsm330_acc_probe(struct i2c_client *client,
 							acc->pdata->gpio_int2);
 	}
 
-	
+	/* resume state init config */
 	memset(acc->resume_state, 0, ARRAY_SIZE(acc->resume_state));
 	lsm330_acc_set_init_register_values(acc);
-	
+	//init state program1 and params
 	lsm330_acc_set_init_statepr1_param(acc);
 	lsm330_acc_set_init_statepr1_inst(acc);
-	
+	//init state program2  and params
 	lsm330_acc_set_init_statepr2_param(acc);
 	lsm330_acc_set_init_statepr2_inst(acc);
 
@@ -2563,7 +2658,7 @@ static int __devinit lsm330_acc_probe(struct i2c_client *client,
 	dev_dtap = input_allocate_device();
 	if (!dev_dtap) {
 		kfree(acc);
-		input_free_device(dev_dtap);
+		input_free_device(dev_dtap);//free the successful dev and return
 		return -ENOMEM;
 	}
 
@@ -2572,14 +2667,14 @@ static int __devinit lsm330_acc_probe(struct i2c_client *client,
 #ifdef HTC_DTAP
 	dev_dtap->name = "DTAPPSensor";
 	dev_dtap->id.bustype = BUS_I2C;
-	set_bit(EV_KEY, dev_dtap->evbit);
+	set_bit(EV_KEY, dev_dtap->evbit);//aa
 	set_bit(EV_REL, dev_dtap->evbit);
 	set_bit(EV_REL, dev_dtap->evbit);
-	input_set_capability(dev_dtap, EV_REL, REL_X);
-	input_set_capability(dev_dtap, EV_REL, REL_Y);
-	input_set_capability(dev_dtap, EV_KEY, BTN_LEFT);
-	input_set_capability(dev_dtap, EV_KEY, BTN_RIGHT);
-	input_set_capability(dev_dtap, EV_KEY, BTN_MIDDLE);
+	input_set_capability(dev_dtap, EV_REL, REL_X);//aa
+	input_set_capability(dev_dtap, EV_REL, REL_Y);//aa
+	input_set_capability(dev_dtap, EV_KEY, BTN_LEFT);//aa
+	input_set_capability(dev_dtap, EV_KEY, BTN_RIGHT);//aa
+	input_set_capability(dev_dtap, EV_KEY, BTN_MIDDLE);//aa
 	input_set_capability(dev_dtap, EV_KEY, KEY_ENTER);
 
 	input_set_capability(dev_dtap, EV_REL, REL_WHEEL);
@@ -2614,7 +2709,7 @@ static int __devinit lsm330_acc_probe(struct i2c_client *client,
   
 	lsm330_acc_device_power_off(acc);
 
-	
+	/* As default, do not report information */
 	atomic_set(&acc->enabled, 0);
 
 	if(acc->pdata->gpio_int1 >= 0){
@@ -2693,6 +2788,7 @@ err_mutexunlock:
 			flush_workqueue(lsm330_workqueue);
 			destroy_workqueue(lsm330_workqueue);
 	}
+//err_freedata:
 	kfree(acc);
 exit_check_functionality_failed:
 	pr_err("%s: Driver Init failed\n", LSM330_ACC_DEV_NAME);
@@ -2752,10 +2848,10 @@ static int lsm330_acc_suspend(struct device *dev)
 	acc->on_before_suspend = atomic_read(&acc->enabled);
 	return lsm330_acc_disable(acc);
 }
-#else 
+#else /* CONFIG_PM */
 #define lsm330_acc_suspend	NULL
 #define lsm330_acc_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id lsm330_acc_id[]
 		= { { LSM330_ACC_DEV_NAME, 0 }, { }, };

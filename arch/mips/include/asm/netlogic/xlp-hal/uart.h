@@ -35,6 +35,7 @@
 #ifndef __XLP_HAL_UART_H__
 #define __XLP_HAL_UART_H__
 
+/* UART Specific registers */
 #define UART_RX_DATA		0x00
 #define UART_TX_DATA		0x00
 
@@ -52,6 +53,7 @@
 #define BASE_BAUD		(XLP_IO_CLK/16)
 #define BAUD_DIVISOR(baud)	(BASE_BAUD / baud)
 
+/* LCR mask values */
 #define LCR_5BITS		0x00
 #define LCR_6BITS		0x01
 #define LCR_7BITS		0x02
@@ -66,12 +68,14 @@
 #define LCR_EFR_ENABLE		0xbf
 #define LCR_DLAB		0x80
 
+/* MCR mask values */
 #define MCR_DTR			0x01
 #define MCR_RTS			0x02
 #define MCR_DRS			0x04
 #define MCR_IE			0x08
 #define MCR_LOOPBACK		0x10
 
+/* FCR mask values */
 #define FCR_RCV_RST		0x02
 #define FCR_XMT_RST		0x04
 #define FCR_RX_LOW		0x00
@@ -79,6 +83,7 @@
 #define FCR_RX_MEDH		0x80
 #define FCR_RX_HIGH		0xc0
 
+/* IER mask values */
 #define IER_ERXRDY		0x1
 #define IER_ETXRDY		0x2
 #define IER_ERLS		0x4
@@ -100,14 +105,14 @@ nlm_uart_set_baudrate(uint64_t base, int baud)
 
 	lcr = nlm_read_uart_reg(base, UART_LINE_CTL);
 
-	
+	/* enable divisor register, and write baud values */
 	nlm_write_uart_reg(base, UART_LINE_CTL, lcr | (1 << 7));
 	nlm_write_uart_reg(base, UART_DIVISOR0,
 			(BAUD_DIVISOR(baud) & 0xff));
 	nlm_write_uart_reg(base, UART_DIVISOR1,
 			((BAUD_DIVISOR(baud) >> 8) & 0xff));
 
-	
+	/* restore default lcr */
 	nlm_write_uart_reg(base, UART_LINE_CTL, lcr);
 }
 
@@ -132,11 +137,11 @@ nlm_uart_inbyte(uint64_t base)
 
 	for (;;) {
 		lsr = nlm_read_uart_reg(base, UART_LINE_STS);
-		if (lsr & 0x80) { 
+		if (lsr & 0x80) { /* parity/frame/break-error - push a zero */
 			data = 0;
 			break;
 		}
-		if (lsr & 0x01) {	
+		if (lsr & 0x01) {	/* Rx data */
 			data = nlm_read_uart_reg(base, UART_RX_DATA);
 			break;
 		}
@@ -166,10 +171,10 @@ nlm_uart_init(uint64_t base, int baud, int databits, int stopbits,
 
 	lcr |= parity << 3;
 
-	
+	/* setup default lcr */
 	nlm_write_uart_reg(base, UART_LINE_CTL, lcr);
 
-	
+	/* Reset the FIFOs */
 	nlm_write_uart_reg(base, UART_LINE_CTL, FCR_RCV_RST | FCR_XMT_RST);
 
 	nlm_uart_set_baudrate(base, baud);
@@ -182,5 +187,5 @@ nlm_uart_init(uint64_t base, int baud, int databits, int stopbits,
 
 	return 0;
 }
-#endif 
-#endif 
+#endif /* !LOCORE && !__ASSEMBLY__ */
+#endif /* __XLP_HAL_UART_H__ */

@@ -42,16 +42,17 @@
 #define DO_STATS(X) do { } while (0)
 #endif
 
+/* ************************************************** */
 
 struct safe_buffer {
 	struct list_head node;
 
-	
+	/* original request */
 	void		*ptr;
 	size_t		size;
 	int		direction;
 
-	
+	/* safe buffer info */
 	struct dmabounce_pool *pool;
 	void		*safe;
 	dma_addr_t	safe_dma_addr;
@@ -101,6 +102,7 @@ static DEVICE_ATTR(dmabounce_stats, 0400, dmabounce_show, NULL);
 #endif
 
 
+/* allocate a 'safe' buffer and keep track of it */
 static inline struct safe_buffer *
 alloc_safe_buffer(struct dmabounce_device_info *device_info, void *ptr,
 		  size_t size, enum dma_data_direction dir)
@@ -161,6 +163,7 @@ alloc_safe_buffer(struct dmabounce_device_info *device_info, void *ptr,
 	return buf;
 }
 
+/* determine if a buffer is from our "safe" pool */
 static inline struct safe_buffer *
 find_safe_buffer(struct dmabounce_device_info *device_info, dma_addr_t safe_dma_addr)
 {
@@ -202,6 +205,7 @@ free_safe_buffer(struct dmabounce_device_info *device_info, struct safe_buffer *
 	kfree(buf);
 }
 
+/* ************************************************** */
 
 static struct safe_buffer *find_safe_buffer_dev(struct device *dev,
 		dma_addr_t dma_addr, const char *where)
@@ -230,7 +234,7 @@ static int needs_bounce(struct device *dev, dma_addr_t dma_addr, size_t size)
 			return -E2BIG;
 		}
 
-		
+		/* Figure out if we need to bounce from the DMA mask. */
 		if ((dma_addr | (dma_addr + size - 1)) & ~mask)
 			return 1;
 	}
@@ -296,7 +300,14 @@ static inline void unmap_single(struct device *dev, struct safe_buffer *buf,
 	free_safe_buffer(dev->archdata.dmabounce, buf);
 }
 
+/* ************************************************** */
 
+/*
+ * see if a buffer address is in an 'unsafe' range.  if it is
+ * allocate a 'safe' buffer and copy the unsafe buffer into it.
+ * substitute the safe buffer for the unsafe one.
+ * (basically move the buffer from an unsafe area to a safe one)
+ */
 static dma_addr_t dmabounce_map_page(struct device *dev, struct page *page,
 		unsigned long offset, size_t size, enum dma_data_direction dir,
 		struct dma_attrs *attrs)
@@ -326,6 +337,12 @@ static dma_addr_t dmabounce_map_page(struct device *dev, struct page *page,
 	return map_single(dev, page_address(page) + offset, size, dir);
 }
 
+/*
+ * see if a mapped address was really a "safe" buffer and if so, copy
+ * the data from the safe buffer back to the unsafe buffer and free up
+ * the safe buffer.  (basically return things back to the way they
+ * should be)
+ */
 static void dmabounce_unmap_page(struct device *dev, dma_addr_t dma_addr, size_t size,
 		enum dma_data_direction dir, struct dma_attrs *attrs)
 {
@@ -452,8 +469,8 @@ static int dmabounce_init_pool(struct dmabounce_pool *pool, struct device *dev,
 	pool->size = size;
 	DO_STATS(pool->allocs = 0);
 	pool->pool = dma_pool_create(name, dev, size,
-				     0 ,
-				     0 );
+				     0 /* byte alignment */,
+				     0 /* no page-crossing issues */);
 
 	return pool->pool ? 0 : -ENOMEM;
 }

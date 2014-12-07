@@ -25,11 +25,15 @@
 #include <linux/fb.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
+/* Why should fb driver call console functions? because console_lock() */
 #include <linux/console.h>
 #include <linux/mfd/core.h>
 #include <linux/mfd/tmio.h>
 #include <linux/uaccess.h>
 
+/*
+ * accelerator commands
+ */
 #define TMIOFB_ACC_CSADR(x)	(0x00000000 | ((x) & 0x001ffffe))
 #define TMIOFB_ACC_CHPIX(x)	(0x01000000 | ((x) & 0x000003ff))
 #define TMIOFB_ACC_CVPIX(x)	(0x02000000 | ((x) & 0x000003ff))
@@ -93,88 +97,99 @@
 #define TMIOFB_ACC_LDGO_LHRV	0x00000020
 #define TMIOFB_ACC_LDGO_LDMOD	0x00000040
 
+/* a FIFO is always allocated, even if acceleration is not used */
 #define TMIOFB_FIFO_SIZE	512
 
-#define CCR_CMD			0x04 
-#define CCR_REVID		0x08 
-#define CCR_BASEL		0x10 
-#define CCR_BASEH		0x12 
-#define CCR_UGCC		0x40 
-#define CCR_GCC			0x42 
-#define CCR_USC			0x50 
-#define CCR_VRAMRTC		0x60 
-				
-#define CCR_VRAMSAC		0x62 
-				
-#define CCR_VRAMBC		0x64 
+/*
+ * LCD Host Controller Configuration Register
+ *
+ * This iomem area supports only 16-bit IO.
+ */
+#define CCR_CMD			0x04 /* Command				*/
+#define CCR_REVID		0x08 /* Revision ID			*/
+#define CCR_BASEL		0x10 /* LCD Control Reg Base Addr Low	*/
+#define CCR_BASEH		0x12 /* LCD Control Reg Base Addr High	*/
+#define CCR_UGCC		0x40 /* Unified Gated Clock Control	*/
+#define CCR_GCC			0x42 /* Gated Clock Control		*/
+#define CCR_USC			0x50 /* Unified Software Clear		*/
+#define CCR_VRAMRTC		0x60 /* VRAM Timing Control		*/
+				/* 0x61 VRAM Refresh Control		*/
+#define CCR_VRAMSAC		0x62 /* VRAM Access Control		*/
+				/* 0x63	VRAM Status			*/
+#define CCR_VRAMBC		0x64 /* VRAM Block Control		*/
 
-#define LCR_UIS			0x000 
-#define LCR_VHPN		0x008 
-#define LCR_CFSAL		0x00a 
-#define LCR_CFSAH		0x00c 
-#define LCR_CFS			0x00e 
-#define LCR_CFWS		0x010 
-#define LCR_BBIE		0x012 
-#define LCR_BBISC		0x014 
-#define LCR_CCS			0x016 
-#define LCR_BBES		0x018 
-#define LCR_CMDL		0x01c 
-#define LCR_CMDH		0x01e 
-#define LCR_CFC			0x022 
-#define LCR_CCIFC		0x024 
-#define LCR_HWT			0x026 
-#define LCR_LCDCCRC		0x100 
-#define LCR_LCDCC		0x102 
-#define LCR_LCDCOPC		0x104 
-#define LCR_LCDIS		0x108 
-#define LCR_LCDIM		0x10a 
-#define LCR_LCDIE		0x10c 
-#define LCR_GDSAL		0x122 
-#define LCR_GDSAH		0x124 
-#define LCR_VHPCL		0x12a 
-#define LCR_VHPCH		0x12c 
-#define LCR_GM			0x12e 
-#define LCR_HT			0x140 
-#define LCR_HDS			0x142 
-#define LCR_HSS			0x144 
-#define LCR_HSE			0x146 
-#define LCR_HNP			0x14c 
-#define LCR_VT			0x150 
-#define LCR_VDS			0x152 
-#define LCR_VSS			0x154 
-#define LCR_VSE			0x156 
-#define LCR_CDLN		0x160 
-#define LCR_ILN			0x162 
-#define LCR_SP			0x164 
-#define LCR_MISC		0x166 
-#define LCR_VIHSS		0x16a 
-#define LCR_VIVS		0x16c 
-#define LCR_VIVE		0x16e 
-#define LCR_VIVSS		0x170 
-#define LCR_VCCIS		0x17e 
-#define LCR_VIDWSAL		0x180 
-#define LCR_VIDWSAH		0x182 
-#define LCR_VIDRSAL		0x184 
-#define LCR_VIDRSAH		0x186 
-#define LCR_VIPDDST		0x188 
-#define LCR_VIPDDET		0x186 
-#define LCR_VIE			0x18c 
-#define LCR_VCS			0x18e 
-#define LCR_VPHWC		0x194 
-#define LCR_VPHS		0x196 
-#define LCR_VPVWC		0x198 
-#define LCR_VPVS		0x19a 
-#define LCR_PLHPIX		0x1a0 
-#define LCR_XS			0x1a2 
-#define LCR_XCKHW		0x1a4 
-#define LCR_STHS		0x1a8 
-#define LCR_VT2			0x1aa 
-#define LCR_YCKSW		0x1ac 
-#define LCR_YSTS		0x1ae 
-#define LCR_PPOLS		0x1b0 
-#define LCR_PRECW		0x1b2 
-#define LCR_VCLKHW		0x1b4 
-#define LCR_OC			0x1b6 
+/*
+ * LCD Control Register
+ *
+ * This iomem area supports only 16-bit IO.
+ */
+#define LCR_UIS			0x000 /* Unified Interrupt Status	*/
+#define LCR_VHPN		0x008 /* VRAM Horizontal Pixel Number	*/
+#define LCR_CFSAL		0x00a /* Command FIFO Start Address Low	*/
+#define LCR_CFSAH		0x00c /* Command FIFO Start Address High */
+#define LCR_CFS			0x00e /* Command FIFO Size		*/
+#define LCR_CFWS		0x010 /* Command FIFO Writeable Size	*/
+#define LCR_BBIE		0x012 /* BitBLT Interrupt Enable	*/
+#define LCR_BBISC		0x014 /* BitBLT Interrupt Status and Clear */
+#define LCR_CCS			0x016 /* Command Count Status		*/
+#define LCR_BBES		0x018 /* BitBLT Execution Status	*/
+#define LCR_CMDL		0x01c /* Command Low			*/
+#define LCR_CMDH		0x01e /* Command High			*/
+#define LCR_CFC			0x022 /* Command FIFO Clear		*/
+#define LCR_CCIFC		0x024 /* CMOS Camera IF Control		*/
+#define LCR_HWT			0x026 /* Hardware Test			*/
+#define LCR_LCDCCRC		0x100 /* LCDC Clock and Reset Control	*/
+#define LCR_LCDCC		0x102 /* LCDC Control			*/
+#define LCR_LCDCOPC		0x104 /* LCDC Output Pin Control	*/
+#define LCR_LCDIS		0x108 /* LCD Interrupt Status		*/
+#define LCR_LCDIM		0x10a /* LCD Interrupt Mask		*/
+#define LCR_LCDIE		0x10c /* LCD Interrupt Enable		*/
+#define LCR_GDSAL		0x122 /* Graphics Display Start Address Low */
+#define LCR_GDSAH		0x124 /* Graphics Display Start Address High */
+#define LCR_VHPCL		0x12a /* VRAM Horizontal Pixel Count Low */
+#define LCR_VHPCH		0x12c /* VRAM Horizontal Pixel Count High */
+#define LCR_GM			0x12e /* Graphic Mode(VRAM access enable) */
+#define LCR_HT			0x140 /* Horizontal Total		*/
+#define LCR_HDS			0x142 /* Horizontal Display Start	*/
+#define LCR_HSS			0x144 /* H-Sync Start			*/
+#define LCR_HSE			0x146 /* H-Sync End			*/
+#define LCR_HNP			0x14c /* Horizontal Number of Pixels	*/
+#define LCR_VT			0x150 /* Vertical Total			*/
+#define LCR_VDS			0x152 /* Vertical Display Start		*/
+#define LCR_VSS			0x154 /* V-Sync Start			*/
+#define LCR_VSE			0x156 /* V-Sync End			*/
+#define LCR_CDLN		0x160 /* Current Display Line Number	*/
+#define LCR_ILN			0x162 /* Interrupt Line Number		*/
+#define LCR_SP			0x164 /* Sync Polarity			*/
+#define LCR_MISC		0x166 /* MISC(RGB565 mode)		*/
+#define LCR_VIHSS		0x16a /* Video Interface H-Sync Start	*/
+#define LCR_VIVS		0x16c /* Video Interface Vertical Start	*/
+#define LCR_VIVE		0x16e /* Video Interface Vertical End	*/
+#define LCR_VIVSS		0x170 /* Video Interface V-Sync Start	*/
+#define LCR_VCCIS		0x17e /* Video / CMOS Camera Interface Select */
+#define LCR_VIDWSAL		0x180 /* VI Data Write Start Address Low */
+#define LCR_VIDWSAH		0x182 /* VI Data Write Start Address High */
+#define LCR_VIDRSAL		0x184 /* VI Data Read Start Address Low	*/
+#define LCR_VIDRSAH		0x186 /* VI Data Read Start Address High */
+#define LCR_VIPDDST		0x188 /* VI Picture Data Display Start Timing */
+#define LCR_VIPDDET		0x186 /* VI Picture Data Display End Timing */
+#define LCR_VIE			0x18c /* Video Interface Enable		*/
+#define LCR_VCS			0x18e /* Video/Camera Select		*/
+#define LCR_VPHWC		0x194 /* Video Picture Horizontal Wait Count */
+#define LCR_VPHS		0x196 /* Video Picture Horizontal Size	*/
+#define LCR_VPVWC		0x198 /* Video Picture Vertical Wait Count */
+#define LCR_VPVS		0x19a /* Video Picture Vertical Size	*/
+#define LCR_PLHPIX		0x1a0 /* PLHPIX				*/
+#define LCR_XS			0x1a2 /* XStart				*/
+#define LCR_XCKHW		0x1a4 /* XCK High Width			*/
+#define LCR_STHS		0x1a8 /* STH Start			*/
+#define LCR_VT2			0x1aa /* Vertical Total			*/
+#define LCR_YCKSW		0x1ac /* YCK Start Wait			*/
+#define LCR_YSTS		0x1ae /* YST Start			*/
+#define LCR_PPOLS		0x1b0 /* #PPOL Start			*/
+#define LCR_PRECW		0x1b2 /* PREC Width			*/
+#define LCR_VCLKHW		0x1b4 /* VCLK High Width		*/
+#define LCR_OC			0x1b6 /* Output Control			*/
 
 static char *mode_option __devinitdata;
 
@@ -190,7 +205,16 @@ struct tmiofb_par {
 	void __iomem			*lcr;
 };
 
+/*--------------------------------------------------------------------------*/
 
+/*
+ * reasons for an interrupt:
+ *	uis	bbisc	lcdis
+ *	0100	0001	accelerator command completed
+ * 	2000	0001	vsync start
+ * 	2000	0002	display start
+ * 	2000	0004	line number match(0x1ff mask???)
+ */
 static irqreturn_t tmiofb_irq(int irq, void *__info)
 {
 	struct fb_info *info = __info;
@@ -201,6 +225,10 @@ static irqreturn_t tmiofb_irq(int irq, void *__info)
 	tmio_iowrite16(bbisc, par->lcr + LCR_BBISC);
 
 #ifdef CONFIG_FB_TMIO_ACCELL
+	/*
+	 * We were in polling mode and now we got correct irq.
+	 * Switch back to IRQ-based sync of command FIFO
+	 */
 	if (unlikely(par->use_polling && irq != -1)) {
 		printk(KERN_INFO "tmiofb: switching to waitq\n");
 		par->use_polling = false;
@@ -214,8 +242,12 @@ static irqreturn_t tmiofb_irq(int irq, void *__info)
 }
 
 
+/*--------------------------------------------------------------------------*/
 
 
+/*
+ * Turns off the LCD controller and LCD host controller.
+ */
 static int tmiofb_hw_stop(struct platform_device *dev)
 {
 	struct tmio_fb_data *data = dev->dev.platform_data;
@@ -230,6 +262,9 @@ static int tmiofb_hw_stop(struct platform_device *dev)
 	return 0;
 }
 
+/*
+ * Initializes the LCD host controller.
+ */
 static int tmiofb_hw_init(struct platform_device *dev)
 {
 	const struct mfd_cell *cell = mfd_get_cell(dev);
@@ -248,16 +283,16 @@ static int tmiofb_hw_init(struct platform_device *dev)
 	tmio_iowrite16(0x003a, par->ccr + CCR_GCC);
 	tmio_iowrite16(0x3f00, par->ccr + CCR_USC);
 
-	msleep(2); 
+	msleep(2); /* wait for device to settle */
 
 	tmio_iowrite16(0x0000, par->ccr + CCR_USC);
 	tmio_iowrite16(base >> 16, par->ccr + CCR_BASEH);
 	tmio_iowrite16(base, par->ccr + CCR_BASEL);
-	tmio_iowrite16(0x0002, par->ccr + CCR_CMD); 
-	tmio_iowrite16(0x40a8, par->ccr + CCR_VRAMRTC); 
-	tmio_iowrite16(0x0018, par->ccr + CCR_VRAMSAC); 
+	tmio_iowrite16(0x0002, par->ccr + CCR_CMD); /* base address enable */
+	tmio_iowrite16(0x40a8, par->ccr + CCR_VRAMRTC); /* VRAMRC, VRAMTC */
+	tmio_iowrite16(0x0018, par->ccr + CCR_VRAMSAC); /* VRAMSTS, VRAMAC */
 	tmio_iowrite16(0x0002, par->ccr + CCR_VRAMBC);
-	msleep(2); 
+	msleep(2); /* wait for device to settle */
 	tmio_iowrite16(0x000b, par->ccr + CCR_VRAMBC);
 
 	base = vram->start + info->screen_size;
@@ -271,6 +306,9 @@ static int tmiofb_hw_init(struct platform_device *dev)
 	return 0;
 }
 
+/*
+ * Sets the LCD controller's output resolution and pixel clock
+ */
 static void tmiofb_hw_mode(struct platform_device *dev)
 {
 	struct tmio_fb_data *data = dev->dev.platform_data;
@@ -300,25 +338,31 @@ static void tmiofb_hw_mode(struct platform_device *dev)
 	tmio_iowrite16(i += mode->upper_margin, par->lcr + LCR_VDS);
 	tmio_iowrite16(i += mode->yres, par->lcr + LCR_ILN);
 	tmio_iowrite16(i += mode->lower_margin, par->lcr + LCR_VT);
-	tmio_iowrite16(3, par->lcr + LCR_MISC); 
-	tmio_iowrite16(1, par->lcr + LCR_GM); 
+	tmio_iowrite16(3, par->lcr + LCR_MISC); /* RGB565 mode */
+	tmio_iowrite16(1, par->lcr + LCR_GM); /* VRAM enable */
 	tmio_iowrite16(0x4007, par->lcr + LCR_LCDCC);
-	tmio_iowrite16(3, par->lcr + LCR_SP);  
+	tmio_iowrite16(3, par->lcr + LCR_SP);  /* sync polarity */
 
 	tmio_iowrite16(0x0010, par->lcr + LCR_LCDCCRC);
-	msleep(5); 
-	tmio_iowrite16(0x0014, par->lcr + LCR_LCDCCRC); 
-	msleep(5); 
-	tmio_iowrite16(0x0015, par->lcr + LCR_LCDCCRC); 
+	msleep(5); /* wait for device to settle */
+	tmio_iowrite16(0x0014, par->lcr + LCR_LCDCCRC); /* STOP_CKP */
+	msleep(5); /* wait for device to settle */
+	tmio_iowrite16(0x0015, par->lcr + LCR_LCDCCRC); /* STOP_CKP|SOFT_RESET*/
 	tmio_iowrite16(0xfffa, par->lcr + LCR_VCS);
 }
 
+/*--------------------------------------------------------------------------*/
 
 #ifdef CONFIG_FB_TMIO_ACCELL
 static int __must_check
 tmiofb_acc_wait(struct fb_info *info, unsigned int ccs)
 {
 	struct tmiofb_par *par = info->par;
+	/*
+	 * This code can be called with interrupts disabled.
+	 * So instead of relaying on irq to trigger the event,
+	 * poll the state till the necessary command is executed.
+	 */
 	if (irqs_disabled() || par->use_polling) {
 		int i = 0;
 		while (tmio_ioread16(par->lcr + LCR_CCS) > ccs) {
@@ -343,6 +387,9 @@ tmiofb_acc_wait(struct fb_info *info, unsigned int ccs)
 	return 0;
 }
 
+/*
+ * Writes an accelerator command to the accelerator's FIFO.
+ */
 static int
 tmiofb_acc_write(struct fb_info *info, const u32 *cmd, unsigned int count)
 {
@@ -361,6 +408,10 @@ tmiofb_acc_write(struct fb_info *info, const u32 *cmd, unsigned int count)
 	return ret;
 }
 
+/*
+ * Wait for the accelerator to finish its operations before writing
+ * to the framebuffer for consistent display output.
+ */
 static int tmiofb_sync(struct fb_info *fbi)
 {
 	struct tmiofb_par *par = fbi->par;
@@ -370,7 +421,7 @@ static int tmiofb_sync(struct fb_info *fbi)
 
 	ret = tmiofb_acc_wait(fbi, 0);
 
-	while (tmio_ioread16(par->lcr + LCR_BBES) & 2) { 
+	while (tmio_ioread16(par->lcr + LCR_BBES) & 2) { /* blit active */
 		udelay(1);
 		i++ ;
 		if (i > 10000) {
@@ -497,7 +548,12 @@ static int tmiofb_ioctl(struct fb_info *fbi,
 	return -ENOTTY;
 }
 
+/*--------------------------------------------------------------------------*/
 
+/* Select the smallest mode that allows the desired resolution to be
+ * displayed.  If desired, the x and y parameters can be rounded up to
+ * match the selected mode.
+ */
 static struct fb_videomode *
 tmiofb_find_mode(struct fb_info *info, struct fb_var_screeninfo *var)
 {
@@ -548,8 +604,8 @@ static int tmiofb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	var->transp.offset = 0;
 	var->transp.length = 0;
 	var->nonstd = 0;
-	var->height = data->height; 
-	var->width = data->width; 
+	var->height = data->height; /* mm */
+	var->width = data->width; /* mm */
 	var->rotate = 0;
 	return 0;
 }
@@ -591,6 +647,10 @@ static int tmiofb_setcolreg(unsigned regno, unsigned red, unsigned green,
 
 static int tmiofb_blank(int blank, struct fb_info *info)
 {
+	/*
+	 * everything is done in lcd/bl drivers.
+	 * this is purely to make sysfs happy and work.
+	 */
 	return 0;
 }
 
@@ -613,6 +673,7 @@ static struct fb_ops tmiofb_ops = {
 #endif
 };
 
+/*--------------------------------------------------------------------------*/
 
 static int __devinit tmiofb_probe(struct platform_device *dev)
 {
@@ -626,6 +687,9 @@ static int __devinit tmiofb_probe(struct platform_device *dev)
 	struct tmiofb_par *par;
 	int retval;
 
+	/*
+	 * This is the only way ATM to disable the fb
+	 */
 	if (data == NULL) {
 		dev_err(&dev->dev, "NULL platform data!\n");
 		return -EINVAL;
@@ -719,6 +783,7 @@ static int __devinit tmiofb_probe(struct platform_device *dev)
 	return 0;
 
 err_register_framebuffer:
+/*err_set_par:*/
 	tmiofb_hw_stop(dev);
 err_hw_init:
 	if (cell->disable)
@@ -882,6 +947,10 @@ static int tmiofb_suspend(struct platform_device *dev, pm_message_t state)
 
 
 #ifdef CONFIG_FB_TMIO_ACCELL
+	/*
+	 * The fb should be usable even if interrupts are disabled (and they are
+	 * during suspend/resume). Switch temporary to forced polling.
+	 */
 	printk(KERN_INFO "tmiofb: switching to polling\n");
 	par->use_polling = true;
 #endif
@@ -934,6 +1003,7 @@ static struct platform_driver tmiofb_driver = {
 	.resume		= tmiofb_resume,
 };
 
+/*--------------------------------------------------------------------------*/
 
 #ifndef MODULE
 static void __init tmiofb_setup(char *options)
@@ -946,6 +1016,9 @@ static void __init tmiofb_setup(char *options)
 	while ((this_opt = strsep(&options, ",")) != NULL) {
 		if (!*this_opt)
 			continue;
+		/*
+		 * FIXME
+		 */
 	}
 }
 #endif

@@ -26,7 +26,7 @@ static int find_reg_callback(struct device *dev, void *p)
 	struct v4l2_subdev **sd = p;
 
 	*sd = dev_get_drvdata(dev);
-	
+	/* non-zero value stops iteration */
 	return 1;
 }
 
@@ -37,20 +37,20 @@ static struct v4l2_subdev *find_and_register_subdev(
 	struct v4l2_subdev *sd = NULL;
 	int ret;
 
-	
+	/* TODO: add waiting until probe is finished */
 	drv = driver_find(module_name, &platform_bus_type);
 	if (!drv) {
 		mxr_warn(mdev, "module %s is missing\n", module_name);
 		return NULL;
 	}
-	
+	/* driver refcnt is increased, it is safe to iterate over devices */
 	ret = driver_for_each_device(drv, NULL, &sd, find_reg_callback);
-	
+	/* ret == 0 means that find_reg_callback was never executed */
 	if (sd == NULL) {
 		mxr_warn(mdev, "module %s provides no subdev!\n", module_name);
 		goto done;
 	}
-	
+	/* v4l2_device_register_subdev detects if sd is NULL */
 	ret = v4l2_device_register_subdev(&mdev->v4l2_dev, sd);
 	if (ret) {
 		mxr_warn(mdev, "failed to register subdev %s\n", sd->name);
@@ -71,7 +71,7 @@ int __devinit mxr_acquire_video(struct mxr_device *mdev,
 	struct v4l2_subdev *sd;
 
 	strlcpy(v4l2_dev->name, dev_name(mdev->dev), sizeof(v4l2_dev->name));
-	
+	/* prepare context for V4L2 device */
 	ret = v4l2_device_register(dev, v4l2_dev);
 	if (ret) {
 		mxr_err(mdev, "could not register v4l2 device.\n");
@@ -84,14 +84,14 @@ int __devinit mxr_acquire_video(struct mxr_device *mdev,
 		goto fail_v4l2_dev;
 	}
 
-	
+	/* registering outputs */
 	mdev->output_cnt = 0;
 	for (i = 0; i < output_count; ++i) {
 		struct mxr_output_conf *conf = &output_conf[i];
 		struct mxr_output *out;
 
 		sd = find_and_register_subdev(mdev, conf->module_name);
-		
+		/* trying to register next output */
 		if (sd == NULL)
 			continue;
 		out = kzalloc(sizeof *out, GFP_KERNEL);
@@ -99,7 +99,7 @@ int __devinit mxr_acquire_video(struct mxr_device *mdev,
 			mxr_err(mdev, "no memory for '%s'\n",
 				conf->output_name);
 			ret = -ENOMEM;
-			
+			/* registered subdevs are removed in fail_v4l2_dev */
 			goto fail_output;
 		}
 		strlcpy(out->name, conf->output_name, sizeof(out->name));
@@ -108,7 +108,7 @@ int __devinit mxr_acquire_video(struct mxr_device *mdev,
 		mdev->output[mdev->output_cnt++] = out;
 		mxr_info(mdev, "added output '%s' from module '%s'\n",
 			conf->output_name, conf->module_name);
-		
+		/* checking if maximal number of outputs is reached */
 		if (mdev->output_cnt >= MXR_MAX_OUTPUTS)
 			break;
 	}
@@ -116,24 +116,24 @@ int __devinit mxr_acquire_video(struct mxr_device *mdev,
 	if (mdev->output_cnt == 0) {
 		mxr_err(mdev, "failed to register any output\n");
 		ret = -ENODEV;
-		
+		/* skipping fail_output because there is nothing to free */
 		goto fail_vb2_allocator;
 	}
 
 	return 0;
 
 fail_output:
-	
+	/* kfree is NULL-safe */
 	for (i = 0; i < mdev->output_cnt; ++i)
 		kfree(mdev->output[i]);
 	memset(mdev->output, 0, sizeof mdev->output);
 
 fail_vb2_allocator:
-	
+	/* freeing allocator context */
 	vb2_dma_contig_cleanup_ctx(mdev->alloc_ctx);
 
 fail_v4l2_dev:
-	
+	/* NOTE: automatically unregister all subdevs */
 	v4l2_device_unregister(v4l2_dev);
 
 fail:
@@ -144,7 +144,7 @@ void __devexit mxr_release_video(struct mxr_device *mdev)
 {
 	int i;
 
-	
+	/* kfree is NULL-safe */
 	for (i = 0; i < mdev->output_cnt; ++i)
 		kfree(mdev->output[i]);
 
@@ -218,7 +218,7 @@ static void mxr_layer_update_output(struct mxr_layer *layer)
 	struct v4l2_mbus_framefmt mbus_fmt;
 
 	mxr_get_mbus_fmt(mdev, &mbus_fmt);
-	
+	/* checking if update is needed */
 	if (layer->geo.dst.full_width == mbus_fmt.width &&
 		layer->geo.dst.full_height == mbus_fmt.width)
 		return;
@@ -273,7 +273,7 @@ static void mxr_mplane_fill(struct v4l2_plane_pix_format *planes,
 {
 	int i;
 
-	
+	/* checking if nothing to fill */
 	if (!planes)
 		return;
 
@@ -329,26 +329,26 @@ static int mxr_s_fmt(struct file *file, void *priv,
 		return -EINVAL;
 	}
 	layer->fmt = fmt;
-	
+	/* set source size to highest accepted value */
 	geo->src.full_width = max(geo->dst.full_width, pix->width);
 	geo->src.full_height = max(geo->dst.full_height, pix->height);
 	layer->ops.fix_geometry(layer, MXR_GEOMETRY_SOURCE, 0);
 	mxr_geometry_dump(mdev, &layer->geo);
-	
+	/* set cropping to total visible screen */
 	geo->src.width = pix->width;
 	geo->src.height = pix->height;
 	geo->src.x_offset = 0;
 	geo->src.y_offset = 0;
-	
+	/* assure consistency of geometry */
 	layer->ops.fix_geometry(layer, MXR_GEOMETRY_CROP, MXR_NO_OFFSET);
 	mxr_geometry_dump(mdev, &layer->geo);
-	
+	/* set full size to lowest possible value */
 	geo->src.full_width = 0;
 	geo->src.full_height = 0;
 	layer->ops.fix_geometry(layer, MXR_GEOMETRY_SOURCE, 0);
 	mxr_geometry_dump(mdev, &layer->geo);
 
-	
+	/* returning results */
 	mxr_g_fmt(file, priv, f);
 
 	return 0;
@@ -401,6 +401,7 @@ static int mxr_g_selection(struct file *file, void *fh,
 	return 0;
 }
 
+/* returns 1 if rectangle 'a' is inside 'b' */
 static int mxr_is_rect_inside(struct v4l2_rect *a, struct v4l2_rect *b)
 {
 	if (a->left < b->left)
@@ -434,14 +435,14 @@ static int mxr_s_selection(struct file *file, void *fh,
 		return -EINVAL;
 
 	switch (s->target) {
-	
+	/* ignore read-only targets */
 	case V4L2_SEL_TGT_CROP_DEFAULT:
 	case V4L2_SEL_TGT_CROP_BOUNDS:
 		res.width = geo->src.full_width;
 		res.height = geo->src.full_height;
 		break;
 
-	
+	/* ignore read-only targets */
 	case V4L2_SEL_TGT_COMPOSE_DEFAULT:
 	case V4L2_SEL_TGT_COMPOSE_BOUNDS:
 		res.width = geo->dst.full_width;
@@ -460,12 +461,12 @@ static int mxr_s_selection(struct file *file, void *fh,
 	default:
 		return -EINVAL;
 	}
-	
+	/* apply change and update geometry if needed */
 	if (target) {
-		
+		/* backup current geometry if setup fails */
 		memcpy(&tmp, geo, sizeof tmp);
 
-		
+		/* apply requested selection */
 		target->x_offset = s->r.left;
 		target->y_offset = s->r.top;
 		target->width = s->r.width;
@@ -473,7 +474,7 @@ static int mxr_s_selection(struct file *file, void *fh,
 
 		layer->ops.fix_geometry(layer, stage, s->flags);
 
-		
+		/* retrieve update selection rectangle */
 		res.left = target->x_offset;
 		res.top = target->y_offset;
 		res.width = target->width;
@@ -482,18 +483,18 @@ static int mxr_s_selection(struct file *file, void *fh,
 		mxr_geometry_dump(layer->mdev, &layer->geo);
 	}
 
-	
+	/* checking if the rectangle satisfies constraints */
 	if ((s->flags & V4L2_SEL_FLAG_LE) && !mxr_is_rect_inside(&res, &s->r))
 		goto fail;
 	if ((s->flags & V4L2_SEL_FLAG_GE) && !mxr_is_rect_inside(&s->r, &res))
 		goto fail;
 
-	
+	/* return result rectangle */
 	s->r = res;
 
 	return 0;
 fail:
-	
+	/* restore old geometry, which is not touched if target is NULL */
 	if (target)
 		memcpy(geo, &tmp, sizeof tmp);
 	return -ERANGE;
@@ -506,7 +507,7 @@ static int mxr_enum_dv_presets(struct file *file, void *fh,
 	struct mxr_device *mdev = layer->mdev;
 	int ret;
 
-	
+	/* lock protects from changing sd_out */
 	mutex_lock(&mdev->mutex);
 	ret = v4l2_subdev_call(to_outsd(mdev), video, enum_dv_presets, preset);
 	mutex_unlock(&mdev->mutex);
@@ -521,9 +522,12 @@ static int mxr_s_dv_preset(struct file *file, void *fh,
 	struct mxr_device *mdev = layer->mdev;
 	int ret;
 
-	
+	/* lock protects from changing sd_out */
 	mutex_lock(&mdev->mutex);
 
+	/* preset change cannot be done while there is an entity
+	 * dependant on output configuration
+	 */
 	if (mdev->n_output > 0) {
 		mutex_unlock(&mdev->mutex);
 		return -EBUSY;
@@ -535,7 +539,7 @@ static int mxr_s_dv_preset(struct file *file, void *fh,
 
 	mxr_layer_update_output(layer);
 
-	
+	/* any failure should return EINVAL according to V4L2 doc */
 	return ret ? -EINVAL : 0;
 }
 
@@ -546,7 +550,7 @@ static int mxr_g_dv_preset(struct file *file, void *fh,
 	struct mxr_device *mdev = layer->mdev;
 	int ret;
 
-	
+	/* lock protects from changing sd_out */
 	mutex_lock(&mdev->mutex);
 	ret = v4l2_subdev_call(to_outsd(mdev), video, g_dv_preset, preset);
 	mutex_unlock(&mdev->mutex);
@@ -560,9 +564,12 @@ static int mxr_s_std(struct file *file, void *fh, v4l2_std_id *norm)
 	struct mxr_device *mdev = layer->mdev;
 	int ret;
 
-	
+	/* lock protects from changing sd_out */
 	mutex_lock(&mdev->mutex);
 
+	/* standard change cannot be done while there is an entity
+	 * dependant on output configuration
+	 */
 	if (mdev->n_output > 0) {
 		mutex_unlock(&mdev->mutex);
 		return -EBUSY;
@@ -583,7 +590,7 @@ static int mxr_g_std(struct file *file, void *fh, v4l2_std_id *norm)
 	struct mxr_device *mdev = layer->mdev;
 	int ret;
 
-	
+	/* lock protects from changing sd_out */
 	mutex_lock(&mdev->mutex);
 	ret = v4l2_subdev_call(to_outsd(mdev), video, g_std_output, norm);
 	mutex_unlock(&mdev->mutex);
@@ -605,7 +612,7 @@ static int mxr_enum_output(struct file *file, void *fh, struct v4l2_output *a)
 	sd = out->sd;
 	strlcpy(a->name, out->name, sizeof(a->name));
 
-	
+	/* try to obtain supported tv norms */
 	v4l2_subdev_call(sd, video, g_tvnorms_output, &a->std);
 	a->capabilities = 0;
 	if (sd->ops->video && sd->ops->video->s_dv_preset)
@@ -637,7 +644,7 @@ static int mxr_s_output(struct file *file, void *fh, unsigned int i)
 		&vfd->tvnorms);
 	mutex_unlock(&mdev->mutex);
 
-	
+	/* update layers geometry */
 	mxr_layer_update_output(layer);
 
 	mxr_dbg(mdev, "tvnorms = %08llx\n", vfd->tvnorms);
@@ -708,30 +715,30 @@ static int mxr_streamoff(struct file *file, void *priv, enum v4l2_buf_type i)
 
 static const struct v4l2_ioctl_ops mxr_ioctl_ops = {
 	.vidioc_querycap = mxr_querycap,
-	
+	/* format handling */
 	.vidioc_enum_fmt_vid_out = mxr_enum_fmt,
 	.vidioc_s_fmt_vid_out_mplane = mxr_s_fmt,
 	.vidioc_g_fmt_vid_out_mplane = mxr_g_fmt,
-	
+	/* buffer control */
 	.vidioc_reqbufs = mxr_reqbufs,
 	.vidioc_querybuf = mxr_querybuf,
 	.vidioc_qbuf = mxr_qbuf,
 	.vidioc_dqbuf = mxr_dqbuf,
-	
+	/* Streaming control */
 	.vidioc_streamon = mxr_streamon,
 	.vidioc_streamoff = mxr_streamoff,
-	
+	/* Preset functions */
 	.vidioc_enum_dv_presets = mxr_enum_dv_presets,
 	.vidioc_s_dv_preset = mxr_s_dv_preset,
 	.vidioc_g_dv_preset = mxr_g_dv_preset,
-	
+	/* analog TV standard functions */
 	.vidioc_s_std = mxr_s_std,
 	.vidioc_g_std = mxr_g_std,
-	
+	/* Output handling */
 	.vidioc_enum_output = mxr_enum_output,
 	.vidioc_s_output = mxr_s_output,
 	.vidioc_g_output = mxr_g_output,
-	
+	/* selection ioctls */
 	.vidioc_g_selection = mxr_g_selection,
 	.vidioc_s_selection = mxr_s_selection,
 };
@@ -743,20 +750,20 @@ static int mxr_video_open(struct file *file)
 	int ret = 0;
 
 	mxr_dbg(mdev, "%s:%d\n", __func__, __LINE__);
-	
+	/* assure device probe is finished */
 	wait_for_device_probe();
-	
+	/* creating context for file descriptor */
 	ret = v4l2_fh_open(file);
 	if (ret) {
 		mxr_err(mdev, "v4l2_fh_open failed\n");
 		return ret;
 	}
 
-	
+	/* leaving if layer is already initialized */
 	if (!v4l2_fh_is_singular_file(file))
 		return 0;
 
-	
+	/* FIXME: should power be enabled on open? */
 	ret = mxr_power_get(mdev);
 	if (ret) {
 		mxr_err(mdev, "power on failed\n");
@@ -768,9 +775,9 @@ static int mxr_video_open(struct file *file)
 		mxr_err(mdev, "failed to initialize vb2 queue\n");
 		goto fail_power;
 	}
-	
+	/* set default format, first on the list */
 	layer->fmt = layer->fmt_array[0];
-	
+	/* setup default geometry */
 	mxr_layer_default_geo(layer);
 
 	return 0;
@@ -836,7 +843,7 @@ static int queue_setup(struct vb2_queue *vq, const struct v4l2_format *pfmt,
 	struct v4l2_plane_pix_format planes[3];
 
 	mxr_dbg(mdev, "%s\n", __func__);
-	
+	/* checking if format was configured */
 	if (fmt == NULL)
 		return -EINVAL;
 	mxr_dbg(mdev, "fmt = %s\n", fmt->name);
@@ -899,12 +906,12 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 		return -EINVAL;
 	}
 
-	
+	/* block any changes in output configuration */
 	mxr_output_get(mdev);
 
 	mxr_layer_update_output(layer);
 	layer->ops.format_set(layer);
-	
+	/* enabling layer in hardware */
 	spin_lock_irqsave(&layer->enq_slock, flags);
 	layer->state = MXR_LAYER_STREAMING;
 	spin_unlock_irqrestore(&layer->enq_slock, flags);
@@ -950,10 +957,10 @@ static int stop_streaming(struct vb2_queue *vq)
 
 	spin_lock_irqsave(&layer->enq_slock, flags);
 
-	
+	/* reset list */
 	layer->state = MXR_LAYER_STREAMING_FINISH;
 
-	
+	/* set all buffer to be done */
 	list_for_each_entry_safe(buf, buf_tmp, &layer->enq_list, list) {
 		list_del(&buf->list);
 		vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
@@ -961,28 +968,28 @@ static int stop_streaming(struct vb2_queue *vq)
 
 	spin_unlock_irqrestore(&layer->enq_slock, flags);
 
-	
+	/* give 1 seconds to complete to complete last buffers */
 	setup_timer_on_stack(&watchdog, mxr_watchdog,
 		(unsigned long)layer);
 	mod_timer(&watchdog, jiffies + msecs_to_jiffies(1000));
 
-	
+	/* wait until all buffers are goes to done state */
 	vb2_wait_for_all_buffers(vq);
 
-	
+	/* stop timer if all synchronization is done */
 	del_timer_sync(&watchdog);
 	destroy_timer_on_stack(&watchdog);
 
-	
+	/* stopping hardware */
 	spin_lock_irqsave(&layer->enq_slock, flags);
 	layer->state = MXR_LAYER_IDLE;
 	spin_unlock_irqrestore(&layer->enq_slock, flags);
 
-	
+	/* disabling layer in hardware */
 	layer->ops.stream_set(layer, MXR_DISABLE);
-	
+	/* remove one streamer */
 	mxr_streamer_put(mdev);
-	
+	/* allow changes in output configuration */
 	mxr_output_put(mdev);
 	return 0;
 }
@@ -996,6 +1003,7 @@ static struct vb2_ops mxr_video_qops = {
 	.stop_streaming = stop_streaming,
 };
 
+/* FIXME: try to put this functions to mxr_base_layer_create */
 int mxr_base_layer_register(struct mxr_layer *layer)
 {
 	struct mxr_device *mdev = layer->mdev;
@@ -1057,7 +1065,7 @@ struct mxr_layer *mxr_base_layer_create(struct mxr_device *mdev,
 		.ioctl_ops = &mxr_ioctl_ops,
 	};
 	strlcpy(layer->vfd.name, name, sizeof(layer->vfd.name));
-	
+	/* let framework control PRIORITY */
 	set_bit(V4L2_FL_USE_FH_PRIO, &layer->vfd.flags);
 
 	video_set_drvdata(&layer->vfd, layer);

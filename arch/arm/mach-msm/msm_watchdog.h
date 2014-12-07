@@ -81,9 +81,7 @@ static inline void pet_watchdog(void) { }
 
 #if defined(CONFIG_HTC_DEBUG_WATCHDOG)
 void msm_watchdog_bark(void);
-#ifdef CONFIG_ARCH_MSM8226
 void msm_watchdog_reset(void);
-#endif
 int msm_watchdog_suspend_deferred(void);
 int msm_watchdog_resume_deferred(void);
 #else

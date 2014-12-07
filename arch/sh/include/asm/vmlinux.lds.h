@@ -22,4 +22,4 @@
 #define EXTRA_TEXT
 #endif
 
-#endif 
+#endif /* __ASM_SH_VMLINUX_LDS_H */

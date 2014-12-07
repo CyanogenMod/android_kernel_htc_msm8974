@@ -47,11 +47,13 @@
 #include "pwc-dec1.h"
 #include "pwc-dec23.h"
 
+/* Version block */
 #define PWC_VERSION	"10.0.15"
 #define PWC_NAME 	"pwc"
 #define PFX		PWC_NAME ": "
 
 
+/* Trace certain actions in the driver */
 #define PWC_DEBUG_LEVEL_MODULE	(1<<0)
 #define PWC_DEBUG_LEVEL_PROBE	(1<<1)
 #define PWC_DEBUG_LEVEL_OPEN	(1<<2)
@@ -87,7 +89,7 @@
 #define PWC_INFO(fmt, args...) printk(KERN_INFO PFX fmt, ##args)
 #define PWC_TRACE(fmt, args...) PWC_DEBUG(TRACE, fmt, ##args)
 
-#else 
+#else /* if ! CONFIG_USB_PWC_DEBUG */
 
 #define PWC_ERROR(fmt, args...) printk(KERN_ERR PFX fmt, ##args)
 #define PWC_WARNING(fmt, args...) printk(KERN_WARNING PFX fmt, ##args)
@@ -99,6 +101,7 @@
 
 #endif
 
+/* Defines for ToUCam cameras */
 #define TOUCAM_HEADER_SIZE		8
 #define TOUCAM_TRAILER_SIZE		4
 
@@ -109,23 +112,29 @@
 #define MAX_WIDTH		640
 #define MAX_HEIGHT		480
 
+/* Ignore errors in the first N frames, to allow for startup delays */
 #define FRAME_LOWMARK 5
 
+/* Size and number of buffers for the ISO pipe. */
 #define MAX_ISO_BUFS		3
 #define ISO_FRAMES_PER_DESC	10
 #define ISO_MAX_FRAME_SIZE	960
 #define ISO_BUFFER_SIZE 	(ISO_FRAMES_PER_DESC * ISO_MAX_FRAME_SIZE)
 
+/* Maximum size after decompression is 640x480 YUV data, 1.5 * 640 * 480 */
 #define PWC_FRAME_SIZE 		(460800 + TOUCAM_HEADER_SIZE + TOUCAM_TRAILER_SIZE)
 
+/* Absolute minimum and maximum number of buffers available for mmap() */
 #define MIN_FRAMES		2
 #define MAX_FRAMES		16
 
+/* Some macros to quickly find the type of a webcam */
 #define DEVICE_USE_CODEC1(x) ((x)<675)
 #define DEVICE_USE_CODEC2(x) ((x)>=675 && (x)<700)
 #define DEVICE_USE_CODEC3(x) ((x)>=700)
 #define DEVICE_USE_CODEC23(x) ((x)>=675)
 
+/* Request types: video */
 #define SET_LUM_CTL			0x01
 #define GET_LUM_CTL			0x02
 #define SET_CHROM_CTL			0x03
@@ -141,6 +150,7 @@
 #define SET_MPT_CTL			0x0D
 #define GET_MPT_CTL			0x0E
 
+/* Selectors for the Luminance controls [GS]ET_LUM_CTL */
 #define AGC_MODE_FORMATTER			0x2000
 #define PRESET_AGC_FORMATTER			0x2100
 #define SHUTTER_MODE_FORMATTER			0x2200
@@ -155,6 +165,7 @@
 #define BRIGHTNESS_FORMATTER			0x2B00
 #define GAMMA_FORMATTER				0x2C00
 
+/* Selectors for the Chrominance controls [GS]ET_CHROM_CTL */
 #define WB_MODE_FORMATTER			0x1000
 #define AWB_CONTROL_SPEED_FORMATTER		0x1100
 #define AWB_CONTROL_DELAY_FORMATTER		0x1200
@@ -164,6 +175,7 @@
 #define SATURATION_MODE_FORMATTER1		0x1600
 #define SATURATION_MODE_FORMATTER2		0x1700
 
+/* Selectors for the Status controls [GS]ET_STATUS_CTL */
 #define SAVE_USER_DEFAULTS_FORMATTER		0x0200
 #define RESTORE_USER_DEFAULTS_FORMATTER		0x0300
 #define RESTORE_FACTORY_DEFAULTS_FORMATTER	0x0400
@@ -172,10 +184,12 @@
 #define READ_RED_GAIN_FORMATTER			0x0700
 #define READ_BLUE_GAIN_FORMATTER		0x0800
 
+/* Formatters for the motorized pan & tilt [GS]ET_MPT_CTL */
 #define PT_RELATIVE_CONTROL_FORMATTER		0x01
 #define PT_RESET_CONTROL_FORMATTER		0x02
 #define PT_STATUS_FORMATTER			0x03
 
+/* Enumeration of image sizes */
 #define PSZ_SQCIF	0x00
 #define PSZ_QSIF	0x01
 #define PSZ_QCIF	0x02
@@ -185,18 +199,21 @@
 #define PSZ_MAX		6
 
 struct pwc_raw_frame {
-	__le16 type;		
-	__le16 vbandlength;	
-	__u8   cmd[4];		
-	__u8   rawframe[0];	
+	__le16 type;		/* type of the webcam */
+	__le16 vbandlength;	/* Size of 4 lines compressed (used by the
+				   decompressor) */
+	__u8   cmd[4];		/* the four byte of the command (in case of
+				   nala, only the first 3 bytes is filled) */
+	__u8   rawframe[0];	/* frame_size = H / 4 * vbandlength */
 } __packed;
 
+/* intermediate buffers with raw data from the USB cam */
 struct pwc_frame_buf
 {
-	struct vb2_buffer vb;	
+	struct vb2_buffer vb;	/* common v4l buffer stuff -- must be first */
 	struct list_head list;
 	void *data;
-	int filled;		
+	int filled;		/* number of bytes filled */
 };
 
 struct pwc_device
@@ -204,31 +221,31 @@ struct pwc_device
 	struct video_device vdev;
 	struct v4l2_device v4l2_dev;
 
-	
+	/* Pointer to our usb_device, may be NULL after unplug */
 	struct usb_device *udev;
 	struct mutex udevlock;
 
-	
+	/* type of cam (645, 646, 675, 680, 690, 720, 730, 740, 750) */
 	int type;
-	int release;		
-	int features;		
+	int release;		/* release number */
+	int features;		/* feature bits */
 
-	
-	struct file *capt_file;	
+	/*** Video data ***/
+	struct file *capt_file;	/* file doing video capture */
 	struct mutex capt_file_lock;
-	int vendpoint;		
-	int vcinterface;	
-	int valternate;		
-	int vframes;		
-	int pixfmt;		
-	int vframe_count;	
-	int vmax_packet_size;	
-	int vlast_packet_size;	
-	int visoc_errors;	
-	int vbandlength;	
-	char vsync;		
-	char vmirror;		
-	char power_save;	
+	int vendpoint;		/* video isoc endpoint */
+	int vcinterface;	/* video control interface */
+	int valternate;		/* alternate interface needed */
+	int vframes;		/* frames-per-second */
+	int pixfmt;		/* pixelformat: V4L2_PIX_FMT_YUV420 or _PWCX */
+	int vframe_count;	/* received frames */
+	int vmax_packet_size;	/* USB maxpacket size */
+	int vlast_packet_size;	/* for frame synchronisation */
+	int visoc_errors;	/* number of contiguous ISOC errors */
+	int vbandlength;	/* compressed band length; 0 is uncompressed */
+	char vsync;		/* used by isoc handler */
+	char vmirror;		/* for ToUCaM series */
+	char power_save;	/* Do powersaving for this cam */
 
 	unsigned char cmd_buf[13];
 	unsigned char *ctrl_buf;
@@ -236,32 +253,44 @@ struct pwc_device
 	struct urb *urbs[MAX_ISO_BUFS];
 	char iso_init;
 
-	
+	/* videobuf2 queue and queued buffers list */
 	struct vb2_queue vb_queue;
 	struct list_head queued_bufs;
 	spinlock_t queued_bufs_lock;
 
+	/*
+	 * Frame currently being filled, this only gets touched by the
+	 * isoc urb complete handler, and by stream start / stop since
+	 * start / stop touch it before / after starting / killing the urbs
+	 * no locking is needed around this
+	 */
 	struct pwc_frame_buf *fill_buf;
 
 	int frame_header_size, frame_trailer_size;
 	int frame_size;
-	int frame_total_size;	
+	int frame_total_size;	/* including header & trailer */
 	int drop_frames;
 
-	union {	
+	union {	/* private data for decompression engine */
 		struct pwc_dec1_private dec1;
 		struct pwc_dec23_private dec23;
 	};
 
-	int image_mask;				
-	int width, height;			
+	/*
+	 * We have an 'image' and a 'view', where 'image' is the fixed-size img
+	 * as delivered by the camera, and 'view' is the size requested by the
+	 * program. The camera image is centered in this viewport, laced with
+	 * a gray or black border. view_min <= image <= view <= view_max;
+	 */
+	int image_mask;				/* supported sizes */
+	int width, height;			/* current resolution */
 
 #ifdef CONFIG_USB_PWC_INPUT_EVDEV
-	struct input_dev *button_dev;	
+	struct input_dev *button_dev;	/* webcam snapshot button input */
 	char button_phys[64];
 #endif
 
-	
+	/* controls */
 	struct v4l2_ctrl_handler	ctrl_handler;
 	u16				saturation_fmt;
 	struct v4l2_ctrl		*brightness;
@@ -269,35 +298,35 @@ struct pwc_device
 	struct v4l2_ctrl		*saturation;
 	struct v4l2_ctrl		*gamma;
 	struct {
-		
+		/* awb / red-blue balance cluster */
 		struct v4l2_ctrl	*auto_white_balance;
 		struct v4l2_ctrl	*red_balance;
 		struct v4l2_ctrl	*blue_balance;
-		
+		/* usb ctrl transfers are slow, so we cache things */
 		int			color_bal_valid;
-		unsigned long		last_color_bal_update; 
+		unsigned long		last_color_bal_update; /* In jiffies */
 		s32			last_red_balance;
 		s32			last_blue_balance;
 	};
 	struct {
-		
+		/* autogain / gain cluster */
 		struct v4l2_ctrl	*autogain;
 		struct v4l2_ctrl	*gain;
 		int			gain_valid;
-		unsigned long		last_gain_update; 
+		unsigned long		last_gain_update; /* In jiffies */
 		s32			last_gain;
 	};
 	struct {
-		
+		/* exposure_auto / exposure cluster */
 		struct v4l2_ctrl	*exposure_auto;
 		struct v4l2_ctrl	*exposure;
 		int			exposure_valid;
-		unsigned long		last_exposure_update; 
+		unsigned long		last_exposure_update; /* In jiffies */
 		s32			last_exposure;
 	};
 	struct v4l2_ctrl		*colorfx;
 	struct {
-		
+		/* autocontour/contour cluster */
 		struct v4l2_ctrl	*autocontour;
 		struct v4l2_ctrl	*contour;
 	};
@@ -310,27 +339,32 @@ struct pwc_device
 	struct v4l2_ctrl		*awb_speed;
 	struct v4l2_ctrl		*awb_delay;
 	struct {
-		
+		/* motor control cluster */
 		struct v4l2_ctrl	*motor_pan;
 		struct v4l2_ctrl	*motor_tilt;
 		struct v4l2_ctrl	*motor_pan_reset;
 		struct v4l2_ctrl	*motor_tilt_reset;
 	};
-	
+	/* CODEC3 models have both gain and exposure controlled by autogain */
 	struct v4l2_ctrl		*autogain_expo_cluster[3];
 };
 
+/* Global variables */
 #ifdef CONFIG_USB_PWC_DEBUG
 extern int pwc_trace;
 #endif
 
 int pwc_test_n_set_capt_file(struct pwc_device *pdev, struct file *file);
 
+/** Functions in pwc-misc.c */
+/* sizes in pixels */
 extern const int pwc_image_sizes[PSZ_MAX][2];
 
 int pwc_get_size(struct pwc_device *pdev, int width, int height);
 void pwc_construct(struct pwc_device *pdev);
 
+/** Functions in pwc-ctrl.c */
+/* Request a certain video mode. Returns < 0 if not possible */
 extern int pwc_set_video_mode(struct pwc_device *pdev, int width, int height,
 	int pixfmt, int frames, int *compression, int send_to_cam);
 extern unsigned int pwc_get_fps(struct pwc_device *pdev, unsigned int index, unsigned int size);
@@ -339,6 +373,7 @@ extern int pwc_get_cmos_sensor(struct pwc_device *pdev, int *sensor);
 extern int send_control_msg(struct pwc_device *pdev,
 			    u8 request, u16 value, void *buf, int buflen);
 
+/* Control get / set helpers */
 int pwc_get_u8_ctrl(struct pwc_device *pdev, u8 request, u16 value, int *data);
 int pwc_set_u8_ctrl(struct pwc_device *pdev, u8 request, u16 value, u8 data);
 int pwc_get_s8_ctrl(struct pwc_device *pdev, u8 request, u16 value, int *data);
@@ -348,10 +383,13 @@ int pwc_set_u16_ctrl(struct pwc_device *pdev, u8 request, u16 value, u16 data);
 int pwc_button_ctrl(struct pwc_device *pdev, u16 value);
 int pwc_init_controls(struct pwc_device *pdev);
 
+/* Power down or up the camera; not supported by all models */
 extern void pwc_camera_power(struct pwc_device *pdev, int power);
 
 extern const struct v4l2_ioctl_ops pwc_ioctl_ops;
 
+/** pwc-uncompress.c */
+/* Expand frame to image, possibly including decompression. Uses read_frame and fill_image */
 int pwc_decompress(struct pwc_device *pdev, struct pwc_frame_buf *fbuf);
 
 #endif

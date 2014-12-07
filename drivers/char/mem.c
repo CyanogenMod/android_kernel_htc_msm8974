@@ -35,6 +35,8 @@
 # include <linux/efi.h>
 #endif
 
+#include <mach/devices_cmdline.h>
+
 static inline unsigned long size_inside_page(unsigned long start,
 					     unsigned long size)
 {
@@ -867,7 +869,16 @@ static int __init chr_dev_init(void)
 		return PTR_ERR(mem_class);
 
 	mem_class->devnode = mem_devnode;
-	for (minor = 1; minor < ARRAY_SIZE(devlist); minor++) {
+
+    
+    if (board_mfg_mode() == MFG_MODE_MINI) {
+        minor = 1;
+    }
+    else {
+        
+        minor = 3;
+    }
+	for (; minor < ARRAY_SIZE(devlist); minor++) {
 		if (!devlist[minor].name)
 			continue;
 		device_create(mem_class, NULL, MKDEV(MEM_MAJOR, minor),

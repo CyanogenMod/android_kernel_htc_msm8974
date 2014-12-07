@@ -59,4 +59,4 @@ uint32_t core_get_adsp_version(void);
 
 uint32_t core_set_dts_model_id(uint32_t id_size, uint8_t *id);
 
-#endif 
+#endif /* __Q6CORE_H__ */

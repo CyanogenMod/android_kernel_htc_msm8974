@@ -18,12 +18,13 @@
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 
+/* ADC controller bit defines */
 #define ADC_DELAY	0xf00
 #define ADC_DOWN	0x01
 #define ADC_TSC_Y	(0x01 << 8)
 #define ADC_TSC_X	(0x00 << 8)
 #define TSC_FOURWIRE	(~(0x03 << 1))
-#define ADC_CLK_EN	(0x01 << 28)	
+#define ADC_CLK_EN	(0x01 << 28)	/* ADC clock enable */
 #define ADC_READ_CON	(0x01 << 12)
 #define ADC_CONV	(0x01 << 13)
 #define ADC_SEMIAUTO	(0x01 << 14)
@@ -36,13 +37,13 @@
 #define ADC_INT_EN	(0x01 << 21)
 #define LVD_INT_EN	(0x01 << 22)
 #define WT_INT_EN	(0x01 << 23)
-#define ADC_DIV		(0x04 << 1)	
+#define ADC_DIV		(0x04 << 1)	/* div = 6 */
 
 enum ts_state {
-	TS_WAIT_NEW_PACKET,	
-	TS_WAIT_X_COORD,	
-	TS_WAIT_Y_COORD,	
-	TS_IDLE,		
+	TS_WAIT_NEW_PACKET,	/* We are waiting next touch report */
+	TS_WAIT_X_COORD,	/* We are waiting for ADC to report X coord */
+	TS_WAIT_Y_COORD,	/* We are waiting for ADC to report Y coord */
+	TS_IDLE,		/* Input device is closed, don't do anything */
 };
 
 struct w90p910_ts {
@@ -117,6 +118,10 @@ static irqreturn_t w90p910_ts_interrupt(int irq, void *dev_id)
 
 	switch (w90p910_ts->state) {
 	case TS_WAIT_NEW_PACKET:
+		/*
+		 * The controller only generates interrupts when pen
+		 * is down.
+		 */
 		del_timer(&w90p910_ts->timer);
 		w90p910_prepare_x_reading(w90p910_ts);
 		break;
@@ -162,7 +167,7 @@ static int w90p910_open(struct input_dev *dev)
 	struct w90p910_ts *w90p910_ts = input_get_drvdata(dev);
 	unsigned long val;
 
-	
+	/* enable the ADC clock */
 	clk_enable(w90p910_ts->clk);
 
 	__raw_writel(ADC_RST1, w90p910_ts->ts_reg);
@@ -170,7 +175,7 @@ static int w90p910_open(struct input_dev *dev)
 	__raw_writel(ADC_RST0, w90p910_ts->ts_reg);
 	msleep(1);
 
-	
+	/* set delay and screen type */
 	val = __raw_readl(w90p910_ts->ts_reg + 0x04);
 	__raw_writel(val & TSC_FOURWIRE, w90p910_ts->ts_reg + 0x04);
 	__raw_writel(ADC_DELAY, w90p910_ts->ts_reg + 0x08);
@@ -178,7 +183,7 @@ static int w90p910_open(struct input_dev *dev)
 	w90p910_ts->state = TS_WAIT_NEW_PACKET;
 	wmb();
 
-	
+	/* set trigger mode */
 	val = __raw_readl(w90p910_ts->ts_reg);
 	val |= ADC_WAITTRIG | ADC_DIV | ADC_EN | WT_INT_EN;
 	__raw_writel(val, w90p910_ts->ts_reg);
@@ -191,7 +196,7 @@ static void w90p910_close(struct input_dev *dev)
 	struct w90p910_ts *w90p910_ts = input_get_drvdata(dev);
 	unsigned long val;
 
-	
+	/* disable trigger mode */
 
 	spin_lock_irq(&w90p910_ts->lock);
 
@@ -203,10 +208,10 @@ static void w90p910_close(struct input_dev *dev)
 
 	spin_unlock_irq(&w90p910_ts->lock);
 
-	
+	/* Now that interrupts are shut off we can safely delete timer */
 	del_timer_sync(&w90p910_ts->timer);
 
-	
+	/* stop the ADC clock */
 	clk_disable(w90p910_ts->clk);
 }
 

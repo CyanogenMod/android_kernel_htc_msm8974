@@ -15,6 +15,12 @@
 #include <asm/rwlock.h>
 #include <asm/page.h>
 
+/*
+ * Simple spin lock operations.  There are two variants, one clears IRQ's
+ * on the local processor, one does not.
+ *
+ * We make no fairness assumptions. They have a cost.
+ */
 
 #define arch_spin_is_locked(x)	(*(volatile signed char *)(&(x)->slock) != 0)
 #define arch_spin_unlock_wait(x) do { barrier(); } while (arch_spin_is_locked(x))
@@ -80,14 +86,36 @@ static inline void arch_spin_lock_flags(arch_spinlock_t *lock,
 
 #ifdef __KERNEL__
 
+/*
+ * Read-write spinlocks, allowing multiple readers
+ * but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts
+ * but no interrupt writers. For those circumstances we
+ * can "mix" irq-safe locks - any writer needs to get a
+ * irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ */
 
+/**
+ * read_can_lock - would read_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_read_can_lock(x) ((int)(x)->lock > 0)
 
+/**
+ * write_can_lock - would write_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_write_can_lock(x) ((x)->lock == RW_LOCK_BIAS)
 
+/*
+ * On mn10300, we implement read-write locks as a 32-bit counter
+ * with the high bit (sign) being the "contended" bit.
+ */
 static inline void arch_read_lock(arch_rwlock_t *rw)
 {
-#if 0 
+#if 0 //def CONFIG_MN10300_HAS_ATOMIC_OPS_UNIT
 	__build_read_lock(rw, "__read_lock_failed");
 #else
 	{
@@ -100,7 +128,7 @@ static inline void arch_read_lock(arch_rwlock_t *rw)
 
 static inline void arch_write_lock(arch_rwlock_t *rw)
 {
-#if 0 
+#if 0 //def CONFIG_MN10300_HAS_ATOMIC_OPS_UNIT
 	__build_write_lock(rw, "__write_lock_failed");
 #else
 	{
@@ -113,7 +141,7 @@ static inline void arch_write_lock(arch_rwlock_t *rw)
 
 static inline void arch_read_unlock(arch_rwlock_t *rw)
 {
-#if 0 
+#if 0 //def CONFIG_MN10300_HAS_ATOMIC_OPS_UNIT
 	__build_read_unlock(rw);
 #else
 	{
@@ -125,7 +153,7 @@ static inline void arch_read_unlock(arch_rwlock_t *rw)
 
 static inline void arch_write_unlock(arch_rwlock_t *rw)
 {
-#if 0 
+#if 0 //def CONFIG_MN10300_HAS_ATOMIC_OPS_UNIT
 	__build_write_unlock(rw);
 #else
 	{
@@ -161,5 +189,5 @@ static inline int arch_write_trylock(arch_rwlock_t *lock)
 #define _raw_read_relax(lock)	cpu_relax()
 #define _raw_write_relax(lock)	cpu_relax()
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_SPINLOCK_H */

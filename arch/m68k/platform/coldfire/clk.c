@@ -1,3 +1,4 @@
+/***************************************************************************/
 
 /*
  *	clk.c -- general ColdFire CPU kernel clk handling
@@ -5,12 +6,14 @@
  *	Copyright (C) 2009, Greg Ungerer (gerg@snapgear.com)
  */
 
+/***************************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/clk.h>
 #include <asm/coldfire.h>
 
+/***************************************************************************/
 
 struct clk *clk_get(struct device *dev, const char *id)
 {
@@ -39,3 +42,4 @@ unsigned long clk_get_rate(struct clk *clk)
 	return MCF_CLK;
 }
 EXPORT_SYMBOL(clk_get_rate);
+/***************************************************************************/

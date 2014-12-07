@@ -10,6 +10,9 @@
  * the Free Software Foundation.
  */
 
+/*
+ * Arch-dependent inline functions and defines.
+ */
 
 #if defined(CONFIG_MACH_JAZZ)
 #include "i8042-jazzio.h"
@@ -29,9 +32,17 @@
 #include "i8042-io.h"
 #endif
 
+/*
+ * This is in 50us units, the time we wait for the i8042 to react. This
+ * has to be long enough for the i8042 itself to timeout on sending a byte
+ * to a non-existent mouse.
+ */
 
 #define I8042_CTL_TIMEOUT	10000
 
+/*
+ * Status register bits.
+ */
 
 #define I8042_STR_PARITY	0x80
 #define I8042_STR_TIMEOUT	0x40
@@ -42,6 +53,9 @@
 #define I8042_STR_IBF		0x02
 #define	I8042_STR_OBF		0x01
 
+/*
+ * Control register bits.
+ */
 
 #define I8042_CTR_KBDINT	0x01
 #define I8042_CTR_AUXINT	0x02
@@ -50,15 +64,29 @@
 #define I8042_CTR_AUXDIS	0x20
 #define I8042_CTR_XLATE		0x40
 
+/*
+ * Return codes.
+ */
 
 #define I8042_RET_CTL_TEST	0x55
 
+/*
+ * Expected maximum internal i8042 buffer size. This is used for flushing
+ * the i8042 buffers.
+ */
 
 #define I8042_BUFFER_SIZE	16
 
+/*
+ * Number of AUX ports on controllers supporting active multiplexing
+ * specification
+ */
 
 #define I8042_NUM_MUX_PORTS	4
 
+/*
+ * Debug.
+ */
 
 #ifdef DEBUG
 static unsigned long i8042_start_time;
@@ -78,4 +106,4 @@ static unsigned long i8042_start_time;
 	} while (0)
 #endif
 
-#endif 
+#endif /* _I8042_H */

@@ -28,6 +28,7 @@
 
 #define MAX9850_CACHEREGNUM 11
 
+/* MAX9850_DIGITAL_AUDIO */
 #define MAX9850_MASTER			(1<<7)
 #define MAX9850_INV			(1<<6)
 #define MAX9850_BCINV			(1<<5)

@@ -174,6 +174,7 @@ struct punc_var_t *get_punc_var(enum var_id_t var_id)
 	return rv;
 }
 
+/* handlers for setting vars */
 int set_num_var(int input, struct st_var_header *var, int how)
 {
 	int val;
@@ -266,6 +267,10 @@ int set_string_var(const char *page, struct st_var_header *var, int len)
 	return ret;
 }
 
+/* set_mask_bits sets or clears the punc/delim/repeat bits,
+ * if input is null uses the defaults.
+ * values for how: 0 clears bits of chars supplied,
+ * 1 clears allk, 2 sets bits for chars */
 int set_mask_bits(const char *input, const int which, const int how)
 {
 	u_char *cp;

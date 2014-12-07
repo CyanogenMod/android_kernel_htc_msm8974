@@ -31,7 +31,7 @@
 #define QPNP_VIB_MIN_LEVEL		12
 
 #define QPNP_VIB_DEFAULT_TIMEOUT	15000
-#define QPNP_VIB_DEFAULT_VTG_LVL	2700
+#define QPNP_VIB_DEFAULT_VTG_LVL	3100
 
 #define QPNP_VIB_EN			BIT(7)
 #define QPNP_VIB_VTG_SET_MASK		0x1F
@@ -53,6 +53,8 @@ struct qpnp_vib {
 	int vtg_level;
 	int timeout;
 	spinlock_t lock;
+	u8 enlarge_vib_on;
+	u8 enlarge_vib_diff_value;
 };
 
 static struct qpnp_vib *vib_dev;
@@ -279,6 +281,27 @@ static ssize_t voltage_level_store(
 }
 
 static DEVICE_ATTR(voltage_level, S_IRUGO | S_IWUSR, voltage_level_show, voltage_level_store);
+
+static ssize_t vib_enlarge_en_show(struct device *dev, struct device_attribute *attr,
+		char *buf) {
+	struct timed_output_dev *time_cdev;
+	struct qpnp_vib *vib ;
+	time_cdev = (struct timed_output_dev *) dev_get_drvdata(dev);
+	vib = container_of(time_cdev, struct qpnp_vib, timed_dev);
+	return sprintf(buf, "%d", vib->enlarge_vib_on);
+}
+static DEVICE_ATTR(vib_enlarge_en, S_IRUGO | S_IWUSR, vib_enlarge_en_show, NULL);
+
+static ssize_t vib_enlarge_diff_value_show(struct device *dev, struct device_attribute *attr,
+		char *buf) {
+	struct timed_output_dev *time_cdev;
+	struct qpnp_vib *vib ;
+	time_cdev = (struct timed_output_dev *) dev_get_drvdata(dev);
+	vib = container_of(time_cdev, struct qpnp_vib, timed_dev);
+	return sprintf(buf, "%d", vib->enlarge_vib_diff_value);
+}
+static DEVICE_ATTR(vib_enlarge_diff_value, S_IRUGO | S_IWUSR, vib_enlarge_diff_value_show, NULL);
+
 #ifdef CONFIG_PM
 static int qpnp_vibrator_suspend(struct device *dev)
 {
@@ -325,6 +348,23 @@ static int __devinit qpnp_vibrator_probe(struct spmi_device *spmi)
 
 	vib->vtg_level /= 100;
 
+	temp_dt = of_get_property(spmi->dev.of_node,
+		"qcom,qpnp-vib-enlarge-enable", NULL);
+	if(temp_dt) {
+		vib->enlarge_vib_on = be32_to_cpu(*temp_dt);
+	} else {
+		vib->enlarge_vib_on = 0;
+	}
+	temp_dt = of_get_property(spmi->dev.of_node,
+		"qcom,qpnp-vib-enlarge-diff_value", NULL);
+	if(temp_dt) {
+		vib->enlarge_vib_diff_value = be32_to_cpu(*temp_dt);
+	} else {
+		vib->enlarge_vib_diff_value = 0;
+	}
+	
+	
+
 	vib_resource = spmi_get_resource(spmi, 0, IORESOURCE_MEM, 0);
 	if (!vib_resource) {
 		dev_err(&spmi->dev, "Unable to get vibrator base address\n");
@@ -362,6 +402,16 @@ static int __devinit qpnp_vibrator_probe(struct spmi_device *spmi)
 	rc = device_create_file(vib->timed_dev.dev, &dev_attr_voltage_level);
 	if (rc < 0) {
 		pr_err("[VIB] %s, create sysfs fail: voltage_level\n", __func__);
+	}
+
+	rc = device_create_file(vib->timed_dev.dev, &dev_attr_vib_enlarge_en);
+	if (rc < 0) {
+		printk(KERN_INFO "[VIB] %s, create sysfs fail: vib_enlarge_en\n", __func__);
+	}
+
+	rc = device_create_file(vib->timed_dev.dev, &dev_attr_vib_enlarge_diff_value);
+	if (rc < 0) {
+		printk(KERN_INFO "[VIB] %s, create sysfs fail: vib_enlarge_diff_value\n", __func__);
 	}
 
 #ifdef CONFIG_VIB_TRIGGERS

@@ -35,15 +35,20 @@ extern int prom_node_root;
 
 int show_unhandled_signals = 1;
 
+/* At boot time we determine these two values necessary for setting
+ * up the segment maps and page table entries (pte's).
+ */
 
 int num_segmaps, num_contexts;
 int invalid_segment;
 
+/* various Virtual Address Cache parameters we find at boot time... */
 
 int vac_size, vac_linesize, vac_do_hw_vac_flushes;
 int vac_entries_per_context, vac_entries_per_segment;
 int vac_entries_per_page;
 
+/* Return how much physical memory we have.  */
 unsigned long probe_memory(void)
 {
 	unsigned long total = 0;
@@ -57,6 +62,7 @@ unsigned long probe_memory(void)
 
 extern void sun4c_complete_all_stores(void);
 
+/* Whee, a level 15 NMI interrupt memory error.  Let's have fun... */
 asmlinkage void sparc_lvl15_nmi(struct pt_regs *regs, unsigned long serr,
 				unsigned long svaddr, unsigned long aerr,
 				unsigned long avaddr)
@@ -106,20 +112,20 @@ asmlinkage int lookup_fault(unsigned long pc, unsigned long ret_pc,
 	i = search_extables_range(ret_pc, &g2);
 	switch (i) {
 	case 3:
-		
+		/* load & store will be handled by fixup */
 		return 3;
 
 	case 1:
-		
-		
+		/* store will be handled by fixup, load will bump out */
+		/* for _to_ macros */
 		insn = *((unsigned int *) pc);
 		if ((insn >> 21) & 1)
 			return 1;
 		break;
 
 	case 2:
-		
-		
+		/* load will be handled by fixup, store will bump out */
+		/* for _from_ macros */
 		insn = *((unsigned int *) pc);
 		if (!((insn >> 21) & 1) || ((insn>>19)&0x3f) == 15)
 			return 2; 
@@ -139,7 +145,7 @@ asmlinkage int lookup_fault(unsigned long pc, unsigned long ret_pc,
 		"nop\n" : "=r" (regs.psr));
 	unhandled_fault(address, current, &regs);
 
-	
+	/* Not reached */
 	return 0;
 }
 
@@ -225,10 +231,23 @@ asmlinkage void do_sparc_fault(struct pt_regs *regs, int text_fault, int write,
 	if(text_fault)
 		address = regs->pc;
 
+	/*
+	 * We fault-in kernel-space virtual memory on-demand. The
+	 * 'reference' page table is init_mm.pgd.
+	 *
+	 * NOTE! We MUST NOT take any locks for this case. We may
+	 * be in an interrupt or a critical region, and should
+	 * only copy the information from the master page table,
+	 * nothing more.
+	 */
 	code = SEGV_MAPERR;
 	if (!ARCH_SUN4C && address >= TASK_SIZE)
 		goto vmalloc_fault;
 
+	/*
+	 * If we're in an interrupt or have no user
+	 * context, we must not take the fault..
+	 */
         if (in_atomic() || !mm)
                 goto no_context;
 
@@ -237,6 +256,10 @@ asmlinkage void do_sparc_fault(struct pt_regs *regs, int text_fault, int write,
 retry:
 	down_read(&mm->mmap_sem);
 
+	/*
+	 * The kernel referencing a bad kernel pointer can lock up
+	 * a sun4c machine completely, so we must attempt recovery.
+	 */
 	if(!from_user && address >= PAGE_OFFSET)
 		goto bad_area;
 
@@ -249,17 +272,26 @@ retry:
 		goto bad_area;
 	if(expand_stack(vma, address))
 		goto bad_area;
+	/*
+	 * Ok, we have a good vm_area for this memory access, so
+	 * we can handle it..
+	 */
 good_area:
 	code = SEGV_ACCERR;
 	if(write) {
 		if(!(vma->vm_flags & VM_WRITE))
 			goto bad_area;
 	} else {
-		
+		/* Allow reads even for write-only mappings */
 		if(!(vma->vm_flags & (VM_READ | VM_EXEC)))
 			goto bad_area;
 	}
 
+	/*
+	 * If for any reason at all we couldn't handle the fault,
+	 * make sure we exit gracefully rather than endlessly redo
+	 * the fault.
+	 */
 	fault = handle_mm_fault(mm, vma, address, flags);
 
 	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
@@ -286,6 +318,10 @@ good_area:
 		if (fault & VM_FAULT_RETRY) {
 			flags &= ~FAULT_FLAG_ALLOW_RETRY;
 
+			/* No need to up_read(&mm->mmap_sem) as we would
+			 * have already released it in __lock_page_or_retry
+			 * in mm/filemap.c.
+			 */
 
 			goto retry;
 		}
@@ -294,22 +330,26 @@ good_area:
 	up_read(&mm->mmap_sem);
 	return;
 
+	/*
+	 * Something tried to access memory that isn't in our memory map..
+	 * Fix it, but check if it's kernel or user first..
+	 */
 bad_area:
 	up_read(&mm->mmap_sem);
 
 bad_area_nosemaphore:
-	
+	/* User mode accesses just cause a SIGSEGV */
 	if (from_user) {
 		do_fault_siginfo(code, SIGSEGV, regs, text_fault);
 		return;
 	}
 
-	
+	/* Is this in ex_table? */
 no_context:
 	g2 = regs->u_regs[UREG_G2];
 	if (!from_user) {
 		fixup = search_extables_range(regs->pc, &g2);
-		if (fixup > 10) { 
+		if (fixup > 10) { /* Values below are reserved for other things */
 			extern const unsigned __memset_start[];
 			extern const unsigned __memset_end[];
 			extern const unsigned __csum_partial_copy_start[];
@@ -337,6 +377,10 @@ no_context:
 	unhandled_fault (address, tsk, regs);
 	do_exit(SIGKILL);
 
+/*
+ * We ran out of memory, or some other thing happened to us that made
+ * us unable to handle the page fault gracefully.
+ */
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (from_user) {
@@ -353,6 +397,10 @@ do_sigbus:
 
 vmalloc_fault:
 	{
+		/*
+		 * Synchronize this task's top level page-table
+		 * with the 'reference' page table.
+		 */
 		int offset = pgd_index(address);
 		pgd_t *pgd, *pgd_k;
 		pmd_t *pmd, *pmd_k;
@@ -402,9 +450,9 @@ asmlinkage void do_sun4c_fault(struct pt_regs *regs, int text_fault, int write,
 	}
 
 	if (!mm) {
-		
+		/* We are oopsing. */
 		do_sparc_fault(regs, text_fault, write, address);
-		BUG();	
+		BUG();	/* P3 Oops already, you bitch */
 	}
 
 	pgdp = pgd_offset(mm, address);
@@ -448,15 +496,22 @@ asmlinkage void do_sun4c_fault(struct pt_regs *regs, int text_fault, int write,
 	    }
 	}
 
-	
+	/* This conditional is 'interesting'. */
 	if (pgd_val(*pgdp) && !(write && !(pte_val(*ptep) & _SUN4C_PAGE_WRITE))
 	    && (pte_val(*ptep) & _SUN4C_PAGE_VALID))
+		/* Note: It is safe to not grab the MMAP semaphore here because
+		 *       we know that update_mmu_cache() will not sleep for
+		 *       any reason (at least not in the current implementation)
+		 *       and therefore there is no danger of another thread getting
+		 *       on the CPU and doing a shrink_mmap() on this vma.
+		 */
 		sun4c_update_mmu_cache (find_vma(current->mm, address), address,
 					ptep);
 	else
 		do_sparc_fault(regs, text_fault, write, address);
 }
 
+/* This always deals with user addresses. */
 static void force_user_fault(unsigned long address, int write)
 {
 	struct vm_area_struct *vma;

@@ -12,29 +12,35 @@
 #ifndef _ASM_UACCESS_H
 #define _ASM_UACCESS_H
 
+/*
+ * User space memory access functions
+ */
 #include <linux/sched.h>
 #include <linux/mm.h>
 #include <asm/segment.h>
 #include <asm/sections.h>
 
-#define HAVE_ARCH_UNMAPPED_AREA	
+#define HAVE_ARCH_UNMAPPED_AREA	/* we decide where to put mmaps */
 
 #define __ptr(x) ((unsigned long __force *)(x))
 
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
 
+/*
+ * check that a range of addresses falls within the current address limit
+ */
 static inline int ___range_ok(unsigned long addr, unsigned long size)
 {
 #ifdef CONFIG_MMU
 	int flag = -EFAULT, tmp;
 
 	asm volatile (
-		"	addcc	%3,%2,%1,icc0	\n"	
-		"	subcc.p	%1,%4,gr0,icc1	\n"	
+		"	addcc	%3,%2,%1,icc0	\n"	/* set C-flag if addr+size>4GB */
+		"	subcc.p	%1,%4,gr0,icc1	\n"	/* jump if addr+size>limit */
 		"	bc	icc0,#0,0f	\n"
 		"	bhi	icc1,#0,0f	\n"
-		"	setlos	#0,%0		\n"	
+		"	setlos	#0,%0		\n"	/* mark okay */
 		"0:				\n"
 		: "=r"(flag), "=&r"(tmp)
 		: "r"(addr), "r"(size), "r"(get_addr_limit()), "0"(flag)
@@ -59,14 +65,31 @@ static inline int ___range_ok(unsigned long addr, unsigned long size)
 #define access_ok(type,addr,size) (__range_ok((void __user *)(addr), (size)) == 0)
 #define __access_ok(addr,size) (__range_ok((addr), (size)) == 0)
 
+/*
+ * The exception table consists of pairs of addresses: the first is the
+ * address of an instruction that is allowed to fault, and the second is
+ * the address at which the program should continue.  No registers are
+ * modified, so it is entirely up to the continuation code to figure out
+ * what to do.
+ *
+ * All the routines below use bits of fixup code that are out of line
+ * with the main instruction path.  This means when everything is well,
+ * we don't even have to jump over them.  Further, they do not intrude
+ * on our cache or tlb entries.
+ */
 struct exception_table_entry
 {
 	unsigned long insn, fixup;
 };
 
+/* Returns 0 if exception not found and fixup otherwise.  */
 extern unsigned long search_exception_table(unsigned long);
 
 
+/*
+ * These are the main single-value transfer routines.  They automatically
+ * use the right size if we just have the right pointer type.
+ */
 #define __put_user(x, ptr)						\
 ({									\
 	int __pu_err = 0;						\
@@ -107,6 +130,11 @@ extern unsigned long search_exception_table(unsigned long);
 
 extern int __put_user_bad(void);
 
+/*
+ * Tell gcc we read from memory instead of writing: this is because
+ * we do not write to any memory gcc knows about, so there are no
+ * aliasing issues.
+ */
 
 #ifdef CONFIG_MMU
 
@@ -140,6 +168,10 @@ do {						\
 
 #endif
 
+/*****************************************************************************/
+/*
+ *
+ */
 #define __get_user(x, ptr)						\
 ({									\
 	int __gu_err = 0;						\
@@ -222,6 +254,10 @@ do {							\
 
 #endif
 
+/*****************************************************************************/
+/*
+ *
+ */
 #define ____force(x) (__force void *)(void __user *)(x)
 #ifdef CONFIG_MMU
 extern long __memset_user(void *dst, unsigned long count);
@@ -280,4 +316,4 @@ extern long strnlen_user(const char __user *src, long count);
 
 extern unsigned long search_exception_table(unsigned long addr);
 
-#endif 
+#endif /* _ASM_UACCESS_H */

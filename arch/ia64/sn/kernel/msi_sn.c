@@ -88,6 +88,10 @@ int sn_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *entry)
 	if (irq < 0)
 		return irq;
 
+	/*
+	 * Set up the vector plumbing.  Let the prom (via sn_intr_alloc)
+	 * decide which cpu to direct this msi at by default.
+	 */
 
 	nasid = NASID_GET(bussoft->bs_base);
 	widget = (nasid & 1) ?
@@ -107,13 +111,16 @@ int sn_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *entry)
 		return -ENOMEM;
 	}
 
-	sn_irq_info->irq_int_bit = -1;		
+	sn_irq_info->irq_int_bit = -1;		/* mark this as an MSI irq */
 	sn_irq_fixup(pdev, sn_irq_info);
 
-	
+	/* Prom probably should fill these in, but doesn't ... */
 	sn_irq_info->irq_bridge_type = bussoft->bs_asic_type;
 	sn_irq_info->irq_bridge = (void *)bussoft->bs_base;
 
+	/*
+	 * Map the xio address into bus space
+	 */
 	bus_addr = (*provider->dma_map_consistent)(pdev,
 					sn_irq_info->irq_xtalkaddr,
 					sizeof(sn_irq_info->irq_xtalkaddr),
@@ -131,6 +138,10 @@ int sn_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *entry)
 	msg.address_hi = (u32)(bus_addr >> 32);
 	msg.address_lo = (u32)(bus_addr & 0x00000000ffffffff);
 
+	/*
+	 * In the SN platform, bit 16 is a "send vector" bit which
+	 * must be present in order to move the vector through the system.
+	 */
 	msg.data = 0x100 + irq;
 
 	irq_set_msi_desc(irq, entry);
@@ -160,6 +171,9 @@ static int sn_set_msi_irq_affinity(struct irq_data *data,
 	if (sn_irq_info == NULL || sn_irq_info->irq_int_bit >= 0)
 		return -1;
 
+	/*
+	 * Release XIO resources for the old MSI PCI address
+	 */
 
 	get_cached_msi_msg(irq, &msg);
         sn_pdev = (struct pcidev_info *)sn_irq_info->irq_pciioinfo;
@@ -178,6 +192,9 @@ static int sn_set_msi_irq_affinity(struct irq_data *data,
 	if (new_irq_info == NULL)
 		return -1;
 
+	/*
+	 * Map the xio address into bus space
+	 */
 
 	bus_addr = (*provider->dma_map_consistent)(pdev,
 					new_irq_info->irq_xtalkaddr,
@@ -193,7 +210,7 @@ static int sn_set_msi_irq_affinity(struct irq_data *data,
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SMP */
 
 static void sn_ack_msi_irq(struct irq_data *data)
 {

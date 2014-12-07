@@ -36,6 +36,13 @@
 int nfc_devlist_generation;
 DEFINE_MUTEX(nfc_devlist_mutex);
 
+/**
+ * nfc_dev_up - turn on the NFC device
+ *
+ * @dev: The nfc device to be turned on
+ *
+ * The device remains up until the nfc_dev_down function is called.
+ */
 int nfc_dev_up(struct nfc_dev *dev)
 {
 	int rc = 0;
@@ -65,6 +72,11 @@ error:
 	return rc;
 }
 
+/**
+ * nfc_dev_down - turn off the NFC device
+ *
+ * @dev: The nfc device to be turned off
+ */
 int nfc_dev_down(struct nfc_dev *dev)
 {
 	int rc = 0;
@@ -98,6 +110,15 @@ error:
 	return rc;
 }
 
+/**
+ * nfc_start_poll - start polling for nfc targets
+ *
+ * @dev: The nfc device that must start polling
+ * @protocols: bitset of nfc protocols that must be used for polling
+ *
+ * The device remains polling for targets until a target is found or
+ * the nfc_stop_poll function is called.
+ */
 int nfc_start_poll(struct nfc_dev *dev, u32 protocols)
 {
 	int rc;
@@ -129,6 +150,11 @@ error:
 	return rc;
 }
 
+/**
+ * nfc_stop_poll - stop polling for nfc targets
+ *
+ * @dev: The nfc device that must stop polling
+ */
 int nfc_stop_poll(struct nfc_dev *dev)
 {
 	int rc = 0;
@@ -241,6 +267,13 @@ int nfc_dep_link_is_up(struct nfc_dev *dev, u32 target_idx,
 }
 EXPORT_SYMBOL(nfc_dep_link_is_up);
 
+/**
+ * nfc_activate_target - prepare the target for data exchange
+ *
+ * @dev: The nfc device that found the target
+ * @target_idx: index of the target that must be activated
+ * @protocol: nfc protocol that will be used for data exchange
+ */
 int nfc_activate_target(struct nfc_dev *dev, u32 target_idx, u32 protocol)
 {
 	int rc;
@@ -264,6 +297,12 @@ error:
 	return rc;
 }
 
+/**
+ * nfc_deactivate_target - deactivate a nfc target
+ *
+ * @dev: The nfc device that found the target
+ * @target_idx: index of the target that must be deactivated
+ */
 int nfc_deactivate_target(struct nfc_dev *dev, u32 target_idx)
 {
 	int rc = 0;
@@ -286,6 +325,17 @@ error:
 	return rc;
 }
 
+/**
+ * nfc_data_exchange - transceive data
+ *
+ * @dev: The nfc device that found the target
+ * @target_idx: index of the target
+ * @skb: data to be sent
+ * @cb: callback called when the response is received
+ * @cb_context: parameter for the callback function
+ *
+ * The user must wait for the callback before calling this function again.
+ */
 int nfc_data_exchange(struct nfc_dev *dev, u32 target_idx, struct sk_buff *skb,
 		      data_exchange_cb_t cb, void *cb_context)
 {
@@ -320,6 +370,12 @@ int nfc_set_remote_general_bytes(struct nfc_dev *dev, u8 *gb, u8 gb_len)
 }
 EXPORT_SYMBOL(nfc_set_remote_general_bytes);
 
+/**
+ * nfc_alloc_send_skb - allocate a skb for data exchange responses
+ *
+ * @size: size to allocate
+ * @gfp: gfp flags
+ */
 struct sk_buff *nfc_alloc_send_skb(struct nfc_dev *dev, struct sock *sk,
 				   unsigned int flags, unsigned int size,
 				   unsigned int *err)
@@ -337,6 +393,12 @@ struct sk_buff *nfc_alloc_send_skb(struct nfc_dev *dev, struct sock *sk,
 	return skb;
 }
 
+/**
+ * nfc_alloc_recv_skb - allocate a skb for data exchange responses
+ *
+ * @size: size to allocate
+ * @gfp: gfp flags
+ */
 struct sk_buff *nfc_alloc_recv_skb(unsigned int size, gfp_t gfp)
 {
 	struct sk_buff *skb;
@@ -352,6 +414,17 @@ struct sk_buff *nfc_alloc_recv_skb(unsigned int size, gfp_t gfp)
 }
 EXPORT_SYMBOL(nfc_alloc_recv_skb);
 
+/**
+ * nfc_targets_found - inform that targets were found
+ *
+ * @dev: The nfc device that found the targets
+ * @targets: array of nfc targets found
+ * @ntargets: targets array size
+ *
+ * The device driver must call this function when one or many nfc targets
+ * are found. After calling this function, the device driver must stop
+ * polling for targets.
+ */
 int nfc_targets_found(struct nfc_dev *dev,
 		      struct nfc_target *targets, int n_targets)
 {
@@ -418,6 +491,12 @@ struct nfc_dev *nfc_get_device(unsigned idx)
 	return to_nfc_dev(d);
 }
 
+/**
+ * nfc_allocate_device - allocate a new nfc device
+ *
+ * @ops: device operations
+ * @supported_protocols: NFC protocols supported by the device
+ */
 struct nfc_dev *nfc_allocate_device(struct nfc_ops *ops,
 				    u32 supported_protocols,
 				    int tx_headroom, int tx_tailroom)
@@ -449,13 +528,18 @@ struct nfc_dev *nfc_allocate_device(struct nfc_ops *ops,
 	spin_lock_init(&dev->targets_lock);
 	nfc_genl_data_init(&dev->genl_data);
 
-	
+	/* first generation must not be 0 */
 	dev->targets_generation = 1;
 
 	return dev;
 }
 EXPORT_SYMBOL(nfc_allocate_device);
 
+/**
+ * nfc_register_device - register a nfc device in the nfc subsystem
+ *
+ * @dev: The nfc device to register
+ */
 int nfc_register_device(struct nfc_dev *dev)
 {
 	int rc;
@@ -483,6 +567,11 @@ int nfc_register_device(struct nfc_dev *dev)
 }
 EXPORT_SYMBOL(nfc_register_device);
 
+/**
+ * nfc_unregister_device - unregister a nfc device in the nfc subsystem
+ *
+ * @dev: The nfc device to unregister
+ */
 void nfc_unregister_device(struct nfc_dev *dev)
 {
 	int rc;
@@ -492,6 +581,8 @@ void nfc_unregister_device(struct nfc_dev *dev)
 	mutex_lock(&nfc_devlist_mutex);
 	nfc_devlist_generation++;
 
+	/* lock to avoid unregistering a device while an operation
+	   is in progress */
 	device_lock(&dev->dev);
 	device_del(&dev->dev);
 	device_unlock(&dev->dev);
@@ -522,7 +613,7 @@ static int __init nfc_init(void)
 	if (rc)
 		goto err_genl;
 
-	
+	/* the first generation must not be 0 */
 	nfc_devlist_generation = 1;
 
 	rc = rawsock_init();

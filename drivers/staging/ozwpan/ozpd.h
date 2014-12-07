@@ -8,15 +8,23 @@
 
 #include "ozeltbuf.h"
 
+/* PD state
+ */
 #define OZ_PD_S_IDLE		0x1
 #define OZ_PD_S_CONNECTED	0x2
 #define OZ_PD_S_SLEEP		0x4
 #define OZ_PD_S_STOPPED		0x8
 
+/* Timer event types.
+ */
 #define OZ_TIMER_TOUT		1
 #define OZ_TIMER_HEARTBEAT	2
 #define OZ_TIMER_STOP		3
 
+/* Data structure that hold information on a frame for transmisson. This is
+ * built when the frame is first transmitted and is used to rebuild the frame
+ * if a re-transmission is required.
+ */
 struct oz_tx_frame {
 	struct list_head link;
 	struct list_head elt_list;
@@ -42,6 +50,8 @@ struct oz_farewell {
 	u8 len;
 };
 
+/* Data structure that holds information on a specific peripheral device (PD).
+ */
 struct oz_pd {
 	struct list_head link;
 	atomic_t	ref_count;
@@ -107,5 +117,5 @@ void oz_handle_app_elt(struct oz_pd *pd, u8 app_id, struct oz_elt *elt);
 void oz_apps_init(void);
 void oz_apps_term(void);
 
-#endif 
+#endif /* Sentry */
 

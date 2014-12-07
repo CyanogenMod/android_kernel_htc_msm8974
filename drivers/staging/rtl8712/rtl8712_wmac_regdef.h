@@ -45,5 +45,5 @@
 #define	TXOP_STALL_CTRL			(RTL8712_WMAC_ + 0x38)
 
 
-#endif 
+#endif /*__RTL8712_WMAC_REGDEF_H__*/
 

@@ -57,12 +57,12 @@ struct clk_ops {
 };
 
 struct clk {
-	struct clk *parent;     
-	unsigned long rate;     
-	signed char usage;      
-	signed char enable_bit; 
-	unsigned short regofs;  
-	struct clk_ops *ops;    
+	struct clk *parent;     /* parent clk */
+	unsigned long rate;     /* clock rate in Hz */
+	signed char usage;      /* clock enable count */
+	signed char enable_bit; /* enable bit: 0 ~ 63 */
+	unsigned short regofs;  /* register offset */
+	struct clk_ops *ops;    /* clock operation */
 };
 
 static DEFINE_SPINLOCK(clocks_lock);
@@ -77,6 +77,10 @@ static inline void clkc_writel(u32 val, unsigned reg)
 	writel(val, SIRFSOC_CLOCK_VA_BASE + reg);
 }
 
+/*
+ * osc_rtc - real time oscillator - 32.768KHz
+ * osc_sys - high speed oscillator - 26MHz
+ */
 
 static struct clk clk_rtc = {
 	.rate = 32768,
@@ -86,6 +90,9 @@ static struct clk clk_osc = {
 	.rate = 26 * MHZ,
 };
 
+/*
+ * std pll
+ */
 static unsigned long std_pll_get_rate(struct clk *clk)
 {
 	unsigned long fin = clk_get_rate(clk->parent);
@@ -93,10 +100,10 @@ static unsigned long std_pll_get_rate(struct clk *clk)
 		SIRFSOC_CLKC_PLL1_CFG0;
 
 	if (clkc_readl(regcfg2) & BIT(2)) {
-		
+		/* pll bypass mode */
 		clk->rate = fin;
 	} else {
-		
+		/* fout = fin * nf / nr / od */
 		u32 cfg0 = clkc_readl(clk->regofs);
 		u32 nf = (cfg0 & (BIT(13) - 1)) + 1;
 		u32 nr = ((cfg0 >> 13) & (BIT(6) - 1)) + 1;
@@ -112,6 +119,10 @@ static int std_pll_set_rate(struct clk *clk, unsigned long rate)
 {
 	unsigned long fin, nf, nr, od, reg;
 
+	/*
+	 * fout = fin * nf / (nr * od);
+	 * set od = 1, nr = fin/MHz, so fout = nf * MHz
+	 */
 
 	nf = rate / MHZ;
 	if (unlikely((rate % MHZ) || nf > BIT(13) || nf < 1))
@@ -135,7 +146,7 @@ static int std_pll_set_rate(struct clk *clk, unsigned long rate)
 	while (!(clkc_readl(reg) & BIT(6)))
 		cpu_relax();
 
-	clk->rate = 0; 
+	clk->rate = 0; /* set to zero will force recalculation */
 	return 0;
 }
 
@@ -162,6 +173,9 @@ static struct clk clk_pll3 = {
 	.ops = &std_pll_ops,
 };
 
+/*
+ * clock domains - cpu, mem, sys/io
+ */
 
 static struct clk clk_mem;
 
@@ -186,7 +200,7 @@ static int dmn_set_parent(struct clk *clk, struct clk *parent)
 		if (clks[i] == parent) {
 			cfg &= ~(BIT(3) - 1);
 			clkc_writel(cfg | i, clk->regofs);
-			
+			/* BIT(3) - switching status: 1 - busy, 0 - done */
 			while (clkc_readl(clk->regofs) & BIT(3))
 				cpu_relax();
 			return 0;
@@ -200,9 +214,12 @@ static unsigned long dmn_get_rate(struct clk *clk)
 	unsigned long fin = clk_get_rate(clk->parent);
 	u32 cfg = clkc_readl(clk->regofs);
 	if (cfg & BIT(24)) {
-		
+		/* fcd bypass mode */
 		clk->rate = fin;
 	} else {
+		/*
+		 * wait count: bit[19:16], hold count: bit[23:20]
+		 */
 		u32 wait = (cfg >> 16) & (BIT(4) - 1);
 		u32 hold = (cfg >> 20) & (BIT(4) - 1);
 
@@ -234,15 +251,18 @@ static int dmn_set_rate(struct clk *clk, unsigned long rate)
 	reg |= (wait << 16) | (hold << 20) | BIT(25);
 	clkc_writel(reg, clk->regofs);
 
-	
+	/* waiting FCD been effective */
 	while (clkc_readl(clk->regofs) & BIT(25))
 		cpu_relax();
 
-	clk->rate = 0; 
+	clk->rate = 0; /* set to zero will force recalculation */
 
 	return 0;
 }
 
+/*
+ * cpu clock has no FCD register in Prima2, can only change pll
+ */
 static int cpu_set_rate(struct clk *clk, unsigned long rate)
 {
 	int ret1, ret2;
@@ -251,7 +271,7 @@ static int cpu_set_rate(struct clk *clk, unsigned long rate)
 	cur_parent = dmn_get_parent(clk);
 	BUG_ON(cur_parent == NULL || cur_parent->usage > 1);
 
-	
+	/* switch to tmp pll before setting parent clock's rate */
 	tmp_parent = cur_parent == &clk_pll1 ? &clk_pll2 : &clk_pll1;
 	ret1 = dmn_set_parent(clk, tmp_parent);
 	BUG_ON(ret1);
@@ -260,7 +280,7 @@ static int cpu_set_rate(struct clk *clk, unsigned long rate)
 
 	ret1 = dmn_set_parent(clk, cur_parent);
 
-	clk->rate = 0; 
+	clk->rate = 0; /* set to zero will force recalculation */
 
 	return ret2 ? ret2 : ret1;
 }
@@ -303,6 +323,9 @@ static struct clk clk_io = {
 	.ops = &msi_ops,
 };
 
+/*
+ * on-chip clock sets
+ */
 static struct clk_lookup onchip_clks[] = {
 	{
 		.dev_id = "rtc",

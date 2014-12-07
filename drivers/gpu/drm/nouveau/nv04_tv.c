@@ -81,7 +81,7 @@ static void nv04_tv_dpms(struct drm_encoder *encoder, int mode)
 		state->pllsel |= head ? PLLSEL_TV_CRTC2_MASK :
 					PLLSEL_TV_CRTC1_MASK;
 
-		
+		/* Inhibit hsync */
 		crtc1A |= 0x80;
 
 		NVWriteVgaCrtc(dev, head, NV_CIO_CRE_RPC1_INDEX, crtc1A);
@@ -140,6 +140,10 @@ static void nv04_tv_mode_set(struct drm_encoder *encoder,
 	regp->tv_htotal = adjusted_mode->htotal;
 	regp->tv_vtotal = adjusted_mode->vtotal;
 
+	/* These delay the TV signals with respect to the VGA port,
+	 * they might be useful if we ever allow a CRTC to drive
+	 * multiple outputs.
+	 */
 	regp->tv_hskew = 1;
 	regp->tv_hsync_delay = 1;
 	regp->tv_hsync_delay2 = 64;
@@ -188,12 +192,12 @@ nv04_tv_create(struct drm_connector *connector, struct dcb_entry *entry)
 		nouveau_i2c_find(dev, entry->i2c_index);
 	int type, ret;
 
-	
+	/* Ensure that we can talk to this encoder */
 	type = nv04_tv_identify(dev, entry->i2c_index);
 	if (type < 0)
 		return type;
 
-	
+	/* Allocate the necessary memory */
 	nv_encoder = kzalloc(sizeof(*nv_encoder), GFP_KERNEL);
 	if (!nv_encoder)
 		return -ENOMEM;
@@ -204,7 +208,7 @@ nv04_tv_create(struct drm_connector *connector, struct dcb_entry *entry)
 		goto fail_free;
 	}
 
-	
+	/* Initialize the common members */
 	encoder = to_drm_encoder(nv_encoder);
 
 	drm_encoder_init(dev, encoder, &nv04_tv_funcs, DRM_MODE_ENCODER_TVDAC);
@@ -215,13 +219,13 @@ nv04_tv_create(struct drm_connector *connector, struct dcb_entry *entry)
 	nv_encoder->dcb = entry;
 	nv_encoder->or = ffs(entry->or) - 1;
 
-	
+	/* Run the slave-specific initialization */
 	ret = drm_i2c_encoder_init(dev, to_encoder_slave(encoder),
 				   &i2c->adapter, &nv04_tv_encoder_info[type]);
 	if (ret < 0)
 		goto fail_cleanup;
 
-	
+	/* Fill the function pointers */
 	sfuncs = get_slave_funcs(encoder);
 
 	*hfuncs = (struct drm_encoder_helper_funcs) {
@@ -235,7 +239,7 @@ nv04_tv_create(struct drm_connector *connector, struct dcb_entry *entry)
 		.detect = sfuncs->detect,
 	};
 
-	
+	/* Attach it to the specified connector. */
 	sfuncs->create_resources(encoder, connector);
 	drm_mode_connector_attach_encoder(connector, encoder);
 

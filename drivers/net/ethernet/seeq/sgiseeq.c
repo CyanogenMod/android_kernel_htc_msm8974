@@ -29,7 +29,17 @@
 
 static char *sgiseeqstr = "SGI Seeq8003";
 
+/*
+ * If you want speed, you do something silly, it always has worked for me.  So,
+ * with that in mind, I've decided to make this driver look completely like a
+ * stupid Lance from a driver architecture perspective.  Only difference is that
+ * here our "ring buffer" looks and acts like a real Lance one does but is
+ * laid out like how the HPC DMA and the Seeq want it to.  You'd be surprised
+ * how a stupid idea like this can pay off in performance, not to mention
+ * making this driver 2,000 times easier to write. ;-)
+ */
 
+/* Tune these if we tend to run out often etc. */
 #define SEEQ_RX_BUFFERS  16
 #define SEEQ_TX_BUFFERS  16
 
@@ -48,6 +58,9 @@ static char *sgiseeqstr = "SGI Seeq8003";
 				  (dma_addr_t)((unsigned long)(v) -            \
 					       (unsigned long)((sp)->rx_desc)))
 
+/* Copy frames shorter than rx_copybreak, otherwise pass on up in
+ * a full sized sk_buff.  Value of 100 stolen from tulip.c (!alpha).
+ */
 static int rx_copybreak = 100;
 
 #define PAD_SIZE    (128 - sizeof(struct hpc_dma_desc) - sizeof(void *))
@@ -64,7 +77,12 @@ struct sgiseeq_tx_desc {
 	struct sk_buff *skb;
 };
 
-struct sgiseeq_init_block { 
+/*
+ * Warning: This structure is laid out in a certain way because HPC dma
+ *          descriptors must be 8-byte aligned.  So don't touch this without
+ *          some care.
+ */
+struct sgiseeq_init_block { /* Note the name ;-) */
 	struct sgiseeq_rx_desc rxvector[SEEQ_RX_BUFFERS];
 	struct sgiseeq_tx_desc txvector[SEEQ_TX_BUFFERS];
 };
@@ -73,7 +91,7 @@ struct sgiseeq_private {
 	struct sgiseeq_init_block *srings;
 	dma_addr_t srings_dma;
 
-	
+	/* Ptrs to the descriptors in uncached space. */
 	struct sgiseeq_rx_desc *rx_desc;
 	struct sgiseeq_tx_desc *tx_desc;
 
@@ -81,7 +99,7 @@ struct sgiseeq_private {
 	struct hpc3_ethregs *hregs;
 	struct sgiseeq_regs *sregs;
 
-	
+	/* Ring entry counters. */
 	unsigned int rx_new, tx_new;
 	unsigned int rx_old, tx_old;
 
@@ -169,13 +187,13 @@ static int seeq_init_ring(struct net_device *dev)
 
 	__sgiseeq_set_mac_address(dev);
 
-	
+	/* Setup tx ring. */
 	for(i = 0; i < SEEQ_TX_BUFFERS; i++) {
 		sp->tx_desc[i].tdma.cntinfo = TCNTINFO_INIT;
 		dma_sync_desc_dev(dev, &sp->tx_desc[i]);
 	}
 
-	
+	/* And now the rx ring. */
 	for (i = 0; i < SEEQ_RX_BUFFERS; i++) {
 		if (!sp->rx_desc[i].skb) {
 			dma_addr_t dma_addr;
@@ -203,7 +221,7 @@ static void seeq_purge_ring(struct net_device *dev)
 	struct sgiseeq_private *sp = netdev_priv(dev);
 	int i;
 
-	
+	/* clear tx ring. */
 	for (i = 0; i < SEEQ_TX_BUFFERS; i++) {
 		if (sp->tx_desc[i].skb) {
 			dev_kfree_skb(sp->tx_desc[i].skb);
@@ -211,7 +229,7 @@ static void seeq_purge_ring(struct net_device *dev)
 		}
 	}
 
-	
+	/* And now the rx ring. */
 	for (i = 0; i < SEEQ_RX_BUFFERS; i++) {
 		if (sp->rx_desc[i].skb) {
 			dev_kfree_skb(sp->rx_desc[i].skb);
@@ -277,7 +295,7 @@ static int init_seeq(struct net_device *dev, struct sgiseeq_private *sp,
 	if (err)
 		return err;
 
-	
+	/* Setup to field the proper interrupt types. */
 	if (sp->is_edlc) {
 		sregs->tstat = TSTAT_INIT_EDLC;
 		sregs->rw.wregs.control = sp->control;
@@ -327,7 +345,7 @@ static inline void sgiseeq_rx(struct net_device *dev, struct sgiseeq_private *sp
 	int len = 0;
 	unsigned int orig_end = PREV_RX(sp->rx_new);
 
-	
+	/* Service every received packet. */
 	rd = &sp->rx_desc[sp->rx_new];
 	dma_sync_desc_cpu(dev, rd);
 	while (!(rd->rdma.cntinfo & HPCDMA_OWN)) {
@@ -336,8 +354,8 @@ static inline void sgiseeq_rx(struct net_device *dev, struct sgiseeq_private *sp
 				 PKT_BUF_SZ, DMA_FROM_DEVICE);
 		pkt_status = rd->skb->data[len];
 		if (pkt_status & SEEQ_RSTAT_FIG) {
-			
-			
+			/* Packet is OK. */
+			/* We don't want to receive our own packets */
 			if (memcmp(rd->skb->data + 6, dev->dev_addr, ETH_ALEN)) {
 				if (len > rx_copybreak) {
 					skb = rd->skb;
@@ -368,7 +386,7 @@ memory_squeeze:
 					dev->stats.rx_dropped++;
 				}
 			} else {
-				
+				/* Silently drop my own packets */
 				newskb = rd->skb;
 			}
 		} else {
@@ -380,7 +398,7 @@ memory_squeeze:
 					       newskb->data - 2,
 					       PKT_BUF_SZ, DMA_FROM_DEVICE);
 
-		
+		/* Return the entry to the ring pool. */
 		rd->rdma.cntinfo = RCNTINFO_INIT;
 		sp->rx_new = NEXT_RX(sp->rx_new);
 		dma_sync_desc_dev(dev, rd);
@@ -412,6 +430,12 @@ static inline void kick_tx(struct net_device *dev,
 	struct sgiseeq_tx_desc *td;
 	int i = sp->tx_old;
 
+	/* If the HPC aint doin nothin, and there are more packets
+	 * with ETXD cleared and XIU set we must make very certain
+	 * that we restart the HPC else we risk locking up the
+	 * adapter.  The following code is only safe iff the HPCDMA
+	 * is not active!
+	 */
 	td = &sp->tx_desc[i];
 	dma_sync_desc_cpu(dev, td);
 	while ((td->tdma.cntinfo & (HPCDMA_XIU | HPCDMA_ETXD)) ==
@@ -437,7 +461,7 @@ static inline void sgiseeq_tx(struct net_device *dev, struct sgiseeq_private *sp
 	tx_maybe_reset_collisions(sp, sregs);
 
 	if (!(status & (HPC3_ETXCTRL_ACTIVE | SEEQ_TSTAT_PTRANS))) {
-		
+		/* Oops, HPC detected some sort of error. */
 		if (status & SEEQ_TSTAT_R16)
 			dev->stats.tx_aborted_errors++;
 		if (status & SEEQ_TSTAT_UFLOW)
@@ -446,7 +470,7 @@ static inline void sgiseeq_tx(struct net_device *dev, struct sgiseeq_private *sp
 			dev->stats.collisions++;
 	}
 
-	
+	/* Ack 'em... */
 	for (j = sp->tx_old; j != sp->tx_new; j = NEXT_TX(j)) {
 		td = &sp->tx_desc[j];
 
@@ -481,13 +505,13 @@ static irqreturn_t sgiseeq_interrupt(int irq, void *dev_id)
 
 	spin_lock(&sp->tx_lock);
 
-	
+	/* Ack the IRQ and set software state. */
 	hregs->reset = HPC3_ERST_CLRIRQ;
 
-	
+	/* Always check for received packets. */
 	sgiseeq_rx(dev, sp, hregs, sregs);
 
-	
+	/* Only check for tx acks if we have something queued. */
 	if (sp->tx_old != sp->tx_new)
 		sgiseeq_tx(dev, sp, hregs, sregs);
 
@@ -533,7 +557,7 @@ static int sgiseeq_close(struct net_device *dev)
 
 	netif_stop_queue(dev);
 
-	
+	/* Shutdown the Seeq. */
 	reset_hpc3_and_seeq(sp->hregs, sregs);
 	free_irq(irq, dev);
 	seeq_purge_ring(dev);
@@ -551,7 +575,7 @@ static inline int sgiseeq_reset(struct net_device *dev)
 	if (err)
 		return err;
 
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue(dev);
 
 	return 0;
@@ -567,7 +591,7 @@ static int sgiseeq_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	spin_lock_irqsave(&sp->tx_lock, flags);
 
-	
+	/* Setup... */
 	len = skb->len;
 	if (len < ETH_ZLEN) {
 		if (skb_padto(skb, ETH_ZLEN)) {
@@ -582,6 +606,19 @@ static int sgiseeq_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	td = &sp->tx_desc[entry];
 	dma_sync_desc_cpu(dev, td);
 
+	/* Create entry.  There are so many races with adding a new
+	 * descriptor to the chain:
+	 * 1) Assume that the HPC is off processing a DMA chain while
+	 *    we are changing all of the following.
+	 * 2) Do no allow the HPC to look at a new descriptor until
+	 *    we have completely set up it's state.  This means, do
+	 *    not clear HPCDMA_EOX in the current last descritptor
+	 *    until the one we are adding looks consistent and could
+	 *    be processes right now.
+	 * 3) The tx interrupt code must notice when we've added a new
+	 *    entry and the HPC got to the end of the chain before we
+	 *    added this new entry and restarted it.
+	 */
 	td->skb = skb;
 	td->tdma.pbuf = dma_map_single(dev->dev.parent, skb->data,
 				       len, DMA_TO_DEVICE);
@@ -596,9 +633,9 @@ static int sgiseeq_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		backend->tdma.cntinfo &= ~HPCDMA_EOX;
 		dma_sync_desc_dev(dev, backend);
 	}
-	sp->tx_new = NEXT_TX(sp->tx_new); 
+	sp->tx_new = NEXT_TX(sp->tx_new); /* Advance. */
 
-	
+	/* Maybe kick the HPC back into motion. */
 	if (!(hregs->tx_ctrl & HPC3_ETXCTRL_ACTIVE))
 		kick_tx(dev, sp, hregs);
 
@@ -614,7 +651,7 @@ static void timeout(struct net_device *dev)
 	printk(KERN_NOTICE "%s: transmit timed out, resetting\n", dev->name);
 	sgiseeq_reset(dev);
 
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue(dev);
 }
 
@@ -630,6 +667,9 @@ static void sgiseeq_set_multicast(struct net_device *dev)
 	else
 		sp->mode = SEEQ_RCMD_RBCAST;
 
+	/* XXX I know this sucks, but is there a better way to reprogram
+	 * XXX the receiver? At least, this shouldn't happen too often.
+	 */
 
 	if (oldmode != sp->mode)
 		sgiseeq_reset(dev);
@@ -700,7 +740,7 @@ static int __devinit sgiseeq_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dev);
 	sp = netdev_priv(dev);
 
-	
+	/* Make private data page aligned */
 	sr = dma_alloc_noncoherent(&pdev->dev, sizeof(*sp->srings),
 				&sp->srings_dma, GFP_KERNEL);
 	if (!sr) {
@@ -712,7 +752,7 @@ static int __devinit sgiseeq_probe(struct platform_device *pdev)
 	sp->rx_desc = sp->srings->rxvector;
 	sp->tx_desc = sp->srings->txvector;
 
-	
+	/* A couple calculations now, saves many cycles later. */
 	setup_rx_ring(dev, sp->rx_desc, SEEQ_RX_BUFFERS);
 	setup_tx_ring(dev, sp->tx_desc, SEEQ_TX_BUFFERS);
 
@@ -727,17 +767,17 @@ static int __devinit sgiseeq_probe(struct platform_device *pdev)
 	sp->name = sgiseeqstr;
 	sp->mode = SEEQ_RCMD_RBCAST;
 
-	
+	/* Setup PIO and DMA transfer timing */
 	sp->hregs->pconfig = 0x161;
 	sp->hregs->dconfig = HPC3_EDCFG_FIRQ | HPC3_EDCFG_FEOP |
 			     HPC3_EDCFG_FRXDC | HPC3_EDCFG_PTO | 0x026;
 
-	
+	/* Setup PIO and DMA transfer timing */
 	sp->hregs->pconfig = 0x161;
 	sp->hregs->dconfig = HPC3_EDCFG_FIRQ | HPC3_EDCFG_FEOP |
 			     HPC3_EDCFG_FRXDC | HPC3_EDCFG_PTO | 0x026;
 
-	
+	/* Reset the chip. */
 	hpc3_eth_reset(sp->hregs);
 
 	sp->is_edlc = !(sp->sregs->rw.rregs.collision_tx[0] & 0xff);

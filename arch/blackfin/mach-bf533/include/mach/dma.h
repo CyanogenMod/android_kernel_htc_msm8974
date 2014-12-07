@@ -18,9 +18,9 @@
 #define CH_SPI          5
 #define CH_UART0_RX     6
 #define CH_UART0_TX     7
-#define CH_MEM_STREAM0_DEST     8	 
-#define CH_MEM_STREAM0_SRC      9	 
-#define CH_MEM_STREAM1_DEST     10	 
-#define CH_MEM_STREAM1_SRC      11	 
+#define CH_MEM_STREAM0_DEST     8	 /* TX */
+#define CH_MEM_STREAM0_SRC      9	 /* RX */
+#define CH_MEM_STREAM1_DEST     10	 /* TX */
+#define CH_MEM_STREAM1_SRC      11	 /* RX */
 
 #endif

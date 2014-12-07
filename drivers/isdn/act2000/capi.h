@@ -15,11 +15,13 @@
 #ifndef CAPI_H
 #define CAPI_H
 
+/* Command-part of a CAPI message */
 typedef struct actcapi_msgcmd {
 	__u8 cmd;
 	__u8 subcmd;
 } actcapi_msgcmd;
 
+/* CAPI message header */
 typedef struct actcapi_msghdr {
 	__u16 len;
 	__u16 applicationID;
@@ -27,65 +29,70 @@ typedef struct actcapi_msghdr {
 	__u16 msgnum;
 } actcapi_msghdr;
 
+/* CAPI message description (for debugging) */
 typedef struct actcapi_msgdsc {
 	actcapi_msgcmd cmd;
 	char *description;
 } actcapi_msgdsc;
 
+/* CAPI Address */
 typedef struct actcapi_addr {
-	__u8 len;                            
-	__u8 tnp;                            
-	__u8 num[20];                        
+	__u8 len;                            /* Length of element            */
+	__u8 tnp;                            /* Type/Numbering Plan          */
+	__u8 num[20];                        /* Caller ID                    */
 } actcapi_addr;
 
-typedef  union actcapi_infonr {              
-	__u16 mask;                          
-	struct bmask {                       
-		unsigned  codes:3;           
-		unsigned  rsvd:5;            
-		unsigned  svind:1;           
-		unsigned  wtype:7;           
+/* CAPI INFO element mask */
+typedef  union actcapi_infonr {              /* info number                  */
+	__u16 mask;                          /* info-mask field              */
+	struct bmask {                       /* bit definitions              */
+		unsigned  codes:3;           /* code set                     */
+		unsigned  rsvd:5;            /* reserved                     */
+		unsigned  svind:1;           /* single, variable length ind. */
+		unsigned  wtype:7;           /* W-element type               */
 	} bmask;
 } actcapi_infonr;
 
-typedef union  actcapi_infoel {              
-	__u8 len;                            
-	__u8 display[40];                    
-	__u8 uuinfo[40];                     
-	struct cause {                       
-		unsigned ext2:1;             
-		unsigned cod:2;              
-		unsigned spare:1;            
-		unsigned loc:4;              
-		unsigned ext1:1;             
-		unsigned cval:7;             
+/* CAPI INFO element */
+typedef union  actcapi_infoel {              /* info element                 */
+	__u8 len;                            /* length of info element       */
+	__u8 display[40];                    /* display contents             */
+	__u8 uuinfo[40];                     /* User-user info field         */
+	struct cause {                       /* Cause information            */
+		unsigned ext2:1;             /* extension                    */
+		unsigned cod:2;              /* coding standard              */
+		unsigned spare:1;            /* spare                        */
+		unsigned loc:4;              /* location                     */
+		unsigned ext1:1;             /* extension                    */
+		unsigned cval:7;             /* Cause value                  */
 	} cause;
-	struct charge {                      
-		__u8 toc;                    
-		__u8 unit[10];               
+	struct charge {                      /* Charging information         */
+		__u8 toc;                    /* type of charging info        */
+		__u8 unit[10];               /* charging units               */
 	} charge;
-	__u8 date[20];                       
-	__u8 stat;                           
+	__u8 date[20];                       /* date fields                  */
+	__u8 stat;                           /* state of remote party        */
 } actcapi_infoel;
 
+/* Message for EAZ<->MSN Mapping */
 typedef struct actcapi_msn {
 	__u8 eaz;
-	__u8 len;                            
+	__u8 len;                            /* Length of MSN                */
 	__u8 msn[15];
 }  __attribute__((packed)) actcapi_msn;
 
 typedef struct actcapi_dlpd {
-	__u8 len;                            
-	__u16 dlen;                          
-	__u8 laa;                            
-	__u8 lab;                            
-	__u8 modulo;                         
-	__u8 win;                            
-	__u8 xid[100];                       
+	__u8 len;                            /* Length of structure          */
+	__u16 dlen;                          /* Data Length                  */
+	__u8 laa;                            /* Link Address A               */
+	__u8 lab;                            /* Link Address B               */
+	__u8 modulo;                         /* Modulo Mode                  */
+	__u8 win;                            /* Window size                  */
+	__u8 xid[100];                       /* XID Information              */
 } __attribute__((packed)) actcapi_dlpd;
 
 typedef struct actcapi_ncpd {
-	__u8   len;                          
+	__u8   len;                          /* Length of structure          */
 	__u16  lic;
 	__u16  hic;
 	__u16  ltc;
@@ -96,6 +103,14 @@ typedef struct actcapi_ncpd {
 } __attribute__((packed)) actcapi_ncpd;
 #define actcapi_ncpi actcapi_ncpd
 
+/*
+ * Layout of NCCI field in a B3 DATA CAPI message is different from
+ * standard at act2000:
+ *
+ * Bit 0-4  = PLCI
+ * Bit 5-7  = Controller
+ * Bit 8-15 = NCCI
+ */
 #define MAKE_NCCI(plci, contr, ncci)					\
 	((plci & 0x1f) | ((contr & 0x7) << 5) | ((ncci & 0xff) << 8))
 
@@ -105,6 +120,14 @@ typedef struct actcapi_ncpd {
 		ncci  = (fakencci >> 8) & 0xff;		\
 	}
 
+/*
+ * Layout of PLCI field in a B3 DATA CAPI message is different from
+ * standard at act2000:
+ *
+ * Bit 0-4  = PLCI
+ * Bit 5-7  = Controller
+ * Bit 8-15 = reserved (must be 0)
+ */
 #define MAKE_PLCI(plci, contr)			\
 	((plci & 0x1f) | ((contr & 0x7) << 5))
 
@@ -139,13 +162,16 @@ typedef struct actcapi_msg {
 			__u16 manuf_msg;
 			__u16 controller;
 			__u32 errcode;
-			__u8  errstring; 
+			__u8  errstring; /* actually up to 160 */
 		} manufacturer_ind_err;
 		struct manufacturer_req_msn {
 			__u16 manuf_msg;
 			__u16 controller;
 			actcapi_msn msnmap;
 		} __attribute ((packed)) manufacturer_req_msn;
+		/* TODO: TraceInit-req/conf/ind/resp and
+		 *       TraceDump-req/conf/ind/resp
+		 */
 		struct connect_req {
 			__u8  controller;
 			__u8  bchan;

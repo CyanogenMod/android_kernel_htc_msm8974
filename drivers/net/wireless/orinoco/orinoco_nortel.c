@@ -50,26 +50,34 @@
 #include "orinoco.h"
 #include "orinoco_pci.h"
 
-#define COR_OFFSET    (0xe0)	
-#define COR_VALUE     (COR_LEVEL_REQ | COR_FUNC_ENA)	
+#define COR_OFFSET    (0xe0)	/* COR attribute offset of Prism2 PC card */
+#define COR_VALUE     (COR_LEVEL_REQ | COR_FUNC_ENA)	/* Enable PC card with interrupt in level trigger */
 
 
+/*
+ * Do a soft reset of the card using the Configuration Option Register
+ * We need this to get going...
+ * This is the part of the code that is strongly inspired from wlan-ng
+ *
+ * Note bis : Don't try to access HERMES_CMD during the reset phase.
+ * It just won't work !
+ */
 static int orinoco_nortel_cor_reset(struct orinoco_private *priv)
 {
 	struct orinoco_pci_card *card = priv->card;
 
-	
+	/* Assert the reset until the card notices */
 	iowrite16(8, card->bridge_io + 2);
 	ioread16(card->attr_io + COR_OFFSET);
 	iowrite16(0x80, card->attr_io + COR_OFFSET);
 	mdelay(1);
 
-	
+	/* Give time for the card to recover from this hard effort */
 	iowrite16(0, card->attr_io + COR_OFFSET);
 	iowrite16(0, card->attr_io + COR_OFFSET);
 	mdelay(1);
 
-	
+	/* Set COR as usual */
 	iowrite16(COR_VALUE, card->attr_io + COR_OFFSET);
 	iowrite16(COR_VALUE, card->attr_io + COR_OFFSET);
 	mdelay(1);
@@ -84,7 +92,7 @@ static int orinoco_nortel_hw_init(struct orinoco_pci_card *card)
 	int i;
 	u32 reg;
 
-	
+	/* Setup bridge */
 	if (ioread16(card->bridge_io) & 1) {
 		printk(KERN_ERR PFX "brg1 answer1 wrong\n");
 		return -EBUSY;
@@ -115,7 +123,7 @@ static int orinoco_nortel_hw_init(struct orinoco_pci_card *card)
 		return -EBUSY;
 	}
 
-	
+	/* Set the PCMCIA COR register */
 	iowrite16(COR_VALUE, card->attr_io + COR_OFFSET);
 	mdelay(1);
 	reg = ioread16(card->attr_io + COR_OFFSET);
@@ -125,7 +133,7 @@ static int orinoco_nortel_hw_init(struct orinoco_pci_card *card)
 		return -EBUSY;
 	}
 
-	
+	/* Set LEDs */
 	iowrite16(1, card->bridge_io + 10);
 	return 0;
 }
@@ -171,7 +179,7 @@ static int orinoco_nortel_init_one(struct pci_dev *pdev,
 		goto fail_map_hermes;
 	}
 
-	
+	/* Allocate network device */
 	priv = alloc_orinocodev(sizeof(*card), &pdev->dev,
 				orinoco_nortel_cor_reset, NULL);
 	if (!priv) {
@@ -252,7 +260,7 @@ static void __devexit orinoco_nortel_remove_one(struct pci_dev *pdev)
 	struct orinoco_private *priv = pci_get_drvdata(pdev);
 	struct orinoco_pci_card *card = priv->card;
 
-	
+	/* Clear LEDs */
 	iowrite16(0, card->bridge_io + 10);
 
 	orinoco_if_del(priv);
@@ -267,9 +275,9 @@ static void __devexit orinoco_nortel_remove_one(struct pci_dev *pdev)
 }
 
 static DEFINE_PCI_DEVICE_TABLE(orinoco_nortel_id_table) = {
-	
+	/* Nortel emobility PCI */
 	{0x126c, 0x8030, PCI_ANY_ID, PCI_ANY_ID,},
-	
+	/* Symbol LA-4123 PCI */
 	{0x1562, 0x0001, PCI_ANY_ID, PCI_ANY_ID,},
 	{0,},
 };
@@ -305,3 +313,10 @@ static void __exit orinoco_nortel_exit(void)
 module_init(orinoco_nortel_init);
 module_exit(orinoco_nortel_exit);
 
+/*
+ * Local variables:
+ *  c-indent-level: 8
+ *  c-basic-offset: 8
+ *  tab-width: 8
+ * End:
+ */

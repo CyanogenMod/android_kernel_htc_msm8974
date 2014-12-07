@@ -1,3 +1,6 @@
+/*
+ *  ATI Mach64 CT/VT/GT/LT Cursor Support
+ */
 
 #include <linux/fb.h>
 #include <linux/init.h>
@@ -12,7 +15,49 @@
 #include <video/mach64.h>
 #include "atyfb.h"
 
+/*
+ * The hardware cursor definition requires 2 bits per pixel. The
+ * Cursor size reguardless of the visible cursor size is 64 pixels
+ * by 64 lines. The total memory required to define the cursor is
+ * 16 bytes / line for 64 lines or 1024 bytes of data. The data
+ * must be in a contigiuos format. The 2 bit cursor code values are
+ * as follows:
+ *
+ *	00 - pixel colour = CURSOR_CLR_0
+ *	01 - pixel colour = CURSOR_CLR_1
+ *	10 - pixel colour = transparent (current display pixel)
+ *	11 - pixel colour = 1's complement of current display pixel
+ *
+ *	Cursor Offset        64 pixels		 Actual Displayed Area
+ *            \_________________________/
+ *	      |			|	|	|
+ *	      |<--------------->|	|	|
+ *	      | CURS_HORZ_OFFSET|	|	|
+ *	      |			|_______|	|  64 Lines
+ *	      |			   ^	|	|
+ *	      |			   |	|	|
+ *	      |		CURS_VERT_OFFSET|	|
+ *	      |			   |	|	|
+ *	      |____________________|____|	|
+ *
+ *
+ * The Screen position of the top left corner of the displayed
+ * cursor is specificed by CURS_HORZ_VERT_POSN. Care must be taken
+ * when the cursor hot spot is not the top left corner and the
+ * physical cursor position becomes negative. It will be be displayed
+ * if either the horizontal or vertical cursor position is negative
+ *
+ * If x becomes negative the cursor manager must adjust the CURS_HORZ_OFFSET
+ * to a larger number and saturate CUR_HORZ_POSN to zero.
+ *
+ * if Y becomes negative, CUR_VERT_OFFSET must be adjusted to a larger number,
+ * CUR_OFFSET must be adjusted to a point to the appropriate line in the cursor
+ * definitation and CUR_VERT_POSN must be saturated to zero.
+ */
 
+    /*
+     *  Hardware Cursor support.
+     */
 static const u8 cursor_bits_lookup[16] = {
 	0x00, 0x40, 0x10, 0x50, 0x04, 0x44, 0x14, 0x54,
 	0x01, 0x41, 0x11, 0x51, 0x05, 0x45, 0x15, 0x55
@@ -39,7 +84,7 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 		aty_st_le32(GEN_TEST_CNTL, aty_ld_le32(GEN_TEST_CNTL, par)
 				& ~HWCURSOR_ENABLE, par);
 
-	
+	/* set position */
 	if (cursor->set & FB_CUR_SETPOS) {
 		x = cursor->image.dx - cursor->hot.x - info->var.xoffset;
 		if (x < 0) {
@@ -59,6 +104,10 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 
 		h = cursor->image.height;
 
+		/*
+		 * In doublescan mode, the cursor location
+		 * and heigh also needs to be doubled.
+		 */
                 if (par->crtc.gen_cntl & CRTC_DBL_SCAN_EN) {
 			y<<=1;
 			h<<=1;
@@ -70,7 +119,7 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 		aty_st_le32(CUR_HORZ_VERT_POSN, ((u32) y << 16) | x, par);
 	}
 
-	
+	/* Set color map */
 	if (cursor->set & FB_CUR_SETCMAP) {
 		u32 fg_idx, bg_idx, fg, bg;
 
@@ -101,7 +150,7 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	    unsigned int i, j, offset;
 	    u8 m, b;
 
-	    
+	    // Clear cursor image with 1010101010...
 	    fb_memset(dst, 0xaa, 1024);
 
 	    offset = align - width*2;
@@ -112,16 +161,16 @@ static int atyfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 			m = *msk++;
 			switch (cursor->rop) {
 			case ROP_XOR:
-			    
+			    // Upper 4 bits of mask data
 			    fb_writeb(cursor_bits_lookup[(b ^ m) >> 4], dst++);
-			    
+			    // Lower 4 bits of mask
 			    fb_writeb(cursor_bits_lookup[(b ^ m) & 0x0f],
 				      dst++);
 			    break;
 			case ROP_COPY:
-			    
+			    // Upper 4 bits of mask data
 			    fb_writeb(cursor_bits_lookup[(b & m) >> 4], dst++);
-			    
+			    // Lower 4 bits of mask
 			    fb_writeb(cursor_bits_lookup[(b & m) & 0x0f],
 				      dst++);
 			    break;
@@ -155,8 +204,8 @@ int __devinit aty_init_cursor(struct fb_info *info)
 	if (!info->sprite.addr)
 		return -ENXIO;
 	info->sprite.size = PAGE_SIZE;
-	info->sprite.scan_align = 16;	
-	info->sprite.buf_align = 16; 	
+	info->sprite.scan_align = 16;	/* Scratch pad 64 bytes wide */
+	info->sprite.buf_align = 16; 	/* and 64 lines tall. */
 	info->sprite.flags = FB_PIXMAP_IO;
 
 	info->fbops->fb_cursor = atyfb_cursor;

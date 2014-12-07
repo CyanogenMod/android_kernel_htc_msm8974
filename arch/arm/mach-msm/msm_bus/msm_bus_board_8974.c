@@ -28,7 +28,7 @@
 #define NFAB_8974 7
 
 enum msm_bus_8974_master_ports_type {
-	
+	/* System NOC Masters */
 	MASTER_PORT_LPASS_AHB = 0,
 	MASTER_PORT_QDSS_BAM,
 	MASTER_PORT_SNOC_CFG,
@@ -45,19 +45,19 @@ enum msm_bus_8974_master_ports_type {
 	MASTER_PORT_QDSS_ETR,
 	MASTER_PORT_USB3,
 
-	
+	/* MMSS NOC Masters */
 	MASTER_PORT_GW_CNOC_MNOC_MMSS_CFG = 0,
 	MASTER_PORT_GW_CNOC_MNOC_CFG,
 	MASTER_PORT_GFX3D_PORT0,
 	MASTER_PORT_GFX3D_PORT1,
 	MASTER_PORT_JPEG,
 	MASTER_PORT_MDP,
-	
+	/* Venus video core */
 	MASTER_PORT_VIDEO_PORT0,
 	MASTER_PORT_VIDEO_PORT1,
 	MASTER_PORT_VFE = 16,
 
-	
+	/* BIMC Masters */
 	MASTER_PORT_KMPSS_M0 = 0,
 	MASTER_PORT_KMPSS_M1,
 	MASTER_PORT_MSS_PROC,
@@ -66,7 +66,7 @@ enum msm_bus_8974_master_ports_type {
 	MASTER_PORT_GW_SNOC_BIMC_0,
 	MASTER_PORT_GW_SNOC_BIMC_1,
 
-	
+	/* OCMEM NOC Masters */
 	MASTER_PORT_CNOC_ONOC_CFG = 0,
 	MASTER_PORT_JPEG_OCMEM,
 	MASTER_PORT_MDP_OCMEM,
@@ -74,7 +74,7 @@ enum msm_bus_8974_master_ports_type {
 	MASTER_PORT_VIDEO_P1_OCMEM,
 	MASTER_PORT_VFE_OCMEM,
 
-	
+	/* Peripheral NOC Masters */
 	MASTER_PORT_SDCC_1 = 0,
 	MASTER_PORT_SDCC_3,
 	MASTER_PORT_SDCC_2,
@@ -88,7 +88,7 @@ enum msm_bus_8974_master_ports_type {
 	MASTER_PORT_PNOC_CFG,
 	MASTER_PORT_GW_SNOC_PNOC,
 
-	
+	/* Config NOC Masters */
 	MASTER_PORT_RPM_INST = 0,
 	MASTER_PORT_RPM_DATA,
 	MASTER_PORT_RPM_SYS,
@@ -100,7 +100,7 @@ enum msm_bus_8974_master_ports_type {
 };
 
 enum msm_bus_8974_slave_ports_type {
-	
+	/* System NOC Slaves */
 	SLAVE_PORT_KMPSS = 1,
 	SLAVE_PORT_LPASS,
 	SLAVE_PORT_USB3 = 4,
@@ -114,7 +114,7 @@ enum msm_bus_8974_slave_ports_type {
 	SLAVE_PORT_SERVICE_SNOC,
 	SLAVE_PORT_QDSS_STM,
 
-	
+	/* MMSS NOC Slaves */
 	SLAVE_PORT_CAMERA_CFG = 0,
 	SLAVE_PORT_DISPLAY_CFG,
 	SLAVE_PORT_OCMEM_CFG,
@@ -132,18 +132,18 @@ enum msm_bus_8974_slave_ports_type {
 	SLAVE_PORT_GW_MMSS_BIMC_P1,
 	SLAVE_PORT_SERVICE_MNOC,
 
-	
+	/* BIMC Slaves */
 	SLAVE_PORT_EBI1_CH0 = 0,
 	SLAVE_PORT_EBI1_CH1,
 	SLAVE_PORT_KMPSS_L2,
 	SLAVE_PORT_GW_BIMC_SNOC,
 
-	
+	/* OCMEM NOC Slaves */
 	SLAVE_PORT_OCMEM_P0 = 0,
 	SLAVE_PORT_OCMEM_P1,
 	SLAVE_PORT_SERVICE_ONOC,
 
-	
+	/*Peripheral NOC Slaves */
 	SLAVE_PORT_SDCC_1 = 0,
 	SLAVE_PORT_SDCC_3,
 	SLAVE_PORT_SDCC_2,
@@ -161,7 +161,7 @@ enum msm_bus_8974_slave_ports_type {
 	SLAVE_PORT_GW_PNOC_SNOC,
 	SLAVE_PORT_SERVICE_PNOC,
 
-	
+	/* Config NOC slaves */
 	SLAVE_PORT_CLK_CTL = 1,
 	SLAVE_PORT_CNOC_MSS,
 	SLAVE_PORT_SECURITY,
@@ -194,6 +194,7 @@ enum msm_bus_8974_slave_ports_type {
 	SLAVE_PORT_SERVICE_CNOC,
 };
 
+/* Hardware IDs for RPM */
 enum msm_bus_8974_mas_hw_id {
 	MAS_APPSS_PROC = 0,
 	MAS_AMSS_PROC,
@@ -342,6 +343,7 @@ enum msm_bus_8974_slv_hw_id {
 static uint32_t master_iids[NMASTERS];
 static uint32_t slave_iids[NSLAVES];
 
+/* System NOC nodes */
 static int mport_lpass_ahb[] = {MASTER_PORT_LPASS_AHB,};
 static int mport_qdss_bam[] = {MASTER_PORT_QDSS_BAM,};
 static int mport_snoc_cfg[] = {MASTER_PORT_SNOC_CFG,};
@@ -374,6 +376,7 @@ static int sport_service_snoc[] = {SLAVE_PORT_SERVICE_SNOC};
 static int sport_qdss_stm[] = {SLAVE_PORT_QDSS_STM};
 
 
+/* MMSS NOC nodes */
 static int mport_gw_cnoc_mnoc_cfg[] = {
 	MASTER_PORT_GW_CNOC_MNOC_MMSS_CFG,
 	MASTER_PORT_GW_CNOC_MNOC_CFG,
@@ -409,6 +412,7 @@ static int sport_gw_mmss_bimc[] = {
 };
 static int sport_service_mnoc[] = {SLAVE_PORT_SERVICE_MNOC};
 
+/* BIMC Nodes */
 
 static int mport_kmpss_m0[] = {MASTER_PORT_KMPSS_M0,};
 static int mport_kmpss_m1[] = {MASTER_PORT_KMPSS_M1};
@@ -429,6 +433,7 @@ static int sport_ebi1[] = {
 static int sport_kmpss_l2[] = {SLAVE_PORT_KMPSS_L2,};
 static int sport_gw_bimc_snoc[] = {SLAVE_PORT_GW_BIMC_SNOC,};
 
+/* OCMEM NOC Nodes */
 static int mport_cnoc_onoc_cfg[] = {
 	MASTER_PORT_CNOC_ONOC_CFG,
 };
@@ -448,6 +453,7 @@ static int sport_ocmem[] = {
 
 static int sport_service_onoc[] = {SLAVE_PORT_SERVICE_ONOC,};
 
+/* Peripheral NOC Nodes */
 static int mport_sdcc_1[] = {MASTER_PORT_SDCC_1,};
 static int mport_sdcc_3[] = {MASTER_PORT_SDCC_3,};
 static int mport_sdcc_2[] = {MASTER_PORT_SDCC_2,};
@@ -480,6 +486,7 @@ static int sport_prng[] = {SLAVE_PORT_PRNG,};
 static int sport_gw_pnoc_snoc[] = {SLAVE_PORT_GW_PNOC_SNOC,};
 static int sport_service_pnoc[] = {SLAVE_PORT_SERVICE_PNOC,};
 
+/* Config NOC Nodes */
 static int mport_rpm_inst[] = {MASTER_PORT_RPM_INST,};
 static int mport_rpm_data[] = {MASTER_PORT_RPM_DATA,};
 static int mport_rpm_sys[] = {MASTER_PORT_RPM_SYS,};
@@ -522,6 +529,10 @@ static int sport_service_cnoc[] = {SLAVE_PORT_SERVICE_CNOC,};
 
 static int tier2[] = {MSM_BUS_BW_TIER2,};
 
+/*
+ * QOS Ports defined only when qos ports are different than
+ * master ports
+ **/
 static int qports_gemini[] = {0};
 static int qports_mdp[] = {1};
 static int qports_venus_p0[] = {4};
@@ -1794,6 +1805,7 @@ static struct msm_bus_node_info config_noc_info[] = {
 	},
 };
 
+/* A virtual NoC is needed for connection to OCMEM */
 static struct msm_bus_node_info ocmem_vnoc_info[] = {
 	{
 		.id = MSM_BUS_MASTER_V_OCMEM_GFX3D,

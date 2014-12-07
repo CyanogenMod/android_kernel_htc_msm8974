@@ -25,7 +25,7 @@ unsigned long __xchg(volatile unsigned long *m, unsigned long val)
 		"1:	mov	%4,(_AAR,%3)	\n"
 		"	mov	(_ADR,%3),%1	\n"
 		"	mov	%5,(_ADR,%3)	\n"
-		"	mov	(_ADR,%3),%0	\n"	
+		"	mov	(_ADR,%3),%0	\n"	/* flush */
 		"	mov	(_ASR,%3),%0	\n"
 		"	or	%0,%0		\n"
 		"	bne	1b		\n"
@@ -48,7 +48,7 @@ static inline unsigned long __cmpxchg(volatile unsigned long *m,
 		"	cmp	%5,%1		\n"
 		"	bne	2f		\n"
 		"	mov	%6,(_ADR,%3)	\n"
-		"2:	mov	(_ADR,%3),%0	\n"	
+		"2:	mov	(_ADR,%3),%0	\n"	/* flush */
 		"	mov	(_ASR,%3),%0	\n"
 		"	or	%0,%0		\n"
 		"	bne	1b		\n"
@@ -59,12 +59,15 @@ static inline unsigned long __cmpxchg(volatile unsigned long *m,
 
 	return oldval;
 }
-#else  
+#else  /* CONFIG_MN10300_HAS_ATOMIC_OPS_UNIT */
 #error "No SMP atomic operation support!"
-#endif 
+#endif /* CONFIG_MN10300_HAS_ATOMIC_OPS_UNIT */
 
-#else  
+#else  /* CONFIG_SMP */
 
+/*
+ * Emulate xchg for non-SMP MN10300
+ */
 struct __xchg_dummy { unsigned long a[100]; };
 #define __xg(x) ((struct __xchg_dummy *)(x))
 
@@ -81,6 +84,9 @@ unsigned long __xchg(volatile unsigned long *m, unsigned long val)
 	return oldval;
 }
 
+/*
+ * Emulate cmpxchg for non-SMP MN10300
+ */
 static inline unsigned long __cmpxchg(volatile unsigned long *m,
 				      unsigned long old, unsigned long new)
 {
@@ -95,7 +101,7 @@ static inline unsigned long __cmpxchg(volatile unsigned long *m,
 	return oldval;
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
 #define xchg(ptr, v)						\
 	((__typeof__(*(ptr))) __xchg((unsigned long *)(ptr),	\
@@ -106,4 +112,4 @@ static inline unsigned long __cmpxchg(volatile unsigned long *m,
 					(unsigned long)(o),	\
 					(unsigned long)(n)))
 
-#endif 
+#endif /* _ASM_CMPXCHG_H */

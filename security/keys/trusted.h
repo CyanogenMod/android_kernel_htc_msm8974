@@ -1,6 +1,7 @@
 #ifndef __TRUSTED_KEY_H
 #define __TRUSTED_KEY_H
 
+/* implementation specific TPM constants */
 #define MAX_PCRINFO_SIZE		64
 #define MAX_BUF_SIZE			512
 #define TPM_GETRANDOM_SIZE		14
@@ -29,6 +30,7 @@ struct osapsess {
 	unsigned char enonce[TPM_NONCE_SIZE];
 };
 
+/* discrete values, but have to store in uint16_t for TPM use */
 enum {
 	SEAL_keytype = 1,
 	SRK_keytype = 4

@@ -57,23 +57,28 @@ struct write_sccb {
 	struct msg_buf msg_buf;
 } __attribute__((packed));
 
+/* The number of empty mto buffers that can be contained in a single sccb. */
 #define NR_EMPTY_MTO_PER_SCCB ((PAGE_SIZE - sizeof(struct sclp_buffer) - \
 			sizeof(struct write_sccb)) / sizeof(struct mto))
 
+/*
+ * data structure for information about list of SCCBs (only for writing),
+ * will be located at the end of a SCCBs page
+ */
 struct sclp_buffer {
-	struct list_head list;		
+	struct list_head list;		/* list_head for sccb_info chain */
 	struct sclp_req request;
 	struct write_sccb *sccb;
 	char *current_line;
 	int current_length;
 	int retry_count;
-	
+	/* output format settings */
 	unsigned short columns;
 	unsigned short htab;
-	
-	unsigned int mto_char_sum;	
-	unsigned int mto_number;	
-	
+	/* statistics about this buffer */
+	unsigned int mto_char_sum;	/* # chars in sccb */
+	unsigned int mto_number;	/* # mtos in sccb */
+	/* Callback that is called after reaching final status. */
 	void (*callback)(struct sclp_buffer *, int);
 };
 
@@ -93,4 +98,4 @@ void sclp_console_pm_event(enum sclp_pm_event sclp_pm_event);
 static inline void sclp_console_pm_event(enum sclp_pm_event sclp_pm_event) { }
 #endif
 
-#endif	
+#endif	/* __SCLP_RW_H__ */

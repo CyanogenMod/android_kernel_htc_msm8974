@@ -51,11 +51,18 @@ module_param(prealloc_stream_buf, int, S_IRUGO);
 MODULE_PARM_DESC(prealloc_stream_buf,
 	"Preallocate size for per-adapter stream buffer");
 
+/* Allow the debug level to be changed after module load.
+ E.g.   echo 2 > /sys/module/asihpi/parameters/hpiDebugLevel
+*/
 module_param(hpi_debug_level, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(hpi_debug_level, "debug verbosity 0..5");
 
+/* List of adapters found */
 static struct hpi_adapter adapters[HPI_MAX_ADAPTERS];
 
+/* Wrapper function to HPI_Message to enable dumping of the
+   message and response types.
+*/
 static void hpi_send_recv_f(struct hpi_message *phm, struct hpi_response *phr,
 	struct file *file)
 {
@@ -66,19 +73,25 @@ static void hpi_send_recv_f(struct hpi_message *phm, struct hpi_response *phr,
 		hpi_send_recv_ex(phm, phr, file);
 }
 
+/* This is called from hpifunc.c functions, called by ALSA
+ * (or other kernel process) In this case there is no file descriptor
+ * available for the message cache code
+ */
 void hpi_send_recv(struct hpi_message *phm, struct hpi_response *phr)
 {
 	hpi_send_recv_f(phm, phr, HOWNER_KERNEL);
 }
 
 EXPORT_SYMBOL(hpi_send_recv);
+/* for radio-asihpi */
 
 int asihpi_hpi_release(struct file *file)
 {
 	struct hpi_message hm;
 	struct hpi_response hr;
 
-	
+/* HPI_DEBUG_LOG(INFO,"hpi_release file %p, pid %d\n", file, current->pid); */
+	/* close the subsystem just in case the application forgot to. */
 	hpi_init_message_response(&hm, &hr, HPI_OBJ_SUBSYSTEM,
 		HPI_SUBSYS_CLOSE);
 	hpi_send_recv_ex(&hm, &hr, file);
@@ -108,14 +121,14 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	phpi_ioctl_data = (struct hpi_ioctl_linux __user *)arg;
 
-	
+	/* Read the message and response pointers from user space.  */
 	if (get_user(puhm, &phpi_ioctl_data->phm)
 		|| get_user(puhr, &phpi_ioctl_data->phr)) {
 		err = -EFAULT;
 		goto out;
 	}
 
-	
+	/* Now read the message size and data from user space.  */
 	if (get_user(hm->h.size, (u16 __user *)puhm)) {
 		err = -EFAULT;
 		goto out;
@@ -123,7 +136,7 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	if (hm->h.size > sizeof(*hm))
 		hm->h.size = sizeof(*hm);
 
-	
+	/* printk(KERN_INFO "message size %d\n", hm->h.wSize); */
 
 	uncopied_bytes = copy_from_user(hm, puhm, hm->h.size);
 	if (uncopied_bytes) {
@@ -136,7 +149,7 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		err = -EFAULT;
 		goto out;
 	}
-	
+	/* printk(KERN_INFO "user response size %d\n", res_max_size); */
 	if (res_max_size < sizeof(struct hpi_response_header)) {
 		HPI_DEBUG_LOG(WARNING, "small res size %d\n", res_max_size);
 		err = -EFAULT;
@@ -146,7 +159,7 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	switch (hm->h.function) {
 	case HPI_SUBSYS_CREATE_ADAPTER:
 	case HPI_ADAPTER_DELETE:
-		
+		/* Application must not use these functions! */
 		hr->h.size = sizeof(hr->h);
 		hr->h.error = HPI_ERROR_INVALID_OPERATION;
 		hr->h.function = hm->h.function;
@@ -164,7 +177,7 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	} else {
 		u16 __user *ptr = NULL;
 		u32 size = 0;
-		
+		/* -1=no data 0=read from user mem, 1=write to user mem */
 		int wrflag = -1;
 		struct hpi_adapter *pa = NULL;
 
@@ -189,14 +202,18 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			goto out;
 		}
 
-		
+		/* Dig out any pointers embedded in the message.  */
 		switch (hm->h.function) {
 		case HPI_OSTREAM_WRITE:
 		case HPI_ISTREAM_READ:{
-				
+				/* Yes, sparse, this is correct. */
 				ptr = (u16 __user *)hm->m0.u.d.u.data.pb_data;
 				size = hm->m0.u.d.u.data.data_size;
 
+				/* Allocate buffer according to application request.
+				   ?Is it better to alloc/free for the duration
+				   of the transaction?
+				 */
 				if (pa->buffer_size < size) {
 					HPI_DEBUG_LOG(DEBUG,
 						"Realloc adapter %d stream "
@@ -224,7 +241,7 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 				hm->m0.u.d.u.data.pb_data = pa->p_buffer;
 				if (hm->h.function == HPI_ISTREAM_READ)
-					
+					/* from card, WRITE to user mem */
 					wrflag = 1;
 				else
 					wrflag = 0;
@@ -260,8 +277,8 @@ long asihpi_hpi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		mutex_unlock(&pa->mutex);
 	}
 
-	
-	
+	/* on return response size must be set */
+	/*printk(KERN_INFO "response size %d\n", hr->h.wSize); */
 
 	if (!hr->h.size) {
 		HPI_DEBUG_LOG(ERROR, "response zero size\n");
@@ -314,7 +331,7 @@ int __devinit asihpi_adapter_probe(struct pci_dev *pci_dev,
 		return -EIO;
 	}
 
-	pci_set_master(pci_dev);	
+	pci_set_master(pci_dev);	/* also sets latency timer if < 16 */
 
 	hpi_init_message_response(&hm, &hr, HPI_OBJ_SUBSYSTEM,
 		HPI_SUBSYS_CREATE_ADAPTER);
@@ -337,7 +354,7 @@ int __devinit asihpi_adapter_probe(struct pci_dev *pci_dev,
 			if (!pci.ap_mem_base[idx]) {
 				HPI_DEBUG_LOG(ERROR,
 					"ioremap failed, aborting\n");
-				
+				/* unmap previously mapped pci mem space */
 				goto err;
 			}
 		}
@@ -347,7 +364,7 @@ int __devinit asihpi_adapter_probe(struct pci_dev *pci_dev,
 	hm.u.s.resource.bus_type = HPI_BUS_PCI;
 	hm.u.s.resource.r.pci = &pci;
 
-	
+	/* call CreateAdapterObject on the relevant hpi module */
 	hpi_send_recv_ex(&hm, &hr, HOWNER_KERNEL);
 	if (hr.error)
 		goto err;
@@ -374,6 +391,9 @@ int __devinit asihpi_adapter_probe(struct pci_dev *pci_dev,
 	if (hr.error)
 		goto err;
 
+	/* WARNING can't init mutex in 'adapter'
+	 * and then copy it to adapters[] ?!?!
+	 */
 	adapters[adapter_index] = adapter;
 	mutex_init(&adapters[adapter_index].mutex);
 	pci_set_drvdata(pci_dev, &adapters[adapter_index]);
@@ -417,7 +437,7 @@ void __devexit asihpi_adapter_remove(struct pci_dev *pci_dev)
 	hm.adapter_index = pa->adapter->index;
 	hpi_send_recv_ex(&hm, &hr, HOWNER_KERNEL);
 
-	
+	/* unmap PCI memory space, mapped during device init. */
 	for (idx = 0; idx < HPI_MAX_ADAPTER_MEM_SPACES; idx++) {
 		if (pci.ap_mem_base[idx])
 			iounmap(pci.ap_mem_base[idx]);

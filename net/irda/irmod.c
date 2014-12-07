@@ -23,18 +23,28 @@
  *
  ********************************************************************/
 
+/*
+ * This file contains the main entry points of the IrDA stack.
+ * They are in this file and not af_irda.c because some developpers
+ * are using the IrDA stack without the socket API (compiling out
+ * af_irda.c).
+ * Jean II
+ */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 
 #include <net/irda/irda.h>
-#include <net/irda/irmod.h>		
-#include <net/irda/irlap.h>		
-#include <net/irda/irlmp.h>		
-#include <net/irda/iriap.h>		
-#include <net/irda/irttp.h>		
-#include <net/irda/irda_device.h>	
+#include <net/irda/irmod.h>		/* notify_t */
+#include <net/irda/irlap.h>		/* irlap_init */
+#include <net/irda/irlmp.h>		/* irlmp_init */
+#include <net/irda/iriap.h>		/* iriap_init */
+#include <net/irda/irttp.h>		/* irttp_init */
+#include <net/irda/irda_device.h>	/* irda_device_init */
 
+/*
+ * Module parameters
+ */
 #ifdef CONFIG_IRDA_DEBUG
 unsigned int irda_debug = IRDA_DEBUG_LEVEL;
 module_param_named(debug, irda_debug, uint, 0);
@@ -42,11 +52,20 @@ MODULE_PARM_DESC(debug, "IRDA debugging level");
 EXPORT_SYMBOL(irda_debug);
 #endif
 
+/* Packet type handler.
+ * Tell the kernel how IrDA packets should be handled.
+ */
 static struct packet_type irda_packet_type __read_mostly = {
 	.type	= cpu_to_be16(ETH_P_IRDA),
-	.func	= irlap_driver_rcv,	
+	.func	= irlap_driver_rcv,	/* Packet type handler irlap_frame.c */
 };
 
+/*
+ * Function irda_notify_init (notify)
+ *
+ *    Used for initializing the notify structure
+ *
+ */
 void irda_notify_init(notify_t *notify)
 {
 	notify->data_indication = NULL;
@@ -61,30 +80,36 @@ void irda_notify_init(notify_t *notify)
 }
 EXPORT_SYMBOL(irda_notify_init);
 
+/*
+ * Function irda_init (void)
+ *
+ *  Protocol stack initialisation entry point.
+ *  Initialise the various components of the IrDA stack
+ */
 static int __init irda_init(void)
 {
 	int ret = 0;
 
 	IRDA_DEBUG(0, "%s()\n", __func__);
 
-	
+	/* Lower layer of the stack */
 	irlmp_init();
 	irlap_init();
 
-	
+	/* Driver/dongle support */
 	irda_device_init();
 
-	
+	/* Higher layers of the stack */
 	iriap_init();
 	irttp_init();
 	ret = irsock_init();
 	if (ret < 0)
 		goto out_err_1;
 
-	
+	/* Add IrDA packet type (Start receiving packets) */
 	dev_add_pack(&irda_packet_type);
 
-	
+	/* External APIs */
 #ifdef CONFIG_PROC_FS
 	irda_proc_register();
 #endif
@@ -109,29 +134,35 @@ static int __init irda_init(void)
 	irda_proc_unregister();
 #endif
 
-	
+	/* Remove IrDA packet type (stop receiving packets) */
 	dev_remove_pack(&irda_packet_type);
 
-	
+	/* Remove higher layers */
 	irsock_cleanup();
  out_err_1:
 	irttp_cleanup();
 	iriap_cleanup();
 
-	
+	/* Remove lower layers */
 	irda_device_cleanup();
-	irlap_cleanup(); 
+	irlap_cleanup(); /* Must be done before irlmp_cleanup()! DB */
 
-	
+	/* Remove middle layer */
 	irlmp_cleanup();
 
 
 	return ret;
 }
 
+/*
+ * Function irda_cleanup (void)
+ *
+ *  Protocol stack cleanup/removal entry point.
+ *  Cleanup the various components of the IrDA stack
+ */
 static void __exit irda_cleanup(void)
 {
-	
+	/* Remove External APIs */
 	irda_nl_unregister();
 
 #ifdef CONFIG_SYSCTL
@@ -141,22 +172,36 @@ static void __exit irda_cleanup(void)
 	irda_proc_unregister();
 #endif
 
-	
+	/* Remove IrDA packet type (stop receiving packets) */
 	dev_remove_pack(&irda_packet_type);
 
-	
+	/* Remove higher layers */
 	irsock_cleanup();
 	irttp_cleanup();
 	iriap_cleanup();
 
-	
+	/* Remove lower layers */
 	irda_device_cleanup();
-	irlap_cleanup(); 
+	irlap_cleanup(); /* Must be done before irlmp_cleanup()! DB */
 
-	
+	/* Remove middle layer */
 	irlmp_cleanup();
 }
 
+/*
+ * The IrDA stack must be initialised *before* drivers get initialised,
+ * and *before* higher protocols (IrLAN/IrCOMM/IrNET) get initialised,
+ * otherwise bad things will happen (hashbins will be NULL for example).
+ * Those modules are at module_init()/device_initcall() level.
+ *
+ * On the other hand, it needs to be initialised *after* the basic
+ * networking, the /proc/net filesystem and sysctl module. Those are
+ * currently initialised in .../init/main.c (before initcalls).
+ * Also, IrDA drivers needs to be initialised *after* the random number
+ * generator (main stack and higher layer init don't need it anymore).
+ *
+ * Jean II
+ */
 subsys_initcall(irda_init);
 module_exit(irda_cleanup);
 

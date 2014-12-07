@@ -18,4 +18,4 @@
 
 int mipi_tc358764_dsi2lvds_register(struct msm_panel_info *pinfo,
 	u32 channel_id, u32 panel_id);
-#endif  
+#endif  /* MIPI_TC358764_DSI2LVDS_H */

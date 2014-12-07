@@ -20,6 +20,10 @@
  */
 
 
+/*
+ * TODO:
+ * implement echo over SEL pin
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -33,6 +37,7 @@
 
 #define DRVDESC "parallel port PPS client"
 
+/* module parameters */
 
 #define CLEAR_WAIT_MAX		100
 #define CLEAR_WAIT_MAX_ERRORS	5
@@ -44,11 +49,12 @@ MODULE_PARM_DESC(clear_wait,
 module_param(clear_wait, uint, 0);
 
 
+/* internal per port structure */
 struct pps_client_pp {
-	struct pardevice *pardev;	
-	struct pps_device *pps;		
-	unsigned int cw;		
-	unsigned int cw_err;		
+	struct pardevice *pardev;	/* parport device */
+	struct pps_device *pps;		/* PPS device */
+	unsigned int cw;		/* port clear timeout */
+	unsigned int cw_err;		/* number of timeouts */
 };
 
 static inline int signal_is_set(struct parport *port)
@@ -56,6 +62,7 @@ static inline int signal_is_set(struct parport *port)
 	return (port->ops->read_status(port) & PARPORT_STATUS_ACK) != 0;
 }
 
+/* parport interrupt handler */
 static void parport_irq(void *handle)
 {
 	struct pps_event_time ts_assert, ts_clear;
@@ -64,24 +71,34 @@ static void parport_irq(void *handle)
 	unsigned int i;
 	unsigned long flags;
 
-	
+	/* first of all we get the time stamp... */
 	pps_get_ts(&ts_assert);
 
 	if (dev->cw == 0)
-		
+		/* clear edge capture disabled */
 		goto out_assert;
 
-	
+	/* try capture the clear edge */
 
+	/* We have to disable interrupts here. The idea is to prevent
+	 * other interrupts on the same processor to introduce random
+	 * lags while polling the port. Reading from IO port is known
+	 * to take approximately 1us while other interrupt handlers can
+	 * take much more potentially.
+	 *
+	 * Interrupts won't be disabled for a long time because the
+	 * number of polls is limited by clear_wait parameter which is
+	 * kept rather low. So it should never be an issue.
+	 */
 	local_irq_save(flags);
-	
+	/* check the signal (no signal means the pulse is lost this time) */
 	if (!signal_is_set(port)) {
 		local_irq_restore(flags);
 		dev_err(dev->pps->dev, "lost the signal\n");
 		goto out_assert;
 	}
 
-	
+	/* poll the port until the signal is unset */
 	for (i = dev->cw; i; i--)
 		if (!signal_is_set(port)) {
 			pps_get_ts(&ts_clear);
@@ -91,7 +108,7 @@ static void parport_irq(void *handle)
 		}
 	local_irq_restore(flags);
 
-	
+	/* timeout */
 	dev->cw_err++;
 	if (dev->cw_err >= CLEAR_WAIT_MAX_ERRORS) {
 		dev_err(dev->pps->dev, "disabled clear edge capture after %d"
@@ -101,16 +118,16 @@ static void parport_irq(void *handle)
 	}
 
 out_assert:
-	
+	/* fire assert event */
 	pps_event(dev->pps, &ts_assert,
 			PPS_CAPTUREASSERT, NULL);
 	return;
 
 out_both:
-	
+	/* fire assert event */
 	pps_event(dev->pps, &ts_assert,
 			PPS_CAPTUREASSERT, NULL);
-	
+	/* fire clear event */
 	pps_event(dev->pps, &ts_clear,
 			PPS_CAPTURECLEAR, NULL);
 	return;
@@ -176,9 +193,9 @@ static void parport_detach(struct parport *port)
 	struct pardevice *pardev = port->cad;
 	struct pps_client_pp *device;
 
-	
+	/* FIXME: oooh, this is ugly! */
 	if (strcmp(pardev->name, KBUILD_MODNAME))
-		
+		/* not our port */
 		return;
 
 	device = pardev->private;
@@ -196,6 +213,7 @@ static struct parport_driver pps_parport_driver = {
 	.detach = parport_detach,
 };
 
+/* module staff */
 
 static int __init pps_parport_init(void)
 {

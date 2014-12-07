@@ -29,4 +29,4 @@ extern int snd_opl4_create(struct snd_card *card,
 			   int seq_device,
 			   struct snd_opl3 **opl3, struct snd_opl4 **opl4);
 
-#endif 
+#endif /* __SOUND_OPL4_H */

@@ -1,11 +1,29 @@
 #include "radeonfb.h"
 
+/* the accelerated functions here are patterned after the 
+ * "ACCEL_MMIO" ifdef branches in XFree86
+ * --dte
+ */
 
 static void radeon_fixup_offset(struct radeonfb_info *rinfo)
 {
 	u32 local_base;
 
-	
+	/* *** Ugly workaround *** */
+	/*
+	 * On some platforms, the video memory is mapped at 0 in radeon chip space
+	 * (like PPCs) by the firmware. X will always move it up so that it's seen
+	 * by the chip to be at the same address as the PCI BAR.
+	 * That means that when switching back from X, there is a mismatch between
+	 * the offsets programmed into the engine. This means that potentially,
+	 * accel operations done before radeonfb has a chance to re-init the engine
+	 * will have incorrect offsets, and potentially trash system memory !
+	 *
+	 * The correct fix is for fbcon to never call any accel op before the engine
+	 * has properly been re-initialized (by a call to set_var), but this is a
+	 * complex fix. This workaround in the meantime, called before every accel
+	 * operation, makes sure the offsets are in sync.
+	 */
 
 	radeon_fifo_wait (1);
 	local_base = INREG(MC_FB_LOCATION) << 16;
@@ -27,7 +45,7 @@ static void radeonfb_prim_fillrect(struct radeonfb_info *rinfo,
 	radeon_fifo_wait(4);  
   
 	OUTREG(DP_GUI_MASTER_CNTL,  
-		rinfo->dp_gui_master_cntl  
+		rinfo->dp_gui_master_cntl  /* contains, like GMC_DST_32BPP */
                 | GMC_BRUSH_SOLID_COLOR
                 | ROP3_P);
 	if (radeon_get_dstbpp(rinfo->depth) != DST_8BPP)
@@ -93,7 +111,7 @@ static void radeonfb_prim_copyarea(struct radeonfb_info *rinfo,
 
 	radeon_fifo_wait(3);
 	OUTREG(DP_GUI_MASTER_CNTL,
-		rinfo->dp_gui_master_cntl 
+		rinfo->dp_gui_master_cntl /* i.e. GMC_DST_32BPP */
 		| GMC_BRUSH_NONE
 		| GMC_SRC_DSTCOLOR
 		| ROP3_S 
@@ -203,7 +221,7 @@ void radeonfb_engine_reset(struct radeonfb_info *rinfo)
 		INREG(RBBM_SOFT_RESET);
 		OUTREG(RBBM_SOFT_RESET, 0);
 		tmp = INREG(RB2D_DSTCACHE_MODE);
-		OUTREG(RB2D_DSTCACHE_MODE, tmp | (1 << 17)); 
+		OUTREG(RB2D_DSTCACHE_MODE, tmp | (1 << 17)); /* FIXME */
 	} else {
 		OUTREG(RBBM_SOFT_RESET, rbbm_soft_reset |
 					SOFT_RESET_CP |
@@ -240,7 +258,7 @@ void radeonfb_engine_init (struct radeonfb_info *rinfo)
 {
 	unsigned long temp;
 
-	
+	/* disable 3D engine */
 	OUTREG(RB3D_CNTL, 0);
 
 	radeonfb_engine_reset(rinfo);
@@ -251,10 +269,18 @@ void radeonfb_engine_init (struct radeonfb_info *rinfo)
 		       RB2D_DC_AUTOFLUSH_ENABLE |
 		       RB2D_DC_DC_DISABLE_IGNORE_PE);
 	} else {
+		/* This needs to be double checked with ATI. Latest X driver
+		 * completely "forgets" to set this register on < r3xx, and
+		 * we used to just write 0 there... I'll keep the 0 and update
+		 * that when we have sorted things out on X side.
+		 */
 		OUTREG(RB2D_DSTCACHE_MODE, 0);
 	}
 
 	radeon_fifo_wait (3);
+	/* We re-read MC_FB_LOCATION from card as it can have been
+	 * modified by XFree drivers (ouch !)
+	 */
 	rinfo->fb_local_base = INREG(MC_FB_LOCATION) << 16;
 
 	OUTREG(DEFAULT_PITCH_OFFSET, (rinfo->pitch << 0x16) |
@@ -283,19 +309,19 @@ void radeonfb_engine_init (struct radeonfb_info *rinfo)
 
 	radeon_fifo_wait (7);
 
-	
+	/* clear line drawing regs */
 	OUTREG(DST_LINE_START, 0);
 	OUTREG(DST_LINE_END, 0);
 
-	
+	/* set brush color regs */
 	OUTREG(DP_BRUSH_FRGD_CLR, 0xffffffff);
 	OUTREG(DP_BRUSH_BKGD_CLR, 0x00000000);
 
-	
+	/* set source color regs */
 	OUTREG(DP_SRC_FRGD_CLR, 0xffffffff);
 	OUTREG(DP_SRC_BKGD_CLR, 0x00000000);
 
-	
+	/* default write mask */
 	OUTREG(DP_WRITE_MSK, 0xffffffff);
 
 	radeon_engine_idle ();

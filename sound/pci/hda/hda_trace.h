@@ -109,8 +109,9 @@ TRACE_EVENT(hda_unsol_event,
 		  __entry->res, __entry->res_ex)
 );
 
-#endif 
+#endif /* _TRACE_HDA_H */
 
+/* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .
 #include <trace/define_trace.h>

@@ -9,11 +9,19 @@
 #include <asm/irq.h>
 #include <variant/hardware.h>
 
+/* S6_REG_INTC */
 #define INTC_STATUS	0x000
 #define INTC_RAW	0x010
 #define INTC_STATUS_AG	0x100
 #define INTC_CFG(n)	(0x200 + 4 * (n))
 
+/*
+ * The s6000 has a crossbar that multiplexes interrupt output lines
+ * from the peripherals to input lines on the xtensa core.
+ *
+ * We leave the mapping decisions to the platform as it depends on the
+ * actually connected peripherals which distribution makes sense.
+ */
 extern const signed char *platform_irq_mappings[NR_IRQS];
 
 static unsigned long scp_to_intc_enable[] = {

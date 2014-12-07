@@ -34,12 +34,15 @@ void msm_init_sirc(void);
 
 #include <mach/msm_iomap.h>
 
+/*
+ * Secondary interrupt controller interrupts
+ */
 
 #define FIRST_SIRC_IRQ (NR_MSM_IRQS + NR_GPIO_IRQS)
 
 #if defined(CONFIG_ARCH_FSM9XXX)
 #include <mach/sirc-fsm9xxx.h>
-#else 
+#else /* CONFIG_ARCH_FSM9XXX */
 
 #define INT_UART1                     (FIRST_SIRC_IRQ + 0)
 #define INT_UART2                     (FIRST_SIRC_IRQ + 1)
@@ -91,10 +94,10 @@ void msm_init_sirc(void);
 #define SPSS_SIRC_INT_CLEAR           (MSM_SIRC_BASE + 0x28)
 #define SPSS_SIRC_SOFT_INT            (MSM_SIRC_BASE + 0x2C)
 
-#endif 
+#endif /* CONFIG_ARCH_FSM9XXX */
 
 #define LAST_SIRC_IRQ                 (FIRST_SIRC_IRQ + NR_SIRC_IRQS - 1)
 
-#endif 
+#endif /* CONFIG_ARCH_MSM_SCORPION */
 
 #endif

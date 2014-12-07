@@ -49,15 +49,23 @@ do {						\
 	__raw_writel(0, P4SEG_STORE_QUE + 8);	\
 } while (0);
 
+/**
+ * sq_flush_range - Flush (prefetch) a specific SQ range
+ * @start: the store queue address to start flushing from
+ * @len: the length to flush
+ *
+ * Flushes the store queue cache from @start to @start + @len in a
+ * linear fashion.
+ */
 void sq_flush_range(unsigned long start, unsigned int len)
 {
 	unsigned long *sq = (unsigned long *)start;
 
-	
+	/* Flush the queues */
 	for (len >>= 5; len--; sq += 8)
 		prefetchw(sq);
 
-	
+	/* Wait for completion */
 	store_queue_barrier();
 }
 EXPORT_SYMBOL(sq_flush_range);
@@ -111,6 +119,11 @@ static int __sq_remap(struct sq_mapping *map, pgprot_t prot)
 		return -EAGAIN;
 	}
 #else
+	/*
+	 * Without an MMU (or with it turned off), this is much more
+	 * straightforward, as we can just load up each queue's QACR with
+	 * the physical address appropriately masked.
+	 */
 	__raw_writel(((map->addr >> 26) << 2) & 0x1c, SQ_QACR0);
 	__raw_writel(((map->addr >> 26) << 2) & 0x1c, SQ_QACR1);
 #endif
@@ -118,6 +131,17 @@ static int __sq_remap(struct sq_mapping *map, pgprot_t prot)
 	return 0;
 }
 
+/**
+ * sq_remap - Map a physical address through the Store Queues
+ * @phys: Physical address of mapping.
+ * @size: Length of mapping.
+ * @name: User invoking mapping.
+ * @prot: Protection bits.
+ *
+ * Remaps the physical address @phys through the next available store queue
+ * address of @size length. @name is logged at boot time as well as through
+ * the sysfs interface.
+ */
 unsigned long sq_remap(unsigned long phys, unsigned int size,
 		       const char *name, pgprot_t prot)
 {
@@ -126,11 +150,11 @@ unsigned long sq_remap(unsigned long phys, unsigned int size,
 	unsigned int psz;
 	int ret, page;
 
-	
+	/* Don't allow wraparound or zero size */
 	end = phys + size - 1;
 	if (unlikely(!size || end < phys))
 		return -EINVAL;
-	
+	/* Don't allow anyone to remap normal memory.. */
 	if (unlikely(phys < virt_to_phys(high_memory)))
 		return -EINVAL;
 
@@ -174,6 +198,14 @@ out:
 }
 EXPORT_SYMBOL(sq_remap);
 
+/**
+ * sq_unmap - Unmap a Store Queue allocation
+ * @vaddr: Pre-allocated Store Queue mapping.
+ *
+ * Unmaps the store queue allocation @map that was previously created by
+ * sq_remap(). Also frees up the pte that was previously inserted into
+ * the kernel page table and discards the UTLB translation.
+ */
 void sq_unmap(unsigned long vaddr)
 {
 	struct sq_mapping **p, *map;
@@ -194,6 +226,9 @@ void sq_unmap(unsigned long vaddr)
 
 #ifdef CONFIG_MMU
 	{
+		/*
+		 * Tear down the VMA in the MMU case.
+		 */
 		struct vm_struct *vma;
 
 		vma = remove_vm_area((void *)(map->sq_addr & PAGE_MASK));
@@ -211,6 +246,16 @@ void sq_unmap(unsigned long vaddr)
 }
 EXPORT_SYMBOL(sq_unmap);
 
+/*
+ * Needlessly complex sysfs interface. Unfortunately it doesn't seem like
+ * there is any other easy way to add things on a per-cpu basis without
+ * putting the directory entries somewhere stupid and having to create
+ * links in sysfs by hand back in to the per-cpu directories.
+ *
+ * Some day we may want to have an additional abstraction per store
+ * queue, but considering the kobject hell we already have to deal with,
+ * it's simply not worth the trouble.
+ */
 static struct kobject *sq_kobject[NR_CPUS];
 
 struct sq_sysfs_attr {

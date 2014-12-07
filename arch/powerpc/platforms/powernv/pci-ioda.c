@@ -39,8 +39,8 @@ struct resource_wrap {
 	struct list_head	link;
 	resource_size_t		size;
 	resource_size_t		align;
-	struct pci_dev		*dev;	
-	struct pci_bus		*bus;	
+	struct pci_dev		*dev;	/* Set if it's a device */
+	struct pci_bus		*bus;	/* Set if it's a bridge */
 };
 
 static int __pe_printk(const char *level, const struct pnv_ioda_pe *pe,
@@ -79,6 +79,11 @@ define_pe_printk_level(pe_warn, KERN_WARNING);
 define_pe_printk_level(pe_info, KERN_INFO);
 
 
+/* Calculate resource usage & alignment requirement of a single
+ * device. This will also assign all resources within the device
+ * for a given type starting at 0 for the biggest one and then
+ * assigning in decreasing order of size.
+ */
 static void __devinit pnv_ioda_calc_dev(struct pci_dev *dev, unsigned int flags,
 					resource_size_t *size,
 					resource_size_t *align)
@@ -91,7 +96,7 @@ static void __devinit pnv_ioda_calc_dev(struct pci_dev *dev, unsigned int flags,
 
 	*size = *align = 0;
 
-	
+	/* Clear the resources out and mark them all unset */
 	for (i = 0; i <= PCI_ROM_RESOURCE; i++) {
 		r = &dev->resource[i];
 		if (!(r->flags & flags))
@@ -103,12 +108,16 @@ static void __devinit pnv_ioda_calc_dev(struct pci_dev *dev, unsigned int flags,
 		r->flags |= IORESOURCE_UNSET;
 	}
 
+	/* We currently keep all memory resources together, we
+	 * will handle prefetch & 64-bit separately in the future
+	 * but for now we stick everybody in M32
+	 */
 	start = 0;
 	for (;;) {
 		resource_size_t max_size = 0;
 		int max_no = -1;
 
-		
+		/* Find next biggest resource */
 		for (i = 0; i <= PCI_ROM_RESOURCE; i++) {
 			r = &dev->resource[i];
 			if (!(r->flags & IORESOURCE_UNSET) ||
@@ -136,6 +145,9 @@ static void __devinit pnv_ioda_calc_dev(struct pci_dev *dev, unsigned int flags,
 		 pci_name(dev), *size, *align);
 }
 
+/* Allocate a resource "wrap" for a given device or bridge and
+ * insert it at the right position in the sorted list
+ */
 static void __devinit pnv_ioda_add_wrap(struct list_head *list,
 					struct pci_bus *bus,
 					struct pci_dev *dev,
@@ -158,6 +170,7 @@ static void __devinit pnv_ioda_add_wrap(struct list_head *list,
 	list_add_tail(&w->link, list);
 }
 
+/* Offset device resources of a given type */
 static void __devinit pnv_ioda_offset_dev(struct pci_dev *dev,
 					  unsigned int flags,
 					  resource_size_t offset)
@@ -178,6 +191,7 @@ static void __devinit pnv_ioda_offset_dev(struct pci_dev *dev,
 	pr_devel("  <- ODR %s [%x] +%016llx\n", pci_name(dev), flags, offset);
 }
 
+/* Offset bus resources (& all children) of a given type */
 static void __devinit pnv_ioda_offset_bus(struct pci_bus *bus,
 					  unsigned int flags,
 					  resource_size_t offset)
@@ -205,6 +219,17 @@ static void __devinit pnv_ioda_offset_bus(struct pci_bus *bus,
 		 bus->self ? pci_name(bus->self) : "root", flags);
 }
 
+/* This is the guts of our IODA resource allocation. This is called
+ * recursively for each bus in the system. It calculates all the
+ * necessary size and requirements for children and assign them
+ * resources such that:
+ *
+ *   - Each function fits in it's own contiguous set of IO/M32
+ *     segment
+ *
+ *   - All segments behind a P2P bridge are contiguous and obey
+ *     alignment constraints of those bridges
+ */
 static void __devinit pnv_ioda_calc_bus(struct pci_bus *bus, unsigned int flags,
 					resource_size_t *size,
 					resource_size_t *align)
@@ -224,6 +249,9 @@ static void __devinit pnv_ioda_calc_bus(struct pci_bus *bus, unsigned int flags,
 	pr_devel("-> CBR %s [%x]\n",
 		 bus->self ? pci_name(bus->self) : "root", flags);
 
+	/* Calculate alignment requirements based on the type
+	 * of resource we are working on
+	 */
 	if (flags & IORESOURCE_IO) {
 		bres = 0;
 		min_align = phb->ioda.io_segsize;
@@ -234,19 +262,19 @@ static void __devinit pnv_ioda_calc_bus(struct pci_bus *bus, unsigned int flags,
 		min_balign = 0x100000;
 	}
 
-	
+	/* Gather all our children resources ordered by alignment */
 	INIT_LIST_HEAD(&head);
 
-	
+	/*   - Busses */
 	list_for_each_entry(cbus, &bus->children, node) {
 		pnv_ioda_calc_bus(cbus, flags, &dev_size, &dev_align);
 		pnv_ioda_add_wrap(&head, cbus, NULL, dev_size, dev_align);
 	}
 
-	
+	/*   - Devices */
 	list_for_each_entry(cdev, &bus->devices, bus_list) {
 		pnv_ioda_calc_dev(cdev, flags, &dev_size, &dev_align);
-		
+		/* Align them to segment size */
 		if (dev_align < min_align)
 			dev_align = min_align;
 		pnv_ioda_add_wrap(&head, NULL, cdev, dev_size, dev_align);
@@ -254,13 +282,18 @@ static void __devinit pnv_ioda_calc_bus(struct pci_bus *bus, unsigned int flags,
 	if (list_empty(&head))
 		goto empty;
 
+	/* Now we can do two things: assign offsets to them within that
+	 * level and get our total alignment & size requirements. The
+	 * assignment algorithm is going to be uber-trivial for now, we
+	 * can try to be smarter later at filling out holes.
+	 */
 	if (bus->self) {
-		
+		/* No offset for downstream bridges */
 		start = 0;
 	} else {
-		
+		/* Offset from the root */
 		if (flags & IORESOURCE_IO)
-			
+			/* Don't hand out IO 0 */
 			start = hose->io_resource.start + 0x1000;
 		else
 			start = hose->mem_resources[0].start;
@@ -284,19 +317,25 @@ static void __devinit pnv_ioda_calc_bus(struct pci_bus *bus, unsigned int flags,
 	}
 	*size = start;
 
-	
+	/* Align and setup bridge resources */
 	*align = max_t(resource_size_t, *align,
 		       max_t(resource_size_t, min_align, min_balign));
 	*size = ALIGN(*size,
 		      max_t(resource_size_t, min_align, min_balign));
  empty:
-	
+	/* Only setup P2P's, not the PHB itself */
 	if (bus->self) {
 		struct resource *res = bus->resource[bres];
 
 		if (WARN_ON(res == NULL))
 			return;
 
+		/*
+		 * FIXME: We should probably export and call
+		 * pci_bridge_check_ranges() to properly re-initialize
+		 * the PCI portion of the flags here, and to detect
+		 * what the bridge actually supports.
+		 */
 		res->start = 0;
 		res->flags = (*size) ? flags : 0;
 		res->end = (*size) ? (*size - 1) : 0;
@@ -328,10 +367,10 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 	struct pci_bus_region region;
 	int rc;
 
-	
+	/* Anything not referenced in the device-tree gets PE#0 */
 	pe = pdn ? pdn->pe_number : 0;
 
-	
+	/* Calculate the device min/max */
 	io_res.start = m32_res.start = (resource_size_t)-1;
 	io_res.end = m32_res.end = 0;
 	io_res.flags = IORESOURCE_IO;
@@ -351,7 +390,7 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 			r->end = dev->resource[i].end;
 	}
 
-	
+	/* Setup IO segments */
 	if (io_res.start < io_res.end) {
 		pcibios_resource_to_bus(dev, &region, &io_res);
 		pos = region.start;
@@ -362,7 +401,7 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 				       " already used by PE# %d\n",
 				       pci_name(dev), i,
 				       phb->ioda.io_segmap[i]);
-				
+				/* XXX DO SOMETHING TO DISABLE DEVICE ? */
 				break;
 			}
 			phb->ioda.io_segmap[i] = pe;
@@ -373,7 +412,7 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 				pr_err("%s: OPAL error %d setting up mapping"
 				       " for IO seg# %d\n",
 				       pci_name(dev), rc, i);
-				
+				/* XXX DO SOMETHING TO DISABLE DEVICE ? */
 				break;
 			}
 			pos += phb->ioda.io_segsize;
@@ -381,7 +420,7 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 		};
 	}
 
-	
+	/* Setup M32 segments */
 	if (m32_res.start < m32_res.end) {
 		pcibios_resource_to_bus(dev, &region, &m32_res);
 		pos = region.start;
@@ -392,7 +431,7 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 				       " already used by PE# %d\n",
 				       pci_name(dev), i,
 				       phb->ioda.m32_segmap[i]);
-				
+				/* XXX DO SOMETHING TO DISABLE DEVICE ? */
 				break;
 			}
 			phb->ioda.m32_segmap[i] = pe;
@@ -403,7 +442,7 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 				pr_err("%s: OPAL error %d setting up mapping"
 				       " for M32 seg# %d\n",
 				       pci_name(dev), rc, i);
-				
+				/* XXX DO SOMETHING TO DISABLE DEVICE ? */
 				break;
 			}
 			pos += phb->ioda.m32_segsize;
@@ -412,6 +451,9 @@ static void __devinit pnv_ioda_setup_pe_segments(struct pci_dev *dev)
 	}
 }
 
+/* Check if a resource still fits in the total IO or M32 range
+ * for a given PHB
+ */
 static int __devinit pnv_ioda_resource_fit(struct pci_controller *hose,
 					   struct resource *r)
 {
@@ -437,8 +479,14 @@ static void __devinit pnv_ioda_update_resources(struct pci_bus *bus)
 	struct pci_dev *cdev;
 	unsigned int i;
 
+	/* We used to clear all device enables here. However it looks like
+	 * clearing MEM enable causes Obsidian (IPR SCS) to go bonkers,
+	 * and shoot fatal errors to the PHB which in turns fences itself
+	 * and we can't recover from that ... yet. So for now, let's leave
+	 * the enables as-is and hope for the best.
+	 */
 
-	
+	/* Check if bus resources fit in our IO or M32 range */
 	for (i = 0; bus->self && (i < 2); i++) {
 		struct resource *r = bus->resource[i];
 		if (r && !pnv_ioda_resource_fit(hose, r))
@@ -446,13 +494,13 @@ static void __devinit pnv_ioda_update_resources(struct pci_bus *bus)
 			       pci_name(bus->self), bus->number, i);
 	}
 
-	
+	/* Update self if it's not a PHB */
 	if (bus->self)
 		pci_setup_bridge(bus);
 
-	
+	/* Update child devices */
 	list_for_each_entry(cdev, &bus->devices, bus_list) {
-		
+		/* Check if resource fits, if not, disabled it */
 		for (i = 0; i <= PCI_ROM_RESOURCE; i++) {
 			struct resource *r = &cdev->resource[i];
 			if (!pnv_ioda_resource_fit(hose, r))
@@ -460,15 +508,15 @@ static void __devinit pnv_ioda_update_resources(struct pci_bus *bus)
 				       pci_name(cdev), i);
 		}
 
-		
+		/* Assign segments */
 		pnv_ioda_setup_pe_segments(cdev);
 
-		
+		/* Update HW BARs */
 		for (i = 0; i <= PCI_ROM_RESOURCE; i++)
 			pci_update_resource(cdev, i);
 	}
 
-	
+	/* Update child busses */
 	list_for_each_entry(cbus, &bus->children, node)
 		pnv_ioda_update_resources(cbus);
 }
@@ -496,6 +544,9 @@ static void __devinit pnv_ioda_free_pe(struct pnv_phb *phb, int pe)
 	clear_bit(pe, phb->ioda.pe_alloc);
 }
 
+/* Currently those 2 are only used when MSIs are enabled, this will change
+ * but in the meantime, we need to protect them to avoid warnings
+ */
 #ifdef CONFIG_PCI_MSI
 static struct pnv_ioda_pe * __devinit __pnv_ioda_get_one_pe(struct pci_dev *dev)
 {
@@ -522,7 +573,7 @@ static struct pnv_ioda_pe * __devinit pnv_ioda_get_pe(struct pci_dev *dev)
 	}
 	return pe;
 }
-#endif 
+#endif /* CONFIG_PCI_MSI */
 
 static int __devinit pnv_ioda_configure_pe(struct pnv_phb *phb,
 					   struct pnv_ioda_pe *pe)
@@ -531,7 +582,7 @@ static int __devinit pnv_ioda_configure_pe(struct pnv_phb *phb,
 	uint8_t bcomp, dcomp, fcomp;
 	long rc, rid_end, rid;
 
-	
+	/* Bus validation ? */
 	if (pe->pbus) {
 		int count;
 
@@ -550,7 +601,7 @@ static int __devinit pnv_ioda_configure_pe(struct pnv_phb *phb,
 			pr_err("%s: Number of subordinate busses %d"
 			       " unsupported\n",
 			       pci_name(pe->pbus->self), count);
-			
+			/* Do an exact match only */
 			bcomp = OpalPciBusAll;
 		}
 		rid_end = pe->rid + (count << 8);
@@ -562,7 +613,7 @@ static int __devinit pnv_ioda_configure_pe(struct pnv_phb *phb,
 		rid_end = pe->rid + 1;
 	}
 
-	
+	/* Associate PE in PELT */
 	rc = opal_pci_set_pe(phb->opal_id, pe->pe_number, pe->rid,
 			     bcomp, dcomp, fcomp, OPAL_MAP_PE);
 	if (rc) {
@@ -572,21 +623,21 @@ static int __devinit pnv_ioda_configure_pe(struct pnv_phb *phb,
 	opal_pci_eeh_freeze_clear(phb->opal_id, pe->pe_number,
 				  OPAL_EEH_ACTION_CLEAR_FREEZE_ALL);
 
-	
+	/* Add to all parents PELT-V */
 	while (parent) {
 		struct pci_dn *pdn = pnv_ioda_get_pdn(parent);
 		if (pdn && pdn->pe_number != IODA_INVALID_PE) {
 			rc = opal_pci_set_peltv(phb->opal_id, pdn->pe_number,
 						pe->pe_number, OPAL_ADD_PE_TO_DOMAIN);
-			
+			/* XXX What to do in case of error ? */
 		}
 		parent = parent->bus->self;
 	}
-	
+	/* Setup reverse map */
 	for (rid = pe->rid; rid < rid_end; rid++)
 		phb->ioda.pe_rmap[rid] = pe->pe_number;
 
-	
+	/* Setup one MVTs on IODA1 */
 	if (phb->type == PNV_PHB_IODA1) {
 		pe->mve_number = pe->pe_number;
 		rc = opal_pci_set_mve(phb->opal_id, pe->mve_number,
@@ -626,22 +677,25 @@ static void __devinit pnv_ioda_link_pe_by_weight(struct pnv_phb *phb,
 
 static unsigned int pnv_ioda_dma_weight(struct pci_dev *dev)
 {
+	/* This is quite simplistic. The "base" weight of a device
+	 * is 10. 0 means no DMA is to be accounted for it.
+	 */
 
-	
+	/* If it's a bridge, no DMA */
 	if (dev->hdr_type != PCI_HEADER_TYPE_NORMAL)
 		return 0;
 
-	
+	/* Reduce the weight of slow USB controllers */
 	if (dev->class == PCI_CLASS_SERIAL_USB_UHCI ||
 	    dev->class == PCI_CLASS_SERIAL_USB_OHCI ||
 	    dev->class == PCI_CLASS_SERIAL_USB_EHCI)
 		return 3;
 
-	
+	/* Increase the weight of RAID (includes Obsidian) */
 	if ((dev->class >> 8) == PCI_CLASS_STORAGE_RAID)
 		return 15;
 
-	
+	/* Default */
 	return 10;
 }
 
@@ -661,7 +715,7 @@ static struct pnv_ioda_pe * __devinit pnv_ioda_setup_dev_PE(struct pci_dev *dev)
 	if (pdn->pe_number != IODA_INVALID_PE)
 		return NULL;
 
-	
+	/* PE#0 has been pre-set */
 	if (dev->bus->number == 0)
 		pe_num = 0;
 	else
@@ -672,6 +726,13 @@ static struct pnv_ioda_pe * __devinit pnv_ioda_setup_dev_PE(struct pci_dev *dev)
 		return NULL;
 	}
 
+	/* NOTE: We get only one ref to the pci_dev for the pdn, not for the
+	 * pointer in the PE data structure, both should be destroyed at the
+	 * same time. However, this needs to be looked at more closely again
+	 * once we actually start removing things (Hotplug, SR-IOV, ...)
+	 *
+	 * At some point we want to remove the PDN completely anyways
+	 */
 	pe = &phb->ioda.pe_array[pe_num];
 	pci_dev_get(dev);
 	pdn->pcidev = dev;
@@ -685,7 +746,7 @@ static struct pnv_ioda_pe * __devinit pnv_ioda_setup_dev_PE(struct pci_dev *dev)
 	pe_info(pe, "Associated device to PE\n");
 
 	if (pnv_ioda_configure_pe(phb, pe)) {
-		
+		/* XXX What do we do here ? */
 		if (pe_num)
 			pnv_ioda_free_pe(phb, pe_num);
 		pdn->pe_number = IODA_INVALID_PE;
@@ -694,14 +755,14 @@ static struct pnv_ioda_pe * __devinit pnv_ioda_setup_dev_PE(struct pci_dev *dev)
 		return NULL;
 	}
 
-	
+	/* Assign a DMA weight to the device */
 	pe->dma_weight = pnv_ioda_dma_weight(dev);
 	if (pe->dma_weight != 0) {
 		phb->ioda.dma_weight += pe->dma_weight;
 		phb->ioda.dma_pe_count++;
 	}
 
-	
+	/* Link the PE */
 	pnv_ioda_link_pe_by_weight(phb, pe);
 
 	return pe;
@@ -762,22 +823,25 @@ static void __devinit pnv_ioda_setup_bus_PE(struct pci_dev *dev,
 		bus->secondary, bus->subordinate);
 
 	if (pnv_ioda_configure_pe(phb, pe)) {
-		
+		/* XXX What do we do here ? */
 		if (pe_num)
 			pnv_ioda_free_pe(phb, pe_num);
 		pe->pbus = NULL;
 		return;
 	}
 
-	
+	/* Associate it with all child devices */
 	pnv_ioda_setup_same_PE(bus, pe);
 
+	/* Account for one DMA PE if at least one DMA capable device exist
+	 * below the bridge
+	 */
 	if (pe->dma_weight != 0) {
 		phb->ioda.dma_weight += pe->dma_weight;
 		phb->ioda.dma_pe_count++;
 	}
 
-	
+	/* Link the PE */
 	pnv_ioda_link_pe_by_weight(phb, pe);
 }
 
@@ -790,7 +854,7 @@ static void __devinit pnv_ioda_setup_PEs(struct pci_bus *bus)
 		pe = pnv_ioda_setup_dev_PE(dev);
 		if (pe == NULL)
 			continue;
-		
+		/* Leaving the PCIe domain ... single PE# */
 		if (dev->pcie_type == PCI_EXP_TYPE_PCI_BRIDGE)
 			pnv_ioda_setup_bus_PE(dev, pe);
 		else if (dev->subordinate)
@@ -801,7 +865,7 @@ static void __devinit pnv_ioda_setup_PEs(struct pci_bus *bus)
 static void __devinit pnv_pci_ioda_dma_dev_setup(struct pnv_phb *phb,
 						 struct pci_dev *dev)
 {
-	
+	/* We delay DMA setup after we have assigned all PE# */
 }
 
 static void __devinit pnv_ioda_setup_bus_dma(struct pnv_ioda_pe *pe,
@@ -829,22 +893,27 @@ static void __devinit pnv_pci_ioda_setup_dma_pe(struct pnv_phb *phb,
 	int64_t rc;
 	void *addr;
 
-	
+	/* 256M DMA window, 4K TCE pages, 8 bytes TCE */
 #define TCE32_TABLE_SIZE	((0x10000000 / 0x1000) * 8)
 
-	
-	
-	
+	/* XXX FIXME: Handle 64-bit only DMA devices */
+	/* XXX FIXME: Provide 64-bit DMA facilities & non-4K TCE tables etc.. */
+	/* XXX FIXME: Allocate multi-level tables on PHB3 */
 
-	
+	/* We shouldn't already have a 32-bit DMA associated */
 	if (WARN_ON(pe->tce32_seg >= 0))
 		return;
 
-	
+	/* Grab a 32-bit TCE table */
 	pe->tce32_seg = base;
 	pe_info(pe, " Setting up 32-bit TCE table at %08x..%08x\n",
 		(base << 28), ((base + segs) << 28) - 1);
 
+	/* XXX Currently, we allocate one big contiguous table for the
+	 * TCEs. We only really need one chunk per 256M of TCE space
+	 * (ie per segment) but that's an optimization for later, it
+	 * requires some added smarts with our get/put_tce implementation
+	 */
 	tce_mem = alloc_pages_node(phb->hose->node, GFP_KERNEL,
 				   get_order(TCE32_TABLE_SIZE * segs));
 	if (!tce_mem) {
@@ -854,7 +923,7 @@ static void __devinit pnv_pci_ioda_setup_dma_pe(struct pnv_phb *phb,
 	addr = page_address(tce_mem);
 	memset(addr, 0, TCE32_TABLE_SIZE * segs);
 
-	
+	/* Configure HW */
 	for (i = 0; i < segs; i++) {
 		rc = opal_pci_map_pe_dma_window(phb->opal_id,
 					      pe->pe_number,
@@ -868,14 +937,19 @@ static void __devinit pnv_pci_ioda_setup_dma_pe(struct pnv_phb *phb,
 		}
 	}
 
-	
+	/* Setup linux iommu table */
 	tbl = &pe->tce32_table;
 	pnv_pci_setup_iommu_table(tbl, addr, TCE32_TABLE_SIZE * segs,
 				  base << 28);
 
-	
+	/* OPAL variant of P7IOC SW invalidated TCEs */
 	swinvp = of_get_property(phb->hose->dn, "ibm,opal-tce-kill", NULL);
 	if (swinvp) {
+		/* We need a couple more fields -- an address and a data
+		 * to or.  Since the bus is only printed out on table free
+		 * errors, and on the first pass the data will be a relative
+		 * bus number, print that out instead.
+		 */
 		tbl->it_busno = 0;
 		tbl->it_index = (unsigned long)ioremap(be64_to_cpup(swinvp), 8);
 		tbl->it_type = TCE_PCI_SWINV_CREATE | TCE_PCI_SWINV_FREE
@@ -890,7 +964,7 @@ static void __devinit pnv_pci_ioda_setup_dma_pe(struct pnv_phb *phb,
 
 	return;
  fail:
-	
+	/* XXX Failure: Try to fallback to 64-bit only ? */
 	if (pe->tce32_seg >= 0)
 		pe->tce32_seg = -1;
 	if (tce_mem)
@@ -903,6 +977,11 @@ static void __devinit pnv_ioda_setup_dma(struct pnv_phb *phb)
 	unsigned int residual, remaining, segs, tw, base;
 	struct pnv_ioda_pe *pe;
 
+	/* If we have more PE# than segments available, hand out one
+	 * per PE until we run out and let the rest fail. If not,
+	 * then we assign at least one segment per PE, plus more based
+	 * on the amount of devices under that PE
+	 */
 	if (phb->ioda.dma_pe_count > phb->ioda.tce32_count)
 		residual = 0;
 	else
@@ -914,6 +993,10 @@ static void __devinit pnv_ioda_setup_dma(struct pnv_phb *phb)
 	pr_info("PCI: %d PE# for a total weight of %d\n",
 		phb->ioda.dma_pe_count, phb->ioda.dma_weight);
 
+	/* Walk our PE list and configure their DMA segments, hand them
+	 * out one base segment plus any residual segments based on
+	 * weight
+	 */
 	remaining = phb->ioda.tce32_count;
 	tw = phb->ioda.dma_weight;
 	base = 0;
@@ -949,15 +1032,15 @@ static int pnv_pci_ioda_msi_setup(struct pnv_phb *phb, struct pci_dev *dev,
 	uint32_t addr32, data;
 	int rc;
 
-	
+	/* No PE assigned ? bail out ... no MSI for you ! */
 	if (pe == NULL)
 		return -ENXIO;
 
-	
+	/* Check if we have an MVE */
 	if (pe->mve_number < 0)
 		return -ENXIO;
 
-	
+	/* Assign XIVE to PE */
 	rc = opal_pci_set_xive_pe(phb->opal_id, pe->pe_number, xive_num);
 	if (rc) {
 		pr_warn("%s: OPAL error %d setting XIVE %d PE\n",
@@ -1002,7 +1085,7 @@ static void pnv_pci_init_ioda_msis(struct pnv_phb *phb)
 	const __be32 *prop = of_get_property(phb->hose->dn,
 					     "ibm,opal-msi-ranges", NULL);
 	if (!prop) {
-		
+		/* BML Fallback */
 		prop = of_get_property(phb->hose->dn, "msi-ranges", NULL);
 	}
 	if (!prop)
@@ -1024,27 +1107,30 @@ static void pnv_pci_init_ioda_msis(struct pnv_phb *phb)
 }
 #else
 static void pnv_pci_init_ioda_msis(struct pnv_phb *phb) { }
-#endif 
+#endif /* CONFIG_PCI_MSI */
 
+/* This is the starting point of our IODA specific resource
+ * allocation process
+ */
 static void __devinit pnv_pci_ioda_fixup_phb(struct pci_controller *hose)
 {
 	resource_size_t size, align;
 	struct pci_bus *child;
 
-	
+	/* Associate PEs per functions */
 	pnv_ioda_setup_PEs(hose->bus);
 
-	
+	/* Calculate all resources */
 	pnv_ioda_calc_bus(hose->bus, IORESOURCE_IO, &size, &align);
 	pnv_ioda_calc_bus(hose->bus, IORESOURCE_MEM, &size, &align);
 
-	
+	/* Apply then to HW */
 	pnv_ioda_update_resources(hose->bus);
 
-	
+	/* Setup DMA */
 	pnv_ioda_setup_dma(hose->private_data);
 
-	
+	/* Configure PCI Express settings */
 	list_for_each_entry(child, &hose->bus->children, node) {
 		struct pci_dev *self = child->self;
 		if (!self)
@@ -1053,6 +1139,9 @@ static void __devinit pnv_pci_ioda_fixup_phb(struct pci_controller *hose)
 	}
 }
 
+/* Prevent enabling devices for which we couldn't properly
+ * assign a PE
+ */
 static int __devinit pnv_pci_enable_device_hook(struct pci_dev *dev)
 {
 	struct pci_dn *pdn = pnv_ioda_get_pdn(dev);
@@ -1101,34 +1190,42 @@ void __init pnv_pci_init_ioda1_phb(struct device_node *np)
 	}
 
 	spin_lock_init(&phb->lock);
-	
+	/* XXX Use device-tree */
 	hose->first_busno = 0;
 	hose->last_busno = 0xff;
 	hose->private_data = phb;
 	phb->opal_id = phb_id;
 	phb->type = PNV_PHB_IODA1;
 
-	
+	/* Detect specific models for error handling */
 	if (of_device_is_compatible(np, "ibm,p7ioc-pciex"))
 		phb->model = PNV_PHB_MODEL_P7IOC;
 	else
 		phb->model = PNV_PHB_MODEL_UNKNOWN;
 
+	/* We parse "ranges" now since we need to deduce the register base
+	 * from the IO base
+	 */
 	pci_process_bridge_OF_ranges(phb->hose, np, primary);
 	primary = 0;
 
-	
+	/* Magic formula from Milton */
 	phb->regs = of_iomap(np, 0);
 	if (phb->regs == NULL)
 		pr_err("  Failed to map registers !\n");
 
 
+	/* XXX This is hack-a-thon. This needs to be changed so that:
+	 *  - we obtain stuff like PE# etc... from device-tree
+	 *  - we properly re-allocate M32 ourselves
+	 *    (the OFW one isn't very good)
+	 */
 
-	
+	/* Initialize more IODA stuff */
 	phb->ioda.total_pe = 128;
 
 	phb->ioda.m32_size = resource_size(&hose->mem_resources[0]);
-	
+	/* OFW Has already off top 64k of M32 space (MSI space) */
 	phb->ioda.m32_size += 0x10000;
 
 	phb->ioda.m32_segsize = phb->ioda.m32_size / phb->ioda.total_pe;
@@ -1136,9 +1233,9 @@ void __init pnv_pci_init_ioda1_phb(struct device_node *np)
 		hose->pci_mem_offset;
 	phb->ioda.io_size = hose->pci_io_size;
 	phb->ioda.io_segsize = phb->ioda.io_size / phb->ioda.total_pe;
-	phb->ioda.io_pci_base = 0; 
+	phb->ioda.io_pci_base = 0; /* XXX calculate this ? */
 
-	
+	/* Allocate aux data & arrays */
 	size = _ALIGN_UP(phb->ioda.total_pe / 8, sizeof(unsigned long));
 	m32map_off = size;
 	size += phb->ioda.total_pe;
@@ -1156,10 +1253,10 @@ void __init pnv_pci_init_ioda1_phb(struct device_node *np)
 
 	INIT_LIST_HEAD(&phb->ioda.pe_list);
 
-	
+	/* Calculate how many 32-bit TCE segments we have */
 	phb->ioda.tce32_count = phb->ioda.m32_pci_base >> 28;
 
-	
+	/* Clear unusable m64 */
 	hose->mem_resources[1].flags = 0;
 	hose->mem_resources[1].start = 0;
 	hose->mem_resources[1].end = 0;
@@ -1193,20 +1290,25 @@ void __init pnv_pci_init_ioda1_phb(struct device_node *np)
 	}
 	phb->hose->ops = &pnv_pci_ops;
 
-	
+	/* Setup RID -> PE mapping function */
 	phb->bdfn_to_pe = pnv_ioda_bdfn_to_pe;
 
-	
+	/* Setup TCEs */
 	phb->dma_dev_setup = pnv_pci_ioda_dma_dev_setup;
 
-	
+	/* Setup MSI support */
 	pnv_pci_init_ioda_msis(phb);
 
+	/* We set both PCI_PROBE_ONLY and PCI_REASSIGN_ALL_RSRC. This is an
+	 * odd combination which essentially means that we skip all resource
+	 * fixups and assignments in the generic code, and do it all
+	 * ourselves here
+	 */
 	ppc_md.pcibios_fixup_phb = pnv_pci_ioda_fixup_phb;
 	ppc_md.pcibios_enable_device_hook = pnv_pci_enable_device_hook;
 	pci_add_flags(PCI_PROBE_ONLY | PCI_REASSIGN_ALL_RSRC);
 
-	
+	/* Reset IODA tables to a clean state */
 	rc = opal_pci_reset(phb_id, OPAL_PCI_IODA_TABLE_RESET, OPAL_ASSERT_RESET);
 	if (rc)
 		pr_warning("  OPAL Error %ld performing IODA table reset !\n", rc);
@@ -1229,9 +1331,9 @@ void __init pnv_pci_init_ioda_hub(struct device_node *np)
 	hub_id = be64_to_cpup(prop64);
 	pr_devel(" HUB-ID : 0x%016llx\n", hub_id);
 
-	
+	/* Count child PHBs */
 	for_each_child_of_node(np, phbn) {
-		
+		/* Look for IODA1 PHBs */
 		if (of_device_is_compatible(phbn, "ibm,ioda-phb"))
 			pnv_pci_init_ioda1_phb(phbn);
 	}

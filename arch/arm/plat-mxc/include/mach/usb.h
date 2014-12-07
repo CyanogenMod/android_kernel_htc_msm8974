@@ -20,4 +20,4 @@ struct imxusb_platform_data {
 	void (*exit)(struct device *);
 };
 
-#endif 
+#endif /* __ASM_ARCH_MXC_USB */

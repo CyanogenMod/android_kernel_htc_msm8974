@@ -21,38 +21,47 @@
 #define mv64x60_mc_printk(mci, level, fmt, arg...) \
 	edac_mc_chipset_printk(mci, level, "MV64x60", fmt, ##arg)
 
-#define MV64x60_CPU_ERR_ADDR_LO		0x00	
-#define MV64x60_CPU_ERR_ADDR_HI		0x08	
-#define MV64x60_CPU_ERR_DATA_LO		0x00	
-#define MV64x60_CPU_ERR_DATA_HI		0x08	
-#define MV64x60_CPU_ERR_PARITY		0x10	
-#define MV64x60_CPU_ERR_CAUSE		0x18	
-#define MV64x60_CPU_ERR_MASK		0x20	
+/* CPU Error Report Registers */
+#define MV64x60_CPU_ERR_ADDR_LO		0x00	/* 0x0070 */
+#define MV64x60_CPU_ERR_ADDR_HI		0x08	/* 0x0078 */
+#define MV64x60_CPU_ERR_DATA_LO		0x00	/* 0x0128 */
+#define MV64x60_CPU_ERR_DATA_HI		0x08	/* 0x0130 */
+#define MV64x60_CPU_ERR_PARITY		0x10	/* 0x0138 */
+#define MV64x60_CPU_ERR_CAUSE		0x18	/* 0x0140 */
+#define MV64x60_CPU_ERR_MASK		0x20	/* 0x0148 */
 
 #define MV64x60_CPU_CAUSE_MASK		0x07ffffff
 
-#define MV64X60_SRAM_ERR_CAUSE		0x08	
-#define MV64X60_SRAM_ERR_ADDR_LO	0x10	
-#define MV64X60_SRAM_ERR_ADDR_HI	0x78	
-#define MV64X60_SRAM_ERR_DATA_LO	0x18	
-#define MV64X60_SRAM_ERR_DATA_HI	0x20	
-#define MV64X60_SRAM_ERR_PARITY		0x28	
+/* SRAM Error Report Registers */
+#define MV64X60_SRAM_ERR_CAUSE		0x08	/* 0x0388 */
+#define MV64X60_SRAM_ERR_ADDR_LO	0x10	/* 0x0390 */
+#define MV64X60_SRAM_ERR_ADDR_HI	0x78	/* 0x03f8 */
+#define MV64X60_SRAM_ERR_DATA_LO	0x18	/* 0x0398 */
+#define MV64X60_SRAM_ERR_DATA_HI	0x20	/* 0x03a0 */
+#define MV64X60_SRAM_ERR_PARITY		0x28	/* 0x03a8 */
 
-#define MV64X60_SDRAM_CONFIG		0x00	
-#define MV64X60_SDRAM_ERR_DATA_HI	0x40	
-#define MV64X60_SDRAM_ERR_DATA_LO	0x44	
-#define MV64X60_SDRAM_ERR_ECC_RCVD	0x48	
-#define MV64X60_SDRAM_ERR_ECC_CALC	0x4c	
-#define MV64X60_SDRAM_ERR_ADDR		0x50	
-#define MV64X60_SDRAM_ERR_ECC_CNTL	0x54	
-#define MV64X60_SDRAM_ERR_ECC_ERR_CNT	0x58	
+/* SDRAM Controller Registers */
+#define MV64X60_SDRAM_CONFIG		0x00	/* 0x1400 */
+#define MV64X60_SDRAM_ERR_DATA_HI	0x40	/* 0x1440 */
+#define MV64X60_SDRAM_ERR_DATA_LO	0x44	/* 0x1444 */
+#define MV64X60_SDRAM_ERR_ECC_RCVD	0x48	/* 0x1448 */
+#define MV64X60_SDRAM_ERR_ECC_CALC	0x4c	/* 0x144c */
+#define MV64X60_SDRAM_ERR_ADDR		0x50	/* 0x1450 */
+#define MV64X60_SDRAM_ERR_ECC_CNTL	0x54	/* 0x1454 */
+#define MV64X60_SDRAM_ERR_ECC_ERR_CNT	0x58	/* 0x1458 */
 
 #define MV64X60_SDRAM_REGISTERED	0x20000
 #define MV64X60_SDRAM_ECC		0x40000
 
 #ifdef CONFIG_PCI
+/*
+ * Bit 0 of MV64x60_PCIx_ERR_MASK does not exist on the 64360 and because of
+ * errata FEr-#11 and FEr-##16 for the 64460, it should be 0 on that chip as
+ * well.  IOW, don't set bit 0.
+ */
 #define MV64X60_PCIx_ERR_MASK_VAL	0x00a50c24
 
+/* Register offsets from PCIx error address low register */
 #define MV64X60_PCI_ERROR_ADDR_LO	0x00
 #define MV64X60_PCI_ERROR_ADDR_HI	0x04
 #define MV64X60_PCI_ERROR_ATTR		0x08
@@ -78,7 +87,7 @@ struct mv64x60_pci_pdata {
 	int edac_idx;
 };
 
-#endif				
+#endif				/* CONFIG_PCI */
 
 struct mv64x60_mc_pdata {
 	void __iomem *mc_vbase;

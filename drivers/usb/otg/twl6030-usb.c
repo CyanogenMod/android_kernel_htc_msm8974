@@ -33,6 +33,7 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 
+/* usb register definitions */
 #define USB_VENDOR_ID_LSB		0x00
 #define USB_VENDOR_ID_MSB		0x01
 #define USB_PRODUCT_ID_LSB		0x02
@@ -62,19 +63,23 @@
 #define USB_OTG_ADP_RISE		0x19
 #define USB_OTG_REVISION		0x1A
 
+/* to be moved to LDO */
 #define TWL6030_MISC2			0xE5
 #define TWL6030_CFG_LDO_PD2		0xF5
 #define TWL6030_BACKUP_REG		0xFA
 
 #define STS_HW_CONDITIONS		0x21
 
+/* In module TWL6030_MODULE_PM_MASTER */
 #define STS_HW_CONDITIONS		0x21
 #define STS_USB_ID			BIT(2)
 
+/* In module TWL6030_MODULE_PM_RECEIVER */
 #define VUSB_CFG_TRANS			0x71
 #define VUSB_CFG_STATE			0x72
 #define VUSB_CFG_VOLTAGE		0x73
 
+/* in module TWL6030_MODULE_MAIN_CHARGE */
 
 #define CHARGERUSB_CTRL1		0x8
 
@@ -85,12 +90,12 @@ struct twl6030_usb {
 	struct usb_phy		phy;
 	struct device		*dev;
 
-	
+	/* for vbus reporting with irqs disabled */
 	spinlock_t		lock;
 
 	struct regulator		*usb3v3;
 
-	
+	/* used to set vbus, in atomic path */
 	struct work_struct	set_vbus_work;
 
 	int			irq1;
@@ -104,6 +109,7 @@ struct twl6030_usb {
 
 #define phy_to_twl(x)		container_of((x), struct twl6030_usb, phy)
 
+/*-------------------------------------------------------------------------*/
 
 static inline int twl6030_writeb(struct twl6030_usb *twl, u8 module,
 						u8 data, u8 address)
@@ -194,22 +200,26 @@ static int twl6030_usb_ldo_init(struct twl6030_usb *twl)
 	else
 		regulator_name = "vusb";
 
-	
+	/* Set to OTG_REV 1.3 and turn on the ID_WAKEUP_COMP */
 	twl6030_writeb(twl, TWL6030_MODULE_ID0 , 0x1, TWL6030_BACKUP_REG);
 
-	
+	/* Program CFG_LDO_PD2 register and set VUSB bit */
 	twl6030_writeb(twl, TWL6030_MODULE_ID0 , 0x1, TWL6030_CFG_LDO_PD2);
 
-	
+	/* Program MISC2 register and set bit VUSB_IN_VBAT */
 	twl6030_writeb(twl, TWL6030_MODULE_ID0 , 0x10, TWL6030_MISC2);
 
 	twl->usb3v3 = regulator_get(twl->dev, regulator_name);
 	if (IS_ERR(twl->usb3v3))
 		return -ENODEV;
 
-	
+	/* Program the USB_VBUS_CTRL_SET and set VBUS_ACT_COMP bit */
 	twl6030_writeb(twl, TWL_MODULE_USB, 0x4, USB_VBUS_CTRL_SET);
 
+	/*
+	 * Program the USB_ID_CTRL_SET register to enable GND drive
+	 * and the ID comparators
+	 */
 	twl6030_writeb(twl, TWL_MODULE_USB, 0x14, USB_ID_CTRL_SET);
 
 	return 0;
@@ -352,6 +362,10 @@ static void otg_set_vbus_work(struct work_struct *data)
 	struct twl6030_usb *twl = container_of(data, struct twl6030_usb,
 								set_vbus_work);
 
+	/*
+	 * Start driving VBUS. Set OPA_MODE bit in CHARGERUSB_CTRL1
+	 * register. This enables boost mode.
+	 */
 
 	if (twl->vbus_enable)
 		twl6030_writeb(twl, TWL_MODULE_MAIN_CHARGE , 0x40,
@@ -419,7 +433,7 @@ static int __devinit twl6030_usb_probe(struct platform_device *pdev)
 	otg->set_vbus		= twl6030_set_vbus;
 	otg->start_srp		= twl6030_start_srp;
 
-	
+	/* init spinlock for workqueue */
 	spin_lock_init(&twl->lock);
 
 	err = twl6030_usb_ldo_init(twl);

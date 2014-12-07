@@ -44,6 +44,9 @@ static int __init ebony_device_probe(void)
 }
 machine_device_initcall(ebony, ebony_device_probe);
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init ebony_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

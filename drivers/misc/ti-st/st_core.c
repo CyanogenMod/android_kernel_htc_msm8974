@@ -30,13 +30,18 @@
 
 #include <linux/ti_wilink_st.h>
 
+/* function pointer pointing to either,
+ * st_kim_recv during registration to receive fw download responses
+ * st_int_recv after registration to receive proto stack responses
+ */
 void (*st_recv) (void*, const unsigned char*, long);
 
+/********************************************************************/
 static void add_channel_to_table(struct st_data_s *st_gdata,
 		struct st_proto_s *new_proto)
 {
 	pr_info("%s: id %d\n", __func__, new_proto->chnl_id);
-	
+	/* list now has the channel id as index itself */
 	st_gdata->list[new_proto->chnl_id] = new_proto;
 	st_gdata->is_registered[new_proto->chnl_id] = true;
 }
@@ -45,9 +50,17 @@ static void remove_channel_from_table(struct st_data_s *st_gdata,
 		struct st_proto_s *proto)
 {
 	pr_info("%s: id %d\n", __func__, proto->chnl_id);
+/*	st_gdata->list[proto->chnl_id] = NULL; */
 	st_gdata->is_registered[proto->chnl_id] = false;
 }
 
+/*
+ * called from KIM during firmware download.
+ *
+ * This is a wrapper function to tty->ops->write_room.
+ * It returns number of free space available in
+ * uart tx buffer.
+ */
 int st_get_uart_wr_room(struct st_data_s *st_gdata)
 {
 	struct tty_struct *tty;
@@ -59,6 +72,13 @@ int st_get_uart_wr_room(struct st_data_s *st_gdata)
 	return tty->ops->write_room(tty);
 }
 
+/* can be called in from
+ * -- KIM (during fw download)
+ * -- ST Core (during st_write)
+ *
+ *  This is the internal write function - a wrapper
+ *  to tty->ops->write
+ */
 int st_int_write(struct st_data_s *st_gdata,
 	const unsigned char *data, int count)
 {
@@ -76,6 +96,10 @@ int st_int_write(struct st_data_s *st_gdata,
 
 }
 
+/*
+ * push the skb received to relevant
+ * protocol stacks
+ */
 void st_send_frame(unsigned char chnl_id, struct st_data_s *st_gdata)
 {
 	pr_debug(" %s(prot:%d) ", __func__, chnl_id);
@@ -88,6 +112,11 @@ void st_send_frame(unsigned char chnl_id, struct st_data_s *st_gdata)
 		kfree_skb(st_gdata->rx_skb);
 		return;
 	}
+	/* this cannot fail
+	 * this shouldn't take long
+	 * - should be just skb_queue_tail for the
+	 *   protocol stack driver
+	 */
 	if (likely(st_gdata->list[chnl_id]->recv != NULL)) {
 		if (unlikely
 			(st_gdata->list[chnl_id]->recv
@@ -104,6 +133,13 @@ void st_send_frame(unsigned char chnl_id, struct st_data_s *st_gdata)
 	return;
 }
 
+/**
+ * st_reg_complete -
+ * to call registration complete callbacks
+ * of all protocol stack drivers
+ * This function is being called with spin lock held, protocol drivers are
+ * only expected to complete their waits and do nothing more than that.
+ */
 void st_reg_complete(struct st_data_s *st_gdata, char err)
 {
 	unsigned char i = 0;
@@ -115,7 +151,7 @@ void st_reg_complete(struct st_data_s *st_gdata, char err)
 			st_gdata->list[i]->reg_complete_cb
 				(st_gdata->list[i]->priv_data, err);
 			pr_info("protocol %d's cb sent %d\n", i, err);
-			if (err) { 
+			if (err) { /* cleanup registered protocol */
 				st_gdata->protos_registered--;
 				st_gdata->is_registered[i] = false;
 			}
@@ -131,18 +167,30 @@ static inline int st_check_data_len(struct st_data_s *st_gdata,
 	pr_debug("len %d room %d", len, room);
 
 	if (!len) {
+		/* Received packet has only packet header and
+		 * has zero length payload. So, ask ST CORE to
+		 * forward the packet to protocol driver (BT/FM/GPS)
+		 */
 		st_send_frame(chnl_id, st_gdata);
 
 	} else if (len > room) {
+		/* Received packet's payload length is larger.
+		 * We can't accommodate it in created skb.
+		 */
 		pr_err("Data length is too large len %d room %d", len,
 			   room);
 		kfree_skb(st_gdata->rx_skb);
 	} else {
+		/* Packet header has non-zero payload length and
+		 * we have enough space in created skb. Lets read
+		 * payload data */
 		st_gdata->rx_state = ST_W4_DATA;
 		st_gdata->rx_count = len;
 		return len;
 	}
 
+	/* Change ST state to continue to process next
+	 * packet */
 	st_gdata->rx_state = ST_W4_PACKET_TYPE;
 	st_gdata->rx_skb = NULL;
 	st_gdata->rx_count = 0;
@@ -151,6 +199,10 @@ static inline int st_check_data_len(struct st_data_s *st_gdata,
 	return 0;
 }
 
+/**
+ * st_wakeup_ack - internal function for action when wake-up ack
+ *	received
+ */
 static inline void st_wakeup_ack(struct st_data_s *st_gdata,
 	unsigned char cmd)
 {
@@ -158,17 +210,28 @@ static inline void st_wakeup_ack(struct st_data_s *st_gdata,
 	unsigned long flags = 0;
 
 	spin_lock_irqsave(&st_gdata->lock, flags);
+	/* de-Q from waitQ and Q in txQ now that the
+	 * chip is awake
+	 */
 	while ((waiting_skb = skb_dequeue(&st_gdata->tx_waitq)))
 		skb_queue_tail(&st_gdata->txq, waiting_skb);
 
-	
+	/* state forwarded to ST LL */
 	st_ll_sleep_state(st_gdata, (unsigned long)cmd);
 	spin_unlock_irqrestore(&st_gdata->lock, flags);
 
-	
+	/* wake up to send the recently copied skbs from waitQ */
 	st_tx_wakeup(st_gdata);
 }
 
+/**
+ * st_int_recv - ST's internal receive function.
+ *	Decodes received RAW data and forwards to corresponding
+ *	client drivers (Bluetooth,FM,GPS..etc).
+ *	This can receive various types of packets,
+ *	HCI-Events, ACL, SCO, 4 types of HCI-LL PM packets
+ *	CH-8 packets from FM, CH-9 packets from GPS cores.
+ */
 void st_int_recv(void *disc_data,
 	const unsigned char *data, long count)
 {
@@ -181,7 +244,7 @@ void st_int_recv(void *disc_data,
 	unsigned long flags;
 
 	ptr = (char *)data;
-	
+	/* tty_receive sent null ? */
 	if (unlikely(ptr == NULL) || (st_gdata == NULL)) {
 		pr_err(" received null from TTY ");
 		return;
@@ -192,7 +255,7 @@ void st_int_recv(void *disc_data,
 		   st_gdata->rx_count);
 
 	spin_lock_irqsave(&st_gdata->lock, flags);
-	
+	/* Decode received bytes here */
 	while (count) {
 		if (st_gdata->rx_count) {
 			len = min_t(unsigned int, st_gdata->rx_count, count);
@@ -204,24 +267,26 @@ void st_int_recv(void *disc_data,
 			if (st_gdata->rx_count)
 				continue;
 
-			
+			/* Check ST RX state machine , where are we? */
 			switch (st_gdata->rx_state) {
-			
+			/* Waiting for complete packet ? */
 			case ST_W4_DATA:
 				pr_debug("Complete pkt received");
+				/* Ask ST CORE to forward
+				 * the packet to protocol driver */
 				st_send_frame(st_gdata->rx_chnl, st_gdata);
 
 				st_gdata->rx_state = ST_W4_PACKET_TYPE;
 				st_gdata->rx_skb = NULL;
 				continue;
-			
+			/* parse the header to know details */
 			case ST_W4_HEADER:
 				proto = st_gdata->list[st_gdata->rx_chnl];
 				plen =
 				&st_gdata->rx_skb->data
 				[proto->offset_len_in_hdr];
 				pr_debug("plen pointing to %x\n", *plen);
-				if (proto->len_size == 1)
+				if (proto->len_size == 1)/* 1 byte len field */
 					payload_len = *(unsigned char *)plen;
 				else if (proto->len_size == 2)
 					payload_len =
@@ -235,16 +300,24 @@ void st_int_recv(void *disc_data,
 				pr_debug("off %d, pay len %d\n",
 					proto->offset_len_in_hdr, payload_len);
 				continue;
-			}	
+			}	/* end of switch rx_state */
 		}
 
-		
+		/* end of if rx_count */
+		/* Check first byte of packet and identify module
+		 * owner (BT/FM/GPS) */
 		switch (*ptr) {
 		case LL_SLEEP_IND:
 		case LL_SLEEP_ACK:
 		case LL_WAKE_UP_IND:
 			pr_debug("PM packet");
+			/* this takes appropriate action based on
+			 * sleep state received --
+			 */
 			st_ll_sleep_state(st_gdata, *ptr);
+			/* if WAKEUP_IND collides copy from waitq to txq
+			 * and assume chip awake
+			 */
 			spin_unlock_irqrestore(&st_gdata->lock, flags);
 			if (st_ll_getstate(st_gdata) == ST_LL_AWAKE)
 				st_wakeup_ack(st_gdata, LL_WAKE_UP_ACK);
@@ -257,14 +330,14 @@ void st_int_recv(void *disc_data,
 			pr_debug("PM packet");
 
 			spin_unlock_irqrestore(&st_gdata->lock, flags);
-			
+			/* wake up ack received */
 			st_wakeup_ack(st_gdata, *ptr);
 			spin_lock_irqsave(&st_gdata->lock, flags);
 
 			ptr++;
 			count--;
 			continue;
-			
+			/* Unknow packet? */
 		default:
 			type = *ptr;
 			if (st_gdata->list[type] == NULL) {
@@ -278,9 +351,9 @@ void st_int_recv(void *disc_data,
 					GFP_ATOMIC);
 			skb_reserve(st_gdata->rx_skb,
 					st_gdata->list[type]->reserve);
-			
-			st_gdata->rx_skb->cb[0] = type; 
-			st_gdata->rx_skb->cb[1] = 0; 
+			/* next 2 required for BT only */
+			st_gdata->rx_skb->cb[0] = type; /*pkt_type*/
+			st_gdata->rx_skb->cb[1] = 0; /*incoming*/
 			st_gdata->rx_chnl = *ptr;
 			st_gdata->rx_state = ST_W4_HEADER;
 			st_gdata->rx_count = st_gdata->list[type]->hdr_len;
@@ -314,6 +387,15 @@ struct sk_buff *st_int_dequeue(struct st_data_s *st_gdata)
 	return skb_dequeue(&st_gdata->txq);
 }
 
+/**
+ * st_int_enqueue - internal Q-ing function.
+ *	Will either Q the skb to txq or the tx_waitq
+ *	depending on the ST LL state.
+ *	If the chip is asleep, then Q it onto waitq and
+ *	wakeup the chip.
+ *	txq and waitq needs protection since the other contexts
+ *	may be sending data, waking up chip.
+ */
 void st_int_enqueue(struct st_data_s *st_gdata, struct sk_buff *skb)
 {
 	unsigned long flags = 0;
@@ -350,31 +432,40 @@ void st_int_enqueue(struct st_data_s *st_gdata, struct sk_buff *skb)
 	return;
 }
 
+/*
+ * internal wakeup function
+ * called from either
+ * - TTY layer when write's finished
+ * - st_write (in context of the protocol stack)
+ */
 void st_tx_wakeup(struct st_data_s *st_data)
 {
 	struct sk_buff *skb;
-	unsigned long flags;	
+	unsigned long flags;	/* for irq save flags */
 	pr_debug("%s", __func__);
-	
+	/* check for sending & set flag sending here */
 	if (test_and_set_bit(ST_TX_SENDING, &st_data->tx_state)) {
 		pr_debug("ST already sending");
-		
+		/* keep sending */
 		set_bit(ST_TX_WAKEUP, &st_data->tx_state);
 		return;
+		/* TX_WAKEUP will be checked in another
+		 * context
+		 */
 	}
-	do {			
-		
+	do {			/* come back if st_tx_wakeup is set */
+		/* woke-up to write */
 		clear_bit(ST_TX_WAKEUP, &st_data->tx_state);
 		while ((skb = st_int_dequeue(st_data))) {
 			int len;
 			spin_lock_irqsave(&st_data->lock, flags);
-			
+			/* enable wake-up from TTY */
 			set_bit(TTY_DO_WRITE_WAKEUP, &st_data->tty->flags);
 			len = st_int_write(st_data, skb->data, skb->len);
 			skb_pull(skb, len);
-			
+			/* if skb->len = len as expected, skb->len=0 */
 			if (skb->len) {
-				
+				/* would be the next skb to be sent */
 				st_data->tx_skb = skb;
 				spin_unlock_irqrestore(&st_data->lock, flags);
 				break;
@@ -382,13 +473,16 @@ void st_tx_wakeup(struct st_data_s *st_data)
 			kfree_skb(skb);
 			spin_unlock_irqrestore(&st_data->lock, flags);
 		}
-		
+		/* if wake-up is set in another context- restart sending */
 	} while (test_bit(ST_TX_WAKEUP, &st_data->tx_state));
 
-	
+	/* clear flag sending */
 	clear_bit(ST_TX_SENDING, &st_data->tx_state);
 }
 
+/********************************************************************/
+/* functions called from ST KIM
+*/
 void kim_st_list_protocols(struct st_data_s *st_gdata, void *buf)
 {
 	seq_printf(buf, "[%d]\nBT=%c\nFM=%c\nGPS=%c\n",
@@ -398,6 +492,11 @@ void kim_st_list_protocols(struct st_data_s *st_gdata, void *buf)
 			st_gdata->is_registered[0x09] == true ? 'R' : 'U');
 }
 
+/********************************************************************/
+/*
+ * functions called from protocol stack drivers
+ * to be EXPORT-ed
+ */
 long st_register(struct st_proto_s *new_proto)
 {
 	struct st_data_s	*st_gdata;
@@ -422,12 +521,12 @@ long st_register(struct st_proto_s *new_proto)
 		return -EALREADY;
 	}
 
-	
+	/* can be from process context only */
 	spin_lock_irqsave(&st_gdata->lock, flags);
 
 	if (test_bit(ST_REG_IN_PROGRESS, &st_gdata->st_state)) {
 		pr_info(" ST_REG_IN_PROGRESS:%d ", new_proto->chnl_id);
-		
+		/* fw download in progress */
 
 		add_channel_to_table(st_gdata, new_proto);
 		st_gdata->protos_registered++;
@@ -441,12 +540,15 @@ long st_register(struct st_proto_s *new_proto)
 		set_bit(ST_REG_IN_PROGRESS, &st_gdata->st_state);
 		st_recv = st_kim_recv;
 
-		
+		/* enable the ST LL - to set default chip state */
 		st_ll_enable(st_gdata);
 
-		
+		/* release lock previously held - re-locked below */
 		spin_unlock_irqrestore(&st_gdata->lock, flags);
 
+		/* this may take a while to complete
+		 * since it involves BT fw download
+		 */
 		err = st_kim_start(st_gdata->kim_data);
 		if (err != 0) {
 			clear_bit(ST_REG_IN_PROGRESS, &st_gdata->st_state);
@@ -464,6 +566,9 @@ long st_register(struct st_proto_s *new_proto)
 		clear_bit(ST_REG_IN_PROGRESS, &st_gdata->st_state);
 		st_recv = st_int_recv;
 
+		/* this is where all pending registration
+		 * are signalled to be complete by calling callback functions
+		 */
 		if ((st_gdata->protos_registered != ST_EMPTY) &&
 		    (test_bit(ST_REG_PENDING, &st_gdata->st_state))) {
 			pr_debug(" call reg complete callback ");
@@ -471,6 +576,9 @@ long st_register(struct st_proto_s *new_proto)
 		}
 		clear_bit(ST_REG_PENDING, &st_gdata->st_state);
 
+		/* check for already registered once more,
+		 * since the above check is old
+		 */
 		if (st_gdata->is_registered[new_proto->chnl_id] == true) {
 			pr_err(" proto %d already registered ",
 				   new_proto->chnl_id);
@@ -484,13 +592,13 @@ long st_register(struct st_proto_s *new_proto)
 		spin_unlock_irqrestore(&st_gdata->lock, flags);
 		return err;
 	}
-	
+	/* if fw is already downloaded & new stack registers protocol */
 	else {
 		add_channel_to_table(st_gdata, new_proto);
 		st_gdata->protos_registered++;
 		new_proto->write = st_write;
 
-		
+		/* lock already held before entering else */
 		spin_unlock_irqrestore(&st_gdata->lock, flags);
 		return err;
 	}
@@ -498,6 +606,9 @@ long st_register(struct st_proto_s *new_proto)
 }
 EXPORT_SYMBOL_GPL(st_register);
 
+/* to unregister a protocol -
+ * to be called from protocol stack driver
+ */
 long st_unregister(struct st_proto_s *proto)
 {
 	long err = 0;
@@ -524,7 +635,7 @@ long st_unregister(struct st_proto_s *proto)
 	remove_channel_from_table(st_gdata, proto);
 	spin_unlock_irqrestore(&st_gdata->lock, flags);
 
-	
+	/* paranoid check */
 	if (st_gdata->protos_registered < ST_EMPTY)
 		st_gdata->protos_registered = ST_EMPTY;
 
@@ -532,20 +643,24 @@ long st_unregister(struct st_proto_s *proto)
 	    (!test_bit(ST_REG_PENDING, &st_gdata->st_state))) {
 		pr_info(" all chnl_ids unregistered ");
 
-		
+		/* stop traffic on tty */
 		if (st_gdata->tty) {
 			tty_ldisc_flush(st_gdata->tty);
 			stop_tty(st_gdata->tty);
 		}
 
-		
+		/* all chnl_ids now unregistered */
 		st_kim_stop(st_gdata->kim_data);
-		
+		/* disable ST LL */
 		st_ll_disable(st_gdata);
 	}
 	return err;
 }
 
+/*
+ * called in protocol stack drivers
+ * via the write function pointer
+ */
 long st_write(struct sk_buff *skb)
 {
 	struct st_data_s *st_gdata;
@@ -561,17 +676,22 @@ long st_write(struct sk_buff *skb)
 	pr_debug("%d to be written", skb->len);
 	len = skb->len;
 
-	
+	/* st_ll to decide where to enqueue the skb */
 	st_int_enqueue(st_gdata, skb);
-	
+	/* wake up */
 	st_tx_wakeup(st_gdata);
 
 	/* return number of bytes written */
 	return len;
 }
 
+/* for protocols making use of shared transport */
 EXPORT_SYMBOL_GPL(st_unregister);
 
+/********************************************************************/
+/*
+ * functions called from TTY layer
+ */
 static int st_tty_open(struct tty_struct *tty)
 {
 	int err = 0;
@@ -582,13 +702,19 @@ static int st_tty_open(struct tty_struct *tty)
 	st_gdata->tty = tty;
 	tty->disc_data = st_gdata;
 
-	
+	/* don't do an wakeup for now */
 	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 
+	/* mem already allocated
+	 */
 	tty->receive_room = 65536;
-	
+	/* Flush any pending characters in the driver and discipline. */
 	tty_ldisc_flush(tty);
 	tty_driver_flush_buffer(tty);
+	/*
+	 * signal to UIM via KIM that -
+	 * installation of N_TI_WL ldisc is complete
+	 */
 	st_kim_complete(st_gdata->kim_data);
 	pr_debug("done %s", __func__);
 	return err;
@@ -602,6 +728,10 @@ static void st_tty_close(struct tty_struct *tty)
 
 	pr_info("%s ", __func__);
 
+	/* TODO:
+	 * if a protocol has been registered & line discipline
+	 * un-installed for some reason - what should be done ?
+	 */
 	spin_lock_irqsave(&st_gdata->lock, flags);
 	for (i = ST_BT; i < ST_MAX_CHANNELS; i++) {
 		if (st_gdata->is_registered[i] == true)
@@ -611,17 +741,21 @@ static void st_tty_close(struct tty_struct *tty)
 	}
 	st_gdata->protos_registered = 0;
 	spin_unlock_irqrestore(&st_gdata->lock, flags);
+	/*
+	 * signal to UIM via KIM that -
+	 * N_TI_WL ldisc is un-installed
+	 */
 	st_kim_complete(st_gdata->kim_data);
 	st_gdata->tty = NULL;
-	
+	/* Flush any pending characters in the driver and discipline. */
 	tty_ldisc_flush(tty);
 	tty_driver_flush_buffer(tty);
 
 	spin_lock_irqsave(&st_gdata->lock, flags);
-	
+	/* empty out txq and tx_waitq */
 	skb_queue_purge(&st_gdata->txq);
 	skb_queue_purge(&st_gdata->tx_waitq);
-	
+	/* reset the TTY Rx states of ST */
 	st_gdata->rx_count = 0;
 	st_gdata->rx_state = ST_W4_PACKET_TYPE;
 	kfree_skb(st_gdata->rx_skb);
@@ -639,18 +773,25 @@ static void st_tty_receive(struct tty_struct *tty, const unsigned char *data,
 		16, 1, data, count, 0);
 #endif
 
+	/*
+	 * if fw download is in progress then route incoming data
+	 * to KIM for validation
+	 */
 	st_recv(tty->disc_data, data, count);
 	pr_debug("done %s", __func__);
 }
 
+/* wake-up function called in from the TTY layer
+ * inside the internal wakeup function will be called
+ */
 static void st_tty_wakeup(struct tty_struct *tty)
 {
 	struct	st_data_s *st_gdata = tty->disc_data;
 	pr_debug("%s ", __func__);
-	
+	/* don't do an wakeup for now */
 	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 
-	
+	/* call our internal wakeup */
 	st_tx_wakeup((void *)st_gdata);
 }
 
@@ -677,6 +818,7 @@ static struct tty_ldisc_ops st_ldisc_ops = {
 	.owner = THIS_MODULE
 };
 
+/********************************************************************/
 int st_core_init(struct st_data_s **core_data)
 {
 	struct st_data_s *st_gdata;
@@ -700,10 +842,13 @@ int st_core_init(struct st_data_s **core_data)
 		return err;
 	}
 
+	/* Initialize ST TxQ and Tx waitQ queue head. All BT/FM/GPS module skb's
+	 * will be pushed in this queue for actual transmission.
+	 */
 	skb_queue_head_init(&st_gdata->txq);
 	skb_queue_head_init(&st_gdata->tx_waitq);
 
-	
+	/* Locking used in st_int_enqueue() to avoid multiple execution */
 	spin_lock_init(&st_gdata->lock);
 
 	err = st_ll_init(st_gdata);
@@ -722,22 +867,22 @@ int st_core_init(struct st_data_s **core_data)
 void st_core_exit(struct st_data_s *st_gdata)
 {
 	long err;
-	
+	/* internal module cleanup */
 	err = st_ll_deinit(st_gdata);
 	if (err)
 		pr_err("error during deinit of ST LL %ld", err);
 
 	if (st_gdata != NULL) {
-		
+		/* Free ST Tx Qs and skbs */
 		skb_queue_purge(&st_gdata->txq);
 		skb_queue_purge(&st_gdata->tx_waitq);
 		kfree_skb(st_gdata->rx_skb);
 		kfree_skb(st_gdata->tx_skb);
-		
+		/* TTY ldisc cleanup */
 		err = tty_unregister_ldisc(N_TI_WL);
 		if (err)
 			pr_err("unable to un-register ldisc %ld", err);
-		
+		/* free the global data pointer */
 		kfree(st_gdata);
 	}
 }

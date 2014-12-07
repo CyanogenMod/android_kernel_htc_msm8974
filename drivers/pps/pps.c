@@ -35,6 +35,9 @@
 
 #include "kc.h"
 
+/*
+ * Local variables
+ */
 
 static dev_t pps_devt;
 static struct class *pps_class;
@@ -42,6 +45,9 @@ static struct class *pps_class;
 static DEFINE_MUTEX(pps_idr_lock);
 static DEFINE_IDR(pps_idr);
 
+/*
+ * Char device methods
+ */
 
 static unsigned int pps_cdev_poll(struct file *file, poll_table *wait)
 {
@@ -73,7 +79,7 @@ static long pps_cdev_ioctl(struct file *file,
 
 		spin_lock_irq(&pps->lock);
 
-		
+		/* Get the current parameters */
 		params = pps->params;
 
 		spin_unlock_irq(&pps->lock);
@@ -87,7 +93,7 @@ static long pps_cdev_ioctl(struct file *file,
 	case PPS_SETPARAMS:
 		dev_dbg(pps->dev, "PPS_SETPARAMS\n");
 
-		
+		/* Check the capabilities */
 		if (!capable(CAP_SYS_TIME))
 			return -EPERM;
 
@@ -100,7 +106,7 @@ static long pps_cdev_ioctl(struct file *file,
 			return -EINVAL;
 		}
 
-		
+		/* Check for supported capabilities */
 		if ((params.mode & ~pps->info.mode) != 0) {
 			dev_dbg(pps->dev, "unsupported capabilities (%x)\n",
 								params.mode);
@@ -109,12 +115,12 @@ static long pps_cdev_ioctl(struct file *file,
 
 		spin_lock_irq(&pps->lock);
 
-		
+		/* Save the new parameters */
 		pps->params = params;
 
-		
+		/* Restore the read only parameters */
 		if ((params.mode & (PPS_TSFMT_TSPEC | PPS_TSFMT_NTPFP)) == 0) {
-			
+			/* section 3.3 of RFC 2783 interpreted */
 			dev_dbg(pps->dev, "time format unspecified (%x)\n",
 								params.mode);
 			pps->params.mode |= PPS_TSFMT_TSPEC;
@@ -148,7 +154,7 @@ static long pps_cdev_ioctl(struct file *file,
 
 		ev = pps->last_ev;
 
-		
+		/* Manage the timeout */
 		if (fdata.timeout.flags & PPS_TIME_INVALID)
 			err = wait_event_interruptible(pps->queue,
 					ev != pps->last_ev);
@@ -171,13 +177,13 @@ static long pps_cdev_ioctl(struct file *file,
 			}
 		}
 
-		
+		/* Check for pending signals */
 		if (err == -ERESTARTSYS) {
 			dev_dbg(pps->dev, "pending signal caught\n");
 			return -EINTR;
 		}
 
-		
+		/* Return the fetched timestamp */
 		spin_lock_irq(&pps->lock);
 
 		fdata.info.assert_sequence = pps->assert_sequence;
@@ -199,7 +205,7 @@ static long pps_cdev_ioctl(struct file *file,
 
 		dev_dbg(pps->dev, "PPS_KC_BIND\n");
 
-		
+		/* Check the capabilities */
 		if (!capable(CAP_SYS_TIME))
 			return -EPERM;
 
@@ -207,14 +213,14 @@ static long pps_cdev_ioctl(struct file *file,
 					sizeof(struct pps_bind_args)))
 			return -EFAULT;
 
-		
+		/* Check for supported capabilities */
 		if ((bind_args.edge & ~pps->info.mode) != 0) {
 			dev_err(pps->dev, "unsupported capabilities (%x)\n",
 					bind_args.edge);
 			return -EINVAL;
 		}
 
-		
+		/* Validate parameters roughly */
 		if (bind_args.tsformat != PPS_TSFMT_TSPEC ||
 				(bind_args.edge & ~PPS_CAPTUREBOTH) != 0 ||
 				bind_args.consumer != PPS_KC_HARDPPS) {
@@ -250,6 +256,9 @@ static int pps_cdev_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * Char device stuff
+ */
 
 static const struct file_operations pps_cdev_fops = {
 	.owner		= THIS_MODULE,
@@ -265,6 +274,8 @@ static void pps_device_destruct(struct device *dev)
 {
 	struct pps_device *pps = dev_get_drvdata(dev);
 
+	/* release id here to protect others from using it while it's
+	 * still in use */
 	mutex_lock(&pps_idr_lock);
 	idr_remove(&pps_idr, pps->id);
 	mutex_unlock(&pps_idr_lock);
@@ -279,12 +290,16 @@ int pps_register_cdev(struct pps_device *pps)
 	dev_t devt;
 
 	mutex_lock(&pps_idr_lock);
-	
+	/* Get new ID for the new PPS source */
 	if (idr_pre_get(&pps_idr, GFP_KERNEL) == 0) {
 		mutex_unlock(&pps_idr_lock);
 		return -ENOMEM;
 	}
 
+	/* Now really allocate the PPS source.
+	 * After idr_get_new() calling the new source will be freely available
+	 * into the kernel.
+	 */
 	err = idr_get_new(&pps_idr, pps, &pps->id);
 	mutex_unlock(&pps_idr_lock);
 
@@ -339,6 +354,9 @@ void pps_unregister_cdev(struct pps_device *pps)
 	cdev_del(&pps->cdev);
 }
 
+/*
+ * Module stuff
+ */
 
 static void __exit pps_exit(void)
 {

@@ -134,4 +134,4 @@ do {								\
 #define CATCH_TRIGGER(chip)
 #endif
 
-#endif 
+#endif /* __RTS51X_TRACE_H */

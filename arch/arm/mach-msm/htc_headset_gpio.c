@@ -284,7 +284,7 @@ static int htc_headset_gpio_parse_dt(struct device *dev,
 static int htc_headset_gpio_probe(struct platform_device *pdev)
 {
 	int ret = 0;
-	struct htc_headset_gpio_platform_data *pdata;
+	struct htc_headset_gpio_platform_data *pdata;/* = pdev->dev.platform_data;*/
 
 	HS_LOG("++++++++++++++++++++");
 
@@ -334,6 +334,7 @@ static int htc_headset_gpio_probe(struct platform_device *pdev)
 	wake_lock_init(&hi->hs_wake_lock, WAKE_LOCK_SUSPEND, DRIVER_NAME);
 
 	if (hi->pdata.uart_gpio) {
+/*                if (!(get_kernel_flag() & KERNEL_FLAG_SERIAL_HSL_ENABLE))*/
 			ret = hs_gpio_request_output(hi->pdata.uart_gpio, "HS_GPIO_UART", 0);
 
 		if (ret < 0) {

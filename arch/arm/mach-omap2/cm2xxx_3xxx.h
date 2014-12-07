@@ -26,6 +26,11 @@
 			OMAP2_L4_IO_ADDRESS(OMAP3430_CM_BASE + (module) + (reg))
 
 
+/*
+ * OMAP3-specific global CM registers
+ * Use cm_{read,write}_reg() with these registers.
+ * These registers appear once per CM module.
+ */
 
 #define OMAP3430_CM_REVISION		OMAP34XX_CM_REGADDR(OCP_MOD, 0x0000)
 #define OMAP3430_CM_SYSCONFIG		OMAP34XX_CM_REGADDR(OCP_MOD, 0x0010)
@@ -34,7 +39,13 @@
 #define OMAP3_CM_CLKOUT_CTRL_OFFSET	0x0070
 #define OMAP3430_CM_CLKOUT_CTRL		OMAP_CM_REGADDR(OMAP3430_CCR_MOD, 0x0070)
 
+/*
+ * Module specific CM register offsets from CM_BASE + domain offset
+ * Use cm_{read,write}_mod_reg() with these registers.
+ * These register offsets generally appear in more than one PRCM submodule.
+ */
 
+/* Common between OMAP2 and OMAP3 */
 
 #define CM_FCLKEN					0x0000
 #define CM_FCLKEN1					CM_FCLKEN
@@ -55,6 +66,7 @@
 #define CM_CLKSEL2					0x0044
 #define OMAP2_CM_CLKSTCTRL				0x0048
 
+/* OMAP2-specific register offsets */
 
 #define OMAP24XX_CM_FCLKEN2				0x0004
 #define OMAP24XX_CM_ICLKEN4				0x001c
@@ -62,6 +74,7 @@
 
 #define OMAP2430_CM_IDLEST3				0x0028
 
+/* OMAP3-specific register offsets */
 
 #define OMAP3430_CM_CLKEN_PLL				0x0004
 #define OMAP3430ES2_CM_CLKEN2				0x0004
@@ -81,11 +94,13 @@
 #define OMAP3430_CM_CLKSEL3_EMU				0x0054
 
 
+/* CM_IDLEST bit field values to indicate deasserted IdleReq */
 
 #define OMAP24XX_CM_IDLEST_VAL				0
 #define OMAP34XX_CM_IDLEST_VAL				1
 
 
+/* Clock management domain register get/set */
 
 #ifndef __ASSEMBLER__
 
@@ -117,16 +132,21 @@ extern void omap2xxx_cm_set_apll96_auto_low_power_stop(void);
 
 #endif
 
+/* CM register bits shared between 24XX and 3430 */
 
+/* CM_CLKSEL_GFX */
 #define OMAP_CLKSEL_GFX_SHIFT				0
 #define OMAP_CLKSEL_GFX_MASK				(0x7 << 0)
 
+/* CM_ICLKEN_GFX */
 #define OMAP_EN_GFX_SHIFT				0
 #define OMAP_EN_GFX_MASK				(1 << 0)
 
+/* CM_IDLEST_GFX */
 #define OMAP_ST_GFX_MASK				(1 << 0)
 
 
+/* Function prototypes */
 # ifndef __ASSEMBLER__
 extern void omap3_cm_save_context(void);
 extern void omap3_cm_restore_context(void);

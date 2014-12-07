@@ -78,7 +78,7 @@ static const struct chan_ops not_configged_ops = {
 	.free		= not_configged_free,
 	.winch		= 0,
 };
-#endif 
+#endif /* CONFIG_NOCONFIG_CHAN */
 
 static void tty_receive_char(struct tty_struct *tty, char ch)
 {
@@ -189,6 +189,12 @@ int enable_chan(struct line *line)
 	return err;
 }
 
+/* Items are added in IRQ context, when free_irq can't be called, and
+ * removed in process context, when it can.
+ * This handles interrupt sources which disappear, and which need to
+ * be permanently disabled.  This is discovered in IRQ context, but
+ * the freeing of the IRQ must be done later.
+ */
 static DEFINE_SPINLOCK(irqs_to_free_lock);
 static LIST_HEAD(irqs_to_free);
 
@@ -244,6 +250,11 @@ void close_chan(struct line *line)
 {
 	struct chan *chan;
 
+	/* Close in reverse order as open in case more than one of them
+	 * refers to the same device and they save and restore that device's
+	 * state.  Then, the first one opened will have the original state,
+	 * so it must be the last closed.
+	 */
 	list_for_each_entry_reverse(chan, &line->chan_list, list) {
 		close_one_chan(chan, 0);
 	}

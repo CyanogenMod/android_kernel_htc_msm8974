@@ -4,6 +4,9 @@
 #include <linux/types.h>
 #include <linux/pkt_sched.h>
 
+/* I think i could have done better macros ; for now this is stolen from
+ * some arch/mips code - jhs
+*/
 #define _TC_MAKE32(x) ((x))
 
 #define _TC_MAKEMASK1(n) (_TC_MAKE32(1) << _TC_MAKE32(n))
@@ -11,6 +14,26 @@
 #define _TC_MAKEVALUE(v,n) (_TC_MAKE32(v) << _TC_MAKE32(n))
 #define _TC_GETVALUE(v,n,m) ((_TC_MAKE32(v) & _TC_MAKE32(m)) >> _TC_MAKE32(n))
 
+/* verdict bit breakdown 
+ *
+bit 0: when set -> this packet has been munged already
+
+bit 1: when set -> It is ok to munge this packet
+
+bit 2,3,4,5: Reclassify counter - sort of reverse TTL - if exceeded
+assume loop
+
+bit 6,7: Where this packet was last seen 
+0: Above the transmit example at the socket level
+1: on the Ingress
+2: on the Egress
+
+bit 8: when set --> Request not to classify on ingress. 
+
+bits 9,10,11: redirect counter -  redirect TTL. Loop avoidance
+
+ *
+ * */
 
 #define TC_MUNGED          _TC_MAKEMASK1(0)
 #define SET_TC_MUNGED(v)   ( TC_MUNGED | (v & ~TC_MUNGED))
@@ -51,6 +74,7 @@
 #define V_TC_AT(x)       _TC_MAKEVALUE(x,S_TC_AT)
 #define SET_TC_AT(v,n)   ((V_TC_AT(n)) | (v & ~M_TC_AT))
 
+/* Action attributes */
 enum {
 	TCA_ACT_UNSPEC,
 	TCA_ACT_KIND,
@@ -82,10 +106,11 @@ enum {
 #define TC_ACT_REPEAT		6
 #define TC_ACT_JUMP		0x10000000
 
+/* Action type identifiers*/
 enum {
 	TCA_ID_UNSPEC=0,
 	TCA_ID_POLICE=1,
-	
+	/* other actions go here */
 	__TCA_ID_MAX=255
 };
 
@@ -141,6 +166,7 @@ enum {
 
 #define TCA_POLICE_MAX (__TCA_POLICE_MAX - 1)
 
+/* U32 filters */
 
 #define TC_U32_HTID(h) ((h)&0xFFF00000)
 #define TC_U32_USERHTID(h) (TC_U32_HTID(h)>>20)
@@ -200,6 +226,7 @@ struct tc_u32_pcnt {
 	__u64 kcnts[0];
 };
 
+/* Flags */
 
 #define TC_U32_TERMINAL		1
 #define TC_U32_OFFSET		2
@@ -209,6 +236,7 @@ struct tc_u32_pcnt {
 #define TC_U32_MAXDEPTH 8
 
 
+/* RSVP filter */
 
 enum {
 	TCA_RSVP_UNSPEC,
@@ -238,6 +266,7 @@ struct tc_rsvp_pinfo {
 	__u8	pad;
 };
 
+/* ROUTE filter */
 
 enum {
 	TCA_ROUTE4_UNSPEC,
@@ -253,19 +282,21 @@ enum {
 #define TCA_ROUTE4_MAX (__TCA_ROUTE4_MAX - 1)
 
 
+/* FW filter */
 
 enum {
 	TCA_FW_UNSPEC,
 	TCA_FW_CLASSID,
 	TCA_FW_POLICE,
-	TCA_FW_INDEV, 
-	TCA_FW_ACT, 
+	TCA_FW_INDEV, /*  used by CONFIG_NET_CLS_IND */
+	TCA_FW_ACT, /* used by CONFIG_NET_CLS_ACT */
 	TCA_FW_MASK,
 	__TCA_FW_MAX
 };
 
 #define TCA_FW_MAX (__TCA_FW_MAX - 1)
 
+/* TC index filter */
 
 enum {
 	TCA_TCINDEX_UNSPEC,
@@ -281,6 +312,7 @@ enum {
 
 #define TCA_TCINDEX_MAX     (__TCA_TCINDEX_MAX - 1)
 
+/* Flow filter */
 
 enum {
 	FLOW_KEY_SRC,
@@ -330,6 +362,7 @@ enum {
 
 #define TCA_FLOW_MAX	(__TCA_FLOW_MAX - 1)
 
+/* Basic filter */
 
 enum {
 	TCA_BASIC_UNSPEC,
@@ -343,6 +376,7 @@ enum {
 #define TCA_BASIC_MAX (__TCA_BASIC_MAX - 1)
 
 
+/* Cgroup classifier */
 
 enum {
 	TCA_CGROUP_UNSPEC,
@@ -354,6 +388,7 @@ enum {
 
 #define TCA_CGROUP_MAX (__TCA_CGROUP_MAX - 1)
 
+/* Extended Matches */
 
 struct tcf_ematch_tree_hdr {
 	__u16		nmatches;
@@ -372,9 +407,23 @@ struct tcf_ematch_hdr {
 	__u16		matchid;
 	__u16		kind;
 	__u16		flags;
-	__u16		pad; 
+	__u16		pad; /* currently unused */
 };
 
+/*  0                   1
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 
+ * +-----------------------+-+-+---+
+ * |         Unused        |S|I| R |
+ * +-----------------------+-+-+---+
+ *
+ * R(2) ::= relation to next ematch
+ *          where: 0 0 END (last ematch)
+ *                 0 1 AND
+ *                 1 0 OR
+ *                 1 1 Unused (invalid)
+ * I(1) ::= invert result
+ * S(1) ::= simple payload
+ */
 #define TCF_EM_REL_END	0
 #define TCF_EM_REL_AND	(1<<0)
 #define TCF_EM_REL_OR	(1<<1)
@@ -392,6 +441,10 @@ enum {
 };
 #define TCF_LAYER_MAX (__TCF_LAYER_MAX - 1)
 
+/* Ematch type assignments
+ *   1..32767		Reserved for ematches inside kernel tree
+ *   32768..65535	Free to use, not reliable
+ */
 #define	TCF_EM_CONTAINER	0
 #define	TCF_EM_CMP		1
 #define	TCF_EM_NBYTE		2

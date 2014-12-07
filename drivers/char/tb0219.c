@@ -31,7 +31,7 @@ MODULE_AUTHOR("Yoichi Yuasa <yuasa@linux-mips.org>");
 MODULE_DESCRIPTION("TANBAC TB0219 base board driver");
 MODULE_LICENSE("GPL");
 
-static int major;	
+static int major;	/* default is dynamic major device number */
 module_param(major, int, 0);
 MODULE_PARM_DESC(major, "Major device number");
 
@@ -60,6 +60,37 @@ typedef enum {
 	TYPE_GPIO_OUTPUT,
 } tb0219_type_t;
 
+/*
+ * Minor device number
+ *	 0 = 7 segment LED
+ *
+ *	16 = GPIO IN 0
+ *	17 = GPIO IN 1
+ *	18 = GPIO IN 2
+ *	19 = GPIO IN 3
+ *	20 = GPIO IN 4
+ *	21 = GPIO IN 5
+ *	22 = GPIO IN 6
+ *	23 = GPIO IN 7
+ *
+ *	32 = GPIO OUT 0
+ *	33 = GPIO OUT 1
+ *	34 = GPIO OUT 2
+ *	35 = GPIO OUT 3
+ *	36 = GPIO OUT 4
+ *	37 = GPIO OUT 5
+ *	38 = GPIO OUT 6
+ *	39 = GPIO OUT 7
+ *
+ *	48 = DIP switch 1
+ *	49 = DIP switch 2
+ *	50 = DIP switch 3
+ *	51 = DIP switch 4
+ *	52 = DIP switch 5
+ *	53 = DIP switch 6
+ *	54 = DIP switch 7
+ *	55 = DIP switch 8
+ */
 
 static inline char get_led(void)
 {
@@ -240,15 +271,15 @@ static void tb0219_restart(char *command)
 
 static void tb0219_pci_irq_init(void)
 {
-	
+	/* PCI Slot 1 */
 	vr41xx_set_irq_trigger(TB0219_PCI_SLOT1_PIN, IRQ_TRIGGER_LEVEL, IRQ_SIGNAL_THROUGH);
 	vr41xx_set_irq_level(TB0219_PCI_SLOT1_PIN, IRQ_LEVEL_LOW);
 
-	
+	/* PCI Slot 2 */
 	vr41xx_set_irq_trigger(TB0219_PCI_SLOT2_PIN, IRQ_TRIGGER_LEVEL, IRQ_SIGNAL_THROUGH);
 	vr41xx_set_irq_level(TB0219_PCI_SLOT2_PIN, IRQ_LEVEL_LOW);
 
-	
+	/* PCI Slot 3 */
 	vr41xx_set_irq_trigger(TB0219_PCI_SLOT3_PIN, IRQ_TRIGGER_LEVEL, IRQ_SIGNAL_THROUGH);
 	vr41xx_set_irq_level(TB0219_PCI_SLOT3_PIN, IRQ_LEVEL_LOW);
 }

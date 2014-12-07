@@ -295,13 +295,13 @@ u8 rtl_cam_get_free_entry(struct ieee80211_hw *hw, u8 *sta_addr)
 		RT_TRACE(rtlpriv, COMP_SEC, DBG_EMERG, "sta_addr is NULL\n");
 		return TOTAL_CAM_ENTRY;
 	}
-	
+	/* Does STA already exist? */
 	for (i = 4; i < TOTAL_CAM_ENTRY; i++) {
 		addr = rtlpriv->sec.hwsec_cam_sta_addr[i];
 		if (memcmp(addr, sta_addr, ETH_ALEN) == 0)
 			return i;
 	}
-	
+	/* Get a free CAM entry. */
 	for (entry_idx = 4; entry_idx < TOTAL_CAM_ENTRY; entry_idx++) {
 		if ((bitmap & BIT(0)) == 0) {
 			RT_TRACE(rtlpriv, COMP_SEC, DBG_EMERG,
@@ -334,13 +334,13 @@ void rtl_cam_del_entry(struct ieee80211_hw *hw, u8 *sta_addr)
 			 "sta_addr is 00:00:00:00:00:00\n");
 		return;
 	}
-	
+	/* Does STA already exist? */
 	for (i = 4; i < TOTAL_CAM_ENTRY; i++) {
 		addr = rtlpriv->sec.hwsec_cam_sta_addr[i];
 		bitmap = (rtlpriv->sec.hwsec_cam_bitmap) >> i;
 		if (((bitmap & BIT(0)) == BIT(0)) &&
 		    (memcmp(addr, sta_addr, ETH_ALEN) == 0)) {
-			
+			/* Remove from HW Security CAM */
 			memset(rtlpriv->sec.hwsec_cam_sta_addr[i], 0, ETH_ALEN);
 			rtlpriv->sec.hwsec_cam_bitmap &= ~(BIT(0) << i);
 			pr_info("&&&&&&&&&del entry %d\n", i);

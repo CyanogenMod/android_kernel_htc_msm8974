@@ -1,3 +1,4 @@
+// TODO some minor issues
 /*
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -39,10 +40,13 @@ void user_disable_single_step(struct task_struct *child)
 	child->ptrace &= ~PT_SINGLESTEP;
 }
 
+/*
+ * Called by kernel/ptrace.c when detaching to disable single stepping.
+ */
 
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* Nothing to do.. */
 }
 
 int ptrace_getregs(struct task_struct *child, void __user *uregs)
@@ -122,7 +126,7 @@ int ptrace_getxregs(struct task_struct *child, void __user *uregs)
 		return -EIO;
 
 #if XTENSA_HAVE_COPROCESSORS
-	
+	/* Flush all coprocessor registers to memory. */
 	coprocessor_flush_all(ti);
 	ret |= __copy_to_user(&xtregs->cp0, &ti->xtregs_cp,
 			      sizeof(xtregs_coprocessor_t));
@@ -146,7 +150,7 @@ int ptrace_setxregs(struct task_struct *child, void __user *uregs)
 		return -EFAULT;
 
 #if XTENSA_HAVE_COPROCESSORS
-	
+	/* Flush all coprocessors before we overwrite them. */
 	coprocessor_flush_all(ti);
 	coprocessor_release_all(ti);
 
@@ -167,7 +171,7 @@ int ptrace_peekusr(struct task_struct *child, long regno, long __user *ret)
 	unsigned long tmp;
 
 	regs = task_pt_regs(child);
-	tmp = 0;  
+	tmp = 0;  /* Default return value. */
 
 	switch(regno) {
 
@@ -184,11 +188,14 @@ int ptrace_peekusr(struct task_struct *child, long regno, long __user *ret)
 			break;
 
 		case REG_PS:
+			/* Note:  PS.EXCM is not set while user task is running;
+			 * its being set in regs is for exception handling
+			 * convenience.  */
 			tmp = (regs->ps & ~(1 << PS_EXCM_BIT));
 			break;
 
 		case REG_WB:
-			break;		
+			break;		/* tmp = 0 */
 
 		case REG_WS:
 		{
@@ -258,21 +265,21 @@ long arch_ptrace(struct task_struct *child, long request,
 	void __user *datap = (void __user *) data;
 
 	switch (request) {
-	case PTRACE_PEEKTEXT:	
+	case PTRACE_PEEKTEXT:	/* read word at location addr. */
 	case PTRACE_PEEKDATA:
 		ret = generic_ptrace_peekdata(child, addr, data);
 		break;
 
-	case PTRACE_PEEKUSR:	
+	case PTRACE_PEEKUSR:	/* read register specified by addr. */
 		ret = ptrace_peekusr(child, addr, datap);
 		break;
 
-	case PTRACE_POKETEXT:	
+	case PTRACE_POKETEXT:	/* write the word at location addr. */
 	case PTRACE_POKEDATA:
 		ret = generic_ptrace_pokedata(child, addr, data);
 		break;
 
-	case PTRACE_POKEUSR:	
+	case PTRACE_POKEUSR:	/* write register specified by addr. */
 		ret = ptrace_pokeusr(child, addr, data);
 		break;
 
@@ -302,8 +309,17 @@ long arch_ptrace(struct task_struct *child, long request,
 
 void do_syscall_trace(void)
 {
+	/*
+	 * The 0x80 provides a way for the tracing parent to distinguish
+	 * between a syscall stop and SIGTRAP delivery
+	 */
 	ptrace_notify(SIGTRAP|((current->ptrace & PT_TRACESYSGOOD) ? 0x80 : 0));
 
+	/*
+	 * this isn't the same as continuing with a signal, but it will do
+	 * for normal use.  strace only continues with a signal if the
+	 * stopping signal is not SIGTRAP.  -brl
+	 */
 	if (current->exit_code) {
 		send_sig(current->exit_code, current, 1);
 		current->exit_code = 0;

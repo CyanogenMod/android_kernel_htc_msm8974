@@ -110,7 +110,7 @@ nv10_gpio_init(struct drm_device *dev)
 	nv_wr32(dev, 0x001100, 0xffffffff);
 	nv_wr32(dev, 0x001144, 0x00000000);
 	nv_wr32(dev, 0x001104, 0xffffffff);
-	nouveau_irq_register(dev, 28, nv10_gpio_isr); 
+	nouveau_irq_register(dev, 28, nv10_gpio_isr); /* PBUS */
 	return 0;
 }
 

@@ -26,6 +26,10 @@
 #include "nouveau_drv.h"
 #include "nouveau_mm.h"
 
+/* 0 = unsupported
+ * 1 = non-compressed
+ * 3 = compressed
+ */
 static const u8 types[256] = {
 	1, 1, 3, 3, 3, 3, 0, 3, 3, 3, 3, 0, 0, 0, 0, 0,
 	0, 1, 0, 0, 0, 0, 0, 3, 3, 3, 3, 0, 0, 0, 0, 0,
@@ -100,8 +104,8 @@ nvc0_vram_init(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	struct nouveau_vram_engine *vram = &dev_priv->engine.vram;
-	const u32 rsvd_head = ( 256 * 1024) >> 12; 
-	const u32 rsvd_tail = (1024 * 1024) >> 12; 
+	const u32 rsvd_head = ( 256 * 1024) >> 12; /* vga memory */
+	const u32 rsvd_tail = (1024 * 1024) >> 12; /* vbios etc */
 	u32 parts = nv_rd32(dev, 0x022438);
 	u32 pmask = nv_rd32(dev, 0x022554);
 	u32 bsize = nv_rd32(dev, 0x10f20c);
@@ -115,7 +119,7 @@ nvc0_vram_init(struct drm_device *dev)
 	dev_priv->vram_type = nouveau_mem_vbios_type(dev);
 	dev_priv->vram_rank_B = !!(nv_rd32(dev, 0x10f200) & 0x00000004);
 
-	
+	/* read amount of vram attached to each memory controller */
 	for (part = 0; part < parts; part++) {
 		if (!(pmask & (1 << part))) {
 			u32 psize = nv_rd32(dev, 0x11020c + (part * 0x1000));
@@ -130,19 +134,19 @@ nvc0_vram_init(struct drm_device *dev)
 		}
 	}
 
-	
+	/* if all controllers have the same amount attached, there's no holes */
 	if (uniform) {
 		offset = rsvd_head;
 		length = (dev_priv->vram_size >> 12) - rsvd_head - rsvd_tail;
 		return nouveau_mm_init(&vram->mm, offset, length, 1);
 	}
 
-	
+	/* otherwise, address lowest common amount from 0GiB */
 	ret = nouveau_mm_init(&vram->mm, rsvd_head, (bsize << 8) * parts, 1);
 	if (ret)
 		return ret;
 
-	
+	/* and the rest starting from (8GiB + common_size) */
 	offset = (0x0200000000ULL >> 12) + (bsize << 8);
 	length = (dev_priv->vram_size >> 12) - (bsize << 8) - rsvd_tail;
 

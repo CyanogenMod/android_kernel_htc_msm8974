@@ -22,10 +22,11 @@
 
 #ifndef __ASSEMBLY__
 
+/* Unwind reason code according the the ARM EABI documents */
 enum unwind_reason_code {
-	URC_OK = 0,			
+	URC_OK = 0,			/* operation completed successfully */
 	URC_CONTINUE_UNWIND = 8,
-	URC_FAILURE = 9			
+	URC_FAILURE = 9			/* unspecified failure of some kind */
 };
 
 struct unwind_idx {
@@ -49,7 +50,7 @@ extern struct unwind_table *unwind_table_add(unsigned long start,
 extern void unwind_table_del(struct unwind_table *tab);
 extern void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk);
 
-#endif	
+#endif	/* !__ASSEMBLY__ */
 
 #ifdef CONFIG_ARM_UNWIND
 #define UNWIND(code...)		code
@@ -57,4 +58,4 @@ extern void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk);
 #define UNWIND(code...)
 #endif
 
-#endif	
+#endif	/* __ASM_UNWIND_H */

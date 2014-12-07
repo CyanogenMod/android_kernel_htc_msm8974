@@ -44,7 +44,7 @@ void pnx4008_uart_init(void)
 	__raw_writel(0xC1, UART5_BASE_VA + UART_FCR_OFFSET);
 	__raw_writel(0xC1, UART3_BASE_VA + UART_FCR_OFFSET);
 
-	
+	/* Send a NULL to fix the UART HW bug */
 	__raw_writel(0x00, UART5_BASE_VA);
 	__raw_writel(0x00, UART3_BASE_VA);
 
@@ -55,7 +55,7 @@ void pnx4008_uart_init(void)
 	__raw_writel(0, UART5_BASE_VA + UART_FCR_OFFSET);
 	__raw_writel(0, UART3_BASE_VA + UART_FCR_OFFSET);
 
-	
+	/* setup wakeup interrupt */
 	start_int_set_rising_edge(SE_U3_RX_INT);
 	start_int_ack(SE_U3_RX_INT);
 	start_int_umask(SE_U3_RX_INT);

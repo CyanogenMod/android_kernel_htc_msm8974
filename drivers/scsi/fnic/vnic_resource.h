@@ -18,30 +18,31 @@
 #ifndef _VNIC_RESOURCE_H_
 #define _VNIC_RESOURCE_H_
 
-#define VNIC_RES_MAGIC		0x766E6963L	
+#define VNIC_RES_MAGIC		0x766E6963L	/* 'vnic' */
 #define VNIC_RES_VERSION	0x00000000L
 
+/* vNIC resource types */
 enum vnic_res_type {
-	RES_TYPE_EOL,			
-	RES_TYPE_WQ,			
-	RES_TYPE_RQ,			
-	RES_TYPE_CQ,			
+	RES_TYPE_EOL,			/* End-of-list */
+	RES_TYPE_WQ,			/* Work queues */
+	RES_TYPE_RQ,			/* Receive queues */
+	RES_TYPE_CQ,			/* Completion queues */
 	RES_TYPE_RSVD1,
-	RES_TYPE_NIC_CFG,		
+	RES_TYPE_NIC_CFG,		/* Enet NIC config registers */
 	RES_TYPE_RSVD2,
 	RES_TYPE_RSVD3,
 	RES_TYPE_RSVD4,
 	RES_TYPE_RSVD5,
-	RES_TYPE_INTR_CTRL,		
-	RES_TYPE_INTR_TABLE,		
-	RES_TYPE_INTR_PBA,		
-	RES_TYPE_INTR_PBA_LEGACY,	
+	RES_TYPE_INTR_CTRL,		/* Interrupt ctrl table */
+	RES_TYPE_INTR_TABLE,		/* MSI/MSI-X Interrupt table */
+	RES_TYPE_INTR_PBA,		/* MSI/MSI-X PBA table */
+	RES_TYPE_INTR_PBA_LEGACY,	/* Legacy intr status */
 	RES_TYPE_RSVD6,
 	RES_TYPE_RSVD7,
-	RES_TYPE_DEVCMD,		
-	RES_TYPE_PASS_THRU_PAGE,	
+	RES_TYPE_DEVCMD,		/* Device command region */
+	RES_TYPE_PASS_THRU_PAGE,	/* Pass-thru page */
 
-	RES_TYPE_MAX,			
+	RES_TYPE_MAX,			/* Count of resource types */
 };
 
 struct vnic_resource_header {
@@ -57,4 +58,4 @@ struct vnic_resource {
 	u32 count;
 };
 
-#endif 
+#endif /* _VNIC_RESOURCE_H_ */

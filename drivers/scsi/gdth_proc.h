@@ -1,6 +1,9 @@
 #ifndef _GDTH_PROC_H
 #define _GDTH_PROC_H
 
+/* gdth_proc.h 
+ * $Id: gdth_proc.h,v 1.16 2004/01/14 13:09:01 achim Exp $
+ */
 
 int gdth_execute(struct Scsi_Host *shost, gdth_cmd_str *gdtcmd, char *cmnd,
                  int timeout, u32 *info);

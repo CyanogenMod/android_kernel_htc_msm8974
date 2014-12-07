@@ -14,7 +14,7 @@ static void __init wait_xfered(void)
 {
 	unsigned int val;
 
-	
+	/* wait for any previous char to be transmitted */
 	do {
 		val = bcm_uart0_readl(UART_IR_REG);
 		if (val & UART_IR_STAT(UART_IR_TXEMPTY))

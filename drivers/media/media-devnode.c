@@ -48,24 +48,28 @@
 
 static dev_t media_dev_t;
 
+/*
+ *	Active devices
+ */
 static DEFINE_MUTEX(media_devnode_lock);
 static DECLARE_BITMAP(media_devnode_nums, MEDIA_NUM_DEVICES);
 
+/* Called when the last user of the media device exits. */
 static void media_devnode_release(struct device *cd)
 {
 	struct media_devnode *mdev = to_media_devnode(cd);
 
 	mutex_lock(&media_devnode_lock);
 
-	
+	/* Delete the cdev on this minor as well */
 	cdev_del(&mdev->cdev);
 
-	
+	/* Mark device node number as free */
 	clear_bit(mdev->minor, media_devnode_nums);
 
 	mutex_unlock(&media_devnode_lock);
 
-	
+	/* Release media_devnode and perform other cleanups as needed. */
 	if (mdev->release)
 		mdev->release(mdev);
 }
@@ -123,18 +127,27 @@ static long media_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return mdev->fops->ioctl(filp, cmd, arg);
 }
 
+/* Override for the open function */
 static int media_open(struct inode *inode, struct file *filp)
 {
 	struct media_devnode *mdev;
 	int ret;
 
+	/* Check if the media device is available. This needs to be done with
+	 * the media_devnode_lock held to prevent an open/unregister race:
+	 * without the lock, the device could be unregistered and freed between
+	 * the media_devnode_is_registered() and get_device() calls, leading to
+	 * a crash.
+	 */
 	mutex_lock(&media_devnode_lock);
 	mdev = container_of(inode->i_cdev, struct media_devnode, cdev);
+	/* return ENXIO if the media device has been removed
+	   already or if it is not registered anymore. */
 	if (!media_devnode_is_registered(mdev)) {
 		mutex_unlock(&media_devnode_lock);
 		return -ENXIO;
 	}
-	
+	/* and increase the device refcount */
 	get_device(&mdev->dev);
 	mutex_unlock(&media_devnode_lock);
 
@@ -151,6 +164,7 @@ static int media_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+/* Override for the release function */
 static int media_release(struct inode *inode, struct file *filp)
 {
 	struct media_devnode *mdev = media_devnode_data(filp);
@@ -159,6 +173,8 @@ static int media_release(struct inode *inode, struct file *filp)
 	if (mdev->fops->release)
 		mdev->fops->release(filp);
 
+	/* decrease the refcount unconditionally since the release()
+	   return value is ignored. */
 	put_device(&mdev->dev);
 	filp->private_data = NULL;
 	return ret;
@@ -175,12 +191,26 @@ static const struct file_operations media_devnode_fops = {
 	.llseek = no_llseek,
 };
 
+/**
+ * media_devnode_register - register a media device node
+ * @mdev: media device node structure we want to register
+ *
+ * The registration code assigns minor numbers and registers the new device node
+ * with the kernel. An error is returned if no free minor number can be found,
+ * or if the registration of the device node fails.
+ *
+ * Zero is returned on success.
+ *
+ * Note that if the media_devnode_register call fails, the release() callback of
+ * the media_devnode structure is *not* called, so the caller is responsible for
+ * freeing any data.
+ */
 int __must_check media_devnode_register(struct media_devnode *mdev)
 {
 	int minor;
 	int ret;
 
-	
+	/* Part 1: Find a free minor number */
 	mutex_lock(&media_devnode_lock);
 	minor = find_next_zero_bit(media_devnode_nums, MEDIA_NUM_DEVICES, 0);
 	if (minor == MEDIA_NUM_DEVICES) {
@@ -194,7 +224,7 @@ int __must_check media_devnode_register(struct media_devnode *mdev)
 
 	mdev->minor = minor;
 
-	
+	/* Part 2: Initialize and register the character device */
 	cdev_init(&mdev->cdev, &media_devnode_fops);
 	mdev->cdev.owner = mdev->fops->owner;
 
@@ -204,7 +234,7 @@ int __must_check media_devnode_register(struct media_devnode *mdev)
 		goto error;
 	}
 
-	
+	/* Part 3: Register the media device */
 	mdev->dev.bus = &media_bus_type;
 	mdev->dev.devt = MKDEV(MAJOR(media_dev_t), mdev->minor);
 	mdev->dev.release = media_devnode_release;
@@ -217,7 +247,7 @@ int __must_check media_devnode_register(struct media_devnode *mdev)
 		goto error;
 	}
 
-	
+	/* Part 4: Activate this minor. The char device can now be used. */
 	set_bit(MEDIA_FLAG_REGISTERED, &mdev->flags);
 
 	return 0;
@@ -228,9 +258,19 @@ error:
 	return ret;
 }
 
+/**
+ * media_devnode_unregister - unregister a media device node
+ * @mdev: the device node to unregister
+ *
+ * This unregisters the passed device. Future open calls will be met with
+ * errors.
+ *
+ * This function can safely be called if the device node has never been
+ * registered or has already been unregistered.
+ */
 void media_devnode_unregister(struct media_devnode *mdev)
 {
-	
+	/* Check if mdev was ever registered at all */
 	if (!media_devnode_is_registered(mdev))
 		return;
 
@@ -240,6 +280,9 @@ void media_devnode_unregister(struct media_devnode *mdev)
 	device_unregister(&mdev->dev);
 }
 
+/*
+ *	Initialise media for linux
+ */
 static int __init media_devnode_init(void)
 {
 	int ret;

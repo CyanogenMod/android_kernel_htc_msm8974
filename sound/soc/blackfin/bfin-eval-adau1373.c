@@ -41,6 +41,8 @@ static const struct snd_soc_dapm_route bfin_eval_adau1373_dapm_routes[] = {
 	{ "AIN4L", NULL, "Line In4" },
 	{ "AIN4R", NULL, "Line In4" },
 
+	/* MICBIAS can be connected via a jumper to the line-in jack, since w
+	   don't know which one is going to be used, just power both. */
 	{ "Line In1", NULL, "MICBIAS1" },
 	{ "Line In2", NULL, "MICBIAS1" },
 	{ "Line In3", NULL, "MICBIAS1" },

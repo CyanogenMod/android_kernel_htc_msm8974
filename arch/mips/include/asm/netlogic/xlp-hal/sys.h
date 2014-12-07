@@ -35,6 +35,11 @@
 #ifndef __NLM_HAL_SYS_H__
 #define __NLM_HAL_SYS_H__
 
+/**
+* @file_name sys.h
+* @author Netlogic Microsystems
+* @brief HAL for System configuration registers
+*/
 #define	SYS_CHIP_RESET				0x00
 #define	SYS_POWER_ON_RESET_CFG			0x01
 #define	SYS_EFUSE_DEVICE_CFG_STATUS0		0x02

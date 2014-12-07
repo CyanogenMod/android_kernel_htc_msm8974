@@ -13,15 +13,27 @@
 #include <linux/mutex.h>
 #include <linux/kfifo.h>
 
+/*
+ * This module shows how to create a int type fifo.
+ */
 
+/* fifo size in elements (ints) */
 #define FIFO_SIZE	32
 
+/* name of the proc entry */
 #define	PROC_FIFO	"int-fifo"
 
+/* lock for procfs read access */
 static DEFINE_MUTEX(read_lock);
 
+/* lock for procfs write access */
 static DEFINE_MUTEX(write_lock);
 
+/*
+ * define DYNAMIC in this example for a dynamically allocated fifo.
+ *
+ * Otherwise the fifo storage will be a part of the fifo structure.
+ */
 #if 0
 #define DYNAMIC
 #endif
@@ -47,35 +59,35 @@ static int __init testfunc(void)
 
 	printk(KERN_INFO "int fifo test start\n");
 
-	
+	/* put values into the fifo */
 	for (i = 0; i != 10; i++)
 		kfifo_put(&test, &i);
 
-	
+	/* show the number of used elements */
 	printk(KERN_INFO "fifo len: %u\n", kfifo_len(&test));
 
-	
+	/* get max of 2 elements from the fifo */
 	ret = kfifo_out(&test, buf, 2);
 	printk(KERN_INFO "ret: %d\n", ret);
-	
+	/* and put it back to the end of the fifo */
 	ret = kfifo_in(&test, buf, ret);
 	printk(KERN_INFO "ret: %d\n", ret);
 
-	
+	/* skip first element of the fifo */
 	printk(KERN_INFO "skip 1st element\n");
 	kfifo_skip(&test);
 
-	
+	/* put values into the fifo until is full */
 	for (i = 20; kfifo_put(&test, &i); i++)
 		;
 
 	printk(KERN_INFO "queue len: %u\n", kfifo_len(&test));
 
-	
+	/* show the first value without removing from the fifo */
 	if (kfifo_peek(&test, &i))
 		printk(KERN_INFO "%d\n", i);
 
-	
+	/* check the correctness of all values in the fifo */
 	j = 0;
 	while (kfifo_get(&test, &i)) {
 		printk(KERN_INFO "item = %d\n", i);

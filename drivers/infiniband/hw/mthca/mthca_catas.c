@@ -71,7 +71,7 @@ static void catas_reset(struct work_struct *work)
 	list_for_each_entry_safe(dev, tmpdev, &tlist, catas_err.list) {
 		struct pci_dev *pdev = dev->pdev;
 		ret = __mthca_restart_one(dev->pdev);
-		
+		/* 'dev' now is not valid */
 		if (ret)
 			printk(KERN_ERR "mthca %s: Reset failed (%d)\n",
 			       pci_name(pdev), ret);

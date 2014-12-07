@@ -32,10 +32,22 @@
 
 #include "hwspinlock_internal.h"
 
+/*
+ * Implementation of STE's HSem protocol 1 without interrutps.
+ * The only masterID we allow is '0x01' to force people to use
+ * HSems for synchronisation between processors rather than processes
+ * on the ARM core.
+ */
 
-#define U8500_MAX_SEMAPHORE		32	
-#define RESET_SEMAPHORE			(0)	
+#define U8500_MAX_SEMAPHORE		32	/* a total of 32 semaphore */
+#define RESET_SEMAPHORE			(0)	/* free */
 
+/*
+ * CPU ID for master running u8500 kernel.
+ * Hswpinlocks should only be used to synchonise operations
+ * between the Cortex A9 core and the other CPUs.  Hence
+ * forcing the masterID to a preset value.
+ */
 #define HSEM_MASTER_ID			0x01
 
 #define HSEM_REGISTER_OFFSET		0x08
@@ -50,6 +62,10 @@ static int u8500_hsem_trylock(struct hwspinlock *lock)
 
 	writel(HSEM_MASTER_ID, lock_addr);
 
+	/* get only first 4 bit and compare to masterID.
+	 * if equal, we have the semaphore, otherwise
+	 * someone else has it.
+	 */
 	return (HSEM_MASTER_ID == (0x0F & readl(lock_addr)));
 }
 
@@ -57,10 +73,13 @@ static void u8500_hsem_unlock(struct hwspinlock *lock)
 {
 	void __iomem *lock_addr = lock->priv;
 
-	
+	/* release the lock by writing 0 to it */
 	writel(RESET_SEMAPHORE, lock_addr);
 }
 
+/*
+ * u8500: what value is recommended here ?
+ */
 static void u8500_hsem_relax(struct hwspinlock *lock)
 {
 	ndelay(50);
@@ -93,11 +112,11 @@ static int __devinit u8500_hsem_probe(struct platform_device *pdev)
 	if (!io_base)
 		return -ENOMEM;
 
-	
+	/* make sure protocol 1 is selected */
 	val = readl(io_base + HSEM_CTRL_REG);
 	writel((val & ~HSEM_PROTOCOL_1), io_base + HSEM_CTRL_REG);
 
-	
+	/* clear all interrupts */
 	writel(0xFFFF, io_base + HSEM_ICRALL);
 
 	bank = kzalloc(sizeof(*bank) + num_locks * sizeof(*hwlock), GFP_KERNEL);
@@ -111,7 +130,7 @@ static int __devinit u8500_hsem_probe(struct platform_device *pdev)
 	for (i = 0, hwlock = &bank->lock[0]; i < num_locks; i++, hwlock++)
 		hwlock->priv = io_base + HSEM_REGISTER_OFFSET + sizeof(u32) * i;
 
-	
+	/* no pm needed for HSem but required to comply with hwspilock core */
 	pm_runtime_enable(&pdev->dev);
 
 	ret = hwspin_lock_register(bank, &pdev->dev, &u8500_hwspinlock_ops,
@@ -135,7 +154,7 @@ static int __devexit u8500_hsem_remove(struct platform_device *pdev)
 	void __iomem *io_base = bank->lock[0].priv - HSEM_REGISTER_OFFSET;
 	int ret;
 
-	
+	/* clear all interrupts */
 	writel(0xFFFF, io_base + HSEM_ICRALL);
 
 	ret = hwspin_lock_unregister(bank);
@@ -164,6 +183,7 @@ static int __init u8500_hsem_init(void)
 {
 	return platform_driver_register(&u8500_hsem_driver);
 }
+/* board init code might need to reserve hwspinlocks for predefined purposes */
 postcore_initcall(u8500_hsem_init);
 
 static void __exit u8500_hsem_exit(void)

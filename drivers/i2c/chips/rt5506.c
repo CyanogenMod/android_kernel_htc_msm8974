@@ -49,6 +49,14 @@ enum AMP_REG_MODE {
 	REG_AUTO_MODE,
 };
 
+enum AMP_POWER_MASK {
+	POWER_PLAYBACK = 0,
+	POWER_IMPEDANCE,
+	POWER_CMDLINE_TOOL,
+	POWER_HIGH_IMP_RESET,
+	POWER_MASK_MAX,
+};
+
 struct headset_query {
 	struct mutex mlock;
 	struct mutex gpiolock;
@@ -66,6 +74,8 @@ struct headset_query {
 	struct mutex actionlock;
 	struct delayed_work volume_ramp_work;
 	struct delayed_work gpio_off_work;
+	int hs_connec;
+	unsigned long power_mask;
 };
 
 static struct i2c_client *this_client;
@@ -117,13 +127,58 @@ static int set_rt5506_regulator(enum AMP_REG_MODE mode)
 
 	return 0;
 }
-static int rt5506_headset_detect(int on)
+
+static int need_power(unsigned long *addr)
+{
+	return (*addr != 0);
+}
+
+static void vote_power(unsigned long *addr, enum AMP_POWER_MASK bit)
+{
+	pr_info("%s: mask %d\n",__func__,bit);
+	set_bit(bit,addr);
+
+	if(need_power(addr) && rt5506_query.gpiostatus == AMP_GPIO_OFF) {
+		pr_info("%s: enable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
+		if(rt5506_query.regstatus == REG_AUTO_MODE) {
+			set_rt5506_regulator(REG_PWM_MODE);
+			rt5506_query.regstatus = REG_PWM_MODE;
+			msleep(1);
+		}
+
+		gpio_set_value(pdata->gpio_rt5506_enable, 1);
+		rt5506_query.gpiostatus = AMP_GPIO_ON;
+		usleep_range(20000,20000);
+	}
+
+}
+
+static void unvote_power(unsigned long *addr, enum AMP_POWER_MASK bit)
+{
+	pr_info("%s: mask %d\n",__func__,bit);
+	clear_bit(bit,addr);
+
+	if(!need_power(addr) && rt5506_query.gpiostatus == AMP_GPIO_ON) {
+		rt5506_query.gpio_off_cancel = 0;
+		queue_delayed_work(gpio_wq, &rt5506_query.gpio_off_work, msecs_to_jiffies(0));
+	}
+
+}
+
+static int rt5506_headset_detect(void *private_data, int on)
 {
 
 	if(!rt5506Connect)
 		return 0;
 
 	if(on) {
+		mutex_lock(&rt5506_query.mlock);
+		if(rt5506_query.hs_connec) {
+			pr_info("%s: headset exist, ignore\n",__func__);
+			mutex_unlock(&rt5506_query.mlock);
+			return 0;
+		}
+		mutex_unlock(&rt5506_query.mlock);
 
 		pr_info("%s: headset in ++\n",__func__);
 		cancel_delayed_work_sync(&rt5506_query.hs_imp_detec_work);
@@ -147,6 +202,7 @@ static int rt5506_headset_detect(int on)
 
 			rt5506_query.rt5506_status = STATUS_SUSPEND;
 		}
+		rt5506_query.hs_connec = 1;
 		pr_info("%s: headset in --\n",__func__);
 		mutex_unlock(&rt5506_query.mlock);
 		mutex_unlock(&rt5506_query.gpiolock);
@@ -155,6 +211,14 @@ static int rt5506_headset_detect(int on)
 		pr_info("%s: headset in --2\n",__func__);
 
 	} else {
+
+		mutex_lock(&rt5506_query.mlock);
+		if(!rt5506_query.hs_connec) {
+			pr_info("%s: headset isn't exist, ignore\n",__func__);
+			mutex_unlock(&rt5506_query.mlock);
+			return 0;
+		}
+		mutex_unlock(&rt5506_query.mlock);
 
 		pr_info("%s: headset remove ++\n",__func__);
 		cancel_delayed_work_sync(&rt5506_query.hs_imp_detec_work);
@@ -187,39 +251,18 @@ static int rt5506_headset_detect(int on)
 		}
 
 		if(high_imp) {
-			int closegpio = 0;
-			if(rt5506_query.gpiostatus == AMP_GPIO_OFF) {
-				pr_info("%s: enable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
-				if(rt5506_query.regstatus == REG_AUTO_MODE) {
-					set_rt5506_regulator(REG_PWM_MODE);
-					rt5506_query.regstatus = REG_PWM_MODE;
-					msleep(1);
-				}
-
-				gpio_set_value(pdata->gpio_rt5506_enable, 1);
-				closegpio = 1;
-				msleep(1);
-			}
+			vote_power(&rt5506_query.power_mask, POWER_HIGH_IMP_RESET);
 			pr_info("%s: reset rt5501\n",__func__);
 			rt5506_write_reg(0x0,0x4);
 			mdelay(1);
 
 			rt5506_write_reg(0x1,0xc7);
 			high_imp = 0;
-
-			if(closegpio) {
-				pr_info("%s: disable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
-				gpio_set_value(pdata->gpio_rt5506_enable, 0);
-
-				if(rt5506_query.regstatus == REG_PWM_MODE) {
-					set_rt5506_regulator(REG_AUTO_MODE);
-					rt5506_query.regstatus = REG_AUTO_MODE;
-				}
-
-			}
+			unvote_power(&rt5506_query.power_mask, POWER_HIGH_IMP_RESET);
 		}
 
 		rt5506_query.curmode = PLAYBACK_MODE_OFF;
+		rt5506_query.hs_connec = 0;
 		pr_info("%s: headset remove --1\n",__func__);
 
 
@@ -236,13 +279,13 @@ static int rt5506_headset_detect(int on)
 static void rt5506_register_hs_notification(void)
 {
 #if 1
-	struct headset_notifier notifier;
-	notifier.id = HEADSET_REG_HS_INSERT;
-	notifier.func = rt5506_headset_detect;
-	headset_notifier_register(&notifier);
+	struct hs_notify_t notifier;
+	notifier.private_data = NULL;
+	notifier.callback_f = rt5506_headset_detect;
+	htc_acoustic_register_hs_notify(HS_AMP_N, &notifier);
 #else
 
-	rt5506_headset_detect(0);
+	rt5506_headset_detect(NULL,0);
 #endif
 }
 
@@ -386,15 +429,16 @@ static void hs_imp_gpio_off(struct work_struct *work)
 	}
 
 	mutex_lock(&rt5506_query.gpiolock);
-	pr_info("%s: disable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
-	gpio_set_value(pdata->gpio_rt5506_enable, 0);
-	rt5506_query.gpiostatus = AMP_GPIO_OFF;
+	if(!need_power(&rt5506_query.power_mask)) {
+		pr_info("%s: disable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
+		gpio_set_value(pdata->gpio_rt5506_enable, 0);
+		rt5506_query.gpiostatus = AMP_GPIO_OFF;
 
-	if(rt5506_query.regstatus == REG_PWM_MODE) {
-		set_rt5506_regulator(REG_AUTO_MODE);
-		rt5506_query.regstatus = REG_AUTO_MODE;
+		if(rt5506_query.regstatus == REG_PWM_MODE) {
+			set_rt5506_regulator(REG_AUTO_MODE);
+			rt5506_query.regstatus = REG_AUTO_MODE;
+		}
 	}
-
 	mutex_unlock(&rt5506_query.gpiolock);
 	wake_unlock(&rt5506_query.gpio_wake_lock);
 }
@@ -422,20 +466,7 @@ static void hs_imp_detec_func(struct work_struct *work)
 		return;
 	}
 
-
-	if(hs->gpiostatus == AMP_GPIO_OFF) {
-
-		if(rt5506_query.regstatus == REG_AUTO_MODE) {
-			set_rt5506_regulator(REG_PWM_MODE);
-			rt5506_query.regstatus = REG_PWM_MODE;
-			msleep(1);
-		}
-		pr_info("%s: enable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
-		gpio_set_value(pdata->gpio_rt5506_enable, 1);
-		rt5506_query.gpiostatus = AMP_GPIO_ON;
-	}
-
-	msleep(1);
+	vote_power(&rt5506_query.power_mask, POWER_IMPEDANCE);
 
 	rt5506_write_reg(0,0x04);
 	rt5506_write_reg(0xa4,0x52);
@@ -450,12 +481,7 @@ static void hs_imp_detec_func(struct work_struct *work)
 	if(ret < 0) {
 		pr_err("%s: read rt5506 status error %d\n",__func__,ret);
 
-		if(hs->gpiostatus == AMP_GPIO_ON) {
-
-			rt5506_query.gpio_off_cancel = 0;
-			queue_delayed_work(gpio_wq, &rt5506_query.gpio_off_work, msecs_to_jiffies(0));
-		}
-
+		unvote_power(&rt5506_query.power_mask, POWER_IMPEDANCE);
 		mutex_unlock(&hs->mlock);
 		mutex_unlock(&hs->gpiolock);
 		wake_unlock(&hs->hs_wake_lock);
@@ -561,13 +587,10 @@ static void hs_imp_detec_func(struct work_struct *work)
 		rt5506_write_reg(1,0xc7);
 	}
 
-	if(hs->gpiostatus == AMP_GPIO_ON) {
+	if(hs->rt5506_status == STATUS_PLAYBACK)
+		hs->rt5506_status = STATUS_SUSPEND;
 
-		rt5506_query.gpio_off_cancel = 0;
-		queue_delayed_work(gpio_wq, &rt5506_query.gpio_off_work, msecs_to_jiffies(0));
-
-	}
-
+	unvote_power(&rt5506_query.power_mask, POWER_IMPEDANCE);
 	mutex_unlock(&hs->mlock);
 	mutex_unlock(&hs->gpiolock);
 
@@ -579,18 +602,6 @@ static void hs_imp_detec_func(struct work_struct *work)
 
 static void volume_ramp_func(struct work_struct *work)
 {
-
-	if(rt5506_query.rt5506_status != STATUS_PLAYBACK) {
-
-		mdelay(1);
-		
-		if(high_imp)
-			rt5506_write_reg(0xb1,0x80);
-
-		rt5506_write_reg(0x2,0x0);
-		mdelay(1);
-	}
-
 	set_amp(1, &RT5506_AMP_ON);
 }
 
@@ -604,6 +615,17 @@ static void set_amp(int on, struct rt5506_config *i2c_command)
 		rt5506_query.hs_qstatus = QUERY_FINISH;
 
 	if (on) {
+		if(rt5506_query.rt5506_status != STATUS_PLAYBACK) {
+
+			mdelay(1);
+			
+			if(high_imp)
+				rt5506_write_reg(0xb1,0x80);
+
+			rt5506_write_reg(0x2,0x0);
+			mdelay(1);
+		}
+
 		rt5506_query.rt5506_status = STATUS_PLAYBACK;
 		if (rt5506_i2c_write(i2c_command->reg, i2c_command->reg_len) == 0) {
 			last_spkamp_state = 1;
@@ -651,31 +673,13 @@ static int set_rt5506_amp(int on, int dsp)
 	mutex_lock(&rt5506_query.gpiolock);
 
 	if(on) {
-
-		if(rt5506_query.gpiostatus == AMP_GPIO_OFF) {
-
-			if(rt5506_query.regstatus == REG_AUTO_MODE) {
-				set_rt5506_regulator(REG_PWM_MODE);
-				rt5506_query.regstatus = REG_PWM_MODE;
-				msleep(1);
-			}
-
-			pr_info("%s: enable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
-			gpio_set_value(pdata->gpio_rt5506_enable, 1);
-			rt5506_query.gpiostatus = AMP_GPIO_ON;
-			msleep(1);
-		}
+		vote_power(&rt5506_query.power_mask, POWER_PLAYBACK);
 		rt5506_query.action_on = 1;
 		queue_delayed_work(ramp_wq, &rt5506_query.volume_ramp_work, msecs_to_jiffies(0));
 
 	} else {
 		set_amp(0, &RT5506_AMP_ON);
-		if(rt5506_query.gpiostatus == AMP_GPIO_ON) {
-
-			rt5506_query.gpio_off_cancel = 0;
-			queue_delayed_work(gpio_wq, &rt5506_query.gpio_off_work, msecs_to_jiffies(0));
-		}
-
+		unvote_power(&rt5506_query.power_mask, POWER_PLAYBACK);
 	}
 
 	mutex_unlock(&rt5506_query.gpiolock);
@@ -716,7 +720,6 @@ static long rt5506_ioctl(struct file *file, unsigned int cmd,
 	int premode = 0;
 	struct amp_ctrl ampctrl;
 	struct rt5506_reg_data reg;
-	enum AMP_GPIO_STATUS curgpiostatus;
 
 	switch (cmd) {
 	case AMP_SET_MODE:
@@ -813,21 +816,7 @@ static long rt5506_ioctl(struct file *file, unsigned int cmd,
 		mutex_lock(&hp_amp_lock);
 
 		rc = 0;
-		curgpiostatus = rt5506_query.gpiostatus;
-
-		if(rt5506_query.gpiostatus == AMP_GPIO_OFF) {
-
-			if(rt5506_query.regstatus == REG_AUTO_MODE) {
-				set_rt5506_regulator(REG_PWM_MODE);
-				rt5506_query.regstatus = REG_PWM_MODE;
-				msleep(1);
-			}
-
-			pr_info("%s: enable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
-			gpio_set_value(pdata->gpio_rt5506_enable, 1);
-			msleep(1);
-		}
-
+		vote_power(&rt5506_query.power_mask, POWER_CMDLINE_TOOL);
 		if(ampctrl.ctrl == AMP_WRITE) {
 			reg.addr = (unsigned char)ampctrl.reg;
 			reg.val = (unsigned char)ampctrl.val;
@@ -840,12 +829,7 @@ static long rt5506_ioctl(struct file *file, unsigned int cmd,
 			if (copy_to_user(argp, &ampctrl, sizeof(ampctrl)))
 				rc = -EFAULT;
 		}
-
-		if(curgpiostatus == AMP_GPIO_OFF) {
-			rt5506_query.gpio_off_cancel = 0;
-			queue_delayed_work(gpio_wq, &rt5506_query.gpio_off_work, msecs_to_jiffies(0));
-		}
-
+		unvote_power(&rt5506_query.power_mask, POWER_CMDLINE_TOOL);
 		mutex_unlock(&hp_amp_lock);
 		mutex_unlock(&rt5506_query.mlock);
 		mutex_unlock(&rt5506_query.gpiolock);
@@ -1071,13 +1055,15 @@ static void rt5506_shutdown(struct i2c_client *client)
 		pr_info("%s: enable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
 		gpio_set_value(pdata->gpio_rt5506_enable, 1);
 		rt5506_query.gpiostatus = AMP_GPIO_ON;
-		msleep(1);
+		usleep_range(20000,20000);
 	}
 	pr_info("%s: reset rt5501\n",__func__);
 	rt5506_write_reg(0x0,0x4);
 	mdelay(1);
 
 	high_imp = 0;
+
+	rt5506_query.power_mask = 0;
 
 	if(rt5506_query.gpiostatus == AMP_GPIO_ON) {
 		pr_info("%s: disable gpio %d\n",__func__,pdata->gpio_rt5506_enable);
@@ -1145,6 +1131,8 @@ static int __init rt5506_init(void)
 	rt5506_query.curmode = PLAYBACK_MODE_OFF;
 	rt5506_query.gpiostatus = AMP_GPIO_OFF;
 	rt5506_query.regstatus = REG_AUTO_MODE;
+	rt5506_query.hs_connec = 0;
+	rt5506_query.power_mask = 0;
 	return i2c_add_driver(&rt5506_driver);
 }
 

@@ -44,16 +44,20 @@ struct pata_pxa_data {
 	dma_addr_t		dma_desc_addr;
 	uint32_t		dma_desc_id;
 
-	
+	/* DMA IO physical address */
 	uint32_t		dma_io_addr;
-	
+	/* PXA DREQ<0:2> pin selector */
 	uint32_t		dma_dreq;
-	
+	/* DMA DCSR register value */
 	uint32_t		dma_dcsr;
 
 	struct completion	dma_done;
 };
 
+/*
+ * Setup the DMA descriptors. The size is transfer capped at 4k per descriptor,
+ * if the transfer is longer, it is split into multiple chained descriptors.
+ */
 static void pxa_load_dmac(struct scatterlist *sg, struct ata_queued_cmd *qc)
 {
 	struct pata_pxa_data *pd = qc->ap->private_data;
@@ -91,11 +95,14 @@ static void pxa_load_dmac(struct scatterlist *sg, struct ata_queued_cmd *qc)
 
 	} while (cpu_len);
 
-	
+	/* Should not happen */
 	if (seg_len & 0x1f)
 		DALGN |= (1 << pd->dma_dreq);
 }
 
+/*
+ * Prepare taskfile for submission.
+ */
 static void pxa_qc_prep(struct ata_queued_cmd *qc)
 {
 	struct pata_pxa_data *pd = qc->ap->private_data;
@@ -115,7 +122,7 @@ static void pxa_qc_prep(struct ata_queued_cmd *qc)
 
 	pd->dma_desc[pd->dma_desc_id - 1].ddadr = DDADR_STOP;
 
-	
+	/* Fire IRQ only at the end of last block */
 	pd->dma_desc[pd->dma_desc_id - 1].dcmd |= DCMD_ENDIRQEN;
 
 	DDADR(pd->dma_channel) = pd->dma_desc_addr;
@@ -123,11 +130,18 @@ static void pxa_qc_prep(struct ata_queued_cmd *qc)
 
 }
 
+/*
+ * Configure the DMA controller, load the DMA descriptors, but don't start the
+ * DMA controller yet. Only issue the ATA command.
+ */
 static void pxa_bmdma_setup(struct ata_queued_cmd *qc)
 {
 	qc->ap->ops->sff_exec_command(qc->ap, &qc->tf);
 }
 
+/*
+ * Execute the DMA transfer.
+ */
 static void pxa_bmdma_start(struct ata_queued_cmd *qc)
 {
 	struct pata_pxa_data *pd = qc->ap->private_data;
@@ -135,6 +149,9 @@ static void pxa_bmdma_start(struct ata_queued_cmd *qc)
 	DCSR(pd->dma_channel) = DCSR_RUN;
 }
 
+/*
+ * Wait until the DMA transfer completes, then stop the DMA controller.
+ */
 static void pxa_bmdma_stop(struct ata_queued_cmd *qc)
 {
 	struct pata_pxa_data *pd = qc->ap->private_data;
@@ -146,6 +163,10 @@ static void pxa_bmdma_stop(struct ata_queued_cmd *qc)
 	DCSR(pd->dma_channel) = 0;
 }
 
+/*
+ * Read DMA status. The bmdma_stop() will take care of properly finishing the
+ * DMA transfer so we always have DMA-complete interrupt here.
+ */
 static unsigned char pxa_bmdma_status(struct ata_port *ap)
 {
 	struct pata_pxa_data *pd = ap->private_data;
@@ -157,10 +178,17 @@ static unsigned char pxa_bmdma_status(struct ata_port *ap)
 	return ret;
 }
 
+/*
+ * No IRQ register present so we do nothing.
+ */
 static void pxa_irq_clear(struct ata_port *ap)
 {
 }
 
+/*
+ * Check for ATAPI DMA. ATAPI DMA is unsupported by this driver. It's still
+ * unclear why ATAPI has DMA issues.
+ */
 static int pxa_check_atapi_dma(struct ata_queued_cmd *qc)
 {
 	return -EOPNOTSUPP;
@@ -186,6 +214,9 @@ static struct ata_port_operations pxa_ata_port_ops = {
 	.qc_prep		= pxa_qc_prep,
 };
 
+/*
+ * DMA interrupt handler.
+ */
 static void pxa_ata_dma_irq(int dma, void *port)
 {
 	struct ata_port *ap = port;
@@ -210,27 +241,49 @@ static int __devinit pxa_ata_probe(struct platform_device *pdev)
 	struct pata_pxa_pdata *pdata = pdev->dev.platform_data;
 	int ret = 0;
 
+	/*
+	 * Resource validation, three resources are needed:
+	 *  - CMD port base address
+	 *  - CTL port base address
+	 *  - DMA port base address
+	 *  - IRQ pin
+	 */
 	if (pdev->num_resources != 4) {
 		dev_err(&pdev->dev, "invalid number of resources\n");
 		return -EINVAL;
 	}
 
+	/*
+	 * CMD port base address
+	 */
 	cmd_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (unlikely(cmd_res == NULL))
 		return -EINVAL;
 
+	/*
+	 * CTL port base address
+	 */
 	ctl_res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (unlikely(ctl_res == NULL))
 		return -EINVAL;
 
+	/*
+	 * DMA port base address
+	 */
 	dma_res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
 	if (unlikely(dma_res == NULL))
 		return -EINVAL;
 
+	/*
+	 * IRQ pin
+	 */
 	irq_res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (unlikely(irq_res == NULL))
 		return -EINVAL;
 
+	/*
+	 * Allocate the host
+	 */
 	host = ata_host_alloc(&pdev->dev, 1);
 	if (!host)
 		return -ENOMEM;
@@ -247,6 +300,9 @@ static int __devinit pxa_ata_probe(struct platform_device *pdev)
 	ap->ioaddr.bmdma_addr	= devm_ioremap(&pdev->dev, dma_res->start,
 						resource_size(dma_res));
 
+	/*
+	 * Adjust register offsets
+	 */
 	ap->ioaddr.altstatus_addr = ap->ioaddr.ctl_addr;
 	ap->ioaddr.data_addr	= ap->ioaddr.cmd_addr +
 					(ATA_REG_DATA << pdata->reg_shift);
@@ -269,6 +325,9 @@ static int __devinit pxa_ata_probe(struct platform_device *pdev)
 	ap->ioaddr.command_addr	= ap->ioaddr.cmd_addr +
 					(ATA_REG_CMD << pdata->reg_shift);
 
+	/*
+	 * Allocate and load driver's internal data structure
+	 */
 	data = devm_kzalloc(&pdev->dev, sizeof(struct pata_pxa_data),
 								GFP_KERNEL);
 	if (!data)
@@ -278,18 +337,30 @@ static int __devinit pxa_ata_probe(struct platform_device *pdev)
 	data->dma_dreq = pdata->dma_dreq;
 	data->dma_io_addr = dma_res->start;
 
+	/*
+	 * Allocate space for the DMA descriptors
+	 */
 	data->dma_desc = dmam_alloc_coherent(&pdev->dev, PAGE_SIZE,
 					&data->dma_desc_addr, GFP_KERNEL);
 	if (!data->dma_desc)
 		return -EINVAL;
 
+	/*
+	 * Request the DMA channel
+	 */
 	data->dma_channel = pxa_request_dma(DRV_NAME, DMA_PRIO_LOW,
 						pxa_ata_dma_irq, ap);
 	if (data->dma_channel < 0)
 		return -EBUSY;
 
+	/*
+	 * Stop and clear the DMA channel
+	 */
 	DCSR(data->dma_channel) = 0;
 
+	/*
+	 * Activate the ATA host
+	 */
 	ret = ata_host_activate(host, irq_res->start, ata_sff_interrupt,
 				pdata->irq_flags, &pxa_ata_sht);
 	if (ret)

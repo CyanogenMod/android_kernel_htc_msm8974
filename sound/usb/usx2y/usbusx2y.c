@@ -152,9 +152,9 @@ MODULE_DESCRIPTION("TASCAM "NAME_ALLCAPS" Version 0.8.7.2");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{TASCAM(0x1604), "NAME_ALLCAPS"(0x8001)(0x8005)(0x8007) }}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX; 
-static char* id[SNDRV_CARDS] = SNDRV_DEFAULT_STR; 
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX; /* Index 0-max */
+static char* id[SNDRV_CARDS] = SNDRV_DEFAULT_STR; /* Id for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; /* Enable this card */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for "NAME_ALLCAPS".");
@@ -169,6 +169,9 @@ static int snd_usX2Y_card_used[SNDRV_CARDS];
 static void usX2Y_usb_disconnect(struct usb_device* usb_device, void* ptr);
 static void snd_usX2Y_card_private_free(struct snd_card *card);
 
+/* 
+ * pipe 4 is used for switching the lamps, setting samplerate, volumes ....   
+ */
 static void i_usX2Y_Out04Int(struct urb *urb)
 {
 #ifdef CONFIG_SND_DEBUG
@@ -194,7 +197,7 @@ static void i_usX2Y_In04Int(struct urb *urb)
 		return;
 	}
 
-	
+	//	printk("%i:0x%02X ", 8, (int)((unsigned char*)usX2Y->In04Buf)[8]); Master volume shows 0 here if fader is at max during boot ?!?
 	if (us428ctls) {
 		int diff = -1;
 		if (-2 == us428ctls->CtlSnapShotLast) {
@@ -236,7 +239,7 @@ static void i_usX2Y_In04Int(struct urb *urb)
 					send = 0;
 				for (j = 0; j < URBS_AsyncSeq  &&  !err; ++j)
 					if (0 == usX2Y->AS04.urb[j]->status) {
-						struct us428_p4out *p4out = us428ctls->p4out + send;	
+						struct us428_p4out *p4out = us428ctls->p4out + send;	// FIXME if more than 1 p4out is new, 1 gets lost.
 						usb_fill_bulk_urb(usX2Y->AS04.urb[j], usX2Y->dev,
 								  usb_sndbulkpipe(usX2Y->dev, 0x04), &p4out->val.vol,
 								  p4out->type == eLT_Light ? sizeof(struct us428_lights) : 5,
@@ -255,6 +258,9 @@ static void i_usX2Y_In04Int(struct urb *urb)
 	usb_submit_urb(urb, GFP_ATOMIC);
 }
 
+/*
+ * Prepare some urbs
+ */
 int usX2Y_AsyncSeq04_init(struct usX2Ydev *usX2Y)
 {
 	int	err = 0,
@@ -325,7 +331,7 @@ static struct usb_device_id snd_usX2Y_usb_id_table[] = {
 		.idVendor =	0x1604,
 		.idProduct =	USB_ID_US224
 	},
-	{  }
+	{ /* terminator */ }
 };
 
 static int usX2Y_create_card(struct usb_device *device, struct snd_card **cardp)
@@ -355,7 +361,7 @@ static int usX2Y_create_card(struct usb_device *device, struct snd_card **cardp)
 		card->shortname, 
 		le16_to_cpu(device->descriptor.idVendor),
 		le16_to_cpu(device->descriptor.idProduct),
-		0,
+		0,//us428(card)->usbmidi.ifnum,
 		usX2Y(card)->dev->bus->busnum, usX2Y(card)->dev->devnum
 		);
 	*cardp = card;
@@ -391,6 +397,9 @@ static int usX2Y_usb_probe(struct usb_device *device,
 	return 0;
 }
 
+/*
+ * new 2.5 USB kernel API
+ */
 static int snd_usX2Y_probe(struct usb_interface *intf, const struct usb_device_id *id)
 {
 	struct snd_card *card;
@@ -427,6 +436,9 @@ static void snd_usX2Y_card_private_free(struct snd_card *card)
 		snd_usX2Y_card_used[usX2Y(card)->card_index] = 0;
 }
 
+/*
+ * Frees the device.
+ */
 static void usX2Y_usb_disconnect(struct usb_device *device, void* ptr)
 {
 	if (ptr) {
@@ -437,7 +449,7 @@ static void usX2Y_usb_disconnect(struct usb_device *device, void* ptr)
 		usX2Y_unlinkSeq(&usX2Y->AS04);
 		usb_kill_urb(usX2Y->In04urb);
 		snd_card_disconnect(card);
-		
+		/* release the midi resources */
 		list_for_each(p, &usX2Y->midi_list) {
 			snd_usbmidi_disconnect(p);
 		}

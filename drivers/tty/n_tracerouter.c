@@ -37,17 +37,37 @@
 #include <asm-generic/bug.h>
 #include "n_tracesink.h"
 
+/*
+ * Other ldisc drivers use 65536 which basically means,
+ * 'I can always accept 64k' and flow control is off.
+ * This number is deemed appropriate for this driver.
+ */
 #define RECEIVE_ROOM	65536
 #define DRIVERNAME	"n_tracerouter"
 
+/*
+ * struct to hold private configuration data for this ldisc.
+ * opencalled is used to hold if this ldisc has been opened.
+ * kref_tty holds the tty reference the ldisc sits on top of.
+ */
 struct tracerouter_data {
 	u8 opencalled;
 	struct tty_struct *kref_tty;
 };
 static struct tracerouter_data *tr_data;
 
+/* lock for when tty reference is being used */
 static DEFINE_MUTEX(routelock);
 
+/**
+ * n_tracerouter_open() - Called when a tty is opened by a SW entity.
+ * @tty: terminal device to the ldisc.
+ *
+ * Return:
+ *      0 for success.
+ *
+ * Caveats: This should only be opened one time per SW entity.
+ */
 static int n_tracerouter_open(struct tty_struct *tty)
 {
 	int retval = -EEXIST;
@@ -70,6 +90,12 @@ static int n_tracerouter_open(struct tty_struct *tty)
 	return retval;
 }
 
+/**
+ * n_tracerouter_close() - close connection
+ * @tty: terminal device to the ldisc.
+ *
+ * Called when a software entity wants to close a connection.
+ */
 static void n_tracerouter_close(struct tty_struct *tty)
 {
 	struct tracerouter_data *tptr = tty->disc_data;
@@ -84,16 +110,64 @@ static void n_tracerouter_close(struct tty_struct *tty)
 	mutex_unlock(&routelock);
 }
 
+/**
+ * n_tracerouter_read() - read request from user space
+ * @tty:  terminal device passed into the ldisc.
+ * @file: pointer to open file object.
+ * @buf:  pointer to the data buffer that gets eventually returned.
+ * @nr:   number of bytes of the data buffer that is returned.
+ *
+ * function that allows read() functionality in userspace. By default if this
+ * is not implemented it returns -EIO. This module is functioning like a
+ * router via n_tracerouter_receivebuf(), and there is no real requirement
+ * to implement this function. However, an error return value other than
+ * -EIO should be used just to show that there was an intent not to have
+ * this function implemented.  Return value based on read() man pages.
+ *
+ * Return:
+ *	 -EINVAL
+ */
 static ssize_t n_tracerouter_read(struct tty_struct *tty, struct file *file,
 				  unsigned char __user *buf, size_t nr) {
 	return -EINVAL;
 }
 
+/**
+ * n_tracerouter_write() - Function that allows write() in userspace.
+ * @tty:  terminal device passed into the ldisc.
+ * @file: pointer to open file object.
+ * @buf:  pointer to the data buffer that gets eventually returned.
+ * @nr:   number of bytes of the data buffer that is returned.
+ *
+ * By default if this is not implemented, it returns -EIO.
+ * This should not be implemented, ever, because
+ * 1. this driver is functioning like a router via
+ *    n_tracerouter_receivebuf()
+ * 2. No writes to HW will ever go through this line discpline driver.
+ * However, an error return value other than -EIO should be used
+ * just to show that there was an intent not to have this function
+ * implemented.  Return value based on write() man pages.
+ *
+ * Return:
+ *	-EINVAL
+ */
 static ssize_t n_tracerouter_write(struct tty_struct *tty, struct file *file,
 				   const unsigned char *buf, size_t nr) {
 	return -EINVAL;
 }
 
+/**
+ * n_tracerouter_receivebuf() - Routing function for driver.
+ * @tty: terminal device passed into the ldisc.  It's assumed
+ *       tty will never be NULL.
+ * @cp:  buffer, block of characters to be eventually read by
+ *       someone, somewhere (user read() call or some kernel function).
+ * @fp:  flag buffer.
+ * @count: number of characters (aka, bytes) in cp.
+ *
+ * This function takes the input buffer, cp, and passes it to
+ * an external API function for processing.
+ */
 static void n_tracerouter_receivebuf(struct tty_struct *tty,
 					const unsigned char *cp,
 					char *fp, int count)
@@ -103,6 +177,10 @@ static void n_tracerouter_receivebuf(struct tty_struct *tty,
 	mutex_unlock(&routelock);
 }
 
+/*
+ * Flush buffer is not impelemented as the ldisc has no internal buffering
+ * so the tty_driver_flush_buffer() is sufficient for this driver's needs.
+ */
 
 static struct tty_ldisc_ops tty_ptirouter_ldisc = {
 	.owner		= THIS_MODULE,
@@ -115,6 +193,14 @@ static struct tty_ldisc_ops tty_ptirouter_ldisc = {
 	.receive_buf	= n_tracerouter_receivebuf
 };
 
+/**
+ * n_tracerouter_init -	module initialisation
+ *
+ * Registers this module as a line discipline driver.
+ *
+ * Return:
+ *	0 for success, any other value error.
+ */
 static int __init n_tracerouter_init(void)
 {
 	int retval;
@@ -124,7 +210,7 @@ static int __init n_tracerouter_init(void)
 		return -ENOMEM;
 
 
-	
+	/* Note N_TRACEROUTER is defined in linux/tty.h */
 	retval = tty_register_ldisc(N_TRACEROUTER, &tty_ptirouter_ldisc);
 	if (retval < 0) {
 		pr_err("%s: Registration failed: %d\n", __func__, retval);
@@ -133,6 +219,11 @@ static int __init n_tracerouter_init(void)
 	return retval;
 }
 
+/**
+ * n_tracerouter_exit -	module unload
+ *
+ * Removes this module as a line discipline driver.
+ */
 static void __exit n_tracerouter_exit(void)
 {
 	int retval = tty_unregister_ldisc(N_TRACEROUTER);

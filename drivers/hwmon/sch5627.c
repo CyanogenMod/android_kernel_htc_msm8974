@@ -31,7 +31,7 @@
 #include "sch56xx-common.h"
 
 #define DRVNAME "sch5627"
-#define DEVNAME DRVNAME 
+#define DEVNAME DRVNAME /* We only support one model */
 
 #define SCH5627_HWMON_ID		0xa5
 #define SCH5627_COMPANY_ID		0x5c
@@ -86,9 +86,9 @@ struct sch5627_data {
 	u16 fan_min[SCH5627_NO_FANS];
 
 	struct mutex update_lock;
-	unsigned long last_battery;	
-	char valid;			
-	unsigned long last_updated;	
+	unsigned long last_battery;	/* In jiffies */
+	char valid;			/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
 	u16 temp[SCH5627_NO_TEMPS];
 	u16 fan[SCH5627_NO_FANS];
 	u16 in[SCH5627_NO_IN];
@@ -102,14 +102,14 @@ static struct sch5627_data *sch5627_update_device(struct device *dev)
 
 	mutex_lock(&data->update_lock);
 
-	
+	/* Trigger a Vbat voltage measurement every 5 minutes */
 	if (time_after(jiffies, data->last_battery + 300 * HZ)) {
 		sch56xx_write_virtual_reg(data->addr, SCH5627_REG_CTRL,
 					  data->control | 0x10);
 		data->last_battery = jiffies;
 	}
 
-	
+	/* Cache the values for 1 second */
 	if (time_after(jiffies, data->last_updated + HZ) || !data->valid) {
 		for (i = 0; i < SCH5627_NO_TEMPS; i++) {
 			val = sch56xx_read_virtual_reg12(data->addr,
@@ -158,6 +158,10 @@ static int __devinit sch5627_read_limits(struct sch5627_data *data)
 	int i, val;
 
 	for (i = 0; i < SCH5627_NO_TEMPS; i++) {
+		/*
+		 * Note what SMSC calls ABS, is what lm_sensors calls max
+		 * (aka high), and HIGH is what lm_sensors calls crit.
+		 */
 		val = sch56xx_read_virtual_reg(data->addr,
 					       SCH5627_REG_TEMP_ABS[i]);
 		if (val < 0)
@@ -437,7 +441,7 @@ static struct attribute *sch5627_attributes[] = {
 	&sensor_dev_attr_in1_label.dev_attr.attr,
 	&sensor_dev_attr_in2_label.dev_attr.attr,
 	&sensor_dev_attr_in3_label.dev_attr.attr,
-	
+	/* No in4_label as in4 is a generic input pin */
 
 	NULL
 };
@@ -544,10 +548,16 @@ static int __devinit sch5627_probe(struct platform_device *pdev)
 		err = -ENODEV;
 		goto error;
 	}
+	/* Trigger a Vbat voltage measurement, so that we get a valid reading
+	   the first time we read Vbat */
 	sch56xx_write_virtual_reg(data->addr, SCH5627_REG_CTRL,
 				  data->control | 0x10);
 	data->last_battery = jiffies;
 
+	/*
+	 * Read limits, we do this only once as reading a register on
+	 * the sch5627 is quite expensive (and they don't change).
+	 */
 	err = sch5627_read_limits(data);
 	if (err)
 		goto error;
@@ -556,7 +566,7 @@ static int __devinit sch5627_probe(struct platform_device *pdev)
 	pr_info("firmware build: code 0x%02X, id 0x%04X, hwmon: rev 0x%02X\n",
 		build_code, build_id, hwmon_rev);
 
-	
+	/* Register sysfs interface files */
 	err = sysfs_create_group(&pdev->dev.kobj, &sch5627_group);
 	if (err)
 		goto error;
@@ -568,7 +578,7 @@ static int __devinit sch5627_probe(struct platform_device *pdev)
 		goto error;
 	}
 
-	
+	/* Note failing to register the watchdog is not a fatal error */
 	data->watchdog = sch56xx_watchdog_register(data->addr,
 			(build_code << 24) | (build_id << 8) | hwmon_rev,
 			&data->update_lock, 1);

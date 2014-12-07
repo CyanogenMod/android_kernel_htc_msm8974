@@ -18,6 +18,13 @@
 
 #include "ad7298.h"
 
+/**
+ * ad7298_ring_preenable() setup the parameters of the ring before enabling
+ *
+ * The complex nature of the setting of the number of bytes per datum is due
+ * to this driver currently ensuring that the timestamp is stored at an 8
+ * byte boundary.
+ **/
 static int ad7298_ring_preenable(struct iio_dev *indio_dev)
 {
 	struct ad7298_state *st = iio_priv(indio_dev);
@@ -49,7 +56,7 @@ static int ad7298_ring_preenable(struct iio_dev *indio_dev)
 
 	st->tx_buf[0] = cpu_to_be16(command);
 
-	
+	/* build spi ring message */
 	st->ring_xfer[0].tx_buf = &st->tx_buf[0];
 	st->ring_xfer[0].len = 2;
 	st->ring_xfer[0].cs_change = 1;
@@ -67,12 +74,18 @@ static int ad7298_ring_preenable(struct iio_dev *indio_dev)
 		st->ring_xfer[i + 2].cs_change = 1;
 		spi_message_add_tail(&st->ring_xfer[i + 2], &st->ring_msg);
 	}
-	
+	/* make sure last transfer cs_change is not set */
 	st->ring_xfer[i + 1].cs_change = 0;
 
 	return 0;
 }
 
+/**
+ * ad7298_trigger_handler() bh of trigger launched polling to ring buffer
+ *
+ * Currently there is no option in this driver to disable the saving of
+ * timestamps within the ring.
+ **/
 static irqreturn_t ad7298_trigger_handler(int irq, void *p)
 {
 	struct iio_poll_func *pf = p;
@@ -130,11 +143,11 @@ int ad7298_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		goto error_deallocate_sw_rb;
 	}
 
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &ad7298_ring_setup_ops;
 	indio_dev->buffer->scan_timestamp = true;
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 	return 0;
 

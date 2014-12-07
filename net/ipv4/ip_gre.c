@@ -54,12 +54,78 @@
 #include <net/ip6_route.h>
 #endif
 
+/*
+   Problems & solutions
+   --------------------
+
+   1. The most important issue is detecting local dead loops.
+   They would cause complete host lockup in transmit, which
+   would be "resolved" by stack overflow or, if queueing is enabled,
+   with infinite looping in net_bh.
+
+   We cannot track such dead loops during route installation,
+   it is infeasible task. The most general solutions would be
+   to keep skb->encapsulation counter (sort of local ttl),
+   and silently drop packet when it expires. It is a good
+   solution, but it supposes maintaining new variable in ALL
+   skb, even if no tunneling is used.
+
+   Current solution: xmit_recursion breaks dead loops. This is a percpu
+   counter, since when we enter the first ndo_xmit(), cpu migration is
+   forbidden. We force an exit if this counter reaches RECURSION_LIMIT
+
+   2. Networking dead loops would not kill routers, but would really
+   kill network. IP hop limit plays role of "t->recursion" in this case,
+   if we copy it from packet being encapsulated to upper header.
+   It is very good solution, but it introduces two problems:
+
+   - Routing protocols, using packets with ttl=1 (OSPF, RIP2),
+     do not work over tunnels.
+   - traceroute does not work. I planned to relay ICMP from tunnel,
+     so that this problem would be solved and traceroute output
+     would even more informative. This idea appeared to be wrong:
+     only Linux complies to rfc1812 now (yes, guys, Linux is the only
+     true router now :-)), all routers (at least, in neighbourhood of mine)
+     return only 8 bytes of payload. It is the end.
+
+   Hence, if we want that OSPF worked or traceroute said something reasonable,
+   we should search for another solution.
+
+   One of them is to parse packet trying to detect inner encapsulation
+   made by our node. It is difficult or even impossible, especially,
+   taking into account fragmentation. TO be short, ttl is not solution at all.
+
+   Current solution: The solution was UNEXPECTEDLY SIMPLE.
+   We force DF flag on tunnels with preconfigured hop limit,
+   that is ALL. :-) Well, it does not remove the problem completely,
+   but exponential growth of network traffic is changed to linear
+   (branches, that exceed pmtu are pruned) and tunnel mtu
+   rapidly degrades to value <68, where looping stops.
+   Yes, it is not good if there exists a router in the loop,
+   which does not force DF, even when encapsulating packets have DF set.
+   But it is not our problem! Nobody could accuse us, we made
+   all that we could make. Even if it is your gated who injected
+   fatal route to network, even if it were you who configured
+   fatal static route: you are innocent. :-)
+
+
+
+   3. Really, ipv4/ipip.c, ipv4/ip_gre.c and ipv6/sit.c contain
+   practically identical code. It would be good to glue them
+   together, but it is not very evident, how to make them modular.
+   sit is integral part of IPv6, ipip and gre are naturally modular.
+   We could extract common parts (hash table, ioctl etc)
+   to a separate module (ip_tunnel.c).
+
+   Alexey Kuznetsov.
+ */
 
 static struct rtnl_link_ops ipgre_link_ops __read_mostly;
 static int ipgre_tunnel_init(struct net_device *dev);
 static void ipgre_tunnel_setup(struct net_device *dev);
 static int ipgre_tunnel_bind_dev(struct net_device *dev);
 
+/* Fallback tunnel: no source, no destination, no key, no options */
 
 #define HASH_SIZE  16
 
@@ -70,7 +136,23 @@ struct ipgre_net {
 	struct net_device *fb_tunnel_dev;
 };
 
+/* Tunnel hash table */
 
+/*
+   4 hash tables:
+
+   3: (remote,local)
+   2: (remote,*)
+   1: (*,local)
+   0: (*,*)
+
+   We require exact key match i.e. if a key is present in packet
+   it will match only tunnel with the same key; if it is not present,
+   it will match only keyless tunnel.
+
+   All keysless packets, if not matched configured keyless tunnels
+   will match fallback tunnel.
+ */
 
 #define HASH(addr) (((__force u32)addr^((__force u32)addr>>4))&0xF)
 
@@ -78,10 +160,14 @@ struct ipgre_net {
 #define tunnels_r	tunnels[2]
 #define tunnels_l	tunnels[1]
 #define tunnels_wc	tunnels[0]
+/*
+ * Locking : hash tables are protected by RCU and RTNL
+ */
 
 #define for_each_ip_tunnel_rcu(start) \
 	for (t = rcu_dereference(start); t; t = rcu_dereference(t->next))
 
+/* often modified stats are per cpu, other are shared (netdev->stats) */
 struct pcpu_tstats {
 	unsigned long	rx_packets;
 	unsigned long	rx_bytes;
@@ -109,6 +195,7 @@ static struct net_device_stats *ipgre_get_stats(struct net_device *dev)
 	return &dev->stats;
 }
 
+/* Given src, dst and key, find appropriate for input tunnel. */
 
 static struct ip_tunnel * ipgre_tunnel_lookup(struct net_device *dev,
 					      __be32 remote, __be32 local,
@@ -337,7 +424,7 @@ static struct ip_tunnel *ipgre_tunnel_locate(struct net *net,
 	if (register_netdevice(dev) < 0)
 		goto failed_free;
 
-	
+	/* Can use a lockless transmit, unless we generate output sequences */
 	if (!(nt->parms.o_flags & GRE_SEQ))
 		dev->features |= NETIF_F_LLTX;
 
@@ -395,7 +482,7 @@ static void ipgre_err(struct sk_buff *skb, u32 info)
 		}
 	}
 
-	
+	/* If only 8 bytes returned, keyed message will be dropped here */
 	if (skb_headlen(skb) < grehlen)
 		return;
 
@@ -408,12 +495,16 @@ static void ipgre_err(struct sk_buff *skb, u32 info)
 		switch (code) {
 		case ICMP_SR_FAILED:
 		case ICMP_PORT_UNREACH:
-			
+			/* Impossible event. */
 			return;
 		case ICMP_FRAG_NEEDED:
-			
+			/* Soft state for pmtu is maintained by IP core. */
 			return;
 		default:
+			/* All others are translated to HOST_UNREACH.
+			   rfc2003 contains "deep thoughts" about NET_UNREACH,
+			   I believe they are just ether pollution. --ANK
+			 */
 			break;
 		}
 		break;
@@ -486,6 +577,9 @@ static int ipgre_rcv(struct sk_buff *skb)
 	flags = *(__be16*)h;
 
 	if (flags&(GRE_CSUM|GRE_KEY|GRE_ROUTING|GRE_SEQ|GRE_VERSION)) {
+		/* - Version must be 0.
+		   - We do not support routing headers.
+		 */
 		if (flags&(GRE_VERSION|GRE_ROUTING))
 			goto drop_nolock;
 
@@ -495,7 +589,7 @@ static int ipgre_rcv(struct sk_buff *skb)
 				csum = csum_fold(skb->csum);
 				if (!csum)
 					break;
-				
+				/* fall through */
 			case CHECKSUM_NONE:
 				skb->csum = 0;
 				csum = __skb_checksum_complete(skb);
@@ -524,6 +618,10 @@ static int ipgre_rcv(struct sk_buff *skb)
 		secpath_reset(skb);
 
 		skb->protocol = gre_proto;
+		/* WCCP version 1 and 2 protocol decoding.
+		 * - Change protocol to IP
+		 * - When dealing with WCCPv2, Skip extra 4 bytes in GRE header
+		 */
 		if (flags == 0 && gre_proto == htons(ETH_P_WCCP)) {
 			skb->protocol = htons(ETH_P_IP);
 			if ((*(h + offset) & 0xF0) != 0x40)
@@ -536,7 +634,7 @@ static int ipgre_rcv(struct sk_buff *skb)
 		skb->pkt_type = PACKET_HOST;
 #ifdef CONFIG_NET_IPGRE_BROADCAST
 		if (ipv4_is_multicast(iph->daddr)) {
-			
+			/* Looped back packet, drop it! */
 			if (rt_is_output_route(skb_rtable(skb)))
 				goto drop;
 			tunnel->dev->stats.multicast++;
@@ -560,7 +658,7 @@ static int ipgre_rcv(struct sk_buff *skb)
 			tunnel->i_seqno = seqno + 1;
 		}
 
-		
+		/* Warning: All skb pointers will be invalidated! */
 		if (tunnel->dev->type == ARPHRD_ETHER) {
 			if (!pskb_may_pull(skb, ETH_HLEN)) {
 				tunnel->dev->stats.rx_length_errors++;
@@ -605,10 +703,10 @@ static netdev_tx_t ipgre_tunnel_xmit(struct sk_buff *skb, struct net_device *dev
 	struct flowi4 fl4;
 	u8     tos;
 	__be16 df;
-	struct rtable *rt;     			
-	struct net_device *tdev;		
-	struct iphdr  *iph;			
-	unsigned int max_headroom;		
+	struct rtable *rt;     			/* Route to the other host */
+	struct net_device *tdev;		/* Device to other host */
+	struct iphdr  *iph;			/* Our new IP header */
+	unsigned int max_headroom;		/* The extra header space needed */
 	int    gre_hlen;
 	__be32 dst;
 	int    mtu;
@@ -625,7 +723,7 @@ static netdev_tx_t ipgre_tunnel_xmit(struct sk_buff *skb, struct net_device *dev
 	}
 
 	if ((dst = tiph->daddr) == 0) {
-		
+		/* NBMA tunnel */
 
 		if (skb_dst(skb) == NULL) {
 			dev->stats.tx_fifo_errors++;
@@ -773,6 +871,9 @@ static netdev_tx_t ipgre_tunnel_xmit(struct sk_buff *skb, struct net_device *dev
 	skb_dst_drop(skb);
 	skb_dst_set(skb, &rt->dst);
 
+	/*
+	 *	Push down and install the IPIP header.
+	 */
 
 	iph 			=	ip_hdr(skb);
 	iph->version		=	4;
@@ -843,7 +944,7 @@ static int ipgre_tunnel_bind_dev(struct net_device *dev)
 	tunnel = netdev_priv(dev);
 	iph = &tunnel->parms.iph;
 
-	
+	/* Guess output device to choose reasonable mtu and needed_headroom */
 
 	if (iph->daddr) {
 		struct flowi4 fl4;
@@ -872,7 +973,7 @@ static int ipgre_tunnel_bind_dev(struct net_device *dev)
 	}
 	dev->iflink = tunnel->parms.link;
 
-	
+	/* Precalculate GRE options length */
 	if (tunnel->parms.o_flags&(GRE_CSUM|GRE_KEY|GRE_SEQ)) {
 		if (tunnel->parms.o_flags&GRE_CSUM)
 			addend += 4;
@@ -1033,6 +1134,34 @@ static int ipgre_tunnel_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+/* Nice toy. Unfortunately, useless in real life :-)
+   It allows to construct virtual multiprotocol broadcast "LAN"
+   over the Internet, provided multicast routing is tuned.
+
+
+   I have no idea was this bicycle invented before me,
+   so that I had to set ARPHRD_IPGRE to a random value.
+   I have an impression, that Cisco could make something similar,
+   but this feature is apparently missing in IOS<=11.2(8).
+
+   I set up 10.66.66/24 and fec0:6666:6666::0/96 as virtual networks
+   with broadcast 224.66.66.66. If you have access to mbone, play with me :-)
+
+   ping -t 255 224.66.66.66
+
+   If nobody answers, mbone does not work.
+
+   ip tunnel add Universe mode gre remote 224.66.66.66 local <Your_real_addr> ttl 255
+   ip addr add 10.66.66.<somewhat>/24 dev Universe
+   ifconfig Universe up
+   ifconfig Universe add fe80::<Your_real_addr>/10
+   ifconfig Universe add fec0:6666:6666::<Your_real_addr>/96
+   ftp 10.66.66.66
+   ...
+   ftp fec0:6666:6666::193.233.7.65
+   ...
+
+ */
 
 static int ipgre_header(struct sk_buff *skb, struct net_device *dev,
 			unsigned short type,
@@ -1046,6 +1175,9 @@ static int ipgre_header(struct sk_buff *skb, struct net_device *dev,
 	p[0]		= t->parms.o_flags;
 	p[1]		= htons(type);
 
+	/*
+	 *	Set the source hardware address.
+	 */
 
 	if (saddr)
 		memcpy(&iph->saddr, saddr, 4);
@@ -1412,7 +1544,7 @@ static int ipgre_newlink(struct net *src_net, struct net_device *dev, struct nla
 	if (!tb[IFLA_MTU])
 		dev->mtu = mtu;
 
-	
+	/* Can use a lockless transmit, unless we generate output sequences */
 	if (!(nt->parms.o_flags & GRE_SEQ))
 		dev->features |= NETIF_F_LLTX;
 
@@ -1494,25 +1626,25 @@ static int ipgre_changelink(struct net_device *dev, struct nlattr *tb[],
 static size_t ipgre_get_size(const struct net_device *dev)
 {
 	return
-		
+		/* IFLA_GRE_LINK */
 		nla_total_size(4) +
-		
+		/* IFLA_GRE_IFLAGS */
 		nla_total_size(2) +
-		
+		/* IFLA_GRE_OFLAGS */
 		nla_total_size(2) +
-		
+		/* IFLA_GRE_IKEY */
 		nla_total_size(4) +
-		
+		/* IFLA_GRE_OKEY */
 		nla_total_size(4) +
-		
+		/* IFLA_GRE_LOCAL */
 		nla_total_size(4) +
-		
+		/* IFLA_GRE_REMOTE */
 		nla_total_size(4) +
-		
+		/* IFLA_GRE_TTL */
 		nla_total_size(1) +
-		
+		/* IFLA_GRE_TOS */
 		nla_total_size(1) +
-		
+		/* IFLA_GRE_PMTUDISC */
 		nla_total_size(1) +
 		0;
 }
@@ -1578,6 +1710,9 @@ static struct rtnl_link_ops ipgre_tap_ops __read_mostly = {
 	.fill_info	= ipgre_fill_info,
 };
 
+/*
+ *	And now the modules code and kernel interface.
+ */
 
 static int __init ipgre_init(void)
 {

@@ -21,6 +21,11 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  */
+/*
+ * Authors: Dave Airlied <airlied@linux.ie>
+ *	    Ben Skeggs   <darktama@iinet.net.au>
+ *	    Jeremy Kolb  <jkolb@brandeis.edu>
+ */
 
 #include "drmP.h"
 #include "ttm/ttm_page_alloc.h"
@@ -119,7 +124,7 @@ nouveau_bo_new(struct drm_device *dev, int size, int align,
 			  align >> PAGE_SHIFT, 0, false, NULL, acc_size,
 			  nouveau_bo_del_ttm);
 	if (ret) {
-		
+		/* ttm will call nouveau_bo_del_ttm if it fails.. */
 		return ret;
 	}
 
@@ -149,6 +154,12 @@ set_placement_range(struct nouveau_bo *nvbo, uint32_t type)
 	if (dev_priv->card_type == NV_10 &&
 	    nvbo->tile_mode && (type & TTM_PL_FLAG_VRAM) &&
 	    nvbo->bo.mem.num_pages < vram_pages / 4) {
+		/*
+		 * Make sure that the color and depth buffers are handled
+		 * by independent memory controller units. Up to a 9x
+		 * speed up when alpha-blending and depth-test are enabled
+		 * at the same time.
+		 */
 		if (nvbo->tile_flags & NOUVEAU_GEM_TILE_ZETA) {
 			nvbo->placement.fpfn = vram_pages / 2;
 			nvbo->placement.lpfn = ~0;
@@ -367,7 +378,7 @@ nouveau_ttm_tt_create(struct ttm_bo_device *bdev,
 static int
 nouveau_bo_invalidate_caches(struct ttm_bo_device *bdev, uint32_t flags)
 {
-	
+	/* We'll do this from user space. */
 	return 0;
 }
 
@@ -449,6 +460,9 @@ nouveau_bo_evict_flags(struct ttm_buffer_object *bo, struct ttm_placement *pl)
 }
 
 
+/* GPU-assisted copy using NV_MEMORY_TO_MEMORY_FORMAT, can access
+ * TTM_PL_{VRAM,TT} directly.
+ */
 
 static int
 nouveau_bo_move_accel_cleanup(struct nouveau_channel *chan,
@@ -493,9 +507,9 @@ nvc0_bo_move_m2mf(struct nouveau_channel *chan, struct ttm_buffer_object *bo,
 		BEGIN_NVC0(chan, 2, NvSubM2MF, 0x030c, 6);
 		OUT_RING  (chan, upper_32_bits(src_offset));
 		OUT_RING  (chan, lower_32_bits(src_offset));
-		OUT_RING  (chan, PAGE_SIZE); 
-		OUT_RING  (chan, PAGE_SIZE); 
-		OUT_RING  (chan, PAGE_SIZE); 
+		OUT_RING  (chan, PAGE_SIZE); /* src_pitch */
+		OUT_RING  (chan, PAGE_SIZE); /* dst_pitch */
+		OUT_RING  (chan, PAGE_SIZE); /* line_length */
 		OUT_RING  (chan, line_count);
 		BEGIN_NVC0(chan, 2, NvSubM2MF, 0x0300, 1);
 		OUT_RING  (chan, 0x00100110);
@@ -636,9 +650,9 @@ nv04_bo_move_m2mf(struct nouveau_channel *chan, struct ttm_buffer_object *bo,
 				 NV_MEMORY_TO_MEMORY_FORMAT_OFFSET_IN, 8);
 		OUT_RING  (chan, src_offset);
 		OUT_RING  (chan, dst_offset);
-		OUT_RING  (chan, PAGE_SIZE); 
-		OUT_RING  (chan, PAGE_SIZE); 
-		OUT_RING  (chan, PAGE_SIZE); 
+		OUT_RING  (chan, PAGE_SIZE); /* src_pitch */
+		OUT_RING  (chan, PAGE_SIZE); /* dst_pitch */
+		OUT_RING  (chan, PAGE_SIZE); /* line_length */
 		OUT_RING  (chan, line_count);
 		OUT_RING  (chan, 0x00000101);
 		OUT_RING  (chan, 0x00000000);
@@ -686,6 +700,10 @@ nouveau_bo_move_m2mf(struct ttm_buffer_object *bo, int evict, bool intr,
 
 	mutex_lock_nested(&chan->mutex, NOUVEAU_KCHANNEL_MUTEX);
 
+	/* create temporary vmas for the transfer and attach them to the
+	 * old nouveau_mem node, these will get cleaned up after ttm has
+	 * destroyed the ttm_mem_reg
+	 */
 	if (dev_priv->card_type >= NV_50) {
 		struct nouveau_mem *node = old_mem->mm_node;
 
@@ -789,7 +807,7 @@ nouveau_bo_move_ntfy(struct ttm_buffer_object *bo, struct ttm_mem_reg *new_mem)
 	struct nouveau_bo *nvbo = nouveau_bo(bo);
 	struct nouveau_vma *vma;
 
-	
+	/* ttm can now (stupidly) pass the driver bos it didn't create... */
 	if (bo->destroy != nouveau_bo_del_ttm)
 		return;
 
@@ -859,7 +877,7 @@ nouveau_bo_move(struct ttm_buffer_object *bo, bool evict, bool intr,
 			return ret;
 	}
 
-	
+	/* Fake bo copy. */
 	if (old_mem->mem_type == TTM_PL_SYSTEM && !bo->ttm) {
 		BUG_ON(bo->mem.mm_node != NULL);
 		bo->mem = *new_mem;
@@ -867,13 +885,13 @@ nouveau_bo_move(struct ttm_buffer_object *bo, bool evict, bool intr,
 		goto out;
 	}
 
-	
+	/* Software copy if the card isn't up and running yet. */
 	if (!dev_priv->channel) {
 		ret = ttm_bo_move_memcpy(bo, evict, no_wait_reserve, no_wait_gpu, new_mem);
 		goto out;
 	}
 
-	
+	/* Hardware assisted copy. */
 	if (new_mem->mem_type == TTM_PL_SYSTEM)
 		ret = nouveau_bo_move_flipd(bo, evict, intr, no_wait_reserve, no_wait_gpu, new_mem);
 	else if (old_mem->mem_type == TTM_PL_SYSTEM)
@@ -884,7 +902,7 @@ nouveau_bo_move(struct ttm_buffer_object *bo, bool evict, bool intr,
 	if (!ret)
 		goto out;
 
-	
+	/* Fallback to software copy. */
 	ret = ttm_bo_move_memcpy(bo, evict, no_wait_reserve, no_wait_gpu, new_mem);
 
 out:
@@ -921,7 +939,7 @@ nouveau_ttm_io_mem_reserve(struct ttm_bo_device *bdev, struct ttm_mem_reg *mem)
 		return -EINVAL;
 	switch (mem->mem_type) {
 	case TTM_PL_SYSTEM:
-		
+		/* System memory */
 		return 0;
 	case TTM_PL_TT:
 #if __OS_HAS_AGP
@@ -962,7 +980,7 @@ nouveau_ttm_io_mem_reserve(struct ttm_bo_device *bdev, struct ttm_mem_reg *mem)
 		}
 
 		mem->bus.offset = node->bar_vma.offset;
-		if (dev_priv->card_type == NV_50) 
+		if (dev_priv->card_type == NV_50) /*XXX*/
 			mem->bus.offset -= 0x0020000000ULL;
 		mem->bus.base = pci_resource_start(dev->pdev, 1);
 		mem->bus.is_iomem = true;
@@ -996,13 +1014,16 @@ nouveau_ttm_fault_reserve_notify(struct ttm_buffer_object *bo)
 	struct drm_nouveau_private *dev_priv = nouveau_bdev(bo->bdev);
 	struct nouveau_bo *nvbo = nouveau_bo(bo);
 
+	/* as long as the bo isn't in vram, and isn't tiled, we've got
+	 * nothing to do here.
+	 */
 	if (bo->mem.mem_type != TTM_PL_VRAM) {
 		if (dev_priv->card_type < NV_50 ||
 		    !nouveau_bo_tile_layout(nvbo))
 			return 0;
 	}
 
-	
+	/* make sure bo is in mappable vram */
 	if (bo->mem.start + bo->mem.num_pages < dev_priv->fb_mappable_pages)
 		return 0;
 

@@ -27,6 +27,13 @@
 #include <asm/spram.h>
 #include <asm/uaccess.h>
 
+/*
+ * Not all of the MIPS CPUs have the "wait" instruction available. Moreover,
+ * the implementation of the "wait" feature differs between CPU families. This
+ * points to the function that implements CPU specific wait.
+ * The wait instruction stops the pipeline and reduces the power consumption of
+ * the CPU very much.
+ */
 void (*cpu_wait)(void);
 EXPORT_SYMBOL(cpu_wait);
 
@@ -46,6 +53,13 @@ static void r39xx_wait(void)
 
 extern void r4k_wait(void);
 
+/*
+ * This variant is preferable as it allows testing need_resched and going to
+ * sleep depending on the outcome atomically.  Unfortunately the "It is
+ * implementation-dependent whether the pipeline restarts when a non-enabled
+ * interrupt is requested" restriction in the MIPS32/MIPS64 architecture makes
+ * using this version a gamble.
+ */
 void r4k_wait_irqoff(void)
 {
 	local_irq_disable();
@@ -59,6 +73,10 @@ void r4k_wait_irqoff(void)
 		"__pastwait:			\n");
 }
 
+/*
+ * The RM7000 variant has to handle erratum 38.  The workaround is to not
+ * have any pending stores when the WAIT instruction is executed.
+ */
 static void rm7k_wait_irqoff(void)
 {
 	local_irq_disable();
@@ -76,6 +94,11 @@ static void rm7k_wait_irqoff(void)
 	local_irq_enable();
 }
 
+/*
+ * The Au1xxx wait is available only if using 32khz counter or
+ * external timer source, but specifically not CP0 Counter.
+ * alchemy/common/time.c may override cpu_wait!
+ */
 static void au1k_wait(void)
 {
 	__asm__("	.set	mips3			\n"
@@ -145,6 +168,7 @@ void __init check_wait(void)
 		cpu_wait = r39xx_wait;
 		break;
 	case CPU_R4200:
+/*	case CPU_R4300: */
 	case CPU_R4600:
 	case CPU_R4640:
 	case CPU_R4650:
@@ -196,9 +220,22 @@ void __init check_wait(void)
 		cpu_wait = au1k_wait;
 		break;
 	case CPU_20KC:
+		/*
+		 * WAIT on Rev1.0 has E1, E2, E3 and E16.
+		 * WAIT on Rev2.0 and Rev3.0 has E16.
+		 * Rev3.1 WAIT is nop, why bother
+		 */
 		if ((c->processor_id & 0xff) <= 0x64)
 			break;
 
+		/*
+		 * Another rev is incremeting c0_count at a reduced clock
+		 * rate while in WAIT mode.  So we basically have the choice
+		 * between using the cp0 timer as clocksource or avoiding
+		 * the WAIT instruction.  Until more details are known,
+		 * disable the use of WAIT for 20Kc entirely.
+		   cpu_wait = r4k_wait;
+		 */
 		break;
 	case CPU_RM9000:
 		if ((c->processor_id & 0x00ff) >= 0x40)
@@ -215,6 +252,11 @@ static inline void check_errata(void)
 
 	switch (c->cputype) {
 	case CPU_34K:
+		/*
+		 * Erratum "RPS May Cause Incorrect Instruction Execution"
+		 * This code only handles VPE0, any SMP/SMTC/RTOS code
+		 * making use of VPE1 will be responsable for that VPE.
+		 */
 		if ((c->processor_id & PRID_REV_MASK) <= PRID_REV_34K_V1_0_2)
 			write_c0_config7(read_c0_config7() | MIPS_CONF7_RPS);
 		break;
@@ -228,6 +270,11 @@ void __init check_bugs32(void)
 	check_errata();
 }
 
+/*
+ * Probe whether cpu has config register by trying to play with
+ * alternate cache bit and see whether it matters.
+ * It's used by cpu_probe to distinguish between R3000A and R3081.
+ */
 static inline int cpu_has_confreg(void)
 {
 #ifdef CONFIG_CPU_R3000
@@ -251,6 +298,9 @@ static inline void set_elf_platform(int cpu, const char *plat)
 		__elf_platform = plat;
 }
 
+/*
+ * Get the FPU Implementation/Revision.
+ */
 static inline unsigned long cpu_get_fpu_id(void)
 {
 	unsigned long tmp, fpu_id;
@@ -262,6 +312,9 @@ static inline unsigned long cpu_get_fpu_id(void)
 	return fpu_id;
 }
 
+/*
+ * Check the CPU has an FPU the official way.
+ */
 static inline int __cpu_has_fpu(void)
 {
 	return ((cpu_get_fpu_id() & 0xff00) != FPIR_IMP_NONE);
@@ -394,6 +447,12 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 		break;
 	#if 0
  	case PRID_IMP_R4650:
+		/*
+		 * This processor doesn't have an MMU, so it's not
+		 * "real easy" to run Linux on it. It is left purely
+		 * for documentation.  Commented out because it shares
+		 * it's c0_prid id number with the TX3900.
+		 */
 		c->cputype = CPU_R4650;
 		__cpu_name[cpu] = "R4650";
 	 	c->isa_level = MIPS_CPU_ISA_III;
@@ -495,6 +554,14 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 		c->isa_level = MIPS_CPU_ISA_IV;
 		c->options = R4K_OPTS | MIPS_CPU_FPU | MIPS_CPU_32FPR |
 		             MIPS_CPU_LLSC;
+		/*
+		 * Undocumented RM7000:  Bit 29 in the info register of
+		 * the RM7000 v2.0 indicates if the TLB has 48 or 64
+		 * entries.
+		 *
+		 * 29      1 =>    64 entry JTLB
+		 *         0 =>    48 entry JTLB
+		 */
 		c->tlbsize = (read_c0_info() & (1 << 29)) ? 64 : 48;
 		break;
 	case PRID_IMP_RM9000:
@@ -503,6 +570,13 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 		c->isa_level = MIPS_CPU_ISA_IV;
 		c->options = R4K_OPTS | MIPS_CPU_FPU | MIPS_CPU_32FPR |
 		             MIPS_CPU_LLSC;
+		/*
+		 * Bit 29 in the info register of the RM9000
+		 * indicates if the TLB has 48 or 64 entries.
+		 *
+		 * 29      1 =>    64 entry JTLB
+		 *         0 =>    48 entry JTLB
+		 */
 		c->tlbsize = (read_c0_info() & (1 << 29)) ? 64 : 48;
 		break;
 	case PRID_IMP_R8000:
@@ -512,7 +586,7 @@ static inline void cpu_probe_legacy(struct cpuinfo_mips *c, unsigned int cpu)
 		c->options = MIPS_CPU_TLB | MIPS_CPU_4KEX |
 		             MIPS_CPU_FPU | MIPS_CPU_32FPR |
 		             MIPS_CPU_LLSC;
-		c->tlbsize = 384;      
+		c->tlbsize = 384;      /* has weird TLB: 3-way x 128 */
 		break;
 	case PRID_IMP_R10000:
 		c->cputype = CPU_R10000;
@@ -691,14 +765,14 @@ static void __cpuinit decode_configs(struct cpuinfo_mips *c)
 {
 	int ok;
 
-	
+	/* MIPS32 or MIPS64 compliant CPU.  */
 	c->options = MIPS_CPU_4KEX | MIPS_CPU_4K_CACHE | MIPS_CPU_COUNTER |
 	             MIPS_CPU_DIVEC | MIPS_CPU_LLSC | MIPS_CPU_MCHECK;
 
 	c->scache.flags = MIPS_CACHE_NOT_PRESENT;
 
-	ok = decode_config0(c);			
-	BUG_ON(!ok);				
+	ok = decode_config0(c);			/* Read Config registers.  */
+	BUG_ON(!ok);				/* Arch spec violation!  */
 	if (ok)
 		ok = decode_config1(c);
 	if (ok)
@@ -810,7 +884,7 @@ static inline void cpu_probe_sibyte(struct cpuinfo_mips *c, unsigned int cpu)
 	case PRID_IMP_SB1:
 		c->cputype = CPU_SB1;
 		__cpu_name[cpu] = "SiByte SB1";
-		
+		/* FPU in pass1 is known to have issues. */
 		if ((c->processor_id & 0xff) < 0x02)
 			c->options &= ~(MIPS_CPU_FPU | MIPS_CPU_32FPR);
 		break;
@@ -924,7 +998,7 @@ platform:
 static inline void cpu_probe_ingenic(struct cpuinfo_mips *c, unsigned int cpu)
 {
 	decode_configs(c);
-	
+	/* JZRISC does not implement the CP0 counter. */
 	c->options &= ~MIPS_CPU_COUNTER;
 	switch (c->processor_id & 0xff00) {
 	case PRID_IMP_JZRISC:
@@ -944,7 +1018,7 @@ static inline void cpu_probe_netlogic(struct cpuinfo_mips *c, int cpu)
 	if ((c->processor_id & 0xff00) == PRID_IMP_NETLOGIC_AU13XX) {
 		c->cputype = CPU_ALCHEMY;
 		__cpu_name[cpu] = "Au1300";
-		
+		/* following stuff is not for Alchemy */
 		return;
 	}
 
@@ -1002,7 +1076,7 @@ static inline void cpu_probe_netlogic(struct cpuinfo_mips *c, int cpu)
 	if (c->cputype == CPU_XLP) {
 		c->isa_level = MIPS_CPU_ISA_M64R2;
 		c->options |= (MIPS_CPU_FPU | MIPS_CPU_ULRI | MIPS_CPU_MCHECK);
-		
+		/* This will be updated again after all threads are woken up */
 		c->tlbsize = ((read_c0_config6() >> 16) & 0xffff) + 1;
 	} else {
 		c->isa_level = MIPS_CPU_ISA_M64R1;
@@ -1011,6 +1085,7 @@ static inline void cpu_probe_netlogic(struct cpuinfo_mips *c, int cpu)
 }
 
 #ifdef CONFIG_64BIT
+/* For use by uaccess.h */
 u64 __ua_limit;
 EXPORT_SYMBOL(__ua_limit);
 #endif
@@ -1064,6 +1139,11 @@ __cpuinit void cpu_probe(void)
 	BUG_ON(!__cpu_name[cpu]);
 	BUG_ON(c->cputype == CPU_UNKNOWN);
 
+	/*
+	 * Platform code can force the cpu type to optimize code
+	 * generation. In that case be sure the cpu type is correctly
+	 * manually setup otherwise it could trigger some nasty bugs.
+	 */
 	BUG_ON(current_cpu_type() != c->cputype);
 
 	if (mips_fpu_disabled)

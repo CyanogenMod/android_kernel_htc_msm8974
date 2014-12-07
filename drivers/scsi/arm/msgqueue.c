@@ -16,6 +16,12 @@
 
 #include "msgqueue.h"
 
+/*
+ * Function: struct msgqueue_entry *mqe_alloc(MsgQueue_t *msgq)
+ * Purpose : Allocate a message queue entry
+ * Params  : msgq - message queue to claim entry for
+ * Returns : message queue entry or NULL.
+ */
 static struct msgqueue_entry *mqe_alloc(MsgQueue_t *msgq)
 {
 	struct msgqueue_entry *mq;
@@ -26,6 +32,12 @@ static struct msgqueue_entry *mqe_alloc(MsgQueue_t *msgq)
 	return mq;
 }
 
+/*
+ * Function: void mqe_free(MsgQueue_t *msgq, struct msgqueue_entry *mq)
+ * Purpose : free a message queue entry
+ * Params  : msgq - message queue to free entry from
+ *	     mq   - message queue entry to free
+ */
 static void mqe_free(MsgQueue_t *msgq, struct msgqueue_entry *mq)
 {
 	if (mq) {
@@ -34,6 +46,11 @@ static void mqe_free(MsgQueue_t *msgq, struct msgqueue_entry *mq)
 	}
 }
 
+/*
+ * Function: void msgqueue_initialise(MsgQueue_t *msgq)
+ * Purpose : initialise a message queue
+ * Params  : msgq - queue to initialise
+ */
 void msgqueue_initialise(MsgQueue_t *msgq)
 {
 	int i;
@@ -48,10 +65,21 @@ void msgqueue_initialise(MsgQueue_t *msgq)
 }
 
 
+/*
+ * Function: void msgqueue_free(MsgQueue_t *msgq)
+ * Purpose : free a queue
+ * Params  : msgq - queue to free
+ */
 void msgqueue_free(MsgQueue_t *msgq)
 {
 }
 
+/*
+ * Function: int msgqueue_msglength(MsgQueue_t *msgq)
+ * Purpose : calculate the total length of all messages on the message queue
+ * Params  : msgq - queue to examine
+ * Returns : number of bytes of messages in queue
+ */
 int msgqueue_msglength(MsgQueue_t *msgq)
 {
 	struct msgqueue_entry *mq = msgq->qe;
@@ -63,6 +91,13 @@ int msgqueue_msglength(MsgQueue_t *msgq)
 	return length;
 }
 
+/*
+ * Function: struct message *msgqueue_getmsg(MsgQueue_t *msgq, int msgno)
+ * Purpose : return a message
+ * Params  : msgq   - queue to obtain message from
+ *	   : msgno  - message number
+ * Returns : pointer to message string, or NULL
+ */
 struct message *msgqueue_getmsg(MsgQueue_t *msgq, int msgno)
 {
 	struct msgqueue_entry *mq;
@@ -72,6 +107,14 @@ struct message *msgqueue_getmsg(MsgQueue_t *msgq, int msgno)
 	return mq ? &mq->msg : NULL;
 }
 
+/*
+ * Function: int msgqueue_addmsg(MsgQueue_t *msgq, int length, ...)
+ * Purpose : add a message onto a message queue
+ * Params  : msgq   - queue to add message on
+ *	     length - length of message
+ *	     ...    - message bytes
+ * Returns : != 0 if successful
+ */
 int msgqueue_addmsg(MsgQueue_t *msgq, int length, ...)
 {
 	struct msgqueue_entry *mq = mqe_alloc(msgq);
@@ -100,6 +143,11 @@ int msgqueue_addmsg(MsgQueue_t *msgq, int length, ...)
 	return mq != NULL;
 }
 
+/*
+ * Function: void msgqueue_flush(MsgQueue_t *msgq)
+ * Purpose : flush all messages from message queue
+ * Params  : msgq - queue to flush
+ */
 void msgqueue_flush(MsgQueue_t *msgq)
 {
 	struct msgqueue_entry *mq, *mqnext;

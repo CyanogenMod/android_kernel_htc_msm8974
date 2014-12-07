@@ -20,6 +20,14 @@
 atomic_t fscache_op_debug_id;
 EXPORT_SYMBOL(fscache_op_debug_id);
 
+/**
+ * fscache_enqueue_operation - Enqueue an operation for processing
+ * @op: The operation to enqueue
+ *
+ * Enqueue an operation for processing by the FS-Cache thread pool.
+ *
+ * This will get its own ref on the object.
+ */
 void fscache_enqueue_operation(struct fscache_operation *op)
 {
 	_enter("{OBJ%x OP%x,%u}",
@@ -50,6 +58,9 @@ void fscache_enqueue_operation(struct fscache_operation *op)
 }
 EXPORT_SYMBOL(fscache_enqueue_operation);
 
+/*
+ * start an op running
+ */
 static void fscache_run_op(struct fscache_object *object,
 			   struct fscache_operation *op)
 {
@@ -61,6 +72,11 @@ static void fscache_run_op(struct fscache_object *object,
 	fscache_stat(&fscache_n_op_run);
 }
 
+/*
+ * submit an exclusive operation for an object
+ * - other ops are excluded from running simultaneously with this one
+ * - this gets any extra refs it needs on an op
+ */
 int fscache_submit_exclusive_op(struct fscache_object *object,
 				struct fscache_operation *op)
 {
@@ -77,7 +93,7 @@ int fscache_submit_exclusive_op(struct fscache_object *object,
 	if (fscache_object_is_active(object)) {
 		op->object = object;
 		object->n_ops++;
-		object->n_exclusive++;	
+		object->n_exclusive++;	/* reads and writes must wait */
 
 		if (object->n_ops > 1) {
 			atomic_inc(&op->usage);
@@ -93,19 +109,19 @@ int fscache_submit_exclusive_op(struct fscache_object *object,
 			fscache_run_op(object, op);
 		}
 
-		
+		/* need to issue a new write op after this */
 		clear_bit(FSCACHE_OBJECT_PENDING_WRITE, &object->flags);
 		ret = 0;
 	} else if (object->state == FSCACHE_OBJECT_CREATING) {
 		op->object = object;
 		object->n_ops++;
-		object->n_exclusive++;	
+		object->n_exclusive++;	/* reads and writes must wait */
 		atomic_inc(&op->usage);
 		list_add_tail(&op->pend_link, &object->pending_ops);
 		fscache_stat(&fscache_n_op_pend);
 		ret = 0;
 	} else {
-		
+		/* not allowed to submit ops in any other state */
 		BUG();
 	}
 
@@ -113,6 +129,9 @@ int fscache_submit_exclusive_op(struct fscache_object *object,
 	return ret;
 }
 
+/*
+ * report an unexpected submission
+ */
 static void fscache_report_unexpected_submission(struct fscache_object *object,
 						 struct fscache_operation *op,
 						 unsigned long ostate)
@@ -150,6 +169,14 @@ static void fscache_report_unexpected_submission(struct fscache_object *object,
 	dump_stack();
 }
 
+/*
+ * submit an operation for an object
+ * - objects may be submitted only in the following states:
+ *   - during object creation (write ops may be submitted)
+ *   - whilst the object is active
+ *   - after an I/O error incurred in one of the two above states (op rejected)
+ * - this gets any extra refs it needs on an op
+ */
 int fscache_submit_op(struct fscache_object *object,
 		      struct fscache_operation *op)
 {
@@ -211,6 +238,10 @@ int fscache_submit_op(struct fscache_object *object,
 	return ret;
 }
 
+/*
+ * queue an object for withdrawal on error, aborting all following asynchronous
+ * operations
+ */
 void fscache_abort_object(struct fscache_object *object)
 {
 	_enter("{OBJ%x}", object->debug_id);
@@ -218,6 +249,10 @@ void fscache_abort_object(struct fscache_object *object)
 	fscache_raise_event(object, FSCACHE_OBJECT_EV_ERROR);
 }
 
+/*
+ * jump start the operation processing on an object
+ * - caller must hold object->lock
+ */
 void fscache_start_operations(struct fscache_object *object)
 {
 	struct fscache_operation *op;
@@ -235,7 +270,7 @@ void fscache_start_operations(struct fscache_object *object)
 		list_del_init(&op->pend_link);
 		fscache_run_op(object, op);
 
-		
+		/* the pending queue was holding a ref on the object */
 		fscache_put_operation(op);
 	}
 
@@ -245,6 +280,9 @@ void fscache_start_operations(struct fscache_object *object)
 	       object->n_in_progress, object->debug_id);
 }
 
+/*
+ * cancel an operation that's pending on an object
+ */
 int fscache_cancel_op(struct fscache_operation *op)
 {
 	struct fscache_object *object = op->object;
@@ -272,6 +310,10 @@ int fscache_cancel_op(struct fscache_operation *op)
 	return ret;
 }
 
+/*
+ * release an operation
+ * - queues pending ops if this is the last in-progress op
+ */
 void fscache_put_operation(struct fscache_operation *op)
 {
 	struct fscache_object *object;
@@ -301,6 +343,9 @@ void fscache_put_operation(struct fscache_operation *op)
 	if (test_bit(FSCACHE_OP_DEC_READ_CNT, &op->flags))
 		atomic_dec(&object->n_reads);
 
+	/* now... we may get called with the object spinlock held, so we
+	 * complete the cleanup here only if we can immediately acquire the
+	 * lock, and defer it otherwise */
 	if (!spin_trylock(&object->lock)) {
 		_debug("defer put");
 		fscache_stat(&fscache_n_op_deferred_release);
@@ -336,6 +381,9 @@ void fscache_put_operation(struct fscache_operation *op)
 }
 EXPORT_SYMBOL(fscache_put_operation);
 
+/*
+ * garbage collect operations that have had their release deferred
+ */
 void fscache_operation_gc(struct work_struct *work)
 {
 	struct fscache_operation *op;
@@ -392,6 +440,10 @@ void fscache_operation_gc(struct work_struct *work)
 	_leave("");
 }
 
+/*
+ * execute an operation using fs_op_wq to provide processing context -
+ * the caller holds a ref to this object, so we don't need to hold one
+ */
 void fscache_op_work_func(struct work_struct *work)
 {
 	struct fscache_operation *op =

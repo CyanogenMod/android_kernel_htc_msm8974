@@ -345,11 +345,11 @@ static const unsigned short seq_vint_amp_en[] = {
 	0xF3, 0x37,
 
 	DATA_ONLY, 0xF1,
-	
+	/* DATA_ONLY, 0x71,	VMOS/VBL/VBH not used */
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x03,
-	
+	/* DATA_ONLY, 0x02,	VMOS/VBL/VBH not used */
 	ENDDEF, 0x00
 };
 
@@ -377,11 +377,11 @@ static const unsigned short seq_gam_amp_en[] = {
 	0xF3, 0x37,
 
 	DATA_ONLY, 0xFF,
-	
+	/* DATA_ONLY, 0x73,	VMOS/VBL/VBH not used */
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x03,
-	
+	/* DATA_ONLY, 0x02,	VMOS/VBL/VBH not used */
 	ENDDEF, 0x00
 };
 
@@ -389,11 +389,11 @@ static const unsigned short seq_sd_amp_en[] = {
 	0xF3, 0x37,
 
 	DATA_ONLY, 0xFF,
-	
+	/* DATA_ONLY, 0x73,	VMOS/VBL/VBH not used */
 	DATA_ONLY, 0x80,
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x03,
-	
+	/* DATA_ONLY, 0x02,	VMOS/VBL/VBH not used */
 	ENDDEF, 0x00
 };
 
@@ -401,11 +401,11 @@ static const unsigned short seq_gls_en[] = {
 	0xF3, 0x37,
 
 	DATA_ONLY, 0xFF,
-	
+	/* DATA_ONLY, 0x73,	VMOS/VBL/VBH not used */
 	DATA_ONLY, 0x81,
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x03,
-	
+	/* DATA_ONLY, 0x02,	VMOS/VBL/VBH not used */
 	ENDDEF, 0x00
 };
 
@@ -413,11 +413,11 @@ static const unsigned short seq_els_en[] = {
 	0xF3, 0x37,
 
 	DATA_ONLY, 0xFF,
-	
+	/* DATA_ONLY, 0x73,	VMOS/VBL/VBH not used */
 	DATA_ONLY, 0x83,
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x03,
-	
+	/* DATA_ONLY, 0x02,	VMOS/VBL/VBH not used */
 	ENDDEF, 0x00
 };
 
@@ -425,11 +425,11 @@ static const unsigned short seq_el_on[] = {
 	0xF3, 0x37,
 
 	DATA_ONLY, 0xFF,
-	
+	/* DATA_ONLY, 0x73,	VMOS/VBL/VBH not used */
 	DATA_ONLY, 0x87,
 	DATA_ONLY, 0x00,
 	DATA_ONLY, 0x03,
-	
+	/* DATA_ONLY, 0x02,	VMOS/VBL/VBH not used */
 	ENDDEF, 0x00
 };
 
@@ -487,7 +487,7 @@ static int _ld9040_gamma_ctl(struct ld9040 *lcd, const unsigned int *gamma)
 	unsigned int i = 0;
 	int ret = 0;
 
-	
+	/* start gamma table updating. */
 	ret = ld9040_panel_send_sequence(lcd, seq_gamma_start);
 	if (ret) {
 		dev_err(lcd->dev, "failed to disable gamma table updating.\n");
@@ -502,7 +502,7 @@ static int _ld9040_gamma_ctl(struct ld9040 *lcd, const unsigned int *gamma)
 		}
 	}
 
-	
+	/* update gamma table. */
 	ret = ld9040_panel_send_sequence(lcd, seq_gamma_ctrl);
 	if (ret)
 		dev_err(lcd->dev, "failed to update gamma table.\n");
@@ -538,7 +538,7 @@ static int ld9040_ldi_init(struct ld9040 *lcd)
 
 	for (i = 0; i < ARRAY_SIZE(init_seq); i++) {
 		ret = ld9040_panel_send_sequence(lcd, init_seq[i]);
-		
+		/* workaround: minimum delay time for transferring CMD */
 		udelay(300);
 		if (ret)
 			break;
@@ -576,7 +576,7 @@ static int ld9040_power_on(struct ld9040 *lcd)
 		return -EFAULT;
 	}
 
-	
+	/* lcd power on */
 	ld9040_regulator_enable(lcd);
 
 	if (!pd->reset) {
@@ -621,7 +621,7 @@ static int ld9040_power_off(struct ld9040 *lcd)
 
 	mdelay(pd->power_off_delay);
 
-	
+	/* lcd power off */
 	ld9040_regulator_disable(lcd);
 
 	return 0;
@@ -711,7 +711,7 @@ static int ld9040_probe(struct spi_device *spi)
 	if (!lcd)
 		return -ENOMEM;
 
-	
+	/* ld9040 lcd panel uses 3-wire 9bits SPI Mode. */
 	spi->bits_per_word = 9;
 
 	ret = spi_setup(spi);
@@ -759,7 +759,16 @@ static int ld9040_probe(struct spi_device *spi)
 	bd->props.brightness = MAX_BRIGHTNESS;
 	lcd->bd = bd;
 
+	/*
+	 * if lcd panel was on from bootloader like u-boot then
+	 * do not lcd on.
+	 */
 	if (!lcd->lcd_pd->lcd_enabled) {
+		/*
+		 * if lcd panel was off from bootloader then
+		 * current lcd status is powerdown and then
+		 * it enables lcd panel.
+		 */
 		lcd->power = FB_BLANK_POWERDOWN;
 
 		ld9040_power(lcd, FB_BLANK_UNBLANK);
@@ -801,6 +810,10 @@ static int ld9040_suspend(struct spi_device *spi, pm_message_t mesg)
 
 	dev_dbg(&spi->dev, "lcd->power = %d\n", lcd->power);
 
+	/*
+	 * when lcd panel is suspend, lcd panel becomes off
+	 * regardless of status.
+	 */
 	ret = ld9040_power(lcd, FB_BLANK_POWERDOWN);
 
 	return ret;
@@ -822,6 +835,7 @@ static int ld9040_resume(struct spi_device *spi)
 #define ld9040_resume		NULL
 #endif
 
+/* Power down all displays on reboot, poweroff or halt. */
 static void ld9040_shutdown(struct spi_device *spi)
 {
 	struct ld9040 *lcd = dev_get_drvdata(&spi->dev);

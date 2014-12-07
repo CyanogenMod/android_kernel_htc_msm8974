@@ -35,17 +35,26 @@ extern struct key_type key_type_dead;
 extern struct key_type key_type_user;
 extern struct key_type key_type_logon;
 
+/*****************************************************************************/
+/*
+ * Keep track of keys for a user.
+ *
+ * This needs to be separate to user_struct to avoid a refcount-loop
+ * (user_struct pins some keyrings which pin this struct).
+ *
+ * We also keep track of keys under request from userspace for this UID here.
+ */
 struct key_user {
 	struct rb_node		node;
-	struct mutex		cons_lock;	
+	struct mutex		cons_lock;	/* construction initiation lock */
 	spinlock_t		lock;
-	atomic_t		usage;		
-	atomic_t		nkeys;		
-	atomic_t		nikeys;		
+	atomic_t		usage;		/* for accessing qnkeys & qnbytes */
+	atomic_t		nkeys;		/* number of keys */
+	atomic_t		nikeys;		/* number of instantiated keys */
 	uid_t			uid;
 	struct user_namespace	*user_ns;
-	int			qnkeys;		
-	int			qnbytes;	
+	int			qnkeys;		/* number of keys allocated to this user */
+	int			qnbytes;	/* number of bytes allocated to this user */
 };
 
 extern struct rb_root	key_user_tree;
@@ -56,12 +65,16 @@ extern struct key_user *key_user_lookup(uid_t uid,
 					struct user_namespace *user_ns);
 extern void key_user_put(struct key_user *user);
 
+/*
+ * Key quota limits.
+ * - root has its own separate limits to everyone else
+ */
 extern unsigned key_quota_root_maxkeys;
 extern unsigned key_quota_root_maxbytes;
 extern unsigned key_quota_maxkeys;
 extern unsigned key_quota_maxbytes;
 
-#define KEYQUOTA_LINK_BYTES	4		
+#define KEYQUOTA_LINK_BYTES	4		/* a link in a keyring is worth 4 bytes */
 
 
 extern struct kmem_cache *key_jar;
@@ -146,19 +159,26 @@ extern int key_task_permission(const key_ref_t key_ref,
 			       const struct cred *cred,
 			       key_perm_t perm);
 
+/*
+ * Check to see whether permission is granted to use a key in the desired way.
+ */
 static inline int key_permission(const key_ref_t key_ref, key_perm_t perm)
 {
 	return key_task_permission(key_ref, current_cred(), perm);
 }
 
-#define	KEY_VIEW	0x01	
-#define	KEY_READ	0x02	
-#define	KEY_WRITE	0x04	
-#define	KEY_SEARCH	0x08	
-#define	KEY_LINK	0x10	
-#define	KEY_SETATTR	0x20	
-#define	KEY_ALL		0x3f	
+/* required permissions */
+#define	KEY_VIEW	0x01	/* require permission to view attributes */
+#define	KEY_READ	0x02	/* require permission to read content */
+#define	KEY_WRITE	0x04	/* require permission to update / modify */
+#define	KEY_SEARCH	0x08	/* require permission to search (keyring) or find (key) */
+#define	KEY_LINK	0x10	/* require permission to link */
+#define	KEY_SETATTR	0x20	/* require permission to change attributes */
+#define	KEY_ALL		0x3f	/* all the above permissions */
 
+/*
+ * Authorisation record for request_key().
+ */
 struct request_key_auth {
 	struct key		*target_key;
 	struct key		*dest_keyring;
@@ -176,6 +196,9 @@ extern struct key *request_key_auth_new(struct key *target,
 
 extern struct key *key_get_instantiation_authkey(key_serial_t target_id);
 
+/*
+ * keyctl() functions
+ */
 extern long keyctl_get_keyring_ID(key_serial_t, int);
 extern long keyctl_join_session_keyring(const char __user *);
 extern long keyctl_update_key(key_serial_t, const void __user *, size_t);
@@ -207,6 +230,9 @@ extern long keyctl_instantiate_key_common(key_serial_t,
 					  const struct iovec __user *,
 					  unsigned, size_t, key_serial_t);
 
+/*
+ * Debugging key validation
+ */
 #ifdef KEY_DEBUGGING
 extern void __key_check(const struct key *);
 
@@ -222,4 +248,4 @@ static inline void key_check(const struct key *key)
 
 #endif
 
-#endif 
+#endif /* _INTERNAL_H */

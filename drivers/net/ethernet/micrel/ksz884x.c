@@ -35,6 +35,7 @@
 #include <linux/slab.h>
 
 
+/* DMA Registers */
 
 #define KS_DMA_TX_CTRL			0x0000
 #define DMA_TX_ENABLE			0x00000001
@@ -74,17 +75,22 @@
 #define DMA_ADDR_LIST_MASK		0xFFFFFFFC
 #define DMA_ADDR_LIST_SHIFT		2
 
+/* MTR0 */
 #define KS884X_MULTICAST_0_OFFSET	0x0020
 #define KS884X_MULTICAST_1_OFFSET	0x0021
 #define KS884X_MULTICAST_2_OFFSET	0x0022
 #define KS884x_MULTICAST_3_OFFSET	0x0023
+/* MTR1 */
 #define KS884X_MULTICAST_4_OFFSET	0x0024
 #define KS884X_MULTICAST_5_OFFSET	0x0025
 #define KS884X_MULTICAST_6_OFFSET	0x0026
 #define KS884X_MULTICAST_7_OFFSET	0x0027
 
+/* Interrupt Registers */
 
+/* INTEN */
 #define KS884X_INTERRUPTS_ENABLE	0x0028
+/* INTST */
 #define KS884X_INTERRUPTS_STATUS	0x002C
 
 #define KS884X_INT_RX_STOPPED		0x02000000
@@ -101,52 +107,90 @@
 	(KS884X_INT_TX | KS884X_INT_TX_EMPTY)
 #define KS884X_INT_MASK	(KS884X_INT_RX | KS884X_INT_TX | KS884X_INT_PHY)
 
+/* MAC Additional Station Address */
 
+/* MAAL0 */
 #define KS_ADD_ADDR_0_LO		0x0080
+/* MAAH0 */
 #define KS_ADD_ADDR_0_HI		0x0084
+/* MAAL1 */
 #define KS_ADD_ADDR_1_LO		0x0088
+/* MAAH1 */
 #define KS_ADD_ADDR_1_HI		0x008C
+/* MAAL2 */
 #define KS_ADD_ADDR_2_LO		0x0090
+/* MAAH2 */
 #define KS_ADD_ADDR_2_HI		0x0094
+/* MAAL3 */
 #define KS_ADD_ADDR_3_LO		0x0098
+/* MAAH3 */
 #define KS_ADD_ADDR_3_HI		0x009C
+/* MAAL4 */
 #define KS_ADD_ADDR_4_LO		0x00A0
+/* MAAH4 */
 #define KS_ADD_ADDR_4_HI		0x00A4
+/* MAAL5 */
 #define KS_ADD_ADDR_5_LO		0x00A8
+/* MAAH5 */
 #define KS_ADD_ADDR_5_HI		0x00AC
+/* MAAL6 */
 #define KS_ADD_ADDR_6_LO		0x00B0
+/* MAAH6 */
 #define KS_ADD_ADDR_6_HI		0x00B4
+/* MAAL7 */
 #define KS_ADD_ADDR_7_LO		0x00B8
+/* MAAH7 */
 #define KS_ADD_ADDR_7_HI		0x00BC
+/* MAAL8 */
 #define KS_ADD_ADDR_8_LO		0x00C0
+/* MAAH8 */
 #define KS_ADD_ADDR_8_HI		0x00C4
+/* MAAL9 */
 #define KS_ADD_ADDR_9_LO		0x00C8
+/* MAAH9 */
 #define KS_ADD_ADDR_9_HI		0x00CC
+/* MAAL10 */
 #define KS_ADD_ADDR_A_LO		0x00D0
+/* MAAH10 */
 #define KS_ADD_ADDR_A_HI		0x00D4
+/* MAAL11 */
 #define KS_ADD_ADDR_B_LO		0x00D8
+/* MAAH11 */
 #define KS_ADD_ADDR_B_HI		0x00DC
+/* MAAL12 */
 #define KS_ADD_ADDR_C_LO		0x00E0
+/* MAAH12 */
 #define KS_ADD_ADDR_C_HI		0x00E4
+/* MAAL13 */
 #define KS_ADD_ADDR_D_LO		0x00E8
+/* MAAH13 */
 #define KS_ADD_ADDR_D_HI		0x00EC
+/* MAAL14 */
 #define KS_ADD_ADDR_E_LO		0x00F0
+/* MAAH14 */
 #define KS_ADD_ADDR_E_HI		0x00F4
+/* MAAL15 */
 #define KS_ADD_ADDR_F_LO		0x00F8
+/* MAAH15 */
 #define KS_ADD_ADDR_F_HI		0x00FC
 
 #define ADD_ADDR_HI_MASK		0x0000FFFF
 #define ADD_ADDR_ENABLE			0x80000000
 #define ADD_ADDR_INCR			8
 
+/* Miscellaneous Registers */
 
+/* MARL */
 #define KS884X_ADDR_0_OFFSET		0x0200
 #define KS884X_ADDR_1_OFFSET		0x0201
+/* MARM */
 #define KS884X_ADDR_2_OFFSET		0x0202
 #define KS884X_ADDR_3_OFFSET		0x0203
+/* MARH */
 #define KS884X_ADDR_4_OFFSET		0x0204
 #define KS884X_ADDR_5_OFFSET		0x0205
 
+/* OBCR */
 #define KS884X_BUS_CTRL_OFFSET		0x0210
 
 #define BUS_SPEED_125_MHZ		0x0000
@@ -154,6 +198,7 @@
 #define BUS_SPEED_41_66_MHZ		0x0002
 #define BUS_SPEED_25_MHZ		0x0003
 
+/* EEPCR */
 #define KS884X_EEPROM_CTRL_OFFSET	0x0212
 
 #define EEPROM_CHIP_SELECT		0x0001
@@ -162,6 +207,7 @@
 #define EEPROM_DATA_IN			0x0008
 #define EEPROM_ACCESS_ENABLE		0x0010
 
+/* MBIR */
 #define KS884X_MEM_INFO_OFFSET		0x0214
 
 #define RX_MEM_TEST_FAILED		0x0008
@@ -169,11 +215,13 @@
 #define TX_MEM_TEST_FAILED		0x0800
 #define TX_MEM_TEST_FINISHED		0x1000
 
+/* GCR */
 #define KS884X_GLOBAL_CTRL_OFFSET	0x0216
 #define GLOBAL_SOFTWARE_RESET		0x0001
 
 #define KS8841_POWER_MANAGE_OFFSET	0x0218
 
+/* WFCR */
 #define KS8841_WOL_CTRL_OFFSET		0x021A
 #define KS8841_WOL_MAGIC_ENABLE		0x0080
 #define KS8841_WOL_FRAME3_ENABLE	0x0008
@@ -181,13 +229,16 @@
 #define KS8841_WOL_FRAME1_ENABLE	0x0002
 #define KS8841_WOL_FRAME0_ENABLE	0x0001
 
+/* WF0 */
 #define KS8841_WOL_FRAME_CRC_OFFSET	0x0220
 #define KS8841_WOL_FRAME_BYTE0_OFFSET	0x0224
 #define KS8841_WOL_FRAME_BYTE2_OFFSET	0x0228
 
+/* IACR */
 #define KS884X_IACR_P			0x04A0
 #define KS884X_IACR_OFFSET		KS884X_IACR_P
 
+/* IADR1 */
 #define KS884X_IADR1_P			0x04A2
 #define KS884X_IADR2_P			0x04A4
 #define KS884X_IADR3_P			0x04A6
@@ -207,6 +258,7 @@
 #define KS884X_ACC_DATA_7_OFFSET	(KS884X_ACC_DATA_6_OFFSET + 1)
 #define KS884X_ACC_DATA_8_OFFSET	KS884X_IADR1_P
 
+/* P1MBCR */
 #define KS884X_P1MBCR_P			0x04D0
 #define KS884X_P1MBSR_P			0x04D2
 #define KS884X_PHY1ILR_P		0x04D4
@@ -214,6 +266,7 @@
 #define KS884X_P1ANAR_P			0x04D8
 #define KS884X_P1ANLPR_P		0x04DA
 
+/* P2MBCR */
 #define KS884X_P2MBCR_P			0x04E0
 #define KS884X_P2MBSR_P			0x04E2
 #define KS884X_PHY2ILR_P		0x04E4
@@ -226,6 +279,7 @@
 
 #define KS884X_PHY_CTRL_OFFSET		0x00
 
+/* Mode Control Register */
 #define PHY_REG_CTRL			0
 
 #define PHY_RESET			0x8000
@@ -246,6 +300,7 @@
 
 #define KS884X_PHY_STATUS_OFFSET	0x02
 
+/* Mode Status Register */
 #define PHY_REG_STATUS			1
 
 #define PHY_100BT4_CAPABLE		0x8000
@@ -264,15 +319,18 @@
 #define KS884X_PHY_ID_1_OFFSET		0x04
 #define KS884X_PHY_ID_2_OFFSET		0x06
 
+/* PHY Identifier Registers */
 #define PHY_REG_ID_1			2
 #define PHY_REG_ID_2			3
 
 #define KS884X_PHY_AUTO_NEG_OFFSET	0x08
 
+/* Auto-Negotiation Advertisement Register */
 #define PHY_REG_AUTO_NEGOTIATION	4
 
 #define PHY_AUTO_NEG_NEXT_PAGE		0x8000
 #define PHY_AUTO_NEG_REMOTE_FAULT	0x2000
+/* Not supported. */
 #define PHY_AUTO_NEG_ASYM_PAUSE		0x0800
 #define PHY_AUTO_NEG_SYM_PAUSE		0x0400
 #define PHY_AUTO_NEG_100BT4		0x0200
@@ -287,6 +345,7 @@
 
 #define KS884X_PHY_REMOTE_CAP_OFFSET	0x0A
 
+/* Auto-Negotiation Link Partner Ability Register */
 #define PHY_REG_REMOTE_CAPABILITY	5
 
 #define PHY_REMOTE_NEXT_PAGE		0x8000
@@ -298,9 +357,11 @@
 #define PHY_REMOTE_10BT_FD		0x0040
 #define PHY_REMOTE_10BT			0x0020
 
+/* P1VCT */
 #define KS884X_P1VCT_P			0x04F0
 #define KS884X_P1PHYCTRL_P		0x04F2
 
+/* P2VCT */
 #define KS884X_P2VCT_P			0x04F4
 #define KS884X_P2PHYCTRL_P		0x04F6
 
@@ -326,6 +387,7 @@
 #define PHY_POWER_SAVING_DISABLE	0x0004
 #define PHY_REMOTE_LOOPBACK		0x0002
 
+/* SIDER */
 #define KS884X_SIDER_P			0x0400
 #define KS884X_CHIP_ID_OFFSET		KS884X_SIDER_P
 #define KS884X_FAMILY_ID_OFFSET		(KS884X_CHIP_ID_OFFSET + 1)
@@ -352,6 +414,7 @@
 #define CHIP_IP_61_P			0x88D0
 #define CHIP_IP_62_P			0x88C0
 
+/* SGCR1 */
 #define KS8842_SGCR1_P			0x0402
 #define KS8842_SWITCH_CTRL_1_OFFSET	KS8842_SGCR1_P
 
@@ -365,6 +428,7 @@
 #define SWITCH_PASS_PAUSE		0x0008
 #define SWITCH_LINK_AUTO_AGING		0x0001
 
+/* SGCR2 */
 #define KS8842_SGCR2_P			0x0404
 #define KS8842_SWITCH_CTRL_2_OFFSET	KS8842_SGCR2_P
 
@@ -383,6 +447,7 @@
 #define SWITCH_LEGAL_PACKET		0x0002
 #define SWITCH_BUF_RESERVE		0x0001
 
+/* SGCR3 */
 #define KS8842_SGCR3_P			0x0406
 #define KS8842_SWITCH_CTRL_3_OFFSET	KS8842_SGCR3_P
 
@@ -396,8 +461,10 @@
 
 #define BROADCAST_STORM_RATE		0x07FF
 
+/* SGCR4 */
 #define KS8842_SGCR4_P			0x0408
 
+/* SGCR5 */
 #define KS8842_SGCR5_P			0x040A
 #define KS8842_SWITCH_CTRL_5_OFFSET	KS8842_SGCR5_P
 
@@ -406,12 +473,14 @@
 #define LED_SPEED_DUPLEX_LINK_ACT	0x8000
 #define LED_DUPLEX_10_100		0x0200
 
+/* SGCR6 */
 #define KS8842_SGCR6_P			0x0410
 #define KS8842_SWITCH_CTRL_6_OFFSET	KS8842_SGCR6_P
 
 #define KS8842_PRIORITY_MASK		3
 #define KS8842_PRIORITY_SHIFT		2
 
+/* SGCR7 */
 #define KS8842_SGCR7_P			0x0412
 #define KS8842_SWITCH_CTRL_7_OFFSET	KS8842_SGCR7_P
 
@@ -420,6 +489,7 @@
 #define SWITCH_UNK_DEF_PORT_2		0x0002
 #define SWITCH_UNK_DEF_PORT_1		0x0001
 
+/* MACAR1 */
 #define KS8842_MACAR1_P			0x0470
 #define KS8842_MACAR2_P			0x0472
 #define KS8842_MACAR3_P			0x0474
@@ -430,6 +500,7 @@
 #define KS8842_MAC_ADDR_5_OFFSET	KS8842_MACAR3_P
 #define KS8842_MAC_ADDR_4_OFFSET	(KS8842_MAC_ADDR_5_OFFSET + 1)
 
+/* TOSR1 */
 #define KS8842_TOSR1_P			0x0480
 #define KS8842_TOSR2_P			0x0482
 #define KS8842_TOSR3_P			0x0484
@@ -448,6 +519,7 @@
 #define KS8842_TOS_7_OFFSET		KS8842_TOSR7_P
 #define KS8842_TOS_8_OFFSET		KS8842_TOSR8_P
 
+/* P1CR1 */
 #define KS8842_P1CR1_P			0x0500
 #define KS8842_P1CR2_P			0x0502
 #define KS8842_P1VIDR_P			0x0504
@@ -458,6 +530,7 @@
 #define KS884X_P1CR4_P			0x0512
 #define KS884X_P1SR_P			0x0514
 
+/* P2CR1 */
 #define KS8842_P2CR1_P			0x0520
 #define KS8842_P2CR2_P			0x0522
 #define KS8842_P2VIDR_P			0x0524
@@ -468,6 +541,7 @@
 #define KS884X_P2CR4_P			0x0532
 #define KS884X_P2SR_P			0x0534
 
+/* P3CR1 */
 #define KS8842_P3CR1_P			0x0540
 #define KS8842_P3CR2_P			0x0542
 #define KS8842_P3VIDR_P			0x0544
@@ -585,6 +659,14 @@
 #define PORT_REMOTE_10BT_FD		0x0002
 #define PORT_REMOTE_10BT		0x0001
 
+/*
+#define STATIC_MAC_TABLE_ADDR		00-0000FFFF-FFFFFFFF
+#define STATIC_MAC_TABLE_FWD_PORTS	00-00070000-00000000
+#define STATIC_MAC_TABLE_VALID		00-00080000-00000000
+#define STATIC_MAC_TABLE_OVERRIDE	00-00100000-00000000
+#define STATIC_MAC_TABLE_USE_FID	00-00200000-00000000
+#define STATIC_MAC_TABLE_FID		00-03C00000-00000000
+*/
 
 #define STATIC_MAC_TABLE_ADDR		0x0000FFFF
 #define STATIC_MAC_TABLE_FWD_PORTS	0x00070000
@@ -596,6 +678,12 @@
 #define STATIC_MAC_FWD_PORTS_SHIFT	16
 #define STATIC_MAC_FID_SHIFT		22
 
+/*
+#define VLAN_TABLE_VID			00-00000000-00000FFF
+#define VLAN_TABLE_FID			00-00000000-0000F000
+#define VLAN_TABLE_MEMBERSHIP		00-00000000-00070000
+#define VLAN_TABLE_VALID		00-00000000-00080000
+*/
 
 #define VLAN_TABLE_VID			0x00000FFF
 #define VLAN_TABLE_FID			0x0000F000
@@ -605,6 +693,16 @@
 #define VLAN_TABLE_FID_SHIFT		12
 #define VLAN_TABLE_MEMBERSHIP_SHIFT	16
 
+/*
+#define DYNAMIC_MAC_TABLE_ADDR		00-0000FFFF-FFFFFFFF
+#define DYNAMIC_MAC_TABLE_FID		00-000F0000-00000000
+#define DYNAMIC_MAC_TABLE_SRC_PORT	00-00300000-00000000
+#define DYNAMIC_MAC_TABLE_TIMESTAMP	00-00C00000-00000000
+#define DYNAMIC_MAC_TABLE_ENTRIES	03-FF000000-00000000
+#define DYNAMIC_MAC_TABLE_MAC_EMPTY	04-00000000-00000000
+#define DYNAMIC_MAC_TABLE_RESERVED	78-00000000-00000000
+#define DYNAMIC_MAC_TABLE_NOT_READY	80-00000000-00000000
+*/
 
 #define DYNAMIC_MAC_TABLE_ADDR		0x0000FFFF
 #define DYNAMIC_MAC_TABLE_FID		0x000F0000
@@ -623,6 +721,11 @@
 #define DYNAMIC_MAC_ENTRIES_SHIFT	24
 #define DYNAMIC_MAC_ENTRIES_H_SHIFT	8
 
+/*
+#define MIB_COUNTER_VALUE		00-00000000-3FFFFFFF
+#define MIB_COUNTER_VALID		00-00000000-40000000
+#define MIB_COUNTER_OVERFLOW		00-00000000-80000000
+*/
 
 #define MIB_COUNTER_VALUE		0x3FFFFFFF
 #define MIB_COUNTER_VALID		0x40000000
@@ -637,6 +740,7 @@
 #define KS_MIB_PACKET_DROPPED_RX_1	0x104
 #define KS_MIB_PACKET_DROPPED_RX	0x105
 
+/* Change default LED mode. */
 #define SET_DEFAULT_LED			LED_SPEED_DUPLEX_ACT
 
 #define MAC_ADDR_ORDER(i)		(ETH_ALEN - 1 - (i))
@@ -667,15 +771,18 @@ enum {
 
 	OID_COUNTER_FIRST,
 
-	
+	/* total transmit errors */
 	OID_COUNTER_XMIT_ERROR,
 
-	
+	/* total receive errors */
 	OID_COUNTER_RCV_ERROR,
 
 	OID_COUNTER_LAST
 };
 
+/*
+ * Hardware descriptor definitions
+ */
 
 #define DESC_ALIGNMENT			16
 #define BUFFER_ALIGNMENT		8
@@ -830,6 +937,13 @@ union desc_buf {
 	u32 data;
 };
 
+/**
+ * struct ksz_hw_desc - Hardware descriptor data structure
+ * @ctrl:	Descriptor control value.
+ * @buf:	Descriptor buffer value.
+ * @addr:	Physical address of memory buffer.
+ * @next:	Pointer to next hardware descriptor.
+ */
 struct ksz_hw_desc {
 	union desc_stat ctrl;
 	union desc_buf buf;
@@ -837,18 +951,38 @@ struct ksz_hw_desc {
 	u32 next;
 };
 
+/**
+ * struct ksz_sw_desc - Software descriptor data structure
+ * @ctrl:	Descriptor control value.
+ * @buf:	Descriptor buffer value.
+ * @buf_size:	Current buffers size value in hardware descriptor.
+ */
 struct ksz_sw_desc {
 	union desc_stat ctrl;
 	union desc_buf buf;
 	u32 buf_size;
 };
 
+/**
+ * struct ksz_dma_buf - OS dependent DMA buffer data structure
+ * @skb:	Associated socket buffer.
+ * @dma:	Associated physical DMA address.
+ * len:		Actual len used.
+ */
 struct ksz_dma_buf {
 	struct sk_buff *skb;
 	dma_addr_t dma;
 	int len;
 };
 
+/**
+ * struct ksz_desc - Descriptor structure
+ * @phw:	Hardware descriptor pointer to uncached physical memory.
+ * @sw:		Cached memory to hold hardware descriptor values for
+ * 		manipulation.
+ * @dma_buf:	Operating system dependent data structure to hold physical
+ * 		memory buffer allocation information.
+ */
 struct ksz_desc {
 	struct ksz_hw_desc *phw;
 	struct ksz_sw_desc sw;
@@ -857,6 +991,19 @@ struct ksz_desc {
 
 #define DMA_BUFFER(desc)  ((struct ksz_dma_buf *)(&(desc)->dma_buf))
 
+/**
+ * struct ksz_desc_info - Descriptor information data structure
+ * @ring:	First descriptor in the ring.
+ * @cur:	Current descriptor being manipulated.
+ * @ring_virt:	First hardware descriptor in the ring.
+ * @ring_phys:	The physical address of the first descriptor of the ring.
+ * @size:	Size of hardware descriptor.
+ * @alloc:	Number of descriptors allocated.
+ * @avail:	Number of descriptors available for use.
+ * @last:	Index for last descriptor released to hardware.
+ * @next:	Index for next descriptor available for use.
+ * @mask:	Mask for index wrapping.
+ */
 struct ksz_desc_info {
 	struct ksz_desc *ring;
 	struct ksz_desc *cur;
@@ -870,6 +1017,9 @@ struct ksz_desc_info {
 	int mask;
 };
 
+/*
+ * KSZ8842 switch definitions
+ */
 
 enum {
 	TABLE_STATIC_MAC = 0,
@@ -881,6 +1031,16 @@ enum {
 #define LEARNED_MAC_TABLE_ENTRIES	1024
 #define STATIC_MAC_TABLE_ENTRIES	8
 
+/**
+ * struct ksz_mac_table - Static MAC table data structure
+ * @mac_addr:	MAC address to filter.
+ * @vid:	VID value.
+ * @fid:	FID value.
+ * @ports:	Port membership.
+ * @override:	Override setting.
+ * @use_fid:	FID use setting.
+ * @valid:	Valid setting indicating the entry is being used.
+ */
 struct ksz_mac_table {
 	u8 mac_addr[ETH_ALEN];
 	u16 vid;
@@ -893,6 +1053,12 @@ struct ksz_mac_table {
 
 #define VLAN_TABLE_ENTRIES		16
 
+/**
+ * struct ksz_vlan_table - VLAN table data structure
+ * @vid:	VID value.
+ * @fid:	FID value.
+ * @member:	Port membership.
+ */
 struct ksz_vlan_table {
 	u16 vid;
 	u8 fid;
@@ -951,6 +1117,25 @@ struct ksz_vlan_table {
 #define MIB_COUNTER_RX_DROPPED_PACKET	0x20
 #define MIB_COUNTER_TX_DROPPED_PACKET	0x21
 
+/**
+ * struct ksz_port_mib - Port MIB data structure
+ * @cnt_ptr:	Current pointer to MIB counter index.
+ * @link_down:	Indication the link has just gone down.
+ * @state:	Connection status of the port.
+ * @mib_start:	The starting counter index.  Some ports do not start at 0.
+ * @counter:	64-bit MIB counter value.
+ * @dropped:	Temporary buffer to remember last read packet dropped values.
+ *
+ * MIB counters needs to be read periodically so that counters do not get
+ * overflowed and give incorrect values.  A right balance is needed to
+ * satisfy this condition and not waste too much CPU time.
+ *
+ * It is pointless to read MIB counters when the port is disconnected.  The
+ * @state provides the connection status so that MIB counters are read only
+ * when the port is connected.  The @link_down indicates the port is just
+ * disconnected so that all MIB counters are read one last time to update the
+ * information.
+ */
 struct ksz_port_mib {
 	u8 cnt_ptr;
 	u8 link_down;
@@ -961,6 +1146,15 @@ struct ksz_port_mib {
 	u32 dropped[2];
 };
 
+/**
+ * struct ksz_port_cfg - Port configuration data structure
+ * @vid:	VID value.
+ * @member:	Port membership.
+ * @port_prio:	Port priority.
+ * @rx_rate:	Receive priority rate.
+ * @tx_rate:	Transmit priority rate.
+ * @stp_state:	Current Spanning Tree Protocol state.
+ */
 struct ksz_port_cfg {
 	u16 vid;
 	u8 member;
@@ -970,6 +1164,20 @@ struct ksz_port_cfg {
 	int stp_state;
 };
 
+/**
+ * struct ksz_switch - KSZ8842 switch data structure
+ * @mac_table:	MAC table entries information.
+ * @vlan_table:	VLAN table entries information.
+ * @port_cfg:	Port configuration information.
+ * @diffserv:	DiffServ priority settings.  Possible values from 6-bit of ToS
+ * 		(bit7 ~ bit2) field.
+ * @p_802_1p:	802.1P priority settings.  Possible values from 3-bit of 802.1p
+ * 		Tag priority field.
+ * @br_addr:	Bridge address.  Used for STP.
+ * @other_addr:	Other MAC address.  Used for multiple network device mode.
+ * @broad_per:	Broadcast storm percentage.
+ * @member:	Current port membership.  Used for STP.
+ */
 struct ksz_switch {
 	struct ksz_mac_table mac_table[STATIC_MAC_TABLE_ENTRIES];
 	struct ksz_vlan_table vlan_table[VLAN_TABLE_ENTRIES];
@@ -987,6 +1195,16 @@ struct ksz_switch {
 
 #define TX_RATE_UNIT			10000
 
+/**
+ * struct ksz_port_info - Port information data structure
+ * @state:	Connection status of the port.
+ * @tx_rate:	Transmit rate divided by 10000 to get Mbit.
+ * @duplex:	Duplex mode.
+ * @advertised:	Advertised auto-negotiation setting.  Used to determine link.
+ * @partner:	Auto-negotiation partner setting.  Used to determine link.
+ * @port_id:	Port index to access actual hardware register.
+ * @pdev:	Pointer to OS dependent network device.
+ */
 struct ksz_port_info {
 	uint state;
 	uint tx_rate;
@@ -999,15 +1217,55 @@ struct ksz_port_info {
 
 #define MAX_TX_HELD_SIZE		52000
 
+/* Hardware features and bug fixes. */
 #define LINK_INT_WORKING		(1 << 0)
 #define SMALL_PACKET_TX_BUG		(1 << 1)
 #define HALF_DUPLEX_SIGNAL_BUG		(1 << 2)
 #define RX_HUGE_FRAME			(1 << 4)
 #define STP_SUPPORT			(1 << 8)
 
+/* Software overrides. */
 #define PAUSE_FLOW_CTRL			(1 << 0)
 #define FAST_AGING			(1 << 1)
 
+/**
+ * struct ksz_hw - KSZ884X hardware data structure
+ * @io:			Virtual address assigned.
+ * @ksz_switch:		Pointer to KSZ8842 switch.
+ * @port_info:		Port information.
+ * @port_mib:		Port MIB information.
+ * @dev_count:		Number of network devices this hardware supports.
+ * @dst_ports:		Destination ports in switch for transmission.
+ * @id:			Hardware ID.  Used for display only.
+ * @mib_cnt:		Number of MIB counters this hardware has.
+ * @mib_port_cnt:	Number of ports with MIB counters.
+ * @tx_cfg:		Cached transmit control settings.
+ * @rx_cfg:		Cached receive control settings.
+ * @intr_mask:		Current interrupt mask.
+ * @intr_set:		Current interrup set.
+ * @intr_blocked:	Interrupt blocked.
+ * @rx_desc_info:	Receive descriptor information.
+ * @tx_desc_info:	Transmit descriptor information.
+ * @tx_int_cnt:		Transmit interrupt count.  Used for TX optimization.
+ * @tx_int_mask:	Transmit interrupt mask.  Used for TX optimization.
+ * @tx_size:		Transmit data size.  Used for TX optimization.
+ * 			The maximum is defined by MAX_TX_HELD_SIZE.
+ * @perm_addr:		Permanent MAC address.
+ * @override_addr:	Overrided MAC address.
+ * @address:		Additional MAC address entries.
+ * @addr_list_size:	Additional MAC address list size.
+ * @mac_override:	Indication of MAC address overrided.
+ * @promiscuous:	Counter to keep track of promiscuous mode set.
+ * @all_multi:		Counter to keep track of all multicast mode set.
+ * @multi_list:		Multicast address entries.
+ * @multi_bits:		Cached multicast hash table settings.
+ * @multi_list_size:	Multicast address list size.
+ * @enabled:		Indication of hardware enabled.
+ * @rx_stop:		Indication of receive process stop.
+ * @features:		Hardware features to enable.
+ * @overrides:		Hardware features to override.
+ * @parent:		Pointer to parent, network device private structure.
+ */
 struct ksz_hw {
 	void __iomem *io;
 
@@ -1061,6 +1319,26 @@ enum {
 	PHY_RX_ONLY
 };
 
+/**
+ * struct ksz_port - Virtual port data structure
+ * @duplex:		Duplex mode setting.  1 for half duplex, 2 for full
+ * 			duplex, and 0 for auto, which normally results in full
+ * 			duplex.
+ * @speed:		Speed setting.  10 for 10 Mbit, 100 for 100 Mbit, and
+ * 			0 for auto, which normally results in 100 Mbit.
+ * @force_link:		Force link setting.  0 for auto-negotiation, and 1 for
+ * 			force.
+ * @flow_ctrl:		Flow control setting.  PHY_NO_FLOW_CTRL for no flow
+ * 			control, and PHY_FLOW_CTRL for flow control.
+ * 			PHY_TX_ONLY and PHY_RX_ONLY are not supported for 100
+ * 			Mbit PHY.
+ * @first_port:		Index of first port this port supports.
+ * @mib_port_cnt:	Number of ports with MIB counters.
+ * @port_cnt:		Number of ports this port supports.
+ * @counter:		Port statistics counter.
+ * @hw:			Pointer to hardware structure.
+ * @linked:		Pointer to port information linked to this port.
+ */
 struct ksz_port {
 	u8 duplex;
 	u8 speed;
@@ -1076,6 +1354,13 @@ struct ksz_port {
 	struct ksz_port_info *linked;
 };
 
+/**
+ * struct ksz_timer_info - Timer information data structure
+ * @timer:	Kernel timer.
+ * @cnt:	Running timer counter.
+ * @max:	Number of times to run timer; -1 for infinity.
+ * @period:	Timer period in jiffies.
+ */
 struct ksz_timer_info {
 	struct timer_list timer;
 	int cnt;
@@ -1083,6 +1368,14 @@ struct ksz_timer_info {
 	int period;
 };
 
+/**
+ * struct ksz_shared_mem - OS dependent shared memory data structure
+ * @dma_addr:	Physical DMA address allocated.
+ * @alloc_size:	Allocation size.
+ * @phys:	Actual physical address used.
+ * @alloc_virt:	Virtual address allocated.
+ * @virt:	Actual virtual address used.
+ */
 struct ksz_shared_mem {
 	dma_addr_t dma_addr;
 	uint alloc_size;
@@ -1091,12 +1384,42 @@ struct ksz_shared_mem {
 	u8 *virt;
 };
 
+/**
+ * struct ksz_counter_info - OS dependent counter information data structure
+ * @counter:	Wait queue to wakeup after counters are read.
+ * @time:	Next time in jiffies to read counter.
+ * @read:	Indication of counters read in full or not.
+ */
 struct ksz_counter_info {
 	wait_queue_head_t counter;
 	unsigned long time;
 	int read;
 };
 
+/**
+ * struct dev_info - Network device information data structure
+ * @dev:		Pointer to network device.
+ * @pdev:		Pointer to PCI device.
+ * @hw:			Hardware structure.
+ * @desc_pool:		Physical memory used for descriptor pool.
+ * @hwlock:		Spinlock to prevent hardware from accessing.
+ * @lock:		Mutex lock to prevent device from accessing.
+ * @dev_rcv:		Receive process function used.
+ * @last_skb:		Socket buffer allocated for descriptor rx fragments.
+ * @skb_index:		Buffer index for receiving fragments.
+ * @skb_len:		Buffer length for receiving fragments.
+ * @mib_read:		Workqueue to read MIB counters.
+ * @mib_timer_info:	Timer to read MIB counters.
+ * @counter:		Used for MIB reading.
+ * @mtu:		Current MTU used.  The default is REGULAR_RX_BUF_SIZE;
+ * 			the maximum is MAX_RX_BUF_SIZE.
+ * @opened:		Counter to keep track of device open.
+ * @rx_tasklet:		Receive processing tasklet.
+ * @tx_tasklet:		Transmit processing tasklet.
+ * @wol_enable:		Wake-on-LAN enable set by ethtool.
+ * @wol_support:	Wake-on-LAN support used by ethtool.
+ * @pme_wait:		Used for KSZ8841 power management.
+ */
 struct dev_info {
 	struct net_device *dev;
 	struct pci_dev *pdev;
@@ -1128,6 +1451,20 @@ struct dev_info {
 	unsigned long pme_wait;
 };
 
+/**
+ * struct dev_priv - Network device private data structure
+ * @adapter:		Adapter device information.
+ * @port:		Port information.
+ * @monitor_time_info:	Timer to monitor ports.
+ * @proc_sem:		Semaphore for proc accessing.
+ * @id:			Device ID.
+ * @mii_if:		MII interface information.
+ * @advertising:	Temporary variable to store advertised settings.
+ * @msg_enable:		The message flags controlling driver output.
+ * @media_state:	The connection status of the device.
+ * @multicast:		The all multicast state of the device.
+ * @promiscuous:	The promiscuous state of the device.
+ */
 struct dev_priv {
 	struct dev_info *adapter;
 	struct ksz_port port;
@@ -1155,6 +1492,9 @@ static char version[] __devinitdata =
 
 static u8 DEFAULT_MAC_ADDRESS[] = { 0x00, 0x10, 0xA1, 0x88, 0x42, 0x01 };
 
+/*
+ * Interrupt processing primary routines
+ */
 
 static inline void hw_ack_intr(struct ksz_hw *hw, uint interrupt)
 {
@@ -1195,6 +1535,14 @@ static inline void hw_turn_off_intr(struct ksz_hw *hw, uint interrupt)
 	hw_dis_intr_bit(hw, interrupt);
 }
 
+/**
+ * hw_turn_on_intr - turn on specified interrupts
+ * @hw: 	The hardware instance.
+ * @bit:	The interrupt bits to be on.
+ *
+ * This routine turns on the specified interrupts in the interrupt mask so that
+ * those interrupts will be enabled.
+ */
 static void hw_turn_on_intr(struct ksz_hw *hw, u32 bit)
 {
 	hw->intr_mask |= bit;
@@ -1224,6 +1572,14 @@ static inline void hw_restore_intr(struct ksz_hw *hw, uint interrupt)
 		hw_ena_intr(hw);
 }
 
+/**
+ * hw_block_intr - block hardware interrupts
+ *
+ * This function blocks all interrupts of the hardware and returns the current
+ * interrupt enable mask so that interrupts can be restored later.
+ *
+ * Return the current interrupt enable mask.
+ */
 static uint hw_block_intr(struct ksz_hw *hw)
 {
 	uint interrupt = 0;
@@ -1235,6 +1591,9 @@ static uint hw_block_intr(struct ksz_hw *hw)
 	return interrupt;
 }
 
+/*
+ * Hardware descriptor routines
+ */
 
 static inline void reset_desc(struct ksz_desc *desc, union desc_stat status)
 {
@@ -1291,6 +1650,7 @@ static inline void set_tx_len(struct ksz_desc *desc, u32 len)
 	desc->sw.buf.tx.buf_size = len;
 }
 
+/* Switch functions */
 
 #define TABLE_READ			0x10
 #define TABLE_SEL_SHIFT			2
@@ -1301,6 +1661,16 @@ static inline void set_tx_len(struct ksz_desc *desc, u32 len)
 		dummy = readw(hw->io + reg);	\
 	} while (0)
 
+/**
+ * sw_r_table - read 4 bytes of data from switch table
+ * @hw:		The hardware instance.
+ * @table:	The table selector.
+ * @addr:	The address of the table entry.
+ * @data:	Buffer to store the read data.
+ *
+ * This routine reads 4 bytes of data from the table of the switch.
+ * Hardware interrupts are disabled to minimize corruption of read data.
+ */
 static void sw_r_table(struct ksz_hw *hw, int table, u16 addr, u32 *data)
 {
 	u16 ctrl_addr;
@@ -1347,6 +1717,20 @@ static void sw_w_table_64(struct ksz_hw *hw, int table, u16 addr, u32 data_hi,
 	hw_restore_intr(hw, interrupt);
 }
 
+/**
+ * sw_w_sta_mac_table - write to the static MAC table
+ * @hw: 	The hardware instance.
+ * @addr:	The address of the table entry.
+ * @mac_addr:	The MAC address.
+ * @ports:	The port members.
+ * @override:	The flag to override the port receive/transmit settings.
+ * @valid:	The flag to indicate entry is valid.
+ * @use_fid:	The flag to indicate the FID is valid.
+ * @fid:	The FID value.
+ *
+ * This routine writes an entry of the static MAC table of the switch.  It
+ * calls sw_w_table_64() to write the data.
+ */
 static void sw_w_sta_mac_table(struct ksz_hw *hw, u16 addr, u8 *mac_addr,
 	u8 ports, int override, int valid, int use_fid, u8 fid)
 {
@@ -1371,6 +1755,19 @@ static void sw_w_sta_mac_table(struct ksz_hw *hw, u16 addr, u8 *mac_addr,
 	sw_w_table_64(hw, TABLE_STATIC_MAC, addr, data_hi, data_lo);
 }
 
+/**
+ * sw_r_vlan_table - read from the VLAN table
+ * @hw: 	The hardware instance.
+ * @addr:	The address of the table entry.
+ * @vid:	Buffer to store the VID.
+ * @fid:	Buffer to store the VID.
+ * @member:	Buffer to store the port membership.
+ *
+ * This function reads an entry of the VLAN table of the switch.  It calls
+ * sw_r_table() to get the data.
+ *
+ * Return 0 if the entry is valid; otherwise -1.
+ */
 static int sw_r_vlan_table(struct ksz_hw *hw, u16 addr, u16 *vid, u8 *fid,
 	u8 *member)
 {
@@ -1387,6 +1784,16 @@ static int sw_r_vlan_table(struct ksz_hw *hw, u16 addr, u16 *vid, u8 *fid,
 	return -1;
 }
 
+/**
+ * port_r_mib_cnt - read MIB counter
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @addr:	The address of the counter.
+ * @cnt:	Buffer to store the counter.
+ *
+ * This routine reads a MIB counter of the port.
+ * Hardware interrupts are disabled to minimize corruption of read data.
+ */
 static void port_r_mib_cnt(struct ksz_hw *hw, int port, u16 addr, u64 *cnt)
 {
 	u32 data;
@@ -1416,6 +1823,15 @@ static void port_r_mib_cnt(struct ksz_hw *hw, int port, u16 addr, u64 *cnt)
 	hw_restore_intr(hw, interrupt);
 }
 
+/**
+ * port_r_mib_pkt - read dropped packet counts
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @cnt:	Buffer to store the receive and transmit dropped packet counts.
+ *
+ * This routine reads the dropped packet counts of the port.
+ * Hardware interrupts are disabled to minimize corruption of read data.
+ */
 static void port_r_mib_pkt(struct ksz_hw *hw, int port, u32 *last, u64 *cnt)
 {
 	u32 cur;
@@ -1453,6 +1869,17 @@ static void port_r_mib_pkt(struct ksz_hw *hw, int port, u32 *last, u64 *cnt)
 	} while (index >= KS_MIB_PACKET_DROPPED_TX_0 + port);
 }
 
+/**
+ * port_r_cnt - read MIB counters periodically
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine is used to read the counters of the port periodically to avoid
+ * counter overflow.  The hardware should be acquired first before calling this
+ * routine.
+ *
+ * Return non-zero when not all counters not read.
+ */
 static int port_r_cnt(struct ksz_hw *hw, int port)
 {
 	struct ksz_port_mib *mib = &hw->port_mib[port];
@@ -1470,6 +1897,14 @@ static int port_r_cnt(struct ksz_hw *hw, int port)
 	return 0;
 }
 
+/**
+ * port_init_cnt - initialize MIB counter values
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine is used to initialize all counters to zero if the hardware
+ * cannot do it after reset.
+ */
 static void port_init_cnt(struct ksz_hw *hw, int port)
 {
 	struct ksz_port_mib *mib = &hw->port_mib[port];
@@ -1488,7 +1923,22 @@ static void port_init_cnt(struct ksz_hw *hw, int port)
 	mib->cnt_ptr = 0;
 }
 
+/*
+ * Port functions
+ */
 
+/**
+ * port_chk - check port register bits
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @offset:	The offset of the port register.
+ * @bits:	The data bits to check.
+ *
+ * This function checks whether the specified bits of the port register are set
+ * or not.
+ *
+ * Return 0 if the bits are not set.
+ */
 static int port_chk(struct ksz_hw *hw, int port, int offset, u16 bits)
 {
 	u32 addr;
@@ -1500,6 +1950,16 @@ static int port_chk(struct ksz_hw *hw, int port, int offset, u16 bits)
 	return (data & bits) == bits;
 }
 
+/**
+ * port_cfg - set port register bits
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @offset:	The offset of the port register.
+ * @bits:	The data bits to set.
+ * @set:	The flag indicating whether the bits are to be set or not.
+ *
+ * This routine sets or resets the specified bits of the port register.
+ */
 static void port_cfg(struct ksz_hw *hw, int port, int offset, u16 bits,
 	int set)
 {
@@ -1516,6 +1976,18 @@ static void port_cfg(struct ksz_hw *hw, int port, int offset, u16 bits,
 	writew(data, hw->io + addr);
 }
 
+/**
+ * port_chk_shift - check port bit
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @offset:	The offset of the register.
+ * @shift:	Number of bits to shift.
+ *
+ * This function checks whether the specified port is set in the register or
+ * not.
+ *
+ * Return 0 if the port is not set.
+ */
 static int port_chk_shift(struct ksz_hw *hw, int port, u32 addr, int shift)
 {
 	u16 data;
@@ -1526,6 +1998,16 @@ static int port_chk_shift(struct ksz_hw *hw, int port, u32 addr, int shift)
 	return (data & bit) == bit;
 }
 
+/**
+ * port_cfg_shift - set port bit
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @offset:	The offset of the register.
+ * @shift:	Number of bits to shift.
+ * @set:	The flag indicating whether the port is to be set or not.
+ *
+ * This routine sets or resets the specified port in the register.
+ */
 static void port_cfg_shift(struct ksz_hw *hw, int port, u32 addr, int shift,
 	int set)
 {
@@ -1541,6 +2023,15 @@ static void port_cfg_shift(struct ksz_hw *hw, int port, u32 addr, int shift,
 	writew(data, hw->io + addr);
 }
 
+/**
+ * port_r8 - read byte from port register
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @offset:	The offset of the port register.
+ * @data:	Buffer to store the data.
+ *
+ * This routine reads a byte from the port register.
+ */
 static void port_r8(struct ksz_hw *hw, int port, int offset, u8 *data)
 {
 	u32 addr;
@@ -1550,6 +2041,15 @@ static void port_r8(struct ksz_hw *hw, int port, int offset, u8 *data)
 	*data = readb(hw->io + addr);
 }
 
+/**
+ * port_r16 - read word from port register.
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @offset:	The offset of the port register.
+ * @data:	Buffer to store the data.
+ *
+ * This routine reads a word from the port register.
+ */
 static void port_r16(struct ksz_hw *hw, int port, int offset, u16 *data)
 {
 	u32 addr;
@@ -1559,6 +2059,15 @@ static void port_r16(struct ksz_hw *hw, int port, int offset, u16 *data)
 	*data = readw(hw->io + addr);
 }
 
+/**
+ * port_w16 - write word to port register.
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @offset:	The offset of the port register.
+ * @data:	Data to write.
+ *
+ * This routine writes a word to the port register.
+ */
 static void port_w16(struct ksz_hw *hw, int port, int offset, u16 data)
 {
 	u32 addr;
@@ -1568,6 +2077,17 @@ static void port_w16(struct ksz_hw *hw, int port, int offset, u16 data)
 	writew(data, hw->io + addr);
 }
 
+/**
+ * sw_chk - check switch register bits
+ * @hw: 	The hardware instance.
+ * @addr:	The address of the switch register.
+ * @bits:	The data bits to check.
+ *
+ * This function checks whether the specified bits of the switch register are
+ * set or not.
+ *
+ * Return 0 if the bits are not set.
+ */
 static int sw_chk(struct ksz_hw *hw, u32 addr, u16 bits)
 {
 	u16 data;
@@ -1576,6 +2096,15 @@ static int sw_chk(struct ksz_hw *hw, u32 addr, u16 bits)
 	return (data & bits) == bits;
 }
 
+/**
+ * sw_cfg - set switch register bits
+ * @hw: 	The hardware instance.
+ * @addr:	The address of the switch register.
+ * @bits:	The data bits to set.
+ * @set:	The flag indicating whether the bits are to be set or not.
+ *
+ * This function sets or resets the specified bits of the switch register.
+ */
 static void sw_cfg(struct ksz_hw *hw, u32 addr, u16 bits, int set)
 {
 	u16 data;
@@ -1588,6 +2117,7 @@ static void sw_cfg(struct ksz_hw *hw, u32 addr, u16 bits, int set)
 	writew(data, hw->io + addr);
 }
 
+/* Bandwidth */
 
 static inline void port_cfg_broad_storm(struct ksz_hw *hw, int p, int set)
 {
@@ -1601,10 +2131,19 @@ static inline int port_chk_broad_storm(struct ksz_hw *hw, int p)
 		KS8842_PORT_CTRL_1_OFFSET, PORT_BROADCAST_STORM);
 }
 
+/* Driver set switch broadcast storm protection at 10% rate. */
 #define BROADCAST_STORM_PROTECTION_RATE	10
 
+/* 148,800 frames * 67 ms / 100 */
 #define BROADCAST_STORM_VALUE		9969
 
+/**
+ * sw_cfg_broad_storm - configure broadcast storm threshold
+ * @hw: 	The hardware instance.
+ * @percent:	Broadcast storm threshold in percent of transmit rate.
+ *
+ * This routine configures the broadcast storm threshold of the switch.
+ */
 static void sw_cfg_broad_storm(struct ksz_hw *hw, u8 percent)
 {
 	u16 data;
@@ -1619,6 +2158,13 @@ static void sw_cfg_broad_storm(struct ksz_hw *hw, u8 percent)
 	writew(data, hw->io + KS8842_SWITCH_CTRL_3_OFFSET);
 }
 
+/**
+ * sw_get_board_storm - get broadcast storm threshold
+ * @hw: 	The hardware instance.
+ * @percent:	Buffer to store the broadcast storm threshold percentage.
+ *
+ * This routine retrieves the broadcast storm threshold of the switch.
+ */
 static void sw_get_broad_storm(struct ksz_hw *hw, u8 *percent)
 {
 	int num;
@@ -1632,17 +2178,37 @@ static void sw_get_broad_storm(struct ksz_hw *hw, u8 *percent)
 	*percent = (u8) num;
 }
 
+/**
+ * sw_dis_broad_storm - disable broadstorm
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine disables the broadcast storm limit function of the switch.
+ */
 static void sw_dis_broad_storm(struct ksz_hw *hw, int port)
 {
 	port_cfg_broad_storm(hw, port, 0);
 }
 
+/**
+ * sw_ena_broad_storm - enable broadcast storm
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine enables the broadcast storm limit function of the switch.
+ */
 static void sw_ena_broad_storm(struct ksz_hw *hw, int port)
 {
 	sw_cfg_broad_storm(hw, hw->ksz_switch->broad_per);
 	port_cfg_broad_storm(hw, port, 1);
 }
 
+/**
+ * sw_init_broad_storm - initialize broadcast storm
+ * @hw: 	The hardware instance.
+ *
+ * This routine initializes the broadcast storm limit function of the switch.
+ */
 static void sw_init_broad_storm(struct ksz_hw *hw)
 {
 	int port;
@@ -1654,6 +2220,14 @@ static void sw_init_broad_storm(struct ksz_hw *hw)
 	sw_cfg(hw, KS8842_SWITCH_CTRL_2_OFFSET, MULTICAST_STORM_DISABLE, 1);
 }
 
+/**
+ * hw_cfg_broad_storm - configure broadcast storm
+ * @hw: 	The hardware instance.
+ * @percent:	Broadcast storm threshold in percent of transmit rate.
+ *
+ * This routine configures the broadcast storm threshold of the switch.
+ * It is called by user functions.  The hardware should be acquired first.
+ */
 static void hw_cfg_broad_storm(struct ksz_hw *hw, u8 percent)
 {
 	if (percent > 100)
@@ -1664,6 +2238,13 @@ static void hw_cfg_broad_storm(struct ksz_hw *hw, u8 percent)
 	hw->ksz_switch->broad_per = percent;
 }
 
+/**
+ * sw_dis_prio_rate - disable switch priority rate
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine disables the priority rate function of the switch.
+ */
 static void sw_dis_prio_rate(struct ksz_hw *hw, int port)
 {
 	u32 addr;
@@ -1673,6 +2254,12 @@ static void sw_dis_prio_rate(struct ksz_hw *hw, int port)
 	writel(0, hw->io + addr);
 }
 
+/**
+ * sw_init_prio_rate - initialize switch prioirty rate
+ * @hw: 	The hardware instance.
+ *
+ * This routine initializes the priority rate function of the switch.
+ */
 static void sw_init_prio_rate(struct ksz_hw *hw)
 {
 	int port;
@@ -1688,6 +2275,7 @@ static void sw_init_prio_rate(struct ksz_hw *hw)
 	}
 }
 
+/* Communication */
 
 static inline void port_cfg_back_pressure(struct ksz_hw *hw, int p, int set)
 {
@@ -1713,6 +2301,7 @@ static inline int port_chk_force_flow_ctrl(struct ksz_hw *hw, int p)
 		KS8842_PORT_CTRL_2_OFFSET, PORT_FORCE_FLOW_CTRL);
 }
 
+/* Spanning Tree */
 
 static inline void port_cfg_dis_learn(struct ksz_hw *hw, int p, int set)
 {
@@ -1746,6 +2335,7 @@ static inline void sw_flush_dyn_mac_table(struct ksz_hw *hw)
 	}
 }
 
+/* VLAN */
 
 static inline void port_cfg_ins_tag(struct ksz_hw *hw, int p, int insert)
 {
@@ -1795,6 +2385,7 @@ static inline int port_chk_in_filter(struct ksz_hw *hw, int p)
 		KS8842_PORT_CTRL_2_OFFSET, PORT_INGRESS_VLAN_FILTER);
 }
 
+/* Mirroring */
 
 static inline void port_cfg_mirror_sniffer(struct ksz_hw *hw, int p, int set)
 {
@@ -1853,6 +2444,7 @@ static inline int sw_chk_unk_def_port(struct ksz_hw *hw, int port)
 	return port_chk_shift(hw, port, KS8842_SWITCH_CTRL_7_OFFSET, 0);
 }
 
+/* Priority */
 
 static inline void port_cfg_diffserv(struct ksz_hw *hw, int p, int set)
 {
@@ -1902,26 +2494,65 @@ static inline int port_chk_prio(struct ksz_hw *hw, int p)
 		KS8842_PORT_CTRL_1_OFFSET, PORT_PRIO_QUEUE_ENABLE);
 }
 
+/**
+ * sw_dis_diffserv - disable switch DiffServ priority
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine disables the DiffServ priority function of the switch.
+ */
 static void sw_dis_diffserv(struct ksz_hw *hw, int port)
 {
 	port_cfg_diffserv(hw, port, 0);
 }
 
+/**
+ * sw_dis_802_1p - disable switch 802.1p priority
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine disables the 802.1p priority function of the switch.
+ */
 static void sw_dis_802_1p(struct ksz_hw *hw, int port)
 {
 	port_cfg_802_1p(hw, port, 0);
 }
 
+/**
+ * sw_cfg_replace_null_vid -
+ * @hw: 	The hardware instance.
+ * @set:	The flag to disable or enable.
+ *
+ */
 static void sw_cfg_replace_null_vid(struct ksz_hw *hw, int set)
 {
 	sw_cfg(hw, KS8842_SWITCH_CTRL_3_OFFSET, SWITCH_REPLACE_NULL_VID, set);
 }
 
+/**
+ * sw_cfg_replace_vid - enable switch 802.10 priority re-mapping
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @set:	The flag to disable or enable.
+ *
+ * This routine enables the 802.1p priority re-mapping function of the switch.
+ * That allows 802.1p priority field to be replaced with the port's default
+ * tag's priority value if the ingress packet's 802.1p priority has a higher
+ * priority than port's default tag's priority.
+ */
 static void sw_cfg_replace_vid(struct ksz_hw *hw, int port, int set)
 {
 	port_cfg_replace_vid(hw, port, set);
 }
 
+/**
+ * sw_cfg_port_based - configure switch port based priority
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @prio:	The priority to set.
+ *
+ * This routine configures the port based priority of the switch.
+ */
 static void sw_cfg_port_based(struct ksz_hw *hw, int port, u8 prio)
 {
 	u16 data;
@@ -1937,17 +2568,35 @@ static void sw_cfg_port_based(struct ksz_hw *hw, int port, u8 prio)
 	port_w16(hw, port, KS8842_PORT_CTRL_1_OFFSET, data);
 }
 
+/**
+ * sw_dis_multi_queue - disable transmit multiple queues
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ *
+ * This routine disables the transmit multiple queues selection of the switch
+ * port.  Only single transmit queue on the port.
+ */
 static void sw_dis_multi_queue(struct ksz_hw *hw, int port)
 {
 	port_cfg_prio(hw, port, 0);
 }
 
+/**
+ * sw_init_prio - initialize switch priority
+ * @hw: 	The hardware instance.
+ *
+ * This routine initializes the switch QoS priority functions.
+ */
 static void sw_init_prio(struct ksz_hw *hw)
 {
 	int port;
 	int tos;
 	struct ksz_switch *sw = hw->ksz_switch;
 
+	/*
+	 * Init all the 802.1p tag priority value to be assigned to different
+	 * priority queue.
+	 */
 	sw->p_802_1p[0] = 0;
 	sw->p_802_1p[1] = 0;
 	sw->p_802_1p[2] = 1;
@@ -1957,10 +2606,14 @@ static void sw_init_prio(struct ksz_hw *hw)
 	sw->p_802_1p[6] = 3;
 	sw->p_802_1p[7] = 3;
 
+	/*
+	 * Init all the DiffServ priority value to be assigned to priority
+	 * queue 0.
+	 */
 	for (tos = 0; tos < DIFFSERV_ENTRIES; tos++)
 		sw->diffserv[tos] = 0;
 
-	
+	/* All QoS functions disabled. */
 	for (port = 0; port < TOTAL_PORT_NUM; port++) {
 		sw_dis_multi_queue(hw, port);
 		sw_dis_diffserv(hw, port);
@@ -1973,6 +2626,14 @@ static void sw_init_prio(struct ksz_hw *hw)
 	sw_cfg_replace_null_vid(hw, 0);
 }
 
+/**
+ * port_get_def_vid - get port default VID.
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @vid:	Buffer to store the VID.
+ *
+ * This routine retrieves the default VID of the port.
+ */
 static void port_get_def_vid(struct ksz_hw *hw, int port, u16 *vid)
 {
 	u32 addr;
@@ -1982,13 +2643,19 @@ static void port_get_def_vid(struct ksz_hw *hw, int port, u16 *vid)
 	*vid = readw(hw->io + addr);
 }
 
+/**
+ * sw_init_vlan - initialize switch VLAN
+ * @hw: 	The hardware instance.
+ *
+ * This routine initializes the VLAN function of the switch.
+ */
 static void sw_init_vlan(struct ksz_hw *hw)
 {
 	int port;
 	int entry;
 	struct ksz_switch *sw = hw->ksz_switch;
 
-	
+	/* Read 16 VLAN entries from device's VLAN table. */
 	for (entry = 0; entry < VLAN_TABLE_ENTRIES; entry++) {
 		sw_r_vlan_table(hw, entry,
 			&sw->vlan_table[entry].vid,
@@ -2002,6 +2669,14 @@ static void sw_init_vlan(struct ksz_hw *hw)
 	}
 }
 
+/**
+ * sw_cfg_port_base_vlan - configure port-based VLAN membership
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @member:	The port-based VLAN membership.
+ *
+ * This routine configures the port-based VLAN membership of the port.
+ */
 static void sw_cfg_port_base_vlan(struct ksz_hw *hw, int port, u8 member)
 {
 	u32 addr;
@@ -2018,6 +2693,13 @@ static void sw_cfg_port_base_vlan(struct ksz_hw *hw, int port, u8 member)
 	hw->ksz_switch->port_cfg[port].member = member;
 }
 
+/**
+ * sw_get_addr - get the switch MAC address.
+ * @hw: 	The hardware instance.
+ * @mac_addr:	Buffer to store the MAC address.
+ *
+ * This function retrieves the MAC address of the switch.
+ */
 static inline void sw_get_addr(struct ksz_hw *hw, u8 *mac_addr)
 {
 	int i;
@@ -2028,6 +2710,13 @@ static inline void sw_get_addr(struct ksz_hw *hw, u8 *mac_addr)
 	}
 }
 
+/**
+ * sw_set_addr - configure switch MAC address
+ * @hw: 	The hardware instance.
+ * @mac_addr:	The MAC address.
+ *
+ * This function configures the MAC address of the switch.
+ */
 static void sw_set_addr(struct ksz_hw *hw, u8 *mac_addr)
 {
 	int i;
@@ -2038,21 +2727,27 @@ static void sw_set_addr(struct ksz_hw *hw, u8 *mac_addr)
 	}
 }
 
+/**
+ * sw_set_global_ctrl - set switch global control
+ * @hw: 	The hardware instance.
+ *
+ * This routine sets the global control of the switch function.
+ */
 static void sw_set_global_ctrl(struct ksz_hw *hw)
 {
 	u16 data;
 
-	
+	/* Enable switch MII flow control. */
 	data = readw(hw->io + KS8842_SWITCH_CTRL_3_OFFSET);
 	data |= SWITCH_FLOW_CTRL;
 	writew(data, hw->io + KS8842_SWITCH_CTRL_3_OFFSET);
 
 	data = readw(hw->io + KS8842_SWITCH_CTRL_1_OFFSET);
 
-	
+	/* Enable aggressive back off algorithm in half duplex mode. */
 	data |= SWITCH_AGGR_BACKOFF;
 
-	
+	/* Enable automatic fast aging when link changed detected. */
 	data |= SWITCH_AGING_ENABLE;
 	data |= SWITCH_LINK_AUTO_AGING;
 
@@ -2064,7 +2759,7 @@ static void sw_set_global_ctrl(struct ksz_hw *hw)
 
 	data = readw(hw->io + KS8842_SWITCH_CTRL_2_OFFSET);
 
-	
+	/* Enable no excessive collision drop. */
 	data |= NO_EXC_COLLISION_DROP;
 	writew(data, hw->io + KS8842_SWITCH_CTRL_2_OFFSET);
 }
@@ -2078,6 +2773,14 @@ enum {
 	STP_STATE_SIMPLE
 };
 
+/**
+ * port_set_stp_state - configure port spanning tree state
+ * @hw: 	The hardware instance.
+ * @port:	The port index.
+ * @state:	The spanning tree state.
+ *
+ * This routine configures the spanning tree state of the port.
+ */
 static void port_set_stp_state(struct ksz_hw *hw, int port, int state)
 {
 	u16 data;
@@ -2089,6 +2792,10 @@ static void port_set_stp_state(struct ksz_hw *hw, int port, int state)
 		data |= PORT_LEARN_DISABLE;
 		break;
 	case STP_STATE_LISTENING:
+/*
+ * No need to turn on transmit because of port direct mode.
+ * Turning on receive is required if static MAC table is not setup.
+ */
 		data &= ~PORT_TX_ENABLE;
 		data |= PORT_RX_ENABLE;
 		data |= PORT_LEARN_DISABLE;
@@ -2103,6 +2810,10 @@ static void port_set_stp_state(struct ksz_hw *hw, int port, int state)
 		data &= ~PORT_LEARN_DISABLE;
 		break;
 	case STP_STATE_BLOCKED:
+/*
+ * Need to setup static MAC table with override to keep receiving BPDU
+ * messages.  See sw_init_stp routine.
+ */
 		data &= ~(PORT_TX_ENABLE | PORT_RX_ENABLE);
 		data |= PORT_LEARN_DISABLE;
 		break;
@@ -2120,6 +2831,12 @@ static void port_set_stp_state(struct ksz_hw *hw, int port, int state)
 #define BRIDGE_ADDR_ENTRY		2
 #define IPV6_ADDR_ENTRY			3
 
+/**
+ * sw_clr_sta_mac_table - clear static MAC table
+ * @hw: 	The hardware instance.
+ *
+ * This routine clears the static MAC table.
+ */
 static void sw_clr_sta_mac_table(struct ksz_hw *hw)
 {
 	struct ksz_mac_table *entry;
@@ -2134,6 +2851,12 @@ static void sw_clr_sta_mac_table(struct ksz_hw *hw)
 	}
 }
 
+/**
+ * sw_init_stp - initialize switch spanning tree support
+ * @hw: 	The hardware instance.
+ *
+ * This routine initializes the spanning tree support of the switch.
+ */
 static void sw_init_stp(struct ksz_hw *hw)
 {
 	struct ksz_mac_table *entry;
@@ -2154,6 +2877,12 @@ static void sw_init_stp(struct ksz_hw *hw)
 		entry->use_fid, entry->fid);
 }
 
+/**
+ * sw_block_addr - block certain packets from the host port
+ * @hw: 	The hardware instance.
+ *
+ * This routine blocks certain packets from reaching to the host port.
+ */
 static void sw_block_addr(struct ksz_hw *hw)
 {
 	struct ksz_mac_table *entry;
@@ -2238,6 +2967,15 @@ static inline void hw_w_phy_link_md(struct ksz_hw *hw, int phy, u16 data)
 	writew(data, hw->io + phy + KS884X_PHY_LINK_MD_OFFSET);
 }
 
+/**
+ * hw_r_phy - read data from PHY register
+ * @hw: 	The hardware instance.
+ * @port:	Port to read.
+ * @reg:	PHY register to read.
+ * @val:	Buffer to store the read data.
+ *
+ * This routine reads data from the PHY register.
+ */
 static void hw_r_phy(struct ksz_hw *hw, int port, u16 reg, u16 *val)
 {
 	int phy;
@@ -2246,6 +2984,15 @@ static void hw_r_phy(struct ksz_hw *hw, int port, u16 reg, u16 *val)
 	*val = readw(hw->io + phy);
 }
 
+/**
+ * port_w_phy - write data to PHY register
+ * @hw: 	The hardware instance.
+ * @port:	Port to write.
+ * @reg:	PHY register to write.
+ * @val:	Word data to write.
+ *
+ * This routine writes data to the PHY register.
+ */
 static void hw_w_phy(struct ksz_hw *hw, int port, u16 reg, u16 val)
 {
 	int phy;
@@ -2254,6 +3001,9 @@ static void hw_w_phy(struct ksz_hw *hw, int port, u16 reg, u16 val)
 	writew(val, hw->io + phy);
 }
 
+/*
+ * EEPROM access functions
+ */
 
 #define AT93C_CODE			0
 #define AT93C_WR_OFF			0x00
@@ -2333,18 +3083,18 @@ static void spi_reg(struct ksz_hw *hw, u8 data, u8 reg)
 {
 	int i;
 
-	
+	/* Initial start bit */
 	raise_gpio(hw, EEPROM_DATA_OUT);
 	eeprom_clk(hw);
 
-	
+	/* AT93C operation */
 	for (i = 1; i >= 0; i--) {
 		(data & (0x01 << i)) ? raise_gpio(hw, EEPROM_DATA_OUT) :
 			drop_gpio(hw, EEPROM_DATA_OUT);
 		eeprom_clk(hw);
 	}
 
-	
+	/* Address location */
 	for (i = 5; i >= 0; i--) {
 		(reg & (0x01 << i)) ? raise_gpio(hw, EEPROM_DATA_OUT) :
 			drop_gpio(hw, EEPROM_DATA_OUT);
@@ -2360,8 +3110,18 @@ static void spi_reg(struct ksz_hw *hw, u8 data, u8 reg)
 #define EEPROM_DATA_SUBSYS_VEN_ID	5
 #define EEPROM_DATA_PM_CAP		6
 
+/* User defined EEPROM data */
 #define EEPROM_DATA_OTHER_MAC_ADDR	9
 
+/**
+ * eeprom_read - read from AT93C46 EEPROM
+ * @hw: 	The hardware instance.
+ * @reg:	The register offset.
+ *
+ * This function reads a word from the AT93C46 EEPROM.
+ *
+ * Return the data value.
+ */
 static u16 eeprom_read(struct ksz_hw *hw, u8 reg)
 {
 	u16 data;
@@ -2376,24 +3136,32 @@ static u16 eeprom_read(struct ksz_hw *hw, u8 reg)
 	return data;
 }
 
+/**
+ * eeprom_write - write to AT93C46 EEPROM
+ * @hw: 	The hardware instance.
+ * @reg:	The register offset.
+ * @data:	The data value.
+ *
+ * This procedure writes a word to the AT93C46 EEPROM.
+ */
 static void eeprom_write(struct ksz_hw *hw, u8 reg, u16 data)
 {
 	int timeout;
 
 	raise_gpio(hw, EEPROM_ACCESS_ENABLE | EEPROM_CHIP_SELECT);
 
-	
+	/* Enable write. */
 	spi_reg(hw, AT93C_CODE, AT93C_WR_ON);
 	drop_gpio(hw, EEPROM_CHIP_SELECT);
 	udelay(1);
 
-	
+	/* Erase the register. */
 	raise_gpio(hw, EEPROM_CHIP_SELECT);
 	spi_reg(hw, AT93C_ERASE, reg);
 	drop_gpio(hw, EEPROM_CHIP_SELECT);
 	udelay(1);
 
-	
+	/* Check operation complete. */
 	raise_gpio(hw, EEPROM_CHIP_SELECT);
 	timeout = 8;
 	mdelay(2);
@@ -2403,14 +3171,14 @@ static void eeprom_write(struct ksz_hw *hw, u8 reg, u16 data)
 	drop_gpio(hw, EEPROM_CHIP_SELECT);
 	udelay(1);
 
-	
+	/* Write the register. */
 	raise_gpio(hw, EEPROM_CHIP_SELECT);
 	spi_reg(hw, AT93C_WRITE, reg);
 	spi_w(hw, data);
 	drop_gpio(hw, EEPROM_CHIP_SELECT);
 	udelay(1);
 
-	
+	/* Check operation complete. */
 	raise_gpio(hw, EEPROM_CHIP_SELECT);
 	timeout = 8;
 	mdelay(2);
@@ -2420,13 +3188,16 @@ static void eeprom_write(struct ksz_hw *hw, u8 reg, u16 data)
 	drop_gpio(hw, EEPROM_CHIP_SELECT);
 	udelay(1);
 
-	
+	/* Disable write. */
 	raise_gpio(hw, EEPROM_CHIP_SELECT);
 	spi_reg(hw, AT93C_CODE, AT93C_WR_OFF);
 
 	drop_gpio(hw, EEPROM_ACCESS_ENABLE | EEPROM_CHIP_SELECT);
 }
 
+/*
+ * Link detection routines
+ */
 
 static u16 advertised_flow_ctrl(struct ksz_port *port, u16 ctrl)
 {
@@ -2435,7 +3206,7 @@ static u16 advertised_flow_ctrl(struct ksz_port *port, u16 ctrl)
 	case PHY_FLOW_CTRL:
 		ctrl |= PORT_AUTO_NEG_SYM_PAUSE;
 		break;
-	
+	/* Not supported. */
 	case PHY_TX_ONLY:
 	case PHY_RX_ONLY:
 	default:
@@ -2502,7 +3273,7 @@ static inline void port_cfg_change(struct ksz_hw *hw, struct ksz_port *port,
 			!(hw->overrides & PAUSE_FLOW_CTRL)) {
 		u32 cfg = hw->tx_cfg;
 
-		
+		/* Disable flow control in the half duplex mode. */
 		if (1 == info->duplex)
 			hw->tx_cfg &= ~DMA_TX_FLOW_ENABLE;
 		if (hw->enabled && cfg != hw->tx_cfg)
@@ -2510,6 +3281,13 @@ static inline void port_cfg_change(struct ksz_hw *hw, struct ksz_port *port,
 	}
 }
 
+/**
+ * port_get_link_speed - get current link status
+ * @port: 	The port instance.
+ *
+ * This routine reads PHY registers to determine the current link status of the
+ * switch ports.
+ */
 static void port_get_link_speed(struct ksz_port *port)
 {
 	uint interrupt;
@@ -2531,11 +3309,15 @@ static void port_get_link_speed(struct ksz_port *port)
 		port_r16(hw, p, KS884X_PORT_CTRL_4_OFFSET, &data);
 		port_r16(hw, p, KS884X_PORT_STATUS_OFFSET, &status);
 
+		/*
+		 * Link status is changing all the time even when there is no
+		 * cable connection!
+		 */
 		remote = status & (PORT_AUTO_NEG_COMPLETE |
 			PORT_STATUS_LINK_GOOD);
 		local = (u8) data;
 
-		
+		/* No change to status. */
 		if (local == info->advertised && remote == info->partner)
 			continue;
 
@@ -2543,7 +3325,7 @@ static void port_get_link_speed(struct ksz_port *port)
 		info->partner = remote;
 		if (status & PORT_STATUS_LINK_GOOD) {
 
-			
+			/* Remember the first linked port. */
 			if (!linked)
 				linked = info;
 
@@ -2573,7 +3355,7 @@ static void port_get_link_speed(struct ksz_port *port)
 			if (media_disconnected != info->state) {
 				change |= 1 << i;
 
-				
+				/* Indicate the link just goes down. */
 				hw->port_mib[p].link_down = 1;
 			}
 			info->state = media_disconnected;
@@ -2589,6 +3371,12 @@ static void port_get_link_speed(struct ksz_port *port)
 
 #define PHY_RESET_TIMEOUT		10
 
+/**
+ * port_set_link_speed - set port speed
+ * @port: 	The port instance.
+ *
+ * This routine sets the link speed of the switch ports.
+ */
 static void port_set_link_speed(struct ksz_port *port)
 {
 	struct ksz_port_info *info;
@@ -2615,7 +3403,7 @@ static void port_set_link_speed(struct ksz_port *port)
 		data |= PORT_AUTO_NEG_100BTX_FD | PORT_AUTO_NEG_100BTX |
 			PORT_AUTO_NEG_10BT_FD | PORT_AUTO_NEG_10BT;
 
-		
+		/* Check if manual configuration is specified by the user. */
 		if (port->speed || port->duplex) {
 			if (10 == port->speed)
 				data &= ~(PORT_AUTO_NEG_100BTX_FD |
@@ -2637,6 +3425,12 @@ static void port_set_link_speed(struct ksz_port *port)
 	}
 }
 
+/**
+ * port_force_link_speed - force port speed
+ * @port: 	The port instance.
+ *
+ * This routine forces the link speed of the switch ports.
+ */
 static void port_force_link_speed(struct ksz_port *port)
 {
 	struct ksz_hw *hw = port->hw;
@@ -2674,7 +3468,18 @@ static void port_set_power_saving(struct ksz_port *port, int enable)
 			KS884X_PORT_CTRL_4_OFFSET, PORT_POWER_DOWN, enable);
 }
 
+/*
+ * KSZ8841 power management functions
+ */
 
+/**
+ * hw_chk_wol_pme_status - check PMEN pin
+ * @hw: 	The hardware instance.
+ *
+ * This function is used to check PMEN pin is asserted.
+ *
+ * Return 1 if PMEN pin is asserted; otherwise, 0.
+ */
 static int hw_chk_wol_pme_status(struct ksz_hw *hw)
 {
 	struct dev_info *hw_priv = container_of(hw, struct dev_info, hw);
@@ -2687,6 +3492,12 @@ static int hw_chk_wol_pme_status(struct ksz_hw *hw)
 	return (data & PCI_PM_CTRL_PME_STATUS) == PCI_PM_CTRL_PME_STATUS;
 }
 
+/**
+ * hw_clr_wol_pme_status - clear PMEN pin
+ * @hw: 	The hardware instance.
+ *
+ * This routine is used to clear PME_Status to deassert PMEN pin.
+ */
 static void hw_clr_wol_pme_status(struct ksz_hw *hw)
 {
 	struct dev_info *hw_priv = container_of(hw, struct dev_info, hw);
@@ -2696,12 +3507,19 @@ static void hw_clr_wol_pme_status(struct ksz_hw *hw)
 	if (!pdev->pm_cap)
 		return;
 
-	
+	/* Clear PME_Status to deassert PMEN pin. */
 	pci_read_config_word(pdev, pdev->pm_cap + PCI_PM_CTRL, &data);
 	data |= PCI_PM_CTRL_PME_STATUS;
 	pci_write_config_word(pdev, pdev->pm_cap + PCI_PM_CTRL, data);
 }
 
+/**
+ * hw_cfg_wol_pme - enable or disable Wake-on-LAN
+ * @hw: 	The hardware instance.
+ * @set:	The flag indicating whether to enable or disable.
+ *
+ * This routine is used to enable or disable Wake-on-LAN.
+ */
 static void hw_cfg_wol_pme(struct ksz_hw *hw, int set)
 {
 	struct dev_info *hw_priv = container_of(hw, struct dev_info, hw);
@@ -2719,6 +3537,14 @@ static void hw_cfg_wol_pme(struct ksz_hw *hw, int set)
 	pci_write_config_word(pdev, pdev->pm_cap + PCI_PM_CTRL, data);
 }
 
+/**
+ * hw_cfg_wol - configure Wake-on-LAN features
+ * @hw: 	The hardware instance.
+ * @frame:	The pattern frame bit.
+ * @set:	The flag indicating whether to enable or disable.
+ *
+ * This routine is used to enable or disable certain Wake-on-LAN features.
+ */
 static void hw_cfg_wol(struct ksz_hw *hw, u16 frame, int set)
 {
 	u16 data;
@@ -2731,6 +3557,17 @@ static void hw_cfg_wol(struct ksz_hw *hw, u16 frame, int set)
 	writew(data, hw->io + KS8841_WOL_CTRL_OFFSET);
 }
 
+/**
+ * hw_set_wol_frame - program Wake-on-LAN pattern
+ * @hw: 	The hardware instance.
+ * @i:		The frame index.
+ * @mask_size:	The size of the mask.
+ * @mask:	Mask to ignore certain bytes in the pattern.
+ * @frame_size:	The size of the frame.
+ * @pattern:	The frame data.
+ *
+ * This routine is used to program Wake-on-LAN pattern.
+ */
 static void hw_set_wol_frame(struct ksz_hw *hw, int i, uint mask_size,
 	const u8 *mask, uint frame_size, const u8 *pattern)
 {
@@ -2781,6 +3618,13 @@ static void hw_set_wol_frame(struct ksz_hw *hw, int i, uint mask_size,
 	writel(crc, hw->io + KS8841_WOL_FRAME_CRC_OFFSET + i);
 }
 
+/**
+ * hw_add_wol_arp - add ARP pattern
+ * @hw: 	The hardware instance.
+ * @ip_addr:	The IPv4 address assigned to the device.
+ *
+ * This routine is used to add ARP pattern for waking up the host.
+ */
 static void hw_add_wol_arp(struct ksz_hw *hw, const u8 *ip_addr)
 {
 	static const u8 mask[6] = { 0x3F, 0xF0, 0x3F, 0x00, 0xC0, 0x03 };
@@ -2798,6 +3642,12 @@ static void hw_add_wol_arp(struct ksz_hw *hw, const u8 *ip_addr)
 	hw_set_wol_frame(hw, 3, 6, mask, 42, pattern);
 }
 
+/**
+ * hw_add_wol_bcast - add broadcast pattern
+ * @hw: 	The hardware instance.
+ *
+ * This routine is used to add broadcast pattern for waking up the host.
+ */
 static void hw_add_wol_bcast(struct ksz_hw *hw)
 {
 	static const u8 mask[] = { 0x3F };
@@ -2806,6 +3656,16 @@ static void hw_add_wol_bcast(struct ksz_hw *hw)
 	hw_set_wol_frame(hw, 2, 1, mask, ETH_ALEN, pattern);
 }
 
+/**
+ * hw_add_wol_mcast - add multicast pattern
+ * @hw: 	The hardware instance.
+ *
+ * This routine is used to add multicast pattern for waking up the host.
+ *
+ * It is assumed the multicast packet is the ICMPv6 neighbor solicitation used
+ * by IPv6 ping command.  Note that multicast packets are filtred through the
+ * multicast hash table, so not all multicast packets can wake up the host.
+ */
 static void hw_add_wol_mcast(struct ksz_hw *hw)
 {
 	static const u8 mask[] = { 0x3F };
@@ -2815,6 +3675,15 @@ static void hw_add_wol_mcast(struct ksz_hw *hw)
 	hw_set_wol_frame(hw, 1, 1, mask, 6, pattern);
 }
 
+/**
+ * hw_add_wol_ucast - add unicast pattern
+ * @hw: 	The hardware instance.
+ *
+ * This routine is used to add unicast pattern to wakeup the host.
+ *
+ * It is assumed the unicast packet is directed to the device, as the hardware
+ * can only receive them in normal case.
+ */
 static void hw_add_wol_ucast(struct ksz_hw *hw)
 {
 	static const u8 mask[] = { 0x3F };
@@ -2822,6 +3691,14 @@ static void hw_add_wol_ucast(struct ksz_hw *hw)
 	hw_set_wol_frame(hw, 0, 1, mask, ETH_ALEN, hw->override_addr);
 }
 
+/**
+ * hw_enable_wol - enable Wake-on-LAN
+ * @hw: 	The hardware instance.
+ * @wol_enable:	The Wake-on-LAN settings.
+ * @net_addr:	The IPv4 address assigned to the device.
+ *
+ * This routine is used to enable Wake-on-LAN depending on driver settings.
+ */
 static void hw_enable_wol(struct ksz_hw *hw, u32 wol_enable, const u8 *net_addr)
 {
 	hw_cfg_wol(hw, KS8841_WOL_MAGIC_ENABLE, (wol_enable & WAKE_MAGIC));
@@ -2834,16 +3711,25 @@ static void hw_enable_wol(struct ksz_hw *hw, u32 wol_enable, const u8 *net_addr)
 	hw_add_wol_arp(hw, net_addr);
 }
 
+/**
+ * hw_init - check driver is correct for the hardware
+ * @hw: 	The hardware instance.
+ *
+ * This function checks the hardware is correct for this driver and sets the
+ * hardware up for proper initialization.
+ *
+ * Return number of ports or 0 if not right.
+ */
 static int hw_init(struct ksz_hw *hw)
 {
 	int rc = 0;
 	u16 data;
 	u16 revision;
 
-	
+	/* Set bus speed to 125MHz. */
 	writew(BUS_SPEED_125_MHZ, hw->io + KS884X_BUS_CTRL_OFFSET);
 
-	
+	/* Check KSZ884x chip ID. */
 	data = readw(hw->io + KS884X_CHIP_ID_OFFSET);
 
 	revision = (data & KS884X_REVISION_MASK) >> KS884X_REVISION_SHIFT;
@@ -2855,7 +3741,7 @@ static int hw_init(struct ksz_hw *hw)
 	else
 		return 0;
 
-	
+	/* Setup hardware features or bug workarounds. */
 	if (revision <= 1) {
 		hw->features |= SMALL_PACKET_TX_BUG;
 		if (1 == rc)
@@ -2864,39 +3750,51 @@ static int hw_init(struct ksz_hw *hw)
 	return rc;
 }
 
+/**
+ * hw_reset - reset the hardware
+ * @hw: 	The hardware instance.
+ *
+ * This routine resets the hardware.
+ */
 static void hw_reset(struct ksz_hw *hw)
 {
 	writew(GLOBAL_SOFTWARE_RESET, hw->io + KS884X_GLOBAL_CTRL_OFFSET);
 
-	
+	/* Wait for device to reset. */
 	mdelay(10);
 
-	
+	/* Write 0 to clear device reset. */
 	writew(0, hw->io + KS884X_GLOBAL_CTRL_OFFSET);
 }
 
+/**
+ * hw_setup - setup the hardware
+ * @hw: 	The hardware instance.
+ *
+ * This routine setup the hardware for proper operation.
+ */
 static void hw_setup(struct ksz_hw *hw)
 {
 #if SET_DEFAULT_LED
 	u16 data;
 
-	
+	/* Change default LED mode. */
 	data = readw(hw->io + KS8842_SWITCH_CTRL_5_OFFSET);
 	data &= ~LED_MODE;
 	data |= SET_DEFAULT_LED;
 	writew(data, hw->io + KS8842_SWITCH_CTRL_5_OFFSET);
 #endif
 
-	
+	/* Setup transmit control. */
 	hw->tx_cfg = (DMA_TX_PAD_ENABLE | DMA_TX_CRC_ENABLE |
 		(DMA_BURST_DEFAULT << DMA_BURST_SHIFT) | DMA_TX_ENABLE);
 
-	
+	/* Setup receive control. */
 	hw->rx_cfg = (DMA_RX_BROADCAST | DMA_RX_UNICAST |
 		(DMA_BURST_DEFAULT << DMA_BURST_SHIFT) | DMA_RX_ENABLE);
 	hw->rx_cfg |= KS884X_DMA_RX_MULTICAST;
 
-	
+	/* Hardware cannot handle UDP packet in IP fragments. */
 	hw->rx_cfg |= (DMA_RX_CSUM_TCP | DMA_RX_CSUM_IP);
 
 	if (hw->all_multi)
@@ -2905,6 +3803,12 @@ static void hw_setup(struct ksz_hw *hw)
 		hw->rx_cfg |= DMA_RX_PROMISCUOUS;
 }
 
+/**
+ * hw_setup_intr - setup interrupt mask
+ * @hw: 	The hardware instance.
+ *
+ * This routine setup the interrupt mask for proper operation.
+ */
 static void hw_setup_intr(struct ksz_hw *hw)
 {
 	hw->intr_mask = KS884X_INT_MASK | KS884X_INT_RX_OVERRUN;
@@ -2960,9 +3864,17 @@ static void hw_init_desc(struct ksz_desc_info *desc_info, int transmit)
 	desc_info->cur = desc_info->ring;
 }
 
+/**
+ * hw_set_desc_base - set descriptor base addresses
+ * @hw: 	The hardware instance.
+ * @tx_addr:	The transmit descriptor base.
+ * @rx_addr:	The receive descriptor base.
+ *
+ * This routine programs the descriptor base addresses after reset.
+ */
 static void hw_set_desc_base(struct ksz_hw *hw, u32 tx_addr, u32 rx_addr)
 {
-	
+	/* Set base address of Tx/Rx descriptors. */
 	writel(tx_addr, hw->io + KS_DMA_TX_ADDR);
 	writel(rx_addr, hw->io + KS_DMA_RX_ADDR);
 }
@@ -2979,22 +3891,34 @@ static inline void hw_resume_rx(struct ksz_hw *hw)
 	writel(DMA_START, hw->io + KS_DMA_RX_START);
 }
 
+/**
+ * hw_start_rx - start receiving
+ * @hw: 	The hardware instance.
+ *
+ * This routine starts the receive function of the hardware.
+ */
 static void hw_start_rx(struct ksz_hw *hw)
 {
 	writel(hw->rx_cfg, hw->io + KS_DMA_RX_CTRL);
 
-	
+	/* Notify when the receive stops. */
 	hw->intr_mask |= KS884X_INT_RX_STOPPED;
 
 	writel(DMA_START, hw->io + KS_DMA_RX_START);
 	hw_ack_intr(hw, KS884X_INT_RX_STOPPED);
 	hw->rx_stop++;
 
-	
+	/* Variable overflows. */
 	if (0 == hw->rx_stop)
 		hw->rx_stop = 2;
 }
 
+/*
+ * hw_stop_rx - stop receiving
+ * @hw: 	The hardware instance.
+ *
+ * This routine stops the receive function of the hardware.
+ */
 static void hw_stop_rx(struct ksz_hw *hw)
 {
 	hw->rx_stop = 0;
@@ -3002,16 +3926,34 @@ static void hw_stop_rx(struct ksz_hw *hw)
 	writel((hw->rx_cfg & ~DMA_RX_ENABLE), hw->io + KS_DMA_RX_CTRL);
 }
 
+/**
+ * hw_start_tx - start transmitting
+ * @hw: 	The hardware instance.
+ *
+ * This routine starts the transmit function of the hardware.
+ */
 static void hw_start_tx(struct ksz_hw *hw)
 {
 	writel(hw->tx_cfg, hw->io + KS_DMA_TX_CTRL);
 }
 
+/**
+ * hw_stop_tx - stop transmitting
+ * @hw: 	The hardware instance.
+ *
+ * This routine stops the transmit function of the hardware.
+ */
 static void hw_stop_tx(struct ksz_hw *hw)
 {
 	writel((hw->tx_cfg & ~DMA_TX_ENABLE), hw->io + KS_DMA_TX_CTRL);
 }
 
+/**
+ * hw_disable - disable hardware
+ * @hw: 	The hardware instance.
+ *
+ * This routine disables the hardware.
+ */
 static void hw_disable(struct ksz_hw *hw)
 {
 	hw_stop_rx(hw);
@@ -3019,6 +3961,12 @@ static void hw_disable(struct ksz_hw *hw)
 	hw->enabled = 0;
 }
 
+/**
+ * hw_enable - enable hardware
+ * @hw: 	The hardware instance.
+ *
+ * This routine enables the hardware.
+ */
 static void hw_enable(struct ksz_hw *hw)
 {
 	hw_start_tx(hw);
@@ -3026,21 +3974,31 @@ static void hw_enable(struct ksz_hw *hw)
 	hw->enabled = 1;
 }
 
+/**
+ * hw_alloc_pkt - allocate enough descriptors for transmission
+ * @hw: 	The hardware instance.
+ * @length:	The length of the packet.
+ * @physical:	Number of descriptors required.
+ *
+ * This function allocates descriptors for transmission.
+ *
+ * Return 0 if not successful; 1 for buffer copy; or number of descriptors.
+ */
 static int hw_alloc_pkt(struct ksz_hw *hw, int length, int physical)
 {
-	
+	/* Always leave one descriptor free. */
 	if (hw->tx_desc_info.avail <= 1)
 		return 0;
 
-	
+	/* Allocate a descriptor for transmission and mark it current. */
 	get_tx_pkt(&hw->tx_desc_info, &hw->tx_desc_info.cur);
 	hw->tx_desc_info.cur->sw.buf.tx.first_seg = 1;
 
-	
+	/* Keep track of number of transmit descriptors used so far. */
 	++hw->tx_int_cnt;
 	hw->tx_size += length;
 
-	
+	/* Cannot hold on too much data. */
 	if (hw->tx_size >= MAX_TX_HELD_SIZE)
 		hw->tx_int_cnt = hw->tx_int_mask + 1;
 
@@ -3050,20 +4008,26 @@ static int hw_alloc_pkt(struct ksz_hw *hw, int length, int physical)
 	return hw->tx_desc_info.avail;
 }
 
+/**
+ * hw_send_pkt - mark packet for transmission
+ * @hw: 	The hardware instance.
+ *
+ * This routine marks the packet for transmission in PCI version.
+ */
 static void hw_send_pkt(struct ksz_hw *hw)
 {
 	struct ksz_desc *cur = hw->tx_desc_info.cur;
 
 	cur->sw.buf.tx.last_seg = 1;
 
-	
+	/* Interrupt only after specified number of descriptors used. */
 	if (hw->tx_int_cnt > hw->tx_int_mask) {
 		cur->sw.buf.tx.intr = 1;
 		hw->tx_int_cnt = 0;
 		hw->tx_size = 0;
 	}
 
-	
+	/* KSZ8842 supports port directed transmission. */
 	cur->sw.buf.tx.dest_port = hw->dst_ports;
 
 	release_desc(cur);
@@ -3079,6 +4043,13 @@ static int empty_addr(u8 *addr)
 	return 0 == *addr1 && 0 == *addr2;
 }
 
+/**
+ * hw_set_addr - set MAC address
+ * @hw: 	The hardware instance.
+ *
+ * This routine programs the MAC address of the hardware when the address is
+ * overrided.
+ */
 static void hw_set_addr(struct ksz_hw *hw)
 {
 	int i;
@@ -3090,6 +4061,12 @@ static void hw_set_addr(struct ksz_hw *hw)
 	sw_set_addr(hw, hw->override_addr);
 }
 
+/**
+ * hw_read_addr - read MAC address
+ * @hw: 	The hardware instance.
+ *
+ * This routine retrieves the MAC address of the hardware.
+ */
 static void hw_read_addr(struct ksz_hw *hw)
 {
 	int i;
@@ -3182,6 +4159,12 @@ static int hw_del_addr(struct ksz_hw *hw, u8 *mac_addr)
 	return -1;
 }
 
+/**
+ * hw_clr_multicast - clear multicast addresses
+ * @hw: 	The hardware instance.
+ *
+ * This routine removes all multicast addresses set in the hardware.
+ */
 static void hw_clr_multicast(struct ksz_hw *hw)
 {
 	int i;
@@ -3193,6 +4176,13 @@ static void hw_clr_multicast(struct ksz_hw *hw)
 	}
 }
 
+/**
+ * hw_set_grp_addr - set multicast addresses
+ * @hw: 	The hardware instance.
+ *
+ * This routine programs multicast addresses for the hardware to accept those
+ * addresses.
+ */
 static void hw_set_grp_addr(struct ksz_hw *hw)
 {
 	int i;
@@ -3214,9 +4204,16 @@ static void hw_set_grp_addr(struct ksz_hw *hw)
 			i);
 }
 
+/**
+ * hw_set_multicast - enable or disable all multicast receiving
+ * @hw: 	The hardware instance.
+ * @multicast:	To turn on or off the all multicast feature.
+ *
+ * This routine enables/disables the hardware to accept all multicast packets.
+ */
 static void hw_set_multicast(struct ksz_hw *hw, u8 multicast)
 {
-	
+	/* Stop receiving for reconfiguration. */
 	hw_stop_rx(hw);
 
 	if (multicast)
@@ -3228,9 +4225,16 @@ static void hw_set_multicast(struct ksz_hw *hw, u8 multicast)
 		hw_start_rx(hw);
 }
 
+/**
+ * hw_set_promiscuous - enable or disable promiscuous receiving
+ * @hw: 	The hardware instance.
+ * @prom:	To turn on or off the promiscuous feature.
+ *
+ * This routine enables/disables the hardware to accept all packets.
+ */
 static void hw_set_promiscuous(struct ksz_hw *hw, u8 prom)
 {
-	
+	/* Stop receiving for reconfiguration. */
 	hw_stop_rx(hw);
 
 	if (prom)
@@ -3242,13 +4246,20 @@ static void hw_set_promiscuous(struct ksz_hw *hw, u8 prom)
 		hw_start_rx(hw);
 }
 
+/**
+ * sw_enable - enable the switch
+ * @hw: 	The hardware instance.
+ * @enable:	The flag to enable or disable the switch
+ *
+ * This routine is used to enable/disable the switch in KSZ8842.
+ */
 static void sw_enable(struct ksz_hw *hw, int enable)
 {
 	int port;
 
 	for (port = 0; port < SWITCH_PORT_NUM; port++) {
 		if (hw->dev_count > 1) {
-			
+			/* Set port-base vlan membership with host port. */
 			sw_cfg_port_base_vlan(hw, port,
 				HOST_MASK | (1 << port));
 			port_set_stp_state(hw, port, STP_STATE_DISABLED);
@@ -3267,13 +4278,19 @@ static void sw_enable(struct ksz_hw *hw, int enable)
 	writew(enable, hw->io + KS884X_CHIP_ID_OFFSET);
 }
 
+/**
+ * sw_setup - setup the switch
+ * @hw: 	The hardware instance.
+ *
+ * This routine setup the hardware switch engine for default operation.
+ */
 static void sw_setup(struct ksz_hw *hw)
 {
 	int port;
 
 	sw_set_global_ctrl(hw);
 
-	
+	/* Enable switch broadcast storm protection at 10% percent rate. */
 	sw_init_broad_storm(hw);
 	hw_cfg_broad_storm(hw, BROADCAST_STORM_PROTECTION_RATE);
 	for (port = 0; port < SWITCH_PORT_NUM; port++)
@@ -3295,16 +4312,29 @@ static void sw_setup(struct ksz_hw *hw)
 	sw_enable(hw, 1);
 }
 
+/**
+ * ksz_start_timer - start kernel timer
+ * @info:	Kernel timer information.
+ * @time:	The time tick.
+ *
+ * This routine starts the kernel timer after the specified time tick.
+ */
 static void ksz_start_timer(struct ksz_timer_info *info, int time)
 {
 	info->cnt = 0;
 	info->timer.expires = jiffies + time;
 	add_timer(&info->timer);
 
-	
+	/* infinity */
 	info->max = -1;
 }
 
+/**
+ * ksz_stop_timer - stop kernel timer
+ * @info:	Kernel timer information.
+ *
+ * This routine stops the kernel timer.
+ */
 static void ksz_stop_timer(struct ksz_timer_info *info)
 {
 	if (info->max) {
@@ -3338,6 +4368,16 @@ static void ksz_update_timer(struct ksz_timer_info *info)
 	}
 }
 
+/**
+ * ksz_alloc_soft_desc - allocate software descriptors
+ * @desc_info:	Descriptor information structure.
+ * @transmit:	Indication that descriptors are for transmit.
+ *
+ * This local function allocates software descriptors for manipulation in
+ * memory.
+ *
+ * Return 0 if successful.
+ */
 static int ksz_alloc_soft_desc(struct ksz_desc_info *desc_info, int transmit)
 {
 	desc_info->ring = kzalloc(sizeof(struct ksz_desc) * desc_info->alloc,
@@ -3348,12 +4388,21 @@ static int ksz_alloc_soft_desc(struct ksz_desc_info *desc_info, int transmit)
 	return 0;
 }
 
+/**
+ * ksz_alloc_desc - allocate hardware descriptors
+ * @adapter:	Adapter information structure.
+ *
+ * This local function allocates hardware descriptors for receiving and
+ * transmitting.
+ *
+ * Return 0 if successful.
+ */
 static int ksz_alloc_desc(struct dev_info *adapter)
 {
 	struct ksz_hw *hw = &adapter->hw;
 	int offset;
 
-	
+	/* Allocate memory for RX & TX descriptors. */
 	adapter->desc_pool.alloc_size =
 		hw->rx_desc_info.size * hw->rx_desc_info.alloc +
 		hw->tx_desc_info.size * hw->tx_desc_info.alloc +
@@ -3369,14 +4418,14 @@ static int ksz_alloc_desc(struct dev_info *adapter)
 	}
 	memset(adapter->desc_pool.alloc_virt, 0, adapter->desc_pool.alloc_size);
 
-	
+	/* Align to the next cache line boundary. */
 	offset = (((ulong) adapter->desc_pool.alloc_virt % DESC_ALIGNMENT) ?
 		(DESC_ALIGNMENT -
 		((ulong) adapter->desc_pool.alloc_virt % DESC_ALIGNMENT)) : 0);
 	adapter->desc_pool.virt = adapter->desc_pool.alloc_virt + offset;
 	adapter->desc_pool.phys = adapter->desc_pool.dma_addr + offset;
 
-	
+	/* Allocate receive/transmit descriptors. */
 	hw->rx_desc_info.ring_virt = (struct ksz_hw_desc *)
 		adapter->desc_pool.virt;
 	hw->rx_desc_info.ring_phys = adapter->desc_pool.phys;
@@ -3393,6 +4442,12 @@ static int ksz_alloc_desc(struct dev_info *adapter)
 	return 0;
 }
 
+/**
+ * free_dma_buf - release DMA buffer resources
+ * @adapter:	Adapter information structure.
+ *
+ * This routine is just a helper function to release the DMA buffer resources.
+ */
 static void free_dma_buf(struct dev_info *adapter, struct ksz_dma_buf *dma_buf,
 	int direction)
 {
@@ -3402,6 +4457,12 @@ static void free_dma_buf(struct dev_info *adapter, struct ksz_dma_buf *dma_buf,
 	dma_buf->dma = 0;
 }
 
+/**
+ * ksz_init_rx_buffers - initialize receive descriptors
+ * @adapter:	Adapter information structure.
+ *
+ * This routine initializes DMA buffers for receiving.
+ */
 static void ksz_init_rx_buffers(struct dev_info *adapter)
 {
 	int i;
@@ -3428,22 +4489,31 @@ static void ksz_init_rx_buffers(struct dev_info *adapter)
 				PCI_DMA_FROMDEVICE);
 		}
 
-		
+		/* Set descriptor. */
 		set_rx_buf(desc, dma_buf->dma);
 		set_rx_len(desc, dma_buf->len);
 		release_desc(desc);
 	}
 }
 
+/**
+ * ksz_alloc_mem - allocate memory for hardware descriptors
+ * @adapter:	Adapter information structure.
+ *
+ * This function allocates memory for use by hardware descriptors for receiving
+ * and transmitting.
+ *
+ * Return 0 if successful.
+ */
 static int ksz_alloc_mem(struct dev_info *adapter)
 {
 	struct ksz_hw *hw = &adapter->hw;
 
-	
+	/* Determine the number of receive and transmit descriptors. */
 	hw->rx_desc_info.alloc = NUM_OF_RX_DESC;
 	hw->tx_desc_info.alloc = NUM_OF_TX_DESC;
 
-	
+	/* Determine how many descriptors to skip transmit interrupt. */
 	hw->tx_int_cnt = 0;
 	hw->tx_int_mask = NUM_OF_TX_DESC / 4;
 	if (hw->tx_int_mask > 8)
@@ -3457,7 +4527,7 @@ static int ksz_alloc_mem(struct dev_info *adapter)
 		hw->tx_int_cnt = 0;
 	}
 
-	
+	/* Determine the descriptor size. */
 	hw->rx_desc_info.size =
 		(((sizeof(struct ksz_hw_desc) + DESC_ALIGNMENT - 1) /
 		DESC_ALIGNMENT) * DESC_ALIGNMENT);
@@ -3469,24 +4539,31 @@ static int ksz_alloc_mem(struct dev_info *adapter)
 	ksz_check_desc_num(&hw->rx_desc_info);
 	ksz_check_desc_num(&hw->tx_desc_info);
 
-	
+	/* Allocate descriptors. */
 	if (ksz_alloc_desc(adapter))
 		return 1;
 
 	return 0;
 }
 
+/**
+ * ksz_free_desc - free software and hardware descriptors
+ * @adapter:	Adapter information structure.
+ *
+ * This local routine frees the software and hardware descriptors allocated by
+ * ksz_alloc_desc().
+ */
 static void ksz_free_desc(struct dev_info *adapter)
 {
 	struct ksz_hw *hw = &adapter->hw;
 
-	
+	/* Reset descriptor. */
 	hw->rx_desc_info.ring_virt = NULL;
 	hw->tx_desc_info.ring_virt = NULL;
 	hw->rx_desc_info.ring_phys = 0;
 	hw->tx_desc_info.ring_phys = 0;
 
-	
+	/* Free memory. */
 	if (adapter->desc_pool.alloc_virt)
 		pci_free_consistent(
 			adapter->pdev,
@@ -3494,7 +4571,7 @@ static void ksz_free_desc(struct dev_info *adapter)
 			adapter->desc_pool.alloc_virt,
 			adapter->desc_pool.dma_addr);
 
-	
+	/* Reset resource pool. */
 	adapter->desc_pool.alloc_size = 0;
 	adapter->desc_pool.alloc_virt = NULL;
 
@@ -3504,6 +4581,13 @@ static void ksz_free_desc(struct dev_info *adapter)
 	hw->tx_desc_info.ring = NULL;
 }
 
+/**
+ * ksz_free_buffers - free buffers used in the descriptors
+ * @adapter:	Adapter information structure.
+ * @desc_info:	Descriptor information structure.
+ *
+ * This local routine frees buffers used in the DMA buffers.
+ */
 static void ksz_free_buffers(struct dev_info *adapter,
 	struct ksz_desc_info *desc_info, int direction)
 {
@@ -3519,17 +4603,23 @@ static void ksz_free_buffers(struct dev_info *adapter,
 	}
 }
 
+/**
+ * ksz_free_mem - free all resources used by descriptors
+ * @adapter:	Adapter information structure.
+ *
+ * This local routine frees all the resources allocated by ksz_alloc_mem().
+ */
 static void ksz_free_mem(struct dev_info *adapter)
 {
-	
+	/* Free transmit buffers. */
 	ksz_free_buffers(adapter, &adapter->hw.tx_desc_info,
 		PCI_DMA_TODEVICE);
 
-	
+	/* Free receive buffers. */
 	ksz_free_buffers(adapter, &adapter->hw.rx_desc_info,
 		PCI_DMA_FROMDEVICE);
 
-	
+	/* Free descriptors. */
 	ksz_free_desc(adapter);
 }
 
@@ -3549,6 +4639,13 @@ static void get_mib_counters(struct ksz_hw *hw, int first, int cnt,
 	}
 }
 
+/**
+ * send_packet - send packet
+ * @skb:	Socket buffer.
+ * @dev:	Network device.
+ *
+ * This routine is used to send a packet out to the network.
+ */
 static void send_packet(struct sk_buff *skb, struct net_device *dev)
 {
 	struct ksz_desc *desc;
@@ -3561,13 +4658,17 @@ static void send_packet(struct sk_buff *skb, struct net_device *dev)
 	int len;
 	int last_frag = skb_shinfo(skb)->nr_frags;
 
+	/*
+	 * KSZ8842 with multiple device interfaces needs to be told which port
+	 * to send.
+	 */
 	if (hw->dev_count > 1)
 		hw->dst_ports = 1 << priv->port.first_port;
 
-	
+	/* Hardware will pad the length to 60. */
 	len = skb->len;
 
-	
+	/* Remember the very first descriptor. */
 	first = info->cur;
 	desc = first;
 
@@ -3588,10 +4689,10 @@ static void send_packet(struct sk_buff *skb, struct net_device *dev)
 		do {
 			this_frag = &skb_shinfo(skb)->frags[frag];
 
-			
+			/* Get a new descriptor. */
 			get_tx_pkt(info, &desc);
 
-			
+			/* Keep track of descriptors used so far. */
 			++hw->tx_int_cnt;
 
 			dma_buf = DMA_BUFFER(desc);
@@ -3609,14 +4710,14 @@ static void send_packet(struct sk_buff *skb, struct net_device *dev)
 			if (frag == last_frag)
 				break;
 
-			
+			/* Do not release the last descriptor here. */
 			release_desc(desc);
 		} while (1);
 
-		
+		/* current points to the last descriptor. */
 		info->cur = desc;
 
-		
+		/* Release the first descriptor. */
 		release_desc(first);
 	} else {
 		dma_buf->len = len;
@@ -3633,15 +4734,25 @@ static void send_packet(struct sk_buff *skb, struct net_device *dev)
 		(desc)->sw.buf.tx.csum_gen_udp = 1;
 	}
 
+	/*
+	 * The last descriptor holds the packet so that it can be returned to
+	 * network subsystem after all descriptors are transmitted.
+	 */
 	dma_buf->skb = skb;
 
 	hw_send_pkt(hw);
 
-	
+	/* Update transmit statistics. */
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += len;
 }
 
+/**
+ * transmit_cleanup - clean up transmit descriptors
+ * @dev:	Network device.
+ *
+ * This routine is called to clean up the transmitted buffers.
+ */
 static void transmit_cleanup(struct dev_info *hw_priv, int normal)
 {
 	int last;
@@ -3656,7 +4767,7 @@ static void transmit_cleanup(struct dev_info *hw_priv, int normal)
 	last = info->last;
 
 	while (info->avail < info->alloc) {
-		
+		/* Get next descriptor which is not hardware owned. */
 		desc = &info->ring[last];
 		status.data = le32_to_cpu(desc->phw->ctrl.data);
 		if (status.tx.hw_owned) {
@@ -3671,16 +4782,16 @@ static void transmit_cleanup(struct dev_info *hw_priv, int normal)
 			hw_priv->pdev, dma_buf->dma, dma_buf->len,
 			PCI_DMA_TODEVICE);
 
-		
+		/* This descriptor contains the last buffer in the packet. */
 		if (dma_buf->skb) {
 			dev = dma_buf->skb->dev;
 
-			
+			/* Release the packet back to network subsystem. */
 			dev_kfree_skb_irq(dma_buf->skb);
 			dma_buf->skb = NULL;
 		}
 
-		
+		/* Free the transmitted descriptor. */
 		last++;
 		last &= info->mask;
 		info->avail++;
@@ -3688,11 +4799,18 @@ static void transmit_cleanup(struct dev_info *hw_priv, int normal)
 	info->last = last;
 	spin_unlock(&hw_priv->hwlock);
 
-	
+	/* Notify the network subsystem that the packet has been sent. */
 	if (dev)
 		dev->trans_start = jiffies;
 }
 
+/**
+ * transmit_done - transmit done processing
+ * @dev:	Network device.
+ *
+ * This routine is called when the transmit interrupt is triggered, indicating
+ * either a packet is sent successfully or there are transmit errors.
+ */
 static void tx_done(struct dev_info *hw_priv)
 {
 	struct ksz_hw *hw = &hw_priv->hw;
@@ -3719,6 +4837,15 @@ static inline void copy_old_skb(struct sk_buff *old, struct sk_buff *skb)
 	dev_kfree_skb(old);
 }
 
+/**
+ * netdev_tx - send out packet
+ * @skb:	Socket buffer.
+ * @dev:	Network device.
+ *
+ * This function is used by the upper network layer to send out a packet.
+ *
+ * Return 0 if successful; otherwise an error code indicating failure.
+ */
 static netdev_tx_t netdev_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -3772,7 +4899,7 @@ static netdev_tx_t netdev_tx(struct sk_buff *skb, struct net_device *dev)
 		if (left <= num)
 			netif_stop_queue(dev);
 	} else {
-		
+		/* Stop the transmit queue until packet is allocated. */
 		netif_stop_queue(dev);
 		rc = NETDEV_TX_BUSY;
 	}
@@ -3782,6 +4909,15 @@ unlock:
 	return rc;
 }
 
+/**
+ * netdev_tx_timeout - transmit timeout processing
+ * @dev:	Network device.
+ *
+ * This routine is called when the transmit timer expires.  That indicates the
+ * hardware is not running correctly because transmit interrupts are not
+ * triggered to free up resources so that the transmit routine can continue
+ * sending out packets.  The hardware is reset to correct the problem.
+ */
 static void netdev_tx_timeout(struct net_device *dev)
 {
 	static unsigned long last_reset;
@@ -3792,6 +4928,10 @@ static void netdev_tx_timeout(struct net_device *dev)
 	int port;
 
 	if (hw->dev_count > 1) {
+		/*
+		 * Only reset the hardware if time between calls is long
+		 * enough.
+		 */
 		if (jiffies - last_reset <= dev->watchdog_timeo)
 			hw_priv = NULL;
 	}
@@ -3869,7 +5009,7 @@ static inline int rx_proc(struct net_device *dev, struct ksz_hw* hw,
 	struct sk_buff *skb;
 	int rx_status;
 
-	
+	/* Received length includes 4-byte CRC. */
 	packet_len = status.rx.frame_len - 4;
 
 	dma_buf = DMA_BUFFER(desc);
@@ -3878,13 +5018,17 @@ static inline int rx_proc(struct net_device *dev, struct ksz_hw* hw,
 		PCI_DMA_FROMDEVICE);
 
 	do {
-		
+		/* skb->data != skb->head */
 		skb = netdev_alloc_skb(dev, packet_len + 2);
 		if (!skb) {
 			dev->stats.rx_dropped++;
 			return -ENOMEM;
 		}
 
+		/*
+		 * Align socket buffer in 4-byte boundary for better
+		 * performance.
+		 */
 		skb_reserve(skb, 2);
 
 		memcpy(skb_put(skb, packet_len),
@@ -3896,11 +5040,11 @@ static inline int rx_proc(struct net_device *dev, struct ksz_hw* hw,
 	if (hw->rx_cfg & (DMA_RX_CSUM_UDP | DMA_RX_CSUM_TCP))
 		csum_verified(skb);
 
-	
+	/* Update receive statistics. */
 	dev->stats.rx_packets++;
 	dev->stats.rx_bytes += packet_len;
 
-	
+	/* Notify upper layer for received packet. */
 	rx_status = netif_rx(skb);
 
 	return 0;
@@ -3919,13 +5063,13 @@ static int dev_rcv_packets(struct dev_info *hw_priv)
 
 	next = info->next;
 	while (left--) {
-		
+		/* Get next descriptor which is not hardware owned. */
 		desc = &info->ring[next];
 		status.data = le32_to_cpu(desc->phw->ctrl.data);
 		if (status.rx.hw_owned)
 			break;
 
-		
+		/* Status valid only when last descriptor bit is set. */
 		if (status.rx.last_desc && status.rx.first_desc) {
 			if (rx_proc(dev, hw, desc, status))
 				goto release_packet;
@@ -3955,14 +5099,14 @@ static int port_rcv_packets(struct dev_info *hw_priv)
 
 	next = info->next;
 	while (left--) {
-		
+		/* Get next descriptor which is not hardware owned. */
 		desc = &info->ring[next];
 		status.data = le32_to_cpu(desc->phw->ctrl.data);
 		if (status.rx.hw_owned)
 			break;
 
 		if (hw->dev_count > 1) {
-			
+			/* Get received port number. */
 			int p = HW_TO_DEV_PORT(status.rx.src_port);
 
 			dev = hw->port_info[p].pdev;
@@ -3970,7 +5114,7 @@ static int port_rcv_packets(struct dev_info *hw_priv)
 				goto release_packet;
 		}
 
-		
+		/* Status valid only when last descriptor bit is set. */
 		if (status.rx.last_desc && status.rx.first_desc) {
 			if (rx_proc(dev, hw, desc, status))
 				goto release_packet;
@@ -4000,14 +5144,14 @@ static int dev_rcv_special(struct dev_info *hw_priv)
 
 	next = info->next;
 	while (left--) {
-		
+		/* Get next descriptor which is not hardware owned. */
 		desc = &info->ring[next];
 		status.data = le32_to_cpu(desc->phw->ctrl.data);
 		if (status.rx.hw_owned)
 			break;
 
 		if (hw->dev_count > 1) {
-			
+			/* Get received port number. */
 			int p = HW_TO_DEV_PORT(status.rx.src_port);
 
 			dev = hw->port_info[p].pdev;
@@ -4015,8 +5159,13 @@ static int dev_rcv_special(struct dev_info *hw_priv)
 				goto release_packet;
 		}
 
-		
+		/* Status valid only when last descriptor bit is set. */
 		if (status.rx.last_desc && status.rx.first_desc) {
+			/*
+			 * Receive without error.  With receive errors
+			 * disabled, packets with receive errors will be
+			 * dropped, so no need to check the error bit.
+			 */
 			if (!status.rx.error || (status.data &
 					KS_DESC_RX_ERROR_COND) ==
 					KS_DESC_RX_ERROR_TOO_LONG) {
@@ -4026,7 +5175,7 @@ static int dev_rcv_special(struct dev_info *hw_priv)
 			} else {
 				struct dev_priv *priv = netdev_priv(dev);
 
-				
+				/* Update receive error statistics. */
 				priv->port.counter[OID_COUNTER_RCV_ERROR]++;
 			}
 		}
@@ -4050,10 +5199,10 @@ static void rx_proc_task(unsigned long data)
 		return;
 	if (unlikely(!hw_priv->dev_rcv(hw_priv))) {
 
-		
+		/* In case receive process is suspended because of overrun. */
 		hw_resume_rx(hw);
 
-		
+		/* tasklets are interruptible. */
 		spin_lock_irq(&hw_priv->hwlock);
 		hw_turn_on_intr(hw, KS884X_INT_RX_MASK);
 		spin_unlock_irq(&hw_priv->hwlock);
@@ -4072,7 +5221,7 @@ static void tx_proc_task(unsigned long data)
 
 	tx_done(hw_priv);
 
-	
+	/* tasklets are interruptible. */
 	spin_lock_irq(&hw_priv->hwlock);
 	hw_turn_on_intr(hw, KS884X_INT_TX);
 	spin_unlock_irq(&hw_priv->hwlock);
@@ -4080,7 +5229,7 @@ static void tx_proc_task(unsigned long data)
 
 static inline void handle_rx_stop(struct ksz_hw *hw)
 {
-	
+	/* Receive just has been stopped. */
 	if (0 == hw->rx_stop)
 		hw->intr_mask &= ~KS884X_INT_RX_STOPPED;
 	else if (hw->rx_stop > 1) {
@@ -4091,10 +5240,19 @@ static inline void handle_rx_stop(struct ksz_hw *hw)
 			hw->rx_stop = 0;
 		}
 	} else
-		
+		/* Receive just has been started. */
 		hw->rx_stop++;
 }
 
+/**
+ * netdev_intr - interrupt handling
+ * @irq:	Interrupt number.
+ * @dev_id:	Network device.
+ *
+ * This function is called by upper network layer to signal interrupt.
+ *
+ * Return IRQ_HANDLED if interrupt is handled.
+ */
 static irqreturn_t netdev_intr(int irq, void *dev_id)
 {
 	uint int_enable = 0;
@@ -4105,7 +5263,7 @@ static irqreturn_t netdev_intr(int irq, void *dev_id)
 
 	hw_read_intr(hw, &int_enable);
 
-	
+	/* Not our interrupt! */
 	if (!int_enable)
 		return IRQ_NONE;
 
@@ -4157,6 +5315,9 @@ static irqreturn_t netdev_intr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Linux network device functions
+ */
 
 static unsigned long next_jiffies;
 
@@ -4177,7 +5338,7 @@ static void bridge_change(struct ksz_hw *hw)
 	u8  member;
 	struct ksz_switch *sw = hw->ksz_switch;
 
-	
+	/* No ports in forwarding state. */
 	if (!sw->member) {
 		port_set_stp_state(hw, SWITCH_PORT_NUM, STP_STATE_SIMPLE);
 		sw_block_addr(hw);
@@ -4192,6 +5353,15 @@ static void bridge_change(struct ksz_hw *hw)
 	}
 }
 
+/**
+ * netdev_close - close network device
+ * @dev:	Network device.
+ *
+ * This function process the close operation of network device.  This is caused
+ * by the user command "ifconfig ethX down."
+ *
+ * Return 0 if successful; otherwise an error code indicating failure.
+ */
 static int netdev_close(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4204,11 +5374,11 @@ static int netdev_close(struct net_device *dev)
 
 	ksz_stop_timer(&priv->monitor_timer_info);
 
-	
+	/* Need to shut the port manually in multiple device interfaces mode. */
 	if (hw->dev_count > 1) {
 		port_set_stp_state(hw, port->first_port, STP_STATE_DISABLED);
 
-		
+		/* Port is closed.  Need to change bridge setting. */
 		if (hw->features & STP_SUPPORT) {
 			pi = 1 << port->first_port;
 			if (hw->ksz_switch->member & pi) {
@@ -4236,7 +5406,7 @@ static int netdev_close(struct net_device *dev)
 		hw_disable(hw);
 		hw_clr_multicast(hw);
 
-		
+		/* Delay for receive task to stop scheduling itself. */
 		msleep(2000 / HZ);
 
 		tasklet_disable(&hw_priv->rx_tasklet);
@@ -4247,7 +5417,7 @@ static int netdev_close(struct net_device *dev)
 		hw_reset_pkts(&hw->rx_desc_info);
 		hw_reset_pkts(&hw->tx_desc_info);
 
-		
+		/* Clean out static MAC table when the switch is shutdown. */
 		if (hw->features & STP_SUPPORT)
 			sw_clr_sta_mac_table(hw);
 	}
@@ -4286,7 +5456,7 @@ static int prepare_hardware(struct net_device *dev)
 	struct ksz_hw *hw = &hw_priv->hw;
 	int rc = 0;
 
-	
+	/* Remember the network device that requests interrupts. */
 	hw_priv->dev = dev;
 	rc = request_irq(dev->irq, netdev_intr, IRQF_SHARED, dev->name, dev);
 	if (rc)
@@ -4320,6 +5490,15 @@ static void set_media_state(struct net_device *dev, int media_state)
 		   media_state == priv->media_state ? "on" : "off");
 }
 
+/**
+ * netdev_open - open network device
+ * @dev:	Network device.
+ *
+ * This function process the open operation of network device.  This is caused
+ * by the user command "ifconfig ethX up."
+ *
+ * Return 0 if successful; otherwise an error code indicating failure.
+ */
 static int netdev_open(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4333,7 +5512,7 @@ static int netdev_open(struct net_device *dev)
 	priv->multicast = 0;
 	priv->promiscuous = 0;
 
-	
+	/* Reset device statistics. */
 	memset(&dev->stats, 0, sizeof(struct net_device_stats));
 	memset((void *) port->counter, 0,
 		(sizeof(u64) * OID_COUNTER_LAST));
@@ -4362,11 +5541,15 @@ static int netdev_open(struct net_device *dev)
 	port_set_power_saving(port, false);
 
 	for (i = 0, p = port->first_port; i < port->port_cnt; i++, p++) {
+		/*
+		 * Initialize to invalid value so that link detection
+		 * is done.
+		 */
 		hw->port_info[p].partner = 0xFF;
 		hw->port_info[p].state = media_disconnected;
 	}
 
-	
+	/* Need to open the port in multiple device interfaces mode. */
 	if (hw->dev_count > 1) {
 		port_set_stp_state(hw, port->first_port, STP_STATE_SIMPLE);
 		if (port->first_port > 0)
@@ -4402,7 +5585,25 @@ static int netdev_open(struct net_device *dev)
 	return 0;
 }
 
+/* RX errors = rx_errors */
+/* RX dropped = rx_dropped */
+/* RX overruns = rx_fifo_errors */
+/* RX frame = rx_crc_errors + rx_frame_errors + rx_length_errors */
+/* TX errors = tx_errors */
+/* TX dropped = tx_dropped */
+/* TX overruns = tx_fifo_errors */
+/* TX carrier = tx_aborted_errors + tx_carrier_errors + tx_window_errors */
+/* collisions = collisions */
 
+/**
+ * netdev_query_statistics - query network device statistics
+ * @dev:	Network device.
+ *
+ * This function returns the statistics of the network device.  The device
+ * needs not be opened.
+ *
+ * Return network device statistics.
+ */
 static struct net_device_stats *netdev_query_statistics(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4415,7 +5616,7 @@ static struct net_device_stats *netdev_query_statistics(struct net_device *dev)
 	dev->stats.rx_errors = port->counter[OID_COUNTER_RCV_ERROR];
 	dev->stats.tx_errors = port->counter[OID_COUNTER_XMIT_ERROR];
 
-	
+	/* Reset to zero to add count later. */
 	dev->stats.multicast = 0;
 	dev->stats.collisions = 0;
 	dev->stats.rx_length_errors = 0;
@@ -4450,6 +5651,15 @@ static struct net_device_stats *netdev_query_statistics(struct net_device *dev)
 	return &dev->stats;
 }
 
+/**
+ * netdev_set_mac_address - set network device MAC address
+ * @dev:	Network device.
+ * @addr:	Buffer of MAC address.
+ *
+ * This function is used to set the MAC address of the network device.
+ *
+ * Return 0 to indicate success.
+ */
 static int netdev_set_mac_address(struct net_device *dev, void *addr)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4490,10 +5700,14 @@ static void dev_set_promiscuous(struct net_device *dev, struct dev_priv *priv,
 			--hw->promiscuous;
 		priv->promiscuous = promiscuous;
 
-		
+		/* Turn on/off promiscuous mode. */
 		if (hw->promiscuous <= 1 && prev_state <= 1)
 			hw_set_promiscuous(hw, hw->promiscuous);
 
+		/*
+		 * Port is not in promiscuous mode, meaning it is released
+		 * from the bridge.
+		 */
 		if ((hw->features & STP_SUPPORT) && !promiscuous &&
 		    (dev->priv_flags & IFF_BRIDGE_PORT)) {
 			struct ksz_switch *sw = hw->ksz_switch;
@@ -4521,12 +5735,19 @@ static void dev_set_multicast(struct dev_priv *priv, struct ksz_hw *hw,
 			--hw->all_multi;
 		priv->multicast = multicast;
 
-		
+		/* Turn on/off all multicast mode. */
 		if (hw->all_multi <= 1 && all_multi <= 1)
 			hw_set_multicast(hw, hw->all_multi);
 	}
 }
 
+/**
+ * netdev_set_rx_mode
+ * @dev:	Network device.
+ *
+ * This routine is used to set multicast addresses or put the network device
+ * into promiscuous mode.
+ */
 static void netdev_set_rx_mode(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4541,14 +5762,14 @@ static void netdev_set_rx_mode(struct net_device *dev)
 		multicast |= (dev->flags & IFF_MULTICAST);
 	dev_set_multicast(priv, hw, multicast);
 
-	
+	/* Cannot use different hashes in multiple device interfaces mode. */
 	if (hw_priv->hw.dev_count > 1)
 		return;
 
 	if ((dev->flags & IFF_MULTICAST) && !netdev_mc_empty(dev)) {
 		int i = 0;
 
-		
+		/* List too big to support so turn on all multicast mode. */
 		if (netdev_mc_count(dev) > MAX_MULTICAST_LIST) {
 			if (MAX_MULTICAST_LIST != hw->multi_list_size) {
 				hw->multi_list_size = MAX_MULTICAST_LIST;
@@ -4585,7 +5806,7 @@ static int netdev_change_mtu(struct net_device *dev, int new_mtu)
 	if (netif_running(dev))
 		return -EBUSY;
 
-	
+	/* Cannot use different MTU in multiple device interfaces mode. */
 	if (hw->dev_count > 1)
 		if (dev != hw_priv->dev)
 			return 0;
@@ -4610,6 +5831,16 @@ static int netdev_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+/**
+ * netdev_ioctl - I/O control processing
+ * @dev:	Network device.
+ * @ifr:	Interface request structure.
+ * @cmd:	I/O control code.
+ *
+ * This function is used to process I/O control calls.
+ *
+ * Return 0 to indicate success.
+ */
 static int netdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4623,16 +5854,16 @@ static int netdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	if (down_interruptible(&priv->proc_sem))
 		return -ERESTARTSYS;
 
-	
+	/* assume success */
 	rc = 0;
 	switch (cmd) {
-	
+	/* Get address of MII PHY in use. */
 	case SIOCGMIIPHY:
 		data->phy_id = priv->id;
 
-		
+		/* Fallthrough... */
 
-	
+	/* Read MII PHY register. */
 	case SIOCGMIIREG:
 		if (data->phy_id != priv->id || data->reg_num >= 6)
 			result = -EIO;
@@ -4641,7 +5872,7 @@ static int netdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				&data->val_out);
 		break;
 
-	
+	/* Write MII PHY register. */
 	case SIOCSMIIREG:
 		if (!capable(CAP_NET_ADMIN))
 			result = -EPERM;
@@ -4661,7 +5892,20 @@ static int netdev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	return result;
 }
 
+/*
+ * MII support
+ */
 
+/**
+ * mdio_read - read PHY register
+ * @dev:	Network device.
+ * @phy_id:	The PHY id.
+ * @reg_num:	The register number.
+ *
+ * This function returns the PHY register value.
+ *
+ * Return the register value.
+ */
 static int mdio_read(struct net_device *dev, int phy_id, int reg_num)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4673,6 +5917,15 @@ static int mdio_read(struct net_device *dev, int phy_id, int reg_num)
 	return val_out;
 }
 
+/**
+ * mdio_write - set PHY register
+ * @dev:	Network device.
+ * @phy_id:	The PHY id.
+ * @reg_num:	The register number.
+ * @val:	The register value.
+ *
+ * This procedure sets the PHY register value.
+ */
 static void mdio_write(struct net_device *dev, int phy_id, int reg_num, int val)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4685,6 +5938,9 @@ static void mdio_write(struct net_device *dev, int phy_id, int reg_num, int val)
 		hw_w_phy(hw, pi, reg_num << 1, val);
 }
 
+/*
+ * ethtool support
+ */
 
 #define EEPROM_SIZE			0x40
 
@@ -4696,7 +5952,17 @@ static u16 eeprom_data[EEPROM_SIZE] = { 0 };
 	ADVERTISED_100baseT_Half |	\
 	ADVERTISED_100baseT_Full)
 
+/* These functions use the MII functions in mii.c. */
 
+/**
+ * netdev_get_settings - get network device settings
+ * @dev:	Network device.
+ * @cmd:	Ethtool command.
+ *
+ * This function queries the PHY and returns its state in the ethtool command.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 static int netdev_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4707,11 +5973,20 @@ static int netdev_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	cmd->advertising |= SUPPORTED_TP;
 	mutex_unlock(&hw_priv->lock);
 
-	
+	/* Save advertised settings for workaround in next function. */
 	priv->advertising = cmd->advertising;
 	return 0;
 }
 
+/**
+ * netdev_set_settings - set network device settings
+ * @dev:	Network device.
+ * @cmd:	Ethtool command.
+ *
+ * This function sets the PHY according to the ethtool command.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 static int netdev_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4720,6 +5995,10 @@ static int netdev_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	u32 speed = ethtool_cmd_speed(cmd);
 	int rc;
 
+	/*
+	 * ethtool utility does not change advertised setting if auto
+	 * negotiation is not specified explicitly.
+	 */
 	if (cmd->autoneg && priv->advertising == cmd->advertising) {
 		cmd->advertising |= ADVERTISED_ALL;
 		if (10 == speed)
@@ -4760,6 +6039,14 @@ static int netdev_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	return rc;
 }
 
+/**
+ * netdev_nway_reset - restart auto-negotiation
+ * @dev:	Network device.
+ *
+ * This function restarts the PHY for auto-negotiation.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 static int netdev_nway_reset(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4772,6 +6059,14 @@ static int netdev_nway_reset(struct net_device *dev)
 	return rc;
 }
 
+/**
+ * netdev_get_link - get network device link status
+ * @dev:	Network device.
+ *
+ * This function gets the link status from the PHY.
+ *
+ * Return true if PHY is linked and false otherwise.
+ */
 static u32 netdev_get_link(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4781,6 +6076,13 @@ static u32 netdev_get_link(struct net_device *dev)
 	return rc;
 }
 
+/**
+ * netdev_get_drvinfo - get network driver information
+ * @dev:	Network device.
+ * @info:	Ethtool driver info data structure.
+ *
+ * This procedure returns the driver information.
+ */
 static void netdev_get_drvinfo(struct net_device *dev,
 	struct ethtool_drvinfo *info)
 {
@@ -4793,6 +6095,14 @@ static void netdev_get_drvinfo(struct net_device *dev,
 		sizeof(info->bus_info));
 }
 
+/**
+ * netdev_get_regs_len - get length of register dump
+ * @dev:	Network device.
+ *
+ * This function returns the length of the register dump.
+ *
+ * Return length of the register dump.
+ */
 static struct hw_regs {
 	int start;
 	int end;
@@ -4818,6 +6128,14 @@ static int netdev_get_regs_len(struct net_device *dev)
 	return regs_len;
 }
 
+/**
+ * netdev_get_regs - get register dump
+ * @dev:	Network device.
+ * @regs:	Ethtool registers data structure.
+ * @ptr:	Buffer to store the register values.
+ *
+ * This procedure dumps the register values in the provided buffer.
+ */
 static void netdev_get_regs(struct net_device *dev, struct ethtool_regs *regs,
 	void *ptr)
 {
@@ -4849,6 +6167,13 @@ static void netdev_get_regs(struct net_device *dev, struct ethtool_regs *regs,
 	WAKE_UCAST | WAKE_MCAST |	\
 	WAKE_BCAST | WAKE_ARP)
 
+/**
+ * netdev_get_wol - get Wake-on-LAN support
+ * @dev:	Network device.
+ * @wol:	Ethtool Wake-on-LAN data structure.
+ *
+ * This procedure returns Wake-on-LAN support.
+ */
 static void netdev_get_wol(struct net_device *dev,
 	struct ethtool_wolinfo *wol)
 {
@@ -4860,13 +6185,22 @@ static void netdev_get_wol(struct net_device *dev,
 	memset(&wol->sopass, 0, sizeof(wol->sopass));
 }
 
+/**
+ * netdev_set_wol - set Wake-on-LAN support
+ * @dev:	Network device.
+ * @wol:	Ethtool Wake-on-LAN data structure.
+ *
+ * This function sets Wake-on-LAN support.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 static int netdev_set_wol(struct net_device *dev,
 	struct ethtool_wolinfo *wol)
 {
 	struct dev_priv *priv = netdev_priv(dev);
 	struct dev_info *hw_priv = priv->adapter;
 
-	
+	/* Need to find a way to retrieve the device IP address. */
 	static const u8 net_addr[] = { 192, 168, 1, 1 };
 
 	if (wol->wolopts & ~hw_priv->wol_support)
@@ -4874,13 +6208,21 @@ static int netdev_set_wol(struct net_device *dev,
 
 	hw_priv->wol_enable = wol->wolopts;
 
-	
+	/* Link wakeup cannot really be disabled. */
 	if (wol->wolopts)
 		hw_priv->wol_enable |= WAKE_PHY;
 	hw_enable_wol(&hw_priv->hw, hw_priv->wol_enable, net_addr);
 	return 0;
 }
 
+/**
+ * netdev_get_msglevel - get debug message level
+ * @dev:	Network device.
+ *
+ * This function returns current debug message level.
+ *
+ * Return current debug message flags.
+ */
 static u32 netdev_get_msglevel(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4888,6 +6230,13 @@ static u32 netdev_get_msglevel(struct net_device *dev)
 	return priv->msg_enable;
 }
 
+/**
+ * netdev_set_msglevel - set debug message level
+ * @dev:	Network device.
+ * @value:	Debug message flags.
+ *
+ * This procedure sets debug message level.
+ */
 static void netdev_set_msglevel(struct net_device *dev, u32 value)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -4895,11 +6244,29 @@ static void netdev_set_msglevel(struct net_device *dev, u32 value)
 	priv->msg_enable = value;
 }
 
+/**
+ * netdev_get_eeprom_len - get EEPROM length
+ * @dev:	Network device.
+ *
+ * This function returns the length of the EEPROM.
+ *
+ * Return length of the EEPROM.
+ */
 static int netdev_get_eeprom_len(struct net_device *dev)
 {
 	return EEPROM_SIZE * 2;
 }
 
+/**
+ * netdev_get_eeprom - get EEPROM data
+ * @dev:	Network device.
+ * @eeprom:	Ethtool EEPROM data structure.
+ * @data:	Buffer to store the EEPROM data.
+ *
+ * This function dumps the EEPROM data in the provided buffer.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 #define EEPROM_MAGIC			0x10A18842
 
 static int netdev_get_eeprom(struct net_device *dev,
@@ -4920,6 +6287,16 @@ static int netdev_get_eeprom(struct net_device *dev,
 	return 0;
 }
 
+/**
+ * netdev_set_eeprom - write EEPROM data
+ * @dev:	Network device.
+ * @eeprom:	Ethtool EEPROM data structure.
+ * @data:	Data buffer.
+ *
+ * This function modifies the EEPROM data one byte at a time.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 static int netdev_set_eeprom(struct net_device *dev,
 	struct ethtool_eeprom *eeprom, u8 *data)
 {
@@ -4947,6 +6324,13 @@ static int netdev_set_eeprom(struct net_device *dev,
 	return 0;
 }
 
+/**
+ * netdev_get_pauseparam - get flow control parameters
+ * @dev:	Network device.
+ * @pause:	Ethtool PAUSE settings data structure.
+ *
+ * This procedure returns the PAUSE control flow settings.
+ */
 static void netdev_get_pauseparam(struct net_device *dev,
 	struct ethtool_pauseparam *pause)
 {
@@ -4970,6 +6354,16 @@ static void netdev_get_pauseparam(struct net_device *dev,
 	}
 }
 
+/**
+ * netdev_set_pauseparam - set flow control parameters
+ * @dev:	Network device.
+ * @pause:	Ethtool PAUSE settings data structure.
+ *
+ * This function sets the PAUSE control flow settings.
+ * Not implemented yet.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 static int netdev_set_pauseparam(struct net_device *dev,
 	struct ethtool_pauseparam *pause)
 {
@@ -5008,6 +6402,13 @@ static int netdev_set_pauseparam(struct net_device *dev,
 	return 0;
 }
 
+/**
+ * netdev_get_ringparam - get tx/rx ring parameters
+ * @dev:	Network device.
+ * @pause:	Ethtool RING settings data structure.
+ *
+ * This procedure returns the TX/RX ring settings.
+ */
 static void netdev_get_ringparam(struct net_device *dev,
 	struct ethtool_ringparam *ring)
 {
@@ -5064,6 +6465,14 @@ static struct {
 	{ "tx_discards" },
 };
 
+/**
+ * netdev_get_strings - get statistics identity strings
+ * @dev:	Network device.
+ * @stringset:	String set identifier.
+ * @buf:	Buffer to store the strings.
+ *
+ * This procedure returns the strings used to identify the statistics.
+ */
 static void netdev_get_strings(struct net_device *dev, u32 stringset, u8 *buf)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -5075,6 +6484,15 @@ static void netdev_get_strings(struct net_device *dev, u32 stringset, u8 *buf)
 			ETH_GSTRING_LEN * hw->mib_cnt);
 }
 
+/**
+ * netdev_get_sset_count - get statistics size
+ * @dev:	Network device.
+ * @sset:	The statistics set number.
+ *
+ * This function returns the size of the statistics to be reported.
+ *
+ * Return size of the statistics to be reported.
+ */
 static int netdev_get_sset_count(struct net_device *dev, int sset)
 {
 	struct dev_priv *priv = netdev_priv(dev);
@@ -5089,6 +6507,14 @@ static int netdev_get_sset_count(struct net_device *dev, int sset)
 	}
 }
 
+/**
+ * netdev_get_ethtool_stats - get network device statistics
+ * @dev:	Network device.
+ * @stats:	Ethtool statistics data structure.
+ * @data:	Buffer to store the statistics.
+ *
+ * This procedure returns the statistics.
+ */
 static void netdev_get_ethtool_stats(struct net_device *dev,
 	struct ethtool_stats *stats, u64 *data)
 {
@@ -5109,7 +6535,7 @@ static void netdev_get_ethtool_stats(struct net_device *dev,
 		if (media_connected == hw->port_mib[p].state) {
 			hw_priv->counter[p].read = 1;
 
-			
+			/* Remember first port that requests read. */
 			if (n == SWITCH_PORT_NUM)
 				n = p;
 		}
@@ -5149,6 +6575,15 @@ static void netdev_get_ethtool_stats(struct net_device *dev,
 		*data++ = counter[i];
 }
 
+/**
+ * netdev_set_features - set receive checksum support
+ * @dev:	Network device.
+ * @features:	New device features (offloads).
+ *
+ * This function sets receive checksum support setting.
+ *
+ * Return 0 if successful; otherwise an error code.
+ */
 static int netdev_set_features(struct net_device *dev,
 	netdev_features_t features)
 {
@@ -5158,7 +6593,7 @@ static int netdev_set_features(struct net_device *dev,
 
 	mutex_lock(&hw_priv->lock);
 
-	
+	/* see note in hw_setup() */
 	if (features & NETIF_F_RXCSUM)
 		hw->rx_cfg |= DMA_RX_CSUM_TCP | DMA_RX_CSUM_IP;
 	else
@@ -5195,6 +6630,9 @@ static const struct ethtool_ops netdev_ethtool_ops = {
 	.get_ethtool_stats	= netdev_get_ethtool_stats,
 };
 
+/*
+ * Hardware monitoring
+ */
 
 static void update_link(struct net_device *dev, struct dev_priv *priv,
 	struct ksz_port *port)
@@ -5218,32 +6656,32 @@ static void mib_read_work(struct work_struct *work)
 	for (i = 0; i < hw->mib_port_cnt; i++) {
 		mib = &hw->port_mib[i];
 
-		
+		/* Reading MIB counters or requested to read. */
 		if (mib->cnt_ptr || 1 == hw_priv->counter[i].read) {
 
-			
+			/* Need to process receive interrupt. */
 			if (port_r_cnt(hw, i))
 				break;
 			hw_priv->counter[i].read = 0;
 
-			
+			/* Finish reading counters. */
 			if (0 == mib->cnt_ptr) {
 				hw_priv->counter[i].read = 2;
 				wake_up_interruptible(
 					&hw_priv->counter[i].counter);
 			}
 		} else if (jiffies >= hw_priv->counter[i].time) {
-			
+			/* Only read MIB counters when the port is connected. */
 			if (media_connected == mib->state)
 				hw_priv->counter[i].read = 1;
 			next_jiffies += HZ * 1 * hw->mib_port_cnt;
 			hw_priv->counter[i].time = next_jiffies;
 
-		
+		/* Port is just disconnected. */
 		} else if (mib->link_down) {
 			mib->link_down = 0;
 
-			
+			/* Read counters one last time after link is lost. */
 			hw_priv->counter[i].read = 1;
 		}
 	}
@@ -5255,7 +6693,7 @@ static void mib_monitor(unsigned long ptr)
 
 	mib_read_work(&hw_priv->mib_read);
 
-	
+	/* This is used to verify Wake-on-LAN is working. */
 	if (hw_priv->pme_wait) {
 		if (hw_priv->pme_wait <= jiffies) {
 			hw_clr_wol_pme_status(&hw_priv->hw);
@@ -5263,13 +6701,19 @@ static void mib_monitor(unsigned long ptr)
 		}
 	} else if (hw_chk_wol_pme_status(&hw_priv->hw)) {
 
-		
+		/* PME is asserted.  Wait 2 seconds to clear it. */
 		hw_priv->pme_wait = jiffies + HZ * 2;
 	}
 
 	ksz_update_timer(&hw_priv->mib_timer_info);
 }
 
+/**
+ * dev_monitor - periodic monitoring
+ * @ptr:	Network device pointer.
+ *
+ * This routine is run in a kernel timer to monitor the network device.
+ */
 static void dev_monitor(unsigned long ptr)
 {
 	struct net_device *dev = (struct net_device *) ptr;
@@ -5285,32 +6729,75 @@ static void dev_monitor(unsigned long ptr)
 	ksz_update_timer(&priv->monitor_timer_info);
 }
 
+/*
+ * Linux network device interface functions
+ */
 
+/* Driver exported variables */
 
 static int msg_enable;
 
 static char *macaddr = ":";
 static char *mac1addr = ":";
 
+/*
+ * This enables multiple network device mode for KSZ8842, which contains a
+ * switch with two physical ports.  Some users like to take control of the
+ * ports for running Spanning Tree Protocol.  The driver will create an
+ * additional eth? device for the other port.
+ *
+ * Some limitations are the network devices cannot have different MTU and
+ * multicast hash tables.
+ */
 static int multi_dev;
 
+/*
+ * As most users select multiple network device mode to use Spanning Tree
+ * Protocol, this enables a feature in which most unicast and multicast packets
+ * are forwarded inside the switch and not passed to the host.  Only packets
+ * that need the host's attention are passed to it.  This prevents the host
+ * wasting CPU time to examine each and every incoming packets and do the
+ * forwarding itself.
+ *
+ * As the hack requires the private bridge header, the driver cannot compile
+ * with just the kernel headers.
+ *
+ * Enabling STP support also turns on multiple network device mode.
+ */
 static int stp;
 
+/*
+ * This enables fast aging in the KSZ8842 switch.  Not sure what situation
+ * needs that.  However, fast aging is used to flush the dynamic MAC table when
+ * STP suport is enabled.
+ */
 static int fast_aging;
 
+/**
+ * netdev_init - initialize network device.
+ * @dev:	Network device.
+ *
+ * This function initializes the network device.
+ *
+ * Return 0 if successful; otherwise an error code indicating failure.
+ */
 static int __init netdev_init(struct net_device *dev)
 {
 	struct dev_priv *priv = netdev_priv(dev);
 
-	
+	/* 500 ms timeout */
 	ksz_init_timer(&priv->monitor_timer_info, 500 * HZ / 1000,
 		dev_monitor, dev);
 
-	
+	/* 500 ms timeout */
 	dev->watchdog_timeo = HZ / 2;
 
 	dev->hw_features = NETIF_F_IP_CSUM | NETIF_F_SG | NETIF_F_RXCSUM;
 
+	/*
+	 * Hardware does not really support IPv6 checksum generation, but
+	 * driver actually runs faster with this on.
+	 */
 	dev->hw_features |= NETIF_F_IPV6_CSUM;
 
 	dev->features |= dev->hw_features;
@@ -5495,11 +6982,11 @@ static int __devinit pcidev_init(struct pci_dev *pdev,
 	}
 
 	snprintf(banner, sizeof(banner), "%s", version);
-	banner[13] = cnt + '0';		
+	banner[13] = cnt + '0';		/* Replace x in "Micrel KSZ884x" */
 	dev_info(&hw_priv->pdev->dev, "%s\n", banner);
 	dev_dbg(&hw_priv->pdev->dev, "Mem = %p; IRQ = %d\n", hw->io, pdev->irq);
 
-	
+	/* Assume device is KSZ8841. */
 	hw->dev_count = 1;
 	port_count = 1;
 	mib_port_count = 1;
@@ -5507,20 +6994,20 @@ static int __devinit pcidev_init(struct pci_dev *pdev,
 	hw->mib_cnt = PORT_COUNTER_NUM;
 	hw->mib_port_cnt = 1;
 
-	
+	/* KSZ8842 has a switch with multiple ports. */
 	if (2 == cnt) {
 		if (fast_aging)
 			hw->overrides |= FAST_AGING;
 
 		hw->mib_cnt = TOTAL_PORT_COUNTER_NUM;
 
-		
+		/* Multiple network device interfaces are required. */
 		if (multi_dev) {
 			hw->dev_count = SWITCH_PORT_NUM;
 			hw->addr_list_size = SWITCH_PORT_NUM - 1;
 		}
 
-		
+		/* Single network device has multiple ports. */
 		if (1 == hw->dev_count) {
 			port_count = SWITCH_PORT_NUM;
 			mib_port_count = SWITCH_PORT_NUM;
@@ -5537,7 +7024,7 @@ static int __devinit pcidev_init(struct pci_dev *pdev,
 
 	hw->parent = hw_priv;
 
-	
+	/* Default MTU is 1500. */
 	hw_priv->mtu = (REGULAR_RX_BUF_SIZE + 3) & ~3;
 
 	if (ksz_alloc_mem(hw_priv))
@@ -5548,13 +7035,13 @@ static int __devinit pcidev_init(struct pci_dev *pdev,
 	spin_lock_init(&hw_priv->hwlock);
 	mutex_init(&hw_priv->lock);
 
-	
+	/* tasklet is enabled. */
 	tasklet_init(&hw_priv->rx_tasklet, rx_proc_task,
 		(unsigned long) hw_priv);
 	tasklet_init(&hw_priv->tx_tasklet, tx_proc_task,
 		(unsigned long) hw_priv);
 
-	
+	/* tasklet_enable will decrement the atomic counter. */
 	tasklet_disable(&hw_priv->rx_tasklet);
 	tasklet_disable(&hw_priv->tx_tasklet);
 
@@ -5564,10 +7051,10 @@ static int __devinit pcidev_init(struct pci_dev *pdev,
 	if (macaddr[0] != ':')
 		get_mac_addr(hw_priv, macaddr, MAIN_PORT);
 
-	
+	/* Read MAC address and initialize override address if not overrided. */
 	hw_read_addr(hw);
 
-	
+	/* Multiple device interfaces mode requires a second MAC address. */
 	if (hw->dev_count > 1) {
 		memcpy(sw->other_addr, hw->override_addr, ETH_ALEN);
 		read_other_addr(hw);
@@ -5585,7 +7072,7 @@ static int __devinit pcidev_init(struct pci_dev *pdev,
 
 	INIT_WORK(&hw_priv->mib_read, mib_read_work);
 
-	
+	/* 500 ms timeout */
 	ksz_init_timer(&hw_priv->mib_timer_info, 500 * HZ / 1000,
 		mib_monitor, hw_priv);
 
@@ -5718,7 +7205,7 @@ static int pcidev_suspend(struct pci_dev *pdev, pm_message_t state)
 	struct dev_info *hw_priv = &info->dev_info;
 	struct ksz_hw *hw = &hw_priv->hw;
 
-	
+	/* Need to find a way to retrieve the device IP address. */
 	static const u8 net_addr[] = { 192, 168, 1, 1 };
 
 	for (i = 0; i < hw->dev_count; i++) {

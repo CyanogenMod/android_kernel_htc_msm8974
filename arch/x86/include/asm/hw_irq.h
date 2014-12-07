@@ -1,6 +1,17 @@
 #ifndef _ASM_X86_HW_IRQ_H
 #define _ASM_X86_HW_IRQ_H
 
+/*
+ * (C) 1992, 1993 Linus Torvalds, (C) 1997 Ingo Molnar
+ *
+ * moved some of the old arch/i386/kernel/irq.h to here. VY
+ *
+ * IRQ/IPI changes taken from work by Thomas Radke
+ * <tomsoft@informatik.tu-chemnitz.de>
+ *
+ * hacked by Andi Kleen for x86-64.
+ * unified by tglx
+ */
 
 #include <asm/irq_vectors.h>
 
@@ -14,6 +25,7 @@
 #include <asm/irq.h>
 #include <asm/sections.h>
 
+/* Interrupt handlers registered during init_IRQ */
 extern void apic_timer_interrupt(void);
 extern void x86_platform_ipi(void);
 extern void error_interrupt(void);
@@ -64,6 +76,7 @@ extern void threshold_interrupt(void);
 extern void call_function_interrupt(void);
 extern void call_function_single_interrupt(void);
 
+/* IOAPIC */
 #define IO_APIC_IRQ(x) (((x) >= NR_IRQS_LEGACY) || ((1<<(x)) & io_apic_irqs))
 extern unsigned long io_apic_irqs;
 
@@ -95,6 +108,11 @@ struct irq_2_iommu {
 	u8  irte_mask;
 };
 
+/*
+ * This is performance-critical, we want to do it O(1)
+ *
+ * Most irqs are mapped 1:1 with pins.
+ */
 struct irq_cfg {
 	struct irq_pin_list	*irq_2_pin;
 	cpumask_var_t		domain;
@@ -117,11 +135,14 @@ extern void setup_ioapic_dest(void);
 
 extern void enable_IO_APIC(void);
 
+/* Statistics */
 extern atomic_t irq_err_count;
 extern atomic_t irq_mis_count;
 
+/* EISA */
 extern void eisa_set_level_irq(unsigned int irq);
 
+/* SMP */
 extern void smp_apic_timer_interrupt(struct pt_regs *);
 extern void smp_spurious_interrupt(struct pt_regs *);
 extern void smp_x86_platform_ipi(struct pt_regs *);
@@ -156,6 +177,6 @@ static inline void unlock_vector_lock(void) {}
 static inline void __setup_vector_irq(int cpu) {}
 #endif
 
-#endif 
+#endif /* !ASSEMBLY_ */
 
-#endif 
+#endif /* _ASM_X86_HW_IRQ_H */

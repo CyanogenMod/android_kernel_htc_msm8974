@@ -21,4 +21,4 @@ void thread_map__delete(struct thread_map *threads);
 
 size_t thread_map__fprintf(struct thread_map *threads, FILE *fp);
 
-#endif	
+#endif	/* __PERF_THREAD_MAP_H */

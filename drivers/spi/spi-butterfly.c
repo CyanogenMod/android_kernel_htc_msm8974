@@ -32,18 +32,29 @@
 #include <linux/mtd/partitions.h>
 
 
+/*
+ * This uses SPI to talk with an "AVR Butterfly", which is a $US20 card
+ * with a battery powered AVR microcontroller and lots of goodies.  You
+ * can use GCC to develop firmware for this.
+ *
+ * See Documentation/spi/butterfly for information about how to build
+ * and use this custom parallel port cable.
+ */
 
 
-#define	butterfly_nreset (1 << 1)		
+/* DATA output bits (pins 2..9 == D0..D7) */
+#define	butterfly_nreset (1 << 1)		/* pin 3 */
 
-#define	spi_sck_bit	(1 << 0)		
-#define	spi_mosi_bit	(1 << 7)		
+#define	spi_sck_bit	(1 << 0)		/* pin 2 */
+#define	spi_mosi_bit	(1 << 7)		/* pin 9 */
 
-#define	vcc_bits	((1 << 6) | (1 << 5))	
+#define	vcc_bits	((1 << 6) | (1 << 5))	/* pins 7, 8 */
 
-#define	spi_miso_bit	PARPORT_STATUS_BUSY	
+/* STATUS input bits */
+#define	spi_miso_bit	PARPORT_STATUS_BUSY	/* pin 11 */
 
-#define	spi_cs_bit	PARPORT_CONTROL_SELECT	
+/* CONTROL output bits */
+#define	spi_cs_bit	PARPORT_CONTROL_SELECT	/* pin 17 */
 
 
 
@@ -54,7 +65,7 @@ static inline struct butterfly *spidev_to_pp(struct spi_device *spi)
 
 
 struct butterfly {
-	
+	/* REVISIT ... for now, this must be first */
 	struct spi_bitbang	bitbang;
 
 	struct parport		*port;
@@ -68,6 +79,7 @@ struct butterfly {
 
 };
 
+/*----------------------------------------------------------------------*/
 
 static inline void
 setsck(struct spi_device *spi, int is_on)
@@ -109,7 +121,7 @@ static inline int getmiso(struct spi_device *spi)
 
 	bit = spi_miso_bit;
 
-	
+	/* only STATUS_BUSY is NOT negated */
 	value = !(parport_read_status(pp->port) & bit);
 	return (bit == PARPORT_STATUS_BUSY) ? value : !value;
 }
@@ -118,10 +130,14 @@ static void butterfly_chipselect(struct spi_device *spi, int value)
 {
 	struct butterfly	*pp = spidev_to_pp(spi);
 
-	
+	/* set default clock polarity */
 	if (value != BITBANG_CS_INACTIVE)
 		setsck(spi, spi->mode & SPI_CPOL);
 
+	/* here, value == "activate or not";
+	 * most PARPORT_CONTROL_* bits are negated, so we must
+	 * morph it to value == "bit value to write in control register"
+	 */
 	if (spi_cs_bit == PARPORT_CONTROL_INIT)
 		value = !value;
 
@@ -129,8 +145,10 @@ static void butterfly_chipselect(struct spi_device *spi, int value)
 }
 
 
+/* we only needed to implement one mode here, and choose SPI_MODE_0 */
 
 #define	spidelay(X)	do{}while(0)
+//#define	spidelay	ndelay
 
 #include "spi-bitbang-txrx.h"
 
@@ -142,14 +160,26 @@ butterfly_txrx_word_mode0(struct spi_device *spi,
 	return bitbang_txrx_be_cpha0(spi, nsecs, 0, 0, word, bits);
 }
 
+/*----------------------------------------------------------------------*/
 
+/* override default partitioning with cmdlinepart */
 static struct mtd_partition partitions[] = { {
+	/* JFFS2 wants partitions of 4*N blocks for this device,
+	 * so sectors 0 and 1 can't be partitions by themselves.
+	 */
 
-	.name		= "bookkeeping",	
+	/* sector 0 = 8 pages * 264 bytes/page (1 block)
+	 * sector 1 = 248 pages * 264 bytes/page
+	 */
+	.name		= "bookkeeping",	// 66 KB
 	.offset		= 0,
 	.size		= (8 + 248) * 264,
+//	.mask_flags	= MTD_WRITEABLE,
 }, {
-	.name		= "filesystem",		
+	/* sector 2 = 256 pages * 264 bytes/page
+	 * sectors 3-5 = 512 pages * 264 bytes/page
+	 */
+	.name		= "filesystem",		// 462 KB
 	.offset		= MTDPART_OFS_APPEND,
 	.size		= MTDPART_SIZ_FULL,
 } };
@@ -161,6 +191,7 @@ static struct flash_platform_data flash = {
 };
 
 
+/* REVISIT remove this ugly global and its "only one" limitation */
 static struct butterfly *butterfly;
 
 static void butterfly_attach(struct parport *p)
@@ -174,6 +205,9 @@ static void butterfly_attach(struct parport *p)
 	if (butterfly || !dev)
 		return;
 
+	/* REVISIT:  this just _assumes_ a butterfly is there ... no probe,
+	 * and no way to be selective about what it binds to.
+	 */
 
 	master = spi_alloc_master(dev, sizeof *pp);
 	if (!master) {
@@ -182,6 +216,12 @@ static void butterfly_attach(struct parport *p)
 	}
 	pp = spi_master_get_devdata(master);
 
+	/*
+	 * SPI and bitbang hookup
+	 *
+	 * use default setup(), cleanup(), and transfer() methods; and
+	 * only bother implementing mode 0.  Start it later.
+	 */
 	master->bus_num = 42;
 	master->num_chipselect = 2;
 
@@ -189,10 +229,13 @@ static void butterfly_attach(struct parport *p)
 	pp->bitbang.chipselect = butterfly_chipselect;
 	pp->bitbang.txrx_word[SPI_MODE_0] = butterfly_txrx_word_mode0;
 
+	/*
+	 * parport hookup
+	 */
 	pp->port = p;
 	pd = parport_register_device(p, "spi_butterfly",
 			NULL, NULL, NULL,
-			0 , pp);
+			0 /* FLAGS */, pp);
 	if (!pd) {
 		status = -ENOMEM;
 		goto clean0;
@@ -203,25 +246,38 @@ static void butterfly_attach(struct parport *p)
 	if (status < 0)
 		goto clean1;
 
+	/*
+	 * Butterfly reset, powerup, run firmware
+	 */
 	pr_debug("%s: powerup/reset Butterfly\n", p->name);
 
-	
+	/* nCS for dataflash (this bit is inverted on output) */
 	parport_frob_control(pp->port, spi_cs_bit, 0);
 
+	/* stabilize power with chip in reset (nRESET), and
+	 * spi_sck_bit clear (CPOL=0)
+	 */
 	pp->lastbyte |= vcc_bits;
 	parport_write_data(pp->port, pp->lastbyte);
 	msleep(5);
 
-	
+	/* take it out of reset; assume long reset delay */
 	pp->lastbyte |= butterfly_nreset;
 	parport_write_data(pp->port, pp->lastbyte);
 	msleep(100);
 
 
+	/*
+	 * Start SPI ... for now, hide that we're two physical busses.
+	 */
 	status = spi_bitbang_start(&pp->bitbang);
 	if (status < 0)
 		goto clean2;
 
+	/* Bus 1 lets us talk to at45db041b (firmware disables AVR SPI), AVR
+	 * (firmware resets at45, acts as spi slave) or neither (we ignore
+	 * both, AVR uses AT45).  Here we expect firmware for the first option.
+	 */
 
 	pp->info[0].max_speed_hz = 15 * 1000 * 1000;
 	strcpy(pp->info[0].modalias, "mtd_dataflash");
@@ -233,13 +289,13 @@ static void butterfly_attach(struct parport *p)
 		pr_debug("%s: dataflash at %s\n", p->name,
 				dev_name(&pp->dataflash->dev));
 
-	
+	// dev_info(_what?_, ...)
 	pr_info("%s: AVR Butterfly\n", p->name);
 	butterfly = pp;
 	return;
 
 clean2:
-	
+	/* turn off VCC */
 	parport_write_data(pp->port, 0);
 
 	parport_release(pp->pd);
@@ -256,15 +312,19 @@ static void butterfly_detach(struct parport *p)
 	struct butterfly	*pp;
 	int			status;
 
+	/* FIXME this global is ugly ... but, how to quickly get from
+	 * the parport to the "struct butterfly" associated with it?
+	 * "old school" driver-internal device lists?
+	 */
 	if (!butterfly || butterfly->port != p)
 		return;
 	pp = butterfly;
 	butterfly = NULL;
 
-	
+	/* stop() unregisters child devices too */
 	status = spi_bitbang_stop(&pp->bitbang);
 
-	
+	/* turn off VCC */
 	parport_write_data(pp->port, 0);
 	msleep(10);
 

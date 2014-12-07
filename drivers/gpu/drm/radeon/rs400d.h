@@ -28,6 +28,7 @@
 #ifndef __RS400D_H__
 #define __RS400D_H__
 
+/* Registers */
 #define R_000148_MC_FB_LOCATION                      0x000148
 #define   S_000148_MC_FB_START(x)                      (((x) & 0xFFFF) << 0)
 #define   G_000148_MC_FB_START(x)                      (((x) >> 0) & 0xFFFF)

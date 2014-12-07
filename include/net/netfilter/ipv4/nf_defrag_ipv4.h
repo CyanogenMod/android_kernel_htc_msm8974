@@ -3,4 +3,4 @@
 
 extern void nf_defrag_ipv4_enable(void);
 
-#endif 
+#endif /* _NF_DEFRAG_IPV4_H */

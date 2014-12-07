@@ -43,9 +43,9 @@
 
 #ifdef CONFIG_SMP
 #error "I-pipe/blackfin: SMP not implemented"
-#else 
+#else /* !CONFIG_SMP */
 #define ipipe_processor_id()	0
-#endif	
+#endif	/* CONFIG_SMP */
 
 #define prepare_arch_switch(next)		\
 do {						\
@@ -64,11 +64,11 @@ do {						\
 struct ipipe_domain;
 
 struct ipipe_sysinfo {
-	int sys_nr_cpus;	
-	int sys_hrtimer_irq;	
-	u64 sys_hrtimer_freq;	
-	u64 sys_hrclock_freq;	
-	u64 sys_cpu_freq;	
+	int sys_nr_cpus;	/* Number of CPUs on board */
+	int sys_hrtimer_irq;	/* hrtimer device IRQ */
+	u64 sys_hrtimer_freq;	/* hrtimer device frequency */
+	u64 sys_hrclock_freq;	/* hrclock device frequency */
+	u64 sys_cpu_freq;	/* CPU frequency (Hz) */
 };
 
 #define ipipe_read_tsc(t)					\
@@ -82,7 +82,7 @@ struct ipipe_sysinfo {
 				: "=d,a" (((unsigned long *)&t)[1]),	\
 				  "=d,a" (((unsigned long *)&t)[0]),	\
 				  "=d,a" (__cy2)				\
-				:  : "CC");			\
+				: /*no input*/ : "CC");			\
 	t;								\
 	})
 
@@ -90,6 +90,7 @@ struct ipipe_sysinfo {
 #define ipipe_tsc2ns(_t)	(((unsigned long)(_t)) * __ipipe_freq_scale)
 #define ipipe_tsc2us(_t)	(ipipe_tsc2ns(_t) / 1000 + 1)
 
+/* Private interface -- Internal use only */
 
 #define __ipipe_check_platform()	do { } while (0)
 
@@ -101,6 +102,7 @@ extern unsigned long __ipipe_irq_lvmask;
 
 extern struct ipipe_domain ipipe_root;
 
+/* enable/disable_irqdesc _must_ be used in pairs. */
 
 void __ipipe_enable_irqdesc(struct ipipe_domain *ipd,
 			    unsigned irq);
@@ -157,7 +159,7 @@ static inline unsigned long __ipipe_ffnz(unsigned long ul)
 #define __ipipe_do_root_xirq(ipd, irq)					\
 	((ipd)->irqs[irq].handler(irq, &__raw_get_cpu_var(__ipipe_tick_regs)))
 
-#define __ipipe_run_irqtail(irq)  			\
+#define __ipipe_run_irqtail(irq)  /* Must be a macro */			\
 	do {								\
 		unsigned long __pending;				\
 		CSYNC();						\
@@ -186,13 +188,13 @@ static inline unsigned long __ipipe_ffnz(unsigned long ul)
 
 #define __ipipe_root_tick_p(regs)	((regs->ipend & 0x10) != 0)
 
-#else 
+#else /* !CONFIG_IPIPE */
 
 #define task_hijacked(p)		0
 #define ipipe_trap_notify(t, r)  	0
 #define __ipipe_root_tick_p(regs)	1
 
-#endif 
+#endif /* !CONFIG_IPIPE */
 
 #ifdef CONFIG_TICKSOURCE_CORETMR
 #define IRQ_SYSTMR		IRQ_CORETMR
@@ -204,4 +206,4 @@ static inline unsigned long __ipipe_ffnz(unsigned long ul)
 
 #define ipipe_update_tick_evtdev(evtdev)	do { } while (0)
 
-#endif	
+#endif	/* !__ASM_BLACKFIN_IPIPE_H */

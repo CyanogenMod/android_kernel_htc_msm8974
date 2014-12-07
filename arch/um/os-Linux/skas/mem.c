@@ -61,7 +61,7 @@ static inline long do_syscall_stub(struct mm_id * mm_idp, void **addr)
 	int err, pid = mm_idp->u.pid;
 
 	if (proc_mm)
-		
+		/* FIXME: Need to look up userspace_pid by cpu */
 		pid = userspace_pid[0];
 
 	multi_count++;
@@ -82,6 +82,12 @@ static inline long do_syscall_stub(struct mm_id * mm_idp, void **addr)
 
 	wait_stub_done(pid);
 
+	/*
+	 * When the stub stops, we find the following values on the
+	 * beginning of the stack:
+	 * (long )return_value
+	 * (long )offset to failed sycall-data (0, if no error)
+	 */
 	ret = *((unsigned long *) mm_idp->stack);
 	offset = *((unsigned long *) mm_idp->stack + 1);
 	if (offset) {
@@ -153,10 +159,14 @@ long syscall_stub_data(struct mm_id * mm_idp,
 	unsigned long *stack;
 	int ret = 0;
 
+	/*
+	 * If *addr still is uninitialized, it *must* contain NULL.
+	 * Thus in this case do_syscall_stub correctly won't be called.
+	 */
 	if ((((unsigned long) *addr) & ~UM_KERN_PAGE_MASK) >=
 	   UM_KERN_PAGE_SIZE - (10 + data_count) * sizeof(long)) {
 		ret = do_syscall_stub(mm_idp, addr);
-		
+		/* in case of error, don't overwrite data on stack */
 		if (ret)
 			return ret;
 	}

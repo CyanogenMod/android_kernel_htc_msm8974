@@ -33,16 +33,19 @@
 #define HFC_DATA	1
 #define HFC_DATA_NODEB	2
 
+/* Status (READ) */
 #define HFC_BUSY	0x01
 #define HFC_TIMINT	0x02
 #define HFC_EXTINT	0x04
 
+/* CTMT (Write) */
 #define HFC_CLTIMER 0x10
 #define HFC_TIM50MS 0x08
 #define HFC_TIMIRQE 0x04
 #define HFC_TRANSB2 0x02
 #define HFC_TRANSB1 0x01
 
+/* CIRM (Write) */
 #define HFC_RESET	0x08
 #define HFC_MEM8K	0x10
 #define HFC_INTA	0x01

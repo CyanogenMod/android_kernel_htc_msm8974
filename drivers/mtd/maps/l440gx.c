@@ -1,3 +1,8 @@
+/*
+ * BIOS Flash chip on Intel 440GX board.
+ *
+ * Bugs this currently does not work under linuxBIOS.
+ */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -21,6 +26,7 @@ static u32 iobase;
 static struct mtd_info *mymtd;
 
 
+/* Is this really the vpp port? */
 static DEFINE_SPINLOCK(l440gx_vpp_lock);
 static int l440gx_vpp_refcnt;
 static void l440gx_set_vpp(struct map_info *map, int vpp)
@@ -29,10 +35,10 @@ static void l440gx_set_vpp(struct map_info *map, int vpp)
 
 	spin_lock_irqsave(&l440gx_vpp_lock, flags);
 	if (vpp) {
-		if (++l440gx_vpp_refcnt == 1)   
+		if (++l440gx_vpp_refcnt == 1)   /* first nested 'on' */
 			outl(inl(VPP_PORT) | 1, VPP_PORT);
 	} else {
-		if (--l440gx_vpp_refcnt == 0)   
+		if (--l440gx_vpp_refcnt == 0)   /* last nested 'off' */
 			outl(inl(VPP_PORT) & ~1, VPP_PORT);
 	}
 	spin_unlock_irqrestore(&l440gx_vpp_lock, flags);
@@ -44,6 +50,9 @@ static struct map_info l440gx_map = {
 	.bankwidth = BUSWIDTH,
 	.phys = WINDOW_ADDR,
 #if 0
+	/* FIXME verify that this is the
+	 * appripriate code for vpp enable/disable
+	 */
 	.set_vpp = l440gx_set_vpp
 #endif
 };
@@ -78,6 +87,11 @@ static int __init init_l440gx(void)
 	simple_map_init(&l440gx_map);
 	printk(KERN_NOTICE "window_addr = 0x%08lx\n", (unsigned long)l440gx_map.virt);
 
+	/* Setup the pm iobase resource
+	 * This code should move into some kind of generic bridge
+	 * driver but for the moment I'm content with getting the
+	 * allocation correct.
+	 */
 	pm_iobase = &pm_dev->resource[PIIXE_IOBASE_RESOURCE];
 	if (!(pm_iobase->flags & IORESOURCE_IO)) {
 		pm_iobase->name = "pm iobase";
@@ -85,7 +99,7 @@ static int __init init_l440gx(void)
 		pm_iobase->end = 63;
 		pm_iobase->flags = IORESOURCE_IO;
 
-		
+		/* Put the current value in the resource */
 		pci_read_config_dword(pm_dev, 0x40, &iobase);
 		iobase &= ~1;
 		pm_iobase->start += iobase & ~1;
@@ -93,7 +107,7 @@ static int __init init_l440gx(void)
 
 		pci_dev_put(pm_dev);
 
-		
+		/* Allocate the resource region */
 		if (pci_assign_resource(pm_dev, PIIXE_IOBASE_RESOURCE) != 0) {
 			pci_dev_put(dev);
 			pci_dev_put(pm_dev);
@@ -102,20 +116,20 @@ static int __init init_l440gx(void)
 			return -ENXIO;
 		}
 	}
-	
+	/* Set the iobase */
 	iobase = pm_iobase->start;
 	pci_write_config_dword(pm_dev, 0x40, iobase | 1);
 
 
-	
+	/* Set XBCS# */
 	pci_read_config_word(dev, 0x4e, &word);
 	word |= 0x4;
         pci_write_config_word(dev, 0x4e, word);
 
-	
+	/* Supply write voltage to the chip */
 	l440gx_set_vpp(&l440gx_map, 1);
 
-	
+	/* Enable the gate on the WE line */
 	outb(inb(TRIBUF_PORT) & ~1, TRIBUF_PORT);
 
        	printk(KERN_NOTICE "Enabled WE line to L440GX BIOS flash chip.\n");

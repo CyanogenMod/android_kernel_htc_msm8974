@@ -27,6 +27,7 @@
 
 #define MG_RES_SEC (CONFIG_MG_DISK_RES << 1)
 
+/* name for block device */
 #define MG_DISK_NAME "mgd"
 
 #define MG_DISK_MAJ 0
@@ -34,24 +35,27 @@
 #define MG_SECTOR_SIZE 512
 #define MG_MAX_SECTS 256
 
+/* Register offsets */
 #define MG_BUFF_OFFSET			0x8000
 #define MG_REG_OFFSET			0xC000
-#define MG_REG_FEATURE			(MG_REG_OFFSET + 2)	
-#define MG_REG_ERROR			(MG_REG_OFFSET + 2)	
+#define MG_REG_FEATURE			(MG_REG_OFFSET + 2)	/* write case */
+#define MG_REG_ERROR			(MG_REG_OFFSET + 2)	/* read case */
 #define MG_REG_SECT_CNT			(MG_REG_OFFSET + 4)
 #define MG_REG_SECT_NUM			(MG_REG_OFFSET + 6)
 #define MG_REG_CYL_LOW			(MG_REG_OFFSET + 8)
 #define MG_REG_CYL_HIGH			(MG_REG_OFFSET + 0xA)
 #define MG_REG_DRV_HEAD			(MG_REG_OFFSET + 0xC)
-#define MG_REG_COMMAND			(MG_REG_OFFSET + 0xE)	
-#define MG_REG_STATUS			(MG_REG_OFFSET + 0xE)	
+#define MG_REG_COMMAND			(MG_REG_OFFSET + 0xE)	/* write case */
+#define MG_REG_STATUS			(MG_REG_OFFSET + 0xE)	/* read  case */
 #define MG_REG_DRV_CTRL			(MG_REG_OFFSET + 0x10)
 #define MG_REG_BURST_CTRL		(MG_REG_OFFSET + 0x12)
 
+/* handy status */
 #define MG_STAT_READY	(ATA_DRDY | ATA_DSC)
 #define MG_READY_OK(s)	(((s) & (MG_STAT_READY | (ATA_BUSY | ATA_DF | \
 				 ATA_ERR))) == MG_STAT_READY)
 
+/* error code for others */
 #define MG_ERR_NONE		0
 #define MG_ERR_TIMEOUT		0x100
 #define MG_ERR_INIT_STAT	0x101
@@ -60,8 +64,9 @@
 #define MG_ERR_INV_STAT		0x104
 #define MG_ERR_RSTOUT		0x105
 
-#define MG_MAX_ERRORS	6	
+#define MG_MAX_ERRORS	6	/* Max read/write errors */
 
+/* command */
 #define MG_CMD_RD 0x20
 #define MG_CMD_WR 0x30
 #define MG_CMD_SLEEP 0x99
@@ -70,11 +75,13 @@
 #define MG_CMD_WR_CONF 0x3C
 #define MG_CMD_RD_CONF 0x40
 
+/* operation mode */
 #define MG_OP_CASCADE (1 << 0)
 #define MG_OP_CASCADE_SYNC_RD (1 << 1)
 #define MG_OP_CASCADE_SYNC_WR (1 << 2)
 #define MG_OP_INTERLEAVE (1 << 3)
 
+/* synchronous */
 #define MG_BURST_LAT_4 (3 << 4)
 #define MG_BURST_LAT_5 (4 << 4)
 #define MG_BURST_LAT_6 (5 << 4)
@@ -86,6 +93,7 @@
 #define MG_BURST_LEN_32 (4 << 1)
 #define MG_BURST_LEN_CONT (0 << 1)
 
+/* timeout value (unit: ms) */
 #define MG_TMAX_CONF_TO_CMD	1
 #define MG_TMAX_WAIT_RD_DRQ	10
 #define MG_TMAX_WAIT_WR_DRQ	500
@@ -96,6 +104,7 @@
 
 #define MG_DEV_MASK (MG_BOOT_DEV | MG_STORAGE_DEV | MG_STORAGE_DEV_SKIP_RST)
 
+/* main structure for mflash driver */
 struct mg_host {
 	struct device *dev;
 
@@ -124,13 +133,16 @@ struct mg_host {
 	u32 error;
 };
 
+/*
+ * Debugging macro and defines
+ */
 #undef DO_MG_DEBUG
 #ifdef DO_MG_DEBUG
 #  define MG_DBG(fmt, args...) \
 	printk(KERN_DEBUG "%s:%d "fmt, __func__, __LINE__, ##args)
-#else 
+#else /* CONFIG_MG_DEBUG */
 #  define MG_DBG(fmt, args...) do { } while (0)
-#endif 
+#endif /* CONFIG_MG_DEBUG */
 
 static void mg_request(struct request_queue *);
 
@@ -207,6 +219,11 @@ static unsigned int mg_wait(struct mg_host *host, u32 expect, u32 msec)
 	host->error = MG_ERR_NONE;
 	expire = jiffies + msecs_to_jiffies(msec);
 
+	/* These 2 times dummy status read prevents reading invalid
+	 * status. A very little time (3 times of mflash operating clk)
+	 * is required for busy bit is set. Use dummy read instead of
+	 * busy wait, because mflash's PLL is machine dependent.
+	 */
 	if (prv_data->use_polling) {
 		status = inb((unsigned long)host->dev_base + MG_REG_STATUS);
 		status = inb((unsigned long)host->dev_base + MG_REG_STATUS);
@@ -220,7 +237,7 @@ static unsigned int mg_wait(struct mg_host *host, u32 expect, u32 msec)
 			if (expect == ATA_BUSY)
 				break;
 		} else {
-			
+			/* Check the error condition! */
 			if (status & ATA_ERR) {
 				mg_dump_status("mg_wait", status, host);
 				break;
@@ -287,6 +304,7 @@ static irqreturn_t mg_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* local copy of ata_id_string() */
 static void mg_id_string(const u16 *id, unsigned char *s,
 			 unsigned int ofs, unsigned int len)
 {
@@ -308,6 +326,7 @@ static void mg_id_string(const u16 *id, unsigned char *s,
 	}
 }
 
+/* local copy of ata_id_c_string() */
 static void mg_id_c_string(const u16 *id, unsigned char *s,
 			   unsigned int ofs, unsigned int len)
 {
@@ -357,7 +376,7 @@ static int mg_get_disk_id(struct mg_host *host)
 	host->sectors = id[ATA_ID_SECTORS];
 
 	if (MG_RES_SEC && host->heads && host->sectors) {
-		
+		/* modify cyls, n_sectors */
 		host->cyls = (host->n_sectors - MG_RES_SEC) /
 			host->heads / host->sectors;
 		host->nres_sectors = host->n_sectors - host->cyls *
@@ -387,26 +406,26 @@ static int mg_disk_init(struct mg_host *host)
 	s32 err;
 	u8 init_status;
 
-	
+	/* hdd rst low */
 	gpio_set_value(host->rst, 0);
 	err = mg_wait(host, ATA_BUSY, MG_TMAX_RST_TO_BUSY);
 	if (err)
 		return err;
 
-	
+	/* hdd rst high */
 	gpio_set_value(host->rst, 1);
 	err = mg_wait(host, MG_STAT_READY, MG_TMAX_HDRST_TO_RDY);
 	if (err)
 		return err;
 
-	
+	/* soft reset on */
 	outb(ATA_SRST | (prv_data->use_polling ? ATA_NIEN : 0),
 			(unsigned long)host->dev_base + MG_REG_DRV_CTRL);
 	err = mg_wait(host, ATA_BUSY, MG_TMAX_RST_TO_BUSY);
 	if (err)
 		return err;
 
-	
+	/* soft reset off */
 	outb(prv_data->use_polling ? ATA_NIEN : 0,
 			(unsigned long)host->dev_base + MG_REG_DRV_CTRL);
 	err = mg_wait(host, MG_STAT_READY, MG_TMAX_SWRST_TO_RDY);
@@ -547,7 +566,7 @@ static void mg_read_intr(struct mg_host *host)
 	struct request *req = host->req;
 	u32 i;
 
-	
+	/* check status */
 	do {
 		i = inb((unsigned long)host->dev_base + MG_REG_STATUS);
 		if (i & ATA_BUSY)
@@ -568,14 +587,14 @@ ok_to_read:
 	MG_DBG("sector %ld, remaining=%ld, buffer=0x%p\n",
 	       blk_rq_pos(req), blk_rq_sectors(req) - 1, req->buffer);
 
-	
+	/* send read confirm */
 	outb(MG_CMD_RD_CONF, (unsigned long)host->dev_base + MG_REG_COMMAND);
 
 	if (mg_end_request(host, 0, MG_SECTOR_SIZE)) {
-		
+		/* set handler if read remains */
 		host->mg_do_intr = mg_read_intr;
 		mod_timer(&host->timer, jiffies + 3 * HZ);
-	} else 
+	} else /* goto next request */
 		mg_request(host->breq);
 }
 
@@ -585,7 +604,7 @@ static void mg_write_intr(struct mg_host *host)
 	u32 i;
 	bool rem;
 
-	
+	/* check status */
 	do {
 		i = inb((unsigned long)host->dev_base + MG_REG_STATUS);
 		if (i & ATA_BUSY)
@@ -602,7 +621,7 @@ static void mg_write_intr(struct mg_host *host)
 
 ok_to_write:
 	if ((rem = mg_end_request(host, 0, MG_SECTOR_SIZE))) {
-		
+		/* write 1 sector and set handler if remains */
 		mg_write_one(host, req);
 		MG_DBG("sector %ld, remaining=%ld, buffer=0x%p\n",
 		       blk_rq_pos(req), blk_rq_sectors(req), req->buffer);
@@ -610,7 +629,7 @@ ok_to_write:
 		mod_timer(&host->timer, jiffies + 3 * HZ);
 	}
 
-	
+	/* send write confirm */
 	outb(MG_CMD_WR_CONF, (unsigned long)host->dev_base + MG_REG_COMMAND);
 
 	if (!rem)
@@ -677,7 +696,7 @@ static unsigned int mg_issue_req(struct request *req,
 		}
 		break;
 	case WRITE:
-		
+		/* TODO : handler */
 		outb(ATA_NIEN, (unsigned long)host->dev_base + MG_REG_DRV_CTRL);
 		if (mg_out(host, sect_num, sect_cnt, MG_CMD_WR, &mg_write_intr)
 				!= MG_ERR_NONE) {
@@ -700,6 +719,7 @@ static unsigned int mg_issue_req(struct request *req,
 	return MG_ERR_NONE;
 }
 
+/* This function also called from IRQ context */
 static void mg_request(struct request_queue *q)
 {
 	struct mg_host *host = q->queuedata;
@@ -714,17 +734,17 @@ static void mg_request(struct request_queue *q)
 		}
 		req = host->req;
 
-		
+		/* check unwanted request call */
 		if (host->mg_do_intr)
 			return;
 
 		del_timer(&host->timer);
 
 		sect_num = blk_rq_pos(req);
-		
+		/* deal whole segments */
 		sect_cnt = blk_rq_sectors(req);
 
-		
+		/* sanity check */
 		if (sect_num >= get_capacity(req->rq_disk) ||
 				((sect_num + sect_cnt) >
 				 get_capacity(req->rq_disk))) {
@@ -772,7 +792,7 @@ static int mg_suspend(struct platform_device *plat_dev, pm_message_t state)
 		outb(ATA_NIEN, (unsigned long)host->dev_base + MG_REG_DRV_CTRL);
 
 	outb(MG_CMD_SLEEP, (unsigned long)host->dev_base + MG_REG_COMMAND);
-	
+	/* wait until mflash deep sleep */
 	msleep(1);
 
 	if (mg_wait(host, MG_STAT_READY, MG_TMAX_CONF_TO_CMD)) {
@@ -793,7 +813,7 @@ static int mg_resume(struct platform_device *plat_dev)
 		return -EIO;
 
 	outb(MG_CMD_WAKEUP, (unsigned long)host->dev_base + MG_REG_COMMAND);
-	
+	/* wait until mflash wakeup */
 	msleep(1);
 
 	if (mg_wait(host, MG_STAT_READY, MG_TMAX_CONF_TO_CMD))
@@ -819,7 +839,7 @@ static int mg_probe(struct platform_device *plat_dev)
 		goto probe_err;
 	}
 
-	
+	/* alloc mg_host */
 	host = kzalloc(sizeof(struct mg_host), GFP_KERNEL);
 	if (!host) {
 		printk(KERN_ERR "%s:%d fail (no memory for mg_host)\n",
@@ -829,11 +849,11 @@ static int mg_probe(struct platform_device *plat_dev)
 	}
 	host->major = MG_DISK_MAJ;
 
-	
+	/* link each other */
 	prv_data->host = host;
 	host->dev = &plat_dev->dev;
 
-	
+	/* io remap */
 	rsc = platform_get_resource(plat_dev, IORESOURCE_MEM, 0);
 	if (!rsc) {
 		printk(KERN_ERR "%s:%d platform_get_resource fail\n",
@@ -850,7 +870,7 @@ static int mg_probe(struct platform_device *plat_dev)
 	}
 	MG_DBG("dev_base = 0x%x\n", (u32)host->dev_base);
 
-	
+	/* get reset pin */
 	rsc = platform_get_resource_byname(plat_dev, IORESOURCE_IO,
 			MG_RST_PIN);
 	if (!rsc) {
@@ -861,13 +881,13 @@ static int mg_probe(struct platform_device *plat_dev)
 	}
 	host->rst = rsc->start;
 
-	
+	/* init rst pin */
 	err = gpio_request(host->rst, MG_RST_PIN);
 	if (err)
 		goto probe_err_3;
 	gpio_direction_output(host->rst, 1);
 
-	
+	/* reset out pin */
 	if (!(prv_data->dev_attr & MG_DEV_MASK))
 		goto probe_err_3a;
 
@@ -887,9 +907,9 @@ static int mg_probe(struct platform_device *plat_dev)
 		gpio_direction_input(host->rstout);
 	}
 
-	
+	/* disk reset */
 	if (prv_data->dev_attr == MG_STORAGE_DEV) {
-		
+		/* If POR seq. not yet finised, wait */
 		err = mg_wait_rstout(host->rstout, MG_TMAX_RSTOUT);
 		if (err)
 			goto probe_err_3b;
@@ -902,7 +922,7 @@ static int mg_probe(struct platform_device *plat_dev)
 		}
 	}
 
-	
+	/* get irq resource */
 	if (!prv_data->use_polling) {
 		host->irq = platform_get_irq(plat_dev, 0);
 		if (host->irq == -ENXIO) {
@@ -920,7 +940,7 @@ static int mg_probe(struct platform_device *plat_dev)
 
 	}
 
-	
+	/* get disk id */
 	err = mg_get_disk_id(host);
 	if (err) {
 		printk(KERN_ERR "%s:%d fail (err code : %d)\n",
@@ -953,7 +973,7 @@ static int mg_probe(struct platform_device *plat_dev)
 	}
 	host->breq->queuedata = host;
 
-	
+	/* mflash is random device, thanx for the noop */
 	err = elevator_change(host->breq, "noop");
 	if (err) {
 		printk(KERN_ERR "%s:%d (elevator_init) fail\n",
@@ -1014,38 +1034,38 @@ static int mg_remove(struct platform_device *plat_dev)
 	struct mg_host *host = prv_data->host;
 	int err = 0;
 
-	
+	/* delete timer */
 	del_timer_sync(&host->timer);
 
-	
+	/* remove disk */
 	if (host->gd) {
 		del_gendisk(host->gd);
 		put_disk(host->gd);
 	}
-	
+	/* remove queue */
 	if (host->breq)
 		blk_cleanup_queue(host->breq);
 
-	
+	/* unregister blk device */
 	unregister_blkdev(host->major, MG_DISK_NAME);
 
-	
+	/* free irq */
 	if (!prv_data->use_polling)
 		free_irq(host->irq, host);
 
-	
+	/* free reset-out pin */
 	if (prv_data->dev_attr != MG_BOOT_DEV)
 		gpio_free(host->rstout);
 
-	
+	/* free rst pin */
 	if (host->rst)
 		gpio_free(host->rst);
 
-	
+	/* unmap io */
 	if (host->dev_base)
 		iounmap(host->dev_base);
 
-	
+	/* free mg_host */
 	kfree(host);
 
 	return err;
@@ -1062,6 +1082,11 @@ static struct platform_driver mg_disk_driver = {
 	}
 };
 
+/****************************************************************************
+ *
+ * Module stuff
+ *
+ ****************************************************************************/
 
 static int __init mg_init(void)
 {

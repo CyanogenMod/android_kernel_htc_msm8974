@@ -43,6 +43,9 @@ struct ciabase {
 	.name		= "CIAB"
 };
 
+/*
+ *  Cause or clear CIA interrupts, return old interrupt status.
+ */
 
 unsigned char cia_set_irq(struct ciabase *base, unsigned char mask)
 {
@@ -58,6 +61,9 @@ unsigned char cia_set_irq(struct ciabase *base, unsigned char mask)
 	return old & base->icr_mask;
 }
 
+/*
+ *  Enable or disable CIA interrupts, return old interrupt mask,
+ */
 
 unsigned char cia_able_irq(struct ciabase *base, unsigned char mask)
 {
@@ -124,6 +130,11 @@ static struct irq_chip cia_irq_chip = {
 	.irq_disable	= cia_irq_disable,
 };
 
+/*
+ * Override auto irq 2 & 6 and use them as general chain
+ * for external interrupts, we link the CIA interrupt sources
+ * into this chain.
+ */
 
 static void auto_irq_enable(struct irq_data *data)
 {
@@ -160,11 +171,11 @@ void __init cia_init_IRQ(struct ciabase *base)
 	m68k_setup_irq_controller(&cia_irq_chip, handle_simple_irq,
 				  base->cia_irq, CIA_IRQS);
 
-	
+	/* clear any pending interrupt and turn off all interrupts */
 	cia_set_irq(base, CIA_ICR_ALL);
 	cia_able_irq(base, CIA_ICR_ALL);
 
-	
+	/* override auto int and install CIA handler */
 	m68k_setup_irq_controller(&auto_irq_chip, handle_simple_irq,
 				  base->handler_irq, 1);
 	m68k_irq_startup_irq(base->handler_irq);

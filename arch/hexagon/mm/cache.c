@@ -112,6 +112,10 @@ void hexagon_inv_dcache_range(unsigned long start, unsigned long end)
 
 
 
+/*
+ * This is just really brutal and shouldn't be used anyways,
+ * especially on V2.  Left here just in case.
+ */
 void flush_cache_all_hexagon(void)
 {
 	unsigned long flags;

@@ -24,6 +24,13 @@ static int iwmmxt_do(struct notifier_block *self, unsigned long cmd, void *t)
 
 	switch (cmd) {
 	case THREAD_NOTIFY_FLUSH:
+		/*
+		 * flush_thread() zeroes thread->fpstate, so no need
+		 * to do anything here.
+		 *
+		 * FALLTHROUGH: Ensure we don't try to overwrite our newly
+		 * initialised state information on the first fault.
+		 */
 
 	case THREAD_NOTIFY_EXIT:
 		iwmmxt_task_release(thread);
@@ -65,6 +72,10 @@ static void __init pj4_cp_access_write(u32 value)
 }
 
 
+/*
+ * Disable CP0/CP1 on boot, and let call_fpe() and the iWMMXt lazy
+ * switch code handle iWMMXt context switching.
+ */
 static int __init pj4_cp0_init(void)
 {
 	u32 cp_access;

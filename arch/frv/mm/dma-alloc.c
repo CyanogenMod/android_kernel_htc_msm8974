@@ -55,12 +55,12 @@ static int map_page(unsigned long va, unsigned long pa, pgprot_t prot)
 	pte_t *pte;
 	int err = -ENOMEM;
 
-	
+	/* Use upper 10 bits of VA to index the first level map */
 	pge = pgd_offset_k(va);
 	pue = pud_offset(pge, va);
 	pme = pmd_offset(pue, va);
 
-	
+	/* Use middle 10 bits of VA to index the second-level map */
 	pte = pte_alloc_kernel(pme, va);
 	if (pte != 0) {
 		err = 0;
@@ -70,6 +70,14 @@ static int map_page(unsigned long va, unsigned long pa, pgprot_t prot)
 	return err;
 }
 
+/*
+ * This function will allocate the requested contiguous pages and
+ * map them into the kernel's vmalloc() space.  This is done so we
+ * get unique mapping for these pages, outside of the kernel's 1:1
+ * virtual:physical mapping.  This is necessary so we can cover large
+ * portions of the kernel with single large page TLB entries, and
+ * still get unique uncached pages for consistent DMA.
+ */
 void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *dma_handle)
 {
 	struct vm_struct *area;
@@ -80,7 +88,7 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *dma_handle)
 	if (in_interrupt())
 		BUG();
 
-	
+	/* only allocate page size areas */
 	size = PAGE_ALIGN(size);
 	order = get_order(size);
 
@@ -90,7 +98,7 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *dma_handle)
 		return NULL;
 	}
 
-	
+	/* allocate some common virtual space to map the new pages */
 	area = get_vm_area(size, VM_ALLOC);
 	if (area == 0) {
 		free_pages(page, order);
@@ -99,9 +107,12 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *dma_handle)
 	va = VMALLOC_VMADDR(area->addr);
 	ret = (void *) va;
 
-	
+	/* this gives us the real physical address of the first page */
 	*dma_handle = pa = virt_to_bus((void *) page);
 
+	/* set refcount=1 on all pages in an order>0 allocation so that vfree() will actually free
+	 * all pages that were allocated.
+	 */
 	if (order > 0) {
 		struct page *rpage = virt_to_page(page);
 		split_page(rpage, order);
@@ -116,11 +127,17 @@ void *consistent_alloc(gfp_t gfp, size_t size, dma_addr_t *dma_handle)
 		return NULL;
 	}
 
+	/* we need to ensure that there are no cachelines in use, or worse dirty in this area
+	 * - can't do until after virtual address mappings are created
+	 */
 	frv_cache_invalidate(va, va + size);
 
 	return ret;
 }
 
+/*
+ * free page(s) as defined by the above mapping.
+ */
 void consistent_free(void *vaddr)
 {
 	if (in_interrupt())
@@ -128,6 +145,9 @@ void consistent_free(void *vaddr)
 	vfree(vaddr);
 }
 
+/*
+ * make an area consistent.
+ */
 void consistent_sync(void *vaddr, size_t size, int direction)
 {
 	unsigned long start = (unsigned long) vaddr;
@@ -136,18 +156,22 @@ void consistent_sync(void *vaddr, size_t size, int direction)
 	switch (direction) {
 	case PCI_DMA_NONE:
 		BUG();
-	case PCI_DMA_FROMDEVICE:	
+	case PCI_DMA_FROMDEVICE:	/* invalidate only */
 		frv_cache_invalidate(start, end);
 		break;
-	case PCI_DMA_TODEVICE:		
+	case PCI_DMA_TODEVICE:		/* writeback only */
 		frv_dcache_writeback(start, end);
 		break;
-	case PCI_DMA_BIDIRECTIONAL:	
+	case PCI_DMA_BIDIRECTIONAL:	/* writeback and invalidate */
 		frv_dcache_writeback(start, end);
 		break;
 	}
 }
 
+/*
+ * consistent_sync_page make a page are consistent. identical
+ * to consistent_sync, but takes a struct page instead of a virtual address
+ */
 
 void consistent_sync_page(struct page *page, unsigned long offset,
 			  size_t size, int direction)

@@ -32,7 +32,7 @@ static void bcm6348_a1_reboot(void)
 {
 	u32 reg;
 
-	
+	/* soft reset all blocks */
 	printk(KERN_INFO "soft-resetting all blocks ...\n");
 	reg = bcm_perf_readl(PERF_SOFTRESET_REG);
 	reg &= ~SOFTRESET_6348_ALL;
@@ -44,14 +44,14 @@ static void bcm6348_a1_reboot(void)
 	bcm_perf_writel(reg, PERF_SOFTRESET_REG);
 	mdelay(10);
 
-	
+	/* Jump to the power on address. */
 	printk(KERN_INFO "jumping to reset vector.\n");
-	
+	/* set high vectors (base at 0xbfc00000 */
 	set_c0_status(ST0_BEV | ST0_ERL);
-	
+	/* run uncached in kseg0 */
 	change_c0_config(CONF_CM_CMASK, CONF_CM_UNCACHED);
 	__flush_cache_all();
-	
+	/* remove all wired TLB entries */
 	write_c0_wired(0);
 	__asm__ __volatile__(
 		"jr\t%0"
@@ -66,7 +66,7 @@ void bcm63xx_machine_reboot(void)
 	u32 reg, perf_regs[2] = { 0, 0 };
 	unsigned int i;
 
-	
+	/* mask and clear all external irq */
 	switch (bcm63xx_get_cpu_id()) {
 	case BCM6338_CPU_ID:
 		perf_regs[0] = PERF_EXTIRQ_CFG_REG_6338;
@@ -107,6 +107,9 @@ static void __bcm63xx_machine_reboot(char *p)
 	bcm63xx_machine_reboot();
 }
 
+/*
+ * return system type in /proc/cpuinfo
+ */
 const char *get_system_type(void)
 {
 	static char buf[128];

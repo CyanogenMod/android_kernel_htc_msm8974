@@ -38,7 +38,7 @@ void __init generic_mem_init(void)
 
 void __init __weak plat_mem_setup(void)
 {
-	
+	/* Nothing to see here, move along. */
 }
 
 #ifdef CONFIG_MMU
@@ -188,7 +188,7 @@ void __init page_table_range_init(unsigned long start, unsigned long end,
 		j = 0;
 	}
 }
-#endif	
+#endif	/* CONFIG_MMU */
 
 void __init allocate_pgdat(unsigned int nid)
 {
@@ -202,7 +202,7 @@ void __init allocate_pgdat(unsigned int nid)
 #ifdef CONFIG_NEED_MULTIPLE_NODES
 	phys = __memblock_alloc_base(sizeof(struct pglist_data),
 				SMP_CACHE_BYTES, end_pfn << PAGE_SHIFT);
-	
+	/* Retry with all of system memory */
 	if (!phys)
 		phys = __memblock_alloc_base(sizeof(struct pglist_data),
 					SMP_CACHE_BYTES, memblock_end_of_DRAM());
@@ -227,7 +227,7 @@ static void __init bootmem_init_one_node(unsigned int nid)
 
 	p = NODE_DATA(nid);
 
-	
+	/* Nothing to do.. */
 	if (!p->node_spanned_pages)
 		return;
 
@@ -243,10 +243,15 @@ static void __init bootmem_init_one_node(unsigned int nid)
 
 	free_bootmem_with_active_regions(nid, end_pfn);
 
+	/*
+	 * XXX Handle initial reservations for the system memory node
+	 * only for the moment, we'll refactor this later for handling
+	 * reservations in other nodes.
+	 */
 	if (nid == 0) {
 		struct memblock_region *reg;
 
-		
+		/* Reserve the sections we're already using. */
 		for_each_memblock(reserved, reg) {
 			reserve_bootmem(reg->base, reg->size, BOOTMEM_DEFAULT);
 		}
@@ -260,7 +265,7 @@ static void __init do_init_bootmem(void)
 	struct memblock_region *reg;
 	int i;
 
-	
+	/* Add active regions with valid PFNs. */
 	for_each_memblock(memory, reg) {
 		unsigned long start_pfn, end_pfn;
 		start_pfn = memblock_region_memory_base_pfn(reg);
@@ -268,7 +273,7 @@ static void __init do_init_bootmem(void)
 		__add_active_range(0, start_pfn, end_pfn);
 	}
 
-	
+	/* All of system RAM sits in node 0 for the non-NUMA case */
 	allocate_pgdat(0);
 	node_set_online(0);
 
@@ -286,13 +291,29 @@ static void __init early_reserve_mem(void)
 	u32 zero_base = (u32)__MEMORY_START + (u32)PHYSICAL_OFFSET;
 	u32 start = zero_base + (u32)CONFIG_ZERO_PAGE_OFFSET;
 
+	/*
+	 * Partially used pages are not usable - thus
+	 * we are rounding upwards:
+	 */
 	start_pfn = PFN_UP(__pa(_end));
 
+	/*
+	 * Reserve the kernel text and Reserve the bootmem bitmap. We do
+	 * this in two steps (first step was init_bootmem()), because
+	 * this catches the (definitely buggy) case of us accidentally
+	 * initializing the bootmem allocator with an invalid RAM area.
+	 */
 	memblock_reserve(start, (PFN_PHYS(start_pfn) + PAGE_SIZE - 1) - start);
 
+	/*
+	 * Reserve physical pages below CONFIG_ZERO_PAGE_OFFSET.
+	 */
 	if (CONFIG_ZERO_PAGE_OFFSET != 0)
 		memblock_reserve(zero_base, CONFIG_ZERO_PAGE_OFFSET);
 
+	/*
+	 * Handle additional early reservations
+	 */
 	check_for_initrd();
 	reserve_crashkernel();
 }
@@ -307,6 +328,10 @@ void __init paging_init(void)
 
 	early_reserve_mem();
 
+	/*
+	 * Once the early reservations are out of the way, give the
+	 * platforms a chance to kick out some memory.
+	 */
 	if (sh_mv.mv_mem_reserve)
 		sh_mv.mv_mem_reserve();
 
@@ -315,6 +340,9 @@ void __init paging_init(void)
 
 	memblock_dump_all();
 
+	/*
+	 * Determine low and high memory ranges:
+	 */
 	max_low_pfn = max_pfn = memblock_end_of_DRAM() >> PAGE_SHIFT;
 	min_low_pfn = __MEMORY_START >> PAGE_SHIFT;
 
@@ -328,10 +356,20 @@ void __init paging_init(void)
 	do_init_bootmem();
 	ioremap_fixed_init();
 
+	/* We don't need to map the kernel through the TLB, as
+	 * it is permanatly mapped using P1. So clear the
+	 * entire pgd. */
 	memset(swapper_pg_dir, 0, sizeof(swapper_pg_dir));
 
+	/* Set an initial value for the MMU.TTB so we don't have to
+	 * check for a null value. */
 	set_TTB(swapper_pg_dir);
 
+	/*
+	 * Populate the relevant portions of swapper_pg_dir so that
+	 * we can use the fixmap entries without calling kmalloc.
+	 * pte's will be filled in by __set_fixmap().
+	 */
 	vaddr = __fix_to_virt(__end_of_fixed_addresses - 1) & PMD_MASK;
 	end = (FIXADDR_TOP + PMD_SIZE - 1) & PMD_MASK;
 	page_table_range_init(vaddr, end, swapper_pg_dir);
@@ -357,6 +395,9 @@ void __init paging_init(void)
 	free_area_init_nodes(max_zone_pfns);
 }
 
+/*
+ * Early initialization for any I/O MMUs we might have.
+ */
 static void __init iommu_init(void)
 {
 	no_iommu_init();
@@ -393,10 +434,10 @@ void __init mem_init(void)
 			high_memory = node_high_memory;
 	}
 
-	
+	/* Set this up early, so we can take care of the zero page */
 	cpu_cache_init();
 
-	
+	/* clear the zero-page */
 	memset(empty_zero_page, 0, PAGE_SIZE);
 	__flush_wback_region(empty_zero_page, PAGE_SIZE);
 
@@ -498,7 +539,7 @@ int arch_add_memory(int nid, u64 start, u64 size)
 
 	pgdat = NODE_DATA(nid);
 
-	
+	/* We only have ZONE_NORMAL, so this is easy.. */
 	ret = __add_pages(nid, pgdat->node_zones + ZONE_NORMAL,
 				start_pfn, nr_pages);
 	if (unlikely(ret))
@@ -511,10 +552,10 @@ EXPORT_SYMBOL_GPL(arch_add_memory);
 #ifdef CONFIG_NUMA
 int memory_add_physaddr_to_nid(u64 addr)
 {
-	
+	/* Node 0 for now.. */
 	return 0;
 }
 EXPORT_SYMBOL_GPL(memory_add_physaddr_to_nid);
 #endif
 
-#endif 
+#endif /* CONFIG_MEMORY_HOTPLUG */

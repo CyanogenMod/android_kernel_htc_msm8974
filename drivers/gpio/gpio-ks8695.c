@@ -33,20 +33,24 @@
 #include <mach/regs-gpio.h>
 #include <mach/gpio-ks8695.h>
 
+/*
+ * Configure a GPIO line for either GPIO function, or its internal
+ * function (Interrupt, Timer, etc).
+ */
 static void ks8695_gpio_mode(unsigned int pin, short gpio)
 {
 	unsigned int enable[] = { IOPC_IOEINT0EN, IOPC_IOEINT1EN, IOPC_IOEINT2EN, IOPC_IOEINT3EN, IOPC_IOTIM0EN, IOPC_IOTIM1EN };
 	unsigned long x, flags;
 
-	if (pin > KS8695_GPIO_5)	
+	if (pin > KS8695_GPIO_5)	/* only GPIO 0..5 have internal functions */
 		return;
 
 	local_irq_save(flags);
 
 	x = __raw_readl(KS8695_GPIO_VA + KS8695_IOPC);
-	if (gpio)			
+	if (gpio)			/* GPIO: set bit to 0 */
 		x &= ~enable[pin];
-	else				
+	else				/* Internal function: set bit to 1 */
 		x |= enable[pin];
 	__raw_writel(x, KS8695_GPIO_VA + KS8695_IOPC);
 
@@ -56,26 +60,29 @@ static void ks8695_gpio_mode(unsigned int pin, short gpio)
 
 static unsigned short gpio_irq[] = { KS8695_IRQ_EXTERN0, KS8695_IRQ_EXTERN1, KS8695_IRQ_EXTERN2, KS8695_IRQ_EXTERN3 };
 
+/*
+ * Configure GPIO pin as external interrupt source.
+ */
 int ks8695_gpio_interrupt(unsigned int pin, unsigned int type)
 {
 	unsigned long x, flags;
 
-	if (pin > KS8695_GPIO_3)	
+	if (pin > KS8695_GPIO_3)	/* only GPIO 0..3 can generate IRQ */
 		return -EINVAL;
 
 	local_irq_save(flags);
 
-	
+	/* set pin as input */
 	x = __raw_readl(KS8695_GPIO_VA + KS8695_IOPM);
 	x &= ~IOPM(pin);
 	__raw_writel(x, KS8695_GPIO_VA + KS8695_IOPM);
 
 	local_irq_restore(flags);
 
-	
+	/* Set IRQ triggering type */
 	irq_set_irq_type(gpio_irq[pin], type);
 
-	
+	/* enable interrupt mode */
 	ks8695_gpio_mode(pin, 0);
 
 	return 0;
@@ -84,7 +91,11 @@ EXPORT_SYMBOL(ks8695_gpio_interrupt);
 
 
 
+/* .... Generic GPIO interface .............................................. */
 
+/*
+ * Configure the GPIO line as an input.
+ */
 static int ks8695_gpio_direction_input(struct gpio_chip *gc, unsigned int pin)
 {
 	unsigned long x, flags;
@@ -92,12 +103,12 @@ static int ks8695_gpio_direction_input(struct gpio_chip *gc, unsigned int pin)
 	if (pin > KS8695_GPIO_15)
 		return -EINVAL;
 
-	
+	/* set pin to GPIO mode */
 	ks8695_gpio_mode(pin, 1);
 
 	local_irq_save(flags);
 
-	
+	/* set pin as input */
 	x = __raw_readl(KS8695_GPIO_VA + KS8695_IOPM);
 	x &= ~IOPM(pin);
 	__raw_writel(x, KS8695_GPIO_VA + KS8695_IOPM);
@@ -108,6 +119,9 @@ static int ks8695_gpio_direction_input(struct gpio_chip *gc, unsigned int pin)
 }
 
 
+/*
+ * Configure the GPIO line as an output, with default state.
+ */
 static int ks8695_gpio_direction_output(struct gpio_chip *gc,
 					unsigned int pin, int state)
 {
@@ -116,12 +130,12 @@ static int ks8695_gpio_direction_output(struct gpio_chip *gc,
 	if (pin > KS8695_GPIO_15)
 		return -EINVAL;
 
-	
+	/* set pin to GPIO mode */
 	ks8695_gpio_mode(pin, 1);
 
 	local_irq_save(flags);
 
-	
+	/* set line state */
 	x = __raw_readl(KS8695_GPIO_VA + KS8695_IOPD);
 	if (state)
 		x |= IOPD(pin);
@@ -129,7 +143,7 @@ static int ks8695_gpio_direction_output(struct gpio_chip *gc,
 		x &= ~IOPD(pin);
 	__raw_writel(x, KS8695_GPIO_VA + KS8695_IOPD);
 
-	
+	/* set pin as output */
 	x = __raw_readl(KS8695_GPIO_VA + KS8695_IOPM);
 	x |= IOPM(pin);
 	__raw_writel(x, KS8695_GPIO_VA + KS8695_IOPM);
@@ -140,6 +154,9 @@ static int ks8695_gpio_direction_output(struct gpio_chip *gc,
 }
 
 
+/*
+ * Set the state of an output GPIO line.
+ */
 static void ks8695_gpio_set_value(struct gpio_chip *gc,
 				  unsigned int pin, int state)
 {
@@ -150,7 +167,7 @@ static void ks8695_gpio_set_value(struct gpio_chip *gc,
 
 	local_irq_save(flags);
 
-	
+	/* set output line state */
 	x = __raw_readl(KS8695_GPIO_VA + KS8695_IOPD);
 	if (state)
 		x |= IOPD(pin);
@@ -162,6 +179,9 @@ static void ks8695_gpio_set_value(struct gpio_chip *gc,
 }
 
 
+/*
+ * Read the state of a GPIO line.
+ */
 static int ks8695_gpio_get_value(struct gpio_chip *gc, unsigned int pin)
 {
 	unsigned long x;
@@ -174,14 +194,20 @@ static int ks8695_gpio_get_value(struct gpio_chip *gc, unsigned int pin)
 }
 
 
+/*
+ * Map GPIO line to IRQ number.
+ */
 static int ks8695_gpio_to_irq(struct gpio_chip *gc, unsigned int pin)
 {
-	if (pin > KS8695_GPIO_3)	
+	if (pin > KS8695_GPIO_3)	/* only GPIO 0..3 can generate IRQ */
 		return -EINVAL;
 
 	return gpio_irq[pin];
 }
 
+/*
+ * Map IRQ number to GPIO line.
+ */
 int irq_to_gpio(unsigned int irq)
 {
 	if ((irq < KS8695_IRQ_EXTERN0) || (irq > KS8695_IRQ_EXTERN3))
@@ -191,6 +217,7 @@ int irq_to_gpio(unsigned int irq)
 }
 EXPORT_SYMBOL(irq_to_gpio);
 
+/* GPIOLIB interface */
 
 static struct gpio_chip ks8695_gpio_chip = {
 	.label			= "KS8695",
@@ -204,12 +231,14 @@ static struct gpio_chip ks8695_gpio_chip = {
 	.can_sleep		= 0,
 };
 
+/* Register the GPIOs */
 void ks8695_register_gpios(void)
 {
 	if (gpiochip_add(&ks8695_gpio_chip))
 		printk(KERN_ERR "Unable to register core GPIOs\n");
 }
 
+/* .... Debug interface ..................................................... */
 
 #ifdef CONFIG_DEBUG_FS
 
@@ -281,7 +310,7 @@ static const struct file_operations ks8695_gpio_operations = {
 
 static int __init ks8695_gpio_debugfs_init(void)
 {
-	
+	/* /sys/kernel/debug/ks8695_gpio */
 	(void) debugfs_create_file("ks8695_gpio", S_IFREG | S_IRUGO, NULL, NULL, &ks8695_gpio_operations);
 	return 0;
 }

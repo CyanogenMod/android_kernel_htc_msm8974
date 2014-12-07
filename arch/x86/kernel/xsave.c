@@ -1,3 +1,8 @@
+/*
+ * xsave/xrstor support.
+ *
+ * Author: Suresh Siddha <suresh.b.siddha@intel.com>
+ */
 #include <linux/bootmem.h>
 #include <linux/compat.h>
 #include <asm/i387.h>
@@ -7,8 +12,14 @@
 #endif
 #include <asm/xcr.h>
 
+/*
+ * Supported feature mask by the CPU and the kernel.
+ */
 u64 pcntxt_mask;
 
+/*
+ * Represents init state for the supported extended state.
+ */
 static struct xsave_struct *init_xstate_buf;
 
 struct _fpx_sw_bytes fx_sw_reserved;
@@ -18,6 +29,16 @@ struct _fpx_sw_bytes fx_sw_reserved_ia32;
 
 static unsigned int *xstate_offsets, *xstate_sizes, xstate_features;
 
+/*
+ * If a processor implementation discern that a processor state component is
+ * in its initialized state it may modify the corresponding bit in the
+ * xsave_hdr.xstate_bv as '0', with out modifying the corresponding memory
+ * layout in the case of xsaveopt. While presenting the xstate information to
+ * the user, we always ensure that the memory layout of a feature will be in
+ * the init state if the corresponding header bit is zero. This is to ensure
+ * that the user doesn't see some stale state in the memory layout during
+ * signal handling, debugging etc.
+ */
 void __sanitize_i387_state(struct task_struct *tsk)
 {
 	u64 xstate_bv;
@@ -31,9 +52,16 @@ void __sanitize_i387_state(struct task_struct *tsk)
 
 	xstate_bv = tsk->thread.fpu.state->xsave.xsave_hdr.xstate_bv;
 
+	/*
+	 * None of the feature bits are in init state. So nothing else
+	 * to do for us, as the memory layout is up to date.
+	 */
 	if ((xstate_bv & pcntxt_mask) == pcntxt_mask)
 		return;
 
+	/*
+	 * FP is in init state
+	 */
 	if (!(xstate_bv & XSTATE_FP)) {
 		fx->cwd = 0x37f;
 		fx->swd = 0;
@@ -44,11 +72,18 @@ void __sanitize_i387_state(struct task_struct *tsk)
 		memset(&fx->st_space[0], 0, 128);
 	}
 
+	/*
+	 * SSE is in init state
+	 */
 	if (!(xstate_bv & XSTATE_SSE))
 		memset(&fx->xmm_space[0], 0, 256);
 
 	xstate_bv = (pcntxt_mask & ~xstate_bv) >> 2;
 
+	/*
+	 * Update all the other memory layouts for which the corresponding
+	 * header bit is in the init state.
+	 */
 	while (xstate_bv) {
 		if (xstate_bv & 0x1) {
 			int offset = xstate_offsets[feature_bit];
@@ -64,6 +99,10 @@ void __sanitize_i387_state(struct task_struct *tsk)
 	}
 }
 
+/*
+ * Check for the presence of extended state information in the
+ * user fpstate pointer in the sigcontext.
+ */
 int check_for_xstate(struct i387_fxsave_struct __user *buf,
 		     void __user *fpstate,
 		     struct _fpx_sw_bytes *fx_sw_user)
@@ -78,9 +117,15 @@ int check_for_xstate(struct i387_fxsave_struct __user *buf,
 	if (err)
 		return -EFAULT;
 
+	/*
+	 * First Magic check failed.
+	 */
 	if (fx_sw_user->magic1 != FP_XSTATE_MAGIC1)
 		return -EINVAL;
 
+	/*
+	 * Check for error scenarios.
+	 */
 	if (fx_sw_user->xstate_size < min_xstate_size ||
 	    fx_sw_user->xstate_size > xstate_size ||
 	    fx_sw_user->xstate_size > fx_sw_user->extended_size)
@@ -91,6 +136,12 @@ int check_for_xstate(struct i387_fxsave_struct __user *buf,
 					    FP_XSTATE_MAGIC2_SIZE));
 	if (err)
 		return err;
+	/*
+	 * Check for the presence of second magic word at the end of memory
+	 * layout. This detects the case where the user just copied the legacy
+	 * fpstate layout with out copying the extended state information
+	 * in the memory layout.
+	 */
 	if (magic2 != FP_XSTATE_MAGIC2)
 		return -EFAULT;
 
@@ -98,6 +149,9 @@ int check_for_xstate(struct i387_fxsave_struct __user *buf,
 }
 
 #ifdef CONFIG_X86_64
+/*
+ * Signal frame handlers.
+ */
 
 int save_i387_xstate(void __user *buf)
 {
@@ -131,7 +185,7 @@ int save_i387_xstate(void __user *buf)
 			return -1;
 	}
 
-	clear_used_math(); 
+	clear_used_math(); /* trigger finit */
 
 	if (use_xsave()) {
 		struct _fpstate __user *fx = buf;
@@ -145,8 +199,24 @@ int save_i387_xstate(void __user *buf)
 				  (__u32 __user *) (buf + sig_xstate_size
 						    - FP_XSTATE_MAGIC2_SIZE));
 
+		/*
+		 * Read the xstate_bv which we copied (directly from the cpu or
+		 * from the state in task struct) to the user buffers and
+		 * set the FP/SSE bits.
+		 */
 		err |= __get_user(xstate_bv, &x->xstate_hdr.xstate_bv);
 
+		/*
+		 * For legacy compatible, we always set FP/SSE bits in the bit
+		 * vector while saving the state to the user context. This will
+		 * enable us capturing any changes(during sigreturn) to
+		 * the FP/SSE bits by the legacy applications which don't touch
+		 * xstate_bv in the xsave header.
+		 *
+		 * xsave aware apps can change the xstate_bv in the xsave
+		 * header as well as change any contents in the memory layout.
+		 * xrestore as part of sigreturn will capture all the changes.
+		 */
 		xstate_bv |= XSTATE_FPSSE;
 
 		err |= __put_user(xstate_bv, &x->xstate_hdr.xstate_bv);
@@ -158,6 +228,10 @@ int save_i387_xstate(void __user *buf)
 	return 1;
 }
 
+/*
+ * Restore the extended state if present. Otherwise, restore the FP/SSE
+ * state.
+ */
 static int restore_user_xstate(void __user *buf)
 {
 	struct _fpx_sw_bytes fx_sw_user;
@@ -170,10 +244,16 @@ static int restore_user_xstate(void __user *buf)
 
 	mask = fx_sw_user.xstate_bv;
 
+	/*
+	 * restore the state passed by the user.
+	 */
 	err = xrestore_user(buf, mask);
 	if (err)
 		return err;
 
+	/*
+	 * init the state skipped by the user.
+	 */
 	mask = pcntxt_mask & ~mask;
 	if (unlikely(mask))
 		xrstor_state(init_xstate_buf, mask);
@@ -181,10 +261,18 @@ static int restore_user_xstate(void __user *buf)
 	return 0;
 
 fx_only:
+	/*
+	 * couldn't find the extended state information in the
+	 * memory layout. Restore just the FP/SSE and init all
+	 * the other extended state.
+	 */
 	xrstor_state(init_xstate_buf, pcntxt_mask & ~XSTATE_FPSSE);
 	return fxrstor_checking((__force struct i387_fxsave_struct *)buf);
 }
 
+/*
+ * This restores directly out of user space. Exceptions are handled.
+ */
 int restore_i387_xstate(void __user *buf)
 {
 	struct task_struct *tsk = current;
@@ -211,6 +299,10 @@ int restore_i387_xstate(void __user *buf)
 		err = fxrstor_checking((__force struct i387_fxsave_struct *)
 				       buf);
 	if (unlikely(err)) {
+		/*
+		 * Encountered an error while doing the restore from the
+		 * user buffer, clear the fpu state.
+		 */
 clear:
 		clear_fpu(tsk);
 		clear_used_math();
@@ -219,6 +311,13 @@ clear:
 }
 #endif
 
+/*
+ * Prepare the SW reserved portion of the fxsave memory layout, indicating
+ * the presence of the extended state information in the memory layout
+ * pointed by the fpstate pointer in the sigcontext.
+ * This will be saved when ever the FP and extended state context is
+ * saved on the user stack during the signal handler delivery to the user.
+ */
 static void prepare_fx_sw_frame(void)
 {
 	int size_extended = (xstate_size - sizeof(struct i387_fxsave_struct)) +
@@ -247,12 +346,19 @@ static void prepare_fx_sw_frame(void)
 unsigned int sig_xstate_size = sizeof(struct _fpstate);
 #endif
 
+/*
+ * Enable the extended processor state save/restore feature
+ */
 static inline void xstate_enable(void)
 {
 	set_in_cr4(X86_CR4_OSXSAVE);
 	xsetbv(XCR_XFEATURE_ENABLED_MASK, pcntxt_mask);
 }
 
+/*
+ * Record the offsets and sizes of different state managed by the xsave
+ * memory layout.
+ */
 static void __init setup_xstate_features(void)
 {
 	int eax, ebx, ecx, edx, leaf = 0x2;
@@ -274,20 +380,37 @@ static void __init setup_xstate_features(void)
 	} while (1);
 }
 
+/*
+ * setup the xstate image representing the init state
+ */
 static void __init setup_xstate_init(void)
 {
 	setup_xstate_features();
 
+	/*
+	 * Setup init_xstate_buf to represent the init state of
+	 * all the features managed by the xsave
+	 */
 	init_xstate_buf = alloc_bootmem_align(xstate_size,
 					      __alignof__(struct xsave_struct));
 	init_xstate_buf->i387.mxcsr = MXCSR_DEFAULT;
 
 	clts();
+	/*
+	 * Init all the features state with header_bv being 0x0
+	 */
 	xrstor_state(init_xstate_buf, -1);
+	/*
+	 * Dump the init state again. This is to identify the init state
+	 * of any feature which is not represented by all zero's.
+	 */
 	xsave_state(init_xstate_buf, -1);
 	stts();
 }
 
+/*
+ * Enable and initialize the xsave feature.
+ */
 static void __init xstate_enable_boot_cpu(void)
 {
 	unsigned int eax, ebx, ecx, edx;
@@ -306,10 +429,16 @@ static void __init xstate_enable_boot_cpu(void)
 		BUG();
 	}
 
+	/*
+	 * Support only the state known to OS.
+	 */
 	pcntxt_mask = pcntxt_mask & XCNTXT_MASK;
 
 	xstate_enable();
 
+	/*
+	 * Recompute the context size for enabled features
+	 */
 	cpuid_count(XSTATE_CPUID, 0, &eax, &ebx, &ecx, &edx);
 	xstate_size = ebx;
 
@@ -323,6 +452,13 @@ static void __init xstate_enable_boot_cpu(void)
 	       pcntxt_mask, xstate_size);
 }
 
+/*
+ * For the very first instance, this calls xstate_enable_boot_cpu();
+ * for all subsequent instances, this calls xstate_enable().
+ *
+ * This is somewhat obfuscated due to the lack of powerful enough
+ * overrides for the section checks.
+ */
 void __cpuinit xsave_init(void)
 {
 	static __refdata void (*next_func)(void) = xstate_enable_boot_cpu;

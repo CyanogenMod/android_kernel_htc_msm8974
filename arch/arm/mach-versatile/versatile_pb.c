@@ -62,14 +62,22 @@ static struct pl061_platform_data gpio3_plat_data = {
 #define SCI1_IRQ	{ IRQ_SIC_SCI3 }
 #define MMCI1_IRQ	{ IRQ_MMCI1A, IRQ_SIC_MMCI1B }
 
+/*
+ * These devices are connected via the core APB bridge
+ */
 #define GPIO2_IRQ	{ IRQ_GPIOINT2 }
 #define GPIO3_IRQ	{ IRQ_GPIOINT3 }
 
+/*
+ * These devices are connected via the DMA APB bridge
+ */
 
+/* FPGA Primecells */
 APB_DEVICE(uart3, "fpga:09", UART3,    NULL);
 APB_DEVICE(sci1,  "fpga:0a", SCI1,     NULL);
 APB_DEVICE(mmc1,  "fpga:0b", MMCI1,    &mmc1_plat_data);
 
+/* DevChip Primecells */
 APB_DEVICE(gpio2, "dev:e6",  GPIO2,    &gpio2_plat_data);
 APB_DEVICE(gpio3, "dev:e7",  GPIO3,    &gpio3_plat_data);
 
@@ -94,7 +102,7 @@ static void __init versatile_pb_init(void)
 }
 
 MACHINE_START(VERSATILE_PB, "ARM-Versatile PB")
-	
+	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
 	.map_io		= versatile_map_io,
 	.init_early	= versatile_init_early,

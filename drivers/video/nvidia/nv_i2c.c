@@ -101,7 +101,7 @@ static int nvidia_setup_i2c_bus(struct nvidia_i2c_chan *chan, const char *name,
 
 	i2c_set_adapdata(&chan->adapter, chan);
 
-	
+	/* Raise SCL and SDA */
 	nvidia_gpio_setsda(chan, 1);
 	nvidia_gpio_setscl(chan, 1);
 	udelay(20);
@@ -158,7 +158,7 @@ int nvidia_probe_i2c_connector(struct fb_info *info, int conn, u8 **out_edid)
 		edid = fb_ddc_read(&par->chan[conn - 1].adapter);
 
 	if (!edid && conn == 1) {
-		
+		/* try to get from firmware */
 		const u8 *e = fb_firmware_edid(info->device);
 
 		if (e != NULL)

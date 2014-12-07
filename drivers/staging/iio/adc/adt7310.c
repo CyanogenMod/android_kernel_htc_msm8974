@@ -18,6 +18,9 @@
 #include "../iio.h"
 #include "../sysfs.h"
 #include "../events.h"
+/*
+ * ADT7310 registers definition
+ */
 
 #define ADT7310_STATUS			0
 #define ADT7310_CONFIG			1
@@ -28,11 +31,17 @@
 #define ADT7310_T_ALARM_HIGH		6
 #define ADT7310_T_ALARM_LOW		7
 
+/*
+ * ADT7310 status
+ */
 #define ADT7310_STAT_T_LOW		0x10
 #define ADT7310_STAT_T_HIGH		0x20
 #define ADT7310_STAT_T_CRIT		0x40
 #define ADT7310_STAT_NOT_RDY		0x80
 
+/*
+ * ADT7310 config
+ */
 #define ADT7310_FAULT_QUEUE_MASK	0x3
 #define ADT7310_CT_POLARITY		0x4
 #define ADT7310_INT_POLARITY		0x8
@@ -43,6 +52,9 @@
 #define ADT7310_PD			0x60
 #define ADT7310_RESOLUTION		0x80
 
+/*
+ * ADT7310 masks
+ */
 #define ADT7310_T16_VALUE_SIGN			0x8000
 #define ADT7310_T16_VALUE_FLOAT_OFFSET		7
 #define ADT7310_T16_VALUE_FLOAT_MASK		0x7F
@@ -63,12 +75,18 @@
 
 #define ADT7310_IRQS				2
 
+/*
+ * struct adt7310_chip_info - chip specifc information
+ */
 
 struct adt7310_chip_info {
 	struct spi_device *spi_dev;
 	u8  config;
 };
 
+/*
+ * adt7310 register access by SPI
+ */
 
 static int adt7310_spi_read_word(struct adt7310_chip_info *chip, u8 reg, u16 *data)
 {
@@ -308,7 +326,7 @@ static ssize_t adt7310_convert_temperature(struct adt7310_chip_info *chip,
 
 	if (chip->config & ADT7310_RESOLUTION) {
 		if (data & ADT7310_T16_VALUE_SIGN) {
-			
+			/* convert supplement to positive value */
 			data = (u16)((ADT7310_T16_VALUE_SIGN << 1) - (u32)data);
 			sign = '-';
 		}
@@ -317,7 +335,7 @@ static ssize_t adt7310_convert_temperature(struct adt7310_chip_info *chip,
 				(data & ADT7310_T16_VALUE_FLOAT_MASK) * 78125);
 	} else {
 		if (data & ADT7310_T13_VALUE_SIGN) {
-			
+			/* convert supplement to positive value */
 			data >>= ADT7310_T13_VALUE_OFFSET;
 			data = (ADT7310_T13_VALUE_SIGN << 1) - data;
 			sign = '-';
@@ -568,14 +586,14 @@ static inline ssize_t adt7310_set_t_bound(struct device *dev,
 			(tmp2 & ADT7310_T16_VALUE_FLOAT_MASK);
 
 		if (tmp1 < 0)
-			
+			/* convert positive value to supplyment */
 			data = (u16)((ADT7310_T16_VALUE_SIGN << 1) - (u32)data);
 	} else {
 		data = (data << ADT7310_T13_VALUE_FLOAT_OFFSET) |
 			(tmp2 & ADT7310_T13_VALUE_FLOAT_MASK);
 
 		if (tmp1 < 0)
-			
+			/* convert positive value to supplyment */
 			data = (ADT7310_T13_VALUE_SIGN << 1) - data;
 		data <<= ADT7310_T13_VALUE_OFFSET;
 	}
@@ -723,6 +741,9 @@ static const struct iio_info adt7310_info = {
 	.driver_module = THIS_MODULE,
 };
 
+/*
+ * device probe and remove
+ */
 
 static int __devinit adt7310_probe(struct spi_device *spi_dev)
 {
@@ -738,7 +759,7 @@ static int __devinit adt7310_probe(struct spi_device *spi_dev)
 		goto error_ret;
 	}
 	chip = iio_priv(indio_dev);
-	
+	/* this is only used for device removal purposes */
 	dev_set_drvdata(&spi_dev->dev, indio_dev);
 
 	chip->spi_dev = spi_dev;
@@ -748,7 +769,7 @@ static int __devinit adt7310_probe(struct spi_device *spi_dev)
 	indio_dev->info = &adt7310_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
-	
+	/* CT critcal temperature event. line 0 */
 	if (spi_dev->irq) {
 		if (adt7310_platform_data[2])
 			irq_flags = adt7310_platform_data[2];
@@ -764,7 +785,7 @@ static int __devinit adt7310_probe(struct spi_device *spi_dev)
 			goto error_free_dev;
 	}
 
-	
+	/* INT bound temperature alarm event. line 1 */
 	if (adt7310_platform_data[0]) {
 		ret = request_threaded_irq(adt7310_platform_data[0],
 					   NULL,
@@ -783,7 +804,7 @@ static int __devinit adt7310_probe(struct spi_device *spi_dev)
 			goto error_unreg_int_irq;
 		}
 
-		
+		/* set irq polarity low level */
 		chip->config &= ~ADT7310_CT_POLARITY;
 
 		if (adt7310_platform_data[1] & IRQF_TRIGGER_HIGH)

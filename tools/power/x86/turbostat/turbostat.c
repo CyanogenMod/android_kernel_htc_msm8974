@@ -40,24 +40,24 @@
 #define MSR_NEHALEM_TURBO_RATIO_LIMIT	0x1AD
 #define MSR_APERF	0xE8
 #define MSR_MPERF	0xE7
-#define MSR_PKG_C2_RESIDENCY	0x60D	
+#define MSR_PKG_C2_RESIDENCY	0x60D	/* SNB only */
 #define MSR_PKG_C3_RESIDENCY	0x3F8
 #define MSR_PKG_C6_RESIDENCY	0x3F9
-#define MSR_PKG_C7_RESIDENCY	0x3FA	
+#define MSR_PKG_C7_RESIDENCY	0x3FA	/* SNB only */
 #define MSR_CORE_C3_RESIDENCY	0x3FC
 #define MSR_CORE_C6_RESIDENCY	0x3FD
-#define MSR_CORE_C7_RESIDENCY	0x3FE	
+#define MSR_CORE_C7_RESIDENCY	0x3FE	/* SNB only */
 
 char *proc_stat = "/proc/stat";
-unsigned int interval_sec = 5;	
-unsigned int verbose;		
-unsigned int summary_only;	
+unsigned int interval_sec = 5;	/* set with -i interval_sec */
+unsigned int verbose;		/* set with -v */
+unsigned int summary_only;	/* set with -s */
 unsigned int skip_c0;
 unsigned int skip_c1;
 unsigned int do_nhm_cstates;
 unsigned int do_snb_cstates;
 unsigned int has_aperf;
-unsigned int units = 1000000000;	
+unsigned int units = 1000000000;	/* Ghz etc */
 unsigned int genuine_intel;
 unsigned int has_invariant_tsc;
 unsigned int do_nehalem_platform_info;
@@ -77,18 +77,18 @@ cpu_set_t *cpu_mask;
 size_t cpu_mask_size;
 
 struct counters {
-	unsigned long long tsc;		
-	unsigned long long aperf;	
-	unsigned long long mperf;	
-	unsigned long long c1;	
-	unsigned long long c3;	
-	unsigned long long c6;	
-	unsigned long long c7;	
-	unsigned long long pc2;	
-	unsigned long long pc3;	
-	unsigned long long pc6;	
-	unsigned long long pc7;	
-	unsigned long long extra_msr;	
+	unsigned long long tsc;		/* per thread */
+	unsigned long long aperf;	/* per thread */
+	unsigned long long mperf;	/* per thread */
+	unsigned long long c1;	/* per thread (calculated) */
+	unsigned long long c3;	/* per core */
+	unsigned long long c6;	/* per core */
+	unsigned long long c7;	/* per core */
+	unsigned long long pc2;	/* per package */
+	unsigned long long pc3;	/* per package */
+	unsigned long long pc6;	/* per package */
+	unsigned long long pc7;	/* per package */
+	unsigned long long extra_msr;	/* per thread */
 	int pkg;
 	int core;
 	int cpu;
@@ -103,6 +103,12 @@ struct timeval tv_even;
 struct timeval tv_odd;
 struct timeval tv_delta;
 
+/*
+ * cpu_mask_init(ncpus)
+ *
+ * allocate and clear cpu_mask
+ * set cpu_mask_size
+ */
 void cpu_mask_init(int ncpus)
 {
 	cpu_mask = CPU_ALLOC(ncpus);
@@ -217,13 +223,22 @@ void dump_list(struct counters *cnt)
 		dump_cnt(cnt);
 }
 
+/*
+ * column formatting convention & formats
+ * package: "pk" 2 columns %2d
+ * core: "cor" 3 columns %3d
+ * CPU: "CPU" 3 columns %3d
+ * GHz: "GHz" 3 columns %3.2
+ * TSC: "TSC" 3 columns %3.2
+ * percentage " %pc3" %6.2
+ */
 void print_cnt(struct counters *p)
 {
 	double interval_float;
 
 	interval_float = tv_delta.tv_sec + tv_delta.tv_usec/1000000.0;
 
-	
+	/* topology columns, print blanks on 1st (average) line */
 	if (p == cnt_average) {
 		if (show_pkg)
 			fprintf(stderr, "  ");
@@ -244,7 +259,7 @@ void print_cnt(struct counters *p)
 			fprintf(stderr, " %3d", p->cpu);
 	}
 
-	
+	/* %c0 */
 	if (do_nhm_cstates) {
 		if (show_pkg || show_core || show_cpu)
 			fprintf(stderr, " ");
@@ -254,7 +269,7 @@ void print_cnt(struct counters *p)
 			fprintf(stderr, "  ****");
 	}
 
-	
+	/* GHz */
 	if (has_aperf) {
 		if (!aperf_mperf_unstable) {
 			fprintf(stderr, " %3.2f",
@@ -272,7 +287,7 @@ void print_cnt(struct counters *p)
 		}
 	}
 
-	
+	/* TSC */
 	fprintf(stderr, "%5.2f", 1.0 * p->tsc/units/interval_float);
 
 	if (do_nhm_cstates) {
@@ -345,7 +360,7 @@ int compute_delta(struct counters *after,
 				before->cpu, before->tsc, after->tsc);
 			errors++;
 		}
-		
+		/* check for TSC < 1 Mcycles over interval */
 		if (delta->tsc < (1000 * 1000)) {
 			fprintf(stderr, "Insanely slow TSC rate,"
 				" TSC stops in idle?\n");
@@ -409,19 +424,31 @@ int compute_delta(struct counters *after,
 
 				aperf_mperf_unstable = 1;
 			}
+			/*
+			 * mperf delta is likely a huge "positive" number
+			 * can not use it for calculating c0 time
+			 */
 			skip_c0 = 1;
 			skip_c1 = 1;
 		}
 
+		/*
+		 * As mperf and tsc collection are not atomic,
+		 * it is possible for mperf's non-halted cycles
+		 * to exceed TSC's all cycles: show c1 = 0% in that case.
+		 */
 		if (delta->mperf > delta->tsc)
 			delta->c1 = 0;
-		else 
+		else /* normal case, derive c1 */
 			delta->c1 = delta->tsc - delta->mperf
 				- delta->c3 - delta->c6 - delta->c7;
 
 		if (delta->mperf == 0)
-			delta->mperf = 1;	
+			delta->mperf = 1;	/* divide by 0 protection */
 
+		/*
+		 * for "extra msr", just copy the latest w/o subtracting
+		 */
 		delta->extra_msr = after->extra_msr;
 		if (errors) {
 			fprintf(stderr, "ERROR cpu%d before:\n", before->cpu);
@@ -600,6 +627,9 @@ void insert_counters(struct counters **list,
 {
 	struct counters *prev;
 
+	/*
+	 * list was empty
+	 */
 	if (*list == NULL) {
 		new->next = *list;
 		*list = new;
@@ -607,8 +637,12 @@ void insert_counters(struct counters **list,
 	}
 
 	if (!summary_only)
-		show_cpu = 1;	
+		show_cpu = 1;	/* there is more than one CPU */
 
+	/*
+	 * insert on front of list.
+	 * It is sorted by ascending package#, core#, cpu#
+	 */
 	if (((*list)->pkg > new->pkg) ||
 	    (((*list)->pkg == new->pkg) && ((*list)->core > new->core)) ||
 	    (((*list)->pkg == new->pkg) && ((*list)->core == new->core) && ((*list)->cpu > new->cpu))) {
@@ -622,14 +656,14 @@ void insert_counters(struct counters **list,
 	while (prev->next && (prev->next->pkg < new->pkg)) {
 		prev = prev->next;
 		if (!summary_only)
-			show_pkg = 1;	
+			show_pkg = 1;	/* there is more than 1 package */
 	}
 
 	while (prev->next && (prev->next->pkg == new->pkg)
 		&& (prev->next->core < new->core)) {
 		prev = prev->next;
 		if (!summary_only)
-			show_core = 1;	
+			show_core = 1;	/* there is more than 1 core */
 	}
 
 	while (prev->next && (prev->next->pkg == new->pkg)
@@ -638,6 +672,9 @@ void insert_counters(struct counters **list,
 		prev = prev->next;
 	}
 
+	/*
+	 * insert after "prev"
+	 */
 	new->next = prev->next;
 	prev->next = new;
 }
@@ -725,6 +762,9 @@ int get_core_id(int cpu)
 	return core;
 }
 
+/*
+ * run func(pkg, core, cpu) on every cpu in /proc/stat
+ */
 
 int for_all_cpus(void (func)(int, int, int))
 {
@@ -767,6 +807,9 @@ void re_initialize(void)
 }
 
 void dummy(int pkg, int core, int cpu) { return; }
+/*
+ * check to see if a cpu came on-line
+ */
 int verify_num_cpus(void)
 {
 	int new_num_cpus;
@@ -844,18 +887,18 @@ int has_nehalem_turbo_ratio_limit(unsigned int family, unsigned int model)
 		return 0;
 
 	switch (model) {
-	case 0x1A:	
-	case 0x1E:	
-	case 0x1F:	
-	case 0x25:	
-	case 0x2C:	
-	case 0x2A:	
-	case 0x2D:	
-	case 0x3A:	
-	case 0x3D:	
+	case 0x1A:	/* Core i7, Xeon 5500 series - Bloomfield, Gainstown NHM-EP */
+	case 0x1E:	/* Core i7 and i5 Processor - Clarksfield, Lynnfield, Jasper Forest */
+	case 0x1F:	/* Core i7 and i5 Processor - Nehalem */
+	case 0x25:	/* Westmere Client - Clarkdale, Arrandale */
+	case 0x2C:	/* Westmere EP - Gulftown */
+	case 0x2A:	/* SNB */
+	case 0x2D:	/* SNB Xeon */
+	case 0x3A:	/* IVB */
+	case 0x3D:	/* IVB Xeon */
 		return 1;
-	case 0x2E:	
-	case 0x2F:	
+	case 0x2E:	/* Nehalem-EX Xeon - Beckton */
+	case 0x2F:	/* Westmere-EX Xeon - Eagleton */
 	default:
 		return 0;
 	}
@@ -914,6 +957,11 @@ void check_cpuid()
 		exit(1);
 	}
 
+	/*
+	 * check max extended function levels of CPUID.
+	 * This is needed to check for invariant TSC.
+	 * This check is valid for both Intel and AMD.
+	 */
 	ebx = ecx = edx = 0;
 	asm("cpuid" : "=a" (max_level), "=b" (ebx), "=c" (ecx), "=d" (edx) : "a" (0x80000000));
 
@@ -922,6 +970,10 @@ void check_cpuid()
 		exit(1);
 	}
 
+	/*
+	 * Non-Stop TSC is advertised by CPUID.EAX=0x80000007: EDX.bit8
+	 * this check is valid for both Intel and AMD
+	 */
 	asm("cpuid" : "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx) : "a" (0x80000007));
 	has_invariant_tsc = edx & (1 << 8);
 
@@ -930,6 +982,10 @@ void check_cpuid()
 		exit(1);
 	}
 
+	/*
+	 * APERF/MPERF is advertised by CPUID.EAX=0x6: ECX.bit0
+	 * this check is valid for both Intel and AMD
+	 */
 
 	asm("cpuid" : "=a" (eax), "=b" (ebx), "=c" (ecx), "=d" (edx) : "a" (0x6));
 	has_aperf = ecx & (1 << 0);
@@ -939,7 +995,7 @@ void check_cpuid()
 	}
 
 	do_nehalem_platform_info = genuine_intel && has_invariant_tsc;
-	do_nhm_cstates = genuine_intel;	
+	do_nhm_cstates = genuine_intel;	/* all Intel w/ non-stop TSC have NHM counters */
 	do_snb_cstates = is_snb(family, model);
 	bclk = discover_bclk(family, model);
 
@@ -955,6 +1011,10 @@ void usage()
 }
 
 
+/*
+ * in /dev/cpu/ return success for names that are numbers
+ * ie. filter out ".", "..", "microcode".
+ */
 int dir_filter(const struct dirent *dirp)
 {
 	if (isdigit(dirp->d_name[0]))
@@ -991,12 +1051,12 @@ int fork_it(char **argv)
 
 	child_pid = fork();
 	if (!child_pid) {
-		
+		/* child */
 		execvp(argv[0], argv);
 	} else {
 		int status;
 
-		
+		/* parent */
 		if (child_pid == -1) {
 			perror("fork");
 			exit(1);
@@ -1063,6 +1123,9 @@ int main(int argc, char **argv)
 
 	turbostat_init();
 
+	/*
+	 * if any params left, it must be a command to fork
+	 */
 	if (argc - optind)
 		return fork_it(argv + optind);
 	else

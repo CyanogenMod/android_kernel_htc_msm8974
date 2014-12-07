@@ -105,6 +105,7 @@ struct microcode_intel {
 	unsigned int            bits[0];
 };
 
+/* microcode format is extended from prescott processors */
 struct extended_signature {
 	unsigned int            sig;
 	unsigned int            pf;
@@ -149,7 +150,7 @@ static int collect_cpu_info(int cpu_num, struct cpu_signature *csig)
 	csig->sig = cpuid_eax(0x00000001);
 
 	if ((c->x86_model >= 5) || (c->x86 > 6)) {
-		
+		/* get processor flags from MSR 0x17 */
 		rdmsr(MSR_IA32_PLATFORM_ID, val[0], val[1]);
 		csig->pf = 1 << ((val[1] >> 18) & 7);
 	}
@@ -207,7 +208,7 @@ static int microcode_sanity_check(void *mc)
 		ext_sigcount = ext_header->count;
 	}
 
-	
+	/* check extended table checksum */
 	if (ext_table_size) {
 		int ext_table_sum = 0;
 		int *ext_tablep = (int *)ext_header;
@@ -221,7 +222,7 @@ static int microcode_sanity_check(void *mc)
 		}
 	}
 
-	
+	/* calculate the checksum */
 	orig_sum = 0;
 	i = (MC_HEADER_SIZE + data_size) / DWSIZE;
 	while (i--)
@@ -232,7 +233,7 @@ static int microcode_sanity_check(void *mc)
 	}
 	if (!ext_table_size)
 		return 0;
-	
+	/* check extended signature checksum */
 	for (i = 0; i < ext_sigcount; i++) {
 		ext_sig = (void *)ext_header + EXT_HEADER_SIZE +
 			  EXT_SIGNATURE_SIZE * i;
@@ -247,6 +248,10 @@ static int microcode_sanity_check(void *mc)
 	return 0;
 }
 
+/*
+ * return 0 - no update found
+ * return 1 - found update
+ */
 static int
 get_matching_microcode(struct cpu_signature *cpu_sig, void *mc, int rev)
 {
@@ -262,7 +267,7 @@ get_matching_microcode(struct cpu_signature *cpu_sig, void *mc, int rev)
 	if (update_match_cpu(cpu_sig, mc_header->sig, mc_header->pf))
 		return 1;
 
-	
+	/* Look for ext. headers: */
 	if (total_size <= get_datasize(mc_header) + MC_HEADER_SIZE)
 		return 0;
 
@@ -289,22 +294,22 @@ static int apply_microcode(int cpu)
 	uci = ucode_cpu_info + cpu;
 	mc_intel = uci->mc;
 
-	
+	/* We should bind the task to the CPU */
 	BUG_ON(cpu_num != cpu);
 
 	if (mc_intel == NULL)
 		return 0;
 
-	
+	/* write microcode via MSR 0x79 */
 	wrmsr(MSR_IA32_UCODE_WRITE,
 	      (unsigned long) mc_intel->bits,
 	      (unsigned long) mc_intel->bits >> 16 >> 16);
 	wrmsr(MSR_IA32_UCODE_REV, 0, 0);
 
-	
+	/* As documented in the SDM: Do a CPUID 1 here */
 	sync_core();
 
-	
+	/* get the current revision from MSR 0x8B */
 	rdmsr(MSR_IA32_UCODE_REV, val[0], val[1]);
 
 	if (val[1] != mc_intel->hdr.rev) {
@@ -347,7 +352,7 @@ static enum ucode_state generic_load_microcode(int cpu, void *data, size_t size,
 			break;
 		}
 
-		
+		/* For performance reasons, reuse mc area when possible */
 		if (!mc || mc_size > curr_mc_size) {
 			vfree(mc);
 			mc = vmalloc(mc_size);
@@ -365,7 +370,7 @@ static enum ucode_state generic_load_microcode(int cpu, void *data, size_t size,
 			vfree(new_mc);
 			new_rev = mc_header.rev;
 			new_mc  = mc;
-			mc = NULL;	
+			mc = NULL;	/* trigger new vmalloc */
 		}
 
 		ucode_ptr += mc_size;

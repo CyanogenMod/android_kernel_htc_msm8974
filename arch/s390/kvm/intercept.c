@@ -122,7 +122,7 @@ static int handle_noop(struct kvm_vcpu *vcpu)
 		vcpu->stat.exit_external_interrupt++;
 		break;
 	default:
-		break; 
+		break; /* nothing */
 	}
 	return 0;
 }
@@ -150,6 +150,9 @@ static int handle_stop(struct kvm_vcpu *vcpu)
 
 	if (vcpu->arch.local_int.action_bits & ACTION_STORE_ON_STOP) {
 		vcpu->arch.local_int.action_bits &= ~ACTION_STORE_ON_STOP;
+		/* store status must be called unlocked. Since local_int.lock
+		 * only protects local_int.* and not guest memory we can give
+		 * up the lock here */
 		spin_unlock_bh(&vcpu->arch.local_int.lock);
 		rc = kvm_s390_vcpu_store_status(vcpu,
 						KVM_S390_STORE_STATUS_NOADDR);
@@ -177,7 +180,7 @@ static int handle_validity(struct kvm_vcpu *vcpu)
 		rc = fault_in_pages_writeable((char __user *) vmaddr,
 			 PAGE_SIZE);
 		if (rc) {
-			
+			/* user will receive sigsegv, exit to user */
 			rc = -EOPNOTSUPP;
 			goto out;
 		}
@@ -190,7 +193,7 @@ static int handle_validity(struct kvm_vcpu *vcpu)
 		rc = fault_in_pages_writeable((char __user *) vmaddr,
 			 PAGE_SIZE);
 		if (rc) {
-			
+			/* user will receive sigsegv, exit to user */
 			rc = -EOPNOTSUPP;
 			goto out;
 		}

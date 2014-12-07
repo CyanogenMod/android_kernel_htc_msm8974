@@ -19,4 +19,4 @@ struct msm_audio_wmapro_config {
 	unsigned short	advancedencodeopt;
 	uint32_t	advancedencodeopt2;
 };
-#endif 
+#endif /* __MSM_AUDIO_WMAPRO_H */

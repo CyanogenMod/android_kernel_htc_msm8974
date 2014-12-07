@@ -34,6 +34,7 @@
 #include <linux/configfs.h>
 #include "configfs_internal.h"
 
+/* Random magic number */
 #define CONFIGFS_MAGIC 0x62656570
 
 static struct vfsmount *configfs_mount = NULL;
@@ -81,7 +82,7 @@ static int configfs_fill_super(struct super_block *sb, void *data, int silent)
 	if (inode) {
 		inode->i_op = &configfs_root_inode_operations;
 		inode->i_fop = &configfs_dir_operations;
-		
+		/* directory inodes start off with i_nlink == 2 (for "." entry) */
 		inc_nlink(inode);
 	} else {
 		pr_debug("configfs: could not get root inode\n");
@@ -97,7 +98,7 @@ static int configfs_fill_super(struct super_block *sb, void *data, int silent)
 	configfs_root_group.cg_item.ci_dentry = root;
 	root->d_fsdata = &configfs_root;
 	sb->s_root = root;
-	sb->s_d_op = &configfs_dentry_ops; 
+	sb->s_d_op = &configfs_dentry_ops; /* the rest get that */
 	return 0;
 }
 

@@ -1,3 +1,6 @@
+/* This is a module which is used for setting up fake conntracks
+ * on packets so that they are not seen by the conntrack/NAT code.
+ */
 #include <linux/module.h>
 #include <linux/skbuff.h>
 
@@ -12,10 +15,14 @@ MODULE_ALIAS("ip6t_NOTRACK");
 static unsigned int
 notrack_tg(struct sk_buff *skb, const struct xt_action_param *par)
 {
-	
+	/* Previously seen (loopback)? Ignore. */
 	if (skb->nfct != NULL)
 		return XT_CONTINUE;
 
+	/* Attach fake conntrack entry.
+	   If there is a real ct entry correspondig to this packet,
+	   it'll hang aroun till timing out. We don't deal with it
+	   for performance reasons. JK */
 	skb->nfct = &nf_ct_untracked_get()->ct_general;
 	skb->nfctinfo = IP_CT_NEW;
 	nf_conntrack_get(skb->nfct);

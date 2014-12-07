@@ -23,6 +23,7 @@
 #include <asm/mem_map.h>
 #include "blackfin_sram.h"
 
+/* the data structure for L1 scratchpad and DATA SRAM */
 struct sram_piece {
 	void *paddr;
 	int size;
@@ -61,6 +62,7 @@ static struct sram_piece free_l2_sram_head, used_l2_sram_head;
 
 static struct kmem_cache *sram_piece_cache;
 
+/* L1 Scratchpad SRAM initialization function */
 static void __init l1sram_init(void)
 {
 	unsigned int cpu;
@@ -87,7 +89,7 @@ static void __init l1sram_init(void)
 
 		per_cpu(used_l1_ssram_head, cpu).next = NULL;
 
-		
+		/* mutex initialize */
 		spin_lock_init(&per_cpu(l1sram_lock, cpu));
 		printk(KERN_INFO "Blackfin Scratchpad data SRAM: %d KB\n",
 			L1_SCRATCH_LENGTH >> 10);
@@ -143,7 +145,7 @@ static void __init l1_data_sram_init(void)
 		printk(KERN_INFO "Blackfin L1 Data B SRAM: %d KB (%d KB free)\n",
 			L1_DATA_B_LENGTH >> 10,
 			per_cpu(free_l1_data_B_sram_head, cpu).next->size >> 10);
-		
+		/* mutex initialize */
 	}
 #endif
 
@@ -178,7 +180,7 @@ static void __init l1_inst_sram_init(void)
 			L1_CODE_LENGTH >> 10,
 			per_cpu(free_l1_inst_sram_head, cpu).next->size >> 10);
 
-		
+		/* mutex initialize */
 		spin_lock_init(&per_cpu(l1_inst_sram_lock, cpu));
 	}
 #endif
@@ -207,7 +209,7 @@ static void __init l2_sram_init(void)
 		L2_LENGTH >> 10,
 		free_l2_sram_head.next->size >> 10);
 
-	
+	/* mutex initialize */
 	spin_lock_init(&l2_sram_lock);
 #endif
 }
@@ -227,6 +229,7 @@ static int __init bfin_sram_init(void)
 }
 pure_initcall(bfin_sram_init);
 
+/* SRAM allocate function */
 static void *_sram_alloc(size_t size, struct sram_piece *pfree_head,
 		struct sram_piece *pused_head)
 {
@@ -235,13 +238,13 @@ static void *_sram_alloc(size_t size, struct sram_piece *pfree_head,
 	if (size <= 0 || !pfree_head || !pused_head)
 		return NULL;
 
-	
+	/* Align the size */
 	size = (size + 3) & ~3;
 
 	pslot = pfree_head->next;
 	plast = pfree_head;
 
-	
+	/* search an available piece slot */
 	while (pslot != NULL && size > pslot->size) {
 		plast = pslot;
 		pslot = pslot->next;
@@ -254,7 +257,7 @@ static void *_sram_alloc(size_t size, struct sram_piece *pfree_head,
 		plast->next = pslot->next;
 		pavail = pslot;
 	} else {
-		
+		/* use atomic so our L1 allocator can be used atomically */
 		pavail = kmem_cache_alloc(sram_piece_cache, GFP_ATOMIC);
 
 		if (!pavail)
@@ -271,7 +274,7 @@ static void *_sram_alloc(size_t size, struct sram_piece *pfree_head,
 	pslot = pused_head->next;
 	plast = pused_head;
 
-	
+	/* insert new piece into used piece list !!! */
 	while (pslot != NULL && pavail->paddr < pslot->paddr) {
 		plast = pslot;
 		pslot = pslot->next;
@@ -283,6 +286,7 @@ static void *_sram_alloc(size_t size, struct sram_piece *pfree_head,
 	return pavail->paddr;
 }
 
+/* Allocate the largest available block.  */
 static void *_sram_alloc_max(struct sram_piece *pfree_head,
 				struct sram_piece *pused_head,
 				unsigned long *psize)
@@ -294,7 +298,7 @@ static void *_sram_alloc_max(struct sram_piece *pfree_head,
 
 	pmax = pslot = pfree_head->next;
 
-	
+	/* search an available piece slot */
 	while (pslot != NULL) {
 		if (pslot->size > pmax->size)
 			pmax = pslot;
@@ -309,6 +313,7 @@ static void *_sram_alloc_max(struct sram_piece *pfree_head,
 	return _sram_alloc(*psize, pfree_head, pused_head);
 }
 
+/* SRAM free function */
 static int _sram_free(const void *addr,
 			struct sram_piece *pfree_head,
 			struct sram_piece *pused_head)
@@ -318,11 +323,11 @@ static int _sram_free(const void *addr,
 	if (!pfree_head || !pused_head)
 		return -1;
 
-	
+	/* search the relevant memory slot */
 	pslot = pused_head->next;
 	plast = pused_head;
 
-	
+	/* search an available piece slot */
 	while (pslot != NULL && pslot->paddr != addr) {
 		plast = pslot;
 		pslot = pslot->next;
@@ -335,7 +340,7 @@ static int _sram_free(const void *addr,
 	pavail = pslot;
 	pavail->pid = 0;
 
-	
+	/* insert free pieces back to the free list */
 	pslot = pfree_head->next;
 	plast = pfree_head;
 
@@ -401,13 +406,13 @@ void *l1_data_A_sram_alloc(size_t size)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	addr = _sram_alloc(size, &per_cpu(free_l1_data_A_sram_head, cpu),
 			&per_cpu(used_l1_data_A_sram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	pr_debug("Allocated address in l1_data_A_sram_alloc is 0x%lx+0x%lx\n",
@@ -428,13 +433,13 @@ int l1_data_A_sram_free(const void *addr)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	ret = _sram_free(addr, &per_cpu(free_l1_data_A_sram_head, cpu),
 			&per_cpu(used_l1_data_A_sram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	return ret;
@@ -452,13 +457,13 @@ void *l1_data_B_sram_alloc(size_t size)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	addr = _sram_alloc(size, &per_cpu(free_l1_data_B_sram_head, cpu),
 			&per_cpu(used_l1_data_B_sram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	pr_debug("Allocated address in l1_data_B_sram_alloc is 0x%lx+0x%lx\n",
@@ -479,13 +484,13 @@ int l1_data_B_sram_free(const void *addr)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	ret = _sram_free(addr, &per_cpu(free_l1_data_B_sram_head, cpu),
 			&per_cpu(used_l1_data_B_sram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1_data_sram_lock, cpu), flags);
 
 	return ret;
@@ -535,13 +540,13 @@ void *l1_inst_sram_alloc(size_t size)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1_inst_sram_lock, cpu), flags);
 
 	addr = _sram_alloc(size, &per_cpu(free_l1_inst_sram_head, cpu),
 			&per_cpu(used_l1_inst_sram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1_inst_sram_lock, cpu), flags);
 
 	pr_debug("Allocated address in l1_inst_sram_alloc is 0x%lx+0x%lx\n",
@@ -562,13 +567,13 @@ int l1_inst_sram_free(const void *addr)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1_inst_sram_lock, cpu), flags);
 
 	ret = _sram_free(addr, &per_cpu(free_l1_inst_sram_head, cpu),
 			&per_cpu(used_l1_inst_sram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1_inst_sram_lock, cpu), flags);
 
 	return ret;
@@ -578,6 +583,7 @@ int l1_inst_sram_free(const void *addr)
 }
 EXPORT_SYMBOL(l1_inst_sram_free);
 
+/* L1 Scratchpad memory allocate function */
 void *l1sram_alloc(size_t size)
 {
 	unsigned long flags;
@@ -585,18 +591,19 @@ void *l1sram_alloc(size_t size)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1sram_lock, cpu), flags);
 
 	addr = _sram_alloc(size, &per_cpu(free_l1_ssram_head, cpu),
 			&per_cpu(used_l1_ssram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1sram_lock, cpu), flags);
 
 	return addr;
 }
 
+/* L1 Scratchpad memory allocate function */
 void *l1sram_alloc_max(size_t *psize)
 {
 	unsigned long flags;
@@ -604,18 +611,19 @@ void *l1sram_alloc_max(size_t *psize)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1sram_lock, cpu), flags);
 
 	addr = _sram_alloc_max(&per_cpu(free_l1_ssram_head, cpu),
 			&per_cpu(used_l1_ssram_head, cpu), psize);
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1sram_lock, cpu), flags);
 
 	return addr;
 }
 
+/* L1 Scratchpad memory free function */
 int l1sram_free(const void *addr)
 {
 	unsigned long flags;
@@ -623,13 +631,13 @@ int l1sram_free(const void *addr)
 	unsigned int cpu;
 
 	cpu = smp_processor_id();
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&per_cpu(l1sram_lock, cpu), flags);
 
 	ret = _sram_free(addr, &per_cpu(free_l1_ssram_head, cpu),
 			&per_cpu(used_l1_ssram_head, cpu));
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&per_cpu(l1sram_lock, cpu), flags);
 
 	return ret;
@@ -641,13 +649,13 @@ void *l2_sram_alloc(size_t size)
 	unsigned long flags;
 	void *addr;
 
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&l2_sram_lock, flags);
 
 	addr = _sram_alloc(size, &free_l2_sram_head,
 			&used_l2_sram_head);
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&l2_sram_lock, flags);
 
 	pr_debug("Allocated address in l2_sram_alloc is 0x%lx+0x%lx\n",
@@ -677,13 +685,13 @@ int l2_sram_free(const void *addr)
 	unsigned long flags;
 	int ret;
 
-	
+	/* add mutex operation */
 	spin_lock_irqsave(&l2_sram_lock, flags);
 
 	ret = _sram_free(addr, &free_l2_sram_head,
 			&used_l2_sram_head);
 
-	
+	/* add mutex operation */
 	spin_unlock_irqrestore(&l2_sram_lock, flags);
 
 	return ret;
@@ -712,6 +720,10 @@ int sram_free_with_lsl(const void *addr)
 }
 EXPORT_SYMBOL(sram_free_with_lsl);
 
+/* Allocate memory and keep in L1 SRAM List (lsl) so that the resources are
+ * tracked.  These are designed for userspace so that when a process exits,
+ * we can safely reap their resources.
+ */
 void *sram_alloc_with_lsl(size_t size, unsigned long flags)
 {
 	void *addr = NULL;
@@ -747,6 +759,12 @@ void *sram_alloc_with_lsl(size_t size, unsigned long flags)
 EXPORT_SYMBOL(sram_alloc_with_lsl);
 
 #ifdef CONFIG_PROC_FS
+/* Once we get a real allocator, we'll throw all of this away.
+ * Until then, we need some sort of visibility into the L1 alloc.
+ */
+/* Need to keep line of output the same.  Currently, that is 44 bytes
+ * (including newline).
+ */
 static int _sram_proc_show(struct seq_file *m, const char *desc,
 		struct sram_piece *pfree_head,
 		struct sram_piece *pused_head)
@@ -758,7 +776,7 @@ static int _sram_proc_show(struct seq_file *m, const char *desc,
 
 	seq_printf(m, "--- SRAM %-14s Size   PID State     \n", desc);
 
-	
+	/* search the relevant memory slot */
 	pslot = pused_head->next;
 
 	while (pslot != NULL) {

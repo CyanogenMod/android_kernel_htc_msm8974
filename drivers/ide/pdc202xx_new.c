@@ -63,6 +63,11 @@ static u8 max_dma_rate(struct pci_dev *pdev)
 	return mode;
 }
 
+/**
+ * get_indexed_reg - Get indexed register
+ * @hwif: for the port address
+ * @index: index of the indexed register
+ */
 static u8 get_indexed_reg(ide_hwif_t *hwif, u8 index)
 {
 	u8 value;
@@ -74,6 +79,11 @@ static u8 get_indexed_reg(ide_hwif_t *hwif, u8 index)
 	return value;
 }
 
+/**
+ * set_indexed_reg - Set indexed register
+ * @hwif: for the port address
+ * @index: index of the indexed register
+ */
 static void set_indexed_reg(ide_hwif_t *hwif, u8 index, u8 value)
 {
 	outb(index, hwif->dma_base + 1);
@@ -81,34 +91,42 @@ static void set_indexed_reg(ide_hwif_t *hwif, u8 index, u8 value)
 	DBG("index[%02X] value[%02X]\n", index, value);
 }
 
+/*
+ * ATA Timing Tables based on 133 MHz PLL output clock.
+ *
+ * If the PLL outputs 100 MHz clock, the ASIC hardware will set
+ * the timing registers automatically when "set features" command is
+ * issued to the device. However, if the PLL output clock is 133 MHz,
+ * the following tables must be used.
+ */
 static struct pio_timing {
 	u8 reg0c, reg0d, reg13;
 } pio_timings [] = {
-	{ 0xfb, 0x2b, 0xac },	
-	{ 0x46, 0x29, 0xa4 },	
-	{ 0x23, 0x26, 0x64 },	
-	{ 0x27, 0x0d, 0x35 },	
-	{ 0x23, 0x09, 0x25 },	
+	{ 0xfb, 0x2b, 0xac },	/* PIO mode 0, IORDY off, Prefetch off */
+	{ 0x46, 0x29, 0xa4 },	/* PIO mode 1, IORDY off, Prefetch off */
+	{ 0x23, 0x26, 0x64 },	/* PIO mode 2, IORDY off, Prefetch off */
+	{ 0x27, 0x0d, 0x35 },	/* PIO mode 3, IORDY on,  Prefetch off */
+	{ 0x23, 0x09, 0x25 },	/* PIO mode 4, IORDY on,  Prefetch off */
 };
 
 static struct mwdma_timing {
 	u8 reg0e, reg0f;
 } mwdma_timings [] = {
-	{ 0xdf, 0x5f }, 	
-	{ 0x6b, 0x27 }, 	
-	{ 0x69, 0x25 }, 	
+	{ 0xdf, 0x5f }, 	/* MWDMA mode 0 */
+	{ 0x6b, 0x27 }, 	/* MWDMA mode 1 */
+	{ 0x69, 0x25 }, 	/* MWDMA mode 2 */
 };
 
 static struct udma_timing {
 	u8 reg10, reg11, reg12;
 } udma_timings [] = {
-	{ 0x4a, 0x0f, 0xd5 },	
-	{ 0x3a, 0x0a, 0xd0 },	
-	{ 0x2a, 0x07, 0xcd },	
-	{ 0x1a, 0x05, 0xcd },	
-	{ 0x1a, 0x03, 0xcd },	
-	{ 0x1a, 0x02, 0xcb },	
-	{ 0x1a, 0x01, 0xcb },	
+	{ 0x4a, 0x0f, 0xd5 },	/* UDMA mode 0 */
+	{ 0x3a, 0x0a, 0xd0 },	/* UDMA mode 1 */
+	{ 0x2a, 0x07, 0xcd },	/* UDMA mode 2 */
+	{ 0x1a, 0x05, 0xcd },	/* UDMA mode 3 */
+	{ 0x1a, 0x03, 0xcd },	/* UDMA mode 4 */
+	{ 0x1a, 0x02, 0xcb },	/* UDMA mode 5 */
+	{ 0x1a, 0x01, 0xcb },	/* UDMA mode 6 */
 };
 
 static void pdcnew_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
@@ -117,6 +135,14 @@ static void pdcnew_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	u8 adj			= (drive->dn & 1) ? 0x08 : 0x00;
 	const u8 speed		= drive->dma_mode;
 
+	/*
+	 * IDE core issues SETFEATURES_XFER to the drive first (thanks to
+	 * IDE_HFLAG_POST_SET_MODE in ->host_flags).  PDC202xx hardware will
+	 * automatically set the timing registers based on 100 MHz PLL output.
+	 *
+	 * As we set up the PLL to output 133 MHz for UltraDMA/133 capable
+	 * chips, we must override the default register settings...
+	 */
 	if (max_dma_rate(dev) == 4) {
 		u8 mode = speed & 0x07;
 
@@ -134,7 +160,7 @@ static void pdcnew_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 					mwdma_timings[mode].reg0f);
 		}
 	} else if (speed == XFER_UDMA_2) {
-		
+		/* Set tHOLD bit to 0 if using UDMA mode 2 */
 		u8 tmp = get_indexed_reg(hwif, 0x10 + adj);
 
 		set_indexed_reg(hwif, 0x10 + adj, tmp & 0x7f);
@@ -164,10 +190,17 @@ static u8 pdcnew_cable_detect(ide_hwif_t *hwif)
 
 static void pdcnew_reset(ide_drive_t *drive)
 {
+	/*
+	 * Deleted this because it is redundant from the caller.
+	 */
 	printk(KERN_WARNING "pdc202xx_new: %s channel reset.\n",
 		drive->hwif->channel ? "Secondary" : "Primary");
 }
 
+/**
+ * read_counter - Read the byte count registers
+ * @dma_base: for the port address
+ */
 static long read_counter(u32 dma_base)
 {
 	u32  pri_dma_base = dma_base, sec_dma_base = dma_base + 0x08;
@@ -178,7 +211,7 @@ static long read_counter(u32 dma_base)
 	do {
 		last = count;
 
-		
+		/* Read the current count */
 		outb(0x20, pri_dma_base + 0x01);
 		cnt0 = inb(pri_dma_base + 0x03);
 		outb(0x21, pri_dma_base + 0x01);
@@ -190,6 +223,11 @@ static long read_counter(u32 dma_base)
 
 		count = (cnt3 << 23) | (cnt2 << 15) | (cnt1 << 8) | cnt0;
 
+		/*
+		 * The 30-bit decrementing counter is read in 4 pieces.
+		 * Incorrect value may be read when the most significant bytes
+		 * are changing...
+		 */
 	} while (retry-- && (((last ^ count) & 0x3fff8000) || last < count));
 
 	DBG("cnt0[%02X] cnt1[%02X] cnt2[%02X] cnt3[%02X]\n",
@@ -198,6 +236,11 @@ static long read_counter(u32 dma_base)
 	return count;
 }
 
+/**
+ * detect_pll_input_clock - Detect the PLL input clock in Hz.
+ * @dma_base: for the port address
+ * E.g. 16949000 on 33 MHz PCI bus, i.e. half of the PCI clock.
+ */
 static long detect_pll_input_clock(unsigned long dma_base)
 {
 	struct timeval start_time, end_time;
@@ -208,24 +251,28 @@ static long detect_pll_input_clock(unsigned long dma_base)
 	start_count = read_counter(dma_base);
 	do_gettimeofday(&start_time);
 
-	
+	/* Start the test mode */
 	outb(0x01, dma_base + 0x01);
 	scr1 = inb(dma_base + 0x03);
 	DBG("scr1[%02X]\n", scr1);
 	outb(scr1 | 0x40, dma_base + 0x03);
 
-	
+	/* Let the counter run for 10 ms. */
 	mdelay(10);
 
 	end_count = read_counter(dma_base);
 	do_gettimeofday(&end_time);
 
-	
+	/* Stop the test mode */
 	outb(0x01, dma_base + 0x01);
 	scr1 = inb(dma_base + 0x03);
 	DBG("scr1[%02X]\n", scr1);
 	outb(scr1 & ~0x40, dma_base + 0x03);
 
+	/*
+	 * Calculate the input clock in Hz
+	 * (the clock counter is 30 bit wide and counts down)
+	 */
 	usec_elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000 +
 		(end_time.tv_usec - start_time.tv_usec);
 	pll_input = ((start_count - end_count) & 0x3fffffff) / 10 *
@@ -246,12 +293,12 @@ static void apple_kiwi_init(struct pci_dev *pdev)
 		return;
 
 	if (pdev->revision >= 0x03) {
-		
+		/* Setup chip magic config stuff (from darwin) */
 		pci_read_config_byte (pdev, 0x40, &conf);
 		pci_write_config_byte(pdev, 0x40, (conf | 0x01));
 	}
 }
-#endif 
+#endif /* CONFIG_PPC_PMAC */
 
 static int init_chipset_pdcnew(struct pci_dev *dev)
 {
@@ -269,22 +316,29 @@ static int init_chipset_pdcnew(struct pci_dev *dev)
 	apple_kiwi_init(dev);
 #endif
 
-	
+	/* Calculate the required PLL output frequency */
 	switch(max_dma_rate(dev)) {
-		case 4: 
+		case 4: /* it's 133 MHz for Ultra133 chips */
 			pll_output = 133333333;
 			break;
-		case 3: 
+		case 3: /* and  100 MHz for Ultra100 chips */
 		default:
 			pll_output = 100000000;
 			break;
 	}
 
+	/*
+	 * Detect PLL input clock.
+	 * On some systems, where PCI bus is running at non-standard clock rate
+	 * (e.g. 25 or 40 MHz), we have to adjust the cycle time.
+	 * PDC20268 and newer chips employ PLL circuit to help correct timing
+	 * registers setting.
+	 */
 	pll_input = detect_pll_input_clock(dma_base);
 	printk(KERN_INFO "%s %s: PLL input clock is %ld kHz\n",
 		name, pci_name(dev), pll_input / 1000);
 
-	
+	/* Sanity check */
 	if (unlikely(pll_input < 5000000L || pll_input > 70000000L)) {
 		printk(KERN_ERR "%s %s: Bad PLL input clock %ld Hz, giving up!"
 			"\n", name, pci_name(dev), pll_input);
@@ -294,6 +348,9 @@ static int init_chipset_pdcnew(struct pci_dev *dev)
 #ifdef DEBUG
 	DBG("pll_output is %ld Hz\n", pll_output);
 
+	/* Show the current clock value of PLL control register
+	 * (maybe already configured by the BIOS)
+	 */
 	outb(0x02, sec_dma_base + 0x01);
 	pll_ctl0 = inb(sec_dma_base + 0x03);
 	outb(0x03, sec_dma_base + 0x01);
@@ -302,20 +359,24 @@ static int init_chipset_pdcnew(struct pci_dev *dev)
 	DBG("pll_ctl[%02X][%02X]\n", pll_ctl0, pll_ctl1);
 #endif
 
+	/*
+	 * Calculate the ratio of F, R and NO
+	 * POUT = (F + 2) / (( R + 2) * NO)
+	 */
 	ratio = pll_output / (pll_input / 1000);
-	if (ratio < 8600L) { 
-		
+	if (ratio < 8600L) { /* 8.6x */
+		/* Using NO = 0x01, R = 0x0d */
 		r = 0x0d;
-	} else if (ratio < 12900L) { 
-		
+	} else if (ratio < 12900L) { /* 12.9x */
+		/* Using NO = 0x01, R = 0x08 */
 		r = 0x08;
-	} else if (ratio < 16100L) { 
-		
+	} else if (ratio < 16100L) { /* 16.1x */
+		/* Using NO = 0x01, R = 0x06 */
 		r = 0x06;
-	} else if (ratio < 64000L) { 
+	} else if (ratio < 64000L) { /* 64x */
 		r = 0x00;
 	} else {
-		
+		/* Invalid ratio */
 		printk(KERN_ERR "%s %s: Bad ratio %ld, giving up!\n",
 			name, pci_name(dev), ratio);
 		goto out;
@@ -326,7 +387,7 @@ static int init_chipset_pdcnew(struct pci_dev *dev)
 	DBG("F[%d] R[%d] ratio*1000[%ld]\n", f, r, ratio);
 
 	if (unlikely(f < 0 || f > 127)) {
-		
+		/* Invalid F */
 		printk(KERN_ERR "%s %s: F[%d] invalid!\n",
 			name, pci_name(dev), f);
 		goto out;
@@ -342,10 +403,13 @@ static int init_chipset_pdcnew(struct pci_dev *dev)
 	outb(0x03,     sec_dma_base + 0x01);
 	outb(pll_ctl1, sec_dma_base + 0x03);
 
-	
+	/* Wait the PLL circuit to be stable */
 	mdelay(30);
 
 #ifdef DEBUG
+	/*
+	 *  Show the current clock value of PLL control register
+	 */
 	outb(0x02, sec_dma_base + 0x01);
 	pll_ctl0 = inb(sec_dma_base + 0x03);
 	outb(0x03, sec_dma_base + 0x01);
@@ -402,10 +466,18 @@ static const struct ide_port_ops pdcnew_port_ops = {
 	}
 
 static const struct ide_port_info pdcnew_chipsets[] __devinitdata = {
-			DECLARE_PDCNEW_DEV(ATA_UDMA5),
-		DECLARE_PDCNEW_DEV(ATA_UDMA6),
+	/* 0: PDC202{68,70} */		DECLARE_PDCNEW_DEV(ATA_UDMA5),
+	/* 1: PDC202{69,71,75,76,77} */	DECLARE_PDCNEW_DEV(ATA_UDMA6),
 };
 
+/**
+ *	pdc202new_init_one	-	called when a pdc202xx is found
+ *	@dev: the pdc202new device
+ *	@id: the matching pci id
+ *
+ *	Called when the PCI registration layer (or the IDE initialization)
+ *	finds a device matching our IDE device tables.
+ */
  
 static int __devinit pdc202new_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

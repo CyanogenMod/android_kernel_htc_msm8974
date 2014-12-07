@@ -41,6 +41,7 @@
 #define ESTABLISHED_TIMING_2			0x24
 #define MANUFACTURERS_TIMINGS			0x25
 
+/* standard timings supported */
 #define STD_TIMING                              8
 #define STD_TIMING_DESCRIPTION_SIZE             2
 #define STD_TIMING_DESCRIPTIONS_START           0x26
@@ -118,7 +119,7 @@
 #define FLAGS              (unsigned)block[ 17 ]
 
 #define INTERLACED         (FLAGS&128)
-#define SYNC_TYPE          (FLAGS&3<<3)	
+#define SYNC_TYPE          (FLAGS&3<<3)	/* bits 4,3 */
 #define SYNC_SEPARATE      (3<<3)
 #define HSYNC_POSITIVE     (FLAGS & 4)
 #define VSYNC_POSITIVE     (FLAGS & 2)
@@ -134,4 +135,4 @@
 #define DPMS_SUSPEND		(1 << 6)
 #define DPMS_STANDBY		(1 << 7)
 
-#endif 
+#endif /* __EDID_H__ */

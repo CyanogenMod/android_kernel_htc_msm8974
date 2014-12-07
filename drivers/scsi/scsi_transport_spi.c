@@ -35,20 +35,24 @@
 #include <scsi/scsi_transport.h>
 #include <scsi/scsi_transport_spi.h>
 
-#define SPI_NUM_ATTRS 14	
-#define SPI_OTHER_ATTRS 1	
+#define SPI_NUM_ATTRS 14	/* increase this if you add attributes */
+#define SPI_OTHER_ATTRS 1	/* Increase this if you add "always
+				 * on" attributes */
 #define SPI_HOST_ATTRS	1
 
 #define SPI_MAX_ECHO_BUFFER_SIZE	4096
 
 #define DV_LOOPS	3
 #define DV_TIMEOUT	(10*HZ)
-#define DV_RETRIES	3	
+#define DV_RETRIES	3	/* should only need at most 
+				 * two cc/ua clears */
 
+/* Our blacklist flags */
 enum {
 	SPI_BLIST_NOIUS = 0x1,
 };
 
+/* blacklist table, modelled on scsi_devinfo.c */
 static struct {
 	char *vendor;
 	char *model;
@@ -59,6 +63,7 @@ static struct {
 	{NULL, NULL, 0}
 };
 
+/* Private data accessors (keep these out of the header file) */
 #define spi_dv_in_progress(x) (((struct spi_transport_attrs *)&(x)->starget_data)->dv_in_progress)
 #define spi_dv_mutex(x) (((struct spi_transport_attrs *)&(x)->starget_data)->dv_mutex)
 
@@ -70,20 +75,24 @@ struct spi_internal {
 #define to_spi_internal(tmpl)	container_of(tmpl, struct spi_internal, t)
 
 static const int ppr_to_ps[] = {
-	-1,			
-	-1,			
-	-1,			
-	-1,			
-	-1,			
-	-1,			
-	-1,			
-	 3125,			
-	 6250,			
-	12500,			
-	25000,			
-	30300,			
-	50000,			
+	/* The PPR values 0-6 are reserved, fill them in when
+	 * the committee defines them */
+	-1,			/* 0x00 */
+	-1,			/* 0x01 */
+	-1,			/* 0x02 */
+	-1,			/* 0x03 */
+	-1,			/* 0x04 */
+	-1,			/* 0x05 */
+	-1,			/* 0x06 */
+	 3125,			/* 0x07 */
+	 6250,			/* 0x08 */
+	12500,			/* 0x09 */
+	25000,			/* 0x0a */
+	30300,			/* 0x0b */
+	50000,			/* 0x0c */
 };
+/* The PPR values at which you calculate the period in ns by multiplying
+ * by 4 */
 #define SPI_STATIC_PPR	0x0c
 
 static int sprint_frac(char *dest, int value, int denom)
@@ -116,7 +125,7 @@ static int spi_execute(struct scsi_device *sdev, const void *cmd,
 
 	for(i = 0; i < DV_RETRIES; i++) {
 		result = scsi_execute(sdev, cmd, dir, buffer, bufflen,
-				      sense, DV_TIMEOUT,  1,
+				      sense, DV_TIMEOUT, /* retries */ 1,
 				      REQ_FAILFAST_DEV |
 				      REQ_FAILFAST_TRANSPORT |
 				      REQ_FAILFAST_DRIVER,
@@ -219,6 +228,8 @@ static int spi_device_configure(struct transport_container *tc,
 						      &sdev->inquiry[16],
 						      SCSI_DEVINFO_SPI);
 
+	/* Populate the target capability fields with the values
+	 * gleaned from the device inquiry */
 
 	spi_support_sync(starget) = scsi_device_sync(sdev);
 	spi_support_wide(starget) = scsi_device_wide(sdev);
@@ -240,15 +251,15 @@ static int spi_setup_transport_attrs(struct transport_container *tc,
 {
 	struct scsi_target *starget = to_scsi_target(dev);
 
-	spi_period(starget) = -1;	
+	spi_period(starget) = -1;	/* illegal value */
 	spi_min_period(starget) = 0;
-	spi_offset(starget) = 0;	
+	spi_offset(starget) = 0;	/* async */
 	spi_max_offset(starget) = 255;
-	spi_width(starget) = 0;	
+	spi_width(starget) = 0;	/* narrow */
 	spi_max_width(starget) = 1;
-	spi_iu(starget) = 0;	
+	spi_iu(starget) = 0;	/* no IU */
 	spi_max_iu(starget) = 1;
-	spi_dt(starget) = 0;	
+	spi_dt(starget) = 0;	/* ST */
 	spi_qas(starget) = 0;
 	spi_max_qas(starget) = 1;
 	spi_wr_flow(starget) = 0;
@@ -372,6 +383,7 @@ static DEVICE_ATTR(field, S_IRUGO,				\
 		   show_spi_transport_##field,			\
 		   store_spi_transport_##field);
 
+/* The Parallel SCSI Tranport Attributes: */
 spi_transport_max_attr(offset, "%d\n");
 spi_transport_max_attr(width, "%d\n");
 spi_transport_max_attr(iu, "%d\n");
@@ -383,6 +395,8 @@ spi_transport_rd_attr(rti, "%d\n");
 spi_transport_rd_attr(pcomp_en, "%d\n");
 spi_transport_rd_attr(hold_mcs, "%d\n");
 
+/* we only care about the first child device that's a real SCSI device
+ * so we return 1 to terminate the iteration when we find it */
 static int child_iter(struct device *dev, void *data)
 {
 	if (!scsi_is_sdev_device(dev))
@@ -403,6 +417,8 @@ store_spi_revalidate(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR(revalidate, S_IWUSR, NULL, store_spi_revalidate);
 
+/* Translate the period into ns according to the current spec
+ * for SDTR/PPR messages */
 static int period_to_str(char *buf, int period)
 {
 	int len, picosec;
@@ -614,6 +630,8 @@ enum spi_compare_returns {
 };
 
 
+/* This is for read/write Domain Validation:  If the device supports
+ * an echo buffer, we do read/write tests to it */
 static enum spi_compare_returns
 spi_dv_device_echo_buffer(struct scsi_device *sdev, u8 *buffer,
 			  u8 *ptr, const int retries)
@@ -630,25 +648,31 @@ spi_dv_device_echo_buffer(struct scsi_device *sdev, u8 *buffer,
 		READ_BUFFER, 0x0a, 0, 0, 0, 0, 0, len >> 8, len & 0xff, 0
 	};
 
+	/* set up the pattern buffer.  Doesn't matter if we spill
+	 * slightly beyond since that's where the read buffer is */
 	for (j = 0; j < len; ) {
 
-		
+		/* fill the buffer with counting (test a) */
 		for ( ; j < min(len, 32); j++)
 			buffer[j] = j;
 		k = j;
+		/* fill the buffer with alternating words of 0x0 and
+		 * 0xffff (test b) */
 		for ( ; j < min(len, k + 32); j += 2) {
 			u16 *word = (u16 *)&buffer[j];
 			
 			*word = (j & 0x02) ? 0x0000 : 0xffff;
 		}
 		k = j;
+		/* fill with crosstalk (alternating 0x5555 0xaaa)
+                 * (test c) */
 		for ( ; j < min(len, k + 32); j += 2) {
 			u16 *word = (u16 *)&buffer[j];
 
 			*word = (j & 0x02) ? 0x5555 : 0xaaaa;
 		}
 		k = j;
-		
+		/* fill with shifting bits (test d) */
 		for ( ; j < min(len, k + 32); j += 4) {
 			u32 *word = (unsigned int *)&buffer[j];
 			u32 roll = (pattern & 0x80000000) ? 1 : 0;
@@ -656,7 +680,7 @@ spi_dv_device_echo_buffer(struct scsi_device *sdev, u8 *buffer,
 			*word = pattern;
 			pattern = (pattern << 1) | roll;
 		}
-		
+		/* don't bother with random data (test e) */
 	}
 
 	for (r = 0; r < retries; r++) {
@@ -667,8 +691,13 @@ spi_dv_device_echo_buffer(struct scsi_device *sdev, u8 *buffer,
 			scsi_device_set_state(sdev, SDEV_QUIESCE);
 			if (scsi_sense_valid(&sshdr)
 			    && sshdr.sense_key == ILLEGAL_REQUEST
-			    
+			    /* INVALID FIELD IN CDB */
 			    && sshdr.asc == 0x24 && sshdr.ascq == 0x00)
+				/* This would mean that the drive lied
+				 * to us about supporting an echo
+				 * buffer (unfortunately some Western
+				 * Digital drives do precisely this)
+				 */
 				return SPI_COMPARE_SKIP_TEST;
 
 
@@ -687,6 +716,8 @@ spi_dv_device_echo_buffer(struct scsi_device *sdev, u8 *buffer,
 	return SPI_COMPARE_SUCCESS;
 }
 
+/* This is for the simplest form of Domain Validation: a read test
+ * on the inquiry data from the device */
 static enum spi_compare_returns
 spi_dv_device_compare_inquiry(struct scsi_device *sdev, u8 *buffer,
 			      u8 *ptr, const int retries)
@@ -708,6 +739,8 @@ spi_dv_device_compare_inquiry(struct scsi_device *sdev, u8 *buffer,
 			return SPI_COMPARE_FAILURE;
 		}
 
+		/* If we don't have the inquiry data already, the
+		 * first read gets it */
 		if (ptr == buffer) {
 			ptr += len;
 			--r;
@@ -715,7 +748,7 @@ spi_dv_device_compare_inquiry(struct scsi_device *sdev, u8 *buffer,
 		}
 
 		if (memcmp(buffer, ptr, len) != 0)
-			
+			/* failure */
 			return SPI_COMPARE_FAILURE;
 	}
 	return SPI_COMPARE_SUCCESS;
@@ -740,7 +773,7 @@ spi_dv_retrain(struct scsi_device *sdev, u8 *buffer, u8 *ptr,
 		    || retval == SPI_COMPARE_SKIP_TEST)
 			break;
 
-		
+		/* OK, retrain, fallback */
 		if (i->f->get_iu)
 			i->f->get_iu(starget);
 		if (i->f->get_qas)
@@ -748,6 +781,9 @@ spi_dv_retrain(struct scsi_device *sdev, u8 *buffer, u8 *ptr,
 		if (i->f->get_period)
 			i->f->get_period(sdev->sdev_target);
 
+		/* Here's the fallback sequence; first try turning off
+		 * IU, then QAS (if we can control them), then finally
+		 * fall down the periods */
 		if (i->f->set_iu && spi_iu(starget)) {
 			starget_printk(KERN_ERR, starget, "Domain Validation Disabing Information Units\n");
 			DV_SET(iu, 0);
@@ -763,7 +799,7 @@ spi_dv_retrain(struct scsi_device *sdev, u8 *buffer, u8 *ptr,
 				period += period >> 1;
 
 			if (unlikely(period > 0xff || period == prevperiod)) {
-				
+				/* Total failure; set to async and return */
 				starget_printk(KERN_ERR, starget, "Domain Validation Failure, dropping back to Asynchronous\n");
 				DV_SET(offset, 0);
 				return SPI_COMPARE_FAILURE;
@@ -781,6 +817,10 @@ spi_dv_device_get_echo_buffer(struct scsi_device *sdev, u8 *buffer)
 {
 	int l, result;
 
+	/* first off do a test unit ready.  This can error out 
+	 * because of reservations or some other reason.  If it
+	 * fails, the device won't let us write to the echo buffer
+	 * so just return failure */
 	
 	const char spi_test_unit_ready[] = {
 		TEST_UNIT_READY, 0, 0, 0, 0, 0
@@ -791,6 +831,11 @@ spi_dv_device_get_echo_buffer(struct scsi_device *sdev, u8 *buffer)
 	};
 
 	
+	/* We send a set of three TURs to clear any outstanding 
+	 * unit attention conditions if they exist (Otherwise the
+	 * buffer tests won't be happy).  If the TUR still fails
+	 * (reservation conflict, device not ready, etc) just
+	 * skip the write tests */
 	for (l = 0; ; l++) {
 		result = spi_execute(sdev, spi_test_unit_ready, DMA_NONE, 
 				     NULL, 0, NULL);
@@ -799,7 +844,7 @@ spi_dv_device_get_echo_buffer(struct scsi_device *sdev, u8 *buffer)
 			if(l >= 3)
 				return 0;
 		} else {
-			
+			/* TUR succeeded */
 			break;
 		}
 	}
@@ -808,7 +853,7 @@ spi_dv_device_get_echo_buffer(struct scsi_device *sdev, u8 *buffer)
 			     DMA_FROM_DEVICE, buffer, 4, NULL);
 
 	if (result)
-		
+		/* Device has no echo buffer */
 		return 0;
 
 	return buffer[3] + ((buffer[2] & 0x1f) << 8);
@@ -823,14 +868,14 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 	int len = sdev->inquiry_len;
 	int min_period = spi_min_period(starget);
 	int max_width = spi_max_width(starget);
-	
+	/* first set us up for narrow async */
 	DV_SET(offset, 0);
 	DV_SET(width, 0);
 
 	if (spi_dv_device_compare_inquiry(sdev, buffer, buffer, DV_LOOPS)
 	    != SPI_COMPARE_SUCCESS) {
 		starget_printk(KERN_ERR, starget, "Domain Validation Initial Inquiry Failed\n");
-		
+		/* FIXME: should probably offline the device here? */
 		return;
 	}
 
@@ -839,7 +884,7 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 		max_width = 0;
 	}
 
-	
+	/* test width */
 	if (i->f->set_width && max_width) {
 		i->f->set_width(starget, 1);
 
@@ -849,6 +894,8 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 		    != SPI_COMPARE_SUCCESS) {
 			starget_printk(KERN_ERR, starget, "Wide Transfers Fail\n");
 			i->f->set_width(starget, 0);
+			/* Make sure we don't force wide back on by asking
+			 * for a transfer period that requires it */
 			max_width = 0;
 			if (min_period < 10)
 				min_period = 10;
@@ -858,18 +905,23 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 	if (!i->f->set_period)
 		return;
 
-	
+	/* device can't handle synchronous */
 	if (!spi_support_sync(starget) && !spi_support_dt(starget))
 		return;
 
+	/* len == -1 is the signal that we need to ascertain the
+	 * presence of an echo buffer before trying to use it.  len ==
+	 * 0 means we don't have an echo buffer */
 	len = -1;
 
  retry:
 
-	
+	/* now set up to the maximum */
 	DV_SET(offset, spi_max_offset(starget));
 	DV_SET(period, min_period);
 
+	/* try QAS requests; this should be harmless to set if the
+	 * target supports it */
 	if (spi_support_qas(starget) && spi_max_qas(starget)) {
 		DV_SET(qas, 1);
 	} else {
@@ -878,9 +930,9 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 
 	if (spi_support_ius(starget) && spi_max_iu(starget) &&
 	    min_period < 9) {
-		
+		/* This u320 (or u640). Set IU transfers */
 		DV_SET(iu, 1);
-		
+		/* Then set the optional parameters */
 		DV_SET(rd_strm, 1);
 		DV_SET(wr_flow, 1);
 		DV_SET(rti, 1);
@@ -890,6 +942,9 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 		DV_SET(iu, 0);
 	}
 
+	/* now that we've done all this, actually check the bus
+	 * signal type (if known).  Some devices are stupid on
+	 * a SE bus and still claim they can try LVD only settings */
 	if (i->f->get_signalling)
 		i->f->get_signalling(shost);
 	if (spi_signalling(shost) == SPI_SIGNAL_SE ||
@@ -899,15 +954,21 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 	} else {
 		DV_SET(dt, 1);
 	}
+	/* set width last because it will pull all the other
+	 * parameters down to required values */
 	DV_SET(width, max_width);
 
-	
+	/* Do the read only INQUIRY tests */
 	spi_dv_retrain(sdev, buffer, buffer + sdev->inquiry_len,
 		       spi_dv_device_compare_inquiry);
-	
+	/* See if we actually managed to negotiate and sustain DT */
 	if (i->f->get_dt)
 		i->f->get_dt(starget);
 
+	/* see if the device has an echo buffer.  If it does we can do
+	 * the SPI pattern write tests.  Because of some broken
+	 * devices, we *only* try this on a device that has actually
+	 * negotiated DT */
 
 	if (len == -1 && spi_dt(starget))
 		len = spi_dv_device_get_echo_buffer(sdev, buffer);
@@ -925,12 +986,23 @@ spi_dv_device_internal(struct scsi_device *sdev, u8 *buffer)
 	if (spi_dv_retrain(sdev, buffer, buffer + len,
 			   spi_dv_device_echo_buffer)
 	    == SPI_COMPARE_SKIP_TEST) {
+		/* OK, the stupid drive can't do a write echo buffer
+		 * test after all, fall back to the read tests */
 		len = 0;
 		goto retry;
 	}
 }
 
 
+/**	spi_dv_device - Do Domain Validation on the device
+ *	@sdev:		scsi device to validate
+ *
+ *	Performs the domain validation on the given device in the
+ *	current execution thread.  Since DV operations may sleep,
+ *	the current thread must have user context.  Also no SCSI
+ *	related locks that would deadlock I/O issued by the DV may
+ *	be held.
+ */
 void
 spi_dv_device(struct scsi_device *sdev)
 {
@@ -950,6 +1022,8 @@ spi_dv_device(struct scsi_device *sdev)
 	if (unlikely(!buffer))
 		goto out_put;
 
+	/* We need to verify that the actual device will quiesce; the
+	 * later target quiesce is just a nice to have */
 	if (unlikely(scsi_device_quiesce(sdev)))
 		goto out_free;
 
@@ -998,6 +1072,15 @@ spi_dv_device_work_wrapper(struct work_struct *work)
 }
 
 
+/**
+ *	spi_schedule_dv_device - schedule domain validation to occur on the device
+ *	@sdev:	The device to validate
+ *
+ *	Identical to spi_dv_device() above, except that the DV will be
+ *	scheduled to occur in a workqueue later.  All memory allocations
+ *	are atomic, so may be called from any context including those holding
+ *	SCSI locks.
+ */
 void
 spi_schedule_dv_device(struct scsi_device *sdev)
 {
@@ -1011,7 +1094,7 @@ spi_schedule_dv_device(struct scsi_device *sdev)
 		kfree(wqw);
 		return;
 	}
-	
+	/* Set pending early (dv_device doesn't check it, only sets it) */
 	spi_dv_pending(sdev->sdev_target) = 1;
 	if (unlikely(scsi_device_get(sdev))) {
 		kfree(wqw);
@@ -1026,6 +1109,14 @@ spi_schedule_dv_device(struct scsi_device *sdev)
 }
 EXPORT_SYMBOL(spi_schedule_dv_device);
 
+/**
+ * spi_display_xfer_agreement - Print the current target transfer agreement
+ * @starget: The target for which to display the agreement
+ *
+ * Each SPI port is required to maintain a transfer agreement for each
+ * other port on the bus.  This function prints a one-line summary of
+ * the current agreement; more detailed information is available in sysfs.
+ */
 void spi_display_xfer_agreement(struct scsi_target *starget)
 {
 	struct spi_transport_attrs *tp;
@@ -1118,25 +1209,25 @@ EXPORT_SYMBOL_GPL(spi_populate_ppr_msg);
 
 #ifdef CONFIG_SCSI_CONSTANTS
 static const char * const one_byte_msgs[] = {
- "Task Complete", NULL , "Save Pointers",
- "Restore Pointers", "Disconnect", "Initiator Error", 
- "Abort Task Set", "Message Reject", "Nop", "Message Parity Error",
- "Linked Command Complete", "Linked Command Complete w/flag",
- "Target Reset", "Abort Task", "Clear Task Set", 
- "Initiate Recovery", "Release Recovery",
- "Terminate Process", "Continue Task", "Target Transfer Disable",
- NULL, NULL, "Clear ACA", "LUN Reset"
+/* 0x00 */ "Task Complete", NULL /* Extended Message */, "Save Pointers",
+/* 0x03 */ "Restore Pointers", "Disconnect", "Initiator Error", 
+/* 0x06 */ "Abort Task Set", "Message Reject", "Nop", "Message Parity Error",
+/* 0x0a */ "Linked Command Complete", "Linked Command Complete w/flag",
+/* 0x0c */ "Target Reset", "Abort Task", "Clear Task Set", 
+/* 0x0f */ "Initiate Recovery", "Release Recovery",
+/* 0x11 */ "Terminate Process", "Continue Task", "Target Transfer Disable",
+/* 0x14 */ NULL, NULL, "Clear ACA", "LUN Reset"
 };
 
 static const char * const two_byte_msgs[] = {
- "Simple Queue Tag", "Head of Queue Tag", "Ordered Queue Tag",
- "Ignore Wide Residue", "ACA"
+/* 0x20 */ "Simple Queue Tag", "Head of Queue Tag", "Ordered Queue Tag",
+/* 0x23 */ "Ignore Wide Residue", "ACA"
 };
 
 static const char * const extended_msgs[] = {
- "Modify Data Pointer", "Synchronous Data Transfer Request",
- "SCSI-I Extended Identify", "Wide Data Transfer Request",
- "Parallel Protocol Request", "Modify Bidirectional Data Pointer"
+/* 0x00 */ "Modify Data Pointer", "Synchronous Data Transfer Request",
+/* 0x02 */ "SCSI-I Extended Identify", "Wide Data Transfer Request",
+/* 0x04 */ "Parallel Protocol Request", "Modify Bidirectional Data Pointer"
 };
 
 static void print_nego(const unsigned char *msg, int per, int off, int width)
@@ -1193,13 +1284,13 @@ int spi_print_msg(const unsigned char *msg)
 		for (i = 2; i < len; ++i) 
 			printk("%02x ", msg[i]);
 		}
-	
+	/* Identify */
 	} else if (msg[0] & 0x80) {
 		printk("Identify disconnect %sallowed %s %d ",
 			(msg[0] & 0x40) ? "" : "not ",
 			(msg[0] & 0x20) ? "target routine" : "lun",
 			msg[0] & 0x7);
-	
+	/* Normal One byte */
 	} else if (msg[0] < 0x1f) {
 		if (msg[0] < ARRAY_SIZE(one_byte_msgs) && one_byte_msgs[msg[0]])
 			printk("%s ", one_byte_msgs[msg[0]]);
@@ -1207,7 +1298,7 @@ int spi_print_msg(const unsigned char *msg)
 			printk("reserved (%02x) ", msg[0]);
 	} else if (msg[0] == 0x55) {
 		printk("QAS Request ");
-	
+	/* Two byte */
 	} else if (msg[0] <= 0x2f) {
 		if ((msg[0] - 0x20) < ARRAY_SIZE(two_byte_msgs))
 			printk("%s %02x ", two_byte_msgs[msg[0] - 0x20], 
@@ -1222,7 +1313,7 @@ int spi_print_msg(const unsigned char *msg)
 }
 EXPORT_SYMBOL(spi_print_msg);
 
-#else  
+#else  /* ifndef CONFIG_SCSI_CONSTANTS */
 
 int spi_print_msg(const unsigned char *msg)
 {
@@ -1234,13 +1325,13 @@ int spi_print_msg(const unsigned char *msg)
 			len += 256;
 		for (i = 0; i < len; ++i)
 			printk("%02x ", msg[i]);
-	
+	/* Identify */
 	} else if (msg[0] & 0x80) {
 		printk("%02x ", msg[0]);
-	
+	/* Normal One byte */
 	} else if ((msg[0] < 0x1f) || (msg[0] == 0x55)) {
 		printk("%02x ", msg[0]);
-	
+	/* Two byte */
 	} else if (msg[0] <= 0x2f) {
 		printk("%02x %02x", msg[0], msg[1]);
 		len = 2;
@@ -1249,7 +1340,7 @@ int spi_print_msg(const unsigned char *msg)
 	return len;
 }
 EXPORT_SYMBOL(spi_print_msg);
-#endif 
+#endif /* ! CONFIG_SCSI_CONSTANTS */
 
 static int spi_device_match(struct attribute_container *cont,
 			    struct device *dev)
@@ -1266,6 +1357,9 @@ static int spi_device_match(struct attribute_container *cont,
 	if (!shost->transportt  || shost->transportt->host_attrs.ac.class
 	    != &spi_host_class.class)
 		return 0;
+	/* Note: this class has no device attributes, so it has
+	 * no per-HBA allocation and thus we don't need to distinguish
+	 * the attribute containers for the device */
 	i = to_spi_internal(shost->transportt);
 	if (i->f->deny_binding && i->f->deny_binding(sdev->sdev_target))
 		return 0;
@@ -1333,6 +1427,9 @@ static int spi_host_configure(struct transport_container *tc,
 	return rc;
 }
 
+/* returns true if we should be showing the variable.  Also
+ * overloads the return by setting 1<<1 if the attribute should
+ * be writeable */
 #define TARGET_ATTRIBUTE_HELPER(name) \
 	(si->f->show_##name ? S_IRUGO : 0) | \
 	(si->f->set_##name ? S_IWUSR : 0)
@@ -1431,7 +1528,7 @@ static int spi_target_configure(struct transport_container *tc,
 {
 	struct kobject *kobj = &cdev->kobj;
 
-	
+	/* force an update based on parameters read from the device */
 	sysfs_update_group(kobj, &target_attribute_group);
 
 	return 0;
@@ -1481,7 +1578,7 @@ static __init int spi_transport_init(void)
 		int i;
 
 		for (i = 0; spi_static_device_list[i].vendor; i++)
-			scsi_dev_info_list_add_keyed(1,	
+			scsi_dev_info_list_add_keyed(1,	/* compatible */
 						     spi_static_device_list[i].vendor,
 						     spi_static_device_list[i].model,
 						     NULL,

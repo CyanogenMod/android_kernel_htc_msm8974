@@ -54,14 +54,14 @@ u32 qpic_send_panel_cmd(u32 cmd, u32 *val, u32 length)
 	size = LCDC_EXTRACT_OP_SIZE(cmd);
 	if (size == INV_SIZE)
 		size = length;
-	
+	/* short or pixel data commands need not conversion */
 	if ((cmd == OP_WRITE_MEMORY_CONTINUE) ||
 		(cmd == OP_WRITE_MEMORY_START)) {
 		ret = qpic_flush_buffer(cmd_index, size, val, false);
 	} else {
 		if (size > LCDC_INTERNAL_BUFFER_SIZE)
 			size = LCDC_INTERNAL_BUFFER_SIZE;
-		
+		/* correcting for encoding issues */
 		for (i = 0; i < size; i += sizeof(u32)) {
 			buffer[i] = (val[(i>>2)] >> 0) & 0xff;
 			buffer[i+1] = (val[(i>>2)] >> 8) & 0xff;
@@ -80,6 +80,7 @@ u32 qpic_panel_set_cmd_only(u32 command)
 	return qpic_send_panel_cmd(command, &param, 0);
 }
 
+/* write a frame of pixels to a MIPI screen */
 u32 qpic_send_frame(u32 x_start,
 				u32 y_start,
 				u32 x_end,
@@ -94,13 +95,13 @@ u32 qpic_send_frame(u32 x_start,
 	u32 start_8_15;
 	u32 end_8_15;
 
-	
+	/* convert to 16 bit representation */
 	x_start = x_start & 0xffff;
 	y_start = y_start & 0xffff;
 	x_end = x_end & 0xffff;
 	y_end = y_end & 0xffff;
 
-	
+	/* set column/page */
 	start_0_7 = x_start & 0xff;
 	end_0_7 = x_end & 0xff;
 	start_8_15 = (x_start >> 8) & 0xff;
@@ -208,7 +209,7 @@ static int __devinit mdss_qpic_panel_probe(struct platform_device *pdev)
 	else
 		pr_info("%s: Panel Name = %s\n", __func__, panel_name);
 
-	
+	/* select panel according to label */
 	qpic_panel_init = ili9341_init;
 	qpic_panel_on = ili9341_on;
 	qpic_panel_off = ili9341_off;

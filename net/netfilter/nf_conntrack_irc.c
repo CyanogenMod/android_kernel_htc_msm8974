@@ -27,6 +27,7 @@ static unsigned short ports[MAX_PORTS];
 static unsigned int ports_c;
 static unsigned int max_dcc_channels = 8;
 static unsigned int dcc_timeout __read_mostly = 300;
+/* This is slow, but it's simple. --RR */
 static char *irc_buffer;
 static DEFINE_SPINLOCK(irc_buffer_lock);
 
@@ -57,16 +58,27 @@ static const char *const dccprotos[] = {
 
 #define MINMATCHLEN	5
 
+/* tries to get the ip_addr and port out of a dcc command
+ * return value: -1 on failure, 0 on success
+ *	data		pointer to first byte of DCC command data
+ *	data_end	pointer to last byte of dcc command data
+ *	ip		returns parsed ip of dcc command
+ *	port		returns parsed port of dcc command
+ *	ad_beg_p	returns pointer to first byte of addr data
+ *	ad_end_p	returns pointer to last byte of addr data
+ */
 static int parse_dcc(char *data, const char *data_end, __be32 *ip,
 		     u_int16_t *port, char **ad_beg_p, char **ad_end_p)
 {
 	char *tmp;
 
-	
+	/* at least 12: "AAAAAAAA P\1\n" */
 	while (*data++ != ' ')
 		if (data > data_end - 12)
 			return -1;
 
+	/* Make sure we have a newline character within the packet boundaries
+	 * because simple_strtoul parses until the first invalid character. */
 	for (tmp = data; tmp <= data_end; tmp++)
 		if (*tmp == '\n')
 			break;
@@ -76,7 +88,7 @@ static int parse_dcc(char *data, const char *data_end, __be32 *ip,
 	*ad_beg_p = data;
 	*ip = cpu_to_be32(simple_strtoul(data, &data, 10));
 
-	
+	/* skip blanks between ip and port */
 	while (*data == ' ') {
 		if (data >= data_end)
 			return -1;
@@ -108,20 +120,20 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 	char *addr_beg_p, *addr_end_p;
 	typeof(nf_nat_irc_hook) nf_nat_irc;
 
-	
+	/* If packet is coming from IRC server */
 	if (dir == IP_CT_DIR_REPLY)
 		return NF_ACCEPT;
 
-	
+	/* Until there's been traffic both ways, don't look in packets. */
 	if (ctinfo != IP_CT_ESTABLISHED && ctinfo != IP_CT_ESTABLISHED_REPLY)
 		return NF_ACCEPT;
 
-	
+	/* Not a full tcp header? */
 	th = skb_header_pointer(skb, protoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)
 		return NF_ACCEPT;
 
-	
+	/* No data? */
 	dataoff = protoff + th->doff*4;
 	if (dataoff >= skb->len)
 		return NF_ACCEPT;
@@ -134,13 +146,15 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 	data = ib_ptr;
 	data_limit = ib_ptr + skb->len - dataoff;
 
+	/* strlen("\1DCC SENT t AAAAAAAA P\1\n")=24
+	 * 5+MINMATCHLEN+strlen("t AAAAAAAA P\1\n")=14 */
 	while (data < data_limit - (19 + MINMATCHLEN)) {
 		if (memcmp(data, "\1DCC ", 5)) {
 			data++;
 			continue;
 		}
 		data += 5;
-		
+		/* we have at least (19+MINMATCHLEN)-5 bytes valid data left */
 
 		iph = ip_hdr(skb);
 		pr_debug("DCC found in master %pI4:%u %pI4:%u\n",
@@ -149,12 +163,15 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 
 		for (i = 0; i < ARRAY_SIZE(dccprotos); i++) {
 			if (memcmp(data, dccprotos[i], strlen(dccprotos[i]))) {
-				
+				/* no match */
 				continue;
 			}
 			data += strlen(dccprotos[i]);
 			pr_debug("DCC %s detected\n", dccprotos[i]);
 
+			/* we have at least
+			 * (19+MINMATCHLEN)-5-dccprotos[i].matchlen bytes valid
+			 * data left (== 14/13 bytes) */
 			if (parse_dcc(data, data_limit, &dcc_ip,
 				       &dcc_port, &addr_beg_p, &addr_end_p)) {
 				pr_debug("unable to parse dcc command\n");
@@ -164,7 +181,7 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 			pr_debug("DCC bound ip/port: %pI4:%u\n",
 				 &dcc_ip, dcc_port);
 
-			
+			/* dcc_ip can be the internal OR external (NAT'ed) IP */
 			tuple = &ct->tuplehash[dir].tuple;
 			if (tuple->src.u3.ip != dcc_ip &&
 			    tuple->dst.u3.ip != dcc_ip) {
@@ -228,7 +245,7 @@ static int __init nf_conntrack_irc_init(void)
 	if (!irc_buffer)
 		return -ENOMEM;
 
-	
+	/* If no port given, default to standard irc port */
 	if (ports_c == 0)
 		ports[ports_c++] = IRC_PORT;
 
@@ -259,6 +276,8 @@ static int __init nf_conntrack_irc_init(void)
 	return 0;
 }
 
+/* This function is intentionally _NOT_ defined as __exit, because
+ * it is needed by the init function */
 static void nf_conntrack_irc_fini(void)
 {
 	int i;

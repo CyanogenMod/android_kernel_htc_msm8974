@@ -42,7 +42,7 @@
 #define MGM_QPN_MASK       0x00FFFFFF
 #define MGM_BLCK_LB_BIT    30
 
-static const u8 zero_gid[16];	
+static const u8 zero_gid[16];	/* automatically initialized to 0 */
 
 struct mlx4_mgm {
 	__be32			next_gid_index;
@@ -114,10 +114,14 @@ static struct mlx4_promisc_qp *get_promisc_qp(struct mlx4_dev *dev, u8 pf_num,
 		if (pqp->qpn == qpn)
 			return pqp;
 	}
-	
+	/* not found */
 	return NULL;
 }
 
+/*
+ * Add new entry to steering data structure.
+ * All promisc QPs should be added as well
+ */
 static int new_steering_entry(struct mlx4_dev *dev, u8 port,
 			      enum mlx4_steer_type steer,
 			      unsigned int index, u32 qpn)
@@ -141,6 +145,9 @@ static int new_steering_entry(struct mlx4_dev *dev, u8 port,
 	new_entry->index = index;
 	list_add_tail(&new_entry->list, &s_steer->steer_entries[steer]);
 
+	/* If the given qpn is also a promisc qp,
+	 * it should be inserted to duplicates list
+	 */
 	pqp = get_promisc_qp(dev, 0, steer, qpn);
 	if (pqp) {
 		dqp = kmalloc(sizeof *dqp, GFP_KERNEL);
@@ -152,10 +159,13 @@ static int new_steering_entry(struct mlx4_dev *dev, u8 port,
 		list_add_tail(&dqp->list, &new_entry->duplicates);
 	}
 
-	
+	/* if no promisc qps for this vep, we are done */
 	if (list_empty(&s_steer->promisc_qps[steer]))
 		return 0;
 
+	/* now need to add all the promisc qps to the new
+	 * steering entry, as they should also receive the packets
+	 * destined to this address */
 	mailbox = mlx4_alloc_cmd_mailbox(dev);
 	if (IS_ERR(mailbox)) {
 		err = -ENOMEM;
@@ -170,19 +180,19 @@ static int new_steering_entry(struct mlx4_dev *dev, u8 port,
 	members_count = be32_to_cpu(mgm->members_count) & 0xffffff;
 	prot = be32_to_cpu(mgm->members_count) >> 30;
 	list_for_each_entry(pqp, &s_steer->promisc_qps[steer], list) {
-		
+		/* don't add already existing qpn */
 		if (pqp->qpn == qpn)
 			continue;
 		if (members_count == dev->caps.num_qp_per_mgm) {
-			
+			/* out of space */
 			err = -ENOMEM;
 			goto out_mailbox;
 		}
 
-		
+		/* add the qpn */
 		mgm->qp[members_count++] = cpu_to_be32(pqp->qpn & MGM_QPN_MASK);
 	}
-	
+	/* update the qps count and update the entry with all the promisc qps*/
 	mgm->members_count = cpu_to_be32(members_count | (prot << 30));
 	err = mlx4_WRITE_ENTRY(dev, index, mailbox);
 
@@ -200,6 +210,7 @@ out_alloc:
 	return err;
 }
 
+/* update the data structures with existing steering entry */
 static int existing_steering_entry(struct mlx4_dev *dev, u8 port,
 				   enum mlx4_steer_type steer,
 				   unsigned int index, u32 qpn)
@@ -213,7 +224,7 @@ static int existing_steering_entry(struct mlx4_dev *dev, u8 port,
 
 	pqp = get_promisc_qp(dev, 0, steer, qpn);
 	if (!pqp)
-		return 0; 
+		return 0; /* nothing to do */
 
 	list_for_each_entry(tmp_entry, &s_steer->steer_entries[steer], list) {
 		if (tmp_entry->index == index) {
@@ -226,12 +237,15 @@ static int existing_steering_entry(struct mlx4_dev *dev, u8 port,
 		return -EINVAL;
 	}
 
+	/* the given qpn is listed as a promisc qpn
+	 * we need to add it as a duplicate to this entry
+	 * for future references */
 	list_for_each_entry(dqp, &entry->duplicates, list) {
 		if (qpn == pqp->qpn)
-			return 0; 
+			return 0; /* qp is already duplicated */
 	}
 
-	
+	/* add the qp as a duplicate on this index */
 	dqp = kmalloc(sizeof *dqp, GFP_KERNEL);
 	if (!dqp)
 		return -ENOMEM;
@@ -241,6 +255,8 @@ static int existing_steering_entry(struct mlx4_dev *dev, u8 port,
 	return 0;
 }
 
+/* Check whether a qpn is a duplicate on steering entry
+ * If so, it should not be removed from mgm */
 static bool check_duplicate_entry(struct mlx4_dev *dev, u8 port,
 				  enum mlx4_steer_type steer,
 				  unsigned int index, u32 qpn)
@@ -251,10 +267,12 @@ static bool check_duplicate_entry(struct mlx4_dev *dev, u8 port,
 
 	s_steer = &mlx4_priv(dev)->steer[port - 1];
 
-	
+	/* if qp is not promisc, it cannot be duplicated */
 	if (!get_promisc_qp(dev, 0, steer, qpn))
 		return false;
 
+	/* The qp is promisc qp so it is a duplicate on this index
+	 * Find the index entry, and remove the duplicate */
 	list_for_each_entry(tmp_entry, &s_steer->steer_entries[steer], list) {
 		if (tmp_entry->index == index) {
 			entry = tmp_entry;
@@ -274,6 +292,7 @@ static bool check_duplicate_entry(struct mlx4_dev *dev, u8 port,
 	return true;
 }
 
+/* I a steering entry contains only promisc QPs, it can be removed. */
 static bool can_remove_steering_entry(struct mlx4_dev *dev, u8 port,
 				      enum mlx4_steer_type steer,
 				      unsigned int index, u32 tqpn)
@@ -300,10 +319,12 @@ static bool can_remove_steering_entry(struct mlx4_dev *dev, u8 port,
 	for (i = 0;  i < members_count; i++) {
 		qpn = be32_to_cpu(mgm->qp[i]) & MGM_QPN_MASK;
 		if (!get_promisc_qp(dev, 0, steer, qpn) && qpn != tqpn) {
-			
+			/* the qp is not promisc, the entry can't be removed */
 			goto out;
 		}
 	}
+	 /* All the qps currently registered for this entry are promiscuous,
+	  * Checking for duplicates */
 	ret = true;
 	list_for_each_entry_safe(entry, tmp_entry, &s_steer->steer_entries[steer], list) {
 		if (entry->index == index) {
@@ -311,7 +332,7 @@ static bool can_remove_steering_entry(struct mlx4_dev *dev, u8 port,
 				list_del(&entry->list);
 				kfree(entry);
 			} else {
-				
+				/* This entry contains duplicates so it shouldn't be removed */
 				ret = false;
 				goto out;
 			}
@@ -345,7 +366,7 @@ static int add_promisc_qp(struct mlx4_dev *dev, u8 port,
 	mutex_lock(&priv->mcg_table.mutex);
 
 	if (get_promisc_qp(dev, 0, steer, qpn)) {
-		err = 0;  
+		err = 0;  /* Noting to do, already exists */
 		goto out_mutex;
 	}
 
@@ -363,6 +384,9 @@ static int add_promisc_qp(struct mlx4_dev *dev, u8 port,
 	}
 	mgm = mailbox->buf;
 
+	/* the promisc qp needs to be added for each one of the steering
+	 * entries, if it already exists, needs to be added as a duplicate
+	 * for this entry */
 	list_for_each_entry(entry, &s_steer->steer_entries[steer], list) {
 		err = mlx4_READ_ENTRY(dev, entry->index, mailbox);
 		if (err)
@@ -373,7 +397,7 @@ static int add_promisc_qp(struct mlx4_dev *dev, u8 port,
 		found = false;
 		for (i = 0; i < members_count; i++) {
 			if ((be32_to_cpu(mgm->qp[i]) & MGM_QPN_MASK) == qpn) {
-				
+				/* Entry already exists, add to duplicates */
 				dqp = kmalloc(sizeof *dqp, GFP_KERNEL);
 				if (!dqp)
 					goto out_mailbox;
@@ -383,9 +407,9 @@ static int add_promisc_qp(struct mlx4_dev *dev, u8 port,
 			}
 		}
 		if (!found) {
-			
+			/* Need to add the qpn to mgm */
 			if (members_count == dev->caps.num_qp_per_mgm) {
-				
+				/* entry is full */
 				err = -ENOMEM;
 				goto out_mailbox;
 			}
@@ -398,9 +422,9 @@ static int add_promisc_qp(struct mlx4_dev *dev, u8 port,
 		last_index = entry->index;
 	}
 
-	
+	/* add the new qpn to list of promisc qps */
 	list_add_tail(&pqp->list, &s_steer->promisc_qps[steer]);
-	
+	/* now need to add all the promisc qps to default entry */
 	memset(mgm, 0, sizeof *mgm);
 	members_count = 0;
 	list_for_each_entry(dqp, &s_steer->promisc_qps[steer], list)
@@ -448,15 +472,15 @@ static int remove_promisc_qp(struct mlx4_dev *dev, u8 port,
 	pqp = get_promisc_qp(dev, 0, steer, qpn);
 	if (unlikely(!pqp)) {
 		mlx4_warn(dev, "QP %x is not promiscuous QP\n", qpn);
-		
+		/* nothing to do */
 		err = 0;
 		goto out_mutex;
 	}
 
-	
+	/*remove from list of promisc qps */
 	list_del(&pqp->list);
 
-	
+	/* set the default entry not to include the removed one */
 	mailbox = mlx4_alloc_cmd_mailbox(dev);
 	if (IS_ERR(mailbox)) {
 		err = -ENOMEM;
@@ -474,7 +498,7 @@ static int remove_promisc_qp(struct mlx4_dev *dev, u8 port,
 	if (err)
 		goto out_mailbox;
 
-	
+	/* remove the qp from all the steering entries*/
 	list_for_each_entry(entry, &s_steer->steer_entries[steer], list) {
 		found = false;
 		list_for_each_entry(dqp, &entry->duplicates, list) {
@@ -484,6 +508,8 @@ static int remove_promisc_qp(struct mlx4_dev *dev, u8 port,
 			}
 		}
 		if (found) {
+			/* a duplicate, no need to change the mgm,
+			 * only update the duplicates list */
 			list_del(&dqp->list);
 			kfree(dqp);
 		} else {
@@ -519,6 +545,21 @@ out_mutex:
 	return err;
 }
 
+/*
+ * Caller must hold MCG table semaphore.  gid and mgm parameters must
+ * be properly aligned for command interface.
+ *
+ *  Returns 0 unless a firmware command error occurs.
+ *
+ * If GID is found in MGM or MGM is empty, *index = *hash, *prev = -1
+ * and *mgm holds MGM entry.
+ *
+ * if GID is found in AMGM, *index = index in AMGM, *prev = index of
+ * previous entry in hash chain and *mgm holds AMGM entry.
+ *
+ * If no AMGM exists for given gid, *index = -1, *prev = index of last
+ * entry in hash chain and *mgm holds end of hash chain.
+ */
 static int find_entry(struct mlx4_dev *dev, u8 port,
 		      u8 *gid, enum mlx4_protocol prot,
 		      struct mlx4_cmd_mailbox *mgm_mailbox,
@@ -663,7 +704,7 @@ int mlx4_qp_attach_common(struct mlx4_dev *dev, struct mlx4_qp *qp, u8 gid[16],
 
 out:
 	if (prot == MLX4_PROT_ETH) {
-		
+		/* manage the steering entry for promisc mode */
 		if (new_entry)
 			new_steering_entry(dev, port, steer, index, qp->qpn);
 		else
@@ -715,7 +756,7 @@ int mlx4_qp_detach_common(struct mlx4_dev *dev, struct mlx4_qp *qp, u8 gid[16],
 		goto out;
 	}
 
-	
+	/* if this pq is also a promisc qp, it shouldn't be removed */
 	if (prot == MLX4_PROT_ETH &&
 	    check_duplicate_entry(dev, port, steer, index, qp->qpn))
 		goto out;
@@ -744,11 +785,11 @@ int mlx4_qp_detach_common(struct mlx4_dev *dev, struct mlx4_qp *qp, u8 gid[16],
 		goto out;
 	}
 
-	
+	/* We are going to delete the entry, members count should be 0 */
 	mgm->members_count = cpu_to_be32((u32) prot << 30);
 
 	if (prev == -1) {
-		
+		/* Remove entry from MGM */
 		int amgm_index = be32_to_cpu(mgm->next_gid_index) >> 6;
 		if (amgm_index) {
 			err = mlx4_READ_ENTRY(dev, amgm_index, mailbox);
@@ -770,7 +811,7 @@ int mlx4_qp_detach_common(struct mlx4_dev *dev, struct mlx4_qp *qp, u8 gid[16],
 						 amgm_index - dev->caps.num_mgms);
 		}
 	} else {
-		
+		/* Remove entry from AMGM */
 		int cur_next_index = be32_to_cpu(mgm->next_gid_index) >> 6;
 		err = mlx4_READ_ENTRY(dev, prev, mailbox);
 		if (err)
@@ -909,7 +950,7 @@ int mlx4_PROMISC_wrapper(struct mlx4_dev *dev, int slave,
 	u8 port = vhcr->in_param >> 62;
 	enum mlx4_steer_type steer = vhcr->in_modifier;
 
-	
+	/* Promiscuous unicast is not allowed in mfunc */
 	if (mlx4_is_mfunc(dev) && steer == MLX4_UC_STEER)
 		return 0;
 

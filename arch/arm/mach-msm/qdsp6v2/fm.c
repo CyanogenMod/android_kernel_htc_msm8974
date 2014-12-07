@@ -68,7 +68,7 @@ static int fm_audio_enable(struct audio *audio)
 	pr_info("%s: fm dest= %08x fm_source = %08x\n", __func__,
 		audio->fm_dst_copp_id, audio->fm_src_copp_id);
 
-	
+	/* do afe loopback here */
 
 	if (audio->fm_dest && audio->fm_source) {
 		if (afe_loopback(FM_ENABLE, audio->fm_dst_copp_id,
@@ -142,7 +142,7 @@ static void fm_audio_listner(u32 evt_id, union auddev_evt_data *evt_payload,
 static int fm_audio_disable(struct audio *audio)
 {
 
-	
+	/* break the AFE loopback here */
 	afe_loopback(FM_DISABLE, audio->fm_dst_copp_id, audio->fm_src_copp_id);
 	return 0;
 }
@@ -205,7 +205,7 @@ static int fm_audio_open(struct inode *inode, struct file *file)
 	if (audio->opened)
 		return -EPERM;
 
-	
+	/* Allocate the decoder */
 	audio->dec_id = SESSION_ID_FM;
 
 	audio->running = 0;

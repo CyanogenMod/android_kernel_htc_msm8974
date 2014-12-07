@@ -60,6 +60,6 @@ static inline void nf_conntrack_tstamp_fini(struct net *net)
 {
 	return;
 }
-#endif 
+#endif /* CONFIG_NF_CONNTRACK_TIMESTAMP */
 
-#endif 
+#endif /* _NF_CONNTRACK_TSTAMP_H */

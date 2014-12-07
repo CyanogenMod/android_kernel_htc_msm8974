@@ -20,6 +20,7 @@
 #include <linux/slab.h>
 #include <sound/pcm.h>
 
+/* Hardware descriptions for playback */
 static struct snd_pcm_hardware ct_pcm_playback_hw = {
 	.info			= (SNDRV_PCM_INFO_MMAP |
 				   SNDRV_PCM_INFO_INTERLEAVED |
@@ -67,6 +68,7 @@ static struct snd_pcm_hardware ct_spdif_passthru_playback_hw = {
 	.fifo_size		= 0,
 };
 
+/* Hardware descriptions for capture */
 static struct snd_pcm_hardware ct_pcm_capture_hw = {
 	.info			= (SNDRV_PCM_INFO_MMAP |
 				   SNDRV_PCM_INFO_INTERLEAVED |
@@ -113,6 +115,7 @@ static void ct_atc_pcm_free_substream(struct snd_pcm_runtime *runtime)
 	runtime->private_data = NULL;
 }
 
+/* pcm playback operations */
 static int ct_pcm_playback_open(struct snd_pcm_substream *substream)
 {
 	struct ct_atc *atc = snd_pcm_substream_chip(substream);
@@ -164,11 +167,11 @@ static int ct_pcm_playback_close(struct snd_pcm_substream *substream)
 {
 	struct ct_atc *atc = snd_pcm_substream_chip(substream);
 
-	
+	/* TODO: Notify mixer inactive. */
 	if (IEC958 == substream->pcm->device)
 		atc->spdif_out_passthru(atc, 0);
 
-	
+	/* The ct_atc_pcm object will be freed by runtime->private_free */
 
 	return 0;
 }
@@ -184,7 +187,7 @@ static int ct_pcm_hw_params(struct snd_pcm_substream *substream,
 					params_buffer_bytes(hw_params));
 	if (err < 0)
 		return err;
-	
+	/* clear previous resources */
 	atc->pcm_release_resources(atc, apcm);
 	return err;
 }
@@ -194,9 +197,9 @@ static int ct_pcm_hw_free(struct snd_pcm_substream *substream)
 	struct ct_atc *atc = snd_pcm_substream_chip(substream);
 	struct ct_atc_pcm *apcm = substream->runtime->private_data;
 
-	
+	/* clear previous resources */
 	atc->pcm_release_resources(atc, apcm);
-	
+	/* Free snd-allocated pages */
 	return snd_pcm_lib_free_pages(substream);
 }
 
@@ -254,7 +257,7 @@ ct_pcm_playback_pointer(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct ct_atc_pcm *apcm = runtime->private_data;
 
-	
+	/* Read out playback position */
 	position = atc->pcm_playback_position(atc, apcm);
 	position = bytes_to_frames(runtime, position);
 	if (position >= runtime->buffer_size)
@@ -262,6 +265,7 @@ ct_pcm_playback_pointer(struct snd_pcm_substream *substream)
 	return position;
 }
 
+/* pcm capture operations */
 static int ct_pcm_capture_open(struct snd_pcm_substream *substream)
 {
 	struct ct_atc *atc = snd_pcm_substream_chip(substream);
@@ -306,8 +310,8 @@ static int ct_pcm_capture_open(struct snd_pcm_substream *substream)
 
 static int ct_pcm_capture_close(struct snd_pcm_substream *substream)
 {
-	
-	
+	/* The ct_atc_pcm object will be freed by runtime->private_free */
+	/* TODO: Notify mixer inactive. */
 	return 0;
 }
 
@@ -357,7 +361,7 @@ ct_pcm_capture_pointer(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct ct_atc_pcm *apcm = runtime->private_data;
 
-	
+	/* Read out playback position */
 	position = atc->pcm_capture_position(atc, apcm);
 	position = bytes_to_frames(runtime, position);
 	if (position >= runtime->buffer_size)
@@ -365,6 +369,7 @@ ct_pcm_capture_pointer(struct snd_pcm_substream *substream)
 	return position;
 }
 
+/* PCM operators for playback */
 static struct snd_pcm_ops ct_pcm_playback_ops = {
 	.open	 	= ct_pcm_playback_open,
 	.close		= ct_pcm_playback_close,
@@ -377,6 +382,7 @@ static struct snd_pcm_ops ct_pcm_playback_ops = {
 	.page		= snd_pcm_sgbuf_ops_page,
 };
 
+/* PCM operators for capture */
 static struct snd_pcm_ops ct_pcm_capture_ops = {
 	.open	 	= ct_pcm_capture_open,
 	.close		= ct_pcm_capture_close,
@@ -389,6 +395,7 @@ static struct snd_pcm_ops ct_pcm_capture_ops = {
 	.page		= snd_pcm_sgbuf_ops_page,
 };
 
+/* Create ALSA pcm device */
 int ct_alsa_pcm_create(struct ct_atc *atc,
 		       enum CTALSADEVS device,
 		       const char *device_name)

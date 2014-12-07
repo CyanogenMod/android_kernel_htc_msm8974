@@ -3,4 +3,4 @@
 
 #include <asm-generic/statfs.h>
 
-#endif 
+#endif /* _M68K_STATFS_H */

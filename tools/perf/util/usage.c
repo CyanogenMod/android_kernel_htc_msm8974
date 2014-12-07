@@ -38,6 +38,8 @@ static void warn_builtin(const char *warn, va_list params)
 	report(" Warning: ", warn, params);
 }
 
+/* If we are in a dlopen()ed .so write to a global variable would segfault
+ * (ugh), so keep things static. */
 static void (*usage_routine)(const char *err) NORETURN = usage_builtin;
 static void (*die_routine)(const char *err, va_list params) NORETURN = die_builtin;
 static void (*error_routine)(const char *err, va_list params) = error_builtin;
@@ -89,7 +91,7 @@ uid_t parse_target_uid(const char *str, const char *tid, const char *pid)
 	if (str == NULL)
 		return UINT_MAX;
 
-	
+	/* UID and PID are mutually exclusive */
 	if (tid || pid) {
 		ui__warning("PID/TID switch overriding UID\n");
 		sleep(1);

@@ -98,6 +98,12 @@ struct srp_direct_buf {
 	__be32  len;
 };
 
+/*
+ * We need the packed attribute because the SRP spec puts the list of
+ * descriptors at an offset of 20, which is not aligned to the size of
+ * struct srp_direct_buf.  The whole structure must be packed to avoid
+ * having the 20-byte structure padded to 24 bytes on 64-bit architectures.
+ */
 struct srp_indirect_buf {
 	struct srp_direct_buf	table_desc;
 	__be32			len;
@@ -122,6 +128,11 @@ struct srp_login_req {
 	u8	target_port_id[16];
 };
 
+/*
+ * The SRP spec defines the size of the LOGIN_RSP structure to be 52
+ * bytes, so it needs to be packed to avoid having it padded to 56
+ * bytes on 64-bit architectures.
+ */
 struct srp_login_rsp {
 	u8	opcode;
 	u8	reserved1[3];
@@ -158,6 +169,10 @@ struct srp_t_logout {
 	u64	tag;
 };
 
+/*
+ * We need the packed attribute because the SRP spec only aligns the
+ * 8-byte LUN field to 4 bytes.
+ */
 struct srp_tsk_mgmt {
 	u8	opcode;
 	u8	sol_not;
@@ -172,6 +187,10 @@ struct srp_tsk_mgmt {
 	u8	reserved5[8];
 };
 
+/*
+ * We need the packed attribute because the SRP spec only aligns the
+ * 8-byte LUN field to 4 bytes.
+ */
 struct srp_cmd {
 	u8	opcode;
 	u8	sol_not;
@@ -199,6 +218,11 @@ enum {
 	SRP_RSP_FLAG_DIUNDER  = 1 << 5
 };
 
+/*
+ * The SRP spec defines the size of the RSP structure to be 36 bytes,
+ * so it needs to be packed to avoid having it padded to 40 bytes on
+ * 64-bit architectures.
+ */
 struct srp_rsp {
 	u8	opcode;
 	u8	sol_not;
@@ -229,6 +253,11 @@ struct srp_cred_rsp {
 	u64	tag;
 };
 
+/*
+ * The SRP spec defines the fixed portion of the AER_REQ structure to be
+ * 36 bytes, so it needs to be packed to avoid having it padded to 40 bytes
+ * on 64-bit architectures.
+ */
 struct srp_aer_req {
 	u8	opcode;
 	u8	sol_not;
@@ -248,4 +277,4 @@ struct srp_aer_rsp {
 	u64	tag;
 };
 
-#endif 
+#endif /* SCSI_SRP_H */

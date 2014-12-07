@@ -26,6 +26,11 @@ extern unsigned long switch_to_osf_pal(unsigned long nr,
 struct hwrpb_struct *hwrpb = INIT_HWRPB;
 static struct pcb_struct pcb_va[1];
 
+/*
+ * Find a physical address of a virtual object..
+ *
+ * This is easy using the virtual page table address.
+ */
 
 static inline void *
 find_pa(unsigned long *vptb, void *ptr)
@@ -40,6 +45,16 @@ find_pa(unsigned long *vptb, void *ptr)
 	return (void *) result;
 }	
 
+/*
+ * This function moves into OSF/1 pal-code, and has a temporary
+ * PCB for that. The kernel proper should replace this PCB with
+ * the real one as soon as possible.
+ *
+ * The page table muckery in here depends on the fact that the boot
+ * code has the L1 page table identity-map itself in the second PTE
+ * in the L1 page table. Thus the L1-page is virtually addressable
+ * itself (through three levels) at virtual address 0x200802000.
+ */
 
 #define VPTB	((unsigned long *) 0x200000000)
 #define L1	((unsigned long *) 0x200802000)
@@ -51,7 +66,7 @@ pal_init(void)
 	struct percpu_struct * percpu;
 	struct pcb_struct * pcb_pa;
 
-	
+	/* Create the dummy PCB.  */
 	pcb_va->ksp = 0;
 	pcb_va->usp = 0;
 	pcb_va->ptbr = L1[1] >> 32;
@@ -63,6 +78,13 @@ pal_init(void)
 	pcb_va->res2 = 0;
 	pcb_pa = find_pa(VPTB, pcb_va);
 
+	/*
+	 * a0 = 2 (OSF)
+	 * a1 = return address, but we give the asm the vaddr of the PCB
+	 * a2 = physical addr of PCB
+	 * a3 = new virtual page table pointer
+	 * a4 = KSP (but the asm sets it)
+	 */
 	srm_printk("Switching to OSF PAL-code .. ");
 
 	i = switch_to_osf_pal(2, pcb_va, pcb_pa, VPTB);
@@ -77,7 +99,7 @@ pal_init(void)
 
 	srm_printk("Ok (rev %lx)\n", rev);
 
-	tbia(); 
+	tbia(); /* do it directly in case we are SMP */
 }
 
 static inline long openboot(void)
@@ -113,13 +135,16 @@ static inline long load(long dev, unsigned long addr, unsigned long count)
 	return callback_read(dev, count, (void *)addr, boot_size/512 + 1);
 }
 
+/*
+ * Start the kernel.
+ */
 static void runkernel(void)
 {
 	__asm__ __volatile__(
 		"bis %1,%1,$30\n\t"
 		"bis %0,%0,$26\n\t"
 		"ret ($26)"
-		: 
+		: /* no outputs: it doesn't even return */
 		: "r" (START_ADDR),
 		  "r" (PAGE_SIZE + INIT_STACK));
 }
@@ -161,6 +186,6 @@ void start_kernel(void)
 	srm_printk(" Ok\nNow booting the kernel\n");
 	runkernel();
 	for (i = 0 ; i < 0x100000000 ; i++)
-		;
+		/* nothing */;
 	__halt();
 }

@@ -35,6 +35,10 @@
 #define snd_pcm_plug_first(plug) ((plug)->runtime->oss.plugin_first)
 #define snd_pcm_plug_last(plug) ((plug)->runtime->oss.plugin_last)
 
+/*
+ *  because some cards might have rates "very close", we ignore
+ *  all "resampling" requests within +-5%
+ */
 static int rate_match(unsigned int src_rate, unsigned int dst_rate)
 {
 	unsigned int low = (src_rate * 95) / 100;
@@ -404,7 +408,7 @@ int snd_pcm_plug_format_plugins(struct snd_pcm_substream *plug,
 		 dstformat.rate,
 		 dstformat.channels);
 
-	
+	/* Format change (linearization) */
 	if (! rate_match(srcformat.rate, dstformat.rate) &&
 	    ! snd_pcm_format_linear(srcformat.format)) {
 		if (srcformat.format != SNDRV_PCM_FORMAT_MU_LAW)
@@ -424,7 +428,7 @@ int snd_pcm_plug_format_plugins(struct snd_pcm_substream *plug,
 		src_access = dst_access;
 	}
 
-	
+	/* channels reduction */
 	if (srcformat.channels > dstformat.channels) {
 		tmpformat.channels = dstformat.channels;
 		err = snd_pcm_plugin_build_route(plug, &srcformat, &tmpformat, &plugin);
@@ -440,10 +444,10 @@ int snd_pcm_plug_format_plugins(struct snd_pcm_substream *plug,
 		src_access = dst_access;
 	}
 
-	
+	/* rate resampling */
 	if (!rate_match(srcformat.rate, dstformat.rate)) {
 		if (srcformat.format != SNDRV_PCM_FORMAT_S16) {
-			
+			/* convert to S16 for resampling */
 			tmpformat.format = SNDRV_PCM_FORMAT_S16;
 			err = snd_pcm_plugin_build_linear(plug,
 							  &srcformat, &tmpformat,
@@ -474,7 +478,7 @@ int snd_pcm_plug_format_plugins(struct snd_pcm_substream *plug,
 		src_access = dst_access;
         }
 
-	
+	/* format change */
 	if (srcformat.format != dstformat.format) {
 		tmpformat.format = dstformat.format;
 		if (srcformat.format == SNDRV_PCM_FORMAT_MU_LAW ||
@@ -503,7 +507,7 @@ int snd_pcm_plug_format_plugins(struct snd_pcm_substream *plug,
 		src_access = dst_access;
 	}
 
-	
+	/* channels extension */
 	if (srcformat.channels < dstformat.channels) {
 		tmpformat.channels = dstformat.channels;
 		err = snd_pcm_plugin_build_route(plug, &srcformat, &tmpformat, &plugin);
@@ -519,7 +523,7 @@ int snd_pcm_plug_format_plugins(struct snd_pcm_substream *plug,
 		src_access = dst_access;
 	}
 
-	
+	/* de-interleave */
 	if (src_access != dst_access) {
 		err = snd_pcm_plugin_build_copy(plug,
 						&srcformat,
@@ -643,7 +647,7 @@ snd_pcm_sframes_t snd_pcm_plug_read_transfer(struct snd_pcm_substream *plug, str
 int snd_pcm_area_silence(const struct snd_pcm_channel_area *dst_area, size_t dst_offset,
 			 size_t samples, snd_pcm_format_t format)
 {
-	
+	/* FIXME: sub byte resolution and odd dst_offset */
 	unsigned char *dst;
 	unsigned int dst_step;
 	int width;
@@ -661,7 +665,7 @@ int snd_pcm_area_silence(const struct snd_pcm_channel_area *dst_area, size_t dst
 		return -EINVAL;
 	dst_step = dst_area->step / 8;
 	if (width == 4) {
-		
+		/* Ima ADPCM */
 		int dstbit = dst_area->first % 8;
 		int dstbit_step = dst_area->step % 8;
 		while (samples-- > 0) {
@@ -690,7 +694,7 @@ int snd_pcm_area_copy(const struct snd_pcm_channel_area *src_area, size_t src_of
 		      const struct snd_pcm_channel_area *dst_area, size_t dst_offset,
 		      size_t samples, snd_pcm_format_t format)
 {
-	
+	/* FIXME: sub byte resolution and odd dst_offset */
 	char *src, *dst;
 	int width;
 	int src_step, dst_step;
@@ -712,7 +716,7 @@ int snd_pcm_area_copy(const struct snd_pcm_channel_area *src_area, size_t src_of
 	src_step = src_area->step / 8;
 	dst_step = dst_area->step / 8;
 	if (width == 4) {
-		
+		/* Ima ADPCM */
 		int srcbit = src_area->first % 8;
 		int srcbit_step = src_area->step % 8;
 		int dstbit = dst_area->first % 8;

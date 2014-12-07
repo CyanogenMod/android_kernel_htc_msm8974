@@ -14,14 +14,18 @@
 #include "core.h"
 #include "dsp.h"
 
-#define NCOEFF            8     
+#define NCOEFF            8     /* number of frequencies to be analyzed */
 
+/* For DTMF recognition:
+ * 2 * cos(2 * PI * k / N) precalculated for all k
+ */
 static u64 cos2pik[NCOEFF] =
 {
-	
+	/* k << 15 (source: hfc-4s/8s documentation (www.colognechip.de)) */
 	55960, 53912, 51402, 48438, 38146, 32650, 26170, 18630
 };
 
+/* digit matrix */
 static char dtmf_matrix[4][4] =
 {
 	{'1', '2', '3', 'A'},
@@ -30,6 +34,9 @@ static char dtmf_matrix[4][4] =
 	{'*', '0', '#', 'D'}
 };
 
+/* dtmf detection using goertzel algorithm
+ * init function
+ */
 void dsp_dtmf_goertzel_init(struct dsp *dsp)
 {
 	dsp->dtmf.size = 0;
@@ -38,6 +45,8 @@ void dsp_dtmf_goertzel_init(struct dsp *dsp)
 	dsp->dtmf.count = 0;
 }
 
+/* check for hardware or software features
+ */
 void dsp_dtmf_hardware(struct dsp *dsp)
 {
 	int hardware = 1;
@@ -48,7 +57,7 @@ void dsp_dtmf_hardware(struct dsp *dsp)
 	if (!dsp->features.hfc_dtmf)
 		hardware = 0;
 
-	
+	/* check for volume change */
 	if (dsp->tx_volume) {
 		if (dsp_debug & DEBUG_DSP_DTMF)
 			printk(KERN_DEBUG "%s dsp %s cannot do hardware DTMF, "
@@ -63,7 +72,7 @@ void dsp_dtmf_hardware(struct dsp *dsp)
 			       __func__, dsp->name);
 		hardware = 0;
 	}
-	
+	/* check if encryption is enabled */
 	if (dsp->bf_enable) {
 		if (dsp_debug & DEBUG_DSP_DTMF)
 			printk(KERN_DEBUG "%s dsp %s cannot do hardware DTMF, "
@@ -71,7 +80,7 @@ void dsp_dtmf_hardware(struct dsp *dsp)
 			       __func__, dsp->name);
 		hardware = 0;
 	}
-	
+	/* check if pipeline exists */
 	if (dsp->pipeline.inuse) {
 		if (dsp_debug & DEBUG_DSP_DTMF)
 			printk(KERN_DEBUG "%s dsp %s cannot do hardware DTMF, "
@@ -85,7 +94,25 @@ void dsp_dtmf_hardware(struct dsp *dsp)
 }
 
 
+/*************************************************************
+ * calculate the coefficients of the given sample and decode *
+ *************************************************************/
 
+/* the given sample is decoded. if the sample is not long enough for a
+ * complete frame, the decoding is finished and continued with the next
+ * call of this function.
+ *
+ * the algorithm is very good for detection with a minimum of errors. i
+ * tested it allot. it even works with very short tones (40ms). the only
+ * disadvantage is, that it doesn't work good with different volumes of both
+ * tones. this will happen, if accoustically coupled dialers are used.
+ * it sometimes detects tones during speech, which is normal for decoders.
+ * use sequences to given commands during calls.
+ *
+ * dtmf - points to a structure of the current dtmf state
+ * spl and len - the sample
+ * fmt - 0 = alaw, 1 = ulaw, 2 = coefficients from HFC DTMF hw-decoder
+ */
 
 u8
 *dsp_dtmf_goertzel_decode(struct dsp *dsp, u8 *data, int len, int fmt)
@@ -102,20 +129,23 @@ u8
 
 	dsp->dtmf.digits[0] = '\0';
 
+	/* Note: The function will loop until the buffer has not enough samples
+	 * left to decode a full frame.
+	 */
 again:
-	
+	/* convert samples */
 	size = dsp->dtmf.size;
 	buf = dsp->dtmf.buffer;
 	switch (fmt) {
-	case 0: 
-	case 1: 
+	case 0: /* alaw */
+	case 1: /* ulaw */
 		while (size < DSP_DTMF_NPOINTS && len) {
 			buf[size++] = dsp_audio_law_to_s32[*data++];
 			len--;
 		}
 		break;
 
-	case 2: 
+	case 2: /* HFC coefficients */
 	default:
 		if (len < 64) {
 			if (len > 0)
@@ -132,7 +162,7 @@ again:
 			    || sk2 < -32767)
 				printk(KERN_WARNING
 				       "DTMF-Detection overflow\n");
-			
+			/* compute |X(k)|**2 */
 			result[k] =
 				(sk * sk) -
 				(((cos2pik[k] * sk) >> 15) * sk2) +
@@ -150,7 +180,7 @@ again:
 
 	dsp->dtmf.size = 0;
 
-	
+	/* now we have a full buffer of signed long samples - we do goertzel */
 	for (k = 0; k < NCOEFF; k++) {
 		sk = 0;
 		sk1 = 0;
@@ -166,13 +196,16 @@ again:
 		sk2 >>= 8;
 		if (sk > 32767 || sk < -32767 || sk2 > 32767 || sk2 < -32767)
 			printk(KERN_WARNING "DTMF-Detection overflow\n");
-		
+		/* compute |X(k)|**2 */
 		result[k] =
 			(sk * sk) -
 			(((cos2pik[k] * sk) >> 15) * sk2) +
 			(sk2 * sk2);
 	}
 
+	/* our (squared) coefficients have been calculated, we need to process
+	 * them.
+	 */
 coefficients:
 	tresh = 0;
 	for (i = 0; i < NCOEFF; i++) {
@@ -200,32 +233,32 @@ coefficients:
 		       result[4] / (tresh / 100), result[5] / (tresh / 100),
 		       result[6] / (tresh / 100), result[7] / (tresh / 100));
 
-	
+	/* calc digit (lowgroup/highgroup) */
 	lowgroup = -1;
 	highgroup = -1;
-	treshl = tresh >> 3;  
-	tresh = tresh >> 2;  
+	treshl = tresh >> 3;  /* tones which are not on, must be below 9 dB */
+	tresh = tresh >> 2;  /* touchtones must match within 6 dB */
 	for (i = 0; i < NCOEFF; i++) {
 		if (result[i] < treshl)
-			continue;  
+			continue;  /* ignore */
 		if (result[i] < tresh) {
 			lowgroup = -1;
 			highgroup = -1;
-			break;  
+			break;  /* noise in between */
 		}
-		
+		/* good level found. This is allowed only one time per group */
 		if (i < NCOEFF / 2) {
-			
+			/* lowgroup */
 			if (lowgroup >= 0) {
-				
+				/* Bad. Another tone found. */
 				lowgroup = -1;
 				break;
 			} else
 				lowgroup = i;
 		} else {
-			
+			/* higroup */
 			if (highgroup >= 0) {
-				
+				/* Bad. Another tone found. */
 				highgroup = -1;
 				break;
 			} else
@@ -233,7 +266,7 @@ coefficients:
 		}
 	}
 
-	
+	/* get digit or null */
 	what = 0;
 	if (lowgroup >= 0 && highgroup >= 0)
 		what = dtmf_matrix[lowgroup][highgroup];
@@ -245,7 +278,7 @@ storedigit:
 	if (dsp->dtmf.lastwhat != what)
 		dsp->dtmf.count = 0;
 
-	
+	/* the tone (or no tone) must remain 3 times without change */
 	if (dsp->dtmf.count == 2) {
 		if (dsp->dtmf.lastdigit != what) {
 			dsp->dtmf.lastdigit = what;

@@ -27,7 +27,7 @@ int yaffs_rd_chunk_tags_nand(struct yaffs_dev *dev, int nand_chunk,
 
 	dev->n_page_reads++;
 
-	
+	/* If there are no tags provided, use local tags to get prioritised gc working */
 	if (!tags)
 		tags = &local_tags;
 

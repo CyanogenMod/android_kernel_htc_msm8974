@@ -1,6 +1,7 @@
 #ifndef _ISP1760_HCD_H_
 #define _ISP1760_HCD_H_
 
+/* exports for if */
 struct usb_hcd *isp1760_register(phys_addr_t res_start, resource_size_t res_len,
 				 int irq, unsigned long irqflags,
 				 int rst_gpio,
@@ -9,10 +10,12 @@ struct usb_hcd *isp1760_register(phys_addr_t res_start, resource_size_t res_len,
 int init_kmem_once(void);
 void deinit_kmem_cache(void);
 
+/* EHCI capability registers */
 #define HC_CAPLENGTH		0x00
 #define HC_HCSPARAMS		0x04
 #define HC_HCCPARAMS		0x08
 
+/* EHCI operational registers */
 #define HC_USBCMD		0x20
 #define HC_USBSTS		0x24
 #define HC_FRINDEX		0x2c
@@ -28,6 +31,7 @@ void deinit_kmem_cache(void);
 #define HC_ATL_PTD_SKIPMAP_REG	0x154
 #define HC_ATL_PTD_LASTPTD_REG	0x158
 
+/* Configuration Register */
 #define HC_HW_MODE_CTRL		0x300
 #define ALL_ATX_RESET		(1 << 31)
 #define HW_ANA_DIGI_OC		(1 << 15)
@@ -60,6 +64,7 @@ void deinit_kmem_cache(void);
 #define HW_OTG_CTRL_SET		0x374
 #define HW_OTG_CTRL_CLR		0x376
 
+/* Interrupt Register */
 #define HC_INTERRUPT_REG	0x310
 
 #define HC_INTERRUPT_ENABLE	0x314
@@ -77,9 +82,11 @@ void deinit_kmem_cache(void);
 #define HC_INT_IRQ_MASK_AND_REG	0x328
 #define HC_ATL_IRQ_MASK_AND_REG	0x32C
 
+/* urb state*/
 #define DELETE_URB		(0x0008)
 #define NO_TRANSFER_ACTIVE	(0xffffffff)
 
+/* Philips Proprietary Transfer Descriptor (PTD) */
 typedef __u32 __bitwise __dw;
 struct ptd {
 	__dw dw0;
@@ -107,22 +114,34 @@ struct slotinfo {
 typedef void (packet_enqueue)(struct usb_hcd *hcd, struct isp1760_qh *qh,
 		struct isp1760_qtd *qtd);
 
-#define ISP1760_FLAG_BUS_WIDTH_16	0x00000002 
-#define ISP1760_FLAG_OTG_EN		0x00000004 
-#define ISP1760_FLAG_ANALOG_OC		0x00000008 
-#define ISP1760_FLAG_DACK_POL_HIGH	0x00000010 
-#define ISP1760_FLAG_DREQ_POL_HIGH	0x00000020 
-#define ISP1760_FLAG_ISP1761		0x00000040 
-#define ISP1760_FLAG_INTR_POL_HIGH	0x00000080 
-#define ISP1760_FLAG_INTR_EDGE_TRIG	0x00000100 
-#define ISP1760_FLAG_RESET_ACTIVE_HIGH	0x80000000 
+/*
+ * Device flags that can vary from board to board.  All of these
+ * indicate the most "atypical" case, so that a devflags of 0 is
+ * a sane default configuration.
+ */
+#define ISP1760_FLAG_BUS_WIDTH_16	0x00000002 /* 16-bit data bus width */
+#define ISP1760_FLAG_OTG_EN		0x00000004 /* Port 1 supports OTG */
+#define ISP1760_FLAG_ANALOG_OC		0x00000008 /* Analog overcurrent */
+#define ISP1760_FLAG_DACK_POL_HIGH	0x00000010 /* DACK active high */
+#define ISP1760_FLAG_DREQ_POL_HIGH	0x00000020 /* DREQ active high */
+#define ISP1760_FLAG_ISP1761		0x00000040 /* Chip is ISP1761 */
+#define ISP1760_FLAG_INTR_POL_HIGH	0x00000080 /* Interrupt polarity active high */
+#define ISP1760_FLAG_INTR_EDGE_TRIG	0x00000100 /* Interrupt edge triggered */
+#define ISP1760_FLAG_RESET_ACTIVE_HIGH	0x80000000 /* RESET GPIO active high */
 
+/* chip memory management */
 struct memory_chunk {
 	unsigned int start;
 	unsigned int size;
 	unsigned int free;
 };
 
+/*
+ * 60kb divided in:
+ * - 32 blocks @ 256  bytes
+ * - 20 blocks @ 1024 bytes
+ * -  4 blocks @ 8192 bytes
+ */
 
 #define BLOCK_1_NUM 32
 #define BLOCK_2_NUM 20
@@ -135,12 +154,15 @@ struct memory_chunk {
 #define MAX_PAYLOAD_SIZE BLOCK_3_SIZE
 #define PAYLOAD_AREA_SIZE 0xf000
 
+/* ATL */
+/* DW0 */
 #define DW0_VALID_BIT			1
 #define FROM_DW0_VALID(x)		((x) & 0x01)
 #define TO_DW0_LENGTH(x)		(((u32) x) << 3)
 #define TO_DW0_MAXPACKET(x)		(((u32) x) << 18)
 #define TO_DW0_MULTI(x)			(((u32) x) << 29)
 #define TO_DW0_ENDPOINT(x)		(((u32)	x) << 31)
+/* DW1 */
 #define TO_DW1_DEVICE_ADDR(x)		(((u32) x) << 3)
 #define TO_DW1_PID_TOKEN(x)		(((u32) x) << 10)
 #define DW1_TRANS_BULK			((u32) 2 << 12)
@@ -149,9 +171,11 @@ struct memory_chunk {
 #define DW1_SE_USB_LOSPEED		((u32) 2 << 16)
 #define TO_DW1_PORT_NUM(x)		(((u32) x) << 18)
 #define TO_DW1_HUB_NUM(x)		(((u32) x) << 25)
+/* DW2 */
 #define TO_DW2_DATA_START_ADDR(x)	(((u32) x) << 8)
 #define TO_DW2_RL(x)			((x) << 25)
 #define FROM_DW2_RL(x)			(((x) >> 25) & 0xf)
+/* DW3 */
 #define FROM_DW3_NRBYTESTRANSFERRED(x)		((x) & 0x7fff)
 #define FROM_DW3_SCS_NRBYTESTRANSFERRED(x)	((x) & 0x07ff)
 #define TO_DW3_NAKCOUNT(x)		((x) << 19)
@@ -176,8 +200,9 @@ struct memory_chunk {
 #define IN_PID		(1)
 #define OUT_PID		(0)
 
+/* Errata 1 */
 #define RL_COUNTER	(0)
 #define NAK_COUNTER	(0)
 #define ERR_COUNTER	(2)
 
-#endif 
+#endif /* _ISP1760_HCD_H_ */

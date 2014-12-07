@@ -25,6 +25,9 @@
 
 
 
+    /*
+     *  Linux/m68k Architectures
+     */
 
 #define MACH_AMIGA    1
 #define MACH_ATARI    2
@@ -47,7 +50,7 @@
 
 #ifndef __ASSEMBLY__
 extern unsigned long m68k_machtype;
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #if !defined(CONFIG_AMIGA)
 #  define MACH_IS_AMIGA (0)
@@ -191,9 +194,19 @@ extern unsigned long m68k_machtype;
 #  define MACH_TYPE (m68k_machtype)
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
 
+    /*
+     *  CPU, FPU and MMU types
+     *
+     *  Note: we may rely on the following equalities:
+     *
+     *      CPU_68020 == MMU_68851
+     *      CPU_68030 == MMU_68030
+     *      CPU_68040 == FPU_68040 == MMU_68040
+     *      CPU_68060 == FPU_68060 == MMU_68060
+     */
 
 #define CPUB_68020     0
 #define CPUB_68030     1
@@ -209,10 +222,10 @@ extern unsigned long m68k_machtype;
 
 #define FPUB_68881     0
 #define FPUB_68882     1
-#define FPUB_68040     2                       
-#define FPUB_68060     3                       
-#define FPUB_SUNFPA    4                       
-#define FPUB_COLDFIRE  5                       
+#define FPUB_68040     2                       /* Internal FPU */
+#define FPUB_68060     3                       /* Internal FPU */
+#define FPUB_SUNFPA    4                       /* Sun-3 FPA */
+#define FPUB_COLDFIRE  5                       /* ColdFire FPU */
 
 #define FPU_68881      (1<<FPUB_68881)
 #define FPU_68882      (1<<FPUB_68882)
@@ -222,12 +235,12 @@ extern unsigned long m68k_machtype;
 #define FPU_COLDFIRE   (1<<FPUB_COLDFIRE)
 
 #define MMUB_68851     0
-#define MMUB_68030     1                       
-#define MMUB_68040     2                       
-#define MMUB_68060     3                       
-#define MMUB_APOLLO    4                       
-#define MMUB_SUN3      5                       
-#define MMUB_COLDFIRE  6                       
+#define MMUB_68030     1                       /* Internal MMU */
+#define MMUB_68040     2                       /* Internal MMU */
+#define MMUB_68060     3                       /* Internal MMU */
+#define MMUB_APOLLO    4                       /* Custom Apollo */
+#define MMUB_SUN3      5                       /* Custom Sun-3 */
+#define MMUB_COLDFIRE  6                       /* Internal MMU */
 
 #define MMU_68851      (1<<MMUB_68851)
 #define MMU_68030      (1<<MMUB_68030)
@@ -247,9 +260,13 @@ extern unsigned long m68k_mmutype;
 extern unsigned long vme_brdtype;
 #endif
 
+    /*
+     *  m68k_is040or060 is != 0 for a '040 or higher;
+     *  used numbers are 4 for 68040 and 6 for 68060.
+     */
 
 extern int m68k_is040or060;
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #if !defined(CONFIG_M68020)
 #  define CPU_IS_020 (0)
@@ -258,7 +275,7 @@ extern int m68k_is040or060;
 #elif defined(CONFIG_M68030) || defined(CONFIG_M68040) || defined(CONFIG_M68060)
 #  define CPU_IS_020 (m68k_cputype & CPU_68020)
 #  define MMU_IS_851 (m68k_mmutype & MMU_68851)
-#  define MMU_IS_SUN3 (0)	
+#  define MMU_IS_SUN3 (0)	/* Sun3 not supported with other CPU enabled */
 #else
 #  define CPU_M68020_ONLY
 #  define CPU_IS_020 (1)
@@ -351,20 +368,23 @@ extern int m68k_is040or060;
 #endif
 
 
+    /*
+     *  Miscellaneous
+     */
 
 #define NUM_MEMINFO	4
 
 #ifndef __ASSEMBLY__
 struct mem_info {
-	unsigned long addr;		
-	unsigned long size;		
+	unsigned long addr;		/* physical address of memory chunk */
+	unsigned long size;		/* length of memory chunk (in bytes) */
 };
 
-extern int m68k_num_memory;		
-extern int m68k_realnum_memory;		
-extern struct mem_info m68k_memory[NUM_MEMINFO];
+extern int m68k_num_memory;		/* # of memory blocks found (and used) */
+extern int m68k_realnum_memory;		/* real # of memory blocks found */
+extern struct mem_info m68k_memory[NUM_MEMINFO];/* memory description */
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _M68K_SETUP_H */

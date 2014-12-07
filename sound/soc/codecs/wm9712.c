@@ -28,26 +28,30 @@ static unsigned int ac97_read(struct snd_soc_codec *codec,
 static int ac97_write(struct snd_soc_codec *codec,
 	unsigned int reg, unsigned int val);
 
+/*
+ * WM9712 register cache
+ */
 static const u16 wm9712_reg[] = {
-	0x6174, 0x8000, 0x8000, 0x8000, 
-	0x0f0f, 0xaaa0, 0xc008, 0x6808, 
-	0xe808, 0xaaa0, 0xad00, 0x8000, 
-	0xe808, 0x3000, 0x8000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x000f, 
-	0x0405, 0x0410, 0xbb80, 0xbb80, 
-	0x0000, 0xbb80, 0x0000, 0x0000, 
-	0x0000, 0x2000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0xf83e, 0xffff, 
-	0x0000, 0x0000, 0x0000, 0xf83e, 
-	0x0008, 0x0000, 0x0000, 0x0000, 
-	0xb032, 0x3e00, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0006, 
-	0x0001, 0x0000, 0x574d, 0x4c12, 
-	0x0000, 0x0000 
+	0x6174, 0x8000, 0x8000, 0x8000, /*  6 */
+	0x0f0f, 0xaaa0, 0xc008, 0x6808, /*  e */
+	0xe808, 0xaaa0, 0xad00, 0x8000, /* 16 */
+	0xe808, 0x3000, 0x8000, 0x0000, /* 1e */
+	0x0000, 0x0000, 0x0000, 0x000f, /* 26 */
+	0x0405, 0x0410, 0xbb80, 0xbb80, /* 2e */
+	0x0000, 0xbb80, 0x0000, 0x0000, /* 36 */
+	0x0000, 0x2000, 0x0000, 0x0000, /* 3e */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 46 */
+	0x0000, 0x0000, 0xf83e, 0xffff, /* 4e */
+	0x0000, 0x0000, 0x0000, 0xf83e, /* 56 */
+	0x0008, 0x0000, 0x0000, 0x0000, /* 5e */
+	0xb032, 0x3e00, 0x0000, 0x0000, /* 66 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 6e */
+	0x0000, 0x0000, 0x0000, 0x0006, /* 76 */
+	0x0001, 0x0000, 0x574d, 0x4c12, /* 7e */
+	0x0000, 0x0000 /* virtual hp mixers */
 };
 
+/* virtual HP mixers regs */
 #define HPL_MIXER	0x80
 #define HPR_MIXER	0x82
 
@@ -152,6 +156,10 @@ SOC_SINGLE_TLV("Mic 2 Volume", AC97_MIC, 0, 31, 1, main_tlv),
 SOC_SINGLE_TLV("Mic Boost Volume", AC97_MIC, 7, 1, 0, boost_tlv),
 };
 
+/* We have to create a fake left and right HP mixers because
+ * the codec only has a single control that is shared by both channels.
+ * This makes it impossible to determine the audio path.
+ */
 static int mixer_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *k, int event)
 {
@@ -199,6 +207,7 @@ static int mixer_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* Left Headphone Mixers */
 static const struct snd_kcontrol_new wm9712_hpl_mixer_controls[] = {
 	SOC_DAPM_SINGLE("PCBeep Bypass Switch", HPL_MIXER, 5, 1, 0),
 	SOC_DAPM_SINGLE("Aux Playback Switch", HPL_MIXER, 4, 1, 0),
@@ -208,6 +217,7 @@ static const struct snd_kcontrol_new wm9712_hpl_mixer_controls[] = {
 	SOC_DAPM_SINGLE("Mic Sidetone Switch", HPL_MIXER, 0, 1, 0),
 };
 
+/* Right Headphone Mixers */
 static const struct snd_kcontrol_new wm9712_hpr_mixer_controls[] = {
 	SOC_DAPM_SINGLE("PCBeep Bypass Switch", HPR_MIXER, 5, 1, 0),
 	SOC_DAPM_SINGLE("Aux Playback Switch", HPR_MIXER, 4, 1, 0),
@@ -217,6 +227,7 @@ static const struct snd_kcontrol_new wm9712_hpr_mixer_controls[] = {
 	SOC_DAPM_SINGLE("Mic Sidetone Switch", HPR_MIXER, 0, 1, 0),
 };
 
+/* Speaker Mixer */
 static const struct snd_kcontrol_new wm9712_speaker_mixer_controls[] = {
 	SOC_DAPM_SINGLE("PCBeep Bypass Switch", AC97_PC_BEEP, 11, 1, 1),
 	SOC_DAPM_SINGLE("Aux Playback Switch", AC97_CD, 11, 1, 1),
@@ -225,6 +236,7 @@ static const struct snd_kcontrol_new wm9712_speaker_mixer_controls[] = {
 	SOC_DAPM_SINGLE("PCM Playback Switch", AC97_PCM, 14, 1, 1),
 };
 
+/* Phone Mixer */
 static const struct snd_kcontrol_new wm9712_phone_mixer_controls[] = {
 	SOC_DAPM_SINGLE("PCBeep Bypass Switch", AC97_PC_BEEP, 7, 1, 1),
 	SOC_DAPM_SINGLE("Aux Playback Switch", AC97_CD, 7, 1, 1),
@@ -234,27 +246,35 @@ static const struct snd_kcontrol_new wm9712_phone_mixer_controls[] = {
 	SOC_DAPM_SINGLE("Mic 2 Sidetone Switch", AC97_MIC, 13, 1, 1),
 };
 
+/* ALC headphone mux */
 static const struct snd_kcontrol_new wm9712_alc_mux_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[1]);
 
+/* out 3 mux */
 static const struct snd_kcontrol_new wm9712_out3_mux_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[2]);
 
+/* spk mux */
 static const struct snd_kcontrol_new wm9712_spk_mux_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[3]);
 
+/* Capture to Phone mux */
 static const struct snd_kcontrol_new wm9712_capture_phone_mux_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[4]);
 
+/* Capture left select */
 static const struct snd_kcontrol_new wm9712_capture_selectl_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[8]);
 
+/* Capture right select */
 static const struct snd_kcontrol_new wm9712_capture_selectr_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[9]);
 
+/* Mic select */
 static const struct snd_kcontrol_new wm9712_mic_src_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[7]);
 
+/* diff select */
 static const struct snd_kcontrol_new wm9712_diff_sel_controls =
 SOC_DAPM_ENUM("Route", wm9712_enum[11]);
 
@@ -315,11 +335,11 @@ SND_SOC_DAPM_INPUT("MIC2"),
 };
 
 static const struct snd_soc_dapm_route wm9712_audio_map[] = {
-	
+	/* virtual mixer - mixes left & right channels for spk and mono */
 	{"AC97 Mixer", NULL, "Left DAC"},
 	{"AC97 Mixer", NULL, "Right DAC"},
 
-	
+	/* Left HP mixer */
 	{"Left HP Mixer", "PCBeep Bypass Switch", "PCBEEP"},
 	{"Left HP Mixer", "Aux Playback Switch",  "Aux DAC"},
 	{"Left HP Mixer", "Phone Bypass Switch",  "Phone PGA"},
@@ -328,7 +348,7 @@ static const struct snd_soc_dapm_route wm9712_audio_map[] = {
 	{"Left HP Mixer", "Mic Sidetone Switch",  "Mic PGA"},
 	{"Left HP Mixer", NULL,  "ALC Sidetone Mux"},
 
-	
+	/* Right HP mixer */
 	{"Right HP Mixer", "PCBeep Bypass Switch", "PCBEEP"},
 	{"Right HP Mixer", "Aux Playback Switch",  "Aux DAC"},
 	{"Right HP Mixer", "Phone Bypass Switch",  "Phone PGA"},
@@ -337,14 +357,14 @@ static const struct snd_soc_dapm_route wm9712_audio_map[] = {
 	{"Right HP Mixer", "Mic Sidetone Switch",  "Mic PGA"},
 	{"Right HP Mixer", NULL,  "ALC Sidetone Mux"},
 
-	
+	/* speaker mixer */
 	{"Speaker Mixer", "PCBeep Bypass Switch", "PCBEEP"},
 	{"Speaker Mixer", "Line Bypass Switch",   "Line PGA"},
 	{"Speaker Mixer", "PCM Playback Switch",  "AC97 Mixer"},
 	{"Speaker Mixer", "Phone Bypass Switch",  "Phone PGA"},
 	{"Speaker Mixer", "Aux Playback Switch",  "Aux DAC"},
 
-	
+	/* Phone mixer */
 	{"Phone Mixer", "PCBeep Bypass Switch",  "PCBEEP"},
 	{"Phone Mixer", "Line Bypass Switch",    "Line PGA"},
 	{"Phone Mixer", "Aux Playback Switch",   "Aux DAC"},
@@ -352,14 +372,14 @@ static const struct snd_soc_dapm_route wm9712_audio_map[] = {
 	{"Phone Mixer", "Mic 1 Sidetone Switch", "Mic PGA"},
 	{"Phone Mixer", "Mic 2 Sidetone Switch", "Mic PGA"},
 
-	
+	/* inputs */
 	{"Line PGA", NULL, "LINEINL"},
 	{"Line PGA", NULL, "LINEINR"},
 	{"Phone PGA", NULL, "PHONE"},
 	{"Mic PGA", NULL, "MIC1"},
 	{"Mic PGA", NULL, "MIC2"},
 
-	
+	/* left capture selector */
 	{"Left Capture Select", "Mic", "MIC1"},
 	{"Left Capture Select", "Speaker Mixer", "Speaker Mixer"},
 	{"Left Capture Select", "Line", "LINEINL"},
@@ -367,7 +387,7 @@ static const struct snd_soc_dapm_route wm9712_audio_map[] = {
 	{"Left Capture Select", "Phone Mixer", "Phone Mixer"},
 	{"Left Capture Select", "Phone", "PHONE"},
 
-	
+	/* right capture selector */
 	{"Right Capture Select", "Mic", "MIC2"},
 	{"Right Capture Select", "Speaker Mixer", "Speaker Mixer"},
 	{"Right Capture Select", "Line", "LINEINR"},
@@ -375,35 +395,35 @@ static const struct snd_soc_dapm_route wm9712_audio_map[] = {
 	{"Right Capture Select", "Phone Mixer", "Phone Mixer"},
 	{"Right Capture Select", "Phone", "PHONE"},
 
-	
+	/* ALC Sidetone */
 	{"ALC Sidetone Mux", "Stereo", "Left Capture Select"},
 	{"ALC Sidetone Mux", "Stereo", "Right Capture Select"},
 	{"ALC Sidetone Mux", "Left", "Left Capture Select"},
 	{"ALC Sidetone Mux", "Right", "Right Capture Select"},
 
-	
+	/* ADC's */
 	{"Left ADC", NULL, "Left Capture Select"},
 	{"Right ADC", NULL, "Right Capture Select"},
 
-	
+	/* outputs */
 	{"MONOOUT", NULL, "Phone Mixer"},
 	{"HPOUTL", NULL, "Headphone PGA"},
 	{"Headphone PGA", NULL, "Left HP Mixer"},
 	{"HPOUTR", NULL, "Headphone PGA"},
 	{"Headphone PGA", NULL, "Right HP Mixer"},
 
-	
+	/* mono mixer */
 	{"Mono Mixer", NULL, "Left HP Mixer"},
 	{"Mono Mixer", NULL, "Right HP Mixer"},
 
-	
+	/* Out3 Mux */
 	{"Out3 Mux", "Left", "Left HP Mixer"},
 	{"Out3 Mux", "Mono", "Phone Mixer"},
 	{"Out3 Mux", "Left + Right", "Mono Mixer"},
 	{"Out 3 PGA", NULL, "Out3 Mux"},
 	{"OUT3", NULL, "Out 3 PGA"},
 
-	
+	/* speaker Mux */
 	{"Speaker Mux", "Speaker Mix", "Speaker Mixer"},
 	{"Speaker Mux", "Headphone Mix", "Mono Mixer"},
 	{"Speaker PGA", NULL, "Speaker Mux"},
@@ -536,7 +556,7 @@ static int wm9712_set_bias_level(struct snd_soc_codec *codec,
 		ac97_write(codec, AC97_POWERDOWN, 0x0000);
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* disable everything including AC link */
 		ac97_write(codec, AC97_EXTENDED_MSTATUS, 0xffff);
 		ac97_write(codec, AC97_POWERDOWN, 0xffff);
 		break;
@@ -585,7 +605,7 @@ static int wm9712_soc_resume(struct snd_soc_codec *codec)
 	wm9712_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
 	if (ret == 0) {
-		
+		/* Sync reg_cache with the hardware after cold reset */
 		for (i = 2; i < ARRAY_SIZE(wm9712_reg) << 1; i += 2) {
 			if (i == AC97_INT_PAGING || i == AC97_POWERDOWN ||
 			    (i > 0x58 && i != 0x5c))
@@ -613,7 +633,7 @@ static int wm9712_soc_probe(struct snd_soc_codec *codec)
 		goto reset_err;
 	}
 
-	
+	/* set alc mux to none */
 	ac97_write(codec, AC97_VIDEO, ac97_read(codec, AC97_VIDEO) | 0x3000);
 
 	wm9712_set_bias_level(codec, SND_SOC_BIAS_STANDBY);

@@ -37,7 +37,7 @@
 
 #define SERIAL_APBUART_MAJOR	TTY_MAJOR
 #define SERIAL_APBUART_MINOR	64
-#define UART_DUMMY_RSR_RX	0x8000	
+#define UART_DUMMY_RSR_RX	0x8000	/* for ignore all read */
 
 static void apbuart_tx_chars(struct uart_port *port);
 
@@ -73,7 +73,7 @@ static void apbuart_stop_rx(struct uart_port *port)
 
 static void apbuart_enable_ms(struct uart_port *port)
 {
-	
+	/* No modem status change interrupts for APBUART */
 }
 
 static void apbuart_rx_chars(struct uart_port *port)
@@ -146,7 +146,7 @@ static void apbuart_tx_chars(struct uart_port *port)
 		return;
 	}
 
-	
+	/* amba: fill FIFO */
 	count = port->fifosize >> 1;
 	do {
 		UART_PUT_CHAR(port, xmit->buf[xmit->tail]);
@@ -189,18 +189,18 @@ static unsigned int apbuart_tx_empty(struct uart_port *port)
 
 static unsigned int apbuart_get_mctrl(struct uart_port *port)
 {
-	
+	/* The GRLIB APBUART handles flow control in hardware */
 	return TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
 }
 
 static void apbuart_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
-	
+	/* The GRLIB APBUART handles flow control in hardware */
 }
 
 static void apbuart_break_ctl(struct uart_port *port, int break_state)
 {
-	
+	/* We don't support sending break */
 }
 
 static int apbuart_startup(struct uart_port *port)
@@ -208,12 +208,12 @@ static int apbuart_startup(struct uart_port *port)
 	int retval;
 	unsigned int cr;
 
-	
+	/* Allocate the IRQ */
 	retval = request_irq(port->irq, apbuart_int, 0, "apbuart", port);
 	if (retval)
 		return retval;
 
-	
+	/* Finally, enable interrupts */
 	cr = UART_GET_CTRL(port);
 	UART_PUT_CTRL(port,
 		      cr | UART_CTRL_RE | UART_CTRL_TE |
@@ -226,13 +226,13 @@ static void apbuart_shutdown(struct uart_port *port)
 {
 	unsigned int cr;
 
-	
+	/* disable all interrupts, disable the port */
 	cr = UART_GET_CTRL(port);
 	UART_PUT_CTRL(port,
 		      cr & ~(UART_CTRL_RE | UART_CTRL_TE |
 			     UART_CTRL_RI | UART_CTRL_TI));
 
-	
+	/* Free the interrupt */
 	free_irq(port->irq, port);
 }
 
@@ -243,12 +243,12 @@ static void apbuart_set_termios(struct uart_port *port,
 	unsigned long flags;
 	unsigned int baud, quot;
 
-	
+	/* Ask the core to calculate the divisor for us. */
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk / 16);
 	if (baud == 0)
 		panic("invalid baudrate %i\n", port->uartclk / 16);
 
-	
+	/* uart_get_divisor calc a *16 uart freq, apbuart is *8 */
 	quot = (uart_get_divisor(port, baud)) * 2;
 	cr = UART_GET_CTRL(port);
 	cr &= ~(UART_CTRL_PE | UART_CTRL_PS);
@@ -259,29 +259,29 @@ static void apbuart_set_termios(struct uart_port *port,
 			cr |= UART_CTRL_PS;
 	}
 
-	
+	/* Enable flow control. */
 	if (termios->c_cflag & CRTSCTS)
 		cr |= UART_CTRL_FL;
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* Update the per-port timeout. */
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	port->read_status_mask = UART_STATUS_OE;
 	if (termios->c_iflag & INPCK)
 		port->read_status_mask |= UART_STATUS_FE | UART_STATUS_PE;
 
-	
+	/* Characters to ignore */
 	port->ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |= UART_STATUS_FE | UART_STATUS_PE;
 
-	
+	/* Ignore all characters if CREAD is not set. */
 	if ((termios->c_cflag & CREAD) == 0)
 		port->ignore_status_mask |= UART_DUMMY_RSR_RX;
 
-	
+	/* Set baud rate */
 	quot -= 1;
 	UART_PUT_SCAL(port, quot);
 	UART_PUT_CTRL(port, cr);
@@ -306,6 +306,7 @@ static int apbuart_request_port(struct uart_port *port)
 	return 0;
 }
 
+/* Configure/autoconfigure the port */
 static void apbuart_config_port(struct uart_port *port, int flags)
 {
 	if (flags & UART_CONFIG_TYPE) {
@@ -314,6 +315,7 @@ static void apbuart_config_port(struct uart_port *port, int flags)
 	}
 }
 
+/* Verify the new serial_struct (for TIOCSSERIAL) */
 static int apbuart_verify_port(struct uart_port *port,
 			       struct serial_struct *ser)
 {
@@ -358,6 +360,12 @@ static int apbuart_scan_fifo_size(struct uart_port *port, int portnumber)
 
 	ctrl = UART_GET_CTRL(port);
 
+	/*
+	 * Enable the transceiver and wait for it to be ready to send data.
+	 * Clear interrupts so that this process will not be externally
+	 * interrupted in the middle (which can cause the transceiver to
+	 * drain prematurely).
+	 */
 
 	local_irq_save(flags);
 
@@ -366,12 +374,21 @@ static int apbuart_scan_fifo_size(struct uart_port *port, int portnumber)
 	while (!UART_TX_READY(UART_GET_STATUS(port)))
 		loop++;
 
+	/*
+	 * Disable the transceiver so data isn't actually sent during the
+	 * actual test.
+	 */
 
 	UART_PUT_CTRL(port, ctrl & ~(UART_CTRL_TE));
 
 	fifosize = 1;
 	UART_PUT_CHAR(port, 0);
 
+	/*
+	 * So long as transmitting a character increments the tranceivier FIFO
+	 * length the FIFO must be at least that big. These bytes will
+	 * automatically drain off of the FIFO.
+	 */
 
 	status = UART_GET_STATUS(port);
 	while (((status >> 20) & 0x3F) == fifosize) {
@@ -400,6 +417,9 @@ static void apbuart_flush_fifo(struct uart_port *port)
 }
 
 
+/* ======================================================================== */
+/* Console driver, if enabled                                               */
+/* ======================================================================== */
 
 #ifdef CONFIG_SERIAL_GRLIB_GAISLER_APBUART_CONSOLE
 
@@ -418,13 +438,17 @@ apbuart_console_write(struct console *co, const char *s, unsigned int count)
 	struct uart_port *port = &grlib_apbuart_ports[co->index];
 	unsigned int status, old_cr, new_cr;
 
-	
+	/* First save the CR then disable the interrupts */
 	old_cr = UART_GET_CTRL(port);
 	new_cr = old_cr & ~(UART_CTRL_RI | UART_CTRL_TI);
 	UART_PUT_CTRL(port, new_cr);
 
 	uart_console_write(port, s, count, apbuart_console_putchar);
 
+	/*
+	 *      Finally, wait for transmitter to become empty
+	 *      and restore the TCR
+	 */
 	do {
 		status = UART_GET_STATUS(port);
 	} while (!UART_TX_READY(status));
@@ -465,6 +489,11 @@ static int __init apbuart_console_setup(struct console *co, char *options)
 	pr_debug("apbuart_console_setup co=%p, co->index=%i, options=%s\n",
 		 co, co->index, options);
 
+	/*
+	 * Check whether an invalid uart number has been specified, and
+	 * if so, search for the first available port that does have
+	 * console support.
+	 */
 	if (co->index >= grlib_apbuart_port_nr)
 		co->index = 0;
 
@@ -521,6 +550,9 @@ static struct uart_driver grlib_apbuart_driver = {
 };
 
 
+/* ======================================================================== */
+/* OF Platform Driver                                                       */
+/* ======================================================================== */
 
 static int __devinit apbuart_probe(struct platform_device *op)
 {
@@ -579,9 +611,9 @@ static int __init grlib_apbuart_configure(void)
 
 		ampopts = of_get_property(np, "ampopts", NULL);
 		if (ampopts && (*ampopts == 0))
-			continue; 
+			continue; /* Ignore if used by another OS instance */
 		regs = of_get_property(np, "reg", NULL);
-		
+		/* Frequency of APB Bus is frequency of UART */
 		freq_hz = of_get_property(np, "freq", NULL);
 
 		if (!regs || !freq_hz || (*freq_hz == 0))
@@ -604,7 +636,7 @@ static int __init grlib_apbuart_configure(void)
 		port->fifosize = apbuart_scan_fifo_size((struct uart_port *) port, line);
 		line++;
 
-		
+		/* We support maximum UART_NR uarts ... */
 		if (line == UART_NR)
 			break;
 	}
@@ -617,7 +649,7 @@ static int __init grlib_apbuart_init(void)
 {
 	int ret;
 
-	
+	/* Find all APBUARTS in device the tree and initialize their ports */
 	ret = grlib_apbuart_configure();
 	if (ret)
 		return ret;

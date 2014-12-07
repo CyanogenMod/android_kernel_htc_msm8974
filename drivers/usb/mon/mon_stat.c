@@ -1,3 +1,11 @@
+/*
+ * The USB Monitor, inspired by Dave Harding's USBMon.
+ *
+ * This is the 's' or 'stat' reader which debugs usbmon itself.
+ * Note that this code blows through locks, so make sure that
+ * /dbg/usbmon/0s is well protected from non-root users.
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -54,8 +62,8 @@ const struct file_operations mon_fops_stat = {
 	.open =		mon_stat_open,
 	.llseek =	no_llseek,
 	.read =		mon_stat_read,
-	
-	
-	
+	/* .write =	mon_stat_write, */
+	/* .poll =		mon_stat_poll, */
+	/* .unlocked_ioctl =	mon_stat_ioctl, */
 	.release =	mon_stat_release,
 };

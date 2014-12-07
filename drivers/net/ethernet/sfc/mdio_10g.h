@@ -12,6 +12,9 @@
 
 #include <linux/mdio.h>
 
+/*
+ * Helper functions for doing 10G MDIO as specified in IEEE 802.3 clause 45.
+ */
 
 #include "efx.h"
 
@@ -55,29 +58,47 @@ static inline bool efx_mdio_phyxgxs_lane_sync(struct efx_nic *efx)
 
 extern const char *efx_mdio_mmd_name(int mmd);
 
+/*
+ * Reset a specific MMD and wait for reset to clear.
+ * Return number of spins left (>0) on success, -%ETIMEDOUT on failure.
+ *
+ * This function will sleep
+ */
 extern int efx_mdio_reset_mmd(struct efx_nic *efx, int mmd,
 			      int spins, int spintime);
 
+/* As efx_mdio_check_mmd but for multiple MMDs */
 int efx_mdio_check_mmds(struct efx_nic *efx, unsigned int mmd_mask);
 
+/* Check the link status of specified mmds in bit mask */
 extern bool efx_mdio_links_ok(struct efx_nic *efx, unsigned int mmd_mask);
 
+/* Generic transmit disable support though PMAPMD */
 extern void efx_mdio_transmit_disable(struct efx_nic *efx);
 
+/* Generic part of reconfigure: set/clear loopback bits */
 extern void efx_mdio_phy_reconfigure(struct efx_nic *efx);
 
+/* Set the power state of the specified MMDs */
 extern void efx_mdio_set_mmds_lpower(struct efx_nic *efx,
 				     int low_power, unsigned int mmd_mask);
 
+/* Set (some of) the PHY settings over MDIO */
 extern int efx_mdio_set_settings(struct efx_nic *efx, struct ethtool_cmd *ecmd);
 
+/* Push advertising flags and restart autonegotiation */
 extern void efx_mdio_an_reconfigure(struct efx_nic *efx);
 
+/* Get pause parameters from AN if available (otherwise return
+ * requested pause parameters)
+ */
 u8 efx_mdio_get_pause(struct efx_nic *efx);
 
+/* Wait for specified MMDs to exit reset within a timeout */
 extern int efx_mdio_wait_reset_mmds(struct efx_nic *efx,
 				    unsigned int mmd_mask);
 
+/* Set or clear flag, debouncing */
 static inline void
 efx_mdio_set_flag(struct efx_nic *efx, int devad, int addr,
 		  int mask, bool state)
@@ -85,6 +106,7 @@ efx_mdio_set_flag(struct efx_nic *efx, int devad, int addr,
 	mdio_set_flag(&efx->mdio, efx->mdio.prtad, devad, addr, mask, state);
 }
 
+/* Liveness self-test for MDIO PHYs */
 extern int efx_mdio_test_alive(struct efx_nic *efx);
 
-#endif 
+#endif /* EFX_MDIO_10G_H */

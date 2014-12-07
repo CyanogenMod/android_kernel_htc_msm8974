@@ -18,6 +18,11 @@
 static __inline__ int
 irq_canonicalize (int irq)
 {
+	/*
+	 * We do the legacy thing here of pretending that irqs < 16
+	 * are 8259 irqs.  This really shouldn't be necessary at all,
+	 * but we keep it here as serial.c still uses it...
+	 */
 	return ((irq == 2) ? 9 : irq);
 }
 
@@ -26,4 +31,4 @@ bool is_affinity_mask_valid(const struct cpumask *cpumask);
 
 #define is_affinity_mask_valid is_affinity_mask_valid
 
-#endif 
+#endif /* _ASM_IA64_IRQ_H */

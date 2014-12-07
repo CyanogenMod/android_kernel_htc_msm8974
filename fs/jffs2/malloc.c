@@ -17,6 +17,8 @@
 #include <linux/jffs2.h>
 #include "nodelist.h"
 
+/* These are initialised to NULL in the kernel startup code.
+   If you're porting to other operating systems, beware */
 static struct kmem_cache *full_dnode_slab;
 static struct kmem_cache *raw_dirent_slab;
 static struct kmem_cache *raw_inode_slab;
@@ -218,7 +220,7 @@ int jffs2_prealloc_raw_node_refs(struct jffs2_sb_info *c,
 
 	dbg_memalloc("Reserving %d refs for block @0x%08x\n", nr, jeb->offset);
 
-	
+	/* If jeb->last_node is really a valid node then skip over it */
 	if (ref && ref->flash_offset != REF_EMPTY_NODE)
 		ref++;
 

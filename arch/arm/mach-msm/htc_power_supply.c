@@ -211,7 +211,7 @@ static int dock_command(struct dock_state *s, u16 cmd, int len, int retlen)
 	int err = -1;
 	unsigned long flags;
 
-	data = data << 2 | 3; 
+	data = data << 2 | 3; /* add 0101 mfm data*/
 	mfm = mfm_encode(data, len, false);
 	count = len * 2 + 2;
 
@@ -331,6 +331,9 @@ static int dock_acquire(struct dock_state *s)
 	mutex_lock(&s->lock);
 	dock_in();
 	if (dock_read()) {
+		/* Allow some time for the dock pull-down resistor to discharge
+		 * the capasitor.
+		 */
 		msleep(20);
 		if (dock_read()) {
 			mutex_unlock(&s->lock);
@@ -350,7 +353,7 @@ static void dock_release(struct dock_state *s)
 
 enum {
 	DOCK_TYPE = 0x0,
-	DOCK_BT_ADDR = 0x1, 
+	DOCK_BT_ADDR = 0x1, /* - 0x7 */
 
 	DOCK_PIN_CODE = 0x0,
 };
@@ -440,6 +443,7 @@ static struct power_supply usb_supply = {
 	.get_property = power_get_property,
 };
 
+/* rpc related */
 #define APP_BATT_PDEV_NAME		"rs30100001:00000000"
 #define APP_BATT_PROG			0x30100001
 #define APP_BATT_VER			MSM_RPC_VERS(0,0)
@@ -452,14 +456,14 @@ static struct power_supply usb_supply = {
 static struct msm_rpc_endpoint *endpoint;
 
 struct battery_info_reply {
-	u32 batt_id;		
-	u32 batt_vol;		
-	u32 batt_temp;		
-	u32 batt_current;	
-	u32 level;		
-	u32 charging_source;	
-	u32 charging_enabled;	
-	u32 full_bat;		
+	u32 batt_id;		/* Battery ID from ADC */
+	u32 batt_vol;		/* Battery voltage from ADC */
+	u32 batt_temp;		/* Battery Temperature (C) from formula and ADC */
+	u32 batt_current;	/* Battery current from ADC */
+	u32 level;		/* formula */
+	u32 charging_source;	/* 0: no cable, 1:usb, 2:AC */
+	u32 charging_enabled;	/* 0: Disable, 1: Enable */
+	u32 full_bat;		/* Full capacity of battery (mAh) */
 };
 
 static void dock_work_proc(struct work_struct *work)
@@ -470,7 +474,7 @@ static void dock_work_proc(struct work_struct *work)
 		goto no_dock;
 
 	if (ds.dock_connected_unknown) {
-		
+		/* force a new dock notification if a command failed */
 		switch_set_state(&dock_switch, 0);
 		ds.dock_connected_unknown = false;
 	}
@@ -512,7 +516,7 @@ static int htc_battery_probe(struct platform_device *pdev)
 		return PTR_ERR(endpoint);
 	}
 
-	
+	/* must do this or we won't get cable status updates */
 	rc = msm_rpc_call_reply(endpoint, HTC_PROCEDURE_GET_BATT_INFO,
 				&req, sizeof(req),
 				&rep, sizeof(rep),
@@ -537,6 +541,7 @@ static struct platform_driver htc_battery_driver = {
 	},
 };
 
+/* batt_mtoa server definitions */
 #define BATT_MTOA_PROG				0x30100000
 #define BATT_MTOA_VERS				0
 #define RPC_BATT_MTOA_NULL			0

@@ -18,8 +18,8 @@ struct wm9081_retune_mobile_setting {
 };
 
 struct wm9081_pdata {
-	bool irq_high;   
-	bool irq_cmos;   
+	bool irq_high;   /* IRQ is active high */
+	bool irq_cmos;   /* IRQ is in CMOS mode */
 
 	struct wm9081_retune_mobile_setting *retune_configs;
 	int num_retune_configs;

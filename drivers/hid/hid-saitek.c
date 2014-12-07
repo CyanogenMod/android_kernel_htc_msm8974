@@ -30,11 +30,11 @@ static __u8 *saitek_report_fixup(struct hid_device *hdev, __u8 *rdesc,
 
 		hid_info(hdev, "Fixing up Saitek PS1000 report descriptor\n");
 
-		
+		/* convert spurious axis to a "noop" Logical Minimum (0) */
 		rdesc[20] = 0x15;
 		rdesc[21] = 0x00;
 
-		
+		/* clear constant bit on buttons and d-pad */
 		rdesc[95] = 0x02;
 		rdesc[111] = 0x02;
 

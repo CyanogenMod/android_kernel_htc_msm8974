@@ -21,19 +21,25 @@
 #include "fec.h"
 
 
+/* ======================================================================== */
+/* Task image/var/inc                                                       */
+/* ======================================================================== */
 
+/* fec tasks images */
 extern u32 bcom_fec_rx_task[];
 extern u32 bcom_fec_tx_task[];
 
+/* rx task vars that need to be set before enabling the task */
 struct bcom_fec_rx_var {
-	u32 enable;		
-	u32 fifo;		
-	u32 bd_base;		
-	u32 bd_last;		
-	u32 bd_start;		
-	u32 buffer_size;	
+	u32 enable;		/* (u16*) address of task's control register */
+	u32 fifo;		/* (u32*) address of fec's fifo */
+	u32 bd_base;		/* (struct bcom_bd*) beginning of ring buffer */
+	u32 bd_last;		/* (struct bcom_bd*) end of ring buffer */
+	u32 bd_start;		/* (struct bcom_bd*) current bd */
+	u32 buffer_size;	/* size of receive buffer */
 };
 
+/* rx task incs that need to be set before enabling the task */
 struct bcom_fec_rx_inc {
 	u16 pad0;
 	s16 incr_bytes;
@@ -43,16 +49,18 @@ struct bcom_fec_rx_inc {
 	s16 incr_dst_ma;
 };
 
+/* tx task vars that need to be set before enabling the task */
 struct bcom_fec_tx_var {
-	u32 DRD;		
-	u32 fifo;		
-	u32 enable;		
-	u32 bd_base;		
-	u32 bd_last;		
-	u32 bd_start;		
-	u32 buffer_size;	
+	u32 DRD;		/* (u32*) address of self-modified DRD */
+	u32 fifo;		/* (u32*) address of fec's fifo */
+	u32 enable;		/* (u16*) address of task's control register */
+	u32 bd_base;		/* (struct bcom_bd*) beginning of ring buffer */
+	u32 bd_last;		/* (struct bcom_bd*) end of ring buffer */
+	u32 bd_start;		/* (struct bcom_bd*) current bd */
+	u32 buffer_size;	/* set by uCode for each packet */
 };
 
+/* tx task incs that need to be set before enabling the task */
 struct bcom_fec_tx_inc {
 	u16 pad0;
 	s16 incr_bytes;
@@ -62,12 +70,16 @@ struct bcom_fec_tx_inc {
 	s16 incr_src_ma;
 };
 
+/* private structure in the task */
 struct bcom_fec_priv {
 	phys_addr_t	fifo;
 	int		maxbufsize;
 };
 
 
+/* ======================================================================== */
+/* Task support code                                                        */
+/* ======================================================================== */
 
 struct bcom_task *
 bcom_fec_rx_init(int queue_len, phys_addr_t fifo, int maxbufsize)
@@ -102,10 +114,10 @@ bcom_fec_rx_reset(struct bcom_task *tsk)
 	struct bcom_fec_rx_var *var;
 	struct bcom_fec_rx_inc *inc;
 
-	
+	/* Shutdown the task */
 	bcom_disable_task(tsk->tasknum);
 
-	
+	/* Reset the microcode */
 	var = (struct bcom_fec_rx_var *) bcom_task_var(tsk->tasknum);
 	inc = (struct bcom_fec_rx_inc *) bcom_task_inc(tsk->tasknum);
 
@@ -120,23 +132,23 @@ bcom_fec_rx_reset(struct bcom_task *tsk)
 	var->bd_start	= tsk->bd_pa;
 	var->buffer_size = priv->maxbufsize;
 
-	inc->incr_bytes	= -(s16)sizeof(u32);	
-	inc->incr_dst	= sizeof(u32);		
-	inc->incr_dst_ma= sizeof(u8);		
+	inc->incr_bytes	= -(s16)sizeof(u32);	/* These should be in the   */
+	inc->incr_dst	= sizeof(u32);		/* task image, but we stick */
+	inc->incr_dst_ma= sizeof(u8);		/* to the official ones     */
 
-	
+	/* Reset the BDs */
 	tsk->index = 0;
 	tsk->outdex = 0;
 
 	memset(tsk->bd, 0x00, tsk->num_bd * tsk->bd_size);
 
-	
+	/* Configure some stuff */
 	bcom_set_task_pragma(tsk->tasknum, BCOM_FEC_RX_BD_PRAGMA);
 	bcom_set_task_auto_start(tsk->tasknum, tsk->tasknum);
 
 	out_8(&bcom_eng->regs->ipr[BCOM_INITIATOR_FEC_RX], BCOM_IPR_FEC_RX);
 
-	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	
+	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	/* Clear ints */
 
 	return 0;
 }
@@ -145,14 +157,16 @@ EXPORT_SYMBOL_GPL(bcom_fec_rx_reset);
 void
 bcom_fec_rx_release(struct bcom_task *tsk)
 {
-	
+	/* Nothing special for the FEC tasks */
 	bcom_task_free(tsk);
 }
 EXPORT_SYMBOL_GPL(bcom_fec_rx_release);
 
 
 
-	
+	/* Return 2nd to last DRD */
+	/* This is an ugly hack, but at least it's only done
+	   once at initialization */
 static u32 *self_modified_drd(int tasknum)
 {
 	u32 *desc;
@@ -201,10 +215,10 @@ bcom_fec_tx_reset(struct bcom_task *tsk)
 	struct bcom_fec_tx_var *var;
 	struct bcom_fec_tx_inc *inc;
 
-	
+	/* Shutdown the task */
 	bcom_disable_task(tsk->tasknum);
 
-	
+	/* Reset the microcode */
 	var = (struct bcom_fec_tx_var *) bcom_task_var(tsk->tasknum);
 	inc = (struct bcom_fec_tx_inc *) bcom_task_inc(tsk->tasknum);
 
@@ -219,23 +233,23 @@ bcom_fec_tx_reset(struct bcom_task *tsk)
 	var->bd_last	= tsk->bd_pa + ((tsk->num_bd-1) * tsk->bd_size);
 	var->bd_start	= tsk->bd_pa;
 
-	inc->incr_bytes	= -(s16)sizeof(u32);	
-	inc->incr_src	= sizeof(u32);		
-	inc->incr_src_ma= sizeof(u8);		
+	inc->incr_bytes	= -(s16)sizeof(u32);	/* These should be in the   */
+	inc->incr_src	= sizeof(u32);		/* task image, but we stick */
+	inc->incr_src_ma= sizeof(u8);		/* to the official ones     */
 
-	
+	/* Reset the BDs */
 	tsk->index = 0;
 	tsk->outdex = 0;
 
 	memset(tsk->bd, 0x00, tsk->num_bd * tsk->bd_size);
 
-	
+	/* Configure some stuff */
 	bcom_set_task_pragma(tsk->tasknum, BCOM_FEC_TX_BD_PRAGMA);
 	bcom_set_task_auto_start(tsk->tasknum, tsk->tasknum);
 
 	out_8(&bcom_eng->regs->ipr[BCOM_INITIATOR_FEC_TX], BCOM_IPR_FEC_TX);
 
-	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	
+	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	/* Clear ints */
 
 	return 0;
 }
@@ -244,7 +258,7 @@ EXPORT_SYMBOL_GPL(bcom_fec_tx_reset);
 void
 bcom_fec_tx_release(struct bcom_task *tsk)
 {
-	
+	/* Nothing special for the FEC tasks */
 	bcom_task_free(tsk);
 }
 EXPORT_SYMBOL_GPL(bcom_fec_tx_release);

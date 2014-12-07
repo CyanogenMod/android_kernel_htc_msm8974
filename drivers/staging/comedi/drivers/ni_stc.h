@@ -21,6 +21,10 @@
 
 */
 
+/*
+	References:
+	    DAQ-STC Technical Reference Manual
+*/
 
 #ifndef _COMEDI_NI_STC_H
 #define _COMEDI_NI_STC_H
@@ -46,6 +50,7 @@
 
 #define NUM_PFI_OUTPUT_SELECT_REGS 6
 
+/* Registers in the National Instruments DAQ-STC chip */
 
 #define Interrupt_A_Ack_Register	2
 #define G0_Gate_Interrupt_Ack			_bit15
@@ -419,7 +424,7 @@ static unsigned AI_CONVERT_Output_Select(enum ai_convert_output_selection
 #define AO_Stop_On_BC_TC_Error			_bit3
 #define AO_Not_An_UPDATE			_bit2
 #define AO_Software_Gate			_bit1
-#define AO_Last_Gate_Disable		_bit0	
+#define AO_Last_Gate_Disable		_bit0	/* M Series only */
 
 #define Joint_Reset_Register		72
 #define Software_Reset			_bit11
@@ -509,19 +514,19 @@ enum AO_Personal_Bits {
 	AO_UPDATE_Pulse_Width = 1 << 5,
 	AO_UPDATE_Pulse_Timebase = 1 << 6,
 	AO_UPDATE_Original_Pulse = 1 << 7,
-	AO_DMA_PIO_Control = 1 << 8,	
-	AO_AOFREQ_Polarity = 1 << 9,	
+	AO_DMA_PIO_Control = 1 << 8,	/* M Series: reserved */
+	AO_AOFREQ_Polarity = 1 << 9,	/* M Series: reserved */
 	AO_FIFO_Enable = 1 << 10,
-	AO_FIFO_Flags_Polarity = 1 << 11,	
+	AO_FIFO_Flags_Polarity = 1 << 11,	/* M Series: reserved */
 	AO_TMRDACWR_Pulse_Width = 1 << 12,
-	AO_Fast_CPU = 1 << 13,	
-	AO_Number_Of_DAC_Packages = 1 << 14,	
-	AO_Multiple_DACS_Per_Package = 1 << 15	
+	AO_Fast_CPU = 1 << 13,	/* M Series: reserved */
+	AO_Number_Of_DAC_Packages = 1 << 14,	/*  1 for "single" mode, 0 for "dual" */
+	AO_Multiple_DACS_Per_Package = 1 << 15	/*  m-series only */
 };
 #define	RTSI_Trig_A_Output_Register	79
 #define	RTSI_Trig_B_Output_Register	80
 enum RTSI_Trig_B_Output_Bits {
-	RTSI_Sub_Selection_1_Bit = 0x8000	
+	RTSI_Sub_Selection_1_Bit = 0x8000	/*  not for m-series */
 };
 static inline unsigned RTSI_Trig_Output_Bits(unsigned rtsi_channel,
 					     unsigned source)
@@ -534,6 +539,7 @@ static inline unsigned RTSI_Trig_Output_Mask(unsigned rtsi_channel)
 	return 0xf << ((rtsi_channel % 4) * 4);
 };
 
+/* inverse to RTSI_Trig_Output_Bits() */
 static inline unsigned RTSI_Trig_Output_Source(unsigned rtsi_channel,
 					       unsigned bits)
 {
@@ -600,38 +606,44 @@ static unsigned AO_UPDATE_Output_Select(enum ao_update_output_selection
 #define G_Status_Register		4
 #define Analog_Trigger_Etc_Register	61
 
-#define G_Disarm_Copy			_bit15	
+/* command register */
+#define G_Disarm_Copy			_bit15	/* strobe */
 #define G_Save_Trace_Copy		_bit14
-#define G_Arm_Copy			_bit13	
-#define G_Bank_Switch_Start		_bit10	
+#define G_Arm_Copy			_bit13	/* strobe */
+#define G_Bank_Switch_Start		_bit10	/* strobe */
 #define G_Little_Big_Endian		_bit9
 #define G_Synchronized_Gate		_bit8
 #define G_Write_Switch			_bit7
 #define G_Up_Down(a)			(((a)&0x03)<<5)
-#define G_Disarm			_bit4	
-#define G_Analog_Trigger_Reset		_bit3	
+#define G_Disarm			_bit4	/* strobe */
+#define G_Analog_Trigger_Reset		_bit3	/* strobe */
 #define G_Save_Trace			_bit1
-#define G_Arm				_bit0	
+#define G_Arm				_bit0	/* strobe */
 
+/*channel agnostic names for the command register #defines */
 #define G_Bank_Switch_Enable		_bit12
 #define G_Bank_Switch_Mode		_bit11
-#define G_Load				_bit2	
+#define G_Load				_bit2	/* strobe */
 
+/* input select register */
 #define G_Gate_Select(a)		(((a)&0x1f)<<7)
 #define G_Source_Select(a)		(((a)&0x1f)<<2)
 #define G_Write_Acknowledges_Irq	_bit1
 #define G_Read_Acknowledges_Irq		_bit0
 
+/* same input select register, but with channel agnostic names */
 #define G_Source_Polarity		_bit15
 #define G_Output_Polarity		_bit14
 #define G_OR_Gate			_bit13
 #define G_Gate_Select_Load_Source	_bit12
 
+/* mode register */
 #define G_Loading_On_TC			_bit12
 #define G_Output_Mode(a)		(((a)&0x03)<<8)
 #define G_Trigger_Mode_For_Edge_Gate(a)	(((a)&0x03)<<3)
 #define G_Gating_Mode(a)		(((a)&0x03)<<0)
 
+/* same input mode register, but with channel agnostic names */
 #define G_Load_Source_Select		_bit7
 #define G_Reload_Source_Switching	_bit15
 #define G_Loading_On_Gate		_bit14
@@ -641,6 +653,7 @@ static unsigned AO_UPDATE_Output_Select(enum ao_update_output_selection
 #define G_Stop_Mode(a)			(((a)&0x03)<<5)
 #define G_Gate_On_Both_Edges		_bit2
 
+/* G_Status_Register */
 #define G1_Gate_Error_St		_bit15
 #define G0_Gate_Error_St		_bit14
 #define G1_TC_Error_St			_bit13
@@ -658,8 +671,10 @@ static unsigned AO_UPDATE_Output_Select(enum ao_update_output_selection
 #define G1_Save_St			_bit1
 #define G0_Save_St			_bit0
 
+/* general purpose counter timer */
 #define G_Autoincrement(a)              ((a)<<0)
 
+/*Analog_Trigger_Etc_Register*/
 #define Analog_Trigger_Mode(x) ((x) & 0x7)
 #define Analog_Trigger_Enable _bit3
 #define Analog_Trigger_Drive _bit4
@@ -668,7 +683,9 @@ static unsigned AO_UPDATE_Output_Select(enum ao_update_output_selection
 #define GPFO_0_Output_Enable		_bit14
 #define GPFO_1_Output_Enable		_bit15
 
+/* Additional windowed registers unique to E series */
 
+/* 16 bit registers shadowed from DAQ-STC */
 #define Window_Address			0x00
 #define Window_Data			0x02
 
@@ -676,7 +693,9 @@ static unsigned AO_UPDATE_Output_Select(enum ao_update_output_selection
 #define ADC_FIFO_Clear			83
 #define DAC_FIFO_Clear			84
 
+/* i/o port offsets */
 
+/* 8 bit registers */
 #define XXX_Status			0x01
 enum XXX_Status_Bits {
 	PROMOUT = 0x1,
@@ -726,6 +745,7 @@ static inline unsigned GPCT_DMA_Select_Mask(unsigned gpct_index)
 	return 0xf << (4 * gpct_index);
 }
 
+/* 16 bit registers */
 
 #define Configuration_Memory_Low	0x10
 enum Configuration_Memory_Low_Bits {
@@ -757,61 +777,65 @@ static inline unsigned int AI_CONFIG_CHANNEL(unsigned int channel)
 #define DAC0_Direct_Data		0x18
 #define DAC1_Direct_Data		0x1a
 
+/* 611x registers (these boards differ from the e-series) */
 
-#define Magic_611x			0x19	
-#define Calibration_Channel_Select_611x	0x1a	
-#define ADC_FIFO_Data_611x		0x1c	
-#define AI_FIFO_Offset_Load_611x	0x05	
-#define DAC_FIFO_Data_611x		0x14	
-#define Cal_Gain_Select_611x		0x05	
+#define Magic_611x			0x19	/* w8 (new) */
+#define Calibration_Channel_Select_611x	0x1a	/* w16 (new) */
+#define ADC_FIFO_Data_611x		0x1c	/* r32 (incompatible) */
+#define AI_FIFO_Offset_Load_611x	0x05	/* r8 (new) */
+#define DAC_FIFO_Data_611x		0x14	/* w32 (incompatible) */
+#define Cal_Gain_Select_611x		0x05	/* w8 (new) */
 
 #define AO_Window_Address_611x		0x18
 #define AO_Window_Data_611x		0x1e
 
-#define Magic_6143			0x19	
-#define G0G1_DMA_Select_6143		0x0B	
-#define PipelineDelay_6143		0x1f	
-#define EOC_Set_6143			0x1D	
-#define AIDMA_Select_6143		0x09	
-#define AIFIFO_Data_6143		0x8C	
-#define AIFIFO_Flag_6143		0x84	
-#define AIFIFO_Control_6143		0x88	
-#define AIFIFO_Status_6143		0x88	
-#define AIFIFO_DMAThreshold_6143	0x90	
-#define AIFIFO_Words_Available_6143	0x94	
+/* 6143 registers */
+#define Magic_6143			0x19	/* w8 */
+#define G0G1_DMA_Select_6143		0x0B	/* w8 */
+#define PipelineDelay_6143		0x1f	/* w8 */
+#define EOC_Set_6143			0x1D	/* w8 */
+#define AIDMA_Select_6143		0x09	/* w8 */
+#define AIFIFO_Data_6143		0x8C	/* w32 */
+#define AIFIFO_Flag_6143		0x84	/* w32 */
+#define AIFIFO_Control_6143		0x88	/* w32 */
+#define AIFIFO_Status_6143		0x88	/* w32 */
+#define AIFIFO_DMAThreshold_6143	0x90	/* w32 */
+#define AIFIFO_Words_Available_6143	0x94	/* w32 */
 
-#define Calibration_Channel_6143	0x42	
-#define Calibration_LowTime_6143	0x20	
-#define Calibration_HighTime_6143	0x22	
-#define Relay_Counter_Load_Val__6143	0x4C	
-#define Signature_6143			0x50	
-#define Release_Date_6143		0x54	
-#define Release_Oldest_Date_6143	0x58	
+#define Calibration_Channel_6143	0x42	/* w16 */
+#define Calibration_LowTime_6143	0x20	/* w16 */
+#define Calibration_HighTime_6143	0x22	/* w16 */
+#define Relay_Counter_Load_Val__6143	0x4C	/* w32 */
+#define Signature_6143			0x50	/* w32 */
+#define Release_Date_6143		0x54	/* w32 */
+#define Release_Oldest_Date_6143	0x58	/* w32 */
 
-#define Calibration_Channel_6143_RelayOn	0x8000	
-#define Calibration_Channel_6143_RelayOff	0x4000	
-#define Calibration_Channel_Gnd_Gnd	0x00	
-#define Calibration_Channel_2v5_Gnd	0x02	
-#define Calibration_Channel_Pwm_Gnd	0x05	
-#define Calibration_Channel_2v5_Pwm	0x0a	
-#define Calibration_Channel_Pwm_Pwm	0x0d	
-#define Calibration_Channel_Gnd_Pwm	0x0e	
+#define Calibration_Channel_6143_RelayOn	0x8000	/* Calibration relay switch On */
+#define Calibration_Channel_6143_RelayOff	0x4000	/* Calibration relay switch Off */
+#define Calibration_Channel_Gnd_Gnd	0x00	/* Offset Calibration */
+#define Calibration_Channel_2v5_Gnd	0x02	/* 2.5V Reference */
+#define Calibration_Channel_Pwm_Gnd	0x05	/* +/- 5V Self Cal */
+#define Calibration_Channel_2v5_Pwm	0x0a	/* PWM Calibration */
+#define Calibration_Channel_Pwm_Pwm	0x0d	/* CMRR */
+#define Calibration_Channel_Gnd_Pwm	0x0e	/* PWM Calibration */
 
+/* 671x, 611x registers */
 
+/* 671xi, 611x windowed ao registers */
 enum windowed_regs_67xx_61xx {
-	AO_Immediate_671x = 0x11,	
-	AO_Timed_611x = 0x10,	
-	AO_FIFO_Offset_Load_611x = 0x13,	
-	AO_Later_Single_Point_Updates = 0x14,	
-	AO_Waveform_Generation_611x = 0x15,	
-	AO_Misc_611x = 0x16,	
-	AO_Calibration_Channel_Select_67xx = 0x17,	
-	AO_Configuration_2_67xx = 0x18,	
-	CAL_ADC_Command_67xx = 0x19,	
-	CAL_ADC_Status_67xx = 0x1a,	
-	CAL_ADC_Data_67xx = 0x1b,	
-	CAL_ADC_Config_Data_High_Word_67xx = 0x1c,	
-	CAL_ADC_Config_Data_Low_Word_67xx = 0x1d,	
+	AO_Immediate_671x = 0x11,	/* W 16 */
+	AO_Timed_611x = 0x10,	/* W 16 */
+	AO_FIFO_Offset_Load_611x = 0x13,	/* W32 */
+	AO_Later_Single_Point_Updates = 0x14,	/* W 16 */
+	AO_Waveform_Generation_611x = 0x15,	/* W 16 */
+	AO_Misc_611x = 0x16,	/* W 16 */
+	AO_Calibration_Channel_Select_67xx = 0x17,	/* W 16 */
+	AO_Configuration_2_67xx = 0x18,	/* W 16 */
+	CAL_ADC_Command_67xx = 0x19,	/* W 8 */
+	CAL_ADC_Status_67xx = 0x1a,	/* R 8 */
+	CAL_ADC_Data_67xx = 0x1b,	/* R 16 */
+	CAL_ADC_Config_Data_High_Word_67xx = 0x1c,	/* RW 16 */
+	CAL_ADC_Config_Data_Low_Word_67xx = 0x1d,	/* RW 16 */
 };
 static inline unsigned int DACx_Direct_Data_671x(int channel)
 {
@@ -868,11 +892,15 @@ enum cs5529_command_bits {
 };
 enum cs5529_status_bits {
 	CSS_ADC_BUSY = 0x1,
-	CSS_OSC_DETECT = 0x2,	
+	CSS_OSC_DETECT = 0x2,	/* indicates adc error */
 	CSS_OVERRANGE = 0x4,
 };
 #define SerDacLd(x)			(0x08<<(x))
 
+/*
+	This is stuff unique to the NI E series drivers,
+	but I thought I'd put it here anyway.
+*/
 
 enum { ai_gain_16 =
 	    0, ai_gain_8, ai_gain_14, ai_gain_4, ai_gain_611x, ai_gain_622x,
@@ -898,42 +926,42 @@ enum ni_reg_type {
 static const struct comedi_lrange range_ni_E_ao_ext;
 
 enum m_series_register_offsets {
-	M_Offset_CDIO_DMA_Select = 0x7,	
-	M_Offset_SCXI_Status = 0x7,	
-	M_Offset_AI_AO_Select = 0x9,	
-	M_Offset_SCXI_Serial_Data_In = 0x9,	
-	M_Offset_G0_G1_Select = 0xb,	
+	M_Offset_CDIO_DMA_Select = 0x7,	/*  write */
+	M_Offset_SCXI_Status = 0x7,	/*  read */
+	M_Offset_AI_AO_Select = 0x9,	/*  write, same offset as e-series */
+	M_Offset_SCXI_Serial_Data_In = 0x9,	/*  read */
+	M_Offset_G0_G1_Select = 0xb,	/*  write, same offset as e-series */
 	M_Offset_Misc_Command = 0xf,
 	M_Offset_SCXI_Serial_Data_Out = 0x11,
 	M_Offset_SCXI_Control = 0x13,
 	M_Offset_SCXI_Output_Enable = 0x15,
 	M_Offset_AI_FIFO_Data = 0x1c,
-	M_Offset_Static_Digital_Output = 0x24,	
-	M_Offset_Static_Digital_Input = 0x24,	
+	M_Offset_Static_Digital_Output = 0x24,	/*  write */
+	M_Offset_Static_Digital_Input = 0x24,	/*  read */
 	M_Offset_DIO_Direction = 0x28,
 	M_Offset_Cal_PWM = 0x40,
 	M_Offset_AI_Config_FIFO_Data = 0x5e,
-	M_Offset_Interrupt_C_Enable = 0x88,	
-	M_Offset_Interrupt_C_Status = 0x88,	
+	M_Offset_Interrupt_C_Enable = 0x88,	/*  write */
+	M_Offset_Interrupt_C_Status = 0x88,	/*  read */
 	M_Offset_Analog_Trigger_Control = 0x8c,
 	M_Offset_AO_Serial_Interrupt_Enable = 0xa0,
-	M_Offset_AO_Serial_Interrupt_Ack = 0xa1,	
-	M_Offset_AO_Serial_Interrupt_Status = 0xa1,	
+	M_Offset_AO_Serial_Interrupt_Ack = 0xa1,	/*  write */
+	M_Offset_AO_Serial_Interrupt_Status = 0xa1,	/*  read */
 	M_Offset_AO_Calibration = 0xa3,
 	M_Offset_AO_FIFO_Data = 0xa4,
 	M_Offset_PFI_Filter = 0xb0,
 	M_Offset_RTSI_Filter = 0xb4,
 	M_Offset_SCXI_Legacy_Compatibility = 0xbc,
-	M_Offset_Interrupt_A_Ack = 0x104,	
-	M_Offset_AI_Status_1 = 0x104,	
-	M_Offset_Interrupt_B_Ack = 0x106,	
-	M_Offset_AO_Status_1 = 0x106,	
-	M_Offset_AI_Command_2 = 0x108,	
-	M_Offset_G01_Status = 0x108,	
+	M_Offset_Interrupt_A_Ack = 0x104,	/*  write */
+	M_Offset_AI_Status_1 = 0x104,	/*  read */
+	M_Offset_Interrupt_B_Ack = 0x106,	/*  write */
+	M_Offset_AO_Status_1 = 0x106,	/*  read */
+	M_Offset_AI_Command_2 = 0x108,	/*  write */
+	M_Offset_G01_Status = 0x108,	/*  read */
 	M_Offset_AO_Command_2 = 0x10a,
-	M_Offset_AO_Status_2 = 0x10c,	
-	M_Offset_G0_Command = 0x10c,	
-	M_Offset_G1_Command = 0x10e,	
+	M_Offset_AO_Status_2 = 0x10c,	/*  read */
+	M_Offset_G0_Command = 0x10c,	/*  write */
+	M_Offset_G1_Command = 0x10e,	/*  write */
 	M_Offset_G0_HW_Save = 0x110,
 	M_Offset_G0_HW_Save_High = 0x110,
 	M_Offset_AI_Command_1 = 0x110,
@@ -951,17 +979,17 @@ enum m_series_register_offsets {
 	M_Offset_G1_Save = 0x11c,
 	M_Offset_G1_Save_High = 0x11c,
 	M_Offset_G1_Save_Low = 0x11e,
-	M_Offset_AI_SI_Load_B = 0x120,	
-	M_Offset_AO_UI_Save = 0x120,	
-	M_Offset_AI_SC_Load_A = 0x124,	
-	M_Offset_AO_BC_Save = 0x124,	
-	M_Offset_AI_SC_Load_B = 0x128,	
-	M_Offset_AO_UC_Save = 0x128,	
+	M_Offset_AI_SI_Load_B = 0x120,	/*  write */
+	M_Offset_AO_UI_Save = 0x120,	/*  read */
+	M_Offset_AI_SC_Load_A = 0x124,	/*  write */
+	M_Offset_AO_BC_Save = 0x124,	/*  read */
+	M_Offset_AI_SC_Load_B = 0x128,	/*  write */
+	M_Offset_AO_UC_Save = 0x128,	/* read */
 	M_Offset_AI_SI2_Load_A = 0x12c,
 	M_Offset_AI_SI2_Load_B = 0x130,
 	M_Offset_G0_Mode = 0x134,
-	M_Offset_G1_Mode = 0x136,	
-	M_Offset_Joint_Status_1 = 0x136,	
+	M_Offset_G1_Mode = 0x136,	/*  write */
+	M_Offset_Joint_Status_1 = 0x136,	/*  read */
 	M_Offset_G0_Load_A = 0x138,
 	M_Offset_Joint_Status_2 = 0x13a,
 	M_Offset_G0_Load_B = 0x13c,
@@ -985,10 +1013,10 @@ enum m_series_register_offsets {
 	M_Offset_Analog_Trigger_Etc = 0x17a,
 	M_Offset_AI_START_STOP_Select = 0x17c,
 	M_Offset_AI_Trigger_Select = 0x17e,
-	M_Offset_AI_SI_Save = 0x180,	
-	M_Offset_AI_DIV_Load_A = 0x180,	
-	M_Offset_AI_SC_Save = 0x184,	
-	M_Offset_AO_Start_Select = 0x184,	
+	M_Offset_AI_SI_Save = 0x180,	/*  read */
+	M_Offset_AI_DIV_Load_A = 0x180,	/*  write */
+	M_Offset_AI_SC_Save = 0x184,	/*  read */
+	M_Offset_AO_Start_Select = 0x184,	/*  write */
 	M_Offset_AO_Trigger_Select = 0x186,
 	M_Offset_AO_Mode_3 = 0x18c,
 	M_Offset_G0_Autoincrement = 0x188,
@@ -1010,10 +1038,10 @@ enum m_series_register_offsets {
 	M_Offset_G1_Counting_Mode = 0x1b2,
 	M_Offset_G0_Second_Gate = 0x1b4,
 	M_Offset_G1_Second_Gate = 0x1b6,
-	M_Offset_G0_DMA_Config = 0x1b8,	
-	M_Offset_G0_DMA_Status = 0x1b8,	
-	M_Offset_G1_DMA_Config = 0x1ba,	
-	M_Offset_G1_DMA_Status = 0x1ba,	
+	M_Offset_G0_DMA_Config = 0x1b8,	/*  write */
+	M_Offset_G0_DMA_Status = 0x1b8,	/*  read */
+	M_Offset_G1_DMA_Config = 0x1ba,	/*  write */
+	M_Offset_G1_DMA_Status = 0x1ba,	/*  read */
 	M_Offset_G0_MSeries_ABZ = 0x1c0,
 	M_Offset_G1_MSeries_ABZ = 0x1c2,
 	M_Offset_Clock_and_Fout2 = 0x1c4,
@@ -1029,10 +1057,10 @@ enum m_series_register_offsets {
 	M_Offset_PFI_DO = 0x1de,
 	M_Offset_AI_Config_FIFO_Bypass = 0x218,
 	M_Offset_SCXI_DIO_Enable = 0x21c,
-	M_Offset_CDI_FIFO_Data = 0x220,	
-	M_Offset_CDO_FIFO_Data = 0x220,	
-	M_Offset_CDIO_Status = 0x224,	
-	M_Offset_CDIO_Command = 0x224,	
+	M_Offset_CDI_FIFO_Data = 0x220,	/*  read */
+	M_Offset_CDO_FIFO_Data = 0x220,	/*  write */
+	M_Offset_CDIO_Status = 0x224,	/*  read */
+	M_Offset_CDIO_Command = 0x224,	/*  write */
 	M_Offset_CDI_Mode = 0x228,
 	M_Offset_CDO_Mode = 0x22c,
 	M_Offset_CDI_Mask_Enable = 0x230,
@@ -1106,7 +1134,7 @@ enum MSeries_AI_Config_FIFO_Data_Bits {
 	MSeries_AI_Config_Channel_Type_Ground_Ref_Bits = 0x3 << 6,
 	MSeries_AI_Config_Channel_Type_Aux_Bits = 0x5 << 6,
 	MSeries_AI_Config_Channel_Type_Ghost_Bits = 0x7 << 6,
-	MSeries_AI_Config_Polarity_Bit = 0x1000,	
+	MSeries_AI_Config_Polarity_Bit = 0x1000,	/*  0 for 2's complement encoding */
 	MSeries_AI_Config_Dither_Bit = 0x2000,
 	MSeries_AI_Config_Last_Channel_Bit = 0x4000,
 };
@@ -1137,8 +1165,11 @@ enum MSeries_Clock_and_Fout2_Bits {
 	MSeries_PLL_In_Source_Select_RTSI7_Bits = 0x1b,
 	MSeries_PLL_In_Source_Select_PXI_Clock10 = 0x1d,
 	MSeries_PLL_In_Source_Select_Mask = 0x1f,
-	MSeries_Timebase1_Select_Bit = 0x20,	
-	MSeries_Timebase3_Select_Bit = 0x40,	
+	MSeries_Timebase1_Select_Bit = 0x20,	/*  use PLL for timebase 1 */
+	MSeries_Timebase3_Select_Bit = 0x40,	/*  use PLL for timebase 3 */
+	/* use 10MHz instead of 20MHz for RTSI clock frequency.  Appears
+	   to have no effect, at least on pxi-6281, which always uses
+	   20MHz rtsi clock frequency */
 	MSeries_RTSI_10MHz_Bit = 0x80
 };
 static inline unsigned MSeries_PLL_In_Source_Select_RTSI_Bits(unsigned
@@ -1196,7 +1227,7 @@ enum MSeries_AI_Config_FIFO_Bypass_Bits {
 	MSeries_AO_Bypass_AO_Cal_Sel_Mask = 0x38000,
 	MSeries_AI_Bypass_Gain_Mask = 0x1c0000,
 	MSeries_AI_Bypass_Dither_Bit = 0x200000,
-	MSeries_AI_Bypass_Polarity_Bit = 0x400000,	
+	MSeries_AI_Bypass_Polarity_Bit = 0x400000,	/*  0 for 2's complement encoding */
 	MSeries_AI_Bypass_Config_FIFO_Bit = 0x80000000
 };
 static inline unsigned MSeries_AI_Bypass_Cal_Sel_Pos_Bits(int
@@ -1224,7 +1255,7 @@ enum MSeries_AO_Config_Bank_Bits {
 	MSeries_AO_DAC_Reference_10V_Internal_Bits = 0x0,
 	MSeries_AO_DAC_Reference_5V_Internal_Bits = 0x8,
 	MSeries_AO_Update_Timed_Bit = 0x40,
-	MSeries_AO_Bipolar_Bit = 0x80	
+	MSeries_AO_Bipolar_Bit = 0x80	/*  turns on 2's complement encoding */
 };
 
 enum MSeries_AO_Reference_Attenuation_Bits {
@@ -1252,6 +1283,7 @@ static inline unsigned MSeries_PFI_Output_Select_Bits(unsigned channel,
 	return (source & 0x1f) << ((channel % 3) * 5);
 };
 
+/* inverse to MSeries_PFI_Output_Select_Bits */
 static inline unsigned MSeries_PFI_Output_Select_Source(unsigned channel,
 							unsigned bits)
 {
@@ -1324,9 +1356,9 @@ enum CDIO_Command_Bits {
 enum CDI_Mode_Bits {
 	CDI_Sample_Source_Select_Mask = 0x3f,
 	CDI_Halt_On_Error_Bit = 0x200,
-	CDI_Polarity_Bit = 0x400,	
-	CDI_FIFO_Mode_Bit = 0x800,	
-	CDI_Data_Lane_Mask = 0x3000,	
+	CDI_Polarity_Bit = 0x400,	/*  sample clock on falling edge */
+	CDI_FIFO_Mode_Bit = 0x800,	/*  set for half full mode, clear for not empty mode */
+	CDI_Data_Lane_Mask = 0x3000,	/*  data lanes specify which dio channels map to byte or word accesses to the dio fifos */
 	CDI_Data_Lane_0_15_Bits = 0x0,
 	CDI_Data_Lane_16_31_Bits = 0x1000,
 	CDI_Data_Lane_0_7_Bits = 0x0,
@@ -1339,9 +1371,9 @@ enum CDO_Mode_Bits {
 	CDO_Sample_Source_Select_Mask = 0x3f,
 	CDO_Retransmit_Bit = 0x100,
 	CDO_Halt_On_Error_Bit = 0x200,
-	CDO_Polarity_Bit = 0x400,	
-	CDO_FIFO_Mode_Bit = 0x800,	
-	CDO_Data_Lane_Mask = 0x3000,	
+	CDO_Polarity_Bit = 0x400,	/*  sample clock on falling edge */
+	CDO_FIFO_Mode_Bit = 0x800,	/*  set for half full mode, clear for not full mode */
+	CDO_Data_Lane_Mask = 0x3000,	/*  data lanes specify which dio channels map to byte or word accesses to the dio fifos */
 	CDO_Data_Lane_0_15_Bits = 0x0,
 	CDO_Data_Lane_16_31_Bits = 0x1000,
 	CDO_Data_Lane_0_7_Bits = 0x0,
@@ -1481,4 +1513,4 @@ struct ni_board_struct {
 	struct mite_dma_descriptor_ring *cdo_mite_ring; \
 	struct mite_dma_descriptor_ring *gpct_mite_ring[NUM_GPCT];
 
-#endif 
+#endif /* _COMEDI_NI_STC_H */

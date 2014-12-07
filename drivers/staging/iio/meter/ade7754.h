@@ -75,6 +75,13 @@
 
 #define DRIVER_NAME		"ade7754"
 
+/**
+ * struct ade7754_state - device instance specific data
+ * @us:			actual spi_device
+ * @buf_lock:		mutex to protect tx and rx
+ * @tx:			transmit buffer
+ * @rx:			receive buffer
+ **/
 struct ade7754_state {
 	struct spi_device	*us;
 	struct mutex		buf_lock;

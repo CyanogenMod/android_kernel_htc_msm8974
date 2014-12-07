@@ -42,6 +42,7 @@ static const struct smbus_methods_t smbus_methods = {
 	.mt_sbw  = "_SBW",
 };
 
+/* Some IBM BIOSes omit the leading underscore */
 static const struct smbus_methods_t ibm_smbus_methods = {
 	.mt_info = "SBI_",
 	.mt_sbr  = "SBR_",

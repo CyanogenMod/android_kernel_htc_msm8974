@@ -16,6 +16,12 @@
 #include "act2000_isa.h"
 #include "capi.h"
 
+/*
+ * Reset Controller, then try to read the Card's signature.
+ + Return:
+ *   1 = Signature found.
+ *   0 = Signature not found.
+ */
 static int
 act2000_isa_reset(unsigned short portbase)
 {
@@ -62,14 +68,14 @@ act2000_isa_interrupt(int dummy, void *dev_id)
 
 	istatus = (inb(ISA_PORT_ISR) & 0x07);
 	if (istatus & ISA_ISR_OUT) {
-		
+		/* RX fifo has data */
 		istatus &= ISA_ISR_OUT_MASK;
 		outb(0, ISA_PORT_SIS);
 		act2000_isa_receive(card);
 		outb(ISA_SIS_INT, ISA_PORT_SIS);
 	}
 	if (istatus & ISA_ISR_ERR) {
-		
+		/* Error Interrupt */
 		istatus &= ISA_ISR_ERR_MASK;
 		printk(KERN_WARNING "act2000: errIRQ\n");
 	}
@@ -114,10 +120,14 @@ static void
 act2000_isa_enable_irq(act2000_card *card)
 {
 	act2000_isa_select_irq(card);
-	
+	/* Enable READ irq */
 	outb(ISA_SIS_INT, ISA_PORT_SIS);
 }
 
+/*
+ * Install interrupt handler, enable irq on card.
+ * If irq is -1, choose next free irq, else irq is given explicitly.
+ */
 int
 act2000_isa_config_irq(act2000_card *card, short irq)
 {
@@ -141,7 +151,7 @@ act2000_isa_config_irq(act2000_card *card, short irq)
 		return -EBUSY;
 	} else {
 		act2000_isa_select_irq(card);
-		
+		/* Disable READ and WRITE irq */
 		outb(0, ISA_PORT_SIS);
 		outb(0, ISA_PORT_SOS);
 	}
@@ -164,6 +174,9 @@ act2000_isa_config_port(act2000_card *card, unsigned short portbase)
 	}
 }
 
+/*
+ * Release ressources, used by an adaptor.
+ */
 void
 act2000_isa_release(act2000_card *card)
 {
@@ -268,7 +281,7 @@ act2000_isa_receive(act2000_card *card)
 		}
 	}
 	if (!(card->flags & ACT2000_FLAGS_IVALID)) {
-		
+		/* In polling mode, schedule myself */
 		if ((card->idat.isa.rcvidx) &&
 		    (card->idat.isa.rcvignore ||
 		     (card->idat.isa.rcvidx < card->idat.isa.rcvlen)))
@@ -295,7 +308,7 @@ act2000_isa_send(act2000_card *card)
 				msg = (actcapi_msg *)card->sbuf->data;
 				if ((msg->hdr.cmd.cmd == 0x86) &&
 				    (msg->hdr.cmd.subcmd == 0)) {
-					
+					/* Save flags in message */
 					card->need_b3ack = msg->msg.data_b3_req.flags;
 					msg->msg.data_b3_req.flags = 0;
 				}
@@ -303,7 +316,7 @@ act2000_isa_send(act2000_card *card)
 		}
 		spin_unlock_irqrestore(&card->lock, flags);
 		if (!(card->sbuf)) {
-			
+			/* No more data to send */
 			test_and_clear_bit(ACT2000_LOCK_TX, (void *) &card->ilock);
 			return;
 		}
@@ -311,9 +324,9 @@ act2000_isa_send(act2000_card *card)
 		l = 0;
 		while (skb->len) {
 			if (act2000_isa_writeb(card, *(skb->data))) {
-				
+				/* Fifo is full, but more data to send */
 				test_and_clear_bit(ACT2000_LOCK_TX, (void *) &card->ilock);
-				
+				/* Schedule myself */
 				act2000_schedule_tx(card);
 				return;
 			}
@@ -323,8 +336,12 @@ act2000_isa_send(act2000_card *card)
 		msg = (actcapi_msg *)card->ack_msg;
 		if ((msg->hdr.cmd.cmd == 0x86) &&
 		    (msg->hdr.cmd.subcmd == 0)) {
+			/*
+			 * If it's user data, reset data-ptr
+			 * and put skb into ackq.
+			 */
 			skb->data = card->ack_msg;
-			
+			/* Restore flags in message */
 			msg->msg.data_b3_req.flags = card->need_b3ack;
 			skb_queue_tail(&card->ackq, skb);
 		} else
@@ -333,6 +350,9 @@ act2000_isa_send(act2000_card *card)
 	}
 }
 
+/*
+ * Get firmware ID, check for 'ISDN' signature.
+ */
 static int
 act2000_isa_getid(act2000_card *card)
 {
@@ -368,6 +388,9 @@ act2000_isa_getid(act2000_card *card)
 	return 0;
 }
 
+/*
+ * Download microcode into card, check Firmware signature.
+ */
 int
 act2000_isa_download(act2000_card *card, act2000_ddef __user *cb)
 {

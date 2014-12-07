@@ -2,6 +2,9 @@
  *  Copyright (c) 1999-2001 Vojtech Pavlik
  */
 
+/*
+ *  Input driver event debug module - dumps all events into syslog
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -88,8 +91,8 @@ static void evbug_disconnect(struct input_handle *handle)
 }
 
 static const struct input_device_id evbug_ids[] = {
-	{ .driver_info = 1 },	
-	{ },			
+	{ .driver_info = 1 },	/* Matches all devices */
+	{ },			/* Terminating zero entry */
 };
 
 MODULE_DEVICE_TABLE(input, evbug_ids);

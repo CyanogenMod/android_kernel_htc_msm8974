@@ -73,6 +73,9 @@ struct gpio_regs {
 	void __iomem *dir_clr;
 };
 
+/*
+ * GPIO names
+ */
 static const char *gpio_p0_names[LPC32XX_GPIO_P0_MAX] = {
 	"p0.0", "p0.1", "p0.2", "p0.3",
 	"p0.4", "p0.5", "p0.6", "p0.7"
@@ -227,6 +230,10 @@ static int __get_gpio_state_p3(struct lpc32xx_gpio_chip *group,
 {
 	int state = __raw_readl(group->gpio_grp->inp_state);
 
+	/*
+	 * P3 GPIO pin input mapping is not contiguous, GPIOP3-0..4 is mapped
+	 * to bits 10..14, while GPIOP3-5 is mapped to bit 24.
+	 */
 	return GPIO3_PIN_IN_SEL(state, pin);
 }
 
@@ -242,6 +249,9 @@ static int __get_gpo_state_p3(struct lpc32xx_gpio_chip *group,
 	return GPO3_PIN_IN_SEL(__raw_readl(group->gpio_grp->outp_state), pin);
 }
 
+/*
+ * GENERIC_GPIO primitives.
+ */
 static int lpc32xx_gpio_dir_input_p012(struct gpio_chip *chip,
 	unsigned pin)
 {

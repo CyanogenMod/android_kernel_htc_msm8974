@@ -21,13 +21,13 @@ extern void _flush_cache_copyback_all(void);
 #define flush_icache_page(vma,pg)		_flush_cache_copyback_all()
 #define flush_icache_user_range(vma,pg,adr,len)	_flush_cache_copyback_all()
 #define flush_cache_sigtramp(addr)		_flush_cache_copyback_all()
-#else	
+#else	/* CONFIG_SMP */
 extern void smp_flush_cache_all(void);
 #define flush_icache_range(start, end)		smp_flush_cache_all()
 #define flush_icache_page(vma,pg)		smp_flush_cache_all()
 #define flush_icache_user_range(vma,pg,adr,len)	smp_flush_cache_all()
 #define flush_cache_sigtramp(addr)		_flush_cache_copyback_all()
-#endif	
+#endif	/* CONFIG_SMP */
 #elif defined(CONFIG_CHIP_M32102)
 #define flush_cache_all()			do { } while (0)
 #define flush_cache_mm(mm)			do { } while (0)
@@ -56,7 +56,7 @@ extern void smp_flush_cache_all(void);
 #define flush_icache_page(vma,pg)		do { } while (0)
 #define flush_icache_user_range(vma,pg,adr,len)	do { } while (0)
 #define flush_cache_sigtramp(addr)		do { } while (0)
-#endif	
+#endif	/* CONFIG_CHIP_* */
 
 #define flush_cache_vmap(start, end)	do { } while (0)
 #define flush_cache_vunmap(start, end)	do { } while (0)
@@ -69,4 +69,4 @@ do {								\
 #define copy_from_user_page(vma, page, vaddr, dst, src, len)	\
 	memcpy(dst, src, len)
 
-#endif 
+#endif /* _ASM_M32R_CACHEFLUSH_H */

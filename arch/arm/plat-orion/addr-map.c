@@ -23,22 +23,37 @@ const struct mbus_dram_target_info *mv_mbus_dram_info(void)
 }
 EXPORT_SYMBOL_GPL(mv_mbus_dram_info);
 
+/*
+ * DDR target is the same on all Orion platforms.
+ */
 #define TARGET_DDR		0
 
+/*
+ * Helpers to get DDR bank info
+ */
 #define DDR_BASE_CS_OFF(n)	(0x0000 + ((n) << 3))
 #define DDR_SIZE_CS_OFF(n)	(0x0004 + ((n) << 3))
 
+/*
+ * CPU Address Decode Windows registers
+ */
 #define WIN_CTRL_OFF		0x0000
 #define WIN_BASE_OFF		0x0004
 #define WIN_REMAP_LO_OFF	0x0008
 #define WIN_REMAP_HI_OFF	0x000c
 
+/*
+ * Default implementation
+ */
 static void __init __iomem *
 orion_win_cfg_base(const struct orion_addr_map_cfg *cfg, int win)
 {
 	return (void __iomem *)(cfg->bridge_virt_base + (win << 4));
 }
 
+/*
+ * Default implementation
+ */
 static int __init orion_cpu_win_can_remap(const struct orion_addr_map_cfg *cfg,
 					  const int win)
 {
@@ -76,6 +91,9 @@ void __init orion_setup_cpu_win(const struct orion_addr_map_cfg *cfg,
 	}
 }
 
+/*
+ * Configure a number of windows.
+ */
 static void __init orion_setup_cpu_wins(const struct orion_addr_map_cfg * cfg,
 					const struct orion_addr_map_info *info)
 {
@@ -103,6 +121,9 @@ static void __init orion_disable_wins(const struct orion_addr_map_cfg * cfg)
 	}
 }
 
+/*
+ * Disable, clear and configure windows.
+ */
 void __init orion_config_wins(struct orion_addr_map_cfg * cfg,
 			      const struct orion_addr_map_info *info)
 {
@@ -118,6 +139,9 @@ void __init orion_config_wins(struct orion_addr_map_cfg * cfg,
 		orion_setup_cpu_wins(cfg, info);
 }
 
+/*
+ * Setup MBUS dram target info.
+ */
 void __init orion_setup_cpu_mbus_target(const struct orion_addr_map_cfg *cfg,
 					const u32 ddr_window_cpu_base)
 {
@@ -133,6 +157,9 @@ void __init orion_setup_cpu_mbus_target(const struct orion_addr_map_cfg *cfg,
 		u32 base = readl(addr + DDR_BASE_CS_OFF(i));
 		u32 size = readl(addr + DDR_SIZE_CS_OFF(i));
 
+		/*
+		 * Chip select enabled?
+		 */
 		if (size & 1) {
 			struct mbus_dram_window *w;
 

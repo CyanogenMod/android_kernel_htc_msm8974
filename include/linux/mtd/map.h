@@ -17,6 +17,7 @@
  *
  */
 
+/* Overhauled routines for dealing with different mmap regions of flash */
 
 #ifndef __LINUX_MTD_MAP_H__
 #define __LINUX_MTD_MAP_H__
@@ -73,6 +74,8 @@
 #define map_bankwidth_is_4(map) (0)
 #endif
 
+/* ensure we never evaluate anything shorted than an unsigned long
+ * to zero, and ensure we'll never miss the end of an comparison (bjd) */
 
 #define map_calc_words(map) ((map_bankwidth(map) + (sizeof(unsigned long)-1))/ sizeof(unsigned long))
 
@@ -184,6 +187,23 @@ typedef union {
 	unsigned long x[MAX_MAP_LONGS];
 } map_word;
 
+/* The map stuff is very simple. You fill in your struct map_info with
+   a handful of routines for accessing the device, making sure they handle
+   paging etc. correctly if your device needs it. Then you pass it off
+   to a chip probe routine -- either JEDEC or CFI probe or both -- via
+   do_map_probe(). If a chip is recognised, the probe code will invoke the
+   appropriate chip driver (if present) and return a struct mtd_info.
+   At which point, you fill in the mtd->module with your own module
+   address, and register it with the MTD core code. Or you could partition
+   it and register the partitions instead, or keep it for your own private
+   use; whatever.
+
+   The mtd->priv field will point to the struct map_info, and any further
+   private data required by the chip driver is linked from the
+   mtd->priv->fldrv_priv field. This allows the map driver to get at
+   the destructor function map->fldrv_destroy() when it's tired
+   of living.
+*/
 
 struct map_info {
 	const char *name;
@@ -194,8 +214,11 @@ struct map_info {
 	void __iomem *virt;
 	void *cached;
 
-	int swap; 
-	int bankwidth; 
+	int swap; /* this mapping's byte-swapping requirement */
+	int bankwidth; /* in octets. This isn't necessarily the width
+		       of actual bus cycles -- it's the repeat interval
+		      in bytes, before you are talking to the first chip again.
+		      */
 
 #ifdef CONFIG_MTD_COMPLEX_MAPPINGS
 	map_word (*read)(struct map_info *, unsigned long);
@@ -204,9 +227,19 @@ struct map_info {
 	void (*write)(struct map_info *, const map_word, unsigned long);
 	void (*copy_to)(struct map_info *, unsigned long, const void *, ssize_t);
 
+	/* We can perhaps put in 'point' and 'unpoint' methods, if we really
+	   want to enable XIP for non-linear mappings. Not yet though. */
 #endif
+	/* It's possible for the map driver to use cached memory in its
+	   copy_from implementation (and _only_ with copy_from).  However,
+	   when the chip driver knows some flash area has changed contents,
+	   it will signal it to the map driver through this routine to let
+	   the map driver invalidate the corresponding cache as needed.
+	   If there is no cache to care about this can be set to NULL. */
 	void (*inval_cache)(struct map_info *, unsigned long, ssize_t);
 
+	/* set_vpp() must handle being reentered -- enable, enable, disable
+	   must leave it enabled. */
 	void (*set_vpp)(struct map_info *, int);
 
 	unsigned long pfow_base;
@@ -325,7 +358,7 @@ static inline map_word map_word_load_partial(struct map_info *map, map_word orig
 			int bitpos;
 #ifdef __LITTLE_ENDIAN
 			bitpos = i*8;
-#else 
+#else /* __BIG_ENDIAN */
 			bitpos = (map_bankwidth(map)-1-i)*8;
 #endif
 			orig.x[0] &= ~(0xff << bitpos);
@@ -427,6 +460,6 @@ extern void simple_map_init(struct map_info *);
 #define simple_map_init(map) BUG_ON(!map_bankwidth_supported((map)->bankwidth))
 #define map_is_linear(map) ({ (void)(map); 1; })
 
-#endif 
+#endif /* !CONFIG_MTD_COMPLEX_MAPPINGS */
 
-#endif 
+#endif /* __LINUX_MTD_MAP_H__ */

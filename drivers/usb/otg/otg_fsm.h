@@ -41,8 +41,9 @@
 #define PROTO_HOST	(1)
 #define PROTO_GADGET	(2)
 
+/* OTG state machine according to the OTG spec */
 struct otg_fsm {
-	
+	/* Input */
 	int a_bus_resume;
 	int a_bus_suspend;
 	int a_conn;
@@ -57,25 +58,25 @@ struct otg_fsm {
 	int b_sess_vld;
 	int id;
 
-	
+	/* Internal variables */
 	int a_set_b_hnp_en;
 	int b_srp_done;
 	int b_hnp_enable;
 
-	
+	/* Timeout indicator for timers */
 	int a_wait_vrise_tmout;
 	int a_wait_bcon_tmout;
 	int a_aidl_bdis_tmout;
 	int b_ase0_brst_tmout;
 
-	
+	/* Informative variables */
 	int a_bus_drop;
 	int a_bus_req;
 	int a_clr_err;
 	int a_suspend_req;
 	int b_bus_req;
 
-	
+	/* Output */
 	int drv_vbus;
 	int loc_conn;
 	int loc_sof;
@@ -83,7 +84,7 @@ struct otg_fsm {
 	struct otg_fsm_ops *ops;
 	struct usb_otg *otg;
 
-	
+	/* Current usb protocol used: 0:undefine; 1:host; 2:client */
 	int protocol;
 	spinlock_t lock;
 };
@@ -147,6 +148,7 @@ static inline void otg_del_timer(struct otg_fsm *fsm, void *timer)
 
 int otg_statemachine(struct otg_fsm *fsm);
 
+/* Defined by device specific driver, for different timer implementation */
 extern struct fsl_otg_timer *a_wait_vrise_tmr, *a_wait_bcon_tmr,
 	*a_aidl_bdis_tmr, *b_ase0_brst_tmr, *b_se0_srp_tmr, *b_srp_fail_tmr,
 	*a_wait_enum_tmr;

@@ -13,8 +13,10 @@
 
 #include <loongson.h>
 
+/* ioremapped */
 unsigned long _loongson_uart_base;
 EXPORT_SYMBOL(_loongson_uart_base);
+/* raw */
 unsigned long loongson_uart_base;
 EXPORT_SYMBOL(loongson_uart_base);
 
@@ -33,7 +35,7 @@ void prom_init_loongson_uart_base(void)
 	case MACH_DEXXON_GDIUM2F10:
 	case MACH_LEMOTE_NAS:
 	default:
-		
+		/* The CPU provided serial port */
 		loongson_uart_base = LOONGSON_LIO1_BASE + 0x3f8;
 		break;
 	}

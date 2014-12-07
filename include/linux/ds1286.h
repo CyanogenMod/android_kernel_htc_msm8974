@@ -8,6 +8,9 @@
 #ifndef __LINUX_DS1286_H
 #define __LINUX_DS1286_H
 
+/**********************************************************************
+ * register summary
+ **********************************************************************/
 #define RTC_HUNDREDTH_SECOND	0
 #define RTC_SECONDS		1
 #define RTC_MINUTES		2
@@ -24,12 +27,19 @@
 #define RTC_WSEC		13
 #define RTC_UNUSED		14
 
+/* RTC_*_alarm is always true if 2 MSBs are set */
 # define RTC_ALARM_DONT_CARE 	0xC0
 
 
+/*
+ * Bits in the month register
+ */
 #define RTC_EOSC		0x80
 #define RTC_ESQW		0x40
 
+/*
+ * Bits in the Command register
+ */
 #define RTC_TDF			0x01
 #define RTC_WAF			0x02
 #define RTC_TDM			0x04
@@ -39,4 +49,4 @@
 #define RTC_IPSW		0x40
 #define RTC_TE			0x80
 
-#endif 
+#endif /* __LINUX_DS1286_H */

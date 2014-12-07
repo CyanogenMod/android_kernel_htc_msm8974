@@ -61,6 +61,12 @@ bool msm_bus_rpm_is_mem_interleaved(void)
 		goto inter;
 	}
 
+	/*
+	 * If the start address of EBI1-CH0 is the same as
+	 * the start address of EBI1-CH1, the memory is interleaved.
+	 * The start addresses are stored in the 16 MSBs of the status
+	 * register
+	 */
 	if ((il[0].value & 0xFFFF0000) != (il[1].value & 0xFFFF0000)) {
 		MSM_BUS_DBG("Non-interleaved memory\n");
 		return false;
@@ -78,6 +84,12 @@ struct commit_data {
 	unsigned long *actarb;
 };
 
+/*
+ * The following macros are used for various operations on commit data.
+ * Commit data is an array of 32 bit integers. The size of arrays is unique
+ * to the fabric. Commit arrays are allocated at run-time based on the number
+ * of masters, slaves and tiered-slaves registered.
+ */
 
 #define MSM_BUS_GET_BW_INFO(val, type, bw) \
 	do { \
@@ -147,6 +159,11 @@ void msm_bus_rpm_fill_cdata_buffer(int *curr, char *buf, const int max_size,
 	}
 }
 
+/**
+ * allocate_commit_data() - Allocate the data for commit array in the
+ * format specified by RPM
+ * @fabric: Fabric device for which commit data is allocated
+ */
 static int msm_bus_rpm_allocate_commit_data(struct msm_bus_fabric_registration
 	*fab_pdata, void **cdata, int ctx)
 {
@@ -198,6 +215,10 @@ static void free_commit_data(void *cdata)
 	kfree(cd);
 }
 
+/**
+ * allocate_rpm_data() - Allocate the id-value pairs to be
+ * sent to RPM
+ */
 static void *msm_bus_rpm_allocate_rpm_data(struct platform_device *pdev,
 	struct msm_bus_fabric_registration *fab_pdata)
 {
@@ -229,6 +250,11 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 	for (i = 0; i < tiers; i++) {
 		for (j = 0; j < ports; j++) {
 			uint16_t hop_tier;
+			/*
+			 * For interleaved gateway ports and slave ports,
+			 * there is one-one mapping between gateway port and
+			 * the slave port
+			 */
 			if (info->node_info->gateway && i != j &&
 				(hop->node_info->num_sports > 1))
 				continue;
@@ -239,17 +265,27 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 				hop_tier = hop->node_info->tier[i] - 1;
 			index = ((hop_tier * fab_pdata->nmasters) +
 				(info->node_info->masterp[j]));
-			
+			/* If there is tier, calculate arb for commit */
 			if (hop->node_info->tier) {
 				uint16_t tier;
 				unsigned long tieredbw = sel_cd->actarb[index];
 				if (GET_TIER(sel_cd->arb[index]))
 					tier = MSM_BUS_BW_TIER1;
 				else if (master_tiers)
+					/*
+					 * By default master is only in the
+					 * tier specified by default.
+					 * To change the default tier, client
+					 * needs to explicitly request for a
+					 * different supported tier */
 					tier = master_tiers[0];
 				else
 					tier = MSM_BUS_BW_TIER2;
 
+				/*
+				 * Make sure gateway to slave port bandwidth
+				 * is not divided when slave is interleaved
+				 */
 				if (info->node_info->gateway
 					&& hop->node_info->num_sports > 1)
 					tieredbw += add_bw;
@@ -258,10 +294,10 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 						add_bw, hop->node_info->
 						num_sports);
 
-				
+				/* If bw is 0, update tier to default */
 				if (!tieredbw)
 					tier = MSM_BUS_BW_TIER2;
-				
+				/* Update Arb for fab,get HW Mport from enum */
 				sel_cd->arb[index] =
 					msm_bus_create_bw_tier_pair_bytes(tier,
 					tieredbw);
@@ -273,7 +309,7 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 		}
 	}
 
-	
+	/* Update bwsum for slaves on fabric */
 	ports = INTERLEAVED_VAL(fab_pdata, hop->node_info->num_sports);
 	for (i = 0; i < ports; i++) {
 		sel_cd->bwsum[hop->node_info->slavep[i]]
@@ -318,18 +354,30 @@ static int msm_bus_rpm_commit_arb(struct msm_bus_fabric_registration
 	struct commit_data *cd, bool valid)
 {
 	int i, j, offset = 0, status = 0, count, index = 0;
+	/*
+	 * count is the number of 2-byte words required to commit the
+	 * data to rpm. This is calculated by the following formula.
+	 * Commit data is split into two arrays:
+	 * 1. arb[nmasters * ntieredslaves]
+	 * 2. bwsum[nslaves]
+	 */
 	count = ((fab_pdata->nmasters * fab_pdata->ntieredslaves)
 		+ (fab_pdata->nslaves) + 1)/2;
 
 	offset = fab_pdata->offset;
 
+	/*
+	 * Copy bwsum to rpm data
+	 * Since bwsum is uint16, the values need to be adjusted to
+	 * be copied to value field of rpm-data, which is 32 bits.
+	 */
 	for (i = 0; i < (fab_pdata->nslaves - 1); i += 2) {
 		rpm_data[index].id = offset + index;
 		rpm_data[index].value = RPM_SHIFT(*(cd->bwsum + i + 1)) |
 			*(cd->bwsum + i);
 		index++;
 	}
-	
+	/* Account for odd number of slaves */
 	if (fab_pdata->nslaves & 1) {
 		rpm_data[index].id = offset + index;
 		rpm_data[index].value = *(cd->arb);
@@ -340,7 +388,7 @@ static int msm_bus_rpm_commit_arb(struct msm_bus_fabric_registration
 	} else
 		i = 0;
 
-	
+	/* Copy arb values to rpm data */
 	for (; i < (fab_pdata->ntieredslaves * fab_pdata->nmasters);
 		i += 2) {
 		rpm_data[index].id = offset + index;
@@ -414,8 +462,8 @@ struct commit_data {
 #define MODE_BIT(val) ((val) & 0x80)
 #define MODE0_IMM(val) ((val) & 0xF)
 #define MODE0_SHIFT(val) (((val) & 0x70) >> 4)
-#define MODE1_STEP	48 
-#define MODE1_OFFSET	512 
+#define MODE1_STEP	48 /* 48 MB */
+#define MODE1_OFFSET	512 /* 512 MB */
 #define MODE1_IMM(val)	((val) & 0x7F)
 #define __CLZ(x) ((8 * sizeof(uint32_t)) - 1 - __fls(x))
 
@@ -425,22 +473,33 @@ static uint8_t msm_bus_set_bw_bytes(unsigned long val)
 	unsigned int intVal;
 	unsigned char result;
 
-	
+	/* Convert to MB */
 	intVal = (unsigned int)((val + ((1 << 20) - 1)) >> 20);
+	/**
+	 * Divide by 2^20 and round up
+	 * A value graeter than 0x1E0 will round up to 512 and overflow
+	 * Mode 0 so it should be made Mode 1
+	 */
 	if (0x1E0 > intVal) {
+		/**
+		 * MODE 0
+		 * Compute the shift value
+		 * Shift value is 32 - the number of leading zeroes -
+		 * 4 to save the most significant 4 bits of the value
+		 */
 		shift = 32 - 4 - min((uint8_t)28, (uint8_t)__CLZ(intVal));
 
-		
+		/* Add min value - 1 to force a round up when shifting right */
 		intVal += (1 << shift) - 1;
 
-		
+		/* Recompute the shift value in case there was an overflow */
 		shift = 32 - 4 - min((uint8_t)28, (uint8_t)__CLZ(intVal));
 
-		
+		/* Clear the mode bit (msb) and fill in the fields */
 		result = ((0x70 & (shift << 4)) |
 			(0x0F & (intVal >> shift)));
 	} else {
-		
+		/* MODE 1 */
 		result = (unsigned char)(0x80 |
 			((intVal - MODE1_OFFSET + MODE1_STEP - 1) /
 			MODE1_STEP));
@@ -452,9 +511,9 @@ static uint8_t msm_bus_set_bw_bytes(unsigned long val)
 uint64_t msm_bus_get_bw(unsigned long val)
 {
 	return MODE_BIT(val) ?
-	 
+	 /* Mode 1 */
 	 (MODE1_IMM(val) * MODE1_STEP + MODE1_OFFSET) :
-	 
+	 /* Mode 0 */
 	 (MODE0_IMM(val) << MODE0_SHIFT(val));
 }
 
@@ -584,18 +643,30 @@ static int msm_bus_rpm_commit_arb(struct msm_bus_fabric_registration
 	struct commit_data *cd, bool valid)
 {
 	int i, j, k, offset = 0, status = 0, count, index = 0;
+	/*
+	 * count is the number of 2-byte words required to commit the
+	 * data to rpm. This is calculated by the following formula.
+	 * Commit data is split into two arrays:
+	 * 1. arb[nmasters * ntieredslaves][num_tiers]
+	 * 2. bwsum[nslaves]
+	 */
 	count = (((fab_pdata->nmasters * fab_pdata->ntieredslaves * NUM_TIERS)
 		/2) + fab_pdata->nslaves + 1)/2;
 
 	offset = fab_pdata->offset;
 
+	/*
+	 * Copy bwsum to rpm data
+	 * Since bwsum is uint16, the values need to be adjusted to
+	 * be copied to value field of rpm-data, which is 32 bits.
+	 */
 	for (i = 0; i < (fab_pdata->nslaves - 1); i += 2) {
 		rpm_data[index].id = offset + index;
 		rpm_data[index].value = RPM_SHIFT16(*(cd->bwsum + i + 1)) |
 			*(cd->bwsum + i);
 		index++;
 	}
-	
+	/* Account for odd number of slaves */
 	if (fab_pdata->nslaves & 1) {
 		rpm_data[index].id = offset + index;
 		rpm_data[index].value = RPM_SHIFT8(*cd->arb[1]) |
@@ -607,7 +678,7 @@ static int msm_bus_rpm_commit_arb(struct msm_bus_fabric_registration
 	} else
 		i = 0;
 
-	
+	/* Copy arb values to rpm data */
 	for (; i < (fab_pdata->ntieredslaves * fab_pdata->nmasters);
 		i += 2) {
 		uint16_t tv1, tv0;
@@ -698,6 +769,11 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 	for (i = 0; i < tiers; i++) {
 		for (j = 0; j < ports; j++) {
 			uint16_t hop_tier;
+			/*
+			 * For interleaved gateway ports and slave ports,
+			 * there is one-one mapping between gateway port and
+			 * the slave port
+			 */
 			if (info->node_info->gateway && i != j
 				&& hop->node_info->num_sports > 1)
 				continue;
@@ -708,7 +784,7 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 				hop_tier = hop->node_info->tier[i] - 1;
 			index = ((hop_tier * fab_pdata->nmasters) +
 				(info->node_info->masterp[j]));
-			
+			/* If there is tier, calculate arb for commit */
 			if (hop->node_info->tier) {
 				uint16_t tier;
 				unsigned long tieredbw;
@@ -718,6 +794,10 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 					tier = MSM_BUS_BW_TIER2 - 1;
 
 				tieredbw = sel_cd->actarb[tier][index];
+				/*
+				 * Make sure gateway to slave port bandwidth
+				 * is not divided when slave is interleaved
+				 */
 				if (info->node_info->gateway
 					&& hop->node_info->num_sports > 1)
 					tieredbw += add_bw;
@@ -726,7 +806,7 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 						add_bw, hop->node_info->
 						num_sports);
 
-				
+				/* Update Arb for fab,get HW Mport from enum */
 				sel_cd->arb[tier][index] =
 				msm_bus_create_bw_tier_pair_bytes(0, tieredbw);
 				sel_cd->actarb[tier][index] = tieredbw;
@@ -737,7 +817,7 @@ static void msm_bus_rpm_update_bw(struct msm_bus_inode_info *hop,
 		}
 	}
 
-	
+	/* Update bwsum for slaves on fabric */
 
 	ports = INTERLEAVED_VAL(fab_pdata, hop->node_info->num_sports);
 	for (i = 0; i < ports; i++) {
@@ -779,6 +859,10 @@ void msm_bus_rpm_fill_cdata_buffer(int *curr, char *buf, const int max_size,
 }
 #endif
 
+/**
+* msm_bus_rpm_commit() - Commit the arbitration data to RPM
+* @fabric: Fabric for which the data should be committed
+**/
 static int msm_bus_rpm_commit(struct msm_bus_fabric_registration
 	*fab_pdata, void *hw_data, void **cdata)
 {
@@ -790,9 +874,15 @@ static int msm_bus_rpm_commit(struct msm_bus_fabric_registration
 	dual_cd = (struct commit_data *)cdata[DUAL_CTX];
 	act_cd = (struct commit_data *)cdata[ACTIVE_CTX];
 
+	/*
+	 * If the arb data for active set and sleep set is
+	 * different, commit both sets.
+	 * If the arb data for active set and sleep set is
+	 * the same, invalidate the sleep set.
+	 */
 	ret = msm_bus_rpm_compare_cdata(fab_pdata, act_cd, dual_cd);
 	if (!ret)
-		
+		/* Invalidate sleep set.*/
 		valid = false;
 	else
 		valid = true;

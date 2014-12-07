@@ -31,6 +31,7 @@
 #define arch_spin_is_locked(x)		((x)->slock != 0)
 
 #ifdef CONFIG_PPC64
+/* use 0x800000yy when locked, where yy == CPU number */
 #define LOCK_TOKEN	(*(u32 *)(&get_paca()->lock_token))
 #else
 #define LOCK_TOKEN	1
@@ -49,6 +50,10 @@
 #define SYNC_IO
 #endif
 
+/*
+ * This returns the old value in the lock, so we succeeded
+ * in getting the lock if the return value is 0.
+ */
 static inline unsigned long __arch_spin_trylock(arch_spinlock_t *lock)
 {
 	unsigned long tmp, token;
@@ -75,12 +80,26 @@ static inline int arch_spin_trylock(arch_spinlock_t *lock)
 	return __arch_spin_trylock(lock) == 0;
 }
 
+/*
+ * On a system with shared processors (that is, where a physical
+ * processor is multiplexed between several virtual processors),
+ * there is no point spinning on a lock if the holder of the lock
+ * isn't currently scheduled on a physical processor.  Instead
+ * we detect this situation and ask the hypervisor to give the
+ * rest of our timeslice to the lock holder.
+ *
+ * So that we can tell which virtual processor is holding a lock,
+ * we put 0x80000000 | smp_processor_id() in the lock when it is
+ * held.  Conveniently, we have a word in the paca that holds this
+ * value.
+ */
 
 #if defined(CONFIG_PPC_SPLPAR)
+/* We only yield to the hypervisor if we are in shared processor mode */
 #define SHARED_PROCESSOR (get_lppaca()->shared_proc)
 extern void __spin_yield(arch_spinlock_t *lock);
 extern void __rw_yield(arch_rwlock_t *lock);
-#else 
+#else /* SPLPAR */
 #define __spin_yield(x)	barrier()
 #define __rw_yield(x)	barrier()
 #define SHARED_PROCESSOR	0
@@ -137,18 +156,32 @@ extern void arch_spin_unlock_wait(arch_spinlock_t *lock);
 	do { while (arch_spin_is_locked(lock)) cpu_relax(); } while (0)
 #endif
 
+/*
+ * Read-write spinlocks, allowing multiple readers
+ * but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts
+ * but no interrupt writers. For those circumstances we
+ * can "mix" irq-safe locks - any writer needs to get a
+ * irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ */
 
 #define arch_read_can_lock(rw)		((rw)->lock >= 0)
 #define arch_write_can_lock(rw)	(!(rw)->lock)
 
 #ifdef CONFIG_PPC64
 #define __DO_SIGN_EXTEND	"extsw	%0,%0\n"
-#define WRLOCK_TOKEN		LOCK_TOKEN	
+#define WRLOCK_TOKEN		LOCK_TOKEN	/* it's negative */
 #else
 #define __DO_SIGN_EXTEND
 #define WRLOCK_TOKEN		(-1)
 #endif
 
+/*
+ * This returns the old value in the lock + 1,
+ * so we got a read lock if the return value is > 0.
+ */
 static inline long __arch_read_trylock(arch_rwlock_t *rw)
 {
 	long tmp;
@@ -169,6 +202,10 @@ static inline long __arch_read_trylock(arch_rwlock_t *rw)
 	return tmp;
 }
 
+/*
+ * This returns the old value in the lock,
+ * so we got the write lock if the return value is 0.
+ */
 static inline long __arch_write_trylock(arch_rwlock_t *rw)
 {
 	long tmp, token;
@@ -258,5 +295,5 @@ static inline void arch_write_unlock(arch_rwlock_t *rw)
 #define arch_read_relax(lock)	__rw_yield(lock)
 #define arch_write_relax(lock)	__rw_yield(lock)
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SPINLOCK_H */

@@ -38,7 +38,7 @@ EXPORT_SYMBOL(zbbus_mhz);
 
 static char *soc_str;
 static char *pass_str;
-static unsigned int war_pass;	
+static unsigned int war_pass;	/* XXXKW don't overload PASS defines? */
 
 static int __init setup_bcm1250(void)
 {
@@ -52,7 +52,7 @@ static int __init setup_bcm1250(void)
 	case K_SYS_REVISION_BCM1250_A10:
 		periph_rev = 2;
 		pass_str = "A8/A10";
-		
+		/* XXXKW different war_pass? */
 		war_pass = K_SYS_REVISION_BCM1250_PASS2;
 		break;
 	case K_SYS_REVISION_BCM1250_PASS2_2:
@@ -108,7 +108,7 @@ static int __init setup_bcm112x(void)
 
 	switch (soc_pass) {
 	case 0:
-		
+		/* Early build didn't have revid set */
 		periph_rev = 3;
 		pass_str = "A1";
 		war_pass = K_SYS_REVISION_BCM112x_A1;
@@ -141,6 +141,7 @@ static int __init setup_bcm112x(void)
 	return ret;
 }
 
+/* Setup code likely to be common to all SiByte platforms */
 
 static int __init sys_rev_decode(void)
 {
@@ -208,7 +209,7 @@ void __init sb1250_setup(void)
 #endif
 		break;
 	case K_SYS_REVISION_BCM1250_PASS2:
-		
+		/* Pass 2 - easiest as default for now - so many numbers */
 #if !defined(CONFIG_SB1_PASS_2_WORKAROUNDS) || \
     !defined(CONFIG_SB1_PASS_2_1_WORKAROUNDS)
 		printk("@@@@ This is a BCM1250 A3-A10 board, and the "

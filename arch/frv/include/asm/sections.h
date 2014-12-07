@@ -19,20 +19,28 @@
 
 #ifdef __KERNEL__
 
+/*
+ * we don't want to put variables in the GP-REL section if they're not used very much - that would
+ * be waste since GP-REL addressing is limited to GP16+/-2048
+ */
 #define __nongpreldata	__attribute__((section(".data")))
 #define __nongprelbss	__attribute__((section(".bss")))
 
+/*
+ * linker symbols
+ */
 extern const void __kernel_image_start, __kernel_image_end, __page_offset;
 
 extern unsigned long __nongprelbss memory_start;
 extern unsigned long __nongprelbss memory_end;
 extern unsigned long __nongprelbss rom_length;
 
+/* determine if we're running from ROM */
 static inline int is_in_rom(unsigned long addr)
 {
-	return 0; 
+	return 0; /* default case: not in ROM */
 }
 
 #endif
 #endif
-#endif 
+#endif /* _ASM_SECTIONS_H */

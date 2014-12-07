@@ -84,7 +84,7 @@ void __init mem_init(void)
 
 	high_memory = (void *) __va(max_low_pfn << PAGE_SHIFT);
 	totalram_pages += free_all_bootmem();
-	totalram_pages -= setup_zero_page();	
+	totalram_pages -= setup_zero_page();	/* Setup zeroed pages. */
 	reservedpages = 0;
 
 	for (tmp = 0; tmp < max_low_pfn; tmp++)
@@ -107,7 +107,7 @@ void __init mem_init(void)
 			initsize >> 10,
 			totalhigh_pages << (PAGE_SHIFT-10));
 }
-#endif 
+#endif /* !CONFIG_NEED_MULTIPLE_NODES */
 
 static void free_init_pages(const char *what, unsigned long begin, unsigned long end)
 {
@@ -146,5 +146,10 @@ unsigned long pgd_current;
 
 #define __page_aligned(order) __attribute__((__aligned__(PAGE_SIZE<<order)))
 
+/*
+ * gcc 3.3 and older have trouble determining that PTRS_PER_PGD and PGD_ORDER
+ * are constants.  So we use the variants from asm-offset.h until that gcc
+ * will officially be retired.
+ */
 pgd_t swapper_pg_dir[PTRS_PER_PGD] __page_aligned(PTE_ORDER);
 pte_t invalid_pte_table[PTRS_PER_PTE] __page_aligned(PTE_ORDER);

@@ -1,3 +1,4 @@
+/* FTP extension for connection tracking. */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2004 Netfilter Core Team <coreteam@netfilter.org>
@@ -31,6 +32,7 @@ MODULE_DESCRIPTION("ftp connection tracking helper");
 MODULE_ALIAS("ip_conntrack_ftp");
 MODULE_ALIAS_NFCT_HELPER("ftp");
 
+/* This is slow, but it's simple. --RR */
 static char *ftp_buffer;
 
 static DEFINE_SPINLOCK(nf_ftp_lock);
@@ -119,7 +121,7 @@ static int try_number(const char *data, size_t dlen, u_int32_t array[],
 
 	memset(array, 0, sizeof(array[0])*array_size);
 
-	
+	/* Keep data pointing at next char. */
 	for (i = 0, len = 0; len < dlen && i < array_size; len++, data++) {
 		if (*data >= '0' && *data <= '9') {
 			array[i] = array[i]*10 + *data - '0';
@@ -127,6 +129,8 @@ static int try_number(const char *data, size_t dlen, u_int32_t array[],
 		else if (*data == sep)
 			i++;
 		else {
+			/* Unexpected character; true if it's the
+			   terminator and we're finished. */
 			if (*data == term && i == array_size - 1)
 				return len;
 
@@ -140,6 +144,7 @@ static int try_number(const char *data, size_t dlen, u_int32_t array[],
 	return 0;
 }
 
+/* Returns 0, or length of numbers: 192,168,1,1,5,6 */
 static int try_rfc959(const char *data, size_t dlen,
 		      struct nf_conntrack_man *cmd, char term)
 {
@@ -156,6 +161,7 @@ static int try_rfc959(const char *data, size_t dlen,
 	return length;
 }
 
+/* Grab port: number up to delimiter */
 static int get_port(const char *data, int start, size_t dlen, char delim,
 		    __be16 *port)
 {
@@ -163,7 +169,7 @@ static int get_port(const char *data, int start, size_t dlen, char delim,
 	int i;
 
 	for (i = start; i < dlen; i++) {
-		
+		/* Finished? */
 		if (data[i] == delim) {
 			if (tmp_port == 0)
 				break;
@@ -173,7 +179,7 @@ static int get_port(const char *data, int start, size_t dlen, char delim,
 		}
 		else if (data[i] >= '0' && data[i] <= '9')
 			tmp_port = tmp_port*10 + data[i] - '0';
-		else { 
+		else { /* Some other crap */
 			pr_debug("get_port: invalid char.\n");
 			break;
 		}
@@ -181,12 +187,15 @@ static int get_port(const char *data, int start, size_t dlen, char delim,
 	return 0;
 }
 
+/* Returns 0, or length of numbers: |1|132.235.1.2|6275| or |2|3ffe::1|6275| */
 static int try_eprt(const char *data, size_t dlen, struct nf_conntrack_man *cmd,
 		    char term)
 {
 	char delim;
 	int length;
 
+	/* First character is delimiter, then "1" for IPv4 or "2" for IPv6,
+	   then delimiter again. */
 	if (dlen <= 3) {
 		pr_debug("EPRT: too short\n");
 		return 0;
@@ -208,13 +217,13 @@ static int try_eprt(const char *data, size_t dlen, struct nf_conntrack_man *cmd,
 	if (data[1] == '1') {
 		u_int32_t array[4];
 
-		
+		/* Now we have IP address. */
 		length = try_number(data + 3, dlen - 3, array, 4, '.', delim);
 		if (length != 0)
 			cmd->u3.ip = htonl((array[0] << 24) | (array[1] << 16)
 					   | (array[2] << 8) | array[3]);
 	} else {
-		
+		/* Now we have IPv6 address. */
 		length = get_ipv6_addr(data + 3, dlen - 3,
 				       (struct in6_addr *)cmd->u3.ip6, delim);
 	}
@@ -222,16 +231,17 @@ static int try_eprt(const char *data, size_t dlen, struct nf_conntrack_man *cmd,
 	if (length == 0)
 		return 0;
 	pr_debug("EPRT: Got IP address!\n");
-	
+	/* Start offset includes initial "|1|", and trailing delimiter */
 	return get_port(data, 3 + length + 1, dlen, delim, &cmd->u.tcp.port);
 }
 
+/* Returns 0, or length of numbers: |||6446| */
 static int try_epsv_response(const char *data, size_t dlen,
 			     struct nf_conntrack_man *cmd, char term)
 {
 	char delim;
 
-	
+	/* Three delimiters. */
 	if (dlen <= 3) return 0;
 	delim = data[0];
 	if (isdigit(delim) || delim < 33 || delim > 126 ||
@@ -241,6 +251,7 @@ static int try_epsv_response(const char *data, size_t dlen,
 	return get_port(data, 3, dlen, delim, &cmd->u.tcp.port);
 }
 
+/* Return 1 for match, 0 for accept, -1 for partial. */
 static int find_pattern(const char *data, size_t dlen,
 			const char *pattern, size_t plen,
 			char skip, char term,
@@ -257,7 +268,7 @@ static int find_pattern(const char *data, size_t dlen,
 		return 0;
 
 	if (dlen <= plen) {
-		
+		/* Short packet: try for partial? */
 		if (strnicmp(data, pattern, dlen) == 0)
 			return -1;
 		else return 0;
@@ -278,10 +289,12 @@ static int find_pattern(const char *data, size_t dlen,
 	}
 
 	pr_debug("Pattern matches!\n");
+	/* Now we've found the constant string, try to skip
+	   to the 'skip' character */
 	for (i = plen; data[i] != skip; i++)
 		if (i == dlen - 1) return -1;
 
-	
+	/* Skip over the last character */
 	i++;
 
 	pr_debug("Skipped up to `%c'!\n", skip);
@@ -295,6 +308,7 @@ static int find_pattern(const char *data, size_t dlen,
 	return 1;
 }
 
+/* Look up to see if we're just after a \n. */
 static int find_nl_seq(u32 seq, const struct nf_ct_ftp_master *info, int dir)
 {
 	unsigned int i;
@@ -305,13 +319,14 @@ static int find_nl_seq(u32 seq, const struct nf_ct_ftp_master *info, int dir)
 	return 0;
 }
 
+/* We don't update if it's older than what we have. */
 static void update_nl_seq(struct nf_conn *ct, u32 nl_seq,
 			  struct nf_ct_ftp_master *info, int dir,
 			  struct sk_buff *skb)
 {
 	unsigned int i, oldest;
 
-	
+	/* Look for oldest: if we find exact match, we're done. */
 	for (i = 0; i < info->seq_aft_nl_num[dir]; i++) {
 		if (info->seq_aft_nl[dir][i] == nl_seq)
 			return;
@@ -351,7 +366,7 @@ static int help(struct sk_buff *skb,
 	int found = 0, ends_in_nl;
 	typeof(nf_nat_ftp_hook) nf_nat_ftp;
 
-	
+	/* Until there's been traffic both ways, don't look in packets. */
 	if (ctinfo != IP_CT_ESTABLISHED &&
 	    ctinfo != IP_CT_ESTABLISHED_REPLY) {
 		pr_debug("ftp: Conntrackinfo = %u\n", ctinfo);
@@ -363,7 +378,7 @@ static int help(struct sk_buff *skb,
 		return NF_ACCEPT;
 
 	dataoff = protoff + th->doff * 4;
-	
+	/* No data? */
 	if (dataoff >= skb->len) {
 		pr_debug("ftp: dataoff(%u) >= skblen(%u)\n", dataoff,
 			 skb->len);
@@ -378,9 +393,9 @@ static int help(struct sk_buff *skb,
 	ends_in_nl = (fb_ptr[datalen - 1] == '\n');
 	seq = ntohl(th->seq) + datalen;
 
-	
+	/* Look up to see if we're just after a \n. */
 	if (!find_nl_seq(ntohl(th->seq), ct_ftp_info, dir)) {
-		
+		/* Now if this ends in \n, update ftp info. */
 		pr_debug("nf_conntrack_ftp: wrong seq pos %s(%u) or %s(%u)\n",
 			 ct_ftp_info->seq_aft_nl_num[dir] > 0 ? "" : "(UNSET)",
 			 ct_ftp_info->seq_aft_nl[dir][0],
@@ -390,6 +405,8 @@ static int help(struct sk_buff *skb,
 		goto out_update_nl;
 	}
 
+	/* Initialize IP/IPv6 addr to expected address (it's not mentioned
+	   in EPSV responses) */
 	cmd.l3num = nf_ct_l3num(ct);
 	memcpy(cmd.u3.all, &ct->tuplehash[dir].tuple.src.u3.all,
 	       sizeof(cmd.u3.all));
@@ -406,11 +423,15 @@ static int help(struct sk_buff *skb,
 		if (found) break;
 	}
 	if (found == -1) {
+		/* We don't usually drop packets.  After all, this is
+		   connection tracking, not packet filtering.
+		   However, it is necessary for accurate tracking in
+		   this case. */
 		pr_debug("conntrack_ftp: partial %s %u+%u\n",
 			 search[dir][i].pattern,  ntohl(th->seq), datalen);
 		ret = NF_DROP;
 		goto out;
-	} else if (found == 0) { 
+	} else if (found == 0) { /* No match */
 		ret = NF_ACCEPT;
 		goto out_update_nl;
 	}
@@ -425,12 +446,19 @@ static int help(struct sk_buff *skb,
 		goto out;
 	}
 
+	/* We refer to the reverse direction ("!dir") tuples here,
+	 * because we're expecting something in the other direction.
+	 * Doesn't matter unless NAT is happening.  */
 	daddr = &ct->tuplehash[!dir].tuple.dst.u3;
 
-	
+	/* Update the ftp info */
 	if ((cmd.l3num == nf_ct_l3num(ct)) &&
 	    memcmp(&cmd.u3.all, &ct->tuplehash[dir].tuple.src.u3.all,
 		     sizeof(cmd.u3.all))) {
+		/* Enrico Scholz's passive FTP to partially RNAT'd ftp
+		   server: it really wants us to connect to a
+		   different IP address.  Simply don't record it for
+		   NAT. */
 		if (cmd.l3num == PF_INET) {
 			pr_debug("conntrack_ftp: NOT RECORDING: %pI4 != %pI4\n",
 				 &cmd.u3.ip,
@@ -441,6 +469,10 @@ static int help(struct sk_buff *skb,
 				 ct->tuplehash[dir].tuple.src.u3.ip6);
 		}
 
+		/* Thanks to Cristiano Lincoln Mattos
+		   <lincoln@cesar.org.br> for reporting this potential
+		   problem (DMZ machines opening holes to internal
+		   networks, or the packet filter itself). */
 		if (!loose) {
 			ret = NF_ACCEPT;
 			goto out_put_expect;
@@ -452,12 +484,14 @@ static int help(struct sk_buff *skb,
 			  &ct->tuplehash[!dir].tuple.src.u3, daddr,
 			  IPPROTO_TCP, NULL, &cmd.u.tcp.port);
 
+	/* Now, NAT might want to mangle the packet, and register the
+	 * (possibly changed) expectation itself. */
 	nf_nat_ftp = rcu_dereference(nf_nat_ftp_hook);
 	if (nf_nat_ftp && ct->status & IPS_NAT_MASK)
 		ret = nf_nat_ftp(skb, ctinfo, search[dir][i].ftptype,
 				 matchoff, matchlen, exp);
 	else {
-		
+		/* Can't expect this?  Best to drop packet now. */
 		if (nf_ct_expect_related(exp) != 0)
 			ret = NF_DROP;
 		else
@@ -468,6 +502,8 @@ out_put_expect:
 	nf_ct_expect_put(exp);
 
 out_update_nl:
+	/* Now if this ends in \n, update ftp info.  Seq may have been
+	 * adjusted by NAT code. */
 	if (ends_in_nl)
 		update_nl_seq(ct, seq, ct_ftp_info, dir, skb);
  out:
@@ -483,6 +519,7 @@ static const struct nf_conntrack_expect_policy ftp_exp_policy = {
 	.timeout	= 5 * 60,
 };
 
+/* don't make this __exit, since it's called from __init ! */
 static void nf_conntrack_ftp_fini(void)
 {
 	int i, j;
@@ -513,6 +550,8 @@ static int __init nf_conntrack_ftp_init(void)
 	if (ports_c == 0)
 		ports[ports_c++] = FTP_PORT;
 
+	/* FIXME should be configurable whether IPv4 and IPv6 FTP connections
+		 are tracked or not - YK */
 	for (i = 0; i < ports_c; i++) {
 		ftp[i][0].tuple.src.l3num = PF_INET;
 		ftp[i][1].tuple.src.l3num = PF_INET6;

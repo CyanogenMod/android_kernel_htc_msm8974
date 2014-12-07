@@ -24,6 +24,9 @@
 #define BUFFER_WARN_LEN                         64
 #define BUFFER_TEMP_LEN                         32
 
+#define FORCE_CHARGE			(1<<2)
+#define Y_CABLE			(1<<26)
+
 struct process_monitor_statistic {
        unsigned int pid;
        char *ppid_name;
@@ -67,6 +70,9 @@ static int msm_htc_util_delay_time = 10000;
 module_param_named(kmonitor_delay, msm_htc_util_delay_time, int, S_IRUGO | S_IWUSR | S_IWGRP);
 static int msm_htc_util_top_delay_time = 60000;
 module_param_named(ktop_delay, msm_htc_util_top_delay_time, int, S_IRUGO | S_IWUSR | S_IWGRP);
+extern unsigned int get_tamper_sf(void);
+extern unsigned int get_radio_flag_ex1(void);
+extern unsigned int get_radio_flag_ex2(void);
 
 enum {
 	KERNEL_TOP,
@@ -381,6 +387,18 @@ static void htc_idle_stat_show(void)
 	msm_rpm_dump_stat();
 }
 
+static void htc_debug_flag_show(void)
+{
+
+	unsigned int cfg = 0 ;
+    
+	if(get_tamper_sf() == 0){
+		if((get_kernel_flag() & FORCE_CHARGE) || (get_kernel_flag() & Y_CABLE))
+			cfg = 1 ;
+		pr_info("[K] CFG:0x%x", cfg);
+	 }
+}
+
 #ifdef arch_idle_time
 static cputime64_t get_idle_time(int cpu)
 {
@@ -632,7 +650,10 @@ static void htc_pm_monitor_work_func(struct work_struct *work)
 	queue_delayed_work(htc_pm_monitor_wq, &ktop->dwork, msecs_to_jiffies(msm_htc_util_delay_time));
 	htc_kernel_top_cal(ktop, KERNEL_TOP);
 	htc_kernel_top_show(ktop, KERNEL_TOP);
-	pr_debug("[K][PM] hTC PM Statistic done\n");
+
+	
+	htc_debug_flag_show();
+	pr_info("[K][PM] hTC PM Statistic done\n");
 }
 
 static void htc_kernel_top_accumulation_monitor_work_func(struct work_struct *work)

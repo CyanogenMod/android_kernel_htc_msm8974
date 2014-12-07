@@ -19,11 +19,22 @@ static inline struct socket *macvtap_get_socket(struct file *f)
 {
 	return ERR_PTR(-EINVAL);
 }
-#endif 
+#endif /* CONFIG_MACVTAP */
 
 struct macvlan_port;
 struct macvtap_queue;
 
+/**
+ *	struct macvlan_pcpu_stats - MACVLAN percpu stats
+ *	@rx_packets: number of received packets
+ *	@rx_bytes: number of received bytes
+ *	@rx_multicast: number of received multicast packets
+ *	@tx_packets: number of transmitted packets
+ *	@tx_bytes: number of transmitted bytes
+ *	@syncp: synchronization point for 64bit counters
+ *	@rx_errors: number of rx errors
+ *	@tx_dropped: number of tx dropped packets
+ */
 struct macvlan_pcpu_stats {
 	u64			rx_packets;
 	u64			rx_bytes;
@@ -35,6 +46,10 @@ struct macvlan_pcpu_stats {
 	u32			tx_dropped;
 };
 
+/*
+ * Maximum times a macvtap device can be opened. This can be used to
+ * configure the number of receive queue, e.g. for multiqueue virtio.
+ */
 #define MAX_MACVTAP_QUEUES	(NR_CPUS < 16 ? NR_CPUS : 16)
 
 struct macvlan_dev {
@@ -90,4 +105,4 @@ extern int macvlan_link_register(struct rtnl_link_ops *ops);
 extern netdev_tx_t macvlan_start_xmit(struct sk_buff *skb,
 				      struct net_device *dev);
 
-#endif 
+#endif /* _LINUX_IF_MACVLAN_H */

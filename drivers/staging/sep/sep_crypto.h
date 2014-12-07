@@ -30,6 +30,7 @@
  *
  */
 
+/* Constants for SEP (from vendor) */
 #define SEP_START_MSG_TOKEN	0x02558808
 
 #define SEP_DES_IV_SIZE_WORDS	2
@@ -117,6 +118,7 @@
 #define SEP_TRANSACTION_WAIT_TIME 5
 
 #define SEP_QUEUE_LENGTH	2
+/* Macros */
 #ifndef __LITTLE_ENDIAN
 #define CHG_ENDIAN(val) \
 	(((val) >> 24) | \
@@ -126,6 +128,7 @@
 #else
 #define CHG_ENDIAN(val) val
 #endif
+/* Enums for SEP (from vendor) */
 enum des_numkey {
 	DES_KEY_1 = 1,
 	DES_KEY_2 = 2,
@@ -187,6 +190,7 @@ enum hash_op_mode {
 	SEP_HASH_LAST_MODE = 0x7FFFFFFF,
 };
 
+/* Structures for SEP (from vendor) */
 struct sep_des_internal_key {
 	u32 key1[SEP_DES_KEY_SIZE_WORDS];
 	u32 key2[SEP_DES_KEY_SIZE_WORDS];
@@ -208,6 +212,7 @@ struct sep_des_private_context {
 	u8 ctx_buf[sizeof(struct sep_des_internal_context)];
 };
 
+/* This is the structure passed to SEP via msg area */
 struct sep_des_key {
 	u32 key1[SEP_DES_KEY_SIZE_WORDS];
 	u32 key2[SEP_DES_KEY_SIZE_WORDS];
@@ -270,6 +275,19 @@ union key_t {
 	u32 aes[SEP_AES_MAX_KEY_SIZE_WORDS];
 };
 
+/* Context structures for crypto API */
+/**
+ * Structure for this current task context
+ * This same structure is used for both hash
+ * and crypt in order to reduce duplicate code
+ * for stuff that is done for both hash operations
+ * and crypto operations. We cannot trust that the
+ * system context is not pulled out from under
+ * us during operation to operation, so all
+ * critical stuff such as data pointers must
+ * be in in a context that is exclusive for this
+ * particular task at hand.
+ */
 struct this_task_ctx {
 	struct sep_device *sep_used;
 	u32 done;
@@ -283,7 +301,7 @@ struct this_task_ctx {
 	size_t data_length;
 	size_t ivlen;
 	struct ablkcipher_walk walk;
-	int i_own_sep; 
+	int i_own_sep; /* Do I have custody of the sep? */
 	struct sep_call_status call_status;
 	struct build_dcb_struct_kernel dcb_input_data;
 	struct sep_dma_context *dma_ctx;
@@ -307,6 +325,12 @@ struct this_task_ctx {
 	int block_size_bytes;
 	enum hash_op_mode hash_opmode;
 	enum hash_stage current_hash_stage;
+	/**
+	 * Not that this is a pointer. The are_we_done_yet variable is
+	 * allocated by the task function. This way, even if the kernel
+	 * crypto infrastructure has grabbed the task structure out from
+	 * under us, the task function can still see this variable.
+	 */
 	int *are_we_done_yet;
 	unsigned long end_time;
 	};
@@ -323,11 +347,13 @@ struct sep_system_ctx {
 	struct sep_hash_private_context hash_private_ctx;
 	};
 
+/* work queue structures */
 struct sep_work_struct {
 	struct work_struct work;
 	void (*callback)(void *);
 	void *data;
 	};
 
+/* Functions */
 int sep_crypto_setup(void);
 void sep_crypto_takedown(void);

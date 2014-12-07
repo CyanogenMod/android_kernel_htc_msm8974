@@ -36,15 +36,15 @@
 
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
-	
+	/* WLAN IRQ - GPIO 162 */
 	OMAP3_MUX(MCBSP1_CLKX, OMAP_MUX_MODE4 | OMAP_PIN_INPUT),
-	
+	/* WLAN POWER ENABLE - GPIO 101 */
 	OMAP3_MUX(CAM_D2, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
-	
+	/* WLAN SDIO: MMC3 CMD */
 	OMAP3_MUX(MCSPI1_CS1, OMAP_MUX_MODE3 | OMAP_PIN_INPUT_PULLUP),
-	
+	/* WLAN SDIO: MMC3 CLK */
 	OMAP3_MUX(ETK_CLK, OMAP_MUX_MODE2 | OMAP_PIN_INPUT_PULLUP),
-	
+	/* WLAN SDIO: MMC3 DAT[0-3] */
 	OMAP3_MUX(ETK_D3, OMAP_MUX_MODE2 | OMAP_PIN_INPUT_PULLUP),
 	OMAP3_MUX(ETK_D4, OMAP_MUX_MODE2 | OMAP_PIN_INPUT_PULLUP),
 	OMAP3_MUX(ETK_D5, OMAP_MUX_MODE2 | OMAP_PIN_INPUT_PULLUP),
@@ -54,43 +54,43 @@ static struct omap_board_mux board_mux[] __initdata = {
 #endif
 
 static struct mtd_partition zoom_nand_partitions[] = {
-	
+	/* All the partition sizes are listed in terms of NAND block size */
 	{
 		.name		= "X-Loader-NAND",
 		.offset		= 0,
-		.size		= 4 * (64 * 2048),	
-		.mask_flags	= MTD_WRITEABLE,	
+		.size		= 4 * (64 * 2048),	/* 512KB, 0x80000 */
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "U-Boot-NAND",
-		.offset		= MTDPART_OFS_APPEND,	
-		.size		= 10 * (64 * 2048),	
-		.mask_flags	= MTD_WRITEABLE,	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x80000 */
+		.size		= 10 * (64 * 2048),	/* 1.25MB, 0x140000 */
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 	{
 		.name		= "Boot Env-NAND",
-		.offset		= MTDPART_OFS_APPEND,   
-		.size		= 2 * (64 * 2048),	
+		.offset		= MTDPART_OFS_APPEND,   /* Offset = 0x1c0000 */
+		.size		= 2 * (64 * 2048),	/* 256KB, 0x40000 */
 	},
 	{
 		.name		= "Kernel-NAND",
-		.offset		= MTDPART_OFS_APPEND,	
-		.size		= 240 * (64 * 2048),	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x0200000*/
+		.size		= 240 * (64 * 2048),	/* 30M, 0x1E00000 */
 	},
 	{
 		.name		= "system",
-		.offset		= MTDPART_OFS_APPEND,	
-		.size		= 3328 * (64 * 2048),	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x2000000 */
+		.size		= 3328 * (64 * 2048),	/* 416M, 0x1A000000 */
 	},
 	{
 		.name		= "userdata",
-		.offset		= MTDPART_OFS_APPEND,	
-		.size		= 256 * (64 * 2048),	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x1C000000*/
+		.size		= 256 * (64 * 2048),	/* 32M, 0x2000000 */
 	},
 	{
 		.name		= "cache",
-		.offset		= MTDPART_OFS_APPEND,	
-		.size		= 256 * (64 * 2048),	
+		.offset		= MTDPART_OFS_APPEND,	/* Offset = 0x1E000000*/
+		.size		= 256 * (64 * 2048),	/* 32M, 0x2000000 */
 	},
 };
 

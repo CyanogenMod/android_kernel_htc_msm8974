@@ -32,6 +32,9 @@
 #include <linux/uwb.h>
 #include "i1480-dfu.h"
 
+/*
+ * Descriptor for a continuous segment of MAC fw data
+ */
 struct fw_hdr {
 	unsigned long address;
 	size_t length;
@@ -40,6 +43,7 @@ struct fw_hdr {
 };
 
 
+/* Free a chain of firmware headers */
 static
 void fw_hdrs_free(struct fw_hdr *hdr)
 {
@@ -53,6 +57,7 @@ void fw_hdrs_free(struct fw_hdr *hdr)
 }
 
 
+/* Fill a firmware header descriptor from a memory buffer */
 static
 int fw_hdr_load(struct i1480 *i1480, struct fw_hdr *hdr, unsigned hdr_cnt,
 		const char *_data, const u32 *data_itr, const u32 *data_top)
@@ -81,6 +86,24 @@ int fw_hdr_load(struct i1480 *i1480, struct fw_hdr *hdr, unsigned hdr_cnt,
 }
 
 
+/**
+ * Get a buffer where the firmware is supposed to be and create a
+ * chain of headers linking them together.
+ *
+ * @phdr: where to place the pointer to the first header (headers link
+ *        to the next via the @hdr->next ptr); need to free the whole
+ *        chain when done.
+ *
+ * @_data: Pointer to the data buffer.
+ *
+ * @_data_size: Size of the data buffer (bytes); data size has to be a
+ *              multiple of 4. Function will fail if not.
+ *
+ * Goes over the whole binary blob; reads the first chunk and creates
+ * a fw hdr from it (which points to where the data is in @_data and
+ * the length of the chunk); then goes on to the next chunk until
+ * done. Each header is linked to the next.
+ */
 static
 int fw_hdrs_load(struct i1480 *i1480, struct fw_hdr **phdr,
 		 const char *_data, size_t data_size)
@@ -91,7 +114,7 @@ int fw_hdrs_load(struct i1480 *i1480, struct fw_hdr **phdr,
 	struct fw_hdr *hdr, **prev_hdr = phdr;
 
 	result = -EINVAL;
-	
+	/* Check size is ok and pointer is aligned */
 	if (data_size % sizeof(u32) != 0)
 		goto error;
 	if ((unsigned long) _data % sizeof(u16) != 0)
@@ -128,6 +151,18 @@ error:
 }
 
 
+/**
+ * Compares a chunk of fw with one in the devices's memory
+ *
+ * @i1480:     Device instance
+ * @hdr:     Pointer to the firmware chunk
+ * @returns: 0 if equal, < 0 errno on error. If > 0, it is the offset
+ *           where the difference was found (plus one).
+ *
+ * Kind of dirty and simplistic, but does the trick in both the PCI
+ * and USB version. We do a quick[er] memcmp(), and if it fails, we do
+ * a byte-by-byte to find the offset.
+ */
 static
 ssize_t i1480_fw_cmp(struct i1480 *i1480, struct fw_hdr *hdr)
 {
@@ -167,6 +202,13 @@ cmp_failed:
 }
 
 
+/**
+ * Writes firmware headers to the device.
+ *
+ * @prd:     PRD instance
+ * @hdr:     Processed firmware
+ * @returns: 0 if ok, < 0 errno on error.
+ */
 static
 int mac_fw_hdrs_push(struct i1480 *i1480, struct fw_hdr *hdr,
 		     const char *fw_name, const char *fw_tag)
@@ -176,7 +218,7 @@ int mac_fw_hdrs_push(struct i1480 *i1480, struct fw_hdr *hdr,
 	struct fw_hdr *hdr_itr;
 	int verif_retry_count;
 
-	
+	/* Now, header by header, push them to the hw */
 	for (hdr_itr = hdr; hdr_itr != NULL; hdr_itr = hdr_itr->next) {
 		verif_retry_count = 0;
 retry:
@@ -201,13 +243,13 @@ retry:
 				hdr_itr->address, result);
 			break;
 		}
-		if (result > 0) {	
+		if (result > 0) {	/* Offset where it failed + 1 */
 			result--;
 			dev_err(dev, "%s fw '%s': WARNING: verification "
 				"failed at 0x%lx: retrying\n",
 				fw_tag, fw_name, hdr_itr->address + result);
 			if (++verif_retry_count < 3)
-				goto retry;	
+				goto retry;	/* write this block again! */
 			dev_err(dev, "%s fw '%s': verification failed at 0x%lx: "
 				"tried %d times\n", fw_tag, fw_name,
 				hdr_itr->address + result, verif_retry_count);
@@ -219,6 +261,7 @@ retry:
 }
 
 
+/** Puts the device in firmware upload mode.*/
 static
 int mac_fw_upload_enable(struct i1480 *i1480)
 {
@@ -242,6 +285,7 @@ error_cmd:
 }
 
 
+/** Gets the device out of firmware upload mode. */
 static
 int mac_fw_upload_disable(struct i1480 *i1480)
 {
@@ -266,6 +310,17 @@ error_cmd:
 
 
 
+/**
+ * Generic function for uploading a MAC firmware.
+ *
+ * @i1480:     Device instance
+ * @fw_name: Name of firmware file to upload.
+ * @fw_tag:  Name of the firmware type (for messages)
+ *           [eg: MAC, PRE]
+ * @do_wait: Wait for device to emit initialization done message (0
+ *           for PRE fws, 1 for MAC fws).
+ * @returns: 0 if ok, < 0 errno on error.
+ */
 static
 int __mac_fw_upload(struct i1480 *i1480, const char *fw_name,
 		    const char *fw_tag)
@@ -275,7 +330,7 @@ int __mac_fw_upload(struct i1480 *i1480, const char *fw_name,
 	struct fw_hdr *fw_hdrs;
 
 	result = request_firmware(&fw, fw_name, i1480->dev);
-	if (result < 0)	
+	if (result < 0)	/* Up to caller to complain on -ENOENT */
 		goto out;
 	result = fw_hdrs_load(i1480, &fw_hdrs, fw->data, fw->size);
 	if (result < 0) {
@@ -302,6 +357,10 @@ out:
 }
 
 
+/**
+ * Upload a pre-PHY firmware
+ *
+ */
 int i1480_pre_fw_upload(struct i1480 *i1480)
 {
 	int result;
@@ -312,6 +371,19 @@ int i1480_pre_fw_upload(struct i1480 *i1480)
 }
 
 
+/**
+ * Reset a the MAC and PHY
+ *
+ * @i1480:     Device's instance
+ * @returns: 0 if ok, < 0 errno code on error
+ *
+ * We put the command on kmalloc'ed memory as some arches cannot do
+ * USB from the stack. The reply event is copied from an stage buffer,
+ * so it can be in the stack. See WUSB1.0[8.6.2.4] for more details.
+ *
+ * We issue the reset to make sure the UWB controller reinits the PHY;
+ * this way we can now if the PHY init went ok.
+ */
 static
 int i1480_cmd_reset(struct i1480 *i1480)
 {
@@ -341,6 +413,7 @@ out:
 }
 
 
+/* Wait for the MAC FW to start running */
 static
 int i1480_fw_is_running_q(struct i1480 *i1480)
 {
@@ -355,7 +428,7 @@ int i1480_fw_is_running_q(struct i1480 *i1480)
 			dev_err(i1480->dev, "Can't read 0x8008000: %d\n", result);
 			goto out;
 		}
-		if (*val == 0x55555555UL)	
+		if (*val == 0x55555555UL)	/* fw running? cool */
 			goto out;
 	}
 	dev_err(i1480->dev, "Timed out waiting for fw to start\n");
@@ -366,6 +439,15 @@ out:
 }
 
 
+/**
+ * Upload MAC firmware, wait for it to start
+ *
+ * @i1480:     Device instance
+ * @fw_name: Name of the file that contains the firmware
+ *
+ * This has to be called after the pre fw has been uploaded (if
+ * there is any).
+ */
 int i1480_mac_fw_upload(struct i1480 *i1480)
 {
 	int result = 0, deprecated_name = 0;
@@ -393,13 +475,13 @@ int i1480_mac_fw_upload(struct i1480 *i1480)
 			result);
 		goto error_setup;
 	}
-	result = i1480->wait_init_done(i1480);	
+	result = i1480->wait_init_done(i1480);	/* wait init'on */
 	if (result < 0) {
 		dev_err(i1480->dev, "MAC fw '%s': Initialization timed out "
 			"(%d)\n", i1480->mac_fw_name, result);
 		goto error_init_timeout;
 	}
-	
+	/* verify we got the right initialization done event */
 	if (i1480->evt_result != sizeof(*rcebe)) {
 		dev_err(i1480->dev, "MAC fw '%s': initialization event returns "
 			"wrong size (%zu bytes vs %zu needed)\n",

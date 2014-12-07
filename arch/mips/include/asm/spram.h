@@ -5,6 +5,6 @@
 extern __init void spram_config(void);
 #else
 static inline void spram_config(void) { };
-#endif 
+#endif /* CONFIG_CPU_MIPSR2 */
 
-#endif 
+#endif /* _MIPS_SPRAM_H */

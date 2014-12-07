@@ -38,6 +38,7 @@ static DEFINE_PER_CPU(struct vcpu_runstate_info, xen_runstate);
 static DEFINE_PER_CPU(unsigned long, xen_stolen_time);
 static DEFINE_PER_CPU(unsigned long, xen_blocked_time);
 
+/* taken from i386/kernel/time-xen.c */
 static void xen_init_missing_ticks_accounting(int cpu)
 {
 	struct vcpu_register_runstate_memory_area area;
@@ -56,6 +57,10 @@ static void xen_init_missing_ticks_accounting(int cpu)
 					    + runstate->time[RUNSTATE_offline];
 }
 
+/*
+ * Runstate accounting
+ */
+/* stolen from arch/x86/xen/time.c */
 static void get_runstate_snapshot(struct vcpu_runstate_info *res)
 {
 	u64 state_time;
@@ -65,6 +70,11 @@ static void get_runstate_snapshot(struct vcpu_runstate_info *res)
 
 	state = &__get_cpu_var(xen_runstate);
 
+	/*
+	 * The runstate info is always updated by the hypervisor on
+	 * the current CPU, so there's no need to use anything
+	 * stronger than a compiler barrier when fetching it.
+	 */
 	do {
 		state_time = state->state_entry_time;
 		rmb();
@@ -86,6 +96,12 @@ consider_steal_time(unsigned long new_itm)
 
 	get_runstate_snapshot(&runstate);
 
+	/*
+	 * Check for vcpu migration effect
+	 * In this case, itc value is reversed.
+	 * This causes huge stolen value.
+	 * This function just checks and reject this effect.
+	 */
 	if (!time_after_eq(runstate.time[RUNSTATE_blocked],
 			   per_cpu(xen_blocked_time, cpu)))
 		blocked = 0;
@@ -155,6 +171,16 @@ static void xen_itc_jitter_data_reset(void)
 	} while (unlikely(ret != lcycle));
 }
 
+/* based on xen_sched_clock() in arch/x86/xen/time.c. */
+/*
+ * This relies on HAVE_UNSTABLE_SCHED_CLOCK. If it can't be defined,
+ * something similar logic should be implemented here.
+ */
+/*
+ * Xen sched_clock implementation.  Returns the number of unstolen
+ * nanoseconds, which is nanoseconds the VCPU spent in RUNNING+BLOCKED
+ * states.
+ */
 static unsigned long long xen_sched_clock(void)
 {
 	struct vcpu_runstate_info runstate;
@@ -163,8 +189,17 @@ static unsigned long long xen_sched_clock(void)
 	unsigned long long offset;
 	unsigned long long ret;
 
+	/*
+	 * Ideally sched_clock should be called on a per-cpu basis
+	 * anyway, so preempt should already be disabled, but that's
+	 * not current practice at the moment.
+	 */
 	preempt_disable();
 
+	/*
+	 * both ia64_native_sched_clock() and xen's runstate are
+	 * based on mAR.ITC. So difference of them makes sense.
+	 */
 	now = ia64_native_sched_clock();
 
 	get_runstate_snapshot(&runstate);
@@ -190,9 +225,10 @@ struct pv_time_ops xen_time_ops __initdata = {
 	.sched_clock			= xen_sched_clock,
 };
 
+/* Called after suspend, to resume time.  */
 static void xen_local_tick_resume(void)
 {
-	
+	/* Just trigger a tick.  */
 	ia64_cpu_local_tick();
 	touch_softlockup_watchdog();
 }

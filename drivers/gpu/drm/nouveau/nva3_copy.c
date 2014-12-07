@@ -69,7 +69,7 @@ nva3_copy_object_new(struct nouveau_channel *chan, int engine,
 {
 	struct nouveau_gpuobj *ctx = chan->engctx[engine];
 
-	
+	/* fuc engine doesn't need an object, our ramht code does.. */
 	ctx->engine = 3;
 	ctx->class  = class;
 	return nouveau_ramht_insert(chan, handle, ctx);
@@ -85,15 +85,15 @@ nva3_copy_context_del(struct nouveau_channel *chan, int engine)
 	inst  = (chan->ramin->vinst >> 12);
 	inst |= 0x40000000;
 
-	
+	/* disable fifo access */
 	nv_wr32(dev, 0x104048, 0x00000000);
-	
+	/* mark channel as unloaded if it's currently active */
 	if (nv_rd32(dev, 0x104050) == inst)
 		nv_mask(dev, 0x104050, 0x40000000, 0x00000000);
-	
+	/* mark next channel as invalid if it's about to be loaded */
 	if (nv_rd32(dev, 0x104054) == inst)
 		nv_mask(dev, 0x104054, 0x40000000, 0x00000000);
-	
+	/* restore fifo access */
 	nv_wr32(dev, 0x104048, 0x00000003);
 
 	for (inst = 0xc0; inst <= 0xd4; inst += 4)
@@ -118,9 +118,9 @@ nva3_copy_init(struct drm_device *dev, int engine)
 
 	nv_mask(dev, 0x000200, 0x00002000, 0x00000000);
 	nv_mask(dev, 0x000200, 0x00002000, 0x00002000);
-	nv_wr32(dev, 0x104014, 0xffffffff); 
+	nv_wr32(dev, 0x104014, 0xffffffff); /* disable all interrupts */
 
-	
+	/* upload ucode */
 	nv_wr32(dev, 0x1041c0, 0x01000000);
 	for (i = 0; i < sizeof(nva3_pcopy_data) / 4; i++)
 		nv_wr32(dev, 0x1041c4, nva3_pcopy_data[i]);
@@ -132,10 +132,10 @@ nva3_copy_init(struct drm_device *dev, int engine)
 		nv_wr32(dev, 0x104184, nva3_pcopy_code[i]);
 	}
 
-	
+	/* start it running */
 	nv_wr32(dev, 0x10410c, 0x00000000);
-	nv_wr32(dev, 0x104104, 0x00000000); 
-	nv_wr32(dev, 0x104100, 0x00000002); 
+	nv_wr32(dev, 0x104104, 0x00000000); /* ENTRY */
+	nv_wr32(dev, 0x104100, 0x00000002); /* TRIGGER */
 	return 0;
 }
 
@@ -144,7 +144,7 @@ nva3_copy_fini(struct drm_device *dev, int engine, bool suspend)
 {
 	nv_mask(dev, 0x104048, 0x00000003, 0x00000000);
 
-	
+	/* trigger fuc context unload */
 	nv_wait(dev, 0x104008, 0x0000000c, 0x00000000);
 	nv_mask(dev, 0x104054, 0x40000000, 0x00000000);
 	nv_wr32(dev, 0x104000, 0x00000008);

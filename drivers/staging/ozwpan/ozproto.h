@@ -12,15 +12,26 @@
 
 #define OZ_ALLOCATED_SPACE(__x)	(LL_RESERVED_SPACE(__x)+(__x)->needed_tailroom)
 
+/* Converts millisecs to jiffies.
+ */
 #define oz_ms_to_jiffies(__x)	(((__x)*1000)/HZ)
 
+/* Quantum milliseconds.
+ */
 #define OZ_QUANTUM_MS		8
+/* Quantum jiffies
+ */
 #define OZ_QUANTUM_J		(oz_ms_to_jiffies(OZ_QUANTUM_MS))
+/* Default timeouts.
+ */
 #define OZ_CONNECTION_TOUT_J	(2*HZ)
 #define OZ_PRESLEEP_TOUT_J	(11*HZ)
 
+/* Maximun sizes of tx frames. */
 #define OZ_MAX_TX_SIZE		1514
 
+/* Application handler functions.
+ */
 typedef int (*oz_app_init_fn_t)(void);
 typedef void (*oz_app_term_fn_t)(void);
 typedef int (*oz_app_start_fn_t)(struct oz_pd *pd, int resume);
@@ -55,4 +66,4 @@ void oz_pd_request_heartbeat(struct oz_pd *pd);
 void oz_polling_lock_bh(void);
 void oz_polling_unlock_bh(void);
 
-#endif 
+#endif /* _OZPROTO_H */

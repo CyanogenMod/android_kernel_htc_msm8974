@@ -44,15 +44,15 @@ struct bcm63xx_spi {
 	void __iomem		*regs;
 	int			irq;
 
-	
+	/* Platform data */
 	u32			speed_hz;
 	unsigned		fifo_size;
 
-	
+	/* Data buffers */
 	const unsigned char	*tx_ptr;
 	unsigned char		*rx_ptr;
 
-	
+	/* data iomem */
 	u8 __iomem		*tx_io;
 	const u8 __iomem	*rx_io;
 
@@ -127,7 +127,7 @@ static void bcm63xx_spi_setup_transfer(struct spi_device *spi,
 
 	hz = (t) ? t->speed_hz : spi->max_speed_hz;
 
-	
+	/* Find the closest clock configuration */
 	for (i = 0; i < SPI_CLK_MASK; i++) {
 		if (hz <= bcm63xx_spi_freq_table[i][0]) {
 			clk_cfg = bcm63xx_spi_freq_table[i][1];
@@ -135,11 +135,11 @@ static void bcm63xx_spi_setup_transfer(struct spi_device *spi,
 		}
 	}
 
-	
+	/* No matching configuration found, default to lowest */
 	if (i == SPI_CLK_MASK)
 		clk_cfg = SPI_CLK_0_391MHZ;
 
-	
+	/* clear existing clock configuration bits of the register */
 	reg = bcm_spi_readb(bs, SPI_CLK_CFG);
 	reg &= ~SPI_CLK_MASK;
 	reg |= clk_cfg;
@@ -149,6 +149,7 @@ static void bcm63xx_spi_setup_transfer(struct spi_device *spi,
 		clk_cfg, hz);
 }
 
+/* the spi->mode bits understood by this driver: */
 #define MODEBITS (SPI_CPOL | SPI_CPHA)
 
 static int bcm63xx_spi_setup(struct spi_device *spi)
@@ -180,11 +181,12 @@ static int bcm63xx_spi_setup(struct spi_device *spi)
 	return 0;
 }
 
+/* Fill the TX FIFO with as many bytes as possible */
 static void bcm63xx_spi_fill_tx_fifo(struct bcm63xx_spi *bs)
 {
 	u8 size;
 
-	
+	/* Fill the Tx FIFO with as many bytes as possible */
 	size = bs->remaining_bytes < bs->fifo_size ? bs->remaining_bytes :
 		bs->fifo_size;
 	memcpy_toio(bs->tx_io, bs->tx_ptr, size);
@@ -198,13 +200,13 @@ static unsigned int bcm63xx_txrx_bufs(struct spi_device *spi,
 	u16 msg_ctl;
 	u16 cmd;
 
-	
+	/* Disable the CMD_DONE interrupt */
 	bcm_spi_writeb(bs, 0, SPI_INT_MASK);
 
 	dev_dbg(&spi->dev, "txrx: tx %p, rx %p, len %d\n",
 		t->tx_buf, t->rx_buf, t->len);
 
-	
+	/* Transmitter is inhibited */
 	bs->tx_ptr = t->tx_buf;
 	bs->rx_ptr = t->rx_buf;
 
@@ -215,7 +217,7 @@ static unsigned int bcm63xx_txrx_bufs(struct spi_device *spi,
 
 	init_completion(&bs->done);
 
-	
+	/* Fill in the Message control register */
 	msg_ctl = (t->len << SPI_BYTE_CNT_SHIFT);
 
 	if (t->rx_buf && t->tx_buf)
@@ -227,13 +229,13 @@ static unsigned int bcm63xx_txrx_bufs(struct spi_device *spi,
 
 	bcm_spi_writew(bs, msg_ctl, SPI_MSG_CTL);
 
-	
+	/* Issue the transfer */
 	cmd = SPI_CMD_START_IMMEDIATE;
 	cmd |= (0 << SPI_CMD_PREPEND_BYTE_CNT_SHIFT);
 	cmd |= (spi->chip_select << SPI_CMD_DEVICE_ID_SHIFT);
 	bcm_spi_writew(bs, cmd, SPI_CMD);
 
-	
+	/* Enable the CMD_DONE interrupt */
 	bcm_spi_writeb(bs, SPI_INTR_CMD_DONE, SPI_INT_MASK);
 
 	return t->len - bs->remaining_bytes;
@@ -274,11 +276,11 @@ static int bcm63xx_spi_transfer_one(struct spi_master *master,
 		if (status < 0)
 			goto exit;
 
-		
+		/* configure adapter for a new transfer */
 		bcm63xx_spi_setup_transfer(spi, t);
 
 		while (len) {
-			
+			/* send the data */
 			len -= bcm63xx_txrx_bufs(spi, t);
 
 			timeout = wait_for_completion_timeout(&bs->done, HZ);
@@ -287,10 +289,10 @@ static int bcm63xx_spi_transfer_one(struct spi_master *master,
 				goto exit;
 			}
 
-			
+			/* read out all data */
 			rx_tail = bcm_spi_readb(bs, SPI_RX_TAIL);
 
-			
+			/* Read out all the data */
 			if (rx_tail)
 				memcpy_fromio(bs->rx_ptr, bs->rx_io, rx_tail);
 		}
@@ -304,18 +306,21 @@ exit:
 	return 0;
 }
 
+/* This driver supports single master mode only. Hence
+ * CMD_DONE is the only interrupt we care about
+ */
 static irqreturn_t bcm63xx_spi_interrupt(int irq, void *dev_id)
 {
 	struct spi_master *master = (struct spi_master *)dev_id;
 	struct bcm63xx_spi *bs = spi_master_get_devdata(master);
 	u8 intr;
 
-	
+	/* Read interupts and clear them immediately */
 	intr = bcm_spi_readb(bs, SPI_INT_STATUS);
 	bcm_spi_writeb(bs, SPI_INTR_CLEAR_ALL, SPI_INT_STATUS);
 	bcm_spi_writeb(bs, 0, SPI_INT_MASK);
 
-	
+	/* A transfer completed */
 	if (intr & SPI_INTR_CMD_DONE)
 		complete(&bs->done);
 
@@ -404,11 +409,11 @@ static int __devinit bcm63xx_spi_probe(struct platform_device *pdev)
 	bs->tx_io = (u8 *)(bs->regs + bcm63xx_spireg(SPI_MSG_DATA));
 	bs->rx_io = (const u8 *)(bs->regs + bcm63xx_spireg(SPI_RX_DATA));
 
-	
+	/* Initialize hardware */
 	clk_enable(bs->clk);
 	bcm_spi_writeb(bs, SPI_INTR_CLEAR_ALL, SPI_INT_STATUS);
 
-	
+	/* register and we are done */
 	ret = spi_register_master(master);
 	if (ret) {
 		dev_err(dev, "spi register failed\n");
@@ -438,10 +443,10 @@ static int __devexit bcm63xx_spi_remove(struct platform_device *pdev)
 
 	spi_unregister_master(master);
 
-	
+	/* reset spi block */
 	bcm_spi_writeb(bs, 0, SPI_INT_MASK);
 
-	
+	/* HW shutdown */
 	clk_disable(bs->clk);
 	clk_put(bs->clk);
 

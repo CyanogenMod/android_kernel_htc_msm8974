@@ -34,9 +34,9 @@ MODULE_SUPPORTED_DEVICE("{{Media Vision ??? },"
 MODULE_AUTHOR("Krzysztof Helt <krzysztof.h1@wp.pl>");
 MODULE_LICENSE("GPL");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	/* Enable this card */
 static unsigned long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 static unsigned long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;
@@ -110,7 +110,7 @@ static int __devinit jazz16_detect_board(unsigned long port,
 		snd_printk(KERN_ERR "I/O port region is already in use.\n");
 		return -EBUSY;
 	}
-	
+	/* just to call snd_sbdsp_command/reset/get_byte() */
 	chip.port = port;
 
 	err = snd_sbdsp_reset(&chip);

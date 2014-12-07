@@ -191,4 +191,4 @@ static int scom_debug_init(void)
 	return rc;
 }
 device_initcall(scom_debug_init);
-#endif 
+#endif /* CONFIG_SCOM_DEBUGFS */

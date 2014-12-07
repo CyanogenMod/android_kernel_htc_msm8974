@@ -10,6 +10,8 @@
 
 #define MXB_AUDIOS	6
 
+/* these are the available audio sources, which can switched
+   to the line- and cd-output individually */
 static struct v4l2_audio mxb_audios[MXB_AUDIOS] = {
 	    {
 		.index	= 0,

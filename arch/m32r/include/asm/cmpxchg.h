@@ -41,7 +41,7 @@ __xchg(unsigned long x, volatile void *ptr, int size)
 			"st	%1, @%2 \n\t"
 			: "=&r" (tmp) : "r" (x), "r" (ptr) : "memory");
 		break;
-#else  
+#else  /* CONFIG_SMP */
 	case 4:
 		__asm__ __volatile__ (
 			DCACHE_CLEAR("%0", "r4", "%2")
@@ -51,10 +51,10 @@ __xchg(unsigned long x, volatile void *ptr, int size)
 			: "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 			, "r4"
-#endif	
+#endif	/* CONFIG_CHIP_M32700_TS1 */
 		);
 		break;
-#endif  
+#endif  /* CONFIG_SMP */
 	default:
 		__xchg_called_with_bad_pointer();
 	}
@@ -132,7 +132,7 @@ __cmpxchg_u32(volatile unsigned int *p, unsigned int old, unsigned int new)
 			: "cbit", "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 			, "r4"
-#endif  
+#endif  /* CONFIG_CHIP_M32700_TS1 */
 		);
 	local_irq_restore(flags);
 
@@ -163,13 +163,15 @@ __cmpxchg_local_u32(volatile unsigned int *p, unsigned int old,
 			: "cbit", "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 			, "r4"
-#endif  
+#endif  /* CONFIG_CHIP_M32700_TS1 */
 		);
 	local_irq_restore(flags);
 
 	return retval;
 }
 
+/* This function doesn't exist, so you'll get a linker error
+   if something tries to do an invalid cmpxchg().  */
 extern void __cmpxchg_called_with_bad_pointer(void);
 
 static inline unsigned long
@@ -178,10 +180,10 @@ __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new, int size)
 	switch (size) {
 	case 4:
 		return __cmpxchg_u32(ptr, old, new);
-#if 0	
+#if 0	/* we don't have __cmpxchg_u64 */
 	case 8:
 		return __cmpxchg_u64(ptr, old, new);
-#endif 
+#endif /* 0 */
 	}
 	__cmpxchg_called_with_bad_pointer();
 	return old;
@@ -207,9 +209,13 @@ static inline unsigned long __cmpxchg_local(volatile void *ptr,
 	return old;
 }
 
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
 #define cmpxchg_local(ptr, o, n)				  	    \
 	((__typeof__(*(ptr)))__cmpxchg_local((ptr), (unsigned long)(o),	    \
 			(unsigned long)(n), sizeof(*(ptr))))
 #define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 
-#endif 
+#endif /* _ASM_M32R_CMPXCHG_H */

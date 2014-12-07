@@ -27,13 +27,14 @@ struct vtimer_list {
 	unsigned long data;
 };
 
+/* the vtimer value will wrap after ca. 71 years */
 struct vtimer_queue {
 	struct list_head list;
 	spinlock_t lock;
-	__u64 timer;		
-	__u64 elapsed;		
-	__u64 idle_enter;	
-	__u64 idle_exit;	
+	__u64 timer;		/* last programmed timer */
+	__u64 elapsed;		/* elapsed time of timer expire values */
+	__u64 idle_enter;	/* cpu timer on idle enter */
+	__u64 idle_exit;	/* cpu timer on idle exit */
 };
 
 extern void init_virt_timer(struct vtimer_list *timer);
@@ -49,6 +50,6 @@ extern void vtime_init(void);
 extern void vtime_stop_cpu(void);
 extern void vtime_start_leave(void);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_S390_TIMER_H */

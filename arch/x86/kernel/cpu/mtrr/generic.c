@@ -1,3 +1,7 @@
+/*
+ * This only handles 32bit MTRR on 32bit hosts. This is strictly wrong
+ * because MTRRs can span up to 40 bits (36bits on most modern x86)
+ */
 #define DEBUG
 
 #include <linux/module.h>
@@ -15,14 +19,14 @@
 #include "mtrr.h"
 
 struct fixed_range_block {
-	int base_msr;		
-	int ranges;		
+	int base_msr;		/* start address of an MTRR block */
+	int ranges;		/* number of MTRRs in this block  */
 };
 
 static struct fixed_range_block fixed_range_blocks[] = {
-	{ MSR_MTRRfix64K_00000, 1 }, 
-	{ MSR_MTRRfix16K_80000, 2 }, 
-	{ MSR_MTRRfix4K_C0000,  8 }, 
+	{ MSR_MTRRfix64K_00000, 1 }, /* one   64k MTRR  */
+	{ MSR_MTRRfix16K_80000, 2 }, /* two   16k MTRRs */
+	{ MSR_MTRRfix4K_C0000,  8 }, /* eight  4k MTRRs */
 	{}
 };
 
@@ -33,6 +37,14 @@ u64 mtrr_tom2;
 struct mtrr_state_type mtrr_state;
 EXPORT_SYMBOL_GPL(mtrr_state);
 
+/*
+ * BIOS is expected to clear MtrrFixDramModEn bit, see for example
+ * "BIOS and Kernel Developer's Guide for the AMD Athlon 64 and AMD
+ * Opteron Processors" (26094 Rev. 3.30 February 2006), section
+ * "13.2.1.2 SYSCFG Register": "The MtrrFixDramModEn bit should be set
+ * to 1 during BIOS initalization of the fixed MTRRs, then cleared to
+ * 0 for operation."
+ */
 static inline void k8_check_syscfg_dram_mod_en(void)
 {
 	u32 lo, hi;
@@ -51,6 +63,7 @@ static inline void k8_check_syscfg_dram_mod_en(void)
 	}
 }
 
+/* Get the size of contiguous MTRR range */
 static u64 get_mtrr_size(u64 mask)
 {
 	u64 size;
@@ -62,6 +75,10 @@ static u64 get_mtrr_size(u64 mask)
 	return size;
 }
 
+/*
+ * Check and return the effective type for MTRR-MTRR type overlap.
+ * Returns 1 if the effective type is UNCACHEABLE, else returns 0
+ */
 static int check_type_overlap(u8 *prev, u8 *curr)
 {
 	if (*prev == MTRR_TYPE_UNCACHABLE || *curr == MTRR_TYPE_UNCACHABLE) {
@@ -85,6 +102,13 @@ static int check_type_overlap(u8 *prev, u8 *curr)
 	return 0;
 }
 
+/*
+ * Error/Semi-error returns:
+ * 0xFF - when MTRR is not enabled
+ * *repeat == 1 implies [start:end] spanned across MTRR range and type returned
+ *		corresponds only to [start:*partial_end].
+ *		Caller has to lookup again for [*partial_end:end].
+ */
 static u8 __mtrr_type_lookup(u64 start, u64 end, u64 *partial_end, int *repeat)
 {
 	int i;
@@ -98,10 +122,10 @@ static u8 __mtrr_type_lookup(u64 start, u64 end, u64 *partial_end, int *repeat)
 	if (!mtrr_state.enabled)
 		return 0xFF;
 
-	
+	/* Make end inclusive end, instead of exclusive */
 	end--;
 
-	
+	/* Look in fixed ranges. Just return the type as per start */
 	if (mtrr_state.have_fixed && (start < 0x100000)) {
 		int idx;
 
@@ -120,6 +144,11 @@ static u8 __mtrr_type_lookup(u64 start, u64 end, u64 *partial_end, int *repeat)
 		}
 	}
 
+	/*
+	 * Look in variable ranges
+	 * Look of multiple ranges matching this address and pick type
+	 * as per MTRR precedence
+	 */
 	if (!(mtrr_state.enabled & 2))
 		return mtrr_state.def_type;
 
@@ -139,6 +168,19 @@ static u8 __mtrr_type_lookup(u64 start, u64 end, u64 *partial_end, int *repeat)
 		end_state = ((end & mask) == (base & mask));
 
 		if (start_state != end_state) {
+			/*
+			 * We have start:end spanning across an MTRR.
+			 * We split the region into
+			 * either
+			 * (start:mtrr_end) (mtrr_end:end)
+			 * or
+			 * (start:mtrr_start) (mtrr_start:end)
+			 * depending on kind of overlap.
+			 * Return the type for first region and a pointer to
+			 * the start of second region so that caller will
+			 * lookup again on the second region.
+			 * Note: This way we handle multiple overlaps as well.
+			 */
 			if (start_state)
 				*partial_end = base + get_mtrr_size(mask);
 			else
@@ -149,7 +191,7 @@ static u8 __mtrr_type_lookup(u64 start, u64 end, u64 *partial_end, int *repeat)
 				*partial_end = start + PAGE_SIZE;
 			}
 
-			end = *partial_end - 1; 
+			end = *partial_end - 1; /* end is inclusive */
 			*repeat = 1;
 		}
 
@@ -177,6 +219,11 @@ static u8 __mtrr_type_lookup(u64 start, u64 end, u64 *partial_end, int *repeat)
 	return mtrr_state.def_type;
 }
 
+/*
+ * Returns the effective MTRR type for the region
+ * Error return:
+ * 0xFF - when MTRR is not enabled
+ */
 u8 mtrr_type_lookup(u64 start, u64 end)
 {
 	u8 type, prev_type;
@@ -185,6 +232,11 @@ u8 mtrr_type_lookup(u64 start, u64 end)
 
 	type = __mtrr_type_lookup(start, end, &partial_end, &repeat);
 
+	/*
+	 * Common path is with repeat = 0.
+	 * However, we can have cases where [start:end] spans across some
+	 * MTRR range. Do repeated lookups for that case here.
+	 */
 	while (repeat) {
 		prev_type = type;
 		start = partial_end;
@@ -197,6 +249,7 @@ u8 mtrr_type_lookup(u64 start, u64 end)
 	return type;
 }
 
+/* Get the MSR pair relating to a var range */
 static void
 get_mtrr_var_range(unsigned int index, struct mtrr_var_range *vr)
 {
@@ -204,6 +257,7 @@ get_mtrr_var_range(unsigned int index, struct mtrr_var_range *vr)
 	rdmsr(MTRRphysMask_MSR(index), vr->mask_lo, vr->mask_hi);
 }
 
+/* Fill the MSR pair relating to a var range */
 void fill_mtrr_var_range(unsigned int index,
 		u32 base_lo, u32 base_hi, u32 mask_lo, u32 mask_hi)
 {
@@ -275,7 +329,7 @@ print_fixed(unsigned base, unsigned step, const mtrr_type *types)
 			last_fixed_end = base + step;
 			continue;
 		}
-		
+		/* new segments: gap or different type */
 		print_fixed_last();
 		update_fixed_last(base, base + step, *types);
 	}
@@ -302,7 +356,7 @@ static void __init print_mtrr_state(void)
 			print_fixed(0xC0000 + i * 0x08000, 0x01000,
 				    mtrr_state.fixed_ranges + (i + 3) * 8);
 
-		
+		/* tail */
 		print_fixed_last();
 	}
 	pr_debug("MTRR variable ranges %sabled:\n",
@@ -331,6 +385,7 @@ static void __init print_mtrr_state(void)
 		pr_debug("TOM2: %016llx aka %lldM\n", mtrr_tom2, mtrr_tom2>>20);
 }
 
+/* Grab all of the MTRR state for this CPU into *state */
 void __init get_mtrr_state(void)
 {
 	struct mtrr_var_range *vrs;
@@ -355,7 +410,7 @@ void __init get_mtrr_state(void)
 	if (amd_special_default_mtrr()) {
 		unsigned low, high;
 
-		
+		/* TOP_MEM2 */
 		rdmsr(MSR_K8_TOP_MEM2, low, high);
 		mtrr_tom2 = high;
 		mtrr_tom2 <<= 32;
@@ -367,7 +422,7 @@ void __init get_mtrr_state(void)
 
 	mtrr_state_set = 1;
 
-	
+	/* PAT setup for BP. We need to go through sync steps here */
 	local_irq_save(flags);
 	prepare_set();
 
@@ -377,6 +432,7 @@ void __init get_mtrr_state(void)
 	local_irq_restore(flags);
 }
 
+/* Some BIOS's are messed up and don't set all MTRRs the same! */
 void __init mtrr_state_warn(void)
 {
 	unsigned long mask = smp_changes_mask;
@@ -394,6 +450,11 @@ void __init mtrr_state_warn(void)
 	printk(KERN_INFO "mtrr: corrected configuration.\n");
 }
 
+/*
+ * Doesn't attempt to pass an error out to MTRR users
+ * because it's quite complicated in some cases and probably not
+ * worth it because the best error handling is to ignore it.
+ */
 void mtrr_wrmsr(unsigned msr, unsigned a, unsigned b)
 {
 	if (wrmsr_safe(msr, a, b) < 0) {
@@ -403,6 +464,13 @@ void mtrr_wrmsr(unsigned msr, unsigned a, unsigned b)
 	}
 }
 
+/**
+ * set_fixed_range - checks & updates a fixed-range MTRR if it
+ *		     differs from the value it should have
+ * @msr: MSR address of the MTTR which should be checked and updated
+ * @changed: pointer which indicates whether the MTRR needed to be changed
+ * @msrwords: pointer to the MSR values which the MSR should have
+ */
 static void set_fixed_range(int msr, bool *changed, unsigned int *msrwords)
 {
 	unsigned lo, hi;
@@ -415,6 +483,14 @@ static void set_fixed_range(int msr, bool *changed, unsigned int *msrwords)
 	}
 }
 
+/**
+ * generic_get_free_region - Get a free MTRR.
+ * @base: The starting (base) address of the region.
+ * @size: The size (in bytes) of the region.
+ * @replace_reg: mtrr index to be replaced; set to invalid value if none.
+ *
+ * Returns: The index of the region on success, else negative on error.
+ */
 int
 generic_get_free_region(unsigned long base, unsigned long size, int replace_reg)
 {
@@ -441,12 +517,16 @@ static void generic_get_mtrr(unsigned int reg, unsigned long *base,
 	unsigned int mask_lo, mask_hi, base_lo, base_hi;
 	unsigned int tmp, hi;
 
+	/*
+	 * get_mtrr doesn't need to update mtrr_state, also it could be called
+	 * from any cpu, so try to print it out directly.
+	 */
 	get_cpu();
 
 	rdmsr(MTRRphysMask_MSR(reg), mask_lo, mask_hi);
 
 	if ((mask_lo & 0x800) == 0) {
-		
+		/*  Invalid (i.e. free) range */
 		*base = 0;
 		*size = 0;
 		*type = 0;
@@ -455,11 +535,11 @@ static void generic_get_mtrr(unsigned int reg, unsigned long *base,
 
 	rdmsr(MTRRphysBase_MSR(reg), base_lo, base_hi);
 
-	
+	/* Work out the shifted address mask: */
 	tmp = mask_hi << (32 - PAGE_SHIFT) | mask_lo >> PAGE_SHIFT;
 	mask_lo = size_or_mask | tmp;
 
-	
+	/* Expand tmp with high bits to all 1s: */
 	hi = fls(tmp);
 	if (hi > 0) {
 		tmp |= ~((1<<(hi - 1)) - 1);
@@ -471,6 +551,10 @@ static void generic_get_mtrr(unsigned int reg, unsigned long *base,
 		}
 	}
 
+	/*
+	 * This works correctly if size is a power of two, i.e. a
+	 * contiguous range:
+	 */
 	*size = -mask_lo;
 	*base = base_hi << (32 - PAGE_SHIFT) | base_lo >> PAGE_SHIFT;
 	*type = base_lo & 0xff;
@@ -479,6 +563,11 @@ out_put_cpu:
 	put_cpu();
 }
 
+/**
+ * set_fixed_ranges - checks & updates the fixed-range MTRRs if they
+ *		      differ from the saved set
+ * @frs: pointer to fixed-range MTRR values, saved by get_fixed_ranges()
+ */
 static int set_fixed_ranges(mtrr_type *frs)
 {
 	unsigned long long *saved = (unsigned long long *)frs;
@@ -496,6 +585,10 @@ static int set_fixed_ranges(mtrr_type *frs)
 	return changed;
 }
 
+/*
+ * Set the MSR pair relating to a var range.
+ * Returns true if changes are made.
+ */
 static bool set_mtrr_var_ranges(unsigned int index, struct mtrr_var_range *vr)
 {
 	unsigned int lo, hi;
@@ -523,6 +616,12 @@ static bool set_mtrr_var_ranges(unsigned int index, struct mtrr_var_range *vr)
 
 static u32 deftype_lo, deftype_hi;
 
+/**
+ * set_mtrr_state - Set the MTRR state for this CPU.
+ *
+ * NOTE: The CPU must already be in a safe state for MTRR changes.
+ * RETURNS: 0 if no changes made, else a mask indicating what was changed.
+ */
 static unsigned long set_mtrr_state(void)
 {
 	unsigned long change_mask = 0;
@@ -536,6 +635,10 @@ static unsigned long set_mtrr_state(void)
 	if (mtrr_state.have_fixed && set_fixed_ranges(mtrr_state.fixed_ranges))
 		change_mask |= MTRR_CHANGE_MASK_FIXED;
 
+	/*
+	 * Set_mtrr_restore restores the old value of MTRRdefType,
+	 * so to set it we fiddle with the saved value:
+	 */
 	if ((deftype_lo & 0xff) != mtrr_state.def_type
 	    || ((deftype_lo & 0xc00) >> 10) != mtrr_state.enabled) {
 
@@ -551,47 +654,60 @@ static unsigned long set_mtrr_state(void)
 static unsigned long cr4;
 static DEFINE_RAW_SPINLOCK(set_atomicity_lock);
 
+/*
+ * Since we are disabling the cache don't allow any interrupts,
+ * they would run extremely slow and would only increase the pain.
+ *
+ * The caller must ensure that local interrupts are disabled and
+ * are reenabled after post_set() has been called.
+ */
 static void prepare_set(void) __acquires(set_atomicity_lock)
 {
 	unsigned long cr0;
 
+	/*
+	 * Note that this is not ideal
+	 * since the cache is only flushed/disabled for this CPU while the
+	 * MTRRs are changed, but changing this requires more invasive
+	 * changes to the way the kernel boots
+	 */
 
 	raw_spin_lock(&set_atomicity_lock);
 
-	
+	/* Enter the no-fill (CD=1, NW=0) cache mode and flush caches. */
 	cr0 = read_cr0() | X86_CR0_CD;
 	write_cr0(cr0);
 	wbinvd();
 
-	
+	/* Save value of CR4 and clear Page Global Enable (bit 7) */
 	if (cpu_has_pge) {
 		cr4 = read_cr4();
 		write_cr4(cr4 & ~X86_CR4_PGE);
 	}
 
-	
+	/* Flush all TLBs via a mov %cr3, %reg; mov %reg, %cr3 */
 	__flush_tlb();
 
-	
+	/* Save MTRR state */
 	rdmsr(MSR_MTRRdefType, deftype_lo, deftype_hi);
 
-	
+	/* Disable MTRRs, and set the default type to uncached */
 	mtrr_wrmsr(MSR_MTRRdefType, deftype_lo & ~0xcff, deftype_hi);
 	wbinvd();
 }
 
 static void post_set(void) __releases(set_atomicity_lock)
 {
-	
+	/* Flush TLBs (no need to flush caches - they are disabled) */
 	__flush_tlb();
 
-	
+	/* Intel (P6) standard MTRRs */
 	mtrr_wrmsr(MSR_MTRRdefType, deftype_lo, deftype_hi);
 
-	
+	/* Enable caches */
 	write_cr0(read_cr0() & 0xbfffffff);
 
-	
+	/* Restore value of CR4 */
 	if (cpu_has_pge)
 		write_cr4(cr4);
 	raw_spin_unlock(&set_atomicity_lock);
@@ -605,16 +721,16 @@ static void generic_set_all(void)
 	local_irq_save(flags);
 	prepare_set();
 
-	
+	/* Actually set the state */
 	mask = set_mtrr_state();
 
-	
+	/* also set PAT */
 	pat_init();
 
 	post_set();
 	local_irq_restore(flags);
 
-	
+	/* Use the atomic bitops to update the global mask */
 	for (count = 0; count < sizeof mask * 8; ++count) {
 		if (mask & 0x01)
 			set_bit(count, &smp_changes_mask);
@@ -623,6 +739,16 @@ static void generic_set_all(void)
 
 }
 
+/**
+ * generic_set_mtrr - set variable MTRR register on the local CPU.
+ *
+ * @reg: The register to set.
+ * @base: The base address of the region.
+ * @size: The size of the region. If this is 0 the region is disabled.
+ * @type: The type of the region.
+ *
+ * Returns nothing.
+ */
 static void generic_set_mtrr(unsigned int reg, unsigned long base,
 			     unsigned long size, mtrr_type type)
 {
@@ -635,6 +761,10 @@ static void generic_set_mtrr(unsigned int reg, unsigned long base,
 	prepare_set();
 
 	if (size == 0) {
+		/*
+		 * The invalid bit is kept in the mask, so we simply
+		 * clear the relevant mask register to disable a range.
+		 */
 		mtrr_wrmsr(MTRRphysMask_MSR(reg), 0, 0);
 		memset(vr, 0, sizeof(struct mtrr_var_range));
 	} else {
@@ -656,6 +786,10 @@ int generic_validate_add_page(unsigned long base, unsigned long size,
 {
 	unsigned long lbase, last;
 
+	/*
+	 * For Intel PPro stepping <= 7
+	 * must be 4 MiB aligned and not touch 0x70000000 -> 0x7003FFFF
+	 */
 	if (is_cpu(INTEL) && boot_cpu_data.x86 == 6 &&
 	    boot_cpu_data.x86_model == 1 &&
 	    boot_cpu_data.x86_mask <= 7) {
@@ -671,6 +805,10 @@ int generic_validate_add_page(unsigned long base, unsigned long size,
 		}
 	}
 
+	/*
+	 * Check upper bits of base and last are equal and lower bits are 0
+	 * for base and 1 for last
+	 */
 	last = base + size - 1;
 	for (lbase = base; !(lbase & 1) && (last & 1);
 	     lbase = lbase >> 1, last = last >> 1)
@@ -694,6 +832,9 @@ int positive_have_wrcomb(void)
 	return 1;
 }
 
+/*
+ * Generic structure...
+ */
 const struct mtrr_ops generic_mtrr_ops = {
 	.use_intel_if		= 1,
 	.set_all		= generic_set_all,

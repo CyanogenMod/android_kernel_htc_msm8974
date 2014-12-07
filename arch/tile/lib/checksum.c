@@ -42,7 +42,7 @@ __wsum do_csum(const unsigned char *buff, int len)
 		len--;
 		buff++;
 	}
-	count = len >> 1;		
+	count = len >> 1;		/* nr of 16-bit words.. */
 	if (count) {
 		if (2 & (unsigned long) buff) {
 			result += *(const unsigned short *)buff;
@@ -50,7 +50,7 @@ __wsum do_csum(const unsigned char *buff, int len)
 			len -= 2;
 			buff += 2;
 		}
-		count >>= 1;		
+		count >>= 1;		/* nr of 32-bit words.. */
 		if (count) {
 #ifdef __tilegx__
 			if (4 & (unsigned long) buff) {
@@ -60,9 +60,13 @@ __wsum do_csum(const unsigned char *buff, int len)
 				len -= 4;
 				buff += 4;
 			}
-			count >>= 1;		
+			count >>= 1;		/* nr of 64-bit words.. */
 #endif
 
+			/*
+			 * This algorithm could wrap around for very
+			 * large buffers, but those should be impossible.
+			 */
 			BUG_ON(count >= 65530);
 
 			while (count) {

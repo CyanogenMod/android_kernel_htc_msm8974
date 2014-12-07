@@ -58,7 +58,7 @@ static int generic_print_tuple(struct seq_file *s,
 static int generic_get_l4proto(const struct sk_buff *skb, unsigned int nhoff,
 			       unsigned int *dataoff, u_int8_t *protonum)
 {
-	
+	/* Never track !!! */
 	return -NF_ACCEPT;
 }
 

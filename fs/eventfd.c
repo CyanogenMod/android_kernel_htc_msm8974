@@ -35,6 +35,22 @@ struct eventfd_ctx {
 	unsigned int flags;
 };
 
+/**
+ * eventfd_signal - Adds @n to the eventfd counter.
+ * @ctx: [in] Pointer to the eventfd context.
+ * @n: [in] Value of the counter to be added to the eventfd internal counter.
+ *          The value cannot be negative.
+ *
+ * This function is supposed to be called by the kernel in paths that do not
+ * allow sleeping. In this function we allow the counter to reach the ULLONG_MAX
+ * value, and we signal this as overflow condition by returining a POLLERR
+ * to poll(2).
+ *
+ * Returns @n in case of success, a non-negative number lower than @n in case
+ * of overflow, or the following error codes:
+ *
+ * -EINVAL    : The value of @n is negative.
+ */
 int eventfd_signal(struct eventfd_ctx *ctx, int n)
 {
 	unsigned long flags;
@@ -65,6 +81,12 @@ static void eventfd_free(struct kref *kref)
 	eventfd_free_ctx(ctx);
 }
 
+/**
+ * eventfd_ctx_get - Acquires a reference to the internal eventfd context.
+ * @ctx: [in] Pointer to the eventfd context.
+ *
+ * Returns: In case of success, returns a pointer to the eventfd context.
+ */
 struct eventfd_ctx *eventfd_ctx_get(struct eventfd_ctx *ctx)
 {
 	kref_get(&ctx->kref);
@@ -72,6 +94,13 @@ struct eventfd_ctx *eventfd_ctx_get(struct eventfd_ctx *ctx)
 }
 EXPORT_SYMBOL_GPL(eventfd_ctx_get);
 
+/**
+ * eventfd_ctx_put - Releases a reference to the internal eventfd context.
+ * @ctx: [in] Pointer to eventfd context.
+ *
+ * The eventfd context reference must have been previously acquired either
+ * with eventfd_ctx_get() or eventfd_ctx_fdget().
+ */
 void eventfd_ctx_put(struct eventfd_ctx *ctx)
 {
 	kref_put(&ctx->kref, eventfd_free);
@@ -113,6 +142,19 @@ static void eventfd_ctx_do_read(struct eventfd_ctx *ctx, __u64 *cnt)
 	ctx->count -= *cnt;
 }
 
+/**
+ * eventfd_ctx_remove_wait_queue - Read the current counter and removes wait queue.
+ * @ctx: [in] Pointer to eventfd context.
+ * @wait: [in] Wait queue to be removed.
+ * @cnt: [out] Pointer to the 64-bit counter value.
+ *
+ * Returns %0 if successful, or the following error codes:
+ *
+ * -EAGAIN      : The operation would have blocked.
+ *
+ * This is used to atomically remove a wait queue entry from the eventfd wait
+ * queue head, and read/reset the counter value.
+ */
 int eventfd_ctx_remove_wait_queue(struct eventfd_ctx *ctx, wait_queue_t *wait,
 				  __u64 *cnt)
 {
@@ -129,6 +171,20 @@ int eventfd_ctx_remove_wait_queue(struct eventfd_ctx *ctx, wait_queue_t *wait,
 }
 EXPORT_SYMBOL_GPL(eventfd_ctx_remove_wait_queue);
 
+/**
+ * eventfd_ctx_read - Reads the eventfd counter or wait if it is zero.
+ * @ctx: [in] Pointer to eventfd context.
+ * @no_wait: [in] Different from zero if the operation should not block.
+ * @cnt: [out] Pointer to the 64-bit counter value.
+ *
+ * Returns %0 if successful, or the following error codes:
+ *
+ * -EAGAIN      : The operation would have blocked but @no_wait was non-zero.
+ * -ERESTARTSYS : A signal interrupted the wait operation.
+ *
+ * If @no_wait is zero, the function might sleep until the eventfd internal
+ * counter becomes greater than zero.
+ */
 ssize_t eventfd_ctx_read(struct eventfd_ctx *ctx, int no_wait, __u64 *cnt)
 {
 	ssize_t res;
@@ -240,6 +296,16 @@ static const struct file_operations eventfd_fops = {
 	.llseek		= noop_llseek,
 };
 
+/**
+ * eventfd_fget - Acquire a reference of an eventfd file descriptor.
+ * @fd: [in] Eventfd file descriptor.
+ *
+ * Returns a pointer to the eventfd file structure in case of success, or the
+ * following error pointer:
+ *
+ * -EBADF    : Invalid @fd file descriptor.
+ * -EINVAL   : The @fd file descriptor is not an eventfd file.
+ */
 struct file *eventfd_fget(int fd)
 {
 	struct file *file;
@@ -256,6 +322,15 @@ struct file *eventfd_fget(int fd)
 }
 EXPORT_SYMBOL_GPL(eventfd_fget);
 
+/**
+ * eventfd_ctx_fdget - Acquires a reference to the internal eventfd context.
+ * @fd: [in] Eventfd file descriptor.
+ *
+ * Returns a pointer to the internal eventfd context, otherwise the error
+ * pointers returned by the following functions:
+ *
+ * eventfd_fget
+ */
 struct eventfd_ctx *eventfd_ctx_fdget(int fd)
 {
 	struct file *file;
@@ -271,6 +346,15 @@ struct eventfd_ctx *eventfd_ctx_fdget(int fd)
 }
 EXPORT_SYMBOL_GPL(eventfd_ctx_fdget);
 
+/**
+ * eventfd_ctx_fileget - Acquires a reference to the internal eventfd context.
+ * @file: [in] Eventfd file pointer.
+ *
+ * Returns a pointer to the internal eventfd context, otherwise the error
+ * pointer:
+ *
+ * -EINVAL   : The @fd file descriptor is not an eventfd file.
+ */
 struct eventfd_ctx *eventfd_ctx_fileget(struct file *file)
 {
 	if (file->f_op != &eventfd_fops)
@@ -280,12 +364,26 @@ struct eventfd_ctx *eventfd_ctx_fileget(struct file *file)
 }
 EXPORT_SYMBOL_GPL(eventfd_ctx_fileget);
 
+/**
+ * eventfd_file_create - Creates an eventfd file pointer.
+ * @count: Initial eventfd counter value.
+ * @flags: Flags for the eventfd file.
+ *
+ * This function creates an eventfd file pointer, w/out installing it into
+ * the fd table. This is useful when the eventfd file is used during the
+ * initialization of data structures that require extra setup after the eventfd
+ * creation. So the eventfd creation is split into the file pointer creation
+ * phase, and the file descriptor installation phase.
+ * In this way races with userspace closing the newly installed file descriptor
+ * can be avoided.
+ * Returns an eventfd file pointer, or a proper error pointer.
+ */
 struct file *eventfd_file_create(unsigned int count, int flags)
 {
 	struct file *file;
 	struct eventfd_ctx *ctx;
 
-	
+	/* Check the EFD_* constants for consistency.  */
 	BUILD_BUG_ON(EFD_CLOEXEC != O_CLOEXEC);
 	BUILD_BUG_ON(EFD_NONBLOCK != O_NONBLOCK);
 

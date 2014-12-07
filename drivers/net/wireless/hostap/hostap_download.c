@@ -19,7 +19,7 @@ static int prism2_enable_aux_port(struct net_device *dev, int enable)
 
 	spin_lock_irqsave(&local->cmdlock, flags);
 
-	
+	/* wait until busy bit is clear */
 	tries = HFA384X_CMD_BUSY_TIMEOUT;
 	while (HFA384X_INW(HFA384X_CMD_OFF) & HFA384X_CMD_BUSY && tries > 0) {
 		tries--;
@@ -106,9 +106,9 @@ static int hfa384x_from_aux(struct net_device *dev, unsigned int addr, int len,
 			len -= 2;
 		}
 	}
-#else 
+#else /* PRISM2_PCI */
 	HFA384X_INSW(HFA384X_AUXDATA_OFF, buf, len / 2);
-#endif 
+#endif /* PRISM2_PCI */
 
 	return 0;
 }
@@ -137,9 +137,9 @@ static int hfa384x_to_aux(struct net_device *dev, unsigned int addr, int len,
 			len -= 2;
 		}
 	}
-#else 
+#else /* PRISM2_PCI */
 	HFA384X_OUTSW(HFA384X_AUXDATA_OFF, buf, len / 2);
-#endif 
+#endif /* PRISM2_PCI */
 
 	return 0;
 }
@@ -163,7 +163,7 @@ static int prism2_pda_ok(u8 *buf)
 			return 0;
 
 		if (pdr == 0x0000 && len == 2) {
-			
+			/* PDA end found */
 			return 1;
 		}
 
@@ -195,16 +195,18 @@ static u8 * prism2_read_pda(struct net_device *dev)
 	int res, i, found = 0;
 #define NUM_PDA_ADDRS 4
 	unsigned int pda_addr[NUM_PDA_ADDRS] = {
-		0x7f0000 ,
-		0x3f0000 ,
-		0x390000 ,
-		0x7f0002 ,
+		0x7f0000 /* others than HFA3841 */,
+		0x3f0000 /* HFA3841 */,
+		0x390000 /* apparently used in older cards */,
+		0x7f0002 /* Intel PRO/Wireless 2011B (PCI) */,
 	};
 
 	buf = kmalloc(PRISM2_PDA_SIZE, GFP_KERNEL);
 	if (buf == NULL)
 		return NULL;
 
+	/* Note: wlan card should be in initial state (just after init cmd)
+	 * and no other operations should be performed concurrently. */
 
 	prism2_enable_aux_port(dev, 1);
 
@@ -305,13 +307,16 @@ static int prism2_download_volatile(local_info_t *local,
 		ret = -1;
 		goto out;
 	}
+	/* ProgMode disable causes the hardware to restart itself from the
+	 * given starting address. Give hw some time and ACK command just in
+	 * case restart did not happen. */
 	mdelay(5);
 	HFA384X_OUTW(HFA384X_EV_CMD, HFA384X_EVACK_OFF);
 
 	if (prism2_enable_aux_port(dev, 0)) {
 		printk(KERN_DEBUG "%s: Disabling AUX port failed\n",
 		       dev->name);
-		
+		/* continue anyway.. restart should have taken care of this */
 	}
 
 	mdelay(5);
@@ -341,7 +346,7 @@ static int prism2_enable_genesis(local_info_t *local, int hcr)
 	hfa384x_to_aux(dev, 0x7e0038, sizeof(initseq), initseq);
 	local->func->genesis_reset(local, hcr);
 
-	
+	/* Readback test */
 	hfa384x_from_aux(dev, 0x7e0038, sizeof(readbuf), readbuf);
 	hfa384x_to_aux(dev, 0x7e0038, sizeof(initseq), initseq);
 	hfa384x_from_aux(dev, 0x7e0038, sizeof(readbuf), readbuf);
@@ -364,7 +369,7 @@ static int prism2_get_ram_size(local_info_t *local)
 {
 	int ret;
 
-	
+	/* Try to enable genesis mode; 0x1F for x8 SRAM or 0x0F for x16 SRAM */
 	if (prism2_enable_genesis(local, 0x1f) == 0)
 		ret = 8;
 	else if (prism2_enable_genesis(local, 0x0f) == 0)
@@ -372,7 +377,7 @@ static int prism2_get_ram_size(local_info_t *local)
 	else
 		ret = -1;
 
-	
+	/* Disable genesis mode */
 	local->func->genesis_reset(local, ret == 16 ? 0x07 : 0x17);
 
 	return ret;
@@ -408,7 +413,7 @@ static int prism2_download_genesis(local_info_t *local,
 	}
 
 	if (local->sram_type == -1) {
-		
+		/* 0x1F for x8 SRAM or 0x0F for x16 SRAM */
 		if (prism2_enable_genesis(local, 0x1f) == 0) {
 			ram16 = 0;
 			PDEBUG(DEBUG_EXTRA2, "%s: Genesis mode OK using x8 "
@@ -459,6 +464,10 @@ static int prism2_download_genesis(local_info_t *local,
 	local->hw_downloading = 0;
 
 	PDEBUG(DEBUG_EXTRA2, "Trying to initialize card\n");
+	/*
+	 * Make sure the INIT command does not generate a command completion
+	 * event by disabling interrupts.
+	 */
 	hfa384x_disable_interrupts(dev);
 	if (prism2_hw_init(dev, 1)) {
 		printk(KERN_DEBUG "%s: Initialization after genesis mode "
@@ -482,6 +491,9 @@ static int prism2_download_genesis(local_info_t *local,
 
 
 #ifdef PRISM2_NON_VOLATILE_DOWNLOAD
+/* Note! Non-volatile downloading functionality has not yet been tested
+ * thoroughly and it may corrupt flash image and effectively kill the card that
+ * is being updated. You have been warned. */
 
 static inline int prism2_download_block(struct net_device *dev,
 					u32 addr, u8 *data,
@@ -618,7 +630,7 @@ static int prism2_download_nonvolatile(local_info_t *local,
 	if (prism2_enable_aux_port(dev, 0)) {
 		printk(KERN_DEBUG "%s: Disabling AUX port failed\n",
 		       dev->name);
-		
+		/* continue anyway.. restart should have taken care of this */
 	}
 
 	mdelay(5);
@@ -638,7 +650,7 @@ static int prism2_download_nonvolatile(local_info_t *local,
 	local->hw_downloading = 0;
 	return ret;
 }
-#endif 
+#endif /* PRISM2_NON_VOLATILE_DOWNLOAD */
 
 
 static void prism2_download_free_data(struct prism2_download_data *dl)
@@ -721,11 +733,11 @@ static int prism2_download(local_info_t *local,
 	case PRISM2_DOWNLOAD_NON_VOLATILE:
 #ifdef PRISM2_NON_VOLATILE_DOWNLOAD
 		ret = prism2_download_nonvolatile(local, dl);
-#else 
+#else /* PRISM2_NON_VOLATILE_DOWNLOAD */
 		printk(KERN_INFO "%s: non-volatile downloading not enabled\n",
 		       local->dev->name);
 		ret = -EOPNOTSUPP;
-#endif 
+#endif /* PRISM2_NON_VOLATILE_DOWNLOAD */
 		break;
 	default:
 		printk(KERN_DEBUG "%s: unsupported download command %d\n",

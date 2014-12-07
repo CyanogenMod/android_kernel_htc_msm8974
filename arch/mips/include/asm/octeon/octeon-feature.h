@@ -25,6 +25,9 @@
  * Contact Cavium Networks for more information
  ***********************license end**************************************/
 
+/*
+ * File defining checks for different Octeon features.
+ */
 
 #ifndef __OCTEON_FEATURE_H__
 #define __OCTEON_FEATURE_H__
@@ -32,38 +35,50 @@
 #include <asm/octeon/cvmx-rnm-defs.h>
 
 enum octeon_feature {
-        
+        /* CN68XX uses port kinds for packet interface */
 	OCTEON_FEATURE_PKND,
-	
+	/* CN68XX has different fields in word0 - word2 */
 	OCTEON_FEATURE_CN68XX_WQE,
+	/*
+	 * Octeon models in the CN5XXX family and higher support
+	 * atomic add instructions to memory (saa/saad).
+	 */
 	OCTEON_FEATURE_SAAD,
-	
+	/* Does this Octeon support the ZIP offload engine? */
 	OCTEON_FEATURE_ZIP,
-	
+	/* Does this Octeon support crypto acceleration using COP2? */
 	OCTEON_FEATURE_CRYPTO,
 	OCTEON_FEATURE_DORM_CRYPTO,
-	
+	/* Does this Octeon support PCI express? */
 	OCTEON_FEATURE_PCIE,
-        
+        /* Does this Octeon support SRIOs */
 	OCTEON_FEATURE_SRIO,
-	
+	/*  Does this Octeon support Interlaken */
 	OCTEON_FEATURE_ILK,
+	/* Some Octeon models support internal memory for storing
+	 * cryptographic keys */
 	OCTEON_FEATURE_KEY_MEMORY,
-	
+	/* Octeon has a LED controller for banks of external LEDs */
 	OCTEON_FEATURE_LED_CONTROLLER,
-	
+	/* Octeon has a trace buffer */
 	OCTEON_FEATURE_TRA,
-	
+	/* Octeon has a management port */
 	OCTEON_FEATURE_MGMT_PORT,
-	
+	/* Octeon has a raid unit */
 	OCTEON_FEATURE_RAID,
-	
+	/* Octeon has a builtin USB */
 	OCTEON_FEATURE_USB,
-	
+	/* Octeon IPD can run without using work queue entries */
 	OCTEON_FEATURE_NO_WPTR,
-	
+	/* Octeon has DFA state machines */
 	OCTEON_FEATURE_DFA,
+	/* Octeon MDIO block supports clause 45 transactions for 10
+	 * Gig support */
 	OCTEON_FEATURE_MDIO_CLAUSE_45,
+        /*
+	 *  CN52XX and CN56XX used a block named NPEI for PCIe
+	 *  access. Newer chips replaced this with SLI+DPI.
+	 */
 	OCTEON_FEATURE_NPEI,
 	OCTEON_FEATURE_HFA,
 	OCTEON_FEATURE_DFM,
@@ -73,6 +88,17 @@ enum octeon_feature {
 
 static inline int cvmx_fuse_read(int fuse);
 
+/**
+ * Determine if the current Octeon supports a specific feature. These
+ * checks have been optimized to be fairly quick, but they should still
+ * be kept out of fast path code.
+ *
+ * @feature: Feature to check for. This should always be a constant so the
+ *                compiler can remove the switch statement through optimization.
+ *
+ * Returns Non zero if the feature exists. Zero if the feature does not
+ *         exist.
+ */
 static inline int octeon_has_feature(enum octeon_feature feature)
 {
 	switch (feature) {
@@ -209,4 +235,4 @@ static inline int octeon_has_feature(enum octeon_feature feature)
 	return 0;
 }
 
-#endif 
+#endif /* __OCTEON_FEATURE_H__ */

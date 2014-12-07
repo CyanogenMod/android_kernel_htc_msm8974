@@ -9,4 +9,4 @@ static inline int fb_is_primary_device(struct fb_info *info)
 	return 0;
 }
 
-#endif 
+#endif /* __ASM_GENERIC_FB_H_ */

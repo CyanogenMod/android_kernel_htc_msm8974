@@ -26,6 +26,7 @@
 #define OMAP7XX_GPIO6_BASE		0xfffbe800
 #define OMAP1_MPUIO_VBASE		OMAP1_MPUIO_BASE
 
+/* mpu gpio */
 static struct __initdata resource omap7xx_mpu_gpio_resources[] = {
 	{
 		.start	= OMAP1_MPUIO_VBASE,
@@ -67,6 +68,7 @@ static struct platform_device omap7xx_mpu_gpio = {
 	.resource = omap7xx_mpu_gpio_resources,
 };
 
+/* gpio1 */
 static struct __initdata resource omap7xx_gpio1_resources[] = {
 	{
 		.start	= OMAP7XX_GPIO1_BASE,
@@ -106,6 +108,7 @@ static struct platform_device omap7xx_gpio1 = {
 	.resource = omap7xx_gpio1_resources,
 };
 
+/* gpio2 */
 static struct __initdata resource omap7xx_gpio2_resources[] = {
 	{
 		.start	= OMAP7XX_GPIO2_BASE,
@@ -134,6 +137,7 @@ static struct platform_device omap7xx_gpio2 = {
 	.resource = omap7xx_gpio2_resources,
 };
 
+/* gpio3 */
 static struct __initdata resource omap7xx_gpio3_resources[] = {
 	{
 		.start	= OMAP7XX_GPIO3_BASE,
@@ -162,6 +166,7 @@ static struct platform_device omap7xx_gpio3 = {
 	.resource = omap7xx_gpio3_resources,
 };
 
+/* gpio4 */
 static struct __initdata resource omap7xx_gpio4_resources[] = {
 	{
 		.start	= OMAP7XX_GPIO4_BASE,
@@ -190,6 +195,7 @@ static struct platform_device omap7xx_gpio4 = {
 	.resource = omap7xx_gpio4_resources,
 };
 
+/* gpio5 */
 static struct __initdata resource omap7xx_gpio5_resources[] = {
 	{
 		.start	= OMAP7XX_GPIO5_BASE,
@@ -218,6 +224,7 @@ static struct platform_device omap7xx_gpio5 = {
 	.resource = omap7xx_gpio5_resources,
 };
 
+/* gpio6 */
 static struct __initdata resource omap7xx_gpio6_resources[] = {
 	{
 		.start	= OMAP7XX_GPIO6_BASE,
@@ -256,6 +263,11 @@ static struct __initdata platform_device * omap7xx_gpio_dev[] = {
 	&omap7xx_gpio6,
 };
 
+/*
+ * omap7xx_gpio_init needs to be done before
+ * machine_init functions access gpio APIs.
+ * Hence omap7xx_gpio_init is a postcore_initcall.
+ */
 static int __init omap7xx_gpio_init(void)
 {
 	int i;

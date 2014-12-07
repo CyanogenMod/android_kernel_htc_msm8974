@@ -41,6 +41,8 @@ static int ov9650_set_auto_gain(struct gspca_dev *gspca_dev, __s32 val);
 static int ov9650_get_auto_exposure(struct gspca_dev *gspca_dev, __s32 *val);
 static int ov9650_set_auto_exposure(struct gspca_dev *gspca_dev, __s32 val);
 
+/* Vertically and horizontally flips the image if matched, needed for machines
+   where the sensor is mounted upside down */
 static
     const
 	struct dmi_system_id ov9650_flip_dmi_table[] = {
@@ -302,12 +304,14 @@ int ov9650_probe(struct sd *sd)
 			pr_info("Forcing an %s sensor\n", ov9650.name);
 			goto sensor_found;
 		}
+		/* If we want to force another sensor,
+		   don't try to probe this one */
 		return -ENODEV;
 	}
 
 	PDEBUG(D_PROBE, "Probing for an ov9650 sensor");
 
-	
+	/* Run the pre-init before probing the sensor */
 	for (i = 0; i < ARRAY_SIZE(preinit_ov9650) && !err; i++) {
 		u8 data = preinit_ov9650[i][2];
 		if (preinit_ov9650[i][0] == SENSOR)
@@ -431,7 +435,7 @@ int ov9650_start(struct sd *sd)
 	if (width <= 320)
 		hor_offs /= 2;
 
-	
+	/* Synthesize the vsync/hsync setup */
 	for (i = 0; i < ARRAY_SIZE(res_init_ov9650) && !err; i++) {
 		if (res_init_ov9650[i][0] == BRIDGE)
 			err = m5602_write_bridge(sd, res_init_ov9650[i][1],
@@ -572,21 +576,21 @@ static int ov9650_set_exposure(struct gspca_dev *gspca_dev, __s32 val)
 	PDEBUG(D_V4L2, "Set exposure to %d", val);
 
 	sensor_settings[EXPOSURE_IDX] = val;
-	
+	/* The 6 MSBs */
 	i2c_data = (val >> 10) & 0x3f;
 	err = m5602_write_sensor(sd, OV9650_AECHM,
 				  &i2c_data, 1);
 	if (err < 0)
 		return err;
 
-	
+	/* The 8 middle bits */
 	i2c_data = (val >> 2) & 0xff;
 	err = m5602_write_sensor(sd, OV9650_AECH,
 				  &i2c_data, 1);
 	if (err < 0)
 		return err;
 
-	
+	/* The 2 LSBs */
 	i2c_data = val & 0x03;
 	err = m5602_write_sensor(sd, OV9650_COM1, &i2c_data, 1);
 	return err;
@@ -613,19 +617,21 @@ static int ov9650_set_gain(struct gspca_dev *gspca_dev, __s32 val)
 
 	sensor_settings[GAIN_IDX] = val;
 
-	
+	/* The 2 MSB */
+	/* Read the OV9650_VREF register first to avoid
+	   corrupting the VREF high and low bits */
 	err = m5602_read_sensor(sd, OV9650_VREF, &i2c_data, 1);
 	if (err < 0)
 		return err;
 
-	
+	/* Mask away all uninteresting bits */
 	i2c_data = ((val & 0x0300) >> 2) |
 			(i2c_data & 0x3f);
 	err = m5602_write_sensor(sd, OV9650_VREF, &i2c_data, 1);
 	if (err < 0)
 		return err;
 
-	
+	/* The 8 LSBs */
 	i2c_data = val & 0xff;
 	err = m5602_write_sensor(sd, OV9650_GAIN, &i2c_data, 1);
 	return err;
@@ -746,7 +752,7 @@ static int ov9650_set_vflip(struct gspca_dev *gspca_dev, __s32 val)
 	if (err < 0)
 		return err;
 
-	
+	/* When vflip is toggled we need to readjust the bridge hsync/vsync */
 	if (gspca_dev->streaming)
 		err = ov9650_start(sd);
 
@@ -869,7 +875,7 @@ static void ov9650_dump_registers(struct sd *sd)
 		else
 			pr_info("register 0x%x is read only\n", address);
 
-		
+		/* Restore original value */
 		m5602_write_sensor(sd, address, &old_value, 1);
 	}
 }

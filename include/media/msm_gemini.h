@@ -102,22 +102,22 @@ struct msm_gemini_hw_cmd {
 
 	uint32_t type:4;
 
-	
-	
-	
-	
+	/* n microseconds of timeout for WAIT */
+	/* n microseconds of time for DELAY */
+	/* repeat n times for READ/WRITE */
+	/* max is 0xFFF, 4095 */
 	uint32_t n:12;
 	uint32_t offset:16;
 	uint32_t mask;
 	union {
-		uint32_t data;   
-		uint32_t *pdata;   
+		uint32_t data;   /* for single READ/WRITE/WAIT, n = 1 */
+		uint32_t *pdata;   /* for multiple READ/WRITE/WAIT, n > 1 */
 	};
 };
 
 struct msm_gemini_hw_cmds {
-	uint32_t m; 
+	uint32_t m; /* number of elements in the hw_cmd array */
 	struct msm_gemini_hw_cmd hw_cmd[1];
 };
 
-#endif 
+#endif /* __LINUX_MSM_GEMINI_H */

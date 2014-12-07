@@ -17,8 +17,10 @@
 #define _PAGE_USER	0x040
 #define _PAGE_ACCESSED	0x080
 #define _PAGE_DIRTY	0x100
-#define _PAGE_FILE	0x008	
-#define _PAGE_PROTNONE	0x010	
+/* If _PAGE_PRESENT is clear, we use these: */
+#define _PAGE_FILE	0x008	/* nonlinear file mapping, saved PTE; unset:swap */
+#define _PAGE_PROTNONE	0x010	/* if the user mapped it with PROT_NONE;
+				   pte_present gives true */
 
 #ifdef CONFIG_3_LEVEL_PGTABLES
 #include "asm/pgtable-3level.h"
@@ -28,10 +30,18 @@
 
 extern pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
+/* zero page used for uninitialized stuff */
 extern unsigned long *empty_zero_page;
 
 #define pgtable_cache_init() do ; while (0)
 
+/* Just any arbitrary offset to the start of the vmalloc VM area: the
+ * current 8MB value just means that there will be a 8MB "hole" after the
+ * physical memory until the kernel virtual memory starts.  That means that
+ * any out-of-bounds memory accesses will hopefully be caught.
+ * The vmalloc() routines leaves a hole of 4kB between each vmalloced
+ * area for the same reason. ;)
+ */
 
 extern unsigned long end_iomem;
 
@@ -61,6 +71,12 @@ extern unsigned long end_iomem;
 
 #define io_remap_pfn_range	remap_pfn_range
 
+/*
+ * The i386 can't do page protection for execute, and considers that the same
+ * are read.
+ * Also, write permissions imply read permissions. This is the closest we can
+ * get..
+ */
 #define __P000	PAGE_NONE
 #define __P001	PAGE_READONLY
 #define __P010	PAGE_COPY
@@ -79,6 +95,10 @@ extern unsigned long end_iomem;
 #define __S110	PAGE_SHARED
 #define __S111	PAGE_SHARED
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 #define ZERO_PAGE(vaddr) virt_to_page(empty_zero_page)
 
 #define pte_clear(mm,addr,xp) pte_set_val(*(xp), (phys_t) 0, __pgprot(_PAGE_NEWPAGE))
@@ -101,12 +121,21 @@ extern unsigned long end_iomem;
 
 #define pte_present(x)	pte_get_bits(x, (_PAGE_PRESENT | _PAGE_PROTNONE))
 
+/*
+ * =================================
+ * Flags checking section.
+ * =================================
+ */
 
 static inline int pte_none(pte_t pte)
 {
 	return pte_is_zero(pte);
 }
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 static inline int pte_read(pte_t pte)
 { 
 	return((pte_get_bits(pte, _PAGE_USER)) &&
@@ -124,6 +153,9 @@ static inline int pte_write(pte_t pte)
 	       !(pte_get_bits(pte, _PAGE_PROTNONE)));
 }
 
+/*
+ * The following only works if pte_present() is not true.
+ */
 static inline int pte_file(pte_t pte)
 {
 	return pte_get_bits(pte, _PAGE_FILE);
@@ -154,6 +186,11 @@ static inline int pte_special(pte_t pte)
 	return 0;
 }
 
+/*
+ * =================================
+ * Flags setting section.
+ * =================================
+ */
 
 static inline pte_t pte_mknewprot(pte_t pte)
 {
@@ -226,12 +263,20 @@ static inline void set_pte(pte_t *pteptr, pte_t pteval)
 {
 	pte_copy(*pteptr, pteval);
 
+	/* If it's a swap entry, it needs to be marked _PAGE_NEWPAGE so
+	 * fix_range knows to unmap it.  _PAGE_NEWPROT is specific to
+	 * mapped pages.
+	 */
 
 	*pteptr = pte_mknewpage(*pteptr);
 	if(pte_present(*pteptr)) *pteptr = pte_mknewprot(*pteptr);
 }
 #define set_pte_at(mm,addr,ptep,pteval) set_pte(ptep,pteval)
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 
 #define phys_to_page(phys) pfn_to_page(phys_to_pfn(phys))
 #define __virt_to_page(virt) phys_to_page(__pa(virt))
@@ -252,18 +297,44 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
 	return pte; 
 }
 
+/*
+ * the pgd page can be thought of an array like this: pgd_t[PTRS_PER_PGD]
+ *
+ * this macro returns the index of the entry in the pgd page which would
+ * control the given virtual address
+ */
 #define pgd_index(address) (((address) >> PGDIR_SHIFT) & (PTRS_PER_PGD-1))
 
+/*
+ * pgd_offset() returns a (pgd_t *)
+ * pgd_index() is used get the offset into the pgd page's array of pgd_t's;
+ */
 #define pgd_offset(mm, address) ((mm)->pgd+pgd_index(address))
 
+/*
+ * a shortcut which implies the use of the kernel's pgd, instead
+ * of a process's
+ */
 #define pgd_offset_k(address) pgd_offset(&init_mm, address)
 
+/*
+ * the pmd page can be thought of an array like this: pmd_t[PTRS_PER_PMD]
+ *
+ * this macro returns the index of the entry in the pmd page which would
+ * control the given virtual address
+ */
 #define pmd_page_vaddr(pmd) ((unsigned long) __va(pmd_val(pmd) & PAGE_MASK))
 #define pmd_index(address) (((address) >> PMD_SHIFT) & (PTRS_PER_PMD-1))
 
 #define pmd_page_vaddr(pmd) \
 	((unsigned long) __va(pmd_val(pmd) & PAGE_MASK))
 
+/*
+ * the pte page can be thought of an array like this: pte_t[PTRS_PER_PTE]
+ *
+ * this macro returns the index of the entry in the pte page which would
+ * control the given virtual address
+ */
 #define pte_index(address) (((address) >> PAGE_SHIFT) & (PTRS_PER_PTE - 1))
 #define pte_offset_kernel(dir, address) \
 	((pte_t *) pmd_page_vaddr(*(dir)) +  pte_index(address))
@@ -276,6 +347,7 @@ extern pte_t *virt_to_pte(struct mm_struct *mm, unsigned long addr);
 
 #define update_mmu_cache(vma,address,ptep) do ; while (0)
 
+/* Encode and de-code a swap entry */
 #define __swp_type(x)			(((x).val >> 4) & 0x3f)
 #define __swp_offset(x)			((x).val >> 11)
 
@@ -289,6 +361,7 @@ extern pte_t *virt_to_pte(struct mm_struct *mm, unsigned long addr);
 
 #include <asm-generic/pgtable.h>
 
+/* Clear a kernel PTE and flush it from the TLB */
 #define kpte_clear_flush(ptep, vaddr)		\
 do {						\
 	pte_clear(&init_mm, (vaddr), (ptep));	\

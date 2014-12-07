@@ -24,20 +24,45 @@
 #include <linux/dvb/frontend.h>
 
 struct rtl2830_config {
+	/*
+	 * Demodulator I2C address.
+	 */
 	u8 i2c_addr;
 
+	/*
+	 * Xtal frequency.
+	 * Hz
+	 * 4000000, 16000000, 25000000, 28800000
+	 */
 	u32 xtal;
 
+	/*
+	 * TS output mode.
+	 */
 	u8 ts_mode;
 
+	/*
+	 * Spectrum inversion.
+	 */
 	bool spec_inv;
 
+	/*
+	 * IFs for all used modes.
+	 * Hz
+	 * 4570000, 4571429, 36000000, 36125000, 36166667, 44000000
+	 */
 	u32 if_dvbt;
 
+	/*
+	 */
 	u8 vtop;
 
+	/*
+	 */
 	u8 krf;
 
+	/*
+	 */
 	u8 agc_targ_val;
 };
 
@@ -69,4 +94,4 @@ static inline struct i2c_adapter *rtl2830_get_tuner_i2c_adapter(
 }
 #endif
 
-#endif 
+#endif /* RTL2830_H */

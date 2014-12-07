@@ -13,12 +13,12 @@
 #include <linux/types.h>
 
 struct ifaddrlblmsg {
-	__u8		ifal_family;		
-	__u8		__ifal_reserved;	
-	__u8		ifal_prefixlen;		
-	__u8		ifal_flags;		
-	__u32		ifal_index;		
-	__u32		ifal_seq;		
+	__u8		ifal_family;		/* Address family */
+	__u8		__ifal_reserved;	/* Reserved */
+	__u8		ifal_prefixlen;		/* Prefix length */
+	__u8		ifal_flags;		/* Flags */
+	__u32		ifal_index;		/* Link index */
+	__u32		ifal_seq;		/* sequence number */
 };
 
 enum {

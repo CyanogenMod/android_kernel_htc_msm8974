@@ -42,27 +42,37 @@
 
 #define V4L2_STD_PAL_SECAM (V4L2_STD_PAL|V4L2_STD_SECAM)
 
+/* usual i2c tuner addresses to probe */
 static struct ivtv_card_tuner_i2c ivtv_i2c_std = {
 	.radio = { I2C_CLIENT_END },
 	.demod = { 0x43, I2C_CLIENT_END },
 	.tv    = { 0x61, 0x60, I2C_CLIENT_END },
 };
 
+/* as above, but with possible radio tuner */
 static struct ivtv_card_tuner_i2c ivtv_i2c_radio = {
 	.radio = { 0x60, I2C_CLIENT_END },
 	.demod = { 0x43, I2C_CLIENT_END },
 	.tv    = { 0x61, I2C_CLIENT_END },
 };
 
+/* using the tda8290+75a combo */
 static struct ivtv_card_tuner_i2c ivtv_i2c_tda8290 = {
 	.radio = { I2C_CLIENT_END },
 	.demod = { I2C_CLIENT_END },
 	.tv    = { 0x4b, I2C_CLIENT_END },
 };
 
+/********************** card configuration *******************************/
 
+/* Please add new PCI IDs to: http://pci-ids.ucw.cz/ 
+   This keeps the PCI ID database up to date. Note that the entries
+   must be added under vendor 0x4444 (Conexant) as subsystem IDs.
+   New vendor IDs should still be added to the vendor ID list. */
 
+/* Hauppauge PVR-250 cards */
 
+/* Note: for Hauppauge cards the tveeprom information is used instead of PCI IDs */
 static const struct ivtv_card ivtv_card_pvr250 = {
 	.type = IVTV_CARD_PVR_250,
 	.name = "Hauppauge WinTV PVR-250",
@@ -89,8 +99,11 @@ static const struct ivtv_card ivtv_card_pvr250 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Hauppauge PVR-350 cards */
 
+/* Outputs for Hauppauge PVR350 cards */
 static struct ivtv_card_output ivtv_pvr350_outputs[] = {
 	{
 		.name = "S-Video + Composite",
@@ -142,6 +155,10 @@ static const struct ivtv_card ivtv_card_pvr350 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* PVR-350 V1 boards have a different audio tuner input and use a
+   saa7114 instead of a saa7115.
+   Note that the info below comes from a pre-production model so it may
+   not be correct. Especially the audio behaves strangely (mono only it seems) */
 static const struct ivtv_card ivtv_card_pvr350_v1 = {
 	.type = IVTV_CARD_PVR_350_V1,
 	.name = "Hauppauge WinTV PVR-350 (V1)",
@@ -170,7 +187,9 @@ static const struct ivtv_card ivtv_card_pvr350_v1 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Hauppauge PVR-150/PVR-500 cards */
 
 static const struct ivtv_card ivtv_card_pvr150 = {
 	.type = IVTV_CARD_PVR_150,
@@ -201,12 +220,14 @@ static const struct ivtv_card ivtv_card_pvr150 = {
 	},
 	.radio_input = { IVTV_CARD_INPUT_AUD_TUNER,
 			 CX25840_AUDIO_SERIAL, WM8775_AIN4 },
-	
+	/* apparently needed for the IR blaster */
 	.gpio_init = { .direction = 0x1f01, .initial_value = 0x26f3 },
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* AVerMedia M179 cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_m179[] = {
 	{ PCI_DEVICE_ID_IVTV15, IVTV_PCI_ID_AVERMEDIA, 0xa3cf },
@@ -240,14 +261,16 @@ static const struct ivtv_card ivtv_card_m179 = {
 			     .f44100 = 0x0008, .f48000 = 0x0010 },
 	.gpio_audio_detect = { .mask = 0x4000, .stereo = 0x0000 },
 	.tuners = {
-		
+		/* As far as we know all M179 cards use this tuner */
 		{ .std = V4L2_STD_ALL, .tuner = TUNER_PHILIPS_NTSC },
 	},
 	.pci_list = ivtv_pci_m179,
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Yuan MPG600/Kuroutoshikou ITVC16-STVLP cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_mpg600[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_YUAN1, 0xfff3 },
@@ -279,7 +302,7 @@ static const struct ivtv_card ivtv_card_mpg600 = {
 			      .lang1 = 0x0004, .lang2  = 0x0000, .both   = 0x0008 },
 	.gpio_audio_detect = { .mask = 0x0900, .stereo = 0x0100 },
 	.tuners = {
-		
+		/* The PAL tuner is confirmed */
 		{ .std = V4L2_STD_PAL_SECAM, .tuner = TUNER_PHILIPS_FQ1216ME },
 		{ .std = V4L2_STD_ALL, .tuner = TUNER_PHILIPS_FQ1286 },
 	},
@@ -287,7 +310,9 @@ static const struct ivtv_card ivtv_card_mpg600 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Yuan MPG160/Kuroutoshikou ITVC15-STVLP cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_mpg160[] = {
 	{ PCI_DEVICE_ID_IVTV15, IVTV_PCI_ID_YUAN1, 0 },
@@ -326,7 +351,9 @@ static const struct ivtv_card ivtv_card_mpg160 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Yuan PG600/Diamond PVR-550 cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_pg600[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_DIAMONDMM, 0x0070 },
@@ -360,7 +387,9 @@ static const struct ivtv_card ivtv_card_pg600 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Adaptec VideOh! AVC-2410 card */
 
 static const struct ivtv_card_pci_info ivtv_pci_avc2410[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_ADAPTEC, 0x0093 },
@@ -389,6 +418,9 @@ static const struct ivtv_card ivtv_card_avc2410 = {
 		{ IVTV_CARD_INPUT_LINE_IN1,
 		  MSP_SCART1, CS53L32A_IN2 },
 	},
+	/* This card has no eeprom and in fact the Windows driver relies
+	   on the country/region setting of the user to decide which tuner
+	   is available. */
 	.tuners = {
 		{ .std = V4L2_STD_PAL_SECAM, .tuner = TUNER_PHILIPS_FM1216ME_MK3 },
 		{ .std = V4L2_STD_ALL - V4L2_STD_NTSC_M_JP,
@@ -399,7 +431,9 @@ static const struct ivtv_card ivtv_card_avc2410 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Adaptec VideOh! AVC-2010 card */
 
 static const struct ivtv_card_pci_info ivtv_pci_avc2010[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_ADAPTEC, 0x0092 },
@@ -421,11 +455,13 @@ static const struct ivtv_card ivtv_card_avc2010 = {
 	.audio_inputs = {
 		{ IVTV_CARD_INPUT_LINE_IN1,   CS53L32A_IN2 },
 	},
-	
+	/* Does not have a tuner */
 	.pci_list = ivtv_pci_avc2010,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Nagase Transgear 5000TV card */
 
 static const struct ivtv_card_pci_info ivtv_pci_tg5000tv[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xbfff },
@@ -466,7 +502,9 @@ static const struct ivtv_card ivtv_card_tg5000tv = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* AOpen VA2000MAX-SNT6 card */
 
 static const struct ivtv_card_pci_info ivtv_pci_va2000[] = {
 	{ PCI_DEVICE_ID_IVTV16, 0, 0xff5f },
@@ -495,7 +533,9 @@ static const struct ivtv_card ivtv_card_va2000 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Yuan MPG600GR/Kuroutoshikou CX23416GYC-STVLP cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_cx23416gyc[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_YUAN1, 0x0600 },
@@ -599,12 +639,14 @@ static const struct ivtv_card ivtv_card_cx23416gyc_nogrycs = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* I/O Data GV-MVP/RX & GV-MVP/RX2W (dual tuner) cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_gv_mvprx[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_IODATA, 0xd01e },
-	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_IODATA, 0xd038 }, 
-	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_IODATA, 0xd039 }, 
+	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_IODATA, 0xd038 }, /* 2W unit #1 */
+	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_IODATA, 0xd039 }, /* 2W unit #2 */
 	{ 0, 0, 0 }
 };
 
@@ -630,14 +672,16 @@ static const struct ivtv_card ivtv_card_gv_mvprx = {
 	.gpio_init = { .direction = 0xc301, .initial_value = 0x0200 },
 	.gpio_audio_input  = { .mask = 0xffff, .tuner  = 0x0200, .linein = 0x0300 },
 	.tuners = {
-		
+		/* This card has the Panasonic VP27 tuner */
 		{ .std = V4L2_STD_MN, .tuner = TUNER_PANASONIC_VP27 },
 	},
 	.pci_list = ivtv_pci_gv_mvprx,
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* I/O Data GV-MVP/RX2E card */
 
 static const struct ivtv_card_pci_info ivtv_pci_gv_mvprx2e[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_IODATA, 0xd025 },
@@ -665,14 +709,16 @@ static const struct ivtv_card ivtv_card_gv_mvprx2e = {
 	.gpio_init = { .direction = 0xc301, .initial_value = 0x0200 },
 	.gpio_audio_input  = { .mask = 0xffff, .tuner  = 0x0200, .linein = 0x0300 },
 	.tuners = {
-		
+		/* This card has the Panasonic VP27 tuner */
 		{ .std = V4L2_STD_MN, .tuner = TUNER_PANASONIC_VP27 },
 	},
 	.pci_list = ivtv_pci_gv_mvprx2e,
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* GotVIEW PCI DVD card */
 
 static const struct ivtv_card_pci_info ivtv_pci_gotview_pci_dvd[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_YUAN1, 0x0600 },
@@ -688,9 +734,9 @@ static const struct ivtv_card ivtv_card_gotview_pci_dvd = {
 	.hw_audio_ctrl = IVTV_HW_SAA717X,
 	.hw_all = IVTV_HW_SAA717X | IVTV_HW_TUNER,
 	.video_inputs = {
-		{ IVTV_CARD_INPUT_VID_TUNER,  0, IVTV_SAA71XX_COMPOSITE1 },  
-		{ IVTV_CARD_INPUT_SVIDEO1,    1, IVTV_SAA71XX_SVIDEO0 },     
-		{ IVTV_CARD_INPUT_COMPOSITE1, 1, IVTV_SAA71XX_COMPOSITE3 },  
+		{ IVTV_CARD_INPUT_VID_TUNER,  0, IVTV_SAA71XX_COMPOSITE1 },  /* pin 116 */
+		{ IVTV_CARD_INPUT_SVIDEO1,    1, IVTV_SAA71XX_SVIDEO0 },     /* pin 114/109 */
+		{ IVTV_CARD_INPUT_COMPOSITE1, 1, IVTV_SAA71XX_COMPOSITE3 },  /* pin 118 */
 	},
 	.audio_inputs = {
 		{ IVTV_CARD_INPUT_AUD_TUNER,  IVTV_SAA717X_IN0 },
@@ -698,14 +744,16 @@ static const struct ivtv_card ivtv_card_gotview_pci_dvd = {
 	},
 	.gpio_init = { .direction = 0xf000, .initial_value = 0xA000 },
 	.tuners = {
-		
+		/* This card has a Philips FQ1216ME MK3 tuner */
 		{ .std = V4L2_STD_PAL_SECAM, .tuner = TUNER_PHILIPS_FM1216ME_MK3 },
 	},
 	.pci_list = ivtv_pci_gotview_pci_dvd,
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* GotVIEW PCI DVD2 Deluxe card */
 
 static const struct ivtv_card_pci_info ivtv_pci_gotview_pci_dvd2[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_GOTVIEW1, 0x0600 },
@@ -735,14 +783,16 @@ static const struct ivtv_card ivtv_card_gotview_pci_dvd2 = {
 	.gpio_init = { .direction = 0x0800, .initial_value = 0 },
 	.gpio_audio_input  = { .mask = 0x0800, .tuner = 0, .linein = 0, .radio = 0x0800 },
 	.tuners = {
-		
+		/* This card has a Philips FQ1216ME MK5 tuner */
 		{ .std = V4L2_STD_PAL_SECAM, .tuner = TUNER_PHILIPS_FM1216ME_MK3 },
 	},
 	.pci_list = ivtv_pci_gotview_pci_dvd2,
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Yuan MPC622 miniPCI card */
 
 static const struct ivtv_card_pci_info ivtv_pci_yuan_mpc622[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_YUAN2, 0xd998 },
@@ -769,14 +819,16 @@ static const struct ivtv_card ivtv_card_yuan_mpc622 = {
 	},
 	.gpio_init = { .direction = 0x00ff, .initial_value = 0x0002 },
 	.tuners = {
-		
+		/* This card has the TDA8290/TDA8275 tuner chips */
 		{ .std = V4L2_STD_ALL, .tuner = TUNER_PHILIPS_TDA8290 },
 	},
 	.pci_list = ivtv_pci_yuan_mpc622,
 	.i2c = &ivtv_i2c_tda8290,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* DIGITAL COWBOY DCT-MTVP1 card */
 
 static const struct ivtv_card_pci_info ivtv_pci_dctmvtvp1[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xbfff },
@@ -816,7 +868,9 @@ static const struct ivtv_card ivtv_card_dctmvtvp1 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Yuan PG600-2/GotView PCI DVD Lite cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_pg600v2[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_YUAN3,     0x0600 },
@@ -832,6 +886,8 @@ static const struct ivtv_card ivtv_card_pg600v2 = {
 	.hw_audio = IVTV_HW_CX25840,
 	.hw_audio_ctrl = IVTV_HW_CX25840,
 	.hw_all = IVTV_HW_CX25840 | IVTV_HW_TUNER,
+	/* XC2028 support apparently works for the Yuan, it's still
+	   uncertain whether it also works with the GotView. */
 	.video_inputs = {
 		{ IVTV_CARD_INPUT_VID_TUNER,  0, CX25840_COMPOSITE2 },
 		{ IVTV_CARD_INPUT_SVIDEO1,    1,
@@ -851,7 +907,9 @@ static const struct ivtv_card ivtv_card_pg600v2 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Club3D ZAP-TV1x01 cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_club3d[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_YUAN3,     0x0600 },
@@ -885,7 +943,9 @@ static const struct ivtv_card ivtv_card_club3d = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* AVerTV MCE 116 Plus (M116) card */
 
 static const struct ivtv_card_pci_info ivtv_pci_avertv_mce116[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc439 },
@@ -911,7 +971,7 @@ static const struct ivtv_card ivtv_card_avertv_mce116 = {
 		{ IVTV_CARD_INPUT_LINE_IN1,   CX25840_AUDIO_SERIAL, 1 },
 	},
 	.radio_input = { IVTV_CARD_INPUT_AUD_TUNER,  CX25840_AUDIO5 },
-	
+	/* enable line-in */
 	.gpio_init = { .direction = 0xe000, .initial_value = 0x4000 },
 	.xceive_pin = 10,
 	.tuners = {
@@ -921,11 +981,13 @@ static const struct ivtv_card ivtv_card_avertv_mce116 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* AVerMedia PVR-150 Plus / AVerTV M113 cards with a Daewoo/Partsnic Tuner */
 
 static const struct ivtv_card_pci_info ivtv_pci_aver_pvr150[] = {
-	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc034 }, 
-	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc035 }, 
+	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc034 }, /* NTSC */
+	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc035 }, /* NTSC FM */
 	{ 0, 0, 0 }
 };
 
@@ -949,26 +1011,28 @@ static const struct ivtv_card ivtv_card_aver_pvr150 = {
 		{ IVTV_CARD_INPUT_LINE_IN1,   CX25840_AUDIO_SERIAL, 1 },
 	},
 	.radio_input = { IVTV_CARD_INPUT_AUD_TUNER, CX25840_AUDIO_SERIAL, 2 },
-	
+	/* The 74HC4052 Dual 4:1 multiplexer is controlled by 2 GPIO lines */
 	.gpio_init = { .direction = 0xc000, .initial_value = 0 },
 	.gpio_audio_input  = { .mask   = 0xc000,
 			       .tuner  = 0x0000,
 			       .linein = 0x4000,
 			       .radio  = 0x8000 },
 	.tuners = {
-		
+		/* Subsystem ID's 0xc03[45] have a Partsnic PTI-5NF05 tuner */
 		{ .std = V4L2_STD_MN, .tuner = TUNER_PARTSNIC_PTI_5NF05 },
 	},
 	.pci_list = ivtv_pci_aver_pvr150,
-	
+	/* Subsystem ID 0xc035 has a TEA5767(?) FM tuner, 0xc034 does not */
 	.i2c = &ivtv_i2c_radio,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* AVerMedia UltraTV 1500 MCE (newer non-cx88 version, M113 variant) card */
 
 static const struct ivtv_card_pci_info ivtv_pci_aver_ultra1500mce[] = {
-	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc019 }, 
-	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc01b }, 
+	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc019 }, /* NTSC */
+	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc01b }, /* PAL/SECAM */
 	{ 0, 0, 0 }
 };
 
@@ -993,14 +1057,14 @@ static const struct ivtv_card ivtv_card_aver_ultra1500mce = {
 		{ IVTV_CARD_INPUT_LINE_IN1,   CX25840_AUDIO_SERIAL, 1 },
 	},
 	.radio_input = { IVTV_CARD_INPUT_AUD_TUNER, CX25840_AUDIO_SERIAL, 2 },
-	
+	/* The 74HC4052 Dual 4:1 multiplexer is controlled by 2 GPIO lines */
 	.gpio_init = { .direction = 0xc000, .initial_value = 0 },
 	.gpio_audio_input  = { .mask   = 0xc000,
 			       .tuner  = 0x0000,
 			       .linein = 0x4000,
 			       .radio  = 0x8000 },
 	.tuners = {
-		
+		/* The UltraTV 1500 MCE has a Philips FM1236 MK5 TV/FM tuner */
 		{ .std = V4L2_STD_MN, .tuner = TUNER_PHILIPS_FM1236_MK3 },
 		{ .std = V4L2_STD_PAL_SECAM, .tuner = TUNER_PHILIPS_FM1216MK5 },
 	},
@@ -1008,7 +1072,9 @@ static const struct ivtv_card ivtv_card_aver_ultra1500mce = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* AVerMedia EZMaker PCI Deluxe card */
 
 static const struct ivtv_card_pci_info ivtv_pci_aver_ezmaker[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc03f },
@@ -1031,11 +1097,13 @@ static const struct ivtv_card ivtv_card_aver_ezmaker = {
 		{ IVTV_CARD_INPUT_LINE_IN1,   CX25840_AUDIO_SERIAL, 0 },
 	},
 	.gpio_init = { .direction = 0x4000, .initial_value = 0x4000 },
-	
+	/* Does not have a tuner */
 	.pci_list = ivtv_pci_aver_ezmaker,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* ASUS Falcon2 */
 
 static const struct ivtv_card_pci_info ivtv_pci_asus_falcon2[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_ASUSTEK, 0x4b66 },
@@ -1072,7 +1140,9 @@ static const struct ivtv_card ivtv_card_asus_falcon2 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* AVerMedia M104 miniPCI card */
 
 static const struct ivtv_card_pci_info ivtv_pci_aver_m104[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_AVERMEDIA, 0xc136 },
@@ -1083,7 +1153,7 @@ static const struct ivtv_card ivtv_card_aver_m104 = {
 	.type = IVTV_CARD_AVER_M104,
 	.name = "AVerMedia M104",
 	.comment = "Not yet supported!\n",
-	.v4l2_capabilities = 0, 
+	.v4l2_capabilities = 0, /*IVTV_CAP_ENCODER,*/
 	.hw_video = IVTV_HW_CX25840,
 	.hw_audio = IVTV_HW_CX25840,
 	.hw_audio_ctrl = IVTV_HW_CX25840,
@@ -1096,7 +1166,7 @@ static const struct ivtv_card ivtv_card_aver_m104 = {
 		{ IVTV_CARD_INPUT_LINE_IN1,   CX25840_AUDIO_SERIAL, 1 },
 	},
 	.radio_input = { IVTV_CARD_INPUT_AUD_TUNER, CX25840_AUDIO_SERIAL, 2 },
-	
+	/* enable line-in + reset tuner */
 	.gpio_init = { .direction = 0xe000, .initial_value = 0x4000 },
 	.xceive_pin = 10,
 	.tuners = {
@@ -1106,7 +1176,9 @@ static const struct ivtv_card ivtv_card_aver_m104 = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
 
+/* Buffalo PC-MV5L/PCI cards */
 
 static const struct ivtv_card_pci_info ivtv_pci_buffalo[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_MELCO, 0x052b },
@@ -1139,6 +1211,8 @@ static const struct ivtv_card ivtv_card_buffalo = {
 	.i2c = &ivtv_i2c_std,
 };
 
+/* ------------------------------------------------------------------------- */
+/* Sony Kikyou */
 
 static const struct ivtv_card_pci_info ivtv_pci_kikyou[] = {
 	{ PCI_DEVICE_ID_IVTV16, IVTV_PCI_ID_SONY, 0x813d },
@@ -1169,10 +1243,10 @@ static const struct ivtv_card ivtv_card_kikyou = {
 			      .linein = 0x0000,
 			      .radio  = 0x0060 },
 	.gpio_audio_mute  = { .mask = 0x0000,
-			      .mute = 0x0000 }, 
+			      .mute = 0x0000 }, /* 0x200? Disable for now. */
 	.gpio_audio_mode  = { .mask   = 0x0080,
 			      .mono   = 0x0000,
-			      .stereo = 0x0000, 
+			      .stereo = 0x0000, /* SAP */
 			      .lang1  = 0x0080,
 			      .lang2  = 0x0000,
 			      .both   = 0x0080 },
@@ -1214,6 +1288,8 @@ static const struct ivtv_card *ivtv_card_list[] = {
 	&ivtv_card_aver_ultra1500mce,
 	&ivtv_card_kikyou,
 
+	/* Variations of standard cards but with the same PCI IDs.
+	   These cards must come last in this list. */
 	&ivtv_card_pvr350_v1,
 	&ivtv_card_cx23416gyc_nogr,
 	&ivtv_card_cx23416gyc_nogrycs,

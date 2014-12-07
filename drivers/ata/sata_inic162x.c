@@ -69,7 +69,7 @@ enum {
 
 	PORT_SIZE		= 0x40,
 
-	
+	/* registers for ATA TF operation */
 	PORT_TF_DATA		= 0x00,
 	PORT_TF_FEATURE		= 0x01,
 	PORT_TF_NSECT		= 0x02,
@@ -87,7 +87,7 @@ enum {
 	PORT_CPB_CPBLAR		= 0x18,
 	PORT_CPB_PTQFIFO	= 0x1c,
 
-	
+	/* IDMA register */
 	PORT_IDMA_CTL		= 0x14,
 	PORT_IDMA_STAT		= 0x16,
 
@@ -96,124 +96,126 @@ enum {
 
 	PORT_SCR		= 0x20,
 
-	
-	HCTL_LEDEN		= (1 << 3),  
-	HCTL_IRQOFF		= (1 << 8),  
-	HCTL_FTHD0		= (1 << 10), 
-	HCTL_FTHD1		= (1 << 11), 
-	HCTL_PWRDWN		= (1 << 12), 
-	HCTL_SOFTRST		= (1 << 13), 
-	HCTL_RPGSEL		= (1 << 15), 
+	/* HOST_CTL bits */
+	HCTL_LEDEN		= (1 << 3),  /* enable LED operation */
+	HCTL_IRQOFF		= (1 << 8),  /* global IRQ off */
+	HCTL_FTHD0		= (1 << 10), /* fifo threshold 0 */
+	HCTL_FTHD1		= (1 << 11), /* fifo threshold 1*/
+	HCTL_PWRDWN		= (1 << 12), /* power down PHYs */
+	HCTL_SOFTRST		= (1 << 13), /* global reset (no phy reset) */
+	HCTL_RPGSEL		= (1 << 15), /* register page select */
 
 	HCTL_KNOWN_BITS		= HCTL_IRQOFF | HCTL_PWRDWN | HCTL_SOFTRST |
 				  HCTL_RPGSEL,
 
-	
+	/* HOST_IRQ_(STAT|MASK) bits */
 	HIRQ_PORT0		= (1 << 0),
 	HIRQ_PORT1		= (1 << 1),
 	HIRQ_SOFT		= (1 << 14),
-	HIRQ_GLOBAL		= (1 << 15), 
+	HIRQ_GLOBAL		= (1 << 15), /* STAT only */
 
-	
-	PIRQ_OFFLINE		= (1 << 0),  
-	PIRQ_ONLINE		= (1 << 1),  
-	PIRQ_COMPLETE		= (1 << 2),  
-	PIRQ_FATAL		= (1 << 3),  
-	PIRQ_ATA		= (1 << 4),  
-	PIRQ_REPLY		= (1 << 5),  
-	PIRQ_PENDING		= (1 << 7),  
+	/* PORT_IRQ_(STAT|MASK) bits */
+	PIRQ_OFFLINE		= (1 << 0),  /* device unplugged */
+	PIRQ_ONLINE		= (1 << 1),  /* device plugged */
+	PIRQ_COMPLETE		= (1 << 2),  /* completion interrupt */
+	PIRQ_FATAL		= (1 << 3),  /* fatal error */
+	PIRQ_ATA		= (1 << 4),  /* ATA interrupt */
+	PIRQ_REPLY		= (1 << 5),  /* reply FIFO not empty */
+	PIRQ_PENDING		= (1 << 7),  /* port IRQ pending (STAT only) */
 
 	PIRQ_ERR		= PIRQ_OFFLINE | PIRQ_ONLINE | PIRQ_FATAL,
 	PIRQ_MASK_DEFAULT	= PIRQ_REPLY | PIRQ_ATA,
 	PIRQ_MASK_FREEZE	= 0xff,
 
-	
+	/* PORT_PRD_CTL bits */
 	PRD_CTL_START		= (1 << 0),
 	PRD_CTL_WR		= (1 << 3),
-	PRD_CTL_DMAEN		= (1 << 7),  
+	PRD_CTL_DMAEN		= (1 << 7),  /* DMA enable */
 
-	
-	IDMA_CTL_RST_ATA	= (1 << 2),  
-	IDMA_CTL_RST_IDMA	= (1 << 5),  
-	IDMA_CTL_GO		= (1 << 7),  
-	IDMA_CTL_ATA_NIEN	= (1 << 8),  
+	/* PORT_IDMA_CTL bits */
+	IDMA_CTL_RST_ATA	= (1 << 2),  /* hardreset ATA bus */
+	IDMA_CTL_RST_IDMA	= (1 << 5),  /* reset IDMA machinary */
+	IDMA_CTL_GO		= (1 << 7),  /* IDMA mode go */
+	IDMA_CTL_ATA_NIEN	= (1 << 8),  /* ATA IRQ disable */
 
-	
-	IDMA_STAT_PERR		= (1 << 0),  
-	IDMA_STAT_CPBERR	= (1 << 1),  
-	IDMA_STAT_LGCY		= (1 << 3),  
-	IDMA_STAT_UIRQ		= (1 << 4),  
-	IDMA_STAT_STPD		= (1 << 5),  
-	IDMA_STAT_PSD		= (1 << 6),  
-	IDMA_STAT_DONE		= (1 << 7),  
+	/* PORT_IDMA_STAT bits */
+	IDMA_STAT_PERR		= (1 << 0),  /* PCI ERROR MODE */
+	IDMA_STAT_CPBERR	= (1 << 1),  /* ADMA CPB error */
+	IDMA_STAT_LGCY		= (1 << 3),  /* ADMA legacy */
+	IDMA_STAT_UIRQ		= (1 << 4),  /* ADMA unsolicited irq */
+	IDMA_STAT_STPD		= (1 << 5),  /* ADMA stopped */
+	IDMA_STAT_PSD		= (1 << 6),  /* ADMA pause */
+	IDMA_STAT_DONE		= (1 << 7),  /* ADMA done */
 
 	IDMA_STAT_ERR		= IDMA_STAT_PERR | IDMA_STAT_CPBERR,
 
-	
-	CPB_CTL_VALID		= (1 << 0),  
-	CPB_CTL_QUEUED		= (1 << 1),  
-	CPB_CTL_DATA		= (1 << 2),  
-	CPB_CTL_IEN		= (1 << 3),  
-	CPB_CTL_DEVDIR		= (1 << 4),  
+	/* CPB Control Flags*/
+	CPB_CTL_VALID		= (1 << 0),  /* CPB valid */
+	CPB_CTL_QUEUED		= (1 << 1),  /* queued command */
+	CPB_CTL_DATA		= (1 << 2),  /* data, rsvd in datasheet */
+	CPB_CTL_IEN		= (1 << 3),  /* PCI interrupt enable */
+	CPB_CTL_DEVDIR		= (1 << 4),  /* device direction control */
 
-	
-	CPB_RESP_DONE		= (1 << 0),  
-	CPB_RESP_REL		= (1 << 1),  
-	CPB_RESP_IGNORED	= (1 << 2),  
-	CPB_RESP_ATA_ERR	= (1 << 3),  
-	CPB_RESP_SPURIOUS	= (1 << 4),  
-	CPB_RESP_UNDERFLOW	= (1 << 5),  
-	CPB_RESP_OVERFLOW	= (1 << 6),  
-	CPB_RESP_CPB_ERR	= (1 << 7),  
+	/* CPB Response Flags */
+	CPB_RESP_DONE		= (1 << 0),  /* ATA command complete */
+	CPB_RESP_REL		= (1 << 1),  /* ATA release */
+	CPB_RESP_IGNORED	= (1 << 2),  /* CPB ignored */
+	CPB_RESP_ATA_ERR	= (1 << 3),  /* ATA command error */
+	CPB_RESP_SPURIOUS	= (1 << 4),  /* ATA spurious interrupt error */
+	CPB_RESP_UNDERFLOW	= (1 << 5),  /* APRD deficiency length error */
+	CPB_RESP_OVERFLOW	= (1 << 6),  /* APRD exccess length error */
+	CPB_RESP_CPB_ERR	= (1 << 7),  /* CPB error flag */
 
-	
-	PRD_DRAIN		= (1 << 1),  
-	PRD_CDB			= (1 << 2),  
-	PRD_DIRECT_INTR		= (1 << 3),  
-	PRD_DMA			= (1 << 4),  
-	PRD_WRITE		= (1 << 5),  
-	PRD_IOM			= (1 << 6),  
-	PRD_END			= (1 << 7),  
+	/* PRD Control Flags */
+	PRD_DRAIN		= (1 << 1),  /* ignore data excess */
+	PRD_CDB			= (1 << 2),  /* atapi packet command pointer */
+	PRD_DIRECT_INTR		= (1 << 3),  /* direct interrupt */
+	PRD_DMA			= (1 << 4),  /* data transfer method */
+	PRD_WRITE		= (1 << 5),  /* data dir, rsvd in datasheet */
+	PRD_IOM			= (1 << 6),  /* io/memory transfer */
+	PRD_END			= (1 << 7),  /* APRD chain end */
 };
 
+/* Comman Parameter Block */
 struct inic_cpb {
-	u8		resp_flags;	
-	u8		error;		
-	u8		status;		
-	u8		ctl_flags;	
-	__le32		len;		
-	__le32		prd;		
+	u8		resp_flags;	/* Response Flags */
+	u8		error;		/* ATA Error */
+	u8		status;		/* ATA Status */
+	u8		ctl_flags;	/* Control Flags */
+	__le32		len;		/* Total Transfer Length */
+	__le32		prd;		/* First PRD pointer */
 	u8		rsvd[4];
-	
-	u8		feature;	
-	u8		hob_feature;	
-	u8		device;		
-	u8		mirctl;		
-	u8		nsect;		
-	u8		hob_nsect;	
-	u8		lbal;		
-	u8		hob_lbal;	
-	u8		lbam;		
-	u8		hob_lbam;	
-	u8		lbah;		
-	u8		hob_lbah;	
-	u8		command;	
-	u8		ctl;		
-	u8		slave_error;	
-	u8		slave_status;	
-	
+	/* 16 bytes */
+	u8		feature;	/* ATA Feature */
+	u8		hob_feature;	/* ATA Ex. Feature */
+	u8		device;		/* ATA Device/Head */
+	u8		mirctl;		/* Mirror Control */
+	u8		nsect;		/* ATA Sector Count */
+	u8		hob_nsect;	/* ATA Ex. Sector Count */
+	u8		lbal;		/* ATA Sector Number */
+	u8		hob_lbal;	/* ATA Ex. Sector Number */
+	u8		lbam;		/* ATA Cylinder Low */
+	u8		hob_lbam;	/* ATA Ex. Cylinder Low */
+	u8		lbah;		/* ATA Cylinder High */
+	u8		hob_lbah;	/* ATA Ex. Cylinder High */
+	u8		command;	/* ATA Command */
+	u8		ctl;		/* ATA Control */
+	u8		slave_error;	/* Slave ATA Error */
+	u8		slave_status;	/* Slave ATA Status */
+	/* 32 bytes */
 } __packed;
 
+/* Physical Region Descriptor */
 struct inic_prd {
-	__le32		mad;		
-	__le16		len;		
+	__le32		mad;		/* Physical Memory Address */
+	__le16		len;		/* Transfer Length */
 	u8		rsvd;
-	u8		flags;		
+	u8		flags;		/* Control Flags */
 } __packed;
 
 struct inic_pkt {
 	struct inic_cpb	cpb;
-	struct inic_prd	prd[LIBATA_MAX_PRD + 1];	
+	struct inic_prd	prd[LIBATA_MAX_PRD + 1];	/* + 1 for cdb */
 	u8		cdb[ATAPI_CDB_LEN];
 } __packed;
 
@@ -231,7 +233,7 @@ struct inic_port_priv {
 
 static struct scsi_host_template inic_sht = {
 	ATA_BASE_SHT(DRV_NAME),
-	.sg_tablesize	= LIBATA_MAX_PRD,	
+	.sg_tablesize	= LIBATA_MAX_PRD,	/* maybe it can be larger? */
 	.dma_boundary	= INIC_DMA_BOUNDARY,
 };
 
@@ -252,19 +254,19 @@ static void inic_reset_port(void __iomem *port_base)
 {
 	void __iomem *idma_ctl = port_base + PORT_IDMA_CTL;
 
-	
-	readw(idma_ctl); 
+	/* stop IDMA engine */
+	readw(idma_ctl); /* flush */
 	msleep(1);
 
-	
+	/* mask IRQ and assert reset */
 	writew(IDMA_CTL_RST_IDMA, idma_ctl);
-	readw(idma_ctl); 
+	readw(idma_ctl); /* flush */
 	msleep(1);
 
-	
+	/* release reset */
 	writew(0, idma_ctl);
 
-	
+	/* clear irq */
 	writeb(0xff, port_base + PORT_IRQ_STAT);
 }
 
@@ -279,7 +281,7 @@ static int inic_scr_read(struct ata_link *link, unsigned sc_reg, u32 *val)
 	addr = scr_addr + scr_map[sc_reg] * 4;
 	*val = readl(scr_addr + scr_map[sc_reg] * 4);
 
-	
+	/* this controller has stuck DIAG.N, ignore it */
 	if (sc_reg == SCR_ERROR)
 		*val &= ~SERR_PHYRDY_CHG;
 	return 0;
@@ -368,7 +370,7 @@ static void inic_host_intr(struct ata_port *ap)
 	u8 irq_stat;
 	u16 idma_stat;
 
-	
+	/* read and clear IRQ status */
 	irq_stat = readb(port_base + PORT_IRQ_STAT);
 	writeb(irq_stat, port_base + PORT_IRQ_STAT);
 	idma_stat = readw(port_base + PORT_IDMA_STAT);
@@ -382,6 +384,9 @@ static void inic_host_intr(struct ata_port *ap)
 	if (likely(idma_stat & IDMA_STAT_DONE)) {
 		inic_stop_idma(ap);
 
+		/* Depending on circumstances, device error
+		 * isn't reported by IDMA, check it explicitly.
+		 */
 		if (unlikely(readb(port_base + PORT_TF_COMMAND) &
 			     (ATA_DF | ATA_ERR)))
 			qc->err_mask |= AC_ERR_DEV;
@@ -423,6 +428,12 @@ static irqreturn_t inic_interrupt(int irq, void *dev_instance)
 
 static int inic_check_atapi_dma(struct ata_queued_cmd *qc)
 {
+	/* For some reason ATAPI_PROT_DMA doesn't work for some
+	 * commands including writes and other misc ops.  Use PIO
+	 * protocol instead, which BTW is driven by the DMA engine
+	 * anyway, so it shouldn't make much difference for native
+	 * SATA devices.
+	 */
 	if (atapi_cmd_type(qc->cdb[0]) == READ)
 		return 0;
 	return 1;
@@ -466,7 +477,7 @@ static void inic_qc_prep(struct ata_queued_cmd *qc)
 	if (is_atapi)
 		cdb_len = qc->dev->cdb_len;
 
-	
+	/* prepare packet, based on initio driver */
 	memset(pkt, 0, sizeof(struct inic_pkt));
 
 	cpb->ctl_flags = CPB_CTL_VALID | CPB_CTL_IEN;
@@ -492,9 +503,9 @@ static void inic_qc_prep(struct ata_queued_cmd *qc)
 	}
 
 	cpb->command = qc->tf.command;
-	
+	/* don't load ctl - dunno why.  it's like that in the initio driver */
 
-	
+	/* setup PRD for CDB */
 	if (is_atapi) {
 		memcpy(pkt->cdb, qc->cdb, ATAPI_CDB_LEN);
 		prd->mad = cpu_to_le32(pp->pkt_dma +
@@ -506,7 +517,7 @@ static void inic_qc_prep(struct ata_queued_cmd *qc)
 		prd++;
 	}
 
-	
+	/* setup sg table */
 	if (is_data)
 		inic_fill_sg(prd, qc);
 
@@ -518,7 +529,7 @@ static unsigned int inic_qc_issue(struct ata_queued_cmd *qc)
 	struct ata_port *ap = qc->ap;
 	void __iomem *port_base = inic_port_base(ap);
 
-	
+	/* fire up the ADMA engine */
 	writew(HCTL_FTHD0 | HCTL_LEDEN, port_base + HOST_CTL);
 	writew(IDMA_CTL_GO, port_base + PORT_IDMA_CTL);
 	writeb(0, port_base + PORT_CPB_PTQFIFO);
@@ -544,6 +555,13 @@ static bool inic_qc_fill_rtf(struct ata_queued_cmd *qc)
 	struct ata_taskfile *rtf = &qc->result_tf;
 	struct ata_taskfile tf;
 
+	/* FIXME: Except for status and error, result TF access
+	 * doesn't work.  I tried reading from BAR0/2, CPB and BAR5.
+	 * None works regardless of which command interface is used.
+	 * For now return true iff status indicates device error.
+	 * This means that we're reporting bogus sector for RW
+	 * failures.  Eeekk....
+	 */
 	inic_tf_read(qc->ap, &tf);
 
 	if (!(tf.command & ATA_ERR))
@@ -577,6 +595,10 @@ static int inic_check_ready(struct ata_link *link)
 	return ata_check_ready(readb(port_base + PORT_TF_COMMAND));
 }
 
+/*
+ * SRST and SControl hardreset don't give valid signature on this
+ * controller.  Only controller specific hardreset mechanism works.
+ */
 static int inic_hardreset(struct ata_link *link, unsigned int *class,
 			  unsigned long deadline)
 {
@@ -586,11 +608,11 @@ static int inic_hardreset(struct ata_link *link, unsigned int *class,
 	const unsigned long *timing = sata_ehc_deb_timing(&link->eh_context);
 	int rc;
 
-	
+	/* hammer it into sane state */
 	inic_reset_port(port_base);
 
 	writew(IDMA_CTL_RST_ATA, idma_ctl);
-	readw(idma_ctl);	
+	readw(idma_ctl);	/* flush */
 	ata_msleep(ap, 1);
 	writew(0, idma_ctl);
 
@@ -606,9 +628,9 @@ static int inic_hardreset(struct ata_link *link, unsigned int *class,
 	if (ata_link_online(link)) {
 		struct ata_taskfile tf;
 
-		
+		/* wait for link to become ready */
 		rc = ata_wait_after_reset(link, deadline, inic_check_ready);
-		
+		/* link occupied, -ENODEV too is an error */
 		if (rc) {
 			ata_link_warn(link,
 				      "device not ready after hardreset (errno=%d)\n",
@@ -633,7 +655,7 @@ static void inic_error_handler(struct ata_port *ap)
 
 static void inic_post_internal_cmd(struct ata_queued_cmd *qc)
 {
-	
+	/* make DMA engine forget about the failed command */
 	if (qc->flags & ATA_QCFLAG_FAILED)
 		inic_reset_port(inic_port_base(qc->ap));
 }
@@ -643,11 +665,11 @@ static void init_port(struct ata_port *ap)
 	void __iomem *port_base = inic_port_base(ap);
 	struct inic_port_priv *pp = ap->private_data;
 
-	
+	/* clear packet and CPB table */
 	memset(pp->pkt, 0, sizeof(struct inic_pkt));
 	memset(pp->cpb_tbl, 0, IDMA_CPB_TBL_SIZE);
 
-	
+	/* setup CPB lookup table addresses */
 	writel(pp->cpb_tbl_dma, port_base + PORT_CPB_CPBLAR);
 }
 
@@ -662,13 +684,13 @@ static int inic_port_start(struct ata_port *ap)
 	struct device *dev = ap->host->dev;
 	struct inic_port_priv *pp;
 
-	
+	/* alloc and initialize private data */
 	pp = devm_kzalloc(dev, sizeof(*pp), GFP_KERNEL);
 	if (!pp)
 		return -ENOMEM;
 	ap->private_data = pp;
 
-	
+	/* Alloc resources */
 	pp->pkt = dmam_alloc_coherent(dev, sizeof(struct inic_pkt),
 				      &pp->pkt_dma, GFP_KERNEL);
 	if (!pp->pkt)
@@ -720,8 +742,11 @@ static int init_controller(void __iomem *mmio_base, u16 hctl)
 
 	hctl &= ~HCTL_KNOWN_BITS;
 
+	/* Soft reset whole controller.  Spec says reset duration is 3
+	 * PCI clocks, be generous and give it 10ms.
+	 */
 	writew(hctl | HCTL_SOFTRST, mmio_base + HOST_CTL);
-	readw(mmio_base + HOST_CTL); 
+	readw(mmio_base + HOST_CTL); /* flush */
 
 	for (i = 0; i < 10; i++) {
 		msleep(1);
@@ -733,7 +758,7 @@ static int init_controller(void __iomem *mmio_base, u16 hctl)
 	if (val & HCTL_SOFTRST)
 		return -EIO;
 
-	
+	/* mask all interrupts and reset ports */
 	for (i = 0; i < NR_PORTS; i++) {
 		void __iomem *port_base = mmio_base + i * PORT_SIZE;
 
@@ -741,7 +766,7 @@ static int init_controller(void __iomem *mmio_base, u16 hctl)
 		inic_reset_port(port_base);
 	}
 
-	
+	/* port IRQ is masked now, unmask global IRQ */
 	writew(hctl & ~HCTL_IRQOFF, mmio_base + HOST_CTL);
 	val = readw(mmio_base + HOST_IRQ_MASK);
 	val &= ~(HIRQ_PORT0 | HIRQ_PORT1);
@@ -784,7 +809,7 @@ static int inic_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
-	
+	/* alloc host */
 	host = ata_host_alloc_pinfo(&pdev->dev, ppi, NR_PORTS);
 	hpriv = devm_kzalloc(&pdev->dev, sizeof(*hpriv), GFP_KERNEL);
 	if (!host || !hpriv)
@@ -792,6 +817,9 @@ static int inic_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	host->private_data = hpriv;
 
+	/* Acquire resources and fill host.  Note that PCI and cardbus
+	 * use different BARs.
+	 */
 	rc = pcim_enable_device(pdev);
 	if (rc)
 		return rc;
@@ -815,7 +843,7 @@ static int inic_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		ata_port_pbar_desc(ap, mmio_bar, i * PORT_SIZE, "port");
 	}
 
-	
+	/* Set dma_mask.  This devices doesn't support 64bit addressing. */
 	rc = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
 	if (rc) {
 		dev_err(&pdev->dev, "32-bit DMA enable failed\n");
@@ -828,6 +856,11 @@ static int inic_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return rc;
 	}
 
+	/*
+	 * This controller is braindamaged.  dma_boundary is 0xffff
+	 * like others but it will lock up the whole machine HARD if
+	 * 65536 byte PRD entry is fed. Reduce maximum segment size.
+	 */
 	rc = pci_set_dma_max_seg_size(pdev, 65536 - 512);
 	if (rc) {
 		dev_err(&pdev->dev, "failed to set the maximum segment size\n");

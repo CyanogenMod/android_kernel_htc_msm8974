@@ -48,6 +48,11 @@ struct tipc_bearer tipc_bearers[MAX_BEARERS];
 
 static void bearer_disable(struct tipc_bearer *b_ptr);
 
+/**
+ * media_name_valid - validate media name
+ *
+ * Returns 1 if media name is valid, otherwise 0.
+ */
 
 static int media_name_valid(const char *name)
 {
@@ -59,6 +64,9 @@ static int media_name_valid(const char *name)
 	return strspn(name, tipc_alphabet) == len;
 }
 
+/**
+ * tipc_media_find - locates specified media object by name
+ */
 
 struct tipc_media *tipc_media_find(const char *name)
 {
@@ -71,6 +79,9 @@ struct tipc_media *tipc_media_find(const char *name)
 	return NULL;
 }
 
+/**
+ * media_find_id - locates specified media object by type identifier
+ */
 
 static struct tipc_media *media_find_id(u8 type)
 {
@@ -83,6 +94,11 @@ static struct tipc_media *media_find_id(u8 type)
 	return NULL;
 }
 
+/**
+ * tipc_register_media - register a media type
+ *
+ * Bearers for this media type must be activated separately at a later stage.
+ */
 
 int tipc_register_media(struct tipc_media *m_ptr)
 {
@@ -115,6 +131,9 @@ exit:
 	return res;
 }
 
+/**
+ * tipc_media_addr_printf - record media address in print buffer
+ */
 
 void tipc_media_addr_printf(struct print_buf *pb, struct tipc_media_addr *a)
 {
@@ -134,6 +153,9 @@ void tipc_media_addr_printf(struct print_buf *pb, struct tipc_media_addr *a)
 	}
 }
 
+/**
+ * tipc_media_get_names - record names of registered media in buffer
+ */
 
 struct sk_buff *tipc_media_get_names(void)
 {
@@ -154,6 +176,13 @@ struct sk_buff *tipc_media_get_names(void)
 	return buf;
 }
 
+/**
+ * bearer_name_validate - validate & (optionally) deconstruct bearer name
+ * @name - ptr to bearer name string
+ * @name_parts - ptr to area for bearer name components (or NULL if not needed)
+ *
+ * Returns 1 if bearer name is valid, otherwise 0.
+ */
 
 static int bearer_name_validate(const char *name,
 				struct tipc_bearer_names *name_parts)
@@ -164,15 +193,15 @@ static int bearer_name_validate(const char *name,
 	u32 media_len;
 	u32 if_len;
 
-	
+	/* copy bearer name & ensure length is OK */
 
 	name_copy[TIPC_MAX_BEARER_NAME - 1] = 0;
-	
+	/* need above in case non-Posix strncpy() doesn't pad with nulls */
 	strncpy(name_copy, name, TIPC_MAX_BEARER_NAME);
 	if (name_copy[TIPC_MAX_BEARER_NAME - 1] != 0)
 		return 0;
 
-	
+	/* ensure all component parts of bearer name are present */
 
 	media_name = name_copy;
 	if_name = strchr(media_name, ':');
@@ -182,7 +211,7 @@ static int bearer_name_validate(const char *name,
 	media_len = if_name - media_name;
 	if_len = strlen(if_name) + 1;
 
-	
+	/* validate component parts of bearer name */
 
 	if ((media_len <= 1) || (media_len > TIPC_MAX_MEDIA_NAME) ||
 	    (if_len <= 1) || (if_len > TIPC_MAX_IF_NAME) ||
@@ -190,7 +219,7 @@ static int bearer_name_validate(const char *name,
 	    (strspn(if_name, tipc_alphabet) != (if_len - 1)))
 		return 0;
 
-	
+	/* return bearer name components, if necessary */
 
 	if (name_parts) {
 		strcpy(name_parts->media_name, media_name);
@@ -199,6 +228,9 @@ static int bearer_name_validate(const char *name,
 	return 1;
 }
 
+/**
+ * tipc_bearer_find - locates bearer object with matching bearer name
+ */
 
 struct tipc_bearer *tipc_bearer_find(const char *name)
 {
@@ -212,6 +244,9 @@ struct tipc_bearer *tipc_bearer_find(const char *name)
 	return NULL;
 }
 
+/**
+ * tipc_bearer_find_interface - locates bearer object with matching interface name
+ */
 
 struct tipc_bearer *tipc_bearer_find_interface(const char *if_name)
 {
@@ -229,6 +264,9 @@ struct tipc_bearer *tipc_bearer_find_interface(const char *if_name)
 	return NULL;
 }
 
+/**
+ * tipc_bearer_get_names - record names of bearers in buffer
+ */
 
 struct sk_buff *tipc_bearer_get_names(void)
 {
@@ -269,6 +307,14 @@ void tipc_bearer_remove_dest(struct tipc_bearer *b_ptr, u32 dest)
 	tipc_disc_remove_dest(b_ptr->link_req);
 }
 
+/*
+ * bearer_push(): Resolve bearer congestion. Force the waiting
+ * links to push out their unsent packets, one packet per link
+ * per iteration, until all packets are gone or congestion reoccurs.
+ * 'tipc_net_lock' is read_locked when this function is called
+ * bearer.lock must be taken before calling
+ * Returns binary true(1) ore false(0)
+ */
 static int bearer_push(struct tipc_bearer *b_ptr)
 {
 	u32 res = 0;
@@ -297,6 +343,10 @@ void tipc_bearer_lock_push(struct tipc_bearer *b_ptr)
 }
 
 
+/*
+ * Interrupt enabling new requests after bearer congestion or blocking:
+ * See bearer_send().
+ */
 void tipc_continue(struct tipc_bearer *b_ptr)
 {
 	spin_lock_bh(&b_ptr->lock);
@@ -306,6 +356,13 @@ void tipc_continue(struct tipc_bearer *b_ptr)
 	spin_unlock_bh(&b_ptr->lock);
 }
 
+/*
+ * Schedule link for sending of messages after the bearer
+ * has been deblocked by 'continue()'. This method is called
+ * when somebody tries to send a message via this link while
+ * the bearer is congested. 'tipc_net_lock' is in read_lock here
+ * bearer.lock is busy
+ */
 
 static void tipc_bearer_schedule_unlocked(struct tipc_bearer *b_ptr,
 						struct tipc_link *l_ptr)
@@ -313,6 +370,13 @@ static void tipc_bearer_schedule_unlocked(struct tipc_bearer *b_ptr,
 	list_move_tail(&l_ptr->link_list, &b_ptr->cong_links);
 }
 
+/*
+ * Schedule link for sending of messages after the bearer
+ * has been deblocked by 'continue()'. This method is called
+ * when somebody tries to send a message via this link while
+ * the bearer is congested. 'tipc_net_lock' is in read_lock here,
+ * bearer.lock is free
+ */
 
 void tipc_bearer_schedule(struct tipc_bearer *b_ptr, struct tipc_link *l_ptr)
 {
@@ -322,6 +386,11 @@ void tipc_bearer_schedule(struct tipc_bearer *b_ptr, struct tipc_link *l_ptr)
 }
 
 
+/*
+ * tipc_bearer_resolve_congestion(): Check if there is bearer congestion,
+ * and if there is, try to resolve it before returning.
+ * 'tipc_net_lock' is read_locked when this function is called
+ */
 int tipc_bearer_resolve_congestion(struct tipc_bearer *b_ptr,
 					struct tipc_link *l_ptr)
 {
@@ -338,6 +407,9 @@ int tipc_bearer_resolve_congestion(struct tipc_bearer *b_ptr,
 	return res;
 }
 
+/**
+ * tipc_bearer_congested - determines if bearer is currently congested
+ */
 
 int tipc_bearer_congested(struct tipc_bearer *b_ptr, struct tipc_link *l_ptr)
 {
@@ -348,6 +420,9 @@ int tipc_bearer_congested(struct tipc_bearer *b_ptr, struct tipc_link *l_ptr)
 	return !tipc_bearer_resolve_congestion(b_ptr, l_ptr);
 }
 
+/**
+ * tipc_enable_bearer - enable bearer with the given name
+ */
 
 int tipc_enable_bearer(const char *name, u32 disc_domain, u32 priority)
 {
@@ -373,9 +448,9 @@ int tipc_enable_bearer(const char *name, u32 disc_domain, u32 priority)
 	    (disc_domain != tipc_own_addr)) {
 		if (tipc_in_scope(disc_domain, tipc_own_addr)) {
 			disc_domain = tipc_own_addr & TIPC_CLUSTER_MASK;
-			res = 0;   
+			res = 0;   /* accept any node in own cluster */
 		} else if (in_own_cluster(disc_domain))
-			res = 0;   
+			res = 0;   /* accept specified node in own cluster */
 	}
 	if (res) {
 		warn("Bearer <%s> rejected, illegal discovery domain\n", name);
@@ -462,6 +537,10 @@ exit:
 	return res;
 }
 
+/**
+ * tipc_block_bearer(): Block the bearer with the given name,
+ *                      and reset all its links
+ */
 
 int tipc_block_bearer(const char *name)
 {
@@ -493,6 +572,11 @@ int tipc_block_bearer(const char *name)
 	return 0;
 }
 
+/**
+ * bearer_disable -
+ *
+ * Note: This routine assumes caller holds tipc_net_lock.
+ */
 
 static void bearer_disable(struct tipc_bearer *b_ptr)
 {

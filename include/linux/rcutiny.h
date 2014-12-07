@@ -45,15 +45,15 @@ static inline void rcu_barrier_sched(void)
 
 static inline void synchronize_rcu_expedited(void)
 {
-	synchronize_sched();	
+	synchronize_sched();	/* Only one CPU, so pretty fast anyway!!! */
 }
 
 static inline void rcu_barrier(void)
 {
-	rcu_barrier_sched();  
+	rcu_barrier_sched();  /* Only one CPU, so only one list of callbacks! */
 }
 
-#else 
+#else /* #ifdef CONFIG_TINY_RCU */
 
 void synchronize_rcu_expedited(void);
 
@@ -62,7 +62,7 @@ static inline void rcu_barrier(void)
 	wait_rcu_gp(call_rcu);
 }
 
-#endif 
+#endif /* #else #ifdef CONFIG_TINY_RCU */
 
 static inline void synchronize_rcu_bh(void)
 {
@@ -91,24 +91,27 @@ static inline void rcu_preempt_note_context_switch(void)
 {
 }
 
-static inline int rcu_needs_cpu(int cpu, unsigned long *delta_jiffies)
+static inline void exit_rcu(void)
 {
-	*delta_jiffies = ULONG_MAX;
+}
+
+static inline int rcu_needs_cpu(int cpu)
+{
 	return 0;
 }
 
-#else 
+#else /* #ifdef CONFIG_TINY_RCU */
 
 void rcu_preempt_note_context_switch(void);
+extern void exit_rcu(void);
 int rcu_preempt_needs_cpu(void);
 
-static inline int rcu_needs_cpu(int cpu, unsigned long *delta_jiffies)
+static inline int rcu_needs_cpu(int cpu)
 {
-	*delta_jiffies = ULONG_MAX;
 	return rcu_preempt_needs_cpu();
 }
 
-#endif 
+#endif /* #else #ifdef CONFIG_TINY_RCU */
 
 static inline void rcu_note_context_switch(int cpu)
 {
@@ -116,15 +119,25 @@ static inline void rcu_note_context_switch(int cpu)
 	rcu_preempt_note_context_switch();
 }
 
+/*
+ * Take advantage of the fact that there is only one CPU, which
+ * allows us to ignore virtualization-based context switches.
+ */
 static inline void rcu_virt_note_context_switch(int cpu)
 {
 }
 
+/*
+ * Return the number of grace periods.
+ */
 static inline long rcu_batches_completed(void)
 {
 	return 0;
 }
 
+/*
+ * Return the number of bottom-half grace periods.
+ */
 static inline long rcu_batches_completed_bh(void)
 {
 	return 0;
@@ -149,10 +162,10 @@ static inline void rcu_cpu_stall_reset(void)
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 extern int rcu_scheduler_active __read_mostly;
 extern void rcu_scheduler_starting(void);
-#else 
+#else /* #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 static inline void rcu_scheduler_starting(void)
 {
 }
-#endif 
+#endif /* #else #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 
-#endif 
+#endif /* __LINUX_RCUTINY_H */

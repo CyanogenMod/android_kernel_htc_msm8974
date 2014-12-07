@@ -1,3 +1,5 @@
+/*
+ */
 
 #ifndef MSP3400_DRIVER_H
 #define MSP3400_DRIVER_H
@@ -6,7 +8,10 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-ctrls.h>
 
+/* ---------------------------------------------------------------------- */
 
+/* This macro is allowed for *constants* only, gcc must calculate it
+   at compile time.  Remember -- no floats in kernel mode */
 #define MSP_CARRIER(freq) ((int)((float)(freq / 18.432) * (1 << 24)))
 
 #define MSP_MODE_AM_DETECT   0
@@ -34,9 +39,10 @@
 
 #define OPMODE_AUTO       -1
 #define OPMODE_MANUAL      0
-#define OPMODE_AUTODETECT  1   
-#define OPMODE_AUTOSELECT  2   
+#define OPMODE_AUTODETECT  1   /* use autodetect (>= msp3410 only) */
+#define OPMODE_AUTOSELECT  2   /* use autodetect & autoselect (>= msp34xxG)   */
 
+/* module parameters */
 extern int msp_debug;
 extern bool msp_once;
 extern bool msp_amsound;
@@ -74,24 +80,24 @@ struct msp_state {
 	int acb;
 	int in_scart;
 	int i2s_mode;
-	int main, second;	
+	int main, second;	/* sound carrier */
 	int input;
 	u32 route_in;
 	u32 route_out;
 
-	
+	/* v4l2 */
 	int audmode;
 	int rxsubchans;
 
 	struct {
-		
+		/* volume cluster */
 		struct v4l2_ctrl *volume;
 		struct v4l2_ctrl *muted;
 	};
 
 	int scan_in_progress;
 
-	
+	/* thread */
 	struct task_struct   *kthread;
 	wait_queue_head_t    wq;
 	unsigned int         restart:1;
@@ -108,6 +114,7 @@ static inline struct msp_state *ctrl_to_state(struct v4l2_ctrl *ctrl)
 	return container_of(ctrl->handler, struct msp_state, hdl);
 }
 
+/* msp3400-driver.c */
 int msp_write_dem(struct i2c_client *client, int addr, int val);
 int msp_write_dsp(struct i2c_client *client, int addr, int val);
 int msp_read_dem(struct i2c_client *client, int addr);
@@ -117,6 +124,7 @@ void msp_set_scart(struct i2c_client *client, int in, int out);
 void msp_update_volume(struct msp_state *state);
 int msp_sleep(struct msp_state *state, int timeout);
 
+/* msp3400-kthreads.c */
 const char *msp_standard_std_name(int std);
 void msp_set_audmode(struct i2c_client *client);
 int msp_detect_stereo(struct i2c_client *client);
@@ -126,4 +134,4 @@ int msp34xxg_thread(void *data);
 void msp3400c_set_mode(struct i2c_client *client, int mode);
 void msp3400c_set_carrier(struct i2c_client *client, int cdo1, int cdo2);
 
-#endif 
+#endif /* MSP3400_DRIVER_H */

@@ -44,6 +44,7 @@
 
 #include <asm/byteorder.h>
 
+/* 8bit ALU logic operations */
 struct ins_format1 {
 #ifdef __LITTLE_ENDIAN
 	uint32_t	immediate	: 8,
@@ -62,6 +63,7 @@ struct ins_format1 {
 #endif
 };
 
+/* 8bit ALU shift/rotate operations */
 struct ins_format2 {
 #ifdef __LITTLE_ENDIAN
 	uint32_t	shift_control	: 8,
@@ -80,6 +82,7 @@ struct ins_format2 {
 #endif
 };
 
+/* 8bit branch control operations */
 struct ins_format3 {
 #ifdef __LITTLE_ENDIAN
 	uint32_t	immediate	: 8,
@@ -96,6 +99,7 @@ struct ins_format3 {
 #endif
 };
 
+/* 16bit ALU logic operations */
 struct ins_format4 {
 #ifdef __LITTLE_ENDIAN
 	uint32_t	opcode_ext	: 8,
@@ -114,6 +118,7 @@ struct ins_format4 {
 #endif
 };
 
+/* 16bit branch control operations */
 struct ins_format5 {
 #ifdef __LITTLE_ENDIAN
 	uint32_t	opcode_ext	: 8,
@@ -130,6 +135,7 @@ struct ins_format5 {
 #endif
 };
 
+/*  Far branch operations */
 struct ins_format6 {
 #ifdef __LITTLE_ENDIAN
 	uint32_t	page		: 3,
@@ -184,11 +190,12 @@ struct instruction {
 #define	AIC_OP_JE	0xe
 #define	AIC_OP_JZ	0xf
 
+/* Pseudo Ops */
 #define	AIC_OP_SHL	0x10
 #define	AIC_OP_SHR	0x20
 #define	AIC_OP_ROR	0x30
 
- 
+/* 16bit Ops. Low byte main opcode.  High byte extended opcode. */ 
 #define	AIC_OP_OR16	0x8005
 #define	AIC_OP_AND16	0x8105
 #define	AIC_OP_XOR16	0x8205
@@ -204,6 +211,7 @@ struct instruction {
 #define AIC_OP_CALL16	0x9305
 #define AIC_OP_CALL16	0x9305
 
+/* Page extension is low three bits of second opcode byte. */
 #define AIC_OP_JMPF	0xA005
 #define AIC_OP_CALLF	0xB005
 #define AIC_OP_JCF	0xC005

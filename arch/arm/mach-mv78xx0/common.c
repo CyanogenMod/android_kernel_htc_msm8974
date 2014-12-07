@@ -28,10 +28,16 @@
 
 static int get_tclk(void);
 
+/*****************************************************************************
+ * Common bits
+ ****************************************************************************/
 int mv78xx0_core_index(void)
 {
 	u32 extra;
 
+	/*
+	 * Read Extra Features register.
+	 */
 	__asm__("mrc p15, 1, %0, c15, c1, 0" : "=r" (extra));
 
 	return !!(extra & 0x00004000);
@@ -41,6 +47,9 @@ static int get_hclk(void)
 {
 	int hclk;
 
+	/*
+	 * HCLK tick rate is configured by DEV_D[7:5] pins.
+	 */
 	switch ((readl(SAMPLE_AT_RESET_LOW) >> 5) & 7) {
 	case 0:
 		hclk = 166666667;
@@ -69,14 +78,26 @@ static void get_pclk_l2clk(int hclk, int core_index, int *pclk, int *l2clk)
 {
 	u32 cfg;
 
+	/*
+	 * Core #0 PCLK/L2CLK is configured by bits [13:8], core #1
+	 * PCLK/L2CLK by bits [19:14].
+	 */
 	if (core_index == 0) {
 		cfg = (readl(SAMPLE_AT_RESET_LOW) >> 8) & 0x3f;
 	} else {
 		cfg = (readl(SAMPLE_AT_RESET_LOW) >> 14) & 0x3f;
 	}
 
+	/*
+	 * Bits [11:8] ([17:14] for core #1) configure the PCLK:HCLK
+	 * ratio (1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6).
+	 */
 	*pclk = ((u64)hclk * (2 + (cfg & 0xf))) >> 1;
 
+	/*
+	 * Bits [13:12] ([19:18] for core #1) configure the PCLK:L2CLK
+	 * ratio (1, 2, 3).
+	 */
 	*l2clk = *pclk / (((cfg >> 4) & 3) + 1);
 }
 
@@ -84,6 +105,9 @@ static int get_tclk(void)
 {
 	int tclk;
 
+	/*
+	 * TCLK tick rate is configured by DEV_A[2:0] strap pins.
+	 */
 	switch ((readl(SAMPLE_AT_RESET_HIGH) >> 6) & 7) {
 	case 1:
 		tclk = 166666667;
@@ -100,6 +124,9 @@ static int get_tclk(void)
 }
 
 
+/*****************************************************************************
+ * I/O Address Mapping
+ ****************************************************************************/
 static struct map_desc mv78xx0_io_desc[] __initdata = {
 	{
 		.virtual	= MV78XX0_CORE_REGS_VIRT_BASE,
@@ -123,6 +150,10 @@ void __init mv78xx0_map_io(void)
 {
 	unsigned long phys;
 
+	/*
+	 * Map the right set of per-core registers depending on
+	 * which core we are running on.
+	 */
 	if (mv78xx0_core_index() == 0) {
 		phys = MV78XX0_CORE0_REGS_PHYS_BASE;
 	} else {
@@ -134,24 +165,36 @@ void __init mv78xx0_map_io(void)
 }
 
 
+/*****************************************************************************
+ * EHCI
+ ****************************************************************************/
 void __init mv78xx0_ehci0_init(void)
 {
 	orion_ehci_init(USB0_PHYS_BASE, IRQ_MV78XX0_USB_0, EHCI_PHY_NA);
 }
 
 
+/*****************************************************************************
+ * EHCI1
+ ****************************************************************************/
 void __init mv78xx0_ehci1_init(void)
 {
 	orion_ehci_1_init(USB1_PHYS_BASE, IRQ_MV78XX0_USB_1);
 }
 
 
+/*****************************************************************************
+ * EHCI2
+ ****************************************************************************/
 void __init mv78xx0_ehci2_init(void)
 {
 	orion_ehci_2_init(USB2_PHYS_BASE, IRQ_MV78XX0_USB_2);
 }
 
 
+/*****************************************************************************
+ * GE00
+ ****************************************************************************/
 void __init mv78xx0_ge00_init(struct mv643xx_eth_platform_data *eth_data)
 {
 	orion_ge00_init(eth_data,
@@ -160,6 +203,9 @@ void __init mv78xx0_ge00_init(struct mv643xx_eth_platform_data *eth_data)
 }
 
 
+/*****************************************************************************
+ * GE01
+ ****************************************************************************/
 void __init mv78xx0_ge01_init(struct mv643xx_eth_platform_data *eth_data)
 {
 	orion_ge01_init(eth_data,
@@ -168,10 +214,17 @@ void __init mv78xx0_ge01_init(struct mv643xx_eth_platform_data *eth_data)
 }
 
 
+/*****************************************************************************
+ * GE10
+ ****************************************************************************/
 void __init mv78xx0_ge10_init(struct mv643xx_eth_platform_data *eth_data)
 {
 	u32 dev, rev;
 
+	/*
+	 * On the Z0, ge10 and ge11 are internally connected back
+	 * to back, and not brought out.
+	 */
 	mv78xx0_pcie_id(&dev, &rev);
 	if (dev == MV78X00_Z0_DEV_ID) {
 		eth_data->phy_addr = MV643XX_ETH_PHY_NONE;
@@ -185,10 +238,17 @@ void __init mv78xx0_ge10_init(struct mv643xx_eth_platform_data *eth_data)
 }
 
 
+/*****************************************************************************
+ * GE11
+ ****************************************************************************/
 void __init mv78xx0_ge11_init(struct mv643xx_eth_platform_data *eth_data)
 {
 	u32 dev, rev;
 
+	/*
+	 * On the Z0, ge10 and ge11 are internally connected back
+	 * to back, and not brought out.
+	 */
 	mv78xx0_pcie_id(&dev, &rev);
 	if (dev == MV78X00_Z0_DEV_ID) {
 		eth_data->phy_addr = MV643XX_ETH_PHY_NONE;
@@ -201,18 +261,27 @@ void __init mv78xx0_ge11_init(struct mv643xx_eth_platform_data *eth_data)
 			NO_IRQ, get_tclk());
 }
 
+/*****************************************************************************
+ * I2C
+ ****************************************************************************/
 void __init mv78xx0_i2c_init(void)
 {
 	orion_i2c_init(I2C_0_PHYS_BASE, IRQ_MV78XX0_I2C_0, 8);
 	orion_i2c_1_init(I2C_1_PHYS_BASE, IRQ_MV78XX0_I2C_1, 8);
 }
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 void __init mv78xx0_sata_init(struct mv_sata_platform_data *sata_data)
 {
 	orion_sata_init(sata_data, SATA_PHYS_BASE, IRQ_MV78XX0_SATA);
 }
 
 
+/*****************************************************************************
+ * UART0
+ ****************************************************************************/
 void __init mv78xx0_uart0_init(void)
 {
 	orion_uart0_init(UART0_VIRT_BASE, UART0_PHYS_BASE,
@@ -220,6 +289,9 @@ void __init mv78xx0_uart0_init(void)
 }
 
 
+/*****************************************************************************
+ * UART1
+ ****************************************************************************/
 void __init mv78xx0_uart1_init(void)
 {
 	orion_uart1_init(UART1_VIRT_BASE, UART1_PHYS_BASE,
@@ -227,18 +299,27 @@ void __init mv78xx0_uart1_init(void)
 }
 
 
+/*****************************************************************************
+ * UART2
+ ****************************************************************************/
 void __init mv78xx0_uart2_init(void)
 {
 	orion_uart2_init(UART2_VIRT_BASE, UART2_PHYS_BASE,
 			 IRQ_MV78XX0_UART_2, get_tclk());
 }
 
+/*****************************************************************************
+ * UART3
+ ****************************************************************************/
 void __init mv78xx0_uart3_init(void)
 {
 	orion_uart3_init(UART3_VIRT_BASE, UART3_PHYS_BASE,
 			 IRQ_MV78XX0_UART_3, get_tclk());
 }
 
+/*****************************************************************************
+ * Time handling
+ ****************************************************************************/
 void __init mv78xx0_init_early(void)
 {
 	orion_time_set_base(TIMER_VIRT_BASE);
@@ -255,6 +336,9 @@ struct sys_timer mv78xx0_timer = {
 };
 
 
+/*****************************************************************************
+ * General
+ ****************************************************************************/
 static char * __init mv78xx0_id(void)
 {
 	u32 dev, rev;
@@ -317,8 +401,14 @@ void __init mv78xx0_init(void)
 
 void mv78xx0_restart(char mode, const char *cmd)
 {
+	/*
+	 * Enable soft reset to assert RSTOUTn.
+	 */
 	writel(SOFT_RESET_OUT_EN, RSTOUTn_MASK);
 
+	/*
+	 * Assert soft reset.
+	 */
 	writel(SOFT_RESET, SYSTEM_SOFT_RESET);
 
 	while (1)

@@ -54,10 +54,10 @@
 
 #define ID_AIC7770	0x04907770
 #define ID_AHA_274x	0x04907771
-#define ID_AHA_284xB	0x04907756 
-#define ID_AHA_284x	0x04907757 
-#define	ID_OLV_274x	0x04907782 
-#define	ID_OLV_274xD	0x04907783 
+#define ID_AHA_284xB	0x04907756 /* BIOS enabled */
+#define ID_AHA_284x	0x04907757 /* BIOS disabled*/
+#define	ID_OLV_274x	0x04907782 /* Olivetti OEM */
+#define	ID_OLV_274xD	0x04907783 /* Olivetti OEM (Differential) */
 
 static int aic7770_chip_init(struct ahc_softc *ahc);
 static int aha2840_load_seeprom(struct ahc_softc *ahc);
@@ -97,7 +97,7 @@ struct aic7770_identity aic7770_ident_table[] =
 		"Adaptec (Olivetti OEM) 274X Differential SCSI adapter",
 		ahc_aic7770_EISA_setup
 	},
-	
+	/* Generic chip probes for devices we don't know 'exactly' */
 	{
 		ID_AIC7770,
 		0xFFFFFFFF,
@@ -139,6 +139,12 @@ aic7770_config(struct ahc_softc *ahc, struct aic7770_identity *entry, u_int io)
 	if (error != 0)
 		return (error);
 
+	/*
+	 * Before we continue probing the card, ensure that
+	 * its interrupts are *disabled*.  We don't want
+	 * a misstep to hang the machine in an interrupt
+	 * storm.
+	 */
 	ahc_intr_enable(ahc, FALSE);
 
 	ahc->description = entry->name;
@@ -148,11 +154,11 @@ aic7770_config(struct ahc_softc *ahc, struct aic7770_identity *entry, u_int io)
 
 	ahc->bus_chip_init = aic7770_chip_init;
 
-	error = ahc_reset(ahc, FALSE);
+	error = ahc_reset(ahc, /*reinit*/FALSE);
 	if (error != 0)
 		return (error);
 
-	
+	/* Make sure we have a valid interrupt vector */
 	intdef = ahc_inb(ahc, INTDEF);
 	irq = intdef & VECTOR;
 	switch (irq) {
@@ -182,7 +188,7 @@ aic7770_config(struct ahc_softc *ahc, struct aic7770_identity *entry, u_int io)
 		scsiconf = ahc_inb(ahc, SCSICONF);
 		scsiconf1 = ahc_inb(ahc, SCSICONF + 1);
 
-		
+		/* Get the primary channel information */
 		if ((biosctrl & CHANNEL_B_PRIMARY) != 0)
 			ahc->flags |= 1;
 
@@ -219,9 +225,12 @@ aic7770_config(struct ahc_softc *ahc, struct aic7770_identity *entry, u_int io)
 		ahc->seep_config = NULL;
 	}
 
+	/*
+	 * Ensure autoflush is enabled
+	 */
 	ahc_outb(ahc, SBLKCTL, ahc_inb(ahc, SBLKCTL) & ~AUTOFLUSHDIS);
 
-	
+	/* Setup the FIFO threshold and the bus off time */
 	hostconf = ahc_inb(ahc, HOSTCONF);
 	ahc_outb(ahc, BUSSPD, hostconf & DFTHRSH);
 	ahc_outb(ahc, BUSTIME, (hostconf << 2) & BOFF);
@@ -229,6 +238,9 @@ aic7770_config(struct ahc_softc *ahc, struct aic7770_identity *entry, u_int io)
 	ahc->bus_softc.aic7770_softc.busspd = hostconf & DFTHRSH;
 	ahc->bus_softc.aic7770_softc.bustime = (hostconf << 2) & BOFF;
 
+	/*
+	 * Generic aic7xxx initialization.
+	 */
 	error = ahc_init(ahc);
 	if (error != 0)
 		return (error);
@@ -239,6 +251,9 @@ aic7770_config(struct ahc_softc *ahc, struct aic7770_identity *entry, u_int io)
 
 	ahc->init_level++;
 
+	/*
+	 * Enable the board's BUS drivers
+	 */
 	ahc_outb(ahc, BCTL, ENABLE);
 	return (0);
 }
@@ -253,6 +268,9 @@ aic7770_chip_init(struct ahc_softc *ahc)
 	return (ahc_chip_init(ahc));
 }
 
+/*
+ * Read the 284x SEEPROM.
+ */
 static int
 aha2840_load_seeprom(struct ahc_softc *ahc)
 {
@@ -277,7 +295,7 @@ aha2840_load_seeprom(struct ahc_softc *ahc)
 	if (bootverbose)
 		printk("%s: Reading SEEPROM...", ahc_name(ahc));
 	have_seeprom = ahc_read_seeprom(&sd, (uint16_t *)sc,
-					0, sizeof(*sc)/2);
+					/*start_addr*/0, sizeof(*sc)/2);
 
 	if (have_seeprom) {
 
@@ -295,6 +313,10 @@ aha2840_load_seeprom(struct ahc_softc *ahc)
 			printk("%s: No SEEPROM available\n", ahc_name(ahc));
 		ahc->flags |= AHC_USEDEFAULTS;
 	} else {
+		/*
+		 * Put the data we've collected down into SRAM
+		 * where ahc_init will find it.
+		 */
 		int	 i;
 		int	 max_targ;
 		uint16_t discenable;
@@ -326,7 +348,7 @@ aha2840_load_seeprom(struct ahc_softc *ahc)
 
 		if (sc->bios_control & CF284XEXTEND)		
 			ahc->flags |= AHC_EXTENDED_TRANS_A;
-		
+		/* Set SCSICONF info */
 		ahc_outb(ahc, SCSICONF, scsi_conf);
 
 		if (sc->adapter_control & CF284XSTERM)

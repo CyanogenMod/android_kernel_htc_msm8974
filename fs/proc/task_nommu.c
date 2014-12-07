@@ -9,6 +9,12 @@
 #include <linux/seq_file.h>
 #include "internal.h"
 
+/*
+ * Logic: we've got two memory sums for each process, "shared", and
+ * "non-shared". Shared memory may get counted more than once, for
+ * each process that owns it. Non-shared memory is counted
+ * accurately.
+ */
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
 	struct vm_area_struct *vma;
@@ -60,7 +66,7 @@ void task_mem(struct seq_file *m, struct mm_struct *mm)
 	else
 		bytes += kobjsize(current->sighand);
 
-	bytes += kobjsize(current); 
+	bytes += kobjsize(current); /* includes kernel stack */
 
 	seq_printf(m,
 		"Mem:\t%8lu bytes\n"
@@ -117,14 +123,9 @@ unsigned long task_statm(struct mm_struct *mm,
 	return size;
 }
 
-static void pad_len_spaces(struct seq_file *m, int len)
-{
-	len = 25 + sizeof(void*) * 6 - len;
-	if (len < 1)
-		len = 1;
-	seq_printf(m, "%*c", len, ' ');
-}
-
+/*
+ * display a single VMA to a sequenced file
+ */
 static int nommu_vma_show(struct seq_file *m, struct vm_area_struct *vma,
 			  int is_pid)
 {
@@ -133,7 +134,7 @@ static int nommu_vma_show(struct seq_file *m, struct vm_area_struct *vma,
 	unsigned long ino = 0;
 	struct file *file;
 	dev_t dev = 0;
-	int flags, len;
+	int flags;
 	unsigned long long pgoff = 0;
 
 	flags = vma->vm_flags;
@@ -146,8 +147,9 @@ static int nommu_vma_show(struct seq_file *m, struct vm_area_struct *vma,
 		pgoff = (loff_t)vma->vm_pgoff << PAGE_SHIFT;
 	}
 
+	seq_setwidth(m, 25 + sizeof(void *) * 6 - 1);
 	seq_printf(m,
-		   "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %n",
+		   "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu ",
 		   vma->vm_start,
 		   vma->vm_end,
 		   flags & VM_READ ? 'r' : '-',
@@ -155,16 +157,20 @@ static int nommu_vma_show(struct seq_file *m, struct vm_area_struct *vma,
 		   flags & VM_EXEC ? 'x' : '-',
 		   flags & VM_MAYSHARE ? flags & VM_SHARED ? 'S' : 's' : 'p',
 		   pgoff,
-		   MAJOR(dev), MINOR(dev), ino, &len);
+		   MAJOR(dev), MINOR(dev), ino);
 
 	if (file) {
-		pad_len_spaces(m, len);
+		seq_pad(m, ' ');
 		seq_path(m, &file->f_path, "");
 	} else if (mm) {
 		pid_t tid = vm_is_stack(priv->task, vma, is_pid);
 
 		if (tid != 0) {
-			pad_len_spaces(m, len);
+			seq_pad(m, ' ');
+			/*
+			 * Thread stack in /proc/PID/task/TID/maps or
+			 * the main process stack.
+			 */
 			if (!is_pid || (vma->vm_start <= mm->start_stack &&
 			    vma->vm_end >= mm->start_stack))
 				seq_printf(m, "[stack]");
@@ -177,6 +183,9 @@ static int nommu_vma_show(struct seq_file *m, struct vm_area_struct *vma,
 	return 0;
 }
 
+/*
+ * display mapping lines for a particular process's /proc/pid/maps
+ */
 static int show_map(struct seq_file *m, void *_p, int is_pid)
 {
 	struct rb_node *p = _p;
@@ -202,7 +211,7 @@ static void *m_start(struct seq_file *m, loff_t *pos)
 	struct rb_node *p;
 	loff_t n = *pos;
 
-	
+	/* pin the task and mm whilst we play with them */
 	priv->task = get_pid_task(priv->pid, PIDTYPE_PID);
 	if (!priv->task)
 		return ERR_PTR(-ESRCH);
@@ -215,7 +224,7 @@ static void *m_start(struct seq_file *m, loff_t *pos)
 	}
 	down_read(&mm->mmap_sem);
 
-	
+	/* start from the Nth VMA */
 	for (p = rb_first(&mm->mm_rb); p; p = rb_next(p))
 		if (n-- == 0)
 			return p;

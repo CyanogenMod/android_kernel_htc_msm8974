@@ -21,6 +21,18 @@
  * MA  02110-1301  USA.
  */
 
+/*
+ * This file implements the common infrastructure for using the c67x00.
+ * It is both the link between the platform configuration and subdrivers and
+ * the link between the common hardware parts and the subdrivers (e.g.
+ * interrupt handling).
+ *
+ * The c67x00 has 2 SIE's (serial interface engine) which can be configured
+ * to be host, device or OTG (with some limitations, E.G. only SIE1 can be OTG).
+ *
+ * Depending on the platform configuration, the SIE's are created and
+ * the corresponding subdriver is initialized (c67x00_probe_sie).
+ */
 
 #include <linux/device.h>
 #include <linux/io.h>
@@ -102,6 +114,7 @@ static irqreturn_t c67x00_irq(int irq, void *__dev)
 	return IRQ_HANDLED;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int __devinit c67x00_drv_probe(struct platform_device *pdev)
 {

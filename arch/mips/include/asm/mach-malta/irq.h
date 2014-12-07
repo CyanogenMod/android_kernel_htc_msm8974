@@ -6,4 +6,4 @@
 
 #include_next <irq.h>
 
-#endif 
+#endif /* __ASM_MACH_MIPS_IRQ_H */

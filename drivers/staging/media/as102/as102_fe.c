@@ -47,7 +47,7 @@ static int as102_fe_set_frontend(struct dvb_frontend *fe)
 
 	as102_fe_copy_tune_parameters(&tune_args, p);
 
-	
+	/* send abilis command: SET_TUNE */
 	ret =  as10x_cmd_set_tune(&dev->bus_adap, &tune_args);
 	if (ret != 0)
 		dprintk(debug, "as10x_cmd_set_tune failed. (err = %d)\n", ret);
@@ -74,7 +74,7 @@ static int as102_fe_get_frontend(struct dvb_frontend *fe)
 	if (mutex_lock_interruptible(&dev->bus_adap.lock))
 		return -EBUSY;
 
-	
+	/* send abilis command: GET_TPS */
 	ret = as10x_cmd_get_tps(&dev->bus_adap, &tps);
 
 	if (ret == 0)
@@ -119,7 +119,7 @@ static int as102_fe_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	if (mutex_lock_interruptible(&dev->bus_adap.lock))
 		return -EBUSY;
 
-	
+	/* send abilis command: GET_TUNE_STATUS */
 	ret = as10x_cmd_get_tune_status(&dev->bus_adap, &tstate);
 	if (ret < 0) {
 		dprintk(debug, "as10x_cmd_get_tune_status failed (err = %d)\n",
@@ -174,6 +174,13 @@ out:
 	return ret;
 }
 
+/*
+ * Note:
+ * - in AS102 SNR=MER
+ *   - the SNR will be returned in linear terms, i.e. not in dB
+ *   - the accuracy equals ±2dB for a SNR range from 4dB to 30dB
+ *   - the accuracy is >2dB for SNR values outside this range
+ */
 static int as102_fe_read_snr(struct dvb_frontend *fe, u16 *snr)
 {
 	struct as102_dev_t *dev;
@@ -304,10 +311,10 @@ static struct dvb_frontend_ops as102_fe_ops = {
 
 int as102_dvb_unregister_fe(struct dvb_frontend *fe)
 {
-	
+	/* unregister frontend */
 	dvb_unregister_frontend(fe);
 
-	
+	/* detach frontend */
 	dvb_frontend_detach(fe);
 
 	return 0;
@@ -322,15 +329,15 @@ int as102_dvb_register_fe(struct as102_dev_t *as102_dev,
 	if (as102_dev == NULL)
 		return -EINVAL;
 
-	
+	/* extract dvb_adapter */
 	dvb_adap = &as102_dev->dvb_adap;
 
-	
+	/* init frontend callback ops */
 	memcpy(&dvb_fe->ops, &as102_fe_ops, sizeof(struct dvb_frontend_ops));
 	strncpy(dvb_fe->ops.info.name, as102_dev->name,
 		sizeof(dvb_fe->ops.info.name));
 
-	
+	/* register dvb frontend */
 	errno = dvb_register_frontend(dvb_adap, dvb_fe);
 	if (errno == 0)
 		dvb_fe->tuner_priv = as102_dev;
@@ -342,7 +349,7 @@ static void as10x_fe_copy_tps_parameters(struct dtv_frontend_properties *fe_tps,
 					 struct as10x_tps *as10x_tps)
 {
 
-	
+	/* extract constellation */
 	switch (as10x_tps->modulation) {
 	case CONST_QPSK:
 		fe_tps->modulation = QPSK;
@@ -355,7 +362,7 @@ static void as10x_fe_copy_tps_parameters(struct dtv_frontend_properties *fe_tps,
 		break;
 	}
 
-	
+	/* extract hierarchy */
 	switch (as10x_tps->hierarchy) {
 	case HIER_NONE:
 		fe_tps->hierarchy = HIERARCHY_NONE;
@@ -371,7 +378,7 @@ static void as10x_fe_copy_tps_parameters(struct dtv_frontend_properties *fe_tps,
 		break;
 	}
 
-	
+	/* extract code rate HP */
 	switch (as10x_tps->code_rate_HP) {
 	case CODE_RATE_1_2:
 		fe_tps->code_rate_HP = FEC_1_2;
@@ -390,7 +397,7 @@ static void as10x_fe_copy_tps_parameters(struct dtv_frontend_properties *fe_tps,
 		break;
 	}
 
-	
+	/* extract code rate LP */
 	switch (as10x_tps->code_rate_LP) {
 	case CODE_RATE_1_2:
 		fe_tps->code_rate_LP = FEC_1_2;
@@ -409,7 +416,7 @@ static void as10x_fe_copy_tps_parameters(struct dtv_frontend_properties *fe_tps,
 		break;
 	}
 
-	
+	/* extract guard interval */
 	switch (as10x_tps->guard_interval) {
 	case GUARD_INT_1_32:
 		fe_tps->guard_interval = GUARD_INTERVAL_1_32;
@@ -425,7 +432,7 @@ static void as10x_fe_copy_tps_parameters(struct dtv_frontend_properties *fe_tps,
 		break;
 	}
 
-	
+	/* extract transmission mode */
 	switch (as10x_tps->transmission_mode) {
 	case TRANS_MODE_2K:
 		fe_tps->transmission_mode = TRANSMISSION_MODE_2K;
@@ -468,10 +475,10 @@ static void as102_fe_copy_tune_parameters(struct as10x_tune_args *tune_args,
 			  struct dtv_frontend_properties *params)
 {
 
-	
+	/* set frequency */
 	tune_args->freq = params->frequency / 1000;
 
-	
+	/* fix interleaving_mode */
 	tune_args->interleaving_mode = INTLV_NATIVE;
 
 	switch (params->bandwidth_hz) {
@@ -556,6 +563,10 @@ static void as102_fe_copy_tune_parameters(struct as10x_tune_args *tune_args,
 			tune_args->bandwidth,
 			tune_args->guard_interval);
 
+	/*
+	 * Detect a hierarchy selection
+	 * if HP/LP are both set to FEC_NONE, HP will be selected.
+	 */
 	if ((tune_args->hierarchy != HIER_NONE) &&
 		       ((params->code_rate_LP == FEC_NONE) ||
 			(params->code_rate_HP == FEC_NONE))) {

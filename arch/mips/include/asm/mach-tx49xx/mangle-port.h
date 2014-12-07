@@ -23,4 +23,4 @@ extern u16 (*__mem_ioswabw)(volatile u16 *a, u16 x);
 #define ioswabq(a, x)		le64_to_cpu(x)
 #define __mem_ioswabq(a, x)	(x)
 
-#endif 
+#endif /* __ASM_MACH_TX49XX_MANGLE_PORT_H */

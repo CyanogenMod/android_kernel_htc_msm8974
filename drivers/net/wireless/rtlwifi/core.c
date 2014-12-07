@@ -70,11 +70,12 @@ void rtl_fw_cb(const struct firmware *firmware, void *context)
 	}
 	set_bit(RTL_STATUS_INTERFACE_START, &rtlpriv->status);
 
-	
+	/*init rfkill */
 	rtl_init_rfkill(hw);
 }
 EXPORT_SYMBOL(rtl_fw_cb);
 
+/*mutex for start & stop is must here. */
 static int rtl_op_start(struct ieee80211_hw *hw)
 {
 	int err;
@@ -114,7 +115,7 @@ static void rtl_op_stop(struct ieee80211_hw *hw)
 	memset(mac->bssid, 0, 6);
 	mac->vendor = PEER_UNKNOWN;
 
-	
+	/*reset sec info */
 	rtl_cam_reset_sec_info(hw);
 
 	rtl_deinit_deferred_work(hw);
@@ -228,7 +229,7 @@ static void rtl_op_remove_interface(struct ieee80211_hw *hw,
 
 	mutex_lock(&rtlpriv->locks.conf_mutex);
 
-	
+	/* Free beacon resources */
 	if ((mac->opmode == NL80211_IFTYPE_AP) ||
 	    (mac->opmode == NL80211_IFTYPE_ADHOC) ||
 	    (mac->opmode == NL80211_IFTYPE_MESH_POINT)) {
@@ -240,6 +241,10 @@ static void rtl_op_remove_interface(struct ieee80211_hw *hw,
 		}
 	}
 
+	/*
+	 *Note: We assume NL80211_IFTYPE_UNSPECIFIED as
+	 *NO LINK for our hardware.
+	 */
 	mac->vif = NULL;
 	mac->link_state = MAC80211_NOLINK;
 	memset(mac->bssid, 0, 6);
@@ -258,28 +263,39 @@ static int rtl_op_config(struct ieee80211_hw *hw, u32 changed)
 	struct ieee80211_conf *conf = &hw->conf;
 
 	mutex_lock(&rtlpriv->locks.conf_mutex);
-	if (changed & IEEE80211_CONF_CHANGE_LISTEN_INTERVAL) {	
+	if (changed & IEEE80211_CONF_CHANGE_LISTEN_INTERVAL) {	/*BIT(2)*/
 		RT_TRACE(rtlpriv, COMP_MAC80211, DBG_LOUD,
 			 "IEEE80211_CONF_CHANGE_LISTEN_INTERVAL\n");
 	}
 
-	
+	/*For IPS */
 	if (changed & IEEE80211_CONF_CHANGE_IDLE) {
 		if (hw->conf.flags & IEEE80211_CONF_IDLE)
 			rtl_ips_nic_off(hw);
 		else
 			rtl_ips_nic_on(hw);
 	} else {
+		/*
+		 *although rfoff may not cause by ips, but we will
+		 *check the reason in set_rf_power_state function
+		 */
 		if (unlikely(ppsc->rfpwr_state == ERFOFF))
 			rtl_ips_nic_on(hw);
 	}
 
-	
+	/*For LPS */
 	if (changed & IEEE80211_CONF_CHANGE_PS) {
 		cancel_delayed_work(&rtlpriv->works.ps_work);
 		cancel_delayed_work(&rtlpriv->works.ps_rfon_wq);
 		if (conf->flags & IEEE80211_CONF_PS) {
 			rtlpriv->psc.sw_ps_enabled = true;
+			/* sleep here is must, or we may recv the beacon and
+			 * cause mac80211 into wrong ps state, this will cause
+			 * power save nullfunc send fail, and further cause
+			 * pkt loss, So sleep must quickly but not immediatly
+			 * because that will cause nullfunc send by mac80211
+			 * fail, and cause pkt loss, we have tested that 5mA
+			 * is worked very well */
 			if (!rtlpriv->psc.multi_buffered)
 				queue_delayed_work(rtlpriv->works.rtl_wq,
 						&rtlpriv->works.ps_work,
@@ -305,34 +321,43 @@ static int rtl_op_config(struct ieee80211_hw *hw, u32 changed)
 		struct ieee80211_channel *channel = hw->conf.channel;
 		u8 wide_chan = (u8) channel->hw_value;
 
+		/*
+		 *because we should back channel to
+		 *current_network.chan in in scanning,
+		 *So if set_chan == current_network.chan
+		 *we should set it.
+		 *because mac80211 tell us wrong bw40
+		 *info for cisco1253 bw20, so we modify
+		 *it here based on UPPER & LOWER
+		 */
 		switch (hw->conf.channel_type) {
 		case NL80211_CHAN_HT20:
 		case NL80211_CHAN_NO_HT:
-			
+			/* SC */
 			mac->cur_40_prime_sc =
 				PRIME_CHNL_OFFSET_DONT_CARE;
 			rtlphy->current_chan_bw = HT_CHANNEL_WIDTH_20;
 			mac->bw_40 = false;
 			break;
 		case NL80211_CHAN_HT40MINUS:
-			
+			/* SC */
 			mac->cur_40_prime_sc = PRIME_CHNL_OFFSET_UPPER;
 			rtlphy->current_chan_bw =
 				HT_CHANNEL_WIDTH_20_40;
 			mac->bw_40 = true;
 
-			
+			/*wide channel */
 			wide_chan -= 2;
 
 			break;
 		case NL80211_CHAN_HT40PLUS:
-			
+			/* SC */
 			mac->cur_40_prime_sc = PRIME_CHNL_OFFSET_LOWER;
 			rtlphy->current_chan_bw =
 				HT_CHANNEL_WIDTH_20_40;
 			mac->bw_40 = true;
 
-			
+			/*wide channel */
 			wide_chan += 2;
 
 			break;
@@ -346,6 +371,14 @@ static int rtl_op_config(struct ieee80211_hw *hw, u32 changed)
 		if (wide_chan <= 0)
 			wide_chan = 1;
 
+		/* In scanning, before we go offchannel we may send a ps=1 null
+		 * to AP, and then we may send a ps = 0 null to AP quickly, but
+		 * first null may have caused AP to put lots of packet to hw tx
+		 * buffer. These packets must be tx'd before we go off channel
+		 * so we must delay more time to let AP flush these packets
+		 * before going offchannel, or dis-association or delete BA will
+		 * happen by AP
+		 */
 		if (rtlpriv->mac80211.offchan_delay) {
 			rtlpriv->mac80211.offchan_delay = false;
 			mdelay(50);
@@ -374,7 +407,7 @@ static void rtl_op_configure_filter(struct ieee80211_hw *hw,
 	if (!changed_flags)
 		return;
 
-	
+	/*TODO: we disable broadcase now, so enable here */
 	if (changed_flags & FIF_ALLMULTI) {
 		if (*new_flags & FIF_ALLMULTI) {
 			mac->rx_conf |= rtlpriv->cfg->maps[MAC_RCR_AM] |
@@ -401,6 +434,9 @@ static void rtl_op_configure_filter(struct ieee80211_hw *hw,
 		}
 	}
 
+	/* if ssid not set to hw don't check bssid
+	 * here just used for linked scanning, & linked
+	 * and nolink check bssid is set in set network_type */
 	if ((changed_flags & FIF_BCN_PRBRESP_PROMISC) &&
 		(mac->link_state >= MAC80211_LINKED)) {
 		if (mac->opmode != NL80211_IFTYPE_AP) {
@@ -459,7 +495,7 @@ static int rtl_op_sta_add(struct ieee80211_hw *hw,
 				sta_entry->wireless_mode = WIRELESS_MODE_N_24G;
 		}
 
-		
+		/* I found some times mac80211 give wrong supp_rates for adhoc*/
 		if (rtlpriv->mac80211.opmode == NL80211_IFTYPE_ADHOC)
 			sta_entry->wireless_mode = WIRELESS_MODE_G;
 
@@ -508,6 +544,10 @@ static int _rtl_get_hal_qnum(u16 queue)
 	return qnum;
 }
 
+/*
+ *for mac80211 VO=0, VI=1, BE=2, BK=3
+ *for rtl819x  BE=0, BK=1, VI=2, VO=3
+ */
 static int rtl_op_conf_tx(struct ieee80211_hw *hw,
 		   struct ieee80211_vif *vif, u16 queue,
 		   const struct ieee80211_tx_queue_params *param)
@@ -553,8 +593,8 @@ static void rtl_op_bss_info_changed(struct ieee80211_hw *hw,
 				RT_TRACE(rtlpriv, COMP_MAC80211, DBG_DMESG,
 					 "BSS_CHANGED_BEACON_ENABLED\n");
 
-				
-				
+				/*start hw beacon interrupt. */
+				/*rtlpriv->cfg->ops->set_bcn_reg(hw); */
 				mac->beacon_enabled = 1;
 				rtlpriv->cfg->ops->update_interrupt_mask(hw,
 						rtlpriv->cfg->maps
@@ -585,11 +625,17 @@ static void rtl_op_bss_info_changed(struct ieee80211_hw *hw,
 		}
 	}
 
-	
+	/*TODO: reference to enum ieee80211_bss_change */
 	if (changed & BSS_CHANGED_ASSOC) {
 		if (bss_conf->assoc) {
-			
+			/* we should reset all sec info & cam
+			 * before set cam after linked, we should not
+			 * reset in disassoc, that will cause tkip->wep
+			 * fail because some flag will be wrong */
+			/* reset sec info */
 			rtl_cam_reset_sec_info(hw);
+			/* reset cam to fix wep fail issue
+			 * when change from wpa to wep */
 			rtl_cam_reset_all_entry(hw);
 
 			mac->link_state = MAC80211_LINKED;
@@ -610,7 +656,7 @@ static void rtl_op_bss_info_changed(struct ieee80211_hw *hw,
 			mac->link_state = MAC80211_NOLINK;
 			memset(mac->bssid, 0, 6);
 
-			
+			/* reset sec info */
 			rtl_cam_reset_sec_info(hw);
 
 			rtl_cam_reset_all_entry(hw);
@@ -710,6 +756,8 @@ static void rtl_op_bss_info_changed(struct ieee80211_hw *hw,
 				mac->mode = WIRELESS_MODE_N_5G;
 		}
 
+		/* just station need it, because ibss & ap mode will
+		 * set in sta_add, and will be NULL here */
 		if (mac->opmode == NL80211_IFTYPE_STATION) {
 			struct rtl_sta_info *sta_entry;
 			sta_entry = (struct rtl_sta_info *) sta->drv_priv;
@@ -719,9 +767,17 @@ static void rtl_op_bss_info_changed(struct ieee80211_hw *hw,
 		if (sta->ht_cap.ht_supported) {
 			mac->ht_enable = true;
 
+			/*
+			 * for cisco 1252 bw20 it's wrong
+			 * if (ht_cap & IEEE80211_HT_CAP_SUP_WIDTH_20_40) {
+			 *	mac->bw_40 = true;
+			 * }
+			 * */
 		}
 
 		if (changed & BSS_CHANGED_BASIC_RATES) {
+			/* for 5G must << RATE_6M_INDEX=4,
+			 * because 5G have no cck rate*/
 			if (rtlhal->current_bandtype == BAND_ON_5G)
 				basic_rates = sta->supp_rates[1] << 4;
 			else
@@ -734,6 +790,11 @@ static void rtl_op_bss_info_changed(struct ieee80211_hw *hw,
 		rcu_read_unlock();
 	}
 
+	/*
+	 * For FW LPS:
+	 * To tell firmware we have connected
+	 * to an AP. For 92SE/CE power save v2.
+	 */
 	if (changed & BSS_CHANGED_ASSOC) {
 		if (bss_conf->assoc) {
 			if (ppsc->fwctrl_lps) {
@@ -858,7 +919,7 @@ static void rtl_op_sw_scan_start(struct ieee80211_hw *hw)
 		rtl_ips_nic_on(hw);
 	}
 
-	
+	/* Dual mac */
 	rtlpriv->rtlhal.load_imrandiqk_setting_for2g = false;
 
 	rtlpriv->cfg->ops->led_control(hw, LED_CTL_SITE_SURVEY);
@@ -872,13 +933,13 @@ static void rtl_op_sw_scan_complete(struct ieee80211_hw *hw)
 
 	RT_TRACE(rtlpriv, COMP_MAC80211, DBG_LOUD, "\n");
 	mac->act_scanning = false;
-	
+	/* Dual mac */
 	rtlpriv->rtlhal.load_imrandiqk_setting_for2g = false;
 
 	if (mac->link_state == MAC80211_LINKED_SCANNING) {
 		mac->link_state = MAC80211_LINKED;
 		if (mac->opmode == NL80211_IFTYPE_STATION) {
-			
+			/* fix fwlps issue */
 			rtlpriv->cfg->ops->set_network_type(hw, mac->opmode);
 		}
 	}
@@ -904,7 +965,7 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	if (rtlpriv->cfg->mod_params->sw_crypto || rtlpriv->sec.use_sw_sec) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_WARNING,
 			 "not open hw encryption\n");
-		return -ENOSPC;	
+		return -ENOSPC;	/*User disabled HW-crypto */
 	}
 	RT_TRACE(rtlpriv, COMP_SEC, DBG_DMESG,
 		 "%s hardware based encryption for keyidx: %d, mac: %pM\n",
@@ -913,7 +974,7 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	rtlpriv->sec.being_setkey = true;
 	rtl_ips_nic_on(hw);
 	mutex_lock(&rtlpriv->locks.conf_mutex);
-	
+	/* <1> get encryption alg */
 
 	switch (key->cipher) {
 	case WLAN_CIPHER_SUITE_WEP40:
@@ -942,13 +1003,23 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 			mac->opmode == NL80211_IFTYPE_ADHOC)
 		rtlpriv->sec.use_defaultkey = true;
 
-	
+	/* <2> get key_idx */
 	key_idx = (u8) (key->keyidx);
 	if (key_idx > 3)
 		goto out_unlock;
-	
+	/* <3> if pairwise key enable_hw_sec */
 	group_key = !(key->flags & IEEE80211_KEY_FLAG_PAIRWISE);
 
+	/* wep always be group key, but there are two conditions:
+	 * 1) wep only: is just for wep enc, in this condition
+	 * rtlpriv->sec.pairwise_enc_algorithm == NO_ENCRYPTION
+	 * will be true & enable_hw_sec will be set when wep
+	 * ke setting.
+	 * 2) wep(group) + AES(pairwise): some AP like cisco
+	 * may use it, in this condition enable_hw_sec will not
+	 * be set when wep key setting */
+	/* we must reset sec_info after lingked before set key,
+	 * or some flag will be wrong*/
 	if (mac->opmode == NL80211_IFTYPE_AP) {
 		if (!group_key || key_type == WEP40_ENCRYPTION ||
 			key_type == WEP104_ENCRYPTION) {
@@ -971,31 +1042,31 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 			rtlpriv->cfg->ops->enable_hw_sec(hw);
 		}
 	}
-	
+	/* <4> set key based on cmd */
 	switch (cmd) {
 	case SET_KEY:
 		if (wep_only) {
 			RT_TRACE(rtlpriv, COMP_SEC, DBG_DMESG,
 				 "set WEP(group/pairwise) key\n");
-			
+			/* Pairwise key with an assigned MAC address. */
 			rtlpriv->sec.pairwise_enc_algorithm = key_type;
 			rtlpriv->sec.group_enc_algorithm = key_type;
-			
+			/*set local buf about wep key. */
 			memcpy(rtlpriv->sec.key_buf[key_idx],
 			       key->key, key->keylen);
 			rtlpriv->sec.key_len[key_idx] = key->keylen;
 			memcpy(mac_addr, zero_addr, ETH_ALEN);
-		} else if (group_key) {	
+		} else if (group_key) {	/* group key */
 			RT_TRACE(rtlpriv, COMP_SEC, DBG_DMESG,
 				 "set group key\n");
-			
+			/* group key */
 			rtlpriv->sec.group_enc_algorithm = key_type;
-			
+			/*set local buf about group key. */
 			memcpy(rtlpriv->sec.key_buf[key_idx],
 			       key->key, key->keylen);
 			rtlpriv->sec.key_len[key_idx] = key->keylen;
 			memcpy(mac_addr, bcast_addr, ETH_ALEN);
-		} else {	
+		} else {	/* pairwise key */
 			RT_TRACE(rtlpriv, COMP_SEC, DBG_DMESG,
 				 "set pairwise key\n");
 			if (!sta) {
@@ -1005,9 +1076,9 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 				err = -EOPNOTSUPP;
 				goto out_unlock;
 			}
-			
+			/* Pairwise key with an assigned MAC address. */
 			rtlpriv->sec.pairwise_enc_algorithm = key_type;
-			
+			/*set local buf about pairwise key. */
 			memcpy(rtlpriv->sec.key_buf[PAIRWISE_KEYIDX],
 			       key->key, key->keylen);
 			rtlpriv->sec.key_len[PAIRWISE_KEYIDX] = key->keylen;
@@ -1018,8 +1089,8 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		rtlpriv->cfg->ops->set_key(hw, key_idx, mac_addr,
 					   group_key, key_type, wep_only,
 					   false);
-		
-		
+		/* <5> tell mac80211 do something: */
+		/*must use sw generate IV, or can not work !!!!. */
 		key->flags |= IEEE80211_KEY_FLAG_GENERATE_IV;
 		key->hw_key_idx = key_idx;
 		if (key_type == TKIP_ENCRYPTION)
@@ -1028,7 +1099,7 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	case DISABLE_KEY:
 		RT_TRACE(rtlpriv, COMP_SEC, DBG_DMESG,
 			 "disable key delete one entry\n");
-		
+		/*set local buf about wep key. */
 		if (mac->opmode == NL80211_IFTYPE_AP) {
 			if (sta)
 				rtl_cam_del_entry(hw, sta->addr);
@@ -1036,6 +1107,11 @@ static int rtl_op_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		memset(rtlpriv->sec.key_buf[key_idx], 0, key->keylen);
 		rtlpriv->sec.key_len[key_idx] = 0;
 		memcpy(mac_addr, zero_addr, ETH_ALEN);
+		/*
+		 *mac80211 will delete entrys one by one,
+		 *so don't use rtl_cam_reset_all_entry
+		 *or clear all entry here.
+		 */
 		rtl_cam_delete_one_entry(hw, mac_addr, key_idx);
 
 		rtl_cam_reset_sec_info(hw);
@@ -1064,7 +1140,7 @@ static void rtl_op_rfkill_poll(struct ieee80211_hw *hw)
 
 	mutex_lock(&rtlpriv->locks.conf_mutex);
 
-	
+	/*if Radio On return true here */
 	radio_state = rtlpriv->cfg->ops->radio_onoff_checking(hw, &valid);
 
 	if (valid) {
@@ -1083,6 +1159,10 @@ static void rtl_op_rfkill_poll(struct ieee80211_hw *hw)
 	mutex_unlock(&rtlpriv->locks.conf_mutex);
 }
 
+/* this function is called by mac80211 to flush tx buffer
+ * before switch channle or power save, or tx buffer packet
+ * maybe send after offchannel or rf sleep, this may cause
+ * dis-association by AP */
 static void rtl_op_flush(struct ieee80211_hw *hw, bool drop)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);

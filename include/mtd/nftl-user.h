@@ -22,6 +22,7 @@
 
 #include <linux/types.h>
 
+/* Block Control Information */
 
 struct nftl_bci {
 	unsigned char ECCSig[6];
@@ -29,6 +30,7 @@ struct nftl_bci {
 	__u8 Status1;
 }__attribute__((packed));
 
+/* Unit Control Information */
 
 struct nftl_uci0 {
 	__u16 VirtUnitNum;
@@ -60,6 +62,7 @@ struct nftl_oob {
 	union nftl_uci u;
 };
 
+/* NFTL Media Header */
 
 struct NFTLMediaHeader {
 	char DataOrgID[6];
@@ -84,4 +87,4 @@ struct NFTLMediaHeader {
 #define ZONE_BAD_MARKED 7
 
 
-#endif 
+#endif /* __MTD_NFTL_USER_H__ */

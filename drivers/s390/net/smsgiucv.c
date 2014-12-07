@@ -42,6 +42,7 @@ MODULE_AUTHOR
 MODULE_DESCRIPTION ("Linux for S/390 IUCV special message driver");
 
 static struct iucv_path *smsg_path;
+/* dummy device used as trigger for PM functions */
 static struct device *smsg_dev;
 
 static DEFINE_SPINLOCK(smsg_list_lock);
@@ -61,7 +62,7 @@ static int smsg_path_pending(struct iucv_path *path, u8 ipvmid[8],
 {
 	if (strncmp(ipvmid, "*MSG    ", 8) != 0)
 		return -EINVAL;
-	
+	/* Path pending from *MSG. */
 	return iucv_path_accept(path, &smsg_handler, "SMSGIUCV        ", NULL);
 }
 
@@ -84,7 +85,7 @@ static void smsg_message_pending(struct iucv_path *path,
 		EBCASC(buffer, msg->length);
 		memcpy(sender, buffer, 8);
 		sender[8] = 0;
-		
+		/* Remove trailing whitespace from the sender name. */
 		for (i = 7; i >= 0; i--) {
 			if (sender[i] != ' ' && sender[i] != '\t')
 				break;

@@ -119,6 +119,13 @@ void t1_espi_intr_enable(struct peespi *espi)
 {
 	u32 enable, pl_intr = readl(espi->adapter->regs + A_PL_ENABLE);
 
+	/*
+	 * Cannot enable ESPI interrupts on T1B because HW asserts the
+	 * interrupt incorrectly, namely the driver gets ESPI interrupts
+	 * but no data is actually dropped (can verify this reading the ESPI
+	 * drop registers).  Also, once the ESPI interrupt is asserted it
+	 * cannot be cleared (HW bug).
+	 */
 	enable = t1_is_T1B(espi->adapter) ? 0 : ESPI_INTR_MASK;
 	writel(enable, espi->adapter->regs + A_ESPI_INTR_ENABLE);
 	writel(pl_intr | F_PL_INTR_ESPI, espi->adapter->regs + A_PL_ENABLE);
@@ -156,9 +163,17 @@ int t1_espi_intr_handler(struct peespi *espi)
 	if (status & F_DIP2PARITYERR) {
 		espi->intr_cnt.DIP2_parity_err++;
 
+		/*
+		 * Must read the error count to clear the interrupt
+		 * that it causes.
+		 */
 		readl(espi->adapter->regs + A_ESPI_DIP2_ERR_COUNT);
 	}
 
+	/*
+	 * For T1B we need to write 1 to clear ESPI interrupts.  For T2+ we
+	 * write the status as is.
+	 */
 	if (status && t1_is_T1B(espi->adapter))
 		status = 1;
 	writel(status, espi->adapter->regs + A_ESPI_INTR_STATUS);
@@ -198,6 +213,9 @@ static void espi_setup_for_vsc7321(adapter_t *adapter)
 	writel(0x08000008, adapter->regs + A_ESPI_TRAIN);
 }
 
+/*
+ * Note that T1B requires at least 2 ports for IXF1010 due to a HW bug.
+ */
 static void espi_setup_for_ixf1010(adapter_t *adapter, int nports)
 {
 	writel(1, adapter->regs + A_ESPI_CALENDAR_LENGTH);
@@ -222,7 +240,7 @@ int t1_espi_init(struct peespi *espi, int mac_type, int nports)
 	u32 status_enable_extra = 0;
 	adapter_t *adapter = espi->adapter;
 
-	
+	/* Disable ESPI training.  MACs that can handle it enable it below. */
 	writel(0, adapter->regs + A_ESPI_TRAIN);
 
 	if (is_T2(adapter)) {
@@ -249,6 +267,10 @@ int t1_espi_init(struct peespi *espi, int mac_type, int nports)
 
 	if (is_T2(adapter)) {
 		tricn_init(adapter);
+		/*
+		 * Always position the control at the 1st port egress IN
+		 * (sop,eop) counter to reduce PIOs for T/N210 workaround.
+		 */
 		espi->misc_ctrl = readl(adapter->regs + A_ESPI_MISC_CONTROL);
 		espi->misc_ctrl &= ~MON_MASK;
 		espi->misc_ctrl |= F_MONITORED_DIRECTION;
@@ -288,7 +310,7 @@ void t1_espi_set_misc_ctrl(adapter_t *adapter, u32 val)
 	writel(espi->misc_ctrl, adapter->regs + A_ESPI_MISC_CONTROL);
 	spin_unlock(&espi->lock);
 }
-#endif  
+#endif  /*  0  */
 
 u32 t1_espi_get_mon(adapter_t *adapter, u32 addr, u8 wait)
 {
@@ -316,6 +338,11 @@ u32 t1_espi_get_mon(adapter_t *adapter, u32 addr, u8 wait)
 	return sel;
 }
 
+/*
+ * This function is for T204 only.
+ * compare with t1_espi_get_mon(), it reads espiInTxSop[0 ~ 3] in
+ * one shot, since there is no per port counter on the out side.
+ */
 int t1_espi_get_mon_t204(adapter_t *adapter, u32 *valp, u8 wait)
 {
 	struct peespi *espi = adapter->espi;

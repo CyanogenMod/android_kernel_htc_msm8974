@@ -46,7 +46,7 @@ typedef u16 __nocast zd_addr_t;
 #  define dev_dbg_f(dev, fmt, args...) do { (void)(dev); } while (0)
 #  define dev_dbg_f_limit(dev, fmt, args...) do { (void)(dev); } while (0)
 #  define dev_dbg_f_cond(dev, cond, fmt, args...) do { (void)(dev); } while (0)
-#endif 
+#endif /* DEBUG */
 
 #ifdef DEBUG
 #  define ZD_ASSERT(x) \
@@ -67,4 +67,4 @@ do { \
 #  define ZD_MEMCLEAR(pointer, size) do { } while (0)
 #endif
 
-#endif 
+#endif /* _ZD_DEF_H */

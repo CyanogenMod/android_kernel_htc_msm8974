@@ -91,6 +91,7 @@ struct pnx8xxx_port pnx8xxx_ports[] = {
 	},
 };
 
+/* The dmamask must be set for OHCI to work */
 static u64 ohci_dmamask = DMA_BIT_MASK(32);
 
 static u64 uart_dmamask = DMA_BIT_MASK(32);

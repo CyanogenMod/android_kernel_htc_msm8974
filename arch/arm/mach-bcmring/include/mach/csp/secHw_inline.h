@@ -12,11 +12,27 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*  @file    secHw_inline.h
+*
+*  @brief   Definitions for configuring/testing secure blocks
+*
+*  @note
+*     None
+*/
+/****************************************************************************/
 
 #ifndef SECHW_INLINE_H
 #define SECHW_INLINE_H
 
-static inline void secHw_setSecure(uint32_t mask	
+/****************************************************************************/
+/**
+*  @brief  Configures a device as a secure device
+*
+*/
+/****************************************************************************/
+static inline void secHw_setSecure(uint32_t mask	/*  mask of type secHw_BLK_MASK_XXXXXX */
     ) {
 	secHw_REGS_t *regp = (secHw_REGS_t *) MM_IO_BASE_TZPC;
 
@@ -29,7 +45,13 @@ static inline void secHw_setSecure(uint32_t mask
 	}
 }
 
-static inline void secHw_setUnsecure(uint32_t mask	
+/****************************************************************************/
+/**
+*  @brief  Configures a device as a non-secure device
+*
+*/
+/****************************************************************************/
+static inline void secHw_setUnsecure(uint32_t mask	/*  mask of type secHw_BLK_MASK_XXXXXX */
     ) {
 	secHw_REGS_t *regp = (secHw_REGS_t *) MM_IO_BASE_TZPC;
 
@@ -41,6 +63,12 @@ static inline void secHw_setUnsecure(uint32_t mask
 	}
 }
 
+/****************************************************************************/
+/**
+*  @brief  Get the trustzone status for all components. 1 = non-secure, 0 = secure
+*
+*/
+/****************************************************************************/
 static inline uint32_t secHw_getStatus(void)
 {
 	secHw_REGS_t *regp = (secHw_REGS_t *) MM_IO_BASE_TZPC;
@@ -48,4 +76,4 @@ static inline uint32_t secHw_getStatus(void)
 	return (regp->reg[1].status << 16) + regp->reg[0].status;
 }
 
-#endif 
+#endif /* SECHW_INLINE_H */

@@ -33,9 +33,10 @@ struct vmxnet3_stat_desc {
 };
 
 
+/* per tq stats maintained by the device */
 static const struct vmxnet3_stat_desc
 vmxnet3_tq_dev_stats[] = {
-	
+	/* description,         offset */
 	{ "Tx Queue#",        0 },
 	{ "  TSO pkts tx",	offsetof(struct UPT1_TxStats, TSOPktsTxOK) },
 	{ "  TSO bytes tx",	offsetof(struct UPT1_TxStats, TSOBytesTxOK) },
@@ -49,9 +50,10 @@ vmxnet3_tq_dev_stats[] = {
 	{ "  pkts tx discard",	offsetof(struct UPT1_TxStats, pktsTxDiscard) },
 };
 
+/* per tq stats maintained by the driver */
 static const struct vmxnet3_stat_desc
 vmxnet3_tq_driver_stats[] = {
-	
+	/* description,         offset */
 	{"  drv dropped tx total",	offsetof(struct vmxnet3_tq_driver_stats,
 						 drop_total) },
 	{ "     too many frags", offsetof(struct vmxnet3_tq_driver_stats,
@@ -72,6 +74,7 @@ vmxnet3_tq_driver_stats[] = {
 					 oversized_hdr) },
 };
 
+/* per rq stats maintained by the device */
 static const struct vmxnet3_stat_desc
 vmxnet3_rq_dev_stats[] = {
 	{ "Rx Queue#",        0 },
@@ -87,9 +90,10 @@ vmxnet3_rq_dev_stats[] = {
 	{ "  pkts rx err",	offsetof(struct UPT1_RxStats, pktsRxError) },
 };
 
+/* per rq stats maintained by the driver */
 static const struct vmxnet3_stat_desc
 vmxnet3_rq_driver_stats[] = {
-	
+	/* description,         offset */
 	{ "  drv dropped rx total", offsetof(struct vmxnet3_rq_driver_stats,
 					     drop_total) },
 	{ "     err",		offsetof(struct vmxnet3_rq_driver_stats,
@@ -100,9 +104,10 @@ vmxnet3_rq_driver_stats[] = {
 					  rx_buf_alloc_failure) },
 };
 
+/* gloabl stats maintained by the driver */
 static const struct vmxnet3_stat_desc
 vmxnet3_global_stats[] = {
-	
+	/* description,         offset */
 	{ "tx timeout count",	offsetof(struct vmxnet3_adapter,
 					 tx_timeout_count) }
 };
@@ -122,7 +127,7 @@ vmxnet3_get_stats64(struct net_device *netdev,
 
 	adapter = netdev_priv(netdev);
 
-	
+	/* Collect the dev stats into the shared area */
 	spin_lock_irqsave(&adapter->cmd_lock, flags);
 	VMXNET3_WRITE_BAR1_REG(adapter, VMXNET3_REG_CMD, VMXNET3_CMD_GET_STATS);
 	spin_unlock_irqrestore(&adapter->cmd_lock, flags);
@@ -178,6 +183,7 @@ vmxnet3_get_sset_count(struct net_device *netdev, int sset)
 }
 
 
+/* Should be multiple of 4 */
 #define NUM_TX_REGS	8
 #define NUM_RX_REGS	12
 
@@ -265,7 +271,7 @@ int vmxnet3_set_features(struct net_device *netdev, netdev_features_t features)
 			adapter->shared->devRead.misc.uptFeatures &=
 			~UPT1_F_RXCSUM;
 
-		
+		/* update harware LRO capability accordingly */
 		if (features & NETIF_F_LRO)
 			adapter->shared->devRead.misc.uptFeatures |=
 							UPT1_F_LRO;
@@ -302,7 +308,7 @@ vmxnet3_get_ethtool_stats(struct net_device *netdev,
 	VMXNET3_WRITE_BAR1_REG(adapter, VMXNET3_REG_CMD, VMXNET3_CMD_GET_STATS);
 	spin_unlock_irqrestore(&adapter->cmd_lock, flags);
 
-	
+	/* this does assume each counter is 64-bit wide */
 	for (j = 0; j < adapter->num_tx_queues; j++) {
 		base = (u8 *)&adapter->tqd_start[j].stats;
 		*buf++ = (u64)j;
@@ -346,9 +352,9 @@ vmxnet3_get_regs(struct net_device *netdev, struct ethtool_regs *regs, void *p)
 
 	regs->version = 1;
 
-	
+	/* Update vmxnet3_get_regs_len if we want to dump more registers */
 
-	
+	/* make each ring use multiple of 16 bytes */
 	for (i = 0; i < adapter->num_tx_queues; i++) {
 		buf[j++] = adapter->tx_queue[i].tx_ring.next2fill;
 		buf[j++] = adapter->tx_queue[i].tx_ring.next2comp;
@@ -469,7 +475,7 @@ vmxnet3_set_ringparam(struct net_device *netdev,
 		return -EINVAL;
 
 
-	
+	/* round it up to a multiple of VMXNET3_RING_SIZE_ALIGN */
 	new_tx_ring_size = (param->tx_pending + VMXNET3_RING_SIZE_MASK) &
 							~VMXNET3_RING_SIZE_MASK;
 	new_tx_ring_size = min_t(u32, new_tx_ring_size,
@@ -478,6 +484,9 @@ vmxnet3_set_ringparam(struct net_device *netdev,
 						VMXNET3_RING_SIZE_ALIGN) != 0)
 		return -EINVAL;
 
+	/* ring0 has to be a multiple of
+	 * rx_buf_per_pkt * VMXNET3_RING_SIZE_ALIGN
+	 */
 	sz = adapter->rx_buf_per_pkt * VMXNET3_RING_SIZE_ALIGN;
 	new_rx_ring_size = (param->rx_pending + sz - 1) / sz * sz;
 	new_rx_ring_size = min_t(u32, new_rx_ring_size,
@@ -491,6 +500,10 @@ vmxnet3_set_ringparam(struct net_device *netdev,
 		return 0;
 	}
 
+	/*
+	 * Reset_work may be in the middle of resetting the device, wait for its
+	 * completion.
+	 */
 	while (test_and_set_bit(VMXNET3_STATE_BIT_RESETTING, &adapter->state))
 		msleep(1);
 
@@ -498,6 +511,8 @@ vmxnet3_set_ringparam(struct net_device *netdev,
 		vmxnet3_quiesce_dev(adapter);
 		vmxnet3_reset_dev(adapter);
 
+		/* recreate the rx queue and the tx queue based on the
+		 * new sizes */
 		vmxnet3_tq_destroy_all(adapter);
 		vmxnet3_rq_destroy_all(adapter);
 
@@ -505,6 +520,8 @@ vmxnet3_set_ringparam(struct net_device *netdev,
 			new_rx_ring_size, VMXNET3_DEF_RX_RING_SIZE);
 
 		if (err) {
+			/* failed, most likely because of OOM, try default
+			 * size */
 			printk(KERN_ERR "%s: failed to apply new sizes, try the"
 				" default ones\n", netdev->name);
 			err = vmxnet3_create_queues(adapter,

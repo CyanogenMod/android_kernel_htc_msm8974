@@ -77,11 +77,15 @@ int amd_cache_northbridges(void)
 			next_northbridge(link, amd_nb_link_ids);
         }
 
-	
+	/* some CPU families (e.g. family 0x11) do not support GART */
 	if (boot_cpu_data.x86 == 0xf || boot_cpu_data.x86 == 0x10 ||
 	    boot_cpu_data.x86 == 0x15)
 		amd_northbridges.flags |= AMD_NB_GART;
 
+	/*
+	 * Some CPU families support L3 Cache Index Disable. There are some
+	 * limitations because of E382 and E388 on family 0x10.
+	 */
 	if (boot_cpu_data.x86 == 0x10 &&
 	    boot_cpu_data.x86_model >= 0x8 &&
 	    (boot_cpu_data.x86_model > 0x9 ||
@@ -91,7 +95,7 @@ int amd_cache_northbridges(void)
 	if (boot_cpu_data.x86 == 0x15)
 		amd_northbridges.flags |= AMD_NB_L3_INDEX_DISABLE;
 
-	
+	/* L3 cache partitioning is supported on family 0x15 */
 	if (boot_cpu_data.x86 == 0x15)
 		amd_northbridges.flags |= AMD_NB_L3_PARTITIONING;
 
@@ -99,6 +103,10 @@ int amd_cache_northbridges(void)
 }
 EXPORT_SYMBOL_GPL(amd_cache_northbridges);
 
+/*
+ * Ignores subdevice/subvendor but as far as I can figure out
+ * they're useless anyways
+ */
 bool __init early_is_amd_nb(u32 device)
 {
 	const struct pci_device_id *id;
@@ -120,14 +128,14 @@ struct resource *amd_get_mmconfig_range(struct resource *res)
 	if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD)
 		return NULL;
 
-	
+	/* assume all cpus from fam10h have mmconfig */
         if (boot_cpu_data.x86 < 0x10)
 		return NULL;
 
 	address = MSR_FAM10H_MMIO_CONF_BASE;
 	rdmsrl(address, msr);
 
-	
+	/* mmconfig is not enabled */
 	if (!(msr & FAM10H_MMIO_CONF_ENABLE))
 		return NULL;
 
@@ -167,14 +175,14 @@ int amd_set_subcaches(int cpu, int mask)
 	if (!amd_nb_has_feature(AMD_NB_L3_PARTITIONING) || mask > 0xf)
 		return -EINVAL;
 
-	
+	/* if necessary, collect reset state of L3 partitioning and BAN mode */
 	if (reset == 0) {
 		pci_read_config_dword(nb->link, 0x1d4, &reset);
 		pci_read_config_dword(nb->misc, 0x1b8, &ban);
 		ban &= 0x180000;
 	}
 
-	
+	/* deactivate BAN mode if any subcaches are to be disabled */
 	if (mask != 0xf) {
 		pci_read_config_dword(nb->misc, 0x1b8, &reg);
 		pci_write_config_dword(nb->misc, 0x1b8, reg & ~0x180000);
@@ -186,7 +194,7 @@ int amd_set_subcaches(int cpu, int mask)
 
 	pci_write_config_dword(nb->link, 0x1d4, mask);
 
-	
+	/* reset BAN mode if L3 partitioning returned to reset state */
 	pci_read_config_dword(nb->link, 0x1d4, &reg);
 	if (reg == reset) {
 		pci_read_config_dword(nb->misc, 0x1b8, &reg);
@@ -226,6 +234,10 @@ void amd_flush_garts(void)
 	if (!amd_nb_has_feature(AMD_NB_GART))
 		return;
 
+	/* Avoid races between AGP and IOMMU. In theory it's not needed
+	   but I'm not sure if the hardware won't lose flush requests
+	   when another is pending. This whole thing is so expensive anyways
+	   that it doesn't matter to serialize more. -AK */
 	spin_lock_irqsave(&gart_lock, flags);
 	flushed = 0;
 	for (i = 0; i < amd_nb_num(); i++) {
@@ -235,7 +247,7 @@ void amd_flush_garts(void)
 	}
 	for (i = 0; i < amd_nb_num(); i++) {
 		u32 w;
-		
+		/* Make sure the hardware actually executed the flush*/
 		for (;;) {
 			pci_read_config_dword(node_to_amd_nb(i)->misc,
 					      0x9c, &w);
@@ -266,4 +278,5 @@ static __init int init_amd_nbs(void)
 	return err;
 }
 
+/* This has to go after the PCI subsystem */
 fs_initcall(init_amd_nbs);

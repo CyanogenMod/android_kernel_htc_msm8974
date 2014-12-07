@@ -51,17 +51,17 @@ struct r_tpu_priv {
 
 static DEFINE_SPINLOCK(r_tpu_lock);
 
-#define TSTR -1 
-#define TCR  0 
-#define TMDR 1 
-#define TIOR 2 
-#define TIER 3 
-#define TSR  4 
-#define TCNT 5 
-#define TGRA 6 
-#define TGRB 7 
-#define TGRC 8 
-#define TGRD 9 
+#define TSTR -1 /* Timer start register (shared register) */
+#define TCR  0 /* Timer control register (+0x00) */
+#define TMDR 1 /* Timer mode register (+0x04) */
+#define TIOR 2 /* Timer I/O control register (+0x08) */
+#define TIER 3 /* Timer interrupt enable register (+0x0c) */
+#define TSR  4 /* Timer status register (+0x10) */
+#define TCNT 5 /* Timer counter (+0x14) */
+#define TGRA 6 /* Timer general register A (+0x18) */
+#define TGRB 7 /* Timer general register B (+0x1c) */
+#define TGRC 8 /* Timer general register C (+0x20) */
+#define TGRD 9 /* Timer general register D (+0x24) */
 
 static inline unsigned short r_tpu_read(struct r_tpu_priv *p, int reg_nr)
 {
@@ -95,7 +95,7 @@ static void r_tpu_start_stop_ch(struct r_tpu_priv *p, int start)
 	struct led_renesas_tpu_config *cfg = p->pdev->dev.platform_data;
 	unsigned long flags, value;
 
-	
+	/* start stop register shared by multiple timer channels */
 	spin_lock_irqsave(&r_tpu_lock, flags);
 	value = r_tpu_read(p, TSTR);
 
@@ -118,7 +118,7 @@ static int r_tpu_enable(struct r_tpu_priv *p, enum led_brightness brightness)
 	if (p->timer_state == R_TPU_TIMER_ON)
 		return 0;
 
-	
+	/* wake up device and enable clock */
 	pm_runtime_get_sync(&p->pdev->dev);
 	ret = clk_enable(p->clk);
 	if (ret) {
@@ -126,13 +126,13 @@ static int r_tpu_enable(struct r_tpu_priv *p, enum led_brightness brightness)
 		return ret;
 	}
 
-	
+	/* make sure channel is disabled */
 	r_tpu_start_stop_ch(p, 0);
 
-	
+	/* get clock rate after enabling it */
 	rate = clk_get_rate(p->clk);
 
-	
+	/* pick the lowest acceptable rate */
 	for (k = 0; k < ARRAY_SIZE(prescaler); k++)
 		if ((rate / prescaler[k]) < p->min_rate)
 			break;
@@ -144,10 +144,10 @@ static int r_tpu_enable(struct r_tpu_priv *p, enum led_brightness brightness)
 	dev_dbg(&p->pdev->dev, "rate = %lu, prescaler %u\n",
 		rate, prescaler[k - 1]);
 
-	
+	/* clear TCNT on TGRB match, count on rising edge, set prescaler */
 	r_tpu_write(p, TCR, 0x0040 | (k - 1));
 
-	
+	/* output 0 until TGRA, output 1 until TGRB */
 	r_tpu_write(p, TIOR, 0x0002);
 
 	rate /= prescaler[k - 1] * p->refresh_rate;
@@ -158,10 +158,10 @@ static int r_tpu_enable(struct r_tpu_priv *p, enum led_brightness brightness)
 	r_tpu_write(p, TGRA, tmp / cfg->max_brightness);
 	dev_dbg(&p->pdev->dev, "TRGA = 0x%04lx\n", tmp / cfg->max_brightness);
 
-	
+	/* PWM mode */
 	r_tpu_write(p, TMDR, 0x0002);
 
-	
+	/* enable channel */
 	r_tpu_start_stop_ch(p, 1);
 
 	p->timer_state = R_TPU_TIMER_ON;
@@ -177,10 +177,10 @@ static void r_tpu_disable(struct r_tpu_priv *p)
 	if (p->timer_state == R_TPU_TIMER_UNUSED)
 		return;
 
-	
+	/* disable channel */
 	r_tpu_start_stop_ch(p, 0);
 
-	
+	/* stop clock and mark device as idle */
 	clk_disable(p->clk);
 	pm_runtime_put_sync(&p->pdev->dev);
 
@@ -221,7 +221,7 @@ static void r_tpu_work(struct work_struct *work)
 
 	r_tpu_disable(p);
 
-	
+	/* off and maximum are handled as GPIO pins, in between PWM */
 	if ((brightness == 0) || (brightness == p->ldev.max_brightness))
 		r_tpu_set_pin(p, R_TPU_PIN_GPIO, brightness);
 	else {
@@ -263,14 +263,14 @@ static int __devinit r_tpu_probe(struct platform_device *pdev)
 		goto err1;
 	}
 
-	
+	/* map memory, let mapbase point to our channel */
 	p->mapbase = ioremap_nocache(res->start, resource_size(res));
 	if (p->mapbase == NULL) {
 		dev_err(&pdev->dev, "failed to remap I/O memory\n");
 		goto err1;
 	}
 
-	
+	/* get hold of clock */
 	p->clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(p->clk)) {
 		dev_err(&pdev->dev, "cannot get clock\n");
@@ -296,7 +296,7 @@ static int __devinit r_tpu_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err3;
 
-	
+	/* max_brightness may be updated by the LED core code */
 	p->min_rate = p->ldev.max_brightness * p->refresh_rate;
 
 	pm_runtime_enable(&pdev->dev);

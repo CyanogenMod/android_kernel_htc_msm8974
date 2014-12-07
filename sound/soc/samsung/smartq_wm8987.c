@@ -24,6 +24,9 @@
 #include "i2s.h"
 #include "../codecs/wm8750.h"
 
+/*
+ * WM8987 is register compatible with WM8750, so using that as base driver.
+ */
 
 static struct snd_soc_card snd_soc_smartq;
 
@@ -52,33 +55,33 @@ static int smartq_hifi_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
 					     SND_SOC_DAIFMT_NB_NF |
 					     SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S |
 					   SND_SOC_DAIFMT_NB_NF |
 					   SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Use PCLK for I2S signal generation */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, SAMSUNG_I2S_RCLKSRC_0,
 					0, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Gate the RCLK output on PAD */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, SAMSUNG_I2S_CDCLK,
 					0, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8750_SYSCLK, clk,
 				     SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -87,6 +90,9 @@ static int smartq_hifi_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * SmartQ WM8987 HiFi DAI operations.
+ */
 static struct snd_soc_ops smartq_hifi_ops = {
 	.hw_params = smartq_hifi_hw_params,
 };
@@ -94,7 +100,7 @@ static struct snd_soc_ops smartq_hifi_ops = {
 static struct snd_soc_jack smartq_jack;
 
 static struct snd_soc_jack_pin smartq_jack_pins[] = {
-	
+	/* Disable speaker when headphone is plugged in */
 	{
 		.pin	= "Internal Speaker",
 		.mask	= SND_JACK_HEADPHONE,
@@ -148,18 +154,18 @@ static int smartq_wm8987_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int err = 0;
 
-	
+	/* set endpoints to not connected */
 	snd_soc_dapm_nc_pin(dapm, "LINPUT1");
 	snd_soc_dapm_nc_pin(dapm, "RINPUT1");
 	snd_soc_dapm_nc_pin(dapm, "OUT3");
 	snd_soc_dapm_nc_pin(dapm, "ROUT1");
 
-	
+	/* set endpoints to default off mode */
 	snd_soc_dapm_enable_pin(dapm, "Internal Speaker");
 	snd_soc_dapm_enable_pin(dapm, "Internal Mic");
 	snd_soc_dapm_disable_pin(dapm, "Headphone Jack");
 
-	
+	/* Headphone jack detection */
 	err = snd_soc_jack_new(codec, "Headphone Jack",
 			       SND_JACK_HEADPHONE, &smartq_jack);
 	if (err)
@@ -227,14 +233,14 @@ static int __init smartq_init(void)
 		return ret;
 	}
 
-	
+	/* Initialise GPIOs used by amplifiers */
 	ret = gpio_request(S3C64XX_GPK(12), "amplifiers shutdown");
 	if (ret) {
 		dev_err(&smartq_snd_device->dev, "Failed to register GPK12\n");
 		goto err_unregister_device;
 	}
 
-	
+	/* Disable amplifiers */
 	ret = gpio_direction_output(S3C64XX_GPK(12), 1);
 	if (ret) {
 		dev_err(&smartq_snd_device->dev, "Failed to configure GPK12\n");
@@ -263,6 +269,7 @@ static void __exit smartq_exit(void)
 module_init(smartq_init);
 module_exit(smartq_exit);
 
+/* Module information */
 MODULE_AUTHOR("Maurus Cuelenaere <mcuelenaere@gmail.com>");
 MODULE_DESCRIPTION("ALSA SoC SmartQ WM8987");
 MODULE_LICENSE("GPL");

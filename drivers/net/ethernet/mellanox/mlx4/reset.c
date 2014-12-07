@@ -61,8 +61,14 @@ int mlx4_reset(struct mlx4_dev *dev)
 #define MLX4_SEM_TIMEOUT_JIFFIES	(10 * HZ)
 #define MLX4_RESET_TIMEOUT_JIFFIES	(2 * HZ)
 
+	/*
+	 * Reset the chip.  This is somewhat ugly because we have to
+	 * save off the PCI header before reset and then restore it
+	 * after the chip reboots.  We skip config space offsets 22
+	 * and 23 since those have a special meaning.
+	 */
 
-	
+	/* Do we need to save off the full 4K PCI Express header?? */
 	hca_header = kmalloc(256, GFP_KERNEL);
 	if (!hca_header) {
 		err = -ENOMEM;
@@ -92,7 +98,7 @@ int mlx4_reset(struct mlx4_dev *dev)
 		goto out;
 	}
 
-	
+	/* grab HW semaphore to lock out flash updates */
 	end = jiffies + MLX4_SEM_TIMEOUT_JIFFIES;
 	do {
 		sem = readl(reset + MLX4_SEM_OFFSET);
@@ -109,11 +115,11 @@ int mlx4_reset(struct mlx4_dev *dev)
 		goto out;
 	}
 
-	
+	/* actually hit reset */
 	writel(MLX4_RESET_VALUE, reset + MLX4_RESET_OFFSET);
 	iounmap(reset);
 
-	
+	/* Docs say to wait one second before accessing device */
 	msleep(1000);
 
 	end = jiffies + MLX4_RESET_TIMEOUT_JIFFIES;
@@ -132,7 +138,7 @@ int mlx4_reset(struct mlx4_dev *dev)
 		goto out;
 	}
 
-	
+	/* Now restore the PCI headers */
 	if (pcie_cap) {
 		devctl = hca_header[(pcie_cap + PCI_EXP_DEVCTL) / 4];
 		if (pci_write_config_word(dev->pdev, pcie_cap + PCI_EXP_DEVCTL,

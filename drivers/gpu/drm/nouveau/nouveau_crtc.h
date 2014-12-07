@@ -94,4 +94,4 @@ int nv50_cursor_init(struct nouveau_crtc *);
 struct nouveau_connector *
 nouveau_crtc_connector_get(struct nouveau_crtc *crtc);
 
-#endif 
+#endif /* __NOUVEAU_CRTC_H__ */

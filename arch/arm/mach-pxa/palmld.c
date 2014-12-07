@@ -45,19 +45,22 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long palmld_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 	GPIO112_MMC_CMD,
-	GPIO14_GPIO,	
-	GPIO114_GPIO,	
-	GPIO116_GPIO,	
+	GPIO14_GPIO,	/* SD detect */
+	GPIO114_GPIO,	/* SD power */
+	GPIO116_GPIO,	/* SD r/o switch */
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -65,12 +68,12 @@ static unsigned long palmld_pin_config[] __initdata = {
 	GPIO89_AC97_SYSCLK,
 	GPIO95_AC97_nRESET,
 
-	
-	GPIO108_GPIO,	
+	/* IrDA */
+	GPIO108_GPIO,	/* ir disable */
 	GPIO46_FICP_RXD,
 	GPIO47_FICP_TXD,
 
-	
+	/* MATRIX KEYPAD */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
@@ -79,22 +82,22 @@ static unsigned long palmld_pin_config[] __initdata = {
 	GPIO104_KP_MKOUT_1,
 	GPIO105_KP_MKOUT_2,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* PWM */
 	GPIO16_PWM0_OUT,
 
-	
-	GPIO10_GPIO,	
-	GPIO12_GPIO,	
-	GPIO15_GPIO,	
+	/* GPIO KEYS */
+	GPIO10_GPIO,	/* hotsync button */
+	GPIO12_GPIO,	/* power switch */
+	GPIO15_GPIO,	/* lock switch */
 
-	
-	GPIO52_GPIO,	
-	GPIO94_GPIO,	
+	/* LEDs */
+	GPIO52_GPIO,	/* green led */
+	GPIO94_GPIO,	/* orange led */
 
-	
+	/* PCMCIA */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -105,22 +108,25 @@ static unsigned long palmld_pin_config[] __initdata = {
 	GPIO55_nPREG,
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
-	GPIO36_GPIO,	
-	GPIO38_GPIO,	
-	GPIO81_GPIO,	
+	GPIO36_GPIO,	/* wifi power */
+	GPIO38_GPIO,	/* wifi ready */
+	GPIO81_GPIO,	/* wifi reset */
 
-	
+	/* FFUART */
 	GPIO34_FFUART_RXD,
 	GPIO39_FFUART_TXD,
 
-	
-	GPIO98_GPIO,	
-	GPIO115_GPIO,	
+	/* HDD */
+	GPIO98_GPIO,	/* HDD reset */
+	GPIO115_GPIO,	/* HDD power */
 
-	
-	GPIO13_GPIO,	
+	/* MISC */
+	GPIO13_GPIO,	/* earphone detect */
 };
 
+/******************************************************************************
+ * NOR Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_PHYSMAP) || defined(CONFIG_MTD_PHYSMAP_MODULE)
 static struct mtd_partition palmld_partitions[] = {
 	{
@@ -133,7 +139,7 @@ static struct mtd_partition palmld_partitions[] = {
 
 static struct physmap_flash_data palmld_flash_data[] = {
 	{
-		.width		= 2,			
+		.width		= 2,			/* bankwidth in bytes */
 		.parts		= palmld_partitions,
 		.nr_parts	= ARRAY_SIZE(palmld_partitions)
 	}
@@ -163,6 +169,9 @@ static void __init palmld_nor_init(void)
 static inline void palmld_nor_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keyboard
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int palmld_matrix_keys[] = {
 	KEY(0, 1, KEY_F2),
@@ -198,6 +207,9 @@ static void __init palmld_kpc_init(void)
 static inline void palmld_kpc_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button palmld_pxa_buttons[] = {
 	{KEY_F8, GPIO_NR_PALMLD_HOTSYNC_BUTTON_N, 1, "HotSync Button" },
@@ -226,6 +238,9 @@ static void __init palmld_keys_init(void)
 static inline void palmld_keys_init(void) {}
 #endif
 
+/******************************************************************************
+ * LEDs
+ ******************************************************************************/
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 struct gpio_led gpio_leds[] = {
 {
@@ -260,6 +275,9 @@ static void __init palmld_leds_init(void)
 static inline void palmld_leds_init(void) {}
 #endif
 
+/******************************************************************************
+ * HDD
+ ******************************************************************************/
 #if defined(CONFIG_PATA_PALMLD) || defined(CONFIG_PATA_PALMLD_MODULE)
 static struct platform_device palmld_ide_device = {
 	.name	= "pata_palmld",
@@ -274,6 +292,9 @@ static void __init palmld_ide_init(void)
 static inline void palmld_ide_init(void) {}
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static struct map_desc palmld_io_desc[] __initdata = {
 {
 	.virtual	= PALMLD_IDE_VIRT,

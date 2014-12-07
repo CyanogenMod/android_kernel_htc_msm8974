@@ -26,6 +26,10 @@ struct sas_internal {
 	struct transport_container end_dev_attr_cont;
 	struct transport_container expander_attr_cont;
 
+	/*
+	 * The array of null terminated pointers to attributes
+	 * needed by scsi_sysfs.c
+	 */
 	struct device_attribute *host_attrs[SAS_HOST_ATTRS + 1];
 	struct device_attribute *phy_attrs[SAS_PHY_ATTRS + 1];
 	struct device_attribute *port_attrs[SAS_PORT_ATTRS + 1];

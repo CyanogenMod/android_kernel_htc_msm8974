@@ -5,6 +5,7 @@
 #ifndef _SPARC64_IOMMU_H
 #define _SPARC64_IOMMU_H
 
+/* The format of an iopte in the page tables. */
 #define IOPTE_VALID   0x8000000000000000UL
 #define IOPTE_64K     0x2000000000000000UL
 #define IOPTE_STBUF   0x1000000000000000UL
@@ -61,4 +62,4 @@ extern int iommu_table_init(struct iommu *iommu, int tsbsize,
 			    u32 dma_offset, u32 dma_addr_mask,
 			    int numa_node);
 
-#endif 
+#endif /* !(_SPARC64_IOMMU_H) */

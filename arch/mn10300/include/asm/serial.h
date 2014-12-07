@@ -12,6 +12,7 @@
 #ifndef _ASM_SERIAL_H
 #define _ASM_SERIAL_H
 
+/* Standard COM flags (except for COM4, because of the 8514 problem) */
 #ifdef CONFIG_SERIAL_DETECT_IRQ
 #define STD_COM_FLAGS	(ASYNC_BOOT_AUTOCONF | ASYNC_SKIP_TEST | ASYNC_AUTO_IRQ)
 #define STD_COM4_FLAGS	(ASYNC_BOOT_AUTOCONF | ASYNC_AUTO_IRQ)
@@ -32,4 +33,4 @@
 
 #include <unit/serial.h>
 
-#endif 
+#endif /* _ASM_SERIAL_H */

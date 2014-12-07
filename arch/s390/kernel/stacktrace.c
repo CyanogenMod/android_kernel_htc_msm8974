@@ -43,7 +43,7 @@ static unsigned long save_context_stack(struct stack_trace *trace,
 				return sp;
 			sf = (struct stack_frame *)sp;
 		}
-		
+		/* Zero backchain detected, check for interrupt frame. */
 		sp = (unsigned long)(sf + 1);
 		if (sp <= low || sp > high - sizeof(*regs))
 			return sp;

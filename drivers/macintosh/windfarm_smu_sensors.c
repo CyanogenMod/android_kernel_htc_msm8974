@@ -33,18 +33,25 @@
 #define DBG(args...)	do { } while(0)
 #endif
 
+/*
+ * Various SMU "partitions" calibration objects for which we
+ * keep pointers here for use by bits & pieces of the driver
+ */
 static struct smu_sdbp_cpuvcp *cpuvcp;
 static int  cpuvcp_version;
 static struct smu_sdbp_cpudiode *cpudiode;
 static struct smu_sdbp_slotspow *slotspow;
 static u8 *debugswitches;
 
+/*
+ * SMU basic sensors objects
+ */
 
 static LIST_HEAD(smu_ads);
 
 struct smu_ad_sensor {
 	struct list_head	link;
-	u32			reg;		
+	u32			reg;		/* index in SMU */
 	struct wf_sensor	sens;
 };
 #define to_smu_ads(c) container_of(c, struct smu_ad_sensor, sens)
@@ -92,7 +99,7 @@ static int smu_cputemp_get(struct wf_sensor *sr, s32 *value)
 		return rc;
 	}
 
-	
+	/* Ok, we have to scale & adjust, taking units into account */
 	scaled = (s64)(((u64)val) * (u64)cpudiode->m_value);
 	scaled >>= 3;
 	scaled += ((s64)cpudiode->b_value) << 9;
@@ -114,7 +121,7 @@ static int smu_cpuamp_get(struct wf_sensor *sr, s32 *value)
 		return rc;
 	}
 
-	
+	/* Ok, we have to scale & adjust, taking units into account */
 	scaled = (s32)(val * (u32)cpuvcp->curr_scale);
 	scaled += (s32)cpuvcp->curr_offset;
 	*value = scaled << 4;
@@ -135,7 +142,7 @@ static int smu_cpuvolt_get(struct wf_sensor *sr, s32 *value)
 		return rc;
 	}
 
-	
+	/* Ok, we have to scale & adjust, taking units into account */
 	scaled = (s32)(val * (u32)cpuvcp->volt_scale);
 	scaled += (s32)cpuvcp->volt_offset;
 	*value = scaled << 4;
@@ -156,7 +163,7 @@ static int smu_slotspow_get(struct wf_sensor *sr, s32 *value)
 		return rc;
 	}
 
-	
+	/* Ok, we have to scale & adjust, taking units into account */
 	scaled = (s32)(val * (u32)slotspow->pow_scale);
 	scaled += (s32)slotspow->pow_offset;
 	*value = scaled << 4;
@@ -201,6 +208,13 @@ static struct smu_ad_sensor *smu_ads_create(struct device_node *node)
 	if (c == NULL || l == NULL)
 		goto fail;
 
+	/* We currently pick the sensors based on the OF name and location
+	 * properties, while Darwin uses the sensor-id's.
+	 * The problem with the IDs is that they are model specific while it
+	 * looks like apple has been doing a reasonably good job at keeping
+	 * the names and locations consistents so I'll stick with the names
+	 * and locations for now.
+	 */
 	if (!strcmp(c, "temp-sensor") &&
 	    !strcmp(l, "CPU T-Diode")) {
 		ads->sens.ops = &smu_cputemp_ops;
@@ -253,6 +267,9 @@ static struct smu_ad_sensor *smu_ads_create(struct device_node *node)
 	return NULL;
 }
 
+/*
+ * SMU Power combo sensor object
+ */
 
 struct smu_cpu_power_sensor {
 	struct list_head	link;
@@ -333,7 +350,7 @@ smu_cpu_power_create(struct wf_sensor *volts, struct wf_sensor *amps)
 	wf_get_sensor(amps);
 	pow->amps = amps;
 
-	
+	/* Some early machines need a faked voltage */
 	if (debugswitches && ((*debugswitches) & 0x80)) {
 		printk(KERN_INFO "windfarm: CPU Power sensor using faked"
 		       " voltage !\n");
@@ -341,6 +358,10 @@ smu_cpu_power_create(struct wf_sensor *volts, struct wf_sensor *amps)
 	} else
 		pow->fake_volts = 0;
 
+	/* Try to use quadratic transforms on PowerMac8,1 and 9,1 for now,
+	 * I yet have to figure out what's up with 8,2 and will have to
+	 * adjust for later, unless we can 100% trust the SDB partition...
+	 */
 	if ((of_machine_is_compatible("PowerMac8,1") ||
 	     of_machine_is_compatible("PowerMac8,2") ||
 	     of_machine_is_compatible("PowerMac9,1")) &&
@@ -362,25 +383,25 @@ static void smu_fetch_param_partitions(void)
 {
 	const struct smu_sdbp_header *hdr;
 
-	
+	/* Get CPU voltage/current/power calibration data */
 	hdr = smu_get_sdb_partition(SMU_SDB_CPUVCP_ID, NULL);
 	if (hdr != NULL) {
 		cpuvcp = (struct smu_sdbp_cpuvcp *)&hdr[1];
-		
+		/* Keep version around */
 		cpuvcp_version = hdr->version;
 	}
 
-	
+	/* Get CPU diode calibration data */
 	hdr = smu_get_sdb_partition(SMU_SDB_CPUDIODE_ID, NULL);
 	if (hdr != NULL)
 		cpudiode = (struct smu_sdbp_cpudiode *)&hdr[1];
 
-	
+	/* Get slots power calibration data if any */
 	hdr = smu_get_sdb_partition(SMU_SDB_SLOTSPOW_ID, NULL);
 	if (hdr != NULL)
 		slotspow = (struct smu_sdbp_slotspow *)&hdr[1];
 
-	
+	/* Get debug switches if any */
 	hdr = smu_get_sdb_partition(SMU_SDB_DEBUG_SWITCHES_ID, NULL);
 	if (hdr != NULL)
 		debugswitches = (u8 *)&hdr[1];
@@ -394,14 +415,14 @@ static int __init smu_sensors_init(void)
 	if (!smu_present())
 		return -ENODEV;
 
-	
+	/* Get parameters partitions */
 	smu_fetch_param_partitions();
 
 	smu = of_find_node_by_type(NULL, "smu");
 	if (smu == NULL)
 		return -ENODEV;
 
-	
+	/* Look for sensors subdir */
 	for (sensors = NULL;
 	     (sensors = of_get_next_child(smu, sensors)) != NULL;)
 		if (!strcmp(sensors->name, "sensors"))
@@ -409,7 +430,7 @@ static int __init smu_sensors_init(void)
 
 	of_node_put(smu);
 
-	
+	/* Create basic sensors */
 	for (s = NULL;
 	     sensors && (s = of_get_next_child(sensors, s)) != NULL;) {
 		struct smu_ad_sensor *ads;
@@ -418,7 +439,7 @@ static int __init smu_sensors_init(void)
 		if (ads == NULL)
 			continue;
 		list_add(&ads->link, &smu_ads);
-		
+		/* keep track of cpu voltage & current */
 		if (!strcmp(ads->sens.name, "cpu-voltage"))
 			volt_sensor = ads;
 		else if (!strcmp(ads->sens.name, "cpu-current"))
@@ -427,7 +448,7 @@ static int __init smu_sensors_init(void)
 
 	of_node_put(sensors);
 
-	
+	/* Create CPU power sensor if possible */
 	if (volt_sensor && curr_sensor)
 		smu_cpu_power = smu_cpu_power_create(&volt_sensor->sens,
 						     &curr_sensor->sens);
@@ -439,11 +460,11 @@ static void __exit smu_sensors_exit(void)
 {
 	struct smu_ad_sensor *ads;
 
-	
+	/* dispose of power sensor */
 	if (smu_cpu_power)
 		wf_unregister_sensor(&smu_cpu_power->sens);
 
-	
+	/* dispose of basic sensors */
 	while (!list_empty(&smu_ads)) {
 		ads = list_entry(smu_ads.next, struct smu_ad_sensor, link);
 		list_del(&ads->link);

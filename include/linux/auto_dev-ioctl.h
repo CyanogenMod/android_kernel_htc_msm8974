@@ -16,7 +16,7 @@
 #include <linux/string.h>
 #else
 #include <string.h>
-#endif 
+#endif /* __KERNEL__ */
 
 #define AUTOFS_DEVICE_NAME		"autofs"
 
@@ -27,6 +27,9 @@
 
 #define AUTOFS_DEV_IOCTL_SIZE		sizeof(struct autofs_dev_ioctl)
 
+/*
+ * An ioctl interface for autofs mount point control.
+ */
 
 struct args_protover {
 	__u32	version;
@@ -82,14 +85,21 @@ struct args_ismountpoint {
 	};
 };
 
+/*
+ * All the ioctls use this structure.
+ * When sending a path size must account for the total length
+ * of the chunk of memory otherwise is is the size of the
+ * structure.
+ */
 
 struct autofs_dev_ioctl {
 	__u32 ver_major;
 	__u32 ver_minor;
-	__u32 size;		
-	__s32 ioctlfd;		
+	__u32 size;		/* total size of data passed in
+				 * including this struct */
+	__s32 ioctlfd;		/* automount command fd */
 
-	
+	/* Command parameters */
 
 	union {
 		struct args_protover		protover;
@@ -118,39 +128,43 @@ static inline void init_autofs_dev_ioctl(struct autofs_dev_ioctl *in)
 	return;
 }
 
+/*
+ * If you change this make sure you make the corresponding change
+ * to autofs-dev-ioctl.c:lookup_ioctl()
+ */
 enum {
-	
+	/* Get various version info */
 	AUTOFS_DEV_IOCTL_VERSION_CMD = 0x71,
 	AUTOFS_DEV_IOCTL_PROTOVER_CMD,
 	AUTOFS_DEV_IOCTL_PROTOSUBVER_CMD,
 
-	
+	/* Open mount ioctl fd */
 	AUTOFS_DEV_IOCTL_OPENMOUNT_CMD,
 
-	
+	/* Close mount ioctl fd */
 	AUTOFS_DEV_IOCTL_CLOSEMOUNT_CMD,
 
-	
+	/* Mount/expire status returns */
 	AUTOFS_DEV_IOCTL_READY_CMD,
 	AUTOFS_DEV_IOCTL_FAIL_CMD,
 
-	
+	/* Activate/deactivate autofs mount */
 	AUTOFS_DEV_IOCTL_SETPIPEFD_CMD,
 	AUTOFS_DEV_IOCTL_CATATONIC_CMD,
 
-	
+	/* Expiry timeout */
 	AUTOFS_DEV_IOCTL_TIMEOUT_CMD,
 
-	
+	/* Get mount last requesting uid and gid */
 	AUTOFS_DEV_IOCTL_REQUESTER_CMD,
 
-	
+	/* Check for eligible expire candidates */
 	AUTOFS_DEV_IOCTL_EXPIRE_CMD,
 
-	
+	/* Request busy status */
 	AUTOFS_DEV_IOCTL_ASKUMOUNT_CMD,
 
-	
+	/* Check if path is a mountpoint */
 	AUTOFS_DEV_IOCTL_ISMOUNTPOINT_CMD,
 };
 
@@ -212,4 +226,4 @@ enum {
 	_IOWR(AUTOFS_IOCTL, \
 	      AUTOFS_DEV_IOCTL_ISMOUNTPOINT_CMD, struct autofs_dev_ioctl)
 
-#endif	
+#endif	/* _LINUX_AUTO_DEV_IOCTL_H */

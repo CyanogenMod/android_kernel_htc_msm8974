@@ -57,6 +57,10 @@ int t3e3_if_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			     SBE_2T3E3_TX_DESC_BUFFER_1_SIZE) > 0)
 				break;
 			current_write = (current_write + 1) % SBE_2T3E3_TX_DESC_RING_SIZE;
+			/*
+			 * Leave at least 1 tx desc free so that dc_intr_tx() can
+			 * identify empty list
+			 */
 			if (current_write == sc->ether.tx_ring_current_read)
 				break;
 		}
@@ -84,6 +88,7 @@ int t3e3_if_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			sc->ether.tx_ring[current_write].tdes1 &=
 				SBE_2T3E3_TX_DESC_END_OF_RING |
 				SBE_2T3E3_TX_DESC_SECOND_ADDRESS_CHAINED;
+/* DISABLE_PADDING sometimes gets lost somehow, hands off... */
 			sc->ether.tx_ring[current_write].tdes1 |=
 				SBE_2T3E3_TX_DESC_DISABLE_PADDING | skb2->len;
 
@@ -135,19 +140,32 @@ void t3e3_read_card_serial_number(struct channel *sc)
 	       sc->ether.card_serial_number[2]);
 }
 
+/*
+  bit 0 led1 (green)
+  bit 1 led1 (yellow)
+
+  bit 2 led2 (green)
+  bit 3 led2 (yellow)
+
+  bit 4 led3 (green)
+  bit 5 led3 (yellow)
+
+  bit 6 led4 (green)
+  bit 7 led4 (yellow)
+*/
 
 void update_led(struct channel *sc, int blinker)
 {
 	int leds;
 	if (sc->s.LOS)
-		leds = 0; 
+		leds = 0; /* led1 = off */
 	else if (sc->s.OOF)
-		leds = 2; 
+		leds = 2; /* led1 = yellow */
 	else if ((blinker & 1) && sc->rcv_count) {
-		leds = 0; 
+		leds = 0; /* led1 = off */
 		sc->rcv_count = 0;
 	} else
-		leds = 1; 
+		leds = 1; /* led1 = green */
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_LEDR, leds);
 	sc->leds = leds;
 }

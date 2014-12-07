@@ -54,6 +54,7 @@ static char *uev_type_str[] = {
 	"gw"
 };
 
+/* Use this, if you have customized show and store functions */
 #define BAT_ATTR(_name, _mode, _show, _store)	\
 struct bat_attribute bat_attr_##_name = {	\
 	.attr = {.name = __stringify(_name),	\
@@ -82,6 +83,7 @@ ssize_t show_##_name(struct kobject *kobj, struct attribute *attr,	\
 		       "disabled" : "enabled");				\
 }									\
 
+/* Use this, if you are going to turn a [name] in bat_priv on or off */
 #define BAT_ATTR_BOOL(_name, _mode, _post_func)				\
 	static BAT_ATTR_STORE_BOOL(_name, _post_func)			\
 	static BAT_ATTR_SHOW_BOOL(_name)				\
@@ -106,6 +108,8 @@ ssize_t show_##_name(struct kobject *kobj, struct attribute *attr,	\
 	return sprintf(buff, "%i\n", atomic_read(&bat_priv->_name));	\
 }									\
 
+/* Use this, if you are going to set [name] in bat_priv to unsigned integer
+ * values only */
 #define BAT_ATTR_UINT(_name, _mode, _min, _max, _post_func)		\
 	static BAT_ATTR_STORE_UINT(_name, _min, _max, _post_func)	\
 	static BAT_ATTR_SHOW_UINT(_name)				\
@@ -526,7 +530,7 @@ static ssize_t store_mesh_iface(struct kobject *kobj, struct attribute *attr,
 		goto unlock;
 	}
 
-	
+	/* if the interface already is in use */
 	if (hard_iface->if_status != IF_NOT_IN_USE)
 		hardif_disable_interface(hard_iface);
 
@@ -653,7 +657,7 @@ int throw_uevent(struct bat_priv *bat_priv, enum uev_type type,
 
 	sprintf(uevent_env[1], "%s%s", UEV_ACTION_VAR, uev_action_str[action]);
 
-	
+	/* If the event is DEL, ignore the data field */
 	if (action != UEV_DEL) {
 		uevent_env[2] = kmalloc(strlen(UEV_DATA_VAR) +
 					strlen(data) + 1, GFP_ATOMIC);

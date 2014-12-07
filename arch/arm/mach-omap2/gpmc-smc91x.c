@@ -48,22 +48,28 @@ static struct platform_device gpmc_smc91x_device = {
 	.resource	= gpmc_smc91x_resources,
 };
 
+/*
+ * Set the gpmc timings for smc91c96. The timings are taken
+ * from the data sheet available at:
+ * http://www.smsc.com/main/catalog/lan91c96.html
+ * REVISIT: Level shifters can add at least to the access latency.
+ */
 static int smc91c96_gpmc_retime(void)
 {
 	struct gpmc_timings t;
-	const int t3 = 10;	
-	const int t4_r = 20;	
-	const int t4_w = 5;	
-	const int t5 = 25;	
-	const int t6 = 15;	
-	const int t7 = 5;	
-	const int t8 = 5;	
-	const int t20 = 185;	
+	const int t3 = 10;	/* Figure 12.2 read and 12.4 write */
+	const int t4_r = 20;	/* Figure 12.2 read */
+	const int t4_w = 5;	/* Figure 12.4 write */
+	const int t5 = 25;	/* Figure 12.2 read */
+	const int t6 = 15;	/* Figure 12.2 read */
+	const int t7 = 5;	/* Figure 12.4 write */
+	const int t8 = 5;	/* Figure 12.4 write */
+	const int t20 = 185;	/* Figure 12.2 read and 12.4 write */
 	u32 l;
 
 	memset(&t, 0, sizeof(t));
 
-	
+	/* Read timings */
 	t.cs_on = 0;
 	t.adv_on = t.cs_on;
 	t.oe_on = t.adv_on + t3;
@@ -73,7 +79,7 @@ static int smc91c96_gpmc_retime(void)
 	t.cs_rd_off = t.oe_off;
 	t.rd_cycle = t20 - t.oe_on;
 
-	
+	/* Write timings */
 	t.we_on = t.adv_on + t3;
 
 	if (cpu_is_omap34xx() && (gpmc_cfg->flags & GPMC_MUX_ADD_DATA)) {
@@ -98,12 +104,24 @@ static int smc91c96_gpmc_retime(void)
 		l |= GPMC_CONFIG1_WAIT_PIN_SEL(gpmc_cfg->wait_pin);
 	gpmc_cs_write_reg(gpmc_cfg->cs, GPMC_CS_CONFIG1, l);
 
+	/*
+	 * FIXME: Calculate the address and data bus muxed timings.
+	 * Note that at least adv_rd_off needs to be changed according
+	 * to omap3430 TRM Figure 11-11. Are the sdp boards using the
+	 * FPGA in between smc91x and omap as the timings are different
+	 * from above?
+	 */
 	if (gpmc_cfg->flags & GPMC_MUX_ADD_DATA)
 		return 0;
 
 	return gpmc_cs_set_timings(gpmc_cfg->cs, &t);
 }
 
+/*
+ * Initialize smc91x device connected to the GPMC. Note that we
+ * assume that pin multiplexing is done in the board-*.c file,
+ * or in the bootloader.
+ */
 void __init gpmc_smc91x_init(struct omap_smc91x_platform_data *board_data)
 {
 	unsigned long cs_mem_base;

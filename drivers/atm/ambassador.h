@@ -40,6 +40,7 @@
 #define PCI_DEVICE_ID_MADGE_AMBASSADOR_BAD 0x1002
 #endif
 
+// diagnostic output
 
 #define PRINTK(severity,format,args...) \
   printk(severity DEV_LABEL ": " format "\n" , ## args)
@@ -64,6 +65,8 @@
 #define DBG_DATA 0x8000
 #define DBG_MASK 0xffff
 
+/* the ## prevents the annoying double expansion of the macro arguments */
+/* KERN_INFO is used since KERN_DEBUG often does not make it to the console */
 #define PRINTDB(bits,format,args...) \
   ( (debug & (bits)) ? printk (KERN_INFO DEV_LABEL ": " format , ## args) : 1 )
 #define PRINTDM(bits,format,args...) \
@@ -87,44 +90,70 @@
 #define PRINTDDM(sec,fmt,args...)
 #define PRINTDDE(sec,fmt,args...)
 
+// tunable values (?)
 
+/* MUST be powers of two -- why ? */
 #define COM_Q_ENTRIES        8
 #define TX_Q_ENTRIES        32
 #define RX_Q_ENTRIES        64
 
+// fixed values
 
+// guessing
 #define AMB_EXTENT         0x80
 
+// Minimum allowed size for an Ambassador queue
 #define MIN_QUEUE_SIZE     2
 
+// Ambassador microcode allows 1 to 4 pools, we use 4 (simpler)
 #define NUM_RX_POOLS	   4
 
+// minimum RX buffers required to cope with replenishing delay
 #define MIN_RX_BUFFERS	   1
 
-#define MIN_PCI_LATENCY   64 
+// minimum PCI latency we will tolerate (32 IS TOO SMALL)
+#define MIN_PCI_LATENCY   64 // 255
 
+// VCs supported by card (VPI always 0)
 #define NUM_VPI_BITS       0
 #define NUM_VCI_BITS      10
 #define NUM_VCS         1024
 
-#define RX_ERR		0x8000 
-#define CRC_ERR		0x4000 
-#define LEN_ERR		0x2000 
-#define ABORT_ERR	0x1000 
-#define UNUSED_ERR	0x0800 
+/* The status field bits defined so far. */
+#define RX_ERR		0x8000 // always present if there is an error (hmm)
+#define CRC_ERR		0x4000 // AAL5 CRC error
+#define LEN_ERR		0x2000 // overlength frame
+#define ABORT_ERR	0x1000 // zero length field in received frame
+#define UNUSED_ERR	0x0800 // buffer returned unused
 
+// Adaptor commands
 
 #define SRB_OPEN_VC		0
- 
+/* par_0: dwordswap(VC_number) */
+/* par_1: dwordswap(flags<<16) or wordswap(flags)*/ 
+/* flags:		*/
 
+/* LANE:	0x0004		*/
+/* NOT_UBR:	0x0008		*/
+/* ABR:		0x0010		*/
 
+/* RxPool0:	0x0000		*/
+/* RxPool1:	0x0020		*/
+/* RxPool2:	0x0040		*/
+/* RxPool3:	0x0060		*/
 
+/* par_2: dwordswap(fp_rate<<16) or wordswap(fp_rate) */
 
 #define	SRB_CLOSE_VC		1
+/* par_0: dwordswap(VC_number) */
 
 #define	SRB_GET_BIA		2
+/* returns 		*/
+/* par_0: dwordswap(half BIA) */
+/* par_1: dwordswap(half BIA) */
 
 #define	SRB_GET_SUNI_STATS	3
+/* par_0: dwordswap(physical_host_address) */
 
 #define	SRB_SET_BITS_8		4
 #define	SRB_SET_BITS_16		5
@@ -132,27 +161,52 @@
 #define	SRB_CLEAR_BITS_8	7
 #define	SRB_CLEAR_BITS_16	8
 #define	SRB_CLEAR_BITS_32	9
+/* par_0: dwordswap(ATMizer address)	*/
+/* par_1: dwordswap(mask) */
 
 #define	SRB_SET_8		10
 #define	SRB_SET_16		11
 #define	SRB_SET_32		12
+/* par_0: dwordswap(ATMizer address)	*/
+/* par_1: dwordswap(data) */
 
 #define	SRB_GET_32		13
+/* par_0: dwordswap(ATMizer address)	*/
+/* returns			*/
+/* par_1: dwordswap(ATMizer data) */
 
 #define SRB_GET_VERSION		14
+/* returns 		*/
+/* par_0: dwordswap(Major Version) */
+/* par_1: dwordswap(Minor Version) */
 
 #define SRB_FLUSH_BUFFER_Q	15
- 
+/* Only flags to define which buffer pool; all others must be zero */
+/* par_0: dwordswap(flags<<16) or wordswap(flags)*/ 
 
 #define	SRB_GET_DMA_SPEEDS	16
+/* returns 		*/
+/* par_0: dwordswap(Read speed (bytes/sec)) */
+/* par_1: dwordswap(Write speed (bytes/sec)) */
 
 #define SRB_MODIFY_VC_RATE	17
+/* par_0: dwordswap(VC_number) */
+/* par_1: dwordswap(fp_rate<<16) or wordswap(fp_rate) */
 
 #define SRB_MODIFY_VC_FLAGS	18
- 
+/* par_0: dwordswap(VC_number) */
+/* par_1: dwordswap(flags<<16) or wordswap(flags)*/ 
 
+/* flags:		*/
 
+/* LANE:	0x0004		*/
+/* NOT_UBR:	0x0008		*/
+/* ABR:		0x0010		*/
 
+/* RxPool0:	0x0000		*/
+/* RxPool1:	0x0020		*/
+/* RxPool2:	0x0040		*/
+/* RxPool3:	0x0060		*/
 
 #define SRB_RATE_SHIFT          16
 #define SRB_POOL_SHIFT          (SRB_FLAGS_SHIFT+5)
@@ -167,8 +221,10 @@
 
 #define TX_FRAME          	0x80000000
 
+// number of types of SRB MUST be a power of two -- why?
 #define NUM_OF_SRB	32
 
+// number of bits of period info for rate
 #define MAX_RATE_BITS	6
 
 #define TX_UBR          0x0000
@@ -180,14 +236,27 @@
 #define FP_155_RATE	0x24b1
 #define FP_25_RATE	0x1f9d
 
+/* #define VERSION_NUMBER 0x01000000 // initial release */
+/* #define VERSION_NUMBER 0x01010000 // fixed startup probs PLX MB0 not cleared */
+/* #define VERSION_NUMBER 0x01020000 // changed SUNI reset timings; allowed r/w onchip */
 
-#define VERSION_NUMBER 0x01050025 
+/* #define VERSION_NUMBER 0x01030000 // clear local doorbell int reg on reset */
+/* #define VERSION_NUMBER 0x01040000 // PLX bug work around version PLUS */
+/* remove race conditions on basic interface */
+/* indicate to the host that diagnostics */
+/* have finished; if failed, how and what  */
+/* failed */
+/* fix host memory test to fix PLX bug */
+/* allow flash upgrade and BIA upgrade directly */
+/*  */
+#define VERSION_NUMBER 0x01050025 /* Jason's first hacked version. */
+/* Change in download algorithm */
 
-#define DMA_VALID 0xb728e149 
+#define DMA_VALID 0xb728e149 /* completely random */
 
 #define FLASH_BASE 0xa0c00000
-#define FLASH_SIZE 0x00020000			
-#define BIA_BASE (FLASH_BASE+0x0001c000)	
+#define FLASH_SIZE 0x00020000			/* 128K */
+#define BIA_BASE (FLASH_BASE+0x0001c000)	/* Flash Sector 7 */
 #define BIA_ADDRESS ((void *)0xa0c1c000)
 #define PLX_BASE 0xe0000000
 
@@ -218,6 +287,7 @@ typedef enum {
 #define COMMAND_FLASH_ERASE_FAILURE	10
 #define COMMAND_WRITE_BAD_DATA		11
 
+/* bit fields for mailbox[0] return values */
 
 #define GPINT_TST_FAILURE               0x00000001      
 #define SUNI_DATA_PATTERN_FAILURE       0x00000002
@@ -227,8 +297,14 @@ typedef enum {
 #define SRAM_FAILURE                    0x00000020
 #define SELF_TEST_FAILURE               0x0000003f
 
+/* mailbox[1] = 0 in progress, -1 on completion */
+/* mailbox[2] = current test 00 00 test(8 bit) phase(8 bit) */
+/* mailbox[3] = last failure, 00 00 test(8 bit) phase(8 bit) */
+/* mailbox[4],mailbox[5],mailbox[6] random failure values */
 
+/* PLX/etc. memory map including command structure */
 
+/* These registers may also be memory mapped in PCI memory */
 
 #define UNUSED_LOADER_MAILBOXES 6
 
@@ -254,10 +330,12 @@ typedef struct {
   u32 reset_control;
 } amb_mem;
 
+/* RESET bit, IRQ (card to host) and doorbell (host to card) enable bits */
 #define AMB_RESET_BITS	   0x40000000
 #define AMB_INTERRUPT_BITS 0x00000300
 #define AMB_DOORBELL_BITS  0x00030000
 
+/* loader commands */
 
 #define MAX_COMMAND_DATA 13
 #define MAX_TRANSFER_DATA 11
@@ -280,7 +358,9 @@ typedef struct {
   __be32 valid;
 } loader_block;
 
+/* command queue */
 
+/* Again all data are BIG ENDIAN */
 
 typedef	struct {
   union {
@@ -327,14 +407,21 @@ typedef	struct {
   __be32 request;
 } command;
 
+/* transmit queues and associated structures */
 
+/* The hosts transmit structure. All BIG ENDIAN; host address
+   restricted to first 1GByte, but address passed to the card must
+   have the top MS bit or'ed in. -- check this */
 
+/* TX is described by 1+ tx_frags followed by a tx_frag_end */
 
 typedef struct {
   __be32 bytes;
   __be32 address;
 } tx_frag;
 
+/* apart from handle the fields here are for the adapter to play with
+   and should be set to zero */
 
 typedef struct {
   u32	handle;
@@ -361,6 +448,7 @@ typedef union {
 } tx_descr;
 #endif
 
+/* this "points" to the sequence of fragments and trailer */
 
 typedef	struct {
   __be16	vc;
@@ -368,45 +456,60 @@ typedef	struct {
   __be32	tx_descr_addr;
 } tx_in;
 
+/* handle is the handle from tx_in */
 
 typedef	struct {
   u32 handle;
 } tx_out;
 
+/* receive frame structure */
 
+/* All BIG ENDIAN; handle is as passed from host; length is zero for
+   aborted frames, and frames with errors. Header is actually VC
+   number, lec-id is NOT yet supported. */
 
 typedef struct {
   u32  handle;
   __be16  vc;
-  __be16  lec_id; 
+  __be16  lec_id; // unused
   __be16  status;
   __be16  length;
 } rx_out;
 
+/* buffer supply structure */
 
 typedef	struct {
   u32 handle;
   __be32 host_address;
 } rx_in;
 
+/* This first structure is the area in host memory where the adapter
+   writes its pointer values. These pointer values are BIG ENDIAN and
+   reside in the same 4MB 'page' as this structure. The host gives the
+   adapter the address of this block by sending a doorbell interrupt
+   to the adapter after downloading the code and setting it going. The
+   addresses have the top 10 bits set to 1010000010b -- really?
+   
+   The host must initialise these before handing the block to the
+   adapter. */
 
 typedef struct {
-  __be32 command_start;		
-  __be32 command_end;		
+  __be32 command_start;		/* SRB commands completions */
+  __be32 command_end;		/* SRB commands completions */
   __be32 tx_start;
   __be32 tx_end;
-  __be32 txcom_start;		
-  __be32 txcom_end;		
+  __be32 txcom_start;		/* tx completions */
+  __be32 txcom_end;		/* tx completions */
   struct {
     __be32 buffer_start;
     __be32 buffer_end;
     u32 buffer_q_get;
     u32 buffer_q_end;
     u32 buffer_aptr;
-    __be32 rx_start;		
+    __be32 rx_start;		/* rx completions */
     __be32 rx_end;
     u32 rx_ptr;
-    __be32 buffer_size;		
+    __be32 buffer_size;		/* size of host buffer */
   } rec_struct[NUM_RX_POOLS];
 #ifdef AMB_NEW_MICROCODE
   u16 init_flags;
@@ -414,6 +517,10 @@ typedef struct {
 #endif
 } adap_talk_block;
 
+/* This structure must be kept in line with the vcr image in sarmain.h
+   
+   This is the structure in the host filled in by the adapter by
+   GET_SUNI_STATS */
 
 typedef struct {
   u8	racp_chcs;
@@ -445,7 +552,7 @@ typedef struct {
   unsigned int pending;
   unsigned int high;
   unsigned int filled;
-  unsigned int maximum; 
+  unsigned int maximum; // size - 1 (q implementation)
   amb_cq_ptrs ptrs;
 } amb_cq;
 
@@ -454,7 +561,7 @@ typedef struct {
   unsigned int pending;
   unsigned int high;
   unsigned int filled;
-  unsigned int maximum; 
+  unsigned int maximum; // size - 1 (q implementation)
   struct {
     tx_in * start;
     tx_in * ptr;
@@ -472,7 +579,7 @@ typedef struct {
   unsigned int pending;
   unsigned int low;
   unsigned int emptied;
-  unsigned int maximum; 
+  unsigned int maximum; // size - 1 (q implementation)
   struct {
     rx_in * start;
     rx_in * ptr;
@@ -499,6 +606,7 @@ typedef struct {
   } rx;
 } amb_stats;
 
+// a single struct pointed to by atm_vcc->dev_data
 
 typedef struct {
   u8               tx_vc_bits:7;
@@ -544,6 +652,7 @@ typedef struct amb_dev amb_dev;
 #define AMB_DEV(atm_dev) ((amb_dev *) (atm_dev)->dev_data)
 #define AMB_VCC(atm_vcc) ((amb_vcc *) (atm_vcc)->dev_data)
 
+/* rate rounding */
 
 typedef enum {
   round_up,

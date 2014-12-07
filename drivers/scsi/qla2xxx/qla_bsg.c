@@ -10,6 +10,7 @@
 #include <linux/vmalloc.h>
 #include <linux/delay.h>
 
+/* BSG support for ELS/CT pass through */
 void
 qla2x00_bsg_job_done(void *data, void *ptr, int res)
 {
@@ -58,7 +59,7 @@ qla24xx_fcp_prio_cfg_valid(scsi_qla_host_t *vha,
 	bcode_val = (uint32_t)(*bcode_val_ptr);
 
 	if (bcode_val == 0xFFFFFFFF) {
-		
+		/* No FCP Priority config data in flash */
 		ql_dbg(ql_dbg_user, vha, 0x7051,
 		    "No FCP Priority config data.\n");
 		return 0;
@@ -66,7 +67,7 @@ qla24xx_fcp_prio_cfg_valid(scsi_qla_host_t *vha,
 
 	if (bcode[0] != 'H' || bcode[1] != 'Q' || bcode[2] != 'O' ||
 			bcode[3] != 'S') {
-		
+		/* Invalid FCP priority data header*/
 		ql_dbg(ql_dbg_user, vha, 0x7052,
 		    "Invalid FCP Priority data header. bcode=0x%x.\n",
 		    bcode_val);
@@ -83,12 +84,12 @@ qla24xx_fcp_prio_cfg_valid(scsi_qla_host_t *vha,
 	}
 
 	if (num_valid == 0) {
-		
+		/* No valid FCP priority data entries */
 		ql_dbg(ql_dbg_user, vha, 0x7053,
 		    "No valid FCP Priority data entries.\n");
 		ret = 0;
 	} else {
-		
+		/* FCP priority data is valid */
 		ql_dbg(ql_dbg_user, vha, 0x7054,
 		    "Valid FCP priority data. num entries = %d.\n",
 		    num_valid);
@@ -112,10 +113,10 @@ qla24xx_proc_fcp_prio_cfg_cmd(struct fc_bsg_job *bsg_job)
 		goto exit_fcp_prio_cfg;
 	}
 
-	
+	/* Get the sub command */
 	oper = bsg_job->request->rqst_data.h_vendor.vendor_cmd[1];
 
-	
+	/* Only set config is allowed if config memory is not allocated */
 	if (!ha->fcp_prio_cfg && (oper != QLFC_FCP_PRIO_SET_CONFIG)) {
 		ret = -EINVAL;
 		goto exit_fcp_prio_cfg;
@@ -193,12 +194,15 @@ qla24xx_proc_fcp_prio_cfg_cmd(struct fc_bsg_job *bsg_job)
 		bsg_job->request_payload.sg_cnt, ha->fcp_prio_cfg,
 			FCP_PRIO_CFG_SIZE);
 
-		
+		/* validate fcp priority data */
 
 		if (!qla24xx_fcp_prio_cfg_valid(vha,
 		    (struct qla_fcp_prio_cfg *) ha->fcp_prio_cfg, 1)) {
 			bsg_job->reply->result = (DID_ERROR << 16);
 			ret = -EINVAL;
+			/* If buffer was invalidatic int
+			 * fcp_prio_cfg is of no use
+			 */
 			vfree(ha->fcp_prio_cfg);
 			ha->fcp_prio_cfg = NULL;
 			goto exit_fcp_prio_cfg;
@@ -247,7 +251,7 @@ qla2x00_process_els(struct fc_bsg_job *bsg_job)
 		type = "FC_BSG_HST_ELS_NOLOGIN";
 	}
 
-	
+	/* pass through is supported only for ISP 4Gb or higher */
 	if (!IS_FWI2_CAPABLE(ha)) {
 		ql_dbg(ql_dbg_user, vha, 0x7001,
 		    "ELS passthru not supported for ISP23xx based adapters.\n");
@@ -255,7 +259,7 @@ qla2x00_process_els(struct fc_bsg_job *bsg_job)
 		goto done;
 	}
 
-	
+	/*  Multiple SG's are not supported for ELS requests */
 	if (bsg_job->request_payload.sg_cnt > 1 ||
 		bsg_job->reply_payload.sg_cnt > 1) {
 		ql_dbg(ql_dbg_user, vha, 0x7002,
@@ -267,8 +271,11 @@ qla2x00_process_els(struct fc_bsg_job *bsg_job)
 		goto done;
 	}
 
-	
+	/* ELS request for rport */
 	if (bsg_job->request->msgcode == FC_BSG_RPT_ELS) {
+		/* make sure the rport is logged in,
+		 * if not perform fabric login
+		 */
 		if (qla2x00_fabric_login(vha, fcport, &nextlid)) {
 			ql_dbg(ql_dbg_user, vha, 0x7003,
 			    "Failed to login port %06X for ELS passthru.\n",
@@ -277,13 +284,18 @@ qla2x00_process_els(struct fc_bsg_job *bsg_job)
 			goto done;
 		}
 	} else {
+		/* Allocate a dummy fcport structure, since functions
+		 * preparing the IOCB and mailbox command retrieves port
+		 * specific information from fcport structure. For Host based
+		 * ELS commands there will be no fcport structure allocated
+		 */
 		fcport = qla2x00_alloc_fcport(vha, GFP_KERNEL);
 		if (!fcport) {
 			rval = -ENOMEM;
 			goto done;
 		}
 
-		
+		/* Initialize all required  fields of fcport */
 		fcport->vha = vha;
 		fcport->vp_idx = vha->vp_idx;
 		fcport->d_id.b.al_pa =
@@ -329,7 +341,7 @@ qla2x00_process_els(struct fc_bsg_job *bsg_job)
 		goto done_unmap_sg;
 	}
 
-	
+	/* Alloc SRB structure */
 	sp = qla2x00_get_sp(vha, fcport, GFP_KERNEL);
 	if (!sp) {
 		rval = -ENOMEM;
@@ -456,6 +468,11 @@ qla2x00_process_ct(struct fc_bsg_job *bsg_job)
 		goto done_unmap_sg;
 	}
 
+	/* Allocate a dummy fcport structure, since functions preparing the
+	 * IOCB and mailbox command retrieves port specific information
+	 * from fcport structure. For Host based ELS commands there will be
+	 * no fcport structure allocated
+	 */
 	fcport = qla2x00_alloc_fcport(vha, GFP_KERNEL);
 	if (!fcport) {
 		ql_log(ql_log_warn, vha, 0x7014,
@@ -464,7 +481,7 @@ qla2x00_process_ct(struct fc_bsg_job *bsg_job)
 		goto done_unmap_sg;
 	}
 
-	
+	/* Initialize all required  fields of fcport */
 	fcport->vha = vha;
 	fcport->vp_idx = vha->vp_idx;
 	fcport->d_id.b.al_pa = bsg_job->request->rqst_data.h_ct.port_id[0];
@@ -472,7 +489,7 @@ qla2x00_process_ct(struct fc_bsg_job *bsg_job)
 	fcport->d_id.b.domain = bsg_job->request->rqst_data.h_ct.port_id[2];
 	fcport->loop_id = loop_id;
 
-	
+	/* Alloc SRB structure */
 	sp = qla2x00_get_sp(vha, fcport, GFP_KERNEL);
 	if (!sp) {
 		ql_log(ql_log_warn, vha, 0x7015,
@@ -516,6 +533,9 @@ done:
 	return rval;
 }
 
+/* Set the port configuration to enable the
+ * internal loopback on ISP81XX
+ */
 static inline int
 qla81xx_set_internal_loopback(scsi_qla_host_t *vha, uint16_t *config,
     uint16_t *new_config)
@@ -540,7 +560,7 @@ qla81xx_set_internal_loopback(scsi_qla_host_t *vha, uint16_t *config,
 		goto done_set_internal;
 	}
 
-	
+	/* Wait for DCBX complete event */
 	if (!wait_for_completion_timeout(&ha->dcbx_comp, (20 * HZ))) {
 		ql_dbg(ql_dbg_user, vha, 0x7022,
 		    "State change notification not received.\n");
@@ -554,6 +574,9 @@ done_set_internal:
 	return rval;
 }
 
+/* Set the port configuration to disable the
+ * internal loopback on ISP81XX
+ */
 static inline int
 qla81xx_reset_internal_loopback(scsi_qla_host_t *vha, uint16_t *config,
     int wait)
@@ -582,7 +605,7 @@ qla81xx_reset_internal_loopback(scsi_qla_host_t *vha, uint16_t *config,
 			goto done_reset_internal;
 		}
 
-		
+		/* Wait for DCBX complete event */
 		if (wait && !wait_for_completion_timeout(&ha->dcbx_comp,
 			(20 * HZ))) {
 			ql_dbg(ql_dbg_user, vha, 0x7026,
@@ -676,7 +699,7 @@ qla2x00_process_loopback(struct fc_bsg_job *bsg_job)
 		goto done_free_dma_req;
 	}
 
-	
+	/* Copy the request buffer in req_data now */
 	sg_copy_to_buffer(bsg_job->request_payload.sg_list,
 		bsg_job->request_payload.sg_cnt, req_data, req_data_len);
 
@@ -723,6 +746,9 @@ qla2x00_process_loopback(struct fc_bsg_job *bsg_job)
 					goto done_free_dma_req;
 				}
 			} else {
+				/* For external loopback to work
+				 * ensure internal loopback is disabled
+				 */
 				if (qla81xx_reset_internal_loopback(vha,
 					config, 1)) {
 					bsg_job->reply->result =
@@ -740,6 +766,9 @@ qla2x00_process_loopback(struct fc_bsg_job *bsg_job)
 			rval = qla2x00_loopback_test(vha, &elreq, response);
 
 			if (new_config[0]) {
+				/* Revert back to original port config
+				 * Also clear internal loopback
+				 */
 				qla81xx_reset_internal_loopback(vha,
 				    new_config, 0);
 			}
@@ -751,7 +780,7 @@ qla2x00_process_loopback(struct fc_bsg_job *bsg_job)
 				set_bit(ISP_ABORT_NEEDED, &vha->dpc_flags);
 				qla2xxx_wake_dpc(vha);
 				qla2x00_wait_for_chip_reset(vha);
-				
+				/* Also reset the MPI */
 				if (qla81xx_restart_mpi_firmware(vha) !=
 				    QLA_SUCCESS) {
 					ql_log(ql_log_warn, vha, 0x702a,
@@ -1583,7 +1612,7 @@ qla24xx_bsg_request(struct fc_bsg_job *bsg_job)
 	struct Scsi_Host *host;
 	scsi_qla_host_t *vha;
 
-	
+	/* In case no data transferred. */
 	bsg_job->reply->reply_payload_rcv_len = 0;
 
 	if (bsg_job->request->msgcode == FC_BSG_RPT_ELS) {
@@ -1640,7 +1669,7 @@ qla24xx_bsg_timeout(struct fc_bsg_job *bsg_job)
 	unsigned long flags;
 	struct req_que *req;
 
-	
+	/* find the bsg job from the active list of commands */
 	spin_lock_irqsave(&ha->hardware_lock, flags);
 	for (que = 0; que < ha->max_req_queues; que++) {
 		req = ha->req_q_map[que];

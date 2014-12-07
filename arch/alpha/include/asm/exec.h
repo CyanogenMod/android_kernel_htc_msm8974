@@ -3,4 +3,4 @@
 
 #define arch_align_stack(x) (x)
 
-#endif 
+#endif /* __ALPHA_EXEC_H */

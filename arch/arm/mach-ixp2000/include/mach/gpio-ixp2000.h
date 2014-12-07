@@ -8,6 +8,14 @@
  * published by the Free Software Foundation.
  */
 
+/*
+ * IXP2000 GPIO in/out, edge/level detection for IRQs:
+ * IRQs are generated on Falling-edge, Rising-Edge, Level-low, Level-High
+ * or both Falling-edge and Rising-edge.
+ * This must be called *before* the corresponding IRQ is registerd.
+ * Use this instead of directly setting the GPIO registers.
+ * GPIOs may also be used as GPIOs (e.g. for emulating i2c/smb)
+ */
 #ifndef __ASM_ARCH_GPIO_H
 #define __ASM_ARCH_GPIO_H
 
@@ -35,6 +43,6 @@ static inline void gpio_line_set(int line, int value)
 	}
 }
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* ASM_ARCH_IXP2000_GPIO_H_ */

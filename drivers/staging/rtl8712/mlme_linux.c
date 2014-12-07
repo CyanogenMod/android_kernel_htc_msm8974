@@ -99,7 +99,12 @@ void r8712_os_indicate_disconnect(struct _adapter *adapter)
 
 	r8712_indicate_wx_disassoc_event(adapter);
 	netif_carrier_off(adapter->pnetdev);
-	if (adapter->securitypriv.AuthAlgrthm == 2) { 
+	if (adapter->securitypriv.AuthAlgrthm == 2) { /*/802.1x*/
+		/* We have to backup the PMK information for WiFi PMK Caching
+		 * test item. Backup the btkip_countermeasure information.
+		 * When the countermeasure is trigger, the driver have to
+		 * disconnect with AP for 60 seconds.
+		 */
 
 		memset(&backupPMKIDList[0], 0x00, sizeof(
 			struct RT_PMKID_LIST) *	NUM_PMKID_CACHE);
@@ -114,16 +119,18 @@ void r8712_os_indicate_disconnect(struct _adapter *adapter)
 		_init_timer(&(adapter->securitypriv.tkip_timer),
 			    adapter->pnetdev, r8712_use_tkipkey_handler,
 			    adapter);
+		/* Restore the PMK information to securitypriv structure
+		 * for the following connection. */
 		memcpy(&adapter->securitypriv.PMKIDList[0],
 			&backupPMKIDList[0],
 			sizeof(struct RT_PMKID_LIST) * NUM_PMKID_CACHE);
 		adapter->securitypriv.PMKIDIndex = backupPMKIDIndex;
 		adapter->securitypriv.btkip_countermeasure =
 					 backupTKIPCountermeasure;
-	} else { 
+	} else { /*reset values in securitypriv*/
 		struct security_priv *psec_priv = &adapter->securitypriv;
 
-		psec_priv->AuthAlgrthm = 0; 
+		psec_priv->AuthAlgrthm = 0; /*open system*/
 		psec_priv->PrivacyAlgrthm = _NO_PRIVACY_;
 		psec_priv->PrivacyKeyIndex = 0;
 		psec_priv->XGrpPrivacy = _NO_PRIVACY_;

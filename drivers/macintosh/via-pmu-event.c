@@ -31,7 +31,7 @@ static int __init via_pmu_event_init(void)
 {
 	int err;
 
-	
+	/* do other models report button/lid status? */
 	if (pmu_get_model() != PMU_KEYLARGO_BASED)
 		return -ENODEV;
 
@@ -70,7 +70,7 @@ void via_pmu_event(int key, int down)
 		input_report_switch(pmu_input_dev, SW_LID, down);
 		break;
 	default:
-		
+		/* no such key handled */
 		return;
 	}
 

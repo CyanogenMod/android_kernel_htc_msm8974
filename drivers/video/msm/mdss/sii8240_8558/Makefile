@@ -31,7 +31,7 @@ ccflags-y += -DMEDIA_DATA_TUNNEL_SUPPORT
 ccflags-y += -DDEBUG
 #
 # the next three lines are optional - they enable greater verbosity in debug output
-ccflags-$(CONFIG_DEBUG_DRIVER)  += -DENABLE_EDID_INFO_PRINT
+ccflags-y  += -DENABLE_EDID_INFO_PRINT
 #ccflags-$(CONFIG_DEBUG_DRIVER) += -DENABLE_EDID_DEBUG_PRINT
 #ccflags-$(CONFIG_DEBUG_DRIVER) += -DENABLE_DUMP_INFOFRAME
 #

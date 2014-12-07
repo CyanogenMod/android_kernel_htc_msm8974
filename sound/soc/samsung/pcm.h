@@ -14,4 +14,4 @@
 
 #define S3C_PCM_SCLK_PER_FS	0
 
-#endif 
+#endif /* __S3C_PCM_H */

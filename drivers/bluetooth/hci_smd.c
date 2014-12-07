@@ -36,10 +36,18 @@
 
 #define EVENT_CHANNEL		"APPS_RIVA_BT_CMD"
 #define DATA_CHANNEL		"APPS_RIVA_BT_ACL"
+/* release wakelock in 500ms, not immediately, because higher layers
+ * don't always take wakelocks when they should
+ * This is derived from the implementation for UART transport
+ */
 
-#define RX_Q_MONITOR		(500)	
+#define RX_Q_MONITOR		(500)	/* 500 milli second */
 #define HCI_REGISTER_SET	0
 
+/* SSR state machine to take care of back to back SSR requests
+ * and handling the incomming BT on/off,Airplane mode toggling and
+ * also spuriour SMD open notification while one SSr is in progress
+ */
 #define STATE_SSR_ON 0x1
 #define STATE_SSR_START 0x02
 #define STATE_SSR_CHANNEL_OPEN_PENDING 0x04
@@ -73,6 +81,7 @@ struct hci_smd_data {
 };
 static struct hci_smd_data hs;
 
+/* Rx queue monitor timer function */
 static int is_rx_q_empty(unsigned long arg)
 {
 	struct hci_dev *hdev = (struct hci_dev *) arg;
@@ -98,6 +107,7 @@ static void release_lock(void)
 			wake_unlock(&hs.wake_lock_rx);
 }
 
+/* Rx timer callback function */
 static void schedule_timer(unsigned long arg)
 {
 	struct hci_dev *hdev = (struct hci_dev *) arg;
@@ -106,9 +116,17 @@ static void schedule_timer(unsigned long arg)
 
 	if (is_rx_q_empty(arg) && wake_lock_active(&hs.wake_lock_rx)) {
 		BT_DBG("%s RX queue empty", hdev->name);
+		/*
+		 * Since the queue is empty, its ideal
+		 * to release the wake lock on Rx
+		 */
 		wake_unlock(&hs.wake_lock_rx);
 	} else{
 		BT_DBG("%s RX queue not empty", hdev->name);
+		/*
+		 * Restart the timer to monitor whether the Rx queue is
+		 * empty for releasing the Rx wake lock
+		 */
 		mod_timer(&hsmd->rx_q_timer,
 			jiffies + msecs_to_jiffies(RX_Q_MONITOR));
 	}
@@ -174,10 +192,18 @@ static void hci_smd_recv_data(void)
 	rc = hci_recv_frame(skb);
 	if (rc < 0) {
 		BT_ERR("Error in passing the packet to HCI Layer");
+		/*
+		 * skb is getting freed in hci_recv_frame, making it
+		 * to null to avoid multiple access
+		 */
 		skb = NULL;
 		goto out_data;
 	}
 
+	/*
+	 * Start the timer to monitor whether the Rx queue is
+	 * empty for releasing the Rx wake lock
+	 */
 	BT_DBG("Rx Timer is starting");
 	mod_timer(&hsmd->rx_q_timer,
 			jiffies + msecs_to_jiffies(RX_Q_MONITOR));
@@ -225,11 +251,19 @@ static void hci_smd_recv_event(void)
 		rc = hci_recv_frame(skb);
 		if (rc < 0) {
 			BT_ERR("Error in passing the packet to HCI Layer");
+			/*
+			 * skb is getting freed in hci_recv_frame, making it
+			 *  to null to avoid multiple access
+			 */
 			skb = NULL;
 			goto out_event;
 		}
 
 		len = smd_read_avail(hsmd->event_channel);
+		/*
+		 * Start the timer to monitor whether the Rx queue is
+		 * empty for releasing the Rx wake lock
+		 */
 		BT_DBG("Rx Timer is starting");
 		mod_timer(&hsmd->rx_q_timer,
 				jiffies + msecs_to_jiffies(RX_Q_MONITOR));
@@ -410,6 +444,10 @@ static int hci_smd_hci_register_dev(struct hci_smd_data *hsmd)
 		BT_ERR("hdev is NULL");
 		return 0;
 	}
+	/* Allow the incomming SSR even the prev one at PENDING INIT STATE
+	 * since clenup need to be started again from the beging and ignore
+	 *  or bypass the prev one
+	 */
 	if ((ssr_state == STATE_SSR_OFF) ||
 			(ssr_state == STATE_SSR_PENDING_INIT)) {
 
@@ -439,7 +477,7 @@ static int hci_smd_register_smd(struct hci_smd_data *hsmd)
 	struct hci_dev *hdev;
 	int rc;
 
-	
+	/* Initialize and register HCI device */
 	hdev = hci_alloc_dev();
 	if (!hdev) {
 		BT_ERR("Can't allocate HCI device");
@@ -458,13 +496,17 @@ static int hci_smd_register_smd(struct hci_smd_data *hsmd)
 
 	tasklet_init(&hsmd->rx_task,
 			hci_smd_rx, (unsigned long) hsmd);
+	/*
+	 * Setup the timer to monitor whether the Rx queue is empty,
+	 * to control the wake lock release
+	 */
 	setup_timer(&hsmd->rx_q_timer, schedule_timer,
 			(unsigned long) hsmd->hdev);
 	if (ssr_state == STATE_SSR_START) {
 		ssr_state = STATE_SSR_CHANNEL_OPEN_PENDING;
 		BT_INFO("SSR state is : %x", ssr_state);
 	}
-	
+	/* Open the SMD Channel and device and register the callback function */
 	rc = smd_named_open_on_edge(EVENT_CHANNEL, SMD_APPS_WCNSS,
 			&hsmd->event_channel, hdev, hci_smd_notify_event);
 	if (rc < 0) {
@@ -483,7 +525,7 @@ static int hci_smd_register_smd(struct hci_smd_data *hsmd)
 		return -ENODEV;
 	}
 
-	
+	/* Disable the read interrupts on the channel */
 	smd_disable_read_intr(hsmd->event_channel);
 	smd_disable_read_intr(hsmd->data_channel);
 	return 0;
@@ -494,6 +536,9 @@ static void hci_smd_deregister_dev(struct hci_smd_data *hsmd)
 	tasklet_kill(&hs.rx_task);
 	if (ssr_state)
 		BT_DBG("SSR state is : %x", ssr_state);
+	/* Though the hci_smd driver is not registered with the hci
+	 * need to close the opened channels as a part of cleaup
+	 */
 	if (!test_and_clear_bit(HCI_REGISTER_SET, &hsmd->flags)) {
 		BT_ERR("HCI device un-registered already");
 	} else {
@@ -516,7 +561,7 @@ static void hci_smd_deregister_dev(struct hci_smd_data *hsmd)
 	if (wake_lock_active(&hs.wake_lock_tx))
 		wake_unlock(&hs.wake_lock_tx);
 
-	
+	/*Destroy the timer used to monitor the Rx queue for emptiness */
 	if (hs.rx_q_timer.function) {
 		del_timer_sync(&hs.rx_q_timer);
 		hs.rx_q_timer.function = NULL;
@@ -560,7 +605,7 @@ static void hci_dev_smd_open(struct work_struct *worker)
 	}
 
 	if (restart_in_progress == 1) {
-		
+		/* Allow wcnss to initialize */
 		restart_in_progress = 0;
 		msleep(10000);
 	}
@@ -584,6 +629,9 @@ static int hcismd_set_enable(const char *val, struct kernel_param *kp)
 	if (ret)
 		goto done;
 
+	/* Ignore the all incomming register de-register requests in case of
+	 * SSR is in-progress
+	 */
 	switch (hcismd_set) {
 
 	case 1:

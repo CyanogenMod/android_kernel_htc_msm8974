@@ -28,32 +28,35 @@
 #include <linux/isdn/capilli.h>
 #include "avmcard.h"
 
+/* ------------------------------------------------------------- */
 
 static char *revision = "$Revision: 1.1.2.3 $";
 
+/* ------------------------------------------------------------- */
 
 MODULE_DESCRIPTION("CAPI4Linux: Driver for AVM T1 HEMA ISA card");
 MODULE_AUTHOR("Carsten Paeth");
 MODULE_LICENSE("GPL");
 
+/* ------------------------------------------------------------- */
 
 static int hema_irq_table[16] =
 {0,
  0,
  0,
- 0x80,				
+ 0x80,				/* irq 3 */
  0,
- 0x90,				
+ 0x90,				/* irq 5 */
  0,
- 0xA0,				
+ 0xA0,				/* irq 7 */
  0,
- 0xB0,				
- 0xC0,				
- 0xD0,				
- 0xE0,				
+ 0xB0,				/* irq 9 */
+ 0xC0,				/* irq 10 */
+ 0xD0,				/* irq 11 */
+ 0xE0,				/* irq 12 */
  0,
  0,
- 0xF0,				
+ 0xF0,				/* irq 15 */
 };
 
 static int t1_detectandinit(unsigned int base, unsigned irq, int cardnr)
@@ -66,28 +69,33 @@ static int t1_detectandinit(unsigned int base, unsigned irq, int cardnr)
 	reverse_cardnr =   ((cardnr & 0x01) << 3) | ((cardnr & 0x02) << 1)
 		| ((cardnr & 0x04) >> 1) | ((cardnr & 0x08) >> 3);
 	cregs[0] = (HEMA_VERSION_ID << 4) | (reverse_cardnr & 0xf);
-	cregs[1] = 0x00; 
-	cregs[2] = 0x05; 
+	cregs[1] = 0x00; /* fast & slow link connected to CON1 */
+	cregs[2] = 0x05; /* fast link 20MBit, slow link 20 MBit */
 	cregs[3] = 0;
-	cregs[4] = 0x11; 
+	cregs[4] = 0x11; /* zero wait state */
 	cregs[5] = hema_irq_table[irq & 0xf];
 	cregs[6] = 0;
 	cregs[7] = 0;
 
+	/*
+	 * no one else should use the ISA bus in this moment,
+	 * but no function there to prevent this :-(
+	 * save_flags(flags); cli();
+	 */
 
-	
+	/* board reset */
 	t1outp(base, T1_RESETBOARD, 0xf);
 	mdelay(100);
-	dummy = t1inp(base, T1_FASTLINK + T1_OUTSTAT); 
+	dummy = t1inp(base, T1_FASTLINK + T1_OUTSTAT); /* first read */
 
-	
+	/* write config */
 	dummy = (base >> 4) & 0xff;
 	for (i = 1; i <= 0xf; i++) t1outp(base, i, dummy);
 	t1outp(base, HEMA_PAL_ID & 0xf, dummy);
 	t1outp(base, HEMA_PAL_ID >> 4, cregs[0]);
 	for (i = 1; i < 7; i++) t1outp(base, 0, cregs[i]);
 	t1outp(base, ((base >> 4)) & 0x3, cregs[7]);
-	
+	/* restore_flags(flags); */
 
 	mdelay(100);
 	t1outp(base, T1_FASTLINK + T1_RESETLINK, 0);
@@ -103,9 +111,9 @@ static int t1_detectandinit(unsigned int base, unsigned irq, int cardnr)
 	mdelay(5);
 	t1outp(base, T1_SLOWLINK + T1_ANALYSE, 0);
 
-	if (t1inp(base, T1_FASTLINK + T1_OUTSTAT) != 0x1) 
+	if (t1inp(base, T1_FASTLINK + T1_OUTSTAT) != 0x1) /* tx empty */
 		return 1;
-	if (t1inp(base, T1_FASTLINK + T1_INSTAT) != 0x0) 
+	if (t1inp(base, T1_FASTLINK + T1_INSTAT) != 0x0) /* rx empty */
 		return 2;
 	if (t1inp(base, T1_FASTLINK + T1_IRQENABLE) != 0x0)
 		return 3;
@@ -115,7 +123,7 @@ static int t1_detectandinit(unsigned int base, unsigned irq, int cardnr)
 		return 5;
 	if ((t1inp(base, T1_FASTLINK + T1_IDENT) & 0x7d) != 1)
 		return 6;
-	if (t1inp(base, T1_SLOWLINK + T1_OUTSTAT) != 0x1) 
+	if (t1inp(base, T1_SLOWLINK + T1_OUTSTAT) != 0x1) /* tx empty */
 		return 7;
 	if ((t1inp(base, T1_SLOWLINK + T1_IRQMASTER) & 0x0e) != 0)
 		return 8;
@@ -154,7 +162,7 @@ static irqreturn_t t1isa_interrupt(int interrupt, void *devptr)
 			DataB3Len = t1_get_slice(card->port, card->databuf);
 			spin_unlock_irqrestore(&card->lock, flags);
 
-			if (MsgLen < 30) { 
+			if (MsgLen < 30) { /* not CAPI 64Bit */
 				memset(card->msgbuf + MsgLen, 0, 30 - MsgLen);
 				MsgLen = 30;
 				CAPIMSG_SETLEN(card->msgbuf, 30);
@@ -272,6 +280,7 @@ static irqreturn_t t1isa_interrupt(int interrupt, void *devptr)
 	return IRQ_HANDLED;
 }
 
+/* ------------------------------------------------------------- */
 
 static int t1isa_load_firmware(struct capi_ctr *ctrl, capiloaddata *data)
 {
@@ -355,6 +364,7 @@ static void t1isa_remove(struct pci_dev *pdev)
 	b1_free_card(card);
 }
 
+/* ------------------------------------------------------------- */
 
 static u16 t1isa_send_message(struct capi_ctr *ctrl, struct sk_buff *skb);
 static char *t1isa_procinfo(struct capi_ctr *ctrl);
@@ -479,6 +489,7 @@ static u16 t1isa_send_message(struct capi_ctr *ctrl, struct sk_buff *skb)
 	dev_kfree_skb_any(skb);
 	return CAPI_NOERROR;
 }
+/* ------------------------------------------------------------- */
 
 static char *t1isa_procinfo(struct capi_ctr *ctrl)
 {
@@ -497,6 +508,7 @@ static char *t1isa_procinfo(struct capi_ctr *ctrl)
 }
 
 
+/* ------------------------------------------------------------- */
 
 #define MAX_CARDS 4
 static struct pci_dev isa_dev[MAX_CARDS];

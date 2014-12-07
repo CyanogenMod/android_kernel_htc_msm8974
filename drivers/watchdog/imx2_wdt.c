@@ -37,20 +37,20 @@
 
 #define DRIVER_NAME "imx2-wdt"
 
-#define IMX2_WDT_WCR		0x00		
-#define IMX2_WDT_WCR_WT		(0xFF << 8)	
-#define IMX2_WDT_WCR_WRE	(1 << 3)	
-#define IMX2_WDT_WCR_WDE	(1 << 2)	
+#define IMX2_WDT_WCR		0x00		/* Control Register */
+#define IMX2_WDT_WCR_WT		(0xFF << 8)	/* -> Watchdog Timeout Field */
+#define IMX2_WDT_WCR_WRE	(1 << 3)	/* -> WDOG Reset Enable */
+#define IMX2_WDT_WCR_WDE	(1 << 2)	/* -> Watchdog Enable */
 
-#define IMX2_WDT_WSR		0x02		
-#define IMX2_WDT_SEQ1		0x5555		
-#define IMX2_WDT_SEQ2		0xAAAA		
+#define IMX2_WDT_WSR		0x02		/* Service Register */
+#define IMX2_WDT_SEQ1		0x5555		/* -> service sequence 1 */
+#define IMX2_WDT_SEQ2		0xAAAA		/* -> service sequence 2 */
 
-#define IMX2_WDT_WRSR		0x04		
-#define IMX2_WDT_WRSR_TOUT	(1 << 1)	
+#define IMX2_WDT_WRSR		0x04		/* Reset Status Register */
+#define IMX2_WDT_WRSR_TOUT	(1 << 1)	/* -> Reset due to Timeout */
 
 #define IMX2_WDT_MAX_TIME	128
-#define IMX2_WDT_DEFAULT_TIME	60		
+#define IMX2_WDT_DEFAULT_TIME	60		/* in seconds */
 
 #define WDOG_SEC_TO_COUNT(s)	((s * 2 - 1) << 8)
 
@@ -63,7 +63,7 @@ static struct {
 	void __iomem *base;
 	unsigned timeout;
 	unsigned long status;
-	struct timer_list timer;	
+	struct timer_list timer;	/* Pings the watchdog when closed */
 } imx2_wdt;
 
 static struct miscdevice imx2_wdt_miscdev;
@@ -88,18 +88,18 @@ static inline void imx2_wdt_setup(void)
 {
 	u16 val = __raw_readw(imx2_wdt.base + IMX2_WDT_WCR);
 
-	
+	/* Strip the old watchdog Time-Out value */
 	val &= ~IMX2_WDT_WCR_WT;
-	
+	/* Generate reset if WDOG times out */
 	val &= ~IMX2_WDT_WCR_WRE;
-	
+	/* Keep Watchdog Disabled */
 	val &= ~IMX2_WDT_WCR_WDE;
-	
+	/* Set the watchdog's Time-Out value */
 	val |= WDOG_SEC_TO_COUNT(imx2_wdt.timeout);
 
 	__raw_writew(val, imx2_wdt.base + IMX2_WDT_WCR);
 
-	
+	/* enable the watchdog */
 	val |= IMX2_WDT_WCR_WDE;
 	__raw_writew(val, imx2_wdt.base + IMX2_WDT_WCR);
 }
@@ -112,7 +112,7 @@ static inline void imx2_wdt_ping(void)
 
 static void imx2_wdt_timer_ping(unsigned long arg)
 {
-	
+	/* ping it every imx2_wdt.timeout / 2 seconds to prevent reboot */
 	imx2_wdt_ping();
 	mod_timer(&imx2_wdt.timer, jiffies + imx2_wdt.timeout * HZ / 2);
 }
@@ -120,19 +120,21 @@ static void imx2_wdt_timer_ping(unsigned long arg)
 static void imx2_wdt_start(void)
 {
 	if (!test_and_set_bit(IMX2_WDT_STATUS_STARTED, &imx2_wdt.status)) {
-		
+		/* at our first start we enable clock and do initialisations */
 		clk_enable(imx2_wdt.clk);
 
 		imx2_wdt_setup();
-	} else	
+	} else	/* delete the timer that pings the watchdog after close */
 		del_timer_sync(&imx2_wdt.timer);
 
-	
+	/* Watchdog is enabled - time to reload the timeout value */
 	imx2_wdt_ping();
 }
 
 static void imx2_wdt_stop(void)
 {
+	/* we don't need a clk_disable, it cannot be disabled once started.
+	 * We use a timer to ping the watchdog while /dev/watchdog is closed */
 	imx2_wdt_timer_ping(0);
 }
 
@@ -140,7 +142,7 @@ static void imx2_wdt_set_timeout(int new_timeout)
 {
 	u16 val = __raw_readw(imx2_wdt.base + IMX2_WDT_WCR);
 
-	
+	/* set the new timeout value in the WSR */
 	val &= ~IMX2_WDT_WCR_WT;
 	val |= WDOG_SEC_TO_COUNT(new_timeout);
 	__raw_writew(val, imx2_wdt.base + IMX2_WDT_WCR);
@@ -204,7 +206,7 @@ static long imx2_wdt_ioctl(struct file *file, unsigned int cmd,
 		imx2_wdt.timeout = new_value;
 		imx2_wdt_ping();
 
-		
+		/* Fallthrough to return current value */
 	case WDIOC_GETTIMEOUT:
 		return put_user(imx2_wdt.timeout, p);
 
@@ -219,11 +221,11 @@ static ssize_t imx2_wdt_write(struct file *file, const char __user *data,
 	size_t i;
 	char c;
 
-	if (len == 0)	
+	if (len == 0)	/* Can we see this even ? */
 		return 0;
 
 	clear_bit(IMX2_WDT_EXPECT_CLOSE, &imx2_wdt.status);
-	
+	/* scan to see whether or not we got the magic character */
 	for (i = 0; i != len; i++) {
 		if (get_user(c, data + i))
 			return -EFAULT;
@@ -315,6 +317,8 @@ static int __exit imx2_wdt_remove(struct platform_device *pdev)
 static void imx2_wdt_shutdown(struct platform_device *pdev)
 {
 	if (test_bit(IMX2_WDT_STATUS_STARTED, &imx2_wdt.status)) {
+		/* we are running, we need to delete the timer but will give
+		 * max timeout before reboot will take place */
 		del_timer_sync(&imx2_wdt.timer);
 		imx2_wdt_set_timeout(IMX2_WDT_MAX_TIME);
 		imx2_wdt_ping();
@@ -326,7 +330,7 @@ static void imx2_wdt_shutdown(struct platform_device *pdev)
 
 static const struct of_device_id imx2_wdt_dt_ids[] = {
 	{ .compatible = "fsl,imx21-wdt", },
-	{  }
+	{ /* sentinel */ }
 };
 
 static struct platform_driver imx2_wdt_driver = {

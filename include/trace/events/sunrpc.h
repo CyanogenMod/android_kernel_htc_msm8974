@@ -172,6 +172,6 @@ DEFINE_EVENT(rpc_task_queued, rpc_task_wakeup,
 
 );
 
-#endif 
+#endif /* _TRACE_SUNRPC_H */
 
 #include <trace/define_trace.h>

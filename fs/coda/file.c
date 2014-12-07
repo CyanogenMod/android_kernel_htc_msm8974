@@ -115,12 +115,14 @@ coda_file_mmap(struct file *coda_file, struct vm_area_struct *vma)
 	if (coda_inode->i_mapping == &coda_inode->i_data)
 		coda_inode->i_mapping = host_inode->i_mapping;
 
+	/* only allow additional mmaps as long as userspace isn't changing
+	 * the container file on us! */
 	else if (coda_inode->i_mapping != host_inode->i_mapping) {
 		spin_unlock(&cii->c_lock);
 		return -EBUSY;
 	}
 
-	
+	/* keep track of how often the coda_inode/host_file has been mmapped */
 	cii->c_mapcount++;
 	cfi->cfi_mapcount++;
 	spin_unlock(&cii->c_lock);
@@ -179,7 +181,7 @@ int coda_release(struct inode *coda_inode, struct file *coda_file)
 	host_inode = cfi->cfi_container->f_path.dentry->d_inode;
 	cii = ITOC(coda_inode);
 
-	
+	/* did we mmap this file? */
 	spin_lock(&cii->c_lock);
 	if (coda_inode->i_mapping == &host_inode->i_data) {
 		cii->c_mapcount -= cfi->cfi_mapcount;
@@ -192,6 +194,8 @@ int coda_release(struct inode *coda_inode, struct file *coda_file)
 	kfree(coda_file->private_data);
 	coda_file->private_data = NULL;
 
+	/* VFS fput ignores the return value from file_operations->release, so
+	 * there is no use returning an error here */
 	return 0;
 }
 

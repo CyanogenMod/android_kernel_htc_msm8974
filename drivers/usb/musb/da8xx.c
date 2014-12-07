@@ -38,12 +38,16 @@
 
 #include "musb_core.h"
 
+/*
+ * DA8XX specific definitions
+ */
 
+/* USB 2.0 OTG module registers */
 #define DA8XX_USB_REVISION_REG	0x00
 #define DA8XX_USB_CTRL_REG	0x04
 #define DA8XX_USB_STAT_REG	0x08
 #define DA8XX_USB_EMULATION_REG 0x0c
-#define DA8XX_USB_MODE_REG	0x10	
+#define DA8XX_USB_MODE_REG	0x10	/* Transparent, CDC, [Generic] RNDIS */
 #define DA8XX_USB_AUTOREQ_REG	0x14
 #define DA8XX_USB_SRP_FIX_TIME_REG 0x18
 #define DA8XX_USB_TEARDOWN_REG	0x1c
@@ -57,14 +61,16 @@
 #define DA8XX_USB_END_OF_INTR_REG 0x3c
 #define DA8XX_USB_GENERIC_RNDIS_EP_SIZE_REG(n) (0x50 + (((n) - 1) << 2))
 
+/* Control register bits */
 #define DA8XX_SOFT_RESET_MASK	1
 
-#define DA8XX_USB_TX_EP_MASK	0x1f		
-#define DA8XX_USB_RX_EP_MASK	0x1e		
+#define DA8XX_USB_TX_EP_MASK	0x1f		/* EP0 + 4 Tx EPs */
+#define DA8XX_USB_RX_EP_MASK	0x1e		/* 4 Rx EPs */
 
+/* USB interrupt register bits */
 #define DA8XX_INTR_USB_SHIFT	16
-#define DA8XX_INTR_USB_MASK	(0x1ff << DA8XX_INTR_USB_SHIFT) 
-					
+#define DA8XX_INTR_USB_MASK	(0x1ff << DA8XX_INTR_USB_SHIFT) /* 8 Mentor */
+					/* interrupts and DRVVBUS interrupt */
 #define DA8XX_INTR_DRVVBUS	0x100
 #define DA8XX_INTR_RX_SHIFT	8
 #define DA8XX_INTR_RX_MASK	(DA8XX_USB_RX_EP_MASK << DA8XX_INTR_RX_SHIFT)
@@ -81,11 +87,20 @@ struct da8xx_glue {
 	struct clk		*clk;
 };
 
+/*
+ * REVISIT (PM): we should be able to keep the PHY in low power mode most
+ * of the time (24 MHz oscillator and PLL off, etc.) by setting POWER.D0
+ * and, when in host mode, autosuspending idle root ports... PHY_PLLON
+ * (overriding SUSPENDM?) then likely needs to stay off.
+ */
 
 static inline void phy_on(void)
 {
 	u32 cfgchip2 = __raw_readl(CFGCHIP2);
 
+	/*
+	 * Start the on-chip PHY and its PLL.
+	 */
 	cfgchip2 &= ~(CFGCHIP2_RESET | CFGCHIP2_PHYPWRDN | CFGCHIP2_OTGPWRDN);
 	cfgchip2 |= CFGCHIP2_PHY_PLLON;
 	__raw_writel(cfgchip2, CFGCHIP2);
@@ -99,6 +114,10 @@ static inline void phy_off(void)
 {
 	u32 cfgchip2 = __raw_readl(CFGCHIP2);
 
+	/*
+	 * Ensure that USB 1.1 reference clock is not being sourced from
+	 * USB 2.0 PHY.  Otherwise do not power down the PHY.
+	 */
 	if (!(cfgchip2 & CFGCHIP2_USB1PHYCLKMUX) &&
 	     (cfgchip2 & CFGCHIP2_USB1SUSPENDM)) {
 		pr_warning("USB 1.1 clocked from USB 2.0 PHY -- "
@@ -106,28 +125,43 @@ static inline void phy_off(void)
 		return;
 	}
 
+	/*
+	 * Power down the on-chip PHY.
+	 */
 	cfgchip2 |= CFGCHIP2_PHYPWRDN | CFGCHIP2_OTGPWRDN;
 	__raw_writel(cfgchip2, CFGCHIP2);
 }
 
+/*
+ * Because we don't set CTRL.UINT, it's "important" to:
+ *	- not read/write INTRUSB/INTRUSBE (except during
+ *	  initial setup, as a workaround);
+ *	- use INTSET/INTCLR instead.
+ */
 
+/**
+ * da8xx_musb_enable - enable interrupts
+ */
 static void da8xx_musb_enable(struct musb *musb)
 {
 	void __iomem *reg_base = musb->ctrl_base;
 	u32 mask;
 
-	
+	/* Workaround: setup IRQs through both register sets. */
 	mask = ((musb->epmask & DA8XX_USB_TX_EP_MASK) << DA8XX_INTR_TX_SHIFT) |
 	       ((musb->epmask & DA8XX_USB_RX_EP_MASK) << DA8XX_INTR_RX_SHIFT) |
 	       DA8XX_INTR_USB_MASK;
 	musb_writel(reg_base, DA8XX_USB_INTR_MASK_SET_REG, mask);
 
-	
+	/* Force the DRVVBUS IRQ so we can start polling for ID change. */
 	if (is_otg_enabled(musb))
 		musb_writel(reg_base, DA8XX_USB_INTR_SRC_SET_REG,
 			    DA8XX_INTR_DRVVBUS << DA8XX_INTR_USB_SHIFT);
 }
 
+/**
+ * da8xx_musb_disable - disable HDRC and flush interrupts
+ */
 static void da8xx_musb_disable(struct musb *musb)
 {
 	void __iomem *reg_base = musb->ctrl_base;
@@ -157,6 +191,10 @@ static void otg_timer(unsigned long _musb)
 	u8			devctl;
 	unsigned long		flags;
 
+	/*
+	 * We poll because DaVinci's won't expose several OTG-critical
+	 * status change events (from the transceiver) otherwise.
+	 */
 	devctl = musb_readb(mregs, MUSB_DEVCTL);
 	dev_dbg(musb->controller, "Poll devctl %02x (%s)\n", devctl,
 		otg_state_string(musb->xceiv->state));
@@ -177,6 +215,12 @@ static void otg_timer(unsigned long _musb)
 		}
 		break;
 	case OTG_STATE_A_WAIT_VFALL:
+		/*
+		 * Wait till VBUS falls below SessionEnd (~0.2 V); the 1.3
+		 * RTL seems to mis-handle session "start" otherwise (or in
+		 * our case "recover"), in routine "VBUS was valid by the time
+		 * VBUSERR got reported during enumeration" cases.
+		 */
 		if (devctl & MUSB_DEVCTL_VBUS) {
 			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
 			break;
@@ -189,6 +233,18 @@ static void otg_timer(unsigned long _musb)
 		if (!is_peripheral_enabled(musb))
 			break;
 
+		/*
+		 * There's no ID-changed IRQ, so we have no good way to tell
+		 * when to switch to the A-Default state machine (by setting
+		 * the DEVCTL.Session bit).
+		 *
+		 * Workaround:  whenever we're in B_IDLE, try setting the
+		 * session flag every few seconds.  If it works, ID was
+		 * grounded and we're now in the A-Default state machine.
+		 *
+		 * NOTE: setting the session flag is _supposed_ to trigger
+		 * SRP but clearly it doesn't.
+		 */
 		musb_writeb(mregs, MUSB_DEVCTL, devctl | MUSB_DEVCTL_SESSION);
 		devctl = musb_readb(mregs, MUSB_DEVCTL);
 		if (devctl & MUSB_DEVCTL_BDEVICE)
@@ -212,7 +268,7 @@ static void da8xx_musb_try_idle(struct musb *musb, unsigned long timeout)
 	if (timeout == 0)
 		timeout = jiffies + msecs_to_jiffies(3);
 
-	
+	/* Never idle if active, or when VBUS timeout is not set as host */
 	if (musb->is_active || (musb->a_wait_bcon == 0 &&
 				musb->xceiv->state == OTG_STATE_A_WAIT_BCON)) {
 		dev_dbg(musb->controller, "%s active, deleting timer\n",
@@ -245,8 +301,12 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 
 	spin_lock_irqsave(&musb->lock, flags);
 
+	/*
+	 * NOTE: DA8XX shadows the Mentor IRQs.  Don't manage them through
+	 * the Mentor registers (except for setup), use the TI ones and EOI.
+	 */
 
-	
+	/* Acknowledge and handle non-CPPI interrupts */
 	status = musb_readl(reg_base, DA8XX_USB_INTR_SRC_MASKED_REG);
 	if (!status)
 		goto eoi;
@@ -258,6 +318,14 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 	musb->int_tx = (status & DA8XX_INTR_TX_MASK) >> DA8XX_INTR_TX_SHIFT;
 	musb->int_usb = (status & DA8XX_INTR_USB_MASK) >> DA8XX_INTR_USB_SHIFT;
 
+	/*
+	 * DRVVBUS IRQs are the only proxy we have (a very poor one!) for
+	 * DA8xx's missing ID change IRQ.  We need an ID change IRQ to
+	 * switch appropriately between halves of the OTG state machine.
+	 * Managing DEVCTL.Session per Mentor docs requires that we know its
+	 * value but DEVCTL.BDevice is invalid without DEVCTL.Session set.
+	 * Also, DRVVBUS pulses for SRP (but not at 5 V)...
+	 */
 	if (status & (DA8XX_INTR_DRVVBUS << DA8XX_INTR_USB_SHIFT)) {
 		int drvvbus = musb_readl(reg_base, DA8XX_USB_STAT_REG);
 		void __iomem *mregs = musb->mregs;
@@ -267,6 +335,17 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 		err = is_host_enabled(musb) && (musb->int_usb &
 						MUSB_INTR_VBUSERROR);
 		if (err) {
+			/*
+			 * The Mentor core doesn't debounce VBUS as needed
+			 * to cope with device connect current spikes. This
+			 * means it's not uncommon for bus-powered devices
+			 * to get VBUS errors during enumeration.
+			 *
+			 * This is a workaround, but newer RTL from Mentor
+			 * seems to allow a better one: "re"-starting sessions
+			 * without waiting for VBUS to stop registering in
+			 * devctl.
+			 */
 			musb->int_usb &= ~MUSB_INTR_VBUSERROR;
 			musb->xceiv->state = OTG_STATE_A_WAIT_VFALL;
 			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
@@ -301,7 +380,7 @@ static irqreturn_t da8xx_musb_interrupt(int irq, void *hci)
 	if (ret == IRQ_HANDLED || status)
 		musb_writel(reg_base, DA8XX_USB_END_OF_INTR_REG, 0);
 
-	
+	/* Poll for ID change */
 	if (is_otg_enabled(musb) && musb->xceiv->state == OTG_STATE_B_IDLE)
 		mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
 
@@ -316,13 +395,13 @@ static int da8xx_musb_set_mode(struct musb *musb, u8 musb_mode)
 
 	cfgchip2 &= ~CFGCHIP2_OTGMODE;
 	switch (musb_mode) {
-	case MUSB_HOST:		
+	case MUSB_HOST:		/* Force VBUS valid, ID = 0 */
 		cfgchip2 |= CFGCHIP2_FORCE_HOST;
 		break;
-	case MUSB_PERIPHERAL:	
+	case MUSB_PERIPHERAL:	/* Force VBUS valid, ID = 1 */
 		cfgchip2 |= CFGCHIP2_FORCE_DEVICE;
 		break;
-	case MUSB_OTG:		
+	case MUSB_OTG:		/* Don't override the VBUS/ID comparators */
 		cfgchip2 |= CFGCHIP2_NO_OVERRIDE;
 		break;
 	default:
@@ -340,7 +419,7 @@ static int da8xx_musb_init(struct musb *musb)
 
 	musb->mregs += DA8XX_MENTOR_CORE_OFFSET;
 
-	
+	/* Returns zero if e.g. not clocked */
 	rev = musb_readl(reg_base, DA8XX_USB_REVISION_REG);
 	if (!rev)
 		goto fail;
@@ -353,15 +432,15 @@ static int da8xx_musb_init(struct musb *musb)
 	if (is_host_enabled(musb))
 		setup_timer(&otg_workaround, otg_timer, (unsigned long)musb);
 
-	
+	/* Reset the controller */
 	musb_writel(reg_base, DA8XX_USB_CTRL_REG, DA8XX_SOFT_RESET_MASK);
 
-	
+	/* Start the on-chip PHY and its PLL. */
 	phy_on();
 
 	msleep(5);
 
-	
+	/* NOTE: IRQs are in mixed mode, not bypass to pure MUSB */
 	pr_debug("DA8xx OTG revision %08x, PHY %03x, control %02x\n",
 		 rev, __raw_readl(CFGCHIP2),
 		 musb_readb(reg_base, DA8XX_USB_CTRL_REG));

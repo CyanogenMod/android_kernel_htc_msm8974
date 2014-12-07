@@ -52,7 +52,7 @@ static struct mv_sata_platform_data guruplug_sata_data = {
 };
 
 static struct mvsdio_platform_data guruplug_mvsdio_data = {
-	
+	/* unfortunately the CD signal has not been connected */
 };
 
 static struct gpio_led guruplug_led_pins[] = {
@@ -92,15 +92,18 @@ static struct platform_device guruplug_leds = {
 };
 
 static unsigned int guruplug_mpp_config[] __initdata = {
-	MPP46_GPIO,	
-	MPP47_GPIO,	
-	MPP48_GPIO,	
-	MPP49_GPIO,	
+	MPP46_GPIO,	/* M_RLED */
+	MPP47_GPIO,	/* M_GLED */
+	MPP48_GPIO,	/* B_RLED */
+	MPP49_GPIO,	/* B_GLED */
 	0
 };
 
 static void __init guruplug_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(guruplug_mpp_config);
 
@@ -117,7 +120,7 @@ static void __init guruplug_init(void)
 }
 
 MACHINE_START(GURUPLUG, "Marvell GuruPlug Reference Board")
-	
+	/* Maintainer: Siddarth Gore <gores@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= guruplug_init,
 	.map_io		= kirkwood_map_io,

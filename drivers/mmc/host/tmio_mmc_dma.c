@@ -29,7 +29,7 @@ void tmio_mmc_enable_dma(struct tmio_mmc_host *host, bool enable)
 		return;
 
 #if defined(CONFIG_SUPERH) || defined(CONFIG_ARCH_SHMOBILE)
-	
+	/* Switch DMA mode on or off - SuperH specific? */
 	sd_ctrl_write16(host, CTL_DMA_ENABLE, enable ? 2 : 0);
 #endif
 }
@@ -79,7 +79,7 @@ static void tmio_mmc_start_dma_rx(struct tmio_mmc_host *host)
 
 	tmio_mmc_disable_mmc_irqs(host, TMIO_STAT_RXRDY);
 
-	
+	/* The only sg element can be unaligned, use our bounce buffer then */
 	if (!aligned) {
 		sg_init_one(&host->bounce_sg, host->bounce_buf, sg->length);
 		host->sg_ptr = &host->bounce_sg;
@@ -103,12 +103,12 @@ static void tmio_mmc_start_dma_rx(struct tmio_mmc_host *host)
 
 pio:
 	if (!desc) {
-		
+		/* DMA failed, fall back to PIO */
 		if (ret >= 0)
 			ret = -EIO;
 		host->chan_rx = NULL;
 		dma_release_channel(chan);
-		
+		/* Free the Tx channel too */
 		chan = host->chan_tx;
 		if (chan) {
 			host->chan_tx = NULL;
@@ -156,7 +156,7 @@ static void tmio_mmc_start_dma_tx(struct tmio_mmc_host *host)
 
 	tmio_mmc_disable_mmc_irqs(host, TMIO_STAT_TXRQ);
 
-	
+	/* The only sg element can be unaligned, use our bounce buffer then */
 	if (!aligned) {
 		unsigned long flags;
 		void *sg_vaddr = tmio_mmc_kmap_atomic(sg, &flags);
@@ -184,12 +184,12 @@ static void tmio_mmc_start_dma_tx(struct tmio_mmc_host *host)
 
 pio:
 	if (!desc) {
-		
+		/* DMA failed, fall back to PIO */
 		if (ret >= 0)
 			ret = -EIO;
 		host->chan_tx = NULL;
 		dma_release_channel(chan);
-		
+		/* Free the Rx channel too */
 		chan = host->chan_rx;
 		if (chan) {
 			host->chan_rx = NULL;
@@ -261,6 +261,7 @@ out:
 	spin_unlock_irq(&host->lock);
 }
 
+/* It might be necessary to make filter MFD specific */
 static bool tmio_mmc_filter(struct dma_chan *chan, void *arg)
 {
 	dev_dbg(chan->device->dev, "%s: slave data %p\n", __func__, arg);
@@ -270,7 +271,7 @@ static bool tmio_mmc_filter(struct dma_chan *chan, void *arg)
 
 void tmio_mmc_request_dma(struct tmio_mmc_host *host, struct tmio_mmc_data *pdata)
 {
-	
+	/* We can only either use DMA for both Tx and Rx or not use it at all */
 	if (!pdata->dma)
 		return;
 

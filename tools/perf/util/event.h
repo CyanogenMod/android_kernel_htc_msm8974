@@ -7,6 +7,9 @@
 #include "../perf.h"
 #include "map.h"
 
+/*
+ * PERF_SAMPLE_IP | PERF_SAMPLE_TID | *
+ */
 struct ip_event {
 	struct perf_event_header header;
 	u64 ip;
@@ -42,6 +45,9 @@ struct lost_event {
 	u64 lost;
 };
 
+/*
+ * PERF_FORMAT_ENABLED | PERF_FORMAT_RUNNING | PERF_FORMAT_ID
+ */
 struct read_event {
 	struct perf_event_header header;
 	u32 pid, tid;
@@ -87,7 +93,7 @@ struct build_id_event {
 	char			 filename[];
 };
 
-enum perf_user_event_type { 
+enum perf_user_event_type { /* above any possible kernel type */
 	PERF_RECORD_USER_TYPE_START		= 64,
 	PERF_RECORD_HEADER_ATTR			= 64,
 	PERF_RECORD_HEADER_EVENT_TYPE		= 65,
@@ -203,4 +209,4 @@ size_t perf_event__fprintf_mmap(union perf_event *event, FILE *fp);
 size_t perf_event__fprintf_task(union perf_event *event, FILE *fp);
 size_t perf_event__fprintf(union perf_event *event, FILE *fp);
 
-#endif 
+#endif /* __PERF_RECORD_H */

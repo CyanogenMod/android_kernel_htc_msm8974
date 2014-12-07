@@ -25,6 +25,15 @@ static int uhci_grlib_init(struct usb_hcd *hcd)
 {
 	struct uhci_hcd *uhci = hcd_to_uhci(hcd);
 
+	/*
+	 * Probe to determine the endianness of the controller.
+	 * We know that bit 7 of the PORTSC1 register is always set
+	 * and bit 15 is always clear.  If uhci_readw() yields a value
+	 * with bit 7 (0x80) turned on then the current little-endian
+	 * setting is correct.  Otherwise we assume the value was
+	 * byte-swapped; hence the register interface and presumably
+	 * also the descriptors are big-endian.
+	 */
 	if (!(uhci_readw(uhci, USBPORTSC1) & 0x80)) {
 		uhci->big_endian_mmio = 1;
 		uhci->big_endian_desc = 1;
@@ -32,15 +41,15 @@ static int uhci_grlib_init(struct usb_hcd *hcd)
 
 	uhci->rh_numports = uhci_count_ports(hcd);
 
-	
+	/* Set up pointers to to generic functions */
 	uhci->reset_hc = uhci_generic_reset_hc;
 	uhci->check_and_reset_hc = uhci_generic_check_and_reset_hc;
-	
+	/* No special actions need to be taken for the functions below */
 	uhci->configure_hc = NULL;
 	uhci->resume_detect_interrupts_are_broken = NULL;
 	uhci->global_suspend_mode_is_broken = NULL;
 
-	
+	/* Reset if the controller isn't already safely quiescent. */
 	check_and_reset_hc(uhci);
 	return 0;
 }
@@ -50,11 +59,11 @@ static const struct hc_driver uhci_grlib_hc_driver = {
 	.product_desc =		"GRLIB GRUSBHC UHCI Host Controller",
 	.hcd_priv_size =	sizeof(struct uhci_hcd),
 
-	
+	/* Generic hardware linkage */
 	.irq =			uhci_irq,
 	.flags =		HCD_MEMORY | HCD_USB11,
 
-	
+	/* Basic lifecycle operations */
 	.reset =		uhci_grlib_init,
 	.start =		uhci_start,
 #ifdef CONFIG_PM
@@ -94,7 +103,7 @@ static int __devinit uhci_hcd_grlib_probe(struct platform_device *op)
 	if (rv)
 		return rv;
 
-	
+	/* usb_create_hcd requires dma_mask != NULL */
 	op->dev.dma_mask = &op->dev.coherent_dma_mask;
 	hcd = usb_create_hcd(&uhci_grlib_hc_driver, &op->dev,
 			"GRUSBHC UHCI USB");
@@ -165,6 +174,13 @@ static int uhci_hcd_grlib_remove(struct platform_device *op)
 	return 0;
 }
 
+/* Make sure the controller is quiescent and that we're not using it
+ * any more.  This is mainly for the benefit of programs which, like kexec,
+ * expect the hardware to be idle: not doing DMA or generating IRQs.
+ *
+ * This routine may be called in a damaged or failing kernel.  Hence we
+ * do not acquire the spinlock before shutting down the controller.
+ */
 static void uhci_hcd_grlib_shutdown(struct platform_device *op)
 {
 	struct usb_hcd *hcd = dev_get_drvdata(&op->dev);

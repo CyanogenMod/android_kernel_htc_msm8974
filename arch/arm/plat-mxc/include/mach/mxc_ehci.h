@@ -1,6 +1,7 @@
 #ifndef __INCLUDE_ASM_ARCH_MXC_EHCI_H
 #define __INCLUDE_ASM_ARCH_MXC_EHCI_H
 
+/* values for portsc field */
 #define MXC_EHCI_PHY_LOW_POWER_SUSPEND	(1 << 23)
 #define MXC_EHCI_FORCE_FS		(1 << 24)
 #define MXC_EHCI_UTMI_8BIT		(0 << 28)
@@ -11,6 +12,7 @@
 #define MXC_EHCI_MODE_ULPI		(2 << 30)
 #define MXC_EHCI_MODE_SERIAL		(3 << 30)
 
+/* values for flags field */
 #define MXC_EHCI_INTERFACE_DIFF_UNI	(0 << 0)
 #define MXC_EHCI_INTERFACE_DIFF_BI	(1 << 0)
 #define MXC_EHCI_INTERFACE_SINGLE_UNI	(2 << 0)
@@ -33,6 +35,7 @@
 
 #define MX5_USBOTHER_REGS_OFFSET	0x800
 
+/* USB_PHY_CTRL_FUNC2*/
 #define MX5_USB_UTMI_PHYCTRL1_PLLDIV_MASK		0x3
 #define MX5_USB_UTMI_PHYCTRL1_PLLDIV_SHIFT		0
 
@@ -50,5 +53,5 @@ int mx31_initialize_usb_hw(int port, unsigned int flags);
 int mx35_initialize_usb_hw(int port, unsigned int flags);
 int mx27_initialize_usb_hw(int port, unsigned int flags);
 
-#endif 
+#endif /* __INCLUDE_ASM_ARCH_MXC_EHCI_H */
 
